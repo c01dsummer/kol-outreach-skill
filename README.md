@@ -2,7 +2,7 @@
 
 海外 KOL 建联 Agent Skill —— 第二版重做。
 
-**当前状态：需求阶段，尚无实现。**
+**当前状态：Skill 定义已完成，采集脚本待实现。**
 
 ## 这是什么
 
@@ -19,7 +19,28 @@
 | 文档 | 内容 |
 |------|------|
 | [业务需求](docs/business-requirements.md) | 用户、痛点、成功指标、范围边界、工作流、业务规则 |
-| [数据源策略](docs/data-source-strategy.md) | 各家 API 对比、选型结论、适配层接口、官方 API 为何不可用 |
+| [数据源策略](docs/data-source-strategy.md) | 各家 API 对比、选型结论、官方 API 为何不可用 |
+| [SKILL.md](skill/SKILL.md) | Skill 主定义 —— 触发条件、六阶段流程、成本闸门 |
+
+## Skill 结构
+
+```
+skill/
+├── SKILL.md
+└── references/
+    ├── product-intake.md        产品理解、品类关键词倾向
+    ├── keyword-strategy.md      四维关键词、hashtag 变体、试探判读
+    ├── semantic-fit.md          ★ 语义契合判断、评分、A/B/C 分层
+    ├── outreach-draft.md        ★ 英文开发信写法
+    ├── memory.md                跨任务记忆、跨平台同人识别
+    ├── output-format.md         CSV 列、HTML 报告、meta.json
+    └── providers/
+        ├── _interface.md        适配接口契约
+        ├── tikhub.md            默认源（端点已核实）
+        └── influencers-club.md  可选增强层
+```
+
+★ 标记的两个是这个 Skill 值得被 clone 的理由 —— 其余部分任何人包一层 API 都能做。
 
 ## 关键决策速览
 
