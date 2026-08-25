@@ -32,7 +32,7 @@ const tiktokVideoSearch = {
 
 const tiktokProfile = {
   data: { userInfo: {
-    user: { uniqueId: 'techwithsarah', nickname: 'Sarah | Tech', signature: 'Reviews 📩 sarahbiz@gmail.com',
+    user: { uniqueId: 'techwithsarah', nickname: 'Sarah | Tech', signature: 'Reviews 📩 sarahbiz@example.com',
             verified: false, bioLink: { link: 'https://instagram.com/techwithsarah' }, avatarMedium: '' },
     stats: { followerCount: 82000, videoCount: 214 } } },
 }
@@ -61,7 +61,7 @@ const igSearchUsers = {
 const igProfile = {
   data: {
     pk: '7763449524', id: '7763449524', username: 'techwithsarah', full_name: 'Sarah',
-    biography: '3D Generalist\nContact: press@mybrand.com',
+    biography: '3D Generalist\nContact: press@example.com',
     bio_links: [{ url: 'https://tiktok.com/@techwithsarah', lynx_url: 'https://l.instagram.com/?u=x', title: 'TikTok' }],
     external_url: 'https://tiktok.com/@techwithsarah',
     follower_count: 31000, following_count: 630, media_count: null,

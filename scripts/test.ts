@@ -213,10 +213,10 @@ suite('P5', '交付必须声明数据边界')
 
 suite('D7', '邮箱提取支持反爬写法且不误判')
 {
-  eq('普通', extractEmail('biz: sarah@gmail.com'), 'sarah@gmail.com')
-  eq('(at)/(dot)', extractEmail('📩 sarahbiz (at) gmail (dot) com'), 'sarahbiz@gmail.com')
+  eq('普通', extractEmail('biz: sarah@example.com'), 'sarah@example.com')
+  eq('(at)/(dot)', extractEmail('📩 sarahbiz (at) example (dot) com'), 'sarahbiz@example.com')
   eq('[at]/[dot]', extractEmail('hi[at]brand[dot]co'), 'hi@brand.co')
-  eq('空格 at/dot', extractEmail('press at mybrand dot com'), 'press@mybrand.com')
+  eq('空格 at/dot', extractEmail('press at example dot com'), 'press@example.com')
   eq('.co 域名不误杀', extractEmail('hi@brand.co'), 'hi@brand.co')
   eq('无邮箱', extractEmail('just a bio 🌸'), null)
   eq('空串', extractEmail(''), null)

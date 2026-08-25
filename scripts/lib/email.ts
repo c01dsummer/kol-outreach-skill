@@ -1,9 +1,9 @@
 /*
  * 创作者常用反爬写法：
- *   sarah@gmail.com
- *   sarah (at) gmail (dot) com
- *   sarah[at]gmail[dot]com
- *   sarah at gmail dot com
+ *   sarah@example.com
+ *   sarah (at) example (dot) com
+ *   sarah[at]example[dot]com
+ *   sarah at example dot com
  *
  * 两条模式而非一条：符号 @ 可以配任意 dot 形式；但**拼写出来的 " at " 必须配
  * 拼写出来的 " dot "**。否则 "look at gmail.com" 这类正常语句会被误判成邮箱。
