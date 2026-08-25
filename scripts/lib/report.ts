@@ -4,8 +4,12 @@ const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, m =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]!))
 
-const fmt = (n: number) =>
-  n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n)
+/** P1：未知显示成「未知」，绝不显示成 0 —— 那是把没测量说成测量结果是零 */
+const fmt = (n?: number) =>
+  n === undefined ? '未知'
+  : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M'
+  : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K'
+  : String(n)
 
 /** 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档 */
 export function renderHtml(creators: Creator[], meta: any): string {
@@ -20,7 +24,7 @@ export function renderHtml(creators: Creator[], meta: any): string {
   </div>
   <div class="nm">${esc(c.nickname)}</div>
   <div class="st">
-    <span>${fmt(c.followers)} 粉丝</span><span>${c.post_count} 作品</span>
+    <span>${fmt(c.followers)} 粉丝</span><span>${fmt(c.post_count)} 作品</span>
     ${c.email ? `<span class="em">${esc(c.email)}</span>` : '<span class="no">无邮箱</span>'}
   </div>
   ${c.fit_reason ? `<div class="fit">${esc(c.fit)} ${esc(c.fit_reason)}</div>` : ''}
@@ -31,6 +35,7 @@ export function renderHtml(creators: Creator[], meta: any): string {
     <button onclick="cp(this)">复制</button></details>` : ''}
 </div>`
 
+  // U3：关键词表现是下次调整策略的依据
   const kwRows = (meta.keywords ?? []).map((k: any) => `
     <tr><td>${esc(k.keyword)}</td><td>${esc(k.dimension)}</td>
         <td>${k.found}</td><td>${k.fit_pass}</td>

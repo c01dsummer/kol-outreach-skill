@@ -1,7 +1,13 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
 import type { Creator } from './types.js'
 
-const FILE = 'memory/creators.json'
+/** D4：本地单文件，不做多人共享。团队场景需另行设计。 */
+const DEFAULT_FILE = 'memory/creators.json'
+
+/** 可注入路径 —— 否则这套规则只能靠「看起来对」，测不了 */
+let FILE = DEFAULT_FILE
+export function useMemoryFile(path: string): void { FILE = path }
 
 export interface MemoryEntry {
   platform: string
@@ -43,7 +49,7 @@ export function loadMemory(): MemoryFile {
 }
 
 export function saveMemory(mem: MemoryFile): void {
-  mkdirSync('memory', { recursive: true })
+  mkdirSync(dirname(FILE), { recursive: true })
   mem.updated_at = new Date().toISOString()
   writeFileSync(FILE, JSON.stringify(mem, null, 2), 'utf8')
 }

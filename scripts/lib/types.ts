@@ -1,4 +1,6 @@
+/** S4：只做出海平台。抖音/小红书/快手不在范围内 —— 账号体系与合规完全不同。 */
 export type Platform = 'tiktok' | 'instagram'
+/** F2：关键词的四个维度。竞品词权重最高（评分见 score.ts）。 */
 export type Dimension = 'category' | 'scene' | 'competitor' | 'audience'
 export type Tier = 'A' | 'B' | 'C'
 export type Fit = '✅' | '⚠️' | '❌'
@@ -14,9 +16,14 @@ export interface Creator {
   handle: string
   user_id?: string
   nickname: string
-  followers: number
-  post_count: number
-  bio: string
+  /**
+   * P1：这三个字段可能是 undefined —— 那表示**没查到**，不是「值为 0/空」。
+   * 不许用 ?? 0 / ?? '' 兜底：记成 0 会让人被粉丝下限过滤掉，
+   * 记成 '' 会让「没取到 bio」被当成「bio 里没有邮箱」。
+   */
+  followers?: number
+  post_count?: number
+  bio?: string
   bio_links: string[]
   verified: boolean
   avatar?: string

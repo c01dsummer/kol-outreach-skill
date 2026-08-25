@@ -1,0 +1,125 @@
+{
+  "$comment": "变异集是红线的负片。每个变异是一处故意违反某条需求的改动，跑测试必须失败。变异存活 = 那条测试是假的，要修测试不是删变异。",
+  "mutations": [
+    {
+      "id": "M-P1-a",
+      "req": "P1",
+      "why": "把「bio 未取到」重新兜底成空串 —— 未查询被伪装成查过且没有",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "c.email = c.bio === undefined ? undefined : (extractEmail(c.bio) ?? null)",
+      "replace": "c.email = extractEmail(c.bio ?? '') ?? null"
+    },
+    {
+      "id": "M-P1-b",
+      "req": "P1",
+      "why": "把未知粉丝数当作「符合区间」给分 —— 不知道却声称合格",
+      "file": "scripts/lib/score.ts",
+      "find": "if (c.followers !== undefined && c.followers >= FOLLOWER_MIN && c.followers <= FOLLOWER_MAX) s += 20",
+      "replace": "if (c.followers === undefined || (c.followers >= FOLLOWER_MIN && c.followers <= FOLLOWER_MAX)) s += 20"
+    },
+    {
+      "id": "M-P1-c",
+      "req": "P1",
+      "why": "合并时把未知当 0 相加 —— 得出一个看起来精确的假粉丝数",
+      "file": "scripts/lib/identity.ts",
+      "find": "      a === undefined || b === undefined ? undefined : a + b",
+      "replace": "      (a ?? 0) + (b ?? 0)"
+    },
+    {
+      "id": "M-P3-a",
+      "req": "P3",
+      "why": "预算超限不再抛出，静默继续花用户的钱",
+      "file": "scripts/lib/budget.ts",
+      "find": "      throw new BudgetExceeded(this.spent, this.limitUsd)",
+      "replace": "      /* mutated */"
+    },
+    {
+      "id": "M-P4-a",
+      "req": "P4",
+      "why": "不再排除已联系/已屏蔽的人，导致重复打扰",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (e.contacted || e.blocked) { con++; continue }",
+      "replace": "    if (false) { con++; continue }"
+    },
+    {
+      "id": "M-P5-a",
+      "req": "P5",
+      "why": "未增强时不再声明数据边界，用户会以为邮箱是验证过的",
+      "file": "scripts/lib/report.ts",
+      "find": "  if (!meta.enriched) {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-F6-a",
+      "req": "F6",
+      "why": "取消语义否决权，高分的搬运号会进 A 级被直接发信",
+      "file": "scripts/lib/score.ts",
+      "find": "  if (c.fit === '❌') return 'C'",
+      "replace": "  /* mutated */"
+    },
+    {
+      "id": "M-F7-a",
+      "req": "F7",
+      "why": "阈值提醒重复触发 —— 用户被刷屏后会开始忽略预算提醒",
+      "file": "scripts/lib/budget.ts",
+      "find": "      if (this.pct >= th && !this.notified.has(th)) {",
+      "replace": "      if (this.pct >= th) {"
+    },
+    {
+      "id": "M-D3-a",
+      "req": "D3",
+      "why": "仅凭昵称相同就合并 —— 把两个不同的人当成一个",
+      "file": "scripts/lib/identity.ts",
+      "find": "  for (const [h, c] of tt) {\n    const m = igByNorm.get(norm(h))\n    if (m) pair(c, m)\n  }",
+      "replace": "  for (const c of tt.values()) {\n    for (const o of ig.values()) if (o.nickname === c.nickname) pair(c, o)\n  }"
+    },
+    {
+      "id": "M-D7-a",
+      "req": "D7",
+      "why": "放宽到裸 at 配真实点号 —— 'look at gmail.com' 会被当成邮箱",
+      "file": "scripts/lib/email.ts",
+      "find": "  new RegExp(String.raw`[\\w.+-]+\\s+at\\s+[\\w-]+(?:\\s*${DOT_SPELLED}\\s*[\\w-]+)+`, 'gi'),",
+      "replace": "  new RegExp(String.raw`[\\w.+-]+\\s+at\\s+[\\w-]+(?:\\s*${DOT_ANY}\\s*[\\w-]+)+`, 'gi'),"
+    },
+    {
+      "id": "M-D5-a",
+      "req": "D5",
+      "why": "去掉 CSV 转义 —— 含换行的开发信会把表格撑烂",
+      "file": "scripts/lib/csv.ts",
+      "find": "  return /[\",\\n\\r]/.test(s) ? `\"${s.replace(/\"/g, '\"\"')}\"` : s",
+      "replace": "  return s"
+    },
+    {
+      "id": "M-P1-d",
+      "req": "P1",
+      "why": "把粉丝数未知的人静默过滤掉 —— 真实创作者凭空消失且无人知晓",
+      "file": "scripts/lib/score.ts",
+      "find": "  if (c.followers === undefined) return true",
+      "replace": "  if (c.followers === undefined) return false"
+    },
+    {
+      "id": "M-P2-a",
+      "req": "P2",
+      "why": "render 把草稿里的占位符静默抹掉 —— 运营看不到还有待填项，直接把半成品发了出去",
+      "file": "scripts/lib/rows.ts",
+      "find": "    c.source_dimension, bestPost(c), c.outreach_draft ?? '', c.previously_recommended ?? '',",
+      "replace": "    c.source_dimension, bestPost(c), (c.outreach_draft ?? '').replace(/\\{[^}]*\\}/g, ''), c.previously_recommended ?? '',"
+    },
+    {
+      "id": "M-U1-a",
+      "req": "U1",
+      "why": "CSV 不再按 tier 排序 —— A 级混在几百行里，运营找不到该先联系谁",
+      "file": "scripts/lib/rows.ts",
+      "find": "  const order = { A: 0, B: 1, C: 2 }",
+      "replace": "  const order = { A: 0, B: 0, C: 0 }"
+    }
+  ],
+  "exemptions": [
+    {
+      "req": "P2",
+      "scope": "只豁免「是否编造」这一半",
+      "why": "「草稿里的产品事实是否真的来自产品页」由 Agent 的判断决定，不经过本仓库任何代码路径，没有可变异的实现。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。可执行的那一半（占位符必须原样保留到产出物）已由 M-P2-a 覆盖。",
+      "mitigation": "skill/references/outreach-draft.md 写明「不要编造品牌信息，不知道的留占位符」；靠每次开工前读那份文档。见 ADR-01。"
+    }
+  ]
+}

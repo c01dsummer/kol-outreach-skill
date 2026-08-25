@@ -7,8 +7,14 @@
     "probe": "tsx scripts/probe.ts",
     "collect": "tsx scripts/collect.ts",
     "render": "tsx scripts/render.ts",
+    "test": "tsx scripts/test.ts",
+    "lint": "tsx scripts/check/lint.ts",
+    "spec": "tsx scripts/check/spec-sync.ts",
+    "mutate": "tsx scripts/check/mutate.ts",
+    "selfcheck": "tsx scripts/check/selfcheck.ts",
+    "audit": "tsx scripts/check/audit.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx scripts/test.ts"
+    "check": "npm run lint && npm run spec && npm run typecheck && npm test && npm run mutate && npm run selfcheck && npm run audit"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

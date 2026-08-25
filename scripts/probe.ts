@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Phase 02 —— 小样试探
+ * Phase 02 —— 小样试探（F3）
  *
  * 每个关键词每个平台只抓 1 页，输出样本供 Agent 判读方向对不对。
  * 成本约 20 次请求（不到 3 美分），用来避免整轮返工。
@@ -51,11 +51,12 @@ async function main() {
     const label = `${t.as_hashtag ? '#' : ''}${t.keyword} · ${t.platform}`
     try {
       const found = await api.search(t, market, 0)
-      const followers = found.map(c => c.followers ?? 0).filter(n => n > 0)
+      // P1：粉丝数未知的排除出中位数计算，而不是当作 0 拉低它
+      const followers = found.map(c => c.followers).filter((n): n is number => n !== undefined)
 
       // 样本取粉丝数居中的 3 个 —— 比取头部更能反映这个词的典型产出
       const sample = [...found]
-        .sort((a, b) => (b.followers ?? 0) - (a.followers ?? 0))
+        .sort((a, b) => (b.followers ?? -1) - (a.followers ?? -1))   // p1-ok: 仅排序取样，未知排末位，不写回数据
         .slice(Math.floor(found.length / 4), Math.floor(found.length / 4) + 3)
 
       results.push({
@@ -63,10 +64,13 @@ async function main() {
         as_hashtag: t.as_hashtag ?? false,
         found: found.length,
         follower_median: median(followers),
-        email_in_bio: found.filter(c => extractEmail(c.bio ?? '')).length,
+        // P1：bio 未取到 ≠ bio 里没邮箱。分母要一起给出，否则用户会据此
+        //     误判关键词质量 —— 搜索结果本来就常常不含 bio。
+        bio_available: found.filter(c => c.bio !== undefined).length,
+        email_in_bio: found.filter(c => c.bio !== undefined && extractEmail(c.bio)).length,
         sample: sample.map(c => ({
           handle: c.handle, nickname: c.nickname, followers: c.followers,
-          bio: (c.bio ?? '').slice(0, 120),
+          bio: c.bio === undefined ? '（未取到）' : c.bio.slice(0, 120),
           top_post: (c.recent_posts?.[0]?.desc ?? '').slice(0, 120),
         })),
       })

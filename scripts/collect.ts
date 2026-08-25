@@ -14,12 +14,11 @@ import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetExceeded } from './lib/budget.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { filterByMemory } from './lib/memory.js'
+import { passesFollowerGate } from './lib/score.js'
 import { taskDir, loadTask, saveTask, loadCreators, saveCreators } from './lib/task.js'
 import type { Creator, TaskState } from './lib/types.js'
 
 const MAX_PAGES = 4          // 实测值：第 4 页后新增人数明显衰减
-const FOLLOWER_MIN = 5_000
-const FOLLOWER_MAX = 5_000_000
 
 const argv = process.argv
 const arg = (n: string) => {
@@ -160,7 +159,10 @@ async function main() {
   let all = [...creators.values()]
   const linked = linkCrossPlatform(all)
   all = mergeCrossPlatform(all)
-  all = all.filter(c => c.followers >= FOLLOWER_MIN && c.followers <= FOLLOWER_MAX)
+  // P1：粉丝数未知的**不丢弃** —— 「没查到」不等于「不合格」。留下并计数上报，
+  //     由用户决定要不要看。静默过滤会让真实创作者凭空消失且无人知晓。
+  const unknownFollowers = all.filter(c => c.followers === undefined).length
+  all = all.filter(passesFollowerGate)
   const { kept, filtered_recommended, filtered_contacted } = filterByMemory(all, state.product)
 
   saveCreators(dir, kept)
@@ -177,6 +179,7 @@ async function main() {
     target: state.target_count,
     with_email: kept.filter(c => c.email).length,
     cross_platform: linked,
+    unknown_followers: unknownFollowers,
     filtered_recommended, filtered_contacted,
     keywords_done: state.done.length,
     keywords_total: state.tasks.length,

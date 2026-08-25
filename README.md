@@ -2,7 +2,9 @@
 
 海外 KOL 建联 Agent Skill —— 第二版重做。
 
-**当前状态：Skill 定义已完成，采集脚本待实现。**
+**当前状态：Skill 定义 + 采集脚本已完成，尚未做过任何真实 API 调用。**
+
+> 开工前先读 **[AGENTS.md](AGENTS.md)** —— 本仓库约定的正本。
 
 ## 这是什么
 
@@ -18,7 +20,12 @@
 
 | 文档 | 内容 |
 |------|------|
-| [业务需求](docs/business-requirements.md) | 用户、痛点、成功指标、范围边界、工作流、业务规则 |
+| **[AGENTS.md](AGENTS.md)** | **约定正本**，开工前先读。两层文档的路由 |
+| [docs/SPEC.md](docs/SPEC.md) | 需求唯一来源 · 5 条红线 · 28 条编号需求 |
+| [docs/CONVENTIONS.md](docs/CONVENTIONS.md) | 在本项目里**反着**的通用做法 |
+| [DECISIONS.md](DECISIONS.md) | 决策记录 ADR |
+| [docs/SYNC.md](docs/SYNC.md) | 文档同步表 |
+| [业务需求](docs/business-requirements.md) | 背景、痛点排序、成功指标、论证过程 |
 | [数据源策略](docs/data-source-strategy.md) | 各家 API 对比、选型结论、官方 API 为何不可用 |
 | [SKILL.md](skill/SKILL.md) | Skill 主定义 —— 触发条件、六阶段流程、成本闸门 |
 
@@ -67,8 +74,12 @@ skill/
 npm install
 cp .env.example .env      # 填入 TIKHUB_API_KEY
 
-npm test                  # 纯逻辑单测，不消耗 API
+npm run check             # 完整检查链，不消耗 API
+npm test                  # 只跑需求测试
 ```
+
+`npm run check` = 纪律 lint → SPEC 一致性 → 类型检查 → 需求测试 →
+变异测试 → 脚本自检 → 链路审计。CI 跑的是同一条链。
 
 三个入口，Agent 按 Phase 调用：
 

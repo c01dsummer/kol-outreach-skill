@@ -1,0 +1,106 @@
+#!/usr/bin/env tsx
+/**
+ * 链路审计 —— 回答**完成度**，不回答「功能做完了没有」。
+ *
+ * 「功能做完了」是自评，审计是他评。
+ *
+ * 注意：报出来的缺口不要急着消灭。合理的缺口（需要真实 API、属于人工约定）
+ * 应当显式留在报告里 —— 一份没有任何待办的审计报告，通常意味着标准被调低了。
+ */
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+
+interface Req { id: string; cat: string; pri: string; text: string; accept: string }
+const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
+const reqs: Req[] = spec.requirements
+const mutCfg = JSON.parse(readFileSync('scripts/check/mutations.json', 'utf8'))
+
+function walk(dir: string, ext = '.ts'): string[] {
+  const out: string[] = []
+  for (const e of readdirSync(dir)) {
+    const p = join(dir, e)
+    if (statSync(p).isDirectory()) out.push(...walk(p, ext))
+    else if (p.endsWith(ext)) out.push(p)
+  }
+  return out
+}
+
+const sources = [...walk('scripts'), ...walk('docs', '.md'), ...walk('skill', '.md')]
+const corpus = new Map<string, string>()
+for (const f of sources) corpus.set(f, readFileSync(f, 'utf8'))
+
+const testSrc = corpus.get('scripts/test.ts') ?? ''
+const testedIds = new Set([...testSrc.matchAll(/suite\('([A-Z]\d+)'/g)].map(m => m[1]))
+const alsoCovered = new Set([...testSrc.matchAll(/covered\.add\('([A-Z]\d+)'\)/g)].map(m => m[1]))
+for (const id of alsoCovered) testedIds.add(id)
+
+const mutatedIds = new Set<string>(mutCfg.mutations.map((m: any) => m.req))
+const exemptIds = new Map<string, string>(
+  (mutCfg.exemptions ?? []).map((e: any) => [e.req, e.why]))
+
+const rows: string[] = []
+const gaps: string[] = []
+let hard = 0
+
+// ---- 1. 每条需求是否在下游被引用 ----
+for (const r of reqs) {
+  const refs = [...corpus.entries()]
+    .filter(([f, c]) => f !== 'docs/requirements.json' && f !== 'docs/SPEC.md' &&
+                        new RegExp(`\\b${r.id}\\b`).test(c))
+    .map(([f]) => f)
+  const tested = testedIds.has(r.id)
+  const mutated = mutatedIds.has(r.id)
+  const exempt = exemptIds.has(r.id)
+
+  let flag = '✓'
+  if (r.cat === 'P') {
+    if (!tested) { flag = '✗'; hard++; gaps.push(`${r.id} 是红线但没有测试`) }
+    else if (!mutated && !exempt) { flag = '✗'; hard++; gaps.push(`${r.id} 有测试但没有变异验证 —— 那条测试没被证明过`) }
+    else if (exempt) flag = '⊘'
+  } else if (!refs.length && !tested) {
+    flag = '·'
+    gaps.push(`${r.id} 未在任何下游文件中被引用`)
+  }
+  rows.push(`  ${flag} ${r.id.padEnd(3)} ${r.cat}  测试${tested ? '✓' : '·'} 变异${mutated ? '✓' : exempt ? '⊘' : '·'}  引用 ${refs.length} 处`)
+}
+
+// ---- 2. 可执行文件是否都被执行过 ----
+const selfcheck = corpus.get('scripts/check/selfcheck.ts') ?? ''
+const entrypoints = walk('scripts').filter(f =>
+  readFileSync(f, 'utf8').startsWith('#!') && !f.startsWith('scripts/check/'))
+/** 自身就是检查链一环的文件，不需要再被自检执行一遍 */
+const EXEC_EXEMPT: Record<string, string> = {
+  'scripts/test.ts': '它本身就是检查链的一环，由 npm test 与变异测试反复执行',
+}
+const unexecuted = entrypoints.filter(f => {
+  if (f in EXEC_EXEMPT) return false
+  const base = f.split('/').pop()!
+  return !selfcheck.includes(`S('${base}')`) && !selfcheck.includes(base)
+})
+for (const f of unexecuted) { hard++; gaps.push(`${f} 是可执行文件但未被自检执行，也未登记豁免`) }
+
+// ---- 3. SPEC 与 json 一致性由 spec-sync 保证，这里只提示 ----
+
+console.log('\n链路审计\n')
+console.log(rows.join('\n'))
+console.log(`\n  图例：✓ 完整  ⊘ 显式豁免  · 缺口  ✗ 硬失败\n`)
+
+for (const [id, why] of exemptIds) {
+  console.log(`  ⊘ ${id} 部分豁免（显式缺口，不消灭）：\n     ${why}`)
+}
+for (const [f, why] of Object.entries(EXEC_EXEMPT)) {
+  console.log(`  ⊘ ${f} 免于自检执行：${why}`)
+}
+
+if (gaps.length) {
+  console.log(`\n  待办 ${gaps.length} 项：`)
+  for (const g of gaps) console.log(`    · ${g}`)
+}
+
+const P = reqs.filter(r => r.cat === 'P')
+console.log(`\n  红线 ${P.length} 条 · 有测试 ${P.filter(r => testedIds.has(r.id)).length} · ` +
+            `有变异 ${P.filter(r => mutatedIds.has(r.id)).length} · 显式豁免 ${P.filter(r => exemptIds.has(r.id)).length}`)
+console.log(`  需求 ${reqs.length} 条 · 被测试覆盖 ${reqs.filter(r => testedIds.has(r.id)).length}`)
+
+if (hard) { console.error(`\n✗ 审计：${hard} 项硬失败`); process.exit(1) }
+console.log('\n✓ 审计：红线全部有测试且被变异验证')

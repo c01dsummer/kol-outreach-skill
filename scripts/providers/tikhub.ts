@@ -18,26 +18,37 @@ export class TikHubError extends Error {
 export class TikHub {
   constructor(private key: string, private budget: Budget) {}
 
+  /** 429 的退避重试次数。超过就放弃，不无限重试。 */
+  private static readonly MAX_RETRY = 3
+  private interval = INTERVAL_MS
+
   private async get(path: string, params: Record<string, string | number>): Promise<any> {
     const url = new URL(path, BASE)
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v))
     }
 
-    this.budget.charge()          // 预检 —— 超限在这里抛 BudgetExceeded
-    await sleep(INTERVAL_MS)
+    for (let attempt = 0; ; attempt++) {
+      this.budget.charge()          // 预检 —— 超限在这里抛 BudgetExceeded
+      await sleep(this.interval)
 
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })
+      if (res.ok) return res.json()
 
-    if (!res.ok) {
-      this.budget.refund()        // 非 200 不计费
+      this.budget.refund()          // 非 200 不计费
       const body = await res.text().catch(() => '')
+
       if (res.status === 402) {
         throw new TikHubError(402, 'TikHub 余额不足，请充值后重试')
       }
+      // 429：退避并**永久调慢后续间隔** —— 单次退避治标，撞过一次说明整体太快了
+      if (res.status === 429 && attempt < TikHub.MAX_RETRY) {
+        this.interval = Math.min(this.interval * 2, 1000)
+        await sleep(this.interval * (attempt + 1))
+        continue
+      }
       throw new TikHubError(res.status, `${res.status} ${path} ${body.slice(0, 200)}`)
     }
-    return res.json()
   }
 
   // ---------- 响应结构探测 ----------
@@ -86,10 +97,10 @@ export class TikHub {
       byHandle.set(handle, {
         platform: 'tiktok',
         handle,
-        nickname: a?.nickname ?? '',
-        followers: a?.follower_count ?? 0,
-        post_count: a?.aweme_count ?? 0,
-        bio: a?.signature ?? '',
+        nickname: a?.nickname ?? '',   // p1-ok: 展示用，缺失退化为空名不影响决策
+        followers: a?.follower_count,   // P1: 缺失即 undefined，不记 0
+        post_count: a?.aweme_count,
+        bio: a?.signature,            // P1: 搜索结果常无 bio，须与「bio 为空」区分
         bio_links: [],
         verified: Boolean(a?.custom_verify || a?.enterprise_verify_reason),
         profile_url: `https://www.tiktok.com/@${handle}`,
@@ -110,7 +121,7 @@ export class TikHub {
     const link = u?.bioLink?.link
     return {
       nickname: u?.nickname || undefined,
-      bio: u?.signature ?? '',
+      bio: u?.signature,
       bio_links: link ? [link] : [],
       followers: stats?.followerCount ?? u?.followerCount ?? undefined,
       post_count: stats?.videoCount ?? u?.videoCount ?? undefined,
@@ -148,10 +159,8 @@ export class TikHub {
         platform: 'instagram',
         handle,
         user_id: owner?.id ?? owner?.pk,
-        nickname: owner?.full_name ?? '',
-        followers: owner?.edge_followed_by?.count ?? owner?.follower_count ?? 0,
-        post_count: 0,
-        bio: '',
+        nickname: owner?.full_name ?? '',   // p1-ok: 展示用
+        followers: owner?.edge_followed_by?.count ?? owner?.follower_count,
         bio_links: [],
         verified: Boolean(owner?.is_verified),
         profile_url: `https://www.instagram.com/${handle}/`,
@@ -173,10 +182,8 @@ export class TikHub {
         platform: 'instagram' as Platform,
         handle,
         user_id: u?.pk ?? u?.id,
-        nickname: u?.full_name ?? '',
-        followers: u?.follower_count ?? 0,
-        post_count: 0,
-        bio: '',
+        nickname: u?.full_name ?? '',   // p1-ok: 展示用
+        followers: u?.follower_count,
         bio_links: [],
         verified: Boolean(u?.is_verified),
         profile_url: `https://www.instagram.com/${handle}/`,
@@ -197,7 +204,7 @@ export class TikHub {
       u = raw?.data?.user ?? raw?.data ?? {}
     }
     const links: string[] = []
-    for (const l of u?.bio_links ?? []) {
+    for (const l of u?.bio_links ?? []) {   // p1-ok: 缺失→无外链→不合并，符合 D3「不确定不合并」的安全方向
       const url = typeof l === 'string' ? l : (l?.url ?? l?.link)
       if (url) links.push(url)
     }
@@ -206,7 +213,7 @@ export class TikHub {
     return {
       user_id: u?.pk ?? u?.id ?? undefined,
       nickname: u?.full_name || undefined,
-      bio: u?.biography ?? '',
+      bio: u?.biography,
       bio_links: links,
       followers: u?.follower_count ?? undefined,
       post_count: u?.media_count ?? undefined,
@@ -228,7 +235,12 @@ export class TikHub {
   }
 }
 
-/** profile 补全后重新提取邮箱 */
+/**
+ * profile 补全后提取邮箱。
+ *
+ * P1：bio 没取到时 email 保持 undefined（**未查询**），不是 null（**查了，没有**）。
+ * 两者混为一谈会让「我们没看过他的 bio」被下游读成「他没留邮箱」。
+ */
 export function fillEmail(c: Creator): void {
-  c.email = extractEmail(c.bio) ?? null
+  c.email = c.bio === undefined ? undefined : (extractEmail(c.bio) ?? null)
 }

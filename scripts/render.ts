@@ -14,6 +14,7 @@ import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, applyGeoPenalty } from './lib/score.js'
 import { recordRecommendations } from './lib/memory.js'
 import { writeCsv } from './lib/csv.js'
+import { HEADERS, toRow, sortForOutput } from './lib/rows.js'
 import { renderHtml } from './lib/report.js'
 import type { Creator } from './lib/types.js'
 
@@ -39,33 +40,12 @@ creators = creators.filter(c => {
   return true
 })
 
-const order = { A: 0, B: 1, C: 2 }
-creators.sort((a, b) => order[a.tier!] - order[b.tier!] || (b.score ?? 0) - (a.score ?? 0))
+creators = sortForOutput(creators)
 saveCreators(dir, creators)
 
 // ---------- CSV ----------
-const HEADERS = [
-  'tier', 'score', 'fit', 'fit_reason', 'platform', 'handle', 'nickname',
-  'followers', 'post_count', 'bio', 'email', 'email_verified', 'audience_geo_top',
-  'cross_platform', 'linked_handle', 'profile_url', 'source_keyword',
-  'source_dimension', 'best_post_desc', 'outreach_draft', 'previously_recommended',
-]
-
-const topGeo = (c: Creator) => {
-  if (!c.audience_geo) return ''
-  const [k, v] = Object.entries(c.audience_geo).sort((a, b) => b[1] - a[1])[0] ?? []
-  return k ? `${k} ${Math.round((v as number) * 100)}%` : ''
-}
-const bestPost = (c: Creator) =>
-  [...(c.recent_posts ?? [])].sort((a, b) => (b.plays ?? 0) - (a.plays ?? 0))[0]?.desc ?? ''
-
 const csvPath = join(dir, 'kol.csv')
-writeCsv(csvPath, HEADERS, creators.map(c => [
-  c.tier, c.score, c.fit ?? '', c.fit_reason ?? '', c.platform, c.handle, c.nickname,
-  c.followers, c.post_count, c.bio, c.email ?? '', c.email_verified ?? '', topGeo(c),
-  c.cross_platform ?? false, c.linked_handle ?? '', c.profile_url, c.source_keyword,
-  c.source_dimension, bestPost(c), c.outreach_draft ?? '', c.previously_recommended ?? '',
-]))
+writeCsv(csvPath, [...HEADERS], sortForOutput(creators).map(toRow))
 
 // ---------- 关键词表现 ----------
 const kwStats = new Map<string, { found: number; fit_pass: number; dimension: string }>()

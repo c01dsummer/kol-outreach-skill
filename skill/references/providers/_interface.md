@@ -53,7 +53,7 @@ enrich(handle: string, platform: Platform): Promise<{
 
 **`search` 必须实现。** 没有它整个 Skill 无法工作。
 
-**`enrich` 可选。** 未配置时：
+**`enrich` 可选（F5）。** 未配置时必须优雅降级完成主流程，不得中断：
 - 跳过 Phase 05
 - 主流程照常完整走完
 - 邮箱退化为从 `bio` 正则提取（命中率约 46%，且未经验证）

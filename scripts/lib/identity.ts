@@ -10,7 +10,7 @@ function norm(h: string): string {
 /** 从 bio_links 里找出指向另一平台的 handle */
 function linkedHandle(c: Creator, target: Platform): string | null {
   const re = target === 'instagram' ? IG_RE : TT_RE
-  for (const link of c.bio_links ?? []) {
+  for (const link of c.bio_links) {
     const m = link.match(re)
     if (m) return m[1].toLowerCase()
   }
@@ -78,15 +78,17 @@ export function mergeCrossPlatform(creators: Creator[]): Creator[] {
     const other = byKey.get(c.linked_handle)
     if (!other || other.merged_into) continue
 
-    // 有邮箱的优先做主记录；都有或都没有则取粉丝多的
-    const cScore = (c.email ? 1e9 : 0) + c.followers
-    const oScore = (other.email ? 1e9 : 0) + other.followers
-    const [primary, secondary] = cScore >= oScore ? [c, other] : [other, c]
+    // 有邮箱的优先做主记录；都有或都没有则取粉丝多的（未知视为最小）
+    const rank = (x: Creator) => (x.email ? 1e9 : 0) + (x.followers ?? -1)   // p1-ok: 仅用于排序取主，不写回数据
+    const [primary, secondary] = rank(c) >= rank(other) ? [c, other] : [other, c]
 
-    primary.followers = c.followers + other.followers
-    primary.post_count = c.post_count + other.post_count
+    // P1：任一侧未知，合并结果就是未知 —— 不能把未知当 0 加进去
+    const sum = (a?: number, b?: number) =>
+      a === undefined || b === undefined ? undefined : a + b
+    primary.followers = sum(c.followers, other.followers)
+    primary.post_count = sum(c.post_count, other.post_count)
     primary.email = primary.email ?? secondary.email ?? null
-    primary.bio_links = [...new Set([...(c.bio_links ?? []), ...(other.bio_links ?? [])])]
+    primary.bio_links = [...new Set([...c.bio_links, ...other.bio_links])]
     primary.recent_posts = [...(primary.recent_posts ?? []), ...(secondary.recent_posts ?? [])]
     primary.linked_handle = `${secondary.platform}:${secondary.handle}`
     secondary.merged_into = `${primary.platform}:${primary.handle}`
