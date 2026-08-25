@@ -59,7 +59,7 @@ description: 海外 KOL 建联助手 —— 从产品理解到可发信名单。
 这是整个流程最关键的一步。搜错词，后面每一步都在浪费。
 
 1. 按品类词 / 场景词 / 竞品词 / 人群词四个维度生成候选词
-2. 每个维度额外产出 **hashtag 变体** —— IG 侧主要靠 hashtag 发现
+2. **两个平台分别出词** —— IG 的 Reels 搜索对词组敏感，词要更短（实测 `smoothie recipe` 返回 0 条，`smoothie` 返回 12 条）
 3. **每词每平台只抓 1 页**，把真实抓到的人摆给用户看
 4. 问一句"这批对吗"，不对就调词重来
 
@@ -73,11 +73,12 @@ description: 海外 KOL 建联助手 —— 从产品理解到可发信名单。
 
 策略确认后才放量。自动分页、跨关键词全局去重、跨平台同人识别。
 
-- **单关键词页数上限 4 页**（实测值，第 4 页后新增人数明显衰减）
-- 目标人数达标即停
+- **轮转采集**：先给每个关键词各抓一页，再回头抓第二页。**不能顺序跑完一个词再跑下一个** —— 实测竞品词一个词就够 50 人，会让场景词、人群词、整个 IG 一条都跑不到，四维策略作废
+- 单关键词页数上限 4 页
+- 目标人数达标即停（数的是**能进名单的人**，不是采集总数）
 - 请求间隔 150ms（限速 10 RPS）
 
-TikTok 走视频搜索（按内容匹配，能过滤商家号），IG 走 hashtag。两个平台的路径和字段都不同，详见 `references/providers/tikhub.md`。
+TikTok 走视频搜索，**IG 走 Reels 搜索** —— 两者都是按内容匹配、能过滤商家号。IG 的 Reels 搜索没有分页游标，一个关键词只有一页（约 12 条）。字段命名两边不一致，详见 `references/providers/tikhub.md`。
 
 ### Phase 04 — 语义筛选 ★
 
@@ -157,7 +158,7 @@ TikTok 走视频搜索（按内容匹配，能过滤商家号），IG 走 hashta
 | 文件 | 内容 |
 |------|------|
 | `references/product-intake.md` | 产品诊断模板、从链接提取信息、七大品类的关键词倾向 |
-| `references/keyword-strategy.md` | 四维关键词生成、hashtag 变体、试探判读标准 |
+| `references/keyword-strategy.md` | 四维关键词生成、两平台分别出词、试探判读标准 |
 | `references/providers/_interface.md` | 数据源适配接口契约 |
 | `references/providers/tikhub.md` | TikHub 端点、参数、字段路径、双平台差异 |
 | `references/providers/influencers-club.md` | 可选增强层 |

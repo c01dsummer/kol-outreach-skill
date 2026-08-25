@@ -34,7 +34,7 @@
 | 平台覆盖 | 1,547 个现成 scraper，800+ 网站实时 | 16 个平台、1000+ 接口 |
 | 中文平台 | 基本没有 | 抖音/小红书/快手/微博/B站/知乎 |
 | 计费 | **$1.5 / 1K records**（Scale $499/月档 $1.3/1K） | **$0.001 / 请求**，30K+/日降至 $0.0005 |
-| 免费额度 | 5,000 records/月 | 注册约 50 次请求 |
+| 免费额度 | 5,000 records/月 | 注册约 50 次请求，**但不覆盖 Instagram**（见下） |
 | 数据形态 | 规整化、字段名稳定，可投递 S3/Snowflake/GCS | 原始响应透传，schema 随端点变化 |
 | 合规 | SOC 2 Type II、ISO 27001、CSA STAR L1、GDPR/CCPA、PwC 审计、Trust Center | 未见公开 SLA 或合规认证 |
 
@@ -56,6 +56,21 @@
 **库存数字不可比**：380M / 340M / 220M（HypeAuditor）/ 30M（CreatorDB）差十倍以上，源于"创作者档案"的定义不同 —— 有的把 50 粉账号也算一条。选型不应参考这个数字，应拿自己的关键词实测召回。
 
 ---
+
+## 实测补充（2026-08-26）
+
+真实调用后修正三处：
+
+1. **免费额度不覆盖 Instagram。** TikTok 端点可用注册赠送的 free credit，
+   IG 端点一律返回 **402**：「this endpoint requires payment and does not accept
+   free credit」。**跑 IG 必须先充值真实余额**，这一点对「注册即用」这条选型
+   前提是个折扣 —— 使用者拿到 key 还得再充 $5 才能用全功能
+2. **IG 的发现路径与原设计不同。** 原计划用 hashtag 端点，实测它的 `owner` 只有
+   `{id}`，没有 username 也没有粉丝数。改用 `v2/search_reels`（TikTok 视频搜索
+   在 IG 上的对应物），但它**没有分页游标**，一个关键词只能拿约 12 条
+3. **OpenAPI 没有响应体 schema。** 196 个 schema 里没有一个描述响应内容 ——
+   所有端点都返回同一个泛型 `ResponseModel`，`data` 无类型。
+   字段路径只能靠真实调用确认，这是当初无法提前验证的根本原因
 
 ## 结论
 

@@ -194,10 +194,12 @@ data.bio_links[]           ✓  含 `url`（原始地址）和 `lynx_url`（IG �
 
 | | TikTok | Instagram |
 |---|---|---|
-| 发现主路径 | 视频搜索 `fetch_video_search_result` | Hashtag `fetch_hashtag_posts` |
-| 响应结构 | 扁平列表 | GraphQL 风格嵌套 |
+| 发现主路径 | 视频搜索 `fetch_video_search_result` | **Reels 搜索 `v2/search_reels`** |
+| 结果路径 | `data.search_item_list[]` | `data.data.items[]` |
+| 分页 | ✅ `offset` + `has_more` | ❌ **无游标，只有一页（约 12 条）** |
+| 关键词长度 | 2–3 词的自然短语 | **1 个词** —— 词组会返回 0 条 |
 | bio 字段名 | `signature` | `biography` |
-| bio 完整度 | 搜索结果中常为空，**必须补 profile** | 相对完整，但仍建议补 V3 |
+| bio 完整度 | 搜索结果里**没有**，必须补 profile | 搜索结果里也没有，同样要补 |
 | 外链字段 | `bioLink.link`（单个） | `bio_links[]`（数组） |
 | 粉丝数字段 | `followerCount`（驼峰） | `follower_count`（下划线） |
 | 地区过滤 | ✅ `region` 参数 | ❌ 无，靠 hashtag 语言间接控制 |
@@ -211,16 +213,22 @@ data.bio_links[]           ✓  含 `url`（原始地址）和 `lynx_url`（IG �
 
 TikHub 透传平台原始响应，schema 随端点和版本变化。**首次调用一个没用过的端点时，先探测结构再写解析逻辑**，不要假设：
 
+实现见 `scripts/providers/tikhub.ts` 的 `pickList()`：
+
 ```
-1. data.user_list 是数组      → user 类型
-2. data.users 是数组          → user 类型
-3. data.aweme_list 是数组     → post 类型，从 .author 提取
-4. data.hashtag.edge_hashtag_to_media → IG hashtag，GraphQL 风格
-5. data.data 是数组           → 检查首条:
-     有 unique_id / uniqueId / username → user
-     有 aweme_id / video_id / pk        → post
-6. 都不匹配 → 打印 data 的顶层 key，告诉用户实际结构，不要硬猜
+1. data.search_item_list      → TikTok 视频搜索
+2. data.data.items            → IG v2 search_reels / search_users
+3. data.user_list / data.users
+4. data.aweme_list            → post 类型，从 .author 提取
+5. data.data.hashtag.edge_hashtag_to_media.edges  → IG v1 hashtag（已弃用）
+6. data.data / data.items / data.result
+7. 都不匹配 → 打印 data 的顶层 key，报错，**不硬猜**
 ```
+
+⚠️ **取「第一个非空数组」，不是「第一个存在的数组」。**
+实测视频搜索会同时返回**空的** `aweme_list` 和有数据的 `search_item_list` ——
+命中前者会静默产出「这个关键词一个人都没有」，而事实是有 10 个。
+全空但确实是数组，才是真的没有结果。
 
 ---
 

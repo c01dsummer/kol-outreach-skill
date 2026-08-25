@@ -86,12 +86,14 @@
 |---|---|
 | P2 的判断那一半机器查不了 | ADR-01 · `npm run audit` 会打印 |
 | 测试与实现同上下文写成（同源污染） | ADR-04 |
-| **所有 TikHub 实际调用从未跑过**（没有 API key） | `docs/SPEC.md` 尚未确定一节 |
+| 语义筛选与开发信草稿的实际效果未经真实发信验证 | `docs/SPEC.md` 尚未确定一节 |
 
-最后一条最重要：端点路径与参数是从 OpenAPI spec 逐条核实的，
-但**响应体的字段路径没有 schema 可核**，只能按前一版经验和官方描述写。
-`scripts/providers/tikhub.ts` 里因此有响应结构探测 cascade，识别不出时打印顶层 key
-而不是硬猜。真跑起来大概率要调 IG 那部分。
+端点与响应结构已于 2026-08-26 用真实调用核实，双平台跑通。
+但**产出物的质量**（语义判断准不准、开发信回复率）只有真发信才知道 ——
+`docs/SPEC.md` 的「尚未确定的」一节列了哪些还没答案。
+
+响应结构仍走探测 cascade（`scripts/providers/tikhub.ts` 的 `pickList`）：
+TikHub 的 schema 随版本变，识别不出时打印顶层 key 而不是硬猜。
 
 ---
 

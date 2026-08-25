@@ -2,7 +2,7 @@
 
 海外 KOL 建联 Agent Skill —— 第二版重做。
 
-**当前状态：Skill 定义 + 采集脚本已完成，尚未做过任何真实 API 调用。**
+**当前状态：已用真实 API 跑通完整流程（TikTok + Instagram 双平台）。**
 
 > 开工前先读 **[AGENTS.md](AGENTS.md)** —— 本仓库约定的正本。
 
@@ -36,7 +36,7 @@ skill/
 ├── SKILL.md
 └── references/
     ├── product-intake.md        产品理解、品类关键词倾向
-    ├── keyword-strategy.md      四维关键词、hashtag 变体、试探判读
+    ├── keyword-strategy.md      四维关键词、分平台出词、试探判读
     ├── semantic-fit.md          ★ 语义契合判断、评分、A/B/C 分层
     ├── outreach-draft.md        ★ 英文开发信写法
     ├── memory.md                跨任务记忆、跨平台同人识别
@@ -111,10 +111,32 @@ scripts/
 │   ├── identity.ts   跨平台同人识别与合并
 │   ├── memory.ts     跨任务记忆
 │   ├── score.ts      硬指标计分、分层、受众降权
+│   ├── rows.ts       CSV/xlsx 列定义、排序、分层分 sheet
 │   ├── csv.ts        UTF-8 BOM + 转义
+│   ├── xlsx.ts       最小 XLSX 写出器（多 sheet，零依赖）
 │   └── report.ts     HTML 报告
 ├── providers/
 │   └── tikhub.ts     默认数据源（响应结构探测 cascade）
+├── check/            检查链
+│   ├── lint.ts       纪律 lint（P1 兜底写法）
+│   ├── spec-sync.ts  SPEC.md ← requirements.json 生成与校验
+│   ├── mutate.ts     变异测试
+│   ├── mutations.json
+│   ├── fake-fetch.ts 罐头响应（结构取自真实调用）
+│   ├── selfcheck.ts  脚本自检（未执行的路径）
+│   └── audit.ts      链路审计
 ├── probe.ts / collect.ts / render.ts
 └── test.ts
+```
+
+### 一次任务的产出
+
+```
+output/{product}-{时间戳}/
+├── kol.csv        单表名单 —— 给脚本和其他工具读
+├── kol.xlsx       按 A/B/C 分 sheet —— 给人看
+├── report.html    可读报告（分层 tab + 开发信草稿一键复制）
+├── creators.json  完整数据
+├── task.json      采集状态（断点续跑用）
+└── meta.json      任务元数据
 ```

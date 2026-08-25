@@ -25,21 +25,26 @@ Phase 02 用。**搜错词，后面每一步都在浪费** —— 这是整个�
 
 ---
 
-## Hashtag 变体
+## 两个平台分别出词
 
-IG 侧主要靠 hashtag 发现，每个维度都要出对应的 hashtag 形式：
+**IG 的关键词要比 TikTok 短。** 实测（2026-08-26）：
 
 ```
-portable blender      →  #portableblender  #blendersmoothie
-smoothie recipe       →  #smoothierecipe   #healthysmoothie
-travel essentials     →  #travelessentials #traveltech
+smoothie recipe   →  IG 返回 0 条
+smoothie          →  IG 返回 12 条
 ```
+
+IG 走的是 Reels 搜索，对多词词组匹配很差。TikTok 的视频搜索则能吃下
+`post workout smoothie` 这样的三词组合。
 
 规则：
-- 去空格、全小写、不带 `#` 传参
-- 一个词可能对应多个 hashtag 变体，选**热度中等**的 —— 太热门的话题下全是大号和营销号，太冷门的没内容
+- TikTok 用 2–3 词的自然短语
+- IG 用 1 个词，或去空格拼成一个 token（`portableblender`、`smoothiebowl`）
+- **同一维度在两个平台可能要用不同的词**，不要一套词两边各跑一遍
 
-**更可靠的做法**：先用 `fetch_search?select=hashtags` 搜出 IG 上真实存在的相关话题，再挑。比自己拼 hashtag 靠谱得多。
+⚠️ **IG 的品类词特别容易招商家号。** 实测 `portableblender` 搜出的前三个是
+`shop.blendora`、`kitchen_nest_1`、`tasemtech` —— 全是卖货的，一个内容创作者都没有。
+IG 侧优先用场景词和竞品词。
 
 ---
 
