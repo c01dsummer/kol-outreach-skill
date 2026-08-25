@@ -8,7 +8,7 @@
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
-import { fillEmail } from './providers/tikhub.js'
+import { fillEmail, pickList } from './providers/tikhub.js'
 import { esc } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput } from './lib/rows.js'
 import { Budget, BudgetExceeded } from './lib/budget.js'
@@ -95,6 +95,27 @@ suite('P2', '开发信占位符必须原样保留到产出物')
   const drafted = String(row[HEADERS.indexOf('outreach_draft')])
   ok('CSV 保留占位符', drafted.includes('{产品一句话}') && drafted.includes('{价格待填}'))
   eq('占位符一个不少', (drafted.match(/\{[^}]*\}/g) ?? []).length, 3)
+}
+
+suite('P1', '响应结构探测不得被空数组满足')
+{
+  covered.add('P1')
+  // 实测：视频搜索同时返回空 aweme_list 和有数据的 search_item_list
+  const real = { data: { aweme_list: [], has_more: 1, search_item_list: [{ a: 1 }, { a: 2 }] } }
+  eq('取有数据的那个', pickList(real, 't').length, 2)
+
+  // 顺序反过来也要对
+  const rev = { data: { search_item_list: [], user_list: [{ b: 1 }] } }
+  eq('不被前置的空数组挡住', pickList(rev, 't').length, 1)
+
+  // 全空是真的没结果，不该报错
+  eq('全空 → 空结果而非报错', pickList({ data: { aweme_list: [], user_list: [] } }, 't'), [])
+
+  // 完全不认识的结构 → 报错并附顶层 key，不硬猜
+  let msg = ''
+  try { pickList({ data: { weird_key: 1, other: 2 } }, 'x') } catch (e) { msg = String(e) }
+  ok('不认识就报错', msg.includes('无法识别'))
+  ok('报错里带上顶层 key', msg.includes('weird_key'))
 }
 
 suite('P3', '未经确认不得超出预算')

@@ -7,14 +7,23 @@
  *
  * 它不断言正确性，只证明「这条路径能走完」。
  */
+/**
+ * 结构取自 2026-08-25 的真实响应（keyword=portable blender, region=US）。
+ * 关键点：aweme_list **存在且为空**，真实结果在 search_item_list —— 这里必须
+ * 原样复现，否则自检验证的是我的想象而不是 TikHub 的行为。
+ * author.aweme_count 实测对所有人都返回 0，同样复现。
+ */
 const tiktokVideoSearch = {
   data: {
-    data: [
+    aweme_list: [],
+    has_more: 1,
+    cursor: 5,
+    search_item_list: [
+      // 搜索结果里 signature 缺失、aweme_count 恒为 0 —— 均为实测行为
       { aweme_info: { desc: 'Testing the new GaN charger', statistics: { play_count: 240000, digg_count: 18000 },
-        author: { unique_id: 'techwithsarah', nickname: 'Sarah | Tech', follower_count: 82000,
-                  aweme_count: 214, signature: 'Gadget reviews 📩 sarahbiz (at) gmail (dot) com' } } },
+        author: { unique_id: 'techwithsarah', nickname: 'Sarah | Tech', follower_count: 82000, aweme_count: 0 } } },
       { aweme_info: { desc: 'Budget power banks', statistics: { play_count: 1200, digg_count: 30 },
-        author: { unique_id: 'powerbankdeals', nickname: 'Deals', follower_count: 8000, aweme_count: 41 } } },
+        author: { unique_id: 'powerbankdeals', nickname: 'Deals', follower_count: 8000, aweme_count: 0 } } },
       // 故意缺 follower_count —— 走 P1 的「未知」分支
       { aweme_info: { desc: 'no stats here', author: { unique_id: 'mysteryuser', nickname: 'Mystery' } } },
     ],

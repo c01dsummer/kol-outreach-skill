@@ -13,6 +13,14 @@ Base URL:  https://api.tikhub.io
 计费:      $0.001/请求，非 200 不计费
 ```
 
+⚠️ **免费额度不覆盖 Instagram。** 实测（2026-08-25）：TikTok 端点可用注册赠送的
+free credit 调用；Instagram 端点一律返回 **402**，提示
+「this endpoint requires payment and does not accept free credit」。
+**要跑 IG 必须先充值真实余额。**
+
+> curl 对这个 host 连接不稳定（LibreSSL SSL_ERROR_SYSCALL 间歇性出现），
+> Node 的 fetch 正常。调试时用 Node，不要用 curl 排查。
+
 **重要：TikHub 不返回缓存数据。** 每次请求都实时抓取并独立计费。响应里的 `cache_url` 只是把那一次响应留存 24 小时供调试和分享，**不是**省钱的重取通道 —— 不要设计"中断重跑复用缓存"的逻辑，不会生效。
 
 ---
@@ -33,6 +41,26 @@ GET /api/v1/tiktok/app/v3/fetch_video_search_result
 | `sort_type` | int | 0 | 0 相关度，1 最多点赞 |
 | `publish_time` | int | 0 | 0 不限，1 最近一天，7 一周，30 一月，90 三月，180 半年 |
 | `region` | string | `US` | 地区，ISO 3166-1 alpha-2 |
+
+**实测的响应结构（2026-08-25 真实调用）**：
+
+```
+data.search_item_list[].aweme_info.author.unique_id      ← 结果在这里
+data.search_item_list[].aweme_info.author.follower_count ✓ 有值
+data.search_item_list[].aweme_info.author.aweme_count    ✗ 恒为 0，不是真实值
+data.search_item_list[].aweme_info.author.signature      ✗ 恒为 undefined
+data.search_item_list[].aweme_info.statistics.play_count / digg_count  ✓
+data.search_item_list[].aweme_info.desc                  ✓
+```
+
+⚠️ **两个坑，都是实测才发现的**：
+
+1. **`data.aweme_list` 同时存在，但是空数组。** 解析时若按「第一个存在的数组」取，
+   会命中空的 `aweme_list`，静默产出「这个关键词一个人都没有」—— 而事实是有 10 个。
+   必须取**第一个非空**的数组。
+2. **`author.aweme_count` 对所有人都返回 0。** 那不是真实作品数，是搜索结果里不填这个
+   字段。当成 0 会让「视频数 > 30」的活跃度加分全员失效。且 0 是个「值」，类型系统
+   防不住，只能显式判掉，等 profile 补全。
 
 **为什么用视频搜索而不是用户搜索**：用户搜索按账号名匹配，结果里全是把产品词塞进账号名的商家号和机构号。视频搜索按内容匹配，找到的是"真的在做这类内容"的人，与 TikTok 网页搜索结果一致。
 

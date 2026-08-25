@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "probe": "tsx scripts/probe.ts",
-    "collect": "tsx scripts/collect.ts",
-    "render": "tsx scripts/render.ts",
+    "probe": "node --env-file-if-exists=.env node_modules/.bin/tsx scripts/probe.ts",
+    "collect": "node --env-file-if-exists=.env node_modules/.bin/tsx scripts/collect.ts",
+    "render": "node --env-file-if-exists=.env node_modules/.bin/tsx scripts/render.ts",
     "test": "tsx scripts/test.ts",
     "lint": "tsx scripts/check/lint.ts",
     "spec": "tsx scripts/check/spec-sync.ts",

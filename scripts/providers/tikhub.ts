@@ -15,6 +15,36 @@ export class TikHubError extends Error {
   }
 }
 
+/**
+ * 响应结构探测。
+ *
+ * TikHub 透传平台原始响应，schema 随端点和版本变化。按 cascade 找出记录数组，
+ * 找不到就抛出并附上顶层 key —— **不硬猜**。
+ *
+ * 取「第一个非空数组」而不是「第一个存在的数组」：实测视频搜索会同时返回
+ * 空的 aweme_list 和有数据的 search_item_list，命中前者会静默产出
+ * 「这个关键词一个人都没有」，而事实是有 10 个。
+ */
+export function pickList(data: any, path: string): any[] {
+  const d = data?.data ?? data
+  const cands = [
+    d?.search_item_list,                        // ★ 视频搜索的真实结果在这里
+    d?.user_list, d?.users, d?.aweme_list, d?.data,
+    d?.hashtag?.edge_hashtag_to_media?.edges,   // IG hashtag，GraphQL 风格
+    d?.items, d?.result,
+  ]
+  const arrays = cands.filter(Array.isArray)
+
+  const nonEmpty = arrays.find(a => a.length > 0)
+  if (nonEmpty) return nonEmpty
+
+  // 全空但确实是数组 → 这才是真的没有结果
+  if (arrays.length) return []
+
+  const keys = Object.keys(d ?? {}).join(', ')
+  throw new TikHubError(0, `无法识别 ${path} 的响应结构。data 顶层 key: [${keys}]`)
+}
+
 export class TikHub {
   constructor(private key: string, private budget: Budget) {}
 
@@ -51,24 +81,6 @@ export class TikHub {
     }
   }
 
-  // ---------- 响应结构探测 ----------
-
-  /**
-   * TikHub 透传平台原始响应，schema 随端点和版本变化。
-   * 按 cascade 找出记录数组，找不到就抛出并附上顶层 key —— 不硬猜。
-   */
-  private pickList(data: any, path: string): any[] {
-    const d = data?.data ?? data
-    const cands = [
-      d?.user_list, d?.users, d?.aweme_list, d?.data,
-      d?.hashtag?.edge_hashtag_to_media?.edges,   // IG hashtag，GraphQL 风格
-      d?.items, d?.result,
-    ]
-    for (const c of cands) if (Array.isArray(c)) return c
-    const keys = Object.keys(d ?? {}).join(', ')
-    throw new TikHubError(0, `无法识别 ${path} 的响应结构。data 顶层 key: [${keys}]`)
-  }
-
   // ---------- TikTok ----------
 
   /** 视频搜索 → 从 author 提取创作者。按内容匹配，能过滤掉商家号。 */
@@ -76,7 +88,7 @@ export class TikHub {
     const raw = await this.get('/api/v1/tiktok/app/v3/fetch_video_search_result', {
       keyword: kw, offset: page * 20, count: 20, region,
     })
-    const list = this.pickList(raw, 'tiktok/video_search')
+    const list = pickList(raw, 'tiktok/video_search')
 
     const byHandle = new Map<string, Partial<Creator>>()
     for (const item of list) {
@@ -99,7 +111,10 @@ export class TikHub {
         handle,
         nickname: a?.nickname ?? '',   // p1-ok: 展示用，缺失退化为空名不影响决策
         followers: a?.follower_count,   // P1: 缺失即 undefined，不记 0
-        post_count: a?.aweme_count,
+        // 实测：搜索结果里 aweme_count 对**所有人**都返回 0 —— 那不是真实值，
+        // 是 TikTok 在搜索结果里不填这个字段。当成 0 会让活跃度加分全员失效，
+        // 且 0 是个「值」，类型系统防不住。只能显式判掉，等 profile 补全。
+        post_count: a?.aweme_count === 0 ? undefined : a?.aweme_count,
         bio: a?.signature,            // P1: 搜索结果常无 bio，须与「bio 为空」区分
         bio_links: [],
         verified: Boolean(a?.custom_verify || a?.enterprise_verify_reason),
@@ -137,7 +152,7 @@ export class TikHub {
     const raw = await this.get('/api/v1/instagram/v1/fetch_hashtag_posts', {
       hashtag: tag.replace(/^#/, ''), ...(cursor ? { end_cursor: cursor } : {}),
     })
-    const list = this.pickList(raw, 'instagram/hashtag_posts')
+    const list = pickList(raw, 'instagram/hashtag_posts')
 
     const byHandle = new Map<string, Partial<Creator>>()
     for (const edge of list) {
@@ -173,7 +188,7 @@ export class TikHub {
   /** IG 关键词搜用户 —— hashtag 无结果时的补充路径 */
   private async searchInstagramUsers(kw: string): Promise<Partial<Creator>[]> {
     const raw = await this.get('/api/v1/instagram/v1/fetch_search', { query: kw, select: 'users' })
-    const list = Array.isArray(raw?.data?.users) ? raw.data.users : this.pickList(raw, 'instagram/search')
+    const list = Array.isArray(raw?.data?.users) ? raw.data.users : pickList(raw, 'instagram/search')
     return list.map((item: any) => {
       const u = item?.user ?? item
       const handle = u?.username

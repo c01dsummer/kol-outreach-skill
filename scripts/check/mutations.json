@@ -112,6 +112,14 @@
       "file": "scripts/lib/rows.ts",
       "find": "  const order = { A: 0, B: 1, C: 2 }",
       "replace": "  const order = { A: 0, B: 0, C: 0 }"
+    },
+    {
+      "id": "M-P1-e",
+      "req": "P1",
+      "why": "pickList 退回「取第一个存在的数组」—— 空的 aweme_list 会盖掉有数据的 search_item_list，产出「这个关键词没人」而事实是有 10 个",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "  const nonEmpty = arrays.find(a => a.length > 0)",
+      "replace": "  const nonEmpty = arrays[0]"
     }
   ],
   "exemptions": [
