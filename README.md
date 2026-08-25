@@ -60,3 +60,50 @@ skill/
 4. **跨任务创作者记忆** —— 推荐过的人不再重复出现；已联系状态由用户手动标记
 5. **数据源适配层** —— 换供应商不动编排逻辑
 6. **去掉"确认接口"环节** —— 实现细节不该暴露给非技术用户
+
+## 脚本
+
+```bash
+npm install
+cp .env.example .env      # 填入 TIKHUB_API_KEY
+
+npm test                  # 纯逻辑单测，不消耗 API
+```
+
+三个入口，Agent 按 Phase 调用：
+
+```bash
+# Phase 02 — 小样试探，每词每平台 1 页
+npx tsx scripts/probe.ts --config probe.json
+
+# Phase 03 — 规模采集（可断点续跑）
+npx tsx scripts/collect.ts --config task.json
+npx tsx scripts/collect.ts --resume output/xxx --budget 3   # 预算用尽后追加续跑
+
+# Phase 06 — 算分、分层、CSV + HTML + 写回记忆
+npx tsx scripts/render.ts --dir output/xxx
+```
+
+三个脚本都把结构化结果打到 **stdout（JSON）**、进度打到 **stderr**，方便 Agent 解析。
+
+`collect.ts` 预算用尽时以**退出码 3** 结束并保存断点 —— Agent 据此询问用户是否追加预算，续跑不会重复已完成的关键词，也不会重复计费。
+
+### 目录
+
+```
+scripts/
+├── lib/
+│   ├── types.ts      Creator / TaskState 等
+│   ├── budget.ts     请求计数、阈值提醒、跨运行累加
+│   ├── task.ts       任务状态读写（断点续跑的基础）
+│   ├── email.ts      bio 邮箱提取（含 (at)/(dot) 等反爬写法）
+│   ├── identity.ts   跨平台同人识别与合并
+│   ├── memory.ts     跨任务记忆
+│   ├── score.ts      硬指标计分、分层、受众降权
+│   ├── csv.ts        UTF-8 BOM + 转义
+│   └── report.ts     HTML 报告
+├── providers/
+│   └── tikhub.ts     默认数据源（响应结构探测 cascade）
+├── probe.ts / collect.ts / render.ts
+└── test.ts
+```
