@@ -21,7 +21,7 @@
 | 文档 | 内容 |
 |------|------|
 | **[AGENTS.md](AGENTS.md)** | **约定正本**，开工前先读。两层文档的路由 |
-| [docs/SPEC.md](docs/SPEC.md) | 需求唯一来源 · 5 条红线 · 28 条编号需求 |
+| [docs/SPEC.md](docs/SPEC.md) | 需求唯一来源 · 5 条红线 · 30 条编号需求 |
 | [docs/CONVENTIONS.md](docs/CONVENTIONS.md) | 在本项目里**反着**的通用做法 |
 | [DECISIONS.md](DECISIONS.md) | 决策记录 ADR |
 | [docs/SYNC.md](docs/SYNC.md) | 文档同步表 |
