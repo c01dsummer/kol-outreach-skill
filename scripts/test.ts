@@ -315,9 +315,9 @@ suite('U5', 'xlsx 分 sheet')
     mk('tiktok', 'a', { tier: 'A', score: 90 }),
     mk('instagram', 'b', { tier: 'B', score: 50 }),
   ])
-  eq('四个 sheet（含空的 C）', sheets.length, 4)
+  eq('三个 sheet（含空的 C，无「全部」）', sheets.length, 3)
   eq('sheet 名带计数', sheets.map(s => s.name),
-     ['全部 (2)', 'A级 直接发信 (1)', 'B级 先互动 (1)', 'C级 观察池 (0)'])
+     ['A级 直接发信 (1)', 'B级 先互动 (1)', 'C级 观察池 (0)'])
 
   const tmpx = join(tmpdir(), `kol-u5-${process.pid}.xlsx`)
   writeXlsx(tmpx, sheets)
@@ -325,11 +325,12 @@ suite('U5', 'xlsx 分 sheet')
   eq('是 ZIP 容器', buf.subarray(0, 2).toString(), 'PK')
   const text = buf.toString('latin1')
   ok('含 workbook', text.includes('xl/workbook.xml'))
-  ok('四个 sheet 各一个 xml', ['sheet1', 'sheet2', 'sheet3', 'sheet4'].every(n => text.includes(`xl/worksheets/${n}.xml`)))
+  ok('三个 sheet 各一个 xml', ['sheet1', 'sheet2', 'sheet3'].every(n => text.includes(`xl/worksheets/${n}.xml`)))
+  ok('没有第四个 sheet', !text.includes('xl/worksheets/sheet4.xml'))
 
   // 空分层也必须建 sheet —— 「这一层没人」是信息，隐藏会让人以为漏了数据
   const names = xlsxSheetNames(tmpx)
-  eq('sheet 名读回正确', names, ['全部 (2)', 'A级 直接发信 (1)', 'B级 先互动 (1)', 'C级 观察池 (0)'])
+  eq('sheet 名读回正确', names, ['A级 直接发信 (1)', 'B级 先互动 (1)', 'C级 观察池 (0)'])
   ok('空分层的 sheet 存在且标出 (0)', names.some(n => n.endsWith('(0)')))
   ul(tmpx)
 }
@@ -352,8 +353,19 @@ suite('U6', 'HTML 分层 tab 与平台标签')
     { product: 'p', market: 'US', platforms: ['tiktok', 'instagram'], keywords: [], total: 2,
       tiers: { A: 1, B: 1, C: 0 }, email_count: 0, cross_platform_count: 0,
       requests: 1, cost_estimate_usd: 0.001, budget_usd: 2, enriched: false })
-  ok('四个 tab', ['data-f="all"', 'data-f="A"', 'data-f="B"', 'data-f="C"'].every(t => html.includes(t)))
+  ok('三个 tab，无「全部」', ['data-f="A"', 'data-f="B"', 'data-f="C"'].every(t => html.includes(t))
+     && !html.includes('data-f="all"'))
   ok('卡片带 data-tier 供筛选', html.includes('data-tier="A"') && html.includes('data-tier="B"'))
+  ok('默认选中 A（第一个非空）', html.includes('class="tab A on"'))
+  ok('非默认分层初始隐藏（不依赖 JS）', html.includes('data-tier="B" style="display:none"'))
+  ok('切换不滚动页面', !html.includes('scrollIntoView'))
+
+  // A 为空时应默认落在 B，而不是打开就是一片空白
+  const noA = renderHtml([mk('instagram', 'b', { tier: 'B', score: 1 })],
+    { product: 'p', market: 'US', platforms: ['instagram'], keywords: [], total: 1,
+      tiers: { A: 0, B: 1, C: 0 }, email_count: 0, cross_platform_count: 0,
+      requests: 1, cost_estimate_usd: 0.001, budget_usd: 2, enriched: false })
+  ok('A 为空时默认落到 B', noA.includes('class="tab B on"') && !noA.includes('class="tab A on"'))
   ok('平台标签区分 class', html.includes('pf tiktok') && html.includes('pf instagram'))
   ok('平台标签有专属配色', html.includes('.pf.tiktok{') && html.includes('.pf.instagram{'))
   ok('平台标签与次要标签不同层级', html.includes('.xp{') && !html.includes('.pf,.xp{'))

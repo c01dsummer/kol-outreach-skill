@@ -57,7 +57,7 @@ const TIER_LABEL = { A: 'A级 直接发信', B: 'B级 先互动', C: 'C级 观�
  */
 export function buildSheets(creators: Creator[]): Array<{ name: string; headers: string[]; rows: unknown[][] }> {
   const sorted = sortForOutput(creators)
-  const out = [{ name: `全部 (${sorted.length})`, headers: [...HEADERS], rows: sorted.map(toRow) }]
+  const out: Array<{ name: string; headers: string[]; rows: unknown[][] }> = []
   for (const t of ['A', 'B', 'C'] as const) {
     const rows = sorted.filter(c => c.tier === t)
     out.push({ name: `${TIER_LABEL[t]} (${rows.length})`, headers: [...HEADERS], rows: rows.map(toRow) })

@@ -14,7 +14,7 @@ const fmt = (n?: number) =>
 /** 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档 */
 export function renderHtml(creators: Creator[], meta: any): string {
   const card = (c: Creator) => `
-<div class="card ${c.tier}" data-tier="${c.tier}">
+<div class="card ${c.tier}" data-tier="${c.tier}"${c.tier === def ? '' : ' style="display:none"'}>
   <div class="hd">
     <span class="tier ${c.tier}">${c.tier}</span>
     <span class="pf ${c.platform}">${c.platform === 'tiktok' ? '♪ TikTok' : '◉ Instagram'}</span>
@@ -41,6 +41,11 @@ export function renderHtml(creators: Creator[], meta: any): string {
     <tr><td>${esc(k.keyword)}</td><td>${esc(k.dimension)}</td>
         <td>${k.found}</td><td>${k.fit_pass}</td>
         <td>${k.found ? Math.round(k.fit_pass / k.found * 100) : 0}%</td></tr>`).join('')
+
+  // 没有「全部」tab，所以必须有一个分层默认选中。取第一个非空的 ——
+  // 默认落在空分层上，打开报告第一眼是空白，会被当成出错了。
+  const def: 'A' | 'B' | 'C' =
+    (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'
 
   const notes: string[] = []
   if (!meta.enriched) {
@@ -122,13 +127,12 @@ ${notes.length ? `<div class="notes">${notes.map(n => `<div>⚠️ ${esc(n)}</di
 
 <h2>名单</h2>
 <div class="tabs">
-  <button class="tab on" data-f="all">全部<span class="n">${meta.total}</span></button>
-  <button class="tab A" data-f="A">A级 直接发信<span class="n">${meta.tiers.A}</span></button>
-  <button class="tab B" data-f="B">B级 先互动<span class="n">${meta.tiers.B}</span></button>
-  <button class="tab C" data-f="C">C级 观察池<span class="n">${meta.tiers.C}</span></button>
+  <button class="tab A${def === 'A' ? ' on' : ''}" data-f="A">A级 直接发信<span class="n">${meta.tiers.A}</span></button>
+  <button class="tab B${def === 'B' ? ' on' : ''}" data-f="B">B级 先互动<span class="n">${meta.tiers.B}</span></button>
+  <button class="tab C${def === 'C' ? ' on' : ''}" data-f="C">C级 观察池<span class="n">${meta.tiers.C}</span></button>
 </div>
 <div class="cards" id="cards">${creators.map(card).join('')}</div>
-<div class="empty" id="none" style="display:none">这一层没有人</div>
+<div class="empty" id="none" style="display:${meta.tiers[def] ? 'none' : ''}">这一层没有人</div>
 </div>
 <script>
 function cp(b){const t=b.previousElementSibling.textContent;
@@ -141,13 +145,11 @@ document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>
   const f=tab.dataset.f;
   let shown=0;
   for(const c of cards){
-    const hit = f==='all' || c.dataset.tier===f;
+    const hit = c.dataset.tier===f;
     c.style.display = hit ? '' : 'none';
     if(hit) shown++;
   }
   document.getElementById('none').style.display = shown ? 'none' : '';
-  // 切换后回到名单顶部，否则从长列表底部切过去会看到一片空白
-  document.querySelector('.tabs').scrollIntoView({block:'start'});
 }));
 </script></body></html>`
 }

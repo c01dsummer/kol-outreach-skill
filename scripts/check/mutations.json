@@ -134,8 +134,16 @@
       "req": "U6",
       "why": "卡片不带 data-tier，tab 切换失效，四个 tab 显示的内容完全一样",
       "file": "scripts/lib/report.ts",
-      "find": "<div class=\"card ${c.tier}\" data-tier=\"${c.tier}\">",
-      "replace": "<div class=\"card ${c.tier}\">"
+      "find": "<div class=\"card ${c.tier}\" data-tier=\"${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>",
+      "replace": "<div class=\"card ${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>"
+    },
+    {
+      "id": "M-U6-b",
+      "req": "U6",
+      "why": "默认永远选 A —— A 级为空时打开报告第一眼是空白，会被当成出错了",
+      "file": "scripts/lib/report.ts",
+      "find": "    (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'",
+      "replace": "    'A'"
     }
   ],
   "exemptions": [

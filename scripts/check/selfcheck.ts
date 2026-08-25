@@ -115,9 +115,9 @@ if (dir) {
   else {
     const b = readFileSync(xlsx)
     if (b.subarray(0, 2).toString() !== 'PK') { failed++; console.error('  ✗ xlsx 不是 ZIP 容器') }
-    else if (!b.toString('latin1').includes('xl/worksheets/sheet4.xml')) {
-      failed++; console.error('  ✗ xlsx 缺 sheet（应为 全部/A/B/C 四个）')
-    } else console.log('  ✓ xlsx 四个 sheet 齐全')
+    else if (!b.toString('latin1').includes('xl/worksheets/sheet3.xml')) {
+      failed++; console.error('  ✗ xlsx 缺 sheet（应为 A/B/C 三个）')
+    } else console.log('  ✓ xlsx 三个 sheet 齐全')
   }
   if (!existsSync(html)) { failed++; console.error('  ✗ 未生成 HTML') }
   else {
@@ -127,7 +127,9 @@ if (dir) {
     } else console.log('  ✓ HTML 含数据边界声明')
     if (!h.includes('data-f="A"') || !h.includes('data-tier=')) {
       failed++; console.error('  ✗ HTML 缺分层 tab 或卡片 data-tier（违反 U6）')
-    } else console.log('  ✓ HTML 分层 tab 可用')
+    } else if (h.includes('scrollIntoView')) {
+      failed++; console.error('  ✗ HTML 切 tab 会滚动页面（违反 U6）')
+    } else console.log('  ✓ HTML 分层 tab 可用且不滚动')
   }
 }
 
