@@ -1,4 +1,4 @@
-import type { Creator, Platform, SearchTask, RecentPost } from '../lib/types.js'
+import type { Creator, Platform, SearchTask, RecentPost, SearchPage } from '../lib/types.js'
 import { Budget } from '../lib/budget.js'
 import { extractEmail } from '../lib/email.js'
 
@@ -85,9 +85,9 @@ export class TikHub {
   // ---------- TikTok ----------
 
   /** 视频搜索 → 从 author 提取创作者。按内容匹配，能过滤掉商家号。 */
-  private async searchTikTok(kw: string, region: string, page: number): Promise<Partial<Creator>[]> {
+  private async searchTikTok(kw: string, region: string, offset: number): Promise<SearchPage> {
     const raw = await this.get('/api/v1/tiktok/app/v3/fetch_video_search_result', {
-      keyword: kw, offset: page * 20, count: 20, region,
+      keyword: kw, offset, count: 20, region,
     })
     const list = pickList(raw, 'tiktok/video_search')
 
@@ -123,7 +123,11 @@ export class TikHub {
         recent_posts: [post],
       })
     }
-    return [...byHandle.values()]
+    return {
+      creators: [...byHandle.values()],
+      raw_count: list.length,
+      has_more: Boolean(raw?.data?.has_more),
+    }
   }
 
   /**
@@ -163,7 +167,7 @@ export class TikHub {
    *   2. **对词组敏感** —— "smoothie recipe" 返回 0，"smoothie" 返回 12。
    *      IG 侧的关键词要比 TikTok 短
    */
-  private async searchInstagramReels(kw: string): Promise<Partial<Creator>[]> {
+  private async searchInstagramReels(kw: string): Promise<SearchPage> {
     const raw = await this.get('/api/v1/instagram/v2/search_reels', { keyword: kw })
     const list = pickList(raw, 'instagram/search_reels')
 
@@ -196,14 +200,15 @@ export class TikHub {
         recent_posts: [post],
       })
     }
-    return [...byHandle.values()]
+    // Reels 搜索没有分页游标 —— 永远只有一页
+    return { creators: [...byHandle.values()], raw_count: list.length, has_more: false }
   }
 
   /** IG 关键词搜用户 —— Reels 搜索无结果时的补充路径。商家号偏多。 */
-  private async searchInstagramUsers(kw: string): Promise<Partial<Creator>[]> {
+  private async searchInstagramUsers(kw: string): Promise<SearchPage> {
     const raw = await this.get('/api/v1/instagram/v2/search_users', { keyword: kw })
     const list = pickList(raw, 'instagram/search_users')
-    return list.flatMap((item: any) => {
+    const creators = list.flatMap((item: any) => {
       const u = item?.user ?? item
       const handle = u?.username
       if (!handle) return []
@@ -219,6 +224,7 @@ export class TikHub {
         recent_posts: [],
       }]
     })
+    return { creators, raw_count: list.length, has_more: false }
   }
 
   /** V3 字段最全（biography + bio_links）；拿不到就降级到 V2。 */
@@ -255,12 +261,12 @@ export class TikHub {
 
   // ---------- 统一入口 ----------
 
-  async search(task: SearchTask, region: string, page: number): Promise<Partial<Creator>[]> {
-    if (task.platform === 'tiktok') return this.searchTikTok(task.keyword, region, page)
-    // IG 的 Reels 搜索没有分页游标，第 2 页起直接返回空，避免白花请求
-    if (page > 0) return []
+  async search(task: SearchTask, region: string, offset: number): Promise<SearchPage> {
+    if (task.platform === 'tiktok') return this.searchTikTok(task.keyword, region, offset)
+    // IG 的 Reels 搜索没有分页游标，offset > 0 直接返回空，不白花请求
+    if (offset > 0) return { creators: [], raw_count: 0, has_more: false }
     const reels = await this.searchInstagramReels(task.keyword)
-    return reels.length ? reels : this.searchInstagramUsers(task.keyword)
+    return reels.creators.length ? reels : this.searchInstagramUsers(task.keyword)
   }
 
   async profile(handle: string, platform: Platform): Promise<Partial<Creator>> {

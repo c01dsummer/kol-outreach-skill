@@ -53,7 +53,7 @@ if (resume) {
   state = {
     product: cfg.product, market: cfg.market ?? 'US',
     target_count: cfg.target_count ?? 50, budget_usd: cfg.budget_usd ?? 2,
-    tasks: cfg.tasks, done: [], requests: 0,
+    tasks: cfg.tasks, done: [], offsets: {}, requests: 0,
     created_at: new Date().toISOString(), updated_at: '',
   }
   dir = taskDir(state.product)
@@ -80,63 +80,116 @@ for (const c of loadCreators(dir)) creators.set(`${c.platform}:${c.handle.toLowe
 let stopped: 'budget' | 'target' | 'done' | 'error' = 'done'
 let errorMsg = ''
 
+/**
+ * 达标判断必须数**能进名单的人**，不是采到的总数。
+ *
+ * 实测栽过：blendjet 一个词采到 64 人 ≥ 目标 50 于是停止，但过粉丝闸门后只剩
+ * 36 人 —— 既没达标，又丢掉了另外 6 个关键词的维度多样性。
+ */
+function qualified(): number {
+  return [...creators.values()].filter(passesFollowerGate).length
+}
+
 function persist() {
   state.requests = budget.count
   saveTask(dir, state)
   saveCreators(dir, [...creators.values()])
 }
 
+/**
+ * 轮转采集：先给每个关键词各抓一页，再回头抓第二页。
+ *
+ * 不能顺序跑完一个词再跑下一个 —— 实测 blendjet 一个词就够 50 人，于是场景词、
+ * 人群词、整个 IG 一个都没跑到。**四个维度各有各的价值**正是关键词策略的核心，
+ * 让第一个词吃掉全部配额等于把策略作废。
+ */
 async function run() {
-  for (let i = 0; i < state.tasks.length; i++) {
-    if (state.done.includes(i)) continue
-    if (creators.size >= state.target_count) { stopped = 'target'; break }
+  // 从 task.json 恢复 —— 预算中途用尽时，续跑要从断掉的那一页接上
+  state.offsets ??= {}
+  const exhausted = new Set<number>(state.done)
+  const addedBy = new Map<number, number>()
+  const pages = new Map<number, number>()       // 本关键词已抓页数（跨运行由 offsets 推不出来，只在本轮计）
 
-    const t = state.tasks[i]
-    const label = `${t.as_hashtag ? '#' : ''}${t.keyword} · ${t.platform}`
-    let added = 0
+  for (let round = 0; round < MAX_PAGES; round++) {
+    let anyProgress = false
 
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const found = await api.search(t, state.market, page)
-      if (!found.length) break          // 该关键词耗尽，不再翻页浪费请求
+    for (let i = 0; i < state.tasks.length; i++) {
+      if (exhausted.has(i)) continue
+      if (qualified() >= state.target_count) { stopped = 'target'; break }
 
-      let newThisPage = 0
+      const t = state.tasks[i]
+      const offset = state.offsets[i] ?? 0
+      const { creators: found, raw_count, has_more } = await api.search(t, state.market, offset)
+      anyProgress = true
+
+      let added = 0
       for (const p of found) {
         if (!p.handle) continue
         const k = `${p.platform}:${p.handle.toLowerCase()}`
         if (creators.has(k)) continue
-        creators.set(k, {
-          ...(p as Creator),
-          source_keyword: t.keyword,
-          source_dimension: t.dimension,
-        })
-        newThisPage++; added++
+        creators.set(k, { ...(p as Creator), source_keyword: t.keyword, source_dimension: t.dimension })
+        added++
       }
-      // 新增衰减到 0 说明这个词已经挖完了
-      if (newThisPage === 0) break
-      if (creators.size >= state.target_count) break
+      addedBy.set(i, (addedBy.get(i) ?? 0) + added)
+      pages.set(i, (pages.get(i) ?? 0) + 1)
+
+      // offset 按 API **实际返回条数**递增。固定 +20 会在返回不足的一页之后跳过数据。
+      state.offsets[i] = offset + raw_count
+      // 用 API 自己的 has_more，比「本页新增 0 人」准，也省一次探路请求
+      if (!raw_count || !has_more) {
+        exhausted.add(i)
+        state.done.push(i)
+        console.error(`  ✓ ${t.keyword} · ${t.platform} → 共 ${addedBy.get(i)} 人（累计 ${creators.size}）  ${budget.summary()}`)
+      }
+      persist()
     }
 
-    state.done.push(i)
-    persist()
-    console.error(`  ✓ ${label} → 新增 ${added} 人（累计 ${creators.size}）  ${budget.summary()}`)
+    if (stopped === 'target' || !anyProgress) break
   }
+
+  // 跑满页数上限的关键词记为已完成。
+  // 判据是**抓够了页数**，不是「本次新增 > 0」—— 续跑时同一批人已在库里，
+  // 新增恒为 0，用新增数判断会导致关键词永远标不完，续跑无限重来。
+  if (stopped !== 'budget') {
+    for (let i = 0; i < state.tasks.length; i++) {
+      if (state.done.includes(i)) continue
+      if ((pages.get(i) ?? 0) >= MAX_PAGES) {
+        state.done.push(i)
+        console.error(`  ◦ ${state.tasks[i].keyword} · ${state.tasks[i].platform} → 达页数上限（累计新增 ${addedBy.get(i) ?? 0} 人）`)
+      }
+    }
+  }
+  persist()
 }
 
 // ---------- Profile 补全 ----------
 
+let profileFailed = 0
+
 async function enrichProfiles() {
-  const list = [...creators.values()].filter(c => !c.bio || !c.bio_links?.length)
+  const list = [...creators.values()].filter(c => c.bio === undefined || !c.bio_links?.length)
   console.error(`\n补全 profile：${list.length} 人`)
+  let done = 0
   for (const c of list) {
-    const p = await api.profile(c.handle, c.platform)
-    Object.assign(c, {
-      ...p,
-      nickname: p.nickname ?? c.nickname,
-      followers: p.followers ?? c.followers,
-      post_count: p.post_count ?? c.post_count,
-    })
-    fillEmail(c)
+    try {
+      const p = await api.profile(c.handle, c.platform)
+      Object.assign(c, {
+        ...p,
+        nickname: p.nickname ?? c.nickname,
+        followers: p.followers ?? c.followers,
+        post_count: p.post_count ?? c.post_count,
+      })
+      fillEmail(c)
+    } catch (e) {
+      // 单个失败不该拖垮整轮（一个 404 就挂掉 50 人的采集是不可接受的）。
+      // 但**不静默吞掉** —— 计数上报，且该创作者的 bio/email 保持 undefined，
+      // 即「未查询」，不会被下游读成「没有邮箱」。
+      if (e instanceof BudgetExceeded) throw e
+      profileFailed++
+    }
+    if (++done % 10 === 0) console.error(`  ${done}/${list.length}`)
   }
+  if (profileFailed) console.error(`  ⚠️ ${profileFailed} 人补全失败，其 bio/email 保持「未查询」`)
 }
 
 async function main() {
@@ -180,6 +233,7 @@ async function main() {
     with_email: kept.filter(c => c.email).length,
     cross_platform: linked,
     unknown_followers: unknownFollowers,
+    profile_failed: profileFailed,
     filtered_recommended, filtered_contacted,
     keywords_done: state.done.length,
     keywords_total: state.tasks.length,

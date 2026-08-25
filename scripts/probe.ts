@@ -55,7 +55,7 @@ async function main() {
   for (const t of cfg.tasks) {
     const label = `${t.as_hashtag ? '#' : ''}${t.keyword} · ${t.platform}`
     try {
-      const found = await api.search(t, market, 0)
+      const { creators: found } = await api.search(t, market, 0)
       // P1：粉丝数未知的排除出中位数计算，而不是当作 0 拉低它
       const followers = found.map(c => c.followers).filter((n): n is number => n !== undefined)
 

@@ -75,12 +75,33 @@ export interface TaskState {
   budget_usd: number
 
   tasks: SearchTask[]
-  /** 已完成的 task 索引，用于断点续跑 */
+  /** 已完成（耗尽或已达标收尾）的 task 索引 */
   done: number[]
+
+  /**
+   * D6：每个 task 下一页的 offset。
+   * 只记 done 不够 —— 预算在某个关键词跑到一半时用尽，续跑必须从那一页接上，
+   * 否则会把已经付过费的几页重新抓一遍。
+   */
+  offsets: Record<number, number>
 
   /** 累计请求数 —— 跨多次运行累加，续跑时不重复计费 */
   requests: number
 
   created_at: string
   updated_at: string
+}
+
+/**
+ * 一页搜索结果。
+ *
+ * 必须带回 `raw_count` 和 `has_more` —— 调用方不能假设每页固定 20 条：
+ * 按固定步长递增 offset，遇到返回不足的一页就会**跳过数据**。
+ */
+export interface SearchPage {
+  creators: Partial<Creator>[]
+  /** API 本页实际返回的条数（去重前），offset 按它递增 */
+  raw_count: number
+  /** API 自己说还有没有下一页。比「本页新增 0 人」准，也省一次请求 */
+  has_more: boolean
 }
