@@ -14,7 +14,8 @@ import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, applyGeoPenalty } from './lib/score.js'
 import { recordRecommendations } from './lib/memory.js'
 import { writeCsv } from './lib/csv.js'
-import { HEADERS, toRow, sortForOutput } from './lib/rows.js'
+import { HEADERS, toRow, sortForOutput, buildSheets } from './lib/rows.js'
+import { writeXlsx, type Sheet } from './lib/xlsx.js'
 import { renderHtml } from './lib/report.js'
 import type { Creator } from './lib/types.js'
 
@@ -43,9 +44,15 @@ creators = creators.filter(c => {
 creators = sortForOutput(creators)
 saveCreators(dir, creators)
 
-// ---------- CSV ----------
+// ---------- CSV（单表，供脚本与其他工具消费）----------
 const csvPath = join(dir, 'kol.csv')
 writeCsv(csvPath, [...HEADERS], sortForOutput(creators).map(toRow))
+
+// ---------- XLSX（分 sheet，供人快速切换）----------
+// CSV 规范里没有「工作表」这个概念，多 sheet 只能走 xlsx。两个文件各司其职：
+// CSV 给机器读，xlsx 给人看。
+const xlsxPath = join(dir, 'kol.xlsx')
+writeXlsx(xlsxPath, buildSheets(creators) as Sheet[])
 
 // ---------- 关键词表现 ----------
 const kwStats = new Map<string, { found: number; fit_pass: number; dimension: string }>()
@@ -83,6 +90,7 @@ recordRecommendations(creators, state.product)
 
 console.log(JSON.stringify({
   csv: csvPath,
+  xlsx: xlsxPath,
   html: join(dir, 'report.html'),
   ...meta,
 }, null, 2))

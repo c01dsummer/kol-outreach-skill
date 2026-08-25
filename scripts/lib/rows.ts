@@ -46,3 +46,21 @@ export function sortForOutput(creators: Creator[]): Creator[] {
   return [...creators].sort(
     (a, b) => order[a.tier!] - order[b.tier!] || (b.score ?? 0) - (a.score ?? 0))
 }
+
+const TIER_LABEL = { A: 'A级 直接发信', B: 'B级 先互动', C: 'C级 观察池' } as const
+
+/**
+ * U5：按分层切成多个 sheet。
+ *
+ * **空分层也建 sheet**，名称里标出 `(0)` —— 「这一层一个人都没有」本身是信息。
+ * 隐藏掉会让运营以为是数据漏了，而不是这一层真的没人。
+ */
+export function buildSheets(creators: Creator[]): Array<{ name: string; headers: string[]; rows: unknown[][] }> {
+  const sorted = sortForOutput(creators)
+  const out = [{ name: `全部 (${sorted.length})`, headers: [...HEADERS], rows: sorted.map(toRow) }]
+  for (const t of ['A', 'B', 'C'] as const) {
+    const rows = sorted.filter(c => c.tier === t)
+    out.push({ name: `${TIER_LABEL[t]} (${rows.length})`, headers: [...HEADERS], rows: rows.map(toRow) })
+  }
+  return out
+}

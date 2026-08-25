@@ -120,6 +120,22 @@
       "file": "scripts/providers/tikhub.ts",
       "find": "  const nonEmpty = arrays.find(a => a.length > 0)",
       "replace": "  const nonEmpty = arrays[0]"
+    },
+    {
+      "id": "M-U5-a",
+      "req": "U5",
+      "why": "空分层不建 sheet —— 运营会以为是漏了数据，而不是这一层真的没人",
+      "file": "scripts/lib/rows.ts",
+      "find": "    out.push({ name: `${TIER_LABEL[t]} (${rows.length})`, headers: [...HEADERS], rows: rows.map(toRow) })",
+      "replace": "    if (rows.length) out.push({ name: `${TIER_LABEL[t]} (${rows.length})`, headers: [...HEADERS], rows: rows.map(toRow) })"
+    },
+    {
+      "id": "M-U6-a",
+      "req": "U6",
+      "why": "卡片不带 data-tier，tab 切换失效，四个 tab 显示的内容完全一样",
+      "file": "scripts/lib/report.ts",
+      "find": "<div class=\"card ${c.tier}\" data-tier=\"${c.tier}\">",
+      "replace": "<div class=\"card ${c.tier}\">"
     }
   ],
   "exemptions": [

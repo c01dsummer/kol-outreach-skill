@@ -110,12 +110,24 @@ if (dir) {
       failed++; console.error('  ✗ CSV 未出现「未查询」—— P1 的三档区分没到达产出物')
     } else console.log('  ✓ CSV 区分「未查询」与空值')
   }
+  const xlsx = join(tmp, dir, 'kol.xlsx')
+  if (!existsSync(xlsx)) { failed++; console.error('  ✗ 未生成 xlsx') }
+  else {
+    const b = readFileSync(xlsx)
+    if (b.subarray(0, 2).toString() !== 'PK') { failed++; console.error('  ✗ xlsx 不是 ZIP 容器') }
+    else if (!b.toString('latin1').includes('xl/worksheets/sheet4.xml')) {
+      failed++; console.error('  ✗ xlsx 缺 sheet（应为 全部/A/B/C 四个）')
+    } else console.log('  ✓ xlsx 四个 sheet 齐全')
+  }
   if (!existsSync(html)) { failed++; console.error('  ✗ 未生成 HTML') }
   else {
     const h = readFileSync(html, 'utf8')
     if (!h.includes('未做有效性验证')) {
       failed++; console.error('  ✗ HTML 缺少数据边界声明（违反 P5）')
     } else console.log('  ✓ HTML 含数据边界声明')
+    if (!h.includes('data-f="A"') || !h.includes('data-tier=')) {
+      failed++; console.error('  ✗ HTML 缺分层 tab 或卡片 data-tier（违反 U6）')
+    } else console.log('  ✓ HTML 分层 tab 可用')
   }
 }
 

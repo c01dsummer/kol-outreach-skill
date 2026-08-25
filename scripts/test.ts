@@ -10,7 +10,10 @@ import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { fillEmail, pickList } from './providers/tikhub.js'
 import { esc } from './lib/csv.js'
-import { HEADERS, toRow, cell, sortForOutput } from './lib/rows.js'
+import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
+import { writeXlsx } from './lib/xlsx.js'
+import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
+import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
 import { renderHtml } from './lib/report.js'
 import { filterByMemory, useMemoryFile } from './lib/memory.js'
@@ -30,6 +33,29 @@ const eq = (label: string, got: unknown, want: unknown) => {
   else console.log(`  ✓ ${label}`)
 }
 const ok = (label: string, cond: boolean) => eq(label, cond, true)
+
+/**
+ * 从 xlsx 里真正读回 sheet 名。
+ *
+ * 必须真解压 —— 早先写过一版靠索引硬编码出 "(0)" 的辅助函数，那是个
+ * 永远不会失败的检查，等于没测。
+ */
+function xlsxSheetNames(path: string): string[] {
+  const buf = rf(path)
+  // 扫本地文件头，找到 xl/workbook.xml 那条，inflate 后取 <sheet name="...">
+  for (let i = 0; i + 30 < buf.length; i++) {
+    if (buf.readUInt32LE(i) !== 0x04034b50) continue
+    const nameLen = buf.readUInt16LE(i + 26)
+    const extraLen = buf.readUInt16LE(i + 28)
+    const name = buf.subarray(i + 30, i + 30 + nameLen).toString('utf8')
+    if (name !== 'xl/workbook.xml') continue
+    const start = i + 30 + nameLen + extraLen
+    const compSize = buf.readUInt32LE(i + 18)
+    const xml = inflateRawSync(buf.subarray(start, start + compSize)).toString('utf8')
+    return [...xml.matchAll(/<sheet name="([^"]+)"/g)].map(m => m[1])
+  }
+  throw new Error('xlsx 里找不到 xl/workbook.xml')
+}
 
 const mk = (p: 'tiktok' | 'instagram', h: string, over: Partial<Creator> = {}): Creator => ({
   platform: p, handle: h, nickname: h, followers: 10000, post_count: 50,
@@ -282,6 +308,32 @@ suite('U1', 'CSV 排序与三档区分')
   eq('未查询与空值可区分', [cell(undefined), cell(null), cell(0)], ['未查询', '', '0'])
 }
 
+suite('U5', 'xlsx 分 sheet')
+{
+  // 只有 A 和 B 有人，C 为空 —— C 的 sheet 必须照建
+  const sheets = buildSheets([
+    mk('tiktok', 'a', { tier: 'A', score: 90 }),
+    mk('instagram', 'b', { tier: 'B', score: 50 }),
+  ])
+  eq('四个 sheet（含空的 C）', sheets.length, 4)
+  eq('sheet 名带计数', sheets.map(s => s.name),
+     ['全部 (2)', 'A级 直接发信 (1)', 'B级 先互动 (1)', 'C级 观察池 (0)'])
+
+  const tmpx = join(tmpdir(), `kol-u5-${process.pid}.xlsx`)
+  writeXlsx(tmpx, sheets)
+  const buf = rf(tmpx)
+  eq('是 ZIP 容器', buf.subarray(0, 2).toString(), 'PK')
+  const text = buf.toString('latin1')
+  ok('含 workbook', text.includes('xl/workbook.xml'))
+  ok('四个 sheet 各一个 xml', ['sheet1', 'sheet2', 'sheet3', 'sheet4'].every(n => text.includes(`xl/worksheets/${n}.xml`)))
+
+  // 空分层也必须建 sheet —— 「这一层没人」是信息，隐藏会让人以为漏了数据
+  const names = xlsxSheetNames(tmpx)
+  eq('sheet 名读回正确', names, ['全部 (2)', 'A级 直接发信 (1)', 'B级 先互动 (1)', 'C级 观察池 (0)'])
+  ok('空分层的 sheet 存在且标出 (0)', names.some(n => n.endsWith('(0)')))
+  ul(tmpx)
+}
+
 suite('U2', 'HTML 报告不依赖网络资源')
 {
   const html = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 1, profile_url: 'https://www.tiktok.com/@a' })],
@@ -291,6 +343,20 @@ suite('U2', 'HTML 报告不依赖网络资源')
   ok('无外部 script', !/<script[^>]+src=/.test(html))
   ok('无外部样式表', !/<link[^>]+href=/.test(html))
   ok('无外部图片', !/<img[^>]+src="https?:/.test(html))
+}
+
+suite('U6', 'HTML 分层 tab 与平台标签')
+{
+  const html = renderHtml(
+    [mk('tiktok', 'a', { tier: 'A', score: 1 }), mk('instagram', 'b', { tier: 'B', score: 1 })],
+    { product: 'p', market: 'US', platforms: ['tiktok', 'instagram'], keywords: [], total: 2,
+      tiers: { A: 1, B: 1, C: 0 }, email_count: 0, cross_platform_count: 0,
+      requests: 1, cost_estimate_usd: 0.001, budget_usd: 2, enriched: false })
+  ok('四个 tab', ['data-f="all"', 'data-f="A"', 'data-f="B"', 'data-f="C"'].every(t => html.includes(t)))
+  ok('卡片带 data-tier 供筛选', html.includes('data-tier="A"') && html.includes('data-tier="B"'))
+  ok('平台标签区分 class', html.includes('pf tiktok') && html.includes('pf instagram'))
+  ok('平台标签有专属配色', html.includes('.pf.tiktok{') && html.includes('.pf.instagram{'))
+  ok('平台标签与次要标签不同层级', html.includes('.xp{') && !html.includes('.pf,.xp{'))
 }
 
 suite('U4', 'A 级附开发信草稿且可复制')
