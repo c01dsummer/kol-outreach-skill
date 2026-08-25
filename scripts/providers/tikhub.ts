@@ -28,10 +28,11 @@ export class TikHubError extends Error {
 export function pickList(data: any, path: string): any[] {
   const d = data?.data ?? data
   const cands = [
-    d?.search_item_list,                        // ★ 视频搜索的真实结果在这里
-    d?.user_list, d?.users, d?.aweme_list, d?.data,
-    d?.hashtag?.edge_hashtag_to_media?.edges,   // IG hashtag，GraphQL 风格
-    d?.items, d?.result,
+    d?.search_item_list,                        // ★ TikTok 视频搜索的真实结果
+    d?.data?.items,                             // ★ IG v2 search_reels / search_users
+    d?.user_list, d?.users, d?.aweme_list,
+    d?.data?.hashtag?.edge_hashtag_to_media?.edges,   // IG v1 hashtag（已弃用，见下）
+    d?.data, d?.items, d?.result,
   ]
   const arrays = cands.filter(Array.isArray)
 
@@ -147,24 +148,36 @@ export class TikHub {
 
   // ---------- Instagram ----------
 
-  /** IG 主路径是 hashtag —— 关键词搜索更偏账号名匹配，商家号多。 */
-  private async searchInstagramHashtag(tag: string, cursor?: string): Promise<Partial<Creator>[]> {
-    const raw = await this.get('/api/v1/instagram/v1/fetch_hashtag_posts', {
-      hashtag: tag.replace(/^#/, ''), ...(cursor ? { end_cursor: cursor } : {}),
-    })
-    const list = pickList(raw, 'instagram/hashtag_posts')
+  /**
+   * IG 主路径：Reels 搜索。
+   *
+   * 这是 TikTok 视频搜索在 IG 上的对应物 —— 按**内容**匹配而非账号名，
+   * 找到的是真在做这类内容的人。
+   *
+   * 为什么不用 v1 的 hashtag 端点：实测它的 `owner` 只有 `{id}`，
+   * 没有 username 也没有粉丝数，每个创作者还要额外一次 id→username 调用，
+   * 成本翻倍且拿不到更多信息。已弃用。
+   *
+   * ⚠️ 两个实测限制：
+   *   1. **没有分页游标** —— 响应只有 `count` 和 `items`，一个关键词只能拿一页
+   *   2. **对词组敏感** —— "smoothie recipe" 返回 0，"smoothie" 返回 12。
+   *      IG 侧的关键词要比 TikTok 短
+   */
+  private async searchInstagramReels(kw: string): Promise<Partial<Creator>[]> {
+    const raw = await this.get('/api/v1/instagram/v2/search_reels', { keyword: kw })
+    const list = pickList(raw, 'instagram/search_reels')
 
     const byHandle = new Map<string, Partial<Creator>>()
-    for (const edge of list) {
-      const n = edge?.node ?? edge
-      const owner = n?.owner ?? n?.user
-      const handle = owner?.username
+    for (const item of list) {
+      const u = item?.user ?? item?.media?.user
+      const handle = u?.username
       if (!handle) continue
 
       const post: RecentPost = {
-        desc: n?.edge_media_to_caption?.edges?.[0]?.node?.text ?? n?.caption?.text ?? n?.caption ?? '',
-        plays: n?.video_view_count ?? n?.play_count,
-        likes: n?.edge_liked_by?.count ?? n?.like_count,
+        desc: item?.caption?.text ?? '',
+        plays: item?.play_count ?? item?.ig_play_count,
+        // like_count 实测可能是 null（作者隐藏了赞数）—— null 是「不可见」不是 0
+        likes: item?.like_count ?? undefined,
       }
 
       const seen = byHandle.get(handle)
@@ -173,11 +186,12 @@ export class TikHub {
       byHandle.set(handle, {
         platform: 'instagram',
         handle,
-        user_id: owner?.id ?? owner?.pk,
-        nickname: owner?.full_name ?? '',   // p1-ok: 展示用
-        followers: owner?.edge_followed_by?.count ?? owner?.follower_count,
+        user_id: u?.id ?? u?.pk,
+        nickname: u?.full_name ?? '',   // p1-ok: 展示用
+        // followers / post_count / bio 搜索结果里都没有 —— 保持 undefined 等 profile 补全
         bio_links: [],
-        verified: Boolean(owner?.is_verified),
+        verified: Boolean(u?.is_verified),
+        is_private: Boolean(u?.is_private),
         profile_url: `https://www.instagram.com/${handle}/`,
         recent_posts: [post],
       })
@@ -185,26 +199,26 @@ export class TikHub {
     return [...byHandle.values()]
   }
 
-  /** IG 关键词搜用户 —— hashtag 无结果时的补充路径 */
+  /** IG 关键词搜用户 —— Reels 搜索无结果时的补充路径。商家号偏多。 */
   private async searchInstagramUsers(kw: string): Promise<Partial<Creator>[]> {
-    const raw = await this.get('/api/v1/instagram/v1/fetch_search', { query: kw, select: 'users' })
-    const list = Array.isArray(raw?.data?.users) ? raw.data.users : pickList(raw, 'instagram/search')
-    return list.map((item: any) => {
+    const raw = await this.get('/api/v1/instagram/v2/search_users', { keyword: kw })
+    const list = pickList(raw, 'instagram/search_users')
+    return list.flatMap((item: any) => {
       const u = item?.user ?? item
       const handle = u?.username
-      if (!handle) return null
-      return {
+      if (!handle) return []
+      return [{
         platform: 'instagram' as Platform,
         handle,
-        user_id: u?.pk ?? u?.id,
+        user_id: u?.id ?? u?.pk,
         nickname: u?.full_name ?? '',   // p1-ok: 展示用
-        followers: u?.follower_count,
         bio_links: [],
         verified: Boolean(u?.is_verified),
+        is_private: Boolean(u?.is_private),
         profile_url: `https://www.instagram.com/${handle}/`,
         recent_posts: [],
-      }
-    }).filter(Boolean) as Partial<Creator>[]
+      }]
+    })
   }
 
   /** V3 字段最全（biography + bio_links）；拿不到就降级到 V2。 */
@@ -231,7 +245,9 @@ export class TikHub {
       bio: u?.biography,
       bio_links: links,
       followers: u?.follower_count ?? undefined,
+      // 实测 media_count 常为 null（IG 不返回）—— null 是「没给」，当 0 会让活跃度加分失效
       post_count: u?.media_count ?? undefined,
+      is_private: Boolean(u?.is_private),
       verified: Boolean(u?.is_verified),
       avatar: u?.profile_pic_url,
     }
@@ -241,8 +257,10 @@ export class TikHub {
 
   async search(task: SearchTask, region: string, page: number): Promise<Partial<Creator>[]> {
     if (task.platform === 'tiktok') return this.searchTikTok(task.keyword, region, page)
-    if (task.as_hashtag) return this.searchInstagramHashtag(task.keyword)
-    return this.searchInstagramUsers(task.keyword)
+    // IG 的 Reels 搜索没有分页游标，第 2 页起直接返回空，避免白花请求
+    if (page > 0) return []
+    const reels = await this.searchInstagramReels(task.keyword)
+    return reels.length ? reels : this.searchInstagramUsers(task.keyword)
   }
 
   async profile(handle: string, platform: Platform): Promise<Partial<Creator>> {

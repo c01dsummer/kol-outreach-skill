@@ -18,6 +18,13 @@ const SENSITIVE = [
 ]
 const FALLBACK = /(\?\?|\|\|)\s*(0\b|''|""|`|\[\]|false\b)/
 
+/**
+ * 第二类形状：**空输入时返回 0**。
+ * 实测栽过一次 —— probe 的 median 在无粉丝数据时返回 0，被读成「这批全是小号」。
+ * 敏感字段启发式抓不到它（median 是局部函数），所以单列一条。
+ */
+const EMPTY_ZERO = /if\s*\(\s*!\w+\.length\s*\)\s*return\s+(0\b|''|"")/
+
 const SKIP_DIRS = ['check']
 const SKIP_FILES = ['test.ts']
 
@@ -39,8 +46,11 @@ let exempted = 0
 for (const file of walk('scripts')) {
   const lines = readFileSync(file, 'utf8').split('\n')
   lines.forEach((text, i) => {
-    if (!FALLBACK.test(text)) return
-    if (!SENSITIVE.some(f => text.includes(f))) return
+    const emptyZero = EMPTY_ZERO.test(text)
+    if (!emptyZero) {
+      if (!FALLBACK.test(text)) return
+      if (!SENSITIVE.some(f => text.includes(f))) return
+    }
     if (/\/\/\s*p1-ok:\s*\S/.test(text)) { exempted++; return }
     if (/\/\/\s*p1-ok\b/.test(text)) {
       hits.push({ file, line: i + 1, text: text.trim() + '   ← p1-ok 必须写明理由' })

@@ -106,32 +106,53 @@ data.userInfo.user.avatarMedium
 
 ## Instagram
 
-IG 的发现路径和 TikTok 不同 —— **hashtag 是主路径**，因为 IG 的关键词搜索更偏账号名匹配。
+**发现主路径是 Reels 搜索，不是 hashtag。** 全部端点于 2026-08-25 真实调用核实。
 
-### 发现：Hashtag 帖子
-
-```
-GET /api/v1/instagram/v1/fetch_hashtag_posts
-```
-
-| 参数 | 说明 |
-|------|------|
-| `hashtag` | 话题名，**不含 `#`** |
-| `end_cursor` | 分页游标，首次不传 |
-
-响应是 **GraphQL 风格**：`data.hashtag.edge_hashtag_to_media`。和 TikTok 的结构完全不同，解析要分开写。
-
-### 发现：关键词搜索
+### 发现：Reels 搜索（首选）
 
 ```
-GET /api/v1/instagram/v1/fetch_search?query={kw}&select=users
+GET /api/v1/instagram/v2/search_reels?keyword={kw}
 ```
 
-`select` 可选 `users` / `hashtags` / `places`，不传则返回全部。
+这是 TikTok 视频搜索在 IG 上的对应物 —— 按**内容**匹配而非账号名。
 
-**两个用法**：
-- `select=users` 直接搜账号（商家号偏多，作为补充）
-- `select=hashtags` 先搜出相关话题，再喂给 `fetch_hashtag_posts` —— 这条路比自己猜 hashtag 靠谱
+**实测响应结构**：
+
+```
+data.data.items[].user.username      ✓
+data.data.items[].user.full_name     ✓
+data.data.items[].user.id            ✓
+data.data.items[].user.is_verified   ✓
+data.data.items[].user.is_private    ✓  私密号建联方式受限，值得标出
+data.data.items[].user.follower_count  ✗ 没有，必须补 profile
+data.data.items[].caption.text       ✓
+data.data.items[].play_count         ✓
+data.data.items[].like_count         ⚠️ 可能是 null（作者隐藏赞数）—— null 是「不可见」不是 0
+```
+
+⚠️ **两个实测限制**：
+
+1. **没有分页游标。** 响应只有 `count` 和 `items`，一个关键词只能拿一页（约 12 条）。
+   代码里第 2 页起直接返回空，不白花请求
+2. **对词组敏感。** `smoothie recipe` 返回 **0** 条，`smoothie` 返回 12 条。
+   **IG 侧的关键词要比 TikTok 短** —— 生成关键词时分平台处理
+
+### 为什么弃用了 v1 的 hashtag 端点
+
+`/api/v1/instagram/v1/fetch_hashtag_posts` 能跑通（`data.data.hashtag.edge_hashtag_to_media.edges`，
+33 条），但**它的 `owner` 只有 `{id}`** —— 没有 username、没有昵称、没有粉丝数。
+
+每个创作者要额外一次 `user_id_to_username` 调用才能拿到 handle，成本翻倍，
+而且拿到的信息还不如 Reels 搜索多。已弃用。
+
+### 备选：关键词搜用户
+
+```
+GET /api/v1/instagram/v2/search_users?keyword={kw}
+```
+
+响应 `data.data.items[]`，直接是 user 对象（`username` / `full_name` / `id`），50 条。
+商家号偏多，作为 Reels 搜索无结果时的兜底。
 
 ### 补全：用户 Profile
 
@@ -139,32 +160,35 @@ GET /api/v1/instagram/v1/fetch_search?query={kw}&select=users
 GET /api/v1/instagram/v1/fetch_user_info_by_username_v3?username={handle}
 ```
 
-V3 返回字段最全，官方描述里明确包含：
+**实测：user 对象直接在 `data` 下**，不是 `data.user`。
 
 ```
-pk / id            用户 ID
-username
-full_name
-biography          ★ 邮箱在这里
-bio_links[]        ★ 跨平台同人识别信号（列表，不是单个）
-follower_count
-following_count
-media_count
+data.pk / data.id          ✓
+data.username              ✓
+data.full_name             ✓
+data.biography             ✓  邮箱在这里
+data.follower_count        ✓  （V2 没有这个字段，V3 才有）
+data.following_count       ✓
+data.media_count           ⚠️ 实测常为 null —— 当 0 会让活跃度加分失效
+data.is_verified / is_private  ✓
+data.external_url          ✓
+data.bio_links[]           ✓  含 `url`（原始地址）和 `lynx_url`（IG 重定向包装）
 ```
 
-注意 IG 是 `bio_links`（**数组**），TikTok 是 `bioLink.link`（**单个对象**）。两边都要处理。
+`bio_links[].url` 是原始地址可直接用；`lynx_url` 是 `https://l.instagram.com/?u=<编码>` 的包装。
+跨平台同人识别用 `url`。
 
-其他版本：`fetch_user_info_by_username`（V1）、`_v2`、以及 `/api/v1/instagram/v2/fetch_user_info`（username 或 user_id 二选一）。**V2 系列是 TikHub 推荐的稳定默认，V3 用于需要最新数据的场景。** V3 拿不到时降级到 V2。
+### 参数名各版本不一致 —— 踩过的坑
 
-### 帖子列表
+| 端点 | 参数名 |
+|------|--------|
+| `v1/fetch_hashtag_posts` | `hashtag` |
+| `v2/fetch_hashtag_posts` | **`keyword`** |
+| `v3/get_hashtag_posts` | **`tag`** |
+| `v2/search_users` | `keyword` |
+| `v3/search_users` | **`query`** |
 
-```
-GET /api/v1/instagram/v1/fetch_user_posts?user_id={id}&count=12
-```
-
-分页用 `max_id`。注意这里要 **user_id 不是 username** —— 先从 profile 拿到 `pk`。
-
----
+传错会返回 **422** 并明确指出缺哪个字段 —— 这个报错很有用，别急着改别的。
 
 ## 双平台差异速查
 

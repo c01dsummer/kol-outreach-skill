@@ -37,31 +37,43 @@ const tiktokProfile = {
     stats: { followerCount: 82000, videoCount: 214 } } },
 }
 
-const igHashtag = {
-  data: { hashtag: { edge_hashtag_to_media: { edges: [
-    { node: { edge_media_to_caption: { edges: [{ node: { text: 'Packing list for tokyo' } }] },
-              video_view_count: 9000, edge_liked_by: { count: 800 },
-              owner: { username: 'techwithsarah', id: '123', full_name: 'Sarah',
-                       edge_followed_by: { count: 31000 }, is_verified: false } } },
-  ] } } },
+/** 实测结构：data.data.items[]，user 里有 username/full_name，无 follower_count */
+const igReels = {
+  data: { data: { count: 2, items: [
+    { caption: { text: 'mango dragon fruit smoothie 🥭 layered tropical' },
+      play_count: 1582569, like_count: 200211,
+      user: { id: '7763449524', username: 'techwithsarah', full_name: 'Sarah',
+              is_verified: true, is_private: false } },
+    // like_count 实测可能为 null（作者隐藏赞数）
+    { caption: { text: "Don't do this in Blender" }, play_count: 999236, like_count: null,
+      user: { id: '55', username: 'privateaccount', full_name: 'Priv',
+              is_verified: false, is_private: true } },
+  ] } },
 }
 
-const igSearch = { data: { users: [
-  { user: { username: 'wanderwithmei', pk: '456', full_name: 'Mei', follower_count: 120000, is_verified: false } },
-] } }
+const igSearchUsers = {
+  data: { data: { items: [
+    { username: 'wanderwithmei', full_name: 'Mei', id: '456', is_verified: false, is_private: false },
+  ] } },
+}
 
+/** 实测：user 对象直接在 data 下，media_count 常为 null */
 const igProfile = {
-  data: { user: { pk: '123', username: 'techwithsarah', full_name: 'Sarah',
-                  biography: 'travel + tech · press@mybrand.com',
-                  bio_links: [{ url: 'https://tiktok.com/@techwithsarah' }],
-                  follower_count: 31000, media_count: 88, is_verified: false, profile_pic_url: '' } },
+  data: {
+    pk: '7763449524', id: '7763449524', username: 'techwithsarah', full_name: 'Sarah',
+    biography: '3D Generalist\nContact: press@mybrand.com',
+    bio_links: [{ url: 'https://tiktok.com/@techwithsarah', lynx_url: 'https://l.instagram.com/?u=x', title: 'TikTok' }],
+    external_url: 'https://tiktok.com/@techwithsarah',
+    follower_count: 31000, following_count: 630, media_count: null,
+    is_verified: false, is_private: false, profile_pic_url: '',
+  },
 }
 
 function pick(url: string): unknown {
   if (url.includes('fetch_video_search_result')) return tiktokVideoSearch
   if (url.includes('tiktok/web/fetch_user_profile')) return tiktokProfile
-  if (url.includes('instagram/v1/fetch_hashtag_posts')) return igHashtag
-  if (url.includes('instagram/v1/fetch_search')) return igSearch
+  if (url.includes('instagram/v2/search_reels')) return igReels
+  if (url.includes('instagram/v2/search_users')) return igSearchUsers
   if (url.includes('fetch_user_info_by_username')) return igProfile
   return { data: {} }              // 走「无法识别响应结构」分支
 }

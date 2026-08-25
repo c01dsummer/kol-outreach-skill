@@ -48,8 +48,8 @@ writeFileSync(probeCfg, JSON.stringify({
   market: 'US', budget_usd: 0.5,
   tasks: [
     { keyword: 'power bank review', dimension: 'category', platform: 'tiktok' },
-    { keyword: 'traveltech', dimension: 'scene', platform: 'instagram', as_hashtag: true },
-    { keyword: 'travel gear', dimension: 'audience', platform: 'instagram' },
+    { keyword: 'smoothie', dimension: 'scene', platform: 'instagram' },
+    { keyword: 'traveltech', dimension: 'audience', platform: 'instagram' },
   ],
 }))
 const probeOut = run('probe 三种发现路径', [S('probe.ts'), '--config', probeCfg])
@@ -63,7 +63,7 @@ writeFileSync(taskCfg, JSON.stringify({
   product: 'selfcheck', market: 'US', target_count: 100, budget_usd: 1,
   tasks: [
     { keyword: 'power bank review', dimension: 'category', platform: 'tiktok' },
-    { keyword: 'traveltech', dimension: 'scene', platform: 'instagram', as_hashtag: true },
+    { keyword: 'smoothie', dimension: 'scene', platform: 'instagram' },
   ],
 }))
 const collectOut = run('collect 完整流程', [S('collect.ts'), '--config', taskCfg], tmp)

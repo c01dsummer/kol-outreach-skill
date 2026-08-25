@@ -26,6 +26,8 @@ export interface Creator {
   bio?: string
   bio_links: string[]
   verified: boolean
+  /** IG 私密账号 —— 建联方式受限，值得在名单里标出来 */
+  is_private?: boolean
   avatar?: string
   profile_url: string
 
