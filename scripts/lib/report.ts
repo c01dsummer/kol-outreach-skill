@@ -13,6 +13,11 @@ const fmt = (n?: number) =>
 
 /** 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档 */
 export function renderHtml(creators: Creator[], meta: any): string {
+  // 没有「全部」tab，所以必须有一个分层默认选中。取第一个非空的 ——
+  // 默认落在空分层上，打开报告第一眼是空白，会被当成出错了。
+  const def: 'A' | 'B' | 'C' =
+    (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'
+
   const card = (c: Creator) => `
 <div class="card ${c.tier}" data-tier="${c.tier}"${c.tier === def ? '' : ' style="display:none"'}>
   <div class="hd">
@@ -41,11 +46,6 @@ export function renderHtml(creators: Creator[], meta: any): string {
     <tr><td>${esc(k.keyword)}</td><td>${esc(k.dimension)}</td>
         <td>${k.found}</td><td>${k.fit_pass}</td>
         <td>${k.found ? Math.round(k.fit_pass / k.found * 100) : 0}%</td></tr>`).join('')
-
-  // 没有「全部」tab，所以必须有一个分层默认选中。取第一个非空的 ——
-  // 默认落在空分层上，打开报告第一眼是空白，会被当成出错了。
-  const def: 'A' | 'B' | 'C' =
-    (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'
 
   const notes: string[] = []
   if (!meta.enriched) {

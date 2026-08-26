@@ -15,7 +15,7 @@ import { Budget, BudgetExceeded } from './lib/budget.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { filterByMemory } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
-import { taskDir, loadTask, saveTask, loadCreators, saveCreators } from './lib/task.js'
+import { taskDir, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators, saveCreators } from './lib/task.js'
 import type { Creator, TaskState } from './lib/types.js'
 
 const MAX_PAGES = 4          // 实测值：第 4 页后新增人数明显衰减
@@ -71,9 +71,11 @@ const budget = new Budget(state.budget_usd, state.requests, (pct, spent, limit) 
 })
 const api = new TikHub(key, budget)
 
-// 已采集的人（续跑时接着累加）
+// 已采集的人（续跑时接着累加）。
+// 读的是**累加器** creators.raw.json，不是交付物 creators.json ——
+// 交付物是过滤后的结果，拿它当续跑的输入会让每轮都比上一轮少人。
 const creators = new Map<string, Creator>()
-for (const c of loadCreators(dir)) creators.set(`${c.platform}:${c.handle.toLowerCase()}`, c)
+for (const c of loadRawCreators(dir)) creators.set(`${c.platform}:${c.handle.toLowerCase()}`, c)
 
 // ---------- 采集 ----------
 
@@ -93,7 +95,8 @@ function qualified(): number {
 function persist() {
   state.requests = budget.count
   saveTask(dir, state)
-  saveCreators(dir, [...creators.values()])
+  // 累加器只增不减 —— 过滤在 main() 末尾只作用于交付物
+  saveRawCreators(dir, [...creators.values()])
 }
 
 /**
@@ -216,8 +219,10 @@ async function main() {
   //     由用户决定要不要看。静默过滤会让真实创作者凭空消失且无人知晓。
   const unknownFollowers = all.filter(c => c.followers === undefined).length
   all = all.filter(passesFollowerGate)
-  const { kept, filtered_recommended, filtered_contacted } = filterByMemory(all, state.product)
+  const { kept, filtered_recommended, filtered_contacted } =
+    filterByMemory(all, state.product, taskId(dir))
 
+  // 交付物写 creators.json；累加器 creators.raw.json 由 persist() 保管，不在这里动
   saveCreators(dir, kept)
 
   const pending = state.tasks

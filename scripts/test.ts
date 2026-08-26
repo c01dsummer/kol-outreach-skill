@@ -191,6 +191,35 @@ suite('P4', '已联系/屏蔽的人不得进入名单')
   useMemoryFile('memory/creators.json')
 }
 
+suite('D6', '续跑不得被本任务自己上一轮的产出滤空')
+{
+  const tmp = join(tmpdir(), `kol-d6-${process.pid}.json`)
+  const entry = (h: string, task: string) => ({
+    platform: 'tiktok', handle: h, nickname: '', followers: 1, first_seen: '2026-01-01',
+    recommendations: [{ date: '2026-01-01', product: 'ring', keyword: 'k', task }],
+    contacted: false, replied: false, blocked: false, note: '',
+  })
+  writeFileSync(tmp, JSON.stringify({
+    version: 1, updated_at: '',
+    creators: { 'tiktok:mine': entry('mine', 'ring-202601010000'),
+                'tiktok:theirs': entry('theirs', 'ring-202512310000') },
+  }), 'utf8')
+  useMemoryFile(tmp)
+
+  const r = filterByMemory([mk('tiktok', 'mine'), mk('tiktok', 'theirs')],
+                           'ring', 'ring-202601010000')
+  ok('本任务上一轮推荐过的人仍保留', r.kept.some(c => c.handle === 'mine'))
+  eq('别的任务为同一产品推荐过的仍排除', r.kept.some(c => c.handle === 'theirs'), false)
+  eq('只有跨任务的那条计入 filtered_recommended', r.filtered_recommended, 1)
+
+  // 不传 task（render 之外的调用方）时退化为旧行为：一律排除
+  const legacy = filterByMemory([mk('tiktok', 'mine')], 'ring')
+  eq('不传 task 时同产品一律排除', legacy.kept.length, 0)
+
+  unlinkSync(tmp)
+  useMemoryFile('memory/creators.json')
+}
+
 suite('P5', '交付必须声明数据边界')
 {
   const html = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 50 })],
@@ -242,6 +271,28 @@ suite('D3', '同人识别不确定时不得合并')
   const nick = [mk('tiktok', 'aaa', { nickname: 'Sarah Tech' }),
                 mk('instagram', 'bbb', { nickname: 'Sarah Tech' })]
   eq('仅昵称相同 → 不合并', linkCrossPlatform(nick), 0)
+}
+
+suite('P1', '跨平台合并不得把「未查询」降级成「查过，没有」')
+{
+  const merged = (ea: string | null | undefined, eb: string | null | undefined) => {
+    const a = mk('tiktok', 'sam'), b = mk('instagram', 'sam')
+    a.email = ea; b.email = eb
+    linkCrossPlatform([a, b])
+    return mergeCrossPlatform([a, b])[0].email
+  }
+  // 两侧 profile 补全都失败是预期内的，不是边角情况
+  eq('两侧都未查询 → 仍是未查询', merged(undefined, undefined), undefined)
+  eq('一侧未查询一侧查过没有 → 未查询', merged(undefined, null), undefined)
+  eq('两侧都查过没有 → null', merged(null, null), null)
+  eq('一侧有值 → 取该值', merged(undefined, 'a@example.com'), 'a@example.com')
+
+  // 真正要防住的是它到达产出物的样子
+  const a = mk('tiktok', 'kim'), b = mk('instagram', 'kim')
+  linkCrossPlatform([a, b])
+  const row = toRow(mergeCrossPlatform([a, b])[0])
+  eq('未查询在 CSV 里是「未查询」而非空白', row[HEADERS.indexOf('email')], '未查询')
+  covered.add('D3')
 }
 
 suite('D1', 'platform:handle 唯一标识，大小写不敏感')

@@ -75,7 +75,10 @@ const EXEC_EXEMPT: Record<string, string> = {
 const unexecuted = entrypoints.filter(f => {
   if (f in EXEC_EXEMPT) return false
   const base = f.split('/').pop()!
-  return !selfcheck.includes(`S('${base}')`) && !selfcheck.includes(base)
+  // 只认 S('xxx.ts') 这个精确形式。早先还 or 了一个 `includes(base)` 兜底，
+  // 结果是 selfcheck.ts 里**任何地方**提到文件名（哪怕注释里）就算「执行过」——
+  // 前面那个精确判据变成死代码，整条检查形同虚设。
+  return !selfcheck.includes(`S('${base}')`)
 })
 for (const f of unexecuted) { hard++; gaps.push(`${f} 是可执行文件但未被自检执行，也未登记豁免`) }
 

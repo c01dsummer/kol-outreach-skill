@@ -281,5 +281,5 @@ export class TikHub {
  * 两者混为一谈会让「我们没看过他的 bio」被下游读成「他没留邮箱」。
  */
 export function fillEmail(c: Creator): void {
-  c.email = c.bio === undefined ? undefined : (extractEmail(c.bio) ?? null)
+  c.email = c.bio === undefined ? undefined : (extractEmail(c.bio) ?? null)   // p1-ok: 三态本身——bio 已取到而提取不出，才是「查过，没有」，这正是 null 的正确用法
 }

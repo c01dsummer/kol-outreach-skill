@@ -144,6 +144,22 @@
       "file": "scripts/lib/report.ts",
       "find": "    (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'",
       "replace": "    'A'"
+    },
+    {
+      "id": "M-P1-f",
+      "req": "P1",
+      "why": "合并邮箱退回 `a ?? b ?? null` —— 两侧都没查过被写成「查过，他没留邮箱」，运营看到空白就不会再回头补查",
+      "file": "scripts/lib/identity.ts",
+      "find": "  if (a) return a\n  if (b) return b\n  if (a === undefined || b === undefined) return undefined\n  return null",
+      "replace": "  return a ?? b ?? null"
+    },
+    {
+      "id": "M-D6-b",
+      "req": "D6",
+      "why": "记忆过滤不再区分「本任务」与「别的任务」—— render 之后每次 --resume 都产出一份空名单，已付费采集的人被判成「已推荐过」",
+      "file": "scripts/lib/memory.ts",
+      "find": "    const others = e.recommendations.filter(r => !(task && r.task === task))",
+      "replace": "    const others = e.recommendations"
     }
   ],
   "exemptions": [

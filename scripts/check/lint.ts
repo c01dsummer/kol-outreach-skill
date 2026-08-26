@@ -16,7 +16,12 @@ const SENSITIVE = [
   'bio', 'signature', 'biography', 'email', 'email_verified',
   'audience_geo', 'fake_follower_score',
 ]
-const FALLBACK = /(\?\?|\|\|)\s*(0\b|''|""|`|\[\]|false\b)/
+/**
+ * `null` 必须在这张表里。它是三态模型的**中间态** —— `?? null` 把「未查询」
+ * 写成「查过，没有」，恰恰是 P1 要防的那件事，却是唯一一个曾经漏掉的兜底值。
+ * 合法的 `?? null`（确实查过、确实没有）加 p1-ok 说明理由即可。
+ */
+const FALLBACK = /(\?\?|\|\|)\s*(0\b|''|""|`|\[\]|false\b|null\b)/
 
 /**
  * 第二类形状：**空输入时返回 0**。

@@ -64,6 +64,24 @@ export function linkCrossPlatform(creators: Creator[]): number {
 }
 
 /**
+ * P1：邮箱的三态合并。
+ *
+ * 有值取值；**两边都「查过且没有」才是 null**；只要有一侧从未查询过就是 undefined。
+ * 写成 `a ?? b ?? null` 会把「两边都没查」说成「查过，他没留邮箱」——
+ * 运营看到的是空白而不是「未查询」，于是不会再回头补查这个人。
+ * 两侧 profile 补全都失败是预期内的（collect 有 profileFailed 计数器），不是边角情况。
+ */
+function mergeEmail(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): string | null | undefined {
+  if (a) return a
+  if (b) return b
+  if (a === undefined || b === undefined) return undefined
+  return null
+}
+
+/**
  * 把已识别的同人对合并成一条。
  *
  * 保留信息量更大的一条（有邮箱优先，其次粉丝多的），粉丝数取两平台之和，
@@ -87,7 +105,7 @@ export function mergeCrossPlatform(creators: Creator[]): Creator[] {
       a === undefined || b === undefined ? undefined : a + b
     primary.followers = sum(c.followers, other.followers)
     primary.post_count = sum(c.post_count, other.post_count)
-    primary.email = primary.email ?? secondary.email ?? null
+    primary.email = mergeEmail(primary.email, secondary.email)
     primary.bio_links = [...new Set([...c.bio_links, ...other.bio_links])]
     primary.recent_posts = [...(primary.recent_posts ?? []), ...(secondary.recent_posts ?? [])]
     primary.linked_handle = `${secondary.platform}:${secondary.handle}`

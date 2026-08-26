@@ -43,8 +43,10 @@ export function toRow(c: Creator): unknown[] {
 /** U1：tier 升序，同层 score 降序 */
 export function sortForOutput(creators: Creator[]): Creator[] {
   const order = { A: 0, B: 1, C: 2 }
-  return [...creators].sort(
-    (a, b) => order[a.tier!] - order[b.tier!] || (b.score ?? 0) - (a.score ?? 0))
+  // 未分层的排末位。写 order[c.tier!] 会在 tier 缺失时得到 NaN 比较器，
+  // 而 NaN 是 falsy —— sort 会静默退化成「只按分数排」，且没有任何迹象。
+  const rank = (c: Creator) => (c.tier ? order[c.tier] : 3)
+  return [...creators].sort((a, b) => rank(a) - rank(b) || (b.score ?? 0) - (a.score ?? 0))
 }
 
 const TIER_LABEL = { A: 'A级 直接发信', B: 'B级 先互动', C: 'C级 观察池' } as const

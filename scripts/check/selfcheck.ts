@@ -133,6 +133,28 @@ if (dir) {
   }
 }
 
+// ---- 回归：collect → render → --resume 之后，已采集的人必须还在 ----
+// 早先 creators.json 一个文件身兼两职：既是 --resume 的输入，又是过滤后的交付物。
+// render 把这批人写进记忆后再续跑，记忆过滤判定「本产品已推荐过」，交付物被清成
+// 空数组 —— 已经付费采集的数据不可恢复地消失。触发路径不冷门：用户看完报告说
+// 「人不够，再多找点」，Agent 就会去跑 --resume。
+if (dir) {
+  const deliverable = join(tmp, dir, 'creators.json')
+  const rawPath = join(tmp, dir, 'creators.raw.json')
+  const before = JSON.parse(readFileSync(deliverable, 'utf8')).length
+  run('collect --resume（在 render 之后）', [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp)
+
+  if (!existsSync(rawPath)) {
+    failed++; console.error('  ✗ 缺少采集累加器 creators.raw.json')
+  } else {
+    const after = JSON.parse(readFileSync(deliverable, 'utf8')).length
+    const rawN = JSON.parse(readFileSync(rawPath, 'utf8')).length
+    if (rawN < before) { failed++; console.error(`  ✗ 累加器缩水 ${before}→${rawN}`) }
+    else if (!after) { failed++; console.error(`  ✗ render 之后续跑把交付物清空了（${before}→0）`) }
+    else console.log(`  ✓ render 后续跑数据未丢：交付物 ${before}→${after}，累加器 ${rawN}`)
+  }
+}
+
 rmSync(tmp, { recursive: true, force: true })
 
 for (const [f, why] of Object.entries(EXEMPT)) console.log(`  ⊘ ${f} 豁免：${why}`)

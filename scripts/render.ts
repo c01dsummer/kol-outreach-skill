@@ -9,7 +9,7 @@
  */
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { loadTask, loadCreators, saveCreators } from './lib/task.js'
+import { taskId, loadTask, loadCreators, saveCreators } from './lib/task.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, applyGeoPenalty } from './lib/score.js'
 import { recordRecommendations } from './lib/memory.js'
@@ -86,7 +86,7 @@ writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta, null, 2), 'utf8')
 writeFileSync(join(dir, 'report.html'), renderHtml(creators, meta), 'utf8')
 
 // ---------- 写回记忆 ----------
-recordRecommendations(creators, state.product)
+recordRecommendations(creators, state.product, taskId(dir))
 
 console.log(JSON.stringify({
   csv: csvPath,

@@ -63,8 +63,7 @@ function zip(entries: Entry[]): Buffer {
     ch.writeUInt32LE(comp.length, 20)
     ch.writeUInt32LE(e.data.length, 24)
     ch.writeUInt16LE(nameBuf.length, 28)
-    ch.writeUInt32LE(0, 42)            // 占位，下面补真实 offset
-    ch.writeUInt32LE(offset, 42)
+    ch.writeUInt32LE(offset, 42)       // 本条目 local header 在文件中的偏移
     centrals.push(ch, nameBuf)
 
     offset += 30 + nameBuf.length + comp.length

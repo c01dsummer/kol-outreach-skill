@@ -20,6 +20,8 @@ export interface MemoryEntry {
     date: string
     product: string
     keyword: string
+    /** 产出目录名 —— 用来区分「同一任务的续跑」与「另一次任务」，见 filterByMemory */
+    task?: string
     tier?: string
     fit_reason?: string
   }>
@@ -63,10 +65,13 @@ export interface FilterResult {
 /**
  * 按记忆过滤。
  *
- * - contacted / blocked → 一律排除
- * - 已推荐过 → 默认排除；换了产品则保留但标注，让用户自己判断
+ * - contacted / blocked → 一律排除（P4）
+ * - 同一产品在**别的任务**里推荐过 → 排除
+ * - 同一任务自己写下的推荐 → **不参与过滤**。续跑要推荐的就是这批人；
+ *   把他们滤掉，会让 render 之后的每一次 --resume 都产出一份空名单。
+ * - 换了产品 → 保留但标注，让用户自己判断
  */
-export function filterByMemory(creators: Creator[], product: string): FilterResult {
+export function filterByMemory(creators: Creator[], product: string, task?: string): FilterResult {
   const mem = loadMemory()
   const kept: Creator[] = []
   let rec = 0, con = 0
@@ -76,10 +81,11 @@ export function filterByMemory(creators: Creator[], product: string): FilterResu
     if (!e) { kept.push(c); continue }
     if (e.contacted || e.blocked) { con++; continue }
 
-    const prior = e.recommendations.filter(r => r.product !== product)
-    const same = e.recommendations.some(r => r.product === product)
-    if (same) { rec++; continue }
+    // 本任务自己留下的记录不算数 —— 否则续跑会把自己上一轮的产出判成「已推荐过」
+    const others = e.recommendations.filter(r => !(task && r.task === task))
+    if (others.some(r => r.product === product)) { rec++; continue }
 
+    const prior = others.filter(r => r.product !== product)
     if (prior.length) {
       const last = prior[prior.length - 1]
       c.previously_recommended = `${last.product} @ ${last.date}`
@@ -90,7 +96,7 @@ export function filterByMemory(creators: Creator[], product: string): FilterResu
 }
 
 /** 任务结束后写回。只记录进入名单的人。 */
-export function recordRecommendations(creators: Creator[], product: string): void {
+export function recordRecommendations(creators: Creator[], product: string, task?: string): void {
   const mem = loadMemory()
   const date = new Date().toISOString().slice(0, 10)
 
@@ -104,8 +110,10 @@ export function recordRecommendations(creators: Creator[], product: string): voi
     e.nickname = c.nickname || e.nickname
     e.followers = c.followers || e.followers
     if (c.linked_handle) e.linked_to = c.linked_handle
+    // 同一任务重复 render 不该堆出多条记录 —— 覆盖而不是追加
+    e.recommendations = e.recommendations.filter(r => !(task && r.task === task))
     e.recommendations.push({
-      date, product, keyword: c.source_keyword,
+      date, product, keyword: c.source_keyword, task,
       tier: c.tier, fit_reason: c.fit_reason,
     })
     mem.creators[k] = e
