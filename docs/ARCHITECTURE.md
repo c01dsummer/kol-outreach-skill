@@ -71,6 +71,7 @@
 | `scripts/check/selfcheck.ts` | 检查 | F5 | 用假 fetch 把每个可执行文件从头执行到尾 |
 | `scripts/check/fake-fetch.ts` | 检查 | — | 自检用的假响应；它决定了自检能走到多深 |
 | `scripts/check/audit.ts` | 检查 | — | 链路审计，回答完成度而不是「功能做完了没有」 |
+| `scripts/check/arch-sync.ts` | 检查 | — | 守住本文档的骨架：双向覆盖、编号有效、顺序契约必须绑定真实变异 |
 | `scripts/test.ts` | 检查 | — | 需求测试的实现。**覆盖了哪些编号以 `npm run audit` 为准**，不在这里复述 |
 
 <!-- END:ANCHORS -->

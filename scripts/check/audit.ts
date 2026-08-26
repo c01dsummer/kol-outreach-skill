@@ -42,12 +42,23 @@ const rows: string[] = []
 const gaps: string[] = []
 let hard = 0
 
+/**
+ * 架构文档也是合法的下游引用，但它**只是一份文档**。
+ *
+ * 不单独拎出来的话，一条只在锚点表里被提过、根本没落到代码的需求，会从
+ * 「· 未被引用」变成「✓」—— 正是 4-VERIFY.md 说的「判据被无关的东西满足」，
+ * 而且是新增这份文档时自己引入的。
+ */
+const ARCH_DOC = 'docs/ARCHITECTURE.md'
+
 // ---- 1. 每条需求是否在下游被引用 ----
 for (const r of reqs) {
   const refs = [...corpus.entries()]
     .filter(([f, c]) => f !== 'docs/requirements.json' && f !== 'docs/SPEC.md' &&
                         new RegExp(`\\b${r.id}\\b`).test(c))
     .map(([f]) => f)
+  /** 落到实处的引用 —— 架构文档说了不算 */
+  const impl = refs.filter(f => f !== ARCH_DOC)
   const tested = testedIds.has(r.id)
   const mutated = mutatedIds.has(r.id)
   const exempt = exemptIds.has(r.id)
@@ -57,9 +68,11 @@ for (const r of reqs) {
     if (!tested) { flag = '✗'; hard++; gaps.push(`${r.id} 是红线但没有测试`) }
     else if (!mutated && !exempt) { flag = '✗'; hard++; gaps.push(`${r.id} 有测试但没有变异验证 —— 那条测试没被证明过`) }
     else if (exempt) flag = '⊘'
-  } else if (!refs.length && !tested) {
+  } else if (!impl.length && !tested) {
     flag = '·'
-    gaps.push(`${r.id} 未在任何下游文件中被引用`)
+    gaps.push(refs.length
+      ? `${r.id} 仅被架构文档引用，未落到代码或测试`
+      : `${r.id} 未在任何下游文件中被引用`)
   }
   rows.push(`  ${flag} ${r.id.padEnd(3)} ${r.cat}  测试${tested ? '✓' : '·'} 变异${mutated ? '✓' : exempt ? '⊘' : '·'}  引用 ${refs.length} 处`)
 }
