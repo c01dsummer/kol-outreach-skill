@@ -62,7 +62,7 @@
   `SPEC.md` 里的表格是它的渲染 —— 由 `npm run spec` 生成并校验，**不要手改**
 - **架构文档**：`docs/ARCHITECTURE.md` —— 模块边界、**顺序契约**、Agent↔scripts 的缝隙契约。
   改这三样之前先读它；新增 `scripts/` 下的模块必须在锚点表里登记，否则 `npm run arch` 会红
-- **决策记录**：`DECISIONS.md`，编号 `ADR-NN`（数据需求用 `D1`–`D7`，不撞号）
+- **决策记录**：`DECISIONS.md`，编号 `ADR-NN`（数据需求用 `D` 前缀，两套不撞号）
 - **检查命令**：`npm run check`
   = 纪律 lint → SPEC 一致性 → **架构锚点** → 类型检查 → 需求测试 → 变异测试 → 脚本自检 → 链路审计
 - **审计命令**：`npm run audit`
