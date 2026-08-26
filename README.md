@@ -95,6 +95,8 @@ scripts/
 
 判断口径主要集中在 `semantic-fit.md`、`public-metrics.md` 和 `outreach-draft.md`。仓库已经定义数据源适配契约；当前执行入口只接入 TikHub，新增供应商仍需实现适配器并接入入口，但不需要改写下游判断和输出结构。
 
+模块边界、哪几步的顺序有语义、Agent 与脚本之间的交接契约（退出码、字段归属、两个 creators 文件的分工）见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
 ## 数据源与数据边界
 
 - **默认数据源：TikHub**，负责 TikTok 和 Instagram 的发现与资料补全
@@ -213,6 +215,7 @@ npm run check
 | [AGENTS.md](AGENTS.md) | 仓库约定正本与开工路由 |
 | [skill/SKILL.md](skill/SKILL.md) | Agent 的触发条件和完整执行方式 |
 | [docs/SPEC.md](docs/SPEC.md) | 需求唯一来源、红线和验收标准 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 模块边界、顺序契约和 Agent 与脚本的交接契约 |
 | [docs/CONVENTIONS.md](docs/CONVENTIONS.md) | 本项目中特别容易违反红线的实现习惯 |
 | [docs/business-requirements.md](docs/business-requirements.md) | 用户痛点、目标与业务论证 |
 | [docs/data-source-strategy.md](docs/data-source-strategy.md) | 数据源比较和选型依据 |

@@ -1,0 +1,179 @@
+# 架构 · 零件之间
+
+> **这份文档只写代码说不出的事。**规则在 `process/5-DESIGN.md`。
+>
+> 零件本身去看代码和类型；**零件之间**的顺序、方向、契约、字段归属在这里。
+> 一句话如果读完代码之后不再是新信息，它就不该在这一页上。
+>
+> 下面两张表由 `npm run arch` 校验：模块必须双向对齐、需求编号必须真实存在、
+> 每条顺序契约必须写出**守它的变异**。**新增模块不登记，CI 会红。**
+
+---
+
+## 一件新工作放哪边
+
+仓库有两种代码，**加功能之前先决定它属于哪边**：
+
+| | 位置 | 谁执行 | 装什么 |
+|---|---|---|---|
+| **判断** | `skill/` | Agent 读了照做 | 读懂产品、推关键词、判断内容匹配、写草稿 |
+| **机械** | `scripts/` | Node 执行 | API 调用、分页、去重、评分、落盘 |
+
+判据一句话：
+
+> **同样的输入，两次跑出来必须一模一样吗？**
+> 必须 → `scripts/`。允许不一样、且不一样才有价值 → `skill/`。
+
+- 分层规则（`fit === '❌'` 一律 C；有邮箱且 `fit === '✅'` 才是 A）**必须**每次一样
+  → `scripts/lib/score.ts`
+- 「这个做露营装备测评的博主适不适合卖充电宝」，也就是那个 `fit` 从哪来，
+  **不该**每次一样 → `skill/references/semantic-fit.md`
+
+反过来用最容易出事：把判断写进脚本会得到一个僵硬的规则引擎（关键词表越写越长，
+永远差一个 case）；把机械劳动交给 Agent 会又慢又贵，而且**不可复现**——
+同一份数据两次跑出两份名单，用户无法知道哪一份是对的。
+
+---
+
+## 模块锚点表
+
+层的含义：**入口**只做读参数、落盘、打印、退出码；**逻辑**装有语义的决策；
+**适配**把外部响应翻译成内部类型；**检查**是检查链自身。
+
+> 入口层不许放决策逻辑 —— 判据是「这段代码的顺序错了会不会出错」。
+> 会，它就有语义，就该搬进 `lib/`（`docs/CONVENTIONS.md` 第 10 条，这条踩过四次）。
+
+<!-- BEGIN:ANCHORS 由 npm run arch 校验，新增模块必须加行 -->
+
+| 模块 | 层 | 服务的需求 | 它保证什么 |
+|---|---|---|---|
+| `scripts/probe.ts` | 入口 | F3 P1 P3 | 每词每平台只抓一页，供 Agent 判读方向；拿不到粉丝数报「未知」而不是 0 |
+| `scripts/collect.ts` | 入口 | D6 P3 F7 | 轮转采集不让第一个关键词吃掉全部配额；预算用尽存断点退 3 |
+| `scripts/enrich.ts` | 入口 | D8 F8 P3 | 只对语义筛选后的候选抓主页样本；已查过的账号默认不重复付费 |
+| `scripts/render.ts` | 入口 | P5 U1 U2 U5 U7 | 交付物生成的唯一出口，且是唯一往跨任务记忆写回的地方 |
+| `scripts/lib/pipeline.ts` | 逻辑 | D6 P1 P4 F5 F8 U1 U3 | 入口脚本原先裸露的两段管线；**顺序契约全在这里**，见下表 |
+| `scripts/lib/score.ts` | 逻辑 | P1 F6 F8 | 打分、分层、粉丝闸门、两种降级判定；语义否决对分层有一票否决权 |
+| `scripts/lib/identity.ts` | 逻辑 | D1 D2 D3 P1 | 跨平台同人识别与合并；不确定不合并，未知粉丝数相加仍是未知 |
+| `scripts/lib/memory.ts` | 逻辑 | P4 D4 D6 | 跨任务记忆的读写与过滤；记忆文件损坏退化为空记忆而不中断 |
+| `scripts/lib/budget.ts` | 逻辑 | P3 F7 | 成本闸门；超限抛 BudgetExceeded 且不增加计数 |
+| `scripts/lib/email.ts` | 逻辑 | D7 | 反爬写法的邮箱提取；宁可返回 null 也不误判正常语句 |
+| `scripts/lib/assessment.ts` | 逻辑 | D8 D9 D10 F8 U7 | 公开样本 → 指标 / 风险 / 活跃度 / 报价效率，每项带测量状态与溯源 |
+| `scripts/lib/rows.ts` | 逻辑 | P2 U1 U5 U7 | 交付物的行与排序；草稿里的占位符必须原样穿透到产出物 |
+| `scripts/lib/csv.ts` | 逻辑 | D5 | UTF-8 with BOM 与转义 |
+| `scripts/lib/xlsx.ts` | 逻辑 | U5 | 零依赖 ZIP 与 CRC32；空分层也建 sheet |
+| `scripts/lib/report.ts` | 逻辑 | P5 U2 U3 U4 U6 | 单文件内联 HTML；数据边界声明与分层 tab 的初始可见性 |
+| `scripts/lib/task.ts` | 逻辑 | D6 | 任务目录的读写；**累加器与交付物是两个文件**，见下表 |
+| `scripts/lib/types.ts` | 逻辑 | P1 D8 | 三态模型的定义处 —— 它把「没查到」和「查了没有」在类型层面分开 |
+| `scripts/providers/tikhub.ts` | 适配 | D2 D3 D8 P1 | 唯一的数据源实现；响应结构走探测 cascade，识别不出时暴露顶层 key |
+| `scripts/check/lint.ts` | 检查 | P1 | 把 P1 从散文变成能报错的检查 |
+| `scripts/check/spec-sync.ts` | 检查 | — | SPEC.md 的表格由 requirements.json 生成，两者不可能漂移 |
+| `scripts/check/mutate.ts` | 检查 | — | 给测试做的测试：变异存活即那条测试是假的 |
+| `scripts/check/selfcheck.ts` | 检查 | F5 | 用假 fetch 把每个可执行文件从头执行到尾 |
+| `scripts/check/fake-fetch.ts` | 检查 | — | 自检用的假响应；它决定了自检能走到多深 |
+| `scripts/check/audit.ts` | 检查 | — | 链路审计，回答完成度而不是「功能做完了没有」 |
+| `scripts/test.ts` | 检查 | — | 需求测试的实现。**覆盖了哪些编号以 `npm run audit` 为准**，不在这里复述 |
+
+<!-- END:ANCHORS -->
+
+---
+
+## 顺序契约
+
+**这张表是这份文档存在的理由。** 下面每一条的共同点：每个函数单独都对，
+错的是它们被组合起来的方式 —— 这类 bug 不在任何一个单元里，所以任何单元测试都看不到。
+
+每行必须写出**守它的变异**。变异必须真实存在于 `scripts/check/mutations.json`，
+且指向该行的位置；`npm run arch` 会验。没有变异守着的顺序声明，只是散文。
+
+<!-- BEGIN:ORDER 每行必须绑定真实变异，由 npm run arch 校验 -->
+
+| 顺序契约 | 位置 | 错了会怎样 | 守它的变异 |
+|---|---|---|---|
+| 同人识别 → 合并 → 粉丝闸门 → 记忆过滤 | `scripts/lib/pipeline.ts` | 闸门跑在合并之前，「TikTok 3000 + IG 3000、合起来够线」的人被提前丢掉；记忆过滤跑在闸门之前，`filtered_contacted` 把连闸门都过不了的人也算进去，向用户虚报打扰规模 | M-P1-g M-P4-b |
+| `finalize` 不得就地修改传入的累加器 | `scripts/lib/pipeline.ts` | 「累加器只增不减」退回成依赖调用方记得先落盘 —— ADR-08 那个数据丢失 bug 的形状 | M-D6-c |
+| 算分 → 分层 → 地域降级 → 风险降级 → 排序 | `scripts/lib/pipeline.ts` | 降级跑在 `tierOf` 之前会被重新计算的 tier 覆盖，地域不达标或高风险的人照样留在 A 级被直接发信；排序跑在降级之前，A 区里混着已经掉到 B 的人 | M-F5-a M-F8-a M-U1-b |
+| 记忆过滤只排除**别的任务**推荐过的人 | `scripts/lib/memory.ts` | render 写回记忆之后再 `--resume`，本任务已付费采集的人全被判成「已推荐过」，产出一份空名单 | M-D6-b |
+
+<!-- END:ORDER -->
+
+---
+
+## 缝隙契约：Agent ↔ scripts
+
+四个入口都是**一次性进程**，彼此之间只通过磁盘上的文件交接。
+Agent 是编排者，它读 stdout 做决策。
+
+| 入口 | 读 | 写 | 退出码 |
+|---|---|---|---|
+| `probe` | `--config probe.json` | **不落盘** | 0 · 2 |
+| `collect` | `--config task.json` 或 `--resume <dir>` | `task.json` `creators.raw.json` `creators.json` | 0 · 1 · 2 · **3** |
+| `enrich` | `--dir <dir>`（`task.json` `creators.json`） | `enrichment.json` `task.json` | 0 · 1 · 2 · **3** |
+| `render` | `--dir <dir>`（`task.json` `creators.json` `enrichment.json`） | `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` · **`memory/creators.json`** | 0 · 2 |
+
+**stdout 是结构化 JSON，stderr 是进度。** 这个分工是硬约束 —— Agent 解析 stdout，
+往里混进度信息会让解析在最需要它的时候（长任务、预算告急）失败。
+
+退出码的含义**不许扩展**：
+
+| | 含义 | Agent 该做什么 |
+|---|---|---|
+| `0` | 正常 | 读 stdout 继续 |
+| `2` | 用法错 / 缺 `TIKHUB_API_KEY` | 停下问人，重试没有意义 |
+| `3` | **预算用尽，断点已存** | 问用户要不要追加预算，然后 `--resume` / 重跑 `enrich` |
+| `1` | 其他失败 | 读 stderr |
+
+> `3` 是唯一一个「失败但数据完好」的码。把它并进 `1`，Agent 就分不清
+> 该问用户加预算还是该报错 —— 而这两件事对用户的意义完全相反。
+
+### 字段所有权
+
+`creators.json` 由两边轮流写，**谁写哪些字段是固定的**：
+
+| 写者 | 字段 |
+|---|---|
+| `collect`（脚本） | 采集与 profile 的全部原始字段、`source_keyword`、`source_dimension` |
+| **Agent** | `fit` · `fit_reason` · `outreach_draft` |
+| `enrich`（脚本） | 只写 `enrichment.json`，**不碰 `creators.json`** |
+| `render`（脚本） | `score` · `tier` · `tier_adjustments` · `account_assessment` |
+
+越界写别人的字段，下一次跑会把它覆盖掉，而且不会有任何报错。
+
+### 两个 creators 文件
+
+| 文件 | 是什么 | 规则 |
+|---|---|---|
+| `creators.raw.json` | 采集**累加器** | **只增不减**（D6）。`--resume` 的输入是它 |
+| `creators.json` | 交付物 | 累加器的过滤视图。过滤只作用于它 |
+
+早先两者共用一个文件：collect 结尾把过滤后的名单写回 `creators.json`，
+而 `--resume` 又拿它当输入 —— render 写回记忆之后再续跑，全员被判成「已推荐过」，
+已付费采集的数据被清成空数组。见 ADR-08。
+
+---
+
+## 三态在类型层的落点
+
+总纲那句「任何会产出结论的东西都必须能说『我没有资格回答』」，在代码里长这样：
+
+| 形态 | 含义 |
+|---|---|
+| `undefined` | **没查过** |
+| `null` | 查过，确实没有 |
+| 有值 | 查过，就是它 |
+| `Measurement<T>` | `measured`（带 source / observed_at / sample_size / basis）· `unavailable`（带 reason）· **字段整个缺席 = 未查询** |
+| `meta.json` 的 `capabilities` | 每种能力分别统计 `measured` / `unavailable` / `unqueried`，三个数不合并 |
+
+这三档为什么不能压成两档、以及压掉之后会发生什么，在 `docs/CONVENTIONS.md`
+第 1、6 条 —— **不在这里复述**。这一页只说它落在哪：`scripts/lib/types.ts`。
+
+---
+
+## 结构上尚未确定的
+
+按 `process/5-DESIGN.md`，边界目前是猜的地方必须显式写出来，不许留给下一个人自己发现。
+
+| 问题 | 现在是什么状态 |
+|---|---|
+| **数据源契约只被一家实现过** | `skill/references/providers/_interface.md` 定义了适配契约，但只有 TikHub 一个实现。抽象对不对，要等第二家接进来才知道 —— 现在说「换个供应商只要写个适配器」是**「应该可以」，不是结论** |
+| **`enrich` 与 `render` 的关联键** | 靠 `platform:handle` 字符串关联（`accountKey`）。跨平台合并后的主账号与关联账号各自查一次，这个关系没有类型保证，只有约定 |
+| **`skill/` 与 `scripts/` 的边界在语义筛选那一段是模糊的** | 粉丝闸门、评分权重在脚本里，语义判断在 Agent 那边，但「竞品词 +15 是否给高了」这类问题横跨两边（见 `docs/SPEC.md` 尚未确定的一节）。调整它需要同时动两边，目前没有任何检查会提醒这件事 |
