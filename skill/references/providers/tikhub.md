@@ -86,6 +86,7 @@ data.userInfo.user.uniqueId
 data.userInfo.user.nickname
 data.userInfo.user.signature        // bio，邮箱在这里
 data.userInfo.user.followerCount
+data.userInfo.user.followingCount
 data.userInfo.user.videoCount
 data.userInfo.user.verified
 data.userInfo.user.bioLink.link     // ★ 跨平台同人识别信号
@@ -93,6 +94,30 @@ data.userInfo.user.avatarMedium
 ```
 
 `bioLink.link` 常指向 Instagram/Linktree —— 这是识别同一个人在两个平台账号最可靠的信号，务必抓取。
+
+### 公开指标：用户近期作品
+
+```
+GET /api/v1/tiktok/app/v3/fetch_user_post_videos_v3?unique_id={handle}&count=12
+```
+
+2026-08-26 用公开账号真实调用确认：
+
+```
+data.aweme_list[]
+  .aweme_id
+  .create_time
+  .is_top
+  .statistics.play_count
+  .statistics.digg_count
+  .statistics.comment_count
+  .statistics.share_count
+  .author.follower_count
+  .author.following_count
+```
+
+这是 D8 的主页近期样本，与关键词搜索的 `search_item_list` 分开。`is_top=1` 的作品
+在聚合时排除；任何计数字段缺失都保持 undefined，不补 0。
 
 ### 备选
 
@@ -177,6 +202,32 @@ data.bio_links[]           ✓  含 `url`（原始地址）和 `lynx_url`（IG �
 
 `bio_links[].url` 是原始地址可直接用；`lynx_url` 是 `https://l.instagram.com/?u=<编码>` 的包装。
 跨平台同人识别用 `url`。
+
+### 公开指标：用户近期 Reels
+
+```
+GET /api/v1/instagram/v2/fetch_user_posts?username={handle}
+```
+
+2026-08-26 实测响应为：
+
+```
+data.data.items[]
+  .id
+  .is_video / .media_type / .media_name / .product_type
+  .is_pinned
+  .play_count / .ig_play_count
+  .like_count
+  .comment_count
+  .taken_at
+data.data.user.follower_count / following_count
+```
+
+只保留明确标成视频或 Reel 的项目。响应最多取 12 条；明确 pinned 的项目不进入指标。
+
+OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公开账号
+`mkbhd` 使用文档默认参数真实调用返回 **400**，响应明确说明不扣费；同一账号 V2 返回
+200 与 12 条完整数据。因此当前实现以 **V2 为已验证路径**，不为了版本号更新而强用 V3。
 
 ### 参数名各版本不一致 —— 踩过的坑
 

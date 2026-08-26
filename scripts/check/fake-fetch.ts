@@ -69,7 +69,49 @@ const igProfile = {
   },
 }
 
+/** D8：主页近期作品与关键词搜索样本分开；六条以上才能形成聚合指标。 */
+const tiktokUserPosts = {
+  data: {
+    aweme_list: Array.from({ length: 12 }, (_, i) => ({
+      aweme_id: `tt-post-${i}`,
+      desc: `recent tiktok post ${i}`,
+      create_time: 1_767_225_600 + i * 86_400,
+      is_top: i === 0 ? 1 : 0,
+      statistics: {
+        play_count: 10_000 + i * 100,
+        digg_count: 500 + i * 10,
+        comment_count: 20 + i,
+        share_count: 5 + i,
+      },
+      author: { follower_count: 82_000, following_count: 150 },
+    })),
+    has_more: 0,
+  },
+}
+
+const instagramUserPosts = {
+  data: { data: {
+    count: 12,
+    user: { follower_count: 31_000, following_count: 630 },
+    items: Array.from({ length: 12 }, (_, i) => ({
+      id: `ig-post-${i}`,
+      caption: { text: `recent instagram reel ${i}` },
+      is_video: true,
+      media_type: 2,
+      media_name: 'reel',
+      is_pinned: i === 0,
+      play_count: 20_000 + i * 200,
+      like_count: 800 + i * 10,
+      comment_count: 30 + i,
+      taken_at: 1_767_225_600 + i * 86_400,
+      user: { username: 'techwithsarah', follower_count: 31_000, following_count: 630 },
+    })),
+  } },
+}
+
 function pick(url: string): unknown {
+  if (url.includes('fetch_user_post_videos_v3')) return tiktokUserPosts
+  if (url.includes('instagram/v2/fetch_user_posts')) return instagramUserPosts
   if (url.includes('fetch_video_search_result')) return tiktokVideoSearch
   if (url.includes('tiktok/web/fetch_user_profile')) return tiktokProfile
   if (url.includes('instagram/v2/search_reels')) return igReels

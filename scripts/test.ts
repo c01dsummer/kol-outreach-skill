@@ -18,10 +18,17 @@ import { Budget, BudgetExceeded } from './lib/budget.js'
 import { renderHtml } from './lib/report.js'
 import { filterByMemory, useMemoryFile } from './lib/memory.js'
 import { finalize, pendingKeywords, rankCreators, keywordStats, tierCounts } from './lib/pipeline.js'
+import {
+  accountKey, assignAudienceRisks, attachAssessments, calculatePublicMetrics,
+  calculateQuoteEfficiency, measured, unavailable,
+} from './lib/assessment.js'
 import { writeFileSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Creator } from './lib/types.js'
+import type {
+  AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator,
+  EnrichmentState, MetricSource, NormalizedPublicPost,
+} from './lib/types.js'
 
 let fail = 0
 let cur = ''
@@ -63,6 +70,36 @@ const mk = (p: 'tiktok' | 'instagram', h: string, over: Partial<Creator> = {}): 
   bio: '', bio_links: [], verified: false, profile_url: '',
   source_keyword: 'k', source_dimension: 'category', recent_posts: [], ...over,
 })
+
+const PUBLIC_SOURCE: MetricSource = {
+  kind: 'public_api', provider: 'tikhub', endpoint: '/user-posts',
+}
+const publicPosts = (
+  views: number,
+  likes: number,
+  count = 6,
+): NormalizedPublicPost[] => Array.from({ length: count }, (_, i) => ({
+  id: `p${i}`,
+  views: views + i,
+  likes: likes + i,
+  comments: i,
+  published_at: new Date(Date.UTC(2026, 0, i + 1)).toISOString(),
+  is_pinned: false,
+}))
+
+const assessedAccount = (
+  handle: string,
+  views: number,
+  likes: number,
+  following: number,
+): AccountAssessment => {
+  const sample = measured(publicPosts(views, likes), PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', 6,
+    'latest profile posts')
+  return {
+    platform: 'tiktok', handle, followers: 10_000, following, sample,
+    metrics: calculatePublicMetrics(sample, 10_000, following),
+  }
+}
 
 // ─────────────────────────── 红线 ───────────────────────────
 
@@ -327,6 +364,19 @@ suite('P5', '交付必须声明数据边界')
       cross_platform_count: 0, requests: 1, cost_estimate_usd: 0.001,
       budget_usd: 2, enriched: true })
   ok('已增强时不再声明', !enriched.includes('未做有效性验证'))
+
+  const empty = renderHtml([], {
+    product: 'p', market: 'US', platforms: [], keywords: [], total: 0,
+    tiers: { A: 0, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0,
+    requests: 0, cost_estimate_usd: 0, budget_usd: 2, enriched: false,
+    capabilities: {
+      email_verification: { total: 0, measured: 0, unavailable: 0, unqueried: 0 },
+      audience_geo: { total: 0, measured: 0, unavailable: 0, unqueried: 0 },
+      public_post_sample: { total: 0, measured: 0, unavailable: 0, unqueried: 0 },
+    },
+  })
+  ok('空名单也不隐藏全局数据边界',
+    empty.includes('未做有效性验证') && empty.includes('无法确认'))
 }
 
 // ─────────────────────────── 数据 ───────────────────────────
@@ -345,6 +395,97 @@ suite('D7', '邮箱提取支持反爬写法且不误判')
   ok('PR 信号 英文', PR_SIGNALS.test('DM for collabs'))
   ok('PR 信号 中文', PR_SIGNALS.test('商务合作请私信'))
   ok('PR 信号 无', !PR_SIGNALS.test('just vibes'))
+}
+
+suite('D8', '公开指标使用独立近期样本并保留三态与溯源')
+{
+  const posts = publicPosts(100, 10)
+  posts.push({
+    id: 'pinned', views: 9_999_999, likes: 999_999, comments: 999,
+    published_at: '2025-12-01T00:00:00.000Z', is_pinned: true,
+  })
+  const sample = measured(posts, PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', posts.length,
+    'latest profile posts')
+  const metrics = calculatePublicMetrics(sample, 10_000, 100)
+
+  eq('明确 pinned 的爆款不进入中位播放',
+    metrics.median_views.status === 'measured' ? metrics.median_views.value : undefined, 102.5)
+  eq('六条时间戳只有五个间隔，不能冒充六个观测',
+    metrics.median_post_gap_days.status === 'unavailable'
+      ? metrics.median_post_gap_days.sample_size : undefined,
+    5)
+  const sevenPosts = publicPosts(100, 10, 7)
+  const sevenSample = measured(
+    sevenPosts, PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', sevenPosts.length,
+    'latest profile posts')
+  const sevenMetrics = calculatePublicMetrics(sevenSample, 10_000, 100)
+  eq('七条时间戳形成六个间隔后才返回 measured',
+    sevenMetrics.median_post_gap_days.status === 'measured'
+      ? sevenMetrics.median_post_gap_days.sample_size : undefined,
+    6)
+  eq('来源穿透到指标', metrics.view_rate.source, PUBLIC_SOURCE)
+  eq('样本时间穿透到指标', metrics.view_rate.observed_at, '2026-08-26T00:00:00.000Z')
+  const noFollowing = calculatePublicMetrics(sample, 10_000)
+  eq('关注数缺失有独立原因，不混成其他不可用状态',
+    noFollowing.following_ratio.status === 'unavailable'
+      ? noFollowing.following_ratio.reason : undefined,
+    'missing_following')
+
+  const missing = publicPosts(100, 10)
+  delete missing[0].comments
+  const partial = measured(missing, PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', 6, 'partial')
+  const partialMetrics = calculatePublicMetrics(partial, 10_000, 100)
+  eq('缺一个评论字段后只有五个有效互动观测，不能按 0 补足',
+    partialMetrics.median_engagements.status === 'unavailable'
+      ? partialMetrics.median_engagements.reason : undefined,
+    'insufficient_posts')
+  eq('不可用仍保留真实有效样本数', partialMetrics.median_engagements.sample_size, 5)
+
+  const notQueried: AccountAssessment = { platform: 'tiktok', handle: 'not-queried' }
+  ok('未查询时 sample 字段不存在', !('sample' in notQueried))
+  const privateSample = unavailable<NormalizedPublicPost[]>(
+    'private_account', PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z')
+  eq('查询过但私密与未查询可区分', privateSample.status, 'unavailable')
+}
+
+suite('D9', '互动率与合作报价分开，只有可比报价才计算效率')
+{
+  const account = assessedAccount('quoted', 1_000, 100, 10)
+  const quote: CollaborationQuote = {
+    amount: 500, currency: 'USD', platform: 'tiktok', format: 'tiktok_video',
+    quantity: 2, source: 'creator_quote', observed_at: '2026-08-26T00:00:00.000Z',
+  }
+  account.collaboration_quote = measured(
+    quote, { kind: 'manual', provider: 'operator' }, quote.observed_at, 1, 'creator quote')
+  const efficiency = calculateQuoteEfficiency(account)!
+  eq('eCPM 用单条报价和中位播放量计算',
+    efficiency.implied_ecpm?.status === 'measured'
+      ? Number(efficiency.implied_ecpm.value.toFixed(6)) : undefined,
+    Number((250 / 1002.5 * 1000).toFixed(6)))
+  eq('eCPE 用单条报价和中位互动量计算',
+    efficiency.implied_ecpe?.status === 'measured'
+      ? Number(efficiency.implied_ecpe.value.toFixed(6)) : undefined,
+    Number((250 / 105).toFixed(6)))
+
+  const bundle = structuredClone(account)
+  if (bundle.collaboration_quote?.status === 'measured') {
+    bundle.collaboration_quote.value.format = 'mixed_bundle'
+  }
+  eq('混合套餐不硬算', calculateQuoteEfficiency(bundle)?.implied_ecpm?.status, 'unavailable')
+  const quoteUnavailable = structuredClone(account)
+  quoteUnavailable.collaboration_quote = unavailable(
+    'unsupported_content', { kind: 'manual', provider: 'operator' }, quote.observed_at)
+  eq('报价查询过但不可用时效率也明确不可用',
+    calculateQuoteEfficiency(quoteUnavailable)?.implied_ecpm?.status, 'unavailable')
+  const wrongFormat = structuredClone(account)
+  if (wrongFormat.collaboration_quote?.status === 'measured') {
+    wrongFormat.collaboration_quote.value.format = 'instagram_post'
+    wrongFormat.collaboration_quote.value.platform = 'instagram'
+  }
+  wrongFormat.platform = 'instagram'
+  eq('Instagram 静态帖报价不能套用 Reels 表现',
+    calculateQuoteEfficiency(wrongFormat)?.implied_ecpm?.status, 'unavailable')
+  eq('没有报价就不生成估价', calculateQuoteEfficiency(assessedAccount('noquote', 1000, 100, 10)), undefined)
 }
 
 suite('D3', '同人识别不确定时不得合并')
@@ -429,6 +570,118 @@ suite('F7', '预算 50%/80% 各提醒一次')
   eq('两个阈值各触发一次', seen, [0.5, 0.8])
 }
 
+suite('F8', '公开信号风险透明降级但不删除')
+{
+  const accounts: Record<string, AccountAssessment> = {}
+  const target = assessedAccount('risk-target', 100, 1, 9_000)
+  accounts[accountKey('tiktok', target.handle)] = target
+  for (let i = 0; i < 8; i++) {
+    const peer = assessedAccount(`peer-${i}`, 5_000 + i * 10, 500 + i, 100 + i)
+    accounts[accountKey('tiktok', peer.handle)] = peer
+  }
+  assignAudienceRisks(accounts)
+  const risk = target.metrics!.audience_quality_risk
+  eq('至少两个异常信号才判 high', risk.status === 'measured' ? risk.value.level : undefined, 'high')
+  ok('high 带可读的逐指标依据', risk.status === 'measured' && risk.value.flags.length >= 2)
+  eq('同行样本达到下限且不含被评账号自己',
+    risk.status === 'measured' ? risk.value.peer_size : undefined, 8)
+
+  const creator = mk('tiktok', 'risk-target', {
+    email: 'a@example.com', fit: '✅',
+    account_assessment: { platform: 'tiktok', handle: 'risk-target', metrics: target.metrics },
+  })
+  const ranked = rankCreators([creator], 'US')
+  eq('高风险不删除创作者', ranked.length, 1)
+  eq('高风险只降一级', ranked[0].tier, 'B')
+  eq('降级留下理由', ranked[0].tier_adjustments?.[0]?.kind, 'audience_quality_risk')
+
+  const mediumMetrics = structuredClone(target.metrics!)
+  const mediumValue: AudienceRiskAssessment = {
+    level: 'medium', flags: risk.status === 'measured' ? risk.value.flags.slice(0, 1) : [], peer_size: 9,
+  }
+  mediumMetrics.audience_quality_risk = measured(
+    mediumValue, PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', 9, 'one signal')
+  const medium = mk('tiktok', 'medium', {
+    email: 'a@example.com', fit: '✅',
+    account_assessment: { platform: 'tiktok', handle: 'medium', metrics: mediumMetrics },
+  })
+  eq('medium 不改变分层', rankCreators([medium], 'US')[0].tier, 'A')
+
+  const both = mk('tiktok', 'both', {
+    email: 'a@example.com', fit: '✅', audience_geo: { US: 0.2 },
+    account_assessment: { platform: 'tiktok', handle: 'both', metrics: target.metrics },
+  })
+  const adjusted = rankCreators([both], 'US')[0]
+  eq('地域规则后再执行风险降级', adjusted.tier_adjustments?.map(a => a.kind),
+    ['audience_geo', 'audience_quality_risk'])
+  eq('两项独立风险可连续降级', adjusted.tier, 'C')
+
+  const few: Record<string, AccountAssessment> = {
+    [accountKey('tiktok', 'alone')]: assessedAccount('alone', 100, 10, 10),
+  }
+  assignAudienceRisks(few)
+  eq('同行不足时明确 unknown 而不是 low',
+    few[accountKey('tiktok', 'alone')].metrics?.audience_quality_risk.status, 'unavailable')
+
+  const boundary: Record<string, AccountAssessment> = {}
+  const edge = assessedAccount('edge', 100, 10, 100)
+  boundary[accountKey('tiktok', edge.handle)] = edge
+  for (let i = 0; i < 8; i++) {
+    const peer = assessedAccount(`edge-peer-${i}`, 100, 10, 100)
+    peer.metrics!.engagement_rate_followers = measured(
+      (i + 1) / 100, PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', 6, 'test peer value')
+    peer.metrics!.view_rate = measured(
+      (i + 1) / 100, PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', 6, 'test peer value')
+    peer.metrics!.following_ratio = measured(
+      0.01, PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', 1, 'test peer value')
+    boundary[accountKey('tiktok', peer.handle)] = peer
+  }
+  // 8 个同行 [0.01..0.08] 的 P10 是 0.017；等于阈值不满足“低于 P10”。
+  edge.metrics!.engagement_rate_followers = measured(
+    0.017, PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', 6, 'test edge')
+  edge.metrics!.view_rate = measured(
+    0.017, PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', 6, 'test edge')
+  edge.metrics!.following_ratio = measured(
+    0.01, PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', 1, 'test edge')
+  assignAudienceRisks(boundary)
+  const edgeRisk = edge.metrics!.audience_quality_risk
+  eq('恰好等于 P10 不报警',
+    edgeRisk.status === 'measured' ? edgeRisk.value.level : undefined, 'low')
+
+  const tied: Record<string, AccountAssessment> = {}
+  const tiedTarget = assessedAccount('tied-target', 100, 10, 100)
+  tiedTarget.metrics!.engagement_rate_followers = measured(
+    0.01, PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', 6, 'test outlier')
+  tiedTarget.metrics!.view_rate = measured(
+    0.01, PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', 6, 'test outlier')
+  tied[accountKey('tiktok', tiedTarget.handle)] = tiedTarget
+  for (let i = 0; i < 8; i++) {
+    const peer = assessedAccount(`tied-peer-${i}`, 100, 10, 100)
+    peer.metrics!.engagement_rate_followers = measured(
+      0.02, PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', 6, 'test tied baseline')
+    peer.metrics!.view_rate = measured(
+      0.02, PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', 6, 'test tied baseline')
+    tied[accountKey('tiktok', peer.handle)] = peer
+  }
+  assignAudienceRisks(tied)
+  const tiedRisk = tiedTarget.metrics!.audience_quality_risk
+  eq('同行并列时真正低于基线的账号仍会报警',
+    tiedRisk.status === 'measured' ? tiedRisk.value.level : undefined, 'high')
+
+  const wrongBand: Record<string, AccountAssessment> = {
+    [accountKey('tiktok', 'same-target')]: assessedAccount('same-target', 100, 10, 10),
+  }
+  for (let i = 0; i < 8; i++) {
+    const peer = assessedAccount(`other-band-${i}`, 1000, 100, 10)
+    peer.followers = 100_000
+    wrongBand[accountKey('tiktok', peer.handle)] = peer
+  }
+  assignAudienceRisks(wrongBand)
+  eq('不能拿相邻粉丝档凑够同行数',
+    wrongBand[accountKey('tiktok', 'same-target')].metrics?.audience_quality_risk.status,
+    'unavailable')
+}
+
 suite('F2', '关键词四维度')
 {
   const dims = ['category', 'scene', 'competitor', 'audience']
@@ -511,6 +764,60 @@ suite('U6', 'HTML 分层 tab 与平台标签')
   ok('平台标签区分 class', html.includes('pf tiktok') && html.includes('pf instagram'))
   ok('平台标签有专属配色', html.includes('.pf.tiktok{') && html.includes('.pf.instagram{'))
   ok('平台标签与次要标签不同层级', html.includes('.xp{') && !html.includes('.pf,.xp{'))
+}
+
+suite('U7', '公开指标、风险依据、报价效率与边界进入交付物')
+{
+  const primary = assessedAccount('main', 1_000, 100, 100)
+  const linked = assessedAccount('linked', 2_000, 200, 100)
+  linked.platform = 'instagram'
+  const quote: CollaborationQuote = {
+    amount: 300, currency: 'USD', platform: 'tiktok', format: 'tiktok_video', quantity: 1,
+    source: 'public_rate_card', observed_at: '2026-08-26T00:00:00.000Z',
+  }
+  primary.collaboration_quote = measured(
+    quote, { kind: 'manual', provider: 'operator' }, quote.observed_at, 1, 'public rate card')
+  const state: EnrichmentState = {
+    version: 1, updated_at: '2026-08-26T00:00:00.000Z', accounts: {
+      [accountKey('tiktok', 'main')]: primary,
+      [accountKey('instagram', 'linked')]: linked,
+    },
+  }
+  const creator = mk('tiktok', 'main', {
+    fit: '✅', email: 'a@example.com', cross_platform: true, linked_handle: 'instagram:linked',
+  })
+  attachAssessments([creator], state)
+  rankCreators([creator], 'US')
+
+  const row = toRow(creator)
+  eq('CSV 单列当前平台粉丝分母，不复用跨平台合计',
+    row[HEADERS.indexOf('metrics_account_followers')], '10000')
+  ok('CSV 含粉丝互动率', String(row[HEADERS.indexOf('engagement_rate_followers')]).endsWith('%'))
+  ok('CSV 含 eCPE 的中位互动量分母',
+    Number(row[HEADERS.indexOf('median_engagements')]) > 0)
+  ok('CSV 含合作报价', String(row[HEADERS.indexOf('collaboration_quote')]).includes('USD 300'))
+  ok('CSV 含 eCPM', String(row[HEADERS.indexOf('implied_ecpm')]).startsWith('USD '))
+  ok('结构化交付物关联主账号与另一平台',
+    creator.account_assessment?.handle === 'main' && creator.linked_account_assessment?.handle === 'linked')
+
+  const html = renderHtml([creator], {
+    product: 'p', market: 'US', platforms: ['tiktok', 'instagram'], keywords: [], total: 1,
+    tiers: { A: 1, B: 0, C: 0 }, email_count: 1, cross_platform_count: 1,
+    requests: 2, cost_estimate_usd: 0.002, budget_usd: 2, enriched: false,
+    high_risk_count: 0,
+    capabilities: {
+      email_verification: { total: 1, measured: 0, unavailable: 0, unqueried: 1 },
+      audience_geo: { total: 1, measured: 0, unavailable: 0, unqueried: 1 },
+      public_post_sample: { total: 2, measured: 2, unavailable: 0, unqueried: 0 },
+      audience_quality_risk: { total: 2, measured: 0, unavailable: 2, unqueried: 0 },
+      collaboration_quote: { total: 2, measured: 1, unavailable: 0, unqueried: 1 },
+    },
+  })
+  ok('HTML 展示两个平台明细', html.includes('TikTok · @main') && html.includes('Instagram（关联） · @linked'))
+  ok('公开指标不会隐藏邮箱与地域边界',
+    html.includes('未做有效性验证') && html.includes('无法确认'))
+  ok('HTML 明说风险不是假粉率或带货效果',
+    html.includes('不是假粉率') && html.includes('不能代表实际带货效果'))
 }
 
 suite('U4', 'A 级附开发信草稿且可复制')

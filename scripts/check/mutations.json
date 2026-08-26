@@ -46,7 +46,7 @@
       "req": "P5",
       "why": "未增强时不再声明数据边界，用户会以为邮箱是验证过的",
       "file": "scripts/lib/report.ts",
-      "find": "  if (!meta.enriched) {",
+      "find": "  if (missingEmailVerification) {",
       "replace": "  if (false) {"
     },
     {
@@ -190,8 +190,16 @@
       "req": "F5",
       "why": "受众降权跑在分层之前 —— 降完立刻被 tierOf 覆盖，地域不达标的人照样留在 A 级被直接发信",
       "file": "scripts/lib/pipeline.ts",
-      "find": "    c.score = scoreCreator(c)\n    c.tier = tierOf(c)\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') c.tier = DEMOTE[c.tier]",
-      "replace": "    c.score = scoreCreator(c)\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') c.tier = DEMOTE[tierOf(c)]\n    c.tier = tierOf(c)"
+      "find": "    c.score = scoreCreator(c)\n    c.tier = tierOf(c)\n    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') {\n      const from = c.tier\n      c.tier = DEMOTE[c.tier]\n      if (from !== c.tier) c.tier_adjustments.push({\n        kind: 'audience_geo', from, to: c.tier,\n        reason: `${market} 受众占比低于 30%`,\n      })\n    }",
+      "replace": "    c.score = scoreCreator(c)\n    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') {\n      const from = tierOf(c)\n      c.tier = DEMOTE[from]\n      if (from !== c.tier) c.tier_adjustments.push({\n        kind: 'audience_geo', from, to: c.tier,\n        reason: `${market} 受众占比低于 30%`,\n      })\n    }\n    c.tier = tierOf(c)"
+    },
+    {
+      "id": "M-F8-a",
+      "req": "F8",
+      "why": "公开信号高风险不再降级 —— 高异常账号会留在 A 级被直接联系",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    if (applyAudienceRiskPenalty(c) === 'demote') {",
+      "replace": "    if (false) {"
     },
     {
       "id": "M-U1-b",

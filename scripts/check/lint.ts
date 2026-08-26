@@ -13,6 +13,11 @@ import { join } from 'node:path'
 /** 这些字段的值会进入过滤、评分、分层 —— 兜底就是静默改变决策 */
 const SENSITIVE = [
   'followers', 'follower_count', 'post_count', 'aweme_count', 'media_count',
+  'following', 'following_count', 'views', 'play_count', 'likes', 'like_count',
+  'comments', 'comment_count', 'median_views', 'median_engagements',
+  'engagement_rate_followers', 'engagement_rate_views', 'view_rate', 'following_ratio',
+  'reach_consistency', 'median_post_gap_days', 'audience_quality_risk',
+  'implied_ecpm', 'implied_ecpe',
   'bio', 'signature', 'biography', 'email', 'email_verified',
   'audience_geo', 'fake_follower_score',
 ]

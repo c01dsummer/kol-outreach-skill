@@ -95,6 +95,28 @@ if (tightDir) {
   }
 }
 
+// ---- enrich：主页近期样本、公开指标、断点文件 ----
+if (dir) {
+  const creatorsPath = join(tmp, dir, 'creators.json')
+  const creators = JSON.parse(readFileSync(creatorsPath, 'utf8'))
+  // enrich 明确只处理完成语义判断的幸存者；自检补上这一步的输入契约。
+  for (const c of creators) c.fit = '✅'
+  writeFileSync(creatorsPath, JSON.stringify(creators, null, 2), 'utf8')
+
+  const out = run('enrich 公开指标完整流程', [S('enrich.ts'), '--dir', dir], tmp)
+  const enrichment = join(tmp, dir, 'enrichment.json')
+  if (!existsSync(enrichment)) { failed++; console.error('  ✗ 未生成 enrichment.json') }
+  else {
+    const data = JSON.parse(readFileSync(enrichment, 'utf8'))
+    const accounts = Object.values(data.accounts ?? {}) as any[]
+    if (!accounts.some(a => a.metrics?.median_views?.status === 'measured')) {
+      failed++; console.error('  ✗ enrichment.json 没有已测量的中位播放量')
+    } else if (!out.includes('samples_measured')) {
+      failed++; console.error('  ✗ enrich 输出缺少样本状态统计')
+    } else console.log('  ✓ enrichment.json 含公开指标与测量状态')
+  }
+}
+
 // ---- render：算分、分层、CSV、HTML、记忆写回 ----
 if (dir) {
   const out = run('render 完整产出', [S('render.ts'), '--dir', dir], tmp)
@@ -125,6 +147,9 @@ if (dir) {
     if (!h.includes('未做有效性验证')) {
       failed++; console.error('  ✗ HTML 缺少数据边界声明（违反 P5）')
     } else console.log('  ✓ HTML 含数据边界声明')
+    if (!h.includes('不是假粉率') || !h.includes('公开指标')) {
+      failed++; console.error('  ✗ HTML 缺少公开指标或其边界声明（违反 U7/P5）')
+    } else console.log('  ✓ HTML 展示公开指标且声明不是假粉率')
     if (!h.includes('data-f="A"') || !h.includes('data-tier=')) {
       failed++; console.error('  ✗ HTML 缺分层 tab 或卡片 data-tier（违反 U6）')
     } else if (h.includes('scrollIntoView')) {

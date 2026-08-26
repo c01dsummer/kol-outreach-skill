@@ -1,4 +1,6 @@
-import type { Creator } from './types.js'
+import type {
+  AccountAssessmentSummary, AudienceRiskFlag, Creator, Measurement,
+} from './types.js'
 
 const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, m =>
@@ -10,6 +12,75 @@ const fmt = (n?: number) =>
   : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M'
   : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K'
   : String(n)
+
+const REASON: Record<string, string> = {
+  private_account: '私密账号',
+  insufficient_posts: '有效近期作品不足 6 条',
+  missing_followers: '粉丝数缺失',
+  missing_following: '关注数缺失',
+  zero_denominator: '分母为零',
+  insufficient_peer_group: '可比较同行不足 8 个',
+  insufficient_comparable_metrics: '可比较指标不足',
+  unsupported_content: '报价或内容形式不可比',
+  account_unavailable: '账号不可访问',
+}
+
+const metricText = <T>(m: Measurement<T> | undefined, format: (value: T) => string): string => {
+  if (!m) return '未查询'
+  if (m.status === 'unavailable') return `不可用 · ${REASON[m.reason] ?? m.reason}`
+  return format(m.value)
+}
+
+const pct = (n: number) => `${(n * 100).toFixed(2)}%`
+const riskFlagText = (flag: AudienceRiskFlag): string => {
+  const name = {
+    engagement_rate_followers: '粉丝互动率',
+    view_rate: '播粉比',
+    following_ratio: '关注/粉丝比',
+  }[flag.metric]
+  return `${name}${flag.direction === 'low' ? '偏低' : '偏高'}`
+}
+
+const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string): string => {
+  if (!a) return `<div class="assessment"><div class="at">${esc(label)} · 公开指标未查询</div></div>`
+  const m = a.metrics
+  const risk = m?.audience_quality_risk
+  const riskLevel = metricText(risk, value => value.level.toUpperCase())
+  const flags = risk?.status === 'measured' && risk.value.flags.length
+    ? `<div class="flags">依据：${risk.value.flags.map(riskFlagText).map(esc).join(' · ')}</div>`
+    : ''
+  const quote = a.collaboration_quote
+  const quoteText = !quote ? '未查询'
+    : quote.status === 'unavailable' ? `不可用 · ${REASON[quote.reason] ?? quote.reason}`
+    : `${quote.value.currency} ${quote.value.amount} / ${quote.value.quantity} ${quote.value.format}` +
+      ` · ${quote.value.source} · ${quote.value.observed_at.slice(0, 10)}`
+  const ecpm = metricText(a.quote_efficiency?.implied_ecpm, value => {
+    const currency = quote?.status === 'measured' ? quote.value.currency : ''
+    return `${currency} ${value.toFixed(2)}`.trim()
+  })
+  const ecpe = metricText(a.quote_efficiency?.implied_ecpe, value => {
+    const currency = quote?.status === 'measured' ? quote.value.currency : ''
+    return `${currency} ${value.toFixed(2)}`.trim()
+  })
+  const sample = a.sample?.status === 'measured'
+    ? `${a.sample.value} 条 · ${a.sample.source.provider} · ${a.sample.observed_at.slice(0, 10)}`
+    : metricText(a.sample, value => `${value} 条`)
+
+  return `<div class="assessment">
+    <div class="at">${esc(label)} · @${esc(a.handle)} · ${esc(fmt(a.followers))} 粉丝 ·
+      关注 ${esc(fmt(a.following))} · 样本 ${esc(sample)}</div>
+    <div class="metrics">
+      <span>粉丝互动率 <b>${esc(metricText(m?.engagement_rate_followers, pct))}</b></span>
+      <span>播放互动率 <b>${esc(metricText(m?.engagement_rate_views, pct))}</b></span>
+      <span>中位播放 <b>${esc(metricText(m?.median_views, v => fmt(v)))}</b></span>
+      <span>播粉比 <b>${esc(metricText(m?.view_rate, pct))}</b></span>
+      <span>稳定度 <b>${esc(metricText(m?.reach_consistency, pct))}</b></span>
+      <span>发帖间隔 <b>${esc(metricText(m?.median_post_gap_days, v => `${v.toFixed(1)} 天`))}</b></span>
+      <span>受众风险 <b class="risk ${risk?.status === 'measured' ? risk.value.level : 'unknown'}">${esc(riskLevel)}</b></span>
+    </div>${flags}
+    <div class="commercial">合作报价 ${esc(quoteText)} · 隐含 eCPM ${esc(ecpm)} · 隐含 eCPE ${esc(ecpe)}</div>
+  </div>`
+}
 
 /** 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档 */
 export function renderHtml(creators: Creator[], meta: any): string {
@@ -34,7 +105,12 @@ export function renderHtml(creators: Creator[], meta: any): string {
     ${c.email ? `<span class="em">${esc(c.email)}</span>` : '<span class="no">无邮箱</span>'}
   </div>
   ${c.fit_reason ? `<div class="fit">${esc(c.fit)} ${esc(c.fit_reason)}</div>` : ''}
+  ${c.tier_adjustments?.length ? `<div class="adjust">${c.tier_adjustments.map(a =>
+    esc(`${a.from}→${a.to} ${a.reason}`)).join('<br>')}</div>` : ''}
   ${c.bio ? `<div class="bio">${esc(c.bio)}</div>` : ''}
+  ${renderAssessment(c.account_assessment, c.platform === 'tiktok' ? 'TikTok' : 'Instagram')}
+  ${c.linked_handle ? renderAssessment(c.linked_account_assessment,
+    c.linked_handle.startsWith('tiktok:') ? 'TikTok（关联）' : 'Instagram（关联）') : ''}
   ${c.previously_recommended ? `<div class="prev">曾推荐：${esc(c.previously_recommended)}</div>` : ''}
   ${c.outreach_draft ? `<details class="dr"><summary>开发信草稿</summary>
     <pre>${esc(c.outreach_draft)}</pre>
@@ -48,9 +124,26 @@ export function renderHtml(creators: Creator[], meta: any): string {
         <td>${k.found ? Math.round(k.fit_pass / k.found * 100) : 0}%</td></tr>`).join('')
 
   const notes: string[] = []
-  if (!meta.enriched) {
+  const missingEmailVerification = meta.capabilities
+    ? meta.capabilities.email_verification.total === 0 ||
+      meta.capabilities.email_verification.measured < meta.capabilities.email_verification.total
+    : !meta.enriched
+  const missingAudienceGeo = meta.capabilities
+    ? meta.capabilities.audience_geo.total === 0 ||
+      meta.capabilities.audience_geo.measured < meta.capabilities.audience_geo.total
+    : !meta.enriched
+  if (missingEmailVerification) {
     notes.push('邮箱来自 bio 提取，未做有效性验证，建议首轮小批量试发观察退信率。')
+  }
+  if (missingAudienceGeo) {
     notes.push('未配置增强层，无法确认这批人的粉丝是否在目标市场。')
+  }
+  const publicCapability = meta.capabilities?.public_post_sample
+  if (publicCapability?.measured || publicCapability?.unavailable) {
+    notes.push('受众质量风险只依据近期公开互动异常，不是假粉率，也不能代表实际带货效果。')
+  }
+  if (publicCapability?.unqueried || publicCapability?.unavailable) {
+    notes.push(`公开指标边界：${publicCapability.unqueried} 个账号未查询，${publicCapability.unavailable} 个账号不可用。`)
   }
 
   return `<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8">
@@ -97,7 +190,12 @@ th{color:#64748b;font-weight:600;font-size:12px}
 .st{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:#64748b;margin-top:6px}
 .st .em{color:#22c55e}.st .no{color:#ef4444}
 .fit{margin-top:8px;font-size:13px;color:#e2e8f0;background:#0f172a;padding:7px 9px;border-radius:6px}
+.adjust{margin-top:7px;font-size:12px;color:#fbbf24;background:#3f2b0a;padding:7px 9px;border-radius:6px}
 .bio{margin-top:6px;font-size:12px;color:#64748b;white-space:pre-wrap;word-break:break-word}
+.assessment{margin-top:9px;background:#0f172a;border:1px solid #1e293b;border-radius:7px;padding:9px}
+.at{font-size:11px;color:#64748b;margin-bottom:5px}.metrics{display:flex;gap:8px 12px;flex-wrap:wrap;font-size:11px;color:#94a3b8}
+.metrics b{color:#e2e8f0;font-weight:600}.risk.high{color:#ef4444}.risk.medium{color:#f59e0b}.risk.low{color:#22c55e}.risk.unknown{color:#64748b}
+.flags{font-size:11px;color:#f59e0b;margin-top:5px}.commercial{font-size:11px;color:#94a3b8;margin-top:5px}
 .prev{margin-top:6px;font-size:11px;color:#f59e0b}
 .dr{margin-top:9px}
 .dr summary{cursor:pointer;font-size:12px;color:#38bdf8}
@@ -117,6 +215,8 @@ th{color:#64748b;font-weight:600;font-size:12px}
   <div class="stat"><div class="v" style="color:#94a3b8">${meta.tiers.C}</div><div class="l">C 级</div></div>
   <div class="stat"><div class="v">${meta.email_count}</div><div class="l">有邮箱</div></div>
   <div class="stat"><div class="v" style="color:#a78bfa">${meta.cross_platform_count}</div><div class="l">跨平台</div></div>
+  <div class="stat"><div class="v">${meta.capabilities?.public_post_sample.measured ?? 0}</div><div class="l">公开指标已测账号</div></div>
+  <div class="stat"><div class="v" style="color:#ef4444">${meta.high_risk_count ?? 0}</div><div class="l">高风险复核</div></div>
 </div>
 
 ${notes.length ? `<div class="notes">${notes.map(n => `<div>⚠️ ${esc(n)}</div>`).join('')}</div>` : ''}

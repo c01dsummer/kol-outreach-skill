@@ -45,6 +45,15 @@ export function applyGeoPenalty(c: Creator, market: string): 'keep' | 'demote' |
 }
 
 /**
+ * F8：公开信号只给“受众质量风险”，不是假粉率。只有 high 会触发人工复核降级，
+ * unavailable / medium / low 都不偷偷改变名单。
+ */
+export function applyAudienceRiskPenalty(c: Creator): 'keep' | 'demote' {
+  const risk = c.account_assessment?.metrics?.audience_quality_risk
+  return risk?.status === 'measured' && risk.value.level === 'high' ? 'demote' : 'keep'
+}
+
+/**
  * 粉丝数闸门。
  *
  * P1：**未知一律放行** —— 「没查到」不等于「不合格」。

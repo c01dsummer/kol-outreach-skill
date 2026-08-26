@@ -6,6 +6,7 @@
   "scripts": {
     "probe": "node --env-file-if-exists=.env node_modules/.bin/tsx scripts/probe.ts",
     "collect": "node --env-file-if-exists=.env node_modules/.bin/tsx scripts/collect.ts",
+    "enrich": "node --env-file-if-exists=.env node_modules/.bin/tsx scripts/enrich.ts",
     "render": "node --env-file-if-exists=.env node_modules/.bin/tsx scripts/render.ts",
     "test": "tsx scripts/test.ts",
     "lint": "tsx scripts/check/lint.ts",
