@@ -1,28 +1,31 @@
 # 数据源适配接口
 
-数据源是可替换的商品层。编排逻辑只依赖这份契约，换供应商不动 Phase 流程。
+数据源应当是可替换的商品层。这份契约约束归一化形状，使新增供应商不必改写下游判断和输出；当前执行入口的接线状态见下文。
 
 ## 契约
 
 ```ts
 type Platform = 'tiktok' | 'instagram'
+type Dimension = 'category' | 'scene' | 'competitor' | 'audience'
 
 interface Creator {
   platform:      Platform
   handle:        string        // 唯一标识，TikTok 的 uniqueId / IG 的 username
-  user_id?:      string        // IG 分页需要
+  user_id?:      string        // 平台侧用户 ID
   nickname:      string
-  followers:     number
-  post_count:    number
-  bio:           string
+  // undefined = 未查询，不得伪装成 0 或空串
+  followers?:    number
+  post_count?:   number
+  bio?:          string
   bio_links:     string[]      // ★ 跨平台同人识别用，两边都归一化成数组
   verified:      boolean
+  is_private?:   boolean
   avatar?:       string
   profile_url:   string
 
   // 发现上下文
   source_keyword: string
-  source_dimension: 'category' | 'scene' | 'competitor' | 'audience'
+  source_dimension: Dimension
 
   // 内容样本 —— Phase 04 语义判断的原料
   recent_posts: Array<{
@@ -30,30 +33,46 @@ interface Creator {
     plays?: number
     likes?: number
   }>
+
+  // profile 补全或未来增强后填充
+  // undefined = 未查询，null = 查询过但没有
+  email?:               string | null
+  email_verified?:      boolean
+  audience_geo?:        Record<string, number>
+  fake_follower_score?: number
 }
 
-// 必须实现
-search(keyword: string, opts: {
+interface SearchTask {
+  keyword: string
+  dimension: Dimension
   platform: Platform
-  region?:  string
-  page?:    number
-}): Promise<Creator[]>
+  as_hashtag?: boolean
+}
 
-// 可选实现
+interface SearchPage {
+  creators: Partial<Creator>[]
+  raw_count: number
+  has_more: boolean
+}
+
+// 当前采集入口要求实现
+search(task: SearchTask, region: string, offset: number): Promise<SearchPage>
+profile(handle: string, platform: Platform): Promise<Partial<Creator>>
+
+// 未来可选实现；当前入口尚未调用
 enrich(handle: string, platform: Platform): Promise<{
-  email?:              string
+  email?:              string | null
   email_verified?:     boolean
   audience_geo?:       Record<string, number>   // { US: 0.62, GB: 0.11, ... }
-  audience_age?:       Record<string, number>
   fake_follower_score?: number
 }>
 ```
 
 ## 规则
 
-**`search` 必须实现。** 没有它整个 Skill 无法工作。
+**`search` 和 `profile` 必须实现。** 搜索结果通常没有完整 bio、粉丝数或发帖数；没有 profile 补全，邮箱状态和准入判断都会失真。
 
-**`enrich` 可选（F5）。** 未配置时必须优雅降级完成主流程，不得中断：
+**`enrich` 是未来可选能力。** 接入后，未配置时仍必须让主流程完整运行：
 - 跳过 Phase 05
 - 主流程照常完整走完
 - 邮箱退化为从 `bio` 正则提取（命中率约 46%，且未经验证）
@@ -79,15 +98,18 @@ enrich(handle: string, platform: Platform): Promise<{
 
 ## 当前实现
 
-| 供应商 | `search` | `enrich` | 文档 |
+| 供应商 | 发现与 profile 补全 | 外部增强 | 文档 |
 |---|---|---|---|
-| TikHub | ✅ | ⚠️ 仅 bio 正则提邮箱 | `tikhub.md` |
-| influencers.club | ✅ | ✅ | `influencers-club.md` |
+| TikHub | ✅ | 未提供；当前仅从公开 bio 提取未验证邮箱 | `tikhub.md` |
+| influencers.club | 尚未接入 | 尚未接入 | `influencers-club.md` |
+
+当前 `probe.ts` 与 `collect.ts` 直接实例化 TikHub，尚未实现按配置切换供应商。上面的契约已经约束了归一化数据形状，但新增供应商仍需实现适配器并接入执行入口；不能只改一个配置项就生效。
 
 ## 加新供应商
 
-1. 按上面的契约实现 `search`，能做就再实现 `enrich`
-2. 在 `providers/` 下加一份文档，格式对齐 `tikhub.md`
-3. 更新上面这张表
+1. 按上面的契约实现 `search` 与 `profile`，能做就再实现 `enrich`
+2. 把适配器接入 `probe.ts` 与 `collect.ts` 的供应商选择
+3. 在 `providers/` 下加一份文档，格式对齐 `tikhub.md`
+4. 更新上面这张表
 
 **评估新供应商时先问一个问题：它是不是注册即用？** 本 Skill 是发布给别人 clone 的，任何"发邮件申请、等审批"的数据源都不能做默认源 —— 使用者会卡在第一步。CreatorDB、Modash API、Phyllo 数据都更好，但都因此不可用作默认。

@@ -77,13 +77,13 @@
 | 角色 | 选择 | 理由 |
 |------|------|------|
 | **默认数据源** | **TikHub** | 唯一同时满足即时注册 + 同步返回 + 便宜到能让 Agent 试错。已覆盖 TikTok / Instagram / YouTube，扩展平台不用换供应商 |
-| **可选增强** | **influencers.club** | 自助注册、送 10 credits 可先测、月付无年约、Discovery API 0.01 credit/条。但 $140/月门槛对免费 Skill 是硬伤，只能可选 |
+| **可选增强候选** | **influencers.club** | 自助注册、送 10 credits 可先测、月付无年约、Discovery API 0.01 credit/条。但 $140/月门槛对免费 Skill 是硬伤，且当前执行适配器尚未接入 |
 | 备选适配 | Bright Data | 自助且合规资质完整，适合有企业采购要求的使用者。异步发现不适合做默认，但可作为 IG/跨平台的替代适配器 |
 | **不采用** | CreatorDB / Modash API / Phyllo | 申请制或年付。数据更好，但分发不了 |
 
 ### 分层增强的成本模型
 
-不对全量做增强，只对入围者做：
+不对全量做增强，只对 A 级候选做：
 
 | 方案 | 人数 | 成本 |
 |------|------|------|
@@ -97,18 +97,22 @@
 
 ## 适配层接口
 
-数据源是可替换的商品层。定义最小契约，换供应商只改配置：
+数据源是可替换的商品层，因此先定义最小契约：
 
 ```
-search(keyword, opts)  → [{ handle, platform, nickname, followers,
-                            video_count, bio, recent_posts[] }]
+search(task, region, offset) → { creators: Partial<Creator>[],
+                                 raw_count, has_more }
 
-enrich(handle, platform) → { email, email_verified, audience_geo,
-                             audience_age, fake_follower_score }
+profile(handle, platform)   → Partial<Creator>
+
+enrich(handle, platform)    → { email, email_verified, audience_geo,
+                                 fake_follower_score }
 ```
 
-- `search` 必须实现，`enrich` 可选
+- `search` 与 `profile` 必须实现，`enrich` 是未来可选能力
 - `enrich` 未配置时，Skill 跳过增强阶段，主流程照常完成
+
+**当前实现边界**：`probe.ts` 和 `collect.ts` 仍直接实例化 TikHub；仓库尚未实现按配置切换供应商，也没有 influencers.club 适配器。新增供应商需要实现适配器并接入入口，但下游的语义判断、分层和输出结构不需要重写。
 
 ---
 

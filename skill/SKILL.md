@@ -23,7 +23,7 @@ description: 海外 KOL 建联助手 —— 从产品理解到可发信名单。
 
 具体到执行：
 
-1. **便宜的步骤先跑，贵的步骤只对幸存者跑** —— 先小样试探再放量，只对入围者做增强
+1. **便宜的步骤先跑，贵的步骤只对幸存者跑** —— 先小样试探再放量；增强适配器接入后也只对 A 级候选执行
 2. **输出理由，不只输出分数** —— 运营看得懂"为什么这人排在前面"才会信任名单
 3. **花费全程可见** —— 用户看不到请求在烧钱，你必须主动报告
 4. **不确定就说不确定** —— 召回差、平台不匹配、识别不确定，如实讲，不要凑数
@@ -32,7 +32,7 @@ description: 海外 KOL 建联助手 —— 从产品理解到可发信名单。
 
 开始前确认 `.env` 里有 `TIKHUB_API_KEY`。没有就告诉用户去 [tikhub.io](https://tikhub.io) 注册，充值 $5 足够跑很多次。
 
-`INFLUENCERS_CLUB_KEY` 是**可选**的。没有就跳过 Phase 05，其余流程照常完整走完 —— 不要因为缺这个 key 就中断。
+当前仓库尚未接入外部增强适配器，脚本也不会读取 `INFLUENCERS_CLUB_KEY`。不要要求用户配置它，也不要声称邮箱已经验证或受众画像已经补全；直接跳过 Phase 05，其余流程照常完整走完。
 
 ## 六个阶段
 
@@ -96,9 +96,9 @@ TikTok 走视频搜索，**IG 走 Reels 搜索** —— 两者都是按内容匹
 
 ### Phase 05 — 增强（可选）
 
-**只对 A 级候选做**，不对全量做。500 人全量增强和 50 人精选增强成本差一个数量级，而后者覆盖了几乎全部决策价值。
+**当前状态：方案已设计，执行适配器尚未接入。** 本阶段直接跳过，不要把 bio 正则提取的邮箱描述成“已验证”。
 
-没配 `INFLUENCERS_CLUB_KEY` 就跳过，直接进 Phase 06。**不要因此中断流程或反复提示用户去注册。**
+未来接入后也只对 A 级候选执行，不对全量执行。500 人全量增强和 50 人精选增强成本差一个数量级，而后者覆盖了几乎全部决策价值。
 
 详见 `references/providers/influencers-club.md`。
 
@@ -173,7 +173,7 @@ npx tsx scripts/collect.ts --resume output/{task} --budget <新额度>
 | `references/keyword-strategy.md` | 四维关键词生成、两平台分别出词、试探判读标准 |
 | `references/providers/_interface.md` | 数据源适配接口契约 |
 | `references/providers/tikhub.md` | TikHub 端点、参数、字段路径、双平台差异 |
-| `references/providers/influencers-club.md` | 可选增强层 |
+| `references/providers/influencers-club.md` | 可选增强方案（尚未接入） |
 | `references/semantic-fit.md` | 语义契合判断标准、评分细则、A/B/C 分层 |
 | `references/outreach-draft.md` | 英文开发信写法与模板 |
 | `references/memory.md` | 记忆文件结构、跨平台同人识别 |

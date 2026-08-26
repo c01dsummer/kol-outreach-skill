@@ -1,143 +1,204 @@
 # kol-outreach-skill
 
-海外 KOL 建联 Agent Skill —— 第二版重做。
+面向海外市场的 KOL 搜索与建联 Agent Skill，支持 TikTok 和 Instagram。
 
-**当前状态：已用真实 API 跑通完整流程（TikTok + Instagram 双平台）。**
+运营只需说明产品、目标市场、API 预算和目标人数，Agent 就能完成从产品理解到可发信名单的全过程，交付带语义匹配理由和个性化英文开发信草稿的分层名单。
 
-> 开工前先读 **[AGENTS.md](AGENTS.md)** —— 本仓库约定的正本。
+**当前状态：已于 2026-08-26 使用真实 API 跑通 TikTok + Instagram 完整链路。**
 
-## 这是什么
+> 参与开发前请先读 [AGENTS.md](AGENTS.md)，它是本仓库约定的正本。
 
-一个 AI Agent Skill。运营用自然语言说自己卖什么，Agent 完成从产品理解到可发信名单的全过程，产出带**个性化开发信草稿**的分层名单。
+## 项目定位
 
-与前一版（`tikhub-kol-sourcing`）的根本区别：
+这不是一个单纯的采集工具，也不是 KOL SaaS 的命令行版本。它解决的是运营真正需要判断的三个问题：
+
+1. 应该找谁？
+2. 为什么这个创作者适合当前产品？
+3. 第一封建联邮件应该怎么写？
+
+仓库的设计原则是：
 
 > 护城河是判断力，不是数据获取能力。
 
-任何人都能包一层采集 API，SaaS 在筛选导出上做得比我们好。Agent 唯一不可替代的是语义判断 —— 读懂产品、推导搜索策略、判断内容调性是否匹配、写出有针对性的第一封信。复杂度必须集中在这四件事上。
+API 负责提供候选数据，Agent 负责读懂产品、推导搜索策略、判断创作者内容是否匹配，以及写出有针对性的第一封邮件。
 
-## 文档
+## 能做什么
 
-| 文档 | 内容 |
-|------|------|
-| **[AGENTS.md](AGENTS.md)** | **约定正本**，开工前先读。两层文档的路由 |
-| [docs/SPEC.md](docs/SPEC.md) | 需求唯一来源 · 5 条红线 · 30 条编号需求 |
-| [docs/CONVENTIONS.md](docs/CONVENTIONS.md) | 在本项目里**反着**的通用做法 |
-| [DECISIONS.md](DECISIONS.md) | 决策记录 ADR |
-| [docs/SYNC.md](docs/SYNC.md) | 文档同步表 |
-| [业务需求](docs/business-requirements.md) | 背景、痛点排序、成功指标、论证过程 |
-| [数据源策略](docs/data-source-strategy.md) | 各家 API 对比、选型结论、官方 API 为何不可用 |
-| [SKILL.md](skill/SKILL.md) | Skill 主定义 —— 触发条件、六阶段流程、成本闸门 |
+- 根据产品描述或产品页理解品类和卖点
+- 从品类、使用场景、竞品、目标人群四个方向生成搜索词
+- 在放量前先采集小样，由用户确认搜索方向
+- 从 TikTok 和 Instagram 搜索并补全创作者资料
+- 根据 bio 和近期内容进行语义匹配，并输出可读的判断理由
+- 结合硬指标与语义判断生成 A/B/C 分层名单
+- 为合适且有公开邮箱的 A 级创作者生成个性化英文开发信草稿
+- 记录跨任务创作者状态，排除已联系或已屏蔽的人
+- 输出 HTML、XLSX、CSV 和 JSON，支持断点续跑和预算控制
 
-## Skill 结构
+完整工作路径如下：
 
+```text
+产品理解
+  → 四维关键词策略
+  → 小样试探与方向确认
+  → 批量采集
+  → 语义匹配与理由
+  → A/B/C 分层与英文开发信草稿
+  → 报告、表格和本地记忆
 ```
+
+## 不做什么
+
+- 不实际发送邮件，只生成草稿
+- 不做 CRM 跟进、付款、寄样物流或投放效果归因
+- 不主动索取发信结果；联系、回复和屏蔽状态由外部手动维护
+- 不支持抖音、小红书、快手等中国大陆平台
+- 不生成多语言开发信，目前仅支持英语
+
+## 架构
+
+仓库把“需要判断的工作”和“机械执行的工作”分开：
+
+| 位置 | 职责 | 执行者 |
+|---|---|---|
+| `skill/` | 产品理解、关键词策略、语义筛选、分层判断、开发信写法 | Agent |
+| `scripts/` | API 调用、分页、去重、预算、断点、计分和文件生成 | Node.js |
+
+```text
 skill/
 ├── SKILL.md
 └── references/
-    ├── product-intake.md        产品理解、品类关键词倾向
-    ├── keyword-strategy.md      四维关键词、分平台出词、试探判读
-    ├── semantic-fit.md          ★ 语义契合判断、评分、A/B/C 分层
-    ├── outreach-draft.md        ★ 英文开发信写法
-    ├── memory.md                跨任务记忆、跨平台同人识别
-    ├── output-format.md         CSV 列、HTML 报告、meta.json
+    ├── product-intake.md        产品理解与信息收集
+    ├── keyword-strategy.md      四维关键词与小样判读
+    ├── semantic-fit.md          语义匹配、理由与分层约束
+    ├── outreach-draft.md        个性化英文开发信写法
+    ├── memory.md                跨任务记忆与跨平台同人识别
+    ├── output-format.md         交付物格式
     └── providers/
-        ├── _interface.md        适配接口契约
-        ├── tikhub.md            默认源（端点已核实）
-        └── influencers-club.md  可选增强层
+        ├── _interface.md        数据源适配契约
+        ├── tikhub.md            默认数据源
+        └── influencers-club.md  增强方案（尚未接入）
+
+scripts/
+├── probe.ts                     小样采集
+├── collect.ts                   批量采集与断点续跑
+├── render.ts                    计分、分层和交付物生成
+├── lib/                         预算、邮箱、身份、记忆、CSV/XLSX 等
+├── providers/                   数据源实现
+└── check/                       纪律检查、变异测试、自检和审计
 ```
 
-★ 标记的两个是这个 Skill 值得被 clone 的理由 —— 其余部分任何人包一层 API 都能做。
+判断力主要集中在 `semantic-fit.md` 和 `outreach-draft.md`。仓库已经定义数据源适配契约；当前执行入口只接入 TikHub，新增供应商仍需实现适配器并接入入口，但不需要改写下游判断和输出结构。
 
-## 关键决策速览
+## 数据源与降级策略
 
-- **默认数据源 TikHub** —— 不因为数据最好，而因为唯一同时满足即时注册 + 同步返回 + 便宜到能让 Agent 试错
-- **零配置必须跑通** —— 这是发布给别人用的 Skill，任何"再注册一个服务"的要求都会劝退
-- **增强层可选且优雅降级** —— 邮箱验证和受众画像只对入围者做，缺配置就跳过
-- **首发 TikTok + Instagram** —— 含跨平台同人识别
-- **记忆存本地 JSON** —— 单人使用，不做多人共享
-- **开发信仅英语** —— 目标市场默认英语区
-- **不发信、不回访** —— 产出草稿，发信交给用户现有工具；不向用户索要效果回填
+- **默认数据源：TikHub**，负责 TikTok 和 Instagram 的发现与资料补全
+- **增强方案：Influencers Club**，可用于邮箱验证和受众画像，但当前只有调研与接口设计，尚未接入执行脚本
+- 当前主流程不执行外部增强，报告会明确标注邮箱未经验证、受众市场无法确认
+- TikHub 响应结构通过探测式解析兼容版本变化；识别失败时会暴露响应顶层字段，而不是猜测数据结构
 
-## 相比前一版的主要增量
+## 五条不可突破的边界
 
-1. **试探验证循环** —— 小样采集后让用户确认方向，再放量。避免整轮返工
-2. **语义筛选取代静态评分表** —— 输出理由而非分数
-3. **开发信草稿** —— 用上筛选阶段已经读过的内容
-4. **跨任务创作者记忆** —— 推荐过的人不再重复出现；已联系状态由用户手动标记
-5. **数据源适配层** —— 换供应商不动编排逻辑
-6. **去掉"确认接口"环节** —— 实现细节不该暴露给非技术用户
+1. 缺失数据不能用默认值伪造；“未查询”和“查询结果为空”必须可区分。
+2. 开发信不能包含未经产品页证实的信息；未知内容必须保留占位符。
+3. 未经用户确认不能超过 API 预算上限。
+4. 已联系或已屏蔽的创作者不能再次进入名单。
+5. 交付时必须明确说明哪些字段未经验证、哪些数据缺失。
 
-## 脚本
+详细定义和验收标准见 [docs/SPEC.md](docs/SPEC.md)。
+
+## 快速开始
 
 ```bash
 npm install
-cp .env.example .env      # 填入 TIKHUB_API_KEY
-
-npm run check             # 完整检查链，不消耗 API
-npm test                  # 只跑需求测试
+cp .env.example .env
 ```
 
-`npm run check` = 纪律 lint → SPEC 一致性 → 类型检查 → 需求测试 →
-变异测试 → 脚本自检 → 链路审计。CI 跑的是同一条链。
+在 `.env` 中配置：
 
-三个入口，Agent 按 Phase 调用：
+```dotenv
+TIKHUB_API_KEY=your_key
+```
+
+`INFLUENCERS_CLUB_KEY` 目前尚未被脚本读取；在增强适配器接入前，不要把填写该变量当作已经启用邮箱验证或受众画像。
+
+先运行不消耗 API 的完整检查：
 
 ```bash
-# Phase 02 — 小样试探，每词每平台 1 页
-npx tsx scripts/probe.ts --config probe.json
-
-# Phase 03 — 规模采集（可断点续跑）
-npx tsx scripts/collect.ts --config task.json
-npx tsx scripts/collect.ts --resume output/xxx --budget 3   # 预算用尽后追加续跑
-
-# Phase 06 — 算分、分层、CSV + HTML + 写回记忆
-npx tsx scripts/render.ts --dir output/xxx
+npm run check
 ```
 
-三个脚本都把结构化结果打到 **stdout（JSON）**、进度打到 **stderr**，方便 Agent 解析。
+机械执行入口如下；正常情况下由读过 `skill/SKILL.md` 的 Agent 编排调用：
 
-`collect.ts` 预算用尽时以**退出码 3** 结束并保存断点 —— Agent 据此询问用户是否追加预算，续跑不会重复已完成的关键词，也不会重复计费。
+```bash
+# 每个关键词、每个平台采集一页小样
+npm run probe -- --config probe.json
 
-### 目录
+# 方向确认后批量采集
+npm run collect -- --config task.json
 
-```
-scripts/
-├── lib/
-│   ├── types.ts      Creator / TaskState 等
-│   ├── budget.ts     请求计数、阈值提醒、跨运行累加
-│   ├── task.ts       任务状态读写（断点续跑的基础）
-│   ├── email.ts      bio 邮箱提取（含 (at)/(dot) 等反爬写法）
-│   ├── identity.ts   跨平台同人识别与合并
-│   ├── memory.ts     跨任务记忆
-│   ├── score.ts      硬指标计分、分层、受众降权
-│   ├── rows.ts       CSV/xlsx 列定义、排序、分层分 sheet
-│   ├── csv.ts        UTF-8 BOM + 转义
-│   ├── xlsx.ts       最小 XLSX 写出器（多 sheet，零依赖）
-│   └── report.ts     HTML 报告
-├── providers/
-│   └── tikhub.ts     默认数据源（响应结构探测 cascade）
-├── check/            检查链
-│   ├── lint.ts       纪律 lint（P1 兜底写法）
-│   ├── spec-sync.ts  SPEC.md ← requirements.json 生成与校验
-│   ├── mutate.ts     变异测试
-│   ├── mutations.json
-│   ├── fake-fetch.ts 罐头响应（结构取自真实调用）
-│   ├── selfcheck.ts  脚本自检（未执行的路径）
-│   └── audit.ts      链路审计
-├── probe.ts / collect.ts / render.ts
-└── test.ts
+# 预算追加后从断点继续，不重复已完成的关键词或请求
+npm run collect -- --resume output/xxx --budget 3
+
+# Agent 完成语义判断和草稿后，生成最终交付物并写回本地记忆
+npm run render -- --dir output/xxx
 ```
 
-### 一次任务的产出
+三个入口都将结构化结果写入 `stdout`、将进度写入 `stderr`，方便 Agent 稳定解析。预算用尽时，`collect.ts` 会保存断点并以退出码 `3` 结束。
 
+## 交付物
+
+每次任务生成一个独立目录：
+
+```text
+output/{product}-{timestamp}/
+├── report.html        单文件可读报告，支持分层切换和草稿复制
+├── kol.xlsx           A/B/C 分 Sheet 的 Excel 名单
+├── kol.csv            适合脚本和其他工具读取的完整单表
+├── creators.json      最终筛选后的结构化名单
+├── creators.raw.json  原始采集累加器，断点续跑时只增不减
+├── task.json          采集状态、请求数和断点信息
+└── meta.json          平台、费用、增强状态和数据边界
 ```
-output/{product}-{时间戳}/
-├── kol.csv        单表名单 —— 给脚本和其他工具读
-├── kol.xlsx       按 A/B/C 分 sheet —— 给人看
-├── report.html    可读报告（分层 tab + 开发信草稿一键复制）
-├── creators.json  交付物 —— 过滤后的名单
-├── creators.raw.json  采集累加器 —— 只增不减，--resume 读它
-├── task.json      采集状态（断点续跑用）
-└── meta.json      任务元数据
+
+其中：
+
+- HTML 报告完全内联，不依赖外部样式或脚本
+- CSV 使用 UTF-8 BOM 并正确处理逗号、引号和换行
+- XLSX 始终包含 A/B/C 三个 Sheet，包括空分层
+- A 级候选附带可复制的英文开发信草稿
+
+## 质量保证
+
+需求的机器可读正本是 `docs/requirements.json`，`docs/SPEC.md` 中的表格由它生成。目前共有 30 条正式需求，其中 5 条为不可取舍的红线。
+
+```bash
+npm run check
 ```
+
+完整检查包括：纪律扫描、需求文档一致性、TypeScript 类型检查、需求测试、变异测试、脚本自检和链路审计。CI 在每次 push 时执行同一条命令。
+
+## 当前已知边界
+
+接口能否工作已经得到验证，尚未充分验证的是最终名单和开发信的业务效果：
+
+- Instagram 的发现质量目前低于 TikTok，搜索结果有限且更容易混入商家账号
+- 跨平台同人识别的真实样本仍然不足
+- 单关键词采集四页是否足够，还缺少衰减数据
+- 语义筛选相比静态评分能提升多少，尚未完成盲评
+- 开发信草稿的实际可用率和回复率，需要真实发信数据验证
+- 竞品关键词容易带来品牌官方号、经销商和已签约创作者，当前权重可能偏高
+
+这些问题保留在 [docs/SPEC.md](docs/SPEC.md) 的“尚未确定的”部分，不会被实现层用默认答案掩盖。
+
+## 关键文档
+
+| 文档 | 内容 |
+|---|---|
+| [AGENTS.md](AGENTS.md) | 仓库约定正本与开工路由 |
+| [skill/SKILL.md](skill/SKILL.md) | Agent 的触发条件和完整执行方式 |
+| [docs/SPEC.md](docs/SPEC.md) | 需求唯一来源、红线和验收标准 |
+| [docs/CONVENTIONS.md](docs/CONVENTIONS.md) | 本项目中特别容易违反红线的实现习惯 |
+| [docs/business-requirements.md](docs/business-requirements.md) | 用户痛点、目标与业务论证 |
+| [docs/data-source-strategy.md](docs/data-source-strategy.md) | 数据源比较和选型依据 |
+| [DECISIONS.md](DECISIONS.md) | 架构与产品决策记录 |
+| [docs/SYNC.md](docs/SYNC.md) | 需求变动时需要同步的文档和实现 |

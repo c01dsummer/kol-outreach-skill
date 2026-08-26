@@ -24,6 +24,7 @@
 | **改流程阶段** | `skill/SKILL.md` · `docs/business-requirements.md` · 对应 reference | ✗ 靠执行 |
 | **查到新事实 / 旧结论被推翻** | `docs/data-source-strategy.md` **必须改** · `DECISIONS.md`（多属事实证伪） | ✗ 靠执行 |
 | **改预算/成本逻辑** | `scripts/lib/budget.ts` · `skill/SKILL.md` 成本闸门一节 · `docs/CONVENTIONS.md` 第 7 条 | 部分 |
+| **改对外能力、范围、当前状态或交付物** | 对应正本 · `README.md`（只做摘要，不定义新事实） | ✗ 靠执行 |
 
 ---
 
@@ -40,6 +41,7 @@
 | `docs/business-requirements.md` | 背景、痛点排序、成功指标、论证过程 | 编号定义（那在 json） |
 | `docs/data-source-strategy.md` | 各家 API 调研与选型结论 | 需求 |
 | `DECISIONS.md` | ADR，追加不删改 | 计划、待办 |
+| `README.md` | 给新接手者看的下游概览 | 只在 README 出现、无法追溯到正本的需求或事实 |
 | `AGENTS.md` / `CLAUDE.md` | **只做路由**，指向上面这些 | 任何具体规则 |
 | `skill/SKILL.md` | 给 Agent 的执行指令 | 需求论证 |
 | `skill/references/*` | 每个阶段的操作细节 | 与 `process/` 重复的通用纪律 |
