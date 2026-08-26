@@ -15,6 +15,7 @@ interface Creator {
   nickname:      string
   // undefined = 未查询，不得伪装成 0 或空串
   followers?:    number
+  following?:    number
   post_count?:   number
   bio?:          string
   bio_links:     string[]      // ★ 跨平台同人识别用，两边都归一化成数组
@@ -34,12 +35,12 @@ interface Creator {
     likes?: number
   }>
 
-  // profile 补全或未来增强后填充
+  // profile 补全或未来外部增强后填充
   // undefined = 未查询，null = 查询过但没有
   email?:               string | null
   email_verified?:      boolean
   audience_geo?:        Record<string, number>
-  fake_follower_score?: number
+  // fake_follower_score 仅为旧任务兼容字段；当前逻辑不读取
 }
 
 interface SearchTask {
@@ -59,12 +60,20 @@ interface SearchPage {
 search(task: SearchTask, region: string, offset: number): Promise<SearchPage>
 profile(handle: string, platform: Platform): Promise<Partial<Creator>>
 
-// 未来可选实现；当前入口尚未调用
-enrich(handle: string, platform: Platform): Promise<{
-  email?:              string | null
-  email_verified?:     boolean
-  audience_geo?:       Record<string, number>   // { US: 0.62, GB: 0.11, ... }
-  fake_follower_score?: number
+// D8：当前 TikHub 已实现；独立于关键词搜索样本
+recentPosts(handle: string, platform: Platform): Promise<{
+  posts: Array<{
+    id: string
+    views?: number
+    likes?: number
+    comments?: number
+    shares?: number
+    published_at?: string
+    is_pinned?: boolean
+  }>
+  followers?: number
+  following?: number
+  source: { kind: 'public_api'; provider: string; endpoint: string }
 }>
 ```
 
@@ -72,13 +81,14 @@ enrich(handle: string, platform: Platform): Promise<{
 
 **`search` 和 `profile` 必须实现。** 搜索结果通常没有完整 bio、粉丝数或发帖数；没有 profile 补全，邮箱状态和准入判断都会失真。
 
-**`enrich` 是未来可选能力。** 接入后，未配置时仍必须让主流程完整运行：
-- 跳过 Phase 05
-- 主流程照常完整走完
-- 邮箱退化为从 `bio` 正则提取（命中率约 46%，且未经验证）
-- 受众地域信息缺失，Phase 04 的受众降权规则不生效
+**`recentPosts` 是可选执行能力，不是额外供应商。** 不运行时主流程仍完整完成；
+运行时只用已有 TikHub key，对 `fit=✅/⚠️` 的账号写 `enrichment.json`。
+邮箱仍来自 `bio` 正则且未经验证，受众地域仍缺失。
 
-**不要因为缺 `enrich` 就中断，也不要反复提示用户去注册增强服务。** 提一次就够。
+**不要因为缺公开指标就中断，也不要提示用户去注册增强服务。**
+
+未来第三方结果必须使用与公开指标相同的三态 `Measurement<T>`，来源
+`kind='third_party'`，并先通过 `external-enrichment.md` 的准入；当前没有外部适配器。
 
 ## 归一化要点
 
@@ -90,6 +100,7 @@ enrich(handle: string, platform: Platform): Promise<{
 | `nickname` | `nickname` | `full_name` |
 | `bio` | `signature` | `biography` |
 | `followers` | `followerCount` | `follower_count` |
+| `following` | `followingCount` | `following_count` |
 | `post_count` | `videoCount` | `media_count` |
 | `bio_links` | `[bioLink.link]` ← 包成数组 | `bio_links` ← 已是数组 |
 | `user_id` | — | `pk` |
@@ -98,18 +109,18 @@ enrich(handle: string, platform: Platform): Promise<{
 
 ## 当前实现
 
-| 供应商 | 发现与 profile 补全 | 外部增强 | 文档 |
+| 供应商 | 发现与 profile 补全 | 主页近期作品 | 外部增强 | 文档 |
 |---|---|---|---|
-| TikHub | ✅ | 未提供；当前仅从公开 bio 提取未验证邮箱 | `tikhub.md` |
-| influencers.club | 尚未接入 | 尚未接入 | `influencers-club.md` |
+| TikHub | ✅ | ✅ | 无；当前仅从公开 bio 提取未验证邮箱 | `tikhub.md` |
 
-当前 `probe.ts` 与 `collect.ts` 直接实例化 TikHub，尚未实现按配置切换供应商。上面的契约已经约束了归一化数据形状，但新增供应商仍需实现适配器并接入执行入口；不能只改一个配置项就生效。
+当前没有第二家供应商，也没有按配置切换供应商。公开指标由 `enrich.ts` 调用 TikHub，
+下游只读取归一化的 `Measurement<T>`。
 
 ## 加新供应商
 
-1. 按上面的契约实现 `search` 与 `profile`，能做就再实现 `enrich`
-2. 把适配器接入 `probe.ts` 与 `collect.ts` 的供应商选择
-3. 在 `providers/` 下加一份文档，格式对齐 `tikhub.md`
-4. 更新上面这张表
+1. 先通过 `external-enrichment.md` 的全部准入条件
+2. 按上面的契约实现需要的能力，并保留来源、时间、样本量与不可用原因
+3. 把适配器接入对应入口，并用真实样本逐字段核实
+4. 在 `providers/` 下加供应商文档并更新上面的状态表
 
-**评估新供应商时先问一个问题：它是不是注册即用？** 本 Skill 是发布给别人 clone 的，任何"发邮件申请、等审批"的数据源都不能做默认源 —— 使用者会卡在第一步。CreatorDB、Modash API、Phyllo 数据都更好，但都因此不可用作默认。
+**评估新供应商时先问一个问题：普通个人邮箱能不能注册即用？** 本 Skill 是发布给别人 clone 的，任何要求公司邮箱、公司地址、发邮件申请或等待审批的数据源都不能做默认源。

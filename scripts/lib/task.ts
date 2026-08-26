@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import type { TaskState, Creator } from './types.js'
+import type { TaskState, Creator, EnrichmentState } from './types.js'
 
 export function taskDir(product: string, timestamp?: string): string {
   const ts = timestamp ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
@@ -53,4 +53,18 @@ export function loadRawCreators(dir: string): Creator[] {
 export function saveRawCreators(dir: string, creators: Creator[]): void {
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, RAW), JSON.stringify(creators, null, 2), 'utf8')
+}
+
+const ENRICHMENT = 'enrichment.json'
+
+export function loadEnrichment(dir: string): EnrichmentState | undefined {
+  const p = join(dir, ENRICHMENT)
+  if (!existsSync(p)) return undefined
+  return JSON.parse(readFileSync(p, 'utf8'))
+}
+
+export function saveEnrichment(dir: string, state: EnrichmentState): void {
+  mkdirSync(dir, { recursive: true })
+  state.updated_at = new Date().toISOString()
+  writeFileSync(join(dir, ENRICHMENT), JSON.stringify(state, null, 2), 'utf8')
 }

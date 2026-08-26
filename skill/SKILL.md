@@ -23,7 +23,7 @@ description: 海外 KOL 建联助手 —— 从产品理解到可发信名单。
 
 具体到执行：
 
-1. **便宜的步骤先跑，贵的步骤只对幸存者跑** —— 先小样试探再放量；增强适配器接入后也只对 A 级候选执行
+1. **便宜的步骤先跑，额外请求只对幸存者跑** —— 先小样试探再放量；主页公开指标只对语义判断为 ✅/⚠️ 的候选执行
 2. **输出理由，不只输出分数** —— 运营看得懂"为什么这人排在前面"才会信任名单
 3. **花费全程可见** —— 用户看不到请求在烧钱，你必须主动报告
 4. **不确定就说不确定** —— 召回差、平台不匹配、识别不确定，如实讲，不要凑数
@@ -32,7 +32,7 @@ description: 海外 KOL 建联助手 —— 从产品理解到可发信名单。
 
 开始前确认 `.env` 里有 `TIKHUB_API_KEY`。没有就告诉用户去 [tikhub.io](https://tikhub.io) 注册，充值 $5 足够跑很多次。
 
-当前仓库尚未接入外部增强适配器，脚本也不会读取 `INFLUENCERS_CLUB_KEY`。不要要求用户配置它，也不要声称邮箱已经验证或受众画像已经补全；直接跳过 Phase 05，其余流程照常完整走完。
+当前仓库不接入外部增强供应商，也不读取任何第二方 key。不要声称邮箱已经验证或受众画像已经补全。主页公开指标仍使用 `TIKHUB_API_KEY`；用户不需要这批指标时可以跳过，主流程照常完成。
 
 ## 六个阶段
 
@@ -82,7 +82,7 @@ TikTok 走视频搜索，**IG 走 Reels 搜索** —— 两者都是按内容匹
 
 ### Phase 04 — 语义筛选 ★
 
-**硬指标按规则算分**：粉丝区间、活跃度、有无邮箱、商务合作信号。这部分是客观的。
+**硬指标按规则算分**：粉丝区间、内容积累、有无邮箱、商务合作信号。这部分是客观的。
 
 **内容相关性靠你判断**：读 bio + 最近若干条视频/帖子文案，回答"这个人适合推这个产品吗"，并给出**理由**。
 
@@ -94,19 +94,32 @@ TikTok 走视频搜索，**IG 走 Reels 搜索** —— 两者都是按内容匹
 
 评分细则与分层规则见 `references/semantic-fit.md`。
 
-### Phase 05 — 增强（可选）
+### Phase 05 — 公开指标评估（可选）
 
-**当前状态：方案已设计，执行适配器尚未接入。** 本阶段直接跳过，不要把 bio 正则提取的邮箱描述成“已验证”。
+语义筛选完成后，对 `fit=✅/⚠️` 的候选抓取主页最近作品：
 
-未来接入后也只对 A 级候选执行，不对全量执行。500 人全量增强和 50 人精选增强成本差一个数量级，而后者覆盖了几乎全部决策价值。
+```bash
+npm run enrich -- --dir output/{task}
+```
 
-详见 `references/providers/influencers-club.md`。
+分平台计算粉丝互动率、播放互动率、中位播放量、播粉比、触达稳定度、发帖间隔与
+最后发布距采样时间。活跃标签为 `active`（≤45 天）、`cooling`（46–90 天）、
+`dormant`（>90 天），只做提示，不改变 score 或分层。
+`high` 受众质量风险只降一级进入人工复核，永不自动排除。
+
+**这不是假粉率，也不是带货预测。** 公开信号只能发现相对同行的异常；实际带货需要订单、
+点击和转化数据，本 Skill 不做归因。没有运行本步骤时保持“未查询”，不要补默认值。
+
+合作报价只有用户提供 creator quote 或公开 rate card 时才记录；不根据粉丝数自动估价。
+详见 `references/public-metrics.md`。第三方供应商的准入条件见
+`references/providers/external-enrichment.md`，当前没有任何一家接入。
 
 ### Phase 06 — 交付
 
 - 分层名单 CSV（UTF-8 BOM，Excel/Numbers 直接打开中文不乱码）
 - **每个 A 级候选一封英文开发信草稿**，基于 Phase 04 实际读到的内容
 - 可读的 HTML 报告
+- 分平台公开指标、风险依据与数据边界（运行 Phase 05 时）
 - 成本与召回统计
 
 开发信只写英语，见 `references/outreach-draft.md`。输出格式见 `references/output-format.md`。
@@ -173,8 +186,9 @@ npx tsx scripts/collect.ts --resume output/{task} --budget <新额度>
 | `references/keyword-strategy.md` | 四维关键词生成、两平台分别出词、试探判读标准 |
 | `references/providers/_interface.md` | 数据源适配接口契约 |
 | `references/providers/tikhub.md` | TikHub 端点、参数、字段路径、双平台差异 |
-| `references/providers/influencers-club.md` | 可选增强方案（尚未接入） |
+| `references/providers/external-enrichment.md` | 第三方增强供应商准入；当前无接入 |
 | `references/semantic-fit.md` | 语义契合判断标准、评分细则、A/B/C 分层 |
+| `references/public-metrics.md` | 公开指标、受众质量风险与合作报价口径 |
 | `references/outreach-draft.md` | 英文开发信写法与模板 |
 | `references/memory.md` | 记忆文件结构、跨平台同人识别 |
 | `references/output-format.md` | CSV 列定义、HTML 报告 |

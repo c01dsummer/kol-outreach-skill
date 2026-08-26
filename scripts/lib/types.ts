@@ -9,6 +9,141 @@ export interface RecentPost {
   desc: string
   plays?: number
   likes?: number
+  comments?: number
+  shares?: number
+  published_at?: string
+  is_pinned?: boolean
+}
+
+/** D8：所有会进入决策的派生指标都保留来源与测量状态。 */
+export interface MetricSource {
+  kind: 'public_api' | 'manual' | 'third_party'
+  provider: string
+  endpoint?: string
+}
+
+export type MetricUnavailableReason =
+  | 'private_account'
+  | 'insufficient_posts'
+  | 'missing_post_dates'
+  | 'invalid_post_date'
+  | 'missing_followers'
+  | 'missing_following'
+  | 'zero_denominator'
+  | 'insufficient_peer_group'
+  | 'insufficient_comparable_metrics'
+  | 'unsupported_content'
+  | 'account_unavailable'
+
+export type Measurement<T> =
+  | {
+      status: 'measured'
+      value: T
+      source: MetricSource
+      observed_at: string
+      sample_size: number
+      basis: string
+    }
+  | {
+      status: 'unavailable'
+      reason: MetricUnavailableReason
+      source: MetricSource
+      observed_at: string
+      sample_size?: number
+    }
+
+/** D8：关键词搜索命中的帖子有选择偏差，公开指标使用单独抓取的主页近期样本。 */
+export interface NormalizedPublicPost {
+  id: string
+  views?: number
+  likes?: number
+  comments?: number
+  shares?: number
+  published_at?: string
+  is_pinned?: boolean
+}
+
+export type AudienceRiskLevel = 'low' | 'medium' | 'high'
+export type AudienceRiskMetric = 'engagement_rate_followers' | 'view_rate' | 'following_ratio'
+export type ActivityStatus = 'active' | 'cooling' | 'dormant'
+
+export interface AudienceRiskFlag {
+  metric: AudienceRiskMetric
+  direction: 'low' | 'high'
+  value: number
+  threshold: number
+  peer_size: number
+}
+
+export interface AudienceRiskAssessment {
+  level: AudienceRiskLevel
+  flags: AudienceRiskFlag[]
+  peer_size: number
+}
+
+export interface PublicMetrics {
+  median_views: Measurement<number>
+  median_engagements: Measurement<number>
+  engagement_rate_followers: Measurement<number>
+  engagement_rate_views: Measurement<number>
+  view_rate: Measurement<number>
+  following_ratio: Measurement<number>
+  reach_consistency: Measurement<number>
+  median_post_gap_days: Measurement<number>
+  latest_post_at: Measurement<string>
+  days_since_last_post: Measurement<number>
+  activity_status: Measurement<ActivityStatus>
+  audience_quality_risk: Measurement<AudienceRiskAssessment>
+}
+
+/** D9：报价必须带交付口径；混合套餐不得硬算成单条效率。 */
+export interface CollaborationQuote {
+  amount: number
+  currency: string
+  platform: Platform
+  format: 'tiktok_video' | 'instagram_reel' | 'instagram_post' | 'mixed_bundle'
+  quantity: number
+  source: 'creator_quote' | 'public_rate_card'
+  observed_at: string
+}
+
+export interface QuoteEfficiency {
+  implied_ecpm?: Measurement<number>
+  implied_ecpe?: Measurement<number>
+}
+
+export interface AccountAssessment {
+  platform: Platform
+  handle: string
+  followers?: number
+  following?: number
+  sample?: Measurement<NormalizedPublicPost[]>
+  metrics?: PublicMetrics
+  collaboration_quote?: Measurement<CollaborationQuote>
+}
+
+export interface AccountAssessmentSummary {
+  platform: Platform
+  handle: string
+  followers?: number
+  following?: number
+  sample?: Measurement<number>
+  metrics?: PublicMetrics
+  collaboration_quote?: Measurement<CollaborationQuote>
+  quote_efficiency?: QuoteEfficiency
+}
+
+export interface EnrichmentState {
+  version: 1
+  updated_at: string
+  accounts: Record<string, AccountAssessment>
+}
+
+export interface TierAdjustment {
+  kind: 'audience_geo' | 'audience_quality_risk'
+  from: Tier
+  to: Tier
+  reason: string
 }
 
 export interface Creator {
@@ -17,11 +152,12 @@ export interface Creator {
   user_id?: string
   nickname: string
   /**
-   * P1：这三个字段可能是 undefined —— 那表示**没查到**，不是「值为 0/空」。
+   * P1：这些字段可能是 undefined —— 那表示**没查到**，不是「值为 0/空」。
    * 不许用 ?? 0 / ?? '' 兜底：记成 0 会让人被粉丝下限过滤掉，
    * 记成 '' 会让「没取到 bio」被当成「bio 里没有邮箱」。
    */
   followers?: number
+  following?: number
   post_count?: number
   bio?: string
   bio_links: string[]
@@ -40,6 +176,7 @@ export interface Creator {
   email?: string | null
   email_verified?: boolean
   audience_geo?: Record<string, number>
+  /** @deprecated 没有可信供应商，保留只为兼容旧任务；分层逻辑明确忽略它。 */
   fake_follower_score?: number
 
   // 跨平台同人
@@ -54,6 +191,11 @@ export interface Creator {
   fit_reason?: string
   tier?: Tier
   outreach_draft?: string
+
+  // render 从 enrichment.json 关联的公开指标摘要；原始样本仍只存 enrichment.json
+  account_assessment?: AccountAssessmentSummary
+  linked_account_assessment?: AccountAssessmentSummary
+  tier_adjustments?: TierAdjustment[]
 
   // 记忆命中
   previously_recommended?: string

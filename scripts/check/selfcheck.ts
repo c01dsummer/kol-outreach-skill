@@ -95,6 +95,53 @@ if (tightDir) {
   }
 }
 
+// ---- enrich：主页近期样本、公开指标、断点文件 ----
+if (dir) {
+  const creatorsPath = join(tmp, dir, 'creators.json')
+  const creators = JSON.parse(readFileSync(creatorsPath, 'utf8'))
+  // enrich 明确只处理完成语义判断的幸存者；自检补上这一步的输入契约。
+  for (const c of creators) c.fit = '✅'
+  writeFileSync(creatorsPath, JSON.stringify(creators, null, 2), 'utf8')
+
+  const out = run('enrich 公开指标完整流程', [S('enrich.ts'), '--dir', dir], tmp)
+  const enrichment = join(tmp, dir, 'enrichment.json')
+  if (!existsSync(enrichment)) { failed++; console.error('  ✗ 未生成 enrichment.json') }
+  else {
+    const data = JSON.parse(readFileSync(enrichment, 'utf8'))
+    const accounts = Object.values(data.accounts ?? {}) as any[]
+    if (!accounts.some(a => a.metrics?.median_views?.status === 'measured')) {
+      failed++; console.error('  ✗ enrichment.json 没有已测量的中位播放量')
+    } else if (!accounts.some(a => a.metrics?.activity_status?.status === 'measured')) {
+      failed++; console.error('  ✗ enrichment.json 没有已测量的活跃状态')
+    } else if (!out.includes('samples_measured')) {
+      failed++; console.error('  ✗ enrich 输出缺少样本状态统计')
+    } else console.log('  ✓ enrichment.json 含公开指标与测量状态')
+
+    // 模拟旧版本：原始样本在，但还没有活跃字段。再次 enrich 必须本地补算，不能付费重抓。
+    for (const account of accounts) {
+      if (!account.metrics) continue
+      delete account.metrics.latest_post_at
+      delete account.metrics.days_since_last_post
+      delete account.metrics.activity_status
+    }
+    writeFileSync(enrichment, JSON.stringify(data, null, 2), 'utf8')
+    const taskPath = join(tmp, dir, 'task.json')
+    const beforeRequests = JSON.parse(readFileSync(taskPath, 'utf8')).requests
+    const migrationOut = run('enrich 旧样本零请求补算活跃状态', [S('enrich.ts'), '--dir', dir], tmp)
+    const afterRequests = JSON.parse(readFileSync(taskPath, 'utf8')).requests
+    const migrated = JSON.parse(readFileSync(enrichment, 'utf8'))
+    const migratedAccounts = Object.values(migrated.accounts ?? {}) as any[]
+    let migrationSummary: any = {}
+    try { migrationSummary = JSON.parse(migrationOut) } catch {}
+    if (afterRequests !== beforeRequests || migrationSummary.newly_queried !== 0) {
+      failed++; console.error('  ✗ 旧样本补算产生了新的 API 请求')
+    } else if (!(migrationSummary.locally_recomputed > 0) ||
+      !migratedAccounts.some(a => a.metrics?.activity_status)) {
+      failed++; console.error('  ✗ 旧样本没有在本地补出活跃状态')
+    } else console.log('  ✓ 旧 enrichment 样本零请求补出活跃状态')
+  }
+}
+
 // ---- render：算分、分层、CSV、HTML、记忆写回 ----
 if (dir) {
   const out = run('render 完整产出', [S('render.ts'), '--dir', dir], tmp)
@@ -119,12 +166,27 @@ if (dir) {
       failed++; console.error('  ✗ xlsx 缺 sheet（应为 A/B/C 三个）')
     } else console.log('  ✓ xlsx 三个 sheet 齐全')
   }
+  const metaPath = join(tmp, dir, 'meta.json')
+  if (!existsSync(metaPath)) { failed++; console.error('  ✗ 未生成 meta.json') }
+  else {
+    const meta = JSON.parse(readFileSync(metaPath, 'utf8'))
+    const activity = meta.capabilities?.creator_activity
+    if (!activity || activity.measured + activity.unavailable + activity.unqueried !== activity.total) {
+      failed++; console.error('  ✗ meta.json 缺少完整的 creator_activity 三态统计')
+    } else console.log('  ✓ meta.json 含 creator_activity 三态统计')
+  }
   if (!existsSync(html)) { failed++; console.error('  ✗ 未生成 HTML') }
   else {
     const h = readFileSync(html, 'utf8')
     if (!h.includes('未做有效性验证')) {
       failed++; console.error('  ✗ HTML 缺少数据边界声明（违反 P5）')
     } else console.log('  ✓ HTML 含数据边界声明')
+    if (!h.includes('不是假粉率') || !h.includes('公开指标')) {
+      failed++; console.error('  ✗ HTML 缺少公开指标或其边界声明（违反 U7/P5）')
+    } else console.log('  ✓ HTML 展示公开指标且声明不是假粉率')
+    if (!h.includes('活跃状态') || !h.includes('最后发布')) {
+      failed++; console.error('  ✗ HTML 缺少 KOL 活跃状态（违反 D10/U7）')
+    } else console.log('  ✓ HTML 展示 KOL 活跃状态')
     if (!h.includes('data-f="A"') || !h.includes('data-tier=')) {
       failed++; console.error('  ✗ HTML 缺分层 tab 或卡片 data-tier（违反 U6）')
     } else if (h.includes('scrollIntoView')) {

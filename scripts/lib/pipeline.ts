@@ -1,6 +1,8 @@
 import type { Creator, TaskState } from './types.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './identity.js'
-import { passesFollowerGate, scoreCreator, tierOf, applyGeoPenalty } from './score.js'
+import {
+  passesFollowerGate, scoreCreator, tierOf, applyGeoPenalty, applyAudienceRiskPenalty,
+} from './score.js'
 import { filterByMemory } from './memory.js'
 import { sortForOutput } from './rows.js'
 
@@ -68,7 +70,7 @@ export function pendingKeywords(state: TaskState): string[] {
 const DEMOTE = { A: 'B', B: 'C', C: 'C' } as const
 
 /**
- * 算分 → 分层 → 受众降权 → 排序。
+ * 算分 → 分层 → 受众地域规则 → 公开信号风险降级 → 排序。
  *
  * 顺序同样有约束：降权改的是**已经算出来的** tier，放到 tierOf 之前会被覆盖；
  * 排序又必须在降权之后，否则名单按降权前的分层排，A 区里混着已经掉到 B 的人。
@@ -83,9 +85,26 @@ export function rankCreators(creators: Creator[], market: string): Creator[] {
   const kept = creators.filter(c => {
     c.score = scoreCreator(c)
     c.tier = tierOf(c)
+    c.tier_adjustments = []
     const geo = applyGeoPenalty(c, market)
     if (geo === 'drop') return false
-    if (geo === 'demote') c.tier = DEMOTE[c.tier]
+    if (geo === 'demote') {
+      const from = c.tier
+      c.tier = DEMOTE[c.tier]
+      if (from !== c.tier) c.tier_adjustments.push({
+        kind: 'audience_geo', from, to: c.tier,
+        reason: `${market} 受众占比低于 30%`,
+      })
+    }
+    // F8：必须发生在 tierOf 之后，否则降级会被重新计算的 tier 覆盖。
+    if (applyAudienceRiskPenalty(c) === 'demote') {
+      const from = c.tier
+      c.tier = DEMOTE[c.tier]
+      if (from !== c.tier) c.tier_adjustments.push({
+        kind: 'audience_quality_risk', from, to: c.tier,
+        reason: '公开信号受众质量风险高，降一级人工复核',
+      })
+    }
     return true
   })
   return sortForOutput(kept)

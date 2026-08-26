@@ -1,6 +1,6 @@
 # 输出格式
 
-> 相关需求：**U1** CSV 排序与列定义 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U6** HTML 分层 tab 与平台标签 · **D5** BOM 与转义 · **P5** 数据边界声明
+> 相关需求：**U1** CSV 排序与列定义 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U6** HTML 分层 tab 与平台标签 · **U7** 公开指标与报价 · **D5** BOM 与转义 · **D8–D10** 指标口径 · **P5** 数据边界声明
 
 Phase 06 用。
 
@@ -13,6 +13,7 @@ output/{product}-{YYYYMMDDHHmm}/
 ├── report.html    可读报告
 ├── creators.json  交付物 —— 过滤后的名单（Agent 在 Phase 04 回写判断的地方）
 ├── creators.raw.json  采集累加器 —— 只增不减，--resume 读它
+├── enrichment.json    分平台公开样本、指标、报价与查询状态（运行 enrich 后）
 ├── task.json      采集状态（断点续跑用）
 └── meta.json      本次任务元数据
 ```
@@ -42,6 +43,24 @@ output/{product}-{YYYYMMDDHHmm}/
 | `email` | |
 | `email_verified` | 有增强层时填，否则留空 |
 | `audience_geo_top` | 如 `US 62%`，无增强层留空 |
+| `metrics_account_followers` / `metrics_account_following` | 当前平台计算公开指标时使用的账号规模；不使用跨平台合计值 |
+| `engagement_rate_followers` | 主页近期作品的粉丝互动率；未查询/不可用显式显示 |
+| `engagement_rate_views` | 播放互动率 |
+| `median_views` | 中位播放量 |
+| `median_engagements` | 中位互动量；隐含 eCPE 的分母 |
+| `view_rate` | 播粉比 |
+| `following_ratio` | 关注/粉丝比 |
+| `reach_consistency` | `P25(views) / median(views)` |
+| `median_post_gap_days` | 发帖间隔中位天数 |
+| `latest_post_at` | 截至采样时的最后发布时间；包含置顶作品 |
+| `days_since_last_post` | 最后发布距采样时间的天数 |
+| `activity_status` | active / cooling / dormant；只提示，不影响分层 |
+| `audience_quality_risk` | low / medium / high；不是假粉率 |
+| `audience_quality_reasons` | 触发的同行异常信号与同行数 |
+| `tier_adjustments` | 地域/风险导致的分层变化及理由 |
+| `collaboration_quote` | 人工录入的明确报价与交付口径；不自动估价 |
+| `implied_ecpm` / `implied_ecpe` | 报价与近期中位表现形成的隐含效率 |
+| `metrics_observed_at` | 公开样本采集时间 |
 | `cross_platform` | true / false |
 | `linked_handle` | 跨平台同人的另一个 handle |
 | `profile_url` | |
@@ -91,6 +110,7 @@ C级 观察池 (3)
   与「双平台」「私密号」等次要标签区分开 —— 运营扫一眼就要知道这人在哪个平台，
   因为两个平台的建联方式完全不同
 - A 级卡片展开显示开发信草稿并**可一键复制**
+- 主账号与关联账号分平台展示近期公开指标、样本时间、活跃标签、风险依据和报价效率
 - 数据边界说明（见下）
 
 ## meta.json
@@ -113,11 +133,22 @@ C级 观察池 (3)
   "requests": 412,
   "cost_estimate_usd": 0.412,
   "budget_usd": 2.0,
-  "enriched": false
+  "enriched": false,
+  "capabilities": {
+    "email_verification": { "total": 187, "measured": 0, "unavailable": 0, "unqueried": 187 },
+    "audience_geo": { "total": 187, "measured": 0, "unavailable": 0, "unqueried": 187 },
+    "public_post_sample": { "total": 201, "measured": 170, "unavailable": 4, "unqueried": 27 },
+    "audience_quality_risk": { "total": 201, "measured": 145, "unavailable": 29, "unqueried": 27 },
+    "creator_activity": { "total": 201, "measured": 168, "unavailable": 6, "unqueried": 27 },
+    "collaboration_quote": { "total": 201, "measured": 8, "unavailable": 0, "unqueried": 193 }
+  }
 }
 ```
 
 `keywords[].fit_pass` 记的是语义判断通过数 —— 跨任务累积后能看出哪些维度对这个品类真正有效。
+
+`enriched` 是兼容旧消费者的字段，只代表外部邮箱/受众增强；运行公开指标后仍为 false。
+新代码应读取 `capabilities`，不要再用一个布尔推断所有数据能力。
 
 ## 收尾输出
 
@@ -134,6 +165,7 @@ C级 观察池 (3)
 
 ⚠️ 邮箱来自 bio 提取，未做有效性验证，建议首轮小批量试发观察退信率。
 ⚠️ 未配置增强层，无法确认这批人的粉丝是否在美国市场。
+⚠️ 受众质量风险只依据近期公开互动异常，不是假粉率，也不能代表实际带货效果。
 ```
 
 **数据边界必须说。** 让用户知道名单的局限在哪，比让他以为数据很完整强 —— 后者会导致他把预算压在错误的假设上。

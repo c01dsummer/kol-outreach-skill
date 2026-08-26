@@ -1,12 +1,33 @@
-import type { Creator, Platform, SearchTask, RecentPost, SearchPage } from '../lib/types.js'
+import type {
+  Creator, Platform, SearchTask, RecentPost, SearchPage, MetricSource, NormalizedPublicPost,
+} from '../lib/types.js'
 import { Budget } from '../lib/budget.js'
 import { extractEmail } from '../lib/email.js'
 
 const BASE = 'https://api.tikhub.io'
 /** 限速 10 RPS —— 留余量 */
 const INTERVAL_MS = 150
+export const TIKTOK_POSTS_ENDPOINT = '/api/v1/tiktok/app/v3/fetch_user_post_videos_v3'
+export const INSTAGRAM_POSTS_ENDPOINT = '/api/v1/instagram/v2/fetch_user_posts'
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+export interface PublicPostSample {
+  posts: NormalizedPublicPost[]
+  followers?: number
+  following?: number
+  source: MetricSource
+}
+
+const finiteNumber = (v: unknown): number | undefined =>
+  typeof v === 'number' && Number.isFinite(v) ? v : undefined
+
+const isoFromUnix = (v: unknown): string | undefined => {
+  const n = finiteNumber(v)
+  if (n === undefined) return undefined
+  const d = new Date(n * 1000)
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString()
+}
 
 export class TikHubError extends Error {
   constructor(public status: number, msg: string) {
@@ -113,7 +134,7 @@ export class TikHub {
         nickname: a?.nickname ?? '',   // p1-ok: 展示用，缺失退化为空名不影响决策
         followers: a?.follower_count,   // P1: 缺失即 undefined，不记 0
         // 实测：搜索结果里 aweme_count 对**所有人**都返回 0 —— 那不是真实值，
-        // 是 TikTok 在搜索结果里不填这个字段。当成 0 会让活跃度加分全员失效，
+        // 是 TikTok 在搜索结果里不填这个字段。当成 0 会让内容积累加分全员失效，
         // 且 0 是个「值」，类型系统防不住。只能显式判掉，等 profile 补全。
         post_count: a?.aweme_count === 0 ? undefined : a?.aweme_count,
         bio: a?.signature,            // P1: 搜索结果常无 bio，须与「bio 为空」区分
@@ -144,6 +165,7 @@ export class TikHub {
       bio: u?.signature,
       bio_links: link ? [link] : [],
       followers: stats?.followerCount ?? u?.followerCount ?? undefined,
+      following: stats?.followingCount ?? u?.followingCount ?? undefined,
       post_count: stats?.videoCount ?? u?.videoCount ?? undefined,
       verified: Boolean(u?.verified),
       avatar: u?.avatarMedium,
@@ -251,7 +273,8 @@ export class TikHub {
       bio: u?.biography,
       bio_links: links,
       followers: u?.follower_count ?? undefined,
-      // 实测 media_count 常为 null（IG 不返回）—— null 是「没给」，当 0 会让活跃度加分失效
+      following: u?.following_count ?? undefined,
+      // 实测 media_count 常为 null（IG 不返回）—— null 是「没给」，当 0 会让内容积累加分失效
       post_count: u?.media_count ?? undefined,
       is_private: Boolean(u?.is_private),
       verified: Boolean(u?.is_verified),
@@ -271,6 +294,71 @@ export class TikHub {
 
   async profile(handle: string, platform: Platform): Promise<Partial<Creator>> {
     return platform === 'tiktok' ? this.profileTikTok(handle) : this.profileInstagram(handle)
+  }
+
+  /**
+   * D8：主页近期作品样本。不能复用 search() 命中的帖子 —— 搜索结果被关键词筛过，
+   * 用它算互动率会系统性高估相关内容的表现。
+   */
+  private async recentTikTokPosts(handle: string): Promise<PublicPostSample> {
+    const endpoint = TIKTOK_POSTS_ENDPOINT
+    const raw = await this.get(endpoint, { unique_id: handle, count: 12 })
+    const list = pickList(raw, 'tiktok/user_posts')
+    const posts = list.map((item: any): NormalizedPublicPost => {
+      const stats = item?.statistics
+      return {
+        id: String(item?.aweme_id ?? item?.id ?? ''),   // p1-ok: 标识仅用于样本追溯，不参与决策
+        views: finiteNumber(stats?.play_count),
+        likes: finiteNumber(stats?.digg_count),
+        comments: finiteNumber(stats?.comment_count),
+        shares: finiteNumber(stats?.share_count),
+        published_at: isoFromUnix(item?.create_time),
+        is_pinned: item?.is_top === undefined ? undefined : Boolean(item.is_top),
+      }
+    })
+    const author = list.find((item: any) => item?.author)?.author
+    return {
+      posts,
+      followers: finiteNumber(author?.follower_count),
+      following: finiteNumber(author?.following_count),
+      source: { kind: 'public_api', provider: 'tikhub', endpoint },
+    }
+  }
+
+  /**
+   * D8：2026-08-26 实测 V3 对公开账号返回 400，V2 返回 12 条完整 Reels 数据，
+   * 因而以 V2 为已验证路径。只保留明确的视频/Reels，不拿图片帖与视频混算。
+   */
+  private async recentInstagramPosts(handle: string): Promise<PublicPostSample> {
+    const endpoint = INSTAGRAM_POSTS_ENDPOINT
+    const raw = await this.get(endpoint, { username: handle })
+    const list = pickList(raw, 'instagram/user_posts')
+    const videos = list.filter((item: any) =>
+      item?.is_video === true || item?.media_type === 2 || item?.media_format === 'video' ||
+      item?.media_name === 'reel' || item?.product_type === 'clips')
+    const posts = videos.slice(0, 12).map((item: any): NormalizedPublicPost => ({
+      id: String(item?.id ?? item?.pk ?? item?.code ?? ''),   // p1-ok: 标识仅用于样本追溯，不参与决策
+      views: finiteNumber(item?.play_count) ?? finiteNumber(item?.ig_play_count), // p1-ok: 同一指标的两个真实字段别名，不是缺失数据兜底
+      likes: finiteNumber(item?.like_count),
+      comments: finiteNumber(item?.comment_count),
+      shares: finiteNumber(item?.reshare_count),
+      published_at: isoFromUnix(item?.taken_at) ?? isoFromUnix(item?.taken_at_ts), // p1-ok: 同一时间字段的响应别名
+      is_pinned: item?.is_pinned === undefined ? undefined : Boolean(item.is_pinned),
+    }))
+    const data = raw?.data?.data ?? raw?.data
+    const user = data?.user ?? videos.find((item: any) => item?.user)?.user
+    return {
+      posts,
+      followers: finiteNumber(user?.follower_count),
+      following: finiteNumber(user?.following_count),
+      source: { kind: 'public_api', provider: 'tikhub', endpoint },
+    }
+  }
+
+  async recentPosts(handle: string, platform: Platform): Promise<PublicPostSample> {
+    return platform === 'tiktok'
+      ? this.recentTikTokPosts(handle)
+      : this.recentInstagramPosts(handle)
   }
 }
 

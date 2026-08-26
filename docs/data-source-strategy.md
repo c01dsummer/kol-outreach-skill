@@ -1,6 +1,6 @@
 # 数据源策略
 
-> 调研时间：2026-08-25 · 数字均来自各家官方页面，未独立验证
+> 调研时间：2026-08-26 · 数字均来自各家官方页面，未独立验证
 > 业务侧结论见 `docs/business-requirements.md` §9
 
 ---
@@ -45,7 +45,7 @@
 | 库存（自报） | 30M | 380M | 340M | — |
 | 平台数 | 3 | 3 | **47** | 20+ |
 | 起价 | 一事一议 | SaaS $199/月<br>**API $16,200/年起** | **$140/月**（含 API $208） | 约 $199/月起 |
-| 自助 | ❌ 申请制 / closed beta | ❌ API 需 book a call | ✅ **送 10 credits** | ❌ 销售报价 |
+| 自助 | ❌ 申请制 / closed beta | ❌ API 需 book a call | ❌ 注册要求公司/工作信息 | ❌ 销售报价 |
 | 邮箱 | 三方验证，自报 99.8% 送达 | 有，但月度解锁上限 | 验证过，含状态标记 | — |
 | 受众画像 | ✅ | ✅ | ✅ | ✅ |
 | 赞助历史/报价 | ✅ 独有 | — | — | — |
@@ -71,27 +71,39 @@
 3. **OpenAPI 没有响应体 schema。** 196 个 schema 里没有一个描述响应内容 ——
    所有端点都返回同一个泛型 `ResponseModel`，`data` 无类型。
    字段路径只能靠真实调用确认，这是当初无法提前验证的根本原因
+4. **主页近期作品路径已核实。** TikTok 的
+   `app/v3/fetch_user_post_videos_v3` 返回播放、赞、评论、分享、置顶标志和关注关系；
+   Instagram 的 `v2/fetch_user_posts` 返回 12 条完整 Reels。OpenAPI 同时列出的 IG V3
+   对公开账号使用默认参数返回 400，当前不采用
+
+## 外部增强供应商复查（2026-08-26）
+
+用户实际注册路径推翻了“页面写 self-service 就等于个人可用”的假设：
+
+| 候选 | 注册/接入事实 | 数据方法与资历 | 结论 |
+|---|---|---|---|
+| Influencers Club | 要求公司/工作信息 | 数据库型增强，月费门槛高 | 不接入 |
+| Click Analytic | 要求 company address/企业信息 | API 需商务身份 | 不接入 |
+| DecodeCreator | 普通 Google 登录可用 | 由印度独立开发者运营；底层取 HikerAPI/tikwm 等公开数据再做派生分析；域名 2026-07-14 才注册，未找到独立基准、客户案例或可核验公司主体 | 不进入正式决策链 |
+
+DecodeCreator 的官网条款也明确派生信号不保证准确、99.5% 只是目标而非 SLA。
+这不能证明它是骗局，但不足以让其结果改变 KOL 分层。详见 ADR-10。
 
 ## 结论
 
 | 角色 | 选择 | 理由 |
 |------|------|------|
 | **默认数据源** | **TikHub** | 唯一同时满足即时注册 + 同步返回 + 便宜到能让 Agent 试错。已覆盖 TikTok / Instagram / YouTube，扩展平台不用换供应商 |
-| **可选增强候选** | **influencers.club** | 自助注册、送 10 credits 可先测、月付无年约、Discovery API 0.01 credit/条。但 $140/月门槛对免费 Skill 是硬伤，且当前执行适配器尚未接入 |
+| **公开指标** | **TikHub 主页近期作品** | 复用现有 key 与预算；真实端点已核实。只能得到公开绩效与异常信号，不能得到假粉率或受众地域 |
+| **外部增强** | **当前不选** | 已调查的个人可接入候选要么要求企业信息，要么缺少足够的主体、历史与方法验证 |
 | 备选适配 | Bright Data | 自助且合规资质完整，适合有企业采购要求的使用者。异步发现不适合做默认，但可作为 IG/跨平台的替代适配器 |
 | **不采用** | CreatorDB / Modash API / Phyllo | 申请制或年付。数据更好，但分发不了 |
 
-### 分层增强的成本模型
+### 公开指标的成本模型
 
-不对全量做增强，只对 A 级候选做：
-
-| 方案 | 人数 | 成本 |
-|------|------|------|
-| 采集（TikHub） | 500 | ≈ $0.5 |
-| 全量增强 | 500 | ≈ $75–115 |
-| **只增强 A 级** | **50** | **≈ $8–12** |
-
-后者覆盖了几乎全部决策价值。这也正好嵌进 A/B/C 分层，不需要额外的架构。
+语义筛选后只对 `fit=✅/⚠️` 的幸存者请求主页作品。通常每个平台账号一次请求，
+继续使用 TikHub 的统一 `$0.001/请求` 上限估算并计入同一个任务预算；不运行时保持未查询，
+主流程照常交付。
 
 ---
 
@@ -105,14 +117,14 @@ search(task, region, offset) → { creators: Partial<Creator>[],
 
 profile(handle, platform)   → Partial<Creator>
 
-enrich(handle, platform)    → { email, email_verified, audience_geo,
-                                 fake_follower_score }
+recentPosts(handle, platform) → { posts, followers?, following?, source }
 ```
 
-- `search` 与 `profile` 必须实现，`enrich` 是未来可选能力
-- `enrich` 未配置时，Skill 跳过增强阶段，主流程照常完成
+- `search` 与 `profile` 必须实现
+- `recentPosts` 已由 TikHub 实现但执行可选；结果进入供应商无关的三态 `Measurement<T>`
+- 当前没有外部 `enrich` 供应商；邮箱验证和受众地域仍明确缺失
 
-**当前实现边界**：`probe.ts` 和 `collect.ts` 仍直接实例化 TikHub；仓库尚未实现按配置切换供应商，也没有 influencers.club 适配器。新增供应商需要实现适配器并接入入口，但下游的语义判断、分层和输出结构不需要重写。
+**当前实现边界**：`probe.ts`、`collect.ts` 与 `enrich.ts` 直接实例化 TikHub；仓库尚未实现按配置切换供应商。未来来源可复用统一测量结构，但必须先通过主体、注册、方法、双平台与真实样本验证。
 
 ---
 
