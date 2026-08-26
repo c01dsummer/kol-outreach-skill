@@ -30,6 +30,7 @@
           "date": "2026-08-25",
           "product": "anker-powerbank",
           "keyword": "anker power bank",
+          "task": "anker-powerbank-202608251430",
           "tier": "A",
           "fit_reason": "数码测评方向，最近在测氮化镓充电头"
         }
@@ -55,6 +56,7 @@
 | 状态 | 处理 |
 |------|------|
 | 已推荐过（`recommendations` 非空） | **默认不进新名单** |
+| 推荐记录来自**同一个任务**（`task` 相同） | **不过滤**。续跑要推荐的就是这批人；滤掉会让 render 之后的每次 `--resume` 都产出空名单 |
 | 换了产品且契合度更高 | 可以再推，但必须标注「曾为 {product} 推荐过（{date}）」，让用户自己判断 |
 | `contacted: true` | 排除 |
 | `blocked: true` | 排除，且不再出现在任何名单 |

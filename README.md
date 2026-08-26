@@ -136,7 +136,8 @@ output/{product}-{时间戳}/
 ├── kol.csv        单表名单 —— 给脚本和其他工具读
 ├── kol.xlsx       按 A/B/C 分 sheet —— 给人看
 ├── report.html    可读报告（分层 tab + 开发信草稿一键复制）
-├── creators.json  完整数据
+├── creators.json  交付物 —— 过滤后的名单
+├── creators.raw.json  采集累加器 —— 只增不减，--resume 读它
 ├── task.json      采集状态（断点续跑用）
 └── meta.json      任务元数据
 ```

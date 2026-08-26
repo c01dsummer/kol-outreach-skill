@@ -120,7 +120,7 @@
       "cat": "D",
       "pri": "P0",
       "text": "采集必须可断点续跑：已完成的关键词不重跑，请求数跨运行累加不重复计费。",
-      "accept": "以 --resume 重入时，task.json 的 done 数组中的索引被跳过；Budget 以已有 requests 初始化，spent 连续不归零。"
+      "accept": "以 --resume 重入时，task.json 的 done 数组中的索引被跳过；Budget 以已有 requests 初始化，spent 连续不归零。采集累加器 creators.raw.json 只增不减，过滤只作用于交付物 creators.json —— 在 render 写回记忆之后续跑，已采集的人不得消失。"
     },
     {
       "id": "D7",

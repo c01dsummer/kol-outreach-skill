@@ -11,7 +11,8 @@ output/{product}-{YYYYMMDDHHmm}/
 ├── kol.csv        单表名单 —— 给脚本和其他工具读
 ├── kol.xlsx       分层名单 —— 给人看，按分层分 sheet
 ├── report.html    可读报告
-├── creators.json  完整数据（Agent 在 Phase 04 回写判断的地方）
+├── creators.json  交付物 —— 过滤后的名单（Agent 在 Phase 04 回写判断的地方）
+├── creators.raw.json  采集累加器 —— 只增不减，--resume 读它
 ├── task.json      采集状态（断点续跑用）
 └── meta.json      本次任务元数据
 ```
