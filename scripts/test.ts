@@ -17,6 +17,7 @@ import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
 import { renderHtml } from './lib/report.js'
 import { filterByMemory, useMemoryFile } from './lib/memory.js'
+import { finalize, pendingKeywords, rankCreators, keywordStats, tierCounts } from './lib/pipeline.js'
 import { writeFileSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -218,6 +219,96 @@ suite('D6', '续跑不得被本任务自己上一轮的产出滤空')
 
   unlinkSync(tmp)
   useMemoryFile('memory/creators.json')
+}
+
+// ─────────────────── 管线：单步都对，错的是组合方式 ───────────────────
+
+suite('P1', '收尾管线：合并必须在粉丝闸门之前')
+{
+  useMemoryFile(join(tmpdir(), `kol-none-${process.pid}.json`))
+  // 单平台各 3000 都够不到 5000 下限，合起来 6000 够线
+  const r = finalize([mk('tiktok', 'duo', { followers: 3000 }),
+                      mk('instagram', 'duo', { followers: 3000 })], 'p')
+  eq('合并后过线的人保住了', r.kept.length, 1)
+  eq('粉丝数取两平台之和', r.kept[0]?.followers, 6000)
+  eq('识别出一对同人', r.linked, 1)
+
+  // 反过来，合起来仍不够线的照样滤掉
+  const low = finalize([mk('tiktok', 'tiny', { followers: 500 }),
+                        mk('instagram', 'tiny', { followers: 500 })], 'p')
+  eq('合并后仍不够线的仍滤掉', low.kept.length, 0)
+  covered.add('D3')
+}
+
+suite('D6', '收尾管线不得修改传入的累加器数据')
+{
+  useMemoryFile(join(tmpdir(), `kol-none-${process.pid}.json`))
+  const raw = [mk('tiktok', 'sam', { followers: 3000 }),
+               mk('instagram', 'sam', { followers: 3000 })]
+  const snapshot = JSON.parse(JSON.stringify(raw))
+  finalize(raw, 'p')
+  // 累加器只增不减是结构性保证，不该依赖调用方记得先落盘再调用
+  eq('传入对象未被就地合并/打标', raw, snapshot)
+}
+
+suite('P4', '收尾管线：闸门在记忆过滤之前，不虚报打扰规模')
+{
+  const tmp = join(tmpdir(), `kol-order-${process.pid}.json`)
+  writeFileSync(tmp, JSON.stringify({
+    version: 1, updated_at: '', creators: {
+      // 这人联系过，但粉丝数根本过不了闸门 —— 不该计入「因联系过而排除」
+      'tiktok:tinycontacted': { platform: 'tiktok', handle: 'tinycontacted', nickname: '',
+        followers: 1, first_seen: '2026-01-01', recommendations: [],
+        contacted: true, replied: false, blocked: false, note: '' },
+      'tiktok:bigcontacted': { platform: 'tiktok', handle: 'bigcontacted', nickname: '',
+        followers: 1, first_seen: '2026-01-01', recommendations: [],
+        contacted: true, replied: false, blocked: false, note: '' },
+    },
+  }), 'utf8')
+  useMemoryFile(tmp)
+
+  const r = finalize([mk('tiktok', 'tinycontacted', { followers: 10 }),
+                      mk('tiktok', 'bigcontacted', { followers: 50000 })], 'p')
+  eq('只数过得了闸门的那一个', r.filtered_contacted, 1)
+  eq('两人都不在名单里', r.kept.length, 0)
+  unlinkSync(tmp)
+  useMemoryFile('memory/creators.json')
+}
+
+suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时不中断')
+{
+  const withGeo = (pct: number) =>
+    mk('tiktok', 'g', { email: 'a@example.com', fit: '✅', audience_geo: { US: pct } })
+
+  eq('地域达标 → 保持 A', rankCreators([withGeo(0.8)], 'US')[0].tier, 'A')
+  // 降权必须发生在 tierOf 之后，否则会被算出来的 tier 覆盖掉
+  eq('地域 20% → A 降到 B', rankCreators([withGeo(0.2)], 'US')[0].tier, 'B')
+  eq('地域 10% → 直接剔除', rankCreators([withGeo(0.1)], 'US').length, 0)
+  // F5：没有增强层时 audience_geo 为 undefined，主流程照常走完
+  const noGeo = mk('tiktok', 'n', { email: 'a@example.com', fit: '✅' })
+  eq('无增强数据不影响分层', rankCreators([noGeo], 'US')[0].tier, 'A')
+}
+
+suite('U1', '分层管线返回的名单已按 tier 排好序')
+{
+  const c = (h: string, fit: '✅' | '❌') => mk('tiktok', h, { email: 'a@example.com', fit })
+  const out = rankCreators([c('low', '❌'), c('high', '✅')], 'US')
+  eq('A 排在 C 前面', out.map(x => x.tier), ['A', 'C'])
+
+  eq('关键词表现按来源聚合', keywordStats(out), [
+    { keyword: 'k', dimension: 'category', found: 2, fit_pass: 1 }])
+  eq('分层计数', tierCounts(out), { A: 1, B: 0, C: 1 })
+}
+
+suite('F3', '剩余关键词列表按 done 排除，hashtag 带 #')
+{
+  const st = {
+    tasks: [{ keyword: 'a', dimension: 'category', platform: 'tiktok' },
+            { keyword: 'b', dimension: 'scene', platform: 'instagram', as_hashtag: true },
+            { keyword: 'c', dimension: 'audience', platform: 'tiktok' }],
+    done: [0],
+  } as any
+  eq('跳过已完成，hashtag 带 #', pendingKeywords(st), ['#b(instagram)', 'c(tiktok)'])
 }
 
 suite('P5', '交付必须声明数据边界')

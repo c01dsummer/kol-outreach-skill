@@ -12,8 +12,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetExceeded } from './lib/budget.js'
-import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
-import { filterByMemory } from './lib/memory.js'
+import { finalize, pendingKeywords } from './lib/pipeline.js'
 import { passesFollowerGate } from './lib/score.js'
 import { taskDir, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators, saveCreators } from './lib/task.js'
 import type { Creator, TaskState } from './lib/types.js'
@@ -211,38 +210,27 @@ async function main() {
 
   persist()
 
-  // 跨平台同人识别 + 记忆过滤
-  let all = [...creators.values()]
-  const linked = linkCrossPlatform(all)
-  all = mergeCrossPlatform(all)
-  // P1：粉丝数未知的**不丢弃** —— 「没查到」不等于「不合格」。留下并计数上报，
-  //     由用户决定要不要看。静默过滤会让真实创作者凭空消失且无人知晓。
-  const unknownFollowers = all.filter(c => c.followers === undefined).length
-  all = all.filter(passesFollowerGate)
-  const { kept, filtered_recommended, filtered_contacted } =
-    filterByMemory(all, state.product, taskId(dir))
+  // 同人合并 → 粉丝闸门 → 记忆过滤。管线在 lib/pipeline.ts —— 这四步的**顺序**
+  // 有语义，有语义就该能被测，所以它不留在入口脚本里。
+  const fin = finalize([...creators.values()], state.product, taskId(dir))
 
   // 交付物写 creators.json；累加器 creators.raw.json 由 persist() 保管，不在这里动
-  saveCreators(dir, kept)
-
-  const pending = state.tasks
-    .map((t, i) => ({ t, i }))
-    .filter(({ i }) => !state.done.includes(i))
-    .map(({ t }) => `${t.as_hashtag ? '#' : ''}${t.keyword}(${t.platform})`)
+  saveCreators(dir, fin.kept)
 
   const summary = {
     dir, stopped,
     ...(errorMsg ? { error: errorMsg } : {}),
-    collected: kept.length,
+    collected: fin.kept.length,
     target: state.target_count,
-    with_email: kept.filter(c => c.email).length,
-    cross_platform: linked,
-    unknown_followers: unknownFollowers,
+    with_email: fin.kept.filter(c => c.email).length,
+    cross_platform: fin.linked,
+    unknown_followers: fin.unknown_followers,
     profile_failed: profileFailed,
-    filtered_recommended, filtered_contacted,
+    filtered_recommended: fin.filtered_recommended,
+    filtered_contacted: fin.filtered_contacted,
     keywords_done: state.done.length,
     keywords_total: state.tasks.length,
-    pending_keywords: pending,
+    pending_keywords: pendingKeywords(state),
     requests: budget.count,
     cost_estimate_usd: Number(budget.spent.toFixed(4)),
     budget_usd: state.budget_usd,

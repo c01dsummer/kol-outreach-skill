@@ -160,6 +160,46 @@
       "file": "scripts/lib/memory.ts",
       "find": "    const others = e.recommendations.filter(r => !(task && r.task === task))",
       "replace": "    const others = e.recommendations"
+    },
+    {
+      "id": "M-P1-g",
+      "req": "P1",
+      "why": "先过粉丝闸门再合并 —— 「单平台各 3000、合起来 6000 够线」的人在合并之前就被丢掉了",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  const merged = mergeCrossPlatform(all)",
+      "replace": "  const merged = mergeCrossPlatform(all.filter(passesFollowerGate))"
+    },
+    {
+      "id": "M-D6-c",
+      "req": "D6",
+      "why": "收尾管线就地修改累加器 —— 「累加器只增不减」退回成依赖调用方记得先落盘，正是 ADR-08 那个 bug 的形状",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  const all = structuredClone(raw)",
+      "replace": "  const all = raw"
+    },
+    {
+      "id": "M-P4-b",
+      "req": "P4",
+      "why": "记忆过滤跑在粉丝闸门之前 —— filtered_contacted 把连闸门都过不了的人也算进去，向用户虚报打扰规模",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  const gated = merged.filter(passesFollowerGate)\n\n  const { kept, filtered_recommended, filtered_contacted } = filterByMemory(gated, product, task)",
+      "replace": "  const pre = filterByMemory(merged, product, task)\n  const { filtered_recommended, filtered_contacted } = pre\n  const kept = pre.kept.filter(passesFollowerGate)"
+    },
+    {
+      "id": "M-F5-a",
+      "req": "F5",
+      "why": "受众降权跑在分层之前 —— 降完立刻被 tierOf 覆盖，地域不达标的人照样留在 A 级被直接发信",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    c.score = scoreCreator(c)\n    c.tier = tierOf(c)\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') c.tier = DEMOTE[c.tier]",
+      "replace": "    c.score = scoreCreator(c)\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') c.tier = DEMOTE[tierOf(c)]\n    c.tier = tierOf(c)"
+    },
+    {
+      "id": "M-U1-b",
+      "req": "U1",
+      "why": "分层管线不再排序 —— 交付物按采集顺序排，A 级混在几百行里",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return sortForOutput(kept)",
+      "replace": "  return kept"
     }
   ],
   "exemptions": [

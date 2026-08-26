@@ -11,10 +11,10 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { taskId, loadTask, loadCreators, saveCreators } from './lib/task.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
-import { scoreCreator, tierOf, applyGeoPenalty } from './lib/score.js'
+import { rankCreators, keywordStats, tierCounts } from './lib/pipeline.js'
 import { recordRecommendations } from './lib/memory.js'
 import { writeCsv } from './lib/csv.js'
-import { HEADERS, toRow, sortForOutput, buildSheets } from './lib/rows.js'
+import { HEADERS, toRow, buildSheets } from './lib/rows.js'
 import { writeXlsx, type Sheet } from './lib/xlsx.js'
 import { renderHtml } from './lib/report.js'
 import type { Creator } from './lib/types.js'
@@ -30,23 +30,13 @@ let creators = loadCreators(dir)
 linkCrossPlatform(creators)
 creators = mergeCrossPlatform(creators)
 
-// 算分 → 分层 → 受众降权
-const DEMOTE = { A: 'B', B: 'C', C: 'C' } as const
-creators = creators.filter(c => {
-  c.score = scoreCreator(c)
-  c.tier = tierOf(c)
-  const geo = applyGeoPenalty(c, state.market)
-  if (geo === 'drop') return false
-  if (geo === 'demote') c.tier = DEMOTE[c.tier]
-  return true
-})
-
-creators = sortForOutput(creators)
+// 算分 → 分层 → 受众降权 → 排序。管线在 lib/pipeline.ts
+creators = rankCreators(creators, state.market)
 saveCreators(dir, creators)
 
 // ---------- CSV（单表，供脚本与其他工具消费）----------
 const csvPath = join(dir, 'kol.csv')
-writeCsv(csvPath, [...HEADERS], sortForOutput(creators).map(toRow))
+writeCsv(csvPath, [...HEADERS], creators.map(toRow))   // rankCreators 已排好序
 
 // ---------- XLSX（分 sheet，供人快速切换）----------
 // CSV 规范里没有「工作表」这个概念，多 sheet 只能走 xlsx。两个文件各司其职：
@@ -54,27 +44,14 @@ writeCsv(csvPath, [...HEADERS], sortForOutput(creators).map(toRow))
 const xlsxPath = join(dir, 'kol.xlsx')
 writeXlsx(xlsxPath, buildSheets(creators) as Sheet[])
 
-// ---------- 关键词表现 ----------
-const kwStats = new Map<string, { found: number; fit_pass: number; dimension: string }>()
-for (const c of creators) {
-  const k = c.source_keyword
-  const e = kwStats.get(k) ?? { found: 0, fit_pass: 0, dimension: c.source_dimension }
-  e.found++
-  if (c.fit === '✅') e.fit_pass++
-  kwStats.set(k, e)
-}
-
 // ---------- HTML + meta ----------
-const tiers = { A: 0, B: 0, C: 0 }
-for (const c of creators) tiers[c.tier!]++
-
 const meta = {
   product: state.product,
   market: state.market,
   platforms: [...new Set(creators.map(c => c.platform))],
-  keywords: [...kwStats].map(([keyword, s]) => ({ keyword, ...s })),
+  keywords: keywordStats(creators),
   total: creators.length,
-  tiers,
+  tiers: tierCounts(creators),
   email_count: creators.filter(c => c.email).length,
   cross_platform_count: creators.filter(c => c.cross_platform).length,
   requests: state.requests,
