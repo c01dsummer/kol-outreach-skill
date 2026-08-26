@@ -49,6 +49,7 @@
 | 想改需求、或想说"这个太麻烦" | `process/2-CHANGE.md` |
 | 写代码 | `process/3-BUILD.md` + **`docs/CONVENTIONS.md`** |
 | 写测试 | `process/4-VERIFY.md` —— **写测试前必读** |
+| 改模块边界、调用顺序或对外契约 | `process/5-DESIGN.md` + **`docs/ARCHITECTURE.md`** |
 | 改 Skill 的行为 | `skill/SKILL.md` + 对应的 `skill/references/*` |
 | 改完了要同步 | `docs/SYNC.md` |
 
@@ -59,9 +60,11 @@
 - **红线**：`docs/SPEC.md` 的 **P1–P5**，共 5 条。不参与任何取舍
 - **需求编号的唯一真相来源**：`docs/requirements.json`。
   `SPEC.md` 里的表格是它的渲染 —— 由 `npm run spec` 生成并校验，**不要手改**
-- **决策记录**：`DECISIONS.md`，编号 `ADR-NN`（数据需求用 `D1`–`D7`，不撞号）
+- **架构文档**：`docs/ARCHITECTURE.md` —— 模块边界、**顺序契约**、Agent↔scripts 的缝隙契约。
+  改这三样之前先读它；新增 `scripts/` 下的模块必须在锚点表里登记，否则 `npm run arch` 会红
+- **决策记录**：`DECISIONS.md`，编号 `ADR-NN`（数据需求用 `D` 前缀，两套不撞号）
 - **检查命令**：`npm run check`
-  = 纪律 lint → SPEC 一致性 → 类型检查 → 需求测试 → 变异测试 → 脚本自检 → 链路审计
+  = 纪律 lint → SPEC 一致性 → **架构锚点** → 类型检查 → 需求测试 → 变异测试 → 脚本自检 → 链路审计
 - **审计命令**：`npm run audit`
 - **文档同步表**：`docs/SYNC.md`
 - **CI**：`.github/workflows/check.yml`，每次 push 跑同一条链
