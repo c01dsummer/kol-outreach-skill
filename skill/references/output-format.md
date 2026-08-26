@@ -1,6 +1,6 @@
 # 输出格式
 
-> 相关需求：**U1** CSV 排序与列定义 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U6** HTML 分层 tab 与平台标签 · **U7** 公开指标与报价 · **D5** BOM 与转义 · **D8/D9** 指标口径 · **P5** 数据边界声明
+> 相关需求：**U1** CSV 排序与列定义 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U6** HTML 分层 tab 与平台标签 · **U7** 公开指标与报价 · **D5** BOM 与转义 · **D8–D10** 指标口径 · **P5** 数据边界声明
 
 Phase 06 用。
 
@@ -52,6 +52,9 @@ output/{product}-{YYYYMMDDHHmm}/
 | `following_ratio` | 关注/粉丝比 |
 | `reach_consistency` | `P25(views) / median(views)` |
 | `median_post_gap_days` | 发帖间隔中位天数 |
+| `latest_post_at` | 截至采样时的最后发布时间；包含置顶作品 |
+| `days_since_last_post` | 最后发布距采样时间的天数 |
+| `activity_status` | active / cooling / dormant；只提示，不影响分层 |
 | `audience_quality_risk` | low / medium / high；不是假粉率 |
 | `audience_quality_reasons` | 触发的同行异常信号与同行数 |
 | `tier_adjustments` | 地域/风险导致的分层变化及理由 |
@@ -107,7 +110,7 @@ C级 观察池 (3)
   与「双平台」「私密号」等次要标签区分开 —— 运营扫一眼就要知道这人在哪个平台，
   因为两个平台的建联方式完全不同
 - A 级卡片展开显示开发信草稿并**可一键复制**
-- 主账号与关联账号分平台展示近期公开指标、样本时间、风险依据和报价效率
+- 主账号与关联账号分平台展示近期公开指标、样本时间、活跃标签、风险依据和报价效率
 - 数据边界说明（见下）
 
 ## meta.json
@@ -136,6 +139,7 @@ C级 观察池 (3)
     "audience_geo": { "total": 187, "measured": 0, "unavailable": 0, "unqueried": 187 },
     "public_post_sample": { "total": 201, "measured": 170, "unavailable": 4, "unqueried": 27 },
     "audience_quality_risk": { "total": 201, "measured": 145, "unavailable": 29, "unqueried": 27 },
+    "creator_activity": { "total": 201, "measured": 168, "unavailable": 6, "unqueried": 27 },
     "collaboration_quote": { "total": 201, "measured": 8, "unavailable": 0, "unqueried": 193 }
   }
 }

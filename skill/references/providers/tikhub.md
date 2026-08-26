@@ -59,7 +59,7 @@ data.search_item_list[].aweme_info.desc                  ✓
    会命中空的 `aweme_list`，静默产出「这个关键词一个人都没有」—— 而事实是有 10 个。
    必须取**第一个非空**的数组。
 2. **`author.aweme_count` 对所有人都返回 0。** 那不是真实作品数，是搜索结果里不填这个
-   字段。当成 0 会让「视频数 > 30」的活跃度加分全员失效。且 0 是个「值」，类型系统
+   字段。当成 0 会让「视频数 > 30」的内容积累加分全员失效。且 0 是个「值」，类型系统
    防不住，只能显式判掉，等 profile 补全。
 
 **为什么用视频搜索而不是用户搜索**：用户搜索按账号名匹配，结果里全是把产品词塞进账号名的商家号和机构号。视频搜索按内容匹配，找到的是"真的在做这类内容"的人，与 TikTok 网页搜索结果一致。
@@ -116,8 +116,8 @@ data.aweme_list[]
   .author.following_count
 ```
 
-这是 D8 的主页近期样本，与关键词搜索的 `search_item_list` 分开。`is_top=1` 的作品
-在聚合时排除；任何计数字段缺失都保持 undefined，不补 0。
+这是 D8/D10 的主页近期样本，与关键词搜索的 `search_item_list` 分开。`is_top=1` 的作品
+在绩效聚合时排除，但发布时间仍用于当前活跃标签；任何计数字段缺失都保持 undefined，不补 0。
 
 ### 备选
 
@@ -194,7 +194,7 @@ data.full_name             ✓
 data.biography             ✓  邮箱在这里
 data.follower_count        ✓  （V2 没有这个字段，V3 才有）
 data.following_count       ✓
-data.media_count           ⚠️ 实测常为 null —— 当 0 会让活跃度加分失效
+data.media_count           ⚠️ 实测常为 null —— 当 0 会让内容积累加分失效
 data.is_verified / is_private  ✓
 data.external_url          ✓
 data.bio_links[]           ✓  含 `url`（原始地址）和 `lynx_url`（IG 重定向包装）
@@ -223,7 +223,8 @@ data.data.items[]
 data.data.user.follower_count / following_count
 ```
 
-只保留明确标成视频或 Reel 的项目。响应最多取 12 条；明确 pinned 的项目不进入指标。
+只保留明确标成视频或 Reel 的项目。响应最多取 12 条；明确 pinned 的项目不进入绩效聚合，
+但发布时间仍用于当前活跃标签。
 
 OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公开账号
 `mkbhd` 使用文档默认参数真实调用返回 **400**，响应明确说明不扣费；同一账号 V2 返回

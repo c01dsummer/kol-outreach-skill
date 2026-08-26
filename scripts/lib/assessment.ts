@@ -1,6 +1,7 @@
 import type {
   AccountAssessment,
   AccountAssessmentSummary,
+  ActivityStatus,
   AudienceRiskAssessment,
   AudienceRiskFlag,
   AudienceRiskMetric,
@@ -20,6 +21,8 @@ import type {
 export const PUBLIC_POST_SAMPLE_SIZE = 12
 export const MIN_METRIC_POSTS = 6
 export const MIN_PEER_SIZE = 8
+export const ACTIVITY_ACTIVE_MAX_DAYS = 45
+export const ACTIVITY_COOLING_MAX_DAYS = 90
 
 const FOLLOWER_BANDS = [5_000, 25_000, 100_000, 500_000, 1_000_000, 5_000_001] as const
 const FOLLOWER_BAND_LABELS = [
@@ -92,6 +95,58 @@ const followerMetric = (
   return metricFrom(values.map(v => v / followers), source, observedAt, basis)
 }
 
+interface ActivityMeasurements {
+  latest_post_at: Measurement<string>
+  days_since_last_post: Measurement<number>
+  activity_status: Measurement<ActivityStatus>
+}
+
+/**
+ * D10：活跃状态是采样时快照，只回答“截至查询时最后一次发布距今多久”。
+ * 置顶会扭曲表现聚合，但不会抹掉一次真实发布，所以这里明确计入置顶作品。
+ */
+const calculateActivity = (
+  posts: NormalizedPublicPost[],
+  source: MetricSource,
+  observedAt: string,
+): ActivityMeasurements => {
+  const dateValues = posts
+    .slice(0, PUBLIC_POST_SAMPLE_SIZE)
+    .flatMap(p => p.published_at === undefined ? [] : [p.published_at])
+
+  const sameUnavailable = (reason: MetricUnavailableReason): ActivityMeasurements => ({
+    latest_post_at: unavailable(reason, source, observedAt, dateValues.length),
+    days_since_last_post: unavailable(reason, source, observedAt, dateValues.length),
+    activity_status: unavailable(reason, source, observedAt, dateValues.length),
+  })
+  if (!dateValues.length) return sameUnavailable('missing_post_dates')
+
+  const observed = Date.parse(observedAt)
+  const timestamps = dateValues.map(Date.parse)
+  if (!Number.isFinite(observed) || timestamps.some(t => !Number.isFinite(t) || t > observed)) {
+    return sameUnavailable('invalid_post_date')
+  }
+
+  const latest = Math.max(...timestamps)
+  const days = (observed - latest) / 86_400_000
+  const status: ActivityStatus = days <= ACTIVITY_ACTIVE_MAX_DAYS
+    ? 'active'
+    : days <= ACTIVITY_COOLING_MAX_DAYS ? 'cooling' : 'dormant'
+  const sampleSize = timestamps.length
+
+  return {
+    latest_post_at: measured(
+      new Date(latest).toISOString(), source, observedAt, sampleSize,
+      'max(published_at) across latest profile posts; pinned included'),
+    days_since_last_post: measured(
+      days, source, observedAt, sampleSize,
+      '(sample observed_at - latest_post_at) / 24h'),
+    activity_status: measured(
+      status, source, observedAt, sampleSize,
+      'active <=45d; cooling >45d and <=90d; dormant >90d'),
+  }
+}
+
 /**
  * D8：从非关键词偏置的主页近期样本计算公开指标。
  * 某条帖子缺任何一个分子字段时，只让该条退出对应指标，不把缺失当成 0。
@@ -116,10 +171,14 @@ export function calculatePublicMetrics(
       following_ratio: same(),
       reach_consistency: same(),
       median_post_gap_days: same(),
+      latest_post_at: same(),
+      days_since_last_post: same(),
+      activity_status: same(),
       audience_quality_risk: same(),
     }
   }
 
+  const activity = calculateActivity(sample.value, source, observedAt)
   const posts = sample.value
     .filter(p => p.is_pinned !== true)
     .slice(0, PUBLIC_POST_SAMPLE_SIZE)
@@ -179,6 +238,7 @@ export function calculatePublicMetrics(
     following_ratio: followingRatio,
     reach_consistency: reachConsistency,
     median_post_gap_days: metricFrom(gaps, source, observedAt, 'median(days between posts)'),
+    ...activity,
     audience_quality_risk: unavailable('insufficient_peer_group', source, observedAt),
   }
 }

@@ -127,18 +127,34 @@ const persist = () => {
 }
 
 let newlyQueried = 0
+let locallyRecomputed = 0
 let stopped: 'done' | 'budget' | 'error' = 'done'
 let errorMessage = ''
 
 async function assess(ref: AccountRef): Promise<void> {
   const k = accountKey(ref.platform, ref.handle)
   const existing = state.accounts[k]
-  if (!refresh && existing?.sample) return
+  if (!refresh && existing?.sample) {
+    const hasActivity = existing.metrics?.latest_post_at &&
+      existing.metrics.days_since_last_post && existing.metrics.activity_status
+    if (!hasActivity) {
+      if (existing.followers === undefined && ref.followers !== undefined) {
+        existing.followers = ref.followers
+      }
+      if (existing.following === undefined && ref.following !== undefined) {
+        existing.following = ref.following
+      }
+      existing.metrics = calculatePublicMetrics(
+        existing.sample, existing.followers, existing.following)
+      locallyRecomputed++
+    }
+    return
+  }
 
-  const observedAt = new Date().toISOString()
   let next: AccountAssessment
 
   if (ref.is_private) {
+    const observedAt = new Date().toISOString()
     const sample = unavailable<never[]>('private_account', sourceFor(ref.platform), observedAt)
     next = {
       ...existing,
@@ -151,6 +167,8 @@ async function assess(ref: AccountRef): Promise<void> {
     }
   } else {
     const fetched = await api.recentPosts(ref.handle, ref.platform)
+    // 采样时间记在响应到达后，避免刚发布的帖子因为请求耗时显得“来自未来”。
+    const observedAt = new Date().toISOString()
     const followers = fetched.followers === undefined ? ref.followers : fetched.followers
     const following = fetched.following === undefined ? ref.following : fetched.following
     const sample = measured(
@@ -158,7 +176,7 @@ async function assess(ref: AccountRef): Promise<void> {
       fetched.source,
       observedAt,
       fetched.posts.length,
-      'latest 12 short-form profile posts; explicitly pinned posts excluded from metrics',
+      'latest 12 short-form profile posts; pinned included for recency and excluded from aggregates',
     )
     next = {
       ...existing,
@@ -229,6 +247,8 @@ async function main() {
   const sampleMeasured = selected.filter(a => a.sample?.status === 'measured').length
   const sampleUnavailable = selected.filter(a => a.sample?.status === 'unavailable').length
   const riskMeasured = selected.filter(a => a.metrics?.audience_quality_risk.status === 'measured').length
+  const activityMeasured = selected.filter(a => a.metrics?.activity_status.status === 'measured').length
+  const activityUnavailable = selected.filter(a => a.metrics?.activity_status.status === 'unavailable').length
   const highRisk = selected.filter(a =>
     a.metrics?.audience_quality_risk.status === 'measured' &&
     a.metrics.audience_quality_risk.value.level === 'high').length
@@ -239,8 +259,11 @@ async function main() {
     ...(errorMessage ? { error: errorMessage } : {}),
     accounts_selected: selected.length,
     newly_queried: newlyQueried,
+    locally_recomputed: locallyRecomputed,
     samples_measured: sampleMeasured,
     samples_unavailable: sampleUnavailable,
+    activity_measured: activityMeasured,
+    activity_unavailable: activityUnavailable,
     risks_measured: riskMeasured,
     high_risk: highRisk,
     requests: budget.count,

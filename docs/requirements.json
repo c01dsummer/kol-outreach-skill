@@ -134,7 +134,7 @@
       "cat": "D",
       "pri": "P0",
       "text": "公开绩效指标必须来自创作者主页的独立近期作品样本，不得复用关键词搜索命中的偏置样本；每项结论必须保留查询状态、来源、时间和样本量。",
-      "accept": "TikTok 与 Instagram 分平台最多取最近 12 条短视频/Reels，明确标记为 pinned 的作品排除；每项聚合至少有 6 个具备所需字段的观测才返回 measured。字段缺失不按 0 处理，未查询、不可用、已测量在 enrichment.json 与交付物中可区分。"
+      "accept": "TikTok 与 Instagram 分平台最多取最近 12 条短视频/Reels，明确标记为 pinned 的作品从绩效聚合与发布间隔中排除；每项聚合至少有 6 个具备所需字段的观测才返回 measured。字段缺失不按 0 处理，未查询、不可用、已测量在 enrichment.json 与交付物中可区分。"
     },
     {
       "id": "D9",
@@ -142,6 +142,13 @@
       "pri": "P1",
       "text": "KOL Rate 必须把公开互动率与合作报价分开；不得在没有明确报价或基准时自动估价。",
       "accept": "合作报价带金额、币种、平台、形式、数量、来源和时间。只有同平台同形式报价才按单条报价 / 中位播放量 × 1000 计算隐含 eCPM，并按单条报价 / 中位互动量计算隐含 eCPE；缺报价、混合套餐或分母不可用时明确不可计算。"
+    },
+    {
+      "id": "D10",
+      "cat": "D",
+      "pri": "P1",
+      "text": "当前活跃度必须与历史内容积累分开表达；停更标签只提示合作就绪度，不得自动改变 KOL 价值判断。",
+      "accept": "按平台用样本 observed_at 与最近一次发布时间计算：≤45 天为 active，46–90 天为 cooling，>90 天为 dormant；一个有效时间即可测量，置顶作品计入最近发布。缺少发布时间或时间异常时明确 unavailable。状态不得改变 score、tier、风险或名单成员；旧 enrichment 样本可在不新增 API 请求的情况下补算。"
     },
     {
       "id": "F1",
@@ -246,7 +253,7 @@
       "cat": "U",
       "pri": "P1",
       "text": "公开指标、风险依据、报价效率和数据边界必须进入结构化交付物与可读报告。",
-      "accept": "creators.json 与 enrichment.json 保留分平台测量状态及溯源；CSV/XLSX 展示当前平台的核心指标、风险与降级理由、报价及隐含 eCPM/eCPE；HTML 展示主账号和关联账号明细；meta.json 按能力分别统计 measured/unavailable/unqueried，公开指标不得把兼容字段 enriched 置为 true。"
+      "accept": "creators.json 与 enrichment.json 保留分平台测量状态及溯源；CSV/XLSX 展示当前平台的核心指标、最近发布、活跃状态、风险与降级理由、报价及隐含 eCPM/eCPE；HTML 展示主账号和关联账号明细；meta.json 按能力分别统计 measured/unavailable/unqueried，公开指标不得把兼容字段 enriched 置为 true。"
     }
   ]
 }

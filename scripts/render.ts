@@ -103,6 +103,8 @@ const meta = {
       accountKeys.size, assessedAccounts.map(a => a?.sample)),
     audience_quality_risk: countMeasurements(
       accountKeys.size, assessedAccounts.map(a => a?.metrics?.audience_quality_risk)),
+    creator_activity: countMeasurements(
+      accountKeys.size, assessedAccounts.map(a => a?.metrics?.activity_status)),
     collaboration_quote: countMeasurements(
       accountKeys.size, assessedAccounts.map(a => a?.collaboration_quote)),
   },

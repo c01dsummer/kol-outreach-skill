@@ -16,6 +16,8 @@ const fmt = (n?: number) =>
 const REASON: Record<string, string> = {
   private_account: '私密账号',
   insufficient_posts: '有效近期作品不足 6 条',
+  missing_post_dates: '近期作品缺少发布时间',
+  invalid_post_date: '近期作品发布时间异常',
   missing_followers: '粉丝数缺失',
   missing_following: '关注数缺失',
   zero_denominator: '分母为零',
@@ -45,6 +47,7 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
   if (!a) return `<div class="assessment"><div class="at">${esc(label)} · 公开指标未查询</div></div>`
   const m = a.metrics
   const risk = m?.audience_quality_risk
+  const activity = m?.activity_status
   const riskLevel = metricText(risk, value => value.level.toUpperCase())
   const flags = risk?.status === 'measured' && risk.value.flags.length
     ? `<div class="flags">依据：${risk.value.flags.map(riskFlagText).map(esc).join(' · ')}</div>`
@@ -65,6 +68,9 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
   const sample = a.sample?.status === 'measured'
     ? `${a.sample.value} 条 · ${a.sample.source.provider} · ${a.sample.observed_at.slice(0, 10)}`
     : metricText(a.sample, value => `${value} 条`)
+  const activityLabel = metricText(activity, value => ({
+    active: '活跃', cooling: '降温', dormant: '停更',
+  })[value])
 
   return `<div class="assessment">
     <div class="at">${esc(label)} · @${esc(a.handle)} · ${esc(fmt(a.followers))} 粉丝 ·
@@ -76,6 +82,9 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
       <span>播粉比 <b>${esc(metricText(m?.view_rate, pct))}</b></span>
       <span>稳定度 <b>${esc(metricText(m?.reach_consistency, pct))}</b></span>
       <span>发帖间隔 <b>${esc(metricText(m?.median_post_gap_days, v => `${v.toFixed(1)} 天`))}</b></span>
+      <span>最后发布 <b>${esc(metricText(m?.latest_post_at, v => v.slice(0, 10)))}</b></span>
+      <span>距采样 <b>${esc(metricText(m?.days_since_last_post, v => `${v.toFixed(1)} 天`))}</b></span>
+      <span>活跃状态 <b class="activity ${activity?.status === 'measured' ? activity.value : 'unknown'}">${esc(activityLabel)}</b></span>
       <span>受众风险 <b class="risk ${risk?.status === 'measured' ? risk.value.level : 'unknown'}">${esc(riskLevel)}</b></span>
     </div>${flags}
     <div class="commercial">合作报价 ${esc(quoteText)} · 隐含 eCPM ${esc(ecpm)} · 隐含 eCPE ${esc(ecpe)}</div>
@@ -195,6 +204,7 @@ th{color:#64748b;font-weight:600;font-size:12px}
 .assessment{margin-top:9px;background:#0f172a;border:1px solid #1e293b;border-radius:7px;padding:9px}
 .at{font-size:11px;color:#64748b;margin-bottom:5px}.metrics{display:flex;gap:8px 12px;flex-wrap:wrap;font-size:11px;color:#94a3b8}
 .metrics b{color:#e2e8f0;font-weight:600}.risk.high{color:#ef4444}.risk.medium{color:#f59e0b}.risk.low{color:#22c55e}.risk.unknown{color:#64748b}
+.activity.active{color:#22c55e}.activity.cooling{color:#f59e0b}.activity.dormant{color:#ef4444}.activity.unknown{color:#64748b}
 .flags{font-size:11px;color:#f59e0b;margin-top:5px}.commercial{font-size:11px;color:#94a3b8;margin-top:5px}
 .prev{margin-top:6px;font-size:11px;color:#f59e0b}
 .dr{margin-top:9px}

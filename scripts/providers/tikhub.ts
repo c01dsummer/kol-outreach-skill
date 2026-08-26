@@ -134,7 +134,7 @@ export class TikHub {
         nickname: a?.nickname ?? '',   // p1-ok: 展示用，缺失退化为空名不影响决策
         followers: a?.follower_count,   // P1: 缺失即 undefined，不记 0
         // 实测：搜索结果里 aweme_count 对**所有人**都返回 0 —— 那不是真实值，
-        // 是 TikTok 在搜索结果里不填这个字段。当成 0 会让活跃度加分全员失效，
+        // 是 TikTok 在搜索结果里不填这个字段。当成 0 会让内容积累加分全员失效，
         // 且 0 是个「值」，类型系统防不住。只能显式判掉，等 profile 补全。
         post_count: a?.aweme_count === 0 ? undefined : a?.aweme_count,
         bio: a?.signature,            // P1: 搜索结果常无 bio，须与「bio 为空」区分
@@ -274,7 +274,7 @@ export class TikHub {
       bio_links: links,
       followers: u?.follower_count ?? undefined,
       following: u?.following_count ?? undefined,
-      // 实测 media_count 常为 null（IG 不返回）—— null 是「没给」，当 0 会让活跃度加分失效
+      // 实测 media_count 常为 null（IG 不返回）—— null 是「没给」，当 0 会让内容积累加分失效
       post_count: u?.media_count ?? undefined,
       is_private: Boolean(u?.is_private),
       verified: Boolean(u?.is_verified),

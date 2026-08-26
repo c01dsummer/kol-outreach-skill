@@ -25,6 +25,8 @@ export interface MetricSource {
 export type MetricUnavailableReason =
   | 'private_account'
   | 'insufficient_posts'
+  | 'missing_post_dates'
+  | 'invalid_post_date'
   | 'missing_followers'
   | 'missing_following'
   | 'zero_denominator'
@@ -63,6 +65,7 @@ export interface NormalizedPublicPost {
 
 export type AudienceRiskLevel = 'low' | 'medium' | 'high'
 export type AudienceRiskMetric = 'engagement_rate_followers' | 'view_rate' | 'following_ratio'
+export type ActivityStatus = 'active' | 'cooling' | 'dormant'
 
 export interface AudienceRiskFlag {
   metric: AudienceRiskMetric
@@ -87,6 +90,9 @@ export interface PublicMetrics {
   following_ratio: Measurement<number>
   reach_consistency: Measurement<number>
   median_post_gap_days: Measurement<number>
+  latest_post_at: Measurement<string>
+  days_since_last_post: Measurement<number>
+  activity_status: Measurement<ActivityStatus>
   audience_quality_risk: Measurement<AudienceRiskAssessment>
 }
 

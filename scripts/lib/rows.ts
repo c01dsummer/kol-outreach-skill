@@ -7,6 +7,7 @@ export const HEADERS = [
   'metrics_account_followers', 'metrics_account_following',
   'engagement_rate_followers', 'engagement_rate_views', 'median_views', 'median_engagements', 'view_rate',
   'following_ratio', 'reach_consistency', 'median_post_gap_days',
+  'latest_post_at', 'days_since_last_post', 'activity_status',
   'audience_quality_risk', 'audience_quality_reasons', 'tier_adjustments',
   'collaboration_quote', 'implied_ecpm', 'implied_ecpe', 'metrics_observed_at',
   'cross_platform', 'linked_handle', 'profile_url', 'source_keyword',
@@ -85,6 +86,9 @@ export function toRow(c: Creator): unknown[] {
     metricCell(metrics?.following_ratio, pct),
     metricCell(metrics?.reach_consistency, pct),
     metricCell(metrics?.median_post_gap_days, v => v.toFixed(1)),
+    metricCell(metrics?.latest_post_at, v => v),
+    metricCell(metrics?.days_since_last_post, v => v.toFixed(1)),
+    metricCell(metrics?.activity_status, v => v),
     metricCell(risk, v => v.level),
     risk?.status === 'measured' ? risk.value.flags.map(riskFlag).join('；') :
       risk?.status === 'unavailable' ? `不可用:${risk.reason}` : '未查询',

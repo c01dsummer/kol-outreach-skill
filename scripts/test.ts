@@ -19,6 +19,7 @@ import { renderHtml } from './lib/report.js'
 import { filterByMemory, useMemoryFile } from './lib/memory.js'
 import { finalize, pendingKeywords, rankCreators, keywordStats, tierCounts } from './lib/pipeline.js'
 import {
+  ACTIVITY_ACTIVE_MAX_DAYS, ACTIVITY_COOLING_MAX_DAYS,
   accountKey, assignAudienceRisks, attachAssessments, calculatePublicMetrics,
   calculateQuoteEfficiency, measured, unavailable,
 } from './lib/assessment.js'
@@ -488,6 +489,80 @@ suite('D9', '互动率与合作报价分开，只有可比报价才计算效率'
   eq('没有报价就不生成估价', calculateQuoteEfficiency(assessedAccount('noquote', 1000, 100, 10)), undefined)
 }
 
+suite('D10', '当前活跃标签与历史内容积累分开且不改变分层')
+{
+  const observedAt = '2026-08-26T00:00:00.000Z'
+  const atDaysAgo = (days: number) =>
+    new Date(Date.parse(observedAt) - days * 86_400_000).toISOString()
+  const metricsAt = (days: number) => {
+    const posts: NormalizedPublicPost[] = [{
+      id: `age-${days}`, published_at: atDaysAgo(days), is_pinned: false,
+    }]
+    const sample = measured(posts, PUBLIC_SOURCE, observedAt, 1, 'activity boundary sample')
+    return calculatePublicMetrics(sample, 10_000, 100)
+  }
+  const statusAt = (days: number) => {
+    const status = metricsAt(days).activity_status
+    return status.status === 'measured' ? status.value : undefined
+  }
+
+  eq('45 天仍为 active', statusAt(ACTIVITY_ACTIVE_MAX_DAYS), 'active')
+  eq('46 天进入 cooling', statusAt(ACTIVITY_ACTIVE_MAX_DAYS + 1), 'cooling')
+  eq('90 天仍为 cooling', statusAt(ACTIVITY_COOLING_MAX_DAYS), 'cooling')
+  eq('91 天进入 dormant', statusAt(ACTIVITY_COOLING_MAX_DAYS + 1), 'dormant')
+
+  const pinnedSample = measured<NormalizedPublicPost[]>([
+    { id: 'new-pinned', published_at: atDaysAgo(10), is_pinned: true },
+    { id: 'old-normal', published_at: atDaysAgo(120), is_pinned: false },
+  ], PUBLIC_SOURCE, observedAt, 2, 'pinned recency sample')
+  const pinnedMetrics = calculatePublicMetrics(pinnedSample, 10_000, 100)
+  eq('近期置顶作品仍证明账号活跃',
+    pinnedMetrics.activity_status.status === 'measured'
+      ? pinnedMetrics.activity_status.value : undefined,
+    'active')
+  eq('置顶与普通作品的有效时间都计入溯源样本量',
+    pinnedMetrics.activity_status.sample_size, 2)
+  eq('一个有效发布时间足以测量活跃状态',
+    metricsAt(10).activity_status.status, 'measured')
+
+  const missingSample = measured<NormalizedPublicPost[]>(
+    [{ id: 'missing-date' }], PUBLIC_SOURCE, observedAt, 1, 'missing date sample')
+  const missingActivity = calculatePublicMetrics(missingSample, 10_000, 100).activity_status
+  eq('没有发布时间明确 unavailable',
+    missingActivity.status === 'unavailable' ? missingActivity.reason : undefined,
+    'missing_post_dates')
+
+  const futureSample = measured<NormalizedPublicPost[]>([
+    { id: 'future', published_at: atDaysAgo(-1) },
+  ], PUBLIC_SOURCE, observedAt, 1, 'future date sample')
+  const futureActivity = calculatePublicMetrics(futureSample, 10_000, 100).activity_status
+  eq('未来发布时间不被补成零天',
+    futureActivity.status === 'unavailable' ? futureActivity.reason : undefined,
+    'invalid_post_date')
+
+  const activeCreator = mk('tiktok', 'active-kol', {
+    email: 'a@example.com', fit: '✅',
+    account_assessment: {
+      platform: 'tiktok', handle: 'active-kol', metrics: metricsAt(10),
+    },
+  })
+  const dormantCreator = mk('tiktok', 'dormant-kol', {
+    email: 'd@example.com', fit: '✅',
+    account_assessment: {
+      platform: 'tiktok', handle: 'dormant-kol', metrics: metricsAt(120),
+    },
+  })
+  const ranked = rankCreators([activeCreator, dormantCreator], 'US')
+  eq('停更标签不改变 score', ranked.map(c => c.score), [60, 60])
+  eq('停更标签不改变 tier 或删除成员',
+    { tiers: ranked.map(c => c.tier), count: ranked.length },
+    { tiers: ['A', 'A'], count: 2 })
+  eq('活跃标签不改写受众质量风险', ranked.map(c => {
+    const risk = c.account_assessment?.metrics?.audience_quality_risk
+    return risk?.status === 'unavailable' ? risk.reason : risk?.status
+  }), ['insufficient_peer_group', 'insufficient_peer_group'])
+}
+
 suite('D3', '同人识别不确定时不得合并')
 {
   const a = [mk('tiktok', 'sarahtech', { bio_links: ['https://instagram.com/sarah.tech'] }),
@@ -771,6 +846,10 @@ suite('U7', '公开指标、风险依据、报价效率与边界进入交付物'
   const primary = assessedAccount('main', 1_000, 100, 100)
   const linked = assessedAccount('linked', 2_000, 200, 100)
   linked.platform = 'instagram'
+  linked.sample = measured<NormalizedPublicPost[]>([
+    { id: 'linked-recent', published_at: '2026-08-20T00:00:00.000Z', is_pinned: false },
+  ], PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z', 1, 'linked activity sample')
+  linked.metrics = calculatePublicMetrics(linked.sample, linked.followers, linked.following)
   const quote: CollaborationQuote = {
     amount: 300, currency: 'USD', platform: 'tiktok', format: 'tiktok_video', quantity: 1,
     source: 'public_rate_card', observed_at: '2026-08-26T00:00:00.000Z',
@@ -795,6 +874,11 @@ suite('U7', '公开指标、风险依据、报价效率与边界进入交付物'
   ok('CSV 含粉丝互动率', String(row[HEADERS.indexOf('engagement_rate_followers')]).endsWith('%'))
   ok('CSV 含 eCPE 的中位互动量分母',
     Number(row[HEADERS.indexOf('median_engagements')]) > 0)
+  eq('CSV 展示当前平台的活跃状态',
+    row[HEADERS.indexOf('activity_status')], 'dormant')
+  ok('CSV 展示最后发布及距采样天数',
+    row[HEADERS.indexOf('latest_post_at')] !== '未查询' &&
+    Number(row[HEADERS.indexOf('days_since_last_post')]) > 90)
   ok('CSV 含合作报价', String(row[HEADERS.indexOf('collaboration_quote')]).includes('USD 300'))
   ok('CSV 含 eCPM', String(row[HEADERS.indexOf('implied_ecpm')]).startsWith('USD '))
   ok('结构化交付物关联主账号与另一平台',
@@ -810,10 +894,13 @@ suite('U7', '公开指标、风险依据、报价效率与边界进入交付物'
       audience_geo: { total: 1, measured: 0, unavailable: 0, unqueried: 1 },
       public_post_sample: { total: 2, measured: 2, unavailable: 0, unqueried: 0 },
       audience_quality_risk: { total: 2, measured: 0, unavailable: 2, unqueried: 0 },
+      creator_activity: { total: 2, measured: 2, unavailable: 0, unqueried: 0 },
       collaboration_quote: { total: 2, measured: 1, unavailable: 0, unqueried: 1 },
     },
   })
   ok('HTML 展示两个平台明细', html.includes('TikTok · @main') && html.includes('Instagram（关联） · @linked'))
+  ok('HTML 分平台展示停更与活跃标签',
+    html.includes('活跃状态') && html.includes('>停更</b>') && html.includes('>活跃</b>'))
   ok('公开指标不会隐藏邮箱与地域边界',
     html.includes('未做有效性验证') && html.includes('无法确认'))
   ok('HTML 明说风险不是假粉率或带货效果',
