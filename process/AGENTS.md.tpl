@@ -31,8 +31,9 @@
 |---|---|
 | 写/改需求 | `process/1-REQUIREMENTS.md` |
 | 想改需求、或想说"这个太麻烦" | `process/2-CHANGE.md` |
-| 写代码 / 做 UI | `process/3-BUILD.md` + `docs/CONVENTIONS.md` |
+| 写代码 / 做 UI | `process/3-BUILD.md` + `docs/CONVENTIONS.md` + `<本项目架构文档>` |
 | 写测试 | `process/4-VERIFY.md` —— **写测试前必读** |
+| 改模块边界、调用顺序或对外契约 | `process/5-DESIGN.md` + `<本项目架构文档>` |
 
 ---
 
@@ -41,6 +42,7 @@
 - **红线**:`docs/SPEC.md` 的 `<P 类>`,共 `<N>` 条。不参与任何取舍
 - **需求编号的唯一真相来源**:`docs/requirements.json`(机器可读)。
   文档里的表格是它的渲染,**两者不一致以 json 为准,并当场修文档**
+- **架构文档**:`<路径>` —— 模块边界、顺序语义、对外契约。**改这三样之前先读它**
 - **决策记录**:`DECISIONS.md`,编号 `ADR-NN`
 - **检查命令**:`npm run check` = `<列出这条链包含什么>`
 - **审计命令**:`npm run audit`
