@@ -179,9 +179,13 @@ export function calculatePublicMetrics(
   }
 
   const activity = calculateActivity(sample.value, source, observedAt)
+  // D8 的两步有顺序：先把窗口定在最近 12 条，再从窗口里剔置顶。反过来的话，
+  // 提供方多返回的第 13、14 条会顶上来补满 12 个 —— TikTok 那一路把整个
+  // pickList 结果原样传下来，于是「最近 12 条」的口径变成「取决于这次多返回了几条」。
+  // 剔完不足 6 条就按 insufficient_posts 报不可用，不去窗口外借。
   const posts = sample.value
-    .filter(p => p.is_pinned !== true)
     .slice(0, PUBLIC_POST_SAMPLE_SIZE)
+    .filter(p => p.is_pinned !== true)
   const views = posts.flatMap(p => typeof p.views === 'number' && Number.isFinite(p.views) ? [p.views] : [])
   const engagements = posts.flatMap(p =>
     typeof p.likes === 'number' && Number.isFinite(p.likes) &&

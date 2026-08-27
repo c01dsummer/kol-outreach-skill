@@ -535,6 +535,68 @@ suite('D8', '公开指标使用独立近期样本并保留三态与溯源')
   eq('查询过但私密与未查询可区分', privateSample.status, 'unavailable')
 }
 
+suite('D8', '样本窗口先定在最近 12 条，再从窗口内剔置顶')
+{
+  /**
+   * D8 的口径是两句话：「最多取最近 12 条」+「明确标记为 pinned 的作品从绩效
+   * 聚合与发布间隔中排除」。两步的**顺序**有语义 —— 先截窗口再剔置顶，剔完
+   * 不足 12 条就是不足；反过来先剔置顶再截，窗口外更旧的作品会被顶上来补满，
+   * 而提供方一次多返回几条完全由它自己决定，于是「最近 12 条」变成
+   * 「取决于这次多返回了几条」，同一个账号换个时间查会得到不同口径的中位数。
+   *
+   * 这条测试能红，靠的是窗口外那几条的量级与节奏都与窗口内明显不同 ——
+   * 如果两边的值差不多，补没补进来都得到同一个中位数，
+   * 那就是 4-VERIFY 说的「永远不会失败的检查」。
+   */
+  const observedAt = '2026-08-26T00:00:00.000Z'
+  const at = (daysAgo: number) =>
+    new Date(Date.parse(observedAt) - daysAgo * 86_400_000).toISOString()
+
+  /** 提供方顺序：新的在前。窗口内 12 条，其中第 3 条（i=2）是置顶。 */
+  const inWindow: NormalizedPublicPost[] = Array.from({ length: 12 }, (_, i) => ({
+    id: `w${i}`, views: 1_000 + i, likes: 100 + i, comments: 10 + i,
+    published_at: at(i * 2), is_pinned: i === 2,
+  }))
+  /** 窗口之外：更旧、播放量高两个数量级、发布节奏慢十几倍。 */
+  const beyond: NormalizedPublicPost[] = Array.from({ length: 4 }, (_, i) => ({
+    id: `b${i}`, views: 900_000 + i, likes: 90_000 + i, comments: 9_000 + i,
+    published_at: at(60 + i * 30), is_pinned: false,
+  }))
+  const overflowed = [...inWindow, ...beyond]
+  const metrics = calculatePublicMetrics(
+    measured(overflowed, PUBLIC_SOURCE, observedAt, overflowed.length,
+      'provider returned more than the requested 12'),
+    10_000, 100)
+
+  // 窗口内非置顶 11 条，播放量 1000…1011 缺 1002，升序第 6 个 = 1006。
+  // 先剔置顶再截窗口的话，b0 的 900_000 会补进来凑满 12 条，中位变成 1006.5。
+  eq('窗口外的旧作品不得补进中位播放',
+    metrics.median_views.status === 'measured' ? metrics.median_views.value : undefined, 1_006)
+  eq('剔完置顶就是 11 条，样本量照实记，不去窗口外补满 12 条',
+    metrics.median_views.sample_size, 11)
+  // 互动量 = likes + comments = 110 + 2i，缺 i=2 的 114，升序第 6 个 = 122。
+  eq('窗口外的旧作品不得补进中位互动',
+    metrics.median_engagements.status === 'measured'
+      ? metrics.median_engagements.value : undefined, 122)
+  // 11 条时间戳形成 10 个间隔：九个 2 天、一个跨过置顶的 4 天，中位 2 天。
+  eq('发布间隔只在窗口内数',
+    metrics.median_post_gap_days.status === 'measured'
+      ? metrics.median_post_gap_days.value : undefined, 2)
+  eq('间隔观测数按窗口内的 11 条算',
+    metrics.median_post_gap_days.sample_size, 10)
+
+  // 一条都没置顶时，窗口本身也必须挡住多返回的部分。
+  const noPinned = Array.from({ length: 20 }, (_, i) => ({
+    id: `n${i}`, views: 1_000 + i, likes: 100 + i, comments: 10 + i,
+    published_at: at(i * 2), is_pinned: false,
+  }))
+  eq('没有置顶时提供方多返回的部分同样进不来',
+    calculatePublicMetrics(
+      measured(noPinned, PUBLIC_SOURCE, observedAt, noPinned.length, 'provider overflow'),
+      10_000, 100).median_views.sample_size,
+    12)
+}
+
 suite('D9', '互动率与合作报价分开，只有可比报价才计算效率')
 {
   const account = assessedAccount('quoted', 1_000, 100, 10)

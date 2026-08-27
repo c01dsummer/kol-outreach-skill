@@ -216,6 +216,14 @@
       "file": "scripts/lib/score.ts",
       "find": "if (c.recent_posts?.some(p => p.plays !== undefined && p.plays > 100_000)) s += 5",
       "replace": "if (c.recent_posts?.some(p => (p.plays ?? 200_000) > 100_000)) s += 5"
+    },
+    {
+      "id": "M-D8-a",
+      "req": "D8",
+      "why": "先剔置顶再截窗口 —— 12 条之外的旧作品被顶上来补满，「最多取最近 12 条」变成「取决于提供方这次多返回了几条」，同一个账号换个时间查得到不同口径的中位数",
+      "file": "scripts/lib/assessment.ts",
+      "find": "    .slice(0, PUBLIC_POST_SAMPLE_SIZE)\n    .filter(p => p.is_pinned !== true)",
+      "replace": "    .filter(p => p.is_pinned !== true)\n    .slice(0, PUBLIC_POST_SAMPLE_SIZE)"
     }
   ],
   "exemptions": [
