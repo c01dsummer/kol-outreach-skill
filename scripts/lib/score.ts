@@ -18,7 +18,8 @@ export function scoreCreator(c: Creator): number {
   if (c.post_count !== undefined && c.post_count > 30) s += 10
   if (c.source_dimension === 'scene') s += 10
   if (c.bio !== undefined && PR_SIGNALS.test(c.bio)) s += 10
-  if ((c.recent_posts ?? []).some(p => (p.plays ?? 0) > 100_000)) s += 5
+  // P1：播放数未知时不给分，也不当作 0 —— 「没取到播放数」不等于「这条不是爆款」
+  if (c.recent_posts?.some(p => p.plays !== undefined && p.plays > 100_000)) s += 5
   return s
 }
 
