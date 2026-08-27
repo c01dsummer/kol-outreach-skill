@@ -6,6 +6,8 @@
  * 本文件目前违反了这一条（同一上下文写的代码和测试），已登记为 ADR-04 的已知缺口。
  */
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
+import { judgeLine } from './check/lint-rule.js'
+import { implementationLeak } from './check/why-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { fillEmail, pickList } from './providers/tikhub.js'
@@ -21,7 +23,7 @@ import { finalize, pendingKeywords, rankCreators, keywordStats, tierCounts } fro
 import {
   ACTIVITY_ACTIVE_MAX_DAYS, ACTIVITY_COOLING_MAX_DAYS,
   accountKey, assignAudienceRisks, attachAssessments, calculatePublicMetrics,
-  calculateQuoteEfficiency, measured, unavailable,
+  calculateQuoteEfficiency, measured, publicPostSample, recomputeCachedAssessment, unavailable,
 } from './lib/assessment.js'
 import { writeFileSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -42,6 +44,12 @@ const eq = (label: string, got: unknown, want: unknown) => {
   else console.log(`  ✓ ${label}`)
 }
 const ok = (label: string, cond: boolean) => eq(label, cond, true)
+
+/**
+ * 检查链自己的判定也要有测试。这类块不服务任何需求编号，所以**不进覆盖计数** ——
+ * 混进去会让「覆盖 N 条需求」那个数字变成一个虚报的数。
+ */
+const harness = (name: string) => { console.log(`\n[harness] ${name}`) }
 
 /**
  * 从 xlsx 里真正读回 sheet 名。
@@ -214,9 +222,9 @@ suite('P1', '没取到的播放数不得被判成爆款')
    *
    * 什么东西能在 P1 不成立时也让这条绿：**把未知当成 0**。
    * 那一侧得分与「确定不是爆款」本来就同分，scoreCreator 的返回值里看不见 ——
-   * 这一档能验的只有「不得被当成大数」那一半。另一半只剩类型层
-   * （RecentPost.plays 可选）挡着：纪律 lint 的敏感字段表里有 views、play_count，
-   * 没有 plays —— 实测 `p.plays ?? 0` 不会被 lint 拦下。已报告，不在本次改动范围内。
+   * 这一档能验的只有「不得被当成大数」那一半。另一半靠类型层
+   * （RecentPost.plays 可选）加纪律 lint 挡着 —— `plays` 已在敏感字段表里，
+   * `p.plays ?? 0` 会被拦下（M-P1-i 守着这一条）。
    */
   const decided: string[] = []
   for (const s of shapes) {
@@ -535,6 +543,225 @@ suite('D8', '公开指标使用独立近期样本并保留三态与溯源')
   eq('查询过但私密与未查询可区分', privateSample.status, 'unavailable')
 }
 
+suite('D8', '样本窗口先定在最近 12 条，再从窗口内剔置顶')
+{
+  /**
+   * D8 的口径是两句话：「最多取最近 12 条」+「明确标记为 pinned 的作品从绩效
+   * 聚合与发布间隔中排除」。两步的**顺序**有语义 —— 先截窗口再剔置顶，剔完
+   * 不足 12 条就是不足；反过来先剔置顶再截，窗口外更旧的作品会被顶上来补满，
+   * 而提供方一次多返回几条完全由它自己决定，于是「最近 12 条」变成
+   * 「取决于这次多返回了几条」，同一个账号换个时间查会得到不同口径的中位数。
+   *
+   * 这条测试能红，靠的是窗口外那几条的量级与节奏都与窗口内明显不同 ——
+   * 如果两边的值差不多，补没补进来都得到同一个中位数，
+   * 那就是 4-VERIFY 说的「永远不会失败的检查」。
+   */
+  const observedAt = '2026-08-26T00:00:00.000Z'
+  const at = (daysAgo: number) =>
+    new Date(Date.parse(observedAt) - daysAgo * 86_400_000).toISOString()
+
+  /** 提供方顺序：新的在前。窗口内 12 条，其中第 3 条（i=2）是置顶。 */
+  const inWindow: NormalizedPublicPost[] = Array.from({ length: 12 }, (_, i) => ({
+    id: `w${i}`, views: 1_000 + i, likes: 100 + i, comments: 10 + i,
+    published_at: at(i * 2), is_pinned: i === 2,
+  }))
+  /** 窗口之外：更旧、播放量高两个数量级、发布节奏慢十几倍。 */
+  const beyond: NormalizedPublicPost[] = Array.from({ length: 4 }, (_, i) => ({
+    id: `b${i}`, views: 900_000 + i, likes: 90_000 + i, comments: 9_000 + i,
+    published_at: at(60 + i * 30), is_pinned: false,
+  }))
+  const overflowed = [...inWindow, ...beyond]
+  const metrics = calculatePublicMetrics(
+    measured(overflowed, PUBLIC_SOURCE, observedAt, overflowed.length,
+      'provider returned more than the requested 12'),
+    10_000, 100)
+
+  // 窗口内非置顶 11 条，播放量 1000…1011 缺 1002，升序第 6 个 = 1006。
+  // 先剔置顶再截窗口的话，b0 的 900_000 会补进来凑满 12 条，中位变成 1006.5。
+  eq('窗口外的旧作品不得补进中位播放',
+    metrics.median_views.status === 'measured' ? metrics.median_views.value : undefined, 1_006)
+  eq('剔完置顶就是 11 条，样本量照实记，不去窗口外补满 12 条',
+    metrics.median_views.sample_size, 11)
+  // 互动量 = likes + comments = 110 + 2i，缺 i=2 的 114，升序第 6 个 = 122。
+  eq('窗口外的旧作品不得补进中位互动',
+    metrics.median_engagements.status === 'measured'
+      ? metrics.median_engagements.value : undefined, 122)
+  // 11 条时间戳形成 10 个间隔：九个 2 天、一个跨过置顶的 4 天，中位 2 天。
+  eq('发布间隔只在窗口内数',
+    metrics.median_post_gap_days.status === 'measured'
+      ? metrics.median_post_gap_days.value : undefined, 2)
+  eq('间隔观测数按窗口内的 11 条算',
+    metrics.median_post_gap_days.sample_size, 10)
+
+  // 一条都没置顶时，窗口本身也必须挡住多返回的部分。
+  const noPinned = Array.from({ length: 20 }, (_, i) => ({
+    id: `n${i}`, views: 1_000 + i, likes: 100 + i, comments: 10 + i,
+    published_at: at(i * 2), is_pinned: false,
+  }))
+  eq('没有置顶时提供方多返回的部分同样进不来',
+    calculatePublicMetrics(
+      measured(noPinned, PUBLIC_SOURCE, observedAt, noPinned.length, 'provider overflow'),
+      10_000, 100).median_views.sample_size,
+    12)
+}
+
+suite('D8', '样本记录本身也守窗口：说记了几条就是几条')
+{
+  /**
+   * 这条记录会原样写进 enrichment.json，是用户读到的溯源，也是 D10 补算时
+   * 唯一的输入。提供方一次给几条由它自己决定，所以两件事必须同时成立：
+   * 记下来的不超过窗口；`sample_size` 与真正记下来的条数一致 ——
+   * 否则会出现 basis 说「最多 12 条」而 sample_size 写着 20 的记录，自己打自己。
+   *
+   * 只断言这两条不变量，不去钉 basis 的字面 —— 钉字面只能证明字符串没被改过，
+   * 证不了它说的是实话。
+   */
+  const observedAt = '2026-08-26T00:00:00.000Z'
+  const supply = (n: number): NormalizedPublicPost[] =>
+    Array.from({ length: n }, (_, i) => ({ id: `s${i}`, views: 1_000 + i }))
+
+  for (const n of [0, 1, 6, 11, 12, 13, 20]) {
+    const record = publicPostSample(supply(n), PUBLIC_SOURCE, observedAt)
+    const want = Math.min(n, 12)
+    eq(`提供方给 ${n} 条，记录里就是 ${want} 条`,
+      record.status === 'measured' ? record.value.length : undefined, want)
+    eq(`提供方给 ${n} 条，sample_size 与记录里的条数一致`, record.sample_size, want)
+  }
+
+  const overflow = publicPostSample(supply(20), PUBLIC_SOURCE, observedAt)
+  ok('窗口之外的第 13 条不进记录',
+    overflow.status === 'measured' && overflow.value.every(p => p.id !== 's12'))
+  eq('来源穿透到样本记录', overflow.source, PUBLIC_SOURCE)
+  eq('采样时间穿透到样本记录', overflow.observed_at, observedAt)
+}
+
+suite('D10', '缓存命中时按当前口径重算，不靠新请求')
+{
+  /**
+   * D10 写着「旧 enrichment 样本可在不新增 API 请求的情况下补算」。
+   * 「补算」不等于「缺字段时才补」—— 缓存里的数是上一版代码算出来的，
+   * 只要口径变过一次，那批数就和当前口径不是同一件事，而它们照样会被交付，
+   * 且交付物上看不出区别。重算不花钱，所以这里没有取舍。
+   *
+   * 要一起收的还有**样本记录本身**：交付物发布的是那条记录自己的说法
+   * （记着几条、sample_size、basis）。记录说 16 条、指标按 12 条里的 11 条算，
+   * 就是 D8 的溯源契约被自己的产出物违反。
+   *
+   * 什么东西能在这几条不成立时也让检查通过：**缓存里恰好就是对的数**。
+   * 所以下面的 cached 造成「活跃字段齐全、但按旧口径算」的形状 —— 那正是一份
+   * 上一版代码写下的缓存。第一条断言先把这个前提钉住，否则后面全是空绿。
+   */
+  const observedAt = '2026-08-26T00:00:00.000Z'
+  const at = (daysAgo: number) =>
+    new Date(Date.parse(observedAt) - daysAgo * 86_400_000).toISOString()
+  const inWindow: NormalizedPublicPost[] = Array.from({ length: 12 }, (_, i) => ({
+    id: `w${i}`, views: 1_000 + i, likes: 100 + i, comments: 10 + i,
+    published_at: at(i * 2), is_pinned: i === 2,
+  }))
+  const beyond: NormalizedPublicPost[] = Array.from({ length: 4 }, (_, i) => ({
+    id: `b${i}`, views: 900_000 + i, likes: 90_000 + i, comments: 9_000 + i,
+    published_at: at(60 + i * 30), is_pinned: false,
+  }))
+  const stored = measured([...inWindow, ...beyond], PUBLIC_SOURCE, observedAt, 16,
+    'oversized sample already on disk')
+
+  // 旧口径：先剔置顶、再截 12 条 —— 窗口外的 b0 被补了进来。
+  const oldSelection = [...inWindow.filter(p => p.is_pinned !== true), ...beyond].slice(0, 12)
+  const cached = calculatePublicMetrics(
+    measured(oldSelection, PUBLIC_SOURCE, observedAt, oldSelection.length, 'old selection'),
+    10_000, 100)
+  eq('前提：这份缓存确实是旧口径算出来的',
+    cached.median_views.status === 'measured' ? cached.median_views.value : undefined, 1_006.5)
+  ok('前提：这份缓存的活跃字段是齐的（否则它根本不是那批漏掉的账号）',
+    cached.activity_status.status === 'measured')
+
+  const again = recomputeCachedAssessment(stored, 10_000, 100, cached)
+  eq('活跃字段齐全的缓存也要按当前窗口重算',
+    again.metrics.median_views.status === 'measured' ? again.metrics.median_views.value : undefined,
+    1_006)
+  ok('重算过的缓存要报「变了」，否则运营不知道手上的数换过', again.changed)
+  eq('重算不改采样时间 —— 它属于当初那次采样，不是这次跑的时间',
+    again.metrics.median_views.observed_at, observedAt)
+
+  // 样本记录也要收：交付物照着它说样本量。
+  eq('旧缓存的样本记录也收进窗口',
+    again.sample.status === 'measured' ? again.sample.value.length : undefined, 12)
+  eq('记录的 sample_size 与它真正记着的条数一致', again.sample.sample_size, 12)
+  eq('样本记录的采样时间不动', again.sample.observed_at, observedAt)
+  ok('窗口之外那几条不留在记录里',
+    again.sample.status === 'measured' && again.sample.value.every(p => !p.id.startsWith('b')))
+
+  // 幂等：已经收好、已经是当前口径的缓存，再跑一次不算改动。
+  const settled = recomputeCachedAssessment(again.sample, 10_000, 100, again.metrics)
+  ok('已经是当前口径的缓存不算改动，计数不虚报', !settled.changed)
+
+  /**
+   * 盘上的缓存里，受众风险是**跨账号那一步**赋过值的，不是重算时的占位符。
+   * 把它算进比较，每次重跑都会把「占位符 vs 已赋值」当成变化 ——
+   * locally_recomputed 就变成一个每轮都虚报的数，而它是我们自己文档里
+   * 承诺「数真的换过」的那个数。
+   */
+  const withRisk = structuredClone(again.metrics)
+  withRisk.audience_quality_risk = measured<AudienceRiskAssessment>(
+    { level: 'low', flags: [], peer_size: 9 }, PUBLIC_SOURCE, observedAt, 9, 'peer comparison')
+  ok('受众风险由跨账号那一步赋值，不算这一步的改动',
+    !recomputeCachedAssessment(again.sample, 10_000, 100, withRisk).changed)
+
+  ok('没有缓存时算改动', recomputeCachedAssessment(stored, 10_000, 100, undefined).changed)
+
+  // 私密账号的缓存：样本本来就是 unavailable，不该被改成别的形状。
+  const privateSample = unavailable<NormalizedPublicPost[]>(
+    'private_account', PUBLIC_SOURCE, observedAt)
+  const kept = recomputeCachedAssessment(privateSample, 10_000, 100, undefined)
+  eq('不可用的样本记录原样留着', kept.sample, privateSample)
+}
+
+harness('变异集的 why 不许夹带实现原文')
+{
+  /**
+   * `mutate --brief` 会把 why 单独打印给写测试的那个上下文（4-VERIFY 的准入读物
+   * 清单）。所以 why 里夹带的实现原文，等于绕过清单让那个上下文读了实现。
+   *
+   * 界线：**对外契约里的名字算需求语言** —— stdout 字段、产出文件字段、提供方
+   * 响应键、命令行参数，写测试的人本来就该看得到它们。本仓库内部的函数名和
+   * 任何代码表达式不算。这条判定只挡后者里能机器识别的两类。
+   */
+  const leaks = [
+    '合并邮箱退回 `a ?? b ?? null` —— 两边都没查过被写成查过没有',
+    '拿不到就 || [] 兜过去',
+    '降完立刻被 tierOf 覆盖',
+    '响应结构探测的 pickList 退回取第一个数组',
+    '判定写成 status === "measured" 才放行',
+    '把 p?.views 当成 0',
+  ]
+  for (const why of leaks) {
+    ok(`拦下：${why.slice(0, 16)}…`, implementationLeak(why) !== undefined)
+  }
+
+  const clean = [
+    '合并邮箱时把「两边都没查过」压成「查过，他没留邮箱」—— 运营看到空白就不会回头补查',
+    '空的 aweme_list 会盖掉有数据的 search_item_list，产出「这个关键词没人」',
+    'filtered_contacted 把连闸门都过不了的人也算进去，向用户虚报打扰规模',
+    'render 之后每次 --resume 都产出一份空名单',
+    'basis 写着「最多 12 条」而 sample_size 是 20，enrichment.json 的溯源自己打自己',
+    '写个 p1-ok 就放行、理由可以不写',
+    '受众降权跑在分层之前 —— 降完立刻被重新算出来的分层覆盖',
+  ]
+  for (const why of clean) {
+    eq(`放行：${why.slice(0, 16)}…`, implementationLeak(why), undefined)
+  }
+
+  // 判定对不对是一回事，**当前那份变异集干不干净**是另一回事。后者才是 --brief
+  // 名副其实的前提，所以直接断言真文件，而不是断言一个抽象能力。
+  const corpus = JSON.parse(rf('scripts/check/mutations.json', 'utf8'))
+  const dirty = (corpus.mutations as { id: string; why: string }[])
+    .flatMap(m => {
+      const leak = implementationLeak(m.why)
+      return leak === undefined ? [] : [`${m.id}:${leak}`]
+    })
+  eq('当前变异集全集干净', dirty, [])
+}
+
 suite('D9', '互动率与合作报价分开，只有可比报价才计算效率')
 {
   const account = assessedAccount('quoted', 1_000, 100, 10)
@@ -686,6 +913,44 @@ suite('P1', '跨平台合并不得把「未查询」降级成「查过，没有�
   const row = toRow(mergeCrossPlatform([a, b])[0])
   eq('未查询在 CSV 里是「未查询」而非空白', row[HEADERS.indexOf('email')], '未查询')
   covered.add('D3')
+}
+
+suite('P1', '纪律 lint 的判定：会变成决策的字段上不许有兜底')
+{
+  /**
+   * P1 机器可执行的那一半就是这条 lint。它自己一直没有测试、也没有变异守着 ——
+   * 一个从来没被证伪过的检查，和没有检查之间的差别只有心理作用。
+   *
+   * 断言依据只有三样：P1 原文、docs/CONVENTIONS.md 第 1 条（三态不许压成两档、
+   * `?? null` 也是兜底），以及这条 lint 自己声明的职责 —— 只盯**会变成决策的
+   * 数据字段**，例外必须写明理由。没有从实现里抄字段表：下面的字段是按
+   * 「它的值会不会进入过滤、评分、分层」挑的。
+   */
+  const DECIDING = ['followers', 'views', 'plays', 'likes', 'email', 'median_views']
+  const DISPLAY = ['label', 'title', 'nickname', 'desc']
+  const FALLBACKS = ['0', "''", '[]', 'false', 'null']
+
+  for (const field of DECIDING) {
+    for (const v of FALLBACKS) {
+      eq(`${field} 上的 ?? ${v} 判违规`, judgeLine(`  const x = c.${field} ?? ${v}`), 'violation')
+      eq(`${field} 上的 || ${v} 判违规`, judgeLine(`  const x = c.${field} || ${v}`), 'violation')
+    }
+  }
+
+  // 一个满屏假阳性的检查会被忽略，而被忽略的检查比没有检查更糟。
+  for (const field of DISPLAY) {
+    eq(`展示层的 ${field} 上同样的写法不报`, judgeLine(`  const x = c.${field} ?? ''`), 'clean')
+  }
+  eq('敏感字段但没有兜底不报', judgeLine('  if (c.followers !== undefined) return true'), 'clean')
+
+  // 「没测量」和「测量结果是零」必须是两个不同的值 —— 空输入返回 0 是同一件事的
+  // 另一种形状，敏感字段名在这一行里根本不出现。
+  eq('空输入返回 0 判违规', judgeLine('  if (!values.length) return 0'), 'violation')
+
+  eq('写明理由的 p1-ok 是具名豁免',
+    judgeLine("  const x = c.followers ?? 0   // p1-ok: 展示用，不参与决策"), 'exempt')
+  eq('只写 p1-ok 不写理由的不算豁免',
+    judgeLine('  const x = c.followers ?? 0   // p1-ok'), 'unjustified_exemption')
 }
 
 suite('D1', 'platform:handle 唯一标识，大小写不敏感')

@@ -139,6 +139,64 @@ if (dir) {
       !migratedAccounts.some(a => a.metrics?.activity_status)) {
       failed++; console.error('  ✗ 旧样本没有在本地补出活跃状态')
     } else console.log('  ✓ 旧 enrichment 样本零请求补出活跃状态')
+
+    // 第二种旧缓存：活跃字段齐全，但中位数是上一版口径算出来的。这批账号以前
+    // 会被整段跳过 —— 交付物里留着旧口径的数，而且看不出区别。见 ADR-13。
+    const staleData = JSON.parse(readFileSync(enrichment, 'utf8'))
+    let tampered = 0
+    for (const account of Object.values(staleData.accounts ?? {}) as any[]) {
+      if (account.metrics?.median_views?.status !== 'measured') continue
+      account.metrics.median_views.value = 1
+      tampered++
+    }
+    writeFileSync(enrichment, JSON.stringify(staleData, null, 2), 'utf8')
+    const staleBefore = JSON.parse(readFileSync(taskPath, 'utf8')).requests
+    const staleOut = run('enrich 旧口径缓存零请求纠正', [S('enrich.ts'), '--dir', dir], tmp)
+    const staleAfter = JSON.parse(readFileSync(taskPath, 'utf8')).requests
+    const fixed = Object.values(
+      JSON.parse(readFileSync(enrichment, 'utf8')).accounts ?? {}) as any[]
+    let staleSummary: any = {}
+    try { staleSummary = JSON.parse(staleOut) } catch {}
+    if (!tampered) {
+      // 一个没篡改到任何东西的检查，下面两条断言会无条件通过 —— 那等于没检查。
+      failed++; console.error('  ✗ 没有可篡改的中位播放量，这条检查什么都没验')
+    } else if (staleAfter !== staleBefore || staleSummary.newly_queried !== 0) {
+      failed++; console.error('  ✗ 纠正旧口径缓存产生了新的 API 请求')
+    } else if (fixed.some(a => a.metrics?.median_views?.value === 1) ||
+      !(staleSummary.locally_recomputed > 0)) {
+      failed++; console.error('  ✗ 旧口径缓存没有被就地纠正')
+    } else console.log(`  ✓ 旧口径缓存零请求就地纠正（篡改 ${tampered} 个账号）`)
+
+    // 第三种旧缓存：样本记录本身超窗（提供方多返回、在收窄之前写下的那些）。
+    // 交付物照着记录自己的说法报样本量，所以记录也必须被收 —— 见 ADR-14。
+    const oversized = JSON.parse(readFileSync(enrichment, 'utf8'))
+    let padded = 0
+    for (const account of Object.values(oversized.accounts ?? {}) as any[]) {
+      if (account.sample?.status !== 'measured' || !Array.isArray(account.sample.value)) continue
+      for (let i = 0; i < 4; i++) {
+        account.sample.value.push({ id: `padded-${i}`, views: 1, likes: 1, comments: 1 })
+      }
+      account.sample.sample_size = account.sample.value.length
+      padded++
+    }
+    writeFileSync(enrichment, JSON.stringify(oversized, null, 2), 'utf8')
+    const padBefore = JSON.parse(readFileSync(taskPath, 'utf8')).requests
+    const padOut = run('enrich 超窗样本记录零请求收窄', [S('enrich.ts'), '--dir', dir], tmp)
+    const padAfter = JSON.parse(readFileSync(taskPath, 'utf8')).requests
+    const trimmed = Object.values(
+      JSON.parse(readFileSync(enrichment, 'utf8')).accounts ?? {}) as any[]
+    let padSummary: any = {}
+    try { padSummary = JSON.parse(padOut) } catch {}
+    const inconsistent = trimmed.filter(a => a.sample?.status === 'measured' &&
+      (a.sample.value.length > 12 || a.sample.sample_size !== a.sample.value.length))
+    if (!padded) {
+      failed++; console.error('  ✗ 没有可撑大的样本记录，这条检查什么都没验')
+    } else if (padAfter !== padBefore || padSummary.newly_queried !== 0) {
+      failed++; console.error('  ✗ 收窄样本记录产生了新的 API 请求')
+    } else if (inconsistent.length) {
+      failed++
+      console.error(`  ✗ ${inconsistent.length} 个账号的样本记录与它自己的说法仍不一致`)
+    } else console.log(`  ✓ 超窗样本记录零请求收窄（撑大 ${padded} 个账号）`)
   }
 }
 
@@ -216,6 +274,10 @@ if (dir) {
     else console.log(`  ✓ render 后续跑数据未丢：交付物 ${before}→${after}，累加器 ${rawN}`)
   }
 }
+
+// mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
+// 一条写进文档、却从没被执行过的命令，等于没有 —— 在这里跑一次，证明它还活着。
+run('mutate --brief（变异清单，不跑变异）', [S('check/mutate.ts'), '--brief'])
 
 rmSync(tmp, { recursive: true, force: true })
 

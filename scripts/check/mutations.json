@@ -1,5 +1,5 @@
 {
-  "$comment": "变异集是红线的负片。每个变异是一处故意违反某条需求的改动，跑测试必须失败。变异存活 = 那条测试是假的，要修测试不是删变异。",
+  "$comment": "变异集是红线的负片。每个变异是一处故意违反某条需求的改动，跑测试必须失败。变异存活 = 那条测试是假的，要修测试不是删变异。why 用需求语言写 —— `mutate --brief` 会把它单独打印给写测试的上下文（见 process/4-VERIFY.md）。对外契约里的名字算需求语言：stdout 字段、产出文件字段、提供方响应键、命令行参数。本仓库内部的函数名和代码表达式不算，mutate 会当场拦下。",
   "mutations": [
     {
       "id": "M-P1-a",
@@ -116,7 +116,7 @@
     {
       "id": "M-P1-e",
       "req": "P1",
-      "why": "pickList 退回「取第一个存在的数组」—— 空的 aweme_list 会盖掉有数据的 search_item_list，产出「这个关键词没人」而事实是有 10 个",
+      "why": "响应结构探测退回「取第一个存在的数组」—— 空的 aweme_list 会盖掉有数据的 search_item_list，产出「这个关键词没人」，而事实是有 10 个",
       "file": "scripts/providers/tikhub.ts",
       "find": "  const nonEmpty = arrays.find(a => a.length > 0)",
       "replace": "  const nonEmpty = arrays[0]"
@@ -132,7 +132,7 @@
     {
       "id": "M-U6-a",
       "req": "U6",
-      "why": "卡片不带 data-tier，tab 切换失效，四个 tab 显示的内容完全一样",
+      "why": "卡片上不留分层标记，报告里的 tab 切换失效 —— 每个 tab 显示的内容完全一样",
       "file": "scripts/lib/report.ts",
       "find": "<div class=\"card ${c.tier}\" data-tier=\"${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>",
       "replace": "<div class=\"card ${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>"
@@ -148,7 +148,7 @@
     {
       "id": "M-P1-f",
       "req": "P1",
-      "why": "合并邮箱退回 `a ?? b ?? null` —— 两侧都没查过被写成「查过，他没留邮箱」，运营看到空白就不会再回头补查",
+      "why": "合并邮箱时把「两边都没查过」压成「查过，他没留邮箱」—— 运营看到空白就不会再回头补查",
       "file": "scripts/lib/identity.ts",
       "find": "  if (a) return a\n  if (b) return b\n  if (a === undefined || b === undefined) return undefined\n  return null",
       "replace": "  return a ?? b ?? null"
@@ -188,7 +188,7 @@
     {
       "id": "M-F5-a",
       "req": "F5",
-      "why": "受众降权跑在分层之前 —— 降完立刻被 tierOf 覆盖，地域不达标的人照样留在 A 级被直接发信",
+      "why": "受众降权跑在分层之前 —— 降完立刻被重新算出来的分层覆盖，地域不达标的人照样留在 A 级被直接发信",
       "file": "scripts/lib/pipeline.ts",
       "find": "    c.score = scoreCreator(c)\n    c.tier = tierOf(c)\n    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') {\n      const from = c.tier\n      c.tier = DEMOTE[c.tier]\n      if (from !== c.tier) c.tier_adjustments.push({\n        kind: 'audience_geo', from, to: c.tier,\n        reason: `${market} 受众占比低于 30%`,\n      })\n    }",
       "replace": "    c.score = scoreCreator(c)\n    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') {\n      const from = tierOf(c)\n      c.tier = DEMOTE[from]\n      if (from !== c.tier) c.tier_adjustments.push({\n        kind: 'audience_geo', from, to: c.tier,\n        reason: `${market} 受众占比低于 30%`,\n      })\n    }\n    c.tier = tierOf(c)"
@@ -216,6 +216,78 @@
       "file": "scripts/lib/score.ts",
       "find": "if (c.recent_posts?.some(p => p.plays !== undefined && p.plays > 100_000)) s += 5",
       "replace": "if (c.recent_posts?.some(p => (p.plays ?? 200_000) > 100_000)) s += 5"
+    },
+    {
+      "id": "M-D8-a",
+      "req": "D8",
+      "why": "先剔置顶再截窗口 —— 12 条之外的旧作品被顶上来补满，「最多取最近 12 条」变成「取决于提供方这次多返回了几条」，同一个账号换个时间查得到不同口径的中位数",
+      "file": "scripts/lib/assessment.ts",
+      "find": "    .slice(0, PUBLIC_POST_SAMPLE_SIZE)\n    .filter(p => p.is_pinned !== true)",
+      "replace": "    .filter(p => p.is_pinned !== true)\n    .slice(0, PUBLIC_POST_SAMPLE_SIZE)"
+    },
+    {
+      "id": "M-D8-b",
+      "req": "D8",
+      "why": "样本记录照提供方给的条数全记下来 —— basis 写着「最多 12 条」而 sample_size 是 20，落进 enrichment.json 的溯源自己打自己，D10 拿旧样本补算时读到的也不是同一个窗口",
+      "file": "scripts/lib/assessment.ts",
+      "find": "  const window = posts.slice(0, PUBLIC_POST_SAMPLE_SIZE)",
+      "replace": "  const window = posts"
+    },
+    {
+      "id": "M-P1-i",
+      "req": "P1",
+      "why": "把「播放数」从会变成决策的字段表里拿掉 —— 它参与爆款加分，兜底成 0 就是静默改变分层，而 lint 不再吭声",
+      "file": "scripts/check/lint-rule.ts",
+      "find": "'following', 'following_count', 'views', 'play_count', 'plays', 'likes', 'like_count',",
+      "replace": "'following', 'following_count', 'views', 'play_count', 'likes', 'like_count',"
+    },
+    {
+      "id": "M-P1-j",
+      "req": "P1",
+      "why": "兜底值表里去掉 null —— 「未查询」被写成「查过，没有」不再被拦下，而这是三态里唯一一个曾经漏掉的兜底值",
+      "file": "scripts/check/lint-rule.ts",
+      "find": "(0\\b|''|\"\"|`|\\[\\]|false\\b|null\\b)",
+      "replace": "(0\\b|''|\"\"|`|\\[\\]|false\\b)"
+    },
+    {
+      "id": "M-P1-k",
+      "req": "P1",
+      "why": "写个 p1-ok 就放行、理由可以不写 —— 豁免退化成一句咒语，没人知道当初为什么放它过去",
+      "file": "scripts/check/lint-rule.ts",
+      "find": "  if (/\\/\\/\\s*p1-ok\\b/.test(text)) return 'unjustified_exemption'",
+      "replace": "  if (/\\/\\/\\s*p1-ok\\b/.test(text)) return 'exempt'"
+    },
+    {
+      "id": "M-D10-a",
+      "req": "D10",
+      "why": "缓存里活跃字段齐全就跳过重算 —— 上一版口径算出来的中位数、发布间隔与受众风险一直留在交付物里，运营不额外付费重抓就换不掉，而交付物上看不出任何区别",
+      "file": "scripts/lib/assessment.ts",
+      "find": "  const sample = cachedSample.status === 'measured'",
+      "replace": "  if (cachedMetrics?.activity_status !== undefined) return { sample: cachedSample, metrics: cachedMetrics, changed: false }\n  const sample = cachedSample.status === 'measured'"
+    },
+    {
+      "id": "M-H1-a",
+      "req": "harness",
+      "why": "变异集里夹带代码表达式不再被拦下 —— --brief 号称不含实现原文，而写测试的那个上下文照样会读到实现",
+      "file": "scripts/check/why-rule.ts",
+      "find": "  const op = CODE_OP.exec(why)\n  if (op) return op[0]\n",
+      "replace": ""
+    },
+    {
+      "id": "M-D8-c",
+      "req": "D8",
+      "why": "旧缓存的样本记录不再收进窗口 —— 交付物上声称记着 16 条，而指标是按窗口内的 11 条算的，同一行数据自己打自己",
+      "file": "scripts/lib/assessment.ts",
+      "find": "    ? publicPostSample(cachedSample.value, cachedSample.source, cachedSample.observed_at)",
+      "replace": "    ? cachedSample"
+    },
+    {
+      "id": "M-D10-b",
+      "req": "D10",
+      "why": "把跨账号那一步才赋值的受众风险算进比较 —— 每一轮都把占位符和已赋值当成变化，向用户虚报「这次有多少账号的数换过」",
+      "file": "scripts/lib/assessment.ts",
+      "find": "  const { audience_quality_risk: _assignedElsewhere, ...rest } = m\n  return canonical(rest)",
+      "replace": "  return canonical(m)"
     }
   ],
   "exemptions": [

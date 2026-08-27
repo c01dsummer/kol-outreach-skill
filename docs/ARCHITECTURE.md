@@ -49,7 +49,7 @@
 |---|---|---|---|
 | `scripts/probe.ts` | 入口 | F3 P1 P3 | 每词每平台只抓一页，供 Agent 判读方向；拿不到粉丝数报「未知」而不是 0 |
 | `scripts/collect.ts` | 入口 | D6 P3 F7 | 轮转采集不让第一个关键词吃掉全部配额；预算用尽存断点退 3 |
-| `scripts/enrich.ts` | 入口 | D8 F8 P3 | 只对语义筛选后的候选抓主页样本；已查过的账号默认不重复付费 |
+| `scripts/enrich.ts` | 入口 | D8 D10 F8 P3 | 只对语义筛选后的候选抓主页样本；已查过的账号默认不重复付费，但每次都按当前口径就地重算（零请求） |
 | `scripts/render.ts` | 入口 | P5 U1 U2 U5 U7 | 交付物生成的唯一出口，且是唯一往跨任务记忆写回的地方 |
 | `scripts/lib/pipeline.ts` | 逻辑 | D6 P1 P4 F5 F8 U1 U3 | 入口脚本原先裸露的两段管线；**顺序契约全在这里**，见下表 |
 | `scripts/lib/score.ts` | 逻辑 | P1 F6 F8 | 打分、分层、粉丝闸门、两种降级判定；语义否决对分层有一票否决权 |
@@ -57,7 +57,7 @@
 | `scripts/lib/memory.ts` | 逻辑 | P4 D4 D6 | 跨任务记忆的读写与过滤；记忆文件损坏退化为空记忆而不中断 |
 | `scripts/lib/budget.ts` | 逻辑 | P3 F7 | 成本闸门；超限抛 BudgetExceeded 且不增加计数 |
 | `scripts/lib/email.ts` | 逻辑 | D7 | 反爬写法的邮箱提取；宁可返回 null 也不误判正常语句 |
-| `scripts/lib/assessment.ts` | 逻辑 | D8 D9 D10 F8 U7 | 公开样本 → 指标 / 风险 / 活跃度 / 报价效率，每项带测量状态与溯源 |
+| `scripts/lib/assessment.ts` | 逻辑 | D8 D9 D10 F8 U7 | 公开样本 → 指标 / 风险 / 活跃度 / 报价效率，每项带测量状态与溯源；**样本记录的窗口也截在这里**，入口脚本只负责调用与落盘 |
 | `scripts/lib/rows.ts` | 逻辑 | P2 U1 U5 U7 | 交付物的行与排序；草稿里的占位符必须原样穿透到产出物 |
 | `scripts/lib/csv.ts` | 逻辑 | D5 | UTF-8 with BOM 与转义 |
 | `scripts/lib/xlsx.ts` | 逻辑 | U5 | 零依赖 ZIP 与 CRC32；空分层也建 sheet |
@@ -65,9 +65,11 @@
 | `scripts/lib/task.ts` | 逻辑 | D6 | 任务目录的读写；**累加器与交付物是两个文件**，见下表 |
 | `scripts/lib/types.ts` | 逻辑 | P1 D8 | 三态模型的定义处 —— 它把「没查到」和「查了没有」在类型层面分开 |
 | `scripts/providers/tikhub.ts` | 适配 | D2 D3 D8 P1 | 唯一的数据源实现；响应结构走探测 cascade，识别不出时暴露顶层 key |
-| `scripts/check/lint.ts` | 检查 | P1 | 把 P1 从散文变成能报错的检查 |
+| `scripts/check/lint.ts` | 检查 | P1 | 把 P1 从散文变成能报错的检查；走文件树、打印、退出码 |
+| `scripts/check/lint-rule.ts` | 检查 | P1 | 上面那条检查的**判定**本身。抽出来是为了它能被测 —— 检查自己也要能被证伪 |
 | `scripts/check/spec-sync.ts` | 检查 | — | SPEC.md 的表格由 requirements.json 生成，两者不可能漂移 |
 | `scripts/check/mutate.ts` | 检查 | — | 给测试做的测试：变异存活即那条测试是假的 |
+| `scripts/check/why-rule.ts` | 检查 | — | 变异集 why 的判定：夹带实现原文当场拦下，让 `--brief` 名副其实 |
 | `scripts/check/selfcheck.ts` | 检查 | F5 | 用假 fetch 把每个可执行文件从头执行到尾 |
 | `scripts/check/fake-fetch.ts` | 检查 | — | 自检用的假响应；它决定了自检能走到多深 |
 | `scripts/check/audit.ts` | 检查 | — | 链路审计，回答完成度而不是「功能做完了没有」 |

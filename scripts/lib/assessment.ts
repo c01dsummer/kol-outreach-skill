@@ -73,6 +73,19 @@ export function percentile(values: number[], p: number): number {
   return a[lo] + (a[hi] - a[lo]) * (at - lo)
 }
 
+/**
+ * 键序无关的比较用序列化。缓存那一侧来自磁盘上的 JSON，键序由写下它的那一版代码决定 ——
+ * 直接 JSON.stringify 比较会把「键序不同」误报成「数变了」，让汇报的数字变成噪音。
+ */
+const canonical = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+  if (value === null || typeof value !== 'object') return String(JSON.stringify(value))
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`
+}
+
 const metricFrom = (
   values: number[],
   source: MetricSource,
@@ -148,6 +161,27 @@ const calculateActivity = (
 }
 
 /**
+ * D8：适配器交回的原始列表在这里收成「样本」这条记录。
+ *
+ * 窗口截在这里，而不是留给入口脚本 —— `sample_size` 与 `basis` 是要写进
+ * `enrichment.json`、最后被人读的溯源，说「最多 12 条」就必须真的不超过 12 条。
+ * 提供方一次给几条由它自己决定（TikTok 那一路把整个 pickList 结果原样传下来），
+ * 照原样记就会出现「basis 说 12 条、sample_size 写着 20」的自相矛盾。
+ */
+export function publicPostSample(
+  posts: NormalizedPublicPost[],
+  source: MetricSource,
+  observedAt: string,
+): Measurement<NormalizedPublicPost[]> {
+  const window = posts.slice(0, PUBLIC_POST_SAMPLE_SIZE)
+  return measured(
+    window, source, observedAt, window.length,
+    `up to ${PUBLIC_POST_SAMPLE_SIZE} latest short-form profile posts; ` +
+    'pinned included for recency and excluded from aggregates',
+  )
+}
+
+/**
  * D8：从非关键词偏置的主页近期样本计算公开指标。
  * 某条帖子缺任何一个分子字段时，只让该条退出对应指标，不把缺失当成 0。
  */
@@ -179,9 +213,15 @@ export function calculatePublicMetrics(
   }
 
   const activity = calculateActivity(sample.value, source, observedAt)
+  // D8 的两步有顺序：先把窗口定在最近 12 条，再从窗口里剔置顶。反过来的话，
+  // 提供方多返回的第 13、14 条会顶上来补满 12 个 —— TikTok 那一路把整个
+  // pickList 结果原样传下来，于是「最近 12 条」的口径变成「取决于这次多返回了几条」。
+  // 剔完不足 6 条就按 insufficient_posts 报不可用，不去窗口外借。
+  // 样本记录在上游已经收过一次（publicPostSample，新抓与旧缓存走同一条），
+  // 这里仍然截：这个函数不能依赖调用方替它守窗口 —— 上一版就是这么漏的。
   const posts = sample.value
-    .filter(p => p.is_pinned !== true)
     .slice(0, PUBLIC_POST_SAMPLE_SIZE)
+    .filter(p => p.is_pinned !== true)
   const views = posts.flatMap(p => typeof p.views === 'number' && Number.isFinite(p.views) ? [p.views] : [])
   const engagements = posts.flatMap(p =>
     typeof p.likes === 'number' && Number.isFinite(p.likes) &&
@@ -253,6 +293,47 @@ const bandOf = (followers: number): number => {
 const riskMetric = (a: AccountAssessment, metric: AudienceRiskMetric): number | undefined => {
   const m = a.metrics?.[metric]
   return m?.status === 'measured' ? m.value : undefined
+}
+
+/**
+ * 受众风险不在重算这一步产生 —— `calculatePublicMetrics` 只放一个占位符，
+ * 真值由 `assignAudienceRisks` 跨账号赋。所以比较「数换过没有」时必须把它排除：
+ * 否则每一轮都会把「占位符 vs 已赋值」当成变化，而那个数字是我们自己
+ * 对外承诺过「数真的换过」的数。
+ */
+const comparableMetrics = (m: PublicMetrics): string => {
+  const { audience_quality_risk: _assignedElsewhere, ...rest } = m
+  return canonical(rest)
+}
+
+/**
+ * D10：缓存命中时按**当前**口径重算，零请求。
+ *
+ * 不写「缺字段才补」那种条件 —— 缓存里的数是上一版代码算出来的，口径改过一次，
+ * 那批数就与当前口径不是同一件事，而它们照样会被交付，且交付物上看不出区别。
+ * 重算不花钱，所以这里没有可权衡的东西：永远算。见 ADR-13。
+ *
+ * **样本记录本身也要收进窗口**（ADR-14）：交付物发布的是那条记录自己的说法 ——
+ * 记着几条、`sample_size`、`basis`。记录声称 16 条、而指标按窗口内的 11 条算，
+ * 就是溯源契约被自己的产出物违反。收窄走的是与新抓样本同一条 `publicPostSample`，
+ * 所以旧缓存与新样本在盘上是同一个形状。
+ *
+ * `changed` 只用来照实汇报「手上的数换过没有」，不参与是否重算的决定。
+ */
+export function recomputeCachedAssessment(
+  cachedSample: Measurement<NormalizedPublicPost[]>,
+  followers: number | undefined,
+  following: number | undefined,
+  cachedMetrics: PublicMetrics | undefined,
+): { sample: Measurement<NormalizedPublicPost[]>; metrics: PublicMetrics; changed: boolean } {
+  const sample = cachedSample.status === 'measured'
+    ? publicPostSample(cachedSample.value, cachedSample.source, cachedSample.observed_at)
+    : cachedSample
+  const metrics = calculatePublicMetrics(sample, followers, following)
+  const changed = canonical(cachedSample) !== canonical(sample) ||
+    cachedMetrics === undefined ||
+    comparableMetrics(cachedMetrics) !== comparableMetrics(metrics)
+  return { sample, metrics, changed }
 }
 
 const comparableMetricCount = (a: AccountAssessment): number =>
