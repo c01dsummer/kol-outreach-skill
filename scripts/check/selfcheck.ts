@@ -166,6 +166,37 @@ if (dir) {
       !(staleSummary.locally_recomputed > 0)) {
       failed++; console.error('  ✗ 旧口径缓存没有被就地纠正')
     } else console.log(`  ✓ 旧口径缓存零请求就地纠正（篡改 ${tampered} 个账号）`)
+
+    // 第三种旧缓存：样本记录本身超窗（提供方多返回、在收窄之前写下的那些）。
+    // 交付物照着记录自己的说法报样本量，所以记录也必须被收 —— 见 ADR-14。
+    const oversized = JSON.parse(readFileSync(enrichment, 'utf8'))
+    let padded = 0
+    for (const account of Object.values(oversized.accounts ?? {}) as any[]) {
+      if (account.sample?.status !== 'measured' || !Array.isArray(account.sample.value)) continue
+      for (let i = 0; i < 4; i++) {
+        account.sample.value.push({ id: `padded-${i}`, views: 1, likes: 1, comments: 1 })
+      }
+      account.sample.sample_size = account.sample.value.length
+      padded++
+    }
+    writeFileSync(enrichment, JSON.stringify(oversized, null, 2), 'utf8')
+    const padBefore = JSON.parse(readFileSync(taskPath, 'utf8')).requests
+    const padOut = run('enrich 超窗样本记录零请求收窄', [S('enrich.ts'), '--dir', dir], tmp)
+    const padAfter = JSON.parse(readFileSync(taskPath, 'utf8')).requests
+    const trimmed = Object.values(
+      JSON.parse(readFileSync(enrichment, 'utf8')).accounts ?? {}) as any[]
+    let padSummary: any = {}
+    try { padSummary = JSON.parse(padOut) } catch {}
+    const inconsistent = trimmed.filter(a => a.sample?.status === 'measured' &&
+      (a.sample.value.length > 12 || a.sample.sample_size !== a.sample.value.length))
+    if (!padded) {
+      failed++; console.error('  ✗ 没有可撑大的样本记录，这条检查什么都没验')
+    } else if (padAfter !== padBefore || padSummary.newly_queried !== 0) {
+      failed++; console.error('  ✗ 收窄样本记录产生了新的 API 请求')
+    } else if (inconsistent.length) {
+      failed++
+      console.error(`  ✗ ${inconsistent.length} 个账号的样本记录与它自己的说法仍不一致`)
+    } else console.log(`  ✓ 超窗样本记录零请求收窄（撑大 ${padded} 个账号）`)
   }
 }
 

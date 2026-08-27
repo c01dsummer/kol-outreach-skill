@@ -68,8 +68,9 @@ npm run enrich -- --dir output/xxx --budget 3
 没有任何发布时间时写 `missing_post_dates`；无法解析或来自未来的时间写
 `invalid_post_date`，都不得补成“刚刚发布”。活跃状态是 `observed_at` 时的快照；以后重新
 查看时若要确认最新状态，应使用 `--refresh`。旧 `enrichment.json` 已保存原始样本时，
-普通 enrich 会按当前口径本地重算全部指标（不只是补新字段），不额外请求 API ——
-所以口径改过之后不需要为旧账号重新付费。见 `DECISIONS.md` 的 ADR-13。
+普通 enrich 会按当前口径本地重算全部指标（不只是补新字段），并把样本记录本身也
+收进窗口，不额外请求 API —— 所以口径改过之后不需要为旧账号重新付费。
+见 `DECISIONS.md` 的 ADR-13 与 ADR-14。
 
 ## 受众质量风险
 

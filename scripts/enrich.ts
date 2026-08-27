@@ -22,7 +22,7 @@ import {
   assignAudienceRisks,
   calculatePublicMetrics,
   publicPostSample,
-  recomputeCachedMetrics,
+  recomputeCachedAssessment,
   unavailable,
 } from './lib/assessment.js'
 import {
@@ -144,8 +144,9 @@ async function assess(ref: AccountRef): Promise<void> {
     if (existing.following === undefined && ref.following !== undefined) {
       existing.following = ref.following
     }
-    const { metrics, changed } = recomputeCachedMetrics(
+    const { sample, metrics, changed } = recomputeCachedAssessment(
       existing.sample, existing.followers, existing.following, existing.metrics)
+    existing.sample = sample
     existing.metrics = metrics
     if (changed) locallyRecomputed++
     return

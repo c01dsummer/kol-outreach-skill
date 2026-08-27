@@ -23,7 +23,7 @@ import { finalize, pendingKeywords, rankCreators, keywordStats, tierCounts } fro
 import {
   ACTIVITY_ACTIVE_MAX_DAYS, ACTIVITY_COOLING_MAX_DAYS,
   accountKey, assignAudienceRisks, attachAssessments, calculatePublicMetrics,
-  calculateQuoteEfficiency, measured, publicPostSample, recomputeCachedMetrics, unavailable,
+  calculateQuoteEfficiency, measured, publicPostSample, recomputeCachedAssessment, unavailable,
 } from './lib/assessment.js'
 import { writeFileSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -643,10 +643,13 @@ suite('D10', '缓存命中时按当前口径重算，不靠新请求')
    * 只要口径变过一次，那批数就和当前口径不是同一件事，而它们照样会被交付，
    * 且交付物上看不出区别。重算不花钱，所以这里没有取舍。
    *
-   * 什么东西能在这条不成立时也让检查通过：**缓存里恰好就是对的数**。
-   * 所以下面的 cached 故意造成「活跃字段齐全、但中位数按旧口径算」的形状 ——
-   * 那正是一份上一版代码写下的缓存的样子。第一条断言先把这个前提钉住，
-   * 否则后面几条全是空绿。
+   * 要一起收的还有**样本记录本身**：交付物发布的是那条记录自己的说法
+   * （记着几条、sample_size、basis）。记录说 16 条、指标按 12 条里的 11 条算，
+   * 就是 D8 的溯源契约被自己的产出物违反。
+   *
+   * 什么东西能在这几条不成立时也让检查通过：**缓存里恰好就是对的数**。
+   * 所以下面的 cached 造成「活跃字段齐全、但按旧口径算」的形状 —— 那正是一份
+   * 上一版代码写下的缓存。第一条断言先把这个前提钉住，否则后面全是空绿。
    */
   const observedAt = '2026-08-26T00:00:00.000Z'
   const at = (daysAgo: number) =>
@@ -672,7 +675,7 @@ suite('D10', '缓存命中时按当前口径重算，不靠新请求')
   ok('前提：这份缓存的活跃字段是齐的（否则它根本不是那批漏掉的账号）',
     cached.activity_status.status === 'measured')
 
-  const again = recomputeCachedMetrics(stored, 10_000, 100, cached)
+  const again = recomputeCachedAssessment(stored, 10_000, 100, cached)
   eq('活跃字段齐全的缓存也要按当前窗口重算',
     again.metrics.median_views.status === 'measured' ? again.metrics.median_views.value : undefined,
     1_006)
@@ -680,9 +683,37 @@ suite('D10', '缓存命中时按当前口径重算，不靠新请求')
   eq('重算不改采样时间 —— 它属于当初那次采样，不是这次跑的时间',
     again.metrics.median_views.observed_at, observedAt)
 
-  const settled = recomputeCachedMetrics(stored, 10_000, 100, again.metrics)
+  // 样本记录也要收：交付物照着它说样本量。
+  eq('旧缓存的样本记录也收进窗口',
+    again.sample.status === 'measured' ? again.sample.value.length : undefined, 12)
+  eq('记录的 sample_size 与它真正记着的条数一致', again.sample.sample_size, 12)
+  eq('样本记录的采样时间不动', again.sample.observed_at, observedAt)
+  ok('窗口之外那几条不留在记录里',
+    again.sample.status === 'measured' && again.sample.value.every(p => !p.id.startsWith('b')))
+
+  // 幂等：已经收好、已经是当前口径的缓存，再跑一次不算改动。
+  const settled = recomputeCachedAssessment(again.sample, 10_000, 100, again.metrics)
   ok('已经是当前口径的缓存不算改动，计数不虚报', !settled.changed)
-  ok('没有缓存时算改动', recomputeCachedMetrics(stored, 10_000, 100, undefined).changed)
+
+  /**
+   * 盘上的缓存里，受众风险是**跨账号那一步**赋过值的，不是重算时的占位符。
+   * 把它算进比较，每次重跑都会把「占位符 vs 已赋值」当成变化 ——
+   * locally_recomputed 就变成一个每轮都虚报的数，而它是我们自己文档里
+   * 承诺「数真的换过」的那个数。
+   */
+  const withRisk = structuredClone(again.metrics)
+  withRisk.audience_quality_risk = measured<AudienceRiskAssessment>(
+    { level: 'low', flags: [], peer_size: 9 }, PUBLIC_SOURCE, observedAt, 9, 'peer comparison')
+  ok('受众风险由跨账号那一步赋值，不算这一步的改动',
+    !recomputeCachedAssessment(again.sample, 10_000, 100, withRisk).changed)
+
+  ok('没有缓存时算改动', recomputeCachedAssessment(stored, 10_000, 100, undefined).changed)
+
+  // 私密账号的缓存：样本本来就是 unavailable，不该被改成别的形状。
+  const privateSample = unavailable<NormalizedPublicPost[]>(
+    'private_account', PUBLIC_SOURCE, observedAt)
+  const kept = recomputeCachedAssessment(privateSample, 10_000, 100, undefined)
+  eq('不可用的样本记录原样留着', kept.sample, privateSample)
 }
 
 harness('变异集的 why 不许夹带实现原文')

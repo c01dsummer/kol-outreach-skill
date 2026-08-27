@@ -262,8 +262,8 @@
       "req": "D10",
       "why": "缓存里活跃字段齐全就跳过重算 —— 上一版口径算出来的中位数、发布间隔与受众风险一直留在交付物里，运营不额外付费重抓就换不掉，而交付物上看不出任何区别",
       "file": "scripts/lib/assessment.ts",
-      "find": "  const metrics = calculatePublicMetrics(sample, followers, following)\n  return { metrics, changed:",
-      "replace": "  if (cached?.activity_status !== undefined) return { metrics: cached, changed: false }\n  const metrics = calculatePublicMetrics(sample, followers, following)\n  return { metrics, changed:"
+      "find": "  const sample = cachedSample.status === 'measured'",
+      "replace": "  if (cachedMetrics?.activity_status !== undefined) return { sample: cachedSample, metrics: cachedMetrics, changed: false }\n  const sample = cachedSample.status === 'measured'"
     },
     {
       "id": "M-H1-a",
@@ -272,6 +272,22 @@
       "file": "scripts/check/why-rule.ts",
       "find": "  const op = CODE_OP.exec(why)\n  if (op) return op[0]\n",
       "replace": ""
+    },
+    {
+      "id": "M-D8-c",
+      "req": "D8",
+      "why": "旧缓存的样本记录不再收进窗口 —— 交付物上声称记着 16 条，而指标是按窗口内的 11 条算的，同一行数据自己打自己",
+      "file": "scripts/lib/assessment.ts",
+      "find": "    ? publicPostSample(cachedSample.value, cachedSample.source, cachedSample.observed_at)",
+      "replace": "    ? cachedSample"
+    },
+    {
+      "id": "M-D10-b",
+      "req": "D10",
+      "why": "把跨账号那一步才赋值的受众风险算进比较 —— 每一轮都把占位符和已赋值当成变化，向用户虚报「这次有多少账号的数换过」",
+      "file": "scripts/lib/assessment.ts",
+      "find": "  const { audience_quality_risk: _assignedElsewhere, ...rest } = m\n  return canonical(rest)",
+      "replace": "  return canonical(m)"
     }
   ],
   "exemptions": [

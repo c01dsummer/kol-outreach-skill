@@ -217,8 +217,8 @@ export function calculatePublicMetrics(
   // 提供方多返回的第 13、14 条会顶上来补满 12 个 —— TikTok 那一路把整个
   // pickList 结果原样传下来，于是「最近 12 条」的口径变成「取决于这次多返回了几条」。
   // 剔完不足 6 条就按 insufficient_posts 报不可用，不去窗口外借。
-  // 样本记录写进盘里之前已经截过一次（publicPostSample），这里仍然要截：
-  // D10 允许对旧 enrichment.json 补算，而那些样本是在截断之前写下的。
+  // 样本记录在上游已经收过一次（publicPostSample，新抓与旧缓存走同一条），
+  // 这里仍然截：这个函数不能依赖调用方替它守窗口 —— 上一版就是这么漏的。
   const posts = sample.value
     .slice(0, PUBLIC_POST_SAMPLE_SIZE)
     .filter(p => p.is_pinned !== true)
@@ -296,22 +296,44 @@ const riskMetric = (a: AccountAssessment, metric: AudienceRiskMetric): number | 
 }
 
 /**
+ * 受众风险不在重算这一步产生 —— `calculatePublicMetrics` 只放一个占位符，
+ * 真值由 `assignAudienceRisks` 跨账号赋。所以比较「数换过没有」时必须把它排除：
+ * 否则每一轮都会把「占位符 vs 已赋值」当成变化，而那个数字是我们自己
+ * 对外承诺过「数真的换过」的数。
+ */
+const comparableMetrics = (m: PublicMetrics): string => {
+  const { audience_quality_risk: _assignedElsewhere, ...rest } = m
+  return canonical(rest)
+}
+
+/**
  * D10：缓存命中时按**当前**口径重算，零请求。
  *
  * 不写「缺字段才补」那种条件 —— 缓存里的数是上一版代码算出来的，口径改过一次，
  * 那批数就与当前口径不是同一件事，而它们照样会被交付，且交付物上看不出区别。
- * 重算不花钱，所以这里没有可权衡的东西：永远算。
+ * 重算不花钱，所以这里没有可权衡的东西：永远算。见 ADR-13。
+ *
+ * **样本记录本身也要收进窗口**（ADR-14）：交付物发布的是那条记录自己的说法 ——
+ * 记着几条、`sample_size`、`basis`。记录声称 16 条、而指标按窗口内的 11 条算，
+ * 就是溯源契约被自己的产出物违反。收窄走的是与新抓样本同一条 `publicPostSample`，
+ * 所以旧缓存与新样本在盘上是同一个形状。
  *
  * `changed` 只用来照实汇报「手上的数换过没有」，不参与是否重算的决定。
  */
-export function recomputeCachedMetrics(
-  sample: Measurement<NormalizedPublicPost[]>,
+export function recomputeCachedAssessment(
+  cachedSample: Measurement<NormalizedPublicPost[]>,
   followers: number | undefined,
   following: number | undefined,
-  cached: PublicMetrics | undefined,
-): { metrics: PublicMetrics; changed: boolean } {
+  cachedMetrics: PublicMetrics | undefined,
+): { sample: Measurement<NormalizedPublicPost[]>; metrics: PublicMetrics; changed: boolean } {
+  const sample = cachedSample.status === 'measured'
+    ? publicPostSample(cachedSample.value, cachedSample.source, cachedSample.observed_at)
+    : cachedSample
   const metrics = calculatePublicMetrics(sample, followers, following)
-  return { metrics, changed: cached === undefined || canonical(cached) !== canonical(metrics) }
+  const changed = canonical(cachedSample) !== canonical(sample) ||
+    cachedMetrics === undefined ||
+    comparableMetrics(cachedMetrics) !== comparableMetrics(metrics)
+  return { sample, metrics, changed }
 }
 
 const comparableMetricCount = (a: AccountAssessment): number =>
