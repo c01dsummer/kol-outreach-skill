@@ -217,6 +217,10 @@ if (dir) {
   }
 }
 
+// mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
+// 一条写进文档、却从没被执行过的命令，等于没有 —— 在这里跑一次，证明它还活着。
+run('mutate --brief（变异清单，不跑变异）', [S('check/mutate.ts'), '--brief'])
+
 rmSync(tmp, { recursive: true, force: true })
 
 for (const [f, why] of Object.entries(EXEMPT)) console.log(`  ⊘ ${f} 豁免：${why}`)

@@ -4,13 +4,35 @@
  *
  * 逐个应用「故意违反需求」的改动，跑测试，**期望测试失败**。
  * 变异被抓到 = 那条测试有效；**变异存活 = 那条测试是假的**，要修测试不是删变异。
+ *
+ * 用法：
+ *   tsx scripts/check/mutate.ts            逐个应用变异并跑测试
+ *   tsx scripts/check/mutate.ts --brief    只列出每条「违反了什么」，不跑任何东西
+ *
+ * `--brief` 是给**写测试的那个上下文**用的：`why` 是需求语言，可以给；
+ * `find`/`replace` 是实现原文，给了就等于让它读实现。
+ * 见 process/4-VERIFY.md 的「给测试上下文一张准入读物清单」。
+ *
+ * 这条防线的强度取决于 `why` 怎么写 —— 引了实现原文的 why，`--brief` 照样把它漏出去。
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 
 interface Mut { id: string; req: string; why: string; file: string; find: string; replace: string }
+interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
 const cfg = JSON.parse(readFileSync('scripts/check/mutations.json', 'utf8'))
 const muts: Mut[] = cfg.mutations
+const exemptions: Exemption[] = cfg.exemptions ?? []
+
+if (process.argv.includes('--brief')) {
+  console.log('\n变异集 —— 每条变异「违反了什么」。不含实现原文，可以交给写测试的上下文。\n')
+  for (const m of muts) console.log(`  ${m.id}  [${m.req}]  ${m.why}`)
+  for (const e of exemptions) {
+    console.log(`  ⊘     [${e.req}]  无变异（显式缺口${e.scope === undefined ? '' : `，${e.scope}`}）：${e.why}`)
+  }
+  console.log(`\n共 ${muts.length} 个变异、${exemptions.length} 处显式豁免。`)
+  process.exit(0)
+}
 
 const survived: Mut[] = []
 const notApplied: Mut[] = []
@@ -36,7 +58,7 @@ for (const m of muts) {
 }
 
 console.log()
-for (const e of cfg.exemptions ?? []) {
+for (const e of exemptions) {
   console.log(`  ⊘ ${e.req} 无变异（显式缺口）：${e.why.split('。')[0]}。`)
 }
 

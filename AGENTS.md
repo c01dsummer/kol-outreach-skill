@@ -66,6 +66,8 @@
 - **检查命令**：`npm run check`
   = 纪律 lint → SPEC 一致性 → **架构锚点** → 类型检查 → 需求测试 → 变异测试 → 脚本自检 → 链路审计
 - **审计命令**：`npm run audit`
+- **变异清单**：`npm run mutate -- --brief` —— 只列每条变异「违反了什么」，不含实现原文。
+  给**写测试的那个上下文**用，见 `process/4-VERIFY.md` 的「给测试上下文一张准入读物清单」
 - **文档同步表**：`docs/SYNC.md`
 - **CI**：`.github/workflows/check.yml`，每次 push 跑同一条链
 
