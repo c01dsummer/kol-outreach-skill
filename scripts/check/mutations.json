@@ -224,6 +224,14 @@
       "file": "scripts/lib/assessment.ts",
       "find": "    .slice(0, PUBLIC_POST_SAMPLE_SIZE)\n    .filter(p => p.is_pinned !== true)",
       "replace": "    .filter(p => p.is_pinned !== true)\n    .slice(0, PUBLIC_POST_SAMPLE_SIZE)"
+    },
+    {
+      "id": "M-D8-b",
+      "req": "D8",
+      "why": "样本记录照提供方给的条数全记下来 —— basis 写着「最多 12 条」而 sample_size 是 20，落进 enrichment.json 的溯源自己打自己，D10 拿旧样本补算时读到的也不是同一个窗口",
+      "file": "scripts/lib/assessment.ts",
+      "find": "  const window = posts.slice(0, PUBLIC_POST_SAMPLE_SIZE)",
+      "replace": "  const window = posts"
     }
   ],
   "exemptions": [

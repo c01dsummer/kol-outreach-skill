@@ -148,6 +148,27 @@ const calculateActivity = (
 }
 
 /**
+ * D8：适配器交回的原始列表在这里收成「样本」这条记录。
+ *
+ * 窗口截在这里，而不是留给入口脚本 —— `sample_size` 与 `basis` 是要写进
+ * `enrichment.json`、最后被人读的溯源，说「最多 12 条」就必须真的不超过 12 条。
+ * 提供方一次给几条由它自己决定（TikTok 那一路把整个 pickList 结果原样传下来），
+ * 照原样记就会出现「basis 说 12 条、sample_size 写着 20」的自相矛盾。
+ */
+export function publicPostSample(
+  posts: NormalizedPublicPost[],
+  source: MetricSource,
+  observedAt: string,
+): Measurement<NormalizedPublicPost[]> {
+  const window = posts.slice(0, PUBLIC_POST_SAMPLE_SIZE)
+  return measured(
+    window, source, observedAt, window.length,
+    `up to ${PUBLIC_POST_SAMPLE_SIZE} latest short-form profile posts; ` +
+    'pinned included for recency and excluded from aggregates',
+  )
+}
+
+/**
  * D8：从非关键词偏置的主页近期样本计算公开指标。
  * 某条帖子缺任何一个分子字段时，只让该条退出对应指标，不把缺失当成 0。
  */
@@ -183,6 +204,8 @@ export function calculatePublicMetrics(
   // 提供方多返回的第 13、14 条会顶上来补满 12 个 —— TikTok 那一路把整个
   // pickList 结果原样传下来，于是「最近 12 条」的口径变成「取决于这次多返回了几条」。
   // 剔完不足 6 条就按 insufficient_posts 报不可用，不去窗口外借。
+  // 样本记录写进盘里之前已经截过一次（publicPostSample），这里仍然要截：
+  // D10 允许对旧 enrichment.json 补算，而那些样本是在截断之前写下的。
   const posts = sample.value
     .slice(0, PUBLIC_POST_SAMPLE_SIZE)
     .filter(p => p.is_pinned !== true)

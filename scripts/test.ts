@@ -21,7 +21,7 @@ import { finalize, pendingKeywords, rankCreators, keywordStats, tierCounts } fro
 import {
   ACTIVITY_ACTIVE_MAX_DAYS, ACTIVITY_COOLING_MAX_DAYS,
   accountKey, assignAudienceRisks, attachAssessments, calculatePublicMetrics,
-  calculateQuoteEfficiency, measured, unavailable,
+  calculateQuoteEfficiency, measured, publicPostSample, unavailable,
 } from './lib/assessment.js'
 import { writeFileSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -595,6 +595,36 @@ suite('D8', '样本窗口先定在最近 12 条，再从窗口内剔置顶')
       measured(noPinned, PUBLIC_SOURCE, observedAt, noPinned.length, 'provider overflow'),
       10_000, 100).median_views.sample_size,
     12)
+}
+
+suite('D8', '样本记录本身也守窗口：说记了几条就是几条')
+{
+  /**
+   * 这条记录会原样写进 enrichment.json，是用户读到的溯源，也是 D10 补算时
+   * 唯一的输入。提供方一次给几条由它自己决定，所以两件事必须同时成立：
+   * 记下来的不超过窗口；`sample_size` 与真正记下来的条数一致 ——
+   * 否则会出现 basis 说「最多 12 条」而 sample_size 写着 20 的记录，自己打自己。
+   *
+   * 只断言这两条不变量，不去钉 basis 的字面 —— 钉字面只能证明字符串没被改过，
+   * 证不了它说的是实话。
+   */
+  const observedAt = '2026-08-26T00:00:00.000Z'
+  const supply = (n: number): NormalizedPublicPost[] =>
+    Array.from({ length: n }, (_, i) => ({ id: `s${i}`, views: 1_000 + i }))
+
+  for (const n of [0, 1, 6, 11, 12, 13, 20]) {
+    const record = publicPostSample(supply(n), PUBLIC_SOURCE, observedAt)
+    const want = Math.min(n, 12)
+    eq(`提供方给 ${n} 条，记录里就是 ${want} 条`,
+      record.status === 'measured' ? record.value.length : undefined, want)
+    eq(`提供方给 ${n} 条，sample_size 与记录里的条数一致`, record.sample_size, want)
+  }
+
+  const overflow = publicPostSample(supply(20), PUBLIC_SOURCE, observedAt)
+  ok('窗口之外的第 13 条不进记录',
+    overflow.status === 'measured' && overflow.value.every(p => p.id !== 's12'))
+  eq('来源穿透到样本记录', overflow.source, PUBLIC_SOURCE)
+  eq('采样时间穿透到样本记录', overflow.observed_at, observedAt)
 }
 
 suite('D9', '互动率与合作报价分开，只有可比报价才计算效率')

@@ -57,7 +57,7 @@
 | `scripts/lib/memory.ts` | 逻辑 | P4 D4 D6 | 跨任务记忆的读写与过滤；记忆文件损坏退化为空记忆而不中断 |
 | `scripts/lib/budget.ts` | 逻辑 | P3 F7 | 成本闸门；超限抛 BudgetExceeded 且不增加计数 |
 | `scripts/lib/email.ts` | 逻辑 | D7 | 反爬写法的邮箱提取；宁可返回 null 也不误判正常语句 |
-| `scripts/lib/assessment.ts` | 逻辑 | D8 D9 D10 F8 U7 | 公开样本 → 指标 / 风险 / 活跃度 / 报价效率，每项带测量状态与溯源 |
+| `scripts/lib/assessment.ts` | 逻辑 | D8 D9 D10 F8 U7 | 公开样本 → 指标 / 风险 / 活跃度 / 报价效率，每项带测量状态与溯源；**样本记录的窗口也截在这里**，入口脚本只负责调用与落盘 |
 | `scripts/lib/rows.ts` | 逻辑 | P2 U1 U5 U7 | 交付物的行与排序；草稿里的占位符必须原样穿透到产出物 |
 | `scripts/lib/csv.ts` | 逻辑 | D5 | UTF-8 with BOM 与转义 |
 | `scripts/lib/xlsx.ts` | 逻辑 | U5 | 零依赖 ZIP 与 CRC32；空分层也建 sheet |

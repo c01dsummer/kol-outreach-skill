@@ -21,7 +21,7 @@ import {
   accountKey,
   assignAudienceRisks,
   calculatePublicMetrics,
-  measured,
+  publicPostSample,
   unavailable,
 } from './lib/assessment.js'
 import {
@@ -171,13 +171,7 @@ async function assess(ref: AccountRef): Promise<void> {
     const observedAt = new Date().toISOString()
     const followers = fetched.followers === undefined ? ref.followers : fetched.followers
     const following = fetched.following === undefined ? ref.following : fetched.following
-    const sample = measured(
-      fetched.posts,
-      fetched.source,
-      observedAt,
-      fetched.posts.length,
-      'latest 12 short-form profile posts; pinned included for recency and excluded from aggregates',
-    )
+    const sample = publicPostSample(fetched.posts, fetched.source, observedAt)
     next = {
       ...existing,
       platform: ref.platform,
