@@ -208,6 +208,14 @@
       "file": "scripts/lib/pipeline.ts",
       "find": "  return sortForOutput(kept)",
       "replace": "  return kept"
+    },
+    {
+      "id": "M-P1-h",
+      "req": "P1",
+      "why": "把未知播放数当成 20 万 —— 「没取到播放数」被伪装成「这条是爆款」，凭空多给 5 分。P1 禁止的是「未知被当成一个具体值」，不论那个值落在阈值哪一侧",
+      "file": "scripts/lib/score.ts",
+      "find": "if (c.recent_posts?.some(p => p.plays !== undefined && p.plays > 100_000)) s += 5",
+      "replace": "if (c.recent_posts?.some(p => (p.plays ?? 200_000) > 100_000)) s += 5"
     }
   ],
   "exemptions": [
