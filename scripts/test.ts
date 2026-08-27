@@ -7,6 +7,7 @@
  */
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine } from './check/lint-rule.js'
+import { implementationLeak } from './check/why-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { fillEmail, pickList } from './providers/tikhub.js'
@@ -43,6 +44,12 @@ const eq = (label: string, got: unknown, want: unknown) => {
   else console.log(`  ✓ ${label}`)
 }
 const ok = (label: string, cond: boolean) => eq(label, cond, true)
+
+/**
+ * 检查链自己的判定也要有测试。这类块不服务任何需求编号，所以**不进覆盖计数** ——
+ * 混进去会让「覆盖 N 条需求」那个数字变成一个虚报的数。
+ */
+const harness = (name: string) => { console.log(`\n[harness] ${name}`) }
 
 /**
  * 从 xlsx 里真正读回 sheet 名。
@@ -676,6 +683,52 @@ suite('D10', '缓存命中时按当前口径重算，不靠新请求')
   const settled = recomputeCachedMetrics(stored, 10_000, 100, again.metrics)
   ok('已经是当前口径的缓存不算改动，计数不虚报', !settled.changed)
   ok('没有缓存时算改动', recomputeCachedMetrics(stored, 10_000, 100, undefined).changed)
+}
+
+harness('变异集的 why 不许夹带实现原文')
+{
+  /**
+   * `mutate --brief` 会把 why 单独打印给写测试的那个上下文（4-VERIFY 的准入读物
+   * 清单）。所以 why 里夹带的实现原文，等于绕过清单让那个上下文读了实现。
+   *
+   * 界线：**对外契约里的名字算需求语言** —— stdout 字段、产出文件字段、提供方
+   * 响应键、命令行参数，写测试的人本来就该看得到它们。本仓库内部的函数名和
+   * 任何代码表达式不算。这条判定只挡后者里能机器识别的两类。
+   */
+  const leaks = [
+    '合并邮箱退回 `a ?? b ?? null` —— 两边都没查过被写成查过没有',
+    '拿不到就 || [] 兜过去',
+    '降完立刻被 tierOf 覆盖',
+    '响应结构探测的 pickList 退回取第一个数组',
+    '判定写成 status === "measured" 才放行',
+    '把 p?.views 当成 0',
+  ]
+  for (const why of leaks) {
+    ok(`拦下：${why.slice(0, 16)}…`, implementationLeak(why) !== undefined)
+  }
+
+  const clean = [
+    '合并邮箱时把「两边都没查过」压成「查过，他没留邮箱」—— 运营看到空白就不会回头补查',
+    '空的 aweme_list 会盖掉有数据的 search_item_list，产出「这个关键词没人」',
+    'filtered_contacted 把连闸门都过不了的人也算进去，向用户虚报打扰规模',
+    'render 之后每次 --resume 都产出一份空名单',
+    'basis 写着「最多 12 条」而 sample_size 是 20，enrichment.json 的溯源自己打自己',
+    '写个 p1-ok 就放行、理由可以不写',
+    '受众降权跑在分层之前 —— 降完立刻被重新算出来的分层覆盖',
+  ]
+  for (const why of clean) {
+    eq(`放行：${why.slice(0, 16)}…`, implementationLeak(why), undefined)
+  }
+
+  // 判定对不对是一回事，**当前那份变异集干不干净**是另一回事。后者才是 --brief
+  // 名副其实的前提，所以直接断言真文件，而不是断言一个抽象能力。
+  const corpus = JSON.parse(rf('scripts/check/mutations.json', 'utf8'))
+  const dirty = (corpus.mutations as { id: string; why: string }[])
+    .flatMap(m => {
+      const leak = implementationLeak(m.why)
+      return leak === undefined ? [] : [`${m.id}:${leak}`]
+    })
+  eq('当前变异集全集干净', dirty, [])
 }
 
 suite('D9', '互动率与合作报价分开，只有可比报价才计算效率')

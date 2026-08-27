@@ -69,6 +69,7 @@
 | `scripts/check/lint-rule.ts` | 检查 | P1 | 上面那条检查的**判定**本身。抽出来是为了它能被测 —— 检查自己也要能被证伪 |
 | `scripts/check/spec-sync.ts` | 检查 | — | SPEC.md 的表格由 requirements.json 生成，两者不可能漂移 |
 | `scripts/check/mutate.ts` | 检查 | — | 给测试做的测试：变异存活即那条测试是假的 |
+| `scripts/check/why-rule.ts` | 检查 | — | 变异集 why 的判定：夹带实现原文当场拦下，让 `--brief` 名副其实 |
 | `scripts/check/selfcheck.ts` | 检查 | F5 | 用假 fetch 把每个可执行文件从头执行到尾 |
 | `scripts/check/fake-fetch.ts` | 检查 | — | 自检用的假响应；它决定了自检能走到多深 |
 | `scripts/check/audit.ts` | 检查 | — | 链路审计，回答完成度而不是「功能做完了没有」 |

@@ -17,12 +17,24 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
+import { implementationLeak } from './why-rule.js'
 
 interface Mut { id: string; req: string; why: string; file: string; find: string; replace: string }
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
 const cfg = JSON.parse(readFileSync('scripts/check/mutations.json', 'utf8'))
 const muts: Mut[] = cfg.mutations
 const exemptions: Exemption[] = cfg.exemptions ?? []
+
+const dirty = muts.flatMap(m => {
+  const leak = implementationLeak(m.why)
+  return leak === undefined ? [] : [`${m.id}  夹带实现原文：${leak}`]
+})
+if (dirty.length) {
+  console.error(`✗ 变异集：${dirty.length} 条 why 夹带实现原文 —— --brief 会把它漏给写测试的上下文\n`)
+  for (const d of dirty) console.error(`  ${d}`)
+  console.error('\n  why 说「什么会变错、用户会看到什么」，不引代码。对外契约里的名字不算实现原文。')
+  process.exit(1)
+}
 
 if (process.argv.includes('--brief')) {
   console.log('\n变异集 —— 每条变异「违反了什么」。不含实现原文，可以交给写测试的上下文。\n')
