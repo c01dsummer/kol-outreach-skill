@@ -19,7 +19,9 @@ npm run enrich -- --dir output/xxx
 npm run enrich -- --dir output/xxx --budget 3
 ```
 
-默认跳过已经查询过的账号。只有用户确实要刷新数据时才加 `--refresh`；它会重新计费。
+默认跳过已经查询过的账号 —— 跳过的是**重抓**，不是重算：缓存里的指标每次都按
+当前口径就地重新算一遍，零请求。stdout 的 `locally_recomputed` 是这一轮里
+**数真的换过**的账号数。只有用户确实要刷新样本时才加 `--refresh`；它会重新计费。
 
 ## 样本边界
 
@@ -66,7 +68,8 @@ npm run enrich -- --dir output/xxx --budget 3
 没有任何发布时间时写 `missing_post_dates`；无法解析或来自未来的时间写
 `invalid_post_date`，都不得补成“刚刚发布”。活跃状态是 `observed_at` 时的快照；以后重新
 查看时若要确认最新状态，应使用 `--refresh`。旧 `enrichment.json` 已保存原始样本时，
-普通 enrich 会本地补算新字段，不额外请求 API。
+普通 enrich 会按当前口径本地重算全部指标（不只是补新字段），不额外请求 API ——
+所以口径改过之后不需要为旧账号重新付费。见 `DECISIONS.md` 的 ADR-13。
 
 ## 受众质量风险
 

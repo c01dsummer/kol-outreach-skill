@@ -73,6 +73,19 @@ export function percentile(values: number[], p: number): number {
   return a[lo] + (a[hi] - a[lo]) * (at - lo)
 }
 
+/**
+ * 键序无关的比较用序列化。缓存那一侧来自磁盘上的 JSON，键序由写下它的那一版代码决定 ——
+ * 直接 JSON.stringify 比较会把「键序不同」误报成「数变了」，让汇报的数字变成噪音。
+ */
+const canonical = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+  if (value === null || typeof value !== 'object') return String(JSON.stringify(value))
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`
+}
+
 const metricFrom = (
   values: number[],
   source: MetricSource,
@@ -280,6 +293,25 @@ const bandOf = (followers: number): number => {
 const riskMetric = (a: AccountAssessment, metric: AudienceRiskMetric): number | undefined => {
   const m = a.metrics?.[metric]
   return m?.status === 'measured' ? m.value : undefined
+}
+
+/**
+ * D10：缓存命中时按**当前**口径重算，零请求。
+ *
+ * 不写「缺字段才补」那种条件 —— 缓存里的数是上一版代码算出来的，口径改过一次，
+ * 那批数就与当前口径不是同一件事，而它们照样会被交付，且交付物上看不出区别。
+ * 重算不花钱，所以这里没有可权衡的东西：永远算。
+ *
+ * `changed` 只用来照实汇报「手上的数换过没有」，不参与是否重算的决定。
+ */
+export function recomputeCachedMetrics(
+  sample: Measurement<NormalizedPublicPost[]>,
+  followers: number | undefined,
+  following: number | undefined,
+  cached: PublicMetrics | undefined,
+): { metrics: PublicMetrics; changed: boolean } {
+  const metrics = calculatePublicMetrics(sample, followers, following)
+  return { metrics, changed: cached === undefined || canonical(cached) !== canonical(metrics) }
 }
 
 const comparableMetricCount = (a: AccountAssessment): number =>

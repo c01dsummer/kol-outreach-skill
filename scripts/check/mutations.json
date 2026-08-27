@@ -256,6 +256,14 @@
       "file": "scripts/check/lint-rule.ts",
       "find": "  if (/\\/\\/\\s*p1-ok\\b/.test(text)) return 'unjustified_exemption'",
       "replace": "  if (/\\/\\/\\s*p1-ok\\b/.test(text)) return 'exempt'"
+    },
+    {
+      "id": "M-D10-a",
+      "req": "D10",
+      "why": "缓存里活跃字段齐全就跳过重算 —— 上一版口径算出来的中位数、发布间隔与受众风险一直留在交付物里，运营不额外付费重抓就换不掉，而交付物上看不出任何区别",
+      "file": "scripts/lib/assessment.ts",
+      "find": "  const metrics = calculatePublicMetrics(sample, followers, following)\n  return { metrics, changed:",
+      "replace": "  if (cached?.activity_status !== undefined) return { metrics: cached, changed: false }\n  const metrics = calculatePublicMetrics(sample, followers, following)\n  return { metrics, changed:"
     }
   ],
   "exemptions": [

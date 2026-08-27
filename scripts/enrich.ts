@@ -22,6 +22,7 @@ import {
   assignAudienceRisks,
   calculatePublicMetrics,
   publicPostSample,
+  recomputeCachedMetrics,
   unavailable,
 } from './lib/assessment.js'
 import {
@@ -135,19 +136,18 @@ async function assess(ref: AccountRef): Promise<void> {
   const k = accountKey(ref.platform, ref.handle)
   const existing = state.accounts[k]
   if (!refresh && existing?.sample) {
-    const hasActivity = existing.metrics?.latest_post_at &&
-      existing.metrics.days_since_last_post && existing.metrics.activity_status
-    if (!hasActivity) {
-      if (existing.followers === undefined && ref.followers !== undefined) {
-        existing.followers = ref.followers
-      }
-      if (existing.following === undefined && ref.following !== undefined) {
-        existing.following = ref.following
-      }
-      existing.metrics = calculatePublicMetrics(
-        existing.sample, existing.followers, existing.following)
-      locallyRecomputed++
+    // 缓存命中不重抓，但**每次都按当前口径重算**（零请求）。要不要重算的判定在
+    // lib/assessment.ts —— 那里能被测、能被变异守住；这里只回填与照实计数。
+    if (existing.followers === undefined && ref.followers !== undefined) {
+      existing.followers = ref.followers
     }
+    if (existing.following === undefined && ref.following !== undefined) {
+      existing.following = ref.following
+    }
+    const { metrics, changed } = recomputeCachedMetrics(
+      existing.sample, existing.followers, existing.following, existing.metrics)
+    existing.metrics = metrics
+    if (changed) locallyRecomputed++
     return
   }
 

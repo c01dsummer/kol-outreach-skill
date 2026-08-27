@@ -139,6 +139,33 @@ if (dir) {
       !migratedAccounts.some(a => a.metrics?.activity_status)) {
       failed++; console.error('  ✗ 旧样本没有在本地补出活跃状态')
     } else console.log('  ✓ 旧 enrichment 样本零请求补出活跃状态')
+
+    // 第二种旧缓存：活跃字段齐全，但中位数是上一版口径算出来的。这批账号以前
+    // 会被整段跳过 —— 交付物里留着旧口径的数，而且看不出区别。见 ADR-13。
+    const staleData = JSON.parse(readFileSync(enrichment, 'utf8'))
+    let tampered = 0
+    for (const account of Object.values(staleData.accounts ?? {}) as any[]) {
+      if (account.metrics?.median_views?.status !== 'measured') continue
+      account.metrics.median_views.value = 1
+      tampered++
+    }
+    writeFileSync(enrichment, JSON.stringify(staleData, null, 2), 'utf8')
+    const staleBefore = JSON.parse(readFileSync(taskPath, 'utf8')).requests
+    const staleOut = run('enrich 旧口径缓存零请求纠正', [S('enrich.ts'), '--dir', dir], tmp)
+    const staleAfter = JSON.parse(readFileSync(taskPath, 'utf8')).requests
+    const fixed = Object.values(
+      JSON.parse(readFileSync(enrichment, 'utf8')).accounts ?? {}) as any[]
+    let staleSummary: any = {}
+    try { staleSummary = JSON.parse(staleOut) } catch {}
+    if (!tampered) {
+      // 一个没篡改到任何东西的检查，下面两条断言会无条件通过 —— 那等于没检查。
+      failed++; console.error('  ✗ 没有可篡改的中位播放量，这条检查什么都没验')
+    } else if (staleAfter !== staleBefore || staleSummary.newly_queried !== 0) {
+      failed++; console.error('  ✗ 纠正旧口径缓存产生了新的 API 请求')
+    } else if (fixed.some(a => a.metrics?.median_views?.value === 1) ||
+      !(staleSummary.locally_recomputed > 0)) {
+      failed++; console.error('  ✗ 旧口径缓存没有被就地纠正')
+    } else console.log(`  ✓ 旧口径缓存零请求就地纠正（篡改 ${tampered} 个账号）`)
   }
 }
 

@@ -22,7 +22,7 @@ import { finalize, pendingKeywords, rankCreators, keywordStats, tierCounts } fro
 import {
   ACTIVITY_ACTIVE_MAX_DAYS, ACTIVITY_COOLING_MAX_DAYS,
   accountKey, assignAudienceRisks, attachAssessments, calculatePublicMetrics,
-  calculateQuoteEfficiency, measured, publicPostSample, unavailable,
+  calculateQuoteEfficiency, measured, publicPostSample, recomputeCachedMetrics, unavailable,
 } from './lib/assessment.js'
 import { writeFileSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -626,6 +626,56 @@ suite('D8', '样本记录本身也守窗口：说记了几条就是几条')
     overflow.status === 'measured' && overflow.value.every(p => p.id !== 's12'))
   eq('来源穿透到样本记录', overflow.source, PUBLIC_SOURCE)
   eq('采样时间穿透到样本记录', overflow.observed_at, observedAt)
+}
+
+suite('D10', '缓存命中时按当前口径重算，不靠新请求')
+{
+  /**
+   * D10 写着「旧 enrichment 样本可在不新增 API 请求的情况下补算」。
+   * 「补算」不等于「缺字段时才补」—— 缓存里的数是上一版代码算出来的，
+   * 只要口径变过一次，那批数就和当前口径不是同一件事，而它们照样会被交付，
+   * 且交付物上看不出区别。重算不花钱，所以这里没有取舍。
+   *
+   * 什么东西能在这条不成立时也让检查通过：**缓存里恰好就是对的数**。
+   * 所以下面的 cached 故意造成「活跃字段齐全、但中位数按旧口径算」的形状 ——
+   * 那正是一份上一版代码写下的缓存的样子。第一条断言先把这个前提钉住，
+   * 否则后面几条全是空绿。
+   */
+  const observedAt = '2026-08-26T00:00:00.000Z'
+  const at = (daysAgo: number) =>
+    new Date(Date.parse(observedAt) - daysAgo * 86_400_000).toISOString()
+  const inWindow: NormalizedPublicPost[] = Array.from({ length: 12 }, (_, i) => ({
+    id: `w${i}`, views: 1_000 + i, likes: 100 + i, comments: 10 + i,
+    published_at: at(i * 2), is_pinned: i === 2,
+  }))
+  const beyond: NormalizedPublicPost[] = Array.from({ length: 4 }, (_, i) => ({
+    id: `b${i}`, views: 900_000 + i, likes: 90_000 + i, comments: 9_000 + i,
+    published_at: at(60 + i * 30), is_pinned: false,
+  }))
+  const stored = measured([...inWindow, ...beyond], PUBLIC_SOURCE, observedAt, 16,
+    'oversized sample already on disk')
+
+  // 旧口径：先剔置顶、再截 12 条 —— 窗口外的 b0 被补了进来。
+  const oldSelection = [...inWindow.filter(p => p.is_pinned !== true), ...beyond].slice(0, 12)
+  const cached = calculatePublicMetrics(
+    measured(oldSelection, PUBLIC_SOURCE, observedAt, oldSelection.length, 'old selection'),
+    10_000, 100)
+  eq('前提：这份缓存确实是旧口径算出来的',
+    cached.median_views.status === 'measured' ? cached.median_views.value : undefined, 1_006.5)
+  ok('前提：这份缓存的活跃字段是齐的（否则它根本不是那批漏掉的账号）',
+    cached.activity_status.status === 'measured')
+
+  const again = recomputeCachedMetrics(stored, 10_000, 100, cached)
+  eq('活跃字段齐全的缓存也要按当前窗口重算',
+    again.metrics.median_views.status === 'measured' ? again.metrics.median_views.value : undefined,
+    1_006)
+  ok('重算过的缓存要报「变了」，否则运营不知道手上的数换过', again.changed)
+  eq('重算不改采样时间 —— 它属于当初那次采样，不是这次跑的时间',
+    again.metrics.median_views.observed_at, observedAt)
+
+  const settled = recomputeCachedMetrics(stored, 10_000, 100, again.metrics)
+  ok('已经是当前口径的缓存不算改动，计数不虚报', !settled.changed)
+  ok('没有缓存时算改动', recomputeCachedMetrics(stored, 10_000, 100, undefined).changed)
 }
 
 suite('D9', '互动率与合作报价分开，只有可比报价才计算效率')
