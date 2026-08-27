@@ -232,6 +232,30 @@
       "file": "scripts/lib/assessment.ts",
       "find": "  const window = posts.slice(0, PUBLIC_POST_SAMPLE_SIZE)",
       "replace": "  const window = posts"
+    },
+    {
+      "id": "M-P1-i",
+      "req": "P1",
+      "why": "把「播放数」从会变成决策的字段表里拿掉 —— 它参与爆款加分，兜底成 0 就是静默改变分层，而 lint 不再吭声",
+      "file": "scripts/check/lint-rule.ts",
+      "find": "'following', 'following_count', 'views', 'play_count', 'plays', 'likes', 'like_count',",
+      "replace": "'following', 'following_count', 'views', 'play_count', 'likes', 'like_count',"
+    },
+    {
+      "id": "M-P1-j",
+      "req": "P1",
+      "why": "兜底值表里去掉 null —— 「未查询」被写成「查过，没有」不再被拦下，而这是三态里唯一一个曾经漏掉的兜底值",
+      "file": "scripts/check/lint-rule.ts",
+      "find": "(0\\b|''|\"\"|`|\\[\\]|false\\b|null\\b)",
+      "replace": "(0\\b|''|\"\"|`|\\[\\]|false\\b)"
+    },
+    {
+      "id": "M-P1-k",
+      "req": "P1",
+      "why": "写个 p1-ok 就放行、理由可以不写 —— 豁免退化成一句咒语，没人知道当初为什么放它过去",
+      "file": "scripts/check/lint-rule.ts",
+      "find": "  if (/\\/\\/\\s*p1-ok\\b/.test(text)) return 'unjustified_exemption'",
+      "replace": "  if (/\\/\\/\\s*p1-ok\\b/.test(text)) return 'exempt'"
     }
   ],
   "exemptions": [

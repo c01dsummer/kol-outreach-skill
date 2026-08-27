@@ -9,32 +9,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-
-/** 这些字段的值会进入过滤、评分、分层 —— 兜底就是静默改变决策 */
-const SENSITIVE = [
-  'followers', 'follower_count', 'post_count', 'aweme_count', 'media_count',
-  'following', 'following_count', 'views', 'play_count', 'likes', 'like_count',
-  'comments', 'comment_count', 'median_views', 'median_engagements',
-  'engagement_rate_followers', 'engagement_rate_views', 'view_rate', 'following_ratio',
-  'reach_consistency', 'median_post_gap_days', 'latest_post_at', 'days_since_last_post',
-  'activity_status', 'audience_quality_risk',
-  'implied_ecpm', 'implied_ecpe',
-  'bio', 'signature', 'biography', 'email', 'email_verified',
-  'audience_geo', 'fake_follower_score',
-]
-/**
- * `null` 必须在这张表里。它是三态模型的**中间态** —— `?? null` 把「未查询」
- * 写成「查过，没有」，恰恰是 P1 要防的那件事，却是唯一一个曾经漏掉的兜底值。
- * 合法的 `?? null`（确实查过、确实没有）加 p1-ok 说明理由即可。
- */
-const FALLBACK = /(\?\?|\|\|)\s*(0\b|''|""|`|\[\]|false\b|null\b)/
-
-/**
- * 第二类形状：**空输入时返回 0**。
- * 实测栽过一次 —— probe 的 median 在无粉丝数据时返回 0，被读成「这批全是小号」。
- * 敏感字段启发式抓不到它（median 是局部函数），所以单列一条。
- */
-const EMPTY_ZERO = /if\s*\(\s*!\w+\.length\s*\)\s*return\s+(0\b|''|"")/
+import { judgeLine } from './lint-rule.js'
 
 const SKIP_DIRS = ['check']
 const SKIP_FILES = ['test.ts']
@@ -57,17 +32,13 @@ let exempted = 0
 for (const file of walk('scripts')) {
   const lines = readFileSync(file, 'utf8').split('\n')
   lines.forEach((text, i) => {
-    const emptyZero = EMPTY_ZERO.test(text)
-    if (!emptyZero) {
-      if (!FALLBACK.test(text)) return
-      if (!SENSITIVE.some(f => text.includes(f))) return
-    }
-    if (/\/\/\s*p1-ok:\s*\S/.test(text)) { exempted++; return }
-    if (/\/\/\s*p1-ok\b/.test(text)) {
-      hits.push({ file, line: i + 1, text: text.trim() + '   ← p1-ok 必须写明理由' })
-      return
-    }
-    hits.push({ file, line: i + 1, text: text.trim() })
+    const verdict = judgeLine(text)
+    if (verdict === 'clean') return
+    if (verdict === 'exempt') { exempted++; return }
+    hits.push({
+      file, line: i + 1,
+      text: text.trim() + (verdict === 'unjustified_exemption' ? '   ← p1-ok 必须写明理由' : ''),
+    })
   })
 }
 

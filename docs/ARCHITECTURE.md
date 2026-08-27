@@ -65,7 +65,8 @@
 | `scripts/lib/task.ts` | 逻辑 | D6 | 任务目录的读写；**累加器与交付物是两个文件**，见下表 |
 | `scripts/lib/types.ts` | 逻辑 | P1 D8 | 三态模型的定义处 —— 它把「没查到」和「查了没有」在类型层面分开 |
 | `scripts/providers/tikhub.ts` | 适配 | D2 D3 D8 P1 | 唯一的数据源实现；响应结构走探测 cascade，识别不出时暴露顶层 key |
-| `scripts/check/lint.ts` | 检查 | P1 | 把 P1 从散文变成能报错的检查 |
+| `scripts/check/lint.ts` | 检查 | P1 | 把 P1 从散文变成能报错的检查；走文件树、打印、退出码 |
+| `scripts/check/lint-rule.ts` | 检查 | P1 | 上面那条检查的**判定**本身。抽出来是为了它能被测 —— 检查自己也要能被证伪 |
 | `scripts/check/spec-sync.ts` | 检查 | — | SPEC.md 的表格由 requirements.json 生成，两者不可能漂移 |
 | `scripts/check/mutate.ts` | 检查 | — | 给测试做的测试：变异存活即那条测试是假的 |
 | `scripts/check/selfcheck.ts` | 检查 | F5 | 用假 fetch 把每个可执行文件从头执行到尾 |

@@ -6,6 +6,7 @@
  * 本文件目前违反了这一条（同一上下文写的代码和测试），已登记为 ADR-04 的已知缺口。
  */
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
+import { judgeLine } from './check/lint-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { fillEmail, pickList } from './providers/tikhub.js'
@@ -214,9 +215,9 @@ suite('P1', '没取到的播放数不得被判成爆款')
    *
    * 什么东西能在 P1 不成立时也让这条绿：**把未知当成 0**。
    * 那一侧得分与「确定不是爆款」本来就同分，scoreCreator 的返回值里看不见 ——
-   * 这一档能验的只有「不得被当成大数」那一半。另一半只剩类型层
-   * （RecentPost.plays 可选）挡着：纪律 lint 的敏感字段表里有 views、play_count，
-   * 没有 plays —— 实测 `p.plays ?? 0` 不会被 lint 拦下。已报告，不在本次改动范围内。
+   * 这一档能验的只有「不得被当成大数」那一半。另一半靠类型层
+   * （RecentPost.plays 可选）加纪律 lint 挡着 —— `plays` 已在敏感字段表里，
+   * `p.plays ?? 0` 会被拦下（M-P1-i 守着这一条）。
    */
   const decided: string[] = []
   for (const s of shapes) {
@@ -778,6 +779,44 @@ suite('P1', '跨平台合并不得把「未查询」降级成「查过，没有�
   const row = toRow(mergeCrossPlatform([a, b])[0])
   eq('未查询在 CSV 里是「未查询」而非空白', row[HEADERS.indexOf('email')], '未查询')
   covered.add('D3')
+}
+
+suite('P1', '纪律 lint 的判定：会变成决策的字段上不许有兜底')
+{
+  /**
+   * P1 机器可执行的那一半就是这条 lint。它自己一直没有测试、也没有变异守着 ——
+   * 一个从来没被证伪过的检查，和没有检查之间的差别只有心理作用。
+   *
+   * 断言依据只有三样：P1 原文、docs/CONVENTIONS.md 第 1 条（三态不许压成两档、
+   * `?? null` 也是兜底），以及这条 lint 自己声明的职责 —— 只盯**会变成决策的
+   * 数据字段**，例外必须写明理由。没有从实现里抄字段表：下面的字段是按
+   * 「它的值会不会进入过滤、评分、分层」挑的。
+   */
+  const DECIDING = ['followers', 'views', 'plays', 'likes', 'email', 'median_views']
+  const DISPLAY = ['label', 'title', 'nickname', 'desc']
+  const FALLBACKS = ['0', "''", '[]', 'false', 'null']
+
+  for (const field of DECIDING) {
+    for (const v of FALLBACKS) {
+      eq(`${field} 上的 ?? ${v} 判违规`, judgeLine(`  const x = c.${field} ?? ${v}`), 'violation')
+      eq(`${field} 上的 || ${v} 判违规`, judgeLine(`  const x = c.${field} || ${v}`), 'violation')
+    }
+  }
+
+  // 一个满屏假阳性的检查会被忽略，而被忽略的检查比没有检查更糟。
+  for (const field of DISPLAY) {
+    eq(`展示层的 ${field} 上同样的写法不报`, judgeLine(`  const x = c.${field} ?? ''`), 'clean')
+  }
+  eq('敏感字段但没有兜底不报', judgeLine('  if (c.followers !== undefined) return true'), 'clean')
+
+  // 「没测量」和「测量结果是零」必须是两个不同的值 —— 空输入返回 0 是同一件事的
+  // 另一种形状，敏感字段名在这一行里根本不出现。
+  eq('空输入返回 0 判违规', judgeLine('  if (!values.length) return 0'), 'violation')
+
+  eq('写明理由的 p1-ok 是具名豁免',
+    judgeLine("  const x = c.followers ?? 0   // p1-ok: 展示用，不参与决策"), 'exempt')
+  eq('只写 p1-ok 不写理由的不算豁免',
+    judgeLine('  const x = c.followers ?? 0   // p1-ok'), 'unjustified_exemption')
 }
 
 suite('D1', 'platform:handle 唯一标识，大小写不敏感')
