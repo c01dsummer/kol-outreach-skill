@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator,
-  EnrichmentState, MetricSource, NormalizedPublicPost,
+  EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost,
 } from './lib/types.js'
 
 let fail = 0
@@ -143,6 +143,92 @@ suite('P1', '缺失数据不得用默认值填充')
   ok('低于下限拦截', !passesFollowerGate(mk('tiktok', 'i', { followers: 100 })))
   ok('高于上限拦截', !passesFollowerGate(mk('tiktok', 'j', { followers: 9_000_000 })))
   ok('区间内放行', passesFollowerGate(mk('tiktok', 'k', { followers: 50_000 })))
+}
+
+suite('P1', '没取到的播放数不得被判成爆款')
+{
+  /**
+   * 这一档是「近期样本里有爆款」加分，爆款阈值 = 单条播放数 > 10 万。
+   * **这个阈值没有写进 docs/requirements.json**，只活在实现里 —— 已知缺口。
+   * 所以下面只取明显落在阈值两侧的值，不去钉边界：把一个还没登记成需求的常数
+   * 钉死在测试里，等于让测试替实现背书。
+   *
+   * 这一段只假设 plays 唯一的去处是这一档。若实现里还有别的档也读 plays，
+   * 性质二会红 —— 那说明契约没交接全，按 4-VERIFY 该报告，不是把测试改弱。
+   */
+  const NOT_HIT = [0, 1, 12_345, 99_999]
+  const HIT = [100_001, 250_000, 4_000_000]
+
+  /** 「没取到」有两种合法写法（plays 是可选字段），都表示未查询，必须同解 */
+  type Plays = number | 'absent' | 'undefined'
+  const UNKNOWN: { name: string; v: Plays }[] = [
+    { name: '字段缺席', v: 'absent' },
+    { name: '值为 undefined', v: 'undefined' },
+  ]
+
+  const post = (v: Plays, i: number): RecentPost =>
+    v === 'absent' ? { desc: `p${i}` }
+      : v === 'undefined' ? { desc: `p${i}`, plays: undefined }
+        : { desc: `p${i}`, plays: v }
+  const scoreOf = (plays: Plays[]) =>
+    scoreCreator(mk('tiktok', 'x', { recent_posts: plays.map(post) }))
+
+  /**
+   * 样本形状。others 是同一样本里的其它帖子，待验的那一条插在 at；
+   * 各变体之间只差这一条的 plays，别的档一律相同、相减抵消。
+   */
+  const shapes: { name: string; others: Plays[]; at: number; hasHit?: boolean }[] = [
+    { name: '样本只有这一条', others: [], at: 0 },
+    { name: '待验的在最前', others: [5_000, 20_000], at: 0 },
+    { name: '待验的夹在中间', others: [5_000, 20_000], at: 1 },
+    { name: '待验的在最后', others: [5_000, 20_000], at: 2 },
+    { name: '其它条也没取到', others: ['absent', 'undefined'], at: 1 },
+    { name: '样本里已有一条真爆款', others: [300_000, 8_000], at: 2, hasHit: true },
+  ]
+  const put = (s: { others: Plays[]; at: number }, v: Plays): Plays[] => {
+    const a = [...s.others]
+    a.splice(s.at, 0, v)
+    return a
+  }
+
+  /**
+   * 性质一：爆款那一档确实生效。
+   *
+   * 少了这一条，性质二在「爆款加分根本没接上」时同样会绿 ——
+   * 那就是一个永远不会失败的检查。已有爆款的样本不参与：
+   * 那一档是存在性判断，再多一条爆款本来就不该再加分。
+   */
+  const dead: string[] = []
+  for (const s of shapes.filter(x => !x.hasHit)) {
+    for (const low of NOT_HIT) for (const high of HIT) {
+      // 写成 !(>) 而不是 <=：得分若是 NaN，<= 恒假，这条检查就永远不会失败了
+      if (!(scoreOf(put(s, high)) > scoreOf(put(s, low)))) dead.push(`${s.name}: ${low} → ${high}`)
+    }
+  }
+  eq('爆款确实加分（否则性质二空绿）', dead, [])
+
+  /**
+   * 性质二：播放数没取到时，那一条不得被判成一个具体的值 ——
+   * 不论那个值落在阈值哪一侧。表现为得分必须与「确定不是爆款」一模一样，
+   * 既不多也不少；只要它跟着某个假想值走，这里就会列出来。
+   *
+   * 什么东西能在 P1 不成立时也让这条绿：**把未知当成 0**。
+   * 那一侧得分与「确定不是爆款」本来就同分，scoreCreator 的返回值里看不见 ——
+   * 这一档能验的只有「不得被当成大数」那一半。另一半只剩类型层
+   * （RecentPost.plays 可选）挡着：纪律 lint 的敏感字段表里有 views、play_count，
+   * 没有 plays —— 实测 `p.plays ?? 0` 不会被 lint 拦下。已报告，不在本次改动范围内。
+   */
+  const decided: string[] = []
+  for (const s of shapes) {
+    for (const u of UNKNOWN) {
+      const got = scoreOf(put(s, u.v))
+      for (const low of NOT_HIT) {
+        const want = scoreOf(put(s, low))
+        if (got !== want) decided.push(`${s.name}/${u.name}: ${got} 分，plays=${low} 时 ${want} 分`)
+      }
+    }
+  }
+  eq('没取到的播放数不参与爆款判定', decided, [])
 }
 
 suite('P2', '开发信占位符必须原样保留到产出物')
