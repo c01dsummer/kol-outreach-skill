@@ -1,7 +1,8 @@
 import {
   writeFileSync, renameSync, rmSync, statSync, chmodSync, openSync, fsyncSync, closeSync,
+  mkdirSync,
 } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 
 /**
  * 整体替换地写一个文件：**先写临时文件，再改名。**
@@ -75,4 +76,31 @@ function fsyncDirBestEffort(path: string): void {
   try { fd = openSync(path, 'r'); fsyncSync(fd) }
   catch { /* 平台不支持刷目录 */ }
   finally { if (fd !== undefined) closeSync(fd) }
+}
+
+/**
+ * 建目录，并让**新建的每一层都被记住**。
+ *
+ * `writeFileAtomic` 刷的是文件所在的那一层 —— 它让**文件的目录项**落了盘。
+ * 但如果这些目录本身是刚建出来的，**记录这些目录的是它们各自的上一层**，
+ * 而那几层没有人刷过。断电之后整个目录可能不存在，而调用方已被告知成功：
+ * 第一次跑时的断点、或者第一份联系历史，就这么没了（ADR-49）。
+ *
+ * `mkdirSync` 的 recursive 会返回**第一个被新建的那一层**（本来就在则返回
+ * undefined），所以确切知道要刷哪几层：从那一层的父目录开始，逐层往下刷到
+ * `dir` 的上一层为止。`dir` 自己不在这里刷 —— 写文件那一步会刷它。
+ *
+ * 刷目录仍然是尽力而为（有的平台不允许把目录当文件打开），所以这一条
+ * 加强的是常见情况下的持久性，**不是一个保证**。
+ */
+export function mkdirDurable(dir: string): void {
+  const first = mkdirSync(dir, { recursive: true })
+  if (first === undefined) return          // 本来就在，没有新的目录项要记
+  fsyncDirBestEffort(dirname(first))       // 记住 first 的是它的父目录
+  const rest = relative(first, dir)
+  let cur = first
+  for (const seg of rest ? rest.split(sep) : []) {
+    fsyncDirBestEffort(cur)                // 记住下一层的是当前这层
+    cur = join(cur, seg)
+  }
 }

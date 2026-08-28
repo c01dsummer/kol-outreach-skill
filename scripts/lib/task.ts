@@ -1,7 +1,7 @@
-import { readFileSync, existsSync, mkdirSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { TaskState, Creator, EnrichmentState, MemoryStatus } from './types.js'
-import { writeFileAtomic } from './atomic.js'
+import { mkdirDurable, writeFileAtomic } from './atomic.js'
 
 export function taskDir(product: string, timestamp?: string): string {
   const ts = timestamp ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
@@ -13,7 +13,7 @@ export function loadTask(dir: string): TaskState {
 }
 
 export function saveTask(dir: string, state: TaskState): void {
-  mkdirSync(dir, { recursive: true })
+  mkdirDurable(dir)
   state.updated_at = new Date().toISOString()
   writeFileAtomic(join(dir, 'task.json'), JSON.stringify(state, null, 2))
 }
@@ -24,7 +24,7 @@ export function loadCreators(dir: string): Creator[] {
 }
 
 export function saveCreators(dir: string, creators: Creator[]): void {
-  mkdirSync(dir, { recursive: true })
+  mkdirDurable(dir)
   writeFileAtomic(join(dir, 'creators.json'), JSON.stringify(creators, null, 2))
 }
 
@@ -82,7 +82,7 @@ export function loadRawCreators(dir: string): Creator[] {
 }
 
 export function saveRawCreators(dir: string, creators: Creator[]): void {
-  mkdirSync(dir, { recursive: true })
+  mkdirDurable(dir)
   writeFileAtomic(join(dir, RAW), JSON.stringify(creators, null, 2))
 }
 
@@ -95,7 +95,7 @@ export function loadEnrichment(dir: string): EnrichmentState | undefined {
 }
 
 export function saveEnrichment(dir: string, state: EnrichmentState): void {
-  mkdirSync(dir, { recursive: true })
+  mkdirDurable(dir)
   state.updated_at = new Date().toISOString()
   writeFileAtomic(join(dir, ENRICHMENT), JSON.stringify(state, null, 2))
 }

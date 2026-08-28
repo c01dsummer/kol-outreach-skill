@@ -1,10 +1,10 @@
 import {
-  readFileSync, writeFileSync, renameSync, rmSync, readdirSync, existsSync, mkdirSync,
+  readFileSync, writeFileSync, renameSync, rmSync, readdirSync, existsSync,
   statSync, chmodSync,
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { PLATFORMS, type Creator, type MemoryStatus, type Platform } from './types.js'
-import { writeFileAtomic } from './atomic.js'
+import { mkdirDurable, writeFileAtomic } from './atomic.js'
 
 /** D4：本地单文件，不做多人共享。团队场景需另行设计。 */
 const DEFAULT_FILE = 'memory/creators.json'
@@ -361,7 +361,7 @@ function sweepStaleTemps(): void {
  * 之间仍有一道缝，缝里两个进程还是能撞上 —— 缝被压到最小，但不是零。
  */
 export function saveMemory(mem: MemoryFile, seen?: string): void {
-  mkdirSync(dirname(FILE), { recursive: true })
+  mkdirDurable(dirname(FILE))
   sweepStaleTemps()
   mem.updated_at = new Date().toISOString()
   // 先写临时文件再 rename。直接盖原文件是非原子的，中途被打断会留下一份截断的

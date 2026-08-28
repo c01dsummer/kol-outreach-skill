@@ -14,6 +14,7 @@ import { fillEmail, pickList } from './providers/tikhub.js'
 import { esc } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import { persistListAndStatus, saveTask } from './lib/task.js'
+import { mkdirDurable } from './lib/atomic.js'
 import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { inflateRawSync } from 'node:zlib'
@@ -752,6 +753,20 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     saveTask(d2, st2)
     eq('任务目录的落盘同样保住权限位', statSync(join(d2, 'task.json')).mode & 0o777, 0o640)
     rmSync(d2, { recursive: true, force: true })
+  }
+
+  // 八之四之二、建目录也要让新建的每一层被记住 —— 刷文件所在那层只让
+  //          **文件的目录项**落了盘，而这些目录本身是刚建的，记录它们的是
+  //          各自的上一层，那几层没人刷（ADR-49）。持久性本身测不了，
+  //          这里守的是「它确实把多层目录建出来了、且重复调用不出事」。
+  {
+    const deep = join(tmpdir(), `kol-d4-mkdir-${process.pid}`, 'a', 'b', 'c')
+    rmSync(join(tmpdir(), `kol-d4-mkdir-${process.pid}`), { recursive: true, force: true })
+    mkdirDurable(deep)
+    ok('多层目录一次建出来', existsSync(deep))
+    mkdirDurable(deep)
+    ok('已经在了再调一次也不出事', existsSync(deep))
+    rmSync(join(tmpdir(), `kol-d4-mkdir-${process.pid}`), { recursive: true, force: true })
   }
 
   // 八之五之二、一次读失败算不算「盘上没有」：**只有 ENOENT 算**。
