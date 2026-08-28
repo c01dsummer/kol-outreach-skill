@@ -18,6 +18,7 @@ import { HEADERS, toRow, buildSheets } from './lib/rows.js'
 import { writeXlsx, type Sheet } from './lib/xlsx.js'
 import { renderHtml } from './lib/report.js'
 import { accountKey, attachAssessments } from './lib/assessment.js'
+import { asMemoryStatus } from './lib/types.js'
 import type { Creator, Measurement } from './lib/types.js'
 
 const i = process.argv.indexOf('--dir')
@@ -112,7 +113,8 @@ const meta = {
   // 「过滤生效了」。当成 ok 就是替一批无从确认的名单打包票（ADR-18）。
   // unknown 另有一个来源：名单与状态没能一起落成（ADR-41）。两者事后分不出，
   // 所以报告里的措辞与来源无关，不替用户编一个原因（ADR-43）。
-  memory_status: state.memory_status === undefined ? 'unknown' : state.memory_status,
+  // 缺失、null、拼错、新版本写下的新取值 —— 认不出的一律 unknown（ADR-47）
+  memory_status: asMemoryStatus(state.memory_status),
   memory_written: writeBack.written,
   // 只在真的没写回时出现。原因有两类（读不出来 / 写不进去），
   // 报告要把原文带给用户，否则他会去修一份根本没坏的 JSON（ADR-20）。

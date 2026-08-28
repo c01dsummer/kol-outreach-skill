@@ -89,7 +89,21 @@ export type ActivityStatus = 'active' | 'cooling' | 'dormant'
  * 读不出来正是会被静默当成空记忆的** —— 所以「字段缺失」不能读成「去重跑过了」，
  * 它就是字面意思上的不知道。把它并进 `ok` 等于替一批无从确认的名单打包票。
  */
-export type MemoryStatus = 'ok' | 'absent' | 'unreadable_ignored' | 'unknown'
+export const MEMORY_STATUSES = ['ok', 'absent', 'unreadable_ignored', 'unknown'] as const
+export type MemoryStatus = typeof MEMORY_STATUSES[number]
+
+/**
+ * 认不出的一律读作 `unknown`。
+ *
+ * `task.json` 是 `JSON.parse` 出来的，类型在运行时一个值都不拦：`null`、拼错的字符串、
+ * 新版本写下的新取值，都会被原样抄进交付物。而报告只对 `unreadable_ignored`
+ * 与 `unknown` 两个**精确字符串**发警告 —— 于是一个认不出的值会**压掉警告**，
+ * 把一份没验证过的名单当成正常的交出去（ADR-47）。
+ *
+ * 白名单，不是黑名单：黑名单要求我列全「坏的取值」，而坏的取值是列不全的。
+ */
+export const asMemoryStatus = (v: unknown): MemoryStatus =>
+  (MEMORY_STATUSES as readonly unknown[]).includes(v) ? v as MemoryStatus : 'unknown'
 
 export interface AudienceRiskFlag {
   metric: AudienceRiskMetric

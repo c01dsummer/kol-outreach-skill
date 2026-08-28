@@ -20,7 +20,7 @@ import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
 import { renderHtml } from './lib/report.js'
 import {
-  filterByMemory, recordRecommendations, useMemoryFile, MemoryUnreadable,
+  filterByMemory, recordRecommendations, useMemoryFile, MemoryUnreadable, saveMemory,
 } from './lib/memory.js'
 import {
   finalize, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators,
@@ -37,6 +37,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMemoryStatus } from './lib/types.js'
 import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator,
   EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, TaskState,
@@ -752,6 +753,21 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     rmSync(d2, { recursive: true, force: true })
   }
 
+  // 八之六、并发的两个 render：双方读到同一份快照、各自加各自的，后写的那个
+  //        会把先写的整个盖掉，而两边的报告都说「已记入」。不做串行化，
+  //        但要**检测**出来并明确报失败 —— 静默丢失换成一次响的失败（ADR-47）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  recordRecommendations([mk('tiktok', 'first')], 'p')
+  const snapshot = rf(tmp, 'utf8')
+  const stale = JSON.parse(snapshot)
+  // 模拟「对方在这中间写了一轮」：盘上已经不是我读到的那份了
+  recordRecommendations([mk('tiktok', 'second')], 'p')
+  let raced = ''
+  try { saveMemory(stale, snapshot) } catch (e) { raced = (e as Error).name }
+  eq('盘上被别人改过时拒绝写回', raced, 'MemoryChangedUnderfoot')
+  ok('对方记下的那条还在，没有被盖掉',
+    Object.keys(JSON.parse(rf(tmp, 'utf8')).creators).includes('tiktok:second'))
+
   // 九、正常写回是原子的 —— 不留临时文件
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
   const okWb = recordRecommendations([mk('tiktok', 'erin')], 'p')
@@ -940,6 +956,13 @@ suite('P5', '交付必须声明数据边界')
   // 「这批人由早期版本采集」，而它其实是刚刚才产生的（ADR-43）。
   ok('不替用户编一个原因 —— 两个来源事后分不出',
     !legacy.includes('早期版本') && !legacy.includes('这批人由'))
+
+  // 认不出的取值（null、拼错、新版本写的）必须读作 unknown —— 否则报告只对
+  // 两个精确字符串警告，一个认不出的值会**压掉警告**（ADR-47）
+  eq('认不出的状态读作 unknown', asMemoryStatus('ok'), 'ok')
+  for (const bad of [null, undefined, 'okk', 'OK', 42, {}]) {
+    eq(`认不出的状态（${JSON.stringify(bad)}）读作 unknown`, asMemoryStatus(bad), 'unknown')
+  }
 
   const normal = renderHtml(one, { ...base, memory_status: 'ok', memory_written: true })
   ok('一切正常时不加噪音',

@@ -73,8 +73,21 @@ export class MemoryUnreadable extends Error {
 }
 
 type ReadResult =
-  | { status: 'ok' | 'absent'; mem: MemoryFile }
+  | { status: 'ok' | 'absent'; mem: MemoryFile; seen: string }
   | { status: 'unreadable'; detail: string }
+
+/** 盘上现在是什么。文件不存在也是一种「什么」，要能和「有内容」区分开 */
+function onDisk(): string {
+  try { return readFileSync(FILE, 'utf8') } catch { return '\u0000absent' }
+}
+
+/** 两个 render 同时跑时，后写的那个会把先写的整个盖掉 —— 见 saveMemory */
+export class MemoryChangedUnderfoot extends Error {
+  constructor() {
+    super('记忆文件在这次读改写之间被别的进程改过了 —— 直接写回会把对方刚记下的整个盖掉')
+    this.name = 'MemoryChangedUnderfoot'
+  }
+}
 
 const empty = (): MemoryFile => ({ version: 1, updated_at: '', creators: {} })
 
@@ -224,7 +237,7 @@ function readMemory(): ReadResult {
     // **只有「文件不存在」才是 absent。** 权限不足、父路径不是目录、IO 错误
     // 都是「没查到」—— 而 existsSync 对它们**统统返回 false**，拿它分档
     // 等于把刚拆开的三档又压回两档：名单照出，还报「记忆里确实没人」（ADR-26）。
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'absent', mem: empty() }
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'absent', mem: empty(), seen: '\u0000absent' }
     return { status: 'unreadable', detail: e instanceof Error ? e.message : String(e) }
   }
   let parsed: unknown
@@ -247,7 +260,7 @@ function readMemory(): ReadResult {
   // 而纠正不了的（形状错、撞键）当读不出来处理。
   const norm = normalizeKeys(mem.creators)
   if (!norm.ok) return { status: 'unreadable', detail: `结构不对 —— ${norm.why}` }
-  return { status: 'ok', mem: { ...mem, creators: norm.creators } }
+  return { status: 'ok', mem: { ...mem, creators: norm.creators }, seen: raw }
 }
 
 /** 读不出来就抛。要在读不出来时继续的调用方，走 filterByMemory 的显式开关。 */
@@ -310,7 +323,22 @@ function sweepStaleTemps(): void {
   }
 }
 
-export function saveMemory(mem: MemoryFile): void {
+/**
+ * 写回。`seen` 是读的那一刻盘上的原文 —— 传了就在改名前最后一刻再比一次。
+ *
+ * **临时名带 pid 只保住了临时文件，没保住这次读改写。** 两个 render 同时跑时，
+ * 双方都读到同一份快照、各自加上自己那批推荐、然后先后改名 —— 后写的那个
+ * 把先写的整个盖掉，而**两边的报告都说「已记入」**。丢掉的那批人下次会被
+ * 重新推荐一遍（ADR-47）。
+ *
+ * 没有加锁：锁文件自己就会留下陈旧锁，而判断锁陈不陈旧又要回到
+ * 「持有者还在吗」加「多久了」—— 同一个问题换了个文件名（ADR-44 已经走过一遍）。
+ *
+ * 所以只做**检测**，不做串行化：发现盘上变过就拒绝写回并报出来，用户重跑一次。
+ * **它把静默丢失换成了一次明确的失败，没有消灭并发。** 「比一次」到「改名生效」
+ * 之间仍有一道缝，缝里两个进程还是能撞上 —— 缝被压到最小，但不是零。
+ */
+export function saveMemory(mem: MemoryFile, seen?: string): void {
   mkdirSync(dirname(FILE), { recursive: true })
   sweepStaleTemps()
   mem.updated_at = new Date().toISOString()
@@ -324,7 +352,10 @@ export function saveMemory(mem: MemoryFile): void {
   // rename 把这个更宽松的权限一并装到目标上 —— 用户特意 chmod 600 过的记忆
   // （它记着谁联系过、备注写了什么），每成功写回一次就被悄悄放开一次（ADR-40）。
   // 文件不存在就用默认：新文件该多严是产品决定，不在这里顺手改。
-  writeFileAtomic(FILE, JSON.stringify(mem, null, 2))
+  writeFileAtomic(FILE, JSON.stringify(mem, null, 2),
+    seen === undefined ? undefined : () => {
+      if (onDisk() !== seen) throw new MemoryChangedUnderfoot()
+    })
 }
 
 export interface FilterResult {
@@ -449,7 +480,9 @@ export function recordRecommendations(
     mem.creators[k] = e
   }
   try {
-    saveMemory(mem)
+    // 带上读的那一刻盘上的原文：改名前最后一刻再比一次，别把并发的另一个
+    // render 刚记下的东西整个盖掉（ADR-47）
+    saveMemory(mem, r.seen)
   } catch (e) {
     // 写不进去（目录只读、磁盘满、路径被占）同样是**「没写回」,不是「交付失败」**。
     // 这一步跑在报告之前,让它抛会把已经算好的名单连同报告一起丢掉 ——
