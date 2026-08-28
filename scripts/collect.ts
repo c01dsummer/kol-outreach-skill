@@ -23,10 +23,10 @@ import {
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
 import {
-  taskDir, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators,
+  taskDir, taskFile, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators,
   persistListAndStatus,
 } from './lib/task.js'
-import { creatorKey } from './lib/types.js'
+import { creatorKey, textProblem } from './lib/types.js'
 import type { Creator, TaskState } from './lib/types.js'
 
 const MAX_PAGES = 4          // 实测值：第 4 页后新增人数明显衰减
@@ -46,20 +46,20 @@ const arg = (n: string) => {
 
 // ---------- 载入或恢复 ----------
 
-let dir: string
 let state: TaskState
+let productFrom: string        // 产品名是从哪读来的 —— 报错要指得出位置
 const resume = arg('--resume')
 
 if (resume) {
-  if (!existsSync(`${resume}/task.json`)) {
-    console.error(`找不到 ${resume}/task.json`)
+  if (!existsSync(taskFile(resume))) {
+    console.error(`找不到 ${taskFile(resume)}`)
     process.exit(2)
   }
-  dir = resume
-  state = loadTask(dir)
+  state = loadTask(resume)
+  productFrom = taskFile(resume)
   const newBudget = arg('--budget')
   if (newBudget) state.budget_usd = Number(newBudget)
-  console.error(`续跑 ${dir} —— 已完成 ${state.done.length}/${state.tasks.length} 个关键词，` +
+  console.error(`续跑 ${resume} —— 已完成 ${state.done.length}/${state.tasks.length} 个关键词，` +
                 `预算 $${state.budget_usd}`)
 } else {
   const cfgPath = arg('--config')
@@ -68,23 +68,31 @@ if (resume) {
     process.exit(2)
   }
   const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'))
-  // 产品名一路要用到最后：任务目录名、跨任务记忆里那条「为哪个产品推荐过」。
-  // 空的走不到最后 —— 记忆写回会拒收（记下的那条下次会被判成损坏，ADR-46）。
-  // **在花钱之前说，不是花完再说。**
-  if (typeof cfg.product !== 'string' || !cfg.product.trim()) {
-    console.error(`${cfgPath} 里的 product 是空的 —— 它要用作任务目录名，` +
-                  `也要记进跨任务记忆的「为哪个产品推荐过」。先给它一个名字再跑。`)
-    process.exit(2)
-  }
   state = {
     product: cfg.product, market: cfg.market ?? 'US',
     target_count: cfg.target_count ?? 50, budget_usd: cfg.budget_usd ?? 2,
     tasks: cfg.tasks, done: [], offsets: {}, requests: 0,
     created_at: new Date().toISOString(), updated_at: '',
   }
-  dir = taskDir(state.product)
-  saveTask(dir, state)
+  productFrom = cfgPath
 }
+
+// 产品名一路要用到最后：任务目录名、跨任务记忆里那条「为哪个产品推荐过」。
+// 空的走不到最后 —— 记忆写回会拒收（记下的那条下次会被判成损坏，ADR-46）。
+// **在花钱之前说，不是花完再说**，而且**两条入口都要说**：
+// 续跑读的是盘上的旧 task.json，它可能被手改过，也可能来自还没有这条校验的旧版本。
+// 原先只守住新建那条，于是 --resume 能带着一个空产品名一路采集、补 profile、
+// 花完钱，最后停在写回被拒 —— 钱花了，去重记录一条没记下（ADR-53）。
+const badProduct = textProblem(state.product)
+if (badProduct) {
+  console.error(`${productFrom} 里的 product ${badProduct} —— 它要用作任务目录名，` +
+                `也要记进跨任务记忆的「为哪个产品推荐过」。先给它一个名字再跑。`)
+  process.exit(2)
+}
+
+// 目录名就是产品名，所以只能等它过关之后才算得出来
+const dir = resume ?? taskDir(state.product)
+if (!resume) saveTask(dir, state)
 
 const key = process.env.TIKHUB_API_KEY
 if (!key) {

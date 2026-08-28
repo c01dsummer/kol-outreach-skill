@@ -77,12 +77,18 @@ function fsyncFile(path: string): void {
  * 内容已经落了盘、改名也成功了的写回变成失败。
  * **能吞的只有这一个** —— 上一版把文件和目录合成一个函数，于是文件那半
  * 也跟着被吞了。
+ *
+ * **关不上也要吞**，理由和打不开是同一个：这里没有一个失败值得让调用方
+ * 认为整件事没做成。`writeFileAtomic` 的那次调用尤其如此 —— 它跑在
+ * `renameSync` 之后，替换已经生效了，让一个关描述符的错逃出去，调用方就会
+ * 照着这个失败告诉用户「没写回、原文件一个字节没动」，而那是假话：
+ * 推荐记录已经落进去了。**一个说反了的结论比一次没刷成的目录严重得多**（ADR-53）。
  */
 function fsyncDirBestEffort(path: string): void {
   let fd: number | undefined
   try { fd = openSync(path, 'r'); fsyncSync(fd) }
   catch { /* 平台不支持刷目录 */ }
-  finally { if (fd !== undefined) closeSync(fd) }
+  finally { try { if (fd !== undefined) closeSync(fd) } catch { /* 同上，尽力而为 */ } }
 }
 
 /**

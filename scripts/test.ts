@@ -562,9 +562,11 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     shapes.push([`键的 handle 是展示形态或含 URL 字符（${bad}）`, JSON.stringify({ version: 1, creators: {
       [`tiktok:${bad}`]: { contacted: true, blocked: true, recommendations: [] } } })])
   }
-  // 类型对不等于能用：空 product 永远匹配不上任何产品，这条去重记录等于不存在
-  for (const [f, v] of [['product', ''], ['date', '']] as const) {
-    shapes.push([`推荐记录的 ${f} 是空字符串`, JSON.stringify({ version: 1, creators: {
+  // 类型对不等于能用：空 product 永远匹配不上任何产品，这条去重记录等于不存在。
+  // 全是空白的和不是字符串的一样不行 —— 判据只有一份（types.ts），三处都问它。
+  for (const [f, v] of
+    [['product', ''], ['date', ''], ['product', '   '], ['date', 7]] as const) {
+    shapes.push([`推荐记录的 ${f} 是 ${JSON.stringify(v)}`, JSON.stringify({ version: 1, creators: {
       'tiktok:a': { contacted: false, blocked: false, recommendations:
         [{ product: 'p', date: '2026-01-01', [f]: v }] } } })])
   }
@@ -761,6 +763,10 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
   const blank = recordRecommendations([mk('tiktok', 'zed')], '   ')
   eq('产品名是空白时拒绝写回', blank.written, false)
+  // 不是字符串的也拒绝：手改过的 task.json 里 product 可能是数字、null、对象，
+  // 而写入侧原先只 trim —— 那会直接抛，绕开「报为未写回、照常交付」这条路。
+  const notText = recordRecommendations([mk('tiktok', 'zed')], 7 as unknown as string)
+  eq('产品名不是字符串时同样拒绝写回', notText.written, false)
   eq('记忆仍然读得出来 —— 没有被自己写的东西毒掉', filterByMemory([mk('tiktok', 'zed')], 'X').memory_status, 'ok')
 
   // 落盘要保住目标原有的权限位 —— 这一段和记忆那边现在是同一个函数

@@ -100,6 +100,21 @@ export type ActivityStatus = 'active' | 'cooling' | 'dormant'
 export const creatorKey = (c: { platform: string; handle: string }): string =>
   `${c.platform.toLowerCase()}:${c.handle.toLowerCase()}`
 
+/**
+ * 一个必填的文字字段能不能用：**是字符串，而且去掉首尾空白之后还剩东西**。
+ *
+ * 判据来自读取侧 —— 记忆里一条产品名为空白的推荐记录，永远匹配不上任何产品，
+ * 等于这条去重记录不存在。所以读进来、写出去、以及花钱之前，问的必须是同一个函数。
+ *
+ * 曾经各写各的：结构校验里两份、写回前一份，而续跑那条路上一份都没有 ——
+ * 于是 `--resume` 能带着一个空产品名一路花钱到写回被拒（ADR-53）。
+ * 判据本身没错，错在它得靠人记得在每条新路径上抄一遍。
+ */
+export const textProblem = (v: unknown): string | undefined =>
+  typeof v !== 'string' ? `不是字符串（${typeof v}）`
+    : !v.trim() ? '是空的'
+      : undefined
+
 export const MEMORY_STATUSES = ['ok', 'absent', 'unreadable_ignored', 'unknown'] as const
 export type MemoryStatus = typeof MEMORY_STATUSES[number]
 

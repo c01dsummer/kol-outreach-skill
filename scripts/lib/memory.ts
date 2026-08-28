@@ -3,7 +3,7 @@ import {
   statSync, chmodSync,
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import { PLATFORMS, creatorKey, type Creator, type MemoryStatus, type Platform } from './types.js'
+import { PLATFORMS, creatorKey, textProblem, type Creator, type MemoryStatus, type Platform } from './types.js'
 import { ABSENT_FILE, isAbsence, mkdirDurable, readIfExists, writeFileAtomic } from './atomic.js'
 
 /** D4：本地单文件，不做多人共享。团队场景需另行设计。 */
@@ -125,8 +125,11 @@ function shapeProblem(v: unknown): string | undefined {
       // date 用来渲染「上次推的是什么、什么时候」。空字符串两件事都做不了 ——
       // 一条空 product 的记录永远匹配不上任何产品，等于这条去重记录不存在（ADR-37）。
       // task 不在此列：空字符串与缺省在过滤里行为完全一致，不是坏数据。
-      if (typeof rr.product !== 'string' || !rr.product.trim()) return `${at}的 product 不是非空字符串`
-      if (typeof rr.date !== 'string' || !rr.date.trim()) return `${at}的 date 不是非空字符串`
+      // 判据本身在 types.ts，只此一份 —— 写回前与花钱前问的是同一个函数（ADR-53）。
+      const badProduct = textProblem(rr.product)
+      if (badProduct) return `${at}的 product ${badProduct}`
+      const badDate = textProblem(rr.date)
+      if (badDate) return `${at}的 date ${badDate}`
       if (rr.task !== undefined && typeof rr.task !== 'string') return `${at}的 task 不是字符串`
     }
   }
@@ -474,10 +477,11 @@ export function recordRecommendations(
   // 变成读不出来的，此后每一次采集都被挡住，直到有人手工去修（ADR-46）。
   //
   // 判据是**读取侧实际会拒绝什么**，不是「这个值看起来合不合理」。
-  const want = product.trim()
-  if (!want) {
-    return { written: false, reason: '任务的产品名是空的 —— 记不下来，因为记下的这条下次会被判成损坏' }
+  const badProduct = textProblem(product)
+  if (badProduct) {
+    return { written: false, reason: `任务的产品名${badProduct} —— 记不下来，因为记下的这条下次会被判成损坏` }
   }
+  const want = product.trim()
   // 生成出去的键也要过同一道校验。只校验读进来的那一侧，写出去的这一侧
   // 就能造出一个自己下次读不出来的文件（ADR-51）。
   for (const c of creators) {
