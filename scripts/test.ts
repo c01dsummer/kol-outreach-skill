@@ -18,19 +18,26 @@ import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
 import { renderHtml } from './lib/report.js'
-import { filterByMemory, useMemoryFile } from './lib/memory.js'
-import { finalize, pendingKeywords, rankCreators, keywordStats, tierCounts } from './lib/pipeline.js'
+import {
+  filterByMemory, recordRecommendations, useMemoryFile, MemoryUnreadable,
+} from './lib/memory.js'
+import {
+  finalize, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators,
+  keywordStats, tierCounts,
+} from './lib/pipeline.js'
 import {
   ACTIVITY_ACTIVE_MAX_DAYS, ACTIVITY_COOLING_MAX_DAYS,
   accountKey, assignAudienceRisks, attachAssessments, calculatePublicMetrics,
   calculateQuoteEfficiency, measured, publicPostSample, recomputeCachedAssessment, unavailable,
 } from './lib/assessment.js'
-import { writeFileSync, unlinkSync } from 'node:fs'
+import {
+  writeFileSync, unlinkSync, truncateSync, readdirSync, mkdirSync, rmSync, existsSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator,
-  EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost,
+  EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, TaskState,
 } from './lib/types.js'
 
 let fail = 0
@@ -50,6 +57,18 @@ const ok = (label: string, cond: boolean) => eq(label, cond, true)
  * 混进去会让「覆盖 N 条需求」那个数字变成一个虚报的数。
  */
 const harness = (name: string) => { console.log(`\n[harness] ${name}`) }
+
+/**
+ * 认领一个**交点**。
+ *
+ * 交点上的测试不属于任何一条需求 —— 在「每条需求有没有测试」这个计量下,
+ * 写了不加分,不写不扣分,于是没人写。审计按登记表里声明的交点逐个找这句话,
+ * 找不到就报缺口;含红线的交点找不到就是硬失败(ADR-17)。
+ */
+const crossing = (a: string, b: string) => {
+  covered.add(a); covered.add(b)
+  console.log(`  ⇄ 交点 ${a} × ${b}`)
+}
 
 /**
  * 从 xlsx 里真正读回 sheet 名。
@@ -324,7 +343,34 @@ suite('P4', '已联系/屏蔽的人不得进入名单')
   useMemoryFile('memory/creators.json')
 }
 
-suite('D6', '续跑不得被本任务自己上一轮的产出滤空')
+suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不在 done 里的」')
+{
+  const st = (over: Partial<TaskState> = {}): TaskState => ({
+    product: 'p', market: 'US', target_count: 50, budget_usd: 1,
+    tasks: [{ keyword: 'a', dimension: 'category', platform: 'tiktok' },
+            { keyword: 'b', dimension: 'scene', platform: 'tiktok' }],
+    done: [], offsets: {}, requests: 0, created_at: '', updated_at: '', ...over,
+  })
+  // 达标提前停下：剩下的关键词一个都没碰过，也没被标记完成 ——
+  // 但续跑的第一件事是再查一次达标，一个请求都不会发。
+  eq('没达标 → 剩下的关键词续跑会去抓', keywordsResumeWillRun(st(), 10).length, 2)
+  eq('已达标 → 续跑一个关键词都不会抓', keywordsResumeWillRun(st(), 50).length, 0)
+  eq('超出目标同理', keywordsResumeWillRun(st(), 99).length, 0)
+  eq('已标记完成的本来就不算', keywordsResumeWillRun(st({ done: [0] }), 10).length, 1)
+  // pendingKeywords 仍然报「还没跑完的」—— 它服务的是进度，不是花钱
+  eq('进度口径不受达标影响', pendingKeywords(st()).length, 2)
+}
+
+suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环与「续跑要花多少钱」共用它')
+{
+  const c = (over: Partial<Creator>) => mk('tiktok', 'x', over)
+  ok('bio 未查询 → 还要补', needsProfile(c({ bio: undefined })))
+  ok('查过了但没有外链 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
+  eq('查过且有外链 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
+  // 这个判定决定要不要花钱：说「续跑不产生新请求」之前，它必须对每个人都是 false
+}
+
+suite('D6', '续跑不得被本任务自己上一轮的产出滤空')  // 与 D4 的交点，见块尾
 {
   const tmp = join(tmpdir(), `kol-d6-${process.pid}.json`)
   const entry = (h: string, task: string) => ({
@@ -351,6 +397,8 @@ suite('D6', '续跑不得被本任务自己上一轮的产出滤空')
 
   unlinkSync(tmp)
   useMemoryFile('memory/creators.json')
+  // D4 × D6 的交点：记忆过滤要让路给续跑，否则已付费采集的人会凭空消失（ADR-08）
+  crossing('D4', 'D6')
 }
 
 // ─────────────────── 管线：单步都对，错的是组合方式 ───────────────────
@@ -407,6 +455,227 @@ suite('P4', '收尾管线：闸门在记忆过滤之前，不虚报打扰规模'
   useMemoryFile('memory/creators.json')
 }
 
+suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过')
+{
+  const tmp = join(tmpdir(), `kol-d4-${process.pid}.json`)
+  const person = (h: string, over: Record<string, unknown> = {}) => ({
+    platform: 'tiktok', handle: h, nickname: h, followers: 50000, first_seen: '2026-01-01',
+    recommendations: [], contacted: false, replied: false, blocked: false, note: '', ...over,
+  })
+  const batch = [mk('tiktok', 'alice'), mk('tiktok', 'erin')]
+
+  // 一、文件不存在 = 查过，记忆里确实没有人
+  useMemoryFile(join(tmpdir(), `kol-d4-none-${process.pid}.json`))
+  const absent = filterByMemory(batch, 'p')
+  eq('文件不存在时报 absent', absent.memory_status, 'absent')
+  eq('文件不存在时全员保留', absent.kept.length, 2)
+
+  // 二、读不出来 = 没查到。**不得与上一档同值**
+  writeFileSync(tmp, JSON.stringify({
+    version: 1, updated_at: '', creators: { 'tiktok:alice': person('alice', { contacted: true }) },
+  }), 'utf8')
+  truncateSync(tmp, Math.floor(rf(tmp, 'utf8').length * 0.6))
+  const broken = rf(tmp, 'utf8')
+  useMemoryFile(tmp)
+
+  let threw = ''
+  try { filterByMemory(batch, 'p') } catch (e) { threw = (e as Error).name }
+  eq('读不出来时抛出而不是返回名单', threw, 'MemoryUnreadable')
+
+  // 三、显式跳过 = 出名单，但状态必须说出去
+  const ignored = filterByMemory(batch, 'p', undefined, { ignoreUnreadable: true })
+  eq('显式跳过时出名单', ignored.kept.length, 2)
+  eq('显式跳过不得伪装成 absent', ignored.memory_status, 'unreadable_ignored')
+
+  // 四、读不出来时绝不写回 —— 盖掉它就永久抹掉了「谁联系过」
+  const wb = recordRecommendations(ignored.kept, 'p')
+  eq('读不出来时不写回', wb.written, false)
+  eq('磁盘上仍是那份读不出来的文件，一个字节没动', rf(tmp, 'utf8'), broken)
+
+  // 五、解析成功不等于形状对。这个文件是产品要求运营手改的，
+  //     手改很容易改出一份合法 JSON、错误结构的记忆（ADR-19）。
+  const shapes: Array<[string, string]> = [
+    ['creators 是数组', '{"version":1,"creators":[]}'],
+    ['顶层是数组', '[]'],
+    ['条目缺 contacted', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { recommendations: [] } } })],
+    ['contacted 写成字符串', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: 'true', blocked: false, recommendations: [] } } })],
+    ['recommendations 不是数组', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false, recommendations: null } } })],
+    // 容器对了不等于里面的东西对：过滤逐条读 task / product / date
+    ['推荐记录是空对象', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false, recommendations: [{}] } } })],
+    ['推荐记录是 null', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false, recommendations: [null] } } })],
+    ['推荐记录缺 date', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false,
+        recommendations: [{ product: 'p' }] } } })],
+    ['推荐记录的 task 不是字符串', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false,
+        recommendations: [{ product: 'p', date: '2026-01-01', task: 7 }] } } })],
+    // 键本身也得能用：查询侧按 platform:handle 小写化去找，
+    // 一个找不到的键是个静默的黑洞
+    ['键没有冒号', JSON.stringify({ version: 1, creators: {
+      alice: { contacted: true, blocked: false, recommendations: [] } } })],
+    ['键的 handle 是空的', JSON.stringify({ version: 1, creators: {
+      'tiktok:': { contacted: true, blocked: false, recommendations: [] } } })],
+    ['两个键指同一个人', JSON.stringify({ version: 1, creators: {
+      'tiktok:Alice': { contacted: true, blocked: false, recommendations: [] },
+      'tiktok:alice': { contacted: false, blocked: false, recommendations: [] } } })],
+    // 「有个冒号」远不够：查询侧生成的键是什么形状，这里就得要求什么形状
+    ['键的平台拼错了', JSON.stringify({ version: 1, creators: {
+      'tikok:a': { contacted: true, blocked: false, recommendations: [] } } })],
+    ['键的平台不在支持范围内', JSON.stringify({ version: 1, creators: {
+      'youtube:a': { contacted: true, blocked: false, recommendations: [] } } })],
+    ['键里多一个分隔符', JSON.stringify({ version: 1, creators: {
+      'tiktok:a:old': { contacted: true, blocked: false, recommendations: [] } } })],
+    // 同一间屋子的第四扇门：两边非空、平台也对，只差一个空格，
+    // 而查询侧生成的键里永远不会有空白（ADR-32）
+    ['键的 handle 尾部带空格', JSON.stringify({ version: 1, creators: {
+      'tiktok:a ': { contacted: true, blocked: true, recommendations: [] } } })],
+    ['键的 handle 头部带空格', JSON.stringify({ version: 1, creators: {
+      'tiktok: a': { contacted: true, blocked: true, recommendations: [] } } })],
+    ['键的 handle 中间带空格', JSON.stringify({ version: 1, creators: {
+      'tiktok:a b': { contacted: true, blocked: true, recommendations: [] } } })],
+    ['键里带制表符', JSON.stringify({ version: 1, creators: {
+      'tiktok:a\t': { contacted: true, blocked: true, recommendations: [] } } })],
+  ]
+  for (const [label, content] of shapes) {
+    writeFileSync(tmp, content, 'utf8')
+    let caught = ''
+    try { filterByMemory(batch, 'p') } catch (e) { caught = (e as Error).name }
+    eq(`合法 JSON 但${label} → 当作读不出来`, caught, 'MemoryUnreadable')
+  }
+  // 但不做全量 schema：运营自己加的字段不该被判成损坏
+  writeFileSync(tmp, JSON.stringify({ version: 1, creators: { 'tiktok:a': {
+    contacted: false, blocked: false, 我的备注: '随手写的',
+    recommendations: [{ product: 'p', date: '2026-01-01', 我的批注: '记一笔' }] } } }), 'utf8')
+  eq('多出来的自定义字段不算损坏', filterByMemory(batch, 'p').memory_status, 'ok')
+
+  // 六、读不到但**不是**「文件不存在」—— 权限、父路径不是目录、IO 错误。
+  //     existsSync 对这些统统返回 false，拿它分档等于把三档压回两档（ADR-26）。
+  const notADir = join(tmpdir(), `kol-d4-notadir-${process.pid}`)
+  writeFileSync(notADir, '我是文件，不是目录', 'utf8')
+  useMemoryFile(join(notADir, 'creators.json'))
+  let enoentish = ''
+  try { filterByMemory(batch, 'p') } catch (e) { enoentish = (e as Error).name }
+  eq('读不到但不是「不存在」→ 当作读不出来，不是空记忆', enoentish, 'MemoryUnreadable')
+  unlinkSync(notADir)
+  // 真正不存在的文件仍然是 absent
+  useMemoryFile(join(tmpdir(), `kol-d4-really-none-${process.pid}.json`))
+  eq('文件真的不存在 → 仍然是 absent', filterByMemory(batch, 'p').memory_status, 'absent')
+  useMemoryFile(tmp)
+
+  // 七、写不进去也是「没写回」，不是「交付失败」。
+  //     这一步跑在报告之前，让它抛会把算好的名单连同报告一起丢掉，
+  //     而原文件本来就完好 —— 真实损失只有这一轮的记录（ADR-19）。
+  // 要的是**读得出来但写不进去**：在写回用的临时文件名上放一个目录，
+  // 于是读照常成功，写必然失败（容器里跑 root，chmod 拦不住写）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  const blocker = `${tmp}.${process.pid}.tmp`
+  mkdirSync(blocker, { recursive: true })
+  eq('这一步记忆仍然读得出来', filterByMemory(batch, 'p').memory_status, 'ok')
+  const blocked = recordRecommendations([mk('tiktok', 'erin')], 'p')
+  eq('写不进去时不抛，报「没写回」', blocked.written, false)
+  ok('并带上原因', !blocked.written && blocked.reason.length > 0)
+  ok('原文件没被动过', JSON.parse(rf(tmp, 'utf8')).creators.erin === undefined)
+  rmSync(blocker, { recursive: true, force: true })
+
+  // 八、硬杀（SIGKILL、断电）发生在写临时文件与 rename 之间时，catch 不会跑，
+  //     一份完整的临时文件留在盘上。任何 write-then-rename 都躲不掉这一格，
+  //     能做的是下次写回时把它清掉 —— 但只清死掉的进程留下的（ADR-30）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  const deadPid = 999999          // 不存在的进程
+  const orphan = `${tmp}.${deadPid}.tmp`
+  const liveOrphan = `${tmp}.${process.pid + 0}.tmp`
+  writeFileSync(orphan, '上一次被硬杀时留下的', 'utf8')
+  recordRecommendations([mk('tiktok', 'erin')], 'p')
+  eq('死掉的进程留下的临时文件被清掉', existsSync(orphan), false)
+
+  // 但活着的进程正在写的那份不许动 —— 两个 render 同时跑时那是人家的
+  const otherLive = `${tmp}.${process.ppid}.tmp`
+  writeFileSync(otherLive, '别的进程正在写', 'utf8')
+  recordRecommendations([mk('tiktok', 'erin')], 'p')
+  ok('活着的进程的临时文件不动', existsSync(otherLive))
+  rmSync(otherLive, { force: true })
+  rmSync(liveOrphan, { force: true })
+
+  // 九、正常写回是原子的 —— 不留临时文件
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  const okWb = recordRecommendations([mk('tiktok', 'erin')], 'p')
+  eq('正常时写回成功', okWb.written, true)
+  eq('不留下半成品', readdirSync(tmpdir()).filter(f =>
+    f.startsWith(`kol-d4-${process.pid}`) && f.endsWith('.tmp')).length, 0)
+  ok('写回后仍可解析', (() => { try { JSON.parse(rf(tmp, 'utf8')); return true } catch { return false } })())
+
+  unlinkSync(tmp)
+  useMemoryFile('memory/creators.json')
+}
+
+suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得靠一个解析错误重新进来')
+{
+  const tmp = join(tmpdir(), `kol-p4d4-${process.pid}.json`)
+  writeFileSync(tmp, JSON.stringify({
+    version: 1, updated_at: '', creators: {
+      'tiktok:contacted': { platform: 'tiktok', handle: 'contacted', nickname: '', followers: 50000,
+        first_seen: '2026-01-01', recommendations: [], contacted: true, replied: false,
+        blocked: false, note: '' },
+      'tiktok:blocked': { platform: 'tiktok', handle: 'blocked', nickname: '', followers: 50000,
+        first_seen: '2026-01-01', recommendations: [], contacted: false, replied: false,
+        blocked: true, note: '' },
+    },
+  }), 'utf8')
+  useMemoryFile(tmp)
+  const batch = [mk('tiktok', 'contacted', { followers: 50000 }),
+                 mk('tiktok', 'blocked', { followers: 50000 }),
+                 mk('tiktok', 'fresh', { followers: 50000 })]
+
+  eq('记忆完好时只剩没联系过的那个', finalize(batch, 'p').kept.map(c => c.handle), ['fresh'])
+
+  truncateSync(tmp, Math.floor(rf(tmp, 'utf8').length * 0.6))
+
+  let threw = ''
+  try { finalize(batch, 'p') } catch (e) { threw = (e as Error).name }
+  eq('同一份记忆坏掉后：抛，而不是交出一份含已联系者的名单', threw, 'MemoryUnreadable')
+
+  // D1 × P4 的交点：身份规范化两侧必须逐字一致。查询侧一直在小写化、
+  // 存储侧没有，于是手改出来的 `tiktok:Alice` 永远查不到 —— 已联系的人
+  // 照进名单，而状态报的是「读到了」（ADR-22）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, creators: {
+    'tiktok:Contacted': { platform: 'tiktok', handle: 'contacted', nickname: '', followers: 50000,
+      first_seen: '2026-01-01', recommendations: [], contacted: true, replied: false,
+      blocked: false, note: '' },
+  } }), 'utf8')
+  eq('键的大小写不影响身份 —— 已联系的人照样被挡在外面',
+    finalize([mk('tiktok', 'contacted', { followers: 50000 })], 'p').kept.length, 0)
+  crossing('D1', 'P4')
+
+  // 同一条红线的另一扇门：合法 JSON、错误结构。产品要求运营手改这个文件，
+  // 把花括号改成方括号是最容易的一种手滑，而它照样能解析（ADR-19）。
+  writeFileSync(tmp, '{"version":1,"creators":[]}', 'utf8')
+  let shapeThrew = ''
+  try { finalize(batch, 'p') } catch (e) { shapeThrew = (e as Error).name }
+  eq('结构不对时也不得交出一份含已联系者的名单', shapeThrew, 'MemoryUnreadable')
+
+  truncateSync(tmp, Math.floor(rf(tmp, 'utf8').length * 0.6))
+  const forced = finalize(batch, 'p', undefined, { ignoreUnreadableMemory: true })
+  eq('逃生口下确实放行了已联系的人', forced.kept.length, 3)
+  eq('但这件事必须能被下游读到', forced.memory_status, 'unreadable_ignored')
+
+  // 真正要守的是这个：「没查到」与「查过、确实没人」在下游必须不同值。
+  // 两者的 filtered_contacted 都是 0，能分开它们的只剩 memory_status。
+  useMemoryFile(join(tmpdir(), `kol-p4d4-none-${process.pid}.json`))
+  const cleanEmpty = finalize(batch, 'p')
+  eq('空记忆同样一个都没滤掉', cleanEmpty.filtered_contacted, forced.filtered_contacted)
+  ok('但两者不是同一个状态 —— 0 不再同时代表两件事',
+     cleanEmpty.memory_status !== forced.memory_status)
+
+  unlinkSync(tmp)
+  useMemoryFile('memory/creators.json')
+  crossing('P4', 'D4')
+}
+
 suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时不中断')
 {
   const withGeo = (pct: number) =>
@@ -419,6 +688,20 @@ suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时�
   // F5：没有增强层时 audience_geo 为 undefined，主流程照常走完
   const noGeo = mk('tiktok', 'n', { email: 'a@example.com', fit: '✅' })
   eq('无增强数据不影响分层', rankCreators([noGeo], 'US')[0].tier, 'A')
+
+  // F5 × P1 的交点：**只降能力，不降数据**。
+  // 主流程要走完（F5），但走完不等于把缺失的东西填上（P1）——
+  // 压力永远推向后者，因为填了值以后交付物看起来是完整的。
+  const blind = rankCreators(
+    [mk('tiktok', 'blind', { email: 'a@example.com', fit: '✅', followers: undefined })], 'US')
+  eq('缺数据时主流程照常走完 —— 这是降能力', blind.length, 1)
+  eq('走完了也不给缺失的粉丝数填一个值 —— 不降数据', blind[0].followers, undefined)
+  eq('也不因为「不知道」就当作达标给分', blind[0].score, scoreCreator(
+    mk('tiktok', 'blind', { email: 'a@example.com', fit: '✅', followers: undefined })))
+  ok('未知粉丝数不得拿到粉丝区间那 20 分',
+    scoreCreator(mk('tiktok', 'x', { followers: undefined })) <
+    scoreCreator(mk('tiktok', 'x', { followers: 50000 })))
+  crossing('F5', 'P1')
 }
 
 suite('U1', '分层管线返回的名单已按 tier 排好序')
@@ -472,6 +755,40 @@ suite('P5', '交付必须声明数据边界')
   })
   ok('空名单也不隐藏全局数据边界',
     empty.includes('未做有效性验证') && empty.includes('无法确认'))
+
+  // 记忆失效的两件事分开声明：这一批可能重复打扰（P4 没跑），
+  // 下一批可能重复推荐（这一批没记下）。后果不同，不能合成一句。
+  const base = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+    total: 1, tiers: { A: 1, B: 0, C: 0 }, email_count: 1,
+    cross_platform_count: 0, requests: 1, cost_estimate_usd: 0.001,
+    budget_usd: 2, enriched: true }
+  const one = [mk('tiktok', 'a', { tier: 'A', score: 50 })]
+
+  const skipped = renderHtml(one, { ...base, memory_status: 'unreadable_ignored',
+                                    memory_written: true })
+  ok('未去重的名单必须在报告上说出来', skipped.includes('未做「已联系 / 已推荐」去重'))
+  ok('未去重时点明后果是可能重复打扰', skipped.includes('已经联系过'))
+
+  const unwritten = renderHtml(one, { ...base, memory_status: 'ok', memory_written: false,
+                                      memory_write_error: 'EACCES: permission denied' })
+  ok('没写回记忆也必须说出来', unwritten.includes('未记入跨任务记忆'))
+  ok('没写回时不误报成没去重', !unwritten.includes('未做「已联系 / 已推荐」去重'))
+  // 没写回有两个原因：读不出来（去修 JSON）和写不进去（去看权限或磁盘）。
+  // 报告替用户断定成前者，磁盘满的人会对着一份没坏的文件较劲（ADR-20）。
+  ok('把真实原因带给用户', unwritten.includes('EACCES'))
+  ok('不替用户断定是文件坏了', !unwritten.includes('读不出来'))
+
+  // 旧任务目录没有这个字段，而当时读不出来的记忆会被静默当成空记忆 ——
+  // 所以「不知道」必须说出口，不能悄悄当成「没问题」（ADR-18）。
+  const legacy = renderHtml(one, { ...base, memory_status: 'unknown', memory_written: true })
+  ok('去重状态无从确认时也要说出来', legacy.includes('无从确认'))
+  ok('说的是不知道，不是「你跳过了」', !legacy.includes('运行时显式跳过'))
+  ok('并给出拿到确定答案的办法', legacy.includes('重跑'))
+
+  const normal = renderHtml(one, { ...base, memory_status: 'ok', memory_written: true })
+  ok('一切正常时不加噪音',
+    !normal.includes('未做「已联系 / 已推荐」去重') && !normal.includes('未记入跨任务记忆') &&
+    !normal.includes('无从确认'))
 }
 
 // ─────────────────────────── 数据 ───────────────────────────
@@ -1272,4 +1589,5 @@ console.log(fail ? `\n${fail} 个失败\n` : `\n全部通过（覆盖 ${covered.
 if (process.argv.includes('--json')) {
   console.log('COVERED=' + JSON.stringify([...covered]))
 }
+
 process.exit(fail ? 1 : 0)

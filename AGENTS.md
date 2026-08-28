@@ -46,7 +46,7 @@
 | 你要做的事 | 读 |
 |---|---|
 | 写/改需求 | `process/1-REQUIREMENTS.md` |
-| 想改需求、或想说"这个太麻烦" | `process/2-CHANGE.md` |
+| 想改需求、撞见两条需求打架、或想说"这个太麻烦" | `process/2-CHANGE.md` |
 | 写代码 | `process/3-BUILD.md` + **`docs/CONVENTIONS.md`** |
 | 写测试 | `process/4-VERIFY.md` —— **写测试前必读** |
 | 改模块边界、调用顺序或对外契约 | `process/5-DESIGN.md` + **`docs/ARCHITECTURE.md`** |

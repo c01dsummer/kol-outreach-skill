@@ -141,6 +141,25 @@ export function renderHtml(creators: Creator[], meta: any): string {
     ? meta.capabilities.audience_geo.total === 0 ||
       meta.capabilities.audience_geo.measured < meta.capabilities.audience_geo.total
     : !meta.enriched
+  // P4/P5（ADR-15）：去重没跑，用户必须在发信之前知道。这一条排在最前面 ——
+  // 其余几条是「数据可能不全」，这一条是「这份名单可能让你二次打扰同一个人」。
+  if (meta.memory_status === 'unreadable_ignored') {
+    notes.push('本次名单未做「已联系 / 已推荐」去重（记忆文件读不出来，运行时显式跳过）—— ' +
+               '名单里可能包含你已经联系过、甚至已经拉黑的人。发信前请自行核对。')
+  } else if (meta.memory_status === 'unknown') {
+    // 说「不知道」，不说「没问题」：产出这批人的那一版采集，遇到读不出来的记忆
+    // 会静默当成空记忆，所以这份名单到底去没去重，事后查不出来（ADR-18）。
+    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认（这批人由早期版本采集，' +
+               '当时记忆文件读不出来会被静默当成空记忆）—— ' +
+               '名单里可能包含你已经联系过的人。重跑一次采集即可得到确定答案。')
+  }
+  if (meta.memory_written === false) {
+    // 不替用户断定原因：读不出来要去修 JSON，写不进去要去看权限或磁盘。
+    // 写死成前者，会让磁盘满的人对着一份没坏的文件较劲（ADR-20）。
+    notes.push('本次推荐未记入跨任务记忆（原文件未被改动）—— ' +
+               `原因：${meta.memory_write_error ?? '未记录'}。` +
+               '在解决之前，下一批名单可能重复推荐这批人。')
+  }
   if (missingEmailVerification) {
     notes.push('邮箱来自 bio 提取，未做有效性验证，建议首轮小批量试发观察退信率。')
   }

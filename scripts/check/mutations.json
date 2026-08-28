@@ -182,8 +182,8 @@
       "req": "P4",
       "why": "记忆过滤跑在粉丝闸门之前 —— filtered_contacted 把连闸门都过不了的人也算进去，向用户虚报打扰规模",
       "file": "scripts/lib/pipeline.ts",
-      "find": "  const gated = merged.filter(passesFollowerGate)\n\n  const { kept, filtered_recommended, filtered_contacted } = filterByMemory(gated, product, task)",
-      "replace": "  const pre = filterByMemory(merged, product, task)\n  const { filtered_recommended, filtered_contacted } = pre\n  const kept = pre.kept.filter(passesFollowerGate)"
+      "find": "  const gated = merged.filter(passesFollowerGate)\n\n  const { kept, filtered_recommended, filtered_contacted, memory_status } =\n    filterByMemory(gated, product, task, { ignoreUnreadable: opts.ignoreUnreadableMemory })",
+      "replace": "  const pre = filterByMemory(merged, product, task,\n                            { ignoreUnreadable: opts.ignoreUnreadableMemory })\n  const { filtered_recommended, filtered_contacted, memory_status } = pre\n  const kept = pre.kept.filter(passesFollowerGate)"
     },
     {
       "id": "M-F5-a",
@@ -288,6 +288,174 @@
       "file": "scripts/lib/assessment.ts",
       "find": "  const { audience_quality_risk: _assignedElsewhere, ...rest } = m\n  return canonical(rest)",
       "replace": "  return canonical(m)"
+    },
+    {
+      "id": "M-P4-c",
+      "req": "P4",
+      "why": "记忆文件读不出来时退化成一份空记忆 —— 已联系和已屏蔽的人靠一个解析错误重新进名单",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (!opts.ignoreUnreadable) throw new MemoryUnreadable(FILE, r.detail)",
+      "replace": "    /* mutated */"
+    },
+    {
+      "id": "M-P4-d",
+      "req": "P4",
+      "why": "解析成功就当结构没问题 —— 一份合法 JSON、错误结构的记忆让打扰过和已拉黑的人全部重新进名单，而状态报的是「读到了」",
+      "file": "scripts/lib/memory.ts",
+      "find": "  const bad = shapeProblem(parsed)\n  if (bad) return { status: 'unreadable', detail: `结构不对 —— ${bad}` }",
+      "replace": "  /* mutated */"
+    },
+    {
+      "id": "M-P4-f",
+      "req": "P4",
+      "why": "记忆里的键不再规范化 —— 手改出来的一个大写字母，就让已联系、已拉黑的人重新进名单，而状态照报「读到了」",
+      "file": "scripts/lib/memory.ts",
+      "find": "    const norm = `${rawPlatform.toLowerCase()}:${rawHandle.toLowerCase()}`",
+      "replace": "    const norm = raw"
+    },
+    {
+      "id": "M-D4-a",
+      "req": "D4",
+      "why": "把「读不出来」报成「文件不存在」—— 交付物上再也分不清「确实没人需要过滤」和「没查到」",
+      "file": "scripts/lib/memory.ts",
+      "find": "      memory_status: 'unreadable_ignored',",
+      "replace": "      memory_status: 'absent',"
+    },
+    {
+      "id": "M-D4-b",
+      "req": "D4",
+      "why": "记忆读不出来时照样写回 —— 一份「谁都没联系过」的记忆盖掉原文件，contacted 和 blocked 永久消失",
+      "file": "scripts/lib/memory.ts",
+      "find": "  if (r.status === 'unreadable') return { written: false, reason: r.detail }\n  const mem = r.mem",
+      "replace": "  const mem = r.status === 'unreadable' ? empty() : r.mem"
+    },
+    {
+      "id": "M-D4-c",
+      "req": "D4",
+      "why": "写回改成直接盖原文件 —— 写到一半被打断就留下一份截断的 memory/creators.json，而它是唯一一份",
+      "file": "scripts/lib/memory.ts",
+      "find": "    writeFileSync(tmp, JSON.stringify(mem, null, 2), 'utf8')\n    renameSync(tmp, FILE)",
+      "replace": "    writeFileSync(tmp, JSON.stringify(mem, null, 2), 'utf8')\n    writeFileSync(FILE, JSON.stringify(mem, null, 2), 'utf8')"
+    },
+    {
+      "id": "M-D4-e",
+      "req": "D4",
+      "why": "记忆写不进去时把整个交付一起丢掉 —— 已经算好的名单和报告都没了，而记忆原文件本来就完好，真实损失只有这一轮的记录",
+      "file": "scripts/lib/memory.ts",
+      "find": "  try {\n    saveMemory(mem)\n  } catch (e) {",
+      "replace": "  saveMemory(mem)\n  if (false) {\n    const e = new Error('mutated')"
+    },
+    {
+      "id": "M-D4-f",
+      "req": "D4",
+      "why": "推荐记录只看容器不看里面 —— 一条空记录让「已推荐过」这件事悄悄消失，名单上还留下一个没有值的标注；一条 null 直接崩，绕开「退出码 2 加一句人照做得了的报错」那条路",
+      "file": "scripts/lib/memory.ts",
+      "find": "    for (const [i, rec] of (r.recommendations as unknown[]).entries()) {",
+      "replace": "    for (const [i, rec] of [] as Array<[number, unknown]>) {"
+    },
+    {
+      "id": "M-P5-b",
+      "req": "P5",
+      "why": "名单没做已联系去重却不声明 —— 运营照着发信，把打扰过甚至已拉黑的人再打扰一次",
+      "file": "scripts/lib/report.ts",
+      "find": "  if (meta.memory_status === 'unreadable_ignored') {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-P5-c",
+      "req": "P5",
+      "why": "这一批没被记进跨任务记忆却不声明 —— 下一批名单会把同一批人重新推荐一遍",
+      "file": "scripts/lib/report.ts",
+      "find": "  if (meta.memory_written === false) {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-P5-d",
+      "req": "P5",
+      "why": "去重状态无从确认的旧名单不再声明 —— 一份没人能担保去过重的名单，被当成正常名单交出去",
+      "file": "scripts/lib/report.ts",
+      "find": "  } else if (meta.memory_status === 'unknown') {",
+      "replace": "  } else if (false) {"
+    },
+    {
+      "id": "M-P5-e",
+      "req": "P5",
+      "why": "没写回的真实原因不再带进报告 —— 磁盘满或没有写权限的人，会被指去修一份根本没坏的文件",
+      "file": "scripts/lib/report.ts",
+      "find": "               `原因：${meta.memory_write_error ?? '未记录'}。` +",
+      "replace": "               '原因：记忆文件读不出来。' +"
+    },
+    {
+      "id": "M-D4-g",
+      "req": "D4",
+      "why": "两个键指向同一个人时随便留一条 —— 两条记录说法相反，该信哪条无从判断，却什么都不报",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (prev !== undefined) {\n      return { ok: false, why: `键「${prev}」与「${raw}」指的是同一个人，但各有一条记录 —— 该用哪一条无从判断` }\n    }",
+      "replace": "    if (false) { void prev }"
+    },
+    {
+      "id": "M-P4-g",
+      "req": "P4",
+      "why": "记忆的键只要求「有个冒号」—— 平台拼错或多一个分隔符的键照样收下，而查询侧永远匹配不到它，已联系和已拉黑的人重新进名单",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (parts.length !== 2 || !parts[0] || !parts[1]) {",
+      "replace": "    if (parts.length < 2 || !parts[0] || !parts[1]) {"
+    },
+    {
+      "id": "M-P4-h",
+      "req": "P4",
+      "why": "记忆的键不再校验平台是不是支持的那几个 —— 拼错平台的键收下之后永远查不到，已联系的人重新进名单",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (!(PLATFORMS as readonly string[]).includes(rawPlatform.toLowerCase())) {",
+      "replace": "    if (false) {"
+    },
+    {
+      "id": "M-D6-d",
+      "req": "D6",
+      "why": "「还要不要补 profile」只看 bio 有没有查过，不看外链取到没有 —— 续跑会对这批人再发一次付费请求，而中止时那句「续跑不产生新的请求」还照说不误",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return c.bio === undefined || !c.bio_links?.length",
+      "replace": "  return c.bio === undefined"
+    },
+    {
+      "id": "M-P4-i",
+      "req": "P4",
+      "why": "读不到记忆时，只要不是「文件不存在」之外的原因都当成空记忆 —— 权限不足或路径不对时名单照出，还报「记忆里确实没人」，已联系的人重新进名单",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'absent', mem: empty() }",
+      "replace": "    return { status: 'absent', mem: empty() }"
+    },
+    {
+      "id": "M-D6-e",
+      "req": "D6",
+      "why": "把「还没标记完成的关键词」当成「续跑会去抓的」—— 达标提前停下时那些词一个都没碰过，续跑也不会碰，却告诉用户续跑要花钱，他可能因此不敢续跑，永远拿不到那份名单",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return qualified >= state.target_count ? [] : pendingKeywords(state)",
+      "replace": "  return pendingKeywords(state)"
+    },
+    {
+      "id": "M-D4-h",
+      "req": "D4",
+      "why": "写回前不再清掉已死进程留下的临时文件 —— 一次硬杀之后，盘上永远躺着一份完整的记忆副本，而它谁也不属于",
+      "file": "scripts/lib/memory.ts",
+      "find": "  sweepStaleTemps()",
+      "replace": "  /* mutated */"
+    },
+    {
+      "id": "M-D4-i",
+      "req": "D4",
+      "why": "清临时文件时不管那个进程还活着没有 —— 两个任务同时跑时，会把对方正在写的那一份删掉",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (pid !== process.pid && alive(pid)) continue",
+      "replace": "    /* mutated */"
+    },
+    {
+      "id": "M-P4-j",
+      "req": "P4",
+      "why": "记忆的键里带空白也收下 —— 一个手改时多敲的空格，就让已联系、已拉黑的人重新进名单，而状态照报「读到了」，过滤条数报 0，与「确实没人联系过」同值",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (/\\s/.test(raw)) {",
+      "replace": "    if (false && /\\s/.test(raw)) {"
     }
   ],
   "exemptions": [

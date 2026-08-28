@@ -23,12 +23,22 @@ const env = {
 }
 
 let failed = 0
-const run = (label: string, args: string[], cwd = process.cwd()) => {
+/** 预期以非零退出码结束的场景：把退出码本身当成被检查的对外契约 */
+const run = (label: string, args: string[], cwd = process.cwd(), expect?: { status: number }) => {
   try {
     const out = execFileSync('npx', ['tsx', ...args], { env, cwd, stdio: 'pipe', encoding: 'utf8' })
+    if (expect) {
+      failed++
+      console.error(`  ✗ ${label}：预期以退出码 ${expect.status} 结束，实际是 0`)
+      return ''
+    }
     console.log(`  ✓ ${label}`)
     return out
   } catch (e: any) {
+    if (expect && e.status === expect.status) {
+      console.log(`  ✓ ${label}（按预期以退出码 ${expect.status} 结束）`)
+      return (e.stderr ?? '').toString()
+    }
     // collect 预算用尽时退出码 3 是**预期行为**，不算失败
     if (e.status === 3 && label.includes('预算用尽')) {
       console.log(`  ✓ ${label}（按预期以退出码 3 结束）`)
@@ -273,6 +283,80 @@ if (dir) {
     else if (!after) { failed++; console.error(`  ✗ render 之后续跑把交付物清空了（${before}→0）`) }
     else console.log(`  ✓ render 后续跑数据未丢：交付物 ${before}→${after}，累加器 ${rawN}`)
   }
+}
+
+// ---- 记忆读不出来：不产出名单、不覆盖原文件、逃生口要显式打出来（ADR-15）----
+// 触发它的不是天灾 —— 这个产品要求运营手改 memory/creators.json 来标 contacted，
+// 手改 JSON 就是最常见的损坏来源。原实现在这里退化成空记忆，于是打扰过的人
+// 重新进名单，紧接着 render 又拿一份「谁都没联系过」的记忆盖掉原文件。
+if (dir) {
+  const memFile = join(tmp, 'memory', 'creators.json')
+  const healthy = readFileSync(memFile, 'utf8')
+  const contactedCount = Object.keys(JSON.parse(healthy).creators ?? {}).length
+  const broken = healthy.slice(0, Math.floor(healthy.length * 0.6))
+  writeFileSync(memFile, broken, 'utf8')
+
+  const deliverable = join(tmp, dir, 'creators.json')
+  const beforeList = readFileSync(deliverable, 'utf8')
+
+  const stderr = run('collect 记忆读不出来时不产出名单',
+                     [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp, { status: 2 })
+  if (!stderr.includes('--ignore-memory') || !stderr.includes('--resume')) {
+    failed++
+    console.error('  ✗ 中止时没有告诉用户怎么往下走 —— 一条人照做不了的报错等于没报')
+  } else console.log('  ✓ 中止时给出了修复与强出名单两条路')
+  // 这一轮采集已经跑完，所以续跑确实不花钱 —— 但那句话必须是**算出来的**，
+  // 不是无条件写死的。还有关键词没跑完时它要说的是相反的话（ADR-22）。
+  if (!stderr.includes('续跑不产生新的请求') && !stderr.includes('续跑会继续发请求')) {
+    failed++
+    console.error('  ✗ 没有说清续跑的代价 —— 或者把「已抓到的不重抓」写成了「续跑免费」')
+  } else console.log('  ✓ 续跑的代价按实际剩余工作量说话')
+  if (readFileSync(deliverable, 'utf8') !== beforeList) {
+    failed++; console.error('  ✗ 中止时仍改写了交付物 creators.json')
+  } else console.log('  ✓ 中止未触碰交付物')
+
+  // 逃生口：出名单，但状态必须原样带到 stdout
+  const forced = run('collect --ignore-memory 强出名单',
+                     [S('collect.ts'), '--resume', dir, '--budget', '1', '--ignore-memory'], tmp)
+  let forcedSummary: any = {}
+  try { forcedSummary = JSON.parse(forced) } catch {}
+  if (forcedSummary.memory_status !== 'unreadable_ignored') {
+    failed++
+    console.error(`  ✗ 强出的名单没有声明未去重（memory_status=${forcedSummary.memory_status}）`)
+  } else console.log('  ✓ 强出的名单在 stdout 声明 memory_status')
+
+  // render：不写回，不覆盖，且报告上说出来
+  run('render 记忆读不出来时不覆盖原文件', [S('render.ts'), '--dir', dir], tmp)
+  if (readFileSync(memFile, 'utf8') !== broken) {
+    failed++
+    console.error(`  ✗ 读不出来的记忆被覆盖了 —— 原本记着 ${contactedCount} 个人的联系状态`)
+  } else console.log('  ✓ 读不出来的记忆一个字节没动')
+
+  const metaAfter = JSON.parse(readFileSync(join(tmp, dir, 'meta.json'), 'utf8'))
+  const htmlAfter = readFileSync(join(tmp, dir, 'report.html'), 'utf8')
+  if (metaAfter.memory_written !== false || metaAfter.memory_status !== 'unreadable_ignored') {
+    failed++; console.error('  ✗ meta.json 没有报出记忆的两个状态')
+  } else if (!htmlAfter.includes('未做「已联系 / 已推荐」去重')) {
+    failed++; console.error('  ✗ 报告没有声明这批名单未去重（P5）')
+  } else console.log('  ✓ meta.json 与报告都声明了记忆失效')
+
+  // 旧任务目录：task.json 里根本没有这个字段。**不能读成「去重跑过了」** ——
+  // 产出它的那一版遇到读不出来的记忆会静默当成空记忆（ADR-18）。
+  writeFileSync(memFile, healthy, 'utf8')
+  const taskFile = join(tmp, dir, 'task.json')
+  const legacy = JSON.parse(readFileSync(taskFile, 'utf8'))
+  delete legacy.memory_status
+  writeFileSync(taskFile, JSON.stringify(legacy, null, 2), 'utf8')
+
+  run('render 旧任务目录的去重状态记为无从确认', [S('render.ts'), '--dir', dir], tmp)
+  const legacyMeta = JSON.parse(readFileSync(join(tmp, dir, 'meta.json'), 'utf8'))
+  const legacyHtml = readFileSync(join(tmp, dir, 'report.html'), 'utf8')
+  if (legacyMeta.memory_status !== 'unknown') {
+    failed++
+    console.error(`  ✗ 缺字段被读成了 ${legacyMeta.memory_status} —— 无从确认的事被当成了肯定答案`)
+  } else if (!legacyHtml.includes('无从确认')) {
+    failed++; console.error('  ✗ 报告没有声明去重状态无从确认')
+  } else console.log('  ✓ 旧任务目录记为 unknown 并在报告上声明')
 }
 
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。

@@ -3,7 +3,7 @@ import { linkCrossPlatform, mergeCrossPlatform } from './identity.js'
 import {
   passesFollowerGate, scoreCreator, tierOf, applyGeoPenalty, applyAudienceRiskPenalty,
 } from './score.js'
-import { filterByMemory } from './memory.js'
+import { filterByMemory, type MemoryStatus } from './memory.js'
 import { sortForOutput } from './rows.js'
 
 /*
@@ -27,6 +27,7 @@ export interface FinalizeResult {
   unknown_followers: number
   filtered_recommended: number
   filtered_contacted: number
+  memory_status: Exclude<MemoryStatus, 'unknown'>
 }
 
 /**
@@ -42,8 +43,15 @@ export interface FinalizeResult {
  *
  * 不写盘，也**不修改传入的数据** —— 累加器只增不减（D6）是这个函数的结构性
  * 保证，不依赖调用方记得先落盘再调用。
+ *
+ * 记忆读不出来时这里会抛（P4 无法保证就不产出名单，ADR-15）。入口负责把它
+ * 翻译成退出码和一条人能照做的话；**要不要继续的决定不在入口**，
+ * 由调用方显式传 ignoreUnreadableMemory 表达。
  */
-export function finalize(raw: Creator[], product: string, task?: string): FinalizeResult {
+export function finalize(
+  raw: Creator[], product: string, task?: string,
+  opts: { ignoreUnreadableMemory?: boolean } = {},
+): FinalizeResult {
   const all = structuredClone(raw)
   const linked = linkCrossPlatform(all)
   const merged = mergeCrossPlatform(all)
@@ -53,8 +61,35 @@ export function finalize(raw: Creator[], product: string, task?: string): Finali
   const unknown_followers = merged.filter(c => c.followers === undefined).length
   const gated = merged.filter(passesFollowerGate)
 
-  const { kept, filtered_recommended, filtered_contacted } = filterByMemory(gated, product, task)
-  return { kept, linked, unknown_followers, filtered_recommended, filtered_contacted }
+  const { kept, filtered_recommended, filtered_contacted, memory_status } =
+    filterByMemory(gated, product, task, { ignoreUnreadable: opts.ignoreUnreadableMemory })
+  return { kept, linked, unknown_followers, filtered_recommended, filtered_contacted, memory_status }
+}
+
+/**
+ * 这个人还要不要补 profile。
+ *
+ * **它决定要不要花钱**，所以有语义，所以不留在入口脚本里。抽出来的第二个理由
+ * 更实际：补全循环和「续跑要花多少钱」那句话必须用**同一个**判定 ——
+ * 两处各写一份表达式，迟早有一边先改，而先改的那边不会报错（ADR-25）。
+ */
+export function needsProfile(c: Creator): boolean {
+  return c.bio === undefined || !c.bio_links?.length
+}
+
+/**
+ * **续跑真正会去抓的关键词。**
+ *
+ * 「不在 done 里」不等于「续跑会去抓」：达标提前停下时，剩下的关键词一个都
+ * 没被碰过，也不会被标记完成 —— 而续跑做的第一件事就是再查一次达标，
+ * 于是一个请求都不会发（ADR-29）。
+ *
+ * 拿 `pendingKeywords` 去说「续跑要花钱」会**多报**。方向和之前那几次相反，
+ * 危害也不同：那几次是让用户少估了开销，这次是让他以为要花钱而不敢续跑 ——
+ * 而不续跑就永远拿不到那份名单。
+ */
+export function keywordsResumeWillRun(state: TaskState, qualified: number): string[] {
+  return qualified >= state.target_count ? [] : pendingKeywords(state)
 }
 
 /** 尚未跑完的关键词 —— Agent 据此向用户报进度、问要不要追加预算 */
