@@ -456,6 +456,14 @@
       "file": "scripts/lib/memory.ts",
       "find": "    if (/\\s/.test(raw)) {",
       "replace": "    if (false && /\\s/.test(raw)) {"
+    },
+    {
+      "id": "M-P4-k",
+      "req": "P4",
+      "why": "同一个人在手改的记忆文件里出现两次时不再判为读不出来 —— 解析静默只留最后一条，而后贴的那条通常写着「还没联系过」，于是一条已联系已拉黑的记录被顶掉，人重新进名单，状态照报读到了",
+      "file": "scripts/lib/memory.ts",
+      "find": "  const dup = duplicateKey(raw)",
+      "replace": "  const dup = undefined as string | undefined"
     }
   ],
   "exemptions": [

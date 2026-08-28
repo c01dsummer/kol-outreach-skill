@@ -541,6 +541,15 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     ['键里带制表符', JSON.stringify({ version: 1, creators: {
       'tiktok:a\t': { contacted: true, blocked: true, recommendations: [] } } })],
   ]
+  // 字面重复的键**构造不出来**：对象字面量和 JSON.stringify 都只留一条。
+  // 而手改的文件里它就是两行 —— 解析会静默吃掉前一条（ADR-36）。
+  const dupText = `{"version":1,"creators":{
+    "tiktok:a":{"contacted":true,"blocked":true,"recommendations":[]},
+    "tiktok:a":{"contacted":false,"blocked":false,"recommendations":[]}}}`
+  shapes.push(['同一个键在文件里出现了两次', dupText])
+  // 数组里的对象各有各的层，别把不同对象的同名键算成重复
+  shapes.push(['嵌套对象里的重复键也算', `{"version":1,"creators":{
+    "tiktok:a":{"contacted":true,"blocked":true,"contacted":false,"recommendations":[]}}}`])
   for (const [label, content] of shapes) {
     writeFileSync(tmp, content, 'utf8')
     let caught = ''

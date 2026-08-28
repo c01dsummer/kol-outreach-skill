@@ -155,6 +155,43 @@ function normalizeKeys(creators: Record<string, MemoryEntry>):
   return { ok: true, creators: out }
 }
 
+/**
+ * 同一个对象里出现两次的键。**必须在文本上查，解析之后就晚了** ——
+ * `JSON.parse` 遇到重复键静默保留**最后一个**，重复在解析完成的那一刻
+ * 就已经不存在了，`normalizeKeys` 的撞车检测再严也看不到它。
+ *
+ * 手改时把同一个人又贴一遍是最容易犯的错，而后贴的那条通常是
+ * 「还没联系过」—— 于是一条 contacted 的记录被静默顶掉，人重新进名单，
+ * 状态照报「读到了」（ADR-36）。
+ *
+ * 只在已经解析成功的文本上跑，所以不必处理非法 JSON。
+ */
+function duplicateKey(raw: string): string | undefined {
+  // 每进一层对象压一个 Set；数组层压 null（数组没有键）
+  const levels: (Set<string> | null)[] = []
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i]
+    if (c === '{') { levels.push(new Set()); continue }
+    if (c === '[') { levels.push(null); continue }
+    if (c === '}' || c === ']') { levels.pop(); continue }
+    if (c !== '"') continue
+    let j = i + 1
+    while (j < raw.length && raw[j] !== '"') j += raw[j] === '\\' ? 2 : 1
+    let k = j + 1
+    while (k < raw.length && ' \t\n\r'.includes(raw[k])) k++
+    const here = levels[levels.length - 1]
+    // 字符串后面跟冒号才是键，跟别的就是值
+    if (raw[k] === ':' && here) {
+      // 借 JSON.parse 还原转义 —— 手写反转义会把 \u0062 和 b 看成两个键
+      const name = JSON.parse(raw.slice(i, j + 1)) as string
+      if (here.has(name)) return name
+      here.add(name)
+    }
+    i = j
+  }
+  return undefined
+}
+
 /** 唯一读盘的地方。**它不做决定** —— 读不出来时怎么办由各个调用方自己回答。 */
 function readMemory(): ReadResult {
   let raw: string
@@ -172,6 +209,13 @@ function readMemory(): ReadResult {
     parsed = JSON.parse(raw)
   } catch (e) {
     return { status: 'unreadable', detail: e instanceof Error ? e.message : String(e) }
+  }
+  // 重复键要在**文本**上查：解析已经把它吃掉了（ADR-36）
+  const dup = duplicateKey(raw)
+  if (dup !== undefined) {
+    return { status: 'unreadable',
+             detail: `键「${dup}」在同一层出现了两次 —— 解析只会留下最后一条，` +
+                     `另一条说了什么无从得知，而它们可能正好相反` }
   }
   const bad = shapeProblem(parsed)
   if (bad) return { status: 'unreadable', detail: `结构不对 —— ${bad}` }
