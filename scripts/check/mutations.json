@@ -512,6 +512,14 @@
       "file": "scripts/lib/report.ts",
       "find": "    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认 —— ' +",
       "replace": "    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认（这批人由早期版本采集）—— ' +"
+    },
+    {
+      "id": "M-D4-o",
+      "req": "D4",
+      "why": "记忆不可用时一律报成「解析失败」—— 而它同样可能是权限不足、父路径不是目录或磁盘出错，那时候用户会去查一份完好的文件，真正的原因在报错里被盖住了",
+      "file": "scripts/lib/memory.ts",
+      "find": "    super(`记忆文件 ${file} 不可用：${detail}`)",
+      "replace": "    super(`记忆文件 ${file} 解析失败：${detail}`)"
     }
   ],
   "exemptions": [

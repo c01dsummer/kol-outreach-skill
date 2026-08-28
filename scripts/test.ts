@@ -563,6 +563,19 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
       'tiktok:a': { contacted: false, blocked: false, recommendations:
         [{ product: 'p', date: '2026-01-01', [f]: v }] } } })])
   }
+  // 读不到（不是解析不了）时，报错不许说成「解析失败」—— 权限或路径出问题的人
+  // 会去查一份完好的 JSON。真实原因在 detail 里，它自己会说（ADR-44）。
+  {
+    // tmp 本身是个文件，拿它当父路径必定 ENOTDIR —— 一个纯粹的路径问题
+    writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+    useMemoryFile(join(tmp, 'x.json'))
+    let msg = ''
+    try { filterByMemory(batch, 'p') } catch (e) { msg = (e as Error).message }
+    ok('读不到时报的不是「解析失败」', msg.length > 0 && !msg.includes('解析失败'))
+    ok('而是把真实原因原样带出来', msg.includes('ENOTDIR'))
+    useMemoryFile(tmp)
+  }
+
   for (const [label, content] of shapes) {
     writeFileSync(tmp, content, 'utf8')
     let caught = ''

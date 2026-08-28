@@ -61,7 +61,12 @@ const key = (c: { platform: string; handle: string }) =>
  */
 export class MemoryUnreadable extends Error {
   constructor(readonly file: string, readonly detail: string) {
-    super(`记忆文件 ${file} 解析失败：${detail}`)
+    // **不说是哪一步坏的。** 这个状态含三类：读不到（权限、路径不是目录、IO）、
+    // 解析不了、结构不对。写死成「解析失败」，权限出问题的人会去查一份
+    // 完好的 JSON。真实原因在 detail 里，它自己会说（ADR-44）。
+    // 同一条规矩第三次出现：ADR-20 不许把写不进去说成文件坏了，
+    // ADR-43 不许替上一步编原因，这次是不许替失败编一个阶段。
+    super(`记忆文件 ${file} 不可用：${detail}`)
     this.name = 'MemoryUnreadable'
   }
 }
@@ -279,6 +284,13 @@ function alive(pid: number): boolean {
  * 回收到一个长命进程头上，这个孤儿就再也清不掉了，一份完整的记忆副本
  * 永远躺在盘上。所以再拿**文件年龄**兜一道：真正在写的文件只有毫秒级的寿命
  * （一次 writeFileSync 加一次 rename），活过一小时的一定不是（ADR-39）。
+ *
+ * **年龄这一道有代价，明写在这里：** 一个被 SIGSTOP 或调试器按住超过一小时的
+ * 写入方，它的临时文件会被当成孤儿清掉，它恢复后 rename 失败。这是一个
+ * **有意的取舍** —— 两边都罕见，但坏法不同：pid 回收留下的孤儿是**静默的**
+ * （一份完整副本永远躺在盘上，没人知道），而误清一个被按住的写入方是**响的**
+ * （那一次写回报为失败，交付照常完成并带出原因，走 D4 已有的那条路）。
+ * 静默与响之间选响的（ADR-44）。
  */
 function sweepStaleTemps(): void {
   const dir = dirname(FILE)
