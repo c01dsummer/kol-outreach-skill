@@ -22,7 +22,10 @@ import {
 } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
-import { taskDir, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators, saveCreators } from './lib/task.js'
+import {
+  taskDir, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators,
+  persistListAndStatus,
+} from './lib/task.js'
 import type { Creator, TaskState } from './lib/types.js'
 
 const MAX_PAGES = 4          // 实测值：第 4 页后新增人数明显衰减
@@ -268,21 +271,10 @@ async function main() {
     process.exit(2)
   }
 
-  // **状态先落盘，名单后落盘。** 这是两次独立的 writeFileSync，中间被打断是可能的，
-  // 而两种顺序的失败后果不对称：
-  //
-  // - 名单在前 → creators.json 已经是未去重的新名单，task.json 还留着上一轮的
-  //   ok/absent。render 从 task.json 读状态，于是**压掉那条警告**，
-  //   把打扰过、已拉黑的人当成「已去重」交付出去 —— 静默破 P4 与 P5
-  // - 状态在前 → task.json 说「这批没去重」，creators.json 还是上一轮去重过的旧名单。
-  //   报告多报一次警告，用户重跑一次就好
-  //
-  // 多报要用户重跑一次，少报是把人重新打扰一遍。**答不上来时报警告，
-  // 不报「已去重」**（ADR-38）。persist() 一直是这个顺序，是这里偏离了它。
-  state.memory_status = fin.memory_status
-  saveTask(dir, state)
-  // 交付物写 creators.json；累加器 creators.raw.json 由 persist() 保管，不在这里动
-  saveCreators(dir, fin.kept)
+  // 交付物与它的去重状态一起落盘 —— **哪个先写都不安全**，判定在 lib/task.ts
+  // 的 persistListAndStatus 里（ADR-38 只看到一半，ADR-41 补上另一半）。
+  // 累加器 creators.raw.json 由 persist() 保管，不在这里动。
+  persistListAndStatus(dir, state, fin.kept, fin.memory_status)
 
   const summary = {
     dir, stopped,

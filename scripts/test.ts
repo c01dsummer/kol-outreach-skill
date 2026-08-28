@@ -13,6 +13,7 @@ import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { fillEmail, pickList } from './providers/tikhub.js'
 import { esc } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
+import { persistListAndStatus } from './lib/task.js'
 import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { inflateRawSync } from 'node:zlib'
@@ -652,6 +653,41 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   const padded = filterByMemory([mk('tiktok', 'pad')], 'Foo')
   eq('产品名两侧的空白不影响「已推荐过」', padded.filtered_recommended, 1)
   eq('于是那个人不会被再推荐一次', padded.kept.length, 0)
+
+  // 八之四、名单和它的去重状态：**哪个先写都不安全**，取决于状态往哪边变。
+  //        ok → unreadable_ignored 时名单先写会坏；unreadable_ignored → ok 时
+  //        状态先写会坏。两种坏法一样：报告压掉警告，把打扰过的人当成已去重
+  //        交付出去。所以分三步，肯定的断言最后写（ADR-41）。
+  {
+    const d = join(tmpdir(), `kol-d4-persist-${process.pid}`)
+    rmSync(d, { recursive: true, force: true })
+    mkdirSync(d, { recursive: true })
+    // 用一个同名目录占住 creators.json —— 写它必定失败，模拟「名单没落成」
+    mkdirSync(join(d, 'creators.json'))
+    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1,
+      memory_status: 'unreadable_ignored' } as unknown as TaskState
+    let threw = false
+    try { persistListAndStatus(d, st, [mk('tiktok', 'zoe')], 'ok') } catch { threw = true }
+    ok('名单写不进去时确实抛出来', threw)
+    eq('而盘上的状态停在「无从确认」，不是刚要断言的那个 ok',
+      JSON.parse(rf(join(d, 'task.json'), 'utf8')).memory_status, 'unknown')
+    rmSync(d, { recursive: true, force: true })
+  }
+
+  // 都落成时才断言
+  {
+    const d = join(tmpdir(), `kol-d4-persist2-${process.pid}`)
+    rmSync(d, { recursive: true, force: true })
+    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1,
+      memory_status: 'unreadable_ignored' } as unknown as TaskState
+    persistListAndStatus(d, st, [mk('tiktok', 'zoe')], 'ok')
+    eq('两边都落成时，状态才是那个肯定的断言',
+      JSON.parse(rf(join(d, 'task.json'), 'utf8')).memory_status, 'ok')
+    eq('名单也确实换了', JSON.parse(rf(join(d, 'creators.json'), 'utf8')).length, 1)
+    rmSync(d, { recursive: true, force: true })
+  }
 
   // 九、正常写回是原子的 —— 不留临时文件
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
