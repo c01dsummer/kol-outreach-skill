@@ -13,7 +13,7 @@ import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { fillEmail, pickList } from './providers/tikhub.js'
 import { esc } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
-import { persistListAndStatus } from './lib/task.js'
+import { persistListAndStatus, saveTask } from './lib/task.js'
 import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { inflateRawSync } from 'node:zlib'
@@ -692,6 +692,28 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     ok('名单写不进去时确实抛出来', threw)
     eq('而盘上的状态停在「无从确认」，不是刚要断言的那个 ok',
       JSON.parse(rf(join(d, 'task.json'), 'utf8')).memory_status, 'unknown')
+    rmSync(d, { recursive: true, force: true })
+  }
+
+  // 落盘必须是原子的：写到一半被杀，留下的是一份**截断的 JSON**，不是一个
+  // 保守的状态 —— 三步协议正建立在「盘上确实有那个状态」之上（ADR-45）。
+  {
+    const d = join(tmpdir(), `kol-d4-atomic-${process.pid}`)
+    rmSync(d, { recursive: true, force: true })
+    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1,
+      memory_status: 'ok' } as unknown as TaskState
+    saveTask(d, st)
+    const before = rf(join(d, 'task.json'), 'utf8')
+    // 拿一个同名目录占住临时文件名，写入必定失败
+    mkdirSync(join(d, `task.json.${process.pid}.tmp`), { recursive: true })
+    let threw = false
+    try { saveTask(d, { ...st, product: '改过的' }) } catch { threw = true }
+    ok('写不进去时抛出来', threw)
+    eq('而原来那份 task.json 一个字节没动', rf(join(d, 'task.json'), 'utf8'), before)
+    ok('它仍然解析得出来', (() => {
+      try { JSON.parse(rf(join(d, 'task.json'), 'utf8')); return true } catch { return false }
+    })())
     rmSync(d, { recursive: true, force: true })
   }
 

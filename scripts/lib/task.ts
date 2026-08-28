@@ -1,6 +1,36 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, renameSync, rmSync, existsSync, mkdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { TaskState, Creator, EnrichmentState, MemoryStatus } from './types.js'
+
+/**
+ * 落盘：**先写临时文件再改名。**
+ *
+ * 直接盖原文件是非原子的 —— 写到一半被杀，留下的是一份截断的 JSON。
+ * 这个目录里的四个文件**每个都只有一份，坏了要重新花钱抓**：
+ *
+ * - `task.json` —— 坏了续跑起不来，已经花钱抓到的东西找不回来；
+ *   而且 `persistListAndStatus` 那套三步协议正建立在「盘上确实有那个状态」
+ *   之上，写到一半留下的是个读不出来的文件，不是一个保守的状态
+ * - `creators.raw.json` —— 采集累加器，坏了整批采集作废
+ * - `creators.json` / `enrichment.json` —— 交付物与已付费的补全结果
+ *
+ * 与 `memory.ts` 里那套是同一个做法，理由也同一个（ADR-15 · ADR-45）。
+ * 临时名带 pid：两个任务同时跑时，共用一个临时名会让 A 的改名搬走 B 写的内容。
+ *
+ * **不做孤儿清理**：硬杀留下的临时文件就躺在这个任务目录里，而任务目录本身
+ * 是一次性的、可以整个删掉。记忆文件那边要清，是因为它长期存在、
+ * 而且孤儿是一份完整的联系历史副本。这里两条都不成立。
+ */
+function writeAtomic(file: string, data: unknown): void {
+  const tmp = `${file}.${process.pid}.tmp`
+  try {
+    writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8')
+    renameSync(tmp, file)
+  } catch (e) {
+    rmSync(tmp, { force: true })   // 半成品不留在盘上
+    throw e
+  }
+}
 
 export function taskDir(product: string, timestamp?: string): string {
   const ts = timestamp ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
@@ -14,7 +44,7 @@ export function loadTask(dir: string): TaskState {
 export function saveTask(dir: string, state: TaskState): void {
   mkdirSync(dir, { recursive: true })
   state.updated_at = new Date().toISOString()
-  writeFileSync(join(dir, 'task.json'), JSON.stringify(state, null, 2), 'utf8')
+  writeAtomic(join(dir, 'task.json'), state)
 }
 
 export function loadCreators(dir: string): Creator[] {
@@ -24,7 +54,7 @@ export function loadCreators(dir: string): Creator[] {
 
 export function saveCreators(dir: string, creators: Creator[]): void {
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'creators.json'), JSON.stringify(creators, null, 2), 'utf8')
+  writeAtomic(join(dir, 'creators.json'), creators)
 }
 
 /**
@@ -82,7 +112,7 @@ export function loadRawCreators(dir: string): Creator[] {
 
 export function saveRawCreators(dir: string, creators: Creator[]): void {
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, RAW), JSON.stringify(creators, null, 2), 'utf8')
+  writeAtomic(join(dir, RAW), creators)
 }
 
 const ENRICHMENT = 'enrichment.json'
@@ -96,5 +126,5 @@ export function loadEnrichment(dir: string): EnrichmentState | undefined {
 export function saveEnrichment(dir: string, state: EnrichmentState): void {
   mkdirSync(dir, { recursive: true })
   state.updated_at = new Date().toISOString()
-  writeFileSync(join(dir, ENRICHMENT), JSON.stringify(state, null, 2), 'utf8')
+  writeAtomic(join(dir, ENRICHMENT), state)
 }

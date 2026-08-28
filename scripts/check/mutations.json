@@ -520,6 +520,14 @@
       "file": "scripts/lib/memory.ts",
       "find": "    super(`记忆文件 ${file} 不可用：${detail}`)",
       "replace": "    super(`记忆文件 ${file} 解析失败：${detail}`)"
+    },
+    {
+      "id": "M-D4-p",
+      "req": "D4",
+      "why": "任务目录里的几个文件改成直接盖原文件 —— 写到一半被杀就留下一份截断的 JSON，续跑起不来，已经花钱抓到的东西找不回来；而三步落盘协议正建立在盘上确实有那个状态之上",
+      "file": "scripts/lib/task.ts",
+      "find": "    writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8')\n    renameSync(tmp, file)",
+      "replace": "    writeFileSync(file, JSON.stringify(data, null, 2), 'utf8')"
     }
   ],
   "exemptions": [
