@@ -879,6 +879,11 @@ suite('P5', '交付必须声明数据边界')
   ok('去重状态无从确认时也要说出来', legacy.includes('无从确认'))
   ok('说的是不知道，不是「你跳过了」', !legacy.includes('运行时显式跳过'))
   ok('并给出拿到确定答案的办法', legacy.includes('重跑'))
+  // unknown 有两个来源（早期采集、名单与状态没能一起落成），事后分不出是哪一个。
+  // 写死其中一个就是给用户一个**编造的诊断**：被打断的那种情况会被告知
+  // 「这批人由早期版本采集」，而它其实是刚刚才产生的（ADR-43）。
+  ok('不替用户编一个原因 —— 两个来源事后分不出',
+    !legacy.includes('早期版本') && !legacy.includes('这批人由'))
 
   const normal = renderHtml(one, { ...base, memory_status: 'ok', memory_written: true })
   ok('一切正常时不加噪音',

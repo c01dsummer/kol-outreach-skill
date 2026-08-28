@@ -107,9 +107,11 @@ const meta = {
   // P4/P5（ADR-15）：这一批有没有去重、这一批有没有被记下。两件事分开报，
   // 因为它们坏掉的后果不同：前者是这次可能重复打扰，后者是下次可能重复推荐。
   //
-  // 字段缺失读作 unknown，**不读作 ok**：缺失只可能来自 ADR-15 之前的 collect，
+  // 字段缺失读作 unknown，**不读作 ok**：缺失来自 ADR-15 之前的 collect，
   // 而那一版遇到读不出来的记忆会静默当成空记忆 —— 「过滤跑过了」不等于
   // 「过滤生效了」。当成 ok 就是替一批无从确认的名单打包票（ADR-18）。
+  // unknown 另有一个来源：名单与状态没能一起落成（ADR-41）。两者事后分不出，
+  // 所以报告里的措辞与来源无关，不替用户编一个原因（ADR-43）。
   memory_status: state.memory_status === undefined ? 'unknown' : state.memory_status,
   memory_written: writeBack.written,
   // 只在真的没写回时出现。原因有两类（读不出来 / 写不进去），

@@ -504,6 +504,14 @@
       "file": "scripts/lib/task.ts",
       "find": "  state.memory_status = 'unknown'\n  saveTask(dir, state)\n  // 二、换名单\n  saveCreators(dir, creators)",
       "replace": "  saveCreators(dir, creators)"
+    },
+    {
+      "id": "M-P5-f",
+      "req": "P5",
+      "why": "去重状态无从确认时，报告替用户断定这批人「由早期版本采集」—— 而它同样可能是刚刚被打断留下的，两种来源事后分不出，用户拿到的是一个编造的诊断",
+      "file": "scripts/lib/report.ts",
+      "find": "    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认 —— ' +",
+      "replace": "    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认（这批人由早期版本采集）—— ' +"
     }
   ],
   "exemptions": [

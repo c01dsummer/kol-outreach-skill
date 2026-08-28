@@ -22,6 +22,7 @@
 | **新增/删除 `scripts/` 下的模块** | `docs/ARCHITECTURE.md` 锚点表 · `scripts/check/selfcheck.ts`（可执行文件） | 🔒 `arch` `audit` |
 | **改模块之间的依赖方向** | `docs/ARCHITECTURE.md`（含「一件新工作放哪边」那节，如果判据变了） | 🔒 `arch` |
 | **改入口参数/退出码/产出文件/字段所有权** | `docs/ARCHITECTURE.md` 缝隙契约 · `skill/SKILL.md` · `README.md` 快速开始 | 部分 |
+| **给一个已有取值加新的来源/新的成因** | 走下面那条「改承诺」的整张表 —— **哪怕承诺本身一个字没动**。判据不是「我有没有改措辞」，是「**我有没有让某句已经写下的措辞变得不再为真**」：多一个来源，「只可能来自 X」当场变假，而它会作为一个编造的诊断交到用户手上（ADR-43） | ✗ 靠执行 |
 | **改报错/提示里给用户的一句承诺**（比如「续跑要不要花钱」） | **点名逐个过，不要 grep**：**`docs/requirements.json` 的对应判据（机器可读的真相来源，最不该说错）** → `docs/ARCHITECTURE.md` 缝隙契约 → **`skill/SKILL.md`（Agent 照着转述）** → 对应 `skill/references/*` → `README.md` → **那个脚本自己的文件头与块注释**（代码注释也是副本，而且离实现最近、最容易被当成权威）。副本的措辞常常不一样（「不产生新请求」vs「不产生新的请求」），按记忆搜必漏。**承诺的「条件」变了也要重走一遍全表** —— 上一次改对了地点、这一次改对了条件，是两回事 | ✗ 靠执行 |
 | **改数据源端点/字段** | `skill/references/providers/tikhub.md` · `scripts/providers/tikhub.ts` · `scripts/check/fake-fetch.ts` | 🔒 `selfcheck` |
 | **改公开指标/风险/报价口径** | `docs/requirements.json` · `skill/references/public-metrics.md` · 计算与分层逻辑 · 输出说明 · 测试 | 部分 |
