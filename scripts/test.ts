@@ -32,7 +32,7 @@ import {
 } from './lib/assessment.js'
 import {
   writeFileSync, unlinkSync, truncateSync, readdirSync, mkdirSync, rmSync, existsSync,
-  utimesSync,
+  utimesSync, chmodSync, statSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -634,6 +634,24 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   ok('刚写下的仍然不动 —— 年龄兜底不误伤并发写', existsSync(otherLive))
   rmSync(otherLive, { force: true })
   rmSync(liveOrphan, { force: true })
+
+  // 八之二、写回不许悄悄放开权限。writeFileSync 按 umask 建临时文件（通常 0644），
+  //        rename 会把它一并装到目标上 —— 特意 chmod 600 过的记忆每写回一次
+  //        就被放开一次，而它记着谁联系过、备注写了什么（ADR-40）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  chmodSync(tmp, 0o600)
+  recordRecommendations([mk('tiktok', 'erin')], 'p')
+  eq('写回保留目标文件原有的权限位', statSync(tmp).mode & 0o777, 0o600)
+
+  // 八之三、product 的首尾空白不该让「已推荐过」失效。**不判成损坏** ——
+  //        product 来自用户的任务配置，配置里多一个空格就把我们自己写下的
+  //        记忆判成读不出来，那是自伤。纯空白仍然算损坏（trim 之后是空的）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {
+    'tiktok:pad': { contacted: false, blocked: false,
+      recommendations: [{ product: ' Foo ', date: '2026-01-01' }] } } }), 'utf8')
+  const padded = filterByMemory([mk('tiktok', 'pad')], 'Foo')
+  eq('产品名两侧的空白不影响「已推荐过」', padded.filtered_recommended, 1)
+  eq('于是那个人不会被再推荐一次', padded.kept.length, 0)
 
   // 九、正常写回是原子的 —— 不留临时文件
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')

@@ -334,7 +334,7 @@
       "req": "D4",
       "why": "写回改成直接盖原文件 —— 写到一半被打断就留下一份截断的 memory/creators.json，而它是唯一一份",
       "file": "scripts/lib/memory.ts",
-      "find": "    writeFileSync(tmp, JSON.stringify(mem, null, 2), 'utf8')\n    renameSync(tmp, FILE)",
+      "find": "    writeFileSync(tmp, JSON.stringify(mem, null, 2), 'utf8')\n    if (mode !== undefined) chmodSync(tmp, mode)\n    renameSync(tmp, FILE)",
       "replace": "    writeFileSync(tmp, JSON.stringify(mem, null, 2), 'utf8')\n    writeFileSync(FILE, JSON.stringify(mem, null, 2), 'utf8')"
     },
     {
@@ -470,7 +470,7 @@
       "req": "D4",
       "why": "推荐记录的产品名只看类型不看有没有内容 —— 一条空产品名的记录永远匹配不上任何产品，那条去重记录等于不存在，人会被重新推荐一次，名单上那句「上次推的是什么」也少了一半",
       "file": "scripts/lib/memory.ts",
-      "find": "      if (typeof rr.product !== 'string' || !rr.product) return `${at}的 product 不是非空字符串`",
+      "find": "      if (typeof rr.product !== 'string' || !rr.product.trim()) return `${at}的 product 不是非空字符串`",
       "replace": "      if (typeof rr.product !== 'string') return `${at}的 product 不是非空字符串`"
     },
     {
@@ -480,6 +480,22 @@
       "file": "scripts/lib/memory.ts",
       "find": "    if (pid !== process.pid && alive(pid) && ageMs < TMP_MAX_AGE_MS) continue",
       "replace": "    if (pid !== process.pid && alive(pid)) continue"
+    },
+    {
+      "id": "M-D4-m",
+      "req": "D4",
+      "why": "写回时不再把目标文件原有的权限位带过去 —— 用户特意收紧过的那份记忆，每成功写回一次就被悄悄放开一次，而它记着谁联系过、备注写了什么",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (mode !== undefined) chmodSync(tmp, mode)",
+      "replace": "    /* mutated */"
+    },
+    {
+      "id": "M-D6-f",
+      "req": "D6",
+      "why": "比较产品名时不去掉两侧的空白 —— 手改时多打的一个空格，就让「这个人已经为这个产品推荐过」整条失效，人被重新推荐一次",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (others.some(r => r.product.trim() === want)) { rec++; continue }",
+      "replace": "    if (others.some(r => r.product === product)) { rec++; continue }"
     }
   ],
   "exemptions": [

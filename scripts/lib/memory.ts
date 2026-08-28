@@ -1,6 +1,6 @@
 import {
   readFileSync, writeFileSync, renameSync, rmSync, readdirSync, existsSync, mkdirSync,
-  statSync,
+  statSync, chmodSync,
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { PLATFORMS, type Creator, type MemoryStatus, type Platform } from './types.js'
@@ -108,8 +108,8 @@ function shapeProblem(v: unknown): string | undefined {
       // date 用来渲染「上次推的是什么、什么时候」。空字符串两件事都做不了 ——
       // 一条空 product 的记录永远匹配不上任何产品，等于这条去重记录不存在（ADR-37）。
       // task 不在此列：空字符串与缺省在过滤里行为完全一致，不是坏数据。
-      if (typeof rr.product !== 'string' || !rr.product) return `${at}的 product 不是非空字符串`
-      if (typeof rr.date !== 'string' || !rr.date) return `${at}的 date 不是非空字符串`
+      if (typeof rr.product !== 'string' || !rr.product.trim()) return `${at}的 product 不是非空字符串`
+      if (typeof rr.date !== 'string' || !rr.date.trim()) return `${at}的 date 不是非空字符串`
       if (rr.task !== undefined && typeof rr.task !== 'string') return `${at}的 task 不是字符串`
     }
   }
@@ -307,8 +307,15 @@ export function saveMemory(mem: MemoryFile): void {
   // 临时名带 pid：两个 render 同时跑（两个产品各开一个终端）时，共用一个临时名
   // 会让 A 的 rename 搬走 B 写的内容 —— 原子写反而制造了一种新的串味。
   const tmp = `${FILE}.${process.pid}.tmp`
+  // 目标文件已有的权限位要带过去。`writeFileSync` 按 umask 建临时文件（通常 0644），
+  // rename 把这个更宽松的权限一并装到目标上 —— 用户特意 chmod 600 过的记忆
+  // （它记着谁联系过、备注写了什么），每成功写回一次就被悄悄放开一次（ADR-40）。
+  // 文件不存在就用默认：新文件该多严是产品决定，不在这里顺手改。
+  let mode: number | undefined
+  try { mode = statSync(FILE).mode & 0o777 } catch { /* 新文件 */ }
   try {
     writeFileSync(tmp, JSON.stringify(mem, null, 2), 'utf8')
+    if (mode !== undefined) chmodSync(tmp, mode)
     renameSync(tmp, FILE)
   } catch (e) {
     rmSync(tmp, { force: true })   // 半成品不留在盘上
@@ -346,6 +353,7 @@ export function filterByMemory(
   creators: Creator[], product: string, task?: string,
   opts: { ignoreUnreadable?: boolean } = {},
 ): FilterResult {
+  const want = product.trim()
   const r = readMemory()
   if (r.status === 'unreadable') {
     if (!opts.ignoreUnreadable) throw new MemoryUnreadable(FILE, r.detail)
@@ -367,9 +375,12 @@ export function filterByMemory(
 
     // 本任务自己留下的记录不算数 —— 否则续跑会把自己上一轮的产出判成「已推荐过」
     const others = e.recommendations.filter(r => !(task && r.task === task))
-    if (others.some(r => r.product === product)) { rec++; continue }
+    // 比较两侧都去掉首尾空白。**不判成损坏** —— product 来自用户的任务配置，
+    // 配置里多一个空格就把我们自己写下的记忆判成读不出来，那是自伤。
+    // 首尾空白对「是不是同一个产品」没有意义，和键的大小写是同一类（ADR-40）。
+    if (others.some(r => r.product.trim() === want)) { rec++; continue }
 
-    const prior = others.filter(r => r.product !== product)
+    const prior = others.filter(r => r.product.trim() !== want)
     if (prior.length) {
       const last = prior[prior.length - 1]
       c.previously_recommended = `${last.product} @ ${last.date}`
@@ -418,7 +429,7 @@ export function recordRecommendations(
     // 同一任务重复 render 不该堆出多条记录 —— 覆盖而不是追加
     e.recommendations = e.recommendations.filter(r => !(task && r.task === task))
     e.recommendations.push({
-      date, product, keyword: c.source_keyword, task,
+      date, product: product.trim(), keyword: c.source_keyword, task,
       tier: c.tier, fit_reason: c.fit_reason,
     })
     mem.creators[k] = e
