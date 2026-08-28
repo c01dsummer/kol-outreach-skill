@@ -1,5 +1,6 @@
 import {
   readFileSync, writeFileSync, renameSync, rmSync, readdirSync, existsSync, mkdirSync,
+  statSync,
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { PLATFORMS, type Creator, type MemoryStatus, type Platform } from './types.js'
@@ -250,6 +251,15 @@ export function loadMemory(): MemoryFile {
   return r.mem
 }
 
+/**
+ * 一个临时文件最多可能正在被写多久。
+ *
+ * 写的过程是一次 `writeFileSync` 加一次 `renameSync`，毫秒级。取一小时是
+ * **荒谬地宽松** —— 为的是任何真正在写的文件都不可能被误判成孤儿。
+ * 它只用来兜住 pid 被系统回收的那一种情况。
+ */
+const TMP_MAX_AGE_MS = 60 * 60 * 1000
+
 /** 那个进程还在吗。EPERM 说明进程存在、只是不归我们管 —— 那也算活着 */
 function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true }
@@ -264,6 +274,11 @@ function alive(pid: number): boolean {
  * 任何 write-then-rename 都躲不掉这一格，能做的是**下次写回时把它清掉**。
  *
  * 活着的进程的临时文件不动：两个 render 同时跑时，那是人家正在写的（ADR-30）。
+ *
+ * **但「pid 还活着」不等于「它就是写这个文件的那个进程」** —— 系统会回收 pid。
+ * 回收到一个长命进程头上，这个孤儿就再也清不掉了，一份完整的记忆副本
+ * 永远躺在盘上。所以再拿**文件年龄**兜一道：真正在写的文件只有毫秒级的寿命
+ * （一次 writeFileSync 加一次 rename），活过一小时的一定不是（ADR-39）。
  */
 function sweepStaleTemps(): void {
   const dir = dirname(FILE)
@@ -274,7 +289,10 @@ function sweepStaleTemps(): void {
     if (!name.startsWith(prefix) || !name.endsWith('.tmp')) continue
     const pid = Number(name.slice(prefix.length, -'.tmp'.length))
     if (!Number.isInteger(pid) || pid <= 0) continue
-    if (pid !== process.pid && alive(pid)) continue
+    // 年龄读不出来（文件刚被别人清掉）就当没这回事，没什么可清的
+    let ageMs: number
+    try { ageMs = Date.now() - statSync(join(dir, name)).mtimeMs } catch { continue }
+    if (pid !== process.pid && alive(pid) && ageMs < TMP_MAX_AGE_MS) continue
     rmSync(join(dir, name), { force: true })
   }
 }

@@ -32,6 +32,7 @@ import {
 } from './lib/assessment.js'
 import {
   writeFileSync, unlinkSync, truncateSync, readdirSync, mkdirSync, rmSync, existsSync,
+  utimesSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -618,6 +619,19 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   writeFileSync(otherLive, '别的进程正在写', 'utf8')
   recordRecommendations([mk('tiktok', 'erin')], 'p')
   ok('活着的进程的临时文件不动', existsSync(otherLive))
+
+  // 但「pid 还活着」不等于「它就是写这个文件的那个进程」—— 系统会回收 pid。
+  // 回收到一个长命进程头上，孤儿就再也清不掉了。真正在写的文件只有毫秒级寿命，
+  // 所以活得太久的一律清掉（ADR-39）。
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
+  utimesSync(otherLive, twoHoursAgo, twoHoursAgo)
+  recordRecommendations([mk('tiktok', 'erin')], 'p')
+  eq('pid 被回收给别的进程时，靠年龄兜底清掉孤儿', existsSync(otherLive), false)
+
+  // 兜底不能反过来误伤：刚写下的那份还是不许动
+  writeFileSync(otherLive, '别的进程正在写', 'utf8')
+  recordRecommendations([mk('tiktok', 'erin')], 'p')
+  ok('刚写下的仍然不动 —— 年龄兜底不误伤并发写', existsSync(otherLive))
   rmSync(otherLive, { force: true })
   rmSync(liveOrphan, { force: true })
 

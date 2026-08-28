@@ -446,7 +446,7 @@
       "req": "D4",
       "why": "清临时文件时不管那个进程还活着没有 —— 两个任务同时跑时，会把对方正在写的那一份删掉",
       "file": "scripts/lib/memory.ts",
-      "find": "    if (pid !== process.pid && alive(pid)) continue",
+      "find": "    if (pid !== process.pid && alive(pid) && ageMs < TMP_MAX_AGE_MS) continue",
       "replace": "    /* mutated */"
     },
     {
@@ -472,6 +472,14 @@
       "file": "scripts/lib/memory.ts",
       "find": "      if (typeof rr.product !== 'string' || !rr.product) return `${at}的 product 不是非空字符串`",
       "replace": "      if (typeof rr.product !== 'string') return `${at}的 product 不是非空字符串`"
+    },
+    {
+      "id": "M-D4-l",
+      "req": "D4",
+      "why": "清临时文件时只看那个进程号还在不在，不看文件活了多久 —— 进程号被系统回收给一个长命进程之后，那份完整的记忆副本就再也清不掉了，永远躺在盘上",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (pid !== process.pid && alive(pid) && ageMs < TMP_MAX_AGE_MS) continue",
+      "replace": "    if (pid !== process.pid && alive(pid)) continue"
     }
   ],
   "exemptions": [
