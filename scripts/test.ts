@@ -731,6 +731,27 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     rmSync(d, { recursive: true, force: true })
   }
 
+  // 八之五、写入侧不许写出读取侧会拒绝的东西。任务配置里 product 是空白时，
+  //        写下的那条推荐记录下次读盘正好被判成损坏 —— 一次写回就把一份好好的
+  //        记忆变成读不出来的，此后每次采集都被挡住（ADR-46）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  const blank = recordRecommendations([mk('tiktok', 'zed')], '   ')
+  eq('产品名是空白时拒绝写回', blank.written, false)
+  eq('记忆仍然读得出来 —— 没有被自己写的东西毒掉', filterByMemory([mk('tiktok', 'zed')], 'X').memory_status, 'ok')
+
+  // 落盘要保住目标原有的权限位 —— 这一段和记忆那边现在是同一个函数
+  {
+    const d2 = join(tmpdir(), `kol-d4-mode-${process.pid}`)
+    rmSync(d2, { recursive: true, force: true })
+    const st2 = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1 } as unknown as TaskState
+    saveTask(d2, st2)
+    chmodSync(join(d2, 'task.json'), 0o640)
+    saveTask(d2, st2)
+    eq('任务目录的落盘同样保住权限位', statSync(join(d2, 'task.json')).mode & 0o777, 0o640)
+    rmSync(d2, { recursive: true, force: true })
+  }
+
   // 九、正常写回是原子的 —— 不留临时文件
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
   const okWb = recordRecommendations([mk('tiktok', 'erin')], 'p')

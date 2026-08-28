@@ -332,10 +332,10 @@
     {
       "id": "M-D4-c",
       "req": "D4",
-      "why": "写回改成直接盖原文件 —— 写到一半被打断就留下一份截断的 memory/creators.json，而它是唯一一份",
-      "file": "scripts/lib/memory.ts",
-      "find": "    writeFileSync(tmp, JSON.stringify(mem, null, 2), { encoding: 'utf8', mode: 0o600 })\n    // 再调到目标该有的权限。建文件时的 mode 会被 umask 削，chmod 不会 ——\n    // 目标本来是 0666 而 umask 是 022 的话，只靠建文件那一步会把它悄悄收严。\n    if (mode !== undefined) chmodSync(tmp, mode)\n    renameSync(tmp, FILE)",
-      "replace": "    writeFileSync(tmp, JSON.stringify(mem, null, 2), 'utf8')\n    writeFileSync(FILE, JSON.stringify(mem, null, 2), 'utf8')"
+      "why": "落盘改成直接盖原文件 —— 写到一半被打断就留下一份截断的 JSON。跨任务记忆坏了「谁联系过」永久消失（它是唯一一份），任务目录里的坏了续跑起不来、已经花钱抓到的东西找不回来",
+      "file": "scripts/lib/atomic.ts",
+      "find": "    writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600 })\n    if (mode !== undefined) chmodSync(tmp, mode)\n    renameSync(tmp, file)",
+      "replace": "    writeFileSync(file, data, 'utf8')"
     },
     {
       "id": "M-D4-e",
@@ -484,8 +484,8 @@
     {
       "id": "M-D4-m",
       "req": "D4",
-      "why": "写回时不再把目标文件原有的权限位带过去 —— 用户特意收紧过的那份记忆，每成功写回一次就被悄悄放开一次，而它记着谁联系过、备注写了什么",
-      "file": "scripts/lib/memory.ts",
+      "why": "整体替换时不再把目标文件原有的权限位带过去 —— 改名换掉的是整个 inode，权限跟着新文件走：用户特意收紧过的记忆、任务数据与开发信草稿，每成功写一次就被悄悄放开一次",
+      "file": "scripts/lib/atomic.ts",
       "find": "    if (mode !== undefined) chmodSync(tmp, mode)",
       "replace": "    /* mutated */"
     },
@@ -522,12 +522,12 @@
       "replace": "    super(`记忆文件 ${file} 解析失败：${detail}`)"
     },
     {
-      "id": "M-D4-p",
+      "id": "M-D4-q",
       "req": "D4",
-      "why": "任务目录里的几个文件改成直接盖原文件 —— 写到一半被杀就留下一份截断的 JSON，续跑起不来，已经花钱抓到的东西找不回来；而三步落盘协议正建立在盘上确实有那个状态之上",
-      "file": "scripts/lib/task.ts",
-      "find": "    writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8')\n    renameSync(tmp, file)",
-      "replace": "    writeFileSync(file, JSON.stringify(data, null, 2), 'utf8')"
+      "why": "产品名是空白时照样写进记忆 —— 而下一次读盘正是按「产品名必须非空」判它损坏，一次写回就把一份好好的记忆变成读不出来的，此后每一次采集都被挡在门外，直到有人手工去修",
+      "file": "scripts/lib/memory.ts",
+      "find": "  if (!want) {\n    return { written: false, reason: '任务的产品名是空的 —— 记不下来，因为记下的这条下次会被判成损坏' }\n  }",
+      "replace": "  /* mutated */"
     }
   ],
   "exemptions": [

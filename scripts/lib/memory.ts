@@ -4,6 +4,7 @@ import {
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { PLATFORMS, type Creator, type MemoryStatus, type Platform } from './types.js'
+import { writeFileAtomic } from './atomic.js'
 
 /** D4：本地单文件，不做多人共享。团队场景需另行设计。 */
 const DEFAULT_FILE = 'memory/creators.json'
@@ -323,22 +324,7 @@ export function saveMemory(mem: MemoryFile): void {
   // rename 把这个更宽松的权限一并装到目标上 —— 用户特意 chmod 600 过的记忆
   // （它记着谁联系过、备注写了什么），每成功写回一次就被悄悄放开一次（ADR-40）。
   // 文件不存在就用默认：新文件该多严是产品决定，不在这里顺手改。
-  let mode: number | undefined
-  try { mode = statSync(FILE).mode & 0o777 } catch { /* 新文件 */ }
-  try {
-    // **建的时候就给最严的权限，不是写完再收。** 先按 umask 建（通常 0644）
-    // 再 chmod，中间那一段窗口里，一份完整的联系历史是别人读得到的；
-    // 而硬杀正好落在这一段时，那份 0644 的副本会留在盘上直到下次清理（ADR-42）。
-    // 临时文件没有任何人需要读，所以直接给 0600 —— 它比目标文件只严不松。
-    writeFileSync(tmp, JSON.stringify(mem, null, 2), { encoding: 'utf8', mode: 0o600 })
-    // 再调到目标该有的权限。建文件时的 mode 会被 umask 削，chmod 不会 ——
-    // 目标本来是 0666 而 umask 是 022 的话，只靠建文件那一步会把它悄悄收严。
-    if (mode !== undefined) chmodSync(tmp, mode)
-    renameSync(tmp, FILE)
-  } catch (e) {
-    rmSync(tmp, { force: true })   // 半成品不留在盘上
-    throw e
-  }
+  writeFileAtomic(FILE, JSON.stringify(mem, null, 2))
 }
 
 export interface FilterResult {
@@ -428,6 +414,16 @@ export type WriteBackResult =
 export function recordRecommendations(
   creators: Creator[], product: string, task?: string,
 ): WriteBackResult {
+  // **写入侧不许写出读取侧会拒绝的东西。** 任务配置里的 product 是空白时，
+  // 这里会存下一条 product 为空的推荐记录，而下一次读盘 shapeProblem 正是
+  // 按「product 必须是非空字符串」判它损坏 —— 一次写回就把一份好好的记忆
+  // 变成读不出来的，此后每一次采集都被挡住，直到有人手工去修（ADR-46）。
+  //
+  // 判据是**读取侧实际会拒绝什么**，不是「这个值看起来合不合理」。
+  const want = product.trim()
+  if (!want) {
+    return { written: false, reason: '任务的产品名是空的 —— 记不下来，因为记下的这条下次会被判成损坏' }
+  }
   const r = readMemory()
   if (r.status === 'unreadable') return { written: false, reason: r.detail }
   const mem = r.mem
@@ -447,7 +443,7 @@ export function recordRecommendations(
     // 同一任务重复 render 不该堆出多条记录 —— 覆盖而不是追加
     e.recommendations = e.recommendations.filter(r => !(task && r.task === task))
     e.recommendations.push({
-      date, product: product.trim(), keyword: c.source_keyword, task,
+      date, product: want, keyword: c.source_keyword, task,
       tier: c.tier, fit_reason: c.fit_reason,
     })
     mem.creators[k] = e

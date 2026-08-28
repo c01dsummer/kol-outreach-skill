@@ -67,6 +67,14 @@ if (resume) {
     process.exit(2)
   }
   const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'))
+  // 产品名一路要用到最后：任务目录名、跨任务记忆里那条「为哪个产品推荐过」。
+  // 空的走不到最后 —— 记忆写回会拒收（记下的那条下次会被判成损坏，ADR-46）。
+  // **在花钱之前说，不是花完再说。**
+  if (typeof cfg.product !== 'string' || !cfg.product.trim()) {
+    console.error(`${cfgPath} 里的 product 是空的 —— 它要用作任务目录名，` +
+                  `也要记进跨任务记忆的「为哪个产品推荐过」。先给它一个名字再跑。`)
+    process.exit(2)
+  }
   state = {
     product: cfg.product, market: cfg.market ?? 'US',
     target_count: cfg.target_count ?? 50, budget_usd: cfg.budget_usd ?? 2,
