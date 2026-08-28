@@ -643,6 +643,13 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   chmodSync(tmp, 0o600)
   recordRecommendations([mk('tiktok', 'erin')], 'p')
   eq('写回保留目标文件原有的权限位', statSync(tmp).mode & 0o777, 0o600)
+  // 再验一个**不等于临时文件那档**的权限：临时文件是按最严建的，
+  // 只断言 0600 的话，「建得严」和「事后调回目标」这两件事分不开 ——
+  // 删掉后者，测试照样绿（这条变异当场活了一次，就是这么被发现的）
+  chmodSync(tmp, 0o640)
+  recordRecommendations([mk('tiktok', 'erin')], 'p')
+  eq('目标比临时文件宽时也照样还原，不是停在最严那一档',
+    statSync(tmp).mode & 0o777, 0o640)
 
   // 八之三、product 的首尾空白不该让「已推荐过」失效。**不判成损坏** ——
   //        product 来自用户的任务配置，配置里多一个空格就把我们自己写下的

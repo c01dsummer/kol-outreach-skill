@@ -334,7 +334,7 @@
       "req": "D4",
       "why": "写回改成直接盖原文件 —— 写到一半被打断就留下一份截断的 memory/creators.json，而它是唯一一份",
       "file": "scripts/lib/memory.ts",
-      "find": "    writeFileSync(tmp, JSON.stringify(mem, null, 2), 'utf8')\n    if (mode !== undefined) chmodSync(tmp, mode)\n    renameSync(tmp, FILE)",
+      "find": "    writeFileSync(tmp, JSON.stringify(mem, null, 2), { encoding: 'utf8', mode: 0o600 })\n    // 再调到目标该有的权限。建文件时的 mode 会被 umask 削，chmod 不会 ——\n    // 目标本来是 0666 而 umask 是 022 的话，只靠建文件那一步会把它悄悄收严。\n    if (mode !== undefined) chmodSync(tmp, mode)\n    renameSync(tmp, FILE)",
       "replace": "    writeFileSync(tmp, JSON.stringify(mem, null, 2), 'utf8')\n    writeFileSync(FILE, JSON.stringify(mem, null, 2), 'utf8')"
     },
     {

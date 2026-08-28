@@ -314,7 +314,13 @@ export function saveMemory(mem: MemoryFile): void {
   let mode: number | undefined
   try { mode = statSync(FILE).mode & 0o777 } catch { /* 新文件 */ }
   try {
-    writeFileSync(tmp, JSON.stringify(mem, null, 2), 'utf8')
+    // **建的时候就给最严的权限，不是写完再收。** 先按 umask 建（通常 0644）
+    // 再 chmod，中间那一段窗口里，一份完整的联系历史是别人读得到的；
+    // 而硬杀正好落在这一段时，那份 0644 的副本会留在盘上直到下次清理（ADR-42）。
+    // 临时文件没有任何人需要读，所以直接给 0600 —— 它比目标文件只严不松。
+    writeFileSync(tmp, JSON.stringify(mem, null, 2), { encoding: 'utf8', mode: 0o600 })
+    // 再调到目标该有的权限。建文件时的 mode 会被 umask 削，chmod 不会 ——
+    // 目标本来是 0666 而 umask 是 022 的话，只靠建文件那一步会把它悄悄收严。
     if (mode !== undefined) chmodSync(tmp, mode)
     renameSync(tmp, FILE)
   } catch (e) {
