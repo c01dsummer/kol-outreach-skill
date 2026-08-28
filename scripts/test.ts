@@ -550,6 +550,17 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   // 数组里的对象各有各的层，别把不同对象的同名键算成重复
   shapes.push(['嵌套对象里的重复键也算', `{"version":1,"creators":{
     "tiktok:a":{"contacted":true,"blocked":true,"contacted":false,"recommendations":[]}}}`])
+  // handle 的形状不是拍的：展示时前面才加 @，链接里它是裸的路径段（ADR-37）
+  for (const bad of ['@a', 'a/b', 'a?x', 'a%63', 'a#b']) {
+    shapes.push([`键的 handle 是展示形态或含 URL 字符（${bad}）`, JSON.stringify({ version: 1, creators: {
+      [`tiktok:${bad}`]: { contacted: true, blocked: true, recommendations: [] } } })])
+  }
+  // 类型对不等于能用：空 product 永远匹配不上任何产品，这条去重记录等于不存在
+  for (const [f, v] of [['product', ''], ['date', '']] as const) {
+    shapes.push([`推荐记录的 ${f} 是空字符串`, JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false, recommendations:
+        [{ product: 'p', date: '2026-01-01', [f]: v }] } } })])
+  }
   for (const [label, content] of shapes) {
     writeFileSync(tmp, content, 'utf8')
     let caught = ''

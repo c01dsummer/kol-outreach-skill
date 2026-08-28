@@ -41,6 +41,12 @@ interface MemoryFile {
   creators: Record<string, MemoryEntry>
 }
 
+/**
+ * handle 允许的字符 —— `PLATFORMS` 里两家都只允许字母、数字、下划线、点，
+ * 连字符留着是因为现有数据里有（`active-kol`）。见 `normalizeKeys` 的推导。
+ */
+const HANDLE = /^[a-z0-9._-]+$/
+
 /** D1：身份是 platform 与 handle 的组合，**整体**大小写不敏感 */
 const key = (c: { platform: string; handle: string }) =>
   `${c.platform.toLowerCase()}:${c.handle.toLowerCase()}`
@@ -97,8 +103,12 @@ function shapeProblem(v: unknown): string | undefined {
       const at = `${k} 的第 ${i + 1} 条推荐记录`
       if (!obj(rec)) return `${at}不是对象`
       const rr = rec as Record<string, unknown>
-      if (typeof rr.product !== 'string') return `${at}的 product 不是字符串`
-      if (typeof rr.date !== 'string') return `${at}的 date 不是字符串`
+      // 类型对不等于能用：product 用来匹配「这个人是不是已经为这个产品推过了」，
+      // date 用来渲染「上次推的是什么、什么时候」。空字符串两件事都做不了 ——
+      // 一条空 product 的记录永远匹配不上任何产品，等于这条去重记录不存在（ADR-37）。
+      // task 不在此列：空字符串与缺省在过滤里行为完全一致，不是坏数据。
+      if (typeof rr.product !== 'string' || !rr.product) return `${at}的 product 不是非空字符串`
+      if (typeof rr.date !== 'string' || !rr.date) return `${at}的 date 不是非空字符串`
       if (rr.task !== undefined && typeof rr.task !== 'string') return `${at}的 task 不是字符串`
     }
   }
@@ -118,14 +128,20 @@ function shapeProblem(v: unknown): string | undefined {
  *   两边任一为空、或平台不是支持的那几个（`tikok:alice` 这种拼错）。
  *   它永远匹配不到任何人，是个静默的黑洞。**「有个冒号」远不够** ——
  *   查询侧生成的键是什么形状，这里就得要求什么形状（ADR-25）
- * - **带空白字符** —— `tiktok:alice ` 每一关都过得去：两边非空、平台也对，
- *   而查询侧生成的是 `tiktok:alice`，永远差那一个空格。这是同一间屋子的
- *   第四扇门（ADR-32）
+ * - **handle 不是 handle 的形状** —— `tiktok:@alice`、`tiktok:alice/`、
+ *   `tiktok:ali%63e` 每一关都过得去：两边非空、平台也对、也没有空白，
+ *   而查询侧生成的是 `tiktok:alice`。空白只是这一类里最显眼的那个
+ *   （ADR-32 只堵了空白，ADR-37 补上其余）
  * - **两个键规范化后撞在一起** —— 该用哪一条无从判断，而**答不上来时不许猜**
  *
- * 空白这一条**是个判断，不是推导出来的**：`PLATFORMS` 里这两家都不允许
- * 用户名带空白，所以带空白的键只可能来自手改。它绑在这个枚举上 ——
- * **平台集合变了，这条得跟着重看**。判断有可能错，所以选了错得起的那边：
+ * handle 的形状**是从这个仓库里推出来的，不是拍的**：
+ *
+ * - `report.ts` 渲染的是 `@${handle}` —— handle 自己带 `@` 的话会显示成 `@@alice`
+ * - `profile_url` 拼的是 `.../@${handle}` 与 `.../${handle}/` —— handle 是个
+ *   **裸的 URL 路径段**，带 `/ ? # %` 拼出来就是另一个地址
+ *
+ * 所以取两家平台用户名都允许的字符集。仍然绑在 `PLATFORMS` 上 ——
+ * **平台集合变了，这条得跟着重看**。可能失之过严，所以选了错得起的那边：
  * 误判会大声中止（还有 `--ignore-memory` 兜底），漏判是静默地破 P4。
  */
 function normalizeKeys(creators: Record<string, MemoryEntry>):
@@ -137,12 +153,12 @@ function normalizeKeys(creators: Record<string, MemoryEntry>):
     if (parts.length !== 2 || !parts[0] || !parts[1]) {
       return { ok: false, why: `键「${raw}」不是 platform:handle 的形式（分隔符必须恰好一个，两边都不能空）—— 它永远匹配不到任何人` }
     }
-    if (/\s/.test(raw)) {
-      return { ok: false, why: `键「${raw}」里有空白字符 —— ${PLATFORMS.join(' / ')} 的用户名都不允许空白，查询侧生成的键里也不会有，它永远匹配不到任何人` }
-    }
     const [rawPlatform, rawHandle] = parts
     if (!(PLATFORMS as readonly string[]).includes(rawPlatform.toLowerCase())) {
       return { ok: false, why: `键「${raw}」的平台「${rawPlatform}」不是支持的平台（${PLATFORMS.join(' / ')}）—— 它永远匹配不到任何人` }
+    }
+    if (!HANDLE.test(rawHandle.toLowerCase())) {
+      return { ok: false, why: `键「${raw}」的 handle「${rawHandle}」不是 handle 的形状（只允许字母、数字、下划线、点、连字符）—— 展示时前面才加 @，链接里它是一个裸的路径段，查询侧生成的键里不会有别的字符，它永远匹配不到任何人` }
     }
     const norm = `${rawPlatform.toLowerCase()}:${rawHandle.toLowerCase()}`
     const prev = seen.get(norm)

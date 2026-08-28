@@ -450,20 +450,28 @@
       "replace": "    /* mutated */"
     },
     {
-      "id": "M-P4-j",
-      "req": "P4",
-      "why": "记忆的键里带空白也收下 —— 一个手改时多敲的空格，就让已联系、已拉黑的人重新进名单，而状态照报「读到了」，过滤条数报 0，与「确实没人联系过」同值",
-      "file": "scripts/lib/memory.ts",
-      "find": "    if (/\\s/.test(raw)) {",
-      "replace": "    if (false && /\\s/.test(raw)) {"
-    },
-    {
       "id": "M-P4-k",
       "req": "P4",
       "why": "同一个人在手改的记忆文件里出现两次时不再判为读不出来 —— 解析静默只留最后一条，而后贴的那条通常写着「还没联系过」，于是一条已联系已拉黑的记录被顶掉，人重新进名单，状态照报读到了",
       "file": "scripts/lib/memory.ts",
       "find": "  const dup = duplicateKey(raw)",
       "replace": "  const dup = undefined as string | undefined"
+    },
+    {
+      "id": "M-P4-l",
+      "req": "P4",
+      "why": "记忆的键只挡空白，不管 handle 是不是 handle 的形状 —— 手改成展示形态（前面带 @）或粘进一段链接片段，键照样收下，而查询侧永远匹配不到它，已联系和已拉黑的人重新进名单",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (!HANDLE.test(rawHandle.toLowerCase())) {",
+      "replace": "    if (false && !HANDLE.test(rawHandle.toLowerCase())) {"
+    },
+    {
+      "id": "M-D4-k",
+      "req": "D4",
+      "why": "推荐记录的产品名只看类型不看有没有内容 —— 一条空产品名的记录永远匹配不上任何产品，那条去重记录等于不存在，人会被重新推荐一次，名单上那句「上次推的是什么」也少了一半",
+      "file": "scripts/lib/memory.ts",
+      "find": "      if (typeof rr.product !== 'string' || !rr.product) return `${at}的 product 不是非空字符串`",
+      "replace": "      if (typeof rr.product !== 'string') return `${at}的 product 不是非空字符串`"
     }
   ],
   "exemptions": [
