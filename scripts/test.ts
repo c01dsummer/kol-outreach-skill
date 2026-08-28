@@ -536,7 +536,9 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     ['键里多一个分隔符', JSON.stringify({ version: 1, creators: {
       'tiktok:a:old': { contacted: true, blocked: false, recommendations: [] } } })],
     // 同一间屋子的第四扇门：两边非空、平台也对，只差一个空格，
-    // 而查询侧生成的键里永远不会有空白（ADR-32）
+    // 平台不允许用户名带空白，所以带空白的键只可能来自手改（ADR-32）。
+    // **不写成「查询侧永远不会生成带空白的键」** —— 查询侧照单全收，
+    // 拦住它的是写入侧的校验和这里的读入校验（ADR-52 自查发现）
     ['键的 handle 尾部带空格', JSON.stringify({ version: 1, creators: {
       'tiktok:a ': { contacted: true, blocked: true, recommendations: [] } } })],
     ['键的 handle 头部带空格', JSON.stringify({ version: 1, creators: {

@@ -175,7 +175,7 @@ function keyProblem(platform: string, handle: string): string | undefined {
     return `平台「${platform}」不是支持的平台（${PLATFORMS.join(' / ')}）—— 它永远匹配不到任何人`
   }
   if (!HANDLE.test(handle.toLowerCase())) {
-    return `handle「${handle}」不是 handle 的形状（只允许字母、数字、下划线、点、连字符）—— 展示时前面才加 @，链接里它是一个裸的路径段，查询侧生成的键里不会有别的字符，它永远匹配不到任何人`
+    return `handle「${handle}」不是 handle 的形状（只允许字母、数字、下划线、点、连字符）—— 展示时前面才加 @，链接里它是一个裸的路径段 —— 支持的平台都不允许用户名出现别的字符，所以这样的键只可能来自手改，而它永远匹配不到任何人`
   }
   return undefined
 }
@@ -289,7 +289,10 @@ export function loadMemory(): MemoryFile {
  * 一个临时文件最多可能正在被写多久。
  *
  * 写的过程是一次 `writeFileSync` 加一次 `renameSync`，毫秒级。取一小时是
- * **荒谬地宽松** —— 为的是任何真正在写的文件都不可能被误判成孤儿。
+ * **荒谬地宽松** —— 为的是正常写盘的文件不会被误判成孤儿。
+ * **不是「不可能」**：被 SIGSTOP 或调试器按住超过这个时长的写入方仍会被误判，
+ * 那是 ADR-44 明写下来的取舍（误判是响的，不清理是静默的）。
+ * 同一个文件里另一处曾把这里写成「不可能」，与那条取舍自相矛盾（ADR-52 自查发现）。
  * 它只用来兜住 pid 被系统回收的那一种情况。
  */
 const TMP_MAX_AGE_MS = 60 * 60 * 1000
@@ -312,7 +315,7 @@ function alive(pid: number): boolean {
  * **但「pid 还活着」不等于「它就是写这个文件的那个进程」** —— 系统会回收 pid。
  * 回收到一个长命进程头上，这个孤儿就再也清不掉了，一份完整的记忆副本
  * 永远躺在盘上。所以再拿**文件年龄**兜一道：真正在写的文件只有毫秒级的寿命
- * （一次 writeFileSync 加一次 rename），活过一小时的一定不是（ADR-39）。
+ * （一次 writeFileSync 加一次 rename），活过一小时的**几乎一定不是**（ADR-39 · ADR-44）。
  *
  * **年龄这一道有代价，明写在这里：** 一个被 SIGSTOP 或调试器按住超过一小时的
  * 写入方，它的临时文件会被当成孤儿清掉，它恢复后 rename 失败。这是一个

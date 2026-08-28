@@ -1,3 +1,4 @@
+import { creatorKey } from './types.js'
 import type {
   AccountAssessment,
   AccountAssessmentSummary,
@@ -30,7 +31,7 @@ const FOLLOWER_BAND_LABELS = [
 ] as const
 
 export const accountKey = (platform: Platform, handle: string): string =>
-  `${platform}:${handle.toLowerCase()}`
+  creatorKey({ platform, handle })
 
 export function measured<T>(
   value: T,

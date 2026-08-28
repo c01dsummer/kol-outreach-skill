@@ -5,13 +5,20 @@ import type { TaskState, Creator, EnrichmentState, MemoryStatus } from './types.
 import { mkdirDurable, writeFileAtomic } from './atomic.js'
 
 
+/**
+ * 任务状态的文件名。**只此一份** —— `saveTask` 和 `persistListAndStatus` 都要拼它，
+ * 各写一份时改了一处没改另一处，改名前的比对就会去比**另一个文件**，
+ * 而且比得通过：那道并发保护会静默失效（ADR-52 自查发现）。
+ */
+const TASK_FILE = 'task.json'
+
 export function taskDir(product: string, timestamp?: string): string {
   const ts = timestamp ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
   return join('output', `${product}-${ts}`)
 }
 
 export function loadTask(dir: string): TaskState {
-  return JSON.parse(readFileSync(join(dir, 'task.json'), 'utf8'))
+  return JSON.parse(readFileSync(join(dir, TASK_FILE), 'utf8'))
 }
 
 /**
@@ -23,7 +30,7 @@ export function saveTask(dir: string, state: TaskState, seen?: string): string {
   mkdirDurable(dir)
   state.updated_at = new Date().toISOString()
   const data = JSON.stringify(state, null, 2)
-  const file = join(dir, 'task.json')
+  const file = join(dir, TASK_FILE)
   writeFileAtomic(file, data, seen === undefined ? undefined : () => {
     if (readIfExists(file) !== seen) throw new TaskChangedUnderfoot(dir)
   })
@@ -76,7 +83,7 @@ export function persistListAndStatus(
   //
   // 和记忆那边一样：**不做串行化，只做检测** —— 每一步改名前确认盘上还是
   // 上一步留下的那份，被别人插进来就当场停下并报出来。
-  const file = join(dir, 'task.json')
+  const file = join(dir, TASK_FILE)
   let seen = readIfExists(file)
   // 一、撤掉旧断言。此后到第三步之间，盘上的状态都不替任何一份名单打包票
   state.memory_status = 'unknown'
