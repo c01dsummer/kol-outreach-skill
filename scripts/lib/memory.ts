@@ -76,9 +76,31 @@ type ReadResult =
   | { status: 'ok' | 'absent'; mem: MemoryFile; seen: string }
   | { status: 'unreadable'; detail: string }
 
-/** 盘上现在是什么。文件不存在也是一种「什么」，要能和「有内容」区分开 */
+/** 盘上「什么都没有」的那个取值。它必须和任何真实内容都不相等 */
+const ABSENT = '\u0000absent'
+
+/**
+ * 一次读失败，算不算「盘上没有这个文件」？
+ *
+ * **只有 ENOENT 算。** 权限不足、父路径不是目录、IO 错都是「看不到」——
+ * 把它们和「确实没有」压成一个值，正是 ADR-26 修过的那个塌陷。
+ * 而我在 `onDisk` 里又写了一遍：那里一句 `catch { return ABSENT }`，
+ * 于是「读不到」被当成「没有」，比对通过，改名把一份从没读到过的记忆盖掉（ADR-48）。
+ *
+ * 抽成一个有名字的判断，是因为它有**两个**调用方 —— 而上一次出事，
+ * 正是因为同一个判断有两份副本、只修好了一份（ADR-46）。
+ */
+export const isAbsence = (e: unknown): boolean =>
+  (e as NodeJS.ErrnoException | null)?.code === 'ENOENT'
+
+/**
+ * 盘上现在是什么。
+ *
+ * 读不到就**抛** —— 确认不了前提，就不能让那次改名生效。
+ */
 function onDisk(): string {
-  try { return readFileSync(FILE, 'utf8') } catch { return '\u0000absent' }
+  try { return readFileSync(FILE, 'utf8') }
+  catch (e) { if (isAbsence(e)) return ABSENT; throw e }
 }
 
 /** 两个 render 同时跑时，后写的那个会把先写的整个盖掉 —— 见 saveMemory */
@@ -237,7 +259,7 @@ function readMemory(): ReadResult {
     // **只有「文件不存在」才是 absent。** 权限不足、父路径不是目录、IO 错误
     // 都是「没查到」—— 而 existsSync 对它们**统统返回 false**，拿它分档
     // 等于把刚拆开的三档又压回两档：名单照出，还报「记忆里确实没人」（ADR-26）。
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'absent', mem: empty(), seen: '\u0000absent' }
+    if (isAbsence(e)) return { status: 'absent', mem: empty(), seen: ABSENT }
     return { status: 'unreadable', detail: e instanceof Error ? e.message : String(e) }
   }
   let parsed: unknown

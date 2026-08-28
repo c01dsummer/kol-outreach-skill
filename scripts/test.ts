@@ -21,6 +21,7 @@ import { Budget, BudgetExceeded } from './lib/budget.js'
 import { renderHtml } from './lib/report.js'
 import {
   filterByMemory, recordRecommendations, useMemoryFile, MemoryUnreadable, saveMemory,
+  isAbsence,
 } from './lib/memory.js'
 import {
   finalize, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators,
@@ -752,6 +753,16 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     eq('任务目录的落盘同样保住权限位', statSync(join(d2, 'task.json')).mode & 0o777, 0o640)
     rmSync(d2, { recursive: true, force: true })
   }
+
+  // 八之五之二、一次读失败算不算「盘上没有」：**只有 ENOENT 算**。
+  //          权限不足、父路径不是目录、IO 错都是「看不到」—— 压成一个值，
+  //          比对就会拿「看不到」当「没有」通过，然后把一份从没读到过的
+  //          记忆盖掉。这个判断有两个调用方，所以只留一份（ADR-48）。
+  eq('文件不存在算「盘上没有」', isAbsence({ code: 'ENOENT' }), true)
+  for (const code of ['EACCES', 'ENOTDIR', 'EIO', 'EISDIR', undefined]) {
+    eq(`读不到（${code ?? '没有错误码'}）不算「盘上没有」`, isAbsence({ code }), false)
+  }
+  eq('连错误对象都没有时也不算', isAbsence(null), false)
 
   // 八之六、并发的两个 render：双方读到同一份快照、各自加各自的，后写的那个
   //        会把先写的整个盖掉，而两边的报告都说「已记入」。不做串行化，

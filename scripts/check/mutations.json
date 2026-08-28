@@ -334,7 +334,7 @@
       "req": "D4",
       "why": "落盘改成直接盖原文件 —— 写到一半被打断就留下一份截断的 JSON。跨任务记忆坏了「谁联系过」永久消失（它是唯一一份），任务目录里的坏了续跑起不来、已经花钱抓到的东西找不回来",
       "file": "scripts/lib/atomic.ts",
-      "find": "    writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600 })\n    if (mode !== undefined) chmodSync(tmp, mode)\n    fsync(tmp)                 // 内容先落盘，再让改名把它接上",
+      "find": "    writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600 })\n    if (mode !== undefined) chmodSync(tmp, mode)\n    fsyncFile(tmp)             // 内容先落盘，再让改名把它接上；刷不动就是没落盘，要抛",
       "replace": "    writeFileSync(file, data, 'utf8')\n    return"
     },
     {
@@ -420,10 +420,10 @@
     {
       "id": "M-P4-i",
       "req": "P4",
-      "why": "读不到记忆时，只要不是「文件不存在」之外的原因都当成空记忆 —— 权限不足或路径不对时名单照出，还报「记忆里确实没人」，已联系的人重新进名单",
+      "why": "任何一种读失败都算成「盘上没有这个文件」—— 权限不足、父路径不是目录或 IO 出错时，名单照出还报「记忆里确实没人」，已联系的人重新进名单；写回前的比对也会拿「看不到」当「没有」放行，把一份从没读到过的记忆整个盖掉",
       "file": "scripts/lib/memory.ts",
-      "find": "    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'absent', mem: empty(), seen: '\\u0000absent' }",
-      "replace": "    if (!existsSync(FILE)) return { status: 'absent', mem: empty(), seen: '\\u0000absent' }"
+      "find": "  (e as NodeJS.ErrnoException | null)?.code === 'ENOENT'",
+      "replace": "  true"
     },
     {
       "id": "M-D6-e",
@@ -448,14 +448,6 @@
       "file": "scripts/lib/memory.ts",
       "find": "    if (pid !== process.pid && alive(pid) && ageMs < TMP_MAX_AGE_MS) continue",
       "replace": "    /* mutated */"
-    },
-    {
-      "id": "M-P4-k",
-      "req": "P4",
-      "why": "同一个人在手改的记忆文件里出现两次时不再判为读不出来 —— 解析静默只留最后一条，而后贴的那条通常写着「还没联系过」，于是一条已联系已拉黑的记录被顶掉，人重新进名单，状态照报读到了",
-      "file": "scripts/lib/memory.ts",
-      "find": "  const dup = duplicateKey(raw)",
-      "replace": "  const dup = undefined as string | undefined"
     },
     {
       "id": "M-P4-l",

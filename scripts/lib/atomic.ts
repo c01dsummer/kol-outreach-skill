@@ -38,24 +38,41 @@ export function writeFileAtomic(file: string, data: string, verify?: () => void)
   try {
     writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600 })
     if (mode !== undefined) chmodSync(tmp, mode)
-    fsync(tmp)                 // 内容先落盘，再让改名把它接上
+    fsyncFile(tmp)             // 内容先落盘，再让改名把它接上；刷不动就是没落盘，要抛
     // 改名前**最后一刻**再确认一次调用方的前提还成立。放在这里而不是函数外面，
     // 是为了让「确认」到「生效」之间的窗口尽可能小 —— 它缩不到零（ADR-47）。
     verify?.()
     renameSync(tmp, file)
-    fsync(dirname(file))       // 改名是目录的改动，它自己也要落盘
+    fsyncDirBestEffort(dirname(file))   // 改名是目录的改动，它自己也要落盘
   } catch (e) {
     rmSync(tmp, { force: true })
     throw e
   }
 }
 
-/** 把一个路径（文件或目录）刷到盘上。刷不动就算了 —— 有些文件系统不支持刷目录 */
-function fsync(path: string): void {
+/**
+ * 把**文件**刷到盘上。**失败要抛。**
+ *
+ * 刷不动就是没落盘 —— 而调用方正要据此告诉用户「已记入」。
+ * 延迟写的错误（磁盘满、IO 错）恰恰是在这一刻才浮出来的，吞掉它等于
+ * 把这个函数存在的理由抵消掉（ADR-48）。
+ */
+function fsyncFile(path: string): void {
+  const fd = openSync(path, 'r')
+  try { fsyncSync(fd) } finally { closeSync(fd) }
+}
+
+/**
+ * 把**目录**刷到盘上，尽力而为。
+ *
+ * 这一个可以吞：有的平台压根不允许把目录当文件打开，而那不该让一次
+ * 内容已经落了盘、改名也成功了的写回变成失败。
+ * **能吞的只有这一个** —— 上一版把文件和目录合成一个函数，于是文件那半
+ * 也跟着被吞了。
+ */
+function fsyncDirBestEffort(path: string): void {
   let fd: number | undefined
-  try {
-    fd = openSync(path, 'r')
-    fsyncSync(fd)
-  } catch { /* 刷不动不该让一次成功的写回变成失败 */ }
+  try { fd = openSync(path, 'r'); fsyncSync(fd) }
+  catch { /* 平台不支持刷目录 */ }
   finally { if (fd !== undefined) closeSync(fd) }
 }
