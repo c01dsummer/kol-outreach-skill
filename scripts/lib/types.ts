@@ -89,6 +89,17 @@ export type ActivityStatus = 'active' | 'cooling' | 'dormant'
  * 读不出来正是会被静默当成空记忆的** —— 所以「字段缺失」不能读成「去重跑过了」，
  * 它就是字面意思上的不知道。把它并进 `ok` 等于替一批无从确认的名单打包票。
  */
+/**
+ * 创作者的身份键 —— **D1 说的「同一个人」就是这个函数说了算。**
+ *
+ * 放在这里而不是某个用它的模块里，是因为**去重、记忆查询两侧必须是同一个规则**，
+ * 而各写一份表达式时「一致」只是巧合：`collect` 原先只小写 handle、
+ * `memory` 两个都小写，今天平台名恒为小写所以看不出来，改天就不是了。
+ * 这个仓库为「同一段逻辑有几份副本」栽过三次（ADR-46 · ADR-48 · ADR-51）。
+ */
+export const creatorKey = (c: { platform: string; handle: string }): string =>
+  `${c.platform.toLowerCase()}:${c.handle.toLowerCase()}`
+
 export const MEMORY_STATUSES = ['ok', 'absent', 'unreadable_ignored', 'unknown'] as const
 export type MemoryStatus = typeof MEMORY_STATUSES[number]
 

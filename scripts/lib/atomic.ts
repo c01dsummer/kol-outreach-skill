@@ -1,6 +1,6 @@
 import {
   writeFileSync, renameSync, rmSync, statSync, chmodSync, openSync, fsyncSync, closeSync,
-  mkdirSync,
+  mkdirSync, readFileSync,
 } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 
@@ -37,7 +37,11 @@ import { dirname, join, relative, sep } from 'node:path'
  */
 export function writeFileAtomic(file: string, data: string, verify?: () => void): void {
   let mode: number | undefined
-  try { mode = statSync(file).mode & 0o777 } catch { /* 新文件 */ }
+  // **只有「不存在」才是新文件。** 权限、路径、IO 出错时读不到目标的权限位，
+  // 那时候不该假装它是新的 —— 假装的后果是把用户设过的权限换成 0600，
+  // 方向反了但同样是「悄悄改掉用户定的东西」。读不到就抛，别猜（自查发现）。
+  try { mode = statSync(file).mode & 0o777 }
+  catch (e) { if (!isAbsence(e)) throw e }
   const tmp = `${file}.${process.pid}.tmp`
   try {
     writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600 })
@@ -107,3 +111,29 @@ export function mkdirDurable(dir: string): void {
     cur = join(cur, seg)
   }
 }
+
+/** 盘上「什么都没有」的那个取值。必须和任何真实内容都不相等 */
+export const ABSENT_FILE = '\u0000absent'
+
+/**
+ * 盘上现在是什么，用来做改名前的比对。
+ *
+ * **只有「文件不存在」返回哨兵值** —— 权限不足、路径不是目录、IO 错都是
+ * 「看不到」，把它们和「确实没有」压成一个值，比对就会拿「看不到」当
+ * 「没变过」放行（ADR-26 · ADR-48 各栽过一次，所以这里只留一份）。
+ */
+export function readIfExists(file: string): string {
+  try { return readFileSync(file, 'utf8') }
+  catch (e) { if (isAbsence(e)) return ABSENT_FILE; throw e }
+}
+
+/**
+ * 一次读失败，算不算「盘上没有这个文件」？
+ *
+ * **只有 ENOENT 算。** 权限不足、父路径不是目录、IO 错都是「看不到」——
+ * 把它们和「确实没有」压成一个值，就会拿「看不到」当「没有」放行。
+ * 这个塌陷在这个仓库里出现过两次（ADR-26 · ADR-48），两次都是因为
+ * 同一个判断有两份副本 —— 所以现在只有这一份。
+ */
+export const isAbsence = (e: unknown): boolean =>
+  (e as NodeJS.ErrnoException | null)?.code === 'ENOENT'

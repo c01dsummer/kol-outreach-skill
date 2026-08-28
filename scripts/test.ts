@@ -14,7 +14,8 @@ import { fillEmail, pickList } from './providers/tikhub.js'
 import { esc } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import { persistListAndStatus, saveTask } from './lib/task.js'
-import { mkdirDurable } from './lib/atomic.js'
+import { isAbsence, mkdirDurable } from './lib/atomic.js'
+import { creatorKey } from './lib/types.js'
 import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { inflateRawSync } from 'node:zlib'
@@ -22,7 +23,6 @@ import { Budget, BudgetExceeded } from './lib/budget.js'
 import { renderHtml } from './lib/report.js'
 import {
   filterByMemory, recordRecommendations, useMemoryFile, MemoryUnreadable, saveMemory,
-  isAbsence,
 } from './lib/memory.js'
 import {
   finalize, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators,
@@ -720,6 +720,25 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     rmSync(d, { recursive: true, force: true })
   }
 
+  // 三步各自原子，合起来不是：同一个任务目录跑两个 collect 会交错，
+  // 盘上可能留下「没去重的名单 + 说已去重的状态」。和记忆那边一样只做检测（ADR-51）。
+  {
+    const d = join(tmpdir(), `kol-d4-race-${process.pid}`)
+    rmSync(d, { recursive: true, force: true })
+    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1,
+      memory_status: 'ok' } as unknown as TaskState
+    saveTask(d, st)
+    const stale = rf(join(d, 'task.json'), 'utf8')
+    saveTask(d, { ...st, product: '别的进程写的' } as TaskState)   // 别人插进来了
+    let name = ''
+    try { saveTask(d, st, stale) } catch (e) { name = (e as Error).name }
+    eq('盘上被别的进程改过时拒绝落盘', name, 'TaskChangedUnderfoot')
+    ok('对方写下的那份还在',
+      JSON.parse(rf(join(d, 'task.json'), 'utf8')).product === '别的进程写的')
+    rmSync(d, { recursive: true, force: true })
+  }
+
   // 都落成时才断言
   {
     const d = join(tmpdir(), `kol-d4-persist2-${process.pid}`)
@@ -778,6 +797,31 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     eq(`读不到（${code ?? '没有错误码'}）不算「盘上没有」`, isAbsence({ code }), false)
   }
   eq('连错误对象都没有时也不算', isAbsence(null), false)
+
+  // 八之五之二之二、D1 的「同一个人」只有一个定义：去重与记忆查询调同一个函数。
+  //           各写一份表达式时「一致」只是巧合 —— collect 原先只小写 handle，
+  //           memory 两个都小写，平台名恒为小写所以看不出来（ADR-51 自查发现）。
+  eq('平台名大小写不同也是同一个人',
+    creatorKey({ platform: 'TikTok', handle: 'Alice' }), creatorKey({ platform: 'tiktok', handle: 'alice' }))
+  eq('而记忆过滤用的正是这个键 —— 存的大写、查的小写，照样挡得住', (() => {
+    writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {
+      'tiktok:carol': { contacted: true, blocked: false, recommendations: [] } } }), 'utf8')
+    return filterByMemory([{ ...mk('tiktok', 'Carol') }], 'p').filtered_contacted
+  })(), 1)
+
+  // 八之五之三、**写出去的键也要过同一道校验**。只校验读进来的那一侧，
+  //          写的这一侧就能造出一个自己下次读不出来的文件 —— 一次写回把一份
+  //          好好的记忆变成读不出来的，此后每次采集都被挡住（ADR-51）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  for (const [what, c] of [
+    ['handle 是展示形态', mk('tiktok', '@alice')],
+    ['平台不在支持范围内', { ...mk('tiktok', 'alice'), platform: 'youtube' } as unknown as Creator],
+  ] as const) {
+    const w = recordRecommendations([c], 'p')
+    eq(`${what}时拒绝写回`, w.written, false)
+  }
+  eq('记忆仍然读得出来 —— 没有被自己写的键毒掉',
+    filterByMemory([mk('tiktok', 'alice')], 'p').memory_status, 'ok')
 
   // 八之六、并发的两个 render：双方读到同一份快照、各自加各自的，后写的那个
   //        会把先写的整个盖掉，而两边的报告都说「已记入」。不做串行化，

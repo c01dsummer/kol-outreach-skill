@@ -26,6 +26,7 @@ import {
   taskDir, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators,
   persistListAndStatus,
 } from './lib/task.js'
+import { creatorKey } from './lib/types.js'
 import type { Creator, TaskState } from './lib/types.js'
 
 const MAX_PAGES = 4          // 实测值：第 4 页后新增人数明显衰减
@@ -100,7 +101,8 @@ const api = new TikHub(key, budget)
 // 读的是**累加器** creators.raw.json，不是交付物 creators.json ——
 // 交付物是过滤后的结果，拿它当续跑的输入会让每轮都比上一轮少人。
 const creators = new Map<string, Creator>()
-for (const c of loadRawCreators(dir)) creators.set(`${c.platform}:${c.handle.toLowerCase()}`, c)
+// 去重用的键与记忆查询用的必须是同一个规则（D1）—— 所以调同一个函数，不在这里再写一遍
+for (const c of loadRawCreators(dir)) creators.set(creatorKey(c), c)
 
 // ---------- 采集 ----------
 
@@ -152,8 +154,11 @@ async function run() {
 
       let added = 0
       for (const p of found) {
-        if (!p.handle) continue
-        const k = `${p.platform}:${p.handle.toLowerCase()}`
+        // **platform 和 handle 都要有。** 原先只挡了 handle，缺 platform 时
+        // 会静默生成一个 `undefined:名字` 的去重键 —— 那个人此后既去不了重、
+        // 记忆也查不到他（把身份键接进有类型的函数之后，类型检查当场指出来的）
+        if (!p.handle || !p.platform) continue
+        const k = creatorKey({ platform: p.platform, handle: p.handle })
         if (creators.has(k)) continue
         creators.set(k, { ...(p as Creator), source_keyword: t.keyword, source_dimension: t.dimension })
         added++

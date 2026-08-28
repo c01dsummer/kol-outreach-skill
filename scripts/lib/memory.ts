@@ -3,8 +3,8 @@ import {
   statSync, chmodSync,
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import { PLATFORMS, type Creator, type MemoryStatus, type Platform } from './types.js'
-import { mkdirDurable, writeFileAtomic } from './atomic.js'
+import { PLATFORMS, creatorKey, type Creator, type MemoryStatus, type Platform } from './types.js'
+import { ABSENT_FILE, isAbsence, mkdirDurable, readIfExists, writeFileAtomic } from './atomic.js'
 
 /** D4：本地单文件，不做多人共享。团队场景需另行设计。 */
 const DEFAULT_FILE = 'memory/creators.json'
@@ -49,9 +49,8 @@ interface MemoryFile {
  */
 const HANDLE = /^[a-z0-9._-]+$/
 
-/** D1：身份是 platform 与 handle 的组合，**整体**大小写不敏感 */
-const key = (c: { platform: string; handle: string }) =>
-  `${c.platform.toLowerCase()}:${c.handle.toLowerCase()}`
+/** D1：身份是 platform 与 handle 的组合，整体大小写不敏感。规则在 types.ts，只此一份 */
+const key = creatorKey
 
 /**
  * 记忆读不出来。**不是「记忆里没有人」** —— 见 ADR-15。
@@ -76,32 +75,9 @@ type ReadResult =
   | { status: 'ok' | 'absent'; mem: MemoryFile; seen: string }
   | { status: 'unreadable'; detail: string }
 
-/** 盘上「什么都没有」的那个取值。它必须和任何真实内容都不相等 */
-const ABSENT = '\u0000absent'
-
-/**
- * 一次读失败，算不算「盘上没有这个文件」？
- *
- * **只有 ENOENT 算。** 权限不足、父路径不是目录、IO 错都是「看不到」——
- * 把它们和「确实没有」压成一个值，正是 ADR-26 修过的那个塌陷。
- * 而我在 `onDisk` 里又写了一遍：那里一句 `catch { return ABSENT }`，
- * 于是「读不到」被当成「没有」，比对通过，改名把一份从没读到过的记忆盖掉（ADR-48）。
- *
- * 抽成一个有名字的判断，是因为它有**两个**调用方 —— 而上一次出事，
- * 正是因为同一个判断有两份副本、只修好了一份（ADR-46）。
- */
-export const isAbsence = (e: unknown): boolean =>
-  (e as NodeJS.ErrnoException | null)?.code === 'ENOENT'
-
-/**
- * 盘上现在是什么。
- *
- * 读不到就**抛** —— 确认不了前提，就不能让那次改名生效。
- */
-function onDisk(): string {
-  try { return readFileSync(FILE, 'utf8') }
-  catch (e) { if (isAbsence(e)) return ABSENT; throw e }
-}
+// 「盘上现在是什么」与「这次读失败算不算没有」都在 atomic.ts 里，只此一份 ——
+// 同一个判断有两份副本时，修好一份不会自动修好另一份（ADR-46 · ADR-48）。
+const onDisk = () => readIfExists(FILE)
 
 /** 两个 render 同时跑时，后写的那个会把先写的整个盖掉 —— 见 saveMemory */
 export class MemoryChangedUnderfoot extends Error {
@@ -186,6 +162,24 @@ function shapeProblem(v: unknown): string | undefined {
  * **平台集合变了，这条得跟着重看**。可能失之过严，所以选了错得起的那边：
  * 误判会大声中止（还有 `--ignore-memory` 兜底），漏判是静默地破 P4。
  */
+/**
+ * 这个 platform / handle 组合能不能当键用。
+ *
+ * **两边共用**：读进来的键要过它，写出去之前生成的键也要过它。
+ * 只在读的那一侧校验，写的那一侧就能造出一个自己下次读不出来的文件 ——
+ * 一次写回把一份好好的记忆变成读不出来的，此后每次采集都被挡住（ADR-51）。
+ * 与 ADR-46 的产品名是同一条规矩，只是这次轮到了键。
+ */
+function keyProblem(platform: string, handle: string): string | undefined {
+  if (!(PLATFORMS as readonly string[]).includes(platform.toLowerCase())) {
+    return `平台「${platform}」不是支持的平台（${PLATFORMS.join(' / ')}）—— 它永远匹配不到任何人`
+  }
+  if (!HANDLE.test(handle.toLowerCase())) {
+    return `handle「${handle}」不是 handle 的形状（只允许字母、数字、下划线、点、连字符）—— 展示时前面才加 @，链接里它是一个裸的路径段，查询侧生成的键里不会有别的字符，它永远匹配不到任何人`
+  }
+  return undefined
+}
+
 function normalizeKeys(creators: Record<string, MemoryEntry>):
   { ok: true; creators: Record<string, MemoryEntry> } | { ok: false; why: string } {
   const out: Record<string, MemoryEntry> = {}
@@ -196,13 +190,12 @@ function normalizeKeys(creators: Record<string, MemoryEntry>):
       return { ok: false, why: `键「${raw}」不是 platform:handle 的形式（分隔符必须恰好一个，两边都不能空）—— 它永远匹配不到任何人` }
     }
     const [rawPlatform, rawHandle] = parts
-    if (!(PLATFORMS as readonly string[]).includes(rawPlatform.toLowerCase())) {
-      return { ok: false, why: `键「${raw}」的平台「${rawPlatform}」不是支持的平台（${PLATFORMS.join(' / ')}）—— 它永远匹配不到任何人` }
-    }
-    if (!HANDLE.test(rawHandle.toLowerCase())) {
-      return { ok: false, why: `键「${raw}」的 handle「${rawHandle}」不是 handle 的形状（只允许字母、数字、下划线、点、连字符）—— 展示时前面才加 @，链接里它是一个裸的路径段，查询侧生成的键里不会有别的字符，它永远匹配不到任何人` }
-    }
-    const norm = `${rawPlatform.toLowerCase()}:${rawHandle.toLowerCase()}`
+    const bad = keyProblem(rawPlatform, rawHandle)
+    if (bad) return { ok: false, why: `键「${raw}」的${bad}` }
+    // **用查询侧那个函数本人算**，不要在这里再写一遍同样的表达式。
+    // D1 要求两侧「逐字一致」—— 各写一份时那只是巧合，同一个函数才是保证
+    // （这个仓库为「同一段逻辑有两份副本」栽过三次：ADR-46 · ADR-48 · 本条）。
+    const norm = key({ platform: rawPlatform, handle: rawHandle })
     const prev = seen.get(norm)
     if (prev !== undefined) {
       return { ok: false, why: `键「${prev}」与「${raw}」指的是同一个人，但各有一条记录 —— 该用哪一条无从判断` }
@@ -259,7 +252,7 @@ function readMemory(): ReadResult {
     // **只有「文件不存在」才是 absent。** 权限不足、父路径不是目录、IO 错误
     // 都是「没查到」—— 而 existsSync 对它们**统统返回 false**，拿它分档
     // 等于把刚拆开的三档又压回两档：名单照出，还报「记忆里确实没人」（ADR-26）。
-    if (isAbsence(e)) return { status: 'absent', mem: empty(), seen: ABSENT }
+    if (isAbsence(e)) return { status: 'absent', mem: empty(), seen: ABSENT_FILE }
     return { status: 'unreadable', detail: e instanceof Error ? e.message : String(e) }
   }
   let parsed: unknown
@@ -332,6 +325,9 @@ function sweepStaleTemps(): void {
   const dir = dirname(FILE)
   const prefix = `${basename(FILE)}.`
   let names: string[]
+  // 目录列不出来（只写不可读这种权限组合）就跳过这一次清理，**不因此让写回失败** ——
+  // 清不掉临时文件的代价是盘上多一份副本，而中断写回的代价是这一轮的记录全丢。
+  // D4 的措辞据此写成「列得出来时清掉」，不写成无条件的「必须」（自查发现）。
   try { names = readdirSync(dir) } catch { return }
   for (const name of names) {
     if (!name.startsWith(prefix) || !name.endsWith('.tmp')) continue
@@ -339,6 +335,8 @@ function sweepStaleTemps(): void {
     if (!Number.isInteger(pid) || pid <= 0) continue
     // 年龄读不出来（文件刚被别人清掉）就当没这回事，没什么可清的
     let ageMs: number
+    // 看不到它的年龄就跳过（刚被别人清掉、或者读不到）—— **跳过是安全的那一边**：
+    // 拿不准的文件不删，代价是盘上多留一份；删错的代价是搬走别人正在写的东西
     try { ageMs = Date.now() - statSync(join(dir, name)).mtimeMs } catch { continue }
     if (pid !== process.pid && alive(pid) && ageMs < TMP_MAX_AGE_MS) continue
     rmSync(join(dir, name), { force: true })
@@ -476,6 +474,12 @@ export function recordRecommendations(
   const want = product.trim()
   if (!want) {
     return { written: false, reason: '任务的产品名是空的 —— 记不下来，因为记下的这条下次会被判成损坏' }
+  }
+  // 生成出去的键也要过同一道校验。只校验读进来的那一侧，写出去的这一侧
+  // 就能造出一个自己下次读不出来的文件（ADR-51）。
+  for (const c of creators) {
+    const bad = keyProblem(c.platform, c.handle)
+    if (bad) return { written: false, reason: `${c.platform}:${c.handle} 记不下来 —— ${bad}` }
   }
   const r = readMemory()
   if (r.status === 'unreadable') return { written: false, reason: r.detail }

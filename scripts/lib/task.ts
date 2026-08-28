@@ -1,7 +1,9 @@
 import { readFileSync, existsSync } from 'node:fs'
+import { ABSENT_FILE, readIfExists } from './atomic.js'
 import { basename, join } from 'node:path'
 import type { TaskState, Creator, EnrichmentState, MemoryStatus } from './types.js'
 import { mkdirDurable, writeFileAtomic } from './atomic.js'
+
 
 export function taskDir(product: string, timestamp?: string): string {
   const ts = timestamp ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
@@ -12,10 +14,29 @@ export function loadTask(dir: string): TaskState {
   return JSON.parse(readFileSync(join(dir, 'task.json'), 'utf8'))
 }
 
-export function saveTask(dir: string, state: TaskState): void {
+/**
+ * 写 `task.json`。`seen` 传了就在改名前最后一刻确认盘上还是那一份。
+ *
+ * 返回这次写下去的内容 —— 下一步要拿它当新的 `seen`。
+ */
+export function saveTask(dir: string, state: TaskState, seen?: string): string {
   mkdirDurable(dir)
   state.updated_at = new Date().toISOString()
-  writeFileAtomic(join(dir, 'task.json'), JSON.stringify(state, null, 2))
+  const data = JSON.stringify(state, null, 2)
+  const file = join(dir, 'task.json')
+  writeFileAtomic(file, data, seen === undefined ? undefined : () => {
+    if (readIfExists(file) !== seen) throw new TaskChangedUnderfoot(dir)
+  })
+  return data
+}
+
+/** 同一个任务目录被另一个进程写过了 —— 见 persistListAndStatus */
+export class TaskChangedUnderfoot extends Error {
+  constructor(readonly dir: string) {
+    super(`任务目录 ${dir} 在这次落盘之间被别的进程改过了 —— ` +
+          `同一个目录不要同时跑两个 collect`)
+    this.name = 'TaskChangedUnderfoot'
+  }
 }
 
 export function loadCreators(dir: string): Creator[] {
@@ -48,14 +69,23 @@ export function saveCreators(dir: string, creators: Creator[]): void {
 export function persistListAndStatus(
   dir: string, state: TaskState, creators: Creator[], status: MemoryStatus,
 ): void {
+  // 三步各自是原子的，**但三步合起来不是**。同一个任务目录跑两个 collect 时
+  // 它们会交错：两边都写下 unknown，一边写去过重的名单、另一边写没去重的，
+  // 最后一边补上 ok —— 盘上就成了「没去重的名单 + 说已去重的状态」，
+  // 报告据此压掉警告（ADR-51）。
+  //
+  // 和记忆那边一样：**不做串行化，只做检测** —— 每一步改名前确认盘上还是
+  // 上一步留下的那份，被别人插进来就当场停下并报出来。
+  const file = join(dir, 'task.json')
+  let seen = readIfExists(file)
   // 一、撤掉旧断言。此后到第三步之间，盘上的状态都不替任何一份名单打包票
   state.memory_status = 'unknown'
-  saveTask(dir, state)
+  seen = saveTask(dir, state, seen)
   // 二、换名单
   saveCreators(dir, creators)
   // 三、名单确实落盘了，这才敢断言
   state.memory_status = status
-  saveTask(dir, state)
+  saveTask(dir, state, seen)
 }
 
 /**

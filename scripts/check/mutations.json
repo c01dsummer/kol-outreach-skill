@@ -310,7 +310,7 @@
       "req": "P4",
       "why": "记忆里的键不再规范化 —— 手改出来的一个大写字母，就让已联系、已拉黑的人重新进名单，而状态照报「读到了」",
       "file": "scripts/lib/memory.ts",
-      "find": "    const norm = `${rawPlatform.toLowerCase()}:${rawHandle.toLowerCase()}`",
+      "find": "    const norm = key({ platform: rawPlatform, handle: rawHandle })",
       "replace": "    const norm = raw"
     },
     {
@@ -404,10 +404,10 @@
     {
       "id": "M-P4-h",
       "req": "P4",
-      "why": "记忆的键不再校验平台是不是支持的那几个 —— 拼错平台的键收下之后永远查不到，已联系的人重新进名单",
+      "why": "记忆的键不再校验平台是不是支持的那几个 —— 读进来的拼错平台的键收下之后永远查不到，已联系的人重新进名单；写出去的那一侧也不拦，于是能造出一个自己下次读不出来的文件",
       "file": "scripts/lib/memory.ts",
-      "find": "    if (!(PLATFORMS as readonly string[]).includes(rawPlatform.toLowerCase())) {",
-      "replace": "    if (false) {"
+      "find": "  if (!(PLATFORMS as readonly string[]).includes(platform.toLowerCase())) {",
+      "replace": "  if (false) {"
     },
     {
       "id": "M-D6-d",
@@ -421,7 +421,7 @@
       "id": "M-P4-i",
       "req": "P4",
       "why": "任何一种读失败都算成「盘上没有这个文件」—— 权限不足、父路径不是目录或 IO 出错时，名单照出还报「记忆里确实没人」，已联系的人重新进名单；写回前的比对也会拿「看不到」当「没有」放行，把一份从没读到过的记忆整个盖掉",
-      "file": "scripts/lib/memory.ts",
+      "file": "scripts/lib/atomic.ts",
       "find": "  (e as NodeJS.ErrnoException | null)?.code === 'ENOENT'",
       "replace": "  true"
     },
@@ -452,10 +452,10 @@
     {
       "id": "M-P4-l",
       "req": "P4",
-      "why": "记忆的键只挡空白，不管 handle 是不是 handle 的形状 —— 手改成展示形态（前面带 @）或粘进一段链接片段，键照样收下，而查询侧永远匹配不到它，已联系和已拉黑的人重新进名单",
+      "why": "记忆的键不再校验 handle 是不是 handle 的形状 —— 手改成展示形态（前面带 @）或粘进一段链接片段，键照样收下而查询侧永远匹配不到；写出去的那一侧也不拦，能造出一个自己下次读不出来的文件",
       "file": "scripts/lib/memory.ts",
-      "find": "    if (!HANDLE.test(rawHandle.toLowerCase())) {",
-      "replace": "    if (false && !HANDLE.test(rawHandle.toLowerCase())) {"
+      "find": "  if (!HANDLE.test(handle.toLowerCase())) {",
+      "replace": "  if (false) {"
     },
     {
       "id": "M-D4-k",
@@ -494,7 +494,7 @@
       "req": "D4",
       "why": "名单和它的去重状态改成两步落盘 —— 中间被打断时，盘上会留下一份没去重的名单配一句「已去重」的声明，报告据此压掉警告，把打扰过、已拉黑的人当成去过重的交付出去",
       "file": "scripts/lib/task.ts",
-      "find": "  state.memory_status = 'unknown'\n  saveTask(dir, state)\n  // 二、换名单\n  saveCreators(dir, creators)",
+      "find": "  state.memory_status = 'unknown'\n  seen = saveTask(dir, state, seen)\n  // 二、换名单\n  saveCreators(dir, creators)",
       "replace": "  saveCreators(dir, creators)"
     },
     {
@@ -536,6 +536,30 @@
       "file": "scripts/lib/types.ts",
       "find": "  (MEMORY_STATUSES as readonly unknown[]).includes(v) ? v as MemoryStatus : 'unknown'",
       "replace": "  (v ?? 'unknown') as MemoryStatus"
+    },
+    {
+      "id": "M-D4-s",
+      "req": "D4",
+      "why": "写记忆之前不检查即将生成的键能不能用 —— 名单里混进一个展示形态的用户名或不支持的平台，就写下一条自己下次读不出来的记录，此后每一次采集都被挡在门外，直到有人手工去修",
+      "file": "scripts/lib/memory.ts",
+      "find": "  for (const c of creators) {\n    const bad = keyProblem(c.platform, c.handle)\n    if (bad) return { written: false, reason: `${c.platform}:${c.handle} 记不下来 —— ${bad}` }\n  }",
+      "replace": "  /* mutated */"
+    },
+    {
+      "id": "M-D4-t",
+      "req": "D4",
+      "why": "同一个任务目录被两个采集同时写时不再检测 —— 三步落盘交错之后，盘上会留下一份没去重的名单配一句「已去重」的声明，报告据此压掉警告，把打扰过、已拉黑的人当成去过重的交付出去",
+      "file": "scripts/lib/task.ts",
+      "find": "    if (readIfExists(file) !== seen) throw new TaskChangedUnderfoot(dir)",
+      "replace": "    /* mutated */"
+    },
+    {
+      "id": "M-D1-a",
+      "req": "D1",
+      "why": "身份键只把用户名转小写、不管平台名 —— 平台名大小写不同的两条记录会被当成两个人，去重放过一个、记忆也查不到他，已联系的人重新进名单",
+      "file": "scripts/lib/types.ts",
+      "find": "  `${c.platform.toLowerCase()}:${c.handle.toLowerCase()}`",
+      "replace": "  `${c.platform}:${c.handle.toLowerCase()}`"
     }
   ],
   "exemptions": [
