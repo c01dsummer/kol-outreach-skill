@@ -1296,6 +1296,11 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
       .includes('[甲\\]乙](ADR-09-甲乙.md)'))
   eq('链接目标只编码会断链的那一组', encodeTarget('ADR-01-甲 (乙).md'), 'ADR-01-甲%20%28乙%29.md')
   eq('中文不编码 —— 编了只会让索引变成乱码', encodeTarget('ADR-01-甲乙.md'), 'ADR-01-甲乙.md')
+  // 字面量 `%` 自己也要编码：一个标题里含 `%20`，slugify 原样留在文件名里，
+  // 而渲染器会把它当成编码过的空格 —— 链接指向另一个文件名，而检查仍报一致
+  eq('字面量 % 编成 %25', encodeTarget('ADR-09-甲%20乙.md'), 'ADR-09-甲%2520乙.md')
+  ok('真空格与字面量 %20 编出来不同 —— 两者必须能区分',
+    encodeTarget('ADR-09-甲 乙.md') !== encodeTarget('ADR-09-甲%20乙.md'))
 
   // 编号不可回收：只看当前目录的话，删一条再把号让给别的决策是查不出来的
   const A = (num: number, title: string): { file: string; num: number; title: string } =>

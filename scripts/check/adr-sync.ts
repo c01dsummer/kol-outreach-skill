@@ -108,7 +108,19 @@ function trunkAdrs(): Map<number, Baseline> {
   const trunk = ['origin/main', 'main'].find(r => g('rev-parse', '--verify', `${r}^{commit}`))
   const merged = trunk && g('merge-base', trunk, 'HEAD')
   const head = g('rev-parse', 'HEAD')
-  const base = merged === head ? g('rev-parse', `${head}^1`) : merged
+  /**
+   * HEAD 就在主干上时要退回**整次推送之前**，不是退回 `HEAD^1`。
+   *
+   * 一次推多个提交时，删除可能发生在靠前那个提交里 —— `HEAD^1` 已经包含了删除，
+   * 前后两张表一模一样，检查照样放行。GitHub 的 push 事件带着推送前的 SHA
+   * （`github.event.before`），工作流把它传成 `GIT_PUSH_BEFORE`。
+   *
+   * 取不到就退回 `HEAD^1`：**它比什么都不比强**，但挡不住上面那种多提交推送。
+   * 这是一处显式缺口，不假装它被守住了。
+   */
+  const pushBefore = process.env.GIT_PUSH_BEFORE
+  const before = pushBefore && g('rev-parse', '--verify', `${pushBefore}^{commit}`)
+  const base = merged === head ? (before ?? g('rev-parse', `${head}^1`)) : merged
   if (!merged) {
     console.error('✗ 决策记录：无从核对「编号不可回收」—— 找不到主干基线\n')
     console.error('  CI 里给 actions/checkout 加 `fetch-depth: 0`；本地先 `git fetch origin main`。')

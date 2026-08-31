@@ -56,11 +56,16 @@ export const escapeCell = (t: string) => t.replace(/[\\|[\]<>`]/g, c => '\\' + c
  * 不用 `encodeURI` —— 它会把中文整片编成百分号序列,而中文在链接里本来合法,
  * 结果是索引变成一页看不懂的乱码,换来的安全是零。
  *
- * slugify 已经把这一组从文件名里去掉了,所以这里实际是个兜底:
+ * **`%` 自己也要编码。** 一个标题里含 `%20`,slugify 原样留在文件名里,而渲染器
+ * 会把它当成编码过的空格 —— 链接指向一个别的文件名,`npm run adr` 却仍报一致。
+ * 不必担心顺序:`String.replace` 的替换结果不会被再次扫描,所以把 `%` 放进
+ * 同一个字符组就够,不会把自己产生的 `%2F` 再编一遍。
+ *
+ * 这一组之外的字符 slugify 已经从文件名里去掉了,所以那部分是兜底:
  * 万一哪天 slugify 放宽了,断的是链接而不是这条规则。
  */
 export const encodeTarget = (t: string) =>
-  t.replace(/[ ()#[\]<>"]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'))
+  t.replace(/[ %()#[\]<>"]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'))
 
 export const fileNameOf = (num: number, title: string) => `ADR-${pad(num)}-${slugify(title)}.md`
 
