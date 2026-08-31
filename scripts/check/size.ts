@@ -13,7 +13,8 @@
  */
 import { execFileSync } from 'node:child_process'
 import {
-  BUDGET, CATEGORIES, type CommitDelta, judge, parseNumstat, tally,
+  BUDGET, CATEGORIES, type Category, type CommitDelta, type FileDelta,
+  judge, parseNumstat, tally,
 } from './size-rule.js'
 
 const TRUNK_CANDIDATES = ['origin/main', 'main']
@@ -79,28 +80,48 @@ const counts = tally(files)
 /**
  * 每个提交各自量一次 —— 判断某一类的豁免写下之后有没有又被追加。
  *
- * **合并提交按 0 计。** 它不产出新行,只是把已有的行放到一起,相对第一父的
- * 「新增」其实是另一侧早就存在的内容。按新增算的话有两个后果,都是错的:
+ * 合并提交量的是**两个父都没有的那些行**(合并 diff 里的 `++`),也就是解决
+ * 冲突时真写下的内容。试过两种更省事的做法,都不对:
  *
- * - PR 事件下 CI 检出的是 `refs/pull/N/merge`,那个合并提交永远排在最后、
- *   永远「新增」了全部内容 —— **任何豁免都永远是过期的**(实测撞上了)
- * - `6-INTEGRATE.md` 自己推荐「要同步主干就 merge 进来」,而合一次主干
- *   就会让所有豁免失效
+ * - **按第一父计**:相对第一父的「新增」其实是另一侧早就存在、已经各自被计过的
+ *   内容。PR 事件下 CI 检出的是 `refs/pull/N/merge`,那个合并提交永远排在最后、
+ *   永远「新增」全部内容 —— **任何豁免都永远过期**(实测撞上了);而
+ *   `6-INTEGRATE.md` 推荐的「要同步主干就 merge 进来」也会让所有豁免失效
+ * - **一律按 0**:解决冲突时**新写**的代码两边都没有,却因此不刷新 `lastAdd`,
+ *   一条旧豁免会盖住一批它从没覆盖过的行
+ * - **各父 diff 的逐类最小值**:主干那侧真带进新文件时最小值就不是 0 了,
+ *   一次干净的合并主干照样把豁免顶掉(实测)
  *
- * 总数不受影响:它来自 `base..head` 的整体 diff,合并里真夹带的东西照样算进去。
- * 这里只是不让「合并」这个动作把豁免顶掉。
+ * `--cc --numstat` 也不能用 —— 实测无冲突的普通合并也报 1/1,`--numstat`
+ * 没有按合并 diff 的语义走。只有 patch 输出是准的。
+ *
+ * 总数不受影响:它来自 `base..head` 的整体 diff。
  */
+function mergeCounts(sha: string, parents: number): Record<Category, number> {
+  const marker = '+'.repeat(parents)
+  const files: FileDelta[] = []
+  let path = ''
+  let inHunk = false
+  for (const line of git('show', '--cc', '--format=', sha).split('\n')) {
+    const d = /^diff --cc (.+)$/.exec(line)
+    if (d) { path = d[1]; inHunk = false; files.push({ path, added: 0 }); continue }
+    if (line.startsWith('@@')) { inHunk = true; continue }
+    // 必须先进到 hunk 里才数 —— 否则 `+++ b/<路径>` 这行文件头会被当成新增
+    if (inHunk && line.startsWith(marker)) files[files.length - 1].added++
+  }
+  return tally(files)
+}
+
+function countsOf(sha: string): Record<Category, number> {
+  const parents = git('rev-list', '--parents', '-n1', sha).split(' ').length - 1
+  return parents > 1
+    ? mergeCounts(sha, parents)
+    : tally(parseNumstat(git('show', '--numstat', '-z', '--format=', sha)))
+}
+
 const commits: CommitDelta[] = git('rev-list', '--reverse', `${base}..${head}`)
   .split('\n').filter(Boolean)
-  .map(sha => {
-    const isMerge = (git('rev-list', '--parents', '-n1', sha).split(' ').length - 1) > 1
-    return {
-      message: git('log', '-1', '--format=%B', sha),
-      counts: isMerge
-        ? { 源码: 0, 测试: 0, 文档: 0, 其他: 0 }
-        : tally(parseNumstat(git('diff', '--numstat', '-z', `${sha}^1`, sha))),
-    }
-  })
+  .map(sha => ({ message: git('log', '-1', '--format=%B', sha), counts: countsOf(sha) }))
 
 const report = judge(counts, commits)
 
