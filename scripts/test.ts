@@ -8,6 +8,9 @@
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
+import {
+  BUDGET, categorize, collectExemptions, judge, judgeExemption, tally,
+} from './check/size-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { fillEmail, pickList } from './providers/tikhub.js'
@@ -1266,6 +1269,44 @@ suite('U4', 'A 级附开发信草稿且可复制')
       requests: 1, cost_estimate_usd: 0.001, budget_usd: 2, enriched: false })
   ok('渲染草稿', html.includes('Hi there'))
   ok('有复制按钮', html.includes('cp(this)'))
+}
+
+harness('体量闸门的判定：四类分开算，豁免必须指名类别且写明理由')
+{
+  eq('决策记录算文档', categorize('docs/adr/0001-x.md'), '文档')
+  eq('需求登记表算文档', categorize('docs/requirements.json'), '文档')
+  eq('lib 算源码', categorize('scripts/lib/memory.ts'), '源码')
+  eq('检查脚本也算源码 —— 它一样会写错', categorize('scripts/check/size.ts'), '源码')
+  eq('test.ts 算测试', categorize('scripts/test.ts'), '测试')
+  eq('变异集算测试', categorize('scripts/check/mutations.json'), '测试')
+  eq('其余归其他', categorize('package.json'), '其他')
+
+  // 四类分开算：合并成一个总数，源码的超标会被文档稀释掉
+  const counts = tally([
+    { path: 'scripts/lib/a.ts', added: 400 },
+    { path: 'DECISIONS.md', added: 2000 },
+    { path: 'scripts/test.ts', added: 10 },
+  ])
+  eq('分类累加', counts, { 源码: 400, 测试: 10, 文档: 2000, 其他: 0 })
+
+  eq('豁免必须指名类别', judgeExemption('size-ok: 就这一次'), { kind: 'unjustified', text: '就这一次' })
+  eq('指名了类别但没写理由，不放行', judgeExemption('size-ok: 源码'), { kind: 'unjustified', text: '源码' })
+  eq('合格的豁免', judgeExemption('size-ok: 源码 首次落地，拆不开'),
+    { kind: 'exempt', category: '源码', reason: '首次落地，拆不开' })
+  eq('普通提交信息不是豁免', judgeExemption('fix: 修一个 bug'), null)
+
+  const over = judge({ 源码: 400, 测试: 0, 文档: 0, 其他: 0 }, [])
+  ok('超线即失败', !over.ok)
+  eq('报出超的那一类', over.over, [{ category: '源码', added: 400, budget: BUDGET.源码 }])
+
+  const waived = judge({ 源码: 400, 文档: 2000, 测试: 0, 其他: 0 },
+    collectExemptions(['fix: x\n\nsize-ok: 源码 拆不开']))
+  ok('豁免了源码，文档照样拦下 —— 一个豁免不放行四类', !waived.ok)
+  eq('豁免的那一类进 waived 而不是 over', waived.waived.map(w => w.category), ['源码'])
+  eq('没豁免的那一类仍在 over', waived.over.map(o => o.category), ['文档'])
+
+  const bad = judge({ 源码: 0, 测试: 0, 文档: 0, 其他: 0 }, collectExemptions(['x\n\nsize-ok: 随便']))
+  ok('写了不成立的 size-ok，即使没超线也失败 —— 否则它会被当成挡箭牌留在历史里', !bad.ok)
 }
 
 console.log(fail ? `\n${fail} 个失败\n` : `\n全部通过（覆盖 ${covered.size} 条需求）\n`)

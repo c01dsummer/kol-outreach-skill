@@ -67,6 +67,8 @@
 | `scripts/providers/tikhub.ts` | 适配 | D2 D3 D8 P1 | 唯一的数据源实现；响应结构走探测 cascade，识别不出时暴露顶层 key |
 | `scripts/check/lint.ts` | 检查 | P1 | 把 P1 从散文变成能报错的检查；走文件树、打印、退出码 |
 | `scripts/check/lint-rule.ts` | 检查 | P1 | 上面那条检查的**判定**本身。抽出来是为了它能被测 —— 检查自己也要能被证伪 |
+| `scripts/check/size.ts` | 检查 | — | 把「一个改动 = 一个能一次读完的 diff」变成能报错的检查；量的是分支相对主干的新增行，基线算不出来时说「无从判断」而不是放行 |
+| `scripts/check/size-rule.ts` | 检查 | — | 上面那条闸门的**判定**本身。四类分开算、豁免必须指名类别；抽出来是为了它能被测 |
 | `scripts/check/spec-sync.ts` | 检查 | — | SPEC.md 的表格由 requirements.json 生成，两者不可能漂移 |
 | `scripts/check/mutate.ts` | 检查 | — | 给测试做的测试：变异存活即那条测试是假的 |
 | `scripts/check/why-rule.ts` | 检查 | — | 变异集 why 的判定：夹带实现原文当场拦下，让 `--brief` 名副其实 |
