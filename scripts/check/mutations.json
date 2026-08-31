@@ -406,7 +406,7 @@
       "req": "P4",
       "why": "记忆的键不再校验平台是不是支持的那几个 —— 读进来的拼错平台的键收下之后永远查不到，已联系的人重新进名单；写出去的那一侧也不拦，于是能造出一个自己下次读不出来的文件",
       "file": "scripts/lib/memory.ts",
-      "find": "  if (!(PLATFORMS as readonly string[]).includes(platform.toLowerCase())) {",
+      "find": "  if (!(PLATFORMS as readonly string[]).includes(p)) {",
       "replace": "  if (false) {"
     },
     {
@@ -454,7 +454,7 @@
       "req": "P4",
       "why": "记忆的键不再校验 handle 是不是 handle 的形状 —— 手改成展示形态（前面带 @）或粘进一段链接片段，键照样收下而查询侧永远匹配不到；写出去的那一侧也不拦，能造出一个自己下次读不出来的文件",
       "file": "scripts/lib/memory.ts",
-      "find": "  if (!HANDLE.test(handle.toLowerCase())) {",
+      "find": "  if (!HANDLE.test(h)) {",
       "replace": "  if (false) {"
     },
     {
@@ -544,6 +544,14 @@
       "file": "scripts/lib/types.ts",
       "find": "  typeof v !== 'string' ? `不是字符串（${typeof v}）`\n    : !v.trim() ? '是空的'\n      : undefined",
       "replace": "  typeof v !== 'string' ? `不是字符串（${typeof v}）` : undefined"
+    },
+    {
+      "id": "M-D4-v",
+      "req": "D4",
+      "why": "生成键之前不确认那两个值是文字 —— 手改过的名单里 handle 是空值或平台是数字时，校验自己先抛，而抛出去绕开了「报为未写回、照常完成交付」那条路：算好的名单连同报告一起丢掉，而记忆原文件本来就完好",
+      "file": "scripts/lib/memory.ts",
+      "find": "  const badPlatform = textProblem(platform)\n  if (badPlatform) return `平台${badPlatform} —— 它永远匹配不到任何人`\n  const badHandle = textProblem(handle)\n  if (badHandle) return `handle ${badHandle} —— 它永远匹配不到任何人`",
+      "replace": "  /* mutated */"
     },
     {
       "id": "M-D1-a",

@@ -806,8 +806,19 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   for (const [what, c] of [
     ['handle 是展示形态', mk('tiktok', '@alice')],
     ['平台不在支持范围内', { ...mk('tiktok', 'alice'), platform: 'youtube' } as unknown as Creator],
+    // 这两个值直接来自 JSON.parse(creators.json)，**类型标注在运行时一个都不拦**。
+    // 校验只做「取值对不对」而不做「是不是文字」时，第一句 toLowerCase 就抛，
+    // 而抛出去会绕开「报为未写回、照常完成交付」那条路：这个函数的契约是绝不抛。
+    // 它自己 catch 里的那句注释只兑现在落盘那一条路上（ADR-56）。
+    ['handle 不是字符串', { platform: 'tiktok', handle: null } as unknown as Creator],
+    ['平台不是字符串', { platform: 7, handle: 'zed' } as unknown as Creator],
+    ['handle 全是空白', { platform: 'tiktok', handle: '   ' } as unknown as Creator],
+    ['两个都缺', {} as unknown as Creator],
   ] as const) {
-    const w = recordRecommendations([c], 'p')
+    let threw = ''
+    let w = { written: true } as ReturnType<typeof recordRecommendations>
+    try { w = recordRecommendations([c], 'p') } catch (e) { threw = (e as Error).message }
+    eq(`${what}时不抛`, threw, '')
     eq(`${what}时拒绝写回`, w.written, false)
   }
   eq('记忆仍然读得出来 —— 没有被自己写的键毒掉',

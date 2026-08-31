@@ -160,12 +160,25 @@ function shapeProblem(v: unknown): string | undefined {
  * 只在读的那一侧校验，写的那一侧就能造出一个自己下次读不出来的文件 ——
  * 一次写回把一份好好的记忆变成读不出来的，此后每次采集都被挡住（ADR-51）。
  * 与 ADR-46 的产品名是同一条规矩，只是这次轮到了键。
+ *
+ * 收 `unknown` 而不是 `string`：写出去那一侧的两个值直接来自
+ * `JSON.parse(creators.json)`，**类型标注在运行时一个值都不拦**。
+ * 标成 `string` 时第一句 `toLowerCase` 就抛，而抛出去会绕开
+ * 「报为未写回、照常完成交付」那条路 —— `recordRecommendations` 的契约
+ * 是**绝不抛**，它只包住了落盘那一条路，没包住这一条（ADR-56）。
  */
-function keyProblem(platform: string, handle: string): string | undefined {
-  if (!(PLATFORMS as readonly string[]).includes(platform.toLowerCase())) {
+function keyProblem(platform: unknown, handle: unknown): string | undefined {
+  // 先确认它们是文字，判据用的还是那一份（types.ts）
+  const badPlatform = textProblem(platform)
+  if (badPlatform) return `平台${badPlatform} —— 它永远匹配不到任何人`
+  const badHandle = textProblem(handle)
+  if (badHandle) return `handle ${badHandle} —— 它永远匹配不到任何人`
+  const p = (platform as string).toLowerCase()
+  const h = (handle as string).toLowerCase()
+  if (!(PLATFORMS as readonly string[]).includes(p)) {
     return `平台「${platform}」不是支持的平台（${PLATFORMS.join(' / ')}）—— 它永远匹配不到任何人`
   }
-  if (!HANDLE.test(handle.toLowerCase())) {
+  if (!HANDLE.test(h)) {
     return `handle「${handle}」不是 handle 的形状（只允许字母、数字、下划线、点、连字符）—— 展示时前面才加 @，链接里它是一个裸的路径段 —— 支持的平台都不允许用户名出现别的字符，所以这样的键只可能来自手改，而它永远匹配不到任何人`
   }
   return undefined
