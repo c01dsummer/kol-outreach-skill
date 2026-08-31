@@ -96,4 +96,7 @@ if (!report.ok) {
   process.exit(1)
 }
 
-console.log('\n✓ 体量闸门:各类均在线内')
+/** 「超线但已豁免」和「在线内」是两回事。压成同一句话，正是这套方法要防的三态压两态。 */
+console.log(report.waived.length
+  ? `\n✓ 体量闸门:${report.waived.length} 类超线但已具名豁免,其余在线内`
+  : '\n✓ 体量闸门:各类均在线内')
