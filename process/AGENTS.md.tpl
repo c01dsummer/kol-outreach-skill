@@ -34,6 +34,7 @@
 | 写代码 / 做 UI | `process/3-BUILD.md` + `docs/CONVENTIONS.md` + `<本项目架构文档>` |
 | 写测试 | `process/4-VERIFY.md` —— **写测试前必读** |
 | 改模块边界、调用顺序或对外契约 | `process/5-DESIGN.md` + `<本项目架构文档>` |
+| 开分支、切改动、往主干合 | `process/6-INTEGRATE.md` |
 
 ---
 
