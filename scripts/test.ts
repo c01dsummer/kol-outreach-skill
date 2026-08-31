@@ -64,11 +64,14 @@ const ok = (label: string, cond: boolean) => eq(label, cond, true)
 const harness = (name: string) => { console.log(`\n[harness] ${name}`) }
 
 /**
- * 认领一个**交点**。
+ * 认领一个**交点** —— 一条测试同时守着两条需求交界处的那件事。
  *
- * 交点上的测试不属于任何一条需求 —— 在「每条需求有没有测试」这个计量下,
- * 写了不加分,不写不扣分,于是没人写。审计按登记表里声明的交点逐个找这句话,
- * 找不到就报缺口;含红线的交点找不到就是硬失败(ADR-17)。
+ * 交点上的测试不属于任何一条需求,在「每条需求有没有测试」这个计量下
+ * 写了不加分、不写不扣分,于是没人写。这里把两边都记进覆盖,
+ * 至少让它不再是白写的。
+ *
+ * **登记表里声明交点、审计逐个去找、含红线的找不到就硬失败** —— 那套机器
+ * 不在本改动里(ADR-54),所以这句话现在只是个标注,不是一道检查。
  */
 const crossing = (a: string, b: string) => {
   covered.add(a); covered.add(b)
@@ -724,25 +727,6 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     rmSync(d, { recursive: true, force: true })
   }
 
-  // 三步各自原子，合起来不是：同一个任务目录跑两个 collect 会交错，
-  // 盘上可能留下「没去重的名单 + 说已去重的状态」。和记忆那边一样只做检测（ADR-51）。
-  {
-    const d = join(tmpdir(), `kol-d4-race-${process.pid}`)
-    rmSync(d, { recursive: true, force: true })
-    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
-      target_count: 1, done: [], requests: 0, budget_usd: 1,
-      memory_status: 'ok' } as unknown as TaskState
-    saveTask(d, st)
-    const stale = rf(join(d, 'task.json'), 'utf8')
-    saveTask(d, { ...st, product: '别的进程写的' } as TaskState)   // 别人插进来了
-    let name = ''
-    try { saveTask(d, st, stale) } catch (e) { name = (e as Error).name }
-    eq('盘上被别的进程改过时拒绝落盘', name, 'TaskChangedUnderfoot')
-    ok('对方写下的那份还在',
-      JSON.parse(rf(join(d, 'task.json'), 'utf8')).product === '别的进程写的')
-    rmSync(d, { recursive: true, force: true })
-  }
-
   // 都落成时才断言
   {
     const d = join(tmpdir(), `kol-d4-persist2-${process.pid}`)
@@ -782,10 +766,8 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     rmSync(d2, { recursive: true, force: true })
   }
 
-  // 八之四之二、建目录也要让新建的每一层被记住 —— 刷文件所在那层只让
-  //          **文件的目录项**落了盘，而这些目录本身是刚建的，记录它们的是
-  //          各自的上一层，那几层没人刷（ADR-49）。持久性本身测不了，
-  //          这里守的是「它确实把多层目录建出来了、且重复调用不出事」。
+  // 八之四之二、建目录：这里守的是「多层一次建得出来、重复调用不出事」。
+  //          **让新建的每一层都落盘属于持久性那一层，不在本改动里**（ADR-54）。
   {
     const deep = join(tmpdir(), `kol-d4-mkdir-${process.pid}`, 'a', 'b', 'c')
     rmSync(join(tmpdir(), `kol-d4-mkdir-${process.pid}`), { recursive: true, force: true })
@@ -830,21 +812,6 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   }
   eq('记忆仍然读得出来 —— 没有被自己写的键毒掉',
     filterByMemory([mk('tiktok', 'alice')], 'p').memory_status, 'ok')
-
-  // 八之六、并发的两个 render：双方读到同一份快照、各自加各自的，后写的那个
-  //        会把先写的整个盖掉，而两边的报告都说「已记入」。不做串行化，
-  //        但要**检测**出来并明确报失败 —— 静默丢失换成一次响的失败（ADR-47）。
-  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
-  recordRecommendations([mk('tiktok', 'first')], 'p')
-  const snapshot = rf(tmp, 'utf8')
-  const stale = JSON.parse(snapshot)
-  // 模拟「对方在这中间写了一轮」：盘上已经不是我读到的那份了
-  recordRecommendations([mk('tiktok', 'second')], 'p')
-  let raced = ''
-  try { saveMemory(stale, snapshot) } catch (e) { raced = (e as Error).name }
-  eq('盘上被别人改过时拒绝写回', raced, 'MemoryChangedUnderfoot')
-  ok('对方记下的那条还在，没有被盖掉',
-    Object.keys(JSON.parse(rf(tmp, 'utf8')).creators).includes('tiktok:second'))
 
   // 九、正常写回是原子的 —— 不留临时文件
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')

@@ -1,8 +1,4 @@
-import {
-  writeFileSync, renameSync, rmSync, statSync, chmodSync, openSync, fsyncSync, closeSync,
-  mkdirSync, readFileSync,
-} from 'node:fs'
-import { dirname, join, relative, sep } from 'node:path'
+import { writeFileSync, renameSync, rmSync, statSync, chmodSync, mkdirSync } from 'node:fs'
 
 /**
  * 整体替换地写一个文件：**先写临时文件，再改名。**
@@ -22,12 +18,9 @@ import { dirname, join, relative, sep } from 'node:path'
  *   不带过去的话，用户特意收紧过的文件每写一次就被放开一次。
  *   建文件时的 mode 会被 umask 削而 chmod 不会，所以两步都要
  * - **失败时清掉半成品**，不留在盘上
- * - **改名前刷临时文件，改名后刷所在目录** —— 「写了」和「落到盘上了」是两件事。
- *   刷目录是因为**改名本身也是目录的一次改动**（ADR-47）。
- *   **这一条是尽力而为，不是承诺**：主机断电时这次写回留不留得住，
- *   D4 明确不作保证 —— 真丢了，损失是这一轮的记录，而文件本身不会坏。
- *   把它做成保证需要的是另一个量级的工程（每一环都不能漏），
- *   那要先成为一条需求再实现，不是在这里悄悄加深（ADR-50）
+ * **「写了」不等于「落到盘上了」**：本函数不刷盘，主机断电时这一次写回
+ * 可能留不住 —— D4 明确不作保证。丢的是这一轮的记录，**文件本身不会坏**，
+ * 因为坏的那一半是临时文件，原文件要么是旧的、要么是新的（ADR-54）。
  *
  * 目标不存在时保持 umask 默认：新文件该多严是产品决定，不在这里替它定。
  *
@@ -35,7 +28,7 @@ import { dirname, join, relative, sep } from 'node:path'
  * **本函数不清理孤儿临时文件** —— 什么时候算孤儿、清不清得起，由调用方
  * 按自己那份文件的处境决定（记忆文件要清，一次性的任务目录不用）。
  */
-export function writeFileAtomic(file: string, data: string, verify?: () => void): void {
+export function writeFileAtomic(file: string, data: string): void {
   let mode: number | undefined
   // **只有「不存在」才是新文件。** 权限、路径、IO 出错时读不到目标的权限位，
   // 那时候不该假装它是新的 —— 假装的后果是把用户设过的权限换成 0600，
@@ -46,12 +39,7 @@ export function writeFileAtomic(file: string, data: string, verify?: () => void)
   try {
     writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600 })
     if (mode !== undefined) chmodSync(tmp, mode)
-    fsyncFile(tmp)             // 内容先落盘，再让改名把它接上；刷不动就是没落盘，要抛
-    // 改名前**最后一刻**再确认一次调用方的前提还成立。放在这里而不是函数外面，
-    // 是为了让「确认」到「生效」之间的窗口尽可能小 —— 它缩不到零（ADR-47）。
-    verify?.()
     renameSync(tmp, file)
-    fsyncDirBestEffort(dirname(file))   // 改名是目录的改动，它自己也要落盘
   } catch (e) {
     rmSync(tmp, { force: true })
     throw e
@@ -59,78 +47,11 @@ export function writeFileAtomic(file: string, data: string, verify?: () => void)
 }
 
 /**
- * 把**文件**刷到盘上。**失败要抛。**
- *
- * 刷不动就是没落盘 —— 而调用方正要据此告诉用户「已记入」。
- * 延迟写的错误（磁盘满、IO 错）恰恰是在这一刻才浮出来的，吞掉它等于
- * 把这个函数存在的理由抵消掉（ADR-48）。
- */
-function fsyncFile(path: string): void {
-  const fd = openSync(path, 'r')
-  try { fsyncSync(fd) } finally { closeSync(fd) }
-}
-
-/**
- * 把**目录**刷到盘上，尽力而为。
- *
- * 这一个可以吞：有的平台压根不允许把目录当文件打开，而那不该让一次
- * 内容已经落了盘、改名也成功了的写回变成失败。
- * **能吞的只有这一个** —— 上一版把文件和目录合成一个函数，于是文件那半
- * 也跟着被吞了。
- *
- * **关不上也要吞**，理由和打不开是同一个：这里没有一个失败值得让调用方
- * 认为整件事没做成。`writeFileAtomic` 的那次调用尤其如此 —— 它跑在
- * `renameSync` 之后，替换已经生效了，让一个关描述符的错逃出去，调用方就会
- * 照着这个失败告诉用户「没写回、原文件一个字节没动」，而那是假话：
- * 推荐记录已经落进去了。**一个说反了的结论比一次没刷成的目录严重得多**（ADR-53）。
- */
-function fsyncDirBestEffort(path: string): void {
-  let fd: number | undefined
-  try { fd = openSync(path, 'r'); fsyncSync(fd) }
-  catch { /* 平台不支持刷目录 */ }
-  finally { try { if (fd !== undefined) closeSync(fd) } catch { /* 同上，尽力而为 */ } }
-}
-
-/**
- * 建目录，并让**新建的每一层都被记住**。
- *
- * `writeFileAtomic` 刷的是文件所在的那一层 —— 它让**文件的目录项**落了盘。
- * 但如果这些目录本身是刚建出来的，**记录这些目录的是它们各自的上一层**，
- * 而那几层没有人刷过。断电之后整个目录可能不存在，而调用方已被告知成功：
- * 第一次跑时的断点、或者第一份联系历史，就这么没了（ADR-49）。
- *
- * `mkdirSync` 的 recursive 会返回**第一个被新建的那一层**（本来就在则返回
- * undefined），所以确切知道要刷哪几层：从那一层的父目录开始，逐层往下刷到
- * `dir` 的上一层为止。`dir` 自己不在这里刷 —— 写文件那一步会刷它。
- *
- * 刷目录仍然是尽力而为（有的平台不允许把目录当文件打开），所以这一条
- * 加强的是常见情况下的持久性，**不是一个保证**。
+ * 建目录。**只保证目录在**，不保证断电之后它还在 —— 让新建的每一层都落盘
+ * 属于持久性那一层，单独一个改动（ADR-54）。
  */
 export function mkdirDurable(dir: string): void {
-  const first = mkdirSync(dir, { recursive: true })
-  if (first === undefined) return          // 本来就在，没有新的目录项要记
-  fsyncDirBestEffort(dirname(first))       // 记住 first 的是它的父目录
-  const rest = relative(first, dir)
-  let cur = first
-  for (const seg of rest ? rest.split(sep) : []) {
-    fsyncDirBestEffort(cur)                // 记住下一层的是当前这层
-    cur = join(cur, seg)
-  }
-}
-
-/** 盘上「什么都没有」的那个取值。必须和任何真实内容都不相等 */
-export const ABSENT_FILE = '\u0000absent'
-
-/**
- * 盘上现在是什么，用来做改名前的比对。
- *
- * **只有「文件不存在」返回哨兵值** —— 权限不足、路径不是目录、IO 错都是
- * 「看不到」，把它们和「确实没有」压成一个值，比对就会拿「看不到」当
- * 「没变过」放行（ADR-26 · ADR-48 各栽过一次，所以这里只留一份）。
- */
-export function readIfExists(file: string): string {
-  try { return readFileSync(file, 'utf8') }
-  catch (e) { if (isAbsence(e)) return ABSENT_FILE; throw e }
+  mkdirSync(dir, { recursive: true })
 }
 
 /**
