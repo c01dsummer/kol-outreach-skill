@@ -76,13 +76,31 @@ if (!base) {
 const files = parseNumstat(git('diff', '--numstat', '-z', base, head))
 const counts = tally(files)
 
-/** 每个提交各自量一次 —— 判断某一类的豁免写下之后有没有又被追加 */
+/**
+ * 每个提交各自量一次 —— 判断某一类的豁免写下之后有没有又被追加。
+ *
+ * **合并提交按 0 计。** 它不产出新行,只是把已有的行放到一起,相对第一父的
+ * 「新增」其实是另一侧早就存在的内容。按新增算的话有两个后果,都是错的:
+ *
+ * - PR 事件下 CI 检出的是 `refs/pull/N/merge`,那个合并提交永远排在最后、
+ *   永远「新增」了全部内容 —— **任何豁免都永远是过期的**(实测撞上了)
+ * - `6-INTEGRATE.md` 自己推荐「要同步主干就 merge 进来」,而合一次主干
+ *   就会让所有豁免失效
+ *
+ * 总数不受影响:它来自 `base..head` 的整体 diff,合并里真夹带的东西照样算进去。
+ * 这里只是不让「合并」这个动作把豁免顶掉。
+ */
 const commits: CommitDelta[] = git('rev-list', '--reverse', `${base}..${head}`)
   .split('\n').filter(Boolean)
-  .map(sha => ({
-    message: git('log', '-1', '--format=%B', sha),
-    counts: tally(parseNumstat(git('diff', '--numstat', '-z', `${sha}^1`, sha))),
-  }))
+  .map(sha => {
+    const isMerge = (git('rev-list', '--parents', '-n1', sha).split(' ').length - 1) > 1
+    return {
+      message: git('log', '-1', '--format=%B', sha),
+      counts: isMerge
+        ? { 源码: 0, 测试: 0, 文档: 0, 其他: 0 }
+        : tally(parseNumstat(git('diff', '--numstat', '-z', `${sha}^1`, sha))),
+    }
+  })
 
 const report = judge(counts, commits)
 
