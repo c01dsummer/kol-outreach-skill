@@ -25,7 +25,18 @@ function walk(dir: string, ext = '.ts'): string[] {
   return out
 }
 
+/**
+ * 决策记录不算下游引用。
+ *
+ * 它们讲的是「当初为什么这么定」，不是「这条需求落在哪」。整册还在根目录
+ * `DECISIONS.md` 的时候不在语料里；拆进 `docs/adr/` 之后如果照单收下，一条
+ * 只被某条记录顺口提过、根本没落到代码的需求，会从「· 未被引用」变成「✓」——
+ * 和架构文档那条是同一个坑，而且会是这次搬家自己引入的。
+ */
+const ADR_DIR = 'docs/adr/'
+
 const sources = [...walk('scripts'), ...walk('docs', '.md'), ...walk('skill', '.md')]
+  .filter(f => !f.startsWith(ADR_DIR))
 const corpus = new Map<string, string>()
 for (const f of sources) corpus.set(f, readFileSync(f, 'utf8'))
 

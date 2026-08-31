@@ -11,6 +11,7 @@ import { implementationLeak } from './check/why-rule.js'
 import {
   BUDGET, categorize, collectExemptions, judge, judgeExemption, tally,
 } from './check/size-rule.js'
+import { checkAll, fileNameOf, renderIndex } from './check/adr-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { fillEmail, pickList } from './providers/tikhub.js'
@@ -1269,6 +1270,40 @@ suite('U4', 'A 级附开发信草稿且可复制')
       requests: 1, cost_estimate_usd: 0.001, budget_usd: 2, enriched: false })
   ok('渲染草稿', html.includes('Hi there'))
   ok('有复制按钮', html.includes('cp(this)'))
+}
+
+harness('决策记录：编号唯一、文件名与正文一致、索引按数字排序')
+{
+  eq('文件名由编号与标题生成，个位数补零',
+    fileNameOf(8, '采集累加器与交付物拆成两个文件'), 'ADR-08-采集累加器与交付物拆成两个文件.md')
+  eq('标题里的斜杠与括号在文件名里去掉',
+    fileNameOf(15, '记忆读不出来时/不产出名单（也不覆盖）'), 'ADR-15-记忆读不出来时不产出名单也不覆盖.md')
+
+  eq('编号唯一时无错', checkAll([
+    { file: 'ADR-01-甲.md', num: 1, title: '甲' },
+    { file: 'ADR-02-乙.md', num: 2, title: '乙' },
+  ]), [])
+
+  // 两条分支各自取了同一个号 —— 装在一个文件里时它是静默交错，装成文件才看得见
+  const dup = checkAll([
+    { file: 'ADR-58-甲.md', num: 58, title: '甲' },
+    { file: 'ADR-58-乙.md', num: 58, title: '乙' },
+  ])
+  eq('撞号报一条错', dup.length, 1)
+  ok('错里指出两个文件', dup[0].includes('ADR-58-甲.md') && dup[0].includes('ADR-58-乙.md'))
+
+  ok('改了标题却没改文件名，报错',
+    checkAll([{ file: 'ADR-03-旧标题.md', num: 3, title: '新标题' }]).length === 1)
+
+  // 编号有空号是正常的：号不复用，包括还活在别的分支上的
+  const idx = renderIndex([
+    { file: 'ADR-10-十.md', num: 10, title: '十' },
+    { file: 'ADR-09-九.md', num: 9, title: '九' },
+    { file: 'ADR-58-五八.md', num: 58, title: '五八' },
+  ])
+  const order = [...idx.matchAll(/\*\*ADR-(\d+)\*\*/g)].map(m => m[1])
+  eq('按数字排序而不是按字典序，且空号不报错',
+    order, ['09', '10', '58'])
 }
 
 harness('体量闸门的判定：四类分开算，豁免必须指名类别且写明理由')
