@@ -121,9 +121,31 @@ function countsOf(sha: string): Record<Category, number> {
     : tally(parseNumstat(git('show', '--numstat', '-z', '--format=', sha)))
 }
 
-const commits: CommitDelta[] = git('rev-list', '--reverse', `${base}..${head}`)
-  .split('\n').filter(Boolean)
-  .map(sha => ({ message: git('log', '-1', '--format=%B', sha), counts: countsOf(sha) }))
+/**
+ * 提交按**进入本分支的那一步**排序,不是按各自的时间戳。
+ *
+ * `rev-list --reverse` 是按时间排的。一条早就开出去的侧分支,即使在豁免写下
+ * **之后**才被合进来,它的提交也会排在豁免前面 —— 而合并本身按「所有父都没有的行」
+ * 算,通常是 0。于是 `lastAdd < lastWaiver`,豁免盖住了一批它写下时根本不在
+ * 这条分支上的行。
+ *
+ * 所以走**第一父链**:每一步引入的提交(`rev-list <步> ^<上一步> ^<基线>`)
+ * 归到那一步的位置上,步内保持时间序,合并提交自己排在最后。
+ *
+ * `^<基线>` 是关键的一笔:合主干进来时,主干那些提交是基线的祖先,会被它排掉 ——
+ * 它们的内容本来也不在总数里(基线已经跟着移到主干头上了)。少了这一笔,
+ * 一次干净的合并主干又会把豁免顶掉。
+ */
+const commits: CommitDelta[] = []
+let prev = base
+for (const step of git('rev-list', '--reverse', '--first-parent', `${base}..${head}`)
+  .split('\n').filter(Boolean)) {
+  for (const sha of git('rev-list', '--reverse', step, `^${prev}`, `^${base}`)
+    .split('\n').filter(Boolean)) {
+    commits.push({ message: git('log', '-1', '--format=%B', sha), counts: countsOf(sha) })
+  }
+  prev = step
+}
 
 const report = judge(counts, commits)
 
