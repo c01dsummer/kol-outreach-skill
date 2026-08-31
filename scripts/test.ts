@@ -11,7 +11,9 @@ import { implementationLeak } from './check/why-rule.js'
 import {
   BUDGET, categorize, collectExemptions, judge, judgeExemption, parseNumstat, tally,
 } from './check/size-rule.js'
-import { checkAll, fileNameOf, renderIndex } from './check/adr-rule.js'
+import {
+  checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, renderIndex, slugify,
+} from './check/adr-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { fillEmail, pickList } from './providers/tikhub.js'
@@ -1276,6 +1278,29 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
 {
   eq('文件名由编号与标题生成，个位数补零',
     fileNameOf(8, '采集累加器与交付物拆成两个文件'), 'ADR-08-采集累加器与交付物拆成两个文件.md')
+  // 索引是 Markdown：会断链或多切一列的字符必须处理掉，否则 `npm run adr` 仍报「一致」，
+  // 而那份一致的索引点不开
+  eq('井号与方括号从文件名里去掉 —— 留着会变成锚点、把链接标签截断',
+    slugify('带#井号与[方括号]的标题'), '带井号与方括号的标题')
+  eq('全角逗号不剔 —— 它在文件名与链接里都无害', slugify('甲，乙'), '甲，乙')
+  eq('标签里的竖线转义，不然多切一列', escapeCell('甲|乙'), '甲\\|乙')
+  eq('链接目标只编码会断链的那一组', encodeTarget('ADR-01-甲 (乙).md'), 'ADR-01-甲%20%28乙%29.md')
+  eq('中文不编码 —— 编了只会让索引变成乱码', encodeTarget('ADR-01-甲乙.md'), 'ADR-01-甲乙.md')
+
+  // 编号不可回收：只看当前目录的话，删一条再把号让给别的决策是查不出来的
+  const A = (num: number, file: string): { file: string; num: number; title: string } =>
+    ({ file, num, title: 't' })
+  const base = new Map([[1, 'ADR-01-甲.md'], [2, 'ADR-02-乙.md']])
+  eq('主干上有、这里没了 → 报错',
+    checkAppendOnly(base, [A(1, 'ADR-01-甲.md')]).length, 1)
+  eq('新增编号不报错',
+    checkAppendOnly(base, [A(1, 'ADR-01-甲.md'), A(2, 'ADR-02-乙.md'), A(58, 'ADR-58-新.md')]), [])
+  // 删掉记录、把号让给另一条决策 —— 号还在，只有标题露馅
+  eq('号还在但标题换了 → 报错',
+    checkAppendOnly(base, [A(1, 'ADR-01-甲.md'), A(2, 'ADR-02-借尸还魂.md')]).length, 1)
+  ok('不冻正文 —— 就地标注作废是既有做法（ADR-13），标题不动就放行',
+    checkAppendOnly(new Map([[13, 'ADR-13-丙.md']]), [A(13, 'ADR-13-丙.md')]).length === 0)
+
   eq('标题里的斜杠与括号在文件名里去掉',
     fileNameOf(15, '记忆读不出来时/不产出名单（也不覆盖）'), 'ADR-15-记忆读不出来时不产出名单也不覆盖.md')
 

@@ -11,9 +11,10 @@
  *
  * ⚠️ 证不了记录写得对。它保证的是编号唯一、文件名与正文一致、索引不漂移。
  */
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { type Adr, FILE_RE, HEAD_RE, checkAll, fileNameOf, renderIndex } from './adr-rule.js'
+import { type Adr, FILE_RE, HEAD_RE, checkAll, checkAppendOnly, fileNameOf, renderIndex } from './adr-rule.js'
 
 const DIR = 'docs/adr'
 const INDEX = join(DIR, 'README.md')
@@ -30,13 +31,40 @@ if (process.argv.includes('--split')) {
   const body = parts.filter(p => /^## ADR-\d+ /.test(p))
   if (!body.length) { console.log('✓ 决策记录：没有可拆的整册内容'); process.exit(0) }
   mkdirSync(DIR, { recursive: true })
+  /**
+   * **既有文件内容不同时拒绝覆盖。**
+   *
+   * 这个迁移器是给还装着整册的在途分支用的，而那些分支迟早要先合一次主干 ——
+   * 于是盘上会同时有主干带来的 `docs/adr/ADR-NN-….md` 和分支自己那份整册里的
+   * 同号记录。无条件写下去，就是用分支上那份（可能是旧的）静默盖掉主干的裁决，
+   * 而后面的撞号与文件名检查只看得到一个文件，一路全绿 ——
+   * **恰好把这次拆分本来要暴露的并发抢号变成了数据丢失。**
+   *
+   * 内容一致时照写不误，`--split` 的幂等不受影响。
+   */
+  const clashes: string[] = []
+  const written: string[] = []
   for (const sec of body) {
     const m = /^## ADR-(\d+) (.+)$/m.exec(sec)!
     const [num, title] = [Number(m[1]), m[2].trim()]
     const text = sec.split('\n').slice(1).join('\n').replace(/\n+---\s*$/, '').trim()
-    writeFileSync(join(DIR, fileNameOf(num, title)), `# ADR-${m[1]} ${title}\n\n${text}\n`, 'utf8')
+    const file = join(DIR, fileNameOf(num, title))
+    const content = `# ADR-${m[1]} ${title}\n\n${text}\n`
+    if (existsSync(file) && readFileSync(file, 'utf8') !== content) {
+      clashes.push(`ADR-${m[1]} 已存在于 ${file}，内容与整册里的这一条不同`)
+      continue
+    }
+    writeFileSync(file, content, 'utf8')
+    written.push(file)
   }
-  console.log(`✓ 决策记录：${body.length} 条已拆成文件，preamble 与转发页需手工确认`)
+  if (clashes.length) {
+    console.error(`✗ 决策记录：${clashes.length} 条拒绝覆盖（其余 ${written.length} 条已写出）\n`)
+    for (const c of clashes) console.error(`  · ${c}`)
+    console.error('\n  两份内容都要保留：给其中一条换一个没用过的编号，或把两条合成一条。')
+    console.error('  **不要删掉任何一条** —— 编号不可回收，撞号本身就是这次拆分要暴露的东西。')
+    process.exit(1)
+  }
+  console.log(`✓ 决策记录：${written.length} 条已拆成文件，preamble 与转发页需手工确认`)
   process.exit(0)
 }
 
@@ -55,6 +83,34 @@ for (const file of readdirSync(DIR).sort()) {
   adrs.push({ file, num: Number(h[1]), title: h[2] })
 }
 errors.push(...checkAll(adrs))
+
+/**
+ * 编号不可回收，要对着主干查 —— 只看当前目录的话，删掉一条再把号让给别的决策，
+ * 检查是全绿的。基线取不到时**说取不到并失败**，不当作「没有删过」。
+ */
+function trunkAdrs(): Map<number, string> {
+  const g = (...a: string[]) => {
+    try { return execFileSync('git', a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() }
+    catch { return null }
+  }
+  const trunk = ['origin/main', 'main'].find(r => g('rev-parse', '--verify', `${r}^{commit}`))
+  const base = trunk && g('merge-base', trunk, 'HEAD')
+  if (!base) {
+    console.error('✗ 决策记录：无从核对「编号不可回收」—— 找不到主干基线\n')
+    console.error('  CI 里给 actions/checkout 加 `fetch-depth: 0`；本地先 `git fetch origin main`。')
+    console.error('  不当作「没有删过」：一个永远不会失败的检查等于没有检查。')
+    process.exit(1)
+  }
+  const tree = g('ls-tree', '--name-only', '-z', base, `${DIR}/`) ?? ''
+  const out = new Map<number, string>()
+  for (const p of tree.split('\0')) {
+    const name = p.split('/').pop() ?? ''
+    const m = FILE_RE.exec(name)
+    if (m) out.set(Number(m[1]), name)
+  }
+  return out
+}
+errors.push(...checkAppendOnly(trunkAdrs(), adrs))
 
 /** 拆开之后 `DECISIONS.md` 只做转发。写回整册就是把冲突面又装回去。 */
 if (existsSync(LEGACY) && LEGACY_SECTION.test(readFileSync(LEGACY, 'utf8'))) {

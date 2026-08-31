@@ -19,9 +19,34 @@ export interface Adr { file: string; num: number; title: string }
 /** 编号宽度跟随既有约定:个位数补零到两位,其余原样。**编号不复用,允许有空号。** */
 export const pad = (n: number) => String(n).padStart(2, '0')
 
-/** 文件名里的标题部分。保留中文,只去掉在文件名里有歧义的字符。 */
+/**
+ * 文件名里的标题部分。保留中文,只去掉会坏事的字符,分三类:
+ *
+ * - 文件系统有歧义的 `/ \ : * ? " < >`
+ * - **Markdown 链接语法**的 `# [ ] ( )` —— `#` 留在文件名里,链接里它会被当成锚点,
+ *   指向一个不存在的文件;方括号会把链接标签截断
+ * - 表格分隔符 `|`
+ *
+ * 全角逗号一类**不剔** —— 它在文件名和链接里都无害,剔掉只会让既有文件
+ * 全部改名,那是自造的假阳性。
+ */
 export const slugify = (title: string) =>
-  title.replace(/[\/\\:*?"<>|「」『』()（）,,。.]/g, '').replace(/\s+/g, '-').slice(0, 32)
+  title.replace(/[\/\\:*?"<>|#[\]()「」『』（）,。.]/g, '').replace(/\s+/g, '-').slice(0, 32)
+
+/** 表格单元格里的 `|` 会多切出一列。标签用的是原标题,所以要在这里转义。 */
+export const escapeCell = (t: string) => t.replace(/\|/g, '\\|')
+
+/**
+ * 链接目标里**只编码真正会断链的那一组** ASCII:空格与 `( ) # [ ] < > "`。
+ *
+ * 不用 `encodeURI` —— 它会把中文整片编成百分号序列,而中文在链接里本来合法,
+ * 结果是索引变成一页看不懂的乱码,换来的安全是零。
+ *
+ * slugify 已经把这一组从文件名里去掉了,所以这里实际是个兜底:
+ * 万一哪天 slugify 放宽了,断的是链接而不是这条规则。
+ */
+export const encodeTarget = (t: string) =>
+  t.replace(/[ ()#[\]<>"]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'))
 
 export const fileNameOf = (num: number, title: string) => `ADR-${pad(num)}-${slugify(title)}.md`
 
@@ -46,6 +71,38 @@ export function checkAll(adrs: Adr[]): string[] {
 
 export function renderIndex(adrs: Adr[]): string {
   const rows = [...adrs].sort((a, b) => a.num - b.num)
-    .map(a => `| **ADR-${pad(a.num)}** | [${a.title}](${a.file}) |`)
+    // 标签转义 `|`;链接目标编码 —— 文件名过了 slugify,标题没有,两边规则不同
+    .map(a => `| **ADR-${pad(a.num)}** | [${escapeCell(a.title)}](${encodeTarget(a.file)}) |`)
   return ['| 编号 | 结论 |', '|---|---|', ...rows, ''].join('\n')
+}
+
+/**
+ * 编号不可回收 —— 这一条要**对着历史**查,不是对着当前目录查。
+ *
+ * 只看当前目录的话,一个改动可以删掉某条记录、把号腾出来给另一条决策,再跑
+ * `--write` 回写索引,一路全绿。而「一个不可回收的编号」是 `docs/adr/README.md`
+ * 明写的契约,下游引用的正是这个号。
+ *
+ * 查两件事,而且**只查这两件**:
+ *
+ * - **号还在不在** —— 删了就是回收
+ * - **标题变没变** —— 标题是这条决策的身份。号还在但标题换了,等于把号让给了
+ *   另一条决策,下游那些引用 ADR-NN 的地方会静默指向一件别的事
+ *
+ * **不查正文**:就地标注作废是这个仓库既有的做法(ADR-13 就是那么改的),
+ * 把正文一起冻住会把这个正当操作也挡掉。作废要写在正文里,标题不动。
+ */
+export function checkAppendOnly(before: Map<number, string>, after: Adr[]): string[] {
+  const now = new Map(after.map(a => [a.num, a.file]))
+  const errors: string[] = []
+  for (const [num, file] of before) {
+    const cur = now.get(num)
+    if (!cur) {
+      errors.push(`ADR-${pad(num)} 在主干上存在,这里没有了 —— 编号不可回收,记录只作废不删除`)
+    } else if (cur !== file) {
+      errors.push(`ADR-${pad(num)} 的标题变了(${file} → ${cur})—— 编号不可回收。`
+        + '作废写进正文,标题不动;确实是另一条决策的,新开一个号')
+    }
+  }
+  return errors
 }
