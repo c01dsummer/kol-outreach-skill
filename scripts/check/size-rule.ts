@@ -99,7 +99,16 @@ export type ExemptionVerdict =
  * 进评审视野,且不会被忘记删掉。
  */
 export function judgeExemption(line: string): ExemptionVerdict | null {
-  const m = /^\s*size-ok:\s*(.*)$/.exec(line)
+  /**
+   * **必须顶格。** 缩进的 `size-ok:` 不算。
+   *
+   * 提交信息里举例说明这个语法是很自然的事 —— 而允许行首空白的话,
+   * 那些缩进的例子会被当成真的豁免。实测:上一个提交的正文里用缩进写了两个
+   * 「写歪的豁免」当反例,CI 当场判它们不成立,红了一轮。
+   *
+   * 顶格是 git trailer 的一贯写法,缩进的文本是引文,不是指令。
+   */
+  const m = /^size-ok:\s*(.*)$/.exec(line)
   if (!m) return null
   const rest = m[1].trim()
   /**

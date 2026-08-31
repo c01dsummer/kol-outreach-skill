@@ -1404,6 +1404,12 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
   eq('不认识的类别，不成立',
     judgeExemption('size-ok: 源代码 generated'), { kind: 'unjustified', text: '源代码 generated' })
 
+  // 必须顶格：提交信息里举例说明这个语法是很自然的事，缩进的例子不该被当成真的豁免。
+  // 实测栽过一次 —— 上一个提交的正文里用缩进写了两个反例，CI 当场红。
+  eq('缩进的 size-ok 不算', judgeExemption('    size-ok: 源码 某个理由'), null)
+  eq('引文里的 size-ok 不算', judgeExemption('> size-ok: 源码 某个理由'), null)
+  ok('顶格的才算', judgeExemption('size-ok: 源码 某个理由')?.kind === 'exempt')
+
   // 豁免带着「写下之后这一类还净增了多少」。树对树算出来，不看提交顺序 ——
   // 按顺序算的那条路走了四版都不对，理由记在 size-rule.ts 的 Waiver 上。
   const W = (category: '源码' | '测试' | '文档' | '其他', addedAfter: number): Waiver =>
