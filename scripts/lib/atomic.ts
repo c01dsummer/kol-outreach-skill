@@ -35,8 +35,7 @@ import { dirname, resolve } from 'node:path'
  * 按自己那份文件的处境决定（记忆文件要清，一次性的任务目录不用）。
  */
 export function writeFileAtomic(file: string, data: string): void {
-  // 顺着软链找到真正要写的那个文件 —— 改名换掉的是**链接本身**
-  const target = followLinks(file)
+  const target = writeTarget(file)
   let mode: number | undefined
   // **只有「不存在」才是新文件。** 权限、路径、IO 出错时读不到目标的权限位，
   // 那时候不该假装它是新的 —— 假装的后果是把用户设过的权限换成 0600，
@@ -57,7 +56,9 @@ export function writeFileAtomic(file: string, data: string): void {
 }
 
 /**
- * 顺着软链找到真正要写的那个文件。
+ * 一次整体替换**真正落在哪个文件上**。
+ *
+ * 顺着软链找到终点 —— 改名换掉的是链接本身，不是它指向的文件。
  *
  * `renameSync` 换掉的是**链接本身**，不是它指向的文件。目标是软链时，
  * 第一次写回就把用户配好的那条链接换成一个普通文件，而真正那份从此不再
@@ -69,8 +70,12 @@ export function writeFileAtomic(file: string, data: string): void {
  *
  * 不用 `realpathSync`：它要求终点存在，而**终点不存在时该写的正是那个终点**，
  * 不是把链接换掉。
+ *
+ * **导出，因为不止写的那一方要问。** 清理孤儿临时文件的那一方也得问同一个
+ * 问题 —— 它照着链接那一侧去扫，就永远扫不到落在终点旁边的那些，
+ * 而那是一份完整的联系历史（ADR-58）。判据只此一份，两边都调它。
  */
-function followLinks(file: string): string {
+export function writeTarget(file: string): string {
   let cur = file
   for (let i = 0; i < 32; i++) {
     let next: string

@@ -4,7 +4,7 @@ import {
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { PLATFORMS, creatorKey, textProblem, type Creator, type MemoryStatus, type Platform } from './types.js'
-import { isAbsence, mkdirDurable, writeFileAtomic } from './atomic.js'
+import { isAbsence, mkdirDurable, writeFileAtomic, writeTarget } from './atomic.js'
 
 /** D4：本地单文件，不做多人共享。团队场景需另行设计。 */
 const DEFAULT_FILE = 'memory/creators.json'
@@ -329,8 +329,12 @@ function alive(pid: number): boolean {
  * 静默与响之间选响的（ADR-44）。
  */
 function sweepStaleTemps(): void {
-  const dir = dirname(FILE)
-  const prefix = `${basename(FILE)}.`
+  // **扫的必须是写的那个地方。** 目标是软链时临时文件落在终点旁边，
+  // 照着链接那一侧扫就永远扫不到 —— 而那是一份完整的联系历史，
+  // 会一直留在盘上（ADR-58）。所以两边问同一个函数，不各写各的。
+  const target = writeTarget(FILE)
+  const dir = dirname(target)
+  const prefix = `${basename(target)}.`
   let names: string[]
   // 目录列不出来（只写不可读这种权限组合）就跳过这一次清理，**不因此让写回失败** ——
   // 清不掉临时文件的代价是盘上多一份副本，而中断写回的代价是这一轮的记录全丢。
@@ -360,7 +364,10 @@ function sweepStaleTemps(): void {
  * **这里不声称它已经被挡住了。**
  */
 export function saveMemory(mem: MemoryFile): void {
-  mkdirDurable(dirname(FILE))
+  // 建的也得是写的那个地方 —— 目标是软链时临时文件落在终点旁边，
+  // 建链接那一侧的目录对它一点用没有。第三处问「到底写在哪个文件上」的地方，
+  // 三处都调 writeTarget（ADR-58）。
+  mkdirDurable(dirname(writeTarget(FILE)))
   sweepStaleTemps()
   mem.updated_at = new Date().toISOString()
   writeFileAtomic(FILE, JSON.stringify(mem, null, 2))

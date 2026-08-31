@@ -558,8 +558,16 @@
       "req": "D4",
       "why": "目标是一条软链时，整体替换把链接本身换成普通文件 —— 用户配好的那份真正的记忆从此不再更新，而交付物照样声明「已记入」。静默地停止记录，是这条需求最不能出现的坏法",
       "file": "scripts/lib/atomic.ts",
-      "find": "  const target = followLinks(file)",
+      "find": "  const target = writeTarget(file)",
       "replace": "  const target = file"
+    },
+    {
+      "id": "M-D4-y",
+      "req": "D4",
+      "why": "清理孤儿临时文件时照着配置里那个路径扫，而不是照着写回真正落在的那个文件扫 —— 目标是软链时两者不是一个目录，硬杀留下的那份完整联系历史就永远躺在盘上，没人知道",
+      "file": "scripts/lib/memory.ts",
+      "find": "  const target = writeTarget(FILE)\n  const dir = dirname(target)\n  const prefix = `${basename(target)}.`",
+      "replace": "  const dir = dirname(FILE)\n  const prefix = `${basename(FILE)}.`"
     },
     {
       "id": "M-D4-w",

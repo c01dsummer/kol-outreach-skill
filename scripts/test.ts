@@ -706,6 +706,28 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     rmSync(base, { recursive: true, force: true })
   }
 
+  // 八之二之四、**扫孤儿临时文件要扫写的那个地方**。目标是软链时临时文件落在
+  //          终点旁边，照着链接那一侧扫就永远扫不到 —— 而那是一份完整的
+  //          联系历史，会一直留在盘上（ADR-58）。
+  {
+    const base = join(tmpdir(), `kol-d4-linksweep-${process.pid}`)
+    rmSync(base, { recursive: true, force: true })
+    const here = join(base, 'memory'), there = join(base, 'elsewhere')
+    mkdirSync(here, { recursive: true }); mkdirSync(there, { recursive: true })
+    const real = join(there, 'real.json'), link = join(here, 'creators.json')
+    writeFileSync(real, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+    symlinkSync(real, link)
+    useMemoryFile(link)
+    const orphan = `${real}.999999.tmp`     // 死掉的进程留下的
+    writeFileSync(orphan, '{}', 'utf8')
+    const old2 = new Date(Date.now() - 2 * 60 * 60 * 1000)
+    utimesSync(orphan, old2, old2)
+    recordRecommendations([mk('tiktok', 'zed')], 'p')
+    eq('终点旁边的孤儿也被清掉了', existsSync(orphan), false)
+    useMemoryFile(tmp)
+    rmSync(base, { recursive: true, force: true })
+  }
+
   // 八之三、product 的首尾空白不该让「已推荐过」失效。**不判成损坏** ——
   //        product 来自用户的任务配置，配置里多一个空格就把我们自己写下的
   //        记忆判成读不出来，那是自伤。纯空白仍然算损坏（trim 之后是空的）。
