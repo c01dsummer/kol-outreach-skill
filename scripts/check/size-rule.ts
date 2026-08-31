@@ -145,7 +145,7 @@ export interface Overage { category: Category; added: number; budget: number; no
  * 真正对的做法是逐行比对两份 patch 的新增行集合,而不是相减。那要写一个
  * patch 行级差分,量不小;在这个缺口(总数必须**一行不差**地保持相等)面前
  * 不成比例。**假阳性会让闸门被忽略,而被忽略的检查比没有检查更糟。**
- *
+ */
 export interface Waiver { category: Category; reason: string; addedAfter: number }
 
 export interface SizeReport {
