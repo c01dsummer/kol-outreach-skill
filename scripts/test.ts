@@ -1395,6 +1395,15 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     { kind: 'exempt', category: '源码', reason: '首次落地，拆不开' })
   eq('普通提交信息不是豁免', judgeExemption('fix: 修一个 bug'), null)
 
+  // 类别必须是第一个空白之前的**完整一段**，不是前缀匹配 —— 否则这两条都会
+  // 被当成合格豁免（类别取「源码」「文档」，剩下的当理由）
+  eq('类别后面没有空白，不成立',
+    judgeExemption('size-ok: 源码理由没有空格'), { kind: 'unjustified', text: '源码理由没有空格' })
+  eq('类别是更长词的前缀，不成立',
+    judgeExemption('size-ok: 文档案 某个理由'), { kind: 'unjustified', text: '文档案 某个理由' })
+  eq('不认识的类别，不成立',
+    judgeExemption('size-ok: 源代码 generated'), { kind: 'unjustified', text: '源代码 generated' })
+
   // 豁免带着「写下之后这一类还净增了多少」。树对树算出来，不看提交顺序 ——
   // 按顺序算的那条路走了四版都不对，理由记在 size-rule.ts 的 Waiver 上。
   const W = (category: '源码' | '测试' | '文档' | '其他', addedAfter: number): Waiver =>

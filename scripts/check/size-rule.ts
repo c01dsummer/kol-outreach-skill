@@ -102,13 +102,20 @@ export function judgeExemption(line: string): ExemptionVerdict | null {
   const m = /^\s*size-ok:\s*(.*)$/.exec(line)
   if (!m) return null
   const rest = m[1].trim()
-  const category = CATEGORIES.find(c => rest.startsWith(c))
+  /**
+   * 类别是**第一个空白之前的完整一段**,不是前缀匹配。
+   *
+   * 前缀匹配会把 `size-ok: 源码理由没有空格` 和 `size-ok: 文档案 某个理由`
+   * 都当成合格的豁免(类别取「源码」「文档」,剩下的当理由)。文档写的语法是
+   * 空白分隔的 `<类别> <理由>`,判定就该照着它,不该比它松 ——
+   * **一条能被写歪还照样生效的规则,等于没有规则。**
+   */
+  const parts = /^(\S+)\s+(.+)$/.exec(rest)
+  if (!parts) return { kind: 'unjustified', text: rest }
+  const category = CATEGORIES.find(c => c === parts[1])
   if (!category) return { kind: 'unjustified', text: rest }
-  const reason = rest.slice(category.length).trim()
-  if (!reason) return { kind: 'unjustified', text: rest }
-  return { kind: 'exempt', category, reason }
+  return { kind: 'exempt', category, reason: parts[2].trim() }
 }
-
 
 export interface Overage { category: Category; added: number; budget: number; note?: string }
 
