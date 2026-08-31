@@ -334,8 +334,8 @@
       "req": "D4",
       "why": "落盘改成直接盖原文件 —— 写到一半被打断就留下一份截断的 JSON。跨任务记忆坏了「谁联系过」永久消失（它是唯一一份），任务目录里的坏了续跑起不来、已经花钱抓到的东西找不回来",
       "file": "scripts/lib/atomic.ts",
-      "find": "    writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600 })\n    if (mode !== undefined) chmodSync(tmp, mode)\n    renameSync(tmp, file)",
-      "replace": "    writeFileSync(file, data, 'utf8')"
+      "find": "  const tmp = `${target}.${process.pid}.tmp`",
+      "replace": "  const tmp = target"
     },
     {
       "id": "M-D4-e",
@@ -478,8 +478,8 @@
       "req": "D4",
       "why": "整体替换时不再把目标文件原有的权限位带过去 —— 改名换掉的是整个 inode，权限跟着新文件走：用户特意收紧过的记忆、任务数据与开发信草稿，每成功写一次就被悄悄放开一次",
       "file": "scripts/lib/atomic.ts",
-      "find": "    if (mode !== undefined) chmodSync(tmp, mode)",
-      "replace": "    /* mutated */"
+      "find": "    chmodSync(tmp, mode ?? (0o666 & ~process.umask()))",
+      "replace": "    chmodSync(tmp, 0o666 & ~process.umask())"
     },
     {
       "id": "M-D6-f",
@@ -552,6 +552,22 @@
       "file": "scripts/lib/memory.ts",
       "find": "  const badPlatform = textProblem(platform)\n  if (badPlatform) return `平台${badPlatform} —— 它永远匹配不到任何人`\n  const badHandle = textProblem(handle)\n  if (badHandle) return `handle ${badHandle} —— 它永远匹配不到任何人`",
       "replace": "  /* mutated */"
+    },
+    {
+      "id": "M-D4-x",
+      "req": "D4",
+      "why": "目标是一条软链时，整体替换把链接本身换成普通文件 —— 用户配好的那份真正的记忆从此不再更新，而交付物照样声明「已记入」。静默地停止记录，是这条需求最不能出现的坏法",
+      "file": "scripts/lib/atomic.ts",
+      "find": "  const target = followLinks(file)",
+      "replace": "  const target = file"
+    },
+    {
+      "id": "M-D4-w",
+      "req": "D4",
+      "why": "新文件停在临时文件那一档最严的权限 —— 临时文件建得严是为了盖住写入那段窗口，不是替产品决定新文件该多严；每个新建的任务状态、名单、增强结果都变成只有属主可读，而说明里写的是「保持默认」",
+      "file": "scripts/lib/atomic.ts",
+      "find": "    chmodSync(tmp, mode ?? (0o666 & ~process.umask()))",
+      "replace": "    if (mode !== undefined) chmodSync(tmp, mode)"
     },
     {
       "id": "M-D1-a",

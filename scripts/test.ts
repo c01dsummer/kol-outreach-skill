@@ -14,7 +14,7 @@ import { fillEmail, pickList } from './providers/tikhub.js'
 import { esc } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import { persistListAndStatus, saveTask } from './lib/task.js'
-import { isAbsence, mkdirDurable } from './lib/atomic.js'
+import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 import { creatorKey } from './lib/types.js'
 import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
@@ -35,7 +35,7 @@ import {
 } from './lib/assessment.js'
 import {
   writeFileSync, unlinkSync, truncateSync, readdirSync, mkdirSync, rmSync, existsSync,
-  utimesSync, chmodSync, statSync,
+  utimesSync, chmodSync, statSync, symlinkSync, lstatSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -673,6 +673,38 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   recordRecommendations([mk('tiktok', 'erin')], 'p')
   eq('目标比临时文件宽时也照样还原，不是停在最严那一档',
     statSync(tmp).mode & 0o777, 0o640)
+
+  // 八之二之二、**新文件按 umask 默认建**，不是停在临时文件那一档。
+  //          临时文件按最严建是为了盖住那段窗口，不是替产品决定新文件该多严；
+  //          少了还原那一步，每个新建的 task.json / 名单 / 增强结果都变成
+  //          只有属主可读，而这是一句注释说了、代码没做的事（ADR-57）。
+  {
+    const fresh = join(tmpdir(), `kol-d4-fresh-${process.pid}.json`)
+    rmSync(fresh, { force: true })
+    const before = process.umask()
+    writeFileAtomic(fresh, '{}')
+    eq('新文件按 umask 默认，不是临时文件那档最严的',
+      statSync(fresh).mode & 0o777, 0o666 & ~before)
+    rmSync(fresh, { force: true })
+  }
+
+  // 八之二之三、**目标是软链时，写的是它指向的那个文件**。
+  //          rename 换掉的是链接本身 —— 第一次写回就把用户配好的链接换成
+  //          普通文件，真正那份从此不再更新，而报告照样说「已记入」。
+  //          换成整体替换之前这里是一次普通 writeFileSync，它跟着链接写到终点，
+  //          所以这不是新能力，是把顺手弄坏的行为还回去（ADR-57）。
+  {
+    const base = join(tmpdir(), `kol-d4-link-${process.pid}`)
+    rmSync(base, { recursive: true, force: true })
+    mkdirSync(base, { recursive: true })
+    const real = join(base, 'real.json'), link = join(base, 'link.json')
+    writeFileSync(real, '{"v":1}', 'utf8')
+    symlinkSync(real, link)
+    writeFileAtomic(link, '{"v":2}')
+    ok('链接还是链接，没被换成普通文件', lstatSync(link).isSymbolicLink())
+    eq('写进去的是它指向的那份', rf(real, 'utf8'), '{"v":2}')
+    rmSync(base, { recursive: true, force: true })
+  }
 
   // 八之三、product 的首尾空白不该让「已推荐过」失效。**不判成损坏** ——
   //        product 来自用户的任务配置，配置里多一个空格就把我们自己写下的
