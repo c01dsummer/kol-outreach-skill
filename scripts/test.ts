@@ -9,7 +9,8 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import {
-  BUDGET, type CommitDelta, categorize, judge, judgeExemption, parseNumstat, tally,
+  BUDGET, type CommitDelta, categorize, judge, judgeExemption,
+  parseCombinedDiff, parseNumstat, tally,
 } from './check/size-rule.js'
 import {
   checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, renderIndex, slugify,
@@ -1381,6 +1382,28 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
   eq('纯改名记在新路径上，且按 0 计',
     parseNumstat('0\t0\t\x00scripts/old.ts\x00scripts/new.ts\x00'),
     [{ path: 'scripts/new.ts', added: 0 }])
+  // 合并 diff：数「所有父都没有」的行，也就是解决冲突时真写下的内容。
+  // 路径必须原样出现 —— 调用方带 `-c core.quotePath=false`，否则中文路径会以
+  // 转义形式出现在 diff 头里，整片归错类。同一个坑栽过三次。
+  const cc = [
+    'diff --cc docs/adr/ADR-01-中文标题的记录.md',
+    'index aaa,bbb..ccc',
+    '--- a/docs/adr/ADR-01-中文标题的记录.md',
+    '+++ b/docs/adr/ADR-01-中文标题的记录.md',
+    '@@@ -1,2 -1,2 +1,4 @@@',
+    '  a',
+    '- MAIN',
+    ' +SIDE',
+    '++NEW1',
+    '++NEW2',
+  ].join('\n')
+  eq('只数两个父都没有的行，且路径原样保留',
+    parseCombinedDiff(cc, 2), [{ path: 'docs/adr/ADR-01-中文标题的记录.md', added: 2 }])
+  eq('中文路径归到文档，不是「其他」', tally(parseCombinedDiff(cc, 2)), { 源码: 0, 测试: 0, 文档: 2, 其他: 0 })
+  // `+++ b/<路径>` 在 hunk 之前，不能被当成新增（实测差过一行：901 vs 900）
+  ok('文件头不计入', parseCombinedDiff(cc.split('@@@')[0], 2)[0].added === 0)
+  eq('没有冲突解决内容时为空', parseCombinedDiff('', 2), [])
+
   eq('改名记录后面还能继续解析普通记录',
     parseNumstat('0\t0\t\x00a/old.ts\x00a/new.ts\x0012\t0\tscripts/lib/x.ts\x00').length, 2)
 

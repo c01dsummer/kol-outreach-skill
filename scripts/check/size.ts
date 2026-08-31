@@ -13,14 +13,27 @@
  */
 import { execFileSync } from 'node:child_process'
 import {
-  BUDGET, CATEGORIES, type Category, type CommitDelta, type FileDelta,
-  judge, parseNumstat, tally,
+  BUDGET, CATEGORIES, type Category, type CommitDelta,
+  judge, parseCombinedDiff, parseNumstat, tally,
 } from './size-rule.js'
 
 const TRUNK_CANDIDATES = ['origin/main', 'main']
 
+/**
+ * 所有 git 调用统一走这里,并**一律带上 `-c core.quotePath=false`**。
+ *
+ * git 默认把非 ASCII 路径转义成 `"docs/adr/\\346..."`,而这个仓库的文件名
+ * 几乎全是中文。同一个坑在这里栽过三次:`diff --numstat`(文档整类被误归)、
+ * `ls-tree`(基线读成空的,检查静默失效)、`show --cc`(决策记录归进「其他」)。
+ *
+ * 前两次是逐处加 `-z` 补的,所以第三次照样中招 —— 一条只写在提交信息里的教训
+ * 挡不住下一个调用点。放在入口才是结构保证(`docs/CONVENTIONS.md`:
+ * 能靠结构保证的,就别靠对比保证)。`-z` 该用还用,它另外管住路径里有制表符
+ * 或换行的情形。
+ */
 function git(...args: string[]): string {
-  return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  return execFileSync('git', ['-c', 'core.quotePath=false', ...args],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 }
 function tryGit(...args: string[]): string | null {
   try { return git(...args) } catch { return null }
@@ -98,18 +111,7 @@ const counts = tally(files)
  * 总数不受影响:它来自 `base..head` 的整体 diff。
  */
 function mergeCounts(sha: string, parents: number): Record<Category, number> {
-  const marker = '+'.repeat(parents)
-  const files: FileDelta[] = []
-  let path = ''
-  let inHunk = false
-  for (const line of git('show', '--cc', '--format=', sha).split('\n')) {
-    const d = /^diff --cc (.+)$/.exec(line)
-    if (d) { path = d[1]; inHunk = false; files.push({ path, added: 0 }); continue }
-    if (line.startsWith('@@')) { inHunk = true; continue }
-    // 必须先进到 hunk 里才数 —— 否则 `+++ b/<路径>` 这行文件头会被当成新增
-    if (inHunk && line.startsWith(marker)) files[files.length - 1].added++
-  }
-  return tally(files)
+  return tally(parseCombinedDiff(git('show', '--cc', '--format=', sha), parents))
 }
 
 function countsOf(sha: string): Record<Category, number> {

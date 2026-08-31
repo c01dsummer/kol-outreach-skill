@@ -97,7 +97,12 @@ errors.push(...checkAll(adrs))
  */
 function trunkAdrs(): Map<number, Baseline> {
   const g = (...a: string[]) => {
-    try { return execFileSync('git', a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() }
+    // `-c core.quotePath=false`:git 默认转义非 ASCII 路径，而这个仓库的文件名几乎全是中文。
+    // 同一个坑栽过三次，所以放在调用入口一次性关掉，不在每个调用点各补一遍。
+    try {
+      return execFileSync('git', ['-c', 'core.quotePath=false', ...a],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+    }
     catch { return null }
   }
   const trunk = ['origin/main', 'main'].find(r => g('rev-parse', '--verify', `${r}^{commit}`))

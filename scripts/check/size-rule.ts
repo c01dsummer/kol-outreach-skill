@@ -76,6 +76,31 @@ export function parseNumstat(raw: string): FileDelta[] {
   return out
 }
 
+/**
+ * 解析 `git show --cc --format=` 的合并 diff,数**所有父都没有的那些行** ——
+ * 也就是解决冲突时真写下的内容。
+ *
+ * 两个父时这样的行以 `++` 开头。必须**先进到 `@@` hunk 里才数**,否则
+ * `+++ b/<路径>` 那行文件头会被算成新增(实测 901 vs 900)。
+ *
+ * 调用方必须带 `-c core.quotePath=false` —— 否则中文路径会以带引号的转义形式
+ * 出现在 `diff --cc` 头里,整片归错类。`--numstat` 那边靠 `-z`,这里没有 `-z`,
+ * 所以那个开关是唯一的办法。
+ */
+export function parseCombinedDiff(raw: string, parents: number): FileDelta[] {
+  const marker = '+'.repeat(parents)
+  const files: FileDelta[] = []
+  let inHunk = false
+  for (const line of raw.split('\n')) {
+    const d = /^diff --cc (.+)$/.exec(line)
+    if (d) { files.push({ path: d[1], added: 0 }); inHunk = false; continue }
+    if (line.startsWith('@@')) { inHunk = true; continue }
+    // files 为空时不可能进到 hunk（`@@` 总跟在 `diff --cc` 之后），但不赖这个假设
+    if (inHunk && files.length && line.startsWith(marker)) files[files.length - 1].added++
+  }
+  return files
+}
+
 export function tally(files: FileDelta[]): Record<Category, number> {
   const out: Record<Category, number> = { 源码: 0, 测试: 0, 文档: 0, 其他: 0 }
   for (const f of files) out[categorize(f.path)] += f.added
