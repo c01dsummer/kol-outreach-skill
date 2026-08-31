@@ -9,7 +9,7 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import {
-  BUDGET, categorize, collectExemptions, judge, judgeExemption, parseNumstat, tally,
+  BUDGET, type CommitDelta, categorize, judge, judgeExemption, parseNumstat, tally,
 } from './check/size-rule.js'
 import {
   checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, renderIndex, slugify,
@@ -1288,18 +1288,27 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
   eq('中文不编码 —— 编了只会让索引变成乱码', encodeTarget('ADR-01-甲乙.md'), 'ADR-01-甲乙.md')
 
   // 编号不可回收：只看当前目录的话，删一条再把号让给别的决策是查不出来的
-  const A = (num: number, file: string): { file: string; num: number; title: string } =>
-    ({ file, num, title: 't' })
-  const base = new Map([[1, 'ADR-01-甲.md'], [2, 'ADR-02-乙.md']])
-  eq('主干上有、这里没了 → 报错',
-    checkAppendOnly(base, [A(1, 'ADR-01-甲.md')]).length, 1)
-  eq('新增编号不报错',
-    checkAppendOnly(base, [A(1, 'ADR-01-甲.md'), A(2, 'ADR-02-乙.md'), A(58, 'ADR-58-新.md')]), [])
+  const A = (num: number, title: string): { file: string; num: number; title: string } =>
+    ({ file: fileNameOf(num, title), num, title })
+  const B = (num: number, title: string): [number, { file: string; title: string }] =>
+    [num, { file: fileNameOf(num, title), title }]
+  const base0 = new Map([B(1, '甲'), B(2, '乙')])
+
+  eq('主干上有、这里没了 → 报错', checkAppendOnly(base0, [A(1, '甲')]).length, 1)
+  eq('新增编号不报错', checkAppendOnly(base0, [A(1, '甲'), A(2, '乙'), A(58, '新')]), [])
   // 删掉记录、把号让给另一条决策 —— 号还在，只有标题露馅
-  eq('号还在但标题换了 → 报错',
-    checkAppendOnly(base, [A(1, 'ADR-01-甲.md'), A(2, 'ADR-02-借尸还魂.md')]).length, 1)
+  eq('号还在但标题换了 → 报错', checkAppendOnly(base0, [A(1, '甲'), A(2, '借尸还魂')]).length, 1)
   ok('不冻正文 —— 就地标注作废是既有做法（ADR-13），标题不动就放行',
-    checkAppendOnly(new Map([[13, 'ADR-13-丙.md']]), [A(13, 'ADR-13-丙.md')]).length === 0)
+    checkAppendOnly(new Map([B(13, '丙')]), [A(13, '丙')]).length === 0)
+
+  // 文件名是有损代理：slugify 截到 32 字符，长标题只在那之后改动，文件名一模一样
+  const long = '一'.repeat(32)
+  ok('两个只在第 32 字符之后不同的标题，文件名相同',
+    fileNameOf(9, long + '甲') === fileNameOf(9, long + '乙'))
+  eq('比的是正文标题而不是文件名 —— 所以仍然抓得到',
+    checkAppendOnly(new Map([B(9, long + '甲')]), [A(9, long + '乙')]).length, 1)
+  eq('只改了会被 slugify 剔掉的标点，也抓得到',
+    checkAppendOnly(new Map([B(9, '甲(乙)')]), [A(9, '甲乙')]).length, 1)
 
   eq('标题里的斜杠与括号在文件名里去掉',
     fileNameOf(15, '记忆读不出来时/不产出名单（也不覆盖）'), 'ADR-15-记忆读不出来时不产出名单也不覆盖.md')
@@ -1358,6 +1367,13 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
   ])
   eq('中文路径归对类', tally(parsed), { 源码: 89, 测试: 0, 文档: 23, 其他: 0 })
   eq('二进制文件按 0 计', parseNumstat('-\t-\tdocs/a.png\x00'), [{ path: 'docs/a.png', added: 0 }])
+  // 纯改名：git 的记录形状不一样，两个路径跟在后面。一个 400 行的文件挪个位置
+  // 不该顶掉整个源码预算 —— 它一行内容都没加
+  eq('纯改名记在新路径上，且按 0 计',
+    parseNumstat('0\t0\t\x00scripts/old.ts\x00scripts/new.ts\x00'),
+    [{ path: 'scripts/new.ts', added: 0 }])
+  eq('改名记录后面还能继续解析普通记录',
+    parseNumstat('0\t0\t\x00a/old.ts\x00a/new.ts\x0012\t0\tscripts/lib/x.ts\x00').length, 2)
 
   eq('豁免必须指名类别', judgeExemption('size-ok: 就这一次'), { kind: 'unjustified', text: '就这一次' })
   eq('指名了类别但没写理由，不放行', judgeExemption('size-ok: 源码'), { kind: 'unjustified', text: '源码' })
@@ -1365,17 +1381,35 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     { kind: 'exempt', category: '源码', reason: '首次落地，拆不开' })
   eq('普通提交信息不是豁免', judgeExemption('fix: 修一个 bug'), null)
 
-  const over = judge({ 源码: 400, 测试: 0, 文档: 0, 其他: 0 }, [])
+  const C = (message: string, counts: Partial<Record<'源码' | '测试' | '文档' | '其他', number>>):
+    CommitDelta => ({ message, counts: { 源码: 0, 测试: 0, 文档: 0, 其他: 0, ...counts } })
+
+  const over = judge({ 源码: 400, 测试: 0, 文档: 0, 其他: 0 }, [C('feat: x', { 源码: 400 })])
   ok('超线即失败', !over.ok)
-  eq('报出超的那一类', over.over, [{ category: '源码', added: 400, budget: BUDGET.源码 }])
+  eq('报出超的那一类', over.over.map(o => o.category), ['源码'])
 
   const waived = judge({ 源码: 400, 文档: 2000, 测试: 0, 其他: 0 },
-    collectExemptions(['fix: x\n\nsize-ok: 源码 拆不开']))
+    [C('fix: x\n\nsize-ok: 源码 拆不开', { 源码: 400, 文档: 2000 })])
   ok('豁免了源码，文档照样拦下 —— 一个豁免不放行四类', !waived.ok)
   eq('豁免的那一类进 waived 而不是 over', waived.waived.map(w => w.category), ['源码'])
   eq('没豁免的那一类仍在 over', waived.over.map(o => o.category), ['文档'])
 
-  const bad = judge({ 源码: 0, 测试: 0, 文档: 0, 其他: 0 }, collectExemptions(['x\n\nsize-ok: 随便']))
+  // 豁免绑在写下的那一刻：否则一条豁免会让这一类在整条分支上永久免检
+  const stale = judge({ 源码: 4000, 测试: 0, 文档: 0, 其他: 0 }, [
+    C('feat: 生成代码\n\nsize-ok: 源码 这一批是生成的', { 源码: 400 }),
+    C('feat: 后面又加了一大堆不相干的', { 源码: 3600 }),
+  ])
+  ok('豁免之后又往同一类加东西 → 过期，不放行', !stale.ok)
+  eq('过期的进 stale，不进 waived', [stale.stale.map(x => x.category), stale.waived], [['源码'], []])
+
+  const refreshed = judge({ 源码: 4000, 测试: 0, 文档: 0, 其他: 0 }, [
+    C('feat: 生成代码\n\nsize-ok: 源码 这一批是生成的', { 源码: 400 }),
+    C('feat: 又加了一批', { 源码: 3600 }),
+    C('docs: 重新说明理由\n\nsize-ok: 源码 两批都是生成的', {}),
+  ])
+  ok('重新写一条豁免就恢复有效', refreshed.ok)
+
+  const bad = judge({ 源码: 0, 测试: 0, 文档: 0, 其他: 0 }, [C('x\n\nsize-ok: 随便', {})])
   ok('写了不成立的 size-ok，即使没超线也失败 —— 否则它会被当成挡箭牌留在历史里', !bad.ok)
 }
 

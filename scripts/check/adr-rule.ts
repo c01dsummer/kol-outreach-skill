@@ -89,18 +89,24 @@ export function renderIndex(adrs: Adr[]): string {
  * - **标题变没变** —— 标题是这条决策的身份。号还在但标题换了,等于把号让给了
  *   另一条决策,下游那些引用 ADR-NN 的地方会静默指向一件别的事
  *
+ * 比的是**正文第一行的完整标题**,不是文件名 —— `fileNameOf` 会剔标点、截到 32 字
+ * 符,是个有损代理:一个长标题只在 32 字符之后改动、或只改了被剔掉的标点,文件名
+ * 一模一样,借尸还魂就查不出来了。
+ *
  * **不查正文**:就地标注作废是这个仓库既有的做法(ADR-13 就是那么改的),
  * 把正文一起冻住会把这个正当操作也挡掉。作废要写在正文里,标题不动。
  */
-export function checkAppendOnly(before: Map<number, string>, after: Adr[]): string[] {
-  const now = new Map(after.map(a => [a.num, a.file]))
+export interface Baseline { file: string; title: string }
+
+export function checkAppendOnly(before: Map<number, Baseline>, after: Adr[]): string[] {
+  const now = new Map(after.map(a => [a.num, a]))
   const errors: string[] = []
-  for (const [num, file] of before) {
+  for (const [num, was] of before) {
     const cur = now.get(num)
     if (!cur) {
       errors.push(`ADR-${pad(num)} 在主干上存在,这里没有了 —— 编号不可回收,记录只作废不删除`)
-    } else if (cur !== file) {
-      errors.push(`ADR-${pad(num)} 的标题变了(${file} → ${cur})—— 编号不可回收。`
+    } else if (cur.title !== was.title) {
+      errors.push(`ADR-${pad(num)} 的标题变了(「${was.title}」→「${cur.title}」)—— 编号不可回收。`
         + '作废写进正文,标题不动;确实是另一条决策的,新开一个号')
     }
   }

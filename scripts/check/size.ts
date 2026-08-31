@@ -12,7 +12,9 @@
  * 阈值按本仓库已合并 PR 校准,见 `scripts/check/size-rule.ts`。
  */
 import { execFileSync } from 'node:child_process'
-import { BUDGET, CATEGORIES, collectExemptions, judge, parseNumstat, tally } from './size-rule.js'
+import {
+  BUDGET, CATEGORIES, type CommitDelta, judge, parseNumstat, tally,
+} from './size-rule.js'
 
 const TRUNK_CANDIDATES = ['origin/main', 'main']
 
@@ -48,41 +50,78 @@ if (!trunk) {
     '先 `git fetch origin main`。')
 }
 
-const base = tryGit('merge-base', trunk, 'HEAD')
-if (!base) cannotAnswer(`HEAD 与 ${trunk} 没有共同祖先`, '确认这条分支确实从主干长出来。')
+const merged = tryGit('merge-base', trunk, 'HEAD')
+if (!merged) cannotAnswer(`HEAD 与 ${trunk} 没有共同祖先`, '确认这条分支确实从主干长出来。')
 
-if (base === head) {
-  console.log(`✓ 体量闸门:不适用 —— HEAD 是 ${trunk} 的祖先或就是它本身`)
+/**
+ * HEAD 就在主干上时**照样量,但不判定**。
+ *
+ * 这时 `merge-base` 就是 HEAD 自己,没有「相对主干的改动」这回事。早先这里直接
+ * 退 0,于是一次直推主干的大改动连数字都不会出现 —— 那是静默通过。
+ *
+ * 现在退回上一版比,把数字打出来。**但不失败**:这个闸门守的是「一个待评审的
+ * 改动读不读得完」,而 CI 跑在推送**之后**,这时判红只能让主干变红,
+ * 而主干红了是这套方法最要避免的事。真要拦住直推主干,那是分支保护的活,
+ * 不是一个事后才跑的检查。
+ */
+const onTrunk = merged === head
+const base = onTrunk ? tryGit('rev-parse', `${head}^1`) : merged
+if (!base) {
+  console.log(`✓ 体量闸门:不适用 —— HEAD 就是 ${trunk} 且没有父提交`)
   process.exit(0)
 }
 
 // ── 量 ──────────────────────────────────────────────────────────
 
-const files = parseNumstat(git('diff', '--numstat', '-z', '--no-renames', base, head))
+const files = parseNumstat(git('diff', '--numstat', '-z', base, head))
 const counts = tally(files)
-const messages = git('log', '--format=%B%x00', `${base}..${head}`).split('\0')
-const report = judge(counts, collectExemptions(messages))
+
+/** 每个提交各自量一次 —— 判断某一类的豁免写下之后有没有又被追加 */
+const commits: CommitDelta[] = git('rev-list', '--reverse', `${base}..${head}`)
+  .split('\n').filter(Boolean)
+  .map(sha => ({
+    message: git('log', '-1', '--format=%B', sha),
+    counts: tally(parseNumstat(git('diff', '--numstat', '-z', `${sha}^1`, sha))),
+  }))
+
+const report = judge(counts, commits)
 
 // ── 报 ──────────────────────────────────────────────────────────
 
-const commits = git('rev-list', '--count', `${base}..${head}`)
-console.log(`\n体量闸门 · 相对 ${trunk}(${base.slice(0, 7)}..${head.slice(0, 7)},${commits} 个提交,${files.length} 个文件)\n`)
+const scope = onTrunk ? `${trunk} 的上一版` : trunk
+console.log(`\n体量闸门 · 相对 ${scope}(${base.slice(0, 7)}..${head.slice(0, 7)},${commits.length} 个提交,${files.length} 个文件)\n`)
 for (const c of CATEGORIES) {
   const n = counts[c]
   const b = BUDGET[c]
-  const flag = n > b ? (report.waived.some(w => w.category === c) ? '⊘' : '✗') : '✓'
+  const flag = n <= b ? '✓'
+    : report.waived.some(w => w.category === c) ? '⊘'
+    : '✗'
   console.log(`  ${flag} ${c}  ${String(n).padStart(5)} / ${b} 行新增`)
 }
-console.log('\n  图例:✓ 在线内  ⊘ 超线但已具名豁免  ✗ 超线\n  (只数新增行;未提交的工作区不计)')
+console.log('\n  图例:✓ 在线内  ⊘ 超线但已具名豁免  ✗ 超线')
+console.log('  (只数新增行;纯改名不计;未提交的工作区不计)')
+
+if (onTrunk) {
+  console.log('\n✓ 体量闸门:HEAD 就在主干上,**只报数不判定**')
+  console.log('  这个闸门守的是待评审的改动;CI 跑在推送之后,这时判红只会让主干变红。')
+  console.log('  拦住直推主干是分支保护的活 —— 这是一处显式缺口,不假装它被守住了。')
+  process.exit(0)
+}
 
 for (const w of report.waived) {
-  console.log(`\n  ⊘ ${w.category} ${w.added} 行,超 ${w.budget} —— 已豁免:${w.exemptedBy}`)
+  console.log(`\n  ⊘ ${w.category} ${w.added} 行,超 ${w.budget} —— 已具名豁免`)
 }
 
 if (report.unjustified.length) {
   console.error(`\n✗ ${report.unjustified.length} 条 size-ok 不成立:`)
   for (const t of report.unjustified) console.error(`    size-ok: ${t}`)
   console.error('    格式是 `size-ok: <类别> <理由>`,类别必须指名,理由必填。')
+}
+
+for (const st of report.stale) {
+  console.error(`\n✗ ${st.category} ${st.added} 行新增,超出 ${st.budget} —— 豁免已过期`)
+  console.error(`    ${st.note}`)
+  console.error('    豁免说明的是当时那些行,不是一张长期通行证。重新写一条。')
 }
 
 for (const o of report.over) {
@@ -96,7 +135,7 @@ if (!report.ok) {
   process.exit(1)
 }
 
-/** 「超线但已豁免」和「在线内」是两回事。压成同一句话，正是这套方法要防的三态压两态。 */
+/** 「超线但已豁免」和「在线内」是两回事。压成同一句话,正是这套方法要防的三态压两态。 */
 console.log(report.waived.length
   ? `\n✓ 体量闸门:${report.waived.length} 类超线但已具名豁免,其余在线内`
   : '\n✓ 体量闸门:各类均在线内')

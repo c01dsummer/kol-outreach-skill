@@ -14,7 +14,9 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { type Adr, FILE_RE, HEAD_RE, checkAll, checkAppendOnly, fileNameOf, renderIndex } from './adr-rule.js'
+import {
+  type Adr, type Baseline, FILE_RE, HEAD_RE, checkAll, checkAppendOnly, fileNameOf, renderIndex,
+} from './adr-rule.js'
 
 const DIR = 'docs/adr'
 const INDEX = join(DIR, 'README.md')
@@ -87,26 +89,36 @@ errors.push(...checkAll(adrs))
 /**
  * 编号不可回收，要对着主干查 —— 只看当前目录的话，删掉一条再把号让给别的决策，
  * 检查是全绿的。基线取不到时**说取不到并失败**，不当作「没有删过」。
+ *
+ * HEAD 就在主干上时，`merge-base` 就是 HEAD 自己 —— 那等于拿改完之后的目录
+ * 当自己的基线，一次直推主干的删除会因为「前后一模一样」而通过。这时退回
+ * 上一版比。这里**不像体量闸门那样只报数**：少一条决策记录是永久的损失，
+ * 而报红不会让主干「变坏」，只会让人立刻发现。
  */
-function trunkAdrs(): Map<number, string> {
+function trunkAdrs(): Map<number, Baseline> {
   const g = (...a: string[]) => {
     try { return execFileSync('git', a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() }
     catch { return null }
   }
   const trunk = ['origin/main', 'main'].find(r => g('rev-parse', '--verify', `${r}^{commit}`))
-  const base = trunk && g('merge-base', trunk, 'HEAD')
-  if (!base) {
+  const merged = trunk && g('merge-base', trunk, 'HEAD')
+  const head = g('rev-parse', 'HEAD')
+  const base = merged === head ? g('rev-parse', `${head}^1`) : merged
+  if (!merged) {
     console.error('✗ 决策记录：无从核对「编号不可回收」—— 找不到主干基线\n')
     console.error('  CI 里给 actions/checkout 加 `fetch-depth: 0`；本地先 `git fetch origin main`。')
     console.error('  不当作「没有删过」：一个永远不会失败的检查等于没有检查。')
     process.exit(1)
   }
-  const tree = g('ls-tree', '--name-only', '-z', base, `${DIR}/`) ?? ''
-  const out = new Map<number, string>()
-  for (const p of tree.split('\0')) {
+  if (!base) return new Map()   // 主干上的第一个提交，没有上一版可比
+
+  const out = new Map<number, Baseline>()
+  for (const p of (g('ls-tree', '--name-only', '-z', base, `${DIR}/`) ?? '').split('\0')) {
     const name = p.split('/').pop() ?? ''
-    const m = FILE_RE.exec(name)
-    if (m) out.set(Number(m[1]), name)
+    if (!FILE_RE.test(name)) continue
+    // 标题以**正文第一行**为准。文件名过了 slugify，是有损的。
+    const h = HEAD_RE.exec((g('show', `${base}:${p}`) ?? '').split('\n')[0])
+    if (h) out.set(Number(h[1]), { file: name, title: h[2] })
   }
   return out
 }
