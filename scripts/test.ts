@@ -9,8 +9,7 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import {
-  BUDGET, type CommitDelta, categorize, judge, judgeExemption,
-  parseCombinedDiff, parseNumstat, tally,
+  BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, tally,
 } from './check/size-rule.js'
 import {
   checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, renderIndex, slugify,
@@ -1387,28 +1386,6 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
   eq('纯改名记在新路径上，且按 0 计',
     parseNumstat('0\t0\t\x00scripts/old.ts\x00scripts/new.ts\x00'),
     [{ path: 'scripts/new.ts', added: 0 }])
-  // 合并 diff：数「所有父都没有」的行，也就是解决冲突时真写下的内容。
-  // 路径必须原样出现 —— 调用方带 `-c core.quotePath=false`，否则中文路径会以
-  // 转义形式出现在 diff 头里，整片归错类。同一个坑栽过三次。
-  const cc = [
-    'diff --cc docs/adr/ADR-01-中文标题的记录.md',
-    'index aaa,bbb..ccc',
-    '--- a/docs/adr/ADR-01-中文标题的记录.md',
-    '+++ b/docs/adr/ADR-01-中文标题的记录.md',
-    '@@@ -1,2 -1,2 +1,4 @@@',
-    '  a',
-    '- MAIN',
-    ' +SIDE',
-    '++NEW1',
-    '++NEW2',
-  ].join('\n')
-  eq('只数两个父都没有的行，且路径原样保留',
-    parseCombinedDiff(cc, 2), [{ path: 'docs/adr/ADR-01-中文标题的记录.md', added: 2 }])
-  eq('中文路径归到文档，不是「其他」', tally(parseCombinedDiff(cc, 2)), { 源码: 0, 测试: 0, 文档: 2, 其他: 0 })
-  // `+++ b/<路径>` 在 hunk 之前，不能被当成新增（实测差过一行：901 vs 900）
-  ok('文件头不计入', parseCombinedDiff(cc.split('@@@')[0], 2)[0].added === 0)
-  eq('没有冲突解决内容时为空', parseCombinedDiff('', 2), [])
-
   eq('改名记录后面还能继续解析普通记录',
     parseNumstat('0\t0\t\x00a/old.ts\x00a/new.ts\x0012\t0\tscripts/lib/x.ts\x00').length, 2)
 
@@ -1418,44 +1395,34 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     { kind: 'exempt', category: '源码', reason: '首次落地，拆不开' })
   eq('普通提交信息不是豁免', judgeExemption('fix: 修一个 bug'), null)
 
-  const C = (message: string, counts: Partial<Record<'源码' | '测试' | '文档' | '其他', number>>):
-    CommitDelta => ({ message, counts: { 源码: 0, 测试: 0, 文档: 0, 其他: 0, ...counts } })
+  // 豁免带着「写下之后这一类还净增了多少」。树对树算出来，不看提交顺序 ——
+  // 按顺序算的那条路走了四版都不对，理由记在 size-rule.ts 的 Waiver 上。
+  const W = (category: '源码' | '测试' | '文档' | '其他', addedAfter: number): Waiver =>
+    ({ category, reason: 'r', addedAfter })
 
-  const over = judge({ 源码: 400, 测试: 0, 文档: 0, 其他: 0 }, [C('feat: x', { 源码: 400 })])
-  ok('超线即失败', !over.ok)
+  const over = judge({ 源码: 400, 测试: 0, 文档: 0, 其他: 0 }, [], [])
+  ok('超线且无豁免 → 失败', !over.ok)
   eq('报出超的那一类', over.over.map(o => o.category), ['源码'])
 
-  const waived = judge({ 源码: 400, 文档: 2000, 测试: 0, 其他: 0 },
-    [C('fix: x\n\nsize-ok: 源码 拆不开', { 源码: 400, 文档: 2000 })])
+  const waived = judge({ 源码: 400, 文档: 2000, 测试: 0, 其他: 0 }, [W('源码', 0)], [])
   ok('豁免了源码，文档照样拦下 —— 一个豁免不放行四类', !waived.ok)
   eq('豁免的那一类进 waived 而不是 over', waived.waived.map(w => w.category), ['源码'])
   eq('没豁免的那一类仍在 over', waived.over.map(o => o.category), ['文档'])
 
-  // 豁免绑在写下的那一刻：否则一条豁免会让这一类在整条分支上永久免检
-  const stale = judge({ 源码: 4000, 测试: 0, 文档: 0, 其他: 0 }, [
-    C('feat: 生成代码\n\nsize-ok: 源码 这一批是生成的', { 源码: 400 }),
-    C('feat: 后面又加了一大堆不相干的', { 源码: 3600 }),
-  ])
-  ok('豁免之后又往同一类加东西 → 过期，不放行', !stale.ok)
+  const stale = judge({ 源码: 4000, 测试: 0, 文档: 0, 其他: 0 }, [W('源码', 3600)], [])
+  ok('豁免之后这一类又净增 → 过期，不放行', !stale.ok)
   eq('过期的进 stale，不进 waived', [stale.stale.map(x => x.category), stale.waived], [['源码'], []])
 
-  const refreshed = judge({ 源码: 4000, 测试: 0, 文档: 0, 其他: 0 }, [
-    C('feat: 生成代码\n\nsize-ok: 源码 这一批是生成的', { 源码: 400 }),
-    C('feat: 又加了一批', { 源码: 3600 }),
-    C('docs: 重新说明理由\n\nsize-ok: 源码 两批都是生成的', {}),
-  ])
-  ok('重新写一条豁免就恢复有效', refreshed.ok)
+  // 加一行又删掉：最终 diff 没变，不该判成过期（按提交序列算时这里会误报）
+  ok('净增为 0 → 仍有效', judge({ 源码: 4000, 测试: 0, 文档: 0, 其他: 0 }, [W('源码', 0)], []).ok)
+  ok('净增为负（写下后反而删了）→ 仍有效',
+    judge({ 源码: 4000, 测试: 0, 文档: 0, 其他: 0 }, [W('源码', -20)], []).ok)
 
-  // 入口把合并提交按 0 计（它不产出新行）。规则这一侧的契约是：0 新增的提交
-  // 不刷新 lastAdd —— 否则 PR 事件下 GitHub 造的那个合并提交排在最后，
-  // 会让任何豁免永远过期。实测在 CI 上撞上了。
-  const afterMerge = judge({ 源码: 4000, 测试: 0, 文档: 0, 其他: 0 }, [
-    C('feat: 生成代码\n\nsize-ok: 源码 这一批是生成的', { 源码: 4000 }),
-    C('Merge pull request #6', {}),
-  ])
-  ok('末尾一个 0 新增的提交（合并）不让豁免过期', afterMerge.ok)
+  // 同类多条豁免：只要有一条覆盖到最终内容就放行
+  ok('取净增最小的那条',
+    judge({ 源码: 4000, 测试: 0, 文档: 0, 其他: 0 }, [W('源码', 3600), W('源码', 0)], []).ok)
 
-  const bad = judge({ 源码: 0, 测试: 0, 文档: 0, 其他: 0 }, [C('x\n\nsize-ok: 随便', {})])
+  const bad = judge({ 源码: 0, 测试: 0, 文档: 0, 其他: 0 }, [], ['随便'])
   ok('写了不成立的 size-ok，即使没超线也失败 —— 否则它会被当成挡箭牌留在历史里', !bad.ok)
 }
 

@@ -13,8 +13,8 @@
  */
 import { execFileSync } from 'node:child_process'
 import {
-  BUDGET, CATEGORIES, type Category, type CommitDelta,
-  judge, parseCombinedDiff, parseNumstat, tally,
+  BUDGET, CATEGORIES, type Category, type Waiver,
+  judge, judgeExemption, parseNumstat, tally,
 } from './size-rule.js'
 
 const TRUNK_CANDIDATES = ['origin/main', 'main']
@@ -91,68 +91,38 @@ const files = parseNumstat(git('diff', '--numstat', '-z', base, head))
 const counts = tally(files)
 
 /**
- * 每个提交各自量一次 —— 判断某一类的豁免写下之后有没有又被追加。
+ * 每条具名豁免,连同**它写下之后最终 diff 里这一类还净增了多少**。
  *
- * 合并提交量的是**两个父都没有的那些行**(合并 diff 里的 `++`),也就是解决
- * 冲突时真写下的内容。试过两种更省事的做法,都不对:
+ * 树对树:`总数 - 豁免那一刻相对同一基线的数`。不看提交顺序、不看合并形状、
+ * 不看时间戳 —— 那条路走了四版都不对,理由记在 `size-rule.ts` 的 `Waiver` 上。
  *
- * - **按第一父计**:相对第一父的「新增」其实是另一侧早就存在、已经各自被计过的
- *   内容。PR 事件下 CI 检出的是 `refs/pull/N/merge`,那个合并提交永远排在最后、
- *   永远「新增」全部内容 —— **任何豁免都永远过期**(实测撞上了);而
- *   `6-INTEGRATE.md` 推荐的「要同步主干就 merge 进来」也会让所有豁免失效
- * - **一律按 0**:解决冲突时**新写**的代码两边都没有,却因此不刷新 `lastAdd`,
- *   一条旧豁免会盖住一批它从没覆盖过的行
- * - **各父 diff 的逐类最小值**:主干那侧真带进新文件时最小值就不是 0 了,
- *   一次干净的合并主干照样把豁免顶掉(实测)
- *
- * `--cc --numstat` 也不能用 —— 实测无冲突的普通合并也报 1/1,`--numstat`
- * 没有按合并 diff 的语义走。只有 patch 输出是准的。
- *
- * 总数不受影响:它来自 `base..head` 的整体 diff。
+ * 顺带:一条豁免只要一次 `git diff`,比原来每个提交各量一次便宜得多。
  */
-function mergeCounts(sha: string, parents: number): Record<Category, number> {
-  return tally(parseCombinedDiff(git('show', '--cc', '--format=', sha), parents))
-}
-
-function countsOf(sha: string): Record<Category, number> {
-  const parents = git('rev-list', '--parents', '-n1', sha).split(' ').length - 1
-  return parents > 1
-    ? mergeCounts(sha, parents)
-    : tally(parseNumstat(git('show', '--numstat', '-z', '--format=', sha)))
-}
-
-/**
- * 提交按**进入本分支的那一步**排序,不是按各自的时间戳。
- *
- * `rev-list --reverse` 是按时间排的。一条早就开出去的侧分支,即使在豁免写下
- * **之后**才被合进来,它的提交也会排在豁免前面 —— 而合并本身按「所有父都没有的行」
- * 算,通常是 0。于是 `lastAdd < lastWaiver`,豁免盖住了一批它写下时根本不在
- * 这条分支上的行。
- *
- * 所以走**第一父链**:每一步引入的提交(`rev-list <步> ^<上一步> ^<基线>`)
- * 归到那一步的位置上,步内保持时间序,合并提交自己排在最后。
- *
- * `^<基线>` 是关键的一笔:合主干进来时,主干那些提交是基线的祖先,会被它排掉 ——
- * 它们的内容本来也不在总数里(基线已经跟着移到主干头上了)。少了这一笔,
- * 一次干净的合并主干又会把豁免顶掉。
- */
-const commits: CommitDelta[] = []
-let prev = base
-for (const step of git('rev-list', '--reverse', '--first-parent', `${base}..${head}`)
-  .split('\n').filter(Boolean)) {
-  for (const sha of git('rev-list', '--reverse', step, `^${prev}`, `^${base}`)
-    .split('\n').filter(Boolean)) {
-    commits.push({ message: git('log', '-1', '--format=%B', sha), counts: countsOf(sha) })
+const waivers: Waiver[] = []
+const unjustified: string[] = []
+for (const sha of git('rev-list', `${base}..${head}`).split('\n').filter(Boolean)) {
+  const found = git('log', '-1', '--format=%B', sha).split('\n')
+    .map(judgeExemption).filter(Boolean)
+  if (!found.length) continue
+  let atWaiver: Record<Category, number> | null = null
+  for (const v of found) {
+    if (v!.kind === 'unjustified') { unjustified.push(v!.text); continue }
+    atWaiver ??= tally(parseNumstat(git('diff', '--numstat', '-z', base, sha)))
+    waivers.push({
+      category: v!.category, reason: v!.reason,
+      addedAfter: counts[v!.category] - atWaiver[v!.category],
+    })
   }
-  prev = step
 }
 
-const report = judge(counts, commits)
+const report = judge(counts, waivers, unjustified)
+
 
 // ── 报 ──────────────────────────────────────────────────────────
 
 const scope = onTrunk ? `${trunk} 的上一版` : trunk
-console.log(`\n体量闸门 · 相对 ${scope}(${base.slice(0, 7)}..${head.slice(0, 7)},${commits.length} 个提交,${files.length} 个文件)\n`)
+const nCommits = git('rev-list', '--count', `${base}..${head}`)
+console.log(`\n体量闸门 · 相对 ${scope}(${base.slice(0, 7)}..${head.slice(0, 7)},${nCommits} 个提交,${files.length} 个文件)\n`)
 for (const c of CATEGORIES) {
   const n = counts[c]
   const b = BUDGET[c]

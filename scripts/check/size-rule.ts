@@ -76,31 +76,6 @@ export function parseNumstat(raw: string): FileDelta[] {
   return out
 }
 
-/**
- * 解析 `git show --cc --format=` 的合并 diff,数**所有父都没有的那些行** ——
- * 也就是解决冲突时真写下的内容。
- *
- * 两个父时这样的行以 `++` 开头。必须**先进到 `@@` hunk 里才数**,否则
- * `+++ b/<路径>` 那行文件头会被算成新增(实测 901 vs 900)。
- *
- * 调用方必须带 `-c core.quotePath=false` —— 否则中文路径会以带引号的转义形式
- * 出现在 `diff --cc` 头里,整片归错类。`--numstat` 那边靠 `-z`,这里没有 `-z`,
- * 所以那个开关是唯一的办法。
- */
-export function parseCombinedDiff(raw: string, parents: number): FileDelta[] {
-  const marker = '+'.repeat(parents)
-  const files: FileDelta[] = []
-  let inHunk = false
-  for (const line of raw.split('\n')) {
-    const d = /^diff --cc (.+)$/.exec(line)
-    if (d) { files.push({ path: d[1], added: 0 }); inHunk = false; continue }
-    if (line.startsWith('@@')) { inHunk = true; continue }
-    // files 为空时不可能进到 hunk（`@@` 总跟在 `diff --cc` 之后），但不赖这个假设
-    if (inHunk && files.length && line.startsWith(marker)) files[files.length - 1].added++
-  }
-  return files
-}
-
 export function tally(files: FileDelta[]): Record<Category, number> {
   const out: Record<Category, number> = { 源码: 0, 测试: 0, 文档: 0, 其他: 0 }
   for (const f of files) out[categorize(f.path)] += f.added
@@ -137,15 +112,30 @@ export function judgeExemption(line: string): ExemptionVerdict | null {
 
 export interface Overage { category: Category; added: number; budget: number; note?: string }
 
-/** 一个提交:它的信息(找豁免)与它各类新增了多少(判断豁免有没有过期) */
-export interface CommitDelta { message: string; counts: Record<Category, number> }
+/**
+ * 一条具名豁免,以及**它写下之后最终 diff 里这一类还净增了多少**。
+ *
+ * 这个数是树对树算出来的:`总数(c) - 豁免那一刻的数(c)`,两边都相对同一个基线。
+ * 早先是按提交序列算的 —— 数每个提交各自加了多少,再看某一类最后一次被追加
+ * 是不是晚于最后一条豁免。那条路走了四版都不对:
+ *
+ * - 合并提交按第一父计,PR 检出的 `refs/pull/N/merge` 让任何豁免永远过期
+ * - 一律按 0,冲突解决时新写的代码不算数
+ * - 各父 diff 的逐类最小值,一次干净的合并主干就把豁免顶掉
+ * - 按第一父链重排,修好了顺序,但**加一行又删掉**仍然会误判成过期
+ *
+ * 四个反例的共同点:它们都在问「历史上发生过什么」,而闸门要守的是
+ * **最终这份 diff 有多大**。改成树对树之后,提交顺序、合并形状、时间戳
+ * 一概不参与,上面四种情形自然全对。
+ */
+export interface Waiver { category: Category; reason: string; addedAfter: number }
 
 export interface SizeReport {
   counts: Record<Category, number>
   over: Overage[]
   /** 超了但被一条**仍然有效**的具名豁免挡住 */
   waived: Overage[]
-  /** 有豁免，但写下之后又往这一类加了东西 —— 过期，不放行 */
+  /** 有豁免，但写下之后这一类又净增了 —— 过期，不放行 */
   stale: Overage[]
   /** 写了 size-ok 但没指名类别或没写理由的,一律不放行 */
   unjustified: string[]
@@ -153,46 +143,32 @@ export interface SizeReport {
 }
 
 /**
- * 判定。`commits` 按时间正序。
- *
  * **豁免绑在它写下的那一刻,不绑整条分支。**
  *
  * 否则会这样:某个提交里 400 行生成代码,写一条豁免说明理由 —— 从此这条分支的
- * 源码这一类**永久免检**,后面再追加几千行不相干的代码也一样绿。豁免是对
+ * 源码这一类永久免检,后面再追加几千行不相干的代码也一样绿。豁免是对
  * 「当时那些行」的说明,不是一张长期通行证。
  *
- * 所以规则是:某一类最后一次被追加,必须**不晚于**该类最后一条豁免。
- * 之后又加了东西,就得重新写一条 —— 重新写的时候,理由也会被重新想一遍。
+ * 所以:一条豁免有效,当且仅当它写下之后这一类**没有净增**。之后又加了东西,
+ * 就得重新写一条 —— 重新写的时候,理由也会被重新想一遍。
  */
 export function judge(
   counts: Record<Category, number>,
-  commits: CommitDelta[],
+  waivers: Waiver[],
+  unjustified: string[],
 ): SizeReport {
-  const unjustified: string[] = []
-  const lastWaiver = new Map<Category, number>()
-  const lastAdd = new Map<Category, number>()
-
-  commits.forEach((c, i) => {
-    for (const line of c.message.split('\n')) {
-      const v = judgeExemption(line)
-      if (!v) continue
-      if (v.kind === 'unjustified') unjustified.push(v.text)
-      else lastWaiver.set(v.category, i)
-    }
-    for (const cat of CATEGORIES) if (c.counts[cat] > 0) lastAdd.set(cat, i)
-  })
-
   const over: Overage[] = []
   const waived: Overage[] = []
   const stale: Overage[] = []
+
   for (const c of CATEGORIES) {
     if (counts[c] <= BUDGET[c]) continue
     const row: Overage = { category: c, added: counts[c], budget: BUDGET[c] }
-    const w = lastWaiver.get(c)
-    const a = lastAdd.get(c) ?? -1
-    if (w === undefined) over.push(row)
-    else if (w < a) stale.push({ ...row, note: `豁免写在第 ${w + 1} 个提交，之后第 ${a + 1} 个提交又往这一类加了东西` })
-    else waived.push(row)
+    const mine = waivers.filter(w => w.category === c)
+    if (!mine.length) { over.push(row); continue }
+    const best = Math.min(...mine.map(w => w.addedAfter))
+    if (best <= 0) waived.push(row)
+    else stale.push({ ...row, note: `最新一条豁免写下之后，这一类又净增了 ${best} 行` })
   }
 
   return {
