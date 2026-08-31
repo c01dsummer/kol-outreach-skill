@@ -9,7 +9,7 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import {
-  BUDGET, categorize, collectExemptions, judge, judgeExemption, tally,
+  BUDGET, categorize, collectExemptions, judge, judgeExemption, parseNumstat, tally,
 } from './check/size-rule.js'
 import { checkAll, fileNameOf, renderIndex } from './check/adr-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
@@ -1323,6 +1323,16 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     { path: 'scripts/test.ts', added: 10 },
   ])
   eq('分类累加', counts, { 源码: 400, 测试: 10, 文档: 2000, 其他: 0 })
+
+  // 默认的 numstat 会把中文路径转义成 `"docs/adr/\351\207\207..."`，
+  // 于是这个仓库里几乎每个文件名都匹配不上判据、整批掉进「其他」。实测栽过一次。
+  const parsed = parseNumstat('23\t0\tdocs/adr/ADR-01-拆成可执行的一半.md\x0089\t0\tscripts/check/adr-sync.ts\x00')
+  eq('中文路径原样解析', parsed, [
+    { path: 'docs/adr/ADR-01-拆成可执行的一半.md', added: 23 },
+    { path: 'scripts/check/adr-sync.ts', added: 89 },
+  ])
+  eq('中文路径归对类', tally(parsed), { 源码: 89, 测试: 0, 文档: 23, 其他: 0 })
+  eq('二进制文件按 0 计', parseNumstat('-\t-\tdocs/a.png\x00'), [{ path: 'docs/a.png', added: 0 }])
 
   eq('豁免必须指名类别', judgeExemption('size-ok: 就这一次'), { kind: 'unjustified', text: '就这一次' })
   eq('指名了类别但没写理由，不放行', judgeExemption('size-ok: 源码'), { kind: 'unjustified', text: '源码' })

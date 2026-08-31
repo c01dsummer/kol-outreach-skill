@@ -43,6 +43,26 @@ export function categorize(path: string): Category {
   return '其他'
 }
 
+/**
+ * 解析 `git diff --numstat -z --no-renames` 的输出。
+ *
+ * **必须走 `-z`。** 默认输出会把非 ASCII 路径转义成带引号的形式
+ * （`"docs/adr/\\351\\207\\207..."`），于是这个仓库里几乎每一个中文文件名
+ * 都匹配不上分类判据，整批掉进「其他」—— 实测 14 个决策记录文件全部被误归。
+ * `--no-renames` 是为了每条记录只有一个路径，格式不必再分情况。
+ */
+export function parseNumstat(raw: string): FileDelta[] {
+  const out: FileDelta[] = []
+  for (const rec of raw.split('\0')) {
+    if (!rec) continue
+    const [added, , path] = rec.split('\t')
+    if (!path) continue
+    // 二进制文件 numstat 给 `-`；它不占评审的「读」成本，按 0 计
+    out.push({ path, added: added === '-' ? 0 : Number(added) })
+  }
+  return out
+}
+
 export function tally(files: FileDelta[]): Record<Category, number> {
   const out: Record<Category, number> = { 源码: 0, 测试: 0, 文档: 0, 其他: 0 }
   for (const f of files) out[categorize(f.path)] += f.added

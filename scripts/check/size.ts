@@ -12,7 +12,7 @@
  * 阈值按本仓库已合并 PR 校准,见 `scripts/check/size-rule.ts`。
  */
 import { execFileSync } from 'node:child_process'
-import { BUDGET, CATEGORIES, collectExemptions, judge, tally, type FileDelta } from './size-rule.js'
+import { BUDGET, CATEGORIES, collectExemptions, judge, parseNumstat, tally } from './size-rule.js'
 
 const TRUNK_CANDIDATES = ['origin/main', 'main']
 
@@ -58,15 +58,7 @@ if (base === head) {
 
 // ── 量 ──────────────────────────────────────────────────────────
 
-const numstat = git('diff', '--numstat', base, head)
-const files: FileDelta[] = []
-for (const line of numstat.split('\n')) {
-  if (!line.trim()) continue
-  const [added, , path] = line.split('\t')
-  // 二进制文件 numstat 给 `-`;它不占评审的「读」成本,按 0 计
-  files.push({ path, added: added === '-' ? 0 : Number(added) })
-}
-
+const files = parseNumstat(git('diff', '--numstat', '-z', '--no-renames', base, head))
 const counts = tally(files)
 const messages = git('log', '--format=%B%x00', `${base}..${head}`).split('\0')
 const report = judge(counts, collectExemptions(messages))
