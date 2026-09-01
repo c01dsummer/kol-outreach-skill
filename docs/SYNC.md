@@ -24,7 +24,7 @@
 | **改数据源端点/字段** | `skill/references/providers/tikhub.md` · `scripts/providers/tikhub.ts` · `scripts/check/fake-fetch.ts` | 🔒 `selfcheck` |
 | **改公开指标/风险/报价口径** | `docs/requirements.json` · `skill/references/public-metrics.md` · 计算与分层逻辑 · 输出说明 · 测试 | 部分 |
 | **改 CSV 列或报告结构** | `scripts/lib/rows.ts` · `scripts/lib/xlsx.ts` · `scripts/lib/report.ts` · `skill/references/output-format.md` · 测试 · 变异 | 部分 |
-| **新增可执行文件** | `scripts/check/selfcheck.ts` 必须执行它，否则登记豁免 | 🔒 `audit` |
+| **新增可执行文件** | 三选一：接进 `scripts/check/selfcheck.ts`、在 `npm run check` 里自成一步、或写进 `EXEMPT` 说明理由 | 🔒 `selfcheck` |
 | **改流程阶段** | `skill/SKILL.md` · `docs/business-requirements.md` · 对应 reference | ✗ 靠执行 |
 | **查到新事实 / 旧结论被推翻** | `docs/data-source-strategy.md` **必须改** · `docs/adr/`（多属事实证伪） | 🔒 `adr` 验编号与索引 |
 | **改预算/成本逻辑** | `scripts/lib/budget.ts` · `skill/SKILL.md` 成本闸门一节 · `docs/CONVENTIONS.md` 第 7 条 | 部分 |
