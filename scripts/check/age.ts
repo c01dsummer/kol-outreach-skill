@@ -187,6 +187,7 @@ if (process.argv.includes('--all')) {
 
   console.log(`\n分支寿命 · 所有远端分支相对 ${trunk}\n`)
   const over: string[] = []
+  const waived: string[] = []
   const unknown: string[] = []
   let live = 0
   for (const ref of refs) {
@@ -208,7 +209,10 @@ if (process.argv.includes('--all')) {
     live++
     console.log(`  ${FLAG[v.kind]} ${m.hours.toFixed(1).padStart(6)} 小时`
       + `  ${String(m.commits).padStart(3)} 个提交  ${name}`)
-    if (v.kind === 'waived') console.log(`         豁免:${v.reason}`)
+    if (v.kind === 'waived') {
+      console.log(`         豁免:${v.reason}`)
+      waived.push(`${name}(${m.hours.toFixed(1)} 小时:${v.reason})`)
+    }
     if (v.kind === 'over') over.push(`${name}(${m.hours.toFixed(1)} 小时,自 ${m.since})`)
   }
   console.log(LEGEND)
@@ -226,7 +230,23 @@ if (process.argv.includes('--all')) {
     console.error(`\n${HOWTO}`)
   }
   if (over.length || unknown.length) process.exit(1)
-  console.log(`✓ 分支寿命:${live} 条在途分支都在 ${LIMIT_HOURS} 小时线内`)
+  /**
+   * **豁免掉的那几条要留在汇总里,不能并进「都在线内」。**
+   *
+   * 早先这里打的是「N 条在途分支都在 48 小时线内」,而 N 把已豁免的也算进去了 ——
+   * 于是一条 200 小时的分支在表里是 `⊘ 200.0 小时`,三行之下的汇总说它在线内。
+   * **同一屏之内自相矛盾**,而且藏掉的正是这个视图存在的理由。
+   *
+   * 单分支那边早就写着「豁免让它别拦路,不让它消失」,汇总这边没照做。
+   */
+  const inLimit = live - waived.length
+  if (waived.length) {
+    console.log(`✓ 分支寿命:${live} 条在途分支 —— ${inLimit} 条在 ${LIMIT_HOURS} 小时线内,`
+      + `${waived.length} 条超线但已具名豁免\n`)
+    for (const w of waived) console.log(`  ⊘ ${w}`)
+  } else {
+    console.log(`✓ 分支寿命:${live} 条在途分支都在 ${LIMIT_HOURS} 小时线内`)
+  }
   process.exit(0)
 }
 
