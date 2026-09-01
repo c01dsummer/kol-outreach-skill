@@ -5,7 +5,7 @@
  * 每个可执行文件，要么被这里从头执行到尾，要么在豁免表里写明理由。
  * 用假 fetch 喂完所有分支：**跑通即证明结构成立**，不证明结果正确。
  */
-import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -13,7 +13,8 @@ import { join, resolve } from 'node:path'
 const EXEMPT: Record<string, string> = {}   // 目前无豁免
 
 /** 脚本用绝对路径 —— 下面几处会切到临时目录里跑，让产出落在那边 */
-const S = (f: string) => resolve('scripts', f)
+const covered = new Set<string>()
+const S = (f: string) => { covered.add(`scripts/${f}`); return resolve('scripts', f) }
 
 const tmp = mkdtempSync(join(tmpdir(), 'kol-selfcheck-'))
 const env = {
@@ -283,5 +284,41 @@ rmSync(tmp, { recursive: true, force: true })
 
 for (const [f, why] of Object.entries(EXEMPT)) console.log(`  ⊘ ${f} 豁免：${why}`)
 
+/**
+ * **把「所有可执行文件」这句话变成可查的。**
+ *
+ * 这一句原来是直接打印的:上面跑一张手写的清单,末尾宣布「所有可执行文件均被
+ * 从头执行到尾」,中间没有任何东西把两者对上。于是新增一个可执行文件、忘了接进来,
+ * 检查照样全绿,而那句话已经不成立了 —— 这正是本仓库反对的
+ * **「一条声称做到、其实没做到的规则」**,而它就长在检查链自己身上。
+ *
+ * 发现它靠的是运气:加 `scripts/check/age.ts` 的时候顺手看了一眼这里。
+ * 所以现在枚举 —— 带 shebang 的就是可执行文件,每一个要么在上面跑过,
+ * 要么在检查链里作为自己那一步跑过,要么写进 `EXEMPT` 说明理由。
+ *
+ * 检查链那条路算数,是因为它同样是「从头执行到尾」;不算数的是「谁都没跑过」。
+ */
+const shebang = (f: string) => readFileSync(f, 'utf8').startsWith('#!')
+const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true })
+  .flatMap(e => e.isDirectory() ? walk(join(dir, e.name))
+    : e.name.endsWith('.ts') && shebang(join(dir, e.name)) ? [join(dir, e.name)] : [])
+
+const chain: string = JSON.parse(readFileSync('package.json', 'utf8')).scripts.check
+const steps: Record<string, string> = JSON.parse(readFileSync('package.json', 'utf8')).scripts
+const byChain = new Set(
+  chain.split('&&').map(s => s.trim().replace(/^npm run /, '').replace(/^npm /, ''))
+    .flatMap(name => (steps[name] ?? '').match(/scripts\/[\w/.-]+\.ts/) ?? []))
+
+const orphans = walk('scripts')
+  .filter(f => !covered.has(f) && !byChain.has(f) && !(f in EXEMPT))
+if (orphans.length) {
+  console.error(`\n✗ 脚本自检：${orphans.length} 个可执行文件谁都没跑过\n`)
+  for (const f of orphans) console.error(`  · ${f}`)
+  console.error('\n  接进本文件、接进 `npm run check`，或写进 EXEMPT 说明理由。')
+  console.error('  不接也不写的话，末尾那句「所有可执行文件均被执行」就是假的。')
+  process.exit(1)
+}
+
 if (failed) { console.error(`\n✗ 脚本自检：${failed} 项失败`); process.exit(1) }
-console.log('\n✓ 脚本自检：所有可执行文件均被从头执行到尾')
+console.log(`\n✓ 脚本自检：${walk('scripts').length} 个可执行文件均被从头执行到尾`
+  + `（${Object.keys(EXEMPT).length} 个具名豁免）`)
