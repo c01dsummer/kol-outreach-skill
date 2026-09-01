@@ -134,9 +134,32 @@ function measure(ref: string): Verdict3 {
   const birth = birthOf(first.iso, ANCHOR)
   const since = birth.at
 
-  /** 豁免只要分支上任一条提交写了就算,理由见 `age-rule.ts`(不设新鲜度)。 */
+  /**
+   * 豁免只认**这条分支自己的**提交(第一父链),不认合进来的旁支。
+   *
+   * **年龄和豁免的范围是不一样的,这是故意的：**
+   *
+   * | | 范围 | 因为它是什么 |
+   * |---|---|---|
+   * | 年龄 | `base..tip` **全部**提交 | 内容的属性:这些改动在主干之外待了多久 |
+   * | 豁免 | 只有第一父链 | **声明**:谁为这条分支说的这句话 |
+   *
+   * 合进来一条带 `age-ok:` 的旁支,那句理由是**为那条分支写的**。照单全收的话,
+   * 一条自己从没声明过任何东西的分支,会拿着别人的理由过闸门 —— 实测:B 合了
+   * 带豁免的 A 之后,报「⊘ 已具名豁免:A 在等上游接口定稿」。
+   *
+   * 这也正是这条豁免被设计成提交信息里一行、而不是一条决策记录的理由:
+   * **它跟着分支生,跟着分支死**(`process/6-INTEGRATE.md`)。跟着合并跑到别的
+   * 分支上去,就不是那个东西了。
+   *
+   * 合并提交本身在第一父链上 —— 想为这次合并说话,写在那条提交信息里就算。
+   *
+   * 豁免不设新鲜度,理由见 `age-rule.ts`。
+   */
   let waiver: string | null = null
-  for (const sha of shas) waiver ??= scanAgeWaiver(git('log', '-1', '--format=%B', sha))
+  const own = git('log', '--first-parent', '--format=%H', `${base}..${tip}`)
+    .split('\n').filter(Boolean)
+  for (const sha of own) waiver ??= scanAgeWaiver(git('log', '-1', '--format=%B', sha))
 
   return {
     kind: 'measured',
