@@ -288,6 +288,54 @@
       "file": "scripts/lib/assessment.ts",
       "find": "  const { audience_quality_risk: _assignedElsewhere, ...rest } = m\n  return canonical(rest)",
       "replace": "  return canonical(m)"
+    },
+    {
+      "id": "M-H2-a",
+      "req": "harness",
+      "why": "作者时间落在未来时不再拒答，当成一条很新的分支放行 —— 一条真实两百小时的分支报出一个负的小时数，旁边打着勾；日期填得够远，这条闸门就一直是绿的",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  if (hours < 0) return { kind: 'future' }\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H2-b",
+      "req": "harness",
+      "why": "把分叉时长的上限从 48 小时放宽到 480 —— 那三条出事的在途分支（91、91、103 小时）全部变成线内，而这条线正是照着它们与已合并 PR 之间的空档校准出来的",
+      "file": "scripts/check/age-rule.ts",
+      "find": "export const LIMIT_HOURS = 48",
+      "replace": "export const LIMIT_HOURS = 480"
+    },
+    {
+      "id": "M-H2-c",
+      "req": "harness",
+      "why": "出生时间只认作者时间，不再与那个改写不了的锚取更早的一个 —— 一句 git commit --amend --reset-author 就把一条两百小时的分支洗成 0 小时，闸门自己给它续了 48 小时，而且一声不响",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  return b < a ? { at: anchorISO, fromAnchor: true } : { at: authorISO, fromAnchor: false }",
+      "replace": "  return { at: authorISO, fromAnchor: false }"
+    },
+    {
+      "id": "M-H2-d",
+      "req": "harness",
+      "why": "写个 age-ok 再跟几个空格就放行、理由可以是空的 —— 豁免退化成一个开关，没人知道当初为什么放这条分支过去",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  return reason ? reason : null",
+      "replace": "  return reason === undefined ? null : reason"
+    },
+    {
+      "id": "M-H2-e",
+      "req": "harness",
+      "why": "豁免从整条提交信息里找，不再限定在末尾那段指令区 —— 正文里随手写下的一行 age-ok 就把这条分支豁免了，而那一行多半是在解释怎么豁免，不是在豁免",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  for (const line of trailerLines(message)) {",
+      "replace": "  for (const line of message.split('\\n')) {"
+    },
+    {
+      "id": "M-H2-f",
+      "req": "harness",
+      "why": "豁免排到拒答前面 —— 一条量不出分叉时长的分支，只要写了理由就报成「超线但已豁免」，把「这个数我算不出来」冒充成「这条分支活得久，我知道为什么」",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  if (hours < 0) return { kind: 'future' }\n  if (hours <= LIMIT_HOURS) return { kind: 'ok' }\n  return waiver ? { kind: 'waived', reason: waiver } : { kind: 'over' }",
+      "replace": "  if (waiver) return { kind: 'waived', reason: waiver }\n  if (hours < 0) return { kind: 'future' }\n  if (hours <= LIMIT_HOURS) return { kind: 'ok' }\n  return { kind: 'over' }"
     }
   ],
   "exemptions": [
