@@ -1293,6 +1293,13 @@ harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
     [false, true, true, true, false])
   eq('单行注释只盖那一行', quotedMask(['a', '<!-- x -->', 'b'].join('\n')),
     [false, true, false])
+  // 一行里两个界定符：`<!-- 甲 --> <!-- 乙` —— 第二个还开着，后面仍是注释
+  eq('关了又开，后面仍算注释',
+    quotedMask(['a', '<!-- 甲 --> <!-- 乙', '## ADR-59 例子', '-->', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('开了又关，后面不算',
+    quotedMask(['a', '<!-- 甲', '乙 --> <!-- 丙 -->', 'b'].join('\n')),
+    [false, true, true, false])
   eq('什么都没有时全是 false', quotedMask(['a', 'b'].join('\n')), [false, false])
 }
 
