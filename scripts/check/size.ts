@@ -14,7 +14,7 @@
 import { execFileSync } from 'node:child_process'
 import {
   BUDGET, CATEGORIES, type Category, type Waiver,
-  judge, judgeExemption, parseNumstat, tally,
+  judge, parseNumstat, scanMessage, tally,
 } from './size-rule.js'
 
 const TRUNK_CANDIDATES = ['origin/main', 'main']
@@ -101,12 +101,11 @@ const counts = tally(files)
 const waivers: Waiver[] = []
 const unjustified: string[] = []
 for (const sha of git('rev-list', `${base}..${head}`).split('\n').filter(Boolean)) {
-  const found = git('log', '-1', '--format=%B', sha).split('\n')
-    .map(judgeExemption).filter(Boolean)
+  const found = scanMessage(git('log', '-1', '--format=%B', sha))
   if (!found.length) continue
   let atWaiver: Record<Category, number> | null = null
   for (const v of found) {
-    if (v!.kind === 'unjustified') { unjustified.push(v!.text); continue }
+    if (v.kind === 'unjustified') { unjustified.push(v.text); continue }
     // 拿**豁免那一刻自己的分叉点**比，不是拿当前基线比。
     //
     // 拿当前基线比的话，主干在豁免之后删掉的行会算成 `atWaiver` 的新增
@@ -119,8 +118,8 @@ for (const sha of git('rev-list', `${base}..${head}`).split('\n').filter(Boolean
     atWaiver ??= tally(parseNumstat(
       git('diff', '--numstat', '-z', git('merge-base', base, sha), sha)))
     waivers.push({
-      category: v!.category, reason: v!.reason,
-      addedAfter: counts[v!.category] - atWaiver[v!.category],
+      category: v.category, reason: v.reason,
+      addedAfter: counts[v.category] - atWaiver[v.category],
     })
   }
 }

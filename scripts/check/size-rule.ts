@@ -126,6 +126,31 @@ export function judgeExemption(line: string): ExemptionVerdict | null {
   return { kind: 'exempt', category, reason: parts[2].trim() }
 }
 
+/**
+ * 扫一条提交信息里的豁免标记,**跳过围栏代码块**。
+ *
+ * 提交信息里举例说明这个语法是很自然的事,而例子有两种写法:
+ *
+ * - 缩进 —— 由 `judgeExemption` 的「必须顶格」挡住(栽过一次,CI 红了一轮)
+ * - **围栏代码块** —— 块里的行本身是顶格的,顶格那条规则拦不住
+ *
+ * 两种都必须当引文,不当指令。少一种,后果是双向的:格式正确的示例会**白送
+ * 一条豁免**,格式故意写歪的示例会**让闸门报红** —— 后者已经发生过。
+ *
+ * 围栏标记按 CommonMark 允许最多三个前导空格。
+ */
+export function scanMessage(message: string): ExemptionVerdict[] {
+  const out: ExemptionVerdict[] = []
+  let fenced = false
+  for (const line of message.split('\n')) {
+    if (/^ {0,3}(```|~~~)/.test(line)) { fenced = !fenced; continue }
+    if (fenced) continue
+    const v = judgeExemption(line)
+    if (v) out.push(v)
+  }
+  return out
+}
+
 export interface Overage { category: Category; added: number; budget: number; note?: string }
 
 /**

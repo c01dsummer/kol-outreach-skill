@@ -9,7 +9,7 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import {
-  BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, tally,
+  BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
 import {
   checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, renderIndex, slugify,
@@ -1409,6 +1409,18 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
   eq('缩进的 size-ok 不算', judgeExemption('    size-ok: 源码 某个理由'), null)
   eq('引文里的 size-ok 不算', judgeExemption('> size-ok: 源码 某个理由'), null)
   ok('顶格的才算', judgeExemption('size-ok: 源码 某个理由')?.kind === 'exempt')
+
+  // 围栏代码块里的行本身是顶格的 —— 「必须顶格」那条拦不住它。少了这一条，
+  // 后果是双向的：格式正确的示例白送一条豁免，故意写歪的示例让闸门报红。
+  const fenced = ['feat: x', '', '```', 'size-ok: 源码 这是举例说明', '```', '',
+    'size-ok: 文档 这是真的豁免'].join('\n')
+  eq('围栏里的当引文，围栏外的才算',
+    scanMessage(fenced).map(v => v.kind === 'exempt' ? v.category : 'bad'), ['文档'])
+  eq('围栏里格式写歪的也不算 —— 否则举例说明会把闸门弄红',
+    scanMessage(['```', 'size-ok: 写歪的例子', '```'].join('\n')), [])
+  eq('~~~ 围栏同样算', scanMessage(['~~~', 'size-ok: 源码 例子', '~~~'].join('\n')), [])
+  ok('围栏之外一切照旧',
+    scanMessage('fix: y\n\nsize-ok: 源码 真理由')[0]?.kind === 'exempt')
 
   // 豁免带着「写下之后这一类还净增了多少」。树对树算出来，不看提交顺序 ——
   // 按顺序算的那条路走了四版都不对，理由记在 size-rule.ts 的 Waiver 上。
