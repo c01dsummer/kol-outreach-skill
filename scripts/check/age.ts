@@ -157,7 +157,31 @@ function measure(ref: string): Verdict3 {
    * 豁免不设新鲜度,理由见 `age-rule.ts`。
    */
   let waiver: string | null = null
-  const own = git('log', '--first-parent', '--format=%H', `${base}..${tip}`)
+  /**
+   * **第一父链要从分支自己的头开始走,不是从检出的那个提交。**
+   *
+   * `pull_request` 事件下,CI 检出的是 GitHub 合成的 `refs/pull/N/merge` ——
+   * 它的**第一父是主干那一侧**,第二父才是 PR 的头。从它走第一父链,走到的只有
+   * 那个合成提交本身,一条分支提交都碰不到。实测(本 PR 的合并 ref):
+   *
+   * ```
+   * 范围内提交数(全部)          21
+   * 范围内提交数(--first-parent)  1   ← 只有合成的那条
+   * ```
+   *
+   * 于是一条**写了合法 `age-ok:` 的超线 PR**,在必需的 `check` 里照样红:
+   * 它的豁免根本没被看到。
+   *
+   * 判别形状:这个提交是合并,而且它的**第一父已经整个在主干里** ——
+   * 那它就是「把我的工作并进主干」的那种合并,真正的头是第二父。
+   *
+   * 这个 ref 形状在这个仓库里绊过两次:体量闸门的豁免新鲜度(PR #6,CI 当场红过,
+   * 最后换成不看提交顺序的树对树),和这里。两次都是「按提交结构推理」栽的跟头。
+   */
+  const p1 = tryGit('rev-parse', `${ref}^1`)
+  const p2 = tryGit('rev-parse', `${ref}^2`)
+  const ownTip = p1 && p2 && tryGit('merge-base', trunk!, p1) === p1 ? p2 : tip
+  const own = git('log', '--first-parent', '--format=%H', `${base}..${ownTip}`)
     .split('\n').filter(Boolean)
   for (const sha of own) waiver ??= scanAgeWaiver(git('log', '-1', '--format=%B', sha))
 
