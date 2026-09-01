@@ -78,7 +78,7 @@ export function scanAgeWaiver(message: string): string | null {
  * 剩下的只有空提交:一串只为让检查变绿而存在的提交,历史里全是噪音。
  *
  * (这里原先写的是「空提交是这个仓库明令不做的事(`process/6-INTEGRATE.md`)」——
- * **那条规则不存在**,`git grep 空提交` 只搜得到我自己写的这两处。
+ * **那条规则不存在**,当时 `git grep 空提交` 只搜得到我自己写的那两处。
  * 引用一条规则之前要 grep 它是不是真在那儿,见 `process/2-CHANGE.md`「描述保证的那句话」。)
  *
  * 代价是一条豁免管一整条分支。所以**报告里那个小时数照打**,豁免与否都打:
