@@ -118,17 +118,28 @@ function scan(text: string): { mask: boolean[]; state: State } {
       continue
     }
     if (run) { state.fence = { char: run[1][0], len: run[1].length }; mask.push(true); continue }
-    if (line.includes('<!--')) {
-      mask.push(true)
-      state.comment = commentStateAfter(line, false)
-      continue
-    }
+    /**
+     * **规范的开启条件先判,我那条放宽的注释判据殿后。** 顺序反过来就漏:
+     * `<pre><!-- 说明 -->` 是规范认的第 1 类开启符(行首是 `<pre` 后跟 `>`),
+     * 而第 2 类要求行**以** `<!--` 开头 —— 它压根不满足,不存在优先级之争。
+     * 可我的注释判据放宽成了「这一行**含有** `<!--`」,于是它抢先接管:
+     * 注释在同一行开合,状态归零,`<pre>` 块**从未被记下**,块里的
+     * `## ADR-NN` 就露出来当分节了。
+     *
+     * 放宽本身没错(`## ADR-59 甲 <!-- 注释` 这种半真半假的行要盖住),
+     * 错在把它排在规范前面 —— **放宽只能补规范判不了的那些行,不能改判规范判得了的。**
+     */
     const opener = openerOf(line)
     if (opener) {
       mask.push(true)
       // 同一行就收尾的（`<pre>x</pre>`、`<!DOCTYPE html>`）不进入跨行状态
       const rest = line.replace(/^ {0,3}</, '')
       if (opener.end === 'blank' || !opener.end.test(rest)) state.html = opener
+      continue
+    }
+    if (line.includes('<!--')) {
+      mask.push(true)
+      state.comment = commentStateAfter(line, false)
       continue
     }
     mask.push(false)

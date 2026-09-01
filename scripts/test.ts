@@ -1328,6 +1328,25 @@ harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
     quotedMask(['<presentation>', '', '## ADR-59 例子'].join('\n')),
     [true, true, false])
 
+  // 开启符里带注释：`<pre><!-- x -->` 是规范认的第 1 类（第 2 类要求行**以** `<!--` 开头，
+  // 它不满足）。放宽的注释判据若抢在前面，注释同行开合、状态归零，`<pre>` 块就没被记下
+  eq('开启符里带注释，仍按 HTML 块算',
+    quotedMask(['a', '<pre><!-- 说明 -->', '## ADR-59 例子', '</pre>', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('行首就是注释的，仍走注释那条路 —— 放宽没被顺手删掉',
+    quotedMask(['a', '<!-- 甲', '## ADR-59 例子', '-->', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('不是开启符、但含注释的半真半假行，整行盖住',
+    quotedMask(['a', '## ADR-59 甲 <!-- 注释', 'x', '-->', 'b'].join('\n')),
+    [false, true, true, true, false])
+
+  // 顺序摆正之后的残留，钉成一条决定而不是意外：第 6 类开启符里带一个跨空行的注释，
+  // 规范说 `<div>` 块到空行为止，空行之后那行就是真的标题 —— 渲染器也是这么显示的。
+  // 比改之前盖得少，方向上是「更像一个 CommonMark 解析器」，所以照规范走
+  eq('第 6 类里的注释跨过空行 —— 块在空行处收尾，之后的分节是真的',
+    quotedMask(['<div><!-- 甲', 'x', '', '## ADR-59 空行之后', '-->', 'b'].join('\n')),
+    [true, true, true, false, false, false])
+
   // CommonMark 的七类开启符列全了 —— 这是个闭合集合，不会再有第八种
   eq('CDATA 块到 ]]> 为止',
     quotedMask(['a', '<![CDATA[', '## ADR-59 例子', ']]>', 'b'].join('\n')),
