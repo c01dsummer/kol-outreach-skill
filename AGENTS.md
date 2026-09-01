@@ -65,8 +65,8 @@
   改这三样之前先读它；新增 `scripts/` 下的模块必须在锚点表里登记，否则 `npm run arch` 会红
 - **决策记录**:`docs/adr/`,**一条一个文件**,编号 `ADR-NN`(数据需求用 `D` 前缀,两套不撞号)。
   `DECISIONS.md` 只做转发;还装着整册的分支跑 `npm run adr -- --split` 就地拆开
-- **体量豁免**：超线时在提交信息**最后一段**（和 `Co-Authored-By:` 同一段）写
-  `size-ok: <类别> <理由>`，类别必须指名、理由必填。见 `process/6-INTEGRATE.md`
+- **体量豁免**：超线时用提交信息里的 `size-ok:` 具名豁免 ——
+  语法与判定规则见 `process/6-INTEGRATE.md`
 - **检查命令**：`npm run check`
   = 纪律 lint → **体量闸门** → SPEC 一致性 → **决策记录** → **架构锚点** → 类型检查 → 需求测试 → 变异测试 → 脚本自检 → 链路审计
 - **审计命令**：`npm run audit`
