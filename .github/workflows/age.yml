@@ -49,22 +49,33 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh pr list --state open --json number,headRefName,headRefOid \
-            --jq '.[] | [.number, .headRefName, .headRefOid] | @tsv' \
-          | while IFS=$'\t' read -r num ref sha; do
-              if out=$(npm run --silent age -- --ref "origin/$ref" 2>&1); then
+          # --limit 必须显式给：gh pr list 默认只列 30 条，多出来的会被静默丢掉，
+          # 而被丢掉的那个 PR 会一直留着它上一次的绿
+          gh pr list --state open --limit 1000 --json number,headRefOid             --jq '.[] | [.number, .headRefOid] | @tsv' > prs.tsv
+          while IFS=$'	' read -r num sha; do
+              # 量 refs/pull/N/head，不拼 origin/<分支名>。fork 来的 PR，那个分支
+              # 在 fork 里，基仓的 origin/* 里根本没有 —— 拼出来的 ref 要么不存在
+              # （贴一条假的失败），要么基仓恰好有同名分支（**量了另一个提交**，
+              # 还把结果贴到 fork 的 SHA 上）。refs/pull/N/head 两种情形都对。
+              git fetch -q origin "refs/pull/$num/head:refs/remotes/pr/$num" --force
+              got=$(git rev-parse "refs/remotes/pr/$num")
+              if [ "$got" != "$sha" ]; then
+                # 列表和 refs/pull 之间有人推了新提交。贴上去的结果就不是这个 SHA
+                # 的了 —— 跳过，下一次跑（或那次推送自己触发的那次）会覆盖
+                echo "PR #$num: head 变了（$sha → $got），跳过"
+                continue
+              fi
+              if out=$(npm run --silent age -- --ref "refs/remotes/pr/$num" 2>&1); then
                 concl=success
               else
                 concl=failure
               fi
-              echo "PR #$num ($ref): $concl"
+              echo "PR #$num: $concl"
               # 用 JSON body 而不是 `-f output[title]=`：嵌套字段的简写各版本 gh
               # 行为不一，贴错了会静默变成一条没有正文的检查
-              jq -n --arg sha "$sha" --arg concl "$concl" --arg out "$out" \
-                '{name:"age", head_sha:$sha, status:"completed", conclusion:$concl,
-                  output:{title:"分支寿命", summary:$out}}' \
-              | gh api "repos/${{ github.repository }}/check-runs" -X POST --input - >/dev/null
-            done
+              jq -n --arg sha "$sha" --arg concl "$concl" --arg out "$out"                 '{name:"age", head_sha:$sha, status:"completed", conclusion:$concl,
+                  output:{title:"分支寿命", summary:$out}}'               | gh api "repos/${{ github.repository }}/check-runs" -X POST --input - >/dev/null
+            done < prs.tsv
 
       # 聚合视图：仓库现在有哪些分支超线。红在 Actions 里，不挡任何 PR
       - run: npm run age -- --all
