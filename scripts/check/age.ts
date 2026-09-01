@@ -119,6 +119,41 @@ const LEGEND = '\n  图例:✓ 在线内  ⊘ 超线但已具名豁免  ✗ 超�
 const HOWTO = '  先合一次:能独立交付的部分先合,剩下的留在分支上。\n'
   + '  合不了就说为什么 —— 在提交信息最后一段写 `age-ok: <理由>`。'
 
+// ── 量指定的一个 ref ───────────────────────────────────────────
+
+/**
+ * `--ref <ref>`:量一条指定分支,给**定时任务往每个 PR 的 head 上贴检查**用。
+ *
+ * `--all` 只在主干的 SHA 上留一条聚合结果。而 GitHub 的合并闸看的是 **PR head
+ * 那个 SHA 上的检查**:一个 47 小时通过、之后没人碰的 PR,它 head 上那条绿
+ * 不会因为聚合任务红了而失效 —— **聚合任务红着,PR 照样能合。**
+ *
+ * 所以定时任务对每个开着的 PR 各跑一次这个模式,把结果作为一条 check run 贴回
+ * 那个 head,让信号出现在做合并决定的地方。
+ */
+const refArg = process.argv.indexOf('--ref')
+if (refArg >= 0) {
+  const ref = process.argv[refArg + 1]
+  if (!ref) cannotAnswer('`--ref` 后面没有给分支名', '写成 `--ref origin/某分支`。')
+  if (!tryGit('rev-parse', '--verify', `${ref}^{commit}`)) {
+    cannotAnswer(`找不到 ${ref}`, '先 `git fetch origin`。')
+  }
+  const one = measure(ref)
+  if (one.kind === 'merged') {
+    console.log(`✓ 分支寿命:${ref} 相对 ${trunk} 没有自己的提交`)
+    process.exit(0)
+  }
+  if (one.kind === 'unrelated') {
+    cannotAnswer(`${ref} 与 ${trunk} 没有共同祖先`, '接上主干,或者删掉这条分支。')
+  }
+  const v = judgeAge(one.hours, one.waiver)
+  console.log(`${FLAG[v.kind]} ${ref}:分叉 ${one.hours.toFixed(1)} / ${LIMIT_HOURS} 小时`
+    + `,${one.commits} 个提交,自 ${one.since}`)
+  if (v.kind === 'waived') { console.log(`  豁免:${v.reason}`); process.exit(0) }
+  if (v.kind === 'over') { console.error(`\n${HOWTO}`); process.exit(1) }
+  process.exit(0)
+}
+
 // ── 扫所有远端分支 ──────────────────────────────────────────────
 
 if (process.argv.includes('--all')) {

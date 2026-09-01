@@ -4,6 +4,17 @@
 # 停在 47 小时通过,没人碰它,第二天就过线了,却不会再触发任何一次检查。
 # 恰好是这条闸门要拦的那种分支(没人动的那种)最容易漏掉 ——
 # **时间型的判据要配时间型的触发。**
+#
+# 两件事分开做,因为它们出现在不同的地方:
+#
+# 1. `--all` 扫全部远端分支,结果留在 Actions 里 —— 看得见「仓库现在什么样」
+# 2. 每个开着的 PR 各贴一条 check run 到**它自己的 head SHA** 上 ——
+#    GitHub 的合并闸看的是那里。只有聚合结果的话,一个 47 小时通过、之后没人碰
+#    的 PR,head 上那条绿不会失效:**聚合任务红着,PR 照样能合。**
+#
+# ⚠️ 贴上去的这条检查要真正**挡住**合并,还得在仓库设置里把 `age` 加进
+#    required status checks。那是仓库设置,不在这个仓库的代码里 ——
+#    不加的话它只是可见,不是闸门。
 name: age
 
 on:
@@ -11,6 +22,11 @@ on:
     # 每天 06:00 UTC 一次。48 小时的线,一天查一次的延迟够用了
     - cron: '0 6 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: read
 
 jobs:
   age:
@@ -27,4 +43,28 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+
+      # 每个开着的 PR 贴一条 check run 到它自己的 head SHA 上
+      - name: 贴到各 PR 的 head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr list --state open --json number,headRefName,headRefOid \
+            --jq '.[] | [.number, .headRefName, .headRefOid] | @tsv' \
+          | while IFS=$'\t' read -r num ref sha; do
+              if out=$(npm run --silent age -- --ref "origin/$ref" 2>&1); then
+                concl=success
+              else
+                concl=failure
+              fi
+              echo "PR #$num ($ref): $concl"
+              # 用 JSON body 而不是 `-f output[title]=`：嵌套字段的简写各版本 gh
+              # 行为不一，贴错了会静默变成一条没有正文的检查
+              jq -n --arg sha "$sha" --arg concl "$concl" --arg out "$out" \
+                '{name:"age", head_sha:$sha, status:"completed", conclusion:$concl,
+                  output:{title:"分支寿命", summary:$out}}' \
+              | gh api "repos/${{ github.repository }}/check-runs" -X POST --input - >/dev/null
+            done
+
+      # 聚合视图：仓库现在有哪些分支超线。红在 Actions 里，不挡任何 PR
       - run: npm run age -- --all
