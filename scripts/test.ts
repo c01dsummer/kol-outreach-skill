@@ -14,7 +14,7 @@ import {
 import {
   checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, renderIndex, slugify,
 } from './check/adr-rule.js'
-import { fenceMask } from './check/fence.js'
+import { quotedMask } from './check/quoted.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { fillEmail, pickList } from './providers/tikhub.js'
@@ -1275,6 +1275,27 @@ suite('U4', 'A 级附开发信草稿且可复制')
   ok('有复制按钮', html.includes('cp(this)'))
 }
 
+harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
+{
+  // 这个遮罩守着两条路径：提交信息里的豁免、决策记录的分节。后者不可逆 ——
+  // 把示例当成分节，`--split` 会截断原记录并写出一个假记录。
+  eq('围栏块整段盖住', quotedMask(['a', '```', 'b', '```', 'c'].join('\n')),
+    [false, true, true, true, false])
+  eq('带信息串的开启，闭合不带', quotedMask(['```ts', 'x', '```'].join('\n')),
+    [true, true, true])
+  eq('异种标记不闭合', quotedMask(['```', '~~~', 'x', '```', 'c'].join('\n')),
+    [true, true, true, true, false])
+  eq('更短的同种标记不闭合', quotedMask(['````', '```', '````', 'c'].join('\n')),
+    [true, true, true, false])
+  eq('闭合后面有内容就不算闭合', quotedMask(['```', '``` 还有字', 'x'].join('\n')),
+    [true, true, true])
+  eq('跨行 HTML 注释', quotedMask(['a', '<!--', '## ADR-59 例子', '-->', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('单行注释只盖那一行', quotedMask(['a', '<!-- x -->', 'b'].join('\n')),
+    [false, true, false])
+  eq('什么都没有时全是 false', quotedMask(['a', 'b'].join('\n')), [false, false])
+}
+
 harness('决策记录：编号唯一、文件名与正文一致、索引按数字排序')
 {
   eq('文件名由编号与标题生成，个位数补零',
@@ -1423,6 +1444,15 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     scanMessage(['x', '', 'size-ok: 源码 正文里的', '', 'Co-Authored-By: X <x@y>'].join('\n')), [])
   ok('和 Co-Authored-By 同一段的算',
     scanMessage('fix: y\n\nsize-ok: 源码 真理由\nCo-Authored-By: X <x@y>')[0]?.kind === 'exempt')
+  // 最后一段必须整段都是 trailer：一条以示例结尾、后面没有 trailer 的提交信息，
+  // 那个示例就成了最后一段
+  eq('最后一段是围栏示例 → 整段不算指令区',
+    scanMessage(['feat: x', '', '```', 'size-ok: 源码 例子', '```'].join('\n')), [])
+  eq('最后一段是 HTML 注释 → 整段不算',
+    scanMessage(['feat: x', '', '<!--', 'size-ok: 源码 例子', '-->'].join('\n')), [])
+  eq('最后一段掺了散文 → 整段不算',
+    scanMessage('feat: x\n\nsize-ok: 源码 理由\n这一行是散文，不是 trailer'), [])
+
   eq('最后一段里写歪的仍然拦下',
     scanMessage('x\n\nsize-ok: 写歪的').map(v => v.kind), ['unjustified'])
 

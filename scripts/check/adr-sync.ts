@@ -17,7 +17,7 @@ import { join } from 'node:path'
 import {
   type Adr, type Baseline, FILE_RE, HEAD_RE, checkAll, checkAppendOnly, fileNameOf, renderIndex,
 } from './adr-rule.js'
-import { fenceMask } from './fence.js'
+import { quotedMask } from './quoted.js'
 
 const DIR = 'docs/adr'
 const INDEX = join(DIR, 'README.md')
@@ -31,14 +31,14 @@ const LEGACY_SECTION = /^## ADR-\d+ /m
 if (process.argv.includes('--split')) {
   const src = existsSync(LEGACY) ? readFileSync(LEGACY, 'utf8') : ''
   /**
-   * 分节只认**围栏之外**的 `## ADR-NN`。
+   * 分节只认**引文之外**的 `## ADR-NN`(围栏块、HTML 注释都算引文)。
    *
    * 一条记录的正文里完全可能有围栏示例写着 `## ADR-59 …`(这个仓库的记录就爱举例)。
    * 不看围栏地切下去,会把原记录拦腰截断、再写出一个假记录 —— 迁移动的是决策历史
    * 本身,这种错不可逆。
    */
   const lines = src.split('\n')
-  const mask = fenceMask(src)
+  const mask = quotedMask(src)
   const starts = lines.map((l, i) => (!mask[i] && /^## ADR-\d+ /.test(l) ? i : -1)).filter(i => i >= 0)
   const body = starts.map((start, k) =>
     lines.slice(start, starts[k + 1] ?? lines.length).join('\n'))
