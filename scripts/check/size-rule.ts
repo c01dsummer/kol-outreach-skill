@@ -137,14 +137,24 @@ export function judgeExemption(line: string): ExemptionVerdict | null {
  * 两种都必须当引文,不当指令。少一种,后果是双向的:格式正确的示例会**白送
  * 一条豁免**,格式故意写歪的示例会**让闸门报红** —— 后者已经发生过。
  *
- * 围栏标记按 CommonMark 允许最多三个前导空格。
+ * 围栏按 CommonMark:最多三个前导空格,闭合必须与开启**同种标记且不更短**。
+ * 只记「开着没开着」不够 —— 一个反引号块里演示 `~~~` 的那一行会被当成闭合,
+ * 后面的示例就变成真豁免了。
  */
 export function scanMessage(message: string): ExemptionVerdict[] {
   const out: ExemptionVerdict[] = []
-  let fenced = false
+  /** 开着的围栏:记住是哪种标记、多长 —— 闭合必须同种且不更短(CommonMark) */
+  let fence: { char: string; len: number } | null = null
+
   for (const line of message.split('\n')) {
-    if (/^ {0,3}(```|~~~)/.test(line)) { fenced = !fenced; continue }
-    if (fenced) continue
+    const m = /^ {0,3}(`{3,}|~{3,})/.exec(line)
+    if (m) {
+      const [char, len] = [m[1][0], m[1].length]
+      if (!fence) { fence = { char, len }; continue }
+      if (char === fence.char && len >= fence.len) { fence = null; continue }
+      // 另一种标记出现在围栏里:那是内容,不是闭合 —— 落到下面按内容跳过
+    }
+    if (fence) continue
     const v = judgeExemption(line)
     if (v) out.push(v)
   }
