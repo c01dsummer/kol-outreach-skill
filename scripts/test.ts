@@ -15,7 +15,9 @@ import {
   FILE_RE, checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, markerFault,
   renderIndex, slugify,
 } from './check/adr-rule.js'
-import { LIMIT_HOURS, judgeAge, judgeAgeExemption, scanAgeWaiver } from './check/age-rule.js'
+import {
+  LIMIT_HOURS, birthOf, judgeAge, judgeAgeExemption, scanAgeWaiver,
+} from './check/age-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
@@ -1389,6 +1391,18 @@ harness('分支寿命：分叉时长有上限，超线要具名豁免')
   eq('零算在线内', judgeAge(0, null).kind, 'ok')
   // 豁免免的是「这条分支活得久」，不是「这个数我算不出来」
   eq('豁免盖不过「量不了」', judgeAge(-720, '有理由').kind, 'future')
+
+  // 作者时间是用户可控的：`git commit --amend --reset-author` 一句就能把一条
+  // 两百小时的分支洗成 0 小时（实测）。所以出生时间要和一个改写不了的锚
+  // （PR 创建时间）取更早的一个 —— 改写历史于是只能让分支显得更老，不能更年轻
+  const 早 = '2026-08-24T00:00:00Z'
+  const 晚 = '2026-09-01T00:00:00Z'
+  eq('作者时间更早 → 用作者时间，锚不抢', birthOf(早, 晚), { at: 早, fromAnchor: false })
+  eq('作者时间被洗到更晚 → 用锚', birthOf(晚, 早), { at: 早, fromAnchor: true })
+  eq('没有锚 → 只能用作者时间（--all 那条路的显式缺口）',
+    birthOf(晚, null), { at: 晚, fromAnchor: false })
+  eq('锚解析不出来就当没有，不静默用一个 NaN',
+    birthOf(晚, '不是时间'), { at: 晚, fromAnchor: false })
 
   eq('理由必填 —— 只写指令不算', judgeAgeExemption('age-ok:'), null)
   eq('只有空白也不算', judgeAgeExemption('age-ok:   '), null)

@@ -26,8 +26,13 @@
  *    它保证的是**上限**,不是内聚 —— 后者仍在 `process/README.md` 第三层。
  *
  * ⚠️ 用的是**作者时间**,不是提交时间。rebase 会重写提交时间,拿它计时的话
- *    「一次 rebase 把分支洗成新的」就是一条免检通道。作者时间挡得住这个,
- *    代价是把一个很老的提交 cherry-pick 到新分支上会误报 ——
+ *    「一次 rebase 把分支洗成新的」就是一条免检通道。
+ *
+ *    **但作者时间只挡得住普通 rebase,挡不住 `--amend --reset-author`。**
+ *    所以出生时间还要和一个改写不了的锚取更早的一个,见 `birthOf` ——
+ *    早先这里写的是「作者时间挡得住这个」,那句话只对了一半。
+ *
+ *    另一处代价:把一个很老的提交 cherry-pick 到新分支上会误报 ——
  *    报告里点名那个提交,人一看就知道。
  */
 import { trailerLines } from './trailer.js'
@@ -91,4 +96,37 @@ export function judgeAge(hours: number, waiver: string | null): Verdict {
   if (hours < 0) return { kind: 'future' }
   if (hours <= LIMIT_HOURS) return { kind: 'ok' }
   return waiver ? { kind: 'waived', reason: waiver } : { kind: 'over' }
+}
+
+/**
+ * 分支的「出生时间」—— 取**最早那个提交的作者时间**与一个**改写不了的锚**里更早的一个。
+ *
+ * ## 为什么光有作者时间不够
+ *
+ * 选作者时间而不是提交时间,是因为 rebase 会重写提交时间。但作者时间同样是
+ * 用户可控的:`git commit --amend --reset-author` 把它设成现在。实测一条
+ * 两百小时的分支,`--reset-author` 之后报 `✓ 分叉 0.0 小时` —— **闸门自己
+ * 给它续了 48 小时**,而且一声不响。
+ *
+ * 这不只是「有人故意绕」。一次正当的 `--amend --reset-author` 也会让这个数
+ * 悄悄归零 —— 那时它不是被绕过,是**答错了**,而答错和绕过一样坏。
+ *
+ * ## 锚是什么
+ *
+ * PR 的创建时间。它在服务端,提交历史怎么改写都动不了它。取两者更早的一个:
+ *
+ * - 正常情况:作者时间早于 PR 创建时间 → 用作者时间,和以前一样
+ * - 作者时间被改写到现在 → 它比 PR 创建时间晚 → 用 PR 创建时间
+ *
+ * 所以**改写历史只能让分支显得更老,不能让它显得更年轻**。
+ *
+ * ⚠️ 锚只在有 PR 的时候才有。`--all` 扫的是分支,没有这个锚,那一条路上作者时间
+ *    仍是唯一的钟 —— 这是**显式缺口**,写在这里,不假装它被堵上了。
+ */
+export function birthOf(authorISO: string, anchorISO: string | null):
+  { at: string; fromAnchor: boolean } {
+  if (!anchorISO) return { at: authorISO, fromAnchor: false }
+  const [a, b] = [Date.parse(authorISO), Date.parse(anchorISO)]
+  if (!Number.isFinite(b)) return { at: authorISO, fromAnchor: false }
+  return b < a ? { at: anchorISO, fromAnchor: true } : { at: authorISO, fromAnchor: false }
 }

@@ -72,16 +72,17 @@ jobs:
           prs=$(mktemp)
           if [ "$EVENT" = pull_request_target ]; then
             # PR 事件：只贴触发它的这一个
-            printf '%s\t%s\n' "$PR_NUMBER" "$PR_SHA" > "$prs"
+            printf '%s\t%s\t%s\n' "$PR_NUMBER" "$PR_SHA" \
+              "${{ github.event.pull_request.created_at }}" > "$prs"
           else
             # --limit 必须显式给：gh pr list 默认只列 30 条，多出来的会被静默丢掉，
             # 而被丢掉的那个 PR 会一直留着它上一次的绿 —— 正好是这条闸门要拦的
             # 那个「过了线还绿着」
-            gh pr list --state open --limit 1000 --json number,headRefOid \
-              --jq '.[] | [.number, .headRefOid] | @tsv' > "$prs"
+            gh pr list --state open --limit 1000 --json number,headRefOid,createdAt \
+              --jq '.[] | [.number, .headRefOid, .createdAt] | @tsv' > "$prs"
           fi
 
-          while IFS=$'\t' read -r num sha; do
+          while IFS=$'\t' read -r num sha created; do
             # 量 refs/pull/N/head，不拼 origin/<分支名>。fork 来的 PR，那条分支在
             # fork 里，基仓的 origin/* 里根本没有 —— 拼出来的 ref 要么不存在（贴
             # 一条假的失败），要么基仓恰好有同名分支（**量了另一个提交**，还把结果
@@ -95,7 +96,11 @@ jobs:
               continue
             fi
 
-            if out=$(npm run --silent age -- --ref "refs/remotes/pr/$num" 2>&1); then
+            # --since 给一个**改写不了**的时间锚：PR 的创建时间。作者时间是用户
+            # 可控的（`--amend --reset-author` 一句就能把两百小时的分支洗成 0），
+            # 取两者更早的一个 —— 改写历史于是只能让分支显得更老，不能更年轻
+            if out=$(npm run --silent age -- --ref "refs/remotes/pr/$num" \
+                       --since "$created" 2>&1); then
               concl=success
             else
               concl=failure

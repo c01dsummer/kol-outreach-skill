@@ -23,7 +23,7 @@
  * 时间型的判据要配时间型的触发,少一个,保证就只在有人已经在看的时候才成立。
  */
 import { execFileSync } from 'node:child_process'
-import { LIMIT_HOURS, judgeAge, scanAgeWaiver } from './age-rule.js'
+import { LIMIT_HOURS, birthOf, judgeAge, scanAgeWaiver } from './age-rule.js'
 
 const TRUNK_CANDIDATES = ['origin/main', 'main']
 
@@ -67,8 +67,17 @@ interface Measured {
   oldest: string
   subject: string
   since: string
+  /** 用的是锚(PR 创建时间)而不是作者时间 —— 说明作者时间被改写过或时钟不对 */
+  fromAnchor: boolean
   waiver: string | null
 }
+
+/**
+ * `--since <ISO>`:一个**改写不了的时间锚**,通常是 PR 的创建时间。
+ * 出生时间取它与作者时间里更早的一个,理由见 `age-rule.ts` 的 `birthOf`。
+ */
+const sinceArg = process.argv.indexOf('--since')
+const ANCHOR = sinceArg >= 0 ? (process.argv[sinceArg + 1] ?? null) : null
 
 /**
  * 一个 ref 相对主干的分叉时长。
@@ -92,11 +101,12 @@ function measure(ref: string): Verdict3 {
   if (!commits.length) return { kind: 'merged' }
 
   /**
-   * 最早那个提交的**作者时间**。用作者时间不用提交时间的理由见 `age-rule.ts`:
-   * 提交时间被 rebase 重写,拿它计时等于留了一条「rebase 一下就免检」的通道。
+   * 最早那个提交的**作者时间**,再与锚取更早的一个(`birthOf`)。
+   * 不用提交时间是因为 rebase 会重写它;作者时间同样可改写,所以才要那个锚。
    */
   const oldest = commits[0]
-  const since = git('log', '-1', '--format=%aI', oldest)
+  const birth = birthOf(git('log', '-1', '--format=%aI', oldest), ANCHOR)
+  const since = birth.at
 
   /** 豁免只要分支上任一条提交写了就算,理由见 `age-rule.ts`(不设新鲜度)。 */
   let waiver: string | null = null
@@ -109,13 +119,14 @@ function measure(ref: string): Verdict3 {
     oldest: oldest.slice(0, 7),
     subject: git('log', '-1', '--format=%s', oldest),
     since: since.slice(0, 16),
+    fromAnchor: birth.fromAnchor,
     waiver,
   }
 }
 
 const FLAG = { ok: '✓', waived: '⊘', over: '✗', future: '?' } as const
 const LEGEND = '\n  图例:✓ 在线内  ⊘ 超线但已具名豁免  ✗ 超线  ? 量不了\n'
-  + '  (量的是分叉时长,不是最后一次提交距今多久;用作者时间,rebase 洗不掉)\n'
+  + '  (量的是分叉时长,不是最后一次提交距今多久;用作者时间,有 --since 锚时取更早的一个)\n'
 const HOWTO = '  先合一次:能独立交付的部分先合,剩下的留在分支上。\n'
   + '  合不了就说为什么 —— 在提交信息最后一段写 `age-ok: <理由>`。'
 
@@ -153,6 +164,8 @@ if (refArg >= 0) {
   }
   console.log(`${FLAG[v.kind]} ${ref}:分叉 ${one.hours.toFixed(1)} / ${LIMIT_HOURS} 小时`
     + `,${one.commits} 个提交,自 ${one.since}`)
+  if (one.fromAnchor) console.log(`  (最早那个提交的作者时间比这还晚 —— 历史被改写过,`
+    + `或者时钟不对。改用 --since 给的那个改写不了的时间。)`)
   if (v.kind === 'waived') { console.log(`  豁免:${v.reason}`); process.exit(0) }
   if (v.kind === 'over') { console.error(`\n${HOWTO}`); process.exit(1) }
   process.exit(0)
@@ -237,6 +250,10 @@ console.log(`\n分支寿命 · 相对 ${trunk}\n`)
 console.log(`  ${FLAG[verdict.kind]} 分叉 ${m.hours.toFixed(1)} / ${LIMIT_HOURS} 小时`
   + `,${m.commits} 个提交,自 ${m.since}`)
 console.log(`      最早的提交:${m.oldest} ${m.subject}`)
+if (m.fromAnchor) {
+  console.log('      ⚠ 那个提交的作者时间比上面这个时间还晚 —— 历史被改写过,或者时钟不对。')
+  console.log('        改用了 --since 给的那个改写不了的时间;分支只会显得更老,不会更年轻。')
+}
 console.log(LEGEND)
 
 if (verdict.kind === 'waived') {
