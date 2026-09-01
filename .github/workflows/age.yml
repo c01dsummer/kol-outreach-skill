@@ -1,0 +1,30 @@
+# 分支寿命的定时复查。
+#
+# `check.yml` 只在 push / pull_request 上跑,而分叉时长**自己会长**:一条分支
+# 停在 47 小时通过,没人碰它,第二天就过线了,却不会再触发任何一次检查。
+# 恰好是这条闸门要拦的那种分支(没人动的那种)最容易漏掉 ——
+# **时间型的判据要配时间型的触发。**
+name: age
+
+on:
+  schedule:
+    # 每天 06:00 UTC 一次。48 小时的线,一天查一次的延迟够用了
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  age:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 要和每条分支各自求 merge-base；浅克隆下闸门会拒答而不是放行
+          fetch-depth: 0
+      # checkout 默认只取当前 ref，这里要看的是**所有**远端分支
+      - run: git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run age -- --all
