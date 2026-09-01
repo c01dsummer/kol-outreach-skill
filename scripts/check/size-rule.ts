@@ -10,6 +10,8 @@
  * 走 git、打印、退出码留在 `size.ts`。
  */
 
+import { fenceMask } from './fence.js'
+
 export type Category = '源码' | '测试' | '文档' | '其他'
 export const CATEGORIES: Category[] = ['源码', '测试', '文档', '其他']
 
@@ -127,37 +129,23 @@ export function judgeExemption(line: string): ExemptionVerdict | null {
 }
 
 /**
- * 扫一条提交信息里的豁免标记,**跳过围栏代码块**。
+ * 扫一条提交信息里的豁免标记,**围栏代码块里的当引文**。
  *
- * 提交信息里举例说明这个语法是很自然的事,而例子有两种写法:
+ * 提交信息里举例说明这个语法是很自然的事,而例子有三种写法,都必须当引文:
+ * 缩进(由 `judgeExemption` 的「必须顶格」挡住)、引文前缀、**围栏代码块**。
+ * 少一种,后果是双向的:格式正确的示例**白送一条豁免**,格式故意写歪的示例
+ * **让闸门报红** —— 后者已经发生过。
  *
- * - 缩进 —— 由 `judgeExemption` 的「必须顶格」挡住(栽过一次,CI 红了一轮)
- * - **围栏代码块** —— 块里的行本身是顶格的,顶格那条规则拦不住
- *
- * 两种都必须当引文,不当指令。少一种,后果是双向的:格式正确的示例会**白送
- * 一条豁免**,格式故意写歪的示例会**让闸门报红** —— 后者已经发生过。
- *
- * 围栏按 CommonMark:最多三个前导空格,闭合必须与开启**同种标记且不更短**。
- * 只记「开着没开着」不够 —— 一个反引号块里演示 `~~~` 的那一行会被当成闭合,
- * 后面的示例就变成真豁免了。
+ * 围栏的判断在 `fence.ts`,和决策记录的分节共用同一份 —— 这个坑在两处各栽过一次。
  */
 export function scanMessage(message: string): ExemptionVerdict[] {
+  const mask = fenceMask(message)
   const out: ExemptionVerdict[] = []
-  /** 开着的围栏:记住是哪种标记、多长 —— 闭合必须同种且不更短(CommonMark) */
-  let fence: { char: string; len: number } | null = null
-
-  for (const line of message.split('\n')) {
-    const m = /^ {0,3}(`{3,}|~{3,})/.exec(line)
-    if (m) {
-      const [char, len] = [m[1][0], m[1].length]
-      if (!fence) { fence = { char, len }; continue }
-      if (char === fence.char && len >= fence.len) { fence = null; continue }
-      // 另一种标记出现在围栏里:那是内容,不是闭合 —— 落到下面按内容跳过
-    }
-    if (fence) continue
+  message.split('\n').forEach((line, i) => {
+    if (mask[i]) return
     const v = judgeExemption(line)
     if (v) out.push(v)
-  }
+  })
   return out
 }
 

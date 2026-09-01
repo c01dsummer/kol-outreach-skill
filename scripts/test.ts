@@ -14,6 +14,7 @@ import {
 import {
   checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, renderIndex, slugify,
 } from './check/adr-rule.js'
+import { fenceMask } from './check/fence.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { fillEmail, pickList } from './providers/tikhub.js'
@@ -1426,6 +1427,13 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
   // 更短的同种标记也不闭合（CommonMark）
   eq('更短的同种标记不闭合',
     scanMessage(['````', '```', 'size-ok: 源码 这仍然在块里', '````'].join('\n')), [])
+  // 闭合围栏后面只能跟空白 —— ```ts 那样带信息串的行出现在块里时是内容
+  eq('带信息串的行不闭合围栏',
+    scanMessage(['```', '```ts', 'size-ok: 源码 这仍然在块里', '```'].join('\n')), [])
+  // 遮罩本身：围栏标记与围栏内容都算「不是结构」，其余为 false
+  eq('遮罩标出围栏范围',
+    fenceMask(['a', '```', 'b', '```', 'c'].join('\n')), [false, true, true, true, false])
+
   ok('围栏正常闭合后照旧生效',
     scanMessage(['```', 'x', '```', 'size-ok: 源码 真理由'].join('\n'))[0]?.kind === 'exempt')
   ok('围栏之外一切照旧',

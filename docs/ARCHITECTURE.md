@@ -70,6 +70,7 @@
 | `scripts/check/size.ts` | 检查 | — | 把「一个改动 = 一个能一次读完的 diff」变成能报错的检查；量的是分支相对主干的新增行，基线算不出来时说「无从判断」而不是放行 |
 | `scripts/check/size-rule.ts` | 检查 | — | 上面那条闸门的**判定**本身。四类分开算、豁免必须指名类别；抽出来是为了它能被测 |
 | `scripts/check/spec-sync.ts` | 检查 | — | SPEC.md 的表格由 requirements.json 生成，两者不可能漂移 |
+| `scripts/check/fence.ts` | 检查 | — | 围栏遮罩:一段 Markdown 里哪些行是围栏内容。**凡是要按结构解析 Markdown 的地方都先过它** —— 提交信息里的豁免、决策记录的分节,同一个坑在两处各栽过一次 |
 | `scripts/check/adr-sync.ts` | 检查 | — | 决策记录一条一个文件；编号唯一、文件名与正文一致、索引不漂移，并守住 `DECISIONS.md` 不再装回整册 |
 | `scripts/check/adr-rule.ts` | 检查 | — | 上面那条检查的**判定**本身。文件名与编号的对应、撞号、索引渲染 |
 | `scripts/check/mutate.ts` | 检查 | — | 给测试做的测试：变异存活即那条测试是假的 |
