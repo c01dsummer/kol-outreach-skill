@@ -61,6 +61,7 @@ if (!trunk) {
 }
 
 interface Measured {
+  kind: 'measured'
   hours: number
   commits: number
   oldest: string
@@ -69,13 +70,26 @@ interface Measured {
   waiver: string | null
 }
 
-/** 一个 ref 相对主干的分叉时长。返回 null 表示不适用:它没有自己的提交。 */
-function measure(ref: string): Measured | null {
+/**
+ * 一个 ref 相对主干的分叉时长。
+ *
+ * **「已经合完了」和「量不了」必须分开。** 两者都不产出小时数,但含义相反:
+ * 前者是这条分支没什么可量的(它的提交都在主干上了),后者是**我不知道**。
+ * 早先两种都返回 null,于是一条没有共同祖先的分支被当成「已合完」静默跳过,
+ * 而末尾照样宣布「N 条在途分支都在线内」—— 那句话里不包含它,却听起来包含。
+ *
+ * 三态:是 / 否 / 我不知道。第三种要说出口,不能塞进前两种里
+ * (`process/4-VERIFY.md`)。
+ */
+type Verdict3 = Measured | { kind: 'merged' } | { kind: 'unrelated' }
+
+function measure(ref: string): Verdict3 {
   const tip = git('rev-parse', ref)
   const base = tryGit('merge-base', trunk!, ref)
-  if (!base || base === tip) return null
+  if (!base) return { kind: 'unrelated' }
+  if (base === tip) return { kind: 'merged' }
   const commits = git('rev-list', '--reverse', `${base}..${tip}`).split('\n').filter(Boolean)
-  if (!commits.length) return null
+  if (!commits.length) return { kind: 'merged' }
 
   /**
    * 最早那个提交的**作者时间**。用作者时间不用提交时间的理由见 `age-rule.ts`:
@@ -89,6 +103,7 @@ function measure(ref: string): Measured | null {
   for (const sha of commits) waiver ??= scanAgeWaiver(git('log', '-1', '--format=%B', sha))
 
   return {
+    kind: 'measured',
     hours: (Date.now() - new Date(since).getTime()) / 3_600_000,
     commits: commits.length,
     oldest: oldest.slice(0, 7),
@@ -113,26 +128,39 @@ if (process.argv.includes('--all')) {
 
   console.log(`\n分支寿命 · 所有远端分支相对 ${trunk}\n`)
   const over: string[] = []
+  const unknown: string[] = []
   let live = 0
   for (const ref of refs) {
+    const name = ref.replace('refs/remotes/', '')
     const m = measure(ref)
     // 已经全部合进主干的分支不算在途 —— 它没有自己的提交,量它没有意义
-    if (!m) continue
+    if (m.kind === 'merged') continue
+    if (m.kind === 'unrelated') {
+      console.log(`  ? ${'—'.padStart(6)}        ——  ${name}`)
+      unknown.push(name)
+      continue
+    }
     live++
     const v = judgeAge(m.hours, m.waiver)
-    const name = ref.replace('refs/remotes/', '')
     console.log(`  ${FLAG[v.kind]} ${m.hours.toFixed(1).padStart(6)} 小时`
       + `  ${String(m.commits).padStart(3)} 个提交  ${name}`)
     if (v.kind === 'waived') console.log(`         豁免:${v.reason}`)
     if (v.kind === 'over') over.push(`${name}(${m.hours.toFixed(1)} 小时,自 ${m.since})`)
   }
-  console.log(LEGEND)
+  console.log(LEGEND.replace('✗ 超线', '✗ 超线  ? 与主干没有共同祖先,量不了'))
+  if (unknown.length) {
+    console.error(`✗ 分支寿命:${unknown.length} 条分支与 ${trunk} 没有共同祖先,量不了\n`)
+    for (const u of unknown) console.error(`  · ${u}`)
+    console.error('\n  不当作「在线内」—— 一个把「不知道」算成「通过」的检查等于没有检查。')
+    console.error('  这条分支要么本来就该从主干长出来,要么根本不该留在这里:接上主干,或者删掉。')
+  }
   if (over.length) {
-    console.error(`✗ 分支寿命:${over.length} / ${live} 条在途分支超过 ${LIMIT_HOURS} 小时且无豁免\n`)
+    console.error(`${unknown.length ? '' : '\n'}✗ 分支寿命:${over.length} / ${live} 条在途分支`
+      + `超过 ${LIMIT_HOURS} 小时且无豁免\n`)
     for (const o of over) console.error(`  · ${o}`)
     console.error(`\n${HOWTO}`)
-    process.exit(1)
   }
+  if (over.length || unknown.length) process.exit(1)
   console.log(`✓ 分支寿命:${live} 条在途分支都在 ${LIMIT_HOURS} 小时线内`)
   process.exit(0)
 }
@@ -149,7 +177,7 @@ if (merged === head) {
 }
 
 const m = measure('HEAD')
-if (!m) {
+if (m.kind !== 'measured') {
   console.log(`✓ 分支寿命:不适用 —— 相对 ${trunk} 没有自己的提交`)
   process.exit(0)
 }
