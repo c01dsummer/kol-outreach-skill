@@ -113,8 +113,8 @@ function measure(ref: string): Verdict3 {
   }
 }
 
-const FLAG = { ok: '✓', waived: '⊘', over: '✗' } as const
-const LEGEND = '\n  图例:✓ 在线内  ⊘ 超线但已具名豁免  ✗ 超线\n'
+const FLAG = { ok: '✓', waived: '⊘', over: '✗', future: '?' } as const
+const LEGEND = '\n  图例:✓ 在线内  ⊘ 超线但已具名豁免  ✗ 超线  ? 量不了\n'
   + '  (量的是分叉时长,不是最后一次提交距今多久;用作者时间,rebase 洗不掉)\n'
 const HOWTO = '  先合一次:能独立交付的部分先合,剩下的留在分支上。\n'
   + '  合不了就说为什么 —— 在提交信息最后一段写 `age-ok: <理由>`。'
@@ -147,6 +147,10 @@ if (refArg >= 0) {
     cannotAnswer(`${ref} 与 ${trunk} 没有共同祖先`, '接上主干,或者删掉这条分支。')
   }
   const v = judgeAge(one.hours, one.waiver)
+  if (v.kind === 'future') {
+    cannotAnswer(`${ref} 最早那个提交(${one.oldest})的作者时间在未来:${one.since}`,
+      '把提交那台机器的时钟对一下;`--date` 手写的日期也算。')
+  }
   console.log(`${FLAG[v.kind]} ${ref}:分叉 ${one.hours.toFixed(1)} / ${LIMIT_HOURS} 小时`
     + `,${one.commits} 个提交,自 ${one.since}`)
   if (v.kind === 'waived') { console.log(`  豁免:${v.reason}`); process.exit(0) }
@@ -172,22 +176,28 @@ if (process.argv.includes('--all')) {
     if (m.kind === 'merged') continue
     if (m.kind === 'unrelated') {
       console.log(`  ? ${'—'.padStart(6)}        ——  ${name}`)
-      unknown.push(name)
+      unknown.push(`${name}(与 ${trunk} 没有共同祖先)`)
+      continue
+    }
+    const v = judgeAge(m.hours, m.waiver)
+    if (v.kind === 'future') {
+      console.log(`  ? ${m.hours.toFixed(1).padStart(6)} 小时  ${String(m.commits).padStart(3)} 个提交  ${name}`)
+      unknown.push(`${name}(最早的提交 ${m.oldest} 作者时间在未来:${m.since})`)
       continue
     }
     live++
-    const v = judgeAge(m.hours, m.waiver)
     console.log(`  ${FLAG[v.kind]} ${m.hours.toFixed(1).padStart(6)} 小时`
       + `  ${String(m.commits).padStart(3)} 个提交  ${name}`)
     if (v.kind === 'waived') console.log(`         豁免:${v.reason}`)
     if (v.kind === 'over') over.push(`${name}(${m.hours.toFixed(1)} 小时,自 ${m.since})`)
   }
-  console.log(LEGEND.replace('✗ 超线', '✗ 超线  ? 与主干没有共同祖先,量不了'))
+  console.log(LEGEND)
   if (unknown.length) {
-    console.error(`✗ 分支寿命:${unknown.length} 条分支与 ${trunk} 没有共同祖先,量不了\n`)
+    console.error(`✗ 分支寿命:${unknown.length} 条分支量不了\n`)
     for (const u of unknown) console.error(`  · ${u}`)
     console.error('\n  不当作「在线内」—— 一个把「不知道」算成「通过」的检查等于没有检查。')
-    console.error('  这条分支要么本来就该从主干长出来,要么根本不该留在这里:接上主干,或者删掉。')
+    console.error('  没有共同祖先:接上主干,或者删掉这条分支。')
+    console.error('  作者时间在未来:把提交那台机器的时钟对一下(`--date` 手写的日期也算)。')
   }
   if (over.length) {
     console.error(`${unknown.length ? '' : '\n'}✗ 分支寿命:${over.length} / ${live} 条在途分支`
@@ -218,6 +228,10 @@ if (m.kind !== 'measured') {
 }
 
 const verdict = judgeAge(m.hours, m.waiver)
+if (verdict.kind === 'future') {
+  cannotAnswer(`最早那个提交(${m.oldest})的作者时间在未来:${m.since}`,
+    '把提交那台机器的时钟对一下;`--date` 手写的日期也算。')
+}
 
 console.log(`\n分支寿命 · 相对 ${trunk}\n`)
 console.log(`  ${FLAG[verdict.kind]} 分叉 ${m.hours.toFixed(1)} / ${LIMIT_HOURS} 小时`

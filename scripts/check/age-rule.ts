@@ -39,6 +39,8 @@ export type Verdict =
   | { kind: 'ok' }
   | { kind: 'over' }
   | { kind: 'waived'; reason: string }
+  /** 最早那个提交的作者时间在**未来** —— 这不是「很新」,是量不了。 */
+  | { kind: 'future' }
 
 /**
  * `age-ok: <理由>` —— 理由必填,只写 `age-ok:` 不算。
@@ -71,6 +73,22 @@ export function scanAgeWaiver(message: string): string | null {
  * 豁免让它别拦路,不让它消失。
  */
 export function judgeAge(hours: number, waiver: string | null): Verdict {
+  /**
+   * **未来的作者时间不是「很新」,是量不了。**
+   *
+   * 时钟不准、或者一句 `git commit --date=<未来某天>`,都会让最早那个提交的作者
+   * 时间落在现在之后。分叉时长于是变成负数,而「负数 ≤ 48」成立 —— 一条真实
+   * 已经两百小时的分支,报出来是 `✓ 分叉 -720.0 / 48 小时`:一个不可能的数,
+   * 旁边打着勾。日期填得够远,这条闸门就一直是绿的。
+   *
+   * **不设容差。** 「几秒的时钟抖动」和「日期是编的」之间没有一条量得出来的界,
+   * 而这个仓库其余的拒答(浅克隆、找不到主干、没有共同祖先)也都不设容差:
+   * 判不了就说判不了。代价是时钟快几分钟的机器会看到一条红 —— 它说的是实话,
+   * 而且时钟一对上就自己好了。
+   *
+   * 放在豁免**之前**:豁免免的是「这条分支活得久」,不是「这个数我算不出来」。
+   */
+  if (hours < 0) return { kind: 'future' }
   if (hours <= LIMIT_HOURS) return { kind: 'ok' }
   return waiver ? { kind: 'waived', reason: waiver } : { kind: 'over' }
 }

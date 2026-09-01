@@ -1381,6 +1381,15 @@ harness('分支寿命：分叉时长有上限，超线要具名豁免')
   eq('豁免带着理由一起报', (judgeAge(102.8, '等上游接口定稿') as { reason: string }).reason,
     '等上游接口定稿')
 
+  // 作者时间在未来（时钟不准，或者 `git commit --date=<未来>`）→ 分叉时长是负数。
+  // 「负数 ≤ 48」成立，于是一条真实两百小时的分支报出 `✓ 分叉 -720.0 / 48 小时`：
+  // 一个不可能的数，旁边打着勾。这不是「很新」，是量不了
+  eq('作者时间在未来 → 量不了，不是通过', judgeAge(-720, null).kind, 'future')
+  eq('差一点点也一样 —— 不设容差', judgeAge(-0.01, null).kind, 'future')
+  eq('零算在线内', judgeAge(0, null).kind, 'ok')
+  // 豁免免的是「这条分支活得久」，不是「这个数我算不出来」
+  eq('豁免盖不过「量不了」', judgeAge(-720, '有理由').kind, 'future')
+
   eq('理由必填 —— 只写指令不算', judgeAgeExemption('age-ok:'), null)
   eq('只有空白也不算', judgeAgeExemption('age-ok:   '), null)
   eq('写了理由就算', judgeAgeExemption('age-ok: 等上游'), '等上游')
