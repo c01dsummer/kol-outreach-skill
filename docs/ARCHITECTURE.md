@@ -69,6 +69,9 @@
 | `scripts/check/lint-rule.ts` | 检查 | P1 | 上面那条检查的**判定**本身。抽出来是为了它能被测 —— 检查自己也要能被证伪 |
 | `scripts/check/size.ts` | 检查 | — | 把「一个改动 = 一个能一次读完的 diff」变成能报错的检查；量的是分支相对主干的新增行，基线算不出来时说「无从判断」而不是放行 |
 | `scripts/check/size-rule.ts` | 检查 | — | 上面那条闸门的**判定**本身。四类分开算、豁免必须指名类别；抽出来是为了它能被测 |
+| `scripts/check/age.ts` | 检查 | — | 把「分支活不过 48 小时」变成能报错的检查；量的是分叉时长（最早那个不在主干上的提交到现在），不是最后一次提交距今多久 |
+| `scripts/check/age-rule.ts` | 检查 | — | 上面那条闸门的**判定**本身，含阈值校准的那张表；抽出来是为了它能被测 |
+| `scripts/check/trailer.ts` | 检查 | — | 提交信息的 trailer 块。两个闸门都要在提交信息里读指令，而提交信息里也会举例说明这些指令 —— 判据借的是 git 自己的 trailer 定义，**只此一份** |
 | `scripts/check/spec-sync.ts` | 检查 | — | SPEC.md 的表格由 requirements.json 生成，两者不可能漂移 |
 | `scripts/check/quoted.ts` | 检查 | — | 引文遮罩:一段 Markdown 里哪些行是在**演示**语法而不是使用它(围栏块、HTML 注释)。**凡是要按结构解析 Markdown 的地方都先过它** —— 同一个坑在两处各栽过一次 |
 | `scripts/check/adr-sync.ts` | 检查 | — | 决策记录一条一个文件；编号唯一、文件名与正文一致、索引不漂移，并守住 `DECISIONS.md` 不再装回整册 |

@@ -15,6 +15,7 @@ import {
   FILE_RE, checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, markerFault,
   renderIndex, slugify,
 } from './check/adr-rule.js'
+import { LIMIT_HOURS, judgeAge, judgeAgeExemption, scanAgeWaiver } from './check/age-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
@@ -1366,6 +1367,30 @@ harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
   ok('没关上的注释 → 残段', endsOpen(['## ADR-01 甲', '<!--', 'x'].join('\n')))
   ok('没关上的 HTML 块 → 残段', endsOpen(['## ADR-01 甲', '<pre>', 'x'].join('\n')))
   ok('都关上了 → 不是残段', !endsOpen(['## ADR-01 甲', '```', 'x', '```'].join('\n')))
+}
+
+harness('分支寿命：分叉时长有上限，超线要具名豁免')
+{
+  // 阈值按本仓库自己的历史校准：已合并 PR 最长 22.9 小时，三条出事的在途分支
+  // 91.5 / 91.5 / 102.8 小时 —— 48 落在这两组数之间的空档里
+  eq('线内通过', judgeAge(22.9, null).kind, 'ok')
+  eq('正好压线仍算线内', judgeAge(LIMIT_HOURS, null).kind, 'ok')
+  eq('超线且无豁免 → 拦下', judgeAge(102.8, null).kind, 'over')
+  eq('超线但有豁免 → 放行', judgeAge(102.8, '等上游接口定稿').kind, 'waived')
+  // 豁免不消灭数字：报告照打小时数，豁免只让它别拦路
+  eq('豁免带着理由一起报', (judgeAge(102.8, '等上游接口定稿') as { reason: string }).reason,
+    '等上游接口定稿')
+
+  eq('理由必填 —— 只写指令不算', judgeAgeExemption('age-ok:'), null)
+  eq('只有空白也不算', judgeAgeExemption('age-ok:   '), null)
+  eq('写了理由就算', judgeAgeExemption('age-ok: 等上游'), '等上游')
+  // 判据借的是 trailer 块（和体量豁免同一份实现）：正文里的示例一律不算
+  eq('和 Co-Authored-By 同一段的算',
+    scanAgeWaiver('标题\n\n正文\n\nage-ok: 等上游\nCo-Authored-By: x <a@b.c>'), '等上游')
+  eq('正文里举的例子不算',
+    scanAgeWaiver('标题\n\n想豁免就写：\n\n    age-ok: 某个理由\n\n就这样。'), null)
+  eq('最后一段掺了散文 → 整段不算',
+    scanAgeWaiver('标题\n\nage-ok: 等上游\n这一行是散文'), null)
 }
 
 harness('决策记录：编号唯一、文件名与正文一致、索引按数字排序')
