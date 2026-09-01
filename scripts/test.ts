@@ -1315,6 +1315,19 @@ harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
   eq('pre 块内允许空行',
     quotedMask(['<pre>', '', '## ADR-59 例子', '</pre>', 'b'].join('\n')),
     [true, true, true, true, false])
+  // 规范原话：开启符后跟空格、制表符、`>`，**或行尾**。少了行尾这一种，单独一行的
+  // `<pre` 会掉进「到空行为止」的兜底 —— 空行之后的 `## ADR-NN` 就露出来当分节了
+  eq('开启符后面直接是行尾也算第 1 类 —— 空行不收尾',
+    quotedMask(['a', '<pre', '', '## ADR-59 例子', '</pre>', 'b'].join('\n')),
+    [false, true, true, true, true, false])
+  // 规范括号里写明「不必与开启的那个匹配」
+  eq('收尾标签不必与开启的那个匹配',
+    quotedMask(['a', '<pre', '## ADR-59 例子', '</style>', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('`<presentation>` 不是第 1 类 —— 后面既不是空白也不是 `>` 或行尾',
+    quotedMask(['<presentation>', '', '## ADR-59 例子'].join('\n')),
+    [true, true, false])
+
   // CommonMark 的七类开启符列全了 —— 这是个闭合集合，不会再有第八种
   eq('CDATA 块到 ]]> 为止',
     quotedMask(['a', '<![CDATA[', '## ADR-59 例子', ']]>', 'b'].join('\n')),

@@ -47,7 +47,7 @@ function commentStateAfter(line: string, open: boolean): boolean {
  *
  * | 类 | 开启 | 收尾 |
  * |---|---|---|
- * | 1 | `<pre` `<script` `<style` `<textarea` | 匹配的收尾标签 |
+ * | 1 | `<pre` `<script` `<style` `<textarea` | 四个收尾标签中的任意一个 |
  * | 2 | `<!--` | `-->`(一行里可能开合多次,单独处理) |
  * | 3 | `<?` | `?>` |
  * | 4 | `<!` + 字母 | `>` |
@@ -56,15 +56,28 @@ function commentStateAfter(line: string, open: boolean): boolean {
  *
  * 第 6、7 类没有嵌那张六十个标签的表,判据放宽成「行首是 `<` 加字母或 `/`」。
  * 宽了会多盖几行,而多盖是安全的那一侧;嵌长表反而会因为漏了某个标签而少盖。
+ *
+ * ## 第 1 类的两处细节,都得照规范的原话,不能照直觉
+ *
+ * **开启符后面允许直接是行尾。** 规范原话是「后跟一个空格、一个制表符、`>`、
+ * 或**行尾**」。少了行尾这一种,单独一行的 `<pre` 认不出来,掉进第 6、7 类的
+ * 兜底判据里按**空行**收尾 —— 而第 1 类本该一直开到收尾标签。差别不是多盖少盖:
+ * 块里空行之后的 `## ADR-59` 会露出来当成分节,`--split` 把真记录截断、
+ * 再写出一条假记录。
+ *
+ * **收尾标签不必与开启的那个匹配。** 规范括号里写明了(`it need not match the
+ * start tag`)。所以收尾判据是四个标签的并集,不是开启的那一个 —— 这一处
+ * 收得比规范紧会多盖,虽然落在安全的那一侧,但遮罩要如实反映一个 CommonMark
+ * 解析器的行为,而**规范说了算的地方没有「保守一点」这个选项**。
+ * 放宽只留给规范之外的判断(第 6、7 类那张长表)。
  */
-const HTML_RAW = /^ {0,3}<(pre|script|style|textarea)[\s>]/i
+const HTML_RAW = /^ {0,3}<(?:pre|script|style|textarea)(?:[\s>]|$)/i
+const HTML_RAW_END = /<\/(?:pre|script|style|textarea)>/i
 const HTML_ANY = /^ {0,3}<[a-zA-Z/]/
-const htmlClose = (tag: string) => new RegExp(`</${tag}>`, 'i')
 
 /** 开启符 → 收尾判据。`'blank'` 表示到空行为止。 */
 function openerOf(line: string): { end: RegExp | 'blank' } | null {
-  const raw = HTML_RAW.exec(line)
-  if (raw) return { end: htmlClose(raw[1]) }
+  if (HTML_RAW.test(line)) return { end: HTML_RAW_END }
   if (/^ {0,3}<!\[CDATA\[/.test(line)) return { end: /\]\]>/ }
   if (/^ {0,3}<\?/.test(line)) return { end: /\?>/ }
   if (/^ {0,3}<![a-zA-Z]/.test(line)) return { end: />/ }
