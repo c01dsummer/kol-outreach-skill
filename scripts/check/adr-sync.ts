@@ -13,7 +13,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import {
   type Adr, type Baseline, FILE_RE, HEAD_RE, checkAll, checkAppendOnly, fileNameOf, renderIndex,
 } from './adr-rule.js'
@@ -90,6 +90,26 @@ if (process.argv.includes('--split')) {
     }
     writeFileSync(file, content, 'utf8')
     written.push(file)
+  }
+  /**
+   * 写完回头问一次目录:**盘上的名字必须和算出来的名字逐字相同**。
+   *
+   * `fileNameOf` 算出来的名字要过一趟文件系统的编解码,而那一趟不保证原样返回 ——
+   * 半个代理对会被换成 `�`,某些文件系统还会顺手把名字归一化。任何一种情况下,
+   * 后面 `npm run adr` 读目录读到的都是另一个名字,于是它判**这次拆分刚写出来的
+   * 文件**「文件名与正文不符」,而那时候报错的位置离出错的位置隔着一整条命令。
+   *
+   * 与其枚举「哪些名字过不了这一趟」,不如写完直接问一次 —— 这道兜底与成因无关,
+   * 今天挡的是代理对,明天 slugify 放宽了、或者换个文件系统,挡的还是它。
+   */
+  const onDisk = new Set(readdirSync(DIR))
+  const mangled = written.filter(f => !onDisk.has(basename(f)))
+  if (mangled.length) {
+    console.error(`✗ 决策记录：${mangled.length} 条写出来的文件名被文件系统改写了\n`)
+    for (const f of mangled) console.error(`  · 想写 ${basename(f)}`)
+    console.error('\n  文件已经在盘上，但名字不是这个 —— `npm run adr` 会判它文件名与正文不符。')
+    console.error('  多半是标题里有半个代理对一类的东西：换个写法，或先手工把这几个文件删掉重来。')
+    process.exit(1)
   }
   if (clashes.length) {
     console.error(`✗ 决策记录：${clashes.length} 条拒绝覆盖（其余 ${written.length} 条已写出）\n`)
