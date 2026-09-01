@@ -36,34 +36,85 @@ function commentStateAfter(line: string, open: boolean): boolean {
   return open
 }
 
-export function quotedMask(text: string): boolean[] {
-  const out: boolean[] = []
-  let fence: { char: string; len: number } | null = null
-  let inComment = false
+/**
+ * 原始 HTML 块。CommonMark 分七类,收尾规则不同,这里只区分要紧的两种:
+ *
+ * - **类型 1**(`pre` `script` `style` `textarea`):到匹配的收尾标签为止,
+ *   **块内允许空行** —— 所以必须单独认,不能按空行收尾
+ * - **其余**:行首是一个标签就开始,到**空行**为止
+ *
+ * 第二种没有嵌那张六十个标签的表,判据放宽成「行首是 `<` 加字母或 `/`」。
+ * 宽了会多盖几行,而多盖是安全的那一侧(见文件头那张表);嵌一张长表反而会
+ * 因为漏了某个标签而少盖 —— 那是不安全的那一侧。
+ */
+const HTML_RAW = /^ {0,3}<(pre|script|style|textarea)[\s>]/i
+const HTML_ANY = /^ {0,3}<[a-zA-Z/]/
+const htmlClose = (tag: string) => new RegExp(`</${tag}>`, 'i')
+
+interface State {
+  fence: { char: string; len: number } | null
+  comment: boolean
+  /** 类型 1 记标签名(等收尾标签);其余记 `'blank'`(等空行) */
+  html: string | null
+}
+
+function scan(text: string): { mask: boolean[]; state: State } {
+  const mask: boolean[] = []
+  const state: State = { fence: null, comment: false, html: null }
 
   for (const line of text.split('\n')) {
-    if (inComment) {
-      out.push(true)
-      inComment = commentStateAfter(line, true)
+    if (state.comment) {
+      mask.push(true)
+      state.comment = commentStateAfter(line, true)
+      continue
+    }
+    if (state.html) {
+      mask.push(true)
+      if (state.html === 'blank' ? line.trim() === '' : htmlClose(state.html).test(line)) {
+        state.html = null
+      }
       continue
     }
     const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)
-    if (fence) {
+    if (state.fence) {
       const closes = run !== null
-        && run[1][0] === fence.char
-        && run[1].length >= fence.len
+        && run[1][0] === state.fence.char
+        && run[1].length >= state.fence.len
         && run[2].trim() === ''
-      if (closes) fence = null
-      out.push(true)
+      if (closes) state.fence = null
+      mask.push(true)
       continue
     }
-    if (run) { fence = { char: run[1][0], len: run[1].length }; out.push(true); continue }
+    if (run) { state.fence = { char: run[1][0], len: run[1].length }; mask.push(true); continue }
     if (line.includes('<!--')) {
-      out.push(true)
-      inComment = commentStateAfter(line, false)
+      mask.push(true)
+      state.comment = commentStateAfter(line, false)
       continue
     }
-    out.push(false)
+    const raw = HTML_RAW.exec(line)
+    if (raw) {
+      mask.push(true)
+      if (!htmlClose(raw[1]).test(line.slice(raw[0].length))) state.html = raw[1]
+      continue
+    }
+    if (HTML_ANY.test(line)) { mask.push(true); state.html = 'blank'; continue }
+    mask.push(false)
   }
-  return out
+  return { mask, state }
+}
+
+export function quotedMask(text: string): boolean[] {
+  return scan(text).mask
+}
+
+/**
+ * 这段文本结束时,还有没有**没关上的**引文构造(围栏、注释、HTML 块)。
+ *
+ * 给 `--split` 当兜底用:一刀切在引文中间,切出来的那段必然带着一个没关上的构造。
+ * 这条判断**与引文的形态无关** —— 只要遮罩认识那种形态,切错就被抓住,
+ * 不必指望我把每种写法都提前想到。
+ */
+export function endsOpen(text: string): boolean {
+  const { state } = scan(text)
+  return state.fence !== null || state.comment || state.html !== null
 }

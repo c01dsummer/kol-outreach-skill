@@ -14,7 +14,7 @@ import {
 import {
   checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, renderIndex, slugify,
 } from './check/adr-rule.js'
-import { quotedMask } from './check/quoted.js'
+import { endsOpen, quotedMask } from './check/quoted.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { fillEmail, pickList } from './providers/tikhub.js'
@@ -1301,6 +1301,26 @@ harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
     quotedMask(['a', '<!-- 甲', '乙 --> <!-- 丙 -->', 'b'].join('\n')),
     [false, true, true, false])
   eq('什么都没有时全是 false', quotedMask(['a', 'b'].join('\n')), [false, false])
+
+  // 原始 HTML 块（CommonMark 类型 1）是唯一会原样藏住顶格 `## ADR-NN` 的一类
+  eq('pre 块整段盖住',
+    quotedMask(['a', '<pre>', '## ADR-59 例子', '</pre>', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('同一行开合的 HTML 块只盖那一行',
+    quotedMask(['a', '<pre>x</pre>', 'b'].join('\n')), [false, true, false])
+  // 其余 HTML 块到空行为止；pre 一类允许块内空行，所以两种收尾规则要分开
+  eq('div 块到空行为止',
+    quotedMask(['a', '<div>', '## ADR-59 例子', '</div>', '', 'b'].join('\n')),
+    [false, true, true, true, true, false])
+  eq('pre 块内允许空行',
+    quotedMask(['<pre>', '', '## ADR-59 例子', '</pre>', 'b'].join('\n')),
+    [true, true, true, true, false])
+
+  // 兜底：切在引文中间，那一段必然带着没关上的构造 —— 与形态无关
+  ok('没关上的围栏 → 残段', endsOpen(['## ADR-01 甲', '```', 'x'].join('\n')))
+  ok('没关上的注释 → 残段', endsOpen(['## ADR-01 甲', '<!--', 'x'].join('\n')))
+  ok('没关上的 HTML 块 → 残段', endsOpen(['## ADR-01 甲', '<pre>', 'x'].join('\n')))
+  ok('都关上了 → 不是残段', !endsOpen(['## ADR-01 甲', '```', 'x', '```'].join('\n')))
 }
 
 harness('决策记录：编号唯一、文件名与正文一致、索引按数字排序')

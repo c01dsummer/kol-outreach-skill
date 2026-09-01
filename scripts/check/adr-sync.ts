@@ -17,7 +17,7 @@ import { join } from 'node:path'
 import {
   type Adr, type Baseline, FILE_RE, HEAD_RE, checkAll, checkAppendOnly, fileNameOf, renderIndex,
 } from './adr-rule.js'
-import { quotedMask } from './quoted.js'
+import { endsOpen, quotedMask } from './quoted.js'
 
 const DIR = 'docs/adr'
 const INDEX = join(DIR, 'README.md')
@@ -47,6 +47,22 @@ if (process.argv.includes('--split')) {
   const starts = lines.map((l, i) => (!mask[i] && RECORD_HEADING.test(l) ? i : -1)).filter(i => i >= 0)
   const body = starts.map((start, k) =>
     lines.slice(start, starts[k + 1] ?? lines.length).join('\n'))
+
+  /**
+   * 兜底:切出来的每一段都必须是**自足**的 —— 没有没关上的围栏、注释或 HTML 块。
+   *
+   * 一刀切在引文中间,那一段必然带着一个没关上的构造。这条判断与引文的形态无关,
+   * 所以哪怕遮罩漏了某种写法(它只是近似,不是完整的 Markdown 解析器),
+   * 结果也是**拒绝写**,而不是写出一份被截断的记录。
+   */
+  const broken = body.filter(sec => endsOpen(sec))
+  if (broken.length) {
+    console.error(`✗ 决策记录：${broken.length} 段切出来是残的（有没关上的围栏/注释/HTML 块）\n`)
+    for (const b of broken) console.error(`  · ${b.split('\n')[0]}`)
+    console.error('\n  多半是某个 `## ADR-` 出现在引文里、被当成了分节。')
+    console.error('  一个字都没写 —— `DECISIONS.md` 原样未动,先看那几段。')
+    process.exit(1)
+  }
   if (!body.length) { console.log('✓ 决策记录：没有可拆的整册内容'); process.exit(0) }
   mkdirSync(DIR, { recursive: true })
   /**
