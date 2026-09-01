@@ -27,7 +27,7 @@
 | 跑法 | 什么时候 | 守什么 |
 |---|---|---|
 | `npm run age` | 检查链里,每次推送 | 你正要合的这个改动 |
-| `npm run age -- --ref <分支>` | `age.yml`,每天贴到各 PR 的 head | **合并闸看的那个地方** |
+| `npm run age -- --ref <分支>` | `age.yml`,PR 事件时 + 每天,贴到各 PR 的 head | **合并闸看的那个地方** |
 | `npm run age -- --all` | `age.yml`,每天一次聚合 | 仓库现在有哪些分支超线 |
 
 中间那条不能省。GitHub 的合并闸看的是 **PR head 那个 SHA 上的检查** ——

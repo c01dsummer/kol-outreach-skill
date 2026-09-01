@@ -7,10 +7,10 @@
 #
 # 两件事分开做,因为它们出现在不同的地方:
 #
-# 1. `--all` 扫全部远端分支,结果留在 Actions 里 —— 看得见「仓库现在什么样」
-# 2. 每个开着的 PR 各贴一条 check run 到**它自己的 head SHA** 上 ——
+# 1. 每个 PR 各贴一条 check run 到**它自己的 head SHA** 上 ——
 #    GitHub 的合并闸看的是那里。只有聚合结果的话,一个 47 小时通过、之后没人碰
 #    的 PR,head 上那条绿不会失效:**聚合任务红着,PR 照样能合。**
+# 2. `--all` 扫全部远端分支,结果留在 Actions 里 —— 看得见「仓库现在什么样」
 #
 # ⚠️ 贴上去的这条检查要真正**挡住**合并,还得在仓库设置里把 `age` 加进
 #    required status checks。那是仓库设置,不在这个仓库的代码里 ——
@@ -21,6 +21,22 @@ on:
   schedule:
     # 每天 06:00 UTC 一次。48 小时的线,一天查一次的延迟够用了
     - cron: '0 6 * * *'
+
+  # PR 事件也贴一次。只靠定时的话,新开的 PR、以及每次新推送之后,都**没有**
+  # `age` 结果 —— 一旦它成为必需检查,那就是把一个本来能合的 PR 卡上最多 24 小时。
+  # (`check.yml` 里跑的 `npm run age` 产出的是名为 `check` 的那条检查,
+  #  不会另外生成一条 `age`。)
+  #
+  # 用 `pull_request_target` 而不是 `pull_request`:贴 check run 要写权限,
+  # 而 `pull_request` 给 fork 来的 PR 的 token 是只读的 —— 贴不上去,且静默失败。
+  #
+  # ⚠️ **安全前提:这个工作流从不检出、也从不执行 PR 里的代码。** checkout 取的是
+  #    基仓,跑的是基仓的脚本;PR 那一侧只当数据读(`refs/pull/N/head` 的提交时间)。
+  #    往这里加任何「跑 PR 代码」的步骤之前,先把这一行改回 `pull_request` ——
+  #    否则就是把写权限交给任何人都能提的代码。
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
   workflow_dispatch:
 
 permissions:
@@ -44,38 +60,58 @@ jobs:
           cache: npm
       - run: npm ci
 
-      # 每个开着的 PR 贴一条 check run 到它自己的 head SHA 上
       - name: 贴到各 PR 的 head
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
         run: |
-          # --limit 必须显式给：gh pr list 默认只列 30 条，多出来的会被静默丢掉，
-          # 而被丢掉的那个 PR 会一直留着它上一次的绿
-          gh pr list --state open --limit 1000 --json number,headRefOid             --jq '.[] | [.number, .headRefOid] | @tsv' > prs.tsv
-          while IFS=$'	' read -r num sha; do
-              # 量 refs/pull/N/head，不拼 origin/<分支名>。fork 来的 PR，那个分支
-              # 在 fork 里，基仓的 origin/* 里根本没有 —— 拼出来的 ref 要么不存在
-              # （贴一条假的失败），要么基仓恰好有同名分支（**量了另一个提交**，
-              # 还把结果贴到 fork 的 SHA 上）。refs/pull/N/head 两种情形都对。
-              git fetch -q origin "refs/pull/$num/head:refs/remotes/pr/$num" --force
-              got=$(git rev-parse "refs/remotes/pr/$num")
-              if [ "$got" != "$sha" ]; then
-                # 列表和 refs/pull 之间有人推了新提交。贴上去的结果就不是这个 SHA
-                # 的了 —— 跳过，下一次跑（或那次推送自己触发的那次）会覆盖
-                echo "PR #$num: head 变了（$sha → $got），跳过"
-                continue
-              fi
-              if out=$(npm run --silent age -- --ref "refs/remotes/pr/$num" 2>&1); then
-                concl=success
-              else
-                concl=failure
-              fi
-              echo "PR #$num: $concl"
-              # 用 JSON body 而不是 `-f output[title]=`：嵌套字段的简写各版本 gh
-              # 行为不一，贴错了会静默变成一条没有正文的检查
-              jq -n --arg sha "$sha" --arg concl "$concl" --arg out "$out"                 '{name:"age", head_sha:$sha, status:"completed", conclusion:$concl,
-                  output:{title:"分支寿命", summary:$out}}'               | gh api "repos/${{ github.repository }}/check-runs" -X POST --input - >/dev/null
-            done < prs.tsv
+          # 落在临时文件里，不是工作区 —— 工作区里多出来的东西会被顺手提交
+          prs=$(mktemp)
+          if [ "$EVENT" = pull_request_target ]; then
+            # PR 事件：只贴触发它的这一个
+            printf '%s\t%s\n' "$PR_NUMBER" "$PR_SHA" > "$prs"
+          else
+            # --limit 必须显式给：gh pr list 默认只列 30 条，多出来的会被静默丢掉，
+            # 而被丢掉的那个 PR 会一直留着它上一次的绿 —— 正好是这条闸门要拦的
+            # 那个「过了线还绿着」
+            gh pr list --state open --limit 1000 --json number,headRefOid \
+              --jq '.[] | [.number, .headRefOid] | @tsv' > "$prs"
+          fi
 
-      # 聚合视图：仓库现在有哪些分支超线。红在 Actions 里，不挡任何 PR
-      - run: npm run age -- --all
+          while IFS=$'\t' read -r num sha; do
+            # 量 refs/pull/N/head，不拼 origin/<分支名>。fork 来的 PR，那条分支在
+            # fork 里，基仓的 origin/* 里根本没有 —— 拼出来的 ref 要么不存在（贴
+            # 一条假的失败），要么基仓恰好有同名分支（**量了另一个提交**，还把结果
+            # 贴到 fork 的 SHA 上）。refs/pull/N/head 两种情形都对。
+            git fetch -q origin "refs/pull/$num/head:refs/remotes/pr/$num" --force
+            got=$(git rev-parse "refs/remotes/pr/$num")
+            if [ "$got" != "$sha" ]; then
+              # 列出来之后又有人推了新提交。贴上去就成了「A 提交的结论挂在 B 上」——
+              # 跳过，那次推送自己触发的运行会补上
+              echo "PR #$num: head 变了（$sha → $got），跳过"
+              continue
+            fi
+
+            if out=$(npm run --silent age -- --ref "refs/remotes/pr/$num" 2>&1); then
+              concl=success
+            else
+              concl=failure
+            fi
+            echo "PR #$num: $concl"
+
+            # 用 JSON body 而不是 `-f 'output[title]=…'`：嵌套字段的简写各版本 gh
+            # 行为不一，贴错了会静默变成一条没有正文的检查
+            jq -n --arg sha "$sha" --arg concl "$concl" --arg out "$out" \
+              '{name:"age", head_sha:$sha, status:"completed", conclusion:$concl,
+                output:{title:"分支寿命", summary:$out}}' \
+            | gh api "repos/$REPO/check-runs" -X POST --input - >/dev/null
+          done < "$prs"
+
+      # 聚合视图：仓库现在有哪些分支超线。红在 Actions 里，不挡任何 PR。
+      # PR 事件下不跑 —— 那条 PR 自己的结论已经贴上去了，再因为**别人的**分支
+      # 超线而把这次运行染红，只会让人以为是自己的问题
+      - if: github.event_name != 'pull_request_target'
+        run: npm run age -- --all
