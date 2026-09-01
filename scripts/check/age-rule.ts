@@ -155,3 +155,116 @@ export function birthOf(authorISO: string, anchorISO: string | null):
   if (!Number.isFinite(b)) return { at: authorISO, fromAnchor: false }
   return b < a ? { at: anchorISO, fromAnchor: true } : { at: authorISO, fromAnchor: false }
 }
+
+/**
+ * ## 从 git 读到的字串,到能判定的事实
+ *
+ * 下面这几个是**决策**,不是搬运:顺序错了会出错,所以它们不该待在入口脚本里
+ * (`docs/CONVENTIONS.md` 第 10 条)。这条纪律在这个仓库踩过五次,这是第六次 ——
+ * 而且是同一个形状:闸门自己的判定留在入口里,于是测试与变异全绿,
+ * **而真正量分支的那段代码一行都没被证明过**。
+ *
+ * 入口只负责跑 `git`、把字串递进来、把结果打出去。
+ */
+
+/** `git log --format=%at%x09%aI%x09%H` 的一行:纪元秒、ISO 作者时间、完整 SHA。 */
+export interface Commit { at: number; iso: string; sha: string }
+
+/**
+ * **读不出纪元秒的行直接丢掉,不当成 0。** 丢进来一个 0,它会立刻变成
+ * 「1970 年的作者时间」—— 一个五十万小时的分叉,比任何真实情况都老,
+ * 而且看起来言之凿凿。丢掉之后「一条都没读出来」是一种能说出口的状态,见 `shapeOf`。
+ */
+export function parseLog(text: string): Commit[] {
+  const out: Commit[] = []
+  for (const line of text.split('\n')) {
+    if (!line) continue
+    const [at, iso, sha] = line.split('\t')
+    const n = Number(at)
+    if (Number.isFinite(n) && iso && sha) out.push({ at: n, iso, sha })
+  }
+  return out
+}
+
+/**
+ * 一条 ref 相对主干的形状。
+ *
+ * **「已经合完了」「量不了」「读不出来」必须分开。** 三者都不产出小时数,含义却不同:
+ * 第一个是这条分支没什么可量的(提交都在主干上了),后两个是**我不知道**,
+ * 而且原因不一样。早先 `unrelated` 和 `merged` 返回同一个 null,于是一条没有共同
+ * 祖先的分支被当成「已合完」静默跳过,末尾照样宣布「N 条在途分支都在线内」——
+ * 那句话里不包含它,却听起来包含。
+ */
+export type Shape =
+  | { kind: 'unrelated' }
+  | { kind: 'merged' }
+  | { kind: 'diverged'; oldest: Commit; commits: number }
+  /** 范围里有提交,却一条作者时间都读不出来 —— 量不了,**不是**「已合完」。 */
+  | { kind: 'unreadable' }
+
+/**
+ * **取作者时间最小的那个提交,不是「排在最前面」的那个。**
+ *
+ * 早先入口里用的是 `rev-list --reverse` 的第一条。而 `rev-list` 默认按**提交
+ * 时间**排(`--topo-order` / `--date-order` 是另外的开关),作者时间和提交时间
+ * 可以差很远 —— cherry-pick 一段老工作进来就是最常见的形状:作者时间两百多
+ * 小时前,提交时间是现在。它于是排在后面,而闸门只看第一条。
+ *
+ * 实测:一条含 250 小时前工作的分支,报的是 `✓ 分叉 1.0 / 48 小时`。
+ * **不是量错,是根本没量到那一条。**
+ *
+ * 比的是纪元秒,不是 ISO 字符串 —— 带不同时区偏移的 ISO 串按字典序排是错的。
+ *
+ * 三个判断的**顺序**也是语义:`unrelated` 要排在 `merged` 前面,否则「没有共同
+ * 祖先」这件事根本没机会被说出来。
+ */
+export function shapeOf(base: string | null, tip: string, log: Commit[], raw: number): Shape {
+  if (base === null) return { kind: 'unrelated' }
+  if (base === tip) return { kind: 'merged' }
+  if (!log.length) return raw > 0 ? { kind: 'unreadable' } : { kind: 'merged' }
+  let oldest = log[0]
+  for (const c of log) if (c.at < oldest.at) oldest = c
+  return { kind: 'diverged', oldest, commits: log.length }
+}
+
+/**
+ * 走第一父链要从**分支自己的头**开始,不是从检出的那个提交。
+ *
+ * 调用方给两件**事实**:正在评审的那个头是谁(`prHead`),以及它确实是检出那条
+ * 提交的祖先(`isAncestor`)。两件都成立才用它 —— 填错了不至于量到别处去。
+ * 判据为什么不在提交图里,见 `age.ts` 里那张表。
+ */
+export function ownTipOf(tip: string, prHead: string | null, isAncestor: boolean): string {
+  return prHead && isAncestor ? prHead : tip
+}
+
+/**
+ * 扫豁免的**顺序与范围**:先看检出的那条提交自己,再顺着分支的第一父链往回走。
+ *
+ * 检出的那条要单独排在最前面,是因为它可能根本不在第一父链上 ——
+ * `pull_request` 事件下它是 GitHub 合成的合并提交。少了它,一条把理由写在
+ * 合并提交上的分支就找不到自己的豁免。
+ *
+ * 去重只是省几次 `git log`:第一父链的头通常就是它。
+ */
+export function waiverOrder(tip: string, ownFirstParent: string[]): string[] {
+  return [tip, ...ownFirstParent.filter(s => s !== tip)]
+}
+
+/** 一句豁免,连同**它写在哪个提交上**。 */
+export interface Attributed { reason: string; from: string }
+
+/**
+ * 按给定顺序取**第一条**成立的豁免,并记下它的出处。
+ *
+ * 记出处不是为了好看:叠在一条没合的分支上开出去的分支,会连着下面那条的提交
+ * 一起继承它的 `age-ok:`。挡不住(见 `age.ts`),但报告里点出那个提交,
+ * 它不属于这条分支的话人一眼看得出来。
+ */
+export function pickWaiver(commits: { sha: string; message: string }[]): Attributed | null {
+  for (const c of commits) {
+    const reason = scanAgeWaiver(c.message)
+    if (reason) return { reason, from: c.sha.slice(0, 7) }
+  }
+  return null
+}

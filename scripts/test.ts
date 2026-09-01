@@ -16,7 +16,8 @@ import {
   renderIndex, slugify,
 } from './check/adr-rule.js'
 import {
-  LIMIT_HOURS, birthOf, judgeAge, judgeAgeExemption, scanAgeWaiver,
+  LIMIT_HOURS, birthOf, judgeAge, judgeAgeExemption, ownTipOf, parseLog, pickWaiver,
+  scanAgeWaiver, shapeOf, waiverOrder,
 } from './check/age-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
@@ -1415,6 +1416,45 @@ harness('分支寿命：分叉时长有上限，超线要具名豁免')
     scanAgeWaiver('标题\n\n想豁免就写：\n\n    age-ok: 某个理由\n\n就这样。'), null)
   eq('最后一段掺了散文 → 整段不算',
     scanAgeWaiver('标题\n\nage-ok: 等上游\n这一行是散文'), null)
+
+  // ── 量分支的那几个判定。抽出入口才够得着：顺序错了会出错的都是语义 ──
+
+  const c = (at: number, sha: string) => ({ at, iso: new Date(at * 1000).toISOString(), sha })
+
+  // 三种「不是分叉」彼此不同，不能塞成一种
+  eq('没有共同祖先 → 不相干', shapeOf(null, 'tip', [], 0).kind, 'unrelated')
+  eq('分叉点就是分支头 → 已合完', shapeOf('x', 'x', [], 0).kind, 'merged')
+  eq('范围里一个提交都没有 → 已合完', shapeOf('base', 'tip', [], 0).kind, 'merged')
+  // 有提交、却一条作者时间都读不出来：那是「量不了」，不是「已合完」——
+  // 当成已合完的话，这条分支会从「在途」那份名单里静默消失，而汇总照样说都在线内
+  eq('有提交却读不出作者时间 → 量不了', shapeOf('base', 'tip', [], 3).kind, 'unreadable')
+
+  // 取作者时间**最小**的那个，不是排在最前面的那个 —— cherry-pick 进来的老提交
+  // 按提交时间排会落在后面，只看第一条等于根本没量到它（实测报过 ✓ 1.0 小时）
+  const div = shapeOf('base', 'tip', [c(1000, 'newer12'), c(10, 'oldest1'), c(2000, 'newest')], 3)
+  eq('挑的是作者时间最小的那个', div.kind === 'diverged' ? div.oldest.sha : '', 'oldest1')
+  eq('提交数是全部，不是第一父链那几条', div.kind === 'diverged' ? div.commits : 0, 3)
+
+  // 读不出纪元秒的行丢掉，不兜底成 0 —— 0 是 1970 年，一个比任何真实情况都老的分叉
+  eq('读不出纪元秒的行丢掉', parseLog('x\tISO\tsha\n100\t2026-01-01T00:00:00Z\tabc').length, 1)
+  eq('缺字段的行也丢掉', parseLog('100\t\tabc').length, 0)
+
+  // 从哪个头开始走第一父链：调用方给的两件事实都成立才用它
+  eq('没给头 → 用检出的那条', ownTipOf('tip', null, false), 'tip')
+  eq('给了头但它不是祖先 → 不用，填错了不至于量到别处去', ownTipOf('tip', 'other', false), 'tip')
+  eq('给了头且确实是祖先 → 用它', ownTipOf('merge', 'head', true), 'head')
+
+  // 检出的那条要单独排最前：PR 事件下它是合成的合并提交，根本不在第一父链上
+  eq('检出的那条排最前，其余按第一父链', waiverOrder('m', ['a', 'b']), ['m', 'a', 'b'])
+  eq('已经在链里就不重复扫', waiverOrder('a', ['a', 'b']), ['a', 'b'])
+
+  // 取第一条成立的，并记下它写在哪个提交上 —— 出处是叠分支继承豁免时唯一的线索
+  eq('第一条成立的说了算，并带出处', pickWaiver([
+    { sha: 'aaaaaaa1', message: '无关\n\nCo-Authored-By: x <a@b.c>' },
+    { sha: 'bbbbbbb2', message: 'x\n\nage-ok: 等上游' },
+    { sha: 'ccccccc3', message: 'y\n\nage-ok: 另一条' },
+  ]), { reason: '等上游', from: 'bbbbbbb' })
+  eq('一条都没有 → 没有豁免', pickWaiver([{ sha: 'a', message: '无关' }]), null)
 }
 
 harness('决策记录：编号唯一、文件名与正文一致、索引按数字排序')

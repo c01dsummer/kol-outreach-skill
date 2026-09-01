@@ -30,7 +30,9 @@
  * 时间型的判据要配时间型的触发,少一个,保证就只在有人已经在看的时候才成立。
  */
 import { execFileSync } from 'node:child_process'
-import { LIMIT_HOURS, birthOf, judgeAge, scanAgeWaiver } from './age-rule.js'
+import {
+  LIMIT_HOURS, birthOf, judgeAge, ownTipOf, parseLog, pickWaiver, shapeOf, waiverOrder,
+} from './age-rule.js'
 
 const TRUNK_CANDIDATES = ['origin/main', 'main']
 
@@ -91,49 +93,26 @@ const ANCHOR = sinceArg >= 0 ? (process.argv[sinceArg + 1] ?? null) : null
 /**
  * 一个 ref 相对主干的分叉时长。
  *
- * **「已经合完了」和「量不了」必须分开。** 两者都不产出小时数,但含义相反:
- * 前者是这条分支没什么可量的(它的提交都在主干上了),后者是**我不知道**。
- * 早先两种都返回 null,于是一条没有共同祖先的分支被当成「已合完」静默跳过,
- * 而末尾照样宣布「N 条在途分支都在线内」—— 那句话里不包含它,却听起来包含。
+ * **这个函数只做 IO**:跑 `git`,把字串递给 `age-rule.ts` 里的判定,把结果装起来。
+ * 判定本身(形状分类、取哪个提交、豁免扫哪些)在那边,因为它们的**顺序错了会出错**
+ * —— 有语义就该能被测,能被测就不该待在入口脚本里(`docs/CONVENTIONS.md` 第 10 条)。
  *
- * 三态:是 / 否 / 我不知道。第三种要说出口,不能塞进前两种里
- * (`process/4-VERIFY.md`)。
+ * 这一条是评审第三次在同一件事上叫停:头两次是「判据不在提交图里」,这次是
+ * 「判据不在入口脚本里」。抽出去之前,真正量分支的那段代码一行都没被证明过 ——
+ * 测试与变异全绿,而它们够不到这里。
  */
-type Verdict3 = Measured | { kind: 'merged' } | { kind: 'unrelated' }
+type Verdict3 = Measured | { kind: 'merged' } | { kind: 'unrelated' } | { kind: 'unreadable' }
 
 function measure(ref: string): Verdict3 {
   const tip = git('rev-parse', ref)
   const base = tryGit('merge-base', trunk!, ref)
-  if (!base) return { kind: 'unrelated' }
-  if (base === tip) return { kind: 'merged' }
-  /**
-   * **取作者时间最小的那个提交,不是「排在最前面」的那个。**
-   *
-   * 早先这里用的是 `rev-list --reverse` 的第一条。而 `rev-list` 默认按**提交
-   * 时间**排(`--topo-order` / `--date-order` 是另外的开关),作者时间和提交时间
-   * 可以差很远 —— cherry-pick 一段老工作进来就是最常见的形状:作者时间两百多
-   * 小时前,提交时间是现在。它于是排在后面,而闸门只看第一条。
-   *
-   * 实测:一条含 250 小时前工作的分支,报的是 `✓ 分叉 1.0 / 48 小时`。
-   * **不是量错,是根本没量到那一条。**
-   *
-   * 用 `%at`(纪元秒)比大小,不比 ISO 字符串 —— 带不同时区偏移的 ISO 串
-   * 按字典序排是错的。
-   */
-  const log = git('log', '--format=%at%x09%aI%x09%H', `${base}..${tip}`)
-    .split('\n').filter(Boolean)
-  if (!log.length) return { kind: 'merged' }
+  const raw = base === null || base === tip
+    ? '' : git('log', '--format=%at%x09%aI%x09%H', `${base}..${tip}`)
+  const rawCount = raw.split('\n').filter(Boolean).length
+  const shape = shapeOf(base, tip, parseLog(raw), rawCount)
+  if (shape.kind !== 'diverged') return shape
 
-  let first = { at: Number.POSITIVE_INFINITY, iso: '', sha: '' }
-  const shas: string[] = []
-  for (const line of log) {
-    const [at, iso, sha] = line.split('\t')
-    shas.push(sha)
-    const n = Number(at)
-    if (Number.isFinite(n) && n < first.at) first = { at: n, iso, sha }
-  }
-  const oldest = first.sha
-  const birth = birthOf(first.iso, ANCHOR)
+  const birth = birthOf(shape.oldest.iso, ANCHOR)
   const since = birth.at
 
   /**
@@ -151,37 +130,20 @@ function measure(ref: string): Verdict3 {
    * 带豁免的 A 之后,报「⊘ 已具名豁免:A 在等上游接口定稿」。
    *
    * 这也正是这条豁免被设计成提交信息里一行、而不是一条决策记录的理由:
-   * **它跟着分支生,跟着分支死**(`process/6-INTEGRATE.md`)。跟着合并跑到别的
-   * 分支上去,就不是那个东西了。
-   *
-   * 合并提交本身在第一父链上 —— 想为这次合并说话,写在那条提交信息里就算。
+   * **它跟着分支生,跟着分支死**(`process/6-INTEGRATE.md`)。
    *
    * ⚠️ **「第一父链」不等于「这条分支自己的提交」,差在叠分支上。** B 不是把 A
    *    合进来,而是**直接从没合的 A 上开出去**的话,A 的提交就在 B 的第一父链上,
-   *    B 于是照样继承 A 那句 `age-ok:` —— 它自己一句话没说过。
+   *    B 于是照样继承 A 那句 `age-ok:` —— 它自己一句话没说过。挡不住,理由和下面
+   *    那两轮一样:图里没有能分开它们的东西。所以改成**让它看得见** ——
+   *    报告里点名那句理由写在哪个提交上(`pickWaiver`)。
    *
-   *    和上面那两轮一样,**图里没有能分开它们的东西**:「从 A 开出去」和「A 的提交
-   *    本来就是我自己写的」在提交图上是同一个形状。分得开它的事实只有一个 ——
-   *    **这条 PR 的 base 是哪条分支** —— 而它同样只在调用方手里(`base.sha`),
-   *    跟 `AGE_PR_HEAD` 是同一个形状的东西。留作下一条分支的活。
-   *
-   *    在那之前先把它变得**看得见**:报告里点名那句豁免写在哪个提交上。继承来的
-   *    那一句,写它的提交不属于这条分支,人一眼看得出来。挡不住,但不再是无声的。
-   *    (小时数本来就照打 —— 叠出来的分支在报告里仍是一个大数,不会消失。)
-   *
-   * 豁免不设新鲜度,理由见 `age-rule.ts`。
-   */
-  let waiver: string | null = null
-  let waiverFrom = ''
-  /**
-   * **第一父链要从分支自己的头开始走,不是从检出的那个提交。**
+   * ## 「从哪个头开始走」不能靠看提交图判,试过两轮都不行
    *
    * `pull_request` 事件下,CI 检出的是 GitHub 合成的 `refs/pull/N/merge` ——
    * 它的**第一父是主干那一侧**,第二父才是 PR 的头。从它走第一父链,走到的只有
    * 那个合成提交本身,一条分支提交都碰不到:一条写了合法 `age-ok:` 的超线 PR
    * 会在必需的 `check` 里照样红。
-   *
-   * ## 这件事**不能靠看提交图判**,试过两轮都不行
    *
    * | 轮 | 判据 | 被什么打回 |
    * |---|---|---|
@@ -189,38 +151,34 @@ function measure(ref: string): Verdict3 {
    * | 15 | 上面那条 + 也扫检出的那条提交 | 补回了合并提交那句话,但第二父那条历史照旧在扫 —— 一条自己没声明过任何东西的分支又开始继承旁支的豁免 |
    *
    * **合成 ref 和「从主干开一条分支、头一次就 `merge --no-ff` 别人」在提交图里
-   * 是同一个形状。** 图里没有能分开它们的东西,所以判据不在图里,在**调用方**。
+   * 是同一个形状。** 图里没有能分开它们的东西,所以判据不在图里,在**调用方**:
+   * `AGE_PR_HEAD` 给出「正在评审的那个头」。工作流在 `pull_request` 事件下填
+   * `github.event.pull_request.head.sha`;push、本地、`--ref`、`--all` 都没有它,
+   * 那时检出的就是头本身。
    *
-   * 于是改成让调用方把事实传进来:`AGE_PR_HEAD` 给出「正在评审的那个头」。
-   * 工作流在 `pull_request` 事件下填 `github.event.pull_request.head.sha`;
-   * push、本地、`--ref`、`--all` 都没有它,那时检出的就是头本身。
-   *
-   * 传的是**事实**(头是哪个提交),不是**推断**(这次是不是 PR 事件) ——
-   * 后者还要再猜一次。仍然核一遍它确实是 HEAD 的祖先,填错了不至于量到别处去。
+   * 传的是**事实**(头是哪个提交),不是**推断**(这次是不是 PR 事件)——
+   * 后者还要再猜一次。仍然核一遍它确实是 HEAD 的祖先。
    */
   const prHead = ref === 'HEAD' && process.env.AGE_PR_HEAD
     ? tryGit('rev-parse', `${process.env.AGE_PR_HEAD}^{commit}`)
     : null
-  const ownTip = prHead
-    && tryGit('merge-base', '--is-ancestor', prHead, tip) !== null ? prHead : tip
+  const ownTip = ownTipOf(tip, prHead,
+    prHead !== null && tryGit('merge-base', '--is-ancestor', prHead, tip) !== null)
   const own = git('log', '--first-parent', '--format=%H', `${base}..${ownTip}`)
     .split('\n').filter(Boolean)
-  for (const sha of [tip, ...own]) {
-    if (waiver) break
-    waiver = scanAgeWaiver(git('log', '-1', '--format=%B', sha))
-    if (waiver) waiverFrom = sha.slice(0, 7)
-  }
+  const picked = pickWaiver(waiverOrder(tip, own)
+    .map(sha => ({ sha, message: git('log', '-1', '--format=%B', sha) })))
 
   return {
     kind: 'measured',
     hours: (Date.now() - new Date(since).getTime()) / 3_600_000,
-    commits: shas.length,
-    oldest: oldest.slice(0, 7),
-    subject: git('log', '-1', '--format=%s', oldest),
+    commits: shape.commits,
+    oldest: shape.oldest.sha.slice(0, 7),
+    subject: git('log', '-1', '--format=%s', shape.oldest.sha),
     since: since.slice(0, 16),
     fromAnchor: birth.fromAnchor,
-    waiver,
-    waiverFrom,
+    waiver: picked?.reason ?? null,
+    waiverFrom: picked?.from ?? '',
   }
 }
 
@@ -256,6 +214,9 @@ if (refArg >= 0) {
   }
   if (one.kind === 'unrelated') {
     cannotAnswer(`${ref} 与 ${trunk} 没有共同祖先`, '接上主干,或者删掉这条分支。')
+  }
+  if (one.kind === 'unreadable') {
+    cannotAnswer(`${ref} 上有提交,却一条作者时间都读不出来`, '这多半说明 git 的输出格式变了,或者这不是一个正常的仓库。')
   }
   const v = judgeAge(one.hours, one.waiver)
   if (v.kind === 'future') {
@@ -294,6 +255,11 @@ if (process.argv.includes('--all')) {
     if (m.kind === 'unrelated') {
       console.log(`  ? ${'—'.padStart(6)}        ——  ${name}`)
       unknown.push(`${name}(与 ${trunk} 没有共同祖先)`)
+      continue
+    }
+    if (m.kind === 'unreadable') {
+      console.log(`  ? ${'—'.padStart(6)}        ——  ${name}`)
+      unknown.push(`${name}(有提交,却一条作者时间都读不出来)`)
       continue
     }
     const v = judgeAge(m.hours, m.waiver)
@@ -358,6 +324,9 @@ if (merged === head) {
 }
 
 const m = measure('HEAD')
+if (m.kind === 'unreadable') {
+  cannotAnswer('HEAD 上有提交,却一条作者时间都读不出来', '这多半说明 git 的输出格式变了,或者这不是一个正常的仓库。')
+}
 if (m.kind !== 'measured') {
   console.log(`✓ 分支寿命:不适用 —— 相对 ${trunk} 没有自己的提交`)
   process.exit(0)

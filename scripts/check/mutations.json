@@ -336,6 +336,54 @@
       "file": "scripts/check/age-rule.ts",
       "find": "  if (hours < 0) return { kind: 'future' }\n  if (hours <= LIMIT_HOURS) return { kind: 'ok' }\n  return waiver ? { kind: 'waived', reason: waiver } : { kind: 'over' }",
       "replace": "  if (waiver) return { kind: 'waived', reason: waiver }\n  if (hours < 0) return { kind: 'future' }\n  if (hours <= LIMIT_HOURS) return { kind: 'ok' }\n  return { kind: 'over' }"
+    },
+    {
+      "id": "M-H2-g",
+      "req": "harness",
+      "why": "分支上有提交、却一条作者时间都读不出来时报「已经合完了」—— 这条分支从「在途」那份名单里静默消失,而汇总照样说都在线内",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  if (!log.length) return raw > 0 ? { kind: 'unreadable' } : { kind: 'merged' }",
+      "replace": "  if (!log.length) return { kind: 'merged' }"
+    },
+    {
+      "id": "M-H2-h",
+      "req": "harness",
+      "why": "分叉时长从「排在最前面那个提交」算起,不再从作者时间最早的那个算起 —— cherry-pick 进来的老工作排在后面,于是根本没被量到,一条含 250 小时前工作的分支报 1 小时",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  for (const c of log) if (c.at < oldest.at) oldest = c",
+      "replace": ""
+    },
+    {
+      "id": "M-H2-i",
+      "req": "harness",
+      "why": "读不出作者时间的那一行兜底成 0 —— 0 是 1970 年,分叉时长于是变成五十万小时,一个比任何真实情况都老、却言之凿凿的数",
+      "file": "scripts/check/age-rule.ts",
+      "find": "    if (Number.isFinite(n) && iso && sha) out.push({ at: n, iso, sha })",
+      "replace": "    if (sha) out.push({ at: Number.isFinite(n) ? n : 0, iso, sha })"
+    },
+    {
+      "id": "M-H2-j",
+      "req": "harness",
+      "why": "调用方给的那个「正在评审的头」不再核一遍是不是本分支的祖先就直接用 —— 填错一个提交,闸门会跑去量另一条历史,还照常给结论",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  return prHead && isAncestor ? prHead : tip",
+      "replace": "  return prHead ? prHead : tip"
+    },
+    {
+      "id": "M-H2-k",
+      "req": "harness",
+      "why": "扫豁免时不再单独看检出的那条提交,只走第一父链 —— PR 事件下检出的是合成的合并提交,它不在那条链上,于是把理由写在合并提交上的分支找不到自己的豁免",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  return [tip, ...ownFirstParent.filter(s => s !== tip)]",
+      "replace": "  return [...ownFirstParent]"
+    },
+    {
+      "id": "M-H2-l",
+      "req": "harness",
+      "why": "豁免不再记下它写在哪个提交上 —— 叠分支继承来的那句理由从此看不出是谁写的,而那个出处是唯一的线索",
+      "file": "scripts/check/age-rule.ts",
+      "find": "    if (reason) return { reason, from: c.sha.slice(0, 7) }",
+      "replace": "    if (reason) return { reason, from: '' }"
     }
   ],
   "exemptions": [
