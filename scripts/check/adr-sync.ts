@@ -15,7 +15,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import {
-  type Adr, type Baseline, FILE_RE, HEAD_RE, checkAll, checkAppendOnly, fileNameOf, renderIndex,
+  type Adr, type Baseline, FILE_RE, HEAD_RE, checkAll, checkAppendOnly, fileNameOf, markerFault,
+  renderIndex,
 } from './adr-rule.js'
 import { endsOpen, quotedMask } from './quoted.js'
 
@@ -237,7 +238,13 @@ if (existsSync(LEGACY)) {
 const index = existsSync(INDEX) ? readFileSync(INDEX, 'utf8') : ''
 const i = index.indexOf(BEGIN)
 const j = index.indexOf(END)
-if (i < 0 || j < 0) errors.push(`${INDEX} 缺少 BEGIN/END 标记`)
+const FAULT: Record<'missing' | 'reversed' | 'duplicate', string> = {
+  missing: '缺少 BEGIN/END 标记',
+  reversed: '的 END 标记在 BEGIN 之前 —— 手工调回来再跑 `--write`',
+  duplicate: '的 BEGIN/END 标记不止一对 —— 手工只留一对再跑 `--write`',
+}
+const fault = markerFault(index, BEGIN, END)
+if (fault) errors.push(`${INDEX} ${FAULT[fault]}`)
 
 if (errors.length) {
   console.error(`✗ 决策记录：${errors.length} 项\n`)

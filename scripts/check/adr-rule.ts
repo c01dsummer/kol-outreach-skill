@@ -150,3 +150,26 @@ export function checkAppendOnly(before: Map<number, Baseline>, after: Adr[]): st
   }
   return errors
 }
+
+/**
+ * 生成区标记的形状。`--write` 是 `slice(0, i) + want + slice(j + end.length)` ——
+ * 这个式子只在**恰好一对、BEGIN 在前**时成立,所以两个都在还不够:
+ *
+ * | 形状 | 回写会怎样 |
+ * |---|---|
+ * | 缺任一个 | 下标为 −1,切出来的位置全错 |
+ * | END 在 BEGIN 前 | 两个下标都非负、判断放行,而前半段留下 END、后半段又把 BEGIN 抄一遍 —— **索引被写坏**,而这条命令正是报错时让人去跑的那条 |
+ * | 不止一对 | `indexOf` 只认第一个,多出来的那对留在生成区里,下一次比对永远不一致,提示还是「跑 `--write`」—— 一个自己修不好自己的循环 |
+ *
+ * 判不准时**不动**:回写会盖掉内容,报错让人看一眼,比动了便宜。
+ */
+export type MarkerFault = 'missing' | 'reversed' | 'duplicate'
+
+export function markerFault(text: string, begin: string, end: string): MarkerFault | null {
+  const i = text.indexOf(begin)
+  const j = text.indexOf(end)
+  if (i < 0 || j < 0) return 'missing'
+  if (j < i) return 'reversed'
+  if (text.indexOf(begin, i + 1) >= 0 || text.indexOf(end, j + 1) >= 0) return 'duplicate'
+  return null
+}

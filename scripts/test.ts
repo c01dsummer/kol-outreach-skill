@@ -12,8 +12,8 @@ import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
 import {
-  FILE_RE, checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, renderIndex,
-  slugify,
+  FILE_RE, checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, markerFault,
+  renderIndex, slugify,
 } from './check/adr-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
@@ -1411,6 +1411,16 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
   // 共用一条判据就漂不了，另写一条「标题不能为空」早晚会和 FILE_RE 分家
   ok('标题剔空之后拼出的文件名，读路径不认', !FILE_RE.test(fileNameOf(15, '[]()')))
   ok('留一个字符就认', FILE_RE.test(fileNameOf(15, '甲[]()')))
+
+  // `--write` 是 slice(0, i) + want + slice(j + END.length)，这个式子只在
+  // 「恰好一对、BEGIN 在前」时成立。两个下标都非负就放行的话，END 在前会让前半段
+  // 留下 END、后半段把 BEGIN 再抄一遍 —— 回写把索引写坏，而它正是报错时让人跑的命令
+  const [MB, ME] = ['<!--B-->', '<!--E-->']
+  eq('一对、顺序对 → 无异常', markerFault(`前${MB}中${ME}后`, MB, ME), null)
+  eq('缺一个 → missing', markerFault(`前${MB}中`, MB, ME), 'missing')
+  eq('END 在 BEGIN 之前 → reversed（两个下标都非负，只查在不在会放行）',
+    markerFault(`前${ME}中${MB}后`, MB, ME), 'reversed')
+  eq('多出一对 → duplicate', markerFault(`${MB}甲${ME}${MB}乙${ME}`, MB, ME), 'duplicate')
 
   // 编号不可回收：只看当前目录的话，删一条再把号让给别的决策是查不出来的
   const A = (num: number, title: string): { file: string; num: number; title: string } =>
