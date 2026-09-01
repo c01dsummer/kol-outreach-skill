@@ -77,11 +77,31 @@ if (process.argv.includes('--split')) {
    * 内容一致时照写不误，`--split` 的幂等不受影响。
    */
   const clashes: string[] = []
+  const unreadable: string[] = []
   const written: string[] = []
   for (const sec of body) {
     const m = RECORD_HEADING.exec(sec.split('\n')[0])!
     const [num, title] = [Number(m[1]), m[2].trim()]
     const text = sec.split('\n').slice(1).join('\n').replace(/\n+---\s*$/, '').trim()
+    /**
+     * **写之前先拿读路径的判据问一次:这个名字它认不认。**
+     *
+     * 一个整由待剔字符组成的标题(`[]()`)过完 `slugify` 是空串,拼出来是
+     * `ADR-15-.md` —— `FILE_RE` 要求标题段非空,读路径当场判「文件名不合格式」。
+     * 于是 `--split` 报成功、退 0,下一条 `npm run adr` 却红,而红的是这次拆分
+     * 刚写出来的文件。
+     *
+     * 不给兜底名(`无题` 一类):那是替人编一个标题,而**编号会被下游引用**,
+     * 编错了比报错贵。这里说清楚是哪一条、为什么,让人自己改标题。
+     *
+     * 判据直接取读路径的 `FILE_RE`,不另写一条「标题不能为空」——
+     * 两条判据早晚会漂移,而**写方与读方共用同一条,就漂不了**。
+     */
+    if (!FILE_RE.test(fileNameOf(num, title))) {
+      unreadable.push(`ADR-${m[1]} 的标题「${title}」剔完不合法字符只剩空串，`
+        + `拼出来的 ${fileNameOf(num, title)} 读路径不认`)
+      continue
+    }
     const file = join(DIR, fileNameOf(num, title))
     const content = `# ADR-${m[1]} ${title}\n\n${text}\n`
     if (existsSync(file) && readFileSync(file, 'utf8') !== content) {
@@ -109,6 +129,14 @@ if (process.argv.includes('--split')) {
     for (const f of mangled) console.error(`  · 想写 ${basename(f)}`)
     console.error('\n  文件已经在盘上，但名字不是这个 —— `npm run adr` 会判它文件名与正文不符。')
     console.error('  多半是标题里有半个代理对一类的东西：换个写法，或先手工把这几个文件删掉重来。')
+    process.exit(1)
+  }
+  if (unreadable.length) {
+    console.error(`✗ 决策记录：${unreadable.length} 条的标题拼不出合法文件名`
+      + `（其余 ${written.length} 条已写出）\n`)
+    for (const u of unreadable) console.error(`  · ${u}`)
+    console.error('\n  给这几条换个标题：至少留一个不会被剔掉的字符。')
+    console.error('  会被剔掉的是文件系统与 Markdown 链接语法里会坏事的那些，见 `slugify`。')
     process.exit(1)
   }
   if (clashes.length) {

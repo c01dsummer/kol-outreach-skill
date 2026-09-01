@@ -12,7 +12,8 @@ import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
 import {
-  checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, renderIndex, slugify,
+  FILE_RE, checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, renderIndex,
+  slugify,
 } from './check/adr-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
@@ -1404,6 +1405,12 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
   eq('字面量 % 编成 %25', encodeTarget('ADR-09-甲%20乙.md'), 'ADR-09-甲%2520乙.md')
   ok('真空格与字面量 %20 编出来不同 —— 两者必须能区分',
     encodeTarget('ADR-09-甲 乙.md') !== encodeTarget('ADR-09-甲%20乙.md'))
+
+  // 整由待剔字符组成的标题过完 slugify 是空串，拼出来 `ADR-15-.md` —— FILE_RE 要求
+  // 标题段非空，读路径不认。`--split` 拿这同一条判据在写之前拦下：写方与读方
+  // 共用一条判据就漂不了，另写一条「标题不能为空」早晚会和 FILE_RE 分家
+  ok('标题剔空之后拼出的文件名，读路径不认', !FILE_RE.test(fileNameOf(15, '[]()')))
+  ok('留一个字符就认', FILE_RE.test(fileNameOf(15, '甲[]()')))
 
   // 编号不可回收：只看当前目录的话，删一条再把号让给别的决策是查不出来的
   const A = (num: number, title: string): { file: string; num: number; title: string } =>
