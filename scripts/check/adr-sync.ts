@@ -24,8 +24,13 @@ const INDEX = join(DIR, 'README.md')
 const LEGACY = 'DECISIONS.md'
 const BEGIN = '<!-- BEGIN:GENERATED 由 npm run adr 生成，勿手改 -->'
 const END = '<!-- END:GENERATED -->'
-/** 正文里的分节标题。`## ADR-NN` 是旧的整册格式，拆开后不该再出现。 */
-const LEGACY_SECTION = /^## ADR-\d+ /m
+/**
+ * 整册里的记录标题。**两级都认**:`##` 是旧整册的写法,`#` 是拆开后单文件的写法。
+ *
+ * 只认 `##` 的话,一条照**新**格式误写进转发页的记录会溜过去 —— 它既不在
+ * `docs/adr/`,也不在索引里,而检查是绿的。
+ */
+const RECORD_HEADING = /^#{1,2}\s+ADR-(\d+)\s+(.+?)\s*$/
 
 // ── 迁移 ────────────────────────────────────────────────────────
 if (process.argv.includes('--split')) {
@@ -39,7 +44,7 @@ if (process.argv.includes('--split')) {
    */
   const lines = src.split('\n')
   const mask = quotedMask(src)
-  const starts = lines.map((l, i) => (!mask[i] && /^## ADR-\d+ /.test(l) ? i : -1)).filter(i => i >= 0)
+  const starts = lines.map((l, i) => (!mask[i] && RECORD_HEADING.test(l) ? i : -1)).filter(i => i >= 0)
   const body = starts.map((start, k) =>
     lines.slice(start, starts[k + 1] ?? lines.length).join('\n'))
   if (!body.length) { console.log('✓ 决策记录：没有可拆的整册内容'); process.exit(0) }
@@ -58,7 +63,7 @@ if (process.argv.includes('--split')) {
   const clashes: string[] = []
   const written: string[] = []
   for (const sec of body) {
-    const m = /^## ADR-(\d+) (.+)$/m.exec(sec)!
+    const m = RECORD_HEADING.exec(sec.split('\n')[0])!
     const [num, title] = [Number(m[1]), m[2].trim()]
     const text = sec.split('\n').slice(1).join('\n').replace(/\n+---\s*$/, '').trim()
     const file = join(DIR, fileNameOf(num, title))
@@ -153,8 +158,15 @@ function trunkAdrs(): Map<number, Baseline> {
 errors.push(...checkAppendOnly(trunkAdrs(), adrs))
 
 /** 拆开之后 `DECISIONS.md` 只做转发。写回整册就是把冲突面又装回去。 */
-if (existsSync(LEGACY) && LEGACY_SECTION.test(readFileSync(LEGACY, 'utf8'))) {
-  errors.push(`${LEGACY} 里又出现了 \`## ADR-\` 分节 —— 记录写进 ${DIR}/，跑 \`npm run adr -- --split\``)
+if (existsSync(LEGACY)) {
+  const src = readFileSync(LEGACY, 'utf8')
+  const mask = quotedMask(src)
+  // 引文里的示例不算 —— 转发页本来就要举例说明记录长什么样
+  const found = src.split('\n').some((l, i) => !mask[i] && RECORD_HEADING.test(l))
+  if (found) {
+    errors.push(`${LEGACY} 里又出现了记录标题(\`# ADR-\` 或 \`## ADR-\`)`
+      + ` —— 记录写进 ${DIR}/，跑 \`npm run adr -- --split\``)
+  }
 }
 
 // ── 索引 ────────────────────────────────────────────────────────
