@@ -259,7 +259,9 @@ console.log(`  ${FLAG[verdict.kind]} 分叉 ${m.hours.toFixed(1)} / ${LIMIT_HOUR
 console.log(`      最早的提交:${m.oldest} ${m.subject}`)
 if (m.fromAnchor) {
   console.log('      ⚠ 那个提交的作者时间比上面这个时间还晚 —— 历史被改写过,或者时钟不对。')
-  console.log('        改用了 --since 给的那个改写不了的时间;分支只会显得更老,不会更年轻。')
+  console.log('        改用了 --since 给的那个改写不了的时间(PR 创建时间)。')
+  console.log('        注意它只按得住 PR 开出来**之后**的改写 —— 之前的按不住,')
+  console.log('        见 `age-rule.ts` 的 `birthOf`。')
 }
 console.log(LEGEND)
 

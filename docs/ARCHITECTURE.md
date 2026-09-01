@@ -78,7 +78,7 @@
 | `scripts/check/adr-rule.ts` | 检查 | — | 上面那条检查的**判定**本身。文件名与编号的对应、撞号、索引渲染 |
 | `scripts/check/mutate.ts` | 检查 | — | 给测试做的测试：变异存活即那条测试是假的 |
 | `scripts/check/why-rule.ts` | 检查 | — | 变异集 why 的判定：夹带实现原文当场拦下，让 `--brief` 名副其实 |
-| `scripts/check/selfcheck.ts` | 检查 | F5 | 用假 fetch 把每个可执行文件从头执行到尾 |
+| `scripts/check/selfcheck.ts` | 检查 | F5 | 每个可执行文件都要有出处：**采集管线那几个**在这里用假 fetch 从头跑到尾，**检查脚本**在 `npm run check` 里各自成一步（那条路不保证跑到尾 —— 检查可以合法提前退出），其余写进 `EXEMPT` 说明理由 |
 | `scripts/check/fake-fetch.ts` | 检查 | — | 自检用的假响应；它决定了自检能走到多深 |
 | `scripts/check/audit.ts` | 检查 | — | 链路审计，回答完成度而不是「功能做完了没有」 |
 | `scripts/check/arch-sync.ts` | 检查 | — | 守住本文档的骨架：双向覆盖、编号有效、顺序契约必须绑定真实变异 |
