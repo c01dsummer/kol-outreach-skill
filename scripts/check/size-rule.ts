@@ -10,8 +10,6 @@
  * 走 git、打印、退出码留在 `size.ts`。
  */
 
-import { fenceMask } from './fence.js'
-
 export type Category = '源码' | '测试' | '文档' | '其他'
 export const CATEGORIES: Category[] = ['源码', '测试', '文档', '其他']
 
@@ -129,23 +127,34 @@ export function judgeExemption(line: string): ExemptionVerdict | null {
 }
 
 /**
- * 扫一条提交信息里的豁免标记,**围栏代码块里的当引文**。
+ * 豁免只认**最后一个 trailer 块** —— 提交信息末尾、由空行隔开的那一段,
+ * 和 `Co-Authored-By:` 同一段。正文里出现的一切都不算。
  *
- * 提交信息里举例说明这个语法是很自然的事,而例子有三种写法,都必须当引文:
- * 缩进(由 `judgeExemption` 的「必须顶格」挡住)、引文前缀、**围栏代码块**。
- * 少一种,后果是双向的:格式正确的示例**白送一条豁免**,格式故意写歪的示例
- * **让闸门报红** —— 后者已经发生过。
+ * 这条规则是**换掉**一串补丁得来的,不是加在它们上面的。原来的做法是扫整个正文、
+ * 再逐一排除「看起来像引文」的写法,而每排除一种就冒出下一种:
  *
- * 围栏的判断在 `fence.ts`,和决策记录的分节共用同一份 —— 这个坑在两处各栽过一次。
+ * | 形态 | 补法 |
+ * |---|---|
+ * | 缩进的示例 | 要求顶格 |
+ * | `>` 引文 | 同上顺带 |
+ * | 围栏代码块 | 加围栏遮罩 |
+ * | 围栏的种类与长度 | 照 CommonMark 记住开启标记 |
+ * | 闭合后的信息串 | 闭合后只许空白 |
+ * | **HTML 注释** | ← 第六种 |
+ *
+ * 补到第六种就该承认判据错了:**把整个正文当成指令区**,就得没完没了地枚举
+ * 「什么不是指令」。反过来划一小块出来当指令区,正文里怎么写都不会被误读 ——
+ * 而 git 早就定义好了这一小块。
+ *
+ * 代价是豁免必须写在最后一段。这不是负担,是惯例:trailer 本来就都在那里。
  */
 export function scanMessage(message: string): ExemptionVerdict[] {
-  const mask = fenceMask(message)
+  const blocks = message.replace(/\s+$/, '').split(/\n[ \t]*\n/)
   const out: ExemptionVerdict[] = []
-  message.split('\n').forEach((line, i) => {
-    if (mask[i]) return
+  for (const line of (blocks[blocks.length - 1] ?? '').split('\n')) {
     const v = judgeExemption(line)
     if (v) out.push(v)
-  })
+  }
   return out
 }
 

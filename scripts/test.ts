@@ -1411,33 +1411,20 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
   eq('引文里的 size-ok 不算', judgeExemption('> size-ok: 源码 某个理由'), null)
   ok('顶格的才算', judgeExemption('size-ok: 源码 某个理由')?.kind === 'exempt')
 
-  // 围栏代码块里的行本身是顶格的 —— 「必须顶格」那条拦不住它。少了这一条，
-  // 后果是双向的：格式正确的示例白送一条豁免，故意写歪的示例让闸门报红。
-  const fenced = ['feat: x', '', '```', 'size-ok: 源码 这是举例说明', '```', '',
-    'size-ok: 文档 这是真的豁免'].join('\n')
-  eq('围栏里的当引文，围栏外的才算',
-    scanMessage(fenced).map(v => v.kind === 'exempt' ? v.category : 'bad'), ['文档'])
-  eq('围栏里格式写歪的也不算 —— 否则举例说明会把闸门弄红',
-    scanMessage(['```', 'size-ok: 写歪的例子', '```'].join('\n')), [])
-  eq('~~~ 围栏同样算', scanMessage(['~~~', 'size-ok: 源码 例子', '~~~'].join('\n')), [])
-
-  // 闭合必须与开启同种：反引号块里演示 `~~~` 的那一行是内容，不是闭合
-  eq('异种标记不闭合围栏',
-    scanMessage(['```', '~~~', 'size-ok: 源码 这仍然在块里', '```'].join('\n')), [])
-  // 更短的同种标记也不闭合（CommonMark）
-  eq('更短的同种标记不闭合',
-    scanMessage(['````', '```', 'size-ok: 源码 这仍然在块里', '````'].join('\n')), [])
-  // 闭合围栏后面只能跟空白 —— ```ts 那样带信息串的行出现在块里时是内容
-  eq('带信息串的行不闭合围栏',
-    scanMessage(['```', '```ts', 'size-ok: 源码 这仍然在块里', '```'].join('\n')), [])
-  // 遮罩本身：围栏标记与围栏内容都算「不是结构」，其余为 false
-  eq('遮罩标出围栏范围',
-    fenceMask(['a', '```', 'b', '```', 'c'].join('\n')), [false, true, true, true, false])
-
-  ok('围栏正常闭合后照旧生效',
-    scanMessage(['```', 'x', '```', 'size-ok: 源码 真理由'].join('\n'))[0]?.kind === 'exempt')
-  ok('围栏之外一切照旧',
-    scanMessage('fix: y\n\nsize-ok: 源码 真理由')[0]?.kind === 'exempt')
+  // 豁免只认最后一个 trailer 块 —— 正文里怎么写都不算。
+  // 这条换掉了原先「扫整个正文、再逐一排除引文写法」的做法：那条路补到第六种
+  // 形态（缩进/引文/围栏/围栏种类/信息串/HTML 注释）仍在冒新的。
+  const withBody = ['feat: x', '', '```', 'size-ok: 源码 围栏里的例子', '```', '',
+    '<!--', 'size-ok: 源码 注释里的例子', '-->', '',
+    'size-ok: 文档 这条在最后一段，算', 'Co-Authored-By: X <x@y>'].join('\n')
+  eq('只有最后一段里的算',
+    scanMessage(withBody).map(v => v.kind === 'exempt' ? v.category : 'bad'), ['文档'])
+  eq('正文里的 size-ok 一律不算 —— 围栏、注释、缩进都不必再分别处理',
+    scanMessage(['x', '', 'size-ok: 源码 正文里的', '', 'Co-Authored-By: X <x@y>'].join('\n')), [])
+  ok('和 Co-Authored-By 同一段的算',
+    scanMessage('fix: y\n\nsize-ok: 源码 真理由\nCo-Authored-By: X <x@y>')[0]?.kind === 'exempt')
+  eq('最后一段里写歪的仍然拦下',
+    scanMessage('x\n\nsize-ok: 写歪的').map(v => v.kind), ['unjustified'])
 
   // 豁免带着「写下之后这一类还净增了多少」。树对树算出来，不看提交顺序 ——
   // 按顺序算的那条路走了四版都不对，理由记在 size-rule.ts 的 Waiver 上。

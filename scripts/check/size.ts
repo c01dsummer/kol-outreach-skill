@@ -173,7 +173,8 @@ for (const o of report.over) {
 if (!report.ok) {
   console.error('\n  先问:这条分支能不能按「验收证据」切成两个?')
   console.error('  两段代码要写两种不同的证据来证明它们对,它们就是两个改动。')
-  console.error('  确有必要时,在提交信息里写 `size-ok: <类别> <理由>` —— 见 process/6-INTEGRATE.md。')
+  console.error('  确有必要时,在提交信息**最后一段**写 `size-ok: <类别> <理由>`')
+  console.error('  (和 `Co-Authored-By:` 同一段;正文里的不算)—— 见 process/6-INTEGRATE.md。')
   process.exit(1)
 }
 
