@@ -1315,6 +1315,18 @@ harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
   eq('pre 块内允许空行',
     quotedMask(['<pre>', '', '## ADR-59 例子', '</pre>', 'b'].join('\n')),
     [true, true, true, true, false])
+  // CommonMark 的七类开启符列全了 —— 这是个闭合集合，不会再有第八种
+  eq('CDATA 块到 ]]> 为止',
+    quotedMask(['a', '<![CDATA[', '## ADR-59 例子', ']]>', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('处理指令到 ?> 为止',
+    quotedMask(['a', '<?php', '## ADR-59 例子', '?>', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('声明到 > 为止（跨行）',
+    quotedMask(['a', '<!DOCTYPE', '## ADR-59 例子', '>', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('同一行收尾的声明只盖那一行',
+    quotedMask(['a', '<!DOCTYPE html>', 'b'].join('\n')), [false, true, false])
 
   // 兜底：切在引文中间，那一段必然带着没关上的构造 —— 与形态无关
   ok('没关上的围栏 → 残段', endsOpen(['## ADR-01 甲', '```', 'x'].join('\n')))

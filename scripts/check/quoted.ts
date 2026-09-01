@@ -37,25 +37,45 @@ function commentStateAfter(line: string, open: boolean): boolean {
 }
 
 /**
- * 原始 HTML 块。CommonMark 分七类,收尾规则不同,这里只区分要紧的两种:
+ * 原始 HTML 块的开启符与各自的收尾。**照 CommonMark 的七类,列全**。
  *
- * - **类型 1**(`pre` `script` `style` `textarea`):到匹配的收尾标签为止,
- *   **块内允许空行** —— 所以必须单独认,不能按空行收尾
- * - **其余**:行首是一个标签就开始,到**空行**为止
+ * 列全是有意义的:这是一个**闭合的集合** —— 七类之外没有第八种开启符。
+ * 前几轮一种一种补(`pre` → `div` → CDATA),每次都在猜下一个;
+ * 照着规范把七类一次列完,这条线就到头了。
  *
- * 第二种没有嵌那张六十个标签的表,判据放宽成「行首是 `<` 加字母或 `/`」。
- * 宽了会多盖几行,而多盖是安全的那一侧(见文件头那张表);嵌一张长表反而会
- * 因为漏了某个标签而少盖 —— 那是不安全的那一侧。
+ * 收尾规则各不相同,不能一概按空行:
+ *
+ * | 类 | 开启 | 收尾 |
+ * |---|---|---|
+ * | 1 | `<pre` `<script` `<style` `<textarea` | 匹配的收尾标签 |
+ * | 2 | `<!--` | `-->`(一行里可能开合多次,单独处理) |
+ * | 3 | `<?` | `?>` |
+ * | 4 | `<!` + 字母 | `>` |
+ * | 5 | `<![CDATA[` | `]]>` |
+ * | 6、7 | 其余以标签开头的行 | **空行** |
+ *
+ * 第 6、7 类没有嵌那张六十个标签的表,判据放宽成「行首是 `<` 加字母或 `/`」。
+ * 宽了会多盖几行,而多盖是安全的那一侧;嵌长表反而会因为漏了某个标签而少盖。
  */
 const HTML_RAW = /^ {0,3}<(pre|script|style|textarea)[\s>]/i
 const HTML_ANY = /^ {0,3}<[a-zA-Z/]/
 const htmlClose = (tag: string) => new RegExp(`</${tag}>`, 'i')
 
+/** 开启符 → 收尾判据。`'blank'` 表示到空行为止。 */
+function openerOf(line: string): { end: RegExp | 'blank' } | null {
+  const raw = HTML_RAW.exec(line)
+  if (raw) return { end: htmlClose(raw[1]) }
+  if (/^ {0,3}<!\[CDATA\[/.test(line)) return { end: /\]\]>/ }
+  if (/^ {0,3}<\?/.test(line)) return { end: /\?>/ }
+  if (/^ {0,3}<![a-zA-Z]/.test(line)) return { end: />/ }
+  if (HTML_ANY.test(line)) return { end: 'blank' }
+  return null
+}
+
 interface State {
   fence: { char: string; len: number } | null
   comment: boolean
-  /** 类型 1 记标签名(等收尾标签);其余记 `'blank'`(等空行) */
-  html: string | null
+  html: { end: RegExp | 'blank' } | null
 }
 
 function scan(text: string): { mask: boolean[]; state: State } {
@@ -70,9 +90,8 @@ function scan(text: string): { mask: boolean[]; state: State } {
     }
     if (state.html) {
       mask.push(true)
-      if (state.html === 'blank' ? line.trim() === '' : htmlClose(state.html).test(line)) {
-        state.html = null
-      }
+      const done = state.html.end === 'blank' ? line.trim() === '' : state.html.end.test(line)
+      if (done) state.html = null
       continue
     }
     const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)
@@ -91,13 +110,14 @@ function scan(text: string): { mask: boolean[]; state: State } {
       state.comment = commentStateAfter(line, false)
       continue
     }
-    const raw = HTML_RAW.exec(line)
-    if (raw) {
+    const opener = openerOf(line)
+    if (opener) {
       mask.push(true)
-      if (!htmlClose(raw[1]).test(line.slice(raw[0].length))) state.html = raw[1]
+      // 同一行就收尾的（`<pre>x</pre>`、`<!DOCTYPE html>`）不进入跨行状态
+      const rest = line.replace(/^ {0,3}</, '')
+      if (opener.end === 'blank' || !opener.end.test(rest)) state.html = opener
       continue
     }
-    if (HTML_ANY.test(line)) { mask.push(true); state.html = 'blank'; continue }
     mask.push(false)
   }
   return { mask, state }
