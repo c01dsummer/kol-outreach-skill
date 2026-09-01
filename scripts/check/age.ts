@@ -104,25 +104,44 @@ function measure(ref: string): Verdict3 {
   const base = tryGit('merge-base', trunk!, ref)
   if (!base) return { kind: 'unrelated' }
   if (base === tip) return { kind: 'merged' }
-  const commits = git('rev-list', '--reverse', `${base}..${tip}`).split('\n').filter(Boolean)
-  if (!commits.length) return { kind: 'merged' }
-
   /**
-   * 最早那个提交的**作者时间**,再与锚取更早的一个(`birthOf`)。
-   * 不用提交时间是因为 rebase 会重写它;作者时间同样可改写,所以才要那个锚。
+   * **取作者时间最小的那个提交,不是「排在最前面」的那个。**
+   *
+   * 早先这里用的是 `rev-list --reverse` 的第一条。而 `rev-list` 默认按**提交
+   * 时间**排(`--topo-order` / `--date-order` 是另外的开关),作者时间和提交时间
+   * 可以差很远 —— cherry-pick 一段老工作进来就是最常见的形状:作者时间两百多
+   * 小时前,提交时间是现在。它于是排在后面,而闸门只看第一条。
+   *
+   * 实测:一条含 250 小时前工作的分支,报的是 `✓ 分叉 1.0 / 48 小时`。
+   * **不是量错,是根本没量到那一条。**
+   *
+   * 用 `%at`(纪元秒)比大小,不比 ISO 字符串 —— 带不同时区偏移的 ISO 串
+   * 按字典序排是错的。
    */
-  const oldest = commits[0]
-  const birth = birthOf(git('log', '-1', '--format=%aI', oldest), ANCHOR)
+  const log = git('log', '--format=%at%x09%aI%x09%H', `${base}..${tip}`)
+    .split('\n').filter(Boolean)
+  if (!log.length) return { kind: 'merged' }
+
+  let first = { at: Number.POSITIVE_INFINITY, iso: '', sha: '' }
+  const shas: string[] = []
+  for (const line of log) {
+    const [at, iso, sha] = line.split('\t')
+    shas.push(sha)
+    const n = Number(at)
+    if (Number.isFinite(n) && n < first.at) first = { at: n, iso, sha }
+  }
+  const oldest = first.sha
+  const birth = birthOf(first.iso, ANCHOR)
   const since = birth.at
 
   /** 豁免只要分支上任一条提交写了就算,理由见 `age-rule.ts`(不设新鲜度)。 */
   let waiver: string | null = null
-  for (const sha of commits) waiver ??= scanAgeWaiver(git('log', '-1', '--format=%B', sha))
+  for (const sha of shas) waiver ??= scanAgeWaiver(git('log', '-1', '--format=%B', sha))
 
   return {
     kind: 'measured',
     hours: (Date.now() - new Date(since).getTime()) / 3_600_000,
-    commits: commits.length,
+    commits: shas.length,
     oldest: oldest.slice(0, 7),
     subject: git('log', '-1', '--format=%s', oldest),
     since: since.slice(0, 16),
