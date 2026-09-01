@@ -56,16 +56,35 @@ export function categorize(path: string): Category {
  *
  * 改名记录的形状不一样:`added\tremoved\t` 之后是空的,真正的两个路径跟在
  * 后面两个 NUL 段里。纯改名两个数都是 0,所以照常累加即可。
+ *
+ * **只在前两个制表符处切,剩下的整段都是路径。** `-z` 关掉的是引号转义,不是
+ * 分隔符:记录内部仍以制表符分列,只是路径里的制表符和换行都原样留着。实测
+ * (git 2.43)一个名字里带制表符的文件,`--numstat -z` 给的是
+ *
+ * ```
+ * 2\t0\tscripts/foo\tjunk.ts\0
+ * ```
+ *
+ * 按制表符全切再取第三段,路径就被截成 `scripts/foo` —— 少了 `.ts` 后缀,
+ * 源码被记进「其他」,量的是另一个预算,豁免也得指错类别。
+ * 路径可以含换行,所以尾段用 `[\s\S]*` 而不是 `.*`。
+ *
+ * 切不出两个制表符的记录是**读不懂**,不是「0 行」—— 当场抛,不静默计零。
+ * 一个读错了还照常给数的闸门,比没有闸门更糟。
  */
+const NUMSTAT_RECORD = /^([^\t]*)\t[^\t]*\t([\s\S]*)$/
+
 export function parseNumstat(raw: string): FileDelta[] {
   const fields = raw.split('\0')
   const out: FileDelta[] = []
   for (let i = 0; i < fields.length; i++) {
     if (!fields[i]) continue
-    const [added, , path] = fields[i].split('\t')
+    const rec = NUMSTAT_RECORD.exec(fields[i])
+    if (!rec) throw new Error(`numstat 记录读不懂（缺分隔符）：${JSON.stringify(fields[i])}`)
+    const [, added, path] = rec
     // 二进制文件 numstat 给 `-`;它不占评审的「读」成本,按 0 计
     const n = added === '-' ? 0 : Number(added)
-    if (path === '' || path === undefined) {
+    if (path === '') {
       // 改名/复制:后两段是旧路径与新路径,记在新路径上
       out.push({ path: fields[i + 2] ?? '', added: n })
       i += 2

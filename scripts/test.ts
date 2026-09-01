@@ -1491,6 +1491,22 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     { path: 'scripts/check/adr-sync.ts', added: 89 },
   ])
   eq('中文路径归对类', tally(parsed), { 源码: 89, 测试: 0, 文档: 23, 其他: 0 })
+  // `-z` 关掉的是引号转义，不是分隔符：路径里的制表符原样留着（git 2.43 实测）。
+  // 按制表符全切再取第三段，`scripts/foo\tjunk.ts` 被截成 `scripts/foo` ——
+  // 少了后缀，源码被记进「其他」，量的是另一个预算
+  eq('路径里的制表符原样保留，不被当成分隔符',
+    parseNumstat('2\t0\tscripts/foo\tjunk.ts\x00'),
+    [{ path: 'scripts/foo\tjunk.ts', added: 2 }])
+  eq('所以它仍算源码，不掉进「其他」',
+    tally(parseNumstat('2\t0\tscripts/foo\tjunk.ts\x00')).源码, 2)
+  // 路径可以含换行，尾段必须用 [\s\S] 才吃得下
+  eq('路径里的换行也保留',
+    parseNumstat('1\t0\tdocs/a\nb.md\x00'), [{ path: 'docs/a\nb.md', added: 1 }])
+  // 读不懂就抛，不静默计零 —— 一个读错了还照常给数的闸门比没有闸门更糟
+  ok('缺分隔符的记录当场抛，不当成 0 行', (() => {
+    try { parseNumstat('乱七八糟\x00'); return false } catch { return true }
+  })())
+
   eq('二进制文件按 0 计', parseNumstat('-\t-\tdocs/a.png\x00'), [{ path: 'docs/a.png', added: 0 }])
   // 纯改名：git 的记录形状不一样，两个路径跟在后面。一个 400 行的文件挪个位置
   // 不该顶掉整个源码预算 —— 它一行内容都没加
