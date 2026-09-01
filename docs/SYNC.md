@@ -26,7 +26,7 @@
 | **改 CSV 列或报告结构** | `scripts/lib/rows.ts` · `scripts/lib/xlsx.ts` · `scripts/lib/report.ts` · `skill/references/output-format.md` · 测试 · 变异 | 部分 |
 | **新增可执行文件** | `scripts/check/selfcheck.ts` 必须执行它，否则登记豁免 | 🔒 `audit` |
 | **改流程阶段** | `skill/SKILL.md` · `docs/business-requirements.md` · 对应 reference | ✗ 靠执行 |
-| **查到新事实 / 旧结论被推翻** | `docs/data-source-strategy.md` **必须改** · `DECISIONS.md`（多属事实证伪） | ✗ 靠执行 |
+| **查到新事实 / 旧结论被推翻** | `docs/data-source-strategy.md` **必须改** · `docs/adr/`（多属事实证伪） | 🔒 `adr` 验编号与索引 |
 | **改预算/成本逻辑** | `scripts/lib/budget.ts` · `skill/SKILL.md` 成本闸门一节 · `docs/CONVENTIONS.md` 第 7 条 | 部分 |
 | **改对外能力、范围、当前状态或交付物** | 对应正本 · `README.md`（只做摘要，不定义新事实） | ✗ 靠执行 |
 
@@ -45,7 +45,8 @@
 | `docs/SYNC.md` | 本表 | 具体规则 |
 | `docs/business-requirements.md` | 背景、痛点排序、成功指标、论证过程 | 编号定义（那在 json） |
 | `docs/data-source-strategy.md` | 各家 API 调研与选型结论 | 需求 |
-| `DECISIONS.md` | ADR，追加不删改 | 计划、待办 |
+| `docs/adr/` | ADR，一条一个文件，追加不删改 | 计划、待办 |
+| `DECISIONS.md` | **只做转发**，指向 `docs/adr/` | 任何记录本身 |
 | `README.md` | 给新接手者看的下游概览 | 只在 README 出现、无法追溯到正本的需求或事实 |
 | `AGENTS.md` / `CLAUDE.md` | **只做路由**，指向上面这些 | 任何具体规则 |
 | `skill/SKILL.md` | 给 Agent 的执行指令 | 需求论证 |

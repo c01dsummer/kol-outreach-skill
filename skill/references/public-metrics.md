@@ -70,7 +70,7 @@ npm run enrich -- --dir output/xxx --budget 3
 查看时若要确认最新状态，应使用 `--refresh`。旧 `enrichment.json` 已保存原始样本时，
 普通 enrich 会按当前口径本地重算全部指标（不只是补新字段），并把样本记录本身也
 收进窗口，不额外请求 API —— 所以口径改过之后不需要为旧账号重新付费。
-见 `DECISIONS.md` 的 ADR-13 与 ADR-14。
+见 `docs/adr/` 的 ADR-13 与 ADR-14。
 
 ## 受众质量风险
 

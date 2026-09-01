@@ -9,6 +9,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 体量闸门要和主干求 merge-base；浅克隆下它会拒答而不是放行
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -16,3 +19,7 @@ jobs:
       - run: npm ci
       # 与本地 `npm run check` 是同一条链 —— 谁跑都一样红
       - run: npm run check
+        env:
+          # 直推主干时，决策记录的基线要退回整次推送之前 —— 一次推多个提交时
+          # HEAD^1 已经包含了删除。PR 事件下这个值为空，脚本会忽略它。
+          GIT_PUSH_BEFORE: ${{ github.event.before }}

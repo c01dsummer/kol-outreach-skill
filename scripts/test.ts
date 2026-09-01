@@ -8,6 +8,14 @@
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
+import {
+  BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
+} from './check/size-rule.js'
+import {
+  FILE_RE, checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, markerFault,
+  renderIndex, slugify,
+} from './check/adr-rule.js'
+import { endsOpen, quotedMask } from './check/quoted.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { fillEmail, pickList } from './providers/tikhub.js'
@@ -1266,6 +1274,332 @@ suite('U4', 'A 级附开发信草稿且可复制')
       requests: 1, cost_estimate_usd: 0.001, budget_usd: 2, enriched: false })
   ok('渲染草稿', html.includes('Hi there'))
   ok('有复制按钮', html.includes('cp(this)'))
+}
+
+harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
+{
+  // 这个遮罩守着两条路径：提交信息里的豁免、决策记录的分节。后者不可逆 ——
+  // 把示例当成分节，`--split` 会截断原记录并写出一个假记录。
+  eq('围栏块整段盖住', quotedMask(['a', '```', 'b', '```', 'c'].join('\n')),
+    [false, true, true, true, false])
+  eq('带信息串的开启，闭合不带', quotedMask(['```ts', 'x', '```'].join('\n')),
+    [true, true, true])
+  eq('异种标记不闭合', quotedMask(['```', '~~~', 'x', '```', 'c'].join('\n')),
+    [true, true, true, true, false])
+  eq('更短的同种标记不闭合', quotedMask(['````', '```', '````', 'c'].join('\n')),
+    [true, true, true, false])
+  eq('闭合后面有内容就不算闭合', quotedMask(['```', '``` 还有字', 'x'].join('\n')),
+    [true, true, true])
+  eq('跨行 HTML 注释', quotedMask(['a', '<!--', '## ADR-59 例子', '-->', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('单行注释只盖那一行', quotedMask(['a', '<!-- x -->', 'b'].join('\n')),
+    [false, true, false])
+  // 一行里两个界定符：`<!-- 甲 --> <!-- 乙` —— 第二个还开着，后面仍是注释
+  eq('关了又开，后面仍算注释',
+    quotedMask(['a', '<!-- 甲 --> <!-- 乙', '## ADR-59 例子', '-->', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('开了又关，后面不算',
+    quotedMask(['a', '<!-- 甲', '乙 --> <!-- 丙 -->', 'b'].join('\n')),
+    [false, true, true, false])
+  eq('什么都没有时全是 false', quotedMask(['a', 'b'].join('\n')), [false, false])
+
+  // 原始 HTML 块（CommonMark 类型 1）是唯一会原样藏住顶格 `## ADR-NN` 的一类
+  eq('pre 块整段盖住',
+    quotedMask(['a', '<pre>', '## ADR-59 例子', '</pre>', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('同一行开合的 HTML 块只盖那一行',
+    quotedMask(['a', '<pre>x</pre>', 'b'].join('\n')), [false, true, false])
+  // 其余 HTML 块到空行为止；pre 一类允许块内空行，所以两种收尾规则要分开
+  eq('div 块到空行为止',
+    quotedMask(['a', '<div>', '## ADR-59 例子', '</div>', '', 'b'].join('\n')),
+    [false, true, true, true, true, false])
+  eq('pre 块内允许空行',
+    quotedMask(['<pre>', '', '## ADR-59 例子', '</pre>', 'b'].join('\n')),
+    [true, true, true, true, false])
+  // 规范原话：开启符后跟空格、制表符、`>`，**或行尾**。少了行尾这一种，单独一行的
+  // `<pre` 会掉进「到空行为止」的兜底 —— 空行之后的 `## ADR-NN` 就露出来当分节了
+  eq('开启符后面直接是行尾也算第 1 类 —— 空行不收尾',
+    quotedMask(['a', '<pre', '', '## ADR-59 例子', '</pre>', 'b'].join('\n')),
+    [false, true, true, true, true, false])
+  // 规范括号里写明「不必与开启的那个匹配」
+  eq('收尾标签不必与开启的那个匹配',
+    quotedMask(['a', '<pre', '## ADR-59 例子', '</style>', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('`<presentation>` 不是第 1 类 —— 后面既不是空白也不是 `>` 或行尾',
+    quotedMask(['<presentation>', '', '## ADR-59 例子'].join('\n')),
+    [true, true, false])
+
+  // 开启符里带注释：`<pre><!-- x -->` 是规范认的第 1 类（第 2 类要求行**以** `<!--` 开头，
+  // 它不满足）。放宽的注释判据若抢在前面，注释同行开合、状态归零，`<pre>` 块就没被记下
+  eq('开启符里带注释，仍按 HTML 块算',
+    quotedMask(['a', '<pre><!-- 说明 -->', '## ADR-59 例子', '</pre>', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('行首就是注释的，仍走注释那条路 —— 放宽没被顺手删掉',
+    quotedMask(['a', '<!-- 甲', '## ADR-59 例子', '-->', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('不是开启符、但含注释的半真半假行，整行盖住',
+    quotedMask(['a', '## ADR-59 甲 <!-- 注释', 'x', '-->', 'b'].join('\n')),
+    [false, true, true, true, false])
+
+  // 顺序摆正之后的残留，钉成一条决定而不是意外：第 6 类开启符里带一个跨空行的注释，
+  // 规范说 `<div>` 块到空行为止，空行之后那行就是真的标题 —— 渲染器也是这么显示的。
+  // 比改之前盖得少，方向上是「更像一个 CommonMark 解析器」，所以照规范走
+  eq('第 6 类里的注释跨过空行 —— 块在空行处收尾，之后的分节是真的',
+    quotedMask(['<div><!-- 甲', 'x', '', '## ADR-59 空行之后', '-->', 'b'].join('\n')),
+    [true, true, true, false, false, false])
+
+  // CommonMark 的七类开启符列全了 —— 这是个闭合集合，不会再有第八种
+  eq('CDATA 块到 ]]> 为止',
+    quotedMask(['a', '<![CDATA[', '## ADR-59 例子', ']]>', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('处理指令到 ?> 为止',
+    quotedMask(['a', '<?php', '## ADR-59 例子', '?>', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('声明到 > 为止（跨行）',
+    quotedMask(['a', '<!DOCTYPE', '## ADR-59 例子', '>', 'b'].join('\n')),
+    [false, true, true, true, false])
+  eq('同一行收尾的声明只盖那一行',
+    quotedMask(['a', '<!DOCTYPE html>', 'b'].join('\n')), [false, true, false])
+
+  // 兜底：切在引文中间，那一段必然带着没关上的构造 —— 与形态无关
+  ok('没关上的围栏 → 残段', endsOpen(['## ADR-01 甲', '```', 'x'].join('\n')))
+  ok('没关上的注释 → 残段', endsOpen(['## ADR-01 甲', '<!--', 'x'].join('\n')))
+  ok('没关上的 HTML 块 → 残段', endsOpen(['## ADR-01 甲', '<pre>', 'x'].join('\n')))
+  ok('都关上了 → 不是残段', !endsOpen(['## ADR-01 甲', '```', 'x', '```'].join('\n')))
+}
+
+harness('决策记录：编号唯一、文件名与正文一致、索引按数字排序')
+{
+  eq('文件名由编号与标题生成，个位数补零',
+    fileNameOf(8, '采集累加器与交付物拆成两个文件'), 'ADR-08-采集累加器与交付物拆成两个文件.md')
+  // 索引是 Markdown：会断链或多切一列的字符必须处理掉，否则 `npm run adr` 仍报「一致」，
+  // 而那份一致的索引点不开
+  eq('井号与方括号从文件名里去掉 —— 留着会变成锚点、把链接标签截断',
+    slugify('带#井号与[方括号]的标题'), '带井号与方括号的标题')
+  eq('全角逗号不剔 —— 它在文件名与链接里都无害', slugify('甲，乙'), '甲，乙')
+
+  // 截断数的是码点：数码元会从中间劈开代理对，留下半个字符 ——
+  // 那不是合法 Unicode，写盘时被换成 `\uFFFD`，盘上的名字和算出来的名字就此不是同一个
+  const astral = '一'.repeat(31) + '🎯'
+  const lone = (s: string) => /[\uD800-\uDFFF]/.test(s.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, ''))
+  ok('码元切法确实会留下半个字符 —— 这是这条测试要挡住的东西', lone(astral.slice(0, 32)))
+  ok('码点切法不留半个字符', !lone(slugify(astral)))
+  ok('emoji 整个留下 —— 它算一个字符，不是两个', slugify(astral).endsWith('🎯'))
+  eq('第 33 个码点照样截掉 —— 换的是单位，不是长度', [...slugify('一'.repeat(31) + '🎯' + '乙')].length, 32)
+  eq('纯 BMP 的标题截出来和以前一样 —— 既有文件一个都不改名',
+    slugify('一'.repeat(40)), '一'.repeat(32))
+  eq('标签里的竖线转义，不然多切一列', escapeCell('甲|乙'), '甲\\|乙')
+  // 方括号会**提前终止链接标签** —— 一个标题里有 `]`，后面半截连同链接散成纯文本
+  eq('方括号转义', escapeCell('甲]乙'), '甲\\]乙')
+  eq('反斜杠必须第一个转，否则它把后面那个转义吃掉', escapeCell('甲\\|乙'), '甲\\\\\\|乙')
+  eq('尖括号与反引号也转 —— 原始 HTML 与代码段一样会吞后文',
+    escapeCell('甲<b>乙`丙'), '甲\\<b\\>乙\\`丙')
+  // 整条链接仍然可解析：标签闭合在正确的位置
+  ok('带方括号的标题渲染出的链接仍然只有一个标签',
+    renderIndex([{ file: 'ADR-09-甲乙.md', num: 9, title: '甲]乙' }])
+      .includes('[甲\\]乙](ADR-09-甲乙.md)'))
+  eq('链接目标只编码会断链的那一组', encodeTarget('ADR-01-甲 (乙).md'), 'ADR-01-甲%20%28乙%29.md')
+  eq('中文不编码 —— 编了只会让索引变成乱码', encodeTarget('ADR-01-甲乙.md'), 'ADR-01-甲乙.md')
+  // 字面量 `%` 自己也要编码：一个标题里含 `%20`，slugify 原样留在文件名里，
+  // 而渲染器会把它当成编码过的空格 —— 链接指向另一个文件名，而检查仍报一致
+  eq('字面量 % 编成 %25', encodeTarget('ADR-09-甲%20乙.md'), 'ADR-09-甲%2520乙.md')
+  ok('真空格与字面量 %20 编出来不同 —— 两者必须能区分',
+    encodeTarget('ADR-09-甲 乙.md') !== encodeTarget('ADR-09-甲%20乙.md'))
+
+  // 整由待剔字符组成的标题过完 slugify 是空串，拼出来 `ADR-15-.md` —— FILE_RE 要求
+  // 标题段非空，读路径不认。`--split` 拿这同一条判据在写之前拦下：写方与读方
+  // 共用一条判据就漂不了，另写一条「标题不能为空」早晚会和 FILE_RE 分家
+  ok('标题剔空之后拼出的文件名，读路径不认', !FILE_RE.test(fileNameOf(15, '[]()')))
+  ok('留一个字符就认', FILE_RE.test(fileNameOf(15, '甲[]()')))
+
+  // `--write` 是 slice(0, i) + want + slice(j + END.length)，这个式子只在
+  // 「恰好一对、BEGIN 在前」时成立。两个下标都非负就放行的话，END 在前会让前半段
+  // 留下 END、后半段把 BEGIN 再抄一遍 —— 回写把索引写坏，而它正是报错时让人跑的命令
+  const [MB, ME] = ['<!--B-->', '<!--E-->']
+  eq('一对、顺序对 → 无异常', markerFault(`前${MB}中${ME}后`, MB, ME), null)
+  eq('缺一个 → missing', markerFault(`前${MB}中`, MB, ME), 'missing')
+  eq('END 在 BEGIN 之前 → reversed（两个下标都非负，只查在不在会放行）',
+    markerFault(`前${ME}中${MB}后`, MB, ME), 'reversed')
+  eq('多出一对 → duplicate', markerFault(`${MB}甲${ME}${MB}乙${ME}`, MB, ME), 'duplicate')
+
+  // 编号不可回收：只看当前目录的话，删一条再把号让给别的决策是查不出来的
+  const A = (num: number, title: string): { file: string; num: number; title: string } =>
+    ({ file: fileNameOf(num, title), num, title })
+  const B = (num: number, title: string): [number, { file: string; title: string }] =>
+    [num, { file: fileNameOf(num, title), title }]
+  const base0 = new Map([B(1, '甲'), B(2, '乙')])
+
+  eq('主干上有、这里没了 → 报错', checkAppendOnly(base0, [A(1, '甲')]).length, 1)
+  eq('新增编号不报错', checkAppendOnly(base0, [A(1, '甲'), A(2, '乙'), A(58, '新')]), [])
+  // 删掉记录、把号让给另一条决策 —— 号还在，只有标题露馅
+  eq('号还在但标题换了 → 报错', checkAppendOnly(base0, [A(1, '甲'), A(2, '借尸还魂')]).length, 1)
+  ok('不冻正文 —— 就地标注作废是既有做法（ADR-13），标题不动就放行',
+    checkAppendOnly(new Map([B(13, '丙')]), [A(13, '丙')]).length === 0)
+
+  // 文件名是有损代理：slugify 截到 32 字符，长标题只在那之后改动，文件名一模一样
+  const long = '一'.repeat(32)
+  ok('两个只在第 32 字符之后不同的标题，文件名相同',
+    fileNameOf(9, long + '甲') === fileNameOf(9, long + '乙'))
+  eq('比的是正文标题而不是文件名 —— 所以仍然抓得到',
+    checkAppendOnly(new Map([B(9, long + '甲')]), [A(9, long + '乙')]).length, 1)
+  eq('只改了会被 slugify 剔掉的标点，也抓得到',
+    checkAppendOnly(new Map([B(9, '甲(乙)')]), [A(9, '甲乙')]).length, 1)
+
+  eq('标题里的斜杠与括号在文件名里去掉',
+    fileNameOf(15, '记忆读不出来时/不产出名单（也不覆盖）'), 'ADR-15-记忆读不出来时不产出名单也不覆盖.md')
+
+  eq('编号唯一时无错', checkAll([
+    { file: 'ADR-01-甲.md', num: 1, title: '甲' },
+    { file: 'ADR-02-乙.md', num: 2, title: '乙' },
+  ]), [])
+
+  // 两条分支各自取了同一个号 —— 装在一个文件里时它是静默交错，装成文件才看得见
+  const dup = checkAll([
+    { file: 'ADR-58-甲.md', num: 58, title: '甲' },
+    { file: 'ADR-58-乙.md', num: 58, title: '乙' },
+  ])
+  eq('撞号报一条错', dup.length, 1)
+  ok('错里指出两个文件', dup[0].includes('ADR-58-甲.md') && dup[0].includes('ADR-58-乙.md'))
+
+  ok('改了标题却没改文件名，报错',
+    checkAll([{ file: 'ADR-03-旧标题.md', num: 3, title: '新标题' }]).length === 1)
+
+  // 编号有空号是正常的：号不复用，包括还活在别的分支上的
+  const idx = renderIndex([
+    { file: 'ADR-10-十.md', num: 10, title: '十' },
+    { file: 'ADR-09-九.md', num: 9, title: '九' },
+    { file: 'ADR-58-五八.md', num: 58, title: '五八' },
+  ])
+  const order = [...idx.matchAll(/\*\*ADR-(\d+)\*\*/g)].map(m => m[1])
+  eq('按数字排序而不是按字典序，且空号不报错',
+    order, ['09', '10', '58'])
+}
+
+harness('体量闸门的判定：四类分开算，豁免必须指名类别且写明理由')
+{
+  eq('决策记录算文档', categorize('docs/adr/0001-x.md'), '文档')
+  eq('需求登记表算文档', categorize('docs/requirements.json'), '文档')
+  eq('lib 算源码', categorize('scripts/lib/memory.ts'), '源码')
+  eq('检查脚本也算源码 —— 它一样会写错', categorize('scripts/check/size.ts'), '源码')
+  eq('test.ts 算测试', categorize('scripts/test.ts'), '测试')
+  eq('变异集算测试', categorize('scripts/check/mutations.json'), '测试')
+  eq('其余归其他', categorize('package.json'), '其他')
+
+  // 四类分开算：合并成一个总数，源码的超标会被文档稀释掉
+  const counts = tally([
+    { path: 'scripts/lib/a.ts', added: 400 },
+    { path: 'DECISIONS.md', added: 2000 },
+    { path: 'scripts/test.ts', added: 10 },
+  ])
+  eq('分类累加', counts, { 源码: 400, 测试: 10, 文档: 2000, 其他: 0 })
+
+  // 默认的 numstat 会把中文路径转义成 `"docs/adr/\351\207\207..."`，
+  // 于是这个仓库里几乎每个文件名都匹配不上判据、整批掉进「其他」。实测栽过一次。
+  const parsed = parseNumstat('23\t0\tdocs/adr/ADR-01-拆成可执行的一半.md\x0089\t0\tscripts/check/adr-sync.ts\x00')
+  eq('中文路径原样解析', parsed, [
+    { path: 'docs/adr/ADR-01-拆成可执行的一半.md', added: 23 },
+    { path: 'scripts/check/adr-sync.ts', added: 89 },
+  ])
+  eq('中文路径归对类', tally(parsed), { 源码: 89, 测试: 0, 文档: 23, 其他: 0 })
+  // `-z` 关掉的是引号转义，不是分隔符：路径里的制表符原样留着（git 2.43 实测）。
+  // 按制表符全切再取第三段，`scripts/foo\tjunk.ts` 被截成 `scripts/foo` ——
+  // 少了后缀，源码被记进「其他」，量的是另一个预算
+  eq('路径里的制表符原样保留，不被当成分隔符',
+    parseNumstat('2\t0\tscripts/foo\tjunk.ts\x00'),
+    [{ path: 'scripts/foo\tjunk.ts', added: 2 }])
+  eq('所以它仍算源码，不掉进「其他」',
+    tally(parseNumstat('2\t0\tscripts/foo\tjunk.ts\x00')).源码, 2)
+  // 路径可以含换行，尾段必须用 [\s\S] 才吃得下
+  eq('路径里的换行也保留',
+    parseNumstat('1\t0\tdocs/a\nb.md\x00'), [{ path: 'docs/a\nb.md', added: 1 }])
+  // 读不懂就抛，不静默计零 —— 一个读错了还照常给数的闸门比没有闸门更糟
+  ok('缺分隔符的记录当场抛，不当成 0 行', (() => {
+    try { parseNumstat('乱七八糟\x00'); return false } catch { return true }
+  })())
+
+  eq('二进制文件按 0 计', parseNumstat('-\t-\tdocs/a.png\x00'), [{ path: 'docs/a.png', added: 0 }])
+  // 纯改名：git 的记录形状不一样，两个路径跟在后面。一个 400 行的文件挪个位置
+  // 不该顶掉整个源码预算 —— 它一行内容都没加
+  eq('纯改名记在新路径上，且按 0 计',
+    parseNumstat('0\t0\t\x00scripts/old.ts\x00scripts/new.ts\x00'),
+    [{ path: 'scripts/new.ts', added: 0 }])
+  eq('改名记录后面还能继续解析普通记录',
+    parseNumstat('0\t0\t\x00a/old.ts\x00a/new.ts\x0012\t0\tscripts/lib/x.ts\x00').length, 2)
+
+  eq('豁免必须指名类别', judgeExemption('size-ok: 就这一次'), { kind: 'unjustified', text: '就这一次' })
+  eq('指名了类别但没写理由，不放行', judgeExemption('size-ok: 源码'), { kind: 'unjustified', text: '源码' })
+  eq('合格的豁免', judgeExemption('size-ok: 源码 首次落地，拆不开'),
+    { kind: 'exempt', category: '源码', reason: '首次落地，拆不开' })
+  eq('普通提交信息不是豁免', judgeExemption('fix: 修一个 bug'), null)
+
+  // 类别必须是第一个空白之前的**完整一段**，不是前缀匹配 —— 否则这两条都会
+  // 被当成合格豁免（类别取「源码」「文档」，剩下的当理由）
+  eq('类别后面没有空白，不成立',
+    judgeExemption('size-ok: 源码理由没有空格'), { kind: 'unjustified', text: '源码理由没有空格' })
+  eq('类别是更长词的前缀，不成立',
+    judgeExemption('size-ok: 文档案 某个理由'), { kind: 'unjustified', text: '文档案 某个理由' })
+  eq('不认识的类别，不成立',
+    judgeExemption('size-ok: 源代码 generated'), { kind: 'unjustified', text: '源代码 generated' })
+
+  // 必须顶格：提交信息里举例说明这个语法是很自然的事，缩进的例子不该被当成真的豁免。
+  // 实测栽过一次 —— 上一个提交的正文里用缩进写了两个反例，CI 当场红。
+  eq('缩进的 size-ok 不算', judgeExemption('    size-ok: 源码 某个理由'), null)
+  eq('引文里的 size-ok 不算', judgeExemption('> size-ok: 源码 某个理由'), null)
+  ok('顶格的才算', judgeExemption('size-ok: 源码 某个理由')?.kind === 'exempt')
+
+  // 豁免只认最后一个 trailer 块 —— 正文里怎么写都不算。
+  // 这条换掉了原先「扫整个正文、再逐一排除引文写法」的做法：那条路补到第六种
+  // 形态（缩进/引文/围栏/围栏种类/信息串/HTML 注释）仍在冒新的。
+  const withBody = ['feat: x', '', '```', 'size-ok: 源码 围栏里的例子', '```', '',
+    '<!--', 'size-ok: 源码 注释里的例子', '-->', '',
+    'size-ok: 文档 这条在最后一段，算', 'Co-Authored-By: X <x@y>'].join('\n')
+  eq('只有最后一段里的算',
+    scanMessage(withBody).map(v => v.kind === 'exempt' ? v.category : 'bad'), ['文档'])
+  eq('正文里的 size-ok 一律不算 —— 围栏、注释、缩进都不必再分别处理',
+    scanMessage(['x', '', 'size-ok: 源码 正文里的', '', 'Co-Authored-By: X <x@y>'].join('\n')), [])
+  ok('和 Co-Authored-By 同一段的算',
+    scanMessage('fix: y\n\nsize-ok: 源码 真理由\nCo-Authored-By: X <x@y>')[0]?.kind === 'exempt')
+  // 最后一段必须整段都是 trailer：一条以示例结尾、后面没有 trailer 的提交信息，
+  // 那个示例就成了最后一段
+  eq('最后一段是围栏示例 → 整段不算指令区',
+    scanMessage(['feat: x', '', '```', 'size-ok: 源码 例子', '```'].join('\n')), [])
+  eq('最后一段是 HTML 注释 → 整段不算',
+    scanMessage(['feat: x', '', '<!--', 'size-ok: 源码 例子', '-->'].join('\n')), [])
+  eq('最后一段掺了散文 → 整段不算',
+    scanMessage('feat: x\n\nsize-ok: 源码 理由\n这一行是散文，不是 trailer'), [])
+
+  eq('最后一段里写歪的仍然拦下',
+    scanMessage('x\n\nsize-ok: 写歪的').map(v => v.kind), ['unjustified'])
+
+  // 豁免带着「写下之后这一类还净增了多少」。树对树算出来，不看提交顺序 ——
+  // 按顺序算的那条路走了四版都不对，理由记在 size-rule.ts 的 Waiver 上。
+  const W = (category: '源码' | '测试' | '文档' | '其他', addedAfter: number): Waiver =>
+    ({ category, reason: 'r', addedAfter })
+
+  const over = judge({ 源码: 400, 测试: 0, 文档: 0, 其他: 0 }, [], [])
+  ok('超线且无豁免 → 失败', !over.ok)
+  eq('报出超的那一类', over.over.map(o => o.category), ['源码'])
+
+  const waived = judge({ 源码: 400, 文档: 2000, 测试: 0, 其他: 0 }, [W('源码', 0)], [])
+  ok('豁免了源码，文档照样拦下 —— 一个豁免不放行四类', !waived.ok)
+  eq('豁免的那一类进 waived 而不是 over', waived.waived.map(w => w.category), ['源码'])
+  eq('没豁免的那一类仍在 over', waived.over.map(o => o.category), ['文档'])
+
+  const stale = judge({ 源码: 4000, 测试: 0, 文档: 0, 其他: 0 }, [W('源码', 3600)], [])
+  ok('豁免之后这一类又净增 → 过期，不放行', !stale.ok)
+  eq('过期的进 stale，不进 waived', [stale.stale.map(x => x.category), stale.waived], [['源码'], []])
+
+  // 加一行又删掉：最终 diff 没变，不该判成过期（按提交序列算时这里会误报）
+  ok('净增为 0 → 仍有效', judge({ 源码: 4000, 测试: 0, 文档: 0, 其他: 0 }, [W('源码', 0)], []).ok)
+  ok('净增为负（写下后反而删了）→ 仍有效',
+    judge({ 源码: 4000, 测试: 0, 文档: 0, 其他: 0 }, [W('源码', -20)], []).ok)
+
+  // 同类多条豁免：只要有一条覆盖到最终内容就放行
+  ok('取净增最小的那条',
+    judge({ 源码: 4000, 测试: 0, 文档: 0, 其他: 0 }, [W('源码', 3600), W('源码', 0)], []).ok)
+
+  const bad = judge({ 源码: 0, 测试: 0, 文档: 0, 其他: 0 }, [], ['随便'])
+  ok('写了不成立的 size-ok，即使没超线也失败 —— 否则它会被当成挡箭牌留在历史里', !bad.ok)
 }
 
 console.log(fail ? `\n${fail} 个失败\n` : `\n全部通过（覆盖 ${covered.size} 条需求）\n`)
