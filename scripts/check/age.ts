@@ -162,38 +162,31 @@ function measure(ref: string): Verdict3 {
    *
    * `pull_request` 事件下,CI 检出的是 GitHub 合成的 `refs/pull/N/merge` ——
    * 它的**第一父是主干那一侧**,第二父才是 PR 的头。从它走第一父链,走到的只有
-   * 那个合成提交本身,一条分支提交都碰不到。实测(本 PR 的合并 ref):
+   * 那个合成提交本身,一条分支提交都碰不到:一条写了合法 `age-ok:` 的超线 PR
+   * 会在必需的 `check` 里照样红。
    *
-   * ```
-   * 范围内提交数(全部)          21
-   * 范围内提交数(--first-parent)  1   ← 只有合成的那条
-   * ```
+   * ## 这件事**不能靠看提交图判**,试过两轮都不行
    *
-   * 于是一条**写了合法 `age-ok:` 的超线 PR**,在必需的 `check` 里照样红:
-   * 它的豁免根本没被看到。
+   * | 轮 | 判据 | 被什么打回 |
+   * |---|---|---|
+   * | 14 | 「是合并 + 第一父在主干里」→ 取第二父 | 一次自己动手的 `checkout main && merge --no-ff` 长得一模一样,把作者写在合并提交上的豁免打没了 |
+   * | 15 | 上面那条 + 也扫检出的那条提交 | 补回了合并提交那句话,但第二父那条历史照旧在扫 —— 一条自己没声明过任何东西的分支又开始继承旁支的豁免 |
    *
-   * 判别形状:这个提交是合并,而且它的**第一父已经整个在主干里** ——
-   * 那它就是「把我的工作并进主干」的那种合并,真正的头是第二父。
+   * **合成 ref 和「从主干开一条分支、头一次就 `merge --no-ff` 别人」在提交图里
+   * 是同一个形状。** 图里没有能分开它们的东西,所以判据不在图里,在**调用方**。
    *
-   * **但这个形状不只合成 ref 有。** 一次自己动手的 `git checkout main &&
-   * git merge --no-ff feature` 长得一模一样,而那条合并提交是分支作者写的,
-   * 可能就带着 `age-ok:` —— 上一轮我还明写着「想为这次合并说话,写在那条提交
-   * 信息里就算」。靠父提交的祖先关系分不开这两者。
+   * 于是改成让调用方把事实传进来:`AGE_PR_HEAD` 给出「正在评审的那个头」。
+   * 工作流在 `pull_request` 事件下填 `github.event.pull_request.head.sha`;
+   * push、本地、`--ref`、`--all` 都没有它,那时检出的就是头本身。
    *
-   * 所以**检出的那条提交自己也扫一遍**,不管它是不是合成的:
-   *
-   * - 是合成的 → 它的信息是 GitHub 自动生成的 `Merge <sha> into <sha>`,
-   *   不可能带 trailer 块,扫了也是空,没有误判的余地
-   * - 是分支作者写的合并 → 那句话本来就该算
-   *
-   * 判不准「这条提交是谁写的」时,**读它写了什么**比猜它的出身可靠。
-   *
-   * 这个 ref 形状在这个仓库里绊过两次:体量闸门的豁免新鲜度(PR #6,CI 当场红过,
-   * 最后换成不看提交顺序的树对树),和这里。两次都是「按提交结构推理」栽的跟头。
+   * 传的是**事实**(头是哪个提交),不是**推断**(这次是不是 PR 事件) ——
+   * 后者还要再猜一次。仍然核一遍它确实是 HEAD 的祖先,填错了不至于量到别处去。
    */
-  const p1 = tryGit('rev-parse', `${ref}^1`)
-  const p2 = tryGit('rev-parse', `${ref}^2`)
-  const ownTip = p1 && p2 && tryGit('merge-base', trunk!, p1) === p1 ? p2 : tip
+  const prHead = ref === 'HEAD' && process.env.AGE_PR_HEAD
+    ? tryGit('rev-parse', `${process.env.AGE_PR_HEAD}^{commit}`)
+    : null
+  const ownTip = prHead
+    && tryGit('merge-base', '--is-ancestor', prHead, tip) !== null ? prHead : tip
   const own = git('log', '--first-parent', '--format=%H', `${base}..${ownTip}`)
     .split('\n').filter(Boolean)
   for (const sha of [tip, ...own]) waiver ??= scanAgeWaiver(git('log', '-1', '--format=%B', sha))
