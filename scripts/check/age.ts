@@ -77,6 +77,8 @@ interface Measured {
   /** 用的是锚(PR 创建时间)而不是作者时间 —— 说明作者时间被改写过或时钟不对 */
   fromAnchor: boolean
   waiver: string | null
+  /** 那句豁免写在哪个提交上。**继承来的豁免靠它露出马脚**,见下面扫描处的说明。 */
+  waiverFrom: string
 }
 
 /**
@@ -154,9 +156,23 @@ function measure(ref: string): Verdict3 {
    *
    * 合并提交本身在第一父链上 —— 想为这次合并说话,写在那条提交信息里就算。
    *
+   * ⚠️ **「第一父链」不等于「这条分支自己的提交」,差在叠分支上。** B 不是把 A
+   *    合进来,而是**直接从没合的 A 上开出去**的话,A 的提交就在 B 的第一父链上,
+   *    B 于是照样继承 A 那句 `age-ok:` —— 它自己一句话没说过。
+   *
+   *    和上面那两轮一样,**图里没有能分开它们的东西**:「从 A 开出去」和「A 的提交
+   *    本来就是我自己写的」在提交图上是同一个形状。分得开它的事实只有一个 ——
+   *    **这条 PR 的 base 是哪条分支** —— 而它同样只在调用方手里(`base.sha`),
+   *    跟 `AGE_PR_HEAD` 是同一个形状的东西。留作下一条分支的活。
+   *
+   *    在那之前先把它变得**看得见**:报告里点名那句豁免写在哪个提交上。继承来的
+   *    那一句,写它的提交不属于这条分支,人一眼看得出来。挡不住,但不再是无声的。
+   *    (小时数本来就照打 —— 叠出来的分支在报告里仍是一个大数,不会消失。)
+   *
    * 豁免不设新鲜度,理由见 `age-rule.ts`。
    */
   let waiver: string | null = null
+  let waiverFrom = ''
   /**
    * **第一父链要从分支自己的头开始走,不是从检出的那个提交。**
    *
@@ -189,7 +205,11 @@ function measure(ref: string): Verdict3 {
     && tryGit('merge-base', '--is-ancestor', prHead, tip) !== null ? prHead : tip
   const own = git('log', '--first-parent', '--format=%H', `${base}..${ownTip}`)
     .split('\n').filter(Boolean)
-  for (const sha of [tip, ...own]) waiver ??= scanAgeWaiver(git('log', '-1', '--format=%B', sha))
+  for (const sha of [tip, ...own]) {
+    if (waiver) break
+    waiver = scanAgeWaiver(git('log', '-1', '--format=%B', sha))
+    if (waiver) waiverFrom = sha.slice(0, 7)
+  }
 
   return {
     kind: 'measured',
@@ -200,6 +220,7 @@ function measure(ref: string): Verdict3 {
     since: since.slice(0, 16),
     fromAnchor: birth.fromAnchor,
     waiver,
+    waiverFrom,
   }
 }
 
@@ -245,7 +266,10 @@ if (refArg >= 0) {
     + `,${one.commits} 个提交,自 ${one.since}`)
   if (one.fromAnchor) console.log(`  (最早那个提交的作者时间比这还晚 —— 历史被改写过,`
     + `或者时钟不对。改用 --since 给的那个改写不了的时间。)`)
-  if (v.kind === 'waived') { console.log(`  豁免:${v.reason}`); process.exit(0) }
+  if (v.kind === 'waived') {
+    console.log(`  豁免(写在 ${one.waiverFrom} 上):${v.reason}`)
+    process.exit(0)
+  }
   if (v.kind === 'over') { console.error(`\n${HOWTO}`); process.exit(1) }
   process.exit(0)
 }
@@ -282,8 +306,8 @@ if (process.argv.includes('--all')) {
     console.log(`  ${FLAG[v.kind]} ${m.hours.toFixed(1).padStart(6)} 小时`
       + `  ${String(m.commits).padStart(3)} 个提交  ${name}`)
     if (v.kind === 'waived') {
-      console.log(`         豁免:${v.reason}`)
-      waived.push(`${name}(${m.hours.toFixed(1)} 小时:${v.reason})`)
+      console.log(`         豁免(写在 ${m.waiverFrom} 上):${v.reason}`)
+      waived.push(`${name}(${m.hours.toFixed(1)} 小时,豁免写在 ${m.waiverFrom} 上:${v.reason})`)
     }
     if (v.kind === 'over') over.push(`${name}(${m.hours.toFixed(1)} 小时,自 ${m.since})`)
   }
@@ -358,7 +382,8 @@ if (m.fromAnchor) {
 console.log(LEGEND)
 
 if (verdict.kind === 'waived') {
-  console.log(`  ⊘ 已具名豁免:${verdict.reason}\n`)
+  console.log(`  ⊘ 已具名豁免(写在 ${m.waiverFrom} 上):${verdict.reason}`)
+  console.log('    那个提交不属于这条分支的话,这句理由是继承来的 —— 见 `measure` 里的说明。\n')
   console.log(`✓ 分支寿命:${m.hours.toFixed(1)} 小时,超线但已具名豁免`)
   process.exit(0)
 }
