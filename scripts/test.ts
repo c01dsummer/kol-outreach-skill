@@ -15,6 +15,10 @@ import {
   FILE_RE, checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, markerFault,
   renderIndex, slugify,
 } from './check/adr-rule.js'
+import {
+  LIMIT_HOURS, birthOf, judgeAge, judgeAgeExemption, ownTipOf, parseLog, pickWaiver,
+  scanAgeWaiver, shapeOf, waiverOrder,
+} from './check/age-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
@@ -1366,6 +1370,91 @@ harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
   ok('没关上的注释 → 残段', endsOpen(['## ADR-01 甲', '<!--', 'x'].join('\n')))
   ok('没关上的 HTML 块 → 残段', endsOpen(['## ADR-01 甲', '<pre>', 'x'].join('\n')))
   ok('都关上了 → 不是残段', !endsOpen(['## ADR-01 甲', '```', 'x', '```'].join('\n')))
+}
+
+harness('分支寿命：分叉时长有上限，超线要具名豁免')
+{
+  // 阈值按本仓库自己的历史校准：已合并 PR 最长 22.9 小时，三条出事的在途分支
+  // 91.5 / 91.5 / 102.8 小时 —— 48 落在这两组数之间的空档里
+  eq('线内通过', judgeAge(22.9, null).kind, 'ok')
+  eq('正好压线仍算线内', judgeAge(LIMIT_HOURS, null).kind, 'ok')
+  eq('超线且无豁免 → 拦下', judgeAge(102.8, null).kind, 'over')
+  eq('超线但有豁免 → 放行', judgeAge(102.8, '等上游接口定稿').kind, 'waived')
+  // 豁免不消灭数字：报告照打小时数，豁免只让它别拦路
+  eq('豁免带着理由一起报', (judgeAge(102.8, '等上游接口定稿') as { reason: string }).reason,
+    '等上游接口定稿')
+
+  // 作者时间在未来（时钟不准，或者 `git commit --date=<未来>`）→ 分叉时长是负数。
+  // 「负数 ≤ 48」成立，于是一条真实两百小时的分支报出 `✓ 分叉 -720.0 / 48 小时`：
+  // 一个不可能的数，旁边打着勾。这不是「很新」，是量不了
+  eq('作者时间在未来 → 量不了，不是通过', judgeAge(-720, null).kind, 'future')
+  eq('差一点点也一样 —— 不设容差', judgeAge(-0.01, null).kind, 'future')
+  eq('零算在线内', judgeAge(0, null).kind, 'ok')
+  // 豁免免的是「这条分支活得久」，不是「这个数我算不出来」
+  eq('豁免盖不过「量不了」', judgeAge(-720, '有理由').kind, 'future')
+
+  // 作者时间是用户可控的：`git commit --amend --reset-author` 一句就能把一条
+  // 两百小时的分支洗成 0 小时（实测）。所以出生时间要和一个改写不了的锚
+  // （PR 创建时间）取更早的一个。按得住的是 PR 开出来**之后**的改写；之前的、
+  // 以及「另开一条分支搬过去」都按不住 —— 见 birthOf 的注释
+  const 早 = '2026-08-24T00:00:00Z'
+  const 晚 = '2026-09-01T00:00:00Z'
+  eq('作者时间更早 → 用作者时间，锚不抢', birthOf(早, 晚), { at: 早, fromAnchor: false })
+  eq('作者时间被洗到更晚 → 用锚', birthOf(晚, 早), { at: 早, fromAnchor: true })
+  eq('没有锚 → 只能用作者时间（--all 那条路的显式缺口）',
+    birthOf(晚, null), { at: 晚, fromAnchor: false })
+  eq('锚解析不出来就当没有，不静默用一个 NaN',
+    birthOf(晚, '不是时间'), { at: 晚, fromAnchor: false })
+
+  eq('理由必填 —— 只写指令不算', judgeAgeExemption('age-ok:'), null)
+  eq('只有空白也不算', judgeAgeExemption('age-ok:   '), null)
+  eq('写了理由就算', judgeAgeExemption('age-ok: 等上游'), '等上游')
+  // 判据借的是 trailer 块（和体量豁免同一份实现）：正文里的示例一律不算
+  eq('和 Co-Authored-By 同一段的算',
+    scanAgeWaiver('标题\n\n正文\n\nage-ok: 等上游\nCo-Authored-By: x <a@b.c>'), '等上游')
+  eq('正文里举的例子不算',
+    scanAgeWaiver('标题\n\n想豁免就写：\n\n    age-ok: 某个理由\n\n就这样。'), null)
+  eq('最后一段掺了散文 → 整段不算',
+    scanAgeWaiver('标题\n\nage-ok: 等上游\n这一行是散文'), null)
+
+  // ── 量分支的那几个判定。抽出入口才够得着：顺序错了会出错的都是语义 ──
+
+  const c = (at: number, sha: string) => ({ at, iso: new Date(at * 1000).toISOString(), sha })
+
+  // 三种「不是分叉」彼此不同，不能塞成一种
+  eq('没有共同祖先 → 不相干', shapeOf(null, 'tip', [], 0).kind, 'unrelated')
+  eq('分叉点就是分支头 → 已合完', shapeOf('x', 'x', [], 0).kind, 'merged')
+  eq('范围里一个提交都没有 → 已合完', shapeOf('base', 'tip', [], 0).kind, 'merged')
+  // 有提交、却一条作者时间都读不出来：那是「量不了」，不是「已合完」——
+  // 当成已合完的话，这条分支会从「在途」那份名单里静默消失，而汇总照样说都在线内
+  eq('有提交却读不出作者时间 → 量不了', shapeOf('base', 'tip', [], 3).kind, 'unreadable')
+
+  // 取作者时间**最小**的那个，不是排在最前面的那个 —— cherry-pick 进来的老提交
+  // 按提交时间排会落在后面，只看第一条等于根本没量到它（实测报过 ✓ 1.0 小时）
+  const div = shapeOf('base', 'tip', [c(1000, 'newer12'), c(10, 'oldest1'), c(2000, 'newest')], 3)
+  eq('挑的是作者时间最小的那个', div.kind === 'diverged' ? div.oldest.sha : '', 'oldest1')
+  eq('提交数是全部，不是第一父链那几条', div.kind === 'diverged' ? div.commits : 0, 3)
+
+  // 读不出纪元秒的行丢掉，不兜底成 0 —— 0 是 1970 年，一个比任何真实情况都老的分叉
+  eq('读不出纪元秒的行丢掉', parseLog('x\tISO\tsha\n100\t2026-01-01T00:00:00Z\tabc').length, 1)
+  eq('缺字段的行也丢掉', parseLog('100\t\tabc').length, 0)
+
+  // 从哪个头开始走第一父链：调用方给的两件事实都成立才用它
+  eq('没给头 → 用检出的那条', ownTipOf('tip', null, false), 'tip')
+  eq('给了头但它不是祖先 → 不用，填错了不至于量到别处去', ownTipOf('tip', 'other', false), 'tip')
+  eq('给了头且确实是祖先 → 用它', ownTipOf('merge', 'head', true), 'head')
+
+  // 检出的那条要单独排最前：PR 事件下它是合成的合并提交，根本不在第一父链上
+  eq('检出的那条排最前，其余按第一父链', waiverOrder('m', ['a', 'b']), ['m', 'a', 'b'])
+  eq('已经在链里就不重复扫', waiverOrder('a', ['a', 'b']), ['a', 'b'])
+
+  // 取第一条成立的，并记下它写在哪个提交上 —— 出处是叠分支继承豁免时唯一的线索
+  eq('第一条成立的说了算，并带出处', pickWaiver([
+    { sha: 'aaaaaaa1', message: '无关\n\nCo-Authored-By: x <a@b.c>' },
+    { sha: 'bbbbbbb2', message: 'x\n\nage-ok: 等上游' },
+    { sha: 'ccccccc3', message: 'y\n\nage-ok: 另一条' },
+  ]), { reason: '等上游', from: 'bbbbbbb' })
+  eq('一条都没有 → 没有豁免', pickWaiver([{ sha: 'a', message: '无关' }]), null)
 }
 
 harness('决策记录：编号唯一、文件名与正文一致、索引按数字排序')

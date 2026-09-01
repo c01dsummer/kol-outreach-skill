@@ -2,10 +2,18 @@
 /**
  * 脚本自检 —— 回答 process/4-VERIFY.md 的「未执行的路径」。
  *
- * 每个可执行文件，要么被这里从头执行到尾，要么在豁免表里写明理由。
- * 用假 fetch 喂完所有分支：**跑通即证明结构成立**，不证明结果正确。
+ * 每个可执行文件都要有出处，分两种，**两种买到的东西不一样**：
+ *
+ * - **本文件用假 fetch 从头跑到尾的**（采集管线那几个）：喂完所有分支，
+ *   跑通即证明结构成立，不证明结果正确
+ * - **在 `npm run check` 里各自成一步的**（检查脚本自己）：每次跑检查链都会
+ *   真的执行一遍。但**不保证跑到尾** —— 一个检查可以合法地提前退出
+ *   （体量闸门与分支寿命在主干上都会打印「不适用」就走）
+ *
+ * 两种都没有的，就是没人跑过，报错。末尾那句话按这两组分开说 ——
+ * 合起来说一句「全都从头执行到尾」，在单独跑 `npm run selfcheck` 时是假的。
  */
-import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -13,7 +21,8 @@ import { join, resolve } from 'node:path'
 const EXEMPT: Record<string, string> = {}   // 目前无豁免
 
 /** 脚本用绝对路径 —— 下面几处会切到临时目录里跑，让产出落在那边 */
-const S = (f: string) => resolve('scripts', f)
+const covered = new Set<string>()
+const S = (f: string) => { covered.add(`scripts/${f}`); return resolve('scripts', f) }
 
 const tmp = mkdtempSync(join(tmpdir(), 'kol-selfcheck-'))
 const env = {
@@ -283,5 +292,51 @@ rmSync(tmp, { recursive: true, force: true })
 
 for (const [f, why] of Object.entries(EXEMPT)) console.log(`  ⊘ ${f} 豁免：${why}`)
 
+/**
+ * **把「所有可执行文件」这句话变成可查的。**
+ *
+ * 这一句原来是直接打印的:上面跑一张手写的清单,末尾宣布「所有可执行文件均被
+ * 从头执行到尾」,中间没有任何东西把两者对上。于是新增一个可执行文件、忘了接进来,
+ * 检查照样全绿,而那句话已经不成立了 —— 这正是本仓库反对的
+ * **「一条声称做到、其实没做到的规则」**,而它就长在检查链自己身上。
+ *
+ * 枚举 —— 带 shebang 的就是可执行文件,每一个要么在上面跑过,要么在检查链里
+ * 作为自己那一步跑过,要么写进 `EXEMPT` 说明理由。
+ *
+ * **但这两条路买到的东西不一样,末尾那句话必须分开说。** 单独跑
+ * `npm run selfcheck` 时,检查链里那几步一步都没跑过 —— 合起来宣布
+ * 「全都从头执行到尾」在那次调用里就是假的。这一条是评审指出来的,
+ * 而它正是我上一版要修的那个毛病的**另一个形态**:
+ * 我把一句过头的话换成了另一句过头的话。
+ *
+ * 所以这里查的是**接线**(每个可执行文件都有出处),不是**执行**
+ * (这一次调用里它们都跑了)。两者的区别写进输出,不留给读的人猜。
+ */
+const shebang = (f: string) => readFileSync(f, 'utf8').startsWith('#!')
+const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true })
+  .flatMap(e => e.isDirectory() ? walk(join(dir, e.name))
+    : e.name.endsWith('.ts') && shebang(join(dir, e.name)) ? [join(dir, e.name)] : [])
+
+const chain: string = JSON.parse(readFileSync('package.json', 'utf8')).scripts.check
+const steps: Record<string, string> = JSON.parse(readFileSync('package.json', 'utf8')).scripts
+const byChain = new Set(
+  chain.split('&&').map(s => s.trim().replace(/^npm run /, '').replace(/^npm /, ''))
+    .flatMap(name => (steps[name] ?? '').match(/scripts\/[\w/.-]+\.ts/) ?? []))
+
+const orphans = walk('scripts')
+  .filter(f => !covered.has(f) && !byChain.has(f) && !(f in EXEMPT))
+if (orphans.length) {
+  console.error(`\n✗ 脚本自检：${orphans.length} 个可执行文件谁都没跑过\n`)
+  for (const f of orphans) console.error(`  · ${f}`)
+  console.error('\n  接进本文件、接进 `npm run check`，或写进 EXEMPT 说明理由。')
+  console.error('  不接也不写的话，末尾那句「都有出处」就是假的。')
+  process.exit(1)
+}
+
 if (failed) { console.error(`\n✗ 脚本自检：${failed} 项失败`); process.exit(1) }
-console.log('\n✓ 脚本自检：所有可执行文件均被从头执行到尾')
+const all = walk('scripts')
+const here = all.filter(f => covered.has(f)).length
+const inChain = all.filter(f => !covered.has(f) && byChain.has(f)).length
+console.log(`\n✓ 脚本自检：${all.length} 个可执行文件都有出处 ——`
+  + ` 本文件从头跑到尾 ${here} 个，检查链里各自成一步 ${inChain} 个`
+  + `，具名豁免 ${Object.keys(EXEMPT).length} 个`)

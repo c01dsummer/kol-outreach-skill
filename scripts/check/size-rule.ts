@@ -10,6 +10,8 @@
  * 走 git、打印、退出码留在 `size.ts`。
  */
 
+import { trailerLines } from './trailer.js'
+
 export type Category = '源码' | '测试' | '文档' | '其他'
 export const CATEGORIES: Category[] = ['源码', '测试', '文档', '其他']
 
@@ -168,23 +170,9 @@ export function judgeExemption(line: string): ExemptionVerdict | null {
  * 代价是豁免必须写在最后一段。这不是负担,是惯例:trailer 本来就都在那里。
  */
 /** `Key: value` —— git trailer 的形状 */
-const TRAILER = /^[\w.-]+:\s/
-
 export function scanMessage(message: string): ExemptionVerdict[] {
-  const blocks = message.replace(/\s+$/, '').split(/\n[ \t]*\n/)
-  const last = (blocks[blocks.length - 1] ?? '').split('\n').filter(l => l.trim())
-
-  /**
-   * 最后一段必须**整段都是 trailer**,才算指令区。
-   *
-   * 只取「最后一段」还不够:一条以示例结尾、后面没有 trailer 的提交信息,
-   * 那个示例就成了最后一段。而围栏行、`<!--`、散文都不是 `Key: value` 的形状 ——
-   * 用形状把整段挡掉,比再去遮罩段内的引文简单,也不必再枚举引文的写法。
-   */
-  if (!last.length || !last.every(l => TRAILER.test(l))) return []
-
   const out: ExemptionVerdict[] = []
-  for (const line of last) {
+  for (const line of trailerLines(message)) {
     const v = judgeExemption(line)
     if (v) out.push(v)
   }
