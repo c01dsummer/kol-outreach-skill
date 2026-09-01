@@ -175,6 +175,19 @@ function measure(ref: string): Verdict3 {
    * 判别形状:这个提交是合并,而且它的**第一父已经整个在主干里** ——
    * 那它就是「把我的工作并进主干」的那种合并,真正的头是第二父。
    *
+   * **但这个形状不只合成 ref 有。** 一次自己动手的 `git checkout main &&
+   * git merge --no-ff feature` 长得一模一样,而那条合并提交是分支作者写的,
+   * 可能就带着 `age-ok:` —— 上一轮我还明写着「想为这次合并说话,写在那条提交
+   * 信息里就算」。靠父提交的祖先关系分不开这两者。
+   *
+   * 所以**检出的那条提交自己也扫一遍**,不管它是不是合成的:
+   *
+   * - 是合成的 → 它的信息是 GitHub 自动生成的 `Merge <sha> into <sha>`,
+   *   不可能带 trailer 块,扫了也是空,没有误判的余地
+   * - 是分支作者写的合并 → 那句话本来就该算
+   *
+   * 判不准「这条提交是谁写的」时,**读它写了什么**比猜它的出身可靠。
+   *
    * 这个 ref 形状在这个仓库里绊过两次:体量闸门的豁免新鲜度(PR #6,CI 当场红过,
    * 最后换成不看提交顺序的树对树),和这里。两次都是「按提交结构推理」栽的跟头。
    */
@@ -183,7 +196,7 @@ function measure(ref: string): Verdict3 {
   const ownTip = p1 && p2 && tryGit('merge-base', trunk!, p1) === p1 ? p2 : tip
   const own = git('log', '--first-parent', '--format=%H', `${base}..${ownTip}`)
     .split('\n').filter(Boolean)
-  for (const sha of own) waiver ??= scanAgeWaiver(git('log', '-1', '--format=%B', sha))
+  for (const sha of [tip, ...own]) waiver ??= scanAgeWaiver(git('log', '-1', '--format=%B', sha))
 
   return {
     kind: 'measured',
