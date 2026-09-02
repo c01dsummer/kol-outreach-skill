@@ -52,7 +52,7 @@
 | 改模块边界、调用顺序或对外契约 | `process/5-DESIGN.md` + **`docs/ARCHITECTURE.md`** |
 | 改 Skill 的行为 | `skill/SKILL.md` + 对应的 `skill/references/*` |
 | 改完了要同步 | `docs/SYNC.md` |
-| 开分支、切改动、往主干合 | `process/6-INTEGRATE.md` |
+| 开分支、切改动、回应评审、往主干合 | `process/6-INTEGRATE.md` |
 
 ---
 

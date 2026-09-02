@@ -30,6 +30,7 @@
 | **查到新事实 / 旧结论被推翻** | `docs/data-source-strategy.md` **必须改** · `docs/adr/`（多属事实证伪） | 🔒 `adr` 验编号与索引 |
 | **改预算/成本逻辑** | `scripts/lib/budget.ts` · `skill/SKILL.md` 成本闸门一节 · `docs/CONVENTIONS.md` 第 7 条 | 部分 |
 | **改对外能力、范围、当前状态或交付物** | 对应正本 · `README.md`（只做摘要，不定义新事实） | ✗ 靠执行 |
+| **评审中不修在本 PR 的一条发现（含驳回）** | 回复第一行的档与去向 · 线程 resolve · PR 描述末尾的索引 · 合入后的**欠条 PR** 往 `docs/adr/` 追加 `⚠️ 欠条`（写重启条件；驳回只做前三项，不进欠条）—— 本表唯一允许延后到下一条 PR 的一行：为登记再 push 会再起一轮评审，见 `6-INTEGRATE.md` | ✗ 靠执行 |
 
 ---
 
@@ -46,7 +47,7 @@
 | `docs/SYNC.md` | 本表 | 具体规则 |
 | `docs/business-requirements.md` | 背景、痛点排序、成功指标、论证过程 | 编号定义（那在 json） |
 | `docs/data-source-strategy.md` | 各家 API 调研与选型结论 | 需求 |
-| `docs/adr/` | ADR，一条一个文件，追加不删改 | 计划、待办 |
+| `docs/adr/` | ADR，一条一个文件，追加不删改；欠条与就地更正以 `⚠️` 块追加 | 计划、待办（带重启条件的欠条不算：它写的是缺什么、什么条件下重启） |
 | `DECISIONS.md` | **只做转发**，指向 `docs/adr/` | 任何记录本身 |
 | `README.md` | 给新接手者看的下游概览 | 只在 README 出现、无法追溯到正本的需求或事实 |
 | `AGENTS.md` / `CLAUDE.md` | **只做路由**，指向上面这些 | 任何具体规则 |
