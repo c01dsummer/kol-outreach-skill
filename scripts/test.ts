@@ -11,6 +11,11 @@ import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, judgmentModules, unguarded } from './check/audit-rule.js'
 import { judgeRun } from './check/mutate-rule.js'
 import {
+  active, adrIdsIn, contentHash, danglingAdrRefs, renderTables, requirementVerdict,
+  validateRegistry, type Evidence, type Req,
+} from './check/spec-rule.js'
+import { HARNESS, orphanAttributions } from './check/attribution-rule.js'
+import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
 import {
@@ -32,19 +37,29 @@ import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
 import { renderHtml } from './lib/report.js'
-import { filterByMemory, useMemoryFile } from './lib/memory.js'
-import { finalize, pendingKeywords, rankCreators, keywordStats, tierCounts } from './lib/pipeline.js'
+import {
+  filterByMemory, recordRecommendations, useMemoryFile, MemoryUnreadable,
+} from './lib/memory.js'
+import {
+  finalize, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators,
+  keywordStats, tierCounts,
+} from './lib/pipeline.js'
 import {
   ACTIVITY_ACTIVE_MAX_DAYS, ACTIVITY_COOLING_MAX_DAYS,
   accountKey, assignAudienceRisks, attachAssessments, calculatePublicMetrics,
   calculateQuoteEfficiency, measured, publicPostSample, recomputeCachedAssessment, unavailable,
 } from './lib/assessment.js'
-import { writeFileSync, unlinkSync } from 'node:fs'
+import {
+  writeFileSync, unlinkSync, truncateSync, readdirSync, mkdirSync, rmSync, existsSync,
+} from 'node:fs'
+import { dirname } from 'node:path'
+import { createHash } from 'node:crypto'
+import { CLAIMS_PATH, SELF } from './check/claims.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator,
-  EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost,
+  EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, TaskState,
 } from './lib/types.js'
 
 let fail = 0
@@ -64,6 +79,28 @@ const ok = (label: string, cond: boolean) => eq(label, cond, true)
  * 混进去会让「覆盖 N 条需求」那个数字变成一个虚报的数。
  */
 const harness = (name: string) => { console.log(`\n[harness] ${name}`) }
+
+/**
+ * 认领一个**交点**。
+ *
+ * 交点上的测试不属于任何一条需求 —— 在「每条需求有没有测试」这个计量下,
+ * 写了不加分,不写不扣分,于是没人写。审计按登记表里声明的交点逐个找这句话,
+ * 找不到就报缺口;含红线的交点找不到就是硬失败(ADR-17)。
+ */
+const tensionClaims: string[] = []
+/**
+ * 认领一条**验收判据**。
+ *
+ * 计量单位是判据,不是需求。一条需求报「有测试」而它验收标准的后半句
+ * 从来没实现过 —— D1 就这么挂了很久,而那半句是一条红线的承重结构（ADR-24）。
+ */
+const criteriaClaims: string[] = []
+const criterion = (...ids: string[]) => { criteriaClaims.push(...ids) }
+const tension = (a: string, b: string) => {
+  covered.add(a); covered.add(b)
+  tensionClaims.push(`${a}|${b}`)
+  console.log(`  ⇄ 交点 ${a} × ${b}`)
+}
 
 /**
  * 从 xlsx 里真正读回 sheet 名。
@@ -165,6 +202,7 @@ suite('P1', '缺失数据不得用默认值填充')
   ok('低于下限拦截', !passesFollowerGate(mk('tiktok', 'i', { followers: 100 })))
   ok('高于上限拦截', !passesFollowerGate(mk('tiktok', 'j', { followers: 9_000_000 })))
   ok('区间内放行', passesFollowerGate(mk('tiktok', 'k', { followers: 50_000 })))
+  criterion('P1.a')
 }
 
 suite('P1', '没取到的播放数不得被判成爆款')
@@ -268,6 +306,7 @@ suite('P2', '开发信占位符必须原样保留到产出物')
   const drafted = String(row[HEADERS.indexOf('outreach_draft')])
   ok('CSV 保留占位符', drafted.includes('{产品一句话}') && drafted.includes('{价格待填}'))
   eq('占位符一个不少', (drafted.match(/\{[^}]*\}/g) ?? []).length, 3)
+  criterion('P2.b')
 }
 
 suite('P1', '响应结构探测不得被空数组满足')
@@ -306,6 +345,7 @@ suite('P3', '未经确认不得超出预算')
   const resumed = new Budget(0.010, 5)
   eq('续跑时已花部分不归零', resumed.spent, 0.005)
   covered.add('D6')
+  criterion('P3.a')
 }
 
 suite('P4', '已联系/屏蔽的人不得进入名单')
@@ -336,9 +376,37 @@ suite('P4', '已联系/屏蔽的人不得进入名单')
 
   unlinkSync(tmp)
   useMemoryFile('memory/creators.json')
+  criterion('P4.a')
 }
 
-suite('D6', '续跑不得被本任务自己上一轮的产出滤空')
+suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不在 done 里的」')
+{
+  const st = (over: Partial<TaskState> = {}): TaskState => ({
+    product: 'p', market: 'US', target_count: 50, budget_usd: 1,
+    tasks: [{ keyword: 'a', dimension: 'category', platform: 'tiktok' },
+            { keyword: 'b', dimension: 'scene', platform: 'tiktok' }],
+    done: [], offsets: {}, requests: 0, created_at: '', updated_at: '', ...over,
+  })
+  // 达标提前停下：剩下的关键词一个都没碰过，也没被标记完成 ——
+  // 但续跑的第一件事是再查一次达标，一个请求都不会发。
+  eq('没达标 → 剩下的关键词续跑会去抓', keywordsResumeWillRun(st(), 10).length, 2)
+  eq('已达标 → 续跑一个关键词都不会抓', keywordsResumeWillRun(st(), 50).length, 0)
+  eq('超出目标同理', keywordsResumeWillRun(st(), 99).length, 0)
+  eq('已标记完成的本来就不算', keywordsResumeWillRun(st({ done: [0] }), 10).length, 1)
+  // pendingKeywords 仍然报「还没跑完的」—— 它服务的是进度，不是花钱
+  eq('进度口径不受达标影响', pendingKeywords(st()).length, 2)
+}
+
+suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环与「续跑要花多少钱」共用它')
+{
+  const c = (over: Partial<Creator>) => mk('tiktok', 'x', over)
+  ok('bio 未查询 → 还要补', needsProfile(c({ bio: undefined })))
+  ok('查过了但没有外链 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
+  eq('查过且有外链 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
+  // 这个判定决定要不要花钱：说「续跑不产生新请求」之前，它必须对每个人都是 false
+}
+
+suite('D6', '续跑不得被本任务自己上一轮的产出滤空')  // 与 D4 的交点，见块尾
 {
   const tmp = join(tmpdir(), `kol-d6-${process.pid}.json`)
   const entry = (h: string, task: string) => ({
@@ -365,6 +433,8 @@ suite('D6', '续跑不得被本任务自己上一轮的产出滤空')
 
   unlinkSync(tmp)
   useMemoryFile('memory/creators.json')
+  // D4 × D6 的交点：记忆过滤要让路给续跑，否则已付费采集的人会凭空消失（ADR-08）
+  tension('D4', 'D6')
 }
 
 // ─────────────────── 管线：单步都对，错的是组合方式 ───────────────────
@@ -421,6 +491,230 @@ suite('P4', '收尾管线：闸门在记忆过滤之前，不虚报打扰规模'
   useMemoryFile('memory/creators.json')
 }
 
+suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过')
+{
+  const tmp = join(tmpdir(), `kol-d4-${process.pid}.json`)
+  const person = (h: string, over: Record<string, unknown> = {}) => ({
+    platform: 'tiktok', handle: h, nickname: h, followers: 50000, first_seen: '2026-01-01',
+    recommendations: [], contacted: false, replied: false, blocked: false, note: '', ...over,
+  })
+  const batch = [mk('tiktok', 'alice'), mk('tiktok', 'erin')]
+
+  // 一、文件不存在 = 查过，记忆里确实没有人
+  useMemoryFile(join(tmpdir(), `kol-d4-none-${process.pid}.json`))
+  const absent = filterByMemory(batch, 'p')
+  eq('文件不存在时报 absent', absent.memory_status, 'absent')
+  eq('文件不存在时全员保留', absent.kept.length, 2)
+
+  // 二、读不出来 = 没查到。**不得与上一档同值**
+  writeFileSync(tmp, JSON.stringify({
+    version: 1, updated_at: '', creators: { 'tiktok:alice': person('alice', { contacted: true }) },
+  }), 'utf8')
+  truncateSync(tmp, Math.floor(rf(tmp, 'utf8').length * 0.6))
+  const broken = rf(tmp, 'utf8')
+  useMemoryFile(tmp)
+
+  let threw = ''
+  try { filterByMemory(batch, 'p') } catch (e) { threw = (e as Error).name }
+  eq('读不出来时抛出而不是返回名单', threw, 'MemoryUnreadable')
+
+  // 三、显式跳过 = 出名单，但状态必须说出去
+  const ignored = filterByMemory(batch, 'p', undefined, { ignoreUnreadable: true })
+  eq('显式跳过时出名单', ignored.kept.length, 2)
+  eq('显式跳过不得伪装成 absent', ignored.memory_status, 'unreadable_ignored')
+
+  // 四、读不出来时绝不写回 —— 盖掉它就永久抹掉了「谁联系过」
+  const wb = recordRecommendations(ignored.kept, 'p')
+  eq('读不出来时不写回', wb.written, false)
+  eq('磁盘上仍是那份读不出来的文件，一个字节没动', rf(tmp, 'utf8'), broken)
+
+  // 五、解析成功不等于形状对。这个文件是产品要求运营手改的，
+  //     手改很容易改出一份合法 JSON、错误结构的记忆（ADR-19）。
+  const shapes: Array<[string, string]> = [
+    ['creators 是数组', '{"version":1,"creators":[]}'],
+    ['顶层是数组', '[]'],
+    ['条目缺 contacted', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { recommendations: [] } } })],
+    ['contacted 写成字符串', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: 'true', blocked: false, recommendations: [] } } })],
+    ['recommendations 不是数组', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false, recommendations: null } } })],
+    // 容器对了不等于里面的东西对：过滤逐条读 task / product / date
+    ['推荐记录是空对象', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false, recommendations: [{}] } } })],
+    ['推荐记录是 null', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false, recommendations: [null] } } })],
+    ['推荐记录缺 date', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false,
+        recommendations: [{ product: 'p' }] } } })],
+    ['推荐记录的 task 不是字符串', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false,
+        recommendations: [{ product: 'p', date: '2026-01-01', task: 7 }] } } })],
+    // 键本身也得能用：查询侧按 platform:handle 小写化去找，
+    // 一个找不到的键是个静默的黑洞
+    ['键没有冒号', JSON.stringify({ version: 1, creators: {
+      alice: { contacted: true, blocked: false, recommendations: [] } } })],
+    ['键的 handle 是空的', JSON.stringify({ version: 1, creators: {
+      'tiktok:': { contacted: true, blocked: false, recommendations: [] } } })],
+    ['两个键指同一个人', JSON.stringify({ version: 1, creators: {
+      'tiktok:Alice': { contacted: true, blocked: false, recommendations: [] },
+      'tiktok:alice': { contacted: false, blocked: false, recommendations: [] } } })],
+    // 「有个冒号」远不够：查询侧生成的键是什么形状，这里就得要求什么形状
+    ['键的平台拼错了', JSON.stringify({ version: 1, creators: {
+      'tikok:a': { contacted: true, blocked: false, recommendations: [] } } })],
+    ['键的平台不在支持范围内', JSON.stringify({ version: 1, creators: {
+      'youtube:a': { contacted: true, blocked: false, recommendations: [] } } })],
+    ['键里多一个分隔符', JSON.stringify({ version: 1, creators: {
+      'tiktok:a:old': { contacted: true, blocked: false, recommendations: [] } } })],
+    // 同一间屋子的第四扇门：两边非空、平台也对，只差一个空格，
+    // 而查询侧生成的键里永远不会有空白（ADR-32）
+    ['键的 handle 尾部带空格', JSON.stringify({ version: 1, creators: {
+      'tiktok:a ': { contacted: true, blocked: true, recommendations: [] } } })],
+    ['键的 handle 头部带空格', JSON.stringify({ version: 1, creators: {
+      'tiktok: a': { contacted: true, blocked: true, recommendations: [] } } })],
+    ['键的 handle 中间带空格', JSON.stringify({ version: 1, creators: {
+      'tiktok:a b': { contacted: true, blocked: true, recommendations: [] } } })],
+    ['键里带制表符', JSON.stringify({ version: 1, creators: {
+      'tiktok:a\t': { contacted: true, blocked: true, recommendations: [] } } })],
+  ]
+  for (const [label, content] of shapes) {
+    writeFileSync(tmp, content, 'utf8')
+    let caught = ''
+    try { filterByMemory(batch, 'p') } catch (e) { caught = (e as Error).name }
+    eq(`合法 JSON 但${label} → 当作读不出来`, caught, 'MemoryUnreadable')
+  }
+  // 但不做全量 schema：运营自己加的字段不该被判成损坏
+  writeFileSync(tmp, JSON.stringify({ version: 1, creators: { 'tiktok:a': {
+    contacted: false, blocked: false, 我的备注: '随手写的',
+    recommendations: [{ product: 'p', date: '2026-01-01', 我的批注: '记一笔' }] } } }), 'utf8')
+  eq('多出来的自定义字段不算损坏', filterByMemory(batch, 'p').memory_status, 'ok')
+
+  // 六、读不到但**不是**「文件不存在」—— 权限、父路径不是目录、IO 错误。
+  //     existsSync 对这些统统返回 false，拿它分档等于把三档压回两档（ADR-26）。
+  const notADir = join(tmpdir(), `kol-d4-notadir-${process.pid}`)
+  writeFileSync(notADir, '我是文件，不是目录', 'utf8')
+  useMemoryFile(join(notADir, 'creators.json'))
+  let enoentish = ''
+  try { filterByMemory(batch, 'p') } catch (e) { enoentish = (e as Error).name }
+  eq('读不到但不是「不存在」→ 当作读不出来，不是空记忆', enoentish, 'MemoryUnreadable')
+  unlinkSync(notADir)
+  // 真正不存在的文件仍然是 absent
+  useMemoryFile(join(tmpdir(), `kol-d4-really-none-${process.pid}.json`))
+  eq('文件真的不存在 → 仍然是 absent', filterByMemory(batch, 'p').memory_status, 'absent')
+  useMemoryFile(tmp)
+
+  // 七、写不进去也是「没写回」，不是「交付失败」。
+  //     这一步跑在报告之前，让它抛会把算好的名单连同报告一起丢掉，
+  //     而原文件本来就完好 —— 真实损失只有这一轮的记录（ADR-19）。
+  // 要的是**读得出来但写不进去**：在写回用的临时文件名上放一个目录，
+  // 于是读照常成功，写必然失败（容器里跑 root，chmod 拦不住写）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  const blocker = `${tmp}.${process.pid}.tmp`
+  mkdirSync(blocker, { recursive: true })
+  eq('这一步记忆仍然读得出来', filterByMemory(batch, 'p').memory_status, 'ok')
+  // 抛出来要变成一个能比对的值 —— 崩溃不是断言的功劳（主干的变异判定分「崩溃」与「断言红」两态）
+  let blocked: ReturnType<typeof recordRecommendations> = { written: true }, threwOnWrite = ''
+  try { blocked = recordRecommendations([mk('tiktok', 'erin')], 'p') } catch (e) { threwOnWrite = (e as Error).name }
+  eq('写不进去时不抛', threwOnWrite, '')
+  eq('而是报「没写回」', blocked.written, false)
+  ok('并带上原因', !blocked.written && blocked.reason.length > 0)
+  ok('原文件没被动过', JSON.parse(rf(tmp, 'utf8')).creators.erin === undefined)
+  rmSync(blocker, { recursive: true, force: true })
+
+  // 八、硬杀（SIGKILL、断电）发生在写临时文件与 rename 之间时，catch 不会跑，
+  //     一份完整的临时文件留在盘上。任何 write-then-rename 都躲不掉这一格，
+  //     能做的是下次写回时把它清掉 —— 但只清死掉的进程留下的（ADR-30）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  const deadPid = 999999          // 不存在的进程
+  const orphan = `${tmp}.${deadPid}.tmp`
+  const liveOrphan = `${tmp}.${process.pid + 0}.tmp`
+  writeFileSync(orphan, '上一次被硬杀时留下的', 'utf8')
+  recordRecommendations([mk('tiktok', 'erin')], 'p')
+  eq('死掉的进程留下的临时文件被清掉', existsSync(orphan), false)
+
+  // 但活着的进程正在写的那份不许动 —— 两个 render 同时跑时那是人家的
+  const otherLive = `${tmp}.${process.ppid}.tmp`
+  writeFileSync(otherLive, '别的进程正在写', 'utf8')
+  recordRecommendations([mk('tiktok', 'erin')], 'p')
+  ok('活着的进程的临时文件不动', existsSync(otherLive))
+  rmSync(otherLive, { force: true })
+  rmSync(liveOrphan, { force: true })
+
+  // 九、正常写回是原子的 —— 不留临时文件
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  const okWb = recordRecommendations([mk('tiktok', 'erin')], 'p')
+  eq('正常时写回成功', okWb.written, true)
+  eq('不留下半成品', readdirSync(tmpdir()).filter(f =>
+    f.startsWith(`kol-d4-${process.pid}`) && f.endsWith('.tmp')).length, 0)
+  ok('写回后仍可解析', (() => { try { JSON.parse(rf(tmp, 'utf8')); return true } catch { return false } })())
+
+  unlinkSync(tmp)
+  useMemoryFile('memory/creators.json')
+}
+
+suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得靠一个解析错误重新进来')
+{
+  const tmp = join(tmpdir(), `kol-p4d4-${process.pid}.json`)
+  writeFileSync(tmp, JSON.stringify({
+    version: 1, updated_at: '', creators: {
+      'tiktok:contacted': { platform: 'tiktok', handle: 'contacted', nickname: '', followers: 50000,
+        first_seen: '2026-01-01', recommendations: [], contacted: true, replied: false,
+        blocked: false, note: '' },
+      'tiktok:blocked': { platform: 'tiktok', handle: 'blocked', nickname: '', followers: 50000,
+        first_seen: '2026-01-01', recommendations: [], contacted: false, replied: false,
+        blocked: true, note: '' },
+    },
+  }), 'utf8')
+  useMemoryFile(tmp)
+  const batch = [mk('tiktok', 'contacted', { followers: 50000 }),
+                 mk('tiktok', 'blocked', { followers: 50000 }),
+                 mk('tiktok', 'fresh', { followers: 50000 })]
+
+  eq('记忆完好时只剩没联系过的那个', finalize(batch, 'p').kept.map(c => c.handle), ['fresh'])
+
+  truncateSync(tmp, Math.floor(rf(tmp, 'utf8').length * 0.6))
+
+  let threw = ''
+  try { finalize(batch, 'p') } catch (e) { threw = (e as Error).name }
+  eq('同一份记忆坏掉后：抛，而不是交出一份含已联系者的名单', threw, 'MemoryUnreadable')
+
+  // D1 × P4 的交点：身份规范化两侧必须逐字一致。查询侧一直在小写化、
+  // 存储侧没有，于是手改出来的 `tiktok:Alice` 永远查不到 —— 已联系的人
+  // 照进名单，而状态报的是「读到了」（ADR-22）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, creators: {
+    'tiktok:Contacted': { platform: 'tiktok', handle: 'contacted', nickname: '', followers: 50000,
+      first_seen: '2026-01-01', recommendations: [], contacted: true, replied: false,
+      blocked: false, note: '' },
+  } }), 'utf8')
+  eq('键的大小写不影响身份 —— 已联系的人照样被挡在外面',
+    finalize([mk('tiktok', 'contacted', { followers: 50000 })], 'p').kept.length, 0)
+  tension('D1', 'P4')
+
+  // 同一条红线的另一扇门：合法 JSON、错误结构。产品要求运营手改这个文件，
+  // 把花括号改成方括号是最容易的一种手滑，而它照样能解析（ADR-19）。
+  writeFileSync(tmp, '{"version":1,"creators":[]}', 'utf8')
+  let shapeThrew = ''
+  try { finalize(batch, 'p') } catch (e) { shapeThrew = (e as Error).name }
+  eq('结构不对时也不得交出一份含已联系者的名单', shapeThrew, 'MemoryUnreadable')
+
+  truncateSync(tmp, Math.floor(rf(tmp, 'utf8').length * 0.6))
+  const forced = finalize(batch, 'p', undefined, { ignoreUnreadableMemory: true })
+  eq('逃生口下确实放行了已联系的人', forced.kept.length, 3)
+  eq('但这件事必须能被下游读到', forced.memory_status, 'unreadable_ignored')
+
+  // 真正要守的是这个：「没查到」与「查过、确实没人」在下游必须不同值。
+  // 两者的 filtered_contacted 都是 0，能分开它们的只剩 memory_status。
+  useMemoryFile(join(tmpdir(), `kol-p4d4-none-${process.pid}.json`))
+  const cleanEmpty = finalize(batch, 'p')
+  eq('空记忆同样一个都没滤掉', cleanEmpty.filtered_contacted, forced.filtered_contacted)
+  ok('但两者不是同一个状态 —— 0 不再同时代表两件事',
+     cleanEmpty.memory_status !== forced.memory_status)
+
+  unlinkSync(tmp)
+  useMemoryFile('memory/creators.json')
+  tension('P4', 'D4')
+}
+
 suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时不中断')
 {
   const withGeo = (pct: number) =>
@@ -433,6 +727,20 @@ suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时�
   // F5：没有增强层时 audience_geo 为 undefined，主流程照常走完
   const noGeo = mk('tiktok', 'n', { email: 'a@example.com', fit: '✅' })
   eq('无增强数据不影响分层', rankCreators([noGeo], 'US')[0].tier, 'A')
+
+  // F5 × P1 的交点：**只降能力，不降数据**。
+  // 主流程要走完（F5），但走完不等于把缺失的东西填上（P1）——
+  // 压力永远推向后者，因为填了值以后交付物看起来是完整的。
+  const blind = rankCreators(
+    [mk('tiktok', 'blind', { email: 'a@example.com', fit: '✅', followers: undefined })], 'US')
+  eq('缺数据时主流程照常走完 —— 这是降能力', blind.length, 1)
+  eq('走完了也不给缺失的粉丝数填一个值 —— 不降数据', blind[0].followers, undefined)
+  eq('也不因为「不知道」就当作达标给分', blind[0].score, scoreCreator(
+    mk('tiktok', 'blind', { email: 'a@example.com', fit: '✅', followers: undefined })))
+  ok('未知粉丝数不得拿到粉丝区间那 20 分',
+    scoreCreator(mk('tiktok', 'x', { followers: undefined })) <
+    scoreCreator(mk('tiktok', 'x', { followers: 50000 })))
+  tension('F5', 'P1')
 }
 
 suite('U1', '分层管线返回的名单已按 tier 排好序')
@@ -486,6 +794,41 @@ suite('P5', '交付必须声明数据边界')
   })
   ok('空名单也不隐藏全局数据边界',
     empty.includes('未做有效性验证') && empty.includes('无法确认'))
+
+  // 记忆失效的两件事分开声明：这一批可能重复打扰（P4 没跑），
+  // 下一批可能重复推荐（这一批没记下）。后果不同，不能合成一句。
+  const base = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+    total: 1, tiers: { A: 1, B: 0, C: 0 }, email_count: 1,
+    cross_platform_count: 0, requests: 1, cost_estimate_usd: 0.001,
+    budget_usd: 2, enriched: true }
+  const one = [mk('tiktok', 'a', { tier: 'A', score: 50 })]
+
+  const skipped = renderHtml(one, { ...base, memory_status: 'unreadable_ignored',
+                                    memory_written: true })
+  ok('未去重的名单必须在报告上说出来', skipped.includes('未做「已联系 / 已推荐」去重'))
+  ok('未去重时点明后果是可能重复打扰', skipped.includes('已经联系过'))
+
+  const unwritten = renderHtml(one, { ...base, memory_status: 'ok', memory_written: false,
+                                      memory_write_error: 'EACCES: permission denied' })
+  ok('没写回记忆也必须说出来', unwritten.includes('未记入跨任务记忆'))
+  ok('没写回时不误报成没去重', !unwritten.includes('未做「已联系 / 已推荐」去重'))
+  // 没写回有两个原因：读不出来（去修 JSON）和写不进去（去看权限或磁盘）。
+  // 报告替用户断定成前者，磁盘满的人会对着一份没坏的文件较劲（ADR-20）。
+  ok('把真实原因带给用户', unwritten.includes('EACCES'))
+  ok('不替用户断定是文件坏了', !unwritten.includes('读不出来'))
+
+  // 旧任务目录没有这个字段，而当时读不出来的记忆会被静默当成空记忆 ——
+  // 所以「不知道」必须说出口，不能悄悄当成「没问题」（ADR-18）。
+  const legacy = renderHtml(one, { ...base, memory_status: 'unknown', memory_written: true })
+  ok('去重状态无从确认时也要说出来', legacy.includes('无从确认'))
+  ok('说的是不知道，不是「你跳过了」', !legacy.includes('运行时显式跳过'))
+  ok('并给出拿到确定答案的办法', legacy.includes('重跑'))
+
+  const normal = renderHtml(one, { ...base, memory_status: 'ok', memory_written: true })
+  ok('一切正常时不加噪音',
+    !normal.includes('未做「已联系 / 已推荐」去重') && !normal.includes('未记入跨任务记忆') &&
+    !normal.includes('无从确认'))
+  criterion('P5.a', 'P5.b', 'P5.c')
 }
 
 // ─────────────────────────── 数据 ───────────────────────────
@@ -730,6 +1073,197 @@ suite('D10', '缓存命中时按当前口径重算，不靠新请求')
   eq('不可用的样本记录原样留着', kept.sample, privateSample)
 }
 
+harness('需求登记表的完整性判定')
+{
+  const req = (id: string, over: Partial<Req> = {}): Req =>
+    ({ id, cat: id[0], pri: 'P0', text: `${id} 要什么`,
+       accept: [{ id: `${id}.a`, text: `${id} 怎么算满足` }], ...over })
+  const CATS = { D: '数据', P: '红线' }
+
+  // 内容指纹：键序无关（磁盘上的键序由写下它的那一版代码决定），内容一变就变
+  const a = req('D1')
+  const reordered = JSON.parse(JSON.stringify({
+    accept: a.accept, id: a.id, text: a.text, pri: a.pri, cat: a.cat })) as Req
+  eq('指纹与键序无关', contentHash([a], CATS), contentHash([reordered], CATS))
+  ok('内容一变指纹就变', contentHash([a], CATS) !== contentHash([req('D1', { accept: [{ id: 'D1.a', text: '改了' }] })], CATS))
+  // 嵌套字段同样是需求内容。**这里栽过一次**：拿顶层键当白名单时,
+  // 交点会被序列化成一个空对象,裁决改成相反的意思指纹纹丝不动（ADR-18）。
+  const withT = req('D1', { tension: [{ with: 'P1', ruling: '红线赢' }] })
+  ok('改交点的裁决,指纹必须变',
+    contentHash([withT], CATS) !== contentHash([req('D1', { tension: [{ with: 'P1', ruling: '相反的裁决' }] })], CATS))
+  ok('改交点指向谁,指纹必须变',
+    contentHash([withT], CATS) !== contentHash([req('D1', { tension: [{ with: 'P2', ruling: '红线赢' }] })], CATS))
+  ok('改作废理由,指纹必须变',
+    contentHash([req('D1', { deprecated: { since: '2026-01-01', why: '甲' } })], CATS) !==
+    contentHash([req('D1', { deprecated: { since: '2026-01-01', why: '乙' } })], CATS))
+  ok('顺序不同就是不同的登记表',
+    contentHash([req('D1'), req('D2')], CATS) !== contentHash([req('D2'), req('D1')], CATS))
+  // 分类表也进指纹：只改一个分类的说明，渲染出来的文档就变了 ——
+  // 指纹不动的话「派生元数据」名不副实（ADR-22）。
+  ok('只改分类表的说明，指纹也必须变',
+    contentHash([req('D1')], CATS) !== contentHash([req('D1')], { ...CATS, D: '数据（改过）' }))
+  // 分类表的**顺序**也影响渲染（分节按插入顺序排），所以也得进指纹。
+  // canonical 会把对象的键排序 —— 用 entries 数组绕开它（ADR-28）。
+  ok('只调换分类表的顺序，指纹也必须变',
+    contentHash([req('D1')], { D: '数据', P: '红线' }) !==
+    contentHash([req('D1')], { P: '红线', D: '数据' }))
+
+  // 作废：编号保留，不进现行表，单独成节
+  const dead = req('D9', { deprecated: { since: '2026-01-01', why: '需求本身不成立了' } })
+  eq('作废的不算现行需求', active([req('D1'), dead]).map(r => r.id), ['D1'])
+  const withTension = req('D2', { tension: [{ with: 'P1', ruling: '撞上时 P1 赢', adr: 'ADR-01' }] })
+  const html = renderTables([req('D1'), withTension, dead], { D: '数据' })
+  ok('交点的裁决渲染进人类可读的那一份', html.includes('撞上时 P1 赢'))
+  ok('并指出裁决记在哪', html.includes('ADR-01'))
+  ok('作废的不混进现行表', !html.split('已作废')[0].includes('~~D9~~') &&
+    !html.split('###')[1].includes('D9'))
+  ok('但仍然列出来 —— 编号不回收复用', html.includes('已作废') && html.includes('D9'))
+  ok('并说明为什么作废', html.includes('需求本身不成立了'))
+
+  const adrs = new Set(['ADR-01'])
+  // 形状校验被拿掉时，后面的关系检查会在缺字段的需求上直接抛 —— 那要作为断言失败被抓到
+  const bad = (rs: Req[]) => { try { return validateRegistry(rs, adrs, ['D', 'P']).length } catch { return -1 } }
+  eq('干净的登记表没有问题', bad([req('D1'), req('P1')]), 0)
+  ok('编号重复被抓到', bad([req('D1'), req('D1')]) > 0)
+  ok('交点指向自己被抓到',
+    bad([req('D1', { tension: [{ with: 'D1', ruling: '裁决' }] })]) > 0)
+  ok('交点指向不存在的编号被抓到',
+    bad([req('D1', { tension: [{ with: 'ZZ9', ruling: '裁决' }] })]) > 0)
+  ok('交点没写裁决被抓到',
+    bad([req('D1', { tension: [{ with: 'P1', ruling: '  ' }] }), req('P1')]) > 0)
+  ok('同一个方向声明两次被抓到 —— 两条裁决可能相反，而一次认领会同时算数',
+    bad([req('D1', { tension: [{ with: 'P1', ruling: '甲' }, { with: 'P1', ruling: '乙' }] }),
+         req('P1')]) > 0)
+  ok('两边各声明一次被抓到', bad([
+    req('D1', { tension: [{ with: 'P1', ruling: '裁决' }] }),
+    req('P1', { tension: [{ with: 'D1', ruling: '另一种说法' }] })]) > 0)
+  ok('决策记录编号不存在被抓到', bad([req('D1', { adr: ['ADR-99'] })]) > 0)
+  eq('存在的就放行', bad([req('D1', { adr: ['ADR-01'] })]), 0)
+  // 红线不许作废：active() 会把作废的挡在渲染和审计之外，于是红线条数
+  // 静静少一条，它的测试、变异、交点要求全部随之消失，而检查报「全部通过」。
+  ok('红线被标作废，当场拦下',
+    bad([req('P4', { deprecated: { since: '2026-01-01', why: '有理由' } })]) > 0)
+  eq('非红线作废仍然放行',
+    bad([req('D1', { deprecated: { since: '2026-01-01', why: '有理由' } })]), 0)
+  ok('作废没写理由被抓到',
+    bad([req('D1', { deprecated: { since: '2026-01-01', why: '' } })]) > 0)
+  ok('取代者不存在被抓到', bad([req('D1',
+    { deprecated: { since: '2026-01-01', why: '有', superseded_by: 'ZZ9' } })]) > 0)
+  // 分类表里没有的 cat：渲染时整条被跳过，而一致性检查比的是生成结果和生成结果，
+  // 漏掉的那条与它自己完全一致 —— 于是登记表和它号称的渲染装着不一样的需求。
+  const strayCat = req('Z1', { cat: 'Z' })
+  ok('分类不在分类表里被抓到', bad([strayCat]) > 0)
+  ok('而它确实不会出现在渲染里', !renderTables([strayCat], { D: '数据' }).includes('Z1'))
+  // 更难看见的一种：分类**声明过**，只是与编号前缀不符。两个值各自合法，
+  // 而下游全都按分类分流 —— 一条红线被挪进别的分类，审计就不再要求它有
+  // 测试和变异，还会报出比项目声明的更少的红线条数，然后照样通过（ADR-23）。
+  ok('分类声明过但与编号前缀不符也被抓到', bad([req('P4', { cat: 'D' })]) > 0)
+  eq('前缀与分类一致就放行', bad([req('P4'), req('D4')]), 0)
+
+  // 验收判据：编号与需求同规矩（稳定、不回收复用），因为下游按它认领覆盖
+  ok('没有判据被抓到', bad([req('D1', { accept: [] })]) > 0)
+  ok('判据编号挂在别的需求名下被抓到',
+    bad([req('D1', { accept: [{ id: 'D2.a', text: 'x' }] })]) > 0)
+  ok('判据编号重复被抓到', bad([req('D1', { accept:
+    [{ id: 'D1.a', text: 'x' }, { id: 'D1.a', text: 'y' }] })]) > 0)
+  ok('判据没有内容被抓到', bad([req('D1', { accept: [{ id: 'D1.a', text: '  ' }] })]) > 0)
+  ok('判据都渲染出来，且带着自己的编号', (() => {
+    const html = renderTables([req('D1', { accept:
+      [{ id: 'D1.a', text: '前一半' }, { id: 'D1.b', text: '后一半' }] })], { D: '数据' })
+    return html.includes('D1.a') && html.includes('前一半') &&
+           html.includes('D1.b') && html.includes('后一半')
+  })())
+
+  // 形状:关系检查全都假定字段在、类型对,而登记表是 JSON.parse 出来的,
+  // `Req` 那个接口运行时一个字段都不拦。判据是**渲染实际读哪些字段** ——
+  // 漏一个,`undefined` 就被写进生成的表格,`--write` 原样存下,而一致性
+  // 检查比的是生成结果和生成结果,于是全绿(ADR-33)。
+  const strip = (r: Req, f: string) => { const c = { ...r } as Record<string, unknown>; delete c[f]; return c as unknown as Req }
+  for (const f of ['id', 'cat', 'pri', 'text']) {
+    ok(`需求缺 ${f} 被抓到`, bad([strip(req('D1'), f)]) > 0)
+  }
+  ok('作废缺 since 被抓到 —— 它只被渲染、不被任何关系检查碰,是静默那一类',
+    bad([req('D1', { deprecated: { why: '有理由' } as never })]) > 0)
+  ok('而缺了它确实会把 undefined 写进文档', renderTables(
+    [req('D1', { deprecated: { why: '有理由' } as never })], { D: '数据' }).includes('undefined'))
+  ok('pri 缺失同样会把 undefined 写进文档',
+    renderTables([strip(req('D1'), 'pri')], { D: '数据' }).includes('undefined'))
+  ok('accept 不是数组被抓到', bad([req('D1', { accept: '一段话' as never })]) > 0)
+  ok('判据不是对象被抓到', bad([req('D1', { accept: [null as never] })]) > 0)
+  ok('交点不是对象被抓到', bad([req('D1', { tension: [null as never] })]) > 0)
+  ok('交点缺 with 被抓到', bad([req('D1', { tension: [{ ruling: '裁决' } as never] })]) > 0)
+  ok('adr 不是字符串数组被抓到', bad([req('D1', { adr: [7 as never] })]) > 0)
+  ok('形状不对时不接着跑关系检查 —— 否则只会抛 TypeError,把真正的问题盖掉',
+    validateRegistry([strip(req('D1'), 'text')], adrs, ['D', 'P'])
+      .every(m => m.includes('不是非空字符串')))
+
+  // 变异记在谁名下:审计拿它回答「这条需求有没有变异守着」。写成一个**不存在**
+  // 的编号时,变异照样跑、照样被抓到,全绿 —— 而它对任何一条需求都不算数(ADR-34)。
+  const known = new Set(['P4', 'P4.a'])
+  eq('记在真实需求名下 —— 放行', orphanAttributions([{ id: 'M-x', req: 'P4' }], known), [])
+  eq('记在验收判据名下 —— 也放行,豁免常常只豁免其中一条判据',
+    orphanAttributions([{ id: 'M-x', req: 'P4.a' }], known), [])
+  eq('记在检查链自己名下 —— 放行', orphanAttributions([{ id: 'M-x', req: HARNESS }], known), [])
+  eq('记在不存在的编号名下 —— 抓到', orphanAttributions(
+    [{ id: 'M-x', req: 'H4' }], known).map(o => o.req), ['H4'])
+
+  // 反向：决策记录提到的编号必须真实存在 —— 「编号不回收复用」查得了的那一半
+  const doc = '## ADR-07 标题\n\n- 冲击的需求：D1 · D9\n'
+  eq('决策记录里的编号也被解析出来', [...adrIdsIn(doc)], ['ADR-07'])
+  // 拆成一文件一条之后记录标题是一级的 `# ADR-NN`（docs/adr/ 里的写法），也得认；
+  // 标题与编号之间的空白按 adr-sync 同一约定，不止一个空格也行
+  eq('单文件里的一级标题也认', [...adrIdsIn('# ADR-08 标题\n')], ['ADR-08'])
+  eq('标题与编号之间多个空白也认', [...adrIdsIn('#  ADR-09 标题\n')], ['ADR-09'])
+  ok('决策记录指向不存在的需求被抓到',
+    danglingAdrRefs(doc, new Set(['D1']), ['D']).length > 0)
+  eq('都存在时不报', danglingAdrRefs(doc, new Set(['D1', 'D9']), ['D']).length, 0)
+  // 前缀从分类表派生，不写死形状 —— 写死的话换个项目这条检查会安静地失效
+  ok('两字母前缀的项目一样查得到',
+    danglingAdrRefs('- 冲击的需求：REQ7', new Set<string>(), ['REQ']).length > 0)
+  eq('没有分类前缀就不装作查过', danglingAdrRefs(doc, new Set<string>(), []).length, 0)
+}
+
+harness('审计对一条需求的裁定')
+{
+  const req = (id: string, crit: string[]): Req => ({
+    id, cat: id[0], pri: 'P0', text: 'x',
+    accept: crit.map(c => ({ id: `${id}.${c}`, text: `${id}.${c} 要什么` })),
+  })
+  const ev = (over: Partial<Evidence> = {}): Evidence => ({
+    tested: true, mutated: true, exempt: false, impl: 1, refs: 1,
+    claimedCriteria: new Set<string>(), exemptIds: new Set<string>(), ...over,
+  })
+
+  // 红线：每一条判据都要有认领，缺一条就是硬失败
+  const p = req('P9', ['a', 'b'])
+  eq('红线判据全认领 → 通过',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a', 'P9.b']) })).hard, 0)
+  eq('红线漏一条判据 → 硬失败',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']) })).hard, 1)
+  eq('红线一条都没认领 → 两条都硬失败', requirementVerdict(p, ev()).hard, 2)
+  eq('判据级豁免算数',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
+                              exemptIds: new Set(['P9.b']) })).hard, 0)
+
+  // 非红线：**一条都没认领同样是缺口**。原先只报「认领了一部分」那种，
+  // 于是把仅有的那条认领删掉，缺口反而消失了 —— 一个删掉证据就能变绿的
+  // 检查，是在奖励删证据（ADR-26）。
+  const d = req('D9', ['a', 'b'])
+  ok('非红线漏一条判据 → 报缺口',
+    requirementVerdict(d, ev({ claimedCriteria: new Set(['D9.a']) })).gaps.length > 0)
+  ok('非红线一条都没认领 → 同样报缺口，不许更干净',
+    requirementVerdict(d, ev()).gaps.length > 0)
+  eq('非红线漏判据不是硬失败', requirementVerdict(d, ev()).hard, 0)
+  eq('非红线全认领且有引用 → 通过',
+    requirementVerdict(d, ev({ claimedCriteria: new Set(['D9.a', 'D9.b']) })).flag, '✓')
+  ok('既没落到代码也没测试 → 报缺口',
+    requirementVerdict(d, ev({ tested: false, impl: 0, refs: 0,
+      claimedCriteria: new Set(['D9.a', 'D9.b']) })).gaps.length > 0)
+  eq('红线有测试没变异 → 硬失败',
+    requirementVerdict(p, ev({ mutated: false,
+      claimedCriteria: new Set(['P9.a', 'P9.b']) })).hard, 1)
+}
+
 harness('变异集的 why 不许夹带实现原文')
 {
   /**
@@ -965,6 +1499,7 @@ suite('P1', '纪律 lint 的判定：会变成决策的字段上不许有兜底'
     judgeLine("  const x = c.followers ?? 0   // p1-ok: 展示用，不参与决策"), 'exempt')
   eq('只写 p1-ok 不写理由的不算豁免',
     judgeLine('  const x = c.followers ?? 0   // p1-ok'), 'unjustified_exemption')
+  criterion('P1.b')
 }
 
 suite('D1', 'platform:handle 唯一标识，大小写不敏感')
@@ -1779,6 +2314,26 @@ console.log(fail ? `\n${fail} 个失败\n` : `\n全部通过（覆盖 ${covered.
 if (process.argv.includes('--json')) {
   console.log('COVERED=' + JSON.stringify([...covered]))
 }
+/*
+ * 把「谁被覆盖了」交给审计 —— **运行时收集，不是源码里搜出来的**。
+ *
+ * 审计原先按源码正则找 `suite('X')` 和交点认领，于是**注释掉的认领照样算数**：
+ * 把测试删掉、认领留在注释里，红线交点的硬失败就被一句注释绕过去了。
+ * 这个仓库在同一个坑上栽过 —— `audit.ts` 里那句「早先还 or 了一个 includes(base)
+ * 兜底，结果是任何地方提到文件名（哪怕注释里）就算执行过」（ADR-20）。
+ *
+ * 带上本文件的指纹：审计要重算一遍并比对，**过期的记录不算数**。
+ * 没跑过测试就没有这份记录，审计当场说「先跑 npm test」，而不是默默放行。
+ */
+mkdirSync(dirname(CLAIMS_PATH), { recursive: true })
+writeFileSync(CLAIMS_PATH, JSON.stringify({
+  source_hash: createHash('sha256').update(rf(SELF, 'utf8')).digest('hex').slice(0, 12),
+  covered: [...covered].sort(),
+  tensions: [...new Set(tensionClaims)].sort(),
+  criteria: [...new Set(criteriaClaims)].sort(),
+}, null, 2), 'utf8')
+
+
 // 不 process.exit()：stdout 接的是管道时（变异测试就是这么跑的），刚 console.log 的那几行可能
 // 还没写出去就被 exit 截掉 —— 实测 8 次里 1 次「N 个失败」那一行丢了，进程退出码 1 却没有汇总，
 // mutate 判成「跑不起来」。设 exitCode 让进程自己走完，输出一定落地

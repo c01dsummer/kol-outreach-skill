@@ -129,11 +129,12 @@ C级 观察池 (3)
   "tiers": { "A": 23, "B": 61, "C": 103 },
   "email_count": 86,
   "cross_platform_count": 14,
-  "filtered_by_memory": 23,
   "requests": 412,
   "cost_estimate_usd": 0.412,
   "budget_usd": 2.0,
   "enriched": false,
+  "memory_status": "ok",
+  "memory_written": true,
   "capabilities": {
     "email_verification": { "total": 187, "measured": 0, "unavailable": 0, "unqueried": 187 },
     "audience_geo": { "total": 187, "measured": 0, "unavailable": 0, "unqueried": 187 },
@@ -149,6 +150,19 @@ C级 观察池 (3)
 
 `enriched` 是兼容旧消费者的字段，只代表外部邮箱/受众增强；运行公开指标后仍为 false。
 新代码应读取 `capabilities`，不要再用一个布尔推断所有数据能力。
+
+`memory_status` 与 `memory_written` 是记忆的两个状态，**坏掉的后果不同，不要合起来报**：
+
+| 字段 | 值 | 意味着 |
+|---|---|---|
+| `memory_status` | `ok` / `absent` | 这一批做过「已联系 / 已推荐」去重 |
+| | `unreadable_ignored` | **没做去重** —— 名单里可能有他联系过甚至拉黑的人 |
+| | `unknown` | **不知道有没有去重**（早期版本采集的任务目录）—— 说不知道，别说没问题；重跑一次采集就有确定答案 |
+| `memory_written` | `true` | 这一批已记入记忆 |
+| | `false` | **没记进去** —— 下一批可能重复推荐这批人（原文件未被改动）。真实原因在 `memory_write_error` |
+| `memory_write_error` | 只在没记进去时出现 | 原因原文。**有两类，别替用户猜**：读不出来要去修 JSON，写不进去（权限、磁盘满）要去看环境 |
+
+两条都会同时出现在 HTML 报告的数据边界里。见 `references/memory.md` 与 ADR-15。
 
 ## 收尾输出
 
@@ -169,3 +183,11 @@ C级 观察池 (3)
 ```
 
 **数据边界必须说。** 让用户知道名单的局限在哪，比让他以为数据很完整强 —— 后者会导致他把预算压在错误的假设上。
+
+`memory_status` 为 `unreadable_ignored` 或 `unknown` 时，**这句要排在最前面**，
+而且不能说成「0 人此前推荐过已过滤」——那个 0 和「确实没人需要过滤」长得一模一样：
+
+```
+⚠️ 这一批没有做「已联系」去重（记忆文件读不出来，你让我跳过了）——
+   名单里可能有你联系过、甚至已经拉黑的人，发信前请自己核对。
+```

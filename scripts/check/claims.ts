@@ -1,0 +1,23 @@
+/**
+ * 测试运行时留下的覆盖记录 —— 审计据它回答「有没有测试」。
+ *
+ * 为什么不从源码里搜:**注释掉的认领会被搜出来。**把测试删掉、
+ * 把认领留在注释里,红线交点的硬失败就被一句注释绕过去了(ADR-20)。
+ * 运行时收集的记录里,没执行的就是没有。
+ *
+ * 路径与文件名常量单独放这里,让写的一方和读的一方指向同一个地方 ——
+ * 两边各写一个字符串,迟早会有一边先改。
+ */
+export const CLAIMS_PATH = '.check-cache/test-claims.json'
+export const SELF = 'scripts/test.ts'
+
+export interface Claims {
+  /** 写下这份记录时 `scripts/test.ts` 的指纹。对不上就是过期记录,不算数 */
+  source_hash: string
+  /** 真正跑过的需求编号 */
+  covered: string[]
+  /** 真正跑过的交点认领,形如 `A|B` */
+  tensions: string[]
+  /** 真正跑过的**验收判据**认领,形如 `D1.a` —— 计量单位是判据,不是需求 */
+  criteria: string[]
+}

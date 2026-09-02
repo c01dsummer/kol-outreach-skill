@@ -1,7 +1,6 @@
 {
-  "$comment": "编号的唯一真相来源。docs/SPEC.md 是它的渲染。两者不一致以本文件为准，并当场修文档。",
-  "version": 1,
-  "updated_at": "2026-08-26",
+  "$comment": "编号的唯一真相来源。docs/SPEC.md 是它的渲染，两者不一致以本文件为准。content_hash 是派生字段，由 spec-sync --write 写，不要手改 —— 改了需求不回写，npm run check 当场变红。字段含义见 process/1-REQUIREMENTS.md。",
+  "content_hash": "aa158b11f677",
   "categories": {
     "P": "红线 —— 不参与任何取舍",
     "S": "范围 —— 明确不做什么",
@@ -15,245 +14,684 @@
       "cat": "P",
       "pri": "P0",
       "text": "缺失的数据不得用默认值填充。「未查询」与「查询结果为空」必须是两个可区分的值。",
-      "accept": "Creator 的 email 字段：未做过 profile 补全时为 undefined，补全过但 bio 里没有邮箱时为 null。任何位置不得出现 `?? 0` / `|| ''` 形式的数据兜底。纪律 lint 对 scripts/ 全量扫描，命中即失败。"
+      "accept": [
+        {
+          "id": "P1.a",
+          "text": "Creator 的 email 字段：未做过 profile 补全时为 undefined，补全过但 bio 里没有邮箱时为 null。"
+        },
+        {
+          "id": "P1.b",
+          "text": "任何位置不得出现 `?? 0` / `|| ''` 形式的数据兜底；纪律 lint 对 scripts/ 全量扫描，命中即失败。"
+        }
+      ],
+      "adr": [
+        "ADR-08",
+        "ADR-10"
+      ]
     },
     {
       "id": "P2",
       "cat": "P",
       "pri": "P0",
       "text": "开发信草稿不得包含未从产品页证实的信息。不知道的一律留占位符。",
-      "accept": "草稿中出现的产品事实（规格、价格、保修、承诺）必须能在 Phase 01 抓取的产品信息里找到出处；找不到出处的必须以 {} 包裹的占位符形式出现。**可执行的那一半**：产出物必须原样保留占位符 —— render 不得删除、替换或「补全」草稿里的 {…}，否则运营看不到还有待填项就直接发了出去。**只能靠自觉的那一半**（是否编造）见 ADR-01。"
+      "accept": [
+        {
+          "id": "P2.a",
+          "text": "草稿中出现的产品事实（规格、价格、保修、承诺）必须能在 Phase 01 抓取的产品信息里找到出处；找不到出处的必须以 {} 包裹的占位符形式出现。**这一半只能靠自觉**，见 ADR-01。"
+        },
+        {
+          "id": "P2.b",
+          "text": "**可执行的那一半**：产出物必须原样保留占位符 —— render 不得删除、替换或「补全」草稿里的 {…}，否则运营看不到还有待填项就直接发了出去。"
+        }
+      ],
+      "adr": [
+        "ADR-01"
+      ]
     },
     {
       "id": "P3",
       "cat": "P",
       "pri": "P0",
       "text": "未经用户确认不得超出预算上限。",
-      "accept": "Budget.charge() 在 spent + 本次开销 > limit 时抛 BudgetExceeded 且不增加计数；collect 捕获后保存断点并以退出码 3 结束。给定 limit=0.005 与 10 次请求，实际发出的请求不超过 5 次。"
+      "accept": [
+        {
+          "id": "P3.a",
+          "text": "Budget.charge() 在 spent + 本次开销 > limit 时抛 BudgetExceeded 且不增加计数；给定 limit=0.005 与 10 次请求，实际发出的请求不超过 5 次。"
+        },
+        {
+          "id": "P3.b",
+          "text": "collect 捕获 BudgetExceeded 后保存断点并以退出码 3 结束。"
+        }
+      ],
+      "adr": [
+        "ADR-03"
+      ]
     },
     {
       "id": "P4",
       "cat": "P",
       "pri": "P0",
       "text": "已标记 contacted 或 blocked 的创作者不得再次进入名单。",
-      "accept": "filterByMemory 对任一 contacted=true 或 blocked=true 的记录，返回的 kept 中不含该创作者，且 filtered_contacted 计数加一。"
+      "accept": [
+        {
+          "id": "P4.a",
+          "text": "filterByMemory 对任一 contacted=true 或 blocked=true 的记录，返回的 kept 中不含该创作者，且 filtered_contacted 计数加一。"
+        }
+      ],
+      "adr": [
+        "ADR-15"
+      ]
     },
     {
       "id": "P5",
       "cat": "P",
       "pri": "P0",
       "text": "交付时必须显式声明数据边界：哪些字段未经验证、哪些数据缺失。",
-      "accept": "未配置外部增强层时，HTML 报告必须含「邮箱未验证」与「无法确认受众市场」两条声明；meta.json 的 enriched 为 false。即使已计算公开帖子指标也不得隐藏这两条边界；公开信号必须另行声明其不是假粉率、不能代表实际带货效果。"
+      "accept": [
+        {
+          "id": "P5.a",
+          "text": "未配置外部增强层时，HTML 报告必须含「邮箱未验证」与「无法确认受众市场」两条声明；meta.json 的 enriched 为 false。"
+        },
+        {
+          "id": "P5.b",
+          "text": "即使已计算公开帖子指标也不得隐藏这两条边界。"
+        },
+        {
+          "id": "P5.c",
+          "text": "公开信号必须另行声明其不是假粉率、不能代表实际带货效果。"
+        }
+      ],
+      "adr": [
+        "ADR-10",
+        "ADR-15"
+      ]
     },
     {
       "id": "S1",
       "cat": "S",
       "pri": "P0",
       "text": "不发送邮件。只产出草稿。",
-      "accept": "代码中不存在任何 SMTP / 邮件发送 API 调用。"
+      "accept": [
+        {
+          "id": "S1.a",
+          "text": "代码中不存在任何 SMTP / 邮件发送 API 调用。"
+        }
+      ]
     },
     {
       "id": "S2",
       "cat": "S",
       "pri": "P1",
       "text": "开发信仅英语，不做多语言。",
-      "accept": "outreach-draft.md 中明确写出该约束；草稿模板为英文。"
+      "accept": [
+        {
+          "id": "S2.a",
+          "text": "outreach-draft.md 中明确写出「仅英语」这条约束。"
+        },
+        {
+          "id": "S2.b",
+          "text": "草稿模板为英文。"
+        }
+      ]
     },
     {
       "id": "S3",
       "cat": "S",
       "pri": "P1",
       "text": "不主动向用户索取发信效果回填。contacted 等状态由用户手动标记。",
-      "accept": "流程中不存在询问上批结果的环节；memory 的 contacted/replied/blocked 仅由外部写入。"
+      "accept": [
+        {
+          "id": "S3.a",
+          "text": "流程中不存在询问上批结果的环节。"
+        },
+        {
+          "id": "S3.b",
+          "text": "memory 的 contacted/replied/blocked 仅由外部写入。"
+        }
+      ]
     },
     {
       "id": "S4",
       "cat": "S",
       "pri": "P1",
       "text": "不做中国大陆平台（抖音/小红书/快手）。",
-      "accept": "Platform 类型仅含 'tiktok' | 'instagram'。"
+      "accept": [
+        {
+          "id": "S4.a",
+          "text": "Platform 类型仅含 'tiktok' | 'instagram'。"
+        }
+      ]
     },
     {
       "id": "S5",
       "cat": "S",
       "pri": "P2",
       "text": "不做 CRM 跟进管理、付款、寄样物流、投放效果归因。",
-      "accept": "无对应模块。"
+      "accept": [
+        {
+          "id": "S5.a",
+          "text": "无对应模块。"
+        }
+      ]
     },
     {
       "id": "D1",
       "cat": "D",
       "pri": "P0",
       "text": "创作者的唯一标识是 platform 与 handle 的组合，大小写不敏感。",
-      "accept": "同一 handle 的不同大小写形式在去重与记忆查询中被视为同一人。"
+      "accept": [
+        {
+          "id": "D1.a",
+          "text": "同一 handle 的不同大小写形式在**去重**中被视为同一人。"
+        },
+        {
+          "id": "D1.b",
+          "text": "同一 handle 的不同大小写形式在**记忆查询**中被视为同一人 —— 存储侧与查询侧的规范化规则必须逐字一致。"
+        }
+      ],
+      "adr": [
+        "ADR-22"
+      ],
+      "tension": [
+        {
+          "with": "P4",
+          "ruling": "身份规范化在查询侧与存储侧必须逐字一致 —— 大小写差异不得让一条记录查不到。规范化不了的键（形状不对、或两个键指向同一个人）当作记忆读不出来，不得当成「这个人没有记录」。",
+          "adr": "ADR-22"
+        }
+      ]
     },
     {
       "id": "D2",
       "cat": "D",
       "pri": "P1",
       "text": "bio_links 必须归一化为数组，无论源数据是单值还是数组。",
-      "accept": "TikTok 的 bioLink.link（单值）与 Instagram 的 bio_links（数组）经适配后类型一致，均为 string[]。"
+      "accept": [
+        {
+          "id": "D2.a",
+          "text": "TikTok 的 bioLink.link（单值）与 Instagram 的 bio_links（数组）经适配后类型一致，均为 string[]。"
+        }
+      ]
     },
     {
       "id": "D3",
       "cat": "D",
       "pri": "P0",
       "text": "跨平台同人识别不确定时不得合并。错误合并的代价高于漏合并。",
-      "accept": "仅在 bio 外链互指、handle 完全相同、或去标点后相同三种信号之一成立时合并。昵称或头像相近单独不足以触发合并。"
+      "accept": [
+        {
+          "id": "D3.a",
+          "text": "仅在 bio 外链互指、handle 完全相同、或去标点后相同三种信号之一成立时合并。"
+        },
+        {
+          "id": "D3.b",
+          "text": "昵称或头像相近单独不足以触发合并。"
+        }
+      ]
     },
     {
       "id": "D4",
       "cat": "D",
       "pri": "P1",
-      "text": "跨任务记忆以 platform:handle 为主键持久化在本地 JSON，不做多人共享。",
-      "accept": "memory/creators.json 存在且以该格式为键；记忆文件损坏时退化为空记忆并告警，不中断任务。"
+      "text": "跨任务记忆以 platform:handle 为主键持久化在本地 JSON，不做多人共享。记忆不可用不得让已完成的采集作废，也不得让 P4 静默失效。",
+      "accept": [
+        {
+          "id": "D4.a",
+          "text": "memory/creators.json 存在且以 platform:handle 为键。"
+        },
+        {
+          "id": "D4.b",
+          "text": "「文件不存在」按空记忆处理，且与「读不出来」是两个可区分的状态。"
+        },
+        {
+          "id": "D4.c",
+          "text": "「读不出来」含解析失败与结构不对两种：合法 JSON 但 creators 不是键值对象、条目的 contacted/blocked 不是布尔值、recommendations 不是数组、推荐记录不是对象或缺 product/date、键不是 platform:handle 形式、或两个键规范化后指向同一个人，一律算读不出来。"
+        },
+        {
+          "id": "D4.d",
+          "text": "键在读入时按 D1 规范化，大小写差异不得让记录查不到；键的形状必须与查询侧生成的一致 —— 分隔符恰好一个、平台在支持范围内，否则算读不出来。"
+        },
+        {
+          "id": "D4.e",
+          "text": "读不出来时不得产出名单；采集结果与预算状态保持完好，已抓到的不重抓。修复后续跑是否产生新请求，取决于剩余关键词与待补 profile 是否都为零 —— 不得无条件承诺零请求。"
+        },
+        {
+          "id": "D4.f",
+          "text": "只有用户显式指定 --ignore-memory 才出名单，且交付物的 memory_status 为 unreadable_ignored，报告声明本次未做已联系去重。"
+        },
+        {
+          "id": "D4.g",
+          "text": "去重状态无从确认的（本约束生效之前产出的任务目录）记为 unknown 并同样声明，不得记为已去重。"
+        },
+        {
+          "id": "D4.h",
+          "text": "任何情况下都不得用读不出来的记忆覆盖原文件。"
+        },
+        {
+          "id": "D4.i",
+          "text": "写回为整体替换：被打断不得留下截断的目标文件。临时文件在两步之间被硬杀（SIGKILL、断电）时会残留 —— 任何 write-then-rename 都躲不掉这一格，所以下一次写回必须清掉**已死进程**留下的临时文件，并且不得动还活着的进程正在写的那些。"
+        },
+        {
+          "id": "D4.j",
+          "text": "写回失败（目录不可写、磁盘满）报为未写回并照常完成交付，不得中断产出；交付物必须带出失败原因原文，不得把写不进去说成文件读不出来。"
+        }
+      ],
+      "adr": [
+        "ADR-15"
+      ],
+      "tension": [
+        {
+          "with": "P4",
+          "ruling": "记忆读不出来时 P4 优先：不产出名单。用户显式 --ignore-memory 才继续，且交付物必须声明本次未去重。任何情况下都不得用读不出来的记忆覆盖原文件。",
+          "adr": "ADR-15"
+        },
+        {
+          "with": "D6",
+          "ruling": "本任务自己上一轮写下的推荐不参与记忆过滤 —— 否则 render 之后每次续跑都会把已付费采集的人判成「已推荐过」，产出空名单。",
+          "adr": "ADR-08"
+        }
+      ]
     },
     {
       "id": "D5",
       "cat": "D",
       "pri": "P1",
       "text": "CSV 必须为 UTF-8 with BOM，含逗号/引号/换行的字段必须正确转义。",
-      "accept": "输出文件前三字节为 EF BB BF；含特殊字符的字段被双引号包裹且内部引号写成两个。"
+      "accept": [
+        {
+          "id": "D5.a",
+          "text": "输出文件前三字节为 EF BB BF。"
+        },
+        {
+          "id": "D5.b",
+          "text": "含逗号/引号/换行的字段被双引号包裹且内部引号写成两个。"
+        }
+      ]
     },
     {
       "id": "D6",
       "cat": "D",
       "pri": "P0",
       "text": "采集必须可断点续跑：已完成的关键词不重跑，请求数跨运行累加不重复计费。",
-      "accept": "以 --resume 重入时，task.json 的 done 数组中的索引被跳过；Budget 以已有 requests 初始化，spent 连续不归零。采集累加器 creators.raw.json 只增不减，过滤只作用于交付物 creators.json —— 在 render 写回记忆之后续跑，已采集的人不得消失。"
+      "accept": [
+        {
+          "id": "D6.a",
+          "text": "以 --resume 重入时，task.json 的 done 数组中的索引被跳过；Budget 以已有 requests 初始化，spent 连续不归零。"
+        },
+        {
+          "id": "D6.b",
+          "text": "采集累加器 creators.raw.json 只增不减，过滤只作用于交付物 creators.json —— 在 render 写回记忆之后续跑，已采集的人不得消失。"
+        },
+        {
+          "id": "D6.c",
+          "text": "说「续跑不产生新的请求」之前，剩余工作量必须都为零，而剩余工作量按**续跑真正会执行的路径**算：关键词按「续跑会去抓的」而不是「不在 done 里的」（达标提前停下时那些词续跑也不会碰），profile 按补全循环用的同一个判定。"
+        }
+      ],
+      "adr": [
+        "ADR-03",
+        "ADR-08"
+      ]
     },
     {
       "id": "D7",
       "cat": "D",
       "pri": "P1",
       "text": "邮箱提取需支持反爬写法，且不得把正常语句误判为邮箱。",
-      "accept": "(at)/[at]/ at / 与 (dot)/[dot]/ dot / 形式均能提取；'look at gmail.com for more' 返回 null；'logo@2x.png' 返回 null。"
+      "accept": [
+        {
+          "id": "D7.a",
+          "text": "(at)/[at]/ at / 与 (dot)/[dot]/ dot / 形式均能提取。"
+        },
+        {
+          "id": "D7.b",
+          "text": "'look at gmail.com for more' 返回 null；'logo@2x.png' 返回 null。"
+        }
+      ]
     },
     {
       "id": "D8",
       "cat": "D",
       "pri": "P0",
       "text": "公开绩效指标必须来自创作者主页的独立近期作品样本，不得复用关键词搜索命中的偏置样本；每项结论必须保留查询状态、来源、时间和样本量。",
-      "accept": "TikTok 与 Instagram 分平台最多取最近 12 条短视频/Reels，明确标记为 pinned 的作品从绩效聚合与发布间隔中排除；每项聚合至少有 6 个具备所需字段的观测才返回 measured。字段缺失不按 0 处理，未查询、不可用、已测量在 enrichment.json 与交付物中可区分。"
+      "accept": [
+        {
+          "id": "D8.a",
+          "text": "TikTok 与 Instagram 分平台最多取最近 12 条短视频/Reels，明确标记为 pinned 的作品从绩效聚合与发布间隔中排除。"
+        },
+        {
+          "id": "D8.b",
+          "text": "每项聚合至少有 6 个具备所需字段的观测才返回 measured。"
+        },
+        {
+          "id": "D8.c",
+          "text": "字段缺失不按 0 处理；未查询、不可用、已测量在 enrichment.json 与交付物中可区分。"
+        }
+      ],
+      "adr": [
+        "ADR-10",
+        "ADR-13",
+        "ADR-14"
+      ]
     },
     {
       "id": "D9",
       "cat": "D",
       "pri": "P1",
       "text": "KOL Rate 必须把公开互动率与合作报价分开；不得在没有明确报价或基准时自动估价。",
-      "accept": "合作报价带金额、币种、平台、形式、数量、来源和时间。只有同平台同形式报价才按单条报价 / 中位播放量 × 1000 计算隐含 eCPM，并按单条报价 / 中位互动量计算隐含 eCPE；缺报价、混合套餐或分母不可用时明确不可计算。"
+      "accept": [
+        {
+          "id": "D9.a",
+          "text": "合作报价带金额、币种、平台、形式、数量、来源和时间。"
+        },
+        {
+          "id": "D9.b",
+          "text": "只有同平台同形式报价才按单条报价 / 中位播放量 × 1000 计算隐含 eCPM，并按单条报价 / 中位互动量计算隐含 eCPE。"
+        },
+        {
+          "id": "D9.c",
+          "text": "缺报价、混合套餐或分母不可用时明确不可计算。"
+        }
+      ],
+      "adr": [
+        "ADR-10"
+      ]
     },
     {
       "id": "D10",
       "cat": "D",
       "pri": "P1",
       "text": "当前活跃度必须与历史内容积累分开表达；停更标签只提示合作就绪度，不得自动改变 KOL 价值判断。",
-      "accept": "按平台用样本 observed_at 与最近一次发布时间计算：≤45 天为 active，46–90 天为 cooling，>90 天为 dormant；一个有效时间即可测量，置顶作品计入最近发布。缺少发布时间或时间异常时明确 unavailable。状态不得改变 score、tier、风险或名单成员；旧 enrichment 样本可在不新增 API 请求的情况下补算。"
+      "accept": [
+        {
+          "id": "D10.a",
+          "text": "按平台用样本 observed_at 与最近一次发布时间计算：≤45 天为 active，46–90 天为 cooling，>90 天为 dormant；一个有效时间即可测量，置顶作品计入最近发布。"
+        },
+        {
+          "id": "D10.b",
+          "text": "缺少发布时间或时间异常时明确 unavailable。"
+        },
+        {
+          "id": "D10.c",
+          "text": "状态不得改变 score、tier、风险或名单成员。"
+        },
+        {
+          "id": "D10.d",
+          "text": "旧 enrichment 样本可在不新增 API 请求的情况下补算。"
+        }
+      ],
+      "adr": [
+        "ADR-11",
+        "ADR-13",
+        "ADR-14"
+      ]
     },
     {
       "id": "F1",
       "cat": "F",
       "pri": "P1",
       "text": "产品理解阶段只问三个无法从产品链接推导的问题：目标市场、预算上限、目标人数。",
-      "accept": "product-intake.md 中列出且仅列出这三个必问项。"
+      "accept": [
+        {
+          "id": "F1.a",
+          "text": "product-intake.md 中列出且仅列出目标市场、预算上限、目标人数这三个必问项。"
+        }
+      ]
     },
     {
       "id": "F2",
       "cat": "F",
       "pri": "P1",
       "text": "关键词按品类词、场景词、竞品词、人群词四个维度生成。",
-      "accept": "Dimension 类型含且仅含这四个值；每个维度在评分中有明确权重。"
+      "accept": [
+        {
+          "id": "F2.a",
+          "text": "Dimension 类型含且仅含品类词、场景词、竞品词、人群词四个值。"
+        },
+        {
+          "id": "F2.b",
+          "text": "每个维度在评分中有明确权重。"
+        }
+      ]
     },
     {
       "id": "F3",
       "cat": "F",
       "pri": "P0",
       "text": "规模采集前必须先小样试探并由用户确认方向。",
-      "accept": "probe 与 collect 是两个独立入口；SKILL.md 明确要求试探后询问用户，不得跳过。"
+      "accept": [
+        {
+          "id": "F3.a",
+          "text": "probe 与 collect 是两个独立入口。"
+        },
+        {
+          "id": "F3.b",
+          "text": "SKILL.md 明确要求试探后询问用户，不得跳过。"
+        }
+      ]
     },
     {
       "id": "F4",
       "cat": "F",
       "pri": "P0",
       "text": "语义筛选必须输出可读的理由，不得只给分数。",
-      "accept": "Creator.fit_reason 存在且进入 CSV 与 HTML 报告；semantic-fit.md 给出反模式清单。"
+      "accept": [
+        {
+          "id": "F4.a",
+          "text": "Creator.fit_reason 存在且进入 CSV 与 HTML 报告。"
+        },
+        {
+          "id": "F4.b",
+          "text": "semantic-fit.md 给出反模式清单。"
+        }
+      ]
     },
     {
       "id": "F5",
       "cat": "F",
       "pri": "P0",
       "text": "增强层缺失时必须优雅降级完成主流程，不得中断。",
-      "accept": "未配置任何第三方增强服务时，probe/collect/enrich/render 均能仅凭 TIKHUB_API_KEY 完整执行；不运行 enrich 时 render 仍能产出结果。"
+      "accept": [
+        {
+          "id": "F5.a",
+          "text": "未配置任何第三方增强服务时，probe/collect/enrich/render 均能仅凭 TIKHUB_API_KEY 完整执行。"
+        },
+        {
+          "id": "F5.b",
+          "text": "不运行 enrich 时 render 仍能产出结果。"
+        }
+      ],
+      "adr": [
+        "ADR-10"
+      ],
+      "tension": [
+        {
+          "with": "P1",
+          "ruling": "只降能力，不降数据：缺增强层时主流程照常走完并说明少了什么（F5），但任何缺失字段都不得填猜测值（P1）。判别见 docs/CONVENTIONS.md 第 2 条。"
+        }
+      ]
     },
     {
       "id": "F6",
       "cat": "F",
       "pri": "P0",
       "text": "语义判断为否定时对分层有一票否决权，不得因分数高而进入 A 级。",
-      "accept": "tierOf 对 fit='❌' 的创作者一律返回 'C'，无论 score 多高。"
+      "accept": [
+        {
+          "id": "F6.a",
+          "text": "tierOf 对 fit='❌' 的创作者一律返回 'C'，无论 score 多高。"
+        }
+      ]
     },
     {
       "id": "F7",
       "cat": "F",
       "pri": "P1",
       "text": "预算达 50% 与 80% 时提醒，达 100% 时暂停并保存断点。",
-      "accept": "Budget 在跨越 0.5 与 0.8 阈值时各触发一次回调（不重复触发）；达上限抛 BudgetExceeded。"
+      "accept": [
+        {
+          "id": "F7.a",
+          "text": "Budget 在跨越 0.5 与 0.8 阈值时各触发一次回调，且不重复触发。"
+        },
+        {
+          "id": "F7.b",
+          "text": "达上限抛 BudgetExceeded。"
+        }
+      ],
+      "adr": [
+        "ADR-03"
+      ]
     },
     {
       "id": "F8",
       "cat": "F",
       "pri": "P0",
       "text": "公开数据只能产出可解释的受众质量风险，不能声称为假粉率或带货效果；风险高只降级复核，不自动剔除。",
-      "accept": "被评账号不进入自己的同行基线；同平台同粉丝档至少 8 个其他可比较账号，不跨档凑数。粉丝互动率低于同行 P10、播粉比低于 P10、关注/粉丝比高于 P90 各为一个信号，至少两个信号才是 high。high 在 tierOf 与地域规则之后降一级并写明理由；medium/low/unknown 不改变分层，任何风险等级都不得自动删除创作者。"
+      "accept": [
+        {
+          "id": "F8.a",
+          "text": "被评账号不进入自己的同行基线；同平台同粉丝档至少 8 个其他可比较账号，不跨档凑数。"
+        },
+        {
+          "id": "F8.b",
+          "text": "粉丝互动率低于同行 P10、播粉比低于 P10、关注/粉丝比高于 P90 各为一个信号，至少两个信号才是 high。"
+        },
+        {
+          "id": "F8.c",
+          "text": "high 在 tierOf 与地域规则之后降一级并写明理由。"
+        },
+        {
+          "id": "F8.d",
+          "text": "medium/low/unknown 不改变分层；任何风险等级都不得自动删除创作者。"
+        }
+      ],
+      "adr": [
+        "ADR-10",
+        "ADR-13"
+      ]
     },
     {
       "id": "U1",
       "cat": "U",
       "pri": "P1",
       "text": "CSV 按 tier 升序、同层按 score 降序排列，列定义固定。",
-      "accept": "输出的第一行为约定的表头；行序满足 A→B→C 且同层分数递减。"
+      "accept": [
+        {
+          "id": "U1.a",
+          "text": "输出的第一行为约定的表头。"
+        },
+        {
+          "id": "U1.b",
+          "text": "行序满足 A→B→C 且同层分数递减。"
+        }
+      ]
     },
     {
       "id": "U2",
       "cat": "U",
       "pri": "P1",
       "text": "HTML 报告为单文件、样式内联、不依赖任何网络资源。",
-      "accept": "报告中不含 http(s):// 开头的 script/link/img 资源引用（创作者主页链接除外）。"
+      "accept": [
+        {
+          "id": "U2.a",
+          "text": "报告中不含 http(s):// 开头的 script/link/img 资源引用（创作者主页链接除外）。"
+        }
+      ]
     },
     {
       "id": "U3",
       "cat": "U",
       "pri": "P2",
       "text": "报告必须展示各关键词的表现，作为下次调整策略的依据。",
-      "accept": "报告含关键词表格，列出找到人数、语义通过数、命中率。"
+      "accept": [
+        {
+          "id": "U3.a",
+          "text": "报告含关键词表格，列出找到人数、语义通过数、命中率。"
+        }
+      ]
     },
     {
       "id": "U4",
       "cat": "U",
       "pri": "P1",
       "text": "A 级候选必须附开发信草稿，且可一键复制。",
-      "accept": "tier=A 且存在 outreach_draft 的卡片渲染出复制按钮。"
+      "accept": [
+        {
+          "id": "U4.a",
+          "text": "tier=A 且存在 outreach_draft 的卡片渲染出复制按钮。"
+        }
+      ]
     },
     {
       "id": "U5",
       "cat": "U",
       "pri": "P1",
       "text": "除单表 CSV 外，另产出按分层分 sheet 的 xlsx，供人快速切换。",
-      "accept": "kol.xlsx 含且仅含「A级/B级/C级」三个 sheet（不设「全部」——单表已由 kol.csv 承担）；空分层也建 sheet 并在名称中标出 (0)，不得隐藏；ZIP 各条目 CRC 校验通过。"
+      "accept": [
+        {
+          "id": "U5.a",
+          "text": "kol.xlsx 含且仅含「A级/B级/C级」三个 sheet（不设「全部」—— 单表已由 kol.csv 承担）。"
+        },
+        {
+          "id": "U5.b",
+          "text": "空分层也建 sheet 并在名称中标出 (0)，不得隐藏。"
+        },
+        {
+          "id": "U5.c",
+          "text": "ZIP 各条目 CRC 校验通过。"
+        }
+      ]
     },
     {
       "id": "U6",
       "cat": "U",
       "pri": "P1",
       "text": "HTML 报告的名单支持按分层切换，且创作者所属平台必须一眼可辨。",
-      "accept": "报告含 A/B/C 三个 tab 且切换只显示对应分层；**默认选中第一个非空分层**，初始可见性在渲染时确定而非依赖 JS 先跑一遍；**切换不得滚动页面**；每张卡片的平台标签带平台专属配色（TikTok 青、Instagram 橙粉渐变），不与其他次要标签同一视觉层级。"
+      "accept": [
+        {
+          "id": "U6.a",
+          "text": "报告含 A/B/C 三个 tab 且切换只显示对应分层。"
+        },
+        {
+          "id": "U6.b",
+          "text": "**默认选中第一个非空分层**，初始可见性在渲染时确定而非依赖 JS 先跑一遍。"
+        },
+        {
+          "id": "U6.c",
+          "text": "**切换不得滚动页面**。"
+        },
+        {
+          "id": "U6.d",
+          "text": "每张卡片的平台标签带平台专属配色（TikTok 青、Instagram 橙粉渐变），不与其他次要标签同一视觉层级。"
+        }
+      ]
     },
     {
       "id": "U7",
       "cat": "U",
       "pri": "P1",
       "text": "公开指标、风险依据、报价效率和数据边界必须进入结构化交付物与可读报告。",
-      "accept": "creators.json 与 enrichment.json 保留分平台测量状态及溯源；CSV/XLSX 展示当前平台的核心指标、最近发布、活跃状态、风险与降级理由、报价及隐含 eCPM/eCPE；HTML 展示主账号和关联账号明细；meta.json 按能力分别统计 measured/unavailable/unqueried，公开指标不得把兼容字段 enriched 置为 true。"
+      "accept": [
+        {
+          "id": "U7.a",
+          "text": "creators.json 与 enrichment.json 保留分平台测量状态及溯源。"
+        },
+        {
+          "id": "U7.b",
+          "text": "CSV/XLSX 展示当前平台的核心指标、最近发布、活跃状态、风险与降级理由、报价及隐含 eCPM/eCPE。"
+        },
+        {
+          "id": "U7.c",
+          "text": "HTML 展示主账号和关联账号明细。"
+        },
+        {
+          "id": "U7.d",
+          "text": "meta.json 按能力分别统计 measured/unavailable/unqueried；公开指标不得把兼容字段 enriched 置为 true。"
+        }
+      ],
+      "adr": [
+        "ADR-10",
+        "ADR-11",
+        "ADR-14"
+      ]
     }
   ]
 }

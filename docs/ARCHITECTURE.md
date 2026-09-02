@@ -48,13 +48,13 @@
 | 模块 | 层 | 服务的需求 | 它保证什么 |
 |---|---|---|---|
 | `scripts/probe.ts` | 入口 | F3 P1 P3 | 每词每平台只抓一页，供 Agent 判读方向；拿不到粉丝数报「未知」而不是 0 |
-| `scripts/collect.ts` | 入口 | D6 P3 F7 | 轮转采集不让第一个关键词吃掉全部配额；预算用尽存断点退 3 |
+| `scripts/collect.ts` | 入口 | D6 P3 F7 D4 | 轮转采集不让第一个关键词吃掉全部配额；预算用尽存断点退 3；记忆读不出来退 2 且不产出名单 |
 | `scripts/enrich.ts` | 入口 | D8 D10 F8 P3 | 只对语义筛选后的候选抓主页样本；已查过的账号默认不重复付费，但每次都按当前口径就地重算（零请求） |
-| `scripts/render.ts` | 入口 | P5 U1 U2 U5 U7 | 交付物生成的唯一出口，且是唯一往跨任务记忆写回的地方 |
+| `scripts/render.ts` | 入口 | P5 U1 U2 U5 U7 D4 | 交付物生成的唯一出口，且是唯一往跨任务记忆写回的地方；写回在报告之前，报告才能声明它的结果 |
 | `scripts/lib/pipeline.ts` | 逻辑 | D6 P1 P4 F5 F8 U1 U3 | 入口脚本原先裸露的两段管线；**顺序契约全在这里**，见下表 |
 | `scripts/lib/score.ts` | 逻辑 | P1 F6 F8 | 打分、分层、粉丝闸门、两种降级判定；语义否决对分层有一票否决权 |
 | `scripts/lib/identity.ts` | 逻辑 | D1 D2 D3 P1 | 跨平台同人识别与合并；不确定不合并，未知粉丝数相加仍是未知 |
-| `scripts/lib/memory.ts` | 逻辑 | P4 D4 D6 | 跨任务记忆的读写与过滤；记忆文件损坏退化为空记忆而不中断 |
+| `scripts/lib/memory.ts` | 逻辑 | P4 D4 D6 | 跨任务记忆的读写与过滤；「文件不存在」与「读不出来」是两个状态，后者抛而不是退化，且**绝不拿它去覆盖原文件**；解析成功还要过结构校验（合法 JSON 也可能形状错）；写回走临时文件加 rename，写不进去报为未写回而不中断交付 |
 | `scripts/lib/budget.ts` | 逻辑 | P3 F7 | 成本闸门；超限抛 BudgetExceeded 且不增加计数 |
 | `scripts/lib/email.ts` | 逻辑 | D7 | 反爬写法的邮箱提取；宁可返回 null 也不误判正常语句 |
 | `scripts/lib/assessment.ts` | 逻辑 | D8 D9 D10 F8 U7 | 公开样本 → 指标 / 风险 / 活跃度 / 报价效率，每项带测量状态与溯源；**样本记录的窗口也截在这里**，入口脚本只负责调用与落盘 |
@@ -67,6 +67,8 @@
 | `scripts/providers/tikhub.ts` | 适配 | D2 D3 D8 P1 | 唯一的数据源实现；响应结构走探测 cascade，识别不出时暴露顶层 key |
 | `scripts/check/lint.ts` | 检查 | P1 | 把 P1 从散文变成能报错的检查；走文件树、打印、退出码 |
 | `scripts/check/lint-rule.ts` | 检查 | P1 | 上面那条检查的**判定**本身。抽出来是为了它能被测 —— 检查自己也要能被证伪 |
+| `scripts/check/claims.ts` | 检查 | — | 测试运行时留下的覆盖记录的路径与形状：写的一方（`test.ts`）与读的一方（`audit.ts`）指向同一处；带 `test.ts` 指纹，过期记录不算数 |
+| `scripts/check/spec-rule.ts` | 检查 | — | 需求登记表的**判定**：表格渲染、内容指纹、形状（渲染要读的字段必须在，缺了会把空值写进生成的文档）、完整性（编号唯一、交点与决策记录编号真实存在、作废须有理由）；不碰文件系统，因而可被测 |
 | `scripts/check/size.ts` | 检查 | — | 把「一个改动 = 一个能一次读完的 diff」变成能报错的检查；量的是分支相对主干的新增行，基线算不出来时说「无从判断」而不是放行 |
 | `scripts/check/size-rule.ts` | 检查 | — | 上面那条闸门的**判定**本身。四类分开算、豁免必须指名类别；抽出来是为了它能被测 |
 | `scripts/check/age.ts` | 检查 | — | 把「分支活不过 48 小时」变成能报错的检查；量的是分叉时长（最早那个不在主干上的提交到现在），不是最后一次提交距今多久。**三种跑法**，因为这是个时间型的判据、要配时间型的触发：不带参数量当前 HEAD（进检查链）；`--ref <分支> [--since <锚>] [--base <PR 的 base>]` 量指定分支，由 `age.yml` 贴到**各 PR 的 head SHA**（合并闸看的是那里，`--since` 给一个改写不了的时间锚，`--base` 让 base 里已有的提交不算进豁免的扫描范围）；`--all [--prs <开着的 PR 清单>]` 扫所有远端分支，有同仓库开着 PR 的分支用同一把锚、没有的逐条标出（`age.yml` 每天一次的聚合视图） |
@@ -79,6 +81,7 @@
 | `scripts/check/mutate.ts` | 检查 | — | 给测试做的测试：变异存活即那条测试是假的；测试进程崩了不算抓到 |
 | `scripts/check/mutate-rule.ts` | 检查 | — | 上面那条的**判定**：一次测试跑完算「抓到」「跑不起来」还是「存活」——只有断言红了才算抓到，崩溃不是断言的功劳 |
 | `scripts/check/why-rule.ts` | 检查 | — | 变异集 why 的判定：夹带实现原文当场拦下，让 `--brief` 名副其实 |
+| `scripts/check/attribution-rule.ts` | 检查 | — | 变异与豁免**记在谁名下**的判定：记在一个不存在的编号名下时当场拦下 —— 那条变异照样跑、照样被抓到，却对任何一条需求都不算数 |
 | `scripts/check/selfcheck.ts` | 检查 | F5 | 每个可执行文件都要有出处：**采集管线那几个**在这里用假 fetch 从头跑到尾，**检查脚本**在 `npm run check` 里各自成一步（那条路不保证跑到尾 —— 检查可以合法提前退出），其余写进 `EXEMPT` 说明理由 |
 | `scripts/check/fake-fetch.ts` | 检查 | — | 自检用的假响应；它决定了自检能走到多深 |
 | `scripts/check/audit.ts` | 检查 | — | 链路审计，回答完成度而不是「功能做完了没有」；**检查链自己的判定模块**也在它的名单上，没有变异守着就硬失败 |
@@ -119,7 +122,7 @@ Agent 是编排者，它读 stdout 做决策。
 | 入口 | 读 | 写 | 退出码 |
 |---|---|---|---|
 | `probe` | `--config probe.json` | **不落盘** | 0 · 2 |
-| `collect` | `--config task.json` 或 `--resume <dir>` | `task.json` `creators.raw.json` `creators.json` | 0 · 1 · 2 · **3** |
+| `collect` | `--config task.json` 或 `--resume <dir>` `[--ignore-memory]` | `task.json` `creators.raw.json` `creators.json` | 0 · 1 · 2 · **3** |
 | `enrich` | `--dir <dir>`（`task.json` `creators.json`） | `enrichment.json` `task.json` | 0 · 1 · 2 · **3** |
 | `render` | `--dir <dir>`（`task.json` `creators.json` `enrichment.json`） | `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` · **`memory/creators.json`** | 0 · 2 |
 
@@ -131,12 +134,21 @@ Agent 是编排者，它读 stdout 做决策。
 | | 含义 | Agent 该做什么 |
 |---|---|---|
 | `0` | 正常 | 读 stdout 继续 |
-| `2` | 用法错 / 缺 `TIKHUB_API_KEY` | 停下问人，重试没有意义 |
+| `2` | 用法错 / 缺 `TIKHUB_API_KEY` / **记忆文件读不出来** | 停下问人，重试没有意义 |
 | `3` | **预算用尽，断点已存** | 问用户要不要追加预算，然后 `--resume` / 重跑 `enrich` |
 | `1` | 其他失败 | 读 stderr |
 
 > `3` 是唯一一个「失败但数据完好」的码。把它并进 `1`，Agent 就分不清
 > 该问用户加预算还是该报错 —— 而这两件事对用户的意义完全相反。
+
+记忆读不出来走 `2` 而**不是新开一个码**：`2` 的含义没变（停下问人，重试没有意义），
+只是多了一个原因。此时采集结果与预算状态同样完好 —— **已经抓到的不会重抓**。
+但「续跑要不要花钱」取决于**两种**活干完没有：剩余关键词**和**待补 profile
+都为零才是零请求。任一不为零（采集失败、预算用尽、或还有人没补 profile），
+剩下的照样要花钱 —— `enrich` 的 profile 补全跑在续跑的最前面，它是付费端点。
+stderr 会按实际剩余量说清楚，**不要替它简化成「续跑免费」**（ADR-22 · ADR-25）。要在读不出来的情况下仍然出名单，只能由用户显式
+打出 `--ignore-memory`，那一批的 `memory_status` 会是 `unreadable_ignored`，
+报告上带一条「未做已联系去重」的声明（ADR-15）。
 
 ### 字段所有权
 

@@ -1,5 +1,10 @@
 /** S4：只做出海平台。抖音/小红书/快手不在范围内 —— 账号体系与合规完全不同。 */
-export type Platform = 'tiktok' | 'instagram'
+/**
+ * 支持的平台。**运行时列表与类型从同一处派生** —— 手写两份迟早会分叉，
+ * 而分叉的后果是校验放行一个查询侧永远匹配不到的值（ADR-25）。
+ */
+export const PLATFORMS = ['tiktok', 'instagram'] as const
+export type Platform = typeof PLATFORMS[number]
 /** F2：关键词的四个维度。竞品词权重最高（评分见 score.ts）。 */
 export type Dimension = 'category' | 'scene' | 'competitor' | 'audience'
 export type Tier = 'A' | 'B' | 'C'
@@ -66,6 +71,24 @@ export interface NormalizedPublicPost {
 export type AudienceRiskLevel = 'low' | 'medium' | 'high'
 export type AudienceRiskMetric = 'engagement_rate_followers' | 'view_rate' | 'following_ratio'
 export type ActivityStatus = 'active' | 'cooling' | 'dormant'
+
+/**
+ * 跨任务记忆这一次的可用状态。**三档，不是两档**：
+ *
+ * - `ok`                 —— 读到了
+ * - `absent`             —— 文件不存在。第一次跑，记忆里**确实**没有人
+ * - `unreadable_ignored` —— 读不出来，但用户显式 `--ignore-memory` 要求继续
+ * - `unknown`            —— **无从确认**。只可能来自 ADR-15 之前产出的任务目录
+ *
+ * 中间两档在旧实现里是同一个值（都退化成空记忆），而它们的含义相反：前者是
+ * 「查过，是空的」，后者是「没查到」。压成一个值之后，交付物上的
+ * filtered_contacted 为 0 同时代表这两件事，而用户两个都看得到（ADR-15）。
+ *
+ * `unknown` 是第四档，由 ADR-18 补上：旧任务目录没有这个字段，而**当时记忆
+ * 读不出来正是会被静默当成空记忆的** —— 所以「字段缺失」不能读成「去重跑过了」，
+ * 它就是字面意思上的不知道。把它并进 `ok` 等于替一批无从确认的名单打包票。
+ */
+export type MemoryStatus = 'ok' | 'absent' | 'unreadable_ignored' | 'unknown'
 
 export interface AudienceRiskFlag {
   metric: AudienceRiskMetric
@@ -229,6 +252,16 @@ export interface TaskState {
 
   /** 累计请求数 —— 跨多次运行累加，续跑时不重复计费 */
   requests: number
+
+  /**
+   * 这一批名单有没有做过「已联系 / 已推荐」去重（ADR-15）。
+   *
+   * `collect` 写，`render` 读了在交付物上声明。**字段缺失读作 `unknown`,
+   * 不读作 `ok`** —— 缺失只可能来自 ADR-15 之前的 collect，而那一版遇到读不出来
+   * 的记忆会静默当成空记忆，所以「过滤这一步跑过」并不等于「过滤真的生效了」。
+   * 最初写成按 `ok` 处理，是把一个查不到的事实当成了肯定答案（ADR-18）。
+   */
+  memory_status?: MemoryStatus
 
   created_at: string
   updated_at: string
