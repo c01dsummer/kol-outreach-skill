@@ -1764,4 +1764,7 @@ console.log(fail ? `\n${fail} 个失败\n` : `\n全部通过（覆盖 ${covered.
 if (process.argv.includes('--json')) {
   console.log('COVERED=' + JSON.stringify([...covered]))
 }
-process.exit(fail ? 1 : 0)
+// 不 process.exit()：stdout 接的是管道时（变异测试就是这么跑的），刚 console.log 的那几行可能
+// 还没写出去就被 exit 截掉 —— 实测 8 次里 1 次「N 个失败」那一行丢了，进程退出码 1 却没有汇总，
+// mutate 判成「跑不起来」。设 exitCode 让进程自己走完，输出一定落地
+process.exitCode = fail ? 1 : 0
