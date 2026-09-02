@@ -274,6 +274,166 @@
       "replace": ""
     },
     {
+      "id": "M-H9-a",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "文档归进源码同一个预算 —— 两千行只追加的决策记录和四百行改了控制流的代码在同一个数里互相稀释,而那正是最该被拆开的情形",
+      "find": "  if (path.endsWith('.md')) return '文档'",
+      "replace": "  if (path.endsWith('.md')) return '源码'"
+    },
+    {
+      "id": "M-H9-b",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "源码预算放宽十倍 —— ADR-58 那张表里 926 / 1010 / 1179 行的三条在途分支全部变成线内,而这条线正是按已合并的改动校准的",
+      "find": "  源码: 350,",
+      "replace": "  源码: 3500,"
+    },
+    {
+      "id": "M-H9-c",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "指名了类别就放行,理由可以不写 —— 豁免退化成一个开关,没人知道当初为什么放它过去",
+      "find": "  const parts = /^(\\S+)\\s+(.+)$/.exec(rest)",
+      "replace": "  const parts = /^(\\S+)\\s*(.*)$/.exec(rest)"
+    },
+    {
+      "id": "M-H9-d",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "豁免写下之后这一类又净增了照样放行 —— 一条豁免变成整条分支的长期通行证,之后再追加几千行不相干的代码也一样绿",
+      "find": "    if (best <= 0) waived.push(row)\n    else stale.push({ ...row, note: `最新一条豁免写下之后，这一类又净增了 ${best} 行` })",
+      "replace": "    waived.push(row)"
+    },
+    {
+      "id": "M-H9-e",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "豁免从整条提交信息里找,不再限定在末尾那段指令区 —— 正文里举例说明这个语法的那一行就把这一类豁免了",
+      "find": "  for (const line of trailerLines(message)) {\n    const v = judgeExemption(line)",
+      "replace": "  for (const line of message.split('\\n')) {\n    const v = judgeExemption(line)"
+    },
+    {
+      "id": "M-H9-f",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "一条豁免放行四类 —— 豁免掉源码顺手把文档也放过去,最该被看见的那一类被顺手带过去",
+      "find": "    const mine = waivers.filter(w => w.category === c)",
+      "replace": "    const mine = waivers"
+    },
+    {
+      "id": "M-H9-g",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "读不懂的那一行静默计零 —— 一个读错了还照常给数的闸门,比没有闸门更糟",
+      "find": "    if (!rec) throw new Error(`numstat 记录读不懂（缺分隔符）：${JSON.stringify(fields[i])}`)",
+      "replace": "    if (!rec) continue"
+    },
+    {
+      "id": "M-H9-h",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "写歪的 size-ok 不再让检查失败 —— 它作为一句看起来像豁免的话留在历史里,下一个人会以为这一类已经被放行过",
+      "find": "    ok: over.length === 0 && stale.length === 0 && unjustified.length === 0,",
+      "replace": "    ok: over.length === 0 && stale.length === 0,"
+    },
+    {
+      "id": "M-H10-a",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "两个文件占同一个编号不再报错 —— 拆成一文件一条本来就是为了让并发抢号当场撞车,这一改又静默交错回去了",
+      "find": "    if (prev) errors.push(`ADR-${pad(a.num)} 被两个文件同时占用:${prev} 与 ${a.file} —— 编号不复用`)\n    else seen.set(a.num, a.file)",
+      "replace": "    seen.set(a.num, a.file)"
+    },
+    {
+      "id": "M-H10-b",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "文件名与正文里的编号对不上也放行 —— 索引会指到一个说着别的编号的文件,而下游引用的是编号",
+      "find": "    if (a.file !== want) errors.push(`${a.file} 的文件名与正文标题对不上,应为 ${want}`)",
+      "replace": ""
+    },
+    {
+      "id": "M-H10-c",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "主干上已落地的编号在这条分支上没有了也不报 —— 删掉一条记录、把号腾给另一条决策,一路全绿,而编号是不可回收的",
+      "find": "      errors.push(`ADR-${pad(num)} 在主干上存在,这里没有了 —— 编号不可回收,记录只作废不删除`)",
+      "replace": "      continue"
+    },
+    {
+      "id": "M-H10-d",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "号还在、标题换了不报 —— 等于把号让给了另一条决策,下游引用这个编号的地方静默指向一件别的事",
+      "find": "    } else if (cur.title !== was.title) {",
+      "replace": "    } else if (false) {"
+    },
+    {
+      "id": "M-H10-e",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "文件名截断按码元数,不按码点 —— 31 个汉字后面跟一个 emoji,切口正好落在它中间,写盘时那半个字符被换掉,盘上的名字和算出来的名字不是同一个,拆分刚写出的文件当场被判文件名与正文不符",
+      "find": "  [...title.replace(/[\\/\\\\:*?\"<>|#[\\]()「」『』（）,。.]/g, '').replace(/\\s+/g, '-')]\n    .slice(0, 32).join('')",
+      "replace": "  title.replace(/[\\/\\\\:*?\"<>|#[\\]()「」『』（）,。.]/g, '').replace(/\\s+/g, '-')\n    .slice(0, 32)"
+    },
+    {
+      "id": "M-H10-f",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "索引标签里的竖线不再转义 —— 标题带竖线的那条记录在索引表里多切出一列,而检查仍报「索引一致」",
+      "find": "export const escapeCell = (t: string) => t.replace(/[\\\\|[\\]<>`]/g, c => '\\\\' + c)",
+      "replace": "export const escapeCell = (t: string) => t.replace(/[\\\\[\\]<>`]/g, c => '\\\\' + c)"
+    },
+    {
+      "id": "M-H10-g",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "索引按字典序排 —— ADR-9 排到 ADR-58 后面,而索引本来就是给人按号找记录用的",
+      "find": "  const rows = [...adrs].sort((a, b) => a.num - b.num)",
+      "replace": "  const rows = [...adrs].sort((a, b) => (String(a.num) < String(b.num) ? -1 : 1))"
+    },
+    {
+      "id": "M-H10-h",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "END 标记在 BEGIN 之前也当正常 —— 回写会在前半段留下 END、后半段再抄一遍 BEGIN,索引被写坏,而那正是报错时让人去跑的那条命令",
+      "find": "  if (j < i) return 'reversed'",
+      "replace": ""
+    },
+    {
+      "id": "M-H10-i",
+      "req": "harness",
+      "file": "scripts/check/adr-rule.ts",
+      "why": "链接目标里的百分号不编码 —— 标题里含 %20 的那条记录,链接指向另一个文件名,而检查仍报一致",
+      "find": "  t.replace(/[ %()#[\\]<>\"]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'))",
+      "replace": "  t.replace(/[ ()#[\\]<>\"]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'))"
+    },
+    {
+      "id": "M-H11-a",
+      "req": "harness",
+      "file": "scripts/check/trailer.ts",
+      "why": "最后一段不必整段都是指令也算指令区 —— 一条以示例结尾的提交信息,那个示例就成了指令区,超线的改动靠「文档里举了个例子」混过闸门",
+      "find": "  if (!last.length || !last.every(l => TRAILER.test(l))) return []",
+      "replace": "  if (!last.length) return []"
+    },
+    {
+      "id": "M-H12-a",
+      "req": "harness",
+      "file": "scripts/check/quoted.ts",
+      "why": "更短的同种围栏也算闭合 —— 四个反引号开的块被三个反引号提前关上,块里的记录标题露出来当成分节,拆分把真记录截断、再写出一条假记录",
+      "find": "        && run[1].length >= state.fence.len",
+      "replace": ""
+    },
+    {
+      "id": "M-H12-b",
+      "req": "harness",
+      "file": "scripts/check/quoted.ts",
+      "why": "跨行 HTML 注释不再盖住 —— 注释里举例的记录标题被当成分节,拆分动的是决策历史本身,这一错不可逆",
+      "find": "    if (line.includes('<!--')) {",
+      "replace": "    if (false) {"
+    },
+    {
       "id": "M-D8-c",
       "req": "D8",
       "why": "旧缓存的样本记录不再收进窗口 —— 交付物上声称记着 16 条，而指标是按窗口内的 11 条算的，同一行数据自己打自己",
