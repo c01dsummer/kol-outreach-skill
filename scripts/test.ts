@@ -1409,13 +1409,13 @@ harness('分支寿命：分叉时长有上限，超线要具名豁免')
   // `--all` 那条路上的锚：每条分支若有开着的、同仓库的 PR，用它的创建时间。
   // 量到过：同一条分支，--all 报 108.1 小时，--ref --since <PR 创建时间> 报 118.8 —— 差 10.7
   const pr = (number: number, headRefName: string, createdAt: string, isCrossRepository = false) =>
-    ({ number, headRefName, createdAt, isCrossRepository, baseRefOid: null as string | null })
+    ({ number, headRefName, createdAt, isCrossRepository, baseRefOid: 'base0' })
   eq('有开着的 PR → 用它的创建时间', anchorFor('b', [pr(5, 'b', 早)]),
-    { kind: 'anchored', at: 早, pr: 5, base: null })
+    { kind: 'anchored', at: 早, pr: 5, base: 'base0' })
   eq('fork 来的 PR 不算 —— 那条分支在 fork 里，基仓同名的是另一条',
     anchorFor('b', [pr(5, 'b', 早, true)]), { kind: 'no-pr' })
   eq('同一条分支两个 PR → 取最早的', anchorFor('b', [pr(6, 'b', 晚), pr(5, 'b', 早)]),
-    { kind: 'anchored', at: 早, pr: 5, base: null })
+    { kind: 'anchored', at: 早, pr: 5, base: 'base0' })
   eq('别的分支的 PR 不算', anchorFor('b', [pr(5, 'c', 早)]), { kind: 'no-pr' })
   eq('没给清单 ≠ 没有 PR —— 前者是这次跑法的事，后者是这条分支的事',
     anchorFor('b', null), { kind: 'no-list' })
@@ -1428,6 +1428,8 @@ harness('分支寿命：分叉时长有上限，超线要具名豁免')
   eq('清单里带 base 就一起带出来', anchorFor('b', [{ ...pr(5, 'b', 早), baseRefOid: 'a2' }]),
     { kind: 'anchored', at: 早, pr: 5, base: 'a2' })
   eq('base 不像 SHA → 读不出来，不当成没给', parsePrList(JSON.stringify([{ ...pr(5, 'b', 早), baseRefOid: 7 }])), null)
+  eq('少了 baseRefOid 这一列 → 整份清单不算 —— 否则 --all 那条路的豁免范围静默退回整条链',
+    parsePrList(JSON.stringify([{ ...pr(5, 'b', 早), baseRefOid: undefined }])), null)
 
   eq('理由必填 —— 只写指令不算', judgeAgeExemption('age-ok:'), null)
   eq('只有空白也不算', judgeAgeExemption('age-ok:   '), null)
@@ -1467,13 +1469,18 @@ harness('分支寿命：分叉时长有上限，超线要具名豁免')
   eq('给了头但它不是祖先 → 不用，填错了不至于量到别处去', ownTipOf('tip', 'other', false), 'tip')
   eq('给了头且确实是祖先 → 用它', ownTipOf('merge', 'head', true), 'head')
 
-  // 叠分支：B 直接从没合的 A 上开出去，A 的提交在 B 的第一父链上。截到与声明的 base 的分叉点，
-  // A 那句 age-ok 就不再是 B 的
+  // 叠分支：B 直接从没合的 A 上开出去，A 的提交在 B 的第一父链上。base 里已有的提交去掉，
+  // A 那句 age-ok 就不再是 B 的。判据是「是不是 base 的祖先」，不是「截到分叉点」——
+  // B 把长了新提交的 A 合进来之后，分叉点在第二父那边、第一父链上碰不到，截法一刀都不切
+  const inA = (base: string[]) => (sha: string) => base.includes(sha)
   const chain = ['b3', 'b2', 'b1', 'a2', 'a1']
-  eq('base 是 A → 截到分叉点，A 的提交不扫', ownSince(chain, 'a2'), ['b3', 'b2', 'b1'])
-  eq('没给 base → 整条链（显式缺口，报告里说）', ownSince(chain, null), chain)
-  eq('base 是主干 → 分叉点不在链上 → 整条链，本来就全是自己的', ownSince(chain, 'main'), chain)
-  eq('分叉点就是头 → 一条自己的都没有', ownSince(chain, 'b3'), [])
+  eq('base 是 A → A 的提交不扫', ownSince(chain, inA(['a2', 'a1'])), ['b3', 'b2', 'b1'])
+  eq('A 又长了 a3、B 把 A 合了进来 → a1 a2 仍是 a3 的祖先，照样不扫',
+    ownSince(['merge', 'b1', 'a2', 'a1'], inA(['a3', 'a2', 'a1'])), ['merge', 'b1'])
+  eq('base 是主干 → 第一父链上没有它的提交，一条都不去', ownSince(chain, inA(['m9', 'm8'])), chain)
+  eq('检出的那条也在 base 里 → 它也不算', ownSince(['b3', 'b2'], inA(['b3', 'b2'])), [])
+  eq('base 里带豁免的那条被改写过 → 新 base 不含它，留下来（显式缺口）',
+    ownSince(chain, inA(['a2改', 'a1'])), ['b3', 'b2', 'b1', 'a2'])
 
   // 检出的那条要单独排最前：PR 事件下它是合成的合并提交，根本不在第一父链上
   eq('检出的那条排最前，其余按第一父链', waiverOrder('m', ['a', 'b']), ['m', 'a', 'b'])

@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+# 只读:检查链不写任何东西。pull-requests 是给下面查 PR base 那一步的
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -17,6 +22,17 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      # push 事件没有 PR 上下文,但这条分支可能正开着 PR —— 分支寿命闸门要它的 base
+      # 才能不继承下面那条分支的豁免(ADR-63)。查一次开着的 PR,取最早那个的 base;
+      # 没有 PR、或者查不到,就空着,闸门会在报告里说这一路没收窄。
+      - id: prbase
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(gh pr list --state open --head "$GITHUB_REF_NAME" --json baseRefOid,createdAt \
+                 --jq 'sort_by(.createdAt) | .[0].baseRefOid // empty' 2>/dev/null || true)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
       # 与本地 `npm run check` 是同一条链 —— 谁跑都一样红
       - run: npm run check
         env:
@@ -30,6 +46,7 @@ jobs:
           # 传事实（头是哪个提交），不传推断（这次是不是 PR 事件）——
           # 这个形状在提交图里和一次普通的 `merge --no-ff` 完全一样，猜不出来。
           AGE_PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          # 这条 PR 声明的 base —— 分支寿命闸门只认从它开出来之后的提交里写的豁免:
-          # 叠在别的分支上开出去的 PR,不再继承下面那条的 `age-ok:`(ADR-63)。push 事件下为空。
-          AGE_PR_BASE: ${{ github.event.pull_request.base.sha }}
+          # 这条 PR 声明的 base —— 分支寿命闸门把 base 里已有的提交从豁免的扫描范围里去掉:
+          # 以下面那条分支为 base 的叠分支 PR,不再继承它的 `age-ok:`(ADR-63)。
+          # PR 事件下取事件里的;push 事件下取上面那一步查到的(没有 PR 就空)。
+          AGE_PR_BASE: ${{ github.event.pull_request.base.sha || steps.prbase.outputs.sha }}

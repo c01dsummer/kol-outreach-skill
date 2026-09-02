@@ -142,9 +142,10 @@ function measure(ref: string, anchor: string | null, declaredBase: string | null
    *    B 于是照样继承 A 那句 `age-ok:` —— 它自己一句话没说过。图里没有能分开它们的
    *    东西(理由和下面那两轮一样),分得出的事实只有「这条 PR 的 base 是谁」,它在
    *    调用方手里:`AGE_PR_BASE`(check.yml)、`--base`(age.yml 贴 PR 那一步)、
-   *    `--prs` 清单里的 baseRefOid(`--all`)。有 base 就把链截到从它开出来的那一点
-   *    (`ownSince`);没有 base 的跑法截不掉,报告里说,并点名那句理由写在哪个提交上
-   *    (`pickWaiver`)—— 那几条路上仍是看得见、挡不住。
+   *    `--prs` 清单里的 baseRefOid(`--all`)。有 base 就把 base 里已有的提交从扫描范围里
+   *    去掉(`ownSince`);没有 base 的跑法去不掉,报告里说,并点名那句理由写在哪个提交上
+   *    (`pickWaiver`)—— 那几条路上仍是看得见、挡不住。base 是主干的 PR 也一样:叠分支
+   *    对着主干开 PR,下面那条的提交就是这条 PR 要合的内容,它的豁免跟着进来。
    *
    * ## 「从哪个头开始走」不能靠看提交图判,试过两轮都不行
    *
@@ -175,14 +176,15 @@ function measure(ref: string, anchor: string | null, declaredBase: string | null
   const own = git('log', '--first-parent', '--format=%H', `${base}..${ownTip}`)
     .split('\n').filter(Boolean)
   /**
-   * 再收一次:截到这条分支从**声明的 base**(PR 的 base 分支)开出来的那一点。
-   * 分叉点是 `merge-base(base, 头)`;链里碰到它就停,它之前的是下面那条分支的提交,
-   * 那上面的 `age-ok:` 不是为这条分支写的(`ownSince`)。
+   * 再收一次:声明了 base(PR 的 base 分支)的话,把 **base 里已经有的提交**去掉 ——
+   * 它们是下面那条分支的、或早已合进 base 的,那上面的 `age-ok:` 不是为这条分支写的。
+   * 判据是祖先关系(`merge-base --is-ancestor`),一条一问;为什么不是「截到分叉点」,
+   * 见 `age-rule.ts` 的 `ownSince`。检出的那条也一起问:它要是 base 的祖先,同样不算。
    */
-  const fork = declaredBase === null ? null : tryGit('merge-base', declaredBase, ownTip)
-  const scoped = ownSince(own, fork)
-  const picked = pickWaiver(waiverOrder(tip, scoped)
-    .map(sha => ({ sha, message: git('log', '-1', '--format=%B', sha) })))
+  const order = waiverOrder(tip, own)
+  const scoped = declaredBase === null ? order
+    : ownSince(order, sha => tryGit('merge-base', '--is-ancestor', sha, declaredBase) !== null)
+  const picked = pickWaiver(scoped.map(sha => ({ sha, message: git('log', '-1', '--format=%B', sha) })))
 
   return {
     kind: 'measured',
@@ -195,15 +197,19 @@ function measure(ref: string, anchor: string | null, declaredBase: string | null
     waiver: picked?.reason ?? null,
     waiverFrom: picked?.from ?? '',
     scope: declaredBase === null ? null
-      : { base: declaredBase.slice(0, 7), dropped: own.length - scoped.length },
+      : { base: declaredBase.slice(0, 7), dropped: order.length - scoped.length },
   }
 }
 
-/** 豁免扫的是哪一段 —— 有 base 时说截到哪、截掉了几条;没有时说这一路截不掉。 */
+/**
+ * 豁免扫的是哪些提交 —— 有 base 时说去掉了几条 base 里已有的(0 也照说,**没去掉就说没去掉**);
+ * 没有 base 时说这一路去不掉。
+ */
 const scopeNote = (scope: Measured['scope']) => scope
-  ? `  豁免只认 ${scope.base}..头 这一段(从声明的 base 开出来之后的提交`
-    + (scope.dropped ? `;截掉了下面那条分支的 ${scope.dropped} 条)` : ')')
-  : '  没给 base,豁免扫的是整条第一父链 —— 叠在别的分支上开出来的话,这句理由可能是下面那条的:看那个提交属不属于这条分支'
+  ? `  豁免只认这条分支自己的提交:base ${scope.base} 里已有的 ${scope.dropped} 条不算`
+    + '(下面那条分支的,或早已合进 base 的)'
+  : '  没给 base(本地跑、push 事件上没有开着 PR 的分支、没有 PR 的分支),豁免扫的是整条第一父链'
+    + ' —— 叠在别的分支上开出来的话,这句理由可能是下面那条的:看那个提交属不属于这条分支'
 
 const FLAG = { ok: '✓', waived: '⊘', over: '✗', future: '?' } as const
 const LEGEND = '\n  图例:✓ 在线内  ⊘ 超线但已具名豁免  ✗ 超线  ? 量不了\n'
@@ -236,9 +242,13 @@ if (refArg >= 0) {
    */
   const baseArg = process.argv.indexOf('--base')
   const declared = baseArg >= 0 ? (process.argv[baseArg + 1] ?? null) : null
-  if (baseArg >= 0 && !declared) cannotAnswer('`--base` 后面没有给提交', '写成 `--base <PR 的 base 分支的 SHA>`。')
+  if (declared === null && baseArg >= 0) cannotAnswer('`--base` 后面没有给提交', '写成 `--base <PR 的 base 分支的 SHA>`。')
+  if (declared === '') cannotAnswer('`--base` 给的是空串', 'PR 清单里这条的 baseRefOid 是空的?`gh pr list --json baseRefOid` 应该总有值。')
   if (declared && !tryGit('rev-parse', '--verify', `${declared}^{commit}`)) {
     cannotAnswer(`\`--base\` 给的 ${declared} 找不到`, '先 `git fetch origin`;这个值是 PR 的 base 分支的 SHA。')
+  }
+  if (declared && !tryGit('merge-base', declared, ref)) {
+    cannotAnswer(`\`--base\` 给的 ${declared} 与 ${ref} 没有共同祖先`, '这不是它的 base;豁免该扫哪些提交判不了,不退化成扫整条。')
   }
   const one = measure(ref, ANCHOR, declared)
   if (one.kind === 'merged') {
@@ -273,7 +283,7 @@ if (refArg >= 0) {
 
 if (process.argv.includes('--all')) {
   /**
-   * `--prs <文件>`:开着的 PR 清单(`gh pr list --json number,headRefName,createdAt,isCrossRepository`
+   * `--prs <文件>`:开着的 PR 清单(`gh pr list --json number,headRefName,createdAt,isCrossRepository,baseRefOid`
    * 的原样输出)。每条分支若有同仓库开着的 PR,就拿它的创建时间当锚 —— 和 `--ref --since`
    * 是同一把锚。少了它,这条路上作者时间是唯一的钟;这不是理论缺口,量到过:同一条分支
    * (PR #5 的 head),这里报 108.1 小时,`--ref --since <PR 创建时间>` 报 118.8 —— 差 10.7
@@ -294,7 +304,7 @@ if (process.argv.includes('--all')) {
     prs = parsePrList(text)
     if (prs === null) {
       cannotAnswer(`${path} 不是一份开着的 PR 清单`,
-        '要 `gh pr list --json number,headRefName,createdAt,isCrossRepository` 的原样输出。')
+        '要 `gh pr list --json number,headRefName,createdAt,isCrossRepository,baseRefOid` 的原样输出。')
     }
   }
   /** 每一行末尾的锚标记。四态各一个写法,和 `age-rule.ts` 的 `Anchor` 一一对应。 */
@@ -319,11 +329,14 @@ if (process.argv.includes('--all')) {
     const anchor = anchorFor(name.replace(/^origin\//, ''), prs)
     // 有 PR 的分支连它的 base 一起拿到:豁免只认从 base 开出来之后的提交。base 找不到就是量不了
     const declared = anchor.kind === 'anchored' ? anchor.base : null
-    if (anchor.kind === 'anchored' && declared !== null
-      && !tryGit('rev-parse', '--verify', `${declared}^{commit}`)) {
-      console.log(`  ? ${'—'.padStart(6)}        ——  ${name}`)
-      unknown.push(`${name}(PR #${anchor.pr} 的 base ${declared.slice(0, 7)} 找不到,豁免该扫哪一段判不了)`)
-      continue
+    if (anchor.kind === 'anchored' && declared !== null) {
+      const why = !tryGit('rev-parse', '--verify', `${declared}^{commit}`) ? '找不到'
+        : !tryGit('merge-base', declared, ref) ? `与 ${name} 没有共同祖先` : null
+      if (why) {
+        console.log(`  ? ${'—'.padStart(6)}        ——  ${name}`)
+        unknown.push(`${name}(PR #${anchor.pr} 的 base ${declared.slice(0, 7)} ${why},豁免该扫哪些提交判不了)`)
+        continue
+      }
     }
     const m = measure(ref, anchor.kind === 'anchored' ? anchor.at : null, declared)
     // 已经全部合进主干的分支不算在途 —— 它没有自己的提交,量它没有意义
@@ -420,6 +433,9 @@ const declaredBase = process.env.AGE_PR_BASE ? process.env.AGE_PR_BASE : null
 if (declaredBase && !tryGit('rev-parse', '--verify', `${declaredBase}^{commit}`)) {
   cannotAnswer(`AGE_PR_BASE 给的 ${declaredBase} 找不到`,
     'CI 里给 actions/checkout 加 `fetch-depth: 0`;这个值是 PR 的 base 分支的 SHA。')
+}
+if (declaredBase && !tryGit('merge-base', declaredBase, 'HEAD')) {
+  cannotAnswer(`AGE_PR_BASE 给的 ${declaredBase} 与 HEAD 没有共同祖先`, '这不是它的 base;豁免该扫哪些提交判不了,不退化成扫整条。')
 }
 const m = measure('HEAD', ANCHOR, declaredBase)
 if (m.kind === 'unreadable') {

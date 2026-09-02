@@ -177,17 +177,21 @@ export interface OpenPr {
   headRefName: string
   createdAt: string
   isCrossRepository: boolean
-  /** PR 声明的 base 分支的 SHA(`baseRefOid`);清单里没这一列时为 null。豁免的扫描范围要它,见 `ownSince` */
-  baseRefOid: string | null
+  /** PR 声明的 base 分支的 SHA(`baseRefOid`)。豁免的扫描范围要它(`ownSince`),所以是必填列:少了这一列的清单不算清单 */
+  baseRefOid: string
 }
 
 export type Anchor =
-  | { kind: 'anchored'; at: string; pr: number; base: string | null }
+  | { kind: 'anchored'; at: string; pr: number; base: string }
   | { kind: 'unreadable'; pr: number }
   | { kind: 'no-pr' }
   | { kind: 'no-list' }
 
-/** `gh pr list --json number,headRefName,createdAt,isCrossRepository` 的原样输出。形状不对返回 null,不猜。 */
+/**
+ * `gh pr list --json number,headRefName,createdAt,isCrossRepository,baseRefOid` 的原样输出。
+ * 形状不对返回 null,不猜 —— 少一列也算不对:少了 baseRefOid 的清单会让 `--all` 那条路上的
+ * 豁免范围静默退回整条链,而报告里看不出清单缺了什么。
+ */
 export function parsePrList(text: string): OpenPr[] | null {
   let raw: unknown
   try { raw = JSON.parse(text) } catch { return null }
@@ -196,10 +200,9 @@ export function parsePrList(text: string): OpenPr[] | null {
   for (const p of raw as Record<string, unknown>[]) {
     if (typeof p?.number !== 'number' || typeof p.headRefName !== 'string'
       || typeof p.createdAt !== 'string' || typeof p.isCrossRepository !== 'boolean'
-      || (p.baseRefOid !== undefined && p.baseRefOid !== null && typeof p.baseRefOid !== 'string')) return null
+      || typeof p.baseRefOid !== 'string') return null
     out.push({ number: p.number, headRefName: p.headRefName, createdAt: p.createdAt,
-      isCrossRepository: p.isCrossRepository,
-      baseRefOid: typeof p.baseRefOid === 'string' ? p.baseRefOid : null })
+      isCrossRepository: p.isCrossRepository, baseRefOid: p.baseRefOid })
   }
   return out
 }
@@ -301,27 +304,32 @@ export function ownTipOf(tip: string, prHead: string | null, isAncestor: boolean
 }
 
 /**
- * 第一父链截到**这条分支自己开出来的那一点**。
+ * 豁免扫描的范围里,**去掉 base 里已经有的提交**。
  *
- * `chain` 从分支的头往回走(`分叉点..头` 的第一父链,分叉点是与主干的);`forkPoint` 是它
- * 与**声明的 base**(PR 的 base 分支)的分叉点 —— 链里碰到它就停,它和它之前的都是
- * 别人的提交。
+ * `chain` 是要扫的提交(检出的那条 + 第一父链);`inBase` 回答「这个提交是不是声明的
+ * base(PR 的 base 分支)的祖先」—— 是的就不算这条分支自己的,它上面的 `age-ok:` 不是
+ * 为这条分支写的。
  *
  * 这一刀是给叠分支的:B 直接从没合的 A 上开出去,A 的提交就在 B 的第一父链上,B 于是
  * 继承 A 那句 `age-ok:`,自己一句话没说过。提交图分不出「叠上去」和「这些提交本来就是
  * 我写的」,分得出的事实只有「这条 PR 的 base 是谁」—— 它只在调用方手里,和 `AGE_PR_HEAD`
  * 同一个形状(ADR-63)。
  *
- * - 没给 base(本地、`--all` 里没有 PR 的分支)→ 整条链,和以前一样;**报告里要说这一路没收窄**
- * - base 就是主干 → 分叉点就是与主干的那个,不在链里 → 整条链,本来就全是自己的
- * - base 是另一条分支 → 截到分叉点,之前的不扫
- * - 分叉点不在链上(base 分支在这条开出来之后被整个改写过)→ 整条链。显式缺口:那时 A 的
- *   旧提交还在链上,而服务端已经没有能指认它们的东西 —— 出处照样打出来,看得见
+ * 判据是**祖先关系**,不是「链里碰到分叉点就停」。第一版写的是后者,评审当场举出反例:
+ * B 叠在 A 上之后 A 又长了一个提交,B 把 A 合进来(GitHub 的 Update branch 就是这个动作)——
+ * 分叉点成了 A 的新头,它在 B 的第二父那边,第一父链上碰不到,于是一刀没切,A 的旧提交
+ * 连同它的豁免原样留下,而报告还说「只认 base 之后」。按祖先关系问,A 的旧提交是新头的
+ * 祖先,照样去掉。
+ *
+ * - 没给 base(本地、push 事件上没有开着 PR 的分支、`--all` 里没有 PR 的分支)→ 不动,
+ *   **报告里要说这一路没收窄**
+ * - base 是主干 → 第一父链上没有主干的提交,一条都不去,本来就全是自己的
+ * - base 是另一条分支 → 那条分支的提交去掉,不论它后来又长了多少、B 有没有把它合进来
+ * - **按不住的**:base 里带豁免的那个提交在这条开出来之后被改写过(哪怕只 amend 一次)——
+ *   新的 base 不再包含它,它留在链上,豁免照样被拿到。出处照样打出来,看得见
  */
-export function ownSince(chain: string[], forkPoint: string | null): string[] {
-  if (forkPoint === null) return chain
-  const i = chain.indexOf(forkPoint)
-  return i < 0 ? chain : chain.slice(0, i)
+export function ownSince(chain: string[], inBase: (sha: string) => boolean): string[] {
+  return chain.filter(sha => !inBase(sha))
 }
 
 /**
