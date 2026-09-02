@@ -25,7 +25,7 @@
 | **改公开指标/风险/报价口径** | `docs/requirements.json` · `skill/references/public-metrics.md` · 计算与分层逻辑 · 输出说明 · 测试 | 部分 |
 | **改 CSV 列或报告结构** | `scripts/lib/rows.ts` · `scripts/lib/xlsx.ts` · `scripts/lib/report.ts` · `skill/references/output-format.md` · 测试 · 变异 | 部分 |
 | **新增可执行文件** | 三选一：接进 `scripts/check/selfcheck.ts`、在 `npm run check` 里自成一步、或写进 `EXEMPT` 说明理由 | 🔒 `selfcheck` |
-| **新增一道闸门** | 判定逻辑（`scripts/check/*-rule.ts`）· 测试 · **`scripts/check/mutations.json`**（闸门自己也是需求，它的测试同样要被证明过）· `process/` 里那条纪律 | 🔒 `audit`：scripts/check/ 下每个判定模块必须有变异指向它，否则硬失败；`mutate` 证明那个变异被抓到 |
+| **新增一道闸门** | 判定逻辑（`scripts/check/` 下不带 shebang 的 `.ts`）· 测试 · **`scripts/check/mutations.json`**（闸门自己也是需求，它的测试同样要被证明过）· `process/` 里那条纪律 | 🔒 `audit`：scripts/check/ 下每个判定模块必须有变异指向它，否则硬失败；`mutate` 证明那个变异被抓到 |
 | **改流程阶段** | `skill/SKILL.md` · `docs/business-requirements.md` · 对应 reference | ✗ 靠执行 |
 | **查到新事实 / 旧结论被推翻** | `docs/data-source-strategy.md` **必须改** · `docs/adr/`（多属事实证伪） | 🔒 `adr` 验编号与索引 |
 | **改预算/成本逻辑** | `scripts/lib/budget.ts` · `skill/SKILL.md` 成本闸门一节 · `docs/CONVENTIONS.md` 第 7 条 | 部分 |
