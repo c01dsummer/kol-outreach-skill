@@ -60,8 +60,6 @@ jobs:
         with:
           # 要和每条分支各自求 merge-base；浅克隆下闸门会拒答而不是放行
           fetch-depth: 0
-      # checkout 默认只取当前 ref，这里要看的是**所有**远端分支
-      - run: git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -95,6 +93,13 @@ jobs:
               "$RUNNER_TEMP/open-prs.json" > "$prs"
           fi
 
+          # checkout 默认只取当前 ref，这里要看的是**所有**远端分支。放在列清单**之后**：
+          # 清单里的 base SHA 是列的那一刻的分支尖。先抓后列的话，中间 setup-node、npm ci
+          # 那几十秒里 base 往前走一步，那个 SHA 本地就没有 —— 闸门拒答，贴上去的是一条
+          # 错误的失败，挂在一个没动过的 head 上，而 `age` 是必需检查（PR #12 的评审指出）。
+          # 先列后抓，清单里的 SHA 要么就是抓到的尖、要么是它的祖先
+          git fetch -q origin '+refs/heads/*:refs/remotes/origin/*' --prune
+
           while IFS=$'\t' read -r num sha created base; do
             # 量 refs/pull/N/head，不拼 origin/<分支名>。fork 来的 PR，那条分支在
             # fork 里，基仓的 origin/* 里根本没有 —— 拼出来的 ref 要么不存在（贴
@@ -107,6 +112,16 @@ jobs:
               # 跳过，那次推送自己触发的运行会补上
               echo "PR #$num: head 变了（$sha → $got），跳过"
               continue
+            fi
+            if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+              # 列出来之后 base 被改写过（force-push），清单里那个 SHA 已经不可达。**不跳过**：
+              # head 上旧的那条绿不会过期，跳过等于让一条可能已经过线的 PR 继续可合 —— 正是
+              # 这条闸门要拦的。base 改写没有任何 PR 事件会补跑（retarget 才有 `edited`），
+              # 所以只能在这里重新问一次它现在的 base、再抓一次；还是没有就让闸门拒答、贴失败
+              # —— 那是「量不了」，该红，不是该沉默
+              echo "PR #$num: base $base 本地没有（列出来之后被改写了？），重新问一次"
+              base=$(gh pr view "$num" --json baseRefOid --jq .baseRefOid)
+              git fetch -q origin '+refs/heads/*:refs/remotes/origin/*' --prune
             fi
 
             # --since 给一个**改写不了**的时间锚：PR 的创建时间。作者时间是用户
