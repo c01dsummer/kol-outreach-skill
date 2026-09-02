@@ -367,7 +367,7 @@
       "file": "scripts/check/adr-rule.ts",
       "why": "号还在、标题换了不报 —— 等于把号让给了另一条决策,下游引用这个编号的地方静默指向一件别的事",
       "find": "    } else if (cur.title !== was.title) {",
-      "replace": "    } else if (false) {"
+      "replace": "    } else if (cur.title === undefined) {"
     },
     {
       "id": "M-H10-e",
