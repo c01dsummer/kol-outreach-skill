@@ -172,15 +172,26 @@ export function birthOf(authorISO: string, anchorISO: string | null):
  * 后三种都只能用作者时间,报告里要分开说 —— 「没给清单」是这次跑法的事,
  * 「没有 PR」是这条分支的事,两者的补法不一样。
  */
-export interface OpenPr { number: number; headRefName: string; createdAt: string; isCrossRepository: boolean }
+export interface OpenPr {
+  number: number
+  headRefName: string
+  createdAt: string
+  isCrossRepository: boolean
+  /** PR 声明的 base 分支的 SHA(`baseRefOid`)。豁免的扫描范围要它(`ownSince`),所以是必填列:少了这一列的清单不算清单 */
+  baseRefOid: string
+}
 
 export type Anchor =
-  | { kind: 'anchored'; at: string; pr: number }
+  | { kind: 'anchored'; at: string; pr: number; base: string }
   | { kind: 'unreadable'; pr: number }
   | { kind: 'no-pr' }
   | { kind: 'no-list' }
 
-/** `gh pr list --json number,headRefName,createdAt,isCrossRepository` 的原样输出。形状不对返回 null,不猜。 */
+/**
+ * `gh pr list --json number,headRefName,createdAt,isCrossRepository,baseRefOid` 的原样输出。
+ * 形状不对返回 null,不猜 —— 少一列也算不对:少了 baseRefOid 的清单会让 `--all` 那条路上的
+ * 豁免范围静默退回整条链,而报告里看不出清单缺了什么。
+ */
 export function parsePrList(text: string): OpenPr[] | null {
   let raw: unknown
   try { raw = JSON.parse(text) } catch { return null }
@@ -188,9 +199,10 @@ export function parsePrList(text: string): OpenPr[] | null {
   const out: OpenPr[] = []
   for (const p of raw as Record<string, unknown>[]) {
     if (typeof p?.number !== 'number' || typeof p.headRefName !== 'string'
-      || typeof p.createdAt !== 'string' || typeof p.isCrossRepository !== 'boolean') return null
+      || typeof p.createdAt !== 'string' || typeof p.isCrossRepository !== 'boolean'
+      || typeof p.baseRefOid !== 'string') return null
     out.push({ number: p.number, headRefName: p.headRefName, createdAt: p.createdAt,
-      isCrossRepository: p.isCrossRepository })
+      isCrossRepository: p.isCrossRepository, baseRefOid: p.baseRefOid })
   }
   return out
 }
@@ -204,7 +216,9 @@ export function anchorFor(branch: string, prs: OpenPr[] | null): Anchor {
     const t = Date.parse(p.createdAt)
     if (Number.isFinite(t) && (best === null || t < Date.parse(best.createdAt))) best = p
   }
-  return best ? { kind: 'anchored', at: best.createdAt, pr: best.number } : { kind: 'unreadable', pr: mine[0].number }
+  return best
+    ? { kind: 'anchored', at: best.createdAt, pr: best.number, base: best.baseRefOid }
+    : { kind: 'unreadable', pr: mine[0].number }
 }
 
 /**
@@ -290,6 +304,35 @@ export function ownTipOf(tip: string, prHead: string | null, isAncestor: boolean
 }
 
 /**
+ * 豁免扫描的范围里,**去掉 base 里已经有的提交**。
+ *
+ * `chain` 是要扫的提交(检出的那条 + 第一父链);`inBase` 回答「这个提交是不是声明的
+ * base(PR 的 base 分支)的祖先」—— 是的就不算这条分支自己的,它上面的 `age-ok:` 不是
+ * 为这条分支写的。
+ *
+ * 这一刀是给叠分支的:B 直接从没合的 A 上开出去,A 的提交就在 B 的第一父链上,B 于是
+ * 继承 A 那句 `age-ok:`,自己一句话没说过。提交图分不出「叠上去」和「这些提交本来就是
+ * 我写的」,分得出的事实只有「这条 PR 的 base 是谁」—— 它只在调用方手里,和 `AGE_PR_HEAD`
+ * 同一个形状(ADR-63)。
+ *
+ * 判据是**祖先关系**,不是「链里碰到分叉点就停」。第一版写的是后者,评审当场举出反例:
+ * B 叠在 A 上之后 A 又长了一个提交,B 把 A 合进来(GitHub 的 Update branch 就是这个动作)——
+ * 分叉点成了 A 的新头,它在 B 的第二父那边,第一父链上碰不到,于是一刀没切,A 的旧提交
+ * 连同它的豁免原样留下,而报告还说「只认 base 之后」。按祖先关系问,A 的旧提交是新头的
+ * 祖先,照样去掉。
+ *
+ * - 没给 base(本地、push 事件上没有开着 PR 的分支、`--all` 里没有 PR 的分支)→ 不动,
+ *   **报告里要说这一路没收窄**
+ * - base 是主干 → 第一父链上没有主干的提交,一条都不去,本来就全是自己的
+ * - base 是另一条分支 → 那条分支的提交去掉,不论它后来又长了多少、B 有没有把它合进来
+ * - **按不住的**:base 里带豁免的那个提交在这条开出来之后被改写过(哪怕只 amend 一次)——
+ *   新的 base 不再包含它,它留在链上,豁免照样被拿到。出处照样打出来,看得见
+ */
+export function ownSince(chain: string[], inBase: (sha: string) => boolean): string[] {
+  return chain.filter(sha => !inBase(sha))
+}
+
+/**
  * 扫豁免的**顺序与范围**:先看检出的那条提交自己,再顺着分支的第一父链往回走。
  *
  * 检出的那条要单独排在最前面,是因为它可能根本不在第一父链上 ——
@@ -309,8 +352,9 @@ export interface Attributed { reason: string; from: string }
  * 按给定顺序取**第一条**成立的豁免,并记下它的出处。
  *
  * 记出处不是为了好看:叠在一条没合的分支上开出去的分支,会连着下面那条的提交
- * 一起继承它的 `age-ok:`。挡不住(见 `age.ts`),但报告里点出那个提交,
- * 它不属于这条分支的话人一眼看得出来。
+ * 一起继承它的 `age-ok:`。有 base 时 `ownSince` 把那些提交截掉了;没有 base 的跑法
+ * (本地、没有 PR 的分支)截不掉,那时报告里点出那个提交,它不属于这条分支的话
+ * 人一眼看得出来。
  */
 export function pickWaiver(commits: { sha: string; message: string }[]): Attributed | null {
   for (const c of commits) {

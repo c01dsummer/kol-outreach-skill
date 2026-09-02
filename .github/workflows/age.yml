@@ -11,7 +11,8 @@
 #    GitHub 的合并闸看的是那里。只有聚合结果的话,一个 47 小时通过、之后没人碰
 #    的 PR,head 上那条绿不会失效:**聚合任务红着,PR 照样能合。**
 # 2. `--all` 扫全部远端分支,结果留在 Actions 里 —— 看得见「仓库现在什么样」。
-#    有开着 PR 的分支用同一把锚(`--prs` 传进去的清单),没有的逐条标出
+#    有开着 PR 的分支用同一把锚(`--prs` 传进去的清单)、豁免不认它的 base 里已有的
+#    提交;没有 PR 的逐条标出
 #
 # ⚠️ 贴上去的这条检查要真正**挡住**合并,还得在仓库设置里把 `age` 加进
 #    required status checks。那是仓库设置,不在这个仓库的代码里 ——
@@ -35,8 +36,9 @@ on:
   #    基仓,跑的是基仓的脚本;PR 那一侧只当数据读(`refs/pull/N/head` 的提交时间)。
   #    往这里加任何「跑 PR 代码」的步骤之前,先把这一行改回 `pull_request` ——
   #    否则就是把写权限交给任何人都能提的代码。
+  # `edited` 也要:改 base 分支(retarget)不换 head,而 base 现在是判定的输入之一(ADR-63)
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, edited]
 
   workflow_dispatch:
 
@@ -72,6 +74,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
           REPO: ${{ github.repository }}
         run: |
           # 落在临时文件里，不是工作区 —— 工作区里多出来的东西会被顺手提交。
@@ -79,20 +82,20 @@ jobs:
           prs=$(mktemp)
           if [ "$EVENT" = pull_request_target ]; then
             # PR 事件：只贴触发它的这一个
-            printf '%s\t%s\t%s\n' "$PR_NUMBER" "$PR_SHA" \
-              "${{ github.event.pull_request.created_at }}" > "$prs"
+            printf '%s\t%s\t%s\t%s\n' "$PR_NUMBER" "$PR_SHA" \
+              "${{ github.event.pull_request.created_at }}" "$PR_BASE" > "$prs"
           else
             # --limit 必须显式给：gh pr list 默认只列 30 条，多出来的会被静默丢掉，
             # 而被丢掉的那个 PR 会一直留着它上一次的绿 —— 正好是这条闸门要拦的
             # 那个「过了线还绿着」
             gh pr list --state open --limit 1000 \
-              --json number,headRefOid,createdAt,headRefName,isCrossRepository \
+              --json number,headRefOid,createdAt,headRefName,isCrossRepository,baseRefOid \
               > "$RUNNER_TEMP/open-prs.json"
-            jq -r '.[] | [.number, .headRefOid, .createdAt] | @tsv' \
+            jq -r '.[] | [.number, .headRefOid, .createdAt, .baseRefOid] | @tsv' \
               "$RUNNER_TEMP/open-prs.json" > "$prs"
           fi
 
-          while IFS=$'\t' read -r num sha created; do
+          while IFS=$'\t' read -r num sha created base; do
             # 量 refs/pull/N/head，不拼 origin/<分支名>。fork 来的 PR，那条分支在
             # fork 里，基仓的 origin/* 里根本没有 —— 拼出来的 ref 要么不存在（贴
             # 一条假的失败），要么基仓恰好有同名分支（**量了另一个提交**，还把结果
@@ -111,8 +114,11 @@ jobs:
             # 取两者更早的一个。**这把锚只按得住 PR 开出来之后的改写** —— 之前的
             # 改写、以及「另开一条分支把改动搬过去」都按不住，见 age-rule.ts 的
             # birthOf：那是纪律工具的边界，不是防作弊装置
+            #
+            # --base 给这条 PR 声明的 base:base 里已有的提交不算这条分支自己的,那上面的
+            # 豁免不作数 —— 以下面那条为 base 的叠分支 PR,不再继承它的 age-ok(ADR-63)
             if out=$(npm run --silent age -- --ref "refs/remotes/pr/$num" \
-                       --since "$created" 2>&1); then
+                       --since "$created" --base "$base" 2>&1); then
               concl=success
             else
               concl=failure

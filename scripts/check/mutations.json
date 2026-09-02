@@ -564,7 +564,7 @@
     {
       "id": "M-H2-l",
       "req": "harness",
-      "why": "豁免不再记下它写在哪个提交上 —— 叠分支继承来的那句理由从此看不出是谁写的,而那个出处是唯一的线索",
+      "why": "豁免不再记下它写在哪个提交上 —— 没有 base 的跑法上，叠分支继承来的那句理由从此看不出是谁写的，而那时出处是唯一的线索",
       "file": "scripts/check/age-rule.ts",
       "find": "    if (reason) return { reason, from: c.sha.slice(0, 7) }",
       "replace": "    if (reason) return { reason, from: '' }"
@@ -592,6 +592,30 @@
       "file": "scripts/check/age-rule.ts",
       "find": "    if (Number.isFinite(t) && (best === null || t < Date.parse(best.createdAt))) best = p",
       "replace": "    if (Number.isFinite(t) && (best === null || t > Date.parse(best.createdAt))) best = p"
+    },
+    {
+      "id": "M-H2-p",
+      "req": "harness",
+      "why": "声明了 base 也照样扫整条第一父链 —— 叠在别的分支上开出去的 PR 继续拿下面那条的 age-ok 过闸门，自己一句话没说过",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  return chain.filter(sha => !inBase(sha))",
+      "replace": "  return chain"
+    },
+    {
+      "id": "M-H2-q",
+      "req": "harness",
+      "why": "去掉的是自己的、留下的是 base 里的 —— 自己写的豁免找不到，下面那条分支的照样拿到",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  return chain.filter(sha => !inBase(sha))",
+      "replace": "  return chain.filter(sha => inBase(sha))"
+    },
+    {
+      "id": "M-H2-r",
+      "req": "harness",
+      "why": "清单里没有 base 这一列、或者不像 SHA 也照收 —— 豁免的范围静默退回整条链，而报告里看不出清单缺了什么",
+      "file": "scripts/check/age-rule.ts",
+      "find": "      || typeof p.baseRefOid !== 'string') return null",
+      "replace": "      ) return null"
     }
   ],
   "exemptions": [
