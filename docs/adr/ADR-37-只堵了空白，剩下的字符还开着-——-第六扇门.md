@@ -22,8 +22,11 @@
 
 我没去看，就断言推不出来 —— 于是只堵了想得到的那一个字符。
 
-取两家平台都允许的字符集（字母、数字、下划线、点；连字符留着是因为
-现有数据里有 `active-kol`）。方向仍然选错得起的那边：误判大声中止，
+取两家平台都允许的字符集（字母、数字、下划线、点）—— 与 `identity.ts` 从
+URL 里抠 handle 用的是同一套字符。连字符不留：两家平台的用户名都没有它，
+`active-kol` 只是 `scripts/test.ts` 里造的活跃度用例，不是采集得来的 handle。
+拿它当「现有数据」放宽校验，放进来的正是本条要堵的那种永远匹配不上的键 ——
+用例改名，不为用例改规则。方向仍然选错得起的那边：误判大声中止，
 漏判静默破红线。
 
 ### 二、类型对不等于能用（P2）
@@ -38,7 +41,8 @@
 
 ### 连带改动
 
-`scripts/lib/memory.ts` · `docs/requirements.json`（D4）· `scripts/test.ts`（七条用例）·
+`scripts/lib/memory.ts` · `docs/requirements.json`（D4）· `scripts/test.ts`（七条用例；
+`active-kol` 用例改成不带连字符的 handle）·
 `scripts/check/mutations.json`（M-P4-l · M-D4-k；**删掉 M-P4-j** ——
 它守的空白检查被 handle 形状检查整个包含了，留着就是同一条变异写两遍。
 空白的那几条用例照旧，现在由 M-P4-l 守）· ADR-32 就地更正
