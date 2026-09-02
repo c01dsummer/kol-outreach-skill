@@ -32,12 +32,22 @@ const env = {
 }
 
 let failed = 0
-const run = (label: string, args: string[], cwd = process.cwd()) => {
+/** 预期以非零退出码结束的场景：把退出码本身当成被检查的对外契约 */
+const run = (label: string, args: string[], cwd = process.cwd(), expect?: { status: number }) => {
   try {
     const out = execFileSync('npx', ['tsx', ...args], { env, cwd, stdio: 'pipe', encoding: 'utf8' })
+    if (expect) {
+      failed++
+      console.error(`  ✗ ${label}：预期以退出码 ${expect.status} 结束，实际是 0`)
+      return ''
+    }
     console.log(`  ✓ ${label}`)
     return out
   } catch (e: any) {
+    if (expect && e.status === expect.status) {
+      console.log(`  ✓ ${label}（按预期以退出码 ${expect.status} 结束）`)
+      return (e.stderr ?? '').toString()
+    }
     // collect 预算用尽时退出码 3 是**预期行为**，不算失败
     if (e.status === 3 && label.includes('预算用尽')) {
       console.log(`  ✓ ${label}（按预期以退出码 3 结束）`)
@@ -282,6 +292,45 @@ if (dir) {
     else if (!after) { failed++; console.error(`  ✗ render 之后续跑把交付物清空了（${before}→0）`) }
     else console.log(`  ✓ render 后续跑数据未丢：交付物 ${before}→${after}，累加器 ${rawN}`)
   }
+}
+
+// ---- 记忆读不出来：不产出名单、交付物不动、告诉用户怎么往下走（ADR-15）----
+// 触发它的不是天灾 —— 这个产品要求运营手改 memory/creators.json 来标 contacted，
+// 手改 JSON 就是最常见的损坏来源。原实现在这里退化成空记忆，于是打扰过的人
+// 重新进名单。
+if (dir) {
+  const memFile = join(tmp, 'memory', 'creators.json')
+  const healthy = readFileSync(memFile, 'utf8')
+  writeFileSync(memFile, healthy.slice(0, Math.floor(healthy.length * 0.6)), 'utf8')
+
+  const deliverable = join(tmp, dir, 'creators.json')
+  const beforeList = readFileSync(deliverable, 'utf8')
+
+  const stderr = run('collect 记忆读不出来时不产出名单',
+                     [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp, { status: 2 })
+  if (!stderr.includes('--resume')) {
+    failed++
+    console.error('  ✗ 中止时没有告诉用户怎么往下走 —— 一条人照做不了的报错等于没报')
+  } else console.log('  ✓ 中止时给出了修好再续跑的命令')
+  // 这一轮采集已经跑完，所以续跑确实不花钱 —— 但那句话必须是**算出来的**，
+  // 不是无条件写死的。还有关键词没跑完时它要说的是相反的话（ADR-22）。
+  if (!stderr.includes('续跑不产生新的请求') && !stderr.includes('续跑会继续发请求')) {
+    failed++
+    console.error('  ✗ 没有说清续跑的代价 —— 或者把「已抓到的不重抓」写成了「续跑免费」')
+  } else console.log('  ✓ 续跑的代价按实际剩余工作量说话')
+  // 预算用尽时光 --resume 会立刻再退 3。这里采集已跑完，命令不该带 --budget；
+  // 反过来说了「预算也已用尽」的那条命令必须带 —— 两句话要同进同出
+  const budgetGone = stderr.includes('预算也已用尽')
+  const cmdHasBudget = /修好它再跑:.*--budget <新额度>/.test(stderr)
+  if (budgetGone !== cmdHasBudget) {
+    failed++
+    console.error('  ✗ 恢复命令与预算状态不一致 —— 用户照着敲会立刻再撞一次退出码 3')
+  } else console.log('  ✓ 恢复命令按预算状态决定要不要带 --budget')
+  if (readFileSync(deliverable, 'utf8') !== beforeList) {
+    failed++; console.error('  ✗ 中止时仍改写了交付物 creators.json')
+  } else console.log('  ✓ 中止未触碰交付物')
+
+  writeFileSync(memFile, healthy, 'utf8')
 }
 
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。

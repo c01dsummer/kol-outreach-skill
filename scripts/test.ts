@@ -33,7 +33,9 @@ import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
 import { renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
-import { finalize, pendingKeywords, rankCreators, keywordStats, tierCounts } from './lib/pipeline.js'
+import {
+  finalize, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators, keywordStats, tierCounts,
+} from './lib/pipeline.js'
 import {
   ACTIVITY_ACTIVE_MAX_DAYS, ACTIVITY_COOLING_MAX_DAYS,
   accountKey, assignAudienceRisks, attachAssessments, calculatePublicMetrics,
@@ -44,7 +46,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator,
-  EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost,
+  EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, TaskState,
 } from './lib/types.js'
 
 let fail = 0
@@ -336,6 +338,33 @@ suite('P4', '已联系/屏蔽的人不得进入名单')
 
   unlinkSync(tmp)
   useMemoryFile('memory/creators.json')
+}
+
+suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不在 done 里的」')
+{
+  const st = (over: Partial<TaskState> = {}): TaskState => ({
+    product: 'p', market: 'US', target_count: 50, budget_usd: 1,
+    tasks: [{ keyword: 'a', dimension: 'category', platform: 'tiktok' },
+            { keyword: 'b', dimension: 'scene', platform: 'tiktok' }],
+    done: [], offsets: {}, requests: 0, created_at: '', updated_at: '', ...over,
+  })
+  // 达标提前停下：剩下的关键词一个都没碰过，也没被标记完成 ——
+  // 但续跑的第一件事是再查一次达标，一个请求都不会发。
+  eq('没达标 → 剩下的关键词续跑会去抓', keywordsResumeWillRun(st(), 10).length, 2)
+  eq('已达标 → 续跑一个关键词都不会抓', keywordsResumeWillRun(st(), 50).length, 0)
+  eq('超出目标同理', keywordsResumeWillRun(st(), 99).length, 0)
+  eq('已标记完成的本来就不算', keywordsResumeWillRun(st({ done: [0] }), 10).length, 1)
+  // pendingKeywords 仍然报「还没跑完的」—— 它服务的是进度，不是花钱
+  eq('进度口径不受达标影响', pendingKeywords(st()).length, 2)
+}
+
+suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环与「续跑要花多少钱」共用它')
+{
+  const c = (over: Partial<Creator>) => mk('tiktok', 'x', over)
+  ok('bio 未查询 → 还要补', needsProfile(c({ bio: undefined })))
+  ok('查过了但没有外链 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
+  eq('查过且有外链 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
+  // 这个判定决定要不要花钱：说「续跑不产生新请求」之前，它必须对每个人都是 false
 }
 
 suite('D6', '续跑不得被本任务自己上一轮的产出滤空')

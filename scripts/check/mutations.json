@@ -178,6 +178,22 @@
       "replace": "  const all = raw"
     },
     {
+      "id": "M-D6-d",
+      "req": "D6",
+      "why": "「还要不要补 profile」只看 bio 有没有查过，不看外链取到没有 —— 续跑会对这批人再发一次付费请求，而中止时那句「续跑不产生新的请求」还照说不误",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return c.bio === undefined || !c.bio_links?.length",
+      "replace": "  return c.bio === undefined"
+    },
+    {
+      "id": "M-D6-e",
+      "req": "D6",
+      "why": "把「还没标记完成的关键词」当成「续跑会去抓的」—— 达标提前停下时那些词一个都没碰过，续跑也不会碰，却告诉用户续跑要花钱，他可能因此不敢续跑，永远拿不到那份名单",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return qualified >= state.target_count ? [] : pendingKeywords(state)",
+      "replace": "  return pendingKeywords(state)"
+    },
+    {
       "id": "M-P4-b",
       "req": "P4",
       "why": "记忆过滤跑在粉丝闸门之前 —— filtered_contacted 把连闸门都过不了的人也算进去，向用户虚报打扰规模",
