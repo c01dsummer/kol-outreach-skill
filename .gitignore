@@ -4,3 +4,4 @@ node_modules/
 output/
 memory/
 .DS_Store
+.check-cache/

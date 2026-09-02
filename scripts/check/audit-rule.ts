@@ -30,6 +30,7 @@
 
 export const JUDGMENT_EXEMPT: Record<string, string> = {
   'scripts/check/fake-fetch.ts': '自检用的假响应,不是判定 —— 它决定自检能走多深,由 selfcheck 自己的断言守着',
+  'scripts/check/claims.ts': '只装路径常量与记录的类型,不做任何判定 —— 它存在的理由正是让写的一方和读的一方指向同一个地方;改它的值两边会一起变,没有一条测试能区分,任何变异都是等价变异',
 }
 
 export interface CheckFile { path: string; entry: boolean }
