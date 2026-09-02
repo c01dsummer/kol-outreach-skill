@@ -1429,12 +1429,23 @@ harness('分支寿命：分叉时长有上限，超线要具名豁免')
   // 以及「另开一条分支搬过去」都按不住 —— 见 birthOf 的注释
   const 早 = '2026-08-24T00:00:00Z'
   const 晚 = '2026-09-01T00:00:00Z'
-  eq('作者时间更早 → 用作者时间，锚不抢', birthOf(早, 晚), { at: 早, fromAnchor: false })
-  eq('作者时间被洗到更晚 → 用锚', birthOf(晚, 早), { at: 早, fromAnchor: true })
+  eq('作者时间更早 → 用作者时间，锚不抢', birthOf(早, 晚), { kind: 'birth', at: 早, fromAnchor: false })
+  eq('作者时间被洗到更晚 → 用锚', birthOf(晚, 早), { kind: 'birth', at: 早, fromAnchor: true })
   eq('没有锚 → 只能用作者时间（没有 PR 的分支就是这样）',
-    birthOf(晚, null), { at: 晚, fromAnchor: false })
-  eq('锚解析不出来就当没有，不静默用一个 NaN',
-    birthOf(晚, '不是时间'), { at: 晚, fromAnchor: false })
+    birthOf(晚, null), { kind: 'birth', at: 晚, fromAnchor: false })
+  // 锚给了却读不出来：那是「量不了」，不是「没有锚」。原先退回作者时间——退回去的正是
+  // 用户可控的那个钟，而且在锚最该起作用的时候（历史被改写过）。评审指出，ADR-61 就地更正
+  eq('锚给了却解析不出来 → 「量不了」是一个有名字的判定，不退回作者时间',
+    birthOf(晚, '不是时间'), { kind: 'unreadable-anchor' })
+  eq('空串也算给了锚 → 量不了，不当成没有锚', birthOf(晚, ''), { kind: 'unreadable-anchor' })
+  // Date.parse 什么都肯认：Jan 1 9999 也是一个有限的时间，和刚洗过的作者时间比就静默选了作者时间
+  eq('长得不像时间戳的也算读不出来，即使 Date.parse 认', birthOf(晚, 'Jan 1 9999'), { kind: 'unreadable-anchor' })
+  // 形状对、日历上不存在：Date.parse 悄悄进位成下一天，那是另一个时间
+  eq('4 月 31 日 → 读不出来', birthOf(晚, '2026-04-31T00:00:00Z'), { kind: 'unreadable-anchor' })
+  eq('24 点 → 读不出来', birthOf(晚, '2026-01-01T24:00:00Z'), { kind: 'unreadable-anchor' })
+  eq('平年 2 月 29 日 → 读不出来', birthOf(晚, '2023-02-29T00:00:00Z'), { kind: 'unreadable-anchor' })
+  eq('闰年 2 月 29 日存在', birthOf(晚, '2024-02-29T00:00:00Z'), { kind: 'birth', at: '2024-02-29T00:00:00Z', fromAnchor: true })
+  eq('带时区偏移的也认', birthOf(晚, '2026-02-28T23:59:59+08:00'), { kind: 'birth', at: '2026-02-28T23:59:59+08:00', fromAnchor: true })
 
   // `--all` 那条路上的锚：每条分支若有开着的、同仓库的 PR，用它的创建时间。
   // 量到过：同一条分支，--all 报 108.1 小时，--ref --since <PR 创建时间> 报 118.8 —— 差 10.7
@@ -1449,8 +1460,12 @@ harness('分支寿命：分叉时长有上限，超线要具名豁免')
   eq('别的分支的 PR 不算', anchorFor('b', [pr(5, 'c', 早)]), { kind: 'no-pr' })
   eq('没给清单 ≠ 没有 PR —— 前者是这次跑法的事，后者是这条分支的事',
     anchorFor('b', null), { kind: 'no-list' })
-  eq('创建时间读不出来 → 说读不出来，不当成没有 PR',
-    anchorFor('b', [pr(5, 'b', '不是时间')]), { kind: 'unreadable', pr: 5 })
+  eq('创建时间读不出来 → 说读不出来，不当成没有 PR；那个字串原样带出去，交给 birthOf 拒答',
+    anchorFor('b', [pr(5, 'b', '不是时间')]), { kind: 'unreadable', pr: 5, at: '不是时间' })
+  eq('创建时间不是 RFC 3339 的形状 → 读不出来，即使 Date.parse 认',
+    anchorFor('b', [pr(5, 'b', 'Jan 1 9999')]), { kind: 'unreadable', pr: 5, at: 'Jan 1 9999' })
+  eq('几个 PR 里有一个读不出来 → 整条读不出来，不悄悄拿剩下的当锚 —— 丢掉的可能正是最早的',
+    anchorFor('b', [pr(6, 'b', '不是时间'), pr(5, 'b', 早)]), { kind: 'unreadable', pr: 6, at: '不是时间' })
   eq('清单不是数组 → 读不出来', parsePrList('{}'), null)
   eq('条目缺字段 → 读不出来，不猜', parsePrList('[{"number":5}]'), null)
   eq('合格的清单', parsePrList(JSON.stringify([pr(5, 'b', 早)]))?.length, 1)

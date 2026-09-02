@@ -148,13 +148,42 @@ export function judgeAge(hours: number, waiver: string | null): Verdict {
  * ⚠️ 另一处:锚只在有 PR 的时候才有。`--all` 扫的是分支,不是 PR —— 那条路上每条
  *    分支的锚由 `anchorFor` 从开着的 PR 清单里找;没有 PR 的分支仍只有作者时间,
  *    报告里逐条标出来。
+ *
+ * 锚**给了却读不出来** → `unreadable-anchor`:那是「量不了」,不是「没有锚」,所以是一个有名字的
+ * 判定,不是一个缺值 —— 入口脚本只把它传出去,不在那边再判一次(评审指出)。锚在服务端明明存在(PR 的
+ * 创建时间),只是这次读不出来;静默退回作者时间,等于在锚最该起作用的时候(历史被改写过)
+ * 把它扔掉,而退回去的正是用户可控的那个钟,报告里还一个字不提。空串也算「给了」。
+ * 调用方拒答,不退化。(原先退回作者时间;PR #10 合并后的评审指出,ADR-61 就地更正。)
  */
-export function birthOf(authorISO: string, anchorISO: string | null):
-  { at: string; fromAnchor: boolean } {
-  if (!anchorISO) return { at: authorISO, fromAnchor: false }
+export type Birth =
+  | { kind: 'birth'; at: string; fromAnchor: boolean }
+  | { kind: 'unreadable-anchor' }
+
+/**
+ * 锚必须长得像一个时间戳(RFC 3339,GitHub 给的就是这个形状)。`Date.parse` 什么都肯认 ——
+ * `Jan 1 9999` 也是一个有限的时间,拿它和一个刚被洗过的作者时间比,「取更早的」就静默选了
+ * 作者时间。形状不对就是读不出来,不进比较(评审指出)。
+ *
+ * 形状对了还要日历上存在:`2026-04-31`、`24:00:00` 这种 `Date.parse` 会悄悄进位成下一天 ——
+ * 那是另一个时间,量出来的是另一个时间的年龄,线附近能改判(评审再指出)。秒只认 00–59,
+ * 闰秒的 60 不认:GitHub 不会给,给了就是读不出来。
+ */
+const ISO_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/
+export function readableAnchor(s: string): boolean {
+  const m = ISO_TIMESTAMP.exec(s)
+  if (!m) return false
+  const [y, mo, d, h, mi, se] = m.slice(1, 7).map(Number)
+  const [oh, om] = [m[7] === undefined ? 0 : Number(m[7]), m[8] === undefined ? 0 : Number(m[8])]
+  const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate()
+  const calendarOk = mo >= 1 && mo <= 12 && d >= 1 && d <= daysInMonth && h <= 23 && mi <= 59 && se <= 59 && oh <= 23 && om <= 59
+  return calendarOk && Number.isFinite(Date.parse(s))
+}
+
+export function birthOf(authorISO: string, anchorISO: string | null): Birth {
+  if (anchorISO === null) return { kind: 'birth', at: authorISO, fromAnchor: false }
+  if (!readableAnchor(anchorISO)) return { kind: 'unreadable-anchor' }
   const [a, b] = [Date.parse(authorISO), Date.parse(anchorISO)]
-  if (!Number.isFinite(b)) return { at: authorISO, fromAnchor: false }
-  return b < a ? { at: anchorISO, fromAnchor: true } : { at: authorISO, fromAnchor: false }
+  return b < a ? { kind: 'birth', at: anchorISO, fromAnchor: true } : { kind: 'birth', at: authorISO, fromAnchor: false }
 }
 
 /**
@@ -169,8 +198,10 @@ export function birthOf(authorISO: string, anchorISO: string | null):
  * 量自己。同一条分支开了不止一个 PR 时取最早的那个:锚说的是「至少从这时起就在主干之外」。
  *
  * 四态,不压成两态:有锚 / 有 PR 但创建时间读不出来 / 没有开着的 PR / 根本没给清单。
- * 后三种都只能用作者时间,报告里要分开说 —— 「没给清单」是这次跑法的事,
- * 「没有 PR」是这条分支的事,两者的补法不一样。
+ * 后两种只能用作者时间,报告里要分开说 —— 「没给清单」是这次跑法的事,
+ * 「没有 PR」是这条分支的事,两者的补法不一样。「读不出来」不是没有锚,是量不了:
+ * 那个字串原样带出去(`at`),交给 `birthOf` 拒答,和 `--ref --since` 读不出来走同一条路。
+ * 一条分支的几个 PR 里有一个读不出来就算读不出来:锚取的是最早的那个,读不出来的那条可能正是最早的。
  */
 export interface OpenPr {
   number: number
@@ -183,7 +214,7 @@ export interface OpenPr {
 
 export type Anchor =
   | { kind: 'anchored'; at: string; pr: number; base: string }
-  | { kind: 'unreadable'; pr: number }
+  | { kind: 'unreadable'; pr: number; at: string }
   | { kind: 'no-pr' }
   | { kind: 'no-list' }
 
@@ -211,14 +242,13 @@ export function anchorFor(branch: string, prs: OpenPr[] | null): Anchor {
   if (prs === null) return { kind: 'no-list' }
   const mine = prs.filter(p => !p.isCrossRepository && p.headRefName === branch)
   if (!mine.length) return { kind: 'no-pr' }
-  let best: OpenPr | null = null
-  for (const p of mine) {
-    const t = Date.parse(p.createdAt)
-    if (Number.isFinite(t) && (best === null || t < Date.parse(best.createdAt))) best = p
-  }
-  return best
-    ? { kind: 'anchored', at: best.createdAt, pr: best.number, base: best.baseRefOid }
-    : { kind: 'unreadable', pr: mine[0].number }
+  // 有一条读不出来就整条读不出来:锚取的是最早的那个,而读不出来的那条可能正是最早的 ——
+  // 悄悄丢掉它、拿剩下的当锚,分支就可能被报年轻,而且一声不响(评审指出)
+  const bad = mine.find(p => !readableAnchor(p.createdAt))
+  if (bad) return { kind: 'unreadable', pr: bad.number, at: bad.createdAt }
+  let best = mine[0]
+  for (const p of mine) if (Date.parse(p.createdAt) < Date.parse(best.createdAt)) best = p
+  return { kind: 'anchored', at: best.createdAt, pr: best.number, base: best.baseRefOid }
 }
 
 /**
