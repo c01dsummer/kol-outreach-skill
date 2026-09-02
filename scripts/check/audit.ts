@@ -9,6 +9,7 @@
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { JUDGMENT_EXEMPT, judgmentModules, unguarded } from './audit-rule.js'
 
 interface Req { id: string; cat: string; pri: string; text: string; accept: string }
 const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
@@ -106,7 +107,21 @@ const unexecuted = entrypoints.filter(f => {
 })
 for (const f of unexecuted) { hard++; gaps.push(`${f} 是可执行文件但未被自检执行，也未登记豁免`) }
 
-// ---- 3. SPEC 与 json 一致性由 spec-sync 保证，这里只提示 ----
+// ---- 3. 检查链自己的判定模块，是否都有变异守着 ----
+/**
+ * 红线那一段查的是「产品的需求有没有被证明过」；这一段查的是「闸门自己有没有被证明过」。
+ * 判据在 `audit-rule.ts`：scripts/check/ 下不带 shebang 的文件都是判定，每个都得有变异指向它。
+ * 这不是待办（`·`），是硬失败 —— 一道没被证明过的闸门，和红线没变异是同一级的事。
+ */
+const judgments = judgmentModules(walk('scripts/check').map(f =>
+  ({ path: f, entry: readFileSync(f, 'utf8').startsWith('#!') })))
+const naked = unguarded(judgments, mutCfg.mutations)
+for (const f of naked) {
+  hard++
+  gaps.push(`${f} 是判定模块但没有变异守着 —— 它的测试没被证明过会红（process/4-VERIFY.md 的第三拍）`)
+}
+
+// ---- 4. SPEC 与 json 一致性由 spec-sync 保证，这里只提示 ----
 
 console.log('\n链路审计\n')
 console.log(rows.join('\n'))
@@ -118,6 +133,9 @@ for (const [id, why] of exemptIds) {
 for (const [f, why] of Object.entries(EXEC_EXEMPT)) {
   console.log(`  ⊘ ${f} 免于自检执行：${why}`)
 }
+for (const [f, why] of Object.entries(JUDGMENT_EXEMPT)) {
+  console.log(`  ⊘ ${f} 不算判定模块：${why}`)
+}
 
 if (gaps.length) {
   console.log(`\n  待办 ${gaps.length} 项：`)
@@ -128,6 +146,7 @@ const P = reqs.filter(r => r.cat === 'P')
 console.log(`\n  红线 ${P.length} 条 · 有测试 ${P.filter(r => testedIds.has(r.id)).length} · ` +
             `有变异 ${P.filter(r => mutatedIds.has(r.id)).length} · 显式豁免 ${P.filter(r => exemptIds.has(r.id)).length}`)
 console.log(`  需求 ${reqs.length} 条 · 被测试覆盖 ${reqs.filter(r => testedIds.has(r.id)).length}`)
+console.log(`  检查链的判定模块 ${judgments.length} 个 · 有变异守着 ${judgments.length - naked.length}`)
 
 if (hard) { console.error(`\n✗ 审计：${hard} 项硬失败`); process.exit(1) }
-console.log('\n✓ 审计：红线全部有测试且被变异验证')
+console.log('\n✓ 审计：红线全部有测试且被变异验证；检查链的判定模块全部有变异守着')
