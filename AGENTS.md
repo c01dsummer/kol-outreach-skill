@@ -52,6 +52,7 @@
 | 改模块边界、调用顺序或对外契约 | `process/5-DESIGN.md` + **`docs/ARCHITECTURE.md`** |
 | 改 Skill 的行为 | `skill/SKILL.md` + 对应的 `skill/references/*` |
 | 改完了要同步 | `docs/SYNC.md` |
+| 开分支、切改动、往主干合 | `process/6-INTEGRATE.md` |
 
 ---
 
@@ -62,9 +63,12 @@
   `SPEC.md` 里的表格是它的渲染 —— 由 `npm run spec` 生成并校验，**不要手改**
 - **架构文档**：`docs/ARCHITECTURE.md` —— 模块边界、**顺序契约**、Agent↔scripts 的缝隙契约。
   改这三样之前先读它；新增 `scripts/` 下的模块必须在锚点表里登记，否则 `npm run arch` 会红
-- **决策记录**：`DECISIONS.md`，编号 `ADR-NN`（数据需求用 `D` 前缀，两套不撞号）
+- **决策记录**:`docs/adr/`,**一条一个文件**,编号 `ADR-NN`(数据需求用 `D` 前缀,两套不撞号)。
+  `DECISIONS.md` 只做转发;还装着整册的分支跑 `npm run adr -- --split` 就地拆开
+- **体量豁免**：超线时用提交信息里的 `size-ok:` 具名豁免 ——
+  语法与判定规则见 `process/6-INTEGRATE.md`
 - **检查命令**：`npm run check`
-  = 纪律 lint → SPEC 一致性 → **架构锚点** → 类型检查 → 需求测试 → 变异测试 → 脚本自检 → 链路审计
+  = 纪律 lint → **体量闸门** → **分支寿命** → SPEC 一致性 → **决策记录** → **架构锚点** → 类型检查 → 需求测试 → 变异测试 → 脚本自检 → 链路审计
 - **审计命令**：`npm run audit`
 - **变异清单**：`npm run mutate -- --brief` —— 只列每条变异「违反了什么」，不含实现原文。
   给**写测试的那个上下文**用，见 `process/4-VERIFY.md` 的「给测试上下文一张准入读物清单」

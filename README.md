@@ -221,5 +221,5 @@ npm run check
 | [docs/CONVENTIONS.md](docs/CONVENTIONS.md) | 本项目中特别容易违反红线的实现习惯 |
 | [docs/business-requirements.md](docs/business-requirements.md) | 用户痛点、目标与业务论证 |
 | [docs/data-source-strategy.md](docs/data-source-strategy.md) | 数据源比较和选型依据 |
-| [DECISIONS.md](DECISIONS.md) | 架构与产品决策记录 |
+| [docs/adr/](docs/adr/) | 架构与产品决策记录，一条一个文件 |
 | [docs/SYNC.md](docs/SYNC.md) | 需求变动时需要同步的文档和实现 |

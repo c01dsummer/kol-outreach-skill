@@ -68,10 +68,18 @@
 | `scripts/providers/tikhub.ts` | 适配 | D2 D3 D8 P1 | 唯一的数据源实现；响应结构走探测 cascade，识别不出时暴露顶层 key |
 | `scripts/check/lint.ts` | 检查 | P1 | 把 P1 从散文变成能报错的检查；走文件树、打印、退出码 |
 | `scripts/check/lint-rule.ts` | 检查 | P1 | 上面那条检查的**判定**本身。抽出来是为了它能被测 —— 检查自己也要能被证伪 |
+| `scripts/check/size.ts` | 检查 | — | 把「一个改动 = 一个能一次读完的 diff」变成能报错的检查；量的是分支相对主干的新增行，基线算不出来时说「无从判断」而不是放行 |
+| `scripts/check/size-rule.ts` | 检查 | — | 上面那条闸门的**判定**本身。四类分开算、豁免必须指名类别；抽出来是为了它能被测 |
+| `scripts/check/age.ts` | 检查 | — | 把「分支活不过 48 小时」变成能报错的检查；量的是分叉时长（最早那个不在主干上的提交到现在），不是最后一次提交距今多久。**三种跑法**，因为这是个时间型的判据、要配时间型的触发：不带参数量当前 HEAD（进检查链）；`--ref <分支> [--since <锚>]` 量指定分支，由 `age.yml` 贴到**各 PR 的 head SHA**（合并闸看的是那里，`--since` 给一个改写不了的时间锚）；`--all` 扫所有远端分支（`age.yml` 每天一次的聚合视图） |
+| `scripts/check/age-rule.ts` | 检查 | — | 上面那条闸门的**判定**本身：阈值校准的那张表、四种判定（含「量不了」）、出生时间怎么取（作者时间与锚里更早的一个），以及**量分支的那几个决策** —— 分支形状分类（不相干 / 已合完 / 分叉 / 读不出来）、取作者时间最早的那个提交、从哪个头走第一父链、豁免扫描的顺序与出处。凡是「顺序错了会出错」的都在这边，入口只跑 `git` 和打印（`docs/CONVENTIONS.md` 第 10 条） |
+| `scripts/check/trailer.ts` | 检查 | — | 提交信息的 trailer 块。两个闸门都要在提交信息里读指令，而提交信息里也会举例说明这些指令 —— 判据借的是 git 自己的 trailer 定义，**只此一份** |
 | `scripts/check/spec-sync.ts` | 检查 | — | SPEC.md 的表格由 requirements.json 生成，两者不可能漂移 |
+| `scripts/check/quoted.ts` | 检查 | — | 引文遮罩:一段 Markdown 里哪些行是在**演示**语法而不是使用它(围栏块、HTML 注释)。**凡是要按结构解析 Markdown 的地方都先过它** —— 同一个坑在两处各栽过一次 |
+| `scripts/check/adr-sync.ts` | 检查 | — | 决策记录一条一个文件；编号唯一、文件名与正文一致、索引不漂移，并守住 `DECISIONS.md` 不再装回整册 |
+| `scripts/check/adr-rule.ts` | 检查 | — | 上面那条检查的**判定**本身。文件名与编号的对应、撞号、索引渲染 |
 | `scripts/check/mutate.ts` | 检查 | — | 给测试做的测试：变异存活即那条测试是假的 |
 | `scripts/check/why-rule.ts` | 检查 | — | 变异集 why 的判定：夹带实现原文当场拦下，让 `--brief` 名副其实 |
-| `scripts/check/selfcheck.ts` | 检查 | F5 | 用假 fetch 把每个可执行文件从头执行到尾 |
+| `scripts/check/selfcheck.ts` | 检查 | F5 | 每个可执行文件都要有出处：**采集管线那几个**在这里用假 fetch 从头跑到尾，**检查脚本**在 `npm run check` 里各自成一步（那条路不保证跑到尾 —— 检查可以合法提前退出），其余写进 `EXEMPT` 说明理由 |
 | `scripts/check/fake-fetch.ts` | 检查 | — | 自检用的假响应；它决定了自检能走到多深 |
 | `scripts/check/audit.ts` | 检查 | — | 链路审计，回答完成度而不是「功能做完了没有」 |
 | `scripts/check/arch-sync.ts` | 检查 | — | 守住本文档的骨架：双向覆盖、编号有效、顺序契约必须绑定真实变异 |

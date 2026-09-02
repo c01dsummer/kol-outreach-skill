@@ -73,7 +73,7 @@ export function writeFileAtomic(file: string, data: string): void {
  *
  * **导出，因为不止写的那一方要问。** 清理孤儿临时文件的那一方也得问同一个
  * 问题 —— 它照着链接那一侧去扫，就永远扫不到落在终点旁边的那些，
- * 而那是一份完整的联系历史（ADR-58）。判据只此一份，两边都调它。
+ * 而那是一份完整的联系历史（ADR-60）。判据只此一份，两边都调它。
  */
 export function writeTarget(file: string): string {
   let cur = file

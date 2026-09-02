@@ -9,6 +9,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 体量闸门要和主干求 merge-base；浅克隆下它会拒答而不是放行
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -16,3 +19,14 @@ jobs:
       - run: npm ci
       # 与本地 `npm run check` 是同一条链 —— 谁跑都一样红
       - run: npm run check
+        env:
+          # 直推主干时，决策记录的基线要退回整次推送之前 —— 一次推多个提交时
+          # HEAD^1 已经包含了删除。PR 事件下这个值为空，脚本会忽略它。
+          GIT_PUSH_BEFORE: ${{ github.event.before }}
+          # PR 事件下 checkout 拿到的是 GitHub 合成的合并提交，它的第一父是主干
+          # 那一侧 —— 分支寿命闸门要知道**真正在评审的那个头**是哪个，否则它
+          # 走第一父链一条分支提交都碰不到。push 事件下为空，检出的就是头本身。
+          #
+          # 传事实（头是哪个提交），不传推断（这次是不是 PR 事件）——
+          # 这个形状在提交图里和一次普通的 `merge --no-ff` 完全一样，猜不出来。
+          AGE_PR_HEAD: ${{ github.event.pull_request.head.sha }}

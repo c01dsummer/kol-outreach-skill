@@ -331,7 +331,7 @@ function alive(pid: number): boolean {
 function sweepStaleTemps(): void {
   // **扫的必须是写的那个地方。** 目标是软链时临时文件落在终点旁边，
   // 照着链接那一侧扫就永远扫不到 —— 而那是一份完整的联系历史，
-  // 会一直留在盘上（ADR-58）。所以两边问同一个函数，不各写各的。
+  // 会一直留在盘上（ADR-60）。所以两边问同一个函数，不各写各的。
   const target = writeTarget(FILE)
   const dir = dirname(target)
   const prefix = `${basename(target)}.`
@@ -366,7 +366,7 @@ function sweepStaleTemps(): void {
 export function saveMemory(mem: MemoryFile): void {
   // 建的也得是写的那个地方 —— 目标是软链时临时文件落在终点旁边，
   // 建链接那一侧的目录对它一点用没有。第三处问「到底写在哪个文件上」的地方，
-  // 三处都调 writeTarget（ADR-58）。
+  // 三处都调 writeTarget（ADR-60）。
   mkdirDurable(dirname(writeTarget(FILE)))
   sweepStaleTemps()
   mem.updated_at = new Date().toISOString()
