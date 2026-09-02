@@ -318,6 +318,14 @@ if (dir) {
     failed++
     console.error('  ✗ 没有说清续跑的代价 —— 或者把「已抓到的不重抓」写成了「续跑免费」')
   } else console.log('  ✓ 续跑的代价按实际剩余工作量说话')
+  // 预算用尽时光 --resume 会立刻再退 3。这里采集已跑完，命令不该带 --budget；
+  // 反过来说了「预算也已用尽」的那条命令必须带 —— 两句话要同进同出
+  const budgetGone = stderr.includes('预算也已用尽')
+  const cmdHasBudget = /修好它再跑:.*--budget <新额度>/.test(stderr)
+  if (budgetGone !== cmdHasBudget) {
+    failed++
+    console.error('  ✗ 恢复命令与预算状态不一致 —— 用户照着敲会立刻再撞一次退出码 3')
+  } else console.log('  ✓ 恢复命令按预算状态决定要不要带 --budget')
   if (readFileSync(deliverable, 'utf8') !== beforeList) {
     failed++; console.error('  ✗ 中止时仍改写了交付物 creators.json')
   } else console.log('  ✓ 中止未触碰交付物')
