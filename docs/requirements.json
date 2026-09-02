@@ -36,14 +36,14 @@
       "cat": "P",
       "pri": "P0",
       "text": "已标记 contacted 或 blocked 的创作者不得再次进入名单。",
-      "accept": "filterByMemory 对任一 contacted=true 或 blocked=true 的记录，返回的 kept 中不含该创作者，且 filtered_contacted 计数加一。"
+      "accept": "filterByMemory 对任一 contacted=true 或 blocked=true 的记录，返回的 kept 中不含该创作者，且 filtered_contacted 计数加一。记忆读不出来时不产出名单（D4）；只有用户显式指定 --ignore-memory 才跳过去重出名单，且交付物必须声明本次未做已联系去重 —— 这条红线挡的是在用户不知情时再次进入名单（ADR-15）。并发的两个写入方交错留下的名单与声明不符，按 D4 的声明当前不保证（ADR-66）；要把它变成保证，先把它变成一条需求。"
     },
     {
       "id": "P5",
       "cat": "P",
       "pri": "P0",
       "text": "交付时必须显式声明数据边界：哪些字段未经验证、哪些数据缺失。",
-      "accept": "未配置外部增强层时，HTML 报告必须含「邮箱未验证」与「无法确认受众市场」两条声明；meta.json 的 enriched 为 false。即使已计算公开帖子指标也不得隐藏这两条边界；公开信号必须另行声明其不是假粉率、不能代表实际带货效果。"
+      "accept": "未配置外部增强层时，HTML 报告必须含「邮箱未验证」与「无法确认受众市场」两条声明；meta.json 的 enriched 为 false。即使已计算公开帖子指标也不得隐藏这两条边界；公开信号必须另行声明其不是假粉率、不能代表实际带货效果。去重状态也是一条数据边界：交付物的 memory_status 为 ok 时名单已按记忆去重，为 unknown 或 unreadable_ignored 时报告必须声明本次未做已联系去重（D4）；并发的两个写入方交错留下的名单与声明不符，按 D4 的声明当前不保证（ADR-66）。"
     },
     {
       "id": "S1",
