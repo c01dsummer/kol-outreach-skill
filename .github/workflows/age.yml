@@ -10,7 +10,8 @@
 # 1. 每个 PR 各贴一条 check run 到**它自己的 head SHA** 上 ——
 #    GitHub 的合并闸看的是那里。只有聚合结果的话,一个 47 小时通过、之后没人碰
 #    的 PR,head 上那条绿不会失效:**聚合任务红着,PR 照样能合。**
-# 2. `--all` 扫全部远端分支,结果留在 Actions 里 —— 看得见「仓库现在什么样」
+# 2. `--all` 扫全部远端分支,结果留在 Actions 里 —— 看得见「仓库现在什么样」。
+#    有开着 PR 的分支用同一把锚(`--prs` 传进去的清单),没有的逐条标出
 #
 # ⚠️ 贴上去的这条检查要真正**挡住**合并,还得在仓库设置里把 `age` 加进
 #    required status checks。那是仓库设置,不在这个仓库的代码里 ——
@@ -45,7 +46,12 @@ permissions:
   pull-requests: read
 
 jobs:
-  age:
+  # job 不能叫 `age`:Actions 会按 job 名再建一条同名的 check run,而那条永远是绿的
+  # (脚本的退出码被捕获进 conclusion 了,job 自己不会失败),还总在贴上去的那条之后
+  # 完成 —— 实测 PR #5 的 head 上两条 `age` 相差两秒。必需检查按名字认,分不开同名的
+  # 两条;job 另起一个名字,`age` 就只剩贴上去的那一条。
+  post:
+    name: 贴分支寿命到各 PR
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,7 +74,8 @@ jobs:
           PR_SHA: ${{ github.event.pull_request.head.sha }}
           REPO: ${{ github.repository }}
         run: |
-          # 落在临时文件里，不是工作区 —— 工作区里多出来的东西会被顺手提交
+          # 落在临时文件里，不是工作区 —— 工作区里多出来的东西会被顺手提交。
+          # JSON 那份放 $RUNNER_TEMP：下一步的 --all 也要读它，$RUNNER_TEMP 跨步骤存在
           prs=$(mktemp)
           if [ "$EVENT" = pull_request_target ]; then
             # PR 事件：只贴触发它的这一个
@@ -78,8 +85,11 @@ jobs:
             # --limit 必须显式给：gh pr list 默认只列 30 条，多出来的会被静默丢掉，
             # 而被丢掉的那个 PR 会一直留着它上一次的绿 —— 正好是这条闸门要拦的
             # 那个「过了线还绿着」
-            gh pr list --state open --limit 1000 --json number,headRefOid,createdAt \
-              --jq '.[] | [.number, .headRefOid, .createdAt] | @tsv' > "$prs"
+            gh pr list --state open --limit 1000 \
+              --json number,headRefOid,createdAt,headRefName,isCrossRepository \
+              > "$RUNNER_TEMP/open-prs.json"
+            jq -r '.[] | [.number, .headRefOid, .createdAt] | @tsv' \
+              "$RUNNER_TEMP/open-prs.json" > "$prs"
           fi
 
           while IFS=$'\t' read -r num sha created; do
@@ -120,5 +130,9 @@ jobs:
       # 聚合视图：仓库现在有哪些分支超线。红在 Actions 里，不挡任何 PR。
       # PR 事件下不跑 —— 那条 PR 自己的结论已经贴上去了，再因为**别人的**分支
       # 超线而把这次运行染红，只会让人以为是自己的问题
+      #
+      # --prs：上一步落下的开着的 PR 清单。有同仓库 PR 的分支拿它的创建时间当锚
+      # （一条分支开了不止一个 PR 时取最早的那个；贴到各 PR head 上的那条用的是各自的
+      # 创建时间，两边只在「一条分支一个 PR」时是同一个数）；没有 PR 的分支逐条标出来
       - if: github.event_name != 'pull_request_target'
-        run: npm run age -- --all
+        run: npm run age -- --all --prs "$RUNNER_TEMP/open-prs.json"

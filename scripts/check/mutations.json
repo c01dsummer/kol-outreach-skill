@@ -568,6 +568,30 @@
       "file": "scripts/check/age-rule.ts",
       "find": "    if (reason) return { reason, from: c.sha.slice(0, 7) }",
       "replace": "    if (reason) return { reason, from: '' }"
+    },
+    {
+      "id": "M-H2-m",
+      "req": "harness",
+      "why": "没给 PR 清单被报成「这条分支没有 PR」—— 本地随手跑一次和定时任务跑出来的报告长得一样，没人知道这一路根本没接上锚",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  if (prs === null) return { kind: 'no-list' }",
+      "replace": "  if (prs === null) return { kind: 'no-pr' }"
+    },
+    {
+      "id": "M-H2-n",
+      "req": "harness",
+      "why": "fork 来的 PR 也当成这条分支的锚 —— 那条分支在 fork 里，基仓同名的是另一条分支，拿别人的创建时间量自己",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  const mine = prs.filter(p => !p.isCrossRepository && p.headRefName === branch)",
+      "replace": "  const mine = prs.filter(p => p.headRefName === branch)"
+    },
+    {
+      "id": "M-H2-o",
+      "req": "harness",
+      "why": "同一条分支开了两个 PR 时取最晚那个的创建时间 —— 锚说的是「至少从这时起就在主干之外」，取晚的等于把分支报年轻",
+      "file": "scripts/check/age-rule.ts",
+      "find": "    if (Number.isFinite(t) && (best === null || t < Date.parse(best.createdAt))) best = p",
+      "replace": "    if (Number.isFinite(t) && (best === null || t > Date.parse(best.createdAt))) best = p"
     }
   ],
   "exemptions": [
