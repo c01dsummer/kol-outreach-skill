@@ -269,8 +269,9 @@ async function main() {
         `续跑会继续发请求、继续花钱。`
       : `\n   采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`)
 
-    // 预算用尽时光 --resume 会立刻再退 3，所以命令里得把 --budget 一起给出来
-    console.error(`\n   修好它再跑: tsx scripts/collect.ts --resume ${dir}` +
+    // 预算用尽时光 --resume 会立刻再退 3，所以命令里得把 --budget 一起给出来。
+    // 写成 npm run 的形式：tsx 只在 npm script 里才在 PATH 上，而且 .env 也只有那条路会读
+    console.error(`\n   修好它再跑: npm run collect -- --resume ${dir}` +
                   (stopped === 'budget' ? ' --budget <新额度>' : ''))
     process.exit(2)
   }

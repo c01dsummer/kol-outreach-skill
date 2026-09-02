@@ -83,7 +83,7 @@
 2. 采集结果和已花的预算都在，**已抓到的不会重抓**。但续跑要不要花钱，
    **照 stderr 说的转述**：剩余关键词和待补 profile 都为零才是零请求。
    修好之后按 stderr 给的那条命令续跑（预算用尽时它会带上 `--budget`）：
-   `npx tsx scripts/collect.ts --resume output/{task}`
+   `npm run collect -- --resume output/{task}`
 
 **不要替用户找路绕过去。** 修好再续跑是唯一的标准答案。
 
