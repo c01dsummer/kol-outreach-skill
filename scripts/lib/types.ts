@@ -1,5 +1,22 @@
 /** S4：只做出海平台。抖音/小红书/快手不在范围内 —— 账号体系与合规完全不同。 */
 export type Platform = 'tiktok' | 'instagram'
+
+/**
+ * 一个必填的文字字段能不能用：**是字符串，而且去掉首尾空白之后还剩东西**。
+ *
+ * 判据来自读取侧 —— 记忆里一条产品名为空白的推荐记录，永远匹配不上任何产品，
+ * 等于这条去重记录不存在。所以读进来、写出去，问的必须是同一个函数。
+ *
+ * 曾经各写各的：结构校验里两份、写回前一份 —— 判据本身没错，
+ * 错在它得靠人记得在每条新路径上抄一遍（ADR-46 追记二）。
+ */
+export const textProblem = (v: unknown): string | undefined =>
+  typeof v !== 'string' ? `不是字符串（${typeof v}）`
+    : !v.trim() ? '是空的'
+      : undefined
+
+/** D4：记忆「文件不存在」与「读不出来但调用方显式跳过」是两个状态，不得同值 */
+export type MemoryStatus = 'ok' | 'absent' | 'unreadable_ignored'
 /** F2：关键词的四个维度。竞品词权重最高（评分见 score.ts）。 */
 export type Dimension = 'category' | 'scene' | 'competitor' | 'audience'
 export type Tier = 'A' | 'B' | 'C'
