@@ -120,8 +120,8 @@ function measure(ref: string, anchor: string | null, declaredBase: string | null
   if (shape.kind !== 'diverged') return shape
 
   const birth = birthOf(shape.oldest.iso, anchor)
-  // 锚给了却读不出来:量不了,不退回作者时间 —— 见 age-rule.ts 的 birthOf
-  if (birth === null) return { kind: 'unreadable-anchor' }
+  // 「锚给了却读不出来 → 量不了」是 birthOf 的判定,这里只原样传出去,不在入口里再判一次
+  if (birth.kind === 'unreadable-anchor') return birth
   const since = birth.at
 
   /**

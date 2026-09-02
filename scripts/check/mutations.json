@@ -494,8 +494,8 @@
       "req": "harness",
       "why": "出生时间只认作者时间，不再与那个改写不了的锚取更早的一个 —— 一句 git commit --amend --reset-author 就把一条两百小时的分支洗成 0 小时，闸门自己给它续了 48 小时，而且一声不响",
       "file": "scripts/check/age-rule.ts",
-      "find": "  return b < a ? { at: anchorISO, fromAnchor: true } : { at: authorISO, fromAnchor: false }",
-      "replace": "  return { at: authorISO, fromAnchor: false }"
+      "find": "  return b < a ? { kind: 'birth', at: anchorISO, fromAnchor: true } : { kind: 'birth', at: authorISO, fromAnchor: false }",
+      "replace": "  return { kind: 'birth', at: authorISO, fromAnchor: false }"
     },
     {
       "id": "M-H2-d",
@@ -590,8 +590,8 @@
       "req": "harness",
       "why": "同一条分支开了两个 PR 时取最晚那个的创建时间 —— 锚说的是「至少从这时起就在主干之外」，取晚的等于把分支报年轻",
       "file": "scripts/check/age-rule.ts",
-      "find": "    if (Number.isFinite(t) && (best === null || t < Date.parse(best.createdAt))) best = p",
-      "replace": "    if (Number.isFinite(t) && (best === null || t > Date.parse(best.createdAt))) best = p"
+      "find": "  for (const p of mine) if (Date.parse(p.createdAt) < Date.parse(best.createdAt)) best = p",
+      "replace": "  for (const p of mine) if (Date.parse(p.createdAt) > Date.parse(best.createdAt)) best = p"
     },
     {
       "id": "M-H2-p",
@@ -622,16 +622,24 @@
       "req": "harness",
       "why": "锚给了却读不出来时静默退回作者时间 —— 在锚最该起作用的时候(历史被改写过)把它扔掉,报出来的是用户可控的那个钟,而且一个字不提",
       "file": "scripts/check/age-rule.ts",
-      "find": "  if (!Number.isFinite(b)) return null",
-      "replace": "  if (!Number.isFinite(b)) return { at: authorISO, fromAnchor: false }"
+      "find": "  if (!Number.isFinite(b)) return { kind: 'unreadable-anchor' }",
+      "replace": "  if (!Number.isFinite(b)) return { kind: 'birth', at: authorISO, fromAnchor: false }"
     },
     {
       "id": "M-H2-t",
       "req": "harness",
       "why": "空串的锚被当成没有锚 —— PR 事件里创建时间是空的时候,闸门照常按作者时间放行,而不是说量不了",
       "file": "scripts/check/age-rule.ts",
-      "find": "  if (anchorISO === null) return { at: authorISO, fromAnchor: false }",
-      "replace": "  if (!anchorISO) return { at: authorISO, fromAnchor: false }"
+      "find": "  if (anchorISO === null) return { kind: 'birth', at: authorISO, fromAnchor: false }",
+      "replace": "  if (!anchorISO) return { kind: 'birth', at: authorISO, fromAnchor: false }"
+    },
+    {
+      "id": "M-H2-u",
+      "req": "harness",
+      "why": "一条分支开了几个 PR、其中一个的创建时间读不出来时悄悄丢掉它,拿剩下那个当锚 —— 丢掉的那条可能正是最早的,分支被报年轻,而且一声不响",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  if (bad) return { kind: 'unreadable', pr: bad.number, at: bad.createdAt }",
+      "replace": "  if (bad && mine.length === 1) return { kind: 'unreadable', pr: bad.number, at: bad.createdAt }"
     }
   ],
   "exemptions": [
