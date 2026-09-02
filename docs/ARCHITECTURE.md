@@ -76,11 +76,13 @@
 | `scripts/check/quoted.ts` | 检查 | — | 引文遮罩:一段 Markdown 里哪些行是在**演示**语法而不是使用它(围栏块、HTML 注释)。**凡是要按结构解析 Markdown 的地方都先过它** —— 同一个坑在两处各栽过一次 |
 | `scripts/check/adr-sync.ts` | 检查 | — | 决策记录一条一个文件；编号唯一、文件名与正文一致、索引不漂移，并守住 `DECISIONS.md` 不再装回整册 |
 | `scripts/check/adr-rule.ts` | 检查 | — | 上面那条检查的**判定**本身。文件名与编号的对应、撞号、索引渲染 |
-| `scripts/check/mutate.ts` | 检查 | — | 给测试做的测试：变异存活即那条测试是假的 |
+| `scripts/check/mutate.ts` | 检查 | — | 给测试做的测试：变异存活即那条测试是假的；测试进程崩了不算抓到 |
+| `scripts/check/mutate-rule.ts` | 检查 | — | 上面那条的**判定**：一次测试跑完算「抓到」「跑不起来」还是「存活」——只有断言红了才算抓到，崩溃不是断言的功劳 |
 | `scripts/check/why-rule.ts` | 检查 | — | 变异集 why 的判定：夹带实现原文当场拦下，让 `--brief` 名副其实 |
 | `scripts/check/selfcheck.ts` | 检查 | F5 | 每个可执行文件都要有出处：**采集管线那几个**在这里用假 fetch 从头跑到尾，**检查脚本**在 `npm run check` 里各自成一步（那条路不保证跑到尾 —— 检查可以合法提前退出），其余写进 `EXEMPT` 说明理由 |
 | `scripts/check/fake-fetch.ts` | 检查 | — | 自检用的假响应；它决定了自检能走到多深 |
-| `scripts/check/audit.ts` | 检查 | — | 链路审计，回答完成度而不是「功能做完了没有」 |
+| `scripts/check/audit.ts` | 检查 | — | 链路审计，回答完成度而不是「功能做完了没有」；**检查链自己的判定模块**也在它的名单上，没有变异守着就硬失败 |
+| `scripts/check/audit-rule.ts` | 检查 | — | 审计里关于检查链自己的那一半**判定**：哪些文件算判定模块（scripts/check/ 下不带 shebang 的，不按文件名认）、哪些没有变异守着。抽出来是为了它能被测 —— 它自己也在那张名单上 |
 | `scripts/check/arch-sync.ts` | 检查 | — | 守住本文档的骨架：双向覆盖、编号有效、顺序契约必须绑定真实变异 |
 | `scripts/test.ts` | 检查 | — | 需求测试的实现。**覆盖了哪些编号以 `npm run audit` 为准**，不在这里复述 |
 

@@ -8,6 +8,8 @@
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
+import { JUDGMENT_EXEMPT, judgmentModules, unguarded } from './check/audit-rule.js'
+import { judgeRun } from './check/mutate-rule.js'
 import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
@@ -1278,6 +1280,34 @@ suite('U4', 'A 级附开发信草稿且可复制')
       requests: 1, cost_estimate_usd: 0.001, budget_usd: 2, enriched: false })
   ok('渲染草稿', html.includes('Hi there'))
   ok('有复制按钮', html.includes('cp(this)'))
+}
+
+harness('变异测试：测试进程崩了不算抓到')
+{
+  // 「被抓到」= 断言红了。一处语法错、一个 TypeError 也能让进程非零退出，但那不是任何一条断言的功劳
+  eq('零退出 → 存活', judgeRun(0, '全部通过（覆盖 26 条需求）'), 'survived')
+  eq('非零退出且有失败汇总 → 抓到', judgeRun(1, '  ✗ 某条\n\n2 个失败\n'), 'caught')
+  eq('非零退出但没有汇总 → 跑不起来，不算抓到', judgeRun(1, "TypeError: Cannot read properties of undefined"), 'crashed')
+  eq('被信号杀掉（没有退出码）也不算抓到', judgeRun(null, ''), 'crashed')
+  eq('汇总必须是自成一行的那句，正文里提到「个失败」不算', judgeRun(1, '断言说：这里不该有 3 个失败的例子'), 'crashed')
+}
+
+harness('审计：检查链自己的判定模块必须有变异守着')
+{
+  // 入口（带 shebang）不算：按 CONVENTIONS 第 10 条它不该装判定；其余每个文件都是「有判定要能被测」。
+  // 不按文件名后缀认 —— trailer.ts、quoted.ts 都是判定，不叫 rule
+  const files = [
+    { path: 'scripts/check/lint.ts', entry: true },
+    { path: 'scripts/check/lint-rule.ts', entry: false },
+    { path: 'scripts/check/trailer.ts', entry: false },
+    { path: 'scripts/check/fake-fetch.ts', entry: false },
+  ]
+  eq('入口不算、豁免的不算，其余都算', judgmentModules(files),
+    ['scripts/check/lint-rule.ts', 'scripts/check/trailer.ts'])
+  ok('豁免必须写理由', Object.values(JUDGMENT_EXEMPT).every(r => r.trim().length > 0))
+  eq('没有变异指向它的判定模块被点名', unguarded(['a.ts', 'b.ts'], [{ file: 'a.ts' }]), ['b.ts'])
+  eq('都有变异 → 无', unguarded(['a.ts'], [{ file: 'a.ts' }, { file: 'a.ts' }]), [])
+  eq('变异指向别的文件不算数', unguarded(['a.ts'], [{ file: 'c.ts' }]), ['a.ts'])
 }
 
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')

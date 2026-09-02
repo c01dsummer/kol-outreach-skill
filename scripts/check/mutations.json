@@ -434,6 +434,30 @@
       "replace": "    if (false) {"
     },
     {
+      "id": "M-H13-a",
+      "req": "harness",
+      "why": "判定模块没有变异也不点名 —— 新写一道闸门、只写到两拍，审计照样绿，ADR-59 那张欠条的形状原样重演",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "  return modules.filter(m => !guarded.has(m))",
+      "replace": "  return []"
+    },
+    {
+      "id": "M-H13-b",
+      "req": "harness",
+      "why": "入口脚本也被当成判定模块 —— 每个入口都得配变异，而入口里本不该有可变异的判定；这条检查会因为满屏假阳性被忽略",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "  return files.filter(f => !f.entry && !(f.path in JUDGMENT_EXEMPT)).map(f => f.path).sort()",
+      "replace": "  return files.filter(f => !(f.path in JUDGMENT_EXEMPT)).map(f => f.path).sort()"
+    },
+    {
+      "id": "M-H14-a",
+      "req": "harness",
+      "why": "测试进程崩掉也算变异被抓到 —— 一处语法错、一个 TypeError 就能让整套变异全绿，而没有任何一条断言真的红过",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return FAIL_SUMMARY.test(output) ? 'caught' : 'crashed'",
+      "replace": "  return 'caught'"
+    },
+    {
       "id": "M-D8-c",
       "req": "D8",
       "why": "旧缓存的样本记录不再收进窗口 —— 交付物上声称记着 16 条，而指标是按窗口内的 11 条算的，同一行数据自己打自己",

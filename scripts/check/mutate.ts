@@ -4,6 +4,7 @@
  *
  * 逐个应用「故意违反需求」的改动，跑测试，**期望测试失败**。
  * 变异被抓到 = 那条测试有效；**变异存活 = 那条测试是假的**，要修测试不是删变异。
+ * **测试进程崩了不算抓到**（`mutate-rule.ts`）：崩溃不是任何一条断言的功劳。
  *
  * 用法：
  *   tsx scripts/check/mutate.ts            逐个应用变异并跑测试
@@ -18,6 +19,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { implementationLeak } from './why-rule.js'
+import { type RunVerdict, judgeRun } from './mutate-rule.js'
 
 interface Mut { id: string; req: string; why: string; file: string; find: string; replace: string }
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
@@ -47,6 +49,7 @@ if (process.argv.includes('--brief')) {
 }
 
 const survived: Mut[] = []
+const crashed: Mut[] = []
 const notApplied: Mut[] = []
 
 for (const m of muts) {
@@ -57,16 +60,21 @@ for (const m of muts) {
     continue
   }
   writeFileSync(m.file, orig.replace(m.find, m.replace), 'utf8')
-  let testFailed = false
+  let verdict: RunVerdict
   try {
     execSync('npx tsx scripts/test.ts', { stdio: 'pipe' })
-  } catch {
-    testFailed = true              // 期望的结果
+    verdict = 'survived'
+  } catch (e: any) {
+    // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null)
+    verdict = judgeRun(e.status ?? null, `${e.stdout ?? ''}\n${e.stderr ?? ''}`)
   } finally {
     writeFileSync(m.file, orig, 'utf8')
   }
-  if (testFailed) console.log(`  ✓ ${m.id}  [${m.req}] 被抓到`)
-  else { survived.push(m); console.log(`  ✗ ${m.id}  [${m.req}] 存活 —— ${m.why}`) }
+  if (verdict === 'caught') console.log(`  ✓ ${m.id}  [${m.req}] 被抓到`)
+  else if (verdict === 'crashed') {
+    crashed.push(m)
+    console.log(`  ✗ ${m.id}  [${m.req}] 跑不起来 —— 测试进程死在半路,没有任何一条断言抓到它`)
+  } else { survived.push(m); console.log(`  ✗ ${m.id}  [${m.req}] 存活 —— ${m.why}`) }
 }
 
 console.log()
@@ -74,9 +82,10 @@ for (const e of exemptions) {
   console.log(`  ⊘ ${e.req} 无变异（显式缺口）：${e.why.split('。')[0]}。`)
 }
 
-if (survived.length || notApplied.length) {
-  console.error(`\n✗ 变异测试：${survived.length} 个存活，${notApplied.length} 个锚点失效`)
+if (survived.length || crashed.length || notApplied.length) {
+  console.error(`\n✗ 变异测试：${survived.length} 个存活，${crashed.length} 个跑不起来，${notApplied.length} 个锚点失效`)
   if (survived.length) console.error('  存活意味着对应的测试证明不了任何事 —— 修测试，不要删变异。')
+  if (crashed.length) console.error('  跑不起来不算抓到：崩溃不是断言的功劳。让那条测试作为断言失败，或者把变异改成一处语义改动而不是语法错误。')
   process.exit(1)
 }
 console.log(`✓ 变异测试：${muts.length} 个变异全部被抓到`)
