@@ -408,6 +408,30 @@
       "file": "scripts/check/age-rule.ts",
       "find": "    if (Number.isFinite(t) && (best === null || t < Date.parse(best.createdAt))) best = p",
       "replace": "    if (Number.isFinite(t) && (best === null || t > Date.parse(best.createdAt))) best = p"
+    },
+    {
+      "id": "M-H2-p",
+      "req": "harness",
+      "why": "声明了 base 也照样扫整条第一父链 —— 叠在别的分支上开出去的 PR 继续拿下面那条的 age-ok 过闸门，自己一句话没说过",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  return i < 0 ? chain : chain.slice(0, i)",
+      "replace": "  return chain"
+    },
+    {
+      "id": "M-H2-q",
+      "req": "harness",
+      "why": "截错了一侧：留下的是下面那条分支的提交，自己的反而被截掉 —— 自己写的豁免找不到，别人的照样继承",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  return i < 0 ? chain : chain.slice(0, i)",
+      "replace": "  return i < 0 ? chain : chain.slice(i)"
+    },
+    {
+      "id": "M-H2-r",
+      "req": "harness",
+      "why": "清单里的 base 不像 SHA 也照收、当成没给 —— 豁免的范围静默退回整条链，而清单明明给了一个值",
+      "file": "scripts/check/age-rule.ts",
+      "find": "      || (p.baseRefOid !== undefined && p.baseRefOid !== null && typeof p.baseRefOid !== 'string')) return null",
+      "replace": "      ) return null"
     }
   ],
   "exemptions": [

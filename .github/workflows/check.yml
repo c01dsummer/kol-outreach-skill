@@ -30,3 +30,6 @@ jobs:
           # 传事实（头是哪个提交），不传推断（这次是不是 PR 事件）——
           # 这个形状在提交图里和一次普通的 `merge --no-ff` 完全一样，猜不出来。
           AGE_PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          # 这条 PR 声明的 base —— 分支寿命闸门只认从它开出来之后的提交里写的豁免:
+          # 叠在别的分支上开出去的 PR,不再继承下面那条的 `age-ok:`(ADR-63)。push 事件下为空。
+          AGE_PR_BASE: ${{ github.event.pull_request.base.sha }}

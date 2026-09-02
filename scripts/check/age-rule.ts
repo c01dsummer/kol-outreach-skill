@@ -172,10 +172,17 @@ export function birthOf(authorISO: string, anchorISO: string | null):
  * 后三种都只能用作者时间,报告里要分开说 —— 「没给清单」是这次跑法的事,
  * 「没有 PR」是这条分支的事,两者的补法不一样。
  */
-export interface OpenPr { number: number; headRefName: string; createdAt: string; isCrossRepository: boolean }
+export interface OpenPr {
+  number: number
+  headRefName: string
+  createdAt: string
+  isCrossRepository: boolean
+  /** PR 声明的 base 分支的 SHA(`baseRefOid`);清单里没这一列时为 null。豁免的扫描范围要它,见 `ownSince` */
+  baseRefOid: string | null
+}
 
 export type Anchor =
-  | { kind: 'anchored'; at: string; pr: number }
+  | { kind: 'anchored'; at: string; pr: number; base: string | null }
   | { kind: 'unreadable'; pr: number }
   | { kind: 'no-pr' }
   | { kind: 'no-list' }
@@ -188,9 +195,11 @@ export function parsePrList(text: string): OpenPr[] | null {
   const out: OpenPr[] = []
   for (const p of raw as Record<string, unknown>[]) {
     if (typeof p?.number !== 'number' || typeof p.headRefName !== 'string'
-      || typeof p.createdAt !== 'string' || typeof p.isCrossRepository !== 'boolean') return null
+      || typeof p.createdAt !== 'string' || typeof p.isCrossRepository !== 'boolean'
+      || (p.baseRefOid !== undefined && p.baseRefOid !== null && typeof p.baseRefOid !== 'string')) return null
     out.push({ number: p.number, headRefName: p.headRefName, createdAt: p.createdAt,
-      isCrossRepository: p.isCrossRepository })
+      isCrossRepository: p.isCrossRepository,
+      baseRefOid: typeof p.baseRefOid === 'string' ? p.baseRefOid : null })
   }
   return out
 }
@@ -204,7 +213,9 @@ export function anchorFor(branch: string, prs: OpenPr[] | null): Anchor {
     const t = Date.parse(p.createdAt)
     if (Number.isFinite(t) && (best === null || t < Date.parse(best.createdAt))) best = p
   }
-  return best ? { kind: 'anchored', at: best.createdAt, pr: best.number } : { kind: 'unreadable', pr: mine[0].number }
+  return best
+    ? { kind: 'anchored', at: best.createdAt, pr: best.number, base: best.baseRefOid }
+    : { kind: 'unreadable', pr: mine[0].number }
 }
 
 /**
@@ -290,6 +301,30 @@ export function ownTipOf(tip: string, prHead: string | null, isAncestor: boolean
 }
 
 /**
+ * 第一父链截到**这条分支自己开出来的那一点**。
+ *
+ * `chain` 从分支的头往回走(`分叉点..头` 的第一父链,分叉点是与主干的);`forkPoint` 是它
+ * 与**声明的 base**(PR 的 base 分支)的分叉点 —— 链里碰到它就停,它和它之前的都是
+ * 别人的提交。
+ *
+ * 这一刀是给叠分支的:B 直接从没合的 A 上开出去,A 的提交就在 B 的第一父链上,B 于是
+ * 继承 A 那句 `age-ok:`,自己一句话没说过。提交图分不出「叠上去」和「这些提交本来就是
+ * 我写的」,分得出的事实只有「这条 PR 的 base 是谁」—— 它只在调用方手里,和 `AGE_PR_HEAD`
+ * 同一个形状(ADR-63)。
+ *
+ * - 没给 base(本地、`--all` 里没有 PR 的分支)→ 整条链,和以前一样;**报告里要说这一路没收窄**
+ * - base 就是主干 → 分叉点就是与主干的那个,不在链里 → 整条链,本来就全是自己的
+ * - base 是另一条分支 → 截到分叉点,之前的不扫
+ * - 分叉点不在链上(base 分支在这条开出来之后被整个改写过)→ 整条链。显式缺口:那时 A 的
+ *   旧提交还在链上,而服务端已经没有能指认它们的东西 —— 出处照样打出来,看得见
+ */
+export function ownSince(chain: string[], forkPoint: string | null): string[] {
+  if (forkPoint === null) return chain
+  const i = chain.indexOf(forkPoint)
+  return i < 0 ? chain : chain.slice(0, i)
+}
+
+/**
  * 扫豁免的**顺序与范围**:先看检出的那条提交自己,再顺着分支的第一父链往回走。
  *
  * 检出的那条要单独排在最前面,是因为它可能根本不在第一父链上 ——
@@ -309,8 +344,9 @@ export interface Attributed { reason: string; from: string }
  * 按给定顺序取**第一条**成立的豁免,并记下它的出处。
  *
  * 记出处不是为了好看:叠在一条没合的分支上开出去的分支,会连着下面那条的提交
- * 一起继承它的 `age-ok:`。挡不住(见 `age.ts`),但报告里点出那个提交,
- * 它不属于这条分支的话人一眼看得出来。
+ * 一起继承它的 `age-ok:`。有 base 时 `ownSince` 把那些提交截掉了;没有 base 的跑法
+ * (本地、没有 PR 的分支)截不掉,那时报告里点出那个提交,它不属于这条分支的话
+ * 人一眼看得出来。
  */
 export function pickWaiver(commits: { sha: string; message: string }[]): Attributed | null {
   for (const c of commits) {
