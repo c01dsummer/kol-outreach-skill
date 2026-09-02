@@ -21,17 +21,20 @@
  * |---|---|---|
  * | 不带参数 | `npm run check`,每次推送 | 你正要合的这个改动 |
  * | `--ref <分支> [--since <锚>]` | `age.yml`,PR 事件时 + 每天 | **合并闸看的那个地方** |
- * | `--all` | `age.yml`,每天一次 | 没人动的那些分支 |
+ * | `--all [--prs <清单>]` | `age.yml`,每天一次 | 没人动的那些分支 |
  *
  * 中间那条不能省:GitHub 的合并闸看的是 **PR head 那个 SHA 上的检查**,
  * 聚合结果红在主干的 SHA 上不会让它失效 —— 聚合红着,PR 照样能合。
- * `--since` 给一个改写不了的时间锚,见 `age-rule.ts` 的 `birthOf`。
+ * `--since` 给一个改写不了的时间锚,见 `age-rule.ts` 的 `birthOf`;`--prs` 给 `--all`
+ * 同一把锚 —— 开着的 PR 清单,每条分支若有同仓库的 PR 就用它的创建时间(`anchorFor`)。
  *
  * 时间型的判据要配时间型的触发,少一个,保证就只在有人已经在看的时候才成立。
  */
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import {
-  LIMIT_HOURS, birthOf, judgeAge, ownTipOf, parseLog, pickWaiver, shapeOf, waiverOrder,
+  LIMIT_HOURS, type OpenPr, anchorFor, birthOf, judgeAge, ownTipOf, parseLog, parsePrList,
+  pickWaiver, shapeOf, waiverOrder,
 } from './age-rule.js'
 
 const TRUNK_CANDIDATES = ['origin/main', 'main']
@@ -103,7 +106,7 @@ const ANCHOR = sinceArg >= 0 ? (process.argv[sinceArg + 1] ?? null) : null
  */
 type Verdict3 = Measured | { kind: 'merged' } | { kind: 'unrelated' } | { kind: 'unreadable' }
 
-function measure(ref: string): Verdict3 {
+function measure(ref: string, anchor: string | null): Verdict3 {
   const tip = git('rev-parse', ref)
   const base = tryGit('merge-base', trunk!, ref)
   const raw = base === null || base === tip
@@ -112,7 +115,7 @@ function measure(ref: string): Verdict3 {
   const shape = shapeOf(base, tip, parseLog(raw), rawCount)
   if (shape.kind !== 'diverged') return shape
 
-  const birth = birthOf(shape.oldest.iso, ANCHOR)
+  const birth = birthOf(shape.oldest.iso, anchor)
   const since = birth.at
 
   /**
@@ -184,7 +187,7 @@ function measure(ref: string): Verdict3 {
 
 const FLAG = { ok: '✓', waived: '⊘', over: '✗', future: '?' } as const
 const LEGEND = '\n  图例:✓ 在线内  ⊘ 超线但已具名豁免  ✗ 超线  ? 量不了\n'
-  + '  (量的是分叉时长,不是最后一次提交距今多久;用作者时间,有 --since 锚时取更早的一个)\n'
+  + '  (量的是分叉时长,不是最后一次提交距今多久;用作者时间,有锚时取更早的一个 —— `--since`,或 `--all` 的 `--prs`)\n'
 const HOWTO = '  先合一次:能独立交付的部分先合,剩下的留在分支上。\n'
   + '  合不了就说为什么 —— 在提交信息最后一段写 `age-ok: <理由>`。'
 
@@ -207,7 +210,7 @@ if (refArg >= 0) {
   if (!tryGit('rev-parse', '--verify', `${ref}^{commit}`)) {
     cannotAnswer(`找不到 ${ref}`, '先 `git fetch origin`。')
   }
-  const one = measure(ref)
+  const one = measure(ref, ANCHOR)
   if (one.kind === 'merged') {
     console.log(`✓ 分支寿命:${ref} 相对 ${trunk} 没有自己的提交`)
     process.exit(0)
@@ -238,6 +241,38 @@ if (refArg >= 0) {
 // ── 扫所有远端分支 ──────────────────────────────────────────────
 
 if (process.argv.includes('--all')) {
+  /**
+   * `--prs <文件>`:开着的 PR 清单(`gh pr list --json number,headRefName,createdAt,isCrossRepository`
+   * 的原样输出)。每条分支若有同仓库开着的 PR,就拿它的创建时间当锚 —— 和 `--ref --since`
+   * 是同一把锚。少了它,这条路上作者时间是唯一的钟;这不是理论缺口,量到过:同一条分支
+   * (PR #5 的 head),这里报 108.1 小时,`--ref --since <PR 创建时间>` 报 118.8 —— 差 10.7
+   * 小时,而且一声不响(ADR-61)。
+   *
+   * 没给清单不拒答 —— 本地随手跑一次不该非要先去问 GitHub;但**每一行都标出它有没有锚**,
+   * 汇总里再说一次有几条没有。「没给清单」和「这条分支没有 PR」分开标:前者是这次跑法的事,
+   * 后者是这条分支的事。清单给了却读不懂,那是拒答:一份读错的清单会把所有分支静默标成「无 PR」。
+   */
+  const prsArg = process.argv.indexOf('--prs')
+  let prs: OpenPr[] | null = null
+  if (prsArg >= 0) {
+    const path = process.argv[prsArg + 1]
+    if (!path) cannotAnswer('`--prs` 后面没有给文件', '写成 `--prs <gh pr list --json … 的输出文件>`。')
+    let text: string | null = null
+    try { text = readFileSync(path, 'utf8') } catch { /* 下面统一处理 */ }
+    if (text === null) cannotAnswer(`读不到 ${path}`, '确认 `--prs` 指向的文件存在。')
+    prs = parsePrList(text)
+    if (prs === null) {
+      cannotAnswer(`${path} 不是一份开着的 PR 清单`,
+        '要 `gh pr list --json number,headRefName,createdAt,isCrossRepository` 的原样输出。')
+    }
+  }
+  /** 每一行末尾的锚标记。四态各一个写法,和 `age-rule.ts` 的 `Anchor` 一一对应。 */
+  const TAG = {
+    unreadable: (pr: number) => `[#${pr} 的创建时间读不出来]`,
+    'no-pr': () => '[无 PR]',
+    'no-list': () => '[无清单]',
+  } as const
+
   const refs = git('for-each-ref', '--format=%(refname)', 'refs/remotes/origin')
     .split('\n').filter(Boolean)
     .filter(r => r !== `refs/remotes/${trunk}` && !r.endsWith('/HEAD'))
@@ -246,10 +281,12 @@ if (process.argv.includes('--all')) {
   const over: string[] = []
   const waived: string[] = []
   const unknown: string[] = []
+  const unanchored: string[] = []
   let live = 0
   for (const ref of refs) {
     const name = ref.replace('refs/remotes/', '')
-    const m = measure(ref)
+    const anchor = anchorFor(name.replace(/^origin\//, ''), prs)
+    const m = measure(ref, anchor.kind === 'anchored' ? anchor.at : null)
     // 已经全部合进主干的分支不算在途 —— 它没有自己的提交,量它没有意义
     if (m.kind === 'merged') continue
     if (m.kind === 'unrelated') {
@@ -269,8 +306,12 @@ if (process.argv.includes('--all')) {
       continue
     }
     live++
+    const tag = anchor.kind === 'anchored'
+      ? `[锚 #${anchor.pr}${m.fromAnchor ? ' ⚠ 按锚算' : ''}]`
+      : TAG[anchor.kind](anchor.kind === 'unreadable' ? anchor.pr : 0)
+    if (anchor.kind !== 'anchored') unanchored.push(name)
     console.log(`  ${FLAG[v.kind]} ${m.hours.toFixed(1).padStart(6)} 小时`
-      + `  ${String(m.commits).padStart(3)} 个提交  ${name}`)
+      + `  ${String(m.commits).padStart(3)} 个提交  ${name}  ${tag}`)
     if (v.kind === 'waived') {
       console.log(`         豁免(写在 ${m.waiverFrom} 上):${v.reason}`)
       waived.push(`${name}(${m.hours.toFixed(1)} 小时,豁免写在 ${m.waiverFrom} 上:${v.reason})`)
@@ -278,6 +319,14 @@ if (process.argv.includes('--all')) {
     if (v.kind === 'over') over.push(`${name}(${m.hours.toFixed(1)} 小时,自 ${m.since})`)
   }
   console.log(LEGEND)
+  console.log('  锚:[锚 #N] 有开着的同仓库 PR,出生时间取作者时间与它的创建时间里更早的一个')
+  console.log('     [锚 #N ⚠ 按锚算] 作者时间比 PR 创建时间还晚 —— 历史被改写过,或者时钟不对')
+  console.log('     [无 PR] 没有开着的同仓库 PR  [无清单] 本次没给 --prs  [#N 的创建时间读不出来] 有 PR 但那个时间不像时间')
+  console.log('     后三种都没有锚,只有作者时间 —— PR 开出来之前改写过历史的话,这个数会偏小\n')
+  if (unanchored.length) {
+    console.log(`  ⚠ ${unanchored.length} / ${live} 条在途分支没有锚,它们的小时数可能偏小`
+      + (prs === null ? '(本次没给 --prs)' : '') + '\n')
+  }
   if (unknown.length) {
     console.error(`✗ 分支寿命:${unknown.length} 条分支量不了\n`)
     for (const u of unknown) console.error(`  · ${u}`)
@@ -323,7 +372,7 @@ if (merged === head) {
   process.exit(0)
 }
 
-const m = measure('HEAD')
+const m = measure('HEAD', ANCHOR)
 if (m.kind === 'unreadable') {
   cannotAnswer('HEAD 上有提交,却一条作者时间都读不出来', '这多半说明 git 的输出格式变了,或者这不是一个正常的仓库。')
 }
