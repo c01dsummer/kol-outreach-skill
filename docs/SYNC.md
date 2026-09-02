@@ -30,6 +30,7 @@
 | **查到新事实 / 旧结论被推翻** | `docs/data-source-strategy.md` **必须改** · `docs/adr/`（多属事实证伪） | 🔒 `adr` 验编号与索引 |
 | **改预算/成本逻辑** | `scripts/lib/budget.ts` · `skill/SKILL.md` 成本闸门一节 · `docs/CONVENTIONS.md` 第 7 条 | 部分 |
 | **改对外能力、范围、当前状态或交付物** | 对应正本 · `README.md`（只做摘要，不定义新事实） | ✗ 靠执行 |
+| **评审中登记了一条发现** | 回复里的档号与去向 · `docs/adr/` 的欠条（**写重启条件**）· 线程 resolve | ✗ 靠执行 |
 
 ---
 
