@@ -1548,7 +1548,8 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
     { file: 'ADR-58-乙.md', num: 58, title: '乙' },
   ])
   eq('撞号报一条错', dup.length, 1)
-  ok('错里指出两个文件', dup[0].includes('ADR-58-甲.md') && dup[0].includes('ADR-58-乙.md'))
+  // 撞号那条变异下 dup 是空数组:先判长度,让它作为断言失败而不是让整个进程崩掉
+  ok('错里指出两个文件', dup.length === 1 && dup[0].includes('ADR-58-甲.md') && dup[0].includes('ADR-58-乙.md'))
 
   ok('改了标题却没改文件名，报错',
     checkAll([{ file: 'ADR-03-旧标题.md', num: 3, title: '新标题' }]).length === 1)
