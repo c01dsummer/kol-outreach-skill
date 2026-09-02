@@ -145,8 +145,9 @@ export function judgeAge(hours: number, waiver: string | null): Verdict {
  * 分支;存心要绕的人,写一行 `age-ok:` 比重写历史便宜得多 —— 那条路本来就是
  * 给他留的,而且留下的是一句能被读到的理由。
  *
- * ⚠️ 另一处:锚只在有 PR 的时候才有。`--all` 扫的是分支,没有这个锚,那一条路上
- *    作者时间仍是唯一的钟。
+ * ⚠️ 另一处:锚只在有 PR 的时候才有。`--all` 扫的是分支,不是 PR —— 那条路上每条
+ *    分支的锚由 `anchorFor` 从开着的 PR 清单里找;没有 PR 的分支仍只有作者时间,
+ *    报告里逐条标出来。
  */
 export function birthOf(authorISO: string, anchorISO: string | null):
   { at: string; fromAnchor: boolean } {
@@ -154,6 +155,56 @@ export function birthOf(authorISO: string, anchorISO: string | null):
   const [a, b] = [Date.parse(authorISO), Date.parse(anchorISO)]
   if (!Number.isFinite(b)) return { at: authorISO, fromAnchor: false }
   return b < a ? { at: anchorISO, fromAnchor: true } : { at: authorISO, fromAnchor: false }
+}
+
+/**
+ * `--all` 那条路上的锚:每条分支若有**开着的、同仓库的** PR,就用那个 PR 的创建时间。
+ *
+ * 早先这条路上没有锚,作者时间是唯一的钟。这不是理论缺口,量到过:同一条分支
+ * (PR #5 的 head),`--all` 报 108.1 小时,`--ref --since <PR 创建时间>` 报 118.8 小时
+ * —— 差 10.7 小时,`--all` 系统性地把它报年轻了,而且一声不响(ADR-61)。
+ *
+ * 只认同仓库的 PR:fork 来的 PR,那条分支在 fork 里,基仓的 `origin/<同名>` 要么不存在,
+ * 要么是**另一条恰好同名的分支** —— 把它的创建时间安到基仓那条分支头上,是拿别人的锚
+ * 量自己。同一条分支开了不止一个 PR 时取最早的那个:锚说的是「至少从这时起就在主干之外」。
+ *
+ * 四态,不压成两态:有锚 / 有 PR 但创建时间读不出来 / 没有开着的 PR / 根本没给清单。
+ * 后三种都只能用作者时间,报告里要分开说 —— 「没给清单」是这次跑法的事,
+ * 「没有 PR」是这条分支的事,两者的补法不一样。
+ */
+export interface OpenPr { number: number; headRefName: string; createdAt: string; isCrossRepository: boolean }
+
+export type Anchor =
+  | { kind: 'anchored'; at: string; pr: number }
+  | { kind: 'unreadable'; pr: number }
+  | { kind: 'no-pr' }
+  | { kind: 'no-list' }
+
+/** `gh pr list --json number,headRefName,createdAt,isCrossRepository` 的原样输出。形状不对返回 null,不猜。 */
+export function parsePrList(text: string): OpenPr[] | null {
+  let raw: unknown
+  try { raw = JSON.parse(text) } catch { return null }
+  if (!Array.isArray(raw)) return null
+  const out: OpenPr[] = []
+  for (const p of raw as Record<string, unknown>[]) {
+    if (typeof p?.number !== 'number' || typeof p.headRefName !== 'string'
+      || typeof p.createdAt !== 'string' || typeof p.isCrossRepository !== 'boolean') return null
+    out.push({ number: p.number, headRefName: p.headRefName, createdAt: p.createdAt,
+      isCrossRepository: p.isCrossRepository })
+  }
+  return out
+}
+
+export function anchorFor(branch: string, prs: OpenPr[] | null): Anchor {
+  if (prs === null) return { kind: 'no-list' }
+  const mine = prs.filter(p => !p.isCrossRepository && p.headRefName === branch)
+  if (!mine.length) return { kind: 'no-pr' }
+  let best: OpenPr | null = null
+  for (const p of mine) {
+    const t = Date.parse(p.createdAt)
+    if (Number.isFinite(t) && (best === null || t < Date.parse(best.createdAt))) best = p
+  }
+  return best ? { kind: 'anchored', at: best.createdAt, pr: best.number } : { kind: 'unreadable', pr: mine[0].number }
 }
 
 /**
