@@ -114,10 +114,14 @@ jobs:
               continue
             fi
             if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
-              # 列出来之后 base 被改写过（force-push），那个 SHA 已经不可达。贴失败会把一个
-              # 没动过的 head 挡到下一次运行 —— 跳过，下一次定时跑或它自己的下一次事件补上
-              echo "PR #$num: base $base 本地没有（列出来之后被改写了？），跳过"
-              continue
+              # 列出来之后 base 被改写过（force-push），清单里那个 SHA 已经不可达。**不跳过**：
+              # head 上旧的那条绿不会过期，跳过等于让一条可能已经过线的 PR 继续可合 —— 正是
+              # 这条闸门要拦的。base 改写没有任何 PR 事件会补跑（retarget 才有 `edited`），
+              # 所以只能在这里重新问一次它现在的 base、再抓一次；还是没有就让闸门拒答、贴失败
+              # —— 那是「量不了」，该红，不是该沉默
+              echo "PR #$num: base $base 本地没有（列出来之后被改写了？），重新问一次"
+              base=$(gh pr view "$num" --json baseRefOid --jq .baseRefOid)
+              git fetch -q origin '+refs/heads/*:refs/remotes/origin/*' --prune
             fi
 
             # --since 给一个**改写不了**的时间锚：PR 的创建时间。作者时间是用户
