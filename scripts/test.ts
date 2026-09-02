@@ -78,14 +78,11 @@ const ok = (label: string, cond: boolean) => eq(label, cond, true)
 const harness = (name: string) => { console.log(`\n[harness] ${name}`) }
 
 /**
- * 认领一个**交点** —— 一条测试同时守着两条需求交界处的那件事。
+ * 认领一个**交点**。
  *
- * 交点上的测试不属于任何一条需求,在「每条需求有没有测试」这个计量下
- * 写了不加分、不写不扣分,于是没人写。这里把两边都记进覆盖,
- * 至少让它不再是白写的。
- *
- * **登记表里声明交点、审计逐个去找、含红线的找不到就硬失败** —— 那套机器
- * 不在本改动里(ADR-54),所以这句话现在只是个标注,不是一道检查。
+ * 交点上的测试不属于任何一条需求 —— 在「每条需求有没有测试」这个计量下,
+ * 写了不加分,不写不扣分,于是没人写。审计按登记表里声明的交点逐个找这句话,
+ * 找不到就报缺口;含红线的交点找不到就是硬失败(ADR-17)。
  */
 const crossing = (a: string, b: string) => {
   covered.add(a); covered.add(b)
@@ -685,20 +682,25 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   rmSync(otherLive, { force: true })
   rmSync(liveOrphan, { force: true })
 
+  // 读权限位：文件不在了就把「没了」当成一个值带回来 —— 并发那一层的变异（比对失败时
+  // 清理半成品）能让目标文件消失，那要作为断言失败被抓到，不是让测试进程死在 statSync 上
+  const modeOf = (p: string): number | string => existsSync(p) ? statSync(p).mode & 0o777 : '（文件没了）'
   // 八之二、写回不许悄悄放开权限。writeFileSync 按 umask 建临时文件（通常 0644），
   //        rename 会把它一并装到目标上 —— 特意 chmod 600 过的记忆每写回一次
   //        就被放开一次，而它记着谁联系过、备注写了什么（ADR-40）。
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
   chmodSync(tmp, 0o600)
   recordRecommendations([mk('tiktok', 'erin')], 'p')
-  eq('写回保留目标文件原有的权限位', statSync(tmp).mode & 0o777, 0o600)
+  eq('写回保留目标文件原有的权限位', modeOf(tmp), 0o600)
   // 再验一个**不等于临时文件那档**的权限：临时文件是按最严建的，
   // 只断言 0600 的话，「建得严」和「事后调回目标」这两件事分不开 ——
   // 删掉后者，测试照样绿（这条变异当场活了一次，就是这么被发现的）
+  // 这一步自己备好文件再改权限 —— 上一步的变异可能已经把目标删掉，那要作为断言失败被抓到
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
   chmodSync(tmp, 0o640)
   recordRecommendations([mk('tiktok', 'erin')], 'p')
   eq('目标比临时文件宽时也照样还原，不是停在最严那一档',
-    statSync(tmp).mode & 0o777, 0o640)
+    modeOf(tmp), 0o640)
 
   // 八之二之二、**新文件按 umask 默认建**，不是停在临时文件那一档。
   //          临时文件按最严建是为了盖住那段窗口，不是替产品决定新文件该多严；
@@ -710,7 +712,7 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     const before = process.umask()
     writeFileAtomic(fresh, '{}')
     eq('新文件按 umask 默认，不是临时文件那档最严的',
-      statSync(fresh).mode & 0o777, 0o666 & ~before)
+      modeOf(fresh), 0o666 & ~before)
     rmSync(fresh, { force: true })
   }
 
@@ -808,6 +810,27 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     rmSync(d, { recursive: true, force: true })
   }
 
+  // 三步各自原子，合起来不是：同一个任务目录跑两个 collect 会交错，
+  // 盘上可能留下「没去重的名单 + 说已去重的状态」。和记忆那边一样只做检测（ADR-51）。
+  {
+    const d = join(tmpdir(), `kol-d4-race-${process.pid}`)
+    rmSync(d, { recursive: true, force: true })
+    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1,
+      memory_status: 'ok' } as unknown as TaskState
+    saveTask(d, st)
+    const stale = rf(join(d, 'task.json'), 'utf8')
+    saveTask(d, { ...st, product: '别的进程写的' } as TaskState)   // 别人插进来了
+    let name = ''
+    try { saveTask(d, st, stale) } catch (e) { name = (e as Error).name }
+    eq('盘上被别的进程改过时拒绝落盘', name, 'TaskChangedUnderfoot')
+    // 比对失败之后目标文件必须还在：变异掉整体替换时清理半成品会把目标一起删掉，
+    // 那要作为断言失败被抓到，不是让测试进程死在读文件上
+    ok('对方写下的那份还在',
+      existsSync(join(d, 'task.json')) && JSON.parse(rf(join(d, 'task.json'), 'utf8')).product === '别的进程写的')
+    rmSync(d, { recursive: true, force: true })
+  }
+
   // 都落成时才断言
   {
     const d = join(tmpdir(), `kol-d4-persist2-${process.pid}`)
@@ -815,11 +838,16 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
       target_count: 1, done: [], requests: 0, budget_usd: 1,
       memory_status: 'unreadable_ignored' } as unknown as TaskState
-    persistListAndStatus(d, st, [mk('tiktok', 'zoe')], 'ok')
+    // 三步各自带比对；整体替换被变异成直接盖文件时，比对会在自己刚写下的东西上失败而抛 ——
+    // 那要作为断言失败被抓到，不是让测试进程死在这里
+    let threw2 = ''
+    try { persistListAndStatus(d, st, [mk('tiktok', 'zoe')], 'ok') } catch (e) { threw2 = (e as Error).name }
+    eq('正常落盘不抛', threw2, '')
     eq('两边都落成时，状态才是那个肯定的断言',
       existsSync(join(d, 'task.json')) ? JSON.parse(rf(join(d, 'task.json'), 'utf8')).memory_status : '（没有 task.json）',
       'ok')
-    eq('名单也确实换了', JSON.parse(rf(join(d, 'creators.json'), 'utf8')).length, 1)
+    eq('名单也确实换了',
+      existsSync(join(d, 'creators.json')) ? JSON.parse(rf(join(d, 'creators.json'), 'utf8')).length : '（没有 creators.json）', 1)
     rmSync(d, { recursive: true, force: true })
   }
 
@@ -846,12 +874,14 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     saveTask(d2, st2)
     chmodSync(join(d2, 'task.json'), 0o640)
     saveTask(d2, st2)
-    eq('任务目录的落盘同样保住权限位', statSync(join(d2, 'task.json')).mode & 0o777, 0o640)
+    eq('任务目录的落盘同样保住权限位', modeOf(join(d2, 'task.json')), 0o640)
     rmSync(d2, { recursive: true, force: true })
   }
 
-  // 八之四之二、建目录：这里守的是「多层一次建得出来、重复调用不出事」。
-  //          **让新建的每一层都落盘属于持久性那一层，不在本改动里**（ADR-54）。
+  // 八之四之二、建目录也要让新建的每一层被记住 —— 刷文件所在那层只让
+  //          **文件的目录项**落了盘，而这些目录本身是刚建的，记录它们的是
+  //          各自的上一层，那几层没人刷（ADR-49）。持久性本身测不了，
+  //          这里守的是「它确实把多层目录建出来了、且重复调用不出事」。
   {
     const deep = join(tmpdir(), `kol-d4-mkdir-${process.pid}`, 'a', 'b', 'c')
     rmSync(join(tmpdir(), `kol-d4-mkdir-${process.pid}`), { recursive: true, force: true })
@@ -908,6 +938,24 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   eq('记忆仍然读得出来 —— 没有被自己写的键毒掉',
     statusOf(() => filterByMemory([mk('tiktok', 'alice')], 'p')), 'ok')
 
+  // 八之六、并发的两个 render：双方读到同一份快照、各自加各自的，后写的那个
+  //        会把先写的整个盖掉，而两边的报告都说「已记入」。不做串行化，
+  //        但要**检测**出来并明确报失败 —— 静默丢失换成一次响的失败（ADR-47）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  recordRecommendations([mk('tiktok', 'first')], 'p')
+  // 第一轮写回之后文件必须还在：整体替换被变异成直接盖文件时，比对失败的清理会把它删掉 ——
+  // 那要作为断言失败被抓到，不是让下面这一读死在 ENOENT 上
+  ok('第一轮写回之后记忆文件还在', existsSync(tmp))
+  const snapshot = existsSync(tmp) ? rf(tmp, 'utf8') : ''
+  const stale = snapshot ? JSON.parse(snapshot) : { version: 1, updated_at: '', creators: {} }
+  // 模拟「对方在这中间写了一轮」：盘上已经不是我读到的那份了
+  recordRecommendations([mk('tiktok', 'second')], 'p')
+  let raced = ''
+  try { saveMemory(stale, snapshot) } catch (e) { raced = (e as Error).name }
+  eq('盘上被别人改过时拒绝写回', raced, 'MemoryChangedUnderfoot')
+  ok('对方记下的那条还在，没有被盖掉',
+    existsSync(tmp) && Object.keys(JSON.parse(rf(tmp, 'utf8')).creators).includes('tiktok:second'))
+
   // 九、正常写回是原子的 —— 不留临时文件
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
   const okWb = recordRecommendations([mk('tiktok', 'erin')], 'p')
@@ -916,7 +964,7 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     f.startsWith(`kol-d4-${process.pid}`) && f.endsWith('.tmp')).length, 0)
   ok('写回后仍可解析', (() => { try { JSON.parse(rf(tmp, 'utf8')); return true } catch { return false } })())
 
-  unlinkSync(tmp)
+  rmSync(tmp, { force: true })   // 变异可能已经把它删了，清理不该因此崩掉
   useMemoryFile('memory/creators.json')
 }
 
