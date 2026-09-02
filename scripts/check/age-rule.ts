@@ -163,10 +163,20 @@ export type Birth =
  * 锚必须长得像一个时间戳(RFC 3339,GitHub 给的就是这个形状)。`Date.parse` 什么都肯认 ——
  * `Jan 1 9999` 也是一个有限的时间,拿它和一个刚被洗过的作者时间比,「取更早的」就静默选了
  * 作者时间。形状不对就是读不出来,不进比较(评审指出)。
+ *
+ * 形状对了还要日历上存在:`2026-04-31`、`24:00:00` 这种 `Date.parse` 会悄悄进位成下一天 ——
+ * 那是另一个时间,量出来的是另一个时间的年龄,线附近能改判(评审再指出)。秒只认 00–59,
+ * 闰秒的 60 不认:GitHub 不会给,给了就是读不出来。
  */
-const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
+const ISO_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/
 export function readableAnchor(s: string): boolean {
-  return ISO_TIMESTAMP.test(s) && Number.isFinite(Date.parse(s))
+  const m = ISO_TIMESTAMP.exec(s)
+  if (!m) return false
+  const [y, mo, d, h, mi, se] = m.slice(1, 7).map(Number)
+  const [oh, om] = [m[7] === undefined ? 0 : Number(m[7]), m[8] === undefined ? 0 : Number(m[8])]
+  const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate()
+  const calendarOk = mo >= 1 && mo <= 12 && d >= 1 && d <= daysInMonth && h <= 23 && mi <= 59 && se <= 59 && oh <= 23 && om <= 59
+  return calendarOk && Number.isFinite(Date.parse(s))
 }
 
 export function birthOf(authorISO: string, anchorISO: string | null): Birth {

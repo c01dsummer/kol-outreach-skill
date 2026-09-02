@@ -646,7 +646,15 @@
       "req": "harness",
       "why": "锚只要 Date.parse 肯认就当能用 —— Jan 1 9999 这种也算一个时间,和刚洗过的作者时间比,「取更早的」就静默选了作者时间,分支照样放行",
       "file": "scripts/check/age-rule.ts",
-      "find": "  return ISO_TIMESTAMP.test(s) && Number.isFinite(Date.parse(s))",
+      "find": "  if (!m) return false",
+      "replace": "  if (!m) return Number.isFinite(Date.parse(s))"
+    },
+    {
+      "id": "M-H2-w",
+      "req": "harness",
+      "why": "日历上不存在的时间(4 月 31 日、24 点)也当锚 —— Date.parse 悄悄进位成下一天,量出来的是另一个时间的年龄,线附近能改判",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  return calendarOk && Number.isFinite(Date.parse(s))",
       "replace": "  return Number.isFinite(Date.parse(s))"
     }
   ],

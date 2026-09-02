@@ -1440,6 +1440,12 @@ harness('分支寿命：分叉时长有上限，超线要具名豁免')
   eq('空串也算给了锚 → 量不了，不当成没有锚', birthOf(晚, ''), { kind: 'unreadable-anchor' })
   // Date.parse 什么都肯认：Jan 1 9999 也是一个有限的时间，和刚洗过的作者时间比就静默选了作者时间
   eq('长得不像时间戳的也算读不出来，即使 Date.parse 认', birthOf(晚, 'Jan 1 9999'), { kind: 'unreadable-anchor' })
+  // 形状对、日历上不存在：Date.parse 悄悄进位成下一天，那是另一个时间
+  eq('4 月 31 日 → 读不出来', birthOf(晚, '2026-04-31T00:00:00Z'), { kind: 'unreadable-anchor' })
+  eq('24 点 → 读不出来', birthOf(晚, '2026-01-01T24:00:00Z'), { kind: 'unreadable-anchor' })
+  eq('平年 2 月 29 日 → 读不出来', birthOf(晚, '2023-02-29T00:00:00Z'), { kind: 'unreadable-anchor' })
+  eq('闰年 2 月 29 日存在', birthOf(晚, '2024-02-29T00:00:00Z'), { kind: 'birth', at: '2024-02-29T00:00:00Z', fromAnchor: true })
+  eq('带时区偏移的也认', birthOf(晚, '2026-02-28T23:59:59+08:00'), { kind: 'birth', at: '2026-02-28T23:59:59+08:00', fromAnchor: true })
 
   // `--all` 那条路上的锚：每条分支若有开着的、同仓库的 PR，用它的创建时间。
   // 量到过：同一条分支，--all 报 108.1 小时，--ref --since <PR 创建时间> 报 118.8 —— 差 10.7
