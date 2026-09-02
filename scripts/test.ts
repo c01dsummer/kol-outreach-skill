@@ -1433,8 +1433,10 @@ harness('分支寿命：分叉时长有上限，超线要具名豁免')
   eq('作者时间被洗到更晚 → 用锚', birthOf(晚, 早), { at: 早, fromAnchor: true })
   eq('没有锚 → 只能用作者时间（没有 PR 的分支就是这样）',
     birthOf(晚, null), { at: 晚, fromAnchor: false })
-  eq('锚解析不出来就当没有，不静默用一个 NaN',
-    birthOf(晚, '不是时间'), { at: 晚, fromAnchor: false })
+  // 锚给了却读不出来：那是「量不了」，不是「没有锚」。原先退回作者时间——退回去的正是
+  // 用户可控的那个钟，而且在锚最该起作用的时候（历史被改写过）。评审指出，ADR-61 就地更正
+  eq('锚给了却解析不出来 → 量不了（null），不退回作者时间', birthOf(晚, '不是时间'), null)
+  eq('空串也算给了锚 → 量不了，不当成没有锚', birthOf(晚, ''), null)
 
   // `--all` 那条路上的锚：每条分支若有开着的、同仓库的 PR，用它的创建时间。
   // 量到过：同一条分支，--all 报 108.1 小时，--ref --since <PR 创建时间> 报 118.8 —— 差 10.7
@@ -1449,8 +1451,8 @@ harness('分支寿命：分叉时长有上限，超线要具名豁免')
   eq('别的分支的 PR 不算', anchorFor('b', [pr(5, 'c', 早)]), { kind: 'no-pr' })
   eq('没给清单 ≠ 没有 PR —— 前者是这次跑法的事，后者是这条分支的事',
     anchorFor('b', null), { kind: 'no-list' })
-  eq('创建时间读不出来 → 说读不出来，不当成没有 PR',
-    anchorFor('b', [pr(5, 'b', '不是时间')]), { kind: 'unreadable', pr: 5 })
+  eq('创建时间读不出来 → 说读不出来，不当成没有 PR；那个字串原样带出去，交给 birthOf 拒答',
+    anchorFor('b', [pr(5, 'b', '不是时间')]), { kind: 'unreadable', pr: 5, at: '不是时间' })
   eq('清单不是数组 → 读不出来', parsePrList('{}'), null)
   eq('条目缺字段 → 读不出来，不猜', parsePrList('[{"number":5}]'), null)
   eq('合格的清单', parsePrList(JSON.stringify([pr(5, 'b', 早)]))?.length, 1)

@@ -94,6 +94,7 @@ interface Measured {
  */
 const sinceArg = process.argv.indexOf('--since')
 const ANCHOR = sinceArg >= 0 ? (process.argv[sinceArg + 1] ?? null) : null
+if (sinceArg >= 0 && ANCHOR === null) cannotAnswer('`--since` 后面没有给时间', '写成 `--since <PR 的创建时间,ISO 8601>`。')
 
 /**
  * 一个 ref 相对主干的分叉时长。
@@ -107,6 +108,7 @@ const ANCHOR = sinceArg >= 0 ? (process.argv[sinceArg + 1] ?? null) : null
  * 测试与变异全绿,而它们够不到这里。
  */
 type Verdict3 = Measured | { kind: 'merged' } | { kind: 'unrelated' } | { kind: 'unreadable' }
+  | { kind: 'unreadable-anchor' }
 
 function measure(ref: string, anchor: string | null, declaredBase: string | null): Verdict3 {
   const tip = git('rev-parse', ref)
@@ -118,6 +120,8 @@ function measure(ref: string, anchor: string | null, declaredBase: string | null
   if (shape.kind !== 'diverged') return shape
 
   const birth = birthOf(shape.oldest.iso, anchor)
+  // 锚给了却读不出来:量不了,不退回作者时间 —— 见 age-rule.ts 的 birthOf
+  if (birth === null) return { kind: 'unreadable-anchor' }
   const since = birth.at
 
   /**
@@ -261,6 +265,10 @@ if (refArg >= 0) {
   if (one.kind === 'unreadable') {
     cannotAnswer(`${ref} 上有提交,却一条作者时间都读不出来`, '这多半说明 git 的输出格式变了,或者这不是一个正常的仓库。')
   }
+  if (one.kind === 'unreadable-anchor') {
+    cannotAnswer(`\`--since\` 给的「${ANCHOR}」不像一个时间`,
+      '这个值是 PR 的创建时间(ISO 8601),`age.yml` 从事件或 `gh pr list --json createdAt` 里取。锚读不出来就是量不了,不退回作者时间 —— 那是用户可控的那个钟。')
+  }
   const v = judgeAge(one.hours, one.waiver)
   if (v.kind === 'future') {
     cannotAnswer(`${ref} 最早那个提交(${one.oldest})的作者时间在未来:${one.since}`,
@@ -292,6 +300,8 @@ if (process.argv.includes('--all')) {
    * 没给清单不拒答 —— 本地随手跑一次不该非要先去问 GitHub;但**每一行都标出它有没有锚**,
    * 汇总里再说一次有几条没有。「没给清单」和「这条分支没有 PR」分开标:前者是这次跑法的事,
    * 后者是这条分支的事。清单给了却读不懂,那是拒答:一份读错的清单会把所有分支静默标成「无 PR」。
+   * 有 PR 但创建时间读不出来,也是拒答(进「量不了」):锚在服务端明明有,退回作者时间等于在它
+   * 最该起作用的时候把它扔掉 —— 那个字串原样递给 measure,让 birthOf 拒答,和 --ref --since 同一条路。
    */
   const prsArg = process.argv.indexOf('--prs')
   let prs: OpenPr[] | null = null
@@ -307,12 +317,8 @@ if (process.argv.includes('--all')) {
         '要 `gh pr list --json number,headRefName,createdAt,isCrossRepository,baseRefOid` 的原样输出。')
     }
   }
-  /** 每一行末尾的锚标记。四态各一个写法,和 `age-rule.ts` 的 `Anchor` 一一对应。 */
-  const TAG = {
-    unreadable: (pr: number) => `[#${pr} 的创建时间读不出来]`,
-    'no-pr': () => '[无 PR]',
-    'no-list': () => '[无清单]',
-  } as const
+  /** 每一行末尾的锚标记。没有锚的两态各一个写法;「读不出来」不在这里,它在 measure 里拒答。 */
+  const TAG = { 'no-pr': '[无 PR]', 'no-list': '[无清单]' } as const
 
   const refs = git('for-each-ref', '--format=%(refname)', 'refs/remotes/origin')
     .split('\n').filter(Boolean)
@@ -338,7 +344,9 @@ if (process.argv.includes('--all')) {
         continue
       }
     }
-    const m = measure(ref, anchor.kind === 'anchored' ? anchor.at : null, declared)
+    // 读不出来的锚原样递进去:让 birthOf 拒答,和 --ref --since 走同一条路
+    const anchorAt = anchor.kind === 'anchored' || anchor.kind === 'unreadable' ? anchor.at : null
+    const m = measure(ref, anchorAt, declared)
     // 已经全部合进主干的分支不算在途 —— 它没有自己的提交,量它没有意义
     if (m.kind === 'merged') continue
     if (m.kind === 'unrelated') {
@@ -351,6 +359,12 @@ if (process.argv.includes('--all')) {
       unknown.push(`${name}(有提交,却一条作者时间都读不出来)`)
       continue
     }
+    if (m.kind === 'unreadable-anchor') {
+      const pr = anchor.kind === 'anchored' || anchor.kind === 'unreadable' ? anchor.pr : 0
+      console.log(`  ? ${'—'.padStart(6)}        ——  ${name}`)
+      unknown.push(`${name}(PR #${pr} 的创建时间「${anchorAt}」不像一个时间 —— 锚读不出来就是量不了,不退回作者时间)`)
+      continue
+    }
     const v = judgeAge(m.hours, m.waiver)
     if (v.kind === 'future') {
       console.log(`  ? ${m.hours.toFixed(1).padStart(6)} 小时  ${String(m.commits).padStart(3)} 个提交  ${name}`)
@@ -358,9 +372,10 @@ if (process.argv.includes('--all')) {
       continue
     }
     live++
+    if (anchor.kind === 'unreadable') throw new Error('读不出来的锚在 measure 里已拒答,到不了这里')
     const tag = anchor.kind === 'anchored'
       ? `[锚 #${anchor.pr}${m.fromAnchor ? ' ⚠ 按锚算' : ''}]`
-      : TAG[anchor.kind](anchor.kind === 'unreadable' ? anchor.pr : 0)
+      : TAG[anchor.kind]
     if (anchor.kind !== 'anchored') unanchored.push(name)
     console.log(`  ${FLAG[v.kind]} ${m.hours.toFixed(1).padStart(6)} 小时`
       + `  ${String(m.commits).padStart(3)} 个提交  ${name}  ${tag}`)
@@ -374,8 +389,9 @@ if (process.argv.includes('--all')) {
   console.log(LEGEND)
   console.log('  锚:[锚 #N] 有开着的同仓库 PR,出生时间取作者时间与它的创建时间里更早的一个')
   console.log('     [锚 #N ⚠ 按锚算] 作者时间比 PR 创建时间还晚 —— 历史被改写过,或者时钟不对')
-  console.log('     [无 PR] 没有开着的同仓库 PR  [无清单] 本次没给 --prs  [#N 的创建时间读不出来] 有 PR 但那个时间不像时间')
-  console.log('     后三种都没有锚,只有作者时间 —— PR 开出来之前改写过历史的话,这个数会偏小\n')
+  console.log('     [无 PR] 没有开着的同仓库 PR  [无清单] 本次没给 --prs')
+  console.log('     这两种没有锚,只有作者时间 —— PR 开出来之前改写过历史的话,这个数会偏小;')
+  console.log('     有 PR 但创建时间读不出来的不打标签,算「量不了」\n')
   if (unanchored.length) {
     console.log(`  ⚠ ${unanchored.length} / ${live} 条在途分支没有锚,它们的小时数可能偏小`
       + (prs === null ? '(本次没给 --prs)' : '') + '\n')
@@ -386,6 +402,7 @@ if (process.argv.includes('--all')) {
     console.error('\n  不当作「在线内」—— 一个把「不知道」算成「通过」的检查等于没有检查。')
     console.error('  没有共同祖先:接上主干,或者删掉这条分支。')
     console.error('  作者时间在未来:把提交那台机器的时钟对一下(`--date` 手写的日期也算)。')
+    console.error('  创建时间读不出来:`gh pr list --json createdAt` 给的不像时间,先看清单;不退回作者时间 —— 那是用户可控的钟。')
   }
   if (over.length) {
     console.error(`${unknown.length ? '' : '\n'}✗ 分支寿命:${over.length} / ${live} 条在途分支`
@@ -440,6 +457,9 @@ if (declaredBase && !tryGit('merge-base', declaredBase, 'HEAD')) {
 const m = measure('HEAD', ANCHOR, declaredBase)
 if (m.kind === 'unreadable') {
   cannotAnswer('HEAD 上有提交,却一条作者时间都读不出来', '这多半说明 git 的输出格式变了,或者这不是一个正常的仓库。')
+}
+if (m.kind === 'unreadable-anchor') {
+  cannotAnswer(`\`--since\` 给的「${ANCHOR}」不像一个时间`, '这个值是 PR 的创建时间(ISO 8601)。锚读不出来就是量不了,不退回作者时间 —— 那是用户可控的那个钟。')
 }
 if (m.kind !== 'measured') {
   console.log(`✓ 分支寿命:不适用 —— 相对 ${trunk} 没有自己的提交`)

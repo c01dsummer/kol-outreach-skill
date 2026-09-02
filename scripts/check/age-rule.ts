@@ -148,12 +148,17 @@ export function judgeAge(hours: number, waiver: string | null): Verdict {
  * ⚠️ 另一处:锚只在有 PR 的时候才有。`--all` 扫的是分支,不是 PR —— 那条路上每条
  *    分支的锚由 `anchorFor` 从开着的 PR 清单里找;没有 PR 的分支仍只有作者时间,
  *    报告里逐条标出来。
+ *
+ * 锚**给了却读不出来** → null:那是「量不了」,不是「没有锚」。锚在服务端明明存在(PR 的
+ * 创建时间),只是这次读不出来;静默退回作者时间,等于在锚最该起作用的时候(历史被改写过)
+ * 把它扔掉,而退回去的正是用户可控的那个钟,报告里还一个字不提。空串也算「给了」。
+ * 调用方拒答,不退化。(原先退回作者时间;PR #10 合并后的评审指出,ADR-61 就地更正。)
  */
 export function birthOf(authorISO: string, anchorISO: string | null):
-  { at: string; fromAnchor: boolean } {
-  if (!anchorISO) return { at: authorISO, fromAnchor: false }
+  { at: string; fromAnchor: boolean } | null {
+  if (anchorISO === null) return { at: authorISO, fromAnchor: false }
   const [a, b] = [Date.parse(authorISO), Date.parse(anchorISO)]
-  if (!Number.isFinite(b)) return { at: authorISO, fromAnchor: false }
+  if (!Number.isFinite(b)) return null
   return b < a ? { at: anchorISO, fromAnchor: true } : { at: authorISO, fromAnchor: false }
 }
 
@@ -169,8 +174,9 @@ export function birthOf(authorISO: string, anchorISO: string | null):
  * 量自己。同一条分支开了不止一个 PR 时取最早的那个:锚说的是「至少从这时起就在主干之外」。
  *
  * 四态,不压成两态:有锚 / 有 PR 但创建时间读不出来 / 没有开着的 PR / 根本没给清单。
- * 后三种都只能用作者时间,报告里要分开说 —— 「没给清单」是这次跑法的事,
- * 「没有 PR」是这条分支的事,两者的补法不一样。
+ * 后两种只能用作者时间,报告里要分开说 —— 「没给清单」是这次跑法的事,
+ * 「没有 PR」是这条分支的事,两者的补法不一样。「读不出来」不是没有锚,是量不了:
+ * 那个字串原样带出去(`at`),交给 `birthOf` 拒答,和 `--ref --since` 读不出来走同一条路。
  */
 export interface OpenPr {
   number: number
@@ -183,7 +189,7 @@ export interface OpenPr {
 
 export type Anchor =
   | { kind: 'anchored'; at: string; pr: number; base: string }
-  | { kind: 'unreadable'; pr: number }
+  | { kind: 'unreadable'; pr: number; at: string }
   | { kind: 'no-pr' }
   | { kind: 'no-list' }
 
@@ -218,7 +224,7 @@ export function anchorFor(branch: string, prs: OpenPr[] | null): Anchor {
   }
   return best
     ? { kind: 'anchored', at: best.createdAt, pr: best.number, base: best.baseRefOid }
-    : { kind: 'unreadable', pr: mine[0].number }
+    : { kind: 'unreadable', pr: mine[0].number, at: mine[0].createdAt }
 }
 
 /**
