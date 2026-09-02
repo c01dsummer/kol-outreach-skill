@@ -126,7 +126,8 @@ jobs:
       # PR 事件下不跑 —— 那条 PR 自己的结论已经贴上去了，再因为**别人的**分支
       # 超线而把这次运行染红，只会让人以为是自己的问题
       #
-      # --prs：上一步落下的开着的 PR 清单。有同仓库 PR 的分支拿它的创建时间当锚，
-      # 和贴到 PR head 上的那条是同一把锚；没有 PR 的分支报告里逐条标出来
+      # --prs：上一步落下的开着的 PR 清单。有同仓库 PR 的分支拿它的创建时间当锚
+      # （一条分支开了不止一个 PR 时取最早的那个；贴到各 PR head 上的那条用的是各自的
+      # 创建时间，两边只在「一条分支一个 PR」时是同一个数）；没有 PR 的分支逐条标出来
       - if: github.event_name != 'pull_request_target'
         run: npm run age -- --all --prs "$RUNNER_TEMP/open-prs.json"
