@@ -267,7 +267,7 @@ if (refArg >= 0) {
   }
   if (one.kind === 'unreadable-anchor') {
     cannotAnswer(`\`--since\` 给的「${ANCHOR}」不像一个时间`,
-      '这个值是 PR 的创建时间(ISO 8601),`age.yml` 从事件或 `gh pr list --json createdAt` 里取。锚读不出来就是量不了,不退回作者时间 —— 那是用户可控的那个钟。')
+      '这个值是 PR 的创建时间,RFC 3339 的形状(如 2026-09-02T07:14:55Z),`age.yml` 从事件或 `gh pr list --json createdAt` 里取。锚读不出来就是量不了,不退回作者时间 —— 那是用户可控的那个钟。')
   }
   const v = judgeAge(one.hours, one.waiver)
   if (v.kind === 'future') {
@@ -459,7 +459,7 @@ if (m.kind === 'unreadable') {
   cannotAnswer('HEAD 上有提交,却一条作者时间都读不出来', '这多半说明 git 的输出格式变了,或者这不是一个正常的仓库。')
 }
 if (m.kind === 'unreadable-anchor') {
-  cannotAnswer(`\`--since\` 给的「${ANCHOR}」不像一个时间`, '这个值是 PR 的创建时间(ISO 8601)。锚读不出来就是量不了,不退回作者时间 —— 那是用户可控的那个钟。')
+  cannotAnswer(`\`--since\` 给的「${ANCHOR}」不像一个时间`, '这个值是 PR 的创建时间,RFC 3339 的形状(如 2026-09-02T07:14:55Z)。锚读不出来就是量不了,不退回作者时间 —— 那是用户可控的那个钟。')
 }
 if (m.kind !== 'measured') {
   console.log(`✓ 分支寿命:不适用 —— 相对 ${trunk} 没有自己的提交`)

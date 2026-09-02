@@ -1438,6 +1438,8 @@ harness('分支寿命：分叉时长有上限，超线要具名豁免')
   eq('锚给了却解析不出来 → 「量不了」是一个有名字的判定，不退回作者时间',
     birthOf(晚, '不是时间'), { kind: 'unreadable-anchor' })
   eq('空串也算给了锚 → 量不了，不当成没有锚', birthOf(晚, ''), { kind: 'unreadable-anchor' })
+  // Date.parse 什么都肯认：Jan 1 9999 也是一个有限的时间，和刚洗过的作者时间比就静默选了作者时间
+  eq('长得不像时间戳的也算读不出来，即使 Date.parse 认', birthOf(晚, 'Jan 1 9999'), { kind: 'unreadable-anchor' })
 
   // `--all` 那条路上的锚：每条分支若有开着的、同仓库的 PR，用它的创建时间。
   // 量到过：同一条分支，--all 报 108.1 小时，--ref --since <PR 创建时间> 报 118.8 —— 差 10.7
@@ -1454,6 +1456,8 @@ harness('分支寿命：分叉时长有上限，超线要具名豁免')
     anchorFor('b', null), { kind: 'no-list' })
   eq('创建时间读不出来 → 说读不出来，不当成没有 PR；那个字串原样带出去，交给 birthOf 拒答',
     anchorFor('b', [pr(5, 'b', '不是时间')]), { kind: 'unreadable', pr: 5, at: '不是时间' })
+  eq('创建时间不是 RFC 3339 的形状 → 读不出来，即使 Date.parse 认',
+    anchorFor('b', [pr(5, 'b', 'Jan 1 9999')]), { kind: 'unreadable', pr: 5, at: 'Jan 1 9999' })
   eq('几个 PR 里有一个读不出来 → 整条读不出来，不悄悄拿剩下的当锚 —— 丢掉的可能正是最早的',
     anchorFor('b', [pr(6, 'b', '不是时间'), pr(5, 'b', 早)]), { kind: 'unreadable', pr: 6, at: '不是时间' })
   eq('清单不是数组 → 读不出来', parsePrList('{}'), null)

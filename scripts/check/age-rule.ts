@@ -159,10 +159,20 @@ export type Birth =
   | { kind: 'birth'; at: string; fromAnchor: boolean }
   | { kind: 'unreadable-anchor' }
 
+/**
+ * 锚必须长得像一个时间戳(RFC 3339,GitHub 给的就是这个形状)。`Date.parse` 什么都肯认 ——
+ * `Jan 1 9999` 也是一个有限的时间,拿它和一个刚被洗过的作者时间比,「取更早的」就静默选了
+ * 作者时间。形状不对就是读不出来,不进比较(评审指出)。
+ */
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
+export function readableAnchor(s: string): boolean {
+  return ISO_TIMESTAMP.test(s) && Number.isFinite(Date.parse(s))
+}
+
 export function birthOf(authorISO: string, anchorISO: string | null): Birth {
   if (anchorISO === null) return { kind: 'birth', at: authorISO, fromAnchor: false }
+  if (!readableAnchor(anchorISO)) return { kind: 'unreadable-anchor' }
   const [a, b] = [Date.parse(authorISO), Date.parse(anchorISO)]
-  if (!Number.isFinite(b)) return { kind: 'unreadable-anchor' }
   return b < a ? { kind: 'birth', at: anchorISO, fromAnchor: true } : { kind: 'birth', at: authorISO, fromAnchor: false }
 }
 
@@ -224,7 +234,7 @@ export function anchorFor(branch: string, prs: OpenPr[] | null): Anchor {
   if (!mine.length) return { kind: 'no-pr' }
   // 有一条读不出来就整条读不出来:锚取的是最早的那个,而读不出来的那条可能正是最早的 ——
   // 悄悄丢掉它、拿剩下的当锚,分支就可能被报年轻,而且一声不响(评审指出)
-  const bad = mine.find(p => !Number.isFinite(Date.parse(p.createdAt)))
+  const bad = mine.find(p => !readableAnchor(p.createdAt))
   if (bad) return { kind: 'unreadable', pr: bad.number, at: bad.createdAt }
   let best = mine[0]
   for (const p of mine) if (Date.parse(p.createdAt) < Date.parse(best.createdAt)) best = p

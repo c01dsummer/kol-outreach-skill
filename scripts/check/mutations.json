@@ -622,8 +622,8 @@
       "req": "harness",
       "why": "锚给了却读不出来时静默退回作者时间 —— 在锚最该起作用的时候(历史被改写过)把它扔掉,报出来的是用户可控的那个钟,而且一个字不提",
       "file": "scripts/check/age-rule.ts",
-      "find": "  if (!Number.isFinite(b)) return { kind: 'unreadable-anchor' }",
-      "replace": "  if (!Number.isFinite(b)) return { kind: 'birth', at: authorISO, fromAnchor: false }"
+      "find": "  if (!readableAnchor(anchorISO)) return { kind: 'unreadable-anchor' }",
+      "replace": "  if (!readableAnchor(anchorISO)) return { kind: 'birth', at: authorISO, fromAnchor: false }"
     },
     {
       "id": "M-H2-t",
@@ -640,6 +640,14 @@
       "file": "scripts/check/age-rule.ts",
       "find": "  if (bad) return { kind: 'unreadable', pr: bad.number, at: bad.createdAt }",
       "replace": "  if (bad && mine.length === 1) return { kind: 'unreadable', pr: bad.number, at: bad.createdAt }"
+    },
+    {
+      "id": "M-H2-v",
+      "req": "harness",
+      "why": "锚只要 Date.parse 肯认就当能用 —— Jan 1 9999 这种也算一个时间,和刚洗过的作者时间比,「取更早的」就静默选了作者时间,分支照样放行",
+      "file": "scripts/check/age-rule.ts",
+      "find": "  return ISO_TIMESTAMP.test(s) && Number.isFinite(Date.parse(s))",
+      "replace": "  return Number.isFinite(Date.parse(s))"
     }
   ],
   "exemptions": [
