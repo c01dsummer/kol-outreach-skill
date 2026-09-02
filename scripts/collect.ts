@@ -8,16 +8,35 @@
  *
  * 预算用尽时保存断点并以退出码 3 结束 —— 调用方（Agent）据此询问用户是否追加预算。
  * 续跑时已完成的关键词不会重跑，已花掉的请求数不会重复计费。
+ *
+ * 记忆文件读不出来时**不产出名单**（退出码 2，采集结果完好，已抓到的不重抓）。
+ * 修好后续跑要不要花钱，取决于剩余关键词与待补 profile 是否都为零 ——
+ * **不要无条件说「续跑零花费」**，stderr 会按实际剩余量算给用户看（ADR-25 · ADR-30）。
+ * `--ignore-memory` 是显式逃生口，见 ADR-15。
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetExceeded } from './lib/budget.js'
-import { finalize, pendingKeywords } from './lib/pipeline.js'
+import {
+  finalize, keywordsResumeWillRun, needsProfile, pendingKeywords,
+} from './lib/pipeline.js'
+import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
-import { taskDir, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators, saveCreators } from './lib/task.js'
+import {
+  taskDir, taskFile, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators,
+  persistListAndStatus,
+} from './lib/task.js'
+import { creatorKey, textProblem } from './lib/types.js'
 import type { Creator, TaskState } from './lib/types.js'
 
 const MAX_PAGES = 4          // 实测值：第 4 页后新增人数明显衰减
+
+/**
+ * 记忆读不出来时仍然产出名单。**必须由用户显式打出来** —— 它不让重复打扰的风险
+ * 消失，只是把它从一个静默默认变成一次显式决定，代价随 memory_status 声明在
+ * 交付物上（ADR-15）。
+ */
+const ignoreMemory = process.argv.includes('--ignore-memory')
 
 const argv = process.argv
 const arg = (n: string) => {
@@ -27,20 +46,20 @@ const arg = (n: string) => {
 
 // ---------- 载入或恢复 ----------
 
-let dir: string
 let state: TaskState
+let productFrom: string        // 产品名是从哪读来的 —— 报错要指得出位置
 const resume = arg('--resume')
 
 if (resume) {
-  if (!existsSync(`${resume}/task.json`)) {
-    console.error(`找不到 ${resume}/task.json`)
+  if (!existsSync(taskFile(resume))) {
+    console.error(`找不到 ${taskFile(resume)}`)
     process.exit(2)
   }
-  dir = resume
-  state = loadTask(dir)
+  state = loadTask(resume)
+  productFrom = taskFile(resume)
   const newBudget = arg('--budget')
   if (newBudget) state.budget_usd = Number(newBudget)
-  console.error(`续跑 ${dir} —— 已完成 ${state.done.length}/${state.tasks.length} 个关键词，` +
+  console.error(`续跑 ${resume} —— 已完成 ${state.done.length}/${state.tasks.length} 个关键词，` +
                 `预算 $${state.budget_usd}`)
 } else {
   const cfgPath = arg('--config')
@@ -55,9 +74,25 @@ if (resume) {
     tasks: cfg.tasks, done: [], offsets: {}, requests: 0,
     created_at: new Date().toISOString(), updated_at: '',
   }
-  dir = taskDir(state.product)
-  saveTask(dir, state)
+  productFrom = cfgPath
 }
+
+// 产品名一路要用到最后：任务目录名、跨任务记忆里那条「为哪个产品推荐过」。
+// 空的走不到最后 —— 记忆写回会拒收（记下的那条下次会被判成损坏，ADR-46）。
+// **在花钱之前说，不是花完再说**，而且**两条入口都要说**：
+// 续跑读的是盘上的旧 task.json，它可能被手改过，也可能来自还没有这条校验的旧版本。
+// 原先只守住新建那条，于是 --resume 能带着一个空产品名一路采集、补 profile、
+// 花完钱，最后停在写回被拒 —— 钱花了，去重记录一条没记下（ADR-53）。
+const badProduct = textProblem(state.product)
+if (badProduct) {
+  console.error(`${productFrom} 里的 product ${badProduct} —— 它要用作任务目录名，` +
+                `也要记进跨任务记忆的「为哪个产品推荐过」。先给它一个名字再跑。`)
+  process.exit(2)
+}
+
+// 目录名就是产品名，所以只能等它过关之后才算得出来
+const dir = resume ?? taskDir(state.product)
+if (!resume) saveTask(dir, state)
 
 const key = process.env.TIKHUB_API_KEY
 if (!key) {
@@ -74,7 +109,8 @@ const api = new TikHub(key, budget)
 // 读的是**累加器** creators.raw.json，不是交付物 creators.json ——
 // 交付物是过滤后的结果，拿它当续跑的输入会让每轮都比上一轮少人。
 const creators = new Map<string, Creator>()
-for (const c of loadRawCreators(dir)) creators.set(`${c.platform}:${c.handle.toLowerCase()}`, c)
+// 去重用的键与记忆查询用的必须是同一个规则（D1）—— 所以调同一个函数，不在这里再写一遍
+for (const c of loadRawCreators(dir)) creators.set(creatorKey(c), c)
 
 // ---------- 采集 ----------
 
@@ -126,8 +162,11 @@ async function run() {
 
       let added = 0
       for (const p of found) {
-        if (!p.handle) continue
-        const k = `${p.platform}:${p.handle.toLowerCase()}`
+        // **platform 和 handle 都要有。** 原先只挡了 handle，缺 platform 时
+        // 会静默生成一个 `undefined:名字` 的去重键 —— 那个人此后既去不了重、
+        // 记忆也查不到他（把身份键接进有类型的函数之后，类型检查当场指出来的）
+        if (!p.handle || !p.platform) continue
+        const k = creatorKey({ platform: p.platform, handle: p.handle })
         if (creators.has(k)) continue
         creators.set(k, { ...(p as Creator), source_keyword: t.keyword, source_dimension: t.dimension })
         added++
@@ -169,7 +208,7 @@ async function run() {
 let profileFailed = 0
 
 async function enrichProfiles() {
-  const list = [...creators.values()].filter(c => c.bio === undefined || !c.bio_links?.length)
+  const list = [...creators.values()].filter(needsProfile)
   console.error(`\n补全 profile：${list.length} 人`)
   let done = 0
   for (const c of list) {
@@ -212,10 +251,51 @@ async function main() {
 
   // 同人合并 → 粉丝闸门 → 记忆过滤。管线在 lib/pipeline.ts —— 这四步的**顺序**
   // 有语义，有语义就该能被测，所以它不留在入口脚本里。
-  const fin = finalize([...creators.values()], state.product, taskId(dir))
+  //
+  // 记忆读不出来时 finalize 会抛：P4 保证不了就不产出名单。此时 persist() 已经跑过，
+  // 采集结果与预算状态都在盘上 —— **中止不浪费任何已经花掉的请求**，这就是
+  // 「不产出名单」能当默认的原因（ADR-15）。注意这说的是「不浪费」，不是
+  // 「续跑不花钱」：续跑还剩多少活，由下面那段按实际情况算（ADR-25 · ADR-29）。
+  let fin
+  try {
+    fin = finalize([...creators.values()], state.product, taskId(dir),
+                   { ignoreUnreadableMemory: ignoreMemory })
+  } catch (e) {
+    if (!(e instanceof MemoryUnreadable)) throw e
+    console.error(`\n⛔ ${e.message}`)
+    console.error(`   这个文件记着谁已经联系过 —— 读不出来就无法保证不重复打扰，`)
+    console.error(`   所以本次不产出名单。`)
 
-  // 交付物写 creators.json；累加器 creators.raw.json 由 persist() 保管，不在这里动
-  saveCreators(dir, fin.kept)
+    // 采集本身也没跑完的话，那件事不能被这条错误盖掉 —— 它决定了续跑要花多少钱。
+    // 早先这里无条件说「续跑不会重复花费」，把「已抓到的不重抓」说成了「续跑免费」，
+    // 而剩下的关键词照样要花钱（ADR-22）。
+    if (stopped === 'error') console.error(`\n   ⚠️ 本轮采集也没跑完：${errorMsg}`)
+    if (stopped === 'budget') console.error(`\n   ⚠️ 本轮预算也已用尽，续跑需要 --budget 追加`)
+    // 「续跑要不要花钱」有**两种**没干完的活，只数关键词会漏掉后一种：
+    // 关键词全跑完了，但只要还有人没补 profile，续跑第一件事就是去补，
+    // 那是付费端点（ADR-25）。
+    // 数的是**续跑真正会去抓的**，不是「不在 done 里的」—— 达标提前停下时
+    // 那些关键词一个都没碰过，而续跑会在第一个请求之前再次达标（ADR-29）。
+    const pending = keywordsResumeWillRun(state, qualified())
+    const pendingProfiles = [...creators.values()].filter(needsProfile).length
+    const rest = [
+      pending.length ? `${pending.length} 个关键词` : '',
+      pendingProfiles ? `${pendingProfiles} 个人的 profile` : '',
+    ].filter(Boolean).join('、')
+    console.error(rest
+      ? `\n   已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，` +
+        `续跑会继续发请求、继续花钱。`
+      : `\n   采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`)
+
+    console.error(`\n   修好它再跑: tsx scripts/collect.ts --resume ${dir}`)
+    console.error(`   或明知重复打扰的风险仍要出名单: 上面那条命令加 --ignore-memory`)
+    process.exit(2)
+  }
+
+  // 交付物与它的去重状态一起落盘 —— **哪个先写都不安全**，判定在 lib/task.ts
+  // 的 persistListAndStatus 里（ADR-38 只看到一半，ADR-41 补上另一半）。
+  // 累加器 creators.raw.json 由 persist() 保管，不在这里动。
+  persistListAndStatus(dir, state, fin.kept, fin.memory_status)
 
   const summary = {
     dir, stopped,
@@ -228,6 +308,7 @@ async function main() {
     profile_failed: profileFailed,
     filtered_recommended: fin.filtered_recommended,
     filtered_contacted: fin.filtered_contacted,
+    memory_status: fin.memory_status,
     keywords_done: state.done.length,
     keywords_total: state.tasks.length,
     pending_keywords: pendingKeywords(state),

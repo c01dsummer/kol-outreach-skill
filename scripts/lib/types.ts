@@ -1,5 +1,10 @@
 /** S4：只做出海平台。抖音/小红书/快手不在范围内 —— 账号体系与合规完全不同。 */
-export type Platform = 'tiktok' | 'instagram'
+/**
+ * 支持的平台。**运行时列表与类型从同一处派生** —— 手写两份迟早会分叉，
+ * 而分叉的后果是校验放行一个查询侧永远匹配不到的值（ADR-25）。
+ */
+export const PLATFORMS = ['tiktok', 'instagram'] as const
+export type Platform = typeof PLATFORMS[number]
 /** F2：关键词的四个维度。竞品词权重最高（评分见 score.ts）。 */
 export type Dimension = 'category' | 'scene' | 'competitor' | 'audience'
 export type Tier = 'A' | 'B' | 'C'
@@ -66,6 +71,65 @@ export interface NormalizedPublicPost {
 export type AudienceRiskLevel = 'low' | 'medium' | 'high'
 export type AudienceRiskMetric = 'engagement_rate_followers' | 'view_rate' | 'following_ratio'
 export type ActivityStatus = 'active' | 'cooling' | 'dormant'
+
+/**
+ * 跨任务记忆这一次的可用状态。**三档，不是两档**：
+ *
+ * - `ok`                 —— 读到了
+ * - `absent`             —— 文件不存在。第一次跑，记忆里**确实**没有人
+ * - `unreadable_ignored` —— 读不出来，但用户显式 `--ignore-memory` 要求继续
+ * - `unknown`            —— **无从确认**。两个来源：ADR-15 之前产出的任务目录，
+ *                           以及名单与状态尚未一起落成的目录（ADR-41）
+ *
+ * 中间两档在旧实现里是同一个值（都退化成空记忆），而它们的含义相反：前者是
+ * 「查过，是空的」，后者是「没查到」。压成一个值之后，交付物上的
+ * filtered_contacted 为 0 同时代表这两件事，而用户两个都看得到（ADR-15）。
+ *
+ * `unknown` 是第四档，由 ADR-18 补上：旧任务目录没有这个字段，而**当时记忆
+ * 读不出来正是会被静默当成空记忆的** —— 所以「字段缺失」不能读成「去重跑过了」，
+ * 它就是字面意思上的不知道。把它并进 `ok` 等于替一批无从确认的名单打包票。
+ */
+/**
+ * 创作者的身份键 —— **D1 说的「同一个人」就是这个函数说了算。**
+ *
+ * 放在这里而不是某个用它的模块里，是因为**去重、记忆查询两侧必须是同一个规则**，
+ * 而各写一份表达式时「一致」只是巧合：`collect` 原先只小写 handle、
+ * `memory` 两个都小写，今天平台名恒为小写所以看不出来，改天就不是了。
+ * 这个仓库为「同一段逻辑有几份副本」栽过三次（ADR-46 · ADR-48 · ADR-51）。
+ */
+export const creatorKey = (c: { platform: string; handle: string }): string =>
+  `${c.platform.toLowerCase()}:${c.handle.toLowerCase()}`
+
+/**
+ * 一个必填的文字字段能不能用：**是字符串，而且去掉首尾空白之后还剩东西**。
+ *
+ * 判据来自读取侧 —— 记忆里一条产品名为空白的推荐记录，永远匹配不上任何产品，
+ * 等于这条去重记录不存在。所以读进来、写出去、以及花钱之前，问的必须是同一个函数。
+ *
+ * 曾经各写各的：结构校验里两份、写回前一份，而续跑那条路上一份都没有 ——
+ * 于是 `--resume` 能带着一个空产品名一路花钱到写回被拒（ADR-53）。
+ * 判据本身没错，错在它得靠人记得在每条新路径上抄一遍。
+ */
+export const textProblem = (v: unknown): string | undefined =>
+  typeof v !== 'string' ? `不是字符串（${typeof v}）`
+    : !v.trim() ? '是空的'
+      : undefined
+
+export const MEMORY_STATUSES = ['ok', 'absent', 'unreadable_ignored', 'unknown'] as const
+export type MemoryStatus = typeof MEMORY_STATUSES[number]
+
+/**
+ * 认不出的一律读作 `unknown`。
+ *
+ * `task.json` 是 `JSON.parse` 出来的，类型在运行时一个值都不拦：`null`、拼错的字符串、
+ * 新版本写下的新取值，都会被原样抄进交付物。而报告只对 `unreadable_ignored`
+ * 与 `unknown` 两个**精确字符串**发警告 —— 于是一个认不出的值会**压掉警告**，
+ * 把一份没验证过的名单当成正常的交出去（ADR-47）。
+ *
+ * 白名单，不是黑名单：黑名单要求我列全「坏的取值」，而坏的取值是列不全的。
+ */
+export const asMemoryStatus = (v: unknown): MemoryStatus =>
+  (MEMORY_STATUSES as readonly unknown[]).includes(v) ? v as MemoryStatus : 'unknown'
 
 export interface AudienceRiskFlag {
   metric: AudienceRiskMetric
@@ -229,6 +293,16 @@ export interface TaskState {
 
   /** 累计请求数 —— 跨多次运行累加，续跑时不重复计费 */
   requests: number
+
+  /**
+   * 这一批名单有没有做过「已联系 / 已推荐」去重（ADR-15）。
+   *
+   * `collect` 写，`render` 读了在交付物上声明。**字段缺失读作 `unknown`,
+   * 不读作 `ok`** —— 缺失只可能来自 ADR-15 之前的 collect，而那一版遇到读不出来
+   * 的记忆会静默当成空记忆，所以「过滤这一步跑过」并不等于「过滤真的生效了」。
+   * 最初写成按 `ok` 处理，是把一个查不到的事实当成了肯定答案（ADR-18）。
+   */
+  memory_status?: MemoryStatus
 
   created_at: string
   updated_at: string

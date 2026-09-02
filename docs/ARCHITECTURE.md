@@ -48,13 +48,14 @@
 | 模块 | 层 | 服务的需求 | 它保证什么 |
 |---|---|---|---|
 | `scripts/probe.ts` | 入口 | F3 P1 P3 | 每词每平台只抓一页，供 Agent 判读方向；拿不到粉丝数报「未知」而不是 0 |
-| `scripts/collect.ts` | 入口 | D6 P3 F7 | 轮转采集不让第一个关键词吃掉全部配额；预算用尽存断点退 3 |
+| `scripts/collect.ts` | 入口 | D6 P3 F7 D4 | 轮转采集不让第一个关键词吃掉全部配额；预算用尽存断点退 3；记忆读不出来退 2 且不产出名单 |
 | `scripts/enrich.ts` | 入口 | D8 D10 F8 P3 | 只对语义筛选后的候选抓主页样本；已查过的账号默认不重复付费，但每次都按当前口径就地重算（零请求） |
-| `scripts/render.ts` | 入口 | P5 U1 U2 U5 U7 | 交付物生成的唯一出口，且是唯一往跨任务记忆写回的地方 |
+| `scripts/render.ts` | 入口 | P5 U1 U2 U5 U7 D4 | 交付物生成的唯一出口，且是唯一往跨任务记忆写回的地方；写回在报告之前，报告才能声明它的结果 |
 | `scripts/lib/pipeline.ts` | 逻辑 | D6 P1 P4 F5 F8 U1 U3 | 入口脚本原先裸露的两段管线；**顺序契约全在这里**，见下表 |
 | `scripts/lib/score.ts` | 逻辑 | P1 F6 F8 | 打分、分层、粉丝闸门、两种降级判定；语义否决对分层有一票否决权 |
 | `scripts/lib/identity.ts` | 逻辑 | D1 D2 D3 P1 | 跨平台同人识别与合并；不确定不合并，未知粉丝数相加仍是未知 |
-| `scripts/lib/memory.ts` | 逻辑 | P4 D4 D6 | 跨任务记忆的读写与过滤；记忆文件损坏退化为空记忆而不中断 |
+| `scripts/lib/memory.ts` | 逻辑 | P4 D4 D6 | 跨任务记忆的读写与过滤；「文件不存在」与「读不出来」是两个状态，后者抛而不是退化，且**绝不拿它去覆盖原文件**；解析成功还要过结构校验（合法 JSON 也可能形状错）；写回走临时文件加 rename，写不进去报为未写回而不中断交付 |
+| `scripts/lib/atomic.ts` | 逻辑 | D4 | **唯一一份**整体替换写入：临时文件按最严权限建、目标原有的权限位带过去、失败清半成品。记忆与任务目录共用它 —— 曾经各写一份，于是同一个权限位的 bug 修好一次又原样重现 |
 | `scripts/lib/budget.ts` | 逻辑 | P3 F7 | 成本闸门；超限抛 BudgetExceeded 且不增加计数 |
 | `scripts/lib/email.ts` | 逻辑 | D7 | 反爬写法的邮箱提取；宁可返回 null 也不误判正常语句 |
 | `scripts/lib/assessment.ts` | 逻辑 | D8 D9 D10 F8 U7 | 公开样本 → 指标 / 风险 / 活跃度 / 报价效率，每项带测量状态与溯源；**样本记录的窗口也截在这里**，入口脚本只负责调用与落盘 |
@@ -119,7 +120,7 @@ Agent 是编排者，它读 stdout 做决策。
 | 入口 | 读 | 写 | 退出码 |
 |---|---|---|---|
 | `probe` | `--config probe.json` | **不落盘** | 0 · 2 |
-| `collect` | `--config task.json` 或 `--resume <dir>` | `task.json` `creators.raw.json` `creators.json` | 0 · 1 · 2 · **3** |
+| `collect` | `--config task.json` 或 `--resume <dir>` `[--ignore-memory]` | `task.json` `creators.raw.json` `creators.json` | 0 · 1 · 2 · **3** |
 | `enrich` | `--dir <dir>`（`task.json` `creators.json`） | `enrichment.json` `task.json` | 0 · 1 · 2 · **3** |
 | `render` | `--dir <dir>`（`task.json` `creators.json` `enrichment.json`） | `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` · **`memory/creators.json`** | 0 · 2 |
 
@@ -131,12 +132,21 @@ Agent 是编排者，它读 stdout 做决策。
 | | 含义 | Agent 该做什么 |
 |---|---|---|
 | `0` | 正常 | 读 stdout 继续 |
-| `2` | 用法错 / 缺 `TIKHUB_API_KEY` | 停下问人，重试没有意义 |
+| `2` | 用法错 / 缺 `TIKHUB_API_KEY` / **记忆文件读不出来** | 停下问人，重试没有意义 |
 | `3` | **预算用尽，断点已存** | 问用户要不要追加预算，然后 `--resume` / 重跑 `enrich` |
 | `1` | 其他失败 | 读 stderr |
 
 > `3` 是唯一一个「失败但数据完好」的码。把它并进 `1`，Agent 就分不清
 > 该问用户加预算还是该报错 —— 而这两件事对用户的意义完全相反。
+
+记忆读不出来走 `2` 而**不是新开一个码**：`2` 的含义没变（停下问人，重试没有意义），
+只是多了一个原因。此时采集结果与预算状态同样完好 —— **已经抓到的不会重抓**。
+但「续跑要不要花钱」取决于**两种**活干完没有：剩余关键词**和**待补 profile
+都为零才是零请求。任一不为零（采集失败、预算用尽、或还有人没补 profile），
+剩下的照样要花钱 —— `enrich` 的 profile 补全跑在续跑的最前面，它是付费端点。
+stderr 会按实际剩余量说清楚，**不要替它简化成「续跑免费」**（ADR-22 · ADR-25）。要在读不出来的情况下仍然出名单，只能由用户显式
+打出 `--ignore-memory`，那一批的 `memory_status` 会是 `unreadable_ignored`，
+报告上带一条「未做已联系去重」的声明（ADR-15）。
 
 ### 字段所有权
 

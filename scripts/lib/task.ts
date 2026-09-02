@@ -1,6 +1,22 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import type { TaskState, Creator, EnrichmentState } from './types.js'
+import type { TaskState, Creator, EnrichmentState, MemoryStatus } from './types.js'
+import { mkdirDurable, writeFileAtomic } from './atomic.js'
+
+
+/**
+ * 任务状态的文件名。**全仓库只此一份** —— `saveTask` 和 `persistListAndStatus` 都要拼它，
+ * 各写一份时改了一处没改另一处，改名前的比对就会去比**另一个文件**，
+ * 而且比得通过：那道并发保护会静默失效（ADR-52 自查发现）。
+ */
+const TASK_FILE = 'task.json'
+
+/**
+ * 任务状态文件的路径。**入口脚本也要走它** —— 上一轮把名字收成一份常量之后，
+ * `collect` 与 `enrich` 里还各自拼着 `${dir}/task.json`，那句「只此一份」
+ * 在仓库范围内并不成立（ADR-53 自查发现）。
+ */
+export const taskFile = (dir: string): string => join(dir, TASK_FILE)
 
 export function taskDir(product: string, timestamp?: string): string {
   const ts = timestamp ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
@@ -8,13 +24,13 @@ export function taskDir(product: string, timestamp?: string): string {
 }
 
 export function loadTask(dir: string): TaskState {
-  return JSON.parse(readFileSync(join(dir, 'task.json'), 'utf8'))
+  return JSON.parse(readFileSync(taskFile(dir), 'utf8'))
 }
 
 export function saveTask(dir: string, state: TaskState): void {
-  mkdirSync(dir, { recursive: true })
+  mkdirDurable(dir)
   state.updated_at = new Date().toISOString()
-  writeFileSync(join(dir, 'task.json'), JSON.stringify(state, null, 2), 'utf8')
+  writeFileAtomic(taskFile(dir), JSON.stringify(state, null, 2))
 }
 
 export function loadCreators(dir: string): Creator[] {
@@ -23,8 +39,43 @@ export function loadCreators(dir: string): Creator[] {
 }
 
 export function saveCreators(dir: string, creators: Creator[]): void {
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'creators.json'), JSON.stringify(creators, null, 2), 'utf8')
+  mkdirDurable(dir)
+  writeFileAtomic(join(dir, 'creators.json'), JSON.stringify(creators, null, 2))
+}
+
+/**
+ * 名单和它的去重状态一起落盘。
+ *
+ * 两个文件、两次 `writeFileSync`，中间被打断是可能的，而**哪个先写都不安全** ——
+ * 安全与否取决于状态往哪个方向变（ADR-41）：
+ *
+ * | 状态怎么变 | 名单先写 | 状态先写 |
+ * |---|---|---|
+ * | `ok` → `unreadable_ignored` | 未去重的新名单 + 说已去重的旧状态 ✗ | 安全 |
+ * | `unreadable_ignored` → `ok` | 安全 | 未去重的旧名单 + 说已去重的新状态 ✗ |
+ *
+ * 两种坏法一模一样：报告压掉警告，把打扰过、已拉黑的人当成已去重交付。
+ *
+ * 所以**不选顺序，分三步**：先把断言撤成「无从确认」，再换名单，最后才断言。
+ * 任何一步被打断，盘上留下的都是一个不做肯定断言的状态 —— 报告会警告，
+ * 用户重跑一次。**肯定的断言永远最后写，而且只在它描述的东西已经落盘之后。**
+ *
+ * **这条只管一个写入方被打断，不管两个写入方撞车。** 同一个任务目录同时跑
+ * 两个进程时三步会交错，盘上照样能留下「未去重的名单 + 说已去重的状态」——
+ * 让每个写入方在改名前确认一次盘上没变过，属于并发那一层（ADR-54）。
+ * **这里不声称它已经被挡住了。**
+ */
+export function persistListAndStatus(
+  dir: string, state: TaskState, creators: Creator[], status: MemoryStatus,
+): void {
+  // 一、撤掉旧断言。此后到第三步之间，盘上的状态都不替任何一份名单打包票
+  state.memory_status = 'unknown'
+  saveTask(dir, state)
+  // 二、换名单
+  saveCreators(dir, creators)
+  // 三、名单确实落盘了，这才敢断言
+  state.memory_status = status
+  saveTask(dir, state)
 }
 
 /**
@@ -51,8 +102,8 @@ export function loadRawCreators(dir: string): Creator[] {
 }
 
 export function saveRawCreators(dir: string, creators: Creator[]): void {
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, RAW), JSON.stringify(creators, null, 2), 'utf8')
+  mkdirDurable(dir)
+  writeFileAtomic(join(dir, RAW), JSON.stringify(creators, null, 2))
 }
 
 const ENRICHMENT = 'enrichment.json'
@@ -64,7 +115,7 @@ export function loadEnrichment(dir: string): EnrichmentState | undefined {
 }
 
 export function saveEnrichment(dir: string, state: EnrichmentState): void {
-  mkdirSync(dir, { recursive: true })
+  mkdirDurable(dir)
   state.updated_at = new Date().toISOString()
-  writeFileSync(join(dir, ENRICHMENT), JSON.stringify(state, null, 2), 'utf8')
+  writeFileAtomic(join(dir, ENRICHMENT), JSON.stringify(state, null, 2))
 }
