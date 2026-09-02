@@ -113,7 +113,12 @@ writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta, null, 2), 'utf8')
 writeFileSync(join(dir, 'report.html'), renderHtml(creators, meta), 'utf8')
 
 // ---------- 写回记忆 ----------
-recordRecommendations(creators, state.product, taskId(dir))
+const writeBack = recordRecommendations(creators, state.product, taskId(dir))
+if (!writeBack.written) {
+  console.error(`\n⚠️  记忆未写回：${writeBack.reason}`)
+  console.error(`   原文件保持不动（盖掉它会永久抹掉「谁联系过」）。`)
+  console.error(`   解决之前，这一批人不会被记进跨任务记忆。`)
+}
 
 console.log(JSON.stringify({
   csv: csvPath,

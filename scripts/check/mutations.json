@@ -656,6 +656,94 @@
       "file": "scripts/check/age-rule.ts",
       "find": "  return calendarOk && Number.isFinite(Date.parse(s))",
       "replace": "  return Number.isFinite(Date.parse(s))"
+    },
+    {
+      "id": "M-P4-c",
+      "req": "P4",
+      "why": "记忆文件读不出来时退化成一份空记忆 —— 已联系和已屏蔽的人靠一个解析错误重新进名单",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (!opts.ignoreUnreadable) throw new MemoryUnreadable(FILE, r.detail)",
+      "replace": "    /* mutated */"
+    },
+    {
+      "id": "M-P4-d",
+      "req": "P4",
+      "why": "解析成功就当结构没问题 —— 一份合法 JSON、错误结构的记忆让打扰过和已拉黑的人全部重新进名单，而状态报的是「读到了」",
+      "file": "scripts/lib/memory.ts",
+      "find": "  const bad = shapeProblem(parsed)\n  if (bad) return { status: 'unreadable', detail: `结构不对 —— ${bad}` }",
+      "replace": "  /* mutated */"
+    },
+    {
+      "id": "M-D4-a",
+      "req": "D4",
+      "why": "把「读不出来」报成「文件不存在」—— 交付物上再也分不清「确实没人需要过滤」和「没查到」",
+      "file": "scripts/lib/memory.ts",
+      "find": "      memory_status: 'unreadable_ignored',",
+      "replace": "      memory_status: 'absent',"
+    },
+    {
+      "id": "M-D4-b",
+      "req": "D4",
+      "why": "记忆读不出来时照样写回 —— 一份「谁都没联系过」的记忆盖掉原文件，contacted 和 blocked 永久消失",
+      "file": "scripts/lib/memory.ts",
+      "find": "  if (r.status === 'unreadable') return { written: false, reason: r.detail }\n  const mem = r.mem",
+      "replace": "  const mem = r.status === 'unreadable' ? empty() : r.mem"
+    },
+    {
+      "id": "M-D4-f",
+      "req": "D4",
+      "why": "推荐记录只看容器不看里面 —— 一条空记录让「已推荐过」这件事悄悄消失，名单上还留下一个没有值的标注；一条 null 直接崩，绕开「读不出来」那条明确的报错路",
+      "file": "scripts/lib/memory.ts",
+      "find": "    for (const [i, rec] of (r.recommendations as unknown[]).entries()) {",
+      "replace": "    for (const [i, rec] of [] as Array<[number, unknown]>) {"
+    },
+    {
+      "id": "M-P4-i",
+      "req": "P4",
+      "why": "任何一种读失败都算成「盘上没有这个文件」—— 权限不足、父路径不是目录或 IO 出错时，名单照出还报「记忆里确实没人」，已联系的人重新进名单",
+      "file": "scripts/lib/memory.ts",
+      "find": "  (e as NodeJS.ErrnoException | null)?.code === 'ENOENT'",
+      "replace": "  true"
+    },
+    {
+      "id": "M-D4-k",
+      "req": "D4",
+      "why": "推荐记录的产品名只看类型不看有没有内容 —— 一条空产品名的记录永远匹配不上任何产品，那条去重记录等于不存在，人会被重新推荐一次，名单上那句「上次推的是什么」也少了一半",
+      "file": "scripts/lib/memory.ts",
+      "find": "      const badProduct = textProblem(rr.product)\n      if (badProduct) return `${at}的 product ${badProduct}`",
+      "replace": "      if (typeof rr.product !== 'string') return `${at}的 product 不是字符串`"
+    },
+    {
+      "id": "M-D6-f",
+      "req": "D6",
+      "why": "比较产品名时不去掉两侧的空白 —— 手改时多打的一个空格，就让「这个人已经为这个产品推荐过」整条失效，人被重新推荐一次",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (others.some(r => r.product.trim() === want)) { rec++; continue }",
+      "replace": "    if (others.some(r => r.product === product)) { rec++; continue }"
+    },
+    {
+      "id": "M-D4-o",
+      "req": "D4",
+      "why": "记忆不可用时一律报成「解析失败」—— 而它同样可能是权限不足、父路径不是目录或磁盘出错，那时候用户会去查一份完好的文件，真正的原因在报错里被盖住了",
+      "file": "scripts/lib/memory.ts",
+      "find": "    super(`记忆文件 ${file} 不可用：${detail}`)",
+      "replace": "    super(`记忆文件 ${file} 解析失败：${detail}`)"
+    },
+    {
+      "id": "M-D4-q",
+      "req": "D4",
+      "why": "产品名是空白时照样写进记忆 —— 而下一次读盘正是按「产品名必须非空」判它损坏，一次写回就把一份好好的记忆变成读不出来的，此后每一次采集都被挡在门外，直到有人手工去修",
+      "file": "scripts/lib/memory.ts",
+      "find": "  const badProduct = textProblem(product)\n  if (badProduct) {\n    return { written: false, reason: `任务的产品名${badProduct} —— 记不下来，因为记下的这条下次会被判成损坏` }\n  }",
+      "replace": "  /* mutated */"
+    },
+    {
+      "id": "M-D4-u",
+      "req": "D4",
+      "why": "必填文字字段只看类型不看有没有内容 —— 这是那条判据本身，读进来、写出去问的都是它。它一松，一条产品名全是空格的推荐记录就既存得进去、又读得出来，而它永远匹配不上任何产品：那条去重记录等于不存在，人会被重新推荐一次",
+      "file": "scripts/lib/types.ts",
+      "find": "  typeof v !== 'string' ? `不是字符串（${typeof v}）`\n    : !v.trim() ? '是空的'\n      : undefined",
+      "replace": "  typeof v !== 'string' ? `不是字符串（${typeof v}）` : undefined"
     }
   ],
   "exemptions": [

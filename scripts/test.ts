@@ -32,14 +32,14 @@ import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
 import { renderHtml } from './lib/report.js'
-import { filterByMemory, useMemoryFile } from './lib/memory.js'
+import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import { finalize, pendingKeywords, rankCreators, keywordStats, tierCounts } from './lib/pipeline.js'
 import {
   ACTIVITY_ACTIVE_MAX_DAYS, ACTIVITY_COOLING_MAX_DAYS,
   accountKey, assignAudienceRisks, attachAssessments, calculatePublicMetrics,
   calculateQuoteEfficiency, measured, publicPostSample, recomputeCachedAssessment, unavailable,
 } from './lib/assessment.js'
-import { writeFileSync, unlinkSync } from 'node:fs'
+import { writeFileSync, unlinkSync, truncateSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -417,6 +417,203 @@ suite('P4', '收尾管线：闸门在记忆过滤之前，不虚报打扰规模'
                       mk('tiktok', 'bigcontacted', { followers: 50000 })], 'p')
   eq('只数过得了闸门的那一个', r.filtered_contacted, 1)
   eq('两人都不在名单里', r.kept.length, 0)
+  unlinkSync(tmp)
+  useMemoryFile('memory/creators.json')
+}
+
+suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过')
+{
+  const tmp = join(tmpdir(), `kol-d4-${process.pid}.json`)
+  const person = (h: string, over: Record<string, unknown> = {}) => ({
+    platform: 'tiktok', handle: h, nickname: h, followers: 50000, first_seen: '2026-01-01',
+    recommendations: [], contacted: false, replied: false, blocked: false, note: '', ...over,
+  })
+  const batch = [mk('tiktok', 'alice'), mk('tiktok', 'erin')]
+
+  // 一、文件不存在 = 查过，记忆里确实没有人
+  useMemoryFile(join(tmpdir(), `kol-d4-none-${process.pid}.json`))
+  const absent = filterByMemory(batch, 'p')
+  eq('文件不存在时报 absent', absent.memory_status, 'absent')
+  eq('文件不存在时全员保留', absent.kept.length, 2)
+
+  // 二、读不出来 = 没查到。**不得与上一档同值**
+  writeFileSync(tmp, JSON.stringify({
+    version: 1, updated_at: '', creators: { 'tiktok:alice': person('alice', { contacted: true }) },
+  }), 'utf8')
+  truncateSync(tmp, Math.floor(rf(tmp, 'utf8').length * 0.6))
+  const broken = rf(tmp, 'utf8')
+  useMemoryFile(tmp)
+
+  let threw = ''
+  try { filterByMemory(batch, 'p') } catch (e) { threw = (e as Error).name }
+  eq('读不出来时抛出而不是返回名单', threw, 'MemoryUnreadable')
+
+  // 三、显式跳过 = 出名单，但状态必须说出去
+  const ignored = filterByMemory(batch, 'p', undefined, { ignoreUnreadable: true })
+  eq('显式跳过时出名单', ignored.kept.length, 2)
+  eq('显式跳过不得伪装成 absent', ignored.memory_status, 'unreadable_ignored')
+
+  // 四、读不出来时绝不写回 —— 盖掉它就永久抹掉了「谁联系过」
+  const wb = recordRecommendations(ignored.kept, 'p')
+  eq('读不出来时不写回', wb.written, false)
+  eq('磁盘上仍是那份读不出来的文件，一个字节没动', rf(tmp, 'utf8'), broken)
+
+  // 五、解析成功不等于形状对。这个文件是产品要求运营手改的，
+  //     手改很容易改出一份合法 JSON、错误结构的记忆（ADR-19）。
+  const shapes: Array<[string, string]> = [
+    ['creators 是数组', '{"version":1,"creators":[]}'],
+    ['顶层是数组', '[]'],
+    ['条目缺 contacted', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { recommendations: [] } } })],
+    ['contacted 写成字符串', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: 'true', blocked: false, recommendations: [] } } })],
+    ['recommendations 不是数组', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false, recommendations: null } } })],
+    // 容器对了不等于里面的东西对：过滤逐条读 task / product / date
+    ['推荐记录是空对象', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false, recommendations: [{}] } } })],
+    ['推荐记录是 null', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false, recommendations: [null] } } })],
+    ['推荐记录缺 date', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false,
+        recommendations: [{ product: 'p' }] } } })],
+    ['推荐记录的 task 不是字符串', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false,
+        recommendations: [{ product: 'p', date: '2026-01-01', task: 7 }] } } })],
+  ]
+  // 字面重复的键**构造不出来**：对象字面量和 JSON.stringify 都只留一条。
+  // 而手改的文件里它就是两行 —— 解析会静默吃掉前一条（ADR-36）。
+  const dupText = `{"version":1,"creators":{
+    "tiktok:a":{"contacted":true,"blocked":true,"recommendations":[]},
+    "tiktok:a":{"contacted":false,"blocked":false,"recommendations":[]}}}`
+  shapes.push(['同一个键在文件里出现了两次', dupText])
+  // 数组里的对象各有各的层，别把不同对象的同名键算成重复
+  shapes.push(['嵌套对象里的重复键也算', `{"version":1,"creators":{
+    "tiktok:a":{"contacted":true,"blocked":true,"contacted":false,"recommendations":[]}}}`])
+  // 类型对不等于能用：空 product 永远匹配不上任何产品，这条去重记录等于不存在。
+  // 全是空白的和不是字符串的一样不行 —— 判据只有一份（types.ts），两侧都问它。
+  for (const [f, v] of
+    [['product', ''], ['date', ''], ['product', '   '], ['date', 7]] as const) {
+    shapes.push([`推荐记录的 ${f} 是 ${JSON.stringify(v)}`, JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: false, blocked: false, recommendations:
+        [{ product: 'p', date: '2026-01-01', [f]: v }] } } })])
+  }
+  // 读不到（不是解析不了）时，报错不许说成「解析失败」—— 权限或路径出问题的人
+  // 会去查一份完好的 JSON。真实原因在 detail 里，它自己会说（ADR-44）。
+  {
+    // tmp 本身是个文件，拿它当父路径必定 ENOTDIR —— 一个纯粹的路径问题
+    writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+    useMemoryFile(join(tmp, 'x.json'))
+    let msg = ''
+    try { filterByMemory(batch, 'p') } catch (e) { msg = (e as Error).message }
+    ok('读不到时报的不是「解析失败」', msg.length > 0 && !msg.includes('解析失败'))
+    ok('而是把真实原因原样带出来', msg.includes('ENOTDIR'))
+    useMemoryFile(tmp)
+  }
+
+  for (const [label, content] of shapes) {
+    writeFileSync(tmp, content, 'utf8')
+    let caught = ''
+    try { filterByMemory(batch, 'p') } catch (e) { caught = (e as Error).name }
+    eq(`合法 JSON 但${label} → 当作读不出来`, caught, 'MemoryUnreadable')
+  }
+  // 但不做全量 schema：运营自己加的字段不该被判成损坏
+  writeFileSync(tmp, JSON.stringify({ version: 1, creators: { 'tiktok:a': {
+    contacted: false, blocked: false, 我的备注: '随手写的',
+    recommendations: [{ product: 'p', date: '2026-01-01', 我的批注: '记一笔' }] } } }), 'utf8')
+  eq('多出来的自定义字段不算损坏', filterByMemory(batch, 'p').memory_status, 'ok')
+
+  // 六、读不到但**不是**「文件不存在」—— 权限、父路径不是目录、IO 错误。
+  //     existsSync 对这些统统返回 false，拿它分档等于把三档压回两档（ADR-26）。
+  const notADir = join(tmpdir(), `kol-d4-notadir-${process.pid}`)
+  writeFileSync(notADir, '我是文件，不是目录', 'utf8')
+  useMemoryFile(join(notADir, 'creators.json'))
+  let enoentish = ''
+  try { filterByMemory(batch, 'p') } catch (e) { enoentish = (e as Error).name }
+  eq('读不到但不是「不存在」→ 当作读不出来，不是空记忆', enoentish, 'MemoryUnreadable')
+  unlinkSync(notADir)
+  // 真正不存在的文件仍然是 absent
+  useMemoryFile(join(tmpdir(), `kol-d4-really-none-${process.pid}.json`))
+  eq('文件真的不存在 → 仍然是 absent', filterByMemory(batch, 'p').memory_status, 'absent')
+  useMemoryFile(tmp)
+
+  // 下面几段的失败模式是「记忆被自己写的东西毒掉、下一次读抛出来」。抛出来要变成一个
+  // 能断言的值 —— 否则那条变异是靠测试进程崩溃「被抓到」的，而崩溃不是断言的功劳
+  // （变异判定把「崩溃」和「断言红」分成两态，见 mutate-rule.ts）。
+  const statusOf = (f: () => { memory_status: string }): string => {
+    try { return f().memory_status } catch (e) { return `抛了：${(e as Error).name}` }
+  }
+  const writeOf = (f: () => ReturnType<typeof recordRecommendations>) => {
+    try { return { ...f(), threw: '' } } catch (e) { return { written: true, threw: (e as Error).name } as const }
+  }
+
+  // 七、product 的首尾空白不该让「已推荐过」失效。**不判成损坏** ——
+  //     product 来自用户的任务配置，配置里多一个空格就把我们自己写下的
+  //     记忆判成读不出来，那是自伤。纯空白仍然算损坏（trim 之后是空的）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {
+    'tiktok:pad': { contacted: false, blocked: false,
+      recommendations: [{ product: ' Foo ', date: '2026-01-01' }] } } }), 'utf8')
+  const padded = filterByMemory([mk('tiktok', 'pad')], 'Foo')
+  eq('产品名两侧的空白不影响「已推荐过」', padded.filtered_recommended, 1)
+  eq('于是那个人不会被再推荐一次', padded.kept.length, 0)
+
+  // 八、写入侧不许写出读取侧会拒绝的东西。任务配置里 product 是空白时，
+  //     写下的那条推荐记录下次读盘正好被判成损坏 —— 一次写回就把一份好好的
+  //     记忆变成读不出来的，此后每次采集都被挡住（ADR-46）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  const blank = recordRecommendations([mk('tiktok', 'zed')], '   ')
+  eq('产品名是空白时拒绝写回', blank.written, false)
+  // 不是字符串的也拒绝：手改过的 task.json 里 product 可能是数字、null、对象，
+  // 而写入侧原先只 trim —— 那会直接抛，绕开「报为未写回、照常交付」这条路。
+  const notText = writeOf(() => recordRecommendations([mk('tiktok', 'zed')], 7 as unknown as string))
+  eq('产品名不是字符串时不抛', notText.threw, '')
+  eq('产品名不是字符串时同样拒绝写回', notText.written, false)
+  eq('记忆仍然读得出来 —— 没有被自己写的东西毒掉',
+    statusOf(() => filterByMemory([mk('tiktok', 'zed')], 'X')), 'ok')
+
+  // 九、正常写回
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  const okWb = recordRecommendations([mk('tiktok', 'erin')], 'p')
+  eq('正常时写回成功', okWb.written, true)
+  ok('写回后仍可解析', (() => { try { JSON.parse(rf(tmp, 'utf8')); return true } catch { return false } })())
+
+  rmSync(tmp, { force: true })   // 变异可能已经把它删了，清理不该因此崩掉
+  useMemoryFile('memory/creators.json')
+}
+
+suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得靠一个解析错误重新进来')
+{
+  const tmp = join(tmpdir(), `kol-p4d4-${process.pid}.json`)
+  writeFileSync(tmp, JSON.stringify({
+    version: 1, updated_at: '', creators: {
+      'tiktok:contacted': { platform: 'tiktok', handle: 'contacted', nickname: '', followers: 50000,
+        first_seen: '2026-01-01', recommendations: [], contacted: true, replied: false,
+        blocked: false, note: '' },
+      'tiktok:blocked': { platform: 'tiktok', handle: 'blocked', nickname: '', followers: 50000,
+        first_seen: '2026-01-01', recommendations: [], contacted: false, replied: false,
+        blocked: true, note: '' },
+    },
+  }), 'utf8')
+  useMemoryFile(tmp)
+  const batch = [mk('tiktok', 'contacted', { followers: 50000 }),
+                 mk('tiktok', 'blocked', { followers: 50000 }),
+                 mk('tiktok', 'fresh', { followers: 50000 })]
+
+  eq('记忆完好时只剩没联系过的那个', finalize(batch, 'p').kept.map(c => c.handle), ['fresh'])
+
+  truncateSync(tmp, Math.floor(rf(tmp, 'utf8').length * 0.6))
+
+  let threw = ''
+  try { finalize(batch, 'p') } catch (e) { threw = (e as Error).name }
+  eq('同一份记忆坏掉后：抛，而不是交出一份含已联系者的名单', threw, 'MemoryUnreadable')
+
+  // 同一条红线的另一扇门：合法 JSON、错误结构。产品要求运营手改这个文件，
+  // 把花括号改成方括号是最容易的一种手滑，而它照样能解析（ADR-19）。
+  writeFileSync(tmp, '{"version":1,"creators":[]}', 'utf8')
+  let shapeThrew = ''
+  try { finalize(batch, 'p') } catch (e) { shapeThrew = (e as Error).name }
+  eq('结构不对时也不得交出一份含已联系者的名单', shapeThrew, 'MemoryUnreadable')
+
   unlinkSync(tmp)
   useMemoryFile('memory/creators.json')
 }
