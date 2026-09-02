@@ -45,7 +45,12 @@ permissions:
   pull-requests: read
 
 jobs:
-  age:
+  # job 不能叫 `age`:Actions 会按 job 名再建一条同名的 check run,而那条永远是绿的
+  # (脚本的退出码被捕获进 conclusion 了,job 自己不会失败),还总在贴上去的那条之后
+  # 完成 —— 实测 PR #5 的 head 上两条 `age` 相差两秒。必需检查按名字认,分不开同名的
+  # 两条;job 另起一个名字,`age` 就只剩贴上去的那一条。
+  post:
+    name: 贴分支寿命到各 PR
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
