@@ -1,8 +1,8 @@
 import {
   writeFileSync, renameSync, rmSync, statSync, chmodSync, readlinkSync, accessSync, constants,
-  readdirSync,
+  readdirSync, openSync, fsyncSync, closeSync, mkdirSync,
 } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 
 /**
  * 整体替换地写一个文件：**先写临时文件，再改名。**
@@ -32,8 +32,9 @@ import { basename, dirname, join, resolve } from 'node:path'
  * 写之前先清掉**已经死掉的进程**留下的临时文件（`sweepStaleTemps`）：硬杀落在
  * 写与改名之间时 catch 不会跑，那份完整的半成品只能由下一次写回清掉（ADR-30）。
  *
- * 改名前后**不刷盘**：主机断电时这次写回留不留得住，D4 明确不作保证（ADR-50）；
- * 尽力而为的刷盘是持久性那一层，单独一片。
+ * 改名前刷文件、改名后尽力刷目录、新建的目录逐层尽力刷（`mkdirDurable`）——
+ * 这些是**尽力而为**，不是保证：主机断电时这次写回留不留得住，D4 明确不作保证；
+ * 丢的是这一轮的记录，文件本身不会坏（ADR-50）。
  */
 export function writeFileAtomic(file: string, data: string | Buffer): void {
   const target = writeTarget(file)
@@ -55,6 +56,7 @@ export function writeFileAtomic(file: string, data: string | Buffer): void {
   }
   sweepStaleTemps(target)
   const tmp = `${target}.${process.pid}.tmp`
+  let fd: number | undefined
   try {
     // 临时名上已经有东西时**不复用它**。带着这个 pid 死掉的前任留下的临时文件，
     // 权限已经在改名之前被调宽；而 Node 对已存在的文件忽略 mode —— 复用它，
@@ -63,14 +65,74 @@ export function writeFileAtomic(file: string, data: string | Buffer): void {
     // 再独占地建：删与建之间要是又冒出来一个，宁可报失败也不写进去。
     rmSync(tmp, { force: true })
     writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+    // 刷盘用的描述符**在改权限之前拿**：此刻临时文件是 0600，属主一定打得开；
+    // 带上目标的权限之后就不一定了 —— 目标是 0200 这类只写文件时（它过得了
+    // 上面「可写」那一问），改完权限再按读打开会被拒，改名就永远走不到，
+    // 而不是 root 时正是这样（评审第一轮）。权限位是 inode 的元数据：改完再刷，
+    // 和内容一次落盘。
+    fd = openSync(tmp, 'r')
     // 已有的文件带回它原来的权限；新文件还原成 umask 默认。
     // **两条都得写** —— 少了后一条，「新文件保持默认」就只是一句注释（ADR-57）。
     chmodSync(tmp, mode ?? (0o666 & ~process.umask()))
+    // 内容先落盘，再让改名把它接上。**刷不动要抛**：刷不动就是没落盘，而调用方
+    // 正要据此告诉用户「已记入」；延迟写的错误（磁盘满、IO 错）恰恰是在这一刻
+    // 才浮出来的，吞掉它等于把刷盘这件事存在的理由抵消掉。
+    fsyncSync(fd)
+    closeSync(fd); fd = undefined         // 改名前先关：有的平台不许改名一个开着的文件
     renameSync(tmp, target)
+    fsyncDirBestEffort(dirname(target))   // 改名是目录的改动，它自己也要落盘
   } catch (e) {
-    // 清不掉半成品（比如那个名字上正好卡着一个目录）也不该盖住真正的错
-    try { rmSync(tmp, { force: true }) } catch { /* 报出去的是写失败的原因 */ }
+    // 关不上描述符、清不掉半成品（比如那个名字上正好卡着一个目录），都不该盖住真正的错
+    try { if (fd !== undefined) closeSync(fd) } catch { /* 报出去的是写失败的原因 */ }
+    try { rmSync(tmp, { force: true }) } catch { /* 同上 */ }
     throw e
+  }
+}
+
+/**
+ * 把**目录**刷到盘上，尽力而为。
+ *
+ * 这一个可以吞：有的平台压根不允许把目录当文件打开，而那不该让一次
+ * 内容已经落了盘、改名也成功了的写回变成失败。
+ * **能吞的只有这一个** —— 文件和目录合成一个函数的话，文件那半也跟着被吞了。
+ *
+ * **关不上也要吞**，理由和打不开是同一个：这里没有一个失败值得让调用方
+ * 认为整件事没做成。`writeFileAtomic` 的那次调用尤其如此 —— 它跑在
+ * `renameSync` 之后，替换已经生效了，让一个关描述符的错逃出去，调用方就会
+ * 照着这个失败告诉用户「没写回、原文件一个字节没动」，而那是假话：
+ * 推荐记录已经落进去了。**一个说反了的结论比一次没刷成的目录严重得多**（ADR-53）。
+ */
+function fsyncDirBestEffort(path: string): void {
+  let fd: number | undefined
+  try { fd = openSync(path, 'r'); fsyncSync(fd) }
+  catch { /* 平台不支持刷目录 */ }
+  finally { try { if (fd !== undefined) closeSync(fd) } catch { /* 同上，尽力而为 */ } }
+}
+
+/**
+ * 建目录，并让**新建的每一层都被记住**。
+ *
+ * `writeFileAtomic` 刷的是文件所在的那一层 —— 它让**文件的目录项**落了盘。
+ * 但如果这些目录本身是刚建出来的，**记录这些目录的是它们各自的上一层**，
+ * 而那几层没有人刷过。断电之后整个目录可能不存在，而调用方已被告知成功：
+ * 第一次跑时的断点、或者第一份联系历史，就这么没了（ADR-49）。
+ *
+ * `mkdirSync` 的 recursive 会返回**第一个被新建的那一层**（本来就在则返回
+ * undefined），所以确切知道要刷哪几层：从那一层的父目录开始，逐层往下刷到
+ * `dir` 的上一层为止。`dir` 自己不在这里刷 —— 写文件那一步会刷它。
+ *
+ * 刷目录仍然是尽力而为（有的平台不允许把目录当文件打开），所以这一条
+ * 加强的是常见情况下的持久性，**不是一个保证**（ADR-50）。
+ */
+export function mkdirDurable(dir: string): void {
+  const first = mkdirSync(dir, { recursive: true })
+  if (first === undefined) return          // 本来就在，没有新的目录项要记
+  fsyncDirBestEffort(dirname(first))       // 记住 first 的是它的父目录
+  const rest = relative(first, dir)
+  let cur = first
+  for (const seg of rest ? rest.split(sep) : []) {
+    fsyncDirBestEffort(cur)                // 记住下一层的是当前这层
+    cur = join(cur, seg)
   }
 }
 

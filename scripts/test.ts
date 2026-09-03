@@ -53,7 +53,7 @@ import type {
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
 import { persistListAndStatus, saveTask } from './lib/task.js'
-import { isAbsence, writeFileAtomic } from './lib/atomic.js'
+import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 
 let fail = 0
 let cur = ''
@@ -924,6 +924,39 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
       target_count: 1, done: [], requests: 0, budget_usd: 1 } as unknown as TaskState)
     eq('任务目录里死掉的进程留下的临时文件也被清掉', existsSync(orphan3), false)
     rmSync(d3, { recursive: true, force: true })
+  }
+
+  // 七之十一、建目录也要让新建的每一层被记住 —— 刷文件所在那层只让
+  //          **文件的目录项**落了盘，而这些目录本身是刚建的，记录它们的是
+  //          各自的上一层，那几层没人刷（ADR-49）。持久性本身测不了（ADR-50），
+  //          这里守的是「它确实把多层目录建出来了、且重复调用不出事」。
+  {
+    const root = join(tmpdir(), `kol-d4-mkdir-${process.pid}`)
+    const deep = join(root, 'a', 'b', 'c')
+    rmSync(root, { recursive: true, force: true })
+    mkdirDurable(deep)
+    ok('多层目录一次建出来', existsSync(deep))
+    mkdirDurable(deep)
+    ok('已经在了再调一次也不出事', existsSync(deep))
+    rmSync(root, { recursive: true, force: true })
+  }
+
+  // 七之十二、目标是**只写**的文件（0200）也替换得了，权限原样带过去。它过得了
+  //          「可写」那一问；刷盘用的描述符要是在权限改成 0200 之后才按读打开，
+  //          不是 root 时就被拒在改名之前 —— 一个能写的文件从此永远写不回
+  //          （评审第一轮）。root 跑的时候打开什么都成，这条只在 CI（非 root）
+  //          咬得住；本地跑过不算数。
+  {
+    const wo = join(tmpdir(), `kol-d4-writeonly-${process.pid}.json`)
+    writeFileSync(wo, '旧的', 'utf8')
+    chmodSync(wo, 0o200)
+    let threwWo = ''
+    try { writeFileAtomic(wo, '新的') } catch (e) { threwWo = String(e) }
+    eq('只写的目标照样替换成功', threwWo, '')
+    eq('只写这个权限位原样带过去', modeOf(wo), 0o200)
+    chmodSync(wo, 0o600)
+    eq('内容是这一次写的', rf(wo, 'utf8'), '新的')
+    rmSync(wo, { force: true })
   }
 
   // 八、写入侧不许写出读取侧会拒绝的东西。任务配置里 product 是空白时，
