@@ -160,7 +160,7 @@ npm run enrich -- --dir output/{task}
 已经付过费的那些请求要再花一遍：
 
 ```bash
-npx tsx scripts/collect.ts --resume output/{task} --budget <新额度>
+npm run collect -- --resume output/{task} --budget <新额度>
 ```
 
 脚本从断点继续，不重复已完成的关键词，也不重复计费已花掉的部分。
@@ -180,6 +180,9 @@ npx tsx scripts/collect.ts --resume output/{task} --budget <新额度>
 **停下来。不要重跑，不要拿旧名单往下走，也不要自己找路绕过它。**
 采集结果和已花的预算都完好，把 stderr 的原话报给用户（它会说是哪个人的哪个字段不对），
 让用户修好文件后按 stderr 给出的那条命令 `--resume`（预算用尽时那条命令会带上 `--budget`）。
+
+stderr 还会给出另一条路：加 `--ignore-memory` 强出名单。**不要自己加。** 强出名单是用户的取舍，
+不是你的 —— 他明确要求时才加，并按 `references/memory.md` 把代价说清。
 
 **续跑要不要花钱，照 stderr 说的转述，不要自己下结论**：剩余关键词**和**
 待补 profile 都为零才是零请求 —— profile 补全跑在续跑最前面，它是付费端点。

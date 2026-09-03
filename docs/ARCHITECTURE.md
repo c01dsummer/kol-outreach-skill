@@ -50,7 +50,7 @@
 | `scripts/probe.ts` | 入口 | F3 P1 P3 | 每词每平台只抓一页，供 Agent 判读方向；拿不到粉丝数报「未知」而不是 0 |
 | `scripts/collect.ts` | 入口 | D6 P3 F7 D4 | 轮转采集不让第一个关键词吃掉全部配额；预算用尽存断点退 3；记忆读不出来退 2 且不产出名单 |
 | `scripts/enrich.ts` | 入口 | D8 D10 F8 P3 | 只对语义筛选后的候选抓主页样本；已查过的账号默认不重复付费，但每次都按当前口径就地重算（零请求） |
-| `scripts/render.ts` | 入口 | P5 U1 U2 U5 U7 | 交付物生成的唯一出口，且是唯一往跨任务记忆写回的地方 |
+| `scripts/render.ts` | 入口 | P5 U1 U2 U5 U7 D4 | 交付物生成的唯一出口，且是唯一往跨任务记忆写回的地方；写回在报告之前，报告才能声明它的结果 |
 | `scripts/lib/pipeline.ts` | 逻辑 | D6 P1 P4 F5 F8 U1 U3 | 入口脚本原先裸露的两段管线；**顺序契约全在这里**，见下表 |
 | `scripts/lib/score.ts` | 逻辑 | P1 F6 F8 | 打分、分层、粉丝闸门、两种降级判定；语义否决对分层有一票否决权 |
 | `scripts/lib/identity.ts` | 逻辑 | D1 D2 D3 P1 | 跨平台同人识别与合并；不确定不合并，未知粉丝数相加仍是未知 |
@@ -62,7 +62,7 @@
 | `scripts/lib/csv.ts` | 逻辑 | D5 | UTF-8 with BOM 与转义 |
 | `scripts/lib/xlsx.ts` | 逻辑 | U5 | 零依赖 ZIP 与 CRC32；空分层也建 sheet |
 | `scripts/lib/report.ts` | 逻辑 | P5 U2 U3 U4 U6 | 单文件内联 HTML；数据边界声明与分层 tab 的初始可见性 |
-| `scripts/lib/task.ts` | 逻辑 | D6 | 任务目录的读写；**累加器与交付物是两个文件**，见下表 |
+| `scripts/lib/task.ts` | 逻辑 | D6 D4 | 任务目录的读写；**累加器与交付物是两个文件**，见下表；名单与它的去重状态分三步落盘，肯定的声明最后写 |
 | `scripts/lib/types.ts` | 逻辑 | P1 D1 D8 | 三态模型的定义处 —— 它把「没查到」和「查了没有」在类型层面分开；**D1 的身份键与支持的平台列表只此一份**，采集去重、记忆读写、账号评估都调它 —— 各写一份表达式时的「一致」只是巧合 |
 | `scripts/providers/tikhub.ts` | 适配 | D2 D3 D8 P1 | 唯一的数据源实现；响应结构走探测 cascade，识别不出时暴露顶层 key |
 | `scripts/check/lint.ts` | 检查 | P1 | 把 P1 从散文变成能报错的检查；走文件树、打印、退出码 |
@@ -119,7 +119,7 @@ Agent 是编排者，它读 stdout 做决策。
 | 入口 | 读 | 写 | 退出码 |
 |---|---|---|---|
 | `probe` | `--config probe.json` | **不落盘** | 0 · 2 |
-| `collect` | `--config task.json` 或 `--resume <dir>` | `task.json` `creators.raw.json` `creators.json` | 0 · 1 · 2 · **3** |
+| `collect` | `--config task.json` 或 `--resume <dir>` `[--ignore-memory]` | `task.json` `creators.raw.json` `creators.json` | 0 · 1 · 2 · **3** |
 | `enrich` | `--dir <dir>`（`task.json` `creators.json`） | `enrichment.json` `task.json` | 0 · 1 · 2 · **3** |
 | `render` | `--dir <dir>`（`task.json` `creators.json` `enrichment.json`） | `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` · **`memory/creators.json`** | 0 · 2 |
 
@@ -144,7 +144,9 @@ Agent 是编排者，它读 stdout 做决策。
 但「续跑要不要花钱」取决于**两种**活干完没有：剩余关键词**和**待补 profile
 都为零才是零请求。任一不为零（采集失败、预算用尽、或还有人没补 profile），
 剩下的照样要花钱 —— 关键词都跑完时，续跑第一件事就是补 profile，那是付费端点。
-stderr 会按实际剩余量说清楚，**不要替它简化成「续跑免费」**（ADR-22 · ADR-25）。
+stderr 会按实际剩余量说清楚，**不要替它简化成「续跑免费」**（ADR-22 · ADR-25）。要在读不出来的情况下仍然出名单，只能由用户显式
+打出 `--ignore-memory`，那一批的 `memory_status` 会是 `unreadable_ignored`，
+`meta.json` 与报告上带一条「未做已联系去重」的声明（ADR-15）。
 
 ### 字段所有权
 

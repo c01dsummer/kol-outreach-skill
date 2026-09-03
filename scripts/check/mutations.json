@@ -198,8 +198,8 @@
       "req": "P4",
       "why": "记忆过滤跑在粉丝闸门之前 —— filtered_contacted 把连闸门都过不了的人也算进去，向用户虚报打扰规模",
       "file": "scripts/lib/pipeline.ts",
-      "find": "  const gated = merged.filter(passesFollowerGate)\n\n  const { kept, filtered_recommended, filtered_contacted } = filterByMemory(gated, product, task)",
-      "replace": "  const pre = filterByMemory(merged, product, task)\n  const { filtered_recommended, filtered_contacted } = pre\n  const kept = pre.kept.filter(passesFollowerGate)"
+      "find": "  const gated = merged.filter(passesFollowerGate)\n\n  const { kept, filtered_recommended, filtered_contacted, memory_status } =\n    filterByMemory(gated, product, task, { ignoreUnreadable: opts.ignoreUnreadableMemory })",
+      "replace": "  const pre = filterByMemory(merged, product, task,\n                            { ignoreUnreadable: opts.ignoreUnreadableMemory })\n  const { filtered_recommended, filtered_contacted, memory_status } = pre\n  const kept = pre.kept.filter(passesFollowerGate)"
     },
     {
       "id": "M-F5-a",
@@ -824,6 +824,62 @@
       "file": "scripts/lib/memory.ts",
       "find": "  const badPlatform = textProblem(platform)\n  if (badPlatform) return `平台${badPlatform} —— 它永远匹配不到任何人`\n  const badHandle = textProblem(handle)\n  if (badHandle) return `handle ${badHandle} —— 它永远匹配不到任何人`",
       "replace": "  /* mutated */"
+    },
+    {
+      "id": "M-P5-b",
+      "req": "P5",
+      "why": "名单没做已联系去重却不声明 —— 运营照着发信，把打扰过甚至已拉黑的人再打扰一次",
+      "file": "scripts/lib/report.ts",
+      "find": "  if (meta.memory_status === 'unreadable_ignored') {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-P5-c",
+      "req": "P5",
+      "why": "这一批没被记进跨任务记忆却不声明 —— 下一批名单会把同一批人重新推荐一遍",
+      "file": "scripts/lib/report.ts",
+      "find": "  if (meta.memory_written === false) {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-P5-d",
+      "req": "P5",
+      "why": "去重状态无从确认的旧名单不再声明 —— 一份没人能担保去过重的名单，被当成正常名单交出去",
+      "file": "scripts/lib/report.ts",
+      "find": "  } else if (meta.memory_status === 'unknown') {",
+      "replace": "  } else if (false) {"
+    },
+    {
+      "id": "M-P5-e",
+      "req": "P5",
+      "why": "没写回的真实原因不再带进报告 —— 磁盘满或没有写权限的人，会被指去修一份根本没坏的文件",
+      "file": "scripts/lib/report.ts",
+      "find": "               `原因：${meta.memory_write_error ?? '未记录'}。` +",
+      "replace": "               '原因：记忆文件读不出来。' +"
+    },
+    {
+      "id": "M-P5-f",
+      "req": "P5",
+      "why": "去重状态无从确认时，报告替用户断定这批人「由早期版本采集」—— 而它同样可能是刚刚被打断留下的，两种来源事后分不出，用户拿到的是一个编造的诊断",
+      "file": "scripts/lib/report.ts",
+      "find": "    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认 —— ' +",
+      "replace": "    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认（这批人由早期版本采集）—— ' +"
+    },
+    {
+      "id": "M-P5-g",
+      "req": "P5",
+      "why": "去重状态认不出来时原样抄进交付物，而不是读作「无从确认」—— 报告只对两个精确取值发警告，于是一个拼错的或新版本写下的取值会压掉警告，把一份没验证过的名单当成正常的交出去",
+      "file": "scripts/lib/types.ts",
+      "find": "  (MEMORY_STATUSES as readonly unknown[]).includes(v) ? v as MemoryStatus : 'unknown'",
+      "replace": "  (v ?? 'unknown') as MemoryStatus"
+    },
+    {
+      "id": "M-D4-n",
+      "req": "D4",
+      "why": "名单和它的去重状态改成两步落盘 —— 中间被打断时，盘上会留下一份没去重的名单配一句「已去重」的声明，报告据此压掉警告，把打扰过、已拉黑的人当成去过重的交付出去",
+      "file": "scripts/lib/task.ts",
+      "find": "  state.memory_status = 'unknown'\n  saveTask(dir, state)\n  // 二、换名单\n  saveCreators(dir, creators)",
+      "replace": "  saveCreators(dir, creators)"
     }
   ],
   "exemptions": [

@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import type { TaskState, Creator, EnrichmentState } from './types.js'
+import type { TaskState, Creator, EnrichmentState, MemoryStatus } from './types.js'
 
 export function taskDir(product: string, timestamp?: string): string {
   const ts = timestamp ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
@@ -25,6 +25,39 @@ export function loadCreators(dir: string): Creator[] {
 export function saveCreators(dir: string, creators: Creator[]): void {
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'creators.json'), JSON.stringify(creators, null, 2), 'utf8')
+}
+
+/**
+ * 名单和它的去重状态一起落盘。
+ *
+ * 两个文件、两次写入，中间被打断是可能的，而**哪个先写都不安全** ——
+ * 安全与否取决于状态往哪个方向变（ADR-41）：
+ *
+ * | 状态怎么变 | 名单先写 | 状态先写 |
+ * |---|---|---|
+ * | `ok` → `unreadable_ignored` | 未去重的新名单 + 说已去重的旧状态 ✗ | 安全 |
+ * | `unreadable_ignored` → `ok` | 安全 | 未去重的旧名单 + 说已去重的新状态 ✗ |
+ *
+ * 两种坏法一模一样：报告压掉警告，把打扰过、已拉黑的人当成已去重交付。
+ *
+ * 所以**不选顺序，分三步**：先把断言撤成「无从确认」，再换名单，最后才断言。
+ * 任何一步被打断，盘上留下的都是一个不做肯定断言的状态 —— 报告会警告，
+ * 用户重跑一次。**肯定的断言永远最后写，而且只在它描述的东西已经落盘之后。**
+ *
+ * 每一步自己还不是整体替换（写到一半被杀会留下截断的文件，那是 D4 的另一条，
+ * 随「一个写入方」那一片合入）；两个采集同时写同一个目录时的交错，按 D4 当前不保证（ADR-66）。
+ */
+export function persistListAndStatus(
+  dir: string, state: TaskState, creators: Creator[], status: MemoryStatus,
+): void {
+  // 一、撤掉旧断言。此后到第三步之间，盘上的状态都不替任何一份名单打包票
+  state.memory_status = 'unknown'
+  saveTask(dir, state)
+  // 二、换名单
+  saveCreators(dir, creators)
+  // 三、名单确实落盘了，这才敢断言
+  state.memory_status = status
+  saveTask(dir, state)
 }
 
 /**
