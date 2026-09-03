@@ -1614,6 +1614,33 @@ harness('需求登记表的完整性判定')
     danglingAdrRefs('## ADR-07 标题\n\n```md\n- 冲击的需求：D99\n```\n', new Set<string>(), ['D']).length, 0)
   eq('HTML 注释里的示例编号不算引用',
     danglingAdrRefs('<!--\n- 冲击的需求：D98\n-->\n', new Set<string>(), ['D']).length, 0)
+  // 行内注释只去掉注释那一段，行本身还是元数据 —— 整行按引文算会漏报（#38 合入后的评审意见）
+  eq('带行内注释的元数据行照查',
+    danglingAdrRefs('- 冲击的需求：D99 <!-- 待定 -->', new Set<string>(), ['D']).length, 1)
+  eq('行内注释里举例的编号不算引用',
+    danglingAdrRefs('- 冲击的需求：D1 <!-- 原来写的是 D97 -->', new Set(['D1']), ['D']).length, 0)
+  // 只从元数据行上剥注释：围栏的闭合行后面只能是空白，先剥注释再算遮罩会把
+  // ``` <!-- 示例 --> 当成闭合，示例里接下来的编号就露出来了（#40 第二轮评审意见）
+  eq('围栏里带注释的假闭合行不闭合，后面的示例编号仍是引文',
+    danglingAdrRefs('```md\n``` <!-- 示例 -->\n- 冲击的需求：D99\n```\n', new Set<string>(), ['D']).length, 0)
+  // 边界按编号自己的文法定，不借 JavaScript 的词边界：前缀以标点开头时，
+  // 冒号与 `+` 之间没有词边界，`+C7` 永远匹配不到（#38 合入后的评审意见）
+  // `+` 也是正则元字符，同样不能让不转义的实现把测试进程炸死
+  const plus = (ids: Set<string>) => {
+    try { return danglingAdrRefs('- 冲击的需求：+C7', ids, ['+C']).length }
+    catch (e) { return String(e) }
+  }
+  eq('前缀以标点开头也查得到', plus(new Set<string>()), 1)
+  eq('前缀以标点开头且编号存在时不报', plus(new Set(['+C7'])), 0)
+  // 主干上真实的写法：加粗、连字符区间、括号说明、间隔号 —— 边界换法不能把它们查漏或拆散
+  const real = '- 冲击的需求：**P1–P5**（守它们的检查可被绕过）· D4 · D10'
+  eq('真实写法里的编号都查得到',
+    danglingAdrRefs(real, new Set(['P1', 'D4', 'D10']), ['P', 'D']).length, 1)
+  eq('相邻的数字不被拆成别的编号',
+    danglingAdrRefs(real, new Set(['P1', 'P5', 'D4', 'D10']), ['P', 'D']).length, 0)
+  // 下划线也算标识符字符：`legacy_D99`、`D99_note` 这种说明性记号里嵌着的编号不是引用（#40 评审意见）
+  eq('嵌在下划线记号里的编号不算引用',
+    danglingAdrRefs('- 冲击的需求：D1（legacy_D99、D99_note 已作废）', new Set(['D1']), ['D']).length, 0)
 }
 
 harness('审计对一条需求的裁定')
