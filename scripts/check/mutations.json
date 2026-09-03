@@ -950,8 +950,8 @@
       "req": "D4",
       "why": "目标是只读的照样被换掉 —— 用户特意把记忆或任务文件设成只读，直接写会被拒，整体替换却悄悄绕过去：文件被改了，没人知道，交付物还说已记入",
       "file": "scripts/lib/atomic.ts",
-      "find": "    if ((mode & 0o222) === 0) throw readOnly(target)\n",
-      "replace": "    /* mutated */\n"
+      "find": "  if (mode !== undefined) {\n    if ((mode & 0o222) === 0) throw readOnly(target)\n    accessSync(target, constants.W_OK)\n  }\n",
+      "replace": "  /* mutated */\n"
     }
   ],
   "exemptions": [

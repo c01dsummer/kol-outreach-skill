@@ -46,7 +46,8 @@ export function writeFileAtomic(file: string, data: string | Buffer): void {
   // 是目录里的条目，目录可写就行；整体替换不该悄悄绕过用户给文件设的只读
   // （评审第三轮）。先看权限位：root 跑的时候 accessSync 对什么都说可写，而用户把
   // 文件设成只读的意思不因为谁在跑而变。再问 accessSync：不是 root 时按属主属组判，
-  // 别人的文件同样不替换 —— 这一问在 root 下测不出来，所以没有变异守它。
+  // 别人的文件同样不替换。变异把这两问一起拿掉：只拿掉权限位那一问的话，
+  // 非 root 跑测试时 accessSync 照样拦住，看不出区别（CI 就是这么跑的）。
   if (mode !== undefined) {
     if ((mode & 0o222) === 0) throw readOnly(target)
     accessSync(target, constants.W_OK)
