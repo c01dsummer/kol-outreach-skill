@@ -1170,6 +1170,22 @@
       "replace": "  const live = reqs"
     },
     {
+      "id": "M-H3-b",
+      "req": "harness",
+      "why": "单元格只转义竖线、不转义反斜杠 —— 需求文本里本来就带 `\\|` 的话，渲染出来前一个反斜杠把转义吃掉，表格多切一列",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "const esc = (s: string) => s.replace(/(\\\\*)\\|/g, (_, bs: string) => bs + bs + '\\\\|').replace(/\\n/g, ' ')",
+      "replace": "const esc = (s: string) => s.replace(/\\|/g, '\\\\|').replace(/\\n/g, ' ')"
+    },
+    {
+      "id": "M-H3-c",
+      "req": "harness",
+      "why": "反斜杠一律转义，不只竖线前面的 —— 需求文本是 Markdown，代码段里的 `\\d+` 渲染成 `\\\\d+`，生成的 SPEC.md 与登记表明着不一样，一致性检查却照过",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "const esc = (s: string) => s.replace(/(\\\\*)\\|/g, (_, bs: string) => bs + bs + '\\\\|').replace(/\\n/g, ' ')",
+      "replace": "const esc = (s: string) => s.replace(/[\\\\|]/g, c => '\\\\' + c).replace(/\\n/g, ' ')"
+    },
+    {
       "id": "M-H8-b",
       "req": "harness",
       "why": "内容指纹只认顶层字段 —— 交点的裁决改成相反的意思，指纹纹丝不动，手改需求不回写照样放行",
