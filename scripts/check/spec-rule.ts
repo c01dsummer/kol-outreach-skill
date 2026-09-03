@@ -261,7 +261,7 @@ export function rootProblems(registry: unknown): string[] {
     const entries = Object.entries(categories)
     if (!entries.length) bad.push('categories 是空的 —— 没有分类,一条需求都渲染不出来')
     for (const [cat, label] of entries) {
-      if (!cat.trim()) bad.push('分类表里有一个空白前缀')
+      if (!cat.trim()) bad.push(`分类表里有一个空白前缀：${JSON.stringify(cat)}`)
       if (typeof label !== 'string' || !label.trim()) {
         bad.push(`分类 ${cat} 的说明不是非空字符串 —— 它会原样渲染成节标题`)
       }
