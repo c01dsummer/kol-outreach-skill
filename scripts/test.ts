@@ -1504,11 +1504,13 @@ harness('需求登记表的完整性判定')
     !html.split('###')[1].includes('D9'))
   ok('但仍然列出来 —— 编号不回收复用', html.includes('已作废') && html.includes('D9'))
   ok('并说明为什么作废', html.includes('需求本身不成立了'))
-  // 单元格里的竖线要转义，不然多切一列；反斜杠必须第一个转，否则它把后面那个转义吃掉
-  // —— 与 adr-rule 的 escapeCell 同一条规矩（#39 合入后的评审意见）
-  const cells = renderTables([req('D1', { text: '甲|乙', accept: [{ id: 'D1.a', text: '丙\\|丁' }] })], { D: '数据' })
+  // 单元格里的竖线要转义，不然多切一列；紧挨在竖线前面的反斜杠先加倍，否则它把后面那个转义吃掉
+  // （#39 合入后的评审意见）；别处的反斜杠不动 —— 文本是 Markdown，代码段里的 `\d+`
+  // 一律转就渲染成 `\\d+`（#41 评审意见）
+  const cells = renderTables([req('D1', { text: '甲|乙 `\\d+`', accept: [{ id: 'D1.a', text: '丙\\|丁' }] })], { D: '数据' })
   ok('需求文本里的竖线转义', cells.includes('甲\\|乙'))
   ok('判据里本来就有的反斜杠先转，再转竖线', cells.includes('丙\\\\\\|丁'))
+  ok('代码段里的反斜杠不动', cells.includes('`\\d+`'))
 
   const adrs = new Set(['ADR-01'])
   // 形状校验被拿掉时，后面的关系检查会在缺字段的需求上直接抛 —— 那要作为断言失败被抓到

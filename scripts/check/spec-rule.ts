@@ -168,7 +168,11 @@ export function renderTables(reqs: Req[], cats: Record<string, string>): string 
   return out.join('\n')
 }
 
-const esc = (s: string) => s.replace(/[\\|]/g, c => '\\' + c).replace(/\n/g, ' ')
+/**
+ * 单元格里的竖线要转义;只把紧挨在竖线前面的反斜杠加倍,别处的不动 ——
+ * 文本是 Markdown,代码段里的 `\d+` 一律转就渲染成 `\\d+`(#41 评审意见)。
+ */
+const esc = (s: string) => s.replace(/(\\*)\|/g, (_, bs: string) => bs + bs + '\\|').replace(/\n/g, ' ')
 
 /** 判据带着编号渲染 —— 下游要引用的是判据编号,看不见就没法引用 */
 const renderAccept = (r: Req) =>
