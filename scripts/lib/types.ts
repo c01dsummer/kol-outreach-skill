@@ -1,5 +1,10 @@
 /** S4：只做出海平台。抖音/小红书/快手不在范围内 —— 账号体系与合规完全不同。 */
-export type Platform = 'tiktok' | 'instagram'
+/**
+ * 支持的平台。**运行时列表与类型从同一处派生** —— 手写两份迟早会分叉，
+ * 而分叉的后果是校验放行一个查询侧永远匹配不到的值（ADR-25）。
+ */
+export const PLATFORMS = ['tiktok', 'instagram'] as const
+export type Platform = typeof PLATFORMS[number]
 
 /**
  * 一个必填的文字字段能不能用：**是字符串，而且去掉首尾空白之后还剩东西**。
@@ -14,6 +19,17 @@ export const textProblem = (v: unknown): string | undefined =>
   typeof v !== 'string' ? `不是字符串（${typeof v}）`
     : !v.trim() ? '是空的'
       : undefined
+
+/**
+ * 创作者的身份键 —— **D1 说的「同一个人」就是这个函数说了算。**
+ *
+ * 放在这里而不是某个用它的模块里，是因为**去重、记忆查询两侧必须是同一个规则**，
+ * 而各写一份表达式时「一致」只是巧合：`collect` 原先只小写 handle、
+ * `memory` 两个都小写，今天平台名恒为小写所以看不出来，改天就不是了（ADR-22 追记）。
+ * 这个仓库为「同一段逻辑有几份副本」栽过不止一次（ADR-46）。
+ */
+export const creatorKey = (c: { platform: string; handle: string }): string =>
+  `${c.platform.toLowerCase()}:${c.handle.toLowerCase()}`
 
 /** D4：记忆「文件不存在」与「读不出来但调用方显式跳过」是两个状态，不得同值 */
 export type MemoryStatus = 'ok' | 'absent' | 'unreadable_ignored'

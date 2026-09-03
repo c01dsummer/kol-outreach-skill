@@ -760,6 +760,70 @@
       "file": "scripts/lib/types.ts",
       "find": "  typeof v !== 'string' ? `不是字符串（${typeof v}）`\n    : !v.trim() ? '是空的'\n      : undefined",
       "replace": "  typeof v !== 'string' ? `不是字符串（${typeof v}）` : undefined"
+    },
+    {
+      "id": "M-D1-a",
+      "req": "D1",
+      "why": "身份键只把用户名转小写、不管平台名 —— 平台名大小写不同的两条记录会被当成两个人，去重放过一个、记忆也查不到他，已联系的人重新进名单",
+      "file": "scripts/lib/types.ts",
+      "find": "  `${c.platform.toLowerCase()}:${c.handle.toLowerCase()}`",
+      "replace": "  `${c.platform}:${c.handle.toLowerCase()}`"
+    },
+    {
+      "id": "M-P4-f",
+      "req": "P4",
+      "why": "记忆里的键不再规范化 —— 手改出来的一个大写字母，就让已联系、已拉黑的人重新进名单，而状态照报「读到了」",
+      "file": "scripts/lib/memory.ts",
+      "find": "    const norm = key({ platform: rawPlatform, handle: rawHandle })",
+      "replace": "    const norm = raw"
+    },
+    {
+      "id": "M-P4-g",
+      "req": "P4",
+      "why": "记忆的键只要求「有个冒号」—— 平台拼错或多一个分隔符的键照样收下，而查询侧永远匹配不到它，已联系和已拉黑的人重新进名单",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (parts.length !== 2 || !parts[0] || !parts[1]) {",
+      "replace": "    if (parts.length < 2 || !parts[0] || !parts[1]) {"
+    },
+    {
+      "id": "M-P4-h",
+      "req": "P4",
+      "why": "记忆的键不再校验平台是不是支持的那几个 —— 读进来的拼错平台的键收下之后永远查不到，已联系的人重新进名单；写出去的那一侧也不拦，于是能造出一个自己下次读不出来的文件",
+      "file": "scripts/lib/memory.ts",
+      "find": "  if (!(PLATFORMS as readonly string[]).includes(p)) {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-P4-l",
+      "req": "P4",
+      "why": "记忆的键不再校验 handle 是不是 handle 的形状 —— 手改成展示形态（前面带 @）或粘进一段链接片段，键照样收下而查询侧永远匹配不到；写出去的那一侧也不拦，能造出一个自己下次读不出来的文件",
+      "file": "scripts/lib/memory.ts",
+      "find": "  if (!HANDLE.test(h)) {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-D4-g",
+      "req": "D4",
+      "why": "两个键指向同一个人时随便留一条 —— 两条记录说法相反，该信哪条无从判断，却什么都不报",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (prev !== undefined) {\n      return { ok: false, why: `键「${prev}」与「${raw}」指的是同一个人，但各有一条记录 —— 该用哪一条无从判断` }\n    }",
+      "replace": "    if (false) { void prev }"
+    },
+    {
+      "id": "M-D4-s",
+      "req": "D4",
+      "why": "写记忆之前不检查即将生成的键能不能用 —— 名单里混进一个展示形态的用户名或不支持的平台，就写下一条自己下次读不出来的记录，此后每一次采集都被挡在门外，直到有人手工去修",
+      "file": "scripts/lib/memory.ts",
+      "find": "  for (const c of creators) {\n    const bad = keyProblem(c.platform, c.handle)\n    if (bad) return { written: false, reason: `${c.platform}:${c.handle} 记不下来 —— ${bad}` }\n  }",
+      "replace": "  /* mutated */"
+    },
+    {
+      "id": "M-D4-v",
+      "req": "D4",
+      "why": "生成键之前不确认那两个值是文字 —— 手改过的名单里 handle 是空值或平台是数字时，校验自己先抛，而抛出去绕开了「报为未写回、照常完成交付」那条路：算好的名单连同报告一起丢掉，而记忆原文件本来就完好",
+      "file": "scripts/lib/memory.ts",
+      "find": "  const badPlatform = textProblem(platform)\n  if (badPlatform) return `平台${badPlatform} —— 它永远匹配不到任何人`\n  const badHandle = textProblem(handle)\n  if (badHandle) return `handle ${badHandle} —— 它永远匹配不到任何人`",
+      "replace": "  /* mutated */"
     }
   ],
   "exemptions": [
