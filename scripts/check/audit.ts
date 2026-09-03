@@ -10,8 +10,9 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { JUDGMENT_EXEMPT, judgmentModules, unguarded } from './audit-rule.js'
-import { createHash } from 'node:crypto'
-import { CLAIMS_PATH, SELF, claimsFresh, claimsWellFormed, type Claims } from './claims.js'
+import {
+  CLAIMS_PATH, SOURCE_DIR, claimsFresh, claimsWellFormed, fingerprint, sourceFiles, type Claims,
+} from './claims.js'
 
 import {
   REDLINE_CAT, active, requirementVerdict, tensionCritical, tensionVerdict, type Req,
@@ -53,7 +54,7 @@ for (const f of sources) corpus.set(f, readFileSync(f, 'utf8'))
  * 原先按源码正则找 `suite('X')` 和交点认领，于是**注释掉的认领照样算数** ——
  * 把测试删掉、认领留在注释里，红线交点的硬失败就被一句注释绕过去了。
  * 这个文件下面那段关于 `includes(base)` 的注释记的是同一个坑，我又踩了一次
- * （ADR-20）。记录带着 `scripts/test.ts` 的指纹，对不上就是过期的，不算数。
+ * （ADR-20）。记录带着整棵 `scripts/` 树的指纹，对不上就是过期的，不算数。
  */
 let raw: unknown
 try {
@@ -68,15 +69,14 @@ try {
 // 后者会报出一串根本不存在的缺口，把人支到错的地方去修。
 if (!claimsWellFormed(raw)) {
   console.error(`✗ 覆盖记录的形状不对 ${CLAIMS_PATH}\n`)
-  console.error('  缺字段，或者字段不是数组 —— 旧版本写下的、别处拷来的，都不能当证据。')
+  console.error('  缺字段、字段不是数组、数组里混进非字符串 —— 都不能当证据。')
   console.error('  先跑 `npm test` 重写一份。')
   process.exit(1)
 }
 const claims: Claims = raw
-const selfHash = createHash('sha256')
-  .update(readFileSync(SELF, 'utf8')).digest('hex').slice(0, 12)
+const selfHash = fingerprint(sourceFiles())
 if (!claimsFresh(claims.source_hash, selfHash)) {
-  console.error(`✗ 覆盖记录是旧的：${SELF} 改过，但测试没重跑\n`)
+  console.error(`✗ 覆盖记录是旧的：${SOURCE_DIR}/ 下有改动，但测试没重跑\n`)
   console.error(`  记录里是 ${claims.source_hash}，实际 ${selfHash}`)
   console.error('  先跑 `npm test`。')
   process.exit(1)

@@ -15,8 +15,9 @@ import {
   rootProblems, tensionCritical, tensionVerdict, validateRegistry, type Evidence, type Req,
 } from './check/spec-rule.js'
 import { HARNESS, orphanAttributions } from './check/attribution-rule.js'
-import { createHash } from 'node:crypto'
-import { CLAIMS_PATH, SELF, claimsFresh, claimsOwnedBy, claimsPublishable, claimsWellFormed } from './check/claims.js'
+import {
+  CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsWellFormed, fingerprint, sourceFiles,
+} from './check/claims.js'
 import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
@@ -67,9 +68,8 @@ let cur = ''
 export const covered = new Set<string>()
 
 // 开跑前先把上一次的覆盖记录清掉 —— 拥有它的一方负责它的生死（ADR-20）。
-// 指纹算的是本文件,而本文件可以因为它 import 的实现改坏而红、甚至在末尾写盘
-// 之前就崩掉:那时本文件一个字没动,指纹照样对得上,上一次成功的记录就成了
-// 这一次的证据。先清掉,崩了就没有记录,审计说「先跑 npm test」。
+// 挡的是「源码没改、这一跑却红了或者半路死了」那一半:那时指纹对得上,
+// 上一次成功的记录就成了这一次的证据。改坏源码那一半由指纹的范围挡（claims.ts）。
 if (claimsOwnedBy(process.env.MUTATING === '1')) rmSync(CLAIMS_PATH, { force: true })
 
 const suite = (req: string, name: string) => { cur = req; covered.add(req); console.log(`\n[${req}] ${name}`) }
@@ -2367,11 +2367,21 @@ harness('审计：检查链自己的判定模块必须有变异守着')
   eq('变异指向别的文件不算数', unguarded(['a.ts'], [{ file: 'c.ts' }]), ['a.ts'])
 }
 
-harness('覆盖记录：指纹保护的是 test.ts 自己')
+harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
 {
-  // 把 SELF 改成另一个现存文件，写的一方和读的一方照样一致 —— 只是 test.ts 改了
-  // 之后记录不再过期，审计的过期检查静默失效。所以这个常量不能豁免，要钉死（M-H14-b）。
-  eq('指纹来源钉死成 test.ts', SELF, 'scripts/test.ts')
+  // 指纹只算 test.ts 自己有个洞：静态 import 先于模块体求值，被 import 的实现改出
+  // 语法错误时，测试在「开跑前清记录」那一行之前就崩了 —— test.ts 一个字没动、
+  // 指纹照旧对得上，上一次的记录成了这一次的证据。范围收窄或者不进子目录，
+  // 下面三条会红（M-H14-b、M-H14-i）。
+  const scanned = sourceFiles().map(([f]) => f)
+  ok('入口本身在指纹范围里', scanned.includes('scripts/test.ts'))
+  ok('被 import 的实现也在 —— 改坏它就等于改了指纹', scanned.includes('scripts/lib/atomic.ts'))
+  ok('子目录要走进去', scanned.includes('scripts/check/claims.ts'))
+  // 只哈希内容不哈希路径的话，把一个文件改名、挪到别处，指纹一个字不变（M-H14-h）。
+  const fp = (...files: [string, string][]) => fingerprint(files)
+  eq('路径也算进指纹', fp(['a.ts', 'x']) === fp(['b.ts', 'x']), false)
+  eq('内容变了指纹就变', fp(['a.ts', 'x']) === fp(['a.ts', 'y']), false)
+  eq('给的顺序不影响指纹 —— 目录遍历的顺序不保证稳定', fp(['a.ts', 'x'], ['b.ts', 'y']), fp(['b.ts', 'y'], ['a.ts', 'x']))
   // 新鲜度判定抽出来是为了它能被测：比较留在入口里，改成反向比较或恒真，
   // 没有任何测试会红（M-H14-c）。
   eq('指纹对得上才新鲜', claimsFresh('abc', 'abc'), true)
@@ -2395,6 +2405,9 @@ harness('覆盖记录：指纹保护的是 test.ts 自己')
   eq('字段在但不是数组，同样认不出', claimsWellFormed({ ...wf, tensions: 'D1|P4' }), false)
   eq('指纹不是字符串，认不出', claimsWellFormed({ ...wf, source_hash: 12 }), false)
   eq('null 不是记录', claimsWellFormed(null), false)
+  // 只验到「是数组」为止的话，元素不是字符串的记录会通过这一关，然后崩在审计
+  // 拆交点那一步 —— 该说「记录坏了、重跑测试」的地方变成一条堆栈（M-H14-j）。
+  eq('数组里混进非字符串，认不出', claimsWellFormed({ ...wf, tensions: [1] }), false)
 }
 
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
@@ -2874,7 +2887,7 @@ if (process.argv.includes('--json')) {
  * 这个仓库在同一个坑上栽过 —— `audit.ts` 里那句「早先还 or 了一个 includes(base)
  * 兜底，结果是任何地方提到文件名（哪怕注释里）就算执行过」（ADR-20）。
  *
- * 带上本文件的指纹：审计要重算一遍并比对，**过期的记录不算数**。
+ * 带上整棵 `scripts/` 树的指纹：审计要重算一遍并比对，**过期的记录不算数**。
  * 没跑过测试就没有这份记录，审计当场说「先跑 npm test」，而不是默默放行。
  */
 // 变异测试跑的是被改过的源码，那一次执行留下的覆盖记录不作数 —— 记录只能由
@@ -2886,7 +2899,7 @@ if (claimsPublishable(process.env.MUTATING === '1', fail)) {
   // 原子写:半截写坏的记录读起来是合法 JSON 的概率不大，但读的一方要为它写一段
   // 判死的代码 —— 换成写临时文件再改名，这一类根本不会出现（lib/atomic.ts）。
   writeFileAtomic(CLAIMS_PATH, JSON.stringify({
-    source_hash: createHash('sha256').update(rf(SELF, 'utf8')).digest('hex').slice(0, 12),
+    source_hash: fingerprint(sourceFiles()),
     covered: [...covered].sort(),
     tensions: [...new Set(tensionClaims)].sort(),
     criteria: [...new Set(criteriaClaims)].sort(),

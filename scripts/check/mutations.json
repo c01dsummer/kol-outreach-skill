@@ -1260,10 +1260,10 @@
     {
       "id": "M-H14-b",
       "req": "harness",
-      "why": "覆盖记录的指纹去算另一个现存文件 —— 测试源码改了但没重跑，审计照样放行，过期检查静默失效（指纹保护的是写测试的那个文件，只此一份）",
+      "why": "覆盖记录的指纹只算检查链自己那个子目录 —— 别处的实现改坏了、测试跟着崩了,指纹照旧对得上,上一次的记录成了这一次的证据",
       "file": "scripts/check/claims.ts",
-      "find": "export const SELF = 'scripts/test.ts'",
-      "replace": "export const SELF = 'scripts/lib/atomic.ts'"
+      "find": "export const SOURCE_DIR = 'scripts'",
+      "replace": "export const SOURCE_DIR = 'scripts/check'"
     },
     {
       "id": "M-H14-c",
@@ -1302,8 +1302,32 @@
       "req": "harness",
       "why": "形状判定不再看字段是不是数组 —— 缺字段、字段类型不对的记录被当成合法记录读进去，审计要么当场崩，要么报出一串根本不存在的缺口",
       "file": "scripts/check/claims.ts",
-      "find": "  (['covered', 'tensions', 'criteria'] as const).every(k => Array.isArray((v as Claims)[k]))",
+      "find": "  (['covered', 'tensions', 'criteria'] as const).every(k =>\n    Array.isArray((v as Claims)[k]) &&\n    (v as Claims)[k].every(x => typeof x === 'string'))",
       "replace": "  (['covered', 'tensions', 'criteria'] as const).every(() => true)"
+    },
+    {
+      "id": "M-H14-h",
+      "req": "harness",
+      "why": "指纹只算文件内容、不算它在哪 —— 把一个文件改名、挪到别处,指纹一个字不变,过期的记录照旧算新鲜",
+      "file": "scripts/check/claims.ts",
+      "find": "  for (const [p, body] of [...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) h.update(`${p}\\0${body}\\0`)",
+      "replace": "  for (const [p, body] of [...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) h.update(body)"
+    },
+    {
+      "id": "M-H14-i",
+      "req": "harness",
+      "why": "指纹的范围不往子目录里走 —— 检查链和库里的实现改坏了都不算改动,上一次的记录照旧算新鲜",
+      "file": "scripts/check/claims.ts",
+      "find": "    if (e.isDirectory()) return sourceFiles(p)",
+      "replace": "    if (e.isDirectory()) return []"
+    },
+    {
+      "id": "M-H14-j",
+      "req": "harness",
+      "why": "形状判定只验到「是数组」为止 —— 元素不是字符串的记录被当成合法记录读进去,审计崩在拆交点那一步,该说「记录坏了、先重跑测试」的地方变成一条堆栈",
+      "file": "scripts/check/claims.ts",
+      "find": "    (v as Claims)[k].every(x => typeof x === 'string'))",
+      "replace": "    true)"
     },
     {
       "id": "M-P5-h",
