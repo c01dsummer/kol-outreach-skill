@@ -15,7 +15,9 @@
 | 改了什么 | 至少要看 | 机器检查 |
 |---|---|---|
 | **新增/删除/修改需求** | `docs/requirements.json` → `docs/SPEC.md` → 下游引用 → 测试 → 变异 | 🔒 `spec` `audit` |
-| **作废一条需求** | `requirements.json` 的 `deprecated`（编号保留不复用）· 下游引用要清掉 · 相关测试与变异。**红线（P1–P5）不许作废** —— 那是产品定义变了，走变更评定 | 🔒 `spec` 查作废必须写理由、**红线作废当场拦下** |
+| **新增/修改一条验收判据** | `accept` 判据编号稳定 · `test.ts` 里 `criterion(...)` 认领 · 红线判据没认领要显式登记豁免 | 🔒 `spec` · `audit` 逐条数，红线判据没认领是硬失败 |
+| **新增/修改需求之间的交点** | `tension` 声明在让步方 · `test.ts` 里 `tension(...)` 认领 · ADR | 🔒 `spec` 编号真实性 · `audit` 含红线交点没测试硬失败 |
+| **作废一条需求** | `requirements.json` 的 `deprecated`（编号保留不复用）· 下游引用要清掉 · 相关测试与变异。**红线（P1–P5）不许作废** —— 那是产品定义变了，走变更评定 | 🔒 `spec` 查作废必须写理由、**红线作废当场拦下** · `audit` 不再把它计入覆盖率 |
 | **新增红线** | 需求登记表 · **测试** · **变异集** · `docs/CONVENTIONS.md` | 🔒 `audit` 强制红线有测试+变异 |
 | **改评分/分层规则** | `scripts/lib/score.ts` · `scripts/lib/pipeline.ts` · `skill/references/semantic-fit.md` · 测试 | 部分 |
 | **改管线步骤或其顺序** | `scripts/lib/pipeline.ts` · 测试 · **变异集**（顺序有语义，必须有变异守着）· `docs/ARCHITECTURE.md` 顺序契约表 | 🔒 `mutate` `arch` |
@@ -43,7 +45,7 @@
 
 | 文件 | 管什么 | 不该出现什么 |
 |---|---|---|
-| `docs/requirements.json` | 编号的**唯一真相来源** | 解释、理由、实现方式；**手改 `content_hash`**（派生字段，由 `spec-sync --write` 写、由 `check` 校验）。**没人读又校验不了的元数据一律不留** —— 见 ADR-30 |
+| `docs/requirements.json` | 编号的**唯一真相来源**；交点的裁决、指向决策记录的反向链接 | 解释、理由、实现方式；**手改 `content_hash`**（派生字段，由 `spec-sync --write` 写、由 `check` 校验）。**没人读又校验不了的元数据一律不留** —— 见 ADR-30 |
 | `docs/SPEC.md` | 需求的人类可读渲染 + 红线为什么是那几条 | 手改的表格（由 json 生成） |
 | `docs/CONVENTIONS.md` | 在本项目里**反着**的通用做法 | 换个产品也成立的规则（那属于 `process/`） |
 | `docs/ARCHITECTURE.md` | **零件之间**：模块边界、顺序契约、缝隙契约、三态落点 | 函数清单、目录树的散文版、需求论证 —— 代码说得出的一律不写 |
