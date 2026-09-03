@@ -1264,6 +1264,30 @@
       "file": "scripts/check/claims.ts",
       "find": "export const SELF = 'scripts/test.ts'",
       "replace": "export const SELF = 'scripts/lib/atomic.ts'"
+    },
+    {
+      "id": "M-H14-c",
+      "req": "harness",
+      "why": "指纹对得上也判成过期 —— 每一份新鲜覆盖记录都不算数，审计退回到永远「先跑 npm test」",
+      "file": "scripts/check/claims.ts",
+      "find": "  recordHash === selfHash",
+      "replace": "  recordHash !== selfHash"
+    },
+    {
+      "id": "M-H14-d",
+      "req": "harness",
+      "why": "交点的关键性改成两侧都得是红线 —— 含红线的交点静默降成软缺口，审计不再硬失败",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  redlines.has(a) || redlines.has(b)",
+      "replace": "  redlines.has(a) && redlines.has(b)"
+    },
+    {
+      "id": "M-P5-h",
+      "req": "P5",
+      "why": "把跑过的邮箱/地域增强一律报成没跑过 —— meta.json 的 enriched 恒为 false，交付声明与实际不符",
+      "file": "scripts/lib/report.ts",
+      "find": "  creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)",
+      "replace": "  creators.some(() => false)"
     }
   ],
   "exemptions": [

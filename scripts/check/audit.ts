@@ -11,9 +11,11 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { JUDGMENT_EXEMPT, judgmentModules, unguarded } from './audit-rule.js'
 import { createHash } from 'node:crypto'
-import { CLAIMS_PATH, SELF, type Claims } from './claims.js'
+import { CLAIMS_PATH, SELF, claimsFresh, type Claims } from './claims.js'
 
-import { REDLINE_CAT, active, requirementVerdict, type Req } from './spec-rule.js'
+import {
+  REDLINE_CAT, active, requirementVerdict, tensionCritical, tensionVerdict, type Req,
+} from './spec-rule.js'
 const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
 const all: Req[] = spec.requirements
 /** 作废的不参与覆盖率 —— 算进去会让「还差多少」变成一个虚报的数 */
@@ -64,7 +66,7 @@ try {
 }
 const selfHash = createHash('sha256')
   .update(readFileSync(SELF, 'utf8')).digest('hex').slice(0, 12)
-if (claims.source_hash !== selfHash) {
+if (!claimsFresh(claims.source_hash, selfHash)) {
   console.error(`✗ 覆盖记录是旧的：${SELF} 改过，但测试没重跑\n`)
   console.error(`  记录里是 ${claims.source_hash}，实际 ${selfHash}`)
   console.error('  先跑 `npm test`。')
@@ -144,17 +146,16 @@ const tensionRows: string[] = []
 for (const r of reqs) {
   for (const t of r.tension ?? []) {
     const covered = testedTensions.has(`${r.id}|${t.with}`)
-    // 交点里有红线,就继承红线的第 2 条硬要求:必须有测试。
-    // 两条非红线的交点是缺口,不是硬失败。
-    const critical = redlines.has(r.id) || redlines.has(t.with)
-    const flag = covered ? '✓' : critical ? '✗' : '·'
+    // 裁定在 spec-rule.ts：交点里有红线就继承红线的第 2 条硬要求 ——
+    // 必须有测试。两条非红线的交点是缺口,不是硬失败。
+    const critical = tensionCritical(r.id, t.with, redlines)
+    const verdict = tensionVerdict(covered, critical)
+    hard += verdict.hard
     if (!covered) {
-      const msg = `${r.id} × ${t.with} 的交点没有测试认领` +
-                  `${critical ? '（含红线，必须有）' : ''}`
-      if (critical) hard++
-      gaps.push(msg)
+      gaps.push(`${r.id} × ${t.with} 的交点没有测试认领` +
+                `${critical ? '（含红线，必须有）' : ''}`)
     }
-    tensionRows.push(`  ${flag} ${r.id} × ${t.with}${t.adr ? `  ${t.adr}` : '  裁决在文档'}`)
+    tensionRows.push(`  ${verdict.flag} ${r.id} × ${t.with}${t.adr ? `  ${t.adr}` : '  裁决在文档'}`)
   }
 }
 

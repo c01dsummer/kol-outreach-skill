@@ -21,3 +21,12 @@ export interface Claims {
   /** 真正跑过的**验收判据**认领,形如 `D1.a` —— 计量单位是判据,不是需求 */
   criteria: string[]
 }
+
+/**
+ * 这份记录还新鲜吗 —— 指纹对不上就是过期的,不算数（ADR-20）。
+ *
+ * 抽出来是为了它能被测:比较本身留在入口里,改成反向比较或恒真,
+ * 没有任何一条测试会红,而过期检查就静默失效了（M-H14-c 守着）。
+ */
+export const claimsFresh = (recordHash: string, selfHash: string): boolean =>
+  recordHash === selfHash

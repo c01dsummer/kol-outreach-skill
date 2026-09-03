@@ -91,6 +91,16 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
   </div>`
 }
 
+/**
+ * P5.a 的 meta.json 那一半：这次交付真的跑过邮箱/地域增强吗。
+ *
+ * 兼容旧消费者的布尔：公开帖子指标不能把「邮箱/受众增强」伪装成已完成 ——
+ * `email_verified` 为 false 也算「跑过」（查了、没有邮箱），所以只看字段在不在。
+ * 判据在这里而不是 render 里，是因为它能被测（CONVENTIONS 第 10 条；M-P5-h 守着）。
+ */
+export const enrichedFlag = (creators: Creator[]): boolean =>
+  creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)
+
 /** 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档 */
 export function renderHtml(creators: Creator[], meta: any): string {
   // 没有「全部」tab，所以必须有一个分层默认选中。取第一个非空的 ——

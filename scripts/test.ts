@@ -12,11 +12,11 @@ import { JUDGMENT_EXEMPT, judgmentModules, unguarded } from './check/audit-rule.
 import { judgeRun } from './check/mutate-rule.js'
 import {
   active, adrIdsIn, contentHash, danglingAdrRefs, renderTables, requirementVerdict,
-  rootProblems, validateRegistry, type Evidence, type Req,
+  rootProblems, tensionCritical, tensionVerdict, validateRegistry, type Evidence, type Req,
 } from './check/spec-rule.js'
 import { HARNESS, orphanAttributions } from './check/attribution-rule.js'
 import { createHash } from 'node:crypto'
-import { CLAIMS_PATH, SELF } from './check/claims.js'
+import { CLAIMS_PATH, SELF, claimsFresh } from './check/claims.js'
 import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
@@ -38,7 +38,7 @@ import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
-import { renderHtml } from './lib/report.js'
+import { enrichedFlag, renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   finalize, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators, keywordStats, tierCounts,
@@ -1187,6 +1187,14 @@ suite('P5', '交付必须声明数据边界')
       budget_usd: 2, enriched: false })
   ok('未增强时声明邮箱未验证', html.includes('未做有效性验证'))
   ok('未增强时声明受众未知', html.includes('无法确认'))
+  // P5.a 的 meta.json 那一半：未配置外部增强层时 enriched 为 false ——
+  // 判定在 report.ts（enrichedFlag），才能在这里断言（M-P5-h 守着）。
+  eq('没跑过邮箱/地域增强 → enriched false',
+    enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50 })]), false)
+  eq('邮箱增强跑过（查了没有邮箱）→ true',
+    enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50, email_verified: false })]), true)
+  eq('地域增强跑过 → true',
+    enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50, audience_geo: { US: 0.5 } })]), true)
   criterion('P5.a')
 
   const enriched = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 50 })],
@@ -1760,6 +1768,13 @@ harness('审计对一条需求的裁定')
   eq('红线有测试没变异 → 硬失败',
     requirementVerdict(p, ev({ mutated: false,
       claimedCriteria: new Set(['P9.a', 'P9.b']) })).hard, 1)
+
+  // 交点：任一方是红线就算关键，没认领是硬失败；两条非红线只是缺口（M-H14-d）
+  eq('任一方是红线就算关键', tensionCritical('D4', 'P4', new Set(['P4'])), true)
+  eq('两条都不是红线不算关键', tensionCritical('D4', 'D6', new Set(['P4'])), false)
+  eq('含红线没认领 → 硬失败', tensionVerdict(false, true), { flag: '✗', hard: 1 })
+  eq('非红线没认领 → 缺口', tensionVerdict(false, false), { flag: '·', hard: 0 })
+  eq('认领了 → 通过', tensionVerdict(true, true), { flag: '✓', hard: 0 })
 }
 
 harness('变异集的 why 不许夹带实现原文')
@@ -2350,6 +2365,10 @@ harness('覆盖记录：指纹保护的是 test.ts 自己')
   // 把 SELF 改成另一个现存文件，写的一方和读的一方照样一致 —— 只是 test.ts 改了
   // 之后记录不再过期，审计的过期检查静默失效。所以这个常量不能豁免，要钉死（M-H14-b）。
   eq('指纹来源钉死成 test.ts', SELF, 'scripts/test.ts')
+  // 新鲜度判定抽出来是为了它能被测：比较留在入口里，改成反向比较或恒真，
+  // 没有任何测试会红（M-H14-c）。
+  eq('指纹对得上才新鲜', claimsFresh('abc', 'abc'), true)
+  eq('指纹对不上就是过期', claimsFresh('abc', 'def'), false)
 }
 
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
@@ -2834,7 +2853,8 @@ if (process.argv.includes('--json')) {
  */
 // 变异测试跑的是被改过的源码，那一次执行留下的覆盖记录不作数 —— 记录只能由
 // 一次干净的测试运行写（mutate.ts 给变异跑打上 MUTATING 标记，这里据此跳过）。
-if (process.env.MUTATING !== '1') {
+// 失败的测试运行同样不写：断言红了还照写，一份没通过的运行会被当成证据交出去。
+if (process.env.MUTATING !== '1' && fail === 0) {
   mkdirSync(dirname(CLAIMS_PATH), { recursive: true })
   writeFileSync(CLAIMS_PATH, JSON.stringify({
     source_hash: createHash('sha256').update(rf(SELF, 'utf8')).digest('hex').slice(0, 12),
