@@ -1024,6 +1024,78 @@
       "file": "scripts/lib/atomic.ts",
       "find": "const PID_MAX = 4 * 1024 * 1024",
       "replace": "const PID_MAX = 0x7fffffff"
+    },
+    {
+      "id": "M-H4-a",
+      "req": "harness",
+      "why": "交点不再校验它指向的编号是否真实存在 —— 登记表里可以写一个指向不存在需求的交点",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "      else if (!ids.has(t.with)) problems.push(`${r.id} 的交点指向不存在的编号 ${t.with}`)",
+      "replace": "      else if (false) problems.push('')"
+    },
+    {
+      "id": "M-H4-b",
+      "req": "harness",
+      "why": "需求的分类不在分类表里也放行 —— 那条需求根本不会出现在渲染出来的文档里，而一致性检查比的是生成结果和生成结果，漏掉的那条与它自己完全一致，照样全绿",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    if (!cats.includes(r.cat)) {",
+      "replace": "    if (false) {"
+    },
+    {
+      "id": "M-H4-c",
+      "req": "harness",
+      "why": "编号前缀与分类不一致也放行 —— 一条红线被挪进别的分类，审计从此不再要求它有测试和变异，报出的红线条数比项目声明的少一条，却照样通过",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    } else if (!new RegExp(`^${r.cat.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\\\d+$`).test(r.id)) {",
+      "replace": "    } else if (false) {"
+    },
+    {
+      "id": "M-H4-d",
+      "req": "harness",
+      "why": "验收判据的编号不再校验形状 —— 一条判据挂在别的需求名下也放行，而下游按判据编号认领覆盖，认领就会指到另一条需求上去",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "        problems.push(`${r.id} 的判据编号 ${c.id} 不是 ${r.id}.x 的形式`)",
+      "replace": "        void c"
+    },
+    {
+      "id": "M-H4-e",
+      "req": "harness",
+      "why": "红线被标作废也放行 —— 作废的会被挡在渲染和审计之外，于是红线条数静静少一条，它的测试、变异、交点要求全部消失，而检查报全部通过",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "      if (r.cat === REDLINE_CAT) {",
+      "replace": "      if (false) {"
+    },
+    {
+      "id": "M-H4-f",
+      "req": "harness",
+      "why": "登记表只查关系不查形状 —— 缺了优先级或作废日期的需求照样放行，渲染时把一个空值写进生成的文档，而一致性检查比的是生成结果和生成结果，于是全绿",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  const shape = shapeProblems(reqs)\n  if (shape.length) return shape",
+      "replace": "  const shape: string[] = []\n  if (shape.length) return shape"
+    },
+    {
+      "id": "M-H5-a",
+      "req": "harness",
+      "why": "决策记录里的需求编号写死成一个大写字母加数字 —— 换一个编号前缀更长的项目，这条检查一条都匹配不到，而且不报错",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  const shape = new RegExp(`\\\\b(?:${prefixes.join('|')})\\\\d+\\\\b`, 'g')",
+      "replace": "  const shape = /\\b[A-Z]\\d+\\b/g"
+    },
+    {
+      "id": "M-H5-b",
+      "req": "harness",
+      "why": "同一个方向的交点声明两次也放行 —— 两条可能互相矛盾的裁决，被同一次认领同时算成有测试",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "      if (declared.has(fwd)) {",
+      "replace": "      if (false) {"
+    },
+    {
+      "id": "M-H8-e",
+      "req": "harness",
+      "why": "拆成单文件后的一级记录标题不再认作记录 —— 登记表里每条 adr 引用都报「不存在」，而记录明明在 docs/adr/ 里",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  return new Set([...decisions.matchAll(/^#{1,2}\\s+(ADR-\\d+)/gm)].map(m => m[1]))",
+      "replace": "  return new Set([...decisions.matchAll(/^##\\s+(ADR-\\d+)/gm)].map(m => m[1]))"
     }
   ],
   "exemptions": [
