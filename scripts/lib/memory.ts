@@ -418,6 +418,13 @@ export function recordRecommendations(
     })
     mem.creators[k] = e
   }
-  saveMemory(mem)
+  try {
+    saveMemory(mem)
+  } catch (e) {
+    // 写不进去（目录只读、磁盘满、路径被占）同样是**「没写回」，不是「交付失败」**。
+    // 这一步跑在报告之前，让它抛会把已经算好的名单连同报告一起丢掉 ——
+    // 而原文件仍然完好，真实损失只有这一轮的推荐记录（ADR-19）。
+    return { written: false, reason: e instanceof Error ? e.message : String(e) }
+  }
   return { written: true }
 }
