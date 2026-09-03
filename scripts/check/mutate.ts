@@ -18,6 +18,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
+import { orphanAttributions } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import { type RunVerdict, judgeRun } from './mutate-rule.js'
 
@@ -26,6 +27,22 @@ interface Exemption { req: string; scope?: string; why: string; mitigation?: str
 const cfg = JSON.parse(readFileSync('scripts/check/mutations.json', 'utf8'))
 const muts: Mut[] = cfg.mutations
 const exemptions: Exemption[] = cfg.exemptions ?? []
+
+// 记在谁名下。审计拿 req 回答「这条需求有没有变异守着」—— 写成一个不存在的
+// 编号时，变异照样跑、照样被抓到，全绿，而它对任何一条需求都不算数（ADR-34）。
+// 名下目前是需求编号；验收判据拆成独立编号之后，判据编号也进这份名单。
+const registry: { id: string }[] = JSON.parse(readFileSync('docs/requirements.json', 'utf8')).requirements
+const known = new Set(registry.map(r => r.id))
+const orphans = [
+  ...orphanAttributions(muts, known),
+  ...orphanAttributions(exemptions.map(e => ({ id: `豁免 ${e.req}`, req: e.req })), known),
+]
+if (orphans.length) {
+  console.error(`✗ 变异集：${orphans.length} 条记在不存在的需求名下 —— 它们对任何一条需求都不算数\n`)
+  for (const o of orphans) console.error(`  ${o.id}  记在 ${o.req} 名下，而登记表里没有这条`)
+  console.error('\n  守检查链本身的写 harness；守某条需求的写它真实的编号。')
+  process.exit(1)
+}
 
 const dirty = muts.flatMap(m => {
   const leak = implementationLeak(m.why)

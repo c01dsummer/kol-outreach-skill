@@ -1226,6 +1226,14 @@
       "replace": "    for (const c of [] as typeof unclaimed) {\n      flag = '✗'; hard++"
     },
     {
+      "id": "M-H7-a",
+      "req": "harness",
+      "why": "变异记在一个不存在的编号名下也放行 —— 那条变异照样跑、照样被抓到，控制台一片绿，而它对任何一条需求都不算数，审计报出的「有变异守着」少了一条却没有人被告知",
+      "file": "scripts/check/attribution-rule.ts",
+      "find": "  return entries.filter(e => e.req !== HARNESS && !known.has(e.req))",
+      "replace": "  return entries.filter(() => false)"
+    },
+    {
       "id": "M-H8-d",
       "req": "harness",
       "why": "分类表按排序后的形状进指纹，丢掉它的顺序 —— 只调换两个分类的先后，渲染出来的文档分节顺序就变了，而指纹一动不动",
