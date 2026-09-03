@@ -1016,6 +1016,14 @@
       "file": "scripts/lib/atomic.ts",
       "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue",
       "replace": "    if (!Number.isSafeInteger(pid) || pid <= 0 || String(pid) !== spelled) continue"
+    },
+    {
+      "id": "M-D4-ad",
+      "req": "D4",
+      "why": "把 pid 上限放宽到 process.kill 收得下的 int32 —— 系统根本发不出的 pid（如 2147483647）被当成死进程的残留删掉，而没有哪个进程写得出这种名字",
+      "file": "scripts/lib/atomic.ts",
+      "find": "const PID_MAX = 4 * 1024 * 1024",
+      "replace": "const PID_MAX = 0x7fffffff"
     }
   ],
   "exemptions": [

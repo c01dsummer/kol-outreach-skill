@@ -122,8 +122,13 @@ export function writeTarget(file: string): string {
  */
 const TMP_MAX_AGE_MS = 60 * 60 * 1000
 
-/** `process.kill` 收得下的最大 pid（int32）：再大的它不问系统、直接抛参数错 */
-const PID_MAX = 0x7fffffff
+/**
+ * 系统发得出的 pid 上限：Linux 的硬上限 `PID_MAX_LIMIT` 在 64 位下是 4 * 1024 * 1024
+ * （运行时的 `pid_max` 只能比它小），macOS / BSD 是 99999，都在这以内；Windows 没写死，
+ * 但实际远在此内。名字里的数超过它就没有哪个进程写得出来。**宁严勿宽**：判严了的代价
+ * 是那份残留留着不清，判松了会删掉别人的文件（评审第三轮）
+ */
+const PID_MAX = 4 * 1024 * 1024
 
 /** 那个进程还在吗。EPERM 说明进程存在、只是不归我们管 —— 那也算活着 */
 function alive(pid: number): boolean {
@@ -166,9 +171,9 @@ function sweepStaleTemps(target: string): void {
     if (!name.startsWith(prefix) || !name.endsWith('.tmp')) continue
     // 只认 `process.pid` 写得出来的名字：正规十进制（`1e3`、`007`、`0x10`、`-5` 都不是，
     // 而 `Number()` 全吞得下）、转成数字没丢精度（过了 2^53 转回来就对不上）、
-    // 落在 pid 取得到的范围里（超出 int32 的 `process.kill` 抛的是参数错，`alive`
-    // 会把它当成「死了」）。别的名字没有哪个进程写得出来 —— 那是别人的文件，
-    // 不是残留，再老也不动（评审一、二轮）
+    // 落在系统发得出的范围里（`PID_MAX`；超出它的 `process.kill` 答的是「没这个进程」，
+    // 超出 int32 的更是直接抛参数错，`alive` 都会当成「死了」）。别的名字没有哪个进程
+    // 写得出来 —— 那是别人的文件，不是残留，再老也不动（评审一、二、三轮）
     const spelled = name.slice(prefix.length, -'.tmp'.length)
     const pid = Number(spelled)
     if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue

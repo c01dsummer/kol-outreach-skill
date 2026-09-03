@@ -871,13 +871,15 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   // 只认 pid 的正规十进制写法：`1e3` 在 Number() 眼里是 1000，`007` 是 7 ——
   // 但本函数从不写出这种名字，它们是别人的文件，再老也不许动（评审发现）。
   // 长过 2^53 的数字串转成数字会丢精度、超出 int32 的 process.kill 直接抛参数错 ——
-  // 这两种同样没有哪个进程写得出来，一样不许动（评审第二轮）
-  for (const spelled of ['1e3', '007', '9007199254740993', '4294967296']) {
+  // 这两种同样没有哪个进程写得出来，一样不许动（评审第二轮）。
+  // 系统发得出的 pid 有上限（Linux 硬上限 4194304）：超过它、哪怕还在 int32 以内，
+  // process.kill 也只会答「没这个进程」—— 一样是别人的文件（评审第三轮）
+  for (const spelled of ['1e3', '007', '9007199254740993', '4294967296', '2147483647', '4194305']) {
     const alien = `${tmp}.${spelled}.tmp`
     writeFileSync(alien, '别人的文件，名字只是长得像', 'utf8')
     utimesSync(alien, twoHoursAgo, twoHoursAgo)
     recordRecommendations([mk('tiktok', 'erin')], 'p')
-    ok(`名字不是正规十进制 pid 的（${spelled}）不动`, existsSync(alien))
+    ok(`名字没有哪个进程写得出来的（${spelled}）不动`, existsSync(alien))
     rmSync(alien, { force: true })
   }
 
