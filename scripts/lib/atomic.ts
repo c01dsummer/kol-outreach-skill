@@ -56,6 +56,7 @@ export function writeFileAtomic(file: string, data: string | Buffer): void {
   }
   sweepStaleTemps(target)
   const tmp = `${target}.${process.pid}.tmp`
+  let fd: number | undefined
   try {
     // 临时名上已经有东西时**不复用它**。带着这个 pid 死掉的前任留下的临时文件，
     // 权限已经在改名之前被调宽；而 Node 对已存在的文件忽略 mode —— 复用它，
@@ -64,29 +65,28 @@ export function writeFileAtomic(file: string, data: string | Buffer): void {
     // 再独占地建：删与建之间要是又冒出来一个，宁可报失败也不写进去。
     rmSync(tmp, { force: true })
     writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+    // 刷盘用的描述符**在改权限之前拿**：此刻临时文件是 0600，属主一定打得开；
+    // 带上目标的权限之后就不一定了 —— 目标是 0200 这类只写文件时（它过得了
+    // 上面「可写」那一问），改完权限再按读打开会被拒，改名就永远走不到，
+    // 而不是 root 时正是这样（评审第一轮）。权限位是 inode 的元数据：改完再刷，
+    // 和内容一次落盘。
+    fd = openSync(tmp, 'r')
     // 已有的文件带回它原来的权限；新文件还原成 umask 默认。
     // **两条都得写** —— 少了后一条，「新文件保持默认」就只是一句注释（ADR-57）。
     chmodSync(tmp, mode ?? (0o666 & ~process.umask()))
-    fsyncFile(tmp)             // 内容先落盘，再让改名把它接上；刷不动就是没落盘，要抛
+    // 内容先落盘，再让改名把它接上。**刷不动要抛**：刷不动就是没落盘，而调用方
+    // 正要据此告诉用户「已记入」；延迟写的错误（磁盘满、IO 错）恰恰是在这一刻
+    // 才浮出来的，吞掉它等于把刷盘这件事存在的理由抵消掉。
+    fsyncSync(fd)
+    closeSync(fd); fd = undefined         // 改名前先关：有的平台不许改名一个开着的文件
     renameSync(tmp, target)
     fsyncDirBestEffort(dirname(target))   // 改名是目录的改动，它自己也要落盘
   } catch (e) {
-    // 清不掉半成品（比如那个名字上正好卡着一个目录）也不该盖住真正的错
-    try { rmSync(tmp, { force: true }) } catch { /* 报出去的是写失败的原因 */ }
+    // 关不上描述符、清不掉半成品（比如那个名字上正好卡着一个目录），都不该盖住真正的错
+    try { if (fd !== undefined) closeSync(fd) } catch { /* 报出去的是写失败的原因 */ }
+    try { rmSync(tmp, { force: true }) } catch { /* 同上 */ }
     throw e
   }
-}
-
-/**
- * 把**文件**刷到盘上。**失败要抛。**
- *
- * 刷不动就是没落盘 —— 而调用方正要据此告诉用户「已记入」。
- * 延迟写的错误（磁盘满、IO 错）恰恰是在这一刻才浮出来的，吞掉它等于
- * 把这个函数存在的理由抵消掉。
- */
-function fsyncFile(path: string): void {
-  const fd = openSync(path, 'r')
-  try { fsyncSync(fd) } finally { closeSync(fd) }
 }
 
 /**

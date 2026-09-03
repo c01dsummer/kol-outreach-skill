@@ -941,6 +941,24 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     rmSync(root, { recursive: true, force: true })
   }
 
+  // 七之十二、目标是**只写**的文件（0200）也替换得了，权限原样带过去。它过得了
+  //          「可写」那一问；刷盘用的描述符要是在权限改成 0200 之后才按读打开，
+  //          不是 root 时就被拒在改名之前 —— 一个能写的文件从此永远写不回
+  //          （评审第一轮）。root 跑的时候打开什么都成，这条只在 CI（非 root）
+  //          咬得住；本地跑过不算数。
+  {
+    const wo = join(tmpdir(), `kol-d4-writeonly-${process.pid}.json`)
+    writeFileSync(wo, '旧的', 'utf8')
+    chmodSync(wo, 0o200)
+    let threwWo = ''
+    try { writeFileAtomic(wo, '新的') } catch (e) { threwWo = String(e) }
+    eq('只写的目标照样替换成功', threwWo, '')
+    eq('只写这个权限位原样带过去', modeOf(wo), 0o200)
+    chmodSync(wo, 0o600)
+    eq('内容是这一次写的', rf(wo, 'utf8'), '新的')
+    rmSync(wo, { force: true })
+  }
+
   // 八、写入侧不许写出读取侧会拒绝的东西。任务配置里 product 是空白时，
   //     写下的那条推荐记录下次读盘正好被判成损坏 —— 一次写回就把一份好好的
   //     记忆变成读不出来的，此后每次采集都被挡住（ADR-46）。
