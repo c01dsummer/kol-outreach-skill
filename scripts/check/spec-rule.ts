@@ -16,7 +16,7 @@
  *    这里不读盘、不扫源码
  */
 import { createHash } from 'node:crypto'
-import { quotedMask } from './quoted.js'
+import { endsOpen, quotedMask } from './quoted.js'
 
 export interface Tension {
   /** 与哪条需求相拉扯 */
@@ -350,7 +350,9 @@ export function validateRegistry(reqs: Req[], adrIds: Set<string>, cats: string[
  *
  * 行内注释只从**元数据行**上剥:围栏的闭合行后面只能是空白,`\`\`\` <!-- 示例 -->` 不闭合;
  * 先把注释剥掉再算遮罩,它就成了闭合行,示例里接下来的编号露出来被当成引用(#40 第二轮
- * 评审意见)。元数据行剥掉一段开合的注释,不会改变围栏、HTML 块或跨行注释的状态。
+ * 评审意见)。而且只在这一行之前没有开着的引文构造时才剥(`quoted.ts` 的 `endsOpen`):
+ * 开着的跨行注释里,元数据形状的行上那个关闭记号是在关注释,先剥掉它注释就关不上,
+ * 后面真的元数据行被整行盖住,漏报(#40 合入后的评审意见)。
  */
 export function danglingAdrRefs(
   decisions: string, ids: Set<string>, prefixes: string[],
@@ -359,7 +361,8 @@ export function danglingAdrRefs(
   const escaped = prefixes.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   const shape = new RegExp(`(?<![A-Za-z0-9_])(?:${escaped.join('|')})\\d+(?![A-Za-z0-9_])`, 'g')
   const meta = /^\s*- 冲击的需求[:：]/
-  const bare = decisions.split('\n').map(l => meta.test(l) ? l.replace(/<!--.*?-->/g, '') : l).join('\n')
+  const lines = decisions.split('\n')
+  const bare = lines.map((l, i) => meta.test(l) && !endsOpen(lines.slice(0, i).join('\n')) ? l.replace(/<!--.*?-->/g, '') : l).join('\n')
   const mask = quotedMask(bare)
   const out: string[] = []
   bare.split('\n').forEach((line, i) => {
