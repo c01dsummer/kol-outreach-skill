@@ -1,5 +1,6 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { readFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { isAbsence, writeFileAtomic } from './atomic.js'
 import { PLATFORMS, creatorKey, textProblem, type Creator, type MemoryStatus } from './types.js'
 
 /** D4：本地单文件，不做多人共享。团队场景需另行设计。 */
@@ -69,13 +70,6 @@ export class MemoryUnreadable extends Error {
 type ReadResult =
   | { status: 'ok' | 'absent'; mem: MemoryFile }
   | { status: 'unreadable'; detail: string }
-
-/**
- * 一次读失败算不算「盘上没有这个文件」：**只有 ENOENT 算**。
- * 权限不足、父路径不是目录、IO 错都是「看不到」，不是「没有」（ADR-26）。
- */
-const isAbsence = (e: unknown): boolean =>
-  (e as NodeJS.ErrnoException | null)?.code === 'ENOENT'
 
 const empty = (): MemoryFile => ({ version: 1, updated_at: '', creators: {} })
 
@@ -293,7 +287,10 @@ export function loadMemory(): MemoryFile {
 export function saveMemory(mem: MemoryFile): void {
   mkdirSync(dirname(FILE), { recursive: true })
   mem.updated_at = new Date().toISOString()
-  writeFileSync(FILE, JSON.stringify(mem, null, 2), 'utf8')
+  // 先写临时文件再改名。直接盖原文件是非原子的，中途被打断会留下一份截断的
+  // JSON —— 而这个文件装着「谁联系过」，是唯一一份副本（memory/ 不进 git），
+  // 坏了就再也重建不了（ADR-15）。整体替换只有一份实现，任务目录那边用的也是它。
+  writeFileAtomic(FILE, JSON.stringify(mem, null, 2))
 }
 
 export interface FilterResult {

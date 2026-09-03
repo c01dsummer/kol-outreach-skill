@@ -41,7 +41,10 @@ import {
   accountKey, assignAudienceRisks, attachAssessments, calculatePublicMetrics,
   calculateQuoteEfficiency, measured, publicPostSample, recomputeCachedAssessment, unavailable,
 } from './lib/assessment.js'
-import { writeFileSync, unlinkSync, truncateSync, rmSync, mkdirSync, existsSync } from 'node:fs'
+import {
+  writeFileSync, unlinkSync, truncateSync, rmSync, mkdirSync, existsSync,
+  readdirSync, chmodSync, statSync, symlinkSync, lstatSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -49,7 +52,8 @@ import type {
   EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, TaskState,
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
-import { persistListAndStatus } from './lib/task.js'
+import { persistListAndStatus, saveTask } from './lib/task.js'
+import { isAbsence, writeFileAtomic } from './lib/atomic.js'
 
 let fail = 0
 let cur = ''
@@ -657,6 +661,115 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     rmSync(d, { recursive: true, force: true })
   }
 
+  // 七之三、写不进去也是「没写回」，不是「交付失败」。
+  //     这一步跑在报告之前，让它抛会把算好的名单连同报告一起丢掉，
+  //     而原文件本来就完好 —— 真实损失只有这一轮的记录（ADR-19）。
+  // 要的是**读得出来但写不进去**：在写回用的临时文件名上放一个目录，
+  // 于是读照常成功，写必然失败（容器里跑 root，chmod 拦不住写）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  const blocker = `${tmp}.${process.pid}.tmp`
+  // 上一次被杀在半路的进程可能留下同名文件，而 pid 会被复用 —— 先清掉，别让 mkdir 撞上它
+  rmSync(blocker, { recursive: true, force: true })
+  mkdirSync(blocker, { recursive: true })
+  eq('这一步记忆仍然读得出来', filterByMemory(batch, 'p').memory_status, 'ok')
+  const blocked = writeOf(() => recordRecommendations([mk('tiktok', 'erin')], 'p'))
+  eq('写不进去时不抛', blocked.threw, '')
+  eq('而是报「没写回」', blocked.written, false)
+  ok('并带上原因', !blocked.written && blocked.reason.length > 0)
+  ok('原文件没被动过', JSON.parse(rf(tmp, 'utf8')).creators.erin === undefined)
+  rmSync(blocker, { recursive: true, force: true })
+
+  // 任务目录走的是同一份整体替换：写不进去时原来那份一个字节不动
+  {
+    const d = join(tmpdir(), `kol-d4-atomic-${process.pid}`)
+    rmSync(d, { recursive: true, force: true })
+    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1,
+      memory_status: 'ok' } as unknown as TaskState
+    saveTask(d, st)
+    const before = rf(join(d, 'task.json'), 'utf8')
+    // 拿一个同名目录占住临时文件名，写入必定失败
+    mkdirSync(join(d, `task.json.${process.pid}.tmp`), { recursive: true })
+    let threw = false
+    try { saveTask(d, { ...st, product: '改过的' }) } catch { threw = true }
+    ok('任务目录写不进去时抛出来', threw)
+    eq('而原来那份 task.json 一个字节没动', rf(join(d, 'task.json'), 'utf8'), before)
+    ok('它仍然解析得出来', (() => {
+      try { JSON.parse(rf(join(d, 'task.json'), 'utf8')); return true } catch { return false }
+    })())
+    rmSync(d, { recursive: true, force: true })
+  }
+
+  // 读权限位：文件不在了就把「没了」当成一个值带回来 —— 让它作为断言失败被抓到，
+  // 不是让测试进程死在 statSync 上
+  const modeOf = (p: string): number | string => existsSync(p) ? statSync(p).mode & 0o777 : '（文件没了）'
+  // 七之四、写回不许悄悄放开权限。按 umask 建的临时文件（通常 0644）改名之后
+  //        会把这个权限一并装到目标上 —— 特意 chmod 600 过的记忆每写回一次
+  //        就被放开一次，而它记着谁联系过、备注写了什么（ADR-40）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  chmodSync(tmp, 0o600)
+  recordRecommendations([mk('tiktok', 'erin')], 'p')
+  eq('写回保留目标文件原有的权限位', modeOf(tmp), 0o600)
+  // 再验一个**不等于临时文件那档**的权限：临时文件是按最严建的，
+  // 只断言 0600 的话，「建得严」和「事后调回目标」这两件事分不开 ——
+  // 删掉后者，测试照样绿
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  chmodSync(tmp, 0o640)
+  recordRecommendations([mk('tiktok', 'erin')], 'p')
+  eq('目标比临时文件宽时也照样还原，不是停在最严那一档', modeOf(tmp), 0o640)
+  {
+    const d2 = join(tmpdir(), `kol-d4-mode-${process.pid}`)
+    rmSync(d2, { recursive: true, force: true })
+    const st2 = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1 } as unknown as TaskState
+    saveTask(d2, st2)
+    chmodSync(join(d2, 'task.json'), 0o640)
+    saveTask(d2, st2)
+    eq('任务目录的落盘同样保住权限位', modeOf(join(d2, 'task.json')), 0o640)
+    rmSync(d2, { recursive: true, force: true })
+  }
+
+  // 七之五、**新文件按 umask 默认建**，不是停在临时文件那一档。
+  //        临时文件按最严建是为了盖住那段窗口，不是替产品决定新文件该多严；
+  //        少了还原那一步，每个新建的 task.json / 名单 / 增强结果都变成
+  //        只有属主可读，而这是一句注释说了、代码没做的事（ADR-57）。
+  {
+    const fresh = join(tmpdir(), `kol-d4-fresh-${process.pid}.json`)
+    rmSync(fresh, { force: true })
+    const before = process.umask()
+    writeFileAtomic(fresh, '{}')
+    eq('新文件按 umask 默认，不是临时文件那档最严的', modeOf(fresh), 0o666 & ~before)
+    rmSync(fresh, { force: true })
+  }
+
+  // 七之六、**目标是软链时，写的是它指向的那个文件**。
+  //        改名换掉的是链接本身 —— 第一次写回就把用户配好的链接换成
+  //        普通文件，真正那份从此不再更新，而报告照样说「已记入」。
+  //        换成整体替换之前这里是一次普通 writeFileSync，它跟着链接写到终点，
+  //        所以这不是新能力，是不让整体替换顺手弄坏原来对的行为（ADR-57）。
+  {
+    const base = join(tmpdir(), `kol-d4-link-${process.pid}`)
+    rmSync(base, { recursive: true, force: true })
+    mkdirSync(base, { recursive: true })
+    const real = join(base, 'real.json'), link = join(base, 'link.json')
+    writeFileSync(real, '{"v":1}', 'utf8')
+    symlinkSync(real, link)
+    writeFileAtomic(link, '{"v":2}')
+    ok('链接还是链接，没被换成普通文件', lstatSync(link).isSymbolicLink())
+    eq('写进去的是它指向的那份', rf(real, 'utf8'), '{"v":2}')
+    rmSync(base, { recursive: true, force: true })
+  }
+
+  // 七之七、一次读失败算不算「盘上没有」：**只有 ENOENT 算**。
+  //        权限不足、父路径不是目录、IO 错都是「看不到」—— 压成一个值，
+  //        读记忆的那一侧会拿「看不到」当「没有」放行（ADR-26），写文件的这一侧
+  //        会把读不到权限位的目标当成新文件。两个调用方，所以只留一份。
+  eq('文件不存在算「盘上没有」', isAbsence({ code: 'ENOENT' }), true)
+  for (const code of ['EACCES', 'ENOTDIR', 'EIO', 'EISDIR', undefined]) {
+    eq(`读不到（${code ?? '没有错误码'}）不算「盘上没有」`, isAbsence({ code }), false)
+  }
+  eq('连错误对象都没有时也不算', isAbsence(null), false)
+
   // 八、写入侧不许写出读取侧会拒绝的东西。任务配置里 product 是空白时，
   //     写下的那条推荐记录下次读盘正好被判成损坏 —— 一次写回就把一份好好的
   //     记忆变成读不出来的，此后每次采集都被挡住（ADR-46）。
@@ -707,10 +820,12 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     return Object.keys(JSON.parse(rf(tmp, 'utf8')).creators)
   })(), ['tiktok:carol', 'tiktok:dave'])
 
-  // 九、正常写回
+  // 九、正常写回是原子的 —— 不留临时文件
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
   const okWb = recordRecommendations([mk('tiktok', 'erin')], 'p')
   eq('正常时写回成功', okWb.written, true)
+  eq('不留下半成品', readdirSync(tmpdir()).filter(f =>
+    f.startsWith(`kol-d4-${process.pid}`) && f.endsWith('.tmp')).length, 0)
   ok('写回后仍可解析', (() => { try { JSON.parse(rf(tmp, 'utf8')); return true } catch { return false } })())
 
   rmSync(tmp, { force: true })   // 变异可能已经把它删了，清理不该因此崩掉
