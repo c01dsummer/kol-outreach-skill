@@ -1549,6 +1549,19 @@ harness('需求登记表的完整性判定')
   ok('两字母前缀的项目一样查得到',
     danglingAdrRefs('- 冲击的需求：REQ7', new Set<string>(), ['REQ']).length > 0)
   eq('没有分类前缀就不装作查过', danglingAdrRefs(doc, new Set<string>(), []).length, 0)
+  // 前缀各自转义：登记表那头认了含正则元字符的前缀，这里不能炸（#36 合入后的评审意见）
+  // 炸掉的话要作为断言失败报出来，不是让测试进程死在半路
+  const cpp = (ids: Set<string>) => {
+    try { return danglingAdrRefs('- 冲击的需求：C++7', ids, ['C++']).length }
+    catch (e) { return String(e) }
+  }
+  eq('前缀含正则元字符也查得到', cpp(new Set<string>()), 1)
+  eq('前缀含正则元字符且编号存在时不报', cpp(new Set(['C++7'])), 0)
+  // 引文里举例的编号不算引用 —— 与记录标题同一把遮罩
+  eq('围栏里的示例编号不算引用',
+    danglingAdrRefs('## ADR-07 标题\n\n```md\n- 冲击的需求：D99\n```\n', new Set<string>(), ['D']).length, 0)
+  eq('HTML 注释里的示例编号不算引用',
+    danglingAdrRefs('<!--\n- 冲击的需求：D98\n-->\n', new Set<string>(), ['D']).length, 0)
 }
 
 harness('变异集的 why 不许夹带实现原文')

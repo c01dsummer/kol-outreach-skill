@@ -236,20 +236,28 @@ export function validateRegistry(reqs: Req[], adrIds: Set<string>, cats: string[
  * 编号形状**从分类前缀派生**,不写死。写死成「一个大写字母加数字」的话,
  * 换一个用两字母前缀的项目,这条检查会安静地一条都匹配不到 ——
  * 一个永远通得过的检查和没有检查一样(`process/1-REQUIREMENTS.md`)。
+ *
+ * 前缀**各自转义**再拼:登记表那头对 cat 做了转义,等于承认前缀可以含正则元字符,
+ * 这里原样拼进去,`C++` 这种过得了登记表却在此处抛 SyntaxError。
+ * 只认**引文之外**的行,与 `adrIdsIn` 同一把遮罩:围栏里举例写的
+ * `- 冲击的需求:D99` 不遮住,一份合法的记录会被报成指向不存在的编号(#36 合入后的评审意见)。
  */
 export function danglingAdrRefs(
   decisions: string, ids: Set<string>, prefixes: string[],
 ): string[] {
   if (!prefixes.length) return []
-  const shape = new RegExp(`\\b(?:${prefixes.join('|')})\\d+\\b`, 'g')
+  const escaped = prefixes.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const shape = new RegExp(`\\b(?:${escaped.join('|')})\\d+\\b`, 'g')
+  const mask = quotedMask(decisions)
   const out: string[] = []
-  for (const line of decisions.split('\n')) {
+  decisions.split('\n').forEach((line, i) => {
+    if (mask[i]) return
     const m = /^- 冲击的需求[:：](.*)$/.exec(line.trim())
-    if (!m) continue
+    if (!m) return
     for (const id of m[1].match(shape) ?? []) {
       if (!ids.has(id)) out.push(`决策记录提到不存在的需求编号 ${id}`)
     }
-  }
+  })
   return [...new Set(out)]
 }
 
