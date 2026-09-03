@@ -1256,6 +1256,14 @@
       "file": "scripts/check/spec-rule.ts",
       "find": "      requirements: reqs, categories: Object.entries(cats),",
       "replace": "      requirements: reqs, categories: cats,"
+    },
+    {
+      "id": "M-H14-b",
+      "req": "harness",
+      "why": "覆盖记录的指纹去算另一个现存文件 —— 测试源码改了但没重跑，审计照样放行，过期检查静默失效（指纹保护的是写测试的那个文件，只此一份）",
+      "file": "scripts/check/claims.ts",
+      "find": "export const SELF = 'scripts/test.ts'",
+      "replace": "export const SELF = 'scripts/lib/atomic.ts'"
     }
   ],
   "exemptions": [

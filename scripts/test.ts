@@ -1150,6 +1150,9 @@ suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时�
   // F5：没有增强层时 audience_geo 为 undefined，主流程照常走完
   const noGeo = mk('tiktok', 'n', { email: 'a@example.com', fit: '✅' })
   eq('无增强数据不影响分层', rankCreators([noGeo], 'US')[0].tier, 'A')
+  // F5 × P1 的 P1 那一半：走完了也不给缺失的字段填猜测值 —— 只验「不影响分层」的话，
+  // 一个把 audience_geo 写成默认值的实现同样给 A，交点就成了一句话的认领（ADR-17）。
+  eq('走完也不给缺失的受众占比填猜测值', rankCreators([noGeo], 'US')[0].audience_geo, undefined)
   tension('F5', 'P1')
 }
 
@@ -1184,6 +1187,7 @@ suite('P5', '交付必须声明数据边界')
       budget_usd: 2, enriched: false })
   ok('未增强时声明邮箱未验证', html.includes('未做有效性验证'))
   ok('未增强时声明受众未知', html.includes('无法确认'))
+  criterion('P5.a')
 
   const enriched = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 50 })],
     { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
@@ -1251,7 +1255,6 @@ suite('P5', '交付必须声明数据边界')
   ok('一切正常时不加噪音',
     !normal.includes('未做「已联系 / 已推荐」去重') && !normal.includes('未记入跨任务记忆') &&
     !normal.includes('无从确认'))
-  criterion('P5.a', 'P5.b', 'P5.c')
 }
 
 // ─────────────────────────── 数据 ───────────────────────────
@@ -2298,8 +2301,10 @@ suite('U7', '公开指标、风险依据、报价效率与边界进入交付物'
     html.includes('活跃状态') && html.includes('>停更</b>') && html.includes('>活跃</b>'))
   ok('公开指标不会隐藏邮箱与地域边界',
     html.includes('未做有效性验证') && html.includes('无法确认'))
+  criterion('P5.b')
   ok('HTML 明说风险不是假粉率或带货效果',
     html.includes('不是假粉率') && html.includes('不能代表实际带货效果'))
+  criterion('P5.c')
 }
 
 suite('U4', 'A 级附开发信草稿且可复制')
@@ -2338,6 +2343,13 @@ harness('审计：检查链自己的判定模块必须有变异守着')
   eq('没有变异指向它的判定模块被点名', unguarded(['a.ts', 'b.ts'], [{ file: 'a.ts' }]), ['b.ts'])
   eq('都有变异 → 无', unguarded(['a.ts'], [{ file: 'a.ts' }, { file: 'a.ts' }]), [])
   eq('变异指向别的文件不算数', unguarded(['a.ts'], [{ file: 'c.ts' }]), ['a.ts'])
+}
+
+harness('覆盖记录：指纹保护的是 test.ts 自己')
+{
+  // 把 SELF 改成另一个现存文件，写的一方和读的一方照样一致 —— 只是 test.ts 改了
+  // 之后记录不再过期，审计的过期检查静默失效。所以这个常量不能豁免，要钉死（M-H14-b）。
+  eq('指纹来源钉死成 test.ts', SELF, 'scripts/test.ts')
 }
 
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
@@ -2820,13 +2832,17 @@ if (process.argv.includes('--json')) {
  * 带上本文件的指纹：审计要重算一遍并比对，**过期的记录不算数**。
  * 没跑过测试就没有这份记录，审计当场说「先跑 npm test」，而不是默默放行。
  */
-mkdirSync(dirname(CLAIMS_PATH), { recursive: true })
-writeFileSync(CLAIMS_PATH, JSON.stringify({
-  source_hash: createHash('sha256').update(rf(SELF, 'utf8')).digest('hex').slice(0, 12),
-  covered: [...covered].sort(),
-  tensions: [...new Set(tensionClaims)].sort(),
-  criteria: [...new Set(criteriaClaims)].sort(),
-}, null, 2), 'utf8')
+// 变异测试跑的是被改过的源码，那一次执行留下的覆盖记录不作数 —— 记录只能由
+// 一次干净的测试运行写（mutate.ts 给变异跑打上 MUTATING 标记，这里据此跳过）。
+if (process.env.MUTATING !== '1') {
+  mkdirSync(dirname(CLAIMS_PATH), { recursive: true })
+  writeFileSync(CLAIMS_PATH, JSON.stringify({
+    source_hash: createHash('sha256').update(rf(SELF, 'utf8')).digest('hex').slice(0, 12),
+    covered: [...covered].sort(),
+    tensions: [...new Set(tensionClaims)].sort(),
+    criteria: [...new Set(criteriaClaims)].sort(),
+  }, null, 2), 'utf8')
+}
 
 // 不 process.exit()：stdout 接的是管道时（变异测试就是这么跑的），刚 console.log 的那几行可能
 // 还没写出去就被 exit 截掉 —— 实测 8 次里 1 次「N 个失败」那一行丢了，进程退出码 1 却没有汇总，

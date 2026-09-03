@@ -237,10 +237,17 @@ console.log(`  交点 ${tensionRows.length} 处 · 有测试认领 ` +
             `${tensionRows.filter(r => r.trimStart().startsWith('✓')).length}`)
 const allCrit = reqs.flatMap(r => r.accept)
 const redlineCrit = reqs.filter(r => r.cat === REDLINE_CAT).flatMap(r => r.accept)
+/**
+ * 测试认领与显式豁免分开报 —— 豁免是显式缺口，不是测试证据。
+ * 合起来报「认领 N」，一份审计的两个数（逐条与汇总）会对不上，
+ * 而且把缺口装成了证据（P2.a / P3.b 没有运行时认领）。
+ */
+const redlineTested = redlineCrit.filter(c => testedCriteria.has(c.id)).length
+const redlineExempt = redlineCrit.filter(c => exemptIds.has(c.id)).length
 console.log(`  验收判据 ${allCrit.length} 条 · 有测试认领 ` +
             `${allCrit.filter(c => testedCriteria.has(c.id)).length}` +
-            ` · 其中红线 ${redlineCrit.length} 条（认领 ` +
-            `${redlineCrit.filter(c => testedCriteria.has(c.id) || exemptIds.has(c.id)).length}）`)
+            ` · 其中红线 ${redlineCrit.length} 条（测试认领 ${redlineTested}` +
+            ` · 显式豁免 ${redlineExempt}）`)
 
 if (hard) { console.error(`\n✗ 审计：${hard} 项硬失败`); process.exit(1) }
 console.log('\n✓ 审计：红线全部有测试且被变异验证；检查链的判定模块全部有变异守着')

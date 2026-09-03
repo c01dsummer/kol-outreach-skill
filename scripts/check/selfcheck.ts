@@ -251,6 +251,11 @@ if (dir) {
     if (!activity || activity.measured + activity.unavailable + activity.unqueried !== activity.total) {
       failed++; console.error('  ✗ meta.json 缺少完整的 creator_activity 三态统计')
     } else console.log('  ✓ meta.json 含 creator_activity 三态统计')
+    // P5.a 的 meta.json 那一半：这条自检的管线不配置邮箱/地域增强层，
+    // enriched 必须是 false —— 公开指标不能把邮箱/受众增强伪装成已完成。
+    if (meta.enriched !== false) {
+      failed++; console.error('  ✗ meta.json 的 enriched 不实 —— 未配置邮箱/地域增强却报 true（P5.a）')
+    } else console.log('  ✓ meta.json 的 enriched 如实（未配置外部增强层时为 false）')
   }
   if (!existsSync(html)) { failed++; console.error('  ✗ 未生成 HTML') }
   else {
