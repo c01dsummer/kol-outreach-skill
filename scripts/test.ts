@@ -43,7 +43,7 @@ import {
 } from './lib/assessment.js'
 import {
   writeFileSync, unlinkSync, truncateSync, rmSync, mkdirSync, existsSync,
-  readdirSync, chmodSync, statSync, symlinkSync, lstatSync,
+  readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -836,6 +836,80 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     eq(`读不到（${code ?? '没有错误码'}）不算「盘上没有」`, isAbsence({ code }), false)
   }
   eq('连错误对象都没有时也不算', isAbsence(null), false)
+
+  // 七之八、硬杀（SIGKILL、断电）发生在写临时文件与改名之间时，catch 不会跑，
+  //        一份完整的临时文件留在盘上。任何 write-then-rename 都躲不掉这一格，
+  //        能做的是下次写回时把它清掉 —— 但只清死掉的进程留下的（ADR-30）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  const deadPid = 999999          // 不存在的进程
+  const orphan = `${tmp}.${deadPid}.tmp`
+  writeFileSync(orphan, '上一次被硬杀时留下的', 'utf8')
+  recordRecommendations([mk('tiktok', 'erin')], 'p')
+  eq('死掉的进程留下的临时文件被清掉', existsSync(orphan), false)
+
+  // 但活着的进程正在写的那份不许动 —— 两个 render 同时跑时那是人家的
+  const otherLive = `${tmp}.${process.ppid}.tmp`
+  writeFileSync(otherLive, '别的进程正在写', 'utf8')
+  recordRecommendations([mk('tiktok', 'erin')], 'p')
+  ok('活着的进程的临时文件不动', existsSync(otherLive))
+
+  // 但「pid 还活着」不等于「它就是写这个文件的那个进程」—— 系统会回收 pid。
+  // 回收到一个长命进程头上，孤儿就再也清不掉了。真正在写的文件只有毫秒级寿命，
+  // 所以活得太久的一律清掉（ADR-39 · ADR-44）。
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
+  writeFileSync(otherLive, '别的进程正在写', 'utf8')   // 这一步自己备好文件，不依赖上一步没删它
+  utimesSync(otherLive, twoHoursAgo, twoHoursAgo)
+  recordRecommendations([mk('tiktok', 'erin')], 'p')
+  eq('pid 被回收给别的进程时，靠年龄兜底清掉孤儿', existsSync(otherLive), false)
+
+  // 兜底不能反过来误伤：刚写下的那份还是不许动
+  writeFileSync(otherLive, '别的进程正在写', 'utf8')
+  recordRecommendations([mk('tiktok', 'erin')], 'p')
+  ok('刚写下的仍然不动 —— 年龄兜底不误伤并发写', existsSync(otherLive))
+  rmSync(otherLive, { force: true })
+
+  // 清不掉的残留不让写回失败：占着临时名的是个目录时删不掉，写回照常
+  {
+    const stuck = `${tmp}.999998.tmp`
+    rmSync(stuck, { recursive: true, force: true })
+    mkdirSync(stuck, { recursive: true })
+    const r = writeOf(() => recordRecommendations([mk('tiktok', 'erin')], 'p'))
+    eq('残留清不掉时写回照常成功', r.written, true)
+    rmSync(stuck, { recursive: true, force: true })
+  }
+
+  // 七之九、**扫孤儿临时文件要扫写的那个地方**。目标是软链时临时文件落在
+  //        终点旁边，照着链接那一侧扫就永远扫不到 —— 而那是一份完整的
+  //        联系历史，会一直留在盘上（ADR-57）。
+  {
+    const base = join(tmpdir(), `kol-d4-linksweep-${process.pid}`)
+    rmSync(base, { recursive: true, force: true })
+    const here = join(base, 'memory'), there = join(base, 'elsewhere')
+    mkdirSync(here, { recursive: true }); mkdirSync(there, { recursive: true })
+    const real = join(there, 'real.json'), link = join(here, 'creators.json')
+    writeFileSync(real, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+    symlinkSync(real, link)
+    useMemoryFile(link)
+    const orphan2 = `${real}.999999.tmp`     // 死掉的进程留下的
+    writeFileSync(orphan2, '{}', 'utf8')
+    recordRecommendations([mk('tiktok', 'zed')], 'p')
+    eq('终点旁边的孤儿也被清掉了', existsSync(orphan2), false)
+    useMemoryFile(tmp)
+    rmSync(base, { recursive: true, force: true })
+  }
+
+  // 七之十、任务目录走的是同一份整体替换，硬杀留下的残留同样由下一次写回清掉
+  {
+    const d3 = join(tmpdir(), `kol-d4-sweep-${process.pid}`)
+    rmSync(d3, { recursive: true, force: true })
+    mkdirSync(d3, { recursive: true })
+    const orphan3 = join(d3, 'task.json.999999.tmp')
+    writeFileSync(orphan3, '{}', 'utf8')
+    saveTask(d3, { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1 } as unknown as TaskState)
+    eq('任务目录里死掉的进程留下的临时文件也被清掉', existsSync(orphan3), false)
+    rmSync(d3, { recursive: true, force: true })
+  }
 
   // 八、写入侧不许写出读取侧会拒绝的东西。任务配置里 product 是空白时，
   //     写下的那条推荐记录下次读盘正好被判成损坏 —— 一次写回就把一份好好的

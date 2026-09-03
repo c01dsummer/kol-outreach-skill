@@ -952,6 +952,46 @@
       "file": "scripts/lib/atomic.ts",
       "find": "  if (mode !== undefined) {\n    if ((mode & 0o222) === 0) throw readOnly(target)\n    accessSync(target, constants.W_OK)\n  }\n",
       "replace": "  /* mutated */\n"
+    },
+    {
+      "id": "M-D4-h",
+      "req": "D4",
+      "why": "写回前不再清掉已死进程留下的临时文件 —— 一次硬杀之后，盘上永远躺着一份完整的记忆副本，而它谁也不属于",
+      "file": "scripts/lib/atomic.ts",
+      "find": "  sweepStaleTemps(target)\n",
+      "replace": "  /* mutated */\n"
+    },
+    {
+      "id": "M-D4-i",
+      "req": "D4",
+      "why": "清临时文件时不管那个进程还活着没有 —— 两个任务同时跑时，会把对方正在写的那一份删掉",
+      "file": "scripts/lib/atomic.ts",
+      "find": "    if (alive(pid) && ageMs < TMP_MAX_AGE_MS) continue",
+      "replace": "    /* mutated */"
+    },
+    {
+      "id": "M-D4-l",
+      "req": "D4",
+      "why": "清临时文件时只看那个进程号还在不在，不看文件活了多久 —— 进程号被系统回收给一个长命进程之后，那份完整的记忆副本就再也清不掉了，永远躺在盘上",
+      "file": "scripts/lib/atomic.ts",
+      "find": "    if (alive(pid) && ageMs < TMP_MAX_AGE_MS) continue",
+      "replace": "    if (alive(pid)) continue"
+    },
+    {
+      "id": "M-D4-y",
+      "req": "D4",
+      "why": "清理孤儿临时文件时照着配置里那个路径扫，而不是照着写回真正落在的那个文件扫 —— 目标是软链时两者不是一个目录，硬杀留下的那份完整联系历史就永远躺在盘上，没人知道",
+      "file": "scripts/lib/atomic.ts",
+      "find": "  sweepStaleTemps(target)\n",
+      "replace": "  sweepStaleTemps(file)\n"
+    },
+    {
+      "id": "M-D4-z",
+      "req": "D4",
+      "why": "残留清不掉时让整次写回跟着失败 —— 盘上多一份副本本来只是碍眼，现在变成这一轮的推荐记录全丢",
+      "file": "scripts/lib/atomic.ts",
+      "find": "    try { rmSync(join(dir, name), { force: true }) } catch { /* 留着，下次再试 */ }",
+      "replace": "    rmSync(join(dir, name), { force: true })"
     }
   ],
   "exemptions": [

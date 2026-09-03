@@ -1,7 +1,8 @@
 import {
   writeFileSync, renameSync, rmSync, statSync, chmodSync, readlinkSync, accessSync, constants,
+  readdirSync,
 } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 
 /**
  * 整体替换地写一个文件：**先写临时文件，再改名。**
@@ -28,8 +29,8 @@ import { dirname, resolve } from 'node:path'
  * 的实现细节替它定**（ADR-57）。
  *
  * 临时名带 pid：两个任务同时跑时，共用一个临时名会让 A 的改名搬走 B 写的内容。
- * **本函数不清理孤儿临时文件** —— 什么时候算孤儿、清不清得起，由调用方
- * 按自己那份文件的处境决定（ADR-30）。
+ * 写之前先清掉**已经死掉的进程**留下的临时文件（`sweepStaleTemps`）：硬杀落在
+ * 写与改名之间时 catch 不会跑，那份完整的半成品只能由下一次写回清掉（ADR-30）。
  *
  * 改名前后**不刷盘**：主机断电时这次写回留不留得住，D4 明确不作保证（ADR-50）；
  * 尽力而为的刷盘是持久性那一层，单独一片。
@@ -52,6 +53,7 @@ export function writeFileAtomic(file: string, data: string | Buffer): void {
     if ((mode & 0o222) === 0) throw readOnly(target)
     accessSync(target, constants.W_OK)
   }
+  sweepStaleTemps(target)
   const tmp = `${target}.${process.pid}.tmp`
   try {
     // 临时名上已经有东西时**不复用它**。带着这个 pid 死掉的前任留下的临时文件，
@@ -107,6 +109,70 @@ export function writeTarget(file: string): string {
     cur = resolve(dirname(cur), next)
   }
   throw new Error(`${file} 的软链超过 32 层，可能成环 —— 不猜终点在哪`)
+}
+
+/**
+ * 一个临时文件最多可能正在被写多久。
+ *
+ * 写的过程是一次 `writeFileSync` 加一次 `renameSync`，毫秒级。取一小时是
+ * **荒谬地宽松** —— 为的是正常写盘的文件不会被误判成孤儿。
+ * **不是「不可能」**：被 SIGSTOP 或调试器按住超过这个时长的写入方仍会被误判，
+ * 那是 ADR-44 明写下来的取舍（误判是响的，不清理是静默的）。
+ * 它只用来兜住 pid 被系统回收的那一种情况。
+ */
+const TMP_MAX_AGE_MS = 60 * 60 * 1000
+
+/** 那个进程还在吗。EPERM 说明进程存在、只是不归我们管 —— 那也算活着 */
+function alive(pid: number): boolean {
+  try { process.kill(pid, 0); return true }
+  catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM' }
+}
+
+/**
+ * 清掉**已经死掉的进程**留在 `target` 旁边的临时文件。
+ *
+ * 写临时文件再改名挡得住「写到一半被打断」，挡不住**在两步之间被硬杀**
+ * （SIGKILL、断电）—— 那时 catch 根本不会跑，一份完整的临时文件留在盘上。
+ * 任何 write-then-rename 都躲不掉这一格，能做的是**下次写回时把它清掉**。
+ *
+ * 活着的进程的临时文件不动：两个 render 同时跑时，那是人家正在写的（ADR-30）。
+ *
+ * **但「pid 还活着」不等于「它就是写这个文件的那个进程」** —— 系统会回收 pid。
+ * 回收到一个长命进程头上，这个孤儿就再也清不掉了，一份完整的记忆副本
+ * 永远躺在盘上。所以再拿**文件年龄**兜一道：真正在写的文件只有毫秒级的寿命，
+ * 活过一小时的**几乎一定不是**（ADR-39 · ADR-44）。
+ *
+ * **年龄这一道有代价，明写在这里：** 一个被 SIGSTOP 或调试器按住超过一小时的
+ * 写入方，它的临时文件会被当成孤儿清掉，它恢复后改名失败。这是一个
+ * **有意的取舍** —— 两边都罕见，但坏法不同：pid 回收留下的孤儿是**静默的**
+ * （一份完整副本永远躺在盘上，没人知道），而误清一个被按住的写入方是**响的**
+ * （那一次写回报为失败，交付照常完成并带出原因，走 D4 已有的那条路）。
+ * 静默与响之间选响的（ADR-44）。
+ *
+ * 扫的是 `target` 所在的目录 —— 调用方传进来的已经是软链的终点，
+ * 临时文件就落在那里；照着链接那一侧扫会永远扫不到（ADR-57）。
+ */
+function sweepStaleTemps(target: string): void {
+  const dir = dirname(target)
+  const prefix = `${basename(target)}.`
+  let names: string[]
+  // 目录列不出来（只写不可读这种权限组合）就跳过这一次清理，**不因此让写回失败** ——
+  // 清不掉临时文件的代价是盘上多一份副本，而中断写回的代价是这一轮的记录全丢。
+  try { names = readdirSync(dir) } catch { return }
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !name.endsWith('.tmp')) continue
+    const pid = Number(name.slice(prefix.length, -'.tmp'.length))
+    if (!Number.isInteger(pid) || pid <= 0) continue
+    let ageMs: number
+    // 看不到它的年龄就跳过（刚被别人清掉、或者读不到）—— **跳过是安全的那一边**：
+    // 拿不准的文件不删，代价是盘上多留一份；删错的代价是搬走别人正在写的东西
+    try { ageMs = Date.now() - statSync(join(dir, name)).mtimeMs } catch { continue }
+    // 自己这个 pid 名下的残留不在这里清：写入那一步会把它删掉重建
+    if (pid === process.pid) continue
+    if (alive(pid) && ageMs < TMP_MAX_AGE_MS) continue
+    // 清不掉（比如它是个目录）也不让写回失败：这条要求 D4 写明了
+    try { rmSync(join(dir, name), { force: true }) } catch { /* 留着，下次再试 */ }
+  }
 }
 
 /**
