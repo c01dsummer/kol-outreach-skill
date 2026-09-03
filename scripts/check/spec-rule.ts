@@ -333,16 +333,25 @@ export function validateRegistry(reqs: Req[], adrIds: Set<string>, cats: string[
  * 这里原样拼进去,`C++` 这种过得了登记表却在此处抛 SyntaxError。
  * 只认**引文之外**的行,与 `adrIdsIn` 同一把遮罩:围栏里举例写的
  * `- 冲击的需求:D99` 不遮住,一份合法的记录会被报成指向不存在的编号(#36 合入后的评审意见)。
+ *
+ * 遮罩偏向「算引文」,那是为 `--split` 定的,在切分那边安全;拿到这边,偏向就反了 ——
+ * 一行真元数据带个行内注释,整行被跳过,漏报一条悬空引用。所以**行内开合的注释只
+ * 去掉那一段**,跨行的仍交给遮罩整行盖住。
+ *
+ * 边界按**编号自己的文法**定(前后都不挨着编号字符),不借 `\b`:那要的是 JavaScript
+ * 的词边界,前缀以标点开头(`+C`)时,空格与 `+` 之间没有边界,`+C99` 永远匹配不到 ——
+ * 转义把一个构造错误换成了一个安静的漏报(#38 合入后的评审意见)。
  */
 export function danglingAdrRefs(
   decisions: string, ids: Set<string>, prefixes: string[],
 ): string[] {
   if (!prefixes.length) return []
   const escaped = prefixes.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  const shape = new RegExp(`\\b(?:${escaped.join('|')})\\d+\\b`, 'g')
-  const mask = quotedMask(decisions)
+  const shape = new RegExp(`(?<![A-Za-z0-9])(?:${escaped.join('|')})\\d+(?![A-Za-z0-9])`, 'g')
+  const bare = decisions.split('\n').map(l => l.replace(/<!--.*?-->/g, '')).join('\n')
+  const mask = quotedMask(bare)
   const out: string[] = []
-  decisions.split('\n').forEach((line, i) => {
+  bare.split('\n').forEach((line, i) => {
     if (mask[i]) return
     const m = /^- 冲击的需求[:：](.*)$/.exec(line.trim())
     if (!m) return

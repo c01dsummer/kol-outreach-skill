@@ -1078,7 +1078,7 @@
       "req": "harness",
       "why": "决策记录里的需求编号写死成一个大写字母加数字 —— 换一个编号前缀更长的项目，这条检查一条都匹配不到，而且不报错",
       "file": "scripts/check/spec-rule.ts",
-      "find": "  const shape = new RegExp(`\\\\b(?:${escaped.join('|')})\\\\d+\\\\b`, 'g')",
+      "find": "  const shape = new RegExp(`(?<![A-Za-z0-9])(?:${escaped.join('|')})\\\\d+(?![A-Za-z0-9])`, 'g')",
       "replace": "  const shape = /\\b[A-Z]\\d+\\b/g"
     },
     {
@@ -1112,6 +1112,22 @@
       "file": "scripts/check/spec-rule.ts",
       "find": "    if (mask[i]) return",
       "replace": "    if (false) return"
+    },
+    {
+      "id": "M-H5-f",
+      "req": "harness",
+      "why": "编号边界借 JavaScript 的词边界 —— 前缀以标点开头（`+C`）的项目，空格与 `+` 之间没有词边界，指向不存在编号的 `+C99` 永远匹配不到，而且不报错",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  const shape = new RegExp(`(?<![A-Za-z0-9])(?:${escaped.join('|')})\\\\d+(?![A-Za-z0-9])`, 'g')",
+      "replace": "  const shape = new RegExp(`\\\\b(?:${escaped.join('|')})\\\\d+\\\\b`, 'g')"
+    },
+    {
+      "id": "M-H5-g",
+      "req": "harness",
+      "why": "行内注释连同整行一起按引文跳过 —— 一行真元数据带个行内注释，它引用的不存在编号就漏报",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  const bare = decisions.split('\\n').map(l => l.replace(/<!--.*?-->/g, '')).join('\\n')",
+      "replace": "  const bare = decisions"
     },
     {
       "id": "M-H8-e",
