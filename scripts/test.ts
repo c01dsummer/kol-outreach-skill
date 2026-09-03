@@ -16,7 +16,7 @@ import {
 } from './check/spec-rule.js'
 import { HARNESS, orphanAttributions } from './check/attribution-rule.js'
 import { createHash } from 'node:crypto'
-import { CLAIMS_PATH, SELF, claimsFresh, claimsPublishable } from './check/claims.js'
+import { CLAIMS_PATH, SELF, claimsFresh, claimsOwnedBy, claimsPublishable } from './check/claims.js'
 import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
@@ -66,6 +66,12 @@ let fail = 0
 let cur = ''
 export const covered = new Set<string>()
 
+// 开跑前先把上一次的覆盖记录清掉 —— 拥有它的一方负责它的生死（ADR-20）。
+// 指纹算的是本文件,而本文件可以因为它 import 的实现改坏而红、甚至在末尾写盘
+// 之前就崩掉:那时本文件一个字没动,指纹照样对得上,上一次成功的记录就成了
+// 这一次的证据。先清掉,崩了就没有记录,审计说「先跑 npm test」。
+if (claimsOwnedBy(process.env.MUTATING === '1')) rmSync(CLAIMS_PATH, { force: true })
+
 const suite = (req: string, name: string) => { cur = req; covered.add(req); console.log(`\n[${req}] ${name}`) }
 const eq = (label: string, got: unknown, want: unknown) => {
   const ok = JSON.stringify(got) === JSON.stringify(want)
@@ -97,7 +103,8 @@ const tensionClaims: string[] = []
 const criteriaClaims: string[] = []
 const criterion = (...ids: string[]) => { criteriaClaims.push(...ids) }
 const tension = (a: string, b: string) => {
-  covered.add(a); covered.add(b)
+  // 不进 covered:交点上的测试**不属于**任何一条需求。算进去,一条只在交点上
+  // 被碰过的需求就会报「测试✓」,而「覆盖 N 条需求」那个数字跟着虚高。
   tensionClaims.push(`${a}|${b}`)
   console.log(`  ⇄ 交点 ${a} × ${b}`)
 }
@@ -2374,6 +2381,11 @@ harness('覆盖记录：指纹保护的是 test.ts 自己')
   eq('干净的运行才写得下记录', claimsPublishable(false, 0), true)
   eq('断言红过就不写 —— 没通过的运行不是证据', claimsPublishable(false, 1), false)
   eq('变异运行不写 —— 它跑的是被改过的源码', claimsPublishable(true, 0), false)
+
+  // 谁拥有这份记录,谁负责开跑前清掉它 —— 少了这一步，半路崩掉的运行会把
+  // 上一次成功的记录留在盘上当证据（M-H14-f）。
+  eq('普通运行拥有这份记录', claimsOwnedBy(false), true)
+  eq('变异运行不拥有它 —— 既不清也不写', claimsOwnedBy(true), false)
 }
 
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')

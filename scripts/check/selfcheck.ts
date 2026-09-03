@@ -275,6 +275,23 @@ if (dir) {
       failed++; console.error('  ✗ HTML 切 tab 会滚动页面（违反 U6）')
     } else console.log('  ✓ HTML 分层 tab 可用且不滚动')
   }
+
+  // P5.a 的另一半：管线里**真跑过**邮箱/地域增强时，enriched 必须报 true。
+  // 只断言 false 那一头，把判定写死成恒为 false 也照样全绿 —— 那正是 M-P5-h。
+  // 这里给的是 `email_verified: false`：查了、没查到邮箱，也算跑过（见 report.ts）。
+  const cPath = join(tmp, dir, 'creators.json')
+  const pristine = readFileSync(cPath, 'utf8')
+  const patched = JSON.parse(pristine)
+  patched[0].email_verified = false
+  writeFileSync(cPath, JSON.stringify(patched, null, 2), 'utf8')
+  run('render 跑过邮箱增强时如实报 enriched', [S('render.ts'), '--dir', dir], tmp)
+  const enrichedMeta = JSON.parse(readFileSync(metaPath, 'utf8'))
+  if (enrichedMeta.enriched !== true) {
+    failed++; console.error('  ✗ meta.json 的 enriched 不实 —— 跑过邮箱增强却报 false（P5.a）')
+  } else console.log('  ✓ meta.json 的 enriched 如实（跑过邮箱增强时为 true）')
+  // 复位：后面几段接着用这个任务目录，交付物与产出物都要回到未增强的样子。
+  writeFileSync(cPath, pristine, 'utf8')
+  run('render 复位（回到未增强的产出）', [S('render.ts'), '--dir', dir], tmp)
 }
 
 // ---- 回归：collect → render → --resume 之后，已采集的人必须还在 ----

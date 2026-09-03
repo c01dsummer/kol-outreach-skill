@@ -16,11 +16,12 @@
  *
  * 这条防线的强度取决于 `why` 怎么写 —— 引了实现原文的 why，`--brief` 照样把它漏出去。
  */
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { orphanAttributions } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import { type RunVerdict, judgeRun } from './mutate-rule.js'
+import { CLAIMS_PATH } from './claims.js'
 
 interface Mut { id: string; req: string; why: string; file: string; find: string; replace: string }
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
@@ -71,6 +72,14 @@ if (process.argv.includes('--brief')) {
 const survived: Mut[] = []
 const crashed: Mut[] = []
 const notApplied: Mut[] = []
+
+// 变异跑不得留下痕迹 —— 源码在 finally 里还原，那份覆盖记录同理。
+// 平时 test.ts 认得 MUTATING 标记、既不清也不写；但**变异改的正可能是那个判定
+// 本身**，那一次跑就会把记录清掉或写脏。记录只由一次干净的 npm test 产生，
+// 在这里存下再放回去，免得一个被抓到的变异顺手把后面的审计弄红。
+const claimsBackup = existsSync(CLAIMS_PATH) ? readFileSync(CLAIMS_PATH) : undefined
+const restoreClaims = () => { if (claimsBackup) writeFileSync(CLAIMS_PATH, claimsBackup) }
+process.on('exit', restoreClaims)
 
 for (const m of muts) {
   const orig = readFileSync(m.file, 'utf8')

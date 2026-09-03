@@ -32,13 +32,22 @@ export const claimsFresh = (recordHash: string, selfHash: string): boolean =>
   recordHash === selfHash
 
 /**
- * 这一次运行有资格写下覆盖记录吗 —— 只有一次**干净的运行**才算数（ADR-20）。
+ * 这一次运行**拥有**那份记录吗 —— 拥有的一方开跑前先把它清掉,跑完再写。
  *
- * 两个条件缺一不可:变异测试跑的是被改过的源码,那次执行留下的记录不作数;
- * 断言红过的运行同样不写 —— 一份没通过的运行会被当成证据交出去。
+ * 「先清掉」不是洁癖,是唯一能挡住半路死掉的运行的办法:指纹算的是
+ * `test.ts` 自己,而测试可以因为它 import 的实现改坏而红、甚至在写盘那几行
+ * 之前就崩掉 —— 那时 `test.ts` 一个字没动,指纹照样对得上,上一次成功的记录
+ * 就成了这一次的证据。开跑前清掉,崩了就没有记录,审计说「先跑 npm test」。
+ *
+ * 变异测试跑的是被改过的源码:它既不清也不写,那一份记录不归它（M-H14-f 守着）。
+ */
+export const claimsOwnedBy = (mutating: boolean): boolean => !mutating
+
+/**
+ * 这一次运行有资格写下覆盖记录吗 —— 拥有它,而且**断言全过**（ADR-20）。
  *
  * 抽出来是为了它能被测:条件留在入口里,少掉 `fail === 0` 那一半,
  * 没有任何一条测试会红,而审计会把红着的认领当成证据（M-H14-e 守着）。
  */
 export const claimsPublishable = (mutating: boolean, fail: number): boolean =>
-  !mutating && fail === 0
+  claimsOwnedBy(mutating) && fail === 0
