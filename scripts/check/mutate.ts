@@ -30,9 +30,12 @@ const exemptions: Exemption[] = cfg.exemptions ?? []
 
 // 记在谁名下。审计拿 req 回答「这条需求有没有变异守着」—— 写成一个不存在的
 // 编号时，变异照样跑、照样被抓到，全绿，而它对任何一条需求都不算数（ADR-34）。
-// 名下目前是需求编号；验收判据拆成独立编号之后，判据编号也进这份名单。
-const registry: { id: string }[] = JSON.parse(readFileSync('docs/requirements.json', 'utf8')).requirements
-const known = new Set(registry.map(r => r.id))
+// 名下可以是一条需求，也可以是一条验收判据 —— 豁免常常只豁免其中一条判据。
+// 登记表里的 accept 拆成判据数组之前是一段话，那时名单里只有需求编号。
+const registry: { id: string; accept: string | { id: string }[] }[] =
+  JSON.parse(readFileSync('docs/requirements.json', 'utf8')).requirements
+const known = new Set<string>(registry.flatMap(r =>
+  [r.id, ...(Array.isArray(r.accept) ? r.accept.map(c => c.id) : [])]))
 const orphans = [
   ...orphanAttributions(muts, known),
   ...orphanAttributions(exemptions.map(e => ({ id: `豁免 ${e.req}`, req: e.req })), known),
