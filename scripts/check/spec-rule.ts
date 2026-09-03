@@ -7,7 +7,7 @@
  *
  * 这里管四件事:
  *
- * 1. **形状** —— 渲染要读的字段必须在、且类型对。缺了不会报错,会把空值写进生成的文档
+ * 1. **形状** —— 根对象与每条需求:渲染要读的字段必须在、且类型对。缺了不会报错,会把空值写进生成的文档
  * 2. **完整性** —— 编号唯一、交点指向真实存在的编号、决策记录编号真实存在、作废须有理由
  * 3. **渲染与内容指纹** —— 人类可读的表格由登记表生成，两者不可能漂移；指纹让
  *    「登记表改了」成为一个机器看得见的事件。它是**派生**的，由 `--write` 写、
@@ -240,6 +240,38 @@ function shapeProblems(reqs: Req[]): string[] {
 }
 
 /**
+ * 登记表的**根**。`validateRegistry` 查的是需求数组,可数组是从根对象里取出来的,
+ * 取之前那一层谁也没查:`categories` 里一条说明写成 `null`,渲染成 `### P · null`
+ * 写进 SPEC,而一致性检查比的是生成结果和生成结果,照样全绿;`requirements` 不是
+ * 数组则在第一处遍历抛 TypeError,把问题盖成一句堆栈(#44 合入后的评审意见)。
+ *
+ * 判据与 `shapeProblems` 同:**下游实际会读什么**。渲染按分类表分节并把说明打成
+ * 节标题,关系检查按它取前缀 —— 所以键与说明都得是非空字符串,表不能是空的;
+ * 需求必须是数组,后面每一步都在它上面遍历。
+ */
+export function rootProblems(registry: unknown): string[] {
+  if (registry === null || typeof registry !== 'object' || Array.isArray(registry)) {
+    return ['登记表的根不是对象']
+  }
+  const { categories, requirements } = registry as Record<string, unknown>
+  const bad: string[] = []
+  if (categories === null || typeof categories !== 'object' || Array.isArray(categories)) {
+    bad.push('categories 不是对象 —— 分类表决定渲染分几节、需求编号用什么前缀')
+  } else {
+    const entries = Object.entries(categories)
+    if (!entries.length) bad.push('categories 是空的 —— 没有分类,一条需求都渲染不出来')
+    for (const [cat, label] of entries) {
+      if (!cat.trim()) bad.push('分类表里有一个空白前缀')
+      if (typeof label !== 'string' || !label.trim()) {
+        bad.push(`分类 ${cat} 的说明不是非空字符串 —— 它会原样渲染成节标题`)
+      }
+    }
+  }
+  if (!Array.isArray(requirements)) bad.push('requirements 不是数组')
+  return bad
+}
+
+/**
  * 登记表的完整性。返回问题清单,空数组表示干净。
  *
  * `adrIds` 是决策记录里真实存在的编号 —— 由调用方从 `docs/adr/` 各文件解析后传进来,
@@ -306,7 +338,7 @@ export function validateRegistry(reqs: Req[], adrIds: Set<string>, cats: string[
       if (!c.text.trim()) problems.push(`${c.id} 没有内容`)
     }
     if (r.deprecated) {
-      // **红线不许被作废。** `active()` 会把作废的挡在渲染和审计之外,于是
+      // **红线不许被作废。** `active()` 会把作废的挡在现行需求表和审计之外,于是
       // 一条红线被标作废,红线条数静静少一条,它的测试、变异、交点要求
       // 全部随之消失 —— 而检查报「全部通过」。这和「分类填成另一个合法分类」
       // 是同一个静默削减,只是换了一扇门(ADR-30)。

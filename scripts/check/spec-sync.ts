@@ -18,7 +18,7 @@
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  adrIdsIn, contentHash, danglingAdrRefs, renderTables, validateRegistry, type Req,
+  adrIdsIn, contentHash, danglingAdrRefs, renderTables, rootProblems, validateRegistry, type Req,
 } from './spec-rule.js'
 
 const JSON_PATH = 'docs/requirements.json'
@@ -30,6 +30,14 @@ const END = '<!-- END:GENERATED -->'
 const FIX = '跑 `npx tsx scripts/check/spec-sync.ts --write` 回写'
 
 const registry = JSON.parse(readFileSync(JSON_PATH, 'utf8'))
+const fail = (problems: string[]): never => {
+  console.error(`✗ 需求登记表：${problems.length} 处问题\n`)
+  for (const p of problems) console.error(`  · ${p}`)
+  process.exit(1)
+}
+// ---- 0. 根的形状 —— 需求数组与分类表都是从它里面取的,取之前先查 ----
+const rootBad = rootProblems(registry)
+if (rootBad.length) fail(rootBad)
 const reqs: Req[] = registry.requirements
 const cats: Record<string, string> = registry.categories
 /**
@@ -44,11 +52,7 @@ const problems = [
   ...validateRegistry(reqs, adrIdsIn(decisions), Object.keys(cats)),
   ...danglingAdrRefs(decisions, new Set(reqs.map(r => r.id)), Object.keys(cats)),
 ]
-if (problems.length) {
-  console.error(`✗ 需求登记表：${problems.length} 处问题\n`)
-  for (const p of problems) console.error(`  · ${p}`)
-  process.exit(1)
-}
+if (problems.length) fail(problems)
 
 // ---- 2. 内容指纹 ----
 const hash = contentHash(reqs, cats)

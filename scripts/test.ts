@@ -12,7 +12,7 @@ import { JUDGMENT_EXEMPT, judgmentModules, unguarded } from './check/audit-rule.
 import { judgeRun } from './check/mutate-rule.js'
 import {
   active, adrIdsIn, contentHash, danglingAdrRefs, renderTables, requirementVerdict,
-  validateRegistry, type Evidence, type Req,
+  rootProblems, validateRegistry, type Evidence, type Req,
 } from './check/spec-rule.js'
 import { HARNESS, orphanAttributions } from './check/attribution-rule.js'
 import {
@@ -1589,6 +1589,22 @@ harness('需求登记表的完整性判定')
   ok('形状不对时不接着跑关系检查 —— 否则只会抛 TypeError,把真正的问题盖掉',
     validateRegistry([strip(req('D1'), 'text')], adrs, ['D', 'P'])
       .every(m => m.includes('不是非空字符串')))
+
+  // 根的形状：上面查的全是需求数组，而数组是从根对象里取出来的 —— 取之前那一层谁也没查。
+  // 分类表里一条说明写成 null，渲染成「### P · null」写进 SPEC，一致性检查比的是
+  // 生成结果和生成结果，照样绿（#44 合入后的评审意见）
+  const root = (over: Record<string, unknown> = {}) =>
+    rootProblems({ categories: CATS, requirements: [req('D1')], ...over }).length
+  eq('根的形状对就放行', root(), 0)
+  ok('根不是对象被抓到', rootProblems(null).length > 0 && rootProblems([]).length > 0)
+  ok('requirements 不是数组被抓到', root({ requirements: { D1: req('D1') } }) > 0)
+  ok('缺 categories 被抓到', root({ categories: undefined }) > 0)
+  ok('分类表是空的被抓到 —— 一条需求都渲染不出来', root({ categories: {} }) > 0)
+  ok('分类的说明是 null 被抓到', root({ categories: { ...CATS, P: null } }) > 0)
+  ok('而它确实会把 null 写进文档',
+    renderTables([req('P1')], { P: null as never }).includes('### P · null'))
+  ok('分类的说明是空白被抓到', root({ categories: { ...CATS, P: '  ' } }) > 0)
+  ok('分类前缀是空白被抓到', root({ categories: { ...CATS, ' ': '说明' } }) > 0)
 
   // 变异记在谁名下：审计拿它回答「这条需求有没有变异守着」。写成一个**不存在**
   // 的编号时，变异照样跑、照样被抓到，全绿 —— 而它对任何一条需求都不算数（ADR-34）。
