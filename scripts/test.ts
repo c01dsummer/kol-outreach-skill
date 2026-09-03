@@ -1634,6 +1634,9 @@ harness('需求登记表的完整性判定')
     danglingAdrRefs(real, new Set(['P1', 'D4', 'D10']), ['P', 'D']).length, 1)
   eq('相邻的数字不被拆成别的编号',
     danglingAdrRefs(real, new Set(['P1', 'P5', 'D4', 'D10']), ['P', 'D']).length, 0)
+  // 下划线也算标识符字符：`legacy_D99`、`D99_note` 这种说明性记号里嵌着的编号不是引用（#40 评审意见）
+  eq('嵌在下划线记号里的编号不算引用',
+    danglingAdrRefs('- 冲击的需求：D1（legacy_D99、D99_note 已作废）', new Set(['D1']), ['D']).length, 0)
 }
 
 harness('审计对一条需求的裁定')

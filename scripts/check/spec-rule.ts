@@ -338,16 +338,18 @@ export function validateRegistry(reqs: Req[], adrIds: Set<string>, cats: string[
  * 一行真元数据带个行内注释,整行被跳过,漏报一条悬空引用。所以**行内开合的注释只
  * 去掉那一段**,跨行的仍交给遮罩整行盖住。
  *
- * 边界按**编号自己的文法**定(前后都不挨着编号字符),不借 `\b`:那要的是 JavaScript
- * 的词边界,前缀以标点开头(`+C`)时,空格与 `+` 之间没有边界,`+C99` 永远匹配不到 ——
- * 转义把一个构造错误换成了一个安静的漏报(#38 合入后的评审意见)。
+ * 边界按**编号自己的文法**定(前后都不挨着标识符字符:字母、数字、下划线),不借 `\b`:
+ * 那要的是 JavaScript 的词边界,前缀以标点开头(`+C`)时,空格与 `+` 之间没有边界,
+ * `+C99` 永远匹配不到 —— 转义把一个构造错误换成了一个安静的漏报(#38 合入后的评审意见)。
+ * 下划线算标识符字符:`legacy_D99` 这种说明性记号里嵌着的 `D99` 不是引用,
+ * 一份合法的记录不该因它被报成指向不存在的编号(#40 评审意见)。
  */
 export function danglingAdrRefs(
   decisions: string, ids: Set<string>, prefixes: string[],
 ): string[] {
   if (!prefixes.length) return []
   const escaped = prefixes.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  const shape = new RegExp(`(?<![A-Za-z0-9])(?:${escaped.join('|')})\\d+(?![A-Za-z0-9])`, 'g')
+  const shape = new RegExp(`(?<![A-Za-z0-9_])(?:${escaped.join('|')})\\d+(?![A-Za-z0-9_])`, 'g')
   const bare = decisions.split('\n').map(l => l.replace(/<!--.*?-->/g, '')).join('\n')
   const mask = quotedMask(bare)
   const out: string[] = []
