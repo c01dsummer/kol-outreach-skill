@@ -996,10 +996,26 @@
     {
       "id": "M-D4-aa",
       "req": "D4",
-      "why": "把「正规十进制 pid」放宽成「Number() 吞得下」—— `x.1e3.tmp`、`x.007.tmp` 这种别人的文件被当成残留删掉",
+      "why": "把「process.pid 写得出来的名字」放宽成「Number() 吞得下」—— `x.1e3.tmp`、`x.007.tmp`、超出范围的数字串这些别人的文件被当成残留删掉",
       "file": "scripts/lib/atomic.ts",
-      "find": "    if (!/^[1-9]\\d*$/.test(spelled)) continue",
-      "replace": "    if (!Number.isInteger(Number(spelled)) || Number(spelled) <= 0) continue"
+      "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue",
+      "replace": "    if (!Number.isInteger(pid) || pid <= 0) continue"
+    },
+    {
+      "id": "M-D4-ab",
+      "req": "D4",
+      "why": "不再要求数字串能原样往返 —— `1e3`、`007` 转成数字后是合法 pid，于是被当成残留删掉",
+      "file": "scripts/lib/atomic.ts",
+      "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue",
+      "replace": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX) continue"
+    },
+    {
+      "id": "M-D4-ac",
+      "req": "D4",
+      "why": "不管超没超出 pid 的范围 —— 超出 int32 的名字让 process.kill 抛参数错、被当成死进程的残留删掉，而没有哪个进程写得出这种名字",
+      "file": "scripts/lib/atomic.ts",
+      "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue",
+      "replace": "    if (!Number.isSafeInteger(pid) || pid <= 0 || String(pid) !== spelled) continue"
     }
   ],
   "exemptions": [

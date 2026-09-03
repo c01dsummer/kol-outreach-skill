@@ -869,8 +869,10 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   rmSync(otherLive, { force: true })
 
   // 只认 pid 的正规十进制写法：`1e3` 在 Number() 眼里是 1000，`007` 是 7 ——
-  // 但本函数从不写出这种名字，它们是别人的文件，再老也不许动（评审发现）
-  for (const spelled of ['1e3', '007']) {
+  // 但本函数从不写出这种名字，它们是别人的文件，再老也不许动（评审发现）。
+  // 长过 2^53 的数字串转成数字会丢精度、超出 int32 的 process.kill 直接抛参数错 ——
+  // 这两种同样没有哪个进程写得出来，一样不许动（评审第二轮）
+  for (const spelled of ['1e3', '007', '9007199254740993', '4294967296']) {
     const alien = `${tmp}.${spelled}.tmp`
     writeFileSync(alien, '别人的文件，名字只是长得像', 'utf8')
     utimesSync(alien, twoHoursAgo, twoHoursAgo)

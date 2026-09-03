@@ -122,6 +122,9 @@ export function writeTarget(file: string): string {
  */
 const TMP_MAX_AGE_MS = 60 * 60 * 1000
 
+/** `process.kill` 收得下的最大 pid（int32）：再大的它不问系统、直接抛参数错 */
+const PID_MAX = 0x7fffffff
+
 /** 那个进程还在吗。EPERM 说明进程存在、只是不归我们管 —— 那也算活着 */
 function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true }
@@ -161,11 +164,14 @@ function sweepStaleTemps(target: string): void {
   try { names = readdirSync(dir) } catch { return }
   for (const name of names) {
     if (!name.startsWith(prefix) || !name.endsWith('.tmp')) continue
-    // 只认 pid 的正规十进制写法。`Number()` 连 `1e3`、`007`、`0x10` 都吞得下，
-    // 而本函数从不写出这种名字 —— 那是别人的文件，不是残留，碰都不该碰（评审发现）
+    // 只认 `process.pid` 写得出来的名字：正规十进制（`1e3`、`007`、`0x10`、`-5` 都不是，
+    // 而 `Number()` 全吞得下）、转成数字没丢精度（过了 2^53 转回来就对不上）、
+    // 落在 pid 取得到的范围里（超出 int32 的 `process.kill` 抛的是参数错，`alive`
+    // 会把它当成「死了」）。别的名字没有哪个进程写得出来 —— 那是别人的文件，
+    // 不是残留，再老也不动（评审一、二轮）
     const spelled = name.slice(prefix.length, -'.tmp'.length)
-    if (!/^[1-9]\d*$/.test(spelled)) continue
     const pid = Number(spelled)
+    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue
     let ageMs: number
     // 看不到它的年龄就跳过（刚被别人清掉、或者读不到）—— **跳过是安全的那一边**：
     // 拿不准的文件不删，代价是盘上多留一份；删错的代价是搬走别人正在写的东西
