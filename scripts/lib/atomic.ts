@@ -69,8 +69,10 @@ export function writeFileAtomic(file: string, data: string | Buffer): void {
     // 带上目标的权限之后就不一定了 —— 目标是 0200 这类只写文件时（它过得了
     // 上面「可写」那一问），改完权限再按读打开会被拒，改名就永远走不到，
     // 而不是 root 时正是这样（评审第一轮）。权限位是 inode 的元数据：改完再刷，
-    // 和内容一次落盘。
-    fd = openSync(tmp, 'r')
+    // 和内容一次落盘。**按读写打开**：Windows 上刷盘走 FlushFileBuffers，要的是
+    // 带写权限的句柄，只读的描述符刷不动，每一次原子写都会在改名前失败（合入后的
+    // 评审意见）。
+    fd = openSync(tmp, 'r+')
     // 已有的文件带回它原来的权限；新文件还原成 umask 默认。
     // **两条都得写** —— 少了后一条，「新文件保持默认」就只是一句注释（ADR-57）。
     chmodSync(tmp, mode ?? (0o666 & ~process.umask()))
