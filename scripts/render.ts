@@ -7,7 +7,7 @@
  *
  * 用法: tsx scripts/render.ts --dir output/anker-powerbank-202608251430
  */
-import { writeFileSync } from 'node:fs'
+import { writeFileAtomic } from './lib/atomic.js'
 import { join } from 'node:path'
 import { taskId, loadTask, loadCreators, loadEnrichment, saveCreators } from './lib/task.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
@@ -138,8 +138,9 @@ const meta = {
       accountKeys.size, assessedAccounts.map(a => a?.collaboration_quote)),
   },
 }
-writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta, null, 2), 'utf8')
-writeFileSync(join(dir, 'report.html'), renderHtml(creators, meta), 'utf8')
+// 交付物也走整体替换：render 被打断时，上一份完整的 meta.json / report.html 还在（D4）
+writeFileAtomic(join(dir, 'meta.json'), JSON.stringify(meta, null, 2))
+writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta))
 
 console.log(JSON.stringify({
   csv: csvPath,

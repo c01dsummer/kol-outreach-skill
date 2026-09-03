@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { readFileSync, existsSync, mkdirSync } from 'node:fs'
+import { writeFileAtomic } from './atomic.js'
 import { basename, join } from 'node:path'
 import type { TaskState, Creator, EnrichmentState, MemoryStatus } from './types.js'
 
@@ -14,7 +15,7 @@ export function loadTask(dir: string): TaskState {
 export function saveTask(dir: string, state: TaskState): void {
   mkdirSync(dir, { recursive: true })
   state.updated_at = new Date().toISOString()
-  writeFileSync(join(dir, 'task.json'), JSON.stringify(state, null, 2), 'utf8')
+  writeFileAtomic(join(dir, 'task.json'), JSON.stringify(state, null, 2))
 }
 
 export function loadCreators(dir: string): Creator[] {
@@ -24,7 +25,7 @@ export function loadCreators(dir: string): Creator[] {
 
 export function saveCreators(dir: string, creators: Creator[]): void {
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'creators.json'), JSON.stringify(creators, null, 2), 'utf8')
+  writeFileAtomic(join(dir, 'creators.json'), JSON.stringify(creators, null, 2))
 }
 
 /**
@@ -44,8 +45,8 @@ export function saveCreators(dir: string, creators: Creator[]): void {
  * 任何一步被打断，盘上留下的都是一个不做肯定断言的状态 —— 报告会警告，
  * 用户重跑一次。**肯定的断言永远最后写，而且只在它描述的东西已经落盘之后。**
  *
- * 每一步自己还不是整体替换（写到一半被杀会留下截断的文件，那是 D4 的另一条，
- * 随「一个写入方」那一片合入）；两个采集同时写同一个目录时的交错，按 D4 当前不保证（ADR-66）。
+ * 每一步自己是整体替换（`atomic.ts`，写到一半被杀不会留下截断的文件）；
+ * 两个采集同时写同一个目录时的交错，按 D4 当前不保证（ADR-66）。
  */
 export function persistListAndStatus(
   dir: string, state: TaskState, creators: Creator[], status: MemoryStatus,
@@ -85,7 +86,7 @@ export function loadRawCreators(dir: string): Creator[] {
 
 export function saveRawCreators(dir: string, creators: Creator[]): void {
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, RAW), JSON.stringify(creators, null, 2), 'utf8')
+  writeFileAtomic(join(dir, RAW), JSON.stringify(creators, null, 2))
 }
 
 const ENRICHMENT = 'enrichment.json'
@@ -99,5 +100,5 @@ export function loadEnrichment(dir: string): EnrichmentState | undefined {
 export function saveEnrichment(dir: string, state: EnrichmentState): void {
   mkdirSync(dir, { recursive: true })
   state.updated_at = new Date().toISOString()
-  writeFileSync(join(dir, ENRICHMENT), JSON.stringify(state, null, 2), 'utf8')
+  writeFileAtomic(join(dir, ENRICHMENT), JSON.stringify(state, null, 2))
 }

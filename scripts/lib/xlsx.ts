@@ -1,5 +1,5 @@
 import { deflateRawSync } from 'node:zlib'
-import { writeFileSync } from 'node:fs'
+import { writeFileAtomic } from './atomic.js'
 
 /*
  * 最小 XLSX 写出器（多 sheet）。
@@ -153,5 +153,5 @@ ${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.open
 
   sheets.forEach((s, i) => add(`xl/worksheets/sheet${i + 1}.xml`, sheetXml(s)))
 
-  writeFileSync(path, zip(files))
+  writeFileAtomic(path, zip(files))
 }
