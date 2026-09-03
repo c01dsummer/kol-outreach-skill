@@ -1520,6 +1520,11 @@ harness('需求登记表的完整性判定')
   // 标题与编号之间的空白按 adr-sync 同一约定，不止一个空格也行
   eq('单文件里的一级标题也认', [...adrIdsIn('# ADR-08 标题\n')], ['ADR-08'])
   eq('标题与编号之间多个空白也认', [...adrIdsIn('#  ADR-09 标题\n')], ['ADR-09'])
+  // 引文里举例的标题不算记录 —— 不遮住，一条需求引用 ADR-99 就被当成真实存在（评审第一轮）
+  eq('围栏里的示例标题不算记录',
+    [...adrIdsIn('# ADR-08 标题\n\n```md\n# ADR-99 示例\n```\n')], ['ADR-08'])
+  eq('HTML 注释里的示例标题不算记录',
+    [...adrIdsIn('# ADR-08 标题\n<!--\n## ADR-98 示例\n-->\n')], ['ADR-08'])
   ok('决策记录指向不存在的需求被抓到',
     danglingAdrRefs(doc, new Set(['D1']), ['D']).length > 0)
   eq('都存在时不报', danglingAdrRefs(doc, new Set(['D1', 'D9']), ['D']).length, 0)

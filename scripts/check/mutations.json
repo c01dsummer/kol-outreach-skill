@@ -1090,12 +1090,20 @@
       "replace": "      if (false) {"
     },
     {
+      "id": "M-H5-c",
+      "req": "harness",
+      "why": "引文里举例的记录标题也算真实存在 —— 需求引用一条只在围栏示例里出现的决策记录编号，「编号真实存在」照样放行",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    if (m && !mask[i]) out.add(m[1])",
+      "replace": "    if (m) out.add(m[1])"
+    },
+    {
       "id": "M-H8-e",
       "req": "harness",
       "why": "拆成单文件后的一级记录标题不再认作记录 —— 登记表里每条 adr 引用都报「不存在」，而记录明明在 docs/adr/ 里",
       "file": "scripts/check/spec-rule.ts",
-      "find": "  return new Set([...decisions.matchAll(/^#{1,2}\\s+(ADR-\\d+)/gm)].map(m => m[1]))",
-      "replace": "  return new Set([...decisions.matchAll(/^##\\s+(ADR-\\d+)/gm)].map(m => m[1]))"
+      "find": "    const m = /^#{1,2}\\s+(ADR-\\d+)/.exec(line)",
+      "replace": "    const m = /^##\\s+(ADR-\\d+)/.exec(line)"
     }
   ],
   "exemptions": [

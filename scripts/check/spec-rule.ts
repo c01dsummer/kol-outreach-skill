@@ -10,6 +10,7 @@
  * 1. **形状** —— 渲染要读的字段必须在、且类型对。缺了不会报错,会把空值写进生成的文档
  * 2. **完整性** —— 编号唯一、交点指向真实存在的编号、决策记录编号真实存在、作废须有理由
  */
+import { quotedMask } from './quoted.js'
 
 export interface Tension {
   /** 与哪条需求相拉扯 */
@@ -255,7 +256,17 @@ export function danglingAdrRefs(
 /**
  * 决策记录里真实存在的编号。**两级标题都认**：`##` 是整册里的写法，`#` 是拆成
  * 一文件一条之后的写法（`adr-sync.ts` 的 `RECORD_HEADING` 同一约定）。
+ *
+ * 只认**引文之外**的标题（围栏块、HTML 注释都算引文，与 `adr-sync.ts` 同一把遮罩）。
+ * 记录正文里爱举例写 `# ADR-99 示例`；不遮住它，一条需求引用 ADR-99 就会被当成
+ * 真实存在而放过 ——「决策记录编号真实存在」这条检查便只是嘴上说说（评审第一轮）。
  */
 export function adrIdsIn(decisions: string): Set<string> {
-  return new Set([...decisions.matchAll(/^#{1,2}\s+(ADR-\d+)/gm)].map(m => m[1]))
+  const mask = quotedMask(decisions)
+  const out = new Set<string>()
+  decisions.split('\n').forEach((line, i) => {
+    const m = /^#{1,2}\s+(ADR-\d+)/.exec(line)
+    if (m && !mask[i]) out.add(m[1])
+  })
+  return out
 }
