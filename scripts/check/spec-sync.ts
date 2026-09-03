@@ -26,7 +26,7 @@ function render(): string {
     out.push('| 编号 | 优先级 | 需求 | 验收标准 |')
     out.push('|---|---|---|---|')
     for (const r of rows) {
-      const esc = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ')
+      const esc = (s: string) => s.replace(/[\\|]/g, c => '\\' + c).replace(/\n/g, ' ')
       out.push(`| **${r.id}** | ${r.pri} | ${esc(r.text)} | ${esc(r.accept)} |`)
     }
     out.push('')

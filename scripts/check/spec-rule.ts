@@ -168,7 +168,7 @@ export function renderTables(reqs: Req[], cats: Record<string, string>): string 
   return out.join('\n')
 }
 
-const esc = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ')
+const esc = (s: string) => s.replace(/[\\|]/g, c => '\\' + c).replace(/\n/g, ' ')
 
 /** 判据带着编号渲染 —— 下游要引用的是判据编号,看不见就没法引用 */
 const renderAccept = (r: Req) =>
