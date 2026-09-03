@@ -16,7 +16,7 @@ import {
 } from './check/spec-rule.js'
 import { HARNESS, orphanAttributions } from './check/attribution-rule.js'
 import { createHash } from 'node:crypto'
-import { CLAIMS_PATH, SELF, claimsFresh, claimsOwnedBy, claimsPublishable } from './check/claims.js'
+import { CLAIMS_PATH, SELF, claimsFresh, claimsOwnedBy, claimsPublishable, claimsWellFormed } from './check/claims.js'
 import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
@@ -2386,6 +2386,15 @@ harness('覆盖记录：指纹保护的是 test.ts 自己')
   // 上一次成功的记录留在盘上当证据（M-H14-f）。
   eq('普通运行拥有这份记录', claimsOwnedBy(false), true)
   eq('变异运行不拥有它 —— 既不清也不写', claimsOwnedBy(true), false)
+
+  // 形状不对的记录要当「没有记录」办，不当「这些东西没测过」——
+  // 后者会报出一串根本不存在的缺口，把人支到错的地方去修（M-H14-g）。
+  const wf = { source_hash: 'abc', covered: [], tensions: [], criteria: [] }
+  eq('齐全的记录认得出来', claimsWellFormed(wf), true)
+  eq('缺一个数组字段就认不出 —— 不兜底成空数组', claimsWellFormed({ ...wf, criteria: undefined }), false)
+  eq('字段在但不是数组，同样认不出', claimsWellFormed({ ...wf, tensions: 'D1|P4' }), false)
+  eq('指纹不是字符串，认不出', claimsWellFormed({ ...wf, source_hash: 12 }), false)
+  eq('null 不是记录', claimsWellFormed(null), false)
 }
 
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
@@ -2874,12 +2883,14 @@ if (process.argv.includes('--json')) {
 // 判定本身在 claims.ts，不留在这个入口里 —— 留在这里就没有测试守得住它。
 if (claimsPublishable(process.env.MUTATING === '1', fail)) {
   mkdirSync(dirname(CLAIMS_PATH), { recursive: true })
-  writeFileSync(CLAIMS_PATH, JSON.stringify({
+  // 原子写:半截写坏的记录读起来是合法 JSON 的概率不大，但读的一方要为它写一段
+  // 判死的代码 —— 换成写临时文件再改名，这一类根本不会出现（lib/atomic.ts）。
+  writeFileAtomic(CLAIMS_PATH, JSON.stringify({
     source_hash: createHash('sha256').update(rf(SELF, 'utf8')).digest('hex').slice(0, 12),
     covered: [...covered].sort(),
     tensions: [...new Set(tensionClaims)].sort(),
     criteria: [...new Set(criteriaClaims)].sort(),
-  }, null, 2), 'utf8')
+  }, null, 2))
 }
 
 // 不 process.exit()：stdout 接的是管道时（变异测试就是这么跑的），刚 console.log 的那几行可能

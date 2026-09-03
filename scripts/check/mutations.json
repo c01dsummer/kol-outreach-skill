@@ -1298,6 +1298,14 @@
       "replace": "export const claimsOwnedBy = (mutating: boolean): boolean => true"
     },
     {
+      "id": "M-H14-g",
+      "req": "harness",
+      "why": "形状判定不再看字段是不是数组 —— 缺字段、字段类型不对的记录被当成合法记录读进去，审计要么当场崩，要么报出一串根本不存在的缺口",
+      "file": "scripts/check/claims.ts",
+      "find": "  (['covered', 'tensions', 'criteria'] as const).every(k => Array.isArray((v as Claims)[k]))",
+      "replace": "  (['covered', 'tensions', 'criteria'] as const).every(() => true)"
+    },
+    {
       "id": "M-P5-h",
       "req": "P5",
       "why": "把跑过的邮箱/地域增强一律报成没跑过 —— meta.json 的 enriched 恒为 false，交付声明与实际不符",

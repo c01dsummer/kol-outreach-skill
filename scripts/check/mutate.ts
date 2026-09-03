@@ -16,7 +16,7 @@
  *
  * 这条防线的强度取决于 `why` 怎么写 —— 引了实现原文的 why，`--brief` 照样把它漏出去。
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { orphanAttributions } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
@@ -78,7 +78,12 @@ const notApplied: Mut[] = []
 // 本身**，那一次跑就会把记录清掉或写脏。记录只由一次干净的 npm test 产生，
 // 在这里存下再放回去，免得一个被抓到的变异顺手把后面的审计弄红。
 const claimsBackup = existsSync(CLAIMS_PATH) ? readFileSync(CLAIMS_PATH) : undefined
-const restoreClaims = () => { if (claimsBackup) writeFileSync(CLAIMS_PATH, claimsBackup) }
+// 本来就没有记录时**要把新长出来的删掉**：变异改的可能正是写盘资格那个判定，
+// 那一跑会凭空写下一份由被改过的源码产生的记录，留下就是给后面的审计递假证。
+const restoreClaims = () => {
+  if (claimsBackup) writeFileSync(CLAIMS_PATH, claimsBackup)
+  else rmSync(CLAIMS_PATH, { force: true })
+}
 process.on('exit', restoreClaims)
 
 for (const m of muts) {

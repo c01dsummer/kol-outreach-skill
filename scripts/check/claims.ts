@@ -32,6 +32,21 @@ export const claimsFresh = (recordHash: string, selfHash: string): boolean =>
   recordHash === selfHash
 
 /**
+ * 这份记录长得对吗 —— 缺字段、字段不是数组，一律**认不出**。
+ *
+ * 不给缺失的字段兜底成空数组:兜底看着温和，实际是把「记录坏了」说成
+ * 「这些东西没测过」—— 审计会照着报一串红线判据没认领，而人会去翻那些判据，
+ * 不是去翻那份坏掉的记录。认不出就说认不出，让人重跑一次测试（ADR-47 的老规矩:
+ * 认不出的一律 unknown，不替它编一个答案）。
+ *
+ * 抽出来是为了它能被测:判定留在入口里没有测试守得住（M-H14-g 守着）。
+ */
+export const claimsWellFormed = (v: unknown): v is Claims =>
+  typeof v === 'object' && v !== null &&
+  typeof (v as Claims).source_hash === 'string' &&
+  (['covered', 'tensions', 'criteria'] as const).every(k => Array.isArray((v as Claims)[k]))
+
+/**
  * 这一次运行**拥有**那份记录吗 —— 拥有的一方开跑前先把它清掉,跑完再写。
  *
  * 「先清掉」不是洁癖,是唯一能挡住半路死掉的运行的办法:指纹算的是

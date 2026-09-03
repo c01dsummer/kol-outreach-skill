@@ -11,7 +11,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { JUDGMENT_EXEMPT, judgmentModules, unguarded } from './audit-rule.js'
 import { createHash } from 'node:crypto'
-import { CLAIMS_PATH, SELF, claimsFresh, type Claims } from './claims.js'
+import { CLAIMS_PATH, SELF, claimsFresh, claimsWellFormed, type Claims } from './claims.js'
 
 import {
   REDLINE_CAT, active, requirementVerdict, tensionCritical, tensionVerdict, type Req,
@@ -55,15 +55,24 @@ for (const f of sources) corpus.set(f, readFileSync(f, 'utf8'))
  * 这个文件下面那段关于 `includes(base)` 的注释记的是同一个坑，我又踩了一次
  * （ADR-20）。记录带着 `scripts/test.ts` 的指纹，对不上就是过期的，不算数。
  */
-let claims: Claims
+let raw: unknown
 try {
-  claims = JSON.parse(readFileSync(CLAIMS_PATH, 'utf8'))
+  raw = JSON.parse(readFileSync(CLAIMS_PATH, 'utf8'))
 } catch {
   console.error(`✗ 找不到测试的覆盖记录 ${CLAIMS_PATH}\n`)
   console.error('  审计回答不了「有没有测试」—— 那是测试跑过之后才存在的事实。')
   console.error('  先跑 `npm test`（`npm run check` 会按顺序跑）。')
   process.exit(1)
 }
+// 形状不对的记录当**没有**记录办，不当成「这些东西没测过」——
+// 后者会报出一串根本不存在的缺口，把人支到错的地方去修。
+if (!claimsWellFormed(raw)) {
+  console.error(`✗ 覆盖记录的形状不对 ${CLAIMS_PATH}\n`)
+  console.error('  缺字段，或者字段不是数组 —— 旧版本写下的、别处拷来的，都不能当证据。')
+  console.error('  先跑 `npm test` 重写一份。')
+  process.exit(1)
+}
+const claims: Claims = raw
 const selfHash = createHash('sha256')
   .update(readFileSync(SELF, 'utf8')).digest('hex').slice(0, 12)
 if (!claimsFresh(claims.source_hash, selfHash)) {
@@ -80,7 +89,7 @@ const testedIds = new Set(claims.covered)
  * 是一条,在事实上是两条。D1 的「测试✓」挂了很久,而它验收标准的后半句
  * ——「记忆查询中视为同一人」—— 从来没实现过,那半句是 P4 的承重结构（ADR-24）。
  */
-const testedCriteria = new Set(claims.criteria ?? [])
+const testedCriteria = new Set(claims.criteria)
 
 const mutatedIds = new Set<string>(mutCfg.mutations.map((m: any) => m.req))
 
