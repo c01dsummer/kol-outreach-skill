@@ -31,8 +31,38 @@ export const textProblem = (v: unknown): string | undefined =>
 export const creatorKey = (c: { platform: string; handle: string }): string =>
   `${c.platform.toLowerCase()}:${c.handle.toLowerCase()}`
 
-/** D4：记忆「文件不存在」与「读不出来但调用方显式跳过」是两个状态，不得同值 */
-export type MemoryStatus = 'ok' | 'absent' | 'unreadable_ignored'
+/**
+ * 跨任务记忆这一次的可用状态。**四档，不是两档**（D4）：
+ *
+ * - `ok`                 —— 读到了
+ * - `absent`             —— 文件不存在。第一次跑，记忆里**确实**没有人
+ * - `unreadable_ignored` —— 读不出来，但用户显式 `--ignore-memory` 要求继续
+ * - `unknown`            —— **无从确认**。两个来源：ADR-15 之前产出的任务目录，
+ *                           以及名单与状态尚未一起落成的目录（ADR-41）
+ *
+ * 中间两档在旧实现里是同一个值（都退化成空记忆），而它们的含义相反：前者是
+ * 「查过，是空的」，后者是「没查到」。压成一个值之后，交付物上的
+ * filtered_contacted 为 0 同时代表这两件事，而用户两个都看得到（ADR-15）。
+ *
+ * `unknown` 是第四档，由 ADR-18 补上：旧任务目录没有这个字段，而**当时记忆
+ * 读不出来正是会被静默当成空记忆的** —— 所以「字段缺失」不能读成「去重跑过了」，
+ * 它就是字面意思上的不知道。把它并进 `ok` 等于替一批无从确认的名单打包票。
+ */
+export const MEMORY_STATUSES = ['ok', 'absent', 'unreadable_ignored', 'unknown'] as const
+export type MemoryStatus = typeof MEMORY_STATUSES[number]
+
+/**
+ * 认不出的一律读作 `unknown`。
+ *
+ * `task.json` 是 `JSON.parse` 出来的，类型在运行时一个值都不拦：`null`、拼错的字符串、
+ * 新版本写下的新取值，都会被原样抄进交付物。而报告只对 `unreadable_ignored`
+ * 与 `unknown` 两个**精确字符串**发警告 —— 于是一个认不出的值会**压掉警告**，
+ * 把一份没验证过的名单当成正常的交出去（ADR-47）。
+ *
+ * 白名单，不是黑名单：黑名单要求我列全「坏的取值」，而坏的取值是列不全的。
+ */
+export const asMemoryStatus = (v: unknown): MemoryStatus =>
+  (MEMORY_STATUSES as readonly unknown[]).includes(v) ? v as MemoryStatus : 'unknown'
 /** F2：关键词的四个维度。竞品词权重最高（评分见 score.ts）。 */
 export type Dimension = 'category' | 'scene' | 'competitor' | 'audience'
 export type Tier = 'A' | 'B' | 'C'
@@ -262,6 +292,16 @@ export interface TaskState {
 
   /** 累计请求数 —— 跨多次运行累加，续跑时不重复计费 */
   requests: number
+
+  /**
+   * 这一批名单有没有做过「已联系 / 已推荐」去重（ADR-15）。
+   *
+   * `collect` 写，`render` 读了在交付物上声明。**字段缺失读作 `unknown`，
+   * 不读作 `ok`** —— 缺失只可能来自 ADR-15 之前的 collect，而那一版遇到读不出来
+   * 的记忆会静默当成空记忆，所以「过滤这一步跑过」并不等于「过滤真的生效了」。
+   * 最初写成按 `ok` 处理，是把一个查不到的事实当成了肯定答案（ADR-18）。
+   */
+  memory_status?: MemoryStatus
 
   created_at: string
   updated_at: string

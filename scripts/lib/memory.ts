@@ -301,7 +301,7 @@ export interface FilterResult {
   filtered_recommended: number
   filtered_contacted: number
   /** 「没查到」与「查过、确实没人」的 filtered_contacted 都是 0，能分开它们的只有这个 */
-  memory_status: MemoryStatus
+  memory_status: Exclude<MemoryStatus, 'unknown'>
 }
 
 /**

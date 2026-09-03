@@ -41,14 +41,15 @@ import {
   accountKey, assignAudienceRisks, attachAssessments, calculatePublicMetrics,
   calculateQuoteEfficiency, measured, publicPostSample, recomputeCachedAssessment, unavailable,
 } from './lib/assessment.js'
-import { writeFileSync, unlinkSync, truncateSync, rmSync } from 'node:fs'
+import { writeFileSync, unlinkSync, truncateSync, rmSync, mkdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator,
   EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, TaskState,
 } from './lib/types.js'
-import { creatorKey } from './lib/types.js'
+import { asMemoryStatus, creatorKey } from './lib/types.js'
+import { persistListAndStatus } from './lib/task.js'
 
 let fail = 0
 let cur = ''
@@ -621,6 +622,41 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   eq('产品名两侧的空白不影响「已推荐过」', padded.filtered_recommended, 1)
   eq('于是那个人不会被再推荐一次', padded.kept.length, 0)
 
+  // 七之二、名单和它的去重状态：**哪个先写都不安全**，取决于状态往哪边变。
+  //        ok → unreadable_ignored 时名单先写会坏；unreadable_ignored → ok 时
+  //        状态先写会坏。两种坏法一样：报告压掉警告，把打扰过的人当成已去重
+  //        交付出去。所以分三步，肯定的断言最后写（ADR-41）。
+  {
+    const d = join(tmpdir(), `kol-d4-persist-${process.pid}`)
+    rmSync(d, { recursive: true, force: true })
+    mkdirSync(d, { recursive: true })
+    // 用一个同名目录占住 creators.json —— 写它必定失败，模拟「名单没落成」
+    mkdirSync(join(d, 'creators.json'))
+    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1,
+      memory_status: 'unreadable_ignored' } as unknown as TaskState
+    let threw = false
+    try { persistListAndStatus(d, st, [mk('tiktok', 'zoe')], 'ok') } catch { threw = true }
+    ok('名单写不进去时确实抛出来', threw)
+    eq('而盘上的状态停在「无从确认」，不是刚要断言的那个 ok',
+      existsSync(join(d, 'task.json')) ? JSON.parse(rf(join(d, 'task.json'), 'utf8')).memory_status : '（没有 task.json）',
+      'unknown')
+    rmSync(d, { recursive: true, force: true })
+  }
+  // 都落成时才断言
+  {
+    const d = join(tmpdir(), `kol-d4-persist2-${process.pid}`)
+    rmSync(d, { recursive: true, force: true })
+    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1,
+      memory_status: 'unreadable_ignored' } as unknown as TaskState
+    persistListAndStatus(d, st, [mk('tiktok', 'zoe')], 'ok')
+    eq('两边都落成时，状态才是那个肯定的断言',
+      JSON.parse(rf(join(d, 'task.json'), 'utf8')).memory_status, 'ok')
+    eq('名单也确实换了', JSON.parse(rf(join(d, 'creators.json'), 'utf8')).length, 1)
+    rmSync(d, { recursive: true, force: true })
+  }
+
   // 八、写入侧不许写出读取侧会拒绝的东西。任务配置里 product 是空白时，
   //     写下的那条推荐记录下次读盘正好被判成损坏 —— 一次写回就把一份好好的
   //     记忆变成读不出来的，此后每次采集都被挡住（ADR-46）。
@@ -725,6 +761,19 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
   try { finalize(batch, 'p') } catch (e) { shapeThrew = (e as Error).name }
   eq('结构不对时也不得交出一份含已联系者的名单', shapeThrew, 'MemoryUnreadable')
 
+  truncateSync(tmp, Math.floor(rf(tmp, 'utf8').length * 0.6))
+  const forced = finalize(batch, 'p', undefined, { ignoreUnreadableMemory: true })
+  eq('逃生口下确实放行了已联系的人', forced.kept.length, 3)
+  eq('但这件事必须能被下游读到', forced.memory_status, 'unreadable_ignored')
+
+  // 真正要守的是这个：「没查到」与「查过、确实没人」在下游必须不同值。
+  // 两者的 filtered_contacted 都是 0，能分开它们的只剩 memory_status。
+  useMemoryFile(join(tmpdir(), `kol-p4d4-none-${process.pid}.json`))
+  const cleanEmpty = finalize(batch, 'p')
+  eq('空记忆同样一个都没滤掉', cleanEmpty.filtered_contacted, forced.filtered_contacted)
+  ok('但两者不是同一个状态 —— 0 不再同时代表两件事',
+     cleanEmpty.memory_status !== forced.memory_status)
+
   unlinkSync(tmp)
   useMemoryFile('memory/creators.json')
 }
@@ -794,6 +843,52 @@ suite('P5', '交付必须声明数据边界')
   })
   ok('空名单也不隐藏全局数据边界',
     empty.includes('未做有效性验证') && empty.includes('无法确认'))
+
+  // 记忆失效的两件事分开声明：这一批可能重复打扰（P4 没跑），
+  // 下一批可能重复推荐（这一批没记下）。后果不同，不能合成一句。
+  const base = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+    total: 1, tiers: { A: 1, B: 0, C: 0 }, email_count: 1,
+    cross_platform_count: 0, requests: 1, cost_estimate_usd: 0.001,
+    budget_usd: 2, enriched: true }
+  const one = [mk('tiktok', 'a', { tier: 'A', score: 50 })]
+
+  const skipped = renderHtml(one, { ...base, memory_status: 'unreadable_ignored',
+                                    memory_written: true })
+  ok('未去重的名单必须在报告上说出来', skipped.includes('未做「已联系 / 已推荐」去重'))
+  ok('未去重时点明后果是可能重复打扰', skipped.includes('已经联系过'))
+
+  const unwritten = renderHtml(one, { ...base, memory_status: 'ok', memory_written: false,
+                                      memory_write_error: 'EACCES: permission denied' })
+  ok('没写回记忆也必须说出来', unwritten.includes('未记入跨任务记忆'))
+  ok('没写回时不误报成没去重', !unwritten.includes('未做「已联系 / 已推荐」去重'))
+  // 没写回有两个原因：读不出来（去修 JSON）和写不进去（去看权限或磁盘）。
+  // 报告替用户断定成前者，磁盘满的人会对着一份没坏的文件较劲（ADR-20）。
+  ok('把真实原因带给用户', unwritten.includes('EACCES'))
+  ok('不替用户断定是文件坏了', !unwritten.includes('读不出来'))
+
+  // 旧任务目录没有这个字段，而当时读不出来的记忆会被静默当成空记忆 ——
+  // 所以「不知道」必须说出口，不能悄悄当成「没问题」（ADR-18）。
+  const legacy = renderHtml(one, { ...base, memory_status: 'unknown', memory_written: true })
+  ok('去重状态无从确认时也要说出来', legacy.includes('无从确认'))
+  ok('说的是不知道，不是「你跳过了」', !legacy.includes('运行时显式跳过'))
+  ok('并给出拿到确定答案的办法', legacy.includes('重跑'))
+  // unknown 有两个来源（早期采集、名单与状态没能一起落成），事后分不出是哪一个。
+  // 写死其中一个就是给用户一个**编造的诊断**：被打断的那种情况会被告知
+  // 「这批人由早期版本采集」，而它其实是刚刚才产生的（ADR-43）。
+  ok('不替用户编一个原因 —— 两个来源事后分不出',
+    !legacy.includes('早期版本') && !legacy.includes('这批人由'))
+
+  // 认不出的取值（null、拼错、新版本写的）必须读作 unknown —— 否则报告只对
+  // 两个精确字符串警告，一个认不出的值会**压掉警告**（ADR-47）
+  eq('认得出的状态原样读', asMemoryStatus('ok'), 'ok')
+  for (const bad of [null, undefined, 'okk', 'OK', 42, {}]) {
+    eq(`认不出的状态（${JSON.stringify(bad)}）读作 unknown`, asMemoryStatus(bad), 'unknown')
+  }
+
+  const normal = renderHtml(one, { ...base, memory_status: 'ok', memory_written: true })
+  ok('一切正常时不加噪音',
+    !normal.includes('未做「已联系 / 已推荐」去重') && !normal.includes('未记入跨任务记忆') &&
+    !normal.includes('无从确认'))
 }
 
 // ─────────────────────────── 数据 ───────────────────────────

@@ -3,7 +3,7 @@ import { linkCrossPlatform, mergeCrossPlatform } from './identity.js'
 import {
   passesFollowerGate, scoreCreator, tierOf, applyGeoPenalty, applyAudienceRiskPenalty,
 } from './score.js'
-import { filterByMemory } from './memory.js'
+import { filterByMemory, type MemoryStatus } from './memory.js'
 import { sortForOutput } from './rows.js'
 
 /*
@@ -27,6 +27,8 @@ export interface FinalizeResult {
   unknown_followers: number
   filtered_recommended: number
   filtered_contacted: number
+  /** 这一批有没有去过重 —— 收尾算出来的永远是肯定的答案，「无从确认」只会来自盘上 */
+  memory_status: Exclude<MemoryStatus, 'unknown'>
 }
 
 /**
@@ -42,8 +44,15 @@ export interface FinalizeResult {
  *
  * 不写盘，也**不修改传入的数据** —— 累加器只增不减（D6）是这个函数的结构性
  * 保证，不依赖调用方记得先落盘再调用。
+ *
+ * 记忆读不出来时这里会抛（P4 无法保证就不产出名单，ADR-15）。入口负责把它
+ * 翻译成退出码和一条人能照做的话；**要不要继续的决定不在入口**，
+ * 由调用方显式传 ignoreUnreadableMemory 表达。
  */
-export function finalize(raw: Creator[], product: string, task?: string): FinalizeResult {
+export function finalize(
+  raw: Creator[], product: string, task?: string,
+  opts: { ignoreUnreadableMemory?: boolean } = {},
+): FinalizeResult {
   const all = structuredClone(raw)
   const linked = linkCrossPlatform(all)
   const merged = mergeCrossPlatform(all)
@@ -53,8 +62,9 @@ export function finalize(raw: Creator[], product: string, task?: string): Finali
   const unknown_followers = merged.filter(c => c.followers === undefined).length
   const gated = merged.filter(passesFollowerGate)
 
-  const { kept, filtered_recommended, filtered_contacted } = filterByMemory(gated, product, task)
-  return { kept, linked, unknown_followers, filtered_recommended, filtered_contacted }
+  const { kept, filtered_recommended, filtered_contacted, memory_status } =
+    filterByMemory(gated, product, task, { ignoreUnreadable: opts.ignoreUnreadableMemory })
+  return { kept, linked, unknown_followers, filtered_recommended, filtered_contacted, memory_status }
 }
 
 /**

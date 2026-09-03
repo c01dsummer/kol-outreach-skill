@@ -12,6 +12,7 @@
  * 记忆文件读不出来时**不产出名单**（退出码 2，采集结果完好，已抓到的不重抓）。
  * 修好后续跑要不要花钱，取决于剩余关键词与待补 profile 是否都为零 ——
  * **不要无条件说「续跑零花费」**，stderr 会按实际剩余量算给用户看（ADR-15 · ADR-25）。
+ * `--ignore-memory` 是显式逃生口，见 ADR-15。
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
@@ -19,11 +20,20 @@ import { Budget, BudgetExceeded } from './lib/budget.js'
 import { finalize, keywordsResumeWillRun, needsProfile, pendingKeywords } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
-import { taskDir, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators, saveCreators } from './lib/task.js'
+import {
+  taskDir, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators, persistListAndStatus,
+} from './lib/task.js'
 import { creatorKey, textProblem } from './lib/types.js'
 import type { Creator, TaskState } from './lib/types.js'
 
 const MAX_PAGES = 4          // 实测值：第 4 页后新增人数明显衰减
+
+/**
+ * 记忆读不出来时仍然产出名单。**必须由用户显式打出来** —— 它不让重复打扰的风险
+ * 消失，只是把它从一个静默默认变成一次显式决定，代价随 memory_status 声明在
+ * 交付物上（ADR-15）。
+ */
+const ignoreMemory = process.argv.includes('--ignore-memory')
 
 const argv = process.argv
 const arg = (n: string) => {
@@ -51,7 +61,7 @@ if (resume) {
 } else {
   const cfgPath = arg('--config')
   if (!cfgPath) {
-    console.error('用法: tsx scripts/collect.ts --config task.json | --resume <dir> [--budget N]')
+    console.error('用法: npm run collect -- --config task.json | --resume <dir> [--budget N] [--ignore-memory]')
     process.exit(2)
   }
   const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'))
@@ -241,7 +251,8 @@ async function main() {
   // 「续跑不花钱」：续跑还剩多少活，由下面那段按实际情况算（ADR-25）。
   let fin
   try {
-    fin = finalize([...creators.values()], state.product, taskId(dir))
+    fin = finalize([...creators.values()], state.product, taskId(dir),
+                   { ignoreUnreadableMemory: ignoreMemory })
   } catch (e) {
     if (!(e instanceof MemoryUnreadable)) throw e
     console.error(`\n⛔ ${e.message}`)
@@ -273,11 +284,14 @@ async function main() {
     // 写成 npm run 的形式：tsx 只在 npm script 里才在 PATH 上，而且 .env 也只有那条路会读
     console.error(`\n   修好它再跑: npm run collect -- --resume ${dir}` +
                   (stopped === 'budget' ? ' --budget <新额度>' : ''))
+    // 逃生口要打出来，但只打出来 —— 走不走它是用户的取舍，不是这里替他选（ADR-15）
+    console.error(`   或明知重复打扰的风险仍要出名单: 上面那条命令加 --ignore-memory`)
     process.exit(2)
   }
 
-  // 交付物写 creators.json；累加器 creators.raw.json 由 persist() 保管，不在这里动
-  saveCreators(dir, fin.kept)
+  // 交付物与它的去重状态一起落盘 —— **哪个先写都不安全**，判定在 lib/task.ts
+  // 的 persistListAndStatus 里（ADR-41）。累加器 creators.raw.json 由 persist() 保管，不在这里动。
+  persistListAndStatus(dir, state, fin.kept, fin.memory_status)
 
   const summary = {
     dir, stopped,
@@ -290,6 +304,7 @@ async function main() {
     profile_failed: profileFailed,
     filtered_recommended: fin.filtered_recommended,
     filtered_contacted: fin.filtered_contacted,
+    memory_status: fin.memory_status,
     keywords_done: state.done.length,
     keywords_total: state.tasks.length,
     pending_keywords: pendingKeywords(state),
@@ -302,7 +317,7 @@ async function main() {
 
   if (stopped === 'budget') {
     console.error(`\n⛔ 预算用尽 ${budget.summary()} —— 断点已保存。`)
-    console.error(`   追加预算续跑: tsx scripts/collect.ts --resume ${dir} --budget <新额度>`)
+    console.error(`   追加预算续跑: npm run collect -- --resume ${dir} --budget <新额度>`)
     process.exit(3)              // 3 = 预算用尽，可续跑
   }
   if (stopped === 'error') process.exit(1)
