@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { textProblem, type Creator, type MemoryStatus } from './types.js'
+import { PLATFORMS, creatorKey, textProblem, type Creator, type MemoryStatus } from './types.js'
 
 /** D4：本地单文件，不做多人共享。团队场景需另行设计。 */
 const DEFAULT_FILE = 'memory/creators.json'
@@ -39,7 +39,15 @@ interface MemoryFile {
   creators: Record<string, MemoryEntry>
 }
 
-const key = (c: { platform: string; handle: string }) => `${c.platform}:${c.handle.toLowerCase()}`
+/**
+ * handle 允许的字符 —— `PLATFORMS` 里两家的用户名都只允许字母、数字、下划线、点，
+ * 与 `identity.ts` 从 URL 里抠 handle 用的是同一套。连字符不留：两家平台都没有它，
+ * 测试里那个带连字符的用例是改名而不是为它放宽规则（ADR-37）。推导见 `normalizeKeys`。
+ */
+const HANDLE = /^[a-z0-9._]+$/
+
+/** D1：身份是 platform 与 handle 的组合，整体大小写不敏感。规则在 types.ts，只此一份 */
+const key = creatorKey
 
 /**
  * 记忆读不出来。**不是「记忆里没有人」** —— 见 ADR-15。
@@ -155,6 +163,91 @@ function duplicateKey(raw: string): string | undefined {
   return undefined
 }
 
+/**
+ * 键的规范化。
+ *
+ * D1 说身份是 platform 与 handle 的组合、**大小写不敏感**，而查询侧一直在
+ * 小写化、存储侧没有 —— 于是手改出来的 `tiktok:Alice` 永远查不到：
+ * 已联系的人照进名单，而状态报的是「读到了」（ADR-22）。
+ *
+ * 两类键不规范化，直接判读不出来：
+ *
+ * - **不是 `platform:handle` 形状** —— 少冒号、多冒号（`tiktok:alice:old`）、
+ *   两边任一为空、或平台不是支持的那几个（`tikok:alice` 这种拼错）。
+ *   它永远匹配不到任何人，是个静默的黑洞。**「有个冒号」远不够** ——
+ *   查询侧生成的键是什么形状，这里就得要求什么形状（ADR-25）
+ * - **handle 不是 handle 的形状** —— `tiktok:@alice`、`tiktok:alice/`、
+ *   `tiktok:ali%63e` 每一关都过得去：两边非空、平台也对、也没有空白，
+ *   而查询侧生成的是 `tiktok:alice`。空白只是这一类里最显眼的那个
+ *   （ADR-32 只堵了空白，ADR-37 补上其余）
+ * - **两个键规范化后撞在一起** —— 该用哪一条无从判断，而**答不上来时不许猜**
+ *
+ * handle 的形状**是从这个仓库里推出来的，不是拍的**：
+ *
+ * - `report.ts` 渲染的是 `@${handle}` —— handle 自己带 `@` 的话会显示成 `@@alice`
+ * - `profile_url` 拼的是 `.../@${handle}` 与 `.../${handle}/` —— handle 是个
+ *   **裸的 URL 路径段**，带 `/ ? # %` 拼出来就是另一个地址
+ *
+ * 所以取两家平台用户名都允许的字符集。仍然绑在 `PLATFORMS` 上 ——
+ * **平台集合变了，这条得跟着重看**。可能失之过严，所以选了错得起的那边：
+ * 误判会大声中止，漏判是静默地破 P4。
+ */
+/**
+ * 这个 platform / handle 组合能不能当键用。
+ *
+ * **两边共用**：读进来的键要过它，写出去之前生成的键也要过它。
+ * 只在读的那一侧校验，写的那一侧就能造出一个自己下次读不出来的文件 ——
+ * 一次写回把一份好好的记忆变成读不出来的，此后每次采集都被挡住。
+ * 与 ADR-46 的产品名是同一条规矩，只是这次轮到了键。
+ *
+ * 收 `unknown` 而不是 `string`：写出去那一侧的两个值直接来自
+ * `JSON.parse(creators.json)`，**类型标注在运行时一个值都不拦**。
+ * 标成 `string` 时第一句 `toLowerCase` 就抛，而抛出去会绕开
+ * 「报为未写回、照常完成交付」那条路 —— `recordRecommendations` 的契约
+ * 是**绝不抛**（ADR-56）。
+ */
+function keyProblem(platform: unknown, handle: unknown): string | undefined {
+  // 先确认它们是文字，判据用的还是那一份（types.ts）
+  const badPlatform = textProblem(platform)
+  if (badPlatform) return `平台${badPlatform} —— 它永远匹配不到任何人`
+  const badHandle = textProblem(handle)
+  if (badHandle) return `handle ${badHandle} —— 它永远匹配不到任何人`
+  const p = (platform as string).toLowerCase()
+  const h = (handle as string).toLowerCase()
+  if (!(PLATFORMS as readonly string[]).includes(p)) {
+    return `平台「${platform}」不是支持的平台（${PLATFORMS.join(' / ')}）—— 它永远匹配不到任何人`
+  }
+  if (!HANDLE.test(h)) {
+    return `handle「${handle}」不是 handle 的形状（只允许字母、数字、下划线、点）—— 展示时前面才加 @，链接里它是一个裸的路径段 —— 支持的平台都不允许用户名出现别的字符，所以这样的键只可能来自手改，而它永远匹配不到任何人`
+  }
+  return undefined
+}
+
+function normalizeKeys(creators: Record<string, MemoryEntry>):
+  { ok: true; creators: Record<string, MemoryEntry> } | { ok: false; why: string } {
+  const out: Record<string, MemoryEntry> = {}
+  const seen = new Map<string, string>()
+  for (const [raw, entry] of Object.entries(creators)) {
+    const parts = raw.split(':')
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      return { ok: false, why: `键「${raw}」不是 platform:handle 的形式（分隔符必须恰好一个，两边都不能空）—— 它永远匹配不到任何人` }
+    }
+    const [rawPlatform, rawHandle] = parts
+    const bad = keyProblem(rawPlatform, rawHandle)
+    if (bad) return { ok: false, why: `键「${raw}」的${bad}` }
+    // **用查询侧那个函数本人算**，不要在这里再写一遍同样的表达式。
+    // D1 要求两侧一致 —— 各写一份时那只是巧合，同一个函数才是保证（ADR-22 追记）。
+    const norm = key({ platform: rawPlatform, handle: rawHandle })
+    const prev = seen.get(norm)
+    if (prev !== undefined) {
+      return { ok: false, why: `键「${prev}」与「${raw}」指的是同一个人，但各有一条记录 —— 该用哪一条无从判断` }
+    }
+    seen.set(norm, raw)
+    out[norm] = entry
+  }
+  return { ok: true, creators: out }
+}
+
 /** 唯一读盘的地方。**它不做决定** —— 读不出来时怎么办由各个调用方自己回答。 */
 function readMemory(): ReadResult {
   let raw: string
@@ -182,7 +275,12 @@ function readMemory(): ReadResult {
   }
   const bad = shapeProblem(parsed)
   if (bad) return { status: 'unreadable', detail: `结构不对 —— ${bad}` }
-  return { status: 'ok', mem: parsed as MemoryFile }
+  const mem = parsed as MemoryFile
+  // 规范化之后写回去的也是规范形式 —— 手改出来的大小写会被就地纠正，
+  // 而纠正不了的（形状错、撞键）当读不出来处理。
+  const norm = normalizeKeys(mem.creators)
+  if (!norm.ok) return { status: 'unreadable', detail: `结构不对 —— ${norm.why}` }
+  return { status: 'ok', mem: { ...mem, creators: norm.creators } }
 }
 
 /** 读不出来就抛。要在读不出来时继续的调用方，走 filterByMemory 的显式开关。 */
@@ -291,6 +389,12 @@ export function recordRecommendations(
     return { written: false, reason: `任务的产品名${badProduct} —— 记不下来，因为记下的这条下次会被判成损坏` }
   }
   const want = product.trim()
+  // 生成出去的键也要过同一道校验。只校验读进来的那一侧，写出去的这一侧
+  // 就能造出一个自己下次读不出来的文件（ADR-46 的规矩，这次轮到键）。
+  for (const c of creators) {
+    const bad = keyProblem(c.platform, c.handle)
+    if (bad) return { written: false, reason: `${c.platform}:${c.handle} 记不下来 —— ${bad}` }
+  }
   const r = readMemory()
   if (r.status === 'unreadable') return { written: false, reason: r.detail }
   const mem = r.mem

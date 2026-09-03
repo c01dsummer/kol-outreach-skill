@@ -20,7 +20,7 @@ import { finalize, keywordsResumeWillRun, needsProfile, pendingKeywords } from '
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
 import { taskDir, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators, saveCreators } from './lib/task.js'
-import { textProblem } from './lib/types.js'
+import { creatorKey, textProblem } from './lib/types.js'
 import type { Creator, TaskState } from './lib/types.js'
 
 const MAX_PAGES = 4          // 实测值：第 4 页后新增人数明显衰减
@@ -96,7 +96,7 @@ const api = new TikHub(key, budget)
 // 读的是**累加器** creators.raw.json，不是交付物 creators.json ——
 // 交付物是过滤后的结果，拿它当续跑的输入会让每轮都比上一轮少人。
 const creators = new Map<string, Creator>()
-for (const c of loadRawCreators(dir)) creators.set(`${c.platform}:${c.handle.toLowerCase()}`, c)
+for (const c of loadRawCreators(dir)) creators.set(creatorKey(c), c)
 
 // ---------- 采集 ----------
 
@@ -148,8 +148,8 @@ async function run() {
 
       let added = 0
       for (const p of found) {
-        if (!p.handle) continue
-        const k = `${p.platform}:${p.handle.toLowerCase()}`
+        if (!p.handle || !p.platform) continue
+        const k = creatorKey({ platform: p.platform, handle: p.handle })
         if (creators.has(k)) continue
         creators.set(k, { ...(p as Creator), source_keyword: t.keyword, source_dimension: t.dimension })
         added++

@@ -54,7 +54,7 @@
 | `scripts/lib/pipeline.ts` | 逻辑 | D6 P1 P4 F5 F8 U1 U3 | 入口脚本原先裸露的两段管线；**顺序契约全在这里**，见下表 |
 | `scripts/lib/score.ts` | 逻辑 | P1 F6 F8 | 打分、分层、粉丝闸门、两种降级判定；语义否决对分层有一票否决权 |
 | `scripts/lib/identity.ts` | 逻辑 | D1 D2 D3 P1 | 跨平台同人识别与合并；不确定不合并，未知粉丝数相加仍是未知 |
-| `scripts/lib/memory.ts` | 逻辑 | P4 D4 D6 | 跨任务记忆的读写与过滤；「文件不存在」与「读不出来」是两个状态，后者抛而不是退化，且绝不拿它去覆盖原文件；解析成功还要过结构校验 |
+| `scripts/lib/memory.ts` | 逻辑 | P4 D4 D6 | 跨任务记忆的读写与过滤；「文件不存在」与「读不出来」是两个状态，后者抛而不是退化，且绝不拿它去覆盖原文件；解析成功还要过结构校验，键按 D1 规范化，形状不对或撞键当读不出来；写回前生成的键过同一道校验 |
 | `scripts/lib/budget.ts` | 逻辑 | P3 F7 | 成本闸门；超限抛 BudgetExceeded 且不增加计数 |
 | `scripts/lib/email.ts` | 逻辑 | D7 | 反爬写法的邮箱提取；宁可返回 null 也不误判正常语句 |
 | `scripts/lib/assessment.ts` | 逻辑 | D8 D9 D10 F8 U7 | 公开样本 → 指标 / 风险 / 活跃度 / 报价效率，每项带测量状态与溯源；**样本记录的窗口也截在这里**，入口脚本只负责调用与落盘 |
@@ -63,7 +63,7 @@
 | `scripts/lib/xlsx.ts` | 逻辑 | U5 | 零依赖 ZIP 与 CRC32；空分层也建 sheet |
 | `scripts/lib/report.ts` | 逻辑 | P5 U2 U3 U4 U6 | 单文件内联 HTML；数据边界声明与分层 tab 的初始可见性 |
 | `scripts/lib/task.ts` | 逻辑 | D6 | 任务目录的读写；**累加器与交付物是两个文件**，见下表 |
-| `scripts/lib/types.ts` | 逻辑 | P1 D8 | 三态模型的定义处 —— 它把「没查到」和「查了没有」在类型层面分开 |
+| `scripts/lib/types.ts` | 逻辑 | P1 D1 D8 | 三态模型的定义处 —— 它把「没查到」和「查了没有」在类型层面分开；**D1 的身份键与支持的平台列表只此一份**，采集去重、记忆读写、账号评估都调它 —— 各写一份表达式时的「一致」只是巧合 |
 | `scripts/providers/tikhub.ts` | 适配 | D2 D3 D8 P1 | 唯一的数据源实现；响应结构走探测 cascade，识别不出时暴露顶层 key |
 | `scripts/check/lint.ts` | 检查 | P1 | 把 P1 从散文变成能报错的检查；走文件树、打印、退出码 |
 | `scripts/check/lint-rule.ts` | 检查 | P1 | 上面那条检查的**判定**本身。抽出来是为了它能被测 —— 检查自己也要能被证伪 |

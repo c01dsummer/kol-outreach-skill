@@ -48,6 +48,7 @@ import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator,
   EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, TaskState,
 } from './lib/types.js'
+import { creatorKey } from './lib/types.js'
 
 let fail = 0
 let cur = ''
@@ -509,6 +510,34 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     ['推荐记录的 task 不是字符串', JSON.stringify({ version: 1, creators: {
       'tiktok:a': { contacted: false, blocked: false,
         recommendations: [{ product: 'p', date: '2026-01-01', task: 7 }] } } })],
+    // 键本身也得能用：查询侧按 platform:handle 小写化去找，
+    // 一个找不到的键是个静默的黑洞
+    ['键没有冒号', JSON.stringify({ version: 1, creators: {
+      alice: { contacted: true, blocked: false, recommendations: [] } } })],
+    ['键的 handle 是空的', JSON.stringify({ version: 1, creators: {
+      'tiktok:': { contacted: true, blocked: false, recommendations: [] } } })],
+    ['两个键指同一个人', JSON.stringify({ version: 1, creators: {
+      'tiktok:Alice': { contacted: true, blocked: false, recommendations: [] },
+      'tiktok:alice': { contacted: false, blocked: false, recommendations: [] } } })],
+    // 「有个冒号」远不够：查询侧生成的键是什么形状，这里就得要求什么形状（ADR-25）
+    ['键的平台拼错了', JSON.stringify({ version: 1, creators: {
+      'tikok:a': { contacted: true, blocked: false, recommendations: [] } } })],
+    ['键的平台不在支持范围内', JSON.stringify({ version: 1, creators: {
+      'youtube:a': { contacted: true, blocked: false, recommendations: [] } } })],
+    ['键里多一个分隔符', JSON.stringify({ version: 1, creators: {
+      'tiktok:a:old': { contacted: true, blocked: false, recommendations: [] } } })],
+    // 同一间屋子的第四扇门：两边非空、平台也对，只差一个空格，
+    // 平台不允许用户名带空白，所以带空白的键只可能来自手改（ADR-32）。
+    // **不写成「查询侧永远不会生成带空白的键」** —— 查询侧照单全收，
+    // 拦住它的是写入侧的校验和这里的读入校验（ADR-22 追记）
+    ['键的 handle 尾部带空格', JSON.stringify({ version: 1, creators: {
+      'tiktok:a ': { contacted: true, blocked: true, recommendations: [] } } })],
+    ['键的 handle 头部带空格', JSON.stringify({ version: 1, creators: {
+      'tiktok: a': { contacted: true, blocked: true, recommendations: [] } } })],
+    ['键的 handle 中间带空格', JSON.stringify({ version: 1, creators: {
+      'tiktok:a b': { contacted: true, blocked: true, recommendations: [] } } })],
+    ['键里带制表符', JSON.stringify({ version: 1, creators: {
+      'tiktok:a\t': { contacted: true, blocked: true, recommendations: [] } } })],
   ]
   // 字面重复的键**构造不出来**：对象字面量和 JSON.stringify 都只留一条。
   // 而手改的文件里它就是两行 —— 解析会静默吃掉前一条（ADR-36）。
@@ -519,6 +548,12 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   // 数组里的对象各有各的层，别把不同对象的同名键算成重复
   shapes.push(['嵌套对象里的重复键也算', `{"version":1,"creators":{
     "tiktok:a":{"contacted":true,"blocked":true,"contacted":false,"recommendations":[]}}}`])
+  // handle 的形状不是拍的：展示时前面才加 @，链接里它是裸的路径段（ADR-37）。
+  // 连字符也在此列：两家平台的用户名都没有它
+  for (const bad of ['@a', 'a/b', 'a?x', 'a%63', 'a#b', 'a-b']) {
+    shapes.push([`键的 handle 是展示形态或含 URL 字符（${bad}）`, JSON.stringify({ version: 1, creators: {
+      [`tiktok:${bad}`]: { contacted: true, blocked: true, recommendations: [] } } })])
+  }
   // 类型对不等于能用：空 product 永远匹配不上任何产品，这条去重记录等于不存在。
   // 全是空白的和不是字符串的一样不行 —— 判据只有一份（types.ts），两侧都问它。
   for (const [f, v] of
@@ -600,6 +635,42 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   eq('记忆仍然读得出来 —— 没有被自己写的东西毒掉',
     statusOf(() => filterByMemory([mk('tiktok', 'zed')], 'X')), 'ok')
 
+  // 八之二、**写出去的键也要过同一道校验**。只校验读进来的那一侧，
+  //     写的这一侧就能造出一个自己下次读不出来的文件 —— 同一条规矩，这次轮到键。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  for (const [what, c] of [
+    ['handle 是展示形态', mk('tiktok', '@alice')],
+    ['平台不在支持范围内', { ...mk('tiktok', 'alice'), platform: 'youtube' } as unknown as Creator],
+    // 这两个值直接来自 JSON.parse(creators.json)，**类型标注在运行时一个都不拦**。
+    // 校验只做「取值对不对」而不做「是不是文字」时，第一句 toLowerCase 就抛，
+    // 而抛出去会绕开「报为未写回、照常完成交付」那条路：这个函数的契约是绝不抛（ADR-56）。
+    ['handle 不是字符串', { platform: 'tiktok', handle: null } as unknown as Creator],
+    ['平台不是字符串', { platform: 7, handle: 'zed' } as unknown as Creator],
+    ['handle 全是空白', { platform: 'tiktok', handle: '   ' } as unknown as Creator],
+    ['两个都缺', {} as unknown as Creator],
+  ] as const) {
+    const w = writeOf(() => recordRecommendations([c], 'p'))
+    eq(`${what}时不抛`, w.threw, '')
+    eq(`${what}时拒绝写回`, w.written, false)
+  }
+  eq('记忆仍然读得出来 —— 没有被自己写的键毒掉',
+    statusOf(() => filterByMemory([mk('tiktok', 'alice')], 'p')), 'ok')
+
+  // 八之三、D1 的「同一个人」只有一个定义：去重与记忆查询调同一个函数。
+  //     各写一份表达式时「一致」只是巧合 —— collect 原先只小写 handle，
+  //     memory 两个都小写，平台名恒为小写所以看不出来（ADR-22 追记）。
+  eq('平台名大小写不同也是同一个人',
+    creatorKey({ platform: 'TikTok', handle: 'Alice' }), creatorKey({ platform: 'tiktok', handle: 'alice' }))
+  eq('而记忆过滤用的正是这个键 —— 存的大写、查的小写，照样挡得住', (() => {
+    writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {
+      'tiktok:Carol': { contacted: true, blocked: false, recommendations: [] } } }), 'utf8')
+    return filterByMemory([mk('tiktok', 'carol')], 'p').filtered_contacted
+  })(), 1)
+  eq('规范化之后写回去的也是规范形式', (() => {
+    recordRecommendations([mk('tiktok', 'dave')], 'p')
+    return Object.keys(JSON.parse(rf(tmp, 'utf8')).creators)
+  })(), ['tiktok:carol', 'tiktok:dave'])
+
   // 九、正常写回
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
   const okWb = recordRecommendations([mk('tiktok', 'erin')], 'p')
@@ -635,6 +706,17 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
   let threw = ''
   try { finalize(batch, 'p') } catch (e) { threw = (e as Error).name }
   eq('同一份记忆坏掉后：抛，而不是交出一份含已联系者的名单', threw, 'MemoryUnreadable')
+
+  // D1 × P4 的交点：身份规范化两侧必须是同一个规则。查询侧一直在小写化、
+  // 存储侧没有，于是手改出来的 `tiktok:Alice` 永远查不到 —— 已联系的人
+  // 照进名单，而状态报的是「读到了」（ADR-22）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, creators: {
+    'tiktok:Contacted': { platform: 'tiktok', handle: 'contacted', nickname: '', followers: 50000,
+      first_seen: '2026-01-01', recommendations: [], contacted: true, replied: false,
+      blocked: false, note: '' },
+  } }), 'utf8')
+  eq('键的大小写不影响身份 —— 已联系的人照样被挡在外面',
+    finalize([mk('tiktok', 'contacted', { followers: 50000 })], 'p').kept.length, 0)
 
   // 同一条红线的另一扇门：合法 JSON、错误结构。产品要求运营手改这个文件，
   // 把花括号改成方括号是最容易的一种手滑，而它照样能解析（ADR-19）。
@@ -1093,16 +1175,16 @@ suite('D10', '当前活跃标签与历史内容积累分开且不改变分层')
     futureActivity.status === 'unavailable' ? futureActivity.reason : undefined,
     'invalid_post_date')
 
-  const activeCreator = mk('tiktok', 'active-kol', {
+  const activeCreator = mk('tiktok', 'active_kol', {
     email: 'a@example.com', fit: '✅',
     account_assessment: {
-      platform: 'tiktok', handle: 'active-kol', metrics: metricsAt(10),
+      platform: 'tiktok', handle: 'active_kol', metrics: metricsAt(10),
     },
   })
-  const dormantCreator = mk('tiktok', 'dormant-kol', {
+  const dormantCreator = mk('tiktok', 'dormant_kol', {
     email: 'd@example.com', fit: '✅',
     account_assessment: {
-      platform: 'tiktok', handle: 'dormant-kol', metrics: metricsAt(120),
+      platform: 'tiktok', handle: 'dormant_kol', metrics: metricsAt(120),
     },
   })
   const ranked = rankCreators([activeCreator, dormantCreator], 'US')
