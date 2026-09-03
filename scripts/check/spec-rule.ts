@@ -5,11 +5,17 @@
  * 能被测就不该待在入口脚本里（`docs/CONVENTIONS.md` 第 10 条）。
  * 读文件、回写、打印、退出码仍留在 `spec-sync.ts`。
  *
- * 这里管两件事:
+ * 这里管四件事:
  *
  * 1. **形状** —— 渲染要读的字段必须在、且类型对。缺了不会报错,会把空值写进生成的文档
  * 2. **完整性** —— 编号唯一、交点指向真实存在的编号、决策记录编号真实存在、作废须有理由
+ * 3. **渲染与内容指纹** —— 人类可读的表格由登记表生成，两者不可能漂移；指纹让
+ *    「登记表改了」成为一个机器看得见的事件。它是**派生**的，由 `--write` 写、
+ *    由检查校验，没有任何人需要记得改它
+ * 4. **审计裁定** —— 一条需求该得什么旗标、报哪些缺口。输入全是算好的事实，
+ *    这里不读盘、不扫源码
  */
+import { createHash } from 'node:crypto'
 import { quotedMask } from './quoted.js'
 
 export interface Tension {
@@ -83,12 +89,98 @@ export const REDLINE_CAT = 'P'
 export const active = (reqs: Req[]): Req[] => reqs.filter(r => !r.deprecated)
 
 /**
+ * 键序无关的规范化。**必须递归** —— `JSON.stringify` 的白名单参数是**逐层**生效的,
+ * 拿顶层键当白名单会把嵌套字段整个抹掉:`tension` 会被序列化成 `[{}]`,
+ * 交点的裁决改成相反的意思,指纹纹丝不动(ADR-18)。
+ */
+function canonical(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(canonical)
+  if (v !== null && typeof v === 'object') {
+    const src = v as Record<string, unknown>
+    const out: Record<string, unknown> = {}
+    for (const k of Object.keys(src).sort()) out[k] = canonical(src[k])
+    return out
+  }
+  return v
+}
+
+/**
+ * 内容指纹。覆盖**需求与分类表**,不覆盖 updated_at 与指纹自己 ——
+ * 否则它会自我循环。键顺序无关:磁盘上的键序由写下它的那一版代码决定,
+ * 直接比较序列化结果会把键序差异误报成改动（ADR-13 踩过同一个坑）。
+ */
+export function contentHash(reqs: Req[], cats: Record<string, string>): string {
+  // 分类表也进指纹：只改一个分类的说明，渲染出来的文档就变了，
+  // 而指纹不动的话，「派生元数据」这四个字就名不副实了（ADR-22）。
+  //
+  // 用 **entries（数组）而不是对象**：`canonical` 会把对象的键排序，而渲染是按
+  // **插入顺序**分节的 —— 只调换两个分类的先后，SPEC 的分节顺序就变了，
+  // 而排序之后的指纹一动不动（ADR-28）。凡是影响渲染的东西都得进指纹，
+  // 包括顺序。
+  return createHash('sha256')
+    .update(JSON.stringify(canonical({
+      requirements: reqs, categories: Object.entries(cats),
+    })))
+    .digest('hex').slice(0, 12)
+}
+
+/** 表格渲染。作废的单独成节 —— 混在现行需求里会被当成还要做的事 */
+export function renderTables(reqs: Req[], cats: Record<string, string>): string {
+  const out: string[] = []
+  const live = active(reqs)
+  for (const [cat, label] of Object.entries(cats)) {
+    const rows = live.filter(r => r.cat === cat)
+    if (!rows.length) continue
+    out.push(`### ${cat} · ${label}\n`)
+    out.push('| 编号 | 优先级 | 需求 | 验收标准 |')
+    out.push('|---|---|---|---|')
+    for (const r of rows) {
+      out.push(`| **${r.id}** | ${r.pri} | ${esc(r.text)} | ${renderAccept(r)} |`)
+    }
+    out.push('')
+  }
+
+  // 交点单独成节。裁决只躺在登记表的 json 里等于没写 ——
+  // 读 SPEC 的人才是需要知道「这两条撞上时以谁为准」的人。
+  const tensions = live.flatMap(r => (r.tension ?? []).map(t => ({ from: r.id, t })))
+  if (tensions.length) {
+    out.push('### 需求之间的交点 —— 不属于任何一条，所以单独列\n')
+    out.push('| 交点 | 撞上时以谁为准 | 裁决记在哪 |')
+    out.push('|---|---|---|')
+    for (const { from, t } of tensions) {
+      out.push(`| **${from}** × **${t.with}** | ${esc(t.ruling)} | ${t.adr ?? '见裁决正文'} |`)
+    }
+    out.push('')
+  }
+
+  const dead = reqs.filter(r => r.deprecated)
+  if (dead.length) {
+    out.push('### 已作废 —— 编号保留，不回收复用\n')
+    out.push('| 编号 | 作废于 | 原来要什么 | 为什么作废 | 由谁取代 |')
+    out.push('|---|---|---|---|---|')
+    for (const r of dead) {
+      const d = r.deprecated!
+      out.push(`| ~~${r.id}~~ | ${d.since} | ${esc(r.text)} | ${esc(d.why)} | ` +
+               `${d.superseded_by ? `**${d.superseded_by}**` : '无'} |`)
+    }
+    out.push('')
+  }
+  return out.join('\n')
+}
+
+const esc = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ')
+
+/** 判据带着编号渲染 —— 下游要引用的是判据编号,看不见就没法引用 */
+const renderAccept = (r: Req) =>
+  r.accept.map(c => `**${c.id}** ${esc(c.text)}`).join('<br>')
+
+/**
  * 登记表的**形状**。关系检查（编号唯一、交点指向真实存在的编号……）全都
  * 假定字段在、且类型对 —— 而登记表是 `JSON.parse` 出来的,`Req` 那个接口
  * 在运行时**一个字段都不拦**。
  *
  * 判据不是「我想得到哪些字段」,是**渲染实际会读哪些字段**:漏一个,
- * 渲染就把 `undefined` 写进生成出来的表格,`--write` 原样存下,
+ * `renderTables` 就把 `undefined` 写进生成出来的表格,`--write` 原样存下,
  * 而一致性检查比的是生成结果和生成结果 —— 于是全绿(ADR-33)。
  *
  * 缺 `why` / `ruling` / `text` 这类会当场抛 TypeError,吵是吵了点,至少不是
@@ -277,4 +369,76 @@ export function adrIdsIn(decisions: string): Set<string> {
     if (m && !mask[i]) out.add(m[1])
   })
   return out
+}
+
+/** 一条需求在审计里的裁定 —— 旗标、缺口、是否硬失败 */
+export interface Verdict {
+  flag: '✓' | '⊘' | '·' | '✗'
+  gaps: string[]
+  hard: number
+  claimed: number
+}
+
+/** 审计判定的输入。**全是已经算好的事实**,这个模块不读盘、不扫源码。 */
+export interface Evidence {
+  /** 这条需求有没有被测试认领 */
+  tested: boolean
+  /** 有没有变异守着 */
+  mutated: boolean
+  /** 整条需求是否显式豁免变异 */
+  exempt: boolean
+  /** 落到实处的引用数（架构文档说了不算） */
+  impl: number
+  /** 任何形式的引用数 */
+  refs: number
+  /** 真正跑过的判据编号 */
+  claimedCriteria: ReadonlySet<string>
+  /** 显式豁免的编号（需求级与判据级共用一张表） */
+  exemptIds: ReadonlySet<string>
+}
+
+/**
+ * 一条需求该得什么旗标、报哪些缺口。
+ *
+ * 从 `audit.ts` 抽出来的理由与 `lint-rule` / `why-rule` / 上面那几个函数同：
+ * 有语义就该能被测。这条路踩过三次 —— 而**审计自己的判定连着两轮出问题**
+ * （注释掉的认领照样算数、一条判据都没认领反而干净），
+ * 那两次都没有任何测试或变异守得住（ADR-26）。
+ */
+export function requirementVerdict(r: Req, e: Evidence): Verdict {
+  const gaps: string[] = []
+  let flag: Verdict['flag'] = '✓'
+  let hard = 0
+  const claimed = r.accept.filter(c => e.claimedCriteria.has(c.id))
+  const unclaimed = r.accept.filter(c =>
+    !e.claimedCriteria.has(c.id) && !e.exemptIds.has(c.id))
+
+  if (r.cat === REDLINE_CAT) {
+    if (!e.tested) { flag = '✗'; hard++; gaps.push(`${r.id} 是红线但没有测试`) }
+    else if (!e.mutated && !e.exempt) {
+      flag = '✗'; hard++
+      gaps.push(`${r.id} 有测试但没有变异验证 —— 那条测试没被证明过`)
+    } else if (e.exempt) flag = '⊘'
+    // 红线的判据**逐条**都要有认领 —— 整条需求「有测试」不代表每一条判据都有
+    for (const c of unclaimed) {
+      flag = '✗'; hard++
+      gaps.push(`${c.id} 是红线的验收判据但没有测试认领：${c.text.slice(0, 40)}…`)
+    }
+  } else {
+    if (!e.impl && !e.tested) {
+      flag = '·'
+      gaps.push(e.refs
+        ? `${r.id} 仅被架构文档引用，未落到代码或测试`
+        : `${r.id} 未在任何下游文件中被引用`)
+    }
+    // **一条都没认领同样是缺口。** 原先只报「认领了一部分」的那种,于是
+    // 「一条都没认领」反而干干净净 —— 把仅有的那条认领删掉,缺口就消失了。
+    // **一个删掉证据就能变绿的检查,是在奖励删证据。**
+    if (unclaimed.length) {
+      flag = '·'
+      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有测试认领：` +
+                unclaimed.map(c => c.id).join(' '))
+    }
+  }
+  return { flag, gaps, hard, claimed: claimed.length }
 }

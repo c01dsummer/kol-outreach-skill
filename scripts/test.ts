@@ -10,7 +10,10 @@ import { judgeLine } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, judgmentModules, unguarded } from './check/audit-rule.js'
 import { judgeRun } from './check/mutate-rule.js'
-import { active, adrIdsIn, danglingAdrRefs, validateRegistry, type Req } from './check/spec-rule.js'
+import {
+  active, adrIdsIn, contentHash, danglingAdrRefs, renderTables, requirementVerdict,
+  validateRegistry, type Evidence, type Req,
+} from './check/spec-rule.js'
 import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
@@ -1460,10 +1463,47 @@ harness('需求登记表的完整性判定')
   const req = (id: string, over: Partial<Req> = {}): Req =>
     ({ id, cat: id[0], pri: 'P0', text: `${id} 要什么`,
        accept: [{ id: `${id}.a`, text: `${id} 怎么算满足` }], ...over })
+  const CATS = { D: '数据', P: '红线' }
 
-  // 作废：编号保留，不进现行表
+  // 内容指纹：键序无关（磁盘上的键序由写下它的那一版代码决定），内容一变就变
+  const a = req('D1')
+  const reordered = JSON.parse(JSON.stringify({
+    accept: a.accept, id: a.id, text: a.text, pri: a.pri, cat: a.cat })) as Req
+  eq('指纹与键序无关', contentHash([a], CATS), contentHash([reordered], CATS))
+  ok('内容一变指纹就变', contentHash([a], CATS) !== contentHash([req('D1', { accept: [{ id: 'D1.a', text: '改了' }] })], CATS))
+  // 嵌套字段同样是需求内容。**这里栽过一次**：拿顶层键当白名单时,
+  // 交点会被序列化成一个空对象,裁决改成相反的意思指纹纹丝不动（ADR-18）。
+  const withT = req('D1', { tension: [{ with: 'P1', ruling: '红线赢' }] })
+  ok('改交点的裁决,指纹必须变',
+    contentHash([withT], CATS) !== contentHash([req('D1', { tension: [{ with: 'P1', ruling: '相反的裁决' }] })], CATS))
+  ok('改交点指向谁,指纹必须变',
+    contentHash([withT], CATS) !== contentHash([req('D1', { tension: [{ with: 'P2', ruling: '红线赢' }] })], CATS))
+  ok('改作废理由,指纹必须变',
+    contentHash([req('D1', { deprecated: { since: '2026-01-01', why: '甲' } })], CATS) !==
+    contentHash([req('D1', { deprecated: { since: '2026-01-01', why: '乙' } })], CATS))
+  ok('顺序不同就是不同的登记表',
+    contentHash([req('D1'), req('D2')], CATS) !== contentHash([req('D2'), req('D1')], CATS))
+  // 分类表也进指纹：只改一个分类的说明，渲染出来的文档就变了 ——
+  // 指纹不动的话「派生元数据」名不副实（ADR-22）。
+  ok('只改分类表的说明，指纹也必须变',
+    contentHash([req('D1')], CATS) !== contentHash([req('D1')], { ...CATS, D: '数据（改过）' }))
+  // 分类表的**顺序**也影响渲染（分节按插入顺序排），所以也得进指纹。
+  // canonical 会把对象的键排序 —— 用 entries 数组绕开它（ADR-28）。
+  ok('只调换分类表的顺序，指纹也必须变',
+    contentHash([req('D1')], { D: '数据', P: '红线' }) !==
+    contentHash([req('D1')], { P: '红线', D: '数据' }))
+
+  // 作废：编号保留，不进现行表，单独成节
   const dead = req('D9', { deprecated: { since: '2026-01-01', why: '需求本身不成立了' } })
   eq('作废的不算现行需求', active([req('D1'), dead]).map(r => r.id), ['D1'])
+  const withTension = req('D2', { tension: [{ with: 'P1', ruling: '撞上时 P1 赢', adr: 'ADR-01' }] })
+  const html = renderTables([req('D1'), withTension, dead], { D: '数据' })
+  ok('交点的裁决渲染进人类可读的那一份', html.includes('撞上时 P1 赢'))
+  ok('并指出裁决记在哪', html.includes('ADR-01'))
+  ok('作废的不混进现行表', !html.split('已作废')[0].includes('~~D9~~') &&
+    !html.split('###')[1].includes('D9'))
+  ok('但仍然列出来 —— 编号不回收复用', html.includes('已作废') && html.includes('D9'))
+  ok('并说明为什么作废', html.includes('需求本身不成立了'))
 
   const adrs = new Set(['ADR-01'])
   // 形状校验被拿掉时，后面的关系检查会在缺字段的需求上直接抛 —— 那要作为断言失败被抓到
@@ -1496,7 +1536,9 @@ harness('需求登记表的完整性判定')
     { deprecated: { since: '2026-01-01', why: '有', superseded_by: 'ZZ9' } })]) > 0)
   // 分类表里没有的 cat：渲染时整条被跳过，而一致性检查比的是生成结果和生成结果，
   // 漏掉的那条与它自己完全一致 —— 于是登记表和它号称的渲染装着不一样的需求。
-  ok('分类不在分类表里被抓到', bad([req('Z1', { cat: 'Z' })]) > 0)
+  const strayCat = req('Z1', { cat: 'Z' })
+  ok('分类不在分类表里被抓到', bad([strayCat]) > 0)
+  ok('而它确实不会出现在渲染里', !renderTables([strayCat], { D: '数据' }).includes('Z1'))
   // 更难看见的一种：分类**声明过**，只是与编号前缀不符。两个值各自合法，
   // 而下游全都按分类分流 —— 一条红线被挪进别的分类，审计就不再要求它有
   // 测试和变异，还会报出比项目声明的更少的红线条数，然后照样通过（ADR-23）。
@@ -1510,6 +1552,12 @@ harness('需求登记表的完整性判定')
   ok('判据编号重复被抓到', bad([req('D1', { accept:
     [{ id: 'D1.a', text: 'x' }, { id: 'D1.a', text: 'y' }] })]) > 0)
   ok('判据没有内容被抓到', bad([req('D1', { accept: [{ id: 'D1.a', text: '  ' }] })]) > 0)
+  ok('判据都渲染出来，且带着自己的编号', (() => {
+    const html = renderTables([req('D1', { accept:
+      [{ id: 'D1.a', text: '前一半' }, { id: 'D1.b', text: '后一半' }] })], { D: '数据' })
+    return html.includes('D1.a') && html.includes('前一半') &&
+           html.includes('D1.b') && html.includes('后一半')
+  })())
 
   // 形状:关系检查全都假定字段在、类型对,而登记表是 JSON.parse 出来的,
   // `Req` 那个接口运行时一个字段都不拦。判据是**渲染实际读哪些字段** ——
@@ -1521,6 +1569,10 @@ harness('需求登记表的完整性判定')
   }
   ok('作废缺 since 被抓到 —— 它只被渲染、不被任何关系检查碰,是静默那一类',
     bad([req('D1', { deprecated: { why: '有理由' } as never })]) > 0)
+  ok('而缺了它确实会把 undefined 写进文档', renderTables(
+    [req('D1', { deprecated: { why: '有理由' } as never })], { D: '数据' }).includes('undefined'))
+  ok('pri 缺失同样会把 undefined 写进文档',
+    renderTables([strip(req('D1'), 'pri')], { D: '数据' }).includes('undefined'))
   ok('accept 不是数组被抓到', bad([req('D1', { accept: '一段话' as never })]) > 0)
   ok('判据不是对象被抓到', bad([req('D1', { accept: [null as never] })]) > 0)
   ok('交点不是对象被抓到', bad([req('D1', { tension: [null as never] })]) > 0)
@@ -1562,6 +1614,47 @@ harness('需求登记表的完整性判定')
     danglingAdrRefs('## ADR-07 标题\n\n```md\n- 冲击的需求：D99\n```\n', new Set<string>(), ['D']).length, 0)
   eq('HTML 注释里的示例编号不算引用',
     danglingAdrRefs('<!--\n- 冲击的需求：D98\n-->\n', new Set<string>(), ['D']).length, 0)
+}
+
+harness('审计对一条需求的裁定')
+{
+  const req = (id: string, crit: string[]): Req => ({
+    id, cat: id[0], pri: 'P0', text: 'x',
+    accept: crit.map(c => ({ id: `${id}.${c}`, text: `${id}.${c} 要什么` })),
+  })
+  const ev = (over: Partial<Evidence> = {}): Evidence => ({
+    tested: true, mutated: true, exempt: false, impl: 1, refs: 1,
+    claimedCriteria: new Set<string>(), exemptIds: new Set<string>(), ...over,
+  })
+
+  // 红线：每一条判据都要有认领，缺一条就是硬失败
+  const p = req('P9', ['a', 'b'])
+  eq('红线判据全认领 → 通过',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a', 'P9.b']) })).hard, 0)
+  eq('红线漏一条判据 → 硬失败',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']) })).hard, 1)
+  eq('红线一条都没认领 → 两条都硬失败', requirementVerdict(p, ev()).hard, 2)
+  eq('判据级豁免算数',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
+                              exemptIds: new Set(['P9.b']) })).hard, 0)
+
+  // 非红线：**一条都没认领同样是缺口**。原先只报「认领了一部分」那种，
+  // 于是把仅有的那条认领删掉，缺口反而消失了 —— 一个删掉证据就能变绿的
+  // 检查，是在奖励删证据（ADR-26）。
+  const d = req('D9', ['a', 'b'])
+  ok('非红线漏一条判据 → 报缺口',
+    requirementVerdict(d, ev({ claimedCriteria: new Set(['D9.a']) })).gaps.length > 0)
+  ok('非红线一条都没认领 → 同样报缺口，不许更干净',
+    requirementVerdict(d, ev()).gaps.length > 0)
+  eq('非红线漏判据不是硬失败', requirementVerdict(d, ev()).hard, 0)
+  eq('非红线全认领且有引用 → 通过',
+    requirementVerdict(d, ev({ claimedCriteria: new Set(['D9.a', 'D9.b']) })).flag, '✓')
+  ok('既没落到代码也没测试 → 报缺口',
+    requirementVerdict(d, ev({ tested: false, impl: 0, refs: 0,
+      claimedCriteria: new Set(['D9.a', 'D9.b']) })).gaps.length > 0)
+  eq('红线有测试没变异 → 硬失败',
+    requirementVerdict(p, ev({ mutated: false,
+      claimedCriteria: new Set(['P9.a', 'P9.b']) })).hard, 1)
 }
 
 harness('变异集的 why 不许夹带实现原文')

@@ -1120,6 +1120,62 @@
       "file": "scripts/check/spec-rule.ts",
       "find": "    const m = /^#{1,2}\\s+(ADR-\\d+)/.exec(line)",
       "replace": "    const m = /^##\\s+(ADR-\\d+)/.exec(line)"
+    },
+    {
+      "id": "M-H8-a",
+      "req": "harness",
+      "why": "内容指纹只认编号，需求文本改了指纹却不变 —— 手改需求不回写，检查照样放行",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    .update(JSON.stringify(canonical({\n      requirements: reqs, categories: Object.entries(cats),\n    })))",
+      "replace": "    .update(JSON.stringify(reqs.map(r => r.id)))"
+    },
+    {
+      "id": "M-H3-a",
+      "req": "harness",
+      "why": "作废的需求混回现行需求表 —— 已经不做的事看起来还要做，审计的完成度也跟着虚报",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  const live = active(reqs)",
+      "replace": "  const live = reqs"
+    },
+    {
+      "id": "M-H8-b",
+      "req": "harness",
+      "why": "内容指纹只认顶层字段 —— 交点的裁决改成相反的意思，指纹纹丝不动，手改需求不回写照样放行",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    for (const k of Object.keys(src).sort()) out[k] = canonical(src[k])",
+      "replace": "    for (const k of Object.keys(src).sort()) out[k] = typeof src[k] === 'object' ? null : src[k]"
+    },
+    {
+      "id": "M-H8-c",
+      "req": "harness",
+      "why": "分类表不进内容指纹 —— 只改一个分类的说明，渲染出来的文档变了而指纹不动，派生元数据名不副实",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "      requirements: reqs, categories: Object.entries(cats),\n    })))",
+      "replace": "      requirements: reqs,\n    })))"
+    },
+    {
+      "id": "M-H6-a",
+      "req": "harness",
+      "why": "一条判据都没认领的需求不再报缺口 —— 把仅有的那条认领删掉，缺口反而消失，检查在奖励删证据",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    if (unclaimed.length) {\n      flag = '·'\n      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有测试认领：` +",
+      "replace": "    if (unclaimed.length && claimed.length) {\n      flag = '·'\n      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有测试认领：` +"
+    },
+    {
+      "id": "M-H6-b",
+      "req": "harness",
+      "why": "红线的判据漏了认领不再算硬失败 —— 红线的验收标准可以有一半从来没被验过，而审计照样报全部通过",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    for (const c of unclaimed) {\n      flag = '✗'; hard++",
+      "replace": "    for (const c of [] as typeof unclaimed) {\n      flag = '✗'; hard++"
+    },
+    {
+      "id": "M-H8-d",
+      "req": "harness",
+      "why": "分类表按排序后的形状进指纹，丢掉它的顺序 —— 只调换两个分类的先后，渲染出来的文档分节顺序就变了，而指纹一动不动",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "      requirements: reqs, categories: Object.entries(cats),",
+      "replace": "      requirements: reqs, categories: cats,"
     }
   ],
   "exemptions": [
