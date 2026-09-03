@@ -10,6 +10,7 @@ import { judgeLine } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, judgmentModules, unguarded } from './check/audit-rule.js'
 import { judgeRun } from './check/mutate-rule.js'
+import { active, adrIdsIn, danglingAdrRefs, validateRegistry, type Req } from './check/spec-rule.js'
 import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
@@ -1435,6 +1436,102 @@ suite('D10', '缓存命中时按当前口径重算，不靠新请求')
     'private_account', PUBLIC_SOURCE, observedAt)
   const kept = recomputeCachedAssessment(privateSample, 10_000, 100, undefined)
   eq('不可用的样本记录原样留着', kept.sample, privateSample)
+}
+
+harness('需求登记表的完整性判定')
+{
+  const req = (id: string, over: Partial<Req> = {}): Req =>
+    ({ id, cat: id[0], pri: 'P0', text: `${id} 要什么`,
+       accept: [{ id: `${id}.a`, text: `${id} 怎么算满足` }], ...over })
+
+  // 作废：编号保留，不进现行表
+  const dead = req('D9', { deprecated: { since: '2026-01-01', why: '需求本身不成立了' } })
+  eq('作废的不算现行需求', active([req('D1'), dead]).map(r => r.id), ['D1'])
+
+  const adrs = new Set(['ADR-01'])
+  // 形状校验被拿掉时，后面的关系检查会在缺字段的需求上直接抛 —— 那要作为断言失败被抓到
+  const bad = (rs: Req[]) => { try { return validateRegistry(rs, adrs, ['D', 'P']).length } catch { return -1 } }
+  eq('干净的登记表没有问题', bad([req('D1'), req('P1')]), 0)
+  ok('编号重复被抓到', bad([req('D1'), req('D1')]) > 0)
+  ok('交点指向自己被抓到',
+    bad([req('D1', { tension: [{ with: 'D1', ruling: '裁决' }] })]) > 0)
+  ok('交点指向不存在的编号被抓到',
+    bad([req('D1', { tension: [{ with: 'ZZ9', ruling: '裁决' }] })]) > 0)
+  ok('交点没写裁决被抓到',
+    bad([req('D1', { tension: [{ with: 'P1', ruling: '  ' }] }), req('P1')]) > 0)
+  ok('同一个方向声明两次被抓到 —— 两条裁决可能相反，而一次认领会同时算数',
+    bad([req('D1', { tension: [{ with: 'P1', ruling: '甲' }, { with: 'P1', ruling: '乙' }] }),
+         req('P1')]) > 0)
+  ok('两边各声明一次被抓到', bad([
+    req('D1', { tension: [{ with: 'P1', ruling: '裁决' }] }),
+    req('P1', { tension: [{ with: 'D1', ruling: '另一种说法' }] })]) > 0)
+  ok('决策记录编号不存在被抓到', bad([req('D1', { adr: ['ADR-99'] })]) > 0)
+  eq('存在的就放行', bad([req('D1', { adr: ['ADR-01'] })]), 0)
+  // 红线不许作废：active() 会把作废的挡在渲染和审计之外，于是红线条数
+  // 静静少一条，它的测试、变异、交点要求全部随之消失，而检查报「全部通过」。
+  ok('红线被标作废，当场拦下',
+    bad([req('P4', { deprecated: { since: '2026-01-01', why: '有理由' } })]) > 0)
+  eq('非红线作废仍然放行',
+    bad([req('D1', { deprecated: { since: '2026-01-01', why: '有理由' } })]), 0)
+  ok('作废没写理由被抓到',
+    bad([req('D1', { deprecated: { since: '2026-01-01', why: '' } })]) > 0)
+  ok('取代者不存在被抓到', bad([req('D1',
+    { deprecated: { since: '2026-01-01', why: '有', superseded_by: 'ZZ9' } })]) > 0)
+  // 分类表里没有的 cat：渲染时整条被跳过，而一致性检查比的是生成结果和生成结果，
+  // 漏掉的那条与它自己完全一致 —— 于是登记表和它号称的渲染装着不一样的需求。
+  ok('分类不在分类表里被抓到', bad([req('Z1', { cat: 'Z' })]) > 0)
+  // 更难看见的一种：分类**声明过**，只是与编号前缀不符。两个值各自合法，
+  // 而下游全都按分类分流 —— 一条红线被挪进别的分类，审计就不再要求它有
+  // 测试和变异，还会报出比项目声明的更少的红线条数，然后照样通过（ADR-23）。
+  ok('分类声明过但与编号前缀不符也被抓到', bad([req('P4', { cat: 'D' })]) > 0)
+  eq('前缀与分类一致就放行', bad([req('P4'), req('D4')]), 0)
+
+  // 验收判据：编号与需求同规矩（稳定、不回收复用），因为下游按它认领覆盖
+  ok('没有判据被抓到', bad([req('D1', { accept: [] })]) > 0)
+  ok('判据编号挂在别的需求名下被抓到',
+    bad([req('D1', { accept: [{ id: 'D2.a', text: 'x' }] })]) > 0)
+  ok('判据编号重复被抓到', bad([req('D1', { accept:
+    [{ id: 'D1.a', text: 'x' }, { id: 'D1.a', text: 'y' }] })]) > 0)
+  ok('判据没有内容被抓到', bad([req('D1', { accept: [{ id: 'D1.a', text: '  ' }] })]) > 0)
+
+  // 形状:关系检查全都假定字段在、类型对,而登记表是 JSON.parse 出来的,
+  // `Req` 那个接口运行时一个字段都不拦。判据是**渲染实际读哪些字段** ——
+  // 漏一个,`undefined` 就被写进生成的表格,`--write` 原样存下,而一致性
+  // 检查比的是生成结果和生成结果,于是全绿(ADR-33)。
+  const strip = (r: Req, f: string) => { const c = { ...r } as Record<string, unknown>; delete c[f]; return c as unknown as Req }
+  for (const f of ['id', 'cat', 'pri', 'text']) {
+    ok(`需求缺 ${f} 被抓到`, bad([strip(req('D1'), f)]) > 0)
+  }
+  ok('作废缺 since 被抓到 —— 它只被渲染、不被任何关系检查碰,是静默那一类',
+    bad([req('D1', { deprecated: { why: '有理由' } as never })]) > 0)
+  ok('accept 不是数组被抓到', bad([req('D1', { accept: '一段话' as never })]) > 0)
+  ok('判据不是对象被抓到', bad([req('D1', { accept: [null as never] })]) > 0)
+  ok('交点不是对象被抓到', bad([req('D1', { tension: [null as never] })]) > 0)
+  ok('交点缺 with 被抓到', bad([req('D1', { tension: [{ ruling: '裁决' } as never] })]) > 0)
+  ok('adr 不是字符串数组被抓到', bad([req('D1', { adr: [7 as never] })]) > 0)
+  ok('形状不对时不接着跑关系检查 —— 否则只会抛 TypeError,把真正的问题盖掉',
+    validateRegistry([strip(req('D1'), 'text')], adrs, ['D', 'P'])
+      .every(m => m.includes('不是非空字符串')))
+
+  // 反向：决策记录提到的编号必须真实存在 —— 「编号不回收复用」查得了的那一半
+  const doc = '## ADR-07 标题\n\n- 冲击的需求：D1 · D9\n'
+  eq('决策记录里的编号也被解析出来', [...adrIdsIn(doc)], ['ADR-07'])
+  // 拆成一文件一条之后记录标题是一级的 `# ADR-NN`（docs/adr/ 里的写法），也得认；
+  // 标题与编号之间的空白按 adr-sync 同一约定，不止一个空格也行
+  eq('单文件里的一级标题也认', [...adrIdsIn('# ADR-08 标题\n')], ['ADR-08'])
+  eq('标题与编号之间多个空白也认', [...adrIdsIn('#  ADR-09 标题\n')], ['ADR-09'])
+  // 引文里举例的标题不算记录 —— 不遮住，一条需求引用 ADR-99 就被当成真实存在（评审第一轮）
+  eq('围栏里的示例标题不算记录',
+    [...adrIdsIn('# ADR-08 标题\n\n```md\n# ADR-99 示例\n```\n')], ['ADR-08'])
+  eq('HTML 注释里的示例标题不算记录',
+    [...adrIdsIn('# ADR-08 标题\n<!--\n## ADR-98 示例\n-->\n')], ['ADR-08'])
+  ok('决策记录指向不存在的需求被抓到',
+    danglingAdrRefs(doc, new Set(['D1']), ['D']).length > 0)
+  eq('都存在时不报', danglingAdrRefs(doc, new Set(['D1', 'D9']), ['D']).length, 0)
+  // 前缀从分类表派生，不写死形状 —— 写死的话换个项目这条检查会安静地失效
+  ok('两字母前缀的项目一样查得到',
+    danglingAdrRefs('- 冲击的需求：REQ7', new Set<string>(), ['REQ']).length > 0)
+  eq('没有分类前缀就不装作查过', danglingAdrRefs(doc, new Set<string>(), []).length, 0)
 }
 
 harness('变异集的 why 不许夹带实现原文')
