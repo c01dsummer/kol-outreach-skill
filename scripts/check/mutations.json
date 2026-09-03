@@ -1074,6 +1074,22 @@
       "replace": "  const shape: string[] = []\n  if (shape.length) return shape"
     },
     {
+      "id": "M-H4-g",
+      "req": "harness",
+      "why": "分类表里一条说明写成空值也放行 —— 渲染时把空值当节标题写进生成的文档，而一致性检查比的是生成结果和生成结果，于是全绿",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "      if (typeof label !== 'string' || !label.trim()) {",
+      "replace": "      if (false) {"
+    },
+    {
+      "id": "M-H4-h",
+      "req": "harness",
+      "why": "需求登记表写成一个对象也放行 —— 后面每一步都在它上面遍历，当场抛一句堆栈，把真正的问题盖掉",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  if (!Array.isArray(requirements)) bad.push('requirements 不是数组')",
+      "replace": "  void requirements"
+    },
+    {
       "id": "M-H5-a",
       "req": "harness",
       "why": "决策记录里的需求编号写死成一个大写字母加数字 —— 换一个编号前缀更长的项目，这条检查一条都匹配不到，而且不报错",
