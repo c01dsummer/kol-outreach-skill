@@ -14,6 +14,7 @@ import {
   active, adrIdsIn, contentHash, danglingAdrRefs, renderTables, requirementVerdict,
   validateRegistry, type Evidence, type Req,
 } from './check/spec-rule.js'
+import { HARNESS, orphanAttributions } from './check/attribution-rule.js'
 import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
@@ -1588,6 +1589,16 @@ harness('需求登记表的完整性判定')
   ok('形状不对时不接着跑关系检查 —— 否则只会抛 TypeError,把真正的问题盖掉',
     validateRegistry([strip(req('D1'), 'text')], adrs, ['D', 'P'])
       .every(m => m.includes('不是非空字符串')))
+
+  // 变异记在谁名下：审计拿它回答「这条需求有没有变异守着」。写成一个**不存在**
+  // 的编号时，变异照样跑、照样被抓到，全绿 —— 而它对任何一条需求都不算数（ADR-34）。
+  const known = new Set(['P4', 'P4.a'])
+  eq('记在真实需求名下 —— 放行', orphanAttributions([{ id: 'M-x', req: 'P4' }], known), [])
+  eq('记在验收判据名下 —— 也放行，豁免常常只豁免其中一条判据',
+    orphanAttributions([{ id: 'M-x', req: 'P4.a' }], known), [])
+  eq('记在检查链自己名下 —— 放行', orphanAttributions([{ id: 'M-x', req: HARNESS }], known), [])
+  eq('记在不存在的编号名下 —— 抓到', orphanAttributions(
+    [{ id: 'M-x', req: 'H4' }], known).map(o => o.req), ['H4'])
 
   // 反向：决策记录提到的编号必须真实存在 —— 「编号不回收复用」查得了的那一半
   const doc = '## ADR-07 标题\n\n- 冲击的需求：D1 · D9\n'
