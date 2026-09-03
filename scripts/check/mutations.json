@@ -1126,7 +1126,7 @@
       "req": "harness",
       "why": "行内注释连同整行一起按引文跳过 —— 一行真元数据带个行内注释，它引用的不存在编号就漏报",
       "file": "scripts/check/spec-rule.ts",
-      "find": "  const bare = decisions.split('\\n').map(l => l.replace(/<!--.*?-->/g, '')).join('\\n')",
+      "find": "  const bare = decisions.split('\\n').map(l => meta.test(l) ? l.replace(/<!--.*?-->/g, '') : l).join('\\n')",
       "replace": "  const bare = decisions"
     },
     {
@@ -1136,6 +1136,14 @@
       "file": "scripts/check/spec-rule.ts",
       "find": "  const shape = new RegExp(`(?<![A-Za-z0-9_])(?:${escaped.join('|')})\\\\d+(?![A-Za-z0-9_])`, 'g')",
       "replace": "  const shape = new RegExp(`(?<![A-Za-z0-9])(?:${escaped.join('|')})\\\\d+(?![A-Za-z0-9])`, 'g')"
+    },
+    {
+      "id": "M-H5-i",
+      "req": "harness",
+      "why": "行内注释从每一行上剥，不只元数据行 —— 围栏里 ``` <!-- 示例 --> 这样的假闭合行剥掉注释就成了真闭合，示例里接下来的编号露出来，一份合法的决策记录被报成指向不存在的编号",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  const bare = decisions.split('\\n').map(l => meta.test(l) ? l.replace(/<!--.*?-->/g, '') : l).join('\\n')",
+      "replace": "  const bare = decisions.split('\\n').map(l => l.replace(/<!--.*?-->/g, '')).join('\\n')"
     },
     {
       "id": "M-H8-e",
