@@ -1078,7 +1078,7 @@
       "req": "harness",
       "why": "决策记录里的需求编号写死成一个大写字母加数字 —— 换一个编号前缀更长的项目，这条检查一条都匹配不到，而且不报错",
       "file": "scripts/check/spec-rule.ts",
-      "find": "  const shape = new RegExp(`\\\\b(?:${prefixes.join('|')})\\\\d+\\\\b`, 'g')",
+      "find": "  const shape = new RegExp(`\\\\b(?:${escaped.join('|')})\\\\d+\\\\b`, 'g')",
       "replace": "  const shape = /\\b[A-Z]\\d+\\b/g"
     },
     {
@@ -1096,6 +1096,22 @@
       "file": "scripts/check/spec-rule.ts",
       "find": "    if (m && !mask[i]) out.add(m[1])",
       "replace": "    if (m) out.add(m[1])"
+    },
+    {
+      "id": "M-H5-d",
+      "req": "harness",
+      "why": "分类前缀原样拼进正则 —— 含正则元字符的前缀过得了登记表，到这条检查却直接炸掉，而不是查出指向不存在的编号",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  const escaped = prefixes.map(p => p.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'))",
+      "replace": "  const escaped = prefixes"
+    },
+    {
+      "id": "M-H5-e",
+      "req": "harness",
+      "why": "引文里举例的需求编号也算真实引用 —— 围栏示例里写一个不存在的编号，一份合法的决策记录就被报成指向不存在的需求",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    if (mask[i]) return",
+      "replace": "    if (false) return"
     },
     {
       "id": "M-H8-e",
