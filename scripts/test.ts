@@ -868,6 +868,17 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   ok('刚写下的仍然不动 —— 年龄兜底不误伤并发写', existsSync(otherLive))
   rmSync(otherLive, { force: true })
 
+  // 只认 pid 的正规十进制写法：`1e3` 在 Number() 眼里是 1000，`007` 是 7 ——
+  // 但本函数从不写出这种名字，它们是别人的文件，再老也不许动（评审发现）
+  for (const spelled of ['1e3', '007']) {
+    const alien = `${tmp}.${spelled}.tmp`
+    writeFileSync(alien, '别人的文件，名字只是长得像', 'utf8')
+    utimesSync(alien, twoHoursAgo, twoHoursAgo)
+    recordRecommendations([mk('tiktok', 'erin')], 'p')
+    ok(`名字不是正规十进制 pid 的（${spelled}）不动`, existsSync(alien))
+    rmSync(alien, { force: true })
+  }
+
   // 清不掉的残留不让写回失败：占着临时名的是个目录时删不掉，写回照常
   {
     const stuck = `${tmp}.999998.tmp`

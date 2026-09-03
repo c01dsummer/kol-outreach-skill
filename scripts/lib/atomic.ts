@@ -161,8 +161,11 @@ function sweepStaleTemps(target: string): void {
   try { names = readdirSync(dir) } catch { return }
   for (const name of names) {
     if (!name.startsWith(prefix) || !name.endsWith('.tmp')) continue
-    const pid = Number(name.slice(prefix.length, -'.tmp'.length))
-    if (!Number.isInteger(pid) || pid <= 0) continue
+    // 只认 pid 的正规十进制写法。`Number()` 连 `1e3`、`007`、`0x10` 都吞得下，
+    // 而本函数从不写出这种名字 —— 那是别人的文件，不是残留，碰都不该碰（评审发现）
+    const spelled = name.slice(prefix.length, -'.tmp'.length)
+    if (!/^[1-9]\d*$/.test(spelled)) continue
+    const pid = Number(spelled)
     let ageMs: number
     // 看不到它的年龄就跳过（刚被别人清掉、或者读不到）—— **跳过是安全的那一边**：
     // 拿不准的文件不删，代价是盘上多留一份；删错的代价是搬走别人正在写的东西

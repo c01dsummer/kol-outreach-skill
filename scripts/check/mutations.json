@@ -992,6 +992,14 @@
       "file": "scripts/lib/atomic.ts",
       "find": "    try { rmSync(join(dir, name), { force: true }) } catch { /* 留着，下次再试 */ }",
       "replace": "    rmSync(join(dir, name), { force: true })"
+    },
+    {
+      "id": "M-D4-aa",
+      "req": "D4",
+      "why": "把「正规十进制 pid」放宽成「Number() 吞得下」—— `x.1e3.tmp`、`x.007.tmp` 这种别人的文件被当成残留删掉",
+      "file": "scripts/lib/atomic.ts",
+      "find": "    if (!/^[1-9]\\d*$/.test(spelled)) continue",
+      "replace": "    if (!Number.isInteger(Number(spelled)) || Number(spelled) <= 0) continue"
     }
   ],
   "exemptions": [
