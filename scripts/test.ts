@@ -12,9 +12,11 @@ import { JUDGMENT_EXEMPT, judgmentModules, unguarded } from './check/audit-rule.
 import { judgeRun } from './check/mutate-rule.js'
 import {
   active, adrIdsIn, contentHash, danglingAdrRefs, renderTables, requirementVerdict,
-  rootProblems, validateRegistry, type Evidence, type Req,
+  rootProblems, tensionCritical, tensionVerdict, validateRegistry, type Evidence, type Req,
 } from './check/spec-rule.js'
 import { HARNESS, orphanAttributions } from './check/attribution-rule.js'
+import { createHash } from 'node:crypto'
+import { CLAIMS_PATH, SELF, claimsFresh, claimsPublishable } from './check/claims.js'
 import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
@@ -36,7 +38,7 @@ import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
-import { renderHtml } from './lib/report.js'
+import { enrichedFlag, renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   finalize, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators, keywordStats, tierCounts,
@@ -51,7 +53,7 @@ import {
   readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator,
   EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, TaskState,
@@ -77,6 +79,28 @@ const ok = (label: string, cond: boolean) => eq(label, cond, true)
  * 混进去会让「覆盖 N 条需求」那个数字变成一个虚报的数。
  */
 const harness = (name: string) => { console.log(`\n[harness] ${name}`) }
+
+/**
+ * 认领一个**交点**。
+ *
+ * 交点上的测试不属于任何一条需求 —— 在「每条需求有没有测试」这个计量下,
+ * 写了不加分,不写不扣分,于是没人写。审计按登记表里声明的交点逐个找这句话,
+ * 找不到就报缺口;含红线的交点找不到就是硬失败(ADR-17)。
+ */
+const tensionClaims: string[] = []
+/**
+ * 认领一条**验收判据**。
+ *
+ * 计量单位是判据,不是需求。一条需求报「有测试」而它验收标准的后半句
+ * 从来没实现过 —— D1 就这么挂了很久,而那半句是一条红线的承重结构（ADR-24）。
+ */
+const criteriaClaims: string[] = []
+const criterion = (...ids: string[]) => { criteriaClaims.push(...ids) }
+const tension = (a: string, b: string) => {
+  covered.add(a); covered.add(b)
+  tensionClaims.push(`${a}|${b}`)
+  console.log(`  ⇄ 交点 ${a} × ${b}`)
+}
 
 /**
  * 从 xlsx 里真正读回 sheet 名。
@@ -178,6 +202,7 @@ suite('P1', '缺失数据不得用默认值填充')
   ok('低于下限拦截', !passesFollowerGate(mk('tiktok', 'i', { followers: 100 })))
   ok('高于上限拦截', !passesFollowerGate(mk('tiktok', 'j', { followers: 9_000_000 })))
   ok('区间内放行', passesFollowerGate(mk('tiktok', 'k', { followers: 50_000 })))
+  criterion('P1.a')
 }
 
 suite('P1', '没取到的播放数不得被判成爆款')
@@ -281,6 +306,7 @@ suite('P2', '开发信占位符必须原样保留到产出物')
   const drafted = String(row[HEADERS.indexOf('outreach_draft')])
   ok('CSV 保留占位符', drafted.includes('{产品一句话}') && drafted.includes('{价格待填}'))
   eq('占位符一个不少', (drafted.match(/\{[^}]*\}/g) ?? []).length, 3)
+  criterion('P2.b')
 }
 
 suite('P1', '响应结构探测不得被空数组满足')
@@ -319,6 +345,7 @@ suite('P3', '未经确认不得超出预算')
   const resumed = new Budget(0.010, 5)
   eq('续跑时已花部分不归零', resumed.spent, 0.005)
   covered.add('D6')
+  criterion('P3.a')
 }
 
 suite('P4', '已联系/屏蔽的人不得进入名单')
@@ -349,6 +376,7 @@ suite('P4', '已联系/屏蔽的人不得进入名单')
 
   unlinkSync(tmp)
   useMemoryFile('memory/creators.json')
+  criterion('P4.a')
 }
 
 suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不在 done 里的」')
@@ -405,6 +433,8 @@ suite('D6', '续跑不得被本任务自己上一轮的产出滤空')
 
   unlinkSync(tmp)
   useMemoryFile('memory/creators.json')
+  // D4 × D6 的交点：记忆过滤要让路给续跑，否则已付费采集的人会凭空消失（ADR-08）
+  tension('D4', 'D6')
 }
 
 // ─────────────────── 管线：单步都对，错的是组合方式 ───────────────────
@@ -1068,6 +1098,7 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
   let threw = ''
   try { finalize(batch, 'p') } catch (e) { threw = (e as Error).name }
   eq('同一份记忆坏掉后：抛，而不是交出一份含已联系者的名单', threw, 'MemoryUnreadable')
+  criterion('P4.b')
 
   // D1 × P4 的交点：身份规范化两侧必须是同一个规则。查询侧一直在小写化、
   // 存储侧没有，于是手改出来的 `tiktok:Alice` 永远查不到 —— 已联系的人
@@ -1079,6 +1110,7 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
   } }), 'utf8')
   eq('键的大小写不影响身份 —— 已联系的人照样被挡在外面',
     finalize([mk('tiktok', 'contacted', { followers: 50000 })], 'p').kept.length, 0)
+  tension('D1', 'P4')
 
   // 同一条红线的另一扇门：合法 JSON、错误结构。产品要求运营手改这个文件，
   // 把花括号改成方括号是最容易的一种手滑，而它照样能解析（ADR-19）。
@@ -1091,6 +1123,7 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
   const forced = finalize(batch, 'p', undefined, { ignoreUnreadableMemory: true })
   eq('逃生口下确实放行了已联系的人', forced.kept.length, 3)
   eq('但这件事必须能被下游读到', forced.memory_status, 'unreadable_ignored')
+  criterion('P4.c')
 
   // 真正要守的是这个：「没查到」与「查过、确实没人」在下游必须不同值。
   // 两者的 filtered_contacted 都是 0，能分开它们的只剩 memory_status。
@@ -1102,6 +1135,7 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
 
   unlinkSync(tmp)
   useMemoryFile('memory/creators.json')
+  tension('P4', 'D4')
 }
 
 suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时不中断')
@@ -1116,6 +1150,10 @@ suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时�
   // F5：没有增强层时 audience_geo 为 undefined，主流程照常走完
   const noGeo = mk('tiktok', 'n', { email: 'a@example.com', fit: '✅' })
   eq('无增强数据不影响分层', rankCreators([noGeo], 'US')[0].tier, 'A')
+  // F5 × P1 的 P1 那一半：走完了也不给缺失的字段填猜测值 —— 只验「不影响分层」的话，
+  // 一个把 audience_geo 写成默认值的实现同样给 A，交点就成了一句话的认领（ADR-17）。
+  eq('走完也不给缺失的受众占比填猜测值', rankCreators([noGeo], 'US')[0].audience_geo, undefined)
+  tension('F5', 'P1')
 }
 
 suite('U1', '分层管线返回的名单已按 tier 排好序')
@@ -1149,6 +1187,15 @@ suite('P5', '交付必须声明数据边界')
       budget_usd: 2, enriched: false })
   ok('未增强时声明邮箱未验证', html.includes('未做有效性验证'))
   ok('未增强时声明受众未知', html.includes('无法确认'))
+  // P5.a 的 meta.json 那一半：未配置外部增强层时 enriched 为 false ——
+  // 判定在 report.ts（enrichedFlag），才能在这里断言（M-P5-h 守着）。
+  eq('没跑过邮箱/地域增强 → enriched false',
+    enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50 })]), false)
+  eq('邮箱增强跑过（查了没有邮箱）→ true',
+    enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50, email_verified: false })]), true)
+  eq('地域增强跑过 → true',
+    enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50, audience_geo: { US: 0.5 } })]), true)
+  criterion('P5.a')
 
   const enriched = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 50 })],
     { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
@@ -1182,6 +1229,7 @@ suite('P5', '交付必须声明数据边界')
                                     memory_written: true })
   ok('未去重的名单必须在报告上说出来', skipped.includes('未做「已联系 / 已推荐」去重'))
   ok('未去重时点明后果是可能重复打扰', skipped.includes('已经联系过'))
+  criterion('P5.d')
 
   const unwritten = renderHtml(one, { ...base, memory_status: 'ok', memory_written: false,
                                       memory_write_error: 'EACCES: permission denied' })
@@ -1720,6 +1768,13 @@ harness('审计对一条需求的裁定')
   eq('红线有测试没变异 → 硬失败',
     requirementVerdict(p, ev({ mutated: false,
       claimedCriteria: new Set(['P9.a', 'P9.b']) })).hard, 1)
+
+  // 交点：任一方是红线就算关键，没认领是硬失败；两条非红线只是缺口（M-H14-d）
+  eq('任一方是红线就算关键', tensionCritical('D4', 'P4', new Set(['P4'])), true)
+  eq('两条都不是红线不算关键', tensionCritical('D4', 'D6', new Set(['P4'])), false)
+  eq('含红线没认领 → 硬失败', tensionVerdict(false, true), { flag: '✗', hard: 1 })
+  eq('非红线没认领 → 缺口', tensionVerdict(false, false), { flag: '·', hard: 0 })
+  eq('认领了 → 通过', tensionVerdict(true, true), { flag: '✓', hard: 0 })
 }
 
 harness('变异集的 why 不许夹带实现原文')
@@ -1957,6 +2012,7 @@ suite('P1', '纪律 lint 的判定：会变成决策的字段上不许有兜底'
     judgeLine("  const x = c.followers ?? 0   // p1-ok: 展示用，不参与决策"), 'exempt')
   eq('只写 p1-ok 不写理由的不算豁免',
     judgeLine('  const x = c.followers ?? 0   // p1-ok'), 'unjustified_exemption')
+  criterion('P1.b')
 }
 
 suite('D1', 'platform:handle 唯一标识，大小写不敏感')
@@ -2260,8 +2316,10 @@ suite('U7', '公开指标、风险依据、报价效率与边界进入交付物'
     html.includes('活跃状态') && html.includes('>停更</b>') && html.includes('>活跃</b>'))
   ok('公开指标不会隐藏邮箱与地域边界',
     html.includes('未做有效性验证') && html.includes('无法确认'))
+  criterion('P5.b')
   ok('HTML 明说风险不是假粉率或带货效果',
     html.includes('不是假粉率') && html.includes('不能代表实际带货效果'))
+  criterion('P5.c')
 }
 
 suite('U4', 'A 级附开发信草稿且可复制')
@@ -2300,6 +2358,22 @@ harness('审计：检查链自己的判定模块必须有变异守着')
   eq('没有变异指向它的判定模块被点名', unguarded(['a.ts', 'b.ts'], [{ file: 'a.ts' }]), ['b.ts'])
   eq('都有变异 → 无', unguarded(['a.ts'], [{ file: 'a.ts' }, { file: 'a.ts' }]), [])
   eq('变异指向别的文件不算数', unguarded(['a.ts'], [{ file: 'c.ts' }]), ['a.ts'])
+}
+
+harness('覆盖记录：指纹保护的是 test.ts 自己')
+{
+  // 把 SELF 改成另一个现存文件，写的一方和读的一方照样一致 —— 只是 test.ts 改了
+  // 之后记录不再过期，审计的过期检查静默失效。所以这个常量不能豁免，要钉死（M-H14-b）。
+  eq('指纹来源钉死成 test.ts', SELF, 'scripts/test.ts')
+  // 新鲜度判定抽出来是为了它能被测：比较留在入口里，改成反向比较或恒真，
+  // 没有任何测试会红（M-H14-c）。
+  eq('指纹对得上才新鲜', claimsFresh('abc', 'abc'), true)
+  eq('指纹对不上就是过期', claimsFresh('abc', 'def'), false)
+  // 写盘条件同理：少掉 `fail === 0` 那一半没有任何测试会红，而审计会把一份
+  // 红着的运行的认领当成证据 —— 三种情况各钉一条（M-H14-e）。
+  eq('干净的运行才写得下记录', claimsPublishable(false, 0), true)
+  eq('断言红过就不写 —— 没通过的运行不是证据', claimsPublishable(false, 1), false)
+  eq('变异运行不写 —— 它跑的是被改过的源码', claimsPublishable(true, 0), false)
 }
 
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
@@ -2771,6 +2845,31 @@ console.log(fail ? `\n${fail} 个失败\n` : `\n全部通过（覆盖 ${covered.
 if (process.argv.includes('--json')) {
   console.log('COVERED=' + JSON.stringify([...covered]))
 }
+/*
+ * 把「谁被覆盖了」交给审计 —— **运行时收集，不是源码里搜出来的**。
+ *
+ * 审计原先按源码正则找 `suite('X')` 和交点认领，于是**注释掉的认领照样算数**：
+ * 把测试删掉、认领留在注释里，红线交点的硬失败就被一句注释绕过去了。
+ * 这个仓库在同一个坑上栽过 —— `audit.ts` 里那句「早先还 or 了一个 includes(base)
+ * 兜底，结果是任何地方提到文件名（哪怕注释里）就算执行过」（ADR-20）。
+ *
+ * 带上本文件的指纹：审计要重算一遍并比对，**过期的记录不算数**。
+ * 没跑过测试就没有这份记录，审计当场说「先跑 npm test」，而不是默默放行。
+ */
+// 变异测试跑的是被改过的源码，那一次执行留下的覆盖记录不作数 —— 记录只能由
+// 一次干净的测试运行写（mutate.ts 给变异跑打上 MUTATING 标记，这里据此跳过）。
+// 失败的测试运行同样不写：断言红了还照写，一份没通过的运行会被当成证据交出去。
+// 判定本身在 claims.ts，不留在这个入口里 —— 留在这里就没有测试守得住它。
+if (claimsPublishable(process.env.MUTATING === '1', fail)) {
+  mkdirSync(dirname(CLAIMS_PATH), { recursive: true })
+  writeFileSync(CLAIMS_PATH, JSON.stringify({
+    source_hash: createHash('sha256').update(rf(SELF, 'utf8')).digest('hex').slice(0, 12),
+    covered: [...covered].sort(),
+    tensions: [...new Set(tensionClaims)].sort(),
+    criteria: [...new Set(criteriaClaims)].sort(),
+  }, null, 2), 'utf8')
+}
+
 // 不 process.exit()：stdout 接的是管道时（变异测试就是这么跑的），刚 console.log 的那几行可能
 // 还没写出去就被 exit 截掉 —— 实测 8 次里 1 次「N 个失败」那一行丢了，进程退出码 1 却没有汇总，
 // mutate 判成「跑不起来」。设 exitCode 让进程自己走完，输出一定落地

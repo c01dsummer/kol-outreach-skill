@@ -497,3 +497,19 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
   }
   return { flag, gaps, hard, claimed: claimed.length }
 }
+
+/**
+ * 这个交点里有没有红线 —— 有就继承红线的第 2 条硬要求:必须有测试认领。
+ * 两条非红线的交点是缺口,不是硬失败。**任一方**是红线就算关键:
+ * 把 `||` 改坏成 `&&`,所有含红线的交点都会静默降成软缺口（M-H14-d 守着）。
+ */
+export const tensionCritical = (a: string, b: string, redlines: ReadonlySet<string>): boolean =>
+  redlines.has(a) || redlines.has(b)
+
+/** 一个交点的裁定 —— 与 requirementVerdict 同一类,只是输入更薄 */
+export interface TensionVerdict { flag: '✓' | '✗' | '·'; hard: number }
+
+export function tensionVerdict(claimed: boolean, critical: boolean): TensionVerdict {
+  const flag = claimed ? '✓' : critical ? '✗' : '·'
+  return { flag, hard: claimed ? 0 : critical ? 1 : 0 }
+}

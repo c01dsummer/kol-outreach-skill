@@ -1256,6 +1256,46 @@
       "file": "scripts/check/spec-rule.ts",
       "find": "      requirements: reqs, categories: Object.entries(cats),",
       "replace": "      requirements: reqs, categories: cats,"
+    },
+    {
+      "id": "M-H14-b",
+      "req": "harness",
+      "why": "覆盖记录的指纹去算另一个现存文件 —— 测试源码改了但没重跑，审计照样放行，过期检查静默失效（指纹保护的是写测试的那个文件，只此一份）",
+      "file": "scripts/check/claims.ts",
+      "find": "export const SELF = 'scripts/test.ts'",
+      "replace": "export const SELF = 'scripts/lib/atomic.ts'"
+    },
+    {
+      "id": "M-H14-c",
+      "req": "harness",
+      "why": "指纹对得上也判成过期 —— 每一份新鲜覆盖记录都不算数，审计退回到永远「先跑 npm test」",
+      "file": "scripts/check/claims.ts",
+      "find": "  recordHash === selfHash",
+      "replace": "  recordHash !== selfHash"
+    },
+    {
+      "id": "M-H14-d",
+      "req": "harness",
+      "why": "交点的关键性改成两侧都得是红线 —— 含红线的交点静默降成软缺口，审计不再硬失败",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  redlines.has(a) || redlines.has(b)",
+      "replace": "  redlines.has(a) && redlines.has(b)"
+    },
+    {
+      "id": "M-H14-e",
+      "req": "harness",
+      "why": "写盘条件少掉「断言全过」那一半 —— 一次红着的运行照样写下覆盖记录，审计把没通过的认领当成证据",
+      "file": "scripts/check/claims.ts",
+      "find": "  !mutating && fail === 0",
+      "replace": "  !mutating"
+    },
+    {
+      "id": "M-P5-h",
+      "req": "P5",
+      "why": "把跑过的邮箱/地域增强一律报成没跑过 —— meta.json 的 enriched 恒为 false，交付声明与实际不符",
+      "file": "scripts/lib/report.ts",
+      "find": "  creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)",
+      "replace": "  creators.some(() => false)"
     }
   ],
   "exemptions": [
@@ -1264,6 +1304,18 @@
       "scope": "只豁免「是否编造」这一半",
       "why": "「草稿里的产品事实是否真的来自产品页」由 Agent 的判断决定，不经过本仓库任何代码路径，没有可变异的实现。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。可执行的那一半（占位符必须原样保留到产出物）已由 M-P2-a 覆盖。",
       "mitigation": "skill/references/outreach-draft.md 写明「不要编造品牌信息，不知道的留占位符」；靠每次开工前读那份文档。见 ADR-01。"
+    },
+    {
+      "req": "P2.a",
+      "scope": "「是否编造」这一半",
+      "why": "「草稿里的产品事实是否真的来自产品页」由 Agent 的判断决定，不经过本仓库任何代码路径，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。",
+      "mitigation": "skill/references/outreach-draft.md 写明「不要编造品牌信息，不知道的留占位符」；靠每次开工前读那份文档。见 ADR-01。"
+    },
+    {
+      "req": "P3.b",
+      "scope": "入口的接线，不是 lib 里的判定",
+      "why": "「collect 捕获后保存断点并退出码 3」是入口脚本的接线。变异只跑 scripts/test.ts，入口里的接线没有变异守得住 —— 与 ADR-13 记过的处境相同，不在单元测试里伪造一个认领。",
+      "mitigation": "由脚本自检的「collect 预算用尽保存断点」从头到尾真跑一遍守着：它断言退出码为 3、断点文件存在、续跑后请求数与已完成关键词数都增长。"
     }
   ]
 }

@@ -82,7 +82,9 @@ for (const m of muts) {
   writeFileSync(m.file, orig.replace(m.find, m.replace), 'utf8')
   let verdict: RunVerdict
   try {
-    execSync('npx tsx scripts/test.ts', { stdio: 'pipe' })
+    // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
+    // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
+    execSync('npx tsx scripts/test.ts', { stdio: 'pipe', env: { ...process.env, MUTATING: '1' } })
     verdict = 'survived'
   } catch (e: any) {
     // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null)
