@@ -1,6 +1,6 @@
-import { readFileSync, mkdirSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { isAbsence, writeFileAtomic } from './atomic.js'
+import { isAbsence, mkdirDurable, writeFileAtomic, writeTarget } from './atomic.js'
 import { PLATFORMS, creatorKey, textProblem, type Creator, type MemoryStatus } from './types.js'
 
 /** D4：本地单文件，不做多人共享。团队场景需另行设计。 */
@@ -285,7 +285,9 @@ export function loadMemory(): MemoryFile {
 }
 
 export function saveMemory(mem: MemoryFile): void {
-  mkdirSync(dirname(FILE), { recursive: true })
+  // 建的也得是写的那个地方 —— 目标是软链时临时文件落在终点旁边，
+  // 建链接那一侧的目录对它一点用没有（ADR-57）。
+  mkdirDurable(dirname(writeTarget(FILE)))
   mem.updated_at = new Date().toISOString()
   // 先写临时文件再改名。直接盖原文件是非原子的，中途被打断会留下一份截断的
   // JSON —— 而这个文件装着「谁联系过」，是唯一一份副本（memory/ 不进 git），
