@@ -920,6 +920,14 @@
       "file": "scripts/lib/atomic.ts",
       "find": "  const target = writeTarget(file)",
       "replace": "  const target = file"
+    },
+    {
+      "id": "M-D4-j",
+      "req": "D4",
+      "why": "临时名上已经有残留时直接复用它 —— 带着同一个进程号死掉的前任留下的临时文件权限已被调宽，这一次的联系历史就在宽权限下敞开着写；残留是条软链时，内容还会顺着它写到别处去",
+      "file": "scripts/lib/atomic.ts",
+      "find": "    rmSync(tmp, { force: true })\n    writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600, flag: 'wx' })",
+      "replace": "    writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600 })"
     }
   ],
   "exemptions": [

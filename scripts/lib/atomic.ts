@@ -42,7 +42,13 @@ export function writeFileAtomic(file: string, data: string): void {
   catch (e) { if (!isAbsence(e)) throw e }
   const tmp = `${target}.${process.pid}.tmp`
   try {
-    writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600 })
+    // 临时名上已经有东西时**不复用它**。带着这个 pid 死掉的前任留下的临时文件，
+    // 权限已经在改名之前被调宽；而 Node 对已存在的文件忽略 mode —— 复用它，
+    // 这次的内容就在宽权限下敞开着写（评审第一轮）。它还可能是条软链，跟着写
+    // 就落到别处去了。同名的只可能是死掉的前任（活着的进程不共用 pid），先删掉，
+    // 再独占地建：删与建之间要是又冒出来一个，宁可报失败也不写进去。
+    rmSync(tmp, { force: true })
+    writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
     // 已有的文件带回它原来的权限；新文件还原成 umask 默认。
     // **两条都得写** —— 少了后一条，「新文件保持默认」就只是一句注释（ADR-57）。
     chmodSync(tmp, mode ?? (0o666 & ~process.umask()))

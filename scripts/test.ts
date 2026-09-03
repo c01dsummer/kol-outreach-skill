@@ -679,6 +679,25 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   ok('原文件没被动过', JSON.parse(rf(tmp, 'utf8')).creators.erin === undefined)
   rmSync(blocker, { recursive: true, force: true })
 
+  // 七之三之二、临时名上已经有东西时**不复用它**。带着这个 pid 死掉的前任留下的
+  //     临时文件权限已经被调宽，而 Node 对已存在的文件忽略 mode —— 复用它，这次的
+  //     内容就在宽权限下敞开着写；它还可能是条软链，跟着写就落到别处去了。
+  //     同名的只可能是死掉的前任留下的：删掉重建，写回照常成功。
+  {
+    const elsewhere = join(tmpdir(), `kol-d4-elsewhere-${process.pid}.json`)
+    writeFileSync(elsewhere, '别处的文件', 'utf8')
+    writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+    const planted = `${tmp}.${process.pid}.tmp`
+    rmSync(planted, { recursive: true, force: true })
+    symlinkSync(elsewhere, planted)
+    const r = writeOf(() => recordRecommendations([mk('tiktok', 'erin')], 'p'))
+    eq('临时名上有残留时删掉重建，写回照常成功', r.written, true)
+    eq('没有顺着残留的软链写到别处去', rf(elsewhere, 'utf8'), '别处的文件')
+    ok('写回的是一个普通文件', !lstatSync(tmp).isSymbolicLink())
+    ok('内容是这一次写的', JSON.parse(rf(tmp, 'utf8')).creators['tiktok:erin'] !== undefined)
+    rmSync(planted, { force: true }); rmSync(elsewhere, { force: true })
+  }
+
   // 任务目录走的是同一份整体替换：写不进去时原来那份一个字节不动
   {
     const d = join(tmpdir(), `kol-d4-atomic-${process.pid}`)
