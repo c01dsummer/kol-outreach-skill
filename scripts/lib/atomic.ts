@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path'
 /**
  * 整体替换地写一个文件：**先写临时文件，再改名。**
  *
- * 这个仓库里有两处需要它 —— 跨任务记忆和任务目录里的几个文件 —— 拆分前的分支上
+ * 跨任务记忆、任务目录里的状态文件、四个交付物都经它落盘 —— 拆分前的分支上
  * 它们曾各写过一份，结果是同一个权限位的 bug 被修好一次、又在另一份里原样重现
  * （ADR-46）。**所以只留这一份。**
  *
@@ -32,7 +32,7 @@ import { dirname, resolve } from 'node:path'
  * 改名前后**不刷盘**：主机断电时这次写回留不留得住，D4 明确不作保证（ADR-50）；
  * 尽力而为的刷盘是持久性那一层，单独一片。
  */
-export function writeFileAtomic(file: string, data: string): void {
+export function writeFileAtomic(file: string, data: string | Buffer): void {
   const target = writeTarget(file)
   let mode: number | undefined
   // **只有「不存在」才是新文件。** 权限、路径、IO 出错时读不到目标的权限位，

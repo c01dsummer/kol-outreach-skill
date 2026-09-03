@@ -25,7 +25,7 @@ import { endsOpen, quotedMask } from './check/quoted.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { fillEmail, pickList } from './providers/tikhub.js'
-import { esc } from './lib/csv.js'
+import { esc, writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
@@ -696,6 +696,27 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     ok('写回的是一个普通文件', !lstatSync(tmp).isSymbolicLink())
     ok('内容是这一次写的', JSON.parse(rf(tmp, 'utf8')).creators['tiktok:erin'] !== undefined)
     rmSync(planted, { force: true }); rmSync(elsewhere, { force: true })
+  }
+
+  // 七之三之三、交付物同样走整体替换：kol.csv / kol.xlsx 写到一半被打断时，上一份
+  //     完整的还在 —— D4 说的是任务目录里的**每个**文件，不只是 task.ts 管的那几个
+  //     （评审第二轮）。
+  {
+    const dd = join(tmpdir(), `kol-d4-deliv-${process.pid}`)
+    rmSync(dd, { recursive: true, force: true }); mkdirSync(dd, { recursive: true })
+    const csvP = join(dd, 'kol.csv'), xlsxP = join(dd, 'kol.xlsx')
+    const sheet = (v: string) => [{ name: 'S', headers: ['a'], rows: [[v]] }]
+    writeCsv(csvP, ['a'], [['旧']]); writeXlsx(xlsxP, sheet('旧'))
+    const csvBefore = rf(csvP, 'utf8'), xlsxBefore = rf(xlsxP)
+    mkdirSync(`${csvP}.${process.pid}.tmp`); mkdirSync(`${xlsxP}.${process.pid}.tmp`)
+    let csvThrew = false, xlsxThrew = false
+    try { writeCsv(csvP, ['a'], [['新']]) } catch { csvThrew = true }
+    try { writeXlsx(xlsxP, sheet('新')) } catch { xlsxThrew = true }
+    ok('kol.csv 写不进去时抛出来', csvThrew)
+    eq('而上一份 kol.csv 一个字节没动', rf(csvP, 'utf8'), csvBefore)
+    ok('kol.xlsx 写不进去时抛出来', xlsxThrew)
+    ok('而上一份 kol.xlsx 一个字节没动', rf(xlsxP).equals(xlsxBefore))
+    rmSync(dd, { recursive: true, force: true })
   }
 
   // 任务目录走的是同一份整体替换：写不进去时原来那份一个字节不动

@@ -928,6 +928,22 @@
       "file": "scripts/lib/atomic.ts",
       "find": "    rmSync(tmp, { force: true })\n    writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600, flag: 'wx' })",
       "replace": "    writeFileSync(tmp, data, { encoding: 'utf8', mode: 0o600 })"
+    },
+    {
+      "id": "M-D4-d",
+      "req": "D4",
+      "why": "kol.csv 的落盘绕开整体替换、直接盖原文件 —— render 写到一半被打断时留下半截 CSV，而上一份完整的名单已经没了",
+      "file": "scripts/lib/csv.ts",
+      "find": "import { writeFileAtomic } from './atomic.js'",
+      "replace": "import { writeFileSync as writeFileAtomic } from 'node:fs'"
+    },
+    {
+      "id": "M-D4-p",
+      "req": "D4",
+      "why": "kol.xlsx 的落盘绕开整体替换、直接盖原文件 —— render 写到一半被打断时留下一个打不开的半截 ZIP，而上一份完整的已经没了",
+      "file": "scripts/lib/xlsx.ts",
+      "find": "import { writeFileAtomic } from './atomic.js'",
+      "replace": "import { writeFileSync as writeFileAtomic } from 'node:fs'"
     }
   ],
   "exemptions": [
