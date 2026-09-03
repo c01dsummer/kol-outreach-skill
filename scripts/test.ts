@@ -769,6 +769,33 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     rmSync(d2, { recursive: true, force: true })
   }
 
+  // 七之四之二、目标是只读的就**不替换**。直接写会被拒（EACCES），改名却会成功 ——
+  //        换掉的是目录里的条目，目录可写就行；整体替换不该悄悄绕过用户给文件设的
+  //        只读（评审第三轮）。看权限位而不是 accessSync：root 跑的时候后者对什么都说可写。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
+  chmodSync(tmp, 0o400)
+  const ro = writeOf(() => recordRecommendations([mk('tiktok', 'erin')], 'p'))
+  eq('只读的记忆不被替换 —— 报未写回', ro.written, false)
+  ok('原因说的是权限', !ro.written && ro.reason.includes('EACCES'))
+  ok('原文件没被动过', JSON.parse(rf(tmp, 'utf8')).creators.erin === undefined)
+  eq('权限位也没动', modeOf(tmp), 0o400)
+  ok('也没留下半成品', !existsSync(`${tmp}.${process.pid}.tmp`))
+  chmodSync(tmp, 0o644)
+  {
+    const d3 = join(tmpdir(), `kol-d4-ro-${process.pid}`)
+    rmSync(d3, { recursive: true, force: true })
+    const st3 = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1 } as unknown as TaskState
+    saveTask(d3, st3)
+    chmodSync(join(d3, 'task.json'), 0o444)
+    const before3 = rf(join(d3, 'task.json'), 'utf8')
+    let threw3 = false
+    try { saveTask(d3, { ...st3, product: '改过的' }) } catch { threw3 = true }
+    ok('只读的 task.json 写不进去时抛出来', threw3)
+    eq('而它一个字节没动', rf(join(d3, 'task.json'), 'utf8'), before3)
+    rmSync(d3, { recursive: true, force: true })
+  }
+
   // 七之五、**新文件按 umask 默认建**，不是停在临时文件那一档。
   //        临时文件按最严建是为了盖住那段窗口，不是替产品决定新文件该多严；
   //        少了还原那一步，每个新建的 task.json / 名单 / 增强结果都变成

@@ -1,4 +1,6 @@
-import { writeFileSync, renameSync, rmSync, statSync, chmodSync, readlinkSync } from 'node:fs'
+import {
+  writeFileSync, renameSync, rmSync, statSync, chmodSync, readlinkSync, accessSync, constants,
+} from 'node:fs'
 import { dirname, resolve } from 'node:path'
 
 /**
@@ -40,6 +42,15 @@ export function writeFileAtomic(file: string, data: string | Buffer): void {
   // 方向反了但同样是「悄悄改掉用户定的东西」。读不到就抛，别猜（ADR-40 的另一面）。
   try { mode = statSync(target).mode & 0o777 }
   catch (e) { if (!isAbsence(e)) throw e }
+  // 目标存在但不可写时**不替换**。直接写会被拒（EACCES），改名却会成功 —— 换掉的
+  // 是目录里的条目，目录可写就行；整体替换不该悄悄绕过用户给文件设的只读
+  // （评审第三轮）。先看权限位：root 跑的时候 accessSync 对什么都说可写，而用户把
+  // 文件设成只读的意思不因为谁在跑而变。再问 accessSync：不是 root 时按属主属组判，
+  // 别人的文件同样不替换 —— 这一问在 root 下测不出来，所以没有变异守它。
+  if (mode !== undefined) {
+    if ((mode & 0o222) === 0) throw readOnly(target)
+    accessSync(target, constants.W_OK)
+  }
   const tmp = `${target}.${process.pid}.tmp`
   try {
     // 临时名上已经有东西时**不复用它**。带着这个 pid 死掉的前任留下的临时文件，
@@ -58,6 +69,12 @@ export function writeFileAtomic(file: string, data: string | Buffer): void {
     try { rmSync(tmp, { force: true }) } catch { /* 报出去的是写失败的原因 */ }
     throw e
   }
+}
+
+function readOnly(target: string): NodeJS.ErrnoException {
+  const e = new Error(`EACCES: ${target} 是只读的（权限位没有写），不替换`) as NodeJS.ErrnoException
+  e.code = 'EACCES'
+  return e
 }
 
 /**
