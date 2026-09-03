@@ -60,7 +60,8 @@
 
 - **红线**：`docs/SPEC.md` 的 **P1–P5**，共 5 条。不参与任何取舍
 - **需求编号的唯一真相来源**：`docs/requirements.json`。
-  `SPEC.md` 里的表格是它的渲染 —— 由 `npm run spec` 生成并校验，**不要手改**
+  `SPEC.md` 里的表格是它的渲染 —— 由 `npm run spec` 生成并校验，**不要手改**。
+  `content_hash` 是派生字段，由 `npx tsx scripts/check/spec-sync.ts --write` 写、由 `npm run check` 校验
 - **架构文档**：`docs/ARCHITECTURE.md` —— 模块边界、**顺序契约**、Agent↔scripts 的缝隙契约。
   改这三样之前先读它；新增 `scripts/` 下的模块必须在锚点表里登记，否则 `npm run arch` 会红
 - **决策记录**:`docs/adr/`,**一条一个文件**,编号 `ADR-NN`(数据需求用 `D` 前缀,两套不撞号)。
