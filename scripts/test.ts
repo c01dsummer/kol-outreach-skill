@@ -798,10 +798,16 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   const padded = filterByMemory([mk('tiktok', 'pad')], 'Foo', undefined, { ignoreUnreadable: true })
   eq('产品名两侧的空白不影响「已推荐过」', padded.filtered_recommended, 1)
   eq('于是那个人不会被再推荐一次', padded.kept.length, 0)
+  // 「不判为损坏」跟上面两条是**同一条判据**，不另立编号：判成损坏之后，ignoreUnreadable
+  // 这条路一个人都不滤（memory.ts:325-332），filtered_recommended 直接是 0 —— 负片
+  // M-D4-ah 把这三条一起打死，分不开。反过来更不成立：上面两条为真，就已经意味着这份
+  // 记忆读进来了。它是上面两条的必要条件，单独编号只会让认领数虚高，而漏掉它并不会
+  // 多出一个看不见的洞。
+  eq('而且没把这份记忆判成损坏', padded.memory_status, 'ok')
   criterion('D4.q')
-  // 空白换到**查询**那一侧是**另一处去空白**，两处各去各的：上面那两条坏在存储侧
-  // 不去空白（负片 M-D4-ag），下面这两条坏在查询侧不去空白（负片 M-D4-ai）——
-  // 把查询侧那一次删掉，上面两条照样绿。所以两边各自认领：合成一条的话，
+  // 空白换到**查询**那一侧才是另一条路：上面那三条坏在存储侧不去空白（负片 M-D4-ag）
+  // 或读取侧把带空白判成损坏（M-D4-ah），下面这两条坏在查询侧不去空白（M-D4-ai）——
+  // 把查询侧那一次删掉，上面三条照样绿。所以这一边自己认领：合成一条的话，
   // 下面这一段被人整段删掉，审计还会照着那一条报「验过了」。
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {
     'tiktok:pad': { contacted: false, blocked: false,
@@ -810,11 +816,6 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   eq('空白出现在查询那一侧也一样', asked.filtered_recommended, 1)
   eq('那个人同样不会被再推荐一次', asked.kept.length, 0)
   criterion('D4.s')
-  // 「不判为损坏」是**另一条代码路径**：上面那几条坏在比较时不去空白（负片 M-D4-ag、
-  // M-D4-ai），这一条坏在读取侧把带空白的产品名判成损坏（负片 M-D4-ah）。所以各自认领 ——
-  // 合成一条的话，后一种坏法在这里是绿的。
-  eq('而且没把这份记忆判成损坏', padded.memory_status, 'ok')
-  criterion('D4.r')
 
   // 七之二、名单和它的去重状态：**哪个先写都不安全**，取决于状态往哪边变。
   //        ok → unreadable_ignored 时名单先写会坏；unreadable_ignored → ok 时

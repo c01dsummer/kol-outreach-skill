@@ -1780,7 +1780,7 @@
     {
       "id": "M-D4-af",
       "req": "D4",
-      "why": "只查 contacted、不查 blocked：一份把 blocked 写成字符串的记忆当成好的读进来，「这个人拉黑过没有」答的是一个字符串，屏蔽名单静默失效",
+      "why": "只查 contacted、不查 blocked：blocked 被手改成字符串就直接拿去当真假用，而字符串一律为真 —— 哪怕里面写的是 false（没拉黑），这个人也被当成拉黑的剔出名单，运营只看到名单短了一截，看不到少的是谁",
       "file": "scripts/lib/memory.ts",
       "find": "    if (typeof r.blocked !== 'boolean') return `${k} 的 blocked 不是 true 或 false`\n",
       "replace": ""
@@ -1796,7 +1796,7 @@
     {
       "id": "M-D4-aj",
       "req": "D4",
-      "why": "只查 blocked、不查 contacted：一份把 contacted 写成字符串的记忆当成好的读进来，「这个人联系过没有」答的是一个字符串，同一个人被第二次联系",
+      "why": "只查 blocked、不查 contacted：contacted 被手改成字符串就直接拿去当真假用，而字符串一律为真 —— 哪怕里面写的是 false（没联系过），这个人也被当成联系过的剔出名单，该联系的人再也不会被联系",
       "file": "scripts/lib/memory.ts",
       "find": "    if (typeof r.contacted !== 'boolean') return `${k} 的 contacted 不是 true 或 false`\n",
       "replace": ""
