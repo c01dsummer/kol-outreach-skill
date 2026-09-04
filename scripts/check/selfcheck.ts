@@ -251,6 +251,11 @@ if (dir) {
     if (!activity || activity.measured + activity.unavailable + activity.unqueried !== activity.total) {
       failed++; console.error('  ✗ meta.json 缺少完整的 creator_activity 三态统计')
     } else console.log('  ✓ meta.json 含 creator_activity 三态统计')
+    // P5.h：这条自检的管线不配置邮箱/地域增强层，
+    // enriched 必须是 false —— 公开指标不能把邮箱/受众增强伪装成已完成。
+    if (meta.enriched !== false) {
+      failed++; console.error('  ✗ meta.json 的 enriched 不实 —— 未配置邮箱/地域增强却报 true（P5.h）')
+    } else console.log('  ✓ meta.json 的 enriched 如实（未配置外部增强层时为 false）')
   }
   if (!existsSync(html)) { failed++; console.error('  ✗ 未生成 HTML') }
   else {
@@ -270,6 +275,23 @@ if (dir) {
       failed++; console.error('  ✗ HTML 切 tab 会滚动页面（违反 U6）')
     } else console.log('  ✓ HTML 分层 tab 可用且不滚动')
   }
+
+  // 防回归，**不认领判据**：P5.h 只管 false 那一头（见 ADR-67 的就地更正）。真跑过
+  // 增强却报 false 眼下另有一条已知缺陷够得着 —— 合并与降权会把增强过的记录变换掉。
+  // 这里给的是 `email_verified: false`：查了、没查到邮箱，也算跑过（见 report.ts）。
+  const cPath = join(tmp, dir, 'creators.json')
+  const pristine = readFileSync(cPath, 'utf8')
+  const patched = JSON.parse(pristine)
+  patched[0].email_verified = false
+  writeFileSync(cPath, JSON.stringify(patched, null, 2), 'utf8')
+  run('render 跑过邮箱增强时如实报 enriched', [S('render.ts'), '--dir', dir], tmp)
+  const enrichedMeta = JSON.parse(readFileSync(metaPath, 'utf8'))
+  if (enrichedMeta.enriched !== true) {
+    failed++; console.error('  ✗ meta.json 的 enriched 不实 —— 跑过邮箱增强却报 false')
+  } else console.log('  ✓ meta.json 的 enriched 如实（跑过邮箱增强时为 true）')
+  // 复位：后面几段接着用这个任务目录，交付物与产出物都要回到未增强的样子。
+  writeFileSync(cPath, pristine, 'utf8')
+  run('render 复位（回到未增强的产出）', [S('render.ts'), '--dir', dir], tmp)
 }
 
 // ---- 回归：collect → render → --resume 之后，已采集的人必须还在 ----

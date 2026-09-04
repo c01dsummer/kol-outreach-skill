@@ -91,6 +91,21 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
   </div>`
 }
 
+/**
+ * meta.json 的 enriched：这次交付跑没跑过邮箱/地域增强。P5.h 只要求「未配置增强层时
+ * 为 false」那一头 —— true 那一头有已知缺陷，见 ADR-67 的就地更正（#51）。
+ *
+ * 兼容旧消费者的布尔：公开帖子指标不能把「邮箱/受众增强」伪装成已完成 ——
+ * `email_verified` 为 false 也算「跑过」（查了、没有邮箱），所以只看字段在不在。
+ * 这个**判定**放在这里而不是 render 里，是因为它能被测（CONVENTIONS 第 10 条）。
+ *
+ * 负片分工：M-P5-j 守 P5.h（未增强却报 true）；M-P5-h（恒 false）守的是 test.ts
+ * 里 true 那一头的**两条**单测断言，那两条不认领任何判据。selfcheck 里还有一条
+ * true 断言，守的是 render.ts 的接线 —— 变异只跑 test.ts，够不着它，两层各管各的。
+ */
+export const enrichedFlag = (creators: Creator[]): boolean =>
+  creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)
+
 /** 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档 */
 export function renderHtml(creators: Creator[], meta: any): string {
   // 没有「全部」tab，所以必须有一个分层默认选中。取第一个非空的 ——

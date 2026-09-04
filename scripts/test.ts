@@ -36,7 +36,7 @@ import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
-import { renderHtml } from './lib/report.js'
+import { enrichedFlag, renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   finalize, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators, keywordStats, tierCounts,
@@ -1147,8 +1147,28 @@ suite('P5', '交付必须声明数据边界')
       total: 1, tiers: { A: 1, B: 0, C: 0 }, email_count: 0,
       cross_platform_count: 0, requests: 1, cost_estimate_usd: 0.001,
       budget_usd: 2, enriched: false })
-  ok('未增强时声明邮箱未验证', html.includes('未做有效性验证'))
-  ok('未增强时声明受众未知', html.includes('无法确认'))
+  // 下面三条以前合在一条 P5.a 里，拆开是因为它们各自独立地坏：两条 HTML 声明是
+  // renderHtml 里两个各带条件的 if 块，enriched 是第三条判定（ADR-67 的就地更正）。
+  // 断言整句，判据只要一半：P5.f 沿用 P5.a 原文，只要求声明「未做有效性验证」；
+  // 邮箱**出处**不是红线 —— 一度写进判据，复核（#51）指出那是新加一条，不是拆，退回。
+  // 代码本来就输出整句，就整句断言：断言比判据严不是问题，多出来那半句的负片是
+  // M-P5-k，记在 P5 名下、不认领判据。P5.g 那句整条都是判据要的，负片是 M-P5-l。
+  ok('未增强时声明邮箱来自 bio 提取、未做有效性验证',
+    html.includes('邮箱来自 bio 提取，未做有效性验证'))  // P5.f
+  ok('未增强时声明无法确认粉丝是否在目标市场',
+    html.includes('无法确认这批人的粉丝是否在目标市场'))  // P5.g
+  // P5.h：未配置增强层时 enriched 必须为 false。判定在 report.ts（enrichedFlag），
+  // 才能在这里断言 —— 留在 render.ts 里没有任何测试够得着（CONVENTIONS 第 10 条）。
+  // 下面这一条认领 P5.h，M-P5-j（未增强却报 true）是它的负片。
+  eq('没跑过邮箱/地域增强 → enriched false',
+    enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50 })]), false)
+  // true 那两条**不认领判据**（P5.h 只管 false 那一头，见 ADR-67 的就地更正）：
+  // 它们断言 enrichedFlag 本身，也是 M-P5-h（恒 false）唯一抓得住的地方。
+  // 变异编号末尾的字母是流水号，跟判据的字母不是一回事 —— M-P5-h 记在 P5 名下。
+  eq('邮箱增强跑过（查了没有邮箱）→ true',
+    enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50, email_verified: false })]), true)
+  eq('地域增强跑过 → true',
+    enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50, audience_geo: { US: 0.5 } })]), true)
 
   const enriched = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 50 })],
     { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],

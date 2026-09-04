@@ -16,7 +16,7 @@ import { recordRecommendations } from './lib/memory.js'
 import { writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, buildSheets } from './lib/rows.js'
 import { writeXlsx, type Sheet } from './lib/xlsx.js'
-import { renderHtml } from './lib/report.js'
+import { enrichedFlag, renderHtml } from './lib/report.js'
 import { accountKey, attachAssessments } from './lib/assessment.js'
 import { asMemoryStatus } from './lib/types.js'
 import type { Creator, Measurement } from './lib/types.js'
@@ -103,8 +103,9 @@ const meta = {
   requests: state.requests,
   cost_estimate_usd: Number((state.requests * 0.001).toFixed(4)),
   budget_usd: state.budget_usd,
-  // P5：兼容旧消费者；公开帖子指标不能把“邮箱/受众增强”伪装成已完成。
-  enriched: emailVerified > 0 || audienceGeo > 0,
+  // P5.h：兼容旧消费者；公开帖子指标不能把“邮箱/受众增强”伪装成已完成。
+  // 判定在 report.ts（enrichedFlag），这里只接线。
+  enriched: enrichedFlag(creators),
   // P4/P5（ADR-15）：这一批有没有去重、这一批有没有被记下。两件事分开报，
   // 因为它们坏掉的后果不同：前者是这次可能重复打扰，后者是下次可能重复推荐。
   //
