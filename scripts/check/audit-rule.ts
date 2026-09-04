@@ -28,6 +28,8 @@
  * 少了这一步,这条检查就是它自己要拦的那种东西。
  */
 
+import { active, type Req } from './spec-rule.js'
+
 export const JUDGMENT_EXEMPT: Record<string, string> = {
   'scripts/check/fake-fetch.ts': '自检用的假响应,不是判定 —— 它决定自检能走多深,由 selfcheck 自己的断言守着',
 }
@@ -43,4 +45,35 @@ export function judgmentModules(files: CheckFile[]): string[] {
 export function unguarded(modules: string[], mutations: { file: string }[]): string[] {
   const guarded = new Set(mutations.map(m => m.file))
   return modules.filter(m => !guarded.has(m))
+}
+
+/**
+ * 审计的计量输入。**现行的参与计量,作废的只参与展示。**
+ *
+ * 抽出来的理由和上面两个一样,而且更硬:作废的需求算进覆盖率的分母,
+ * 「还差多少」就变成一个虚报的数,人会去补一条已经不做的事的测试。
+ * 这是判定,不是打印 —— 按 `docs/CONVENTIONS.md` 第 10 条它不该待在 `audit.ts` 里。
+ *
+ * **两半一起给,不分两次算**:只过滤不展示,作废的需求就从审计里彻底消失了,
+ * 「这条为什么不见了」查不到出处;两边各自 filter 一遍,迟早出现两种口径。
+ */
+export interface Ledger {
+  /** 参与计量:覆盖率、红线统计都只数这些 */
+  live: Req[]
+  /** 只参与展示:编号保留,不回收复用 */
+  deprecated: Req[]
+}
+
+export function ledger(all: Req[]): Ledger {
+  return { live: active(all), deprecated: all.filter(r => r.deprecated) }
+}
+
+/**
+ * 「已作废」那一段的正文。空数组 = 这一段不印。
+ *
+ * 取代者是可选的 —— 作废不等于一定有继任,没有就只印作废于哪一版。
+ */
+export function deprecatedBlock(dead: Req[]): string[] {
+  return dead.map(r => `~~${r.id}~~ ${r.deprecated!.since}` +
+                       `${r.deprecated!.superseded_by ? ` → ${r.deprecated!.superseded_by}` : ''}`)
 }

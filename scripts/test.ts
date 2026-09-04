@@ -8,7 +8,7 @@
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
-import { JUDGMENT_EXEMPT, judgmentModules, unguarded } from './check/audit-rule.js'
+import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
 import { judgeRun } from './check/mutate-rule.js'
 import {
   active, adrIdsIn, contentHash, danglingAdrRefs, renderTables, requirementVerdict,
@@ -2300,6 +2300,30 @@ harness('审计：检查链自己的判定模块必须有变异守着')
   eq('没有变异指向它的判定模块被点名', unguarded(['a.ts', 'b.ts'], [{ file: 'a.ts' }]), ['b.ts'])
   eq('都有变异 → 无', unguarded(['a.ts'], [{ file: 'a.ts' }, { file: 'a.ts' }]), [])
   eq('变异指向别的文件不算数', unguarded(['a.ts'], [{ file: 'c.ts' }]), ['a.ts'])
+}
+
+harness('审计的计量输入：作废的不参与计量，只参与展示')
+{
+  const r = (id: string, over: Partial<Req> = {}): Req =>
+    ({ id, cat: id[0], pri: 'P0', text: `${id} 要什么`,
+       accept: [{ id: `${id}.a`, text: `${id} 怎么算满足` }], ...over })
+  const dead = r('D9', { deprecated: { since: '2026-01-01', why: '不做了' } })
+  const replaced = r('D8', { deprecated: { since: '2026-02-01', why: '换了口径', superseded_by: 'D1' } })
+  const l = ledger([r('D1'), dead, replaced])
+
+  // 分母只数现行的。作废的算进去，「还差多少」就是个虚报的数 ——
+  // 人会去补一条已经不做的事的测试。
+  eq('作废的不进计量', l.live.map(x => x.id), ['D1'])
+  eq('作废的单独留着，不是丢掉', l.deprecated.map(x => x.id), ['D9', 'D8'])
+
+  // 覆盖率按现行表算：D9 有测试认领也不该把分子分母各顶高一格
+  const tested = new Set(['D1', 'D9'])
+  eq('覆盖率的分子分母都只算现行的',
+    [l.live.length, l.live.filter(x => tested.has(x.id)).length], [1, 1])
+
+  eq('有取代者就指出来', deprecatedBlock([replaced]), ['~~D8~~ 2026-02-01 → D1'])
+  eq('没有取代者就只说作废于哪一版', deprecatedBlock([dead]), ['~~D9~~ 2026-01-01'])
+  eq('没有作废的 → 这一段不印', deprecatedBlock([]), [])
 }
 
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')

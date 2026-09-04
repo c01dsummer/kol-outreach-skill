@@ -466,6 +466,30 @@
       "replace": "  return files.filter(f => !(f.path in JUDGMENT_EXEMPT)).map(f => f.path).sort()"
     },
     {
+      "id": "M-H13-c",
+      "req": "harness",
+      "why": "作废的需求混回计量 —— 覆盖率的分母把已经不做的事也算上，「还差多少」成了虚报的数，人会去补一条不该存在的测试",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "  return { live: active(all), deprecated: all.filter(r => r.deprecated) }",
+      "replace": "  return { live: all, deprecated: all.filter(r => r.deprecated) }"
+    },
+    {
+      "id": "M-H13-d",
+      "req": "harness",
+      "why": "作废的被过滤掉之后不再留下 —— 只过滤不展示，那条需求从审计里彻底消失，「它为什么不见了」查不到出处",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "  return { live: active(all), deprecated: all.filter(r => r.deprecated) }",
+      "replace": "  return { live: active(all), deprecated: [] }"
+    },
+    {
+      "id": "M-H13-e",
+      "why": "已作废那一行不再印取代者 —— 报告只说某条没了，不说接它的是谁，读的人得回登记表里翻",
+      "req": "harness",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "                       `${r.deprecated!.superseded_by ? ` \u2192 ${r.deprecated!.superseded_by}` : ''}`)",
+      "replace": "                       '')"
+    },
+    {
       "id": "M-H14-a",
       "req": "harness",
       "why": "测试进程崩掉也算变异被抓到 —— 一处语法错、一个 TypeError 就能让整套变异全绿，而没有任何一条断言真的红过",

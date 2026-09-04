@@ -9,18 +9,17 @@
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { JUDGMENT_EXEMPT, judgmentModules, unguarded } from './audit-rule.js'
-import { REDLINE_CAT, active, type Req } from './spec-rule.js'
+import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './audit-rule.js'
+import { REDLINE_CAT, type Req } from './spec-rule.js'
 const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
-const all: Req[] = spec.requirements
 /**
- * 作废的不参与覆盖率 —— 算进去会让「还差多少」变成一个虚报的数。
+ * 分区这件事本身是判定,在 `audit-rule.ts` 里,被变异守着。
  *
- * 本文件原先自带一份 `interface Req`，`accept` 写成 `string` —— 那是判据拆分
- * 之前的形状，登记表早就改成了一组判据。一份没人用得上的、并且说错了的类型，
+ * 本文件原先自带一份 `interface Req`,`accept` 写成 `string` —— 那是判据拆分
+ * 之前的形状,登记表早就改成了一组判据。一份没人用得上的、并且说错了的类型,
  * 正好也遮住了 `deprecated` 这个字段的存在。改成用 spec-rule 那一份。
  */
-const reqs = active(all)
+const { live: reqs, deprecated } = ledger(spec.requirements as Req[])
 const mutCfg = JSON.parse(readFileSync('scripts/check/mutations.json', 'utf8'))
 
 function walk(dir: string, ext = '.ts'): string[] {
@@ -134,13 +133,10 @@ console.log('\n链路审计\n')
 console.log(rows.join('\n'))
 console.log(`\n  图例：✓ 完整  ⊘ 显式豁免  · 缺口  ✗ 硬失败\n`)
 
-const deprecated = all.filter(r => r.deprecated)
-if (deprecated.length) {
+const deadLines = deprecatedBlock(deprecated)
+if (deadLines.length) {
   console.log('  已作废（编号保留，不回收复用）：')
-  for (const r of deprecated) {
-    console.log(`    ~~${r.id}~~ ${r.deprecated!.since}` +
-                `${r.deprecated!.superseded_by ? ` → ${r.deprecated!.superseded_by}` : ''}`)
-  }
+  for (const line of deadLines) console.log(`    ${line}`)
   console.log('')
 }
 
