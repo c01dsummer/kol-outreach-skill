@@ -954,6 +954,22 @@
       "replace": "    keywords > 1 ? `${keywords} \u4e2a\u5173\u952e\u8bcd` : '',"
     },
     {
+      "id": "M-D6-l",
+      "req": "D6",
+      "why": "还有人没补 profile 时，收尾不说还剩什么 —— 用户只看到「续跑会继续花钱」，却不知道那笔钱买的是什么、还剩多少，于是没法判断值不值得续跑",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return `\\n   已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，` +",
+      "replace": "  return `\\n   已抓到的都在 ${dir}，不会重新抓；但还有活没跑完，` +"
+    },
+    {
+      "id": "M-D6-m",
+      "req": "D6",
+      "why": "两种活都干完了，收尾却不再说「续跑不产生新的请求」—— 用户不知道续跑是免费的，怕再花一遍钱，已经跑完的结果就放着不去取",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (free) return `\\n   采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`",
+      "replace": "  if (free) return `\\n   采集与补全都已跑完，结果都在 ${dir}。`"
+    },
+    {
       "id": "M-D4-o",
       "req": "D4",
       "why": "记忆不可用时一律报成「解析失败」—— 而它同样可能是权限不足、父路径不是目录或磁盘出错，那时候用户会去查一份完好的文件，真正的原因在报错里被盖住了",
@@ -1776,6 +1792,14 @@
       "file": "scripts/lib/memory.ts",
       "find": "  const want = product.trim()\n  const r = readMemory()",
       "replace": "  const want = product\n  const r = readMemory()"
+    },
+    {
+      "id": "M-D4-aj",
+      "req": "D4",
+      "why": "只查 blocked、不查 contacted：一份把 contacted 写成字符串的记忆当成好的读进来，「这个人联系过没有」答的是一个字符串，同一个人被第二次联系",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (typeof r.contacted !== 'boolean') return `${k} 的 contacted 不是 true 或 false`\n",
+      "replace": ""
     },
     {
       "id": "M-H17-a",

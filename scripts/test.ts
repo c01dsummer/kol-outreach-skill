@@ -431,9 +431,11 @@ suite('D6', '「还要不要补 profile」只有一个标准 —— 挨个问和
   ok('bio 未查询 → 还要补', needsProfile(c({ bio: undefined })))
   ok('查过了但没有外链 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
   eq('查过且有外链 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
-  // 上面三条只说了这个标准本身对。「只有一个」还得单独钉一下：问一整份名单
-  // 不许答出另一批人 —— 名单里放一个只有照着这个标准才数得进去的人：
-  // 查过了但没外链（负片 M-D6-j）。
+  criterion('D6.e')
+  // 上面三条只说了这个标准本身对。名单那一侧另算一条判据，不合并进 D6.e：这两半由
+  // 两个不同的表达式产出，能被独立弄坏 —— M-D6-j 只把取名单那一句换成另写的筛选，
+  // 标准本身照旧全绿。合成一条的话，删掉其中一半的断言，审计仍会把整条报成「有测试认领」。
+  // 名单里放一个只有照着这个标准才数得进去的人：查过了但没外链。
   const crowd = [c({ handle: 'full', bio: '简介', bio_links: ['https://x'] }),
                  c({ handle: 'bare', bio: undefined }),
                  c({ handle: 'nolink', bio: '简介', bio_links: [] })]
@@ -441,7 +443,7 @@ suite('D6', '「还要不要补 profile」只有一个标准 —— 挨个问和
   // 数目仍然对得上，而补的是错的人 —— 只比长度看不出来。
   eq('取名单挑出来的是这两个人', profilesToEnrich(crowd).map(x => x.handle), ['bare', 'nolink'])
   eq('逐个判定挑出来的是同一批', crowd.filter(needsProfile).map(x => x.handle), ['bare', 'nolink'])
-  criterion('D6.e')
+  criterion('D6.l')
   // 上面验的是这个标准本身，以及问一个人和问一整份名单答得一样。**入口那一侧没验**：
   // collect.ts 的补全循环，这份测试既没跑过也没读过 —— 把它取名单那一句换回一份就地
   // 写的筛选，上面每一条照样绿。这半句不写成判据：它就是「入口里不许另写判定」，
@@ -501,20 +503,24 @@ suite('D6', '收尾说哪一句是算出来的 —— 挑错分支，用户就�
   const full = mk('tiktok', 'full', { bio: '简介', bio_links: ['https://x'] })
   const bare = mk('tiktok', 'bare', { bio: undefined })
   // 这句话眼下只有一处收尾在说：记忆读不出来而中止时（collect.ts 里那个
-  // MemoryUnreadable 捕获）。D6.h 就按这个范围写 —— 别的收尾路径要不要也说，
+  // MemoryUnreadable 捕获）。D6.h 与 D6.m 都按这个范围写 —— 别的收尾路径要不要也说，
   // 是另一件事，不在这里顺手加。
-  // 还有人没补 profile：这句话得说出还剩什么，还得说明续跑要花钱 —— 少哪一半，
-  // 用户都拿不到「要不要续跑」这个决定所需的东西（负片 M-D6-i 把两个分支对调）。
+  // 还有人没补 profile：这句话得说出还剩什么、说明已抓到的不会重抓，还得说明续跑要
+  // 花钱 —— 少哪一半，用户都拿不到「要不要续跑」这个决定所需的东西（负片 M-D6-l 只
+  // 掐掉「还剩什么」那一半，别的照旧）。
   const busy = resumeCostNotice(st({ done: [0] }), 50, [full, bare], 'out/x')
   ok('说了还剩什么', busy.includes('还有 1 个人的 profile 没跑完'))
   ok('说了续跑会继续花钱', busy.includes('续跑会继续发请求、继续花钱'))
   eq('这时候不能说续跑免费', busy.includes('续跑不产生新的请求'), false)
   ok('也说了已抓到的不会重抓', busy.includes('已抓到的都在 out/x，不会重新抓'))
-  // 两种活都干完了，才轮到另一句
+  criterion('D6.h')
+  // 两种活都干完了，才轮到另一句 —— 那是另一条 return，跟上面那条能被独立弄坏
+  // （M-D6-m 只掐掉「续跑不产生新的请求」，上面四条照旧全绿），所以另算一条判据。
+  // M-D6-i 把两个分支对调，两边一起坏 —— 单靠它分不出这是一条还是两条。
   const done = resumeCostNotice(st({ done: [0] }), 50, [full], 'out/x')
   ok('干完了才说续跑不产生新的请求', done.includes('续跑不产生新的请求'))
   eq('这时候不该再说要继续花钱', done.includes('继续花钱'), false)
-  criterion('D6.h')
+  criterion('D6.m')
 }
 
 suite('D6', '续跑不得被本任务自己上一轮的产出滤空')
@@ -656,8 +662,10 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     ['contacted 写成字符串', JSON.stringify({ version: 1, creators: {
       'tiktok:a': { contacted: 'true', blocked: false, recommendations: [] } } })],
     // contacted 对了不等于 blocked 也对：两个字段各答「这个人能不能联系」的一半，
-    // 判定也是两条独立的。上面两条都在 contacted 那儿就返回了，走不到 blocked ——
-    // 只验它们的话，blocked 那条判定删掉，这一圈照样全绿（负片 M-D4-af）。
+    // 判定也是两条独立的，删掉哪一条都得有人喊 —— 两张负片各删一条：M-D4-aj 删
+    // contacted 那句，只打死上面「contacted 写成字符串」；M-D4-af 删 blocked 那句，
+    // 只打死下面这一条。缺 contacted 那条走不到这儿（两个字段都缺，blocked 那句照样
+    // 拦得下），所以钉住 contacted 的是「写成字符串」那一条，不是它。
     ['blocked 写成字符串', JSON.stringify({ version: 1, creators: {
       'tiktok:a': { contacted: true, blocked: 'false', recommendations: [] } } })],
     ['recommendations 不是数组', JSON.stringify({ version: 1, creators: {
