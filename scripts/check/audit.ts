@@ -9,11 +9,17 @@
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { JUDGMENT_EXEMPT, judgmentModules, unguarded } from './audit-rule.js'
-
-interface Req { id: string; cat: string; pri: string; text: string; accept: string }
+import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './audit-rule.js'
+import { REDLINE_CAT, type Req } from './spec-rule.js'
 const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
-const reqs: Req[] = spec.requirements
+/**
+ * 分区这件事本身是判定,在 `audit-rule.ts` 里,被变异守着。
+ *
+ * 本文件原先自带一份 `interface Req`,`accept` 写成 `string` —— 那是判据拆分
+ * 之前的形状,登记表早就改成了一组判据。一份没人用得上的、并且说错了的类型,
+ * 正好也遮住了 `deprecated` 这个字段的存在。改成用 spec-rule 那一份。
+ */
+const { live: reqs, deprecated } = ledger(spec.requirements as Req[])
 const mutCfg = JSON.parse(readFileSync('scripts/check/mutations.json', 'utf8'))
 
 function walk(dir: string, ext = '.ts'): string[] {
@@ -76,7 +82,7 @@ for (const r of reqs) {
   const exempt = exemptIds.has(r.id)
 
   let flag = '✓'
-  if (r.cat === 'P') {
+  if (r.cat === REDLINE_CAT) {
     if (!tested) { flag = '✗'; hard++; gaps.push(`${r.id} 是红线但没有测试`) }
     else if (!mutated && !exempt) { flag = '✗'; hard++; gaps.push(`${r.id} 有测试但没有变异验证 —— 那条测试没被证明过`) }
     else if (exempt) flag = '⊘'
@@ -127,6 +133,13 @@ console.log('\n链路审计\n')
 console.log(rows.join('\n'))
 console.log(`\n  图例：✓ 完整  ⊘ 显式豁免  · 缺口  ✗ 硬失败\n`)
 
+const deadLines = deprecatedBlock(deprecated)
+if (deadLines.length) {
+  console.log('  已作废（编号保留，不回收复用）：')
+  for (const line of deadLines) console.log(`    ${line}`)
+  console.log('')
+}
+
 for (const [id, why] of exemptIds) {
   console.log(`  ⊘ ${id} 部分豁免（显式缺口，不消灭）：\n     ${why}`)
 }
@@ -142,10 +155,11 @@ if (gaps.length) {
   for (const g of gaps) console.log(`    · ${g}`)
 }
 
-const P = reqs.filter(r => r.cat === 'P')
+const P = reqs.filter(r => r.cat === REDLINE_CAT)
 console.log(`\n  红线 ${P.length} 条 · 有测试 ${P.filter(r => testedIds.has(r.id)).length} · ` +
             `有变异 ${P.filter(r => mutatedIds.has(r.id)).length} · 显式豁免 ${P.filter(r => exemptIds.has(r.id)).length}`)
-console.log(`  需求 ${reqs.length} 条 · 被测试覆盖 ${reqs.filter(r => testedIds.has(r.id)).length}`)
+console.log(`  需求 ${reqs.length} 条 · 被测试覆盖 ${reqs.filter(r => testedIds.has(r.id)).length}` +
+            `${deprecated.length ? ` · 已作废 ${deprecated.length} 条（不计入）` : ''}`)
 console.log(`  检查链的判定模块 ${judgments.length} 个 · 有变异守着 ${judgments.length - naked.length}`)
 
 if (hard) { console.error(`\n✗ 审计：${hard} 项硬失败`); process.exit(1) }
