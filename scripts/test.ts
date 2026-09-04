@@ -2024,7 +2024,8 @@ suite('P1', '纪律 lint 的扫描范围：scripts/ 全量，例外只有说好�
    * 而它已经看不见半个仓库了。
    *
    * 断言依据只有 P1.b 原文，和这条 lint 自己声明的两处例外（检查链自己那一坨、
-   * 测试文件里故意写出来的样例）。搭一棵假树，因为真树上没有违规可扫。
+   * 测试文件里故意写出来的样例）—— 那是**两个位置**，不是两个名字。搭一棵假树，
+   * 因为真树上没有违规可扫。
    */
   const root = join(tmpdir(), `kol-lint-${process.pid}`)
   rmSync(root, { recursive: true, force: true })
@@ -2038,10 +2039,15 @@ suite('P1', '纪律 lint 的扫描范围：scripts/ 全量，例外只有说好�
   put('test.ts', BAD)                                            // 测试里的样例不算
   put('lib/notes.md', BAD)                                       // 只看 .ts
   put('lib/ok.ts', `${BAD}   // p1-ok: 展示用，不参与决策`)
+  // 例外是**两个具体位置**，不是两个名字。按名字排除的话，下面这两个跟着被放过 ——
+  // 而 lib/ 恰恰是最会出兜底的地方，「全量扫描」就是这么缩水的。
+  put('lib/check/nested.ts', BAD)                                // 顶层以下的同名目录：该扫
+  put('lib/test.ts', BAD)                                        // 顶层以下的同名文件：该扫
 
   const { hits, exempted } = lintTree(root)
-  eq('只有该扫的那个文件被报出来',
-    hits.map(h => h.file.slice(root.length + 1)).join('|'), 'lib/deep/score.ts')
+  eq('该扫的都报了，说好的那两处例外之外一个不漏',
+    hits.map(h => h.file.slice(root.length + 1)).sort().join('|'),
+    'lib/check/nested.ts|lib/deep/score.ts|lib/test.ts')
   eq('报到行，不是只报文件', hits[0]?.line, 1)
   eq('写明理由的具名豁免被数进去，不报违规', exempted, 1)
   rmSync(root, { recursive: true, force: true })

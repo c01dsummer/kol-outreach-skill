@@ -232,4 +232,5 @@ console.log(`  验收判据 ${allCrit.length} 条 · 有测试认领 ` +
             ` · 显式豁免 ${redlineCrit.filter(c => exemptIds.has(c.id)).length}）`)
 
 if (hard) { console.error(`\n✗ 审计：${hard} 项硬失败`); process.exit(1) }
-console.log('\n✓ 审计：红线全部有测试且被变异验证；检查链的判定模块全部有变异守着')
+console.log('\n✓ 审计：红线需求全部有测试且被变异验证；未豁免的红线判据全部有测试认领；' +
+            '检查链的判定模块全部有变异守着')

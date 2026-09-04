@@ -140,8 +140,10 @@ selfcheck 里跑过，要么在 `npm run check` 里作为自己那一步跑过�
 ## 10. 入口脚本里放决策逻辑 —— 它就永远测不到
 
 `scripts/*.ts` 是入口（读参数、落盘、打印、退出码），`scripts/lib/*.ts` 才放逻辑。
-**检查脚本同样分这两层**：`scripts/check/lint.ts` 走文件树、打印、退出码，
-判定在 `scripts/check/lint-rule.ts`。
+**检查脚本同样分这两层**：`scripts/check/lint.ts` 只剩打印和退出码，判定在
+`scripts/check/lint-rule.ts` —— 连同走文件树那一半（跳过哪些目录、哪些文件算数、
+递归到多深，决定了这条 lint 看得见多少代码；「全量扫描」被悄悄缩小和判定写错
+一样致命，所以它也是判定）。
 
 判据只有一句：**这段代码的顺序错了会不会出错？**
 

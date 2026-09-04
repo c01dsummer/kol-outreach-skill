@@ -52,20 +52,27 @@ export function judgeLine(text: string): LintVerdict {
   return 'violation'
 }
 
-/** 检查链自己那一坨不受这条纪律约束：它判定的对象就是兜底写法本身 */
+/**
+ * 检查链自己那一坨不受这条纪律约束：它判定的对象就是兜底写法本身。
+ * **只认顶层那一个** —— 按名字在任意深度排除的话，`lib/check/` 这种同名子目录
+ * 会跟着被放过，而「全量扫描」正是这么被悄悄缩小的。
+ */
 export const SKIP_DIRS = ['check']
-/** 测试里那些故意写出来的兜底样例不算违规 —— 否则这条 lint 天天红，红到没人看 */
+/**
+ * 测试里那些故意写出来的兜底样例不算违规 —— 否则这条 lint 天天红，红到没人看。
+ * 同样只认顶层那一个：`lib/test.ts` 是普通代码，该扫。
+ */
 export const SKIP_FILES = ['test.ts']
 
 export interface Hit { file: string; line: number; text: string }
 
-function walk(dir: string): string[] {
+function walk(dir: string, atRoot = true): string[] {
   const out: string[] = []
   for (const e of readdirSync(dir)) {
     const p = join(dir, e)
     if (statSync(p).isDirectory()) {
-      if (!SKIP_DIRS.includes(e)) out.push(...walk(p))
-    } else if (e.endsWith('.ts') && !SKIP_FILES.includes(e)) out.push(p)
+      if (!(atRoot && SKIP_DIRS.includes(e))) out.push(...walk(p, false))
+    } else if (e.endsWith('.ts') && !(atRoot && SKIP_FILES.includes(e))) out.push(p)
   }
   return out
 }

@@ -278,8 +278,8 @@
       "req": "P1",
       "why": "扫描不往子目录里走 —— lint 只看 scripts/ 顶层那几个文件，采集与评分代码里的兜底写法从此没人过问，而检查照样打印「无违规」",
       "file": "scripts/check/lint-rule.ts",
-      "find": "      if (!SKIP_DIRS.includes(e)) out.push(...walk(p))",
-      "replace": "      if (!SKIP_DIRS.includes(e)) out.push()"
+      "find": "      if (!(atRoot && SKIP_DIRS.includes(e))) out.push(...walk(p, false))",
+      "replace": "      if (!(atRoot && SKIP_DIRS.includes(e))) out.push()"
     },
     {
       "id": "M-P1-m",
@@ -296,6 +296,22 @@
       "file": "scripts/check/lint-rule.ts",
       "find": "      if (verdict === 'exempt') { exempted++; return }",
       "replace": "      if (verdict === 'exempt') { exempted++ }"
+    },
+    {
+      "id": "M-P1-o",
+      "req": "P1",
+      "why": "两处例外按名字在任意深度生效 —— 目录树深处任何一个与检查链同名的子目录都跟着被放过，而那正是最会出兜底的地方，扫描范围就此缩水，检查照样打印「无违规」",
+      "file": "scripts/check/lint-rule.ts",
+      "find": "      if (!(atRoot && SKIP_DIRS.includes(e))) out.push(...walk(p, false))",
+      "replace": "      if (!SKIP_DIRS.includes(e)) out.push(...walk(p, false))"
+    },
+    {
+      "id": "M-P1-p",
+      "req": "P1",
+      "why": "与测试同名的文件在任意深度都被跳过 —— 库里任何一个碰巧同名的普通代码文件从此不受这条纪律约束，而它究竟是不是测试没有人再问一句",
+      "file": "scripts/check/lint-rule.ts",
+      "find": "    } else if (e.endsWith('.ts') && !(atRoot && SKIP_FILES.includes(e))) out.push(p)",
+      "replace": "    } else if (e.endsWith('.ts') && !SKIP_FILES.includes(e)) out.push(p)"
     },
     {
       "id": "M-D10-a",
