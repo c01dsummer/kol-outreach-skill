@@ -22,6 +22,7 @@ import { orphanAttributions } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import { type RunVerdict, judgeRun } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
+import { beginMutation, restoreMutation, restoreOnInterrupt } from './mutate-restore.js'
 
 interface Mut { id: string; req: string; why: string; file: string; find: string; replace: string }
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
@@ -85,6 +86,10 @@ const restoreClaims = () => {
   else rmSync(CLAIMS_PATH, { force: true })
 }
 process.on('exit', restoreClaims)
+// 但**信号杀进来时 exit 处理也不跑** —— Ctrl-C、被杀掉、CI 超时、终端关掉，
+// 留下的是一份被改写的源文件加一份对不上的覆盖记录，而没有任何东西说过它们在那儿。
+// 接管这几个信号，让「被打断」和「跑完」走同一条还原路径（`mutate-restore.ts`）。
+restoreOnInterrupt()
 
 for (const m of muts) {
   const orig = readFileSync(m.file, 'utf8')
@@ -93,6 +98,7 @@ for (const m of muts) {
     console.log(`  ⚠ ${m.id}  锚点失效，未能应用`)
     continue
   }
+  beginMutation(m.file, orig)
   writeFileSync(m.file, orig.replace(m.find, m.replace), 'utf8')
   let verdict: RunVerdict
   try {
@@ -104,7 +110,7 @@ for (const m of muts) {
     // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null)
     verdict = judgeRun(e.status ?? null, `${e.stdout ?? ''}\n${e.stderr ?? ''}`)
   } finally {
-    writeFileSync(m.file, orig, 'utf8')
+    restoreMutation()
   }
   if (verdict === 'caught') console.log(`  ✓ ${m.id}  [${m.req}] 被抓到`)
   else if (verdict === 'crashed') {

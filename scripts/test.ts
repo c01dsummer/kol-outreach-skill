@@ -11,6 +11,9 @@ import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
 import { judgeRun } from './check/mutate-rule.js'
 import {
+  beginMutation, onInterrupt, restoreMutation, restoreOnInterrupt,
+} from './check/mutate-restore.js'
+import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, renderTables, requirementVerdict,
   rootProblems, tensionEvidence, tensionHasRedline, tensionKey, tensionVerdict,
   validateRegistry,
@@ -2490,6 +2493,32 @@ harness('变异测试：测试进程崩了不算抓到')
   eq('非零退出但没有汇总 → 跑不起来，不算抓到', judgeRun(1, "TypeError: Cannot read properties of undefined"), 'crashed')
   eq('被信号杀掉（没有退出码）也不算抓到', judgeRun(null, ''), 'crashed')
   eq('汇总必须是自成一行的那句，正文里提到「个失败」不算', judgeRun(1, '断言说：这里不该有 3 个失败的例子'), 'crashed')
+}
+
+harness('变异跑到一半被打断：动过的源文件要还回去')
+{
+  // 信号杀进来时 finally 不跑，留在工作区里的是一处故意违反某条需求的改动。
+  // 而下一次 check 报的是「锚点失效」—— 一句指着变异集的话，错的却是上一次没跑完
+  let threw = ''
+  // 打断完全可能落在还没开始应用变异的那一段：那时盘上本来就是干净的，什么都不该写。
+  // 照着一个不存在的现场去写，只会在信号处理里当场抛 —— 还原和退出都做不成
+  try { restoreMutation() } catch (e) { threw = (e as Error).message }
+  eq('还没开始应用变异就被打断：不抛', threw, '')
+
+  const f = join(tmpdir(), `kol-h-restore-${process.pid}.ts`)
+  writeFileSync(f, '原文', 'utf8')
+  beginMutation(f, '原文')
+  writeFileSync(f, '被改坏的', 'utf8')
+  restoreMutation()
+  eq('被打断时把动过的那份还回去', rf(f, 'utf8'), '原文')
+  rmSync(f, { force: true })
+
+  // 装完立刻拆掉：处理函数里有退出，留在测试进程里会把后面任何一次打断变成静默退出
+  const sigs = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
+  restoreOnInterrupt()
+  const armed = sigs.filter(s => process.listeners(s).includes(onInterrupt))
+  for (const s of sigs) process.off(s, onInterrupt)
+  eq('三种打断都接管了 —— Ctrl-C、被杀掉、终端关掉', armed.length, sigs.length)
 }
 
 harness('审计：检查链自己的判定模块必须有变异守着')

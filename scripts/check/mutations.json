@@ -1576,6 +1576,30 @@
       "file": "scripts/check/spec-rule.ts",
       "find": "      requirements: reqs, categories: Object.entries(cats),",
       "replace": "      requirements: reqs, categories: cats,"
+    },
+    {
+      "id": "M-H15-a",
+      "req": "harness",
+      "why": "变异跑到一半被打断时，动过的那份源文件不再还回去 —— 工作区里留着一处故意违反某条需求的改动，而没有任何东西说过它在那儿；下一次检查只会说「锚点失效」，指着变异集，不指上一次没跑完的那一跑",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  inFlight = undefined\n  writeFileSync(cur.file, cur.orig, 'utf8')",
+      "replace": "  inFlight = undefined"
+    },
+    {
+      "id": "M-H15-b",
+      "req": "harness",
+      "why": "打断落在还没开始应用变异的那一段时，照着一个根本不存在的现场去写 —— 还原当场抛在信号处理里，退出也走不成，覆盖记录跟着留在盘上，而人看到的是一堆栈，像是变异集自己坏了",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  const cur = inFlight\n  if (cur === undefined) return\n  inFlight = undefined",
+      "replace": "  const cur = inFlight\n  inFlight = undefined"
+    },
+    {
+      "id": "M-H15-c",
+      "req": "harness",
+      "why": "只接管 Ctrl-C 那一种打断 —— 被杀掉、CI 超时、终端关掉的时候，动过的源文件照样留在工作区里，而那是一处故意违反某条需求的改动",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, onInterrupt)",
+      "replace": "  for (const sig of ['SIGINT'] as const) process.on(sig, onInterrupt)"
     }
   ],
   "exemptions": [
