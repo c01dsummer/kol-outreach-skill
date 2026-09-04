@@ -473,6 +473,9 @@ suite('D6', '收尾说哪一句是算出来的 —— 挑错分支，用户就�
   })
   const full = mk('tiktok', 'full', { bio: '简介', bio_links: ['https://x'] })
   const bare = mk('tiktok', 'bare', { bio: undefined })
+  // 这句话眼下只有一处收尾在说：记忆读不出来而中止时（collect.ts 里那个
+  // MemoryUnreadable 捕获）。D6.h 就按这个范围写 —— 别的收尾路径要不要也说，
+  // 是另一件事，不在这里顺手加。
   // 还有人没补 profile：这句话得说出还剩什么，还得说明续跑要花钱 —— 少哪一半，
   // 用户都拿不到「要不要续跑」这个决定所需的东西（负片 M-D6-i 把两个分支对调）。
   const busy = resumeCostNotice(st({ done: [0] }), 50, [full, bare], 'out/x')

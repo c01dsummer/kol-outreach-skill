@@ -946,6 +946,14 @@
       "replace": "  return [...creators].filter(c => c.bio === undefined)"
     },
     {
+      "id": "M-D6-k",
+      "req": "D6",
+      "why": "只剩一个关键词没跑时，不把它算进「还剩多少活」—— 收尾于是说「续跑不产生新的请求」，而续跑做的第一件事就是去抓那个词，那要花钱",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    keywords ? `${keywords} \u4e2a\u5173\u952e\u8bcd` : '',",
+      "replace": "    keywords > 1 ? `${keywords} \u4e2a\u5173\u952e\u8bcd` : '',"
+    },
+    {
       "id": "M-D4-o",
       "req": "D4",
       "why": "记忆不可用时一律报成「解析失败」—— 而它同样可能是权限不足、父路径不是目录或磁盘出错，那时候用户会去查一份完好的文件，真正的原因在报错里被盖住了",
