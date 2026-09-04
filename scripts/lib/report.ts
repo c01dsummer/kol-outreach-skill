@@ -97,7 +97,10 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
  *
  * 兼容旧消费者的布尔：公开帖子指标不能把「邮箱/受众增强」伪装成已完成 ——
  * `email_verified` 为 false 也算「跑过」（查了、没有邮箱），所以只看字段在不在。
- * 判据在这里而不是 render 里，是因为它能被测（CONVENTIONS 第 10 条；M-P5-h 守着）。
+ * 这个**判定**放在这里而不是 render 里，是因为它能被测（CONVENTIONS 第 10 条）。
+ *
+ * 负片分工：M-P5-j 守 P5.h（未增强却报 true）；M-P5-h（恒 false）守的是 true
+ * 那一头那三条断言，而那三条不认领任何判据。
  */
 export const enrichedFlag = (creators: Creator[]): boolean =>
   creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)
