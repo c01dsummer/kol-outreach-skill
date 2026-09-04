@@ -954,7 +954,7 @@
       "replace": "    keywords > 1 ? `${keywords} \u4e2a\u5173\u952e\u8bcd` : '',"
     },
     {
-      "id": "M-D6-l",
+      "id": "M-D6-n",
       "req": "D6",
       "why": "还有人没补 profile 时，收尾不说还剩什么 —— 用户只看到「续跑会继续花钱」，却不知道那笔钱买的是什么、还剩多少，于是没法判断值不值得续跑",
       "file": "scripts/lib/pipeline.ts",
@@ -962,7 +962,7 @@
       "replace": "  return `\\n   已抓到的都在 ${dir}，不会重新抓；但还有活没跑完，` +"
     },
     {
-      "id": "M-D6-m",
+      "id": "M-D6-o",
       "req": "D6",
       "why": "两种活都干完了，收尾却不再说「续跑不产生新的请求」—— 用户不知道续跑是免费的，怕再花一遍钱，已经跑完的结果就放着不去取",
       "file": "scripts/lib/pipeline.ts",
