@@ -1053,17 +1053,15 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   //
   //          让改名注定失败：目标是个非空目录。前面几问它全过得了（目录是可写的），
   //          临时文件建出来、写完、刷完，到改名那一步才失败 —— 落点正是要守的那一段。
-  //
-  //          **半成品是先摆好的，不等它自己建。** 不摆的话这条断言是空的：失败要是
-  //          发生在建临时文件之前，盘上本来就没有东西，「没有」照样绿，而清理那一行
-  //          早被删掉也看不出来。摆了之后，它只有真被删掉才能绿。
+  //          **这也是这条断言不空的理由**：失败发生在临时文件写完之后，那一刻盘上
+  //          确实躺着它，所以「它不在了」只能是被清掉的（第四轮评审提的：先摆一份
+  //          半成品守不住什么，写之前那一次 rmSync 会先把它删掉）。
   {
     const stuck = join(tmpdir(), `kol-d4-halfdone-${process.pid}`)
     rmSync(stuck, { recursive: true, force: true })
     mkdirSync(stuck, { recursive: true })
     writeFileSync(join(stuck, 'x'), '占着，改名搬不进来', 'utf8')
     const half = `${stuck}.${process.pid}.tmp`
-    writeFileSync(half, '上一次写到一半的', 'utf8')
     let threwHalf = ''
     try { writeFileAtomic(stuck, '这一次的内容') } catch (e) { threwHalf = String(e) }
     ok('目标是目录时写回报失败', threwHalf !== '')
