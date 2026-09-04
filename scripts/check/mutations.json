@@ -1306,6 +1306,14 @@
       "replace": "  void requirements"
     },
     {
+      "id": "M-H4-i",
+      "req": "harness",
+      "why": "只看需求正文、不看它的验收判据 —— 判据里点名的决策记录没登记进这条需求的 adr，登记表检查照样报干净",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    const cited = new Set([r.text, ...r.accept.map(c => c.text)]",
+      "replace": "    const cited = new Set([r.text]"
+    },
+    {
       "id": "M-H5-a",
       "req": "harness",
       "why": "决策记录里的需求编号写死成一个大写字母加数字 —— 换一个编号前缀更长的项目，这条检查一条都匹配不到，而且不报错",
