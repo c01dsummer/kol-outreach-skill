@@ -634,6 +634,14 @@
       "replace": "export const tensionKey = (a: string, b: string): string => [a, b].join('×')"
     },
     {
+      "id": "M-H14-n",
+      "req": "harness",
+      "why": "那张名单漏掉交点认领那一栏 —— 一份根本没有交点认领的记录被当成合法记录读进去，审计把有红线的交点全报成没有认领，一次假的硬失败，人照着去翻裁决，而毛病在记录本身",
+      "file": "scripts/check/claims.ts",
+      "find": "export const CLAIM_LISTS = ['covered', 'criteria', 'tensions'] as const",
+      "replace": "export const CLAIM_LISTS = ['covered', 'criteria'] as const"
+    },
+    {
       "id": "M-D8-c",
       "req": "D8",
       "why": "旧缓存的样本记录不再收进窗口 —— 交付物上声称记着 16 条，而指标是按窗口内的 11 条算的，同一行数据自己打自己",
@@ -1456,6 +1464,14 @@
       "file": "scripts/check/spec-rule.ts",
       "find": "  if (e.claimed) return { flag: '✓', gaps: [], hard: 0 }",
       "replace": "  if (false) return { flag: '✓', gaps: [], hard: 0 }"
+    },
+    {
+      "id": "M-H6-e",
+      "req": "harness",
+      "why": "交点上有没有红线改成「两头都是红线才算」 —— 登记表里没有一个交点是两头都红的，于是有红线的交点全部降级成软缺口，少认领一个红线交点，审计照样退 0",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "): boolean => redlines.has(a) || redlines.has(b)",
+      "replace": "): boolean => redlines.has(a) && redlines.has(b)"
     },
     {
       "id": "M-H7-a",

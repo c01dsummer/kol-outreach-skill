@@ -15,7 +15,7 @@ import {
   type Claims,
 } from './claims.js'
 import {
-  REDLINE_CAT, requirementVerdict, tensionKey, tensionVerdict, type Req,
+  REDLINE_CAT, requirementVerdict, tensionHasRedline, tensionKey, tensionVerdict, type Req,
 } from './spec-rule.js'
 const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
 /**
@@ -202,7 +202,7 @@ for (const r of reqs) {
   for (const t of r.tension ?? []) {
     const v = tensionVerdict(r.id, t, {
       claimed: claimedTensions.has(tensionKey(r.id, t.with)),
-      redline: redlineIds.has(r.id) || redlineIds.has(t.with),
+      redline: tensionHasRedline(r.id, t.with, redlineIds),
     })
     hard += v.hard
     gaps.push(...v.gaps)
@@ -254,7 +254,7 @@ const tensions = reqs.flatMap(r => (r.tension ?? []).map(t => ({ from: r.id, t }
 console.log(`  需求之间的交点 ${tensions.length} 个 · 有测试认领 ` +
             `${tensions.filter(({ from, t }) => claimedTensions.has(tensionKey(from, t.with))).length}` +
             ` · 其中有红线的 ${tensions.filter(({ from, t }) =>
-              redlineIds.has(from) || redlineIds.has(t.with)).length}`)
+              tensionHasRedline(from, t.with, redlineIds)).length}`)
 const allCrit = reqs.flatMap(r => r.accept)
 const redlineCrit = reqs.filter(r => r.cat === REDLINE_CAT).flatMap(r => r.accept)
 /**

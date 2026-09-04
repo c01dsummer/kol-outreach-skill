@@ -510,6 +510,20 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
  */
 export const tensionKey = (a: string, b: string): string => [a, b].sort().join('×')
 
+/**
+ * 这个交点上有没有红线 —— **一头是就算。**
+ *
+ * 一头是就算，因为让步的是哪一方不改变这件事：红线在这个方向上让到哪为止，
+ * 是这条红线自己的边界，总得有人证明过。
+ *
+ * 跨两条需求的判断，所以不留在入口脚本里。留在那儿的话，它退化成「两头都是红线
+ * 才算」没人拦得住：已登记的交点没有一个是两头都红的，于是全部降级成软缺口，
+ * 少认领一个红线交点照样退 0 —— 下面那条硬失败就此静悄悄地失效。
+ */
+export const tensionHasRedline = (
+  a: string, b: string, redlines: ReadonlySet<string>,
+): boolean => redlines.has(a) || redlines.has(b)
+
 export interface TensionEvidence {
   /** 测试里有没有认领过这个交点 */
   claimed: boolean

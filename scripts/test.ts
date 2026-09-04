@@ -12,7 +12,7 @@ import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } 
 import { judgeRun } from './check/mutate-rule.js'
 import {
   active, adrIdsIn, contentHash, danglingAdrRefs, renderTables, requirementVerdict,
-  rootProblems, tensionKey, tensionVerdict, validateRegistry,
+  rootProblems, tensionHasRedline, tensionKey, tensionVerdict, validateRegistry,
   type Evidence, type Req, type TensionEvidence,
 } from './check/spec-rule.js'
 import { HARNESS, orphanAttributions } from './check/attribution-rule.js'
@@ -1825,6 +1825,13 @@ harness('审计对一个交点的裁定')
   // 的红线交点是硬失败 —— 一条写给人看的规矩会变成一次假的失败。
   eq('两侧顺序不影响认领编号', tensionKey('P1', 'F5'), tensionKey('F5', 'P1'))
   ok('不同的交点不是同一个编号', tensionKey('D4', 'P4') !== tensionKey('D4', 'D6'))
+
+  // 一头是红线就算有红线的交点。退化成「两头都红才算」的话，已登记的交点
+  // 一个都不算，下面那条硬失败会静悄悄地全变成软缺口。
+  const P = new Set(['P4'])
+  eq('这一头是红线就算', tensionHasRedline('P4', 'D1', P), true)
+  eq('那一头是红线也算', tensionHasRedline('D1', 'P4', P), true)
+  eq('两头都不是红线就不算', tensionHasRedline('D4', 'D6', P), false)
 
   // 有红线的交点没被认领是**硬失败**，不是待办：一条红线让步到哪为止，
   // 登记表上写着，而两侧需求各自的判据谁也不验它（ADR-17）。
