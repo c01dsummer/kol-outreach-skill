@@ -16,6 +16,7 @@
 |---|---|---|
 | **新增/删除/修改需求** | `docs/requirements.json` → `docs/SPEC.md` → 下游引用 → 测试 → 变异 | 🔒 `spec` `audit` |
 | **新增/修改一条验收判据** | `accept` 判据编号稳定 · `test.ts` 里 `criterion(...)` 认领 · 红线判据没认领要显式登记豁免 | 🔒 `spec` · `audit` 逐条数，红线判据没认领是硬失败 |
+| **两条需求撞上了（新增一处交点）** | `requirements.json` 的 `tension` 写在**让步的那一方**，双向声明会被拦下 · 裁决写结论不写「待讨论」· `test.ts` 里 `tension('A', 'B')` 认领 | 🔒 `spec` 查裁决与编号 · `audit` 逐个数，**有红线的交点没认领是硬失败** |
 | **作废一条需求** | `requirements.json` 的 `deprecated`（编号保留不复用）· 下游引用要清掉 · 相关测试与变异。**红线（P1–P5）不许作废** —— 那是产品定义变了，走变更评定 | 🔒 `spec` 查作废必须写理由、**红线作废当场拦下** |
 | **新增红线** | 需求登记表 · **测试** · **变异集** · `docs/CONVENTIONS.md` | 🔒 `audit` 强制红线有测试+变异 |
 | **改评分/分层规则** | `scripts/lib/score.ts` · `scripts/lib/pipeline.ts` · `skill/references/semantic-fit.md` · 测试 | 部分 |

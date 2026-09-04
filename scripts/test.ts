@@ -12,7 +12,9 @@ import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } 
 import { judgeRun } from './check/mutate-rule.js'
 import {
   active, adrIdsIn, contentHash, danglingAdrRefs, renderTables, requirementVerdict,
-  rootProblems, validateRegistry, type Evidence, type Req,
+  rootProblems, tensionEvidence, tensionHasRedline, tensionKey, tensionVerdict,
+  validateRegistry,
+  type Evidence, type Req, type TensionEvidence,
 } from './check/spec-rule.js'
 import { HARNESS, orphanAttributions } from './check/attribution-rule.js'
 import {
@@ -98,6 +100,20 @@ const ok = (label: string, cond: boolean) => eq(label, cond, true)
  */
 const claimedCriteria = new Set<string>()
 const criterion = (...ids: string[]) => { for (const id of ids) claimedCriteria.add(id) }
+
+/**
+ * 认领一个**交点** —— 两条需求撞上时以谁为准（ADR-17）。
+ *
+ * 交点的裁决跨着两条需求，不属于任何一条，所以两边各自的判据谁也不会验它：
+ * 登记表上写着「撞上时以 P4 为准」，代码里可以完全不是这么做的，而两条需求
+ * 的判据全绿。交点里有红线的，没有认领就是硬失败，判定在 `spec-rule.ts`。
+ *
+ * 编号由 `tensionKey` 出，写审计的那一头也用同一个函数 —— 两头各拼一次字符串，
+ * 迟早拼出两种写法（`CLAIM_LISTS` 那一栏踩过）。两侧顺序无关：
+ * 登记表要求写在让步的那一方，那是给读的人定的规矩，认领的时候不必想清楚谁让步。
+ */
+const claimedTensions = new Set<string>()
+const tension = (a: string, b: string) => { claimedTensions.add(tensionKey(a, b)) }
 
 /**
  * 检查链自己的判定也要有测试。这类块不服务任何需求编号，所以**不进覆盖计数** ——
@@ -433,6 +449,10 @@ suite('D6', '续跑不得被本任务自己上一轮的产出滤空')
   // 不传 task（render 之外的调用方）时退化为旧行为：一律排除
   const legacy = filterByMemory([mk('tiktok', 'mine')], 'ring')
   eq('不传 task 时同产品一律排除', legacy.kept.length, 0)
+  // D4 × D6 的交点：记忆去重（D4）撞上续跑（D6）时，让步的是去重 ——
+  // 本任务自己上一轮写下的推荐不参与过滤。否则 render 之后每次续跑都会把
+  // 已经付钱采过的人判成「已推荐过」，交出一份空名单（ADR-08）。
+  tension('D4', 'D6')
 
   unlinkSync(tmp)
   useMemoryFile('memory/creators.json')
@@ -528,6 +548,11 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   const wb = recordRecommendations(ignored.kept, 'p')
   eq('读不出来时不写回', wb.written, false)
   eq('磁盘上仍是那份读不出来的文件，一个字节没动', rf(tmp, 'utf8'), broken)
+
+  // D4 × P4 的交点：记忆读不出来时让步的是 D4（出名单这件事）—— 不产出名单，
+  // 显式跳过才继续，且状态必须说出去；任何情况下都不得拿一份读不出来的记忆
+  // 盖掉原文件，盖掉就永久抹掉了「谁联系过」（ADR-15）。上面二、三、四三段是它的三头。
+  tension('D4', 'P4')
 
   // 五、解析成功不等于形状对。这个文件是产品要求运营手改的，
   //     手改很容易改出一份合法 JSON、错误结构的记忆（ADR-19）。
@@ -1111,6 +1136,12 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
   } }), 'utf8')
   eq('键的大小写不影响身份 —— 已联系的人照样被挡在外面',
     finalize([mk('tiktok', 'contacted', { followers: 50000 })], 'p').kept.length, 0)
+  // 让步的是 D1（身份怎么算）：两侧走同一个规范化函数，而不是各写一遍写成一样 ——
+  // 「今天一致」靠的是同一句话被写对了两遍，那不是保证（ADR-22 追记）。
+  // 另一头「规范化不了的键当作记忆读不出来、不当成这个人没有记录」在
+  // D4 那张形状表里（键没有冒号 / handle 是空的 / 两个键指同一个人 / 平台拼错），
+  // 那一整张表跑在这之前。
+  tension('D1', 'P4')
 
   // 同一条红线的另一扇门：合法 JSON、错误结构。产品要求运营手改这个文件，
   // 把花括号改成方括号是最容易的一种手滑，而它照样能解析（ADR-19）。
@@ -1149,6 +1180,12 @@ suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时�
   // F5：没有增强层时 audience_geo 为 undefined，主流程照常走完
   const noGeo = mk('tiktok', 'n', { email: 'a@example.com', fit: '✅' })
   eq('无增强数据不影响分层', rankCreators([noGeo], 'US')[0].tier, 'A')
+  // F5 × P1 的交点：**只降能力，不降数据**。缺增强层时主流程照常走完（上一条），
+  // 但缺的字段不许填猜测值 —— 填一个「US: 0.5」进去，下游分不出这是量出来的
+  // 还是猜的，而 P1 不让步。判别见 docs/CONVENTIONS.md 第 2 条。
+  eq('缺增强层时地域留空，不补一个猜出来的值',
+    rankCreators([noGeo], 'US')[0].audience_geo, undefined)
+  tension('F5', 'P1')
 }
 
 suite('U1', '分层管线返回的名单已按 tier 排好序')
@@ -1777,6 +1814,47 @@ harness('审计对一条需求的裁定')
   eq('红线有测试没变异 → 硬失败',
     requirementVerdict(p, ev({ mutated: false,
       claimedCriteria: new Set(['P9.a', 'P9.b']) })).hard, 1)
+}
+
+harness('审计对一个交点的裁定')
+{
+  const t = { with: 'P4', ruling: '撞上时以 P4 为准' }
+  const te = (over: Partial<TensionEvidence> = {}): TensionEvidence =>
+    ({ claimed: false, redline: false, ...over })
+
+  // 认领编号两侧顺序无关：登记表要求交点写在**让步的那一方**，那是给读的人
+  // 定的规矩。认领的时候还得先想清楚谁让步的话，想反了就认领不上，而认领不上
+  // 的红线交点是硬失败 —— 一条写给人看的规矩会变成一次假的失败。
+  eq('两侧顺序不影响认领编号', tensionKey('P1', 'F5'), tensionKey('F5', 'P1'))
+  ok('不同的交点不是同一个编号', tensionKey('D4', 'P4') !== tensionKey('D4', 'D6'))
+
+  // 一头是红线就算有红线的交点。退化成「两头都红才算」的话，已登记的交点
+  // 一个都不算，下面那条硬失败会静悄悄地全变成软缺口。
+  const P = new Set(['P4'])
+  eq('这一头是红线就算', tensionHasRedline('P4', 'D1', P), true)
+  eq('那一头是红线也算', tensionHasRedline('D1', 'P4', P), true)
+  eq('两头都不是红线就不算', tensionHasRedline('D4', 'D6', P), false)
+
+  // 配证据本身也是判断：查认领用哪个编号、红线看哪份名单。裁定收到的是两个
+  // 已经算好的布尔值，配错了它一个字都验不出来。
+  const ev = (claims: string[], red: string[] = []) =>
+    tensionEvidence('D4', t, new Set(claims), new Set(red))
+  eq('认领了这个交点，证据里就认领了', ev([tensionKey('D4', 'P4')]).claimed, true)
+  eq('认领的是别的交点，不算这一个', ev([tensionKey('D1', 'P4')]).claimed, false)
+  eq('红线看的是登记表那份名单', ev([], ['P4']).redline, true)
+
+  // 有红线的交点没被认领是**硬失败**，不是待办：一条红线让步到哪为止，
+  // 登记表上写着，而两侧需求各自的判据谁也不验它（ADR-17）。
+  eq('有红线的交点没认领 → 硬失败', tensionVerdict('D4', t, te({ redline: true })).hard, 1)
+  eq('有红线的交点认领了 → 通过',
+    tensionVerdict('D4', t, te({ redline: true, claimed: true })).flag, '✓')
+  eq('没红线的交点没认领 → 报缺口但不硬失败', tensionVerdict('D4', t, te()).hard, 0)
+  ok('没红线的交点没认领 → 缺口要报出来', tensionVerdict('D4', t, te()).gaps.length > 0)
+  eq('认领过的交点不再报缺口',
+    tensionVerdict('D4', t, te({ claimed: true })).gaps.length, 0)
+  ok('缺口里写得出是哪两条撞上了',
+    tensionVerdict('D4', t, te({ redline: true })).gaps[0]?.includes('D4') === true &&
+    tensionVerdict('D4', t, te({ redline: true })).gaps[0]?.includes('P4') === true)
 }
 
 harness('变异集的 why 不许夹带实现原文')
@@ -2463,7 +2541,7 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
 
   // 形状不对的记录要当「没有记录」办，不当「这些东西没测过」——
   // 后者会报出一串根本不存在的缺口，把人支到错的地方去修（M-H14-f）。
-  const wf = { source_hash: 'abc', covered: [], criteria: [] }
+  const wf = { source_hash: 'abc', covered: [], criteria: [], tensions: [] }
   eq('齐全的记录认得出来', claimsWellFormed(wf), true)
   eq('缺一个数组字段就认不出 —— 不兜底成空数组', claimsWellFormed({ ...wf, covered: undefined }), false)
   eq('字段在但不是数组，同样认不出', claimsWellFormed({ ...wf, covered: 'D1' }), false)
@@ -2472,6 +2550,8 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
   // 全被报成没有认领，而毛病在记录本身，不在那些判据（M-H14-l）。
   eq('缺判据认领那一栏，同样认不出', claimsWellFormed({ ...wf, criteria: undefined }), false)
   eq('判据认领里混进非字符串，认不出', claimsWellFormed({ ...wf, criteria: [1] }), false)
+  eq('缺交点认领那一栏，同样认不出', claimsWellFormed({ ...wf, tensions: undefined }), false)
+  eq('交点认领里混进非字符串，认不出', claimsWellFormed({ ...wf, tensions: [1] }), false)
   eq('指纹不是字符串，认不出', claimsWellFormed({ ...wf, source_hash: 12 }), false)
   eq('null 不是记录', claimsWellFormed(null), false)
   // 只验到「是数组」为止的话，元素不是字符串的记录会通过这一关，然后被审计当成
@@ -2981,6 +3061,7 @@ if (claimsPublishable(process.env.MUTATING === '1', fail, startHash, endHash)) {
     source_hash: endHash,
     covered: [...covered].sort(),
     criteria: [...claimedCriteria].sort(),
+    tensions: [...claimedTensions].sort(),
   }, null, 2))
 }
 

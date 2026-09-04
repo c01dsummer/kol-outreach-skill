@@ -314,6 +314,14 @@
       "replace": "    } else if (e.endsWith('.ts') && !SKIP_FILES.includes(e)) out.push(p)"
     },
     {
+      "id": "M-P1-q",
+      "req": "P1",
+      "why": "没有增强层的时候给受众地域补一个猜出来的占比 —— 补的值正好在门槛之上，分层、降权、名单一个都不变，只有那一栏凭空多出一个数，下游再也分不出它是量出来的还是猜的",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)",
+      "replace": "    c.tier_adjustments = []\n    c.audience_geo ??= { [market]: 0.5 }\n    const geo = applyGeoPenalty(c, market)"
+    },
+    {
       "id": "M-D10-a",
       "req": "D10",
       "why": "缓存里活跃字段齐全就跳过重算 —— 上一版口径算出来的中位数、发布间隔与受众风险一直留在交付物里，运营不额外付费重抓就换不掉，而交付物上看不出任何区别",
@@ -622,8 +630,24 @@
       "req": "harness",
       "why": "那张名单漏掉判据认领那一栏 —— 一份根本没有判据认领的记录被当成合法记录读进去，审计把红线的每一条判据都报成没有认领，人照着去翻那十几条判据，而毛病在记录本身",
       "file": "scripts/check/claims.ts",
-      "find": "export const CLAIM_LISTS = ['covered', 'criteria'] as const",
+      "find": "export const CLAIM_LISTS = ['covered', 'criteria', 'tensions'] as const",
       "replace": "export const CLAIM_LISTS = ['covered'] as const"
+    },
+    {
+      "id": "M-H14-m",
+      "req": "harness",
+      "why": "交点的认领编号改成看两侧写的先后 —— 登记表把交点写在让步的那一方，测试按另一个顺序认领，同一个交点算成两个：认领的那个没人要，红线那个报成没有认领，一次假的硬失败",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "export const tensionKey = (a: string, b: string): string => [a, b].sort().join('×')",
+      "replace": "export const tensionKey = (a: string, b: string): string => [a, b].join('×')"
+    },
+    {
+      "id": "M-H14-n",
+      "req": "harness",
+      "why": "那张名单漏掉交点认领那一栏 —— 一份根本没有交点认领的记录被当成合法记录读进去，审计把有红线的交点全报成没有认领，一次假的硬失败，人照着去翻裁决，而毛病在记录本身",
+      "file": "scripts/check/claims.ts",
+      "find": "export const CLAIM_LISTS = ['covered', 'criteria', 'tensions'] as const",
+      "replace": "export const CLAIM_LISTS = ['covered', 'criteria'] as const"
     },
     {
       "id": "M-D8-c",
@@ -1432,6 +1456,38 @@
       "file": "scripts/check/spec-rule.ts",
       "find": "    for (const c of unclaimed) {\n      flag = '✗'; hard++",
       "replace": "    for (const c of [] as typeof unclaimed) {\n      flag = '✗'; hard++"
+    },
+    {
+      "id": "M-H6-c",
+      "req": "harness",
+      "why": "有红线的交点没被认领也不算硬失败 —— 一条红线让步到哪为止，登记表上写着，代码里可以完全不是那么做的，而两侧需求各自的判据全绿，没有任何东西会说出来",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  if (e.redline) {\n    return { flag: '✗', hard: 1,",
+      "replace": "  if (false) {\n    return { flag: '✗', hard: 1,"
+    },
+    {
+      "id": "M-H6-d",
+      "req": "harness",
+      "why": "认领过的交点也照样报缺口 —— 每一个交点都成了待办，真正没人证明过的那些混在里面，报告上多出一串永远消不掉的项",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  if (e.claimed) return { flag: '✓', gaps: [], hard: 0 }",
+      "replace": "  if (false) return { flag: '✓', gaps: [], hard: 0 }"
+    },
+    {
+      "id": "M-H6-e",
+      "req": "harness",
+      "why": "交点上有没有红线改成「两头都是红线才算」 —— 登记表里没有一个交点是两头都红的，于是有红线的交点全部降级成软缺口，少认领一个红线交点，审计照样退 0",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "): boolean => redlines.has(a) || redlines.has(b)",
+      "replace": "): boolean => redlines.has(a) && redlines.has(b)"
+    },
+    {
+      "id": "M-H6-f",
+      "req": "harness",
+      "why": "配证据的时候把「这个交点认领过没有」一律当成认领过 —— 一个交点都没人认领也全打勾，有红线的交点那条硬失败再没有一次会响，而审计末尾照旧报「有测试认领 4」",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    claimed: claimed.has(tensionKey(from, t.with)),",
+      "replace": "    claimed: true,"
     },
     {
       "id": "M-H7-a",

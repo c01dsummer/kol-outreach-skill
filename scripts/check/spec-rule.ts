@@ -12,8 +12,9 @@
  * 3. **渲染与内容指纹** —— 人类可读的表格由登记表生成，两者不可能漂移；指纹让
  *    「登记表改了」成为一个机器看得见的事件。它是**派生**的，由 `--write` 写、
  *    由检查校验，没有任何人需要记得改它
- * 4. **审计裁定** —— 一条需求该得什么旗标、报哪些缺口。输入全是算好的事实，
- *    这里不读盘、不扫源码
+ * 4. **审计裁定** —— 一条需求该得什么旗标、报哪些缺口；一处交点该得什么旗标、
+ *    算不算硬失败。交点跨着两条需求，不属于任何一条，所以单列。
+ *    输入全是算好的事实，这里不读盘、不扫源码
  */
 import { createHash } from 'node:crypto'
 import { endsOpen, quotedMask } from './quoted.js'
@@ -496,4 +497,77 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
     }
   }
   return { flag, gaps, hard, claimed: claimed.length }
+}
+
+/**
+ * 一个交点的认领编号。**两侧写反了也是同一个编号。**
+ *
+ * 登记表要求交点「写在让步的那一方」，那是给读的人定的规矩 —— 一个测试认领
+ * 交点的时候不该还得先想清楚谁让步，想错了就认领不上，而认领不上的红线交点
+ * 是硬失败：一条规矩会因此变成一次假的失败。
+ *
+ * 之所以能用无序编号：`validateRegistry` 已经拦下了两边各声明一次的写法，
+ * 所以一个无序编号至多对得上一条裁决，不会两条裁决抢同一次认领。
+ */
+export const tensionKey = (a: string, b: string): string => [a, b].sort().join('×')
+
+/**
+ * 这个交点上有没有红线 —— **一头是就算。**
+ *
+ * 一头是就算，因为让步的是哪一方不改变这件事：红线在这个方向上让到哪为止，
+ * 是这条红线自己的边界，总得有人证明过。
+ *
+ * 跨两条需求的判断，所以不留在入口脚本里。留在那儿的话，它退化成「两头都是红线
+ * 才算」没人拦得住：已登记的交点没有一个是两头都红的，于是全部降级成软缺口，
+ * 少认领一个红线交点照样退 0 —— 下面那条硬失败就此静悄悄地失效。
+ */
+export const tensionHasRedline = (
+  a: string, b: string, redlines: ReadonlySet<string>,
+): boolean => redlines.has(a) || redlines.has(b)
+
+export interface TensionEvidence {
+  /** 测试里有没有认领过这个交点 */
+  claimed: boolean
+  /** 两侧有没有红线 */
+  redline: boolean
+}
+
+export interface TensionVerdict { flag: '✓' | '·' | '✗'; gaps: string[]; hard: number }
+
+/**
+ * 把一个登记的交点配上它的证据 —— **查认领用哪个编号、红线看哪份名单，都在这里。**
+ *
+ * 和上面两个分开的理由是它自己也是判断：查错编号（比如按写的先后拼一个）、
+ * 或者把红线名单看成别的什么，`tensionVerdict` 拿到的就是一份假证据，而它
+ * 收到的是两个已经算好的布尔值，一个字都验不出来。
+ *
+ * 逐条计量与末尾汇总走的是同一个它。两处各拼一遍的话，一份审计的两个数会对不上 ——
+ * 而「两侧各写一遍写成一样」正是 ADR-22 追记判过一次死刑的写法。
+ */
+export function tensionEvidence(
+  from: string, t: Tension, claimed: ReadonlySet<string>, redlines: ReadonlySet<string>,
+): TensionEvidence {
+  return {
+    claimed: claimed.has(tensionKey(from, t.with)),
+    redline: tensionHasRedline(from, t.with, redlines),
+  }
+}
+
+/**
+ * 一个交点该得什么旗标。
+ *
+ * 交点的裁决是**跨两条需求**的判断，不属于任何一条，所以两条需求各自的判据
+ * 谁也不会验它 —— 登记表里写着「撞上时以 P4 为准」，代码里可以完全不是这么做的，
+ * 而两边的验收判据全绿。交点里有红线的，没有测试认领就是硬失败：
+ * 红线第 2 条要求红线得被证明过，而一条红线让步的边界没被证明，
+ * 等于这条红线在这个方向上没有边界。
+ */
+export function tensionVerdict(from: string, t: Tension, e: TensionEvidence): TensionVerdict {
+  if (e.claimed) return { flag: '✓', gaps: [], hard: 0 }
+  const at = `${from} × ${t.with}`
+  if (e.redline) {
+    return { flag: '✗', hard: 1,
+      gaps: [`${at} 是有红线的交点但没有测试认领 —— 裁决只写在登记表里，没人证明过代码是这么做的`] }
+  }
+  return { flag: '·', hard: 0, gaps: [`${at} 的裁决没有测试认领`] }
 }
