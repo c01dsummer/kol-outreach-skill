@@ -914,6 +914,14 @@
       "replace": "    if (others.some(r => r.product === product)) { rec++; continue }"
     },
     {
+      "id": "M-D6-g",
+      "req": "D6",
+      "why": "读记忆时把两侧带空白的产品名判成损坏 —— 用户在任务配置里多打一个空格，整份记忆此后就读不出来，每一次采集都被挡在门外，直到有人手工去修",
+      "file": "scripts/lib/memory.ts",
+      "find": "      const badProduct = textProblem(rr.product)",
+      "replace": "      const badProduct = textProblem(rr.product) ?? (rr.product === String(rr.product).trim() ? undefined : '\u4e24\u4fa7\u6709\u7a7a\u767d')"
+    },
+    {
       "id": "M-D4-o",
       "req": "D4",
       "why": "记忆不可用时一律报成「解析失败」—— 而它同样可能是权限不足、父路径不是目录或磁盘出错，那时候用户会去查一份完好的文件，真正的原因在报错里被盖住了",
