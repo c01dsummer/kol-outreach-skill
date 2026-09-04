@@ -14,6 +14,7 @@ import {
   beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, testRunning,
   trackTest,
 } from './check/mutate-restore.js'
+import { resumeCostVerdict } from './check/selfcheck-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, renderTables, requirementVerdict,
   rootProblems, tensionEvidence, tensionHasRedline, tensionKey, tensionVerdict,
@@ -440,7 +441,27 @@ suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环
   criterion('D6.e')
 }
 
-suite('D6', '「还剩多少活」是两种活合起来的一句话 —— 少数一种，就成了「续跑免费」')
+// 两种活各占一条判据，不合成一条：它们由两个不同的表达式产出，能被独立弄坏
+// （M-D6-k 只压关键词那一项、M-D6-h 只压 profile 那一项）。合成一条的话，
+// 删掉其中一半的断言，审计仍会把整条报成「有测试认领」。
+suite('D6', '还没抓的关键词要算进「还剩多少活」—— 少数它一种，就成了「续跑免费」')
+{
+  const st = (over: Partial<TaskState> = {}): TaskState => ({
+    product: 'p', market: 'US', target_count: 50, budget_usd: 1,
+    tasks: [{ keyword: 'a', dimension: 'category', platform: 'tiktok' }],
+    done: [], offsets: {}, requests: 0, created_at: '', updated_at: '', ...over,
+  })
+  const full = mk('tiktok', 'full', { bio: '简介', bio_links: ['https://x'] })
+  const bare = mk('tiktok', 'bare', { bio: undefined })
+  // profile 都补齐了，只剩一个关键词没抓 —— 续跑做的第一件事就是去抓它，那要花钱
+  const k = resumeRemainingWork(st(), 10, [full])
+  eq('只剩关键词也得说出来', k.rest, '1 个关键词')
+  eq('于是它不是免费的', k.free, false)
+  eq('两种都有就都说', resumeRemainingWork(st(), 10, [full, bare]).rest, '1 个关键词、1 个人的 profile')
+  criterion('D6.c')
+}
+
+suite('D6', '还没补 profile 的人也要算进「还剩多少活」')
 {
   const st = (over: Partial<TaskState> = {}): TaskState => ({
     product: 'p', market: 'US', target_count: 50, budget_usd: 1,
@@ -454,14 +475,11 @@ suite('D6', '「还剩多少活」是两种活合起来的一句话 —— 少�
   const p = resumeRemainingWork(st({ done: [0] }), 50, [full, bare])
   eq('只剩 profile 也得说出来', p.rest, '1 个人的 profile')
   eq('于是它不是免费的', p.free, false)
-  // 反过来：profile 都补齐了，关键词还没跑完
-  eq('只剩关键词也得说出来', resumeRemainingWork(st(), 10, [full]).rest, '1 个关键词')
-  eq('两种都有就都说', resumeRemainingWork(st(), 10, [full, bare]).rest, '1 个关键词、1 个人的 profile')
   // 只有两种都为零，那句话才敢说
   const none = resumeRemainingWork(st({ done: [0] }), 50, [full])
   eq('都干完了才没有剩余', none.rest, '')
   ok('这时候续跑才真的不花钱', none.free)
-  criterion('D6.c')
+  criterion('D6.i')
 }
 
 suite('D6', '收尾说哪一句是算出来的 —— 挑错分支，用户就被告知续跑免费')
@@ -2700,6 +2718,25 @@ harness('变异跑到一半被打断：动过的源文件要还回去')
   // 最后才拆：处理函数里有退出，留在测试进程里会把后面任何一次打断变成静默退出
   for (const s of sigs) process.off(s, onInterrupt)
   for (const p of [f, kid, victim, waited]) rmSync(p, { force: true })
+}
+
+harness('自检：续跑那句话必须说清代价，说要花钱就得说清还剩什么')
+{
+  const say = (s: string) => String(resumeCostVerdict(s))
+  const FREE = '本轮的活都干完了，续跑不产生新的请求。'
+  const COST = '还有 3 个关键词 没跑完，续跑会继续发请求、继续花钱。'
+
+  eq('说不花钱 → 放行', resumeCostVerdict(`采集结果都在 out/。${FREE}`), null)
+  eq('说要花钱、也说了还剩什么 → 放行', resumeCostVerdict(`采集结果都在 out/。${COST}`), null)
+  // 一句不说和两句一起说，坏法不同、后果一样：用户不知道续跑要不要钱
+  ok('一句都不说 → 拦', say('采集结果都在 out/。').includes('一句都没说'))
+  ok('两句一起说 → 同样拦', say(FREE + COST).includes('一句都没说'))
+  // 下面两条是 ADR-22 那张空头支票的两种变体：话说了，钱数没说
+  ok('说要花钱却不说剩什么 → 拦',
+    say('采集中断了，续跑会继续发请求、继续花钱。').includes('没说还剩什么'))
+  // 「还有　　没跑完」：把一个空的剩余量填进付费那句话，看着像说了，其实什么都没说
+  ok('剩什么是空的 → 拦',
+    say('还有   没跑完，续跑会继续发请求、继续花钱。').includes('是空的'))
 }
 
 harness('审计：检查链自己的判定模块必须有变异守着')

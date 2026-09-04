@@ -19,6 +19,7 @@ import {
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { resumeCostVerdict } from './selfcheck-rule.js'
 
 const EXEMPT: Record<string, string> = {}   // 目前无豁免
 
@@ -350,17 +351,10 @@ if (dir) {
   } else console.log('  ✓ 中止时给出了修复与强出名单两条路')
   // 这一轮采集已经跑完，所以续跑确实不花钱 —— 但那句话必须是**算出来的**，
   // 不是无条件写死的。还有关键词没跑完时它要说的是相反的话（ADR-22）。
-  // 「两句里出现了一句」还不够：两句同时出现、或者写死的那句里带上另一句的措辞，
-  // 一样说不清代价；说了「要继续花钱」却不说还剩什么，用户也无从判断值不值得续。
-  const saysFree = stderr.includes('续跑不产生新的请求')
-  const saysCost = stderr.includes('续跑会继续发请求、继续花钱')
-  if (saysFree === saysCost) {
-    failed++
-    console.error('  ✗ 没有说清续跑的代价 —— 或者把「已抓到的不重抓」写成了「续跑免费」')
-  } else if (saysCost && !/还有 .+ 没跑完/.test(stderr)) {
-    failed++
-    console.error('  ✗ 说了续跑要继续花钱，却没说还剩什么 —— 用户无从判断值不值得续')
-  } else console.log('  ✓ 续跑的代价按实际剩余工作量说话，说要花钱就说清还剩什么')
+  // 判定本身在 selfcheck-rule.ts：留在这儿就没有任何变异到得了它。
+  const costVerdict = resumeCostVerdict(stderr)
+  if (costVerdict) { failed++; console.error(`  ✗ ${costVerdict}`) }
+  else console.log('  ✓ 续跑的代价按实际剩余工作量说话，说要花钱就说清还剩什么')
   // 预算用尽时光 --resume 会立刻再退 3。这里采集已跑完，命令不该带 --budget；
   // 反过来说了「预算也已用尽」的那条命令必须带 —— 两句话要同进同出
   const budgetGone = stderr.includes('预算也已用尽')

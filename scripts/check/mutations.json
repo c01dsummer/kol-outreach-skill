@@ -1736,6 +1736,30 @@
       "file": "scripts/check/mutate-restore.ts",
       "find": "kid.on('close', () => { if (running === kid) running = undefined })",
       "replace": "kid.on('close', () => { running = undefined })"
+    },
+    {
+      "id": "M-H16-a",
+      "req": "harness",
+      "why": "把「两句必须二选一」放松成「一句都没说才拦」—— 收尾同时写上「续跑不产生新的请求」和「续跑会继续发请求、继续花钱」也放行，用户不知道该信哪句；ADR-22 记下的那张空头支票，正是靠这种「说了免费、也说了要钱」的写法混过去的",
+      "file": "scripts/check/selfcheck-rule.ts",
+      "find": "  if (saysFree === saysCost) {",
+      "replace": "  if (!saysFree && !saysCost) {"
+    },
+    {
+      "id": "M-H16-b",
+      "req": "harness",
+      "why": "说了续跑要继续花钱，却一个字都没说还剩多少活，也放行 —— 用户看到的是「要花钱」，却无从判断值不值得续，那句话等于没说",
+      "file": "scripts/check/selfcheck-rule.ts",
+      "find": "  if (!said) return '说了续跑要继续花钱，却没说还剩什么 —— 用户无从判断值不值得续'",
+      "replace": "  if (!said) return null"
+    },
+    {
+      "id": "M-H16-c",
+      "req": "harness",
+      "why": "把「剩下什么不能是空的」这道闸门放松成只认没填 —— 分支反转产生的「还有　　没跑完」照样放行：一个空的剩余量被填进付费那句话，看着像说清了，其实什么都没说，比不说更难发现",
+      "file": "scripts/check/selfcheck-rule.ts",
+      "find": "  if (!said[1].trim()) return '说了「还有 …… 没跑完」，可那个「……」是空的 —— 等于没说'",
+      "replace": "  if (!said[1]) return '说了「还有 …… 没跑完」，可那个「……」是空的 —— 等于没说'"
     }
   ],
   "exemptions": [
