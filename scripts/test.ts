@@ -1610,6 +1610,8 @@ harness('需求登记表的完整性判定')
   const adrs = new Set(['ADR-01'])
   // 形状校验被拿掉时，后面的关系检查会在缺字段的需求上直接抛 —— 那要作为断言失败被抓到
   const bad = (rs: Req[]) => { try { return validateRegistry(rs, adrs, ['D', 'P']).length } catch { return -1 } }
+  // 同上，只是下面有一条要看具体的问题文本：抛出来时得是这条断言失败，不是测试进程死在半路
+  const msgs = (rs: Req[]) => { try { return validateRegistry(rs, adrs, ['D', 'P']) } catch { return ['抛了'] } }
   eq('干净的登记表没有问题', bad([req('D1'), req('P1')]), 0)
   ok('编号重复被抓到', bad([req('D1'), req('D1')]) > 0)
   ok('交点指向自己被抓到',
@@ -1626,6 +1628,12 @@ harness('需求登记表的完整性判定')
     req('P1', { tension: [{ with: 'D1', ruling: '另一种说法' }] })]) > 0)
   ok('决策记录编号不存在被抓到', bad([req('D1', { adr: ['ADR-99'] })]) > 0)
   eq('存在的就放行', bad([req('D1', { adr: ['ADR-01'] })]), 0)
+  ok('正文点了决策记录、adr 里却没有，被抓到',
+    bad([req('D1', { text: '这句话按 ADR-01 定的' })]) > 0)
+  ok('判据里点的一样算 —— 正文干净不等于这条需求干净',
+    bad([req('D1', { accept: [{ id: 'D1.a', text: '按 ADR-01 算满足' }] })]) > 0)
+  eq('正文点了、adr 里也登记了，放行',
+    bad([req('D1', { text: '这句话按 ADR-01 定的', adr: ['ADR-01'] })]), 0)
   // 红线不许作废：active() 会把作废的挡在渲染和审计之外，于是红线条数
   // 静静少一条，它的测试、变异、交点要求全部随之消失，而检查报「全部通过」。
   ok('红线被标作废，当场拦下',
@@ -1681,8 +1689,7 @@ harness('需求登记表的完整性判定')
   ok('交点缺 with 被抓到', bad([req('D1', { tension: [{ ruling: '裁决' } as never] })]) > 0)
   ok('adr 不是字符串数组被抓到', bad([req('D1', { adr: [7 as never] })]) > 0)
   ok('形状不对时不接着跑关系检查 —— 否则只会抛 TypeError,把真正的问题盖掉',
-    validateRegistry([strip(req('D1'), 'text')], adrs, ['D', 'P'])
-      .every(m => m.includes('不是非空字符串')))
+    msgs([strip(req('D1'), 'text')]).every(m => m.includes('不是非空字符串')))
 
   // 根的形状：上面查的全是需求数组，而数组是从根对象里取出来的 —— 取之前那一层谁也没查。
   // 分类表里一条说明写成 null，渲染成「### P · null」写进 SPEC，一致性检查比的是
