@@ -276,8 +276,8 @@ if (dir) {
     } else console.log('  ✓ HTML 分层 tab 可用且不滚动')
   }
 
-  // P5.h 的另一头：管线里**真跑过**邮箱/地域增强时，enriched 必须报 true。
-  // 只断言 false 那一头，把判定写死成恒为 false 也照样全绿 —— 那正是 M-P5-h。
+  // 防回归，**不认领判据**：P5.h 只管 false 那一头（见 ADR-67 的就地更正）。真跑过
+  // 增强却报 false 眼下另有一条已知缺陷够得着 —— 合并与降权会把增强过的记录变换掉。
   // 这里给的是 `email_verified: false`：查了、没查到邮箱，也算跑过（见 report.ts）。
   const cPath = join(tmp, dir, 'creators.json')
   const pristine = readFileSync(cPath, 'utf8')
@@ -287,7 +287,7 @@ if (dir) {
   run('render 跑过邮箱增强时如实报 enriched', [S('render.ts'), '--dir', dir], tmp)
   const enrichedMeta = JSON.parse(readFileSync(metaPath, 'utf8'))
   if (enrichedMeta.enriched !== true) {
-    failed++; console.error('  ✗ meta.json 的 enriched 不实 —— 跑过邮箱增强却报 false（P5.h）')
+    failed++; console.error('  ✗ meta.json 的 enriched 不实 —— 跑过邮箱增强却报 false')
   } else console.log('  ✓ meta.json 的 enriched 如实（跑过邮箱增强时为 true）')
   // 复位：后面几段接着用这个任务目录，交付物与产出物都要回到未增强的样子。
   writeFileSync(cPath, pristine, 'utf8')

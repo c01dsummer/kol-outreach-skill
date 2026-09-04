@@ -92,7 +92,8 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
 }
 
 /**
- * P5.h：这次交付真的跑过邮箱/地域增强吗 —— meta.json 的 enriched 报的就是这个。
+ * meta.json 的 enriched：这次交付跑没跑过邮箱/地域增强。P5.h 只要求「未配置增强层时
+ * 为 false」那一头 —— true 那一头有已知缺陷，见 ADR-67 的就地更正（#51）。
  *
  * 兼容旧消费者的布尔：公开帖子指标不能把「邮箱/受众增强」伪装成已完成 ——
  * `email_verified` 为 false 也算「跑过」（查了、没有邮箱），所以只看字段在不在。
