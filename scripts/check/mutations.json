@@ -1672,6 +1672,22 @@
       "file": "scripts/check/mutate-restore.ts",
       "find": "process.kill(-pid, 'SIGKILL')",
       "replace": "process.kill(pid, 'SIGKILL')"
+    },
+    {
+      "id": "M-H15-m",
+      "req": "harness",
+      "why": "一轮测试跑完之后不抹掉记着的那一个 —— 从这一轮结束到下一轮记上之间那段空档里,它拿着的是一个已经散了的组号,而组号系统会重新发给别人;这时候被打断,那一刀就落到不相干的进程身上,而落到谁身上是不响的",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  running = kid\n  kid.on('close', () => { if (running === kid) running = undefined })",
+      "replace": "  running = kid"
+    },
+    {
+      "id": "M-H15-n",
+      "req": "harness",
+      "why": "抹掉记着的那一个的时候不认人 —— 上一轮迟到送来的那次结束会把下一轮刚记上的抹没,再被打断就没有东西可停,那一轮接着跑被改过的源码",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "kid.on('close', () => { if (running === kid) running = undefined })",
+      "replace": "kid.on('close', () => { running = undefined })"
     }
   ],
   "exemptions": [

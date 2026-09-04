@@ -11,7 +11,8 @@ import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
 import { judgeRun } from './check/mutate-rule.js'
 import {
-  beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt,
+  beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, testRunning,
+  trackTest,
 } from './check/mutate-restore.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, renderTables, requirementVerdict,
@@ -43,7 +44,8 @@ import { esc, writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
-import { spawnSync } from 'node:child_process'
+import { spawnSync, type ChildProcess } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
@@ -2540,18 +2542,23 @@ harness('变异跑到一半被打断：动过的源文件要还回去')
   // 只杀手上那一个的话，壳死了，说话的那个还在，而它跑的正是被改过的源码。
   // 说话走的是继承来的那根管子，它一直不关，等它的那一方就一直收得到
   const printer = `setTimeout(() => console.log('孙子还活着'), 600)`
-  const shell = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(printer)}], { stdio: 'inherit' }); setTimeout(() => {}, 2000)`
+  const shell = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(printer)}], { stdio: 'inherit' }); process.send('孙子分出来了'); setTimeout(() => {}, 2000)`
   writeFileSync(kid, [
     `import { spawn } from 'node:child_process'`,
     `import { writeFileSync as w } from 'node:fs'`,
     `import { beginMutation, trackTest } from ${JSON.stringify(join(process.cwd(), 'scripts/check/mutate-restore.js'))}`,
     `beginMutation(${JSON.stringify(victim)}, '原文')`,
     `w(${JSON.stringify(victim)}, '被改坏的', 'utf8')`,
-    // 信号是异步送到的：手上不留一件事，Node 会在处理函数跑起来之前就正常退出，这一刀等于没挨。
-    // 手上留的正是「等一个子进程」，挨刀的那一刻它还没等完
-    `setTimeout(() => process.kill(process.pid, 'SIGTERM'), 200)`,
-    `const g = spawn(process.execPath, ['-e', ${JSON.stringify(shell)}], { stdio: 'inherit', detached: true })`,
+    // 除了继承来的那三根，再要一根专门用来回话：孙子说自己还活着走的还是原来那根，两边不混
+    `const g = spawn(process.execPath, ['-e', ${JSON.stringify(shell)}], { stdio: ['inherit', 'inherit', 'inherit', 'ipc'], detached: true })`,
     `trackTest(g)`,
+    // **动手的时机不能看表。** 上一版是等固定的两百毫秒，可机器一忙，那一刻壳可能还没
+    // 把孙子分出来 —— 那时「只杀手上这一个」和「连组一起杀」留下的现场一模一样：
+    // 都没有孙子在说话。于是下面那条断言时红时绿，而绿的那一次什么也没证（评审指出）。
+    // 改成等它说一声：壳把孙子分出来之后回一句，收到了才动手。
+    // 信号还是异步送到的：手上不留一件事，Node 会在处理函数跑起来之前就正常退出，
+    // 这一刀等于没挨。手上留的正是「等一个子进程」，挨刀的那一刻它还没等完
+    `g.on('message', () => process.kill(process.pid, 'SIGTERM'))`,
     `g.on('close', () => w(${JSON.stringify(waited)}, '等完了', 'utf8'))`,
   ].join('\n'), 'utf8')
   const r = spawnSync(join(process.cwd(), 'node_modules/.bin/tsx'), [kid], { encoding: 'utf8' })
@@ -2564,6 +2571,24 @@ harness('变异跑到一半被打断：动过的源文件要还回去')
   // 而它跑的正是被改过的源码，还原完之后它再写一次，盘上留下的就是一份没人审过的东西。
   // 孙子那一层还有一个在说话，就说明这一刀只落在壳上（评审指出的正是这个）
   eq('挨刀之后那一轮测试也停了：没留下一个还在跑的', r.stdout.includes('孙子还活着'), false)
+
+  // 这一刀指得着谁，取决于记着的那一个还算不算数。一轮跑完之后不抹掉，从这一轮结束到
+  // 下一轮记上之间那段空档里，记着的是一个已经散了的组号 —— 而组号系统是会重新发给
+  // 别人的，那一刀就落到不相干的进程身上（评审指出）。整轮都装着信号处理，空档也整轮都在。
+  // 这里拿两个能自己说「我结束了」的替身来问：本文件从头到尾是同步跑的，等不到真子进程结束
+  const one = new EventEmitter() as ChildProcess
+  const two = new EventEmitter() as ChildProcess
+  trackTest(one)
+  eq('交出去了：这一轮正被看着', testRunning(), true)
+  one.emit('close')
+  eq('这一轮跑完了：记着的那一个要抹掉，空档里不留散了的组号', testRunning(), false)
+  // 抹的时候要认人。上一轮的结束是迟到送来的，它要是把下一轮刚记上的抹没，
+  // 这一刀就落空 —— 而落空和落错一样，都是不响的
+  trackTest(two)
+  one.emit('close')
+  eq('上一轮迟到的结束：不许把下一轮刚记上的抹掉', testRunning(), true)
+  two.emit('close')
+  eq('轮到它自己结束：这才抹掉', testRunning(), false)
 
   // 上面证的是「这一刀能被接住」，而它接不接得住取决于入口怎么等子进程：同步等会把
   // 事件循环整个挡住，挡住的那段时间里接管过的信号一次也派发不出去，而变异几乎所有
