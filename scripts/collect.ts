@@ -17,7 +17,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetExceeded } from './lib/budget.js'
-import { finalize, keywordsResumeWillRun, needsProfile, pendingKeywords } from './lib/pipeline.js'
+import { finalize, needsProfile, pendingKeywords, resumeRemainingWork } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
 import {
@@ -264,21 +264,13 @@ async function main() {
     // 而剩下的关键词照样要花钱（ADR-22）。
     if (stopped === 'error') console.error(`\n   ⚠️ 本轮采集也没跑完：${errorMsg}`)
     if (stopped === 'budget') console.error(`\n   ⚠️ 本轮预算也已用尽，续跑需要 --budget 追加`)
-    // 「续跑要不要花钱」有**两种**没干完的活，只数关键词会漏掉后一种：
-    // 关键词全跑完了，但只要还有人没补 profile，续跑第一件事就是去补，
-    // 那是付费端点（ADR-25）。
-    // 数的是**续跑真正会去抓的**，不是「不在 done 里的」—— 达标提前停下时
-    // 那些关键词一个都没碰过，而续跑会在第一个请求之前再次达标（ADR-25 追记）。
-    const pending = keywordsResumeWillRun(state, qualified())
-    const pendingProfiles = [...creators.values()].filter(needsProfile).length
-    const rest = [
-      pending.length ? `${pending.length} 个关键词` : '',
-      pendingProfiles ? `${pendingProfiles} 个人的 profile` : '',
-    ].filter(Boolean).join('、')
-    console.error(rest
-      ? `\n   已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，` +
-        `续跑会继续发请求、继续花钱。`
-      : `\n   采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`)
+    // 「续跑要不要花钱」有两种没干完的活，怎么把它们合成一句话本身有语义 ——
+    // 所以那一步不在这儿，见 pipeline.ts 的 resumeRemainingWork（ADR-25、ADR-08）。
+    const { rest, free } = resumeRemainingWork(state, qualified(), creators.values())
+    console.error(free
+      ? `\n   采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`
+      : `\n   已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，` +
+        `续跑会继续发请求、继续花钱。`)
 
     // 预算用尽时光 --resume 会立刻再退 3，所以命令里得把 --budget 一起给出来。
     // 写成 npm run 的形式：tsx 只在 npm script 里才在 PATH 上，而且 .env 也只有那条路会读

@@ -100,6 +100,31 @@ export function pendingKeywords(state: TaskState): string[] {
     .map(t => `${t.as_hashtag ? '#' : ''}${t.keyword}(${t.platform})`)
 }
 
+/**
+ * **续跑还剩多少活。**
+ *
+ * 「续跑要不要花钱」有**两种**没干完的活：还要去抓的关键词、还要补的 profile。
+ * 各自的判定就在上面两个函数里，但**把它们组合起来**这一步原先留在 collect.ts
+ * 的收尾里 —— 而组合本身有语义：漏掉其中一种，「续跑不产生新的请求」就成了
+ * 假话，用户据此以为不用花钱（ADR-25）。
+ *
+ * 这正是 ADR-08 那类 bug 的形状：几个函数各自都对，错的是入口脚本里把它们
+ * 凑起来的方式 —— 它不在任何一个单元里，所以任何单元测试都看不到它。
+ *
+ * `free` 不另算一遍，它就是「rest 是空的」：两处各判一次，迟早有一边先改。
+ */
+export function resumeRemainingWork(
+  state: TaskState, qualified: number, creators: Iterable<Creator>,
+): { rest: string; free: boolean } {
+  const keywords = keywordsResumeWillRun(state, qualified).length
+  const profiles = [...creators].filter(needsProfile).length
+  const rest = [
+    keywords ? `${keywords} 个关键词` : '',
+    profiles ? `${profiles} 个人的 profile` : '',
+  ].filter(Boolean).join('、')
+  return { rest, free: !rest }
+}
+
 // ═══════════ render 的分层 ═══════════
 
 /** 受众地域不达标时降一层。C 已是最低，保持不动。 */

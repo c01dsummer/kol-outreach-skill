@@ -52,6 +52,7 @@ import { enrichedFlag, renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   finalize, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators, keywordStats, tierCounts,
+  resumeRemainingWork,
 } from './lib/pipeline.js'
 import {
   ACTIVITY_ACTIVE_MAX_DAYS, ACTIVITY_COOLING_MAX_DAYS,
@@ -420,6 +421,7 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
   eq('已标记完成的本来就不算', keywordsResumeWillRun(st({ done: [0] }), 10).length, 1)
   // pendingKeywords 仍然报「还没跑完的」—— 它服务的是进度，不是花钱
   eq('进度口径不受达标影响', pendingKeywords(st()).length, 2)
+  criterion('D6.d')
 }
 
 suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环与「续跑要花多少钱」共用它')
@@ -429,9 +431,31 @@ suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环
   ok('查过了但没有外链 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
   eq('查过且有外链 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
   // 这个判定决定要不要花钱：说「续跑不产生新请求」之前，它必须对每个人都是 false。
-  // D6.c 说的「剩余工作量」是**两种**活，坏在不同的地方，所以两个 suite 各断言一半：
-  // 关键词那半在上一个 suite（负片 M-D6-e），profile 这半在这里（负片 M-D6-d）。
-  // 认领写在后一半 —— 两处都跑到了，那句话才敢说。
+  // 补全循环用的是同一个函数，两处不会各说各的（负片 M-D6-d）。
+  criterion('D6.e')
+}
+
+suite('D6', '「还剩多少活」是两种活合起来的一句话 —— 少数一种，就成了「续跑免费」')
+{
+  const st = (over: Partial<TaskState> = {}): TaskState => ({
+    product: 'p', market: 'US', target_count: 50, budget_usd: 1,
+    tasks: [{ keyword: 'a', dimension: 'category', platform: 'tiktok' }],
+    done: [], offsets: {}, requests: 0, created_at: '', updated_at: '', ...over,
+  })
+  const full = mk('tiktok', 'full', { bio: '简介', bio_links: ['https://x'] })
+  const bare = mk('tiktok', 'bare', { bio: undefined })
+  // 关键词跑完了、也达标了，但还有人没补 profile —— 续跑第一件事就是去补，
+  // 那是付费端点。只数关键词的话这里会说「不产生新的请求」，用户据此以为不花钱。
+  const p = resumeRemainingWork(st({ done: [0] }), 50, [full, bare])
+  eq('只剩 profile 也得说出来', p.rest, '1 个人的 profile')
+  eq('于是它不是免费的', p.free, false)
+  // 反过来：profile 都补齐了，关键词还没跑完
+  eq('只剩关键词也得说出来', resumeRemainingWork(st(), 10, [full]).rest, '1 个关键词')
+  eq('两种都有就都说', resumeRemainingWork(st(), 10, [full, bare]).rest, '1 个关键词、1 个人的 profile')
+  // 只有两种都为零，那句话才敢说
+  const none = resumeRemainingWork(st({ done: [0] }), 50, [full])
+  eq('都干完了才没有剩余', none.rest, '')
+  ok('这时候续跑才真的不花钱', none.free)
   criterion('D6.c')
 }
 
@@ -699,11 +723,12 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   const padded = filterByMemory([mk('tiktok', 'pad')], 'Foo', undefined, { ignoreUnreadable: true })
   eq('产品名两侧的空白不影响「已推荐过」', padded.filtered_recommended, 1)
   eq('于是那个人不会被再推荐一次', padded.kept.length, 0)
-  // 后半句「不判为损坏」得单独断言：它和前半句坏在**不同的代码路径**上 ——
-  // 前半句是比较时不去空白（负片 M-D6-f），后半句是读取侧把带空白的产品名
-  // 判成损坏（负片 M-D6-g）。只断言前半句的话，后一种坏法这里是绿的。
+  criterion('D6.f')
+  // 「不判为损坏」是**另一条代码路径**：上面那两条坏在比较时不去空白（负片 M-D6-f），
+  // 这一条坏在读取侧把带空白的产品名判成损坏（负片 M-D6-g）。所以各自认领 ——
+  // 合成一条的话，后一种坏法在这里是绿的。
   eq('而且没把这份记忆判成损坏', padded.memory_status, 'ok')
-  criterion('D6.d')
+  criterion('D6.g')
 
   // 七之二、名单和它的去重状态：**哪个先写都不安全**，取决于状态往哪边变。
   //        ok → unreadable_ignored 时名单先写会坏；unreadable_ignored → ok 时

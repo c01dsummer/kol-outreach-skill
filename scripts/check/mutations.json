@@ -922,6 +922,14 @@
       "replace": "      const badProduct = textProblem(rr.product) ?? (rr.product === String(rr.product).trim() ? undefined : '\u4e24\u4fa7\u6709\u7a7a\u767d')"
     },
     {
+      "id": "M-D6-h",
+      "req": "D6",
+      "why": "只剩下人没补 profile 时，不把它算进「还剩多少活」—— 收尾于是说「续跑不产生新的请求」，用户以为不花钱才去续跑，而续跑第一件事就是去调付费的补全端点",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    profiles ? `${profiles} 个人的 profile` : '',",
+      "replace": "    profiles > 1 ? `${profiles} 个人的 profile` : '',"
+    },
+    {
       "id": "M-D4-o",
       "req": "D4",
       "why": "记忆不可用时一律报成「解析失败」—— 而它同样可能是权限不足、父路径不是目录或磁盘出错，那时候用户会去查一份完好的文件，真正的原因在报错里被盖住了",
