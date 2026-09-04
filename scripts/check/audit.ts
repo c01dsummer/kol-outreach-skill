@@ -14,7 +14,7 @@ import {
   CLAIMS_PATH, SOURCE_DIR, claimsFresh, claimsReadFault, claimsWellFormed, fingerprint, sourceFiles,
   type Claims,
 } from './claims.js'
-import { REDLINE_CAT, type Req } from './spec-rule.js'
+import { REDLINE_CAT, requirementVerdict, type Req } from './spec-rule.js'
 const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
 /**
  * 分区这件事本身是判定,在 `audit-rule.ts` 里,被变异守着。
@@ -99,6 +99,15 @@ if (!claimsFresh(claims.source_hash, selfHash)) {
   process.exit(1)
 }
 const testedIds = new Set(claims.covered)
+/**
+ * 判据级的覆盖。
+ *
+ * 「每条需求有没有测试」这个计量单位**比事实粗**：验收标准里的「与」在计量上
+ * 是一条，在事实上是两条。P5 的「测试✓」挂了很久，而它后来拆出来的 P5.h
+ * ——「未配置增强层时 meta.json 的 enriched 必须为 false」—— 是另一条独立会坏的
+ * 判定，粗计量看不见它（ADR-24）。
+ */
+const testedCriteria = new Set(claims.criteria)
 
 const mutatedIds = new Set<string>(mutCfg.mutations.map((m: any) => m.req))
 const exemptIds = new Map<string, string>(
@@ -129,18 +138,18 @@ for (const r of reqs) {
   const mutated = mutatedIds.has(r.id)
   const exempt = exemptIds.has(r.id)
 
-  let flag = '✓'
-  if (r.cat === REDLINE_CAT) {
-    if (!tested) { flag = '✗'; hard++; gaps.push(`${r.id} 是红线但没有测试`) }
-    else if (!mutated && !exempt) { flag = '✗'; hard++; gaps.push(`${r.id} 有测试但没有变异验证 —— 那条测试没被证明过`) }
-    else if (exempt) flag = '⊘'
-  } else if (!impl.length && !tested) {
-    flag = '·'
-    gaps.push(refs.length
-      ? `${r.id} 仅被架构文档引用，未落到代码或测试`
-      : `${r.id} 未在任何下游文件中被引用`)
-  }
-  rows.push(`  ${flag} ${r.id.padEnd(3)} ${r.cat}  测试${tested ? '✓' : '·'} 变异${mutated ? '✓' : exempt ? '⊘' : '·'}  引用 ${refs.length} 处`)
+  // 裁定在 spec-rule.ts：留在这个入口里，没有任何一条测试够得着它（ADR-13 的老处境）。
+  const v = requirementVerdict(r, {
+    tested, mutated, exempt, impl: impl.length, refs: refs.length,
+    claimedCriteria: testedCriteria, exemptIds: new Set(exemptIds.keys()),
+  })
+  const { flag, claimed } = v
+  hard += v.hard
+  gaps.push(...v.gaps)
+
+  rows.push(`  ${flag} ${r.id.padEnd(3)} ${r.cat}  测试${tested ? '✓' : '·'} ` +
+            `变异${mutated ? '✓' : exempt ? '⊘' : '·'}  ` +
+            `判据 ${claimed}/${r.accept.length}  引用 ${refs.length} 处`)
 }
 
 // ---- 2. 可执行文件是否都被执行过 ----
@@ -209,6 +218,18 @@ console.log(`\n  红线 ${P.length} 条 · 有测试 ${P.filter(r => testedIds.h
 console.log(`  需求 ${reqs.length} 条 · 被测试覆盖 ${reqs.filter(r => testedIds.has(r.id)).length}` +
             `${deprecated.length ? ` · 已作废 ${deprecated.length} 条（不计入）` : ''}`)
 console.log(`  检查链的判定模块 ${judgments.length} 个 · 有变异守着 ${judgments.length - naked.length}`)
+const allCrit = reqs.flatMap(r => r.accept)
+const redlineCrit = reqs.filter(r => r.cat === REDLINE_CAT).flatMap(r => r.accept)
+/**
+ * 测试认领与显式豁免分开报 —— 豁免是显式缺口，不是测试证据。
+ * 合起来报「认领 N」，一份审计的两个数（逐条与汇总）会对不上，
+ * 而且把缺口装成了证据（P2.a / P3.b 没有运行时认领）。
+ */
+console.log(`  验收判据 ${allCrit.length} 条 · 有测试认领 ` +
+            `${allCrit.filter(c => testedCriteria.has(c.id)).length}` +
+            ` · 其中红线 ${redlineCrit.length} 条（测试认领 ` +
+            `${redlineCrit.filter(c => testedCriteria.has(c.id)).length}` +
+            ` · 显式豁免 ${redlineCrit.filter(c => exemptIds.has(c.id)).length}）`)
 
 if (hard) { console.error(`\n✗ 审计：${hard} 项硬失败`); process.exit(1) }
 console.log('\n✓ 审计：红线全部有测试且被变异验证；检查链的判定模块全部有变异守着')
