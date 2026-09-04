@@ -145,7 +145,9 @@ export function resumeRemainingWork(
  * 单元测试照样是绿的，而用户看到的是反过来的话 —— 还剩一堆活没干，却被告知
  * 续跑不花钱（ADR-25）。
  *
- * selfcheck 那一关也拦不住：它只认「这两句里出现了一句」。
+ * selfcheck 那一关**现在**拦得住：两个断点各钉住一句 —— 活干完了必须说
+ * 「不产生新的请求」，还有活没干完必须说「继续花钱」。但那是端到端的兜底，
+ * 判定留在这里才有单元测试和 M-D6-i 当场把它压红。
  */
 export function resumeCostNotice(
   state: TaskState, qualified: number, creators: Iterable<Creator>, dir: string,

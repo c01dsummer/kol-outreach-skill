@@ -1762,6 +1762,22 @@
       "replace": "  if (!said[1]) return '说了「还有 …… 没跑完」，可那个「……」是空的 —— 等于没说'"
     },
     {
+      "id": "M-D4-af",
+      "req": "D4",
+      "why": "只查 contacted、不查 blocked：一份把 blocked 写成字符串的记忆当成好的读进来，「这个人拉黑过没有」答的是一个字符串，屏蔽名单静默失效",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (typeof r.blocked !== 'boolean') return `${k} 的 blocked 不是 true 或 false`\n",
+      "replace": ""
+    },
+    {
+      "id": "M-D6-l",
+      "req": "D6",
+      "why": "查询那一侧不去掉首尾空白：任务配置里产品名多打了一个空格，我们自己写下的「已经推过了」就匹配不上，同一个人第二次被推荐出去",
+      "file": "scripts/lib/memory.ts",
+      "find": "  const want = product.trim()\n  const r = readMemory()",
+      "replace": "  const want = product\n  const r = readMemory()"
+    },
+    {
       "id": "M-H17-a",
       "req": "harness",
       "why": "把两种坏法报成同一句：一句都没说和两句一起说，报错互换 —— 收尾里明明同时写着「续跑不产生新的请求」和「续跑会继续发请求、继续花钱」，人看到的却是「一句都没说」，于是去找一句根本不在那儿的话；报错指错方向，比不报还费时间",

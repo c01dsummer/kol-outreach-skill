@@ -434,10 +434,13 @@ suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环
   // 上面三条只说了判定本身对。「共用」还得单独钉一下：补全循环取的那份名单
   // （collect.ts 里原先那句 filter 已经搬进来了）必须和逐个判定的结果一样多 ——
   // 名单里放一个只有真判定才数得进去的人：查过了但没外链（负片 M-D6-j）。
-  const crowd = [c({ bio: '简介', bio_links: ['https://x'] }), c({ bio: undefined }),
-                 c({ bio: '简介', bio_links: [] })]
-  eq('补全循环要处理的是这两个人', profilesToEnrich(crowd).length, 2)
-  eq('逐个判定的结果与它一致', crowd.filter(needsProfile).length, profilesToEnrich(crowd).length)
+  const crowd = [c({ handle: 'full', bio: '简介', bio_links: ['https://x'] }),
+                 c({ handle: 'bare', bio: undefined }),
+                 c({ handle: 'nolink', bio: '简介', bio_links: [] })]
+  // 比的是**挑了谁**，不是「挑了几个」：漏掉一个待补的、又多挑一个补过的，
+  // 数目仍然对得上，而补全循环补的是错的人 —— 只比长度看不出来。
+  eq('补全循环要处理的是这两个人', profilesToEnrich(crowd).map(x => x.handle), ['bare', 'nolink'])
+  eq('逐个判定挑出来的是同一批', crowd.filter(needsProfile).map(x => x.handle), ['bare', 'nolink'])
   criterion('D6.e')
 }
 
@@ -646,6 +649,11 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
       'tiktok:a': { recommendations: [] } } })],
     ['contacted 写成字符串', JSON.stringify({ version: 1, creators: {
       'tiktok:a': { contacted: 'true', blocked: false, recommendations: [] } } })],
+    // contacted 对了不等于 blocked 也对：两个字段各答「这个人能不能联系」的一半，
+    // 判定也是两条独立的。上面两条都在 contacted 那儿就返回了，走不到 blocked ——
+    // 只验它们的话，blocked 那条判定删掉，这一圈照样全绿（负片 M-D4-af）。
+    ['blocked 写成字符串', JSON.stringify({ version: 1, creators: {
+      'tiktok:a': { contacted: true, blocked: 'false', recommendations: [] } } })],
     ['recommendations 不是数组', JSON.stringify({ version: 1, creators: {
       'tiktok:a': { contacted: false, blocked: false, recommendations: null } } })],
     // 容器对了不等于里面的东西对：过滤逐条读 task / product / date
@@ -776,6 +784,15 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   const padded = filterByMemory([mk('tiktok', 'pad')], 'Foo', undefined, { ignoreUnreadable: true })
   eq('产品名两侧的空白不影响「已推荐过」', padded.filtered_recommended, 1)
   eq('于是那个人不会被再推荐一次', padded.kept.length, 0)
+  // 空白换到**查询**那一侧同样得成立。两侧各去一次空白，是两处独立的写法：
+  // 上面那份记忆里带空白的是存下来的产品名，查询侧问的是干净的 'Foo' ——
+  // 把查询侧的去空白删掉，上面两条照样绿（负片 M-D6-l）。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {
+    'tiktok:pad': { contacted: false, blocked: false,
+      recommendations: [{ product: 'Foo', date: '2026-01-01' }] } } }), 'utf8')
+  const asked = filterByMemory([mk('tiktok', 'pad')], ' Foo ', undefined, { ignoreUnreadable: true })
+  eq('空白出现在查询那一侧也一样', asked.filtered_recommended, 1)
+  eq('那个人同样不会被再推荐一次', asked.kept.length, 0)
   criterion('D6.f')
   // 「不判为损坏」是**另一条代码路径**：上面那两条坏在比较时不去空白（负片 M-D6-f），
   // 这一条坏在读取侧把带空白的产品名判成损坏（负片 M-D6-g）。所以各自认领 ——
