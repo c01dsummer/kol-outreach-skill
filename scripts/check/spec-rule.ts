@@ -433,7 +433,7 @@ export interface Verdict {
   gaps: string[]
   hard: number
   claimed: number
-  /** 没认领但已显式豁免的判据数 —— 这几条不是缺口,但也不是「完整」 */
+  /** 没认领、但已显式豁免的判据数 —— 不进硬失败,也不算「完整」,它们仍是显式缺口 */
   exempted: number
 }
 

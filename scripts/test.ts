@@ -1803,6 +1803,17 @@ harness('审计对一条需求的裁定')
   eq('豁免了几条要数出来', requirementVerdict(p, exempted1).exempted, 1)
   eq('一条豁免都没有 → 不多报', requirementVerdict(p, ev({
     claimedCriteria: new Set(['P9.a', 'P9.b']) })).exempted, 0)
+  // `⊘` 只往上抬 `✓` 这一档。少掉「原本是 ✓」这半个条件，一条还欠着认领的
+  // 红线会从 `✗` 改写成「已豁免」，非红线的 `·` 同理 —— 报告上看着是有人签过
+  // 字的缺口，其实没有，而豁免恰恰是唯一要人签字的那一档（M-H6-j）。
+  const p3 = req('P9', ['a', 'b', 'c'])
+  eq('红线还欠着认领 → 仍是 ✗，豁免盖不住硬失败',
+    requirementVerdict(p3, ev({ claimedCriteria: new Set(['P9.a']),
+                                exemptIds: new Set(['P9.b']) })).flag, '✗')
+  const d3 = req('D9', ['a', 'b', 'c'])
+  eq('非红线还欠着认领 → 仍是 ·，豁免盖不住缺口',
+    requirementVerdict(d3, ev({ claimedCriteria: new Set(['D9.a']),
+                                exemptIds: new Set(['D9.b']) })).flag, '·')
 
   // 非红线：**一条都没认领同样是缺口**。原先只报「认领了一部分」那种，
   // 于是把仅有的那条认领删掉，缺口反而消失了 —— 一个删掉证据就能变绿的

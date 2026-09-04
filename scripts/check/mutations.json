@@ -1514,6 +1514,14 @@
       "replace": "  return { flag, gaps, hard, claimed: claimed.length, exempted: r.accept.length }"
     },
     {
+      "id": "M-H6-j",
+      "req": "harness",
+      "why": "⊘ 那一档不再只往上抬「完整」这一档 —— 一条红线还欠着判据没人认领、或者一条非红线还留着缺口，那一行照样改写成「已豁免」，看上去是有人签过字的缺口，其实没人签过，而豁免恰恰是唯一要人签字的那一档",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  if (flag === '✓' && exempted.length) flag = '⊘'",
+      "replace": "  if (exempted.length) flag = '⊘'"
+    },
+    {
       "id": "M-H7-a",
       "req": "harness",
       "why": "变异记在一个不存在的编号名下也放行 —— 那条变异照样跑、照样被抓到，控制台一片绿，而它对任何一条需求都不算数，审计报出的「有变异守着」少了一条却没有人被告知",
