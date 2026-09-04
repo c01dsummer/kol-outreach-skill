@@ -26,7 +26,7 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path'
  * 目标不存在时**显式还原成 umask 默认**：临时文件是按最严建的，不还原的话
  * 每个新建的文件都变成只有属主可读 —— 而这个函数写的不只是记忆，还有
  * `task.json`、名单、增强结果。新文件该多严是产品决定，**不该由一个临时文件
- * 的实现细节替它定**（ADR-57）。
+ * 的实现细节替它定**（ADR-42 追记）。
  *
  * 临时名带 pid：两个任务同时跑时，共用一个临时名会让 A 的改名搬走 B 写的内容。
  * 写之前先清掉**已经死掉的进程**留下的临时文件（`sweepStaleTemps`）：硬杀落在
@@ -75,7 +75,7 @@ export function writeFileAtomic(file: string, data: string | Buffer): void {
     fd = openSync(tmp, 'wx', 0o600)
     writeFileSync(fd, data, { encoding: 'utf8' })
     // 已有的文件带回它原来的权限；新文件还原成 umask 默认。
-    // **两条都得写** —— 少了后一条，「新文件保持默认」就只是一句注释（ADR-57）。
+    // **两条都得写** —— 少了后一条，「新文件保持默认」就只是一句注释（ADR-42 追记）。
     // 权限位是 inode 的元数据：改完再刷，和内容一次落盘。
     chmodSync(tmp, mode ?? (0o666 & ~process.umask()))
     // 内容先落盘，再让改名把它接上。**刷不动要抛**：刷不动就是没落盘，而调用方
@@ -104,7 +104,7 @@ export function writeFileAtomic(file: string, data: string | Buffer): void {
  * 认为整件事没做成。`writeFileAtomic` 的那次调用尤其如此 —— 它跑在
  * `renameSync` 之后，替换已经生效了，让一个关描述符的错逃出去，调用方就会
  * 照着这个失败告诉用户「没写回、原文件一个字节没动」，而那是假话：
- * 推荐记录已经落进去了。**一个说反了的结论比一次没刷成的目录严重得多**（ADR-53）。
+ * 推荐记录已经落进去了。**一个说反了的结论比一次没刷成的目录严重得多**（ADR-47 追记一）。
  */
 function fsyncDirBestEffort(path: string): void {
   let fd: number | undefined
@@ -152,7 +152,7 @@ function readOnly(target: string): NodeJS.ErrnoException {
  * `renameSync` 换掉的是**链接本身**，不是它指向的文件。目标是软链时，
  * 第一次写回就把用户配好的那条链接换成一个普通文件，而真正那份从此不再
  * 更新 —— 报告照样说「已记入」。**静默地停止记录**，正是整体替换要防的
- * 那一种坏法，却会被它自己引入（ADR-57）。
+ * 那一种坏法，却会被它自己引入（ADR-46 追记三）。
  *
  * 换成整体替换之前，这里是一次普通的 `writeFileSync`，它跟着链接写到终点。
  * 所以这不是补一个新能力，是**不让整体替换顺手弄坏原来对的行为**。
@@ -224,7 +224,7 @@ function alive(pid: number): boolean {
  * 静默与响之间选响的（ADR-44）。
  *
  * 扫的是 `target` 所在的目录 —— 调用方传进来的已经是软链的终点，
- * 临时文件就落在那里；照着链接那一侧扫会永远扫不到（ADR-57）。
+ * 临时文件就落在那里；照着链接那一侧扫会永远扫不到（ADR-46 追记四）。
  */
 function sweepStaleTemps(target: string): void {
   const dir = dirname(target)
