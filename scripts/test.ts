@@ -11,6 +11,10 @@ import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
 import { judgeRun } from './check/mutate-rule.js'
 import {
+  beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, testRunning,
+  trackTest,
+} from './check/mutate-restore.js'
+import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, renderTables, requirementVerdict,
   rootProblems, tensionEvidence, tensionHasRedline, tensionKey, tensionVerdict,
   validateRegistry,
@@ -40,6 +44,8 @@ import { esc, writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
+import { spawnSync, type ChildProcess } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
@@ -2490,6 +2496,114 @@ harness('变异测试：测试进程崩了不算抓到')
   eq('非零退出但没有汇总 → 跑不起来，不算抓到', judgeRun(1, "TypeError: Cannot read properties of undefined"), 'crashed')
   eq('被信号杀掉（没有退出码）也不算抓到', judgeRun(null, ''), 'crashed')
   eq('汇总必须是自成一行的那句，正文里提到「个失败」不算', judgeRun(1, '断言说：这里不该有 3 个失败的例子'), 'crashed')
+}
+
+harness('变异跑到一半被打断：动过的源文件要还回去')
+{
+  // 信号杀进来时 finally 不跑，留在工作区里的是一处故意违反某条需求的改动。
+  // 而下一次 check 报的是「锚点失效」—— 一句指着变异集的话，错的却是上一次没跑完
+  let threw = ''
+  // 打断完全可能落在还没开始应用变异的那一段：那时盘上本来就是干净的，什么都不该写。
+  // 照着一个不存在的现场去写，只会在信号处理里当场抛 —— 还原和退出都做不成
+  try { restoreMutation() } catch (e) { threw = (e as Error).message }
+  eq('还没开始应用变异就被打断：不抛', threw, '')
+
+  const sigs = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
+  const armedOn = (s: (typeof sigs)[number]) =>
+    process.listeners(s).filter(l => l === onInterrupt).length
+  restoreOnInterrupt()
+  eq('三种打断都接管了 —— Ctrl-C、被杀掉、终端关掉', sigs.filter(s => armedOn(s) === 1).length, 3)
+  // 每记一次现场都接管一遍的话，两百个变异会在同一个信号上挂满处理函数，
+  // Node 开始刷告警 —— 而那时被盖住的，正是人来看的那份变异结果
+  restoreOnInterrupt()
+  eq('接管过就不再接管，处理函数不叠', Math.max(...sigs.map(armedOn)), 1)
+
+  const f = join(tmpdir(), `kol-h-restore-${process.pid}.ts`)
+  writeFileSync(f, '原文', 'utf8')
+  beginMutation(f, '原文')
+  writeFileSync(f, '被改坏的', 'utf8')
+  restoreMutation()
+  eq('被打断时把动过的那份还回去', rf(f, 'utf8'), '原文')
+
+  // 上面几条都在同一个进程里直接调函数：它们证得了「记了现场就还得回去」，
+  // 证不了「**信号真的杀进来**的时候还得回去」—— 把还原和非零退出整个从信号处理里
+  // 删掉，上面每一条照样绿（评审指出的正是这个缺口）。要证它，只有另起一个进程真挨一刀。
+  // 而这一刀要落在**正等着子进程**的那一段：变异跑起来之后几乎所有时间都在那里。
+  // 挨刀的时机换成「闲着」，测的就不是这个入口真实的处境（评审第二次指出的正是这个）。
+  // 子脚本只调「记现场」和「把这一轮交出去」这两个函数：接管信号要是没跟着记现场走，
+  // 这一刀直接把它杀了，还原和退出码两条一起红
+  const kid = join(tmpdir(), `kol-h-kid-${process.pid}.ts`)
+  const victim = join(tmpdir(), `kol-h-victim-${process.pid}.ts`)
+  const waited = join(tmpdir(), `kol-h-waited-${process.pid}.txt`)
+  writeFileSync(victim, '原文', 'utf8')
+  rmSync(waited, { force: true })            // 上一轮留下的会让这一轮凭空判红
+  // 那一轮测试照着入口的真实形状搭：入口手上拿到的是 `npx` 那层壳，真正跑脚本的是
+  // 壳再分出去的那一个。所以这里的孙子也再分一个出来，由**它**来说自己还活着 ——
+  // 只杀手上那一个的话，壳死了，说话的那个还在，而它跑的正是被改过的源码。
+  // 说话走的是继承来的那根管子，它一直不关，等它的那一方就一直收得到
+  const printer = `setTimeout(() => console.log('孙子还活着'), 600)`
+  const shell = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(printer)}], { stdio: 'inherit' }); process.send('孙子分出来了'); setTimeout(() => {}, 2000)`
+  writeFileSync(kid, [
+    `import { spawn } from 'node:child_process'`,
+    `import { writeFileSync as w } from 'node:fs'`,
+    `import { beginMutation, trackTest } from ${JSON.stringify(join(process.cwd(), 'scripts/check/mutate-restore.js'))}`,
+    `beginMutation(${JSON.stringify(victim)}, '原文')`,
+    `w(${JSON.stringify(victim)}, '被改坏的', 'utf8')`,
+    // 除了继承来的那三根，再要一根专门用来回话：孙子说自己还活着走的还是原来那根，两边不混
+    `const g = spawn(process.execPath, ['-e', ${JSON.stringify(shell)}], { stdio: ['inherit', 'inherit', 'inherit', 'ipc'], detached: true })`,
+    `trackTest(g)`,
+    // **动手的时机不能看表。** 上一版是等固定的两百毫秒，可机器一忙，那一刻壳可能还没
+    // 把孙子分出来 —— 那时「只杀手上这一个」和「连组一起杀」留下的现场一模一样：
+    // 都没有孙子在说话。于是下面那条断言时红时绿，而绿的那一次什么也没证（评审指出）。
+    // 改成等它说一声：壳把孙子分出来之后回一句，收到了才动手。
+    // 信号还是异步送到的：手上不留一件事，Node 会在处理函数跑起来之前就正常退出，
+    // 这一刀等于没挨。手上留的正是「等一个子进程」，挨刀的那一刻它还没等完
+    `g.on('message', () => process.kill(process.pid, 'SIGTERM'))`,
+    `g.on('close', () => w(${JSON.stringify(waited)}, '等完了', 'utf8'))`,
+  ].join('\n'), 'utf8')
+  const r = spawnSync(join(process.cwd(), 'node_modules/.bin/tsx'), [kid], { encoding: 'utf8' })
+  eq('真挨一刀：动过的那份还是还回去了', rf(victim, 'utf8'), '原文')
+  eq('真挨一刀：这一次检查没跑完，退出码非零', r.status, 1)
+  // 还回去了、退出码也对，却是把那个子进程等完了才停 —— 那还是「看上去做了」：
+  // 真出事时要等的是一整轮测试，而升级上来的硬杀不会等它等完
+  eq('挨刀的那一刻还在等子进程：当场就停，没等完', existsSync(waited), false)
+  // 停的得是**整棵树**。父进程退掉不会把那一轮带走 —— 它会被过继出去接着跑，
+  // 而它跑的正是被改过的源码，还原完之后它再写一次，盘上留下的就是一份没人审过的东西。
+  // 孙子那一层还有一个在说话，就说明这一刀只落在壳上（评审指出的正是这个）
+  eq('挨刀之后那一轮测试也停了：没留下一个还在跑的', r.stdout.includes('孙子还活着'), false)
+
+  // 这一刀指得着谁，取决于记着的那一个还算不算数。一轮跑完之后不抹掉，从这一轮结束到
+  // 下一轮记上之间那段空档里，记着的是一个已经散了的组号 —— 而组号系统是会重新发给
+  // 别人的，那一刀就落到不相干的进程身上（评审指出）。整轮都装着信号处理，空档也整轮都在。
+  // 这里拿两个能自己说「我结束了」的替身来问：本文件从头到尾是同步跑的，等不到真子进程结束
+  const one = new EventEmitter() as ChildProcess
+  const two = new EventEmitter() as ChildProcess
+  trackTest(one)
+  eq('交出去了：这一轮正被看着', testRunning(), true)
+  one.emit('close')
+  eq('这一轮跑完了：记着的那一个要抹掉，空档里不留散了的组号', testRunning(), false)
+  // 抹的时候要认人。上一轮的结束是迟到送来的，它要是把下一轮刚记上的抹没，
+  // 这一刀就落空 —— 而落空和落错一样，都是不响的
+  trackTest(two)
+  one.emit('close')
+  eq('上一轮迟到的结束：不许把下一轮刚记上的抹掉', testRunning(), true)
+  two.emit('close')
+  eq('轮到它自己结束：这才抹掉', testRunning(), false)
+
+  // 上面证的是「这一刀能被接住」，而它接不接得住取决于入口怎么等子进程：同步等会把
+  // 事件循环整个挡住，挡住的那段时间里接管过的信号一次也派发不出去，而变异几乎所有
+  // 时间都在等子进程。子脚本是异步等的，替不了入口自己 —— 入口那一侧另判一条
+  eq('同步等子进程：撞上了要说出是哪一种', blockingWait('const out = execSync(cmd)'), 'execSync')
+  eq('另一种同步等法也认', blockingWait('spawnSync(cmd, args)'), 'spawnSync')
+  eq('第三种同步等法也认', blockingWait('execFileSync(cmd)'), 'execFileSync')
+  // 只提名字不调用的是散文不是调用 —— 否则连解释这条规矩的那段注释都会把自己判红
+  eq('异步等法不算，光提名字也不算', blockingWait("spawn(cmd) // 别写 execSync 那种"), undefined)
+  eq('接管了信号的那个入口：没有一处同步等子进程',
+    blockingWait(rf('scripts/check/mutate.ts', 'utf8')), undefined)
+
+  // 最后才拆：处理函数里有退出，留在测试进程里会把后面任何一次打断变成静默退出
+  for (const s of sigs) process.off(s, onInterrupt)
+  for (const p of [f, kid, victim, waited]) rmSync(p, { force: true })
 }
 
 harness('审计：检查链自己的判定模块必须有变异守着')

@@ -17,11 +17,12 @@
  * 这条防线的强度取决于 `why` 怎么写 —— 引了实现原文的 why，`--brief` 照样把它漏出去。
  */
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { execSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { orphanAttributions } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import { type RunVerdict, judgeRun } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
+import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
 
 interface Mut { id: string; req: string; why: string; file: string; find: string; replace: string }
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
@@ -85,6 +86,44 @@ const restoreClaims = () => {
   else rmSync(CLAIMS_PATH, { force: true })
 }
 process.on('exit', restoreClaims)
+// 但**信号杀进来时 exit 处理也不跑** —— Ctrl-C、被杀掉、CI 超时、终端关掉，
+// 留下的是一份被改写的源文件加一份对不上的覆盖记录，而没有任何东西说过它们在那儿。
+// 下面记现场那一步顺手把这几个信号接管了（`mutate-restore.ts`），
+// 让「被打断」和「跑完」走同一条还原路径 —— 这里不再单写一行，是为了没有一行可忘。
+
+/**
+ * 跑一次测试。**异步等，不能同步等。**
+ *
+ * 信号处理是排在事件循环上的：同步等子进程（`node:child_process` 里带 Sync 的那几个）
+ * 会把事件循环整个挡住，挡住的那段时间里，接管过的信号一次也派发不出去。而变异跑起来
+ * 之后，**几乎所有时间都在等子进程**——挡住的正是要接管的那一段。
+ *
+ * 上一版就是同步等的，实测两条路都不成立：只给这个进程发 SIGTERM，信号被整个吞掉
+ * （接管压住了默认动作，处理函数又轮不上），循环跑完还以 0 退出；Ctrl-C 打到整个
+ * 进程组时这一轮靠 `finally` 还回去了，但循环照样把剩下两百个变异跑完才停。
+ * 两条都是「接管了信号，看上去做了，实际没有」（评审指出）。
+ *
+ * stdout 和 stderr 分开收：判定认的是自成一行的失败汇总，两股混着收会在块边界
+ * 把那一行劈开（`mutate-rule.ts`）。
+ */
+const runTest = (): Promise<{ status: number | null; output: string }> =>
+  new Promise(resolve => {
+    // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
+    // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
+    // 自成一组：被打断时要连它一起结束，而只杀手上这一个是杀不掉的 ——
+    // `npx` 是一层壳，`tsx` 自己还要再分出一个真正跑脚本的进程来
+    const kid = spawn('npx', ['tsx', 'scripts/test.ts'],
+      { stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1' } })
+    trackTest(kid)
+    let out = ''
+    let err = ''
+    kid.stdout.on('data', d => { out += d })
+    kid.stderr.on('data', d => { err += d })
+    // 压根没起来（命令不在、权限不足）也要留下话：那时两股都是空的，
+    // 判定只会说「跑不起来」，而人得知道是没起来还是跑崩了
+    kid.on('error', e => { err += `\n${e}` })
+    kid.on('close', status => resolve({ status, output: `${out}\n${err}` }))
+  })
 
 for (const m of muts) {
   const orig = readFileSync(m.file, 'utf8')
@@ -93,18 +132,18 @@ for (const m of muts) {
     console.log(`  ⚠ ${m.id}  锚点失效，未能应用`)
     continue
   }
-  writeFileSync(m.file, orig.replace(m.find, m.replace), 'utf8')
+  beginMutation(m.file, orig)
   let verdict: RunVerdict
   try {
-    // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
-    // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
-    execSync('npx tsx scripts/test.ts', { stdio: 'pipe', env: { ...process.env, MUTATING: '1' } })
-    verdict = 'survived'
-  } catch (e: any) {
+    // 写盘也在这一段里面：写盘是先截断再写的，写到一半抛出去（盘满、IO 错）留下的是
+    // 半份源文件，而那时 `finally` 要是够不着，被截断的那份就留在工作区里，
+    // 记着的现场谁也不去取（评审指出）
+    writeFileSync(m.file, orig.replace(m.find, m.replace), 'utf8')
     // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null)
-    verdict = judgeRun(e.status ?? null, `${e.stdout ?? ''}\n${e.stderr ?? ''}`)
+    const r = await runTest()
+    verdict = judgeRun(r.status, r.output)
   } finally {
-    writeFileSync(m.file, orig, 'utf8')
+    restoreMutation()
   }
   if (verdict === 'caught') console.log(`  ✓ ${m.id}  [${m.req}] 被抓到`)
   else if (verdict === 'crashed') {

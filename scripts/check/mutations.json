@@ -1576,6 +1576,118 @@
       "file": "scripts/check/spec-rule.ts",
       "find": "      requirements: reqs, categories: Object.entries(cats),",
       "replace": "      requirements: reqs, categories: cats,"
+    },
+    {
+      "id": "M-H15-a",
+      "req": "harness",
+      "why": "变异跑到一半被打断时，动过的那份源文件不再还回去 —— 工作区里留着一处故意违反某条需求的改动，而没有任何东西说过它在那儿；下一次检查只会说「锚点失效」，指着变异集，不指上一次没跑完的那一跑",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  inFlight = undefined\n  writeFileSync(cur.file, cur.orig, 'utf8')",
+      "replace": "  inFlight = undefined"
+    },
+    {
+      "id": "M-H15-b",
+      "req": "harness",
+      "why": "打断落在还没开始应用变异的那一段时，照着一个根本不存在的现场去写 —— 还原当场抛在信号处理里，退出也走不成，覆盖记录跟着留在盘上，而人看到的是一堆栈，像是变异集自己坏了",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  const cur = inFlight\n  if (cur === undefined) return\n  inFlight = undefined",
+      "replace": "  const cur = inFlight\n  inFlight = undefined"
+    },
+    {
+      "id": "M-H15-c",
+      "req": "harness",
+      "why": "只接管 Ctrl-C 那一种打断 —— 被杀掉、CI 超时、终端关掉的时候，动过的源文件照样留在工作区里，而那是一处故意违反某条需求的改动",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, onInterrupt)",
+      "replace": "  for (const sig of ['SIGINT'] as const) process.on(sig, onInterrupt)"
+    },
+    {
+      "id": "M-H15-d",
+      "req": "harness",
+      "why": "记下现场那一步不再顺手接管信号 —— 入口只要少写一行，一整轮变异就在没人接管信号的情况下跑完，被打断时动过的那份源文件原样留在工作区里",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "export function beginMutation(file: string, orig: string): void {\n  restoreOnInterrupt()\n  inFlight = { file, orig }",
+      "replace": "export function beginMutation(file: string, orig: string): void {\n  inFlight = { file, orig }"
+    },
+    {
+      "id": "M-H15-e",
+      "req": "harness",
+      "why": "接管过还会再接管一遍 —— 两百个变异各装一次，同一个信号上挂满处理函数，Node 开始刷告警，而那时被盖住的正是人来看的那份变异结果",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  if (armed) return\n  armed = true\n",
+      "replace": "  armed = true\n"
+    },
+    {
+      "id": "M-H15-f",
+      "req": "harness",
+      "why": "真被信号杀掉时不再还原 —— 处理函数照样接管、照样非零退出，看上去一切正常，而动过的那份源文件留在工作区里，是一处故意违反某条需求的改动",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "export function onInterrupt(): never {\n  killTest()\n  restoreMutation()\n  process.exit(1)\n}",
+      "replace": "export function onInterrupt(): never {\n  killTest()\n  process.exit(1)\n}"
+    },
+    {
+      "id": "M-H15-g",
+      "req": "harness",
+      "why": "真被信号杀掉时以零退出 —— 一次没跑完的检查报成过了，而它连一半的变异都没跑到",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  process.exit(1)\n}",
+      "replace": "  process.exit(0)\n}"
+    },
+    {
+      "id": "M-H15-h",
+      "req": "harness",
+      "why": "入口有没有同步等子进程,一律说没有 —— 那条判据从此谁都拦不住,而同步等一旦写回去,接管过的那几个信号就一次也派发不出去",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  const hit = BLOCKING_WAIT.exec(src)\n  return hit === null ? undefined : hit[1]",
+      "replace": "  return undefined"
+    },
+    {
+      "id": "M-H15-i",
+      "req": "harness",
+      "why": "三种同步等法只认头一种 —— 另外两种照样把事件循环挡住,而判据说这个入口没事",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "/\\b(execSync|execFileSync|spawnSync)\\s*\\(/",
+      "replace": "/\\b(execSync)\\s*\\(/"
+    },
+    {
+      "id": "M-H15-j",
+      "req": "harness",
+      "why": "被打断时先还回去,却不当场停,等手上那个子进程跑完才退 —— 还原和退出码看着都对,而真出事时它要等的是一整轮测试,升级上来的硬杀不会等它等完",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "export function onInterrupt(): never {\n  killTest()\n  restoreMutation()\n  process.exit(1)\n}",
+      "replace": "export function onInterrupt(): never {\n  killTest()\n  restoreMutation()\n  return setTimeout(() => process.exit(1), 4000) as never\n}"
+    },
+    {
+      "id": "M-H15-k",
+      "req": "harness",
+      "why": "被打断时只还原,不停掉正在跑的那一轮测试 —— 父进程退掉不会把它带走,它被过继出去接着跑被改过的源码;还原做完之后它再往盘上写一遍,盘上留下的那一份谁也没审过,而后面的审计会拿它当真的用",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "export function onInterrupt(): never {\n  killTest()\n  restoreMutation()",
+      "replace": "export function onInterrupt(): never {\n  restoreMutation()"
+    },
+    {
+      "id": "M-H15-l",
+      "req": "harness",
+      "why": "被打断时只结束手上拿到的那一个,不结束整棵 —— 拿到的往往只是层壳,真正跑脚本的是壳再分出去的那个进程;壳死了,里面那个照样把后面那一次写盘做完,而「杀掉了吗」这个返回值还是真",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "process.kill(-pid, 'SIGKILL')",
+      "replace": "process.kill(pid, 'SIGKILL')"
+    },
+    {
+      "id": "M-H15-m",
+      "req": "harness",
+      "why": "一轮测试跑完之后不抹掉记着的那一个 —— 从这一轮结束到下一轮记上之间那段空档里,它拿着的是一个已经散了的组号,而组号系统会重新发给别人;这时候被打断,那一刀就落到不相干的进程身上,而落到谁身上是不响的",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  running = kid\n  kid.on('close', () => { if (running === kid) running = undefined })",
+      "replace": "  running = kid"
+    },
+    {
+      "id": "M-H15-n",
+      "req": "harness",
+      "why": "抹掉记着的那一个的时候不认人 —— 上一轮迟到送来的那次结束会把下一轮刚记上的抹没,再被打断就没有东西可停,那一轮接着跑被改过的源码",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "kid.on('close', () => { if (running === kid) running = undefined })",
+      "replace": "kid.on('close', () => { running = undefined })"
     }
   ],
   "exemptions": [
