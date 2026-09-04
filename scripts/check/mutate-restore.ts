@@ -78,3 +78,29 @@ export function restoreOnInterrupt(): void {
   armed = true
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, onInterrupt)
 }
+
+/**
+ * 同步等子进程的那几个写法。**名字后面要跟着左括号** —— 文字里提到它们不算,
+ * 只有真的调用才算,否则连解释这条规矩的那段注释都会把自己判红。
+ */
+const BLOCKING_WAIT = /\b(execSync|execFileSync|spawnSync)\s*\(/
+
+/**
+ * 接管了信号的那个入口,有没有同步等子进程。撞上了返回那个名字,没撞上返回 undefined。
+ *
+ * **接管信号和同步等子进程不能同时存在。** 信号处理是排在事件循环上的,同步等会把
+ * 循环整个挡住;挡住的那段时间里,接管过的信号一次也派发不出去。而变异跑起来之后
+ * 几乎所有时间都在等子进程 —— 挡住的正是要接管的那一段。
+ *
+ * 更糟的是接管本身把默认动作压住了:没接管时 Ctrl-C 当场就结束进程;接管之后默认动作
+ * 不作数,而处理函数又轮不上,那一刀于是被整个吞掉,循环把剩下两百个变异跑完,还以零
+ * 退出 —— 一次没跑完的检查报成过了。**所以这是接管顺手带来的回归,不是它没管到的
+ * 地方**,判据也就跟着接管一起放在这里(评审指出)。
+ *
+ * 判的是源文件的字面形状,和 `lint-rule.ts` 同一路数:不剥注释、不解析,逐行逐字地找。
+ * 会不会误伤一段正好这么写的注释?会 —— 那时改注释,不改判据。
+ */
+export function blockingWait(src: string): string | undefined {
+  const hit = BLOCKING_WAIT.exec(src)
+  return hit === null ? undefined : hit[1]
+}
