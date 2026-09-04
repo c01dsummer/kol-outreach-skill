@@ -22,7 +22,7 @@ import { orphanAttributions } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import { type RunVerdict, judgeRun } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
-import { beginMutation, restoreMutation, restoreOnInterrupt } from './mutate-restore.js'
+import { beginMutation, restoreMutation } from './mutate-restore.js'
 
 interface Mut { id: string; req: string; why: string; file: string; find: string; replace: string }
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
@@ -88,8 +88,8 @@ const restoreClaims = () => {
 process.on('exit', restoreClaims)
 // 但**信号杀进来时 exit 处理也不跑** —— Ctrl-C、被杀掉、CI 超时、终端关掉，
 // 留下的是一份被改写的源文件加一份对不上的覆盖记录，而没有任何东西说过它们在那儿。
-// 接管这几个信号，让「被打断」和「跑完」走同一条还原路径（`mutate-restore.ts`）。
-restoreOnInterrupt()
+// 下面记现场那一步顺手把这几个信号接管了（`mutate-restore.ts`），
+// 让「被打断」和「跑完」走同一条还原路径 —— 这里不再单写一行，是为了没有一行可忘。
 
 for (const m of muts) {
   const orig = readFileSync(m.file, 'utf8')

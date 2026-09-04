@@ -21,8 +21,18 @@ import { writeFileSync } from 'node:fs'
 /** 正被改写的那个源文件和它的原文。没有变异在跑的时候是 undefined */
 let inFlight: { file: string; orig: string } | undefined
 
-/** 要开始改这个文件了 —— 记下现场,好让被打断的时候有东西可还 */
+/** 信号接管过了没有 */
+let armed = false
+
+/**
+ * 要开始改这个文件了 —— 记下现场,好让被打断的时候有东西可还。
+ *
+ * **接管信号也在这一步。** 「记下现场」和「从这一刻起被打断要还回去」是同一件事,
+ * 拆成两次调用,入口少写一行就是一整轮变异没人接管信号地跑完,而模块这边每条断言
+ * 照样全绿 —— 评审指出的正是这个缺口。合成一次之后,那一行不存在了,也就忘不掉。
+ */
 export function beginMutation(file: string, orig: string): void {
+  restoreOnInterrupt()
   inFlight = { file, orig }
 }
 
@@ -59,7 +69,12 @@ export function onInterrupt(): never {
 /**
  * 装上信号处理。**三种都要装**:Ctrl-C 是一种,被杀掉和 CI 超时是另一种,
  * 终端关掉是第三种 —— 只接管其中一种,另外两条路照样把改动留在工作区里。
+ *
+ * **装过就不再装。** 每个变异都要记一次现场,两百个变异装两百遍的话,同一个信号上
+ * 挂满处理函数,Node 开始刷告警 —— 而那时被盖住的,正是人来看的那份变异结果。
  */
 export function restoreOnInterrupt(): void {
+  if (armed) return
+  armed = true
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, onInterrupt)
 }

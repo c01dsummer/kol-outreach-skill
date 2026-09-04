@@ -43,6 +43,7 @@ import { esc, writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
@@ -2505,20 +2506,47 @@ harness('变异跑到一半被打断：动过的源文件要还回去')
   try { restoreMutation() } catch (e) { threw = (e as Error).message }
   eq('还没开始应用变异就被打断：不抛', threw, '')
 
+  const sigs = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
+  const armedOn = (s: (typeof sigs)[number]) =>
+    process.listeners(s).filter(l => l === onInterrupt).length
+  restoreOnInterrupt()
+  eq('三种打断都接管了 —— Ctrl-C、被杀掉、终端关掉', sigs.filter(s => armedOn(s) === 1).length, 3)
+  // 每记一次现场都接管一遍的话，两百个变异会在同一个信号上挂满处理函数，
+  // Node 开始刷告警 —— 而那时被盖住的，正是人来看的那份变异结果
+  restoreOnInterrupt()
+  eq('接管过就不再接管，处理函数不叠', Math.max(...sigs.map(armedOn)), 1)
+
   const f = join(tmpdir(), `kol-h-restore-${process.pid}.ts`)
   writeFileSync(f, '原文', 'utf8')
   beginMutation(f, '原文')
   writeFileSync(f, '被改坏的', 'utf8')
   restoreMutation()
   eq('被打断时把动过的那份还回去', rf(f, 'utf8'), '原文')
-  rmSync(f, { force: true })
 
-  // 装完立刻拆掉：处理函数里有退出，留在测试进程里会把后面任何一次打断变成静默退出
-  const sigs = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
-  restoreOnInterrupt()
-  const armed = sigs.filter(s => process.listeners(s).includes(onInterrupt))
+  // 上面几条都在同一个进程里直接调函数：它们证得了「记了现场就还得回去」，
+  // 证不了「**信号真的杀进来**的时候还得回去」—— 把还原和非零退出整个从信号处理里
+  // 删掉，上面每一条照样绿（评审指出的正是这个缺口）。要证它，只有另起一个进程真挨一刀。
+  // 子脚本只调「记现场」这一个函数：接管信号要是没跟着记现场走，这一刀直接把它杀了，
+  // 还原和退出码两条一起红
+  const kid = join(tmpdir(), `kol-h-kid-${process.pid}.ts`)
+  const victim = join(tmpdir(), `kol-h-victim-${process.pid}.ts`)
+  writeFileSync(victim, '原文', 'utf8')
+  writeFileSync(kid, [
+    `import { writeFileSync as w } from 'node:fs'`,
+    `import { beginMutation } from ${JSON.stringify(join(process.cwd(), 'scripts/check/mutate-restore.js'))}`,
+    `beginMutation(${JSON.stringify(victim)}, '原文')`,
+    `w(${JSON.stringify(victim)}, '被改坏的', 'utf8')`,
+    `process.kill(process.pid, 'SIGTERM')`,
+    // 信号是异步送到的：手上不留一件事，Node 会在处理函数跑起来之前就正常退出，这一刀等于没挨
+    `setTimeout(() => {}, 5000)`,
+  ].join('\n'), 'utf8')
+  const r = spawnSync(join(process.cwd(), 'node_modules/.bin/tsx'), [kid], { encoding: 'utf8' })
+  eq('真挨一刀：动过的那份还是还回去了', rf(victim, 'utf8'), '原文')
+  eq('真挨一刀：这一次检查没跑完，退出码非零', r.status, 1)
+
+  // 最后才拆：处理函数里有退出，留在测试进程里会把后面任何一次打断变成静默退出
   for (const s of sigs) process.off(s, onInterrupt)
-  eq('三种打断都接管了 —— Ctrl-C、被杀掉、终端关掉', armed.length, sigs.length)
+  for (const p of [f, kid, victim]) rmSync(p, { force: true })
 }
 
 harness('审计：检查链自己的判定模块必须有变异守着')

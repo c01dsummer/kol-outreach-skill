@@ -1600,6 +1600,38 @@
       "file": "scripts/check/mutate-restore.ts",
       "find": "  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, onInterrupt)",
       "replace": "  for (const sig of ['SIGINT'] as const) process.on(sig, onInterrupt)"
+    },
+    {
+      "id": "M-H15-d",
+      "req": "harness",
+      "why": "记下现场那一步不再顺手接管信号 —— 入口只要少写一行，一整轮变异就在没人接管信号的情况下跑完，被打断时动过的那份源文件原样留在工作区里",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "export function beginMutation(file: string, orig: string): void {\n  restoreOnInterrupt()\n  inFlight = { file, orig }",
+      "replace": "export function beginMutation(file: string, orig: string): void {\n  inFlight = { file, orig }"
+    },
+    {
+      "id": "M-H15-e",
+      "req": "harness",
+      "why": "接管过还会再接管一遍 —— 两百个变异各装一次，同一个信号上挂满处理函数，Node 开始刷告警，而那时被盖住的正是人来看的那份变异结果",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  if (armed) return\n  armed = true\n",
+      "replace": "  armed = true\n"
+    },
+    {
+      "id": "M-H15-f",
+      "req": "harness",
+      "why": "真被信号杀掉时不再还原 —— 处理函数照样接管、照样非零退出，看上去一切正常，而动过的那份源文件留在工作区里，是一处故意违反某条需求的改动",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "export function onInterrupt(): never {\n  restoreMutation()\n  process.exit(1)\n}",
+      "replace": "export function onInterrupt(): never {\n  process.exit(1)\n}"
+    },
+    {
+      "id": "M-H15-g",
+      "req": "harness",
+      "why": "真被信号杀掉时以零退出 —— 一次没跑完的检查报成过了，而它连一半的变异都没跑到",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  process.exit(1)\n}",
+      "replace": "  process.exit(0)\n}"
     }
   ],
   "exemptions": [
