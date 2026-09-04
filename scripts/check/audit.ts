@@ -148,13 +148,14 @@ for (const r of reqs) {
     tested, mutated, exempt, impl: impl.length, refs: refs.length,
     claimedCriteria: testedCriteria, exemptIds: new Set(exemptIds.keys()),
   })
-  const { flag, claimed } = v
+  const { flag, claimed, exempted } = v
   hard += v.hard
   gaps.push(...v.gaps)
 
   rows.push(`  ${flag} ${r.id.padEnd(3)} ${r.cat}  测试${tested ? '✓' : '·'} ` +
             `变异${mutated ? '✓' : exempt ? '⊘' : '·'}  ` +
-            `判据 ${claimed}/${r.accept.length}  引用 ${refs.length} 处`)
+            `判据 ${claimed}${exempted ? `+⊘${exempted}` : ''}/${r.accept.length}  ` +
+            `引用 ${refs.length} 处`)
 }
 
 // ---- 2. 可执行文件是否都被执行过 ----

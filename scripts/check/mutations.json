@@ -1490,6 +1490,30 @@
       "replace": "    claimed: true,"
     },
     {
+      "id": "M-H6-g",
+      "req": "harness",
+      "why": "判据被显式豁免的那一行照样打 ✓ —— 而图例里 ✓ 是「完整」，审计自己在下面又把这几条列成显式缺口，一份报告里两种说法，读的人按哪一种都说得通",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  if (flag === '✓' && exempted.length) flag = '⊘'\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H6-h",
+      "req": "harness",
+      "why": "豁免了几条，数的是没认领也没豁免的那几条 —— 恰好互补，于是真有豁免的时候数出来是零，那一行退回打 ✓，缺的判据去哪了又看不见了",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  const exempted = r.accept.filter(c =>\n    !e.claimedCriteria.has(c.id) && e.exemptIds.has(c.id))",
+      "replace": "  const exempted = r.accept.filter(c =>\n    !e.claimedCriteria.has(c.id) && !e.exemptIds.has(c.id))"
+    },
+    {
+      "id": "M-H6-i",
+      "req": "harness",
+      "why": "豁免了几条，报的是这条需求判据的总数 —— 一条豁免都没有的需求也显示豁免了几条，每一行都从 ✓ 掉成 ⊘，那个记号于是什么都不说明了",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  return { flag, gaps, hard, claimed: claimed.length, exempted: exempted.length }",
+      "replace": "  return { flag, gaps, hard, claimed: claimed.length, exempted: r.accept.length }"
+    },
+    {
       "id": "M-H7-a",
       "req": "harness",
       "why": "变异记在一个不存在的编号名下也放行 —— 那条变异照样跑、照样被抓到，控制台一片绿，而它对任何一条需求都不算数，审计报出的「有变异守着」少了一条却没有人被告知",

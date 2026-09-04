@@ -1796,6 +1796,13 @@ harness('审计对一条需求的裁定')
   eq('判据级豁免算数',
     requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
                               exemptIds: new Set(['P9.b']) })).hard, 0)
+  // 豁免了就别打 `✓` —— 图例里 `✓` 是「完整」，而审计自己在下面又把这条列成
+  // 显式缺口。跟变异那一栏统一成 `⊘`，并把豁免了几条数出来（M-H6-g…i）。
+  const exempted1 = ev({ claimedCriteria: new Set(['P9.a']), exemptIds: new Set(['P9.b']) })
+  eq('判据有豁免 → 打 ⊘，不冒充完整', requirementVerdict(p, exempted1).flag, '⊘')
+  eq('豁免了几条要数出来', requirementVerdict(p, exempted1).exempted, 1)
+  eq('一条豁免都没有 → 不多报', requirementVerdict(p, ev({
+    claimedCriteria: new Set(['P9.a', 'P9.b']) })).exempted, 0)
 
   // 非红线：**一条都没认领同样是缺口**。原先只报「认领了一部分」那种，
   // 于是把仅有的那条认领删掉，缺口反而消失了 —— 一个删掉证据就能变绿的

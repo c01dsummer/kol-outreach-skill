@@ -433,6 +433,8 @@ export interface Verdict {
   gaps: string[]
   hard: number
   claimed: number
+  /** 没认领但已显式豁免的判据数 —— 这几条不是缺口,但也不是「完整」 */
+  exempted: number
 }
 
 /** 审计判定的输入。**全是已经算好的事实**,这个模块不读盘、不扫源码。 */
@@ -466,6 +468,8 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
   let flag: Verdict['flag'] = '✓'
   let hard = 0
   const claimed = r.accept.filter(c => e.claimedCriteria.has(c.id))
+  const exempted = r.accept.filter(c =>
+    !e.claimedCriteria.has(c.id) && e.exemptIds.has(c.id))
   const unclaimed = r.accept.filter(c =>
     !e.claimedCriteria.has(c.id) && !e.exemptIds.has(c.id))
 
@@ -496,7 +500,11 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
                 unclaimed.map(c => c.id).join(' '))
     }
   }
-  return { flag, gaps, hard, claimed: claimed.length }
+  // 判据被豁免的那一行原先照样打 `✓`,而图例里 `✓` 是「完整」—— 审计自己在
+  // 下面又把这几条列成显式缺口,一份报告里两种说法。跟变异那一栏统一:
+  // 豁免了就打 `⊘`,不冒充完整。只往上抬 `✓` 这一档,`✗` 和 `·` 各有各的理由。
+  if (flag === '✓' && exempted.length) flag = '⊘'
+  return { flag, gaps, hard, claimed: claimed.length, exempted: exempted.length }
 }
 
 /**
