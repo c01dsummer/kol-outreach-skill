@@ -21,6 +21,8 @@ export interface Claims {
   source_hash: string
   /** 真正跑过的需求编号 */
   covered: string[]
+  /** 真正跑过的**验收判据**编号,形如 `P5.f` —— 计量单位是判据,不是需求（ADR-24） */
+  criteria: string[]
 }
 
 /**
@@ -56,6 +58,14 @@ export const sourceFiles = (dir: string = SOURCE_DIR): [string, string][] =>
   })
 
 /**
+ * 记录里那几个字符串数组字段。列成一张名单,是因为验的不是「某一个字段」,
+ * 而是「每一个都得在」—— 加字段时只改这里,漏改判定就成了**新那一栏不验形状**:
+ * 一份缺了判据认领的记录被当成合法记录读进去,红线判据全被报成没有认领,
+ * 而毛病在记录本身,不在那些判据（M-H14-l 守着）。
+ */
+export const CLAIM_LISTS = ['covered', 'criteria'] as const
+
+/**
  * 这份记录长得对吗 —— 缺字段、字段不是数组、数组里混进非字符串,一律**认不出**。
  *
  * 不给缺失的字段兜底成空数组:兜底看着温和,实际是把「记录坏了」说成
@@ -71,8 +81,9 @@ export const sourceFiles = (dir: string = SOURCE_DIR): [string, string][] =>
 export const claimsWellFormed = (v: unknown): v is Claims =>
   typeof v === 'object' && v !== null &&
   typeof (v as Claims).source_hash === 'string' &&
-  Array.isArray((v as Claims).covered) &&
-  (v as Claims).covered.every(x => typeof x === 'string')
+  CLAIM_LISTS.every(k =>
+    Array.isArray((v as Claims)[k]) &&
+    (v as Claims)[k].every(x => typeof x === 'string'))
 
 /**
  * 这一次运行**拥有**那份记录吗 —— 拥有的一方开跑前先把它清掉,跑完再写。

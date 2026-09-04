@@ -6,7 +6,7 @@
  * 本文件目前违反了这一条（同一上下文写的代码和测试），已登记为 ADR-04 的已知缺口。
  */
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
-import { judgeLine } from './check/lint-rule.js'
+import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
 import { judgeRun } from './check/mutate-rule.js'
@@ -86,6 +86,18 @@ const eq = (label: string, got: unknown, want: unknown) => {
   else console.log(`  ✓ ${label}`)
 }
 const ok = (label: string, cond: boolean) => eq(label, cond, true)
+
+/**
+ * 认领一条**验收判据**（ADR-24）。计量单位是判据,不是需求 ——
+ * 「这条需求有测试」比事实粗:验收标准里的「与」在计量上是一条,在事实上是两条,
+ * 于是漏掉的那一半不扣分。红线的每一条判据没有认领就是硬失败,判定在 `spec-rule.ts`。
+ *
+ * 写在它认领的那几条断言**后面**:认领的意思是「上面那几条真的跑到了这里」。
+ * 断言红了就不写盘（`claimsPublishable`），所以认领不会替一次失败的运行作证。
+ * 和 `covered` 一样只认运行时执行到的 —— 注释掉的认领不算数（ADR-20）。
+ */
+const claimedCriteria = new Set<string>()
+const criterion = (...ids: string[]) => { for (const id of ids) claimedCriteria.add(id) }
 
 /**
  * 检查链自己的判定也要有测试。这类块不服务任何需求编号，所以**不进覆盖计数** ——
@@ -187,6 +199,7 @@ suite('P1', '缺失数据不得用默认值填充')
   const withEmail = mk('tiktok', 'g', { bio: 'biz@x.com' })
   fillEmail(withEmail)
   eq('bio 有邮箱 → 提取', withEmail.email, 'biz@x.com')
+  criterion('P1.a')
 
   // 粉丝数未知不得被静默过滤掉
   ok('未知粉丝放行', passesFollowerGate(mk('tiktok', 'h', { followers: undefined })))
@@ -296,6 +309,7 @@ suite('P2', '开发信占位符必须原样保留到产出物')
   const drafted = String(row[HEADERS.indexOf('outreach_draft')])
   ok('CSV 保留占位符', drafted.includes('{产品一句话}') && drafted.includes('{价格待填}'))
   eq('占位符一个不少', (drafted.match(/\{[^}]*\}/g) ?? []).length, 3)
+  criterion('P2.b')
 }
 
 suite('P1', '响应结构探测不得被空数组满足')
@@ -329,6 +343,7 @@ suite('P3', '未经确认不得超出预算')
   eq('实际发出请求数受限', sent, 5)
   ok('超限抛 BudgetExceeded', threw)
   eq('抛出时不增加计数', b.count, 5)
+  criterion('P3.a')
 
   // 跨运行累加，不重复计费（D6）
   const resumed = new Budget(0.010, 5)
@@ -361,6 +376,7 @@ suite('P4', '已联系/屏蔽的人不得进入名单')
   eq('计入 filtered_contacted', r.filtered_contacted, 2)
   eq('新人保留', r.kept.some(c => c.handle === 'fresh'), true)
   eq('换了产品的旧人保留但标注', r.kept.find(c => c.handle === 'seen')?.previously_recommended, 'other @ 2026-01-01')
+  criterion('P4.a')
 
   unlinkSync(tmp)
   useMemoryFile('memory/creators.json')
@@ -1083,6 +1099,7 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
   let threw = ''
   try { finalize(batch, 'p') } catch (e) { threw = (e as Error).name }
   eq('同一份记忆坏掉后：抛，而不是交出一份含已联系者的名单', threw, 'MemoryUnreadable')
+  criterion('P4.b')
 
   // D1 × P4 的交点：身份规范化两侧必须是同一个规则。查询侧一直在小写化、
   // 存储侧没有，于是手改出来的 `tiktok:Alice` 永远查不到 —— 已联系的人
@@ -1106,6 +1123,7 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
   const forced = finalize(batch, 'p', undefined, { ignoreUnreadableMemory: true })
   eq('逃生口下确实放行了已联系的人', forced.kept.length, 3)
   eq('但这件事必须能被下游读到', forced.memory_status, 'unreadable_ignored')
+  criterion('P4.c')
 
   // 真正要守的是这个：「没查到」与「查过、确实没人」在下游必须不同值。
   // 两者的 filtered_contacted 都是 0，能分开它们的只剩 memory_status。
@@ -1169,14 +1187,17 @@ suite('P5', '交付必须声明数据边界')
   // 代码本来就输出整句，就整句断言：断言比判据严不是问题，多出来那半句的负片是
   // M-P5-k，记在 P5 名下、不认领判据。P5.g 那句整条都是判据要的，负片是 M-P5-l。
   ok('未增强时声明邮箱来自 bio 提取、未做有效性验证',
-    html.includes('邮箱来自 bio 提取，未做有效性验证'))  // P5.f
+    html.includes('邮箱来自 bio 提取，未做有效性验证'))
+  criterion('P5.f')
   ok('未增强时声明无法确认粉丝是否在目标市场',
-    html.includes('无法确认这批人的粉丝是否在目标市场'))  // P5.g
+    html.includes('无法确认这批人的粉丝是否在目标市场'))
+  criterion('P5.g')
   // P5.h：未配置增强层时 enriched 必须为 false。判定在 report.ts（enrichedFlag），
   // 才能在这里断言 —— 留在 render.ts 里没有任何测试够得着（CONVENTIONS 第 10 条）。
   // 下面这一条认领 P5.h，M-P5-j（未增强却报 true）是它的负片。
   eq('没跑过邮箱/地域增强 → enriched false',
     enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50 })]), false)
+  criterion('P5.h')
   // true 那两条**不认领判据**（P5.h 只管 false 那一头，见 ADR-67 的就地更正）：
   // 它们断言 enrichedFlag 本身，也是 M-P5-h（恒 false）唯一抓得住的地方。
   // 变异编号末尾的字母是流水号，跟判据的字母不是一回事 —— M-P5-h 记在 P5 名下。
@@ -1217,6 +1238,7 @@ suite('P5', '交付必须声明数据边界')
                                     memory_written: true })
   ok('未去重的名单必须在报告上说出来', skipped.includes('未做「已联系 / 已推荐」去重'))
   ok('未去重时点明后果是可能重复打扰', skipped.includes('已经联系过'))
+  criterion('P5.d')
 
   const unwritten = renderHtml(one, { ...base, memory_status: 'ok', memory_written: false,
                                       memory_write_error: 'EACCES: permission denied' })
@@ -1994,6 +2016,47 @@ suite('P1', '纪律 lint 的判定：会变成决策的字段上不许有兜底'
     judgeLine('  const x = c.followers ?? 0   // p1-ok'), 'unjustified_exemption')
 }
 
+suite('P1', '纪律 lint 的扫描范围：scripts/ 全量，例外只有说好的那两处')
+{
+  /**
+   * 判定写对了、但扫不到那个文件，等于没查。P1.b 的后半句「对 scripts/ 全量扫描」
+   * 自己也要被证伪一次 —— 递归少走一层、例外表悄悄放大，检查照样打印「无违规」，
+   * 而它已经看不见半个仓库了。
+   *
+   * 断言依据只有 P1.b 原文，和这条 lint 自己声明的两处例外（检查链自己那一坨、
+   * 测试文件里故意写出来的样例）—— 那是**两个位置**，不是两个名字。搭一棵假树，
+   * 因为真树上没有违规可扫。
+   */
+  const root = join(tmpdir(), `kol-lint-${process.pid}`)
+  rmSync(root, { recursive: true, force: true })
+  const put = (rel: string, body: string) => {
+    mkdirSync(join(root, dirname(rel)), { recursive: true })
+    writeFileSync(join(root, rel), body, 'utf8')
+  }
+  const BAD = '  const x = c.followers ?? 0'
+  put('lib/deep/score.ts', BAD)                                  // 嵌套两层：递归得下得去
+  put('check/self.ts', BAD)                                      // 检查链自己那一坨不算
+  put('test.ts', BAD)                                            // 测试里的样例不算
+  put('lib/notes.md', BAD)                                       // 只看 .ts
+  put('lib/ok.ts', `${BAD}   // p1-ok: 展示用，不参与决策`)
+  // 例外是**两个具体位置**，不是两个名字。按名字排除的话，下面这两个跟着被放过 ——
+  // 而 lib/ 恰恰是最会出兜底的地方，「全量扫描」就是这么缩水的。
+  put('lib/check/nested.ts', BAD)                                // 顶层以下的同名目录：该扫
+  put('lib/test.ts', BAD)                                        // 顶层以下的同名文件：该扫
+
+  const { hits, exempted } = lintTree(root)
+  eq('该扫的都报了，说好的那两处例外之外一个不漏',
+    hits.map(h => h.file.slice(root.length + 1)).sort().join('|'),
+    'lib/check/nested.ts|lib/deep/score.ts|lib/test.ts')
+  eq('报到行，不是只报文件', hits[0]?.line, 1)
+  eq('写明理由的具名豁免被数进去，不报违规', exempted, 1)
+  rmSync(root, { recursive: true, force: true })
+
+  // 「命中即失败」还剩退出码那一截，长在入口脚本里：由 scripts/check/selfcheck.ts
+  // 拿一棵只含一处违规的假树真跑一遍 lint.ts，断言它以退出码 1 结束。
+  criterion('P1.b')
+}
+
 suite('D1', 'platform:handle 唯一标识，大小写不敏感')
 {
   const c = [mk('tiktok', 'Sarah', { bio_links: [] }), mk('instagram', 'sarah')]
@@ -2295,8 +2358,10 @@ suite('U7', '公开指标、风险依据、报价效率与边界进入交付物'
     html.includes('活跃状态') && html.includes('>停更</b>') && html.includes('>活跃</b>'))
   ok('公开指标不会隐藏邮箱与地域边界',
     html.includes('未做有效性验证') && html.includes('无法确认'))
+  criterion('P5.b')
   ok('HTML 明说风险不是假粉率或带货效果',
     html.includes('不是假粉率') && html.includes('不能代表实际带货效果'))
+  criterion('P5.c')
 }
 
 suite('U4', 'A 级附开发信草稿且可复制')
@@ -2398,10 +2463,15 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
 
   // 形状不对的记录要当「没有记录」办，不当「这些东西没测过」——
   // 后者会报出一串根本不存在的缺口，把人支到错的地方去修（M-H14-f）。
-  const wf = { source_hash: 'abc', covered: [] }
+  const wf = { source_hash: 'abc', covered: [], criteria: [] }
   eq('齐全的记录认得出来', claimsWellFormed(wf), true)
   eq('缺一个数组字段就认不出 —— 不兜底成空数组', claimsWellFormed({ ...wf, covered: undefined }), false)
   eq('字段在但不是数组，同样认不出', claimsWellFormed({ ...wf, covered: 'D1' }), false)
+  // 判据认领那一栏也得验，而且要逐栏点名：验的是「每一栏都在」，名单里漏掉一栏
+  // 就是那一栏不验形状 —— 一份缺了判据认领的记录被当成合法记录读进去，红线判据
+  // 全被报成没有认领，而毛病在记录本身，不在那些判据（M-H14-l）。
+  eq('缺判据认领那一栏，同样认不出', claimsWellFormed({ ...wf, criteria: undefined }), false)
+  eq('判据认领里混进非字符串，认不出', claimsWellFormed({ ...wf, criteria: [1] }), false)
   eq('指纹不是字符串，认不出', claimsWellFormed({ ...wf, source_hash: 12 }), false)
   eq('null 不是记录', claimsWellFormed(null), false)
   // 只验到「是数组」为止的话，元素不是字符串的记录会通过这一关，然后被审计当成
@@ -2910,6 +2980,7 @@ if (claimsPublishable(process.env.MUTATING === '1', fail, startHash, endHash)) {
   writeFileAtomic(CLAIMS_PATH, JSON.stringify({
     source_hash: endHash,
     covered: [...covered].sort(),
+    criteria: [...claimedCriteria].sort(),
   }, null, 2))
 }
 
