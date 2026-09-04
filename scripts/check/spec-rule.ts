@@ -508,6 +508,18 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
 }
 
 /**
+ * 审计报告里「判据 N/M」那一格。
+ *
+ * 豁免了几条要单独写出来 —— 光一个 `N/M` 看不出少的那条是被豁免了、还是根本
+ * 没人认领,而这两件事在审计里的分量完全不同:前者有人签过字,后者没有。
+ *
+ * 排版留在这里而不是入口脚本里:这一格恰恰是这条规矩唯一露给人看的地方,
+ * 留在入口里没有任何一条测试够得着它,删掉半格照样全绿。
+ */
+export const criteriaCell = (claimed: number, exempted: number, total: number): string =>
+  `判据 ${claimed}${exempted ? `+⊘${exempted}` : ''}/${total}`
+
+/**
  * 一个交点的认领编号。**两侧写反了也是同一个编号。**
  *
  * 登记表要求交点「写在让步的那一方」，那是给读的人定的规矩 —— 一个测试认领

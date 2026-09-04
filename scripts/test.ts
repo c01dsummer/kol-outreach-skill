@@ -11,7 +11,7 @@ import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
 import { judgeRun } from './check/mutate-rule.js'
 import {
-  active, adrIdsIn, contentHash, danglingAdrRefs, renderTables, requirementVerdict,
+  active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, renderTables, requirementVerdict,
   rootProblems, tensionEvidence, tensionHasRedline, tensionKey, tensionVerdict,
   validateRegistry,
   type Evidence, type Req, type TensionEvidence,
@@ -1814,6 +1814,11 @@ harness('审计对一条需求的裁定')
   eq('非红线还欠着认领 → 仍是 ·，豁免盖不住缺口',
     requirementVerdict(d3, ev({ claimedCriteria: new Set(['D9.a']),
                                 exemptIds: new Set(['D9.b']) })).flag, '·')
+  // 「判据 N/M」那一格是这条规矩唯一露给人看的地方，而它原先拼在入口脚本里 ——
+  // 谁也够不着，把 `+⊘N` 整段删掉全套测试照样绿，报告就退回那种两可的写法
+  // （M-H6-k、M-H6-l）。
+  eq('有豁免 → 那一格写出豁免了几条', criteriaCell(1, 1, 2), '判据 1+⊘1/2')
+  eq('没豁免 → 那一格不多写', criteriaCell(2, 0, 2), '判据 2/2')
 
   // 非红线：**一条都没认领同样是缺口**。原先只报「认领了一部分」那种，
   // 于是把仅有的那条认领删掉，缺口反而消失了 —— 一个删掉证据就能变绿的

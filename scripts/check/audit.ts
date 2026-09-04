@@ -15,7 +15,7 @@ import {
   type Claims,
 } from './claims.js'
 import {
-  REDLINE_CAT, requirementVerdict, tensionEvidence, tensionVerdict,
+  REDLINE_CAT, criteriaCell, requirementVerdict, tensionEvidence, tensionVerdict,
   type Req, type Tension,
 } from './spec-rule.js'
 const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
@@ -154,7 +154,7 @@ for (const r of reqs) {
 
   rows.push(`  ${flag} ${r.id.padEnd(3)} ${r.cat}  测试${tested ? '✓' : '·'} ` +
             `变异${mutated ? '✓' : exempt ? '⊘' : '·'}  ` +
-            `判据 ${claimed}${exempted ? `+⊘${exempted}` : ''}/${r.accept.length}  ` +
+            `${criteriaCell(claimed, exempted, r.accept.length)}  ` +
             `引用 ${refs.length} 处`)
 }
 

@@ -1522,6 +1522,22 @@
       "replace": "  if (exempted.length) flag = '⊘'"
     },
     {
+      "id": "M-H6-k",
+      "req": "harness",
+      "why": "审计那一行不再写豁免了几条 —— 一条判据被显式豁免和根本没人认领，在报告上又变回同一个数，而这两件事一个有人签过字、一个没有",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  `判据 ${claimed}${exempted ? `+⊘${exempted}` : ''}/${total}`",
+      "replace": "  `判据 ${claimed}/${total}`"
+    },
+    {
+      "id": "M-H6-l",
+      "req": "harness",
+      "why": "豁免那半格不再看有没有豁免，一条豁免都没有的需求也照样挂上这个记号，每一行都写着豁免了零条，于是那个记号什么都不说明",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  `判据 ${claimed}${exempted ? `+⊘${exempted}` : ''}/${total}`",
+      "replace": "  `判据 ${claimed}+⊘${exempted}/${total}`"
+    },
+    {
       "id": "M-H7-a",
       "req": "harness",
       "why": "变异记在一个不存在的编号名下也放行 —— 那条变异照样跑、照样被抓到，控制台一片绿，而它对任何一条需求都不算数，审计报出的「有变异守着」少了一条却没有人被告知",
