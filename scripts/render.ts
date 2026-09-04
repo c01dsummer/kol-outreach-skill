@@ -103,7 +103,7 @@ const meta = {
   requests: state.requests,
   cost_estimate_usd: Number((state.requests * 0.001).toFixed(4)),
   budget_usd: state.budget_usd,
-  // P5.a：兼容旧消费者；公开帖子指标不能把“邮箱/受众增强”伪装成已完成。
+  // P5.h：兼容旧消费者；公开帖子指标不能把“邮箱/受众增强”伪装成已完成。
   // 判定在 report.ts（enrichedFlag），这里只接线。
   enriched: enrichedFlag(creators),
   // P4/P5（ADR-15）：这一批有没有去重、这一批有没有被记下。两件事分开报，

@@ -1147,11 +1147,13 @@ suite('P5', '交付必须声明数据边界')
       total: 1, tiers: { A: 1, B: 0, C: 0 }, email_count: 0,
       cross_platform_count: 0, requests: 1, cost_estimate_usd: 0.001,
       budget_usd: 2, enriched: false })
-  ok('未增强时声明邮箱未验证', html.includes('未做有效性验证'))
-  ok('未增强时声明受众未知', html.includes('无法确认'))
-  // P5.a 的 meta.json 那一半：这次交付真的跑过邮箱/地域增强吗。判定在 report.ts
-  // （enrichedFlag），才能在这里断言 —— 留在 render.ts 里没有任何测试够得着
-  // （CONVENTIONS 第 10 条）。M-P5-h 守着它。
+  // 下面三条以前合在一条 P5.a 里，拆开是因为它们各自独立地坏：两条 HTML 声明是
+  // renderHtml 里两个各带条件的 if 块，enriched 是第三条判定（ADR-67 的就地更正）。
+  ok('未增强时声明邮箱未验证', html.includes('未做有效性验证'))  // P5.f
+  ok('未增强时声明受众未知', html.includes('无法确认'))  // P5.g
+  // P5.h：这次交付真的跑过邮箱/地域增强吗。判定在 report.ts（enrichedFlag），才能在
+  // 这里断言 —— 留在 render.ts 里没有任何测试够得着（CONVENTIONS 第 10 条）。
+  // 两头都断言：只断言 false 那一头的话，把判定写死成恒 false 也全绿。M-P5-h 守着。
   eq('没跑过邮箱/地域增强 → enriched false',
     enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50 })]), false)
   eq('邮箱增强跑过（查了没有邮箱）→ true',
