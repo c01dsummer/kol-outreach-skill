@@ -562,6 +562,22 @@
       "replace": "  true"
     },
     {
+      "id": "M-H14-j",
+      "req": "harness",
+      "why": "读不出覆盖记录时三种毛病塌成一种 —— 权限不对、路径底下变成了目录，都被说成「还没跑过、先跑测试」，而重跑一遍照样写不进同一个地方，诊断把人支到跟毛病无关的方向",
+      "file": "scripts/check/claims.ts",
+      "find": "  if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return 'missing'\n  if (err instanceof SyntaxError) return 'unparsable'\n  return 'unreadable'",
+      "replace": "  return 'missing'"
+    },
+    {
+      "id": "M-H14-k",
+      "req": "harness",
+      "why": "写盘条件少掉「开跑前和跑完两次指纹得一样」那一半 —— 源码在这一跑的过程中被改过也照写，记录带的是新那棵树的指纹而断言执行的是旧的，审计比对得上，一棵从没被完整测过的树拿到了证据",
+      "file": "scripts/check/claims.ts",
+      "find": "  claimsOwnedBy(mutating) && fail === 0 && startHash === endHash",
+      "replace": "  claimsOwnedBy(mutating) && fail === 0"
+    },
+    {
       "id": "M-D8-c",
       "req": "D8",
       "why": "旧缓存的样本记录不再收进窗口 —— 交付物上声称记着 16 条，而指标是按窗口内的 11 条算的，同一行数据自己打自己",

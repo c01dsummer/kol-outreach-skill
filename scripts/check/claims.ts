@@ -86,10 +86,32 @@ export const claimsWellFormed = (v: unknown): v is Claims =>
 export const claimsOwnedBy = (mutating: boolean): boolean => !mutating
 
 /**
- * 这一次运行有资格写下覆盖记录吗 —— 拥有它,而且**断言全过**（ADR-20）。
+ * 这一次运行有资格写下覆盖记录吗 —— 拥有它、**断言全过**,而且**源码一路没被动过**（ADR-20）。
  *
- * 抽出来是为了它能被测:条件留在入口里,少掉 `fail === 0` 那一半,
- * 没有任何一条测试会红,而审计会把红着的认领当成证据（M-H14-d 守着）。
+ * 最后那一条挡的是「跑到一半源码变了」:指纹只在跑完之后算一次的话,记录带的是
+ * 新那棵树的指纹,而断言执行的是旧的 —— 审计比对得上,于是一棵从没被完整测过的树
+ * 拿到了证据。开跑前先算一次,跑完再算一次,两次对不上就不写,让人重跑一遍。
+ *
+ * 抽出来是为了它能被测:条件留在入口里,少掉 `fail === 0` 或者少掉两次指纹的比较,
+ * 没有任何一条测试会红,而审计会把不作数的认领当成证据（M-H14-d、M-H14-k 守着）。
  */
-export const claimsPublishable = (mutating: boolean, fail: number): boolean =>
-  claimsOwnedBy(mutating) && fail === 0
+export const claimsPublishable = (mutating: boolean, fail: number, startHash: string, endHash: string): boolean =>
+  claimsOwnedBy(mutating) && fail === 0 && startHash === endHash
+
+/** 记录读不出来时,到底是哪一种读不出来 */
+export type ClaimsFault = 'missing' | 'unparsable' | 'unreadable'
+
+/**
+ * 读不出那份记录时,是**还没跑过**、**记录坏了**,还是**这个路径读不了**。
+ *
+ * 三种都当成一句「先跑 `npm test`」是在替毛病编一个答案:权限不对、路径底下变成了
+ * 目录、磁盘满 —— 重跑一遍测试照样写不进同一个地方,那句话把人支到跟毛病无关的方向。
+ * 这个仓库在反过来的那一头栽过同一个跟头(ADR-20 第二节:写不进去被说成文件坏了)。
+ *
+ * 抽出来是为了它能被测:分类留在入口里,塌成一种,没有任何一条测试会红（M-H14-j 守着）。
+ */
+export const claimsReadFault = (err: unknown): ClaimsFault => {
+  if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return 'missing'
+  if (err instanceof SyntaxError) return 'unparsable'
+  return 'unreadable'
+}

@@ -11,7 +11,8 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './audit-rule.js'
 import {
-  CLAIMS_PATH, SOURCE_DIR, claimsFresh, claimsWellFormed, fingerprint, sourceFiles, type Claims,
+  CLAIMS_PATH, SOURCE_DIR, claimsFresh, claimsReadFault, claimsWellFormed, fingerprint, sourceFiles,
+  type Claims,
 } from './claims.js'
 import { REDLINE_CAT, type Req } from './spec-rule.js'
 const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
@@ -61,10 +62,24 @@ for (const f of sources) corpus.set(f, readFileSync(f, 'utf8'))
 let raw: unknown
 try {
   raw = JSON.parse(readFileSync(CLAIMS_PATH, 'utf8'))
-} catch {
-  console.error(`✗ 找不到测试的覆盖记录 ${CLAIMS_PATH}\n`)
-  console.error('  审计回答不了「有没有测试」—— 那是测试跑过之后才存在的事实。')
-  console.error('  先跑 `npm test`（`npm run check` 会按顺序跑）。')
+} catch (e) {
+  // 读不出来分三种，说法也分三种 —— 「先跑 npm test」只对头一种成立。
+  // 权限不对、路径底下变成了目录、磁盘满，重跑一遍照样写不进同一个地方。
+  const fault = claimsReadFault(e)
+  if (fault === 'unreadable') {
+    console.error(`✗ 读不了测试的覆盖记录 ${CLAIMS_PATH}\n`)
+    console.error(`  ${e}`)
+    console.error('  这不是「没跑过测试」—— 重跑一遍也写不进同一个路径。')
+    console.error('  先看这个路径本身：权限、它是不是变成了目录、磁盘还有没有地方。')
+  } else if (fault === 'unparsable') {
+    console.error(`✗ 覆盖记录不是合法 JSON ${CLAIMS_PATH}\n`)
+    console.error(`  ${e}`)
+    console.error('  先跑 `npm test` 重写一份。')
+  } else {
+    console.error(`✗ 还没有测试的覆盖记录 ${CLAIMS_PATH}\n`)
+    console.error('  审计回答不了「有没有测试」—— 那是测试跑过之后才存在的事实。')
+    console.error('  先跑 `npm test`（`npm run check` 会按顺序跑）。')
+  }
   process.exit(1)
 }
 // 形状不对的记录当**没有**记录办，不当成「这些东西没测过」——

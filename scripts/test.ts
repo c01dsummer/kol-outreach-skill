@@ -16,7 +16,8 @@ import {
 } from './check/spec-rule.js'
 import { HARNESS, orphanAttributions } from './check/attribution-rule.js'
 import {
-  CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsWellFormed, fingerprint, sourceFiles,
+  CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsReadFault, claimsWellFormed,
+  fingerprint, sourceFiles,
 } from './check/claims.js'
 import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
@@ -71,6 +72,10 @@ export const covered = new Set<string>()
 // 挡的是「源码没改、这一跑却红了或者半路死了」那一半：那时指纹对得上，
 // 上一次成功的记录就成了这一次的证据。改坏源码那一半由指纹的范围挡（claims.ts）。
 if (claimsOwnedBy(process.env.MUTATING === '1')) rmSync(CLAIMS_PATH, { force: true })
+// 开跑前的指纹。跑完再算一次，两次对不上说明源码在这一跑的过程中被改过 ——
+// 只算跑完那一次的话，记录带的是新那棵树的指纹，而断言执行的是旧的，审计照样
+// 比对得上，于是一棵从没被完整测过的树拿到了证据。
+const startHash = fingerprint(sourceFiles())
 
 const suite = (req: string, name: string) => { cur = req; covered.add(req); console.log(`\n[${req}] ${name}`) }
 const eq = (label: string, got: unknown, want: unknown) => {
@@ -2375,9 +2380,12 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
   eq('指纹对不上就是过期', claimsFresh('abc', 'def'), false)
   // 写盘条件同理：少掉「断言全过」那一半没有任何测试会红，而审计会把一份
   // 红着的运行的认领当成证据 —— 三种情况各钉一条（M-H14-d）。
-  eq('干净的运行才写得下记录', claimsPublishable(false, 0), true)
-  eq('断言红过就不写 —— 没通过的运行不是证据', claimsPublishable(false, 1), false)
-  eq('变异运行不写 —— 它跑的是被改过的源码', claimsPublishable(true, 0), false)
+  eq('干净的运行才写得下记录', claimsPublishable(false, 0, 'a', 'a'), true)
+  eq('断言红过就不写 —— 没通过的运行不是证据', claimsPublishable(false, 1, 'a', 'a'), false)
+  eq('变异运行不写 —— 它跑的是被改过的源码', claimsPublishable(true, 0, 'a', 'a'), false)
+  // 开跑前和跑完各算一次指纹：对不上说明源码在这一跑的过程中变过，那份记录会替
+  // 一棵从没被完整测过的树作证（M-H14-k）。
+  eq('跑的过程中源码变过就不写', claimsPublishable(false, 0, 'a', 'b'), false)
 
   // 谁拥有这份记录，谁负责开跑前清掉它 —— 少了这一步，半路崩掉的运行会把
   // 上一次成功的记录留在盘上当证据（M-H14-e）。
@@ -2395,6 +2403,15 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
   // 只验到「是数组」为止的话，元素不是字符串的记录会通过这一关，然后被审计当成
   // 编号去比对 —— 该说「记录坏了、重跑测试」的地方变成一串对不上的编号（M-H14-i）。
   eq('数组里混进非字符串，认不出', claimsWellFormed({ ...wf, covered: [1] }), false)
+
+  // 读不出记录时三种毛病三种说法 —— 塌成一种就是替毛病编答案：权限不对、路径底下
+  // 变成了目录，重跑一遍测试照样写不进同一个地方，「先跑 npm test」把人支到跟毛病
+  // 无关的方向去（M-H14-j）。
+  const errno = (code: string) => Object.assign(new Error(code), { code })
+  eq('文件不在，是还没跑过', claimsReadFault(errno('ENOENT')), 'missing')
+  eq('读得出来但不是合法 JSON，是记录坏了', claimsReadFault(new SyntaxError('坏了')), 'unparsable')
+  eq('权限不对，是这个路径读不了 —— 不是没跑过', claimsReadFault(errno('EACCES')), 'unreadable')
+  eq('路径底下变成了目录，同样是读不了', claimsReadFault(errno('EISDIR')), 'unreadable')
 }
 
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
@@ -2881,12 +2898,13 @@ if (process.argv.includes('--json')) {
 // 一次干净的测试运行写（mutate.ts 给变异跑打上 MUTATING 标记，这里据此跳过）。
 // 失败的测试运行同样不写：断言红了还照写，一份没通过的运行会被当成证据交出去。
 // 判定本身在 claims.ts，不留在这个入口里 —— 留在这里就没有测试守得住它。
-if (claimsPublishable(process.env.MUTATING === '1', fail)) {
+const endHash = fingerprint(sourceFiles())
+if (claimsPublishable(process.env.MUTATING === '1', fail, startHash, endHash)) {
   mkdirSync(dirname(CLAIMS_PATH), { recursive: true })
   // 原子写：半截写坏的记录读起来是合法 JSON 的概率不大，但读的一方要为它写一段
   // 判死的代码 —— 换成写临时文件再改名，这一类根本不会出现（lib/atomic.ts）。
   writeFileAtomic(CLAIMS_PATH, JSON.stringify({
-    source_hash: fingerprint(sourceFiles()),
+    source_hash: endHash,
     covered: [...covered].sort(),
   }, null, 2))
 }
