@@ -99,8 +99,9 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
  * `email_verified` 为 false 也算「跑过」（查了、没有邮箱），所以只看字段在不在。
  * 这个**判定**放在这里而不是 render 里，是因为它能被测（CONVENTIONS 第 10 条）。
  *
- * 负片分工：M-P5-j 守 P5.h（未增强却报 true）；M-P5-h（恒 false）守的是 true
- * 那一头那三条断言，而那三条不认领任何判据。
+ * 负片分工：M-P5-j 守 P5.h（未增强却报 true）；M-P5-h（恒 false）守的是 test.ts
+ * 里 true 那一头的**两条**单测断言，那两条不认领任何判据。selfcheck 里还有一条
+ * true 断言，守的是 render.ts 的接线 —— 变异只跑 test.ts，够不着它，两层各管各的。
  */
 export const enrichedFlag = (creators: Creator[]): boolean =>
   creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)
