@@ -36,7 +36,7 @@ import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
-import { renderHtml } from './lib/report.js'
+import { enrichedFlag, renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   finalize, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators, keywordStats, tierCounts,
@@ -1149,6 +1149,15 @@ suite('P5', '交付必须声明数据边界')
       budget_usd: 2, enriched: false })
   ok('未增强时声明邮箱未验证', html.includes('未做有效性验证'))
   ok('未增强时声明受众未知', html.includes('无法确认'))
+  // P5.a 的 meta.json 那一半：这次交付真的跑过邮箱/地域增强吗。判定在 report.ts
+  // （enrichedFlag），才能在这里断言 —— 留在 render.ts 里没有任何测试够得着
+  // （CONVENTIONS 第 10 条）。M-P5-h 守着它。
+  eq('没跑过邮箱/地域增强 → enriched false',
+    enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50 })]), false)
+  eq('邮箱增强跑过（查了没有邮箱）→ true',
+    enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50, email_verified: false })]), true)
+  eq('地域增强跑过 → true',
+    enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50, audience_geo: { US: 0.5 } })]), true)
 
   const enriched = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 50 })],
     { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],

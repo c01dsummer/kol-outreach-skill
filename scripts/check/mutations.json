@@ -898,6 +898,14 @@
       "replace": "  (v ?? 'unknown') as MemoryStatus"
     },
     {
+      "id": "M-P5-h",
+      "req": "P5",
+      "why": "把跑过的邮箱/地域增强一律报成没跑过 —— meta.json 的 enriched 恒为 false，交付声明与实际不符",
+      "file": "scripts/lib/report.ts",
+      "find": "  creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)",
+      "replace": "  creators.some(() => false)"
+    },
+    {
       "id": "M-D4-n",
       "req": "D4",
       "why": "名单和它的去重状态改成两步落盘 —— 中间被打断时，盘上会留下一份没去重的名单配一句「已去重」的声明，报告据此压掉警告，把打扰过、已拉黑的人当成去过重的交付出去",
