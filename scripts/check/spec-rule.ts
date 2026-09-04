@@ -433,6 +433,8 @@ export interface Verdict {
   gaps: string[]
   hard: number
   claimed: number
+  /** 没认领、但已显式豁免的判据数 —— 不进硬失败,也不算「完整」,它们仍是显式缺口 */
+  exempted: number
 }
 
 /** 审计判定的输入。**全是已经算好的事实**,这个模块不读盘、不扫源码。 */
@@ -466,6 +468,8 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
   let flag: Verdict['flag'] = '✓'
   let hard = 0
   const claimed = r.accept.filter(c => e.claimedCriteria.has(c.id))
+  const exempted = r.accept.filter(c =>
+    !e.claimedCriteria.has(c.id) && e.exemptIds.has(c.id))
   const unclaimed = r.accept.filter(c =>
     !e.claimedCriteria.has(c.id) && !e.exemptIds.has(c.id))
 
@@ -496,8 +500,24 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
                 unclaimed.map(c => c.id).join(' '))
     }
   }
-  return { flag, gaps, hard, claimed: claimed.length }
+  // 判据被豁免的那一行原先照样打 `✓`,而图例里 `✓` 是「完整」—— 审计自己在
+  // 下面又把这几条列成显式缺口,一份报告里两种说法。跟变异那一栏统一:
+  // 豁免了就打 `⊘`,不冒充完整。只往上抬 `✓` 这一档,`✗` 和 `·` 各有各的理由。
+  if (flag === '✓' && exempted.length) flag = '⊘'
+  return { flag, gaps, hard, claimed: claimed.length, exempted: exempted.length }
 }
+
+/**
+ * 审计报告里「判据 N/M」那一格。
+ *
+ * 豁免了几条要单独写出来 —— 光一个 `N/M` 看不出少的那条是被豁免了、还是根本
+ * 没人认领,而这两件事在审计里的分量完全不同:前者有人签过字,后者没有。
+ *
+ * 排版留在这里而不是入口脚本里:这一格恰恰是这条规矩唯一露给人看的地方,
+ * 留在入口里没有任何一条测试够得着它,删掉半格照样全绿。
+ */
+export const criteriaCell = (claimed: number, exempted: number, total: number): string =>
+  `判据 ${claimed}${exempted ? `+⊘${exempted}` : ''}/${total}`
 
 /**
  * 一个交点的认领编号。**两侧写反了也是同一个编号。**

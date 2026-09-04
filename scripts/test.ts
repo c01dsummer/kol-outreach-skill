@@ -11,7 +11,7 @@ import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
 import { judgeRun } from './check/mutate-rule.js'
 import {
-  active, adrIdsIn, contentHash, danglingAdrRefs, renderTables, requirementVerdict,
+  active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, renderTables, requirementVerdict,
   rootProblems, tensionEvidence, tensionHasRedline, tensionKey, tensionVerdict,
   validateRegistry,
   type Evidence, type Req, type TensionEvidence,
@@ -1796,6 +1796,29 @@ harness('审计对一条需求的裁定')
   eq('判据级豁免算数',
     requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
                               exemptIds: new Set(['P9.b']) })).hard, 0)
+  // 豁免了就别打 `✓` —— 图例里 `✓` 是「完整」，而审计自己在下面又把这条列成
+  // 显式缺口。跟变异那一栏统一成 `⊘`，并把豁免了几条数出来（M-H6-g…i）。
+  const exempted1 = ev({ claimedCriteria: new Set(['P9.a']), exemptIds: new Set(['P9.b']) })
+  eq('判据有豁免 → 打 ⊘，不冒充完整', requirementVerdict(p, exempted1).flag, '⊘')
+  eq('豁免了几条要数出来', requirementVerdict(p, exempted1).exempted, 1)
+  eq('一条豁免都没有 → 不多报', requirementVerdict(p, ev({
+    claimedCriteria: new Set(['P9.a', 'P9.b']) })).exempted, 0)
+  // `⊘` 只往上抬 `✓` 这一档。少掉「原本是 ✓」这半个条件，一条还欠着认领的
+  // 红线会从 `✗` 改写成「已豁免」，非红线的 `·` 同理 —— 报告上看着是有人签过
+  // 字的缺口，其实没有，而豁免恰恰是唯一要人签字的那一档（M-H6-j）。
+  const p3 = req('P9', ['a', 'b', 'c'])
+  eq('红线还欠着认领 → 仍是 ✗，豁免盖不住硬失败',
+    requirementVerdict(p3, ev({ claimedCriteria: new Set(['P9.a']),
+                                exemptIds: new Set(['P9.b']) })).flag, '✗')
+  const d3 = req('D9', ['a', 'b', 'c'])
+  eq('非红线还欠着认领 → 仍是 ·，豁免盖不住缺口',
+    requirementVerdict(d3, ev({ claimedCriteria: new Set(['D9.a']),
+                                exemptIds: new Set(['D9.b']) })).flag, '·')
+  // 「判据 N/M」那一格是这条规矩唯一露给人看的地方，而它原先拼在入口脚本里 ——
+  // 谁也够不着，把 `+⊘N` 整段删掉全套测试照样绿，报告就退回那种两可的写法
+  // （M-H6-k、M-H6-l）。
+  eq('有豁免 → 那一格写出豁免了几条', criteriaCell(1, 1, 2), '判据 1+⊘1/2')
+  eq('没豁免 → 那一格不多写', criteriaCell(2, 0, 2), '判据 2/2')
 
   // 非红线：**一条都没认领同样是缺口**。原先只报「认领了一部分」那种，
   // 于是把仅有的那条认领删掉，缺口反而消失了 —— 一个删掉证据就能变绿的
