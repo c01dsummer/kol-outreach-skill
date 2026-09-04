@@ -71,6 +71,8 @@ export const covered = new Set<string>()
 // 开跑前先把上一次的覆盖记录清掉 —— 拥有它的一方负责它的生死（ADR-20）。
 // 挡的是「源码没改、这一跑却红了或者半路死了」那一半：那时指纹对得上，
 // 上一次成功的记录就成了这一次的证据。改坏源码那一半由指纹的范围挡（claims.ts）。
+// 挡不住 import 阶段就崩的那一路 —— 这一行在静态 import 求值之后才跑。
+// 见 claims.ts 里 claimsOwnedBy 的「够不到的那一段」。
 if (claimsOwnedBy(process.env.MUTATING === '1')) rmSync(CLAIMS_PATH, { force: true })
 // 开跑前的指纹。跑完再算一次，两次对不上说明源码在这一跑的过程中被改过 ——
 // 只算跑完那一次的话，记录带的是新那棵树的指纹，而断言执行的是旧的，审计照样
@@ -2366,9 +2368,11 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
   // 指纹照旧对得上，上一次的记录成了这一次的证据。范围收窄或者不进子目录，
   // 下面三条会红（M-H14-b、M-H14-h）。
   const scanned = sourceFiles().map(([f]) => f)
-  ok('入口本身在指纹范围里', scanned.includes('scripts/test.ts'))
-  ok('被 import 的实现也在 —— 改坏它就等于改了指纹', scanned.includes('scripts/lib/atomic.ts'))
-  ok('子目录要走进去', scanned.includes('scripts/check/claims.ts'))
+  // 用 join 拼期望值：sourceFiles 也是用 join 拼的，写死斜杠的话这三条在 Windows 上必红，
+  // 而扫描本身是对的 —— 一条永远在某个平台上红的断言证明不了任何事。
+  ok('入口本身在指纹范围里', scanned.includes(join('scripts', 'test.ts')))
+  ok('被 import 的实现也在 —— 改坏它就等于改了指纹', scanned.includes(join('scripts', 'lib', 'atomic.ts')))
+  ok('子目录要走进去', scanned.includes(join('scripts', 'check', 'claims.ts')))
   // 只哈希内容不哈希路径的话，把一个文件改名、挪到别处，指纹一个字不变（M-H14-g）。
   const fp = (...files: [string, string][]) => fingerprint(files)
   eq('路径也算进指纹', fp(['a.ts', 'x']) === fp(['b.ts', 'x']), false)

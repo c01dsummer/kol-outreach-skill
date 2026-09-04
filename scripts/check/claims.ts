@@ -82,6 +82,11 @@ export const claimsWellFormed = (v: unknown): v is Claims =>
  * 的证据。开跑前清掉,死了就没有记录,审计说「先跑 npm test」。
  *
  * 变异测试跑的是被改过的源码:它既不清也不写,那一份记录不归它（M-H14-e 守着）。
+ *
+ * **够不到的那一段**:清掉那一行在所有静态 import 求值**之后**才跑。import 阶段就崩了
+ * —— 依赖装漏、`node_modules` 坏了、内存不够 —— 清不掉,上一次的记录原样留着,而这些
+ * 毛病都不体现在源码指纹里,审计比对得上。要堵死,得让「清掉」跑在 import 之前,
+ * 那是换一种进场方式,不在这一片里做。写在这儿是为了别把它当成已经保证了的事。
  */
 export const claimsOwnedBy = (mutating: boolean): boolean => !mutating
 
