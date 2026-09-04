@@ -498,6 +498,86 @@
       "replace": "  return 'caught'"
     },
     {
+      "id": "M-H14-b",
+      "req": "harness",
+      "why": "覆盖记录的指纹只算检查链自己那个子目录 —— 别处的实现改坏了、测试跟着崩了，指纹照旧对得上，上一次的记录成了这一次的证据",
+      "file": "scripts/check/claims.ts",
+      "find": "export const SOURCE_DIR = 'scripts'",
+      "replace": "export const SOURCE_DIR = 'scripts/check'"
+    },
+    {
+      "id": "M-H14-c",
+      "req": "harness",
+      "why": "指纹对得上也判成过期 —— 每一份新鲜覆盖记录都不算数，审计退回到永远「先跑 npm test」",
+      "file": "scripts/check/claims.ts",
+      "find": "  recordHash === selfHash",
+      "replace": "  recordHash !== selfHash"
+    },
+    {
+      "id": "M-H14-d",
+      "req": "harness",
+      "why": "写盘条件少掉「断言全过」那一半 —— 一次红着的运行照样写下覆盖记录，审计把没通过的认领当成证据",
+      "file": "scripts/check/claims.ts",
+      "find": "  claimsOwnedBy(mutating) && fail === 0",
+      "replace": "  claimsOwnedBy(mutating)"
+    },
+    {
+      "id": "M-H14-e",
+      "req": "harness",
+      "why": "把「谁拥有这份记录」改成人人有份 —— 变异运行也会清掉、写脏那份覆盖记录，普通运行留下的证据被一次跑在改坏源码上的运行顶替",
+      "file": "scripts/check/claims.ts",
+      "find": "export const claimsOwnedBy = (mutating: boolean): boolean => !mutating",
+      "replace": "export const claimsOwnedBy = (mutating: boolean): boolean => true"
+    },
+    {
+      "id": "M-H14-f",
+      "req": "harness",
+      "why": "形状判定不再看字段是不是数组 —— 缺字段、字段类型不对的记录被当成合法记录读进去，审计报出一串根本不存在的缺口，把人支到错的地方去修",
+      "file": "scripts/check/claims.ts",
+      "find": "  Array.isArray((v as Claims).covered) &&\n  (v as Claims).covered.every(x => typeof x === 'string')",
+      "replace": "  true"
+    },
+    {
+      "id": "M-H14-g",
+      "req": "harness",
+      "why": "指纹只算文件内容、不算它在哪 —— 把一个文件改名、挪到别处，指纹一个字不变，过期的记录照旧算新鲜",
+      "file": "scripts/check/claims.ts",
+      "find": "  for (const [p, body] of [...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) h.update(`${p}\\0${body}\\0`)",
+      "replace": "  for (const [p, body] of [...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) h.update(body)"
+    },
+    {
+      "id": "M-H14-h",
+      "req": "harness",
+      "why": "指纹的范围不往子目录里走 —— 检查链和库里的实现改坏了都不算改动，上一次的记录照旧算新鲜",
+      "file": "scripts/check/claims.ts",
+      "find": "    if (e.isDirectory()) return sourceFiles(p)",
+      "replace": "    if (e.isDirectory()) return []"
+    },
+    {
+      "id": "M-H14-i",
+      "req": "harness",
+      "why": "形状判定只验到「是数组」为止 —— 元素不是字符串的记录被当成合法记录读进去，审计拿它去比对编号，该说「记录坏了、先重跑测试」的地方变成一串对不上的编号",
+      "file": "scripts/check/claims.ts",
+      "find": "  (v as Claims).covered.every(x => typeof x === 'string')",
+      "replace": "  true"
+    },
+    {
+      "id": "M-H14-j",
+      "req": "harness",
+      "why": "读不出覆盖记录时三种毛病塌成一种 —— 权限不对、路径底下变成了目录，都被说成「还没跑过、先跑测试」，而重跑一遍照样写不进同一个地方，诊断把人支到跟毛病无关的方向",
+      "file": "scripts/check/claims.ts",
+      "find": "  if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return 'missing'\n  if (err instanceof SyntaxError) return 'unparsable'\n  return 'unreadable'",
+      "replace": "  return 'missing'"
+    },
+    {
+      "id": "M-H14-k",
+      "req": "harness",
+      "why": "写盘条件少掉「开跑前和跑完两次指纹得一样」那一半 —— 源码在这一跑的过程中被改过也照写，记录带的是新那棵树的指纹而断言执行的是旧的，审计比对得上，一棵从没被完整测过的树拿到了证据",
+      "file": "scripts/check/claims.ts",
+      "find": "  claimsOwnedBy(mutating) && fail === 0 && startHash === endHash",
+      "replace": "  claimsOwnedBy(mutating) && fail === 0"
+    },
+    {
       "id": "M-D8-c",
       "req": "D8",
       "why": "旧缓存的样本记录不再收进窗口 —— 交付物上声称记着 16 条，而指标是按窗口内的 11 条算的，同一行数据自己打自己",
