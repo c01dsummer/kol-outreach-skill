@@ -52,7 +52,7 @@ import { enrichedFlag, renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   finalize, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators, keywordStats, tierCounts,
-  resumeRemainingWork,
+  profilesToEnrich, resumeCostNotice, resumeRemainingWork,
 } from './lib/pipeline.js'
 import {
   ACTIVITY_ACTIVE_MAX_DAYS, ACTIVITY_COOLING_MAX_DAYS,
@@ -430,8 +430,13 @@ suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环
   ok('bio 未查询 → 还要补', needsProfile(c({ bio: undefined })))
   ok('查过了但没有外链 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
   eq('查过且有外链 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
-  // 这个判定决定要不要花钱：说「续跑不产生新请求」之前，它必须对每个人都是 false。
-  // 补全循环用的是同一个函数，两处不会各说各的（负片 M-D6-d）。
+  // 上面三条只说了判定本身对。「共用」还得单独钉一下：补全循环取的那份名单
+  // （collect.ts 里原先那句 filter 已经搬进来了）必须和逐个判定的结果一样多 ——
+  // 名单里放一个只有真判定才数得进去的人：查过了但没外链（负片 M-D6-j）。
+  const crowd = [c({ bio: '简介', bio_links: ['https://x'] }), c({ bio: undefined }),
+                 c({ bio: '简介', bio_links: [] })]
+  eq('补全循环要处理的是这两个人', profilesToEnrich(crowd).length, 2)
+  eq('逐个判定的结果与它一致', crowd.filter(needsProfile).length, profilesToEnrich(crowd).length)
   criterion('D6.e')
 }
 
@@ -457,6 +462,29 @@ suite('D6', '「还剩多少活」是两种活合起来的一句话 —— 少�
   eq('都干完了才没有剩余', none.rest, '')
   ok('这时候续跑才真的不花钱', none.free)
   criterion('D6.c')
+}
+
+suite('D6', '收尾说哪一句是算出来的 —— 挑错分支，用户就被告知续跑免费')
+{
+  const st = (over: Partial<TaskState> = {}): TaskState => ({
+    product: 'p', market: 'US', target_count: 50, budget_usd: 1,
+    tasks: [{ keyword: 'a', dimension: 'category', platform: 'tiktok' }],
+    done: [], offsets: {}, requests: 0, created_at: '', updated_at: '', ...over,
+  })
+  const full = mk('tiktok', 'full', { bio: '简介', bio_links: ['https://x'] })
+  const bare = mk('tiktok', 'bare', { bio: undefined })
+  // 还有人没补 profile：这句话得说出还剩什么，还得说明续跑要花钱 —— 少哪一半，
+  // 用户都拿不到「要不要续跑」这个决定所需的东西（负片 M-D6-i 把两个分支对调）。
+  const busy = resumeCostNotice(st({ done: [0] }), 50, [full, bare], 'out/x')
+  ok('说了还剩什么', busy.includes('还有 1 个人的 profile 没跑完'))
+  ok('说了续跑会继续花钱', busy.includes('续跑会继续发请求、继续花钱'))
+  eq('这时候不能说续跑免费', busy.includes('续跑不产生新的请求'), false)
+  ok('也说了已抓到的不会重抓', busy.includes('已抓到的都在 out/x，不会重新抓'))
+  // 两种活都干完了，才轮到另一句
+  const done = resumeCostNotice(st({ done: [0] }), 50, [full], 'out/x')
+  ok('干完了才说续跑不产生新的请求', done.includes('续跑不产生新的请求'))
+  eq('这时候不该再说要继续花钱', done.includes('继续花钱'), false)
+  criterion('D6.h')
 }
 
 suite('D6', '续跑不得被本任务自己上一轮的产出滤空')

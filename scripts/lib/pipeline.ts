@@ -79,6 +79,18 @@ export function needsProfile(c: Creator): boolean {
 }
 
 /**
+ * 补全循环要处理的人 —— 就是 `needsProfile` 的复数形式。
+ *
+ * 单抽一个函数不是为了少写一行：这句 filter 原先躺在 collect.ts 的循环里，
+ * 而入口脚本里的代码永远进不了变异体。谓词在那边被就地改写、或者写成另一份
+ * 看着一样的表达式，不会有任何东西变红 —— 上面那段「两处共用同一个判定」
+ * 的承诺就只是句话。搬到这里，两处才真的是同一处。
+ */
+export function profilesToEnrich(creators: Iterable<Creator>): Creator[] {
+  return [...creators].filter(needsProfile)
+}
+
+/**
  * **续跑真正会去抓的关键词。**
  *
  * 「不在 done 里」不等于「续跑会去抓」：达标提前停下时，剩下的关键词一个都
@@ -117,12 +129,31 @@ export function resumeRemainingWork(
   state: TaskState, qualified: number, creators: Iterable<Creator>,
 ): { rest: string; free: boolean } {
   const keywords = keywordsResumeWillRun(state, qualified).length
-  const profiles = [...creators].filter(needsProfile).length
+  const profiles = profilesToEnrich(creators).length
   const rest = [
     keywords ? `${keywords} 个关键词` : '',
     profiles ? `${profiles} 个人的 profile` : '',
   ].filter(Boolean).join('、')
   return { rest, free: !rest }
+}
+
+/**
+ * **收尾那句话。**
+ *
+ * 它说的是「续跑要不要花钱」，所以整句都得算出来 —— **包括挑哪一句**。挑分支
+ * 这一步原先留在 collect.ts 里：把两个分支对调，上面那个函数照样返回对的数，
+ * 单元测试照样是绿的，而用户看到的是反过来的话 —— 还剩一堆活没干，却被告知
+ * 续跑不花钱（ADR-25）。
+ *
+ * selfcheck 那一关也拦不住：它只认「这两句里出现了一句」。
+ */
+export function resumeCostNotice(
+  state: TaskState, qualified: number, creators: Iterable<Creator>, dir: string,
+): string {
+  const { rest, free } = resumeRemainingWork(state, qualified, creators)
+  if (free) return `\n   采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`
+  return `\n   已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，` +
+    `续跑会继续发请求、继续花钱。`
 }
 
 // ═══════════ render 的分层 ═══════════

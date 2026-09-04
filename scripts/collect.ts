@@ -17,7 +17,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetExceeded } from './lib/budget.js'
-import { finalize, needsProfile, pendingKeywords, resumeRemainingWork } from './lib/pipeline.js'
+import { finalize, pendingKeywords, profilesToEnrich, resumeCostNotice } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
 import {
@@ -201,7 +201,7 @@ async function run() {
 let profileFailed = 0
 
 async function enrichProfiles() {
-  const list = [...creators.values()].filter(needsProfile)
+  const list = profilesToEnrich(creators.values())
   console.error(`\n补全 profile：${list.length} 人`)
   let done = 0
   for (const c of list) {
@@ -264,13 +264,9 @@ async function main() {
     // 而剩下的关键词照样要花钱（ADR-22）。
     if (stopped === 'error') console.error(`\n   ⚠️ 本轮采集也没跑完：${errorMsg}`)
     if (stopped === 'budget') console.error(`\n   ⚠️ 本轮预算也已用尽，续跑需要 --budget 追加`)
-    // 「续跑要不要花钱」有两种没干完的活，怎么把它们合成一句话本身有语义 ——
-    // 所以那一步不在这儿，见 pipeline.ts 的 resumeRemainingWork（ADR-25、ADR-08）。
-    const { rest, free } = resumeRemainingWork(state, qualified(), creators.values())
-    console.error(free
-      ? `\n   采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`
-      : `\n   已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，` +
-        `续跑会继续发请求、继续花钱。`)
+    // 「续跑要不要花钱」这句话整句都是算出来的，包括挑哪一句 —— 那一步不在
+    // 这儿，见 pipeline.ts 的 resumeCostNotice（ADR-25、ADR-08）。
+    console.error(resumeCostNotice(state, qualified(), creators.values(), dir))
 
     // 预算用尽时光 --resume 会立刻再退 3，所以命令里得把 --budget 一起给出来。
     // 写成 npm run 的形式：tsx 只在 npm script 里才在 PATH 上，而且 .env 也只有那条路会读

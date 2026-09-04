@@ -930,6 +930,22 @@
       "replace": "    profiles > 1 ? `${profiles} 个人的 profile` : '',"
     },
     {
+      "id": "M-D6-i",
+      "req": "D6",
+      "why": "收尾把两句话挑反了 —— 还剩一堆活没干的时候说「续跑不产生新的请求」，用户据此以为不花钱才去续跑；剩余量算得再对，说出口的是反的",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (free) return",
+      "replace": "  if (!free) return"
+    },
+    {
+      "id": "M-D6-j",
+      "req": "D6",
+      "why": "补全循环取名单时另写一份判定：只看简介查没查过，不看有没有外链 —— 于是查过了但没外链的人不会被补，而「续跑还剩多少活」那边照旧把他算进去，两处各说各的",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return [...creators].filter(needsProfile)",
+      "replace": "  return [...creators].filter(c => c.bio === undefined)"
+    },
+    {
       "id": "M-D4-o",
       "req": "D4",
       "why": "记忆不可用时一律报成「解析失败」—— 而它同样可能是权限不足、父路径不是目录或磁盘出错，那时候用户会去查一份完好的文件，真正的原因在报错里被盖住了",
