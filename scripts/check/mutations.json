@@ -911,7 +911,7 @@
       "why": "比较产品名时不去掉两侧的空白 —— 手改时多打的一个空格，就让「这个人已经为这个产品推荐过」整条失效，人被重新推荐一次",
       "file": "scripts/lib/memory.ts",
       "find": "    if (others.some(r => r.product.trim() === want)) { rec++; continue }",
-      "replace": "    if (others.some(r => r.product === product)) { rec++; continue }"
+      "replace": "    if (others.some(r => r.product === want)) { rec++; continue }"
     },
     {
       "id": "M-D6-g",
@@ -940,7 +940,7 @@
     {
       "id": "M-D6-j",
       "req": "D6",
-      "why": "补全循环取名单时另写一份判定：只看简介查没查过，不看有没有外链 —— 于是查过了但没外链的人不会被补，而「续跑还剩多少活」那边照旧把他算进去，两处各说各的",
+      "why": "取整份名单的那个复数形式不再共用同一份判定，自己又写了一遍：只看简介查没查过，不看外链取到没有 —— 查过了但没外链的人从此谁也不去补，收尾还照说「续跑不产生新的请求」，而交付出去的名单里，那批人一个联系方式都没有",
       "file": "scripts/lib/pipeline.ts",
       "find": "  return [...creators].filter(needsProfile)",
       "replace": "  return [...creators].filter(c => c.bio === undefined)"

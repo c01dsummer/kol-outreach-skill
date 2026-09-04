@@ -425,23 +425,28 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
   criterion('D6.d')
 }
 
-suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环与「续跑要花多少钱」共用它')
+suite('D6', '「还要不要补 profile」在 lib 里只有一份判定 —— 取名单的那个就是它逐个用在人身上')
 {
   const c = (over: Partial<Creator>) => mk('tiktok', 'x', over)
   ok('bio 未查询 → 还要补', needsProfile(c({ bio: undefined })))
   ok('查过了但没有外链 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
   eq('查过且有外链 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
-  // 上面三条只说了判定本身对。「共用」还得单独钉一下：补全循环取的那份名单
-  // （collect.ts 里原先那句 filter 已经搬进来了）必须和逐个判定的结果一样多 ——
-  // 名单里放一个只有真判定才数得进去的人：查过了但没外链（负片 M-D6-j）。
+  // 上面三条只说了判定本身对。「只有一份」还得单独钉一下：取整份名单的那个复数形式
+  // 不许自己再写一遍判定 —— 名单里放一个只有真判定才数得进去的人：
+  // 查过了但没外链（负片 M-D6-j）。
   const crowd = [c({ handle: 'full', bio: '简介', bio_links: ['https://x'] }),
                  c({ handle: 'bare', bio: undefined }),
                  c({ handle: 'nolink', bio: '简介', bio_links: [] })]
   // 比的是**挑了谁**，不是「挑了几个」：漏掉一个待补的、又多挑一个补过的，
-  // 数目仍然对得上，而补全循环补的是错的人 —— 只比长度看不出来。
-  eq('补全循环要处理的是这两个人', profilesToEnrich(crowd).map(x => x.handle), ['bare', 'nolink'])
+  // 数目仍然对得上，而补的是错的人 —— 只比长度看不出来。
+  eq('取名单挑出来的是这两个人', profilesToEnrich(crowd).map(x => x.handle), ['bare', 'nolink'])
   eq('逐个判定挑出来的是同一批', crowd.filter(needsProfile).map(x => x.handle), ['bare', 'nolink'])
   criterion('D6.e')
+  // 到这儿为止全在 lib 里。**入口那一侧一条都没验**：collect.ts 的补全循环，这份
+  // 测试既没跑过也没读过 —— 把它取名单那一句换回一份就地写的筛选，上面每一条照样绿。
+  // 那半句单列成 D6.k，**故意不认领**：审计会把它当缺口一直印出来，而不是当成验过了。
+  // 要真验它得端到端跑一遍入口，而罐头数据现在还造不出「查过了但没外链」的人 ——
+  // 先有那个人，才谈得上验。
 }
 
 // 两种活各占一条判据，不合成一条：它们由两个不同的表达式产出，能被独立弄坏
@@ -784,18 +789,20 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   const padded = filterByMemory([mk('tiktok', 'pad')], 'Foo', undefined, { ignoreUnreadable: true })
   eq('产品名两侧的空白不影响「已推荐过」', padded.filtered_recommended, 1)
   eq('于是那个人不会被再推荐一次', padded.kept.length, 0)
-  // 空白换到**查询**那一侧同样得成立。两侧各去一次空白，是两处独立的写法：
-  // 上面那份记忆里带空白的是存下来的产品名，查询侧问的是干净的 'Foo' ——
-  // 把查询侧的去空白删掉，上面两条照样绿（负片 M-D6-l）。
+  criterion('D6.f')
+  // 空白换到**查询**那一侧是**另一处去空白**，两处各去各的：上面那两条坏在存储侧
+  // 不去空白（负片 M-D6-f），下面这两条坏在查询侧不去空白（负片 M-D6-l）——
+  // 把查询侧那一次删掉，上面两条照样绿。所以两边各自认领：合成一条的话，
+  // 下面这一段被人整段删掉，审计还会照着那一条报「验过了」。
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {
     'tiktok:pad': { contacted: false, blocked: false,
       recommendations: [{ product: 'Foo', date: '2026-01-01' }] } } }), 'utf8')
   const asked = filterByMemory([mk('tiktok', 'pad')], ' Foo ', undefined, { ignoreUnreadable: true })
   eq('空白出现在查询那一侧也一样', asked.filtered_recommended, 1)
   eq('那个人同样不会被再推荐一次', asked.kept.length, 0)
-  criterion('D6.f')
-  // 「不判为损坏」是**另一条代码路径**：上面那两条坏在比较时不去空白（负片 M-D6-f），
-  // 这一条坏在读取侧把带空白的产品名判成损坏（负片 M-D6-g）。所以各自认领 ——
+  criterion('D6.j')
+  // 「不判为损坏」是**另一条代码路径**：上面那几条坏在比较时不去空白（负片 M-D6-f、
+  // M-D6-l），这一条坏在读取侧把带空白的产品名判成损坏（负片 M-D6-g）。所以各自认领 ——
   // 合成一条的话，后一种坏法在这里是绿的。
   eq('而且没把这份记忆判成损坏', padded.memory_status, 'ok')
   criterion('D6.g')
