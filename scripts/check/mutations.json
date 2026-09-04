@@ -1242,6 +1242,14 @@
       "replace": "const PID_MAX = 0x7fffffff"
     },
     {
+      "id": "M-D4-ae",
+      "req": "D4",
+      "why": "写回失败时不再清掉半成品 —— 那一刻盘上躺着一份完整的内容副本，名字带进程号，没有任何人被告知它在那儿；而调用方拿到的是「没写回」、照常交付。要删掉它只能等同一个进程再写一次同一个文件，可写回失败往往就是最后一次写",
+      "file": "scripts/lib/atomic.ts",
+      "find": "    try { rmSync(tmp, { force: true }) } catch { /* \u540c\u4e0a */ }\n",
+      "replace": ""
+    },
+    {
       "id": "M-H4-a",
       "req": "harness",
       "why": "交点不再校验它指向的编号是否真实存在 —— 登记表里可以写一个指向不存在需求的交点",

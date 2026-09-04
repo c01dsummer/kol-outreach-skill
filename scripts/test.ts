@@ -1043,6 +1043,34 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     rmSync(um, { force: true })
   }
 
+  // 七之十四、**写回失败时不许把半成品留在盘上（D4.p）。** 改名之前失败（盘满、IO 错、
+  //          目标路径上卡着别的东西），那一刻盘上已经躺着一份**完整的内容副本**，
+  //          名字带进程号；而调用方拿到的是「没写回」、照常交付（D4.n）——
+  //          没有任何人被告知那份副本在那儿。清它的只有两条路，失败的这一刻
+  //          两条都走不到：同一个进程**再写一次同一个文件**（写之前那一次删），
+  //          或者这个进程号死掉之后**别人再写一次同一个文件**（清残留那一步
+  //          明写着自己名下的不清）。而写回失败往往就是最后一次写。
+  //
+  //          让改名注定失败：目标是个非空目录。前面几问它全过得了（目录是可写的），
+  //          临时文件建出来、写完、刷完，到改名那一步才失败 —— 落点正是要守的那一段。
+  //          **这也是这条断言不空的理由**：失败发生在临时文件写完之后，那一刻盘上
+  //          确实躺着它，所以「它不在了」只能是被清掉的（第四轮评审提的：先摆一份
+  //          半成品守不住什么，写之前那一次 rmSync 会先把它删掉）。
+  {
+    const stuck = join(tmpdir(), `kol-d4-halfdone-${process.pid}`)
+    rmSync(stuck, { recursive: true, force: true })
+    mkdirSync(stuck, { recursive: true })
+    writeFileSync(join(stuck, 'x'), '占着，改名搬不进来', 'utf8')
+    const half = `${stuck}.${process.pid}.tmp`
+    let threwHalf = ''
+    try { writeFileAtomic(stuck, '这一次的内容') } catch (e) { threwHalf = String(e) }
+    ok('目标是目录时写回报失败', threwHalf !== '')
+    eq('写回失败时半成品不留在盘上', existsSync(half), false)
+    criterion('D4.p')
+    rmSync(half, { force: true })
+    rmSync(stuck, { recursive: true, force: true })
+  }
+
   // 八、写入侧不许写出读取侧会拒绝的东西。任务配置里 product 是空白时，
   //     写下的那条推荐记录下次读盘正好被判成损坏 —— 一次写回就把一份好好的
   //     记忆变成读不出来的，此后每次采集都被挡住（ADR-46）。
