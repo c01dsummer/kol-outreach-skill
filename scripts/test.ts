@@ -16,6 +16,9 @@ import {
 } from './check/spec-rule.js'
 import { HARNESS, orphanAttributions } from './check/attribution-rule.js'
 import {
+  CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsWellFormed, fingerprint, sourceFiles,
+} from './check/claims.js'
+import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
 import {
@@ -51,7 +54,7 @@ import {
   readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator,
   EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, TaskState,
@@ -63,6 +66,11 @@ import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 let fail = 0
 let cur = ''
 export const covered = new Set<string>()
+
+// 开跑前先把上一次的覆盖记录清掉 —— 拥有它的一方负责它的生死（ADR-20）。
+// 挡的是「源码没改、这一跑却红了或者半路死了」那一半：那时指纹对得上，
+// 上一次成功的记录就成了这一次的证据。改坏源码那一半由指纹的范围挡（claims.ts）。
+if (claimsOwnedBy(process.env.MUTATING === '1')) rmSync(CLAIMS_PATH, { force: true })
 
 const suite = (req: string, name: string) => { cur = req; covered.add(req); console.log(`\n[${req}] ${name}`) }
 const eq = (label: string, got: unknown, want: unknown) => {
@@ -2346,6 +2354,49 @@ harness('审计的计量输入：作废的不参与计量，只参与展示')
   eq('没有作废的 → 这一段不印', deprecatedBlock([]), [])
 }
 
+harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
+{
+  // 指纹只算 test.ts 自己有个洞：静态 import 先于模块体求值，被 import 的实现改出
+  // 语法错误时，测试在「开跑前清记录」那一行之前就崩了 —— test.ts 一个字没动、
+  // 指纹照旧对得上，上一次的记录成了这一次的证据。范围收窄或者不进子目录，
+  // 下面三条会红（M-H14-b、M-H14-h）。
+  const scanned = sourceFiles().map(([f]) => f)
+  ok('入口本身在指纹范围里', scanned.includes('scripts/test.ts'))
+  ok('被 import 的实现也在 —— 改坏它就等于改了指纹', scanned.includes('scripts/lib/atomic.ts'))
+  ok('子目录要走进去', scanned.includes('scripts/check/claims.ts'))
+  // 只哈希内容不哈希路径的话，把一个文件改名、挪到别处，指纹一个字不变（M-H14-g）。
+  const fp = (...files: [string, string][]) => fingerprint(files)
+  eq('路径也算进指纹', fp(['a.ts', 'x']) === fp(['b.ts', 'x']), false)
+  eq('内容变了指纹就变', fp(['a.ts', 'x']) === fp(['a.ts', 'y']), false)
+  eq('给的顺序不影响指纹 —— 目录遍历的顺序不保证稳定', fp(['a.ts', 'x'], ['b.ts', 'y']), fp(['b.ts', 'y'], ['a.ts', 'x']))
+  // 新鲜度判定抽出来是为了它能被测：比较留在入口里，改成反向比较或恒真，
+  // 没有任何测试会红（M-H14-c）。
+  eq('指纹对得上才新鲜', claimsFresh('abc', 'abc'), true)
+  eq('指纹对不上就是过期', claimsFresh('abc', 'def'), false)
+  // 写盘条件同理：少掉「断言全过」那一半没有任何测试会红，而审计会把一份
+  // 红着的运行的认领当成证据 —— 三种情况各钉一条（M-H14-d）。
+  eq('干净的运行才写得下记录', claimsPublishable(false, 0), true)
+  eq('断言红过就不写 —— 没通过的运行不是证据', claimsPublishable(false, 1), false)
+  eq('变异运行不写 —— 它跑的是被改过的源码', claimsPublishable(true, 0), false)
+
+  // 谁拥有这份记录，谁负责开跑前清掉它 —— 少了这一步，半路崩掉的运行会把
+  // 上一次成功的记录留在盘上当证据（M-H14-e）。
+  eq('普通运行拥有这份记录', claimsOwnedBy(false), true)
+  eq('变异运行不拥有它 —— 既不清也不写', claimsOwnedBy(true), false)
+
+  // 形状不对的记录要当「没有记录」办，不当「这些东西没测过」——
+  // 后者会报出一串根本不存在的缺口，把人支到错的地方去修（M-H14-f）。
+  const wf = { source_hash: 'abc', covered: [] }
+  eq('齐全的记录认得出来', claimsWellFormed(wf), true)
+  eq('缺一个数组字段就认不出 —— 不兜底成空数组', claimsWellFormed({ ...wf, covered: undefined }), false)
+  eq('字段在但不是数组，同样认不出', claimsWellFormed({ ...wf, covered: 'D1' }), false)
+  eq('指纹不是字符串，认不出', claimsWellFormed({ ...wf, source_hash: 12 }), false)
+  eq('null 不是记录', claimsWellFormed(null), false)
+  // 只验到「是数组」为止的话，元素不是字符串的记录会通过这一关，然后被审计当成
+  // 编号去比对 —— 该说「记录坏了、重跑测试」的地方变成一串对不上的编号（M-H14-i）。
+  eq('数组里混进非字符串，认不出', claimsWellFormed({ ...wf, covered: [1] }), false)
+}
+
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
 {
   // 这个遮罩守着两条路径：提交信息里的豁免、决策记录的分节。后者不可逆 ——
@@ -2815,6 +2866,31 @@ console.log(fail ? `\n${fail} 个失败\n` : `\n全部通过（覆盖 ${covered.
 if (process.argv.includes('--json')) {
   console.log('COVERED=' + JSON.stringify([...covered]))
 }
+/*
+ * 把「谁被覆盖了」交给审计 —— **运行时收集，不是源码里搜出来的**。
+ *
+ * 审计原先按源码正则找 `suite('X')`，于是**注释掉的认领照样算数**：把测试删掉、
+ * 认领留在注释里，审计照样报「有测试」。这个仓库在同一个坑上栽过 —— `audit.ts`
+ * 里那句「早先还 or 了一个 includes(base) 兜底，结果是任何地方提到文件名
+ *（哪怕注释里）就算执行过」（ADR-20）。
+ *
+ * 带上整棵 `scripts/` 树的指纹：审计要重算一遍并比对，**过期的记录不算数**。
+ * 没跑过测试就没有这份记录，审计当场说「先跑 npm test」，而不是默默放行。
+ */
+// 变异测试跑的是被改过的源码，那一次执行留下的覆盖记录不作数 —— 记录只能由
+// 一次干净的测试运行写（mutate.ts 给变异跑打上 MUTATING 标记，这里据此跳过）。
+// 失败的测试运行同样不写：断言红了还照写，一份没通过的运行会被当成证据交出去。
+// 判定本身在 claims.ts，不留在这个入口里 —— 留在这里就没有测试守得住它。
+if (claimsPublishable(process.env.MUTATING === '1', fail)) {
+  mkdirSync(dirname(CLAIMS_PATH), { recursive: true })
+  // 原子写：半截写坏的记录读起来是合法 JSON 的概率不大，但读的一方要为它写一段
+  // 判死的代码 —— 换成写临时文件再改名，这一类根本不会出现（lib/atomic.ts）。
+  writeFileAtomic(CLAIMS_PATH, JSON.stringify({
+    source_hash: fingerprint(sourceFiles()),
+    covered: [...covered].sort(),
+  }, null, 2))
+}
+
 // 不 process.exit()：stdout 接的是管道时（变异测试就是这么跑的），刚 console.log 的那几行可能
 // 还没写出去就被 exit 截掉 —— 实测 8 次里 1 次「N 个失败」那一行丢了，进程退出码 1 却没有汇总，
 // mutate 判成「跑不起来」。设 exitCode 让进程自己走完，输出一定落地

@@ -10,6 +10,9 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './audit-rule.js'
+import {
+  CLAIMS_PATH, SOURCE_DIR, claimsFresh, claimsWellFormed, fingerprint, sourceFiles, type Claims,
+} from './claims.js'
 import { REDLINE_CAT, type Req } from './spec-rule.js'
 const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
 /**
@@ -47,10 +50,40 @@ const sources = [...walk('scripts'), ...walk('docs', '.md'), ...walk('skill', '.
 const corpus = new Map<string, string>()
 for (const f of sources) corpus.set(f, readFileSync(f, 'utf8'))
 
-const testSrc = corpus.get('scripts/test.ts') ?? ''
-const testedIds = new Set([...testSrc.matchAll(/suite\('([A-Z]\d+)'/g)].map(m => m[1]))
-const alsoCovered = new Set([...testSrc.matchAll(/covered\.add\('([A-Z]\d+)'\)/g)].map(m => m[1]))
-for (const id of alsoCovered) testedIds.add(id)
+/*
+ * 「有没有测试」从**运行时记录**读，不从源码里搜。
+ *
+ * 原先按源码正则找 `suite('X')` 与 `covered.add('X')`，于是**注释掉的认领照样算数** ——
+ * 把测试删掉、认领留在注释里，审计照样报「有测试」。这个文件下面那段关于
+ * `includes(base)` 的注释记的就是同一个坑（ADR-20）。记录带着整棵 `scripts/`
+ * 树的指纹，对不上就是过期的，不算数。
+ */
+let raw: unknown
+try {
+  raw = JSON.parse(readFileSync(CLAIMS_PATH, 'utf8'))
+} catch {
+  console.error(`✗ 找不到测试的覆盖记录 ${CLAIMS_PATH}\n`)
+  console.error('  审计回答不了「有没有测试」—— 那是测试跑过之后才存在的事实。')
+  console.error('  先跑 `npm test`（`npm run check` 会按顺序跑）。')
+  process.exit(1)
+}
+// 形状不对的记录当**没有**记录办，不当成「这些东西没测过」——
+// 后者会报出一串根本不存在的缺口，把人支到错的地方去修。
+if (!claimsWellFormed(raw)) {
+  console.error(`✗ 覆盖记录的形状不对 ${CLAIMS_PATH}\n`)
+  console.error('  缺字段、字段不是数组、数组里混进非字符串 —— 都不能当证据。')
+  console.error('  先跑 `npm test` 重写一份。')
+  process.exit(1)
+}
+const claims: Claims = raw
+const selfHash = fingerprint(sourceFiles())
+if (!claimsFresh(claims.source_hash, selfHash)) {
+  console.error(`✗ 覆盖记录是旧的：${SOURCE_DIR}/ 下有改动，但测试没重跑\n`)
+  console.error(`  记录里是 ${claims.source_hash}，实际 ${selfHash}`)
+  console.error('  先跑 `npm test`。')
+  process.exit(1)
+}
+const testedIds = new Set(claims.covered)
 
 const mutatedIds = new Set<string>(mutCfg.mutations.map((m: any) => m.req))
 const exemptIds = new Map<string, string>(

@@ -16,11 +16,12 @@
  *
  * 这条防线的强度取决于 `why` 怎么写 —— 引了实现原文的 why，`--brief` 照样把它漏出去。
  */
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { orphanAttributions } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import { type RunVerdict, judgeRun } from './mutate-rule.js'
+import { CLAIMS_PATH } from './claims.js'
 
 interface Mut { id: string; req: string; why: string; file: string; find: string; replace: string }
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
@@ -72,6 +73,19 @@ const survived: Mut[] = []
 const crashed: Mut[] = []
 const notApplied: Mut[] = []
 
+// 变异跑不得留下痕迹 —— 源码在 finally 里还原，那份覆盖记录同理。
+// 平时 test.ts 认得 MUTATING 标记、既不清也不写；但**变异改的正可能是那个判定
+// 本身**，那一次跑就会把记录清掉或写脏。记录只由一次干净的 npm test 产生，
+// 在这里存下再放回去，免得一个被抓到的变异顺手把后面的审计弄红。
+const claimsBackup = existsSync(CLAIMS_PATH) ? readFileSync(CLAIMS_PATH) : undefined
+// 本来就没有记录时**要把新长出来的删掉**：变异改的可能正是写盘资格那个判定，
+// 那一跑会凭空写下一份由被改过的源码产生的记录，留下就是给后面的审计递假证。
+const restoreClaims = () => {
+  if (claimsBackup) writeFileSync(CLAIMS_PATH, claimsBackup)
+  else rmSync(CLAIMS_PATH, { force: true })
+}
+process.on('exit', restoreClaims)
+
 for (const m of muts) {
   const orig = readFileSync(m.file, 'utf8')
   if (!orig.includes(m.find)) {
@@ -82,7 +96,9 @@ for (const m of muts) {
   writeFileSync(m.file, orig.replace(m.find, m.replace), 'utf8')
   let verdict: RunVerdict
   try {
-    execSync('npx tsx scripts/test.ts', { stdio: 'pipe' })
+    // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
+    // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
+    execSync('npx tsx scripts/test.ts', { stdio: 'pipe', env: { ...process.env, MUTATING: '1' } })
     verdict = 'survived'
   } catch (e: any) {
     // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null)
