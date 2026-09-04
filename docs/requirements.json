@@ -1,6 +1,6 @@
 {
   "$comment": "编号的唯一真相来源。docs/SPEC.md 是它的渲染，两者不一致以本文件为准。content_hash 是派生字段，由 spec-sync --write 写，不要手改 —— 改了需求不回写，npm run check 当场变红。字段含义见 process/1-REQUIREMENTS.md。",
-  "content_hash": "3646c9b9d845",
+  "content_hash": "d559b3460033",
   "categories": {
     "P": "红线 —— 不参与任何取舍",
     "S": "范围 —— 明确不做什么",
@@ -23,6 +23,10 @@
           "id": "P1.b",
           "text": "任何位置不得出现 `?? 0` / `|| ''` 形式的数据兜底；纪律 lint 对 scripts/ 全量扫描，命中即失败。"
         }
+      ],
+      "adr": [
+        "ADR-08",
+        "ADR-10"
       ]
     },
     {
@@ -39,6 +43,9 @@
           "id": "P2.b",
           "text": "**可执行的那一半**：产出物必须原样保留占位符 —— render 不得删除、替换或「补全」草稿里的 {…}，否则运营看不到还有待填项就直接发了出去。"
         }
+      ],
+      "adr": [
+        "ADR-01"
       ]
     },
     {
@@ -55,6 +62,9 @@
           "id": "P3.b",
           "text": "collect 捕获 BudgetExceeded 后保存断点并以退出码 3 结束。"
         }
+      ],
+      "adr": [
+        "ADR-03"
       ]
     },
     {
@@ -75,6 +85,9 @@
           "id": "P4.c",
           "text": "只有用户显式指定 --ignore-memory 才跳过去重出名单，且交付物必须声明本次未做已联系去重 —— 这条红线挡的是在用户不知情时再次进入名单（ADR-15）。"
         }
+      ],
+      "adr": [
+        "ADR-15"
       ]
     },
     {
@@ -107,6 +120,10 @@
           "id": "P5.h",
           "text": "未配置外部增强层时，meta.json 的 enriched 必须为 false。"
         }
+      ],
+      "adr": [
+        "ADR-10",
+        "ADR-15"
       ]
     },
     {
@@ -195,6 +212,9 @@
           "id": "D1.d",
           "text": "同一 handle 的不同大小写形式在记忆查询中被视为同一人，platform 的大小写亦然。"
         }
+      ],
+      "adr": [
+        "ADR-22"
       ],
       "tension": [
         {
@@ -295,6 +315,9 @@
           "text": "写回失败报为未写回并照常完成交付，不得中断产出；交付物带出失败原因原文，不得把写不进去说成读不出来。"
         }
       ],
+      "adr": [
+        "ADR-15"
+      ],
       "tension": [
         {
           "with": "P4",
@@ -338,6 +361,10 @@
           "id": "D6.b",
           "text": "采集累加器 creators.raw.json 只增不减，过滤只作用于交付物 creators.json —— 在 render 写回记忆之后续跑，已采集的人不得消失。"
         }
+      ],
+      "adr": [
+        "ADR-03",
+        "ADR-08"
       ]
     },
     {
@@ -374,6 +401,11 @@
           "id": "D8.c",
           "text": "字段缺失不按 0 处理；未查询、不可用、已测量在 enrichment.json 与交付物中可区分。"
         }
+      ],
+      "adr": [
+        "ADR-10",
+        "ADR-13",
+        "ADR-14"
       ]
     },
     {
@@ -394,6 +426,9 @@
           "id": "D9.c",
           "text": "缺报价、混合套餐或分母不可用时明确不可计算。"
         }
+      ],
+      "adr": [
+        "ADR-10"
       ]
     },
     {
@@ -418,6 +453,11 @@
           "id": "D10.d",
           "text": "旧 enrichment 样本可在不新增 API 请求的情况下补算。"
         }
+      ],
+      "adr": [
+        "ADR-11",
+        "ADR-13",
+        "ADR-14"
       ]
     },
     {
@@ -495,6 +535,9 @@
           "text": "不运行 enrich 时 render 仍能产出结果。"
         }
       ],
+      "adr": [
+        "ADR-10"
+      ],
       "tension": [
         {
           "with": "P1",
@@ -528,6 +571,9 @@
           "id": "F7.b",
           "text": "达上限抛 BudgetExceeded。"
         }
+      ],
+      "adr": [
+        "ADR-03"
       ]
     },
     {
@@ -552,6 +598,10 @@
           "id": "F8.d",
           "text": "medium/low/unknown 不改变分层；任何风险等级都不得自动删除创作者。"
         }
+      ],
+      "adr": [
+        "ADR-10",
+        "ADR-13"
       ]
     },
     {
@@ -672,6 +722,11 @@
           "id": "U7.d",
           "text": "meta.json 按能力分别统计 measured/unavailable/unqueried；公开指标不得把兼容字段 enriched 置为 true。"
         }
+      ],
+      "adr": [
+        "ADR-10",
+        "ADR-11",
+        "ADR-14"
       ]
     }
   ]
