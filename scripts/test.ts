@@ -428,7 +428,11 @@ suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环
   ok('bio 未查询 → 还要补', needsProfile(c({ bio: undefined })))
   ok('查过了但没有外链 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
   eq('查过且有外链 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
-  // 这个判定决定要不要花钱：说「续跑不产生新请求」之前，它必须对每个人都是 false
+  // 这个判定决定要不要花钱：说「续跑不产生新请求」之前，它必须对每个人都是 false。
+  // D6.c 说的「剩余工作量」是**两种**活，坏在不同的地方，所以两个 suite 各断言一半：
+  // 关键词那半在上一个 suite（负片 M-D6-e），profile 这半在这里（负片 M-D6-d）。
+  // 认领写在后一半 —— 两处都跑到了，那句话才敢说。
+  criterion('D6.c')
 }
 
 suite('D6', '续跑不得被本任务自己上一轮的产出滤空')
@@ -689,9 +693,17 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {
     'tiktok:pad': { contacted: false, blocked: false,
       recommendations: [{ product: ' Foo ', date: '2026-01-01' }] } } }), 'utf8')
-  const padded = filterByMemory([mk('tiktok', 'pad')], 'Foo')
+  // 打开 ignoreUnreadable 不是放松要求，是为了让「判成损坏」变成一个能断言的值：
+  // 默认那条路是抛，抛出来测试进程就崩了，而崩溃不是断言的功劳（同上）。
+  // 代价原样带在 memory_status 上，下面第三条就盯着它。
+  const padded = filterByMemory([mk('tiktok', 'pad')], 'Foo', undefined, { ignoreUnreadable: true })
   eq('产品名两侧的空白不影响「已推荐过」', padded.filtered_recommended, 1)
   eq('于是那个人不会被再推荐一次', padded.kept.length, 0)
+  // 后半句「不判为损坏」得单独断言：它和前半句坏在**不同的代码路径**上 ——
+  // 前半句是比较时不去空白（负片 M-D6-f），后半句是读取侧把带空白的产品名
+  // 判成损坏（负片 M-D6-g）。只断言前半句的话，后一种坏法这里是绿的。
+  eq('而且没把这份记忆判成损坏', padded.memory_status, 'ok')
+  criterion('D6.d')
 
   // 七之二、名单和它的去重状态：**哪个先写都不安全**，取决于状态往哪边变。
   //        ok → unreadable_ignored 时名单先写会坏；unreadable_ignored → ok 时
