@@ -730,6 +730,9 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     try { filterByMemory(batch, 'p') } catch (e) { caught = (e as Error).name }
     eq(`合法 JSON 但${label} → 当作读不出来`, caught, 'MemoryUnreadable')
   }
+  // 这一圈把 D4.d 列举的每一种「结构不对」都跑了一遍，包括推荐记录的
+  // product/date 不是非空字符串 —— 纯空白的产品名算损坏，归属在这里。
+  criterion('D4.d')
   // 但不做全量 schema：运营自己加的字段不该被判成损坏
   writeFileSync(tmp, JSON.stringify({ version: 1, creators: { 'tiktok:a': {
     contacted: false, blocked: false, 我的备注: '随手写的',
@@ -762,7 +765,8 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
 
   // 七、product 的首尾空白不该让「已推荐过」失效。**不判成损坏** ——
   //     product 来自用户的任务配置，配置里多一个空格就把我们自己写下的
-  //     记忆判成读不出来，那是自伤。纯空白仍然算损坏（trim 之后是空的）。
+  //     记忆判成读不出来，那是自伤。（纯空白算损坏是 D4.d 的事，
+  //     由上面那圈 shapes 里的 ['product', '   '] 钉住并认领，不在本条。）
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {
     'tiktok:pad': { contacted: false, blocked: false,
       recommendations: [{ product: ' Foo ', date: '2026-01-01' }] } } }), 'utf8')
@@ -2728,9 +2732,12 @@ harness('自检：续跑那句话必须说清代价，说要花钱就得说清�
 
   eq('说不花钱 → 放行', resumeCostVerdict(`采集结果都在 out/。${FREE}`), null)
   eq('说要花钱、也说了还剩什么 → 放行', resumeCostVerdict(`采集结果都在 out/。${COST}`), null)
-  // 一句不说和两句一起说，坏法不同、后果一样：用户不知道续跑要不要钱
+  // 一句不说和两句一起说，坏法不同、后果一样：用户不知道续跑要不要钱。
+  // 但**报错要各报各的** —— 两句都写了却报成「一句都没说」，
+  // 看错误的人会照着去找一句根本不在收尾里的话，比不报还费时间。
   ok('一句都不说 → 拦', say('采集结果都在 out/。').includes('一句都没说'))
-  ok('两句一起说 → 同样拦', say(FREE + COST).includes('一句都没说'))
+  ok('两句一起说 → 拦，且报的是两句相反', say(FREE + COST).includes('说了两句相反的话'))
+  ok('两种坏法不共用一句报错', say('采集结果都在 out/。') !== say(FREE + COST))
   // 下面两条是 ADR-22 那张空头支票的两种变体：话说了，钱数没说
   ok('说要花钱却不说剩什么 → 拦',
     say('采集中断了，续跑会继续发请求、继续花钱。').includes('没说还剩什么'))

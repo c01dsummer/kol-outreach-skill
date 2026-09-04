@@ -355,6 +355,12 @@ if (dir) {
   const costVerdict = resumeCostVerdict(stderr)
   if (costVerdict) { failed++; console.error(`  ✗ ${costVerdict}`) }
   else console.log('  ✓ 续跑的代价按实际剩余工作量说话，说要花钱就说清还剩什么')
+  // 只认「二选一」还不够：这一轮的活确实都干完了，所以必须是**免费**那一句。
+  // 补全循环少补了人、剩余量算多了，上面那条照样绿 —— 这儿才看得出来。
+  if (!stderr.includes('续跑不产生新的请求')) {
+    failed++
+    console.error('  ✗ 这一轮的活都干完了，收尾却说续跑还要花钱 —— 剩余量与实际干完的活对不上')
+  } else console.log('  ✓ 活干完了，收尾说的是续跑不产生新的请求')
   // 预算用尽时光 --resume 会立刻再退 3。这里采集已跑完，命令不该带 --budget；
   // 反过来说了「预算也已用尽」的那条命令必须带 —— 两句话要同进同出
   const budgetGone = stderr.includes('预算也已用尽')
@@ -409,6 +415,45 @@ if (dir) {
   } else if (!legacyHtml.includes('无从确认')) {
     failed++; console.error('  ✗ 报告没有声明去重状态无从确认')
   } else console.log('  ✓ 旧任务目录记为 unknown 并在报告上声明')
+}
+
+// ---- 记忆读不出来 × 采集也没跑完：续跑的代价必须换成**要花钱**那一句（ADR-22、ADR-25）----
+// 上面那一段续的是已经跑完的任务，只走得到「不花钱」那一条；把 collect.ts 里那句话
+// 写死成免费，上面照样全绿。这一段专门造一个还有关键词没抓完的断点，钉住另一条。
+const stuckCfg = join(tmp, 'stuck.json')
+writeFileSync(stuckCfg, JSON.stringify({
+  product: 'stuck', market: 'US', target_count: 500, budget_usd: 0.002,
+  tasks: Array.from({ length: 6 }, (_, i) => ({
+    keyword: `stuck${i}`, dimension: 'category', platform: 'tiktok',
+  })),
+}))
+const stuckOut = run('collect 预算掐死采集，留下没抓完的关键词',
+  [S('collect.ts'), '--config', stuckCfg], tmp, { status: 3, stream: 'stdout' })
+let stuckDir = ''
+try { stuckDir = JSON.parse(stuckOut).dir } catch {}
+if (!stuckDir) {
+  failed++
+  console.error('  ✗ 预算掐死的那次采集没留下断点目录 —— 要花钱那一句无从检验')
+} else {
+  const memFile = join(tmp, 'memory', 'creators.json')
+  const healthy = readFileSync(memFile, 'utf8')
+  writeFileSync(memFile, healthy.slice(0, Math.floor(healthy.length * 0.6)), 'utf8')
+  // 续跑给的额度正好是已经花掉的那么多 —— 第一次请求就再撞上预算，
+  // 于是「记忆读不出来」和「采集也没跑完」同时成立，正是要钉的那一格
+  const stderr = run('collect 记忆读不出来，且本轮采集也没跑完',
+    [S('collect.ts'), '--resume', stuckDir, '--budget', '0.002'], tmp,
+    { status: 2, stream: 'stderr' })
+  writeFileSync(memFile, healthy, 'utf8')
+  const verdict = resumeCostVerdict(stderr)
+  if (verdict) { failed++; console.error(`  ✗ ${verdict}`) }
+  else if (!stderr.includes('续跑会继续发请求、继续花钱')) {
+    failed++
+    console.error('  ✗ 还有关键词没抓完，收尾却说续跑不花钱 —— 用户据此以为续跑白送')
+  } else console.log('  ✓ 还有活没干完时，收尾说的是续跑要继续花钱，并说清了还剩什么')
+  if (!/修好它再跑:.*--budget <新额度>/.test(stderr)) {
+    failed++
+    console.error('  ✗ 预算已用尽，恢复命令却没带 --budget —— 照着敲会立刻再撞退出码 3')
+  } else console.log('  ✓ 预算用尽这一侧，恢复命令带上了 --budget')
 }
 
 // ---- 纪律 lint：扫到违规就以退出码 1 结束（P1.b 的入口那一半）----

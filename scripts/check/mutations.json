@@ -1760,6 +1760,14 @@
       "file": "scripts/check/selfcheck-rule.ts",
       "find": "  if (!said[1].trim()) return '说了「还有 …… 没跑完」，可那个「……」是空的 —— 等于没说'",
       "replace": "  if (!said[1]) return '说了「还有 …… 没跑完」，可那个「……」是空的 —— 等于没说'"
+    },
+    {
+      "id": "M-H17-a",
+      "req": "harness",
+      "why": "把两种坏法报成同一句：一句都没说和两句一起说，报错互换 —— 收尾里明明同时写着「续跑不产生新的请求」和「续跑会继续发请求、继续花钱」，人看到的却是「一句都没说」，于是去找一句根本不在那儿的话；报错指错方向，比不报还费时间",
+      "file": "scripts/check/selfcheck-rule.ts",
+      "find": "    return saysFree",
+      "replace": "    return !saysFree"
     }
   ],
   "exemptions": [
