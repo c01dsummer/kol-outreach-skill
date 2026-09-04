@@ -314,6 +314,14 @@
       "replace": "    } else if (e.endsWith('.ts') && !SKIP_FILES.includes(e)) out.push(p)"
     },
     {
+      "id": "M-P1-q",
+      "req": "P1",
+      "why": "没有增强层的时候给受众地域补一个猜出来的占比 —— 补的值正好在门槛之上，分层、降权、名单一个都不变，只有那一栏凭空多出一个数，下游再也分不出它是量出来的还是猜的",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)",
+      "replace": "    c.tier_adjustments = []\n    c.audience_geo ??= { [market]: 0.5 }\n    const geo = applyGeoPenalty(c, market)"
+    },
+    {
       "id": "M-D10-a",
       "req": "D10",
       "why": "缓存里活跃字段齐全就跳过重算 —— 上一版口径算出来的中位数、发布间隔与受众风险一直留在交付物里，运营不额外付费重抓就换不掉，而交付物上看不出任何区别",
