@@ -2528,24 +2528,31 @@ harness('变异跑到一半被打断：动过的源文件要还回去')
   // 删掉，上面每一条照样绿（评审指出的正是这个缺口）。要证它，只有另起一个进程真挨一刀。
   // 而这一刀要落在**正等着子进程**的那一段：变异跑起来之后几乎所有时间都在那里。
   // 挨刀的时机换成「闲着」，测的就不是这个入口真实的处境（评审第二次指出的正是这个）。
-  // 子脚本只调「记现场」这一个函数：接管信号要是没跟着记现场走，这一刀直接把它杀了，
-  // 还原和退出码两条一起红
+  // 子脚本只调「记现场」和「把这一轮交出去」这两个函数：接管信号要是没跟着记现场走，
+  // 这一刀直接把它杀了，还原和退出码两条一起红
   const kid = join(tmpdir(), `kol-h-kid-${process.pid}.ts`)
   const victim = join(tmpdir(), `kol-h-victim-${process.pid}.ts`)
   const waited = join(tmpdir(), `kol-h-waited-${process.pid}.txt`)
   writeFileSync(victim, '原文', 'utf8')
   rmSync(waited, { force: true })            // 上一轮留下的会让这一轮凭空判红
+  // 那一轮测试照着入口的真实形状搭：入口手上拿到的是 `npx` 那层壳，真正跑脚本的是
+  // 壳再分出去的那一个。所以这里的孙子也再分一个出来，由**它**来说自己还活着 ——
+  // 只杀手上那一个的话，壳死了，说话的那个还在，而它跑的正是被改过的源码。
+  // 说话走的是继承来的那根管子，它一直不关，等它的那一方就一直收得到
+  const printer = `setTimeout(() => console.log('孙子还活着'), 600)`
+  const shell = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(printer)}], { stdio: 'inherit' }); setTimeout(() => {}, 2000)`
   writeFileSync(kid, [
     `import { spawn } from 'node:child_process'`,
     `import { writeFileSync as w } from 'node:fs'`,
-    `import { beginMutation } from ${JSON.stringify(join(process.cwd(), 'scripts/check/mutate-restore.js'))}`,
+    `import { beginMutation, trackTest } from ${JSON.stringify(join(process.cwd(), 'scripts/check/mutate-restore.js'))}`,
     `beginMutation(${JSON.stringify(victim)}, '原文')`,
     `w(${JSON.stringify(victim)}, '被改坏的', 'utf8')`,
     // 信号是异步送到的：手上不留一件事，Node 会在处理函数跑起来之前就正常退出，这一刀等于没挨。
     // 手上留的正是「等一个子进程」，挨刀的那一刻它还没等完
     `setTimeout(() => process.kill(process.pid, 'SIGTERM'), 200)`,
-    `spawn(process.execPath, ['-e', 'setTimeout(() => {}, 2000)'], { stdio: 'ignore' })`,
-    `  .on('close', () => w(${JSON.stringify(waited)}, '等完了', 'utf8'))`,
+    `const g = spawn(process.execPath, ['-e', ${JSON.stringify(shell)}], { stdio: 'inherit', detached: true })`,
+    `trackTest(g)`,
+    `g.on('close', () => w(${JSON.stringify(waited)}, '等完了', 'utf8'))`,
   ].join('\n'), 'utf8')
   const r = spawnSync(join(process.cwd(), 'node_modules/.bin/tsx'), [kid], { encoding: 'utf8' })
   eq('真挨一刀：动过的那份还是还回去了', rf(victim, 'utf8'), '原文')
@@ -2553,6 +2560,10 @@ harness('变异跑到一半被打断：动过的源文件要还回去')
   // 还回去了、退出码也对，却是把那个子进程等完了才停 —— 那还是「看上去做了」：
   // 真出事时要等的是一整轮测试，而升级上来的硬杀不会等它等完
   eq('挨刀的那一刻还在等子进程：当场就停，没等完', existsSync(waited), false)
+  // 停的得是**整棵树**。父进程退掉不会把那一轮带走 —— 它会被过继出去接着跑，
+  // 而它跑的正是被改过的源码，还原完之后它再写一次，盘上留下的就是一份没人审过的东西。
+  // 孙子那一层还有一个在说话，就说明这一刀只落在壳上（评审指出的正是这个）
+  eq('挨刀之后那一轮测试也停了：没留下一个还在跑的', r.stdout.includes('孙子还活着'), false)
 
   // 上面证的是「这一刀能被接住」，而它接不接得住取决于入口怎么等子进程：同步等会把
   // 事件循环整个挡住，挡住的那段时间里接管过的信号一次也派发不出去，而变异几乎所有

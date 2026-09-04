@@ -17,6 +17,7 @@
  * 而判定写在入口脚本里就永远测不到(`docs/CONVENTIONS.md` 第 10 条)。
  */
 import { writeFileSync } from 'node:fs'
+import type { ChildProcess } from 'node:child_process'
 
 /** 正被改写的那个源文件和它的原文。没有变异在跑的时候是 undefined */
 let inFlight: { file: string; orig: string } | undefined
@@ -54,14 +55,54 @@ export function restoreMutation(): void {
   writeFileSync(cur.file, cur.orig, 'utf8')
 }
 
+/** 正在跑的那一轮测试子进程。没有测试在跑的时候是 undefined */
+let running: ChildProcess | undefined
+
 /**
- * 被打断时该做的:先还原,再退出。
+ * 这一轮的测试子进程交给这里看着 —— 被打断时要连它一起结束。
+ *
+ * **父进程退掉不会把它带走。** 它会被过继出去接着跑:实测父进程退出之后八百毫秒,
+ * 它照样往盘上写了一次。而变异跑的正是被改过的源码,它那一次写下的东西谁也没审过 ——
+ * 覆盖记录尤其如此:入口把那一份的还原挂在退出上,还原跑完之后它再写一遍,
+ * 盘上留下的就是一份由被改过的源码产生的记录,而后面的审计会拿它当真的用(评审指出)。
+ *
+ * 上一版同步等子进程的时候没有这个窗口 —— 那时子进程跑完了才轮到父进程往下走。
+ * **是换成异步等之后才有的**,所以补在这里。
+ */
+export function trackTest(kid: ChildProcess): void {
+  running = kid
+}
+
+/**
+ * 结束正在跑的那一轮测试。**杀的是整个进程组,不是手上那一个。**
+ *
+ * 只杀手上那一个不够:拿到的往往只是层壳,真正跑脚本的是壳再分出去的那个进程。
+ * 实测过 —— 杀掉壳,里面那个照样把三秒之后那一次写盘做完,而「杀掉了吗」这个
+ * 返回值还是真。所以入口那边让它自成一组,这里连组一起杀。
+ *
+ * **这两半必须一起在。** 入口那边少了「自成一组」,这个组号就没有对应的组,
+ * 那一刀落空 —— 而落空是不响的。如实说明:没有任何东西会提醒。
+ *
+ * 组早就散了会报「查无此组」,那正是想要的状态,所以吞掉。
+ */
+function killTest(): void {
+  const pid = running?.pid
+  if (pid === undefined) return
+  try { process.kill(-pid, 'SIGKILL') } catch { /* 组已经散了 */ }
+}
+
+/**
+ * 被打断时该做的:先停掉那一轮测试,再还原,最后退出。
+ *
+ * **顺序是定死的。** 反过来先还原的话,从还原完到进程真退掉之间那一小段里,
+ * 它还醒着、还在跑被改过的源码,还能再往盘上写一遍 —— 还原就白做了。
  *
  * 退出码非零 —— 这一次检查没跑完,不能算过。
  * 走 `process.exit` 而不是就地结束,是因为入口还把覆盖记录的还原挂在退出上:
  * 那一份原先也只在正常跑完时才还得回去,这一步顺带把它接上。
  */
 export function onInterrupt(): never {
+  killTest()
   restoreMutation()
   process.exit(1)
 }

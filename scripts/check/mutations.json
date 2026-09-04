@@ -1622,8 +1622,8 @@
       "req": "harness",
       "why": "真被信号杀掉时不再还原 —— 处理函数照样接管、照样非零退出，看上去一切正常，而动过的那份源文件留在工作区里，是一处故意违反某条需求的改动",
       "file": "scripts/check/mutate-restore.ts",
-      "find": "export function onInterrupt(): never {\n  restoreMutation()\n  process.exit(1)\n}",
-      "replace": "export function onInterrupt(): never {\n  process.exit(1)\n}"
+      "find": "export function onInterrupt(): never {\n  killTest()\n  restoreMutation()\n  process.exit(1)\n}",
+      "replace": "export function onInterrupt(): never {\n  killTest()\n  process.exit(1)\n}"
     },
     {
       "id": "M-H15-g",
@@ -1654,8 +1654,24 @@
       "req": "harness",
       "why": "被打断时先还回去,却不当场停,等手上那个子进程跑完才退 —— 还原和退出码看着都对,而真出事时它要等的是一整轮测试,升级上来的硬杀不会等它等完",
       "file": "scripts/check/mutate-restore.ts",
-      "find": "export function onInterrupt(): never {\n  restoreMutation()\n  process.exit(1)\n}",
-      "replace": "export function onInterrupt(): never {\n  restoreMutation()\n  return setTimeout(() => process.exit(1), 4000) as never\n}"
+      "find": "export function onInterrupt(): never {\n  killTest()\n  restoreMutation()\n  process.exit(1)\n}",
+      "replace": "export function onInterrupt(): never {\n  killTest()\n  restoreMutation()\n  return setTimeout(() => process.exit(1), 4000) as never\n}"
+    },
+    {
+      "id": "M-H15-k",
+      "req": "harness",
+      "why": "被打断时只还原,不停掉正在跑的那一轮测试 —— 父进程退掉不会把它带走,它被过继出去接着跑被改过的源码;还原做完之后它再往盘上写一遍,盘上留下的那一份谁也没审过,而后面的审计会拿它当真的用",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "export function onInterrupt(): never {\n  killTest()\n  restoreMutation()",
+      "replace": "export function onInterrupt(): never {\n  restoreMutation()"
+    },
+    {
+      "id": "M-H15-l",
+      "req": "harness",
+      "why": "被打断时只结束手上拿到的那一个,不结束整棵 —— 拿到的往往只是层壳,真正跑脚本的是壳再分出去的那个进程;壳死了,里面那个照样把后面那一次写盘做完,而「杀掉了吗」这个返回值还是真",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "process.kill(-pid, 'SIGKILL')",
+      "replace": "process.kill(pid, 'SIGKILL')"
     }
   ],
   "exemptions": [
