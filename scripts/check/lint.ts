@@ -7,40 +7,9 @@
  *
  * 需要例外时在该行加 `// p1-ok: <理由>`。理由是必填的。
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
-import { judgeLine } from './lint-rule.js'
+import { lintTree } from './lint-rule.js'
 
-const SKIP_DIRS = ['check']
-const SKIP_FILES = ['test.ts']
-
-function walk(dir: string): string[] {
-  const out: string[] = []
-  for (const e of readdirSync(dir)) {
-    const p = join(dir, e)
-    if (statSync(p).isDirectory()) {
-      if (!SKIP_DIRS.includes(e)) out.push(...walk(p))
-    } else if (e.endsWith('.ts') && !SKIP_FILES.includes(e)) out.push(p)
-  }
-  return out
-}
-
-interface Hit { file: string; line: number; text: string }
-const hits: Hit[] = []
-let exempted = 0
-
-for (const file of walk('scripts')) {
-  const lines = readFileSync(file, 'utf8').split('\n')
-  lines.forEach((text, i) => {
-    const verdict = judgeLine(text)
-    if (verdict === 'clean') return
-    if (verdict === 'exempt') { exempted++; return }
-    hits.push({
-      file, line: i + 1,
-      text: text.trim() + (verdict === 'unjustified_exemption' ? '   ← p1-ok 必须写明理由' : ''),
-    })
-  })
-}
+const { hits, exempted } = lintTree('scripts')
 
 if (hits.length) {
   console.error(`✗ 纪律 lint：${hits.length} 处敏感字段上的兜底写法（违反 P1）\n`)

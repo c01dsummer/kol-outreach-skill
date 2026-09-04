@@ -6,7 +6,7 @@
  * 本文件目前违反了这一条（同一上下文写的代码和测试），已登记为 ADR-04 的已知缺口。
  */
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
-import { judgeLine } from './check/lint-rule.js'
+import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
 import { judgeRun } from './check/mutate-rule.js'
@@ -2014,6 +2014,40 @@ suite('P1', '纪律 lint 的判定：会变成决策的字段上不许有兜底'
     judgeLine("  const x = c.followers ?? 0   // p1-ok: 展示用，不参与决策"), 'exempt')
   eq('只写 p1-ok 不写理由的不算豁免',
     judgeLine('  const x = c.followers ?? 0   // p1-ok'), 'unjustified_exemption')
+}
+
+suite('P1', '纪律 lint 的扫描范围：scripts/ 全量，例外只有说好的那两处')
+{
+  /**
+   * 判定写对了、但扫不到那个文件，等于没查。P1.b 的后半句「对 scripts/ 全量扫描」
+   * 自己也要被证伪一次 —— 递归少走一层、例外表悄悄放大，检查照样打印「无违规」，
+   * 而它已经看不见半个仓库了。
+   *
+   * 断言依据只有 P1.b 原文，和这条 lint 自己声明的两处例外（检查链自己那一坨、
+   * 测试文件里故意写出来的样例）。搭一棵假树，因为真树上没有违规可扫。
+   */
+  const root = join(tmpdir(), `kol-lint-${process.pid}`)
+  rmSync(root, { recursive: true, force: true })
+  const put = (rel: string, body: string) => {
+    mkdirSync(join(root, dirname(rel)), { recursive: true })
+    writeFileSync(join(root, rel), body, 'utf8')
+  }
+  const BAD = '  const x = c.followers ?? 0'
+  put('lib/deep/score.ts', BAD)                                  // 嵌套两层：递归得下得去
+  put('check/self.ts', BAD)                                      // 检查链自己那一坨不算
+  put('test.ts', BAD)                                            // 测试里的样例不算
+  put('lib/notes.md', BAD)                                       // 只看 .ts
+  put('lib/ok.ts', `${BAD}   // p1-ok: 展示用，不参与决策`)
+
+  const { hits, exempted } = lintTree(root)
+  eq('只有该扫的那个文件被报出来',
+    hits.map(h => h.file.slice(root.length + 1)).join('|'), 'lib/deep/score.ts')
+  eq('报到行，不是只报文件', hits[0]?.line, 1)
+  eq('写明理由的具名豁免被数进去，不报违规', exempted, 1)
+  rmSync(root, { recursive: true, force: true })
+
+  // 「命中即失败」还剩退出码那一截，长在入口脚本里：由 scripts/check/selfcheck.ts
+  // 拿一棵只含一处违规的假树真跑一遍 lint.ts，断言它以退出码 1 结束。
   criterion('P1.b')
 }
 

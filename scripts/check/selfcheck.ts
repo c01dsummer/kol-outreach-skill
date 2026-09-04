@@ -13,7 +13,9 @@
  * 两种都没有的，就是没人跑过，报错。末尾那句话按这两组分开说 ——
  * 合起来说一句「全都从头执行到尾」，在单独跑 `npm run selfcheck` 时是假的。
  */
-import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs'
+import {
+  mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync,
+} from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -32,8 +34,15 @@ const env = {
 }
 
 let failed = 0
-/** 预期以非零退出码结束的场景：把退出码本身当成被检查的对外契约 */
-const run = (label: string, args: string[], cwd = process.cwd(), expect?: { status: number }) => {
+/**
+ * 预期以非零退出码结束的场景：把退出码本身当成被检查的对外契约。
+ *
+ * `stream` 说的是交回哪一股。中止的脚本把「你接下来怎么办」打在 stderr,
+ * 所以默认给 stderr;但有的脚本是**带着结果**非零结束的(预算用尽那次,
+ * 断点目录仍然打在 stdout),拿错了那一股,后面的断言就成了空转。
+ */
+const run = (label: string, args: string[], cwd = process.cwd(),
+  expect?: { status: number; stream?: 'stdout' | 'stderr' }) => {
   try {
     const out = execFileSync('npx', ['tsx', ...args], { env, cwd, stdio: 'pipe', encoding: 'utf8' })
     if (expect) {
@@ -46,12 +55,7 @@ const run = (label: string, args: string[], cwd = process.cwd(), expect?: { stat
   } catch (e: any) {
     if (expect && e.status === expect.status) {
       console.log(`  ✓ ${label}（按预期以退出码 ${expect.status} 结束）`)
-      return (e.stderr ?? '').toString()
-    }
-    // collect 预算用尽时退出码 3 是**预期行为**，不算失败
-    if (e.status === 3 && label.includes('预算用尽')) {
-      console.log(`  ✓ ${label}（按预期以退出码 3 结束）`)
-      return e.stdout ?? ''
+      return ((expect.stream === 'stdout' ? e.stdout : e.stderr) ?? '').toString()
     }
     failed++
     console.error(`  ✗ ${label}\n${(e.stderr ?? e.stdout ?? e.message).toString().split('\n').slice(-12).join('\n')}`)
@@ -98,13 +102,20 @@ writeFileSync(tightCfg, JSON.stringify({
     keyword: `kw${i}`, dimension: 'category', platform: 'tiktok',
   })),
 }))
-const tightOut = run('collect 预算用尽保存断点', [S('collect.ts'), '--config', tightCfg], tmp)
+const tightOut = run('collect 预算用尽保存断点',
+  [S('collect.ts'), '--config', tightCfg], tmp, { status: 3, stream: 'stdout' })
 let tightDir = ''
 try { tightDir = JSON.parse(tightOut).dir } catch {}
-if (tightDir) {
-  const before = JSON.parse(readFileSync(join(tmp, tightDir, 'task.json'), 'utf8'))
+const tightTask = tightDir ? join(tmp, tightDir, 'task.json') : ''
+// 断点没落盘、或落盘在读不出来的地方，下面那几条断言就无从跑起 ——
+// 跳过不能算通过，否则 P3.b 可以一直是坏的而这一步照样打勾。
+if (!tightDir || !existsSync(tightTask)) {
+  failed++
+  console.error('  ✗ collect 预算用尽后没有留下可读的断点（P3.b 要求捕获后保存断点）')
+} else {
+  const before = JSON.parse(readFileSync(tightTask, 'utf8'))
   run('collect --resume 追加预算续跑', [S('collect.ts'), '--resume', tightDir, '--budget', '1'], tmp)
-  const after = JSON.parse(readFileSync(join(tmp, tightDir, 'task.json'), 'utf8'))
+  const after = JSON.parse(readFileSync(tightTask, 'utf8'))
   if (after.requests <= before.requests) {
     failed++; console.error('  ✗ 续跑后请求数未增长，断点恢复可能没生效')
   } else if (after.done.length <= before.done.length) {
@@ -331,7 +342,8 @@ if (dir) {
   const beforeList = readFileSync(deliverable, 'utf8')
 
   const stderr = run('collect 记忆读不出来时不产出名单',
-                     [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp, { status: 2 })
+                     [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp,
+                     { status: 2, stream: 'stderr' })
   if (!stderr.includes('--ignore-memory') || !stderr.includes('--resume')) {
     failed++
     console.error('  ✗ 中止时没有告诉用户怎么往下走 —— 一条人照做不了的报错等于没报')
@@ -397,6 +409,14 @@ if (dir) {
     failed++; console.error('  ✗ 报告没有声明去重状态无从确认')
   } else console.log('  ✓ 旧任务目录记为 unknown 并在报告上声明')
 }
+
+// ---- 纪律 lint：扫到违规就以退出码 1 结束（P1.b 的入口那一半）----
+// 判定与扫描范围由 scripts/test.ts 断言；「命中即失败」是入口的退出码，
+// 只有真跑一遍才看得见 —— 检查链平时跑的是干净的树，那条失败分支从不触发。
+const lintTmp = join(tmp, 'lint-hit')
+mkdirSync(join(lintTmp, 'scripts', 'lib'), { recursive: true })
+writeFileSync(join(lintTmp, 'scripts', 'lib', 'bad.ts'), '  const x = c.followers ?? 0\n', 'utf8')
+run('纪律 lint 命中即以退出码 1 结束', [S('check/lint.ts')], lintTmp, { status: 1 })
 
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
 // 一条写进文档、却从没被执行过的命令，等于没有 —— 在这里跑一次，证明它还活着。

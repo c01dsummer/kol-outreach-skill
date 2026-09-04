@@ -274,6 +274,30 @@
       "replace": "  if (/\\/\\/\\s*p1-ok\\b/.test(text)) return 'exempt'"
     },
     {
+      "id": "M-P1-l",
+      "req": "P1",
+      "why": "扫描不往子目录里走 —— lint 只看 scripts/ 顶层那几个文件，采集与评分代码里的兜底写法从此没人过问，而检查照样打印「无违规」",
+      "file": "scripts/check/lint-rule.ts",
+      "find": "      if (!SKIP_DIRS.includes(e)) out.push(...walk(p))",
+      "replace": "      if (!SKIP_DIRS.includes(e)) out.push()"
+    },
+    {
+      "id": "M-P1-m",
+      "req": "P1",
+      "why": "把 lib/ 整片排除在扫描外 —— 最会出兜底的那些代码从此不受这条纪律约束，而检查链每次照样打印「无违规」",
+      "file": "scripts/check/lint-rule.ts",
+      "find": "export const SKIP_DIRS = ['check']",
+      "replace": "export const SKIP_DIRS = ['check', 'lib']"
+    },
+    {
+      "id": "M-P1-n",
+      "req": "P1",
+      "why": "写明理由的具名豁免照样被报成违规 —— 每一处正当例外都变成红色，这条检查从此只能靠人肉忽略，而被忽略的检查比没有检查更糟",
+      "file": "scripts/check/lint-rule.ts",
+      "find": "      if (verdict === 'exempt') { exempted++; return }",
+      "replace": "      if (verdict === 'exempt') { exempted++ }"
+    },
+    {
       "id": "M-D10-a",
       "req": "D10",
       "why": "缓存里活跃字段齐全就跳过重算 —— 上一版口径算出来的中位数、发布间隔与受众风险一直留在交付物里，运营不额外付费重抓就换不掉，而交付物上看不出任何区别",
@@ -1421,7 +1445,7 @@
       "req": "P3.b",
       "scope": "入口的接线，不是 lib 里的判定",
       "why": "「collect 捕获后保存断点并退出码 3」是入口脚本的接线。变异只跑 scripts/test.ts，入口里的接线没有变异守得住 —— 与 ADR-13 记过的处境相同，不在单元测试里伪造一个认领。",
-      "mitigation": "由脚本自检的「collect 预算用尽保存断点」从头到尾真跑一遍守着：它断言退出码为 3、断点文件存在、续跑后请求数与已完成关键词数都增长。"
+      "mitigation": "由脚本自检真跑一遍守着：预算耗尽那条配置下的 collect 必须以退出码 3 结束（是 0 或别的码都记失败），断点目录读不出来、断点文件不存在也记失败，然后续跑一次，断言请求数与已完成关键词数都增长。变异看不到这一段，所以这条判据仍然登记为显式缺口，不假装它被变异守着。"
     }
   ]
 }

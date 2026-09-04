@@ -3,8 +3,14 @@
  *
  * 抽出来的理由是 `docs/CONVENTIONS.md` 第 10 条自己那句话：有语义就该能被测，
  * 能被测就不该待在入口脚本里。这条 lint 是 P1 唯一机器可执行的那一半，
- * 而它的判定以前没有任何测试碰得到。走文件树、打印、退出码仍留在 `lint.ts`。
+ * 而它的判定以前没有任何测试碰得到。
+ *
+ * **走文件树也是判定**：跳过哪些目录、哪些文件算数、递归到多深，决定了这条 lint
+ * 到底看得见多少代码 —— 「全量扫描」被悄悄缩小，和判定写错一样致命，所以它也在
+ * 这里。留在 `lint.ts` 的只剩打印和退出码。
  */
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 
 /** 这些字段的值会进入过滤、评分、分层 —— 兜底就是静默改变决策 */
 export const SENSITIVE = [
@@ -44,4 +50,41 @@ export function judgeLine(text: string): LintVerdict {
   if (/\/\/\s*p1-ok:\s*\S/.test(text)) return 'exempt'
   if (/\/\/\s*p1-ok\b/.test(text)) return 'unjustified_exemption'
   return 'violation'
+}
+
+/** 检查链自己那一坨不受这条纪律约束：它判定的对象就是兜底写法本身 */
+export const SKIP_DIRS = ['check']
+/** 测试里那些故意写出来的兜底样例不算违规 —— 否则这条 lint 天天红，红到没人看 */
+export const SKIP_FILES = ['test.ts']
+
+export interface Hit { file: string; line: number; text: string }
+
+function walk(dir: string): string[] {
+  const out: string[] = []
+  for (const e of readdirSync(dir)) {
+    const p = join(dir, e)
+    if (statSync(p).isDirectory()) {
+      if (!SKIP_DIRS.includes(e)) out.push(...walk(p))
+    } else if (e.endsWith('.ts') && !SKIP_FILES.includes(e)) out.push(p)
+  }
+  return out
+}
+
+/** 扫一棵目录树，交回命中的行与具名豁免的条数。入口拿着它决定打印什么、怎么退出。 */
+export function lintTree(root: string): { hits: Hit[]; exempted: number } {
+  const hits: Hit[] = []
+  let exempted = 0
+  for (const file of walk(root)) {
+    const lines = readFileSync(file, 'utf8').split('\n')
+    lines.forEach((text, i) => {
+      const verdict = judgeLine(text)
+      if (verdict === 'clean') return
+      if (verdict === 'exempt') { exempted++; return }
+      hits.push({
+        file, line: i + 1,
+        text: text.trim() + (verdict === 'unjustified_exemption' ? '   ← p1-ok 必须写明理由' : ''),
+      })
+    })
+  }
+  return { hits, exempted }
 }
