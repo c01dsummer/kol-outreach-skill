@@ -1149,14 +1149,20 @@ suite('P5', '交付必须声明数据边界')
       budget_usd: 2, enriched: false })
   // 下面三条以前合在一条 P5.a 里，拆开是因为它们各自独立地坏：两条 HTML 声明是
   // renderHtml 里两个各带条件的 if 块，enriched 是第三条判定（ADR-67 的就地更正）。
-  ok('未增强时声明邮箱未验证', html.includes('未做有效性验证'))  // P5.f
-  ok('未增强时声明受众未知', html.includes('无法确认'))  // P5.g
+  // 断言整句，不断言半句：只查「未做有效性验证」的话，改口说邮箱来自官网联系页
+  // 照样绿（复核 #51）。M-P5-k / M-P5-l 就是这两句被改口的负片。
+  ok('未增强时声明邮箱来自 bio 提取、未做有效性验证',
+    html.includes('邮箱来自 bio 提取，未做有效性验证'))  // P5.f
+  ok('未增强时声明无法确认粉丝是否在目标市场',
+    html.includes('无法确认这批人的粉丝是否在目标市场'))  // P5.g
   // P5.h：未配置增强层时 enriched 必须为 false。判定在 report.ts（enrichedFlag），
   // 才能在这里断言 —— 留在 render.ts 里没有任何测试够得着（CONVENTIONS 第 10 条）。
-  // 下面 true 那两条**不认领判据**（P5.h 只管 false 那一头，见 ADR-67 的就地更正）：
-  // 它们断言 enrichedFlag 本身，也是 M-P5-h（恒 false）唯一抓得住的地方。
+  // 下面这一条认领 P5.h，M-P5-j（未增强却报 true）是它的负片。
   eq('没跑过邮箱/地域增强 → enriched false',
     enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50 })]), false)
+  // true 那两条**不认领判据**（P5.h 只管 false 那一头，见 ADR-67 的就地更正）：
+  // 它们断言 enrichedFlag 本身，也是 M-P5-h（恒 false）唯一抓得住的地方。
+  // 变异编号末尾的字母是流水号，跟判据的字母不是一回事 —— M-P5-h 记在 P5 名下。
   eq('邮箱增强跑过（查了没有邮箱）→ true',
     enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50, email_verified: false })]), true)
   eq('地域增强跑过 → true',

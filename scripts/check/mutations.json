@@ -43,7 +43,7 @@
     },
     {
       "id": "M-P5-a",
-      "req": "P5",
+      "req": "P5.f",
       "why": "未增强时不再声明数据边界，用户会以为邮箱是验证过的",
       "file": "scripts/lib/report.ts",
       "find": "  if (missingEmailVerification) {",
@@ -904,6 +904,38 @@
       "file": "scripts/lib/report.ts",
       "find": "  creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)",
       "replace": "  creators.some(() => false)"
+    },
+    {
+      "id": "M-P5-i",
+      "req": "P5.g",
+      "why": "未配置增强层时不再声明受众市场无从确认 —— 用户以为这批人的粉丝已经确认在目标市场，照着名单投出去",
+      "file": "scripts/lib/report.ts",
+      "find": "  if (missingAudienceGeo) {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-P5-j",
+      "req": "P5.h",
+      "why": "未配置增强层却把 meta.json 的 enriched 报成 true —— 交付声称跑过邮箱与受众增强，用户以为邮箱验证过、受众已确认",
+      "file": "scripts/lib/report.ts",
+      "find": "  creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)",
+      "replace": "  creators.every(() => true)"
+    },
+    {
+      "id": "M-P5-k",
+      "req": "P5.f",
+      "why": "声明还在，但改口说邮箱来自官网联系页 —— 用户以为这批邮箱有出处可查，实际是从 bio 里抠出来的",
+      "file": "scripts/lib/report.ts",
+      "find": "    notes.push('邮箱来自 bio 提取，未做有效性验证，建议首轮小批量试发观察退信率。')",
+      "replace": "    notes.push('邮箱来自官网公开联系页，未做有效性验证，建议首轮小批量试发观察退信率。')"
+    },
+    {
+      "id": "M-P5-l",
+      "req": "P5.g",
+      "why": "声明还在，但把「无从确认」的东西换成别的 —— 受众市场这一条边界没被声明，用户以为粉丝地域是确认过的",
+      "file": "scripts/lib/report.ts",
+      "find": "    notes.push('未配置增强层，无法确认这批人的粉丝是否在目标市场。')",
+      "replace": "    notes.push('未配置增强层，无法确认这批人的邮箱是否还在用。')"
     },
     {
       "id": "M-D4-n",
