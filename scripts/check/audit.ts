@@ -14,7 +14,9 @@ import {
   CLAIMS_PATH, SOURCE_DIR, claimsFresh, claimsReadFault, claimsWellFormed, fingerprint, sourceFiles,
   type Claims,
 } from './claims.js'
-import { REDLINE_CAT, requirementVerdict, type Req } from './spec-rule.js'
+import {
+  REDLINE_CAT, requirementVerdict, tensionKey, tensionVerdict, type Req,
+} from './spec-rule.js'
 const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
 /**
  * 分区这件事本身是判定,在 `audit-rule.ts` 里,被变异守着。
@@ -108,6 +110,8 @@ const testedIds = new Set(claims.covered)
  * 判定，粗计量看不见它（ADR-24）。
  */
 const testedCriteria = new Set(claims.criteria)
+/** 真正认领过的交点 —— 编号由 `tensionKey` 出，写认领的那一头用的是同一个函数 */
+const claimedTensions = new Set(claims.tensions)
 
 const mutatedIds = new Set<string>(mutCfg.mutations.map((m: any) => m.req))
 const exemptIds = new Map<string, string>(
@@ -184,11 +188,39 @@ for (const f of naked) {
   gaps.push(`${f} 是判定模块但没有变异守着 —— 它的测试没被证明过会红（process/4-VERIFY.md 的第三拍）`)
 }
 
-// ---- 4. SPEC 与 json 一致性由 spec-sync 保证，这里只提示 ----
+// ---- 4. 需求之间的交点，裁决有没有被证明过 ----
+/**
+ * 交点的裁决**跨着两条需求**，不属于任何一条 —— 所以两条需求各自的验收判据
+ * 谁也不会验它：登记表上写着「撞上时以 P4 为准」，代码里可以完全不是这么做的，
+ * 而两边的判据全绿。交点里有红线的，没有测试认领就是硬失败（ADR-17）。
+ *
+ * 裁定在 `spec-rule.ts`，和上面那两节同一个理由：留在这个入口里就没有测试够得着。
+ */
+const redlineIds = new Set(reqs.filter(r => r.cat === REDLINE_CAT).map(r => r.id))
+const tensionRows: string[] = []
+for (const r of reqs) {
+  for (const t of r.tension ?? []) {
+    const v = tensionVerdict(r.id, t, {
+      claimed: claimedTensions.has(tensionKey(r.id, t.with)),
+      redline: redlineIds.has(r.id) || redlineIds.has(t.with),
+    })
+    hard += v.hard
+    gaps.push(...v.gaps)
+    tensionRows.push(`  ${v.flag} ${r.id} × ${t.with}  裁决记在 ${t.adr ?? '裁决正文（无 ADR）'}`)
+  }
+}
+
+// ---- 5. SPEC 与 json 一致性由 spec-sync 保证，这里只提示 ----
 
 console.log('\n链路审计\n')
 console.log(rows.join('\n'))
 console.log(`\n  图例：✓ 完整  ⊘ 显式豁免  · 缺口  ✗ 硬失败\n`)
+
+if (tensionRows.length) {
+  console.log('  需求之间的交点（不属于任何一条，所以单独列）：')
+  console.log(tensionRows.join('\n'))
+  console.log('')
+}
 
 const deadLines = deprecatedBlock(deprecated)
 if (deadLines.length) {
@@ -218,6 +250,11 @@ console.log(`\n  红线 ${P.length} 条 · 有测试 ${P.filter(r => testedIds.h
 console.log(`  需求 ${reqs.length} 条 · 被测试覆盖 ${reqs.filter(r => testedIds.has(r.id)).length}` +
             `${deprecated.length ? ` · 已作废 ${deprecated.length} 条（不计入）` : ''}`)
 console.log(`  检查链的判定模块 ${judgments.length} 个 · 有变异守着 ${judgments.length - naked.length}`)
+const tensions = reqs.flatMap(r => (r.tension ?? []).map(t => ({ from: r.id, t })))
+console.log(`  需求之间的交点 ${tensions.length} 个 · 有测试认领 ` +
+            `${tensions.filter(({ from, t }) => claimedTensions.has(tensionKey(from, t.with))).length}` +
+            ` · 其中有红线的 ${tensions.filter(({ from, t }) =>
+              redlineIds.has(from) || redlineIds.has(t.with)).length}`)
 const allCrit = reqs.flatMap(r => r.accept)
 const redlineCrit = reqs.filter(r => r.cat === REDLINE_CAT).flatMap(r => r.accept)
 /**
@@ -233,4 +270,4 @@ console.log(`  验收判据 ${allCrit.length} 条 · 有测试认领 ` +
 
 if (hard) { console.error(`\n✗ 审计：${hard} 项硬失败`); process.exit(1) }
 console.log('\n✓ 审计：红线需求全部有测试且被变异验证；未豁免的红线判据全部有测试认领；' +
-            '检查链的判定模块全部有变异守着')
+            '有红线的交点全部有测试认领；检查链的判定模块全部有变异守着')

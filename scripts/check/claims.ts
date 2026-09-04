@@ -23,6 +23,8 @@ export interface Claims {
   covered: string[]
   /** 真正跑过的**验收判据**编号,形如 `P5.f` —— 计量单位是判据,不是需求（ADR-24） */
   criteria: string[]
+  /** 真正认领过的**交点**编号,形如 `D4×P4` —— 编号由 `tensionKey` 出,两侧顺序无关 */
+  tensions: string[]
 }
 
 /**
@@ -63,7 +65,7 @@ export const sourceFiles = (dir: string = SOURCE_DIR): [string, string][] =>
  * 一份缺了判据认领的记录被当成合法记录读进去,红线判据全被报成没有认领,
  * 而毛病在记录本身,不在那些判据（M-H14-l 守着）。
  */
-export const CLAIM_LISTS = ['covered', 'criteria'] as const
+export const CLAIM_LISTS = ['covered', 'criteria', 'tensions'] as const
 
 /**
  * 这份记录长得对吗 —— 缺字段、字段不是数组、数组里混进非字符串,一律**认不出**。

@@ -497,3 +497,43 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
   }
   return { flag, gaps, hard, claimed: claimed.length }
 }
+
+/**
+ * 一个交点的认领编号。**两侧写反了也是同一个编号。**
+ *
+ * 登记表要求交点「写在让步的那一方」，那是给读的人定的规矩 —— 一个测试认领
+ * 交点的时候不该还得先想清楚谁让步，想错了就认领不上，而认领不上的红线交点
+ * 是硬失败：一条规矩会因此变成一次假的失败。
+ *
+ * 之所以能用无序编号：`rootProblems` 已经拦下了两边各声明一次的写法，
+ * 所以一个无序编号至多对得上一条裁决，不会两条裁决抢同一次认领。
+ */
+export const tensionKey = (a: string, b: string): string => [a, b].sort().join('×')
+
+export interface TensionEvidence {
+  /** 测试里有没有认领过这个交点 */
+  claimed: boolean
+  /** 两侧有没有红线 */
+  redline: boolean
+}
+
+export interface TensionVerdict { flag: '✓' | '·' | '✗'; gaps: string[]; hard: number }
+
+/**
+ * 一个交点该得什么旗标。
+ *
+ * 交点的裁决是**跨两条需求**的判断，不属于任何一条，所以两条需求各自的判据
+ * 谁也不会验它 —— 登记表里写着「撞上时以 P4 为准」，代码里可以完全不是这么做的，
+ * 而两边的验收判据全绿。交点里有红线的，没有测试认领就是硬失败：
+ * 红线第 2 条要求红线得被证明过，而一条红线让步的边界没被证明，
+ * 等于这条红线在这个方向上没有边界。
+ */
+export function tensionVerdict(from: string, t: Tension, e: TensionEvidence): TensionVerdict {
+  if (e.claimed) return { flag: '✓', gaps: [], hard: 0 }
+  const at = `${from} × ${t.with}`
+  if (e.redline) {
+    return { flag: '✗', hard: 1,
+      gaps: [`${at} 是有红线的交点但没有测试认领 —— 裁决只写在登记表里，没人证明过代码是这么做的`] }
+  }
+  return { flag: '·', hard: 0, gaps: [`${at} 的裁决没有测试认领`] }
+}

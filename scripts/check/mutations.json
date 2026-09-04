@@ -622,8 +622,16 @@
       "req": "harness",
       "why": "那张名单漏掉判据认领那一栏 —— 一份根本没有判据认领的记录被当成合法记录读进去，审计把红线的每一条判据都报成没有认领，人照着去翻那十几条判据，而毛病在记录本身",
       "file": "scripts/check/claims.ts",
-      "find": "export const CLAIM_LISTS = ['covered', 'criteria'] as const",
+      "find": "export const CLAIM_LISTS = ['covered', 'criteria', 'tensions'] as const",
       "replace": "export const CLAIM_LISTS = ['covered'] as const"
+    },
+    {
+      "id": "M-H14-m",
+      "req": "harness",
+      "why": "交点的认领编号改成看两侧写的先后 —— 登记表把交点写在让步的那一方，测试按另一个顺序认领，同一个交点算成两个：认领的那个没人要，红线那个报成没有认领，一次假的硬失败",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "export const tensionKey = (a: string, b: string): string => [a, b].sort().join('×')",
+      "replace": "export const tensionKey = (a: string, b: string): string => [a, b].join('×')"
     },
     {
       "id": "M-D8-c",
@@ -1432,6 +1440,22 @@
       "file": "scripts/check/spec-rule.ts",
       "find": "    for (const c of unclaimed) {\n      flag = '✗'; hard++",
       "replace": "    for (const c of [] as typeof unclaimed) {\n      flag = '✗'; hard++"
+    },
+    {
+      "id": "M-H6-c",
+      "req": "harness",
+      "why": "有红线的交点没被认领也不算硬失败 —— 一条红线让步到哪为止，登记表上写着，代码里可以完全不是那么做的，而两侧需求各自的判据全绿，没有任何东西会说出来",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  if (e.redline) {\n    return { flag: '✗', hard: 1,",
+      "replace": "  if (false) {\n    return { flag: '✗', hard: 1,"
+    },
+    {
+      "id": "M-H6-d",
+      "req": "harness",
+      "why": "认领过的交点也照样报缺口 —— 每一个交点都成了待办，真正没人证明过的那些混在里面，报告上多出一串永远消不掉的项",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  if (e.claimed) return { flag: '✓', gaps: [], hard: 0 }",
+      "replace": "  if (false) return { flag: '✓', gaps: [], hard: 0 }"
     },
     {
       "id": "M-H7-a",
