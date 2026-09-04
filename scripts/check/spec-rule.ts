@@ -534,6 +534,25 @@ export interface TensionEvidence {
 export interface TensionVerdict { flag: '✓' | '·' | '✗'; gaps: string[]; hard: number }
 
 /**
+ * 把一个登记的交点配上它的证据 —— **查认领用哪个编号、红线看哪份名单，都在这里。**
+ *
+ * 和上面两个分开的理由是它自己也是判断：查错编号（比如按写的先后拼一个）、
+ * 或者把红线名单看成别的什么，`tensionVerdict` 拿到的就是一份假证据，而它
+ * 收到的是两个已经算好的布尔值，一个字都验不出来。
+ *
+ * 逐条计量与末尾汇总走的是同一个它。两处各拼一遍的话，一份审计的两个数会对不上 ——
+ * 而「两侧各写一遍写成一样」正是 ADR-22 追记判过一次死刑的写法。
+ */
+export function tensionEvidence(
+  from: string, t: Tension, claimed: ReadonlySet<string>, redlines: ReadonlySet<string>,
+): TensionEvidence {
+  return {
+    claimed: claimed.has(tensionKey(from, t.with)),
+    redline: tensionHasRedline(from, t.with, redlines),
+  }
+}
+
+/**
  * 一个交点该得什么旗标。
  *
  * 交点的裁决是**跨两条需求**的判断，不属于任何一条，所以两条需求各自的判据

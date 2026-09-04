@@ -15,7 +15,8 @@ import {
   type Claims,
 } from './claims.js'
 import {
-  REDLINE_CAT, requirementVerdict, tensionHasRedline, tensionKey, tensionVerdict, type Req,
+  REDLINE_CAT, requirementVerdict, tensionEvidence, tensionVerdict,
+  type Req, type Tension,
 } from './spec-rule.js'
 const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
 /**
@@ -197,13 +198,13 @@ for (const f of naked) {
  * 裁定在 `spec-rule.ts`，和上面那两节同一个理由：留在这个入口里就没有测试够得着。
  */
 const redlineIds = new Set(reqs.filter(r => r.cat === REDLINE_CAT).map(r => r.id))
+/** 逐条计量与末尾汇总走同一份证据 —— 两处各配一次的话，一份审计的两个数会对不上 */
+const evidenceFor = (from: string, t: Tension) =>
+  tensionEvidence(from, t, claimedTensions, redlineIds)
 const tensionRows: string[] = []
 for (const r of reqs) {
   for (const t of r.tension ?? []) {
-    const v = tensionVerdict(r.id, t, {
-      claimed: claimedTensions.has(tensionKey(r.id, t.with)),
-      redline: tensionHasRedline(r.id, t.with, redlineIds),
-    })
+    const v = tensionVerdict(r.id, t, evidenceFor(r.id, t))
     hard += v.hard
     gaps.push(...v.gaps)
     tensionRows.push(`  ${v.flag} ${r.id} × ${t.with}  裁决记在 ${t.adr ?? '裁决正文（无 ADR）'}`)
@@ -252,9 +253,9 @@ console.log(`  需求 ${reqs.length} 条 · 被测试覆盖 ${reqs.filter(r => t
 console.log(`  检查链的判定模块 ${judgments.length} 个 · 有变异守着 ${judgments.length - naked.length}`)
 const tensions = reqs.flatMap(r => (r.tension ?? []).map(t => ({ from: r.id, t })))
 console.log(`  需求之间的交点 ${tensions.length} 个 · 有测试认领 ` +
-            `${tensions.filter(({ from, t }) => claimedTensions.has(tensionKey(from, t.with))).length}` +
+            `${tensions.filter(({ from, t }) => evidenceFor(from, t).claimed).length}` +
             ` · 其中有红线的 ${tensions.filter(({ from, t }) =>
-              tensionHasRedline(from, t.with, redlineIds)).length}`)
+              evidenceFor(from, t).redline).length}`)
 const allCrit = reqs.flatMap(r => r.accept)
 const redlineCrit = reqs.filter(r => r.cat === REDLINE_CAT).flatMap(r => r.accept)
 /**

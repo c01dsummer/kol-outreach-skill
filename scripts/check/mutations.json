@@ -1474,6 +1474,14 @@
       "replace": "): boolean => redlines.has(a) && redlines.has(b)"
     },
     {
+      "id": "M-H6-f",
+      "req": "harness",
+      "why": "配证据的时候把「这个交点认领过没有」一律当成认领过 —— 一个交点都没人认领也全打勾，有红线的交点那条硬失败再没有一次会响，而审计末尾照旧报「有测试认领 4」",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    claimed: claimed.has(tensionKey(from, t.with)),",
+      "replace": "    claimed: true,"
+    },
+    {
       "id": "M-H7-a",
       "req": "harness",
       "why": "变异记在一个不存在的编号名下也放行 —— 那条变异照样跑、照样被抓到，控制台一片绿，而它对任何一条需求都不算数，审计报出的「有变异守着」少了一条却没有人被告知",

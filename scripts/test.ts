@@ -12,7 +12,8 @@ import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } 
 import { judgeRun } from './check/mutate-rule.js'
 import {
   active, adrIdsIn, contentHash, danglingAdrRefs, renderTables, requirementVerdict,
-  rootProblems, tensionHasRedline, tensionKey, tensionVerdict, validateRegistry,
+  rootProblems, tensionEvidence, tensionHasRedline, tensionKey, tensionVerdict,
+  validateRegistry,
   type Evidence, type Req, type TensionEvidence,
 } from './check/spec-rule.js'
 import { HARNESS, orphanAttributions } from './check/attribution-rule.js'
@@ -1833,6 +1834,14 @@ harness('审计对一个交点的裁定')
   eq('这一头是红线就算', tensionHasRedline('P4', 'D1', P), true)
   eq('那一头是红线也算', tensionHasRedline('D1', 'P4', P), true)
   eq('两头都不是红线就不算', tensionHasRedline('D4', 'D6', P), false)
+
+  // 配证据本身也是判断：查认领用哪个编号、红线看哪份名单。裁定收到的是两个
+  // 已经算好的布尔值，配错了它一个字都验不出来。
+  const ev = (claims: string[], red: string[] = []) =>
+    tensionEvidence('D4', t, new Set(claims), new Set(red))
+  eq('认领了这个交点，证据里就认领了', ev([tensionKey('D4', 'P4')]).claimed, true)
+  eq('认领的是别的交点，不算这一个', ev([tensionKey('D1', 'P4')]).claimed, false)
+  eq('红线看的是登记表那份名单', ev([], ['P4']).redline, true)
 
   // 有红线的交点没被认领是**硬失败**，不是待办：一条红线让步到哪为止，
   // 登记表上写着，而两侧需求各自的判据谁也不验它（ADR-17）。
