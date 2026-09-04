@@ -307,15 +307,15 @@ export function validateRegistry(reqs: Req[], adrIds: Set<string>, cats: string[
     for (const a of r.adr ?? []) {
       if (!adrIds.has(a)) problems.push(`${r.id} 的 adr 指向不存在的决策记录 ${a}`)
     }
-    // 正文点了名的决策记录,adr 里也得有 —— 否则同一条需求里两处自相矛盾:
+    // 正文或验收判据点了名的决策记录,adr 里也得有 —— 否则同一条需求里两处自相矛盾:
     // 正文写着「这句话是 ADR-66 定的」,而三行外那一栏当它不存在。
     // 这一栏是人手维护的反向链接,没有任何东西逼它跟上正文的改动(ADR-17);
-    // 正文里的引用是它唯一能机械核对的那部分 —— 不查,它就只是写在纸上。
+    // 这些点名是它唯一能机械核对的那部分 —— 不查,它就只是写在纸上。
     const linked = new Set(r.adr ?? [])
     const cited = new Set([r.text, ...r.accept.map(c => c.text)]
       .flatMap(s => [...s.matchAll(/ADR-\d+/g)].map(m => m[0])))
     for (const a of [...cited].sort()) {
-      if (!linked.has(a)) problems.push(`${r.id} 的正文点了 ${a},adr 里却没有 —— 正文说这句话是它塑造的`)
+      if (!linked.has(a)) problems.push(`${r.id} 的正文或验收判据点了 ${a},adr 里却没有 —— 同一条需求里两处说法对不上`)
     }
     for (const t of r.tension ?? []) {
       if (t.with === r.id) problems.push(`${r.id} 声明与自己相拉扯`)
