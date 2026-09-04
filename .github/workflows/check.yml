@@ -21,7 +21,10 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - run: npm ci
+      # 同 age.yml 里那一段:2026-09-04 起 `npm ci` 从两秒变成七分钟,同样 6 个包、
+      # 同样命中缓存。--prefer-offline 有缓存就不回源问元数据,--no-audit 去掉装完
+      # 之后那次审计请求
+      - run: npm ci --prefer-offline --no-audit
       # push 事件没有 PR 上下文,但这条分支可能正开着 PR —— 分支寿命闸门要它的 base
       # 才能不继承下面那条分支的豁免(ADR-63)。查一次开着的 PR,取最早那个的 base;
       # 没有 PR、或者查不到,就空着,闸门会在报告里说这一路没收窄。

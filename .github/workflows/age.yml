@@ -47,6 +47,15 @@ permissions:
   checks: write
   pull-requests: read
 
+# 一次推送(`synchronize`)和一次改正文(`edited`)会各起一次完整运行,两次都往
+# **同一个 head SHA** 上贴一条名叫 `age` 的 check run —— 正是下面 job 名那一段说的
+# 「同名的两条」,而必需检查按名字认、分不开它们。按 PR 分组、后来的取消先来的,
+# 一个 head 上就只剩最后一次的结论。
+# 定时和手动那两路没有 PR 号,用 ref 兜底 —— 它们跟 PR 事件不挤在同一组里。
+concurrency:
+  group: age-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # job 不能叫 `age`:Actions 会按 job 名再建一条同名的 check run,而那条永远是绿的
   # (脚本的退出码被捕获进 conclusion 了,job 自己不会失败),还总在贴上去的那条之后
@@ -64,7 +73,16 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - run: npm ci
+      # 装依赖快不快不只是省时间的事:下面贴 check run 那一步排在它**后面** ——
+      # `npm ci` 慢多久,PR 的 head 上就有多久根本没有名为 `age` 的检查,
+      # 而它是必需检查,GitHub 这时对合并请求的答复正是
+      # `Required status check "age" is expected.` —— 合不了。
+      # 2026-09-04 实测:同样 6 个包、同样命中缓存(16MB 两秒恢复完),
+      # `added 6 packages in 7m`;前一晚同一条工作流整趟才 11~37 秒。
+      # 慢在哪一步没有日志指得出来(npm ci 不打分步耗时),两个开关砍掉的是
+      # 装包本身之外的网络往返:--prefer-offline 有缓存就不回源问元数据,
+      # --no-audit 去掉装完之后那次审计请求。
+      - run: npm ci --prefer-offline --no-audit
 
       - name: 贴到各 PR 的 head
         env:
