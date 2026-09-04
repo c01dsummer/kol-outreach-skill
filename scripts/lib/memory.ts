@@ -286,7 +286,7 @@ export function loadMemory(): MemoryFile {
 
 export function saveMemory(mem: MemoryFile): void {
   // 建的也得是写的那个地方 —— 目标是软链时临时文件落在终点旁边，
-  // 建链接那一侧的目录对它一点用没有（ADR-57）。
+  // 建链接那一侧的目录对它一点用没有（ADR-46 追记四）。
   mkdirDurable(dirname(writeTarget(FILE)))
   mem.updated_at = new Date().toISOString()
   // 先写临时文件再改名。直接盖原文件是非原子的，中途被打断会留下一份截断的
