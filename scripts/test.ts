@@ -457,21 +457,35 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
 
 suite('D6', '收尾那句话说的是「续跑要不要花钱」—— 两支都得算出来，不能写死')
 {
+  const st = (over: Partial<TaskState> = {}): TaskState => ({
+    product: 'p', market: 'US', target_count: 50, budget_usd: 1,
+    tasks: [{ keyword: 'a', dimension: 'category', platform: 'tiktok' },
+            { keyword: 'b', dimension: 'scene', platform: 'tiktok' }],
+    done: [], offsets: {}, requests: 0, created_at: '', updated_at: '', ...over,
+  })
+  // 补全过的人：简介查过了、也有外链，`needsProfile` 认他不用再补
+  const done1 = mk('tiktok', 'a', { bio: '有简介', bio_links: ['https://x'] })
+  const todo1 = mk('tiktok', 'b', { bio: undefined })
+  const line = (o: { qualified?: number; done?: number[]; creators?: Creator[] } = {}) =>
+    resumeCostLine('out/x', st({ done: o.done ?? [] }), o.qualified ?? 10, o.creators ?? [done1])
+
   // 说反了的代价不对称：说成「不花钱」，账单在用户不知情时又长一截；说成
   // 「要花钱」，用户不敢续跑，那份已经付过钱的名单就永远拿不到（负片 M-D6-f）。
-  ok('还有关键词 → 说要继续花钱',
-    resumeCostLine('out/x', 2, 0).includes('续跑会继续发请求、继续花钱'))
+  ok('还有关键词 → 说要继续花钱', line().includes('续跑会继续发请求、继续花钱'))
   // 关键词全跑完不等于不花钱：只要还有人没补 profile，续跑第一件事就是去发
-  // 付费请求。只数关键词那一半会把这一种漏成「不花钱」（负片 M-D6-g）。
+  // 付费请求。只数关键词那一半会把这一种漏成「不花钱」（负片 M-D6-g、M-D6-h）。
   ok('关键词跑完了但还有人要补 profile → 仍然说要花钱',
-    resumeCostLine('out/x', 0, 3).includes('续跑会继续发请求、继续花钱'))
+    line({ qualified: 99, creators: [done1, todo1] }).includes('续跑会继续发请求、继续花钱'))
   ok('两样都还有 → 两样都点名',
-    resumeCostLine('out/x', 2, 3).includes('2 个关键词、3 个人的 profile'))
+    line({ creators: [done1, todo1] }).includes('2 个关键词、1 个人的 profile'))
   ok('两样都没有了 → 才说不产生新的请求',
-    resumeCostLine('out/x', 0, 0).includes('续跑不产生新的请求'))
+    line({ qualified: 99 }).includes('续跑不产生新的请求'))
+  // 关键词那一半按「续跑真会去抓的」数（D6.c）：达标提前停下时一个都不会去抓
+  ok('达标提前停下 → 那些没跑的关键词不算还剩的活',
+    !line({ qualified: 99 }).includes('个关键词'))
   // 两支都要把结果放在哪儿说清楚 —— 「不会重新抓」「结果都在」指的都是它
-  ok('还有活时也说清已抓到的在哪', resumeCostLine('out/x', 1, 0).includes('out/x'))
-  ok('没活时同样说清结果在哪', resumeCostLine('out/x', 0, 0).includes('out/x'))
+  ok('还有活时也说清已抓到的在哪', line().includes('out/x'))
+  ok('没活时同样说清结果在哪', line({ qualified: 99 }).includes('out/x'))
   criterion('D6.e')
 }
 

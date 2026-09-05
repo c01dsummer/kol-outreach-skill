@@ -154,6 +154,14 @@
       "replace": "  return a ?? b ?? null"
     },
     {
+      "id": "M-D6-h",
+      "req": "D6",
+      "why": "算「续跑还剩什么活」时把「还有多少人没补简介」当成 0 —— 关键词全跑完就告诉用户续跑不产生新的请求，而续跑第一件事正是去补那些人的简介，那是要付费的端点，账单在他不知情时又长一截",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  const profilesLeft = creators.filter(needsProfile).length",
+      "replace": "  const profilesLeft = 0"
+    },
+    {
       "id": "M-D6-f",
       "req": "D6",
       "why": "收尾时把「续跑要不要花钱」那两句话对调 —— 还有关键词、还有人没补简介的时候告诉用户「续跑不产生新的请求」，他放心去续跑，账单在他不知情时又长一截；反过来全跑完了却说「还会继续花钱」，他不敢续跑，那份已经付过钱的名单就永远拿不到",

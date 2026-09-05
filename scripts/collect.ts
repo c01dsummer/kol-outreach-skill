@@ -269,11 +269,10 @@ async function main() {
     // 那是付费端点（ADR-25）。
     // 数的是**续跑真正会去抓的**，不是「不在 done 里的」—— 达标提前停下时
     // 那些关键词一个都没碰过，而续跑会在第一个请求之前再次达标（ADR-25 追记）。
-    // 说哪一句是判定，在 lib/pipeline.ts 的 resumeCostLine 里 —— 留在这儿的话，
-    // 把两支对调，检查链一路全绿（ADR-25 的欠条，评审指出）。
-    const pending = keywordsResumeWillRun(state, qualified())
-    const pendingProfiles = [...creators.values()].filter(needsProfile).length
-    console.error(`\n   ${resumeCostLine(dir, pending.length, pendingProfiles)}`)
+    // 说哪一句、以及两个剩余量各是多少，全在 lib/pipeline.ts 的 resumeCostLine 里 ——
+    // 留在这儿的话，把两支对调、或者把某一个剩余量写死成 0，检查链一路全绿
+    // （ADR-25 的欠条，评审指出）。这里只剩「把它打出来」。
+    console.error(`\n   ${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)
 
     // 预算用尽时光 --resume 会立刻再退 3，所以命令里得把 --budget 一起给出来。
     // 写成 npm run 的形式：tsx 只在 npm script 里才在 PATH 上，而且 .env 也只有那条路会读

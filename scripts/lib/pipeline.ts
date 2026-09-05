@@ -110,11 +110,19 @@ export function pendingKeywords(state: TaskState): string[] {
  * 抽出来是因为它原来长在入口脚本里：把两支对调，检查链一路全绿 —— 端到端
  * 那条自检只验「两句话里出现了一句」，正好分不出是哪一句（评审指出）。
  *
- * 「还剩多少活」不由这里算：关键词那一半是 `keywordsResumeWillRun`（达标提前
- * 停下时一个都不会去抓），profile 那一半是 `needsProfile`（补全循环用的同一个
- * 判定）。这里只负责**据此选哪一支、怎么说**。
+ * **两个剩余量也在这里数**，不由调用方递进来：递数字的话，第二个写死成 0、
+ * 或者两个参数调个位置，下面每一条断言和每一条变异都照样绿，而用户看到的那句话
+ * 是错的 —— 那个缺口没法用变异守住（变异跑的只是 `scripts/test.ts`，够不到入口
+ * 脚本）。把数数搬进来，这一类错误就不再有地方发生（评审指出）。
+ *
+ * 数法不是新写的：关键词那一半是 `keywordsResumeWillRun`（D6.c —— 达标提前停下时
+ * 一个都不会去抓），profile 那一半是 `needsProfile`（D6.d —— 补全循环用的同一个判定）。
  */
-export function resumeCostLine(dir: string, keywordsLeft: number, profilesLeft: number): string {
+export function resumeCostLine(
+  dir: string, state: TaskState, qualified: number, creators: Creator[],
+): string {
+  const keywordsLeft = keywordsResumeWillRun(state, qualified).length
+  const profilesLeft = creators.filter(needsProfile).length
   const rest = [
     keywordsLeft ? `${keywordsLeft} 个关键词` : '',
     profilesLeft ? `${profilesLeft} 个人的 profile` : '',
