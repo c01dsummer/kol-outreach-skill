@@ -19,7 +19,9 @@ import {
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { resumeCostVerdict } from './selfcheck-rule.js'
+import {
+  budgetResumeCmd, enrichRanOnResume, profileInRemainingWork, resumeCostVerdict,
+} from './selfcheck-rule.js'
 
 const EXEMPT: Record<string, string> = {}   // 目前无豁免
 
@@ -445,21 +447,19 @@ if (!stuckDir) {
   // 「还剩什么」里必须点到 profile。这一次预算在补全之前就掐死了，人一个都没查过 ——
   // 少了这一条，入口把创作者从算钱那一侧断掉（只按剩下的关键词算）照样全绿：
   // 关键词本来就没抓完，一头顶着就够 resumeCostVerdict 过关了（D6.i）。
-  if (!/个人的 profile/.test(stderr)) {
-    failed++
-    console.error('  ✗ 收尾没点出还有 profile 没补 —— 入口不把创作者交给算钱那一步也照样不红')
-  } else console.log('  ✓ 收尾把没补的 profile 也算进了续跑还剩的活')
-  if (!/修好它再跑:.*--budget <新额度>/.test(stderr)) {
-    failed++
-    console.error('  ✗ 预算已用尽，恢复命令却没带 --budget —— 照着敲会立刻再撞退出码 3')
-  } else console.log('  ✓ 预算用尽这一侧，恢复命令带上了 --budget')
+  const profileVerdict = profileInRemainingWork(stderr)
+  if (profileVerdict) { failed++; console.error(`  ✗ ${profileVerdict}`) }
+  else console.log('  ✓ 收尾把没补的 profile 也算进了续跑还剩的活')
+  const cmdVerdict = budgetResumeCmd(stderr)
+  if (cmdVerdict) { failed++; console.error(`  ✗ ${cmdVerdict}`) }
+  else console.log('  ✓ 预算用尽这一侧，恢复命令带上了 --budget')
 }
 
 // ---- 查过了但没外链的人：下一轮补全循环还得把他捞回来（D6.l 的入口那一半）----
 // 这一条只有**续跑**才看得见：第一次谁的 bio 都还是 undefined，判定退化成
 // 「只看 bio」也挑中同一批人，端到端分不出来。跑第二遍，退化的那个写法就一个人
-// 都挑不出来了。关键词已经全部跑完，所以续跑这一轮发出的请求只可能是补全发的 ——
-// requests 是**累计值**，跟第一次的数比，涨了才说明补全真的又跑了一趟。
+// 都挑不出来了。「多发了请求才算又补了一趟」那个判定在 selfcheck-rule.ts —— 连同
+// 「从两次的 stdout 里取哪个数」：只搬判断、把取数留在这儿，等于没搬（第 10 条）。
 const noLinkCfg = join(tmp, 'nolink.json')
 writeFileSync(noLinkCfg, JSON.stringify({
   product: 'nolink', market: 'US', target_count: 100, budget_usd: 1,
@@ -468,25 +468,16 @@ writeFileSync(noLinkCfg, JSON.stringify({
 const noLinkOut = run('collect 抓到一个查过 profile 却没留外链的人',
   [S('collect.ts'), '--config', noLinkCfg], tmp)
 let noLinkDir = ''
-let firstRequests = -1
-try {
-  const first = JSON.parse(noLinkOut)
-  noLinkDir = first.dir
-  firstRequests = first.requests
-} catch {}
+try { noLinkDir = JSON.parse(noLinkOut).dir } catch {}
 if (!noLinkDir) {
   failed++
   console.error('  ✗ 那一次采集没留下目录 —— 下一轮补全无从检验')
 } else {
   const again = run('collect 续跑：没外链的人要再进一次补全',
     [S('collect.ts'), '--resume', noLinkDir, '--budget', '1'], tmp)
-  let requests = -1
-  try { requests = JSON.parse(again).requests } catch {}
-  if (!(requests > firstRequests)) {
-    failed++
-    console.error(`  ✗ 续跑一次请求都没多发（requests ${firstRequests} → ${requests}）——`
-      + ' bio 查到了、外链是空的，这个人被漏在了补全循环外面')
-  } else console.log('  ✓ 有 bio 没外链的人，续跑时还是被补全循环捞了回来')
+  const enrichVerdict = enrichRanOnResume(noLinkOut, again)
+  if (enrichVerdict) { failed++; console.error(`  ✗ ${enrichVerdict}`) }
+  else console.log('  ✓ 有 bio 没外链的人，续跑时还是被补全循环捞了回来')
 }
 
 // ---- 纪律 lint：扫到违规就以退出码 1 结束（P1.b 的入口那一半）----

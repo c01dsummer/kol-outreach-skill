@@ -14,7 +14,9 @@ import {
   beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, testRunning,
   trackTest,
 } from './check/mutate-restore.js'
-import { resumeCostVerdict } from './check/selfcheck-rule.js'
+import {
+  budgetResumeCmd, enrichRanOnResume, profileInRemainingWork, resumeCostVerdict,
+} from './check/selfcheck-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, renderTables, requirementVerdict,
   rootProblems, tensionEvidence, tensionHasRedline, tensionKey, tensionVerdict,
@@ -428,7 +430,9 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
 suite('D6', '「还要不要补 profile」只有一个标准 —— 挨个问和问一整份名单，答的是同一批人')
 {
   const c = (over: Partial<Creator>) => mk('tiktok', 'x', over)
-  ok('bio 未查询 → 还要补', needsProfile(c({ bio: undefined })))
+  // 外链给满，才只剩「没查过」这一半撑着这条：mk 的 bio_links 默认是 []，
+  // 照默认写两半同时为真，把「没查过」整个删掉它也绿（复查十五）
+  ok('没查过 → 还要补', needsProfile(c({ bio: undefined, bio_links: ['https://x'] })))
   ok('查过了但没有外链 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
   eq('查过且有外链 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
   criterion('D6.e')
@@ -2789,6 +2793,37 @@ harness('自检：续跑那句话必须说清代价，说要花钱就得说清�
   // 「还有　　没跑完」：把一个空的剩余量填进付费那句话，看着像说了，其实什么都没说
   ok('剩什么是空的 → 拦',
     say('还有   没跑完，续跑会继续发请求、继续花钱。', 'cost').includes('是空的'))
+}
+
+harness('自检：还剩的活点没点到 profile、恢复命令带没带 --budget、续跑有没有真的再补一趟')
+{
+  // 三条都是复查十三加的判定，当时留在 selfcheck.ts 的入口里 —— 那儿既没有测试也进不了
+  // 变异体，删掉哪一条都不会有东西变红（复查十五）。搬过来才有下面这些断言。
+
+  // 「剩下点什么」不够，得点到 profile：上面那条只管「该说哪一句」，关键词一头没抓完
+  // 就够它过关 —— 入口把创作者从算钱那一侧断掉，它照样绿（D6.i）
+  eq('点到了 profile → 放行',
+    profileInRemainingWork('还有 3 个关键词、5 个人的 profile 没跑完，续跑会继续发请求'), null)
+  ok('只剩关键词、没提 profile → 拦',
+    String(profileInRemainingWork('还有 3 个关键词 没跑完，续跑会继续发请求'))
+      .includes('不把创作者交给算钱那一步'))
+
+  // 光 --resume 会立刻再撞退出码 3：给了命令不算数，得带上 --budget
+  const CMD = '修好它再跑: npx tsx scripts/collect.ts --resume out/x'
+  eq('带了 --budget → 放行', budgetResumeCmd(`${CMD} --budget <新额度>`), null)
+  ok('给了命令却没带 --budget → 拦',
+    String(budgetResumeCmd(CMD)).includes('立刻再撞退出码 3'))
+
+  // requests 是累计值：只问「有没有请求」是句空话，一个都没多发也是「有」（复查十三）
+  const out = (n: number) => JSON.stringify({ dir: 'out/x', requests: n })
+  eq('续跑多发了请求 → 放行', enrichRanOnResume(out(2), out(3)), null)
+  ok('一个都没多发 → 拦', String(enrichRanOnResume(out(2), out(2))).includes('一次请求都没多发'))
+  // 判不了的时候要红，不是放过 —— 而且跟「没多发」各报各的：报错指错方向，人会去查
+  // 补全循环，而真正坏掉的是那次采集根本没吐出 JSON
+  ok('第二次的输出读不出来 → 拦，且报的是读不出来',
+    String(enrichRanOnResume(out(2), '')).includes('读不出来'))
+  ok('读不出来和没多发不共用一句报错',
+    String(enrichRanOnResume(out(2), '')) !== String(enrichRanOnResume(out(2), out(2))))
 }
 
 harness('审计：检查链自己的判定模块必须有变异守着')

@@ -186,6 +186,14 @@
       "replace": "  return c.bio === undefined"
     },
     {
+      "id": "M-D6-p",
+      "req": "D6",
+      "why": "「还要不要补 profile」丢掉「简介压根没查过」那一半，只看外链取到没有 —— 补全循环和算钱那句话说好共用同一个判定，现在共用的是残缺的那个。今天的 collect 里这两半恰好同真（外链只由补全写入），所以端到端分不出来；一旦外链能先于补全出现（跨平台合并就是这么并的，只是眼下在 render 那侧），这批人从此谁也不去补，而收尾照说「续跑不产生新的请求」",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return c.bio === undefined || !c.bio_links?.length",
+      "replace": "  return !c.bio_links?.length"
+    },
+    {
       "id": "M-D6-e",
       "req": "D6",
       "why": "把「还没标记完成的关键词」当成「续跑会去抓的」—— 达标提前停下时那些词一个都没碰过，续跑也不会碰，却告诉用户续跑要花钱，他可能因此不敢续跑，永远拿不到那份名单",
@@ -960,6 +968,14 @@
       "file": "scripts/lib/pipeline.ts",
       "find": "  return `\\n   已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，` +",
       "replace": "  return `\\n   已抓到的都在 ${dir}，不会重新抓；但还有活没跑完，` +"
+    },
+    {
+      "id": "M-D6-q",
+      "req": "D6",
+      "why": "收尾不再说「已抓到的都在哪、不会重新抓」，只剩「还有多少没跑完、续跑要继续花钱」—— 用户以为续跑是从头再抓一遍，为了不再花那笔钱索性不续，已经花钱抓到的那批人就烂在目录里没人取",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return `\\n   已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，` +",
+      "replace": "  return `\\n   但还有 ${rest} 没跑完，` +"
     },
     {
       "id": "M-D6-o",
@@ -1832,6 +1848,38 @@
       "file": "scripts/check/selfcheck-rule.ts",
       "find": "    return expected === 'free'",
       "replace": "    return expected !== 'free'"
+    },
+    {
+      "id": "M-H18-a",
+      "req": "harness",
+      "why": "把「还剩的活里点到 profile 没有」放宽成「还剩点什么就行」—— 入口把创作者从算钱那一侧整个断掉（只按剩下的关键词算）也照样过关：关键词本来就没抓完，一头顶着就够了，D6.i 于是没有任何东西守着",
+      "file": "scripts/check/selfcheck-rule.ts",
+      "find": "  return /个人的 profile/.test(stderr)",
+      "replace": "  return /没跑完/.test(stderr)"
+    },
+    {
+      "id": "M-H18-b",
+      "req": "harness",
+      "why": "只看「给没给恢复命令」，不看那条命令带不带 --budget —— 预算已经用尽的时候，光 --resume 照着敲会立刻再撞一次退出码 3，等于没给，而这道闸门放行",
+      "file": "scripts/check/selfcheck-rule.ts",
+      "find": "  return /修好它再跑:.*--budget <新额度>/.test(stderr)",
+      "replace": "  return /修好它再跑:/.test(stderr)"
+    },
+    {
+      "id": "M-H18-c",
+      "req": "harness",
+      "why": "「多发了请求才算又补了一趟」松成「没变少就算」—— requests 是累计值，一个请求都没多发也满足，于是「查过了但没外链的人被漏在补全循环外面」这件事再也检不出来；这一条第一版就是这么松的，复查十三改掉的正是它",
+      "file": "scripts/check/selfcheck-rule.ts",
+      "find": "  return after > before",
+      "replace": "  return after >= before"
+    },
+    {
+      "id": "M-H18-d",
+      "req": "harness",
+      "why": "两次输出只有一次读不出来时不再报「读不出来」，而是掉进比较里报成「续跑一次请求都没多发」—— 人照着去查补全循环，可真正坏掉的是那次采集根本没吐出 JSON；报错指错方向，比不报还费时间",
+      "file": "scripts/check/selfcheck-rule.ts",
+      "find": "  if (before < 0 || after < 0) {",
+      "replace": "  if (before < 0 && after < 0) {"
     }
   ],
   "exemptions": [
