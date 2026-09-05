@@ -15,7 +15,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { TikHub, TikHubError } from './providers/tikhub.js'
-import { Budget, BudgetExceeded, budgetProblem } from './lib/budget.js'
+import { Budget, BudgetExceeded, budgetProblem, showAmount } from './lib/budget.js'
 import { extractEmail } from './lib/email.js'
 import type { SearchTask } from './lib/types.js'
 
@@ -40,7 +40,7 @@ if (!key) {
 const probeBudget = cfg.budget_usd ?? 0.5
 const badBudget = budgetProblem(probeBudget)
 if (badBudget) {
-  console.error(`${cfgPath} 里的 budget_usd ${badBudget}：${JSON.stringify(cfg.budget_usd)} —— ` +
+  console.error(`${cfgPath} 里的 budget_usd ${badBudget}：${showAmount(cfg.budget_usd)} —— ` +
                 `预算闸门要拿它和已花的钱比大小，比不了就等于没有闸门。`)
   process.exit(2)
 }

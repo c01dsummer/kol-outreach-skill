@@ -32,6 +32,16 @@ export const budgetProblem = (v: unknown): string | undefined =>
         : undefined
 
 /**
+ * 报错里怎么写那个坏取值。
+ *
+ * 不能直接走 JSON —— `NaN` 与 `Infinity` 在 JSON 里都是 `null`，于是用户打的
+ * `--budget 3.0.0` 会被印成「null」，他会以为自己打错成了一个 null。
+ * 数字照原样写，其余走 JSON（字符串要带引号，否则 `"0"` 和 `0` 在报错里长得一样）。
+ */
+export const showAmount = (v: unknown): string =>
+  typeof v === 'number' ? String(v) : JSON.stringify(v)
+
+/**
  * **这个「已经花了多少次」有没有毛病。**
  *
  * 和上面那条是同一件事的另一半：闸门要拿「已花」和「上限」比大小，两边都得是数。

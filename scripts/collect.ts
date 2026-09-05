@@ -16,7 +16,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
-import { Budget, BudgetExceeded, budgetProblem, ledgerProblem } from './lib/budget.js'
+import { Budget, BudgetExceeded, budgetProblem, ledgerProblem, showAmount } from './lib/budget.js'
 import { finalize, needsProfile, pendingKeywords, resumeCostLine } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
@@ -95,8 +95,11 @@ if (badProduct) {
 // 把条件写反、或者少判一种取值，检查链一路全绿（ADR-46 的形状）。
 const badBudget = budgetProblem(state.budget_usd)
 if (badBudget) {
+  // 报的是**用户打的那个东西**，不是它被解析之后的样子：`--budget 3.0.0` 解析成
+  // NaN，照解析结果印出来是「null」，用户会以为自己打错成了一个 null
   const from = newBudgetArg !== undefined ? '--budget' : `${productFrom} 里的 budget_usd`
-  console.error(`${from} ${badBudget}：${JSON.stringify(state.budget_usd)} —— ` +
+  const shown = newBudgetArg !== undefined ? newBudgetArg : showAmount(state.budget_usd)
+  console.error(`${from} ${badBudget}：${shown} —— ` +
                 `预算闸门要拿它和已花的钱比大小，比不了就等于没有闸门。先给一个数再跑。`)
   process.exit(2)
 }
@@ -106,7 +109,7 @@ if (badBudget) {
 // 变成拼接 —— 两种都是安静地发生（D6.a · P3）。
 const badLedger = ledgerProblem(state.requests)
 if (badLedger) {
-  console.error(`${productFrom} 里的 requests ${badLedger}：${JSON.stringify(state.requests)} —— ` +
+  console.error(`${productFrom} 里的 requests ${badLedger}：${showAmount(state.requests)} —— ` +
                 `它是「已经花掉几次请求」，预算闸门从它接着往上加。先把它改回一个整数再跑。`)
   process.exit(2)
 }

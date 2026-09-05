@@ -16,7 +16,9 @@ import {
   TikHub,
   TikHubError,
 } from './providers/tikhub.js'
-import { Budget, BudgetExceeded, UNIT_PRICE, budgetProblem, ledgerProblem } from './lib/budget.js'
+import {
+  Budget, BudgetExceeded, UNIT_PRICE, budgetProblem, ledgerProblem, showAmount,
+} from './lib/budget.js'
 import {
   accountKey,
   assignAudienceRisks,
@@ -71,7 +73,7 @@ for (const [field, problem] of [
 ] as const) {
   if (!problem) continue
   console.error(`${dir}/task.json 里的 ${field} ${problem}：` +
-                `${JSON.stringify((task as unknown as Record<string, unknown>)[field])} —— ` +
+                `${showAmount((task as unknown as Record<string, unknown>)[field])} —— ` +
                 `预算闸门要拿这两个数比大小，比不了就等于没有闸门。`)
   process.exit(2)
 }

@@ -132,8 +132,13 @@ if (probeOut && !probeOut.includes('bio_available')) {
 
   mkdirSync(join(tmp, 'okledger'), { recursive: true })
   writeFileSync(join(tmp, 'okledger', 'task.json'), stateOf(0))
-  run('collect 追加的预算不是数字 → 停下问人',
-      [S('collect.ts'), '--resume', 'okledger', '--budget', 'abc'], tmp, { status: 2 })
+  // 报的必须是**用户打的那个东西**：`3.0.0` 解析成 NaN，照解析结果印是「null」
+  const badArg = run('collect 追加的预算不是数字 → 停下问人',
+      [S('collect.ts'), '--resume', 'okledger', '--budget', '3.0.0'], tmp, { status: 2 })
+  if (badArg && !badArg.includes('3.0.0')) {
+    failed++
+    console.error('  ✗ 报错里没有出现用户打的那个值，他不知道是哪一处写错了')
+  } else if (badArg) console.log('  ✓ 报错指名用户打的那个值')
 }
 
 // ---- collect：完整采集 + profile 补全 + 同人合并 + 记忆 ----
