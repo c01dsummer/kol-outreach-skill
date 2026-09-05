@@ -162,7 +162,9 @@ export class TikHub {
     const link = u?.bioLink?.link
     return {
       nickname: u?.nickname || undefined,
-      bio: u?.signature,
+      // profile 已经查回来了，signature 是空只说明对方没写简介 —— 那是「查过，没有」。
+      // 记成 undefined 有两笔账：这个人每轮续跑再被查一次，email 还会跟着记成「未查询」。
+      bio: u?.signature ?? null,   // p1-ok: 三态本身，profile 侧的空简介就是 null
       bio_links: link ? [link] : [],
       followers: stats?.followerCount ?? u?.followerCount ?? undefined,
       following: stats?.followingCount ?? u?.followingCount ?? undefined,
@@ -270,7 +272,7 @@ export class TikHub {
     return {
       user_id: u?.pk ?? u?.id ?? undefined,
       nickname: u?.full_name || undefined,
-      bio: u?.biography,
+      bio: u?.biography ?? null,   // p1-ok: 同上，profile 查回来了，biography 空就是「查过，没写」
       bio_links: links,
       followers: u?.follower_count ?? undefined,
       following: u?.following_count ?? undefined,
@@ -369,5 +371,8 @@ export class TikHub {
  * 两者混为一谈会让「我们没看过他的 bio」被下游读成「他没留邮箱」。
  */
 export function fillEmail(c: Creator): void {
-  c.email = c.bio === undefined ? undefined : (extractEmail(c.bio) ?? null)   // p1-ok: 三态本身——bio 已取到而提取不出，才是「查过，没有」，这正是 null 的正确用法
+  c.email = c.bio === undefined ? undefined
+    // 查过、对方没写简介 —— 那就是「查过，没有邮箱」，不是「没查过」
+    : c.bio === null ? null
+      : (extractEmail(c.bio) ?? null)   // p1-ok: 三态本身——bio 已取到而提取不出，才是「查过，没有」，这正是 null 的正确用法
 }

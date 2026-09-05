@@ -6,8 +6,8 @@
       "req": "P1",
       "why": "把「bio 未取到」重新兜底成空串 —— 未查询被伪装成查过且没有",
       "file": "scripts/providers/tikhub.ts",
-      "find": "c.email = c.bio === undefined ? undefined : (extractEmail(c.bio) ?? null)",
-      "replace": "c.email = extractEmail(c.bio ?? '') ?? null"
+      "find": "  c.email = c.bio === undefined ? undefined\n    // 查过、对方没写简介 —— 那就是「查过，没有邮箱」，不是「没查过」\n    : c.bio === null ? null\n      : (extractEmail(c.bio) ?? null)",
+      "replace": "  c.email = extractEmail(c.bio ?? '') ?? null"
     },
     {
       "id": "M-P1-b",
@@ -312,6 +312,38 @@
       "file": "scripts/check/lint-rule.ts",
       "find": "    } else if (e.endsWith('.ts') && !(atRoot && SKIP_FILES.includes(e))) out.push(p)",
       "replace": "    } else if (e.endsWith('.ts') && !SKIP_FILES.includes(e)) out.push(p)"
+    },
+    {
+      "id": "M-P1-r",
+      "req": "P1",
+      "why": "profile 查回来了、对方没写简介的人，邮箱记成「未查询」而不是「查过，没有」—— 下游据此说「我们还没看过他的简介」，而我们看过了；这批人会被当成还有希望留着，实际是查过、没留邮箱",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "    : c.bio === null ? null",
+      "replace": "    : c.bio === null ? undefined"
+    },
+    {
+      "id": "M-P1-s",
+      "req": "P1",
+      "why": "TikTok 补全已经查回来、对方没写简介时记成「没查过」—— 这个人每轮续跑都被当成还没查过重查一次，钱一轮一轮地花，而名单一次都不会变",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      bio: u?.signature ?? null,",
+      "replace": "      bio: u?.signature,"
+    },
+    {
+      "id": "M-P1-t",
+      "req": "P1",
+      "why": "Instagram 那一侧同样：补全查回来了、对方没写简介，却记成「没查过」，于是这批人每轮续跑重查一遍",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      bio: u?.biography ?? null,",
+      "replace": "      bio: u?.biography,"
+    },
+    {
+      "id": "M-P1-u",
+      "req": "P1",
+      "why": "判定不认「查过、对方没写简介」这个态，把这些人一律当成还没查过 —— 采集那一侧记对了也没用，续跑照样把他们重查一遍",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return c.bio === undefined || !c.bio_links?.length",
+      "replace": "  return !c.bio || !c.bio_links?.length"
     },
     {
       "id": "M-P1-q",
