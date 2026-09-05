@@ -1852,10 +1852,18 @@
     {
       "id": "M-H18-a",
       "req": "harness",
-      "why": "把「还剩的活里点到 profile 没有」放宽成「还剩点什么就行」—— 入口把创作者从算钱那一侧整个断掉（只按剩下的关键词算）也照样过关：关键词本来就没抓完，一头顶着就够了，D6.i 于是没有任何东西守着",
+      "why": "「几个人的 profile」不再钉在「还有 …… 没跑完」那句话里，改成整个 stderr 里哪儿出现都算 —— 剩余量里根本没算创作者，只要另一条诊断顺口提了这几个字就能蒙过去，D6.i 那道端到端闸门于是形同虚设",
       "file": "scripts/check/selfcheck-rule.ts",
-      "find": "  return /个人的 profile/.test(stderr)",
-      "replace": "  return /没跑完/.test(stderr)"
+      "find": "  const n = said && /(\\d+) 个人的 profile/.exec(said[1])",
+      "replace": "  const n = said && /(\\d+) 个人的 profile/.exec(stderr)"
+    },
+    {
+      "id": "M-H18-e",
+      "req": "harness",
+      "why": "只看那句话里出没出现「几个人的 profile」，不看那个数目是不是正的 —— 「还剩 0 个人的 profile」说的是没剩，却被当成点到了；补全那一侧接没接进算钱，这道闸门答的是句空话",
+      "file": "scripts/check/selfcheck-rule.ts",
+      "find": "  return n && Number(n[1]) > 0",
+      "replace": "  return n !== null"
     },
     {
       "id": "M-H18-b",

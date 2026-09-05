@@ -55,9 +55,14 @@ export function resumeCostVerdict(stderr: string, expected: 'free' | 'cost'): st
  * 上面那条只管「该说哪一句」—— 关键词一头没抓完就够它过关。于是入口把创作者从算钱
  * 那一侧整个断掉（只按剩下的关键词算），它照样是绿的（D6.i）。这一条专钉另一头：
  * 说得出「几个人的 profile」，补全那一侧才算真的接进了算钱。
+ *
+ * 得钉在**那句话里面**、而且数目得是正的。整个 stderr 里搜这几个字是不够的：随便哪条
+ * 别的诊断带上这几个字，剩余量里根本没算创作者也照样放行 —— 那正是这条要拦的（复查十七）。
  */
 export function profileInRemainingWork(stderr: string): string | null {
-  return /个人的 profile/.test(stderr)
+  const said = /还有 (.*?) 没跑完/.exec(stderr)
+  const n = said && /(\d+) 个人的 profile/.exec(said[1])
+  return n && Number(n[1]) > 0
     ? null
     : '收尾没点出还有 profile 没补 —— 入口不把创作者交给算钱那一步也照样不红'
 }

@@ -430,16 +430,21 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
 suite('D6', '「还要不要补 profile」只有一个标准 —— 挨个问和问一整份名单，答的是同一批人')
 {
   const c = (over: Partial<Creator>) => mk('tiktok', 'x', over)
-  // 外链给满，才只剩「没查过」这一半撑着这条：mk 的 bio_links 默认是 []，
-  // 照默认写两半同时为真，把「没查过」整个删掉它也绿（复查十五）
-  ok('没查过 → 还要补', needsProfile(c({ bio: undefined, bio_links: ['https://x'] })))
-  ok('查过了但没有外链 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
-  eq('查过且有外链 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
+  // 外链给满，才只剩「简介空着」这一半撑着这条：mk 的 bio_links 默认是 []，
+  // 照默认写两半同时为真，把「简介空着」整个删掉它也绿（复查十五）
+  //
+  // 空着的简介**分不出**是没查过还是查过了、这人自己没写：两个适配器都把可缺失的
+  // signature/biography 原样写进 bio（`providers/tikhub.ts`），所以一次成功的查询也
+  // 能产出这个形状。判定一律当「还要补」—— 这是主干上的既有行为，本 PR 只如实登记，
+  // 该不该改成三态另记了待办（复查十七）。
+  ok('简介空着 → 还要补', needsProfile(c({ bio: undefined, bio_links: ['https://x'] })))
+  ok('简介有、一条外链都没有 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
+  eq('两样都有 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
   criterion('D6.e')
   // 上面三条只说了这个标准本身对。名单那一侧另算一条判据，不合并进 D6.e：这两半由
   // 两个不同的表达式产出，能被独立弄坏 —— M-D6-j 只把取名单那一句换成另写的筛选，
   // 标准本身照旧全绿。合成一条的话，删掉其中一半的断言，审计仍会把整条报成「有测试认领」。
-  // 名单里放一个只有照着这个标准才数得进去的人：查过了但没外链。
+  // 名单里放一个只有照着这个标准才数得进去的人：简介有、外链没有。
   const crowd = [c({ handle: 'full', bio: '简介', bio_links: ['https://x'] }),
                  c({ handle: 'bare', bio: undefined }),
                  c({ handle: 'nolink', bio: '简介', bio_links: [] })]
@@ -2806,6 +2811,16 @@ harness('自检：还剩的活点没点到 profile、恢复命令带没带 --bud
     profileInRemainingWork('还有 3 个关键词、5 个人的 profile 没跑完，续跑会继续发请求'), null)
   ok('只剩关键词、没提 profile → 拦',
     String(profileInRemainingWork('还有 3 个关键词 没跑完，续跑会继续发请求'))
+      .includes('不把创作者交给算钱那一步'))
+  // 钉的是「还有 … 没跑完」那句话里面。整个 stderr 里搜这几个字不够 —— 剩余量里没算
+  // 创作者，另一条诊断顺口提了一句，就能把这道闸门蒙过去（复查十七）
+  ok('这几个字出现在别处、那句话里没有 → 仍要拦',
+    String(profileInRemainingWork(
+      '补全循环跳过了 5 个人的 profile\n还有 3 个关键词 没跑完，续跑会继续发请求'))
+      .includes('不把创作者交给算钱那一步'))
+  // 数目还得是正的：说「还剩 0 个人的 profile」等于说没剩，不能算点到了
+  ok('那句话里数目是零 → 拦',
+    String(profileInRemainingWork('还有 3 个关键词、0 个人的 profile 没跑完'))
       .includes('不把创作者交给算钱那一步'))
 
   // 光 --resume 会立刻再撞退出码 3：给了命令不算数，得带上 --budget
