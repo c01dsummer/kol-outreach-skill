@@ -123,8 +123,14 @@ process.on('exit', restoreClaims)
  * `mutate-restore.ts` 的 `killTest` 用的是 `process.kill(-pid)` —— 负号是 POSIX 的
  * 进程组语义，配的是这里的 `detached`。而 `detached` 在 Windows 上给的是**一个自己的
  * 控制台窗口，不是进程组**，那一刀落不到任何东西上，还被 `catch` 吞掉。
- * 所以 Windows 上被 Ctrl-C 打断时，测试子进程不会被停掉，而工作区里留着的是
- * 被改过的源码。**这一条本 PR 没修，也不假装修了**（记在 PR 描述里）。
+ *
+ * 落空的**不是**还原：`onInterrupt` 是「先杀、再还原、才退出」，那一刀被吞掉之后
+ * `restoreMutation` 照样跑，源文件还是还得回去（**评审指出，我原先在这里写错了**）。
+ * 落空的是**「把它停下来」那一半**：子进程活着，跑的是被改过的源码，而父进程已经
+ * 还原完、退出了 —— 正是 `trackTest` 那段注释说的「父进程退掉不会把它带走」那个
+ * 窗口，在 Windows 上没有东西关得上它。（覆盖记录那一份另有 `MUTATING=1` 挡着，
+ * 不在这个窗口里。）**这一条至今没修，也不假装修了** —— 改它要碰 `mutate-restore.ts`
+ * 的杀进程策略（Windows 上得换成 `taskkill /T` 之类），是另一个证据问题。
  *
  * **本仓库的 CI 只跑 Linux，所以上面关于 Windows 的话没有任何自动化验过。**
  * 它靠的是 Node 官方文档 + 代码推理，不是一次真的 Windows 运行。Linux 这一侧
