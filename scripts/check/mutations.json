@@ -1586,6 +1586,14 @@
       "replace": "  `判据 ${claimed}+⊘${exempted}/${total}`"
     },
     {
+      "id": "M-H7-b",
+      "req": "harness",
+      "why": "变异编号重复也放行 —— 复制一条忘了改字母时两条都照跑、照样各自被抓到，控制台一片绿；等到其中一条存活，报告里两行顶着同一个名字，「去修它」指不出该修表里哪一行",
+      "file": "scripts/check/attribution-rule.ts",
+      "find": "  for (const e of entries) (seen.has(e.id) ? dup : seen).add(e.id)",
+      "replace": "  for (const e of entries) seen.add(e.id)"
+    },
+    {
       "id": "M-H7-a",
       "req": "harness",
       "why": "变异记在一个不存在的编号名下也放行 —— 那条变异照样跑、照样被抓到，控制台一片绿，而它对任何一条需求都不算数，审计报出的「有变异守着」少了一条却没有人被告知",

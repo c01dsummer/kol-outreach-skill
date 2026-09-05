@@ -18,7 +18,7 @@
  */
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
-import { orphanAttributions } from './attribution-rule.js'
+import { duplicateIds, orphanAttributions } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import { type RunVerdict, judgeRun } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
@@ -38,6 +38,15 @@ const registry: { id: string; accept: string | { id: string }[] }[] =
   JSON.parse(readFileSync('docs/requirements.json', 'utf8')).requirements
 const known = new Set<string>(registry.flatMap(r =>
   [r.id, ...(Array.isArray(r.accept) ? r.accept.map(c => c.id) : [])]))
+// 编号唯一先查：下面每一份报告印的都是 id，编号还没唯一时那些报告自己也指不回去
+const dupes = duplicateIds(muts)
+if (dupes.length) {
+  console.error(`✗ 变异集：${dupes.length} 个编号重复 —— 两条顶着同一个名字，报告指不回表里哪一行\n`)
+  for (const d of dupes) console.error(`  ${d}  出现不止一次`)
+  console.error('\n  编号是报告里唯一能把一条变异指回表里那一行的东西。复制一条就改掉它的字母。')
+  process.exit(1)
+}
+
 const orphans = [
   ...orphanAttributions(muts, known),
   ...orphanAttributions(exemptions.map(e => ({ id: `豁免 ${e.req}`, req: e.req })), known),
