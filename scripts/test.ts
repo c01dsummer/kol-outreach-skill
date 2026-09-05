@@ -420,6 +420,7 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
   eq('已标记完成的本来就不算', keywordsResumeWillRun(st({ done: [0] }), 10).length, 1)
   // pendingKeywords 仍然报「还没跑完的」—— 它服务的是进度，不是花钱
   eq('进度口径不受达标影响', pendingKeywords(st()).length, 2)
+  criterion('D6.c')
 }
 
 suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环与「续跑要花多少钱」共用它')
@@ -428,11 +429,10 @@ suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环
   ok('bio 未查询 → 还要补', needsProfile(c({ bio: undefined })))
   ok('查过了但没有外链 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
   eq('查过且有外链 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
-  // 这个判定决定要不要花钱：说「续跑不产生新请求」之前，它必须对每个人都是 false。
-  // D6.c 说的「剩余工作量」是**两种**活，坏在不同的地方，所以两个 suite 各断言一半：
-  // 关键词那半在上一个 suite（负片 M-D6-e），profile 这半在这里（负片 M-D6-d）。
-  // 认领写在后一半 —— 两处都跑到了，那句话才敢说。
-  criterion('D6.c')
+  // 这个判定决定要不要花钱：关键词全跑完了，只要还有人没补 profile，
+  // 续跑第一件事就是去发付费请求（负片 M-D6-d）。关键词那一半是 D6.c，
+  // 在上一个 suite（负片 M-D6-e）—— 两种活坏在不同的地方，所以是两条判据。
+  criterion('D6.d')
 }
 
 suite('D6', '续跑不得被本任务自己上一轮的产出滤空')
@@ -699,11 +699,13 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   const padded = filterByMemory([mk('tiktok', 'pad')], 'Foo', undefined, { ignoreUnreadable: true })
   eq('产品名两侧的空白不影响「已推荐过」', padded.filtered_recommended, 1)
   eq('于是那个人不会被再推荐一次', padded.kept.length, 0)
-  // 后半句「不判为损坏」得单独断言：它和前半句坏在**不同的代码路径**上 ——
-  // 前半句是比较时不去空白（负片 M-D6-f），后半句是读取侧把带空白的产品名
-  // 判成损坏（负片 M-D6-g）。只断言前半句的话，后一种坏法这里是绿的。
+  // 后半句「不判为损坏」单独断言，但**不是**因为上面两条抓不到它：负片
+  // M-D4-ag 让读取侧把带空白的产品名判成损坏，readMemory 返回 unreadable，
+  // 上面两条也一起红。它们红得不好读 —— 报的是「没去重」，真正坏的是
+  // 「读不出来」。这一条把状态钉住，坏因才写在脸上。（前半句的负片是
+  // M-D4-af：只让比较不去空白，状态仍是 ok，就靠上面两条抓。）
   eq('而且没把这份记忆判成损坏', padded.memory_status, 'ok')
-  criterion('D6.d')
+  criterion('D4.q')
 
   // 七之二、名单和它的去重状态：**哪个先写都不安全**，取决于状态往哪边变。
   //        ok → unreadable_ignored 时名单先写会坏；unreadable_ignored → ok 时
