@@ -112,7 +112,7 @@ process.on('exit', restoreClaims)
  * | 做法 | 判定 |
  * |---|---|
  * | 显式挑 `npx.cmd` | **走不通**。不带 shell 起不来的正是 `.cmd` 这类文件，挑明名字也一样 |
- * | `spawn(..., { shell: true })` | 能跑，但要经 `cmd.exe`；而**带 shell 还传参数数组**是 Node 的运行时弃用项（DEP0190，v21 起），它让你把命令拼成字符串 —— 拼字符串正是注入面所在。Node 自己在 `.cmd` 那一节也写着「不推荐」 |
+ * | `spawn(..., { shell: true })` | 能跑，但要经 `cmd.exe`，而 Node 自己在 `.cmd` 那一节就写着**「不推荐，见 DEP0190」**。DEP0190 说带 shell 时别传参数数组、把命令拼成字符串 —— 而拼字符串正是注入面所在。（措辞要准：DEP0190 的**标题**点了 `execFile`/`spawn`，**正文**只点 `execFile()` 与 `execFileSync()`；对 `spawn` 直接成立的是 `.cmd` 那一节的「不推荐」那句。结论不依赖这个差别） |
  * | **当前 node + tsx 的 cli** | 不经 shell，也就没有注入面可争论；`.cmd` 压根不参与；还少一层进程 |
  *
  * `tsx/cli` 是 tsx 包的**公开导出**（它的 `exports` 里有 `"./cli"`），所以用
@@ -134,7 +134,8 @@ process.on('exit', restoreClaims)
  * 既不清也不写那份记录，但**变异改坏的可能正是那个判定本身** —— M-H14-e 就是把
  * 「谁拥有这份记录」改成人人有份。跑那一条时子进程会写它，而父进程的 `restoreClaims`
  * 挂在 `exit` 上、早已跑完退出，于是盘上留下一份由被改过的源码产生的记录，后面的审计
- * 会拿它当真的用 —— 上面第 85-95 行和 `trackTest` 的注释说的正是这件事。
+ * 会拿它当真的用 —— 上面 `claimsBackup` / `restoreClaims` 那一段和 `trackTest` 的注释
+ * 说的正是这件事。
  *
  * **这一条至今没修，也不假装修了** —— 改它要碰 `mutate-restore.ts` 的杀进程策略
  * （Windows 上得换成 `taskkill /T` 之类），是另一个证据问题。
