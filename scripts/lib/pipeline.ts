@@ -119,9 +119,19 @@ export function pendingKeywords(state: TaskState): string[] {
  * 一个都不会去抓），profile 那一半是 `needsProfile`（D6.d —— 哪些人还要补；
  * 「补全循环与这里共用它」那条约束在 `docs/ARCHITECTURE.md` 的锚点行上）。
  *
- * **眼下只有一处调它**：`collect.ts` 里「记忆读不出来因而不产出名单」那条收尾路径，
- * D6.e 的判据文字也只管那一条。跑完、预算用尽、出错三条路径至今不说这句话
- * —— 那是 ADR-25 上还挂着的欠条，不是这个函数的事。
+ * **`collect.ts` 里有两处调它**，对应两条判据：
+ *
+ * - `catch (MemoryUnreadable)` 里那一处，退出码 2、不产出名单 —— **D6.e**
+ * - 产出了名单的四种收尾共用的那一处（在 `stopped` 分支之前）：关键词跑完、
+ *   达标提前停下、预算用尽、出错中止 —— **D6.f**
+ *
+ * 分成两条判据是因为两处**能各自坏掉**；四种收尾共用一处，所以它们合起来才是一条。
+ *
+ * 两处的接线都没有变异守得住（变异跑的只是 `scripts/test.ts`，够不到入口脚本），
+ * 都由自检端到端守着。**但只有 D6.f 在 `mutations.json` 的 `exemptions` 里登记**：
+ * D6.e 说的是「那句话说什么」，那一半在 `scripts/test.ts` 里有认领、有
+ * `M-D6-f`／`M-D6-g`／`M-D6-h` 三条负片；D6.f 整条都是接线，没有任何单元测试认领得了，
+ * 不登记的话审计只会报「没有测试认领」，说不出靠什么守着（ADR-25）。
  */
 export function resumeCostLine(
   dir: string, state: TaskState, qualified: number, creators: Creator[],

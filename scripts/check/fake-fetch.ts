@@ -124,6 +124,14 @@ let calls = 0
 globalThis.fetch = (async (input: RequestInfo | URL) => {
   calls++
   const url = String(input)
+  // 关键词里带上 `force-402` 就让对面拒收 —— **出错那条收尾路径只有这样才走得到**。
+  // 402 是 TikHub 说「你账户没钱了」，和「预算用尽」不是一回事：预算是我们自己设的
+  // 闸门（退出码 3），402 是对面拒收（退出码 1），而且 402 不重试、直接抛穿搜索循环。
+  // 用关键词触发不用环境变量：夹具本来就要写配置，触发条件跟着配置走，读的人在
+  // 同一个地方看得到（D6.f 的出错那一条）。
+  if (url.includes('force-402')) {
+    return new Response('payment required', { status: 402 })
+  }
   // 第 7 次调用返回 429，确保错误分支也被执行到
   if (calls === 7) {
     return new Response('rate limited', { status: 429 })
