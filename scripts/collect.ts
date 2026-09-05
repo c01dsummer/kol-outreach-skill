@@ -21,7 +21,8 @@ import { finalize, needsProfile, pendingKeywords, resumeCostLine } from './lib/p
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
 import {
-  taskDir, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators, persistListAndStatus,
+  taskDir, taskFile, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators,
+  persistListAndStatus,
 } from './lib/task.js'
 import { creatorKey, textProblem } from './lib/types.js'
 import type { Creator, TaskState } from './lib/types.js'
@@ -48,12 +49,13 @@ let productFrom: string        // 产品名是从哪读来的 —— 报错要�
 const resume = arg('--resume')
 
 if (resume) {
-  if (!existsSync(`${resume}/task.json`)) {
-    console.error(`找不到 ${resume}/task.json`)
+  const taskPath = taskFile(resume)
+  if (!existsSync(taskPath)) {
+    console.error(`找不到 ${taskPath}`)
     process.exit(2)
   }
   state = loadTask(resume)
-  productFrom = `${resume}/task.json`
+  productFrom = taskPath
   const newBudget = arg('--budget')
   if (newBudget) state.budget_usd = Number(newBudget)
   console.error(`续跑 ${resume} —— 已完成 ${state.done.length}/${state.tasks.length} 个关键词，` +

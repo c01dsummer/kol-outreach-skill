@@ -32,6 +32,7 @@ import {
   loadTask,
   saveEnrichment,
   saveTask,
+  taskFile,
 } from './lib/task.js'
 import type {
   AccountAssessment,
@@ -49,7 +50,7 @@ const arg = (name: string) => {
 }
 
 const dir = arg('--dir')
-if (!dir || !existsSync(`${dir}/task.json`)) {
+if (!dir || !existsSync(taskFile(dir))) {
   console.error('用法: tsx scripts/enrich.ts --dir <output/xxx> [--budget N] [--refresh]')
   process.exit(2)
 }
