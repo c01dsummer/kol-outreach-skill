@@ -19,13 +19,6 @@
 export const HARNESS = 'harness'
 
 /**
- * 返回记错名下的那些，`{ id, req }`；都对返回空数组。
- *
- * `known` 是合法名下的全集，由入口从登记表算出来：需求编号，以及拆出来之后的
- * 验收判据编号 —— 豁免常常只豁免其中一条判据（ADR-34）。这条判定只认
- * 「在不在名单上」，不认编号的形状。
- */
-/**
  * 返回**重复出现**的编号，去重后按首次重复的先后排列；都不重复返回空数组。
  *
  * 编号不参与任何判定 —— `mutate.ts` 只拿它印报告的每一行。所以复制一条变异忘了改
@@ -42,9 +35,45 @@ export function duplicateIds(entries: { id: string }[]): string[] {
   return [...dup]
 }
 
+/**
+ * 返回记错名下的那些，`{ id, req }`；都对返回空数组。
+ *
+ * `known` 是合法名下的全集，由入口从登记表算出来：需求编号，以及拆出来之后的
+ * 验收判据编号 —— 豁免常常只豁免其中一条判据（ADR-34）。这条判定只认
+ * 「在不在名单上」，不认编号的形状。
+ */
 export function orphanAttributions(
   entries: { id: string; req: string }[],
   known: Set<string>,
 ): { id: string; req: string }[] {
   return entries.filter(e => e.req !== HARNESS && !known.has(e.req))
+}
+
+/** 变异集在「记在谁名下」这一层的毛病。一次只报一种 —— 哪一种由 `attributionFault` 定 */
+export type AttributionFault =
+  | { kind: 'duplicate'; ids: string[] }
+  | { kind: 'orphan'; entries: { id: string; req: string }[] }
+
+/**
+ * 两种毛病同时在时报哪一种 —— **先报编号重复**。
+ *
+ * 这个先后有语义，所以它在这儿，不在入口。记错名下那份报告印的也是 id：
+ * 「M-X 记在 H4 名下」在编号还没唯一时指不出该改表里哪一行，人会去翻名下，
+ * 而错的是有两条重名。反过来不成立 —— 编号唯一之后，记错名下那份报告自己定位得了。
+ *
+ * 留在入口里的话，把两段调换或者删掉一段，`duplicateIds` 与 `orphanAttributions`
+ * 各自的断言照样全绿（`docs/CONVENTIONS.md` 第 10 条：顺序错了会出错就是语义，
+ * 有语义就该能被测，能被测就不该待在入口脚本里）—— 评审指出的正是这个缺口。
+ *
+ * 两份名单不是同一份：编号唯一只对变异本身说话，记错名下连显式豁免一起看。
+ */
+export function attributionFault(
+  muts: { id: string }[],
+  attributed: { id: string; req: string }[],
+  known: Set<string>,
+): AttributionFault | undefined {
+  const ids = duplicateIds(muts)
+  if (ids.length) return { kind: 'duplicate', ids }
+  const entries = orphanAttributions(attributed, known)
+  return entries.length ? { kind: 'orphan', entries } : undefined
 }

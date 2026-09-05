@@ -20,7 +20,7 @@ import {
   validateRegistry,
   type Evidence, type Req, type TensionEvidence,
 } from './check/spec-rule.js'
-import { HARNESS, duplicateIds, orphanAttributions } from './check/attribution-rule.js'
+import { HARNESS, attributionFault, duplicateIds, orphanAttributions } from './check/attribution-rule.js'
 import {
   CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsReadFault, claimsWellFormed,
   fingerprint, sourceFiles,
@@ -1791,6 +1791,18 @@ harness('需求登记表的完整性判定')
   // 同一条需求下有多条变异是常态 —— 那不是重复，这条判定只看编号本身
   const sameReq: { id: string; req: string }[] = [{ id: 'M-a', req: 'P4' }, { id: 'M-b', req: 'P4' }]
   eq('同一个 req 下多条不同编号 —— 放行', duplicateIds(sameReq), [])
+
+  // 两种毛病同时在时先报哪一种，是有语义的先后：记错名下那份报告印的也是 id，
+  // 编号还没唯一时它自己就指不出该改表里哪一行。留在入口里的话，把两段调换或者
+  // 删掉一段，上面那两组断言照样全绿（负片 M-H7-c）。
+  const bothBad = [{ id: 'M-a', req: 'P4' }, { id: 'M-a', req: 'H4' }]
+  eq('重复与记错名下同时在 —— 先报重复', attributionFault(bothBad, bothBad, known)?.kind, 'duplicate')
+  eq('只有记错名下 —— 报记错名下',
+    attributionFault([{ id: 'M-a' }], [{ id: 'M-a', req: 'H4' }], known)?.kind, 'orphan')
+  eq('两样都没有 —— 放行', attributionFault([{ id: 'M-a' }], [{ id: 'M-a', req: 'P4' }], known), undefined)
+  // 显式豁免也走记错名下这一关，但不参与编号唯一 —— 两份名单不是同一份
+  eq('豁免记错名下也抓得到', attributionFault(
+    [{ id: 'M-a' }], [{ id: '豁免 H4', req: 'H4' }], known)?.kind, 'orphan')
 
   // 反向：决策记录提到的编号必须真实存在 —— 「编号不回收复用」查得了的那一半
   const doc = '## ADR-07 标题\n\n- 冲击的需求：D1 · D9\n'

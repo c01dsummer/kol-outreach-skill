@@ -18,6 +18,7 @@
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { duplicateIds } from './attribution-rule.js'
 
 const DOC = 'docs/ARCHITECTURE.md'
 const ANCHORS = 'ANCHORS'
@@ -32,6 +33,18 @@ const reqIds = new Set<string>(
 const mutations: { id: string; file: string }[] =
   JSON.parse(readFileSync('scripts/check/mutations.json', 'utf8')).mutations
 const mutById = new Map(mutations.map(m => [m.id, m]))
+
+// 编号唯一先查，而且要在建 `mutById` 之前：Map 遇到重名只留最后一条，于是顺序契约
+// 拿着编号查到的是**另一条**变异，报出来的是「指向 xxx，不在该契约的位置里」——
+// 一句指着位置的话，而错的是有两条重名。这一步在检查链里排在 `mutate` 前面，
+// 所以那边真正的诊断轮不上说话（评审指出的正是这个次序）。
+const dupes = duplicateIds(mutations)
+if (dupes.length) {
+  console.error(`✗ scripts/check/mutations.json：${dupes.length} 个编号重复 —— 多条顶着同一个名字\n`)
+  for (const d of dupes) console.error(`  ${d}  出现不止一次`)
+  console.error('\n  编号是把一条变异指回表里那一行的唯一凭据。复制一条就改掉它的字母。')
+  process.exit(1)
+}
 
 const errors: string[] = []
 

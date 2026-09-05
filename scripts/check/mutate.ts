@@ -18,7 +18,7 @@
  */
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
-import { duplicateIds, orphanAttributions } from './attribution-rule.js'
+import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import { type RunVerdict, judgeRun } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
@@ -38,22 +38,20 @@ const registry: { id: string; accept: string | { id: string }[] }[] =
   JSON.parse(readFileSync('docs/requirements.json', 'utf8')).requirements
 const known = new Set<string>(registry.flatMap(r =>
   [r.id, ...(Array.isArray(r.accept) ? r.accept.map(c => c.id) : [])]))
-// 编号唯一先查：下面每一份报告印的都是 id，编号还没唯一时那些报告自己也指不回去
-const dupes = duplicateIds(muts)
-if (dupes.length) {
-  console.error(`✗ 变异集：${dupes.length} 个编号重复 —— 两条顶着同一个名字，报告指不回表里哪一行\n`)
-  for (const d of dupes) console.error(`  ${d}  出现不止一次`)
+// 两种毛病同时在时先报哪一种，由 attributionFault 定 —— 那个先后有语义（`attribution-rule.ts`）
+const fault = attributionFault(muts, [
+  ...muts,
+  ...exemptions.map(e => ({ id: `豁免 ${e.req}`, req: e.req })),
+], known)
+if (fault?.kind === 'duplicate') {
+  console.error(`✗ 变异集：${fault.ids.length} 个编号重复 —— 多条顶着同一个名字，报告指不回表里哪一行\n`)
+  for (const d of fault.ids) console.error(`  ${d}  出现不止一次`)
   console.error('\n  编号是报告里唯一能把一条变异指回表里那一行的东西。复制一条就改掉它的字母。')
   process.exit(1)
 }
-
-const orphans = [
-  ...orphanAttributions(muts, known),
-  ...orphanAttributions(exemptions.map(e => ({ id: `豁免 ${e.req}`, req: e.req })), known),
-]
-if (orphans.length) {
-  console.error(`✗ 变异集：${orphans.length} 条记在不存在的需求名下 —— 它们对任何一条需求都不算数\n`)
-  for (const o of orphans) console.error(`  ${o.id}  记在 ${o.req} 名下，而登记表里没有这条`)
+if (fault?.kind === 'orphan') {
+  console.error(`✗ 变异集：${fault.entries.length} 条记在不存在的需求名下 —— 它们对任何一条需求都不算数\n`)
+  for (const o of fault.entries) console.error(`  ${o.id}  记在 ${o.req} 名下，而登记表里没有这条`)
   console.error('\n  守检查链本身的写 harness；守某条需求的写它真实的编号。')
   process.exit(1)
 }
