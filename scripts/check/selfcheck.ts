@@ -436,9 +436,11 @@ writeFileSync(join(dupTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify
 ] }), 'utf8')
 // mutate：出来的必须是重复那一条 —— 先后由 attributionFault 定，这里验的是
 // 入口照着它说的印、并且真的以 1 结束
+// 不加 `dupMut &&` 那道真值判断：`run` 在退出码对得上、stderr 却是空的时候也返回空串，
+// 于是「诊断被删光、只剩 process.exit(1)」会从这儿滑过去（评审指出）
 const dupMut = run('mutate 遇到重复编号即以退出码 1 结束', [S('check/mutate.ts')], dupTmp, { status: 1 })
-if (dupMut && !dupMut.includes('个编号重复')) {
-  failed++; console.error('  ✗ mutate 以退出码 1 结束了，但说的不是编号重复')
+if (!dupMut.includes('个编号重复')) {
+  failed++; console.error('  ✗ mutate 的输出里没有「编号重复」那条诊断')
 } else if (dupMut.includes('记在不存在的需求名下')) {
   failed++
   console.error('  ✗ mutate 先报的是记错名下 —— 那份报告印的也是 id，它自己也指不回表里哪一行')
@@ -447,8 +449,8 @@ if (dupMut && !dupMut.includes('个编号重复')) {
 // 不在这儿先拦下，顺序契约就会指着另一条变异报「不在该契约的位置里」，而 mutate 那条
 // 真正的诊断根本轮不上说话。
 const dupArch = run('arch-sync 遇到重复编号即以退出码 1 结束', [S('check/arch-sync.ts')], dupTmp, { status: 1 })
-if (dupArch && !dupArch.includes('个编号重复')) {
-  failed++; console.error('  ✗ arch-sync 以退出码 1 结束了，但说的不是编号重复')
+if (!dupArch.includes('个编号重复')) {
+  failed++; console.error('  ✗ arch-sync 的输出里没有「编号重复」那条诊断')
 }
 
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
