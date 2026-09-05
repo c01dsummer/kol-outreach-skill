@@ -112,7 +112,7 @@ process.on('exit', restoreClaims)
  * | 做法 | 判定 |
  * |---|---|
  * | 显式挑 `npx.cmd` | **走不通**。不带 shell 起不来的正是 `.cmd` 这类文件，挑明名字也一样 |
- * | `spawn(..., { shell: true })` | 能跑，但要经 `cmd.exe`，而 Node 自己在 `.cmd` 那一节就写着**「不推荐，见 DEP0190」**。DEP0190 说带 shell 时别传参数数组、把命令拼成字符串 —— 而拼字符串正是注入面所在。（措辞要准：DEP0190 的**标题**点了 `execFile`/`spawn`，**正文**只点 `execFile` 与 `execFileSync` 那两个（此处刻意不写它们后面的括号：`mutate-restore.ts` 的 `blockingWait` 判的是字面形状，写了就把这段注释自己判红）；对 `spawn` 直接成立的是 `.cmd` 那一节的「不推荐」那句。结论不依赖这个差别） |
+ * | `spawn(..., { shell: true })` | 能跑，但要经 `cmd.exe`，而 Node 自己在 `.cmd` 那一节就写着**「不推荐，见 DEP0190」**。DEP0190 的正文点名了 `spawn`：带 shell 传参数数组时，各个值**不转义、只用空格拼起来，会导致 shell 注入**。也就是说注入面不是「拼字符串才有」，是这条路自带的 |
  * | **当前 node + tsx 的 cli** | 不经 shell，也就没有注入面可争论；`.cmd` 压根不参与；还少一层进程 |
  *
  * `tsx/cli` 是 tsx 包的**公开导出**（它的 `exports` 里有 `"./cli"`），所以用
