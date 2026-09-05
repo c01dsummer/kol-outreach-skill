@@ -116,7 +116,12 @@ export function pendingKeywords(state: TaskState): string[] {
  * 脚本）。把数数搬进来，这一类错误就不再有地方发生（评审指出）。
  *
  * 数法不是新写的：关键词那一半是 `keywordsResumeWillRun`（D6.c —— 达标提前停下时
- * 一个都不会去抓），profile 那一半是 `needsProfile`（D6.d —— 补全循环用的同一个判定）。
+ * 一个都不会去抓），profile 那一半是 `needsProfile`（D6.d —— 哪些人还要补；
+ * 「补全循环与这里共用它」那条约束在 `docs/ARCHITECTURE.md` 的锚点行上）。
+ *
+ * **眼下只有一处调它**：`collect.ts` 里「记忆读不出来因而不产出名单」那条收尾路径，
+ * D6.e 的判据文字也只管那一条。跑完、预算用尽、出错三条路径至今不说这句话
+ * —— 那是 ADR-25 上还挂着的欠条，不是这个函数的事。
  */
 export function resumeCostLine(
   dir: string, state: TaskState, qualified: number, creators: Creator[],

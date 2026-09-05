@@ -407,6 +407,36 @@ if (dir) {
     failed++; console.error('  ✗ 说了要花钱却没说还剩什么 —— 用户没法判断值不值得续跑')
   } else console.log('  ✓ 收尾：还有活，说的是续跑要继续花钱，并点名了还剩多少')
 
+  // 只剩 profile：上面两条都护不住**递进去的那批人**（评审指出，实测坐实）——
+  // 把那个实参换成 `[]`，「没活」那条本来就没人要补，「还有活」那条光靠关键词
+  // 就选中了要花钱的那支，两条照样绿，而少报的正是最危险的那一种：
+  // 关键词全跑完、只剩 profile 没补时说成「续跑不产生新的请求」，
+  // 而续跑第一件事就是去发那些付费请求。
+  //
+  // 造法：target_count 给 1 —— 第一个关键词就达标，剩下的续跑一个都不会抓
+  // （D6.c）；预算恰好只够那一次搜索（0.001 = 一次请求），补全循环第一个人
+  // 就撞上预算，三个人全都没补成（D6.d）。所以这一条**只能**由 profile 那一半
+  // 说话，关键词那一半必须一个字都不出现。
+  const onlyCfg = join(tmp, 'only-profile.json')
+  writeFileSync(onlyCfg, JSON.stringify({
+    product: 'onlyprofile', market: 'US', target_count: 1, budget_usd: 0.001,
+    tasks: Array.from({ length: 3 }, (_, i) => ({
+      keyword: `ok${i}`, dimension: 'category', platform: 'tiktok',
+    })),
+  }))
+  const onlyErr = run('collect 收尾：只剩 profile 也要说续跑要花钱',
+                      [S('collect.ts'), '--config', onlyCfg], tmp, { status: 2, stream: 'stderr' })
+  if (!/还有 \d+ 个人的 profile/.test(onlyErr)) {
+    failed++
+    console.error('  ✗ 只剩 profile 没补时没点名它 —— 递进去的那批人没人守着')
+  } else if (!onlyErr.includes('续跑会继续发请求、继续花钱')) {
+    failed++
+    console.error('  ✗ 只剩 profile 没补却说续跑不花钱 —— 续跑第一件事就是去发那些付费请求')
+  } else if (/还有 \d+ 个关键词/.test(onlyErr)) {
+    failed++
+    console.error('  ✗ 这一条本该只由 profile 那一半说话，关键词那一半也出现了 —— 夹具没造对')
+  } else console.log('  ✓ 收尾：只剩 profile 没补时也说要花钱，并点名了是 profile')
+
   // 逃生口：出名单，但状态必须原样带到 stdout
   const forced = run('collect --ignore-memory 强出名单',
                      [S('collect.ts'), '--resume', dir, '--budget', '1', '--ignore-memory'], tmp)
