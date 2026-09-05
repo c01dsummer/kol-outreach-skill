@@ -39,7 +39,7 @@ import {
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
-import { fillEmail, pickList } from './providers/tikhub.js'
+import { TikHub, fillEmail, pickList } from './providers/tikhub.js'
 import { esc, writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import { writeXlsx } from './lib/xlsx.js'
@@ -223,11 +223,42 @@ suite('P1', '缺失数据不得用默认值填充')
   eq('bio 有邮箱 → 提取', withEmail.email, 'biz@x.com')
   criterion('P1.a')
 
+  // 三态的第三种：profile 查回来了、对方没写简介 —— bio 记的是 null（查过，没有）。
+  // 那么邮箱也该是「查过，没有」。塌回 undefined，就把「我们看过他的简介、他没留
+  // 邮箱」说成了「我们还没看过他的简介」——恰好是 P1 要防的那件事（负片 M-P1-r）。
+  const blankBio = mk('tiktok', 'n', { bio: null })
+  fillEmail(blankBio)
+  eq('查过、对方没写简介 → 邮箱是「查过，没有」', blankBio.email, null)
+  criterion('P1.d')
+
   // 粉丝数未知不得被静默过滤掉
   ok('未知粉丝放行', passesFollowerGate(mk('tiktok', 'h', { followers: undefined })))
   ok('低于下限拦截', !passesFollowerGate(mk('tiktok', 'i', { followers: 100 })))
   ok('高于上限拦截', !passesFollowerGate(mk('tiktok', 'j', { followers: 9_000_000 })))
   ok('区间内放行', passesFollowerGate(mk('tiktok', 'k', { followers: 50_000 })))
+}
+
+suite('P1', 'profile 查回来了、对方没写简介 —— 别再当成「还没查过」')
+{
+  // 适配器那一半：请求已经发出去、人也查回来了，signature／biography 是空只说明
+  // 对方没写。记成 undefined，这个人每轮续跑都会被当成「还没查过」重查一次，
+  // 钱一轮一轮地花（负片 M-P1-s、M-P1-t）。
+  const stub = (raw: unknown) => {
+    const api = new TikHub('k', new Budget(1))
+    ;(api as unknown as { get: () => Promise<unknown> }).get = async () => raw
+    return api
+  }
+  const tk = await stub({ data: { userInfo: { user: { nickname: 'n' }, stats: {} } } }).profileTikTok('x')
+  eq('TikTok：查回来了但没写简介 → 记「查过，没有」', tk.bio, null)
+  const ig = await stub({ data: { user: { full_name: 'n' } } }).profileInstagram('x')
+  eq('Instagram：同样记「查过，没有」', ig.bio, null)
+
+  // 消费那一半：判定认这个态，续跑才不会再去查他一次。两半坏在不同的地方 ——
+  // 只压适配器时，下面两条照样绿；只压判定时，上面两条照样绿（负片 M-P1-u）。
+  const c = (over: Partial<Creator>) => mk('tiktok', 'y', over)
+  eq('查过、没写简介、有外链 → 不用再补', needsProfile(c({ bio: null, bio_links: ['https://x'] })), false)
+  ok('没查过 → 还是要补', needsProfile(c({ bio: undefined, bio_links: ['https://x'] })))
+  criterion('P1.c')
 }
 
 suite('P1', '没取到的播放数不得被判成爆款')

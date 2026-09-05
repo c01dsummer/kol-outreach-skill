@@ -74,12 +74,13 @@ async function main() {
         follower_median: median(followers) ?? null,   // p1-ok: 上一句注释已说明——这里的 null 是「样本里没人有粉丝数」的显式表达，不是把未知当成值
         // P1：bio 未取到 ≠ bio 里没邮箱。分母要一起给出，否则用户会据此
         //     误判关键词质量 —— 搜索结果本来就常常不含 bio。
+        //     「查过、对方没写」（null）算取到了：我们确实读到了他的简介栏。
         bio_available: found.filter(c => c.bio !== undefined).length,
-        email_in_bio: found.filter(c => c.bio !== undefined && extractEmail(c.bio)).length,
+        email_in_bio: found.filter(c => typeof c.bio === 'string' && extractEmail(c.bio)).length,
         sample: sample.map(c => ({
           handle: c.handle, nickname: c.nickname,
           followers: c.followers === undefined ? '未知' : c.followers,
-          bio: c.bio === undefined ? '（未取到）' : c.bio.slice(0, 120),
+          bio: c.bio === undefined ? '（未取到）' : c.bio === null ? '（没写简介）' : c.bio.slice(0, 120),
           top_post: (c.recent_posts?.[0]?.desc ?? '').slice(0, 120),
         })),
       })

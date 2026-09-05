@@ -222,7 +222,18 @@ export interface Creator {
   followers?: number
   following?: number
   post_count?: number
-  bio?: string
+  /**
+   * **三态，和 `email` 同一个模型**（P1.a）：`undefined` 是没查过，`null` 是
+   * 查过、对方没写简介，字符串是查过且写了。
+   *
+   * 搜索结果那一侧只给得出「没查过」那一态（`signature` 常常压根不在返回里），
+   * 所以那边写 `undefined` 是对的；**profile 补全那一侧不一样** —— 请求已经
+   * 发出去、人也查回来了，`signature`／`biography` 是空只说明对方没写。
+   * 记成 `undefined` 有两笔账：这个人每次续跑都会被当成「还没查过」再查一遍
+   * （`needsProfile`），而 `email` 会跟着记成「未查询」，下游读成「我们没看过
+   * 他的简介」—— 而我们看过了。
+   */
+  bio?: string | null
   bio_links: string[]
   verified: boolean
   /** IG 私密账号 —— 建联方式受限，值得在名单里标出来 */
