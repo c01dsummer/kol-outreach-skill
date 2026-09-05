@@ -48,10 +48,14 @@ let failed = 0
  * 用 `spawnSync` 不用 `execFileSync`：后者只在非零退出时抛，而抛出来的错误对象上
  * 才同时挂着两股。于是**退出码 0 的那条路径根本拿不到 stderr** —— 成功收尾时
  * 那句「续跑要不要花钱」就是这么长期没人断言的（ADR-25 的欠条）。
- * `spawnSync` 不抛，两股和退出码一起交回来，四条收尾路径于是一视同仁。
+ * `spawnSync` 不抛，两股和退出码一起交回来，收尾各条路径于是一视同仁。
+ *
+ * 两股都要的用 `runBoth` —— 有的断言得同时读结果（stdout）和说给用户的话（stderr），
+ * 比如「这一次到底走的是哪一种收尾」写在 stdout 的 `stopped` 里，而那句话在 stderr。
+ * 分两次跑拿不到同一次的两股：进程跑两遍，两次的状态不保证一样。
  */
-const run = (label: string, args: string[], cwd = process.cwd(),
-  expect?: { status: number; stream?: 'stdout' | 'stderr' }) => {
+const runBoth = (label: string, args: string[], cwd = process.cwd(),
+  expect?: { status: number }): { stdout: string; stderr: string } => {
   const r = spawnSync('npx', ['tsx', ...args], { env, cwd, encoding: 'utf8' })
   const stdout = r.stdout ?? ''   // p1-ok: 拿不到就是空输出，不是「没查过」——这是子进程的两股流
   const stderr = r.stderr ?? ''   // p1-ok: 同上
@@ -60,9 +64,15 @@ const run = (label: string, args: string[], cwd = process.cwd(),
     failed++
     const why = r.error ? String(r.error) : `预期以退出码 ${want} 结束，实际是 ${r.status}`
     console.error(`  ✗ ${label}：${why}\n${(stderr || stdout).split('\n').slice(-12).join('\n')}`)
-    return ''
+    return { stdout: '', stderr: '' }
   }
   console.log(`  ✓ ${label}${expect ? `（按预期以退出码 ${want} 结束）` : ''}`)
+  return { stdout, stderr }
+}
+
+const run = (label: string, args: string[], cwd = process.cwd(),
+  expect?: { status: number; stream?: 'stdout' | 'stderr' }) => {
+  const { stdout, stderr } = runBoth(label, args, cwd, expect)
   // 没写 expect 的调用点历来拿的是 stdout，写了的默认拿 stderr —— 保持原样，
   // 免得几十个既有断言在这次改动里悄悄换了读的那一股。
   return (expect?.stream ?? (expect ? 'stderr' : 'stdout')) === 'stdout' ? stdout : stderr
@@ -442,13 +452,16 @@ if (dir) {
     console.error('  ✗ 这一条本该只由 profile 那一半说话，关键词那一半也出现了 —— 夹具没造对')
   } else console.log('  ✓ 收尾：只剩 profile 没补时也说要花钱，并点名了是 profile')
 
-  // ---- 产出了名单的那三种收尾也说续跑代价（D6.f 的入口那一半）----
-  // 这三条路径原先一个字都不说，用户手里没有判断「值不值得续跑」的依据（ADR-25 的欠条）。
-  // 三条共用同一句话，所以是一条判据；也正因为共用，**一条把话写死就会被另一条抓住** ——
-  // 「跑完」那条要的是「不花钱」，「预算用尽」「出错」两条要的是「花钱 + 还剩多少」。
-  // 变异守不住这一段（变异跑的只是 scripts/test.ts，够不到入口脚本），只能这样真跑。
+  // ---- 产出了名单的四种收尾都说续跑代价（D6.f 的入口那一半）----
+  // 这四条路径原先一个字都不说，用户手里没有判断「值不值得续跑」的依据（ADR-25 的欠条）。
+  // 四条共用分支之前的同一句话，所以是一条判据；也正因为共用，**一条把话写死就会被
+  // 别的抓住** —— 前两条要的是「不花钱」，后两条要的是「花钱 + 还剩多少」。
+  // 变异守不住这一段（变异跑的只是 scripts/test.ts，够不到入口脚本），只能这样真跑；
+  // 这条缺口在 mutations.json 的 exemptions 里按 P3.b 的先例显式登记着。
   //
-  // 注意这三条都产出了名单、退出码各不相同（0／3／1），跟上面那批走的不是同一条路。
+  // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
+  // 「达标提前停下」和「关键词跑完」都是退出码 0、都说「不花钱」，一条夹具会让另一条
+  // 看起来也测过了，而它们是 `stopped` 的两个不同取值（评审指出）。
   const paths = join(tmp, 'paths')
   mkdirSync(join(paths, 'memory'), { recursive: true })
   const pathCfg = (name: string, over: Record<string, unknown>, keyword = 'pk') => {
@@ -462,40 +475,44 @@ if (dir) {
     }))
     return f
   }
+  /** 一条收尾路径：退出码、`stopped` 取值、那句话该说什么 —— 三样一起验 */
+  const endPath = (label: string, cfg: string, status: number, stopped: string,
+                   want: RegExp, deny: RegExp) => {
+    const { stdout, stderr } = runBoth(label, [S('collect.ts'), '--config', cfg], paths, { status })
+    if (!new RegExp(`"stopped":\\s*"${stopped}"`).test(stdout)) {
+      failed++
+      console.error(`  ✗ ${label}：这一次走的不是 ${stopped} 那条收尾 —— 夹具没造对，`
+                    + `断言绿了也不算测过那条路径`)
+    } else if (!want.test(stderr)) {
+      failed++
+      console.error(`  ✗ ${label}：没说清续跑的代价 —— 用户手里就没有判断值不值得续跑的依据`)
+    } else if (deny.test(stderr)) {
+      failed++
+      console.error(`  ✗ ${label}：说反了 —— 两句话不能同时出现，用户不知道该信哪一句`)
+    } else console.log(`  ✓ ${label}（stopped=${stopped}）`)
+  }
 
-  // 跑完：达标提前停下，关键词一个都不用再抓（D6.c），profile 也补齐了
-  const okErr = run('collect 跑完（退出码 0）也说续跑代价',
-                    [S('collect.ts'), '--config', pathCfg('pdone', { target_count: 1 })],
-                    paths, { status: 0, stream: 'stderr' })
-  if (!okErr.includes('续跑不产生新的请求')) {
-    failed++
-    console.error('  ✗ 跑完那条路径没说续跑的代价 —— 用户不敢续跑，那份已经付过钱的名单就拿不到')
-  } else if (okErr.includes('续跑会继续发请求')) {
-    failed++; console.error('  ✗ 跑完了却说还要花钱')
-  } else console.log('  ✓ 跑完（退出码 0）：说的是续跑不产生新的请求')
+  const FREE = /续跑不产生新的请求/
+  const COST = /还有 .*没跑完，续跑会继续发请求、继续花钱/
+
+  // 关键词跑完：target 给得比罐头人口（3 人）高，达标那条路永远走不到，
+  // 三个关键词各跑到页数上限才收工 —— 这才是 D6.f 点名的「关键词跑完」。
+  endPath('collect 关键词跑完（退出码 0）也说续跑代价',
+          pathCfg('pdone', { target_count: 9999 }), 0, 'done', FREE, COST)
+
+  // 达标提前停下：和上面同为退出码 0、同说「不花钱」，但 stopped 不同 ——
+  // 剩下的关键词一个都没碰过，而续跑会在第一个请求之前再次达标（D6.c）。
+  endPath('collect 达标提前停下（退出码 0）也说续跑代价',
+          pathCfg('ptarget', { target_count: 1 }), 0, 'target', FREE, COST)
 
   // 预算用尽：退出码 3，带着断点目录走 stdout，那句话在 stderr
-  const budErr = run('collect 预算用尽（退出码 3）也说续跑代价',
-                     [S('collect.ts'), '--config', pathCfg('pbudget', { budget_usd: 0.002 })],
-                     paths, { status: 3, stream: 'stderr' })
-  if (!budErr.includes('续跑会继续发请求、继续花钱')) {
-    failed++
-    console.error('  ✗ 预算用尽那条路径没说续跑要花钱 —— 用户追加预算续跑，账单又长一截')
-  } else if (!/还有 .*没跑完/.test(budErr)) {
-    failed++; console.error('  ✗ 说了要花钱却没说还剩什么')
-  } else console.log('  ✓ 预算用尽（退出码 3）：说的是续跑要继续花钱，并点名了还剩多少')
+  endPath('collect 预算用尽（退出码 3）也说续跑代价',
+          pathCfg('pbudget', { budget_usd: 0.002 }), 3, 'budget', COST, FREE)
 
   // 出错中止：退出码 1。402 是对面拒收（余额不足），和预算用尽不是一回事 ——
   // 关键词里带 force-402 让罐头 fetch 抛它，这是走到这条路径的唯一办法。
-  const errErr = run('collect 出错中止（退出码 1）也说续跑代价',
-                     [S('collect.ts'), '--config', pathCfg('perror', {}, 'force-402-k')],
-                     paths, { status: 1, stream: 'stderr' })
-  if (!errErr.includes('续跑会继续发请求、继续花钱')) {
-    failed++
-    console.error('  ✗ 出错中止那条路径没说续跑要花钱 —— 出错时剩下的活最多，正是最该说的时候')
-  } else if (!/还有 \d+ 个关键词/.test(errErr)) {
-    failed++; console.error('  ✗ 说了要花钱却没说还剩几个关键词')
-  } else console.log('  ✓ 出错中止（退出码 1）：说的是续跑要继续花钱，并点名了还剩多少')
+  endPath('collect 出错中止（退出码 1）也说续跑代价',
+          pathCfg('perror', {}, 'force-402-k'), 1, 'error', COST, FREE)
 
   // 逃生口：出名单，但状态必须原样带到 stdout
   const forced = run('collect --ignore-memory 强出名单',
