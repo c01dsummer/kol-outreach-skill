@@ -47,7 +47,7 @@ import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { inflateRawSync } from 'node:zlib'
-import { Budget, BudgetExceeded } from './lib/budget.js'
+import { Budget, BudgetExceeded, budgetProblem, ledgerProblem } from './lib/budget.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
@@ -403,6 +403,43 @@ suite('P3', '未经确认不得超出预算')
   const resumed = new Budget(0.010, 5)
   eq('续跑时已花部分不归零', resumed.spent, 0.005)
   covered.add('D6')
+}
+
+suite('P3', '上限与已花次数是外部输入 —— 闸门先要能拦得住它们')
+{
+  /**
+   * 闸门是一句「已花 + 本次开销 > 上限」的比较。两边只要有一个不是数，这句话
+   * 就恒为假，闸门不是宽了一点，是整条不存在 —— 而且百分比同时恒为 0，
+   * 连提醒都不会出现（F7）。两个数都从命令行或 task.json 进来，都是外部输入：
+   * 「文件是我们自己写的」不构成理由，反序列化进来的就是外部输入
+   * （process/4-VERIFY.md 的那张表里有这一行）。
+   */
+  eq('上限不是数字 → 说不是数字', budgetProblem('3'), '不是数字（string）')
+  eq('上限是 NaN → 说不是有限的数', budgetProblem(Number('abc')), '不是一个有限的数')
+  eq('上限是 Infinity → 同样拦下', budgetProblem(Infinity), '不是一个有限的数')
+  eq('上限是负数 → 说是负数', budgetProblem(-1), '是负数')
+  eq('合法的上限放行', budgetProblem(0.005), undefined)
+  eq('零也是合法的上限', budgetProblem(0), undefined)
+
+  eq('已花次数没写 = 还没花过', ledgerProblem(undefined), undefined)
+  eq('已花次数是 null → 拦下', ledgerProblem(null), '不是数字（object）')
+  eq('已花次数是字符串 → 拦下', ledgerProblem('4'), '不是数字（string）')
+  eq('已花次数是 NaN → 拦下', ledgerProblem(NaN), '不是一个有限的数')
+  eq('已花次数是负数 → 拦下', ledgerProblem(-3), '是负数')
+  eq('已花次数不是整数 → 拦下', ledgerProblem(1.5), '不是整数')
+  eq('合法的已花次数放行', ledgerProblem(7), undefined)
+
+  // 拦不住的时候会发生什么 —— 判据落在**后果**上，不落在「有没有这个函数」上
+  const wild = new Budget(Number('abc'), 0)
+  let stopped = false
+  try { for (let i = 0; i < 2000; i++) wild.charge() } catch { stopped = true }
+  ok('上限比不了大小时，闸门确实一次都没拦', !stopped && wild.count === 2000)
+  eq('而且百分比恒为零 —— 连提醒都不会出现', wild.pct, 0)
+  const reset = new Budget(1, null as unknown as number)
+  eq('已花次数是 null 时，账面确实退回零', reset.spent, 0)
+  criterion('P3.a')
+  covered.add('D6')
+  covered.add('F7')
 }
 
 suite('P4', '已联系/屏蔽的人不得进入名单')

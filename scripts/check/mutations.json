@@ -590,7 +590,7 @@
       "why": "已作废那一行不再印取代者 —— 报告只说某条没了，不说接它的是谁，读的人得回登记表里翻",
       "req": "harness",
       "file": "scripts/check/audit-rule.ts",
-      "find": "                       `${r.deprecated!.superseded_by ? ` \u2192 ${r.deprecated!.superseded_by}` : ''}`)",
+      "find": "                       `${r.deprecated!.superseded_by ? ` → ${r.deprecated!.superseded_by}` : ''}`)",
       "replace": "                       '')"
     },
     {
@@ -983,7 +983,7 @@
       "why": "读记忆时把两侧带空白的产品名判成损坏 —— 写回这一侧存的是 trim 过的产品名，所以踩到它的是历史遗留或被手工改过的记录：那一份记忆此后读不出来，每一次采集都被挡在门外，直到有人手工去修",
       "file": "scripts/lib/memory.ts",
       "find": "      const badProduct = textProblem(rr.product)",
-      "replace": "      const badProduct = textProblem(rr.product) ?? (rr.product === String(rr.product).trim() ? undefined : '\u4e24\u4fa7\u6709\u7a7a\u767d')"
+      "replace": "      const badProduct = textProblem(rr.product) ?? (rr.product === String(rr.product).trim() ? undefined : '两侧有空白')"
     },
     {
       "id": "M-D4-o",
@@ -1318,7 +1318,7 @@
       "req": "D4",
       "why": "写回失败时不再清掉半成品 —— 那一刻盘上躺着一份完整的内容副本，名字带进程号，没有任何人被告知它在那儿；而调用方拿到的是「没写回」、照常交付。要删掉它只能等同一个进程再写一次同一个文件，可写回失败往往就是最后一次写",
       "file": "scripts/lib/atomic.ts",
-      "find": "    try { rmSync(tmp, { force: true }) } catch { /* \u540c\u4e0a */ }\n",
+      "find": "    try { rmSync(tmp, { force: true }) } catch { /* 同上 */ }\n",
       "replace": ""
     },
     {
@@ -1784,6 +1784,22 @@
       "file": "scripts/check/mutate-restore.ts",
       "find": "kid.on('close', () => { if (running === kid) running = undefined })",
       "replace": "kid.on('close', () => { running = undefined })"
+    },
+    {
+      "id": "M-P3-c",
+      "req": "P3",
+      "why": "不再拦住比不了大小的预算上限 —— 闸门那句比较恒为假，一路花下去，而且百分比恒为零，连 50%／80% 的提醒都不出现",
+      "file": "scripts/lib/budget.ts",
+      "find": "export const budgetProblem = (v: unknown): string | undefined =>\n  typeof v !== 'number' ? `不是数字（${typeof v}）`\n    : !Number.isFinite(v) ? '不是一个有限的数'\n      : v < 0 ? '是负数'\n        : undefined",
+      "replace": "export const budgetProblem = (_v: unknown): string | undefined => undefined"
+    },
+    {
+      "id": "M-D6-i",
+      "req": "D6",
+      "why": "不再拦住盘上那个「已经花了多少次」的坏取值 —— 续跑时整本账退回零，同一批钱再花一遍",
+      "file": "scripts/lib/budget.ts",
+      "find": "export const ledgerProblem = (v: unknown): string | undefined =>\n  v === undefined ? undefined                        // 字段没写 = 还没花过，按 0 算\n    : typeof v !== 'number' ? `不是数字（${typeof v}）`\n      : !Number.isFinite(v) ? '不是一个有限的数'\n        : v < 0 ? '是负数'\n          : !Number.isInteger(v) ? '不是整数'\n            : undefined",
+      "replace": "export const ledgerProblem = (_v: unknown): string | undefined => undefined"
     }
   ],
   "exemptions": [

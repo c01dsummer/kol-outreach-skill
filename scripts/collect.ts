@@ -16,7 +16,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
-import { Budget, BudgetExceeded } from './lib/budget.js'
+import { Budget, BudgetExceeded, budgetProblem, ledgerProblem } from './lib/budget.js'
 import { finalize, needsProfile, pendingKeywords, resumeCostLine } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
@@ -46,6 +46,8 @@ const arg = (n: string) => {
 let state: TaskState
 let productFrom: string        // 产品名是从哪读来的 —— 报错要指得出位置
 const resume = arg('--resume')
+// 提到这里是为了下面那条上限校验能指得出「毛病在命令行上还是在盘上的旧文件里」
+const newBudgetArg = arg('--budget')
 
 if (resume) {
   if (!existsSync(`${resume}/task.json`)) {
@@ -54,8 +56,7 @@ if (resume) {
   }
   state = loadTask(resume)
   productFrom = `${resume}/task.json`
-  const newBudget = arg('--budget')
-  if (newBudget) state.budget_usd = Number(newBudget)
+  if (newBudgetArg) state.budget_usd = Number(newBudgetArg)
   console.error(`续跑 ${resume} —— 已完成 ${state.done.length}/${state.tasks.length} 个关键词，` +
                 `预算 $${state.budget_usd}`)
 } else {
@@ -84,6 +85,29 @@ const badProduct = textProblem(state.product)
 if (badProduct) {
   console.error(`${productFrom} 里的 product ${badProduct} —— 它要用作任务目录名，` +
                 `也要记进跨任务记忆的「为哪个产品推荐过」。先给它一个名字再跑。`)
+  process.exit(2)
+}
+
+// 预算上限同样要在花钱之前查，而且**两条入口都要查**。
+// 闸门是一句「已花 + 本次开销 > 上限」的比较：上限不是有限的数时它恒为假，
+// 闸门整条失效，`--budget 3.0.0` 这样一个手误就能一路花下去，而百分比恒为 0，
+// 连提醒都不会出现（P3 · F7）。判定在 lib/budget.ts —— 留在这儿的话，
+// 把条件写反、或者少判一种取值，检查链一路全绿（ADR-46 的形状）。
+const badBudget = budgetProblem(state.budget_usd)
+if (badBudget) {
+  const from = newBudgetArg !== undefined ? '--budget' : `${productFrom} 里的 budget_usd`
+  console.error(`${from} ${badBudget}：${JSON.stringify(state.budget_usd)} —— ` +
+                `预算闸门要拿它和已花的钱比大小，比不了就等于没有闸门。先给一个数再跑。`)
+  process.exit(2)
+}
+
+// 「已经花了多少次」也一样要查：它从盘上反序列化进来，静态类型运行时不拦。
+// null 会让整本账退回零（续跑等于白送一份预算），字符串会让计数在下一次请求上
+// 变成拼接 —— 两种都是安静地发生（D6.a · P3）。
+const badLedger = ledgerProblem(state.requests)
+if (badLedger) {
+  console.error(`${productFrom} 里的 requests ${badLedger}：${JSON.stringify(state.requests)} —— ` +
+                `它是「已经花掉几次请求」，预算闸门从它接着往上加。先把它改回一个整数再跑。`)
   process.exit(2)
 }
 

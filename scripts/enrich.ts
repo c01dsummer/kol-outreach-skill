@@ -16,7 +16,7 @@ import {
   TikHub,
   TikHubError,
 } from './providers/tikhub.js'
-import { Budget, BudgetExceeded, UNIT_PRICE } from './lib/budget.js'
+import { Budget, BudgetExceeded, UNIT_PRICE, budgetProblem, ledgerProblem } from './lib/budget.js'
 import {
   accountKey,
   assignAudienceRisks,
@@ -61,6 +61,21 @@ if (!key) {
 }
 
 const task: TaskState = loadTask(dir)
+
+// 盘上的两个钱字段先查，再拿它们算任何东西 —— 下面那句 `task.requests * UNIT_PRICE`
+// 拿 null 算出来是 0，于是「新预算不能低于已花」这条校验自己先失了准（D6.a · P3）。
+// 判定与 collect 共用 lib/budget.ts 的那一份：各写一份表达式时，先改的那边不会报错。
+for (const [field, problem] of [
+  ['budget_usd', budgetProblem(task.budget_usd)],
+  ['requests', ledgerProblem(task.requests)],
+] as const) {
+  if (!problem) continue
+  console.error(`${dir}/task.json 里的 ${field} ${problem}：` +
+                `${JSON.stringify((task as unknown as Record<string, unknown>)[field])} —— ` +
+                `预算闸门要拿这两个数比大小，比不了就等于没有闸门。`)
+  process.exit(2)
+}
+
 const newBudget = arg('--budget')
 if (newBudget !== undefined) {
   const parsed = Number(newBudget)

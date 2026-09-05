@@ -95,6 +95,47 @@ if (probeOut && !probeOut.includes('bio_available')) {
   failed++; console.error('  ✗ probe 输出缺少 bio_available（P1 要求给出分母）')
 }
 
+// ---- 三条入口：钱字段比不了大小就不许开跑（P3 · D6.a）----
+// 闸门是一句「已花 + 本次开销 > 上限」的比较。两边有一个不是数，这句话恒为假 ——
+// 闸门不是宽了一点，是整条不存在，而且百分比同时恒为 0，连提醒都不出现。
+// 判定在 lib/budget.ts（有变异守着），但**接线在三条入口各一份**，
+// 而变异只跑 scripts/test.ts、够不到入口 —— 与 P3.b 处境相同，只能由这里真跑一遍。
+{
+  const badProbe = join(tmp, 'probe-badbudget.json')
+  writeFileSync(badProbe, JSON.stringify({
+    market: 'US', budget_usd: 'abc',
+    tasks: [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }],
+  }))
+  run('probe 上限不是数字 → 停下问人', [S('probe.ts'), '--config', badProbe],
+      process.cwd(), { status: 2 })
+
+  const badCfg = join(tmp, 'collect-badbudget.json')
+  writeFileSync(badCfg, JSON.stringify({
+    product: 'badbudget', market: 'US', target_count: 1, budget_usd: 'abc',
+    tasks: [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }],
+  }))
+  run('collect 上限不是数字 → 停下问人', [S('collect.ts'), '--config', badCfg], tmp,
+      { status: 2 })
+
+  // 盘上那个「已经花了多少次」同样是外部输入：null 会让整本账退回零
+  const stateOf = (requests: unknown) => JSON.stringify({
+    product: 'badledger', market: 'US', target_count: 1, budget_usd: 1,
+    tasks: [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }],
+    done: [], offsets: {}, requests, created_at: '', updated_at: '',
+  })
+  mkdirSync(join(tmp, 'badledger'), { recursive: true })
+  writeFileSync(join(tmp, 'badledger', 'task.json'), stateOf(null))
+  run('collect 续跑时盘上的已花次数是 null → 停下问人',
+      [S('collect.ts'), '--resume', 'badledger'], tmp, { status: 2 })
+  run('enrich 同一份坏断点 → 也停下问人',
+      [S('enrich.ts'), '--dir', 'badledger'], tmp, { status: 2 })
+
+  mkdirSync(join(tmp, 'okledger'), { recursive: true })
+  writeFileSync(join(tmp, 'okledger', 'task.json'), stateOf(0))
+  run('collect 追加的预算不是数字 → 停下问人',
+      [S('collect.ts'), '--resume', 'okledger', '--budget', 'abc'], tmp, { status: 2 })
+}
+
 // ---- collect：完整采集 + profile 补全 + 同人合并 + 记忆 ----
 const taskCfg = join(tmp, 'task.json')
 writeFileSync(taskCfg, JSON.stringify({
