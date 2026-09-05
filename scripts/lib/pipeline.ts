@@ -100,6 +100,30 @@ export function pendingKeywords(state: TaskState): string[] {
     .map(t => `${t.as_hashtag ? '#' : ''}${t.keyword}(${t.platform})`)
 }
 
+/**
+ * **收尾时说给用户的那句话：续跑还要不要花钱。**
+ *
+ * 这句话有两支，而选哪一支是判定 —— 说反了的代价不对称：说成「不花钱」，
+ * 用户放心去续跑，账单在他不知情时又长一截；说成「要花钱」，用户不敢续跑，
+ * 那份已经付过钱的名单就永远拿不到（ADR-25）。
+ *
+ * 抽出来是因为它原来长在入口脚本里：把两支对调，检查链一路全绿 —— 端到端
+ * 那条自检只验「两句话里出现了一句」，正好分不出是哪一句（评审指出）。
+ *
+ * 「还剩多少活」不由这里算：关键词那一半是 `keywordsResumeWillRun`（达标提前
+ * 停下时一个都不会去抓），profile 那一半是 `needsProfile`（补全循环用的同一个
+ * 判定）。这里只负责**据此选哪一支、怎么说**。
+ */
+export function resumeCostLine(dir: string, keywordsLeft: number, profilesLeft: number): string {
+  const rest = [
+    keywordsLeft ? `${keywordsLeft} 个关键词` : '',
+    profilesLeft ? `${profilesLeft} 个人的 profile` : '',
+  ].filter(Boolean).join('、')
+  return rest
+    ? `已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，续跑会继续发请求、继续花钱。`
+    : `采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`
+}
+
 // ═══════════ render 的分层 ═══════════
 
 /** 受众地域不达标时降一层。C 已是最低，保持不动。 */
