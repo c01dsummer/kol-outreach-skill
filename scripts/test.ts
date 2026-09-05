@@ -2760,24 +2760,34 @@ harness('变异跑到一半被打断：动过的源文件要还回去')
 
 harness('自检：续跑那句话必须说清代价，说要花钱就得说清还剩什么')
 {
-  const say = (s: string) => String(resumeCostVerdict(s))
+  const say = (s: string, want: 'free' | 'cost') => String(resumeCostVerdict(s, want))
   const FREE = '本轮的活都干完了，续跑不产生新的请求。'
   const COST = '还有 3 个关键词 没跑完，续跑会继续发请求、继续花钱。'
 
-  eq('说不花钱 → 放行', resumeCostVerdict(`采集结果都在 out/。${FREE}`), null)
-  eq('说要花钱、也说了还剩什么 → 放行', resumeCostVerdict(`采集结果都在 out/。${COST}`), null)
+  eq('说不花钱、这一轮也确实干完了 → 放行',
+    resumeCostVerdict(`采集结果都在 out/。${FREE}`, 'free'), null)
+  eq('说要花钱、也说了还剩什么 → 放行',
+    resumeCostVerdict(`采集结果都在 out/。${COST}`, 'cost'), null)
   // 一句不说和两句一起说，坏法不同、后果一样：用户不知道续跑要不要钱。
   // 但**报错要各报各的** —— 两句都写了却报成「一句都没说」，
   // 看错误的人会照着去找一句根本不在收尾里的话，比不报还费时间。
-  ok('一句都不说 → 拦', say('采集结果都在 out/。').includes('一句都没说'))
-  ok('两句一起说 → 拦，且报的是两句相反', say(FREE + COST).includes('说了两句相反的话'))
-  ok('两种坏法不共用一句报错', say('采集结果都在 out/。') !== say(FREE + COST))
+  ok('一句都不说 → 拦', say('采集结果都在 out/。', 'free').includes('一句都没说'))
+  ok('两句一起说 → 拦，且报的是两句相反', say(FREE + COST, 'free').includes('说了两句相反的话'))
+  ok('两种坏法不共用一句报错', say('采集结果都在 out/。', 'free') !== say(FREE + COST, 'free'))
+  // 两句都合规矩，说反了照样是错的：该说哪一句由这一轮实际剩下多少活定。
+  // 这一条留在入口脚本里时，删掉它没有任何东西会红（复查十二）。
+  ok('活干完了却说要花钱 → 拦',
+    say(`采集结果都在 out/。${COST}`, 'free').includes('剩余量与实际干完的活对不上'))
+  ok('还有活没干完却说免费 → 拦，这正是 ADR-22 那张空头支票',
+    say(`采集中断了。${FREE}`, 'cost').includes('以为续跑白送'))
+  ok('说反了的两个方向不共用一句报错',
+    say(`采集结果都在 out/。${COST}`, 'free') !== say(`采集中断了。${FREE}`, 'cost'))
   // 下面两条是 ADR-22 那张空头支票的两种变体：话说了，钱数没说
   ok('说要花钱却不说剩什么 → 拦',
-    say('采集中断了，续跑会继续发请求、继续花钱。').includes('没说还剩什么'))
+    say('采集中断了，续跑会继续发请求、继续花钱。', 'cost').includes('没说还剩什么'))
   // 「还有　　没跑完」：把一个空的剩余量填进付费那句话，看着像说了，其实什么都没说
   ok('剩什么是空的 → 拦',
-    say('还有   没跑完，续跑会继续发请求、继续花钱。').includes('是空的'))
+    say('还有   没跑完，续跑会继续发请求、继续花钱。', 'cost').includes('是空的'))
 }
 
 harness('审计：检查链自己的判定模块必须有变异守着')

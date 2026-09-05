@@ -1808,6 +1808,30 @@
       "file": "scripts/check/selfcheck-rule.ts",
       "find": "    return saysFree",
       "replace": "    return !saysFree"
+    },
+    {
+      "id": "M-H17-b",
+      "req": "harness",
+      "why": "「说反了」只拦一个方向：活干完了却说要花钱能拦住，反过来还有关键词没抓完却说「续跑不产生新的请求」照样放行 —— 那正是 ADR-22 记下的空头支票本身，用户以为续跑白送，实际每续一次都在发请求花钱",
+      "file": "scripts/check/selfcheck-rule.ts",
+      "find": "  if (saysCost !== (expected === 'cost')) {",
+      "replace": "  if (saysCost && expected === 'free') {"
+    },
+    {
+      "id": "M-H17-c",
+      "req": "harness",
+      "why": "「说反了」只拦另一个方向：还有活没干完却说免费能拦住，反过来这一轮明明干完了、收尾却说续跑要继续花钱照样放行 —— 剩余量算多了没人看得见，用户被吓得不敢续，手上那半份名单就烂在断点里",
+      "file": "scripts/check/selfcheck-rule.ts",
+      "find": "  if (saysCost !== (expected === 'cost')) {",
+      "replace": "  if (saysFree && expected === 'cost') {"
+    },
+    {
+      "id": "M-H17-d",
+      "req": "harness",
+      "why": "说反了的两个方向报错互换：活干完了却说要花钱，人看到的却是「还有活没干完却说免费」，于是照着去查一个反方向的毛病 —— 跟 M-H17-a 同一种坏法，报错指错方向，比不报还费时间",
+      "file": "scripts/check/selfcheck-rule.ts",
+      "find": "    return expected === 'free'",
+      "replace": "    return expected !== 'free'"
     }
   ],
   "exemptions": [

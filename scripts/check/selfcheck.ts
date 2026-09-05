@@ -349,18 +349,12 @@ if (dir) {
     failed++
     console.error('  ✗ 中止时没有告诉用户怎么往下走 —— 一条人照做不了的报错等于没报')
   } else console.log('  ✓ 中止时给出了修复与强出名单两条路')
-  // 这一轮采集已经跑完，所以续跑确实不花钱 —— 但那句话必须是**算出来的**，
-  // 不是无条件写死的。还有关键词没跑完时它要说的是相反的话（ADR-22）。
-  // 判定本身在 selfcheck-rule.ts：留在这儿就没有任何变异到得了它。
-  const costVerdict = resumeCostVerdict(stderr)
+  // 这一轮采集已经跑完，所以该说的是**免费**那一句 —— 但那句话必须是**算出来的**，
+  // 不是无条件写死的。补全循环少补了人、剩余量算多了，说的就会是相反的话（ADR-22）。
+  // 「该说哪一句」也是判定，跟着一起进 selfcheck-rule.ts：留在这儿就没有变异到得了它。
+  const costVerdict = resumeCostVerdict(stderr, 'free')
   if (costVerdict) { failed++; console.error(`  ✗ ${costVerdict}`) }
-  else console.log('  ✓ 续跑的代价按实际剩余工作量说话，说要花钱就说清还剩什么')
-  // 只认「二选一」还不够：这一轮的活确实都干完了，所以必须是**免费**那一句。
-  // 补全循环少补了人、剩余量算多了，上面那条照样绿 —— 这儿才看得出来。
-  if (!stderr.includes('续跑不产生新的请求')) {
-    failed++
-    console.error('  ✗ 这一轮的活都干完了，收尾却说续跑还要花钱 —— 剩余量与实际干完的活对不上')
-  } else console.log('  ✓ 活干完了，收尾说的是续跑不产生新的请求')
+  else console.log('  ✓ 活干完了，收尾说的是续跑不产生新的请求，且说清了代价')
   // 预算用尽时光 --resume 会立刻再退 3。这里采集已跑完，命令不该带 --budget；
   // 反过来说了「预算也已用尽」的那条命令必须带 —— 两句话要同进同出
   const budgetGone = stderr.includes('预算也已用尽')
@@ -444,12 +438,10 @@ if (!stuckDir) {
     [S('collect.ts'), '--resume', stuckDir, '--budget', '0.002'], tmp,
     { status: 2, stream: 'stderr' })
   writeFileSync(memFile, healthy, 'utf8')
-  const verdict = resumeCostVerdict(stderr)
+  // 还有关键词没抓完，所以该说的是**要钱**那一句 —— 说成免费就是 ADR-22 那张空头支票
+  const verdict = resumeCostVerdict(stderr, 'cost')
   if (verdict) { failed++; console.error(`  ✗ ${verdict}`) }
-  else if (!stderr.includes('续跑会继续发请求、继续花钱')) {
-    failed++
-    console.error('  ✗ 还有关键词没抓完，收尾却说续跑不花钱 —— 用户据此以为续跑白送')
-  } else console.log('  ✓ 还有活没干完时，收尾说的是续跑要继续花钱，并说清了还剩什么')
+  else console.log('  ✓ 还有活没干完时，收尾说的是续跑要继续花钱，并说清了还剩什么')
   if (!/修好它再跑:.*--budget <新额度>/.test(stderr)) {
     failed++
     console.error('  ✗ 预算已用尽，恢复命令却没带 --budget —— 照着敲会立刻再撞退出码 3')
