@@ -31,9 +31,10 @@
 | **改 CSV 列或报告结构** | `scripts/lib/rows.ts` · `scripts/lib/xlsx.ts` · `scripts/lib/report.ts` · `skill/references/output-format.md` · 测试 · 变异 | 部分 |
 | **新增可执行文件** | 三选一：接进 `scripts/check/selfcheck.ts`、在 `npm run check` 里自成一步、或写进 `EXEMPT` 说明理由 | 🔒 `selfcheck` |
 | **新增一道闸门** | 判定逻辑（`scripts/check/` 下不带 shebang 的 `.ts`）· 测试 · **`scripts/check/mutations.json`**（闸门自己也是需求，它的测试同样要被证明过）· `process/` 里那条纪律 | 🔒 `audit`：scripts/check/ 下每个判定模块必须有变异指向它，否则硬失败；`mutate` 证明那个变异被抓到 |
+| **改一份形式化模型或它的边界参数** | 两份模型都要跟上（`formal/budget/BudgetProtocol.tla` 与 `scripts/check/formal-rule.ts`）· 场景表里每条不变量的**预期反例长度**要照推导重算，不要跑一遍粘回来 · `formal/budget/IMPLEMENTATION-MAP.md` 的结论表与人工核对表 · 守判定的那几条变异 | 🔒 `formal` 比两边的可达状态集；`audit` 要求判定模块有变异 |
 | **改流程阶段** | `skill/SKILL.md` · `docs/business-requirements.md` · 对应 reference | ✗ 靠执行 |
 | **查到新事实 / 旧结论被推翻** | `docs/data-source-strategy.md` **必须改** · `docs/adr/`（多属事实证伪） | 🔒 `adr` 验编号与索引 |
-| **改预算/成本逻辑** | `scripts/lib/budget.ts` · `skill/SKILL.md` 成本闸门一节 · `docs/CONVENTIONS.md` 第 7 条 | 部分 |
+| **改预算/成本逻辑** | `scripts/lib/budget.ts` · `skill/SKILL.md` 成本闸门一节 · `docs/CONVENTIONS.md` 第 7 条 · **`formal/budget/`（协议模型与那张人工核对表）**；改了过闸门与发请求的先后、重试次数、退还的条件、落盘节奏或退出码，跑 `npm run formal -- --tla` 并把输出贴进 PR | 部分（`formal` 在检查链里，`--tla` 那一半靠执行）|
 | **改对外能力、范围、当前状态或交付物** | 对应正本 · `README.md`（只做摘要，不定义新事实） | ✗ 靠执行 |
 | **评审中不修在本 PR 的一条发现（含驳回）** | 回复第一行的档与去向 · 线程 resolve · PR 描述末尾的索引 · 合入后的**欠条 PR** 往 `docs/adr/` 追加 `⚠️ 欠条`（写重启条件；驳回只做前三项，不进欠条）—— 本表唯一允许延后到下一条 PR 的一行：为登记再 push 会再起一轮评审，见 `6-INTEGRATE.md` | ✗ 靠执行 |
 

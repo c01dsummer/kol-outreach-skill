@@ -48,6 +48,10 @@ import { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded, budgetProblem, ledgerProblem } from './lib/budget.js'
+import {
+  INVARIANTS, SCENARIOS, compareCall, compareStateSets, gateHoles, judgeScenario, ledgerHoles,
+  modelCall, parseTlcDump, renderTlcConfig, runConformance, tlcVerdict,
+} from './check/formal-rule.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
@@ -405,6 +409,67 @@ suite('P3', '未经确认不得超出预算')
   covered.add('D6')
 }
 
+suite('P3', '钱不是在 charge() 里花掉的 —— 整条协议要能被穷举')
+{
+  /**
+   * 上一条验的是一个纯函数：`charge()` 超限会抛。用户的钱却是在**请求发出去的
+   * 那一刻**花掉的，而「过闸门」「发请求」「把请求数写进 task.json」是三步，
+   * 步与步之间可以崩溃、可以续跑。那两个窗口不在任何一个单元里。
+   *
+   * 所以这一段验的是**协议**：把内存计数、盘上计数、供应商真正收的钱放进同一个
+   * 状态机，穷举全部交错。判定在 `check/formal-rule.ts`，命令是 `npm run formal`。
+   */
+
+  // 一、不崩溃时协议是对的 —— 六条不变量一条不违反。
+  //    先立这一条，后面那些反例才说得清是崩溃带来的，不是协议本来就错
+  const calm = judgeScenario(SCENARIOS.find(x => x.name === 'no-crash')!)
+  eq('不崩溃时六条不变量全部成立', calm.violations.length, 0)
+  eq('不崩溃时没有意外', calm.surprises.length, 0)
+
+  // 二、把预检写成「先记账再判断」，穷举必须抓到，而且要给出**最短**那条。
+  //    上限折算成 2 次请求，闸门失效后第 3 次照发；每次请求 3 步（过闸门／发出去／
+  //    收到 200），加上初始状态 —— 1 + 3×3 = 10
+  const broken = judgeScenario(SCENARIOS.find(x => x.name === 'broken-charge')!)
+  const over = broken.violations.find(v => v.invariant === 'NoOverspend')
+  ok('闸门失效被抓到', over !== undefined)
+  eq('给的是最短反例', over?.trace.length, 10)
+  eq('反例指得回红线', over?.req.includes('P3'), true)
+
+  // 三、崩溃动作打开之后，「钱花出去了、盘上没有记录」在 5 步内出现：
+  //    过闸门、发出去、收到 200、死掉 —— 加初始状态一共 5。
+  //    **这是结论，不是漏掉的缺陷**：落盘和发请求是两步，中间永远有窗口
+  const spec = judgeScenario(SCENARIOS.find(x => x.name === 'spec')!)
+  eq('崩溃窗口在 5 步内出现', spec.violations.find(v => v.invariant === 'SpendIsRecorded')?.trace.length, 5)
+  eq('这条记在案，不算意外', spec.surprises.length, 0)
+
+  // 四、**判据自己要能红。** 一条从来不会失败的检查等于没有检查：
+  //    把「预期成立」贴到一条明知会被违反的不变量上，必须报出来
+  const lied = judgeScenario({
+    ...SCENARIOS.find(x => x.name === 'spec')!,
+    expect: { ...SCENARIOS.find(x => x.name === 'spec')!.expect, SpendIsRecorded: true },
+  })
+  ok('预期写错时报出来', lied.surprises.some(x => x.includes('SpendIsRecorded')))
+  const shifted = judgeScenario({
+    ...SCENARIOS.find(x => x.name === 'spec')!,
+    expect: { ...SCENARIOS.find(x => x.name === 'spec')!.expect, SpendIsRecorded: 4 },
+  })
+  ok('反例变长变短也报出来', shifted.surprises.some(x => x.includes('SpendIsRecorded')))
+
+  // 五、每条不变量都要指得回登记表里**真实存在**的编号。
+  //     指不回去的性质是这个模型自己发明的，没有人验收得了它
+  const reg = JSON.parse(rf('docs/requirements.json', 'utf8')) as
+    { requirements: { id: string; accept: { id: string }[] }[] }
+  const ids = new Set(reg.requirements.flatMap(r => [r.id, ...r.accept.map(a => a.id)]))
+  const dangling = INVARIANTS.flatMap(i => i.req.filter(r => !ids.has(r)))
+  eq('不变量引用的编号都真实存在', dangling, [])
+  ok('每条不变量都认领了编号', INVARIANTS.every(i => i.req.length > 0))
+
+  // 六、两个钱字段的**全域**上闸门都在。判据不是「有那个校验」，是对每一个可能的
+  //     取值，要么在花钱之前被挡下，要么真的拦得住／真的接得上账。域有限，所以穷举
+  eq('上限的全域上没有洞', await gateHoles(), [])
+  eq('已花次数的全域上没有洞', await ledgerHoles(), [])
+}
+
 suite('P3', '上限与已花次数是外部输入 —— 闸门先要能拦得住它们')
 {
   /**
@@ -440,6 +505,58 @@ suite('P3', '上限与已花次数是外部输入 —— 闸门先要能拦得�
   criterion('P3.a')
   covered.add('D6')
   covered.add('F7')
+}
+
+suite('P3', '模型说的话，真实的 Budget 与 TikHub 也要说')
+{
+  /**
+   * 上面那些穷举全在模型里。这一条把模型和**真实实现**逐步对上：真的 `Budget`、
+   * 真的 `TikHub.get()`，只把响应换成罐头。一份对不上实现的模型，是
+   * `formal/` 目录里一个自洽的玩具。
+   */
+  const conf = await runConformance()
+  ok('对照真的跑了，不是空转', conf.cases > 100 && conf.sends > 100)
+  eq('每个响应序列都与模型逐步一致', conf.failures.map(f => f.where), [])
+
+  // 对照器自己要能报不符 —— 否则上面那条恒为空数组，检查等于没有。
+  // 「提交那一刻本地记了几次账」是最要紧的一栏：把过闸门挪到请求之后，
+  // 最终计数一模一样，只有它会在第一次提交上读到 0
+  const want = modelCall([200], 2, 0, 3)
+  eq('先记账再发请求', want.countAtSend, [1])
+  const reordered = compareCall(want, { ...want, countAtSend: [0] })
+  eq('顺序反了会被报出来', reordered.map(m => m.field), ['countAtSend'])
+  eq('数字对不上也会被报出来', compareCall(want, { ...want, sent: 9 }).map(m => m.field), ['sent'])
+  eq('一致时不报', compareCall(want, { ...want }), [])
+}
+
+suite('P3', 'TLC 那一侧的对账 —— 跑不起来不算通过')
+{
+  // 三档，不是两档。语法错、jar 不对、常量漏给，都会让检查器一条不变量也没验过
+  // 就退出；把那当成「通过」和当成「抓到反例」一样糟
+  eq('说没错就是通过', tlcVerdict('Model checking completed. No error has been found.').kind, 'ok')
+  const bad = tlcVerdict('Error: Invariant NoOverspend is violated.\nState 1: ...')
+  eq('说哪条被违反就是抓到', bad.kind, 'violated')
+  eq('抓到的是哪一条要说出来', bad.kind === 'violated' ? bad.invariant : '', 'NoOverspend')
+  eq('步性质被违反也算抓到',
+     tlcVerdict('Error: Property ResumeKeepsCount is violated.').kind, 'violated')
+  eq('两句都没有 → 无从判断', tlcVerdict('*** Parse Error ***\nbad line').kind, 'unreadable')
+  eq('空输出也是无从判断', tlcVerdict('').kind, 'unreadable')
+
+  // TLC 打出来的变量顺序不是字典序 —— 同一个状态换个行序必须认成同一个，
+  // 否则两边永远比不上，而「比不上」会被读成「模型漂移了」
+  const one = parseTlcDump('State 1:\n/\\ b = 1\n/\\ a = 0\n')
+  const other = parseTlcDump('State 7:\n/\\ a = 0\n/\\ b = 1\n')
+  eq('行序不同的同一个状态认成同一个', one, other)
+  eq('空输入给空集合', parseTlcDump(''), [])
+  eq('两边一样时差集为空', compareStateSets(one, other), { onlyModel: [], onlyTlc: [] })
+  ok('两边不一样时指得出是哪边多',
+     compareStateSets(['x'], []).onlyModel.length === 1 && compareStateSets([], ['x']).onlyTlc.length === 1)
+
+  // 常量由场景生成，不另存一份 —— 存两份就会漂，而漂了之后 TLC 跑的是另一个模型
+  const cfg = renderTlcConfig(SCENARIOS.find(x => x.name === 'bill-non-200')!,
+                              { invariants: ['NoOverspend'] })
+  ok('常量照场景写', cfg.includes('BillNon200 = TRUE') && cfg.includes('MayCrash = FALSE'))
+  ok('要查的不变量写进去了', cfg.includes('INVARIANT NoOverspend'))
 }
 
 suite('P4', '已联系/屏蔽的人不得进入名单')

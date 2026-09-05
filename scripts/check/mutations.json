@@ -1786,6 +1786,14 @@
       "replace": "kid.on('close', () => { running = undefined })"
     },
     {
+      "id": "M-P3-b",
+      "req": "P3",
+      "why": "请求先发出去，再过预算闸门 —— 超限的那一次钱已经花掉了，闸门只是事后报个信",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      this.budget.charge()          // 预检 —— 超限在这里抛 BudgetExceeded\n      await sleep(this.interval)\n\n      const res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })",
+      "replace": "      await sleep(this.interval)\n\n      const res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })\n      this.budget.charge()          // mutated"
+    },
+    {
       "id": "M-P3-c",
       "req": "P3",
       "why": "不再拦住比不了大小的预算上限 —— 闸门那句比较恒为假，一路花下去，而且百分比恒为零，连 50%／80% 的提醒都不出现",
@@ -1800,6 +1808,30 @@
       "file": "scripts/lib/budget.ts",
       "find": "export const ledgerProblem = (v: unknown): string | undefined =>\n  v === undefined ? undefined                        // 字段没写 = 还没花过，按 0 算\n    : typeof v !== 'number' ? `不是数字（${typeof v}）`\n      : !Number.isFinite(v) ? '不是一个有限的数'\n        : v < 0 ? '是负数'\n          : !Number.isInteger(v) ? '不是整数'\n            : undefined",
       "replace": "export const ledgerProblem = (_v: unknown): string | undefined => undefined"
+    },
+    {
+      "id": "M-H16-a",
+      "req": "harness",
+      "why": "协议模型里「供应商收费次数不超过已确认上限」那条性质被改成恒成立 —— 故意写坏的那个模型不再被抓到",
+      "file": "scripts/check/formal-rule.ts",
+      "find": "    holds: (s, b) => s.billed <= b.limit,",
+      "replace": "    holds: () => true,"
+    },
+    {
+      "id": "M-H16-b",
+      "req": "harness",
+      "why": "场景预期只比「成不成立」，不再比最短反例有多长 —— 模型被改松、反例变长，没有任何东西会红",
+      "file": "scripts/check/formal-rule.ts",
+      "find": "    if (got.trace.length !== want) {",
+      "replace": "    if (false && got.trace.length !== want) {"
+    },
+    {
+      "id": "M-H16-c",
+      "req": "harness",
+      "why": "模型检查器根本没跑起来时报成通过 —— 一条不变量都没验过，却算它通过了",
+      "file": "scripts/check/formal-rule.ts",
+      "find": "  const err = output.split('\\n').find(l => /^(Error|\\*\\*\\* )/.test(l.trim()))\n  return { kind: 'unreadable', why: err?.trim() ?? '既没说通过，也没说哪条被违反' }",
+      "replace": "  return { kind: 'ok' }"
     }
   ],
   "exemptions": [

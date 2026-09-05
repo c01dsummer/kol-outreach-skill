@@ -90,7 +90,10 @@ scripts/
 ├── render.ts                    计分、分层和交付物生成
 ├── lib/                         预算、邮箱、身份、记忆、CSV/XLSX 等
 ├── providers/                   数据源实现
-└── check/                       纪律检查、变异测试、自检和审计
+└── check/                       纪律检查、变异测试、形式化验证、自检和审计
+
+formal/                          形式化验证资产（当前只有预算与请求提交协议）
+└── budget/                      协议模型 + 模型与实现的逐条对应
 ```
 
 判断口径主要集中在 `semantic-fit.md`、`public-metrics.md` 和 `outreach-draft.md`。仓库已经定义数据源适配契约；当前执行入口只接入 TikHub，新增供应商仍需实现适配器并接入入口，但不需要改写下游判断和输出结构。
@@ -194,7 +197,18 @@ output/{product}-{timestamp}/
 npm run check
 ```
 
-完整检查包括：纪律扫描、需求文档一致性、TypeScript 类型检查、需求测试、变异测试、脚本自检和链路审计。CI 在每次 push 时执行同一条命令。
+完整检查包括：纪律扫描、需求文档一致性、TypeScript 类型检查、需求测试、变异测试、形式化验证、脚本自检和链路审计。CI 在每次 push 时执行同一条命令。
+
+其中形式化验证目前只覆盖一个子系统 —— 预算与请求提交协议（P3 · F7 · D6）。它穷举
+「内存里记了几次 / 盘上记了几次 / 供应商真的收了几次钱」这三者的全部交错，因为
+**钱不是在预算闸门那个函数里花掉的**，而过闸门、发请求、把请求数写进断点是三步，
+步与步之间可以崩溃。哪些结论只对模型成立、哪些跑的是真实实现、哪些明确没有被证明，
+逐条写在 [formal/budget/IMPLEMENTATION-MAP.md](formal/budget/IMPLEMENTATION-MAP.md)。
+用 TLC 再跑一遍同一个模型的那半条命令要 Java，不在检查链里：
+
+```bash
+TLA_TOOLS_JAR=/path/to/tla2tools.jar npm run formal -- --tla
+```
 
 ## 当前已知边界
 
