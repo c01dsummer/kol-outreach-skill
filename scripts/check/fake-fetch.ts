@@ -109,9 +109,34 @@ const instagramUserPosts = {
   } },
 }
 
+/**
+ * 「查过了，可他就是没留外链」的那个人 —— D6.l 要保护的正是他。
+ *
+ * 单独挂在自己的关键词和 handle 上（两者都在 query string 里），**不能混进主场景**：
+ * 他永远补不齐，一旦出现在主场景的名单里，那句「活干完了，续跑不产生新的请求」
+ * 就再也说不出口，上面那条免费断言会直接变红。
+ */
+const noLinkSearch = {
+  data: { aweme_list: [], has_more: 0, cursor: 0, search_item_list: [
+    { aweme_info: { desc: 'bio but no link', statistics: { play_count: 240000, digg_count: 18000 },
+      author: { unique_id: 'nolinkguy', nickname: 'NoLink', follower_count: 82000, aweme_count: 0 } } },
+  ] },
+}
+
+/** signature 有、bioLink 没有 —— 解析出来就是 bio 有值、bio_links 为空 */
+const noLinkProfile = {
+  data: { userInfo: {
+    user: { uniqueId: 'nolinkguy', nickname: 'NoLink', signature: 'Reviews 📩 nolink@example.com',
+            verified: false, avatarMedium: '' },
+    stats: { followerCount: 82000, videoCount: 214 } } },
+}
+
 function pick(url: string): unknown {
   if (url.includes('fetch_user_post_videos_v3')) return tiktokUserPosts
   if (url.includes('instagram/v2/fetch_user_posts')) return instagramUserPosts
+  // 这两条要压在通用的搜索／profile 之前 —— 按关键词和 handle 分流，只在自己的场景里出现
+  if (url.includes('keyword=nolink')) return noLinkSearch
+  if (url.includes('uniqueId=nolinkguy')) return noLinkProfile
   if (url.includes('fetch_video_search_result')) return tiktokVideoSearch
   if (url.includes('tiktok/web/fetch_user_profile')) return tiktokProfile
   if (url.includes('instagram/v2/search_reels')) return igReels
