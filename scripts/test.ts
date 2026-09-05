@@ -433,11 +433,15 @@ suite('D6', '「还要不要补 profile」只有一个标准 —— 挨个问和
   // 外链给满，才只剩「简介空着」这一半撑着这条：mk 的 bio_links 默认是 []，
   // 照默认写两半同时为真，把「简介空着」整个删掉它也绿（复查十五）
   //
-  // 空着的简介**分不出**是没查过还是查过了、这人自己没写：两个适配器都把可缺失的
-  // signature/biography 原样写进 bio（`providers/tikhub.ts`），所以一次成功的查询也
-  // 能产出这个形状。判定一律当「还要补」—— 这是主干上的既有行为，本 PR 只如实登记，
-  // 该不该改成三态另记了待办（复查十七）。
-  ok('简介空着 → 还要补', needsProfile(c({ bio: undefined, bio_links: ['https://x'] })))
+  // 「没查过」和「查过了、这人自己没写」是两个值 —— 上面 P1 那条红线划的（缺失 ≠ 空串）。
+  // 这条判定认的是**缺失**那一侧：空简介算查过了，只要有外链就不用再花钱查一遍。
+  // 真正违约的是取 profile 的那两个适配器 —— `u?.signature` / `u?.biography` 取不到时
+  // 写的是 undefined，把「查过了、没写」谎报成「没查过」，那批人于是每轮续跑都被重查
+  // 一次（`providers/tikhub.ts:165,273`，另记了待办；:140 搜索那条路写 undefined 是对的，
+  // 那时确实还没查）。复查十七这里写反了，说成判定分不出，复查十八纠回来。
+  ok('简介没查过 → 还要补', needsProfile(c({ bio: undefined, bio_links: ['https://x'] })))
+  eq('查过了、这人没写简介，外链有 → 不用再补',
+    needsProfile(c({ bio: '', bio_links: ['https://x'] })), false)
   ok('简介有、一条外链都没有 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
   eq('两样都有 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
   criterion('D6.e')

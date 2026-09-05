@@ -194,6 +194,14 @@
       "replace": "  return !c.bio_links?.length"
     },
     {
+      "id": "M-D6-r",
+      "req": "D6",
+      "why": "把「简介没查过」放宽成「简介是空的」—— 查过了、这个人自己就没写简介，于是每一轮续跑都把他当没查过重查一遍，钱一直花在一个永远查不出东西的人身上。P1 划的「没查过 ≠ 查过了是空的」在这条判定上就此作废",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return c.bio === undefined || !c.bio_links?.length",
+      "replace": "  return !c.bio || !c.bio_links?.length"
+    },
+    {
       "id": "M-D6-e",
       "req": "D6",
       "why": "把「还没标记完成的关键词」当成「续跑会去抓的」—— 达标提前停下时那些词一个都没碰过，续跑也不会碰，却告诉用户续跑要花钱，他可能因此不敢续跑，永远拿不到那份名单",
