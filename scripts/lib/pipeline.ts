@@ -100,6 +100,43 @@ export function pendingKeywords(state: TaskState): string[] {
     .map(t => `${t.as_hashtag ? '#' : ''}${t.keyword}(${t.platform})`)
 }
 
+/**
+ * **收尾时说给用户的那句话：续跑还要不要花钱。**
+ *
+ * 这句话有两支，而选哪一支是判定 —— 说反了的代价不对称：说成「不花钱」，
+ * 用户放心去续跑，账单在他不知情时又长一截；说成「要花钱」，用户不敢续跑，
+ * 那份已经付过钱的名单就永远拿不到（ADR-25）。
+ *
+ * 抽出来是因为它原来长在入口脚本里：把两支对调，检查链一路全绿 —— 端到端
+ * 那条自检只验「两句话里出现了一句」，正好分不出是哪一句（评审指出）。
+ *
+ * **两个剩余量也在这里数**，不由调用方递进来：递数字的话，第二个写死成 0、
+ * 或者两个参数调个位置，下面每一条断言和每一条变异都照样绿，而用户看到的那句话
+ * 是错的 —— 那个缺口没法用变异守住（变异跑的只是 `scripts/test.ts`，够不到入口
+ * 脚本）。把数数搬进来，这一类错误就不再有地方发生（评审指出）。
+ *
+ * 数法不是新写的：关键词那一半是 `keywordsResumeWillRun`（D6.c —— 达标提前停下时
+ * 一个都不会去抓），profile 那一半是 `needsProfile`（D6.d —— 哪些人还要补；
+ * 「补全循环与这里共用它」那条约束在 `docs/ARCHITECTURE.md` 的锚点行上）。
+ *
+ * **眼下只有一处调它**：`collect.ts` 里「记忆读不出来因而不产出名单」那条收尾路径，
+ * D6.e 的判据文字也只管那一条。跑完、预算用尽、出错三条路径至今不说这句话
+ * —— 那是 ADR-25 上还挂着的欠条，不是这个函数的事。
+ */
+export function resumeCostLine(
+  dir: string, state: TaskState, qualified: number, creators: Creator[],
+): string {
+  const keywordsLeft = keywordsResumeWillRun(state, qualified).length
+  const profilesLeft = creators.filter(needsProfile).length
+  const rest = [
+    keywordsLeft ? `${keywordsLeft} 个关键词` : '',
+    profilesLeft ? `${profilesLeft} 个人的 profile` : '',
+  ].filter(Boolean).join('、')
+  return rest
+    ? `已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，续跑会继续发请求、继续花钱。`
+    : `采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`
+}
+
 // ═══════════ render 的分层 ═══════════
 
 /** 受众地域不达标时降一层。C 已是最低，保持不动。 */
