@@ -17,7 +17,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetExceeded } from './lib/budget.js'
-import { finalize, keywordsResumeWillRun, needsProfile, pendingKeywords, resumeCostLine } from './lib/pipeline.js'
+import { finalize, needsProfile, pendingKeywords, resumeCostLine } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
 import {
@@ -308,6 +308,17 @@ async function main() {
   }
 
   console.log(JSON.stringify(summary, null, 2))
+
+  // 续跑要不要花钱 —— **剩下三条收尾路径共用这一句**（跑完、预算用尽、出错）。
+  // 原先只有「记忆读不出来」那条中止路径说它，另外三条一个字都不说，而用户要判断
+  // 「值不值得续跑」靠的正是这句话：达标提前停下时关键词根本没跑完，补全失败的人
+  // 下一轮还要再花钱查（ADR-25 的欠条）。
+  //
+  // 写成一句、放在分支之前，是有意的：三条路径**不能各自坏掉**，因此它们是一条判据
+  // （D6.f）而不是三条 —— `1-REQUIREMENTS.md` 的拆分判据问的是「会不会被不同的代码
+  // 路径独立满足、或者独立弄坏」。记忆读不出来那条在上面的 catch 里，它自己 exit 2，
+  // 到不了这里，所以那条仍是独立的 D6.e。
+  console.error(`\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)
 
   if (stopped === 'budget') {
     console.error(`\n⛔ 预算用尽 ${budget.summary()} —— 断点已保存。`)
