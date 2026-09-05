@@ -1586,6 +1586,22 @@
       "replace": "  `判据 ${claimed}+⊘${exempted}/${total}`"
     },
     {
+      "id": "M-H7-b",
+      "req": "harness",
+      "why": "变异编号重复也放行 —— 复制一条忘了改字母时两条都照跑、照样各自被抓到，控制台一片绿；等到其中一条存活，报告里两行顶着同一个名字，「去修它」指不出该修表里哪一行",
+      "file": "scripts/check/attribution-rule.ts",
+      "find": "  for (const e of entries) (seen.has(e.id) ? dup : seen).add(e.id)",
+      "replace": "  for (const e of entries) seen.add(e.id)"
+    },
+    {
+      "id": "M-H7-c",
+      "req": "harness",
+      "why": "变异集里同时有「编号重复」和「记在不存在的需求名下」两种毛病时，先报的成了记错名下 —— 那份报告印的也是编号，而编号还没唯一，人照着它去翻名下，翻不到该改表里哪一行",
+      "file": "scripts/check/attribution-rule.ts",
+      "find": "  const ids = duplicateIds(muts)\n  if (ids.length) return { kind: 'duplicate', ids }\n  const entries = orphanAttributions(attributed, known)\n  return entries.length ? { kind: 'orphan', entries } : undefined",
+      "replace": "  const entries = orphanAttributions(attributed, known)\n  if (entries.length) return { kind: 'orphan', entries }\n  const ids = duplicateIds(muts)\n  return ids.length ? { kind: 'duplicate', ids } : undefined"
+    },
+    {
       "id": "M-H7-a",
       "req": "harness",
       "why": "变异记在一个不存在的编号名下也放行 —— 那条变异照样跑、照样被抓到，控制台一片绿，而它对任何一条需求都不算数，审计报出的「有变异守着」少了一条却没有人被告知",

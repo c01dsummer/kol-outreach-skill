@@ -418,6 +418,41 @@ mkdirSync(join(lintTmp, 'scripts', 'lib'), { recursive: true })
 writeFileSync(join(lintTmp, 'scripts', 'lib', 'bad.ts'), '  const x = c.followers ?? 0\n', 'utf8')
 run('纪律 lint 命中即以退出码 1 结束', [S('check/lint.ts')], lintTmp, { status: 1 })
 
+// ---- 变异集编号重复：两个入口都命中即以退出码 1 结束（M-H7-b、M-H7-c 的入口那一半）----
+// 判定和「两种毛病同时在时先报哪一种」都由 scripts/test.ts 断言；剩下的那一半是
+// **入口真的调了它、并且以退出码 1 结束** —— 把两处调用整块删掉，那些断言和
+// M-H7-b、M-H7-c 照样全绿，因为变异跑的只是 scripts/test.ts，够不到入口。
+// 一份语料喂两个入口，里面两处毛病都放：编号重复 + 记在不存在的需求名下。
+const dupTmp = join(tmp, 'dup-mut')
+mkdirSync(join(dupTmp, 'scripts', 'check'), { recursive: true })
+mkdirSync(join(dupTmp, 'docs'), { recursive: true })
+writeFileSync(join(dupTmp, 'docs', 'requirements.json'),
+  JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+// 架构文档留空：arch-sync 的重复检查要是排在读表之后，报的就是「缺少 BEGIN/END 标记」
+writeFileSync(join(dupTmp, 'docs', 'ARCHITECTURE.md'), '', 'utf8')
+writeFileSync(join(dupTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+  { id: 'M-X-a', req: 'X1', why: '顶着同一个名字的第一条', file: 'a.ts', find: 'x', replace: 'y' },
+  { id: 'M-X-a', req: '登记表里没有这条', why: '同名的第二条，同时还记错了名下', file: 'a.ts', find: 'x', replace: 'z' },
+] }), 'utf8')
+// mutate：出来的必须是重复那一条 —— 先后由 attributionFault 定，这里验的是
+// 入口照着它说的印、并且真的以 1 结束
+// 不加 `dupMut &&` 那道真值判断：`run` 在退出码对得上、stderr 却是空的时候也返回空串，
+// 于是「诊断被删光、只剩 process.exit(1)」会从这儿滑过去（评审指出）
+const dupMut = run('mutate 遇到重复编号即以退出码 1 结束', [S('check/mutate.ts')], dupTmp, { status: 1 })
+if (!dupMut.includes('个编号重复')) {
+  failed++; console.error('  ✗ mutate 的输出里没有「编号重复」那条诊断')
+} else if (dupMut.includes('记在不存在的需求名下')) {
+  failed++
+  console.error('  ✗ mutate 先报的是记错名下 —— 那份报告印的也是 id，它自己也指不回表里哪一行')
+}
+// arch-sync：它在检查链里排在 mutate **前面**，而它按编号建的是 Map（重名只留最后一条）。
+// 不在这儿先拦下，顺序契约就会指着另一条变异报「不在该契约的位置里」，而 mutate 那条
+// 真正的诊断根本轮不上说话。
+const dupArch = run('arch-sync 遇到重复编号即以退出码 1 结束', [S('check/arch-sync.ts')], dupTmp, { status: 1 })
+if (!dupArch.includes('个编号重复')) {
+  failed++; console.error('  ✗ arch-sync 的输出里没有「编号重复」那条诊断')
+}
+
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
 // 一条写进文档、却从没被执行过的命令，等于没有 —— 在这里跑一次，证明它还活着。
 run('mutate --brief（变异清单，不跑变异）', [S('check/mutate.ts'), '--brief'])

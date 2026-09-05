@@ -20,7 +20,7 @@ import {
   validateRegistry,
   type Evidence, type Req, type TensionEvidence,
 } from './check/spec-rule.js'
-import { HARNESS, orphanAttributions } from './check/attribution-rule.js'
+import { HARNESS, attributionFault, duplicateIds, orphanAttributions } from './check/attribution-rule.js'
 import {
   CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsReadFault, claimsWellFormed,
   fingerprint, sourceFiles,
@@ -1778,6 +1778,31 @@ harness('需求登记表的完整性判定')
   eq('记在检查链自己名下 —— 放行', orphanAttributions([{ id: 'M-x', req: HARNESS }], known), [])
   eq('记在不存在的编号名下 —— 抓到', orphanAttributions(
     [{ id: 'M-x', req: 'H4' }], known).map(o => o.req), ['H4'])
+
+  // 编号重复也在「静默」那一半：编号不进任何判定，只进报告，所以复制一条忘了改字母时
+  // 两条都照跑、照样各自被抓到，全绿。代价在报告读不回去 —— 一条存活一条被抓时，
+  // 日志里 `✓ M-X` 和 `✗ M-X` 并排，「去修 M-X」指不出该修表里哪一行（负片 M-H7-b）。
+  eq('编号都不重复 —— 放行', duplicateIds([{ id: 'M-a' }, { id: 'M-b' }]), [])
+  eq('同一个编号出现两次 —— 抓到', duplicateIds([{ id: 'M-a' }, { id: 'M-a' }]), ['M-a'])
+  // 出现三次只报一次：报告要的是「哪个编号重复了」，不是「重复了几次」
+  eq('出现三次也只报一次', duplicateIds([{ id: 'M-a' }, { id: 'M-a' }, { id: 'M-a' }]), ['M-a'])
+  eq('多个编号各自重复都要报',
+    duplicateIds([{ id: 'M-a' }, { id: 'M-b' }, { id: 'M-a' }, { id: 'M-b' }]), ['M-a', 'M-b'])
+  // 同一条需求下有多条变异是常态 —— 那不是重复，这条判定只看编号本身
+  const sameReq: { id: string; req: string }[] = [{ id: 'M-a', req: 'P4' }, { id: 'M-b', req: 'P4' }]
+  eq('同一个 req 下多条不同编号 —— 放行', duplicateIds(sameReq), [])
+
+  // 两种毛病同时在时先报哪一种，是有语义的先后：记错名下那份报告印的也是 id，
+  // 编号还没唯一时它自己就指不出该改表里哪一行。留在入口里的话，把两段调换或者
+  // 删掉一段，上面那两组断言照样全绿（负片 M-H7-c）。
+  const bothBad = [{ id: 'M-a', req: 'P4' }, { id: 'M-a', req: 'H4' }]
+  eq('重复与记错名下同时在 —— 先报重复', attributionFault(bothBad, bothBad, known)?.kind, 'duplicate')
+  eq('只有记错名下 —— 报记错名下',
+    attributionFault([{ id: 'M-a' }], [{ id: 'M-a', req: 'H4' }], known)?.kind, 'orphan')
+  eq('两样都没有 —— 放行', attributionFault([{ id: 'M-a' }], [{ id: 'M-a', req: 'P4' }], known), undefined)
+  // 显式豁免也走记错名下这一关，但不参与编号唯一 —— 两份名单不是同一份
+  eq('豁免记错名下也抓得到', attributionFault(
+    [{ id: 'M-a' }], [{ id: '豁免 H4', req: 'H4' }], known)?.kind, 'orphan')
 
   // 反向：决策记录提到的编号必须真实存在 —— 「编号不回收复用」查得了的那一半
   const doc = '## ADR-07 标题\n\n- 冲击的需求：D1 · D9\n'
