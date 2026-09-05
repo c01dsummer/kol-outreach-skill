@@ -15,7 +15,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { TikHub, TikHubError } from './providers/tikhub.js'
-import { Budget, BudgetExceeded } from './lib/budget.js'
+import { Budget, BudgetExceeded, budgetProblem } from './lib/budget.js'
 import { extractEmail } from './lib/email.js'
 import type { SearchTask } from './lib/types.js'
 
@@ -34,7 +34,17 @@ if (!key) {
   process.exit(2)
 }
 
-const budget = new Budget(cfg.budget_usd ?? 0.5)
+// 预算上限在花钱之前查。闸门是一句「已花 + 本次开销 > 上限」的比较：上限不是
+// 有限的数时它恒为假，闸门整条失效（P3）。判定与另外两条入口共用 lib/budget.ts
+// 的那一份 —— 三条入口各写一份表达式时，先改的那边不会报错。
+const probeBudget = cfg.budget_usd ?? 0.5
+const badBudget = budgetProblem(probeBudget)
+if (badBudget) {
+  console.error(`${cfgPath} 里的 budget_usd ${badBudget}：${JSON.stringify(cfg.budget_usd)} —— ` +
+                `预算闸门要拿它和已花的钱比大小，比不了就等于没有闸门。`)
+  process.exit(2)
+}
+const budget = new Budget(probeBudget)
 const api = new TikHub(key, budget)
 const market = cfg.market ?? 'US'
 
