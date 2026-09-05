@@ -18,6 +18,7 @@
  */
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import { type RunVerdict, judgeRun } from './mutate-rule.js'
@@ -99,6 +100,39 @@ process.on('exit', restoreClaims)
 // 让「被打断」和「跑完」走同一条还原路径 —— 这里不再单写一行，是为了没有一行可忘。
 
 /**
+ * 跑测试的那条命令 —— **直接用当前这个 node 跑 tsx 的 cli，不经 `npx`、也不经 shell。**
+ *
+ * 原先是 `spawn('npx', ['tsx', 'scripts/test.ts'])`。在 Windows 上 `npx` 是 `npx.cmd`，
+ * 而 **`.cmd` 不带 shell 根本起不来** —— Node 文档写着「`.bat` 和 `.cmd` 在 Windows 上
+ * 没有终端就不能自己执行」。于是变异检查在 Windows 上一次都跑不起来，而它是
+ * 「每条红线的测试真的会红」这件事唯一的证据来源。
+ *
+ * 摆在桌上的三条路，为什么选这一条：
+ *
+ * | 做法 | 判定 |
+ * |---|---|
+ * | 显式挑 `npx.cmd` | **走不通**。不带 shell 起不来的正是 `.cmd` 这类文件，挑明名字也一样 |
+ * | `spawn(..., { shell: true })` | 能跑，但要经 `cmd.exe`；而**带 shell 还传参数数组**是 Node 的运行时弃用项（DEP0190，v21 起），它让你把命令拼成字符串 —— 拼字符串正是注入面所在。Node 自己在 `.cmd` 那一节也写着「不推荐」 |
+ * | **当前 node + tsx 的 cli** | 不经 shell，也就没有注入面可争论；`.cmd` 压根不参与；还少一层进程 |
+ *
+ * `tsx/cli` 是 tsx 包的**公开导出**（它的 `exports` 里有 `"./cli"`），所以用
+ * `require.resolve` 拿路径，不把 `node_modules/tsx/dist/...` 这种内部路径写死。
+ * `process.execPath` 就是正在跑这个脚本的那个 node，版本不会和它错开。
+ *
+ * ⚠️ **这条只解决「起不起得来」，没解决 Windows 上的打断。**
+ * `mutate-restore.ts` 的 `killTest` 用的是 `process.kill(-pid)` —— 负号是 POSIX 的
+ * 进程组语义，配的是这里的 `detached`。而 `detached` 在 Windows 上给的是**一个自己的
+ * 控制台窗口，不是进程组**，那一刀落不到任何东西上，还被 `catch` 吞掉。
+ * 所以 Windows 上被 Ctrl-C 打断时，测试子进程不会被停掉，而工作区里留着的是
+ * 被改过的源码。**这一条本 PR 没修，也不假装修了**（记在 PR 描述里）。
+ *
+ * **本仓库的 CI 只跑 Linux，所以上面关于 Windows 的话没有任何自动化验过。**
+ * 它靠的是 Node 官方文档 + 代码推理，不是一次真的 Windows 运行。Linux 这一侧
+ * 是真跑过的：整条变异链绿。
+ */
+const TSX_CLI = createRequire(import.meta.url).resolve('tsx/cli')
+
+/**
  * 跑一次测试。**异步等，不能同步等。**
  *
  * 信号处理是排在事件循环上的：同步等子进程（`node:child_process` 里带 Sync 的那几个）
@@ -118,8 +152,8 @@ const runTest = (): Promise<{ status: number | null; output: string }> =>
     // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
     // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
     // 自成一组：被打断时要连它一起结束，而只杀手上这一个是杀不掉的 ——
-    // `npx` 是一层壳，`tsx` 自己还要再分出一个真正跑脚本的进程来
-    const kid = spawn('npx', ['tsx', 'scripts/test.ts'],
+    // `tsx` 自己还要再分出一个真正跑脚本的进程来（POSIX 上才成立，见 TSX_CLI）
+    const kid = spawn(process.execPath, [TSX_CLI, 'scripts/test.ts'],
       { stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1' } })
     trackTest(kid)
     let out = ''
