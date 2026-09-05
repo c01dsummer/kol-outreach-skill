@@ -1,4 +1,4 @@
-# ADR-69 PR #74 推迟的三条欠条：起 tsx 的坑有三处，不是两处
+# ADR-68 PR #74 推迟的三条欠条：起 tsx 的坑有三处，不是两处
 
 > ⚠️ 欠条：`npm run mutate` 起测试子进程那个坑**有三处，不是两处** —— `scripts/check/mutate.ts`
 > 已修（PR #73），还剩 `scripts/check/selfcheck.ts` 的 `spawnSync('npx', …)` 与
