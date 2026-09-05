@@ -8,14 +8,30 @@ export function taskDir(product: string, timestamp?: string): string {
   return join('output', `${product}-${ts}`)
 }
 
+/**
+ * 任务状态文件落在哪 —— **全仓库只此一份**。
+ *
+ * 这个名字原先在四处各拼各的：读、写、`collect --resume` 的存在性检查、
+ * `enrich` 的存在性检查。改一处不改另一处时**没有任何东西会报错** ——
+ * 存在性检查问的是一个文件，读写落在另一个，而两边各自都成立。
+ *
+ * ADR-45 的追记还点出更远的一层：ADR-47 那道「改名前再比一次盘上还是不是
+ * 读到的那份」会去比**另一个文件，而且比得通过**。**那道比对主干上没有** ——
+ * D4 现在明写并发不保证（ADR-66），所以今天坏的不是它；它按 ADR-55 的重启
+ * 条件回来时，坏的才是它。写在这里是为了那一天不必重新想一遍。
+ *
+ * 合成一份之所以有效，正是因为它不依赖谁记得改全。
+ */
+export const taskFile = (dir: string): string => join(dir, 'task.json')
+
 export function loadTask(dir: string): TaskState {
-  return JSON.parse(readFileSync(join(dir, 'task.json'), 'utf8'))
+  return JSON.parse(readFileSync(taskFile(dir), 'utf8'))
 }
 
 export function saveTask(dir: string, state: TaskState): void {
   mkdirDurable(dir)
   state.updated_at = new Date().toISOString()
-  writeFileAtomic(join(dir, 'task.json'), JSON.stringify(state, null, 2))
+  writeFileAtomic(taskFile(dir), JSON.stringify(state, null, 2))
 }
 
 export function loadCreators(dir: string): Creator[] {
