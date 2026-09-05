@@ -906,12 +906,28 @@
       "replace": "      if (typeof rr.product !== 'string') return `${at}的 product 不是字符串`"
     },
     {
-      "id": "M-D6-f",
-      "req": "D6",
+      "id": "M-D4-af",
+      "req": "D4",
       "why": "比较产品名时不去掉两侧的空白 —— 手改时多打的一个空格，就让「这个人已经为这个产品推荐过」整条失效，人被重新推荐一次",
       "file": "scripts/lib/memory.ts",
       "find": "    if (others.some(r => r.product.trim() === want)) { rec++; continue }",
       "replace": "    if (others.some(r => r.product === product)) { rec++; continue }"
+    },
+    {
+      "id": "M-D4-ah",
+      "req": "D4",
+      "why": "入口不去掉任务配置里产品名两侧的空白 —— 运营在配置里多打一个空格，这一轮就查不到「他已经为这个产品推荐过」，整批已经推荐过的人被当成新人再推荐一次，钱和人情一起赔进去",
+      "file": "scripts/lib/memory.ts",
+      "find": "): FilterResult {\n  const want = product.trim()",
+      "replace": "): FilterResult {\n  const want = product"
+    },
+    {
+      "id": "M-D4-ag",
+      "req": "D4",
+      "why": "读记忆时把两侧带空白的产品名判成损坏 —— 写回这一侧存的是 trim 过的产品名，所以踩到它的是历史遗留或被手工改过的记录：那一份记忆此后读不出来，每一次采集都被挡在门外，直到有人手工去修",
+      "file": "scripts/lib/memory.ts",
+      "find": "      const badProduct = textProblem(rr.product)",
+      "replace": "      const badProduct = textProblem(rr.product) ?? (rr.product === String(rr.product).trim() ? undefined : '\u4e24\u4fa7\u6709\u7a7a\u767d')"
     },
     {
       "id": "M-D4-o",

@@ -420,6 +420,7 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
   eq('已标记完成的本来就不算', keywordsResumeWillRun(st({ done: [0] }), 10).length, 1)
   // pendingKeywords 仍然报「还没跑完的」—— 它服务的是进度，不是花钱
   eq('进度口径不受达标影响', pendingKeywords(st()).length, 2)
+  criterion('D6.c')
 }
 
 suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环与「续跑要花多少钱」共用它')
@@ -428,7 +429,10 @@ suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环
   ok('bio 未查询 → 还要补', needsProfile(c({ bio: undefined })))
   ok('查过了但没有外链 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
   eq('查过且有外链 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
-  // 这个判定决定要不要花钱：说「续跑不产生新请求」之前，它必须对每个人都是 false
+  // 这个判定决定要不要花钱：关键词全跑完了，只要还有人没补 profile，
+  // 续跑第一件事就是去发付费请求（负片 M-D6-d）。关键词那一半是 D6.c，
+  // 在上一个 suite（负片 M-D6-e）—— 两种活坏在不同的地方，所以是两条判据。
+  criterion('D6.d')
 }
 
 suite('D6', '续跑不得被本任务自己上一轮的产出滤空')
@@ -689,9 +693,33 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {
     'tiktok:pad': { contacted: false, blocked: false,
       recommendations: [{ product: ' Foo ', date: '2026-01-01' }] } } }), 'utf8')
-  const padded = filterByMemory([mk('tiktok', 'pad')], 'Foo')
+  // 打开 ignoreUnreadable 不是放松要求，是为了让「判成损坏」变成一个能断言的值：
+  // 默认那条路是抛，抛出来测试进程就崩了，而崩溃不是断言的功劳（同上）。
+  // 代价原样带在 memory_status 上，下面第三条就盯着它。
+  const padded = filterByMemory([mk('tiktok', 'pad')], 'Foo', undefined, { ignoreUnreadable: true })
   eq('产品名两侧的空白不影响「已推荐过」', padded.filtered_recommended, 1)
   eq('于是那个人不会被再推荐一次', padded.kept.length, 0)
+  // 后半句「不判为损坏」单独断言，但**不是**因为上面两条抓不到它：负片
+  // M-D4-ag 让读取侧把带空白的产品名判成损坏，readMemory 返回 unreadable，
+  // 上面两条也一起红。它们红得不好读 —— 报的是「没去重」，真正坏的是
+  // 「读不出来」。这一条把状态钉住，坏因才写在脸上。（前半句的负片是
+  // M-D4-af：只让比较不去空白，状态仍是 ok，就靠上面两条抓。）
+  eq('而且没把这份记忆判成损坏', padded.memory_status, 'ok')
+  criterion('D4.q')
+
+  // 七之一、反过来的那一半：记忆里存的是干净的，空白在**任务配置**这一侧。
+  //        两半坏在不同的行 —— 上面那半坏在比较处的 r.product.trim()（负片
+  //        M-D4-af），这半坏在入口的 want（负片 M-D4-ah）。只压上面那半时，
+  //        把入口的 trim 去掉，上面三条断言全是绿的：存的干净、查的也干净，
+  //        谁都不动它。所以这是独立的一条判据，不是同一条的另一种说法。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {
+    'tiktok:cfg': { contacted: false, blocked: false,
+      recommendations: [{ product: 'Foo', date: '2026-01-01' }] } } }), 'utf8')
+  const padQuery = filterByMemory([mk('tiktok', 'cfg')], '  Foo  ', undefined, { ignoreUnreadable: true })
+  eq('任务配置里的空白同样不影响「已推荐过」', padQuery.filtered_recommended, 1)
+  eq('于是那个人也不会被再推荐一次', padQuery.kept.length, 0)
+  eq('这一侧同样不算损坏', padQuery.memory_status, 'ok')
+  criterion('D4.r')
 
   // 七之二、名单和它的去重状态：**哪个先写都不安全**，取决于状态往哪边变。
   //        ok → unreadable_ignored 时名单先写会坏；unreadable_ignored → ok 时
