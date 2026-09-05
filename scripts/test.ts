@@ -707,6 +707,20 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   eq('而且没把这份记忆判成损坏', padded.memory_status, 'ok')
   criterion('D4.q')
 
+  // 七之一、反过来的那一半：记忆里存的是干净的，空白在**任务配置**这一侧。
+  //        两半坏在不同的行 —— 上面那半坏在比较处的 r.product.trim()（负片
+  //        M-D4-af），这半坏在入口的 want（负片 M-D4-ah）。只压上面那半时，
+  //        把入口的 trim 去掉，上面三条断言全是绿的：存的干净、查的也干净，
+  //        谁都不动它。所以这是独立的一条判据，不是同一条的另一种说法。
+  writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {
+    'tiktok:cfg': { contacted: false, blocked: false,
+      recommendations: [{ product: 'Foo', date: '2026-01-01' }] } } }), 'utf8')
+  const padQuery = filterByMemory([mk('tiktok', 'cfg')], '  Foo  ', undefined, { ignoreUnreadable: true })
+  eq('任务配置里的空白同样不影响「已推荐过」', padQuery.filtered_recommended, 1)
+  eq('于是那个人也不会被再推荐一次', padQuery.kept.length, 0)
+  eq('这一侧同样不算损坏', padQuery.memory_status, 'ok')
+  criterion('D4.r')
+
   // 七之二、名单和它的去重状态：**哪个先写都不安全**，取决于状态往哪边变。
   //        ok → unreadable_ignored 时名单先写会坏；unreadable_ignored → ok 时
   //        状态先写会坏。两种坏法一样：报告压掉警告，把打扰过的人当成已去重

@@ -914,6 +914,14 @@
       "replace": "    if (others.some(r => r.product === product)) { rec++; continue }"
     },
     {
+      "id": "M-D4-ah",
+      "req": "D4",
+      "why": "入口不去掉任务配置里产品名两侧的空白 —— 运营在配置里多打一个空格，这一轮就查不到「他已经为这个产品推荐过」，整批已经推荐过的人被当成新人再推荐一次，钱和人情一起赔进去",
+      "file": "scripts/lib/memory.ts",
+      "find": "): FilterResult {\n  const want = product.trim()",
+      "replace": "): FilterResult {\n  const want = product"
+    },
+    {
       "id": "M-D4-ag",
       "req": "D4",
       "why": "读记忆时把两侧带空白的产品名判成损坏 —— 写回这一侧存的是 trim 过的产品名，所以踩到它的是历史遗留或被手工改过的记录：那一份记忆此后读不出来，每一次采集都被挡在门外，直到有人手工去修",
