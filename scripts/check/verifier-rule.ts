@@ -24,9 +24,12 @@
  * | **当工具起** | `selfcheck.ts` 起 `check/mutate.ts`、`check/lint.ts`、`check/arch-sync.ts` | 漏掉，连同它们各自的传递依赖 |
  * | **预加载** | `selfcheck.ts` 用 `NODE_OPTIONS: --import …/fake-fetch.ts` 把假 fetch 塞进每个子进程 | 漏掉 —— 而它决定自检能走多深（`audit-rule.ts` 的 `JUDGMENT_EXEMPT` 里就是这么写的） |
  *
- * 实测：只从 `selfcheck.ts` 的 `import` 出发，闭包是 2 个文件；把后两种边补上，是 **12 个**。
+ * 实测：只从 `selfcheck.ts` 的 `import` 出发，闭包是 3 个文件；把后两种边补上，是 **13 个**。
  * 少收的那 10 个里有 `mutate-rule.ts`（判定「抓到还是崩了」的那一半）——
  * 一条打在它身上的 `by: "selfcheck"` 变异，改的正是给它自己判分的那把尺。
+ *
+ * 13 个里包含**本文件自己** —— 自检 `import` 它来拿 `SELFCHECK_TOOLS`，所以这条判据
+ * 也在它自己划的禁区里。这不是巧合：它就是验证基础设施。
  *
  * ## 它挡不住什么
  *
