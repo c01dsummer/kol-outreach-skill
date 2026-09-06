@@ -1808,6 +1808,30 @@
       "file": "scripts/check/tsx-cmd.ts",
       "find": "  [process.execPath, [TSX_CLI, ...args]]",
       "replace": "  [process.execPath, [...args, TSX_CLI]]"
+    },
+    {
+      "id": "M-H17-a",
+      "req": "harness",
+      "why": "预加载那一条边不收 —— 假 fetch 是靠 `--import` 塞进每个子进程的，不是 import 语句。漏掉它，闭包就少一个决定自检能走多深的文件，而闭包偏小的那一头是放行",
+      "file": "scripts/check/verifier-rule.ts",
+      "find": "  for (const m of src.matchAll(/'\\.\\/([\\w.-]+\\.ts)'/g)) found.add(`scripts/check/${m[1]}`)",
+      "replace": "  // 预加载那一路不收"
+    },
+    {
+      "id": "M-H17-b",
+      "req": "harness",
+      "why": "闭包只收一层，传递依赖全漏 —— 一条打在判定模块上的变异会被当成合法的，而它改的正是给自己判分的那把尺",
+      "file": "scripts/check/verifier-rule.ts",
+      "find": "    for (const next of edges.get(f) ?? []) stack.push(next)",
+      "replace": "    for (const next of edges.get(f) ?? []) seen.add(next)"
+    },
+    {
+      "id": "M-H17-c",
+      "req": "harness",
+      "why": "只要指名了验证者就算自己验自己，不再看那个文件是不是基础设施 —— 这会把「自检真跑被测入口」这个头号用例整个挡在门外",
+      "file": "scripts/check/verifier-rule.ts",
+      "find": "  return mut.by !== undefined && mut.by !== 'test' && infra.includes(mut.file)",
+      "replace": "  return mut.by !== undefined && mut.by !== 'test'"
     }
   ],
   "exemptions": [

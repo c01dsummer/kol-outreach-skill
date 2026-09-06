@@ -38,6 +38,7 @@ import {
 } from './check/age-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { tsxCommand } from './check/tsx-cmd.js'
+import { closure, selfVerifying, toolEdges } from './check/verifier-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { TikHub, fillEmail, pickList } from './providers/tikhub.js'
@@ -2779,6 +2780,46 @@ harness('起 tsx 的那条命令：三处共用一份，不经 npx、不经 shel
   // 要跑的那几个原样跟在后面。少一个或顺序反了，起来的就不是要跑的那个脚本，
   // 而那时的样子是「跑起来了、结论不对」，不是「起不来」
   eq('要跑的那几个参数原样跟在 cli 后面', argv.slice(1), args)
+}
+
+harness('验证基础设施闭包：一条变异改的是不是验证者自己要用的东西')
+{
+  // ---- 三种边里，import 之外那两种 ----
+  const src = [
+    "  NODE_OPTIONS: '--import ' + new URL('./fake-fetch.ts', import.meta.url).href,",
+    "  run('lint 命中即以退出码 1 结束', [S('check/lint.ts')])",
+    "  run('probe 三种发现路径', [S('probe.ts')])",
+  ].join('\n')
+
+  // 当工具起的、预加载的，都不是 import 语句 —— 只扫 import 这两条边一条都收不到，
+  // 而闭包偏小的那一头是**放行**：把一条自己验自己的变异当成合法的
+  eq('当工具起的与预加载的都收得到',
+    toolEdges(src), ['scripts/check/fake-fetch.ts', 'scripts/check/lint.ts'])
+  // 起 check/ 外面的那些是被测对象，不是基础设施。收进来就会把「自检真跑 collect.ts」
+  // 这个头号用例自己挡在门外 —— 这条判据要划开的正是这两者
+  ok('起 check/ 外面的那些不收', !toolEdges(src).includes('scripts/probe.ts'))
+
+  // ---- 递归，不是只收一层 ----
+  const graph = [
+    { path: 'a.ts', to: ['b.ts'] },
+    { path: 'b.ts', to: ['c.ts'] },
+    { path: 'x.ts', to: [] },
+  ]
+  eq('顺着边一直收到底', closure(graph, ['a.ts']), ['a.ts', 'b.ts', 'c.ts'])
+  eq('每个种子各自走一遍', closure(graph, ['a.ts', 'x.ts']), ['a.ts', 'b.ts', 'c.ts', 'x.ts'])
+  // 图里没有的仍然进闭包、只是不再往下走 —— 悄悄丢掉会让闭包偏小
+  eq('图里没有的路径也算在闭包里', closure(graph, ['zzz.ts']), ['zzz.ts'])
+
+  // ---- 谁受这条判据管 ----
+  const infra = ['scripts/check/mutate-rule.ts']
+  ok('打在基础设施上的、指名了验证者的变异：自己验自己',
+    selfVerifying({ by: 'selfcheck', file: 'scripts/check/mutate-rule.ts' }, infra))
+  ok('打在被测入口上的不算 —— 那正是这条记录要的头号用例',
+    !selfVerifying({ by: 'selfcheck', file: 'scripts/collect.ts' }, infra))
+  ok('缺省跑测试的那些不受这条判据管',
+    !selfVerifying({ file: 'scripts/check/mutate-rule.ts' }, infra))
+  ok('写明跑测试的也一样不受管',
+    !selfVerifying({ by: 'test', file: 'scripts/check/mutate-rule.ts' }, infra))
 }
 
 harness('审计：检查链自己的判定模块必须有变异守着')
