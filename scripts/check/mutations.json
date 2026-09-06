@@ -1784,6 +1784,30 @@
       "file": "scripts/check/mutate-restore.ts",
       "find": "kid.on('close', () => { if (running === kid) running = undefined })",
       "replace": "kid.on('close', () => { running = undefined })"
+    },
+    {
+      "id": "M-H16-a",
+      "req": "harness",
+      "why": "起 tsx 的那条命令改回走 `npx`：Windows 上 `npx` 是 `npx.cmd`，而 `.cmd` 不带 shell 根本起不来 —— 整条变异链在那边一次都跑不起来，而它是「每条红线的测试真的会红」唯一的证据来源",
+      "file": "scripts/check/tsx-cmd.ts",
+      "find": "  [process.execPath, [TSX_CLI, ...args]]",
+      "replace": "  ['npx', ['tsx', ...args]]"
+    },
+    {
+      "id": "M-H16-b",
+      "req": "harness",
+      "why": "cli 的路径不再从 tsx 那个公开导出解析，改成直指 `node_modules/.bin` 里的垫片 —— 那正是需求测试原先踩的坑：无扩展名的名字在 Windows 上只会被试 `tsx.com` 和 `tsx.exe`，而 npm 在那边生成的是 `tsx.cmd`、`tsx.ps1` 和一个 sh 垫片；而且路径变成相对的，切到临时目录里跑就指空",
+      "file": "scripts/check/tsx-cmd.ts",
+      "find": "const TSX_CLI = createRequire(import.meta.url).resolve('tsx/cli')",
+      "replace": "const TSX_CLI = 'node_modules/.bin/tsx'"
+    },
+    {
+      "id": "M-H16-c",
+      "req": "harness",
+      "why": "要跑的那几个参数被垫到 cli 前面去 —— 起来的于是不是要跑的那个脚本，而这种坏法的样子是「跑起来了、结论不对」，不是「起不来」",
+      "file": "scripts/check/tsx-cmd.ts",
+      "find": "  [process.execPath, [TSX_CLI, ...args]]",
+      "replace": "  [process.execPath, [...args, TSX_CLI]]"
     }
   ],
   "exemptions": [

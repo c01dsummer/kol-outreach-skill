@@ -37,6 +37,7 @@ import {
   parsePrList, pickWaiver, scanAgeWaiver, shapeOf, waiverOrder,
 } from './check/age-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
+import { tsxCommand } from './check/tsx-cmd.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { TikHub, fillEmail, pickList } from './providers/tikhub.js'
@@ -46,6 +47,7 @@ import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
+import { createRequire } from 'node:module'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded } from './lib/budget.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
@@ -64,7 +66,7 @@ import {
   readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator,
   EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, TaskState,
@@ -2708,7 +2710,8 @@ harness('变异跑到一半被打断：动过的源文件要还回去')
     `g.on('message', () => process.kill(process.pid, 'SIGTERM'))`,
     `g.on('close', () => w(${JSON.stringify(waited)}, '等完了', 'utf8'))`,
   ].join('\n'), 'utf8')
-  const r = spawnSync(join(process.cwd(), 'node_modules/.bin/tsx'), [kid], { encoding: 'utf8' })
+  const [exe, argv] = tsxCommand([kid])
+  const r = spawnSync(exe, argv, { encoding: 'utf8' })
   eq('真挨一刀：动过的那份还是还回去了', rf(victim, 'utf8'), '原文')
   eq('真挨一刀：这一次检查没跑完，退出码非零', r.status, 1)
   // 还回去了、退出码也对，却是把那个子进程等完了才停 —— 那还是「看上去做了」：
@@ -2751,6 +2754,31 @@ harness('变异跑到一半被打断：动过的源文件要还回去')
   // 最后才拆：处理函数里有退出，留在测试进程里会把后面任何一次打断变成静默退出
   for (const s of sigs) process.off(s, onInterrupt)
   for (const p of [f, kid, victim, waited]) rmSync(p, { force: true })
+}
+
+harness('起 tsx 的那条命令：三处共用一份，不经 npx、不经 shell')
+{
+  const args = ['scripts/probe.ts', '--config', 'x.json']
+  const [exe, argv] = tsxCommand(args)
+
+  // 起的是**正在跑这个进程的那个 node**：不经 PATH，子进程的版本不会和父进程错开。
+  // 更要紧的是另外两条路在 Windows 上根本起不来 —— `npx` 是 `npx.cmd`，而 `.cmd` 不带
+  // shell 起不来；`node_modules/.bin/tsx` 无扩展名，libuv 只试 `tsx.com` / `tsx.exe`，
+  // 而 npm 在那边生成的是 `tsx.cmd` / `tsx.ps1` / `tsx`(sh shim)（ADR-69 第一块欠条）
+  eq('起的是当前这个 node', exe, process.execPath)
+
+  // cli 走 tsx 包的**公开导出**（它的 exports 里有 "./cli"），不写死 `node_modules/tsx/dist/…`
+  // 那种内部路径，也不指 `.bin` 里那个垫片 —— 写死的那种升一次版就指空
+  eq('垫在最前面的是 tsx 那个公开导出解析出来的 cli',
+    argv[0], createRequire(import.meta.url).resolve('tsx/cli'))
+  // 断的是**绝对路径**这一半：相对的那种才会随 cwd 变，而自检有几处切到临时目录里跑。
+  // 「切过去再调一次、结果不变」那样的断言写不得 —— 那个常量在 import 阶段就求值一次，
+  // 之后怎么切都不会变，那条断言永远不会红（`4-VERIFY.md`：不会失败的检查等于没有检查）
+  ok('而且是一条真的绝对路径', isAbsolute(argv[0]) && existsSync(argv[0]))
+
+  // 要跑的那几个原样跟在后面。少一个或顺序反了，起来的就不是要跑的那个脚本，
+  // 而那时的样子是「跑起来了、结论不对」，不是「起不来」
+  eq('要跑的那几个参数原样跟在 cli 后面', argv.slice(1), args)
 }
 
 harness('审计：检查链自己的判定模块必须有变异守着')
