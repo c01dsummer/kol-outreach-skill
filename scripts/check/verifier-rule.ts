@@ -32,8 +32,10 @@
  *
  * - **验证者从 `scripts/check/` 外面起一个工具**：按上面那条判据会被当成被测对象放行。
  *   今天没有这种写法（实测三处工具全在 `check/` 下），但判据拦不住有人这么写。
- * - **动态拼出来的路径**：这里认的是源码里的字符串字面量。`S('check/' + name)` 这种收不到。
- *   两条都是「写的人绕得过去」，不是「机器判错」—— 和 `docs/CONVENTIONS.md` 第 10 条同一处境。
+ * - **别的验证者**：这里只有自检一个。将来多一个验证者，它的种子要照样在这儿声明成
+ *   「就是行为」的形状，而不是回头去扫源码。
+ *
+ * 第一条是「写的人绕得过去」，不是「机器判错」—— 和 `docs/CONVENTIONS.md` 第 10 条同一处境。
  */
 
 /** 一个文件够得到谁。`to` 里放的是仓库根起算的路径。 */
@@ -43,48 +45,46 @@ export interface Reaches {
 }
 
 /**
- * 从一份验证者源码里抠出 **`import` 之外**的那两类边。
+ * 自检当**工具**起的那几个脚本。
  *
- * **两道关卡，缺一道就会把散文当成边**（评审指出，实测两个诱饵都穿得过去）：
- * 先去注释，再要求那个路径**落在调用的参数位上**（紧跟一个左括号）。
- * 只做第一道的话，`// 这一段解释为什么不去起 'check/adr-sync.ts'` 会被算成边；
- * 只做第二道的话，`writeFileSync(cfg, JSON.stringify({ note: 'check/audit.ts' }))`
- * 这种写进夹具的串会被算成边。
+ * 这份清单**不是对行为的描述，它就是行为** —— 自检从这里取路径去起进程（`runTool`），
+ * 闭包也从这里取种子。要加一个工具只能加在这儿：`runTool` 的形参类型是
+ * `keyof typeof SELFCHECK_TOOLS`，起一个不在表里的工具**编译期就过不去**。
+ * 于是「清单漂了」在类型层不成立。
  *
- * **多收一条边的方向是坏的**：闭包偏大 → 合法的变异被误拒 → 这道闸门被当成噪音关掉
- * （ADR-62 否决那三条静态判据用的正是这个标准）。
+ * ## 为什么不是扫源码
  *
- * 返回的是仓库根起算的路径，已排序去重。
+ * 上一版是扫自检的源码，猜哪些路径是它要起的工具。评审两轮各找到一批诱饵：
+ * 注释里提到的路径、写进夹具串的路径、`const fixture = "S('check/audit.ts')"`
+ * 这种串里装着调用形状的、以及 `readFileSync('./fixture.ts')` 这种普通读文件。
+ * 每收紧一次正则就出现新的一批 —— 那是军备竞赛，而 ADR-62 为这种事立过标准
+ * （三条静态判据全因假阳性被否决）。
+ *
+ * **根因不在正则不够严，在于「描述行为的东西会说谎」。** 让清单成为行为本身，
+ * 就没有可骗的东西了 —— 这和 `tsx-cmd.ts`（怎么起 tsx 只此一份）、
+ * `types.ts`（D1 的身份键只此一份）是同一条路子。
  */
-export function toolEdges(src: string): string[] {
-  const code = stripComments(src)
-  const found = new Set<string>()
-  // 当工具起：`S('check/xxx.ts')`，前缀写不写 `scripts/` 都认
-  for (const m of code.matchAll(/\(\s*'(?:scripts\/)?(check\/[\w.-]+\.ts)'/g)) found.add(`scripts/${m[1]}`)
-  // 预加载：`new URL('./xxx.ts', import.meta.url)` 拼给 `--import`
-  for (const m of code.matchAll(/\(\s*'\.\/([\w.-]+\.ts)'/g)) found.add(`scripts/check/${m[1]}`)
-  return [...found].sort()
-}
+export const SELFCHECK_TOOLS = {
+  lint: 'check/lint.ts',
+  mutate: 'check/mutate.ts',
+  arch: 'check/arch-sync.ts',
+} as const
 
 /**
- * 去掉注释，只留代码。
+ * 自检用 `NODE_OPTIONS: --import` 塞进**每个子进程**的那一份假 fetch。
  *
- * **引号里的 `//` 不算注释** —— 少了这一条，一个 `'https://…'` 会把它后面半行真代码吃掉，
- * 而那个方向是闭包**偏小**，也就是放行一条自己验自己的变异。两个方向都错，但这一个更坏。
+ * 它够不到的方式和工具不同（不是起进程，是预加载），但一样是验证基础设施 ——
+ * `audit-rule.ts` 的 `JUDGMENT_EXEMPT` 里写着它「决定自检能走多深」。
+ * 单独列出来，因为只扫 `import` 和只扫「起了谁」都收不到它。
  */
-export function stripComments(src: string): string {
-  const noBlock = src.replace(/\/\*[\s\S]*?\*\//g, ' ')
-  return noBlock.split('\n').map(line => {
-    let quote = ''
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i]
-      if (quote) { if (c === '\\') i++; else if (c === quote) quote = '' }
-      else if (c === "'" || c === '"' || c === '`') quote = c
-      else if (c === '/' && line[i + 1] === '/') return line.slice(0, i)
-    }
-    return line
-  }).join('\n')
-}
+export const SELFCHECK_PRELOAD = 'check/fake-fetch.ts'
+
+/** 自检这个验证者的闭包种子：它自己 ＋ 它当工具起的 ＋ 它预加载的。 */
+export const SELFCHECK_SEEDS: string[] = [
+  'scripts/check/selfcheck.ts',
+  ...Object.values(SELFCHECK_TOOLS).map(f => `scripts/${f}`),
+  `scripts/${SELFCHECK_PRELOAD}`,
+].sort()
 
 /**
  * 从种子出发递归收，返回验证基础设施闭包（**含种子**），排序去重。

@@ -1810,14 +1810,6 @@
       "replace": "  [process.execPath, [...args, TSX_CLI]]"
     },
     {
-      "id": "M-H17-a",
-      "req": "harness",
-      "why": "预加载那一条边不收 —— 假 fetch 是靠 `--import` 塞进每个子进程的，不是 import 语句。漏掉它，闭包就少一个决定自检能走多深的文件，而闭包偏小的那一头是放行",
-      "file": "scripts/check/verifier-rule.ts",
-      "find": "  for (const m of code.matchAll(/\\(\\s*'\\.\\/([\\w.-]+\\.ts)'/g)) found.add(`scripts/check/${m[1]}`)",
-      "replace": "  // 预加载那一路不收"
-    },
-    {
       "id": "M-H17-b",
       "req": "harness",
       "why": "闭包只收一层，传递依赖全漏 —— 一条打在判定模块上的变异会被当成合法的，而它改的正是给自己判分的那把尺",
@@ -1836,26 +1828,10 @@
     {
       "id": "M-H17-d",
       "req": "harness",
-      "why": "去注释时不再认引号 —— 协议里的双斜杠会把它后面半行真代码当成注释吃掉，闭包因此偏小，而偏小的那一头是放行一条自己验自己的变异",
+      "why": "种子里不收预加载那一份 —— 假 fetch 是靠 `--import` 塞进每个子进程的，既不是 import 也不是起进程，两种扫法都收不到它。漏掉，闭包就少一个决定自检能走多深的文件，而闭包偏小的那一头是放行",
       "file": "scripts/check/verifier-rule.ts",
-      "find": "      else if (c === \"'\" || c === '\"' || c === '`') quote = c",
-      "replace": "      else if (false) quote = c"
-    },
-    {
-      "id": "M-H17-e",
-      "req": "harness",
-      "why": "抠边之前不去注释 —— 散文里顺口提到的路径被算成「验证者跑得到」，闭包偏大，合法的变异被误拒，闸门于是被当噪音关掉",
-      "file": "scripts/check/verifier-rule.ts",
-      "find": "  const code = stripComments(src)",
-      "replace": "  const code = src"
-    },
-    {
-      "id": "M-H17-f",
-      "req": "harness",
-      "why": "路径不再要求落在调用的参数位上 —— 写进夹具串里的那种也被算成边，同样是闭包偏大那一头",
-      "file": "scripts/check/verifier-rule.ts",
-      "find": "  for (const m of code.matchAll(/\\(\\s*'(?:scripts\\/)?(check\\/[\\w.-]+\\.ts)'/g)) found.add(`scripts/${m[1]}`)",
-      "replace": "  for (const m of code.matchAll(/'(?:scripts\\/)?(check\\/[\\w.-]+\\.ts)'/g)) found.add(`scripts/${m[1]}`)"
+      "find": "  `scripts/${SELFCHECK_PRELOAD}`,",
+      "replace": "  // 预加载那一份不进种子"
     }
   ],
   "exemptions": [

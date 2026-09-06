@@ -19,7 +19,9 @@ import {
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { tsxCommand } from './tsx-cmd.js'
+import { SELFCHECK_PRELOAD, SELFCHECK_TOOLS } from './verifier-rule.js'
 
 const EXEMPT: Record<string, string> = {}   // 目前无豁免
 
@@ -31,7 +33,7 @@ const tmp = mkdtempSync(join(tmpdir(), 'kol-selfcheck-'))
 const env = {
   ...process.env,
   TIKHUB_API_KEY: 'fake-key-for-selfcheck',
-  NODE_OPTIONS: `--import ${JSON.stringify(new URL('./fake-fetch.ts', import.meta.url).href)}`,
+  NODE_OPTIONS: `--import ${JSON.stringify(pathToFileURL(resolve('scripts', SELFCHECK_PRELOAD)).href)}`,
 }
 
 let failed = 0
@@ -79,6 +81,17 @@ const run = (label: string, args: string[], cwd = process.cwd(),
   // 免得几十个既有断言在这次改动里悄悄换了读的那一股。
   return (expect?.stream ?? (expect ? 'stderr' : 'stdout')) === 'stdout' ? stdout : stderr
 }
+
+/**
+ * 起一个**检查链自己的工具**（不是被测对象）。
+ *
+ * 路径只能来自 `SELFCHECK_TOOLS` —— 形参类型是它的键，起一个表里没有的**编译期就过不去**。
+ * 那张表同时是隔离判据的种子来源（`verifier-rule.ts`），所以「自检起了什么」和
+ * 「闭包以为它起了什么」不可能对不上：两边读的是同一份东西。
+ */
+const runTool = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string[] = [],
+  cwd = process.cwd(), expect?: { status: number }) =>
+  run(label, [S(SELFCHECK_TOOLS[tool]), ...rest], cwd, expect)
 
 console.log('\n[脚本自检] 假 fetch，无真实请求\n')
 
@@ -566,7 +579,7 @@ if (dir) {
 const lintTmp = join(tmp, 'lint-hit')
 mkdirSync(join(lintTmp, 'scripts', 'lib'), { recursive: true })
 writeFileSync(join(lintTmp, 'scripts', 'lib', 'bad.ts'), '  const x = c.followers ?? 0\n', 'utf8')
-run('纪律 lint 命中即以退出码 1 结束', [S('check/lint.ts')], lintTmp, { status: 1 })
+runTool('纪律 lint 命中即以退出码 1 结束', 'lint', [], lintTmp, { status: 1 })
 
 // ---- 变异集编号重复：两个入口都命中即以退出码 1 结束（M-H7-b、M-H7-c 的入口那一半）----
 // 判定和「两种毛病同时在时先报哪一种」都由 scripts/test.ts 断言；剩下的那一半是
@@ -588,7 +601,7 @@ writeFileSync(join(dupTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify
 // 入口照着它说的印、并且真的以 1 结束
 // 不加 `dupMut &&` 那道真值判断：`run` 在退出码对得上、stderr 却是空的时候也返回空串，
 // 于是「诊断被删光、只剩 process.exit(1)」会从这儿滑过去（评审指出）
-const dupMut = run('mutate 遇到重复编号即以退出码 1 结束', [S('check/mutate.ts')], dupTmp, { status: 1 })
+const dupMut = runTool('mutate 遇到重复编号即以退出码 1 结束', 'mutate', [], dupTmp, { status: 1 })
 if (!dupMut.includes('个编号重复')) {
   failed++; console.error('  ✗ mutate 的输出里没有「编号重复」那条诊断')
 } else if (dupMut.includes('记在不存在的需求名下')) {
@@ -598,14 +611,14 @@ if (!dupMut.includes('个编号重复')) {
 // arch-sync：它在检查链里排在 mutate **前面**，而它按编号建的是 Map（重名只留最后一条）。
 // 不在这儿先拦下，顺序契约就会指着另一条变异报「不在该契约的位置里」，而 mutate 那条
 // 真正的诊断根本轮不上说话。
-const dupArch = run('arch-sync 遇到重复编号即以退出码 1 结束', [S('check/arch-sync.ts')], dupTmp, { status: 1 })
+const dupArch = runTool('arch-sync 遇到重复编号即以退出码 1 结束', 'arch', [], dupTmp, { status: 1 })
 if (!dupArch.includes('个编号重复')) {
   failed++; console.error('  ✗ arch-sync 的输出里没有「编号重复」那条诊断')
 }
 
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
 // 一条写进文档、却从没被执行过的命令，等于没有 —— 在这里跑一次，证明它还活着。
-run('mutate --brief（变异清单，不跑变异）', [S('check/mutate.ts'), '--brief'])
+runTool('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'])
 
 rmSync(tmp, { recursive: true, force: true })
 

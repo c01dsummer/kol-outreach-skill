@@ -38,7 +38,9 @@ import {
 } from './check/age-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { tsxCommand } from './check/tsx-cmd.js'
-import { closure, selfVerifying, stripComments, toolEdges } from './check/verifier-rule.js'
+import {
+  SELFCHECK_PRELOAD, SELFCHECK_SEEDS, SELFCHECK_TOOLS, closure, selfVerifying,
+} from './check/verifier-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { TikHub, fillEmail, pickList } from './providers/tikhub.js'
@@ -2785,36 +2787,17 @@ harness('起 tsx 的那条命令：三处共用一份，不经 npx、不经 shel
 harness('验证基础设施闭包：一条变异改的是不是验证者自己要用的东西')
 {
   // ---- 三种边里，import 之外那两种 ----
-  const src = [
-    "  NODE_OPTIONS: '--import ' + new URL('./fake-fetch.ts', import.meta.url).href,",
-    "  run('lint 命中即以退出码 1 结束', [S('check/lint.ts')])",
-    "  run('probe 三种发现路径', [S('probe.ts')])",
-  ].join('\n')
-
-  // 当工具起的、预加载的，都不是 import 语句 —— 只扫 import 这两条边一条都收不到，
-  // 而闭包偏小的那一头是**放行**：把一条自己验自己的变异当成合法的
-  eq('当工具起的与预加载的都收得到',
-    toolEdges(src), ['scripts/check/fake-fetch.ts', 'scripts/check/lint.ts'])
-  // 起 check/ 外面的那些是被测对象，不是基础设施。收进来就会把「自检真跑 collect.ts」
-  // 这个头号用例自己挡在门外 —— 这条判据要划开的正是这两者
-  ok('起 check/ 外面的那些不收', !toolEdges(src).includes('scripts/probe.ts'))
-
-  // 两个诱饵：散文里提到的、以及写进夹具串里的，都不是「验证者跑得到」（评审指出，实测都穿得过去）。
-  // 多收一条边 → 闭包偏大 → 合法的变异被误拒 → 这道闸门被当噪音关掉（ADR-62 否决那三条用的正是这个标准）
-  const decoy = [
-    "  // 早先这里写的是 run('check/adr-sync.ts')，后来改了",
-    "  /* 块注释里也留过一句 S('check/audit.ts') */",
-    "  run('真的起了它', [S('check/lint.ts')])",
-    "  writeFileSync(cfg, JSON.stringify({ note: 'check/size.ts' }))",
-  ].join('\n')
-  eq('注释里、夹具串里提到的都不算边，只认落在调用参数位上的',
-    toolEdges(decoy), ['scripts/check/lint.ts'])
-
-  // 引号里的 `//` 不是注释 —— 少了这条，一个 'https://…' 会吃掉后面半行真代码，
-  // 而那个方向是闭包**偏小**，也就是放行一条自己验自己的变异
-  eq('协议里的双斜杠不当注释',
-    stripComments("const u = 'https://x' // 尾注 'check/size.ts'").trim(), "const u = 'https://x'")
-  eq('块注释整段去掉', stripComments('a /* 中间\n还有 */ b'), 'a   b')
+  // 种子这份清单**就是行为**：自检从 SELFCHECK_TOOLS 起工具，闭包从同一份取种子。
+  // 上一版是扫源码猜哪些路径是工具，评审两轮各找到一批诱饵（注释里的、夹具串里的、
+  // 串里装着调用形状的、以及普通的读文件）—— 收紧正则是军备竞赛，让清单成为行为才是根治。
+  eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的', SELFCHECK_SEEDS, [
+    'scripts/check/arch-sync.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/lint.ts',
+    'scripts/check/mutate.ts', 'scripts/check/selfcheck.ts',
+  ])
+  // 预加载单独列，因为它既不是 import 也不是「起了谁」—— 两种扫法都收不到
+  ok('预加载那一份在种子里', SELFCHECK_SEEDS.includes(`scripts/${SELFCHECK_PRELOAD}`))
+  ok('三个工具一个不少', Object.values(SELFCHECK_TOOLS)
+    .every(f => SELFCHECK_SEEDS.includes(`scripts/${f}`)))
 
   // ---- 递归，不是只收一层 ----
   const graph = [
