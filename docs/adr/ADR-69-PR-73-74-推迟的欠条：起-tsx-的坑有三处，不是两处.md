@@ -7,6 +7,11 @@
 > 而 npm 在 Windows 生成的是 `tsx.cmd` / `tsx.ps1` / `tsx`(sh shim) · 重启条件：PR #74 已合入 ——
 > 三处抽一份共用的「怎么起 tsx」一起改（同一份证据，按 `6-INTEGRATE.md` 的切分判据是一个改动）
 
+> ⚠️ **上面第一块这张欠条已还**：三处起 tsx 的写法抽成 `scripts/check/tsx-cmd.ts` 一份，
+> 由 #78 还上 —— 只出「起哪个可执行文件、前面垫哪些参数」，不代跑（三处的等法不一样，
+> 一样的是那条命令）。三条负片 `M-H16-a` / `M-H16-b` / `M-H16-c` 各守一个决定。
+> **另外四块没动**，各自的重启条件照旧。
+
 > ⚠️ 欠条：Windows 上 `scripts/check/mutate-restore.ts` 里 `killTest` 那一刀**落空**，失败还被
 > `catch` 吞掉 —— `process.kill(-pid)` 的负号是 POSIX 的进程组语义，配的是入口那边的
 > `detached: true`；而 Node 文档写明 `detached` 在 Windows 上给的是**一个自己的控制台窗口，
