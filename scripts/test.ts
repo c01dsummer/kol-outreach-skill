@@ -9,7 +9,7 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
-import { judgeRun } from './check/mutate-rule.js'
+import { VERIFIERS, judgeRun, killsMatched } from './check/mutate-rule.js'
 import {
   beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, testRunning,
   trackTest,
@@ -39,7 +39,8 @@ import {
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { tsxCommand } from './check/tsx-cmd.js'
 import {
-  SELFCHECK_PRELOAD, SELFCHECK_SEEDS, SELFCHECK_TOOLS, closure, selfVerifying,
+  SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_SEEDS, SELFCHECK_TOOLS,
+  closure, selfVerifying,
 } from './check/verifier-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
@@ -2640,14 +2641,57 @@ suite('U4', 'A 级附开发信草稿且可复制')
   ok('有复制按钮', html.includes('cp(this)'))
 }
 
-harness('变异测试：测试进程崩了不算抓到')
+harness('变异测试：验证者崩了不算抓到')
 {
+  const T = VERIFIERS.test
   // 「被抓到」= 断言红了。一处语法错、一个 TypeError 也能让进程非零退出，但那不是任何一条断言的功劳
-  eq('零退出 → 存活', judgeRun(0, '全部通过（覆盖 26 条需求）'), 'survived')
-  eq('非零退出且有失败汇总 → 抓到', judgeRun(1, '  ✗ 某条\n\n2 个失败\n'), 'caught')
-  eq('非零退出但没有汇总 → 跑不起来，不算抓到', judgeRun(1, "TypeError: Cannot read properties of undefined"), 'crashed')
-  eq('被信号杀掉（没有退出码）也不算抓到', judgeRun(null, ''), 'crashed')
-  eq('汇总必须是自成一行的那句，正文里提到「个失败」不算', judgeRun(1, '断言说：这里不该有 3 个失败的例子'), 'crashed')
+  eq('零退出 → 存活', judgeRun(0, '全部通过（覆盖 26 条需求）', T), 'survived')
+  eq('非零退出且有失败汇总 → 抓到', judgeRun(1, '  ✗ 某条\n\n2 个失败\n', T), 'caught')
+  eq('非零退出但没有汇总 → 跑不起来，不算抓到', judgeRun(1, "TypeError: Cannot read properties of undefined", T), 'crashed')
+  eq('被信号杀掉（没有退出码）也不算抓到', judgeRun(null, '', T), 'crashed')
+  eq('汇总必须是自成一行的那句，正文里提到「个失败」不算', judgeRun(1, '断言说：这里不该有 3 个失败的例子', T), 'crashed')
+}
+
+harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
+{
+  const T = VERIFIERS.test
+  const SC = VERIFIERS.selfcheck
+  // 「跑哪个脚本」和「它的汇总长什么样」在同一处声明。分两个地方放的话，换一边不换
+  // 另一边的症状是「它真的红了，却被判成跑不起来」—— 一个不响的假阴性
+  // 断的是「这条路径真指着一个入口」，不是把同一个常量抄一遍 —— 抄一遍的那种
+  // 路径写错了照样绿，而路径写错的样子是每一条接线变异都「跑不起来」，不是「路径写错了」
+  for (const [name, v] of Object.entries(VERIFIERS)) {
+    ok(`${name} 这个验证者起的是一个真在的入口`,
+      existsSync(v.script) && rf(v.script, 'utf8').startsWith('#!'))
+  }
+  const scFail = '  ✗ 某条夹具：说错了\n\n✗ 脚本自检：1 项失败\n'
+  eq('自检红了，按它自己那句汇总认', judgeRun(1, scFail, SC), 'caught')
+  // 两句汇总不是一个形状：拿测试那一句去认自检的输出，每一条接线变异都会被判成跑不起来
+  eq('拿另一个验证者的汇总去认，一次真的失败会被当成跑不起来', judgeRun(1, scFail, T), 'crashed')
+
+  // ---- 点了名的还要再问一层：红的是不是那一条 ----
+  // 用的是自检里真有的那两条夹具名 —— 编出来的名字证不了「这套匹配对得上真的输出」
+  const done = 'collect 关键词跑完（退出码 0）也说续跑代价'
+  const budget = 'collect 预算用尽（退出码 3）也说续跑代价'
+  const red = `  ✗ ${done}：没说清续跑的代价\n\n✗ 脚本自检：1 项失败\n`
+  eq('点名那条红了 → 被抓到', judgeRun(1, red, SC, done), 'caught')
+  eq('验证者红了，红的却不是点名那条 → 红错了地方，不算抓到', judgeRun(1, red, SC, budget), 'elsewhere')
+  // 不点名的那两百多条逐字保持原样：断言红了就是被抓到，不判第四态
+  eq('没点名就不问第二层', judgeRun(1, red, SC), 'caught')
+
+  // 一条夹具的名字是另一条的前缀时，只按前缀匹配会把「短的红了」记成「长的红了」——
+  // 归错功劳换个入口再来一次，而那正是点名要堵的东西
+  eq('整行到此为止，算它红了', killsMatched('  ✗ 某条夹具', '某条夹具'), true)
+  eq('名字后面跟冒号再说原因，也算它红了', killsMatched('  ✗ 某条夹具：说错了', '某条夹具'), true)
+  eq('点的名只是那一行的前缀，不算', killsMatched('  ✗ 某条夹具又长了一截', '某条夹具'), false)
+  eq('那一行只是点的名的前缀，也不算', killsMatched('  ✗ 某条夹具', '某条夹具又长了一截'), false)
+  eq('打勾的那一行是通过，不是红了', killsMatched('  ✓ 某条夹具', '某条夹具'), false)
+  // 自检把「进程级失败」和「断言红了」分开打，为的就是这一条：一条只把被测脚本弄崩的
+  // 变异，不该因为那条夹具跟着报了错就算把它杀掉了 —— 那是崩溃的功劳，不是断言的
+  // 记号从自检那边引过来，不在这儿再抄一份字面量：抄一份的话，自检改了记号、
+  // 这条断言照样绿，而 kills 又开始把崩溃算成抓到
+  eq('进程级的失败带记号，不算那条夹具红了',
+    killsMatched(`  ✗ 某条夹具${SELFCHECK_PROCESS_MARK}：预期以退出码 0 结束，实际是 1`, '某条夹具'), false)
 }
 
 harness('变异跑到一半被打断：动过的源文件要还回去')

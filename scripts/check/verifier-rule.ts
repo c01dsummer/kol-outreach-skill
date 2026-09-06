@@ -82,6 +82,20 @@ export const SELFCHECK_TOOLS = {
  */
 export const SELFCHECK_PRELOAD = 'check/fake-fetch.ts'
 
+/**
+ * 自检给**进程级**失败打的记号 —— 自检打，判定认，只此一份。
+ *
+ * 「退出码不对」和「断言红了」原先打的是同一句 `✗ <名字>：…`。人分得出，机器分不出，
+ * 而变异的 `kills` 认的正是这句话（`mutate-rule.ts`）：一条只把被测脚本弄崩的变异，
+ * 会连同那条夹具「红了」一起被记成被抓到 —— 那是崩溃的功劳，不是断言的，
+ * 正是判定里 `crashed` 一态要拦的东西，换个入口又发生一次。
+ *
+ * 记号跟在名字后面，于是「名字到此为止」和「名字 ＋ `：`」两种边界都对不上，
+ * 判定不必为它开特例。**两边各写一份字面量的话，改一边不改另一边是静默的** ——
+ * 自检照打，判定照认不出，而 `kills` 又开始把崩溃算成抓到。
+ */
+export const SELFCHECK_PROCESS_MARK = '（进程）'
+
 /** 自检这个验证者的闭包种子：它自己 ＋ 它当工具起的 ＋ 它预加载的。 */
 export const SELFCHECK_SEEDS: string[] = [
   'scripts/check/selfcheck.ts',

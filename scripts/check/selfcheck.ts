@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { tsxCommand } from './tsx-cmd.js'
-import { SELFCHECK_PRELOAD, SELFCHECK_TOOLS } from './verifier-rule.js'
+import { SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS } from './verifier-rule.js'
 
 const EXEMPT: Record<string, string> = {}   // 目前无豁免
 
@@ -56,9 +56,21 @@ let failed = 0
  * 两股都要的用 `runBoth` —— 有的断言得同时读结果（stdout）和说给用户的话（stderr），
  * 比如「这一次到底走的是哪一种收尾」写在 stdout 的 `stopped` 里，而那句话在 stderr。
  * 分两次跑拿不到同一次的两股：进程跑两遍，两次的状态不保证一样。
+ *
+ * ## 进程级的失败要和断言红了分得开
+ *
+ * 两种失败原先打的是同一句 `✗ <名字>：…`。人看得出区别，机器看不出 —— 而
+ * 变异的 `kills` 认的正是这句话（`mutate-rule.ts`）：一条只把被测脚本弄崩的变异，
+ * 会连同这条夹具「红了」一起被记成被抓到，正是那边 `crashed` 一态要拦的东西，
+ * 换个入口又发生一次。所以进程级的那种带记号，断言红的那种不带 ——
+ * 记号长什么样在 `verifier-rule.ts`，判定那边认的是同一份。
+ *
+ * 而且**它一失败，同名的后续断言就不再打了**：拿到的是空的两股，接着断言只会
+ * 再打一句不带记号的 `✗ <同一个名字>`，那个记号就白加了 —— 何况那句诊断本身也是假的
+ * （说「走的不是这条收尾」，实际是压根没跑起来）。
  */
 const runBoth = (label: string, args: string[], cwd = process.cwd(),
-  expect?: { status: number }): { stdout: string; stderr: string } => {
+  expect?: { status: number }): { ok: boolean; stdout: string; stderr: string } => {
   const [exe, argv] = tsxCommand(args)
   const r = spawnSync(exe, argv, { env, cwd, encoding: 'utf8' })
   const stdout = r.stdout ?? ''   // p1-ok: 拿不到就是空输出，不是「没查过」——这是子进程的两股流
@@ -67,11 +79,11 @@ const runBoth = (label: string, args: string[], cwd = process.cwd(),
   if (r.error || r.status !== want) {
     failed++
     const why = r.error ? String(r.error) : `预期以退出码 ${want} 结束，实际是 ${r.status}`
-    console.error(`  ✗ ${label}：${why}\n${(stderr || stdout).split('\n').slice(-12).join('\n')}`)
-    return { stdout: '', stderr: '' }
+    console.error(`  ✗ ${label}${SELFCHECK_PROCESS_MARK}：${why}\n${(stderr || stdout).split('\n').slice(-12).join('\n')}`)
+    return { ok: false, stdout: '', stderr: '' }
   }
   console.log(`  ✓ ${label}${expect ? `（按预期以退出码 ${want} 结束）` : ''}`)
-  return { stdout, stderr }
+  return { ok: true, stdout, stderr }
 }
 
 const run = (label: string, args: string[], cwd = process.cwd(),
@@ -399,7 +411,8 @@ if (dir) {
   // ---- 收尾那句话：两种剩余工作量各真跑一遍（D6.e 的入口那一半）----
   // 说哪一句、两个剩余量怎么数，都由 scripts/test.ts 断言；这里验的是**入口真的
   // 调了它**。上面那条老断言用的是「两句里出现一句」的或，两支对调它照样绿 ——
-  // 而这一段的接线没有变异守得住：变异跑的只是 scripts/test.ts，够不到入口脚本。
+  // 而这一段的接线至今没有变异守着：变异缺省跑的是 scripts/test.ts，够不到入口脚本
+  // （改跑自检的那条路要在变异上写 by，这一处还没写，ADR-70）。
   // 记忆此刻仍是坏的，所以两次都会走到收尾中止那条路（退出码 2）。
   //
   // 没活可干：target_count 给 1，达标提前停下 —— 剩下的关键词续跑一个都不会抓
@@ -471,7 +484,8 @@ if (dir) {
   // 这四条路径原先一个字都不说，用户手里没有判断「值不值得续跑」的依据（ADR-25 的欠条）。
   // 四条共用分支之前的同一句话，所以是一条判据；也正因为共用，**一条把话写死就会被
   // 别的抓住** —— 前两条要的是「不花钱」，后两条要的是「花钱 + 还剩多少」。
-  // 变异守不住这一段（变异跑的只是 scripts/test.ts，够不到入口脚本），只能这样真跑；
+  // 这一段至今没有变异守着（变异缺省跑的是 scripts/test.ts，够不到入口脚本；改跑自检的
+  // 那条路要在变异上写 by，这一处还没写，ADR-70），只能这样真跑；
   // 这条缺口在 mutations.json 的 exemptions 里按 P3.b 的先例显式登记着。
   //
   // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
@@ -493,7 +507,8 @@ if (dir) {
   /** 一条收尾路径：退出码、`stopped` 取值、那句话该说什么 —— 三样一起验 */
   const endPath = (label: string, cfg: string, status: number, stopped: string,
                    want: RegExp, deny: RegExp) => {
-    const { stdout, stderr } = runBoth(label, [S('collect.ts'), '--config', cfg], paths, { status })
+    const { ok, stdout, stderr } = runBoth(label, [S('collect.ts'), '--config', cfg], paths, { status })
+    if (!ok) return                            // 没跑起来，下面每一句诊断都会说错原因
     if (!new RegExp(`"stopped":\\s*"${stopped}"`).test(stdout)) {
       failed++
       console.error(`  ✗ ${label}：这一次走的不是 ${stopped} 那条收尾 —— 夹具没造对，`
@@ -584,7 +599,7 @@ runTool('纪律 lint 命中即以退出码 1 结束', 'lint', [], lintTmp, { sta
 // ---- 变异集编号重复：两个入口都命中即以退出码 1 结束（M-H7-b、M-H7-c 的入口那一半）----
 // 判定和「两种毛病同时在时先报哪一种」都由 scripts/test.ts 断言；剩下的那一半是
 // **入口真的调了它、并且以退出码 1 结束** —— 把两处调用整块删掉，那些断言和
-// M-H7-b、M-H7-c 照样全绿，因为变异跑的只是 scripts/test.ts，够不到入口。
+// M-H7-b、M-H7-c 照样全绿，因为它们跑的是缺省那个验证者 scripts/test.ts，够不到入口。
 // 一份语料喂两个入口，里面两处毛病都放：编号重复 + 记在不存在的需求名下。
 const dupTmp = join(tmp, 'dup-mut')
 mkdirSync(join(dupTmp, 'scripts', 'check'), { recursive: true })
@@ -614,6 +629,26 @@ if (!dupMut.includes('个编号重复')) {
 const dupArch = runTool('arch-sync 遇到重复编号即以退出码 1 结束', 'arch', [], dupTmp, { status: 1 })
 if (!dupArch.includes('个编号重复')) {
   failed++; console.error('  ✗ arch-sync 的输出里没有「编号重复」那条诊断')
+}
+
+// ---- 变异的验证者接线不成立即以退出码 1 结束（M-H14-o…s 的入口那一半）----
+// 判定在 mutate-rule.ts、由 scripts/test.ts 断言；这一半是**入口真的拦下了**。
+// 两处写错都是静默的：验证者的名字不认得，判定拿到的是 undefined，当场抛在跑变异的
+// 那一段里，人看见的是一个栈；指名了验证者却漏了 kills，则只知道「那个验证者红了」。
+const wireTmp = join(tmp, 'bad-by')
+mkdirSync(join(wireTmp, 'scripts', 'check'), { recursive: true })
+mkdirSync(join(wireTmp, 'docs'), { recursive: true })
+writeFileSync(join(wireTmp, 'docs', 'requirements.json'),
+  JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+writeFileSync(join(wireTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+  { id: 'M-X-b', req: 'X1', why: '指了一个不认得的验证者', file: 'a.ts', find: 'x', replace: 'y', by: '查无此人' },
+  { id: 'M-X-c', req: 'X1', why: '指名了验证者却没说该红的是哪一条', file: 'a.ts', find: 'x', replace: 'z', by: 'selfcheck' },
+] }), 'utf8')
+const badBy = runTool('mutate 的验证者接线不成立即以退出码 1 结束', 'mutate', [], wireTmp, { status: 1 })
+if (!badBy.includes('不认得')) {
+  failed++; console.error('  ✗ mutate 没报出「指的验证者不认得」')
+} else if (!badBy.includes('没说该红的是哪一条夹具')) {
+  failed++; console.error('  ✗ mutate 没报出「指名了验证者却漏了 kills」')
 }
 
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
