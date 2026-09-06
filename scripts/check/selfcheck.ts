@@ -19,6 +19,7 @@ import {
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { tsxCommand } from './tsx-cmd.js'
 
 const EXEMPT: Record<string, string> = {}   // 目前无豁免
 
@@ -56,7 +57,8 @@ let failed = 0
  */
 const runBoth = (label: string, args: string[], cwd = process.cwd(),
   expect?: { status: number }): { stdout: string; stderr: string } => {
-  const r = spawnSync('npx', ['tsx', ...args], { env, cwd, encoding: 'utf8' })
+  const [exe, argv] = tsxCommand(args)
+  const r = spawnSync(exe, argv, { env, cwd, encoding: 'utf8' })
   const stdout = r.stdout ?? ''   // p1-ok: 拿不到就是空输出，不是「没查过」——这是子进程的两股流
   const stderr = r.stderr ?? ''   // p1-ok: 同上
   const want = expect?.status ?? 0

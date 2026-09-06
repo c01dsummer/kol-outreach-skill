@@ -18,12 +18,12 @@
  */
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
-import { createRequire } from 'node:module'
 import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import { type RunVerdict, judgeRun } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
+import { tsxCommand } from './tsx-cmd.js'
 
 interface Mut { id: string; req: string; why: string; file: string; find: string; replace: string }
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
@@ -100,35 +100,36 @@ process.on('exit', restoreClaims)
 // 让「被打断」和「跑完」走同一条还原路径 —— 这里不再单写一行，是为了没有一行可忘。
 
 /**
- * 跑测试的那条命令 —— **直接用当前这个 node 跑 tsx 的 cli，不经 `npx`、也不经 shell。**
+ * 跑一次测试。**异步等，不能同步等。**
  *
- * 原先是 `spawn('npx', ['tsx', 'scripts/test.ts'])`。在 Windows 上 `npx` 是 `npx.cmd`，
- * 而 **`.cmd` 不带 shell 根本起不来** —— Node 文档写着「`.bat` 和 `.cmd` 在 Windows 上
- * 没有终端就不能自己执行」。于是变异检查在 Windows 上一次都跑不起来，而它是
- * 「每条红线的测试真的会红」这件事唯一的证据来源。
+ * 信号处理是排在事件循环上的：同步等子进程（`node:child_process` 里带 Sync 的那几个）
+ * 会把事件循环整个挡住，挡住的那段时间里，接管过的信号一次也派发不出去。而变异跑起来
+ * 之后，**几乎所有时间都在等子进程**——挡住的正是要接管的那一段。
  *
- * 摆在桌上的三条路，为什么选这一条：
+ * 上一版就是同步等的，实测两条路都不成立：只给这个进程发 SIGTERM，信号被整个吞掉
+ * （接管压住了默认动作，处理函数又轮不上），循环跑完还以 0 退出；Ctrl-C 打到整个
+ * 进程组时这一轮靠 `finally` 还回去了，但循环照样把剩下两百个变异跑完才停。
+ * 两条都是「接管了信号，看上去做了，实际没有」（评审指出）。
  *
- * | 做法 | 判定 |
- * |---|---|
- * | 显式挑 `npx.cmd` | **走不通**。不带 shell 起不来的正是 `.cmd` 这类文件，挑明名字也一样 |
- * | `spawn(..., { shell: true })` | 能跑，但要经 `cmd.exe`，而 Node 自己在 `.cmd` 那一节就写着**「不推荐，见 DEP0190」**。DEP0190 的正文点名了 `spawn`：带 shell 传参数数组时，各个值**不转义、只用空格拼起来，会导致 shell 注入**。也就是说注入面不是「拼字符串才有」，是这条路自带的 |
- * | **当前 node + tsx 的 cli** | 不经 shell，也就没有注入面可争论；`.cmd` 压根不参与；还少一层进程 |
+ * stdout 和 stderr 分开收：判定认的是自成一行的失败汇总，两股混着收会在块边界
+ * 把那一行劈开（`mutate-rule.ts`）。
  *
- * `tsx/cli` 是 tsx 包的**公开导出**（它的 `exports` 里有 `"./cli"`），所以用
- * `require.resolve` 拿路径，不把 `node_modules/tsx/dist/...` 这种内部路径写死。
- * `process.execPath` 就是正在跑这个脚本的那个 node，版本不会和它错开。
+ * ⚠️ **Windows 上的打断没修，别把下面那个 `detached` 当成全的。**
  *
- * ⚠️ **这条只解决「起不起得来」，没解决 Windows 上的打断。**
- * `mutate-restore.ts` 的 `killTest` 用的是 `process.kill(-pid)` —— 负号是 POSIX 的
- * 进程组语义，配的是这里的 `detached`。而 `detached` 在 Windows 上给的是**一个自己的
- * 控制台窗口，不是进程组**，那一刀落不到任何东西上，还被 `catch` 吞掉。
+ * 「起不起得来」那一半已经修好，而且是**三处一起修**的：怎么起 tsx 全仓只此一份，
+ * 连同选它的理由都在 `tsx-cmd.ts` 上（ADR-69 第一块欠条 —— 那条欠条自己写明
+ * 修法是三处一起改，只改一处就是又一次「只修实例」）。这里只剩没修的那一半。
+ *
+ * 没修的是**「把它停下来」**：`mutate-restore.ts` 的 `killTest` 用的是
+ * `process.kill(-pid)` —— 负号是 POSIX 的进程组语义，配的是这里的 `detached`。
+ * 而 `detached` 在 Windows 上给的是**一个自己的控制台窗口，不是进程组**，
+ * 那一刀落不到任何东西上，还被 `catch` 吞掉。
  *
  * 落空的**不是**还原：`onInterrupt` 是「先杀、再还原、才退出」，那一刀被吞掉之后
  * `restoreMutation` 照样跑，源文件还是还得回去（**评审指出，我原先在这里写错了**）。
- * 落空的是**「把它停下来」那一半**：子进程活着，跑的是被改过的源码，而父进程已经
- * 还原完、退出了 —— 正是 `trackTest` 那段注释说的「父进程退掉不会把它带走」那个
- * 窗口，在 Windows 上没有东西关得上它。
+ * 落空的是子进程那一半：它活着，跑的是被改过的源码，而父进程已经还原完、退出了 ——
+ * 正是 `trackTest` 那段注释说的「父进程退掉不会把它带走」那个窗口，
+ * 在 Windows 上没有东西关得上它。
  *
  * **覆盖记录也在这个窗口里，但坏法是「被清掉」，不是「被写脏」**（这一段前后被评审
  * 纠正了三次，最后这版是我实际跑出来的）：平时 `MUTATING=1` 让子进程既不清也不写
@@ -150,30 +151,14 @@ process.on('exit', restoreClaims)
  * 它靠的是 Node 官方文档 + 代码推理，不是一次真的 Windows 运行。Linux 这一侧
  * 是真跑过的：整条变异链绿。
  */
-const TSX_CLI = createRequire(import.meta.url).resolve('tsx/cli')
-
-/**
- * 跑一次测试。**异步等，不能同步等。**
- *
- * 信号处理是排在事件循环上的：同步等子进程（`node:child_process` 里带 Sync 的那几个）
- * 会把事件循环整个挡住，挡住的那段时间里，接管过的信号一次也派发不出去。而变异跑起来
- * 之后，**几乎所有时间都在等子进程**——挡住的正是要接管的那一段。
- *
- * 上一版就是同步等的，实测两条路都不成立：只给这个进程发 SIGTERM，信号被整个吞掉
- * （接管压住了默认动作，处理函数又轮不上），循环跑完还以 0 退出；Ctrl-C 打到整个
- * 进程组时这一轮靠 `finally` 还回去了，但循环照样把剩下两百个变异跑完才停。
- * 两条都是「接管了信号，看上去做了，实际没有」（评审指出）。
- *
- * stdout 和 stderr 分开收：判定认的是自成一行的失败汇总，两股混着收会在块边界
- * 把那一行劈开（`mutate-rule.ts`）。
- */
 const runTest = (): Promise<{ status: number | null; output: string }> =>
   new Promise(resolve => {
     // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
     // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
     // 自成一组：被打断时要连它一起结束，而只杀手上这一个是杀不掉的 ——
-    // `tsx` 自己还要再分出一个真正跑脚本的进程来（POSIX 上才成立，见 TSX_CLI）
-    const kid = spawn(process.execPath, [TSX_CLI, 'scripts/test.ts'],
+    // `tsx` 自己还要再分出一个真正跑脚本的进程来（POSIX 上才成立，见 `tsx-cmd.ts`）
+    const [exe, argv] = tsxCommand(['scripts/test.ts'])
+    const kid = spawn(exe, argv,
       { stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1' } })
     trackTest(kid)
     let out = ''
