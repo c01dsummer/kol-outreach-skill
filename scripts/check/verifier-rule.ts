@@ -45,16 +45,45 @@ export interface Reaches {
 /**
  * 从一份验证者源码里抠出 **`import` 之外**的那两类边。
  *
- * 只认字符串字面量 —— 散文里顺口提到的路径不算数（同 `arch-sync.ts` 认反引号那条）。
+ * **两道关卡，缺一道就会把散文当成边**（评审指出，实测两个诱饵都穿得过去）：
+ * 先去注释，再要求那个路径**落在调用的参数位上**（紧跟一个左括号）。
+ * 只做第一道的话，`// 这一段解释为什么不去起 'check/adr-sync.ts'` 会被算成边；
+ * 只做第二道的话，`writeFileSync(cfg, JSON.stringify({ note: 'check/audit.ts' }))`
+ * 这种写进夹具的串会被算成边。
+ *
+ * **多收一条边的方向是坏的**：闭包偏大 → 合法的变异被误拒 → 这道闸门被当成噪音关掉
+ * （ADR-62 否决那三条静态判据用的正是这个标准）。
+ *
  * 返回的是仓库根起算的路径，已排序去重。
  */
 export function toolEdges(src: string): string[] {
+  const code = stripComments(src)
   const found = new Set<string>()
-  // 当工具起：`check/xxx.ts` 这种写法，前缀写不写 `scripts/` 都认
-  for (const m of src.matchAll(/'(?:scripts\/)?(check\/[\w.-]+\.ts)'/g)) found.add(`scripts/${m[1]}`)
-  // 预加载：`--import` 那一路拿 `new URL('./xxx.ts', import.meta.url)` 拼出来
-  for (const m of src.matchAll(/'\.\/([\w.-]+\.ts)'/g)) found.add(`scripts/check/${m[1]}`)
+  // 当工具起：`S('check/xxx.ts')`，前缀写不写 `scripts/` 都认
+  for (const m of code.matchAll(/\(\s*'(?:scripts\/)?(check\/[\w.-]+\.ts)'/g)) found.add(`scripts/${m[1]}`)
+  // 预加载：`new URL('./xxx.ts', import.meta.url)` 拼给 `--import`
+  for (const m of code.matchAll(/\(\s*'\.\/([\w.-]+\.ts)'/g)) found.add(`scripts/check/${m[1]}`)
   return [...found].sort()
+}
+
+/**
+ * 去掉注释，只留代码。
+ *
+ * **引号里的 `//` 不算注释** —— 少了这一条，一个 `'https://…'` 会把它后面半行真代码吃掉，
+ * 而那个方向是闭包**偏小**，也就是放行一条自己验自己的变异。两个方向都错，但这一个更坏。
+ */
+export function stripComments(src: string): string {
+  const noBlock = src.replace(/\/\*[\s\S]*?\*\//g, ' ')
+  return noBlock.split('\n').map(line => {
+    let quote = ''
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i]
+      if (quote) { if (c === '\\') i++; else if (c === quote) quote = '' }
+      else if (c === "'" || c === '"' || c === '`') quote = c
+      else if (c === '/' && line[i + 1] === '/') return line.slice(0, i)
+    }
+    return line
+  }).join('\n')
 }
 
 /**
