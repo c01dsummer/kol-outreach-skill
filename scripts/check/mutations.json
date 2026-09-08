@@ -630,8 +630,8 @@
       "req": "harness",
       "why": "换了验证者仍按头一个验证者的失败汇总去认 —— 它真的红了也会被判成跑不起来，方向最坏的那种假阴性",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  selfcheck: { script: 'scripts/check/selfcheck.ts', summary: /(^|\\n)\u2717 \u811a\u672c\u81ea\u68c0\uff1a\\d+ \u9879\u5931\u8d25\\s*(\\n|$)/ },",
-      "replace": "  selfcheck: { script: 'scripts/check/selfcheck.ts', summary: /(^|\\n)\\d+ \u4e2a\u5931\u8d25\\s*(\\n|$)/ },"
+      "find": "    summary: /(^|\\n)\u2717 \u811a\u672c\u81ea\u68c0\uff1a\\d+ \u9879\u5931\u8d25\\s*(\\n|$)/,",
+      "replace": "    summary: /(^|\\n)\\d+ \u4e2a\u5931\u8d25\\s*(\\n|$)/,"
     },
     {
       "id": "M-H14-r",
@@ -640,6 +640,22 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "  test: { script: 'scripts/test.ts',",
       "replace": "  test: { script: 'scripts/tests.ts',"
+    },
+    {
+      "id": "M-H19-a",
+      "req": "harness",
+      "why": "验证者崩掉时漏出来的那些诊断，点名它们也算被抓到 —— 一条只把被测脚本弄崩、没让任何断言真红的变异会被记成抓到，正是把崩溃的功劳记到断言头上",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (verifier.processMark !== undefined && processFailed(output, verifier.processMark)) return 'crashed'\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H19-b",
+      "req": "harness",
+      "why": "凡是报了失败的那一行都算进程级失败 —— 于是每一次真被断言抓到的运行都被判成跑不起来，指定验证者这条路整个作废",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return output.split('\\n').some(l => l.trimStart().startsWith('\u2717 ') && l.includes(mark))",
+      "replace": "  return output.split('\\n').some(l => l.trimStart().startsWith('\u2717 '))"
     },
     {
       "id": "M-H14-x",

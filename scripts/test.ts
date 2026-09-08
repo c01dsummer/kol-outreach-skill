@@ -9,7 +9,9 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
-import { VERIFIERS, exitRace, judgeRun, killsMatched, wiringFault } from './check/mutate-rule.js'
+import {
+  VERIFIERS, exitRace, judgeRun, killsMatched, processFailed, wiringFault,
+} from './check/mutate-rule.js'
 import {
   beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, testRunning,
   trackTest,
@@ -2693,6 +2695,23 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
   eq('验证者红了，红的却不是点名那条 → 红错了地方，不算抓到', judgeRun(1, red, SC, budget), 'elsewhere')
   // 不点名的那两百多条逐字保持原样：断言红了就是被抓到，不判第四态
   eq('没点名就不问第二层', judgeRun(1, red, SC), 'caught')
+
+  // ---- 出过进程级失败，这一次的证据就不算数 ----
+  // 记号只贴在打那句话的那一行上，护不住它后面照打的**派生诊断**：一条只把被测脚本
+  // 弄崩的变异会漏出不带记号的 ✗，kills 点它就成了「把崩溃的功劳记到断言头上」。
+  // 所以拦在整次运行这一层（评审第三轮实测指出，我第一轮驳回错了）
+  const derived = 'collect 预算用尽后没有留下可读的断点（P3.b 要求捕获后保存断点）'
+  const crashed = [
+    `  ✗ collect 预算用尽保存断点${SELFCHECK_PROCESS_MARK}：预期以退出码 3 结束，实际是 1`,
+    `  ✗ ${derived}`, '', '✗ 脚本自检：2 项失败', '',
+  ].join('\n')
+  eq('带记号的那一行说明这次出过进程级失败', processFailed(crashed, SELFCHECK_PROCESS_MARK), true)
+  eq('没有带记号的行就不算出过', processFailed(red, SELFCHECK_PROCESS_MARK), false)
+  // 点名那条**确实红了**（派生诊断照打），可它红得不算数
+  eq('崩溃漏出来的派生诊断真会匹配上', killsMatched(crashed, derived), true)
+  eq('但整次判的是跑不起来，不是被抓到', judgeRun(1, crashed, SC, derived), 'crashed')
+  // 没崩的那一次照旧 —— 这一道不能顺手把正常的抓到也拦掉
+  eq('没崩的那一次照旧算被抓到', judgeRun(1, red, SC, done), 'caught')
 
   // 一条夹具的名字是另一条的前缀时，只按前缀匹配会把「短的红了」记成「长的红了」——
   // 归错功劳换个入口再来一次，而那正是点名要堵的东西
