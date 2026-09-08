@@ -642,6 +642,14 @@
       "replace": "  test: { script: 'scripts/tests.ts',"
     },
     {
+      "id": "M-H19-c",
+      "req": "harness",
+      "why": "被信号杀掉的那一次，只要汇总已经打出来就算数 —— 一次没跑完的运行被当成整份证据，它剩下的断言一条也没说过话",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (exitCode === null) return 'crashed'\n",
+      "replace": ""
+    },
+    {
       "id": "M-H19-a",
       "req": "harness",
       "why": "验证者崩掉时漏出来的那些诊断，点名它们也算被抓到 —— 一条只把被测脚本弄崩、没让任何断言真红的变异会被记成抓到，正是把崩溃的功劳记到断言头上",
@@ -1936,6 +1944,46 @@
       "file": "scripts/check/verifier-rule.ts",
       "find": "  `scripts/${SELFCHECK_PRELOAD}`,",
       "replace": "  // 预加载那一份不进种子"
+    },
+    {
+      "id": "M-H17-k",
+      "req": "harness",
+      "why": "收出来的边不再往下走 —— 闭包只剩种子和它们直接引到的那一层，隔一层的基础设施全部放行，而闭包缩小的那一头正是放行",
+      "file": "scripts/check/verifier-rule.ts",
+      "find": "    pending.push(...node.to)\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H17-l",
+      "req": "harness",
+      "why": "读到的边一条都不记进图里 —— 闭包缩回种子那几个，除种子之外的验证基础设施全部放行",
+      "file": "scripts/check/verifier-rule.ts",
+      "find": "    graph.push(node)\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H17-h",
+      "req": "harness",
+      "why": "自检末尾那句失败汇总换了说法 —— 判定那边认的还是老那句，于是每一条指名自检的变异都被误报成跑不起来，而两边的测试照样全绿",
+      "file": "scripts/check/verifier-rule.ts",
+      "find": "export const selfcheckSummary = (failed: number) => `\u2717 \u811a\u672c\u81ea\u68c0\uff1a${failed} \u9879\u5931\u8d25`",
+      "replace": "export const selfcheckSummary = (failed: number) => `\u2717 \u811a\u672c\u81ea\u68c0\uff1a${failed} \u9879\u6ca1\u8fc7`"
+    },
+    {
+      "id": "M-H17-i",
+      "req": "harness",
+      "why": "抽出来的边不做后缀规格化 —— 图里的路径带着源码里写的那个后缀，和磁盘上的对不上，于是闭包收不到任何一个真文件，自己验自己的变异全部放行",
+      "file": "scripts/check/verifier-rule.ts",
+      "find": "    return out.join('/').replace(/\\.js$/, '.ts')",
+      "replace": "    return out.join('/')"
+    },
+    {
+      "id": "M-H17-j",
+      "req": "harness",
+      "why": "第三方包和内建模块也当成本仓库的文件收进图里 —— 闭包里混进一堆改不动的名字，而判据本来只该管本仓库的文件",
+      "file": "scripts/check/verifier-rule.ts",
+      "find": "/\\bfrom\\s*'(\\.[^']+)'/g",
+      "replace": "/\\bfrom\\s*'([^']+)'/g"
     },
     {
       "id": "M-H17-g",

@@ -121,6 +121,10 @@ export function killsMatched(output: string, label: string): boolean {
 /**
  * 一次运行算什么。
  *
+ * **被信号杀掉(没有退出码)一律 `crashed`**,哪怕汇总已经打出来了:那一次没跑完,
+ * 它剩下的断言一条也没说过话,拿它当证据就是拿半份跑当整份用。这个洞从判定第一版
+ * 就在,是 ADR-70 把四态表写出来之后才看得见「散文说的」与「代码做的」对不上。
+ *
  * `kills` 没写时不判第四态 —— 缺省跑测试的那两百多条没有点名任何夹具,行为逐字如旧。
  *
  * **出过进程级失败,这一次的证据就不算数。** 记号只贴在打那句话的那一行上,护不住它
@@ -136,6 +140,7 @@ export function killsMatched(output: string, label: string): boolean {
 export function judgeRun(exitCode: number | null, output: string,
   verifier: Verifier, kills?: string): RunVerdict {
   if (exitCode === 0) return 'survived'
+  if (exitCode === null) return 'crashed'
   if (!verifier.summary.test(output)) return 'crashed'
   if (kills === undefined) return 'caught'
   if (verifier.processMark !== undefined && processFailed(output, verifier.processMark)) return 'crashed'

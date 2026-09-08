@@ -31,6 +31,7 @@ import {
 import { CLAIMS_PATH } from './claims.js'
 import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
 import { tsxCommand } from './tsx-cmd.js'
+import { infraClosure, selfVerifying } from './verifier-rule.js'
 
 interface Mut {
   id: string; req: string; why: string; file: string; find: string; replace: string
@@ -98,6 +99,20 @@ if (miswired.length) {
   console.error(`✗ 变异集：${miswired.length} 条的验证者接线不成立 —— 它们的绿或红都不算数\n`)
   for (const w of miswired) console.error(`  ${w}`)
   console.error('\n  by 只能写 mutate-rule.ts 认得的那几个；by 与 kills 同进同出，写一个就要写另一个。')
+  process.exit(1)
+}
+
+// 指名了验证者的变异，不许改**验证者自己要用的东西** —— 那是自己验自己，跑出来的
+// 绿或红都不算数（ADR-70「两处接缝」第二条）。**整条判据都在 `verifier-rule.ts`**，
+// 连遍历也在：递归到多深是判定，不是 I/O（评审指出）—— 留在入口的话，「少走一层」
+// 这种坏法没有任何断言够得着，而闭包缩小的那一头是放行。入口只出一个读法。
+const infra = infraClosure(f => existsSync(f) ? readFileSync(f, 'utf8') : undefined)
+const selfVerified = muts.filter(m => selfVerifying(m, infra))
+if (selfVerified.length) {
+  console.error(`✗ 变异集：${selfVerified.length} 条在自己验自己 —— 它们的绿或红都不算数\n`)
+  for (const m of selfVerified) console.error(`  ${m.id}  改的 ${m.file} 是 ${m.by} 自己要用的东西`)
+  console.error(`\n  验证基础设施闭包共 ${infra.length} 个文件。要么把变异挪到被测对象上，`
+                + '要么让缺省那个验证者来验它。')
   process.exit(1)
 }
 

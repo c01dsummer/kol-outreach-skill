@@ -96,12 +96,48 @@ export const SELFCHECK_PRELOAD = 'check/fake-fetch.ts'
  */
 export const SELFCHECK_PROCESS_MARK = '（进程）'
 
+/**
+ * 自检末尾那句失败汇总 —— **自检打，判定认，文案只此一份。**
+ *
+ * 判定那边是另一份字面量（`mutate-rule.ts` 的 `VERIFIERS` 里那条正则），两份必须对得上。
+ * 各写各的话，改了这边不改那边**两边的测试和变异都照样绿**，而每条 `by: "selfcheck"`
+ * 的变异从此被误报成「跑不起来」—— 一个不响的假阴性（ADR-70 的欠条，评审指出）。
+ * 文案收在这里，再由 `scripts/test.ts` 拿这句真话去喂那条正则。
+ */
+export const selfcheckSummary = (failed: number) => `✗ 脚本自检：${failed} 项失败`
+
 /** 自检这个验证者的闭包种子：它自己 ＋ 它当工具起的 ＋ 它预加载的。 */
 export const SELFCHECK_SEEDS: string[] = [
   'scripts/check/selfcheck.ts',
   ...Object.values(SELFCHECK_TOOLS).map(f => `scripts/${f}`),
   `scripts/${SELFCHECK_PRELOAD}`,
 ].sort()
+
+/**
+ * 一个文件 `import` 了哪些**本仓库内**的文件 —— 建图的那一半判据。
+ *
+ * 只认相对路径：`node:` 内建和第三方包不是本仓库的文件，改不动也变异不了。
+ * 规格化成仓库根起算的 `.ts` 路径（源码里写的是 `.js`，那是 ESM 的规矩）。
+ *
+ * **判据故意写得宽**：认的是任何 `from '相对路径'`，不管它在代码里还是在注释里。
+ * 理由是这条判据的两头不对称 —— 多收一个文件只是把闭包撑大、多拦下几条变异；
+ * 少收一个就是**放行**一条自己验自己的变异。`closure` 头上写的是同一条道理。
+ * 所以这里不玩「怎么把注释抠干净」那套军备竞赛（ADR-62 否掉过三条那样的判据）。
+ */
+export function importsOf(path: string, source: string): Reaches {
+  const dir = path.slice(0, path.lastIndexOf('/'))
+  const to = [...source.matchAll(/\bfrom\s*'(\.[^']+)'/g)].map(m => {
+    const parts = `${dir}/${m[1]}`.split('/')
+    const out: string[] = []
+    for (const seg of parts) {
+      if (seg === '.' || seg === '') continue
+      if (seg === '..') out.pop()
+      else out.push(seg)
+    }
+    return out.join('/').replace(/\.js$/, '.ts')
+  })
+  return { path, to: [...new Set(to)].sort() }
+}
 
 /**
  * 从种子出发递归收，返回验证基础设施闭包（**含种子**），排序去重。
@@ -121,6 +157,35 @@ export function closure(graph: Reaches[], seeds: string[]): string[] {
     for (const next of edges.get(f) ?? []) stack.push(next)
   }
   return [...seen].sort()
+}
+
+/**
+ * 从种子出发，边读边递归，收出验证基础设施闭包。
+ *
+ * **遍历本身是判定，不是 I/O**（评审指出，`docs/CONVENTIONS.md` 第 10 条讲的正是这个 ——
+ * `lint-rule.ts` 的走文件树同理留在判定这边）：递归到多深、图里没有的怎么处理，
+ * 决定了这道闸门看得见多少文件。把它留在入口的话，「少走一层」这种坏法**没有任何断言
+ * 够得着** —— 闭包会静默缩回种子那几个，而缩小的那一头是放行。
+ *
+ * 读文件由调用方注入：入口传真的读法，测试传一张假的表，于是这段遍历不碰文件系统也验得了。
+ * `read` 交回 `undefined` 表示读不到 —— 那种路径不再往下走，但**它自己仍留在闭包里**
+ * （抽边那条判据故意写得宽，注释里提到的路径也算；偏大只是多拦几条，偏小才是放行）。
+ */
+export function infraClosure(read: (path: string) => string | undefined): string[] {
+  const graph: Reaches[] = []
+  const walked = new Set<string>()
+  const pending = [...SELFCHECK_SEEDS]
+  while (pending.length) {
+    const f = pending.pop()
+    if (f === undefined || walked.has(f)) continue
+    walked.add(f)
+    const source = read(f)
+    if (source === undefined) continue
+    const node = importsOf(f, source)
+    graph.push(node)
+    pending.push(...node.to)
+  }
+  return closure(graph, SELFCHECK_SEEDS)
 }
 
 /**
