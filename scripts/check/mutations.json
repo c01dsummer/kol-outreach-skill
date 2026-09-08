@@ -638,8 +638,8 @@
       "req": "harness",
       "why": "验证者表里写的脚本路径指空 —— 每一条变异都跑不起来，而报出来的是「崩了」，指着变异本身，不是指着这张表写错了",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  test: { script: 'scripts/test.ts',",
-      "replace": "  test: { script: 'scripts/tests.ts',"
+      "find": "    script: 'scripts/test.ts',",
+      "replace": "    script: 'scripts/tests.ts',"
     },
     {
       "id": "M-H19-c",
@@ -1992,6 +1992,110 @@
       "file": "scripts/check/verifier-rule.ts",
       "find": "export const SELFCHECK_PROCESS_MARK = '\uff08\u8fdb\u7a0b\uff09'",
       "replace": "export const SELFCHECK_PROCESS_MARK = ''"
+    },
+    {
+      "id": "M-H20-a",
+      "req": "harness",
+      "why": "定不下来的实参不再跳过，改成把它的源码原文当名字：转发调用和带插值的模板串都被收进清册，而清册大了那一头是放行",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "node !== undefined && ts.isStringLiteralLike(node) ? node.text : undefined",
+      "replace": "node !== undefined && ts.isStringLiteralLike(node) ? node.text : node?.getText()"
+    },
+    {
+      "id": "M-H20-b",
+      "req": "harness",
+      "why": "不再问「这个名字在不在起名的那张表里」：任何一处调用都算起名，那张表写什么都不作数",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "declares.includes(name)",
+      "replace": "true"
+    },
+    {
+      "id": "M-H20-c",
+      "req": "harness",
+      "why": "调用者认成「点号右边那一截」：别的对象上的同名方法也被当成起名 —— 一个碰巧同名的方法就能凭空往清册里塞名字",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "ts.isIdentifier(node.expression) ? node.expression.text : undefined",
+      "replace": "ts.isIdentifier(node.expression) ? node.expression.text\n      : ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : undefined"
+    },
+    {
+      "id": "M-H20-d",
+      "req": "harness",
+      "why": "不再递归进花括号：写在条件、循环、函数体里的起名全部漏出清册，而自检里那几条真夹具正是这么写的",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    ts.forEachChild(node, walk)",
+      "replace": "    if (!ts.isBlock(node)) ts.forEachChild(node, walk)"
+    },
+    {
+      "id": "M-H20-e",
+      "req": "harness",
+      "why": "同一个名字起过第二次不再累加，清册里永远记着一次 —— 重名从此看不出来，而重名正是点名要堵的那件事",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "had === undefined ? 1 : had + 1",
+      "replace": "had === undefined ? 1 : 1"
+    },
+    {
+      "id": "M-H20-f",
+      "req": "harness",
+      "why": "第一次见到的名字不写进清册：只有起过两次以上的才收得到，起过一次的那些全漏",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "        const had = seen.get(label)\n        seen.set(label, had === undefined ? 1 : had + 1)",
+      "replace": "        const had = seen.get(label)\n        if (had !== undefined) seen.set(label, had + 1)"
+    },
+    {
+      "id": "M-H20-g",
+      "req": "harness",
+      "why": "只认引号括起来的那一种字面量：反引号写的、静态一样定得下来的名字被判成定不下来，好好的点名从此立不住。引号那两种（单引号与双引号）不受影响",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "ts.isStringLiteralLike(node) ? node.text",
+      "replace": "ts.isStringLiteral(node) ? node.text"
+    },
+    {
+      "id": "M-H20-h",
+      "req": "harness",
+      "why": "清册里查不到那个名字时不再说它立不住，改成放行 —— 点了一个谁也不会打出来的名字从此一路绿到跑完",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "if (n === undefined) return 'unknown-label'",
+      "replace": "if (n === undefined) return undefined"
+    },
+    {
+      "id": "M-H20-i",
+      "req": "harness",
+      "why": "重名的门槛从两次抬到三次：正好两条夹具同名时分不出红的是哪一条，却照样放行",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return n > 1 ? 'ambiguous-label' : undefined",
+      "replace": "return n > 2 ? 'ambiguous-label' : undefined"
+    },
+    {
+      "id": "M-H20-j",
+      "req": "harness",
+      "why": "重名的门槛从两次落到一次：只起过一次的名字也被判成分不出，好好的点名从此一条都立不住",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return n > 1 ? 'ambiguous-label' : undefined",
+      "replace": "return n > 0 ? 'ambiguous-label' : undefined"
+    },
+    {
+      "id": "M-H20-k",
+      "req": "harness",
+      "why": "自检那张表里一个起名的函数都不留：收尾那一族起的名字全部漏出清册，而落地 2 第 5 步要点的第一条正是其中之一",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "declares: ['endPath'],",
+      "replace": "declares: [],"
+    },
+    {
+      "id": "M-H20-l",
+      "req": "harness",
+      "why": "把跑一个脚本那一族也登记成起名的：它们起的名字进得了清册，可它们失败时只打带记号的那一句 —— 点了也永远得不到「被抓到」，放行的正是这道闸要拦的",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "declares: ['endPath'],",
+      "replace": "declares: ['endPath', 'run'],"
+    },
+    {
+      "id": "M-H20-m",
+      "req": "harness",
+      "why": "在语法树之外再按字面扫一遍源码：串里、注释里写着的一句长得像声明的话又算数了，往任何一份源码里塞一句就能凭空往清册里加名字 —— 正是改用语法树要取消掉的那个洞",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  walk(tree)",
+      "replace": "  walk(tree)\n  for (const m of source.matchAll(/\\b(\\w+)\\(\\s*'([^']*)'/g)) {\n    if (declares.includes(m[1])) {\n      const had = seen.get(m[2])\n      seen.set(m[2], had === undefined ? 1 : had + 1)\n    }\n  }"
     }
   ],
   "exemptions": [

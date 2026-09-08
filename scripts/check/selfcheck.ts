@@ -685,6 +685,37 @@ if (!selfVer.includes('在自己验自己')) {
   failed++; console.error('  ✗ mutate 没报出「这条变异在自己验自己」')
 }
 
+// ---- 点的夹具立不住即以退出码 1 结束（清册的入口那一半）----
+// 判据在 mutate-rule.ts（扫源码建清册、裁定点得着点不着），由 scripts/test.ts 断言、
+// 负片守着；剩下的那一半是**入口真的读了验证者的源码、真的建了清册、并且以退出码 1
+// 结束**。把那一整段从 mutate.ts 删掉，那些断言和负片照样全绿 —— 变异跑的是缺省
+// 那个验证者，够不到入口（与上面隔离判据那一段同一处境）。
+const labelTmp = join(tmp, 'bad-kills')
+mkdirSync(join(labelTmp, 'scripts', 'check'), { recursive: true })
+mkdirSync(join(labelTmp, 'docs'), { recursive: true })
+writeFileSync(join(labelTmp, 'docs', 'requirements.json'),
+  JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+// 这三行**可以**写成整串：清册按语法树数，串的内容是一个字符串字面量的值，
+// 结构上就不是调用（第一版按正则扫，那时它们真会被当成本文件自己的声明凭空进清册，
+// 与 #84 在闭包那一头抓过的是同一个诱饵）。`scripts/test.ts` 里留着一条断言盯住它 ——
+// 哪天换回按字面扫，那条当场红。
+const declLine = (name: string) => `endPath('${name}', [])\n`
+writeFileSync(join(labelTmp, 'scripts', 'check', 'selfcheck.ts'),
+  declLine('甲') + declLine('乙') + declLine('乙'), 'utf8')
+writeFileSync(join(labelTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+  { id: 'M-X-f', req: 'X1', why: '点了一个清册里没有的名字', file: 'a.ts', find: 'x', replace: 'y',
+    by: 'selfcheck', kills: '丙' },
+  { id: 'M-X-g', req: 'X1', why: '点的那个名字有两条夹具在用', file: 'a.ts', find: 'x', replace: 'z',
+    by: 'selfcheck', kills: '乙' },
+] }), 'utf8')
+const badKills = runTool('mutate 的 kills 点不着夹具即以退出码 1 结束',
+  'mutate', [], labelTmp, { status: 1 })
+if (!badKills.includes('不在 selfcheck 的清册里')) {
+  failed++; console.error('  ✗ mutate 没报出「点的夹具不在清册里」')
+} else if (!badKills.includes('不止一条夹具叫')) {
+  failed++; console.error('  ✗ mutate 没报出「点的那个名字有重名」')
+}
+
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
 // 一条写进文档、却从没被执行过的命令，等于没有 —— 在这里跑一次，证明它还活着。
 runTool('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'])

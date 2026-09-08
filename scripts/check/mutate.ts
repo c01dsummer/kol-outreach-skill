@@ -25,8 +25,8 @@ import { spawn } from 'node:child_process'
 import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import {
-  type RunVerdict, type Verifier, type WiringFault,
-  VERIFIERS, judgeRun, wiringFault,
+  type LabelFault, type RunVerdict, type Verifier, type WiringFault,
+  VERIFIERS, judgeRun, labelFault, labelsOf, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
@@ -113,6 +113,39 @@ if (selfVerified.length) {
   for (const m of selfVerified) console.error(`  ${m.id}  改的 ${m.file} 是 ${m.by} 自己要用的东西`)
   console.error(`\n  验证基础设施闭包共 ${infra.length} 个文件。要么把变异挪到被测对象上，`
                 + '要么让缺省那个验证者来验它。')
+  process.exit(1)
+}
+
+// 点的那条夹具真的在，而且只有一条叫这个名字 —— 判据在 `mutate-rule.ts` 的
+// `labelsOf` / `labelFault`。**扫源码也是判定**（`lint-rule` 那条先例的同一形状）：
+// 扫得出什么决定了清册有多大，而清册小了是拦住、大了是放行。入口只出一个读法，
+// 外加「同一个验证者只读一次」—— 上面两道体检已经放行，`by` 到这里必定认得。
+// **排在隔离之后**：由粗到细 —— 自己验自己是「这份证据整份不算数」，
+// 点不着夹具是「证据算数，但功劳记错了人」。反过来排，一条自己验自己的变异
+// 会先因为名字问题被打回，人改完名字再撞第二堵墙。
+const inventories = new Map<string, ReadonlyMap<string, number>>()
+const inventoryOf = (by: string): ReadonlyMap<string, number> => {
+  const had = inventories.get(by)
+  if (had !== undefined) return had
+  const v = VERIFIERS[by]
+  const built = labelsOf(existsSync(v.script) ? readFileSync(v.script, 'utf8') : '', v.declares)
+  inventories.set(by, built)
+  return built
+}
+const SAY_LABEL: Record<LabelFault, (m: Mut) => string> = {
+  'unknown-label': m => `点的夹具「${m.kills}」不在 ${m.by} 的清册里 —— 名字写岔了，或者那条夹具没了`,
+  'ambiguous-label': m => `${m.by} 里不止一条夹具叫「${m.kills}」—— 红的是哪一条分不出`,
+}
+const misnamed = muts.flatMap(m => {
+  if (m.by === undefined || m.kills === undefined) return []
+  const fault = labelFault(m.kills, inventoryOf(m.by))
+  return fault === undefined ? [] : [`${m.id}  ${SAY_LABEL[fault](m)}`]
+})
+if (misnamed.length) {
+  console.error(`✗ 变异集：${misnamed.length} 条点的夹具立不住 —— 它们的绿或红都不算数\n`)
+  for (const w of misnamed) console.error(`  ${w}`)
+  console.error('\n  kills 要逐字抄验证者里那条夹具的名字。清册静态扫源码得出，只认字面量 ——'
+                + '拼出来的名字点不着，把那条夹具的名字写成字面量。')
   process.exit(1)
 }
 

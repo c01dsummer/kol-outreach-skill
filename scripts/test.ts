@@ -10,7 +10,8 @@ import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
 import {
-  VERIFIERS, exitRace, judgeRun, killsMatched, processFailed, wiringFault,
+  VERIFIERS, exitRace, judgeRun, killsMatched, labelFault, labelsOf, processFailed,
+  wiringFault,
 } from './check/mutate-rule.js'
 import {
   beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, testRunning,
@@ -2754,6 +2755,56 @@ harness('by 与 kills 同进同出：三种写错各有名字')
     eq(`语言内建的名字不算认得：${builtin}`,
       wiringFault({ by: builtin, kills: '某条夹具' }), 'unknown-verifier')
   }
+}
+
+harness('清册：点的那条夹具真的在，而且只有一条叫这个名字')
+{
+  const D = ['eq', 'ok']
+  eq('声明处的字面量进清册', [...labelsOf("eq('甲', 1, 1)", D).keys()], ['甲'])
+  eq('同一个名字起过两次，数得出来是两次',
+    labelsOf("eq('甲', 1, 1)\nok('甲', true)", D).get('甲'), 2)
+  eq('反引号但没插值的也定得下来，算数', [...labelsOf('eq(`甲`, 1, 1)', D).keys()], ['甲'])
+  eq('写在块里的调用也收得到 —— 要递归才看得见',
+    [...labelsOf("if (x) { eq('甲', 1, 1) }", D).keys()], ['甲'])
+
+  // 清册宁可小：它唯一的用途是「点的这条真的在」，小了是拦住、大了是放行
+  eq('转发调用（实参是个变量）不进清册', [...labelsOf('eq(label, 1, 1)', D).keys()], [])
+  eq('模板串里带插值的定不下来，不进清册', [...labelsOf('eq(`甲${x}`, 1, 1)', D).keys()], [])
+  eq('没写进 declares 的调用不算起名', [...labelsOf("say('甲')", D).keys()], [])
+  eq('一个起名的函数都没写 → 清册是空的', labelsOf("eq('甲', 1, 1)", []).size, 0)
+
+  // **按语法树而不是按正则**（评审指出）。正则分不出「真的在调用」与「串里、
+  // 注释里写着一句长得像调用的话」—— 而放行方向的坏法正是往任何一份源码里写一句
+  // `"eq('幽灵', …)"`，`kills: '幽灵'` 就过得了这道闸。第一版自带一处：本文件里
+  // 喂给 labelsOf 的这些测试数据，当时就被数进了 test 的真清册
+  eq('串里写着的调用不算 —— 那是一个字符串的值，结构上就不是调用',
+    [...labelsOf(`const s = "eq('幽灵', 1, 1)"`, D).keys()], [])
+  eq('注释里写着的调用也不算', [...labelsOf("// eq('幽灵', 1, 1)", D).keys()], [])
+  eq('别的对象上的同名方法不算', [...labelsOf("obj.eq('甲', 1, 1)", D).keys()], [])
+
+  eq('清册里没有 → 点了个谁也不会打出来的名字', labelFault('甲', new Map()), 'unknown-label')
+  eq('只起过一次 → 立得住', labelFault('甲', new Map([['甲', 1]])), undefined)
+  eq('起过两次 → 红的是哪一条分不出', labelFault('甲', new Map([['甲', 2]])), 'ambiguous-label')
+
+  // 手搭的数据证不了扫真源码扫不扫得动 —— #85 记的那条欠条就是这个形状
+  const selfInv = labelsOf(rf('scripts/check/selfcheck.ts', 'utf8'), VERIFIERS.selfcheck.declares)
+  // 点名的是 D6.f 那条收尾夹具：落地 2 第 5 步要写的第一条 kills 正是它，
+  // 而它由 endPath 起名 —— 把 endPath 从 declares 里删掉，这一条当场红
+  eq('自检的真清册收得到 endPath 起的那几个名字',
+    labelFault('collect 关键词跑完（退出码 0）也说续跑代价', selfInv), undefined)
+  // **run 那一族起过名，却进不了清册**（评审指出）。它们失败时只打
+  // `✗ <名字>（进程）：…` —— killsMatched 认的是 `<名字>` 或 `<名字>：`，对不上；
+  // 就算对上了 judgeRun 见了记号也整次判 crashed。登记它们等于放行一批
+  // **永远得不到 caught** 的点名，正是这道闸要拦的
+  eq('跑一个脚本起的名字进不了清册 —— 它永远满足不了点名',
+    labelFault('collect 预算用尽保存断点', selfInv), 'unknown-label')
+  // 派生诊断那几十句散文也不进：它们是夹具的后果，不是夹具的名字
+  eq('派生诊断不算夹具的名字',
+    labelFault('collect 预算用尽后没有留下可读的断点（P3.b 要求捕获后保存断点）', selfInv),
+    'unknown-label')
+  // 自检里那个临时仓库夹具往磁盘上写了三行起名的调用。**语法树扫法下这条是结构性的**
+  // ——那三行在本文件里是一个字符串的值，不是调用；换回正则就又成了活的洞
+  eq('夹具往磁盘写的名字没被当成自检自己的声明', labelFault('甲', selfInv), 'unknown-label')
 }
 
 harness('变异跑到一半被打断：动过的源文件要还回去')
