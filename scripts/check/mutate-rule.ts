@@ -19,12 +19,14 @@
  */
 import { SELFCHECK_PROCESS_MARK } from './verifier-rule.js'
 
-/** 一个验证者:跑哪个脚本,失败汇总长什么样,进程级失败带什么记号。 */
+/** 一个验证者:跑哪个脚本,失败汇总长什么样,进程级失败带什么记号,哪些调用给夹具起名。 */
 export interface Verifier {
   script: string
   summary: RegExp
   /** 不填就是这个验证者分不出「进程级失败」与「断言红了」(`test` 就是) */
   processMark?: string
+  /** 哪些调用**声明**一条夹具的名字 —— 清册只认这些调用的第一个字面量实参 */
+  declares: string[]
 }
 
 /**
@@ -39,11 +41,16 @@ export interface Verifier {
  * 认不得的名字只能在运行时拦,写成 `keyof` 只会让人以为有一道并不存在的编译期保证。
  */
 export const VERIFIERS: Record<string, Verifier> = {
-  test: { script: 'scripts/test.ts', summary: /(^|\n)\d+ 个失败\s*(\n|$)/ },
+  test: {
+    script: 'scripts/test.ts',
+    summary: /(^|\n)\d+ 个失败\s*(\n|$)/,
+    declares: ['eq', 'ok'],
+  },
   selfcheck: {
     script: 'scripts/check/selfcheck.ts',
     summary: /(^|\n)✗ 脚本自检：\d+ 项失败\s*(\n|$)/,
     processMark: SELFCHECK_PROCESS_MARK,
+    declares: ['run', 'runBoth', 'runTool', 'endPath'],
   },
 }
 
@@ -94,6 +101,54 @@ const HARD_EXIT = /\bprocess\.exit\s*\(/
 
 export function exitRace(source: string): string | undefined {
   return HARD_EXIT.exec(source)?.[0]
+}
+
+/**
+ * 一个验证者能打出哪些夹具名字,各起过几次 —— **静态扫源码**得出。
+ *
+ * 不拿「某一次跑出来打了什么」当清册。落地 2 第 5 步要的「见齐 `kills` 就停」会让
+ * 一次运行只走到一部分夹具,那样清册装什么取决于停在哪一条上;而「有没有重名」
+ * 恰恰要看全体。**两件事互斥,静态这一头两件都成立。**
+ *
+ * 只认第一个实参是**单引号字面量**的那些调用。`run(label, …)` 这种转发、
+ * 模板串里带插值的那些,静态定不下来 —— 定不下来就不进清册。清册宁可小:
+ * 它唯一的用途是「点的这条真的在」,小了是拦住,大了是放行。
+ *
+ * ⚠️ 名字里带转义引号的收进来会**多带一对反斜杠**,跟真打出来的那句对不上,
+ * 于是好好的 `kills` 被判成不存在。方向是拦住不是放行,而且实测两个验证者
+ * 今天一条这种名字都没有(各 0 条)。
+ */
+export function labelsOf(source: string, declares: readonly string[]): Map<string, number> {
+  const seen = new Map<string, number>()
+  if (!declares.length) return seen
+  const named = String.raw`\b(?:` + declares.join('|') + ')'
+  const call = new RegExp(named + String.raw`\(\s*'((?:[^'\\]|\\.)*)'`, 'g')
+  for (const m of source.matchAll(call)) {
+    const had = seen.get(m[1])
+    seen.set(m[1], had === undefined ? 1 : had + 1)
+  }
+  return seen
+}
+
+export type LabelFault = 'unknown-label' | 'ambiguous-label'
+
+/**
+ * `kills` 点的那条夹具,在这个验证者的清册里立不立得住。
+ *
+ * | 立不住 | 不拦会怎样 |
+ * |---|---|
+ * | `unknown-label` | 点了一个谁也不会打出来的名字。那条变异从此只会判 `elsewhere` —— 读起来像「抓到了,只是抓错地方」,其实是名字打错了或那条夹具没了 |
+ * | `ambiguous-label` | 两条夹具同名,红的是哪一条分不出。**那正是 `kills` 要堵的错误归因,换个入口又发生一次** |
+ *
+ * 重名只在**被点到**时才拦,不做全局唯一:实测 `scripts/test.ts` 今天有 4 个名字
+ * 各起了两三次,而谁也没点它们。全局唯一要为一条没人用到的性质去改一批无关的断言;
+ * 「后来有人把某条 `kills` 点着的名字弄重了」这一头,这道体检本来就每次都查。
+ */
+export function labelFault(kills: string,
+  inventory: ReadonlyMap<string, number>): LabelFault | undefined {
+  const n = inventory.get(kills)
+  if (n === undefined) return 'unknown-label'
+  return n > 1 ? 'ambiguous-label' : undefined
 }
 
 export type RunVerdict = 'caught' | 'elsewhere' | 'crashed' | 'survived'

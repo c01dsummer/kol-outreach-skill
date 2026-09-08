@@ -10,7 +10,8 @@ import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
 import {
-  VERIFIERS, exitRace, judgeRun, killsMatched, processFailed, wiringFault,
+  VERIFIERS, exitRace, judgeRun, killsMatched, labelFault, labelsOf, processFailed,
+  wiringFault,
 } from './check/mutate-rule.js'
 import {
   beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, testRunning,
@@ -2754,6 +2755,45 @@ harness('by 与 kills 同进同出：三种写错各有名字')
     eq(`语言内建的名字不算认得：${builtin}`,
       wiringFault({ by: builtin, kills: '某条夹具' }), 'unknown-verifier')
   }
+}
+
+harness('清册：点的那条夹具真的在，而且只有一条叫这个名字')
+{
+  const D = ['eq', 'ok']
+  eq('声明处的字面量进清册', [...labelsOf("eq('甲', 1, 1)", D).keys()], ['甲'])
+  eq('同一个名字起过两次，数得出来是两次',
+    labelsOf("eq('甲', 1, 1)\nok('甲', true)", D).get('甲'), 2)
+  // 清册宁可小：它唯一的用途是「点的这条真的在」，小了是拦住、大了是放行
+  eq('转发调用（实参不是字面量）不进清册', [...labelsOf('eq(label, 1, 1)', D).keys()], [])
+  eq('模板串里带插值的定不下来，不进清册', [...labelsOf('eq(`甲${x}`, 1, 1)', D).keys()], [])
+  eq('没写进 declares 的调用不算起名', [...labelsOf("say('甲')", D).keys()], [])
+  // 名字是另一个名字的前缀时（`run` 之于 `runBoth`），只按前一个匹配会把两族都漏掉
+  eq('起名的函数互为前缀，两族都收得到',
+    [...labelsOf("run('甲', x)\nrunBoth('乙', y)", ['run', 'runBoth']).keys()], ['甲', '乙'])
+  eq('一个起名的函数都没写 → 清册是空的', labelsOf("eq('甲', 1, 1)", []).size, 0)
+
+  eq('清册里没有 → 点了个谁也不会打出来的名字', labelFault('甲', new Map()), 'unknown-label')
+  eq('只起过一次 → 立得住', labelFault('甲', new Map([['甲', 1]])), undefined)
+  eq('起过两次 → 红的是哪一条分不出', labelFault('甲', new Map([['甲', 2]])), 'ambiguous-label')
+
+  // 手搭的数据证不了扫真源码扫不扫得动 —— #85 记的那条欠条就是这个形状。
+  // 点名的是 D6.f 那条收尾夹具：落地 2 第 5 步要写的第一条 kills 正是它，
+  // 而它由 `endPath` 起名 —— 把 `endPath` 从 declares 里删掉，这一条当场红
+  const selfInv = labelsOf(rf('scripts/check/selfcheck.ts', 'utf8'), VERIFIERS.selfcheck.declares)
+  eq('自检的真清册收得到 endPath 起的那几个名字',
+    labelFault('collect 关键词跑完（退出码 0）也说续跑代价', selfInv), undefined)
+  eq('自检的真清册收得到 run 起的那几个名字',
+    labelFault('collect 预算用尽保存断点', selfInv), undefined)
+  // 派生诊断那几十句散文**不**进清册：它们是夹具的后果，不是夹具的名字。
+  // 收进来的话，kills 就能点着一句在崩溃之后照打的话 —— 正是判定要堵的错误归因
+  eq('派生诊断不算夹具的名字',
+    labelFault('collect 预算用尽后没有留下可读的断点（P3.b 要求捕获后保存断点）', selfInv),
+    'unknown-label')
+  // 自检里那个临时仓库夹具往磁盘上写了三行起名的调用。写成整串的话，它们会被当成
+  // 自检**自己**声明了这两个名字凭空进真清册（#84 评审抓过闭包那一头的同一个诱饵，
+  // #85 为「没有断言盯着真的那一份」记了欠条）。这两条就是那条欠条要的断言
+  eq('夹具往磁盘写的名字没被当成自检自己的声明', labelFault('甲', selfInv), 'unknown-label')
+  eq('夹具写了两遍的那个也没有', labelFault('乙', selfInv), 'unknown-label')
 }
 
 harness('变异跑到一半被打断：动过的源文件要还回去')
