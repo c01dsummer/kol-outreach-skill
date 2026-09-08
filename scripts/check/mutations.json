@@ -1726,8 +1726,8 @@
       "req": "harness",
       "why": "豁免了几条，报的是这条需求判据的总数 —— 一条豁免都没有的需求也显示豁免了几条，每一行都从 ✓ 掉成 ⊘，那个记号于是什么都不说明了",
       "file": "scripts/check/spec-rule.ts",
-      "find": "  return { flag, gaps, hard, claimed: claimed.length, exempted: exempted.length }",
-      "replace": "  return { flag, gaps, hard, claimed: claimed.length, exempted: r.accept.length }"
+      "find": "exempted: exempted.length, mutatedCrit }",
+      "replace": "exempted: r.accept.length, mutatedCrit }"
     },
     {
       "id": "M-H6-j",
@@ -1742,16 +1742,16 @@
       "req": "harness",
       "why": "审计那一行不再写豁免了几条 —— 一条判据被显式豁免和根本没人认领，在报告上又变回同一个数，而这两件事一个有人签过字、一个没有",
       "file": "scripts/check/spec-rule.ts",
-      "find": "  `判据 ${claimed}${exempted ? `+⊘${exempted}` : ''}/${total}`",
-      "replace": "  `判据 ${claimed}/${total}`"
+      "find": "${exempted ? `+⊘${exempted}` : ''}",
+      "replace": ""
     },
     {
       "id": "M-H6-l",
       "req": "harness",
       "why": "豁免那半格不再看有没有豁免，一条豁免都没有的需求也照样挂上这个记号，每一行都写着豁免了零条，于是那个记号什么都不说明",
       "file": "scripts/check/spec-rule.ts",
-      "find": "  `判据 ${claimed}${exempted ? `+⊘${exempted}` : ''}/${total}`",
-      "replace": "  `判据 ${claimed}+⊘${exempted}/${total}`"
+      "find": "${exempted ? `+⊘${exempted}` : ''}",
+      "replace": "${`+⊘${exempted}`}"
     },
     {
       "id": "M-H7-b",
@@ -2096,6 +2096,94 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "  walk(tree)",
       "replace": "  walk(tree)\n  for (const m of source.matchAll(/\\b(\\w+)\\(\\s*'([^']*)'/g)) {\n    if (declares.includes(m[1])) {\n      const had = seen.get(m[2])\n      seen.set(m[2], had === undefined ? 1 : had + 1)\n    }\n  }"
+    },
+    {
+      "id": "M-H21-a",
+      "req": "harness",
+      "why": "报告里不再写出一条需求有几条判据级的负片：那几条守着判据的变异又变回一个字都不露，而报告上看着跟从来没人守过一模一样",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "${mutated ? `(负片 ${mutated})` : ''}",
+      "replace": ""
+    },
+    {
+      "id": "M-H21-b",
+      "req": "harness",
+      "why": "一条判据级负片都没有时也照写那一段：满纸都是「负片 0」，而「零」和「没这回事」在审计里是两个意思",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "${mutated ? `(负片 ${mutated})` : ''}",
+      "replace": "${`(负片 ${mutated})`}"
+    },
+    {
+      "id": "M-H21-c",
+      "req": "harness",
+      "why": "变异那一格不再区分「没人管」与「有人签过字的缺口」：整条豁免了变异的需求打成缺口，报告上跟没人管的那些混作一堆",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "`变异${mutated ? '✓' : exempt ? '⊘' : '·'}`",
+      "replace": "`变异${mutated ? '✓' : '·'}`"
+    },
+    {
+      "id": "M-H21-d",
+      "req": "harness",
+      "why": "豁免压过有变异：一条签过字的缺口后来真被变异补上了，报告还印着豁免 —— 报告落后于事实，而落后的方向是低报证据",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "`变异${mutated ? '✓' : exempt ? '⊘' : '·'}`",
+      "replace": "`变异${exempt ? '⊘' : mutated ? '✓' : '·'}`"
+    },
+    {
+      "id": "M-H21-e",
+      "req": "harness",
+      "why": "有勾与没有对调：有变异守着的报成缺口、什么都没有的报成完整，一列的意思整个翻过来",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "`变异${mutated ? '✓' : exempt ? '⊘' : '·'}`",
+      "replace": "`变异${mutated ? '·' : exempt ? '⊘' : '✓'}`"
+    },
+    {
+      "id": "M-H21-f",
+      "req": "harness",
+      "why": "「既登记豁免又有变异点着」这一道整段不报：一条判据的豁免说着「没有可执行的判定可以认领」，而一条变异正守着它，两句话并排印在同一份报告里没人吭声",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "r.accept.filter(c => e.exemptIds.has(c.id) && e.mutatedCriteria.has(c.id))",
+      "replace": "r.accept.filter(() => false)"
+    },
+    {
+      "id": "M-H21-g",
+      "req": "harness",
+      "why": "那一道只看豁免那一半，不问有没有变异点着：每一条豁免都被报成自相矛盾，于是这道体检在它该说话的时候满屏乱叫",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "e.exemptIds.has(c.id) && e.mutatedCriteria.has(c.id)",
+      "replace": "e.exemptIds.has(c.id)"
+    },
+    {
+      "id": "M-H21-h",
+      "req": "harness",
+      "why": "有几条判据被变异点着，一律数成零：那一格永远不写负片，等于把上面那条报告改动整个作废",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "r.accept.filter(c => e.mutatedCriteria.has(c.id)).length",
+      "replace": "0"
+    },
+    {
+      "id": "M-H21-i",
+      "req": "harness",
+      "why": "数的不是被点着的那几条，而是判据总条数：一条负片都没有的需求也印着「负片 N」，凭空多出一片证据",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "const mutatedCrit = r.accept.filter(c => e.mutatedCriteria.has(c.id)).length",
+      "replace": "const mutatedCrit = r.accept.length"
+    },
+    {
+      "id": "M-H21-j",
+      "req": "harness",
+      "why": "整条需求豁免了变异时打成完整：图例里那个记号是「完整」，而这一条恰恰是有人签过字的缺口 —— 报告把缺口说成了没缺口",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "} else if (e.exempt) flag = '⊘'",
+      "replace": "} else if (e.exempt) flag = '✓'"
+    },
+    {
+      "id": "M-H21-k",
+      "req": "harness",
+      "why": "红线没变异那一档的条件反过来：整条豁免了的照样记硬失败，而真没变异又没豁免的反倒放行 —— 一道体检两头都错",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "else if (!e.mutated && !e.exempt) {",
+      "replace": "else if (!e.mutated && e.exempt) {"
     }
   ],
   "exemptions": [

@@ -15,7 +15,7 @@ import {
   type Claims,
 } from './claims.js'
 import {
-  REDLINE_CAT, criteriaCell, requirementVerdict, tensionEvidence, tensionVerdict,
+  REDLINE_CAT, criteriaCell, mutationCell, requirementVerdict, tensionEvidence, tensionVerdict,
   type Req, type Tension,
 } from './spec-rule.js'
 const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
@@ -115,6 +115,16 @@ const testedCriteria = new Set(claims.criteria)
 const claimedTensions = new Set(claims.tensions)
 
 const mutatedIds = new Set<string>(mutCfg.mutations.map((m: any) => m.req))
+/**
+ * 变异记在**判据**名下的那些。
+ *
+ * `req` 这一栏两种编号混着写（今天 21 种需求号、3 种判据号），而上面那个集合只被
+ * `has(r.id)` 查过 —— 判据号那几条**对审计完全不可见**：`M-P5-a` 守着 P5.f，
+ * 报告里一个字都没有。带点的就是判据号（`docs/requirements.json` 的形状），
+ * 而两种编号都由 `attributionFault` 对着登记表校过，写岔了跑不起来。
+ */
+const mutatedCriteria = new Set<string>(
+  [...mutatedIds].filter(id => id.includes('.')))
 const exemptIds = new Map<string, string>(
   (mutCfg.exemptions ?? []).map((e: any) => [e.req, e.why]))
 
@@ -147,14 +157,15 @@ for (const r of reqs) {
   const v = requirementVerdict(r, {
     tested, mutated, exempt, impl: impl.length, refs: refs.length,
     claimedCriteria: testedCriteria, exemptIds: new Set(exemptIds.keys()),
+    mutatedCriteria,
   })
   const { flag, claimed, exempted } = v
   hard += v.hard
   gaps.push(...v.gaps)
 
   rows.push(`  ${flag} ${r.id.padEnd(3)} ${r.cat}  测试${tested ? '✓' : '·'} ` +
-            `变异${mutated ? '✓' : exempt ? '⊘' : '·'}  ` +
-            `${criteriaCell(claimed, exempted, r.accept.length)}  ` +
+            `${mutationCell(mutated, exempt)}  ` +
+            `${criteriaCell(claimed, v.mutatedCrit, exempted, r.accept.length)}  ` +
             `引用 ${refs.length} 处`)
 }
 
