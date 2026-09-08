@@ -81,6 +81,31 @@ export function wiringFault(mut: { by?: string; kills?: string }): WiringFault |
   return mut.kills === undefined ? 'missing-kills' : undefined
 }
 
+/**
+ * 验证者源码里**打完汇总立刻退出**的写法 —— 交回撞上的那一段，没撞上交回 `undefined`。
+ *
+ * 判定认的是那句自成一行的失败汇总，而汇总是最后打的：紧跟着硬退出的话，
+ * 输出接的又是管道（变异就是这么跑的），那一行可能还没写出去就被截掉 ——
+ * 退出码非零、汇总没有，判定只能判 `crashed`。**一条真被抓到的变异被报成跑不起来，
+ * 而且时红时绿**（评审指出）。
+ *
+ * 实测（40 次一组，本机 4 核）：积压全在另一条流上时一次不丢 —— 我上一轮只量了这一种，
+ * 结论下早了。可**自检真失败的时候诊断和汇总都在 stderr**，每条失败还要 dump 十几行：
+ * stderr 积压 400 行丢 18 次，3400 行丢 31 次。换成设退出码、让进程自己走完，两种都是 0 次。
+ *
+ * 这条判据顺带买到第二样东西：**没有提前退出，就没有绕过汇总的路**。
+ * 自检原先「孤儿文件」那一条就是打完自己那句话直接退出，于是它的失败根本到不了汇总
+ * ——「每条失败路径都经过同一句汇总」从此不必靠读代码相信。
+ *
+ * ⚠️ 扫的是源码字面，**注释也算**（和 `mutate-restore.ts` 那条同步等法的判据同一处境）。
+ * 只提名字不带括号的是散文，不算；要举反例得把那一串拼出来，别写成整串。
+ */
+const HARD_EXIT = /\bprocess\.exit\s*\(/
+
+export function exitRace(source: string): string | undefined {
+  return HARD_EXIT.exec(source)?.[0]
+}
+
 export type RunVerdict = 'caught' | 'elsewhere' | 'crashed' | 'survived'
 
 /**

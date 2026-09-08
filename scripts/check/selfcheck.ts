@@ -615,7 +615,7 @@ writeFileSync(join(dupTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify
 // mutate：出来的必须是重复那一条 —— 先后由 attributionFault 定，这里验的是
 // 入口照着它说的印、并且真的以 1 结束
 // 不加 `dupMut &&` 那道真值判断：`run` 在退出码对得上、stderr 却是空的时候也返回空串，
-// 于是「诊断被删光、只剩 process.exit(1)」会从这儿滑过去（评审指出）
+// 于是「诊断被删光、只剩那句退出」会从这儿滑过去（评审指出）
 const dupMut = runTool('mutate 遇到重复编号即以退出码 1 结束', 'mutate', [], dupTmp, { status: 1 })
 if (!dupMut.includes('个编号重复')) {
   failed++; console.error('  ✗ mutate 的输出里没有「编号重复」那条诊断')
@@ -694,20 +694,31 @@ const byChain = new Set(
   chain.split('&&').map(s => s.trim().replace(/^npm run /, '').replace(/^npm /, ''))
     .flatMap(name => (steps[name] ?? '').match(/scripts\/[\w/.-]+\.ts/) ?? []))
 
+// 孤儿也计进 failed，不再自带一句汇总、也不再自己退出。原先那一条打的是
+// 「✗ 脚本自检：N 个可执行文件谁都没跑过」，形状与末尾那句汇总不同 —— 而判定认的是
+// 末尾那一句，于是一条把它踩红的 `by: "selfcheck"` 变异会被判成「跑不起来」（评审指出）。
+// 归到同一句汇总下面，「每条失败路径都经过它」才是真的，而不是读代码读出来的。
 const orphans = walk('scripts')
   .filter(f => !covered.has(f) && !byChain.has(f) && !(f in EXEMPT))
 if (orphans.length) {
-  console.error(`\n✗ 脚本自检：${orphans.length} 个可执行文件谁都没跑过\n`)
+  failed += orphans.length
+  console.error(`\n  ✗ ${orphans.length} 个可执行文件谁都没跑过\n`)
   for (const f of orphans) console.error(`  · ${f}`)
   console.error('\n  接进本文件、接进 `npm run check`，或写进 EXEMPT 说明理由。')
   console.error('  不接也不写的话，末尾那句「都有出处」就是假的。')
-  process.exit(1)
 }
 
-if (failed) { console.error(`\n✗ 脚本自检：${failed} 项失败`); process.exit(1) }
-const all = walk('scripts')
-const here = all.filter(f => covered.has(f)).length
-const inChain = all.filter(f => !covered.has(f) && byChain.has(f)).length
-console.log(`\n✓ 脚本自检：${all.length} 个可执行文件都有出处 ——`
-  + ` 本文件从头跑到尾 ${here} 个，检查链里各自成一步 ${inChain} 个`
-  + `，具名豁免 ${Object.keys(EXEMPT).length} 个`)
+// **设退出码，不硬退出。** 汇总是最后打的，输出接的又是管道（变异就是这么跑的），
+// 紧跟着硬退出会把它截掉 —— 实测 stderr 上积压 400 行时 40 次丢 18 次，而自检真失败时
+// 诊断和汇总都在 stderr。判定那边由 `exitRace` 守着这一条（`mutate-rule.ts`）。
+if (failed) {
+  console.error(`\n✗ 脚本自检：${failed} 项失败`)
+  process.exitCode = 1
+} else {
+  const all = walk('scripts')
+  const here = all.filter(f => covered.has(f)).length
+  const inChain = all.filter(f => !covered.has(f) && byChain.has(f)).length
+  console.log(`\n✓ 脚本自检：${all.length} 个可执行文件都有出处 ——`
+    + ` 本文件从头跑到尾 ${here} 个，检查链里各自成一步 ${inChain} 个`
+    + `，具名豁免 ${Object.keys(EXEMPT).length} 个`)
+}

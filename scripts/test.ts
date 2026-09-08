@@ -9,7 +9,7 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
-import { VERIFIERS, judgeRun, killsMatched, wiringFault } from './check/mutate-rule.js'
+import { VERIFIERS, exitRace, judgeRun, killsMatched, wiringFault } from './check/mutate-rule.js'
 import {
   beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, testRunning,
   trackTest,
@@ -2658,11 +2658,26 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
   const SC = VERIFIERS.selfcheck
   // 「跑哪个脚本」和「它的汇总长什么样」在同一处声明。分两个地方放的话，换一边不换
   // 另一边的症状是「它真的红了，却被判成跑不起来」—— 一个不响的假阴性
-  // 断的是「这条路径真指着一个入口」，不是把同一个常量抄一遍 —— 抄一遍的那种
-  // 路径写错了照样绿，而路径写错的样子是每一条接线变异都「跑不起来」，不是「路径写错了」
+  // 汇总是最后打的，紧跟着硬退出会在管道上把它截掉 —— 退出码非零、汇总没有，
+  // 判定只能判「跑不起来」，而那是一条真被抓到的变异，还时红时绿（评审指出）。
+  // 反例得把那一串拼出来：本文件自己也是验证者，写成整串的话下面那条循环会判到它自己
+  const hardExit = `process.${'exit'}(1)`
+  eq('打完汇总就硬退出的写法要认出来',
+    exitRace(`console.error(汇总); ${hardExit}`), `process.${'exit'}(`)
+  eq('只提名字不调用的是散文，不算', exitRace('// 别用 process.exit 那种写法'), undefined)
+
+  // 逐个验证者验两件事。**读文件要带保护**：路径指空时直接读会抛，而抛在这里的样子是
+  // 「测试进程崩了」—— 判定如实报「跑不起来」，于是 M-H14-r 那条本该被断言抓到的变异
+  // 变成了崩溃。一条只靠崩溃被抓到的变异什么也证明不了，这正是四态要拦的东西
+  // （这个坑是变异集自己抓出来的，不是我读出来的）。
   for (const [name, v] of Object.entries(VERIFIERS)) {
-    ok(`${name} 这个验证者起的是一个真在的入口`,
-      existsSync(v.script) && rf(v.script, 'utf8').startsWith('#!'))
+    const src = existsSync(v.script) ? rf(v.script, 'utf8') : ''
+    // 断的是「这条路径真指着一个入口」，不是把同一个常量抄一遍 —— 抄一遍的那种
+    // 路径写错了照样绿，而路径写错的样子是每条接线变异都「跑不起来」，不是「路径写错了」
+    ok(`${name} 这个验证者起的是一个真在的入口`, src.startsWith('#!'))
+    // 没有提前退出，就没有绕过汇总的路 —— 每条失败路径都经过同一句汇总，
+    // 这一条从此不必靠读代码相信
+    eq(`${name} 这个验证者不硬退出`, exitRace(src), undefined)
   }
   const scFail = '  ✗ 某条夹具：说错了\n\n✗ 脚本自检：1 项失败\n'
   eq('自检红了，按它自己那句汇总认', judgeRun(1, scFail, SC), 'caught')
@@ -3491,7 +3506,7 @@ if (claimsPublishable(process.env.MUTATING === '1', fail, startHash, endHash)) {
   }, null, 2))
 }
 
-// 不 process.exit()：stdout 接的是管道时（变异测试就是这么跑的），刚 console.log 的那几行可能
+// 不用硬退出那种写法：stdout 接的是管道时（变异测试就是这么跑的），刚 console.log 的那几行可能
 // 还没写出去就被 exit 截掉 —— 实测 8 次里 1 次「N 个失败」那一行丢了，进程退出码 1 却没有汇总，
 // mutate 判成「跑不起来」。设 exitCode 让进程自己走完，输出一定落地
 process.exitCode = fail ? 1 : 0

@@ -642,6 +642,22 @@
       "replace": "  test: { script: 'scripts/tests.ts',"
     },
     {
+      "id": "M-H14-x",
+      "req": "harness",
+      "why": "验证者里「打完汇总就立刻退出」的写法一律认不出来 —— 那句汇总在管道上被截掉之后，一条真被抓到的变异会被报成跑不起来，而且时红时绿",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "const HARD_EXIT = /\\bprocess\\.exit\\s*\\(/",
+      "replace": "const HARD_EXIT = /\\bprocess\\.exitImmediately\\s*\\(/"
+    },
+    {
+      "id": "M-H14-y",
+      "req": "harness",
+      "why": "只提到那个名字、没有真调用的散文也算撞上 —— 解释这条规矩的那句注释会把它自己判红",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "const HARD_EXIT = /\\bprocess\\.exit\\s*\\(/",
+      "replace": "const HARD_EXIT = /\\bprocess\\.exit\\b/"
+    },
+    {
       "id": "M-H14-t",
       "req": "harness",
       "why": "验证者的名字按「原型链上有没有」来认 —— 语言内建的那几个名字照样放行，而取出来的根本不是验证者，判定当场抛，人看见的是一个栈，不是「名字写错了」",
