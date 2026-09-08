@@ -42,7 +42,7 @@ import { endsOpen, quotedMask } from './check/quoted.js'
 import { tsxCommand } from './check/tsx-cmd.js'
 import {
   SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_SEEDS, SELFCHECK_TOOLS,
-  closure, selfVerifying,
+  closure, importsOf, selfVerifying, selfcheckSummary,
 } from './check/verifier-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
@@ -2651,6 +2651,8 @@ harness('变异测试：验证者崩了不算抓到')
   eq('非零退出且有失败汇总 → 抓到', judgeRun(1, '  ✗ 某条\n\n2 个失败\n', T), 'caught')
   eq('非零退出但没有汇总 → 跑不起来，不算抓到', judgeRun(1, "TypeError: Cannot read properties of undefined", T), 'crashed')
   eq('被信号杀掉（没有退出码）也不算抓到', judgeRun(null, '', T), 'crashed')
+  // 汇总已经打出来了也一样：那一次没跑完，剩下的断言一条也没说过话（ADR-70 的欠条）
+  eq('被信号杀掉：汇总已经打出来也不算', judgeRun(null, '  ✗ 某条\n\n2 个失败\n', T), 'crashed')
   eq('汇总必须是自成一行的那句，正文里提到「个失败」不算', judgeRun(1, '断言说：这里不该有 3 个失败的例子', T), 'crashed')
 }
 
@@ -2683,6 +2685,10 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
   }
   const scFail = '  ✗ 某条夹具：说错了\n\n✗ 脚本自检：1 项失败\n'
   eq('自检红了，按它自己那句汇总认', judgeRun(1, scFail, SC), 'caught')
+  // 汇总在两处各写了一份字面量：自检打的那句话、判定这边的正则。拿**自检真会打的那句**
+  // 去喂这条正则 —— 任一边改了文案这条当场红。各写各的话两边都绿，而每条接线变异
+  // 从此被误报成「跑不起来」，一个不响的假阴性（ADR-70 的欠条）
+  ok('自检真会打的那句汇总，判定认得出来', SC.summary.test(`\n${selfcheckSummary(3)}\n`))
   // 两句汇总不是一个形状：拿测试那一句去认自检的输出，每一条接线变异都会被判成跑不起来
   eq('拿另一个验证者的汇总去认，一次真的失败会被当成跑不起来', judgeRun(1, scFail, T), 'crashed')
 
@@ -2898,6 +2904,25 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   ok('预加载那一份在种子里', SELFCHECK_SEEDS.includes(`scripts/${SELFCHECK_PRELOAD}`))
   ok('三个工具一个不少', Object.values(SELFCHECK_TOOLS)
     .every(f => SELFCHECK_SEEDS.includes(`scripts/${f}`)))
+
+  // ---- 抽边：一个文件 import 了本仓库的哪些文件 ----
+  // 源码里写的是 `.js`（ESM 的规矩），图里要的是磁盘上的 `.ts`；相对路径按引它的那个
+  // 文件所在目录解，不然 `../lib/x.js` 会被解到根上去
+  eq('同目录的边，规格化成仓库根起算的 .ts',
+    importsOf('scripts/check/a.ts', `import { x } from './b.js'`),
+    { path: 'scripts/check/a.ts', to: ['scripts/check/b.ts'] })
+  eq('上一级的边也解得对',
+    importsOf('scripts/check/a.ts', `import { x } from '../lib/c.js'`).to, ['scripts/lib/c.ts'])
+  // 内建和第三方不是本仓库的文件，改不动也变异不了
+  eq('node 内建与第三方包不算边',
+    importsOf('scripts/a.ts', `import { readFileSync } from 'node:fs'\nimport z from 'tsx'`).to, [])
+  eq('同一个文件被引两次只算一条边',
+    importsOf('scripts/a.ts', `import { x } from './b.js'\nimport { y } from './b.js'`).to,
+    ['scripts/b.ts'])
+  // 判据故意写得宽：注释里提到的路径也收。两头不对称 —— 多收只是把闭包撑大、
+  // 多拦几条变异；少收就是**放行**一条自己验自己的变异（`closure` 头上同一条道理）
+  eq('注释里的也收 —— 宁可闭包偏大，不可偏小',
+    importsOf('scripts/a.ts', `// 早先是 from './old.js'`).to, ['scripts/old.ts'])
 
   // ---- 递归，不是只收一层 ----
   const graph = [

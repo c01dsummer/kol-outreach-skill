@@ -31,6 +31,9 @@ import {
 import { CLAIMS_PATH } from './claims.js'
 import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
 import { tsxCommand } from './tsx-cmd.js'
+import {
+  type Reaches, SELFCHECK_SEEDS, closure, importsOf, selfVerifying,
+} from './verifier-rule.js'
 
 interface Mut {
   id: string; req: string; why: string; file: string; find: string; replace: string
@@ -98,6 +101,35 @@ if (miswired.length) {
   console.error(`✗ 变异集：${miswired.length} 条的验证者接线不成立 —— 它们的绿或红都不算数\n`)
   for (const w of miswired) console.error(`  ${w}`)
   console.error('\n  by 只能写 mutate-rule.ts 认得的那几个；by 与 kills 同进同出，写一个就要写另一个。')
+  process.exit(1)
+}
+
+// 指名了验证者的变异，不许改**验证者自己要用的东西** —— 那是自己验自己，跑出来的
+// 绿或红都不算数（ADR-70「两处接缝」第二条）。判据在 `verifier-rule.ts`：
+// `importsOf` 抽边、`closure` 从种子递归收、`selfVerifying` 裁定。
+// 建图这一半留在入口，因为它要读文件（`docs/CONVENTIONS.md` 第 10 条）。
+//
+// 图里冒出来的路径**不一定存在**：抽边那条判据故意写得宽，注释里提到的路径也算。
+// 读不到的就不往下走，它自己仍留在闭包里 —— 闭包偏大只是多拦几条，偏小才是放行。
+const graph: Reaches[] = []
+const walked = new Set<string>()
+const pending = [...SELFCHECK_SEEDS]
+while (pending.length) {
+  const f = pending.pop()
+  if (f === undefined || walked.has(f)) continue
+  walked.add(f)
+  if (!existsSync(f)) continue
+  const node = importsOf(f, readFileSync(f, 'utf8'))
+  graph.push(node)
+  pending.push(...node.to)
+}
+const infra = closure(graph, SELFCHECK_SEEDS)
+const selfVerified = muts.filter(m => selfVerifying(m, infra))
+if (selfVerified.length) {
+  console.error(`✗ 变异集：${selfVerified.length} 条在自己验自己 —— 它们的绿或红都不算数\n`)
+  for (const m of selfVerified) console.error(`  ${m.id}  改的 ${m.file} 是 ${m.by} 自己要用的东西`)
+  console.error(`\n  验证基础设施闭包共 ${infra.length} 个文件。要么把变异挪到被测对象上，`
+                + '要么让缺省那个验证者来验它。')
   process.exit(1)
 }
 

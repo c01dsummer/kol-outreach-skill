@@ -21,7 +21,9 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { tsxCommand } from './tsx-cmd.js'
-import { SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS } from './verifier-rule.js'
+import {
+  SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS, selfcheckSummary,
+} from './verifier-rule.js'
 
 const EXEMPT: Record<string, string> = {}   // 目前无豁免
 
@@ -655,6 +657,25 @@ if (!badBy.includes('不认得')) {
   failed++; console.error('  ✗ mutate 没报出「写了 kills 却没写 by」')
 }
 
+// ---- 自己验自己的变异即以退出码 1 结束（隔离判据的入口那一半）----
+// 判据在 verifier-rule.ts（抽边、收闭包、裁定），由 scripts/test.ts 断言、四条负片守着；
+// 剩下的那一半是**入口真的建了图、真的调了它、并且以退出码 1 结束**。把那一整段从
+// mutate.ts 删掉，那些断言和负片照样全绿 —— 变异跑的是缺省那个验证者，够不到入口。
+// 夹具打在 check/mutate.ts 上：它是闭包的种子之一，在这个临时目录里没有源码可读也照样算数。
+const isoTmp = join(tmp, 'self-verify')
+mkdirSync(join(isoTmp, 'scripts', 'check'), { recursive: true })
+mkdirSync(join(isoTmp, 'docs'), { recursive: true })
+writeFileSync(join(isoTmp, 'docs', 'requirements.json'),
+  JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+writeFileSync(join(isoTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+  { id: 'M-X-e', req: 'X1', why: '改的是验证者自己要用的东西', by: 'selfcheck', kills: '某条夹具',
+    file: 'scripts/check/mutate.ts', find: 'x', replace: 'y' },
+] }), 'utf8')
+const selfVer = runTool('mutate 遇到自己验自己即以退出码 1 结束', 'mutate', [], isoTmp, { status: 1 })
+if (!selfVer.includes('在自己验自己')) {
+  failed++; console.error('  ✗ mutate 没报出「这条变异在自己验自己」')
+}
+
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
 // 一条写进文档、却从没被执行过的命令，等于没有 —— 在这里跑一次，证明它还活着。
 runTool('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'])
@@ -709,7 +730,7 @@ if (orphans.length) {
 // **设退出码，不硬退出**：汇总是最后打的，紧跟着硬退出会在管道上把它截掉
 // （实测 stderr 积压 400 行时 40 次丢 18 次）。由 `exitRace` 守着（`mutate-rule.ts`）。
 if (failed) {
-  console.error(`\n✗ 脚本自检：${failed} 项失败`)
+  console.error(`\n${selfcheckSummary(failed)}`)
   process.exitCode = 1
 } else {
   const all = walk('scripts')
