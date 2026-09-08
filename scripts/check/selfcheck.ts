@@ -695,12 +695,11 @@ mkdirSync(join(labelTmp, 'scripts', 'check'), { recursive: true })
 mkdirSync(join(labelTmp, 'docs'), { recursive: true })
 writeFileSync(join(labelTmp, 'docs', 'requirements.json'),
   JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
-// **那几行拼出来，不写成整串**（#84 评审抓过的同一个诱饵）：本文件就是 selfcheck，
-// 而清册认的是源码字面里任何一处「起名的函数 ＋ 单引号字面量」—— 写成整串的话，
-// 这三行夹具会被当成本文件真的声明了「甲」「乙」，凭空进真清册。
-// `scripts/test.ts` 里有一条断言专门盯着这件事。
-const q = "'"
-const declLine = (name: string) => `run(${q}${name}${q}, [])\n`
+// 这三行**可以**写成整串：清册按语法树数，串的内容是一个字符串字面量的值，
+// 结构上就不是调用（第一版按正则扫，那时它们真会被当成本文件自己的声明凭空进清册，
+// 与 #84 在闭包那一头抓过的是同一个诱饵）。`scripts/test.ts` 里留着一条断言盯住它 ——
+// 哪天换回按字面扫，那条当场红。
+const declLine = (name: string) => `endPath('${name}', [])\n`
 writeFileSync(join(labelTmp, 'scripts', 'check', 'selfcheck.ts'),
   declLine('甲') + declLine('乙') + declLine('乙'), 'utf8')
 writeFileSync(join(labelTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
