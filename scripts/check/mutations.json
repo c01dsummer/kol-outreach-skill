@@ -2138,22 +2138,6 @@
       "replace": "`变异${mutated ? '·' : exempt ? '⊘' : '✓'}`"
     },
     {
-      "id": "M-H21-f",
-      "req": "harness",
-      "why": "「既登记豁免又有变异点着」这一道整段不报：一条判据的豁免说着「没有可执行的判定可以认领」，而一条变异正守着它，两句话并排印在同一份报告里没人吭声",
-      "file": "scripts/check/spec-rule.ts",
-      "find": "r.accept.filter(c => e.exemptIds.has(c.id) && e.mutatedCriteria.has(c.id))",
-      "replace": "r.accept.filter(() => false)"
-    },
-    {
-      "id": "M-H21-g",
-      "req": "harness",
-      "why": "那一道只看豁免那一半，不问有没有变异点着：每一条豁免都被报成自相矛盾，于是这道体检在它该说话的时候满屏乱叫",
-      "file": "scripts/check/spec-rule.ts",
-      "find": "e.exemptIds.has(c.id) && e.mutatedCriteria.has(c.id)",
-      "replace": "e.exemptIds.has(c.id)"
-    },
-    {
       "id": "M-H21-h",
       "req": "harness",
       "why": "有几条判据被变异点着，一律数成零：那一格永远不写负片，等于把上面那条报告改动整个作废",

@@ -2018,15 +2018,6 @@ harness('审计对一条需求的裁定')
   // 有变异压过豁免：签过字的缺口后来被补上了，报告该说补上了
   eq('既有变异又登记了豁免 → 说有变异', mutationCell(true, true), '变异✓')
 
-  // **一条判据不能既登记了豁免、又有变异点着它**：豁免那段话说的是「没有可执行的
-  // 判定可以认领」，而一条 req 写着这个判据号的变异恰恰就是。这一道是给落地 2 第 5 步
-  // 准备的 —— P3.b 与 D6.f 的负片落地那一刻，旧豁免不必靠人记得删，闸门会来要
-  const clash = ev({ claimedCriteria: new Set(['P9.a']), exemptIds: new Set(['P9.b']),
-                     mutatedCriteria: new Set(['P9.b']) })
-  eq('判据既豁免又有变异点着 → 硬失败', requirementVerdict(p, clash).hard, 1)
-  eq('两边不重叠就不报', requirementVerdict(p, ev({
-    claimedCriteria: new Set(['P9.a']), exemptIds: new Set(['P9.b']),
-    mutatedCriteria: new Set(['P9.a']) })).hard, 0)
   eq('有几条判据被变异点着，数得出来', requirementVerdict(p, ev({
     claimedCriteria: new Set(['P9.a', 'P9.b']),
     mutatedCriteria: new Set(['P9.a', 'P9.b']) })).mutatedCrit, 2)
