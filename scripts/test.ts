@@ -12,8 +12,8 @@ import {
   JUDGMENT_EXEMPT, criterionMutations, deprecatedBlock, judgmentModules, ledger, unguarded,
 } from './check/audit-rule.js'
 import {
-  VERIFIERS, exitRace, judgeRun, killsMatched, labelFault, labelsOf, processFailed,
-  wiringFault,
+  VERIFIERS, exemptionCovered, exemptionLead, exitRace, judgeRun, killsMatched, labelFault,
+  labelsOf, processFailed, wiringFault,
 } from './check/mutate-rule.js'
 import {
   beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, testRunning,
@@ -2802,6 +2802,22 @@ harness('by 与 kills 同进同出：三种写错各有名字')
     eq(`语言内建的名字不算认得：${builtin}`,
       wiringFault({ by: builtin, kills: '某条夹具' }), 'unknown-verifier')
   }
+}
+
+harness('豁免那一行开头说的话，要跟变异集对得上')
+{
+  // 「无变异（显式缺口）」原先写死在入口里。落地 2 第 5 步起它变成假话 ——
+  // D6.f 挂着豁免、同时被 M-D6-j 真守着，同一份报告里两句话打架
+  eq('有变异写着这个编号 → 说有负片', exemptionCovered('D6.f', [{ req: 'D6.f' }]), true)
+  eq('一条变异都没有 → 说无变异', exemptionCovered('D6.f', []), false)
+  // 编号要逐字相同：判据比需求细，拿粗的去顶细的正是判据级计量当初要治的那件事
+  eq('需求号的变异不算守着它下面那条判据',
+    exemptionCovered('D6.f', [{ req: 'D6' }]), false)
+  eq('判据号的变异也不算守着整条需求',
+    exemptionCovered('D6', [{ req: 'D6.f' }]), false)
+
+  eq('有负片时那一行这么开头', exemptionLead(true), '已有负片指着它（豁免仍在册）')
+  eq('没有时照旧', exemptionLead(false), '无变异（显式缺口）')
 }
 
 harness('清册：点的那条夹具真的在，而且只有一条叫这个名字')

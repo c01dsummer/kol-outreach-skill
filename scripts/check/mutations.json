@@ -2192,6 +2192,40 @@
       "file": "scripts/check/audit-rule.ts",
       "find": "new Set(mutations.map(m => m.req).filter(id => id.includes('.')))",
       "replace": "new Set<string>()"
+    },
+    {
+      "id": "M-D6-j",
+      "req": "D6.f",
+      "why": "把四种收尾共用的那一行接线删掉：跑完、达标、预算用尽、出错中止，四条路一句都不说续跑要花多少钱，而用户手里就没有判断值不值得续跑的依据。这一行有意写在分支之前 ——四条路径不能各自坏掉，所以它们是一条判据不是四条",
+      "file": "scripts/collect.ts",
+      "find": "  console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": "collect 关键词跑完（退出码 0）也说续跑代价"
+    },
+    {
+      "id": "M-H23-a",
+      "req": "harness",
+      "why": "豁免那一行永远说「无变异」：一条判据明明已经有负片指着它，报告还印着它是没人守的缺口 —— 同一份报告里两句话打架，而这正是本次改动要治的",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return mutations.some(m => m.req === req)",
+      "replace": "return false"
+    },
+    {
+      "id": "M-H23-b",
+      "req": "harness",
+      "why": "编号改成前缀相等：一条记在需求名下的变异被当成守着它下面每一条判据，粗的顶了细的，正是判据级计量当初要治的那件事",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "mutations.some(m => m.req === req)",
+      "replace": "mutations.some(m => req.startsWith(m.req))"
+    },
+    {
+      "id": "M-H23-c",
+      "req": "harness",
+      "why": "那一行开头的两句话对调：有负片的说成没人守，没人守的说成已有负片 —— 一列的意思整个翻过来",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "covered ? '已有负片指着它（豁免仍在册）' : '无变异（显式缺口）'",
+      "replace": "covered ? '无变异（显式缺口）' : '已有负片指着它（豁免仍在册）'"
     }
   ],
   "exemptions": [
@@ -2204,8 +2238,7 @@
     {
       "req": "D6.f",
       "scope": "入口的接线，不是 lib 里的判定",
-      "why": "「四种收尾都把那句话打出来」是 collect.ts 里分支之前的一行接线。缺省那个验证者 scripts/test.ts 够不到入口，改在那里的变异只会「存活」，不会「被抓到」；改跑自检的那条路要在变异上写 by，这一处还没写（ADR-70）。与 P3.b、ADR-13 记过的处境相同，不在单元测试里伪造一个认领。那句话说什么由 lib/pipeline.ts 的 resumeCostLine 决定，那一半是 D6.e，有 M-D6-f／M-D6-g／M-D6-h 三条负片真守着。",
-      "mitigation": "由脚本自检真跑一遍守着：四种收尾各跑一次，每次同时验三样 —— 退出码（0／0／3／1）、stdout 里 summary.stopped 的取值（done／target／budget／error，只验那句话的话两条退出码 0 的路径会互相冒充）、以及 stderr 里那句话说的是「不花钱」还是「花钱 + 还剩多少」，且不得两句同时出现。反向验证过：把那句接线拆掉，四条夹具全红。变异看不到这一段，所以这条判据仍然登记为显式缺口，不假装它被变异守着。"
+      "why": "「四种收尾都把那句话打出来」是 collect.ts 里分支之前的一行接线。缺省那个验证者 scripts/test.ts 够不到入口，改在那里的变异只会「存活」，不会「被抓到」。**现在由 M-D6-j 真守着**：它删掉那一行，改跑自检来验，点名那条收尾夹具 —— 四条路一起红，判定给的是「被抓到」。豁免条目本条留着，撤它是落地 4 的事（ADR-70 第四条更正写明的分工）。那句话说什么由 lib/pipeline.ts 的 resumeCostLine 决定，那一半是 D6.e，有 M-D6-f／M-D6-g／M-D6-h 三条负片真守着。"
     },
     {
       "req": "P3.b",

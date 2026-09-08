@@ -26,7 +26,7 @@ import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import {
   type LabelFault, type RunVerdict, type Verifier, type WiringFault,
-  VERIFIERS, judgeRun, labelFault, labelsOf, wiringFault,
+  VERIFIERS, exemptionCovered, exemptionLead, judgeRun, labelFault, labelsOf, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
@@ -153,7 +153,8 @@ if (process.argv.includes('--brief')) {
   console.log('\n变异集 —— 每条变异「违反了什么」。不含实现原文，可以交给写测试的上下文。\n')
   for (const m of muts) console.log(`  ${m.id}  [${m.req}]  ${m.why}`)
   for (const e of exemptions) {
-    console.log(`  ⊘     [${e.req}]  无变异（显式缺口${e.scope === undefined ? '' : `，${e.scope}`}）：${e.why}`)
+    const lead = exemptionLead(exemptionCovered(e.req, muts))
+    console.log(`  ⊘     [${e.req}]  ${lead}${e.scope === undefined ? '' : `（${e.scope}）`}：${e.why}`)
   }
   console.log(`\n共 ${muts.length} 个变异、${exemptions.length} 处显式豁免。`)
   process.exit(0)
@@ -287,7 +288,7 @@ for (const m of muts) {
 
 console.log()
 for (const e of exemptions) {
-  console.log(`  ⊘ ${e.req} 无变异（显式缺口）：${e.why.split('。')[0]}。`)
+  console.log(`  ⊘ ${e.req} ${exemptionLead(exemptionCovered(e.req, muts))}：${e.why.split('。')[0]}。`)
 }
 
 if (survived.length || elsewhere.length || crashed.length || notApplied.length) {

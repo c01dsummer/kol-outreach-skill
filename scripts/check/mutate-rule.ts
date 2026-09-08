@@ -154,6 +154,29 @@ export function labelsOf(source: string, declares: readonly string[]): Map<strin
   return seen
 }
 
+/**
+ * 这条豁免的编号,有没有变异记在它名下。
+ *
+ * 报告里那句「无变异(显式缺口)」原先是写死的,而落地 2 第 5 步起它变成假话:
+ * D6.f 挂着豁免、同时被 `M-D6-j` 真守着,同一份报告里两句话打架。
+ *
+ * **只报事实,不判「豁免该不该撤」。** 后者要看 `scope`（豁免有,变异没有),而那是
+ * 落地 4 的事 —— 本记录有一条欠条逐字写着「按 `req` 判覆盖关系会误杀仍然有效的
+ * 部分豁免」,#88 的评审也正是照它把我造的那道硬失败拦下来的。这里只说
+ * 「有没有一条变异写着这个编号」,那是数据直接答得出来的。
+ *
+ * **编号要逐字相同**:`D6` 的变异不算守着 `D6.f`,反过来也不算 —— 判据比需求细,
+ * 拿粗的去顶细的正是判据级计量当初要治的那件事。
+ */
+export function exemptionCovered(req: string,
+  mutations: readonly { req: string }[]): boolean {
+  return mutations.some(m => m.req === req)
+}
+
+/** 报告里那条豁免开头怎么说 —— 排版留在判定里,与 `criteriaCell` 同一个理由。 */
+export const exemptionLead = (covered: boolean): string =>
+  covered ? '已有负片指着它（豁免仍在册）' : '无变异（显式缺口）'
+
 export type LabelFault = 'unknown-label' | 'ambiguous-label'
 
 /**
