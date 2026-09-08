@@ -633,8 +633,11 @@ if (!dupArch.includes('个编号重复')) {
 
 // ---- 变异的验证者接线不成立即以退出码 1 结束（M-H14-o…s 的入口那一半）----
 // 判定在 mutate-rule.ts、由 scripts/test.ts 断言；这一半是**入口真的拦下了**。
-// 两处写错都是静默的：验证者的名字不认得，判定拿到的是 undefined，当场抛在跑变异的
-// 那一段里，人看见的是一个栈；指名了验证者却漏了 kills，则只知道「那个验证者红了」。
+// 三种写错都是静默的：验证者的名字不认得，判定拿到的是 undefined，当场抛在跑变异的
+// 那一段里，人看见的是一个栈；指名了验证者却漏了 kills，则只知道「那个验证者红了」；
+// 而不写 by 却写了 kills 的那种**判定根本拦不住**（judgeRun 收的是验证者和点的名两个
+// 独立参数，不知道 by 这回事），只有入口这道校验看得见 —— 也就是说这一条的证据
+// 全在这儿，删掉它，「同进同出」那条规矩就一点东西都不剩。
 const wireTmp = join(tmp, 'bad-by')
 mkdirSync(join(wireTmp, 'scripts', 'check'), { recursive: true })
 mkdirSync(join(wireTmp, 'docs'), { recursive: true })
@@ -643,12 +646,15 @@ writeFileSync(join(wireTmp, 'docs', 'requirements.json'),
 writeFileSync(join(wireTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
   { id: 'M-X-b', req: 'X1', why: '指了一个不认得的验证者', file: 'a.ts', find: 'x', replace: 'y', by: '查无此人' },
   { id: 'M-X-c', req: 'X1', why: '指名了验证者却没说该红的是哪一条', file: 'a.ts', find: 'x', replace: 'z', by: 'selfcheck' },
+  { id: 'M-X-d', req: 'X1', why: '点了名却没说谁来验', file: 'a.ts', find: 'x', replace: 'w', kills: '某条夹具' },
 ] }), 'utf8')
 const badBy = runTool('mutate 的验证者接线不成立即以退出码 1 结束', 'mutate', [], wireTmp, { status: 1 })
 if (!badBy.includes('不认得')) {
   failed++; console.error('  ✗ mutate 没报出「指的验证者不认得」')
 } else if (!badBy.includes('没说该红的是哪一条夹具')) {
   failed++; console.error('  ✗ mutate 没报出「指名了验证者却漏了 kills」')
+} else if (!badBy.includes('写了 kills 却没写 by')) {
+  failed++; console.error('  ✗ mutate 没报出「写了 kills 却没写 by」')
 }
 
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。

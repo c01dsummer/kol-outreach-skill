@@ -10,6 +10,7 @@
  * 为的是接线这一层 —— 入口脚本里的接线 `scripts/test.ts` 根本够不到，
  * 长期只能靠 `exemptions` 里的显式缺口顶着（ADR-70）。指名验证者的还要写 `kills`，
  * 说清该红的是**哪一条夹具**：只知道「那个验证者红了」，归错功劳的变异照样全绿。
+ * 反过来也不许 —— 不写 `by` 就不许写 `kills`，理由在下面那道校验上。
  *
  * 用法：
  *   tsx scripts/check/mutate.ts            逐个应用变异并跑测试
@@ -34,7 +35,7 @@ interface Mut {
   id: string; req: string; why: string; file: string; find: string; replace: string
   /** 谁来验它。缺省 `test` —— 不写的那些逐字保持原来的行为 */
   by?: string
-  /** 该红的那一条夹具的名字。指名了验证者就必填 */
+  /** 该红的那一条夹具的名字。**和 `by` 同进同出** —— 写了 `by` 就必填，没写 `by` 就不许写 */
   kills?: string
 }
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
@@ -79,16 +80,31 @@ if (dirty.length) {
   process.exit(1)
 }
 
-// 指名验证者的那些，两处写错都会静默：认不得的名字让判定拿到 undefined，
-// 当场抛在跑变异的那一段里 —— 人看见的是一个栈，不是「验证者的名字写错了」；
-// 而漏了 kills 的那条只知道「那个验证者红了」，红在哪儿不问，
-// 于是一条把别处弄红的变异照样记成被抓到，正是 `elsewhere` 那一态要拦的东西。
+// `by` 与 `kills` **同进同出**，三种写错都在这里当场拦下。
+//
+// 前两种是静默的坏：认不得的验证者名让判定拿到 undefined，当场抛在跑变异的那一段里 ——
+// 人看见的是一个栈，不是「验证者的名字写错了」；而漏了 kills 的那条只知道
+// 「那个验证者红了」，红在哪儿不问，于是一条把别处弄红的变异照样记成被抓到，
+// 正是 `elsewhere` 那一态要拦的东西。
+//
+// 第三种是**不写 `by` 却写了 `kills`**。判定那边拦不住它：`judgeRun` 收的是
+// 「验证者」和「点的名」两个独立参数，压根不知道 `by` 这回事（它就该不知道 ——
+// 点名和挑验证者是两件事）。而缺省验证者的失败行也是「✗ 加名字」，所以这么写**真会生效**：
+// 一条不写 `by` 的变异照样能按第四态判。
+//
+// 拦，是因为那正是 ADR-70 明写**不承诺**的那条延伸：把 `kills` 从「只有指名了验证者的要写」
+// 推广到全部变异，能算出「没有任何变异点过名的断言」那张表 —— 而那要给两百多条补 label，
+// 且只是个下界，本条记录说它「各自要一次自己的评定，别顺手夹进去」。
+// 半开着门最坏：机制生效、没有规矩、没有记录。要开就单独开、单独记。
 const miswired = muts.flatMap(m => {
-  if (m.by === undefined) return []
+  if (m.by === undefined) {
+    return m.kills === undefined ? []
+      : [`${m.id}  写了 kills 却没写 by —— 缺省验证者那些不点名（ADR-70 说这条延伸另外评定）`]
+  }
   if (!(m.by in VERIFIERS)) {
     return [`${m.id}  指的验证者 ${m.by} 不认得 —— 认得的是 ${Object.keys(VERIFIERS).join('、')}`]
   }
-  if (m.by !== 'test' && m.kills === undefined) {
+  if (m.kills === undefined) {
     return [`${m.id}  指了验证者 ${m.by}，却没说该红的是哪一条夹具`]
   }
   return []
@@ -96,7 +112,7 @@ const miswired = muts.flatMap(m => {
 if (miswired.length) {
   console.error(`✗ 变异集：${miswired.length} 条的验证者接线不成立 —— 它们的绿或红都不算数\n`)
   for (const w of miswired) console.error(`  ${w}`)
-  console.error('\n  by 只能写 mutate-rule.ts 认得的那几个；写了 by 就要写 kills 点名那条夹具。')
+  console.error('\n  by 只能写 mutate-rule.ts 认得的那几个；by 与 kills 同进同出，写一个就要写另一个。')
   process.exit(1)
 }
 
