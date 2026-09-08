@@ -661,15 +661,19 @@ if (!badBy.includes('不认得')) {
 // 判据在 verifier-rule.ts（抽边、收闭包、裁定），由 scripts/test.ts 断言、四条负片守着；
 // 剩下的那一半是**入口真的建了图、真的调了它、并且以退出码 1 结束**。把那一整段从
 // mutate.ts 删掉，那些断言和负片照样全绿 —— 变异跑的是缺省那个验证者，够不到入口。
-// 夹具打在 check/mutate.ts 上：它是闭包的种子之一，在这个临时目录里没有源码可读也照样算数。
+// **夹具搭成两跳，打在叶子上。** 打在种子上的话，闭包不用读任何文件就含着它 ——
+// 建图那一整段删掉照样绿（评审指出，我原先正是这么写的）。现在从种子的源码里
+// 引出一跳、再引到叶子：入口必须真的读了文件、真的顺着边递归，叶子才进得了闭包。
 const isoTmp = join(tmp, 'self-verify')
 mkdirSync(join(isoTmp, 'scripts', 'check'), { recursive: true })
 mkdirSync(join(isoTmp, 'docs'), { recursive: true })
 writeFileSync(join(isoTmp, 'docs', 'requirements.json'),
   JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+writeFileSync(join(isoTmp, 'scripts', 'check', 'selfcheck.ts'), `import { a } from './hop.js'\n`, 'utf8')
+writeFileSync(join(isoTmp, 'scripts', 'check', 'hop.ts'), `import { b } from './leaf.js'\n`, 'utf8')
 writeFileSync(join(isoTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
   { id: 'M-X-e', req: 'X1', why: '改的是验证者自己要用的东西', by: 'selfcheck', kills: '某条夹具',
-    file: 'scripts/check/mutate.ts', find: 'x', replace: 'y' },
+    file: 'scripts/check/leaf.ts', find: 'x', replace: 'y' },
 ] }), 'utf8')
 const selfVer = runTool('mutate 遇到自己验自己即以退出码 1 结束', 'mutate', [], isoTmp, { status: 1 })
 if (!selfVer.includes('在自己验自己')) {

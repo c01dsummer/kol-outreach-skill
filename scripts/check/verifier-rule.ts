@@ -160,6 +160,35 @@ export function closure(graph: Reaches[], seeds: string[]): string[] {
 }
 
 /**
+ * 从种子出发，边读边递归，收出验证基础设施闭包。
+ *
+ * **遍历本身是判定，不是 I/O**（评审指出，`docs/CONVENTIONS.md` 第 10 条讲的正是这个 ——
+ * `lint-rule.ts` 的走文件树同理留在判定这边）：递归到多深、图里没有的怎么处理，
+ * 决定了这道闸门看得见多少文件。把它留在入口的话，「少走一层」这种坏法**没有任何断言
+ * 够得着** —— 闭包会静默缩回种子那几个，而缩小的那一头是放行。
+ *
+ * 读文件由调用方注入：入口传真的读法，测试传一张假的表，于是这段遍历不碰文件系统也验得了。
+ * `read` 交回 `undefined` 表示读不到 —— 那种路径不再往下走，但**它自己仍留在闭包里**
+ * （抽边那条判据故意写得宽，注释里提到的路径也算；偏大只是多拦几条，偏小才是放行）。
+ */
+export function infraClosure(read: (path: string) => string | undefined): string[] {
+  const graph: Reaches[] = []
+  const walked = new Set<string>()
+  const pending = [...SELFCHECK_SEEDS]
+  while (pending.length) {
+    const f = pending.pop()
+    if (f === undefined || walked.has(f)) continue
+    walked.add(f)
+    const source = read(f)
+    if (source === undefined) continue
+    const node = importsOf(f, source)
+    graph.push(node)
+    pending.push(...node.to)
+  }
+  return closure(graph, SELFCHECK_SEEDS)
+}
+
+/**
  * 这条变异算不算「自己验自己」。
  *
  * 只对指名了验证者的变异成立：缺省跑 `scripts/test.ts` 的那些不受这条判据管

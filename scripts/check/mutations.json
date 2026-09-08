@@ -1946,6 +1946,22 @@
       "replace": "  // 预加载那一份不进种子"
     },
     {
+      "id": "M-H17-k",
+      "req": "harness",
+      "why": "收出来的边不再往下走 —— 闭包只剩种子和它们直接引到的那一层，隔一层的基础设施全部放行，而闭包缩小的那一头正是放行",
+      "file": "scripts/check/verifier-rule.ts",
+      "find": "    pending.push(...node.to)\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H17-l",
+      "req": "harness",
+      "why": "读到的边一条都不记进图里 —— 闭包缩回种子那几个，除种子之外的验证基础设施全部放行",
+      "file": "scripts/check/verifier-rule.ts",
+      "find": "    graph.push(node)\n",
+      "replace": ""
+    },
+    {
       "id": "M-H17-h",
       "req": "harness",
       "why": "自检末尾那句失败汇总换了说法 —— 判定那边认的还是老那句，于是每一条指名自检的变异都被误报成跑不起来，而两边的测试照样全绿",

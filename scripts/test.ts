@@ -42,7 +42,7 @@ import { endsOpen, quotedMask } from './check/quoted.js'
 import { tsxCommand } from './check/tsx-cmd.js'
 import {
   SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_SEEDS, SELFCHECK_TOOLS,
-  closure, importsOf, selfVerifying, selfcheckSummary,
+  closure, importsOf, infraClosure, selfVerifying, selfcheckSummary,
 } from './check/verifier-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
@@ -2934,6 +2934,21 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   eq('每个种子各自走一遍', closure(graph, ['a.ts', 'x.ts']), ['a.ts', 'b.ts', 'c.ts', 'x.ts'])
   // 图里没有的仍然进闭包、只是不再往下走 —— 悄悄丢掉会让闭包偏小
   eq('图里没有的路径也算在闭包里', closure(graph, ['zzz.ts']), ['zzz.ts'])
+
+  // ---- 边读边递归：遍历本身是判定，不是 I/O ----
+  // 读法由调用方注入，所以这段不碰文件系统也验得了。搭一条两跳的链：种子引一跳、
+  // 一跳引叶子。少走一层的话叶子进不了闭包，而闭包缩小的那一头是**放行**（评审指出）
+  const fake = new Map([
+    ['scripts/check/selfcheck.ts', `import { a } from './hop.js'`],
+    ['scripts/check/hop.ts', `import { b } from './leaf.js'`],
+  ])
+  const walked = infraClosure(f => fake.get(f))
+  ok('一跳的收得到', walked.includes('scripts/check/hop.ts'))
+  ok('两跳的也收得到 —— 只走一层的话它不在', walked.includes('scripts/check/leaf.ts'))
+  ok('种子一个不少', SELFCHECK_SEEDS.every(s => walked.includes(s)))
+  ok('没被谁引到的不算进来', !walked.includes('scripts/check/无人引用.ts'))
+  // 叶子那份源码压根读不到（假表里没有它），它仍然在闭包里 —— 读不到只是不再往下走
+  ok('读不到源码的路径自己仍在闭包里', walked.includes('scripts/check/leaf.ts'))
 
   // ---- 谁受这条判据管 ----
   const infra = ['scripts/check/mutate-rule.ts']

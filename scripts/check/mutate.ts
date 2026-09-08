@@ -31,9 +31,7 @@ import {
 import { CLAIMS_PATH } from './claims.js'
 import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
 import { tsxCommand } from './tsx-cmd.js'
-import {
-  type Reaches, SELFCHECK_SEEDS, closure, importsOf, selfVerifying,
-} from './verifier-rule.js'
+import { infraClosure, selfVerifying } from './verifier-rule.js'
 
 interface Mut {
   id: string; req: string; why: string; file: string; find: string; replace: string
@@ -105,25 +103,10 @@ if (miswired.length) {
 }
 
 // 指名了验证者的变异，不许改**验证者自己要用的东西** —— 那是自己验自己，跑出来的
-// 绿或红都不算数（ADR-70「两处接缝」第二条）。判据在 `verifier-rule.ts`：
-// `importsOf` 抽边、`closure` 从种子递归收、`selfVerifying` 裁定。
-// 建图这一半留在入口，因为它要读文件（`docs/CONVENTIONS.md` 第 10 条）。
-//
-// 图里冒出来的路径**不一定存在**：抽边那条判据故意写得宽，注释里提到的路径也算。
-// 读不到的就不往下走，它自己仍留在闭包里 —— 闭包偏大只是多拦几条，偏小才是放行。
-const graph: Reaches[] = []
-const walked = new Set<string>()
-const pending = [...SELFCHECK_SEEDS]
-while (pending.length) {
-  const f = pending.pop()
-  if (f === undefined || walked.has(f)) continue
-  walked.add(f)
-  if (!existsSync(f)) continue
-  const node = importsOf(f, readFileSync(f, 'utf8'))
-  graph.push(node)
-  pending.push(...node.to)
-}
-const infra = closure(graph, SELFCHECK_SEEDS)
+// 绿或红都不算数（ADR-70「两处接缝」第二条）。**整条判据都在 `verifier-rule.ts`**，
+// 连遍历也在：递归到多深是判定，不是 I/O（评审指出）—— 留在入口的话，「少走一层」
+// 这种坏法没有任何断言够得着，而闭包缩小的那一头是放行。入口只出一个读法。
+const infra = infraClosure(f => existsSync(f) ? readFileSync(f, 'utf8') : undefined)
 const selfVerified = muts.filter(m => selfVerifying(m, infra))
 if (selfVerified.length) {
   console.error(`✗ 变异集：${selfVerified.length} 条在自己验自己 —— 它们的绿或红都不算数\n`)
