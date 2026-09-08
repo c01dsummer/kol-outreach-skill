@@ -53,6 +53,34 @@ export const VERIFIERS: Record<string, Verifier> = {
   selfcheck: { script: 'scripts/check/selfcheck.ts', summary: /(^|\n)✗ 脚本自检：\d+ 项失败\s*(\n|$)/ },
 }
 
+/**
+ * `by` 与 `kills` 这一对写得成不成立 —— 三种不成立各有名字，成立时返回 `undefined`。
+ *
+ * 判定在这里、打印在入口，理由是 `docs/CONVENTIONS.md` 第 10 条：有语义的就该能被测。
+ * 同一个文件里的另外两道体检（记在谁名下、why 夹不夹带实现原文）早就是这个形状
+ * （`attribution-rule.ts` / `why-rule.ts`），这一道原先留在入口里是它自己不合群。
+ *
+ * 三种各堵一个坑：
+ *
+ * | 不成立 | 不拦会怎样 |
+ * |---|---|
+ * | `unknown-verifier` | 判定拿到的不是验证者，当场抛在跑变异的那一段里 —— 人看见的是一个栈，不是「名字写错了」 |
+ * | `missing-kills` | 只知道「那个验证者红了」，红在哪儿不问，一条把别处弄红的变异照样记成被抓到 |
+ * | `kills-without-by` | 那是记录明写要另外评定的延伸：机制生效、没有规矩、没有记录 |
+ *
+ * ⚠️ **认的是自有键，不是「原型链上有没有」。** 后者会放行语言内建的那几个名字
+ * （评审指出）：它们「在」这个对象上，取出来却根本不是验证者，于是这道体检
+ * 在它唯一该说话的时候抛了一个栈 —— 正是它存在的理由被它自己弄没了。
+ * 实测四个内建名字全部放行、全部在判定那一步崩。
+ */
+export type WiringFault = 'unknown-verifier' | 'missing-kills' | 'kills-without-by'
+
+export function wiringFault(mut: { by?: string; kills?: string }): WiringFault | undefined {
+  if (mut.by === undefined) return mut.kills === undefined ? undefined : 'kills-without-by'
+  if (!Object.hasOwn(VERIFIERS, mut.by)) return 'unknown-verifier'
+  return mut.kills === undefined ? 'missing-kills' : undefined
+}
+
 export type RunVerdict = 'caught' | 'elsewhere' | 'crashed' | 'survived'
 
 /**

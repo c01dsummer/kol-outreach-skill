@@ -642,6 +642,38 @@
       "replace": "  test: { script: 'scripts/tests.ts',"
     },
     {
+      "id": "M-H14-t",
+      "req": "harness",
+      "why": "验证者的名字按「原型链上有没有」来认 —— 语言内建的那几个名字照样放行，而取出来的根本不是验证者，判定当场抛，人看见的是一个栈，不是「名字写错了」",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (!Object.hasOwn(VERIFIERS, mut.by)) return 'unknown-verifier'",
+      "replace": "  if (!(mut.by in VERIFIERS)) return 'unknown-verifier'"
+    },
+    {
+      "id": "M-H14-w",
+      "req": "harness",
+      "why": "验证者的名字认不认得一律放行 —— 写错的名字一路走到跑变异那一段才抛，那一刻报出来的是一个栈，指不回写错的那一行",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (!Object.hasOwn(VERIFIERS, mut.by)) return 'unknown-verifier'\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H14-u",
+      "req": "harness",
+      "why": "点了名却不说谁来验也算成立 —— 那正是本条记录明写要另外评定的延伸，机制生效、没有规矩、没有记录",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (mut.by === undefined) return mut.kills === undefined ? undefined : 'kills-without-by'",
+      "replace": "  if (mut.by === undefined) return undefined"
+    },
+    {
+      "id": "M-H14-v",
+      "req": "harness",
+      "why": "指了验证者却不点名也算成立 —— 只知道那个验证者红了，红在哪儿不问，一条把别处弄红的变异照样被记成抓到",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return mut.kills === undefined ? 'missing-kills' : undefined",
+      "replace": "  return undefined"
+    },
+    {
       "id": "M-H14-b",
       "req": "harness",
       "why": "覆盖记录的指纹只算检查链自己那个子目录 —— 别处的实现改坏了、测试跟着崩了，指纹照旧对得上，上一次的记录成了这一次的证据",

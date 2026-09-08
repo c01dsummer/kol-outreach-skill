@@ -26,7 +26,10 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
-import { type RunVerdict, type Verifier, VERIFIERS, judgeRun } from './mutate-rule.js'
+import {
+  type RunVerdict, type Verifier, type WiringFault,
+  VERIFIERS, judgeRun, wiringFault,
+} from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
 import { tsxCommand } from './tsx-cmd.js'
@@ -80,34 +83,24 @@ if (dirty.length) {
   process.exit(1)
 }
 
-// `by` 与 `kills` **同进同出**，三种写错都在这里当场拦下。
+// `by` 与 `kills` **同进同出**，三种写错都在开跑之前拦下 —— 判据在 `mutate-rule.ts`
+// 的 `wiringFault`，这里只把它的裁定翻成人话（`docs/CONVENTIONS.md` 第 10 条）。
 //
-// 前两种是静默的坏：认不得的验证者名让判定拿到 undefined，当场抛在跑变异的那一段里 ——
-// 人看见的是一个栈，不是「验证者的名字写错了」；而漏了 kills 的那条只知道
-// 「那个验证者红了」，红在哪儿不问，于是一条把别处弄红的变异照样记成被抓到，
-// 正是 `elsewhere` 那一态要拦的东西。
-//
-// 第三种是**不写 `by` 却写了 `kills`**。判定那边拦不住它：`judgeRun` 收的是
-// 「验证者」和「点的名」两个独立参数，压根不知道 `by` 这回事（它就该不知道 ——
-// 点名和挑验证者是两件事）。而缺省验证者的失败行也是「✗ 加名字」，所以这么写**真会生效**：
-// 一条不写 `by` 的变异照样能按第四态判。
-//
-// 拦，是因为那正是 ADR-70 明写**不承诺**的那条延伸：把 `kills` 从「只有指名了验证者的要写」
-// 推广到全部变异，能算出「没有任何变异点过名的断言」那张表 —— 而那要给两百多条补 label，
-// 且只是个下界，本条记录说它「各自要一次自己的评定，别顺手夹进去」。
-// 半开着门最坏：机制生效、没有规矩、没有记录。要开就单独开、单独记。
+// 为什么非拦不可，三种各不相同：前两种是**静默的坏**（一个抛栈、一个把别处的红算成
+// 自己的功劳，判据头上写着）；第三种「不写 by 只写 kills」则相反 —— 它**真会生效**：
+// `judgeRun` 收的是「验证者」和「点的名」两个独立参数，压根不知道 `by` 这回事
+// （它就该不知道，点名和挑验证者是两件事），而缺省验证者的失败行也是「✗ 加名字」。
+// 正因为生效才要拦：那是 ADR-70 明写**不承诺**的那条延伸（把 `kills` 推广到全部变异，
+// 算出「没有任何变异点过名的断言」那张表），记录自己说它「各自要一次自己的评定，
+// 别顺手夹进去」。半开着门最坏：机制生效、没有规矩、没有记录。
+const SAY: Record<WiringFault, (m: Mut) => string> = {
+  'unknown-verifier': m => `指的验证者 ${m.by} 不认得 —— 认得的是 ${Object.keys(VERIFIERS).join('、')}`,
+  'missing-kills': m => `指了验证者 ${m.by}，却没说该红的是哪一条夹具`,
+  'kills-without-by': () => '写了 kills 却没写 by —— 缺省验证者那些不点名（ADR-70 说这条延伸另外评定）',
+}
 const miswired = muts.flatMap(m => {
-  if (m.by === undefined) {
-    return m.kills === undefined ? []
-      : [`${m.id}  写了 kills 却没写 by —— 缺省验证者那些不点名（ADR-70 说这条延伸另外评定）`]
-  }
-  if (!(m.by in VERIFIERS)) {
-    return [`${m.id}  指的验证者 ${m.by} 不认得 —— 认得的是 ${Object.keys(VERIFIERS).join('、')}`]
-  }
-  if (m.kills === undefined) {
-    return [`${m.id}  指了验证者 ${m.by}，却没说该红的是哪一条夹具`]
-  }
-  return []
+  const fault = wiringFault(m)
+  return fault === undefined ? [] : [`${m.id}  ${SAY[fault](m)}`]
 })
 if (miswired.length) {
   console.error(`✗ 变异集：${miswired.length} 条的验证者接线不成立 —— 它们的绿或红都不算数\n`)

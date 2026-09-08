@@ -631,13 +631,11 @@ if (!dupArch.includes('个编号重复')) {
   failed++; console.error('  ✗ arch-sync 的输出里没有「编号重复」那条诊断')
 }
 
-// ---- 变异的验证者接线不成立即以退出码 1 结束（M-H14-o…s 的入口那一半）----
-// 判定在 mutate-rule.ts、由 scripts/test.ts 断言；这一半是**入口真的拦下了**。
-// 三种写错都是静默的：验证者的名字不认得，判定拿到的是 undefined，当场抛在跑变异的
-// 那一段里，人看见的是一个栈；指名了验证者却漏了 kills，则只知道「那个验证者红了」；
-// 而不写 by 却写了 kills 的那种**判定根本拦不住**（judgeRun 收的是验证者和点的名两个
-// 独立参数，不知道 by 这回事），只有入口这道校验看得见 —— 也就是说这一条的证据
-// 全在这儿，删掉它，「同进同出」那条规矩就一点东西都不剩。
+// ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----
+// 判据是 mutate-rule.ts 的 wiringFault，由 scripts/test.ts 断言、M-H14-t/u/v/w 四条负片
+// 守着；剩下的那一半是**入口真的调了它、并且以退出码 1 结束**，还把三种裁定各翻成
+// 一句人话 —— 把这一整段删掉，那四条负片和那些断言照样全绿，因为变异跑的是缺省
+// 那个验证者，够不到入口。三种写错各喂一条，诊断也逐条对。
 const wireTmp = join(tmp, 'bad-by')
 mkdirSync(join(wireTmp, 'scripts', 'check'), { recursive: true })
 mkdirSync(join(wireTmp, 'docs'), { recursive: true })

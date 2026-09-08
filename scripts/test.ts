@@ -9,7 +9,7 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
-import { VERIFIERS, judgeRun, killsMatched } from './check/mutate-rule.js'
+import { VERIFIERS, judgeRun, killsMatched, wiringFault } from './check/mutate-rule.js'
 import {
   beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, testRunning,
   trackTest,
@@ -2692,6 +2692,28 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
   // 这条断言照样绿，而 kills 又开始把崩溃算成抓到
   eq('进程级的失败带记号，不算那条夹具红了',
     killsMatched(`  ✗ 某条夹具${SELFCHECK_PROCESS_MARK}：预期以退出码 0 结束，实际是 1`, '某条夹具'), false)
+}
+
+harness('by 与 kills 同进同出：三种写错各有名字')
+{
+  // 两百多条不写这一对的逐字保持原样；写全了的也成立
+  eq('两个都不写 → 成立', wiringFault({}), undefined)
+  eq('两个都写了 → 成立', wiringFault({ by: 'selfcheck', kills: '某条夹具' }), undefined)
+
+  // 三种不成立各堵一个坑。判定给的是名字不是一句话 —— 话由入口说（第 10 条）
+  eq('验证者的名字不认得', wiringFault({ by: '查无此人', kills: '某条夹具' }), 'unknown-verifier')
+  eq('指了验证者却没点名', wiringFault({ by: 'selfcheck' }), 'missing-kills')
+  eq('点了名却没说谁来验', wiringFault({ kills: '某条夹具' }), 'kills-without-by')
+  // 缺省那个验证者写出来也一样要点名 —— 不然那个字段写了等于没写
+  eq('把缺省的验证者写出来，也要点名', wiringFault({ by: 'test' }), 'missing-kills')
+
+  // 按「原型链上有没有」来认的话，语言内建的那几个名字会被放行，而取出来的根本不是
+  // 验证者：判定当场抛，人看见的是一个栈，不是「名字写错了」—— 这道体检唯一该说话的
+  // 时候把自己弄哑了（评审指出）。四个内建名字都试，一个都不许放行
+  for (const builtin of ['constructor', 'valueOf', 'hasOwnProperty', 'propertyIsEnumerable']) {
+    eq(`语言内建的名字不算认得：${builtin}`,
+      wiringFault({ by: builtin, kills: '某条夹具' }), 'unknown-verifier')
+  }
 }
 
 harness('变异跑到一半被打断：动过的源文件要还回去')
