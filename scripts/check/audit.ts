@@ -9,13 +9,15 @@
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './audit-rule.js'
+import {
+  JUDGMENT_EXEMPT, criterionMutations, deprecatedBlock, judgmentModules, ledger, unguarded,
+} from './audit-rule.js'
 import {
   CLAIMS_PATH, SOURCE_DIR, claimsFresh, claimsReadFault, claimsWellFormed, fingerprint, sourceFiles,
   type Claims,
 } from './claims.js'
 import {
-  REDLINE_CAT, criteriaCell, requirementVerdict, tensionEvidence, tensionVerdict,
+  REDLINE_CAT, criteriaCell, mutationCell, requirementVerdict, tensionEvidence, tensionVerdict,
   type Req, type Tension,
 } from './spec-rule.js'
 const spec = JSON.parse(readFileSync('docs/requirements.json', 'utf8'))
@@ -115,6 +117,9 @@ const testedCriteria = new Set(claims.criteria)
 const claimedTensions = new Set(claims.tensions)
 
 const mutatedIds = new Set<string>(mutCfg.mutations.map((m: any) => m.req))
+// 分类是判定，留在这里就没有测试够得着（`audit-rule.ts` 的 `criterionMutations`，
+// 与紧邻的 `unguarded` / `ledger` 同一个理由，`docs/CONVENTIONS.md` 第 10 条）。
+const mutatedCriteria = criterionMutations(mutCfg.mutations)
 const exemptIds = new Map<string, string>(
   (mutCfg.exemptions ?? []).map((e: any) => [e.req, e.why]))
 
@@ -147,14 +152,15 @@ for (const r of reqs) {
   const v = requirementVerdict(r, {
     tested, mutated, exempt, impl: impl.length, refs: refs.length,
     claimedCriteria: testedCriteria, exemptIds: new Set(exemptIds.keys()),
+    mutatedCriteria,
   })
   const { flag, claimed, exempted } = v
   hard += v.hard
   gaps.push(...v.gaps)
 
   rows.push(`  ${flag} ${r.id.padEnd(3)} ${r.cat}  测试${tested ? '✓' : '·'} ` +
-            `变异${mutated ? '✓' : exempt ? '⊘' : '·'}  ` +
-            `${criteriaCell(claimed, exempted, r.accept.length)}  ` +
+            `${mutationCell(mutated, exempt)}  ` +
+            `${criteriaCell(claimed, v.mutatedCrit, exempted, r.accept.length)}  ` +
             `引用 ${refs.length} 处`)
 }
 

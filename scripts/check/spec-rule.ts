@@ -445,6 +445,8 @@ export interface Verdict {
   claimed: number
   /** 没认领、但已显式豁免的判据数 —— 不进硬失败,也不算「完整」,它们仍是显式缺口 */
   exempted: number
+  /** 有变异点着的判据数 */
+  mutatedCrit: number
 }
 
 /** 审计判定的输入。**全是已经算好的事实**,这个模块不读盘、不扫源码。 */
@@ -463,6 +465,8 @@ export interface Evidence {
   claimedCriteria: ReadonlySet<string>
   /** 显式豁免的编号（需求级与判据级共用一张表） */
   exemptIds: ReadonlySet<string>
+  /** 有变异点着的**判据**编号 —— 与 `mutated` 不是一回事,后者只认整条需求 */
+  mutatedCriteria: ReadonlySet<string>
 }
 
 /**
@@ -514,7 +518,8 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
   // 下面又把这几条列成显式缺口,一份报告里两种说法。跟变异那一栏统一:
   // 豁免了就打 `⊘`,不冒充完整。只往上抬 `✓` 这一档,`✗` 和 `·` 各有各的理由。
   if (flag === '✓' && exempted.length) flag = '⊘'
-  return { flag, gaps, hard, claimed: claimed.length, exempted: exempted.length }
+  const mutatedCrit = r.accept.filter(c => e.mutatedCriteria.has(c.id)).length
+  return { flag, gaps, hard, claimed: claimed.length, exempted: exempted.length, mutatedCrit }
 }
 
 /**
@@ -526,8 +531,22 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
  * 排版留在这里而不是入口脚本里:这一格恰恰是这条规矩唯一露给人看的地方,
  * 留在入口里没有任何一条测试够得着它,删掉半格照样全绿。
  */
-export const criteriaCell = (claimed: number, exempted: number, total: number): string =>
-  `判据 ${claimed}${exempted ? `+⊘${exempted}` : ''}/${total}`
+export const criteriaCell = (claimed: number, mutated: number,
+  exempted: number, total: number): string =>
+  `判据 ${claimed}${mutated ? `(负片 ${mutated})` : ''}${exempted ? `+⊘${exempted}` : ''}/${total}`
+
+/**
+ * 审计报告里「变异」那一格。
+ *
+ * 与上一格同一个理由留在这里:原先它拼在入口脚本的模板串里,**没有任何一条测试
+ * 够得着** —— 把 `⊘` 那一档整个删掉,全套测试与审计照样全绿(实测)。而这一格
+ * 恰恰是「整条需求显式豁免了变异」这件事唯一露给人看的地方。
+ *
+ * 三档互斥且有先后:**有变异守着**压过豁免(签过字的缺口后来被补上了,报告该说补上了),
+ * 豁免压过「没有」(有人签过字与没人管,在审计里分量完全不同)。
+ */
+export const mutationCell = (mutated: boolean, exempt: boolean): string =>
+  `变异${mutated ? '✓' : exempt ? '⊘' : '·'}`
 
 /**
  * 一个交点的认领编号。**两侧写反了也是同一个编号。**

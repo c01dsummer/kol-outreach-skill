@@ -54,6 +54,25 @@ export function unguarded(modules: string[], mutations: { file: string }[]): str
 }
 
 /**
+ * 变异里**记在判据名下**的那些编号。
+ *
+ * `req` 这一栏两种编号混着写 —— 今天 21 种需求号、3 种判据号 —— 而审计的「变异」
+ * 那一列只拿需求号去查。判据号那几条因此**对报告完全不可见**:`M-P5-a` 守着 P5.f、
+ * `M-P5-i` 与 `M-P5-l` 守着 P5.g、`M-P5-j` 守着 P5.h,四条变异一个字都没露过。
+ *
+ * 分开的判据是**带不带点**(`docs/requirements.json` 里判据号就长 `P5.f` 这样)。
+ * 两种编号都由 `attributionFault` 对着登记表校过,写岔了跑不起来 ——
+ * 所以这里只管分类,不管真假。
+ *
+ * 留在 `audit.ts` 里的话没有任何一条测试够得着(评审指出):把这个条件反过来、
+ * 或者干脆交个空集合,单元测试与那十一条新变异**照样全绿**,而报告悄悄退回
+ * 「判据级的负片一个字都没有」——**实测过**,不是推测。`docs/CONVENTIONS.md` 第 10 条。
+ */
+export function criterionMutations(mutations: { req: string }[]): Set<string> {
+  return new Set(mutations.map(m => m.req).filter(id => id.includes('.')))
+}
+
+/**
  * 审计的计量输入。**现行的参与计量,作废的只参与展示。**
  *
  * 抽出来的理由和上面两个一样,而且更硬:作废的需求算进覆盖率的分母,

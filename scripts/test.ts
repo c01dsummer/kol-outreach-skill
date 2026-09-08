@@ -8,7 +8,9 @@
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
-import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
+import {
+  JUDGMENT_EXEMPT, criterionMutations, deprecatedBlock, judgmentModules, ledger, unguarded,
+} from './check/audit-rule.js'
 import {
   VERIFIERS, exitRace, judgeRun, killsMatched, labelFault, labelsOf, processFailed,
   wiringFault,
@@ -18,7 +20,8 @@ import {
   trackTest,
 } from './check/mutate-restore.js'
 import {
-  active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, renderTables, requirementVerdict,
+  active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
+  requirementVerdict,
   rootProblems, tensionEvidence, tensionHasRedline, tensionKey, tensionVerdict,
   validateRegistry,
   type Evidence, type Req, type TensionEvidence,
@@ -1952,7 +1955,8 @@ harness('审计对一条需求的裁定')
   })
   const ev = (over: Partial<Evidence> = {}): Evidence => ({
     tested: true, mutated: true, exempt: false, impl: 1, refs: 1,
-    claimedCriteria: new Set<string>(), exemptIds: new Set<string>(), ...over,
+    claimedCriteria: new Set<string>(), exemptIds: new Set<string>(),
+    mutatedCriteria: new Set<string>(), ...over,
   })
 
   // 红线：每一条判据都要有认领，缺一条就是硬失败
@@ -1986,8 +1990,51 @@ harness('审计对一条需求的裁定')
   // 「判据 N/M」那一格是这条规矩唯一露给人看的地方，而它原先拼在入口脚本里 ——
   // 谁也够不着，把 `+⊘N` 整段删掉全套测试照样绿，报告就退回那种两可的写法
   // （M-H6-k、M-H6-l）。
-  eq('有豁免 → 那一格写出豁免了几条', criteriaCell(1, 1, 2), '判据 1+⊘1/2')
-  eq('没豁免 → 那一格不多写', criteriaCell(2, 0, 2), '判据 2/2')
+  eq('有豁免 → 那一格写出豁免了几条', criteriaCell(1, 0, 1, 2), '判据 1+⊘1/2')
+  eq('没豁免 → 那一格不多写', criteriaCell(2, 0, 0, 2), '判据 2/2')
+  // 变异的 req 两种编号混着写，判据号那几条此前对报告完全不可见。分类原先留在
+  // audit.ts 里，没有任何一条测试够得着 —— 把条件反过来或交个空集合，单元测试与
+  // 那十一条新变异照样全绿，而报告悄悄退回一个字都没有（评审指出，实测坐实）
+  eq('带点的是判据号，收进来',
+    [...criterionMutations([{ req: 'P5.f' }, { req: 'P5.g' }])].sort(), ['P5.f', 'P5.g'])
+  eq('不带点的是需求号，不收', [...criterionMutations([{ req: 'P5' }, { req: 'harness' }])], [])
+  eq('两种混着给，只挑判据号',
+    [...criterionMutations([{ req: 'P5' }, { req: 'P5.f' }, { req: 'harness' }])], ['P5.f'])
+  eq('同一条判据被点两次，集合里只算一个',
+    [...criterionMutations([{ req: 'P5.g' }, { req: 'P5.g' }])], ['P5.g'])
+  eq('一条变异都没有 → 空集合', criterionMutations([]).size, 0)
+
+  // 判据级的负片原先在报告里一个字都没有：变异那一列只认需求号，而变异表里
+  // 今天已有几条把 req 写成判据号（M-P5-a 守着 P5.f），它们完全不可见
+  eq('有判据级的负片 → 那一格写出几条', criteriaCell(3, 2, 0, 3), '判据 3(负片 2)/3')
+  eq('没有就不多写这一段', criteriaCell(3, 0, 0, 3), '判据 3/3')
+  eq('负片与豁免可以同时写出来', criteriaCell(1, 1, 1, 3), '判据 1(负片 1)+⊘1/3')
+
+  // 「变异」那一格原先拼在入口脚本的模板串里 —— 谁也够不着，把 ⊘ 那一档整个删掉，
+  // 全套测试与审计照样全绿（实测）。而它恰恰是「整条需求显式豁免了变异」唯一露给人看的地方
+  eq('有变异守着 → 打勾', mutationCell(true, false), '变异✓')
+  eq('没变异但整条豁免了 → 打豁免，不打缺口', mutationCell(false, true), '变异⊘')
+  eq('都没有 → 缺口', mutationCell(false, false), '变异·')
+  // 有变异压过豁免：签过字的缺口后来被补上了，报告该说补上了
+  eq('既有变异又登记了豁免 → 说有变异', mutationCell(true, true), '变异✓')
+
+  eq('有几条判据被变异点着，数得出来', requirementVerdict(p, ev({
+    claimedCriteria: new Set(['P9.a', 'P9.b']),
+    mutatedCriteria: new Set(['P9.a', 'P9.b']) })).mutatedCrit, 2)
+  eq('一条都没有就是 0', requirementVerdict(p, ev({
+    claimedCriteria: new Set(['P9.a', 'P9.b']) })).mutatedCrit, 0)
+
+  // 需求级豁免那一路此前一条测试都没有 —— 生产数据里三条豁免全是判据号，
+  // 于是它整段拆掉照样全绿（实测）。它是可达的（有人写一条需求号的豁免就走到），
+  // 一条判定模块里没人守着的分支
+  eq('红线整条豁免了变异 → 打豁免，不算硬失败', requirementVerdict(p, ev({
+    mutated: false, exempt: true,
+    claimedCriteria: new Set(['P9.a', 'P9.b']) })).flag, '⊘')
+  eq('红线整条豁免了变异 → 不进硬失败', requirementVerdict(p, ev({
+    mutated: false, exempt: true,
+    claimedCriteria: new Set(['P9.a', 'P9.b']) })).hard, 0)
+  eq('红线没变异又没豁免 → 硬失败', requirementVerdict(p, ev({
+    mutated: false, claimedCriteria: new Set(['P9.a', 'P9.b']) })).hard, 1)
 
   // 非红线：**一条都没认领同样是缺口**。原先只报「认领了一部分」那种，
   // 于是把仅有的那条认领删掉，缺口反而消失了 —— 一个删掉证据就能变绿的
