@@ -2044,7 +2044,7 @@
     {
       "id": "M-H20-g",
       "req": "harness",
-      "why": "只认单引号那一种字面量：反引号写的、静态一样定得下来的名字被判成定不下来，好好的点名从此立不住",
+      "why": "只认引号括起来的那一种字面量：反引号写的、静态一样定得下来的名字被判成定不下来，好好的点名从此立不住。引号那两种（单引号与双引号）不受影响",
       "file": "scripts/check/mutate-rule.ts",
       "find": "ts.isStringLiteralLike(node) ? node.text",
       "replace": "ts.isStringLiteral(node) ? node.text"
@@ -2088,6 +2088,14 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "declares: ['endPath'],",
       "replace": "declares: ['endPath', 'run'],"
+    },
+    {
+      "id": "M-H20-m",
+      "req": "harness",
+      "why": "在语法树之外再按字面扫一遍源码：串里、注释里写着的一句长得像声明的话又算数了，往任何一份源码里塞一句就能凭空往清册里加名字 —— 正是改用语法树要取消掉的那个洞",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  walk(tree)",
+      "replace": "  walk(tree)\n  for (const m of source.matchAll(/\\b(\\w+)\\(\\s*'([^']*)'/g)) {\n    if (declares.includes(m[1])) {\n      const had = seen.get(m[2])\n      seen.set(m[2], had === undefined ? 1 : had + 1)\n    }\n  }"
     }
   ],
   "exemptions": [
