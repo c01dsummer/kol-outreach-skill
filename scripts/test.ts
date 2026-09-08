@@ -2950,6 +2950,12 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 叶子那份源码压根读不到（假表里没有它），它仍然在闭包里 —— 读不到只是不再往下走
   ok('读不到源码的路径自己仍在闭包里', walked.includes('scripts/check/leaf.ts'))
 
+  // 真闭包里的每一个都得在磁盘上 —— 不存在的多半是**夹具串被当成了真 import**
+  // （抽边认的是源码字面，种子里写一句完整的 import 样例就会被收进来；实测栽过一次：
+  // 13 变 15）。判据故意宽是为了不漏，可它宽出来的东西该在这儿被看见
+  const real = infraClosure(f => existsSync(f) ? rf(f, 'utf8') : undefined)
+  eq('真闭包里没有磁盘上不存在的路径', real.filter(f => !existsSync(f)), [])
+
   // ---- 谁受这条判据管 ----
   const infra = ['scripts/check/mutate-rule.ts']
   ok('打在基础设施上的、指名了验证者的变异：自己验自己',

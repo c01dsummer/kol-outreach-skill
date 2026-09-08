@@ -669,8 +669,13 @@ mkdirSync(join(isoTmp, 'scripts', 'check'), { recursive: true })
 mkdirSync(join(isoTmp, 'docs'), { recursive: true })
 writeFileSync(join(isoTmp, 'docs', 'requirements.json'),
   JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
-writeFileSync(join(isoTmp, 'scripts', 'check', 'selfcheck.ts'), `import { a } from './hop.js'\n`, 'utf8')
-writeFileSync(join(isoTmp, 'scripts', 'check', 'hop.ts'), `import { b } from './leaf.js'\n`, 'utf8')
+// **那一句拼出来，不写成整串。** 本文件是闭包的种子，而抽边那条判据认的是源码字面里
+// 任何一处「from ＋ 相对路径」—— 写成整串的话，这两句夹具会被当成本文件真的 import，
+// 把 hop 与 leaf 收进真闭包（实测 13 变 15）。#81 的评审两轮抓过同一个形状的诱饵，
+// 我又踩了一次；`scripts/test.ts` 里那条硬退出的反例也是这么拼的。
+const importLine = (spec: string) => `import { a } from '${spec}'\n`
+writeFileSync(join(isoTmp, 'scripts', 'check', 'selfcheck.ts'), importLine('./hop.js'), 'utf8')
+writeFileSync(join(isoTmp, 'scripts', 'check', 'hop.ts'), importLine('./leaf.js'), 'utf8')
 writeFileSync(join(isoTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
   { id: 'M-X-e', req: 'X1', why: '改的是验证者自己要用的东西', by: 'selfcheck', kills: '某条夹具',
     file: 'scripts/check/leaf.ts', find: 'x', replace: 'y' },
