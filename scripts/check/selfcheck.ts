@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { tsxCommand } from './tsx-cmd.js'
-import { SELFCHECK_PRELOAD, SELFCHECK_TOOLS } from './verifier-rule.js'
+import { SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS } from './verifier-rule.js'
 
 const EXEMPT: Record<string, string> = {}   // 目前无豁免
 
@@ -56,9 +56,21 @@ let failed = 0
  * 两股都要的用 `runBoth` —— 有的断言得同时读结果（stdout）和说给用户的话（stderr），
  * 比如「这一次到底走的是哪一种收尾」写在 stdout 的 `stopped` 里，而那句话在 stderr。
  * 分两次跑拿不到同一次的两股：进程跑两遍，两次的状态不保证一样。
+ *
+ * ## 进程级的失败要和断言红了分得开
+ *
+ * 两种原先打的是同一句 `✗ <名字>：…`。人看得出，机器看不出 —— 而变异的 `kills` 认的
+ * 正是这句话，于是一条只把被测脚本弄崩的变异会被记成被抓到。所以进程级的带记号
+ * （记号只此一份，在 `verifier-rule.ts`），断言红的不带；`endPath` 那一族还**一失败就
+ * 不再往下断言**，免得再打一句不带记号的同名诊断。
+ *
+ * ⚠️ **另外二十来个调用点还没这么做。** `run` 把 `ok` 丢了，被测脚本崩掉之后那些派生
+ * 诊断照打、且不带记号（实测漏出「没有留下可读的断点」等三条）。变异那边由 `judgeRun`
+ * 兜着（出过带记号的失败就整次判 `crashed`），但**自检自己报的原因仍是错的** ——
+ * 那一半是另一个改动：`run` 要改成可空，让每个调用点自己判。
  */
 const runBoth = (label: string, args: string[], cwd = process.cwd(),
-  expect?: { status: number }): { stdout: string; stderr: string } => {
+  expect?: { status: number }): { ok: boolean; stdout: string; stderr: string } => {
   const [exe, argv] = tsxCommand(args)
   const r = spawnSync(exe, argv, { env, cwd, encoding: 'utf8' })
   const stdout = r.stdout ?? ''   // p1-ok: 拿不到就是空输出，不是「没查过」——这是子进程的两股流
@@ -67,11 +79,11 @@ const runBoth = (label: string, args: string[], cwd = process.cwd(),
   if (r.error || r.status !== want) {
     failed++
     const why = r.error ? String(r.error) : `预期以退出码 ${want} 结束，实际是 ${r.status}`
-    console.error(`  ✗ ${label}：${why}\n${(stderr || stdout).split('\n').slice(-12).join('\n')}`)
-    return { stdout: '', stderr: '' }
+    console.error(`  ✗ ${label}${SELFCHECK_PROCESS_MARK}：${why}\n${(stderr || stdout).split('\n').slice(-12).join('\n')}`)
+    return { ok: false, stdout: '', stderr: '' }
   }
   console.log(`  ✓ ${label}${expect ? `（按预期以退出码 ${want} 结束）` : ''}`)
-  return { stdout, stderr }
+  return { ok: true, stdout, stderr }
 }
 
 const run = (label: string, args: string[], cwd = process.cwd(),
@@ -399,7 +411,8 @@ if (dir) {
   // ---- 收尾那句话：两种剩余工作量各真跑一遍（D6.e 的入口那一半）----
   // 说哪一句、两个剩余量怎么数，都由 scripts/test.ts 断言；这里验的是**入口真的
   // 调了它**。上面那条老断言用的是「两句里出现一句」的或，两支对调它照样绿 ——
-  // 而这一段的接线没有变异守得住：变异跑的只是 scripts/test.ts，够不到入口脚本。
+  // 而这一段的接线至今没有变异守着：变异缺省跑的是 scripts/test.ts，够不到入口脚本
+  // （改跑自检的那条路要在变异上写 by，这一处还没写，ADR-70）。
   // 记忆此刻仍是坏的，所以两次都会走到收尾中止那条路（退出码 2）。
   //
   // 没活可干：target_count 给 1，达标提前停下 —— 剩下的关键词续跑一个都不会抓
@@ -471,7 +484,8 @@ if (dir) {
   // 这四条路径原先一个字都不说，用户手里没有判断「值不值得续跑」的依据（ADR-25 的欠条）。
   // 四条共用分支之前的同一句话，所以是一条判据；也正因为共用，**一条把话写死就会被
   // 别的抓住** —— 前两条要的是「不花钱」，后两条要的是「花钱 + 还剩多少」。
-  // 变异守不住这一段（变异跑的只是 scripts/test.ts，够不到入口脚本），只能这样真跑；
+  // 这一段至今没有变异守着（变异缺省跑的是 scripts/test.ts，够不到入口脚本；改跑自检的
+  // 那条路要在变异上写 by，这一处还没写，ADR-70），只能这样真跑；
   // 这条缺口在 mutations.json 的 exemptions 里按 P3.b 的先例显式登记着。
   //
   // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
@@ -493,7 +507,8 @@ if (dir) {
   /** 一条收尾路径：退出码、`stopped` 取值、那句话该说什么 —— 三样一起验 */
   const endPath = (label: string, cfg: string, status: number, stopped: string,
                    want: RegExp, deny: RegExp) => {
-    const { stdout, stderr } = runBoth(label, [S('collect.ts'), '--config', cfg], paths, { status })
+    const { ok, stdout, stderr } = runBoth(label, [S('collect.ts'), '--config', cfg], paths, { status })
+    if (!ok) return                            // 没跑起来，下面每一句诊断都会说错原因
     if (!new RegExp(`"stopped":\\s*"${stopped}"`).test(stdout)) {
       failed++
       console.error(`  ✗ ${label}：这一次走的不是 ${stopped} 那条收尾 —— 夹具没造对，`
@@ -584,7 +599,7 @@ runTool('纪律 lint 命中即以退出码 1 结束', 'lint', [], lintTmp, { sta
 // ---- 变异集编号重复：两个入口都命中即以退出码 1 结束（M-H7-b、M-H7-c 的入口那一半）----
 // 判定和「两种毛病同时在时先报哪一种」都由 scripts/test.ts 断言；剩下的那一半是
 // **入口真的调了它、并且以退出码 1 结束** —— 把两处调用整块删掉，那些断言和
-// M-H7-b、M-H7-c 照样全绿，因为变异跑的只是 scripts/test.ts，够不到入口。
+// M-H7-b、M-H7-c 照样全绿，因为它们跑的是缺省那个验证者 scripts/test.ts，够不到入口。
 // 一份语料喂两个入口，里面两处毛病都放：编号重复 + 记在不存在的需求名下。
 const dupTmp = join(tmp, 'dup-mut')
 mkdirSync(join(dupTmp, 'scripts', 'check'), { recursive: true })
@@ -600,7 +615,7 @@ writeFileSync(join(dupTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify
 // mutate：出来的必须是重复那一条 —— 先后由 attributionFault 定，这里验的是
 // 入口照着它说的印、并且真的以 1 结束
 // 不加 `dupMut &&` 那道真值判断：`run` 在退出码对得上、stderr 却是空的时候也返回空串，
-// 于是「诊断被删光、只剩 process.exit(1)」会从这儿滑过去（评审指出）
+// 于是「诊断被删光、只剩那句退出」会从这儿滑过去（评审指出）
 const dupMut = runTool('mutate 遇到重复编号即以退出码 1 结束', 'mutate', [], dupTmp, { status: 1 })
 if (!dupMut.includes('个编号重复')) {
   failed++; console.error('  ✗ mutate 的输出里没有「编号重复」那条诊断')
@@ -614,6 +629,30 @@ if (!dupMut.includes('个编号重复')) {
 const dupArch = runTool('arch-sync 遇到重复编号即以退出码 1 结束', 'arch', [], dupTmp, { status: 1 })
 if (!dupArch.includes('个编号重复')) {
   failed++; console.error('  ✗ arch-sync 的输出里没有「编号重复」那条诊断')
+}
+
+// ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----
+// 判据是 mutate-rule.ts 的 wiringFault，由 scripts/test.ts 断言、M-H14-t/u/v/w 四条负片
+// 守着；剩下的那一半是**入口真的调了它、并且以退出码 1 结束**，还把三种裁定各翻成
+// 一句人话 —— 把这一整段删掉，那四条负片和那些断言照样全绿，因为变异跑的是缺省
+// 那个验证者，够不到入口。三种写错各喂一条，诊断也逐条对。
+const wireTmp = join(tmp, 'bad-by')
+mkdirSync(join(wireTmp, 'scripts', 'check'), { recursive: true })
+mkdirSync(join(wireTmp, 'docs'), { recursive: true })
+writeFileSync(join(wireTmp, 'docs', 'requirements.json'),
+  JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+writeFileSync(join(wireTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+  { id: 'M-X-b', req: 'X1', why: '指了一个不认得的验证者', file: 'a.ts', find: 'x', replace: 'y', by: '查无此人' },
+  { id: 'M-X-c', req: 'X1', why: '指名了验证者却没说该红的是哪一条', file: 'a.ts', find: 'x', replace: 'z', by: 'selfcheck' },
+  { id: 'M-X-d', req: 'X1', why: '点了名却没说谁来验', file: 'a.ts', find: 'x', replace: 'w', kills: '某条夹具' },
+] }), 'utf8')
+const badBy = runTool('mutate 的验证者接线不成立即以退出码 1 结束', 'mutate', [], wireTmp, { status: 1 })
+if (!badBy.includes('不认得')) {
+  failed++; console.error('  ✗ mutate 没报出「指的验证者不认得」')
+} else if (!badBy.includes('没说该红的是哪一条夹具')) {
+  failed++; console.error('  ✗ mutate 没报出「指名了验证者却漏了 kills」')
+} else if (!badBy.includes('写了 kills 却没写 by')) {
+  failed++; console.error('  ✗ mutate 没报出「写了 kills 却没写 by」')
 }
 
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
@@ -655,20 +694,28 @@ const byChain = new Set(
   chain.split('&&').map(s => s.trim().replace(/^npm run /, '').replace(/^npm /, ''))
     .flatMap(name => (steps[name] ?? '').match(/scripts\/[\w/.-]+\.ts/) ?? []))
 
+// 孤儿也计进 failed，不再自带汇总、也不再自己退出：原先那句形状与末尾那句汇总不同，
+// 而判定认的是末尾那一句，于是踩红它的变异会被判成「跑不起来」（评审指出）。
 const orphans = walk('scripts')
   .filter(f => !covered.has(f) && !byChain.has(f) && !(f in EXEMPT))
 if (orphans.length) {
-  console.error(`\n✗ 脚本自检：${orphans.length} 个可执行文件谁都没跑过\n`)
+  failed += orphans.length
+  console.error(`\n  ✗ ${orphans.length} 个可执行文件谁都没跑过\n`)
   for (const f of orphans) console.error(`  · ${f}`)
   console.error('\n  接进本文件、接进 `npm run check`，或写进 EXEMPT 说明理由。')
   console.error('  不接也不写的话，末尾那句「都有出处」就是假的。')
-  process.exit(1)
 }
 
-if (failed) { console.error(`\n✗ 脚本自检：${failed} 项失败`); process.exit(1) }
-const all = walk('scripts')
-const here = all.filter(f => covered.has(f)).length
-const inChain = all.filter(f => !covered.has(f) && byChain.has(f)).length
-console.log(`\n✓ 脚本自检：${all.length} 个可执行文件都有出处 ——`
-  + ` 本文件从头跑到尾 ${here} 个，检查链里各自成一步 ${inChain} 个`
-  + `，具名豁免 ${Object.keys(EXEMPT).length} 个`)
+// **设退出码，不硬退出**：汇总是最后打的，紧跟着硬退出会在管道上把它截掉
+// （实测 stderr 积压 400 行时 40 次丢 18 次）。由 `exitRace` 守着（`mutate-rule.ts`）。
+if (failed) {
+  console.error(`\n✗ 脚本自检：${failed} 项失败`)
+  process.exitCode = 1
+} else {
+  const all = walk('scripts')
+  const here = all.filter(f => covered.has(f)).length
+  const inChain = all.filter(f => !covered.has(f) && byChain.has(f)).length
+  console.log(`\n✓ 脚本自检：${all.length} 个可执行文件都有出处 ——`
+    + ` 本文件从头跑到尾 ${here} 个，检查链里各自成一步 ${inChain} 个`
+    + `，具名豁免 ${Object.keys(EXEMPT).length} 个`)
+}

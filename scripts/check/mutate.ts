@@ -2,9 +2,13 @@
 /**
  * 变异测试 —— 给测试做的测试。
  *
- * 逐个应用「故意违反需求」的改动，跑测试，**期望测试失败**。
+ * 逐个应用「故意违反需求」的改动，跑**验证者**，**期望它失败**。
  * 变异被抓到 = 那条测试有效；**变异存活 = 那条测试是假的**，要修测试不是删变异。
- * **测试进程崩了不算抓到**（`mutate-rule.ts`）：崩溃不是任何一条断言的功劳。
+ * **验证者崩了不算抓到**（`mutate-rule.ts`）：崩溃不是任何一条断言的功劳。
+ *
+ * 验证者缺省是 `scripts/test.ts`；写了 `by` 的改跑别的（今天只有自检），为的是接线
+ * 那一层 —— 入口里的接线缺省那个验证者够不到，长期只能靠显式缺口顶着（ADR-70）。
+ * `by` 与 `kills` **同进同出**，理由在下面那道校验上。
  *
  * 用法：
  *   tsx scripts/check/mutate.ts            逐个应用变异并跑测试
@@ -20,12 +24,21 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
-import { type RunVerdict, judgeRun } from './mutate-rule.js'
+import {
+  type RunVerdict, type Verifier, type WiringFault,
+  VERIFIERS, judgeRun, wiringFault,
+} from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
 import { tsxCommand } from './tsx-cmd.js'
 
-interface Mut { id: string; req: string; why: string; file: string; find: string; replace: string }
+interface Mut {
+  id: string; req: string; why: string; file: string; find: string; replace: string
+  /** 谁来验它。缺省 `test` —— 不写的那些逐字保持原来的行为 */
+  by?: string
+  /** 该红的那一条夹具的名字。**和 `by` 同进同出** —— 写了 `by` 就必填，没写 `by` 就不许写 */
+  kills?: string
+}
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
 const cfg = JSON.parse(readFileSync('scripts/check/mutations.json', 'utf8'))
 const muts: Mut[] = cfg.mutations
@@ -68,6 +81,26 @@ if (dirty.length) {
   process.exit(1)
 }
 
+// 三种写错都在开跑之前拦下 —— 判据在 `mutate-rule.ts` 的 `wiringFault`，这里只把它的
+// 裁定翻成人话（`docs/CONVENTIONS.md` 第 10 条）。前两种是**静默的坏**；第三种
+// 「不写 by 只写 kills」相反 —— 它**真会生效**（判定收的是验证者和点的名两个独立参数），
+// 正因为生效才要拦：那是 ADR-70 明写不承诺、要另外评定的延伸。
+const SAY: Record<WiringFault, (m: Mut) => string> = {
+  'unknown-verifier': m => `指的验证者 ${m.by} 不认得 —— 认得的是 ${Object.keys(VERIFIERS).join('、')}`,
+  'missing-kills': m => `指了验证者 ${m.by}，却没说该红的是哪一条夹具`,
+  'kills-without-by': () => '写了 kills 却没写 by —— 缺省验证者那些不点名（ADR-70 说这条延伸另外评定）',
+}
+const miswired = muts.flatMap(m => {
+  const fault = wiringFault(m)
+  return fault === undefined ? [] : [`${m.id}  ${SAY[fault](m)}`]
+})
+if (miswired.length) {
+  console.error(`✗ 变异集：${miswired.length} 条的验证者接线不成立 —— 它们的绿或红都不算数\n`)
+  for (const w of miswired) console.error(`  ${w}`)
+  console.error('\n  by 只能写 mutate-rule.ts 认得的那几个；by 与 kills 同进同出，写一个就要写另一个。')
+  process.exit(1)
+}
+
 if (process.argv.includes('--brief')) {
   console.log('\n变异集 —— 每条变异「违反了什么」。不含实现原文，可以交给写测试的上下文。\n')
   for (const m of muts) console.log(`  ${m.id}  [${m.req}]  ${m.why}`)
@@ -79,6 +112,7 @@ if (process.argv.includes('--brief')) {
 }
 
 const survived: Mut[] = []
+const elsewhere: Mut[] = []
 const crashed: Mut[] = []
 const notApplied: Mut[] = []
 
@@ -100,7 +134,7 @@ process.on('exit', restoreClaims)
 // 让「被打断」和「跑完」走同一条还原路径 —— 这里不再单写一行，是为了没有一行可忘。
 
 /**
- * 跑一次测试。**异步等，不能同步等。**
+ * 跑一次验证者。**异步等，不能同步等。**
  *
  * 信号处理是排在事件循环上的：同步等子进程（`node:child_process` 里带 Sync 的那几个）
  * 会把事件循环整个挡住，挡住的那段时间里，接管过的信号一次也派发不出去。而变异跑起来
@@ -151,13 +185,13 @@ process.on('exit', restoreClaims)
  * 它靠的是 Node 官方文档 + 代码推理，不是一次真的 Windows 运行。Linux 这一侧
  * 是真跑过的：整条变异链绿。
  */
-const runTest = (): Promise<{ status: number | null; output: string }> =>
+const runTest = (verifier: Verifier): Promise<{ status: number | null; output: string }> =>
   new Promise(resolve => {
     // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
     // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
     // 自成一组：被打断时要连它一起结束，而只杀手上这一个是杀不掉的 ——
     // `tsx` 自己还要再分出一个真正跑脚本的进程来（POSIX 上才成立，见 `tsx-cmd.ts`）
-    const [exe, argv] = tsxCommand(['scripts/test.ts'])
+    const [exe, argv] = tsxCommand([verifier.script])
     const kid = spawn(exe, argv,
       { stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1' } })
     trackTest(kid)
@@ -185,16 +219,21 @@ for (const m of muts) {
     // 半份源文件，而那时 `finally` 要是够不着，被截断的那份就留在工作区里，
     // 记着的现场谁也不去取（评审指出）
     writeFileSync(m.file, orig.replace(m.find, m.replace), 'utf8')
-    // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null)
-    const r = await runTest()
-    verdict = judgeRun(r.status, r.output)
+    // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null);
+    // 点了名的还要再看一层:红的是不是 kills 说的那一条
+    const verifier = VERIFIERS[m.by ?? 'test']
+    const r = await runTest(verifier)
+    verdict = judgeRun(r.status, r.output, verifier, m.kills)
   } finally {
     restoreMutation()
   }
   if (verdict === 'caught') console.log(`  ✓ ${m.id}  [${m.req}] 被抓到`)
-  else if (verdict === 'crashed') {
+  else if (verdict === 'elsewhere') {
+    elsewhere.push(m)
+    console.log(`  ✗ ${m.id}  [${m.req}] 红的不是点名那条 —— ${m.by} 确实红了，但「${m.kills}」没红`)
+  } else if (verdict === 'crashed') {
     crashed.push(m)
-    console.log(`  ✗ ${m.id}  [${m.req}] 跑不起来 —— 测试进程死在半路,没有任何一条断言抓到它`)
+    console.log(`  ✗ ${m.id}  [${m.req}] 跑不起来 —— 验证者死在半路,没有任何一条断言抓到它`)
   } else { survived.push(m); console.log(`  ✗ ${m.id}  [${m.req}] 存活 —— ${m.why}`) }
 }
 
@@ -203,9 +242,11 @@ for (const e of exemptions) {
   console.log(`  ⊘ ${e.req} 无变异（显式缺口）：${e.why.split('。')[0]}。`)
 }
 
-if (survived.length || crashed.length || notApplied.length) {
-  console.error(`\n✗ 变异测试：${survived.length} 个存活，${crashed.length} 个跑不起来，${notApplied.length} 个锚点失效`)
+if (survived.length || elsewhere.length || crashed.length || notApplied.length) {
+  console.error(`\n✗ 变异测试：${survived.length} 个存活，${elsewhere.length} 个红错了地方，`
+                + `${crashed.length} 个跑不起来，${notApplied.length} 个锚点失效`)
   if (survived.length) console.error('  存活意味着对应的测试证明不了任何事 —— 修测试，不要删变异。')
+  if (elsewhere.length) console.error('  红错了地方也不算抓到：点名的那条夹具没红，它就什么也没证明。改 kills 指对那一条，或者把那条夹具补上。')
   if (crashed.length) console.error('  跑不起来不算抓到：崩溃不是断言的功劳。让那条测试作为断言失败，或者把变异改成一处语义改动而不是语法错误。')
   process.exit(1)
 }
