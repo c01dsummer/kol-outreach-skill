@@ -2184,6 +2184,30 @@
       "file": "scripts/check/spec-rule.ts",
       "find": "else if (!e.mutated && !e.exempt) {",
       "replace": "else if (!e.mutated && e.exempt) {"
+    },
+    {
+      "id": "M-H22-a",
+      "req": "harness",
+      "why": "判据号那一族的分类条件反过来：收进来的全是需求号，判据级的负片在报告里又一个字都没有 —— 正是本次改动要治的那件事，方向还是低报证据",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "filter(id => id.includes('.'))",
+      "replace": "filter(id => !id.includes('.'))"
+    },
+    {
+      "id": "M-H22-b",
+      "req": "harness",
+      "why": "不再分类，把两种编号一并收进来：每条需求都被算成「它自己那条变异也守着它的判据」，凭空多出一片判据级的证据",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "new Set(mutations.map(m => m.req).filter(id => id.includes('.')))",
+      "replace": "new Set(mutations.map(m => m.req))"
+    },
+    {
+      "id": "M-H22-c",
+      "req": "harness",
+      "why": "分类结果一律交空集合：报告退回判据级负片一个字都没有，而单元测试与那一整批格式断言都还绿着",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "new Set(mutations.map(m => m.req).filter(id => id.includes('.')))",
+      "replace": "new Set<string>()"
     }
   ],
   "exemptions": [

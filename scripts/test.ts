@@ -8,7 +8,9 @@
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
-import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './check/audit-rule.js'
+import {
+  JUDGMENT_EXEMPT, criterionMutations, deprecatedBlock, judgmentModules, ledger, unguarded,
+} from './check/audit-rule.js'
 import {
   VERIFIERS, exitRace, judgeRun, killsMatched, labelFault, labelsOf, processFailed,
   wiringFault,
@@ -1990,6 +1992,18 @@ harness('审计对一条需求的裁定')
   // （M-H6-k、M-H6-l）。
   eq('有豁免 → 那一格写出豁免了几条', criteriaCell(1, 0, 1, 2), '判据 1+⊘1/2')
   eq('没豁免 → 那一格不多写', criteriaCell(2, 0, 0, 2), '判据 2/2')
+  // 变异的 req 两种编号混着写，判据号那几条此前对报告完全不可见。分类原先留在
+  // audit.ts 里，没有任何一条测试够得着 —— 把条件反过来或交个空集合，单元测试与
+  // 那十一条新变异照样全绿，而报告悄悄退回一个字都没有（评审指出，实测坐实）
+  eq('带点的是判据号，收进来',
+    [...criterionMutations([{ req: 'P5.f' }, { req: 'P5.g' }])].sort(), ['P5.f', 'P5.g'])
+  eq('不带点的是需求号，不收', [...criterionMutations([{ req: 'P5' }, { req: 'harness' }])], [])
+  eq('两种混着给，只挑判据号',
+    [...criterionMutations([{ req: 'P5' }, { req: 'P5.f' }, { req: 'harness' }])], ['P5.f'])
+  eq('同一条判据被点两次，集合里只算一个',
+    [...criterionMutations([{ req: 'P5.g' }, { req: 'P5.g' }])], ['P5.g'])
+  eq('一条变异都没有 → 空集合', criterionMutations([]).size, 0)
+
   // 判据级的负片原先在报告里一个字都没有：变异那一列只认需求号，而变异表里
   // 今天已有几条把 req 写成判据号（M-P5-a 守着 P5.f），它们完全不可见
   eq('有判据级的负片 → 那一格写出几条', criteriaCell(3, 2, 0, 3), '判据 3(负片 2)/3')

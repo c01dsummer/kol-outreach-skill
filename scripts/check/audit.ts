@@ -9,7 +9,9 @@
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { JUDGMENT_EXEMPT, deprecatedBlock, judgmentModules, ledger, unguarded } from './audit-rule.js'
+import {
+  JUDGMENT_EXEMPT, criterionMutations, deprecatedBlock, judgmentModules, ledger, unguarded,
+} from './audit-rule.js'
 import {
   CLAIMS_PATH, SOURCE_DIR, claimsFresh, claimsReadFault, claimsWellFormed, fingerprint, sourceFiles,
   type Claims,
@@ -115,16 +117,9 @@ const testedCriteria = new Set(claims.criteria)
 const claimedTensions = new Set(claims.tensions)
 
 const mutatedIds = new Set<string>(mutCfg.mutations.map((m: any) => m.req))
-/**
- * 变异记在**判据**名下的那些。
- *
- * `req` 这一栏两种编号混着写（今天 21 种需求号、3 种判据号），而上面那个集合只被
- * `has(r.id)` 查过 —— 判据号那几条**对审计完全不可见**：`M-P5-a` 守着 P5.f，
- * 报告里一个字都没有。带点的就是判据号（`docs/requirements.json` 的形状），
- * 而两种编号都由 `attributionFault` 对着登记表校过，写岔了跑不起来。
- */
-const mutatedCriteria = new Set<string>(
-  [...mutatedIds].filter(id => id.includes('.')))
+// 分类是判定，留在这里就没有测试够得着（`audit-rule.ts` 的 `criterionMutations`，
+// 与紧邻的 `unguarded` / `ledger` 同一个理由，`docs/CONVENTIONS.md` 第 10 条）。
+const mutatedCriteria = criterionMutations(mutCfg.mutations)
 const exemptIds = new Map<string, string>(
   (mutCfg.exemptions ?? []).map((e: any) => [e.req, e.why]))
 
