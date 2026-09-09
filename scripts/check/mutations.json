@@ -2367,7 +2367,7 @@
     {
       "id": "M-H26-b",
       "req": "harness",
-      "why": "kills 写成老写法那个字符串也放行 —— 入口拿它去查清册时字符串没有 flatMap，整份检查当场抛，人看见的是一个栈而不是「kills 写错了」；名单里混进不是名字的东西则被误报成「点的夹具不在清册里」，照着去改的是名字，可名字根本没错",
+      "why": "kills 写成老写法那个字符串也放行 —— 入口拿它去逐项核对清册时当场抛，人看见的是一个栈，而不是「kills 写错了」；名单里混进不是名字的东西则被误报成「点的夹具不在清册里」，照着去改的是名字，可名字根本没错",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (!Array.isArray(mut.kills) || mut.kills.some(k => typeof k !== 'string')) return 'kills-not-list'\n",
       "replace": ""
