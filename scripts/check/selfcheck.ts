@@ -776,7 +776,7 @@ if (dupArch === undefined) {
 // 判据是 mutate-rule.ts 的 wiringFault，由 scripts/test.ts 断言、M-H14-t/u/v/w 四条负片
 // 守着；剩下的那一半是**入口真的调了它、并且以退出码 1 结束**，还把三种裁定各翻成
 // 一句人话 —— 把这一整段删掉，那四条负片和那些断言照样全绿，因为变异跑的是缺省
-// 那个验证者，够不到入口。三种写错各喂一条，诊断也逐条对。
+// 那个验证者，够不到入口。四种写错各喂一条，诊断也逐条对。
 const wireTmp = join(tmp, 'bad-by')
 mkdirSync(join(wireTmp, 'scripts', 'check'), { recursive: true })
 mkdirSync(join(wireTmp, 'docs'), { recursive: true })
@@ -786,6 +786,10 @@ writeFileSync(join(wireTmp, 'scripts', 'check', 'mutations.json'), JSON.stringif
   { id: 'M-X-b', req: 'X1', why: '指了一个不认得的验证者', file: 'a.ts', find: 'x', replace: 'y', by: '查无此人' },
   { id: 'M-X-c', req: 'X1', why: '指名了验证者却没说该红的是哪一条', file: 'a.ts', find: 'x', replace: 'z', by: 'selfcheck' },
   { id: 'M-X-d', req: 'X1', why: '点了名却没说谁来验', file: 'a.ts', find: 'x', replace: 'w', kills: ['某条夹具'] },
+  // 老写法那个字符串：判定拦得住，但入口那句提示原先没人验 —— 改坏了整份检查照样绿
+  // （#97 第二轮评审指出）。JSON 里就是要写成字符串，所以这里绕过类型
+  { id: 'M-X-h', req: 'X1', why: 'kills 还写着老写法那个字符串', file: 'a.ts', find: 'x', replace: 'v',
+    by: 'selfcheck', kills: '某条夹具' as unknown as string[] },
 ] }), 'utf8')
 const badBy = runTool('mutate 的验证者接线不成立即以退出码 1 结束', 'mutate', [], wireTmp, { status: 1 })
 if (badBy === undefined) {
@@ -796,6 +800,8 @@ if (badBy === undefined) {
   failed++; console.error('  ✗ mutate 没报出「指名了验证者却漏了 kills」')
 } else if (!badBy.includes('写了 kills 却没写 by')) {
   failed++; console.error('  ✗ mutate 没报出「写了 kills 却没写 by」')
+} else if (!badBy.includes('kills 要写成一组名字')) {
+  failed++; console.error('  ✗ mutate 没报出「kills 写成了老写法那个字符串」')
 }
 
 // ---- 自己验自己的变异即以退出码 1 结束（隔离判据的入口那一半）----

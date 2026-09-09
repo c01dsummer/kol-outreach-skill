@@ -1025,8 +1025,13 @@ if (verifier.fixtureMark !== undefined && processFailed(output, verifier.fixture
 后面几项点着不存在的夹具没人说,而判定要求它们全红,那条变异会一直判「红错了地方」,
 报出来的却是「没红」而不是「没这条」。
 
-`labelFault` 与 `killsMatched` 的签名一个字没动(它们本来就是单条的判定),循环放在入口。
-这是最省锚点的切法:清册那 11 条负片一条都没断。
+`labelFault` 与 `killsMatched` 的签名一个字没动(它们本来就是单条的判定),
+名单那一层是新的 `labelFaults`,和它们一样在 `mutate-rule.ts` 里,入口只渲染。
+
+⚠️ 第一版我把这道循环留在了入口,理由是「省锚点」—— 那是成本,不是理由(#97 评审指出)。
+「名单里每一项都要查」是语义,`docs/CONVENTIONS.md` 第 10 条逐字禁止它待在入口,而且
+**没有任何负片守得住**:照评审说的把它改成只查首项,当时的测试与三条新负片全绿。
+搬进 rule 层之后配了四条断言与两条负片。清册那 11 条负片仍然一条都没断。
 
 ### 两个静默坑,各配一道闸
 
@@ -1045,6 +1050,8 @@ if (verifier.fixtureMark !== undefined && processFailed(output, verifier.fixture
 | `M-H26-a` | `every` 改成 `some` | 点名两条只红一条 → 红错了地方(两条,顺序各一条) |
 | `M-H26-b` | 删掉形状那道闸 | 老写法与混进非字符串各一条 |
 | `M-H26-c` | 空名单也算成立 | 点了验证者、名单是空的 → 等于没点名 |
+| `M-H26-d` | `labelFaults` 只查头一项 | 后一项不在清册／重名／两项都立不住,三条 |
+| `M-H26-e` | 立不住的那项交回时带 `kills[0]` | 同上三条(报出来的是别条夹具的名字) |
 
 `M-H14-p` 与 `M-H14-v` 的锚点被这次改动挤掉,意图不变、只更新 `find`/`replace`。
 

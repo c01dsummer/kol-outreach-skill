@@ -307,7 +307,8 @@ if (survived.length || elsewhere.length || crashed.length || notApplied.length) 
   console.error(`\n✗ 变异测试：${survived.length} 个存活，${elsewhere.length} 个红错了地方，`
                 + `${crashed.length} 个跑不起来，${notApplied.length} 个锚点失效`)
   if (survived.length) console.error('  存活意味着对应的测试证明不了任何事 —— 修测试，不要删变异。')
-  if (elsewhere.length) console.error('  红错了地方也不算抓到：点名的那条夹具没红，它就什么也没证明。改 kills 指对那一条，或者把那条夹具补上。')
+  if (elsewhere.length) console.error('  红错了地方也不算抓到：点名的夹具里有没红的，它对那几条就什么也没证明。'
+                                      + '先核对名单里的名字是不是都指对了，再看没红的那条夹具在不在、这个变异该不该弄红它。')
   if (crashed.length) console.error('  跑不起来不算抓到：崩溃不是断言的功劳。让那条测试作为断言失败，或者把变异改成一处语义改动而不是语法错误。')
   process.exit(1)
 }
