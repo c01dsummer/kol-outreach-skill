@@ -860,7 +860,10 @@ writeFileSync(join(stopTmp, 'scripts', 'check', 'mutations.json'), JSON.stringif
   { id: 'M-X-i', req: 'X1', why: '把那个常量改掉', file: 'a.ts', find: 'const x = 1', replace: 'const x = 2',
     by: 'selfcheck', kills: ['甲'] },
 ] }), 'utf8')
-const stopOut = runTool('mutate 见齐就停（验证者不结束也不必等它）', 'mutate', [], stopTmp, { status: 0 })
+// 那句「✓ … 被抓到」打在 stdout；给了 expect 的 run 缺省交回的是 stderr（#99 自检当场抓到）
+const stopRun = runToolBoth('mutate 见齐就停（验证者不结束也不必等它）', 'mutate', [], stopTmp,
+                            { status: 0 })
+const stopOut = stopRun.ok ? stopRun.stdout : undefined
 if (stopOut === undefined) {
   // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
 } else if (!stopOut.includes('M-X-i')) {
