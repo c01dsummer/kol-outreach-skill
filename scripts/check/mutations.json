@@ -622,7 +622,7 @@
       "req": "harness",
       "why": "验证者红在别处也算点名的那条夹具红了 —— 一条对那条夹具什么都没证明的接线变异，会被记成被抓到",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  return kills.every(k => killsMatched(output, k)) ? 'caught' : 'elsewhere'",
+      "find": "  return allKilled(output, kills) ? 'caught' : 'elsewhere'",
       "replace": "  return 'caught'"
     },
     {
@@ -652,9 +652,9 @@
     {
       "id": "M-H19-a",
       "req": "harness",
-      "why": "验证者崩掉时漏出来的那些诊断，点名它们也算被抓到 —— 一条只把被测脚本弄崩、没让任何断言真红的变异会被记成抓到，正是把崩溃的功劳记到断言头上",
+      "why": "验证者崩掉或夹具废掉时漏出来的那些诊断，点名它们也算被抓到 —— 一条只把被测脚本弄崩、没让任何断言真红的变异会被记成抓到，正是把崩溃的功劳记到断言头上",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  if (verifier.processMark !== undefined && processFailed(output, verifier.processMark)) return 'crashed'\n",
+      "find": "  if (notAssertion(output, verifier)) return 'crashed'\n",
       "replace": ""
     },
     {
@@ -2335,10 +2335,10 @@
     {
       "id": "M-H25-a",
       "req": "harness",
-      "why": "夹具自己废了那一次也算被抓到 —— 自检打出「夹具没造对」时它什么都没测到，判定却把这一次记成点名那条夹具的功劳，闸门于是显示那条判据被守住了",
+      "why": "「不是断言的功劳」只认进程级那一种，夹具自己废了不认 —— 自检打出「夹具没造对」时它什么都没测到，判定却把这一次记成点名那条夹具的功劳",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  if (verifier.fixtureMark !== undefined && processFailed(output, verifier.fixtureMark)) return 'crashed'\n",
-      "replace": ""
+      "find": "  return (verifier.processMark !== undefined && processFailed(output, verifier.processMark))\n    || (verifier.fixtureMark !== undefined && processFailed(output, verifier.fixtureMark))",
+      "replace": "  return verifier.processMark !== undefined && processFailed(output, verifier.processMark)"
     },
     {
       "id": "M-H25-b",
@@ -2361,8 +2361,8 @@
       "req": "harness",
       "why": "点名一组、只要红了其中一条就算被抓到 —— 名单里剩下那几条明天删光，这条变异照样绿，而它对那几条什么也没证明",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  return kills.every(k => killsMatched(output, k)) ? 'caught' : 'elsewhere'",
-      "replace": "  return kills.some(k => killsMatched(output, k)) ? 'caught' : 'elsewhere'"
+      "find": "  return kills.every(k => killsMatched(output, k))\n",
+      "replace": "  return kills.some(k => killsMatched(output, k))\n"
     },
     {
       "id": "M-H26-b",
@@ -2395,6 +2395,38 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "    return fault === undefined ? [] : [{ label, fault }]",
       "replace": "    return fault === undefined ? [] : [{ label: kills[0], fault }]"
+    },
+    {
+      "id": "M-H27-a",
+      "req": "harness",
+      "why": "主动停下的那一次不算被抓到 —— 见齐就停之后退出码和汇总都拿不到，判定于是把每一条见齐停下的变异都记成「跑不起来」，一份好证据被当成跑砸了",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (stoppedOnKills) {\n    return kills !== undefined && allKilled(output, kills) && !notAssertion(output, verifier)\n      ? 'caught' : 'crashed'\n  }\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H27-b",
+      "req": "harness",
+      "why": "主动停下的那一次不问记号 —— 停下之前已经崩过或夹具已经废过，这一次的证据本来整份不算数，却照样记成被抓到",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    return kills !== undefined && allKilled(output, kills) && !notAssertion(output, verifier)\n      ? 'caught' : 'crashed'",
+      "replace": "    return kills !== undefined && allKilled(output, kills) ? 'caught' : 'crashed'"
+    },
+    {
+      "id": "M-H27-c",
+      "req": "harness",
+      "why": "主动停下的那一次不再核对点名的是不是真都红过 —— 入口那边一漂，一次连一行具名失败都没有的运行也会被记成被抓到，而那份「证据」里什么都没有",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    return kills !== undefined && allKilled(output, kills) && !notAssertion(output, verifier)\n      ? 'caught' : 'crashed'",
+      "replace": "    return notAssertion(output, verifier) ? 'crashed' : 'caught'"
+    },
+    {
+      "id": "M-H27-d",
+      "req": "harness",
+      "why": "还没写完的那半行也当成写完了 —— 边收边看时名字写到一半就算数，后缀还没到就把验证者杀了，一条本该「红错了地方」的变异被记成被抓到",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return chunk.slice(0, chunk.lastIndexOf('\\n') + 1)",
+      "replace": "  return chunk"
     }
   ],
   "exemptions": [

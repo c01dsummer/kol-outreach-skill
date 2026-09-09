@@ -14,6 +14,10 @@
  * | `crashed` | 非零退出但没有汇总,或者这一次出过进程级的失败 |
  * | `survived` | 零退出 |
  *
+ * **一条例外:见齐就停的那一次。** 它是被我们主动杀掉的,退出码和汇总都拿不到,
+ * 于是不问这两样,改问「点名的那些是不是真的都红过、而且没有记号」—— 那几行
+ * 不带记号的 `✗ <名字>` 比「打出了汇总」这个代理更硬(见 `judgeRun`)。
+ *
  * `elsewhere` 单成一态,是因为另外三条路都错:压进 `caught` 会让人以为那条夹具有效,
  * 压进 `survived` 或 `crashed` 又都是假话 —— 它确实被某条断言抓到了,只是不是那一条。
  */
@@ -295,9 +299,43 @@ export function killsMatched(output: string, label: string): boolean {
 }
 
 /**
+ * 收到的字节里**已经成行**的那一段 —— 最后一截可能还没写完,不算数。
+ *
+ * 边收边看的时候,半行会让名字**写到一半就算数**:`✗ 某条夹具` 与
+ * `✗ 某条夹具又长了一截` 的前缀一模一样,而后者不该满足点名。两股流要**各自**截,
+ * 合起来再截会把它们之间那个人为插入的换行当成行尾(#99 评审指出)。
+ */
+export function complete(chunk: string): string {
+  return chunk.slice(0, chunk.lastIndexOf('\n') + 1)
+}
+
+/**
+ * 点名的那些是不是**都**已经红过了 —— 见齐就可以停,不必等验证者跑完。
+ *
+ * 判据只此一份:入口靠它决定什么时候杀掉子进程,`judgeRun` 靠它给 `caught`。
+ * 各写一份的话,「停下的条件」和「算不算抓到」会悄悄分家 —— 停早了的那一次
+ * 照样被判成抓到,而它其实什么都没见齐。
+ */
+export function allKilled(output: string, kills: readonly string[]): boolean {
+  return kills.every(k => killsMatched(output, k))
+}
+
+/**
+ * 这一次运行里,有没有过一条**不是任何断言功劳**的失败:进程级的,或者夹具自己废了。
+ *
+ * 两种记号同一个理由、同一个待遇,合在一处 —— 分开写的话,新加一种记号时
+ * 很容易只补一条路(提前停下那条路今天就差点漏掉)。
+ */
+export function notAssertion(output: string, verifier: Verifier): boolean {
+  return (verifier.processMark !== undefined && processFailed(output, verifier.processMark))
+    || (verifier.fixtureMark !== undefined && processFailed(output, verifier.fixtureMark))
+}
+
+/**
  * 一次运行算什么。
  *
- * **被信号杀掉(没有退出码)一律 `crashed`**,哪怕汇总已经打出来了:那一次没跑完,
+ * **被信号杀掉(没有退出码)一律 `crashed`** —— **除了我们自己为「见齐就停」杀的那一次**
+ * (那一条在下面单说),哪怕汇总已经打出来了:那一次没跑完,
  * 它剩下的断言一条也没说过话,拿它当证据就是拿半份跑当整份用。这个洞从判定第一版
  * 就在,是 ADR-70 把四态表写出来之后才看得见「散文说的」与「代码做的」对不上。
  *
@@ -324,12 +362,23 @@ export function killsMatched(output: string, label: string): boolean {
  * 判的是 `elsewhere`(ADR-70 的欠条,5c 第二片)。
  */
 export function judgeRun(exitCode: number | null, output: string,
-  verifier: Verifier, kills?: readonly string[]): RunVerdict {
+  verifier: Verifier, kills?: readonly string[], stoppedOnKills = false): RunVerdict {
   if (exitCode === 0) return 'survived'
+  // 见齐就停的那一次:退出码和汇总都拿不到(是我们主动杀的、也没跑到尾),
+  // 但**看见那几行不带记号的 `✗ <名字>`** 本身就是「断言真的跑了、真的红了」的直接证据,
+  // 比「打出了汇总」这个代理更硬 —— 汇总那道闸是给不点名的那两百多条用的。
+  //
+  // **入口说停了不算数,这里自己再问一遍 `allKilled`**(#99 评审指出):不然入口那边一漂,
+  // 一次连一行具名失败都没有的运行也能拿到 `caught` —— 而「两边共用同一判据」正是
+  // `allKilled` 只此一份的理由,只让入口用、判定不用,等于把那句承诺自己作废。
+  // 记号照旧一票否决:崩了或夹具废了,这一次整份不算数。
+  if (stoppedOnKills) {
+    return kills !== undefined && allKilled(output, kills) && !notAssertion(output, verifier)
+      ? 'caught' : 'crashed'
+  }
   if (exitCode === null) return 'crashed'
   if (!verifier.summary.test(output)) return 'crashed'
   if (kills === undefined) return 'caught'
-  if (verifier.processMark !== undefined && processFailed(output, verifier.processMark)) return 'crashed'
-  if (verifier.fixtureMark !== undefined && processFailed(output, verifier.fixtureMark)) return 'crashed'
-  return kills.every(k => killsMatched(output, k)) ? 'caught' : 'elsewhere'
+  if (notAssertion(output, verifier)) return 'crashed'
+  return allKilled(output, kills) ? 'caught' : 'elsewhere'
 }
