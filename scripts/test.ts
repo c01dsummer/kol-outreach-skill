@@ -45,7 +45,8 @@ import {
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { tsxCommand } from './check/tsx-cmd.js'
 import {
-  SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_SEEDS, SELFCHECK_TOOLS,
+  SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_SEEDS,
+  SELFCHECK_TOOLS,
   closure, importsOf, infraClosure, selfVerifying, selfcheckSummary,
 } from './check/verifier-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
@@ -2788,6 +2789,27 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
   eq('但整次判的是跑不起来，不是被抓到', judgeRun(1, crashed, SC, derived), 'crashed')
   // 没崩的那一次照旧 —— 这一道不能顺手把正常的抓到也拦掉
   eq('没崩的那一次照旧算被抓到', judgeRun(1, red, SC, done), 'caught')
+
+  // ---- 夹具自己废了，这一次同样什么也没证明 ----
+  // 一条夹具的诊断分「夹具没造对」和「断言红了」两种，打的却是同一句 `✗ <名字>：…`，
+  // killsMatched 只认名字、分不出红的理由。实测把一条收尾夹具的场景弄坏之后，整次唯一
+  // 那行红是「夹具没造对」，判定给的仍是 caught —— 自检在说「我什么也没测到」，而闸门
+  // 记成「那条判据被守住了」（ADR-70 的欠条，勘察 5c 时实测）。记号从自检那边引过来，
+  // 不在这儿再抄一份字面量：抄一份的话，自检改了记号这条照样绿
+  const broke = (mark: string) =>
+    `  ✗ ${done}${mark}：这一次走的不是 done 那条收尾 —— 夹具没造对\n\n✗ 脚本自检：1 项失败\n`
+  eq('不带记号的话，那一行照样匹配得上点的名', killsMatched(broke(''), done), true)
+  eq('带上记号就不算那条夹具红了', killsMatched(broke(SELFCHECK_FIXTURE_MARK), done), false)
+  eq('夹具废了，整次判的是跑不起来，不是被抓到',
+    judgeRun(1, broke(SELFCHECK_FIXTURE_MARK), SC, done), 'crashed')
+  // 拦在**整次运行**这一层，跟进程记号同一个理由：记号只贴在废掉的那一行上，护不住
+  // 后面照打的诊断。点名那条真红了也不算数 —— 这一次里有一条夹具压根没测到它要测的东西
+  const alsoBroke = `  ✗ 别的夹具${SELFCHECK_FIXTURE_MARK}：夹具没造对\n${red}`
+  eq('别的夹具废了，点名那条真红了也不算数', judgeRun(1, alsoBroke, SC, done), 'crashed')
+  // 分不出这两种的验证者（test 没有这个记号）逐字保持原样，不受这道闸影响
+  eq('没声明夹具记号的验证者不受影响',
+    judgeRun(1, `  ✗ 别的夹具${SELFCHECK_FIXTURE_MARK}：夹具没造对\n  ✗ ${done}：说错了\n\n1 个失败\n`,
+      T, done), 'caught')
 
   // 一条夹具的名字是另一条的前缀时，只按前缀匹配会把「短的红了」记成「长的红了」——
   // 归错功劳换个入口再来一次，而那正是点名要堵的东西
