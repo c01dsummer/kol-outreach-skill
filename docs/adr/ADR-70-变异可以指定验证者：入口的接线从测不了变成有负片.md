@@ -1121,9 +1121,16 @@ D6.f 那条豁免的 `why` 与 `mitigation` 跟着改准 —— 它们逐字写�
 
 ```ts
 if (exitCode === 0) return 'survived'
-if (stoppedOnKills) return notAssertion(output, verifier) ? 'crashed' : 'caught'
+if (stoppedOnKills) {
+  // 点了名、见齐了、没记号 —— 三样齐了才给
+  return kills !== undefined && allKilled(output, kills) && !notAssertion(output, verifier)
+    ? 'caught' : 'crashed'
+}
 if (exitCode === null) return 'crashed'      // 没主动停的,逐字如旧
 ```
+
+(⚠️ 这段贴的一度是被否掉的第一版 —— 只问记号、不核对见没见齐,#99 第二轮评审指出。
+留着会让人照着一段现行实现明确拒绝的伪代码去改。)
 
 汇总那道闸留给不点名的那两百多条 —— 它们没有点名,只能靠代理。
 

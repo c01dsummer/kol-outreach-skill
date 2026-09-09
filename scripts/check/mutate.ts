@@ -278,8 +278,13 @@ const runTest = (verifier: Verifier, kills?: readonly string[]):
       // 那一股的半行被当成整行 —— 名字写到一半就算数，后缀还没到就把人杀了（#99 评审指出）
       const whole = complete(out) + complete(err)
       if (!allKilled(whole, kills)) return
-      stoppedOnKills = true
-      try { process.kill(-(kid.pid as number), 'SIGTERM') } catch { /* 它自己先结束了 */ }
+      // **杀成了才算停过**：信号发不出去（负 pid 在别的平台上不成立、或者它正好自己退了）
+      // 时把标志立起来，判定就会去走那条绕开汇总的路，而这一次其实是跑到底的 ——
+      // 一次普通的「非零退出、没有汇总」会被记成被抓到（#99 第二轮评审指出）
+      try {
+        process.kill(-(kid.pid as number), 'SIGTERM')
+        stoppedOnKills = true
+      } catch { /* 没杀成：这一次就当没停过，按老规矩判 */ }
     }
     kid.stdout.on('data', d => { out += d; stopIfSeen() })
     kid.stderr.on('data', d => { err += d; stopIfSeen() })
