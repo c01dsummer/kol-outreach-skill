@@ -225,13 +225,20 @@ if (tightOut === undefined) {
           : `断点记着 ${tightTaskJson.requests} 次请求，而这一次实际发出了 `
             + `${tightSummary.requests} 次 —— 续跑的预算从断点里这个数起算，`
             + '记少了就等于同一份额度被反复重开，用户在没确认过的情况下超出上限')
-  if (saved) {
-    const before = JSON.parse(readFileSync(tightTask, 'utf8'))
+  // 断点读不出来时，底下这些诊断全建立在同一份读不出来的文件上 —— 整段跳过。
+  // 在这儿再解析一次会**抛**：刚刚红掉的那条具名断言就变成了验证者崩溃，判定看到的是
+  // `crashed` 而不是「被抓到」。上一轮堵的是前两处解析，这一处漏了（#95 第二轮评审指出）。
+  // 续跑之后那次解析同样兜住 —— 坏了就说「读不出来」，而不是把整个自检掀掉。
+  if (tightTaskJson !== undefined) {
+    const before = tightTaskJson
     const resumed = run('collect --resume 追加预算续跑',
                         [S('collect.ts'), '--resume', tightDir, '--budget', '1'], tmp)
-    const after = JSON.parse(readFileSync(tightTask, 'utf8'))
+    let after: any
+    try { after = JSON.parse(readFileSync(tightTask, 'utf8')) } catch {}
     if (resumed === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+    } else if (after === undefined) {
+      failed++; console.error('  ✗ 续跑之后断点读不出来')
     } else if (after.requests <= before.requests) {
       failed++; console.error('  ✗ 续跑后请求数未增长，断点恢复可能没生效')
     } else if (after.done.length <= before.done.length) {
