@@ -2816,8 +2816,10 @@ harness('豁免那一行开头说的话，要跟变异集对得上')
   eq('判据号的变异也不算守着整条需求',
     exemptionCovered('D6', [{ req: 'D6.f' }]), false)
 
-  eq('有负片时那一行这么开头', exemptionLead(true), '已有负片指着它（豁免仍在册）')
-  eq('没有时照旧', exemptionLead(false), '无变异（显式缺口）')
+  // 短到不带括号：三处报告各自组框（--brief 后接 scope、整跑接冒号、审计接在
+  // 它自己那句「显式缺口，不消灭」之后）。带括号的话嵌套起来读不成句
+  eq('名下有变异时这么说', exemptionLead(true), '名下有负片')
+  eq('没有时这么说', exemptionLead(false), '名下无变异')
 }
 
 harness('清册：点的那条夹具真的在，而且只有一条叫这个名字')

@@ -161,8 +161,9 @@ export function labelsOf(source: string, declares: readonly string[]): Map<strin
  * D6.f 挂着豁免、同时被 `M-D6-j` 真守着,同一份报告里两句话打架。
  *
  * **只报事实,不判「豁免该不该撤」。** 后者要看 `scope`（豁免有,变异没有),而那是
- * 落地 4 的事 —— 本记录有一条欠条逐字写着「按 `req` 判覆盖关系会误杀仍然有效的
- * 部分豁免」,#88 的评审也正是照它把我造的那道硬失败拦下来的。这里只说
+ * 落地 4 的事 —— ADR-70 那条欠条说的是:按 `req` 去判覆盖关系,会因为同一判据
+ * **另一半**有了负片,删掉这一半唯一的缓解记录。#88 的评审正是照它把我造的那道
+ * 硬失败拦下来的（这里是转述,不是原句）。这里只说
  * 「有没有一条变异写着这个编号」,那是数据直接答得出来的。
  *
  * **编号要逐字相同**:`D6` 的变异不算守着 `D6.f`,反过来也不算 —— 判据比需求细,
@@ -173,9 +174,16 @@ export function exemptionCovered(req: string,
   return mutations.some(m => m.req === req)
 }
 
-/** 报告里那条豁免开头怎么说 —— 排版留在判定里,与 `criteriaCell` 同一个理由。 */
+/**
+ * 报告里那条豁免旁边怎么说 —— 排版留在判定里,与 `criteriaCell` 同一个理由。
+ *
+ * **只回答一个问题:名下有没有一条变异。** 短到不带括号,是为了让三处报告各自组框:
+ * `--brief` 后面接 `（scope）`、整跑接冒号、审计接在它自己那句「显式缺口,不消灭」之后。
+ * 各写一份的话,一条判据有了负片之后改了两处忘了第三处,症状是「同一件事,两份报告
+ * 说两样」——本 PR 头一版正是只改了 `mutate.ts` 那两处（#91 评审指出）。
+ */
 export const exemptionLead = (covered: boolean): string =>
-  covered ? '已有负片指着它（豁免仍在册）' : '无变异（显式缺口）'
+  covered ? '名下有负片' : '名下无变异'
 
 export type LabelFault = 'unknown-label' | 'ambiguous-label'
 

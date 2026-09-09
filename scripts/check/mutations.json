@@ -2196,7 +2196,7 @@
     {
       "id": "M-D6-j",
       "req": "D6.f",
-      "why": "把四种收尾共用的那一行接线删掉：跑完、达标、预算用尽、出错中止，四条路一句都不说续跑要花多少钱，而用户手里就没有判断值不值得续跑的依据。这一行有意写在分支之前 ——四条路径不能各自坏掉，所以它们是一条判据不是四条",
+      "why": "产出了名单的四种收尾都不再说续跑要不要花钱：关键词跑完、达标提前停下、预算用尽、出错中止，四条路上「续跑还要不要继续发付费请求、还剩多少没抓」一个字都没有 —— 用户手里没有判断值不值得续跑的依据：该续的不敢续，那份已经付过钱的名单永远拿不到；不该续的照样续，账单在他不知情时又长一截",
       "file": "scripts/collect.ts",
       "find": "  console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
       "replace": "",
@@ -2224,8 +2224,24 @@
       "req": "harness",
       "why": "那一行开头的两句话对调：有负片的说成没人守，没人守的说成已有负片 —— 一列的意思整个翻过来",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "covered ? '已有负片指着它（豁免仍在册）' : '无变异（显式缺口）'",
-      "replace": "covered ? '无变异（显式缺口）' : '已有负片指着它（豁免仍在册）'"
+      "find": "covered ? '名下有负片' : '名下无变异'",
+      "replace": "covered ? '名下无变异' : '名下有负片'"
+    },
+    {
+      "id": "M-H23-d",
+      "req": "harness",
+      "why": "一条变异都没有时也说名下有负片：豁免表里从此一条缺口都不显示，而那一列本来就是为了让缺口显形",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return mutations.some(m => m.req === req)",
+      "replace": "return mutations.every(m => m.req === req)"
+    },
+    {
+      "id": "M-H23-e",
+      "req": "harness",
+      "why": "编号改成另一个方向的前缀相等：一条记在判据名下的变异被当成守着它上面那整条需求，同一次归错功劳换个方向原样再来",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "mutations.some(m => m.req === req)",
+      "replace": "mutations.some(m => m.req.startsWith(req))"
     }
   ],
   "exemptions": [
@@ -2238,7 +2254,7 @@
     {
       "req": "D6.f",
       "scope": "入口的接线，不是 lib 里的判定",
-      "why": "「四种收尾都把那句话打出来」是 collect.ts 里分支之前的一行接线。缺省那个验证者 scripts/test.ts 够不到入口，改在那里的变异只会「存活」，不会「被抓到」。**现在由 M-D6-j 真守着**：它删掉那一行，改跑自检来验，点名那条收尾夹具 —— 四条路一起红，判定给的是「被抓到」。豁免条目本条留着，撤它是落地 4 的事（ADR-70 第四条更正写明的分工）。那句话说什么由 lib/pipeline.ts 的 resumeCostLine 决定，那一半是 D6.e，有 M-D6-f／M-D6-g／M-D6-h 三条负片真守着。"
+      "why": "「四种收尾都把那句话打出来」是 collect.ts 里分支之前的一行接线。缺省那个验证者 scripts/test.ts 够不到入口，改在那里的变异只会「存活」，不会「被抓到」。现在由 M-D6-j 守着：它删掉那一行、改跑自检来验，kills 点的是四条收尾夹具里的第一条。⚠️ 它证明的是那一条路还活着，不是「四条路不能各自坏掉」—— kills 只收一个名字，只弄坏一条路照样判「被抓到」，ADR-70 记着这条欠条。豁免条目本条留着，撤它是落地 4 的事（ADR-70 第四条更正写明的分工）。那句话说什么由 lib/pipeline.ts 的 resumeCostLine 决定，那一半是 D6.e —— 按本条刚立的「编号逐字相同」，M-D6-f／M-D6-g／M-D6-h 的 req 写的是 D6，所以它们守的是需求级的 D6，不是判据 D6.e。"
     },
     {
       "req": "P3.b",

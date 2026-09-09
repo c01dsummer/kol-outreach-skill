@@ -16,6 +16,7 @@ import {
   CLAIMS_PATH, SOURCE_DIR, claimsFresh, claimsReadFault, claimsWellFormed, fingerprint, sourceFiles,
   type Claims,
 } from './claims.js'
+import { exemptionCovered, exemptionLead } from './mutate-rule.js'
 import {
   REDLINE_CAT, criteriaCell, mutationCell, requirementVerdict, tensionEvidence, tensionVerdict,
   type Req, type Tension,
@@ -237,8 +238,12 @@ if (deadLines.length) {
   console.log('')
 }
 
+// 说法与 `mutate` 那两份报告出自同一处判定（`exemptionLead`）—— 三处各写一份的话，
+// 一条判据有了负片之后，改了两处忘了第三处的症状是「同一件事，两份报告说两样」。
+// 本 PR 头一版正是只改了 `mutate.ts` 那两处，评审指出这里还留着写死的（#91）。
 for (const [id, why] of exemptIds) {
-  console.log(`  ⊘ ${id} 部分豁免（显式缺口，不消灭）：\n     ${why}`)
+  const lead = exemptionLead(exemptionCovered(id, mutCfg.mutations))
+  console.log(`  ⊘ ${id} 部分豁免（显式缺口，不消灭）· ${lead}：\n     ${why}`)
 }
 for (const [f, why] of Object.entries(EXEC_EXEMPT)) {
   console.log(`  ⊘ ${f} 免于自检执行：${why}`)
