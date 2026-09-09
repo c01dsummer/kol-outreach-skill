@@ -2727,7 +2727,7 @@ harness('变异测试：验证者崩了不算抓到')
   eq('汇总必须是自成一行的那句，正文里提到「个失败」不算', judgeRun(1, '断言说：这里不该有 3 个失败的例子', T), 'crashed')
 }
 
-harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
+harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
 {
   const T = VERIFIERS.test
   const SC = VERIFIERS.selfcheck

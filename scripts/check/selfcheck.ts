@@ -792,7 +792,7 @@ if (badBy === undefined) {
   // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
 } else if (!badBy.includes('不认得')) {
   failed++; console.error('  ✗ mutate 没报出「指的验证者不认得」')
-} else if (!badBy.includes('没说该红的是哪一条夹具')) {
+} else if (!badBy.includes('没说该红的是哪几条夹具')) {
   failed++; console.error('  ✗ mutate 没报出「指名了验证者却漏了 kills」')
 } else if (!badBy.includes('写了 kills 却没写 by')) {
   failed++; console.error('  ✗ mutate 没报出「写了 kills 却没写 by」')
