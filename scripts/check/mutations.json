@@ -2290,6 +2290,14 @@
       "file": "scripts/lib/rows.ts",
       "find": "  const byScore = (a: Creator, b: Creator): number => {\n    if (a.score === undefined && b.score === undefined) return 0\n    if (a.score === undefined) return 1\n    if (b.score === undefined) return -1\n    return b.score - a.score\n  }",
       "replace": "  const byScore = (a: Creator, b: Creator): number => (b.score ?? 0) - (a.score ?? 0)"
+    },
+    {
+      "id": "M-F5-b",
+      "req": "F5",
+      "why": "分层时用的不是刚算出来的那个分，而是一个写死的常数 —— 没做过语义判断的人一律落到最低档，运营名单里最该先联系的那批人从此不出现在最前面",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    c.tier = tierOf(c, score)",
+      "replace": "    c.tier = tierOf(c, 0)"
     }
   ],
   "exemptions": [

@@ -1325,6 +1325,17 @@ suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时�
   // 还是猜的，而 P1 不让步。判别见 docs/CONVENTIONS.md 第 2 条。
   eq('缺增强层时地域留空，不补一个猜出来的值',
     rankCreators([noGeo], 'US')[0].audience_geo, undefined)
+
+  // 没做过语义判断（没有 fit）时按分数分层，而分层用的必须是**刚算出来的那个分**。
+  // 三个语料的分数实测落在 30 / 45 / 60，正好跨过两条阈值 —— 传错一个常数进去，
+  // 三条里至少两条会红。原先这一支一条断言都没有：把它整个改成永远返回 C，
+  // 整个测试套照样全绿（#93 评审指出）
+  const noFit = (h: string, over: Partial<Creator> = {}) => mk('tiktok', h, over)
+  eq('没做语义判断时按分数分层：30 分 → C',
+    rankCreators([noFit('s30')], 'US')[0].tier, 'C')
+  eq('45 分 → B', rankCreators([noFit('s45', { source_dimension: 'competitor' })], 'US')[0].tier, 'B')
+  eq('60 分 → A', rankCreators([noFit('s60', { email: 'a@example.com' })], 'US')[0].tier, 'A')
+
   tension('F5', 'P1')
 }
 
