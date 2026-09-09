@@ -2906,6 +2906,10 @@ harness('清册：点的那条夹具真的在，而且只有一条叫这个名�
   // **永远得不到 caught** 的点名，正是这道闸要拦的
   eq('跑一个脚本起的名字进不了清册 —— 它永远满足不了点名',
     labelFault('collect 预算用尽保存断点', selfInv), 'unknown-label')
+  // 具名断言那一族也收 —— P3.b 的「保存断点」那一半靠它才点得着（5b）。
+  // 把 named 从 declares 里删掉，这一条当场红（M-H24-a）
+  eq('自检的真清册也收得到 named 起的名字',
+    labelFault('collect 预算用尽后留下的断点记到了中止那一刻', selfInv), undefined)
   // 派生诊断那几十句散文也不进：它们是夹具的后果，不是夹具的名字
   eq('派生诊断不算夹具的名字',
     labelFault('collect 预算用尽后没有留下可读的断点（P3.b 要求捕获后保存断点）', selfInv),

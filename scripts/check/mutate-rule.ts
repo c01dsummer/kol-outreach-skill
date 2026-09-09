@@ -59,7 +59,7 @@ export const VERIFIERS: Record<string, Verifier> = {
     script: 'scripts/check/selfcheck.ts',
     summary: /(^|\n)✗ 脚本自检：\d+ 项失败\s*(\n|$)/,
     processMark: SELFCHECK_PROCESS_MARK,
-    declares: ['endPath'],
+    declares: ['endPath', 'named'],
   },
 }
 

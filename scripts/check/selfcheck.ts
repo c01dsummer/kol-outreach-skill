@@ -71,6 +71,22 @@ let failed = 0
  * 早先 `run` 把 `ok` 丢了，被测脚本崩掉之后派生诊断照打、且不带记号（实测漏出
  * 「没有留下可读的断点」等两条，`failed` 还重复计数）。那笔账已经还完（ADR-70）。
  */
+/**
+ * 一条**有名字的**断言 —— 名字进清册(`labelsOf` 按 `VERIFIERS.selfcheck.declares` 扫),
+ * 于是指着入口接线的变异写得出 `kills`、点得着这一条。
+ *
+ * 本文件几十句诊断是行内散文(`✗ <一句话>`)。那种句子是夹具的**后果**,不是夹具的名字,
+ * 清册不收 —— `scripts/test.ts` 有一条断言钉着。收了的话 `kills` 就能点着一句在崩溃之后
+ * 照打的话,正是 `judgeRun` 那道记号闸要堵的错误归因。
+ *
+ * ⚠️ **本条只把 P3.b 那一段改成具名的**,全文件几十处一起改是另一个改动(ADR-70 记着)。
+ */
+const named = (label: string, ok: boolean, why: string) => {
+  if (ok) { console.log(`  ✓ ${label}`); return }
+  failed++
+  console.error(`  ✗ ${label}：${why}`)
+}
+
 const runBoth = (label: string, args: string[], cwd = process.cwd(),
   expect?: { status: number }): { ok: boolean; stdout: string; stderr: string } => {
   const [exe, argv] = tsxCommand(args)
@@ -188,22 +204,33 @@ const tightTask = tightDir ? join(tmp, tightDir, 'task.json') : ''
 // 跳过不能算通过，否则 P3.b 可以一直是坏的而这一步照样打勾。
 if (tightOut === undefined) {
   // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
-} else if (!tightDir || !existsSync(tightTask)) {
-  failed++
-  console.error('  ✗ collect 预算用尽后没有留下可读的断点（P3.b 要求捕获后保存断点）')
 } else {
-  const before = JSON.parse(readFileSync(tightTask, 'utf8'))
-  const resumed = run('collect --resume 追加预算续跑',
-                      [S('collect.ts'), '--resume', tightDir, '--budget', '1'], tmp)
-  const after = JSON.parse(readFileSync(tightTask, 'utf8'))
-  if (resumed === undefined) {
-    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
-  } else if (after.requests <= before.requests) {
-    failed++; console.error('  ✗ 续跑后请求数未增长，断点恢复可能没生效')
-  } else if (after.done.length <= before.done.length) {
-    failed++; console.error('  ✗ 续跑后已完成关键词数未增长')
-  } else {
-    console.log(`  ✓ 断点恢复：关键词 ${before.done.length}→${after.done.length}，请求 ${before.requests}→${after.requests}`)
+  // P3.b 的「保存断点」那一半改成**具名**断言：名字进清册，于是指着入口接线的变异
+  // 写得出 `kills`、点得着它（落地 2 第 5 步 · 5b）。原先这里是一句行内散文，点不着。
+  // 断点不只要**在**，还要记到**中止那一刻**：`requests` 与这一次实际发出的请求数对得上。
+  // 只验「文件存在」太弱 —— 预算是在补全阶段耗尽的，采集阶段末尾早就写过一次断点，
+  // 于是几乎任何坏法下那个文件都在（实测：两条变异都从这条断言下滑过去了）。
+  const saved = Boolean(tightDir) && existsSync(tightTask)
+  const tightTaskJson = saved ? JSON.parse(readFileSync(tightTask, 'utf8')) : undefined
+  const tightSummary = JSON.parse(tightOut)
+  named('collect 预算用尽后留下的断点记到了中止那一刻',
+        tightTaskJson !== undefined && tightTaskJson.requests === tightSummary.requests,
+        `断点记着 ${tightTaskJson?.requests} 次请求，而这一次实际发出了 `
+        + `${tightSummary.requests} 次 —— 续跑会按少算的额度继续花钱，账单对不上`)
+  if (saved) {
+    const before = JSON.parse(readFileSync(tightTask, 'utf8'))
+    const resumed = run('collect --resume 追加预算续跑',
+                        [S('collect.ts'), '--resume', tightDir, '--budget', '1'], tmp)
+    const after = JSON.parse(readFileSync(tightTask, 'utf8'))
+    if (resumed === undefined) {
+      // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+    } else if (after.requests <= before.requests) {
+      failed++; console.error('  ✗ 续跑后请求数未增长，断点恢复可能没生效')
+    } else if (after.done.length <= before.done.length) {
+      failed++; console.error('  ✗ 续跑后已完成关键词数未增长')
+    } else {
+      console.log(`  ✓ 断点恢复：关键词 ${before.done.length}→${after.done.length}，请求 ${before.requests}→${after.requests}`)
+    }
   }
 }
 
