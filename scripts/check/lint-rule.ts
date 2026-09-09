@@ -23,7 +23,19 @@ export const SENSITIVE = [
   'implied_ecpm', 'implied_ecpe',
   'bio', 'signature', 'biography', 'email', 'email_verified',
   'audience_geo', 'fake_follower_score',
+  // 综合分。它是 `tierOf` 分层时读的那个值,按这张表自己的准入标准本来就该在表上 ——
+  // 漏了它,`c.score ?? 0` 两处一直判绿,而 P1.b 写的是「任何位置」(ADR-71)。
+  'score',
 ]
+
+/**
+ * ⚠️ 这张表是**按行**匹配的:`judgeLine` 只问「这一行里有没有兜底写法」和
+ * 「这一行里有没有表上的名字」,不问两者是不是同一个表达式。于是一行里既有
+ * `c.score` 又有落在别的字段上的 `?? ''`,会被判成 score 上有兜底(假阳性)。
+ * 现存唯一一处在 `lib/rows.ts` 的表头行,那里按语义分了行 —— **没有写 p1-ok**:
+ * `p1-ok` 的意思是「这处兜底有理由」,而那一行根本没有 score 的兜底,
+ * 拿它去消假阳性会让其余每一条 p1-ok 都变得可疑。
+ */
 
 /**
  * `null` 必须在这张表里。它是三态模型的**中间态** —— `?? null` 把「未查询」

@@ -169,8 +169,9 @@ const DEMOTE = { A: 'B', B: 'C', C: 'C' } as const
  */
 export function rankCreators(creators: Creator[], market: string): Creator[] {
   const kept = creators.filter(c => {
-    c.score = scoreCreator(c)
-    c.tier = tierOf(c)
+    const score = scoreCreator(c)
+    c.score = score
+    c.tier = tierOf(c, score)
     c.tier_adjustments = []
     const geo = applyGeoPenalty(c, market)
     if (geo === 'drop') return false

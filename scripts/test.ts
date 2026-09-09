@@ -1325,6 +1325,17 @@ suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时�
   // 还是猜的，而 P1 不让步。判别见 docs/CONVENTIONS.md 第 2 条。
   eq('缺增强层时地域留空，不补一个猜出来的值',
     rankCreators([noGeo], 'US')[0].audience_geo, undefined)
+
+  // 没做过语义判断（没有 fit）时按分数分层，而分层用的必须是**刚算出来的那个分**。
+  // 三个语料的分数实测落在 30 / 45 / 60，正好跨过两条阈值 —— 传错一个常数进去，
+  // 三条里至少两条会红。原先这一支一条断言都没有：把它整个改成永远返回 C，
+  // 整个测试套照样全绿（#93 评审指出）
+  const noFit = (h: string, over: Partial<Creator> = {}) => mk('tiktok', h, over)
+  eq('没做语义判断时按分数分层：30 分 → C',
+    rankCreators([noFit('s30')], 'US')[0].tier, 'C')
+  eq('45 分 → B', rankCreators([noFit('s45', { source_dimension: 'competitor' })], 'US')[0].tier, 'B')
+  eq('60 分 → A', rankCreators([noFit('s60', { email: 'a@example.com' })], 'US')[0].tier, 'A')
+
   tension('F5', 'P1')
 }
 
@@ -2306,7 +2317,7 @@ suite('P1', '纪律 lint 的判定：会变成决策的字段上不许有兜底'
    * 数据字段**，例外必须写明理由。没有从实现里抄字段表：下面的字段是按
    * 「它的值会不会进入过滤、评分、分层」挑的。
    */
-  const DECIDING = ['followers', 'views', 'plays', 'likes', 'email', 'median_views']
+  const DECIDING = ['followers', 'views', 'plays', 'likes', 'email', 'median_views', 'score']
   const DISPLAY = ['label', 'title', 'nickname', 'desc']
   const FALLBACKS = ['0', "''", '[]', 'false', 'null']
 
@@ -2402,11 +2413,11 @@ suite('F6', '语义判断否定有一票否决权')
   high.score = scoreCreator(high)
   ok('分数确实很高', high.score >= 60)
   high.fit = '❌'
-  eq('❌ 一律降到 C', tierOf(high), 'C')
+  eq('❌ 一律降到 C', tierOf(high, high.score), 'C')
   high.fit = '✅'
-  eq('✅ 且有邮箱 → A', tierOf(high), 'A')
+  eq('✅ 且有邮箱 → A', tierOf(high, high.score), 'A')
   const noEmail = mk('tiktok', 'y', { fit: '✅', score: 45 })
-  eq('强相关但缺邮箱 → B 而非 C', tierOf(noEmail), 'B')
+  eq('强相关但缺邮箱 → B 而非 C', tierOf(noEmail, 45), 'B')
 }
 
 suite('F7', '预算 50%/80% 各提醒一次')
@@ -2548,6 +2559,17 @@ suite('U1', 'CSV 排序与三档区分')
   ])
   eq('A→B→C，同层分数降序', sorted.map(c => c.handle), ['a2', 'a1', 'b1', 'c1'])
   eq('未查询与空值可区分', [cell(undefined), cell(null), cell(0)], ['未查询', '', '0'])
+
+  // 「还没算过分」不是「0 分」。原来写的是 `(b.score ?? 0) - (a.score ?? 0)`，
+  // 两者被压成同一个值：没分的和 0 分的谁在前全看排序算法，交付表上分不出来
+  // 没分的**写在 0 分前面**：缺省成零的旧写法会让两者打平，而排序是稳定的 ——
+  // 打平就保持输入顺序，于是旧写法给出 none 在前。写反了这条断言就分不出两种实现
+  const noScore = sortForOutput([
+    mk('tiktok', 'none', { tier: 'A' }),
+    mk('tiktok', 'zero', { tier: 'A', score: 0 }),
+    mk('tiktok', 'ten', { tier: 'A', score: 10 }),
+  ])
+  eq('没算过分的排在 0 分之后，不与它混同', noScore.map(c => c.handle), ['ten', 'zero', 'none'])
 }
 
 suite('U5', 'xlsx 分 sheet')

@@ -75,7 +75,11 @@ export function toRow(c: Creator): unknown[] {
   const metrics = assessment?.metrics
   const risk = metrics?.audience_quality_risk
   return [
-    c.tier, c.score, c.fit ?? '', c.fit_reason ?? '', c.platform, c.handle, c.nickname,
+    // score 单独留在这一行:纪律 lint 按**行**匹配「兜底写法 ＋ 敏感字段名」,
+    // 与下面两个把空串当缺省的表达式同行,会被判成 score 上有兜底(实际那两处
+    // 落在 fit / fit_reason 上)。分行比写 p1-ok 诚实 —— 这里根本没有 score 的兜底。
+    c.tier, c.score,
+    c.fit ?? '', c.fit_reason ?? '', c.platform, c.handle, c.nickname,
     cell(c.followers), cell(c.post_count), cell(c.bio), cell(c.email), cell(c.email_verified),
     topGeo(c), cell(assessment?.followers), cell(assessment?.following),
     metricCell(metrics?.engagement_rate_followers, pct),
@@ -106,7 +110,16 @@ export function sortForOutput(creators: Creator[]): Creator[] {
   // 未分层的排末位。写 order[c.tier!] 会在 tier 缺失时得到 NaN 比较器，
   // 而 NaN 是 falsy —— sort 会静默退化成「只按分数排」，且没有任何迹象。
   const rank = (c: Creator) => (c.tier ? order[c.tier] : 3)
-  return [...creators].sort((a, b) => rank(a) - rank(b) || (b.score ?? 0) - (a.score ?? 0))
+  // 「还没算过分」不是「0 分」—— 与上面 tier 缺失同一处理:排本层末位,且与 0 分
+  // 分得开。原来是把两边的 score 缺省成零再相减,两者被压成同一个值(P1.b)。
+  // 不用哨兵值相减:两个都没分时会得到 NaN,正是上面那段注释警告过的比较器。
+  const byScore = (a: Creator, b: Creator): number => {
+    if (a.score === undefined && b.score === undefined) return 0
+    if (a.score === undefined) return 1
+    if (b.score === undefined) return -1
+    return b.score - a.score
+  }
+  return [...creators].sort((a, b) => rank(a) - rank(b) || byScore(a, b))
 }
 
 const TIER_LABEL = { A: 'A级 直接发信', B: 'B级 先互动', C: 'C级 观察池' } as const
