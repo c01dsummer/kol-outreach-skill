@@ -107,6 +107,22 @@ const runTool = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string
   cwd = process.cwd(), expect?: { status: number }) =>
   run(label, [S(SELFCHECK_TOOLS[tool]), ...rest], cwd, expect)
 
+/**
+ * 同 `runTool`,但把 `ok` 一并交出来。
+ *
+ * `run` 只给一个字符串,而「没跑起来」和「跑起来了、一个字也没输出」拿到的都是空串。
+ * 拿 `if (out && …)` 当前置条件的调用点于是把后一种当成「无需检查」跳过 ——
+ * **而那恰好就是下面两处入口夹具要防的那种退化**:整跑那份报告或 `--brief`
+ * 什么也不打、照样以 0 退出,断言全部静默跳过,夹具打勾(#91 评审指出)。
+ *
+ * 所以那两处改成先问 `ok`:只有真没跑起来才跳过(那时 `runBoth` 已经带记号报过一次,
+ * 再派生一句诊断只会说错原因),跑起来了就必须断言,空输出当场红。
+ * ⚠️ 本文件另外二十来个 `run` 调用点还是老样子 —— 那一半是另一个改动。
+ */
+const runToolBoth = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string[] = [],
+  cwd = process.cwd(), expect?: { status: number }) =>
+  runBoth(label, [S(SELFCHECK_TOOLS[tool]), ...rest], cwd, expect)
+
 console.log('\n[脚本自检] 假 fetch，无真实请求\n')
 
 // ---- probe：双平台 + hashtag + 关键词搜索 ----
@@ -748,11 +764,12 @@ writeFileSync(join(bothTmp, 'scripts', 'check', 'mutations.json'), JSON.stringif
     { req: 'X1.b', scope: '一半', why: '这一条名下没有。' },
   ],
 }), 'utf8')
-const bothOut = runTool('mutate 整跑那份报告的豁免行随负片改口', 'mutate', [], bothTmp)
-if (bothOut && !/^\s*⊘ X1\.a 名下有负片/m.test(bothOut)) {
+// 前置条件问的是 `ok`,不是「输出非空」—— 跑起来了就必须断言,一个字不打也算红
+const both = runToolBoth('mutate 整跑那份报告的豁免行随负片改口', 'mutate', [], bothTmp)
+if (both.ok && !/^\s*⊘ X1\.a 名下有负片/m.test(both.stdout)) {
   failed++
   console.error('  ✗ 整跑那份报告里，名下有负片的那条没这么说 —— 又写死了')
-} else if (bothOut && !/^\s*⊘ X1\.b 名下无变异/m.test(bothOut)) {
+} else if (both.ok && !/^\s*⊘ X1\.b 名下无变异/m.test(both.stdout)) {
   failed++
   console.error('  ✗ 整跑那份报告里，名下没有变异的那条没这么说')
 }
@@ -768,8 +785,8 @@ if (bothOut && !/^\s*⊘ X1\.a 名下有负片/m.test(bothOut)) {
 // 而其中一条负片的 `why` 里正好有这四个字 —— 接线退回写死，那句断言照样绿。
 // 现在只认「⊘ ＋ 方括号里的编号 ＋ 这句话」的行首形状，与哪一条豁免命中无关。
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m
-const brief = runTool('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'])
-if (brief && !briefLead.test(brief)) {
+const brief = runToolBoth('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'])
+if (brief.ok && !briefLead.test(brief.stdout)) {
   failed++
   console.error('  ✗ --brief 的豁免行没有随负片改口 —— 那句写死的「无变异」又回来了')
 }
