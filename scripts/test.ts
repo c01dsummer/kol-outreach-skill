@@ -2768,10 +2768,20 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
   const done = 'collect 关键词跑完（退出码 0）也说续跑代价'
   const budget = 'collect 预算用尽（退出码 3）也说续跑代价'
   const red = `  ✗ ${done}：没说清续跑的代价\n\n✗ 脚本自检：1 项失败\n`
-  eq('点名那条红了 → 被抓到', judgeRun(1, red, SC, done), 'caught')
-  eq('验证者红了，红的却不是点名那条 → 红错了地方，不算抓到', judgeRun(1, red, SC, budget), 'elsewhere')
+  eq('点名那条红了 → 被抓到', judgeRun(1, red, SC, [done]), 'caught')
+  eq('验证者红了，红的却不是点名那条 → 红错了地方，不算抓到', judgeRun(1, red, SC, [budget]), 'elsewhere')
   // 不点名的那两百多条逐字保持原样：断言红了就是被抓到，不判第四态
   eq('没点名就不问第二层', judgeRun(1, red, SC), 'caught')
+
+  // ---- 点名是一组，每一条都要红 ----
+  // 只收一个名字的时候，一条变异弄红名单里的头一条就算被抓到：M-D6-j 因此只证明了
+  // 「四条收尾里的第一条还活着」，后三条夹具删光它照样绿（#91 复查实测）。一条没红，
+  // 这条变异对那一条就什么也没证明 —— 判的是「红错了地方」，不是「被抓到」
+  const both = `  ✗ ${done}：没说清续跑的代价\n  ✗ ${budget}：说反了\n\n✗ 脚本自检：2 项失败\n`
+  eq('点名两条、两条都红 → 被抓到', judgeRun(1, both, SC, [done, budget]), 'caught')
+  eq('点名两条、只红了头一条 → 红错了地方', judgeRun(1, red, SC, [done, budget]), 'elsewhere')
+  eq('点名两条、只红了后一条 → 一样不算', judgeRun(1, red, SC, [budget, done]), 'elsewhere')
+  eq('顺序不影响判定', judgeRun(1, both, SC, [budget, done]), 'caught')
 
   // ---- 出过进程级失败，这一次的证据就不算数 ----
   // 记号只贴在打那句话的那一行上，护不住它后面照打的**派生诊断**：一条只把被测脚本
@@ -2786,9 +2796,9 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
   eq('没有带记号的行就不算出过', processFailed(red, SELFCHECK_PROCESS_MARK), false)
   // 点名那条**确实红了**（派生诊断照打），可它红得不算数
   eq('崩溃漏出来的派生诊断真会匹配上', killsMatched(crashed, derived), true)
-  eq('但整次判的是跑不起来，不是被抓到', judgeRun(1, crashed, SC, derived), 'crashed')
+  eq('但整次判的是跑不起来，不是被抓到', judgeRun(1, crashed, SC, [derived]), 'crashed')
   // 没崩的那一次照旧 —— 这一道不能顺手把正常的抓到也拦掉
-  eq('没崩的那一次照旧算被抓到', judgeRun(1, red, SC, done), 'caught')
+  eq('没崩的那一次照旧算被抓到', judgeRun(1, red, SC, [done]), 'caught')
 
   // ---- 夹具自己废了，这一次同样什么也没证明 ----
   // 一条夹具的诊断分「夹具没造对」和「断言红了」两种，打的却是同一句 `✗ <名字>：…`，
@@ -2801,15 +2811,15 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
   eq('不带记号的话，那一行照样匹配得上点的名', killsMatched(broke(''), done), true)
   eq('带上记号就不算那条夹具红了', killsMatched(broke(SELFCHECK_FIXTURE_MARK), done), false)
   eq('夹具废了，整次判的是跑不起来，不是被抓到',
-    judgeRun(1, broke(SELFCHECK_FIXTURE_MARK), SC, done), 'crashed')
+    judgeRun(1, broke(SELFCHECK_FIXTURE_MARK), SC, [done]), 'crashed')
   // 拦在**整次运行**这一层，跟进程记号同一个理由：记号只贴在废掉的那一行上，护不住
   // 后面照打的诊断。点名那条真红了也不算数 —— 这一次里有一条夹具压根没测到它要测的东西
   const alsoBroke = `  ✗ 别的夹具${SELFCHECK_FIXTURE_MARK}：夹具没造对\n${red}`
-  eq('别的夹具废了，点名那条真红了也不算数', judgeRun(1, alsoBroke, SC, done), 'crashed')
+  eq('别的夹具废了，点名那条真红了也不算数', judgeRun(1, alsoBroke, SC, [done]), 'crashed')
   // 分不出这两种的验证者（test 没有这个记号）逐字保持原样，不受这道闸影响
   eq('没声明夹具记号的验证者不受影响',
     judgeRun(1, `  ✗ 别的夹具${SELFCHECK_FIXTURE_MARK}：夹具没造对\n  ✗ ${done}：说错了\n\n1 个失败\n`,
-      T, done), 'caught')
+      T, [done]), 'caught')
 
   // 一条夹具的名字是另一条的前缀时，只按前缀匹配会把「短的红了」记成「长的红了」——
   // 归错功劳换个入口再来一次，而那正是点名要堵的东西
@@ -2830,21 +2840,29 @@ harness('by 与 kills 同进同出：三种写错各有名字')
 {
   // 两百多条不写这一对的逐字保持原样；写全了的也成立
   eq('两个都不写 → 成立', wiringFault({}), undefined)
-  eq('两个都写了 → 成立', wiringFault({ by: 'selfcheck', kills: '某条夹具' }), undefined)
+  eq('两个都写了 → 成立', wiringFault({ by: 'selfcheck', kills: ['某条夹具'] }), undefined)
 
   // 三种不成立各堵一个坑。判定给的是名字不是一句话 —— 话由入口说（第 10 条）
-  eq('验证者的名字不认得', wiringFault({ by: '查无此人', kills: '某条夹具' }), 'unknown-verifier')
+  eq('验证者的名字不认得', wiringFault({ by: '查无此人', kills: ['某条夹具'] }), 'unknown-verifier')
   eq('指了验证者却没点名', wiringFault({ by: 'selfcheck' }), 'missing-kills')
-  eq('点了名却没说谁来验', wiringFault({ kills: '某条夹具' }), 'kills-without-by')
+  eq('点了名却没说谁来验', wiringFault({ kills: ['某条夹具'] }), 'kills-without-by')
   // 缺省那个验证者写出来也一样要点名 —— 不然那个字段写了等于没写
   eq('把缺省的验证者写出来，也要点名', wiringFault({ by: 'test' }), 'missing-kills')
+  // JSON 读进来的东西编译期不在场：老写法是个字符串，按一组名字遍历它会逐个字符走一遍，
+  // 每个字都得红才算抓到 —— 那条变异从此永远判「红错了地方」，而没有一句话说得出为什么
+  eq('kills 写成一个名字（老写法）→ 形状不对', wiringFault({ by: 'selfcheck', kills: '某条夹具' }), 'kills-not-list')
+  eq('名单里混进了不是名字的东西 → 形状不对',
+    wiringFault({ by: 'selfcheck', kills: ['某条夹具', 3] }), 'kills-not-list')
+  // 点了验证者、名单却是空的：判定那边 `every` 对空名单返回真，会一路判成「被抓到」——
+  // 一条什么也没点名的变异被记成守住了某条夹具，正是这道闸要拦的
+  eq('点了验证者、名单是空的 → 等于没点名', wiringFault({ by: 'selfcheck', kills: [] }), 'missing-kills')
 
   // 按「原型链上有没有」来认的话，语言内建的那几个名字会被放行，而取出来的根本不是
   // 验证者：判定当场抛，人看见的是一个栈，不是「名字写错了」—— 这道体检唯一该说话的
   // 时候把自己弄哑了（评审指出）。四个内建名字都试，一个都不许放行
   for (const builtin of ['constructor', 'valueOf', 'hasOwnProperty', 'propertyIsEnumerable']) {
     eq(`语言内建的名字不算认得：${builtin}`,
-      wiringFault({ by: builtin, kills: '某条夹具' }), 'unknown-verifier')
+      wiringFault({ by: builtin, kills: ['某条夹具'] }), 'unknown-verifier')
   }
 }
 

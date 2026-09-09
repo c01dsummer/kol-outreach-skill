@@ -37,8 +37,11 @@ interface Mut {
   id: string; req: string; why: string; file: string; find: string; replace: string
   /** 谁来验它。缺省 `test` —— 不写的那些逐字保持原来的行为 */
   by?: string
-  /** 该红的那一条夹具的名字。**和 `by` 同进同出** —— 写了 `by` 就必填，没写 `by` 就不许写 */
-  kills?: string
+  /**
+   * 该红的那些夹具的名字，**一组，每一条都要红**。和 `by` 同进同出 —— 写了 `by` 就必填，
+   * 没写 `by` 就不许写。只收一个名字时，弄红头一条就算抓到，剩下几条明天删光也照样绿。
+   */
+  kills?: string[]
 }
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
 const cfg = JSON.parse(readFileSync('scripts/check/mutations.json', 'utf8'))
@@ -88,8 +91,9 @@ if (dirty.length) {
 // 正因为生效才要拦：那是 ADR-70 明写不承诺、要另外评定的延伸。
 const SAY: Record<WiringFault, (m: Mut) => string> = {
   'unknown-verifier': m => `指的验证者 ${m.by} 不认得 —— 认得的是 ${Object.keys(VERIFIERS).join('、')}`,
-  'missing-kills': m => `指了验证者 ${m.by}，却没说该红的是哪一条夹具`,
+  'missing-kills': m => `指了验证者 ${m.by}，却没说该红的是哪几条夹具`,
   'kills-without-by': () => '写了 kills 却没写 by —— 缺省验证者那些不点名（ADR-70 说这条延伸另外评定）',
+  'kills-not-list': m => `kills 要写成一组名字（["…"]），${m.by} 那条写的不是`,
 }
 const miswired = muts.flatMap(m => {
   const fault = wiringFault(m)
@@ -132,14 +136,18 @@ const inventoryOf = (by: string): ReadonlyMap<string, number> => {
   inventories.set(by, built)
   return built
 }
-const SAY_LABEL: Record<LabelFault, (m: Mut) => string> = {
-  'unknown-label': m => `点的夹具「${m.kills}」不在 ${m.by} 的清册里 —— 名字写岔了，或者那条夹具没了`,
-  'ambiguous-label': m => `${m.by} 里不止一条夹具叫「${m.kills}」—— 红的是哪一条分不出`,
+const SAY_LABEL: Record<LabelFault, (m: Mut, label: string) => string> = {
+  'unknown-label': (m, k) => `点的夹具「${k}」不在 ${m.by} 的清册里 —— 名字写岔了，或者那条夹具没了`,
+  'ambiguous-label': (m, k) => `${m.by} 里不止一条夹具叫「${k}」—— 红的是哪一条分不出`,
 }
+// 名单里**每一项各查一次**：只查头一项的话，后面几项写岔了、点着不存在的夹具都没人说，
+// 而判定要求它们全红 —— 那条变异会一直判「红错了地方」，报的却是「没红」而不是「没这条」
 const misnamed = muts.flatMap(m => {
   if (m.by === undefined || m.kills === undefined) return []
-  const fault = labelFault(m.kills, inventoryOf(m.by))
-  return fault === undefined ? [] : [`${m.id}  ${SAY_LABEL[fault](m)}`]
+  return m.kills.flatMap(k => {
+    const fault = labelFault(k, inventoryOf(m.by as string))
+    return fault === undefined ? [] : [`${m.id}  ${SAY_LABEL[fault](m, k)}`]
+  })
 })
 if (misnamed.length) {
   console.error(`✗ 变异集：${misnamed.length} 条点的夹具立不住 —— 它们的绿或红都不算数\n`)
@@ -286,7 +294,8 @@ for (const m of muts) {
   if (verdict === 'caught') console.log(`  ✓ ${m.id}  [${m.req}] 被抓到`)
   else if (verdict === 'elsewhere') {
     elsewhere.push(m)
-    console.log(`  ✗ ${m.id}  [${m.req}] 红的不是点名那条 —— ${m.by} 确实红了，但「${m.kills}」没红`)
+    console.log(`  ✗ ${m.id}  [${m.req}] 红的不是点名那条 —— ${m.by} 确实红了，`
+                + `但点名的「${(m.kills ?? []).join('」「')}」里有没红的`)
   } else if (verdict === 'crashed') {
     crashed.push(m)
     console.log(`  ✗ ${m.id}  [${m.req}] 跑不起来 —— 验证者死在半路,没有任何一条断言抓到它`)

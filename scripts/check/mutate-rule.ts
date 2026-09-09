@@ -87,11 +87,17 @@ export function processFailed(output: string, mark: string): boolean {
  * 它们「在」这个对象上,取出来却不是验证者 —— 这道体检就在它唯一该说话的时候抛了个栈。
  */
 export type WiringFault = 'unknown-verifier' | 'missing-kills' | 'kills-without-by'
+  | 'kills-not-list'
 
-export function wiringFault(mut: { by?: string; kills?: string }): WiringFault | undefined {
+export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault | undefined {
   if (mut.by === undefined) return mut.kills === undefined ? undefined : 'kills-without-by'
   if (!Object.hasOwn(VERIFIERS, mut.by)) return 'unknown-verifier'
-  return mut.kills === undefined ? 'missing-kills' : undefined
+  if (mut.kills === undefined) return 'missing-kills'
+  // JSON 读进来的东西编译期不在场：老写法 `kills: '某条夹具'` 是个字符串，按一组名字遍历
+  // 它会逐个字符走一遍 —— 每个字都得红才算抓到，永远判「红错了地方」。静默，所以要拦。
+  if (!Array.isArray(mut.kills) || mut.kills.some(k => typeof k !== 'string')) return 'kills-not-list'
+  // 点了验证者、名单却是空的 = 没点名任何夹具，与漏写同一件事
+  return mut.kills.length === 0 ? 'missing-kills' : undefined
 }
 
 /**
@@ -294,14 +300,19 @@ export function killsMatched(output: string, label: string): boolean {
  * 「夹具没造对」上,`killsMatched` 只认名字、分不出红的理由,于是自检在说
  * 「我什么也没测到」而这里记成「被抓到」。两道闸的形状一样、理由逐字一样,
  * 只是记号不同 —— 那不是任何一条断言的功劳(ADR-70 的欠条,5c 第一片)。
+ *
+ * **点名是一组,每一条都要红。** 只收一个名字的时候,一条变异只要弄红名单里的头一条
+ * 就算被抓到 —— `M-D6-j` 因此只证明了「四条收尾里的第一条还活着」,后三条夹具删光它
+ * 照样绿(#91 复查实测)。一组里有一条没红,这条变异对那一条就什么也没证明,
+ * 判的是 `elsewhere`(ADR-70 的欠条,5c 第二片)。
  */
 export function judgeRun(exitCode: number | null, output: string,
-  verifier: Verifier, kills?: string): RunVerdict {
+  verifier: Verifier, kills?: readonly string[]): RunVerdict {
   if (exitCode === 0) return 'survived'
   if (exitCode === null) return 'crashed'
   if (!verifier.summary.test(output)) return 'crashed'
   if (kills === undefined) return 'caught'
   if (verifier.processMark !== undefined && processFailed(output, verifier.processMark)) return 'crashed'
   if (verifier.fixtureMark !== undefined && processFailed(output, verifier.fixtureMark)) return 'crashed'
-  return killsMatched(output, kills) ? 'caught' : 'elsewhere'
+  return kills.every(k => killsMatched(output, k)) ? 'caught' : 'elsewhere'
 }

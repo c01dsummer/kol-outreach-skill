@@ -605,9 +605,10 @@ if (dir && rendered !== undefined) {
   // 四条共用分支之前的同一句话，所以是一条判据；也正因为共用，**一条把话写死就会被
   // 别的抓住** —— 前两条要的是「不花钱」，后两条要的是「花钱 + 还剩多少」。
   // 缺省那个验证者（scripts/test.ts）够不到入口脚本，所以这一段只能这样真跑。
-  // **现在有一条负片指着它**：M-D6-j 删掉那行共用的接线、改跑自检来验，kills 点的是
-  // 下面第一条夹具。⚠️ 它证明的是**第一条路还活着**，不是「四条路不能各自坏掉」——
-  // kills 只收一个名字，只弄坏一条路照样判「被抓到」（ADR-70 记着这条欠条）。
+  // **现在有一条负片指着它**：M-D6-j 删掉那行共用的接线、改跑自检来验，kills 点名下面
+  // 四条夹具**全部** —— 一条没红就判「红错了地方」（5c 第二片把 kills 收成一组之前只点得着
+  // 第一条，剩下三条删光它照样绿）。⚠️ 它证明的是四条都还活着、都靠那一行，不是
+  // 「四条路能各自坏掉」—— 后者要四条各自的变异（ADR-70 记着这条欠条）。
   // 这条缺口在 mutations.json 的 exemptions 里仍按 P3.b 的先例显式登记着，撤它是落地 4 的事。
   //
   // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
@@ -784,7 +785,7 @@ writeFileSync(join(wireTmp, 'docs', 'requirements.json'),
 writeFileSync(join(wireTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
   { id: 'M-X-b', req: 'X1', why: '指了一个不认得的验证者', file: 'a.ts', find: 'x', replace: 'y', by: '查无此人' },
   { id: 'M-X-c', req: 'X1', why: '指名了验证者却没说该红的是哪一条', file: 'a.ts', find: 'x', replace: 'z', by: 'selfcheck' },
-  { id: 'M-X-d', req: 'X1', why: '点了名却没说谁来验', file: 'a.ts', find: 'x', replace: 'w', kills: '某条夹具' },
+  { id: 'M-X-d', req: 'X1', why: '点了名却没说谁来验', file: 'a.ts', find: 'x', replace: 'w', kills: ['某条夹具'] },
 ] }), 'utf8')
 const badBy = runTool('mutate 的验证者接线不成立即以退出码 1 结束', 'mutate', [], wireTmp, { status: 1 })
 if (badBy === undefined) {
@@ -817,7 +818,7 @@ const importLine = (spec: string) => `import { a } from '${spec}'\n`
 writeFileSync(join(isoTmp, 'scripts', 'check', 'selfcheck.ts'), importLine('./hop.js'), 'utf8')
 writeFileSync(join(isoTmp, 'scripts', 'check', 'hop.ts'), importLine('./leaf.js'), 'utf8')
 writeFileSync(join(isoTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
-  { id: 'M-X-e', req: 'X1', why: '改的是验证者自己要用的东西', by: 'selfcheck', kills: '某条夹具',
+  { id: 'M-X-e', req: 'X1', why: '改的是验证者自己要用的东西', by: 'selfcheck', kills: ['某条夹具'],
     file: 'scripts/check/leaf.ts', find: 'x', replace: 'y' },
 ] }), 'utf8')
 const selfVer = runTool('mutate 遇到自己验自己即以退出码 1 结束', 'mutate', [], isoTmp, { status: 1 })
@@ -846,9 +847,9 @@ writeFileSync(join(labelTmp, 'scripts', 'check', 'selfcheck.ts'),
   declLine('甲') + declLine('乙') + declLine('乙'), 'utf8')
 writeFileSync(join(labelTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
   { id: 'M-X-f', req: 'X1', why: '点了一个清册里没有的名字', file: 'a.ts', find: 'x', replace: 'y',
-    by: 'selfcheck', kills: '丙' },
+    by: 'selfcheck', kills: ['丙'] },
   { id: 'M-X-g', req: 'X1', why: '点的那个名字有两条夹具在用', file: 'a.ts', find: 'x', replace: 'z',
-    by: 'selfcheck', kills: '乙' },
+    by: 'selfcheck', kills: ['乙'] },
 ] }), 'utf8')
 const badKills = runTool('mutate 的 kills 点不着夹具即以退出码 1 结束',
   'mutate', [], labelTmp, { status: 1 })
