@@ -13,6 +13,7 @@ import {
 } from './check/audit-rule.js'
 import {
   VERIFIERS, exemptionCovered, exemptionLead, exitRace, judgeRun, killsMatched, labelFault,
+  labelFaults,
   labelsOf, leadWired, processFailed, wiringFault,
 } from './check/mutate-rule.js'
 import {
@@ -2933,6 +2934,19 @@ harness('清册：点的那条夹具真的在，而且只有一条叫这个名�
   eq('清册里没有 → 点了个谁也不会打出来的名字', labelFault('甲', new Map()), 'unknown-label')
   eq('只起过一次 → 立得住', labelFault('甲', new Map([['甲', 1]])), undefined)
   eq('起过两次 → 红的是哪一条分不出', labelFault('甲', new Map([['甲', 2]])), 'ambiguous-label')
+
+  // ---- 名单里每一项各查一次 ----
+  // 「每一项都要查」是语义。它原先留在入口那道循环里，没有任何负片守得住 ——
+  // 改成只查首项的话，当时的测试与三条新负片仍会全绿，后面几项点着不存在的夹具
+  // 就此被静默放行（#97 评审指出，CONVENTIONS 第 10 条）
+  const inv = new Map([['甲', 1], ['乙', 1], ['丙', 2]])
+  eq('都立得住 → 一条也不报', labelFaults(['甲', '乙'], inv), [])
+  eq('头一项立得住、后一项不在清册里 → 报后一项',
+    labelFaults(['甲', '查无此名'], inv), [{ label: '查无此名', fault: 'unknown-label' }])
+  eq('后一项重名也要报', labelFaults(['甲', '丙'], inv), [{ label: '丙', fault: 'ambiguous-label' }])
+  eq('两项都立不住 → 两条都报，各带各的名字',
+    labelFaults(['查无此名', '丙'], inv),
+    [{ label: '查无此名', fault: 'unknown-label' }, { label: '丙', fault: 'ambiguous-label' }])
 
   // 手搭的数据证不了扫真源码扫不扫得动 —— #85 记的那条欠条就是这个形状
   const selfInv = labelsOf(rf('scripts/check/selfcheck.ts', 'utf8'), VERIFIERS.selfcheck.declares)

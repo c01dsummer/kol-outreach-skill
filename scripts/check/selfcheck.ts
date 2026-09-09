@@ -846,10 +846,12 @@ const declLine = (name: string) => `endPath('${name}', [])\n`
 writeFileSync(join(labelTmp, 'scripts', 'check', 'selfcheck.ts'),
   declLine('甲') + declLine('乙') + declLine('乙'), 'utf8')
 writeFileSync(join(labelTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+  // 两条的**头一项都立得住**：立不住的在后面。只查首项的入口会一声不响地放过它们，
+  // 而那正是 #97 评审点出来的坏法（判定已搬进 mutate-rule.ts，这一条端到端再守一次）
   { id: 'M-X-f', req: 'X1', why: '点了一个清册里没有的名字', file: 'a.ts', find: 'x', replace: 'y',
-    by: 'selfcheck', kills: ['丙'] },
+    by: 'selfcheck', kills: ['甲', '丙'] },
   { id: 'M-X-g', req: 'X1', why: '点的那个名字有两条夹具在用', file: 'a.ts', find: 'x', replace: 'z',
-    by: 'selfcheck', kills: ['乙'] },
+    by: 'selfcheck', kills: ['甲', '乙'] },
 ] }), 'utf8')
 const badKills = runTool('mutate 的 kills 点不着夹具即以退出码 1 结束',
   'mutate', [], labelTmp, { status: 1 })

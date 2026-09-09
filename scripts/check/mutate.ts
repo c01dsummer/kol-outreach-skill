@@ -26,7 +26,7 @@ import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import {
   type LabelFault, type RunVerdict, type Verifier, type WiringFault,
-  VERIFIERS, exemptionCovered, exemptionLead, judgeRun, labelFault, labelsOf, wiringFault,
+  VERIFIERS, exemptionCovered, exemptionLead, judgeRun, labelFaults, labelsOf, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
@@ -140,14 +140,10 @@ const SAY_LABEL: Record<LabelFault, (m: Mut, label: string) => string> = {
   'unknown-label': (m, k) => `点的夹具「${k}」不在 ${m.by} 的清册里 —— 名字写岔了，或者那条夹具没了`,
   'ambiguous-label': (m, k) => `${m.by} 里不止一条夹具叫「${k}」—— 红的是哪一条分不出`,
 }
-// 名单里**每一项各查一次**：只查头一项的话，后面几项写岔了、点着不存在的夹具都没人说，
-// 而判定要求它们全红 —— 那条变异会一直判「红错了地方」，报的却是「没红」而不是「没这条」
+// 「名单里每一项各查一次」是语义，判定在 mutate-rule.ts，这儿只渲染（CONVENTIONS 第 10 条）
 const misnamed = muts.flatMap(m => {
   if (m.by === undefined || m.kills === undefined) return []
-  return m.kills.flatMap(k => {
-    const fault = labelFault(k, inventoryOf(m.by as string))
-    return fault === undefined ? [] : [`${m.id}  ${SAY_LABEL[fault](m, k)}`]
-  })
+  return labelFaults(m.kills, inventoryOf(m.by)).map(f => `${m.id}  ${SAY_LABEL[f.fault](m, f.label)}`)
 })
 if (misnamed.length) {
   console.error(`✗ 变异集：${misnamed.length} 条点的夹具立不住 —— 它们的绿或红都不算数\n`)
@@ -294,7 +290,7 @@ for (const m of muts) {
   if (verdict === 'caught') console.log(`  ✓ ${m.id}  [${m.req}] 被抓到`)
   else if (verdict === 'elsewhere') {
     elsewhere.push(m)
-    console.log(`  ✗ ${m.id}  [${m.req}] 红的不是点名那条 —— ${m.by} 确实红了，`
+    console.log(`  ✗ ${m.id}  [${m.req}] 红的不是点名的那些 —— ${m.by} 确实红了，`
                 + `但点名的「${(m.kills ?? []).join('」「')}」里有没红的`)
   } else if (verdict === 'crashed') {
     crashed.push(m)

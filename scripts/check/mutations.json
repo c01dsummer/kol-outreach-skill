@@ -2379,6 +2379,22 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "  return mut.kills.length === 0 ? 'missing-kills' : undefined",
       "replace": "  return undefined"
+    },
+    {
+      "id": "M-H26-d",
+      "req": "harness",
+      "why": "名单只查头一项 —— 后面几项点着不存在的夹具、或者点着重名的，一个字都没人说，而判定要求它们全红：那条变异会一直判「红错了地方」，报出来的是「没红」而不是「没这条」",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return kills.flatMap(label => {",
+      "replace": "  return kills.slice(0, 1).flatMap(label => {"
+    },
+    {
+      "id": "M-H26-e",
+      "req": "harness",
+      "why": "名单里立不住的那几项交回时不带自己的名字 —— 报出来的是点名列表里的头一个，人照着去改的是另一条夹具的名字",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    return fault === undefined ? [] : [{ label, fault }]",
+      "replace": "    return fault === undefined ? [] : [{ label: kills[0], fault }]"
     }
   ],
   "exemptions": [

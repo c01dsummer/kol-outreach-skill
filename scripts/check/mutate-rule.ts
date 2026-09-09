@@ -72,7 +72,7 @@ export function processFailed(output: string, mark: string): boolean {
 }
 
 /**
- * `by` 与 `kills` 这一对写得成不成立 —— 三种不成立各有名字,成立时返回 `undefined`。
+ * `by` 与 `kills` 这一对写得成不成立 —— 四种不成立各有名字,成立时返回 `undefined`。
  *
  * 判定在这里、打印在入口(`docs/CONVENTIONS.md` 第 10 条)。同一个入口里的另外两道体检
  * 早就是这形状(`attribution-rule.ts` / `why-rule.ts`),这一道原先留在入口里是它自己不合群。
@@ -82,6 +82,7 @@ export function processFailed(output: string, mark: string): boolean {
  * | `unknown-verifier` | 判定拿到的不是验证者,当场抛在跑变异那一段 —— 人看见的是一个栈,不是「名字写错了」 |
  * | `missing-kills` | 只知道「那个验证者红了」,红在哪儿不问,一条把别处弄红的变异照样记成被抓到 |
  * | `kills-without-by` | 那是 ADR-70 明写要另外评定的延伸:机制生效、没有规矩、没有记录 |
+ * | `kills-not-list` | 老写法那个字符串会被按一组名字**逐个字符**遍历,每个字都得红才算抓到 —— 那条变异从此永远判「红错了地方」,没有一句话说得出为什么 |
  *
  * ⚠️ **认的是自有键,不是「原型链上有没有」**(评审指出):后者会放行语言内建的那几个名字,
  * 它们「在」这个对象上,取出来却不是验证者 —— 这道体检就在它唯一该说话的时候抛了个栈。
@@ -256,6 +257,22 @@ export function labelFault(kills: string,
 }
 
 export type RunVerdict = 'caught' | 'elsewhere' | 'crashed' | 'survived'
+
+/**
+ * 名单里**每一项各查一次**,立不住的连同它自己的名字一起交回。
+ *
+ * 「每一项都要查」是语义,不是打印:只查头一项的话,后面几项点着不存在的夹具没人说,
+ * 而判定要求它们全红 —— 那条变异会一直判「红错了地方」,报出来的却是「没红」
+ * 而不是「没这条」。语义留在入口就没有负片守得住它(`docs/CONVENTIONS.md` 第 10 条,
+ * #97 评审指出:入口那道循环改成只查首项,当时的测试与三条新负片仍会全绿)。
+ */
+export function labelFaults(kills: readonly string[], inventory: ReadonlyMap<string, number>):
+  { label: string; fault: LabelFault }[] {
+  return kills.flatMap(label => {
+    const fault = labelFault(label, inventory)
+    return fault === undefined ? [] : [{ label, fault }]
+  })
+}
 
 /**
  * `kills` 点名的那条夹具红了没有。
