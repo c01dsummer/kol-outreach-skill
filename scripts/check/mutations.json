@@ -2078,7 +2078,7 @@
       "req": "harness",
       "why": "自检那张表里一个起名的函数都不留：收尾那一族起的名字全部漏出清册，而落地 2 第 5 步要点的第一条正是其中之一",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "declares: ['endPath'],",
+      "find": "declares: ['endPath', 'named'],",
       "replace": "declares: [],"
     },
     {
@@ -2086,8 +2086,8 @@
       "req": "harness",
       "why": "把跑一个脚本那一族也登记成起名的：它们起的名字进得了清册，可它们失败时只打带记号的那一句 —— 点了也永远得不到「被抓到」，放行的正是这道闸要拦的",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "declares: ['endPath'],",
-      "replace": "declares: ['endPath', 'run'],"
+      "find": "declares: ['endPath', 'named'],",
+      "replace": "declares: ['endPath', 'named', 'run'],"
     },
     {
       "id": "M-H20-m",
