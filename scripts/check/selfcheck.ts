@@ -66,10 +66,10 @@ let failed = 0
  * （记号只此一份，在 `verifier-rule.ts`），断言红的不带；`endPath` 那一族还**一失败就
  * 不再往下断言**，免得再打一句不带记号的同名诊断。
  *
- * ⚠️ **另外二十来个调用点还没这么做。** `run` 把 `ok` 丢了，被测脚本崩掉之后那些派生
- * 诊断照打、且不带记号（实测漏出「没有留下可读的断点」等三条）。变异那边由 `judgeRun`
- * 兜着（出过带记号的失败就整次判 `crashed`），但**自检自己报的原因仍是错的** ——
- * 那一半是另一个改动：`run` 要改成可空，让每个调用点自己判。
+ * **每个调用点自己判。** `run` 交回 `string | undefined`，没跑起来给 `undefined`；
+ * 调用点判空之后**整段跳过依赖它的断言**，不补打一句 —— 失败已经由这里带记号报过一次。
+ * 早先 `run` 把 `ok` 丢了，被测脚本崩掉之后派生诊断照打、且不带记号（实测漏出
+ * 「没有留下可读的断点」等两条，`failed` 还重复计数）。那笔账已经还完（ADR-70）。
  */
 const runBoth = (label: string, args: string[], cwd = process.cwd(),
   expect?: { status: number }): { ok: boolean; stdout: string; stderr: string } => {
@@ -124,14 +124,14 @@ const runTool = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string
 /**
  * 同 `runTool`,但把 `ok` 一并交出来。
  *
- * `run` 只给一个字符串,而「没跑起来」和「跑起来了、一个字也没输出」拿到的都是空串。
+ * 早先 `run` 只给一个字符串,「没跑起来」和「跑起来了、一个字也没输出」拿到的都是空串,
  * 拿 `if (out && …)` 当前置条件的调用点于是把后一种当成「无需检查」跳过 ——
  * **而那恰好就是下面两处入口夹具要防的那种退化**:整跑那份报告或 `--brief`
  * 什么也不打、照样以 0 退出,断言全部静默跳过,夹具打勾(#91 评审指出)。
  *
- * 所以那两处改成先问 `ok`:只有真没跑起来才跳过(那时 `runBoth` 已经带记号报过一次,
- * 再派生一句诊断只会说错原因),跑起来了就必须断言,空输出当场红。
- * ⚠️ 本文件另外二十来个 `run` 调用点还是老样子 —— 那一半是另一个改动。
+ * `run` 现在也交回可空了,所以这两件事都有了准确的表达:`undefined` 是「没跑起来」,
+ * 空串是「跑起来了、什么也没打」。这里要 `ok` 的理由只剩一个 —— 那两处夹具**同时**
+ * 要读 stdout 与判成败,`run` 只给一股。
  */
 const runToolBoth = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string[] = [],
   cwd = process.cwd(), expect?: { status: number }) =>
@@ -167,7 +167,7 @@ const collectOut = run('collect 完整流程', [S('collect.ts'), '--config', tas
 let dir = ''
 if (collectOut !== undefined) {
   try { dir = JSON.parse(collectOut).dir } catch {}
-  // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  // 走到这里说明进程跑起来了、退出码也对，只是 stdout 里没有可解析的 dir
   if (!dir) { failed++; console.error('  ✗ collect 未输出可解析的 dir') }
 }
 
@@ -321,13 +321,15 @@ if (dir) {
 }
 
 // ---- render：算分、分层、CSV、HTML、记忆写回 ----
-if (dir) {
-  const rendered = run('render 完整产出', [S('render.ts'), '--dir', dir], tmp)
+// **整段一起守住,不是只守第一条链。** 这一段往下每一条断言读的都是这次 render 的
+// 产出物,只在第一条链前面判空的话,后面几条兄弟断言照样会跑 —— 轻则拿上一次的
+// 陈旧产物报「✓」,重则 `readFileSync` 直接抛,自检连末尾那句汇总都打不出来
+// （#94 评审指出；本文件另外两处同一形状,改法相同）。
+const rendered = dir ? run('render 完整产出', [S('render.ts'), '--dir', dir], tmp) : undefined
+if (dir && rendered !== undefined) {
   const csv = join(tmp, dir, 'kol.csv')
   const html = join(tmp, dir, 'report.html')
-  if (rendered === undefined) {
-    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
-  } else if (!existsSync(csv)) { failed++; console.error('  ✗ 未生成 CSV') }
+  if (!existsSync(csv)) { failed++; console.error('  ✗ 未生成 CSV') }
   else {
     const buf = readFileSync(csv)
     if (buf[0] !== 0xef || buf[1] !== 0xbb || buf[2] !== 0xbf) {
@@ -389,12 +391,13 @@ if (dir) {
   writeFileSync(cPath, JSON.stringify(patched, null, 2), 'utf8')
   const reRendered = run('render 跑过邮箱增强时如实报 enriched',
                          [S('render.ts'), '--dir', dir], tmp)
-  const enrichedMeta = JSON.parse(readFileSync(metaPath, 'utf8'))
-  if (reRendered === undefined) {
-    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
-  } else if (enrichedMeta.enriched !== true) {
-    failed++; console.error('  ✗ meta.json 的 enriched 不实 —— 跑过邮箱增强却报 false')
-  } else console.log('  ✓ meta.json 的 enriched 如实（跑过邮箱增强时为 true）')
+  // 读也放进判空里：没跑起来时读到的是上一次留下的产出物，拿它判会把功劳记错
+  if (reRendered !== undefined) {
+    const enrichedMeta = JSON.parse(readFileSync(metaPath, 'utf8'))
+    if (enrichedMeta.enriched !== true) {
+      failed++; console.error('  ✗ meta.json 的 enriched 不实 —— 跑过邮箱增强却报 false')
+    } else console.log('  ✓ meta.json 的 enriched 如实（跑过邮箱增强时为 true）')
+  }
   // 复位：后面几段接着用这个任务目录，交付物与产出物都要回到未增强的样子。
   writeFileSync(cPath, pristine, 'utf8')
   // 这一处不判空：它后面没有派生断言，跑不起来时 runBoth 已经带记号报过一次，
@@ -407,7 +410,8 @@ if (dir) {
 // render 把这批人写进记忆后再续跑，记忆过滤判定「本产品已推荐过」，交付物被清成
 // 空数组 —— 已经付费采集的数据不可恢复地消失。触发路径不冷门：用户看完报告说
 // 「人不够，再多找点」，Agent 就会去跑 --resume。
-if (dir) {
+// 这一段验的是「render 之后再续跑，已采集的人还在」—— render 没跑起来它就无从验起
+if (dir && rendered !== undefined) {
   const deliverable = join(tmp, dir, 'creators.json')
   const rawPath = join(tmp, dir, 'creators.raw.json')
   const before = JSON.parse(readFileSync(deliverable, 'utf8')).length
@@ -431,7 +435,10 @@ if (dir) {
 // 触发它的不是天灾 —— 这个产品要求运营手改 memory/creators.json 来标 contacted，
 // 手改 JSON 就是最常见的损坏来源。原实现在这里退化成空记忆，于是打扰过的人
 // 重新进名单，紧接着 render 又拿一份「谁都没联系过」的记忆盖掉原文件。
-if (dir) {
+// 同样依赖上面那次 render：memory/creators.json 是它写回来的。
+// 不带这个前置条件的话，render 没跑起来时下一行 readFileSync 直接抛 ——
+// **自检整个死掉，连末尾那句失败汇总都打不出来**（#94 评审指出，实测两版都会死）
+if (dir && rendered !== undefined) {
   const memFile = join(tmp, 'memory', 'creators.json')
   const healthy = readFileSync(memFile, 'utf8')
   const contactedCount = Object.keys(JSON.parse(healthy).creators ?? {}).length
@@ -444,31 +451,32 @@ if (dir) {
   const stderr = run('collect 记忆读不出来时不产出名单',
                      [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp,
                      { status: 2, stream: 'stderr' })
-  if (stderr === undefined) {
-    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
-  } else if (!stderr.includes('--ignore-memory') || !stderr.includes('--resume')) {
-    failed++
-    console.error('  ✗ 中止时没有告诉用户怎么往下走 —— 一条人照做不了的报错等于没报')
-  } else console.log('  ✓ 中止时给出了修复与强出名单两条路')
-  // 这一轮采集已经跑完，所以续跑确实不花钱 —— 但那句话必须是**算出来的**，
-  // 不是无条件写死的。还有关键词没跑完时它要说的是相反的话（ADR-22）。
-  if (stderr === undefined) {
-    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
-  } else if (!stderr.includes('续跑不产生新的请求') && !stderr.includes('续跑会继续发请求')) {
-    failed++
-    console.error('  ✗ 没有说清续跑的代价 —— 或者把「已抓到的不重抓」写成了「续跑免费」')
-  } else console.log('  ✓ 续跑的代价按实际剩余工作量说话')
-  // 预算用尽时光 --resume 会立刻再退 3。这里采集已跑完，命令不该带 --budget；
-  // 反过来说了「预算也已用尽」的那条命令必须带 —— 两句话要同进同出
-  const budgetGone = stderr !== undefined && stderr.includes('预算也已用尽')
-  const cmdHasBudget = stderr !== undefined && /修好它再跑:.*--budget <新额度>/.test(stderr)
-  if (budgetGone !== cmdHasBudget) {
-    failed++
-    console.error('  ✗ 恢复命令与预算状态不一致 —— 用户照着敲会立刻再撞一次退出码 3')
-  } else console.log('  ✓ 恢复命令按预算状态决定要不要带 --budget')
-  if (readFileSync(deliverable, 'utf8') !== beforeList) {
-    failed++; console.error('  ✗ 中止时仍改写了交付物 creators.json')
-  } else console.log('  ✓ 中止未触碰交付物')
+  // 整段一起守住 —— 下面四条断言全都依赖这一次中止。逐条判空的写法里第三条
+  // 会判出**假绿**：`stderr` 为空时两个布尔都是 false，`budgetGone !== cmdHasBudget`
+  // 不成立，于是它在进程失败之后打了一个 ✓（#94 评审指出）
+  if (stderr !== undefined) {
+    if (!stderr.includes('--ignore-memory') || !stderr.includes('--resume')) {
+      failed++
+      console.error('  ✗ 中止时没有告诉用户怎么往下走 —— 一条人照做不了的报错等于没报')
+    } else console.log('  ✓ 中止时给出了修复与强出名单两条路')
+    // 这一轮采集已经跑完，所以续跑确实不花钱 —— 但那句话必须是**算出来的**，
+    // 不是无条件写死的。还有关键词没跑完时它要说的是相反的话（ADR-22）。
+    if (!stderr.includes('续跑不产生新的请求') && !stderr.includes('续跑会继续发请求')) {
+      failed++
+      console.error('  ✗ 没有说清续跑的代价 —— 或者把「已抓到的不重抓」写成了「续跑免费」')
+    } else console.log('  ✓ 续跑的代价按实际剩余工作量说话')
+    // 预算用尽时光 --resume 会立刻再退 3。这里采集已跑完，命令不该带 --budget；
+    // 反过来说了「预算也已用尽」的那条命令必须带 —— 两句话要同进同出
+    const budgetGone = stderr.includes('预算也已用尽')
+    const cmdHasBudget = /修好它再跑:.*--budget <新额度>/.test(stderr)
+    if (budgetGone !== cmdHasBudget) {
+      failed++
+      console.error('  ✗ 恢复命令与预算状态不一致 —— 用户照着敲会立刻再撞一次退出码 3')
+    } else console.log('  ✓ 恢复命令按预算状态决定要不要带 --budget')
+    if (readFileSync(deliverable, 'utf8') !== beforeList) {
+      failed++; console.error('  ✗ 中止时仍改写了交付物 creators.json')
+    } else console.log('  ✓ 中止未触碰交付物')
+  }
 
   // ---- 收尾那句话：两种剩余工作量各真跑一遍（D6.e 的入口那一半）----
   // 说哪一句、两个剩余量怎么数，都由 scripts/test.ts 断言；这里验的是**入口真的
@@ -628,20 +636,22 @@ if (dir) {
 
   // render：不写回，不覆盖，且报告上说出来
   const keptMemory = run('render 记忆读不出来时不覆盖原文件', [S('render.ts'), '--dir', dir], tmp)
-  if (keptMemory === undefined) {
-    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
-  } else if (readFileSync(memFile, 'utf8') !== broken) {
-    failed++
-    console.error(`  ✗ 读不出来的记忆被覆盖了 —— 原本记着 ${contactedCount} 个人的联系状态`)
-  } else console.log('  ✓ 读不出来的记忆一个字节没动')
+  // 三条后置条件一起守住 —— 后两条读的是这一次 render 的产出物，只守第一条的话
+  // 它们会拿上一次留下的陈旧文件报「✓」，把功劳记在一次失败的运行头上
+  if (keptMemory !== undefined) {
+    if (readFileSync(memFile, 'utf8') !== broken) {
+      failed++
+      console.error(`  ✗ 读不出来的记忆被覆盖了 —— 原本记着 ${contactedCount} 个人的联系状态`)
+    } else console.log('  ✓ 读不出来的记忆一个字节没动')
 
-  const metaAfter = JSON.parse(readFileSync(join(tmp, dir, 'meta.json'), 'utf8'))
-  const htmlAfter = readFileSync(join(tmp, dir, 'report.html'), 'utf8')
-  if (metaAfter.memory_written !== false || metaAfter.memory_status !== 'unreadable_ignored') {
-    failed++; console.error('  ✗ meta.json 没有报出记忆的两个状态')
-  } else if (!htmlAfter.includes('未做「已联系 / 已推荐」去重')) {
-    failed++; console.error('  ✗ 报告没有声明这批名单未去重（P5）')
-  } else console.log('  ✓ meta.json 与报告都声明了记忆失效')
+    const metaAfter = JSON.parse(readFileSync(join(tmp, dir, 'meta.json'), 'utf8'))
+    const htmlAfter = readFileSync(join(tmp, dir, 'report.html'), 'utf8')
+    if (metaAfter.memory_written !== false || metaAfter.memory_status !== 'unreadable_ignored') {
+      failed++; console.error('  ✗ meta.json 没有报出记忆的两个状态')
+    } else if (!htmlAfter.includes('未做「已联系 / 已推荐」去重')) {
+      failed++; console.error('  ✗ 报告没有声明这批名单未去重（P5）')
+    } else console.log('  ✓ meta.json 与报告都声明了记忆失效')
+  }
 
   // 旧任务目录：task.json 里根本没有这个字段。**不能读成「去重跑过了」** ——
   // 产出它的那一版遇到读不出来的记忆会静默当成空记忆（ADR-18）。
@@ -652,16 +662,17 @@ if (dir) {
   writeFileSync(taskFile, JSON.stringify(legacy, null, 2), 'utf8')
 
   const legacyRun = run('render 旧任务目录的去重状态记为无从确认', [S('render.ts'), '--dir', dir], tmp)
-  const legacyMeta = JSON.parse(readFileSync(join(tmp, dir, 'meta.json'), 'utf8'))
-  const legacyHtml = readFileSync(join(tmp, dir, 'report.html'), 'utf8')
-  if (legacyRun === undefined) {
-    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
-  } else if (legacyMeta.memory_status !== 'unknown') {
-    failed++
-    console.error(`  ✗ 缺字段被读成了 ${legacyMeta.memory_status} —— 无从确认的事被当成了肯定答案`)
-  } else if (!legacyHtml.includes('无从确认')) {
-    failed++; console.error('  ✗ 报告没有声明去重状态无从确认')
-  } else console.log('  ✓ 旧任务目录记为 unknown 并在报告上声明')
+  // 读也放进判空里 —— 同上
+  if (legacyRun !== undefined) {
+    const legacyMeta = JSON.parse(readFileSync(join(tmp, dir, 'meta.json'), 'utf8'))
+    const legacyHtml = readFileSync(join(tmp, dir, 'report.html'), 'utf8')
+    if (legacyMeta.memory_status !== 'unknown') {
+      failed++
+      console.error(`  ✗ 缺字段被读成了 ${legacyMeta.memory_status} —— 无从确认的事被当成了肯定答案`)
+    } else if (!legacyHtml.includes('无从确认')) {
+      failed++; console.error('  ✗ 报告没有声明去重状态无从确认')
+    } else console.log('  ✓ 旧任务目录记为 unknown 并在报告上声明')
+  }
 }
 
 // ---- 纪律 lint：扫到违规就以退出码 1 结束（P1.b 的入口那一半）----
