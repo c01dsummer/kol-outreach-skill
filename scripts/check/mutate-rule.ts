@@ -154,6 +154,77 @@ export function labelsOf(source: string, declares: readonly string[]): Map<strin
   return seen
 }
 
+/**
+ * 这条豁免的编号,有没有变异记在它名下。
+ *
+ * 报告里那句「无变异(显式缺口)」原先是写死的,而落地 2 第 5 步起它变成假话:
+ * D6.f 挂着豁免、同时被 `M-D6-j` 真守着,同一份报告里两句话打架。
+ *
+ * **只报事实,不判「豁免该不该撤」。** 后者要看 `scope`（豁免有,变异没有),而那是
+ * 落地 4 的事 —— ADR-70 那条欠条说的是:按 `req` 去判覆盖关系,会因为同一判据
+ * **另一半**有了负片,删掉这一半唯一的缓解记录。#88 的评审正是照它把我造的那道
+ * 硬失败拦下来的（这里是转述,不是原句）。这里只说
+ * 「有没有一条变异写着这个编号」,那是数据直接答得出来的。
+ *
+ * **编号要逐字相同**:`D6` 的变异不算守着 `D6.f`,反过来也不算 —— 判据比需求细,
+ * 拿粗的去顶细的正是判据级计量当初要治的那件事。
+ */
+export function exemptionCovered(req: string,
+  mutations: readonly { req: string }[]): boolean {
+  return mutations.some(m => m.req === req)
+}
+
+/**
+ * 报告里那条豁免旁边怎么说 —— 排版留在判定里,与 `criteriaCell` 同一个理由。
+ *
+ * **只回答一个问题:名下有没有一条变异。** 短到不带括号,是为了让三处报告各自组框:
+ * `--brief` 后面接 `（scope）`、整跑接冒号、审计接在它自己那句「显式缺口,不消灭」之后。
+ * 各写一份的话,一条判据有了负片之后改了两处忘了第三处,症状是「同一件事,两份报告
+ * 说两样」——本 PR 头一版正是只改了 `mutate.ts` 那两处（#91 评审指出）。
+ */
+export const exemptionLead = (covered: boolean): string =>
+  covered ? '名下有负片' : '名下无变异'
+
+/**
+ * 一个**入口**的源码里,那句豁免行是不是从判定取的 —— **按语法树**问,不是按字面扫。
+ *
+ * 同一句话有三处入口在印(`mutate` 的 `--brief` 与整跑、`audit` 的报告)。`mutate`
+ * 那两处各有一个自检夹具真跑一遍、断言输出;`audit` 那一处**没有** —— 给它造夹具要把
+ * `audit` 加进自检的工具表(`runTool` 的形参类型就是那张表的键,起一个表里没有的
+ * 编译期都过不去),而那张表同时是隔离判据的种子来源:闭包实测从 13 个撑大到 17
+ * (`audit.ts` 自己,带上 `audit-rule` / `spec-rule` / `quoted`),`verifier-rule.ts`
+ * 与 `ARCHITECTURE.md` 里四处写着「13 个」的话同时失真,此后能被自检验证的变异空间
+ * 也跟着缩小。为一行报告付这个代价不划算(#91 第二轮评审要的是给 `audit` 也造夹具,
+ * 这里是实测之后另选的路)。
+ *
+ * 退而求其次:扫源码,问「这个入口还在调那个判定吗」。**它比输出级的夹具弱**,两层弱:
+ * 一是只证明调用还在,不证明印出来的话对 —— 调用留着、把结果丢掉照样绿;二是它**按文件
+ * 问**,`mutate.ts` 里那两处调用断了哪一处它分不出来。
+ * 但它挡得住评审点名的那个坏法(把整句话换回写死的字面量),而且零代价、不动闭包;
+ * `mutate` 那两处另有夹具真跑着断言输出,所以这条判定真正独自扛的是 `audit` 那一处。
+ * ⚠️ 这条差额记在 ADR-70 的欠条里。
+ *
+ * **头一版写成正则,评审当场指出洞在哪**:`// exemptionLead(exemptionCovered(x, y))`
+ * 也算数,于是真调用删掉、同一句话留在注释或串里,这条断言照样绿 —— **它证不了
+ * 「还在调」,只证得了「还写着这几个字」**。而这正是本文件上面 `labelsOf` 刚补过的
+ * 同一个洞,同样是评审指出来的。语法树没有它:注释不进树,串的内容是一个
+ * `StringLiteral` 节点的值,结构上就不是调用。
+ */
+export function leadWired(source: string): boolean {
+  const tree = ts.createSourceFile('entry.ts', source, ts.ScriptTarget.Latest, true)
+  /** 调的是不是光秃秃这个名字 —— `别的对象.exemptionLead(…)` 不是那个函数 */
+  const callTo = (node: ts.Node | undefined, name: string): node is ts.CallExpression =>
+    node !== undefined && ts.isCallExpression(node) && ts.isIdentifier(node.expression)
+      && node.expression.text === name
+  let wired = false
+  const visit = (node: ts.Node): void => {
+    if (callTo(node, 'exemptionLead') && callTo(node.arguments[0], 'exemptionCovered')) wired = true
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  return wired
+}
+
 export type LabelFault = 'unknown-label' | 'ambiguous-label'
 
 /**

@@ -12,8 +12,8 @@ import {
   JUDGMENT_EXEMPT, criterionMutations, deprecatedBlock, judgmentModules, ledger, unguarded,
 } from './check/audit-rule.js'
 import {
-  VERIFIERS, exitRace, judgeRun, killsMatched, labelFault, labelsOf, processFailed,
-  wiringFault,
+  VERIFIERS, exemptionCovered, exemptionLead, exitRace, judgeRun, killsMatched, labelFault,
+  labelsOf, leadWired, processFailed, wiringFault,
 } from './check/mutate-rule.js'
 import {
   beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, testRunning,
@@ -2801,6 +2801,45 @@ harness('by 与 kills 同进同出：三种写错各有名字')
   for (const builtin of ['constructor', 'valueOf', 'hasOwnProperty', 'propertyIsEnumerable']) {
     eq(`语言内建的名字不算认得：${builtin}`,
       wiringFault({ by: builtin, kills: '某条夹具' }), 'unknown-verifier')
+  }
+}
+
+harness('豁免那一行开头说的话，要跟变异集对得上')
+{
+  // 「无变异（显式缺口）」原先写死在入口里。落地 2 第 5 步起它变成假话 ——
+  // D6.f 挂着豁免、同时被 M-D6-j 真守着，同一份报告里两句话打架
+  eq('有变异写着这个编号 → 说有负片', exemptionCovered('D6.f', [{ req: 'D6.f' }]), true)
+  eq('一条变异都没有 → 说无变异', exemptionCovered('D6.f', []), false)
+  // 编号要逐字相同：判据比需求细，拿粗的去顶细的正是判据级计量当初要治的那件事
+  eq('需求号的变异不算守着它下面那条判据',
+    exemptionCovered('D6.f', [{ req: 'D6' }]), false)
+  eq('判据号的变异也不算守着整条需求',
+    exemptionCovered('D6', [{ req: 'D6.f' }]), false)
+
+  // 短到不带括号：三处报告各自组框（--brief 后接 scope、整跑接冒号、审计接在
+  // 它自己那句「显式缺口，不消灭」之后）。带括号的话嵌套起来读不成句
+  eq('名下有变异时这么说', exemptionLead(true), '名下有负片')
+  eq('没有时这么说', exemptionLead(false), '名下无变异')
+
+  // 同一句话有三处入口在印。mutate 那两处各有自检夹具真跑一遍断言输出；audit 那一处
+  // 没有 —— 给它造夹具要把 audit 加进自检的工具表，而那张表同时是隔离判据的种子来源，
+  // 闭包实测会从 13 撑大到 17，为一行报告不值。退而求其次扫源码问「还在调吗」，
+  // 它挡得住「换回写死的字面量」这个坏法，但证不了印出来的话对（差额记在 ADR-70）
+  eq('调了判定就算接着', leadWired('exemptionLead(exemptionCovered(x, y))'), true)
+  eq('中间有空白也认', leadWired('exemptionLead( exemptionCovered (x, y))'), true)
+  eq('换成写死的字面量 → 断了', leadWired("const lead = '名下无变异'"), false)
+  eq('只调一半也不算接着', leadWired('exemptionLead(covered)'), false)
+  // 按语法树问，不按字面扫 —— 头一版写成正则，下面这三种它全收：于是真调用删掉、
+  // 同一句话留在注释或串里，这几条断言照样绿。同一个洞 labelsOf 上面刚补过，
+  // 两次都是评审指出来的
+  eq('注释里写着同一句话不算', leadWired('// exemptionLead(exemptionCovered(x, y))'), false)
+  eq('串里装着调用的形状也不算',
+    leadWired("const s = 'exemptionLead(exemptionCovered(x, y))'"), false)
+  eq('别的对象上的同名方法不算', leadWired('other.exemptionLead(exemptionCovered(x, y))'), false)
+  // 两个文件、三处调用：手搭的数据证不了真文件里还在调。判定按文件问，mutate 里那两处
+  // 断了哪一处它分不出 —— 那两处各有夹具兜着，这里真正独自扛的是 audit 那一处
+  for (const f of ['scripts/check/mutate.ts', 'scripts/check/audit.ts']) {
+    ok(`${f} 里还有从判定取的豁免行`, leadWired(rf(f, 'utf8')))
   }
 }
 

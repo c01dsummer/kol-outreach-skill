@@ -2192,6 +2192,80 @@
       "file": "scripts/check/audit-rule.ts",
       "find": "new Set(mutations.map(m => m.req).filter(id => id.includes('.')))",
       "replace": "new Set<string>()"
+    },
+    {
+      "id": "M-D6-j",
+      "req": "D6.f",
+      "why": "产出了名单的四种收尾都不再说续跑要不要花钱：关键词跑完、达标提前停下、预算用尽、出错中止，四条路上「续跑还要不要继续发付费请求、还剩多少没抓」一个字都没有 —— 用户手里没有判断值不值得续跑的依据：该续的不敢续，那份已经付过钱的名单永远拿不到；不该续的照样续，账单在他不知情时又长一截",
+      "file": "scripts/collect.ts",
+      "find": "  console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": "collect 关键词跑完（退出码 0）也说续跑代价"
+    },
+    {
+      "id": "M-H23-a",
+      "req": "harness",
+      "why": "豁免那一行永远说「无变异」：一条判据明明已经有负片指着它，报告还印着它是没人守的缺口 —— 同一份报告里两句话打架，而这正是本次改动要治的",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return mutations.some(m => m.req === req)",
+      "replace": "return false"
+    },
+    {
+      "id": "M-H23-b",
+      "req": "harness",
+      "why": "编号改成前缀相等：一条记在需求名下的变异被当成守着它下面每一条判据，粗的顶了细的，正是判据级计量当初要治的那件事",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "mutations.some(m => m.req === req)",
+      "replace": "mutations.some(m => req.startsWith(m.req))"
+    },
+    {
+      "id": "M-H23-c",
+      "req": "harness",
+      "why": "那一行开头的两句话对调：有负片的说成没人守，没人守的说成已有负片 —— 一列的意思整个翻过来",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "covered ? '名下有负片' : '名下无变异'",
+      "replace": "covered ? '名下无变异' : '名下有负片'"
+    },
+    {
+      "id": "M-H23-d",
+      "req": "harness",
+      "why": "一条变异都没有时也说名下有负片：豁免表里从此一条缺口都不显示，而那一列本来就是为了让缺口显形",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return mutations.some(m => m.req === req)",
+      "replace": "return mutations.every(m => m.req === req)"
+    },
+    {
+      "id": "M-H23-e",
+      "req": "harness",
+      "why": "编号改成另一个方向的前缀相等：一条记在判据名下的变异被当成守着它上面那整条需求，同一次归错功劳换个方向原样再来",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "mutations.some(m => m.req === req)",
+      "replace": "mutations.some(m => m.req.startsWith(req))"
+    },
+    {
+      "id": "M-H23-f",
+      "req": "harness",
+      "why": "入口不管调没调那个判定，一律算接着 —— 三处报告里任何一处把那句话换回写死的字面量，都没人吭声，而那正是本次要治的坏法",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return wired\n}",
+      "replace": "  return true\n}"
+    },
+    {
+      "id": "M-H23-g",
+      "req": "harness",
+      "why": "只看外层那个名字，不问它拿的是判定的结果还是写死的话：把参数换成固定文案照样算接着，而那正是要治的坏法本身",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "callTo(node.arguments[0], 'exemptionCovered')",
+      "replace": "true"
+    },
+    {
+      "id": "M-H23-h",
+      "req": "harness",
+      "why": "只看源码最外层那一层，不往里走：真入口里那句话嵌在函数体里，于是三处报告一律被判成断了 —— 每次全量检查都挨一次假警报，久了就没人看它",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    ts.forEachChild(node, visit)",
+      "replace": ""
     }
   ],
   "exemptions": [
@@ -2204,8 +2278,8 @@
     {
       "req": "D6.f",
       "scope": "入口的接线，不是 lib 里的判定",
-      "why": "「四种收尾都把那句话打出来」是 collect.ts 里分支之前的一行接线。缺省那个验证者 scripts/test.ts 够不到入口，改在那里的变异只会「存活」，不会「被抓到」；改跑自检的那条路要在变异上写 by，这一处还没写（ADR-70）。与 P3.b、ADR-13 记过的处境相同，不在单元测试里伪造一个认领。那句话说什么由 lib/pipeline.ts 的 resumeCostLine 决定，那一半是 D6.e，有 M-D6-f／M-D6-g／M-D6-h 三条负片真守着。",
-      "mitigation": "由脚本自检真跑一遍守着：四种收尾各跑一次，每次同时验三样 —— 退出码（0／0／3／1）、stdout 里 summary.stopped 的取值（done／target／budget／error，只验那句话的话两条退出码 0 的路径会互相冒充）、以及 stderr 里那句话说的是「不花钱」还是「花钱 + 还剩多少」，且不得两句同时出现。反向验证过：把那句接线拆掉，四条夹具全红。变异看不到这一段，所以这条判据仍然登记为显式缺口，不假装它被变异守着。"
+      "why": "「四种收尾都把那句话打出来」是 collect.ts 里分支之前的一行接线。缺省那个验证者 scripts/test.ts 够不到入口，改在那里的变异只会「存活」，不会「被抓到」。现在由 M-D6-j 守着：它删掉那一行、改跑自检来验，kills 点的是四条收尾夹具里的第一条。⚠️ 它证明的是那一条路还活着，不是「四条路不能各自坏掉」—— kills 只收一个名字，只弄坏一条路照样判「被抓到」，ADR-70 记着这条欠条。豁免条目本条留着，撤它是落地 4 的事（ADR-70 第四条更正写明的分工）。那句话说什么由 lib/pipeline.ts 的 resumeCostLine 决定，那一半是 D6.e —— 按本条刚立的「编号逐字相同」，M-D6-f／M-D6-g／M-D6-h 的 req 写的是 D6，所以它们守的是需求级的 D6，不是判据 D6.e。",
+      "mitigation": "剩下三条路由脚本自检真跑一遍守着：四种收尾各跑一次，每次同时验三样 —— 退出码（0／0／3／1）、stdout 里 summary.stopped 的取值（done／target／budget／error，只验那句话的话两条退出码 0 的路径会互相冒充）、以及 stderr 里那句话说的是「不花钱」还是「花钱 + 还剩多少」，且不得两句同时出现。反向验证过：把那句接线拆掉，四条夹具全红。M-D6-j 现在指着这一处，但它的 kills 只点得着四条里的第一条，剩下三条仍然只有这几条夹具守着 —— 所以这条判据仍然登记为显式缺口，不假装它整条被变异守着。"
     },
     {
       "req": "P3.b",

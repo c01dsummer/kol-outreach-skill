@@ -26,7 +26,7 @@ import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import {
   type LabelFault, type RunVerdict, type Verifier, type WiringFault,
-  VERIFIERS, judgeRun, labelFault, labelsOf, wiringFault,
+  VERIFIERS, exemptionCovered, exemptionLead, judgeRun, labelFault, labelsOf, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
@@ -150,12 +150,20 @@ if (misnamed.length) {
 }
 
 if (process.argv.includes('--brief')) {
-  console.log('\n变异集 —— 每条变异「违反了什么」。不含实现原文，可以交给写测试的上下文。\n')
-  for (const m of muts) console.log(`  ${m.id}  [${m.req}]  ${m.why}`)
+  // **攒起来一次同步写，不是逐行 console.log。** 下面那句硬退出紧跟在打印之后，而 stdout
+  // 接管道时 `console.log` 是异步的 —— 排在队里还没写出去就被 `process.exit` 掐掉。
+  // 照自检那条 spawn 路径实测 8 次：豁免行只活下来 2 次，末尾那句汇总只活 1 次，
+  // 另外 6 次停在 139／140／221／233 行。而豁免行恰好在最末尾，正是要断言的那一段。
+  // 这就是 `mutate-rule.ts` 的 `exitRace` 记着的那个坑 —— 那道判据只查**验证者**，
+  // 查不到 `mutate.ts` 自己，于是同一个坑在检查链自己身上又踩了一次（#91 评审引出）。
+  const out = ['\n变异集 —— 每条变异「违反了什么」。不含实现原文，可以交给写测试的上下文。\n']
+  for (const m of muts) out.push(`  ${m.id}  [${m.req}]  ${m.why}`)
   for (const e of exemptions) {
-    console.log(`  ⊘     [${e.req}]  无变异（显式缺口${e.scope === undefined ? '' : `，${e.scope}`}）：${e.why}`)
+    const lead = exemptionLead(exemptionCovered(e.req, muts))
+    out.push(`  ⊘     [${e.req}]  ${lead}${e.scope === undefined ? '' : `（${e.scope}）`}：${e.why}`)
   }
-  console.log(`\n共 ${muts.length} 个变异、${exemptions.length} 处显式豁免。`)
+  out.push(`\n共 ${muts.length} 个变异、${exemptions.length} 处显式豁免。`)
+  writeFileSync(1, `${out.join('\n')}\n`)
   process.exit(0)
 }
 
@@ -287,7 +295,7 @@ for (const m of muts) {
 
 console.log()
 for (const e of exemptions) {
-  console.log(`  ⊘ ${e.req} 无变异（显式缺口）：${e.why.split('。')[0]}。`)
+  console.log(`  ⊘ ${e.req} ${exemptionLead(exemptionCovered(e.req, muts))}：${e.why.split('。')[0]}。`)
 }
 
 if (survived.length || elsewhere.length || crashed.length || notApplied.length) {

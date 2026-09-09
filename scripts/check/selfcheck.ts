@@ -486,9 +486,11 @@ if (dir) {
   // 这四条路径原先一个字都不说，用户手里没有判断「值不值得续跑」的依据（ADR-25 的欠条）。
   // 四条共用分支之前的同一句话，所以是一条判据；也正因为共用，**一条把话写死就会被
   // 别的抓住** —— 前两条要的是「不花钱」，后两条要的是「花钱 + 还剩多少」。
-  // 这一段至今没有变异守着（变异缺省跑的是 scripts/test.ts，够不到入口脚本；改跑自检的
-  // 那条路要在变异上写 by，这一处还没写，ADR-70），只能这样真跑；
-  // 这条缺口在 mutations.json 的 exemptions 里按 P3.b 的先例显式登记着。
+  // 缺省那个验证者（scripts/test.ts）够不到入口脚本，所以这一段只能这样真跑。
+  // **现在有一条负片指着它**：M-D6-j 删掉那行共用的接线、改跑自检来验，kills 点的是
+  // 下面第一条夹具。⚠️ 它证明的是**第一条路还活着**，不是「四条路不能各自坏掉」——
+  // kills 只收一个名字，只弄坏一条路照样判「被抓到」（ADR-70 记着这条欠条）。
+  // 这条缺口在 mutations.json 的 exemptions 里仍按 P3.b 的先例显式登记着，撤它是落地 4 的事。
   //
   // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
   // 「达标提前停下」和「关键词跑完」都是退出码 0、都说「不花钱」，一条夹具会让另一条
@@ -716,9 +718,61 @@ if (!badKills.includes('不在 selfcheck 的清册里')) {
   failed++; console.error('  ✗ mutate 没报出「点的那个名字有重名」')
 }
 
+// ---- 整跑那份报告里的豁免行，也要随负片改口（入口的第二处）----
+// 上面那条断言守的是 `--brief`；**同一句话在 mutate.ts 里有两处**，整跑那一处
+// 单元测试与变异集都够不到（`mutate.ts` 在验证基础设施闭包里，指着它的变异会被
+// 「自己验自己」当场拦下，所以这一处只能有夹具、不能有负片 —— 与本文件另外四处
+// mutate 夹具同一处境）。造一份最小语料真跑一遍整跑：一条会被抓到的变异 ＋ 两条豁免，
+// 一条命中、一条不命中，两支话在同一次输出里各出现一次。约 2.7 秒。
+const bothTmp = join(tmp, 'exempt-lead')
+mkdirSync(join(bothTmp, 'scripts', 'check'), { recursive: true })
+mkdirSync(join(bothTmp, 'docs'), { recursive: true })
+writeFileSync(join(bothTmp, 'docs', 'requirements.json'),
+  JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }, { id: 'X1.b' }] }] }), 'utf8')
+// 语料自带的「被测对象」与「验证者」：变异把 keep 改成 gone，而这份测试见了 gone 就红
+writeFileSync(join(bothTmp, 'scripts', 'check', 'a.ts'), "export const v = 'keep'\n", 'utf8')
+// **那一句拼出来，不写成整串** —— 与上面 isoTmp 的 `importLine` 同一个理由：
+// 抽边认的是本文件源码字面里任何一处「from ＋ 相对路径」，写成整串的话，
+// 这行夹具会被当成本文件真的 import，往真闭包里塞一个磁盘上不存在的路径。
+// 头一版正是这么写的，`scripts/test.ts` 里那条「真闭包里没有磁盘上不存在的路径」
+// 当场红（#84 评审抓过同一个诱饵、#85 为它记了欠条，这是第三次 —— 这回是断言抓的）。
+const q = "'"
+writeFileSync(join(bothTmp, 'scripts', 'test.ts'),
+  `import { v } from ${q}./check/a.js${q}\n`
+  + `if (v !== ${q}keep${q}) { console.log('\\n1 个失败\\n'); process.exitCode = 1 }\n`, 'utf8')
+writeFileSync(join(bothTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({
+  mutations: [{ id: 'M-X-h', req: 'X1.a', why: '把那个值改掉，测试该红', 
+                file: 'scripts/check/a.ts', find: 'keep', replace: 'gone' }],
+  exemptions: [
+    { req: 'X1.a', scope: '一半', why: '这一条名下有变异。' },
+    { req: 'X1.b', scope: '一半', why: '这一条名下没有。' },
+  ],
+}), 'utf8')
+const bothOut = runTool('mutate 整跑那份报告的豁免行随负片改口', 'mutate', [], bothTmp)
+if (bothOut && !/^\s*⊘ X1\.a 名下有负片/m.test(bothOut)) {
+  failed++
+  console.error('  ✗ 整跑那份报告里，名下有负片的那条没这么说 —— 又写死了')
+} else if (bothOut && !/^\s*⊘ X1\.b 名下无变异/m.test(bothOut)) {
+  failed++
+  console.error('  ✗ 整跑那份报告里，名下没有变异的那条没这么说')
+}
+
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
 // 一条写进文档、却从没被执行过的命令，等于没有 —— 在这里跑一次，证明它还活着。
-runTool('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'])
+//
+// **还要断言它说了什么，不能只看它退出码是 0。** 那条豁免行的措辞是判定出的
+// （`exemptionLead`），而入口把它换回写死的字符串这种坏法，单元测试与变异集都够不到
+// —— 判定那一层守得很密，入口那一层原先是整个空的（#91 评审指出）。
+// **认的是豁免那一行的形状，不是那句话在输出里出现过。** 头一版写成
+// `brief.includes('名下有负片')`，反向验当场露馅：`--brief` 会把每条变异的 `why` 也打出来，
+// 而其中一条负片的 `why` 里正好有这四个字 —— 接线退回写死，那句断言照样绿。
+// 现在只认「⊘ ＋ 方括号里的编号 ＋ 这句话」的行首形状，与哪一条豁免命中无关。
+const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m
+const brief = runTool('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'])
+if (brief && !briefLead.test(brief)) {
+  failed++
+  console.error('  ✗ --brief 的豁免行没有随负片改口 —— 那句写死的「无变异」又回来了')
+}
 
 rmSync(tmp, { recursive: true, force: true })
 
