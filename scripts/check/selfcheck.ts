@@ -22,7 +22,8 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { tsxCommand } from './tsx-cmd.js'
 import {
-  SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS, selfcheckSummary,
+  SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS,
+  selfcheckSummary,
 } from './verifier-rule.js'
 
 const EXEMPT: Record<string, string> = {}   // 目前无豁免
@@ -595,7 +596,8 @@ if (dir && rendered !== undefined) {
     console.error('  ✗ 只剩 profile 没补却说续跑不花钱 —— 续跑第一件事就是去发那些付费请求')
   } else if (/还有 \d+ 个关键词/.test(onlyErr)) {
     failed++
-    console.error('  ✗ 这一条本该只由 profile 那一半说话，关键词那一半也出现了 —— 夹具没造对')
+    console.error('  ✗ 这一条本该只由 profile 那一半说话，关键词那一半也出现了'
+                  + ` —— 夹具没造对${SELFCHECK_FIXTURE_MARK}`)
   } else console.log('  ✓ 收尾：只剩 profile 没补时也说要花钱，并点名了是 profile')
 
   // ---- 产出了名单的四种收尾都说续跑代价（D6.f 的入口那一半）----
@@ -631,7 +633,10 @@ if (dir && rendered !== undefined) {
     if (!ok) return                            // 没跑起来，下面每一句诊断都会说错原因
     if (!new RegExp(`"stopped":\\s*"${stopped}"`).test(stdout)) {
       failed++
-      console.error(`  ✗ ${label}：这一次走的不是 ${stopped} 那条收尾 —— 夹具没造对，`
+      // 记号在这儿:这一行红说明**夹具废了**,不是断言说了话 —— 判定见了整次判
+      // 「跑不起来」,不许把它记成 `kills` 点名那条的功劳(5c 第一片,与进程记号同形)
+      console.error(`  ✗ ${label}${SELFCHECK_FIXTURE_MARK}：`
+                    + `这一次走的不是 ${stopped} 那条收尾 —— 夹具没造对，`
                     + `断言绿了也不算测过那条路径`)
     } else if (!want.test(stderr)) {
       failed++

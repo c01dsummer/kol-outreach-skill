@@ -2324,6 +2324,30 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "    declares: ['endPath', 'named'],",
       "replace": "    declares: ['endPath'],"
+    },
+    {
+      "id": "M-H25-a",
+      "req": "harness",
+      "why": "夹具自己废了那一次也算被抓到 —— 自检打出「夹具没造对」时它什么都没测到，判定却把这一次记成点名那条夹具的功劳，闸门于是显示那条判据被守住了",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (verifier.fixtureMark !== undefined && processFailed(output, verifier.fixtureMark)) return 'crashed'\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H25-b",
+      "req": "harness",
+      "why": "自检这个验证者不再声明夹具记号 —— 记号照打、判定照认不出，「夹具没造对」又算成断言红了",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    fixtureMark: SELFCHECK_FIXTURE_MARK,\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H25-c",
+      "req": "harness",
+      "why": "自检给「夹具没造对」打的记号成了空的 —— 那一行又变回普通的 ✗ 加名字，kills 点得着它，一次什么也没测到的跑被记成抓到",
+      "file": "scripts/check/verifier-rule.ts",
+      "find": "export const SELFCHECK_FIXTURE_MARK = '（夹具）'",
+      "replace": "export const SELFCHECK_FIXTURE_MARK = ''"
     }
   ],
   "exemptions": [

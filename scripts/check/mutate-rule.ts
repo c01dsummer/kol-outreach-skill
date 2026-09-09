@@ -18,7 +18,7 @@
  * 压进 `survived` 或 `crashed` 又都是假话 —— 它确实被某条断言抓到了,只是不是那一条。
  */
 import ts from 'typescript'
-import { SELFCHECK_PROCESS_MARK } from './verifier-rule.js'
+import { SELFCHECK_FIXTURE_MARK, SELFCHECK_PROCESS_MARK } from './verifier-rule.js'
 
 /** 一个验证者:跑哪个脚本,失败汇总长什么样,进程级失败带什么记号,哪些调用给夹具起名。 */
 export interface Verifier {
@@ -26,6 +26,8 @@ export interface Verifier {
   summary: RegExp
   /** 不填就是这个验证者分不出「进程级失败」与「断言红了」(`test` 就是) */
   processMark?: string
+  /** 不填就是这个验证者分不出「夹具没造对」与「断言红了」(`test` 就是) */
+  fixtureMark?: string
   /**
    * 哪些调用**声明**一条夹具的名字 —— 清册只认这些调用的第一个字面量实参。
    *
@@ -59,11 +61,12 @@ export const VERIFIERS: Record<string, Verifier> = {
     script: 'scripts/check/selfcheck.ts',
     summary: /(^|\n)✗ 脚本自检：\d+ 项失败\s*(\n|$)/,
     processMark: SELFCHECK_PROCESS_MARK,
+    fixtureMark: SELFCHECK_FIXTURE_MARK,
     declares: ['endPath', 'named'],
   },
 }
 
-/** 这一次运行里,有没有过一条**进程级**的失败。 */
+/** 这一次运行里,有没有过一条带**这个记号**的失败 —— 哪一种记号由调用方给。 */
 export function processFailed(output: string, mark: string): boolean {
   return output.split('\n').some(l => l.trimStart().startsWith('✗ ') && l.includes(mark))
 }
@@ -286,6 +289,11 @@ export function killsMatched(output: string, label: string): boolean {
  * 代价是**保守的假阴性**:一次里既崩了、又真红了点名那条,现在也判 `crashed`;
  * 「入口的退出码接线」也从此没法靠 `kills` 认领 —— 那条路本来就只能靠点名派生诊断
  * 走通,而那正是要堵的错误归因。
+ *
+ * **夹具自己废了,这一次同样什么也没证明。** 同一个道理第二次发生:一条夹具红在
+ * 「夹具没造对」上,`killsMatched` 只认名字、分不出红的理由,于是自检在说
+ * 「我什么也没测到」而这里记成「被抓到」。两道闸的形状一样、理由逐字一样,
+ * 只是记号不同 —— 那不是任何一条断言的功劳(ADR-70 的欠条,5c 第一片)。
  */
 export function judgeRun(exitCode: number | null, output: string,
   verifier: Verifier, kills?: string): RunVerdict {
@@ -294,5 +302,6 @@ export function judgeRun(exitCode: number | null, output: string,
   if (!verifier.summary.test(output)) return 'crashed'
   if (kills === undefined) return 'caught'
   if (verifier.processMark !== undefined && processFailed(output, verifier.processMark)) return 'crashed'
+  if (verifier.fixtureMark !== undefined && processFailed(output, verifier.fixtureMark)) return 'crashed'
   return killsMatched(output, kills) ? 'caught' : 'elsewhere'
 }
