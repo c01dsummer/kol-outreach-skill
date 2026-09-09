@@ -230,8 +230,8 @@
       "req": "F5",
       "why": "受众降权跑在分层之前 —— 降完立刻被重新算出来的分层覆盖，地域不达标的人照样留在 A 级被直接发信",
       "file": "scripts/lib/pipeline.ts",
-      "find": "    c.score = scoreCreator(c)\n    c.tier = tierOf(c)\n    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') {\n      const from = c.tier\n      c.tier = DEMOTE[c.tier]\n      if (from !== c.tier) c.tier_adjustments.push({\n        kind: 'audience_geo', from, to: c.tier,\n        reason: `${market} 受众占比低于 30%`,\n      })\n    }",
-      "replace": "    c.score = scoreCreator(c)\n    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') {\n      const from = tierOf(c)\n      c.tier = DEMOTE[from]\n      if (from !== c.tier) c.tier_adjustments.push({\n        kind: 'audience_geo', from, to: c.tier,\n        reason: `${market} 受众占比低于 30%`,\n      })\n    }\n    c.tier = tierOf(c)"
+      "find": "    const score = scoreCreator(c)\n    c.score = score\n    c.tier = tierOf(c, score)\n    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') {\n      const from = c.tier\n      c.tier = DEMOTE[c.tier]\n      if (from !== c.tier) c.tier_adjustments.push({\n        kind: 'audience_geo', from, to: c.tier,\n        reason: `${market} 受众占比低于 30%`,\n      })\n    }",
+      "replace": "    const score = scoreCreator(c)\n    c.score = score\n    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') {\n      const from = tierOf(c, score)\n      c.tier = DEMOTE[from]\n      if (from !== c.tier) c.tier_adjustments.push({\n        kind: 'audience_geo', from, to: c.tier,\n        reason: `${market} 受众占比低于 30%`,\n      })\n    }\n    c.tier = tierOf(c, score)"
     },
     {
       "id": "M-F8-a",
@@ -590,7 +590,7 @@
       "why": "已作废那一行不再印取代者 —— 报告只说某条没了，不说接它的是谁，读的人得回登记表里翻",
       "req": "harness",
       "file": "scripts/check/audit-rule.ts",
-      "find": "                       `${r.deprecated!.superseded_by ? ` \u2192 ${r.deprecated!.superseded_by}` : ''}`)",
+      "find": "                       `${r.deprecated!.superseded_by ? ` → ${r.deprecated!.superseded_by}` : ''}`)",
       "replace": "                       '')"
     },
     {
@@ -630,8 +630,8 @@
       "req": "harness",
       "why": "换了验证者仍按头一个验证者的失败汇总去认 —— 它真的红了也会被判成跑不起来，方向最坏的那种假阴性",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "    summary: /(^|\\n)\u2717 \u811a\u672c\u81ea\u68c0\uff1a\\d+ \u9879\u5931\u8d25\\s*(\\n|$)/,",
-      "replace": "    summary: /(^|\\n)\\d+ \u4e2a\u5931\u8d25\\s*(\\n|$)/,"
+      "find": "    summary: /(^|\\n)✗ 脚本自检：\\d+ 项失败\\s*(\\n|$)/,",
+      "replace": "    summary: /(^|\\n)\\d+ 个失败\\s*(\\n|$)/,"
     },
     {
       "id": "M-H14-r",
@@ -662,8 +662,8 @@
       "req": "harness",
       "why": "凡是报了失败的那一行都算进程级失败 —— 于是每一次真被断言抓到的运行都被判成跑不起来，指定验证者这条路整个作废",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  return output.split('\\n').some(l => l.trimStart().startsWith('\u2717 ') && l.includes(mark))",
-      "replace": "  return output.split('\\n').some(l => l.trimStart().startsWith('\u2717 '))"
+      "find": "  return output.split('\\n').some(l => l.trimStart().startsWith('✗ ') && l.includes(mark))",
+      "replace": "  return output.split('\\n').some(l => l.trimStart().startsWith('✗ '))"
     },
     {
       "id": "M-H14-x",
@@ -1095,7 +1095,7 @@
       "why": "读记忆时把两侧带空白的产品名判成损坏 —— 写回这一侧存的是 trim 过的产品名，所以踩到它的是历史遗留或被手工改过的记录：那一份记忆此后读不出来，每一次采集都被挡在门外，直到有人手工去修",
       "file": "scripts/lib/memory.ts",
       "find": "      const badProduct = textProblem(rr.product)",
-      "replace": "      const badProduct = textProblem(rr.product) ?? (rr.product === String(rr.product).trim() ? undefined : '\u4e24\u4fa7\u6709\u7a7a\u767d')"
+      "replace": "      const badProduct = textProblem(rr.product) ?? (rr.product === String(rr.product).trim() ? undefined : '两侧有空白')"
     },
     {
       "id": "M-D4-o",
@@ -1430,7 +1430,7 @@
       "req": "D4",
       "why": "写回失败时不再清掉半成品 —— 那一刻盘上躺着一份完整的内容副本，名字带进程号，没有任何人被告知它在那儿；而调用方拿到的是「没写回」、照常交付。要删掉它只能等同一个进程再写一次同一个文件，可写回失败往往就是最后一次写",
       "file": "scripts/lib/atomic.ts",
-      "find": "    try { rmSync(tmp, { force: true }) } catch { /* \u540c\u4e0a */ }\n",
+      "find": "    try { rmSync(tmp, { force: true }) } catch { /* 同上 */ }\n",
       "replace": ""
     },
     {
@@ -1966,8 +1966,8 @@
       "req": "harness",
       "why": "自检末尾那句失败汇总换了说法 —— 判定那边认的还是老那句，于是每一条指名自检的变异都被误报成跑不起来，而两边的测试照样全绿",
       "file": "scripts/check/verifier-rule.ts",
-      "find": "export const selfcheckSummary = (failed: number) => `\u2717 \u811a\u672c\u81ea\u68c0\uff1a${failed} \u9879\u5931\u8d25`",
-      "replace": "export const selfcheckSummary = (failed: number) => `\u2717 \u811a\u672c\u81ea\u68c0\uff1a${failed} \u9879\u6ca1\u8fc7`"
+      "find": "export const selfcheckSummary = (failed: number) => `✗ 脚本自检：${failed} 项失败`",
+      "replace": "export const selfcheckSummary = (failed: number) => `✗ 脚本自检：${failed} 项没过`"
     },
     {
       "id": "M-H17-i",
@@ -1990,7 +1990,7 @@
       "req": "harness",
       "why": "自检给进程级失败打的记号成了空的 —— 「退出码不对」和「断言红了」又打成同一句话，一条只把被测脚本弄崩的变异照样算杀掉了点名的那条夹具，而那是崩溃的功劳不是断言的",
       "file": "scripts/check/verifier-rule.ts",
-      "find": "export const SELFCHECK_PROCESS_MARK = '\uff08\u8fdb\u7a0b\uff09'",
+      "find": "export const SELFCHECK_PROCESS_MARK = '（进程）'",
       "replace": "export const SELFCHECK_PROCESS_MARK = ''"
     },
     {
@@ -2266,6 +2266,46 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "    ts.forEachChild(node, visit)",
       "replace": ""
+    },
+    {
+      "id": "M-P1-v",
+      "req": "P1",
+      "why": "把综合分从会变成决策的字段表里拿掉 —— 它决定每个人落进哪一档，缺省成零就是静默把没算过分的人压到最低档，而纪律检查从此不吭声",
+      "file": "scripts/check/lint-rule.ts",
+      "find": "  'score',\n",
+      "replace": ""
+    },
+    {
+      "id": "M-U1-c",
+      "req": "U1",
+      "why": "还没算过分的人排到了有分的人前面 —— 交付表最上面一批是没有依据的人，而运营读的就是从上往下的顺序",
+      "file": "scripts/lib/rows.ts",
+      "find": "    if (a.score === undefined) return 1\n    if (b.score === undefined) return -1",
+      "replace": "    if (a.score === undefined) return -1\n    if (b.score === undefined) return 1"
+    },
+    {
+      "id": "M-U1-d",
+      "req": "U1",
+      "why": "「还没算过分」和「算出来是 0 分」在排序里被当成同一件事 —— 交付表上这两种人混在一起，看不出哪些是没有依据的",
+      "file": "scripts/lib/rows.ts",
+      "find": "  const byScore = (a: Creator, b: Creator): number => {\n    if (a.score === undefined && b.score === undefined) return 0\n    if (a.score === undefined) return 1\n    if (b.score === undefined) return -1\n    return b.score - a.score\n  }",
+      "replace": "  const byScore = (a: Creator, b: Creator): number => (b.score ?? 0) - (a.score ?? 0)"
+    },
+    {
+      "id": "M-F5-b",
+      "req": "F5",
+      "why": "分层时用的不是刚算出来的那个分，而是一个写死的常数 —— 没做过语义判断的人一律落到最低档，运营名单里最该先联系的那批人从此不出现在最前面",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    c.tier = tierOf(c, score)",
+      "replace": "    c.tier = tierOf(c, 0)"
+    },
+    {
+      "id": "M-F5-c",
+      "req": "F5",
+      "why": "进入「B级 先互动」那一档的门槛被调低 —— 分数不够、本该留在「C级 观察池」的人被排进了先互动那一档，运营按这份名单花掉的互动时间落在不值得的人身上",
+      "file": "scripts/lib/score.ts",
+      "find": "  return score >= 60 ? 'A' : score >= 40 ? 'B' : 'C'",
+      "replace": "  return score >= 60 ? 'A' : score >= 20 ? 'B' : 'C'"
     }
   ],
   "exemptions": [
