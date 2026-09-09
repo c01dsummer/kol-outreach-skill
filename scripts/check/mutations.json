@@ -2298,6 +2298,14 @@
       "file": "scripts/lib/pipeline.ts",
       "find": "    c.tier = tierOf(c, score)",
       "replace": "    c.tier = tierOf(c, 0)"
+    },
+    {
+      "id": "M-F5-c",
+      "req": "F5",
+      "why": "进入「B级 先互动」那一档的门槛被调低 —— 分数不够、本该留在「C级 观察池」的人被排进了先互动那一档，运营按这份名单花掉的互动时间落在不值得的人身上",
+      "file": "scripts/lib/score.ts",
+      "find": "  return score >= 60 ? 'A' : score >= 40 ? 'B' : 'C'",
+      "replace": "  return score >= 60 ? 'A' : score >= 20 ? 'B' : 'C'"
     }
   ],
   "exemptions": [
