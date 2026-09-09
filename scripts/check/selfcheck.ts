@@ -208,15 +208,23 @@ if (tightOut === undefined) {
   // P3.b 的「保存断点」那一半改成**具名**断言：名字进清册，于是指着入口接线的变异
   // 写得出 `kills`、点得着它（落地 2 第 5 步 · 5b）。原先这里是一句行内散文，点不着。
   // 断点不只要**在**，还要记到**中止那一刻**：`requests` 与这一次实际发出的请求数对得上。
-  // 只验「文件存在」太弱 —— 预算是在补全阶段耗尽的，采集阶段末尾早就写过一次断点，
-  // 于是几乎任何坏法下那个文件都在（实测：两条变异都从这条断言下滑过去了）。
+  // 只验「文件存在」太弱 —— 这份语料给 6 个 tiktok 关键词、预算只够两次请求，
+  // 第三次搜索在 `run()` 里就抛了；而前两次成功的搜索**每次都调过 `persist()`**
+  // （循环里那一处），所以几乎任何坏法下那个文件都在（实测：两条变异都从这条断言下滑过去了）。
+  //
+  // 两次解析都要兜住：退出码对得上、stdout 却是坏的时候，不兜的那一次会**抛**，
+  // 于是本该红的具名断言变成了验证者崩溃，判定看到的是 `crashed` 而不是「被抓到」（#95 评审指出）。
   const saved = Boolean(tightDir) && existsSync(tightTask)
-  const tightTaskJson = saved ? JSON.parse(readFileSync(tightTask, 'utf8')) : undefined
-  const tightSummary = JSON.parse(tightOut)
+  let tightTaskJson: any
+  if (saved) { try { tightTaskJson = JSON.parse(readFileSync(tightTask, 'utf8')) } catch {} }
+  let tightSummary: any = {}
+  try { tightSummary = JSON.parse(tightOut) } catch {}
   named('collect 预算用尽后留下的断点记到了中止那一刻',
         tightTaskJson !== undefined && tightTaskJson.requests === tightSummary.requests,
-        `断点记着 ${tightTaskJson?.requests} 次请求，而这一次实际发出了 `
-        + `${tightSummary.requests} 次 —— 续跑会按少算的额度继续花钱，账单对不上`)
+        tightTaskJson === undefined ? '断点读不出来'
+          : `断点记着 ${tightTaskJson.requests} 次请求，而这一次实际发出了 `
+            + `${tightSummary.requests} 次 —— 续跑的预算从断点里这个数起算，`
+            + '记少了就等于同一份额度被反复重开，用户在没确认过的情况下超出上限')
   if (saved) {
     const before = JSON.parse(readFileSync(tightTask, 'utf8'))
     const resumed = run('collect --resume 追加预算续跑',

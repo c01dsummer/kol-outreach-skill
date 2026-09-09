@@ -2310,7 +2310,7 @@
     {
       "id": "M-P3-b",
       "req": "P3.b",
-      "why": "断点里记着的已花请求数永远是 0 —— 用户续跑时系统以为一次都没发过，按全额预算重新开跑，已经付过钱抓到的那部分再花一遍",
+      "why": "断点里记着的已花请求数永远是 0 —— 续跑时预算从零起算，同一份额度被反复重开，用户在没有确认过的情况下花掉超出上限的钱",
       "file": "scripts/collect.ts",
       "find": "  state.requests = budget.count",
       "replace": "  state.requests = 0",
