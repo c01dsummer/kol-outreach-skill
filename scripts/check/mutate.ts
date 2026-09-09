@@ -26,7 +26,8 @@ import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import {
   type LabelFault, type RunVerdict, type Verifier, type WiringFault,
-  VERIFIERS, exemptionCovered, exemptionLead, judgeRun, labelFaults, labelsOf, wiringFault,
+  VERIFIERS, allKilled, exemptionCovered, exemptionLead, judgeRun, labelFaults, labelsOf,
+  wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
@@ -85,10 +86,12 @@ if (dirty.length) {
   process.exit(1)
 }
 
-// 三种写错都在开跑之前拦下 —— 判据在 `mutate-rule.ts` 的 `wiringFault`，这里只把它的
-// 裁定翻成人话（`docs/CONVENTIONS.md` 第 10 条）。前两种是**静默的坏**；第三种
-// 「不写 by 只写 kills」相反 —— 它**真会生效**（判定收的是验证者和点的名两个独立参数），
-// 正因为生效才要拦：那是 ADR-70 明写不承诺、要另外评定的延伸。
+// 四种写错都在开跑之前拦下 —— 判据在 `mutate-rule.ts` 的 `wiringFault`，这里只把它的
+// 裁定翻成人话（`docs/CONVENTIONS.md` 第 10 条）。「名字不认得」与「漏了 kills」是
+// **静默的坏**；「不写 by 只写 kills」相反 —— 它**真会生效**（判定收的是验证者和点的名
+// 两个独立参数），正因为生效才要拦：那是 ADR-70 明写不承诺、要另外评定的延伸。
+// 第四种「kills 不是一组名字」拦的是老写法那个字符串：它连拒都拒不干净 —— 入口拿它去
+// 逐项核对清册时当场抛，人看见的是一个栈，而不是「kills 写错了」。
 const SAY: Record<WiringFault, (m: Mut) => string> = {
   'unknown-verifier': m => `指的验证者 ${m.by} 不认得 —— 认得的是 ${Object.keys(VERIFIERS).join('、')}`,
   'missing-kills': m => `指了验证者 ${m.by}，却没说该红的是哪几条夹具`,
@@ -120,7 +123,7 @@ if (selfVerified.length) {
   process.exit(1)
 }
 
-// 点的那条夹具真的在，而且只有一条叫这个名字 —— 判据在 `mutate-rule.ts` 的
+// 点的那些夹具真的在，而且各自只有一条叫那个名字 —— 判据在 `mutate-rule.ts` 的
 // `labelsOf` / `labelFault`。**扫源码也是判定**（`lint-rule` 那条先例的同一形状）：
 // 扫得出什么决定了清册有多大，而清册小了是拦住、大了是放行。入口只出一个读法，
 // 外加「同一个验证者只读一次」—— 上面两道体检已经放行，`by` 到这里必定认得。
@@ -245,7 +248,15 @@ process.on('exit', restoreClaims)
  * 它靠的是 Node 官方文档 + 代码推理，不是一次真的 Windows 运行。Linux 这一侧
  * 是真跑过的：整条变异链绿。
  */
-const runTest = (verifier: Verifier): Promise<{ status: number | null; output: string }> =>
+/**
+ * 跑一次验证者。点了名的话**见齐就停** —— 名单里每一条都红过之后不必再等它跑完。
+ *
+ * 「见齐了没有」是判据，在 `mutate-rule.ts` 的 `allKilled`；这里只管什么时候杀
+ * （`docs/CONVENTIONS.md` 第 10 条）。只按**整行**问：收到的字节按 \n 切，最后一段
+ * 可能是半行，留着等下一块 —— 拿半行去匹配，名字会在写到一半时就算数。
+ */
+const runTest = (verifier: Verifier, kills?: readonly string[]):
+  Promise<{ status: number | null; output: string; stoppedOnKills: boolean }> =>
   new Promise(resolve => {
     // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
     // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
@@ -257,12 +268,22 @@ const runTest = (verifier: Verifier): Promise<{ status: number | null; output: s
     trackTest(kid)
     let out = ''
     let err = ''
-    kid.stdout.on('data', d => { out += d })
-    kid.stderr.on('data', d => { err += d })
+    let stoppedOnKills = false
+    // 见齐了就把整组停掉。**杀的是进程组**（负的 pid）：`tsx` 底下还有一个真正跑脚本的
+    // 进程，只杀手上这一个杀不掉，剩下那个会一直跑到自己结束 —— 那样「省下的时间」就没了
+    const stopIfSeen = (): void => {
+      if (stoppedOnKills || kills === undefined) return
+      const whole = `${out}\n${err}`
+      if (!allKilled(whole.slice(0, whole.lastIndexOf('\n') + 1), kills)) return
+      stoppedOnKills = true
+      try { process.kill(-(kid.pid as number), 'SIGTERM') } catch { /* 它自己先结束了 */ }
+    }
+    kid.stdout.on('data', d => { out += d; stopIfSeen() })
+    kid.stderr.on('data', d => { err += d; stopIfSeen() })
     // 压根没起来（命令不在、权限不足）也要留下话：那时两股都是空的，
     // 判定只会说「跑不起来」，而人得知道是没起来还是跑崩了
     kid.on('error', e => { err += `\n${e}` })
-    kid.on('close', status => resolve({ status, output: `${out}\n${err}` }))
+    kid.on('close', status => resolve({ status, output: `${out}\n${err}`, stoppedOnKills }))
   })
 
 for (const m of muts) {
@@ -282,8 +303,8 @@ for (const m of muts) {
     // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null);
     // 点了名的还要再看一层:红的是不是 kills 说的那一条
     const verifier = VERIFIERS[m.by ?? 'test']
-    const r = await runTest(verifier)
-    verdict = judgeRun(r.status, r.output, verifier, m.kills)
+    const r = await runTest(verifier, m.kills)
+    verdict = judgeRun(r.status, r.output, verifier, m.kills, r.stoppedOnKills)
   } finally {
     restoreMutation()
   }

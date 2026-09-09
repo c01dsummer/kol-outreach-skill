@@ -774,7 +774,7 @@ if (dupArch === undefined) {
 
 // ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----
 // 判据是 mutate-rule.ts 的 wiringFault，由 scripts/test.ts 断言、M-H14-t/u/v/w 四条负片
-// 守着；剩下的那一半是**入口真的调了它、并且以退出码 1 结束**，还把三种裁定各翻成
+// 守着；剩下的那一半是**入口真的调了它、并且以退出码 1 结束**，还把四种裁定各翻成
 // 一句人话 —— 把这一整段删掉，那四条负片和那些断言照样全绿，因为变异跑的是缺省
 // 那个验证者，够不到入口。四种写错各喂一条，诊断也逐条对。
 const wireTmp = join(tmp, 'bad-by')
@@ -833,6 +833,43 @@ if (selfVer === undefined) {
 } else if (!selfVer.includes('在自己验自己')) {
   failed++; console.error('  ✗ mutate 没报出「这条变异在自己验自己」')
 }
+
+// ---- 见齐就停：验证者不结束，mutate 照样得判它被抓到（提前退出的入口那一半）----
+// 判据在 mutate-rule.ts（allKilled 说见没见齐、judgeRun 凭点名认），由 scripts/test.ts
+// 断言、负片守着；剩下的那一半是**入口真的边收边看、真的把整组停掉**。把那一段从
+// mutate.ts 删掉，那些断言和负片照样全绿 —— 变异跑的是缺省那个验证者，够不到入口。
+//
+// 这条夹具的验证者**故意不立刻结束**：见齐就停生效时它被当场停掉，mutate 立刻判「被抓到」；
+// 坏掉的话只能等它自己退（退出码 0）——判定当场给「存活」，mutate 以 1 结束，这里就红了。
+// 用定时退出而不是永不退出：坏掉时要红，不是要把整份检查挂住。
+const stopTmp = join(tmp, 'stop-on-kills')
+mkdirSync(join(stopTmp, 'scripts', 'check'), { recursive: true })
+mkdirSync(join(stopTmp, 'docs'), { recursive: true })
+writeFileSync(join(stopTmp, 'docs', 'requirements.json'),
+  JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+writeFileSync(join(stopTmp, 'a.ts'), 'const x = 1\n', 'utf8')
+// 这个假验证者既要被清册扫得到（endPath 的字面量），又要真的打出那一行、然后赖着不走
+writeFileSync(join(stopTmp, 'scripts', 'check', 'selfcheck.ts'),
+  ['const endPath = (label: string, _rest: unknown[]): void => {',
+   '  console.error(`  ✗ ${label}`)',
+   '}',
+   "endPath('甲', [])",
+   'setTimeout(() => {}, 20_000)',
+   ''].join('\n'), 'utf8')
+writeFileSync(join(stopTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+  { id: 'M-X-i', req: 'X1', why: '把那个常量改掉', file: 'a.ts', find: 'const x = 1', replace: 'const x = 2',
+    by: 'selfcheck', kills: ['甲'] },
+] }), 'utf8')
+const stopOut = runTool('mutate 见齐就停（验证者不结束也不必等它）', 'mutate', [], stopTmp, { status: 0 })
+if (stopOut === undefined) {
+  // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+} else if (!stopOut.includes('M-X-i')) {
+  failed++; console.error('  ✗ mutate 没报出那条变异的结果')
+} else if (!/M-X-i\s+\[X1\] 被抓到/.test(stopOut)) {
+  failed++
+  console.error('  ✗ 见齐了却没停 —— 验证者赖着不走，判定于是等到它自己退，'
+                + `报的不是「被抓到」：\n${stopOut.split('\n').filter(l => l.includes('M-X-i')).join('\n')}`)
+} else console.log('  ✓ 见齐就停：验证者没结束，那条变异照样判「被抓到」')
 
 // ---- 点的夹具立不住即以退出码 1 结束（清册的入口那一半）----
 // 判据在 mutate-rule.ts（扫源码建清册、裁定点得着点不着），由 scripts/test.ts 断言、

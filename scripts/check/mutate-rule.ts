@@ -295,6 +295,28 @@ export function killsMatched(output: string, label: string): boolean {
 }
 
 /**
+ * 点名的那些是不是**都**已经红过了 —— 见齐就可以停,不必等验证者跑完。
+ *
+ * 判据只此一份:入口靠它决定什么时候杀掉子进程,`judgeRun` 靠它给 `caught`。
+ * 各写一份的话,「停下的条件」和「算不算抓到」会悄悄分家 —— 停早了的那一次
+ * 照样被判成抓到,而它其实什么都没见齐。
+ */
+export function allKilled(output: string, kills: readonly string[]): boolean {
+  return kills.every(k => killsMatched(output, k))
+}
+
+/**
+ * 这一次运行里,有没有过一条**不是任何断言功劳**的失败:进程级的,或者夹具自己废了。
+ *
+ * 两种记号同一个理由、同一个待遇,合在一处 —— 分开写的话,新加一种记号时
+ * 很容易只补一条路(提前停下那条路今天就差点漏掉)。
+ */
+export function notAssertion(output: string, verifier: Verifier): boolean {
+  return (verifier.processMark !== undefined && processFailed(output, verifier.processMark))
+    || (verifier.fixtureMark !== undefined && processFailed(output, verifier.fixtureMark))
+}
+
+/**
  * 一次运行算什么。
  *
  * **被信号杀掉(没有退出码)一律 `crashed`**,哪怕汇总已经打出来了:那一次没跑完,
@@ -324,12 +346,16 @@ export function killsMatched(output: string, label: string): boolean {
  * 判的是 `elsewhere`(ADR-70 的欠条,5c 第二片)。
  */
 export function judgeRun(exitCode: number | null, output: string,
-  verifier: Verifier, kills?: readonly string[]): RunVerdict {
+  verifier: Verifier, kills?: readonly string[], stoppedOnKills = false): RunVerdict {
   if (exitCode === 0) return 'survived'
+  // 见齐就停的那一次:退出码和汇总都拿不到(是我们主动杀的、也没跑到尾),
+  // 但**看见那几行不带记号的 `✗ <名字>`** 本身就是「断言真的跑了、真的红了」的直接证据,
+  // 比「打出了汇总」这个代理更硬 —— 汇总那道闸是给不点名的那两百多条用的。
+  // 记号照旧一票否决:崩了或夹具废了,这一次整份不算数。
+  if (stoppedOnKills) return notAssertion(output, verifier) ? 'crashed' : 'caught'
   if (exitCode === null) return 'crashed'
   if (!verifier.summary.test(output)) return 'crashed'
   if (kills === undefined) return 'caught'
-  if (verifier.processMark !== undefined && processFailed(output, verifier.processMark)) return 'crashed'
-  if (verifier.fixtureMark !== undefined && processFailed(output, verifier.fixtureMark)) return 'crashed'
-  return kills.every(k => killsMatched(output, k)) ? 'caught' : 'elsewhere'
+  if (notAssertion(output, verifier)) return 'crashed'
+  return allKilled(output, kills) ? 'caught' : 'elsewhere'
 }
