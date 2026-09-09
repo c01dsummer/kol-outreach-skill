@@ -605,9 +605,10 @@ if (dir && rendered !== undefined) {
   // 四条共用分支之前的同一句话，所以是一条判据；也正因为共用，**一条把话写死就会被
   // 别的抓住** —— 前两条要的是「不花钱」，后两条要的是「花钱 + 还剩多少」。
   // 缺省那个验证者（scripts/test.ts）够不到入口脚本，所以这一段只能这样真跑。
-  // **现在有一条负片指着它**：M-D6-j 删掉那行共用的接线、改跑自检来验，kills 点的是
-  // 下面第一条夹具。⚠️ 它证明的是**第一条路还活着**，不是「四条路不能各自坏掉」——
-  // kills 只收一个名字，只弄坏一条路照样判「被抓到」（ADR-70 记着这条欠条）。
+  // **现在有一条负片指着它**：M-D6-j 删掉那行共用的接线、改跑自检来验，kills 点名下面
+  // 四条夹具**全部** —— 一条没红就判「红错了地方」（5c 第二片把 kills 收成一组之前只点得着
+  // 第一条，剩下三条删光它照样绿）。⚠️ 它证明的是四条都还活着、都靠那一行，不是
+  // 「四条路能各自坏掉」—— 后者要四条各自的变异（ADR-70 记着这条欠条）。
   // 这条缺口在 mutations.json 的 exemptions 里仍按 P3.b 的先例显式登记着，撤它是落地 4 的事。
   //
   // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
@@ -775,7 +776,7 @@ if (dupArch === undefined) {
 // 判据是 mutate-rule.ts 的 wiringFault，由 scripts/test.ts 断言、M-H14-t/u/v/w 四条负片
 // 守着；剩下的那一半是**入口真的调了它、并且以退出码 1 结束**，还把三种裁定各翻成
 // 一句人话 —— 把这一整段删掉，那四条负片和那些断言照样全绿，因为变异跑的是缺省
-// 那个验证者，够不到入口。三种写错各喂一条，诊断也逐条对。
+// 那个验证者，够不到入口。四种写错各喂一条，诊断也逐条对。
 const wireTmp = join(tmp, 'bad-by')
 mkdirSync(join(wireTmp, 'scripts', 'check'), { recursive: true })
 mkdirSync(join(wireTmp, 'docs'), { recursive: true })
@@ -784,17 +785,23 @@ writeFileSync(join(wireTmp, 'docs', 'requirements.json'),
 writeFileSync(join(wireTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
   { id: 'M-X-b', req: 'X1', why: '指了一个不认得的验证者', file: 'a.ts', find: 'x', replace: 'y', by: '查无此人' },
   { id: 'M-X-c', req: 'X1', why: '指名了验证者却没说该红的是哪一条', file: 'a.ts', find: 'x', replace: 'z', by: 'selfcheck' },
-  { id: 'M-X-d', req: 'X1', why: '点了名却没说谁来验', file: 'a.ts', find: 'x', replace: 'w', kills: '某条夹具' },
+  { id: 'M-X-d', req: 'X1', why: '点了名却没说谁来验', file: 'a.ts', find: 'x', replace: 'w', kills: ['某条夹具'] },
+  // 老写法那个字符串：判定拦得住，但入口那句提示原先没人验 —— 改坏了整份检查照样绿
+  // （#97 第二轮评审指出）。JSON 里就是要写成字符串，所以这里绕过类型
+  { id: 'M-X-h', req: 'X1', why: 'kills 还写着老写法那个字符串', file: 'a.ts', find: 'x', replace: 'v',
+    by: 'selfcheck', kills: '某条夹具' as unknown as string[] },
 ] }), 'utf8')
 const badBy = runTool('mutate 的验证者接线不成立即以退出码 1 结束', 'mutate', [], wireTmp, { status: 1 })
 if (badBy === undefined) {
   // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
 } else if (!badBy.includes('不认得')) {
   failed++; console.error('  ✗ mutate 没报出「指的验证者不认得」')
-} else if (!badBy.includes('没说该红的是哪一条夹具')) {
+} else if (!badBy.includes('没说该红的是哪几条夹具')) {
   failed++; console.error('  ✗ mutate 没报出「指名了验证者却漏了 kills」')
 } else if (!badBy.includes('写了 kills 却没写 by')) {
   failed++; console.error('  ✗ mutate 没报出「写了 kills 却没写 by」')
+} else if (!badBy.includes('kills 要写成一组名字')) {
+  failed++; console.error('  ✗ mutate 没报出「kills 写成了老写法那个字符串」')
 }
 
 // ---- 自己验自己的变异即以退出码 1 结束（隔离判据的入口那一半）----
@@ -817,7 +824,7 @@ const importLine = (spec: string) => `import { a } from '${spec}'\n`
 writeFileSync(join(isoTmp, 'scripts', 'check', 'selfcheck.ts'), importLine('./hop.js'), 'utf8')
 writeFileSync(join(isoTmp, 'scripts', 'check', 'hop.ts'), importLine('./leaf.js'), 'utf8')
 writeFileSync(join(isoTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
-  { id: 'M-X-e', req: 'X1', why: '改的是验证者自己要用的东西', by: 'selfcheck', kills: '某条夹具',
+  { id: 'M-X-e', req: 'X1', why: '改的是验证者自己要用的东西', by: 'selfcheck', kills: ['某条夹具'],
     file: 'scripts/check/leaf.ts', find: 'x', replace: 'y' },
 ] }), 'utf8')
 const selfVer = runTool('mutate 遇到自己验自己即以退出码 1 结束', 'mutate', [], isoTmp, { status: 1 })
@@ -845,10 +852,12 @@ const declLine = (name: string) => `endPath('${name}', [])\n`
 writeFileSync(join(labelTmp, 'scripts', 'check', 'selfcheck.ts'),
   declLine('甲') + declLine('乙') + declLine('乙'), 'utf8')
 writeFileSync(join(labelTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+  // 两条的**头一项都立得住**：立不住的在后面。只查首项的入口会一声不响地放过它们，
+  // 而那正是 #97 评审点出来的坏法（判定已搬进 mutate-rule.ts，这一条端到端再守一次）
   { id: 'M-X-f', req: 'X1', why: '点了一个清册里没有的名字', file: 'a.ts', find: 'x', replace: 'y',
-    by: 'selfcheck', kills: '丙' },
+    by: 'selfcheck', kills: ['甲', '丙'] },
   { id: 'M-X-g', req: 'X1', why: '点的那个名字有两条夹具在用', file: 'a.ts', find: 'x', replace: 'z',
-    by: 'selfcheck', kills: '乙' },
+    by: 'selfcheck', kills: ['甲', '乙'] },
 ] }), 'utf8')
 const badKills = runTool('mutate 的 kills 点不着夹具即以退出码 1 结束',
   'mutate', [], labelTmp, { status: 1 })

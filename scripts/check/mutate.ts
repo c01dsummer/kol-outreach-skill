@@ -26,7 +26,7 @@ import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import {
   type LabelFault, type RunVerdict, type Verifier, type WiringFault,
-  VERIFIERS, exemptionCovered, exemptionLead, judgeRun, labelFault, labelsOf, wiringFault,
+  VERIFIERS, exemptionCovered, exemptionLead, judgeRun, labelFaults, labelsOf, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
@@ -37,8 +37,11 @@ interface Mut {
   id: string; req: string; why: string; file: string; find: string; replace: string
   /** 谁来验它。缺省 `test` —— 不写的那些逐字保持原来的行为 */
   by?: string
-  /** 该红的那一条夹具的名字。**和 `by` 同进同出** —— 写了 `by` 就必填，没写 `by` 就不许写 */
-  kills?: string
+  /**
+   * 该红的那些夹具的名字，**一组，每一条都要红**。和 `by` 同进同出 —— 写了 `by` 就必填，
+   * 没写 `by` 就不许写。只收一个名字时，弄红头一条就算抓到，剩下几条明天删光也照样绿。
+   */
+  kills?: string[]
 }
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
 const cfg = JSON.parse(readFileSync('scripts/check/mutations.json', 'utf8'))
@@ -88,8 +91,9 @@ if (dirty.length) {
 // 正因为生效才要拦：那是 ADR-70 明写不承诺、要另外评定的延伸。
 const SAY: Record<WiringFault, (m: Mut) => string> = {
   'unknown-verifier': m => `指的验证者 ${m.by} 不认得 —— 认得的是 ${Object.keys(VERIFIERS).join('、')}`,
-  'missing-kills': m => `指了验证者 ${m.by}，却没说该红的是哪一条夹具`,
+  'missing-kills': m => `指了验证者 ${m.by}，却没说该红的是哪几条夹具`,
   'kills-without-by': () => '写了 kills 却没写 by —— 缺省验证者那些不点名（ADR-70 说这条延伸另外评定）',
+  'kills-not-list': m => `kills 要写成一组名字（["…"]），${m.by} 那条写的不是`,
 }
 const miswired = muts.flatMap(m => {
   const fault = wiringFault(m)
@@ -132,14 +136,14 @@ const inventoryOf = (by: string): ReadonlyMap<string, number> => {
   inventories.set(by, built)
   return built
 }
-const SAY_LABEL: Record<LabelFault, (m: Mut) => string> = {
-  'unknown-label': m => `点的夹具「${m.kills}」不在 ${m.by} 的清册里 —— 名字写岔了，或者那条夹具没了`,
-  'ambiguous-label': m => `${m.by} 里不止一条夹具叫「${m.kills}」—— 红的是哪一条分不出`,
+const SAY_LABEL: Record<LabelFault, (m: Mut, label: string) => string> = {
+  'unknown-label': (m, k) => `点的夹具「${k}」不在 ${m.by} 的清册里 —— 名字写岔了，或者那条夹具没了`,
+  'ambiguous-label': (m, k) => `${m.by} 里不止一条夹具叫「${k}」—— 红的是哪一条分不出`,
 }
+// 「名单里每一项各查一次」是语义，判定在 mutate-rule.ts，这儿只渲染（CONVENTIONS 第 10 条）
 const misnamed = muts.flatMap(m => {
   if (m.by === undefined || m.kills === undefined) return []
-  const fault = labelFault(m.kills, inventoryOf(m.by))
-  return fault === undefined ? [] : [`${m.id}  ${SAY_LABEL[fault](m)}`]
+  return labelFaults(m.kills, inventoryOf(m.by)).map(f => `${m.id}  ${SAY_LABEL[f.fault](m, f.label)}`)
 })
 if (misnamed.length) {
   console.error(`✗ 变异集：${misnamed.length} 条点的夹具立不住 —— 它们的绿或红都不算数\n`)
@@ -286,7 +290,8 @@ for (const m of muts) {
   if (verdict === 'caught') console.log(`  ✓ ${m.id}  [${m.req}] 被抓到`)
   else if (verdict === 'elsewhere') {
     elsewhere.push(m)
-    console.log(`  ✗ ${m.id}  [${m.req}] 红的不是点名那条 —— ${m.by} 确实红了，但「${m.kills}」没红`)
+    console.log(`  ✗ ${m.id}  [${m.req}] 红的不是点名的那些 —— ${m.by} 确实红了，`
+                + `但点名的「${(m.kills ?? []).join('」「')}」里有没红的`)
   } else if (verdict === 'crashed') {
     crashed.push(m)
     console.log(`  ✗ ${m.id}  [${m.req}] 跑不起来 —— 验证者死在半路,没有任何一条断言抓到它`)
@@ -302,7 +307,8 @@ if (survived.length || elsewhere.length || crashed.length || notApplied.length) 
   console.error(`\n✗ 变异测试：${survived.length} 个存活，${elsewhere.length} 个红错了地方，`
                 + `${crashed.length} 个跑不起来，${notApplied.length} 个锚点失效`)
   if (survived.length) console.error('  存活意味着对应的测试证明不了任何事 —— 修测试，不要删变异。')
-  if (elsewhere.length) console.error('  红错了地方也不算抓到：点名的那条夹具没红，它就什么也没证明。改 kills 指对那一条，或者把那条夹具补上。')
+  if (elsewhere.length) console.error('  红错了地方也不算抓到：点名的夹具里有没红的，它对那几条就什么也没证明。'
+                                      + '先核对名单里的名字是不是都指对了，再看没红的那条夹具在不在、这个变异该不该弄红它。')
   if (crashed.length) console.error('  跑不起来不算抓到：崩溃不是断言的功劳。让那条测试作为断言失败，或者把变异改成一处语义改动而不是语法错误。')
   process.exit(1)
 }

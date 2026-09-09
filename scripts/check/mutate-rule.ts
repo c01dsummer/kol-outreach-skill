@@ -9,8 +9,8 @@
  *
  * | 状态 | 判据 |
  * |---|---|
- * | `caught` | 非零退出,打出了那个验证者的失败汇总,而且点了名的话红的正是那一条 |
- * | `elsewhere` | 断言确实红了,**但红的不是 `kills` 点名的那条** |
+ * | `caught` | 非零退出,打出了那个验证者的失败汇总,而且点了名的话名单里**每一条**都红了 |
+ * | `elsewhere` | 断言确实红了,**但 `kills` 点名的那些里至少有一条没红** |
  * | `crashed` | 非零退出但没有汇总,或者这一次出过进程级的失败 |
  * | `survived` | 零退出 |
  *
@@ -72,7 +72,7 @@ export function processFailed(output: string, mark: string): boolean {
 }
 
 /**
- * `by` 与 `kills` 这一对写得成不成立 —— 三种不成立各有名字,成立时返回 `undefined`。
+ * `by` 与 `kills` 这一对写得成不成立 —— 四种不成立各有名字,成立时返回 `undefined`。
  *
  * 判定在这里、打印在入口(`docs/CONVENTIONS.md` 第 10 条)。同一个入口里的另外两道体检
  * 早就是这形状(`attribution-rule.ts` / `why-rule.ts`),这一道原先留在入口里是它自己不合群。
@@ -82,16 +82,23 @@ export function processFailed(output: string, mark: string): boolean {
  * | `unknown-verifier` | 判定拿到的不是验证者,当场抛在跑变异那一段 —— 人看见的是一个栈,不是「名字写错了」 |
  * | `missing-kills` | 只知道「那个验证者红了」,红在哪儿不问,一条把别处弄红的变异照样记成被抓到 |
  * | `kills-without-by` | 那是 ADR-70 明写要另外评定的延伸:机制生效、没有规矩、没有记录 |
+ * | `kills-not-list` | 老写法那个字符串会被按一组名字**逐个字符**遍历,每个字都得红才算抓到 —— 那条变异从此永远判「红错了地方」,没有一句话说得出为什么 |
  *
  * ⚠️ **认的是自有键,不是「原型链上有没有」**(评审指出):后者会放行语言内建的那几个名字,
  * 它们「在」这个对象上,取出来却不是验证者 —— 这道体检就在它唯一该说话的时候抛了个栈。
  */
 export type WiringFault = 'unknown-verifier' | 'missing-kills' | 'kills-without-by'
+  | 'kills-not-list'
 
-export function wiringFault(mut: { by?: string; kills?: string }): WiringFault | undefined {
+export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault | undefined {
   if (mut.by === undefined) return mut.kills === undefined ? undefined : 'kills-without-by'
   if (!Object.hasOwn(VERIFIERS, mut.by)) return 'unknown-verifier'
-  return mut.kills === undefined ? 'missing-kills' : undefined
+  if (mut.kills === undefined) return 'missing-kills'
+  // JSON 读进来的东西编译期不在场：老写法 `kills: '某条夹具'` 是个字符串，按一组名字遍历
+  // 它会逐个字符走一遍 —— 每个字都得红才算抓到，永远判「红错了地方」。静默，所以要拦。
+  if (!Array.isArray(mut.kills) || mut.kills.some(k => typeof k !== 'string')) return 'kills-not-list'
+  // 点了验证者、名单却是空的 = 没点名任何夹具，与漏写同一件事
+  return mut.kills.length === 0 ? 'missing-kills' : undefined
 }
 
 /**
@@ -252,6 +259,22 @@ export function labelFault(kills: string,
 export type RunVerdict = 'caught' | 'elsewhere' | 'crashed' | 'survived'
 
 /**
+ * 名单里**每一项各查一次**,立不住的连同它自己的名字一起交回。
+ *
+ * 「每一项都要查」是语义,不是打印:只查头一项的话,后面几项点着不存在的夹具没人说,
+ * 而判定要求它们全红 —— 那条变异会一直判「红错了地方」,报出来的却是「没红」
+ * 而不是「没这条」。语义留在入口就没有负片守得住它(`docs/CONVENTIONS.md` 第 10 条,
+ * #97 评审指出:入口那道循环改成只查首项,当时的测试与三条新负片仍会全绿)。
+ */
+export function labelFaults(kills: readonly string[], inventory: ReadonlyMap<string, number>):
+  { label: string; fault: LabelFault }[] {
+  return kills.flatMap(label => {
+    const fault = labelFault(label, inventory)
+    return fault === undefined ? [] : [{ label, fault }]
+  })
+}
+
+/**
  * `kills` 点名的那条夹具红了没有。
  *
  * **匹配精确到 label 边界**:`✗ ` 之后要么正好是那条 label,要么是「label ＋ `：`」。
@@ -294,14 +317,19 @@ export function killsMatched(output: string, label: string): boolean {
  * 「夹具没造对」上,`killsMatched` 只认名字、分不出红的理由,于是自检在说
  * 「我什么也没测到」而这里记成「被抓到」。两道闸的形状一样、理由逐字一样,
  * 只是记号不同 —— 那不是任何一条断言的功劳(ADR-70 的欠条,5c 第一片)。
+ *
+ * **点名是一组,每一条都要红。** 只收一个名字的时候,一条变异只要弄红名单里的头一条
+ * 就算被抓到 —— `M-D6-j` 因此只证明了「四条收尾里的第一条还活着」,后三条夹具删光它
+ * 照样绿(#91 复查实测)。一组里有一条没红,这条变异对那一条就什么也没证明,
+ * 判的是 `elsewhere`(ADR-70 的欠条,5c 第二片)。
  */
 export function judgeRun(exitCode: number | null, output: string,
-  verifier: Verifier, kills?: string): RunVerdict {
+  verifier: Verifier, kills?: readonly string[]): RunVerdict {
   if (exitCode === 0) return 'survived'
   if (exitCode === null) return 'crashed'
   if (!verifier.summary.test(output)) return 'crashed'
   if (kills === undefined) return 'caught'
   if (verifier.processMark !== undefined && processFailed(output, verifier.processMark)) return 'crashed'
   if (verifier.fixtureMark !== undefined && processFailed(output, verifier.fixtureMark)) return 'crashed'
-  return killsMatched(output, kills) ? 'caught' : 'elsewhere'
+  return kills.every(k => killsMatched(output, k)) ? 'caught' : 'elsewhere'
 }

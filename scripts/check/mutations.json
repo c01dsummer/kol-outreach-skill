@@ -1,5 +1,5 @@
 {
-  "$comment": "变异集是红线的负片。每个变异是一处故意违反某条需求的改动，跑它的验证者必须失败（缺省是测试；写了 by 的改跑别的。by 与 kills 同进同出 —— 写一个就要写另一个，kills 点明该红的是哪一条夹具）。变异存活 = 那条测试是假的，要修测试不是删变异。why 用需求语言写 —— `mutate --brief` 会把它单独打印给写测试的上下文（见 process/4-VERIFY.md）。对外契约里的名字算需求语言：stdout 字段、产出文件字段、提供方响应键、命令行参数。本仓库内部的函数名和代码表达式不算，mutate 会当场拦下。",
+  "$comment": "变异集是红线的负片。每个变异是一处故意违反某条需求的改动，跑它的验证者必须失败（缺省是测试；写了 by 的改跑别的。by 与 kills 同进同出 —— 写一个就要写另一个，kills 点明该红的是哪几条夹具，一组，每一条都要红）。变异存活 = 那条测试是假的，要修测试不是删变异。why 用需求语言写 —— `mutate --brief` 会把它单独打印给写测试的上下文（见 process/4-VERIFY.md）。对外契约里的名字算需求语言：stdout 字段、产出文件字段、提供方响应键、命令行参数。本仓库内部的函数名和代码表达式不算，mutate 会当场拦下。",
   "mutations": [
     {
       "id": "M-P1-a",
@@ -622,7 +622,7 @@
       "req": "harness",
       "why": "验证者红在别处也算点名的那条夹具红了 —— 一条对那条夹具什么都没证明的接线变异，会被记成被抓到",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  return killsMatched(output, kills) ? 'caught' : 'elsewhere'",
+      "find": "  return kills.every(k => killsMatched(output, k)) ? 'caught' : 'elsewhere'",
       "replace": "  return 'caught'"
     },
     {
@@ -710,8 +710,8 @@
       "req": "harness",
       "why": "指了验证者却不点名也算成立 —— 只知道那个验证者红了，红在哪儿不问，一条把别处弄红的变异照样被记成抓到",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  return mut.kills === undefined ? 'missing-kills' : undefined",
-      "replace": "  return undefined"
+      "find": "  if (mut.kills === undefined) return 'missing-kills'",
+      "replace": "  if (mut.kills === undefined) return undefined"
     },
     {
       "id": "M-H14-b",
@@ -2201,7 +2201,12 @@
       "find": "  console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
       "replace": "",
       "by": "selfcheck",
-      "kills": "collect 关键词跑完（退出码 0）也说续跑代价"
+      "kills": [
+        "collect 关键词跑完（退出码 0）也说续跑代价",
+        "collect 达标提前停下（退出码 0）也说续跑代价",
+        "collect 预算用尽（退出码 3）也说续跑代价",
+        "collect 出错中止（退出码 1）也说续跑代价"
+      ]
     },
     {
       "id": "M-H23-a",
@@ -2315,7 +2320,9 @@
       "find": "  state.requests = budget.count",
       "replace": "  state.requests = 0",
       "by": "selfcheck",
-      "kills": "collect 预算用尽后留下的断点记到了中止那一刻"
+      "kills": [
+        "collect 预算用尽后留下的断点记到了中止那一刻"
+      ]
     },
     {
       "id": "M-H24-a",
@@ -2348,6 +2355,46 @@
       "file": "scripts/check/verifier-rule.ts",
       "find": "export const SELFCHECK_FIXTURE_MARK = '（夹具）'",
       "replace": "export const SELFCHECK_FIXTURE_MARK = ''"
+    },
+    {
+      "id": "M-H26-a",
+      "req": "harness",
+      "why": "点名一组、只要红了其中一条就算被抓到 —— 名单里剩下那几条明天删光，这条变异照样绿，而它对那几条什么也没证明",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return kills.every(k => killsMatched(output, k)) ? 'caught' : 'elsewhere'",
+      "replace": "  return kills.some(k => killsMatched(output, k)) ? 'caught' : 'elsewhere'"
+    },
+    {
+      "id": "M-H26-b",
+      "req": "harness",
+      "why": "kills 写成老写法那个字符串也放行 —— 入口拿它去逐项核对清册时当场抛，人看见的是一个栈，而不是「kills 写错了」；名单里混进不是名字的东西则被误报成「点的夹具不在清册里」，照着去改的是名字，可名字根本没错",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (!Array.isArray(mut.kills) || mut.kills.some(k => typeof k !== 'string')) return 'kills-not-list'\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H26-c",
+      "req": "harness",
+      "why": "点了验证者、名单却是空的也算成立 —— 判定那边「每一条都红」对空名单恒真，一条什么也没点名的变异会被记成守住了某条夹具",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return mut.kills.length === 0 ? 'missing-kills' : undefined",
+      "replace": "  return undefined"
+    },
+    {
+      "id": "M-H26-d",
+      "req": "harness",
+      "why": "名单只查头一项 —— 后面几项点着不存在的夹具、或者点着重名的，一个字都没人说，而判定要求它们全红：那条变异会一直判「红错了地方」，报出来的是「没红」而不是「没这条」",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return kills.flatMap(label => {",
+      "replace": "  return kills.slice(0, 1).flatMap(label => {"
+    },
+    {
+      "id": "M-H26-e",
+      "req": "harness",
+      "why": "名单里立不住的那几项交回时不带自己的名字 —— 报出来的是点名列表里的头一个，人照着去改的是另一条夹具的名字",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    return fault === undefined ? [] : [{ label, fault }]",
+      "replace": "    return fault === undefined ? [] : [{ label: kills[0], fault }]"
     }
   ],
   "exemptions": [
@@ -2360,8 +2407,8 @@
     {
       "req": "D6.f",
       "scope": "入口的接线，不是 lib 里的判定",
-      "why": "「四种收尾都把那句话打出来」是 collect.ts 里分支之前的一行接线。缺省那个验证者 scripts/test.ts 够不到入口，改在那里的变异只会「存活」，不会「被抓到」。现在由 M-D6-j 守着：它删掉那一行、改跑自检来验，kills 点的是四条收尾夹具里的第一条。⚠️ 它证明的是那一条路还活着，不是「四条路不能各自坏掉」—— kills 只收一个名字，只弄坏一条路照样判「被抓到」，ADR-70 记着这条欠条。豁免条目本条留着，撤它是落地 4 的事（ADR-70 第四条更正写明的分工）。那句话说什么由 lib/pipeline.ts 的 resumeCostLine 决定，那一半是 D6.e —— 按本条刚立的「编号逐字相同」，M-D6-f／M-D6-g／M-D6-h 的 req 写的是 D6，所以它们守的是需求级的 D6，不是判据 D6.e。",
-      "mitigation": "剩下三条路由脚本自检真跑一遍守着：四种收尾各跑一次，每次同时验三样 —— 退出码（0／0／3／1）、stdout 里 summary.stopped 的取值（done／target／budget／error，只验那句话的话两条退出码 0 的路径会互相冒充）、以及 stderr 里那句话说的是「不花钱」还是「花钱 + 还剩多少」，且不得两句同时出现。反向验证过：把那句接线拆掉，四条夹具全红。M-D6-j 现在指着这一处，但它的 kills 只点得着四条里的第一条，剩下三条仍然只有这几条夹具守着 —— 所以这条判据仍然登记为显式缺口，不假装它整条被变异守着。"
+      "why": "「四种收尾都把那句话打出来」是 collect.ts 里分支之前的一行接线。缺省那个验证者 scripts/test.ts 够不到入口，改在那里的变异只会「存活」，不会「被抓到」。现在由 M-D6-j 守着：它删掉那一行、改跑自检来验，kills 点名四条收尾夹具**全部**，一条没红就判「红错了地方」（5c 第二片把 kills 收成一组之前只点得着第一条，剩下三条删光它照样绿）。⚠️ 它证明的是四条夹具都还活着、都靠那一行，不是「四条路能各自坏掉」—— 后者要给四条路各写一条变异，ADR-70 记着这条欠条。豁免条目本条留着，撤它是落地 4 的事（ADR-70 第四条更正写明的分工）。那句话说什么由 lib/pipeline.ts 的 resumeCostLine 决定，那一半是 D6.e —— 按本条刚立的「编号逐字相同」，M-D6-f／M-D6-g／M-D6-h 的 req 写的是 D6，所以它们守的是需求级的 D6，不是判据 D6.e。",
+      "mitigation": "四种收尾各跑一次，每次同时验三样 —— 退出码（0／0／3／1）、stdout 里 summary.stopped 的取值（done／target／budget／error，只验那句话的话两条退出码 0 的路径会互相冒充）、以及 stderr 里那句话说的是「不花钱」还是「花钱 + 还剩多少」，且不得两句同时出现。反向验证过：把那句接线拆掉，四条夹具全红，而 M-D6-j 点名的正是这四条。仍然登记为显式缺口的是「四条路各自坏掉」那一层：那要四条各自的变异，今天只有夹具。"
     },
     {
       "req": "P3.b",
