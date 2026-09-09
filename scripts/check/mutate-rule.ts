@@ -186,7 +186,7 @@ export const exemptionLead = (covered: boolean): string =>
   covered ? '名下有负片' : '名下无变异'
 
 /**
- * 一个**入口**的源码里,那句豁免行是不是从判定取的。
+ * 一个**入口**的源码里,那句豁免行是不是从判定取的 —— **按语法树**问,不是按字面扫。
  *
  * 同一句话有三处入口在印(`mutate` 的 `--brief` 与整跑、`audit` 的报告)。`mutate`
  * 那两处各有一个自检夹具真跑一遍、断言输出;`audit` 那一处**没有** —— 给它造夹具要把
@@ -203,9 +203,26 @@ export const exemptionLead = (covered: boolean): string =>
  * 但它挡得住评审点名的那个坏法(把整句话换回写死的字面量),而且零代价、不动闭包;
  * `mutate` 那两处另有夹具真跑着断言输出,所以这条判定真正独自扛的是 `audit` 那一处。
  * ⚠️ 这条差额记在 ADR-70 的欠条里。
+ *
+ * **头一版写成正则,评审当场指出洞在哪**:`// exemptionLead(exemptionCovered(x, y))`
+ * 也算数,于是真调用删掉、同一句话留在注释或串里,这条断言照样绿 —— **它证不了
+ * 「还在调」,只证得了「还写着这几个字」**。而这正是本文件上面 `labelsOf` 刚补过的
+ * 同一个洞,同样是评审指出来的。语法树没有它:注释不进树,串的内容是一个
+ * `StringLiteral` 节点的值,结构上就不是调用。
  */
 export function leadWired(source: string): boolean {
-  return /exemptionLead\s*\(\s*exemptionCovered\s*\(/.test(source)
+  const tree = ts.createSourceFile('entry.ts', source, ts.ScriptTarget.Latest, true)
+  /** 调的是不是光秃秃这个名字 —— `别的对象.exemptionLead(…)` 不是那个函数 */
+  const callTo = (node: ts.Node | undefined, name: string): node is ts.CallExpression =>
+    node !== undefined && ts.isCallExpression(node) && ts.isIdentifier(node.expression)
+      && node.expression.text === name
+  let wired = false
+  const visit = (node: ts.Node): void => {
+    if (callTo(node, 'exemptionLead') && callTo(node.arguments[0], 'exemptionCovered')) wired = true
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  return wired
 }
 
 export type LabelFault = 'unknown-label' | 'ambiguous-label'

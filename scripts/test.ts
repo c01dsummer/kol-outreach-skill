@@ -2829,6 +2829,13 @@ harness('豁免那一行开头说的话，要跟变异集对得上')
   eq('中间有空白也认', leadWired('exemptionLead( exemptionCovered (x, y))'), true)
   eq('换成写死的字面量 → 断了', leadWired("const lead = '名下无变异'"), false)
   eq('只调一半也不算接着', leadWired('exemptionLead(covered)'), false)
+  // 按语法树问，不按字面扫 —— 头一版写成正则，下面这三种它全收：于是真调用删掉、
+  // 同一句话留在注释或串里，这几条断言照样绿。同一个洞 labelsOf 上面刚补过，
+  // 两次都是评审指出来的
+  eq('注释里写着同一句话不算', leadWired('// exemptionLead(exemptionCovered(x, y))'), false)
+  eq('串里装着调用的形状也不算',
+    leadWired("const s = 'exemptionLead(exemptionCovered(x, y))'"), false)
+  eq('别的对象上的同名方法不算', leadWired('other.exemptionLead(exemptionCovered(x, y))'), false)
   // 两个文件、三处调用：手搭的数据证不了真文件里还在调。判定按文件问，mutate 里那两处
   // 断了哪一处它分不出 —— 那两处各有夹具兜着，这里真正独自扛的是 audit 那一处
   for (const f of ['scripts/check/mutate.ts', 'scripts/check/audit.ts']) {

@@ -2248,16 +2248,24 @@
       "req": "harness",
       "why": "入口不管调没调那个判定，一律算接着 —— 三处报告里任何一处把那句话换回写死的字面量，都没人吭声，而那正是本次要治的坏法",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "return /exemptionLead\\s*\\(\\s*exemptionCovered\\s*\\(/.test(source)",
-      "replace": "return true"
+      "find": "  return wired\n}",
+      "replace": "  return true\n}"
     },
     {
       "id": "M-H23-g",
       "req": "harness",
-      "why": "要求两个判定之间不许有空白：换个排版就被判成断了，三处入口每次改格式都要挨一次假警报",
+      "why": "只看外层那个名字，不问它拿的是判定的结果还是写死的话：把参数换成固定文案照样算接着，而那正是要治的坏法本身",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "/exemptionLead\\s*\\(\\s*exemptionCovered\\s*\\(/",
-      "replace": "/exemptionLead\\(exemptionCovered\\(/"
+      "find": "callTo(node.arguments[0], 'exemptionCovered')",
+      "replace": "true"
+    },
+    {
+      "id": "M-H23-h",
+      "req": "harness",
+      "why": "只看源码最外层那一层，不往里走：真入口里那句话嵌在函数体里，于是三处报告一律被判成断了 —— 每次全量检查都挨一次假警报，久了就没人看它",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    ts.forEachChild(node, visit)",
+      "replace": ""
     }
   ],
   "exemptions": [
@@ -2270,7 +2278,8 @@
     {
       "req": "D6.f",
       "scope": "入口的接线，不是 lib 里的判定",
-      "why": "「四种收尾都把那句话打出来」是 collect.ts 里分支之前的一行接线。缺省那个验证者 scripts/test.ts 够不到入口，改在那里的变异只会「存活」，不会「被抓到」。现在由 M-D6-j 守着：它删掉那一行、改跑自检来验，kills 点的是四条收尾夹具里的第一条。⚠️ 它证明的是那一条路还活着，不是「四条路不能各自坏掉」—— kills 只收一个名字，只弄坏一条路照样判「被抓到」，ADR-70 记着这条欠条。豁免条目本条留着，撤它是落地 4 的事（ADR-70 第四条更正写明的分工）。那句话说什么由 lib/pipeline.ts 的 resumeCostLine 决定，那一半是 D6.e —— 按本条刚立的「编号逐字相同」，M-D6-f／M-D6-g／M-D6-h 的 req 写的是 D6，所以它们守的是需求级的 D6，不是判据 D6.e。"
+      "why": "「四种收尾都把那句话打出来」是 collect.ts 里分支之前的一行接线。缺省那个验证者 scripts/test.ts 够不到入口，改在那里的变异只会「存活」，不会「被抓到」。现在由 M-D6-j 守着：它删掉那一行、改跑自检来验，kills 点的是四条收尾夹具里的第一条。⚠️ 它证明的是那一条路还活着，不是「四条路不能各自坏掉」—— kills 只收一个名字，只弄坏一条路照样判「被抓到」，ADR-70 记着这条欠条。豁免条目本条留着，撤它是落地 4 的事（ADR-70 第四条更正写明的分工）。那句话说什么由 lib/pipeline.ts 的 resumeCostLine 决定，那一半是 D6.e —— 按本条刚立的「编号逐字相同」，M-D6-f／M-D6-g／M-D6-h 的 req 写的是 D6，所以它们守的是需求级的 D6，不是判据 D6.e。",
+      "mitigation": "剩下三条路由脚本自检真跑一遍守着：四种收尾各跑一次，每次同时验三样 —— 退出码（0／0／3／1）、stdout 里 summary.stopped 的取值（done／target／budget／error，只验那句话的话两条退出码 0 的路径会互相冒充）、以及 stderr 里那句话说的是「不花钱」还是「花钱 + 还剩多少」，且不得两句同时出现。反向验证过：把那句接线拆掉，四条夹具全红。M-D6-j 现在指着这一处，但它的 kills 只点得着四条里的第一条，剩下三条仍然只有这几条夹具守着 —— 所以这条判据仍然登记为显式缺口，不假装它整条被变异守着。"
     },
     {
       "req": "P3.b",

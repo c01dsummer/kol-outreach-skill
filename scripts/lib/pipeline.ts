@@ -131,8 +131,9 @@ export function pendingKeywords(state: TaskState): string[] {
  * 缺省那个验证者（`scripts/test.ts`）够不到入口脚本，两处都由自检端到端守着。
  * **D6.f 那一处现在另有一条负片**：`M-D6-j` 改跑自检来验（只证明四条路里的第一条还活着，
  * ADR-70 记着这条欠条）；P3.b 那一处还没有，落地 2 第 5 步的 5b 要补。**但只有 D6.f 在 `mutations.json` 的 `exemptions` 里登记**：
- * D6.e 说的是「那句话说什么」，那一半在 `scripts/test.ts` 里有认领、有
- * `M-D6-f`／`M-D6-g`／`M-D6-h` 三条负片；D6.f 整条都是接线，没有任何单元测试认领得了，
+ * D6.e 说的是「那句话说什么」，那一半在 `scripts/test.ts` 里有认领，也有
+ * `M-D6-f`／`M-D6-g`／`M-D6-h` 三条负片 —— 但按「编号逐字相同」，那三条的 `req` 写的是
+ * `D6`，守的是需求级的 D6，不是判据 D6.e；D6.f 整条都是接线，没有任何单元测试认领得了，
  * 不登记的话审计只会报「没有测试认领」，说不出靠什么守着（ADR-25）。
  */
 export function resumeCostLine(
