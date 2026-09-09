@@ -710,8 +710,8 @@
       "req": "harness",
       "why": "指了验证者却不点名也算成立 —— 只知道那个验证者红了，红在哪儿不问，一条把别处弄红的变异照样被记成抓到",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  if (mut.kills === undefined) return 'missing-kills'\n",
-      "replace": ""
+      "find": "  if (mut.kills === undefined) return 'missing-kills'",
+      "replace": "  if (mut.kills === undefined) return undefined"
     },
     {
       "id": "M-H14-b",
@@ -2367,7 +2367,7 @@
     {
       "id": "M-H26-b",
       "req": "harness",
-      "why": "kills 写成老写法那个字符串也放行 —— 判定按一组名字遍历它会逐个字符走一遍，每个字都得红才算抓到，那条变异从此永远判「红错了地方」，没有一句话说得出为什么",
+      "why": "kills 写成老写法那个字符串也放行 —— 入口拿它去查清册时字符串没有 flatMap，整份检查当场抛，人看见的是一个栈而不是「kills 写错了」；名单里混进不是名字的东西则被误报成「点的夹具不在清册里」，照着去改的是名字，可名字根本没错",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (!Array.isArray(mut.kills) || mut.kills.some(k => typeof k !== 'string')) return 'kills-not-list'\n",
       "replace": ""
