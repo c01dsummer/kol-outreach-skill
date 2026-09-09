@@ -2401,7 +2401,7 @@
       "req": "harness",
       "why": "主动停下的那一次不算被抓到 —— 见齐就停之后退出码和汇总都拿不到，判定于是把每一条见齐停下的变异都记成「跑不起来」，一份好证据被当成跑砸了",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  if (stoppedOnKills) return notAssertion(output, verifier) ? 'crashed' : 'caught'\n",
+      "find": "  if (stoppedOnKills) {\n    return kills !== undefined && allKilled(output, kills) && !notAssertion(output, verifier)\n      ? 'caught' : 'crashed'\n  }\n",
       "replace": ""
     },
     {
@@ -2409,8 +2409,8 @@
       "req": "harness",
       "why": "主动停下的那一次不问记号 —— 停下之前已经崩过或夹具已经废过，这一次的证据本来整份不算数，却照样记成被抓到",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  if (stoppedOnKills) return notAssertion(output, verifier) ? 'crashed' : 'caught'",
-      "replace": "  if (stoppedOnKills) return 'caught'"
+      "find": "    return kills !== undefined && allKilled(output, kills) && !notAssertion(output, verifier)\n      ? 'caught' : 'crashed'",
+      "replace": "    return kills !== undefined && allKilled(output, kills) ? 'caught' : 'crashed'"
     },
     {
       "id": "M-H27-c",
