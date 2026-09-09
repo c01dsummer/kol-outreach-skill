@@ -26,7 +26,8 @@ import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import {
   type LabelFault, type RunVerdict, type Verifier, type WiringFault,
-  VERIFIERS, allKilled, exemptionCovered, exemptionLead, judgeRun, labelFaults, labelsOf,
+  VERIFIERS, allKilled, complete, exemptionCovered, exemptionLead, judgeRun, labelFaults,
+  labelsOf,
   wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
@@ -273,8 +274,10 @@ const runTest = (verifier: Verifier, kills?: readonly string[]):
     // 进程，只杀手上这一个杀不掉，剩下那个会一直跑到自己结束 —— 那样「省下的时间」就没了
     const stopIfSeen = (): void => {
       if (stoppedOnKills || kills === undefined) return
-      const whole = `${out}\n${err}`
-      if (!allKilled(whole.slice(0, whole.lastIndexOf('\n') + 1), kills)) return
+      // **两股各自截**：合起来再截会把两者之间那个人为插入的换行当成行尾，于是先到的
+      // 那一股的半行被当成整行 —— 名字写到一半就算数，后缀还没到就把人杀了（#99 评审指出）
+      const whole = complete(out) + complete(err)
+      if (!allKilled(whole, kills)) return
       stoppedOnKills = true
       try { process.kill(-(kid.pid as number), 'SIGTERM') } catch { /* 它自己先结束了 */ }
     }

@@ -2411,6 +2411,22 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (stoppedOnKills) return notAssertion(output, verifier) ? 'crashed' : 'caught'",
       "replace": "  if (stoppedOnKills) return 'caught'"
+    },
+    {
+      "id": "M-H27-c",
+      "req": "harness",
+      "why": "主动停下的那一次不再核对点名的是不是真都红过 —— 入口那边一漂，一次连一行具名失败都没有的运行也会被记成被抓到，而那份「证据」里什么都没有",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    return kills !== undefined && allKilled(output, kills) && !notAssertion(output, verifier)\n      ? 'caught' : 'crashed'",
+      "replace": "    return notAssertion(output, verifier) ? 'crashed' : 'caught'"
+    },
+    {
+      "id": "M-H27-d",
+      "req": "harness",
+      "why": "还没写完的那半行也当成写完了 —— 边收边看时名字写到一半就算数，后缀还没到就把验证者杀了，一条本该「红错了地方」的变异被记成被抓到",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return chunk.slice(0, chunk.lastIndexOf('\\n') + 1)",
+      "replace": "  return chunk"
     }
   ],
   "exemptions": [

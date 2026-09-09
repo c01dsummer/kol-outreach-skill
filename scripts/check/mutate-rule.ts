@@ -295,6 +295,17 @@ export function killsMatched(output: string, label: string): boolean {
 }
 
 /**
+ * 收到的字节里**已经成行**的那一段 —— 最后一截可能还没写完,不算数。
+ *
+ * 边收边看的时候,半行会让名字**写到一半就算数**:`✗ 某条夹具` 与
+ * `✗ 某条夹具又长了一截` 的前缀一模一样,而后者不该满足点名。两股流要**各自**截,
+ * 合起来再截会把它们之间那个人为插入的换行当成行尾(#99 评审指出)。
+ */
+export function complete(chunk: string): string {
+  return chunk.slice(0, chunk.lastIndexOf('\n') + 1)
+}
+
+/**
  * 点名的那些是不是**都**已经红过了 —— 见齐就可以停,不必等验证者跑完。
  *
  * 判据只此一份:入口靠它决定什么时候杀掉子进程,`judgeRun` 靠它给 `caught`。
@@ -351,8 +362,15 @@ export function judgeRun(exitCode: number | null, output: string,
   // 见齐就停的那一次:退出码和汇总都拿不到(是我们主动杀的、也没跑到尾),
   // 但**看见那几行不带记号的 `✗ <名字>`** 本身就是「断言真的跑了、真的红了」的直接证据,
   // 比「打出了汇总」这个代理更硬 —— 汇总那道闸是给不点名的那两百多条用的。
+  //
+  // **入口说停了不算数,这里自己再问一遍 `allKilled`**(#99 评审指出):不然入口那边一漂,
+  // 一次连一行具名失败都没有的运行也能拿到 `caught` —— 而「两边共用同一判据」正是
+  // `allKilled` 只此一份的理由,只让入口用、判定不用,等于把那句承诺自己作废。
   // 记号照旧一票否决:崩了或夹具废了,这一次整份不算数。
-  if (stoppedOnKills) return notAssertion(output, verifier) ? 'crashed' : 'caught'
+  if (stoppedOnKills) {
+    return kills !== undefined && allKilled(output, kills) && !notAssertion(output, verifier)
+      ? 'caught' : 'crashed'
+  }
   if (exitCode === null) return 'crashed'
   if (!verifier.summary.test(output)) return 'crashed'
   if (kills === undefined) return 'caught'

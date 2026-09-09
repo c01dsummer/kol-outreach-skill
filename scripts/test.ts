@@ -12,7 +12,8 @@ import {
   JUDGMENT_EXEMPT, criterionMutations, deprecatedBlock, judgmentModules, ledger, unguarded,
 } from './check/audit-rule.js'
 import {
-  VERIFIERS, allKilled, exemptionCovered, exemptionLead, exitRace, judgeRun, killsMatched,
+  VERIFIERS, allKilled, complete, exemptionCovered, exemptionLead, exitRace, judgeRun,
+  killsMatched,
   labelFault, notAssertion,
   labelFaults,
   labelsOf, leadWired, processFailed, wiringFault,
@@ -2823,11 +2824,25 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
   // → 还是判崩（ADR-70 记着这处「同一份设计里两句话打架」）。所以另开一条路：看见那几行
   // 不带记号的 ✗ <名字> 本身就是「断言真的跑了并且红了」的直接证据，比「打出了汇总」
   // 这个代理更硬 —— 汇总那道闸是给不点名的那两百多条用的
+  // 半行不算数：`✗ 某条夹具` 与 `✗ 某条夹具又长了一截` 的前缀一模一样，边收边看时
+  // 名字写到一半就算数的话，后缀还没到就把人杀了。两股各自截 —— 合起来再截会把它们
+  // 之间那个人为插入的换行当成行尾（#99 评审指出）
+  eq('写完的那几行才算数', complete('甲\n乙'), '甲\n')
+  eq('一整行都没写完 → 一个字也不算', complete('甲'), '')
+  eq('正好写到行尾 → 全算', complete('甲\n'), '甲\n')
+  eq('半行的名字不算它红了', allKilled(complete('  ✗ 某条夹具') + complete(''), ['某条夹具']), false)
+  eq('成行之后才算', allKilled(complete('  ✗ 某条夹具\n') + complete(''), ['某条夹具']), true)
   eq('见齐了才算见齐', allKilled(both, [done, budget]), true)
   eq('少一条就不算', allKilled(red, [done, budget]), false)
   eq('带记号的那一行不算它红了', allKilled(broke(SELFCHECK_FIXTURE_MARK), [done]), false)
   // 主动停下的那一次：退出码是空的、汇总也没打出来，照旧算被抓到
   eq('主动停下的那一次凭点名认', judgeRun(null, both, SC, [done, budget], true), 'caught')
+  // 入口说「停了」不算数，判定自己再问一遍 allKilled —— 不然入口那边一漂，一次连一行
+  // 具名失败都没有的运行也能拿到 caught；而「两边共用同一判据」正是 allKilled 只此一份
+  // 的理由，只让入口用、判定不用，等于把那句承诺自己作废（#99 评审指出）
+  eq('说停了却一行具名失败都没有 → 不算数', judgeRun(null, '', SC, [done], true), 'crashed')
+  eq('说停了但只见齐了一半 → 不算数', judgeRun(null, red, SC, [done, budget], true), 'crashed')
+  eq('说停了却没点名 → 不算数', judgeRun(null, both, SC, undefined, true), 'crashed')
   eq('停下之前崩过，整份不算数', judgeRun(null, `${crashed}${both}`, SC, [done], true), 'crashed')
   eq('停下之前夹具废过，也不算数',
     judgeRun(null, `${alsoBroke}${both}`, SC, [done], true), 'crashed')
