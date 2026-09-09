@@ -185,6 +185,29 @@ export function exemptionCovered(req: string,
 export const exemptionLead = (covered: boolean): string =>
   covered ? '名下有负片' : '名下无变异'
 
+/**
+ * 一个**入口**的源码里,那句豁免行是不是从判定取的。
+ *
+ * 同一句话有三处入口在印(`mutate` 的 `--brief` 与整跑、`audit` 的报告)。`mutate`
+ * 那两处各有一个自检夹具真跑一遍、断言输出;`audit` 那一处**没有** —— 给它造夹具要把
+ * `audit` 加进自检的工具表(`runTool` 的形参类型就是那张表的键,起一个表里没有的
+ * 编译期都过不去),而那张表同时是隔离判据的种子来源:闭包实测从 13 个撑大到 17
+ * (`audit.ts` 自己,带上 `audit-rule` / `spec-rule` / `quoted`),`verifier-rule.ts`
+ * 与 `ARCHITECTURE.md` 里四处写着「13 个」的话同时失真,此后能被自检验证的变异空间
+ * 也跟着缩小。为一行报告付这个代价不划算(#91 第二轮评审要的是给 `audit` 也造夹具,
+ * 这里是实测之后另选的路)。
+ *
+ * 退而求其次:扫源码,问「这个入口还在调那个判定吗」。**它比输出级的夹具弱**,两层弱:
+ * 一是只证明调用还在,不证明印出来的话对 —— 调用留着、把结果丢掉照样绿;二是它**按文件
+ * 问**,`mutate.ts` 里那两处调用断了哪一处它分不出来。
+ * 但它挡得住评审点名的那个坏法(把整句话换回写死的字面量),而且零代价、不动闭包;
+ * `mutate` 那两处另有夹具真跑着断言输出,所以这条判定真正独自扛的是 `audit` 那一处。
+ * ⚠️ 这条差额记在 ADR-70 的欠条里。
+ */
+export function leadWired(source: string): boolean {
+  return /exemptionLead\s*\(\s*exemptionCovered\s*\(/.test(source)
+}
+
 export type LabelFault = 'unknown-label' | 'ambiguous-label'
 
 /**

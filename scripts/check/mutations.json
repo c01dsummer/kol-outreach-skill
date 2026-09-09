@@ -2242,6 +2242,22 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "mutations.some(m => m.req === req)",
       "replace": "mutations.some(m => m.req.startsWith(req))"
+    },
+    {
+      "id": "M-H23-f",
+      "req": "harness",
+      "why": "入口不管调没调那个判定，一律算接着 —— 三处报告里任何一处把那句话换回写死的字面量，都没人吭声，而那正是本次要治的坏法",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return /exemptionLead\\s*\\(\\s*exemptionCovered\\s*\\(/.test(source)",
+      "replace": "return true"
+    },
+    {
+      "id": "M-H23-g",
+      "req": "harness",
+      "why": "要求两个判定之间不许有空白：换个排版就被判成断了，三处入口每次改格式都要挨一次假警报",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "/exemptionLead\\s*\\(\\s*exemptionCovered\\s*\\(/",
+      "replace": "/exemptionLead\\(exemptionCovered\\(/"
     }
   ],
   "exemptions": [

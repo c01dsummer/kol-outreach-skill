@@ -13,7 +13,7 @@ import {
 } from './check/audit-rule.js'
 import {
   VERIFIERS, exemptionCovered, exemptionLead, exitRace, judgeRun, killsMatched, labelFault,
-  labelsOf, processFailed, wiringFault,
+  labelsOf, leadWired, processFailed, wiringFault,
 } from './check/mutate-rule.js'
 import {
   beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, testRunning,
@@ -2820,6 +2820,20 @@ harness('豁免那一行开头说的话，要跟变异集对得上')
   // 它自己那句「显式缺口，不消灭」之后）。带括号的话嵌套起来读不成句
   eq('名下有变异时这么说', exemptionLead(true), '名下有负片')
   eq('没有时这么说', exemptionLead(false), '名下无变异')
+
+  // 同一句话有三处入口在印。mutate 那两处各有自检夹具真跑一遍断言输出；audit 那一处
+  // 没有 —— 给它造夹具要把 audit 加进自检的工具表，而那张表同时是隔离判据的种子来源，
+  // 闭包实测会从 13 撑大到 17，为一行报告不值。退而求其次扫源码问「还在调吗」，
+  // 它挡得住「换回写死的字面量」这个坏法，但证不了印出来的话对（差额记在 ADR-70）
+  eq('调了判定就算接着', leadWired('exemptionLead(exemptionCovered(x, y))'), true)
+  eq('中间有空白也认', leadWired('exemptionLead( exemptionCovered (x, y))'), true)
+  eq('换成写死的字面量 → 断了', leadWired("const lead = '名下无变异'"), false)
+  eq('只调一半也不算接着', leadWired('exemptionLead(covered)'), false)
+  // 两个文件、三处调用：手搭的数据证不了真文件里还在调。判定按文件问，mutate 里那两处
+  // 断了哪一处它分不出 —— 那两处各有夹具兜着，这里真正独自扛的是 audit 那一处
+  for (const f of ['scripts/check/mutate.ts', 'scripts/check/audit.ts']) {
+    ok(`${f} 里还有从判定取的豁免行`, leadWired(rf(f, 'utf8')))
+  }
 }
 
 harness('清册：点的那条夹具真的在，而且只有一条叫这个名字')
