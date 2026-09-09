@@ -88,9 +88,23 @@ const runBoth = (label: string, args: string[], cwd = process.cwd(),
   return { ok: true, stdout, stderr }
 }
 
+/**
+ * 起一个被测对象。**没跑起来交回 `undefined`,不是空串。**
+ *
+ * 早先这里把 `runBoth` 的 `ok` 丢了,于是「没跑起来」和「跑起来了、输出为空」
+ * 拿到的都是空串。二十来个调用点照样接着打派生诊断,说的是「没有留下可读的断点」,
+ * 实际是脚本压根没起来 —— **自检报的原因是错的**,`failed` 还重复计一次。
+ * 改成可空之后,编译器把接返回值的那些逐个逼出来;不接返回值、却在后面读磁盘副作用
+ * 的那几处编译器看不见,是人肉扫出来的(ADR-70 那条欠条,重启条件已触发)。
+ *
+ * 判空之后**直接跳过派生断言,不再补打一句** —— 失败已经由 `runBoth` 带着
+ * `SELFCHECK_PROCESS_MARK` 报过一次,再打一句不带记号的同名诊断,正是变异那边
+ * `judgeRun` 要拦的错误归因。
+ */
 const run = (label: string, args: string[], cwd = process.cwd(),
-  expect?: { status: number; stream?: 'stdout' | 'stderr' }) => {
-  const { stdout, stderr } = runBoth(label, args, cwd, expect)
+  expect?: { status: number; stream?: 'stdout' | 'stderr' }): string | undefined => {
+  const { ok, stdout, stderr } = runBoth(label, args, cwd, expect)
+  if (!ok) return undefined
   // 没写 expect 的调用点历来拿的是 stdout，写了的默认拿 stderr —— 保持原样，
   // 免得几十个既有断言在这次改动里悄悄换了读的那一股。
   return (expect?.stream ?? (expect ? 'stderr' : 'stdout')) === 'stdout' ? stdout : stderr
@@ -136,7 +150,7 @@ writeFileSync(probeCfg, JSON.stringify({
   ],
 }))
 const probeOut = run('probe 三种发现路径', [S('probe.ts'), '--config', probeCfg])
-if (probeOut && !probeOut.includes('bio_available')) {
+if (probeOut !== undefined && !probeOut.includes('bio_available')) {
   failed++; console.error('  ✗ probe 输出缺少 bio_available（P1 要求给出分母）')
 }
 
@@ -151,8 +165,11 @@ writeFileSync(taskCfg, JSON.stringify({
 }))
 const collectOut = run('collect 完整流程', [S('collect.ts'), '--config', taskCfg], tmp)
 let dir = ''
-try { dir = JSON.parse(collectOut).dir } catch {}
-if (!dir) { failed++; console.error('  ✗ collect 未输出可解析的 dir') }
+if (collectOut !== undefined) {
+  try { dir = JSON.parse(collectOut).dir } catch {}
+  // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  if (!dir) { failed++; console.error('  ✗ collect 未输出可解析的 dir') }
+}
 
 // ---- collect：预算用尽 → 断点 → 续跑 ----
 const tightCfg = join(tmp, 'tight.json')
@@ -165,18 +182,23 @@ writeFileSync(tightCfg, JSON.stringify({
 const tightOut = run('collect 预算用尽保存断点',
   [S('collect.ts'), '--config', tightCfg], tmp, { status: 3, stream: 'stdout' })
 let tightDir = ''
-try { tightDir = JSON.parse(tightOut).dir } catch {}
+if (tightOut !== undefined) { try { tightDir = JSON.parse(tightOut).dir } catch {} }
 const tightTask = tightDir ? join(tmp, tightDir, 'task.json') : ''
 // 断点没落盘、或落盘在读不出来的地方，下面那几条断言就无从跑起 ——
 // 跳过不能算通过，否则 P3.b 可以一直是坏的而这一步照样打勾。
-if (!tightDir || !existsSync(tightTask)) {
+if (tightOut === undefined) {
+  // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+} else if (!tightDir || !existsSync(tightTask)) {
   failed++
   console.error('  ✗ collect 预算用尽后没有留下可读的断点（P3.b 要求捕获后保存断点）')
 } else {
   const before = JSON.parse(readFileSync(tightTask, 'utf8'))
-  run('collect --resume 追加预算续跑', [S('collect.ts'), '--resume', tightDir, '--budget', '1'], tmp)
+  const resumed = run('collect --resume 追加预算续跑',
+                      [S('collect.ts'), '--resume', tightDir, '--budget', '1'], tmp)
   const after = JSON.parse(readFileSync(tightTask, 'utf8'))
-  if (after.requests <= before.requests) {
+  if (resumed === undefined) {
+    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  } else if (after.requests <= before.requests) {
     failed++; console.error('  ✗ 续跑后请求数未增长，断点恢复可能没生效')
   } else if (after.done.length <= before.done.length) {
     failed++; console.error('  ✗ 续跑后已完成关键词数未增长')
@@ -195,7 +217,9 @@ if (dir) {
 
   const out = run('enrich 公开指标完整流程', [S('enrich.ts'), '--dir', dir], tmp)
   const enrichment = join(tmp, dir, 'enrichment.json')
-  if (!existsSync(enrichment)) { failed++; console.error('  ✗ 未生成 enrichment.json') }
+  if (out === undefined) {
+    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  } else if (!existsSync(enrichment)) { failed++; console.error('  ✗ 未生成 enrichment.json') }
   else {
     const data = JSON.parse(readFileSync(enrichment, 'utf8'))
     const accounts = Object.values(data.accounts ?? {}) as any[]
@@ -222,8 +246,10 @@ if (dir) {
     const migrated = JSON.parse(readFileSync(enrichment, 'utf8'))
     const migratedAccounts = Object.values(migrated.accounts ?? {}) as any[]
     let migrationSummary: any = {}
-    try { migrationSummary = JSON.parse(migrationOut) } catch {}
-    if (afterRequests !== beforeRequests || migrationSummary.newly_queried !== 0) {
+    if (migrationOut !== undefined) { try { migrationSummary = JSON.parse(migrationOut) } catch {} }
+    if (migrationOut === undefined) {
+      // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+    } else if (afterRequests !== beforeRequests || migrationSummary.newly_queried !== 0) {
       failed++; console.error('  ✗ 旧样本补算产生了新的 API 请求')
     } else if (!(migrationSummary.locally_recomputed > 0) ||
       !migratedAccounts.some(a => a.metrics?.activity_status)) {
@@ -246,8 +272,10 @@ if (dir) {
     const fixed = Object.values(
       JSON.parse(readFileSync(enrichment, 'utf8')).accounts ?? {}) as any[]
     let staleSummary: any = {}
-    try { staleSummary = JSON.parse(staleOut) } catch {}
-    if (!tampered) {
+    if (staleOut !== undefined) { try { staleSummary = JSON.parse(staleOut) } catch {} }
+    if (staleOut === undefined) {
+      // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+    } else if (!tampered) {
       // 一个没篡改到任何东西的检查，下面两条断言会无条件通过 —— 那等于没检查。
       failed++; console.error('  ✗ 没有可篡改的中位播放量，这条检查什么都没验')
     } else if (staleAfter !== staleBefore || staleSummary.newly_queried !== 0) {
@@ -276,10 +304,12 @@ if (dir) {
     const trimmed = Object.values(
       JSON.parse(readFileSync(enrichment, 'utf8')).accounts ?? {}) as any[]
     let padSummary: any = {}
-    try { padSummary = JSON.parse(padOut) } catch {}
+    if (padOut !== undefined) { try { padSummary = JSON.parse(padOut) } catch {} }
     const inconsistent = trimmed.filter(a => a.sample?.status === 'measured' &&
       (a.sample.value.length > 12 || a.sample.sample_size !== a.sample.value.length))
-    if (!padded) {
+    if (padOut === undefined) {
+      // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+    } else if (!padded) {
       failed++; console.error('  ✗ 没有可撑大的样本记录，这条检查什么都没验')
     } else if (padAfter !== padBefore || padSummary.newly_queried !== 0) {
       failed++; console.error('  ✗ 收窄样本记录产生了新的 API 请求')
@@ -292,10 +322,12 @@ if (dir) {
 
 // ---- render：算分、分层、CSV、HTML、记忆写回 ----
 if (dir) {
-  const out = run('render 完整产出', [S('render.ts'), '--dir', dir], tmp)
+  const rendered = run('render 完整产出', [S('render.ts'), '--dir', dir], tmp)
   const csv = join(tmp, dir, 'kol.csv')
   const html = join(tmp, dir, 'report.html')
-  if (!existsSync(csv)) { failed++; console.error('  ✗ 未生成 CSV') }
+  if (rendered === undefined) {
+    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  } else if (!existsSync(csv)) { failed++; console.error('  ✗ 未生成 CSV') }
   else {
     const buf = readFileSync(csv)
     if (buf[0] !== 0xef || buf[1] !== 0xbb || buf[2] !== 0xbf) {
@@ -355,13 +387,18 @@ if (dir) {
   const patched = JSON.parse(pristine)
   patched[0].email_verified = false
   writeFileSync(cPath, JSON.stringify(patched, null, 2), 'utf8')
-  run('render 跑过邮箱增强时如实报 enriched', [S('render.ts'), '--dir', dir], tmp)
+  const reRendered = run('render 跑过邮箱增强时如实报 enriched',
+                         [S('render.ts'), '--dir', dir], tmp)
   const enrichedMeta = JSON.parse(readFileSync(metaPath, 'utf8'))
-  if (enrichedMeta.enriched !== true) {
+  if (reRendered === undefined) {
+    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  } else if (enrichedMeta.enriched !== true) {
     failed++; console.error('  ✗ meta.json 的 enriched 不实 —— 跑过邮箱增强却报 false')
   } else console.log('  ✓ meta.json 的 enriched 如实（跑过邮箱增强时为 true）')
   // 复位：后面几段接着用这个任务目录，交付物与产出物都要回到未增强的样子。
   writeFileSync(cPath, pristine, 'utf8')
+  // 这一处不判空：它后面没有派生断言，跑不起来时 runBoth 已经带记号报过一次，
+  // 再加一道判空只会多一层缩进而不多守住任何东西。同理还有下面那处纪律 lint 的入口。
   run('render 复位（回到未增强的产出）', [S('render.ts'), '--dir', dir], tmp)
 }
 
@@ -374,9 +411,12 @@ if (dir) {
   const deliverable = join(tmp, dir, 'creators.json')
   const rawPath = join(tmp, dir, 'creators.raw.json')
   const before = JSON.parse(readFileSync(deliverable, 'utf8')).length
-  run('collect --resume（在 render 之后）', [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp)
+  const afterRender = run('collect --resume（在 render 之后）',
+                          [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp)
 
-  if (!existsSync(rawPath)) {
+  if (afterRender === undefined) {
+    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  } else if (!existsSync(rawPath)) {
     failed++; console.error('  ✗ 缺少采集累加器 creators.raw.json')
   } else {
     const after = JSON.parse(readFileSync(deliverable, 'utf8')).length
@@ -404,20 +444,24 @@ if (dir) {
   const stderr = run('collect 记忆读不出来时不产出名单',
                      [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp,
                      { status: 2, stream: 'stderr' })
-  if (!stderr.includes('--ignore-memory') || !stderr.includes('--resume')) {
+  if (stderr === undefined) {
+    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  } else if (!stderr.includes('--ignore-memory') || !stderr.includes('--resume')) {
     failed++
     console.error('  ✗ 中止时没有告诉用户怎么往下走 —— 一条人照做不了的报错等于没报')
   } else console.log('  ✓ 中止时给出了修复与强出名单两条路')
   // 这一轮采集已经跑完，所以续跑确实不花钱 —— 但那句话必须是**算出来的**，
   // 不是无条件写死的。还有关键词没跑完时它要说的是相反的话（ADR-22）。
-  if (!stderr.includes('续跑不产生新的请求') && !stderr.includes('续跑会继续发请求')) {
+  if (stderr === undefined) {
+    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  } else if (!stderr.includes('续跑不产生新的请求') && !stderr.includes('续跑会继续发请求')) {
     failed++
     console.error('  ✗ 没有说清续跑的代价 —— 或者把「已抓到的不重抓」写成了「续跑免费」')
   } else console.log('  ✓ 续跑的代价按实际剩余工作量说话')
   // 预算用尽时光 --resume 会立刻再退 3。这里采集已跑完，命令不该带 --budget；
   // 反过来说了「预算也已用尽」的那条命令必须带 —— 两句话要同进同出
-  const budgetGone = stderr.includes('预算也已用尽')
-  const cmdHasBudget = /修好它再跑:.*--budget <新额度>/.test(stderr)
+  const budgetGone = stderr !== undefined && stderr.includes('预算也已用尽')
+  const cmdHasBudget = stderr !== undefined && /修好它再跑:.*--budget <新额度>/.test(stderr)
   if (budgetGone !== cmdHasBudget) {
     failed++
     console.error('  ✗ 恢复命令与预算状态不一致 —— 用户照着敲会立刻再撞一次退出码 3')
@@ -444,7 +488,9 @@ if (dir) {
   }))
   const zeroErr = run('collect 收尾：没活了就说续跑不产生新请求',
                       [S('collect.ts'), '--config', zeroCfg], tmp, { status: 2, stream: 'stderr' })
-  if (!zeroErr.includes('续跑不产生新的请求')) {
+  if (zeroErr === undefined) {
+    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  } else if (!zeroErr.includes('续跑不产生新的请求')) {
     failed++
     console.error('  ✗ 都跑完了却没说「续跑不产生新的请求」—— 用户不敢续跑，那份已经付过钱的名单就拿不到')
   } else if (zeroErr.includes('续跑会继续发请求')) {
@@ -461,7 +507,9 @@ if (dir) {
   }))
   const leftErr = run('collect 收尾：还有活就说续跑要继续花钱',
                       [S('collect.ts'), '--config', leftCfg], tmp, { status: 2, stream: 'stderr' })
-  if (!leftErr.includes('续跑会继续发请求、继续花钱')) {
+  if (leftErr === undefined) {
+    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  } else if (!leftErr.includes('续跑会继续发请求、继续花钱')) {
     failed++
     console.error('  ✗ 还有活却没说续跑要继续花钱 —— 用户放心去续跑，账单在他不知情时又长一截')
   } else if (!/还有 \d+ 个关键词/.test(leftErr)) {
@@ -487,7 +535,9 @@ if (dir) {
   }))
   const onlyErr = run('collect 收尾：只剩 profile 也要说续跑要花钱',
                       [S('collect.ts'), '--config', onlyCfg], tmp, { status: 2, stream: 'stderr' })
-  if (!/还有 \d+ 个人的 profile/.test(onlyErr)) {
+  if (onlyErr === undefined) {
+    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  } else if (!/还有 \d+ 个人的 profile/.test(onlyErr)) {
     failed++
     console.error('  ✗ 只剩 profile 没补时没点名它 —— 递进去的那批人没人守着')
   } else if (!onlyErr.includes('续跑会继续发请求、继续花钱')) {
@@ -568,15 +618,19 @@ if (dir) {
   const forced = run('collect --ignore-memory 强出名单',
                      [S('collect.ts'), '--resume', dir, '--budget', '1', '--ignore-memory'], tmp)
   let forcedSummary: any = {}
-  try { forcedSummary = JSON.parse(forced) } catch {}
-  if (forcedSummary.memory_status !== 'unreadable_ignored') {
+  if (forced !== undefined) { try { forcedSummary = JSON.parse(forced) } catch {} }
+  if (forced === undefined) {
+    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  } else if (forcedSummary.memory_status !== 'unreadable_ignored') {
     failed++
     console.error(`  ✗ 强出的名单没有声明未去重（memory_status=${forcedSummary.memory_status}）`)
   } else console.log('  ✓ 强出的名单在 stdout 声明 memory_status')
 
   // render：不写回，不覆盖，且报告上说出来
-  run('render 记忆读不出来时不覆盖原文件', [S('render.ts'), '--dir', dir], tmp)
-  if (readFileSync(memFile, 'utf8') !== broken) {
+  const keptMemory = run('render 记忆读不出来时不覆盖原文件', [S('render.ts'), '--dir', dir], tmp)
+  if (keptMemory === undefined) {
+    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  } else if (readFileSync(memFile, 'utf8') !== broken) {
     failed++
     console.error(`  ✗ 读不出来的记忆被覆盖了 —— 原本记着 ${contactedCount} 个人的联系状态`)
   } else console.log('  ✓ 读不出来的记忆一个字节没动')
@@ -597,10 +651,12 @@ if (dir) {
   delete legacy.memory_status
   writeFileSync(taskFile, JSON.stringify(legacy, null, 2), 'utf8')
 
-  run('render 旧任务目录的去重状态记为无从确认', [S('render.ts'), '--dir', dir], tmp)
+  const legacyRun = run('render 旧任务目录的去重状态记为无从确认', [S('render.ts'), '--dir', dir], tmp)
   const legacyMeta = JSON.parse(readFileSync(join(tmp, dir, 'meta.json'), 'utf8'))
   const legacyHtml = readFileSync(join(tmp, dir, 'report.html'), 'utf8')
-  if (legacyMeta.memory_status !== 'unknown') {
+  if (legacyRun === undefined) {
+    // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+  } else if (legacyMeta.memory_status !== 'unknown') {
     failed++
     console.error(`  ✗ 缺字段被读成了 ${legacyMeta.memory_status} —— 无从确认的事被当成了肯定答案`)
   } else if (!legacyHtml.includes('无从确认')) {
@@ -634,10 +690,14 @@ writeFileSync(join(dupTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify
 ] }), 'utf8')
 // mutate：出来的必须是重复那一条 —— 先后由 attributionFault 定，这里验的是
 // 入口照着它说的印、并且真的以 1 结束
-// 不加 `dupMut &&` 那道真值判断：`run` 在退出码对得上、stderr 却是空的时候也返回空串，
-// 于是「诊断被删光、只剩那句退出」会从这儿滑过去（评审指出）
+// **不拿真值当前置条件。** 早先 `run` 在退出码对得上、stderr 却是空的时候也返回空串，
+// 写成 `dupMut &&` 的话「诊断被删光、只剩那句退出」会从这儿滑过去（评审指出）。
+// 现在 `run` 交回 `undefined` 表示没跑起来，空串就只剩「跑起来了、什么也没打」这一种意思 ——
+// 判的是 `=== undefined`，不是真值。
 const dupMut = runTool('mutate 遇到重复编号即以退出码 1 结束', 'mutate', [], dupTmp, { status: 1 })
-if (!dupMut.includes('个编号重复')) {
+if (dupMut === undefined) {
+  // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+} else if (!dupMut.includes('个编号重复')) {
   failed++; console.error('  ✗ mutate 的输出里没有「编号重复」那条诊断')
 } else if (dupMut.includes('记在不存在的需求名下')) {
   failed++
@@ -647,7 +707,9 @@ if (!dupMut.includes('个编号重复')) {
 // 不在这儿先拦下，顺序契约就会指着另一条变异报「不在该契约的位置里」，而 mutate 那条
 // 真正的诊断根本轮不上说话。
 const dupArch = runTool('arch-sync 遇到重复编号即以退出码 1 结束', 'arch', [], dupTmp, { status: 1 })
-if (!dupArch.includes('个编号重复')) {
+if (dupArch === undefined) {
+  // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+} else if (!dupArch.includes('个编号重复')) {
   failed++; console.error('  ✗ arch-sync 的输出里没有「编号重复」那条诊断')
 }
 
@@ -667,7 +729,9 @@ writeFileSync(join(wireTmp, 'scripts', 'check', 'mutations.json'), JSON.stringif
   { id: 'M-X-d', req: 'X1', why: '点了名却没说谁来验', file: 'a.ts', find: 'x', replace: 'w', kills: '某条夹具' },
 ] }), 'utf8')
 const badBy = runTool('mutate 的验证者接线不成立即以退出码 1 结束', 'mutate', [], wireTmp, { status: 1 })
-if (!badBy.includes('不认得')) {
+if (badBy === undefined) {
+  // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+} else if (!badBy.includes('不认得')) {
   failed++; console.error('  ✗ mutate 没报出「指的验证者不认得」')
 } else if (!badBy.includes('没说该红的是哪一条夹具')) {
   failed++; console.error('  ✗ mutate 没报出「指名了验证者却漏了 kills」')
@@ -699,7 +763,9 @@ writeFileSync(join(isoTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify
     file: 'scripts/check/leaf.ts', find: 'x', replace: 'y' },
 ] }), 'utf8')
 const selfVer = runTool('mutate 遇到自己验自己即以退出码 1 结束', 'mutate', [], isoTmp, { status: 1 })
-if (!selfVer.includes('在自己验自己')) {
+if (selfVer === undefined) {
+  // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+} else if (!selfVer.includes('在自己验自己')) {
   failed++; console.error('  ✗ mutate 没报出「这条变异在自己验自己」')
 }
 
@@ -728,7 +794,9 @@ writeFileSync(join(labelTmp, 'scripts', 'check', 'mutations.json'), JSON.stringi
 ] }), 'utf8')
 const badKills = runTool('mutate 的 kills 点不着夹具即以退出码 1 结束',
   'mutate', [], labelTmp, { status: 1 })
-if (!badKills.includes('不在 selfcheck 的清册里')) {
+if (badKills === undefined) {
+  // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+} else if (!badKills.includes('不在 selfcheck 的清册里')) {
   failed++; console.error('  ✗ mutate 没报出「点的夹具不在清册里」')
 } else if (!badKills.includes('不止一条夹具叫')) {
   failed++; console.error('  ✗ mutate 没报出「点的那个名字有重名」')
