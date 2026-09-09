@@ -718,6 +718,45 @@ if (!badKills.includes('不在 selfcheck 的清册里')) {
   failed++; console.error('  ✗ mutate 没报出「点的那个名字有重名」')
 }
 
+// ---- 整跑那份报告里的豁免行，也要随负片改口（入口的第二处）----
+// 上面那条断言守的是 `--brief`；**同一句话在 mutate.ts 里有两处**，整跑那一处
+// 单元测试与变异集都够不到（`mutate.ts` 在验证基础设施闭包里，指着它的变异会被
+// 「自己验自己」当场拦下，所以这一处只能有夹具、不能有负片 —— 与本文件另外四处
+// mutate 夹具同一处境）。造一份最小语料真跑一遍整跑：一条会被抓到的变异 ＋ 两条豁免，
+// 一条命中、一条不命中，两支话在同一次输出里各出现一次。约 2.7 秒。
+const bothTmp = join(tmp, 'exempt-lead')
+mkdirSync(join(bothTmp, 'scripts', 'check'), { recursive: true })
+mkdirSync(join(bothTmp, 'docs'), { recursive: true })
+writeFileSync(join(bothTmp, 'docs', 'requirements.json'),
+  JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }, { id: 'X1.b' }] }] }), 'utf8')
+// 语料自带的「被测对象」与「验证者」：变异把 keep 改成 gone，而这份测试见了 gone 就红
+writeFileSync(join(bothTmp, 'scripts', 'check', 'a.ts'), "export const v = 'keep'\n", 'utf8')
+// **那一句拼出来，不写成整串** —— 与上面 isoTmp 的 `importLine` 同一个理由：
+// 抽边认的是本文件源码字面里任何一处「from ＋ 相对路径」，写成整串的话，
+// 这行夹具会被当成本文件真的 import，往真闭包里塞一个磁盘上不存在的路径。
+// 头一版正是这么写的，`scripts/test.ts` 里那条「真闭包里没有磁盘上不存在的路径」
+// 当场红（#84 评审抓过同一个诱饵、#85 为它记了欠条，这是第三次 —— 这回是断言抓的）。
+const q = "'"
+writeFileSync(join(bothTmp, 'scripts', 'test.ts'),
+  `import { v } from ${q}./check/a.js${q}\n`
+  + `if (v !== ${q}keep${q}) { console.log('\\n1 个失败\\n'); process.exitCode = 1 }\n`, 'utf8')
+writeFileSync(join(bothTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({
+  mutations: [{ id: 'M-X-h', req: 'X1.a', why: '把那个值改掉，测试该红', 
+                file: 'scripts/check/a.ts', find: 'keep', replace: 'gone' }],
+  exemptions: [
+    { req: 'X1.a', scope: '一半', why: '这一条名下有变异。' },
+    { req: 'X1.b', scope: '一半', why: '这一条名下没有。' },
+  ],
+}), 'utf8')
+const bothOut = runTool('mutate 整跑那份报告的豁免行随负片改口', 'mutate', [], bothTmp)
+if (bothOut && !/^\s*⊘ X1\.a 名下有负片/m.test(bothOut)) {
+  failed++
+  console.error('  ✗ 整跑那份报告里，名下有负片的那条没这么说 —— 又写死了')
+} else if (bothOut && !/^\s*⊘ X1\.b 名下无变异/m.test(bothOut)) {
+  failed++
+  console.error('  ✗ 整跑那份报告里，名下没有变异的那条没这么说')
+}
+
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
 // 一条写进文档、却从没被执行过的命令，等于没有 —— 在这里跑一次，证明它还活着。
 //
