@@ -126,11 +126,18 @@ export function coverageSummary(
   all: readonly { id: string }[], redline: readonly { id: string }[],
   tested: Claimed, entry: Claimed, exempt: Claimed,
 ): string {
-  const n = (crit: readonly { id: string }[], claimed: Claimed): number =>
-    crit.filter(c => claimed.has(c.id)).length
-  return `验收判据 ${all.length} 条 · 有测试认领 ${n(all, tested)}`
-       + ` · 入口认领 ${n(all, entry)}`
-       + ` · 其中红线 ${redline.length} 条（测试认领 ${n(redline, tested)}`
-       + ` · 入口认领 ${n(redline, entry)}`
-       + ` · 显式豁免 ${n(redline, exempt)}）`
+  const n = (crit: readonly { id: string }[], pick: (id: string) => boolean): number =>
+    crit.filter(c => pick(c.id)).length
+  // 三栏**互不重叠**,加起来不超过总数:同一条判据两边都认领时算在测试那一栏,
+  // 豁免只数那些两边都没认领的。原先三栏各问各的,P3.b 拿到入口认领之后
+  // 「入口认领 1 · 显式豁免 2」把它数了两遍,红线 17 条的三栏加出 18 来 ——
+  // 而逐条那一头已经把它算成认领了,一份报告两种说法(落地 3 第二片)。
+  const entryOnly = (id: string): boolean => entry.has(id) && !tested.has(id)
+  const gapOnly = (id: string): boolean =>
+    exempt.has(id) && !tested.has(id) && !entry.has(id)
+  return `验收判据 ${all.length} 条 · 有测试认领 ${n(all, id => tested.has(id))}`
+       + ` · 入口认领 ${n(all, entryOnly)}`
+       + ` · 其中红线 ${redline.length} 条（测试认领 ${n(redline, id => tested.has(id))}`
+       + ` · 入口认领 ${n(redline, entryOnly)}`
+       + ` · 显式豁免 ${n(redline, gapOnly)}）`
 }

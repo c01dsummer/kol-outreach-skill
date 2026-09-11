@@ -461,8 +461,14 @@ export interface Evidence {
   impl: number
   /** 任何形式的引用数 */
   refs: number
-  /** 真正跑过的判据编号 */
+  /** 单元断言真正跑过的判据编号 */
   claimedCriteria: ReadonlySet<string>
+  /**
+   * 自检端到端跑过的判据编号 —— 与上面那一栏**分开交进来**,不是合好再给。
+   * 合不合得起由这个模块判（今天两者都算数）;分着交是为了落地 4 那条硬失败
+   * 问得出「这一条是不是**只有**自检认领」。
+   */
+  entryCriteria: ReadonlySet<string>
   /** 显式豁免的编号（需求级与判据级共用一张表） */
   exemptIds: ReadonlySet<string>
   /** 有变异点着的**判据**编号 —— 与 `mutated` 不是一回事,后者只认整条需求 */
@@ -481,11 +487,16 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
   const gaps: string[] = []
   let flag: Verdict['flag'] = '✓'
   let hard = 0
-  const claimed = r.accept.filter(c => e.claimedCriteria.has(c.id))
-  const exempted = r.accept.filter(c =>
-    !e.claimedCriteria.has(c.id) && e.exemptIds.has(c.id))
-  const unclaimed = r.accept.filter(c =>
-    !e.claimedCriteria.has(c.id) && !e.exemptIds.has(c.id))
+  // **两种认领都算数**:单元断言认的那些,与自检端到端跑过的那些(落地 3 第二片)。
+  // 合成一个判据只在这里做一次 —— 三个名单各写一遍 `has`,漏改一处的症状是
+  // 同一条判据在「认领了」和「没认领」两栏里同时出现,一份报告两种说法。
+  // ⚠️ 合的是**算不算数**,不是来源:两份记录仍然各写各的(`claims.ts` 记着为什么),
+  // 落地 4 那条硬失败要问的正是「这一条是不是只有自检认领」。
+  const claimedBy = (c: { id: string }): boolean =>
+    e.claimedCriteria.has(c.id) || e.entryCriteria.has(c.id)
+  const claimed = r.accept.filter(claimedBy)
+  const exempted = r.accept.filter(c => !claimedBy(c) && e.exemptIds.has(c.id))
+  const unclaimed = r.accept.filter(c => !claimedBy(c) && !e.exemptIds.has(c.id))
 
   if (r.cat === REDLINE_CAT) {
     if (!e.tested) { flag = '✗'; hard++; gaps.push(`${r.id} 是红线但没有测试`) }
@@ -496,7 +507,7 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
     // 红线的判据**逐条**都要有认领 —— 整条需求「有测试」不代表每一条判据都有
     for (const c of unclaimed) {
       flag = '✗'; hard++
-      gaps.push(`${c.id} 是红线的验收判据但没有测试认领：${c.text.slice(0, 40)}…`)
+      gaps.push(`${c.id} 是红线的验收判据但没有认领（测试与自检都没有）：${c.text.slice(0, 40)}…`)
     }
   } else {
     if (!e.impl && !e.tested) {

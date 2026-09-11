@@ -175,7 +175,8 @@ for (const r of reqs) {
   // 裁定在 spec-rule.ts：留在这个入口里，没有任何一条测试够得着它（ADR-13 的老处境）。
   const v = requirementVerdict(r, {
     tested, mutated, exempt, impl: impl.length, refs: refs.length,
-    claimedCriteria: testedCriteria, exemptIds: new Set(exemptIds.keys()),
+    claimedCriteria: testedCriteria, entryCriteria,
+    exemptIds: new Set(exemptIds.keys()),
     mutatedCriteria,
   })
   const { flag, claimed, exempted } = v
