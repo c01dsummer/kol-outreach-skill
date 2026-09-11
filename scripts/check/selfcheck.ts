@@ -1024,11 +1024,12 @@ writeFileSync(join(crashTmp, 'scripts', 'check', 'a.ts'), "export const v = 'kee
 // 头一版用的是语法错误：验证者一个字没打就死，于是入口走的永远是「一条失败行都没打出来」
 // 那个兜底分支，**真正要守的那一支（把失败行逐条留下来）一次也没跑过** ——
 // 把它换成兜底，这条夹具照样绿（#105 第一轮评审指出）。
+// 打 18 条 —— **比封顶（15）多**，于是「另有 N 行未显示」那一支也真跑到。
+// 只打两条的话 `omitted` 恒为 0，那句截断提示删掉也不会红（#105 第三轮评审指出）。
 writeFileSync(join(crashTmp, 'scripts', 'test.ts'),
   `import { v } from ${q}./check/a.js${q}\n`
   + `if (v !== ${q}keep${q}) {\n`
-  + `  console.log('  ✗ 头一条假失败')\n`
-  + `  console.log('  ✗ 第二条假失败')\n`
+  + `  for (let i = 1; i <= 18; i++) console.log(\`  ✗ 假失败 \${i}\`)\n`
   + `  process.exitCode = 1\n`
   + `}\n`, 'utf8')
 writeFileSync(join(crashTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({
@@ -1042,15 +1043,22 @@ if (crash.ok && !/跑不起来/.test(crash.stdout)) {
   failed++
   console.error('  ✗ 那条变异没被判成「跑不起来」—— '
                 + '这份语料造的是「验证者红过、却没打汇总」，那一档判的就是跑不起来')
-} else if (crash.ok && !/^\s+退出码 .+·.+$/m.test(crash.stdout)) {
+// 认的是**逐字那一句**，不是「有个点号隔开的两截」—— 后者措辞怎么退化都能过
+} else if (crash.ok && !/^\s+退出码 1 · 未因见齐点名而主动停$/m.test(crash.stdout)) {
   failed++
-  console.error('  ✗ 判「跑不起来」却没留下退出码与有没有主动停 —— 现场丢了')
-} else if (crash.ok && !/^\s+│ ✗ 头一条假失败$/m.test(crash.stdout)) {
+  console.error('  ✗ 判「跑不起来」那一行的退出码或停法不对 —— 现场丢了，或者措辞退化了')
+} else if (crash.ok && !/^\s+│ ✗ 假失败 1$/m.test(crash.stdout)) {
   failed++
   console.error('  ✗ 判「跑不起来」却没把验证者的失败行逐条留下来 —— 分不出是真崩了还是这一次不巧')
-} else if (crash.ok && !/^\s+│ ✗ 第二条假失败$/m.test(crash.stdout)) {
+} else if (crash.ok && !/^\s+│ ✗ 假失败 15$/m.test(crash.stdout)) {
   failed++
-  console.error('  ✗ 只留了头一条失败行 —— 后面的被丢了')
+  console.error('  ✗ 只留了头几条失败行 —— 封顶之内的也被丢了')
+} else if (crash.ok && /^\s+│ ✗ 假失败 16$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 留的行数超过封顶 —— 一次吵的运行会把整份输出淹掉')
+} else if (crash.ok && !/^\s+（另有 3 行未显示）$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 截掉了 3 行却没报出来 —— 被截过的现场和本来就这么短的现场长得一样')
 }
 
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m
