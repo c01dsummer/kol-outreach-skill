@@ -2198,8 +2198,8 @@
       "req": "harness",
       "why": "判据号那一族的分类条件反过来：收进来的全是需求号，判据级的负片在报告里又一个字都没有 —— 正是本次改动要治的那件事，方向还是低报证据",
       "file": "scripts/check/audit-rule.ts",
-      "find": "filter(id => id.includes('.'))",
-      "replace": "filter(id => !id.includes('.'))"
+      "find": "  return new Set(mutations.map(m => m.req).filter(id => id.includes('.')))",
+      "replace": "  return new Set(mutations.map(m => m.req).filter(id => !id.includes('.')))"
     },
     {
       "id": "M-H22-b",
@@ -2507,6 +2507,102 @@
       "file": "scripts/check/claims.ts",
       "find": "export const ENTRY_CLAIMS_PATH = '.check-cache/selfcheck-claims.json'",
       "replace": "export const ENTRY_CLAIMS_PATH = 'selfcheck-claims.json'"
+    },
+    {
+      "id": "M-H32-a",
+      "req": "harness",
+      "why": "单元断言认领过的判据也被要求配一条改跑自检的负片 —— 缺省那个验证者本来就够得到它们，于是几十条本来好好的判据当场报成硬失败",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    if (!e.entryCriteria.has(c.id) || e.claimedCriteria.has(c.id)) continue",
+      "replace": "    if (!e.entryCriteria.has(c.id)) continue"
+    },
+    {
+      "id": "M-H32-b",
+      "req": "harness",
+      "why": "拿不带 by 的那种负片去抵这一条 —— 而那种变异在入口上只会「存活」，对这条判据什么也证不了，闸门看着立着，实际放行",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    if (e.selfcheckMutatedCriteria.has(c.id)) continue",
+      "replace": "    if (e.mutatedCriteria.has(c.id)) continue"
+    },
+    {
+      "id": "M-H32-c",
+      "req": "harness",
+      "why": "这条缺口只进待办、不算硬失败 —— 报告里照样看得见，而检查链绿着放行，「和红线没变异同一级」那句话就成了空话",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    flag = '✗'; hard++\n    gaps.push(`${c.id} 只由自检认领，却没有一条 by: \"selfcheck\" 的负片 —— ` +",
+      "replace": "    gaps.push(`${c.id} 只由自检认领，却没有一条 by: \"selfcheck\" 的负片 —— ` +"
+    },
+    {
+      "id": "M-H32-d",
+      "req": "harness",
+      "why": "不管变异改跑的是哪个验证者，一律算数 —— 于是一条够不到入口的普通负片就能替只由自检认领的判据过关",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "  return new Set(mutations.filter(m => m.by === 'selfcheck').map(m => m.req)\n    .filter(id => id.includes('.')))",
+      "replace": "  return new Set(mutations.map(m => m.req).filter(id => id.includes('.')))"
+    },
+    {
+      "id": "M-H33-a",
+      "req": "harness",
+      "why": "现场按顺序截前几行，带记号的那几行会被普通失败行挤掉 —— 而它们正是说得清「这次为什么不算抓到」的那几行，吵一点的一次运行就只剩下无关的",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),",
+      "replace": "    lines: fails.slice(0, cap),\n    omitted: Math.max(fails.length - cap, 0),"
+    },
+    {
+      "id": "M-H33-b",
+      "req": "harness",
+      "why": "封顶只管普通失败行，带记号的另算 —— 一次吵的运行留下来的行数会超出封顶，说好的上限形同虚设",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  const room = Math.max(cap - causal.length, 0)",
+      "replace": "  const room = cap"
+    },
+    {
+      "id": "M-H33-c",
+      "req": "harness",
+      "why": "带记号的失败行不再优先留 —— 一票否决的原因和普通失败行一样会被截掉，现场留下来了却说不清为什么",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  const causal = fails.filter(marked)",
+      "replace": "  const causal: string[] = []"
+    },
+    {
+      "id": "M-H34-a",
+      "req": "harness",
+      "why": "报告里一条硬失败的需求可以印成「已豁免」或「有缺口」—— 退出码红着，而那一行看着没事，读报告的人找不到红在哪",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  if (hard) flag = '✗'",
+      "replace": "  if (hard && flag === '✓') flag = '✗'"
+    },
+    {
+      "id": "M-H34-b",
+      "req": "harness",
+      "why": "现场里顺带提到那个记号的行也当成失败行 —— 它们占掉名额，把真正的失败行挤出去，留下来的现场说不清任何事",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  const fails = output.split('\\n').map(l => l.trim()).filter(l => l.startsWith('✗ '))",
+      "replace": "  const fails = output.split('\\n').map(l => l.trim()).filter(l => l.includes('✗'))"
+    },
+    {
+      "id": "M-H35-a",
+      "req": "harness",
+      "why": "真崩掉的那一次现场是空的 —— 它打的是栈、一行成形的失败行都没有，而这段现场存在的唯一理由就是诊断那一次",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (fails.length === 0) {\n    const tail = output.split('\\n').map(l => l.trim()).filter(l => l !== '')\n    return { lines: tail.slice(-cap), omitted: Math.max(tail.length - cap, 0), raw: true }\n  }",
+      "replace": ""
+    },
+    {
+      "id": "M-H35-b",
+      "req": "harness",
+      "why": "原始输出取开头那几行而不是末尾 —— 崩的原因通常在最后，留下来的是一堆无关的开场白",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    return { lines: tail.slice(-cap), omitted: Math.max(tail.length - cap, 0), raw: true }",
+      "replace": "    return { lines: tail.slice(0, cap), omitted: Math.max(tail.length - cap, 0), raw: true }"
+    },
+    {
+      "id": "M-H35-c",
+      "req": "harness",
+      "why": "把断言说过话的那一次也标成「原始输出」—— 读现场的人分不出这几行是断言红了还是进程死了，两者要怎么处理完全不同",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  const room = Math.max(cap - causal.length, 0)\n  return {\n    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),\n    raw: false,\n  }",
+      "replace": "  const room = Math.max(cap - causal.length, 0)\n  return {\n    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),\n    raw: true,\n  }"
     }
   ],
   "exemptions": [
@@ -2515,17 +2611,6 @@
       "scope": "「是否编造」这一半",
       "why": "「草稿里的产品事实是否真的来自产品页」由 Agent 的判断决定，不经过本仓库任何代码路径，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。",
       "mitigation": "skill/references/outreach-draft.md 写明「不要编造品牌信息，不知道的留占位符」；靠每次开工前读那份文档。见 ADR-01。"
-    },
-    {
-      "req": "D6.f",
-      "scope": "入口的接线，不是 lib 里的判定",
-      "why": "「四种收尾都把那句话打出来」是 collect.ts 里分支之前的一行接线。缺省那个验证者 scripts/test.ts 够不到入口，改在那里的变异只会「存活」，不会「被抓到」。现在由 M-D6-j 守着：它删掉那一行、改跑自检来验，kills 点名四条收尾夹具**全部**，一条没红就判「红错了地方」（5c 第二片把 kills 收成一组之前只点得着第一条，剩下三条删光它照样绿）。⚠️ 它证明的是四条夹具都还活着、都靠那一行，不是「四条路能各自坏掉」—— 后者要给四条路各写一条变异，ADR-70 记着这条欠条。豁免条目本条留着，撤它是落地 4 的事（ADR-70 第四条更正写明的分工）。那句话说什么由 lib/pipeline.ts 的 resumeCostLine 决定，那一半是 D6.e —— 按本条刚立的「编号逐字相同」，M-D6-f／M-D6-g／M-D6-h 的 req 写的是 D6，所以它们守的是需求级的 D6，不是判据 D6.e。"
-    },
-    {
-      "req": "P3.b",
-      "scope": "入口的接线，不是 lib 里的判定",
-      "why": "「collect 捕获后保存断点并退出码 3」是入口脚本的接线。缺省那个验证者 scripts/test.ts 够不到入口。现在有一条负片指着它：M-P3-b 让断点记着的已花请求数永远是 0，改跑自检来验，kills 点的是那条具名断言。⚠️ 它守住的只是「断点记的内容对不对」这一半 —— 「捕获」与「退出码 3」弄坏之后失败是进程级的，判定见了记号整次判跑不起来，不算抓到；而「断点在不在」这一半在今天的接线下是多处落盘的（循环里每页一次、catch 之后再一次），单点变异弄不坏（ADR-70 记着这两条）。",
-      "mitigation": "⚠️ 四半里只有「断点记的内容对不对」那一半有负片（M-P3-b）。剩下三半今天只有夹具守着，按 process/1-REQUIREMENTS.md「指认不了的按缺口显式登记，连同那它靠什么守着」留在这里：预算耗尽那条配置下的 collect 必须以退出码 3 结束（是 0 或别的码都记失败）、断点目录读不出来或断点文件不存在也记失败、然后续跑一次断言请求数与已完成关键词数都增长。这三样今天只有夹具、没有负片 —— 拿得到负片的那一半才适用「负片本身就是可执行的 mitigation」。"
     }
   ]
 }

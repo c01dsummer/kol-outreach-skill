@@ -274,8 +274,9 @@ if (tightOut === undefined) {
   }
   // 写在整段之后，不写在「续跑」那一半之前：P3.b 的四半要**全跑到**才认领得起 ——
   // 退出码 3（`expect` 那一档）、断点在、断点记到中止那一刻、续跑从断点起算。
-  // 缺省那个验证者够不到入口，所以这条认领只有自检发得出 —— 它的显式豁免
-  // 逐字写的就是这个理由（落地 3 第一片）。
+  // 缺省那个验证者够不到入口，所以这条认领只有自检发得出（落地 3 第一片）。
+  // ⚠️ 它原先的显式豁免逐字写的就是这个理由，**落地 4 已经撤掉** —— 现在由硬失败
+  // 盯着：只由自检认领的判据没有一条 `by: "selfcheck"` 的负片就红（这里是 M-P3-b）。
   criterion('P3.b')
 }
 
@@ -638,7 +639,9 @@ if (dir && rendered !== undefined) {
   // 四条夹具**全部** —— 一条没红就判「红错了地方」（5c 第二片把 kills 收成一组之前只点得着
   // 第一条，剩下三条删光它照样绿）。⚠️ 它证明的是四条都还活着、都靠那一行，不是
   // 「四条路能各自坏掉」—— 后者要四条各自的变异（ADR-70 记着这条欠条）。
-  // 这条缺口在 mutations.json 的 exemptions 里仍按 P3.b 的先例显式登记着，撤它是落地 4 的事。
+  // ⚠️ 这条缺口原先在 mutations.json 的 exemptions 里按 P3.b 的先例登记着，
+  // **落地 4 已经撤掉那条豁免** —— D6.f 现在靠 M-D6-j 与那条硬失败顶着；
+  // 「四条路能各自坏掉」那半仍然欠着，记在 ADR-70，不在豁免表里。
   //
   // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
   // 「达标提前停下」和「关键词跑完」都是退出码 0、都说「不花钱」，一条夹具会让另一条
@@ -992,11 +995,95 @@ if (both.ok && !/^\s*⊘ X1\.a 名下有负片/m.test(both.stdout)) {
 // `brief.includes('名下有负片')`，反向验当场露馅：`--brief` 会把每条变异的 `why` 也打出来，
 // 而其中一条负片的 `why` 里正好有这四个字 —— 接线退回写死，那句断言照样绿。
 // 现在只认「⊘ ＋ 方括号里的编号 ＋ 这句话」的行首形状，与哪一条豁免命中无关。
+//
+// ⚠️ **跑的是上面那份合成语料，不是真仓库**（落地 4 改）。原先跑真仓库，靠的是
+// 「仓库里总有一条名下有负片的豁免」—— 而落地 4 撤掉 P3.b 与 D6.f 之后就只剩 P2.a，
+// 它名下无变异，这条断言当场失去对象。**一条断言的成立不该取决于登记表今天恰好长什么样**：
+// 那不是这条夹具要守的东西，而且它会在一个与它无关的改动里红。
+// 指到语料上之后两支话都在，于是两支都断言 —— 与整跑那一处对齐。
+// ---- 判 `crashed` 那一档要留下现场（入口的第三处）----
+// 判定说「跑不起来」时，原先一个字都不留下验证者说过什么 —— 而那是唯一能分辨
+// 「真崩了」与「这一次不巧」的证据（ADR-70：它在落地 4 那一片里咬了两次才补上）。
+// 这段输出在 `mutate.ts` 入口里，**变异够不到它**（`mutate.ts` 在验证基础设施闭包里，
+// 指着它的变异会被「自己验自己」当场拦下）—— 与另外几处 mutate 夹具同一处境，
+// 所以只能有夹具。删掉那几行打印，这条断言必须红。
+//
+// 单独一份语料，两条变异各造一种 `crashed`（口径见下面那段）。⚠️ 不能塞进上面那份 ——
+// 一条 crashed 会让整跑非零退出，上面两条断言的前置条件 `both.ok` 当场为假，
+// 它们就被静默跳过了。
+const crashTmp = join(tmp, 'crash-scene')
+mkdirSync(join(crashTmp, 'scripts', 'check'), { recursive: true })
+mkdirSync(join(crashTmp, 'docs'), { recursive: true })
+writeFileSync(join(crashTmp, 'docs', 'requirements.json'),
+  JSON.stringify({ requirements: [{ id: 'X2', accept: [{ id: 'X2.a' }] }] }), 'utf8')
+writeFileSync(join(crashTmp, 'scripts', 'check', 'a.ts'),
+  "export const v = 'keep'\nexport const w = 'ok'\n", 'utf8')
+// 这份语料造**两种 crashed**，两支分开守（#105 第一、四轮评审各指出一支）：
+//   `M-X-c` 验证者**打 18 条失败行、再以非零退出**（不打汇总）→ 成形的失败行那一支。
+//           打 18 条是因为封顶是 15 —— 只打两条的话 `omitted` 恒为 0，
+//           「另有 N 行未显示」那一支从没跑到，整行删掉照样绿（第三轮评审指出）。
+//   `M-X-r` 把另一处改成**语法错误** → 验证者打的是栈、一行成形的失败行都没有，
+//           走「原始输出的尾巴」那一支。⚠️ **那才是真崩的样子**，而这段现场存在的
+//           唯一理由就是诊断它；头一版只有这一种，于是反过来把上面那一支漏空了。
+// 用 `exitCode` 而不是那个硬退出的写法：`exitRace` 扫的是**源码字面**，把那一串原样
+// 写进这里，本文件自己就会被判成「打完汇总立刻退出」（ADR-70 逐字警告过这个坑，
+// 我照样踩了 —— 断言 `selfcheck 这个验证者不硬退出` 当场红）。
+writeFileSync(join(crashTmp, 'scripts', 'test.ts'),
+  `import { v } from ${q}./check/a.js${q}\n`
+  + `if (v !== ${q}keep${q}) {\n`
+  + `  for (let i = 1; i <= 18; i++) console.log(\`  ✗ 假失败 \${i}\`)\n`
+  + `  process.exitCode = 1\n`
+  + `}\n`, 'utf8')
+writeFileSync(join(crashTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({
+  mutations: [
+    { id: 'M-X-c', req: 'X2.a', why: '把那个值改掉，验证者打一串失败行之后以非零退出',
+      file: 'scripts/check/a.ts', find: 'keep', replace: 'gone' },
+    { id: 'M-X-r', req: 'X2.a', why: '把另一处改成语法错误，验证者起不来、打的是栈',
+      file: 'scripts/check/a.ts', find: "'ok'", replace: "'ok" },
+  ],
+  exemptions: [],
+}), 'utf8')
+const crash = runToolBoth('mutate 判「跑不起来」时留下现场', 'mutate', [], crashTmp,
+                          { status: 1 })
+if (crash.ok && !/跑不起来/.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 那条变异没被判成「跑不起来」—— '
+                + '这份语料造的是「验证者红过、却没打汇总」，那一档判的就是跑不起来')
+// 认的是**逐字那一句**，不是「有个点号隔开的两截」—— 后者措辞怎么退化都能过
+} else if (crash.ok && !/^\s+退出码 1 · 未因见齐点名而主动停$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 判「跑不起来」那一行的退出码或停法不对 —— 现场丢了，或者措辞退化了')
+} else if (crash.ok && !/^\s+│ ✗ 假失败 1$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 判「跑不起来」却没把验证者的失败行逐条留下来 —— 分不出是真崩了还是这一次不巧')
+} else if (crash.ok && !/^\s+│ ✗ 假失败 15$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 只留了头几条失败行 —— 封顶之内的也被丢了')
+} else if (crash.ok && /^\s+│ ✗ 假失败 16$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 留的行数超过封顶 —— 一次吵的运行会把整份输出淹掉')
+} else if (crash.ok && !/^\s+（另有 3 行未显示）$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 截掉了 3 行却没报出来 —— 被截过的现场和本来就这么短的现场长得一样')
+// ⚠️ 真崩那一支：验证者打的是栈，一行成形的失败行都没有。只认成形的失败行的话，
+// 现场恰恰在最需要它的那一档是空的 —— 而这段代码存在的唯一理由就是诊断那一次。
+} else if (crash.ok && !/^\s+没有成形的失败行，下面是它最后几行输出：$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 真崩的那一次没说「下面是原始输出」—— 两种现场混在一起，读的人分不出')
+} else if (crash.ok && !/^\s+┆ .*Transform failed/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 真崩的那一次把栈丢了 —— 现场在最需要它的那一档是空的')
+}
+
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m
-const brief = runToolBoth('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'])
+const briefNone = /^\s*⊘\s+\[[^\]]+\]\s+名下无变异/m
+const brief = runToolBoth('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'], bothTmp)
 if (brief.ok && !briefLead.test(brief.stdout)) {
   failed++
   console.error('  ✗ --brief 的豁免行没有随负片改口 —— 那句写死的「无变异」又回来了')
+} else if (brief.ok && !briefNone.test(brief.stdout)) {
+  failed++
+  console.error('  ✗ --brief 里名下没有变异的那条没这么说')
 }
 
 rmSync(tmp, { recursive: true, force: true })

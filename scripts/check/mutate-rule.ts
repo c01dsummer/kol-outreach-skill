@@ -76,6 +76,45 @@ export function processFailed(output: string, mark: string): boolean {
 }
 
 /**
+ * 判 `crashed` 时该把哪几行现场留下来。**带记号的一条都不许丢**,其余的封顶。
+ *
+ * 带记号的那几行是判定一票否决的**原因**(`notAssertion`) —— 把它们和普通失败行
+ * 混在一起按顺序截,吵一点的一次运行就会把唯一说得清原因的那行挤掉,
+ * 而留下来的十几行全是无关的。⚠️ 头一版正是「先 filter 再 slice(0,15)」,
+ * 评审指出:承诺的是「每一条失败行」,做的是「前十五条」,而**最该留的那条恰好可能在后面**。
+ *
+ * 截掉了几行要报出来 —— 不报的话,一份被截过的现场和一份本来就这么短的现场长得一样。
+ *
+ * ⚠️ **一条成形的失败行都没有时,交回原始输出的末尾几行**(`raw`)。真崩掉的那一次
+ * (抛异常、语法错误)打的是**栈**,一行以「✗ 」开头的都没有 —— 只认成形的失败行的话,
+ * 现场恰恰在**最需要它的那一档**是空的,而这段代码存在的唯一理由就是诊断那一次
+ * (#105 第四轮评审指出;实测:语法错误那一次打的是 `Error: Transform failed`)。
+ * 两者**不混**:有成形的失败行就只交那些,`raw` 为假 —— 掺进栈只会把它们淹掉。
+ */
+export function crashEvidence(output: string, verifier: Verifier, cap = 15):
+  { lines: string[]; omitted: number; raw: boolean } {
+  // 「失败行」的文法与 `processFailed` / `killsMatched` **逐字同一条**：trim 之后以
+  // 「✗ 」开头。只问「含不含这个字」的话，一行顺带提到它的诊断（或某个值里带着它）
+  // 就能占掉普通行的名额，把真正的失败行挤出去（#105 第二轮评审指出）。
+  const fails = output.split('\n').map(l => l.trim()).filter(l => l.startsWith('✗ '))
+  const marked = (l: string): boolean =>
+    (verifier.processMark !== undefined && l.includes(verifier.processMark))
+    || (verifier.fixtureMark !== undefined && l.includes(verifier.fixtureMark))
+  const causal = fails.filter(marked)
+  const plain = fails.filter(l => !marked(l))
+  if (fails.length === 0) {
+    const tail = output.split('\n').map(l => l.trim()).filter(l => l !== '')
+    return { lines: tail.slice(-cap), omitted: Math.max(tail.length - cap, 0), raw: true }
+  }
+  const room = Math.max(cap - causal.length, 0)
+  return {
+    lines: [...causal, ...plain.slice(0, room)],
+    omitted: Math.max(plain.length - room, 0),
+    raw: false,
+  }
+}
+
+/**
  * `by` 与 `kills` 这一对写得成不成立 —— 四种不成立各有名字,成立时返回 `undefined`。
  *
  * 判定在这里、打印在入口(`docs/CONVENTIONS.md` 第 10 条)。同一个入口里的另外两道体检

@@ -7,7 +7,8 @@
  * 2. **计量输入怎么分**:现行的参与计量、作废的只参与展示
  *    (`ledger` / `deprecatedBlock`)。理由写在 `ledger` 自己头上,不在这里重复。
  * 3. **报告上那几个数怎么数**:哪些变异是判据级的、验收判据那一行三份名单各数各的
- *    (`criterionMutations` / `coverageSummary`)。理由各写在它们自己头上。
+ *    (`criterionMutations` / `selfcheckCriterionMutations` / `coverageSummary`)。
+ *    理由各写在它们自己头上。
  *
  * 这一半守的是 `process/4-VERIFY.md` 那句「检查链自己也在这张清单里」:一条没有测试、也没有
  * 变异守着的检查,和没有检查之间的差别只有心理作用。审计原先只对产品红线强制
@@ -72,6 +73,24 @@ export function unguarded(modules: string[], mutations: { file: string }[]): str
  */
 export function criterionMutations(mutations: { req: string }[]): Set<string> {
   return new Set(mutations.map(m => m.req).filter(id => id.includes('.')))
+}
+
+/**
+ * 判据级的负片里,**改跑自检**的那些 —— 落地 4 那条硬失败问的就是这个集合。
+ *
+ * 只由自检认领的判据(单元断言一条都没认、全靠端到端夹具跑到)有个特殊处境:
+ * 缺省那个验证者够不到它,所以指着它的变异**必须**写 `by: "selfcheck"`,否则那条变异
+ * 只会「存活」,对这条判据什么也证不了。**认领与负片要来自同一头** —— 认领是自检发的,
+ * 负片也得是自检验的,配不上就是一条只有夹具、没有第三拍的判据(`process/4-VERIFY.md`)。
+ *
+ * 与 `criterionMutations` **分开两个函数、不是加一个参数**:那一个回答「报告上『负片 K』
+ * 数几条」,这一个回答「硬失败该不该响」。合成一个带开关的,两处的口径以后会互相拖着变。
+ */
+export function selfcheckCriterionMutations(
+  mutations: { req: string; by?: string }[],
+): Set<string> {
+  return new Set(mutations.filter(m => m.by === 'selfcheck').map(m => m.req)
+    .filter(id => id.includes('.')))
 }
 
 /**

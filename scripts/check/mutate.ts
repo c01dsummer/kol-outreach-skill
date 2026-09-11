@@ -7,7 +7,9 @@
  * **验证者崩了不算抓到**（`mutate-rule.ts`）：崩溃不是任何一条断言的功劳。
  *
  * 验证者缺省是 `scripts/test.ts`；写了 `by` 的改跑别的（今天只有自检），为的是接线
- * 那一层 —— 入口里的接线缺省那个验证者够不到，长期只能靠显式缺口顶着（ADR-70）。
+ * 那一层 —— 入口里的接线缺省那个验证者够不到。⚠️ 原先这类缺口只能靠显式缺口顶着，
+ * **落地 4 起改成闸门**：只由自检认领的判据没有一条 `by: "selfcheck"` 的负片就硬失败
+ * （判定在 `spec-rule.ts`，分类在 `audit-rule.ts`）。
  * `by` 与 `kills` **同进同出**，理由在下面那道校验上。
  *
  * 用法：
@@ -26,8 +28,8 @@ import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import {
   type LabelFault, type RunVerdict, type Verifier, type WiringFault,
-  VERIFIERS, allKilled, complete, exemptionCovered, exemptionLead, judgeRun, labelFaults,
-  labelsOf,
+  VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
+  labelFaults, labelsOf,
   wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
@@ -303,6 +305,13 @@ for (const m of muts) {
   }
   beginMutation(m.file, orig)
   let verdict: RunVerdict
+  // 判 `crashed` 时要说得出**为什么** —— 那一档原先一个字都不留下验证者说过什么,
+  // 而它恰恰是唯一能分辨「真崩了」与「这一次不巧」的证据(ADR-70 记着这笔账,
+  // 它在同一片里咬了两次才补上)。只有这一档留:另外三档的结论自己就够清楚,
+  // 而 300 多条各留一份会把输出淹掉。
+  let output = ''
+  let status: number | null = null
+  let stopped = false
   try {
     // 写盘也在这一段里面：写盘是先截断再写的，写到一半抛出去（盘满、IO 错）留下的是
     // 半份源文件，而那时 `finally` 要是够不着，被截断的那份就留在工作区里，
@@ -312,6 +321,7 @@ for (const m of muts) {
     // 点了名的还要再看一层:红的是不是 kills 说的那一条
     const verifier = VERIFIERS[m.by ?? 'test']
     const r = await runTest(verifier, m.kills)
+    output = r.output; status = r.status; stopped = r.stoppedOnKills
     verdict = judgeRun(r.status, r.output, verifier, m.kills, r.stoppedOnKills)
   } finally {
     restoreMutation()
@@ -324,6 +334,22 @@ for (const m of muts) {
   } else if (verdict === 'crashed') {
     crashed.push(m)
     console.log(`  ✗ ${m.id}  [${m.req}] 跑不起来 —— 验证者死在半路,没有任何一条断言抓到它`)
+    // 现场：退出码、有没有因为见齐点名而主动停、以及验证者打出来的失败行。
+    // 带记号的那些是判定一票否决的原因,不带记号的说明断言真的红过 —— 两者分得开。
+    // ⚠️ 「没主动停」**不等于「跑到了尾」**：被信号杀掉的那一次也是没主动停（评审指出，
+    // 头一版写成「跑到了尾」，跟「无，被信号杀掉」摆在同一行里自相矛盾）。
+    // 留哪几行是判定，在 `mutate-rule.ts`（`docs/CONVENTIONS.md` 第 10 条）。
+    console.log(`      退出码 ${status === null ? '（无，被信号杀掉）' : status}`
+                + ` · ${stopped ? '见齐点名的就停了' : '未因见齐点名而主动停'}`)
+    const scene = crashEvidence(output, VERIFIERS[m.by ?? 'test'])
+    if (scene.lines.length === 0) console.log('      验证者一个字都没打出来')
+    else {
+      // 两种现场的前缀**分得开**：`│` 是成形的失败行（断言说了话），
+      // `┆` 是原始输出的尾巴（一条成形的失败行都没有，八成是真崩了）。
+      if (scene.raw) console.log('      没有成形的失败行，下面是它最后几行输出：')
+      for (const l of scene.lines) console.log(`      ${scene.raw ? '┆' : '│'} ${l}`)
+    }
+    if (scene.omitted) console.log(`      （另有 ${scene.omitted} 行未显示）`)
   } else { survived.push(m); console.log(`  ✗ ${m.id}  [${m.req}] 存活 —— ${m.why}`) }
 }
 
