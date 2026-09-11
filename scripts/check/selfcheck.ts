@@ -256,6 +256,27 @@ if (tightOut === undefined) {
   // 续跑之后那次解析同样兜住 —— 坏了就说「读不出来」，而不是把整个自检掀掉。
   if (tightTaskJson !== undefined) {
     const before = tightTaskJson
+    // **读取侧（P3.k）**：续跑的预算要从断点里那个数起算。给一个只够已经花掉那么多的额度 ——
+    // 起算点对的话第一次请求就超限、一个请求都不再发；从 0 起算的话同一份额度被原样重花一遍。
+    // ⚠️ 认的是**采集进度**，不是断点里那个请求数：两种坏法下那个数都停在「额度 ÷ 单价」，
+    // 恰好相等 —— 拿它断言等于写了一条永远为真的话。进度是唯一分得开的地方。
+    const stingy = run('collect --resume 额度只够已经花掉的那些',
+                       [S('collect.ts'), '--resume', tightDir, '--budget', '0.002'], tmp,
+                       { status: 3, stream: 'stdout' })
+    let afterStingy: { offsets?: unknown } | undefined
+    if (stingy !== undefined) { try { afterStingy = JSON.parse(readFileSync(tightTask, 'utf8')) } catch {} }
+    const pagesOf = (t: { offsets?: unknown } | undefined): string =>
+      `${t === undefined ? '读不出来' : JSON.stringify(t.offsets)}`
+    const pagesBefore = pagesOf(before)
+    // ⚠️ 还要求中止那一刻**真的抓到过页**：语料造不出这个前提时两边都空，比较恒真，
+    // 这条断言从写下那天起就没验过任何事 —— 这一批反复栽的正是这个形状。
+    const measurable = !['读不出来', 'undefined', '{}'].includes(pagesBefore)
+    named('续跑的额度只够已经花掉的那些时，一个请求都不再发',
+          measurable && pagesOf(afterStingy) === pagesBefore,
+          measurable
+            ? `采集进度从 ${pagesBefore} 动到了 ${pagesOf(afterStingy)} —— 续跑的预算没有从`
+              + '断点里那个数起算，同一份额度被原样重花了一遍，而用户只确认过一次'
+            : `中止那一刻的采集进度是 ${pagesBefore} —— 这条断言的前提没造出来，它证不了任何事`)
     const resumed = run('collect --resume 追加预算续跑',
                         [S('collect.ts'), '--resume', tightDir, '--budget', '1'], tmp)
     let after: any
@@ -275,13 +296,13 @@ if (tightOut === undefined) {
   // 写在整段之后，不写在「续跑」那一半之前：这一段要**全跑到**才认领得起 ——
   // 退出码 3（`expect` 那一档）、断点在、断点记到中止那一刻、续跑从断点起算。
   // 缺省那个验证者够不到入口，所以这条认领只有自检发得出（落地 3 第一片）。
-  // ⚠️ **只认领 P3.i**（断点记的内容那一半）。原先这里认领的是还没拆开的 P3.b，
-  // 于是一条负片盖住四半里的一半，整条就报成有覆盖 —— 拆开正是为了让那三半看得见。
+  // ⚠️ **只认领 P3.i 与 P3.k**（断点记的内容、续跑从它起算）。原先这里认领的是还没拆开的
+  // P3.b，于是一条负片盖住四半里的一半，整条就报成有覆盖 —— 拆开正是为了让漏的那些看得见。
   // 另外三半（P3.g 捕获、P3.h 断点在、P3.j 退出码 3）端到端也真跑到了，但都**拿不到
   // 可执行负片**（三条各自的理由与实测记在 ADR-70），所以按 `docs/SYNC.md`
   // 「红线判据两种认领一个都没有时要显式登记豁免」走豁免、不在这里认领：认领了就撞上
   // 「只由自检认领的判据必须有一条 `by: "selfcheck"` 的负片」那条硬失败，而它是对的。
-  criterion('P3.i')
+  criterion('P3.i', 'P3.k')
 }
 
 // ---- enrich：主页近期样本、公开指标、断点文件 ----

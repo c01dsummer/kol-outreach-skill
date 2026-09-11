@@ -2349,6 +2349,18 @@
       ]
     },
     {
+      "id": "M-P3-d",
+      "req": "P3.k",
+      "why": "续跑时预算从零起算，不从断点里记着的已花请求数起算 —— 用户只确认过一次的那份额度，每续跑一次就被原样重花一遍，实际花掉的钱是上限的若干倍",
+      "file": "scripts/collect.ts",
+      "find": "const budget = new Budget(state.budget_usd, state.requests, (pct, spent, limit) => {",
+      "replace": "const budget = new Budget(state.budget_usd, 0, (pct, spent, limit) => {",
+      "by": "selfcheck",
+      "kills": [
+        "续跑的额度只够已经花掉的那些时，一个请求都不再发"
+      ]
+    },
+    {
       "id": "M-H24-a",
       "req": "harness",
       "why": "具名断言那一族不再算「起过名」—— 指着入口接线的变异点它就报「点了个清册里没有的名字」，而那正是这一族存在的理由，于是那类变异从此写不出来",
