@@ -274,8 +274,9 @@ if (tightOut === undefined) {
   }
   // 写在整段之后，不写在「续跑」那一半之前：P3.b 的四半要**全跑到**才认领得起 ——
   // 退出码 3（`expect` 那一档）、断点在、断点记到中止那一刻、续跑从断点起算。
-  // 缺省那个验证者够不到入口，所以这条认领只有自检发得出 —— 它的显式豁免
-  // 逐字写的就是这个理由（落地 3 第一片）。
+  // 缺省那个验证者够不到入口，所以这条认领只有自检发得出（落地 3 第一片）。
+  // ⚠️ 它原先的显式豁免逐字写的就是这个理由，**落地 4 已经撤掉** —— 现在由硬失败
+  // 盯着：只由自检认领的判据没有一条 `by: "selfcheck"` 的负片就红（这里是 M-P3-b）。
   criterion('P3.b')
 }
 
@@ -638,7 +639,9 @@ if (dir && rendered !== undefined) {
   // 四条夹具**全部** —— 一条没红就判「红错了地方」（5c 第二片把 kills 收成一组之前只点得着
   // 第一条，剩下三条删光它照样绿）。⚠️ 它证明的是四条都还活着、都靠那一行，不是
   // 「四条路能各自坏掉」—— 后者要四条各自的变异（ADR-70 记着这条欠条）。
-  // 这条缺口在 mutations.json 的 exemptions 里仍按 P3.b 的先例显式登记着，撤它是落地 4 的事。
+  // ⚠️ 这条缺口原先在 mutations.json 的 exemptions 里按 P3.b 的先例登记着，
+  // **落地 4 已经撤掉那条豁免** —— D6.f 现在靠 M-D6-j 与那条硬失败顶着；
+  // 「四条路能各自坏掉」那半仍然欠着，记在 ADR-70，不在豁免表里。
   //
   // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
   // 「达标提前停下」和「关键词跑完」都是退出码 0、都说「不花钱」，一条夹具会让另一条
@@ -1014,12 +1017,23 @@ mkdirSync(join(crashTmp, 'docs'), { recursive: true })
 writeFileSync(join(crashTmp, 'docs', 'requirements.json'),
   JSON.stringify({ requirements: [{ id: 'X2', accept: [{ id: 'X2.a' }] }] }), 'utf8')
 writeFileSync(join(crashTmp, 'scripts', 'check', 'a.ts'), "export const v = 'keep'\n", 'utf8')
+// ⚠️ 这份验证者**先打两条失败行、再以非零退出**（不打汇总）—— 而不是一起手就崩。
+// 用 `exitCode` 而不是那个硬退出的写法：`exitRace` 扫的是**源码字面**，把那一串原样
+// 写进这里，本文件自己就会被判成「打完汇总立刻退出」（ADR-70 逐字警告过这个坑，
+// 我照样踩了 —— 断言 `selfcheck 这个验证者不硬退出` 当场红）。
+// 头一版用的是语法错误：验证者一个字没打就死，于是入口走的永远是「一条失败行都没打出来」
+// 那个兜底分支，**真正要守的那一支（把失败行逐条留下来）一次也没跑过** ——
+// 把它换成兜底，这条夹具照样绿（#105 第一轮评审指出）。
 writeFileSync(join(crashTmp, 'scripts', 'test.ts'),
   `import { v } from ${q}./check/a.js${q}\n`
-  + `if (v !== ${q}keep${q}) { console.log('\\n1 个失败\\n'); process.exitCode = 1 }\n`, 'utf8')
+  + `if (v !== ${q}keep${q}) {\n`
+  + `  console.log('  ✗ 头一条假失败')\n`
+  + `  console.log('  ✗ 第二条假失败')\n`
+  + `  process.exitCode = 1\n`
+  + `}\n`, 'utf8')
 writeFileSync(join(crashTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({
-  mutations: [{ id: 'M-X-c', req: 'X2.a', why: '把那个值改成语法错误，验证者起不来',
-                file: 'scripts/check/a.ts', find: "'keep'", replace: "'keep" }],
+  mutations: [{ id: 'M-X-c', req: 'X2.a', why: '把那个值改掉，验证者打两条失败行之后死掉',
+                file: 'scripts/check/a.ts', find: 'keep', replace: 'gone' }],
   exemptions: [],
 }), 'utf8')
 const crash = runToolBoth('mutate 判「跑不起来」时留下现场', 'mutate', [], crashTmp,
@@ -1030,9 +1044,12 @@ if (crash.ok && !/跑不起来/.test(crash.stdout)) {
 } else if (crash.ok && !/^\s+退出码 .+·.+$/m.test(crash.stdout)) {
   failed++
   console.error('  ✗ 判「跑不起来」却没留下退出码与有没有主动停 —— 现场丢了')
-} else if (crash.ok && !/^\s+(│ .*✗|验证者一条失败行都没打出来)/m.test(crash.stdout)) {
+} else if (crash.ok && !/^\s+│ ✗ 头一条假失败$/m.test(crash.stdout)) {
   failed++
-  console.error('  ✗ 判「跑不起来」却没说验证者打了什么 —— 分不出是真崩了还是这一次不巧')
+  console.error('  ✗ 判「跑不起来」却没把验证者的失败行逐条留下来 —— 分不出是真崩了还是这一次不巧')
+} else if (crash.ok && !/^\s+│ ✗ 第二条假失败$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 只留了头一条失败行 —— 后面的被丢了')
 }
 
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m

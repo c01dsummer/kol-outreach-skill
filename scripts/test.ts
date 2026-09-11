@@ -13,8 +13,8 @@ import {
   ledger, selfcheckCriterionMutations, unguarded,
 } from './check/audit-rule.js'
 import {
-  VERIFIERS, allKilled, complete, exemptionCovered, exemptionLead, exitRace, judgeRun,
-  killsMatched,
+  VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, exitRace,
+  judgeRun, killsMatched,
   labelFault, notAssertion,
   labelFaults,
   labelsOf, leadWired, processFailed, wiringFault,
@@ -2833,6 +2833,33 @@ harness('变异测试：验证者崩了不算抓到')
   // 汇总已经打出来了也一样：那一次没跑完，剩下的断言一条也没说过话（ADR-70 的欠条）
   eq('被信号杀掉：汇总已经打出来也不算', judgeRun(null, '  ✗ 某条\n\n2 个失败\n', T), 'crashed')
   eq('汇总必须是自成一行的那句，正文里提到「个失败」不算', judgeRun(1, '断言说：这里不该有 3 个失败的例子', T), 'crashed')
+}
+
+harness('判 crashed 时留下的现场：带记号的一条都不许丢')
+{
+  const SC = VERIFIERS.selfcheck
+  // 判定交回来的是 trim 过的行 —— 夹具也按 trim 过的比，别拿带缩进的去比
+  const mark = (n: number) => `✗ 第${n}条${SELFCHECK_PROCESS_MARK}：进程级的`
+  const plain = (n: number) => `✗ 第${n}条普通失败`
+  // 带记号的那几行是判定一票否决的原因。混在一起按顺序截的话，吵一点的一次运行
+  // 会把唯一说得清原因的那行挤掉，留下来的全是无关的（M-H33-a）。
+  const noisy = [...Array.from({ length: 20 }, (_, i) => plain(i)), mark(99)].join('\n')
+  const got = crashEvidence(noisy, SC, 5)
+  ok('带记号的那行在，哪怕它排在二十行之后', got.lines.includes(mark(99)))
+  eq('总行数不超过封顶', got.lines.length, 5)
+  eq('截掉了几行要报出来', got.omitted, 16)
+  // 封顶要给带记号的让位：只按普通行去算余量，总数就会超过封顶（M-H33-b）
+  const allMarked = [mark(1), mark(2), mark(3)].join('\n')
+  eq('带记号的比封顶还多 → 一条不丢，也不去截它们',
+    crashEvidence(allMarked, SC, 2).lines.length, 3)
+  eq('那时没有普通行可截，omitted 是 0', crashEvidence(allMarked, SC, 2).omitted, 0)
+  // 夹具记号与进程记号同权 —— 两支都是「不是断言的功劳」
+  ok('夹具记号也算原因',
+    crashEvidence(`  ✗ 某条${SELFCHECK_FIXTURE_MARK}：夹具废了`, SC, 1).lines.length === 1)
+  // 没有失败行就是没有 —— 兜底那句话由入口打，判定这边交空名单
+  eq('一条失败行都没有 → 空', crashEvidence('什么也没红\n', SC, 5).lines.length, 0)
+  // 缺省那个验证者没有记号，两栏都取不到时不许当成「每行都是原因」
+  eq('验证者没有记号 → 全按普通行截', crashEvidence(noisy, VERIFIERS.test, 5).lines.length, 5)
 }
 
 harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')

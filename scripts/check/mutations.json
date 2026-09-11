@@ -2539,6 +2539,30 @@
       "file": "scripts/check/audit-rule.ts",
       "find": "  return new Set(mutations.filter(m => m.by === 'selfcheck').map(m => m.req)\n    .filter(id => id.includes('.')))",
       "replace": "  return new Set(mutations.map(m => m.req).filter(id => id.includes('.')))"
+    },
+    {
+      "id": "M-H33-a",
+      "req": "harness",
+      "why": "现场按顺序截前几行，带记号的那几行会被普通失败行挤掉 —— 而它们正是说得清「这次为什么不算抓到」的那几行，吵一点的一次运行就只剩下无关的",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return { lines: [...causal, ...plain.slice(0, room)], omitted: Math.max(plain.length - room, 0) }",
+      "replace": "  return { lines: fails.slice(0, cap), omitted: Math.max(fails.length - cap, 0) }"
+    },
+    {
+      "id": "M-H33-b",
+      "req": "harness",
+      "why": "封顶只管普通失败行，带记号的另算 —— 一次吵的运行留下来的行数会超出封顶，说好的上限形同虚设",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  const room = Math.max(cap - causal.length, 0)",
+      "replace": "  const room = cap"
+    },
+    {
+      "id": "M-H33-c",
+      "req": "harness",
+      "why": "带记号的失败行不再优先留 —— 一票否决的原因和普通失败行一样会被截掉，现场留下来了却说不清为什么",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  const causal = fails.filter(marked)",
+      "replace": "  const causal: string[] = []"
     }
   ],
   "exemptions": [

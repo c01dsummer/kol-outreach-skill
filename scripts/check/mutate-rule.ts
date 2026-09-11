@@ -76,6 +76,28 @@ export function processFailed(output: string, mark: string): boolean {
 }
 
 /**
+ * 判 `crashed` 时该把哪几行现场留下来。**带记号的一条都不许丢**,其余的封顶。
+ *
+ * 带记号的那几行是判定一票否决的**原因**(`notAssertion`) —— 把它们和普通失败行
+ * 混在一起按顺序截,吵一点的一次运行就会把唯一说得清原因的那行挤掉,
+ * 而留下来的十几行全是无关的。⚠️ 头一版正是「先 filter 再 slice(0,15)」,
+ * 评审指出:承诺的是「每一条失败行」,做的是「前十五条」,而**最该留的那条恰好可能在后面**。
+ *
+ * 截掉了几行要报出来 —— 不报的话,一份被截过的现场和一份本来就这么短的现场长得一样。
+ */
+export function crashEvidence(output: string, verifier: Verifier, cap = 15):
+  { lines: string[]; omitted: number } {
+  const fails = output.split('\n').map(l => l.trim()).filter(l => l.includes('✗'))
+  const marked = (l: string): boolean =>
+    (verifier.processMark !== undefined && l.includes(verifier.processMark))
+    || (verifier.fixtureMark !== undefined && l.includes(verifier.fixtureMark))
+  const causal = fails.filter(marked)
+  const plain = fails.filter(l => !marked(l))
+  const room = Math.max(cap - causal.length, 0)
+  return { lines: [...causal, ...plain.slice(0, room)], omitted: Math.max(plain.length - room, 0) }
+}
+
+/**
  * `by` 与 `kills` 这一对写得成不成立 —— 四种不成立各有名字,成立时返回 `undefined`。
  *
  * 判定在这里、打印在入口(`docs/CONVENTIONS.md` 第 10 条)。同一个入口里的另外两道体检
