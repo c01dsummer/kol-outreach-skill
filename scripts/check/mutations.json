@@ -1662,8 +1662,8 @@
       "req": "harness",
       "why": "一条判据都没认领的需求不再报缺口 —— 把仅有的那条认领删掉，缺口反而消失，检查在奖励删证据",
       "file": "scripts/check/spec-rule.ts",
-      "find": "    if (unclaimed.length) {\n      flag = '·'\n      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有测试认领：` +",
-      "replace": "    if (unclaimed.length && claimed.length) {\n      flag = '·'\n      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有测试认领：` +"
+      "find": "    if (unclaimed.length) {\n      flag = '·'\n      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有认领：` +",
+      "replace": "    if (unclaimed.length && claimed.length) {\n      flag = '·'\n      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有认领：` +"
     },
     {
       "id": "M-H6-b",
@@ -1718,8 +1718,32 @@
       "req": "harness",
       "why": "豁免了几条，数的是没认领也没豁免的那几条 —— 恰好互补，于是真有豁免的时候数出来是零，那一行退回打 ✓，缺的判据去哪了又看不见了",
       "file": "scripts/check/spec-rule.ts",
-      "find": "  const exempted = r.accept.filter(c =>\n    !e.claimedCriteria.has(c.id) && e.exemptIds.has(c.id))",
-      "replace": "  const exempted = r.accept.filter(c =>\n    !e.claimedCriteria.has(c.id) && !e.exemptIds.has(c.id))"
+      "find": "  const exempted = r.accept.filter(c => !claimedBy(c) && e.exemptIds.has(c.id))",
+      "replace": "  const exempted = r.accept.filter(c => !claimedBy(c) && !e.exemptIds.has(c.id))"
+    },
+    {
+      "id": "M-H31-a",
+      "req": "harness",
+      "why": "自检端到端跑过的判据不算认领 —— 红线里只有自检守着的那几条当场报成没人认领，而它们明明每一次检查都真跑过",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "    e.claimedCriteria.has(c.id) || e.entryCriteria.has(c.id)",
+      "replace": "    e.claimedCriteria.has(c.id)"
+    },
+    {
+      "id": "M-H31-b",
+      "req": "harness",
+      "why": "单元断言认领的判据不算数，只认自检那一份 —— 绝大多数判据当场报成没人认领，而报告读起来像是测试全没了",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  const claimedBy = (c: { id: string }): boolean =>\n    e.claimedCriteria.has(c.id) || e.entryCriteria.has(c.id)",
+      "replace": "  const claimedBy = (c: { id: string }): boolean =>\n    e.entryCriteria.has(c.id)"
+    },
+    {
+      "id": "M-H31-c",
+      "req": "harness",
+      "why": "报告里「判据 N/M」的 N 少算了自检认领的那几条 —— 一条端到端真跑过的判据在表上看着像没人认领，而缺口那一栏又不报它，同一份报告两处对不上",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  const claimed = r.accept.filter(claimedBy)",
+      "replace": "  const claimed = r.accept.filter(c => e.claimedCriteria.has(c.id))"
     },
     {
       "id": "M-H6-i",
@@ -2431,26 +2455,42 @@
     {
       "id": "M-H29-a",
       "req": "harness",
-      "why": "汇总里入口认领那个数报的是单元认领那一栏的数 —— 两种证据在报告上合成了一个，端到端真跑过几条判据从此看不出来",
+      "why": "汇总里入口认领那一栏连两边都认领过的也数进去 —— 同一条判据被数两遍，三栏加起来比总数还大",
       "file": "scripts/check/audit-rule.ts",
-      "find": "       + ` · 入口认领 ${n(all, entry)}`",
-      "replace": "       + ` · 入口认领 ${n(all, tested)}`"
+      "find": "       + ` · 入口认领 ${n(all, entryOnly)}`",
+      "replace": "       + ` · 入口认领 ${n(all, id => entry.has(id))}`"
     },
     {
       "id": "M-H29-b",
       "req": "harness",
       "why": "红线那半的入口认领报成了全体的数 —— 报告说红线这边认领得比实际多，撤豁免的判断会照着一个虚的数做",
       "file": "scripts/check/audit-rule.ts",
-      "find": "       + ` · 入口认领 ${n(redline, entry)}`",
-      "replace": "       + ` · 入口认领 ${n(all, entry)}`"
+      "find": "       + ` · 入口认领 ${n(redline, entryOnly)}`",
+      "replace": "       + ` · 入口认领 ${n(all, entryOnly)}`"
     },
     {
       "id": "M-H29-c",
       "req": "harness",
-      "why": "显式豁免那个数报成了有测试认领的数 —— 缺口装成了证据，而一份审计的两个数（逐条与汇总）从此对不上",
+      "why": "显式豁免那一栏报成了有测试认领的数 —— 缺口装成了证据，而一份审计的两个数（逐条与汇总）从此对不上",
       "file": "scripts/check/audit-rule.ts",
-      "find": "       + ` · 显式豁免 ${n(redline, exempt)}）`",
-      "replace": "       + ` · 显式豁免 ${n(redline, tested)}）`"
+      "find": "       + ` · 显式豁免 ${n(redline, gapOnly)}）`",
+      "replace": "       + ` · 显式豁免 ${n(redline, id => tested.has(id))}）`"
+    },
+    {
+      "id": "M-H30-b",
+      "req": "harness",
+      "why": "已经被自检端到端跑过的判据在汇总里仍算成显式缺口 —— 逐条那一头早把它算成认领了，同一份报告两种说法",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "  const gapOnly = (id: string): boolean =>\n    exempt.has(id) && !tested.has(id) && !entry.has(id)",
+      "replace": "  const gapOnly = (id: string): boolean =>\n    exempt.has(id) && !tested.has(id)"
+    },
+    {
+      "id": "M-H30-a",
+      "req": "harness",
+      "why": "两边都认领过的判据在汇总里数两遍 —— 三栏加起来超过总数，读的人以为覆盖得比实际多",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "  const entryOnly = (id: string): boolean => entry.has(id) && !tested.has(id)",
+      "replace": "  const entryOnly = (id: string): boolean => entry.has(id)"
     },
     {
       "id": "M-H28-a",

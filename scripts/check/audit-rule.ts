@@ -109,11 +109,15 @@ export function deprecatedBlock(dead: Req[]): string[] {
 interface Claimed { has(id: string): boolean }
 
 /**
- * 验收判据那一行汇总。**三个名单各数各的,数错了报告上看得见、审计照样全绿。**
+ * 验收判据那一行汇总。**数错了报告上看得见、审计照样全绿。**
  *
- * 测试认领与显式豁免分开报 —— 豁免是显式缺口,不是测试证据。合起来报「认领 N」,
- * 一份审计的两个数(逐条与汇总)会对不上,而且把缺口装成了证据(P2.a / P3.b 没有运行时认领)。
- * 入口认领也单开一栏,同一个理由:一条单元断言与一条端到端夹具证的不是同一件事。
+ * 三栏分开报,而且**互不重叠**(优先级:测试认领 > 只有自检认领 > 只剩豁免)。
+ * 分开是因为豁免是显式缺口、不是测试证据,而一条单元断言与一条端到端夹具证的
+ * 也不是同一件事;合起来报「认领 N」,一份审计的两个数(逐条与汇总)会对不上,
+ * 而且把缺口装成了证据(今天 P2.a 就是这种:一条运行时认领也没有)。
+ * 互不重叠是因为**逐条那一头只把一条判据算一次** —— 各数各的会把同时占两栏的
+ * 判据数两遍,红线那三栏加出比总数还大的值(落地 3 第二片实测撞见:P3.b 拿到
+ * 入口认领之后,「入口认领 1 · 显式豁免 2」在 17 条红线上加出了 18)。
  *
  * 留在 `audit.ts` 里的话没有任何一条测试够得着(`criterionMutations` 那条记录的同一个形状):
  * 把入口认领那个数改成从单元那份名单里数、或者把红线那半数成全体,报告上的数字当场变了,
@@ -126,11 +130,18 @@ export function coverageSummary(
   all: readonly { id: string }[], redline: readonly { id: string }[],
   tested: Claimed, entry: Claimed, exempt: Claimed,
 ): string {
-  const n = (crit: readonly { id: string }[], claimed: Claimed): number =>
-    crit.filter(c => claimed.has(c.id)).length
-  return `验收判据 ${all.length} 条 · 有测试认领 ${n(all, tested)}`
-       + ` · 入口认领 ${n(all, entry)}`
-       + ` · 其中红线 ${redline.length} 条（测试认领 ${n(redline, tested)}`
-       + ` · 入口认领 ${n(redline, entry)}`
-       + ` · 显式豁免 ${n(redline, exempt)}）`
+  const n = (crit: readonly { id: string }[], pick: (id: string) => boolean): number =>
+    crit.filter(c => pick(c.id)).length
+  // 三栏**互不重叠**,加起来不超过总数:同一条判据两边都认领时算在测试那一栏,
+  // 豁免只数那些两边都没认领的。原先三栏各问各的,P3.b 拿到入口认领之后
+  // 「入口认领 1 · 显式豁免 2」把它数了两遍,红线 17 条的三栏加出 18 来 ——
+  // 而逐条那一头已经把它算成认领了,一份报告两种说法(落地 3 第二片)。
+  const entryOnly = (id: string): boolean => entry.has(id) && !tested.has(id)
+  const gapOnly = (id: string): boolean =>
+    exempt.has(id) && !tested.has(id) && !entry.has(id)
+  return `验收判据 ${all.length} 条 · 有测试认领 ${n(all, id => tested.has(id))}`
+       + ` · 入口认领 ${n(all, entryOnly)}`
+       + ` · 其中红线 ${redline.length} 条（测试认领 ${n(redline, id => tested.has(id))}`
+       + ` · 入口认领 ${n(redline, entryOnly)}`
+       + ` · 显式豁免 ${n(redline, gapOnly)}）`
 }

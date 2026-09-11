@@ -1972,8 +1972,8 @@ harness('审计对一条需求的裁定')
   })
   const ev = (over: Partial<Evidence> = {}): Evidence => ({
     tested: true, mutated: true, exempt: false, impl: 1, refs: 1,
-    claimedCriteria: new Set<string>(), exemptIds: new Set<string>(),
-    mutatedCriteria: new Set<string>(), ...over,
+    claimedCriteria: new Set<string>(), entryCriteria: new Set<string>(),
+    exemptIds: new Set<string>(), mutatedCriteria: new Set<string>(), ...over,
   })
 
   // 红线：每一条判据都要有认领，缺一条就是硬失败
@@ -1986,11 +1986,38 @@ harness('审计对一条需求的裁定')
   eq('判据级豁免算数',
     requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
                               exemptIds: new Set(['P9.b']) })).hard, 0)
-  // 豁免了就别打 `✓` —— 图例里 `✓` 是「完整」，而审计自己在下面又把这条列成
-  // 显式缺口。跟变异那一栏统一成 `⊘`，并把豁免了几条数出来（M-H6-g…i）。
+  // 两种认领都算数：自检端到端跑过的那一条，与单元断言认的那一条，在「这条判据
+  // 有没有人认领」这件事上同权。少掉任一半，只由那一头守着的判据当场报成没人认领 ——
+  // 红线那边就是硬失败，而它明明每一次检查都真跑过（M-H31-a/b，落地 3 第二片）。
+  eq('一条判据只由自检认领 → 照样算认领，不是硬失败',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
+                               entryCriteria: new Set(['P9.b']) })).hard, 0)
+  eq('两条判据都只由自检认领 → 同样通过',
+    requirementVerdict(p, ev({ entryCriteria: new Set(['P9.a', 'P9.b']) })).hard, 0)
+  eq('只由单元认领 → 照样算认领（别把哪一半丢了）',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a', 'P9.b']) })).hard, 0)
+  // 认领之后那条豁免不再算缺口 —— 否则逐条说「认领了」、汇总说「还豁免着」，
+  // 一份报告两种说法（落地 3 第二片同时改了汇总那一行）
+  eq('自检认领了的判据，不再算进豁免那一栏',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
+                               entryCriteria: new Set(['P9.b']),
+                               exemptIds: new Set(['P9.b']) })).exempted, 0)
+  // 报告里「判据 N/M」的那个 N 也要数上自检认的：只验 hard 与 exempted 的话，把 claimed
+  // 那一行改回只看单元那一份，上面四条照样全绿，而报告悄悄少报一条 —— 实测 P3 从
+  // 「判据 2/2」退回「判据 1/2」、D6 从 4/6 退回 3/6，**而这一片的招牌结论正是那个数**
+  // （M-H31-c，#104 第三轮评审指出）。
+  eq('两边混着认领 → 两条都要数进那个 N',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
+                               entryCriteria: new Set(['P9.b']) })).claimed, 2)
+  eq('全部只由自检认领 → 一条都不能少',
+    requirementVerdict(p, ev({ entryCriteria: new Set(['P9.a', 'P9.b']) })).claimed, 2)
+  // **没人认领的**豁免才别打 `✓` —— 图例里 `✓` 是「完整」，而审计自己在下面又把这条
+  // 列成显式缺口。跟变异那一栏统一成 `⊘`，并把这种豁免有几条数出来（M-H6-g…i）。
+  // ⚠️ 条件是「没人认领」不是「有豁免」：上面那条刚证明了认领过的判据即便名下还挂着
+  // 豁免也算完整。下面这个夹具里 P9.b 两种认领都没有，才落进这一档（#104 第四轮评审）。
   const exempted1 = ev({ claimedCriteria: new Set(['P9.a']), exemptIds: new Set(['P9.b']) })
-  eq('判据有豁免 → 打 ⊘，不冒充完整', requirementVerdict(p, exempted1).flag, '⊘')
-  eq('豁免了几条要数出来', requirementVerdict(p, exempted1).exempted, 1)
+  eq('有一条没人认领的豁免 → 打 ⊘，不冒充完整', requirementVerdict(p, exempted1).flag, '⊘')
+  eq('没人认领的豁免有几条要数出来', requirementVerdict(p, exempted1).exempted, 1)
   eq('一条豁免都没有 → 不多报', requirementVerdict(p, ev({
     claimedCriteria: new Set(['P9.a', 'P9.b']) })).exempted, 0)
   // `⊘` 只往上抬 `✓` 这一档。少掉「原本是 ✓」这半个条件，一条还欠着认领的
@@ -2024,25 +2051,34 @@ harness('审计对一条需求的裁定')
   // 验收判据那一行汇总原先也拼在入口脚本里，同一个形状：把入口认领那个数改成从单元
   // 那份名单里数、把红线那半数成全体、或者把豁免数成测试认领，报告上的数字当场变了，
   // 而单元测试与全部变异照样全绿（M-H29-a/b/c）。
+  //
+  // 三栏还必须**互不重叠**：两边都认领的算在测试那一栏、只有自检认领的才进入口那一栏、
+  // 豁免只数两边都没认领的。不这么数，红线那三栏会加出比总数还大的值，而逐条那一头
+  // 早就把它算成认领了 —— 一份报告两种说法（M-H30-a/b，落地 3 第二片）。
   {
-    const allCrit = [{ id: 'A.a' }, { id: 'A.b' }, { id: 'B.a' }]
-    const redCrit = [{ id: 'A.a' }, { id: 'A.b' }]
+    const allCrit = [{ id: 'A.a' }, { id: 'A.b' }, { id: 'A.c' }, { id: 'B.a' }]
+    const redCrit = [{ id: 'A.a' }, { id: 'A.b' }, { id: 'A.c' }]
     const tested = new Set(['A.a', 'B.a'])
-    const entry = new Set(['A.b'])
+    const entry = new Set(['A.a', 'A.b'])          // A.a 两边都认领 —— 只能算一次
     // 豁免那一头交的是 Map（编号 → 理由），三个名单只问「在不在里面」。
-    // 三份故意各覆盖不同的条数：数错哪一份都得有一个数跟着变，否则这几条断言
-    // 分不出把豁免数成测试认领这种坏法（第一版三份都数出 1，M-H29-c 从下面滑过去）
-    const exempt = new Map([['A.a', '这条为什么没有运行时认领'], ['A.b', '同上']])
-    eq('三个名单各数各的，红线那半只数红线',
+    // A.b 已被自检认领，不再是缺口；只有 A.c 是真的没人认领
+    const exempt = new Map([['A.b', '自检认过了'], ['A.c', '这条谁也没认领']])
+    eq('三栏互不重叠，红线那三栏正好分完红线判据',
       coverageSummary(allCrit, redCrit, tested, entry, exempt),
-      '验收判据 3 条 · 有测试认领 2 · 入口认领 1 · 其中红线 2 条'
-        + '（测试认领 1 · 入口认领 1 · 显式豁免 2）')
-    // 两份认领互不相干：交换名单，两个数跟着换 —— 合成一个数就分不出这件事。
-    // 这一条还钉住「红线那半只数红线」：交换之后入口那份全体 2 条、红线 1 条
-    eq('交换两份认领的名单，两个数跟着换',
+      '验收判据 4 条 · 有测试认领 2 · 入口认领 1 · 其中红线 3 条'
+        + '（测试认领 1 · 入口认领 1 · 显式豁免 1）')
+    // 交换两份认领的名单，各栏跟着换 —— 合成一个数就分不出这件事；
+    // 这一条同时钉住「红线那半只数红线」（换过之后入口那一栏红线是 0、全体是 1）
+    eq('交换两份认领的名单，各栏跟着换',
       coverageSummary(allCrit, redCrit, entry, tested, exempt),
-      '验收判据 3 条 · 有测试认领 1 · 入口认领 2 · 其中红线 2 条'
-        + '（测试认领 1 · 入口认领 1 · 显式豁免 2）')
+      '验收判据 4 条 · 有测试认领 2 · 入口认领 1 · 其中红线 3 条'
+        + '（测试认领 2 · 入口认领 0 · 显式豁免 1）')
+    // 一条判据同时进三张名单：只能被数一次，而且算在最强的那一栏（测试认领）
+    const one = [{ id: 'A.a' }]
+    eq('三张名单都有它 → 只算测试认领那一次',
+      coverageSummary(one, one, new Set(['A.a']), new Set(['A.a']), new Set(['A.a'])),
+      '验收判据 1 条 · 有测试认领 1 · 入口认领 0 · 其中红线 1 条'
+        + '（测试认领 1 · 入口认领 0 · 显式豁免 0）')
   }
 
   // 判据级的负片原先在报告里一个字都没有：变异那一列只认需求号，而变异表里
