@@ -75,7 +75,7 @@ export function finalize(
  * 两处各写一份表达式，迟早有一边先改，而先改的那边不会报错（ADR-25）。
  */
 export function needsProfile(c: Creator): boolean {
-  return c.bio === undefined || !c.bio_links?.length
+  return c.bio === undefined
 }
 
 /**
