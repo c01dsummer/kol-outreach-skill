@@ -2427,6 +2427,46 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "  return chunk.slice(0, chunk.lastIndexOf('\\n') + 1)",
       "replace": "  return chunk"
+    },
+    {
+      "id": "M-H29-a",
+      "req": "harness",
+      "why": "汇总里入口认领那个数报的是单元认领那一栏的数 —— 两种证据在报告上合成了一个，端到端真跑过几条判据从此看不出来",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "       + ` · 入口认领 ${n(all, entry)}`",
+      "replace": "       + ` · 入口认领 ${n(all, tested)}`"
+    },
+    {
+      "id": "M-H29-b",
+      "req": "harness",
+      "why": "红线那半的入口认领报成了全体的数 —— 报告说红线这边认领得比实际多，撤豁免的判断会照着一个虚的数做",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "       + ` · 入口认领 ${n(redline, entry)}`",
+      "replace": "       + ` · 入口认领 ${n(all, entry)}`"
+    },
+    {
+      "id": "M-H29-c",
+      "req": "harness",
+      "why": "显式豁免那个数报成了有测试认领的数 —— 缺口装成了证据，而一份审计的两个数（逐条与汇总）从此对不上",
+      "file": "scripts/check/audit-rule.ts",
+      "find": "       + ` · 显式豁免 ${n(redline, exempt)}）`",
+      "replace": "       + ` · 显式豁免 ${n(redline, tested)}）`"
+    },
+    {
+      "id": "M-H28-a",
+      "req": "harness",
+      "why": "入口认领那份记录的路径与单元那份指到同一个地方 —— 两个写方互相抹掉，审计读到的是一份形状合法、内容少了一半的记录，它会照着报「红线判据没有测试认领」，而毛病在记录不在判据",
+      "file": "scripts/check/claims.ts",
+      "find": "export const ENTRY_CLAIMS_PATH = '.check-cache/selfcheck-claims.json'",
+      "replace": "export const ENTRY_CLAIMS_PATH = '.check-cache/test-claims.json'"
+    },
+    {
+      "id": "M-H28-b",
+      "req": "harness",
+      "why": "入口那份认领记录落在缓存目录外面 —— 那个目录是 git 忽略、随手可以清掉的，记录写在外面会被当成仓库内容提交进去（ADR-35 记着那一次），而「清掉缓存重跑一遍」从此清不干净",
+      "file": "scripts/check/claims.ts",
+      "find": "export const ENTRY_CLAIMS_PATH = '.check-cache/selfcheck-claims.json'",
+      "replace": "export const ENTRY_CLAIMS_PATH = 'selfcheck-claims.json'"
     }
   ],
   "exemptions": [

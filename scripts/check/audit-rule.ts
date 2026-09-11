@@ -1,11 +1,13 @@
 /**
  * 链路审计里能被测的那些判定 —— 抽出来的理由同 `lint-rule.ts`:留在入口里就永远测不到
- * (`docs/CONVENTIONS.md` 第 10 条)。两半,各管各的:
+ * (`docs/CONVENTIONS.md` 第 10 条)。三半,各管各的:
  *
  * 1. **检查链自己**算不算数:哪些文件是判定模块、哪些没有变异守着
  *    (`judgmentModules` / `unguarded`)。下面这一整段讲的都是这一半。
  * 2. **计量输入怎么分**:现行的参与计量、作废的只参与展示
  *    (`ledger` / `deprecatedBlock`)。理由写在 `ledger` 自己头上,不在这里重复。
+ * 3. **报告上那几个数怎么数**:哪些变异是判据级的、验收判据那一行三份名单各数各的
+ *    (`criterionMutations` / `coverageSummary`)。理由各写在它们自己头上。
  *
  * 这一半守的是 `process/4-VERIFY.md` 那句「检查链自己也在这张清单里」:一条没有测试、也没有
  * 变异守着的检查,和没有检查之间的差别只有心理作用。审计原先只对产品红线强制
@@ -101,4 +103,34 @@ export function ledger(all: Req[]): Ledger {
 export function deprecatedBlock(dead: Req[]): string[] {
   return dead.map(r => `~~${r.id}~~ ${r.deprecated!.since}` +
                        `${r.deprecated!.superseded_by ? ` → ${r.deprecated!.superseded_by}` : ''}`)
+}
+
+/** 认领名单:`Set` 与 `Map` 都算 —— 这里只问「在不在里面」。 */
+interface Claimed { has(id: string): boolean }
+
+/**
+ * 验收判据那一行汇总。**三个名单各数各的,数错了报告上看得见、审计照样全绿。**
+ *
+ * 测试认领与显式豁免分开报 —— 豁免是显式缺口,不是测试证据。合起来报「认领 N」,
+ * 一份审计的两个数(逐条与汇总)会对不上,而且把缺口装成了证据(P2.a / P3.b 没有运行时认领)。
+ * 入口认领也单开一栏,同一个理由:一条单元断言与一条端到端夹具证的不是同一件事。
+ *
+ * 留在 `audit.ts` 里的话没有任何一条测试够得着(`criterionMutations` 那条记录的同一个形状):
+ * 把入口认领那个数改成从单元那份名单里数、或者把红线那半数成全体,报告上的数字当场变了,
+ * 而单元测试与全部变异照样全绿。`docs/CONVENTIONS.md` 第 10 条。
+ *
+ * ⚠️ 它守的是**数得对不对**,不是**喂得对不对**:交进来的名单由 `audit.ts` 挑,
+ * 挑错了(比如交个空集合)这里一个字也看不见 —— 那一半是入口的接线,ADR-70 记着欠条。
+ */
+export function coverageSummary(
+  all: readonly { id: string }[], redline: readonly { id: string }[],
+  tested: Claimed, entry: Claimed, exempt: Claimed,
+): string {
+  const n = (crit: readonly { id: string }[], claimed: Claimed): number =>
+    crit.filter(c => claimed.has(c.id)).length
+  return `验收判据 ${all.length} 条 · 有测试认领 ${n(all, tested)}`
+       + ` · 入口认领 ${n(all, entry)}`
+       + ` · 其中红线 ${redline.length} 条（测试认领 ${n(redline, tested)}`
+       + ` · 入口认领 ${n(redline, entry)}`
+       + ` · 显式豁免 ${n(redline, exempt)}）`
 }

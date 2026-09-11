@@ -13,6 +13,26 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 export const CLAIMS_PATH = '.check-cache/test-claims.json'
+
+/**
+ * **入口认领**:自检端到端跑过哪几条判据。与单元认领**各写一份记录**,不是一份里多一栏。
+ *
+ * 落地 3 原文写的是「写进覆盖记录的新字段」。真做时改成两份,两条理由:
+ *
+ * 1. **一份文件两个写方会互相抹掉。** 拥有的一方开跑前先清、跑完整份重写
+ *    (`claimsOwnedBy` 那条纪律)。单独跑 `npm test` 就会连自检上一轮写下的那一栏一起清掉,
+ *    而审计读到的是一份**形状合法、内容却少了一半**的记录 —— 它会照着报「红线判据没有
+ *    测试认领」,把人支到那些判据上,而毛病在记录。改成读改写又更坏:旧那一栏会带着
+ *    新指纹活下来,变成**一句不响的假话**。
+ * 2. **两者买到的东西不一样**(落地 3 原文)。一条单元断言与一条端到端夹具证的不是同一件事,
+ *    合进同一个名单就分不出来了;分两份,来源天然可分 —— 落地 4 那条硬失败
+ *    (「只由自检认领的判据必须有一条 `by: selfcheck` 的负片」)正要靠这个分辨。
+ *
+ * 形状故意与单元那份**完全一样**:同一套 `claimsWellFormed` / `claimsFresh` /
+ * `claimsPublishable` 守着两份,不必再写一套判定。自检不认领需求级与交点级,
+ * 那两栏恒空 —— 留着是为了同形,不是说「自检认领了 0 条需求」。
+ */
+export const ENTRY_CLAIMS_PATH = '.check-cache/selfcheck-claims.json'
 /** 指纹算哪些文件 —— 是一棵树,不是某一个文件,理由见 `sourceFiles` */
 export const SOURCE_DIR = 'scripts'
 

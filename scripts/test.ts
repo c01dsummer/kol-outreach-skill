@@ -9,7 +9,8 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import {
-  JUDGMENT_EXEMPT, criterionMutations, deprecatedBlock, judgmentModules, ledger, unguarded,
+  JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
+  ledger, unguarded,
 } from './check/audit-rule.js'
 import {
   VERIFIERS, allKilled, complete, exemptionCovered, exemptionLead, exitRace, judgeRun,
@@ -31,7 +32,8 @@ import {
 } from './check/spec-rule.js'
 import { HARNESS, attributionFault, duplicateIds, orphanAttributions } from './check/attribution-rule.js'
 import {
-  CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsReadFault, claimsWellFormed,
+  CLAIMS_PATH, ENTRY_CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsReadFault,
+  claimsWellFormed,
   fingerprint, sourceFiles,
 } from './check/claims.js'
 import {
@@ -2019,6 +2021,30 @@ harness('审计对一条需求的裁定')
     [...criterionMutations([{ req: 'P5.g' }, { req: 'P5.g' }])], ['P5.g'])
   eq('一条变异都没有 → 空集合', criterionMutations([]).size, 0)
 
+  // 验收判据那一行汇总原先也拼在入口脚本里，同一个形状：把入口认领那个数改成从单元
+  // 那份名单里数、把红线那半数成全体、或者把豁免数成测试认领，报告上的数字当场变了，
+  // 而单元测试与全部变异照样全绿（M-H29-a/b/c）。
+  {
+    const allCrit = [{ id: 'A.a' }, { id: 'A.b' }, { id: 'B.a' }]
+    const redCrit = [{ id: 'A.a' }, { id: 'A.b' }]
+    const tested = new Set(['A.a', 'B.a'])
+    const entry = new Set(['A.b'])
+    // 豁免那一头交的是 Map（编号 → 理由），三个名单只问「在不在里面」。
+    // 三份故意各覆盖不同的条数：数错哪一份都得有一个数跟着变，否则这几条断言
+    // 分不出把豁免数成测试认领这种坏法（第一版三份都数出 1，M-H29-c 从下面滑过去）
+    const exempt = new Map([['A.a', '这条为什么没有运行时认领'], ['A.b', '同上']])
+    eq('三个名单各数各的，红线那半只数红线',
+      coverageSummary(allCrit, redCrit, tested, entry, exempt),
+      '验收判据 3 条 · 有测试认领 2 · 入口认领 1 · 其中红线 2 条'
+        + '（测试认领 1 · 入口认领 1 · 显式豁免 2）')
+    // 两份认领互不相干：交换名单，两个数跟着换 —— 合成一个数就分不出这件事。
+    // 这一条还钉住「红线那半只数红线」：交换之后入口那份全体 2 条、红线 1 条
+    eq('交换两份认领的名单，两个数跟着换',
+      coverageSummary(allCrit, redCrit, entry, tested, exempt),
+      '验收判据 3 条 · 有测试认领 1 · 入口认领 2 · 其中红线 2 条'
+        + '（测试认领 1 · 入口认领 1 · 显式豁免 2）')
+  }
+
   // 判据级的负片原先在报告里一个字都没有：变异那一列只认需求号，而变异表里
   // 今天已有几条把 req 写成判据号（M-P5-a 守着 P5.f），它们完全不可见
   eq('有判据级的负片 → 那一格写出几条', criteriaCell(3, 2, 0, 3), '判据 3(负片 2)/3')
@@ -3295,6 +3321,27 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
   // 开跑前和跑完各算一次指纹：对不上说明源码在这一跑的过程中变过，那份记录会替
   // 一棵从没被完整测过的树作证（M-H14-k）。
   eq('跑的过程中源码变过就不写', claimsPublishable(false, 0, 'a', 'b'), false)
+
+  // ---- 两份记录：单元认领与入口认领各写各的 ----
+  // 一份文件两个写方会互相抹掉：拥有的一方开跑前先清、跑完整份重写，单独跑 npm test
+  // 就会把自检那一栏一起清掉，而审计读到的是一份形状合法、内容少了一半的记录 ——
+  // 它会照着报「红线判据没有测试认领」，把人支到那些判据上（claims.ts 记着这笔账）
+  // 「不是同一个路径」这句得把一边放宽成 string 才写得出来：两个字面量类型无交集，
+  // 直接比编译器会说这个比较没有意义。那道拒绝拦的是断言本身，不是「两份指到同一处」
+  // 这个错 —— 真指到同一处时它反倒编译得过 —— 所以它守不住任何东西，得靠运行时这条
+  ok('两份记录不是同一个路径 —— 指到同一处就互相抹掉', (CLAIMS_PATH as string) !== ENTRY_CLAIMS_PATH)
+  ok('两份记录都在 .check-cache 底下',
+    (CLAIMS_PATH as string).startsWith('.check-cache/')
+      && (ENTRY_CLAIMS_PATH as string).startsWith('.check-cache/'))
+  // 形状故意一样 —— 同一套判定守两份，不必再写一套。自检写的那份 covered／tensions
+  // 恒空，形状照样要过：少一栏就不是合法记录，审计该说「记录坏了」而不是「没测过」
+  ok('自检写的那种形状（两栏空）也是合法记录',
+    claimsWellFormed({ source_hash: 'abc', covered: [], criteria: ['P3.b'], tensions: [] }))
+  ok('少一栏就不合法 —— 两份记录同一套形状判定',
+    !claimsWellFormed({ source_hash: 'abc', criteria: ['P3.b'], tensions: [] }))
+  // 入口认领与单元认领的资格判定是同一套：变异跑一律不写（否则写下的是一份由被改过
+  // 的源码产生的认领），断言红过不写，跑的过程中源码变过不写
+  eq('变异跑里自检也不写入口认领', claimsPublishable(true, 0, 'a', 'a'), false)
 
   // 谁拥有这份记录，谁负责开跑前清掉它 —— 少了这一步，半路崩掉的运行会把
   // 上一次成功的记录留在盘上当证据（M-H14-e）。
