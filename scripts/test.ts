@@ -2002,6 +2002,15 @@ harness('审计对一条需求的裁定')
     requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
                                entryCriteria: new Set(['P9.b']),
                                exemptIds: new Set(['P9.b']) })).exempted, 0)
+  // 报告里「判据 N/M」的那个 N 也要数上自检认的：只验 hard 与 exempted 的话，把 claimed
+  // 那一行改回只看单元那一份，上面四条照样全绿，而报告悄悄少报一条 —— 实测 P3 从
+  // 「判据 2/2」退回「判据 1/2」、D6 从 4/6 退回 3/6，**而这一片的招牌结论正是那个数**
+  // （M-H31-c，#104 第三轮评审指出）。
+  eq('两边混着认领 → 两条都要数进那个 N',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
+                               entryCriteria: new Set(['P9.b']) })).claimed, 2)
+  eq('全部只由自检认领 → 一条都不能少',
+    requirementVerdict(p, ev({ entryCriteria: new Set(['P9.a', 'P9.b']) })).claimed, 2)
   // 豁免了就别打 `✓` —— 图例里 `✓` 是「完整」，而审计自己在下面又把这条列成
   // 显式缺口。跟变异那一栏统一成 `⊘`，并把豁免了几条数出来（M-H6-g…i）。
   const exempted1 = ev({ claimedCriteria: new Set(['P9.a']), exemptIds: new Set(['P9.b']) })

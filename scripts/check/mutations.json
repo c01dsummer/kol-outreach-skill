@@ -1738,6 +1738,14 @@
       "replace": "  const claimedBy = (c: { id: string }): boolean =>\n    e.entryCriteria.has(c.id)"
     },
     {
+      "id": "M-H31-c",
+      "req": "harness",
+      "why": "报告里「判据 N/M」的 N 少算了自检认领的那几条 —— 一条端到端真跑过的判据在表上看着像没人认领，而缺口那一栏又不报它，同一份报告两处对不上",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  const claimed = r.accept.filter(claimedBy)",
+      "replace": "  const claimed = r.accept.filter(c => e.claimedCriteria.has(c.id))"
+    },
+    {
       "id": "M-H6-i",
       "req": "harness",
       "why": "豁免了几条，报的是这条需求判据的总数 —— 一条豁免都没有的需求也显示豁免了几条，每一行都从 ✓ 掉成 ⊘，那个记号于是什么都不说明了",
