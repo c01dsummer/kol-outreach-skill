@@ -527,7 +527,10 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
   }
   // 判据被豁免的那一行原先照样打 `✓`,而图例里 `✓` 是「完整」—— 审计自己在
   // 下面又把这几条列成显式缺口,一份报告里两种说法。跟变异那一栏统一:
-  // 豁免了就打 `⊘`,不冒充完整。只往上抬 `✓` 这一档,`✗` 和 `·` 各有各的理由。
+  // **没人认领的**那条豁免才打 `⊘`,不冒充完整。⚠️ 条件是「没人认领」而不是
+  // 「有豁免」:`exempted` 上面已经把两种认领都滤掉了,认领过的判据即便名下还挂着
+  // 一条豁免也算完整 —— 那条豁免只是还没撤(落地 3 第二片)。
+  // 只往上抬 `✓` 这一档,`✗` 和 `·` 各有各的理由。
   if (flag === '✓' && exempted.length) flag = '⊘'
   const mutatedCrit = r.accept.filter(c => e.mutatedCriteria.has(c.id)).length
   return { flag, gaps, hard, claimed: claimed.length, exempted: exempted.length, mutatedCrit }

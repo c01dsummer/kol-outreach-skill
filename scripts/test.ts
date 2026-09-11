@@ -2011,11 +2011,13 @@ harness('审计对一条需求的裁定')
                                entryCriteria: new Set(['P9.b']) })).claimed, 2)
   eq('全部只由自检认领 → 一条都不能少',
     requirementVerdict(p, ev({ entryCriteria: new Set(['P9.a', 'P9.b']) })).claimed, 2)
-  // 豁免了就别打 `✓` —— 图例里 `✓` 是「完整」，而审计自己在下面又把这条列成
-  // 显式缺口。跟变异那一栏统一成 `⊘`，并把豁免了几条数出来（M-H6-g…i）。
+  // **没人认领的**豁免才别打 `✓` —— 图例里 `✓` 是「完整」，而审计自己在下面又把这条
+  // 列成显式缺口。跟变异那一栏统一成 `⊘`，并把这种豁免有几条数出来（M-H6-g…i）。
+  // ⚠️ 条件是「没人认领」不是「有豁免」：上面那条刚证明了认领过的判据即便名下还挂着
+  // 豁免也算完整。下面这个夹具里 P9.b 两种认领都没有，才落进这一档（#104 第四轮评审）。
   const exempted1 = ev({ claimedCriteria: new Set(['P9.a']), exemptIds: new Set(['P9.b']) })
-  eq('判据有豁免 → 打 ⊘，不冒充完整', requirementVerdict(p, exempted1).flag, '⊘')
-  eq('豁免了几条要数出来', requirementVerdict(p, exempted1).exempted, 1)
+  eq('有一条没人认领的豁免 → 打 ⊘，不冒充完整', requirementVerdict(p, exempted1).flag, '⊘')
+  eq('没人认领的豁免有几条要数出来', requirementVerdict(p, exempted1).exempted, 1)
   eq('一条豁免都没有 → 不多报', requirementVerdict(p, ev({
     claimedCriteria: new Set(['P9.a', 'P9.b']) })).exempted, 0)
   // `⊘` 只往上抬 `✓` 这一档。少掉「原本是 ✓」这半个条件，一条还欠着认领的
