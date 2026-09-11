@@ -18,15 +18,39 @@ import {
 } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { tsxCommand } from './tsx-cmd.js'
+import {
+  ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, sourceFiles,
+} from './claims.js'
+import { writeFileAtomic } from '../lib/atomic.js'
 import {
   SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS,
   selfcheckSummary,
 } from './verifier-rule.js'
 
 const EXEMPT: Record<string, string> = {}   // 目前无豁免
+
+/**
+ * **入口认领**:哪几条验收判据是这一次端到端真跑过的。
+ *
+ * 与单元认领同一套纪律,逐条复用 `claims.ts` 的判定:开跑前先清掉(不清的话,
+ * 源码没改而这一跑半路死了,上一次的记录就成了这一次的证据);跑完全绿、
+ * 源码一路没动过、且不是变异跑,才写得下(`claimsPublishable`)。
+ *
+ * `criterion()` 写在它认领的那几条断言**后面** —— 与 `test.ts` 的约定一样:
+ * 那句话的意思是「上面那几条真的跑到了这里」,不是「打算测这一条」。
+ *
+ * 它们大多落在条件分支里(夹具没造起来就整段跳过)。跳过不会写下一条假认领:
+ * 每一处跳过都是先记了一次失败才跳的,而 `claimsPublishable` 要求这一跑**全绿** ——
+ * 认领与失败计数是同一个闸的两边,少认领一条与写下一条假的不是同一回事。
+ */
+const claimed = new Set<string>()
+const criterion = (...ids: string[]): void => { for (const id of ids) claimed.add(id) }
+const mutating = process.env.MUTATING === '1'
+if (claimsOwnedBy(mutating)) rmSync(ENTRY_CLAIMS_PATH, { force: true })
+const startHash = fingerprint(sourceFiles())
 
 /** 脚本用绝对路径 —— 下面几处会切到临时目录里跑，让产出落在那边 */
 const covered = new Set<string>()
@@ -248,6 +272,11 @@ if (tightOut === undefined) {
       console.log(`  ✓ 断点恢复：关键词 ${before.done.length}→${after.done.length}，请求 ${before.requests}→${after.requests}`)
     }
   }
+  // 写在整段之后，不写在「续跑」那一半之前：P3.b 的四半要**全跑到**才认领得起 ——
+  // 退出码 3（`expect` 那一档）、断点在、断点记到中止那一刻、续跑从断点起算。
+  // 缺省那个验证者够不到入口，所以这条认领只有自检发得出 —— 它的显式豁免
+  // 逐字写的就是这个理由（落地 3 第一片）。
+  criterion('P3.b')
 }
 
 // ---- enrich：主页近期样本、公开指标、断点文件 ----
@@ -670,6 +699,10 @@ if (dir && rendered !== undefined) {
   endPath('collect 出错中止（退出码 1）也说续跑代价',
           pathCfg('perror', {}, 'force-402-k'), 1, 'error', COST, FREE)
 
+  // 四条收尾各跑过一次，每次都验了退出码、`stopped` 取值、那句话说什么 ——
+  // D6.f 逐字要求的正是这四条路都说清续跑要不要花钱（落地 3 第一片）
+  criterion('D6.f')
+
   // 逃生口：出名单，但状态必须原样带到 stdout
   const forced = run('collect --ignore-memory 强出名单',
                      [S('collect.ts'), '--resume', dir, '--budget', '1', '--ignore-memory'], tmp)
@@ -1025,4 +1058,19 @@ if (failed) {
   console.log(`\n✓ 脚本自检：${all.length} 个可执行文件都有出处 ——`
     + ` 本文件从头跑到尾 ${here} 个，检查链里各自成一步 ${inChain} 个`
     + `，具名豁免 ${Object.keys(EXEMPT).length} 个`)
+}
+
+// 写在最后：`failed` 要数完，指纹要在跑完之后再算一次。中途改过源码的话，拿跑完
+// 那一刻的指纹写进去，审计会认为这份记录新鲜 —— 而断言跑的是改之前那棵树。所以
+// 写进去的是**开跑那一刻**的，两头对不上就一个字也不写（`claimsPublishable`）。
+// `covered`／`tensions` 恒空：自检不认领需求级与交点级，那两栏留着只是为了与单元
+// 那份**同形**，同一套 `claimsWellFormed` 守两份。
+if (claimsPublishable(mutating, failed, startHash, fingerprint(sourceFiles()))) {
+  mkdirSync(dirname(ENTRY_CLAIMS_PATH), { recursive: true })
+  writeFileAtomic(ENTRY_CLAIMS_PATH, `${JSON.stringify({
+    source_hash: startHash,
+    covered: [],
+    criteria: [...claimed].sort(),
+    tensions: [],
+  }, null, 2)}\n`)
 }
