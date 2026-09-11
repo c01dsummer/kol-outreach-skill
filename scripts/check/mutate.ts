@@ -342,8 +342,13 @@ for (const m of muts) {
     console.log(`      退出码 ${status === null ? '（无，被信号杀掉）' : status}`
                 + ` · ${stopped ? '见齐点名的就停了' : '未因见齐点名而主动停'}`)
     const scene = crashEvidence(output, VERIFIERS[m.by ?? 'test'])
-    if (scene.lines.length === 0) console.log('      验证者一条失败行都没打出来')
-    else for (const l of scene.lines) console.log(`      │ ${l}`)
+    if (scene.lines.length === 0) console.log('      验证者一个字都没打出来')
+    else {
+      // 两种现场的前缀**分得开**：`│` 是成形的失败行（断言说了话），
+      // `┆` 是原始输出的尾巴（一条成形的失败行都没有，八成是真崩了）。
+      if (scene.raw) console.log('      没有成形的失败行，下面是它最后几行输出：')
+      for (const l of scene.lines) console.log(`      ${scene.raw ? '┆' : '│'} ${l}`)
+    }
     if (scene.omitted) console.log(`      （另有 ${scene.omitted} 行未显示）`)
   } else { survived.push(m); console.log(`  ✗ ${m.id}  [${m.req}] 存活 —— ${m.why}`) }
 }

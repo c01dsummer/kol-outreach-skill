@@ -2865,7 +2865,22 @@ harness('判 crashed 时留下的现场：带记号的一条都不许丢')
   ok('夹具记号也算原因',
     crashEvidence(`  ✗ 某条${SELFCHECK_FIXTURE_MARK}：夹具废了`, SC, 1).lines.length === 1)
   // 没有失败行就是没有 —— 兜底那句话由入口打，判定这边交空名单
-  eq('一条失败行都没有 → 空', crashEvidence('什么也没红\n', SC, 5).lines.length, 0)
+  // ⚠️ 一条成形的失败行都没有 → 交回原始输出的末尾几行。真崩掉的那一次打的是**栈**，
+  // 一行以「✗ 」开头的都没有 —— 只认成形的失败行的话，现场恰恰在最需要它的那一档
+  // 是空的，而这段代码存在的唯一理由就是诊断那一次（M-H35-a，#105 第四轮评审指出）。
+  const stack = ['Error: Transform failed with 1 error:', '  at foo (x.ts:1:1)',
+                 '  at bar (y.ts:2:2)'].join('\n')
+  eq('没有成形的失败行 → 交回原始输出的尾巴', crashEvidence(stack, SC, 5).lines,
+    ['Error: Transform failed with 1 error:', 'at foo (x.ts:1:1)', 'at bar (y.ts:2:2)'])
+  ok('并且标明这是原始输出，不是断言说的话', crashEvidence(stack, SC, 5).raw)
+  // 尾巴也封顶，而且取的是**末尾** —— 崩的原因通常在最后，不在开头（M-H35-b）
+  eq('尾巴取末尾那几行', crashEvidence(stack, SC, 1).lines, ['at bar (y.ts:2:2)'])
+  eq('尾巴截掉了几行也要报', crashEvidence(stack, SC, 1).omitted, 2)
+  // 有成形的失败行时**不掺**原始输出 —— 掺进栈只会把它们淹掉（M-H35-c）
+  ok('有成形的失败行 → raw 为假', !crashEvidence(`✗ 真的失败了\n${stack}`, SC, 5).raw)
+  eq('有成形的失败行 → 只交那些', crashEvidence(`✗ 真的失败了\n${stack}`, SC, 5).lines,
+    ['✗ 真的失败了'])
+  eq('一个字都没打 → 空', crashEvidence('\n  \n', SC, 5).lines.length, 0)
   // 缺省那个验证者没有记号，两栏都取不到时不许当成「每行都是原因」
   eq('验证者没有记号 → 全按普通行截', crashEvidence(noisy, VERIFIERS.test, 5).lines.length, 5)
   // 「失败行」的文法与 processFailed / killsMatched 同一条：trim 之后以「✗ 」开头。

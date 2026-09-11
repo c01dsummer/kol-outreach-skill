@@ -2545,8 +2545,8 @@
       "req": "harness",
       "why": "现场按顺序截前几行，带记号的那几行会被普通失败行挤掉 —— 而它们正是说得清「这次为什么不算抓到」的那几行，吵一点的一次运行就只剩下无关的",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  return { lines: [...causal, ...plain.slice(0, room)], omitted: Math.max(plain.length - room, 0) }",
-      "replace": "  return { lines: fails.slice(0, cap), omitted: Math.max(fails.length - cap, 0) }"
+      "find": "    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),",
+      "replace": "    lines: fails.slice(0, cap),\n    omitted: Math.max(fails.length - cap, 0),"
     },
     {
       "id": "M-H33-b",
@@ -2579,6 +2579,30 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "  const fails = output.split('\\n').map(l => l.trim()).filter(l => l.startsWith('✗ '))",
       "replace": "  const fails = output.split('\\n').map(l => l.trim()).filter(l => l.includes('✗'))"
+    },
+    {
+      "id": "M-H35-a",
+      "req": "harness",
+      "why": "真崩掉的那一次现场是空的 —— 它打的是栈、一行成形的失败行都没有，而这段现场存在的唯一理由就是诊断那一次",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (fails.length === 0) {\n    const tail = output.split('\\n').map(l => l.trim()).filter(l => l !== '')\n    return { lines: tail.slice(-cap), omitted: Math.max(tail.length - cap, 0), raw: true }\n  }",
+      "replace": ""
+    },
+    {
+      "id": "M-H35-b",
+      "req": "harness",
+      "why": "原始输出取开头那几行而不是末尾 —— 崩的原因通常在最后，留下来的是一堆无关的开场白",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    return { lines: tail.slice(-cap), omitted: Math.max(tail.length - cap, 0), raw: true }",
+      "replace": "    return { lines: tail.slice(0, cap), omitted: Math.max(tail.length - cap, 0), raw: true }"
+    },
+    {
+      "id": "M-H35-c",
+      "req": "harness",
+      "why": "把断言说过话的那一次也标成「原始输出」—— 读现场的人分不出这几行是断言红了还是进程死了，两者要怎么处理完全不同",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  const room = Math.max(cap - causal.length, 0)\n  return {\n    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),\n    raw: false,\n  }",
+      "replace": "  const room = Math.max(cap - causal.length, 0)\n  return {\n    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),\n    raw: true,\n  }"
     }
   ],
   "exemptions": [

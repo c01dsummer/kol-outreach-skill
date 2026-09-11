@@ -1008,24 +1008,26 @@ if (both.ok && !/^\s*⊘ X1\.a 名下有负片/m.test(both.stdout)) {
 // 指着它的变异会被「自己验自己」当场拦下）—— 与另外几处 mutate 夹具同一处境，
 // 所以只能有夹具。删掉那几行打印，这条断言必须红。
 //
-// 单独一份语料：那条变异把被测对象的值改掉 → 验证者**先打两条失败行、再以非零退出**、
-// 不打汇总 → 判 `crashed`。⚠️ 不能塞进上面那份 —— 一条 crashed 会让整跑非零退出，
-// 上面两条断言的前置条件 `both.ok` 当场为假，它们就被静默跳过了。
+// 单独一份语料，两条变异各造一种 `crashed`（口径见下面那段）。⚠️ 不能塞进上面那份 ——
+// 一条 crashed 会让整跑非零退出，上面两条断言的前置条件 `both.ok` 当场为假，
+// 它们就被静默跳过了。
 const crashTmp = join(tmp, 'crash-scene')
 mkdirSync(join(crashTmp, 'scripts', 'check'), { recursive: true })
 mkdirSync(join(crashTmp, 'docs'), { recursive: true })
 writeFileSync(join(crashTmp, 'docs', 'requirements.json'),
   JSON.stringify({ requirements: [{ id: 'X2', accept: [{ id: 'X2.a' }] }] }), 'utf8')
-writeFileSync(join(crashTmp, 'scripts', 'check', 'a.ts'), "export const v = 'keep'\n", 'utf8')
-// ⚠️ 这份验证者**先打两条失败行、再以非零退出**（不打汇总）—— 而不是一起手就崩。
+writeFileSync(join(crashTmp, 'scripts', 'check', 'a.ts'),
+  "export const v = 'keep'\nexport const w = 'ok'\n", 'utf8')
+// 这份语料造**两种 crashed**，两支分开守（#105 第一、四轮评审各指出一支）：
+//   `M-X-c` 验证者**打 18 条失败行、再以非零退出**（不打汇总）→ 成形的失败行那一支。
+//           打 18 条是因为封顶是 15 —— 只打两条的话 `omitted` 恒为 0，
+//           「另有 N 行未显示」那一支从没跑到，整行删掉照样绿（第三轮评审指出）。
+//   `M-X-r` 把另一处改成**语法错误** → 验证者打的是栈、一行成形的失败行都没有，
+//           走「原始输出的尾巴」那一支。⚠️ **那才是真崩的样子**，而这段现场存在的
+//           唯一理由就是诊断它；头一版只有这一种，于是反过来把上面那一支漏空了。
 // 用 `exitCode` 而不是那个硬退出的写法：`exitRace` 扫的是**源码字面**，把那一串原样
 // 写进这里，本文件自己就会被判成「打完汇总立刻退出」（ADR-70 逐字警告过这个坑，
 // 我照样踩了 —— 断言 `selfcheck 这个验证者不硬退出` 当场红）。
-// 头一版用的是语法错误：验证者一个字没打就死，于是入口走的永远是「一条失败行都没打出来」
-// 那个兜底分支，**真正要守的那一支（把失败行逐条留下来）一次也没跑过** ——
-// 把它换成兜底，这条夹具照样绿（#105 第一轮评审指出）。
-// 打 18 条 —— **比封顶（15）多**，于是「另有 N 行未显示」那一支也真跑到。
-// 只打两条的话 `omitted` 恒为 0，那句截断提示删掉也不会红（#105 第三轮评审指出）。
 writeFileSync(join(crashTmp, 'scripts', 'test.ts'),
   `import { v } from ${q}./check/a.js${q}\n`
   + `if (v !== ${q}keep${q}) {\n`
@@ -1033,8 +1035,12 @@ writeFileSync(join(crashTmp, 'scripts', 'test.ts'),
   + `  process.exitCode = 1\n`
   + `}\n`, 'utf8')
 writeFileSync(join(crashTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({
-  mutations: [{ id: 'M-X-c', req: 'X2.a', why: '把那个值改掉，验证者打两条失败行之后死掉',
-                file: 'scripts/check/a.ts', find: 'keep', replace: 'gone' }],
+  mutations: [
+    { id: 'M-X-c', req: 'X2.a', why: '把那个值改掉，验证者打一串失败行之后以非零退出',
+      file: 'scripts/check/a.ts', find: 'keep', replace: 'gone' },
+    { id: 'M-X-r', req: 'X2.a', why: '把另一处改成语法错误，验证者起不来、打的是栈',
+      file: 'scripts/check/a.ts', find: "'ok'", replace: "'ok" },
+  ],
   exemptions: [],
 }), 'utf8')
 const crash = runToolBoth('mutate 判「跑不起来」时留下现场', 'mutate', [], crashTmp,
@@ -1059,6 +1065,14 @@ if (crash.ok && !/跑不起来/.test(crash.stdout)) {
 } else if (crash.ok && !/^\s+（另有 3 行未显示）$/m.test(crash.stdout)) {
   failed++
   console.error('  ✗ 截掉了 3 行却没报出来 —— 被截过的现场和本来就这么短的现场长得一样')
+// ⚠️ 真崩那一支：验证者打的是栈，一行成形的失败行都没有。只认成形的失败行的话，
+// 现场恰恰在最需要它的那一档是空的 —— 而这段代码存在的唯一理由就是诊断那一次。
+} else if (crash.ok && !/^\s+没有成形的失败行，下面是它最后几行输出：$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 真崩的那一次没说「下面是原始输出」—— 两种现场混在一起，读的人分不出')
+} else if (crash.ok && !/^\s+┆ .*Transform failed/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 真崩的那一次把栈丢了 —— 现场在最需要它的那一档是空的')
 }
 
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m

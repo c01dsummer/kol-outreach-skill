@@ -84,9 +84,15 @@ export function processFailed(output: string, mark: string): boolean {
  * 评审指出:承诺的是「每一条失败行」,做的是「前十五条」,而**最该留的那条恰好可能在后面**。
  *
  * 截掉了几行要报出来 —— 不报的话,一份被截过的现场和一份本来就这么短的现场长得一样。
+ *
+ * ⚠️ **一条成形的失败行都没有时,交回原始输出的末尾几行**(`raw`)。真崩掉的那一次
+ * (抛异常、语法错误)打的是**栈**,一行以「✗ 」开头的都没有 —— 只认成形的失败行的话,
+ * 现场恰恰在**最需要它的那一档**是空的,而这段代码存在的唯一理由就是诊断那一次
+ * (#105 第四轮评审指出;实测:语法错误那一次打的是 `Error: Transform failed`)。
+ * 两者**不混**:有成形的失败行就只交那些,`raw` 为假 —— 掺进栈只会把它们淹掉。
  */
 export function crashEvidence(output: string, verifier: Verifier, cap = 15):
-  { lines: string[]; omitted: number } {
+  { lines: string[]; omitted: number; raw: boolean } {
   // 「失败行」的文法与 `processFailed` / `killsMatched` **逐字同一条**：trim 之后以
   // 「✗ 」开头。只问「含不含这个字」的话，一行顺带提到它的诊断（或某个值里带着它）
   // 就能占掉普通行的名额，把真正的失败行挤出去（#105 第二轮评审指出）。
@@ -96,8 +102,16 @@ export function crashEvidence(output: string, verifier: Verifier, cap = 15):
     || (verifier.fixtureMark !== undefined && l.includes(verifier.fixtureMark))
   const causal = fails.filter(marked)
   const plain = fails.filter(l => !marked(l))
+  if (fails.length === 0) {
+    const tail = output.split('\n').map(l => l.trim()).filter(l => l !== '')
+    return { lines: tail.slice(-cap), omitted: Math.max(tail.length - cap, 0), raw: true }
+  }
   const room = Math.max(cap - causal.length, 0)
-  return { lines: [...causal, ...plain.slice(0, room)], omitted: Math.max(plain.length - room, 0) }
+  return {
+    lines: [...causal, ...plain.slice(0, room)],
+    omitted: Math.max(plain.length - room, 0),
+    raw: false,
+  }
 }
 
 /**
