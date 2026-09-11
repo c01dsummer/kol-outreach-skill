@@ -992,11 +992,58 @@ if (both.ok && !/^\s*⊘ X1\.a 名下有负片/m.test(both.stdout)) {
 // `brief.includes('名下有负片')`，反向验当场露馅：`--brief` 会把每条变异的 `why` 也打出来，
 // 而其中一条负片的 `why` 里正好有这四个字 —— 接线退回写死，那句断言照样绿。
 // 现在只认「⊘ ＋ 方括号里的编号 ＋ 这句话」的行首形状，与哪一条豁免命中无关。
+//
+// ⚠️ **跑的是上面那份合成语料，不是真仓库**（落地 4 改）。原先跑真仓库，靠的是
+// 「仓库里总有一条名下有负片的豁免」—— 而落地 4 撤掉 P3.b 与 D6.f 之后就只剩 P2.a，
+// 它名下无变异，这条断言当场失去对象。**一条断言的成立不该取决于登记表今天恰好长什么样**：
+// 那不是这条夹具要守的东西，而且它会在一个与它无关的改动里红。
+// 指到语料上之后两支话都在，于是两支都断言 —— 与整跑那一处对齐。
+// ---- 判 `crashed` 那一档要留下现场（入口的第三处）----
+// 判定说「跑不起来」时，原先一个字都不留下验证者说过什么 —— 而那是唯一能分辨
+// 「真崩了」与「这一次不巧」的证据（ADR-70：它在落地 4 那一片里咬了两次才补上）。
+// 这段输出在 `mutate.ts` 入口里，**变异够不到它**（`mutate.ts` 在验证基础设施闭包里，
+// 指着它的变异会被「自己验自己」当场拦下）—— 与另外几处 mutate 夹具同一处境，
+// 所以只能有夹具。删掉那几行打印，这条断言必须红。
+//
+// 单独一份语料：那条变异让被测对象变成语法错误，验证者起不来 → 非零退出、没有汇总
+// → 判 `crashed`。⚠️ 不能塞进上面那份 —— 一条 crashed 会让整跑非零退出，
+// 上面两条断言的前置条件 `both.ok` 当场为假，它们就被静默跳过了。
+const crashTmp = join(tmp, 'crash-scene')
+mkdirSync(join(crashTmp, 'scripts', 'check'), { recursive: true })
+mkdirSync(join(crashTmp, 'docs'), { recursive: true })
+writeFileSync(join(crashTmp, 'docs', 'requirements.json'),
+  JSON.stringify({ requirements: [{ id: 'X2', accept: [{ id: 'X2.a' }] }] }), 'utf8')
+writeFileSync(join(crashTmp, 'scripts', 'check', 'a.ts'), "export const v = 'keep'\n", 'utf8')
+writeFileSync(join(crashTmp, 'scripts', 'test.ts'),
+  `import { v } from ${q}./check/a.js${q}\n`
+  + `if (v !== ${q}keep${q}) { console.log('\\n1 个失败\\n'); process.exitCode = 1 }\n`, 'utf8')
+writeFileSync(join(crashTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({
+  mutations: [{ id: 'M-X-c', req: 'X2.a', why: '把那个值改成语法错误，验证者起不来',
+                file: 'scripts/check/a.ts', find: "'keep'", replace: "'keep" }],
+  exemptions: [],
+}), 'utf8')
+const crash = runToolBoth('mutate 判「跑不起来」时留下现场', 'mutate', [], crashTmp,
+                          { status: 1 })
+if (crash.ok && !/跑不起来/.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 那条变异没被判成「跑不起来」—— 这份语料造的就是验证者起不来')
+} else if (crash.ok && !/^\s+退出码 .+·.+$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 判「跑不起来」却没留下退出码与有没有主动停 —— 现场丢了')
+} else if (crash.ok && !/^\s+(│ .*✗|验证者一条失败行都没打出来)/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 判「跑不起来」却没说验证者打了什么 —— 分不出是真崩了还是这一次不巧')
+}
+
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m
-const brief = runToolBoth('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'])
+const briefNone = /^\s*⊘\s+\[[^\]]+\]\s+名下无变异/m
+const brief = runToolBoth('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'], bothTmp)
 if (brief.ok && !briefLead.test(brief.stdout)) {
   failed++
   console.error('  ✗ --brief 的豁免行没有随负片改口 —— 那句写死的「无变异」又回来了')
+} else if (brief.ok && !briefNone.test(brief.stdout)) {
+  failed++
+  console.error('  ✗ --brief 里名下没有变异的那条没这么说')
 }
 
 rmSync(tmp, { recursive: true, force: true })

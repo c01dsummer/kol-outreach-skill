@@ -10,7 +10,7 @@ import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import {
   JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
-  ledger, unguarded,
+  ledger, selfcheckCriterionMutations, unguarded,
 } from './check/audit-rule.js'
 import {
   VERIFIERS, allKilled, complete, exemptionCovered, exemptionLead, exitRace, judgeRun,
@@ -1973,7 +1973,8 @@ harness('审计对一条需求的裁定')
   const ev = (over: Partial<Evidence> = {}): Evidence => ({
     tested: true, mutated: true, exempt: false, impl: 1, refs: 1,
     claimedCriteria: new Set<string>(), entryCriteria: new Set<string>(),
-    exemptIds: new Set<string>(), mutatedCriteria: new Set<string>(), ...over,
+    exemptIds: new Set<string>(), mutatedCriteria: new Set<string>(),
+    selfcheckMutatedCriteria: new Set<string>(), ...over,
   })
 
   // 红线：每一条判据都要有认领，缺一条就是硬失败
@@ -1989,11 +1990,15 @@ harness('审计对一条需求的裁定')
   // 两种认领都算数：自检端到端跑过的那一条，与单元断言认的那一条，在「这条判据
   // 有没有人认领」这件事上同权。少掉任一半，只由那一头守着的判据当场报成没人认领 ——
   // 红线那边就是硬失败，而它明明每一次检查都真跑过（M-H31-a/b，落地 3 第二片）。
+  // ⚠️ 这两条要配上那条改跑自检的负片才通过 —— 落地 4 起，只由自检认领的判据
+  // 必须有一条 `by: "selfcheck"` 的负片，下面那组专门钉这一条。
   eq('一条判据只由自检认领 → 照样算认领，不是硬失败',
     requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
-                               entryCriteria: new Set(['P9.b']) })).hard, 0)
+                               entryCriteria: new Set(['P9.b']),
+                               selfcheckMutatedCriteria: new Set(['P9.b']) })).hard, 0)
   eq('两条判据都只由自检认领 → 同样通过',
-    requirementVerdict(p, ev({ entryCriteria: new Set(['P9.a', 'P9.b']) })).hard, 0)
+    requirementVerdict(p, ev({ entryCriteria: new Set(['P9.a', 'P9.b']),
+                               selfcheckMutatedCriteria: new Set(['P9.a', 'P9.b']) })).hard, 0)
   eq('只由单元认领 → 照样算认领（别把哪一半丢了）',
     requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a', 'P9.b']) })).hard, 0)
   // 认领之后那条豁免不再算缺口 —— 否则逐条说「认领了」、汇总说「还豁免着」，
@@ -2011,6 +2016,29 @@ harness('审计对一条需求的裁定')
                                entryCriteria: new Set(['P9.b']) })).claimed, 2)
   eq('全部只由自检认领 → 一条都不能少',
     requirementVerdict(p, ev({ entryCriteria: new Set(['P9.a', 'P9.b']) })).claimed, 2)
+
+  // ---- 落地 4：只由自检认领的判据，必须有一条改跑自检的负片 ----
+  // 认领与负片要来自同一头：认领是自检发的，负片也得是自检验的。配不上，
+  // 这条判据就只有夹具、没有第三拍 —— 而夹具绿着不证明它还会红（4-VERIFY）。
+  eq('只由自检认领、却没有改跑自检的负片 → 硬失败',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
+                               entryCriteria: new Set(['P9.b']) })).hard, 1)
+  // ⚠️ 不带 `by` 的判据级负片不算数：缺省那个验证者够不到入口，那条变异只会「存活」，
+  // 对这条判据什么也证不了。两个集合分开交进来，正是为了这里分得出来。
+  eq('只有不带 by 的负片 → 仍是硬失败',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
+                               entryCriteria: new Set(['P9.b']),
+                               mutatedCriteria: new Set(['P9.b']) })).hard, 1)
+  // 单元那边也认领了的不受这一条管 —— 缺省那个验证者够得到它，用不着改跑自检
+  eq('两边都认领 → 不要求改跑自检的负片',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a', 'P9.b']),
+                               entryCriteria: new Set(['P9.b']) })).hard, 0)
+  // 与红线无关：它买到的东西跟这条需求是不是红线没关系
+  eq('非红线的判据同样要求',
+    requirementVerdict(req('D9', ['a']), ev({ entryCriteria: new Set(['D9.a']) })).hard, 1)
+  eq('非红线配上那条负片也通过',
+    requirementVerdict(req('D9', ['a']), ev({ entryCriteria: new Set(['D9.a']),
+      selfcheckMutatedCriteria: new Set(['D9.a']) })).hard, 0)
   // **没人认领的**豁免才别打 `✓` —— 图例里 `✓` 是「完整」，而审计自己在下面又把这条
   // 列成显式缺口。跟变异那一栏统一成 `⊘`，并把这种豁免有几条数出来（M-H6-g…i）。
   // ⚠️ 条件是「没人认领」不是「有豁免」：上面那条刚证明了认领过的判据即便名下还挂着
@@ -2047,6 +2075,21 @@ harness('审计对一条需求的裁定')
   eq('同一条判据被点两次，集合里只算一个',
     [...criterionMutations([{ req: 'P5.g' }, { req: 'P5.g' }])], ['P5.g'])
   eq('一条变异都没有 → 空集合', criterionMutations([]).size, 0)
+
+  // 改跑自检的那些单挑出来：落地 4 那条硬失败问的是这个集合，不是上面那个。
+  // 两个函数分开，是因为它们回答的问题不同（报告数几条 / 硬失败该不该响）。
+  const mu = [
+    { req: 'P3.b', by: 'selfcheck' }, { req: 'D6.f', by: 'selfcheck' },
+    { req: 'P5.f' }, { req: 'P3', by: 'selfcheck' },
+  ]
+  eq('只收改跑自检的那些',
+    [...selfcheckCriterionMutations(mu)].sort(), ['D6.f', 'P3.b'])
+  // 不带 by 的不算：缺省那个验证者够不到入口，那条变异只会「存活」
+  eq('不带 by 的判据级负片不收', selfcheckCriterionMutations([{ req: 'P5.f' }]).size, 0)
+  // 需求号不收 —— 这一条按判据问，跟 criterionMutations 同一个口径
+  eq('需求号不收', selfcheckCriterionMutations([{ req: 'P3', by: 'selfcheck' }]).size, 0)
+  // 别的验证者不算：今天只有 selfcheck 一个，写死名字是为了将来多一个时这里会红
+  eq('别的验证者不收', selfcheckCriterionMutations([{ req: 'P3.b', by: 'test' }]).size, 0)
 
   // 验收判据那一行汇总原先也拼在入口脚本里，同一个形状：把入口认领那个数改成从单元
   // 那份名单里数、把红线那半数成全体、或者把豁免数成测试认领，报告上的数字当场变了，

@@ -303,6 +303,13 @@ for (const m of muts) {
   }
   beginMutation(m.file, orig)
   let verdict: RunVerdict
+  // 判 `crashed` 时要说得出**为什么** —— 那一档原先一个字都不留下验证者说过什么,
+  // 而它恰恰是唯一能分辨「真崩了」与「这一次不巧」的证据(ADR-70 记着这笔账,
+  // 它在同一片里咬了两次才补上)。只有这一档留:另外三档的结论自己就够清楚,
+  // 而 300 多条各留一份会把输出淹掉。
+  let output = ''
+  let status: number | null = null
+  let stopped = false
   try {
     // 写盘也在这一段里面：写盘是先截断再写的，写到一半抛出去（盘满、IO 错）留下的是
     // 半份源文件，而那时 `finally` 要是够不着，被截断的那份就留在工作区里，
@@ -312,6 +319,7 @@ for (const m of muts) {
     // 点了名的还要再看一层:红的是不是 kills 说的那一条
     const verifier = VERIFIERS[m.by ?? 'test']
     const r = await runTest(verifier, m.kills)
+    output = r.output; status = r.status; stopped = r.stoppedOnKills
     verdict = judgeRun(r.status, r.output, verifier, m.kills, r.stoppedOnKills)
   } finally {
     restoreMutation()
@@ -324,6 +332,13 @@ for (const m of muts) {
   } else if (verdict === 'crashed') {
     crashed.push(m)
     console.log(`  ✗ ${m.id}  [${m.req}] 跑不起来 —— 验证者死在半路,没有任何一条断言抓到它`)
+    // 现场：退出码、有没有主动停、以及验证者打出来的每一条失败行。
+    // 带记号的那些是判定一票否决的原因,不带记号的说明断言真的红过 —— 两者在这里分得开。
+    console.log(`      退出码 ${status === null ? '（无，被信号杀掉）' : status}`
+                + ` · ${stopped ? '见齐点名的就停了' : '跑到了尾'}`)
+    const bad = output.split('\n').filter(l => l.includes('✗')).slice(0, 15)
+    if (bad.length === 0) console.log('      验证者一条失败行都没打出来')
+    else for (const l of bad) console.log(`      │ ${l.trim()}`)
   } else { survived.push(m); console.log(`  ✗ ${m.id}  [${m.req}] 存活 —— ${m.why}`) }
 }
 

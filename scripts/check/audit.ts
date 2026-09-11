@@ -11,7 +11,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
-  ledger, unguarded,
+  ledger, selfcheckCriterionMutations, unguarded,
 } from './audit-rule.js'
 import {
   CLAIMS_PATH, ENTRY_CLAIMS_PATH, SOURCE_DIR, claimsFresh, claimsReadFault, claimsWellFormed,
@@ -144,6 +144,8 @@ const mutatedIds = new Set<string>(mutCfg.mutations.map((m: any) => m.req))
 // 分类是判定，留在这里就没有测试够得着（`audit-rule.ts` 的 `criterionMutations`，
 // 与紧邻的 `unguarded` / `ledger` 同一个理由，`docs/CONVENTIONS.md` 第 10 条）。
 const mutatedCriteria = criterionMutations(mutCfg.mutations)
+// 只由自检认领的判据靠它过关 —— 分类同样是判定,同样在 `audit-rule.ts`（落地 4）
+const selfcheckMutatedCriteria = selfcheckCriterionMutations(mutCfg.mutations)
 const exemptIds = new Map<string, string>(
   (mutCfg.exemptions ?? []).map((e: any) => [e.req, e.why]))
 
@@ -177,7 +179,7 @@ for (const r of reqs) {
     tested, mutated, exempt, impl: impl.length, refs: refs.length,
     claimedCriteria: testedCriteria, entryCriteria,
     exemptIds: new Set(exemptIds.keys()),
-    mutatedCriteria,
+    mutatedCriteria, selfcheckMutatedCriteria,
   })
   const { flag, claimed, exempted } = v
   hard += v.hard
@@ -302,4 +304,5 @@ if (hard) { console.error(`\n✗ 审计：${hard} 项硬失败`); process.exit(1
 // 只被自检端到端跑过的，那句话再说「全部有测试认领」就是假的（#104 第一轮评审指出）。
 // 交点那一半仍是「测试认领」—— 自检不认领交点，那一栏恒空（`claims.ts` 记着）。
 console.log('\n✓ 审计：红线需求全部有测试且被变异验证；未豁免的红线判据全部有认领（测试或自检）；' +
+            '只由自检认领的判据都有一条 by: "selfcheck" 的负片；' +
             '有红线的交点全部有测试认领；检查链的判定模块全部有变异守着')

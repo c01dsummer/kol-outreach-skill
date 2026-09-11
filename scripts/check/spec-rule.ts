@@ -473,6 +473,11 @@ export interface Evidence {
   exemptIds: ReadonlySet<string>
   /** 有变异点着的**判据**编号 —— 与 `mutated` 不是一回事,后者只认整条需求 */
   mutatedCriteria: ReadonlySet<string>
+  /**
+   * 有**改跑自检**的负片点着的判据编号。只由自检认领的那些判据靠它过关 ——
+   * 缺省那个验证者够不到入口,指着它们的变异不写 `by` 就只会「存活」(落地 4)。
+   */
+  selfcheckMutatedCriteria: ReadonlySet<string>
 }
 
 /**
@@ -497,6 +502,20 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
   const claimed = r.accept.filter(claimedBy)
   const exempted = r.accept.filter(c => !claimedBy(c) && e.exemptIds.has(c.id))
   const unclaimed = r.accept.filter(c => !claimedBy(c) && !e.exemptIds.has(c.id))
+
+  // **只由自检认领的判据,必须有一条改跑自检的负片**(落地 4)。
+  // 单元断言一条都没认、全靠端到端夹具跑到的判据,缺省那个验证者够不到它 ——
+  // 指着它的变异不写 `by` 就只会「存活」,于是这条判据只有夹具、没有第三拍。
+  // ⚠️ 与红线无关,凡是这种认领都要:它买到的东西跟需求是不是红线没关系。
+  // ⚠️ 这一条**不**替判据拆分把关:一条负片盖住四半里的一半也算数 ——
+  // 那是 ADR-70「它挡不住什么」第一节记着的另一件事,别对错人。
+  for (const c of r.accept) {
+    if (!e.entryCriteria.has(c.id) || e.claimedCriteria.has(c.id)) continue
+    if (e.selfcheckMutatedCriteria.has(c.id)) continue
+    flag = '✗'; hard++
+    gaps.push(`${c.id} 只由自检认领，却没有一条 by: "selfcheck" 的负片 —— ` +
+              '端到端跑到过，但没有任何东西证明那几条夹具会失败')
+  }
 
   if (r.cat === REDLINE_CAT) {
     if (!e.tested) { flag = '✗'; hard++; gaps.push(`${r.id} 是红线但没有测试`) }
