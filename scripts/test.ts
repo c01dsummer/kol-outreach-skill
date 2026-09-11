@@ -2087,17 +2087,17 @@ harness('审计对一条需求的裁定')
   // 改跑自检的那些单挑出来：落地 4 那条硬失败问的是这个集合，不是上面那个。
   // 两个函数分开，是因为它们回答的问题不同（报告数几条 / 硬失败该不该响）。
   const mu = [
-    { req: 'P3.b', by: 'selfcheck' }, { req: 'D6.f', by: 'selfcheck' },
+    { req: 'P3.i', by: 'selfcheck' }, { req: 'D6.f', by: 'selfcheck' },
     { req: 'P5.f' }, { req: 'P3', by: 'selfcheck' },
   ]
   eq('只收改跑自检的那些',
-    [...selfcheckCriterionMutations(mu)].sort(), ['D6.f', 'P3.b'])
+    [...selfcheckCriterionMutations(mu)].sort(), ['D6.f', 'P3.i'])
   // 不带 by 的不算：缺省那个验证者够不到入口，那条变异只会「存活」
   eq('不带 by 的判据级负片不收', selfcheckCriterionMutations([{ req: 'P5.f' }]).size, 0)
   // 需求号不收 —— 这一条按判据问，跟 criterionMutations 同一个口径
   eq('需求号不收', selfcheckCriterionMutations([{ req: 'P3', by: 'selfcheck' }]).size, 0)
   // 别的验证者不算：今天只有 selfcheck 一个，写死名字是为了将来多一个时这里会红
-  eq('别的验证者不收', selfcheckCriterionMutations([{ req: 'P3.b', by: 'test' }]).size, 0)
+  eq('别的验证者不收', selfcheckCriterionMutations([{ req: 'P3.i', by: 'test' }]).size, 0)
 
   // 验收判据那一行汇总原先也拼在入口脚本里，同一个形状：把入口认领那个数改成从单元
   // 那份名单里数、把红线那半数成全体、或者把豁免数成测试认领，报告上的数字当场变了，
@@ -2950,7 +2950,7 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
   // 记号只贴在打那句话的那一行上，护不住它后面照打的**派生诊断**：一条只把被测脚本
   // 弄崩的变异会漏出不带记号的 ✗，kills 点它就成了「把崩溃的功劳记到断言头上」。
   // 所以拦在整次运行这一层（评审第三轮实测指出，我第一轮驳回错了）
-  const derived = 'collect 预算用尽后没有留下可读的断点（P3.b 要求捕获后保存断点）'
+  const derived = 'collect 预算用尽后没有留下可读的断点（P3.h 要求断点落在契约说的位置）'
   const crashed = [
     `  ✗ collect 预算用尽保存断点${SELFCHECK_PROCESS_MARK}：预期以退出码 3 结束，实际是 1`,
     `  ✗ ${derived}`, '', '✗ 脚本自检：2 项失败', '',
@@ -3159,13 +3159,13 @@ harness('清册：点的那些夹具真的在，而且各自只有一条叫那�
   // **永远得不到 caught** 的点名，正是这道闸要拦的
   eq('跑一个脚本起的名字进不了清册 —— 它永远满足不了点名',
     labelFault('collect 预算用尽保存断点', selfInv), 'unknown-label')
-  // 具名断言那一族也收 —— P3.b 的「保存断点」那一半靠它才点得着（5b）。
+  // 具名断言那一族也收 —— 断点那一半（今天的 P3.i）靠它才点得着（5b）。
   // 把 named 从 declares 里删掉，这一条当场红（M-H24-a）
   eq('自检的真清册也收得到 named 起的名字',
     labelFault('collect 预算用尽后留下的断点记到了中止那一刻', selfInv), undefined)
   // 派生诊断那几十句散文也不进：它们是夹具的后果，不是夹具的名字
   eq('派生诊断不算夹具的名字',
-    labelFault('collect 预算用尽后没有留下可读的断点（P3.b 要求捕获后保存断点）', selfInv),
+    labelFault('collect 预算用尽后没有留下可读的断点（P3.h 要求断点落在契约说的位置）', selfInv),
     'unknown-label')
   // 自检里那个临时仓库夹具往磁盘上写了三行起名的调用。**语法树扫法下这条是结构性的**
   // ——那三行在本文件里是一个字符串的值，不是调用；换回正则就又成了活的洞
@@ -3470,9 +3470,9 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
   // 形状故意一样 —— 同一套判定守两份，不必再写一套。自检写的那份 covered／tensions
   // 恒空，形状照样要过：少一栏就不是合法记录，审计该说「记录坏了」而不是「没测过」
   ok('自检写的那种形状（两栏空）也是合法记录',
-    claimsWellFormed({ source_hash: 'abc', covered: [], criteria: ['P3.b'], tensions: [] }))
+    claimsWellFormed({ source_hash: 'abc', covered: [], criteria: ['P3.i'], tensions: [] }))
   ok('少一栏就不合法 —— 两份记录同一套形状判定',
-    !claimsWellFormed({ source_hash: 'abc', criteria: ['P3.b'], tensions: [] }))
+    !claimsWellFormed({ source_hash: 'abc', criteria: ['P3.i'], tensions: [] }))
   // 入口认领与单元认领的资格判定是同一套：变异跑一律不写（否则写下的是一份由被改过
   // 的源码产生的认领），断言红过不写，跑的过程中源码变过不写
   eq('变异跑里自检也不写入口认领', claimsPublishable(true, 0, 'a', 'a'), false)

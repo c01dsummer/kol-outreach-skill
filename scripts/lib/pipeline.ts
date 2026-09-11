@@ -132,11 +132,14 @@ export function pendingKeywords(state: TaskState): string[] {
  * **两处现在各有一条负片**：`M-D6-j` 改跑自检来验，`kills` 点名四条收尾夹具**全部**，
  * 一条没红就判「红错了地方」（5c 第二片把 `kills` 收成一组之前只点得着第一条）——
  * 它证明的是四条都还活着、都靠那一行，不是「四条路能各自坏掉」，后者仍欠着；
- * P3.b 那一处由 `M-P3-b` 守着断点记的内容那一半（5b 落的，ADR-70 记着剩下三半）。**但只有 D6.f 在 `mutations.json` 的 `exemptions` 里登记**：
- * D6.e 说的是「那句话说什么」，那一半在 `scripts/test.ts` 里有认领，也有
- * `M-D6-f`／`M-D6-g`／`M-D6-h` 三条负片 —— 但按「编号逐字相同」，那三条的 `req` 写的是
- * `D6`，守的是需求级的 D6，不是判据 D6.e；D6.f 整条都是接线，没有任何单元测试认领得了，
- * 不登记的话审计只会报「没有测试认领」，说不出靠什么守着（ADR-25）。
+ * P3 入口那一处（预算用尽的收尾）今天拆成了四条判据，只有断点内容那一条
+ * `P3.i` 有负片（`M-P3-b`，5b 落的）；`P3.g`／`P3.h`／`P3.j` 拿不到可执行负片，
+ * 按显式豁免登记在 `mutations.json` 的 `exemptions` 里（理由与实测在 ADR-70）。
+ *
+ * **D6.f 原先也登记在那张豁免表上，落地 4 撤了** —— 撤得掉是因为它拿到了 `M-D6-j`
+ * 和那条硬失败。D6.e 则从来不必登记：它说的是「那句话说什么」，在 `scripts/test.ts`
+ * 里有认领；`M-D6-f`／`M-D6-g`／`M-D6-h` 的 `req` 写的是 `D6`，按「编号逐字相同」
+ * 守的是需求级的 D6、不是判据 D6.e，但判据这一头有测试认领就不会被报成缺口（ADR-25）。
  */
 export function resumeCostLine(
   dir: string, state: TaskState, qualified: number, creators: Creator[],
