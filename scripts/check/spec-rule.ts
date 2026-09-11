@@ -521,7 +521,7 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
     // **一个删掉证据就能变绿的检查,是在奖励删证据。**
     if (unclaimed.length) {
       flag = '·'
-      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有测试认领：` +
+      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有认领：` +
                 unclaimed.map(c => c.id).join(' '))
     }
   }

@@ -1662,8 +1662,8 @@
       "req": "harness",
       "why": "一条判据都没认领的需求不再报缺口 —— 把仅有的那条认领删掉，缺口反而消失，检查在奖励删证据",
       "file": "scripts/check/spec-rule.ts",
-      "find": "    if (unclaimed.length) {\n      flag = '·'\n      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有测试认领：` +",
-      "replace": "    if (unclaimed.length && claimed.length) {\n      flag = '·'\n      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有测试认领：` +"
+      "find": "    if (unclaimed.length) {\n      flag = '·'\n      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有认领：` +",
+      "replace": "    if (unclaimed.length && claimed.length) {\n      flag = '·'\n      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有认领：` +"
     },
     {
       "id": "M-H6-b",

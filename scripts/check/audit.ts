@@ -298,5 +298,8 @@ const redlineCrit = reqs.filter(r => r.cat === REDLINE_CAT).flatMap(r => r.accep
 console.log(`  ${coverageSummary(allCrit, redlineCrit, testedCriteria, entryCriteria, exemptIds)}`)
 
 if (hard) { console.error(`\n✗ 审计：${hard} 项硬失败`); process.exit(1) }
-console.log('\n✓ 审计：红线需求全部有测试且被变异验证；未豁免的红线判据全部有测试认领；' +
+// 「有测试认领」→「有认领」：入口认领算数之后，未豁免的红线判据里可以有几条是
+// 只被自检端到端跑过的，那句话再说「全部有测试认领」就是假的（#104 第一轮评审指出）。
+// 交点那一半仍是「测试认领」—— 自检不认领交点，那一栏恒空（`claims.ts` 记着）。
+console.log('\n✓ 审计：红线需求全部有测试且被变异验证；未豁免的红线判据全部有认领（测试或自检）；' +
             '有红线的交点全部有测试认领；检查链的判定模块全部有变异守着')
