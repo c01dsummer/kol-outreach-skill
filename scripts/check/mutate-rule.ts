@@ -87,7 +87,10 @@ export function processFailed(output: string, mark: string): boolean {
  */
 export function crashEvidence(output: string, verifier: Verifier, cap = 15):
   { lines: string[]; omitted: number } {
-  const fails = output.split('\n').map(l => l.trim()).filter(l => l.includes('✗'))
+  // 「失败行」的文法与 `processFailed` / `killsMatched` **逐字同一条**：trim 之后以
+  // 「✗ 」开头。只问「含不含这个字」的话，一行顺带提到它的诊断（或某个值里带着它）
+  // 就能占掉普通行的名额，把真正的失败行挤出去（#105 第二轮评审指出）。
+  const fails = output.split('\n').map(l => l.trim()).filter(l => l.startsWith('✗ '))
   const marked = (l: string): boolean =>
     (verifier.processMark !== undefined && l.includes(verifier.processMark))
     || (verifier.fixtureMark !== undefined && l.includes(verifier.fixtureMark))

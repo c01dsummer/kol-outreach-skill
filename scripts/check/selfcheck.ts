@@ -1008,8 +1008,8 @@ if (both.ok && !/^\s*⊘ X1\.a 名下有负片/m.test(both.stdout)) {
 // 指着它的变异会被「自己验自己」当场拦下）—— 与另外几处 mutate 夹具同一处境，
 // 所以只能有夹具。删掉那几行打印，这条断言必须红。
 //
-// 单独一份语料：那条变异让被测对象变成语法错误，验证者起不来 → 非零退出、没有汇总
-// → 判 `crashed`。⚠️ 不能塞进上面那份 —— 一条 crashed 会让整跑非零退出，
+// 单独一份语料：那条变异把被测对象的值改掉 → 验证者**先打两条失败行、再以非零退出**、
+// 不打汇总 → 判 `crashed`。⚠️ 不能塞进上面那份 —— 一条 crashed 会让整跑非零退出，
 // 上面两条断言的前置条件 `both.ok` 当场为假，它们就被静默跳过了。
 const crashTmp = join(tmp, 'crash-scene')
 mkdirSync(join(crashTmp, 'scripts', 'check'), { recursive: true })
@@ -1040,7 +1040,8 @@ const crash = runToolBoth('mutate 判「跑不起来」时留下现场', 'mutate
                           { status: 1 })
 if (crash.ok && !/跑不起来/.test(crash.stdout)) {
   failed++
-  console.error('  ✗ 那条变异没被判成「跑不起来」—— 这份语料造的就是验证者起不来')
+  console.error('  ✗ 那条变异没被判成「跑不起来」—— '
+                + '这份语料造的是「验证者红过、却没打汇总」，那一档判的就是跑不起来')
 } else if (crash.ok && !/^\s+退出码 .+·.+$/m.test(crash.stdout)) {
   failed++
   console.error('  ✗ 判「跑不起来」却没留下退出码与有没有主动停 —— 现场丢了')

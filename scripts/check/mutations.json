@@ -2563,6 +2563,22 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "  const causal = fails.filter(marked)",
       "replace": "  const causal: string[] = []"
+    },
+    {
+      "id": "M-H34-a",
+      "req": "harness",
+      "why": "报告里一条硬失败的需求可以印成「已豁免」或「有缺口」—— 退出码红着，而那一行看着没事，读报告的人找不到红在哪",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "  if (hard) flag = '✗'",
+      "replace": "  if (hard && flag === '✓') flag = '✗'"
+    },
+    {
+      "id": "M-H34-b",
+      "req": "harness",
+      "why": "现场里顺带提到那个记号的行也当成失败行 —— 它们占掉名额，把真正的失败行挤出去，留下来的现场说不清任何事",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  const fails = output.split('\\n').map(l => l.trim()).filter(l => l.startsWith('✗ '))",
+      "replace": "  const fails = output.split('\\n').map(l => l.trim()).filter(l => l.includes('✗'))"
     }
   ],
   "exemptions": [

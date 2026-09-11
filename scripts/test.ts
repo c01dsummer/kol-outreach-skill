@@ -2039,6 +2039,14 @@ harness('审计对一条需求的裁定')
   eq('非红线配上那条负片也通过',
     requirementVerdict(req('D9', ['a']), ev({ entryCriteria: new Set(['D9.a']),
       selfcheckMutatedCriteria: new Set(['D9.a']) })).hard, 0)
+  // ⚠️ 只验 hard 不够：上面几档是按「这条需求整体什么成色」写的，各自会覆盖 flag ——
+  // 实测出现过 `hard = 1` 而那一行印着 `·`／`⊘`，审计退出码 1 而逐条那行看着没事
+  // （#105 第二轮评审指出）。**硬失败的那一行必须打 ✗**，这是不变量（M-H34-a）。
+  eq('非红线：硬失败那一行必须打 ✗，不被「缺认领」那一档改写成 ·',
+    requirementVerdict(req('D9', ['a', 'b']), ev({ entryCriteria: new Set(['D9.a']) })).flag, '✗')
+  eq('红线整条豁免：也不许把硬失败那一行改写成 ⊘',
+    requirementVerdict(req('P9', ['a']), ev({ entryCriteria: new Set(['P9.a']),
+                                             exempt: true })).flag, '✗')
   // **没人认领的**豁免才别打 `✓` —— 图例里 `✓` 是「完整」，而审计自己在下面又把这条
   // 列成显式缺口。跟变异那一栏统一成 `⊘`，并把这种豁免有几条数出来（M-H6-g…i）。
   // ⚠️ 条件是「没人认领」不是「有豁免」：上面那条刚证明了认领过的判据即便名下还挂着
@@ -2860,6 +2868,11 @@ harness('判 crashed 时留下的现场：带记号的一条都不许丢')
   eq('一条失败行都没有 → 空', crashEvidence('什么也没红\n', SC, 5).lines.length, 0)
   // 缺省那个验证者没有记号，两栏都取不到时不许当成「每行都是原因」
   eq('验证者没有记号 → 全按普通行截', crashEvidence(noisy, VERIFIERS.test, 5).lines.length, 5)
+  // 「失败行」的文法与 processFailed / killsMatched 同一条：trim 之后以「✗ 」开头。
+  // 只问「含不含这个字」的话，一行顺带提到它的诊断会占掉普通行的名额，把真的挤出去
+  // （M-H34-b，#105 第二轮评审指出）。
+  const chatty = ['诊断：下面用 ✗ 标记失败', '✗ 真的失败了', '值是「✗」'].join('\n')
+  eq('只有以「✗ 」开头的才算失败行', crashEvidence(chatty, VERIFIERS.test, 5).lines, ['✗ 真的失败了'])
 }
 
 harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')

@@ -551,6 +551,13 @@ export function requirementVerdict(r: Req, e: Evidence): Verdict {
   // 一条豁免也算完整 —— 那条豁免只是还没撤(落地 3 第二片)。
   // 只往上抬 `✓` 这一档,`✗` 和 `·` 各有各的理由。
   if (flag === '✓' && exempted.length) flag = '⊘'
+  // **硬失败的那一行必须打 `✗`** —— 这一条最后说了算。上面几档是按「这条需求整体
+  // 什么成色」写的，各自会覆盖 `flag`：红线整条豁免改写成 `⊘`、非红线缺引用或缺认领
+  // 改写成 `·`。而「只由自检认领却没有那种负片」是**判据级**的硬失败，记在 `hard` 上，
+  // 于是出现过 `hard = 1` 而那一行印着 `·` —— 审计退出码 1，逐条那一行却看着没事
+  // （#105 第二轮评审指出，实测复现）。⚠️ 钉的是**不变量**不是那一条路径：
+  // 以后再加任何一档硬失败，这一行都替它兜住。
+  if (hard) flag = '✗'
   const mutatedCrit = r.accept.filter(c => e.mutatedCriteria.has(c.id)).length
   return { flag, gaps, hard, claimed: claimed.length, exempted: exempted.length, mutatedCrit }
 }
