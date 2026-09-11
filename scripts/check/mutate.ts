@@ -181,6 +181,23 @@ if (process.argv.includes('--brief')) {
   process.exit(0)
 }
 
+/**
+ * 验证者那几百个进程共用的一份 V8 编译缓存。
+ *
+ * 一次验证者跑里真正在断言的部分只占一成三，其余是起进程和装模块 —— 而装模块里
+ * 有一大块是同一批源文件被反复编译。Node 自己的这份缓存把编译结果落到盘上，
+ * **本仓库只做一件事：告诉它放哪，好让几百次跑共用同一份**（跑在隔离目录里的
+ * 那几个 worker 各有各的 cwd，不指绝对路径的话就成了几份互不相通的缓存）。
+ *
+ * **它失效在源码上，不失效在时间上。** 缓存条目由 Node 按源文本、Node 版本与 V8
+ * 参数校验，对不上就当场重编 —— 也就是说，一条变异改过的那个文件永远不会命中
+ * 未改之前那一条。缓存里没有任何「上一次的结论」，只有「这段字节码是这段源码编出来的」。
+ * 这一层对判定不可见：跑的还是那批断言，抓到还是抓到。
+ *
+ * 认已有的值：外面已经指了一份就用那份，不覆盖人家的安排。
+ */
+const NODE_COMPILE_CACHE = process.env.NODE_COMPILE_CACHE ?? resolve('.check-cache/compile-cache')
+
 const survived: Mut[] = []
 const elsewhere: Mut[] = []
 const crashed: Mut[] = []
@@ -264,7 +281,7 @@ const runTest = (verifier: Verifier): Promise<{ status: number | null; output: s
     // `tsx` 自己还要再分出一个真正跑脚本的进程来（POSIX 上才成立，见 `tsx-cmd.ts`）
     const [exe, argv] = tsxCommand([verifier.script])
     const kid = spawn(exe, argv,
-      { stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1' } })
+      { stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1', NODE_COMPILE_CACHE } })
     trackTest(kid)
     let out = ''
     let err = ''
@@ -375,7 +392,8 @@ const dispatch = async (jobs: number): Promise<void> => {
     cpSync('.', dir, { recursive: true, filter: src => !SKIP.has(basename(src)) })
     symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
     const [exe, argv] = tsxCommand([SELF, '--worker'])
-    const kid = spawn(exe, argv, { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'] })
+    const kid = spawn(exe, argv,
+      { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'], env: { ...process.env, NODE_COMPILE_CACHE } })
     live.add(kid)
     const hand = () => {
       const id = queue.shift()
