@@ -2459,6 +2459,14 @@
       "file": "scripts/check/claims.ts",
       "find": "export const ENTRY_CLAIMS_PATH = '.check-cache/selfcheck-claims.json'",
       "replace": "export const ENTRY_CLAIMS_PATH = '.check-cache/test-claims.json'"
+    },
+    {
+      "id": "M-H28-b",
+      "req": "harness",
+      "why": "入口那份认领记录落在缓存目录外面 —— 那个目录是 git 忽略、随手可以清掉的，记录写在外面会被当成仓库内容提交进去（ADR-35 记着那一次），而「清掉缓存重跑一遍」从此清不干净",
+      "file": "scripts/check/claims.ts",
+      "find": "export const ENTRY_CLAIMS_PATH = '.check-cache/selfcheck-claims.json'",
+      "replace": "export const ENTRY_CLAIMS_PATH = 'selfcheck-claims.json'"
     }
   ],
   "exemptions": [
