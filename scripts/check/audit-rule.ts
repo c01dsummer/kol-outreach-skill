@@ -102,3 +102,33 @@ export function deprecatedBlock(dead: Req[]): string[] {
   return dead.map(r => `~~${r.id}~~ ${r.deprecated!.since}` +
                        `${r.deprecated!.superseded_by ? ` → ${r.deprecated!.superseded_by}` : ''}`)
 }
+
+/** 认领名单:`Set` 与 `Map` 都算 —— 这里只问「在不在里面」。 */
+interface Claimed { has(id: string): boolean }
+
+/**
+ * 验收判据那一行汇总。**三个名单各数各的,数错了报告上看得见、审计照样全绿。**
+ *
+ * 测试认领与显式豁免分开报 —— 豁免是显式缺口,不是测试证据。合起来报「认领 N」,
+ * 一份审计的两个数(逐条与汇总)会对不上,而且把缺口装成了证据(P2.a / P3.b 没有运行时认领)。
+ * 入口认领也单开一栏,同一个理由:一条单元断言与一条端到端夹具证的不是同一件事。
+ *
+ * 留在 `audit.ts` 里的话没有任何一条测试够得着(`criterionMutations` 那条记录的同一个形状):
+ * 把入口认领那个数改成从单元那份名单里数、或者把红线那半数成全体,报告上的数字当场变了,
+ * 而单元测试与全部变异照样全绿。`docs/CONVENTIONS.md` 第 10 条。
+ *
+ * ⚠️ 它守的是**数得对不对**,不是**喂得对不对**:交进来的名单由 `audit.ts` 挑,
+ * 挑错了(比如交个空集合)这里一个字也看不见 —— 那一半是入口的接线,ADR-70 记着欠条。
+ */
+export function coverageSummary(
+  all: readonly { id: string }[], redline: readonly { id: string }[],
+  tested: Claimed, entry: Claimed, exempt: Claimed,
+): string {
+  const n = (crit: readonly { id: string }[], claimed: Claimed): number =>
+    crit.filter(c => claimed.has(c.id)).length
+  return `验收判据 ${all.length} 条 · 有测试认领 ${n(all, tested)}`
+       + ` · 入口认领 ${n(all, entry)}`
+       + ` · 其中红线 ${redline.length} 条（测试认领 ${n(redline, tested)}`
+       + ` · 入口认领 ${n(redline, entry)}`
+       + ` · 显式豁免 ${n(redline, exempt)}）`
+}

@@ -9,7 +9,8 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import {
-  JUDGMENT_EXEMPT, criterionMutations, deprecatedBlock, judgmentModules, ledger, unguarded,
+  JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
+  ledger, unguarded,
 } from './check/audit-rule.js'
 import {
   VERIFIERS, allKilled, complete, exemptionCovered, exemptionLead, exitRace, judgeRun,
@@ -2019,6 +2020,30 @@ harness('审计对一条需求的裁定')
   eq('同一条判据被点两次，集合里只算一个',
     [...criterionMutations([{ req: 'P5.g' }, { req: 'P5.g' }])], ['P5.g'])
   eq('一条变异都没有 → 空集合', criterionMutations([]).size, 0)
+
+  // 验收判据那一行汇总原先也拼在入口脚本里，同一个形状：把入口认领那个数改成从单元
+  // 那份名单里数、把红线那半数成全体、或者把豁免数成测试认领，报告上的数字当场变了，
+  // 而单元测试与全部变异照样全绿（M-H29-a/b/c）。
+  {
+    const allCrit = [{ id: 'A.a' }, { id: 'A.b' }, { id: 'B.a' }]
+    const redCrit = [{ id: 'A.a' }, { id: 'A.b' }]
+    const tested = new Set(['A.a', 'B.a'])
+    const entry = new Set(['A.b'])
+    // 豁免那一头交的是 Map（编号 → 理由），三个名单只问「在不在里面」。
+    // 三份故意各覆盖不同的条数：数错哪一份都得有一个数跟着变，否则这几条断言
+    // 分不出把豁免数成测试认领这种坏法（第一版三份都数出 1，M-H29-c 从下面滑过去）
+    const exempt = new Map([['A.a', '这条为什么没有运行时认领'], ['A.b', '同上']])
+    eq('三个名单各数各的，红线那半只数红线',
+      coverageSummary(allCrit, redCrit, tested, entry, exempt),
+      '验收判据 3 条 · 有测试认领 2 · 入口认领 1 · 其中红线 2 条'
+        + '（测试认领 1 · 入口认领 1 · 显式豁免 2）')
+    // 两份认领互不相干：交换名单，两个数跟着换 —— 合成一个数就分不出这件事。
+    // 这一条还钉住「红线那半只数红线」：交换之后入口那份全体 2 条、红线 1 条
+    eq('交换两份认领的名单，两个数跟着换',
+      coverageSummary(allCrit, redCrit, entry, tested, exempt),
+      '验收判据 3 条 · 有测试认领 1 · 入口认领 2 · 其中红线 2 条'
+        + '（测试认领 1 · 入口认领 1 · 显式豁免 2）')
+  }
 
   // 判据级的负片原先在报告里一个字都没有：变异那一列只认需求号，而变异表里
   // 今天已有几条把 req 写成判据号（M-P5-a 守着 P5.f），它们完全不可见

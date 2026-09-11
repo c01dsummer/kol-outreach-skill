@@ -10,7 +10,8 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  JUDGMENT_EXEMPT, criterionMutations, deprecatedBlock, judgmentModules, ledger, unguarded,
+  JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
+  ledger, unguarded,
 } from './audit-rule.js'
 import {
   CLAIMS_PATH, ENTRY_CLAIMS_PATH, SOURCE_DIR, claimsFresh, claimsReadFault, claimsWellFormed,
@@ -292,18 +293,8 @@ console.log(`  需求之间的交点 ${tensions.length} 个 · 有测试认领 `
               evidenceFor(from, t).redline).length}`)
 const allCrit = reqs.flatMap(r => r.accept)
 const redlineCrit = reqs.filter(r => r.cat === REDLINE_CAT).flatMap(r => r.accept)
-/**
- * 测试认领与显式豁免分开报 —— 豁免是显式缺口，不是测试证据。
- * 合起来报「认领 N」，一份审计的两个数（逐条与汇总）会对不上，
- * 而且把缺口装成了证据（P2.a / P3.b 没有运行时认领）。
- */
-console.log(`  验收判据 ${allCrit.length} 条 · 有测试认领 ` +
-            `${allCrit.filter(c => testedCriteria.has(c.id)).length}` +
-            ` · 入口认领 ${allCrit.filter(c => entryCriteria.has(c.id)).length}` +
-            ` · 其中红线 ${redlineCrit.length} 条（测试认领 ` +
-            `${redlineCrit.filter(c => testedCriteria.has(c.id)).length}` +
-            ` · 入口认领 ${redlineCrit.filter(c => entryCriteria.has(c.id)).length}` +
-            ` · 显式豁免 ${redlineCrit.filter(c => exemptIds.has(c.id)).length}）`)
+// 三个名单怎么数、分几栏报，都是判定，在 `audit-rule.ts` 里（第一轮评审指出）
+console.log(`  ${coverageSummary(allCrit, redlineCrit, testedCriteria, entryCriteria, exemptIds)}`)
 
 if (hard) { console.error(`\n✗ 审计：${hard} 项硬失败`); process.exit(1) }
 console.log('\n✓ 审计：红线需求全部有测试且被变异验证；未豁免的红线判据全部有测试认领；' +
