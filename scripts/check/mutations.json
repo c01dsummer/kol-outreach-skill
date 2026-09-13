@@ -1830,8 +1830,8 @@
       "req": "harness",
       "why": "只接管 Ctrl-C 那一种打断 —— 被杀掉、CI 超时、终端关掉的时候，动过的源文件照样留在工作区里，而那是一处故意违反某条需求的改动",
       "file": "scripts/check/mutate-restore.ts",
-      "find": "  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, onInterrupt)",
-      "replace": "  for (const sig of ['SIGINT'] as const) process.on(sig, onInterrupt)"
+      "find": "export const INTERRUPTS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const",
+      "replace": "export const INTERRUPTS = ['SIGINT'] as const"
     },
     {
       "id": "M-H15-d",
@@ -2603,6 +2603,94 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "  const room = Math.max(cap - causal.length, 0)\n  return {\n    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),\n    raw: false,\n  }",
       "replace": "  const room = Math.max(cap - causal.length, 0)\n  return {\n    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),\n    raw: true,\n  }"
+    },
+    {
+      "id": "M-H36-a",
+      "req": "harness",
+      "why": "派工时给了零或者负数当并行度，不再说「说不清要派几个」，而是悄悄收口成 1 跑起来 —— 一个写错的配置被当成没写过，人以为自己在串行跑，实际不是",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (!Number.isInteger(n) || n < 1) return undefined",
+      "replace": "  if (!Number.isInteger(n)) return undefined"
+    },
+    {
+      "id": "M-H36-b",
+      "req": "harness",
+      "why": "命令行上临时指定的并行度不再压过环境变量 —— 人在命令行上写了一个数，跑起来用的却是别的数，而输出里看不出来",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  const asked = flag === undefined ? env : flag.slice('--jobs='.length)",
+      "replace": "  const asked = env"
+    },
+    {
+      "id": "M-H36-c",
+      "req": "harness",
+      "why": "派出去的人手比要跑的变异还多时不再收口 —— 多出来那几个只是白起一遍进程，跑得更慢而不是更快",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return Math.max(1, Math.min(n, total))",
+      "replace": "  return Math.max(1, n)"
+    },
+    {
+      "id": "M-H36-d",
+      "req": "harness",
+      "why": "一行结论读回来时不再核对那个词认不认得：认不出的一律当成「被抓到」—— 一条崩掉的、或者汇报被截断的变异，会安安静静地记成有测试守着，而它什么也没证明",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return OUTCOMES.includes(outcome) ? { id, outcome: outcome as Outcome } : undefined",
+      "replace": "  return { id, outcome: outcome as Outcome }"
+    },
+    {
+      "id": "M-H36-e",
+      "req": "harness",
+      "why": "派出去却没有结论回来的那些编号不再被点出来 —— 那一跑漏掉了几条变异，报告却说全部通过，而漏掉的正是没人验过的那几条",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return handed.filter(id => !reported.has(id))",
+      "replace": "  return []"
+    },
+    {
+      "id": "M-H36-f",
+      "req": "harness",
+      "why": "派工时给了一句话或者一个小数当并行度，不再说「说不清要派几个」，而是拿一个算不出来的数去派工 —— 同样是把一个写错的配置当成没写过",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (!Number.isInteger(n) || n < 1) return undefined",
+      "replace": "  if (n < 1) return undefined"
+    },
+    {
+      "id": "M-H36-g",
+      "req": "harness",
+      "why": "没人指定并行度、按机器核数派工那一支，不再按要跑的条数收口 —— 一台核多的机器上，清单只剩三条也照样派出去八个人手，多出来那几个白起一遍进程",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (asked === undefined) return Math.max(1, Math.min(cpus, total))",
+      "replace": "  if (asked === undefined) return Math.max(1, cpus)"
+    },
+    {
+      "id": "M-H37-a",
+      "req": "harness",
+      "why": "派工跑被打断时，那一刀不再转发给各个 worker —— 它们自成一组、收不到打在派工进程上的那一刀，于是被过继出去接着跑被改过的源码，而没有任何东西看着它们",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "    kid.on('close', () => { if (--left === 0) once() })\n    kid.kill('SIGTERM')",
+      "replace": "    kid.on('close', () => { if (--left === 0) once() })"
+    },
+    {
+      "id": "M-H37-b",
+      "req": "harness",
+      "why": "派工跑被打断时，第一个 worker 一停就当成都停了 —— 剩下那几个还攥着改写和正在跑的验证者，派工进程却已经把目录删了、退出了",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "    kid.on('close', () => { if (--left === 0) once() })",
+      "replace": "    kid.on('close', () => { once() })"
+    },
+    {
+      "id": "M-H37-c",
+      "req": "harness",
+      "why": "派工跑被打断时收摊那一步不再只跑一次 —— 都停了走一次、宽限期到了又走一次，而那一步是删目录加退出，第二遍删的是别人刚建的东西",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  const once = () => { if (done) return; done = true; hard() }",
+      "replace": "  const once = () => { hard() }"
+    },
+    {
+      "id": "M-H37-d",
+      "req": "harness",
+      "why": "派工跑被打断时不再给等待设上限 —— 一个卡死的 worker 会把整个打断拖住，人看到的是「按了没反应」，比留下几个进程更难查",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "  later(once, graceMs)",
+      "replace": "  void later"
     }
   ],
   "exemptions": [

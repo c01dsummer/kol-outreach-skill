@@ -20,9 +20,10 @@ import {
   labelsOf, leadWired, processFailed, wiringFault,
 } from './check/mutate-rule.js'
 import {
-  beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, testRunning,
-  trackTest,
+  beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
+  testRunning, trackTest,
 } from './check/mutate-restore.js'
+import { jobsWanted, missingVerdicts, parseReport, reportLine } from './check/jobs-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
   requirementVerdict,
@@ -78,7 +79,7 @@ import {
   calculateQuoteEfficiency, measured, publicPostSample, recomputeCachedAssessment, unavailable,
 } from './lib/assessment.js'
 import {
-  writeFileSync, unlinkSync, truncateSync, rmSync, mkdirSync, existsSync,
+  writeFileSync, unlinkSync, truncateSync, rmSync, mkdirSync, mkdtempSync, existsSync,
   readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -608,7 +609,16 @@ suite('P4', '收尾管线：闸门在记忆过滤之前，不虚报打扰规模'
 
 suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过')
 {
-  const tmp = join(tmpdir(), `kol-d4-${process.pid}.json`)
+  // 这一族的临时文件放进**本次运行独有**的目录，不直接摊在系统临时目录上。
+  // 摊在外面时文件名只能靠进程号划范围，而进程号会被系统回收重发：一次跑弄坏了孤儿
+  // 清理、留下 `…<pid>.json.999999.tmp`，将来某次跑抽到同一个号，下面那条
+  // 「不留下半成品」就凭空判红。而对不点名的那两百多条变异，判定只问「这一跑有没有红」、
+  // 不问「红的是哪一条」（`judgeRun` 里 `kills === undefined` 直接给 `caught`）——
+  // 于是一条本该**存活**的变异会被记成被抓到。**那是假绿，不是假红。**
+  // 实测这台机器上已经攒了 99 个这样的孤儿，而 pid_max 是 32768。
+  // 换成一次一个独有目录，孤儿留在自己那份里，结构上撞不着未来任何一次跑（与自检同一路数）。
+  const d4Dir = mkdtempSync(join(tmpdir(), 'kol-d4-'))
+  const tmp = join(d4Dir, 'creators.json')
   const person = (h: string, over: Record<string, unknown> = {}) => ({
     platform: 'tiktok', handle: h, nickname: h, followers: 50000, first_seen: '2026-01-01',
     recommendations: [], contacted: false, replied: false, blocked: false, note: '', ...over,
@@ -1237,11 +1247,10 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
   const okWb = recordRecommendations([mk('tiktok', 'erin')], 'p')
   eq('正常时写回成功', okWb.written, true)
-  eq('不留下半成品', readdirSync(tmpdir()).filter(f =>
-    f.startsWith(`kol-d4-${process.pid}`) && f.endsWith('.tmp')).length, 0)
+  eq('不留下半成品', readdirSync(d4Dir).filter(f => f.endsWith('.tmp')).length, 0)
   ok('写回后仍可解析', (() => { try { JSON.parse(rf(tmp, 'utf8')); return true } catch { return false } })())
 
-  rmSync(tmp, { force: true })   // 变异可能已经把它删了，清理不该因此崩掉
+  rmSync(d4Dir, { recursive: true, force: true })   // 变异可能已经把它删了，清理不该因此崩掉
   useMemoryFile('memory/creators.json')
 }
 
@@ -3279,6 +3288,83 @@ harness('变异跑到一半被打断：动过的源文件要还回去')
   // 最后才拆：处理函数里有退出，留在测试进程里会把后面任何一次打断变成静默退出
   for (const s of sigs) process.off(s, onInterrupt)
   for (const p of [f, kid, victim, waited]) rmSync(p, { force: true })
+}
+
+harness('派工被打断：先请每个 worker 自己收摊，都收完了再走')
+{
+  // 派工那一侧自己不改源文件，它欠的是另一样：那几个 worker 各自攥着一处改写和一个正在
+  // 跑的验证者，而它们**自成一组、收不到打在派工进程上的那一刀**。直接退掉的话，
+  // 那几组会被过继出去接着跑被改过的源码。这里拿能自己说「我停了」的替身来问 ——
+  // 本文件从头到尾同步跑，等不到真子进程结束
+  const later: { ms: number; fn: () => void }[] = []
+  const schedule = (fn: () => void, ms: number) => { later.push({ fn, ms }) }
+  const kidOf = () => {
+    const k = new EventEmitter() as ChildProcess & { hit: string[] }
+    k.hit = []
+    k.kill = ((s?: NodeJS.Signals) => { k.hit.push(String(s)); return true }) as ChildProcess['kill']
+    return k
+  }
+
+  let hard = 0
+  stopJobs([], () => { hard++ }, 5000, schedule)
+  eq('一个 worker 都没在跑：当场收摊', hard, 1)
+  eq('没什么可等的，不必排计时器', later.length, 0)
+
+  hard = 0; later.length = 0
+  const w1 = kidOf(); const w2 = kidOf()
+  stopJobs([w1, w2], () => { hard++ }, 5000, schedule)
+  eq('那一刀要转发给每一个 worker', [w1.hit, w2.hit], [['SIGTERM'], ['SIGTERM']])
+  eq('宽限期照说好的排上一次', later.map(l => l.ms), [5000])
+  eq('还没停完就不走 —— 走了它们就成了没人看着的孤儿', hard, 0)
+  w1.emit('close')
+  eq('只停了一个也不走', hard, 0)
+  w2.emit('close')
+  eq('都停了才走', hard, 1)
+  // 两条路都会走到收摊那一步（都停了、或者宽限期到了），而它是删目录加退出
+  later.at(0)?.fn()
+  eq('收摊至多跑一次 —— 跑两遍时第二遍删的是别人刚建的东西', hard, 1)
+
+  // 等不到的那种：worker 自己卡死。不硬来的话，人看到的是「Ctrl-C 按了没反应」
+  hard = 0; later.length = 0
+  const stuck = kidOf()
+  stopJobs([stuck], () => { hard++ }, 5000, schedule)
+  eq('卡死的那个也收到了那一刀', stuck.hit, ['SIGTERM'])
+  later.at(0)?.fn()
+  eq('宽限期到了硬来，不陪着它一起挂', hard, 1)
+}
+
+harness('变异跑的派工：派几个、结论怎么带回来、派出去没回话的怎么算')
+{
+  // 都没写就按机器核数；再按要跑的条数收口 —— 派得比变异还多，多出来那几个只是白起进程
+  eq('都没写：按机器核数', jobsWanted([], undefined, 8, 100), 8)
+  eq('比要跑的条数还多：按条数收口', jobsWanted([], undefined, 8, 3), 3)
+  eq('明写的也一样收口', jobsWanted([], '9', 8, 3), 3)
+  eq('单核机器：一个，也就是串行那条路', jobsWanted([], undefined, 1, 100), 1)
+  eq('环境变量说了算', jobsWanted([], '2', 8, 100), 2)
+  eq('命令行压环境变量 —— 临时改一次不该要求先改环境',
+    jobsWanted(['--jobs=3'], '2', 8, 100), 3)
+  // 读不出来要说读不出来。悄悄按核数跑，等于把一个写错的配置当成没写
+  eq('读不出来的值：说不清要派几个', jobsWanted([], 'abc', 8, 100), undefined)
+  eq('零个不成立', jobsWanted([], '0', 8, 100), undefined)
+  eq('负数不成立', jobsWanted([], '-1', 8, 100), undefined)
+  eq('小数不成立', jobsWanted(['--jobs=2.5'], undefined, 8, 100), undefined)
+
+  // 汇报行：写下去再读回来，五种结论一个不丢。两边各写一份格式的话，
+  // 改一边不改另一边的症状是「每一条都没回话」，而人会去翻变异集，不会去翻这个格式
+  for (const o of ['caught', 'elsewhere', 'crashed', 'survived', 'not-applied'] as const) {
+    eq(`结论「${o}」写下去读回来还是它`, parseReport(reportLine('M-X-a', o)),
+      { id: 'M-X-a', outcome: o })
+  }
+  // 认不出的一律 undefined。兜底成「抓到」的话，一条崩掉的变异会安静地记成被抓到
+  eq('不是汇报行的：认不出', parseReport('  ✓ M-X-a  [X1] 被抓到'), undefined)
+  eq('结论那个词不认得：认不出，不猜', parseReport(reportLine('M-X-a', 'ok' as never)), undefined)
+  eq('后面多带了一截：认不出', parseReport(`${reportLine('M-X-a', 'caught')} 还有`), undefined)
+  eq('没有编号：认不出', parseReport(reportLine('', 'caught')), undefined)
+
+  // 派出去却没回话的，是「没查过」，不是通过（process/README.md 总纲的第三档）
+  eq('少了谁就报谁，按派出去的顺序',
+    missingVerdicts(['M-a', 'M-b', 'M-c'], new Set(['M-b'])), ['M-a', 'M-c'])
+  eq('都回话了就没有欠账', missingVerdicts(['M-a', 'M-b'], new Set(['M-a', 'M-b'])), [])
 }
 
 harness('起 tsx 的那条命令：三处共用一份，不经 npx、不经 shell')

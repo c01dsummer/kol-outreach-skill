@@ -144,8 +144,16 @@ export function onInterrupt(): never {
 }
 
 /**
- * 装上信号处理。**三种都要装**:Ctrl-C 是一种,被杀掉和 CI 超时是另一种,
+ * 要接管的那几种打断。**三种都要装**:Ctrl-C 是一种,被杀掉和 CI 超时是另一种,
  * 终端关掉是第三种 —— 只接管其中一种,另外两条路照样把改动留在工作区里。
+ *
+ * 单拎出来是因为**派工那一侧要接管同一批**:各写一份的话,给自己那份加了一种、
+ * 忘了给对面那份加,症状是「换个跑法就漏一种」,而漏掉的那种不响。
+ */
+export const INTERRUPTS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
+
+/**
+ * 装上信号处理。
  *
  * **装过就不再装。** 每个变异都要记一次现场,两百个变异装两百遍的话,同一个信号上
  * 挂满处理函数,Node 开始刷告警 —— 而那时被盖住的,正是人来看的那份变异结果。
@@ -153,7 +161,40 @@ export function onInterrupt(): never {
 export function restoreOnInterrupt(): void {
   if (armed) return
   armed = true
-  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, onInterrupt)
+  for (const sig of INTERRUPTS) process.on(sig, onInterrupt)
+}
+
+/**
+ * 派工那一侧被打断时该做的:**先请每个 worker 自己收摊,都收完了再走。**
+ *
+ * 派工那一侧自己不改任何源文件(改的是各个 worker 目录里的副本),所以它没有现场可还;
+ * 它欠的是另一样东西 —— 那几个 worker 各自手上都攥着一处改写和一个正在跑的验证者,
+ * 而**它们自成一组、收不到打在派工进程上的那一刀**。派工进程直接退掉的话,
+ * 那几组会被过继出去接着跑:跑的是被改过的源码,谁也没在看着。
+ *
+ * 所以这里只做一件事:把那一刀转发过去,然后**等它们说自己停了**。收到之后各个 worker
+ * 走的是上面那条 `onInterrupt` —— 停掉手上的验证者、还原、非零退出,一条路径不分岔。
+ *
+ * **宽限期到了还没收完就硬来。** 等不到的那种(worker 自己卡死)不能变成派工进程
+ * 陪着一起挂 —— 那时人看到的是「Ctrl-C 按了没反应」,比留下几个进程更难查。
+ * 计时器由调用方注入:等多久是判定,而怎么计时是 I/O。
+ *
+ * `hard` **至多跑一次**。两条路都会走到它(都收完了、或者宽限期到了),
+ * 而它那一步是删目录加退出 —— 跑两遍的话,第二遍删的是别人刚建的东西。
+ */
+export function stopJobs(
+  live: readonly ChildProcess[], hard: () => void, graceMs: number,
+  later: (fn: () => void, ms: number) => void,
+): void {
+  let done = false
+  const once = () => { if (done) return; done = true; hard() }
+  if (live.length === 0) { once(); return }
+  let left = live.length
+  for (const kid of live) {
+    kid.on('close', () => { if (--left === 0) once() })
+    kid.kill('SIGTERM')
+  }
+  later(once, graceMs)
 }
 
 /**
