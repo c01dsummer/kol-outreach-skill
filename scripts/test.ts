@@ -79,7 +79,7 @@ import {
   calculateQuoteEfficiency, measured, publicPostSample, recomputeCachedAssessment, unavailable,
 } from './lib/assessment.js'
 import {
-  writeFileSync, unlinkSync, truncateSync, rmSync, mkdirSync, existsSync,
+  writeFileSync, unlinkSync, truncateSync, rmSync, mkdirSync, mkdtempSync, existsSync,
   readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -609,7 +609,16 @@ suite('P4', '收尾管线：闸门在记忆过滤之前，不虚报打扰规模'
 
 suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过')
 {
-  const tmp = join(tmpdir(), `kol-d4-${process.pid}.json`)
+  // 这一族的临时文件放进**本次运行独有**的目录，不直接摊在系统临时目录上。
+  // 摊在外面时文件名只能靠进程号划范围，而进程号会被系统回收重发：一次跑弄坏了孤儿
+  // 清理、留下 `…<pid>.json.999999.tmp`，将来某次跑抽到同一个号，下面那条
+  // 「不留下半成品」就凭空判红。而对不点名的那两百多条变异，判定只问「这一跑有没有红」、
+  // 不问「红的是哪一条」（`judgeRun` 里 `kills === undefined` 直接给 `caught`）——
+  // 于是一条本该**存活**的变异会被记成被抓到。**那是假绿，不是假红。**
+  // 实测这台机器上已经攒了 99 个这样的孤儿，而 pid_max 是 32768。
+  // 换成一次一个独有目录，孤儿留在自己那份里，结构上撞不着未来任何一次跑（与自检同一路数）。
+  const d4Dir = mkdtempSync(join(tmpdir(), 'kol-d4-'))
+  const tmp = join(d4Dir, 'creators.json')
   const person = (h: string, over: Record<string, unknown> = {}) => ({
     platform: 'tiktok', handle: h, nickname: h, followers: 50000, first_seen: '2026-01-01',
     recommendations: [], contacted: false, replied: false, blocked: false, note: '', ...over,
@@ -1238,11 +1247,10 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
   const okWb = recordRecommendations([mk('tiktok', 'erin')], 'p')
   eq('正常时写回成功', okWb.written, true)
-  eq('不留下半成品', readdirSync(tmpdir()).filter(f =>
-    f.startsWith(`kol-d4-${process.pid}`) && f.endsWith('.tmp')).length, 0)
+  eq('不留下半成品', readdirSync(d4Dir).filter(f => f.endsWith('.tmp')).length, 0)
   ok('写回后仍可解析', (() => { try { JSON.parse(rf(tmp, 'utf8')); return true } catch { return false } })())
 
-  rmSync(tmp, { force: true })   // 变异可能已经把它删了，清理不该因此崩掉
+  rmSync(d4Dir, { recursive: true, force: true })   // 变异可能已经把它删了，清理不该因此崩掉
   useMemoryFile('memory/creators.json')
 }
 
