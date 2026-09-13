@@ -7,7 +7,9 @@
  * **验证者崩了不算抓到**（`mutate-rule.ts`）：崩溃不是任何一条断言的功劳。
  *
  * 验证者缺省是 `scripts/test.ts`；写了 `by` 的改跑别的（今天只有自检），为的是接线
- * 那一层 —— 入口里的接线缺省那个验证者够不到，长期只能靠显式缺口顶着（ADR-70）。
+ * 那一层 —— 入口里的接线缺省那个验证者够不到。⚠️ 原先这类缺口只能靠显式缺口顶着，
+ * **落地 4 起改成闸门**：只由自检认领的判据没有一条 `by: "selfcheck"` 的负片就硬失败
+ * （判定在 `spec-rule.ts`，分类在 `audit-rule.ts`）。
  * `by` 与 `kills` **同进同出**，理由在下面那道校验上。
  *
  * 用法：
@@ -26,7 +28,9 @@ import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import {
   type LabelFault, type RunVerdict, type Verifier, type WiringFault,
-  VERIFIERS, exemptionCovered, exemptionLead, judgeRun, labelFault, labelsOf, wiringFault,
+  VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
+  labelFaults, labelsOf,
+  wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
@@ -37,8 +41,11 @@ interface Mut {
   id: string; req: string; why: string; file: string; find: string; replace: string
   /** 谁来验它。缺省 `test` —— 不写的那些逐字保持原来的行为 */
   by?: string
-  /** 该红的那一条夹具的名字。**和 `by` 同进同出** —— 写了 `by` 就必填，没写 `by` 就不许写 */
-  kills?: string
+  /**
+   * 该红的那些夹具的名字，**一组，每一条都要红**。和 `by` 同进同出 —— 写了 `by` 就必填，
+   * 没写 `by` 就不许写。只收一个名字时，弄红头一条就算抓到，剩下几条明天删光也照样绿。
+   */
+  kills?: string[]
 }
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
 const cfg = JSON.parse(readFileSync('scripts/check/mutations.json', 'utf8'))
@@ -82,14 +89,17 @@ if (dirty.length) {
   process.exit(1)
 }
 
-// 三种写错都在开跑之前拦下 —— 判据在 `mutate-rule.ts` 的 `wiringFault`，这里只把它的
-// 裁定翻成人话（`docs/CONVENTIONS.md` 第 10 条）。前两种是**静默的坏**；第三种
-// 「不写 by 只写 kills」相反 —— 它**真会生效**（判定收的是验证者和点的名两个独立参数），
-// 正因为生效才要拦：那是 ADR-70 明写不承诺、要另外评定的延伸。
+// 四种写错都在开跑之前拦下 —— 判据在 `mutate-rule.ts` 的 `wiringFault`，这里只把它的
+// 裁定翻成人话（`docs/CONVENTIONS.md` 第 10 条）。「名字不认得」与「漏了 kills」是
+// **静默的坏**；「不写 by 只写 kills」相反 —— 它**真会生效**（判定收的是验证者和点的名
+// 两个独立参数），正因为生效才要拦：那是 ADR-70 明写不承诺、要另外评定的延伸。
+// 第四种「kills 不是一组名字」拦的是老写法那个字符串：它连拒都拒不干净 —— 入口拿它去
+// 逐项核对清册时当场抛，人看见的是一个栈，而不是「kills 写错了」。
 const SAY: Record<WiringFault, (m: Mut) => string> = {
   'unknown-verifier': m => `指的验证者 ${m.by} 不认得 —— 认得的是 ${Object.keys(VERIFIERS).join('、')}`,
-  'missing-kills': m => `指了验证者 ${m.by}，却没说该红的是哪一条夹具`,
+  'missing-kills': m => `指了验证者 ${m.by}，却没说该红的是哪几条夹具`,
   'kills-without-by': () => '写了 kills 却没写 by —— 缺省验证者那些不点名（ADR-70 说这条延伸另外评定）',
+  'kills-not-list': m => `kills 要写成一组名字（["…"]），${m.by} 那条写的不是`,
 }
 const miswired = muts.flatMap(m => {
   const fault = wiringFault(m)
@@ -116,7 +126,7 @@ if (selfVerified.length) {
   process.exit(1)
 }
 
-// 点的那条夹具真的在，而且只有一条叫这个名字 —— 判据在 `mutate-rule.ts` 的
+// 点的那些夹具真的在，而且各自只有一条叫那个名字 —— 判据在 `mutate-rule.ts` 的
 // `labelsOf` / `labelFault`。**扫源码也是判定**（`lint-rule` 那条先例的同一形状）：
 // 扫得出什么决定了清册有多大，而清册小了是拦住、大了是放行。入口只出一个读法，
 // 外加「同一个验证者只读一次」—— 上面两道体检已经放行，`by` 到这里必定认得。
@@ -132,14 +142,14 @@ const inventoryOf = (by: string): ReadonlyMap<string, number> => {
   inventories.set(by, built)
   return built
 }
-const SAY_LABEL: Record<LabelFault, (m: Mut) => string> = {
-  'unknown-label': m => `点的夹具「${m.kills}」不在 ${m.by} 的清册里 —— 名字写岔了，或者那条夹具没了`,
-  'ambiguous-label': m => `${m.by} 里不止一条夹具叫「${m.kills}」—— 红的是哪一条分不出`,
+const SAY_LABEL: Record<LabelFault, (m: Mut, label: string) => string> = {
+  'unknown-label': (m, k) => `点的夹具「${k}」不在 ${m.by} 的清册里 —— 名字写岔了，或者那条夹具没了`,
+  'ambiguous-label': (m, k) => `${m.by} 里不止一条夹具叫「${k}」—— 红的是哪一条分不出`,
 }
+// 「名单里每一项各查一次」是语义，判定在 mutate-rule.ts，这儿只渲染（CONVENTIONS 第 10 条）
 const misnamed = muts.flatMap(m => {
   if (m.by === undefined || m.kills === undefined) return []
-  const fault = labelFault(m.kills, inventoryOf(m.by))
-  return fault === undefined ? [] : [`${m.id}  ${SAY_LABEL[fault](m)}`]
+  return labelFaults(m.kills, inventoryOf(m.by)).map(f => `${m.id}  ${SAY_LABEL[f.fault](m, f.label)}`)
 })
 if (misnamed.length) {
   console.error(`✗ 变异集：${misnamed.length} 条点的夹具立不住 —— 它们的绿或红都不算数\n`)
@@ -241,7 +251,15 @@ process.on('exit', restoreClaims)
  * 它靠的是 Node 官方文档 + 代码推理，不是一次真的 Windows 运行。Linux 这一侧
  * 是真跑过的：整条变异链绿。
  */
-const runTest = (verifier: Verifier): Promise<{ status: number | null; output: string }> =>
+/**
+ * 跑一次验证者。点了名的话**见齐就停** —— 名单里每一条都红过之后不必再等它跑完。
+ *
+ * 「见齐了没有」是判据，在 `mutate-rule.ts` 的 `allKilled`；这里只管什么时候杀
+ * （`docs/CONVENTIONS.md` 第 10 条）。只按**整行**问：收到的字节按 \n 切，最后一段
+ * 可能是半行，留着等下一块 —— 拿半行去匹配，名字会在写到一半时就算数。
+ */
+const runTest = (verifier: Verifier, kills?: readonly string[]):
+  Promise<{ status: number | null; output: string; stoppedOnKills: boolean }> =>
   new Promise(resolve => {
     // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
     // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
@@ -253,12 +271,29 @@ const runTest = (verifier: Verifier): Promise<{ status: number | null; output: s
     trackTest(kid)
     let out = ''
     let err = ''
-    kid.stdout.on('data', d => { out += d })
-    kid.stderr.on('data', d => { err += d })
+    let stoppedOnKills = false
+    // 见齐了就把整组停掉。**杀的是进程组**（负的 pid）：`tsx` 底下还有一个真正跑脚本的
+    // 进程，只杀手上这一个杀不掉，剩下那个会一直跑到自己结束 —— 那样「省下的时间」就没了
+    const stopIfSeen = (): void => {
+      if (stoppedOnKills || kills === undefined) return
+      // **两股各自截**：合起来再截会把两者之间那个人为插入的换行当成行尾，于是先到的
+      // 那一股的半行被当成整行 —— 名字写到一半就算数，后缀还没到就把人杀了（#99 评审指出）
+      const whole = complete(out) + complete(err)
+      if (!allKilled(whole, kills)) return
+      // **杀成了才算停过**：信号发不出去（负 pid 在别的平台上不成立、或者它正好自己退了）
+      // 时把标志立起来，判定就会去走那条绕开汇总的路，而这一次其实是跑到底的 ——
+      // 一次普通的「非零退出、没有汇总」会被记成被抓到（#99 第二轮评审指出）
+      try {
+        process.kill(-(kid.pid as number), 'SIGTERM')
+        stoppedOnKills = true
+      } catch { /* 没杀成：这一次就当没停过，按老规矩判 */ }
+    }
+    kid.stdout.on('data', d => { out += d; stopIfSeen() })
+    kid.stderr.on('data', d => { err += d; stopIfSeen() })
     // 压根没起来（命令不在、权限不足）也要留下话：那时两股都是空的，
     // 判定只会说「跑不起来」，而人得知道是没起来还是跑崩了
     kid.on('error', e => { err += `\n${e}` })
-    kid.on('close', status => resolve({ status, output: `${out}\n${err}` }))
+    kid.on('close', status => resolve({ status, output: `${out}\n${err}`, stoppedOnKills }))
   })
 
 for (const m of muts) {
@@ -270,6 +305,13 @@ for (const m of muts) {
   }
   beginMutation(m.file, orig)
   let verdict: RunVerdict
+  // 判 `crashed` 时要说得出**为什么** —— 那一档原先一个字都不留下验证者说过什么,
+  // 而它恰恰是唯一能分辨「真崩了」与「这一次不巧」的证据(ADR-70 记着这笔账,
+  // 它在同一片里咬了两次才补上)。只有这一档留:另外三档的结论自己就够清楚,
+  // 而 300 多条各留一份会把输出淹掉。
+  let output = ''
+  let status: number | null = null
+  let stopped = false
   try {
     // 写盘也在这一段里面：写盘是先截断再写的，写到一半抛出去（盘满、IO 错）留下的是
     // 半份源文件，而那时 `finally` 要是够不着，被截断的那份就留在工作区里，
@@ -278,18 +320,36 @@ for (const m of muts) {
     // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null);
     // 点了名的还要再看一层:红的是不是 kills 说的那一条
     const verifier = VERIFIERS[m.by ?? 'test']
-    const r = await runTest(verifier)
-    verdict = judgeRun(r.status, r.output, verifier, m.kills)
+    const r = await runTest(verifier, m.kills)
+    output = r.output; status = r.status; stopped = r.stoppedOnKills
+    verdict = judgeRun(r.status, r.output, verifier, m.kills, r.stoppedOnKills)
   } finally {
     restoreMutation()
   }
   if (verdict === 'caught') console.log(`  ✓ ${m.id}  [${m.req}] 被抓到`)
   else if (verdict === 'elsewhere') {
     elsewhere.push(m)
-    console.log(`  ✗ ${m.id}  [${m.req}] 红的不是点名那条 —— ${m.by} 确实红了，但「${m.kills}」没红`)
+    console.log(`  ✗ ${m.id}  [${m.req}] 红的不是点名的那些 —— ${m.by} 确实红了，`
+                + `但点名的「${(m.kills ?? []).join('」「')}」里有没红的`)
   } else if (verdict === 'crashed') {
     crashed.push(m)
     console.log(`  ✗ ${m.id}  [${m.req}] 跑不起来 —— 验证者死在半路,没有任何一条断言抓到它`)
+    // 现场：退出码、有没有因为见齐点名而主动停、以及验证者打出来的失败行。
+    // 带记号的那些是判定一票否决的原因,不带记号的说明断言真的红过 —— 两者分得开。
+    // ⚠️ 「没主动停」**不等于「跑到了尾」**：被信号杀掉的那一次也是没主动停（评审指出，
+    // 头一版写成「跑到了尾」，跟「无，被信号杀掉」摆在同一行里自相矛盾）。
+    // 留哪几行是判定，在 `mutate-rule.ts`（`docs/CONVENTIONS.md` 第 10 条）。
+    console.log(`      退出码 ${status === null ? '（无，被信号杀掉）' : status}`
+                + ` · ${stopped ? '见齐点名的就停了' : '未因见齐点名而主动停'}`)
+    const scene = crashEvidence(output, VERIFIERS[m.by ?? 'test'])
+    if (scene.lines.length === 0) console.log('      验证者一个字都没打出来')
+    else {
+      // 两种现场的前缀**分得开**：`│` 是成形的失败行（断言说了话），
+      // `┆` 是原始输出的尾巴（一条成形的失败行都没有，八成是真崩了）。
+      if (scene.raw) console.log('      没有成形的失败行，下面是它最后几行输出：')
+      for (const l of scene.lines) console.log(`      ${scene.raw ? '┆' : '│'} ${l}`)
+    }
+    if (scene.omitted) console.log(`      （另有 ${scene.omitted} 行未显示）`)
   } else { survived.push(m); console.log(`  ✗ ${m.id}  [${m.req}] 存活 —— ${m.why}`) }
 }
 
@@ -302,7 +362,8 @@ if (survived.length || elsewhere.length || crashed.length || notApplied.length) 
   console.error(`\n✗ 变异测试：${survived.length} 个存活，${elsewhere.length} 个红错了地方，`
                 + `${crashed.length} 个跑不起来，${notApplied.length} 个锚点失效`)
   if (survived.length) console.error('  存活意味着对应的测试证明不了任何事 —— 修测试，不要删变异。')
-  if (elsewhere.length) console.error('  红错了地方也不算抓到：点名的那条夹具没红，它就什么也没证明。改 kills 指对那一条，或者把那条夹具补上。')
+  if (elsewhere.length) console.error('  红错了地方也不算抓到：点名的夹具里有没红的，它对那几条就什么也没证明。'
+                                      + '先核对名单里的名字是不是都指对了，再看没红的那条夹具在不在、这个变异该不该弄红它。')
   if (crashed.length) console.error('  跑不起来不算抓到：崩溃不是断言的功劳。让那条测试作为断言失败，或者把变异改成一处语义改动而不是语法错误。')
   process.exit(1)
 }

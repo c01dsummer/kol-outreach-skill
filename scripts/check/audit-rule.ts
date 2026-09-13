@@ -1,11 +1,14 @@
 /**
  * 链路审计里能被测的那些判定 —— 抽出来的理由同 `lint-rule.ts`:留在入口里就永远测不到
- * (`docs/CONVENTIONS.md` 第 10 条)。两半,各管各的:
+ * (`docs/CONVENTIONS.md` 第 10 条)。三半,各管各的:
  *
  * 1. **检查链自己**算不算数:哪些文件是判定模块、哪些没有变异守着
  *    (`judgmentModules` / `unguarded`)。下面这一整段讲的都是这一半。
  * 2. **计量输入怎么分**:现行的参与计量、作废的只参与展示
  *    (`ledger` / `deprecatedBlock`)。理由写在 `ledger` 自己头上,不在这里重复。
+ * 3. **报告上那几个数怎么数**:哪些变异是判据级的、验收判据那一行三份名单各数各的
+ *    (`criterionMutations` / `selfcheckCriterionMutations` / `coverageSummary`)。
+ *    理由各写在它们自己头上。
  *
  * 这一半守的是 `process/4-VERIFY.md` 那句「检查链自己也在这张清单里」:一条没有测试、也没有
  * 变异守着的检查,和没有检查之间的差别只有心理作用。审计原先只对产品红线强制
@@ -73,6 +76,24 @@ export function criterionMutations(mutations: { req: string }[]): Set<string> {
 }
 
 /**
+ * 判据级的负片里,**改跑自检**的那些 —— 落地 4 那条硬失败问的就是这个集合。
+ *
+ * 只由自检认领的判据(单元断言一条都没认、全靠端到端夹具跑到)有个特殊处境:
+ * 缺省那个验证者够不到它,所以指着它的变异**必须**写 `by: "selfcheck"`,否则那条变异
+ * 只会「存活」,对这条判据什么也证不了。**认领与负片要来自同一头** —— 认领是自检发的,
+ * 负片也得是自检验的,配不上就是一条只有夹具、没有第三拍的判据(`process/4-VERIFY.md`)。
+ *
+ * 与 `criterionMutations` **分开两个函数、不是加一个参数**:那一个回答「报告上『负片 K』
+ * 数几条」,这一个回答「硬失败该不该响」。合成一个带开关的,两处的口径以后会互相拖着变。
+ */
+export function selfcheckCriterionMutations(
+  mutations: { req: string; by?: string }[],
+): Set<string> {
+  return new Set(mutations.filter(m => m.by === 'selfcheck').map(m => m.req)
+    .filter(id => id.includes('.')))
+}
+
+/**
  * 审计的计量输入。**现行的参与计量,作废的只参与展示。**
  *
  * 抽出来的理由和上面两个一样,而且更硬:作废的需求算进覆盖率的分母,
@@ -101,4 +122,45 @@ export function ledger(all: Req[]): Ledger {
 export function deprecatedBlock(dead: Req[]): string[] {
   return dead.map(r => `~~${r.id}~~ ${r.deprecated!.since}` +
                        `${r.deprecated!.superseded_by ? ` → ${r.deprecated!.superseded_by}` : ''}`)
+}
+
+/** 认领名单:`Set` 与 `Map` 都算 —— 这里只问「在不在里面」。 */
+interface Claimed { has(id: string): boolean }
+
+/**
+ * 验收判据那一行汇总。**数错了报告上看得见、审计照样全绿。**
+ *
+ * 三栏分开报,而且**互不重叠**(优先级:测试认领 > 只有自检认领 > 只剩豁免)。
+ * 分开是因为豁免是显式缺口、不是测试证据,而一条单元断言与一条端到端夹具证的
+ * 也不是同一件事;合起来报「认领 N」,一份审计的两个数(逐条与汇总)会对不上,
+ * 而且把缺口装成了证据(今天 P2.a 就是这种:一条运行时认领也没有)。
+ * 互不重叠是因为**逐条那一头只把一条判据算一次** —— 各数各的会把同时占两栏的
+ * 判据数两遍,红线那三栏加出比总数还大的值(落地 3 第二片实测撞见:P3.b 拿到
+ * 入口认领之后,「入口认领 1 · 显式豁免 2」在 17 条红线上加出了 18)。
+ *
+ * 留在 `audit.ts` 里的话没有任何一条测试够得着(`criterionMutations` 那条记录的同一个形状):
+ * 把入口认领那个数改成从单元那份名单里数、或者把红线那半数成全体,报告上的数字当场变了,
+ * 而单元测试与全部变异照样全绿。`docs/CONVENTIONS.md` 第 10 条。
+ *
+ * ⚠️ 它守的是**数得对不对**,不是**喂得对不对**:交进来的名单由 `audit.ts` 挑,
+ * 挑错了(比如交个空集合)这里一个字也看不见 —— 那一半是入口的接线,ADR-70 记着欠条。
+ */
+export function coverageSummary(
+  all: readonly { id: string }[], redline: readonly { id: string }[],
+  tested: Claimed, entry: Claimed, exempt: Claimed,
+): string {
+  const n = (crit: readonly { id: string }[], pick: (id: string) => boolean): number =>
+    crit.filter(c => pick(c.id)).length
+  // 三栏**互不重叠**,加起来不超过总数:同一条判据两边都认领时算在测试那一栏,
+  // 豁免只数那些两边都没认领的。原先三栏各问各的,P3.b 拿到入口认领之后
+  // 「入口认领 1 · 显式豁免 2」把它数了两遍,红线 17 条的三栏加出 18 来 ——
+  // 而逐条那一头已经把它算成认领了,一份报告两种说法(落地 3 第二片)。
+  const entryOnly = (id: string): boolean => entry.has(id) && !tested.has(id)
+  const gapOnly = (id: string): boolean =>
+    exempt.has(id) && !tested.has(id) && !entry.has(id)
+  return `验收判据 ${all.length} 条 · 有测试认领 ${n(all, id => tested.has(id))}`
+       + ` · 入口认领 ${n(all, entryOnly)}`
+       + ` · 其中红线 ${redline.length} 条（测试认领 ${n(redline, id => tested.has(id))}`
+       + ` · 入口认领 ${n(redline, entryOnly)}`
+       + ` · 显式豁免 ${n(redline, gapOnly)}）`
 }

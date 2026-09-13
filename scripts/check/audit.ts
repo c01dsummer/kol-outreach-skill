@@ -10,10 +10,12 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  JUDGMENT_EXEMPT, criterionMutations, deprecatedBlock, judgmentModules, ledger, unguarded,
+  JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
+  ledger, selfcheckCriterionMutations, unguarded,
 } from './audit-rule.js'
 import {
-  CLAIMS_PATH, SOURCE_DIR, claimsFresh, claimsReadFault, claimsWellFormed, fingerprint, sourceFiles,
+  CLAIMS_PATH, ENTRY_CLAIMS_PATH, SOURCE_DIR, claimsFresh, claimsReadFault, claimsWellFormed,
+  fingerprint, sourceFiles,
   type Claims,
 } from './claims.js'
 import { exemptionCovered, exemptionLead } from './mutate-rule.js'
@@ -65,45 +67,57 @@ for (const f of sources) corpus.set(f, readFileSync(f, 'utf8'))
  * `includes(base)` 的注释记的就是同一个坑（ADR-20）。记录带着整棵 `scripts/`
  * 树的指纹，对不上就是过期的，不算数。
  */
-let raw: unknown
-try {
-  raw = JSON.parse(readFileSync(CLAIMS_PATH, 'utf8'))
-} catch (e) {
-  // 读不出来分三种，说法也分三种 —— 「先跑 npm test」只对头一种成立。
-  // 权限不对、路径底下变成了目录、磁盘满，重跑一遍照样写不进同一个地方。
-  const fault = claimsReadFault(e)
-  if (fault === 'unreadable') {
-    console.error(`✗ 读不了测试的覆盖记录 ${CLAIMS_PATH}\n`)
-    console.error(`  ${e}`)
-    console.error('  这不是「没跑过测试」—— 重跑一遍也写不进同一个路径。')
-    console.error('  先看这个路径本身：权限、它是不是变成了目录、磁盘还有没有地方。')
-  } else if (fault === 'unparsable') {
-    console.error(`✗ 覆盖记录不是合法 JSON ${CLAIMS_PATH}\n`)
-    console.error(`  ${e}`)
-    console.error('  先跑 `npm test` 重写一份。')
-  } else {
-    console.error(`✗ 还没有测试的覆盖记录 ${CLAIMS_PATH}\n`)
-    console.error('  审计回答不了「有没有测试」—— 那是测试跑过之后才存在的事实。')
-    console.error('  先跑 `npm test`（`npm run check` 会按顺序跑）。')
-  }
-  process.exit(1)
-}
-// 形状不对的记录当**没有**记录办，不当成「这些东西没测过」——
-// 后者会报出一串根本不存在的缺口，把人支到错的地方去修。
-if (!claimsWellFormed(raw)) {
-  console.error(`✗ 覆盖记录的形状不对 ${CLAIMS_PATH}\n`)
-  console.error('  缺字段、字段不是数组、数组里混进非字符串 —— 都不能当证据。')
-  console.error('  先跑 `npm test` 重写一份。')
-  process.exit(1)
-}
-const claims: Claims = raw
+/** 整棵 `scripts/` 树的指纹,算一次给两份记录用 —— 走一遍目录不便宜。 */
 const selfHash = fingerprint(sourceFiles())
-if (!claimsFresh(claims.source_hash, selfHash)) {
-  console.error(`✗ 覆盖记录是旧的：${SOURCE_DIR}/ 下有改动，但测试没重跑\n`)
-  console.error(`  记录里是 ${claims.source_hash}，实际 ${selfHash}`)
-  console.error('  先跑 `npm test`。')
-  process.exit(1)
+
+/**
+ * 读一份覆盖记录,四道闸都过了才交回来。两份记录共用这一段 —— 各写一份的话,
+ * 改了这边不改那边的症状是「有一份记录的坏法没人说得清」,而那正是这四种说法要防的。
+ *
+ * 哪一份、重跑哪条命令,由调用方给:路径进消息,命令进「先跑 …」那句。
+ */
+function readClaims(path: string, rerun: string): Claims {
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(path, 'utf8'))
+  } catch (e) {
+    // 读不出来分三种，说法也分三种 —— 「先跑一遍」只对头一种成立。
+    // 权限不对、路径底下变成了目录、磁盘满，重跑一遍照样写不进同一个地方。
+    const fault = claimsReadFault(e)
+    if (fault === 'unreadable') {
+      console.error(`✗ 读不了覆盖记录 ${path}\n`)
+      console.error(`  ${e}`)
+      console.error('  这不是「没跑过」—— 重跑一遍也写不进同一个路径。')
+      console.error('  先看这个路径本身：权限、它是不是变成了目录、磁盘还有没有地方。')
+    } else if (fault === 'unparsable') {
+      console.error(`✗ 覆盖记录不是合法 JSON ${path}\n`)
+      console.error(`  ${e}`)
+      console.error(`  先跑 \`${rerun}\` 重写一份。`)
+    } else {
+      console.error(`✗ 还没有覆盖记录 ${path}\n`)
+      console.error('  审计回答不了这一半有没有跑过 —— 那是跑过之后才存在的事实。')
+      console.error(`  先跑 \`${rerun}\`（\`npm run check\` 会按顺序跑）。`)
+    }
+    process.exit(1)
+  }
+  // 形状不对的记录当**没有**记录办，不当成「这些东西没测过」——
+  // 后者会报出一串根本不存在的缺口，把人支到错的地方去修。
+  if (!claimsWellFormed(raw)) {
+    console.error(`✗ 覆盖记录的形状不对 ${path}\n`)
+    console.error('  缺字段、字段不是数组、数组里混进非字符串 —— 都不能当证据。')
+    console.error(`  先跑 \`${rerun}\` 重写一份。`)
+    process.exit(1)
+  }
+  if (!claimsFresh(raw.source_hash, selfHash)) {
+    console.error(`✗ 覆盖记录是旧的：${SOURCE_DIR}/ 下有改动，但没重跑 ${path}\n`)
+    console.error(`  记录里是 ${raw.source_hash}，实际 ${selfHash}`)
+    console.error(`  先跑 \`${rerun}\`。`)
+    process.exit(1)
+  }
+  return raw
 }
+
+const claims: Claims = readClaims(CLAIMS_PATH, 'npm test')
 const testedIds = new Set(claims.covered)
 /**
  * 判据级的覆盖。
@@ -114,6 +128,15 @@ const testedIds = new Set(claims.covered)
  * 判定，粗计量看不见它（ADR-24）。
  */
 const testedCriteria = new Set(claims.criteria)
+/**
+ * **入口认领**:自检端到端跑过的那几条判据,单独一份记录(`claims.ts` 记着为什么不是
+ * 同一份里多一栏)。四道闸与单元那份逐字相同 —— 读不出、不是合法 JSON、形状不对、
+ * 指纹过期,四种各有各的说法,一律 `exit 1` 而不是当成「这些判据没测过」。
+ *
+ * 它也是必需的:检查链里自检排在审计前面,缺这份记录说明自检没跑或者没跑完,
+ * 那时审计回答不了「入口那一半有没有跑过」—— 说「没有认领」就是替它编了个答案。
+ */
+const entryCriteria = new Set(readClaims(ENTRY_CLAIMS_PATH, 'npm run selfcheck').criteria)
 /** 真正认领过的交点 —— 编号由 `tensionKey` 出，写认领的那一头用的是同一个函数 */
 const claimedTensions = new Set(claims.tensions)
 
@@ -121,6 +144,8 @@ const mutatedIds = new Set<string>(mutCfg.mutations.map((m: any) => m.req))
 // 分类是判定，留在这里就没有测试够得着（`audit-rule.ts` 的 `criterionMutations`，
 // 与紧邻的 `unguarded` / `ledger` 同一个理由，`docs/CONVENTIONS.md` 第 10 条）。
 const mutatedCriteria = criterionMutations(mutCfg.mutations)
+// 只由自检认领的判据靠它过关 —— 分类同样是判定,同样在 `audit-rule.ts`（落地 4）
+const selfcheckMutatedCriteria = selfcheckCriterionMutations(mutCfg.mutations)
 const exemptIds = new Map<string, string>(
   (mutCfg.exemptions ?? []).map((e: any) => [e.req, e.why]))
 
@@ -152,8 +177,9 @@ for (const r of reqs) {
   // 裁定在 spec-rule.ts：留在这个入口里，没有任何一条测试够得着它（ADR-13 的老处境）。
   const v = requirementVerdict(r, {
     tested, mutated, exempt, impl: impl.length, refs: refs.length,
-    claimedCriteria: testedCriteria, exemptIds: new Set(exemptIds.keys()),
-    mutatedCriteria,
+    claimedCriteria: testedCriteria, entryCriteria,
+    exemptIds: new Set(exemptIds.keys()),
+    mutatedCriteria, selfcheckMutatedCriteria,
   })
   const { flag, claimed, exempted } = v
   hard += v.hard
@@ -270,17 +296,13 @@ console.log(`  需求之间的交点 ${tensions.length} 个 · 有测试认领 `
               evidenceFor(from, t).redline).length}`)
 const allCrit = reqs.flatMap(r => r.accept)
 const redlineCrit = reqs.filter(r => r.cat === REDLINE_CAT).flatMap(r => r.accept)
-/**
- * 测试认领与显式豁免分开报 —— 豁免是显式缺口，不是测试证据。
- * 合起来报「认领 N」，一份审计的两个数（逐条与汇总）会对不上，
- * 而且把缺口装成了证据（P2.a / P3.b 没有运行时认领）。
- */
-console.log(`  验收判据 ${allCrit.length} 条 · 有测试认领 ` +
-            `${allCrit.filter(c => testedCriteria.has(c.id)).length}` +
-            ` · 其中红线 ${redlineCrit.length} 条（测试认领 ` +
-            `${redlineCrit.filter(c => testedCriteria.has(c.id)).length}` +
-            ` · 显式豁免 ${redlineCrit.filter(c => exemptIds.has(c.id)).length}）`)
+// 三个名单怎么数、分几栏报，都是判定，在 `audit-rule.ts` 里（第一轮评审指出）
+console.log(`  ${coverageSummary(allCrit, redlineCrit, testedCriteria, entryCriteria, exemptIds)}`)
 
 if (hard) { console.error(`\n✗ 审计：${hard} 项硬失败`); process.exit(1) }
-console.log('\n✓ 审计：红线需求全部有测试且被变异验证；未豁免的红线判据全部有测试认领；' +
+// 「有测试认领」→「有认领」：入口认领算数之后，未豁免的红线判据里可以有几条是
+// 只被自检端到端跑过的，那句话再说「全部有测试认领」就是假的（#104 第一轮评审指出）。
+// 交点那一半仍是「测试认领」—— 自检不认领交点，那一栏恒空（`claims.ts` 记着）。
+console.log('\n✓ 审计：红线需求全部有测试且被变异验证；未豁免的红线判据全部有认领（测试或自检）；' +
+            '只由自检认领的判据都有一条 by: "selfcheck" 的负片；' +
             '有红线的交点全部有测试认领；检查链的判定模块全部有变异守着')

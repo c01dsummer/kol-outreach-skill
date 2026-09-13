@@ -18,15 +18,39 @@ import {
 } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { tsxCommand } from './tsx-cmd.js'
+import {
+  ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, sourceFiles,
+} from './claims.js'
+import { writeFileAtomic } from '../lib/atomic.js'
 import {
   SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS,
   selfcheckSummary,
 } from './verifier-rule.js'
 
 const EXEMPT: Record<string, string> = {}   // 目前无豁免
+
+/**
+ * **入口认领**:哪几条验收判据是这一次端到端真跑过的。
+ *
+ * 与单元认领同一套纪律,逐条复用 `claims.ts` 的判定:开跑前先清掉(不清的话,
+ * 源码没改而这一跑半路死了,上一次的记录就成了这一次的证据);跑完全绿、
+ * 源码一路没动过、且不是变异跑,才写得下(`claimsPublishable`)。
+ *
+ * `criterion()` 写在它认领的那几条断言**后面** —— 与 `test.ts` 的约定一样:
+ * 那句话的意思是「上面那几条真的跑到了这里」,不是「打算测这一条」。
+ *
+ * 它们大多落在条件分支里(夹具没造起来就整段跳过)。跳过不会写下一条假认领:
+ * 每一处跳过都是先记了一次失败才跳的,而 `claimsPublishable` 要求这一跑**全绿** ——
+ * 认领与失败计数是同一个闸的两边,少认领一条与写下一条假的不是同一回事。
+ */
+const claimed = new Set<string>()
+const criterion = (...ids: string[]): void => { for (const id of ids) claimed.add(id) }
+const mutating = process.env.MUTATING === '1'
+if (claimsOwnedBy(mutating)) rmSync(ENTRY_CLAIMS_PATH, { force: true })
+const startHash = fingerprint(sourceFiles())
 
 /** 脚本用绝对路径 —— 下面几处会切到临时目录里跑，让产出落在那边 */
 const covered = new Set<string>()
@@ -248,6 +272,12 @@ if (tightOut === undefined) {
       console.log(`  ✓ 断点恢复：关键词 ${before.done.length}→${after.done.length}，请求 ${before.requests}→${after.requests}`)
     }
   }
+  // 写在整段之后，不写在「续跑」那一半之前：P3.b 的四半要**全跑到**才认领得起 ——
+  // 退出码 3（`expect` 那一档）、断点在、断点记到中止那一刻、续跑从断点起算。
+  // 缺省那个验证者够不到入口，所以这条认领只有自检发得出（落地 3 第一片）。
+  // ⚠️ 它原先的显式豁免逐字写的就是这个理由，**落地 4 已经撤掉** —— 现在由硬失败
+  // 盯着：只由自检认领的判据没有一条 `by: "selfcheck"` 的负片就红（这里是 M-P3-b）。
+  criterion('P3.b')
 }
 
 // ---- enrich：主页近期样本、公开指标、断点文件 ----
@@ -605,10 +635,13 @@ if (dir && rendered !== undefined) {
   // 四条共用分支之前的同一句话，所以是一条判据；也正因为共用，**一条把话写死就会被
   // 别的抓住** —— 前两条要的是「不花钱」，后两条要的是「花钱 + 还剩多少」。
   // 缺省那个验证者（scripts/test.ts）够不到入口脚本，所以这一段只能这样真跑。
-  // **现在有一条负片指着它**：M-D6-j 删掉那行共用的接线、改跑自检来验，kills 点的是
-  // 下面第一条夹具。⚠️ 它证明的是**第一条路还活着**，不是「四条路不能各自坏掉」——
-  // kills 只收一个名字，只弄坏一条路照样判「被抓到」（ADR-70 记着这条欠条）。
-  // 这条缺口在 mutations.json 的 exemptions 里仍按 P3.b 的先例显式登记着，撤它是落地 4 的事。
+  // **现在有一条负片指着它**：M-D6-j 删掉那行共用的接线、改跑自检来验，kills 点名下面
+  // 四条夹具**全部** —— 一条没红就判「红错了地方」（5c 第二片把 kills 收成一组之前只点得着
+  // 第一条，剩下三条删光它照样绿）。⚠️ 它证明的是四条都还活着、都靠那一行，不是
+  // 「四条路能各自坏掉」—— 后者要四条各自的变异（ADR-70 记着这条欠条）。
+  // ⚠️ 这条缺口原先在 mutations.json 的 exemptions 里按 P3.b 的先例登记着，
+  // **落地 4 已经撤掉那条豁免** —— D6.f 现在靠 M-D6-j 与那条硬失败顶着；
+  // 「四条路能各自坏掉」那半仍然欠着，记在 ADR-70，不在豁免表里。
   //
   // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
   // 「达标提前停下」和「关键词跑完」都是退出码 0、都说「不花钱」，一条夹具会让另一条
@@ -668,6 +701,10 @@ if (dir && rendered !== undefined) {
   // 关键词里带 force-402 让罐头 fetch 抛它，这是走到这条路径的唯一办法。
   endPath('collect 出错中止（退出码 1）也说续跑代价',
           pathCfg('perror', {}, 'force-402-k'), 1, 'error', COST, FREE)
+
+  // 四条收尾各跑过一次，每次都验了退出码、`stopped` 取值、那句话说什么 ——
+  // D6.f 逐字要求的正是这四条路都说清续跑要不要花钱（落地 3 第一片）
+  criterion('D6.f')
 
   // 逃生口：出名单，但状态必须原样带到 stdout
   const forced = run('collect --ignore-memory 强出名单',
@@ -773,9 +810,9 @@ if (dupArch === undefined) {
 
 // ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----
 // 判据是 mutate-rule.ts 的 wiringFault，由 scripts/test.ts 断言、M-H14-t/u/v/w 四条负片
-// 守着；剩下的那一半是**入口真的调了它、并且以退出码 1 结束**，还把三种裁定各翻成
+// 守着；剩下的那一半是**入口真的调了它、并且以退出码 1 结束**，还把四种裁定各翻成
 // 一句人话 —— 把这一整段删掉，那四条负片和那些断言照样全绿，因为变异跑的是缺省
-// 那个验证者，够不到入口。三种写错各喂一条，诊断也逐条对。
+// 那个验证者，够不到入口。四种写错各喂一条，诊断也逐条对。
 const wireTmp = join(tmp, 'bad-by')
 mkdirSync(join(wireTmp, 'scripts', 'check'), { recursive: true })
 mkdirSync(join(wireTmp, 'docs'), { recursive: true })
@@ -784,17 +821,23 @@ writeFileSync(join(wireTmp, 'docs', 'requirements.json'),
 writeFileSync(join(wireTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
   { id: 'M-X-b', req: 'X1', why: '指了一个不认得的验证者', file: 'a.ts', find: 'x', replace: 'y', by: '查无此人' },
   { id: 'M-X-c', req: 'X1', why: '指名了验证者却没说该红的是哪一条', file: 'a.ts', find: 'x', replace: 'z', by: 'selfcheck' },
-  { id: 'M-X-d', req: 'X1', why: '点了名却没说谁来验', file: 'a.ts', find: 'x', replace: 'w', kills: '某条夹具' },
+  { id: 'M-X-d', req: 'X1', why: '点了名却没说谁来验', file: 'a.ts', find: 'x', replace: 'w', kills: ['某条夹具'] },
+  // 老写法那个字符串：判定拦得住，但入口那句提示原先没人验 —— 改坏了整份检查照样绿
+  // （#97 第二轮评审指出）。JSON 里就是要写成字符串，所以这里绕过类型
+  { id: 'M-X-h', req: 'X1', why: 'kills 还写着老写法那个字符串', file: 'a.ts', find: 'x', replace: 'v',
+    by: 'selfcheck', kills: '某条夹具' as unknown as string[] },
 ] }), 'utf8')
 const badBy = runTool('mutate 的验证者接线不成立即以退出码 1 结束', 'mutate', [], wireTmp, { status: 1 })
 if (badBy === undefined) {
   // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
 } else if (!badBy.includes('不认得')) {
   failed++; console.error('  ✗ mutate 没报出「指的验证者不认得」')
-} else if (!badBy.includes('没说该红的是哪一条夹具')) {
+} else if (!badBy.includes('没说该红的是哪几条夹具')) {
   failed++; console.error('  ✗ mutate 没报出「指名了验证者却漏了 kills」')
 } else if (!badBy.includes('写了 kills 却没写 by')) {
   failed++; console.error('  ✗ mutate 没报出「写了 kills 却没写 by」')
+} else if (!badBy.includes('kills 要写成一组名字')) {
+  failed++; console.error('  ✗ mutate 没报出「kills 写成了老写法那个字符串」')
 }
 
 // ---- 自己验自己的变异即以退出码 1 结束（隔离判据的入口那一半）----
@@ -817,7 +860,7 @@ const importLine = (spec: string) => `import { a } from '${spec}'\n`
 writeFileSync(join(isoTmp, 'scripts', 'check', 'selfcheck.ts'), importLine('./hop.js'), 'utf8')
 writeFileSync(join(isoTmp, 'scripts', 'check', 'hop.ts'), importLine('./leaf.js'), 'utf8')
 writeFileSync(join(isoTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
-  { id: 'M-X-e', req: 'X1', why: '改的是验证者自己要用的东西', by: 'selfcheck', kills: '某条夹具',
+  { id: 'M-X-e', req: 'X1', why: '改的是验证者自己要用的东西', by: 'selfcheck', kills: ['某条夹具'],
     file: 'scripts/check/leaf.ts', find: 'x', replace: 'y' },
 ] }), 'utf8')
 const selfVer = runTool('mutate 遇到自己验自己即以退出码 1 结束', 'mutate', [], isoTmp, { status: 1 })
@@ -826,6 +869,46 @@ if (selfVer === undefined) {
 } else if (!selfVer.includes('在自己验自己')) {
   failed++; console.error('  ✗ mutate 没报出「这条变异在自己验自己」')
 }
+
+// ---- 见齐就停：验证者不结束，mutate 照样得判它被抓到（提前退出的入口那一半）----
+// 判据在 mutate-rule.ts（allKilled 说见没见齐、judgeRun 凭点名认），由 scripts/test.ts
+// 断言、负片守着；剩下的那一半是**入口真的边收边看、真的把整组停掉**。把那一段从
+// mutate.ts 删掉，那些断言和负片照样全绿 —— 变异跑的是缺省那个验证者，够不到入口。
+//
+// 这条夹具的验证者**故意不立刻结束**：见齐就停生效时它被当场停掉，mutate 立刻判「被抓到」；
+// 坏掉的话只能等它自己退（退出码 0）——判定当场给「存活」，mutate 以 1 结束，这里就红了。
+// 用定时退出而不是永不退出：坏掉时要红，不是要把整份检查挂住。
+const stopTmp = join(tmp, 'stop-on-kills')
+mkdirSync(join(stopTmp, 'scripts', 'check'), { recursive: true })
+mkdirSync(join(stopTmp, 'docs'), { recursive: true })
+writeFileSync(join(stopTmp, 'docs', 'requirements.json'),
+  JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+writeFileSync(join(stopTmp, 'a.ts'), 'const x = 1\n', 'utf8')
+// 这个假验证者既要被清册扫得到（endPath 的字面量），又要真的打出那一行、然后赖着不走
+writeFileSync(join(stopTmp, 'scripts', 'check', 'selfcheck.ts'),
+  ['const endPath = (label: string, _rest: unknown[]): void => {',
+   '  console.error(`  ✗ ${label}`)',
+   '}',
+   "endPath('甲', [])",
+   'setTimeout(() => {}, 20_000)',
+   ''].join('\n'), 'utf8')
+writeFileSync(join(stopTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+  { id: 'M-X-i', req: 'X1', why: '把那个常量改掉', file: 'a.ts', find: 'const x = 1', replace: 'const x = 2',
+    by: 'selfcheck', kills: ['甲'] },
+] }), 'utf8')
+// 那句「✓ … 被抓到」打在 stdout；给了 expect 的 run 缺省交回的是 stderr（#99 自检当场抓到）
+const stopRun = runToolBoth('mutate 见齐就停（验证者不结束也不必等它）', 'mutate', [], stopTmp,
+                            { status: 0 })
+const stopOut = stopRun.ok ? stopRun.stdout : undefined
+if (stopOut === undefined) {
+  // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
+} else if (!stopOut.includes('M-X-i')) {
+  failed++; console.error('  ✗ mutate 没报出那条变异的结果')
+} else if (!/M-X-i\s+\[X1\] 被抓到/.test(stopOut)) {
+  failed++
+  console.error('  ✗ 见齐了却没停 —— 验证者赖着不走，判定于是等到它自己退，'
+                + `报的不是「被抓到」：\n${stopOut.split('\n').filter(l => l.includes('M-X-i')).join('\n')}`)
+} else console.log('  ✓ 见齐就停：验证者没结束，那条变异照样判「被抓到」')
 
 // ---- 点的夹具立不住即以退出码 1 结束（清册的入口那一半）----
 // 判据在 mutate-rule.ts（扫源码建清册、裁定点得着点不着），由 scripts/test.ts 断言、
@@ -845,10 +928,12 @@ const declLine = (name: string) => `endPath('${name}', [])\n`
 writeFileSync(join(labelTmp, 'scripts', 'check', 'selfcheck.ts'),
   declLine('甲') + declLine('乙') + declLine('乙'), 'utf8')
 writeFileSync(join(labelTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+  // 两条的**头一项都立得住**：立不住的在后面。只查首项的入口会一声不响地放过它们，
+  // 而那正是 #97 评审点出来的坏法（判定已搬进 mutate-rule.ts，这一条端到端再守一次）
   { id: 'M-X-f', req: 'X1', why: '点了一个清册里没有的名字', file: 'a.ts', find: 'x', replace: 'y',
-    by: 'selfcheck', kills: '丙' },
+    by: 'selfcheck', kills: ['甲', '丙'] },
   { id: 'M-X-g', req: 'X1', why: '点的那个名字有两条夹具在用', file: 'a.ts', find: 'x', replace: 'z',
-    by: 'selfcheck', kills: '乙' },
+    by: 'selfcheck', kills: ['甲', '乙'] },
 ] }), 'utf8')
 const badKills = runTool('mutate 的 kills 点不着夹具即以退出码 1 结束',
   'mutate', [], labelTmp, { status: 1 })
@@ -910,11 +995,95 @@ if (both.ok && !/^\s*⊘ X1\.a 名下有负片/m.test(both.stdout)) {
 // `brief.includes('名下有负片')`，反向验当场露馅：`--brief` 会把每条变异的 `why` 也打出来，
 // 而其中一条负片的 `why` 里正好有这四个字 —— 接线退回写死，那句断言照样绿。
 // 现在只认「⊘ ＋ 方括号里的编号 ＋ 这句话」的行首形状，与哪一条豁免命中无关。
+//
+// ⚠️ **跑的是上面那份合成语料，不是真仓库**（落地 4 改）。原先跑真仓库，靠的是
+// 「仓库里总有一条名下有负片的豁免」—— 而落地 4 撤掉 P3.b 与 D6.f 之后就只剩 P2.a，
+// 它名下无变异，这条断言当场失去对象。**一条断言的成立不该取决于登记表今天恰好长什么样**：
+// 那不是这条夹具要守的东西，而且它会在一个与它无关的改动里红。
+// 指到语料上之后两支话都在，于是两支都断言 —— 与整跑那一处对齐。
+// ---- 判 `crashed` 那一档要留下现场（入口的第三处）----
+// 判定说「跑不起来」时，原先一个字都不留下验证者说过什么 —— 而那是唯一能分辨
+// 「真崩了」与「这一次不巧」的证据（ADR-70：它在落地 4 那一片里咬了两次才补上）。
+// 这段输出在 `mutate.ts` 入口里，**变异够不到它**（`mutate.ts` 在验证基础设施闭包里，
+// 指着它的变异会被「自己验自己」当场拦下）—— 与另外几处 mutate 夹具同一处境，
+// 所以只能有夹具。删掉那几行打印，这条断言必须红。
+//
+// 单独一份语料，两条变异各造一种 `crashed`（口径见下面那段）。⚠️ 不能塞进上面那份 ——
+// 一条 crashed 会让整跑非零退出，上面两条断言的前置条件 `both.ok` 当场为假，
+// 它们就被静默跳过了。
+const crashTmp = join(tmp, 'crash-scene')
+mkdirSync(join(crashTmp, 'scripts', 'check'), { recursive: true })
+mkdirSync(join(crashTmp, 'docs'), { recursive: true })
+writeFileSync(join(crashTmp, 'docs', 'requirements.json'),
+  JSON.stringify({ requirements: [{ id: 'X2', accept: [{ id: 'X2.a' }] }] }), 'utf8')
+writeFileSync(join(crashTmp, 'scripts', 'check', 'a.ts'),
+  "export const v = 'keep'\nexport const w = 'ok'\n", 'utf8')
+// 这份语料造**两种 crashed**，两支分开守（#105 第一、四轮评审各指出一支）：
+//   `M-X-c` 验证者**打 18 条失败行、再以非零退出**（不打汇总）→ 成形的失败行那一支。
+//           打 18 条是因为封顶是 15 —— 只打两条的话 `omitted` 恒为 0，
+//           「另有 N 行未显示」那一支从没跑到，整行删掉照样绿（第三轮评审指出）。
+//   `M-X-r` 把另一处改成**语法错误** → 验证者打的是栈、一行成形的失败行都没有，
+//           走「原始输出的尾巴」那一支。⚠️ **那才是真崩的样子**，而这段现场存在的
+//           唯一理由就是诊断它；头一版只有这一种，于是反过来把上面那一支漏空了。
+// 用 `exitCode` 而不是那个硬退出的写法：`exitRace` 扫的是**源码字面**，把那一串原样
+// 写进这里，本文件自己就会被判成「打完汇总立刻退出」（ADR-70 逐字警告过这个坑，
+// 我照样踩了 —— 断言 `selfcheck 这个验证者不硬退出` 当场红）。
+writeFileSync(join(crashTmp, 'scripts', 'test.ts'),
+  `import { v } from ${q}./check/a.js${q}\n`
+  + `if (v !== ${q}keep${q}) {\n`
+  + `  for (let i = 1; i <= 18; i++) console.log(\`  ✗ 假失败 \${i}\`)\n`
+  + `  process.exitCode = 1\n`
+  + `}\n`, 'utf8')
+writeFileSync(join(crashTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({
+  mutations: [
+    { id: 'M-X-c', req: 'X2.a', why: '把那个值改掉，验证者打一串失败行之后以非零退出',
+      file: 'scripts/check/a.ts', find: 'keep', replace: 'gone' },
+    { id: 'M-X-r', req: 'X2.a', why: '把另一处改成语法错误，验证者起不来、打的是栈',
+      file: 'scripts/check/a.ts', find: "'ok'", replace: "'ok" },
+  ],
+  exemptions: [],
+}), 'utf8')
+const crash = runToolBoth('mutate 判「跑不起来」时留下现场', 'mutate', [], crashTmp,
+                          { status: 1 })
+if (crash.ok && !/跑不起来/.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 那条变异没被判成「跑不起来」—— '
+                + '这份语料造的是「验证者红过、却没打汇总」，那一档判的就是跑不起来')
+// 认的是**逐字那一句**，不是「有个点号隔开的两截」—— 后者措辞怎么退化都能过
+} else if (crash.ok && !/^\s+退出码 1 · 未因见齐点名而主动停$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 判「跑不起来」那一行的退出码或停法不对 —— 现场丢了，或者措辞退化了')
+} else if (crash.ok && !/^\s+│ ✗ 假失败 1$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 判「跑不起来」却没把验证者的失败行逐条留下来 —— 分不出是真崩了还是这一次不巧')
+} else if (crash.ok && !/^\s+│ ✗ 假失败 15$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 只留了头几条失败行 —— 封顶之内的也被丢了')
+} else if (crash.ok && /^\s+│ ✗ 假失败 16$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 留的行数超过封顶 —— 一次吵的运行会把整份输出淹掉')
+} else if (crash.ok && !/^\s+（另有 3 行未显示）$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 截掉了 3 行却没报出来 —— 被截过的现场和本来就这么短的现场长得一样')
+// ⚠️ 真崩那一支：验证者打的是栈，一行成形的失败行都没有。只认成形的失败行的话，
+// 现场恰恰在最需要它的那一档是空的 —— 而这段代码存在的唯一理由就是诊断那一次。
+} else if (crash.ok && !/^\s+没有成形的失败行，下面是它最后几行输出：$/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 真崩的那一次没说「下面是原始输出」—— 两种现场混在一起，读的人分不出')
+} else if (crash.ok && !/^\s+┆ .*Transform failed/m.test(crash.stdout)) {
+  failed++
+  console.error('  ✗ 真崩的那一次把栈丢了 —— 现场在最需要它的那一档是空的')
+}
+
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m
-const brief = runToolBoth('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'])
+const briefNone = /^\s*⊘\s+\[[^\]]+\]\s+名下无变异/m
+const brief = runToolBoth('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'], bothTmp)
 if (brief.ok && !briefLead.test(brief.stdout)) {
   failed++
   console.error('  ✗ --brief 的豁免行没有随负片改口 —— 那句写死的「无变异」又回来了')
+} else if (brief.ok && !briefNone.test(brief.stdout)) {
+  failed++
+  console.error('  ✗ --brief 里名下没有变异的那条没这么说')
 }
 
 rmSync(tmp, { recursive: true, force: true })
@@ -976,4 +1145,19 @@ if (failed) {
   console.log(`\n✓ 脚本自检：${all.length} 个可执行文件都有出处 ——`
     + ` 本文件从头跑到尾 ${here} 个，检查链里各自成一步 ${inChain} 个`
     + `，具名豁免 ${Object.keys(EXEMPT).length} 个`)
+}
+
+// 写在最后：`failed` 要数完，指纹要在跑完之后再算一次。中途改过源码的话，拿跑完
+// 那一刻的指纹写进去，审计会认为这份记录新鲜 —— 而断言跑的是改之前那棵树。所以
+// 写进去的是**开跑那一刻**的，两头对不上就一个字也不写（`claimsPublishable`）。
+// `covered`／`tensions` 恒空：自检不认领需求级与交点级，那两栏留着只是为了与单元
+// 那份**同形**，同一套 `claimsWellFormed` 守两份。
+if (claimsPublishable(mutating, failed, startHash, fingerprint(sourceFiles()))) {
+  mkdirSync(dirname(ENTRY_CLAIMS_PATH), { recursive: true })
+  writeFileAtomic(ENTRY_CLAIMS_PATH, `${JSON.stringify({
+    source_hash: startHash,
+    covered: [],
+    criteria: [...claimed].sort(),
+    tensions: [],
+  }, null, 2)}\n`)
 }

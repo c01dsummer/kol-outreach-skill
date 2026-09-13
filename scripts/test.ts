@@ -9,10 +9,14 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import {
-  JUDGMENT_EXEMPT, criterionMutations, deprecatedBlock, judgmentModules, ledger, unguarded,
+  JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
+  ledger, selfcheckCriterionMutations, unguarded,
 } from './check/audit-rule.js'
 import {
-  VERIFIERS, exemptionCovered, exemptionLead, exitRace, judgeRun, killsMatched, labelFault,
+  VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, exitRace,
+  judgeRun, killsMatched,
+  labelFault, notAssertion,
+  labelFaults,
   labelsOf, leadWired, processFailed, wiringFault,
 } from './check/mutate-rule.js'
 import {
@@ -29,7 +33,8 @@ import {
 } from './check/spec-rule.js'
 import { HARNESS, attributionFault, duplicateIds, orphanAttributions } from './check/attribution-rule.js'
 import {
-  CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsReadFault, claimsWellFormed,
+  CLAIMS_PATH, ENTRY_CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsReadFault,
+  claimsWellFormed,
   fingerprint, sourceFiles,
 } from './check/claims.js'
 import {
@@ -1968,8 +1973,9 @@ harness('审计对一条需求的裁定')
   })
   const ev = (over: Partial<Evidence> = {}): Evidence => ({
     tested: true, mutated: true, exempt: false, impl: 1, refs: 1,
-    claimedCriteria: new Set<string>(), exemptIds: new Set<string>(),
-    mutatedCriteria: new Set<string>(), ...over,
+    claimedCriteria: new Set<string>(), entryCriteria: new Set<string>(),
+    exemptIds: new Set<string>(), mutatedCriteria: new Set<string>(),
+    selfcheckMutatedCriteria: new Set<string>(), ...over,
   })
 
   // 红线：每一条判据都要有认领，缺一条就是硬失败
@@ -1982,11 +1988,73 @@ harness('审计对一条需求的裁定')
   eq('判据级豁免算数',
     requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
                               exemptIds: new Set(['P9.b']) })).hard, 0)
-  // 豁免了就别打 `✓` —— 图例里 `✓` 是「完整」，而审计自己在下面又把这条列成
-  // 显式缺口。跟变异那一栏统一成 `⊘`，并把豁免了几条数出来（M-H6-g…i）。
+  // 两种认领都算数：自检端到端跑过的那一条，与单元断言认的那一条，在「这条判据
+  // 有没有人认领」这件事上同权。少掉任一半，只由那一头守着的判据当场报成没人认领 ——
+  // 红线那边就是硬失败，而它明明每一次检查都真跑过（M-H31-a/b，落地 3 第二片）。
+  // ⚠️ 这两条要配上那条改跑自检的负片才通过 —— 落地 4 起，只由自检认领的判据
+  // 必须有一条 `by: "selfcheck"` 的负片，下面那组专门钉这一条。
+  eq('一条判据只由自检认领 → 照样算认领，不是硬失败',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
+                               entryCriteria: new Set(['P9.b']),
+                               selfcheckMutatedCriteria: new Set(['P9.b']) })).hard, 0)
+  eq('两条判据都只由自检认领 → 同样通过',
+    requirementVerdict(p, ev({ entryCriteria: new Set(['P9.a', 'P9.b']),
+                               selfcheckMutatedCriteria: new Set(['P9.a', 'P9.b']) })).hard, 0)
+  eq('只由单元认领 → 照样算认领（别把哪一半丢了）',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a', 'P9.b']) })).hard, 0)
+  // 认领之后那条豁免不再算缺口 —— 否则逐条说「认领了」、汇总说「还豁免着」，
+  // 一份报告两种说法（落地 3 第二片同时改了汇总那一行）
+  eq('自检认领了的判据，不再算进豁免那一栏',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
+                               entryCriteria: new Set(['P9.b']),
+                               exemptIds: new Set(['P9.b']) })).exempted, 0)
+  // 报告里「判据 N/M」的那个 N 也要数上自检认的：只验 hard 与 exempted 的话，把 claimed
+  // 那一行改回只看单元那一份，上面四条照样全绿，而报告悄悄少报一条 —— 实测 P3 从
+  // 「判据 2/2」退回「判据 1/2」、D6 从 4/6 退回 3/6，**而这一片的招牌结论正是那个数**
+  // （M-H31-c，#104 第三轮评审指出）。
+  eq('两边混着认领 → 两条都要数进那个 N',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
+                               entryCriteria: new Set(['P9.b']) })).claimed, 2)
+  eq('全部只由自检认领 → 一条都不能少',
+    requirementVerdict(p, ev({ entryCriteria: new Set(['P9.a', 'P9.b']) })).claimed, 2)
+
+  // ---- 落地 4：只由自检认领的判据，必须有一条改跑自检的负片 ----
+  // 认领与负片要来自同一头：认领是自检发的，负片也得是自检验的。配不上，
+  // 这条判据就只有夹具、没有第三拍 —— 而夹具绿着不证明它还会红（4-VERIFY）。
+  eq('只由自检认领、却没有改跑自检的负片 → 硬失败',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
+                               entryCriteria: new Set(['P9.b']) })).hard, 1)
+  // ⚠️ 不带 `by` 的判据级负片不算数：缺省那个验证者够不到入口，那条变异只会「存活」，
+  // 对这条判据什么也证不了。两个集合分开交进来，正是为了这里分得出来。
+  eq('只有不带 by 的负片 → 仍是硬失败',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a']),
+                               entryCriteria: new Set(['P9.b']),
+                               mutatedCriteria: new Set(['P9.b']) })).hard, 1)
+  // 单元那边也认领了的不受这一条管 —— 缺省那个验证者够得到它，用不着改跑自检
+  eq('两边都认领 → 不要求改跑自检的负片',
+    requirementVerdict(p, ev({ claimedCriteria: new Set(['P9.a', 'P9.b']),
+                               entryCriteria: new Set(['P9.b']) })).hard, 0)
+  // 与红线无关：它买到的东西跟这条需求是不是红线没关系
+  eq('非红线的判据同样要求',
+    requirementVerdict(req('D9', ['a']), ev({ entryCriteria: new Set(['D9.a']) })).hard, 1)
+  eq('非红线配上那条负片也通过',
+    requirementVerdict(req('D9', ['a']), ev({ entryCriteria: new Set(['D9.a']),
+      selfcheckMutatedCriteria: new Set(['D9.a']) })).hard, 0)
+  // ⚠️ 只验 hard 不够：上面几档是按「这条需求整体什么成色」写的，各自会覆盖 flag ——
+  // 实测出现过 `hard = 1` 而那一行印着 `·`／`⊘`，审计退出码 1 而逐条那行看着没事
+  // （#105 第二轮评审指出）。**硬失败的那一行必须打 ✗**，这是不变量（M-H34-a）。
+  eq('非红线：硬失败那一行必须打 ✗，不被「缺认领」那一档改写成 ·',
+    requirementVerdict(req('D9', ['a', 'b']), ev({ entryCriteria: new Set(['D9.a']) })).flag, '✗')
+  eq('红线整条豁免：也不许把硬失败那一行改写成 ⊘',
+    requirementVerdict(req('P9', ['a']), ev({ entryCriteria: new Set(['P9.a']),
+                                             exempt: true })).flag, '✗')
+  // **没人认领的**豁免才别打 `✓` —— 图例里 `✓` 是「完整」，而审计自己在下面又把这条
+  // 列成显式缺口。跟变异那一栏统一成 `⊘`，并把这种豁免有几条数出来（M-H6-g…i）。
+  // ⚠️ 条件是「没人认领」不是「有豁免」：上面那条刚证明了认领过的判据即便名下还挂着
+  // 豁免也算完整。下面这个夹具里 P9.b 两种认领都没有，才落进这一档（#104 第四轮评审）。
   const exempted1 = ev({ claimedCriteria: new Set(['P9.a']), exemptIds: new Set(['P9.b']) })
-  eq('判据有豁免 → 打 ⊘，不冒充完整', requirementVerdict(p, exempted1).flag, '⊘')
-  eq('豁免了几条要数出来', requirementVerdict(p, exempted1).exempted, 1)
+  eq('有一条没人认领的豁免 → 打 ⊘，不冒充完整', requirementVerdict(p, exempted1).flag, '⊘')
+  eq('没人认领的豁免有几条要数出来', requirementVerdict(p, exempted1).exempted, 1)
   eq('一条豁免都没有 → 不多报', requirementVerdict(p, ev({
     claimedCriteria: new Set(['P9.a', 'P9.b']) })).exempted, 0)
   // `⊘` 只往上抬 `✓` 这一档。少掉「原本是 ✓」这半个条件，一条还欠着认领的
@@ -2016,6 +2084,54 @@ harness('审计对一条需求的裁定')
   eq('同一条判据被点两次，集合里只算一个',
     [...criterionMutations([{ req: 'P5.g' }, { req: 'P5.g' }])], ['P5.g'])
   eq('一条变异都没有 → 空集合', criterionMutations([]).size, 0)
+
+  // 改跑自检的那些单挑出来：落地 4 那条硬失败问的是这个集合，不是上面那个。
+  // 两个函数分开，是因为它们回答的问题不同（报告数几条 / 硬失败该不该响）。
+  const mu = [
+    { req: 'P3.b', by: 'selfcheck' }, { req: 'D6.f', by: 'selfcheck' },
+    { req: 'P5.f' }, { req: 'P3', by: 'selfcheck' },
+  ]
+  eq('只收改跑自检的那些',
+    [...selfcheckCriterionMutations(mu)].sort(), ['D6.f', 'P3.b'])
+  // 不带 by 的不算：缺省那个验证者够不到入口，那条变异只会「存活」
+  eq('不带 by 的判据级负片不收', selfcheckCriterionMutations([{ req: 'P5.f' }]).size, 0)
+  // 需求号不收 —— 这一条按判据问，跟 criterionMutations 同一个口径
+  eq('需求号不收', selfcheckCriterionMutations([{ req: 'P3', by: 'selfcheck' }]).size, 0)
+  // 别的验证者不算：今天只有 selfcheck 一个，写死名字是为了将来多一个时这里会红
+  eq('别的验证者不收', selfcheckCriterionMutations([{ req: 'P3.b', by: 'test' }]).size, 0)
+
+  // 验收判据那一行汇总原先也拼在入口脚本里，同一个形状：把入口认领那个数改成从单元
+  // 那份名单里数、把红线那半数成全体、或者把豁免数成测试认领，报告上的数字当场变了，
+  // 而单元测试与全部变异照样全绿（M-H29-a/b/c）。
+  //
+  // 三栏还必须**互不重叠**：两边都认领的算在测试那一栏、只有自检认领的才进入口那一栏、
+  // 豁免只数两边都没认领的。不这么数，红线那三栏会加出比总数还大的值，而逐条那一头
+  // 早就把它算成认领了 —— 一份报告两种说法（M-H30-a/b，落地 3 第二片）。
+  {
+    const allCrit = [{ id: 'A.a' }, { id: 'A.b' }, { id: 'A.c' }, { id: 'B.a' }]
+    const redCrit = [{ id: 'A.a' }, { id: 'A.b' }, { id: 'A.c' }]
+    const tested = new Set(['A.a', 'B.a'])
+    const entry = new Set(['A.a', 'A.b'])          // A.a 两边都认领 —— 只能算一次
+    // 豁免那一头交的是 Map（编号 → 理由），三个名单只问「在不在里面」。
+    // A.b 已被自检认领，不再是缺口；只有 A.c 是真的没人认领
+    const exempt = new Map([['A.b', '自检认过了'], ['A.c', '这条谁也没认领']])
+    eq('三栏互不重叠，红线那三栏正好分完红线判据',
+      coverageSummary(allCrit, redCrit, tested, entry, exempt),
+      '验收判据 4 条 · 有测试认领 2 · 入口认领 1 · 其中红线 3 条'
+        + '（测试认领 1 · 入口认领 1 · 显式豁免 1）')
+    // 交换两份认领的名单，各栏跟着换 —— 合成一个数就分不出这件事；
+    // 这一条同时钉住「红线那半只数红线」（换过之后入口那一栏红线是 0、全体是 1）
+    eq('交换两份认领的名单，各栏跟着换',
+      coverageSummary(allCrit, redCrit, entry, tested, exempt),
+      '验收判据 4 条 · 有测试认领 2 · 入口认领 1 · 其中红线 3 条'
+        + '（测试认领 2 · 入口认领 0 · 显式豁免 1）')
+    // 一条判据同时进三张名单：只能被数一次，而且算在最强的那一栏（测试认领）
+    const one = [{ id: 'A.a' }]
+    eq('三张名单都有它 → 只算测试认领那一次',
+      coverageSummary(one, one, new Set(['A.a']), new Set(['A.a']), new Set(['A.a'])),
+      '验收判据 1 条 · 有测试认领 1 · 入口认领 0 · 其中红线 1 条'
+        + '（测试认领 1 · 入口认领 0 · 显式豁免 0）')
+  }
 
   // 判据级的负片原先在报告里一个字都没有：变异那一列只认需求号，而变异表里
   // 今天已有几条把 req 写成判据号（M-P5-a 守着 P5.f），它们完全不可见
@@ -2728,7 +2844,54 @@ harness('变异测试：验证者崩了不算抓到')
   eq('汇总必须是自成一行的那句，正文里提到「个失败」不算', judgeRun(1, '断言说：这里不该有 3 个失败的例子', T), 'crashed')
 }
 
-harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
+harness('判 crashed 时留下的现场：带记号的一条都不许丢')
+{
+  const SC = VERIFIERS.selfcheck
+  // 判定交回来的是 trim 过的行 —— 夹具也按 trim 过的比，别拿带缩进的去比
+  const mark = (n: number) => `✗ 第${n}条${SELFCHECK_PROCESS_MARK}：进程级的`
+  const plain = (n: number) => `✗ 第${n}条普通失败`
+  // 带记号的那几行是判定一票否决的原因。混在一起按顺序截的话，吵一点的一次运行
+  // 会把唯一说得清原因的那行挤掉，留下来的全是无关的（M-H33-a）。
+  const noisy = [...Array.from({ length: 20 }, (_, i) => plain(i)), mark(99)].join('\n')
+  const got = crashEvidence(noisy, SC, 5)
+  ok('带记号的那行在，哪怕它排在二十行之后', got.lines.includes(mark(99)))
+  eq('总行数不超过封顶', got.lines.length, 5)
+  eq('截掉了几行要报出来', got.omitted, 16)
+  // 封顶要给带记号的让位：只按普通行去算余量，总数就会超过封顶（M-H33-b）
+  const allMarked = [mark(1), mark(2), mark(3)].join('\n')
+  eq('带记号的比封顶还多 → 一条不丢，也不去截它们',
+    crashEvidence(allMarked, SC, 2).lines.length, 3)
+  eq('那时没有普通行可截，omitted 是 0', crashEvidence(allMarked, SC, 2).omitted, 0)
+  // 夹具记号与进程记号同权 —— 两支都是「不是断言的功劳」
+  ok('夹具记号也算原因',
+    crashEvidence(`  ✗ 某条${SELFCHECK_FIXTURE_MARK}：夹具废了`, SC, 1).lines.length === 1)
+  // 没有失败行就是没有 —— 兜底那句话由入口打，判定这边交空名单
+  // ⚠️ 一条成形的失败行都没有 → 交回原始输出的末尾几行。真崩掉的那一次打的是**栈**，
+  // 一行以「✗ 」开头的都没有 —— 只认成形的失败行的话，现场恰恰在最需要它的那一档
+  // 是空的，而这段代码存在的唯一理由就是诊断那一次（M-H35-a，#105 第四轮评审指出）。
+  const stack = ['Error: Transform failed with 1 error:', '  at foo (x.ts:1:1)',
+                 '  at bar (y.ts:2:2)'].join('\n')
+  eq('没有成形的失败行 → 交回原始输出的尾巴', crashEvidence(stack, SC, 5).lines,
+    ['Error: Transform failed with 1 error:', 'at foo (x.ts:1:1)', 'at bar (y.ts:2:2)'])
+  ok('并且标明这是原始输出，不是断言说的话', crashEvidence(stack, SC, 5).raw)
+  // 尾巴也封顶，而且取的是**末尾** —— 崩的原因通常在最后，不在开头（M-H35-b）
+  eq('尾巴取末尾那几行', crashEvidence(stack, SC, 1).lines, ['at bar (y.ts:2:2)'])
+  eq('尾巴截掉了几行也要报', crashEvidence(stack, SC, 1).omitted, 2)
+  // 有成形的失败行时**不掺**原始输出 —— 掺进栈只会把它们淹掉（M-H35-c）
+  ok('有成形的失败行 → raw 为假', !crashEvidence(`✗ 真的失败了\n${stack}`, SC, 5).raw)
+  eq('有成形的失败行 → 只交那些', crashEvidence(`✗ 真的失败了\n${stack}`, SC, 5).lines,
+    ['✗ 真的失败了'])
+  eq('一个字都没打 → 空', crashEvidence('\n  \n', SC, 5).lines.length, 0)
+  // 缺省那个验证者没有记号，两栏都取不到时不许当成「每行都是原因」
+  eq('验证者没有记号 → 全按普通行截', crashEvidence(noisy, VERIFIERS.test, 5).lines.length, 5)
+  // 「失败行」的文法与 processFailed / killsMatched 同一条：trim 之后以「✗ 」开头。
+  // 只问「含不含这个字」的话，一行顺带提到它的诊断会占掉普通行的名额，把真的挤出去
+  // （M-H34-b，#105 第二轮评审指出）。
+  const chatty = ['诊断：下面用 ✗ 标记失败', '✗ 真的失败了', '值是「✗」'].join('\n')
+  eq('只有以「✗ 」开头的才算失败行', crashEvidence(chatty, VERIFIERS.test, 5).lines, ['✗ 真的失败了'])
+}
+
+harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
 {
   const T = VERIFIERS.test
   const SC = VERIFIERS.selfcheck
@@ -2769,10 +2932,20 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
   const done = 'collect 关键词跑完（退出码 0）也说续跑代价'
   const budget = 'collect 预算用尽（退出码 3）也说续跑代价'
   const red = `  ✗ ${done}：没说清续跑的代价\n\n✗ 脚本自检：1 项失败\n`
-  eq('点名那条红了 → 被抓到', judgeRun(1, red, SC, done), 'caught')
-  eq('验证者红了，红的却不是点名那条 → 红错了地方，不算抓到', judgeRun(1, red, SC, budget), 'elsewhere')
+  eq('点名那条红了 → 被抓到', judgeRun(1, red, SC, [done]), 'caught')
+  eq('验证者红了，红的却不是点名那条 → 红错了地方，不算抓到', judgeRun(1, red, SC, [budget]), 'elsewhere')
   // 不点名的那两百多条逐字保持原样：断言红了就是被抓到，不判第四态
   eq('没点名就不问第二层', judgeRun(1, red, SC), 'caught')
+
+  // ---- 点名是一组，每一条都要红 ----
+  // 只收一个名字的时候，一条变异弄红名单里的头一条就算被抓到：M-D6-j 因此只证明了
+  // 「四条收尾里的第一条还活着」，后三条夹具删光它照样绿（#91 复查实测）。一条没红，
+  // 这条变异对那一条就什么也没证明 —— 判的是「红错了地方」，不是「被抓到」
+  const both = `  ✗ ${done}：没说清续跑的代价\n  ✗ ${budget}：说反了\n\n✗ 脚本自检：2 项失败\n`
+  eq('点名两条、两条都红 → 被抓到', judgeRun(1, both, SC, [done, budget]), 'caught')
+  eq('点名两条、只红了头一条 → 红错了地方', judgeRun(1, red, SC, [done, budget]), 'elsewhere')
+  eq('点名两条、只红了后一条 → 一样不算', judgeRun(1, red, SC, [budget, done]), 'elsewhere')
+  eq('顺序不影响判定', judgeRun(1, both, SC, [budget, done]), 'caught')
 
   // ---- 出过进程级失败，这一次的证据就不算数 ----
   // 记号只贴在打那句话的那一行上，护不住它后面照打的**派生诊断**：一条只把被测脚本
@@ -2787,9 +2960,9 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
   eq('没有带记号的行就不算出过', processFailed(red, SELFCHECK_PROCESS_MARK), false)
   // 点名那条**确实红了**（派生诊断照打），可它红得不算数
   eq('崩溃漏出来的派生诊断真会匹配上', killsMatched(crashed, derived), true)
-  eq('但整次判的是跑不起来，不是被抓到', judgeRun(1, crashed, SC, derived), 'crashed')
+  eq('但整次判的是跑不起来，不是被抓到', judgeRun(1, crashed, SC, [derived]), 'crashed')
   // 没崩的那一次照旧 —— 这一道不能顺手把正常的抓到也拦掉
-  eq('没崩的那一次照旧算被抓到', judgeRun(1, red, SC, done), 'caught')
+  eq('没崩的那一次照旧算被抓到', judgeRun(1, red, SC, [done]), 'caught')
 
   // ---- 夹具自己废了，这一次同样什么也没证明 ----
   // 一条夹具的诊断分「夹具没造对」和「断言红了」两种，打的却是同一句 `✗ <名字>：…`，
@@ -2802,15 +2975,52 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
   eq('不带记号的话，那一行照样匹配得上点的名', killsMatched(broke(''), done), true)
   eq('带上记号就不算那条夹具红了', killsMatched(broke(SELFCHECK_FIXTURE_MARK), done), false)
   eq('夹具废了，整次判的是跑不起来，不是被抓到',
-    judgeRun(1, broke(SELFCHECK_FIXTURE_MARK), SC, done), 'crashed')
+    judgeRun(1, broke(SELFCHECK_FIXTURE_MARK), SC, [done]), 'crashed')
   // 拦在**整次运行**这一层，跟进程记号同一个理由：记号只贴在废掉的那一行上，护不住
   // 后面照打的诊断。点名那条真红了也不算数 —— 这一次里有一条夹具压根没测到它要测的东西
   const alsoBroke = `  ✗ 别的夹具${SELFCHECK_FIXTURE_MARK}：夹具没造对\n${red}`
-  eq('别的夹具废了，点名那条真红了也不算数', judgeRun(1, alsoBroke, SC, done), 'crashed')
+  eq('别的夹具废了，点名那条真红了也不算数', judgeRun(1, alsoBroke, SC, [done]), 'crashed')
+  // ---- 见齐就停：凭点名认，不等汇总 ----
+  // 提前退出会同时踩判定前面两道闸：主动杀掉 → 没有退出码 → 判崩；没跑到尾 → 没有汇总
+  // → 还是判崩（ADR-70 记着这处「同一份设计里两句话打架」）。所以另开一条路：看见那几行
+  // 不带记号的 ✗ <名字> 本身就是「断言真的跑了并且红了」的直接证据，比「打出了汇总」
+  // 这个代理更硬 —— 汇总那道闸是给不点名的那两百多条用的
+  // 半行不算数：`✗ 某条夹具` 与 `✗ 某条夹具又长了一截` 的前缀一模一样，边收边看时
+  // 名字写到一半就算数的话，后缀还没到就把人杀了。两股各自截 —— 合起来再截会把它们
+  // 之间那个人为插入的换行当成行尾（#99 评审指出）
+  eq('写完的那几行才算数', complete('甲\n乙'), '甲\n')
+  eq('一整行都没写完 → 一个字也不算', complete('甲'), '')
+  eq('正好写到行尾 → 全算', complete('甲\n'), '甲\n')
+  eq('半行的名字不算它红了', allKilled(complete('  ✗ 某条夹具') + complete(''), ['某条夹具']), false)
+  eq('成行之后才算', allKilled(complete('  ✗ 某条夹具\n') + complete(''), ['某条夹具']), true)
+  eq('见齐了才算见齐', allKilled(both, [done, budget]), true)
+  eq('少一条就不算', allKilled(red, [done, budget]), false)
+  eq('带记号的那一行不算它红了', allKilled(broke(SELFCHECK_FIXTURE_MARK), [done]), false)
+  // 主动停下的那一次：退出码是空的、汇总也没打出来，照旧算被抓到
+  eq('主动停下的那一次凭点名认', judgeRun(null, both, SC, [done, budget], true), 'caught')
+  // 入口说「停了」不算数，判定自己再问一遍 allKilled —— 不然入口那边一漂，一次连一行
+  // 具名失败都没有的运行也能拿到 caught；而「两边共用同一判据」正是 allKilled 只此一份
+  // 的理由，只让入口用、判定不用，等于把那句承诺自己作废（#99 评审指出）
+  eq('说停了却一行具名失败都没有 → 不算数', judgeRun(null, '', SC, [done], true), 'crashed')
+  eq('说停了但只见齐了一半 → 不算数', judgeRun(null, red, SC, [done, budget], true), 'crashed')
+  eq('说停了却没点名 → 不算数', judgeRun(null, both, SC, undefined, true), 'crashed')
+  eq('停下之前崩过，整份不算数', judgeRun(null, `${crashed}${both}`, SC, [done], true), 'crashed')
+  eq('停下之前夹具废过，也不算数',
+    judgeRun(null, `${alsoBroke}${both}`, SC, [done], true), 'crashed')
+  // 没停的那一次逐字如旧 —— 这条路不能顺手把别的判定改松
+  eq('没主动停就还是按老规矩：没有退出码 → 跑不起来', judgeRun(null, both, SC, [done, budget]), 'crashed')
+  eq('没主动停：没有汇总 → 跑不起来',
+    judgeRun(1, `  ✗ ${done}：说错了\n  ✗ ${budget}：说反了\n`, SC, [done, budget]), 'crashed')
+  // 「不是断言的功劳」两种记号同一个待遇 —— 新加一种记号时只补一条路是这里要拦的
+  eq('进程级的记号算', notAssertion(crashed, SC), true)
+  eq('夹具废了的记号也算', notAssertion(alsoBroke, SC), true)
+  eq('都没有就不算', notAssertion(red, SC), false)
+  eq('分不出这两种的验证者，一律不算', notAssertion(alsoBroke, T), false)
+
   // 分不出这两种的验证者（test 没有这个记号）逐字保持原样，不受这道闸影响
   eq('没声明夹具记号的验证者不受影响',
     judgeRun(1, `  ✗ 别的夹具${SELFCHECK_FIXTURE_MARK}：夹具没造对\n  ✗ ${done}：说错了\n\n1 个失败\n`,
-      T, done), 'caught')
+      T, [done]), 'caught')
 
   // 一条夹具的名字是另一条的前缀时，只按前缀匹配会把「短的红了」记成「长的红了」——
   // 归错功劳换个入口再来一次，而那正是点名要堵的东西
@@ -2827,25 +3037,33 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪一条夹具')
     killsMatched(`  ✗ 某条夹具${SELFCHECK_PROCESS_MARK}：预期以退出码 0 结束，实际是 1`, '某条夹具'), false)
 }
 
-harness('by 与 kills 同进同出：三种写错各有名字')
+harness('by 与 kills 同进同出：四种写错各有名字')
 {
   // 两百多条不写这一对的逐字保持原样；写全了的也成立
   eq('两个都不写 → 成立', wiringFault({}), undefined)
-  eq('两个都写了 → 成立', wiringFault({ by: 'selfcheck', kills: '某条夹具' }), undefined)
+  eq('两个都写了 → 成立', wiringFault({ by: 'selfcheck', kills: ['某条夹具'] }), undefined)
 
-  // 三种不成立各堵一个坑。判定给的是名字不是一句话 —— 话由入口说（第 10 条）
-  eq('验证者的名字不认得', wiringFault({ by: '查无此人', kills: '某条夹具' }), 'unknown-verifier')
+  // 四种不成立各堵一个坑。判定给的是名字不是一句话 —— 话由入口说（第 10 条）
+  eq('验证者的名字不认得', wiringFault({ by: '查无此人', kills: ['某条夹具'] }), 'unknown-verifier')
   eq('指了验证者却没点名', wiringFault({ by: 'selfcheck' }), 'missing-kills')
-  eq('点了名却没说谁来验', wiringFault({ kills: '某条夹具' }), 'kills-without-by')
+  eq('点了名却没说谁来验', wiringFault({ kills: ['某条夹具'] }), 'kills-without-by')
   // 缺省那个验证者写出来也一样要点名 —— 不然那个字段写了等于没写
   eq('把缺省的验证者写出来，也要点名', wiringFault({ by: 'test' }), 'missing-kills')
+  // JSON 读进来的东西编译期不在场：老写法是个字符串，按一组名字遍历它会逐个字符走一遍，
+  // 每个字都得红才算抓到 —— 那条变异从此永远判「红错了地方」，而没有一句话说得出为什么
+  eq('kills 写成一个名字（老写法）→ 形状不对', wiringFault({ by: 'selfcheck', kills: '某条夹具' }), 'kills-not-list')
+  eq('名单里混进了不是名字的东西 → 形状不对',
+    wiringFault({ by: 'selfcheck', kills: ['某条夹具', 3] }), 'kills-not-list')
+  // 点了验证者、名单却是空的：判定那边 `every` 对空名单返回真，会一路判成「被抓到」——
+  // 一条什么也没点名的变异被记成守住了某条夹具，正是这道闸要拦的
+  eq('点了验证者、名单是空的 → 等于没点名', wiringFault({ by: 'selfcheck', kills: [] }), 'missing-kills')
 
   // 按「原型链上有没有」来认的话，语言内建的那几个名字会被放行，而取出来的根本不是
   // 验证者：判定当场抛，人看见的是一个栈，不是「名字写错了」—— 这道体检唯一该说话的
   // 时候把自己弄哑了（评审指出）。四个内建名字都试，一个都不许放行
   for (const builtin of ['constructor', 'valueOf', 'hasOwnProperty', 'propertyIsEnumerable']) {
     eq(`语言内建的名字不算认得：${builtin}`,
-      wiringFault({ by: builtin, kills: '某条夹具' }), 'unknown-verifier')
+      wiringFault({ by: builtin, kills: ['某条夹具'] }), 'unknown-verifier')
   }
 }
 
@@ -2888,7 +3106,7 @@ harness('豁免那一行开头说的话，要跟变异集对得上')
   }
 }
 
-harness('清册：点的那条夹具真的在，而且只有一条叫这个名字')
+harness('清册：点的那些夹具真的在，而且各自只有一条叫那个名字')
 {
   const D = ['eq', 'ok']
   eq('声明处的字面量进清册', [...labelsOf("eq('甲', 1, 1)", D).keys()], ['甲'])
@@ -2916,6 +3134,19 @@ harness('清册：点的那条夹具真的在，而且只有一条叫这个名�
   eq('清册里没有 → 点了个谁也不会打出来的名字', labelFault('甲', new Map()), 'unknown-label')
   eq('只起过一次 → 立得住', labelFault('甲', new Map([['甲', 1]])), undefined)
   eq('起过两次 → 红的是哪一条分不出', labelFault('甲', new Map([['甲', 2]])), 'ambiguous-label')
+
+  // ---- 名单里每一项各查一次 ----
+  // 「每一项都要查」是语义。它原先留在入口那道循环里，没有任何负片守得住 ——
+  // 改成只查首项的话，当时的测试与三条新负片仍会全绿，后面几项点着不存在的夹具
+  // 就此被静默放行（#97 评审指出，CONVENTIONS 第 10 条）
+  const inv = new Map([['甲', 1], ['乙', 1], ['丙', 2]])
+  eq('都立得住 → 一条也不报', labelFaults(['甲', '乙'], inv), [])
+  eq('头一项立得住、后一项不在清册里 → 报后一项',
+    labelFaults(['甲', '查无此名'], inv), [{ label: '查无此名', fault: 'unknown-label' }])
+  eq('后一项重名也要报', labelFaults(['甲', '丙'], inv), [{ label: '丙', fault: 'ambiguous-label' }])
+  eq('两项都立不住 → 两条都报，各带各的名字',
+    labelFaults(['查无此名', '丙'], inv),
+    [{ label: '查无此名', fault: 'unknown-label' }, { label: '丙', fault: 'ambiguous-label' }])
 
   // 手搭的数据证不了扫真源码扫不扫得动 —— #85 记的那条欠条就是这个形状
   const selfInv = labelsOf(rf('scripts/check/selfcheck.ts', 'utf8'), VERIFIERS.selfcheck.declares)
@@ -3302,6 +3533,27 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
   // 开跑前和跑完各算一次指纹：对不上说明源码在这一跑的过程中变过，那份记录会替
   // 一棵从没被完整测过的树作证（M-H14-k）。
   eq('跑的过程中源码变过就不写', claimsPublishable(false, 0, 'a', 'b'), false)
+
+  // ---- 两份记录：单元认领与入口认领各写各的 ----
+  // 一份文件两个写方会互相抹掉：拥有的一方开跑前先清、跑完整份重写，单独跑 npm test
+  // 就会把自检那一栏一起清掉，而审计读到的是一份形状合法、内容少了一半的记录 ——
+  // 它会照着报「红线判据没有测试认领」，把人支到那些判据上（claims.ts 记着这笔账）
+  // 「不是同一个路径」这句得把一边放宽成 string 才写得出来：两个字面量类型无交集，
+  // 直接比编译器会说这个比较没有意义。那道拒绝拦的是断言本身，不是「两份指到同一处」
+  // 这个错 —— 真指到同一处时它反倒编译得过 —— 所以它守不住任何东西，得靠运行时这条
+  ok('两份记录不是同一个路径 —— 指到同一处就互相抹掉', (CLAIMS_PATH as string) !== ENTRY_CLAIMS_PATH)
+  ok('两份记录都在 .check-cache 底下',
+    (CLAIMS_PATH as string).startsWith('.check-cache/')
+      && (ENTRY_CLAIMS_PATH as string).startsWith('.check-cache/'))
+  // 形状故意一样 —— 同一套判定守两份，不必再写一套。自检写的那份 covered／tensions
+  // 恒空，形状照样要过：少一栏就不是合法记录，审计该说「记录坏了」而不是「没测过」
+  ok('自检写的那种形状（两栏空）也是合法记录',
+    claimsWellFormed({ source_hash: 'abc', covered: [], criteria: ['P3.b'], tensions: [] }))
+  ok('少一栏就不合法 —— 两份记录同一套形状判定',
+    !claimsWellFormed({ source_hash: 'abc', criteria: ['P3.b'], tensions: [] }))
+  // 入口认领与单元认领的资格判定是同一套：变异跑一律不写（否则写下的是一份由被改过
+  // 的源码产生的认领），断言红过不写，跑的过程中源码变过不写
+  eq('变异跑里自检也不写入口认领', claimsPublishable(true, 0, 'a', 'a'), false)
 
   // 谁拥有这份记录，谁负责开跑前清掉它 —— 少了这一步，半路崩掉的运行会把
   // 上一次成功的记录留在盘上当证据（M-H14-e）。
