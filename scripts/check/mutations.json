@@ -2709,6 +2709,14 @@
       "replace": "  `${MARK} ${JSON.stringify({ ...ran, id })}`"
     },
     {
+      "id": "M-H36-r",
+      "req": "harness",
+      "why": "「是不是在汇报结论」这一问改成认全行，于是带着记号却读不出来的那种不再算在汇报 —— 派工那一侧就把它当成闲话跳过，而那一条已经不会有结论了，跑它的那个人手正等着下一个编号：整跑从此挂住，连「少一个就是硬失败」那一步都走不到",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "export const looksLikeReport = (line: string): boolean => line.startsWith(`${MARK} `)",
+      "replace": "export const looksLikeReport = (line: string): boolean => parseReport(line) !== undefined"
+    },
+    {
       "id": "M-H37-a",
       "req": "harness",
       "why": "派工跑被打断时，那一刀不再转发给各个 worker —— 它们自成一组、收不到打在派工进程上的那一刀，于是被过继出去接着跑被改过的源码，而没有任何东西看着它们",

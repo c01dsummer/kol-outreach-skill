@@ -24,7 +24,8 @@ import {
   testRunning, trackTest,
 } from './check/mutate-restore.js'
 import {
-  type Outcome, type Ran, jobsWanted, missingVerdicts, parseReport, reportLine,
+  type Outcome, type Ran, jobsWanted, looksLikeReport, missingVerdicts, parseReport,
+  reportLine,
 } from './check/jobs-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
@@ -3412,6 +3413,15 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
     parseReport(wire({ id: 'M-X-a', outcome: 'caught', status: 1, output: '' })), undefined)
   eq('少了现场那一栏：认不出',
     parseReport(wire({ id: 'M-X-a', outcome: 'caught', status: 1, stopped: false })), undefined)
+
+  // 「不是汇报行」和「是汇报行但读不出来」对读的人是同一件事，**对派工那一侧不是**：
+  // 前者是验证者漏出来的闲话，跳过就行；后者意味着那一条不会有结论了，而 worker 正等着
+  // 下一个编号 —— 不收摊它就永远等下去，整跑挂住，连核账那一步都走不到（而模块承诺的
+  // 是硬失败）。所以这一问要分得开，`parseReport` 交回 undefined 分不开
+  eq('好的那一行：认得是在汇报', looksLikeReport(reportLine('M-X-a', ran('caught'))), true)
+  eq('带记号但读不出来的：仍然算在汇报', looksLikeReport('⟦结论⟧ 这不是 JSON'), true)
+  eq('验证者漏出来的闲话：不算在汇报', looksLikeReport('  ✓ 某条夹具'), false)
+  eq('光有记号没有空格：不算', looksLikeReport('⟦结论⟧'), false)
 
   // 派出去却没回话的，是「没查过」，不是通过（process/README.md 总纲的第三档）
   eq('少了谁就报谁，按派出去的顺序',

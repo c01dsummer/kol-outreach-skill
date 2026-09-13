@@ -43,7 +43,7 @@ import {
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import {
-  type Ran, jobsWanted, missingVerdicts, parseReport, reportLine,
+  type Ran, jobsWanted, looksLikeReport, missingVerdicts, parseReport, reportLine,
 } from './jobs-rule.js'
 import {
   INTERRUPTS, beginMutation, restoreMutation, stopJobs, trackTest,
@@ -456,7 +456,16 @@ const dispatch = async (jobs: number): Promise<void> => {
     }
     createInterface({ input: kid.stdout }).on('line', line => {
       const r = parseReport(line)
-      if (r === undefined) return
+      if (r === undefined) {
+        // **带着记号却读不出来 = 协议坏了，得让这个 worker 收摊。** 它这会儿正等着下一个
+        // 编号，而那一条已经不会有结论了；不收摊的话它永远等下去、`close` 永远不来、
+        // 这里的 `Promise.all` 也就永远不返回 —— **整条检查挂住，而不是硬失败**。
+        // 模块头上承诺的是后者（「汇报行被截断……少一个就是硬失败」），挂住连核账
+        // 那一步都走不到。收摊之后剩下的编号由别的 worker 领，没领到的由核账报出来。
+        // 不带记号的那种是验证者漏出来的闲话，照旧跳过（#109 第三轮评审指出）
+        if (looksLikeReport(line)) kid.stdin.end()
+        return
+      }
       reported.add(r.id)
       const m = byId.get(r.id)
       if (m !== undefined) record(m, r)
