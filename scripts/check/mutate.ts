@@ -274,7 +274,7 @@ process.on('exit', restoreClaims)
  * 可能是半行，留着等下一块 —— 拿半行去匹配，名字会在写到一半时就算数。
  */
 const runTest = (verifier: Verifier, kills?: readonly string[]):
-  Promise<{ status: number | null; output: string; stoppedOnKills: boolean }> =>
+  Promise<{ status: number | null; output: string; atStop?: string }> =>
   new Promise(resolve => {
     // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
     // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
@@ -286,11 +286,12 @@ const runTest = (verifier: Verifier, kills?: readonly string[]):
     trackTest(kid)
     let out = ''
     let err = ''
-    let stoppedOnKills = false
+    /** 我们动手那一刻它说过的话。**没动手就是 undefined** —— 判定据此分岔 */
+    let atStop: string | undefined
     // 见齐了就把整组停掉。**杀的是进程组**（负的 pid）：`tsx` 底下还有一个真正跑脚本的
     // 进程，只杀手上这一个杀不掉，剩下那个会一直跑到自己结束 —— 那样「省下的时间」就没了
     const stopIfSeen = (): void => {
-      if (stoppedOnKills || kills === undefined) return
+      if (atStop !== undefined || kills === undefined) return
       // **两股各自截**：合起来再截会把两者之间那个人为插入的换行当成行尾，于是先到的
       // 那一股的半行被当成整行 —— 名字写到一半就算数，后缀还没到就把人杀了（#99 评审指出）
       const whole = complete(out) + complete(err)
@@ -300,7 +301,9 @@ const runTest = (verifier: Verifier, kills?: readonly string[]):
       // 一次普通的「非零退出、没有汇总」会被记成被抓到（#99 第二轮评审指出）
       try {
         process.kill(-(kid.pid as number), 'SIGTERM')
-        stoppedOnKills = true
+        // **快照留在开枪之前。** 这一刀连验证者手上的子进程一起杀，它临死会补打一句
+        // 带「进程」记号的失败 —— 那是我们自己打出来的，不能算进这条变异的账
+        atStop = whole
       } catch { /* 没杀成：这一次就当没停过，按老规矩判 */ }
     }
     kid.stdout.on('data', d => { out += d; stopIfSeen() })
@@ -308,7 +311,7 @@ const runTest = (verifier: Verifier, kills?: readonly string[]):
     // 压根没起来（命令不在、权限不足）也要留下话：那时两股都是空的，
     // 判定只会说「跑不起来」，而人得知道是没起来还是跑崩了
     kid.on('error', e => { err += `\n${e}` })
-    kid.on('close', status => resolve({ status, output: `${out}\n${err}`, stoppedOnKills }))
+    kid.on('close', status => resolve({ status, output: `${out}\n${err}`, atStop }))
   })
 
 /**
@@ -336,8 +339,8 @@ const runOne = async (m: Mut): Promise<Ran> => {
     const verifier = VERIFIERS[m.by ?? 'test']
     const r = await runTest(verifier, m.kills)
     return {
-      outcome: judgeRun(r.status, r.output, verifier, m.kills, r.stoppedOnKills),
-      status: r.status, stopped: r.stoppedOnKills, output: r.output,
+      outcome: judgeRun(r.status, r.output, verifier, m.kills, r.atStop),
+      status: r.status, stopped: r.atStop !== undefined, output: r.output,
     }
   } finally {
     restoreMutation()

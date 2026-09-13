@@ -3006,17 +3006,32 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
   eq('见齐了才算见齐', allKilled(both, [done, budget]), true)
   eq('少一条就不算', allKilled(red, [done, budget]), false)
   eq('带记号的那一行不算它红了', allKilled(broke(SELFCHECK_FIXTURE_MARK), [done]), false)
-  // 主动停下的那一次：退出码是空的、汇总也没打出来，照旧算被抓到
-  eq('主动停下的那一次凭点名认', judgeRun(null, both, SC, [done, budget], true), 'caught')
+  // 主动停下的那一次：退出码是空的、汇总也没打出来，照旧算被抓到。
+  // **第五个参数是「动手那一刻它说过的话」** —— 给了就是停过，没给就是跑到尾了。
+  // 两件事合成一个参数，是因为拆成「停没停」加一份快照的话，两者对不上是表示得出来的
+  // 状态，而对不上的症状是判定悄悄换了一份输入
+  eq('主动停下的那一次凭点名认', judgeRun(null, both, SC, [done, budget], both), 'caught')
   // 入口说「停了」不算数，判定自己再问一遍 allKilled —— 不然入口那边一漂，一次连一行
   // 具名失败都没有的运行也能拿到 caught；而「两边共用同一判据」正是 allKilled 只此一份
   // 的理由，只让入口用、判定不用，等于把那句承诺自己作废（#99 评审指出）
-  eq('说停了却一行具名失败都没有 → 不算数', judgeRun(null, '', SC, [done], true), 'crashed')
-  eq('说停了但只见齐了一半 → 不算数', judgeRun(null, red, SC, [done, budget], true), 'crashed')
-  eq('说停了却没点名 → 不算数', judgeRun(null, both, SC, undefined, true), 'crashed')
-  eq('停下之前崩过，整份不算数', judgeRun(null, `${crashed}${both}`, SC, [done], true), 'crashed')
+  eq('说停了却一行具名失败都没有 → 不算数', judgeRun(null, '', SC, [done], ''), 'crashed')
+  eq('说停了但只见齐了一半 → 不算数', judgeRun(null, red, SC, [done, budget], red), 'crashed')
+  eq('说停了却没点名 → 不算数', judgeRun(null, both, SC, undefined, both), 'crashed')
+  eq('停下之前崩过，整份不算数',
+    judgeRun(null, `${crashed}${both}`, SC, [done], `${crashed}${both}`), 'crashed')
   eq('停下之前夹具废过，也不算数',
-    judgeRun(null, `${alsoBroke}${both}`, SC, [done], true), 'crashed')
+    judgeRun(null, `${alsoBroke}${both}`, SC, [done], `${alsoBroke}${both}`), 'crashed')
+
+  // **我们自己那一刀打出来的东西，不算这条变异的账。** 杀的是整个进程组，验证者手上
+  // 正跑着的子进程跟着一起没，它临死会补打一句带「进程」记号的失败 —— 拿最终输出去判，
+  // 这一句就一票否决掉一次本来成立的抓到。实测 M-D6-j 就是这么被判成「跑不起来」的：
+  // 四条点名的夹具全红了，而主干上机器占满时 8 次里红 5 次、空闲时 0 次 ——
+  // 是台机器忙不忙决定的，不是这条变异
+  eq('开枪之后才冒出来的进程级失败，不算数',
+    judgeRun(null, `${both}${crashed}`, SC, [done, budget], both), 'caught')
+  eq('开枪之后冒出来的夹具级失败，同样不算数',
+    judgeRun(null, `${both}${alsoBroke}`, SC, [done, budget], both), 'caught')
+  // 而开枪**之前**就有的照旧一票否决 —— 那时候我们还没动手，记号是真的（上面两条钉着）
   // 没停的那一次逐字如旧 —— 这条路不能顺手把别的判定改松
   eq('没主动停就还是按老规矩：没有退出码 → 跑不起来', judgeRun(null, both, SC, [done, budget]), 'crashed')
   eq('没主动停：没有汇总 → 跑不起来',

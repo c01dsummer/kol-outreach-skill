@@ -2425,7 +2425,7 @@
       "req": "harness",
       "why": "主动停下的那一次不算被抓到 —— 见齐就停之后退出码和汇总都拿不到，判定于是把每一条见齐停下的变异都记成「跑不起来」，一份好证据被当成跑砸了",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  if (stoppedOnKills) {\n    return kills !== undefined && allKilled(output, kills) && !notAssertion(output, verifier)\n      ? 'caught' : 'crashed'\n  }\n",
+      "find": "  if (atStop !== undefined) {\n    return kills !== undefined && allKilled(atStop, kills) && !notAssertion(atStop, verifier)\n      ? 'caught' : 'crashed'\n  }\n",
       "replace": ""
     },
     {
@@ -2433,16 +2433,16 @@
       "req": "harness",
       "why": "主动停下的那一次不问记号 —— 停下之前已经崩过或夹具已经废过，这一次的证据本来整份不算数，却照样记成被抓到",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "    return kills !== undefined && allKilled(output, kills) && !notAssertion(output, verifier)\n      ? 'caught' : 'crashed'",
-      "replace": "    return kills !== undefined && allKilled(output, kills) ? 'caught' : 'crashed'"
+      "find": "    return kills !== undefined && allKilled(atStop, kills) && !notAssertion(atStop, verifier)\n      ? 'caught' : 'crashed'",
+      "replace": "    return kills !== undefined && allKilled(atStop, kills) ? 'caught' : 'crashed'"
     },
     {
       "id": "M-H27-c",
       "req": "harness",
       "why": "主动停下的那一次不再核对点名的是不是真都红过 —— 入口那边一漂，一次连一行具名失败都没有的运行也会被记成被抓到，而那份「证据」里什么都没有",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "    return kills !== undefined && allKilled(output, kills) && !notAssertion(output, verifier)\n      ? 'caught' : 'crashed'",
-      "replace": "    return notAssertion(output, verifier) ? 'crashed' : 'caught'"
+      "find": "    return kills !== undefined && allKilled(atStop, kills) && !notAssertion(atStop, verifier)\n      ? 'caught' : 'crashed'",
+      "replace": "    return notAssertion(atStop, verifier) ? 'crashed' : 'caught'"
     },
     {
       "id": "M-H27-d",
@@ -2451,6 +2451,14 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "  return chunk.slice(0, chunk.lastIndexOf('\\n') + 1)",
       "replace": "  return chunk"
+    },
+    {
+      "id": "M-H27-e",
+      "req": "harness",
+      "why": "主动停下的那一次改用最终输出判「是不是断言的功劳」，而不是我们动手那一刻它说过的话 —— 那一刀连验证者手上的子进程一起杀，它临死补打的那句进程级失败是我们自己打出来的，拿它一票否决，就把一次本来成立的抓到记成了跑不起来（而且只在机器忙的时候犯，时红时绿）",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    return kills !== undefined && allKilled(atStop, kills) && !notAssertion(atStop, verifier)\n      ? 'caught' : 'crashed'",
+      "replace": "    return kills !== undefined && allKilled(atStop, kills) && !notAssertion(output, verifier)\n      ? 'caught' : 'crashed'"
     },
     {
       "id": "M-H29-a",
