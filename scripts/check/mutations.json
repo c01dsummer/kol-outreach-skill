@@ -2607,7 +2607,7 @@
     {
       "id": "M-H36-a",
       "req": "harness",
-      "why": "派工时给了一个读不出来的并行度（写成一句话、写成零、写成负数），不再说「说不清要派几个」，而是悄悄按机器核数跑起来 —— 一个写错的配置被当成没写过，人以为自己在串行跑，实际不是",
+      "why": "派工时给了零或者负数当并行度，不再说「说不清要派几个」，而是悄悄收口成 1 跑起来 —— 一个写错的配置被当成没写过，人以为自己在串行跑，实际不是",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  if (!Number.isInteger(n) || n < 1) return undefined",
       "replace": "  if (!Number.isInteger(n)) return undefined"
@@ -2643,6 +2643,14 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "  return handed.filter(id => !reported.has(id))",
       "replace": "  return []"
+    },
+    {
+      "id": "M-H36-f",
+      "req": "harness",
+      "why": "派工时给了一句话或者一个小数当并行度，不再说「说不清要派几个」，而是拿一个算不出来的数去派工 —— 同样是把一个写错的配置当成没写过",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (!Number.isInteger(n) || n < 1) return undefined",
+      "replace": "  if (n < 1) return undefined"
     },
     {
       "id": "M-H37-a",
