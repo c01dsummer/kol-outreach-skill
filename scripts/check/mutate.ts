@@ -457,6 +457,13 @@ const dispatch = async (jobs: number): Promise<void> => {
     const [exe, argv] = tsxCommand([SELF, '--worker'])
     const kid = spawn(exe, argv, { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'] })
     live.add(kid)
+    // **起不来是异步报的**，上面那个 `try/catch` 接不到；`error` 没人听的话 Node 当
+    // 未捕获异常退掉，活着的 worker 和隔离目录全留下（实测与事件序记在 ADR-72）
+    kid.on('error', e => {
+      console.error(`\n✗ 变异测试：worker 起不来 —— ${e.message}`)
+      hardStop()
+    })
+    kid.stdin.on('error', () => { /* worker 没了还写会 EPIPE，也是异步的；核账会报它 */ })
     const hand = () => {
       const id = queue.shift()
       if (id === undefined) kid.stdin.end()
