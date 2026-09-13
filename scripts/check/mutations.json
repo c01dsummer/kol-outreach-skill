@@ -2653,6 +2653,14 @@
       "replace": "  if (n < 1) return undefined"
     },
     {
+      "id": "M-H36-g",
+      "req": "harness",
+      "why": "没人指定并行度、按机器核数派工那一支，不再按要跑的条数收口 —— 一台核多的机器上，清单只剩三条也照样派出去八个人手，多出来那几个白起一遍进程",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (asked === undefined) return Math.max(1, Math.min(cpus, total))",
+      "replace": "  if (asked === undefined) return Math.max(1, cpus)"
+    },
+    {
       "id": "M-H37-a",
       "req": "harness",
       "why": "派工跑被打断时，那一刀不再转发给各个 worker —— 它们自成一组、收不到打在派工进程上的那一刀，于是被过继出去接着跑被改过的源码，而没有任何东西看着它们",
