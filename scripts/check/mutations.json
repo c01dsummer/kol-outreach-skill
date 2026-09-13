@@ -2701,6 +2701,46 @@
       "replace": "  `${MARK} ${JSON.stringify({ ...ran, id })}`"
     },
     {
+      "id": "M-H36-m",
+      "req": "harness",
+      "why": "汇报组号那一行不再看记号 —— `Number('')` 是 0，于是验证者随口打的任何一行短句都会被读成组号 0，而 0 在发信号那一头的意思是「自己这一组」",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (!line.startsWith(`${LIVE} `)) return undefined\n  const n = Number(line.slice(LIVE.length + 1))",
+      "replace": "  const n = Number(line.slice(LIVE.length + 1))"
+    },
+    {
+      "id": "M-H36-n",
+      "req": "harness",
+      "why": "组号读回来时不再核对是不是整数 —— 一行读不出数的汇报会带着 NaN 往下走，而拿它去发信号既杀不掉该杀的，也说不出哪儿不对",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return Number.isInteger(n) ? n : undefined",
+      "replace": "  return n"
+    },
+    {
+      "id": "M-H36-o",
+      "req": "harness",
+      "why": "硬来那一步改成按进程发刀，不按组 —— 起一个 .ts 要经过 tsx 的壳，刀落在壳上，壳底下真正干活的那个进程活下来接着跑被改过的源码（实测：ps 里两个 worker 挂在 1 号进程底下）",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return [...workerGroups, ...verifierGroups].filter(g => g > 1).map(g => -g)",
+      "replace": "  return [...workerGroups, ...verifierGroups].filter(g => g > 1)"
+    },
+    {
+      "id": "M-H36-p",
+      "req": "harness",
+      "why": "硬来那一步把验证者那一串排到 worker 前面 —— 先杀掉的验证者会让 worker 收到一次「跑完了」，于是它汇报、接下一条、再起一个验证者，那一个的组号谁也没记下，正好逃过这一轮",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return [...workerGroups, ...verifierGroups].filter(g => g > 1).map(g => -g)",
+      "replace": "  return [...verifierGroups, ...workerGroups].filter(g => g > 1).map(g => -g)"
+    },
+    {
+      "id": "M-H36-q",
+      "req": "harness",
+      "why": "硬来那一步不再挡下 0 和 1 —— `process.kill(-0, …)` 打的是自己这一组（派工连同全部 worker 一起没了，而且是在收目录之前，隔离目录全留在盘上），`process.kill(-1, …)` 在 POSIX 上是打给这个用户有权打的每一个进程，在 CI 上就是掀掉整个 runner",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return [...workerGroups, ...verifierGroups].filter(g => g > 1).map(g => -g)",
+      "replace": "  return [...workerGroups, ...verifierGroups].map(g => -g)"
+    },
+    {
       "id": "M-H37-a",
       "req": "harness",
       "why": "派工跑被打断时，那一刀不再转发给各个 worker —— 它们自成一组、收不到打在派工进程上的那一刀，于是被过继出去接着跑被改过的源码，而没有任何东西看着它们",

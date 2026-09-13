@@ -998,7 +998,7 @@ if (both.ok && !/^\s*⊘ X1\.a 名下有负片/m.test(both.stdout)) {
 // 只有真派工才成立 —— 那正是整套隔离的地基：改的、还的、写的，全在各自那份副本里。
 const jobsTmp = join(tmp, 'jobs')
 const jobsMark = join(tmp, 'jobs-cwd.txt')
-const seedJobs = (dir: string, muts: unknown[]) => {
+const seedJobs = (dir: string, muts: unknown[], beat?: string) => {
   mkdirSync(join(dir, 'scripts', 'check'), { recursive: true })
   mkdirSync(join(dir, 'docs'), { recursive: true })
   writeFileSync(join(dir, 'docs', 'requirements.json'),
@@ -1007,13 +1007,24 @@ const seedJobs = (dir: string, muts: unknown[]) => {
     "export const v = 'keep'\nexport const w = 'hold'\n", 'utf8')
   // 验证者每跑一遍就把自己那一刻的当前目录记一笔 —— 派工时它该在某个 worker 副本里
   const q = "'"
-  writeFileSync(join(dir, 'scripts', 'test.ts'), [
+  writeFileSync(join(dir, 'scripts', 'test.ts'), (beat === undefined ? [
     `import { v, w } from ${q}./check/a.js${q}`,
     `import { appendFileSync } from ${q}node:fs${q}`,
     `appendFileSync(${JSON.stringify(jobsMark)}, process.cwd() + ${q}\\n${q})`,
     `const bad = (v !== ${q}keep${q} ? 1 : 0) + (w !== ${q}hold${q} ? 1 : 0)`,
     `if (bad) { console.log(${q}\\n${q} + bad + ${q} 个失败\\n${q}); process.exitCode = 1 }`,
-  ].join('\n') + '\n', 'utf8')
+  ] : [
+    // 打断那一族用的验证者：**每 100 毫秒往一份公共的账上记一笔，自己永远不结束**。
+    // 「还有没有东西在跑」这件事于是看得见 —— 打断之后那份账还在长，就是有人没被停掉。
+    // 兜底 30 秒自尽：夹具万一没送出那一刀，也不能把自检挂在这里
+    `import { appendFileSync } from ${q}node:fs${q}`,
+    `import { v } from ${q}./check/a.js${q}`,
+    `void v`,
+    `const beat = setInterval(() => { appendFileSync(${JSON.stringify(beat)}, ${q}.${q}) }, 100)`,
+    // 兜底：夹具万一没送出那一刀，也不能把自检挂在这里。**停掉计时器让它自己走完**，
+    // 不写那个硬退出的写法 —— `exitRace` 扫的是本文件的源码字面（`mutate-rule.ts`）
+    `setTimeout(() => { clearInterval(beat) }, 30000)`,
+  ]).join('\n') + '\n', 'utf8')
   writeFileSync(join(dir, 'scripts', 'check', 'mutations.json'),
     JSON.stringify({ mutations: muts, exemptions: [] }), 'utf8')
 }
@@ -1051,6 +1062,96 @@ const silent = runToolBoth('mutate 派工：有一条没回话，判成没有结
 if (silent.ok && !/M-J-d.*没有结论/.test(silent.stdout)) {
   failed++
   console.error('  ✗ 那条没回话的被放过去了 —— 报告里没有「没有结论」')
+}
+
+// ---- 派工跑被打断：真起、真打、真看还有没有东西在跑 ----
+// **上面几处夹具没有一处走到打断。** 而打断那条路上最要紧的一句是「验证者自成一组，
+// 收不到打在别人身上的那一刀」—— 那句话只有真起一遍、真打一刀、再去看它停没停，
+// 才验得出来。单元测试那一层（`test.ts` 里 `stopJobs` 与 `hardTargets` 那两族）
+// 认的是判定：转发给谁、等多久、刀往哪儿发；这里认的是**结果**：打完之后还有没有
+// 东西在跑、隔离目录收干净没有、退出码是不是非零。
+//
+// 「还有没有东西在跑」不靠翻进程表（那是平台相关的），靠那份公共的账：
+// 验证者每 100 毫秒记一笔，打断之后隔一秒两次量它，还在长就是有人没被停掉。
+//
+// 两趟：按一次（各 worker 自己收摊）、按两次（人不肯等了，当场硬来）。
+// 后一趟正是 #109 评审指出的那个洞的现场 —— worker 被 SIGKILL，它来不及停手上的
+// 验证者，而那个验证者自成一组。**两趟的判据一样**：打完就该干净。
+const beatFile = join(tmp, 'jobs-beat.txt')
+// `.mts` 不是随手起的名：这份夹具在 tmp 里，够不着仓库的 `package.json`，
+// 落到 tsx 手上会按 CJS 转，而它有顶层 await —— 症状是 `ERR_REQUIRE_ASYNC_MODULE`
+const stopHelper = join(tmp, 'jobs-stop.mts')
+writeFileSync(stopHelper, `
+import { spawn } from 'node:child_process'
+import { existsSync, statSync } from 'node:fs'
+
+const [exe, argv, cwd, beat, strikes] = JSON.parse(process.argv[2])
+const nap = (ms: number) => new Promise(r => { setTimeout(r, ms) })
+const beats = () => (existsSync(beat) ? statSync(beat).size : 0)
+
+const kid = spawn(exe, argv, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+let said = ''
+kid.stdout.on('data', d => { said += d })
+kid.stderr.on('data', d => { said += d })
+const ended = new Promise<number | null>(done => { kid.on('close', s => { done(s) }) })
+
+// 等到验证者真的在跑了再打 —— 打早了打的是一个还在复制目录的派工进程，
+// 那样这一趟证明的是另一件事
+for (let i = 0; i < 300 && beats() < 5; i++) await nap(50)
+const started = beats() >= 5
+
+for (let i = 0; i < Number(strikes); i++) {
+  process.kill(kid.pid as number, 'SIGINT')
+  await nap(10)
+}
+const status = await Promise.race([ended, nap(20000).then(() => 'hung' as const)])
+if (status === 'hung') kid.kill('SIGKILL')
+// 撒手：派工那一侧漏掉的 worker 攥着这两根管子，不撒手的话这份夹具自己也走不完
+// —— 而它正是要来报告「有人没被停掉」的那一个
+kid.stdout.destroy()
+kid.stderr.destroy()
+kid.unref()
+
+// 派工进程退了不等于没人在跑：漏掉的那几个验证者是被过继出去的孤儿，
+// 谁也不会因为它们还活着而卡住这里
+await nap(1200)
+const a = beats()
+await nap(1200)
+const b = beats()
+
+// **这份夹具只量，不判。** 它自己永远以 0 退出，成败由自检那一侧的断言说了算 ——
+// 它非零退出的话，自检报的是「进程没起来」，而那句话对每一种坏法都一样，
+// 分不出「没等到验证者」和「打完还有东西在跑」
+console.log('等到验证者了=' + started)
+console.log('派工退了=' + (status !== 'hung'))
+console.log('退出码=' + status)
+console.log('隔离目录还在=' + existsSync(cwd + '/.check-cache/mutate-jobs'))
+console.log('打完还在跑=' + (b > a))
+console.log('派工说过的话：' + said.split('\\n').slice(-3).join(' ⏎ '))
+// 打完就到头，不硬退出：硬退出会把上面几行截在管子里，而它们就是这份夹具的全部产出
+// （同一个道理写在 \`mutate-rule.ts\` 的 \`exitRace\` 上）
+`, 'utf8')
+
+for (const [strikes, what] of [['1', '按一次：各 worker 自己收摊'],
+  ['2', '按两次：不等了，当场硬来']] as const) {
+  const stopDir = join(tmp, `jobs-stop-${strikes}`)
+  seedJobs(stopDir, [jobMut('M-J-e', 'keep', 'gone'), jobMut('M-J-f', 'hold', 'lost')], beatFile)
+  rmSync(beatFile, { force: true })
+  const [exe, argv] = tsxCommand([S(SELFCHECK_TOOLS.mutate), '--jobs=2'])
+  const said = run(`mutate 派工被打断（${what}）`, [stopHelper,
+    JSON.stringify([exe, argv, stopDir, beatFile, strikes])])
+  if (said !== undefined) {
+    named(`打断之前验证者真跑起来了（${what}）`, said.includes('等到验证者了=true'),
+      `没等到 —— 那这一刀打在一个还在复制目录的派工进程上，下面几条什么也没证明\n${said}`)
+    named(`打断之后派工进程自己退了（${what}）`, said.includes('派工退了=true'),
+      `它挂在那儿了 —— 人看到的是「按了没反应」，比留下几个进程更难查\n${said}`)
+    named(`打断之后一个验证者都不剩（${what}）`, said.includes('打完还在跑=false'),
+      `账还在长 —— 有验证者被过继出去了，跑的是被改过的源码，谁也没在看着\n${said}`)
+    named(`打断之后隔离目录收干净了（${what}）`, said.includes('隔离目录还在=false'),
+      `worker 目录留在盘上了\n${said}`)
+    named(`打断的那一跑不算过（${what}）`, said.includes('退出码=1'),
+      `这一跑没跑完，退出码必须非零 —— 否则一次被打断的检查报成过了\n${said}`)
+  }
 }
 
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。

@@ -24,7 +24,8 @@ import {
   testRunning, trackTest,
 } from './check/mutate-restore.js'
 import {
-  type Outcome, type Ran, jobsWanted, missingVerdicts, parseReport, reportLine,
+  type Outcome, type Ran, hardTargets, jobsWanted, missingVerdicts, parseReport,
+  parseVerifier, reportLine, verifierLine,
 } from './check/jobs-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
@@ -3397,6 +3398,34 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
     parseReport(wire({ id: 'M-X-a', outcome: 'caught', status: 1, output: '' })), undefined)
   eq('少了现场那一栏：认不出',
     parseReport(wire({ id: 'M-X-a', outcome: 'caught', status: 1, stopped: false })), undefined)
+
+  // 验证者的组号：worker 起了它就报一声，派工那一侧硬来时要按组杀它。
+  // 一个进程只能在一个组里，所以「worker 能按组杀验证者」和「派工能按组杀干净」
+  // 没有一种拓扑同时成立 —— 派工那一侧只能被告知
+  eq('组号写下去读回来还是它', parseVerifier(verifierLine(4321)), 4321)
+  eq('不是这一种行：认不出', parseVerifier(reportLine('M-X-a', ran('caught'))), undefined)
+  eq('结论那种行也不会被认成组号', parseVerifier('⟦结论⟧ {"id":"M-X-a"}'), undefined)
+  eq('读不出数：认不出', parseVerifier('⟦验证者⟧ abc'), undefined)
+  eq('小数：认不出', parseVerifier('⟦验证者⟧ 4321.5'), undefined)
+  // 记号那一关不是走过场：不看记号的话，`Number('')` 是 0，于是**任何一行短句**
+  // 都会被读成组号 0 —— 而 0 正好是「自己这一组」
+  eq('验证者随口打的一行数字不算组号', parseVerifier('12345'), undefined)
+
+  // 硬来那一步刀往哪儿发。**两串都要负号** —— 起一个 .ts 要经过 tsx 的壳，
+  // 而壳会再分出一个真正跑脚本的进程；SIGTERM 壳会转下去，SIGKILL 转不了，
+  // 打在壳上就是「壳没了，干活那个变成孤儿接着跑」（本条实测过 ps）
+  eq('两串都按组发，不是按进程', hardTargets([11, 12], [900, 901]), [-11, -12, -900, -901])
+  eq('没有验证者在跑时只发给 worker 那一串', hardTargets([11], []), [-11])
+  eq('一个都没有时不发', hardTargets([], []), [])
+  // 顺序定死：先杀掉的验证者会让 worker 收到一次「跑完了」，于是它汇报、接下一条、
+  // 再起一个验证者 —— 那一个的组号谁也没记下，正好逃过这一轮
+  eq('worker 那一串排在前面', hardTargets([11], [900]).at(0), -11)
+  // 这两个数不是洁癖，是这个函数唯一能造成的那种事故：kill(-0) 打的是自己这一组
+  // （派工连同全部 worker 一起没了，而且是在收目录之前），
+  // kill(-1) 在 POSIX 上是打给这个用户有权打的每一个进程 —— CI 上就是掀掉整个 runner
+  eq('0 一律不发 —— 打出去就是自己这一组', hardTargets([0], [0]), [])
+  eq('1 一律不发 —— 打出去是这个用户的每一个进程', hardTargets([1], [1]), [])
+  eq('负数也不发', hardTargets([-5], []), [])
 
   // 派出去却没回话的，是「没查过」，不是通过（process/README.md 总纲的第三档）
   eq('少了谁就报谁，按派出去的顺序',

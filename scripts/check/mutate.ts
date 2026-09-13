@@ -43,7 +43,8 @@ import {
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import {
-  type Ran, jobsWanted, missingVerdicts, parseReport, reportLine,
+  type Ran, hardTargets, jobsWanted, missingVerdicts, parseReport, parseVerifier,
+  reportLine, verifierLine,
 } from './jobs-rule.js'
 import {
   INTERRUPTS, beginMutation, restoreMutation, stopJobs, trackTest,
@@ -267,6 +268,12 @@ process.on('exit', restoreClaims)
  * 是真跑过的：整条变异链绿。
  */
 /**
+ * 这一趟是干活的那一侧还是派工的那一侧。`runTest` 两边共用一份，而**只有派工跑要报
+ * 组号** —— 串行跑没有第二个进程要告诉，报了只会往人看的报告里掺一种没人读的行。
+ */
+const WORKER = process.argv.includes('--worker')
+
+/**
  * 跑一次验证者。点了名的话**见齐就停** —— 名单里每一条都红过之后不必再等它跑完。
  *
  * 「见齐了没有」是判据，在 `mutate-rule.ts` 的 `allKilled`；这里只管什么时候杀
@@ -284,6 +291,10 @@ const runTest = (verifier: Verifier, kills?: readonly string[]):
     const kid = spawn(exe, argv,
       { stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1' } })
     trackTest(kid)
+    // 派工跑时把这一组的组号报给派工那一侧：硬来那一步要杀的是它，而它自成一组，
+    // 收不到打在 worker 身上的那一刀（理由写在 `jobs-rule.ts` 的 `verifierLine` 上）。
+    // 同步写：紧接着这个进程可能就被 SIGKILL 了，排在队里没写出去的那一行等于没报
+    if (WORKER && kid.pid !== undefined) writeFileSync(1, `${verifierLine(kid.pid)}\n`)
     let out = ''
     let err = ''
     let stoppedOnKills = false
@@ -385,7 +396,7 @@ const record = (m: Mut, ran: Ran): void => {
  * 写用的是同步那一路（和 `--brief` 同一个理由）：紧接着可能就没有事件循环再跑了，
  * 排在队里没写出去的那一行会被当成「这一条没回话」，而那是硬失败。
  */
-if (process.argv.includes('--worker')) {
+if (WORKER) {
   const byId = new Map(muts.map(m => [m.id, m]))
   for await (const line of createInterface({ input: process.stdin })) {
     const m = byId.get(line.trim())
@@ -405,6 +416,15 @@ if (process.argv.includes('--worker')) {
  *
  * 复制时把 `.check-cache` 排除在外 —— worker 目录自己就在那底下，不排除会一路复制自己。
  *
+ * ⚠️ **这一句靠的是 `cpSync` 的一处没写进文档的次序**（#109 评审追问出来的）：
+ * 目标目录在源目录**底下**时 `cpSync` 会拒绝（`ERR_FS_CP_EINVAL`），而 `filter`
+ * 是在那道检查**之前**跑的 —— `.check-cache` 整棵被 `filter` 挡掉，那道检查于是根本
+ * 没机会撞上。Node v22.22.2 上实测成立（本条全部计时数据都来自真跑成功的并行）。
+ * 但**官方文档没有承诺这个次序**：哪天它挪到检查后面，症状是每一次派工跑当场抛
+ * `ERR_FS_CP_EINVAL`（响的，不是静默的）。升 Node 之后要重新确认的就是这一句；
+ * 真变了的话，改法是把 worker 目录挪到源码树外面（比如 `mkdtempSync` 到系统临时目录），
+ * 而那会连带改掉「隔离目录跟着仓库走、看得见也删得掉」这个性质。
+ *
  * 报告的行序是**跑完的先后**，不再是清单的顺序（串行那条路仍是清单顺序）。
  * 每行自带编号，归因不受影响；换来的是跑的过程中一直有东西在动，而不是憋到最后一次吐完。
  */
@@ -421,21 +441,41 @@ const dispatch = async (jobs: number): Promise<void> => {
   const byId = new Map(muts.map(m => [m.id, m]))
   const reported = new Set<string>()
   const live = new Set<ChildProcess>()
-  // 硬来那一步：还没停的直接杀掉整组，把目录收干净，非零退出（这一跑没跑完，不能算过）
+  /**
+   * 每个 worker 手上那个验证者的组号。起的时候记上，那一条的结论回来时抹掉 ——
+   * 结论到手就意味着那个验证者已经结束了。
+   */
+  const groups = new Map<ChildProcess, number>()
+  // 硬来那一步：先把 worker 摁死，再把它们各自那个验证者**按组**杀掉，
+  // 然后收目录、非零退出（这一跑没跑完，不能算过）。两样都要、顺序也定死，
+  // 理由在 `jobs-rule.ts` 的 `hardTargets` 上
   const hardStop = (): never => {
-    for (const kid of live) kid.kill('SIGKILL')
+    for (const pid of hardTargets(
+      [...live].flatMap(k => (k.pid === undefined ? [] : [k.pid])), groups.values())) {
+      try { process.kill(pid, 'SIGKILL') } catch { /* 已经没了：正是想要的状态 */ }
+    }
     rmSync(JOBS_DIR, { recursive: true, force: true })
     process.exit(1)
   }
+  // **再按一次就别等了。** 第一刀是「请各位自己收摊」，宽限期五秒；而人按第二次的
+  // 意思从来只有一个 —— 现在就停。没有这一条的话，那五秒里人看到的是「按了没反应」，
+  // 于是接着按，而每一次按都只是再排一个计时器
+  let struck = 0
   for (const sig of INTERRUPTS) {
-    process.on(sig, () => stopJobs([...live], hardStop, GRACE_MS, (fn, ms) => { setTimeout(fn, ms) }))
+    process.on(sig, () => {
+      if (++struck > 1) hardStop()
+      stopJobs([...live], hardStop, GRACE_MS, (fn, ms) => { setTimeout(fn, ms) })
+    })
   }
   await Promise.all(Array.from({ length: jobs }, (_unused, i) => new Promise<void>(done => {
     const dir = join(JOBS_DIR, `w${i}`)
     cpSync('.', dir, { recursive: true, filter: src => !SKIP.has(basename(src)) })
     symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
     const [exe, argv] = tsxCommand([SELF, '--worker'])
-    const kid = spawn(exe, argv, { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'] })
+    // **自成一组**，和验证者同一个理由：`spawn` 拿到的 pid 是 `tsx` 那个壳的，
+    // 真正跑变异的是壳再分出去的那个。硬来那一步只有按组才打得着它
+    // （SIGTERM 壳会转下去，SIGKILL 转不了 —— 两条都实测过，见 `hardTargets`）
+    const kid = spawn(exe, argv, { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'], detached: true })
     live.add(kid)
     const hand = () => {
       const id = queue.shift()
@@ -443,14 +483,18 @@ const dispatch = async (jobs: number): Promise<void> => {
       else kid.stdin.write(`${id}\n`)
     }
     createInterface({ input: kid.stdout }).on('line', line => {
+      const pgid = parseVerifier(line)
+      if (pgid !== undefined) { groups.set(kid, pgid); return }
       const r = parseReport(line)
       if (r === undefined) return
+      // 结论到手 = 那个验证者已经结束了。留着的话，硬来那一步打的是一个死组号
+      groups.delete(kid)
       reported.add(r.id)
       const m = byId.get(r.id)
       if (m !== undefined) record(m, r)
       hand()
     })
-    kid.on('close', () => { live.delete(kid); done() })
+    kid.on('close', () => { live.delete(kid); groups.delete(kid); done() })
     hand()
   })))
   rmSync(JOBS_DIR, { recursive: true, force: true })
