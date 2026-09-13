@@ -811,7 +811,7 @@ writeFileSync(join(isoTmp, 'docs', 'requirements.json'),
   JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
 // **那一句拼出来，不写成整串。** 本文件是闭包的种子，而抽边那条判据认的是源码字面里
 // 任何一处「from ＋ 相对路径」—— 写成整串的话，这两句夹具会被当成本文件真的 import，
-// 把 hop 与 leaf 收进真闭包（实测 13 变 15）。#81 的评审两轮抓过同一个形状的诱饵，
+// 把 hop 与 leaf 收进真闭包（实测 14 变 16）。#81 的评审两轮抓过同一个形状的诱饵，
 // 我又踩了一次；`scripts/test.ts` 里那条硬退出的反例也是这么拼的。
 const importLine = (spec: string) => `import { a } from '${spec}'\n`
 writeFileSync(join(isoTmp, 'scripts', 'check', 'selfcheck.ts'), importLine('./hop.js'), 'utf8')
@@ -898,6 +898,74 @@ if (both.ok && !/^\s*⊘ X1\.a 名下有负片/m.test(both.stdout)) {
 } else if (both.ok && !/^\s*⊘ X1\.b 名下无变异/m.test(both.stdout)) {
   failed++
   console.error('  ✗ 整跑那份报告里，名下没有变异的那条没这么说')
+}
+
+// ---- 派工那条路：真起 worker，真在隔离目录里跑 ----
+// **上面五处 mutate 夹具没有一处走到派工。** 四道体检在派几个之前就退出了，`--brief`
+// 在打完清单那一步退出，而整跑那一份只有一条变异 —— 派几个按「不超过要跑的条数」收口
+// 成 1，落回原来那条串行路。于是隔离目录、起 worker、一条一派、打断转发、跑完核账，
+// 检查链里**一行都没执行到**：把核账那一整段从入口删掉，十一步照样全绿（实测）。
+// 指着入口的变异又造不出来（入口在验证基础设施闭包里，指着它的变异会被「自己验自己」
+// 当场拦下），所以这一层只能有夹具 —— 与本文件另外五处 mutate 夹具同一处境。
+//
+// **断言认的是「跑那一遍的当前目录在哪」，不是「结论对不对」。** 结论对不对串行也能对，
+// 证不了它真的派了工；而验证者跑在 `.check-cache/mutate-jobs/` 底下这件事，
+// 只有真派工才成立 —— 那正是整套隔离的地基：改的、还的、写的，全在各自那份副本里。
+const jobsTmp = join(tmp, 'jobs')
+const jobsMark = join(tmp, 'jobs-cwd.txt')
+const seedJobs = (dir: string, muts: unknown[]) => {
+  mkdirSync(join(dir, 'scripts', 'check'), { recursive: true })
+  mkdirSync(join(dir, 'docs'), { recursive: true })
+  writeFileSync(join(dir, 'docs', 'requirements.json'),
+    JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+  writeFileSync(join(dir, 'scripts', 'check', 'a.ts'),
+    "export const v = 'keep'\nexport const w = 'hold'\n", 'utf8')
+  // 验证者每跑一遍就把自己那一刻的当前目录记一笔 —— 派工时它该在某个 worker 副本里
+  const q = "'"
+  writeFileSync(join(dir, 'scripts', 'test.ts'), [
+    `import { v, w } from ${q}./check/a.js${q}`,
+    `import { appendFileSync } from ${q}node:fs${q}`,
+    `appendFileSync(${JSON.stringify(jobsMark)}, process.cwd() + ${q}\\n${q})`,
+    `const bad = (v !== ${q}keep${q} ? 1 : 0) + (w !== ${q}hold${q} ? 1 : 0)`,
+    `if (bad) { console.log(${q}\\n${q} + bad + ${q} 个失败\\n${q}); process.exitCode = 1 }`,
+  ].join('\n') + '\n', 'utf8')
+  writeFileSync(join(dir, 'scripts', 'check', 'mutations.json'),
+    JSON.stringify({ mutations: muts, exemptions: [] }), 'utf8')
+}
+const jobMut = (id: string, find: string, replace: string, file = 'scripts/check/a.ts') =>
+  ({ id, req: 'X1.a', why: '把那个值改掉，测试该红', file, find, replace })
+
+seedJobs(jobsTmp, [jobMut('M-J-a', 'keep', 'gone'), jobMut('M-J-b', 'hold', 'lost')])
+rmSync(jobsMark, { force: true })
+const jobs = runToolBoth('mutate 派工：两条变异各在自己的隔离目录里跑', 'mutate',
+  ['--jobs=2'], jobsTmp)
+if (jobs.ok && !/2 个变异全部被抓到/.test(jobs.stdout)) {
+  failed++
+  console.error('  ✗ 派工跑完，两条的结论没有都回来')
+} else if (jobs.ok) {
+  // 每一行都得落在隔离目录里。串行那条路记下的会是语料根目录，一眼分得出
+  const cwds = existsSync(jobsMark)
+    ? readFileSync(jobsMark, 'utf8').split('\n').filter(Boolean) : []
+  const outside = cwds.filter(d => !d.includes('mutate-jobs'))
+  if (cwds.length !== 2 || outside.length) {
+    failed++
+    console.error(`  ✗ 验证者没跑在隔离目录里 —— 记下的当前目录：${JSON.stringify(cwds)}`)
+  }
+}
+
+// 派出去却没有结论回来的，是「没查过」不是通过。这里让其中一条指着一个不存在的文件，
+// 跑它的那个 worker 当场死在半路 —— 它站的是「worker 崩了／被杀了／汇报行被截断」
+// 这一整类，那几种在输出上长得一模一样。**不许把它记成通过。**
+const silentTmp = join(tmp, 'jobs-silent')
+seedJobs(silentTmp, [
+  jobMut('M-J-c', 'keep', 'gone'),
+  jobMut('M-J-d', '不存在', 'x', 'scripts/check/没有这个文件.ts'),
+])
+const silent = runToolBoth('mutate 派工：有一条没回话，判成没有结论而不是通过', 'mutate',
+  ['--jobs=2'], silentTmp, { status: 1 })
+if (silent.ok && !/M-J-d.*没有结论/.test(silent.stdout)) {
+  failed++
+  console.error('  ✗ 那条没回话的被放过去了 —— 报告里没有「没有结论」')
 }
 
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
