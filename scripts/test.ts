@@ -23,7 +23,9 @@ import {
   beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
 } from './check/mutate-restore.js'
-import { jobsWanted, missingVerdicts, parseReport, reportLine } from './check/jobs-rule.js'
+import {
+  type Outcome, type Ran, jobsWanted, missingVerdicts, parseReport, reportLine,
+} from './check/jobs-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
   requirementVerdict,
@@ -3094,7 +3096,7 @@ harness('豁免那一行开头说的话，要跟变异集对得上')
 
   // 同一句话有三处入口在印。mutate 那两处各有自检夹具真跑一遍断言输出；audit 那一处
   // 没有 —— 给它造夹具要把 audit 加进自检的工具表，而那张表同时是隔离判据的种子来源，
-  // 闭包实测会从 13 撑大到 17，为一行报告不值。退而求其次扫源码问「还在调吗」，
+  // 闭包实测会从 14 撑大到 18，为一行报告不值。退而求其次扫源码问「还在调吗」，
   // 它挡得住「换回写死的字面量」这个坏法，但证不了印出来的话对（差额记在 ADR-70）
   eq('调了判定就算接着', leadWired('exemptionLead(exemptionCovered(x, y))'), true)
   eq('中间有空白也认', leadWired('exemptionLead( exemptionCovered (x, y))'), true)
@@ -3351,15 +3353,50 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
 
   // 汇报行：写下去再读回来，五种结论一个不丢。两边各写一份格式的话，
   // 改一边不改另一边的症状是「每一条都没回话」，而人会去翻变异集，不会去翻这个格式
+  const ran = (outcome: Outcome, over: Partial<Ran> = {}): Ran =>
+    ({ outcome, status: 1, stopped: false, output: '', ...over })
   for (const o of ['caught', 'elsewhere', 'crashed', 'survived', 'not-applied'] as const) {
-    eq(`结论「${o}」写下去读回来还是它`, parseReport(reportLine('M-X-a', o)),
-      { id: 'M-X-a', outcome: o })
+    eq(`结论「${o}」写下去读回来还是它`, parseReport(reportLine('M-X-a', ran(o))),
+      { id: 'M-X-a', ...ran(o) })
   }
-  // 认不出的一律 undefined。兜底成「抓到」的话，一条崩掉的变异会安静地记成被抓到
+  // 退出码那一栏要分得开「被信号杀掉」和「退出码 0」—— 压成一个值就是把三档压成两档
+  eq('被信号杀掉那一次：退出码是 null，不是 0',
+    parseReport(reportLine('M-X-a', ran('crashed', { status: null })))?.status, null)
+
+  // **现场只有 crashed 那一档带回来。** 另外四档各带一份完整输出要从管道里挤过去，
+  // 而除了那一档没人读它
+  eq('跑不起来那一档：现场带回来了',
+    parseReport(reportLine('M-X-a', ran('crashed', { output: '验证者说的话' })))?.output, '验证者说的话')
+  eq('别的档不带现场',
+    parseReport(reportLine('M-X-a', ran('caught', { output: '验证者说的话' })))?.output, '')
+  // 现场是多行的，而这条线按行读 —— 拼出来的话第一个换行就把一行劈成两行
+  eq('多行的现场仍然只占一行',
+    reportLine('M-X-a', ran('crashed', { output: '第一行\n第二行' })).split('\n').length, 1)
+  eq('劈不开的那一行读回来还是原样',
+    parseReport(reportLine('M-X-a', ran('crashed', { output: '第一行\n第二行' })))?.output,
+    '第一行\n第二行')
+
+  // 认不出的一律 undefined。兜底成「抓到」的话，一条崩掉的变异会安静地记成被抓到。
+  // **每个字段各验一次**：只验到「是个对象」为止的话，一份 status 是字符串、output
+  // 缺失的行会通过这一关，然后在报告里被当成现场去印
+  const wire = (o: unknown) => `⟦结论⟧ ${JSON.stringify(o)}`
+  // 「认不出」的说法是**交回 undefined**，不是当场抛出去：这条线上一行读不出来就掀桌，
+  // 掀掉的是整跑三百多条，而抛出去那一次连自己是哪一行都说不出
+  const read = (line: string) => {
+    try { return parseReport(line) } catch (e) { return `抛了：${String(e)}` }
+  }
+  const good = { id: 'M-X-a', outcome: 'caught', status: 1, stopped: false, output: '' }
+  eq('好的那一行认得', parseReport(wire(good)), good)
   eq('不是汇报行的：认不出', parseReport('  ✓ M-X-a  [X1] 被抓到'), undefined)
-  eq('结论那个词不认得：认不出，不猜', parseReport(reportLine('M-X-a', 'ok' as never)), undefined)
-  eq('后面多带了一截：认不出', parseReport(`${reportLine('M-X-a', 'caught')} 还有`), undefined)
-  eq('没有编号：认不出', parseReport(reportLine('', 'caught')), undefined)
+  eq('记号后面不是合法 JSON：认不出', parseReport('⟦结论⟧ caught M-X-a'), undefined)
+  eq('记号后面是 null：认不出，不是抛出去', read('⟦结论⟧ null'), undefined)
+  eq('结论那个词不认得：认不出，不猜', parseReport(wire({ ...good, outcome: 'ok' })), undefined)
+  eq('没有编号：认不出', parseReport(wire({ ...good, id: '' })), undefined)
+  eq('退出码是串：认不出', parseReport(wire({ ...good, status: '1' })), undefined)
+  eq('少了停没停那一栏：认不出',
+    parseReport(wire({ id: 'M-X-a', outcome: 'caught', status: 1, output: '' })), undefined)
+  eq('少了现场那一栏：认不出',
+    parseReport(wire({ id: 'M-X-a', outcome: 'caught', status: 1, stopped: false })), undefined)
 
   // 派出去却没回话的，是「没查过」，不是通过（process/README.md 总纲的第三档）
   eq('少了谁就报谁，按派出去的顺序',
@@ -3454,7 +3491,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
 
   // 真闭包里的每一个都得在磁盘上 —— 不存在的多半是**夹具串被当成了真 import**
   // （抽边认的是源码字面，种子里写一句完整的 import 样例就会被收进来；实测栽过一次：
-  // 13 变 15）。判据故意宽是为了不漏，可它宽出来的东西该在这儿被看见
+  // 14 变 16）。判据故意宽是为了不漏，可它宽出来的东西该在这儿被看见
   const real = infraClosure(f => existsSync(f) ? rf(f, 'utf8') : undefined)
   eq('真闭包里没有磁盘上不存在的路径', real.filter(f => !existsSync(f)), [])
 

@@ -15,6 +15,11 @@
  * 用法：
  *   tsx scripts/check/mutate.ts            逐个应用变异并跑测试
  *   tsx scripts/check/mutate.ts --brief    只列出每条「违反了什么」，不跑任何东西
+ *   tsx scripts/check/mutate.ts --jobs=N   同时跑几条（也可以用环境变量 MUTATE_JOBS）
+ *
+ * 缺省按机器核数派工，**一人一个隔离目录**；`--jobs=1` 回到一条一条串着跑那条路。
+ * 为什么必须隔离到目录、为什么一条一派、派出去没回话的怎么算，都在 `jobs-rule.ts`
+ * 和 ADR-72 上。判定一条不改：跑的是同一批变异、同一个验证者、同一套归因。
  *
  * `--brief` 是给**写测试的那个上下文**用的：`why` 是需求语言，可以给；
  * `find`/`replace` 是实现原文，给了就等于让它读实现。
@@ -22,18 +27,27 @@
  *
  * 这条防线的强度取决于 `why` 怎么写 —— 引了实现原文的 why，`--brief` 照样把它漏出去。
  */
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { spawn } from 'node:child_process'
+import { cpSync, existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { availableParallelism } from 'node:os'
+import { basename, join, resolve } from 'node:path'
+import { createInterface } from 'node:readline'
+import { fileURLToPath } from 'node:url'
 import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import {
-  type LabelFault, type RunVerdict, type Verifier, type WiringFault,
+  type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
   labelFaults, labelsOf,
   wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
-import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
+import {
+  type Ran, jobsWanted, missingVerdicts, parseReport, reportLine,
+} from './jobs-rule.js'
+import {
+  INTERRUPTS, beginMutation, restoreMutation, stopJobs, trackTest,
+} from './mutate-restore.js'
 import { tsxCommand } from './tsx-cmd.js'
 import { infraClosure, selfVerifying } from './verifier-rule.js'
 
@@ -181,6 +195,7 @@ const survived: Mut[] = []
 const elsewhere: Mut[] = []
 const crashed: Mut[] = []
 const notApplied: Mut[] = []
+const silent: Mut[] = []
 
 // 变异跑不得留下痕迹 —— 源码在 finally 里还原，那份覆盖记录同理。
 // 平时 test.ts 认得 MUTATING 标记、既不清也不写；但**变异改的正可能是那个判定
@@ -296,22 +311,21 @@ const runTest = (verifier: Verifier, kills?: readonly string[]):
     kid.on('close', status => resolve({ status, output: `${out}\n${err}`, stoppedOnKills }))
   })
 
-for (const m of muts) {
+/**
+ * 跑一条变异：应用、跑验证者、判、还原。**串行跑和派工跑共用这一份。**
+ *
+ * 两边各写一份的话，「还原」「判定」这些正是分岔的地方 —— 而分岔出来的差别，
+ * 在报告上和「这条变异本来就是这个结论」长得一模一样。
+ *
+ * **现场跟着结论一起交出去，不留在这儿。** 判 `crashed` 那一档要摆出验证者说过什么，
+ * 而派工跑的时候「跑」在 worker 进程里、「报」在派工进程里 —— 现场留在局部变量里，
+ * 过不了那道进程边界，报告就只剩一句「跑不起来」而没有为什么。那正是这一档
+ * 唯一的用处（分辨「真崩了」与「这一次不巧」）。
+ */
+const runOne = async (m: Mut): Promise<Ran> => {
   const orig = readFileSync(m.file, 'utf8')
-  if (!orig.includes(m.find)) {
-    notApplied.push(m)
-    console.log(`  ⚠ ${m.id}  锚点失效，未能应用`)
-    continue
-  }
+  if (!orig.includes(m.find)) return { outcome: 'not-applied', status: null, stopped: false, output: '' }
   beginMutation(m.file, orig)
-  let verdict: RunVerdict
-  // 判 `crashed` 时要说得出**为什么** —— 那一档原先一个字都不留下验证者说过什么,
-  // 而它恰恰是唯一能分辨「真崩了」与「这一次不巧」的证据(ADR-70 记着这笔账,
-  // 它在同一片里咬了两次才补上)。只有这一档留:另外三档的结论自己就够清楚,
-  // 而 300 多条各留一份会把输出淹掉。
-  let output = ''
-  let status: number | null = null
-  let stopped = false
   try {
     // 写盘也在这一段里面：写盘是先截断再写的，写到一半抛出去（盘满、IO 错）留下的是
     // 半份源文件，而那时 `finally` 要是够不着，被截断的那份就留在工作区里，
@@ -321,17 +335,26 @@ for (const m of muts) {
     // 点了名的还要再看一层:红的是不是 kills 说的那一条
     const verifier = VERIFIERS[m.by ?? 'test']
     const r = await runTest(verifier, m.kills)
-    output = r.output; status = r.status; stopped = r.stoppedOnKills
-    verdict = judgeRun(r.status, r.output, verifier, m.kills, r.stoppedOnKills)
+    return {
+      outcome: judgeRun(r.status, r.output, verifier, m.kills, r.stoppedOnKills),
+      status: r.status, stopped: r.stoppedOnKills, output: r.output,
+    }
   } finally {
     restoreMutation()
   }
-  if (verdict === 'caught') console.log(`  ✓ ${m.id}  [${m.req}] 被抓到`)
-  else if (verdict === 'elsewhere') {
+}
+
+/** 一条变异的结论怎么报、记在哪一摞里。**派工那一侧也走这里**，报告只此一份写法 */
+const record = (m: Mut, ran: Ran): void => {
+  if (ran.outcome === 'not-applied') {
+    notApplied.push(m)
+    console.log(`  ⚠ ${m.id}  锚点失效，未能应用`)
+  } else if (ran.outcome === 'caught') console.log(`  ✓ ${m.id}  [${m.req}] 被抓到`)
+  else if (ran.outcome === 'elsewhere') {
     elsewhere.push(m)
     console.log(`  ✗ ${m.id}  [${m.req}] 红的不是点名的那些 —— ${m.by} 确实红了，`
                 + `但点名的「${(m.kills ?? []).join('」「')}」里有没红的`)
-  } else if (verdict === 'crashed') {
+  } else if (ran.outcome === 'crashed') {
     crashed.push(m)
     console.log(`  ✗ ${m.id}  [${m.req}] 跑不起来 —— 验证者死在半路,没有任何一条断言抓到它`)
     // 现场：退出码、有没有因为见齐点名而主动停、以及验证者打出来的失败行。
@@ -339,9 +362,9 @@ for (const m of muts) {
     // ⚠️ 「没主动停」**不等于「跑到了尾」**：被信号杀掉的那一次也是没主动停（评审指出，
     // 头一版写成「跑到了尾」，跟「无，被信号杀掉」摆在同一行里自相矛盾）。
     // 留哪几行是判定，在 `mutate-rule.ts`（`docs/CONVENTIONS.md` 第 10 条）。
-    console.log(`      退出码 ${status === null ? '（无，被信号杀掉）' : status}`
-                + ` · ${stopped ? '见齐点名的就停了' : '未因见齐点名而主动停'}`)
-    const scene = crashEvidence(output, VERIFIERS[m.by ?? 'test'])
+    console.log(`      退出码 ${ran.status === null ? '（无，被信号杀掉）' : ran.status}`
+                + ` · ${ran.stopped ? '见齐点名的就停了' : '未因见齐点名而主动停'}`)
+    const scene = crashEvidence(ran.output, VERIFIERS[m.by ?? 'test'])
     if (scene.lines.length === 0) console.log('      验证者一个字都没打出来')
     else {
       // 两种现场的前缀**分得开**：`│` 是成形的失败行（断言说了话），
@@ -353,14 +376,115 @@ for (const m of muts) {
   } else { survived.push(m); console.log(`  ✗ ${m.id}  [${m.req}] 存活 —— ${m.why}`) }
 }
 
+/**
+ * 干活的那一侧：从 stdin 一行一个编号收，跑一条回一句，收到 EOF 就收工。
+ *
+ * **只往 stdout 写结论那一种行**，人看的报告由派工那一侧打 —— 两边都打的话，
+ * 同一条变异在同一份输出里出现两次，而两次的措辞将来一定会岔开。
+ *
+ * 写用的是同步那一路（和 `--brief` 同一个理由）：紧接着可能就没有事件循环再跑了，
+ * 排在队里没写出去的那一行会被当成「这一条没回话」，而那是硬失败。
+ */
+if (process.argv.includes('--worker')) {
+  const byId = new Map(muts.map(m => [m.id, m]))
+  for await (const line of createInterface({ input: process.stdin })) {
+    const m = byId.get(line.trim())
+    if (m === undefined) break
+    writeFileSync(1, `${reportLine(m.id, await runOne(m))}\n`)
+  }
+  process.exit(0)
+}
+
+/**
+ * 派工那一侧：一人一个隔离目录，一条一派，谁先空出来谁接下一条。
+ *
+ * **隔离到目录，不是到进程。** 一条变异是真的改写一份源文件；两条同时改同一棵树，
+ * 验证者跑的就是「两处叠在一起」那棵树，而报告仍按条归因 —— 每一条的绿或红都不算数。
+ * 所以每个 worker 拿一份自己的源码树：改的、还的、它那一跑写下的覆盖记录，全在自己那份里。
+ * `node_modules` 是符号链接，那份没人改。
+ *
+ * 复制时把 `.check-cache` 排除在外 —— worker 目录自己就在那底下，不排除会一路复制自己。
+ *
+ * 报告的行序是**跑完的先后**，不再是清单的顺序（串行那条路仍是清单顺序）。
+ * 每行自带编号，归因不受影响；换来的是跑的过程中一直有东西在动，而不是憋到最后一次吐完。
+ */
+const JOBS_DIR = '.check-cache/mutate-jobs'
+/** 复制源码树时跳过的：装不下的、不该带的、以及会把自己复制进自己的那个 */
+const SKIP = new Set(['node_modules', '.git', '.check-cache', 'output', 'memory', '.env'])
+/** 宽限期：请 worker 自己收摊之后等多久。它们要停掉手上的验证者、把动过的那份还回去 */
+const GRACE_MS = 5000
+const SELF = fileURLToPath(import.meta.url)
+
+const dispatch = async (jobs: number): Promise<void> => {
+  rmSync(JOBS_DIR, { recursive: true, force: true })
+  const queue = muts.map(m => m.id)
+  const byId = new Map(muts.map(m => [m.id, m]))
+  const reported = new Set<string>()
+  const live = new Set<ChildProcess>()
+  // 硬来那一步：还没停的直接杀掉整组，把目录收干净，非零退出（这一跑没跑完，不能算过）
+  const hardStop = (): never => {
+    for (const kid of live) kid.kill('SIGKILL')
+    rmSync(JOBS_DIR, { recursive: true, force: true })
+    process.exit(1)
+  }
+  for (const sig of INTERRUPTS) {
+    process.on(sig, () => stopJobs([...live], hardStop, GRACE_MS, (fn, ms) => { setTimeout(fn, ms) }))
+  }
+  await Promise.all(Array.from({ length: jobs }, (_unused, i) => new Promise<void>(done => {
+    const dir = join(JOBS_DIR, `w${i}`)
+    cpSync('.', dir, { recursive: true, filter: src => !SKIP.has(basename(src)) })
+    symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
+    const [exe, argv] = tsxCommand([SELF, '--worker'])
+    const kid = spawn(exe, argv, { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'] })
+    live.add(kid)
+    const hand = () => {
+      const id = queue.shift()
+      if (id === undefined) kid.stdin.end()
+      else kid.stdin.write(`${id}\n`)
+    }
+    createInterface({ input: kid.stdout }).on('line', line => {
+      const r = parseReport(line)
+      if (r === undefined) return
+      reported.add(r.id)
+      const m = byId.get(r.id)
+      if (m !== undefined) record(m, r)
+      hand()
+    })
+    kid.on('close', () => { live.delete(kid); done() })
+    hand()
+  })))
+  rmSync(JOBS_DIR, { recursive: true, force: true })
+  // 派出去却没回话的：跑它的那一份崩了、被杀了、或者那一行没写出来。三种在输出上
+  // 长得一样 —— **那一条没有结论**，而没有结论不是通过（`process/README.md` 总纲）
+  for (const id of missingVerdicts(muts.map(m => m.id), reported)) {
+    const m = byId.get(id)
+    if (m === undefined) continue
+    silent.push(m)
+    console.log(`  ✗ ${m.id}  [${m.req}] 没有结论 —— 派出去了，跑它的那一份没回话`)
+  }
+}
+
+const jobs = jobsWanted(process.argv, process.env.MUTATE_JOBS, availableParallelism(), muts.length)
+if (jobs === undefined) {
+  console.error('✗ 变异测试：说不清要派几个 —— --jobs= 或 MUTATE_JOBS 要一个 1 以上的整数\n')
+  console.error('  按机器核数跑请把它去掉，不要写一个读不出来的值。')
+  process.exit(1)
+}
+// 只有一条路走串行：清单只剩一条、机器只有一个核、或者人明确要求。那条路逐字保持原样，
+// 派工那一侧一个进程都不起 —— 自检里那几份最小语料走的正是它
+if (jobs === 1) for (const m of muts) record(m, await runOne(m))
+else await dispatch(jobs)
+
 console.log()
 for (const e of exemptions) {
   console.log(`  ⊘ ${e.req} ${exemptionLead(exemptionCovered(e.req, muts))}：${e.why.split('。')[0]}。`)
 }
 
-if (survived.length || elsewhere.length || crashed.length || notApplied.length) {
+if (survived.length || elsewhere.length || crashed.length || notApplied.length || silent.length) {
   console.error(`\n✗ 变异测试：${survived.length} 个存活，${elsewhere.length} 个红错了地方，`
-                + `${crashed.length} 个跑不起来，${notApplied.length} 个锚点失效`)
+                + `${crashed.length} 个跑不起来，${notApplied.length} 个锚点失效，`
+                + `${silent.length} 个没有结论`)
+  if (silent.length) console.error('  没有结论不是通过：那一条派出去了，而跑它的那一份没回话 —— 重跑，或者用 MUTATE_JOBS=1 串行跑一遍看它到底怎么了。')
   if (survived.length) console.error('  存活意味着对应的测试证明不了任何事 —— 修测试，不要删变异。')
   if (elsewhere.length) console.error('  红错了地方也不算抓到：点名的夹具里有没红的，它对那几条就什么也没证明。'
                                       + '先核对名单里的名字是不是都指对了，再看没红的那条夹具在不在、这个变异该不该弄红它。')

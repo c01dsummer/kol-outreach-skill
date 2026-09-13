@@ -2631,10 +2631,10 @@
     {
       "id": "M-H36-d",
       "req": "harness",
-      "why": "一行结论读回来时不再核对那个词认不认得：认不出的一律当成「被抓到」—— 一条崩掉的、或者汇报被截断的变异，会安安静静地记成有测试守着，而它什么也没证明",
+      "why": "一行结论读回来时不再核对那个词认不认得：认不出的一律照抄 —— 一条崩掉的、或者汇报被截断的变异，会安安静静地记成有测试守着，而它什么也没证明",
       "file": "scripts/check/jobs-rule.ts",
-      "find": "  return OUTCOMES.includes(outcome) ? { id, outcome: outcome as Outcome } : undefined",
-      "replace": "  return { id, outcome: outcome as Outcome }"
+      "find": "  if (typeof outcome !== 'string' || !OUTCOMES.includes(outcome)) return undefined",
+      "replace": "  if (typeof outcome !== 'string') return undefined"
     },
     {
       "id": "M-H36-e",
@@ -2659,6 +2659,46 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "  if (asked === undefined) return Math.max(1, Math.min(cpus, total))",
       "replace": "  if (asked === undefined) return Math.max(1, cpus)"
+    },
+    {
+      "id": "M-H36-h",
+      "req": "harness",
+      "why": "记号后面是 null 的那一行不再被挡下来 —— `typeof null` 也是 object，往下取字段就当场抛出去，一行读不出来的汇报把整跑掀了，而这个函数说好的是「认不出就交回 undefined，不猜」",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (raw === null || typeof raw !== 'object') return undefined",
+      "replace": "  if (typeof raw !== 'object') return undefined"
+    },
+    {
+      "id": "M-H36-i",
+      "req": "harness",
+      "why": "汇报行里的退出码不再核对类型 —— 一份退出码是字符串的行会通过这一关，然后在报告里被当成退出码去印，该说「这一行读不出来」的地方变成一句不知所云的诊断",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (status !== null && typeof status !== 'number') return undefined\n  if (typeof stopped !== 'boolean' || typeof output !== 'string') return undefined",
+      "replace": "  if (typeof stopped !== 'boolean' || typeof output !== 'string') return undefined"
+    },
+    {
+      "id": "M-H36-j",
+      "req": "harness",
+      "why": "汇报行里「停没停」那一栏缺了也照收 —— 报告里那一条会说不出它是跑完的还是被主动停掉的，而这两者对「点名的那些红了没有」意味着完全不同的事",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (typeof stopped !== 'boolean' || typeof output !== 'string') return undefined",
+      "replace": "  if (typeof output !== 'string') return undefined"
+    },
+    {
+      "id": "M-H36-k",
+      "req": "harness",
+      "why": "汇报行里的现场那一栏缺了也照收 —— 判「跑不起来」那一档时报告要摆出验证者说过的话，而这一行给的是 undefined，印出来是一句 undefined，不是「这一行读不出来」",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (typeof stopped !== 'boolean' || typeof output !== 'string') return undefined",
+      "replace": "  if (typeof stopped !== 'boolean') return undefined"
+    },
+    {
+      "id": "M-H36-l",
+      "req": "harness",
+      "why": "每一条的结论都把验证者的整份输出捎回来，不再只留「跑不起来」那一档 —— 三百多条各挤一份完整输出过管道，而除了那一档没人读它",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  `${MARK} ${JSON.stringify({ ...ran, id, output: ran.outcome === 'crashed' ? ran.output : '' })}`",
+      "replace": "  `${MARK} ${JSON.stringify({ ...ran, id })}`"
     },
     {
       "id": "M-H37-a",
