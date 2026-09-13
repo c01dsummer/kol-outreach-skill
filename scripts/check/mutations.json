@@ -461,7 +461,7 @@
       "id": "M-H10-a",
       "req": "harness",
       "file": "scripts/check/adr-rule.ts",
-      "why": "两个文件占同一个编号不再报错 —— 拆成一文件一条本来就是为了让并发抢号当场撞车,这一改又静默交错回去了",
+      "why": "两个文件占同一个编号不再报错 —— 而这是撞号唯一的闸：git 那头拦不住（标题不同文件名就不同，两份同号记录各自干净落地），拿掉它，两条分支抢了同一个号就再也没有东西看得见",
       "find": "    if (prev) errors.push(`ADR-${pad(a.num)} 被两个文件同时占用:${prev} 与 ${a.file} —— 编号不复用`)\n    else seen.set(a.num, a.file)",
       "replace": "    seen.set(a.num, a.file)"
     },
