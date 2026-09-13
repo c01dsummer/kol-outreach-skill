@@ -19,7 +19,10 @@
  *
  * 缺省按机器核数派工，**一人一个隔离目录**；`--jobs=1` 回到一条一条串着跑那条路。
  * 为什么必须隔离到目录、为什么一条一派、派出去没回话的怎么算，都在 `jobs-rule.ts`
- * 和 ADR-72 上。判定一条不改：跑的是同一批变异、同一个验证者、同一套归因。
+ * 和 ADR-72 上。**串行跑和派工跑共用同一套判定** —— 同一批变异、同一个验证者、
+ * 同一套归因。⚠️ 但「判定本身一个字没改」这句话在本条**不成立**：`judgeRun` 的
+ * 「主动停掉」那一档改成了判开枪那一刻的快照（修一处间歇性假红，ADR-72 末节记着）。
+ * 两句话不是一回事，别把前一句读成后一句。
  *
  * `--brief` 是给**写测试的那个上下文**用的：`why` 是需求语言，可以给；
  * `find`/`replace` 是实现原文，给了就等于让它读实现。
@@ -442,7 +445,12 @@ const dispatch = async (jobs: number): Promise<void> => {
   for (const sig of INTERRUPTS) {
     process.on(sig, () => stopJobs([...live], hardStop, GRACE_MS, (fn, ms) => { setTimeout(fn, ms) }))
   }
-  await Promise.all(Array.from({ length: jobs }, (_unused, i) => new Promise<void>(done => {
+  // **建目录那一步抛出来的，也要走收尾。** `cpSync` / `symlinkSync` 在第 i 个上失败时，
+  // 前面已经起来的 worker 正拿着任务在跑，而 `Promise.all` 会把异常直接抛上去、
+  // 跳过下面那句删目录 —— 活着的子进程和半成品目录都留下了。走跟打断同一条硬来路径
+  // （杀干净、收目录、非零退出），不另写一份（#109 第四轮评审指出）
+  try {
+    await Promise.all(Array.from({ length: jobs }, (_unused, i) => new Promise<void>(done => {
     const dir = join(JOBS_DIR, `w${i}`)
     cpSync('.', dir, { recursive: true, filter: src => !SKIP.has(basename(src)) })
     symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
@@ -473,7 +481,11 @@ const dispatch = async (jobs: number): Promise<void> => {
     })
     kid.on('close', () => { live.delete(kid); done() })
     hand()
-  })))
+    })))
+  } catch (e) {
+    console.error(`\n✗ 变异测试：派工没能起来 —— ${e instanceof Error ? e.message : String(e)}`)
+    hardStop()
+  }
   rmSync(JOBS_DIR, { recursive: true, force: true })
   // 派出去却没回话的：跑它的那一份崩了、被杀了、或者那一行没写出来。三种在输出上
   // 长得一样 —— **那一条没有结论**，而没有结论不是通过（`process/README.md` 总纲）

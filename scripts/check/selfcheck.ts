@@ -1032,9 +1032,12 @@ if (jobs.ok && !/2 个变异全部被抓到/.test(jobs.stdout)) {
   const cwds = existsSync(jobsMark)
     ? readFileSync(jobsMark, 'utf8').split('\n').filter(Boolean) : []
   const outside = cwds.filter(d => !d.includes('mutate-jobs'))
-  if (cwds.length !== 2 || outside.length) {
+  // **还要两个目录互不相同。** 只问「都在 mutate-jobs 底下」的话，两个 worker 错误地
+  // 共用同一个 w0 时这条照样绿 —— 而「一人一个隔离目录」正是整套隔离的地基，
+  // 那样就等于没证（#109 第四轮评审指出）
+  if (cwds.length !== 2 || outside.length || new Set(cwds).size !== 2) {
     failed++
-    console.error(`  ✗ 验证者没跑在隔离目录里 —— 记下的当前目录：${JSON.stringify(cwds)}`)
+    console.error(`  ✗ 验证者没各跑在自己的隔离目录里 —— 记下的当前目录：${JSON.stringify(cwds)}`)
   }
 }
 
