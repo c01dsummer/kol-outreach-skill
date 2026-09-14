@@ -24,8 +24,8 @@ import {
   testRunning, trackTest,
 } from './check/mutate-restore.js'
 import {
-  type Outcome, type Ran, jobsWanted, looksLikeReport, missingVerdicts, parseReport,
-  reportLine,
+  type Outcome, type Ran, copyIntoWorker, jobsWanted, looksLikeReport, missingVerdicts,
+  noStdio, parseReport, reportLine,
 } from './check/jobs-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
@@ -3427,6 +3427,26 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   eq('少了谁就报谁，按派出去的顺序',
     missingVerdicts(['M-a', 'M-b', 'M-c'], new Set(['M-b'])), ['M-a', 'M-c'])
   eq('都回话了就没有欠账', missingVerdicts(['M-a', 'M-b'], new Set(['M-a', 'M-b'])), [])
+
+  // 哪些文件进得了 worker 的那份副本。错一格不是跑得慢，是密钥被复制出去
+  // （`docs/CONVENTIONS.md` 第 10 条：走文件树那一半也是判定）
+  eq('装不下的那几个：不带', copyIntoWorker('node_modules'), false)
+  eq('会把自己复制进自己的：不带', copyIntoWorker('.check-cache'), false)
+  eq('源文件：带', copyIntoWorker('scripts/check/a.ts'), true)
+  eq('`.env` 本人：不带', copyIntoWorker('.env'), false)
+  eq('`.env.local`：不带 —— 逐字比认不出它，这一条正是手抄本漂掉的那个',
+    copyIntoWorker('.env.local'), false)
+  eq('受跟踪的 `.env.example` 也不带 —— 有意的，没有代码从盘上读它',
+    copyIntoWorker('.env.example'), false)
+  eq('认的是文件名那一节，不是整条路径', copyIntoWorker('a/b/.env.local'), false)
+  eq('名字里带 env 但不在开头：照带', copyIntoWorker('my.env.ts'), true)
+  eq('逐字那张表不按前缀 —— `outputs` 不是 `output`', copyIntoWorker('outputs'), true)
+
+  // `spawn` 交回来的对象起没起来。不先问这一句，报出来的原因会指向派工代码
+  eq('连管道都没装上：没起来', noStdio({ stdin: undefined }), true)
+  eq('压根没有这一栏：没起来', noStdio({}), true)
+  eq('明写着空：没起来', noStdio({ stdin: null }), true)
+  eq('管道在：起来了', noStdio({ stdin: { write: () => true } }), false)
 }
 
 harness('起 tsx 的那条命令：三处共用一份，不经 npx、不经 shell')

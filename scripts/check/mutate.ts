@@ -33,7 +33,7 @@
 import { cpSync, existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { availableParallelism } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { attributionFault } from './attribution-rule.js'
@@ -46,7 +46,8 @@ import {
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import {
-  type Ran, jobsWanted, looksLikeReport, missingVerdicts, parseReport, reportLine,
+  type Ran, copyIntoWorker, jobsWanted, looksLikeReport, missingVerdicts, noStdio,
+  parseReport, reportLine,
 } from './jobs-rule.js'
 import {
   INTERRUPTS, beginMutation, restoreMutation, stopJobs, trackTest,
@@ -424,8 +425,6 @@ if (process.argv.includes('--worker')) {
  * 每行自带编号，归因不受影响；换来的是跑的过程中一直有东西在动，而不是憋到最后一次吐完。
  */
 const JOBS_DIR = '.check-cache/mutate-jobs'
-/** 复制源码树时跳过的：装不下的、不该带的、以及会把自己复制进自己的那个 */
-const SKIP = new Set(['node_modules', '.git', '.check-cache', 'output', 'memory', '.env'])
 /** 宽限期：请 worker 自己收摊之后等多久。它们要停掉手上的验证者、把动过的那份还回去 */
 const GRACE_MS = 5000
 const SELF = fileURLToPath(import.meta.url)
@@ -452,18 +451,33 @@ const dispatch = async (jobs: number): Promise<void> => {
   try {
     await Promise.all(Array.from({ length: jobs }, (_unused, i) => new Promise<void>(done => {
     const dir = join(JOBS_DIR, `w${i}`)
-    cpSync('.', dir, { recursive: true, filter: src => !SKIP.has(basename(src)) })
+    cpSync('.', dir, { recursive: true, filter: copyIntoWorker })
     symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
     const [exe, argv] = tsxCommand([SELF, '--worker'])
     const kid = spawn(exe, argv, { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'] })
     live.add(kid)
-    // **起不来是异步报的**，上面那个 `try/catch` 接不到；`error` 没人听的话 Node 当
-    // 未捕获异常退掉，活着的 worker 和隔离目录全留下（实测与事件序记在 ADR-72）
+    // **起不来有三种形状，缺哪一条都是洞**（实测与事件序记在 ADR-72）：有的 errno
+    // 同步抛（ENOTDIR），外层 `try/catch` 接得到；有的只发 `error` 事件（ENOENT），
+    // 接不到 —— 而 `error` 没人听的话 Node 当未捕获异常退掉，活着的 worker 和隔离目录
+    // 全留下；资源不够那一种更早，连 stdio 都没装上，由下面那一问认出来
     kid.on('error', e => {
       console.error(`\n✗ 变异测试：worker 起不来 —— ${e.message}`)
       hardStop()
     })
-    kid.stdin.on('error', () => { /* worker 没了还写会 EPIPE，也是异步的；核账会报它 */ })
+    // 为什么这一问必须在这里、而且在给 stdin 装监听器之前：判定与理由见 `noStdio`。
+    // 实测（node v22.22.2）：`spawn` 那一刻剩 ≤6 个 fd 走这一支，剩 ≥8 个正常。
+    // 真入口上撞到哪一支看语料大小 —— 本仓库这棵树上 `cpSync` 排在前面、先撞 EMFILE
+    // （那条路报得对，原话里就带 errno 和文件名）；自检那份小语料上复制几乎不花 fd，
+    // 于是耗在起进程这一步，`ulimit -n` 36～64 派 32 个全部落在这一支（夹具就用这个形状）
+    if (noStdio(kid)) {
+      console.error('\n✗ 变异测试：worker 起不来 —— 起进程时资源不够，Node 连管道都没装上。'
+                    + '最常见是打开的文件数到顶（EMFILE／ENFILE）：调高 `ulimit -n`，'
+                    + '或者用 `--jobs=` 少派几个。')
+      hardStop()
+    }
+    // worker 已经没了还往它 stdin 写，常见情形是流已关闭、编号被**静默丢掉**（由核账兜住）；
+    // 只有死亡窗口里那一下才真发 EPIPE，而那是异步的，没人听就是未捕获退出
+    kid.stdin.on('error', () => {})
     const hand = () => {
       const id = queue.shift()
       if (id === undefined) kid.stdin.end()

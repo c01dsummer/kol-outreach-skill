@@ -1056,6 +1056,95 @@ if (silent.ok && !/M-J-d.*没有结论/.test(silent.stdout)) {
   console.error('  ✗ 那条没回话的被放过去了 —— 报告里没有「没有结论」')
 }
 
+// ---- 起 worker 时资源不够：报出来的原因要指向资源，不要指向派工代码 ----
+// 打开的文件数到顶时，`spawn` **既不同步抛、也来不及发 `error`**：Node 在装管道之前
+// 就返回，交回来的对象上 `stdin` 压根不存在。入口不先问这一句的话，紧跟着那句给 stdin
+// 装监听器会同步抛「读不到 undefined 上的属性」—— 闸门照样非零退出、目录照样收干净，
+// 但人看到的原因是派工代码有 bug，于是去翻派工代码，而该做的是调高 `ulimit -n`。
+//
+// 判定那一半（`noStdio`）有单测和负片守着；**这里守的是入口那一半** ——
+// 问得够不够早（在碰 stdin 之前）、说的是不是资源、以及走完硬来之后目录收没收干净。
+// 那三件都在 `mutate.ts` 里，而指着它的变异造不出来（它在验证基础设施闭包里），
+// 与本文件另外几处 mutate 夹具同一处境。
+//
+// **为什么语料要有几十条变异**：派几个按「不超过要跑的条数」收口，两条变异时
+// `--jobs=32` 实际只派 2 个，fd 耗不掉。条数上去之后，复制那一步在小语料上几乎不花
+// fd，于是耗在起进程这一步 —— 实测 `ulimit -n` 36～64 全部落在这一支（真仓库那棵树上
+// 相反：复制排在前面，先撞 EMFILE，而那条路本来就报得对）。
+// 逐个试几档而不是钉死一个数：机器不同基线不同，钉死一个数是给自己埋一条会漂的夹具。
+//
+// **这条路不会留下孤儿验证者**，虽然它每次都走硬来（而硬来只杀 worker、不杀验证者那一组，
+// 那张欠条记在 ADR-72）。理由是结构上的，不是运气：派工那一段从 `cpSync` 到 `spawn` 到
+// 派第一个编号，整个是**一遍同步**跑完的，中间事件循环一次都没转 —— 而 worker 要先把
+// tsx 启起来、读到 stdin，才谈得上起验证者。硬来那一句 `process.exit` 就发生在同一拍里。
+// 实测：48／56／64 三档各跑三遍，验证者**一次都没起来过**，跑完一个残留进程也没有
+// （拿一个一起来就记一笔、而且故意空转 30 秒的验证者量的 —— 快的那种看不出差别）。
+// ⚠️ Windows 没验过，与打断那几条同一处境（ADR-72 记着）。
+const fdTmp = join(tmp, 'jobs-fd')
+seedJobs(fdTmp, Array.from({ length: 40 }, (_unused, i) =>
+  jobMut(`M-J-fd${i}`, `k${i} = 'keep'`, `k${i} = 'gone'`)))
+writeFileSync(join(fdTmp, 'scripts', 'check', 'a.ts'),
+  Array.from({ length: 40 }, (_unused, i) => `export const k${i} = 'keep'`).join('\n') + '\n', 'utf8')
+// 引号拼出来，不写成字面量 —— 闭包那一步按**源码文本**扫 import（「注释里的也收，
+// 宁可偏大不可偏小」），写死的话它会从本文件收到一条磁盘上不存在的路径
+// `scripts/check/check/a.ts`，「真闭包里没有磁盘上不存在的路径」当场红。
+// `seedJobs` 里那个 `q` 是同一个理由，我头一版没照做，检查当场拦下
+const fdQ = "'"
+writeFileSync(join(fdTmp, 'scripts', 'test.ts'), [
+  `import * as a from ${fdQ}./check/a.js${fdQ}`,
+  `const bad = Object.values(a).filter(v => v !== ${fdQ}keep${fdQ}).length`,
+  `if (bad) { console.log(${fdQ}\\n${fdQ} + bad + ${fdQ} 个失败\\n${fdQ}); process.exitCode = 1 }`,
+].join('\n') + '\n', 'utf8')
+const [fdExe, fdArgv] = tsxCommand([S(SELFCHECK_TOOLS.mutate), '--jobs=32'])
+const shQuote = (a: string) => `'${a.replace(/'/g, `'\\''`)}'`
+let fdHit: { status: number | null; out: string; left: boolean } | undefined
+let noShell = false
+for (const cap of [48, 40, 36]) {
+  const r = spawnSync('/bin/sh',
+    ['-c', `ulimit -n ${cap}; exec ${[fdExe, ...fdArgv].map(shQuote).join(' ')}`],
+    { env, cwd: fdTmp, encoding: 'utf8' })
+  // **起不起得来 POSIX shell 要先问，不能默认它在。** 压低「允许打开的文件数」只有
+  // `ulimit` 这一条路，而 `ulimit` 是 shell 内建 —— 原生 Windows 上 `/bin/sh` 不存在，
+  // `spawnSync` 交回 `error`，两股流都是空的。不先问的话：下面那条「没有生抛出来的
+  // 读属性错」拿空串去比，**空串当然不含那句话，于是记绿** —— 一条什么也没验到的假绿；
+  // 再往下「至少有一档耗尽了」必红，整条 `npm run check` 在这里确定性地失败。
+  // 本仓库为了不依赖 shell 专门抽过 `tsx-cmd.ts`（那条 ADR 欠条就是这件事），
+  // 唯一一处 POSIX-only 的杀进程也是包在 `try/catch` 里优雅降级的 —— 照同一条路子办：
+  // **不硬失败，显式降级，把没验到这件事留在报告里**（`process/README.md` 第三层的写法）
+  if (r.error !== undefined) { noShell = true; break }
+  const out = (r.stdout ?? '') + (r.stderr ?? '')   // p1-ok: 拿不到就是空输出，这是子进程的两股流
+  const left = existsSync(join(fdTmp, '.check-cache', 'mutate-jobs'))
+  rmSync(join(fdTmp, '.check-cache'), { recursive: true, force: true })
+  named(`起 worker 时资源不够（允许打开 ${cap} 个文件）：没有生抛出来的读属性错`,
+    !/Cannot read properties of undefined/.test(out),
+    `报出来的是一句指向派工代码的读属性错，而不是资源不够：\n${out.split('\n').slice(-6).join('\n')}`)
+  if (/连管道都没装上/.test(out)) { fdHit = { status: r.status, out, left }; break }
+}
+if (noShell) {
+  // **显式缺口，不假装它被保证了。** 注意这里打的不是一句绿：一条「因为没跑所以通过」
+  // 的断言，正是本仓库最不许的那种假绿。要么真验到、要么明说没验到，不并存
+  console.log('  ⊘ 起 worker 时资源不够：这台机器上没跑 —— 压低「允许打开的文件数」'
+              + '要 POSIX shell（`/bin/sh`），这里起不来')
+} else {
+named('起 worker 时资源不够：三档里至少有一档真的耗尽了', fdHit !== undefined,
+  '三档都走完了也没到那一支 —— 这条夹具这一跑什么也没验到，不能当它绿')
+if (fdHit !== undefined) {
+  // 钉死在 1 上，不写「非零」：`spawnSync` 在**被信号杀掉**时交回的 `status` 是 `null`，
+  // 而 `null !== 0` 为真 —— 写成「非零」的话，一次被杀也会被记成「闸门正常关上了」。
+  // 本仓库别处逐字分着这两件事（`Ran.status` 的契约就写着这一句），这里不能松。
+  // 硬来那一步拿 1 当退出码（`hardStop` 末尾那一句），外壳用 `exec` 不吃掉它，
+  // 所以 1 是确定的那个数。（这句话不能把那个退出调用原样写出来 —— 判「验证者硬退出」
+  // 的那条检查按**源码文本**扫，注释也算，写了当场红。头一版就是这么红的）
+  named('起 worker 时资源不够：以退出码 1 收场', fdHit.status === 1,
+    `拿到的是 ${String(fdHit.status)} —— null 表示它是被信号杀掉的，那根本不是「退出」`)
+  named('起 worker 时资源不够：说的是调高允许打开的文件数或者少派几个',
+    /ulimit -n/.test(fdHit.out) && /--jobs=/.test(fdHit.out),
+    `那句话没给出路：\n${fdHit.out.split('\n').slice(-6).join('\n')}`)
+  named('起 worker 时资源不够：隔离目录收干净了', !fdHit.left,
+    '硬来之后 `.check-cache/mutate-jobs` 还在 —— 半成品副本留在盘上了')
+}
+}
+
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
 // 一条写进文档、却从没被执行过的命令，等于没有 —— 在这里跑一次，证明它还活着。
 //
