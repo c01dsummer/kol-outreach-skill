@@ -46,8 +46,9 @@ import {
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import {
-  type Ran, copyIntoWorker, jobsWanted, looksLikeReport, missingVerdicts,
-  noStdio, parseReport, reportLine, signalTargets,
+  type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, copyIntoWorker,
+  hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
+  noStdio, ownGroup, parseReport, reportLine,
 } from './jobs-rule.js'
 import {
   INTERRUPTS, beginMutation, restoreMutation, stopJobs, trackTest,
@@ -277,6 +278,18 @@ process.on('exit', restoreClaims)
  * （`docs/CONVENTIONS.md` 第 10 条）。只按**整行**问：收到的字节按 \n 切，最后一段
  * 可能是半行，留着等下一块 —— 拿半行去匹配，名字会在写到一半时就算数。
  */
+/**
+ * 这一跑有没有人收验证者的号。判定在 `beaconFrom`：串行那条路、被当工具起的 `mutate`、
+ * `--brief`，argv 里都没有那个参数，于是这里是 undefined，一个字节都不落盘。
+ */
+const BEACON = beaconFrom(process.argv)
+
+/** 这一轮的验证者没了，把号抹掉。**判定在 `beaconGone`** —— 这里只剩「它给了就抹」 */
+const forgetVerifier = (): void => {
+  const gone = beaconGone(BEACON)
+  if (gone !== undefined) { try { rmSync(gone, { force: true }) } catch { /* 盘满、只读、已被收尾删掉 */ } }
+}
+
 const runTest = (verifier: Verifier, kills?: readonly string[]):
   Promise<{ status: number | null; output: string; atStop?: string }> =>
   new Promise(resolve => {
@@ -315,7 +328,13 @@ const runTest = (verifier: Verifier, kills?: readonly string[]):
     // 压根没起来（命令不在、权限不足）也要留下话：那时两股都是空的，
     // 判定只会说「跑不起来」，而人得知道是没起来还是跑崩了
     kid.on('error', e => { err += `\n${e}` })
-    kid.on('close', status => resolve({ status, output: `${out}\n${err}`, atStop }))
+    kid.on('close', status => { forgetVerifier(); resolve({ status, output: `${out}\n${err}`, atStop }) })
+    // **留号在装完那两个监听器之后。** 放在 `trackTest` 紧后面的话,这一句一抛就落在
+    // 「验证者已经起来、监听器还没装」那个缝里 —— promise 永不落地,`runOne` 的 `finally`
+    // 不跑,被改过的源文件留在工作区。抛了就当这一轮没有号(等价于窗口被拉长到整轮),
+    // 不许升级成丢结论、更不许升级成留下孤儿。
+    const note = beaconNote(BEACON, kid.pid)
+    if (note !== undefined) { try { writeFileSync(note.path, note.text) } catch { /* 当作没号 */ } }
   })
 
 /**
@@ -393,6 +412,11 @@ const record = (m: Mut, ran: Ran): void => {
  * 排在队里没写出去的那一行会被当成「这一条没回话」，而那是硬失败。
  */
 if (process.argv.includes('--worker')) {
+  // **抹号的处理函数要装在第一次 `beginMutation` 之前。** 温和那条路上 worker 收到
+  // SIGTERM 之后走 `onInterrupt` → 硬退出，验证者的 `close` 永远不来，号一个都不抹；
+  // 而派工那头的宽限期有整 5 秒，这期间每个正常收摊的 worker 都留着一份死号。
+  // 装在前面，它就排在 `mutate-restore` 那个会退掉进程的处理函数**之前**，跑得到。
+  for (const sig of INTERRUPTS) process.on(sig, forgetVerifier)
   const byId = new Map(muts.map(m => [m.id, m]))
   for await (const line of createInterface({ input: process.stdin })) {
     const m = byId.get(line.trim())
@@ -429,12 +453,34 @@ const JOBS_DIR = '.check-cache/mutate-jobs'
 const GRACE_MS = 5000
 const SELF = fileURLToPath(import.meta.url)
 
+/**
+ * 读一份号。**「没有这个文件」与「读不动」不能压成同一个值**：前者是「量出来是零」
+ * （那个 worker 没起验证者），后者是「没量成」（fd 到顶、权限），而硬来那一步正是
+ * fd 到顶最爱发生的地方。压成一个值的话，真出事那次就淹在一堆正常里（`CONVENTIONS.md` 第 3、6 条）。
+ */
+const readBeacon = (path: string): { text?: string; error?: string } => {
+  try { return { text: readFileSync(path, 'utf8') } }
+  catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    return code === 'ENOENT' ? {} : { error: code ?? String(e) }
+  }
+}
+
+/**
+ * 这个进程自己那一组的号，拿不到就 undefined。判定（怎么从那一行里切出来）在 `ownGroup`。
+ * 拿不到时自保守卫那一格就是没守 —— 非 Linux、procfs 没挂的时候如此，记在 ADR-74。
+ */
+const readOwnGroup = (): number | undefined => {
+  try { return ownGroup(readFileSync('/proc/self/stat', 'utf8')) } catch { return undefined }
+}
+
 const dispatch = async (jobs: number): Promise<void> => {
   rmSync(JOBS_DIR, { recursive: true, force: true })
   const queue = muts.map(m => m.id)
   const byId = new Map(muts.map(m => [m.id, m]))
   const reported = new Set<string>()
-  const live = new Set<ChildProcess>()
+  /** 一个槽 = 一个 worker 壳,加上它那份号文件搁哪 */
+  const live = new Set<{ kid: ChildProcess; beacon: string }>()
   // 硬来那一步：还没停的 worker 直接杀掉，把目录收干净，非零退出（这一跑没跑完，不能算过）。
   // ⚠️ **杀的只是 worker 自己，不是「整组」** —— 它底下那个验证者是 `detached` 起的、
   // 自成一组，这一刀够不到（欠条与修法记在 ADR-72，#112 第一轮评审指出这句话说错了）
@@ -450,7 +496,13 @@ const dispatch = async (jobs: number): Promise<void> => {
   // 是 #111 的 CI 逼出来的：同一个提交两个 job 一绿一红，红的那次报「隔离目录没收干净」。
   // 本地同形状 32 次复现到 2 次，插同步标记定位到死在「杀第 N 个 pid=undefined」那一句。
   const hardStop = (): never => {
-    for (const kid of signalTargets(live)) kid.kill('SIGKILL')
+    const self = { pid: process.pid, pgid: readOwnGroup() }
+    for (const step of hardStopPlan(live, readBeacon, self)) {
+      if (step.do === 'kid') { try { step.kid.kill('SIGKILL') } catch { /* 早没了 */ } }
+      else if (step.do === 'group') { try { process.kill(step.shot, 'SIGKILL') } catch { /* 组散了 */ } }
+      else if (step.do === 'warn') writeFileSync(2, step.text)
+      else break
+    }
     // 收不动也要把话说完整。这一步的承诺是「杀干净、收目录、非零退出」，而递归删一棵树
     // 是要开目录的：实测剩 0 个 fd 时 `rmSync` 抛 `EMFILE(scandir)`，剩 1 个就够。
     // 这条路触发的条件正是 fd 到顶，所以那一支够得着 —— 真撞上时让人知道半成品留在哪，
@@ -468,7 +520,8 @@ const dispatch = async (jobs: number): Promise<void> => {
     process.exit(1)
   }
   for (const sig of INTERRUPTS) {
-    process.on(sig, () => stopJobs([...live], hardStop, GRACE_MS, (fn, ms) => { setTimeout(fn, ms) }))
+    process.on(sig, () => stopJobs([...live].map(s => s.kid), hardStop, GRACE_MS,
+                                   (fn, ms) => { setTimeout(fn, ms) }))
   }
   // **建目录那一步抛出来的，也要走收尾。** `cpSync` / `symlinkSync` 在第 i 个上失败时，
   // 前面已经起来的 worker 正拿着任务在跑，而 `Promise.all` 会把异常直接抛上去、
@@ -479,9 +532,13 @@ const dispatch = async (jobs: number): Promise<void> => {
     const dir = join(JOBS_DIR, `w${i}`)
     cpSync('.', dir, { recursive: true, filter: copyIntoWorker })
     symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
-    const [exe, argv] = tsxCommand([SELF, '--worker'])
+    // 号文件搁在 `w<i>/` 的**兄弟**位置(判定在 `beaconPathOf`),绝对路径交给 worker ——
+    // 它的 cwd 是 `dir`,相对路径会落进那棵被复制的树里
+    const beacon = resolve(beaconPathOf(JOBS_DIR, process.pid, i))
+    const [exe, argv] = tsxCommand([SELF, '--worker', `${BEACON_FLAG}${beacon}`])
     const kid = spawn(exe, argv, { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'] })
-    live.add(kid)
+    const slot = { kid, beacon }
+    live.add(slot)
     // **起不来有三种形状，缺哪一条都是洞**（实测与事件序记在 ADR-72）：有的 errno
     // 同步抛（ENOTDIR），外层 `try/catch` 接得到；有的只发 `error` 事件（ENOENT），
     // 接不到 —— 而 `error` 没人听的话 Node 当未捕获异常退掉，活着的 worker 和隔离目录
@@ -526,7 +583,7 @@ const dispatch = async (jobs: number): Promise<void> => {
       if (m !== undefined) record(m, r)
       hand()
     })
-    kid.on('close', () => { live.delete(kid); done() })
+    kid.on('close', () => { live.delete(slot); done() })
     hand()
     })))
   } catch (e) {
