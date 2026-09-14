@@ -244,9 +244,9 @@ export const exemptionLead = (covered: boolean): string =>
  * 同一句话有三处入口在印(`mutate` 的 `--brief` 与整跑、`audit` 的报告)。`mutate`
  * 那两处各有一个自检夹具真跑一遍、断言输出;`audit` 那一处**没有** —— 给它造夹具要把
  * `audit` 加进自检的工具表(`runTool` 的形参类型就是那张表的键,起一个表里没有的
- * 编译期都过不去),而那张表同时是隔离判据的种子来源:闭包实测从 13 个撑大到 17
+ * 编译期都过不去),而那张表同时是隔离判据的种子来源:闭包实测从 14 个撑大到 18
  * (`audit.ts` 自己,带上 `audit-rule` / `spec-rule` / `quoted`),`verifier-rule.ts`
- * 与 `ARCHITECTURE.md` 里四处写着「13 个」的话同时失真,此后能被自检验证的变异空间
+ * 与 `ARCHITECTURE.md` 里四处写着「14 个」的话同时失真,此后能被自检验证的变异空间
  * 也跟着缩小。为一行报告付这个代价不划算(#91 第二轮评审要的是给 `audit` 也造夹具,
  * 这里是实测之后另选的路)。
  *
@@ -395,13 +395,17 @@ export function notAssertion(output: string, verifier: Verifier): boolean {
  * 「我什么也没测到」而这里记成「被抓到」。两道闸的形状一样、理由逐字一样,
  * 只是记号不同 —— 那不是任何一条断言的功劳(ADR-70 的欠条,5c 第一片)。
  *
+ * **「停没停」与「停的那一刻它说过什么」合成一个形参(`atStop`)。** 分成
+ * `stoppedOnKills: boolean` 加一份快照的话,两者对不上是表示得出来的状态,而对不上的
+ * 症状是判定悄悄换了一份输入。给了就是停过,没给就是跑到尾了。
+ *
  * **点名是一组,每一条都要红。** 只收一个名字的时候,一条变异只要弄红名单里的头一条
  * 就算被抓到 —— `M-D6-j` 因此只证明了「四条收尾里的第一条还活着」,后三条夹具删光它
  * 照样绿(#91 复查实测)。一组里有一条没红,这条变异对那一条就什么也没证明,
  * 判的是 `elsewhere`(ADR-70 的欠条,5c 第二片)。
  */
 export function judgeRun(exitCode: number | null, output: string,
-  verifier: Verifier, kills?: readonly string[], stoppedOnKills = false): RunVerdict {
+  verifier: Verifier, kills?: readonly string[], atStop?: string): RunVerdict {
   if (exitCode === 0) return 'survived'
   // 见齐就停的那一次:退出码和汇总都拿不到(是我们主动杀的、也没跑到尾),
   // 但**看见那几行不带记号的 `✗ <名字>`** 本身就是「断言真的跑了、真的红了」的直接证据,
@@ -411,8 +415,16 @@ export function judgeRun(exitCode: number | null, output: string,
   // 一次连一行具名失败都没有的运行也能拿到 `caught` —— 而「两边共用同一判据」正是
   // `allKilled` 只此一份的理由,只让入口用、判定不用,等于把那句承诺自己作废。
   // 记号照旧一票否决:崩了或夹具废了,这一次整份不算数。
-  if (stoppedOnKills) {
-    return kills !== undefined && allKilled(output, kills) && !notAssertion(output, verifier)
+  //
+  // **判的是我们动手那一刻它说过的话(`atStop`),不是最终输出。** 那一刀杀的是整个
+  // 进程组,验证者手上正跑着的子进程跟着一起没,于是它临死前会补打一句
+  // `✗ …(进程):预期以退出码 0 结束,实际是 null` —— 那是**我们自己打出来的**,
+  // 不是这条变异的罪证。拿最终输出去判,这一句就一票否决掉一次本来成立的抓到。
+  // 实测:`M-D6-j` 四条点名的夹具全红了,却被判成「跑不起来」;主干上串行跑、
+  // 机器占满时 8 次里红 5 次,空闲时 0 次 —— 是台机器忙不忙决定的,不是这条变异。
+  // 动手之前就有的记号照旧一票否决(那时候我们还没开枪,记号是真的)。
+  if (atStop !== undefined) {
+    return kills !== undefined && allKilled(atStop, kills) && !notAssertion(atStop, verifier)
       ? 'caught' : 'crashed'
   }
   if (exitCode === null) return 'crashed'

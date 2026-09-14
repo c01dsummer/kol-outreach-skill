@@ -15,6 +15,14 @@
  * 用法：
  *   tsx scripts/check/mutate.ts            逐个应用变异并跑测试
  *   tsx scripts/check/mutate.ts --brief    只列出每条「违反了什么」，不跑任何东西
+ *   tsx scripts/check/mutate.ts --jobs=N   同时跑几条（也可以用环境变量 MUTATE_JOBS）
+ *
+ * 缺省按机器核数派工，**一人一个隔离目录**；`--jobs=1` 回到一条一条串着跑那条路。
+ * 为什么必须隔离到目录、为什么一条一派、派出去没回话的怎么算，都在 `jobs-rule.ts`
+ * 和 ADR-72 上。**串行跑和派工跑共用同一套判定** —— 同一批变异、同一个验证者、
+ * 同一套归因。⚠️ 但「判定本身一个字没改」这句话在本条**不成立**：`judgeRun` 的
+ * 「主动停掉」那一档改成了判开枪那一刻的快照（修一处间歇性假红，ADR-72 末节记着）。
+ * 两句话不是一回事，别把前一句读成后一句。
  *
  * `--brief` 是给**写测试的那个上下文**用的：`why` 是需求语言，可以给；
  * `find`/`replace` 是实现原文，给了就等于让它读实现。
@@ -22,18 +30,28 @@
  *
  * 这条防线的强度取决于 `why` 怎么写 —— 引了实现原文的 why，`--brief` 照样把它漏出去。
  */
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { spawn } from 'node:child_process'
+import { cpSync, existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { availableParallelism } from 'node:os'
+import { join, resolve } from 'node:path'
+import { createInterface } from 'node:readline'
+import { fileURLToPath } from 'node:url'
 import { attributionFault } from './attribution-rule.js'
 import { implementationLeak } from './why-rule.js'
 import {
-  type LabelFault, type RunVerdict, type Verifier, type WiringFault,
+  type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
   labelFaults, labelsOf,
   wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
-import { beginMutation, restoreMutation, trackTest } from './mutate-restore.js'
+import {
+  type Ran, copyIntoWorker, jobsWanted, looksLikeReport, missingVerdicts,
+  noStdio, parseReport, reportLine, signalTargets,
+} from './jobs-rule.js'
+import {
+  INTERRUPTS, beginMutation, restoreMutation, stopJobs, trackTest,
+} from './mutate-restore.js'
 import { tsxCommand } from './tsx-cmd.js'
 import { infraClosure, selfVerifying } from './verifier-rule.js'
 
@@ -181,6 +199,7 @@ const survived: Mut[] = []
 const elsewhere: Mut[] = []
 const crashed: Mut[] = []
 const notApplied: Mut[] = []
+const silent: Mut[] = []
 
 // 变异跑不得留下痕迹 —— 源码在 finally 里还原，那份覆盖记录同理。
 // 平时 test.ts 认得 MUTATING 标记、既不清也不写；但**变异改的正可能是那个判定
@@ -259,7 +278,7 @@ process.on('exit', restoreClaims)
  * 可能是半行，留着等下一块 —— 拿半行去匹配，名字会在写到一半时就算数。
  */
 const runTest = (verifier: Verifier, kills?: readonly string[]):
-  Promise<{ status: number | null; output: string; stoppedOnKills: boolean }> =>
+  Promise<{ status: number | null; output: string; atStop?: string }> =>
   new Promise(resolve => {
     // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
     // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
@@ -271,11 +290,12 @@ const runTest = (verifier: Verifier, kills?: readonly string[]):
     trackTest(kid)
     let out = ''
     let err = ''
-    let stoppedOnKills = false
+    /** 我们动手那一刻它说过的话。**没动手就是 undefined** —— 判定据此分岔 */
+    let atStop: string | undefined
     // 见齐了就把整组停掉。**杀的是进程组**（负的 pid）：`tsx` 底下还有一个真正跑脚本的
     // 进程，只杀手上这一个杀不掉，剩下那个会一直跑到自己结束 —— 那样「省下的时间」就没了
     const stopIfSeen = (): void => {
-      if (stoppedOnKills || kills === undefined) return
+      if (atStop !== undefined || kills === undefined) return
       // **两股各自截**：合起来再截会把两者之间那个人为插入的换行当成行尾，于是先到的
       // 那一股的半行被当成整行 —— 名字写到一半就算数，后缀还没到就把人杀了（#99 评审指出）
       const whole = complete(out) + complete(err)
@@ -285,7 +305,9 @@ const runTest = (verifier: Verifier, kills?: readonly string[]):
       // 一次普通的「非零退出、没有汇总」会被记成被抓到（#99 第二轮评审指出）
       try {
         process.kill(-(kid.pid as number), 'SIGTERM')
-        stoppedOnKills = true
+        // **快照留在开枪之前。** 这一刀连验证者手上的子进程一起杀，它临死会补打一句
+        // 带「进程」记号的失败 —— 那是我们自己打出来的，不能算进这条变异的账
+        atStop = whole
       } catch { /* 没杀成：这一次就当没停过，按老规矩判 */ }
     }
     kid.stdout.on('data', d => { out += d; stopIfSeen() })
@@ -293,25 +315,24 @@ const runTest = (verifier: Verifier, kills?: readonly string[]):
     // 压根没起来（命令不在、权限不足）也要留下话：那时两股都是空的，
     // 判定只会说「跑不起来」，而人得知道是没起来还是跑崩了
     kid.on('error', e => { err += `\n${e}` })
-    kid.on('close', status => resolve({ status, output: `${out}\n${err}`, stoppedOnKills }))
+    kid.on('close', status => resolve({ status, output: `${out}\n${err}`, atStop }))
   })
 
-for (const m of muts) {
+/**
+ * 跑一条变异：应用、跑验证者、判、还原。**串行跑和派工跑共用这一份。**
+ *
+ * 两边各写一份的话，「还原」「判定」这些正是分岔的地方 —— 而分岔出来的差别，
+ * 在报告上和「这条变异本来就是这个结论」长得一模一样。
+ *
+ * **现场跟着结论一起交出去，不留在这儿。** 判 `crashed` 那一档要摆出验证者说过什么，
+ * 而派工跑的时候「跑」在 worker 进程里、「报」在派工进程里 —— 现场留在局部变量里，
+ * 过不了那道进程边界，报告就只剩一句「跑不起来」而没有为什么。那正是这一档
+ * 唯一的用处（分辨「真崩了」与「这一次不巧」）。
+ */
+const runOne = async (m: Mut): Promise<Ran> => {
   const orig = readFileSync(m.file, 'utf8')
-  if (!orig.includes(m.find)) {
-    notApplied.push(m)
-    console.log(`  ⚠ ${m.id}  锚点失效，未能应用`)
-    continue
-  }
+  if (!orig.includes(m.find)) return { outcome: 'not-applied', status: null, stopped: false, output: '' }
   beginMutation(m.file, orig)
-  let verdict: RunVerdict
-  // 判 `crashed` 时要说得出**为什么** —— 那一档原先一个字都不留下验证者说过什么,
-  // 而它恰恰是唯一能分辨「真崩了」与「这一次不巧」的证据(ADR-70 记着这笔账,
-  // 它在同一片里咬了两次才补上)。只有这一档留:另外三档的结论自己就够清楚,
-  // 而 300 多条各留一份会把输出淹掉。
-  let output = ''
-  let status: number | null = null
-  let stopped = false
   try {
     // 写盘也在这一段里面：写盘是先截断再写的，写到一半抛出去（盘满、IO 错）留下的是
     // 半份源文件，而那时 `finally` 要是够不着，被截断的那份就留在工作区里，
@@ -321,17 +342,26 @@ for (const m of muts) {
     // 点了名的还要再看一层:红的是不是 kills 说的那一条
     const verifier = VERIFIERS[m.by ?? 'test']
     const r = await runTest(verifier, m.kills)
-    output = r.output; status = r.status; stopped = r.stoppedOnKills
-    verdict = judgeRun(r.status, r.output, verifier, m.kills, r.stoppedOnKills)
+    return {
+      outcome: judgeRun(r.status, r.output, verifier, m.kills, r.atStop),
+      status: r.status, stopped: r.atStop !== undefined, output: r.output,
+    }
   } finally {
     restoreMutation()
   }
-  if (verdict === 'caught') console.log(`  ✓ ${m.id}  [${m.req}] 被抓到`)
-  else if (verdict === 'elsewhere') {
+}
+
+/** 一条变异的结论怎么报、记在哪一摞里。**派工那一侧也走这里**，报告只此一份写法 */
+const record = (m: Mut, ran: Ran): void => {
+  if (ran.outcome === 'not-applied') {
+    notApplied.push(m)
+    console.log(`  ⚠ ${m.id}  锚点失效，未能应用`)
+  } else if (ran.outcome === 'caught') console.log(`  ✓ ${m.id}  [${m.req}] 被抓到`)
+  else if (ran.outcome === 'elsewhere') {
     elsewhere.push(m)
     console.log(`  ✗ ${m.id}  [${m.req}] 红的不是点名的那些 —— ${m.by} 确实红了，`
                 + `但点名的「${(m.kills ?? []).join('」「')}」里有没红的`)
-  } else if (verdict === 'crashed') {
+  } else if (ran.outcome === 'crashed') {
     crashed.push(m)
     console.log(`  ✗ ${m.id}  [${m.req}] 跑不起来 —— 验证者死在半路,没有任何一条断言抓到它`)
     // 现场：退出码、有没有因为见齐点名而主动停、以及验证者打出来的失败行。
@@ -339,9 +369,9 @@ for (const m of muts) {
     // ⚠️ 「没主动停」**不等于「跑到了尾」**：被信号杀掉的那一次也是没主动停（评审指出，
     // 头一版写成「跑到了尾」，跟「无，被信号杀掉」摆在同一行里自相矛盾）。
     // 留哪几行是判定，在 `mutate-rule.ts`（`docs/CONVENTIONS.md` 第 10 条）。
-    console.log(`      退出码 ${status === null ? '（无，被信号杀掉）' : status}`
-                + ` · ${stopped ? '见齐点名的就停了' : '未因见齐点名而主动停'}`)
-    const scene = crashEvidence(output, VERIFIERS[m.by ?? 'test'])
+    console.log(`      退出码 ${ran.status === null ? '（无，被信号杀掉）' : ran.status}`
+                + ` · ${ran.stopped ? '见齐点名的就停了' : '未因见齐点名而主动停'}`)
+    const scene = crashEvidence(ran.output, VERIFIERS[m.by ?? 'test'])
     if (scene.lines.length === 0) console.log('      验证者一个字都没打出来')
     else {
       // 两种现场的前缀**分得开**：`│` 是成形的失败行（断言说了话），
@@ -353,14 +383,188 @@ for (const m of muts) {
   } else { survived.push(m); console.log(`  ✗ ${m.id}  [${m.req}] 存活 —— ${m.why}`) }
 }
 
+/**
+ * 干活的那一侧：从 stdin 一行一个编号收，跑一条回一句，收到 EOF 就收工。
+ *
+ * **只往 stdout 写结论那一种行**，人看的报告由派工那一侧打 —— 两边都打的话，
+ * 同一条变异在同一份输出里出现两次，而两次的措辞将来一定会岔开。
+ *
+ * 写用的是同步那一路（和 `--brief` 同一个理由）：紧接着可能就没有事件循环再跑了，
+ * 排在队里没写出去的那一行会被当成「这一条没回话」，而那是硬失败。
+ */
+if (process.argv.includes('--worker')) {
+  const byId = new Map(muts.map(m => [m.id, m]))
+  for await (const line of createInterface({ input: process.stdin })) {
+    const m = byId.get(line.trim())
+    if (m === undefined) break
+    writeFileSync(1, `${reportLine(m.id, await runOne(m))}\n`)
+  }
+  process.exit(0)
+}
+
+/**
+ * 派工那一侧：一人一个隔离目录，一条一派，谁先空出来谁接下一条。
+ *
+ * **隔离到目录，不是到进程。** 一条变异是真的改写一份源文件；两条同时改同一棵树，
+ * 验证者跑的就是「两处叠在一起」那棵树，而报告仍按条归因 —— 每一条的绿或红都不算数。
+ * 所以每个 worker 拿一份自己的源码树：改的、还的、它那一跑写下的覆盖记录，全在自己那份里。
+ * `node_modules` 是符号链接，那份没人改。
+ *
+ * 复制时把 `.check-cache` 排除在外 —— worker 目录自己就在那底下，不排除会一路复制自己。
+ *
+ * ⚠️ **这一句靠的是 `cpSync` 的一处没写进文档的次序**（#109 评审追问出来的）：
+ * 目标目录在源目录**底下**时 `cpSync` 会拒绝（`ERR_FS_CP_EINVAL`），而 `filter`
+ * 是在那道检查**之前**跑的 —— `.check-cache` 整棵被 `filter` 挡掉，那道检查于是根本
+ * 没机会撞上。Node v22.22.2 上实测成立（本条全部计时数据都来自真跑成功的并行）。
+ * 但**官方文档没有承诺这个次序**：哪天它挪到检查后面，症状是每一次派工跑当场抛
+ * `ERR_FS_CP_EINVAL`（响的，不是静默的）。升 Node 之后要重新确认的就是这一句；
+ * 真变了的话，改法是把 worker 目录挪到源码树外面（比如 `mkdtempSync` 到系统临时目录），
+ * 而那会连带改掉「隔离目录跟着仓库走、看得见也删得掉」这个性质。
+ *
+ * 报告的行序是**跑完的先后**，不再是清单的顺序（串行那条路仍是清单顺序）。
+ * 每行自带编号，归因不受影响；换来的是跑的过程中一直有东西在动，而不是憋到最后一次吐完。
+ */
+const JOBS_DIR = '.check-cache/mutate-jobs'
+/** 宽限期：请 worker 自己收摊之后等多久。它们要停掉手上的验证者、把动过的那份还回去 */
+const GRACE_MS = 5000
+const SELF = fileURLToPath(import.meta.url)
+
+const dispatch = async (jobs: number): Promise<void> => {
+  rmSync(JOBS_DIR, { recursive: true, force: true })
+  const queue = muts.map(m => m.id)
+  const byId = new Map(muts.map(m => [m.id, m]))
+  const reported = new Set<string>()
+  const live = new Set<ChildProcess>()
+  // 硬来那一步：还没停的 worker 直接杀掉，把目录收干净，非零退出（这一跑没跑完，不能算过）。
+  // ⚠️ **杀的只是 worker 自己，不是「整组」** —— 它底下那个验证者是 `detached` 起的、
+  // 自成一组，这一刀够不到（欠条与修法记在 ADR-72，#112 第一轮评审指出这句话说错了）
+  //
+  // ⚠️ **没起来的那个不许杀。** `spawn` 因为资源不够没起来时交回的对象上 `pid` 是
+  // undefined，而对它调 `kill` 打出去的**不是「那个子进程」** —— 实测那一刀落在
+  // **调用者自己这个进程组**上：派工进程当场 137（SIGKILL，不是未捕获异常的 1），
+  // 收目录那一句再也走不到，半成品副本连同里面那份**被改过的源码**留在盘上。
+  // 在终端里跑的话，挨这一刀的还包括人的那个前台组。
+  // `mutate-restore.ts` 的 `killTest` 早就有这个守卫（`pid === undefined` 就返回），
+  // 这里漏了 —— 同一个坑的第二处。
+  //
+  // 是 #111 的 CI 逼出来的：同一个提交两个 job 一绿一红，红的那次报「隔离目录没收干净」。
+  // 本地同形状 32 次复现到 2 次，插同步标记定位到死在「杀第 N 个 pid=undefined」那一句。
+  const hardStop = (): never => {
+    for (const kid of signalTargets(live)) kid.kill('SIGKILL')
+    // 收不动也要把话说完整。这一步的承诺是「杀干净、收目录、非零退出」，而递归删一棵树
+    // 是要开目录的：实测剩 0 个 fd 时 `rmSync` 抛 `EMFILE(scandir)`，剩 1 个就够。
+    // 这条路触发的条件正是 fd 到顶，所以那一支够得着 —— 真撞上时让人知道半成品留在哪，
+    // 比让异常冒上去盖掉上面那句真正的诊断强。（⚠️ 这一支在真入口上还没撞到过。）
+    try {
+      rmSync(JOBS_DIR, { recursive: true, force: true })
+    } catch (e) {
+      // **同步写 fd 2，不用 `console.error`。** 下一句就是硬退出，而输出接管道时
+      // `console.error` 是异步的 —— 排在队里还没写出去就被掐掉，那正是本文件 `--brief`
+      // 那一支早就改成同步写的理由。这一句的**全部用处**就是告诉人半成品留在哪，
+      // 被截掉就等于没有（#112 第二轮机器评审指出）
+      writeFileSync(2, `\n  ⚠️ 隔离目录没收干净（${e instanceof Error ? e.message : String(e)}）`
+                       + ` —— 半成品副本留在 ${JOBS_DIR}，下一跑开头会重建\n`)
+    }
+    process.exit(1)
+  }
+  for (const sig of INTERRUPTS) {
+    process.on(sig, () => stopJobs([...live], hardStop, GRACE_MS, (fn, ms) => { setTimeout(fn, ms) }))
+  }
+  // **建目录那一步抛出来的，也要走收尾。** `cpSync` / `symlinkSync` 在第 i 个上失败时，
+  // 前面已经起来的 worker 正拿着任务在跑，而 `Promise.all` 会把异常直接抛上去、
+  // 跳过下面那句删目录 —— 活着的子进程和半成品目录都留下了。走跟打断同一条硬来路径
+  // （杀干净、收目录、非零退出），不另写一份（#109 第四轮评审指出）
+  try {
+    await Promise.all(Array.from({ length: jobs }, (_unused, i) => new Promise<void>(done => {
+    const dir = join(JOBS_DIR, `w${i}`)
+    cpSync('.', dir, { recursive: true, filter: copyIntoWorker })
+    symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
+    const [exe, argv] = tsxCommand([SELF, '--worker'])
+    const kid = spawn(exe, argv, { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'] })
+    live.add(kid)
+    // **起不来有三种形状，缺哪一条都是洞**（实测与事件序记在 ADR-72）：有的 errno
+    // 同步抛（ENOTDIR），外层 `try/catch` 接得到；有的只发 `error` 事件（ENOENT），
+    // 接不到 —— 而 `error` 没人听的话 Node 当未捕获异常退掉，活着的 worker 和隔离目录
+    // 全留下；资源不够那一种更早，连 stdio 都没装上，由下面那一问认出来
+    kid.on('error', e => {
+      console.error(`\n✗ 变异测试：worker 起不来 —— ${e.message}`)
+      hardStop()
+    })
+    // 为什么这一问必须在这里、而且在给 stdin 装监听器之前：判定与理由见 `noStdio`。
+    // 实测（node v22.22.2）：`spawn` 那一刻剩 ≤6 个 fd 走这一支，剩 ≥8 个正常。
+    // 真入口上撞到哪一支看语料大小 —— 本仓库这棵树上 `cpSync` 排在前面、先撞 EMFILE
+    // （那条路报得对，原话里就带 errno 和文件名）；自检那份小语料上复制几乎不花 fd，
+    // 于是耗在起进程这一步，`ulimit -n` 36～64 派 32 个全部落在这一支（夹具就用这个形状）
+    if (noStdio(kid)) {
+      console.error('\n✗ 变异测试：worker 起不来 —— 起进程时资源不够，Node 连管道都没装上。'
+                    + '最常见是打开的文件数到顶（EMFILE／ENFILE）：调高 `ulimit -n`，'
+                    + '或者用 `--jobs=` 少派几个。')
+      hardStop()
+    }
+    // worker 已经没了还往它 stdin 写，常见情形是流已关闭、编号被**静默丢掉**（由核账兜住）；
+    // 只有死亡窗口里那一下才真发 EPIPE，而那是异步的，没人听就是未捕获退出
+    kid.stdin.on('error', () => {})
+    const hand = () => {
+      const id = queue.shift()
+      if (id === undefined) kid.stdin.end()
+      else kid.stdin.write(`${id}\n`)
+    }
+    createInterface({ input: kid.stdout }).on('line', line => {
+      const r = parseReport(line)
+      if (r === undefined) {
+        // **带着记号却读不出来 = 协议坏了，得让这个 worker 收摊。** 它这会儿正等着下一个
+        // 编号，而那一条已经不会有结论了；不收摊的话它永远等下去、`close` 永远不来、
+        // 这里的 `Promise.all` 也就永远不返回 —— **整条检查挂住，而不是硬失败**。
+        // 模块头上承诺的是后者（「汇报行被截断……少一个就是硬失败」），挂住连核账
+        // 那一步都走不到。收摊之后剩下的编号由别的 worker 领，没领到的由核账报出来。
+        // 不带记号的那种是验证者漏出来的闲话，照旧跳过（#109 第三轮评审指出）
+        if (looksLikeReport(line)) kid.stdin.end()
+        return
+      }
+      reported.add(r.id)
+      const m = byId.get(r.id)
+      if (m !== undefined) record(m, r)
+      hand()
+    })
+    kid.on('close', () => { live.delete(kid); done() })
+    hand()
+    })))
+  } catch (e) {
+    console.error(`\n✗ 变异测试：派工没能起来 —— ${e instanceof Error ? e.message : String(e)}`)
+    hardStop()
+  }
+  rmSync(JOBS_DIR, { recursive: true, force: true })
+  // 派出去却没回话的：跑它的那一份崩了、被杀了、或者那一行没写出来。三种在输出上
+  // 长得一样 —— **那一条没有结论**，而没有结论不是通过（`process/README.md` 总纲）
+  for (const id of missingVerdicts(muts.map(m => m.id), reported)) {
+    const m = byId.get(id)
+    if (m === undefined) continue
+    silent.push(m)
+    console.log(`  ✗ ${m.id}  [${m.req}] 没有结论 —— 派出去了，跑它的那一份没回话`)
+  }
+}
+
+const jobs = jobsWanted(process.argv, process.env.MUTATE_JOBS, availableParallelism(), muts.length)
+if (jobs === undefined) {
+  console.error('✗ 变异测试：说不清要派几个 —— --jobs= 或 MUTATE_JOBS 要一个 1 以上的整数\n')
+  console.error('  按机器核数跑请把它去掉，不要写一个读不出来的值。')
+  process.exit(1)
+}
+// 只有一条路走串行：清单只剩一条、机器只有一个核、或者人明确要求。那条路逐字保持原样，
+// 派工那一侧一个进程都不起 —— 自检里那几份最小语料走的正是它
+if (jobs === 1) for (const m of muts) record(m, await runOne(m))
+else await dispatch(jobs)
+
 console.log()
 for (const e of exemptions) {
   console.log(`  ⊘ ${e.req} ${exemptionLead(exemptionCovered(e.req, muts))}：${e.why.split('。')[0]}。`)
 }
 
-if (survived.length || elsewhere.length || crashed.length || notApplied.length) {
+if (survived.length || elsewhere.length || crashed.length || notApplied.length || silent.length) {
   console.error(`\n✗ 变异测试：${survived.length} 个存活，${elsewhere.length} 个红错了地方，`
-                + `${crashed.length} 个跑不起来，${notApplied.length} 个锚点失效`)
+                + `${crashed.length} 个跑不起来，${notApplied.length} 个锚点失效，`
+                + `${silent.length} 个没有结论`)
+  if (silent.length) console.error('  没有结论不是通过：那一条派出去了，而跑它的那一份没回话 —— 重跑，或者用 MUTATE_JOBS=1 串行跑一遍看它到底怎么了。')
   if (survived.length) console.error('  存活意味着对应的测试证明不了任何事 —— 修测试，不要删变异。')
   if (elsewhere.length) console.error('  红错了地方也不算抓到：点名的夹具里有没红的，它对那几条就什么也没证明。'
                                       + '先核对名单里的名字是不是都指对了，再看没红的那条夹具在不在、这个变异该不该弄红它。')
