@@ -190,8 +190,10 @@ ADR-72 里把「让 worker 自成一组」按「够不到验证者」否掉了 �
 > `/proc/<pid>/task/<pid>/children` 是 Linux-only，拿不到时要像低 fd 那条夹具一样
 > 明着降级、不做断言。
 >
-> 本条不做的理由是体量：`selfcheck.ts` 按 `size-rule.ts:41` 算**源码**，而本条的源码
-> 已经用到 338/350（`npx tsx scripts/check/size.ts`），夹具约 70 行放不下；
+> 本条不做的理由是体量：`selfcheck.ts` 按 `size-rule.ts:41` 算**源码**，源码那一档的线是
+> 350 行，而本条已经用掉其中绝大部分，夹具约 70 行放不下（当下的数跑
+> `npx tsx scripts/check/size.ts`；**这里不写它** —— 它量的是本 PR 自己的 diff，
+> 每提交一次就变一次，写进永久记录必然过期，和 ADR-73 那个自指的数同一类）；
 > 按 `6-INTEGRATE.md:235` 它是**扩范围**，「那个行为不在本 PR 做」·
 > 重启条件：**本 PR 已合入** —— 也就是紧接着的那一条
 

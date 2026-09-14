@@ -51,7 +51,7 @@ import {
   noStdio, ownGroup, parseReport, reportLine,
 } from './jobs-rule.js'
 import {
-  INTERRUPTS, beginMutation, restoreMutation, stopJobs, trackTest,
+  INTERRUPTS, beginMutation, onInterrupt, restoreMutation, stopJobs, trackTest,
 } from './mutate-restore.js'
 import { tsxCommand } from './tsx-cmd.js'
 import { infraClosure, selfVerifying } from './verifier-rule.js'
@@ -439,7 +439,17 @@ if (process.argv.includes('--worker')) {
   // SIGTERM 之后走 `onInterrupt` → 硬退出，验证者的 `close` 永远不来，号一个都不抹；
   // 而派工那头的宽限期有整 5 秒，这期间每个正常收摊的 worker 都留着一份死号。
   // 装在前面，它就排在 `mutate-restore` 那个会退掉进程的处理函数**之前**，跑得到。
-  for (const sig of INTERRUPTS) process.on(sig, forgetVerifier)
+  //
+  // ⚠️ **它必须自己也把进程收掉，不能只做清理。** 装上任何一个处理函数就把 Node 的
+  // 默认终止动作压住了（实测：只做清理的那种，进程照样活着）。而这一句装在读 stdin
+  // 之前、`beginMutation` 装真正那个处理函数之后 —— 中间这一段里收到 SIGTERM 的话，
+  // worker 会**只清理、然后接着等 stdin**：派工那头看不到它 `close`，白等满整个宽限期
+  // 再走硬来。头一版就是这么写的（#116 第四轮评审指出）。
+  //
+  // 抹号排在收尾**之前**是有意的：万一在这两句中间被硬杀，号文件已经被**作废**（写空），
+  // 派工读到的是「号在却认不得」—— 出一句话、不发刀。响，而不是对着一个可能已经被
+  // 回收的号开刀。
+  for (const sig of INTERRUPTS) process.on(sig, () => { forgetVerifier(); onInterrupt() })
   const byId = new Map(muts.map(m => [m.id, m]))
   for await (const line of createInterface({ input: process.stdin })) {
     const m = byId.get(line.trim())
