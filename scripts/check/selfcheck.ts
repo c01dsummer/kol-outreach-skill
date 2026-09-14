@@ -1098,10 +1098,20 @@ writeFileSync(join(fdTmp, 'scripts', 'test.ts'), [
 const [fdExe, fdArgv] = tsxCommand([S(SELFCHECK_TOOLS.mutate), '--jobs=32'])
 const shQuote = (a: string) => `'${a.replace(/'/g, `'\\''`)}'`
 let fdHit: { status: number | null; out: string; left: boolean } | undefined
+let noShell = false
 for (const cap of [48, 40, 36]) {
   const r = spawnSync('/bin/sh',
     ['-c', `ulimit -n ${cap}; exec ${[fdExe, ...fdArgv].map(shQuote).join(' ')}`],
     { env, cwd: fdTmp, encoding: 'utf8' })
+  // **起不起得来 POSIX shell 要先问，不能默认它在。** 压低「允许打开的文件数」只有
+  // `ulimit` 这一条路，而 `ulimit` 是 shell 内建 —— 原生 Windows 上 `/bin/sh` 不存在，
+  // `spawnSync` 交回 `error`，两股流都是空的。不先问的话：下面那条「没有生抛出来的
+  // 读属性错」拿空串去比，**空串当然不含那句话，于是记绿** —— 一条什么也没验到的假绿；
+  // 再往下「至少有一档耗尽了」必红，整条 `npm run check` 在这里确定性地失败。
+  // 本仓库为了不依赖 shell 专门抽过 `tsx-cmd.ts`（那条 ADR 欠条就是这件事），
+  // 唯一一处 POSIX-only 的杀进程也是包在 `try/catch` 里优雅降级的 —— 照同一条路子办：
+  // **不硬失败，显式降级，把没验到这件事留在报告里**（`process/README.md` 第三层的写法）
+  if (r.error !== undefined) { noShell = true; break }
   const out = (r.stdout ?? '') + (r.stderr ?? '')   // p1-ok: 拿不到就是空输出，这是子进程的两股流
   const left = existsSync(join(fdTmp, '.check-cache', 'mutate-jobs'))
   rmSync(join(fdTmp, '.check-cache'), { recursive: true, force: true })
@@ -1110,8 +1120,14 @@ for (const cap of [48, 40, 36]) {
     `报出来的是一句指向派工代码的读属性错，而不是资源不够：\n${out.split('\n').slice(-6).join('\n')}`)
   if (/连管道都没装上/.test(out)) { fdHit = { status: r.status, out, left }; break }
 }
+if (noShell) {
+  // **显式缺口，不假装它被保证了。** 注意这里打的不是一句绿：一条「因为没跑所以通过」
+  // 的断言，正是本仓库最不许的那种假绿。要么真验到、要么明说没验到，不并存
+  console.log('  ⊘ 起 worker 时资源不够：这台机器上没跑 —— 压低「允许打开的文件数」'
+              + '要 POSIX shell（`/bin/sh`），这里起不来')
+} else {
 named('起 worker 时资源不够：三档里至少有一档真的耗尽了', fdHit !== undefined,
-  '三档都没走到那一支 —— 这条夹具这一跑什么也没验到，不能当它绿')
+  '三档都走完了也没到那一支 —— 这条夹具这一跑什么也没验到，不能当它绿')
 if (fdHit !== undefined) {
   // 钉死在 1 上，不写「非零」：`spawnSync` 在**被信号杀掉**时交回的 `status` 是 `null`，
   // 而 `null !== 0` 为真 —— 写成「非零」的话，一次被杀也会被记成「闸门正常关上了」。
@@ -1126,6 +1142,7 @@ if (fdHit !== undefined) {
     `那句话没给出路：\n${fdHit.out.split('\n').slice(-6).join('\n')}`)
   named('起 worker 时资源不够：隔离目录收干净了', !fdHit.left,
     '硬来之后 `.check-cache/mutate-jobs` 还在 —— 半成品副本留在盘上了')
+}
 }
 
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
