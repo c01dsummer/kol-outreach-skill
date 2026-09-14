@@ -185,3 +185,33 @@ export function copyIntoWorker(src: string): boolean {
 export function noStdio(kid: { stdin?: unknown }): boolean {
   return kid.stdin === null || kid.stdin === undefined
 }
+
+/**
+ * 这个对象**根本没起来**，所以不许对它发信号。
+ *
+ * `spawn` 因为资源不够没起来时交回的对象上 `pid` 是 undefined，而对它调 `kill`
+ * 打出去的**不是「那个子进程」** —— 实测那一刀落在**调用者自己这个进程组**上：
+ * 进程当场 137（SIGKILL，不是未捕获异常的 1），紧跟在后面的收尾一句也走不到，
+ * 半成品连同被改过的源码留在盘上。在终端里跑的话，挨刀的还包括人的那个前台组。
+ *
+ * 这条判定在别处已经有一份（`mutate-restore.ts` 停测试那一步的 `pid === undefined`
+ * 就返回），而硬来那一步漏了 —— 同一个坑的第二处。抽在这里是为了第三处不要再漏，
+ * 也为了它能被变异守住：留在入口里的话，指着入口的变异会被「自己验自己」拦下。
+ */
+export function neverStarted(kid: { pid?: number }): boolean {
+  return kid.pid === undefined
+}
+
+/**
+ * 硬来那一步**该对谁发信号** —— 起来了的都要，没起来的一个都不要。
+ *
+ * 为什么是一整个筛子、而不是在入口里写一句 `if (没起来) continue`：
+ * **入口里的接线缺省那个验证者够不到**（`process/4-VERIFY.md`：改在那儿的变异只会
+ * 「存活」）。守卫留在入口里的话，把那一句删掉，`neverStarted` 的单测和负片照样全绿 ——
+ * 判定被守住了，而「入口到底有没有调它」没人守。整个筛子搬进来之后，入口只剩
+ * 「遍历它交回来的那些」，而**筛错了谁**是这里的事，有单测也有负片。
+ * （#112 第二轮机器评审指出，那一轮 0 条讨论串、两条都在汇总的「抑制」里。）
+ */
+export function signalTargets<T extends { pid?: number }>(kids: Iterable<T>): T[] {
+  return [...kids].filter(kid => !neverStarted(kid))
+}
