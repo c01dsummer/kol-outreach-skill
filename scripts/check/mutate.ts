@@ -296,8 +296,16 @@ const BEACON = beaconFrom(process.argv)
 const forgetVerifier = (): void => {
   const gone = beaconGone(BEACON)
   if (gone === undefined) return
-  try { writeFileSync(gone, '') } catch { /* 连作废都写不进去，下面那句仍然试一次 */ }
-  try { rmSync(gone, { force: true }) } catch { /* 盘满、只读、已被收尾删掉 */ }
+  let why: string | undefined
+  try { writeFileSync(gone, '') } catch (e) { why = e instanceof Error ? e.message : String(e) }
+  try { rmSync(gone, { force: true }); why = undefined } catch { /* 作废成了就够 */ }
+  if (why === undefined) return
+  // **两步都没成 = 文件里还是一个合法的号**，而这个 worker 接着就去接下一条了。
+  // 那个号迟早被系统回收分给别人，下一次硬来就对着无关的一组开刀 —— 正是上面
+  // 整段要挡的那一格。所以不许往下走：把在途的变异还原掉，就地停（#116 第五轮评审指出）。
+  writeFileSync(2, `\n⚠️ 验证者的号作废不掉(${why}) —— 这个 worker 停在这里，这一条没有结论\n`)
+  restoreMutation()
+  process.exit(1)
 }
 
 const runTest = (verifier: Verifier, kills?: readonly string[]):
@@ -532,7 +540,7 @@ const dispatch = async (jobs: number): Promise<void> => {
     for (const step of hardStopPlan(live, readBeacon, self)) {
       if (step.do === 'kid') { try { step.kid.kill('SIGKILL') } catch { /* 早没了 */ } }
       else if (step.do === 'group') { try { process.kill(step.shot, 'SIGKILL') } catch { /* 组散了 */ } }
-      else if (step.do === 'warn') writeFileSync(2, step.text)
+      else if (step.do === 'warn') { try { writeFileSync(2, step.text) } catch { /* 说不出也要收完 */ } }
       else break
     }
     // 收不动也要把话说完整。这一步的承诺是「杀干净、收目录、非零退出」，而递归删一棵树
