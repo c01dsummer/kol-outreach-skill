@@ -2779,6 +2779,22 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "  return !SKIP.has(name) && !SKIP_PREFIX.some(p => name.startsWith(p))",
       "replace": "  return !SKIP_PREFIX.some(p => name.startsWith(p))"
+    },
+    {
+      "id": "M-H39-a",
+      "req": "harness",
+      "why": "判「这个子进程起没起来」时不再认「压根没有号」这一种，一律当成起来了 —— 于是硬来那一步会对一个从没起来的对象发信号，而那一刀落在自己这个进程组上：整跑当场被杀，收尾走不到，半成品连同被改过的源码留在盘上",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return kid.pid === undefined",
+      "replace": "  return false"
+    },
+    {
+      "id": "M-H39-b",
+      "req": "harness",
+      "why": "挑「该对谁发信号」时不再把没起来的那些筛掉，一股脑全交回去 —— 于是硬来那一步会对一个从没起来的对象发信号，而那一刀落在自己这个进程组上：整跑当场被杀，收尾走不到",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return [...kids].filter(kid => !neverStarted(kid))",
+      "replace": "  return [...kids]"
     }
   ],
   "exemptions": [
