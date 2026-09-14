@@ -2747,6 +2747,30 @@
       "file": "scripts/check/mutate-restore.ts",
       "find": "  later(once, graceMs)",
       "replace": "  void later"
+    },
+    {
+      "id": "M-H38-a",
+      "req": "harness",
+      "why": "复制源码树时那张按前缀认的表没了，只剩逐字比 —— 于是装着密钥的那份本地环境文件被复制进每个 worker 目录，正常跑完会删，被硬杀就留在盘上",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return !SKIP.has(name) && !SKIP_PREFIX.some(p => name.startsWith(p))",
+      "replace": "  return !SKIP.has(name)"
+    },
+    {
+      "id": "M-H38-b",
+      "req": "harness",
+      "why": "认的不再是文件名那一节，而是整条路径 —— 目录深处那份环境文件于是不匹配、照样被复制进去，而根目录下那份看着还挡得住，症状只在子目录里出现",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  const name = basename(src)",
+      "replace": "  const name = src"
+    },
+    {
+      "id": "M-H38-c",
+      "req": "harness",
+      "why": "判进程起没起来时只问明写着空的那一种，不问压根没有这一栏的那一种 —— 而资源不够时交回来的正是后者，于是报出来的原因指向派工代码，人去翻代码，该做的却是调高允许打开的文件数",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return kid.stdin === null || kid.stdin === undefined",
+      "replace": "  return kid.stdin === null"
     }
   ],
   "exemptions": [

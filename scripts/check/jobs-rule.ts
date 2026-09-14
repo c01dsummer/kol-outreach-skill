@@ -29,6 +29,8 @@
  * 把它当成「跑过了、没事」是 `process/README.md` 总纲里那个头号事故（把第三档压进
  * 「是」）。所以派出去的编号要逐个核回来，少一个就是硬失败。
  */
+import { basename } from 'node:path'
+
 import type { RunVerdict } from './mutate-rule.js'
 
 /** 一条变异跑完的结论。四种来自 `judgeRun`，外加「锚点失效，压根没应用上」 */
@@ -140,4 +142,46 @@ export function jobsWanted(
  */
 export function missingVerdicts(handed: readonly string[], reported: ReadonlySet<string>): string[] {
   return handed.filter(id => !reported.has(id))
+}
+
+/**
+ * 这个名字**要不要带进 worker 的那份副本**。
+ *
+ * 为什么这是判定而不是 I/O：`docs/CONVENTIONS.md` 第 10 条把「跳过哪些目录、
+ * 哪些文件算数」明写在判定那一层 —— 它决定 worker 看得见什么。这里错一格的后果
+ * 不是跑得慢：**一份装着密钥的 `.env.local` 会被复制进每个 worker 目录**，
+ * 正常跑完会删，被硬杀就留在盘上。
+ *
+ * 两张表，一张逐字比一张按前缀。`.env` 那一族必须按前缀 —— 这两张表合起来是
+ * `.gitignore` 的**手抄本**，而手抄本会漂：实测漂过一次，`.gitignore` 里写着
+ * `.env.local`，表里只有 `.env`，而逐字比认不出前者。
+ *
+ * 偏大的那一头是安全的：worker 不需要任何 `.env`，它继承派工进程的环境变量。
+ * 跟着被挡掉的受跟踪文件 `.env.example` 也是有意的 —— 全仓库只有 `README.md`
+ * 把它当一句 `cp` 的说明提过一次，没有任何代码从盘上读它。
+ *
+ * ⚠️ **两份表是手抄本这件事本身没修，只补了漏掉的那一项。** 真正的修法是不再手抄：
+ * 让 `git ls-files --cached --others --exclude-standard` 来说哪些该复制，失败方向就从
+ * 「不该带的漏进来」翻成「该带的漏出去」。挡着的是自检夹具 —— 它们的语料建在临时目录里，
+ * **不是 git 仓库**，那条路会把它们全弄挂。欠条与重启条件记在 ADR-72。
+ */
+const SKIP = new Set(['node_modules', '.git', '.check-cache', 'output', 'memory'])
+const SKIP_PREFIX = ['.env']
+export function copyIntoWorker(src: string): boolean {
+  const name = basename(src)
+  return !SKIP.has(name) && !SKIP_PREFIX.some(p => name.startsWith(p))
+}
+
+/**
+ * `spawn` 交回来的这个对象**根本没起来** —— 起进程时资源不够（打开的文件数到顶）时，
+ * Node 在装管道之前就返回：`stdin`、`stdout`、`pid` 全是 undefined，而且不同步抛，
+ * 真正的 errno 要等 `error` 事件才送到。
+ *
+ * 不先问这一句的后果**不是崩**，是**报错指错了地方**：紧跟着那句给 stdin 装监听器
+ * 是同步的，会先一步抛「读不到 undefined 上的属性」，被外层接住打印出来 ——
+ * 闸门那一侧照样非零退出、目录照样收干净，但人看到的原因是派工代码有 bug，
+ * 于是去翻派工代码，而该做的是调高允许打开的文件数、或者少派几个。
+ */
+export function noStdio(kid: { stdin?: unknown }): boolean {
+  return kid.stdin === null || kid.stdin === undefined
 }

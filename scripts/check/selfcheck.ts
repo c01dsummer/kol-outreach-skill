@@ -1056,6 +1056,65 @@ if (silent.ok && !/M-J-d.*没有结论/.test(silent.stdout)) {
   console.error('  ✗ 那条没回话的被放过去了 —— 报告里没有「没有结论」')
 }
 
+// ---- 起 worker 时资源不够：报出来的原因要指向资源，不要指向派工代码 ----
+// 打开的文件数到顶时，`spawn` **既不同步抛、也来不及发 `error`**：Node 在装管道之前
+// 就返回，交回来的对象上 `stdin` 压根不存在。入口不先问这一句的话，紧跟着那句给 stdin
+// 装监听器会同步抛「读不到 undefined 上的属性」—— 闸门照样非零退出、目录照样收干净，
+// 但人看到的原因是派工代码有 bug，于是去翻派工代码，而该做的是调高 `ulimit -n`。
+//
+// 判定那一半（`noStdio`）有单测和负片守着；**这里守的是入口那一半** ——
+// 问得够不够早（在碰 stdin 之前）、说的是不是资源、以及走完硬来之后目录收没收干净。
+// 那三件都在 `mutate.ts` 里，而指着它的变异造不出来（它在验证基础设施闭包里），
+// 与本文件另外几处 mutate 夹具同一处境。
+//
+// **为什么语料要有几十条变异**：派几个按「不超过要跑的条数」收口，两条变异时
+// `--jobs=32` 实际只派 2 个，fd 耗不掉。条数上去之后，复制那一步在小语料上几乎不花
+// fd，于是耗在起进程这一步 —— 实测 `ulimit -n` 36～64 全部落在这一支（真仓库那棵树上
+// 相反：复制排在前面，先撞 EMFILE，而那条路本来就报得对）。
+// 逐个试几档而不是钉死一个数：机器不同基线不同，钉死一个数是给自己埋一条会漂的夹具。
+// ⚠️ Windows 没验过，与打断那几条同一处境（ADR-72 记着）。
+const fdTmp = join(tmp, 'jobs-fd')
+seedJobs(fdTmp, Array.from({ length: 40 }, (_unused, i) =>
+  jobMut(`M-J-fd${i}`, `k${i} = 'keep'`, `k${i} = 'gone'`)))
+writeFileSync(join(fdTmp, 'scripts', 'check', 'a.ts'),
+  Array.from({ length: 40 }, (_unused, i) => `export const k${i} = 'keep'`).join('\n') + '\n', 'utf8')
+// 引号拼出来，不写成字面量 —— 闭包那一步按**源码文本**扫 import（「注释里的也收，
+// 宁可偏大不可偏小」），写死的话它会从本文件收到一条磁盘上不存在的路径
+// `scripts/check/check/a.ts`，「真闭包里没有磁盘上不存在的路径」当场红。
+// `seedJobs` 里那个 `q` 是同一个理由，我头一版没照做，检查当场拦下
+const fdQ = "'"
+writeFileSync(join(fdTmp, 'scripts', 'test.ts'), [
+  `import * as a from ${fdQ}./check/a.js${fdQ}`,
+  `const bad = Object.values(a).filter(v => v !== ${fdQ}keep${fdQ}).length`,
+  `if (bad) { console.log(${fdQ}\\n${fdQ} + bad + ${fdQ} 个失败\\n${fdQ}); process.exitCode = 1 }`,
+].join('\n') + '\n', 'utf8')
+const [fdExe, fdArgv] = tsxCommand([S(SELFCHECK_TOOLS.mutate), '--jobs=32'])
+const shQuote = (a: string) => `'${a.replace(/'/g, `'\\''`)}'`
+let fdHit: { status: number | null; out: string; left: boolean } | undefined
+for (const cap of [48, 40, 36]) {
+  const r = spawnSync('/bin/sh',
+    ['-c', `ulimit -n ${cap}; exec ${[fdExe, ...fdArgv].map(shQuote).join(' ')}`],
+    { env, cwd: fdTmp, encoding: 'utf8' })
+  const out = (r.stdout ?? '') + (r.stderr ?? '')   // p1-ok: 拿不到就是空输出，这是子进程的两股流
+  const left = existsSync(join(fdTmp, '.check-cache', 'mutate-jobs'))
+  rmSync(join(fdTmp, '.check-cache'), { recursive: true, force: true })
+  named(`起 worker 时资源不够（允许打开 ${cap} 个文件）：没有生抛出来的读属性错`,
+    !/Cannot read properties of undefined/.test(out),
+    `报出来的是一句指向派工代码的读属性错，而不是资源不够：\n${out.split('\n').slice(-6).join('\n')}`)
+  if (/连管道都没装上/.test(out)) { fdHit = { status: r.status, out, left }; break }
+}
+named('起 worker 时资源不够：三档里至少有一档真的耗尽了', fdHit !== undefined,
+  '三档都没走到那一支 —— 这条夹具这一跑什么也没验到，不能当它绿')
+if (fdHit !== undefined) {
+  named('起 worker 时资源不够：非零退出', fdHit.status !== 0,
+    `退出码是 ${String(fdHit.status)} —— 这一跑没跑完，不能算过`)
+  named('起 worker 时资源不够：说的是调高允许打开的文件数或者少派几个',
+    /ulimit -n/.test(fdHit.out) && /--jobs=/.test(fdHit.out),
+    `那句话没给出路：\n${fdHit.out.split('\n').slice(-6).join('\n')}`)
+  named('起 worker 时资源不够：隔离目录收干净了', !fdHit.left,
+    '硬来之后 `.check-cache/mutate-jobs` 还在 —— 半成品副本留在盘上了')
+}
+
 // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
 // 一条写进文档、却从没被执行过的命令，等于没有 —— 在这里跑一次，证明它还活着。
 //
