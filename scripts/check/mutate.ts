@@ -435,20 +435,16 @@ const record = (m: Mut, ran: Ran): void => {
  * 排在队里没写出去的那一行会被当成「这一条没回话」，而那是硬失败。
  */
 if (process.argv.includes('--worker')) {
-  // **抹号的处理函数要装在第一次 `beginMutation` 之前。** 温和那条路上 worker 收到
-  // SIGTERM 之后走 `onInterrupt` → 硬退出，验证者的 `close` 永远不来，号一个都不抹；
-  // 而派工那头的宽限期有整 5 秒，这期间每个正常收摊的 worker 都留着一份死号。
-  // 装在前面，它就排在 `mutate-restore` 那个会退掉进程的处理函数**之前**，跑得到。
+  // **抹号的处理函数要装在第一次 `beginMutation` 之前**，也就是排在 `mutate-restore`
+  // 那个会退掉进程的处理函数之前 —— 否则温和那条路上 worker 收到 SIGTERM 就走
+  // `onInterrupt` 硬退出，`close` 永远不来，整 5 秒宽限期里人人都留着一份死号。
   //
-  // ⚠️ **它必须自己也把进程收掉，不能只做清理。** 装上任何一个处理函数就把 Node 的
-  // 默认终止动作压住了（实测：只做清理的那种，进程照样活着）。而这一句装在读 stdin
-  // 之前、`beginMutation` 装真正那个处理函数之后 —— 中间这一段里收到 SIGTERM 的话，
-  // worker 会**只清理、然后接着等 stdin**：派工那头看不到它 `close`，白等满整个宽限期
-  // 再走硬来。头一版就是这么写的（#116 第四轮评审指出）。
-  //
-  // 抹号排在收尾**之前**是有意的：万一在这两句中间被硬杀，号文件已经被**作废**（写空），
-  // 派工读到的是「号在却认不得」—— 出一句话、不发刀。响，而不是对着一个可能已经被
-  // 回收的号开刀。
+  // ⚠️ **它必须自己也把进程收掉，不能只做清理。** 装上任何一个处理函数，Node 的默认
+  // 终止动作就被压住（实测：只做清理的那种，进程照样活着）—— 这一句到 `beginMutation`
+  // 装上真正那个之间收到 SIGTERM 的 worker 会只清理、接着等 stdin，派工看不到它
+  // `close`，白等满整个宽限期（#116 第四轮评审指出）。抹号排在收尾**之前**是有意的：
+  // 万一在这两句中间被硬杀，号文件已**作废**（写空），派工读到「号在却认不得」——
+  // 出一句话、不发刀，而不是对着一个可能已被回收的号开刀。
   for (const sig of INTERRUPTS) process.on(sig, () => { forgetVerifier(); onInterrupt() })
   const byId = new Map(muts.map(m => [m.id, m]))
   for await (const line of createInterface({ input: process.stdin })) {
