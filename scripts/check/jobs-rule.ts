@@ -258,8 +258,9 @@ export const BEACON_FLAG = '--beacon='
  *   也是验证者的 cwd,还是收尾那句 `rmSync` 的目标。号文件落进去会跟着被复制、
  *   被检查链看见、被当成树的一部分。放在外面、仍在 `JOBS_DIR` 底下,收尾顺手收掉。
  * - **名字里带派工进程的号。** 同一棵树上另一跑(或者被当工具起的另一个 `mutate`)
- *   留下的号文件,路径就对不上,我们读都不会去读 —— 并发两跑互杀那一条就此关掉。
- *   (这堵不住**号被系统回收**给别人,那是另一件事,记在 ADR-74。)
+ *   留下的号文件,路径就对不上,我们读都不会去读 —— **不会拿着别人的号去开刀**。
+ *   ⚠️ 挡的只有这一头。它**挡不住别人把我们这份删掉** —— 两跑共用同一个根目录、
+ *   `w<i>` 还同名,那一格还开着(实测过,记在 ADR-74);也堵不住**号被系统回收**给别人。
  */
 export function beaconPathOf(jobsDir: string, dispatcherPid: number, i: number): string {
   return `${jobsDir}/w${i}.${dispatcherPid}.verifier`

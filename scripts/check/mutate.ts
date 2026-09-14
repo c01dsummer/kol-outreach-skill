@@ -303,7 +303,12 @@ const forgetVerifier = (): void => {
   // **两步都没成 = 文件里还是一个合法的号**，而这个 worker 接着就去接下一条了。
   // 那个号迟早被系统回收分给别人，下一次硬来就对着无关的一组开刀 —— 正是上面
   // 整段要挡的那一格。所以不许往下走：把在途的变异还原掉，就地停（#116 第五轮评审指出）。
-  writeFileSync(2, `\n⚠️ 验证者的号作废不掉(${why}) —— 这个 worker 停在这里，这一条没有结论\n`)
+  // 出话这一步**必须兜住**：它抛出去就是从 `close` 监听器里抛，promise 不 resolve、
+  // `runOne` 的 `finally` 走不到 —— 被改过的源码留在 worker 树里。和第五轮在 `hardStop`
+  // 那头修的是同一类，我在同一条提交里又犯了一次（#116 第六轮评审指出）。
+  try {
+    writeFileSync(2, `\n⚠️ 验证者的号作废不掉(${why}) —— 这个 worker 停在这里，这一条没有结论\n`)
+  } catch { /* 说不出也要还原、也要停 */ }
   restoreMutation()
   process.exit(1)
 }
