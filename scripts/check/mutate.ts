@@ -424,8 +424,27 @@ if (process.argv.includes('--worker')) {
  * 每行自带编号，归因不受影响；换来的是跑的过程中一直有东西在动，而不是憋到最后一次吐完。
  */
 const JOBS_DIR = '.check-cache/mutate-jobs'
-/** 复制源码树时跳过的：装不下的、不该带的、以及会把自己复制进自己的那个 */
-const SKIP = new Set(['node_modules', '.git', '.check-cache', 'output', 'memory', '.env'])
+/**
+ * 复制源码树时跳过的：装不下的、不该带的、以及会把自己复制进自己的那个。
+ *
+ * **这张表是 `.gitignore` 的手抄本，而手抄本会漂。** 实测漂过一次：`.gitignore` 里
+ * 写着 `.env.local`，这里没有 —— 而匹配是按 basename **逐字**比的，于是一份装着
+ * 密钥的 `.env.local` 会被复制进每个 worker 目录。正常跑完会删，被硬杀就留在盘上。
+ *
+ * 所以 `.env` 这一项改成**按前缀**认：`.env`、`.env.local`、`.env.production` 都算。
+ * 偏大的那一头是安全的 —— worker 根本不需要任何 `.env`，它继承派工进程的环境变量。
+ * （跟着被挡掉的还有受跟踪的 `.env.example`。**是有意的**：全仓库只有 `README.md`
+ * 把它当一句 `cp` 的说明提了一次，没有任何代码从盘上读它；宁可这条规矩简单到
+ * 下一个 `.env.staging` 也自动算上，也不为一个没人读的文件开例外。）
+ *
+ * ⚠️ **两份表这件事本身没修，只修了漏掉的那一项。** 真正的修法是不再手抄
+ * （让 `git ls-files --cached --others --exclude-standard` 来说哪些该复制，
+ * 那样失败方向从「漏进来」翻成「漏出去」），但自检那几份夹具语料建在临时目录里、
+ * **不是 git 仓库**，那条路会把它们全弄挂。欠条记在 ADR-72 上。
+ */
+const SKIP = new Set(['node_modules', '.git', '.check-cache', 'output', 'memory'])
+/** 按前缀跳过的：`.env` 那一族，见上 */
+const SKIP_PREFIX = ['.env']
 /** 宽限期：请 worker 自己收摊之后等多久。它们要停掉手上的验证者、把动过的那份还回去 */
 const GRACE_MS = 5000
 const SELF = fileURLToPath(import.meta.url)
@@ -452,7 +471,10 @@ const dispatch = async (jobs: number): Promise<void> => {
   try {
     await Promise.all(Array.from({ length: jobs }, (_unused, i) => new Promise<void>(done => {
     const dir = join(JOBS_DIR, `w${i}`)
-    cpSync('.', dir, { recursive: true, filter: src => !SKIP.has(basename(src)) })
+    cpSync('.', dir, { recursive: true, filter: src => {
+      const name = basename(src)
+      return !SKIP.has(name) && !SKIP_PREFIX.some(p => name.startsWith(p))
+    } })
     symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
     const [exe, argv] = tsxCommand([SELF, '--worker'])
     const kid = spawn(exe, argv, { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'] })
@@ -463,7 +485,26 @@ const dispatch = async (jobs: number): Promise<void> => {
       console.error(`\n✗ 变异测试：worker 起不来 —— ${e.message}`)
       hardStop()
     })
-    kid.stdin.on('error', () => { /* worker 没了还写会 EPIPE，也是异步的；核账会报它 */ })
+    // **起进程时资源不够，Node 交回来的是一个没装 stdio 的对象**：`stdin`／`stdout`／`pid`
+    // 全是 undefined，而且不同步抛。真 errno 随后由 `error` 事件送来 —— 也就是说上面那个
+    // 处理器本来会报对，**只是等不到那一刻**：下一行 `kid.stdin.on(...)` 是同步的，
+    // 先一步抛 `Cannot read properties of undefined`，被外层 catch 接住打印出去。
+    // 闸门那一侧是对的（非零退出、隔离目录收干净了），错的是那句话**把人指向派工代码**，
+    // 而该做的是调高 `ulimit -n` 或者少派几个。
+    //
+    // 实测（node v22.22.2）：`spawn` 那一刻剩 ≤6 个 fd 就走这一支（随后 `error` 报 EMFILE、
+    // `close` code=-24），剩 ≥8 个正常。这一支**窄**：真入口上同一轮里 `cpSync` 排在前面，
+    // `ulimit -n` 36～64 扫一遍都是它先撞 EMFILE，而它那条路报得对（原话里就带 errno）。
+    // 窄不等于不可达，而且撞上的人看到的是一句指错方向的话，所以认出来、当场说清
+    if (kid.stdin === null || kid.stdin === undefined) {
+      console.error('\n✗ 变异测试：worker 起不来 —— 起进程时资源不够，Node 连管道都没装上。'
+                    + '最常见是打开的文件数到顶（EMFILE／ENFILE）：调高 `ulimit -n`，'
+                    + '或者用 `--jobs=` 少派几个。')
+      hardStop()
+    }
+    // worker 已经没了还往它 stdin 写，常见情形是流已关闭、编号被**静默丢掉**（由核账兜住）；
+    // 只有死亡窗口里那一下才真发 EPIPE，而那是异步的，没人听就是未捕获退出
+    kid.stdin.on('error', () => {})
     const hand = () => {
       const id = queue.shift()
       if (id === undefined) kid.stdin.end()
