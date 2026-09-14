@@ -435,7 +435,9 @@ const dispatch = async (jobs: number): Promise<void> => {
   const byId = new Map(muts.map(m => [m.id, m]))
   const reported = new Set<string>()
   const live = new Set<ChildProcess>()
-  // 硬来那一步：还没停的直接杀掉整组，把目录收干净，非零退出（这一跑没跑完，不能算过）
+  // 硬来那一步：还没停的 worker 直接杀掉，把目录收干净，非零退出（这一跑没跑完，不能算过）。
+  // ⚠️ **杀的只是 worker 自己，不是「整组」** —— 它底下那个验证者是 `detached` 起的、
+  // 自成一组，这一刀够不到（欠条与修法记在 ADR-72，#112 第一轮评审指出这句话说错了）
   //
   // ⚠️ **没起来的那个不许杀。** `spawn` 因为资源不够没起来时交回的对象上 `pid` 是
   // undefined，而对它调 `kill` 打出去的**不是「那个子进程」** —— 实测那一刀落在
