@@ -1113,8 +1113,14 @@ for (const cap of [48, 40, 36]) {
 named('起 worker 时资源不够：三档里至少有一档真的耗尽了', fdHit !== undefined,
   '三档都没走到那一支 —— 这条夹具这一跑什么也没验到，不能当它绿')
 if (fdHit !== undefined) {
-  named('起 worker 时资源不够：非零退出', fdHit.status !== 0,
-    `退出码是 ${String(fdHit.status)} —— 这一跑没跑完，不能算过`)
+  // 钉死在 1 上，不写「非零」：`spawnSync` 在**被信号杀掉**时交回的 `status` 是 `null`，
+  // 而 `null !== 0` 为真 —— 写成「非零」的话，一次被杀也会被记成「闸门正常关上了」。
+  // 本仓库别处逐字分着这两件事（`Ran.status` 的契约就写着这一句），这里不能松。
+  // 硬来那一步拿 1 当退出码（`hardStop` 末尾那一句），外壳用 `exec` 不吃掉它，
+  // 所以 1 是确定的那个数。（这句话不能把那个退出调用原样写出来 —— 判「验证者硬退出」
+  // 的那条检查按**源码文本**扫，注释也算，写了当场红。头一版就是这么红的）
+  named('起 worker 时资源不够：以退出码 1 收场', fdHit.status === 1,
+    `拿到的是 ${String(fdHit.status)} —— null 表示它是被信号杀掉的，那根本不是「退出」`)
   named('起 worker 时资源不够：说的是调高允许打开的文件数或者少派几个',
     /ulimit -n/.test(fdHit.out) && /--jobs=/.test(fdHit.out),
     `那句话没给出路：\n${fdHit.out.split('\n').slice(-6).join('\n')}`)

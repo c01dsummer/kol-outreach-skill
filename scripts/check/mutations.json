@@ -2771,6 +2771,14 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "  return kid.stdin === null || kid.stdin === undefined",
       "replace": "  return kid.stdin === null"
+    },
+    {
+      "id": "M-H38-d",
+      "req": "harness",
+      "why": "复制源码树时那张逐字比的表没了，只剩按前缀认的那张 —— 于是装不下的那几个大目录（依赖树、缓存、产出）全被复制进每个 worker 目录，而且会把自己的隔离目录复制进自己",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return !SKIP.has(name) && !SKIP_PREFIX.some(p => name.startsWith(p))",
+      "replace": "  return !SKIP_PREFIX.some(p => name.startsWith(p))"
     }
   ],
   "exemptions": [
