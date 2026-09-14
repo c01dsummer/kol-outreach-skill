@@ -3552,6 +3552,19 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   eq('读不动的那个不出组刀', plan2.filter(s => s.do === 'group').length, 0)
   ok('那句话要指得出是哪一份读不动',
     (plan2.find(s => s.do === 'warn') as { text: string }).text.includes('b0'))
+  // 号在、却认不得：确实起过一个验证者而我们不知道该收谁 —— 不许压成「压根没有号」
+  const plan3 = hardStopPlan(slotsOf({ pid: 11, beacon: 'b0' }),
+    reads({ b0: { text: '12345' } }), me)   // 写了一半，没有结束符
+  eq('号写了一半：出一句话，不许当成「没起验证者」',
+    plan3.filter(s => s.do === 'warn').length, 1)
+  eq('认不出的号不出组刀 —— 宁可不发，也不对着一个猜出来的号开刀',
+    plan3.filter(s => s.do === 'group').length, 0)
+  eq('不是个号（垃圾串）：同样出一句话',
+    hardStopPlan(slotsOf({ pid: 11, beacon: 'b0' }), reads({ b0: { text: 'x\n' } }), me)
+      .filter(s => s.do === 'warn').length, 1)
+  eq('号正好是自己那一组：拒了之后也要出一句话，不能悄悄当没有',
+    hardStopPlan(slotsOf({ pid: 11, beacon: 'b0' }), reads({ b0: { text: '4300\n' } }), me)
+      .filter(s => s.do === 'warn').length, 1)
   ok('话排在删目录之前，不然会被「隔离目录没收干净」那句盖掉',
     plan2.findIndex(s => s.do === 'warn') < plan2.findIndex(s => s.do === 'sweep'))
   eq('传生成器和传数组结果一样 —— slots 只遍历一次',

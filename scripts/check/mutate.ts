@@ -47,7 +47,7 @@ import {
 import { CLAIMS_PATH } from './claims.js'
 import {
   type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, copyIntoWorker,
-  hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
+  groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
   noStdio, ownGroup, parseReport, reportLine,
 } from './jobs-rule.js'
 import {
@@ -331,10 +331,23 @@ const runTest = (verifier: Verifier, kills?: readonly string[]):
     kid.on('close', status => { forgetVerifier(); resolve({ status, output: `${out}\n${err}`, atStop }) })
     // **留号在装完那两个监听器之后。** 放在 `trackTest` 紧后面的话,这一句一抛就落在
     // 「验证者已经起来、监听器还没装」那个缝里 —— promise 永不落地,`runOne` 的 `finally`
-    // 不跑,被改过的源文件留在工作区。抛了就当这一轮没有号(等价于窗口被拉长到整轮),
-    // 不许升级成丢结论、更不许升级成留下孤儿。
+    // 不跑,被改过的源文件留在工作区。
+    //
+    // **抛了不能就这么放着。** 头一版在这里把异常吞掉,注释还写着「不许留下孤儿」——
+    // 而那正是它干的事:验证者已经在跑,号文件却不存在,派工那头读到 ENOENT 会当成
+    // 「压根没起验证者」,于是这一组被静默过继出去(#116 第一轮评审指出)。
+    // 手上有号,就地连组收掉:这一条于是没有结论,而**没有结论不是通过**
+    // (`process/README.md` 总纲),下游会当作「跑不起来」报出来,带着下面这句现场。
     const note = beaconNote(BEACON, kid.pid)
-    if (note !== undefined) { try { writeFileSync(note.path, note.text) } catch { /* 当作没号 */ } }
+    if (note !== undefined) {
+      try { writeFileSync(note.path, note.text) } catch (e) {
+        err += `\n⚠️ 验证者的号发不出去(${e instanceof Error ? e.message : String(e)})`
+             + ` —— 就地把那一组收掉,这一条没有结论`
+        // 算号走同一道判定(同样的往返核对与自保守卫),不在入口里另写一份
+        const shot = groupShot(`${kid.pid}\n`, { pid: process.pid, pgid: readOwnGroup() })
+        if (shot !== undefined) { try { process.kill(shot, 'SIGKILL') } catch { /* 组散了 */ } }
+      }
+    }
   })
 
 /**
