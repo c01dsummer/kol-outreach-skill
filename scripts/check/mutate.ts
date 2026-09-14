@@ -284,10 +284,20 @@ process.on('exit', restoreClaims)
  */
 const BEACON = beaconFrom(process.argv)
 
-/** 这一轮的验证者没了，把号抹掉。**判定在 `beaconGone`** —— 这里只剩「它给了就抹」 */
+/**
+ * 这一轮的验证者没了，把号抹掉。**判定在 `beaconGone`** —— 这里只剩「它给了就抹」。
+ *
+ * **先作废，再删。** 只删不作废的话，删失败（只读、盘满）会留下一份**号还合法**的文件；
+ * 下一次硬来会拿那个早就死了的号去发刀，而那个号可能已经被系统分给了别人 ——
+ * 那正是 ADR-74 里「死号」那一段说的最坏情形，也是这个仓库栽过两次的形状
+ * （#116 第二轮评审指出）。先写一个**读回来认不出**的空正文：即便接着的删失败了，
+ * 硬来那一步读到的是「号在却认不得」，于是**出一句话、不发刀** —— 响，而且不误伤。
+ */
 const forgetVerifier = (): void => {
   const gone = beaconGone(BEACON)
-  if (gone !== undefined) { try { rmSync(gone, { force: true }) } catch { /* 盘满、只读、已被收尾删掉 */ } }
+  if (gone === undefined) return
+  try { writeFileSync(gone, '') } catch { /* 连作废都写不进去，下面那句仍然试一次 */ }
+  try { rmSync(gone, { force: true }) } catch { /* 盘满、只读、已被收尾删掉 */ }
 }
 
 const runTest = (verifier: Verifier, kills?: readonly string[]):
@@ -495,8 +505,11 @@ const dispatch = async (jobs: number): Promise<void> => {
   /** 一个槽 = 一个 worker 壳,加上它那份号文件搁哪 */
   const live = new Set<{ kid: ChildProcess; beacon: string }>()
   // 硬来那一步：还没停的 worker 直接杀掉，把目录收干净，非零退出（这一跑没跑完，不能算过）。
-  // ⚠️ **杀的只是 worker 自己，不是「整组」** —— 它底下那个验证者是 `detached` 起的、
-  // 自成一组，这一刀够不到（欠条与修法记在 ADR-72，#112 第一轮评审指出这句话说错了）
+  // ⚠️ **那一刀落在 tsx 壳上，连 worker 自己都没杀到**（实测：SIGTERM 壳会转发、worker 死；
+  // SIGKILL 转发不了、worker 活着，而且 `close` 永远不来）。验证者更够不到 —— 它是
+  // `detached` 起的、自成一组。所以这里不再只发那一刀：判定 `hardStopPlan` 排出整张计划，
+  // 壳一刀、每个读得出号的验证者组一刀、读不动或认不出的各出一句话、最后才删目录。
+  // **「真 worker 仍然活着」这一格本条没修**，边界与修法记在 ADR-74（ADR-72 那张欠条已还）
   //
   // ⚠️ **没起来的那个不许杀。** `spawn` 因为资源不够没起来时交回的对象上 `pid` 是
   // undefined，而对它调 `kill` 打出去的**不是「那个子进程」** —— 实测那一刀落在

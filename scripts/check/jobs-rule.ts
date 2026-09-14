@@ -445,7 +445,8 @@ export function hardStopPlan<T extends { pid?: number }>(
     if (got.text === undefined) continue
     const shot = groupShot(got.text, self)
     if (shot === undefined) {
-      warns.push({ do: 'warn', text: `\n  ⚠️ 验证者的号认不出来（写了一半、或者不是个号）：${s.beacon}`
+      warns.push({ do: 'warn', text: `\n  ⚠️ 验证者的号不能拿去发刀（写了一半、不是个号，`
+                                     + `或者指向不许打的目标）：${s.beacon}`
                                      + ` —— 那一组没收掉，可能还在跑被改过的源码\n` })
       continue
     }
