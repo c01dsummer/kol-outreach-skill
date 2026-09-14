@@ -185,3 +185,19 @@ export function copyIntoWorker(src: string): boolean {
 export function noStdio(kid: { stdin?: unknown }): boolean {
   return kid.stdin === null || kid.stdin === undefined
 }
+
+/**
+ * 这个对象**根本没起来**，所以不许对它发信号。
+ *
+ * `spawn` 因为资源不够没起来时交回的对象上 `pid` 是 undefined，而对它调 `kill`
+ * 打出去的**不是「那个子进程」** —— 实测那一刀落在**调用者自己这个进程组**上：
+ * 进程当场 137（SIGKILL，不是未捕获异常的 1），紧跟在后面的收尾一句也走不到，
+ * 半成品连同被改过的源码留在盘上。在终端里跑的话，挨刀的还包括人的那个前台组。
+ *
+ * 这条判定在别处已经有一份（`mutate-restore.ts` 停测试那一步的 `pid === undefined`
+ * 就返回），而硬来那一步漏了 —— 同一个坑的第二处。抽在这里是为了第三处不要再漏，
+ * 也为了它能被变异守住：留在入口里的话，指着入口的变异会被「自己验自己」拦下。
+ */
+export function neverStarted(kid: { pid?: number }): boolean {
+  return kid.pid === undefined
+}

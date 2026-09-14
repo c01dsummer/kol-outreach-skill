@@ -25,7 +25,7 @@ import {
 } from './check/mutate-restore.js'
 import {
   type Outcome, type Ran, copyIntoWorker, jobsWanted, looksLikeReport, missingVerdicts,
-  noStdio, parseReport, reportLine,
+  neverStarted, noStdio, parseReport, reportLine,
 } from './check/jobs-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
@@ -3447,6 +3447,11 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   eq('压根没有这一栏：没起来', noStdio({}), true)
   eq('明写着空：没起来', noStdio({ stdin: null }), true)
   eq('管道在：起来了', noStdio({ stdin: { write: () => true } }), false)
+
+  // 没起来的那个不许发信号：对 pid 是 undefined 的调 kill，那一刀落在自己这组上
+  eq('压根没有号：没起来，不许发信号', neverStarted({}), true)
+  eq('号是 undefined：同上', neverStarted({ pid: undefined }), true)
+  eq('有号：起来了，可以发', neverStarted({ pid: 4321 }), false)
 }
 
 harness('起 tsx 的那条命令：三处共用一份，不经 npx、不经 shell')
