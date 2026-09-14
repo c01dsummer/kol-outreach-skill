@@ -2787,6 +2787,14 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "  return kid.pid === undefined",
       "replace": "  return false"
+    },
+    {
+      "id": "M-H39-b",
+      "req": "harness",
+      "why": "挑「该对谁发信号」时不再把没起来的那些筛掉，一股脑全交回去 —— 于是硬来那一步会对一个从没起来的对象发信号，而那一刀落在自己这个进程组上：整跑当场被杀，收尾走不到",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return [...kids].filter(kid => !neverStarted(kid))",
+      "replace": "  return [...kids]"
     }
   ],
   "exemptions": [

@@ -25,7 +25,7 @@ import {
 } from './check/mutate-restore.js'
 import {
   type Outcome, type Ran, copyIntoWorker, jobsWanted, looksLikeReport, missingVerdicts,
-  neverStarted, noStdio, parseReport, reportLine,
+  neverStarted, noStdio, parseReport, reportLine, signalTargets,
 } from './check/jobs-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
@@ -3452,6 +3452,13 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   eq('压根没有号：没起来，不许发信号', neverStarted({}), true)
   eq('号是 undefined：同上', neverStarted({ pid: undefined }), true)
   eq('有号：起来了，可以发', neverStarted({ pid: 4321 }), false)
+
+  // 该对谁发信号：整个筛子在判定里，入口只剩「遍历它交回来的那些」——
+  // 守卫留在入口里的话，删掉那一句上面三条照样绿（#112 第二轮评审指出）
+  eq('起来了的都要', signalTargets([{ pid: 1 }, { pid: 2 }]).length, 2)
+  eq('没起来的一个都不要', signalTargets([{ pid: 1 }, {}, { pid: 2 }]).map(k => k.pid), [1, 2])
+  eq('一个都没起来：空手', signalTargets([{}, { pid: undefined }]), [])
+  eq('一个都没有：空手', signalTargets([]), [])
 }
 
 harness('起 tsx 的那条命令：三处共用一份，不经 npx、不经 shell')

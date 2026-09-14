@@ -46,8 +46,8 @@ import {
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import {
-  type Ran, copyIntoWorker, jobsWanted, looksLikeReport, missingVerdicts, neverStarted,
-  noStdio, parseReport, reportLine,
+  type Ran, copyIntoWorker, jobsWanted, looksLikeReport, missingVerdicts,
+  noStdio, parseReport, reportLine, signalTargets,
 } from './jobs-rule.js'
 import {
   INTERRUPTS, beginMutation, restoreMutation, stopJobs, trackTest,
@@ -450,10 +450,7 @@ const dispatch = async (jobs: number): Promise<void> => {
   // 是 #111 的 CI 逼出来的：同一个提交两个 job 一绿一红，红的那次报「隔离目录没收干净」。
   // 本地同形状 32 次复现到 2 次，插同步标记定位到死在「杀第 N 个 pid=undefined」那一句。
   const hardStop = (): never => {
-    for (const kid of live) {
-      if (neverStarted(kid)) continue
-      kid.kill('SIGKILL')
-    }
+    for (const kid of signalTargets(live)) kid.kill('SIGKILL')
     // 收不动也要把话说完整。这一步的承诺是「杀干净、收目录、非零退出」，而递归删一棵树
     // 是要开目录的：实测剩 0 个 fd 时 `rmSync` 抛 `EMFILE(scandir)`，剩 1 个就够。
     // 这条路触发的条件正是 fd 到顶，所以那一支够得着 —— 真撞上时让人知道半成品留在哪，
@@ -461,8 +458,12 @@ const dispatch = async (jobs: number): Promise<void> => {
     try {
       rmSync(JOBS_DIR, { recursive: true, force: true })
     } catch (e) {
-      console.error(`\n  ⚠️ 隔离目录没收干净（${e instanceof Error ? e.message : String(e)}）`
-                    + ` —— 半成品副本留在 ${JOBS_DIR}，下一跑开头会重建`)
+      // **同步写 fd 2，不用 `console.error`。** 下一句就是硬退出，而输出接管道时
+      // `console.error` 是异步的 —— 排在队里还没写出去就被掐掉，那正是本文件 `--brief`
+      // 那一支早就改成同步写的理由。这一句的**全部用处**就是告诉人半成品留在哪，
+      // 被截掉就等于没有（#112 第二轮机器评审指出）
+      writeFileSync(2, `\n  ⚠️ 隔离目录没收干净（${e instanceof Error ? e.message : String(e)}）`
+                       + ` —— 半成品副本留在 ${JOBS_DIR}，下一跑开头会重建\n`)
     }
     process.exit(1)
   }

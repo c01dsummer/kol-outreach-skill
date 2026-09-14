@@ -201,3 +201,17 @@ export function noStdio(kid: { stdin?: unknown }): boolean {
 export function neverStarted(kid: { pid?: number }): boolean {
   return kid.pid === undefined
 }
+
+/**
+ * 硬来那一步**该对谁发信号** —— 起来了的都要，没起来的一个都不要。
+ *
+ * 为什么是一整个筛子、而不是在入口里写一句 `if (没起来) continue`：
+ * **入口里的接线缺省那个验证者够不到**（`process/4-VERIFY.md`：改在那儿的变异只会
+ * 「存活」）。守卫留在入口里的话，把那一句删掉，`neverStarted` 的单测和负片照样全绿 ——
+ * 判定被守住了，而「入口到底有没有调它」没人守。整个筛子搬进来之后，入口只剩
+ * 「遍历它交回来的那些」，而**筛错了谁**是这里的事，有单测也有负片。
+ * （#112 第二轮机器评审指出，那一轮 0 条讨论串、两条都在汇总的「抑制」里。）
+ */
+export function signalTargets<T extends { pid?: number }>(kids: Iterable<T>): T[] {
+  return [...kids].filter(kid => !neverStarted(kid))
+}
