@@ -3526,11 +3526,13 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   const plan1 = hardStopPlan(
     slotsOf({ pid: 11, beacon: 'b0' }, { pid: 12, beacon: 'b1' }),
     reads({ b0: { text: '900\n' }, b1: { text: '901\n' } }), me)
-  eq('每个起来了的壳一刀、每个读得出的组一刀、最后删目录',
-    plan1.map(s => s.do), ['kid', 'kid', 'group', 'group', 'sweep'])
-  const firstGroup = plan1.findIndex(s => s.do === 'group')
-  ok('所有壳都排在第一个组之前',
-    plan1.every((s, i) => s.do !== 'kid' || i < firstGroup))
+  // **只数各档出几步,不钉壳与组的先后。** `jobs-rule.ts` 那段逐字写着「① 与 ② 的先后
+  // 买不到任何东西」,`ARCHITECTURE.md` 登记的契约也只有「组 → 删目录」那一段 ——
+  // 在这里钉死顺序,等于让测试替那张表许一个它没许的承诺(#116 第七轮评审指出)
+  const steps = (p: readonly { do: string }[], d: string) => p.filter(s => s.do === d).length
+  eq('每个起来了的壳一刀', steps(plan1, 'kid'), 2)
+  eq('每个读得出的组一刀', steps(plan1, 'group'), 2)
+  eq('删目录只有一步', steps(plan1, 'sweep'), 1)
   ok('删目录是最后一项 —— 排到前面的话，刀落下之前验证者还能往一棵正在被删的树里写，'
      + '而诊断已经说过收干净了',
     plan1[plan1.length - 1].do === 'sweep')
@@ -3567,10 +3569,12 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
       .filter(s => s.do === 'warn').length, 1)
   ok('话排在删目录之前，不然会被「隔离目录没收干净」那句盖掉',
     plan2.findIndex(s => s.do === 'warn') < plan2.findIndex(s => s.do === 'sweep'))
+  // 拿等价的数组跑一遍做对照,不写死那一串 —— 同上,这里要测的是「只遍历一次」
   eq('传生成器和传数组结果一样 —— slots 只遍历一次',
     hardStopPlan((function* () { yield { kid: { pid: 11 }, beacon: 'b0' } })(),
       reads({ b0: { text: '900\n' } }), me).map(s => s.do),
-    ['kid', 'group', 'sweep'])
+    hardStopPlan(slotsOf({ pid: 11, beacon: 'b0' }),
+      reads({ b0: { text: '900\n' } }), me).map(s => s.do))
   eq('一个都没有：空手', signalTargets([]), [])
 }
 

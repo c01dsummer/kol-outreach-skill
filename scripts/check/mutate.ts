@@ -302,15 +302,19 @@ const forgetVerifier = (): void => {
   if (why === undefined) return
   // **两步都没成 = 文件里还是一个合法的号**，而这个 worker 接着就去接下一条了。
   // 那个号迟早被系统回收分给别人，下一次硬来就对着无关的一组开刀 —— 正是上面
-  // 整段要挡的那一格。所以不许往下走：把在途的变异还原掉，就地停（#116 第五轮评审指出）。
+  // 整段要挡的那一格。所以不许往下走：就地停（#116 第五轮评审指出）。
   // 出话这一步**必须兜住**：它抛出去就是从 `close` 监听器里抛，promise 不 resolve、
   // `runOne` 的 `finally` 走不到 —— 被改过的源码留在 worker 树里。和第五轮在 `hardStop`
   // 那头修的是同一类，我在同一条提交里又犯了一次（#116 第六轮评审指出）。
   try {
     writeFileSync(2, `\n⚠️ 验证者的号作废不掉(${why}) —— 这个 worker 停在这里，这一条没有结论\n`)
-  } catch { /* 说不出也要还原、也要停 */ }
-  restoreMutation()
-  process.exit(1)
+  } catch { /* 说不出也要停 */ }
+  // **停要走 `onInterrupt`，不能自己还原完就退。** 走信号那条路进来时手上正有一个
+  // 活着的验证者（号文件里有号就是证据），而 `onInterrupt` 的顺序是定死的：先杀那一组、
+  // 再还原、最后退。自己写「还原+退出」会把杀组那一步整个跳过 —— 恰好在最需要它的那一格
+  // 留下孤儿（#116 第七轮评审指出）。从 `close` 那条路进来也安全：`trackTest` 的监听器
+  // 装在前面、先跑，已经把这个收摊的子进程抹掉了，`killTest` 拿不到号直接返回。
+  onInterrupt()
 }
 
 const runTest = (verifier: Verifier, kills?: readonly string[]):
