@@ -46,11 +46,12 @@ import {
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import {
-  type Ran, copyIntoWorker, jobsWanted, looksLikeReport, missingVerdicts,
-  noStdio, parseReport, reportLine, signalTargets,
+  type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, copyIntoWorker,
+  groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
+  noStdio, ownGroup, parseReport, reportLine,
 } from './jobs-rule.js'
 import {
-  INTERRUPTS, beginMutation, restoreMutation, stopJobs, trackTest,
+  INTERRUPTS, beginMutation, onInterrupt, restoreMutation, stopJobs, trackTest,
 } from './mutate-restore.js'
 import { tsxCommand } from './tsx-cmd.js'
 import { infraClosure, selfVerifying } from './verifier-rule.js'
@@ -277,6 +278,45 @@ process.on('exit', restoreClaims)
  * （`docs/CONVENTIONS.md` 第 10 条）。只按**整行**问：收到的字节按 \n 切，最后一段
  * 可能是半行，留着等下一块 —— 拿半行去匹配，名字会在写到一半时就算数。
  */
+/**
+ * 这一跑有没有人收验证者的号。判定在 `beaconFrom`：串行那条路、被当工具起的 `mutate`、
+ * `--brief`，argv 里都没有那个参数，于是这里是 undefined，一个字节都不落盘。
+ */
+const BEACON = beaconFrom(process.argv)
+
+/**
+ * 这一轮的验证者没了，把号抹掉。**判定在 `beaconGone`** —— 这里只剩「它给了就抹」。
+ *
+ * **先作废，再删。** 只删不作废的话，删失败（只读、盘满）会留下一份**号还合法**的文件；
+ * 下一次硬来会拿那个早就死了的号去发刀，而那个号可能已经被系统分给了别人 ——
+ * 那正是 ADR-74 里「死号」那一段说的最坏情形，也是这个仓库栽过两次的形状
+ * （#116 第二轮评审指出）。先写一个**读回来认不出**的空正文：即便接着的删失败了，
+ * 硬来那一步读到的是「号在却认不得」，于是**出一句话、不发刀** —— 响，而且不误伤。
+ */
+const forgetVerifier = (): void => {
+  const gone = beaconGone(BEACON)
+  if (gone === undefined) return
+  let why: string | undefined
+  try { writeFileSync(gone, '') } catch (e) { why = e instanceof Error ? e.message : String(e) }
+  try { rmSync(gone, { force: true }); why = undefined } catch { /* 作废成了就够 */ }
+  if (why === undefined) return
+  // **两步都没成 = 文件里还是一个合法的号**，而这个 worker 接着就去接下一条了。
+  // 那个号迟早被系统回收分给别人，下一次硬来就对着无关的一组开刀 —— 正是上面
+  // 整段要挡的那一格。所以不许往下走：就地停（#116 第五轮评审指出）。
+  // 出话这一步**必须兜住**：它抛出去就是从 `close` 监听器里抛，promise 不 resolve、
+  // `runOne` 的 `finally` 走不到 —— 被改过的源码留在 worker 树里。和第五轮在 `hardStop`
+  // 那头修的是同一类，我在同一条提交里又犯了一次（#116 第六轮评审指出）。
+  try {
+    writeFileSync(2, `\n⚠️ 验证者的号作废不掉(${why}) —— 这个 worker 停在这里，这一条没有结论\n`)
+  } catch { /* 说不出也要停 */ }
+  // **停要走 `onInterrupt`，不能自己还原完就退。** 走信号那条路进来时手上正有一个
+  // 活着的验证者（号文件里有号就是证据），而 `onInterrupt` 的顺序是定死的：先杀那一组、
+  // 再还原、最后退。自己写「还原+退出」会把杀组那一步整个跳过 —— 恰好在最需要它的那一格
+  // 留下孤儿（#116 第七轮评审指出）。从 `close` 那条路进来也安全：`trackTest` 的监听器
+  // 装在前面、先跑，已经把这个收摊的子进程抹掉了，`killTest` 拿不到号直接返回。
+  onInterrupt()
+}
+
 const runTest = (verifier: Verifier, kills?: readonly string[]):
   Promise<{ status: number | null; output: string; atStop?: string }> =>
   new Promise(resolve => {
@@ -315,7 +355,26 @@ const runTest = (verifier: Verifier, kills?: readonly string[]):
     // 压根没起来（命令不在、权限不足）也要留下话：那时两股都是空的，
     // 判定只会说「跑不起来」，而人得知道是没起来还是跑崩了
     kid.on('error', e => { err += `\n${e}` })
-    kid.on('close', status => resolve({ status, output: `${out}\n${err}`, atStop }))
+    kid.on('close', status => { forgetVerifier(); resolve({ status, output: `${out}\n${err}`, atStop }) })
+    // **留号在装完那两个监听器之后。** 放在 `trackTest` 紧后面的话,这一句一抛就落在
+    // 「验证者已经起来、监听器还没装」那个缝里 —— promise 永不落地,`runOne` 的 `finally`
+    // 不跑,被改过的源文件留在工作区。
+    //
+    // **抛了不能就这么放着。** 头一版在这里把异常吞掉,注释还写着「不许留下孤儿」——
+    // 而那正是它干的事:验证者已经在跑,号文件却不存在,派工那头读到 ENOENT 会当成
+    // 「压根没起验证者」,于是这一组被静默过继出去(#116 第一轮评审指出)。
+    // 手上有号,就地连组收掉:这一条于是没有结论,而**没有结论不是通过**
+    // (`process/README.md` 总纲),下游会当作「跑不起来」报出来,带着下面这句现场。
+    const note = beaconNote(BEACON, kid.pid)
+    if (note !== undefined) {
+      try { writeFileSync(note.path, note.text) } catch (e) {
+        err += `\n⚠️ 验证者的号发不出去(${e instanceof Error ? e.message : String(e)})`
+             + ` —— 就地把那一组收掉,这一条没有结论`
+        // 算号走同一道判定(同样的往返核对与自保守卫),不在入口里另写一份
+        const shot = groupShot(`${kid.pid}\n`, { pid: process.pid, pgid: readOwnGroup() })
+        if (shot !== undefined) { try { process.kill(shot, 'SIGKILL') } catch { /* 组散了 */ } }
+      }
+    }
   })
 
 /**
@@ -393,6 +452,17 @@ const record = (m: Mut, ran: Ran): void => {
  * 排在队里没写出去的那一行会被当成「这一条没回话」，而那是硬失败。
  */
 if (process.argv.includes('--worker')) {
+  // **抹号的处理函数要装在第一次 `beginMutation` 之前**，也就是排在 `mutate-restore`
+  // 那个会退掉进程的处理函数之前 —— 否则温和那条路上 worker 收到 SIGTERM 就走
+  // `onInterrupt` 硬退出，`close` 永远不来，整 5 秒宽限期里人人都留着一份死号。
+  //
+  // ⚠️ **它必须自己也把进程收掉，不能只做清理。** 装上任何一个处理函数，Node 的默认
+  // 终止动作就被压住（实测：只做清理的那种，进程照样活着）—— 这一句到 `beginMutation`
+  // 装上真正那个之间收到 SIGTERM 的 worker 会只清理、接着等 stdin，派工看不到它
+  // `close`，白等满整个宽限期（#116 第四轮评审指出）。抹号排在收尾**之前**是有意的：
+  // 万一在这两句中间被硬杀，号文件已**作废**（写空），派工读到「号在却认不得」——
+  // 出一句话、不发刀，而不是对着一个可能已被回收的号开刀。
+  for (const sig of INTERRUPTS) process.on(sig, () => { forgetVerifier(); onInterrupt() })
   const byId = new Map(muts.map(m => [m.id, m]))
   for await (const line of createInterface({ input: process.stdin })) {
     const m = byId.get(line.trim())
@@ -429,15 +499,40 @@ const JOBS_DIR = '.check-cache/mutate-jobs'
 const GRACE_MS = 5000
 const SELF = fileURLToPath(import.meta.url)
 
+/**
+ * 读一份号。**「没有这个文件」与「读不动」不能压成同一个值**：前者是「量出来是零」
+ * （那个 worker 没起验证者），后者是「没量成」（fd 到顶、权限），而硬来那一步正是
+ * fd 到顶最爱发生的地方。压成一个值的话，真出事那次就淹在一堆正常里（`CONVENTIONS.md` 第 3、6 条）。
+ */
+const readBeacon = (path: string): { text?: string; error?: string } => {
+  try { return { text: readFileSync(path, 'utf8') } }
+  catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    return code === 'ENOENT' ? {} : { error: code ?? String(e) }
+  }
+}
+
+/**
+ * 这个进程自己那一组的号，拿不到就 undefined。判定（怎么从那一行里切出来）在 `ownGroup`。
+ * 拿不到时自保守卫那一格就是没守 —— 非 Linux、procfs 没挂的时候如此，记在 ADR-74。
+ */
+const readOwnGroup = (): number | undefined => {
+  try { return ownGroup(readFileSync('/proc/self/stat', 'utf8')) } catch { return undefined }
+}
+
 const dispatch = async (jobs: number): Promise<void> => {
   rmSync(JOBS_DIR, { recursive: true, force: true })
   const queue = muts.map(m => m.id)
   const byId = new Map(muts.map(m => [m.id, m]))
   const reported = new Set<string>()
-  const live = new Set<ChildProcess>()
+  /** 一个槽 = 一个 worker 壳,加上它那份号文件搁哪 */
+  const live = new Set<{ kid: ChildProcess; beacon: string }>()
   // 硬来那一步：还没停的 worker 直接杀掉，把目录收干净，非零退出（这一跑没跑完，不能算过）。
-  // ⚠️ **杀的只是 worker 自己，不是「整组」** —— 它底下那个验证者是 `detached` 起的、
-  // 自成一组，这一刀够不到（欠条与修法记在 ADR-72，#112 第一轮评审指出这句话说错了）
+  // ⚠️ **那一刀落在 tsx 壳上，连 worker 自己都没杀到**（实测：SIGTERM 壳会转发、worker 死；
+  // SIGKILL 转发不了、worker 活着，而且 `close` 永远不来）。验证者更够不到 —— 它是
+  // `detached` 起的、自成一组。所以这里不再只发那一刀：判定 `hardStopPlan` 排出整张计划，
+  // 壳一刀、每个读得出号的验证者组一刀、读不动或认不出的各出一句话、最后才删目录。
+  // **「真 worker 仍然活着」这一格本条没修**，边界与修法记在 ADR-74（ADR-72 那张欠条已还）
   //
   // ⚠️ **没起来的那个不许杀。** `spawn` 因为资源不够没起来时交回的对象上 `pid` 是
   // undefined，而对它调 `kill` 打出去的**不是「那个子进程」** —— 实测那一刀落在
@@ -450,7 +545,13 @@ const dispatch = async (jobs: number): Promise<void> => {
   // 是 #111 的 CI 逼出来的：同一个提交两个 job 一绿一红，红的那次报「隔离目录没收干净」。
   // 本地同形状 32 次复现到 2 次，插同步标记定位到死在「杀第 N 个 pid=undefined」那一句。
   const hardStop = (): never => {
-    for (const kid of signalTargets(live)) kid.kill('SIGKILL')
+    const self = { pid: process.pid, pgid: readOwnGroup() }
+    for (const step of hardStopPlan(live, readBeacon, self)) {
+      if (step.do === 'kid') { try { step.kid.kill('SIGKILL') } catch { /* 早没了 */ } }
+      else if (step.do === 'group') { try { process.kill(step.shot, 'SIGKILL') } catch { /* 组散了 */ } }
+      else if (step.do === 'warn') { try { writeFileSync(2, step.text) } catch { /* 说不出也要收完 */ } }
+      else break
+    }
     // 收不动也要把话说完整。这一步的承诺是「杀干净、收目录、非零退出」，而递归删一棵树
     // 是要开目录的：实测剩 0 个 fd 时 `rmSync` 抛 `EMFILE(scandir)`，剩 1 个就够。
     // 这条路触发的条件正是 fd 到顶，所以那一支够得着 —— 真撞上时让人知道半成品留在哪，
@@ -468,7 +569,8 @@ const dispatch = async (jobs: number): Promise<void> => {
     process.exit(1)
   }
   for (const sig of INTERRUPTS) {
-    process.on(sig, () => stopJobs([...live], hardStop, GRACE_MS, (fn, ms) => { setTimeout(fn, ms) }))
+    process.on(sig, () => stopJobs([...live].map(s => s.kid), hardStop, GRACE_MS,
+                                   (fn, ms) => { setTimeout(fn, ms) }))
   }
   // **建目录那一步抛出来的，也要走收尾。** `cpSync` / `symlinkSync` 在第 i 个上失败时，
   // 前面已经起来的 worker 正拿着任务在跑，而 `Promise.all` 会把异常直接抛上去、
@@ -479,9 +581,13 @@ const dispatch = async (jobs: number): Promise<void> => {
     const dir = join(JOBS_DIR, `w${i}`)
     cpSync('.', dir, { recursive: true, filter: copyIntoWorker })
     symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
-    const [exe, argv] = tsxCommand([SELF, '--worker'])
+    // 号文件搁在 `w<i>/` 的**兄弟**位置(判定在 `beaconPathOf`),绝对路径交给 worker ——
+    // 它的 cwd 是 `dir`,相对路径会落进那棵被复制的树里
+    const beacon = resolve(beaconPathOf(JOBS_DIR, process.pid, i))
+    const [exe, argv] = tsxCommand([SELF, '--worker', `${BEACON_FLAG}${beacon}`])
     const kid = spawn(exe, argv, { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'] })
-    live.add(kid)
+    const slot = { kid, beacon }
+    live.add(slot)
     // **起不来有三种形状，缺哪一条都是洞**（实测与事件序记在 ADR-72）：有的 errno
     // 同步抛（ENOTDIR），外层 `try/catch` 接得到；有的只发 `error` 事件（ENOENT），
     // 接不到 —— 而 `error` 没人听的话 Node 当未捕获异常退掉，活着的 worker 和隔离目录
@@ -526,7 +632,7 @@ const dispatch = async (jobs: number): Promise<void> => {
       if (m !== undefined) record(m, r)
       hand()
     })
-    kid.on('close', () => { live.delete(kid); done() })
+    kid.on('close', () => { live.delete(slot); done() })
     hand()
     })))
   } catch (e) {

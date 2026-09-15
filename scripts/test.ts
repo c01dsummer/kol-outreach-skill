@@ -24,8 +24,9 @@ import {
   testRunning, trackTest,
 } from './check/mutate-restore.js'
 import {
-  type Outcome, type Ran, copyIntoWorker, jobsWanted, looksLikeReport, missingVerdicts,
-  neverStarted, noStdio, parseReport, reportLine, signalTargets,
+  type Outcome, type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf,
+  copyIntoWorker, groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
+  neverStarted, noStdio, ownGroup, parseReport, reportLine, signalTargets,
 } from './check/jobs-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
@@ -3458,6 +3459,122 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   eq('起来了的都要', signalTargets([{ pid: 1 }, { pid: 2 }]).length, 2)
   eq('没起来的一个都不要', signalTargets([{ pid: 1 }, {}, { pid: 2 }]).map(k => k.pid), [1, 2])
   eq('一个都没起来：空手', signalTargets([{}, { pid: undefined }]), [])
+
+  // ── 验证者那一组的号：从 worker 传到派工进程（ADR-74）
+
+  // 号文件搁哪。是 `w<i>/` 的兄弟不是它的孩子 —— 那个目录会被复制、是验证者的 cwd、
+  // 还是收尾要删的目标；名字里带派工进程的号，另一跑留下的路径就对不上
+  eq('号文件是隔离目录的兄弟，不在它里面',
+    beaconPathOf('.cache/jobs', 777, 3), '.cache/jobs/w3.777.verifier')
+  ok('不落进 w<i>/ 那棵被复制的树',
+    !beaconPathOf('.cache/jobs', 777, 3).startsWith('.cache/jobs/w3/'))
+  ok('两跑的路径不一样 —— 并发两跑不会读到对方的号',
+    beaconPathOf('j', 1, 0) !== beaconPathOf('j', 2, 0))
+
+  // 这一跑有没有人收号。空值那一种要挡：worker 会去写一个空路径，抛在 close 监听器里，
+  // 那一轮的还原整个不跑，被改过的源文件留在工作区
+  eq('没有那个参数：没人收', beaconFrom(['--worker']), undefined)
+  eq('有：收在那儿', beaconFrom(['--worker', `${BEACON_FLAG}/tmp/a.verifier`]), '/tmp/a.verifier')
+  eq('参数在但值是空的：当没人收，不去写空路径', beaconFrom([`${BEACON_FLAG}`]), undefined)
+  eq('出现两次：取头一个', beaconFrom([`${BEACON_FLAG}a`, `${BEACON_FLAG}b`]), 'a')
+
+  // worker 侧留号的整个筛子。没人收不留；验证者压根没起来也不留 ——
+  // 留了也只是一行 undefined 字样，读回来是「该杀谁不知道」，那比没有号更糟：它看起来像有
+  eq('没人收：不留', beaconNote(undefined, 4321), undefined)
+  eq('验证者没起来：不留 —— 不许把 undefined 写成一个号', beaconNote('/tmp/a', undefined), undefined)
+  eq('正常：留在那儿，带结束符', beaconNote('/tmp/a', 4321), { path: '/tmp/a', text: '4321\n' })
+  ok('结束符是格式的一部分，读的那一半据此认「写完了没有」',
+    (beaconNote('/tmp/a', 4321) as { text: string }).text.endsWith('\n'))
+
+  // 抹号和留号一样是判定，必须成对住在判定里 —— 留在入口写成裸的 rmSync(undefined) 的话，
+  // 串行那条路当场 ERR_INVALID_ARG_TYPE，抛在 close 监听器里，还原整个不跑
+  eq('没人收：没有要抹的', beaconGone(undefined), undefined)
+  eq('有人收：抹它', beaconGone('/tmp/a'), '/tmp/a')
+
+  // 自己那一组的号。比 pid 是假守卫 —— 实测 shell 底下 pgid ≠ pid，那一条永不命中
+  eq('正常一行：取 pgrp 那一段', ownGroup('27331 (node) S 27324 27320 27319 0 -1'), 27320)
+  eq('comm 里带空格：从最后一个 `)` 之后切才对',
+    ownGroup('10 (node foo bar) S 9 8 7 0'), 8)
+  eq('comm 里带右括号：同上', ownGroup('10 (a)b) S 9 8 7 0'), 8)
+  eq('垃圾串：拿不到，不猜', ownGroup('garbage'), undefined)
+  eq('切完没东西：拿不到', ownGroup('10 (x)'), undefined)
+
+  // 读一份号，算出可以原样交给 process.kill 的那个负数。这是整条改动里最危险的一格
+  const me = { pid: 4321, pgid: 4300 }
+  eq('没有号：不发', groupShot(undefined, me), undefined)
+  eq('空的：不发', groupShot('', me), undefined)
+  eq('没有结束符 —— 写到一半的 12345 被截成 1234，那是杀错一整组',
+    groupShot('12345', me), undefined)
+  eq('0：POSIX 里打的是调用者自己这一组，而 JS 里 -0 === 0', groupShot('0\n', me), undefined)
+  eq('1：kill(-1) 不是「1 号那一组」，是发给发得出的每一个进程', groupShot('1\n', me), undefined)
+  eq('负数：不发', groupShot('-5\n', me), undefined)
+  eq('十六进制 —— Number 认它，往返核对不认', groupShot('0x10\n', me), undefined)
+  eq('科学记数法：同上', groupShot('1e3\n', me), undefined)
+  eq('前导零：同上', groupShot('007\n', me), undefined)
+  eq('带空白：同上', groupShot(' 12\n', me), undefined)
+  eq('超出安全整数：不发', groupShot('9007199254740993\n', me), undefined)
+  eq('正好是自己的 pid：不发', groupShot('4321\n', me), undefined)
+  eq('正好是自己那一组 —— 真正的自杀向量', groupShot('4300\n', me), undefined)
+  eq('正常：交回负数，入口一处算术都不做', groupShot('12345\n', me), -12345)
+  eq('拿不到自己那一组时，那一格就是没守', groupShot('4300\n', { pid: 4321 }), -4300)
+
+  // 硬来那一步的整张计划。顺序契约就守在这里（M-H40-g / M-H40-h）
+  const slotsOf = (...xs: { pid?: number; beacon: string }[]) =>
+    xs.map(x => ({ kid: { pid: x.pid }, beacon: x.beacon }))
+  const reads = (m: Record<string, { text?: string; error?: string }>) =>
+    (path: string) => m[path] ?? {}
+  const plan1 = hardStopPlan(
+    slotsOf({ pid: 11, beacon: 'b0' }, { pid: 12, beacon: 'b1' }),
+    reads({ b0: { text: '900\n' }, b1: { text: '901\n' } }), me)
+  // **只数各档出几步,不钉壳与组的先后。** `jobs-rule.ts` 那段逐字写着「① 与 ② 的先后
+  // 买不到任何东西」,`ARCHITECTURE.md` 登记的契约也只有「组 → 删目录」那一段 ——
+  // 在这里钉死顺序,等于让测试替那张表许一个它没许的承诺(#116 第七轮评审指出)
+  const steps = (p: readonly { do: string }[], d: string) => p.filter(s => s.do === d).length
+  eq('每个起来了的壳一刀', steps(plan1, 'kid'), 2)
+  eq('每个读得出的组一刀', steps(plan1, 'group'), 2)
+  eq('删目录只有一步', steps(plan1, 'sweep'), 1)
+  ok('删目录是最后一项 —— 排到前面的话，刀落下之前验证者还能往一棵正在被删的树里写，'
+     + '而诊断已经说过收干净了',
+    plan1[plan1.length - 1].do === 'sweep')
+  ok('组那几刀一律带负号且不是 -1',
+    plan1.filter(s => s.do === 'group').every(s => (s as { shot: number }).shot < -1))
+  eq('两个 worker 报了同一个号：只挨一刀',
+    hardStopPlan(slotsOf({ pid: 11, beacon: 'b0' }, { pid: 12, beacon: 'b1' }),
+      reads({ b0: { text: '900\n' }, b1: { text: '900\n' } }), me)
+      .filter(s => s.do === 'group').length, 1)
+  eq('没起来的壳不出刀 —— 对 pid 是 undefined 的调 kill，那一刀落在自己这组上',
+    hardStopPlan(slotsOf({ beacon: 'b0' }), reads({}), me).filter(s => s.do === 'kid').length, 0)
+  eq('没有号文件（那个 worker 没起验证者）：一句话都不说',
+    hardStopPlan(slotsOf({ pid: 11, beacon: 'b0' }), reads({}), me)
+      .filter(s => s.do === 'warn').length, 0)
+  const plan2 = hardStopPlan(slotsOf({ pid: 11, beacon: 'b0' }),
+    reads({ b0: { error: 'EMFILE' } }), me)
+  eq('号读不动：出一句话 —— 「没量成」不许压成「量出来是零」',
+    plan2.filter(s => s.do === 'warn').length, 1)
+  eq('读不动的那个不出组刀', plan2.filter(s => s.do === 'group').length, 0)
+  ok('那句话要指得出是哪一份读不动',
+    (plan2.find(s => s.do === 'warn') as { text: string }).text.includes('b0'))
+  // 号在、却认不得：确实起过一个验证者而我们不知道该收谁 —— 不许压成「压根没有号」
+  const plan3 = hardStopPlan(slotsOf({ pid: 11, beacon: 'b0' }),
+    reads({ b0: { text: '12345' } }), me)   // 写了一半，没有结束符
+  eq('号写了一半：出一句话，不许当成「没起验证者」',
+    plan3.filter(s => s.do === 'warn').length, 1)
+  eq('认不出的号不出组刀 —— 宁可不发，也不对着一个猜出来的号开刀',
+    plan3.filter(s => s.do === 'group').length, 0)
+  eq('不是个号（垃圾串）：同样出一句话',
+    hardStopPlan(slotsOf({ pid: 11, beacon: 'b0' }), reads({ b0: { text: 'x\n' } }), me)
+      .filter(s => s.do === 'warn').length, 1)
+  eq('号正好是自己那一组：拒了之后也要出一句话，不能悄悄当没有',
+    hardStopPlan(slotsOf({ pid: 11, beacon: 'b0' }), reads({ b0: { text: '4300\n' } }), me)
+      .filter(s => s.do === 'warn').length, 1)
+  ok('话排在删目录之前，不然会被「隔离目录没收干净」那句盖掉',
+    plan2.findIndex(s => s.do === 'warn') < plan2.findIndex(s => s.do === 'sweep'))
+  // 拿等价的数组跑一遍做对照,不写死那一串 —— 同上,这里要测的是「只遍历一次」
+  eq('传生成器和传数组结果一样 —— slots 只遍历一次',
+    hardStopPlan((function* () { yield { kid: { pid: 11 }, beacon: 'b0' } })(),
+      reads({ b0: { text: '900\n' } }), me).map(s => s.do),
+    hardStopPlan(slotsOf({ pid: 11, beacon: 'b0' }),
+      reads({ b0: { text: '900\n' } }), me).map(s => s.do))
   eq('一个都没有：空手', signalTargets([]), [])
 }
 
