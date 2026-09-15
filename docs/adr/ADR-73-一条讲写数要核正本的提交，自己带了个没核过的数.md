@@ -113,8 +113,11 @@ git -c core.quotePath=false grep -c '⚠️.*欠条' 090e0ee -- 'docs/adr/ADR-*.
 （**只列与这段论证有关的几次，不是全部**）：
 
 ```
-git -c core.quotePath=false grep -c '⚠️.*欠条' <提交> -- 'docs/adr/ADR-73-*'
-  666de45 → 1    01bf7b5 → 3    9ea2175 → 2    0004fbb → 2    f400a1b → 5
+for c in 666de45 01bf7b5 9ea2175 0004fbb f400a1b; do
+  echo "$c $(git -c core.quotePath=false grep -c '⚠️.*欠条' $c -- 'docs/adr/ADR-73-*' \
+            | awk -F: '{s+=$NF} END{print s+0}')"
+done
+→ 666de45 1 / 01bf7b5 3 / 9ea2175 2 / 0004fbb 2 / f400a1b 5
 ```
 
 所以准确的说法是：**写下那条命令这件事本身，把它要数的那个数加了一。**
