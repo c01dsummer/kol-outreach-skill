@@ -212,15 +212,16 @@ done
 > 「凡是列举就是清单」写进 `process/` 的 PR —— 也就是本条合入之后那条
 
 > ⚠️ 欠条：**`2-CHANGE.md` 那张 ADR 模板没有任何检查在守，主干上几乎没有记录照着它写。**
-> 实测（`origin/main`，63 条记录）：开头块里带「触发它的事实」的 **8** 条、带「理由」的 **6** 条、
+> 实测（钉在 `090e0ee`，63 条记录）：开头块里带「触发它的事实」的 **8** 条、带「理由」的 **6** 条、
 > 带「连带改动」的 **7** 条；`adr-rule.ts` 与 `adr-sync.ts` 里没有一处提这几栏。本条自己也缺了
 > 那三栏，已补（#115 第十二轮评审指出）—— 但补一条不解决其余那些 · 重启条件：下一条改
 > `adr-rule.ts` 或那张模板的 PR
 >
 > ```
-> for f in $(git -c core.quotePath=false ls-tree -r --name-only origin/main docs/adr \
+> T=090e0ee   # 钉死；换成 origin/main 这类会动的引用，数就跟着漂
+> for f in $(git -c core.quotePath=false ls-tree -r --name-only $T docs/adr \
 >            | grep -E 'ADR-[0-9]+'); do
->   git show "origin/main:$f" | awk '/^## /{exit} {print}' \
+>   git show "$T:$f" | awk '/^## /{exit} {print}' \
 >     | grep -qE '^- \*{0,2}连带改动' && echo "$f"
 > done | wc -l
 > → 7      # 换成「触发它的事实」是 8、「理由」是 6
