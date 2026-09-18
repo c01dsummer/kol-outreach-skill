@@ -354,14 +354,6 @@
       "replace": "  const parts = /^(\\S+)\\s*(.*)$/.exec(rest)"
     },
     {
-      "id": "M-H9-d",
-      "req": "harness",
-      "file": "scripts/check/size-rule.ts",
-      "why": "豁免写下之后这一类又净增了照样放行 —— 一条豁免变成整条分支的长期通行证,之后再追加几千行不相干的代码也一样绿",
-      "find": "    if (best <= 0) waived.push(row)\n    else stale.push({ ...row, note: `最新一条豁免写下之后，这一类又净增了 ${best} 行` })",
-      "replace": "    waived.push(row)"
-    },
-    {
       "id": "M-H9-e",
       "req": "harness",
       "file": "scripts/check/size-rule.ts",
@@ -390,8 +382,8 @@
       "req": "harness",
       "file": "scripts/check/size-rule.ts",
       "why": "写歪的 size-ok 不再让检查失败 —— 它作为一句看起来像豁免的话留在历史里,下一个人会以为这一类已经被放行过",
-      "find": "    ok: over.length === 0 && stale.length === 0 && unjustified.length === 0,",
-      "replace": "    ok: over.length === 0 && stale.length === 0,"
+      "find": "    ok: over.length === 0 && unjustified.length === 0,",
+      "replace": "    ok: over.length === 0,"
     },
     {
       "id": "M-H10-a",

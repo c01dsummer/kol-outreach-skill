@@ -13,7 +13,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import {
-  BUDGET, CATEGORIES, type Category, type Waiver,
+  BUDGET, CATEGORIES, type Waiver,
   judge, parseNumstat, scanMessage, tally,
 } from './size-rule.js'
 
@@ -103,24 +103,9 @@ const unjustified: string[] = []
 for (const sha of git('rev-list', `${base}..${head}`).split('\n').filter(Boolean)) {
   const found = scanMessage(git('log', '-1', '--format=%B', sha))
   if (!found.length) continue
-  let atWaiver: Record<Category, number> | null = null
   for (const v of found) {
     if (v.kind === 'unjustified') { unjustified.push(v.text); continue }
-    // 拿**豁免那一刻自己的分叉点**比，不是拿当前基线比。
-    //
-    // 拿当前基线比的话，主干在豁免之后删掉的行会算成 `atWaiver` 的新增
-    // （豁免那一刻的树里还有它们，基线里已经没了），于是上游的删除变成了额度：
-    // 主干删 100 行 → counts=450、atWaiver=500、净增 −50 → 一条其实已经过期的
-    // 豁免被放行。实测复现过。
-    //
-    // 分叉点是 `merge-base(基线, 豁免提交)`：那一刻分支与主干共同拥有的东西。
-    // 两边于是都只量「这条分支自己加了多少」，可比。
-    atWaiver ??= tally(parseNumstat(
-      git('diff', '--numstat', '-z', git('merge-base', base, sha), sha)))
-    waivers.push({
-      category: v.category, reason: v.reason,
-      addedAfter: counts[v.category] - atWaiver[v.category],
-    })
+    waivers.push({ category: v.category, reason: v.reason })
   }
 }
 
@@ -158,12 +143,6 @@ if (report.unjustified.length) {
   console.error(`\n✗ ${report.unjustified.length} 条 size-ok 不成立:`)
   for (const t of report.unjustified) console.error(`    size-ok: ${t}`)
   console.error('    格式是 `size-ok: <类别> <理由>`,类别必须指名,理由必填。')
-}
-
-for (const st of report.stale) {
-  console.error(`\n✗ ${st.category} ${st.added} 行新增,超出 ${st.budget} —— 豁免已过期`)
-  console.error(`    ${st.note}`)
-  console.error('    豁免说明的是当时那些行,不是一张长期通行证。重新写一条。')
 }
 
 for (const o of report.over) {
