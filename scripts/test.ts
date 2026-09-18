@@ -2463,7 +2463,12 @@ suite('P1', '三态不得被压平：取值、排序、入池三处各验一次'
   ok('入池：粉丝数确实是 0 → 挡掉，与未查询结论相反',
      !passesFollowerGate(mk('tiktok', 'x', { followers: 0 })))
 
-  criterion('P1.b')
+  // 三条路径三个编号 —— 它们会被不同的代码路径独立弄坏（`process/1-REQUIREMENTS.md`
+  // 的拆分判据）。P1.b 本身留着原来的含义（「任何位置不得出现兜底写法」），
+  // 而那个全称没有任何检查兑现得了，已按规矩登记成显式豁免（ADR-77）。
+  criterion('P1.e')
+  criterion('P1.f')
+  criterion('P1.g')
 }
 
 suite('D1', 'platform:handle 唯一标识，大小写不敏感')

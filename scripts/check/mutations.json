@@ -91,7 +91,7 @@
     },
     {
       "id": "M-P1-d",
-      "req": "P1",
+      "req": "P1.g",
       "why": "把粉丝数未知的人静默过滤掉 —— 真实创作者凭空消失且无人知晓",
       "file": "scripts/lib/score.ts",
       "find": "  if (c.followers === undefined) return true",
@@ -2041,8 +2041,16 @@
       "replace": "    if (a.score === undefined) return -1\n    if (b.score === undefined) return 1"
     },
     {
+      "id": "M-P1-x",
+      "req": "P1.e",
+      "why": "「未查询」在交付表里渲染成空白 —— 和「查过，他没有」落进同一个格子，运营看不出这个人到底查过没有，也就不知道还该不该回头补查",
+      "file": "scripts/lib/rows.ts",
+      "find": "  v === undefined ? '未查询' : v === null ? '' : String(v)",
+      "replace": "  v === undefined ? '' : v === null ? '' : String(v)"
+    },
+    {
       "id": "M-U1-d",
-      "req": "U1",
+      "req": "P1.f",
       "why": "「还没算过分」和「算出来是 0 分」在排序里被当成同一件事 —— 交付表上这两种人混在一起，看不出哪些是没有依据的",
       "file": "scripts/lib/rows.ts",
       "find": "  const byScore = (a: Creator, b: Creator): number => {\n    if (a.score === undefined && b.score === undefined) return 0\n    if (a.score === undefined) return 1\n    if (b.score === undefined) return -1\n    return b.score - a.score\n  }",
@@ -2659,6 +2667,12 @@
       "scope": "「是否编造」这一半",
       "why": "「草稿里的产品事实是否真的来自产品页」由 Agent 的判断决定，不经过本仓库任何代码路径，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。",
       "mitigation": "skill/references/outreach-draft.md 写明「不要编造品牌信息，不知道的留占位符」；靠每次开工前读那份文档。见 ADR-01。"
+    },
+    {
+      "req": "P1.b",
+      "scope": "「任何位置」这个全称",
+      "why": "扫写法那道纪律 lint 2026-09-18 撤了（ADR-77）—— 它自称全量扫描，实现却是一张手写的敏感字段表，漏过 `score` 与 `null`。判据正文按「编号不改含义」原样保留，但**没有任何检查能兑现「任何位置」这个全称**：要兑现它得回到扫源码，而那正是撤掉的东西。显式登记为缺口，不假装它被守住。",
+      "mitigation": "机器可执行的那部分按路径拆成 P1.e（取值）、P1.f（排序）、P1.g（入池）三条，各有认领与负片；`docs/CONVENTIONS.md` 第 2 条写明写代码时要避开的形状。见 ADR-77。"
     }
   ]
 }
