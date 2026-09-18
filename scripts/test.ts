@@ -44,7 +44,7 @@ import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
 import {
-  FILE_RE, checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, markerFault,
+  FILE_RE, checkAll, encodeTarget, escapeCell, fileNameOf, markerFault,
   renderIndex, slugify,
 } from './check/adr-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
@@ -3904,28 +3904,13 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
     markerFault(`前${ME}中${MB}后`, MB, ME), 'reversed')
   eq('多出一对 → duplicate', markerFault(`${MB}甲${ME}${MB}乙${ME}`, MB, ME), 'duplicate')
 
-  // 编号不可回收：只看当前目录的话，删一条再把号让给别的决策是查不出来的
-  const A = (num: number, title: string): { file: string; num: number; title: string } =>
-    ({ file: fileNameOf(num, title), num, title })
-  const B = (num: number, title: string): [number, { file: string; title: string }] =>
-    [num, { file: fileNameOf(num, title), title }]
-  const base0 = new Map([B(1, '甲'), B(2, '乙')])
-
-  eq('主干上有、这里没了 → 报错', checkAppendOnly(base0, [A(1, '甲')]).length, 1)
-  eq('新增编号不报错', checkAppendOnly(base0, [A(1, '甲'), A(2, '乙'), A(58, '新')]), [])
-  // 删掉记录、把号让给另一条决策 —— 号还在，只有标题露馅
-  eq('号还在但标题换了 → 报错', checkAppendOnly(base0, [A(1, '甲'), A(2, '借尸还魂')]).length, 1)
-  ok('不冻正文 —— 就地标注作废是既有做法（ADR-13），标题不动就放行',
-    checkAppendOnly(new Map([B(13, '丙')]), [A(13, '丙')]).length === 0)
-
-  // 文件名是有损代理：slugify 截到 32 字符，长标题只在那之后改动，文件名一模一样
+  // 「文件名是有损代理」这一条留着 —— 它守的是 fileNameOf 自己，和已撤的那套 git 机器无关：
+  // slugify 截到 32 字符，长标题只在那之后改动，文件名一模一样。撞号判定（checkAll）
+  // 认的是编号，不是文件名，所以这个有损不影响它；记在这里是因为 ADR-79 撤掉编号不可回收
+  // 那套检查之后，「文件名能不能代表标题」再没有别的地方说了。
   const long = '一'.repeat(32)
   ok('两个只在第 32 字符之后不同的标题，文件名相同',
     fileNameOf(9, long + '甲') === fileNameOf(9, long + '乙'))
-  eq('比的是正文标题而不是文件名 —— 所以仍然抓得到',
-    checkAppendOnly(new Map([B(9, long + '甲')]), [A(9, long + '乙')]).length, 1)
-  eq('只改了会被 slugify 剔掉的标点，也抓得到',
-    checkAppendOnly(new Map([B(9, '甲(乙)')]), [A(9, '甲乙')]).length, 1)
 
   eq('标题里的斜杠与括号在文件名里去掉',
     fileNameOf(15, '记忆读不出来时/不产出名单（也不覆盖）'), 'ADR-15-记忆读不出来时不产出名单也不覆盖.md')

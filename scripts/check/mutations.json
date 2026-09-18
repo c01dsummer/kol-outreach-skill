@@ -410,22 +410,6 @@
       "replace": ""
     },
     {
-      "id": "M-H10-c",
-      "req": "harness",
-      "file": "scripts/check/adr-rule.ts",
-      "why": "主干上已落地的编号在这条分支上没有了也不报 —— 删掉一条记录、把号腾给另一条决策,一路全绿,而编号是不可回收的",
-      "find": "      errors.push(`ADR-${pad(num)} 在主干上存在,这里没有了 —— 编号不可回收,记录只作废不删除`)",
-      "replace": "      continue"
-    },
-    {
-      "id": "M-H10-d",
-      "req": "harness",
-      "file": "scripts/check/adr-rule.ts",
-      "why": "号还在、标题换了不报 —— 等于把号让给了另一条决策,下游引用这个编号的地方静默指向一件别的事",
-      "find": "    } else if (cur.title !== was.title) {",
-      "replace": "    } else if (cur.title === undefined) {"
-    },
-    {
       "id": "M-H10-e",
       "req": "harness",
       "file": "scripts/check/adr-rule.ts",
