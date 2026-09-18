@@ -1,0 +1,11 @@
+# CodeRabbit 的评审配置。
+#
+# 这份只做转发，不装规则 —— 和 .github/copilot-instructions.md、CLAUDE.md 同一个形状。
+# 规矩的正本在根目录 REVIEW.md，那里只有指针，真规则在 process/ 与 docs/。
+reviews:
+  path_instructions:
+    - path: "**"
+      instructions: |
+        本仓库的评审须知在根目录 `REVIEW.md`，先读它，再读它指向的那几份。
+        这里不复述规则 —— 复述一份就多一份会漂的副本。
+        一条要求特别强调：看不见 diff 之外的东西时说「我不知道」，不要补全。

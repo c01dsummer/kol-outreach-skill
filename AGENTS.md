@@ -53,6 +53,7 @@
 | 改 Skill 的行为 | `skill/SKILL.md` + 对应的 `skill/references/*` |
 | 改完了要同步 | `docs/SYNC.md` |
 | 开分支、切改动、回应评审、往主干合 | `process/6-INTEGRATE.md` |
+| **评审别人的改动**（人或机器评审器） | `REVIEW.md` —— 它也只做转发 |
 
 ---
 
