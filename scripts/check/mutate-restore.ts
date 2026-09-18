@@ -215,7 +215,7 @@ const BLOCKING_WAIT = /\b(execSync|execFileSync|spawnSync)\s*\(/
  * 退出 —— 一次没跑完的检查报成过了。**所以这是接管顺手带来的回归,不是它没管到的
  * 地方**,判据也就跟着接管一起放在这里(评审指出)。
  *
- * 判的是源文件的字面形状,和 `lint-rule.ts` 同一路数:不剥注释、不解析,逐行逐字地找。
+ * 判的是源文件的字面形状,和 `quoted.ts` 同一路数:不剥注释、不解析,逐行逐字地找。
  * 会不会误伤一段正好这么写的注释?会 —— 那时改注释,不改判据。
  */
 export function blockingWait(src: string): string | undefined {

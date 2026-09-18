@@ -21,7 +21,7 @@
  * | 边 | 例子 | 只扫 import 会怎样 |
  * |---|---|---|
  * | `import` | `selfcheck.ts` → `tsx-cmd.ts` | 收得到 |
- * | **当工具起** | `selfcheck.ts` 起 `check/mutate.ts`、`check/lint.ts`、`check/arch-sync.ts` | 漏掉，连同它们各自的传递依赖 |
+ * | **当工具起** | `selfcheck.ts` 起 `check/mutate.ts`、`check/arch-sync.ts` | 漏掉，连同它们各自的传递依赖 |
  * | **预加载** | `selfcheck.ts` 用 `NODE_OPTIONS: --import …/fake-fetch.ts` 把假 fetch 塞进每个子进程 | 漏掉 —— 而它决定自检能走多深（`audit-rule.ts` 的 `JUDGMENT_EXEMPT` 里就是这么写的） |
  *
  * 实测：只从 `selfcheck.ts` 的 `import` 出发，闭包是 3 个文件；把后两种边补上，是 **14 个**。
@@ -68,7 +68,6 @@ export interface Reaches {
  * `types.ts`（D1 的身份键只此一份）是同一条路子。
  */
 export const SELFCHECK_TOOLS = {
-  lint: 'check/lint.ts',
   mutate: 'check/mutate.ts',
   arch: 'check/arch-sync.ts',
 } as const
@@ -178,7 +177,7 @@ export function closure(graph: Reaches[], seeds: string[]): string[] {
  * 从种子出发，边读边递归，收出验证基础设施闭包。
  *
  * **遍历本身是判定，不是 I/O**（评审指出，`docs/CONVENTIONS.md` 第 10 条讲的正是这个 ——
- * `lint-rule.ts` 的走文件树同理留在判定这边）：递归到多深、图里没有的怎么处理，
+ * 「走一棵树走到哪为止」同理留在判定这边）：递归到多深、图里没有的怎么处理，
  * 决定了这道闸门看得见多少文件。把它留在入口的话，「少走一层」这种坏法**没有任何断言
  * 够得着** —— 闭包会静默缩回种子那几个，而缩小的那一头是放行。
  *

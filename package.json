@@ -9,7 +9,6 @@
     "enrich": "node --env-file-if-exists=.env node_modules/.bin/tsx scripts/enrich.ts",
     "render": "node --env-file-if-exists=.env node_modules/.bin/tsx scripts/render.ts",
     "test": "tsx scripts/test.ts",
-    "lint": "tsx scripts/check/lint.ts",
     "size": "tsx scripts/check/size.ts",
     "spec": "tsx scripts/check/spec-sync.ts",
     "adr": "tsx scripts/check/adr-sync.ts",
@@ -18,7 +17,7 @@
     "selfcheck": "tsx scripts/check/selfcheck.ts",
     "audit": "tsx scripts/check/audit.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run lint && npm run size && npm run spec && npm run adr && npm run arch && npm run typecheck && npm test && npm run mutate && npm run selfcheck && npm run audit"
+    "check": "npm run size && npm run spec && npm run adr && npm run arch && npm run typecheck && npm test && npm run mutate && npm run selfcheck && npm run audit"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

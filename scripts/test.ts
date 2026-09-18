@@ -6,7 +6,6 @@
  * 本文件目前违反了这一条（同一上下文写的代码和测试），已登记为 ADR-04 的已知缺口。
  */
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
-import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import {
   JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
@@ -351,8 +350,9 @@ suite('P1', '没取到的播放数不得被判成爆款')
    * 什么东西能在 P1 不成立时也让这条绿：**把未知当成 0**。
    * 那一侧得分与「确定不是爆款」本来就同分，scoreCreator 的返回值里看不见 ——
    * 这一档能验的只有「不得被当成大数」那一半。另一半靠类型层
-   * （RecentPost.plays 可选）加纪律 lint 挡着 —— `plays` 已在敏感字段表里，
-   * `p.plays ?? 0` 会被拦下（M-P1-i 守着这一条）。
+   * （RecentPost.plays 可选）挡着。⚠️ 原先这里还写着「加纪律 lint 挡着」——
+   * 那道闸门 2026-09-18 撤了（ADR-77），`p.plays ?? 0` 现在**不会**在写下的那一刻
+   * 被拦；它要到把三态压平、且压平点落在取值／排序／入池三处之一时才红。
    */
   const decided: string[] = []
   for (const s of shapes) {
@@ -2432,82 +2432,37 @@ suite('P1', '跨平台合并不得把「未查询」降级成「查过，没有�
   covered.add('D3')
 }
 
-suite('P1', '纪律 lint 的判定：会变成决策的字段上不许有兜底')
+suite('P1', '三态不得被压平：取值、排序、入池三处各验一次')
 {
   /**
-   * P1 机器可执行的那一半就是这条 lint。它自己一直没有测试、也没有变异守着 ——
-   * 一个从来没被证伪过的检查，和没有检查之间的差别只有心理作用。
+   * P1.b 原先写的是「任何位置不得出现 `?? 0` 这种写法」，由一条纪律 lint 扫源码来查。
+   * 那条判据在说大话：实现是一张**手写的敏感字段表**，`score` 和 `null` 都漏过
+   * （ADR-71），而判据正文写着「任何位置」。2026-09-18 改成直接查结果（ADR-77）——
+   * 结果查得住那些没被谁枚举到的字段，写法查不住。
    *
-   * 断言依据只有三样：P1 原文、docs/CONVENTIONS.md 第 1 条（三态不许压成两档、
-   * `?? null` 也是兜底），以及这条 lint 自己声明的职责 —— 只盯**会变成决策的
-   * 数据字段**，例外必须写明理由。没有从实现里抄字段表：下面的字段是按
-   * 「它的值会不会进入过滤、评分、分层」挑的。
+   * **三处各验一次，因为压平可以发生在任何一处**：交付表里那个格子的取值、
+   * 名单的排序、以及这个人进不进池子。三处用的是三套代码，各自都能独立压平。
    */
-  const DECIDING = ['followers', 'views', 'plays', 'likes', 'email', 'median_views', 'score']
-  const DISPLAY = ['label', 'title', 'nickname', 'desc']
-  const FALLBACKS = ['0', "''", '[]', 'false', 'null']
+  // 取值：三态三个不同的格子。空串与「未查询」不是同一件事
+  eq('取值：未查询 / 查过为空 / 值就是 0，三个格子各不相同',
+     [cell(undefined), cell(null), cell(0)], ['未查询', '', '0'])
 
-  for (const field of DECIDING) {
-    for (const v of FALLBACKS) {
-      eq(`${field} 上的 ?? ${v} 判违规`, judgeLine(`  const x = c.${field} ?? ${v}`), 'violation')
-      eq(`${field} 上的 || ${v} 判违规`, judgeLine(`  const x = c.${field} || ${v}`), 'violation')
-    }
-  }
+  // 排序：「还没算过分」不是「0 分」。旧写法 `(b.score ?? 0) - (a.score ?? 0)` 会让两者
+  // 打平，而排序稳定 —— 打平就保持输入顺序，于是旧写法给出 none 在前。写反了这条
+  // 断言就分不出两种实现（ADR-71 的原话）
+  eq('排序：没算过分的排在 0 分之后，不与它混同',
+     sortForOutput([
+       mk('tiktok', 'none', { tier: 'A' }),
+       mk('tiktok', 'zero', { tier: 'A', score: 0 }),
+       mk('tiktok', 'ten', { tier: 'A', score: 10 }),
+     ]).map(c => c.handle), ['ten', 'zero', 'none'])
 
-  // 一个满屏假阳性的检查会被忽略，而被忽略的检查比没有检查更糟。
-  for (const field of DISPLAY) {
-    eq(`展示层的 ${field} 上同样的写法不报`, judgeLine(`  const x = c.${field} ?? ''`), 'clean')
-  }
-  eq('敏感字段但没有兜底不报', judgeLine('  if (c.followers !== undefined) return true'), 'clean')
+  // 入池：粉丝数未查询 → 放行（不知道不等于不合格）；确实是 0 → 挡掉。
+  // 两者给出相反的结论，压成同一个值的那一刻这两条里必有一条红
+  ok('入池：粉丝数未查询 → 放行', passesFollowerGate(mk('tiktok', 'x', { followers: undefined })))
+  ok('入池：粉丝数确实是 0 → 挡掉，与未查询结论相反',
+     !passesFollowerGate(mk('tiktok', 'x', { followers: 0 })))
 
-  // 「没测量」和「测量结果是零」必须是两个不同的值 —— 空输入返回 0 是同一件事的
-  // 另一种形状，敏感字段名在这一行里根本不出现。
-  eq('空输入返回 0 判违规', judgeLine('  if (!values.length) return 0'), 'violation')
-
-  eq('写明理由的 p1-ok 是具名豁免',
-    judgeLine("  const x = c.followers ?? 0   // p1-ok: 展示用，不参与决策"), 'exempt')
-  eq('只写 p1-ok 不写理由的不算豁免',
-    judgeLine('  const x = c.followers ?? 0   // p1-ok'), 'unjustified_exemption')
-}
-
-suite('P1', '纪律 lint 的扫描范围：scripts/ 全量，例外只有说好的那两处')
-{
-  /**
-   * 判定写对了、但扫不到那个文件，等于没查。P1.b 的后半句「对 scripts/ 全量扫描」
-   * 自己也要被证伪一次 —— 递归少走一层、例外表悄悄放大，检查照样打印「无违规」，
-   * 而它已经看不见半个仓库了。
-   *
-   * 断言依据只有 P1.b 原文，和这条 lint 自己声明的两处例外（检查链自己那一坨、
-   * 测试文件里故意写出来的样例）—— 那是**两个位置**，不是两个名字。搭一棵假树，
-   * 因为真树上没有违规可扫。
-   */
-  const root = join(tmpdir(), `kol-lint-${process.pid}`)
-  rmSync(root, { recursive: true, force: true })
-  const put = (rel: string, body: string) => {
-    mkdirSync(join(root, dirname(rel)), { recursive: true })
-    writeFileSync(join(root, rel), body, 'utf8')
-  }
-  const BAD = '  const x = c.followers ?? 0'
-  put('lib/deep/score.ts', BAD)                                  // 嵌套两层：递归得下得去
-  put('check/self.ts', BAD)                                      // 检查链自己那一坨不算
-  put('test.ts', BAD)                                            // 测试里的样例不算
-  put('lib/notes.md', BAD)                                       // 只看 .ts
-  put('lib/ok.ts', `${BAD}   // p1-ok: 展示用，不参与决策`)
-  // 例外是**两个具体位置**，不是两个名字。按名字排除的话，下面这两个跟着被放过 ——
-  // 而 lib/ 恰恰是最会出兜底的地方，「全量扫描」就是这么缩水的。
-  put('lib/check/nested.ts', BAD)                                // 顶层以下的同名目录：该扫
-  put('lib/test.ts', BAD)                                        // 顶层以下的同名文件：该扫
-
-  const { hits, exempted } = lintTree(root)
-  eq('该扫的都报了，说好的那两处例外之外一个不漏',
-    hits.map(h => h.file.slice(root.length + 1)).sort().join('|'),
-    'lib/check/nested.ts|lib/deep/score.ts|lib/test.ts')
-  eq('报到行，不是只报文件', hits[0]?.line, 1)
-  eq('写明理由的具名豁免被数进去，不报违规', exempted, 1)
-  rmSync(root, { recursive: true, force: true })
-
-  // 「命中即失败」还剩退出码那一截，长在入口脚本里：由 scripts/check/selfcheck.ts
-  // 拿一棵只含一处违规的假树真跑一遍 lint.ts，断言它以退出码 1 结束。
   criterion('P1.b')
 }
 
@@ -3606,7 +3561,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 上一版是扫源码猜哪些路径是工具，评审两轮各找到一批诱饵（注释里的、夹具串里的、
   // 串里装着调用形状的、以及普通的读文件）—— 收紧正则是军备竞赛，让清单成为行为才是根治。
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的', SELFCHECK_SEEDS, [
-    'scripts/check/arch-sync.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/lint.ts',
+    'scripts/check/arch-sync.ts', 'scripts/check/fake-fetch.ts',
     'scripts/check/mutate.ts', 'scripts/check/selfcheck.ts',
   ])
   // 预加载单独列，因为它既不是 import 也不是「起了谁」—— 两种扫法都收不到
@@ -3682,13 +3637,13 @@ harness('审计：检查链自己的判定模块必须有变异守着')
   // 入口（带 shebang）不算：按 CONVENTIONS 第 10 条它不该装判定；其余每个文件都是「有判定要能被测」。
   // 不按文件名后缀认 —— trailer.ts、quoted.ts 都是判定，不叫 rule
   const files = [
-    { path: 'scripts/check/lint.ts', entry: true },
-    { path: 'scripts/check/lint-rule.ts', entry: false },
+    { path: 'scripts/check/size.ts', entry: true },
+    { path: 'scripts/check/size-rule.ts', entry: false },
     { path: 'scripts/check/trailer.ts', entry: false },
     { path: 'scripts/check/fake-fetch.ts', entry: false },
   ]
   eq('入口不算、豁免的不算，其余都算', judgmentModules(files),
-    ['scripts/check/lint-rule.ts', 'scripts/check/trailer.ts'])
+    ['scripts/check/size-rule.ts', 'scripts/check/trailer.ts'])
   ok('豁免必须写理由', Object.values(JUDGMENT_EXEMPT).every(r => r.trim().length > 0))
   eq('没有变异指向它的判定模块被点名', unguarded(['a.ts', 'b.ts'], [{ file: 'a.ts' }]), ['b.ts'])
   eq('都有变异 → 无', unguarded(['a.ts'], [{ file: 'a.ts' }, { file: 'a.ts' }]), [])

@@ -116,8 +116,8 @@ const runBoth = (label: string, args: string[], cwd = process.cwd(),
   expect?: { status: number }): { ok: boolean; stdout: string; stderr: string } => {
   const [exe, argv] = tsxCommand(args)
   const r = spawnSync(exe, argv, { env, cwd, encoding: 'utf8' })
-  const stdout = r.stdout ?? ''   // p1-ok: 拿不到就是空输出，不是「没查过」——这是子进程的两股流
-  const stderr = r.stderr ?? ''   // p1-ok: 同上
+  const stdout = r.stdout ?? ''   // P1 例外：拿不到就是空输出，不是「没查过」——这是子进程的两股流
+  const stderr = r.stderr ?? ''   // P1 例外：同上
   const want = expect?.status ?? 0
   if (r.error || r.status !== want) {
     failed++
@@ -474,7 +474,7 @@ if (dir && rendered !== undefined) {
   // 复位：后面几段接着用这个任务目录，交付物与产出物都要回到未增强的样子。
   writeFileSync(cPath, pristine, 'utf8')
   // 这一处不判空：它后面没有派生断言，跑不起来时 runBoth 已经带记号报过一次，
-  // 再加一道判空只会多一层缩进而不多守住任何东西。同理还有下面那处纪律 lint 的入口。
+  // 再加一道判空只会多一层缩进而不多守住任何东西。
   run('render 复位（回到未增强的产出）', [S('render.ts'), '--dir', dir], tmp)
 }
 
@@ -758,14 +758,6 @@ if (dir && rendered !== undefined) {
     } else console.log('  ✓ 旧任务目录记为 unknown 并在报告上声明')
   }
 }
-
-// ---- 纪律 lint：扫到违规就以退出码 1 结束（P1.b 的入口那一半）----
-// 判定与扫描范围由 scripts/test.ts 断言；「命中即失败」是入口的退出码，
-// 只有真跑一遍才看得见 —— 检查链平时跑的是干净的树，那条失败分支从不触发。
-const lintTmp = join(tmp, 'lint-hit')
-mkdirSync(join(lintTmp, 'scripts', 'lib'), { recursive: true })
-writeFileSync(join(lintTmp, 'scripts', 'lib', 'bad.ts'), '  const x = c.followers ?? 0\n', 'utf8')
-runTool('纪律 lint 命中即以退出码 1 结束', 'lint', [], lintTmp, { status: 1 })
 
 // ---- 变异集编号重复：两个入口都命中即以退出码 1 结束（M-H7-b、M-H7-c 的入口那一半）----
 // 判定和「两种毛病同时在时先报哪一种」都由 scripts/test.ts 断言；剩下的那一半是
@@ -1113,7 +1105,7 @@ for (const cap of [48, 40, 36]) {
   // 唯一一处 POSIX-only 的杀进程也是包在 `try/catch` 里优雅降级的 —— 照同一条路子办：
   // **不硬失败，显式降级，把没验到这件事留在报告里**（`process/README.md` 第三层的写法）
   if (r.error !== undefined) { noShell = true; break }
-  const out = (r.stdout ?? '') + (r.stderr ?? '')   // p1-ok: 拿不到就是空输出，这是子进程的两股流
+  const out = (r.stdout ?? '') + (r.stderr ?? '')   // P1 例外：拿不到就是空输出，这是子进程的两股流
   const left = existsSync(join(fdTmp, '.check-cache', 'mutate-jobs'))
   rmSync(join(fdTmp, '.check-cache'), { recursive: true, force: true })
   named(`起 worker 时资源不够（允许打开 ${cap} 个文件）：没有生抛出来的读属性错`,

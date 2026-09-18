@@ -1,7 +1,7 @@
 /**
  * 需求登记表的判定 —— 从 `spec-sync.ts` 里抽出来的那一半。
  *
- * 抽出来的理由与 `lint-rule.ts` / `why-rule.ts` 同：有语义就该能被测，
+ * 抽出来的理由与 `size-rule.ts` / `why-rule.ts` 同：有语义就该能被测，
  * 能被测就不该待在入口脚本里（`docs/CONVENTIONS.md` 第 10 条）。
  * 读文件、回写、打印、退出码仍留在 `spec-sync.ts`。
  *
@@ -483,7 +483,7 @@ export interface Evidence {
 /**
  * 一条需求该得什么旗标、报哪些缺口。
  *
- * 从 `audit.ts` 抽出来的理由与 `lint-rule` / `why-rule` / 上面那几个函数同：
+ * 从 `audit.ts` 抽出来的理由与 `size-rule` / `why-rule` / 上面那几个函数同：
  * 有语义就该能被测。这条路踩过三次 —— 而**审计自己的判定连着两轮出问题**
  * （注释掉的认领照样算数、一条判据都没认领反而干净），
  * 那两次都没有任何测试或变异守得住（ADR-26）。
