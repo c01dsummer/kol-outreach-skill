@@ -188,13 +188,13 @@ output/{product}-{timestamp}/
 
 ## 质量保证
 
-需求的机器可读正本是 `docs/requirements.json`，`docs/SPEC.md` 中的表格由它生成。目前共有 35 条正式需求，其中 5 条为不可取舍的红线。
+需求的机器可读正本是 `docs/requirements.json`，`docs/SPEC.md` 中的表格由它生成。有多少条需求、其中几条是红线，跑 `npm run audit` 会打印 —— 这里不写数，写下来就是一份没人核的副本。
 
 ```bash
 npm run check
 ```
 
-完整检查包括：纪律扫描、需求文档一致性、TypeScript 类型检查、需求测试、变异测试、脚本自检和链路审计。CI 在每次 push 时执行同一条命令。
+完整检查有哪几步，正本是 `package.json` 的 `check` 脚本（人话版在 `AGENTS.md` 的「检查命令」那一行）。这里不抄 —— 抄一份就是一份会漂的副本，而它已经漂过一次：ADR-77 撤掉纪律 lint 之后，这句话在主干上说了一段时间的假话。CI 在每次 push 时执行同一条命令。
 
 ## 当前已知边界
 
