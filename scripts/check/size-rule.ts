@@ -179,65 +179,38 @@ export function scanMessage(message: string): ExemptionVerdict[] {
   return out
 }
 
-export interface Overage { category: Category; added: number; budget: number; note?: string }
+export interface Overage { category: Category; added: number; budget: number }
 
 /**
- * 一条具名豁免,以及**它写下之后最终 diff 里这一类还净增了多少**。
+ * 一条具名豁免:类别 ＋ 理由,从提交信息的 trailer 块里读出来。
  *
- * 这个数是树对树算出来的:`总数(c) - 豁免那一刻的数(c)`,两边都相对同一个基线。
- * 早先是按提交序列算的 —— 数每个提交各自加了多少,再看某一类最后一次被追加
- * 是不是晚于最后一条豁免。那条路走了四版都不对:
- *
- * - 合并提交按第一父计,PR 检出的 `refs/pull/N/merge` 让任何豁免永远过期
- * - 一律按 0,冲突解决时新写的代码不算数
- * - 各父 diff 的逐类最小值,一次干净的合并主干就把豁免顶掉
- * - 按第一父链重排,修好了顺序,但**加一行又删掉**仍然会误判成过期
- *
- * 四个反例的共同点:它们都在问「历史上发生过什么」,而闸门要守的是
- * **最终这份 diff 有多大**。改成树对树之后,提交顺序、合并形状、时间戳
- * 一概不参与,上面四种情形自然全对。
- *
- * ## 明确不保证的
- *
- * 两个数相减,量的是**净增**,不是「哪些行是后加的」。所以有一种情形查不出来:
- * 豁免之后删掉 100 行被豁免的、又补上 100 行新的 —— 两个数都不变,净增为 0,
- * 旧豁免照样放行,而那 100 行它从没覆盖过。
- *
- * 这是**已知缺口,不是遗漏**。试过两种补法,都更糟:
- *
- * - 改用 `diff(豁免那一刻, HEAD)` 的新增:干净地合一次主干就会报「已过期」——
- *   那些行来自主干,根本不在总数里(实测 1 行 `trunk.ts` 就够触发)
- * - 再按「出现在总数里的路径」筛一道:七种情形都能过,但**主干和分支碰过
- *   同一个文件**时,主干那侧的行会算进来 —— 而「合主干进来」正是
- *   `6-INTEGRATE.md` 推荐的做法,这个假阳性会天天响
- *
- * 真正对的做法是逐行比对两份 patch 的新增行集合,而不是相减。那要写一个
- * patch 行级差分,量不小;在这个缺口(总数必须**一行不差**地保持相等)面前
- * 不成比例。**假阳性会让闸门被忽略,而被忽略的检查比没有检查更糟。**
+ * **它管整条分支,不设新鲜度。** 早先还带一个「写下之后这一类又净增了多少」,
+ * 净增为正就判过期、不放行 —— 那套机器 2026-09-18 撤了。撤它的理由、
+ * 它当初为什么长成那样(按提交序列算走了四版都不对)、以及这道闸门的死亡条件,
+ * 全记在 ADR-80。
  */
-export interface Waiver { category: Category; reason: string; addedAfter: number }
+export interface Waiver { category: Category; reason: string }
 
 export interface SizeReport {
   counts: Record<Category, number>
   over: Overage[]
-  /** 超了但被一条**仍然有效**的具名豁免挡住 */
+  /** 超了但被一条指名这一类的具名豁免挡住 —— 豁免管整条分支 */
   waived: Overage[]
-  /** 有豁免，但写下之后这一类又净增了 —— 过期，不放行 */
-  stale: Overage[]
   /** 写了 size-ok 但没指名类别或没写理由的,一律不放行 */
   unjustified: string[]
   ok: boolean
 }
 
 /**
- * **豁免绑在它写下的那一刻,不绑整条分支。**
+ * **超线 ＋ 一条指名这一类的豁免 = 放行。豁免管整条分支。**
  *
- * 否则会这样:某个提交里 400 行生成代码,写一条豁免说明理由 —— 从此这条分支的
- * 源码这一类永久免检,后面再追加几千行不相干的代码也一样绿。豁免是对
- * 「当时那些行」的说明,不是一张长期通行证。
+ * 早先反过来:豁免只对「写下那一刻的那些行」生效,之后这一类再净增就判过期,
+ * 要求重写一条。那套机器撤了(ADR-80) —— 它的主要工作是消化这道闸门自己的
+ * 豁免带来的后果,而不是守住任何一个别处守不住的坏法。**一条规则的主要工作
+ * 是消化另一条规则的后果时,至少删一条。**
  *
- * 所以:一条豁免有效,当且仅当它写下之后这一类**没有净增**。之后又加了东西,
- * 就得重新写一条 —— 重新写的时候,理由也会被重新想一遍。
+ * 换来的缺口写在明处:一条豁免之后再追加几千行不相干的代码,这一类照样绿。
+ * 挡它的是读 diff 的人,不是这道闸门。
  */
 export function judge(
   counts: Record<Category, number>,
@@ -246,20 +219,17 @@ export function judge(
 ): SizeReport {
   const over: Overage[] = []
   const waived: Overage[] = []
-  const stale: Overage[] = []
 
   for (const c of CATEGORIES) {
     if (counts[c] <= BUDGET[c]) continue
     const row: Overage = { category: c, added: counts[c], budget: BUDGET[c] }
     const mine = waivers.filter(w => w.category === c)
     if (!mine.length) { over.push(row); continue }
-    const best = Math.min(...mine.map(w => w.addedAfter))
-    if (best <= 0) waived.push(row)
-    else stale.push({ ...row, note: `最新一条豁免写下之后，这一类又净增了 ${best} 行` })
+    waived.push(row)
   }
 
   return {
-    counts, over, waived, stale, unjustified,
-    ok: over.length === 0 && stale.length === 0 && unjustified.length === 0,
+    counts, over, waived, unjustified,
+    ok: over.length === 0 && unjustified.length === 0,
   }
 }
