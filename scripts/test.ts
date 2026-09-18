@@ -4,6 +4,8 @@
  *
  * 写测试的纪律（process/4-VERIFY.md）：只看需求描述和验收标准，不读实现。
  * 本文件目前违反了这一条（同一上下文写的代码和测试），已登记为 ADR-04 的已知缺口。
+ *
+ * 它**没有死亡条件,而那是判过的结论、不是漏了** —— 理由记在 ADR-85。
  */
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { implementationLeak } from './check/why-rule.js'
