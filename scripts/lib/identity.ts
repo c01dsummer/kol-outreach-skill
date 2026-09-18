@@ -97,7 +97,7 @@ export function mergeCrossPlatform(creators: Creator[]): Creator[] {
     if (!other || other.merged_into) continue
 
     // 有邮箱的优先做主记录；都有或都没有则取粉丝多的（未知视为最小）
-    const rank = (x: Creator) => (x.email ? 1e9 : 0) + (x.followers ?? -1)   // p1-ok: 仅用于排序取主，不写回数据
+    const rank = (x: Creator) => (x.email ? 1e9 : 0) + (x.followers ?? -1)   // P1 例外：仅用于排序取主，不写回数据
     const [primary, secondary] = rank(c) >= rank(other) ? [c, other] : [other, c]
 
     // P1：任一侧未知，合并结果就是未知 —— 不能把未知当 0 加进去

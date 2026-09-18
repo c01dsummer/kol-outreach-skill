@@ -146,7 +146,7 @@ if (selfVerified.length) {
 }
 
 // 点的那些夹具真的在，而且各自只有一条叫那个名字 —— 判据在 `mutate-rule.ts` 的
-// `labelsOf` / `labelFault`。**扫源码也是判定**（`lint-rule` 那条先例的同一形状）：
+// `labelsOf` / `labelFault`。**扫源码也是判定**（`mutate-restore.ts` 判字面形状那条的同一路数）：
 // 扫得出什么决定了清册有多大，而清册小了是拦住、大了是放行。入口只出一个读法，
 // 外加「同一个验证者只读一次」—— 上面两道体检已经放行，`by` 到这里必定认得。
 // **排在隔离之后**：由粗到细 —— 自己验自己是「这份证据整份不算数」，
@@ -195,6 +195,23 @@ if (process.argv.includes('--brief')) {
   writeFileSync(1, `${out.join('\n')}\n`)
   process.exit(0)
 }
+
+/**
+ * 验证者那几百个进程共用的一份 V8 编译缓存。
+ *
+ * 一次验证者跑里真正在断言的部分只占一成三，其余是起进程和装模块 —— 而装模块里
+ * 有一大块是同一批源文件被反复编译。Node 自己的这份缓存把编译结果落到盘上，
+ * **本仓库只做一件事：告诉它放哪，好让几百次跑共用同一份**（跑在隔离目录里的
+ * 那几个 worker 各有各的 cwd，不指绝对路径的话就成了几份互不相通的缓存）。
+ *
+ * **它失效在源码上，不失效在时间上。** 缓存条目由 Node 按源文本、Node 版本与 V8
+ * 参数校验，对不上就当场重编 —— 也就是说，一条变异改过的那个文件永远不会命中
+ * 未改之前那一条。缓存里没有任何「上一次的结论」，只有「这段字节码是这段源码编出来的」。
+ * 这一层对判定不可见：跑的还是那批断言，抓到还是抓到。
+ *
+ * 认已有的值：外面已经指了一份就用那份，不覆盖人家的安排。
+ */
+const NODE_COMPILE_CACHE = process.env.NODE_COMPILE_CACHE ?? resolve('.check-cache/compile-cache')
 
 const survived: Mut[] = []
 const elsewhere: Mut[] = []
@@ -326,7 +343,7 @@ const runTest = (verifier: Verifier, kills?: readonly string[]):
     // `tsx` 自己还要再分出一个真正跑脚本的进程来（POSIX 上才成立，见 `tsx-cmd.ts`）
     const [exe, argv] = tsxCommand([verifier.script])
     const kid = spawn(exe, argv,
-      { stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1' } })
+      { stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1', NODE_COMPILE_CACHE } })
     trackTest(kid)
     let out = ''
     let err = ''
@@ -585,7 +602,8 @@ const dispatch = async (jobs: number): Promise<void> => {
     // 它的 cwd 是 `dir`,相对路径会落进那棵被复制的树里
     const beacon = resolve(beaconPathOf(JOBS_DIR, process.pid, i))
     const [exe, argv] = tsxCommand([SELF, '--worker', `${BEACON_FLAG}${beacon}`])
-    const kid = spawn(exe, argv, { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'] })
+    const kid = spawn(exe, argv,
+      { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'], env: { ...process.env, NODE_COMPILE_CACHE } })
     const slot = { kid, beacon }
     live.add(slot)
     // **起不来有三种形状，缺哪一条都是洞**（实测与事件序记在 ADR-72）：有的 errno

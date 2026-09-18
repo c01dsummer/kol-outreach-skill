@@ -24,12 +24,12 @@ export const cell = (v: unknown): string =>
 
 const topGeo = (c: Creator): string => {
   if (!c.audience_geo) return ''
-  const [k, v] = Object.entries(c.audience_geo).sort((a, b) => b[1] - a[1])[0] ?? []   // p1-ok: 上一行已守 audience_geo 存在，此处仅防空对象
+  const [k, v] = Object.entries(c.audience_geo).sort((a, b) => b[1] - a[1])[0] ?? []   // P1 例外：上一行已守 audience_geo 存在，此处仅防空对象
   return k ? `${k} ${Math.round((v as number) * 100)}%` : ''
 }
 
 const bestPost = (c: Creator): string =>
-    [...(c.recent_posts ?? [])].sort((a, b) => (b.plays ?? 0) - (a.plays ?? 0))[0]?.desc ?? ''   // p1-ok: 展示用文本，缺失即无内容
+    [...(c.recent_posts ?? [])].sort((a, b) => (b.plays ?? 0) - (a.plays ?? 0))[0]?.desc ?? ''   // P1 例外：展示用文本，缺失即无内容
 
 const metricCell = <T>(m: Measurement<T> | undefined, format: (value: T) => unknown): unknown => {
   if (!m) return '未查询'
@@ -75,9 +75,10 @@ export function toRow(c: Creator): unknown[] {
   const metrics = assessment?.metrics
   const risk = metrics?.audience_quality_risk
   return [
-    // score 单独留在这一行:纪律 lint 按**行**匹配「兜底写法 ＋ 敏感字段名」,
-    // 与下面两个把空串当缺省的表达式同行,会被判成 score 上有兜底(实际那两处
-    // 落在 fit / fit_reason 上)。分行比写 p1-ok 诚实 —— 这里根本没有 score 的兜底。
+    // score 单独留在这一行。原因是当年那条按**行**匹配的纪律 lint 会把它和下面两个
+    // 把空串当缺省的表达式判成「score 上有兜底」(实际那两处落在 fit / fit_reason 上)。
+    // 闸门 2026-09-18 撤了(ADR-77),这一行照旧分开 —— 分行本来就更好读,
+    // 而且**这里根本没有 score 的兜底**这句话仍然要成立。
     c.tier, c.score,
     c.fit ?? '', c.fit_reason ?? '', c.platform, c.handle, c.nickname,
     cell(c.followers), cell(c.post_count), cell(c.bio), cell(c.email), cell(c.email_verified),

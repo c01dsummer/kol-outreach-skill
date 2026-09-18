@@ -131,7 +131,7 @@ export class TikHub {
       byHandle.set(handle, {
         platform: 'tiktok',
         handle,
-        nickname: a?.nickname ?? '',   // p1-ok: 展示用，缺失退化为空名不影响决策
+        nickname: a?.nickname ?? '',   // P1 例外：展示用，缺失退化为空名不影响决策
         followers: a?.follower_count,   // P1: 缺失即 undefined，不记 0
         // 实测：搜索结果里 aweme_count 对**所有人**都返回 0 —— 那不是真实值，
         // 是 TikTok 在搜索结果里不填这个字段。当成 0 会让内容积累加分全员失效，
@@ -164,7 +164,7 @@ export class TikHub {
       nickname: u?.nickname || undefined,
       // profile 已经查回来了，signature 是空只说明对方没写简介 —— 那是「查过，没有」。
       // 记成 undefined 有两笔账：这个人每轮续跑再被查一次，email 还会跟着记成「未查询」。
-      bio: u?.signature ?? null,   // p1-ok: 三态本身，profile 侧的空简介就是 null
+      bio: u?.signature ?? null,   // P1 例外：三态本身，profile 侧的空简介就是 null
       bio_links: link ? [link] : [],
       followers: stats?.followerCount ?? u?.followerCount ?? undefined,
       following: stats?.followingCount ?? u?.followingCount ?? undefined,
@@ -215,7 +215,7 @@ export class TikHub {
         platform: 'instagram',
         handle,
         user_id: u?.id ?? u?.pk,
-        nickname: u?.full_name ?? '',   // p1-ok: 展示用
+        nickname: u?.full_name ?? '',   // P1 例外：展示用
         // followers / post_count / bio 搜索结果里都没有 —— 保持 undefined 等 profile 补全
         bio_links: [],
         verified: Boolean(u?.is_verified),
@@ -240,7 +240,7 @@ export class TikHub {
         platform: 'instagram' as Platform,
         handle,
         user_id: u?.id ?? u?.pk,
-        nickname: u?.full_name ?? '',   // p1-ok: 展示用
+        nickname: u?.full_name ?? '',   // P1 例外：展示用
         bio_links: [],
         verified: Boolean(u?.is_verified),
         is_private: Boolean(u?.is_private),
@@ -263,7 +263,7 @@ export class TikHub {
       u = raw?.data?.user ?? raw?.data ?? {}
     }
     const links: string[] = []
-    for (const l of u?.bio_links ?? []) {   // p1-ok: 缺失→无外链→不合并，符合 D3「不确定不合并」的安全方向
+    for (const l of u?.bio_links ?? []) {   // P1 例外：缺失→无外链→不合并，符合 D3「不确定不合并」的安全方向
       const url = typeof l === 'string' ? l : (l?.url ?? l?.link)
       if (url) links.push(url)
     }
@@ -272,7 +272,7 @@ export class TikHub {
     return {
       user_id: u?.pk ?? u?.id ?? undefined,
       nickname: u?.full_name || undefined,
-      bio: u?.biography ?? null,   // p1-ok: 同上，profile 查回来了，biography 空就是「查过，没写」
+      bio: u?.biography ?? null,   // P1 例外：同上，profile 查回来了，biography 空就是「查过，没写」
       bio_links: links,
       followers: u?.follower_count ?? undefined,
       following: u?.following_count ?? undefined,
@@ -309,7 +309,7 @@ export class TikHub {
     const posts = list.map((item: any): NormalizedPublicPost => {
       const stats = item?.statistics
       return {
-        id: String(item?.aweme_id ?? item?.id ?? ''),   // p1-ok: 标识仅用于样本追溯，不参与决策
+        id: String(item?.aweme_id ?? item?.id ?? ''),   // P1 例外：标识仅用于样本追溯，不参与决策
         views: finiteNumber(stats?.play_count),
         likes: finiteNumber(stats?.digg_count),
         comments: finiteNumber(stats?.comment_count),
@@ -339,12 +339,12 @@ export class TikHub {
       item?.is_video === true || item?.media_type === 2 || item?.media_format === 'video' ||
       item?.media_name === 'reel' || item?.product_type === 'clips')
     const posts = videos.slice(0, 12).map((item: any): NormalizedPublicPost => ({
-      id: String(item?.id ?? item?.pk ?? item?.code ?? ''),   // p1-ok: 标识仅用于样本追溯，不参与决策
-      views: finiteNumber(item?.play_count) ?? finiteNumber(item?.ig_play_count), // p1-ok: 同一指标的两个真实字段别名，不是缺失数据兜底
+      id: String(item?.id ?? item?.pk ?? item?.code ?? ''),   // P1 例外：标识仅用于样本追溯，不参与决策
+      views: finiteNumber(item?.play_count) ?? finiteNumber(item?.ig_play_count), // P1 例外：同一指标的两个真实字段别名，不是缺失数据兜底
       likes: finiteNumber(item?.like_count),
       comments: finiteNumber(item?.comment_count),
       shares: finiteNumber(item?.reshare_count),
-      published_at: isoFromUnix(item?.taken_at) ?? isoFromUnix(item?.taken_at_ts), // p1-ok: 同一时间字段的响应别名
+      published_at: isoFromUnix(item?.taken_at) ?? isoFromUnix(item?.taken_at_ts), // P1 例外：同一时间字段的响应别名
       is_pinned: item?.is_pinned === undefined ? undefined : Boolean(item.is_pinned),
     }))
     const data = raw?.data?.data ?? raw?.data
@@ -374,5 +374,5 @@ export function fillEmail(c: Creator): void {
   c.email = c.bio === undefined ? undefined
     // 查过、对方没写简介 —— 那就是「查过，没有邮箱」，不是「没查过」
     : c.bio === null ? null
-      : (extractEmail(c.bio) ?? null)   // p1-ok: 三态本身——bio 已取到而提取不出，才是「查过，没有」，这正是 null 的正确用法
+      : (extractEmail(c.bio) ?? null)   // P1 例外：三态本身——bio 已取到而提取不出，才是「查过，没有」，这正是 null 的正确用法
 }

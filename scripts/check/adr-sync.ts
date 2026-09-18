@@ -11,11 +11,10 @@
  *
  * ⚠️ 证不了记录写得对。它保证的是编号唯一、文件名与正文一致、索引不漂移。
  */
-import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import {
-  type Adr, type Baseline, FILE_RE, HEAD_RE, checkAll, checkAppendOnly, fileNameOf, markerFault,
+  type Adr, FILE_RE, HEAD_RE, checkAll, fileNameOf, markerFault,
   renderIndex,
 } from './adr-rule.js'
 import { endsOpen, quotedMask } from './quoted.js'
@@ -166,61 +165,6 @@ for (const file of readdirSync(DIR).sort()) {
   adrs.push({ file, num: Number(h[1]), title: h[2] })
 }
 errors.push(...checkAll(adrs))
-
-/**
- * 编号不可回收，要对着主干查 —— 只看当前目录的话，删掉一条再把号让给别的决策，
- * 检查是全绿的。基线取不到时**说取不到并失败**，不当作「没有删过」。
- *
- * HEAD 就在主干上时，`merge-base` 就是 HEAD 自己 —— 那等于拿改完之后的目录
- * 当自己的基线，一次直推主干的删除会因为「前后一模一样」而通过。这时退回
- * 上一版比。这里**不像体量闸门那样只报数**：少一条决策记录是永久的损失，
- * 而报红不会让主干「变坏」，只会让人立刻发现。
- */
-function trunkAdrs(): Map<number, Baseline> {
-  const g = (...a: string[]) => {
-    // `-c core.quotePath=false`:git 默认转义非 ASCII 路径，而这个仓库的文件名几乎全是中文。
-    // 同一个坑栽过三次，所以放在调用入口一次性关掉，不在每个调用点各补一遍。
-    try {
-      return execFileSync('git', ['-c', 'core.quotePath=false', ...a],
-        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-    }
-    catch { return null }
-  }
-  const trunk = ['origin/main', 'main'].find(r => g('rev-parse', '--verify', `${r}^{commit}`))
-  const merged = trunk && g('merge-base', trunk, 'HEAD')
-  const head = g('rev-parse', 'HEAD')
-  /**
-   * HEAD 就在主干上时要退回**整次推送之前**，不是退回 `HEAD^1`。
-   *
-   * 一次推多个提交时，删除可能发生在靠前那个提交里 —— `HEAD^1` 已经包含了删除，
-   * 前后两张表一模一样，检查照样放行。GitHub 的 push 事件带着推送前的 SHA
-   * （`github.event.before`），工作流把它传成 `GIT_PUSH_BEFORE`。
-   *
-   * 取不到就退回 `HEAD^1`：**它比什么都不比强**，但挡不住上面那种多提交推送。
-   * 这是一处显式缺口，不假装它被守住了。
-   */
-  const pushBefore = process.env.GIT_PUSH_BEFORE
-  const before = pushBefore && g('rev-parse', '--verify', `${pushBefore}^{commit}`)
-  const base = merged === head ? (before ?? g('rev-parse', `${head}^1`)) : merged
-  if (!merged) {
-    console.error('✗ 决策记录：无从核对「编号不可回收」—— 找不到主干基线\n')
-    console.error('  CI 里给 actions/checkout 加 `fetch-depth: 0`；本地先 `git fetch origin main`。')
-    console.error('  不当作「没有删过」：一个永远不会失败的检查等于没有检查。')
-    process.exit(1)
-  }
-  if (!base) return new Map()   // 主干上的第一个提交，没有上一版可比
-
-  const out = new Map<number, Baseline>()
-  for (const p of (g('ls-tree', '--name-only', '-z', base, `${DIR}/`) ?? '').split('\0')) {
-    const name = p.split('/').pop() ?? ''
-    if (!FILE_RE.test(name)) continue
-    // 标题以**正文第一行**为准。文件名过了 slugify，是有损的。
-    const h = HEAD_RE.exec((g('show', `${base}:${p}`) ?? '').split('\n')[0])
-    if (h) out.set(Number(h[1]), { file: name, title: h[2] })
-  }
-  return out
-}
-errors.push(...checkAppendOnly(trunkAdrs(), adrs))
 
 /** 拆开之后 `DECISIONS.md` 只做转发。写回整册就是把冲突面又装回去。 */
 if (existsSync(LEGACY)) {

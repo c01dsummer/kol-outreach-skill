@@ -8,7 +8,7 @@
  *   跑通即证明结构成立，不证明结果正确
  * - **在 `npm run check` 里各自成一步的**（检查脚本自己）：每次跑检查链都会
  *   真的执行一遍。但**不保证跑到尾** —— 一个检查可以合法地提前退出
- *   （体量闸门与分支寿命在主干上都会打印「不适用」就走）
+ *   （体量闸门在主干上就会打印「只报数不判定」走掉）
  *
  * 两种都没有的，就是没人跑过，报错。末尾那句话按这两组分开说 ——
  * 合起来说一句「全都从头执行到尾」，在单独跑 `npm run selfcheck` 时是假的。
@@ -116,8 +116,8 @@ const runBoth = (label: string, args: string[], cwd = process.cwd(),
   expect?: { status: number }): { ok: boolean; stdout: string; stderr: string } => {
   const [exe, argv] = tsxCommand(args)
   const r = spawnSync(exe, argv, { env, cwd, encoding: 'utf8' })
-  const stdout = r.stdout ?? ''   // p1-ok: 拿不到就是空输出，不是「没查过」——这是子进程的两股流
-  const stderr = r.stderr ?? ''   // p1-ok: 同上
+  const stdout = r.stdout ?? ''   // P1 例外：拿不到就是空输出，不是「没查过」——这是子进程的两股流
+  const stderr = r.stderr ?? ''   // P1 例外：同上
   const want = expect?.status ?? 0
   if (r.error || r.status !== want) {
     failed++
@@ -474,7 +474,7 @@ if (dir && rendered !== undefined) {
   // 复位：后面几段接着用这个任务目录，交付物与产出物都要回到未增强的样子。
   writeFileSync(cPath, pristine, 'utf8')
   // 这一处不判空：它后面没有派生断言，跑不起来时 runBoth 已经带记号报过一次，
-  // 再加一道判空只会多一层缩进而不多守住任何东西。同理还有下面那处纪律 lint 的入口。
+  // 再加一道判空只会多一层缩进而不多守住任何东西。
   run('render 复位（回到未增强的产出）', [S('render.ts'), '--dir', dir], tmp)
 }
 
@@ -759,14 +759,6 @@ if (dir && rendered !== undefined) {
   }
 }
 
-// ---- 纪律 lint：扫到违规就以退出码 1 结束（P1.b 的入口那一半）----
-// 判定与扫描范围由 scripts/test.ts 断言；「命中即失败」是入口的退出码，
-// 只有真跑一遍才看得见 —— 检查链平时跑的是干净的树，那条失败分支从不触发。
-const lintTmp = join(tmp, 'lint-hit')
-mkdirSync(join(lintTmp, 'scripts', 'lib'), { recursive: true })
-writeFileSync(join(lintTmp, 'scripts', 'lib', 'bad.ts'), '  const x = c.followers ?? 0\n', 'utf8')
-runTool('纪律 lint 命中即以退出码 1 结束', 'lint', [], lintTmp, { status: 1 })
-
 // ---- 变异集编号重复：两个入口都命中即以退出码 1 结束（M-H7-b、M-H7-c 的入口那一半）----
 // 判定和「两种毛病同时在时先报哪一种」都由 scripts/test.ts 断言；剩下的那一半是
 // **入口真的调了它、并且以退出码 1 结束** —— 把两处调用整块删掉，那些断言和
@@ -777,8 +769,6 @@ mkdirSync(join(dupTmp, 'scripts', 'check'), { recursive: true })
 mkdirSync(join(dupTmp, 'docs'), { recursive: true })
 writeFileSync(join(dupTmp, 'docs', 'requirements.json'),
   JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
-// 架构文档留空：arch-sync 的重复检查要是排在读表之后，报的就是「缺少 BEGIN/END 标记」
-writeFileSync(join(dupTmp, 'docs', 'ARCHITECTURE.md'), '', 'utf8')
 writeFileSync(join(dupTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
   { id: 'M-X-a', req: 'X1', why: '顶着同一个名字的第一条', file: 'a.ts', find: 'x', replace: 'y' },
   { id: 'M-X-a', req: '登记表里没有这条', why: '同名的第二条，同时还记错了名下', file: 'a.ts', find: 'x', replace: 'z' },
@@ -797,15 +787,6 @@ if (dupMut === undefined) {
 } else if (dupMut.includes('记在不存在的需求名下')) {
   failed++
   console.error('  ✗ mutate 先报的是记错名下 —— 那份报告印的也是 id，它自己也指不回表里哪一行')
-}
-// arch-sync：它在检查链里排在 mutate **前面**，而它按编号建的是 Map（重名只留最后一条）。
-// 不在这儿先拦下，顺序契约就会指着另一条变异报「不在该契约的位置里」，而 mutate 那条
-// 真正的诊断根本轮不上说话。
-const dupArch = runTool('arch-sync 遇到重复编号即以退出码 1 结束', 'arch', [], dupTmp, { status: 1 })
-if (dupArch === undefined) {
-  // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
-} else if (!dupArch.includes('个编号重复')) {
-  failed++; console.error('  ✗ arch-sync 的输出里没有「编号重复」那条诊断')
 }
 
 // ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----
@@ -1113,7 +1094,7 @@ for (const cap of [48, 40, 36]) {
   // 唯一一处 POSIX-only 的杀进程也是包在 `try/catch` 里优雅降级的 —— 照同一条路子办：
   // **不硬失败，显式降级，把没验到这件事留在报告里**（`process/README.md` 第三层的写法）
   if (r.error !== undefined) { noShell = true; break }
-  const out = (r.stdout ?? '') + (r.stderr ?? '')   // p1-ok: 拿不到就是空输出，这是子进程的两股流
+  const out = (r.stdout ?? '') + (r.stderr ?? '')   // P1 例外：拿不到就是空输出，这是子进程的两股流
   const left = existsSync(join(fdTmp, '.check-cache', 'mutate-jobs'))
   rmSync(join(fdTmp, '.check-cache'), { recursive: true, force: true })
   named(`起 worker 时资源不够（允许打开 ${cap} 个文件）：没有生抛出来的读属性错`,

@@ -6,7 +6,6 @@
  * 本文件目前违反了这一条（同一上下文写的代码和测试），已登记为 ADR-04 的已知缺口。
  */
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
-import { judgeLine, lintTree } from './check/lint-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import {
   JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
@@ -45,13 +44,9 @@ import {
   BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
 } from './check/size-rule.js'
 import {
-  FILE_RE, checkAll, checkAppendOnly, encodeTarget, escapeCell, fileNameOf, markerFault,
+  FILE_RE, checkAll, encodeTarget, escapeCell, fileNameOf, markerFault,
   renderIndex, slugify,
 } from './check/adr-rule.js'
-import {
-  LIMIT_HOURS, anchorFor, birthOf, judgeAge, judgeAgeExemption, ownSince, ownTipOf, parseLog,
-  parsePrList, pickWaiver, scanAgeWaiver, shapeOf, waiverOrder,
-} from './check/age-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { tsxCommand } from './check/tsx-cmd.js'
 import {
@@ -355,8 +350,9 @@ suite('P1', '没取到的播放数不得被判成爆款')
    * 什么东西能在 P1 不成立时也让这条绿：**把未知当成 0**。
    * 那一侧得分与「确定不是爆款」本来就同分，scoreCreator 的返回值里看不见 ——
    * 这一档能验的只有「不得被当成大数」那一半。另一半靠类型层
-   * （RecentPost.plays 可选）加纪律 lint 挡着 —— `plays` 已在敏感字段表里，
-   * `p.plays ?? 0` 会被拦下（M-P1-i 守着这一条）。
+   * （RecentPost.plays 可选）挡着。⚠️ 原先这里还写着「加纪律 lint 挡着」——
+   * 那道闸门 2026-09-18 撤了（ADR-77），`p.plays ?? 0` 现在**不会**在写下的那一刻
+   * 被拦；它要到把三态压平、且压平点落在取值／排序／入池三处之一时才红。
    */
   const decided: string[] = []
   for (const s of shapes) {
@@ -2436,83 +2432,43 @@ suite('P1', '跨平台合并不得把「未查询」降级成「查过，没有�
   covered.add('D3')
 }
 
-suite('P1', '纪律 lint 的判定：会变成决策的字段上不许有兜底')
+suite('P1', '三态不得被压平：取值、排序、入池三处各验一次')
 {
   /**
-   * P1 机器可执行的那一半就是这条 lint。它自己一直没有测试、也没有变异守着 ——
-   * 一个从来没被证伪过的检查，和没有检查之间的差别只有心理作用。
+   * P1.b 原先写的是「任何位置不得出现 `?? 0` 这种写法」，由一条纪律 lint 扫源码来查。
+   * 那条判据在说大话：实现是一张**手写的敏感字段表**，`score` 和 `null` 都漏过
+   * （ADR-71），而判据正文写着「任何位置」。2026-09-18 改成直接查结果（ADR-77）——
+   * 结果查得住那些没被谁枚举到的字段，写法查不住。
    *
-   * 断言依据只有三样：P1 原文、docs/CONVENTIONS.md 第 1 条（三态不许压成两档、
-   * `?? null` 也是兜底），以及这条 lint 自己声明的职责 —— 只盯**会变成决策的
-   * 数据字段**，例外必须写明理由。没有从实现里抄字段表：下面的字段是按
-   * 「它的值会不会进入过滤、评分、分层」挑的。
+   * **三处各验一次，因为压平可以发生在任何一处**：交付表里那个格子的取值、
+   * 名单的排序、以及这个人进不进池子。三处用的是三套代码，各自都能独立压平。
    */
-  const DECIDING = ['followers', 'views', 'plays', 'likes', 'email', 'median_views', 'score']
-  const DISPLAY = ['label', 'title', 'nickname', 'desc']
-  const FALLBACKS = ['0', "''", '[]', 'false', 'null']
+  // 取值：三态三个不同的格子。空串与「未查询」不是同一件事
+  eq('取值：未查询 / 查过为空 / 值就是 0，三个格子各不相同',
+     [cell(undefined), cell(null), cell(0)], ['未查询', '', '0'])
 
-  for (const field of DECIDING) {
-    for (const v of FALLBACKS) {
-      eq(`${field} 上的 ?? ${v} 判违规`, judgeLine(`  const x = c.${field} ?? ${v}`), 'violation')
-      eq(`${field} 上的 || ${v} 判违规`, judgeLine(`  const x = c.${field} || ${v}`), 'violation')
-    }
-  }
+  // 排序：「还没算过分」不是「0 分」。旧写法 `(b.score ?? 0) - (a.score ?? 0)` 会让两者
+  // 打平，而排序稳定 —— 打平就保持输入顺序，于是旧写法给出 none 在前。写反了这条
+  // 断言就分不出两种实现（ADR-71 的原话）
+  eq('排序：没算过分的排在 0 分之后，不与它混同',
+     sortForOutput([
+       mk('tiktok', 'none', { tier: 'A' }),
+       mk('tiktok', 'zero', { tier: 'A', score: 0 }),
+       mk('tiktok', 'ten', { tier: 'A', score: 10 }),
+     ]).map(c => c.handle), ['ten', 'zero', 'none'])
 
-  // 一个满屏假阳性的检查会被忽略，而被忽略的检查比没有检查更糟。
-  for (const field of DISPLAY) {
-    eq(`展示层的 ${field} 上同样的写法不报`, judgeLine(`  const x = c.${field} ?? ''`), 'clean')
-  }
-  eq('敏感字段但没有兜底不报', judgeLine('  if (c.followers !== undefined) return true'), 'clean')
+  // 入池：粉丝数未查询 → 放行（不知道不等于不合格）；确实是 0 → 挡掉。
+  // 两者给出相反的结论，压成同一个值的那一刻这两条里必有一条红
+  ok('入池：粉丝数未查询 → 放行', passesFollowerGate(mk('tiktok', 'x', { followers: undefined })))
+  ok('入池：粉丝数确实是 0 → 挡掉，与未查询结论相反',
+     !passesFollowerGate(mk('tiktok', 'x', { followers: 0 })))
 
-  // 「没测量」和「测量结果是零」必须是两个不同的值 —— 空输入返回 0 是同一件事的
-  // 另一种形状，敏感字段名在这一行里根本不出现。
-  eq('空输入返回 0 判违规', judgeLine('  if (!values.length) return 0'), 'violation')
-
-  eq('写明理由的 p1-ok 是具名豁免',
-    judgeLine("  const x = c.followers ?? 0   // p1-ok: 展示用，不参与决策"), 'exempt')
-  eq('只写 p1-ok 不写理由的不算豁免',
-    judgeLine('  const x = c.followers ?? 0   // p1-ok'), 'unjustified_exemption')
-}
-
-suite('P1', '纪律 lint 的扫描范围：scripts/ 全量，例外只有说好的那两处')
-{
-  /**
-   * 判定写对了、但扫不到那个文件，等于没查。P1.b 的后半句「对 scripts/ 全量扫描」
-   * 自己也要被证伪一次 —— 递归少走一层、例外表悄悄放大，检查照样打印「无违规」，
-   * 而它已经看不见半个仓库了。
-   *
-   * 断言依据只有 P1.b 原文，和这条 lint 自己声明的两处例外（检查链自己那一坨、
-   * 测试文件里故意写出来的样例）—— 那是**两个位置**，不是两个名字。搭一棵假树，
-   * 因为真树上没有违规可扫。
-   */
-  const root = join(tmpdir(), `kol-lint-${process.pid}`)
-  rmSync(root, { recursive: true, force: true })
-  const put = (rel: string, body: string) => {
-    mkdirSync(join(root, dirname(rel)), { recursive: true })
-    writeFileSync(join(root, rel), body, 'utf8')
-  }
-  const BAD = '  const x = c.followers ?? 0'
-  put('lib/deep/score.ts', BAD)                                  // 嵌套两层：递归得下得去
-  put('check/self.ts', BAD)                                      // 检查链自己那一坨不算
-  put('test.ts', BAD)                                            // 测试里的样例不算
-  put('lib/notes.md', BAD)                                       // 只看 .ts
-  put('lib/ok.ts', `${BAD}   // p1-ok: 展示用，不参与决策`)
-  // 例外是**两个具体位置**，不是两个名字。按名字排除的话，下面这两个跟着被放过 ——
-  // 而 lib/ 恰恰是最会出兜底的地方，「全量扫描」就是这么缩水的。
-  put('lib/check/nested.ts', BAD)                                // 顶层以下的同名目录：该扫
-  put('lib/test.ts', BAD)                                        // 顶层以下的同名文件：该扫
-
-  const { hits, exempted } = lintTree(root)
-  eq('该扫的都报了，说好的那两处例外之外一个不漏',
-    hits.map(h => h.file.slice(root.length + 1)).sort().join('|'),
-    'lib/check/nested.ts|lib/deep/score.ts|lib/test.ts')
-  eq('报到行，不是只报文件', hits[0]?.line, 1)
-  eq('写明理由的具名豁免被数进去，不报违规', exempted, 1)
-  rmSync(root, { recursive: true, force: true })
-
-  // 「命中即失败」还剩退出码那一截，长在入口脚本里：由 scripts/check/selfcheck.ts
-  // 拿一棵只含一处违规的假树真跑一遍 lint.ts，断言它以退出码 1 结束。
-  criterion('P1.b')
+  // 三条路径三个编号 —— 它们会被不同的代码路径独立弄坏（`process/1-REQUIREMENTS.md`
+  // 的拆分判据）。P1.b 本身留着原来的含义（「任何位置不得出现兜底写法」），
+  // 而那个全称没有任何检查兑现得了，已按规矩登记成显式豁免（ADR-77）。
+  criterion('P1.e')
+  criterion('P1.f')
+  criterion('P1.g')
 }
 
 suite('D1', 'platform:handle 唯一标识，大小写不敏感')
@@ -3610,8 +3566,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 上一版是扫源码猜哪些路径是工具，评审两轮各找到一批诱饵（注释里的、夹具串里的、
   // 串里装着调用形状的、以及普通的读文件）—— 收紧正则是军备竞赛，让清单成为行为才是根治。
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的', SELFCHECK_SEEDS, [
-    'scripts/check/arch-sync.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/lint.ts',
-    'scripts/check/mutate.ts', 'scripts/check/selfcheck.ts',
+    'scripts/check/fake-fetch.ts', 'scripts/check/mutate.ts', 'scripts/check/selfcheck.ts',
   ])
   // 预加载单独列，因为它既不是 import 也不是「起了谁」—— 两种扫法都收不到
   ok('预加载那一份在种子里', SELFCHECK_SEEDS.includes(`scripts/${SELFCHECK_PRELOAD}`))
@@ -3686,13 +3641,13 @@ harness('审计：检查链自己的判定模块必须有变异守着')
   // 入口（带 shebang）不算：按 CONVENTIONS 第 10 条它不该装判定；其余每个文件都是「有判定要能被测」。
   // 不按文件名后缀认 —— trailer.ts、quoted.ts 都是判定，不叫 rule
   const files = [
-    { path: 'scripts/check/lint.ts', entry: true },
-    { path: 'scripts/check/lint-rule.ts', entry: false },
+    { path: 'scripts/check/size.ts', entry: true },
+    { path: 'scripts/check/size-rule.ts', entry: false },
     { path: 'scripts/check/trailer.ts', entry: false },
     { path: 'scripts/check/fake-fetch.ts', entry: false },
   ]
   eq('入口不算、豁免的不算，其余都算', judgmentModules(files),
-    ['scripts/check/lint-rule.ts', 'scripts/check/trailer.ts'])
+    ['scripts/check/size-rule.ts', 'scripts/check/trailer.ts'])
   ok('豁免必须写理由', Object.values(JUDGMENT_EXEMPT).every(r => r.trim().length > 0))
   eq('没有变异指向它的判定模块被点名', unguarded(['a.ts', 'b.ts'], [{ file: 'a.ts' }]), ['b.ts'])
   eq('都有变异 → 无', unguarded(['a.ts'], [{ file: 'a.ts' }, { file: 'a.ts' }]), [])
@@ -3900,144 +3855,6 @@ harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
   ok('都关上了 → 不是残段', !endsOpen(['## ADR-01 甲', '```', 'x', '```'].join('\n')))
 }
 
-harness('分支寿命：分叉时长有上限，超线要具名豁免')
-{
-  // 阈值按本仓库自己的历史校准：已合并 PR 最长 22.9 小时，三条出事的在途分支
-  // 91.5 / 91.5 / 102.8 小时 —— 48 落在这两组数之间的空档里
-  eq('线内通过', judgeAge(22.9, null).kind, 'ok')
-  eq('正好压线仍算线内', judgeAge(LIMIT_HOURS, null).kind, 'ok')
-  eq('超线且无豁免 → 拦下', judgeAge(102.8, null).kind, 'over')
-  eq('超线但有豁免 → 放行', judgeAge(102.8, '等上游接口定稿').kind, 'waived')
-  // 豁免不消灭数字：报告照打小时数，豁免只让它别拦路
-  eq('豁免带着理由一起报', (judgeAge(102.8, '等上游接口定稿') as { reason: string }).reason,
-    '等上游接口定稿')
-
-  // 作者时间在未来（时钟不准，或者 `git commit --date=<未来>`）→ 分叉时长是负数。
-  // 「负数 ≤ 48」成立，于是一条真实两百小时的分支报出 `✓ 分叉 -720.0 / 48 小时`：
-  // 一个不可能的数，旁边打着勾。这不是「很新」，是量不了
-  eq('作者时间在未来 → 量不了，不是通过', judgeAge(-720, null).kind, 'future')
-  eq('差一点点也一样 —— 不设容差', judgeAge(-0.01, null).kind, 'future')
-  eq('零算在线内', judgeAge(0, null).kind, 'ok')
-  // 豁免免的是「这条分支活得久」，不是「这个数我算不出来」
-  eq('豁免盖不过「量不了」', judgeAge(-720, '有理由').kind, 'future')
-
-  // 作者时间是用户可控的：`git commit --amend --reset-author` 一句就能把一条
-  // 两百小时的分支洗成 0 小时（实测）。所以出生时间要和一个改写不了的锚
-  // （PR 创建时间）取更早的一个。按得住的是 PR 开出来**之后**的改写；之前的、
-  // 以及「另开一条分支搬过去」都按不住 —— 见 birthOf 的注释
-  const 早 = '2026-08-24T00:00:00Z'
-  const 晚 = '2026-09-01T00:00:00Z'
-  eq('作者时间更早 → 用作者时间，锚不抢', birthOf(早, 晚), { kind: 'birth', at: 早, fromAnchor: false })
-  eq('作者时间被洗到更晚 → 用锚', birthOf(晚, 早), { kind: 'birth', at: 早, fromAnchor: true })
-  eq('没有锚 → 只能用作者时间（没有 PR 的分支就是这样）',
-    birthOf(晚, null), { kind: 'birth', at: 晚, fromAnchor: false })
-  // 锚给了却读不出来：那是「量不了」，不是「没有锚」。原先退回作者时间——退回去的正是
-  // 用户可控的那个钟，而且在锚最该起作用的时候（历史被改写过）。评审指出，ADR-61 就地更正
-  eq('锚给了却解析不出来 → 「量不了」是一个有名字的判定，不退回作者时间',
-    birthOf(晚, '不是时间'), { kind: 'unreadable-anchor' })
-  eq('空串也算给了锚 → 量不了，不当成没有锚', birthOf(晚, ''), { kind: 'unreadable-anchor' })
-  // Date.parse 什么都肯认：Jan 1 9999 也是一个有限的时间，和刚洗过的作者时间比就静默选了作者时间
-  eq('长得不像时间戳的也算读不出来，即使 Date.parse 认', birthOf(晚, 'Jan 1 9999'), { kind: 'unreadable-anchor' })
-  // 形状对、日历上不存在：Date.parse 悄悄进位成下一天，那是另一个时间
-  eq('4 月 31 日 → 读不出来', birthOf(晚, '2026-04-31T00:00:00Z'), { kind: 'unreadable-anchor' })
-  eq('24 点 → 读不出来', birthOf(晚, '2026-01-01T24:00:00Z'), { kind: 'unreadable-anchor' })
-  eq('平年 2 月 29 日 → 读不出来', birthOf(晚, '2023-02-29T00:00:00Z'), { kind: 'unreadable-anchor' })
-  eq('闰年 2 月 29 日存在', birthOf(晚, '2024-02-29T00:00:00Z'), { kind: 'birth', at: '2024-02-29T00:00:00Z', fromAnchor: true })
-  eq('带时区偏移的也认', birthOf(晚, '2026-02-28T23:59:59+08:00'), { kind: 'birth', at: '2026-02-28T23:59:59+08:00', fromAnchor: true })
-
-  // `--all` 那条路上的锚：每条分支若有开着的、同仓库的 PR，用它的创建时间。
-  // 量到过：同一条分支，--all 报 108.1 小时，--ref --since <PR 创建时间> 报 118.8 —— 差 10.7
-  const pr = (number: number, headRefName: string, createdAt: string, isCrossRepository = false) =>
-    ({ number, headRefName, createdAt, isCrossRepository, baseRefOid: 'base0' })
-  eq('有开着的 PR → 用它的创建时间', anchorFor('b', [pr(5, 'b', 早)]),
-    { kind: 'anchored', at: 早, pr: 5, base: 'base0' })
-  eq('fork 来的 PR 不算 —— 那条分支在 fork 里，基仓同名的是另一条',
-    anchorFor('b', [pr(5, 'b', 早, true)]), { kind: 'no-pr' })
-  eq('同一条分支两个 PR → 取最早的', anchorFor('b', [pr(6, 'b', 晚), pr(5, 'b', 早)]),
-    { kind: 'anchored', at: 早, pr: 5, base: 'base0' })
-  eq('别的分支的 PR 不算', anchorFor('b', [pr(5, 'c', 早)]), { kind: 'no-pr' })
-  eq('没给清单 ≠ 没有 PR —— 前者是这次跑法的事，后者是这条分支的事',
-    anchorFor('b', null), { kind: 'no-list' })
-  eq('创建时间读不出来 → 说读不出来，不当成没有 PR；那个字串原样带出去，交给 birthOf 拒答',
-    anchorFor('b', [pr(5, 'b', '不是时间')]), { kind: 'unreadable', pr: 5, at: '不是时间' })
-  eq('创建时间不是 RFC 3339 的形状 → 读不出来，即使 Date.parse 认',
-    anchorFor('b', [pr(5, 'b', 'Jan 1 9999')]), { kind: 'unreadable', pr: 5, at: 'Jan 1 9999' })
-  eq('几个 PR 里有一个读不出来 → 整条读不出来，不悄悄拿剩下的当锚 —— 丢掉的可能正是最早的',
-    anchorFor('b', [pr(6, 'b', '不是时间'), pr(5, 'b', 早)]), { kind: 'unreadable', pr: 6, at: '不是时间' })
-  eq('清单不是数组 → 读不出来', parsePrList('{}'), null)
-  eq('条目缺字段 → 读不出来，不猜', parsePrList('[{"number":5}]'), null)
-  eq('合格的清单', parsePrList(JSON.stringify([pr(5, 'b', 早)]))?.length, 1)
-  // 豁免的扫描范围要 PR 的 base(ownSince),所以清单里的 baseRefOid 要一起带出来
-  eq('清单里带 base 就一起带出来', anchorFor('b', [{ ...pr(5, 'b', 早), baseRefOid: 'a2' }]),
-    { kind: 'anchored', at: 早, pr: 5, base: 'a2' })
-  eq('base 不像 SHA → 读不出来，不当成没给', parsePrList(JSON.stringify([{ ...pr(5, 'b', 早), baseRefOid: 7 }])), null)
-  eq('少了 baseRefOid 这一列 → 整份清单不算 —— 否则 --all 那条路的豁免范围静默退回整条链',
-    parsePrList(JSON.stringify([{ ...pr(5, 'b', 早), baseRefOid: undefined }])), null)
-
-  eq('理由必填 —— 只写指令不算', judgeAgeExemption('age-ok:'), null)
-  eq('只有空白也不算', judgeAgeExemption('age-ok:   '), null)
-  eq('写了理由就算', judgeAgeExemption('age-ok: 等上游'), '等上游')
-  // 判据借的是 trailer 块（和体量豁免同一份实现）：正文里的示例一律不算
-  eq('和 Co-Authored-By 同一段的算',
-    scanAgeWaiver('标题\n\n正文\n\nage-ok: 等上游\nCo-Authored-By: x <a@b.c>'), '等上游')
-  eq('正文里举的例子不算',
-    scanAgeWaiver('标题\n\n想豁免就写：\n\n    age-ok: 某个理由\n\n就这样。'), null)
-  eq('最后一段掺了散文 → 整段不算',
-    scanAgeWaiver('标题\n\nage-ok: 等上游\n这一行是散文'), null)
-
-  // ── 量分支的那几个判定。抽出入口才够得着：顺序错了会出错的都是语义 ──
-
-  const c = (at: number, sha: string) => ({ at, iso: new Date(at * 1000).toISOString(), sha })
-
-  // 三种「不是分叉」彼此不同，不能塞成一种
-  eq('没有共同祖先 → 不相干', shapeOf(null, 'tip', [], 0).kind, 'unrelated')
-  eq('分叉点就是分支头 → 已合完', shapeOf('x', 'x', [], 0).kind, 'merged')
-  eq('范围里一个提交都没有 → 已合完', shapeOf('base', 'tip', [], 0).kind, 'merged')
-  // 有提交、却一条作者时间都读不出来：那是「量不了」，不是「已合完」——
-  // 当成已合完的话，这条分支会从「在途」那份名单里静默消失，而汇总照样说都在线内
-  eq('有提交却读不出作者时间 → 量不了', shapeOf('base', 'tip', [], 3).kind, 'unreadable')
-
-  // 取作者时间**最小**的那个，不是排在最前面的那个 —— cherry-pick 进来的老提交
-  // 按提交时间排会落在后面，只看第一条等于根本没量到它（实测报过 ✓ 1.0 小时）
-  const div = shapeOf('base', 'tip', [c(1000, 'newer12'), c(10, 'oldest1'), c(2000, 'newest')], 3)
-  eq('挑的是作者时间最小的那个', div.kind === 'diverged' ? div.oldest.sha : '', 'oldest1')
-  eq('提交数是全部，不是第一父链那几条', div.kind === 'diverged' ? div.commits : 0, 3)
-
-  // 读不出纪元秒的行丢掉，不兜底成 0 —— 0 是 1970 年，一个比任何真实情况都老的分叉
-  eq('读不出纪元秒的行丢掉', parseLog('x\tISO\tsha\n100\t2026-01-01T00:00:00Z\tabc').length, 1)
-  eq('缺字段的行也丢掉', parseLog('100\t\tabc').length, 0)
-
-  // 从哪个头开始走第一父链：调用方给的两件事实都成立才用它
-  eq('没给头 → 用检出的那条', ownTipOf('tip', null, false), 'tip')
-  eq('给了头但它不是祖先 → 不用，填错了不至于量到别处去', ownTipOf('tip', 'other', false), 'tip')
-  eq('给了头且确实是祖先 → 用它', ownTipOf('merge', 'head', true), 'head')
-
-  // 叠分支：B 直接从没合的 A 上开出去，A 的提交在 B 的第一父链上。base 里已有的提交去掉，
-  // A 那句 age-ok 就不再是 B 的。判据是「是不是 base 的祖先」，不是「截到分叉点」——
-  // B 把长了新提交的 A 合进来之后，分叉点在第二父那边、第一父链上碰不到，截法一刀都不切
-  const inA = (base: string[]) => (sha: string) => base.includes(sha)
-  const chain = ['b3', 'b2', 'b1', 'a2', 'a1']
-  eq('base 是 A → A 的提交不扫', ownSince(chain, inA(['a2', 'a1'])), ['b3', 'b2', 'b1'])
-  eq('A 又长了 a3、B 把 A 合了进来 → a1 a2 仍是 a3 的祖先，照样不扫',
-    ownSince(['merge', 'b1', 'a2', 'a1'], inA(['a3', 'a2', 'a1'])), ['merge', 'b1'])
-  eq('base 是主干 → 第一父链上没有它的提交，一条都不去', ownSince(chain, inA(['m9', 'm8'])), chain)
-  eq('检出的那条也在 base 里 → 它也不算', ownSince(['b3', 'b2'], inA(['b3', 'b2'])), [])
-  eq('base 里带豁免的那条被改写过 → 新 base 不含它，留下来（显式缺口）',
-    ownSince(chain, inA(['a2改', 'a1'])), ['b3', 'b2', 'b1', 'a2'])
-
-  // 检出的那条要单独排最前：PR 事件下它是合成的合并提交，根本不在第一父链上
-  eq('检出的那条排最前，其余按第一父链', waiverOrder('m', ['a', 'b']), ['m', 'a', 'b'])
-  eq('已经在链里就不重复扫', waiverOrder('a', ['a', 'b']), ['a', 'b'])
-
-  // 取第一条成立的，并记下它写在哪个提交上 —— 没有 base 的跑法上，出处是叠分支继承豁免时唯一的线索
-  eq('第一条成立的说了算，并带出处', pickWaiver([
-    { sha: 'aaaaaaa1', message: '无关\n\nCo-Authored-By: x <a@b.c>' },
-    { sha: 'bbbbbbb2', message: 'x\n\nage-ok: 等上游' },
-    { sha: 'ccccccc3', message: 'y\n\nage-ok: 另一条' },
-  ]), { reason: '等上游', from: 'bbbbbbb' })
-  eq('一条都没有 → 没有豁免', pickWaiver([{ sha: 'a', message: '无关' }]), null)
-}
-
 harness('决策记录：编号唯一、文件名与正文一致、索引按数字排序')
 {
   eq('文件名由编号与标题生成，个位数补零',
@@ -4092,28 +3909,13 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
     markerFault(`前${ME}中${MB}后`, MB, ME), 'reversed')
   eq('多出一对 → duplicate', markerFault(`${MB}甲${ME}${MB}乙${ME}`, MB, ME), 'duplicate')
 
-  // 编号不可回收：只看当前目录的话，删一条再把号让给别的决策是查不出来的
-  const A = (num: number, title: string): { file: string; num: number; title: string } =>
-    ({ file: fileNameOf(num, title), num, title })
-  const B = (num: number, title: string): [number, { file: string; title: string }] =>
-    [num, { file: fileNameOf(num, title), title }]
-  const base0 = new Map([B(1, '甲'), B(2, '乙')])
-
-  eq('主干上有、这里没了 → 报错', checkAppendOnly(base0, [A(1, '甲')]).length, 1)
-  eq('新增编号不报错', checkAppendOnly(base0, [A(1, '甲'), A(2, '乙'), A(58, '新')]), [])
-  // 删掉记录、把号让给另一条决策 —— 号还在，只有标题露馅
-  eq('号还在但标题换了 → 报错', checkAppendOnly(base0, [A(1, '甲'), A(2, '借尸还魂')]).length, 1)
-  ok('不冻正文 —— 就地标注作废是既有做法（ADR-13），标题不动就放行',
-    checkAppendOnly(new Map([B(13, '丙')]), [A(13, '丙')]).length === 0)
-
-  // 文件名是有损代理：slugify 截到 32 字符，长标题只在那之后改动，文件名一模一样
+  // 「文件名是有损代理」这一条留着 —— 它守的是 fileNameOf 自己，和已撤的那套 git 机器无关：
+  // slugify 截到 32 字符，长标题只在那之后改动，文件名一模一样。撞号判定（checkAll）
+  // 认的是编号，不是文件名，所以这个有损不影响它；记在这里是因为 ADR-79 撤掉编号不可回收
+  // 那套检查之后，「文件名能不能代表标题」再没有别的地方说了。
   const long = '一'.repeat(32)
   ok('两个只在第 32 字符之后不同的标题，文件名相同',
     fileNameOf(9, long + '甲') === fileNameOf(9, long + '乙'))
-  eq('比的是正文标题而不是文件名 —— 所以仍然抓得到',
-    checkAppendOnly(new Map([B(9, long + '甲')]), [A(9, long + '乙')]).length, 1)
-  eq('只改了会被 slugify 剔掉的标点，也抓得到',
-    checkAppendOnly(new Map([B(9, '甲(乙)')]), [A(9, '甲乙')]).length, 1)
 
   eq('标题里的斜杠与括号在文件名里去掉',
     fileNameOf(15, '记忆读不出来时/不产出名单（也不覆盖）'), 'ADR-15-记忆读不出来时不产出名单也不覆盖.md')

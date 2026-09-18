@@ -20,9 +20,9 @@
 | **作废一条需求** | `requirements.json` 的 `deprecated`（编号保留不复用）· 下游引用要清掉 · 相关测试与变异。**红线（P1–P5）不许作废** —— 那是产品定义变了，走变更评定 | 🔒 `spec` 查作废必须写理由、**红线作废当场拦下** |
 | **新增红线** | 需求登记表 · **测试** · **变异集** · `docs/CONVENTIONS.md` | 🔒 `audit` 强制红线有测试+变异 |
 | **改评分/分层规则** | `scripts/lib/score.ts` · `scripts/lib/pipeline.ts` · `skill/references/semantic-fit.md` · 测试 | 部分 |
-| **改管线步骤或其顺序** | `scripts/lib/pipeline.ts` · 测试 · **变异集**（顺序有语义，必须有变异守着）· `docs/ARCHITECTURE.md` 顺序契约表 | 🔒 `mutate` `arch` |
-| **新增/删除 `scripts/` 下的模块** | `docs/ARCHITECTURE.md` 锚点表 · `scripts/check/selfcheck.ts`（可执行文件） | 🔒 `arch` `audit` |
-| **改模块之间的依赖方向** | `docs/ARCHITECTURE.md`（含「一件新工作放哪边」那节，如果判据变了） | 🔒 `arch` |
+| **改管线步骤或其顺序** | `scripts/lib/pipeline.ts` · 测试 · **变异集**（顺序有语义，必须有变异守着）· `docs/ARCHITECTURE.md` 顺序契约表 | 🔒 `mutate`（顺序契约表靠人核，ADR-78） |
+| **新增/删除 `scripts/` 下的模块** | `docs/ARCHITECTURE.md` 锚点表 · `scripts/check/selfcheck.ts`（可执行文件） | 🔒 `audit`（锚点表靠人核，ADR-78） |
+| **改模块之间的依赖方向** | `docs/ARCHITECTURE.md`（含「一件新工作放哪边」那节，如果判据变了） | ✗ 靠执行（ADR-78） |
 | **改入口参数/退出码/产出文件/字段所有权** | `docs/ARCHITECTURE.md` 缝隙契约 · `skill/SKILL.md` · `README.md` 快速开始 | 部分 |
 | **改报错/提示里给用户的一句承诺**（比如「续跑要不要花钱」）| **点名逐个过，不要 grep**：**`docs/requirements.json` 的对应判据（机器可读的真相来源，最不该说错）** → `docs/ARCHITECTURE.md` 缝隙契约 → **`skill/SKILL.md`（Agent 照着转述）** → 对应 `skill/references/*` → `README.md` → **那个脚本自己的文件头与块注释**（代码注释也是副本，而且离实现最近、最容易被当成权威）。副本的措辞常常不一样（「不产生新请求」vs「不产生新的请求」），按记忆搜必漏。**承诺的「条件」变了也要重走一遍全表**；**给一个已有取值加第二个来源**时同样要过 —— 承诺一个字没改，但可能已经不再为真（ADR-43） | ✗ 靠执行 |
 | **增删需求登记表的字段** | `scripts/check/spec-rule.ts`（类型与校验）· `scripts/check/spec-sync.ts`（读写）· **`AGENTS.md` 与本表的文档地图**（它们描述这个文件有哪些字段）· `process/1-REQUIREMENTS.md`（如果那是通用概念） | ✗ 靠执行 |

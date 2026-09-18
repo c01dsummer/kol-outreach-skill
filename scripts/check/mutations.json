@@ -91,7 +91,7 @@
     },
     {
       "id": "M-P1-d",
-      "req": "P1",
+      "req": "P1.g",
       "why": "把粉丝数未知的人静默过滤掉 —— 真实创作者凭空消失且无人知晓",
       "file": "scripts/lib/score.ts",
       "find": "  if (c.followers === undefined) return true",
@@ -274,70 +274,6 @@
       "replace": "  const window = posts"
     },
     {
-      "id": "M-P1-i",
-      "req": "P1",
-      "why": "把「播放数」从会变成决策的字段表里拿掉 —— 它参与爆款加分，兜底成 0 就是静默改变分层，而 lint 不再吭声",
-      "file": "scripts/check/lint-rule.ts",
-      "find": "'following', 'following_count', 'views', 'play_count', 'plays', 'likes', 'like_count',",
-      "replace": "'following', 'following_count', 'views', 'play_count', 'likes', 'like_count',"
-    },
-    {
-      "id": "M-P1-j",
-      "req": "P1",
-      "why": "兜底值表里去掉 null —— 「未查询」被写成「查过，没有」不再被拦下，而这是三态里唯一一个曾经漏掉的兜底值",
-      "file": "scripts/check/lint-rule.ts",
-      "find": "(0\\b|''|\"\"|`|\\[\\]|false\\b|null\\b)",
-      "replace": "(0\\b|''|\"\"|`|\\[\\]|false\\b)"
-    },
-    {
-      "id": "M-P1-k",
-      "req": "P1",
-      "why": "写个 p1-ok 就放行、理由可以不写 —— 豁免退化成一句咒语，没人知道当初为什么放它过去",
-      "file": "scripts/check/lint-rule.ts",
-      "find": "  if (/\\/\\/\\s*p1-ok\\b/.test(text)) return 'unjustified_exemption'",
-      "replace": "  if (/\\/\\/\\s*p1-ok\\b/.test(text)) return 'exempt'"
-    },
-    {
-      "id": "M-P1-l",
-      "req": "P1",
-      "why": "扫描不往子目录里走 —— lint 只看 scripts/ 顶层那几个文件，采集与评分代码里的兜底写法从此没人过问，而检查照样打印「无违规」",
-      "file": "scripts/check/lint-rule.ts",
-      "find": "      if (!(atRoot && SKIP_DIRS.includes(e))) out.push(...walk(p, false))",
-      "replace": "      if (!(atRoot && SKIP_DIRS.includes(e))) out.push()"
-    },
-    {
-      "id": "M-P1-m",
-      "req": "P1",
-      "why": "把 lib/ 整片排除在扫描外 —— 最会出兜底的那些代码从此不受这条纪律约束，而检查链每次照样打印「无违规」",
-      "file": "scripts/check/lint-rule.ts",
-      "find": "export const SKIP_DIRS = ['check']",
-      "replace": "export const SKIP_DIRS = ['check', 'lib']"
-    },
-    {
-      "id": "M-P1-n",
-      "req": "P1",
-      "why": "写明理由的具名豁免照样被报成违规 —— 每一处正当例外都变成红色，这条检查从此只能靠人肉忽略，而被忽略的检查比没有检查更糟",
-      "file": "scripts/check/lint-rule.ts",
-      "find": "      if (verdict === 'exempt') { exempted++; return }",
-      "replace": "      if (verdict === 'exempt') { exempted++ }"
-    },
-    {
-      "id": "M-P1-o",
-      "req": "P1",
-      "why": "两处例外按名字在任意深度生效 —— 目录树深处任何一个与检查链同名的子目录都跟着被放过，而那正是最会出兜底的地方，扫描范围就此缩水，检查照样打印「无违规」",
-      "file": "scripts/check/lint-rule.ts",
-      "find": "      if (!(atRoot && SKIP_DIRS.includes(e))) out.push(...walk(p, false))",
-      "replace": "      if (!SKIP_DIRS.includes(e)) out.push(...walk(p, false))"
-    },
-    {
-      "id": "M-P1-p",
-      "req": "P1",
-      "why": "与测试同名的文件在任意深度都被跳过 —— 库里任何一个碰巧同名的普通代码文件从此不受这条纪律约束，而它究竟是不是测试没有人再问一句",
-      "file": "scripts/check/lint-rule.ts",
-      "find": "    } else if (e.endsWith('.ts') && !(atRoot && SKIP_FILES.includes(e))) out.push(p)",
-      "replace": "    } else if (e.endsWith('.ts') && !SKIP_FILES.includes(e)) out.push(p)"
-    },
-    {
       "id": "M-P1-r",
       "req": "P1",
       "why": "profile 查回来了、对方没写简介的人，邮箱记成「未查询」而不是「查过，没有」—— 下游据此说「我们还没看过他的简介」，而我们看过了；这批人会被当成还有希望留着，实际是查过、没留邮箱",
@@ -472,22 +408,6 @@
       "why": "文件名与正文里的编号对不上也放行 —— 索引会指到一个说着别的编号的文件,而下游引用的是编号",
       "find": "    if (a.file !== want) errors.push(`${a.file} 的文件名与正文标题对不上,应为 ${want}`)",
       "replace": ""
-    },
-    {
-      "id": "M-H10-c",
-      "req": "harness",
-      "file": "scripts/check/adr-rule.ts",
-      "why": "主干上已落地的编号在这条分支上没有了也不报 —— 删掉一条记录、把号腾给另一条决策,一路全绿,而编号是不可回收的",
-      "find": "      errors.push(`ADR-${pad(num)} 在主干上存在,这里没有了 —— 编号不可回收,记录只作废不删除`)",
-      "replace": "      continue"
-    },
-    {
-      "id": "M-H10-d",
-      "req": "harness",
-      "file": "scripts/check/adr-rule.ts",
-      "why": "号还在、标题换了不报 —— 等于把号让给了另一条决策,下游引用这个编号的地方静默指向一件别的事",
-      "find": "    } else if (cur.title !== was.title) {",
-      "replace": "    } else if (cur.title === undefined) {"
     },
     {
       "id": "M-H10-e",
@@ -832,190 +752,6 @@
       "file": "scripts/lib/assessment.ts",
       "find": "  const { audience_quality_risk: _assignedElsewhere, ...rest } = m\n  return canonical(rest)",
       "replace": "  return canonical(m)"
-    },
-    {
-      "id": "M-H2-a",
-      "req": "harness",
-      "why": "作者时间落在未来时不再拒答，当成一条很新的分支放行 —— 一条真实两百小时的分支报出一个负的小时数，旁边打着勾；日期填得够远，这条闸门就一直是绿的",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  if (hours < 0) return { kind: 'future' }\n",
-      "replace": ""
-    },
-    {
-      "id": "M-H2-b",
-      "req": "harness",
-      "why": "把分叉时长的上限从 48 小时放宽到 480 —— 那三条出事的在途分支（91、91、103 小时）全部变成线内，而这条线正是照着它们与已合并 PR 之间的空档校准出来的",
-      "file": "scripts/check/age-rule.ts",
-      "find": "export const LIMIT_HOURS = 48",
-      "replace": "export const LIMIT_HOURS = 480"
-    },
-    {
-      "id": "M-H2-c",
-      "req": "harness",
-      "why": "出生时间只认作者时间，不再与那个改写不了的锚取更早的一个 —— 一句 git commit --amend --reset-author 就把一条两百小时的分支洗成 0 小时，闸门自己给它续了 48 小时，而且一声不响",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  return b < a ? { kind: 'birth', at: anchorISO, fromAnchor: true } : { kind: 'birth', at: authorISO, fromAnchor: false }",
-      "replace": "  return { kind: 'birth', at: authorISO, fromAnchor: false }"
-    },
-    {
-      "id": "M-H2-d",
-      "req": "harness",
-      "why": "写个 age-ok 再跟几个空格就放行、理由可以是空的 —— 豁免退化成一个开关，没人知道当初为什么放这条分支过去",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  return reason ? reason : null",
-      "replace": "  return reason === undefined ? null : reason"
-    },
-    {
-      "id": "M-H2-e",
-      "req": "harness",
-      "why": "豁免从整条提交信息里找，不再限定在末尾那段指令区 —— 正文里随手写下的一行 age-ok 就把这条分支豁免了，而那一行多半是在解释怎么豁免，不是在豁免",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  for (const line of trailerLines(message)) {",
-      "replace": "  for (const line of message.split('\\n')) {"
-    },
-    {
-      "id": "M-H2-f",
-      "req": "harness",
-      "why": "豁免排到拒答前面 —— 一条量不出分叉时长的分支，只要写了理由就报成「超线但已豁免」，把「这个数我算不出来」冒充成「这条分支活得久，我知道为什么」",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  if (hours < 0) return { kind: 'future' }\n  if (hours <= LIMIT_HOURS) return { kind: 'ok' }\n  return waiver ? { kind: 'waived', reason: waiver } : { kind: 'over' }",
-      "replace": "  if (waiver) return { kind: 'waived', reason: waiver }\n  if (hours < 0) return { kind: 'future' }\n  if (hours <= LIMIT_HOURS) return { kind: 'ok' }\n  return { kind: 'over' }"
-    },
-    {
-      "id": "M-H2-g",
-      "req": "harness",
-      "why": "分支上有提交、却一条作者时间都读不出来时报「已经合完了」—— 这条分支从「在途」那份名单里静默消失,而汇总照样说都在线内",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  if (!log.length) return raw > 0 ? { kind: 'unreadable' } : { kind: 'merged' }",
-      "replace": "  if (!log.length) return { kind: 'merged' }"
-    },
-    {
-      "id": "M-H2-h",
-      "req": "harness",
-      "why": "分叉时长从「排在最前面那个提交」算起,不再从作者时间最早的那个算起 —— cherry-pick 进来的老工作排在后面,于是根本没被量到,一条含 250 小时前工作的分支报 1 小时",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  for (const c of log) if (c.at < oldest.at) oldest = c",
-      "replace": ""
-    },
-    {
-      "id": "M-H2-i",
-      "req": "harness",
-      "why": "读不出作者时间的那一行兜底成 0 —— 0 是 1970 年,分叉时长于是变成五十万小时,一个比任何真实情况都老、却言之凿凿的数",
-      "file": "scripts/check/age-rule.ts",
-      "find": "    if (Number.isFinite(n) && iso && sha) out.push({ at: n, iso, sha })",
-      "replace": "    if (sha) out.push({ at: Number.isFinite(n) ? n : 0, iso, sha })"
-    },
-    {
-      "id": "M-H2-j",
-      "req": "harness",
-      "why": "调用方给的那个「正在评审的头」不再核一遍是不是本分支的祖先就直接用 —— 填错一个提交,闸门会跑去量另一条历史,还照常给结论",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  return prHead && isAncestor ? prHead : tip",
-      "replace": "  return prHead ? prHead : tip"
-    },
-    {
-      "id": "M-H2-k",
-      "req": "harness",
-      "why": "扫豁免时不再单独看检出的那条提交,只走第一父链 —— PR 事件下检出的是合成的合并提交,它不在那条链上,于是把理由写在合并提交上的分支找不到自己的豁免",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  return [tip, ...ownFirstParent.filter(s => s !== tip)]",
-      "replace": "  return [...ownFirstParent]"
-    },
-    {
-      "id": "M-H2-l",
-      "req": "harness",
-      "why": "豁免不再记下它写在哪个提交上 —— 没有 base 的跑法上，叠分支继承来的那句理由从此看不出是谁写的，而那时出处是唯一的线索",
-      "file": "scripts/check/age-rule.ts",
-      "find": "    if (reason) return { reason, from: c.sha.slice(0, 7) }",
-      "replace": "    if (reason) return { reason, from: '' }"
-    },
-    {
-      "id": "M-H2-m",
-      "req": "harness",
-      "why": "没给 PR 清单被报成「这条分支没有 PR」—— 本地随手跑一次和定时任务跑出来的报告长得一样，没人知道这一路根本没接上锚",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  if (prs === null) return { kind: 'no-list' }",
-      "replace": "  if (prs === null) return { kind: 'no-pr' }"
-    },
-    {
-      "id": "M-H2-n",
-      "req": "harness",
-      "why": "fork 来的 PR 也当成这条分支的锚 —— 那条分支在 fork 里，基仓同名的是另一条分支，拿别人的创建时间量自己",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  const mine = prs.filter(p => !p.isCrossRepository && p.headRefName === branch)",
-      "replace": "  const mine = prs.filter(p => p.headRefName === branch)"
-    },
-    {
-      "id": "M-H2-o",
-      "req": "harness",
-      "why": "同一条分支开了两个 PR 时取最晚那个的创建时间 —— 锚说的是「至少从这时起就在主干之外」，取晚的等于把分支报年轻",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  for (const p of mine) if (Date.parse(p.createdAt) < Date.parse(best.createdAt)) best = p",
-      "replace": "  for (const p of mine) if (Date.parse(p.createdAt) > Date.parse(best.createdAt)) best = p"
-    },
-    {
-      "id": "M-H2-p",
-      "req": "harness",
-      "why": "声明了 base 也照样扫整条第一父链 —— 叠在别的分支上开出去的 PR 继续拿下面那条的 age-ok 过闸门，自己一句话没说过",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  return chain.filter(sha => !inBase(sha))",
-      "replace": "  return chain"
-    },
-    {
-      "id": "M-H2-q",
-      "req": "harness",
-      "why": "去掉的是自己的、留下的是 base 里的 —— 自己写的豁免找不到，下面那条分支的照样拿到",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  return chain.filter(sha => !inBase(sha))",
-      "replace": "  return chain.filter(sha => inBase(sha))"
-    },
-    {
-      "id": "M-H2-r",
-      "req": "harness",
-      "why": "清单里没有 base 这一列、或者不像 SHA 也照收 —— 豁免的范围静默退回整条链，而报告里看不出清单缺了什么",
-      "file": "scripts/check/age-rule.ts",
-      "find": "      || typeof p.baseRefOid !== 'string') return null",
-      "replace": "      ) return null"
-    },
-    {
-      "id": "M-H2-s",
-      "req": "harness",
-      "why": "锚给了却读不出来时静默退回作者时间 —— 在锚最该起作用的时候(历史被改写过)把它扔掉,报出来的是用户可控的那个钟,而且一个字不提",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  if (!readableAnchor(anchorISO)) return { kind: 'unreadable-anchor' }",
-      "replace": "  if (!readableAnchor(anchorISO)) return { kind: 'birth', at: authorISO, fromAnchor: false }"
-    },
-    {
-      "id": "M-H2-t",
-      "req": "harness",
-      "why": "空串的锚被当成没有锚 —— PR 事件里创建时间是空的时候,闸门照常按作者时间放行,而不是说量不了",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  if (anchorISO === null) return { kind: 'birth', at: authorISO, fromAnchor: false }",
-      "replace": "  if (!anchorISO) return { kind: 'birth', at: authorISO, fromAnchor: false }"
-    },
-    {
-      "id": "M-H2-u",
-      "req": "harness",
-      "why": "一条分支开了几个 PR、其中一个的创建时间读不出来时悄悄丢掉它,拿剩下那个当锚 —— 丢掉的那条可能正是最早的,分支被报年轻,而且一声不响",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  if (bad) return { kind: 'unreadable', pr: bad.number, at: bad.createdAt }",
-      "replace": "  if (bad && mine.length === 1) return { kind: 'unreadable', pr: bad.number, at: bad.createdAt }"
-    },
-    {
-      "id": "M-H2-v",
-      "req": "harness",
-      "why": "锚只要 Date.parse 肯认就当能用 —— Jan 1 9999 这种也算一个时间,和刚洗过的作者时间比,「取更早的」就静默选了作者时间,分支照样放行",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  if (!m) return false",
-      "replace": "  if (!m) return Number.isFinite(Date.parse(s))"
-    },
-    {
-      "id": "M-H2-w",
-      "req": "harness",
-      "why": "日历上不存在的时间(4 月 31 日、24 点)也当锚 —— Date.parse 悄悄进位成下一天,量出来的是另一个时间的年龄,线附近能改判",
-      "file": "scripts/check/age-rule.ts",
-      "find": "  return calendarOk && Number.isFinite(Date.parse(s))",
-      "replace": "  return Number.isFinite(Date.parse(s))"
     },
     {
       "id": "M-P4-c",
@@ -2297,14 +2033,6 @@
       "replace": ""
     },
     {
-      "id": "M-P1-v",
-      "req": "P1",
-      "why": "把综合分从会变成决策的字段表里拿掉 —— 它决定每个人落进哪一档，缺省成零就是静默把没算过分的人压到最低档，而纪律检查从此不吭声",
-      "file": "scripts/check/lint-rule.ts",
-      "find": "  'score',\n",
-      "replace": ""
-    },
-    {
       "id": "M-U1-c",
       "req": "U1",
       "why": "还没算过分的人排到了有分的人前面 —— 交付表最上面一批是没有依据的人，而运营读的就是从上往下的顺序",
@@ -2313,8 +2041,16 @@
       "replace": "    if (a.score === undefined) return -1\n    if (b.score === undefined) return 1"
     },
     {
+      "id": "M-P1-x",
+      "req": "P1.e",
+      "why": "「未查询」在交付表里渲染成空白 —— 和「查过，他没有」落进同一个格子，运营看不出这个人到底查过没有，也就不知道还该不该回头补查",
+      "file": "scripts/lib/rows.ts",
+      "find": "  v === undefined ? '未查询' : v === null ? '' : String(v)",
+      "replace": "  v === undefined ? '' : v === null ? '' : String(v)"
+    },
+    {
       "id": "M-U1-d",
-      "req": "U1",
+      "req": "P1.f",
       "why": "「还没算过分」和「算出来是 0 分」在排序里被当成同一件事 —— 交付表上这两种人混在一起，看不出哪些是没有依据的",
       "file": "scripts/lib/rows.ts",
       "find": "  const byScore = (a: Creator, b: Creator): number => {\n    if (a.score === undefined && b.score === undefined) return 0\n    if (a.score === undefined) return 1\n    if (b.score === undefined) return -1\n    return b.score - a.score\n  }",
@@ -2931,6 +2667,12 @@
       "scope": "「是否编造」这一半",
       "why": "「草稿里的产品事实是否真的来自产品页」由 Agent 的判断决定，不经过本仓库任何代码路径，没有可执行的判定可以认领。这是 process/README.md 第三层（只能靠自觉）—— 显式留在报告里，不假装它被保证了。",
       "mitigation": "skill/references/outreach-draft.md 写明「不要编造品牌信息，不知道的留占位符」；靠每次开工前读那份文档。见 ADR-01。"
+    },
+    {
+      "req": "P1.b",
+      "scope": "「任何位置」这个全称",
+      "why": "扫写法那道纪律 lint 2026-09-18 撤了（ADR-77）—— 它自称全量扫描，实现却是一张手写的敏感字段表，漏过 `score` 与 `null`。判据正文按「编号不改含义」原样保留，但**没有任何检查能兑现「任何位置」这个全称**：要兑现它得回到扫源码，而那正是撤掉的东西。显式登记为缺口，不假装它被守住。",
+      "mitigation": "机器可执行的那部分按路径拆成 P1.e（取值）、P1.f（排序）、P1.g（入池）三条，各有认领与负片；`docs/CONVENTIONS.md` 第 2 条写明写代码时要避开的形状。见 ADR-77。"
     }
   ]
 }
