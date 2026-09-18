@@ -2795,6 +2795,134 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "  return [...kids].filter(kid => !neverStarted(kid))",
       "replace": "  return [...kids]"
+    },
+    {
+      "id": "M-H40-a",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "号写到一半时也照收：末尾有没有写完那一问被拿掉 —— 一个正在落盘的号被截去最后一位，读回来就是另一个数，硬来那一刀于是对着一整组不相干的进程落下，而且没有任何人会知道",
+      "find": "  if (text === undefined || !text.endsWith('\\n')) return undefined",
+      "replace": "  if (text === undefined) return undefined"
+    },
+    {
+      "id": "M-H40-b",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "号是 1 时也照发 —— 而那一刀不是「打 1 号那一组」，是发给这个进程发得出的每一个进程，包括在终端里跑它的那个人手上的一切",
+      "find": "  if (n <= 1 || n === self.pid || n === self.pgid) return undefined",
+      "replace": "  if (n <= 0 || n === self.pid || n === self.pgid) return undefined"
+    },
+    {
+      "id": "M-H40-c",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "号是 0 时也照发 —— 那一刀在系统里的意思是「打调用者自己这一组」，收尾一句也走不到，半成品连同被改过的源码留在盘上（#111 的形状）",
+      "find": "  if (n <= 1 || n === self.pid || n === self.pgid) return undefined",
+      "replace": "  if (n < 0 || n === self.pid || n === self.pgid) return undefined"
+    },
+    {
+      "id": "M-H40-d",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "号的正文不再原样核对回去 —— 十六进制、科学记数法、前导零、空白开头的串全会被悄悄认成一个数，而那个数跟盘上写着的不是同一个，刀落在别处",
+      "find": "  if (!Number.isSafeInteger(n) || String(n) !== body) return undefined",
+      "replace": "  if (!Number.isSafeInteger(n)) return undefined"
+    },
+    {
+      "id": "M-H40-e",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "算出来的目标不再是「整组」而是单独那一个 —— 只杀壳，里面那个真正跑脚本的进程照样把后面那次写盘做完，而这条路上写的是被改过的源码；漏掉这一层不响",
+      "find": "  return -n\n}",
+      "replace": "  return n\n}"
+    },
+    {
+      "id": "M-H40-f",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "「这个号正好就是我自己这一组」那一拒被拿掉 —— 一份写坏的号可以让这一跑对着自己开刀，收尾走不到，被改过的源码留在盘上",
+      "find": "  if (n <= 1 || n === self.pid || n === self.pgid) return undefined",
+      "replace": "  if (n <= 1 || n === self.pid) return undefined"
+    },
+    {
+      "id": "M-H40-g",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "硬来那几步的次序被倒过来：先删隔离目录、再去收那些还在跑的 —— 刀落下之前它们还能往一棵已经被删掉的树里写，盘上重新长出半成品，而「收干净了」那句已经说出口，全程不响",
+      "find": "  for (const shot of new Set(shots)) steps.push({ do: 'group', shot })\n  steps.push(...warns)\n  steps.push({ do: 'sweep' })",
+      "replace": "  steps.push({ do: 'sweep' })\n  for (const shot of new Set(shots)) steps.push({ do: 'group', shot })\n  steps.push(...warns)"
+    },
+    {
+      "id": "M-H40-h",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "硬来那一步不再去收那些自成一组的验证者 —— 它们被过继出去接着跑被改过的源码，谁也没在看着，而闸门这头已经退出并报「收干净了」",
+      "find": "  for (const shot of new Set(shots)) steps.push({ do: 'group', shot })\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H40-k",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "两个人报了同一个号时不再合并，同一组要挨两刀 —— 第二刀落下时那一组多半已经散了，而那个号可能已经被系统分给了别人，于是刀落在一个不相干的进程组上",
+      "find": "  for (const shot of new Set(shots)) steps.push",
+      "replace": "  for (const shot of shots) steps.push"
+    },
+    {
+      "id": "M-H40-o",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "「压根没起验证者」被当成「号读不出来」报出来 —— 每一次正常的硬来都会刷一堆吓人的话，真读不动那一次就淹在里面；两种状态压成一个值正是 `docs/CONVENTIONS.md` 第 3 条骂的那件事",
+      "find": "    if (got.error !== undefined) {",
+      "replace": "    if (got.text === undefined) {"
+    },
+    {
+      "id": "M-H40-i",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "验证者压根没起来的时候也照样留一份号 —— 留下的正文里是一句「没有」，读回来是「该收谁不知道」，而它看起来像是有号，比没有更糟",
+      "find": "  if (neverStarted({ pid })) return undefined\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H40-j",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "收号那条路给了个空位置时不再当成「没人收」 —— 这一跑会往一个空位置去写，而那一抛落在收尾的监听器里：那一轮的还原整个不跑，被改过的源文件留在工作区",
+      "find": "  return path === '' ? undefined : path",
+      "replace": "  return path"
+    },
+    {
+      "id": "M-H40-l",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "取「自己这一组」时改成整行切 —— 名字里带空格或右括号的进程会取到另一个数上，而那个数会被当成「我自己这一组」拿去比对：比错了等于没有那道自保，而且不响",
+      "find": "  const tail = stat.slice(stat.lastIndexOf(')') + 1).trim()",
+      "replace": "  const tail = stat.trim()"
+    },
+    {
+      "id": "M-H40-m",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "号文件的名字里不再带是谁留下的 —— 同一棵树上另一跑留下的号会被这一跑读走，于是这一跑按别人的号对一整组进程开刀",
+      "find": "  return `${jobsDir}/w${i}.${dispatcherPid}.verifier`",
+      "replace": "  return `${jobsDir}/w${i}.verifier`"
+    },
+    {
+      "id": "M-H40-n",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "没人收号的那条路上也交回一个位置去抹 —— 串行那一跑会拿一个空位置去删，而那一抛落在收尾的监听器里，那一轮的还原整个不跑",
+      "find": "export function beaconGone(beacon: string | undefined): string | undefined {\n  return beacon\n}",
+      "replace": "export function beaconGone(beacon: string | undefined): string | undefined {\n  return beacon ?? ''\n}"
+    },
+    {
+      "id": "M-H40-p",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "号在那儿却不能拿去发刀时一声不吭 —— 那意味着确实起过一个验证者而我们不知道该收谁，于是那一组被静默过继出去接着跑被改过的源码，同时这边照样删目录、照样报「收干净了」；它和「压根没起验证者」在输出上长得一模一样，而两者不是一回事",
+      "find": "    if (shot === undefined) {\n      warns.push({ do: 'warn', text: `\\n  ⚠️ 验证者的号不能拿去发刀（写了一半、不是个号，`\n                                     + `或者指向不许打的目标）：${s.beacon}`\n                                     + ` —— 那一组没收掉，可能还在跑被改过的源码\\n` })\n      continue\n    }",
+      "replace": "    if (shot === undefined) continue"
     }
   ],
   "exemptions": [
