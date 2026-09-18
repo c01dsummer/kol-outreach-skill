@@ -2,7 +2,7 @@
 
 **装什么**：source §D 的 D.0–D.13 原文 —— P3 预算安全试点的完整纵向叙述：已复现的反例 CE-1–CE-5、业务意图、术语表与草案判据 P3.c–f（对照副本）、状态 / 事件 / 转移、不变量 I1–I7 与活性 L1–L2、假设 A1–A9、目标 / 未知 / 非目标、反例清单、测试与变异映射 N1–N9、运行时监控、CI 接入；每小节顶部一行标它落在哪一层、对应哪些 `业-xx` / `码-xx`。
 **不装什么**：任何编号的定义 —— 术语表与草案判据的正本在 `1-docs.md`（业-06、业-11–业-14），假设登记表正本在 `1-docs.md 业-23`，代码改动在 `2-code.md`，通用规则在 `0-process.md`，落地步骤在 `3-rollout.md`，**试点回滚条件（D.14）与成功 / 失败判据（D.15）的正本也在 `3-rollout.md`「P3 试点的回滚与成败判据」**（本文 §D.14 / §D.15 只留标题与指针，让既有引用仍可跳，裁决文本只有一处），差距表 B1–B22、工具比较与 #75 对照在 `9-evidence.md`；本文件不改任何现行需求文本，草案判据全是提议，变更分类都是提议分类。
-**编号怎么读**：本文件不定义 `通 / 业 / 码`，只引用；`CE-1…CE-5`（§D.0）、`I1–I7` / `L1–L2`（§D.6）、`A1–A9`（§D.7，正本 业-23）、`N1–N9`（§D.11）沿用 source；`Jnn` 在 `README.md`，`H0a…H12` 在 `3-rollout.md`；`file:line` 指主干 `cc132a7`，写明「#75 分支」的除外；证据标记只用五种（实跑 / #75 自述 · 本次复现 / 读代码 / 联网核对 / 尚未验证），无标记按「读代码」；「设计面板」「scratchpad」指本会话的工作目录，脚本与输出不在仓库内（索引在 `9-evidence.md 附录二`）。
+**编号怎么读**：本文件不定义 `通 / 业 / 码`，只引用；`CE-1…CE-5`（§D.0）、`I1–I7` / `L1–L2`（§D.6）、`A1–A9`（§D.7，正本 业-23）、`N1–N9`（§D.11）沿用 source；`Jnn` 在 `README.md`，`H0a…H12` 在 `3-rollout.md`；`file:line` 指主干 `d7e20d7`（#118 的合并提交，2026-09-18T17:28Z；cc132a7 之后 199 个提交），写明「#75 分支」的除外（#75 分支的 `file:line` 指 97c358e，即提案读的那棵树；分支今天的 head 是 rebase 到 d7e20d7 之后的 2deb489，见 §D.0 末段与 §D.13 的注）；标「实跑」的数字是在 cc132a7 树或本会话 scratchpad 上跑出来的，d7e20d7 上未复跑（句中另注「d7e20d7」的除外）；可算的数按 ADR-82 要么写「N（d7e20d7）」要么只写命令；证据标记只用五种（实跑 / #75 自述 · 本次复现 / 读代码 / 联网核对 / 尚未验证），无标记按「读代码」；「设计面板」「scratchpad」指本会话的工作目录，脚本与输出不在仓库内（索引在 `9-evidence.md 附录二`）。
 
 ---
 
@@ -10,7 +10,7 @@
 
 层：docs / code · 对应：业-11、业-12、业-13、业-14（四条草案各对应一个反例）、业-15（并发范围外）、业-18（F7.a 建模不裁决）、业-20（#75 去向）· 码-17、码-18、码-20、码-21 · 差距证据：`9-evidence.md §B`
 
-试点的对象刻意小：`scripts/lib/budget.ts`（56 行）、`scripts/providers/tikhub.ts` 的 `get()`（charge / fetch / refund 顺序）、`scripts/collect.ts` 与 `scripts/enrich.ts` 里的 `--budget` 解析、`persist()` 的时机与退出码。它适合当试点的理由在 `1-docs.md 业-47`（分级表）的 P3 行。
+试点的对象刻意小：`scripts/lib/budget.ts`（56 行（d7e20d7）；cc132a7 → d7e20d7 未改）、`scripts/providers/tikhub.ts` 的 `get()`（charge / fetch / refund 顺序）、`scripts/collect.ts` 与 `scripts/enrich.ts` 里的 `--budget` 解析、`persist()` 的时机与退出码。它适合当试点的理由在 `1-docs.md 业-47`（分级表）的 P3 行。
 
 | 试点内**裁决**（本节给草案，评定后生效） | 试点内**建模不裁决**（模型里有，结论只登记） | 范围外 |
 |---|---|---|
@@ -26,7 +26,7 @@
 
 读代码得出、未实跑的：**CE-4** `cfg.budget_usd ?? 2`（`collect.ts:72`）静默给 $2，没有 CONVENTIONS §7 要求的「假设值」告知；**CE-5** `--budget 0` / `-1` 被接受，首个 charge 即抛、exit 3、提示「预算用尽 $0.017 / $0.00」。
 
-PR #75 在本次会话之前已经用模型找到了 CE-2（`SpendIsRecorded` 5 步、`NoOverspend` 12 步）并手工修了 CE-1；本节**建议**采用它的模型（J1，`1-docs.md 业-20`；对照表在 `9-evidence.md 附录三`；拆法在 `3-rollout.md` H0a–H0e，码-10 / 码-11），只做四件它没做的事：EARS 层的判据草案（业-11–业-14）、不误拒（P3.f，业-14）、随机 + shrink 的属性层（码-38、码-39）、机器可读的假设登记表（业-23）。
+PR #75 在本次会话之前已经用模型找到了 CE-2（`SpendIsRecorded` 5 步、`NoOverspend` 12 步）并手工修了 CE-1。**#75 已于 2026-09-11 关闭、未合入**（GitHub API：state closed、仍是 draft、merged false、mergeable_state dirty；PR 记录的 head 是 f652943（2026-09-08 的空提交，只带一行 `age-ok:`；提案读的代码是它之前的 97c358e），base 仍 475cfe9，主干自 base 起已有 50 个合并提交（d7e20d7）；唯一一条评论是 chatgpt-codex-connector 机器人的安全评审汇总，没有人类评论，关闭理由：未知）。分支 `claude/kol-formal-verification-kr5igx` 仍在远端，且在 PR 关闭之后（2026-09-18 19:00Z 前后）被**整条 rebase 到 d7e20d7 上**并追加了一个提交 2deb489（GitHub API：分支 = d7e20d7 + 5 个提交，四个原提交换了 sha，f652943 那个空提交没了；详见 §D.13 首段的注）；主干 d7e20d7 上没有 `formal-rule.ts` / `formal.ts` / `formal/` / ADR-68。本节仍**建议**采用它的模型，去向按 J1 的新选项定（重开并拆五条 / 从分支摘取重做 / 弃用；`1-docs.md 业-20`；对照表在 `9-evidence.md 附录三`；拆法在 `3-rollout.md` H0a–H0e，码-10 / 码-11），只做四件它没做的事：EARS 层的判据草案（业-11–业-14）、不误拒（P3.f，业-14）、随机 + shrink 的属性层（码-38、码-39）、机器可读的假设登记表（业-23）。
 
 ## D.1 业务意图（不变）
 
@@ -91,7 +91,7 @@ PR #75 在本次会话之前已经用模型找到了 CE-2（`SpendIsRecorded` 5 
 - **P3.f（提议分类：改需求要什么 —— 收紧；人批；正本 业-14，J6）** — `when budget.request_proposed, unless budget.cost_exceeds_limit, the system shall_not budget.raise_exceeded.`
   依据：CE-3。P3.a 说超了必须拒，P3.f 说没超不许拒；今天没有判据说后者，26% 的 limit 少一次是「合规」的。#75 判断「方向安全，不写成不变量」；本文认为「付得起不该拒」值得成为判据，交人定。实现上的整数毫美元是架构决策（§D.3；`1-docs.md 业-21`，J43）。
 
-- **P3 正文的范围边界（本文只指出，不起草；正本 业-15，J7）**：`collect.ts:102 / :129` 与 `enrich.ts:77 / :126` 各自读一次、无条件写回 `requests`，两个进程同时采集时预算池可能被花两遍；P3 文本今天读起来像无条件保证，而 D4 的同类边界已按 ADR-67 写进正文（ADR-66）。**范围边界声明是放宽方向，`0-process.md 通-09` 禁止自动执行者起草**；这里只登记「边界未声明」，措辞由需求所有者起草（ADR-68 第五张欠条已记录同一件事）。
+- **P3 正文的范围边界（本文只指出，不起草；正本 业-15，J7）**：`collect.ts:102 / :129` 与 `enrich.ts:77 / :126` 各自读一次、无条件写回 `requests`，两个进程同时采集时预算池可能被花两遍；P3 文本今天读起来像无条件保证，而 D4 的同类边界已按 ADR-67 写进正文（ADR-66）。**范围边界声明是放宽方向，`0-process.md 通-09` 禁止自动执行者起草**；这里只登记「边界未声明」，措辞由需求所有者起草（#75 分支的 ADR-68 第五张欠条已记录同一件事 —— ADR-68 未合入主干，d7e20d7 的 `docs/adr/` 共 74 条、编号 1–83，68 号空着）。
 
 - **P3.a 现有文本是否改成属性形式并保留 0.005 / 10 次作例子**：改现有判据要走 `2-CHANGE.md`，只提出不起草（业-16，J35）。
 
@@ -125,7 +125,7 @@ PR #75 在本次会话之前已经用模型找到了 CE-2（`SpendIsRecorded` 5 
 | `start(cfg)` / `resume(dir, arg?)` | 入口 | `collect.ts:47-75`；`enrich.ts:64-73` |
 | `propose(c)` | 适配层准备发请求 | `tikhub.ts:84` 调 `charge()` 之前 |
 | `authorize` / `reject` | `Budget.charge()` | `budget.ts:35-46` |
-| `persist` | 入口的 `persist()` | `collect.ts:128-133`；`enrich.ts:125-129` |
+| `persist` | 入口的 `persist()` | `collect.ts:128-133`（主干变异 `M-P3-b` 钉在 `:129`，d7e20d7）；`enrich.ts:125-129` |
 | `send` | `fetch` 发出 | `tikhub.ts:87` |
 | `respond(ok)` / `respond(status)` | 响应到达 | `tikhub.ts:88-102` |
 | `refund` | 非 2xx | `tikhub.ts:90` |
@@ -188,7 +188,7 @@ PR #75 在本次会话之前已经用模型找到了 CE-2（`SpendIsRecorded` 5 
 | A6 | 同一任务目录单写入方（ADR-66） | 两个进程各自 `persisted` 互相覆盖 | 不验证；写进不保证（§D.2 的范围边界，待需求所有者起草） | 已声明不保证 | — |
 | A7 | 用户在 `--budget` 里输入的就是确认 | 误输入即误确认 | 产品决定 | 已接受 | SKILL.md 流程改变 → 代码指纹：`SKILL.md` 预算段 |
 | A8 | 整数在 JSON 往返中精确（< 2⁵³） | 计数读回失真 | 语言规范保证，无需验证 | — | — |
-| A9 | fake-fetch 的行为等价于真实 fetch 的**顺序**（不是内容） | 自检里的顺序断言对真实运行无效 | `selfcheck` 与一次真实运行的 `requests` 对照 | 部分验证（2026-08-26 真实跑通） | `fake-fetch.ts` 或 `tikhub.ts` 改动 → 代码指纹 |
+| A9 | fake-fetch 的行为等价于真实 fetch 的**顺序**（不是内容） | 自检里的顺序断言对真实运行无效 | `selfcheck` 与一次真实运行的 `requests` 对照 | 部分验证（2026-08-26 真实跑通） | `fake-fetch.ts` 或 `tikhub.ts` 改动 → 代码指纹（按内容指纹算，cc132a7 → d7e20d7 之间 `tikhub.ts` 已被 ecde780 触发过一次：22 行改动全是 `p1-ok:` → `P1 例外：` 的注释改名，`get()` 83–103 等被引段逐字未变；`fake-fetch.ts` 未变） |
 
 （source 原表七列；为守「表格不超过 6 列」把「失效触发器」与「触发器检测」合为一格，内容未删。）
 
@@ -202,7 +202,7 @@ PR #75 在本次会话之前已经用模型找到了 CE-2（`SpendIsRecorded` 5 
 
 **未知**：真实账单与 `requests × unit` 的差（A1 / A2）；供应商对 in-flight 请求的处理（A3）。
 
-**非目标**：并发进程（A6）；断电持久性（A5）；`probe` 的花销不记账（ADR-68 第五张欠条，ARCHITECTURE 明写「probe 不落盘」）；汇率与币种；阶梯折扣；enrich 的缓存命中判定；F7「每任务一次」；P3 × D4 交点的裁决。
+**非目标**：并发进程（A6）；断电持久性（A5）；`probe` 的花销不记账（#75 分支的 ADR-68 第五张欠条，未合入主干；ARCHITECTURE 缝隙契约表明写 `probe` **不落盘**，d7e20d7 行 133）；汇率与币种；阶梯折扣；enrich 的缓存命中判定；F7「每任务一次」；P3 × D4 交点的裁决。
 
 ## D.9 反例清单（模型必须覆盖的输入）与两套配置的预期
 
@@ -226,7 +226,7 @@ PR #75 在本次会话之前已经用模型找到了 CE-2（`SpendIsRecorded` 5 
 | send 后、响应前崩溃 | 同上 | `persisted ≥ billed`（保守多记） |
 | 非 2xx 后、下次 persist 前崩溃 | — | `persisted` 多记一次 —— 安全方向 |
 | `persist` 失败 | 计数丢、exit 1 | 不 send；exit 1；task.json 是旧的（A4） |
-| 429 → refund → 重试 × 3 | `charged` 净不变；`sent = 4`；`persisted` 落后 | `persisted = 1`、`sent = 4`、`billed = 0`（本次实跑）；**A2 为假则 `billed = 4 > persisted`** —— 这是 ADR-68 第四张欠条的形状 |
+| 429 → refund → 重试 × 3 | `charged` 净不变；`sent = 4`；`persisted` 落后 | `persisted = 1`、`sent = 4`、`billed = 0`（本次实跑）；**A2 为假则 `billed = 4 > persisted`** —— 这是 ADR-68（#75 分支，未合入主干）第四张欠条的形状 |
 | 402 | exit 1（不是 3）：供应商余额不足不是本预算问题 | 同；profile 阶段被吞成 `profile_failed` 的分歧见 `9-evidence.md §B` B6 |
 | 两次并发 `charge`（同进程） | JS 单线程、`charge()` 同步 → 原子 | 同 |
 | 两个进程 | 非目标（A6） | — |
@@ -251,33 +251,33 @@ PR #75 在本次会话之前已经用模型找到了 CE-2（`SpendIsRecorded` 5 
 | 义务 | 类型约束 | 属性测试 | 例子测试 | 模型检查 | 运行时监控 |
 |---|---|---|---|---|---|
 | P3.a/1 超限必拒、拒绝无副作用 | — | ✔ 随机 `(limit, 序列)`：I1、I3 | ✔ 现有 0.005 × 10 | ✔ I1、I3（#75 `RejectedNotCounted`） | 进程内 assert |
-| P3.b/1 断点 + exit 3 | — | — | ✔ selfcheck 夹具（现有） | ✔ I7（#75 `Exit3Recoverable`） | 退出码分布 |
+| P3.b/1 断点 + exit 3 | — | — | ✔ selfcheck 夹具（现有；d7e20d7 上 P3.b 由自检入口认领（`selfcheck.ts:280` `criterion('P3.b')`）+ `M-P3-b`（by: selfcheck，kills 点名 `selfcheck.ts:247` 那条夹具）守，ADR-70 落地 4，显式豁免已撤） | ✔ I7（#75 `Exit3Recoverable`） | 退出码分布 |
 | P3.c 限额必须可解析 | （可选）`ConfirmedLimit` | ✔ 随机字符串：非有限 → 拒 | ✔ `abc`、`-1`、`0`、`Infinity`、`1e400`；盘上 `null` / `"4"` | ✔ 值域扫描（#75 `LIMIT_DOMAIN`） | 启动时打印限额来源 |
 | P3.d 假设值 | — | — | d-i：缺配置 → stderr 行 + 标记；d-ii：缺配置 → exit 2 | — | `meta.json.budget.assumed`（d-i） |
 | P3.e 写前记账 | — | ✔ 崩溃注入：任意崩溃点后 `persisted ≥ billed` | ✔ `kill-fetch` 夹具 | ✔ I2（#75 `SpendIsRecorded` 从违反变成立） | 续跑时打印 `persisted` 与 `updated_at` |
 | P3.f 不误拒 | 整数单位 | ✔ 随机十进制 limit：恰好 `L/unit` 次 | ✔ `0.7 → 700`、`1.005 → 1005` | ✔ I4 | — |
 | F7.a 提醒各一次（每进程 —— 按 J8 裁决前的临时解读） | — | ✔ 随机序列下每阈值 ≤ 1 次 | ✔ 现有 | ✔ I6 | — |
 
-属性测试的生成器只需要三样：`limit ∈ [0, 3000]` 毫美元（或十进制字符串）、事件序列 ∈ `{propose, respond(ok), respond(429), respond(500), crash, resume}*`、序列长度 ≤ 50。用例数要按变异乘数预算：`npm run mutate` 对每条变异跑一次 `npm test`（主干 229 条），属性用例的每一毫秒都要乘 229。设计面板实跑一套 P3 属性在 N = 2000 时 3.8 秒（每例约 1.9 ms），N = 100,000 超过 120 秒被中止。按 `3-rollout.md §D.15` 第 4 条「`npm run check` 总增量 < 60 秒」拆预算：`formal` ≤ 5 秒（本地目标；CI 上限 30 秒是 `3-rollout.md §D.14` 的回滚线）；属性测试每条 N ≤ 50、七条合计 `npm test` 增量 ≤ 0.1 秒，× 229 ≈ 23 秒；三项合计 < 60 秒。大 N（2000 以上）只在本地按 seed 跑，不进 CI；nightly 随机 seed 是 J37。P3.c 的例子要包括 `Number()` 会静默接受的输入：`'1e3'` → 1000、`'0x10'` → 16、`''` → 0（实跑）；字符串写法的取舍是 J30。
+属性测试的生成器只需要三样：`limit ∈ [0, 3000]` 毫美元（或十进制字符串）、事件序列 ∈ `{propose, respond(ok), respond(429), respond(500), crash, resume}*`、序列长度 ≤ 50。用例数要按变异乘数预算：`npm run mutate` 对每条变异跑一次 `npm test`（主干 330 条（d7e20d7）；命令：`node -p "require('./scripts/check/mutations.json').mutations.length"`），属性用例的每一毫秒 **CPU 时间**都要乘 330；`mutate` 从 ADR-72 起缺省按核数并行（`--jobs=N` / `MUTATE_JOBS`，每个 worker 一个隔离目录），墙钟按并行度折算（ADR-72 实测 4 核 3.41 核同时在忙、85%，并明写「倍数可以跨机器参考，秒数不行」）。设计面板实跑一套 P3 属性在 N = 2000 时 3.8 秒（每例约 1.9 ms），N = 100,000 超过 120 秒被中止。按 `3-rollout.md §D.15` 第 4 条「`npm run check` 总增量 < 60 秒」拆预算：`formal` ≤ 5 秒（本地目标；CI 上限 30 秒是 `3-rollout.md §D.14` 的回滚线）；属性测试每条 N ≤ 50、七条合计 `npm test` 增量 ≤ 0.1 秒，× 330 ≈ 33 秒 CPU 时间（墙钟按核数折算，未实测）；三项合计 < 60 秒（60 / 5 / 30 秒是提案自定阈值，按 ADR-82 属配置不属可算数；但 ADR-72 之后按绝对秒数定预算只在一台机器上成立，要不要改成相对倍数 —— 相对一次 `test.ts` 或 `mutate` 总时长 —— 待人定）。大 N（2000 以上）只在本地按 seed 跑，不进 CI；nightly 随机 seed 是 J37。P3.c 的例子要包括 `Number()` 会静默接受的输入：`'1e3'` → 1000、`'0x10'` → 16、`''` → 0（实跑）；字符串写法的取舍是 J30。
 
 ## D.11 变异映射
 
 层：code · 对应：码-41（N1–N8 进 `mutations.json`）、码-43（N9）、码-10（N8 与 `M-H16-*` 重编号）、码-42（变异集治理）· N2 的归属：业-13（P3.e 子句）或 业-23（A2 进判据）· 规则：`0-process.md 通-18`、通-24
 
-编号：#75 分支已占用 `M-P3-b`（「请求先发出去再过闸门」）与 `M-P3-c`（`budgetProblem` 恒 `undefined`），本节用临时标号 N1–N9，落地时按合入顺序续编，不与 #75 撞。
+编号：主干 d7e20d7 已占用 `M-P3-b`（req `P3.b`：`collect.ts` 的 `state.requests = budget.count` → `= 0`，by: selfcheck，ADR-70 落地 4）—— 与 #75 分支 97c358e 上同名的 `M-P3-b`（「请求先发出去再过闸门」）同名不同义；#75 的 `M-P3-c`（`budgetProblem` 恒 `undefined`）主干未占用。主干 P3 名下今天只有 `M-P3-a`、`M-P3-b` 两条（命令：`node -p "require('./scripts/check/mutations.json').mutations.filter(m=>m.req.startsWith('P3')).map(m=>m.id).join(',')"`）。#75 分支 rebase 到 d7e20d7 之后的 2deb489 已自行避让（按 2deb489 的 `mutations.json` 实核：336 条（2deb489）= 主干 330 + 6，`comm` 两份 id 清单只多出 `M-P3-c` / `M-P3-d` / `M-D6-l` / `M-H41-a/b/c` 六条；分支树已取，体量数见 `3-rollout.md` H0「背景（分支现状）」/ `9-evidence.md 附录三`）：原 `M-P3-b` → `M-P3-c`（tikhub 的先后）、原 `M-P3-c` → `M-P3-d`（budgetProblem）、原 `M-D6-i` → `M-D6-l`（ledgerProblem；2deb489 的提交信息说 `M-D6-i` 被另一条在途分支占着，按「号不复用，包括活在别的分支上的」避开 —— 这条规则 process/ 里未见明文，只有需求号与决策记录号明写不回收）、`M-H16-a/b/c` → `M-H41-a/b/c`（formal-rule）。本节用临时标号 N1–N9，落地时从主干未占用的号续编（今天从 `M-P3-c` 起）；走「从分支摘取」就沿用 2deb489 的编号。
 
 | 临时号 | 改什么 | why（需求语言） | 被谁抓 |
 |---|---|---|---|
 | （现有 M-P3-a） | 删掉超限时的抛出 | 预算超限不再抛出，静默继续花用户的钱 | P3.a 例子 |
 | N1 | `>` 改 `>=` | 恰好花完预算时最后一次付得起的请求被拒 | 现有 P3.a 例子已能抓到（实跑：sent = 4 ≠ 5）；P3.f 属性把它扩到全域 |
-| N2 | 删掉非 2xx 的退款 | 被限流的重试也计费，用户少拿三分之一额度 | 429 例子。**实跑：把它打到主干上跑现有 `scripts/test.ts`，837 个 ✓、exit 0 —— 存活。** 今天没有任何测试守它，也没有任何判据要求它 —— 「非 2xx 不计费所以退款」只存在于 A2；这条变异落地前要先有归属（P3.e 的子句或 A2 进判据），否则 `mutate` 的归属检查会拒（ADR-34） |
-| N3（= #75 的 M-P3-b） | 把记账挪到发请求之后 | 请求先发出去再看预算，超限的那一次已经花了钱 | fake-fetch 顺序断言（自检）。**实跑：打到主干上现有测试同样存活**；设计面板的顺序属性（每次 fetch 前最近两事件必须是 charge, persist）随机 500 例全部抓到 |
+| N2 | 删掉非 2xx 的退款 | 被限流的重试也计费，用户少拿三分之一额度 | 429 例子。**实跑（cc132a7）：把它打到主干上跑现有 `scripts/test.ts`，837 个 ✓、exit 0 —— 存活；d7e20d7 上 `scripts/test.ts` 是 1004 个 ✓、4109 行（d7e20d7 导出树的 `npx tsx scripts/test.ts` 日志计 ✓，`wc -l`），N2 打上去是否仍存活：未知（未复跑）。** 今天没有任何测试守它，也没有任何判据要求它 —— 「非 2xx 不计费所以退款」只存在于 A2；这条变异落地前要先有归属（P3.e 的子句或 A2 进判据），否则 `mutate` 的归属检查会拒（ADR-34） |
+| N3（= #75 分支里原叫 `M-P3-b` 的那条，2deb489 起改叫 `M-P3-c`；主干 `M-P3-b` 已被占用） | 把记账挪到发请求之后 | 请求先发出去再看预算，超限的那一次已经花了钱 | fake-fetch 顺序断言（自检）。**实跑（cc132a7）：打到主干上现有测试同样存活；d7e20d7 未复跑**；设计面板的顺序属性（每次 fetch 前最近两事件必须是 charge, persist）随机 500 例全部抓到 |
 | N4 | 删掉发请求前的落盘回调 | 进程被杀时盘上少记，续跑后总花费超出上限 | 崩溃注入属性 |
-| N5（= #75 的 M-P3-c） | `budgetProblem` 恒 `undefined` | 输错一个参数得到一次无上限采集 | P3.c 例子 |
+| N5（= #75 分支里原叫 `M-P3-c` 的那条，2deb489 起改叫 `M-P3-d`；主干 `M-P3-c` / `M-P3-d` 都未占用（d7e20d7）） | `budgetProblem` 恒 `undefined` | 输错一个参数得到一次无上限采集 | P3.c 例子 |
 | N6 | d-i：删掉假设值告知；d-ii：缺配置也放行 | 用户不知道系统替他定了预算 | P3.d 例子 |
 | N7 | 毫美元换算用 `floor` | 用户填 1.005 美元只拿到 1004 次 | 换算例子 |
-| N8 | 模型检查器的不变量改成恒真 | 检查器对任何模型都报通过 | #75 已有 `broken-charge` 负例场景 + `M-H16-*`（须重编号） |
-| N9 | 入口 exit 3 改 exit 1 | 预算用尽被当成出错，Agent 不会提示追加预算 | selfcheck 夹具（现有）；ADR-70 的 `by / kills` 五刀落地后改为变异（第一刀 PR #81 已于本文提交当天合入主干，只落判定 `verifier-rule.ts`，未接线） |
+| N8 | 模型检查器的不变量改成恒真 | 检查器对任何模型都报通过 | #75 已有 `broken-charge` 负例场景 + `M-H16-*`（须重编号：主干 `M-H16-a/b/c` 仍被 #78 占用；harness 变异组号已用到 `M-H40`（d7e20d7），新组从 `M-H41` 起，2deb489 已把它们改成 `M-H41-a/b/c` —— H2、H18 虽空着，变异 id 能否回收 process/ 里未见明文（需求号与决策记录号明写不回收：`1-REQUIREMENTS.md:13`、`2-CHANGE.md:168`），保守不用） |
+| N9 | 入口 exit 3 改 exit 1 | 预算用尽被当成出错，Agent 不会提示追加预算 | selfcheck 夹具（现有）。**主干已做（ADR-70 落地 2–4，d7e20d7）**：`by / kills` 已接线（`mutate.ts:57` import `verifier-rule.ts`；`4-VERIFY.md` 177–210 写入 by / kills 同进同出、见齐就停、夹具没造对不算抓到），只由自检认领的判据没有 `by: "selfcheck"` 负片就是审计硬失败（`audit.ts:307`）。N9 可直接写成 `by: "selfcheck"` + `kills` 的变异（req `P3.b`），夹具 label 要能被 kills 清册点名（`selfcheck.ts` 的 `named` / `runBoth` / `run`，:109 / :115 / :145），不必再等 |
 
 ## D.12 运行时监控
 
@@ -292,14 +292,16 @@ PR #75 在本次会话之前已经用模型找到了 CE-2（`SpendIsRecorded` 5 
 
 层：code / docs · 对应：码-10（模型核心）、码-11（`formal.ts` 入口与接线）、码-13（两个新场景）、码-14（对拍扩界）、码-05（认领 id 与登记表比对）、码-15（反例夹具）、码-44（selfcheck 三入口）、码-45（审计读假设表）、码-16（活性）、码-48（CI）· 业-27（锚点表）、业-31（SYNC 行）、业-23、业-25（旧目录读法）、业-20（J1）· 规则：`0-process.md 通-15`、通-12、通-40
 
-建议采用 #75 的文件与命名，不另起（J1，`1-docs.md 业-20`；若 `3-rollout.md` H0 选弃用，本节按 §D.3–§D.6 另写探索器，工作量另估）：`scripts/check/formal-rule.ts`（判定：状态、动作、不变量、有界 BFS、对拍投影）+ `scripts/check/formal.ts`（入口）+ `npm run formal`，位置在 `mutate` 之后、`selfcheck` 之前；`--tla` 不进链。拆分方式见 `3-rollout.md` H0c / H0d（码-10、码-11）。
+建议采用 #75 的文件与命名，不另起（J1，`1-docs.md 业-20`。**#75 已于 2026-09-11 关闭未合入，分支仍在远端且已 rebase 到 d7e20d7**（`git ls-remote origin` 指向 2deb489，PR 记录的 head 仍是 f652943 —— 见本段末注）；主干 d7e20d7 上没有 `formal-rule.ts` / `formal.ts` / `formal/`，所以 J1 的三个选项是：重开（或新开 PR）并拆五条 / 从分支摘取重做 / 弃用 —— 若 `3-rollout.md` H0 选弃用，本节按 §D.3–§D.6 另写探索器，工作量另估）：`scripts/check/formal-rule.ts`（判定：状态、动作、不变量、有界 BFS、对拍投影）+ `scripts/check/formal.ts`（入口）+ `npm run formal`，位置在 `mutate` 之后、`selfcheck` 之前（现行 `check` 链已是 8 步：size → spec → adr → typecheck → test → mutate → selfcheck → audit，见 `package.json` 的 `check` 脚本（d7e20d7）；lint / age / arch 三步已随 ADR-77 / ADR-76 / ADR-78 撤掉，这个插入位置仍在）；`--tla` 不进链。拆分方式见 `3-rollout.md` H0c / H0d（码-10、码-11）。
+
+> 注（2deb489，联网核对）：分支 `claude/kol-formal-verification-kr5igx` 今天 = d7e20d7 + 5 个提交：0025608（ADR-68）→ 4e962b5（budgetProblem / ledgerProblem）→ c65b08d（模型）→ b8d15c7（报错改法）—— 四个原提交 rebase 后换了 sha，committer 时间 2026-09-18 18:59–19:03Z —— 再加 2deb489（19:10Z，9 个文件 +23/−20）。2deb489 的提交信息自述：把分支里因 ADR-76 / 77 / 78 / 70 而失真的八处散文与注释改准（AGENTS.md 检查链加回 formal 一步；formal/README.md 改成「表还在、没机器核」；formal-rule.ts 不再拿已删的 lint-rule.ts 举例；budget.ts / selfcheck.ts 不再说「入口判定没有变异守得住」；按 ADR-82 拿掉「三条入口」「六条不变量」的基数），并把变异编号避让为 `M-P3-c` / `M-P3-d` / `M-D6-l` / `M-H41-a/b/c`。分支树已取（本地 `git cat-file -t 2deb489` = commit，`git merge-base 2deb489 d7e20d7` = d7e20d7）：对 d7e20d7 的 `git diff --numstat` 是 19 个文件 +2148/−11（2deb489），按 `size-rule.ts:40-46` 的 `categorize()` 归类源码类 1278 / 测试 203 / 文档 485 / 其他 182；`formal-rule.ts` 903 行、`formal.ts` 203、`BudgetProtocol.tla` 180、ADR-68 119（`wc -l`）；变异 336 条 —— 数值与 `3-rollout.md` H0「背景（分支现状）」/ `9-evidence.md 附录三` 一致。该树上 `npm run check` 是否全绿：未跑。它让「从分支摘取重做」的起点从 97c358e 变成 2deb489，H0a–H0e 的拆法要对着 2deb489 重核（`3-rollout.md` 那边的事）。
 
 1. **界**（码-13、码-11）：#75 的五个场景（`spec` / `entry-cadence` / `no-crash` / `bill-non-200` / `broken-charge`，56–2236 状态）；本文加两个：`write-ahead`（提议配置，`SpendIsRecorded` 与 `NoOverspend` 预期成立）与 `two-level-endpoint`（`9-evidence.md §B` B21，预期给出 A2 为假时的反例）。规模参考（设计面板的独立探索器，实跑）：宽界（limit ≤ 6、3 页、3 人、2 次崩溃）现状 64,957 状态 211 ms，写前记账 28,845 状态 65 ms。目标：`npm run formal` < 5 秒（本地）；`3-rollout.md §D.14` 的回滚阈值 30 秒是 CI 上的上限，两者的关系是「本地目标 / CI 上限」。
-2. **对拍**（模型 ↔ 代码；码-14、码-05）：#75 的 `runConformance()`（有界穷举，把 `CONFORMANCE_LIMITS` 从 `[0,1,2,3]` 扩到含 9，让它碰到 CE-3 —— 扩界后的对拍本次**未跑**，「能碰到」是从最小误拒点 9 推出的）+ `3-rollout.md` H4 的随机对拍（码-39）。认领只写 `criterion('P3.a')`；P3.c–f 是草案，claims 不比对登记表（`9-evidence.md §B` B13），认领草案 id 会静默通过。
+2. **对拍**（模型 ↔ 代码；码-14、码-05）：#75 的 `runConformance()`（有界穷举，把 `CONFORMANCE_LIMITS` 从 `[0,1,2,3]` 扩到含 9，让它碰到 CE-3 —— 扩界后的对拍本次**未跑**，「能碰到」是从最小误拒点 9 推出的）+ `3-rollout.md` H4 的随机对拍（码-39）。认领只写 `criterion('P3.a')`；P3.c–f 是草案，两份覆盖记录（`.check-cache/test-claims.json` 由 `test.ts` 写、`.check-cache/selfcheck-claims.json` 由 `selfcheck.ts` 写，`claims.ts:15` / `:35`，ADR-70 落地 3）都不与登记表比对（`claims.ts:103` `claimsWellFormed` 只查形状；`9-evidence.md §B` B13 后半，d7e20d7 上仍成立），认领草案 id 会静默通过。
 3. **模型 ↔ 模型**（码-12）：`--tla` 逐字符比可达状态集，复现条件 `-deadlock -workers 1`（`9-evidence.md §E.2b`）。
 4. **反例持久化**（码-15）：探索器找到轨迹时写成夹具 `scripts/check/fixtures/p3/<name>.json`，形状 `{ name, bounds, trace: [{ action, state }], expect: '<不变量名> violated at step k' }`；`test.ts` 里一条「回放全部夹具」的测试。**夹具只增不删**；删一条要 `oracle-change:` trailer（`0-process.md 通-21`）。
-5. **审计**（码-10、码-44）：`formal-rule.ts` 进判定模块清单，必须有变异（N8 / #75 的 `M-H16-*` 重编号）；`formal.ts` 在链里自成一步。#75 给 `selfcheck.ts` 加的 46 行与 `formal` 无关 —— 是三条入口对坏预算 / 坏账本的真跑（P3.c 的入口验收：`budget_usd: "abc"`、`requests: null`、`--budget 3.0.0`），随 `3-rollout.md` H0b 走（码-17）。
-6. **锚点与同步**（业-27、业-31）：ARCHITECTURE 锚点表两行（#75 已写）；SYNC 表加「改预算 / 成本逻辑 → 同时改模型与 `IMPLEMENTATION-MAP.md`」。
+5. **审计**（码-10、码-44）：`formal-rule.ts` 进判定模块清单，必须有变异（`SYNC.md:33`「新增一道闸门」🔒 audit；ADR-81 明写不撤 ADR-62 这条）（N8 / #75 的 `M-H16-*`，2deb489 已重编号为 `M-H41-a/b/c`，见 §D.11）；`formal.ts` 在链里自成一步。#75 分支（97c358e 时）给 `selfcheck.ts` 加的 46 行（2deb489 又改了 +6/−5）与 `formal` 无关 —— 是三条入口对坏预算 / 坏账本的真跑（P3.c 的入口验收：`budget_usd: "abc"`、`requests: null`、`--budget 3.0.0`），随 `3-rollout.md` H0b 走（码-17）。主干 `selfcheck.ts` 已是 1305 行（d7e20d7），自检报「11 个可执行文件都有出处」（#75 自述的 15 个是 #75 树上的数）；新夹具要走 `named` / `run` / `runBoth`，label 写成能被 `kills` 清册点名的样子，并对 P3.c 发 `criterion()` 入口认领（ADR-70 落地 3；码-44）。
+6. **锚点与同步**（业-27、业-31）：ARCHITECTURE 锚点表两行（#75 分支已写，主干上没有；**目标已撤（ADR-78，主干 d7e20d7）**的是机器核 —— 表还在，`<!-- BEGIN:ANCHORS 人维护，无机器校验（ADR-78） -->` 行 53–99，忘了登记没有任何东西提醒）；SYNC 表「改预算/成本逻辑」那一行（d7e20d7 行 37，机器检查列「部分」）的同步对象加上「模型与 `IMPLEMENTATION-MAP.md`」。
 7. **假设登记表**（业-23、码-45）：`docs/assumptions.json` + 审计读它。
 8. **旧任务目录**（业-25、码-19、码-23；规则 `0-process.md 通-40`）：`task.json` 缺新字段（`budget_assumed`）时按 ADR-18 的方向读作「无从确认」而不是 `false`；`meta.json.versions` 缺失时报告声明「版本未知」。
 9. **活性**（码-16）：`formal-rule.ts` 不检查 L1 / L2（没有时序逻辑）。要进链只能改写成可达性 / 无 stuck 状态检查（「存在付得起且仍有工作的可达状态，其后继里没有 `send`」是安全性形状）；否则只留 TLC 参考规约（`9-evidence.md §E.4` ③）。本文不把活性列进 H3 的验收。

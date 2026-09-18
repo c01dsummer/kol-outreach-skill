@@ -1,41 +1,41 @@
 # 9 · 依据：差距、工具比较、闭环现状、已知做不到、索引与修订
 
-**装什么**：提案的证据与推导，全部原样搬自 source —— §B 差距表 B1–B22 与「哪些需求值得形式化」分级表、§B 映射表的说明、§E 工具比较全文（E.0–E.4）、§F 权限矩阵的现状列（今天的规则 / 今天靠什么守）、§G 的现状分析（框图与断开段、传感器现状、状态估计的数字、控制变量现状、扰动的现状列、稳定性与层级的现状）、§I 已知做不到全文、附录二证据索引、附录三与 PR #75 的对照、附录四修订记录；每张表末尾一行「被引用于」列出引用它的 通 / 业 / 码 / H（按各条目正文里的实际引用机械生成；提议的落地去处写在各表的引言里，不混进这一行）。
-**不装什么**：任何提议本身 —— 通用规则在 `0-process.md`（通-NN）；本产品的实例（传感器表、控制变量表、扰动对策、熔断条件、起点数字的落地、分级表的落地）在 `1-docs.md`（业-NN）；代码在 `2-code.md`（码-NN）；P3 试点叙述 D.0–D.15 在 `8-p3-pilot.md`；落地步骤 H0a–H12 在 `3-rollout.md`；待裁决 J1–J47 在 `README.md`。
-**编号怎么读**：`B1…B22`、`CE-1…CE-5`、`I1…I7`、`L1…L2`、`A1…A9`、`N1…N9`、`R1…R11` 沿用 source 不改；证据标记只用五种（**实跑** / **#75 自述 / 本次复现** / **读代码** / **联网核对** / **尚未验证**，定义见 `README.md`），无标记按「读代码」；全部 `file:line` 指主干 `cc132a7`，除非写明「#75 分支」；搬运文字里的「本提案」= 原 `proposals/self-evolution-methodology.md` 整份，「D.x / C.x / H 第 n 步」按 `8-p3-pilot.md §D.x`、`1-docs.md`、`3-rollout.md Hn` 读。本文件不改任何现行需求文本。
+**装什么**：提案的证据与推导，全部原样搬自 source —— §B 差距表 B1–B22 与「哪些需求值得形式化」分级表、§B 映射表的说明、§E 工具比较全文（E.0–E.4）、§F 权限矩阵的现状列（今天的规则 / 今天靠什么守）、§G 的现状分析（框图与断开段、传感器现状、状态估计的数字、控制变量现状、扰动的现状列、稳定性与层级的现状）、§I 已知做不到全文、附录二证据索引、附录三与 PR #75 的对照、附录四修订记录、附录五基线迁移（cc132a7 → d7e20d7）；每张表末尾一行「被引用于」列出引用它的 通 / 业 / 码 / H（按各条目正文里的实际引用机械生成；提议的落地去处写在各表的引言里，不混进这一行）。
+**不装什么**：任何提议本身 —— 通用规则在 `0-process.md`（通-NN）；本产品的实例（传感器表、控制变量表、扰动对策、熔断条件、起点数字的落地、分级表的落地）在 `1-docs.md`（业-NN）；代码在 `2-code.md`（码-NN）；P3 试点叙述 D.0–D.15 在 `8-p3-pilot.md`；落地步骤 H0a–H12 在 `3-rollout.md`；待裁决 J1–J55 在 `README.md`。
+**编号怎么读**：`B1…B22`、`CE-1…CE-5`、`I1…I7`、`L1…L2`、`A1…A9`、`N1…N9`、`R1…R11` 沿用 source 不改；证据标记只用五种（**实跑** / **#75 自述 / 本次复现** / **读代码** / **联网核对** / **尚未验证**，定义见 `README.md`），无标记按「读代码」；全部 `file:line`、节名与行号指主干 `d7e20d7`（PR #118 合并提交，提交日期 2026-09-19 +0800；`git rev-list --count cc132a7..d7e20d7` = 199），除非写明「#75 分支」（PR 记录的 head 是 `f652943`，提案读的代码到 `97c358e`；分支已于 2026-09-18 强推为叠在 d7e20d7 上的 `2deb489`）或「cc132a7 实跑」（本次会话实跑得来的数不是仓库可算数，钉在跑它的那棵树上，d7e20d7 未复跑除非另注）；可算的数按 ADR-82 要么写「N（d7e20d7）」要么只写命令，旧基线的数只出现在「基线迁移」对照句里；搬运文字里的「本提案」= 原 `proposals/self-evolution-methodology.md` 整份，「D.x / C.x / H 第 n 步」按 `8-p3-pilot.md §D.x`、`1-docs.md`、`3-rollout.md Hn` 读。本文件不改任何现行需求文本。
 
 ## §B 当前系统差距
 
-先说这套体系已经做对的事，免得下面的清单读成「一无是处」：需求有机器可读正本与派生指纹；判据拆到可独立计量并有运行时认领；红线不许作废、必须有测试 + 变异，机器守着；226 条变异（`cc132a7`；#81 合入后 229）且「进程崩了不算抓到」；三态原则贯穿类型与报告；顺序契约用变异守；检查链自己也是被检查对象；一条形式化试点 PR（#75）已经把 P3 的协议建成了可穷举的模型。**本提案的每一步都建立在这些之上，没有一步要求推倒。**
+先说这套体系已经做对的事，免得下面的清单读成「一无是处」：需求有机器可读正本与派生指纹；判据拆到可独立计量并有运行时认领；红线不许作废、必须有测试 + 变异，机器守着；变异集 330 条（d7e20d7；`node -p "require('./scripts/check/mutations.json').mutations.length"`；基线迁移：cc132a7 226、#81 后 229）且「进程崩了不算抓到」，而且自 ADR-70 落地起变异可以指名验证者（`by` / `kills`）；三态原则贯穿类型与报告；顺序契约用变异守；检查链自己也是被检查对象；一条形式化试点 PR（#75 —— 已于 2026-09-11 关闭未合入，分支仍在远端，见附录三）已经把 P3 的协议建成了可穷举的模型。**本提案的每一步都建立在这些之上，没有一步要求推倒。**
 
-差距按「离可信自演化闭环还差什么」列。每条给风险、证据、机器可查、需人工；「需人工」的裁决点汇总在 `README.md` 待裁决清单 J1–J47，每条指到 `3-rollout.md` 的哪一步。
+差距按「离可信自演化闭环还差什么」列。每条给风险、证据、机器可查、需人工；「需人工」的裁决点汇总在 `README.md` 待裁决清单 J1–J55，每条指到 `3-rollout.md` 的哪一步。
 
 ### §B 差距表 B1–B22
 
 | # | 差距 | 风险 | 证据 | 机器可查 | 需人工 |
 |---|---|---|---|---|---|
 | B1 | **判据的可判定性不均匀。** P3.a 是一个例子（limit=0.005、10 次），不表达不变量；约九条判据是文档存在性或人工判断（S2.a、S2.b、S3.a、S3.b、S5.a、F1.a、F3.b、F4.b、P2.a），其中 S1.a、S4.a 这类其实可用 `source_grep` / 类型断言机械判定，只是今天没有测试；U6.c 是浏览器行为；F2.b「有明确权重」无定义。整个 S 类没有任何 `suite()` | 「可判定」四条要求在不同判据上落实程度差三个量级；EARS 化时这些判据会暴露为「不可失败」或「无 oracle」 | `requirements.json`；registry track 的分类；`grep suite(` 结果 | partly | 是 |
-| B2 | **P3 的「确认」没有定义，两个入口行为不同。** `collect --resume --budget abc` → NaN → 闸门永不拒绝（实跑：请求数 2 → 17，exit 0，提醒 0 条，stderr 只打出「预算 $NaN」）；NaN 落盘成 `null`，下次续跑 `TypeError` exit 1；`enrich` 有 `isFinite` 校验；`loadTask` 不校验 `budget_usd / requests` 类型，`requests: "4"` 让下一次计数变成 `"41"`（#75 自述，本次未复跑） | 输错一个参数得到无上限采集；退出码契约被破坏 | `collect.ts:59-60` vs `enrich.ts:66-72`；`task.ts:27-29`；scratchpad `p3/e2e-a` 实跑 | yes | 修法明确（#75 的 `budgetProblem / ledgerProblem`）；「Infinity 算不算确认」「低于已花的 --budget 是想立刻停还是输错」要人定 |
-| B3 | **P3 的跨进程窗口。** `enrichProfiles()` 循环内不 persist；SIGKILL 于第 2 个 profile 请求时盘上 12、实际 14；续跑后盘上 15、实际 17 | 「不超出」只对盘上计数成立；最坏落后 = `needsProfile` 人数 | `collect.ts:205-229`；`p3/e2e-c` 实跑；#75 的 `SpendIsRecorded` 5 步反例 | yes（崩溃注入） | 「崩溃时该怎样」登记表没决定（ADR-68 欠条）—— 人批 |
+| B2 | **P3 的「确认」没有定义，两个入口行为不同。** `collect --resume --budget abc` → NaN → 闸门永不拒绝（实跑：请求数 2 → 17，exit 0，提醒 0 条，stderr 只打出「预算 $NaN」）；NaN 落盘成 `null`，下次续跑 `TypeError` exit 1；`enrich` 有 `isFinite` 校验；`loadTask` 不校验 `budget_usd / requests` 类型，`requests: "4"` 让下一次计数变成 `"41"`（#75 自述，本次未复跑） | 输错一个参数得到无上限采集；退出码契约被破坏 | `collect.ts:59-60` vs `enrich.ts:66-72`；`task.ts:27-29`；scratchpad `p3/e2e-a` 实跑 | yes | 修法明确（#75 分支的 `budgetProblem / ledgerProblem`，未合入主干）；「Infinity 算不算确认」「低于已花的 --budget 是想立刻停还是输错」要人定 |
+| B3 | **P3 的跨进程窗口。** `enrichProfiles()` 循环内不 persist；SIGKILL 于第 2 个 profile 请求时盘上 12、实际 14；续跑后盘上 15、实际 17 | 「不超出」只对盘上计数成立；最坏落后 = `needsProfile` 人数 | `collect.ts:205-229`；`p3/e2e-c` 实跑；#75 的 `SpendIsRecorded` 5 步反例 | yes（崩溃注入） | 「崩溃时该怎样」登记表没决定（#75 分支 ADR-68 的欠条，未合入主干）—— 人批 |
 | B4 | **浮点误拒。** 10 万个 $0.001 步进 limit 中 26,410 个少放行一次、0 个多放行（实跑）；fast-check shrink 到最小误拒 limit 0.009；Z3 FloatingPoint 证明 `m < 9` 无误拒、`[1,2000]` 无多放行；P3.a 的 0.005 恰好测不到；续跑初始化同样受影响（`new Budget(0.010, 9).charge()` 直接抛） | 不违反「不超出」；违反「付得起不该拒」，而后者今天没有判据；`remaining` 与 `affordable` 自相矛盾 | `budget.ts:36`；`p3/scan.ts`；tools-hands-on | yes | 「算不算缺陷」要人定 |
-| B5 | **默认预算 $2 静默。** `cfg.budget_usd ?? 2` 无告知；CONVENTIONS §7 与 SKILL.md 都要求「明确告知这是假设值」；SKILL 没有 task.json 字段契约 | 与自己的约定不一致；F1 失守时用户不知情花到 $2 | `collect.ts:72`；`CONVENTIONS.md:105-110` | partly | 是（保留告知 vs 删默认） |
+| B5 | **默认预算 $2 静默。** `cfg.budget_usd ?? 2` 无告知；CONVENTIONS §7 与 SKILL.md 都要求「明确告知这是假设值」；SKILL 没有 task.json 字段契约 | 与自己的约定不一致；F1 失守时用户不知情花到 $2 | `collect.ts:72`；`CONVENTIONS.md:111-116` | partly | 是（保留告知 vs 删默认） |
 | B6 | **观测三态靠约定，「查询失败」与「未查询」同态。** profile 请求失败（404 / 5xx / 网络 / **402**）一律 `bio: undefined`；402 在 profile 阶段被吞成 `profile_failed`，exit 0；429 耗尽在 `run()` 里 exit 1、在 `enrichProfiles` 里被吞；`bio_links` 二态导致有简介无外链者每次续跑重查（付费；测试断言为预期行为） | 续跑成本线性增长；402 用户不知情；同一状态在两个阶段命运不同；Creator 层没有 Unavailable(reason) | `collect.ts:219-225`；`pipeline.ts:78`；observation track 实跑 | yes | 是（重试策略归谁；`bio_links` 的未查询态怎么表达） |
 | B7 | **外部响应与四个落盘 JSON 无运行时形状校验。** `followerCount:"12K"` 进 number 字段 → 粉丝闸门静默丢弃；只有 memory 文件有校验；`is_private` 缺失被 `Boolean()` 压成 false；报告层 `report.ts:129` 把 email `undefined` 显示成「无邮箱」 | P1 被绕过且不可见；报告把三档压两档 | observation probe D 实跑；`tikhub.ts:281`、`report.ts:129` | yes | 否 |
-| B8 | **P1 lint 只认字面量兜底。** `?? c.followers`（`collect.ts:215`）、`\|\| e.followers`（`memory.ts:410`）判 clean；16 处 `p1-ok` 中 9 处多余 | 「P1 唯一机器可执行的一半」的覆盖面被高估 | `lint-rule.ts:33`；observation probe A/B 实跑 | yes | `memory.ts:410` 算不算 P1.b 违规要裁定 |
-| B9 | **状态处理无穷尽检查。** 主干 31 处 `status === 'measured' / 'unavailable'` 二分（其中 17 处是 `?.status`；observation track 的 probe 只数了其中 24 处），无 `never` 断言；未知 status 让 meta 三数不相加或抛 TypeError | 新增一个状态值时静默错 | observation probe E 实跑；`render.ts:54-59` | yes | 否 |
+| B8 | **已被 ADR-71 / ADR-77 以另一种方式处置（主干 d7e20d7）。** 原差距「P1 lint 只认字面量兜底，`?? c.followers`（`collect.ts:215`）、`\|\| e.followers`（`memory.ts:410`）判 clean」的主体已不存在：`lint-rule.ts` / `lint.ts` 已删（ADR-77），P1.b 正文只剩「任何位置不得出现 `?? 0` / `\|\| ''` 形式的数据兜底。」并登记为显式豁免（`mutations.json:2664`），三条结果判据 P1.e / P1.f / P1.g 由 `test.ts:2435` 的 P1 suite + `M-P1-x` / `M-U1-d` / `M-P1-d` 守；ADR-71 那次的修法是结构性的（`tierOf` 由调用方传分，`score.ts:30`）。两行代码原样未动，今天没有任何检查读它们 —— CONVENTIONS §1 新文本（行 32–39）明写「一处新写的 `?? 0`，只要还没影响到产出，没有东西会当场指出来」。「16 处 `p1-ok` 中 9 处多余」：`p1-ok` 在 d7e20d7 的 scripts/ 下只剩 test.ts 一处字符串（`git grep -c 'p1-ok' d7e20d7 -- scripts`），原地改成「P1 例外：」纯注释（`git grep -c 'P1 例外' d7e20d7 -- scripts`），「9 处多余」是仓库外 probe 在 cc132a7 上的结论，d7e20d7 无法复核（未知） | 旧差距变成了 ADR-77 的欠条：三条轴之外的压平点没人守（ADR-77 行 85–91） | ADR-71、ADR-77（更正块行 106–127）；observation probe A/B 实跑（cc132a7） | 结果轴 yes；写法层 no（有意撤掉） | `memory.ts:410` 是否落在 P1.e/f/g 之外的第四条压平路径要裁定（依据换成 ADR-77 欠条与重开条件行 93–101） |
+| B9 | **状态处理无穷尽检查。** 主干 31 处 `status === 'measured' / 'unavailable'` 二分（d7e20d7，与 cc132a7 相同；口径 `git grep -o -E "status === '(measured\|unavailable)'" d7e20d7 -- scripts ':!scripts/check' ':!scripts/test.ts' \| wc -l`；其中 17 处是 `?.status`；observation track 的 probe 只数了其中 24 处），无 `never` 断言；未知 status 让 meta 三数不相加或抛 TypeError | 新增一个状态值时静默错 | observation probe E 实跑；`render.ts:54-59` | yes | 否 |
 | B10 | **身份：查询侧照单全收、第三套键规则、歧义时仍合并。** 库里 `tiktok:alice` contacted，查 `alice `/`alice﻿` 静默漏过（P4 路径）；`identity.ts` 自拼键且 platform 按字面比较，`TikTok` 被路由进 instagram 桶；「同一个函数」没有检查守；`[tiktok:mei_cooks, tiktok:mei.cooks, instagram:meicooks]` 两个候选同时命中信号 3 时合并了第一个，配对随输入顺序变 | P4 静默失效的一扇门；D1.c 在去重那一半未实现；D3 的「不确定」没有定义 | identity track 与 tools-research 实跑；`memory.ts:339`；`identity.ts:30,55-61,92` | yes | 是（查询侧是否过 `keyProblem`；歧义是否算「不确定」） |
 | B11 | **持久化：D4.i / D4.j 无运行时认领；「第二步成功、第三步前中断」未测；两写入方交错留下 ok + 未去重名单（实跑复现，已声明不保证）**；collect 断点保存与 enrich persist 会把旧 `memory_status` 原样写回，可在窗口内复活肯定断言 | 三步协议只靠未认领断言 + 两条变异 | memory track threestep.ts 实跑；`collect.ts:128-133`、`enrich.ts:125-129` | partly | 是（写入方并行是否允许） |
-| B12 | **P2：三条输出路径今天都原样保留占位符（实跑），但 XLSX 路径没有测试也没有变异（`test.ts:2499-2523` 只验 sheet 名），HTML 有测试无变异；产品页事实不落盘，没有 claim / evidence 结构** | 在 `xlsx.ts` 的 `esc` 里抹 `{}`，现有测试全绿（读代码推断）；事后连人工核对都没有材料 | claims track p2-paths.ts 实跑；`test.ts:2499-2523` | yes（前半）/ no（后半） | 是 |
-| B13 | **测试与实现同源（ADR-04）；无属性测试设施；变异集是手写负片。** 审计只要求红线**需求级**有变异，判据级变异不被要求也不计入；claims 里的判据编号不与登记表比对；退役判据编号可被重新加入（实测 `P4.d` 通过校验） | 「每条红线判据有测试且有变异」的实际口径比文档弱；编号不回收只靠 ADR-67 散文 | registry track 实跑；`audit.ts:117,143`；`claims.ts:83-88` | yes | 否 |
-| B14 | **模型层只有一条未合入的 PR。** 顺序契约有变异守，但崩溃交错在主干上只有例子测试；#75 的模型是唯一穷举交错的检查，且它自己合不进去（`3-rollout.md` H0） | ADR-38 / 41 / 47 记的漏掉的交错今后还会再漏 | ARCHITECTURE 顺序契约表；`test.ts:792-825`；PR #75 | yes | 否 |
-| B15 | **环境假设无机器可读的登记处。** 单价上限、非 200 不计费、rename 原子性、fsync 尽力而为散落在注释与 ADR-50；#75 的 `IMPLEMENTATION-MAP.md` 集中了它们但不可机器读；「非 200 不计费」「in-flight 是否计费」未验证；`probe` 的花销不进任何账 | 「描述保证的那句话没有任何检查看着」（CONVENTIONS §11）；假设失效时没有东西让结论降级 | `budget.ts:1`、`tikhub.ts:90`、`atomic.ts:35-37`；ADR-68 | partly | 是 |
-| B16 | **反馈回路开路。** `replied` 没有任何读者；回复率 / 邮箱有效率 / 草稿改动率无入口；U3 关键词表把「0 结果 / 请求失败 / 未跑」坍缩成「无此行」，`found` 是过滤后计数且随轮转顺序变，`fit_pass` 由 Agent 判定；`output-format.md:104` 把这张表定为「下次调整策略的依据」—— 这句话本身就是传感器与控制器同源的回路 | 以业务效果为目标的自演化没有传感器；唯一的自我改进依据噪声大且同源 | sensors track：`memory.ts:341,407`；`pipeline.ts:204-213`；`collect.ts:165-166` | partly | 是（要不要建传感器是产品决策） |
+| B12 | **P2：三条输出路径今天都原样保留占位符（实跑），但 XLSX 路径没有占位符测试也没有占位符变异（`test.ts:2661-2685` 只验 sheet 名 —— 与 cc132a7 的 2499-2523 逐字相同；`xlsx.ts` 唯一变异 `M-D4-p` 守的是落盘整体替换），HTML 有测试无变异；产品页事实不落盘，没有 claim / evidence 结构** | 在 `xlsx.ts` 的 `esc` 里抹 `{}`，现有测试全绿（读代码推断）；事后连人工核对都没有材料 | claims track p2-paths.ts 实跑（cc132a7）；`test.ts:2661-2685` | yes（前半）/ no（后半） | 是 |
+| B13 | **测试与实现同源（ADR-04）；无属性测试设施；变异集是手写负片。** 审计要求红线**需求级**有变异；判据级负片**已计入**（`audit-rule.ts:75` `criterionMutations`，报告显示「判据 n(负片 k)/m」—— **主干已做，ADR-70 落地 3 / 4**），但只对「只由自检认领的判据」硬性要求一条 `by: "selfcheck"` 负片（`audit.ts:307`），其余判据级仍不要求；claims 里的判据编号不与登记表比对 —— 两份记录都不比（`claims.ts:103` `claimsWellFormed` 只查形状，d7e20d7 的 `audit.ts` / `audit-rule.ts` 无比对代码）；退役判据编号可被重新加入（实测 `P4.d` 通过校验，cc132a7；d7e20d7 的 `spec-rule.ts` diff 只动 `requirementVerdict` / `criteriaCell` / `mutationCell`，未见退役编号比对，是否仍通过未复跑） | 「每条红线判据有测试且有变异」的实际口径比文档弱；编号不回收只靠 ADR-67 散文（决策记录编号同形：`6-INTEGRATE.md:312` 自 ADR-79 起降为第三层） | registry track 实跑（cc132a7）；`audit.ts:143,174`（需求级 `mutatedIds`）、`audit-rule.ts:75`（判据级）；`claims.ts:88`（`CLAIM_LISTS`）、`:103` | yes | 否 |
+| B14 | **模型层只有一条已关闭、未合入的 PR。** 顺序契约有变异守（表在 `ARCHITECTURE.md:112-122`，自 ADR-78 起绑没绑对无机器核），但崩溃交错在主干上只有例子测试；#75 的模型是唯一穷举交错的检查，而 #75 已于 2026-09-11 关闭未合入（`mergeable_state: dirty`），分支仍在远端且已于 2026-09-18 叠到 d7e20d7 上（`2deb489`）—— 去向按 `3-rollout.md` H0 / `README.md` J1 | ADR-38 / 41 / 47 记的漏掉的交错今后还会再漏 | ARCHITECTURE 顺序契约表；`test.ts:818-851`（与 cc132a7 的 792-825 逐字相同）；PR #75（联网核对） | yes | 否 |
+| B15 | **环境假设无机器可读的登记处。** 单价上限、非 200 不计费、rename 原子性、fsync 尽力而为散落在注释与 ADR-50；#75 分支的 `IMPLEMENTATION-MAP.md`（未合入）集中了它们但不可机器读；「非 200 不计费」「in-flight 是否计费」未验证；`probe` 的花销不进任何账 | 「描述保证的那句话没有任何检查看着」（CONVENTIONS §11）；假设失效时没有东西让结论降级 | `budget.ts:1`、`tikhub.ts:90`、`atomic.ts:35-37`（三处在 d7e20d7 原位未变）；ADR-68（#75 分支，主干 68 号空着） | partly | 是 |
+| B16 | **反馈回路开路。** `replied` 没有任何读者；回复率 / 邮箱有效率 / 草稿改动率无入口；U3 关键词表把「0 结果 / 请求失败 / 未跑」坍缩成「无此行」，`found` 是过滤后计数且随轮转顺序变，`fit_pass` 由 Agent 判定；`output-format.md:104` 把这张表定为「下次调整策略的依据」—— 这句话本身就是传感器与控制器同源的回路 | 以业务效果为目标的自演化没有传感器；唯一的自我改进依据噪声大且同源 | sensors track：`memory.ts:341,407`；`pipeline.ts:210-219`（与 cc132a7 的 204-213 逐字相同）；`collect.ts:165-166` | partly | 是（要不要建传感器是产品决策） |
 | B17 | **无版本指纹、无扰动计数。** `meta.json` 没有代码 / 配置 / schema 版本；429、schema 未识别、IG 回退都不计数不落盘；`profile_failed` 只在 stdout 不进 meta | 两次任务的差异无法归因；扰动不可察觉 | `render.ts:90-141`；`tikhub.ts:96-100,294` | yes | ADR-13「不引版本号」是否冲突要人定 |
-| B18 | **治理只有第三层。** 「红线改动必须独立复核」在仓库里看不到配置；`main` `protected: true` 但规则内容查不到（403）；PR #78 改守红线的检查链、零条正式 review、作者自合；仓库只有一个人类身份；七种豁免全部自批，且只有 `p1-ok / size-ok / age-ok` 三种校验「理由非空」；`process/` 无任何检查读 | 「必须人批」在今天全部靠自觉，且没有第二个人 | governance track（GitHub API 只读核实）；`4-VERIFY.md:235` | partly | 是 |
-| B19 | **需求 → 证明的追踪缺位。** 登记表没有「这条判据由哪个模型 / 性质 / 监控守」的信息；审计只数测试认领与变异 | 形式化产物落地后会成为「没人读又校验不了」的东西（ADR-17 的形状） | `requirements.json` 字段集 | yes（一旦有字段并派生） | 否 |
-| B20 | **文档副本漂移。** `PR_SIGNALS` 代码正则 ≠ 文档；tier fallback 60/40 无文档；429 退避的文档口径（150 → 300ms）与代码（翻倍封顶 1000 + 额外倍数）不同；粉丝上下限「算不算改需求」两份文档矛盾；SKILL「profile 补全跑在续跑最前面」≠ 代码顺序；README 手写「35 条需求 / 5 条红线」、AGENTS 手写「共 5 条」无检查守；`mutations.json` 的 `exemptions[].mitigation` 没有任何代码读 | SYNC 表靠人执行的那些行在漂 | sensors / p3 / registry track 的对照；`mutate.ts:29` | partly | 是 |
-| B21 | **IG profile 的两级端点让一次逻辑请求最多 8 次提交、1 次计数。** `tikhub.ts:260-261` 的 catch 只排除 402：V3 抛 `BudgetExceeded` 时仍走 V2 再 charge 一次；V3 连续 429 打满后降到 V2 再打 4 次（本次会话复核实跑） | 若「非 200 不计费」为假，这里是 8 次计费 1 次计数；模型的重试上限要把两级端点算进去（#75 的模型没有） | `tikhub.ts:257-264`；ADR-68 第四张欠条 | yes | 否 |
-| B22 | **F7 的提醒集合只在内存。** `notified` 不落盘（`budget.ts:18`），续跑新建实例后已跨过的阈值再触发一次：`new Budget(0.020, 18).charge()` 同时打出 50% 与 80%（本次会话复核实跑） | F7.a「一次」是每进程一次还是每任务一次没有定义；按任务算则与 D6.a 有交点而登记表没有 | ADR-68 第二张欠条 | yes | 是 |
+| B18 | **治理只有第三层；2026-09-18 起多了一份评审须知，但仍无分支保护证据。** 「红线改动必须独立复核」在仓库里看不到配置；`main` `protected: true` 但规则内容查不到（403 —— cc132a7 时查的，d7e20d7 未复核）；PR #78（`cea614e`，2026-09-06）改守红线的检查链、零条正式 review、作者自合；仓库只有一个人类身份（cc132a7 时的统计，未复核）；有机器读的豁免五种（`size-ok`、`JUDGMENT_EXEMPT` `audit-rule.ts:42`、`EXEC_EXEMPT` `audit.ts:199`、selfcheck `EXEMPT` `selfcheck.ts:33` 现为空、`mutations.json` 的 `exemptions` 2 条）全部自批，只有 `size-ok` 一种由闸门校验「理由非空」（`size-rule.ts:117,132`；`p1-ok` / `age-ok` 随 ADR-77 / ADR-76 连闸门一起消失）；`process/` 无任何检查读。**新增**：根目录 `REVIEW.md`（28 行，只做转发）+ `.github/copilot-instructions.md` + `.coderabbit.yaml`（ADR-83），`AGENTS.md:56` 路由到它；#75 的唯一评论就是 Codex 机器安全评审（对 `97c358e`，无发现）—— 机器评审器成了「第二方」的候选，但 ADR-83 自述「没验之前，不要把这一条当成『评审已经知道规矩了』」（行 46） | 「必须人批」在今天全部靠自觉，且没有第二个人；机器评审器的独立性未验证 | governance track（GitHub API 只读核实，cc132a7）；`4-VERIFY.md:260`；`REVIEW.md`、ADR-83（读代码，d7e20d7）；PR #75 评论（联网核对） | partly | 是 |
+| B19 | **需求 → 证明的追踪缺位。** 登记表没有「这条判据由哪个模型 / 性质 / 监控守」的信息；审计数的是单元认领、入口认领（`.check-cache/selfcheck-claims.json`，ADR-70 落地 3）与变异（含判据级负片），仍没有模型 / 性质那两档的落处 | 形式化产物落地后会成为「没人读又校验不了」的东西（ADR-17 的形状） | `requirements.json` 字段集 | yes（一旦有字段并派生） | 否 |
+| B20 | **文档副本漂移。** `PR_SIGNALS` 代码正则 ≠ 文档；tier fallback 60/40 无文档；429 退避的文档口径（150 → 300ms）与代码（翻倍封顶 1000 + 额外倍数）不同；粉丝上下限「算不算改需求」两份文档矛盾；SKILL「profile 补全跑在续跑最前面」≠ 代码顺序；README 手写「35 条需求 / 5 条红线」已于主干清掉（ADR-82，`README.md:191` 改为「跑 `npm run audit` 会打印 —— 这里不写数」），AGENTS 手写「共 5 条」仍在（`AGENTS.md:62`）且无检查守；`mutations.json` 的 `exemptions[].mitigation` 没有任何代码读（`mutate.ts:69` 声明后无读点；`why` 只被打印进 `--brief` 与审计报告，`mutate.ts:189-192`、`audit.ts:150`，无非空校验；ADR-70 落地 2 5c 第四片把 `mitigation` 按更正处理、留了欠条）；tier fallback 那一条：主干已去掉 `tierOf` 的 `?? 0` 兜底（ADR-71，`score.ts:30` 分数由调用方传入），60/40 阈值仍无文档 | SYNC 表靠人执行的那些行在漂 | sensors / p3 / registry track 的对照（cc132a7）；`mutate.ts:69`；`README.md:191`、`AGENTS.md:62`（d7e20d7） | partly | 是 |
+| B21 | **IG profile 的两级端点让一次逻辑请求最多 8 次提交、1 次计数。** `tikhub.ts:260-261` 的 catch 只排除 402：V3 抛 `BudgetExceeded` 时仍走 V2 再 charge 一次；V3 连续 429 打满后降到 V2 再打 4 次（本次会话复核实跑） | 若「非 200 不计费」为假，这里是 8 次计费 1 次计数；模型的重试上限要把两级端点算进去（#75 的模型没有） | `tikhub.ts:257-264`（d7e20d7 原位，该段 diff 为空）；ADR-68（#75 分支，未合入）第四张欠条 | yes | 否 |
+| B22 | **F7 的提醒集合只在内存。** `notified` 不落盘（`budget.ts:18`），续跑新建实例后已跨过的阈值再触发一次：`new Budget(0.020, 18).charge()` 同时打出 50% 与 80%（本次会话复核实跑） | F7.a「一次」是每进程一次还是每任务一次没有定义；按任务算则与 D6.a 有交点而登记表没有 | `budget.ts:18`（d7e20d7 未变）；ADR-68（#75 分支，未合入）第二张欠条 | yes | 是 |
 
 被引用于：通-01、通-02、通-03、通-04、通-05、通-06、通-09、通-10、通-11、通-13、通-19、通-20、通-21、通-22、通-23、通-24、通-25、通-26、通-27、通-29、通-30、通-31、通-32、通-38、通-40／业-04、业-06、业-07、业-09、业-11、业-12、业-13、业-14、业-16、业-18、业-23、业-24、业-25、业-30、业-31、业-32、业-34、业-35、业-37、业-41、业-43、业-44、业-47、业-48、业-49、业-50、业-51、业-52、业-53、业-54、业-55、业-56、业-57、业-58、业-59、业-61／码-01、码-03、码-05、码-06、码-10、码-11、码-13、码-19、码-23、码-25、码-26、码-27、码-28、码-29、码-30、码-31、码-32、码-33、码-34、码-38、码-40、码-42、码-45、码-47、码-49／H1、H6、H8、H9；另：`8-p3-pilot.md §D.0`、`§D.3`、`§D.5`、`§D.6`、`§D.7`、`§D.9`、`§D.13`；`README.md` 二十问导航（第 4、16、18 问）
 
@@ -45,14 +45,14 @@
 
 | 需求 | 级别 | 理由 | 今天的守法 |
 |---|---|---|---|
-| **P3** 预算 | **模型检查 + 属性 + 例子** | 状态少、事件少、崩溃与重入交错多、数值边界明确、违反不可逆 | 例子测试 P3.a、变异 M-P3-a；P3.b 靠 selfcheck 真跑（`mutations.json` 显式豁免，理由引 ADR-13）；#75 的模型（未合入） |
-| **D6** 断点续跑 | **模型检查**（与 P3 同一个模型；试点内**建模不裁决**） | 它就是 P3 模型的另一半：`persist` 点、`resume` 初始化 | 例子测试；#75 的 `ResumeKeepsCount` |
+| **P3** 预算 | **模型检查 + 属性 + 例子** | 状态少、事件少、崩溃与重入交错多、数值边界明确、违反不可逆 | 例子测试 P3.a、变异 M-P3-a；P3.b 由 `M-P3-b`（`by: "selfcheck"` + `kills`，`mutations.json:2068`，ADR-70 落地 4）守并有入口认领（`selfcheck.ts:280`），显式豁免已撤 —— **主干已做**；#75 的模型（PR 已关闭未合入，分支仍在） |
+| **D6** 断点续跑 | **模型检查**（与 P3 同一个模型；试点内**建模不裁决**） | 它就是 P3 模型的另一半：`persist` 点、`resume` 初始化 | 例子测试；D6.f 由 `M-D6-j`（`by: "selfcheck"`，点名四条收尾夹具，`mutations.json:1949`）守；#75 分支的 `ResumeKeepsCount`（未合入） |
 | **F7** 阈值提醒 | **例子**；「一次」的定义待评定 | 状态太小；但 B22 说明它与 D6 有未登记的交点 | 例子 + 变异 M-F7-a |
-| **P1** 三态 | **类型结构 + 属性 + lint** | 「Unqueried ≠ MeasuredAbsent」是结构性质；不需要模型检查 | undefined/null 约定 + P1 lint + 21 条 `req: P1` 变异 |
+| **P1** 三态 | **类型结构 + 属性 + 结果断言（P1.e/f/g）** | 「Unqueried ≠ MeasuredAbsent」是结构性质；不需要模型检查 | undefined/null 约定 + `test.ts:2435` 的结果断言（lint 已撤，ADR-77）+ 变异 15 条（d7e20d7：12 条 `req: P1` + `M-P1-x`@P1.e、`M-U1-d`@P1.f、`M-P1-d`@P1.g；`node -p "require('./scripts/check/mutations.json').mutations.filter(m=>/^P1\b/.test(m.req)).length"`；基线迁移：cc132a7 21 条） |
 | **P4 / D4** 记忆 | **崩溃点穷举（单写入方）+ 属性（过滤）+ 例子；并发成为需求时再模型检查** | 三步协议与原子写是交错问题（ADR-38 / 41 记的都是漏掉的交错）；`filterByMemory` 是「对所有 contacted / blocked 永不出现在 kept」的属性 | 例子测试 + 变异 M-P4-a 等；并发明写不保证（ADR-66） |
 | **D1 / D3** 身份 | **属性**（幂等、等价关系两侧同函数、不合并的安全方向、歧义不合并） | 纯函数；输入空间大（Unicode）；不需要状态机 | 例子测试 + 变异 M-D3-a |
 | **P2** 产品事实 | **结构契约（引用完整性）+ 人工语义复核** | 蕴含关系无裁决器（ADR-01） | P2.b 变异 M-P2-a；P2.a 第三层 |
-| **P5** 数据边界声明 | **例子 + 变异**；不值得模型 | 声明的存在性是布尔，穷举没有意义 | 变异 M-P5-a…l（12 条） |
+| **P5** 数据边界声明 | **例子 + 变异**；不值得模型 | 声明的存在性是布尔，穷举没有意义 | 变异 M-P5-a…l（12 条，d7e20d7 与 cc132a7 相同） |
 | **D5** CSV 转义 | **属性**（round-trip） | 纯函数 | 例子 + 变异 M-D5-a |
 | **D7** 邮箱提取 | **属性 + 例子** | 正则；负例空间无限，属性只能采样 | 例子 + 变异 M-D7-a |
 | **D8 / D9 / D10** 公开指标 | **例子 + 属性（样本量门槛、缺失不按 0）** | 聚合是纯函数 | 例子测试 |
@@ -76,7 +76,7 @@
 
 ### §E.0 本次会话实测了什么
 
-比较不能只靠资料，所以先在本环境（Node 22.22.2、Java 21、出网走代理）对**真实的 `Budget` 类**和同一个「预算 + 持久化 + 崩溃」小模型（5 个变量，不含 F7 与 persistEvery —— 比 #75 的模型小）把候选工具各跑了一遍。全部脚本在会话 scratchpad 的 `tools-hands-on/` 下，仓库未动。
+比较不能只靠资料，所以先在本环境（2026-09-06 会话，主干 cc132a7；Node 22.22.2、Java 21、出网走代理）对**真实的 `Budget` 类**（`scripts/lib/budget.ts` 在 d7e20d7 逐字未变，结果未复跑）和同一个「预算 + 持久化 + 崩溃」小模型（5 个变量，不含 F7 与 persistEvery —— 比 #75 的模型小）把候选工具各跑了一遍。全部脚本在会话 scratchpad 的 `tools-hands-on/` 下，仓库未动。
 
 | 工具（版本） | 能装 | 能跑 | 找到的反例 | 耗时 | 代码量 |
 |---|---|---|---|---|---|
@@ -110,7 +110,7 @@
 | 与 TS 集成 | 同进程，import 真实类 | 同进程 | 编译期 | 同进程 | 独立工具，改测试命令 |
 | 能证明 | 无（采样） | 有界穷举内无反例 | 非法状态不可构造（结构性） | 输入形状合法（每次运行） | 测试能失败 |
 | 不能证明 | 任何「对所有」 | 界外；模型忠实 | 运行时值（`as` 绕过） | 语义 | 同源污染 |
-| CI 成本 | 1 个 devDependency（2 个包）；毫秒级；需固定 seed；**改 lock 文件会让两条工作流首次冷缓存，2026-09-04 的 `npm ci` 7 分钟根因未明** | 零依赖；毫秒级；确定性 | 零 | 零到一个依赖 | 依赖 26 个 + 时长成倍；对自研框架只能用 `command` runner，无 per-test coverage |
+| CI 成本 | 1 个 devDependency（2 个包）；毫秒级；需固定 seed；**改 lock 文件会让 CI 工作流首次冷缓存（d7e20d7 只剩 `check.yml` 一条，`age.yml` 随 ADR-76 删除），2026-09-04 的 `npm ci` 7 分钟根因未明（注释仍在 `check.yml:23-25`）；量时长要把 `.check-cache/compile-cache`（`mutate.ts:214`，ADR-75）的首跑与热跑分开** | 零依赖；毫秒级；确定性 | 零 | 零到一个依赖 | 依赖 26 个 + 时长成倍；对自研框架只能用 `command` runner，无 per-test coverage |
 | 反例质量 | shrink 到最小 + seed/path 重放 | 最短轨迹（BFS）；可直接转夹具 | 编译错误 | 运行时错误 | 存活变异清单 |
 | 长期维护 | 与代码同仓同语言 | 同上；探索器本身要有测试与变异 | 最低 | 中 | 与自研 mutate 重叠 |
 | Agent 适配 | 好：生成器与性质是普通代码；**失败模式**：性质恒真、生成器只覆盖 happy path、把 shrink 出的反例「修测试」 | 好：状态与转移是普通对象；**失败模式**：模型照抄实现、不变量恒真、界太小 | 好（结构性，编译器兜底）；**失败模式**：`as` 强转 | 好 | 中；不产出需求语言的 `why` |
@@ -134,8 +134,8 @@
 
 ### §E.2 逐工具评语（≤ 200 字）
 
-- **fast-check**：本仓库最缺的就是「随机 + shrink + 重放」这三样，它一次补齐；`fc.commands` 的模型式测试把「模型」和「真实类」放在同一个进程里对拍。代价是一个 devDependency（本仓库 devDeps 只有三个，产品代码零依赖）与一次 lock 文件变更 —— 这是人批项，且要先量 `npm ci`（`3-rollout.md` H4）。
-- **零依赖 BFS 探索器**：87 行，在小模型上与 TLC 计数一致、反例同构，还能对拍真实类。它符合仓库的既有形状（判定与入口分开、判定模块必须有变异），#75 的 `formal-rule.ts` 就是它的成熟版。缺点：没有时序逻辑（活性要手写成可达性 / 无 stuck 状态检查）、没有对称约简。
+- **fast-check**：本仓库最缺的就是「随机 + shrink + 重放」这三样，它一次补齐；`fc.commands` 的模型式测试把「模型」和「真实类」放在同一个进程里对拍。代价是一个 devDependency（本仓库 devDeps 只有三个 —— `@types/node`、`tsx`、`typescript`，d7e20d7；产品代码零依赖）与一次 lock 文件变更 —— 这是人批项，且要先量 `npm ci`（`3-rollout.md` H4）。
+- **零依赖 BFS 探索器**：87 行，在小模型上与 TLC 计数一致、反例同构，还能对拍真实类。它符合仓库的既有形状（判定与入口分开、判定模块必须有变异），#75 分支的 `formal-rule.ts`（PR 已关闭未合入，主干无此文件）就是它的成熟版。缺点：没有时序逻辑（活性要手写成可达性 / 无 stuck 状态检查）、没有对称约简。
 - **TLA+ / TLC**：反例可读性最好，社区成熟。在本仓库的角色应是**参考规约与独立复核工具**，不是 CI 闸门：JVM 与 jar 在 CI 里可做但增加一类依赖；更重要的是它检查不到实现。#75 已经把它放在检查链外，正确。
 - **Quint**：语法友好，`run` 快；但 20 个运行时依赖、`verify` 靠 Apalache（JVM、130 MB）。现在引入的收益低于 BFS + fast-check 的组合。
 - **Alloy 6**：关系逻辑对「键的等价关系两侧一致」表达力好，6.2.0 有 CLI 能批处理，但没有 TS 桥、要 JVM、是第三份要维护的模型；本仓库的身份问题用属性测试在小字母表上穷举即可（tools-research 把它叫「Alloy 的 small-scope 思路搬进 TS」）。不推荐。
@@ -143,7 +143,7 @@
 - **程序证明（Dafny / Verus / Lean）**：对 56 行的 `budget.ts` 都要整段重写；本仓库没有任何模块的风险配得上这个维护成本。明确不推荐。
 - **类型层**：品牌类型 + 唯一构造函数、`Observation<T>` discriminated union、`never` 穷尽断言 —— 零成本、结构保证。它是 P1 与 P3.c 的首选手段。但要说清：类型只保证「值必须经过那个构造函数」，真正挡 NaN 的是构造函数里的运行时校验（#75 的 `budgetProblem`）。
 - **运行时契约**：仓库已有手写校验（`memory.ts` 的 `shapeProblem`），风格是「只校验会读的字段、报真实原因」；zod 等库能省代码但引入运行时依赖并改变错误文案风格。建议继续手写，把「外部响应 / 四个落盘 JSON 的形状校验」补齐（今天只有 memory 文件有）。
-- **Stryker**：与自研 `mutate.ts` 功能重叠，且自研版有仓库专属的三态判定、`why` 需求语言检查、归属检查；对自研测试框架只能用 `command` runner。不换。可本地跑一次当扫描仪找候选负片。
+- **Stryker**：与自研 `mutate.ts` 功能重叠，且自研版有仓库专属的四态判定（抓到 / 红错地方 / 崩溃 / 存活，`mutate-rule.ts:301`）+ 无结论硬失败、`why` 需求语言检查、归属检查、指名验证者（`by` / `kills`）与按核数并行（ADR-72）；对自研测试框架只能用 `command` runner。不换。可本地跑一次当扫描仪找候选负片。
 
 被引用于：通 / 业 / 码 / H 无直接引用；另：`8-p3-pilot.md §D.8`（BFS 探索器没有时序逻辑）；`README.md` 二十问导航（第 9 问）
 
@@ -153,7 +153,7 @@
 - **模型—代码一致性的已知做法**：TLA+ 社区的 trace validation（实现打 NDJSON，`XxxTrace.tla` 用 CommunityModules 的 `Json` 读入，把 `Next` 约束成「只能走日志里的下一步」）有论文（Cirstea / Kuppe / Loillier / Merz，SEFM 2024）与工具（`lbinria/trace_validation_tools`，2026-02 仍在提交；`tlaplus/Examples` 的 `ewd998`；Microsoft CCF 对 C++ Raft 做过）。判断：**方法成熟、工程化不成熟** —— 联网核对未找到 npm 包或 TS 插桩库（尚未验证有无）。
 - **#75 的替代品，本次复现**：两份模型（TS 与 TLA+）互比可达状态集，五个场景 1586 / 2236 / 56 / 113 / 81 全部 `onlyModel = 0, onlyTlc = 0`。**复现条件**：TLC 必须带 `-deadlock -workers 1`，否则只给出几十个状态（本次记录到四个场景的数：68 / 46 / 29 / 40，第五个未记） —— `3-rollout.md` H0 的「状态数不变」验收要钉住这两个参数。这条对拍对 429 重试与 IG 两级端点**无覆盖**（两份模型都没有）。
 - **Agent 写形式化模型的可靠性**（搜索摘要，原文被代理挡住，未逐字核实）：一项对 25 个开源模型的评测，最好的 26.6% 能通过 TLA+ 解析、8.6% 能通过模型检查；另一项对 etcd Raft 一致性建模的正确率 < 8%，常见错误是写成教科书版。本提案的判断（未测量）：让 Agent 写 TLA+ 是最不可靠的路，让 Agent 写 fast-check 属性并配变异是相对可靠的路；这与 `0-process.md 通-14`「模型不在复核者准入读物里」互相印证。
-- **崩溃点穷举（零依赖，本次实跑）**：猴补 `node:fs` 的 11 个同步 API 并调 `module.syncBuiltinESMExports()`，不改产品代码就能数出一次 `persistListAndStatus` = **42 个 fs 调用**；在第 k 个调用处注入异常，42 个点上「名单要么旧要么新」与「不出现新名单 + ok 旧状态」（D4.j）全部成立；D4.i 的「不得截断」那一半要靠子进程 `SIGKILL` + `writeFileSync` 部分写入（0 / 1 / len−1 三档）模拟，**尚未验证**。对 P4 / D4 这意味着：单写入方的崩溃安全在异常注入粒度上可以穷举真实现，不需要模型；`SIGKILL` 粒度未验证；模型只在并发（多写入方交错）成为需求时才需要。
+- **崩溃点穷举（零依赖，cc132a7 实跑；`memory.ts` 在 d7e20d7 未改，但未复跑）**：猴补 `node:fs` 的 11 个同步 API 并调 `module.syncBuiltinESMExports()`，不改产品代码就能数出一次 `persistListAndStatus` = **42 个 fs 调用**；在第 k 个调用处注入异常，42 个点上「名单要么旧要么新」与「不出现新名单 + ok 旧状态」（D4.j）全部成立；D4.i 的「不得截断」那一半要靠子进程 `SIGKILL` + `writeFileSync` 部分写入（0 / 1 / len−1 三档）模拟，**尚未验证**。对 P4 / D4 这意味着：单写入方的崩溃安全在异常注入粒度上可以穷举真实现，不需要模型；`SIGKILL` 粒度未验证；模型只在并发（多写入方交错）成为需求时才需要。
 
 被引用于：通-14、通-15、通-17／码-13、码-40；另：`8-p3-pilot.md §D.13` 第 3 条
 
@@ -171,10 +171,10 @@
 
 | 对象 | 推荐 | 不推荐 | 理由 |
 |---|---|---|---|
-| **P3 预算试点** | ① 建议采用 #75 的 `formal-rule.ts` / `formal.ts`（J1）（零依赖 BFS 探索器 + 对拍夹具）进 `npm run check`（位置：`mutate` 之后、`selfcheck` 之前，按 #75），反例转夹具；② fast-check 模型式测试对拍真实 `Budget` + fake `TikHub`（人批：devDependency 与 lock 文件变更；被否则用自研约 50 行随机 + 固定 seed，无 shrink）；③ 两份 TLA+ 规约入库当参考文档：#75 的 `BudgetProtocol.tla`（安全性，与 TS 模型互比）与本会话的 `BudgetP3.tla`（活性 L1 / L2 的那份，附录二 `formal-p3/`），`--tla` 不进 CI（按 #75；入不入库是 J33）；④ Z3 的浮点证明脚本与结论入假设登记表 | Quint（收益不够）、Alloy、程序证明 | 实测：BFS 与 TLC 在小模型上计数一致、#75 上集合一致；对拍能抓 CE-3；总耗时毫秒级 |
-| **P4 / D4 持久化** | 分两步：① **单写入方崩溃点穷举**（零依赖：猴补 `node:fs` + 子进程 `SIGKILL`，对真实 `persistListAndStatus` 的 42 个 fs 调用逐点杀，父进程读盘判 D4.i / D4.j / D4.k / D4.p）—— 不需要模型；② 并发成为需求时（ADR-66 重启条件）再用零依赖 BFS 建 `(T, L)` 上写入方交错的模型（`task.json` 三个写入方：三步协议、collect 断点、enrich；`creators.json` 两个：三步协议第二步、render），性质「¬(T ∈ {ok, absent} ∧ L 不是在 T 下产出)」，预期先给出 ADR-66 描述、memory track `threestep.ts` 场景 D3 复现的交错反例，再把候选修法（锁 / 条件更新 / 禁止并行）建进去比较 | 断电持久性的任何形式化（A5 已声明不保证）；在并发不是需求时建交错模型 | 崩溃点有限时穷举真实现比建模便宜且无漂移；交错问题才需要模型 |
+| **P3 预算试点** | ① 建议采用 #75 分支的 `formal-rule.ts` / `formal.ts`（J1；PR 已于 2026-09-11 关闭未合入，分支 `2deb489` 已叠在 d7e20d7 上，主干无 formal*）（零依赖 BFS 探索器 + 对拍夹具）进 `npm run check`（位置：`mutate` 之后、`selfcheck` 之前 —— 现行 8 步链 `package.json:19` 里这个落点仍在，`2deb489` 也接在那里），反例转夹具；② fast-check 模型式测试对拍真实 `Budget` + fake `TikHub`（人批：devDependency 与 lock 文件变更；被否则用自研约 50 行随机 + 固定 seed，无 shrink）；③ 两份 TLA+ 规约入库当参考文档：#75 的 `BudgetProtocol.tla`（安全性，与 TS 模型互比）与本会话的 `BudgetP3.tla`（活性 L1 / L2 的那份，附录二 `formal-p3/`），`--tla` 不进 CI（按 #75；入不入库是 J33）；④ Z3 的浮点证明脚本与结论入假设登记表 | Quint（收益不够）、Alloy、程序证明 | 实测：BFS 与 TLC 在小模型上计数一致、#75 上集合一致；对拍能抓 CE-3；总耗时毫秒级 |
+| **P4 / D4 持久化** | 分两步：① **单写入方崩溃点穷举**（零依赖：猴补 `node:fs` + 子进程 `SIGKILL`，对真实 `persistListAndStatus` 的 42 个 fs 调用（cc132a7 实跑，d7e20d7 未复跑）逐点杀，父进程读盘判 D4.i / D4.j / D4.k / D4.p）—— 不需要模型；② 并发成为需求时（ADR-66 重启条件）再用零依赖 BFS 建 `(T, L)` 上写入方交错的模型（`task.json` 三个写入方：三步协议、collect 断点、enrich；`creators.json` 两个：三步协议第二步、render），性质「¬(T ∈ {ok, absent} ∧ L 不是在 T 下产出)」，预期先给出 ADR-66 描述、memory track `threestep.ts` 场景 D3 复现的交错反例，再把候选修法（锁 / 条件更新 / 禁止并行）建进去比较 | 断电持久性的任何形式化（A5 已声明不保证）；在并发不是需求时建交错模型 | 崩溃点有限时穷举真实现比建模便宜且无漂移；交错问题才需要模型 |
 | **D1 / D3 身份** | fast-check（或自研随机）属性：`creatorKey` 幂等；写入侧收下 ⇒ 读回 ok ∧ 查询命中 ∧ swapcase 命中；昵称相同 handle 无关 ⇒ 不合并；**某侧 ≥ 2 候选同信号匹配 ⇒ 一个都不合并**（D3「不确定」的候选定义，要评定）；任一侧未知 ⇒ 合并结果未知；同数组二次 link 返回 0 —— identity track 与 tools-research 已在 scratchpad 全部跑过一遍，可直接搬 | Alloy、模型检查 | 纯函数、无交错 |
-| **P1 三态** | 类型层（`Observation<T>` + 穷尽断言）+ lint 升级（抓非字面量兜底）+ 外部响应与四个落盘 JSON 的手写形状校验 | 任何模型检查 | 结构问题 |
+| **P1 三态** | 类型层（`Observation<T>` + 穷尽断言）+ 结果轴断言与负片（P1.e/f/g 的形状，ADR-77；**lint 升级的目标已撤** —— `lint-rule.ts` 已删，重装 lint 的前提见 ADR-77 行 93–101，扫写法按 3-BUILD 三档是最后一档）+ 外部响应与四个落盘 JSON 的手写形状校验 | 任何模型检查；重装扫写法的 lint | 结构问题 |
 | **P2 产品事实** | 手写引用完整性检查 + 占位符三路径变异 | 语义工具 | 见 `3-rollout.md` H9 |
 
 被引用于：H7（P4 / D4 行）；通 / 业 / 码 无直接引用；另：`8-p3-pilot.md §D.13` 第 9 条（P3 行 ③）；`README.md` 二十问导航（第 9、10、20 问）
@@ -189,20 +189,20 @@ source §F 权限矩阵五列里，后两列「提议的档 / 提议的守法」
 | Skill 文本（`skill/`） | 直接做 | 第三层 |
 | 测试（`scripts/test.ts`） | 「改测试让它绿」默认驳回；要改必须写 ADR（`4-VERIFY.md`、CONVENTIONS 第 8 条） | 第三层 + ADR 存在性 |
 | 测试 oracle（期望值、属性、模型不变量） | `expected` 不许来自运行结果（`4-VERIFY.md`） | 第三层 |
-| 变异集（`mutations.json`） | 变异存活修测试不删变异；记错名下当场拦（ADR-34） | 第二层：`mutate` `attribution-rule` |
+| 变异集（`mutations.json`） | 变异存活修测试不删变异；记错名下当场拦（ADR-34）；`by` / `kills` 同进同出、四种坏法当场拦（`mutate.ts:118-121`，ADR-70） | 第二层：`mutate` `attribution-rule` `verifier-rule` |
 | 需求文本（`text`） | 触及登记表即走 `2-CHANGE.md`；分类由提出者自填（第三层） | `spec` 查形状与编号；分类诚实靠自觉；**红线措辞改写与主干无基线比对，`--write` 一条命令即绿** |
 | 判据 / EARS 子句 | 判据编号不改含义、不回收（`1-REQUIREMENTS.md`） | `spec` 查编号唯一；退役编号无机器守 |
 | 词汇表 oracle | 今天不存在 | — |
-| 模型不变量（`formal-rule.ts` 的 `INVARIANTS`、运行时 assert） | #75：「指不回 `requirements.json` 的性质不许加」（测试断言） | 第二层（#75 合入后） |
+| 模型不变量（`formal-rule.ts` 的 `INVARIANTS`、运行时 assert） | #75 分支：「指不回 `requirements.json` 的性质不许加」（测试断言） | 今天不存在（#75 已关闭未合入，主干无 `formal-rule.ts`）；合入后才是第二层 |
 | 假设登记表（D.7） | 今天散落 | 第三层 |
-| 红线（P1–P5 的 `text`） | 不参与取舍；不许作废（ADR-30）；改动必须独立复核（ADR-24） | `spec` 拦作废；独立复核靠协作平台规则（**仓库里看不到配置；`main` `protected: true` 但内容 403**） |
-| **闸门代码与 CI 配置**（`scripts/check/*`、`package.json` 的 `check` 链、`.github/workflows/*`、分支保护） | `scripts/check` 归普通代码；判定模块必须有变异（ADR-62） | 第二层（变异）；CI 配置无守 |
-| 豁免（`p1-ok`、`size-ok`、`age-ok`、`JUDGMENT_EXEMPT`、`EXEC_EXEMPT`、selfcheck `EXEMPT`、`mutations.json` 的 `exemptions`） | 前三种理由必填且具名；后四种是代码内常量或只查 `req` 存在，`why` 非空都不查 | 第二层（形状）；实质自批 |
-| ADR | 追加不删改；就地更正用 ⚠️ 块 | `adr` 查编号与索引，对主干基线查「号还在 / 标题没变」 |
-| `process/`（通用层） | 改动要慎重；改了要同步入口文件 | **仅第三层**（没有任何检查读 `process/`；SYNC 表也没有这一行） |
-| 合并到主干 | PR + `check` 绿；红线改动要复核；合并者不能是写档方（`6-INTEGRATE.md`） | 协作平台；**实际 PR #78 改守红线的检查链、零 review、作者自合** |
+| 红线（P1–P5 的 `text`） | 不参与取舍；不许作废（ADR-30）；改动必须独立复核（ADR-24） | `spec` 拦作废；独立复核靠协作平台规则（**仓库里看不到配置；`main` `protected: true` 但内容 403 —— cc132a7 时查的，d7e20d7 未复核**；2026-09-18 起 `REVIEW.md` 与两份评审器转发把复核规矩指给了机器评审器，ADR-83） |
+| **闸门代码与 CI 配置**（`scripts/check/*`、`package.json` 的 `check` 链 —— 现行 8 步：size → spec → adr → typecheck → test → mutate → selfcheck → audit，lint / age / arch 已撤（ADR-77 / 76 / 78）、`.github/workflows/check.yml`（唯一工作流，28 行）、分支保护） | `scripts/check` 归普通代码（`categorize` 把 `scripts/check/*.ts` 归源码，`size-rule.ts:40-46`）；判定模块必须有变异（ADR-62；ADR-81 驳回撤除并写了死亡条件） | 第二层（变异）；CI 配置无守；主干刚撤掉的正是对主干比历史的机器（ADR-79）与豁免过期计算（ADR-80） |
+| 豁免（`size-ok`、`JUDGMENT_EXEMPT`、`EXEC_EXEMPT`、selfcheck `EXEMPT`、`mutations.json` 的 `exemptions` —— 五种有机器读；`p1-ok` 与 `age-ok` 随 ADR-77 / ADR-76 连闸门一起消失，前者原地改成「P1 例外：」纯注释，没有工具读） | `size-ok` 理由必填且具名（`size-rule.ts:117,132`；自 ADR-80 起一条豁免管整条分支，不再过期）；`JUDGMENT_EXEMPT` 的理由非空由 `test.ts:3651` 守；`EXEC_EXEMPT`、selfcheck `EXEMPT`（`selfcheck.ts:33`，现为空）是代码内常量；`exemptions` 只查 `req` 存在，`why` 只被打印（`audit.ts:150`）不校验，`mitigation` 无代码读 | 第二层（形状）；实质自批 |
+| ADR | 追加不删改；就地更正用 ⚠️ 块 | `adr` 只查当前目录：编号唯一、文件名与标题一致、README 索引与目录一致、DECISIONS.md 不装整册（ADR-79，`adr-sync.ts` 一次 git 都不调）；「号还在 / 标题没变」的对主干比对已撤，降为第三层（`6-INTEGRATE.md:312`；`docs/adr/README.md:5` 的 ⚠️ 块） |
+| `process/`（通用层） | 改动要慎重；改了要同步入口文件 | **仅第三层**（没有任何检查读 `process/`；SYNC 表仍没有「改 process/ 里的任何一份」这一行 —— d7e20d7 新增的行 34 只管「重命名／删掉被 `REVIEW.md` 指到的那几份」，✗ 靠执行） |
+| 合并到主干 | PR + `check` 绿；红线改动要复核；合并者不能是写档方（`6-INTEGRATE.md:201`，ADR-76 明写不撤）；机器评审的被抑制发现用替身评论留痕、合并者按每轮清单逐条找（`6-INTEGRATE.md:140-149,204-206`） | 协作平台；**实际 PR #78（2026-09-06）改守红线的检查链、零 review、作者自合**；2026-09-18 起有 `REVIEW.md` + Copilot / CodeRabbit 转发（ADR-83），评审器是否按规矩评未验证 |
 | 发布 / 回滚 | 无部署，「发布」= 合入主干；「回滚」= revert | git |
-| 审计记录（claims 文件） | 由干净的一次 `npm test` 写（`claims.ts` 写盘资格）；不入库、可伪造 | 第二层 |
+| 审计记录（claims 文件，两份） | 单元认领 `.check-cache/test-claims.json` 由干净的一次 `npm test` 写、入口认领 `.check-cache/selfcheck-claims.json` 由 `selfcheck.ts` 写（`claims.ts:15,35`；写盘资格同一套，审计两份都读、缺了 exit 1）；不入库、可伪造 | 第二层 |
 
 被引用于：尚无直接引用（本表是本轮新增的落点）；对应的提议条目：通-07、通-08、通-09、通-13、通-20…通-28、通-30／码-06、码-42、码-49 —— 各条「现状」尚未指到本表
 
@@ -238,7 +238,7 @@ source §F 权限矩阵五列里，后两列「提议的档 / 提议的守法」
 | 传感器 | 今天读哪里 | 今天 unknown 怎么表示 | 现状问题（证据） |
 |---|---|---|---|
 | 检查链 | `npm run check` 退出码与各步输出 | 检查可以「无从判断」（size 基线算不出时明说） | 假阳性（体量闸门）、同源污染 |
-| 变异测试 | `mutate.ts` 的三态判定（抓到 / 崩溃 / 存活）+ 锚点失效 | 崩溃与锚点失效都不算抓到 | 变异集只覆盖想到的形状 |
+| 变异测试 | `mutate-rule.ts:301` 的四态判定（抓到 / 红错地方 / 崩溃 / 存活）+ 派出去没结论的硬失败（`jobs-rule.ts` `missingVerdicts`）+ 锚点失效（`attribution-rule.ts`）；按核数并行（ADR-72） | 崩溃、红错地方、无结论与锚点失效都不算抓到 | 变异集只覆盖想到的形状 |
 | 成本 | `task.json.requests`、`meta.json.cost_estimate_usd` —— **代理**（真实计费在 TikHub 侧） | 请求数可能**不可读或非法**（`null` / 字符串，B2） | 崩溃窗口、非 200 是否计费的假设、probe 不记账 |
 | 采集覆盖 | `meta.json` 的 measured / unavailable / unqueried 三计数 | 三态分开计数 —— 这是本产品做对的地方 | 「查询失败」与「未查询」同态（B6）；外部响应无形状校验（B7）；`profile_failed` 只在 stdout 不进 meta |
 | 关键词表现 | 报告的关键词表 `found / passed / hit rate` —— **代理**：`passed` 由 Agent 的语义判断给出 | **今天把「0 结果 / 请求失败 / 未跑」坍缩成「无此行」**（B16） | 样本小（一词几十人，IG ≤ 12）、判定者与控制器同源、`found` 随轮转顺序变、跨品类不可比 |
@@ -254,7 +254,7 @@ source §F 权限矩阵五列里，后两列「提议的档 / 提议的守法」
 
 - **最小可分辨差**：用 Wilson 区间。以 SPEC 首轮记录的命中率量级（竞品词 30%、品类词 38%）算：n = 48 时半宽 ±0.13，n = 200 时 ±0.065，两个 n = 200 的窗口区间不相交需要相差 **≥ 14 个百分点**；SPEC 记录的那条「与预期相反」的观察只差 8 点，要每窗口 n ≈ 600（半宽 ≤ 4 点）到 1000（留出两窗口都偏的余量）才可能被判定。**结论要明说：以现有效应量，这个闭环在可见的将来只记录、不决策。** 这不是缺点，但不能给人「窗口攒够就能动」的印象。
 - **窗口的口径**：按「同品类、同版本」分桶，桶内攒样本；跨品类不比（传感器表已写「跨品类不可比」）。
-- **版本指纹只取影响该软目标的文件**（例如关键词命中率只看 `score.ts` 的维度加分与 `keyword-strategy.md`），不是整棵 `scripts/`。理由：主干每天 10–18 次合并（`git log --merges`），整树指纹会让窗口每天重置、永远攒不满。
+- **版本指纹只取影响该软目标的文件**（例如关键词命中率只看 `score.ts` 的维度加分与 `keyword-strategy.md`），不是整棵 `scripts/`。理由：主干合并频率高于每桶攒满所需的天数 —— 按日数（`git log --merges --format=%cd --date=short d7e20d7 | sort | uniq -c`）：有合并的日子里 1–25 次/天，cc132a7 之后是 1–11 次/天（基线迁移：提案原写「每天 10–18 次」，那是 cc132a7 前后量的），整树指纹会让窗口每天重置、永远攒不满。
 - **起点数字**（可失败、待校准，写进假设登记表；提议落 `1-docs.md 业-46`、登记在 `业-23`）：桶内 M = 200 名过粉丝闸门的候选；一致率阈值 ≥ 0.8；影子差异上限 = 分层变动 ≤ 10% 候选。
 
 被引用于：通-33／业-46（引这组数的 source 原文）；另：`README.md`「核心结论」
@@ -287,7 +287,7 @@ source §F 权限矩阵五列里，后两列「提议的档 / 提议的守法」
 - 迟滞、冷却、振荡检测都需要「上次改了什么、何时、桶内结果」的跨任务记录；**今天只有每任务的 `meta.json`**，没有实验台账（台账是 `3-rollout.md` H12 的产物，没有它这一段不可执行）。
 - 本产品没有多用户、没有部署，传统灰度不适用；影子运行只对纯评分常量（`score.ts` 的维度加分、竞品词加分、tier 阈值）成立，本地纯函数不花 TikHub 的钱；`MAX_PAGES` 这类改变请求数的参数没有影子形式；Skill 层规则（语义匹配、开发信）没有影子形式，只有人工盲评。
 - 「回滚」在本仓库 = revert；无部署，「发布」= 合入主干。
-- 自演化层级的现状（表落 `1-docs.md 业-42`）：1 运行参数与 2 配置策略 —— 今天否（熔断 0）；3 prompt / 知识 / 工作流 —— 只能提议（传感器是人工盲评）；4 代码与测试 —— 修实现自动、改尺子提议（传感器是检查链）；5 架构 —— 人批（架构锚点检查）；6 需求变化 —— 无传感器，只能提议（ADR 草案）；7 真实业务反馈实验 —— 无传感器，不可能，先建传感器。
+- 自演化层级的现状（表落 `1-docs.md 业-42`）：1 运行参数与 2 配置策略 —— 今天否（熔断 0）；3 prompt / 知识 / 工作流 —— 只能提议（传感器是人工盲评）；4 代码与测试 —— 修实现自动、改尺子提议（传感器是检查链）；5 架构 —— 人批（无传感器：架构锚点检查已撤，ADR-78，锚点表与顺序契约表人维护、无机器核）；6 需求变化 —— 无传感器，只能提议（ADR 草案）；7 真实业务反馈实验 —— 无传感器，不可能，先建传感器。
 
 被引用于：通-35（「稳定性」）、通-39（「层级」）
 
@@ -315,13 +315,13 @@ source §F 权限矩阵五列里，后两列「提议的档 / 提议的守法」
 | 证明整个 TypeScript 项目正确 | **做不到**，也不打算 | 状态空间、外部环境、语义判断都不在可枚举范围内 |
 | 证明模型忠实于代码 | **做不到**；能做到的是对拍与两份模型互比持续找不一致 | 一致性是测试问题，不是证明问题 |
 | 证明 TikHub 计费规则、「非 200 不计费」、「发出未响应是否计费」 | **做不到**；能做到的是把假设写进登记表并给失效触发器、按供应商账单人工对账 | 环境假设；D.7 的 A2 / A3 |
-| 用类型系统保证反序列化数据可信 | **做不到** | 静态类型对运行时输入一个字段都不拦（`4-VERIFY.md`、ADR-19）；只能运行时校验 —— #75 的 `budgetProblem / ledgerProblem` 就是这一层 |
+| 用类型系统保证反序列化数据可信 | **做不到** | 静态类型对运行时输入一个字段都不拦（`4-VERIFY.md`、ADR-19）；只能运行时校验 —— #75 分支的 `budgetProblem / ledgerProblem`（未合入）就是这一层 |
 | 用模型检查验证外部数据真实 | **做不到** | 模型检查只枚举模型 |
 | 用属性测试证明性质 | **做不到**；能做到的是在随机样本内没找到反例 | 采样不是穷举；找到反例是确定的，没找到不是 |
 | 用有界模型检查证明无界性质 | **做不到** | #75 五个场景的 `truncated` 全为 true（本次复现）：界外没有结论 |
 | 在本仓库 CI 里跑 TLC / Apalache | **尚不知道** | `ubuntu-24.04` 镜像文档列有预装 JDK（联网核对），本仓库 CI 未验证；#75 与本提案都把 `--tla` 放在检查链外 |
 | 浮点比较的完全形式化 | **能做到**避免（用整数毫美元）；**能做到**对给定范围证明（Z3 FloatingPoint 理论，实跑：`m < 9` 无误拒、`[1,2000]` 无多放行）；**做不到**在浮点上做全域证明并进 CI | 编码是 SMT-LIB 字符串、每问 2–9 秒、context 复用有坑 |
-| 崩溃语义的完全建模 | **能做到** fs 调用级崩溃点穷举（单写入方一次 `persistListAndStatus` = 42 个调用点，异常注入实跑；`SIGKILL` 粒度与部分写入三档尚未验证）；**做不到**断电语义 | ADR-50 已把持久性降为尽力而为；断电时写入的可见性取决于文件系统 |
+| 崩溃语义的完全建模 | **能做到** fs 调用级崩溃点穷举（单写入方一次 `persistListAndStatus` = 42 个调用点，异常注入实跑 —— cc132a7，d7e20d7 未复跑；`SIGKILL` 粒度与部分写入三档尚未验证）；**做不到**断电语义 | ADR-50 已把持久性降为尽力而为；断电时写入的可见性取决于文件系统 |
 | 并发写入方交错 | **做不到**在今天保证；能做到的是建模并列出反例 | D4/P4/P5 已明写「当前不保证」（ADR-66），要保证先改需求 |
 | Agent 自己写 TLA+ 模型的可靠性 | **尚不知道**在本仓库；外部评测（搜索摘要，原文被代理挡住）报 26.6% 解析通过 / 8.6% 模型检查通过 | 本提案因此不把「Agent 写 TLA+」放在任何自动路径上 |
 
@@ -350,7 +350,7 @@ source §F 权限矩阵五列里，后两列「提议的档 / 提议的守法」
 | 用「重跑一次语义判断」零成本测一致率 | **做不到**零成本 | 重判是 LLM 成本、同会话不盲、`fit` 只有一个字段没有第二判定的落处 |
 | 传统灰度发布 | **做不到** | 无多用户、无部署；替代是**参数层**的影子运行；Skill 层没有影子形式，只有人工盲评 |
 | 在 SPEC 记录的效应量（8 个百分点）下，用 n=200 的窗口判定关键词命中率变化 | **做不到** | Wilson 半宽在 n=200 时 ±0.065，两窗口区间不相交需相差 ≥ 14 点；要每窗口 n ≈ 600–1000 |
-| 在当前合并频率下攒满一个「同版本」窗口 | **做不到**，若版本指纹取整棵 `scripts/` | 主干每天 10–18 次合并（`git log --merges`）；指纹必须只取影响该软目标的文件 |
+| 在当前合并频率下攒满一个「同版本」窗口 | **做不到**，若版本指纹取整棵 `scripts/` | 主干合并频率不稳但高于攒满所需（有合并的日子 1–25 次/天，cc132a7 之后 1–11 次/天：`git log --merges --format=%cd --date=short d7e20d7 \| sort \| uniq -c`）；指纹必须只取影响该软目标的文件 |
 | 判断语义筛选相比静态评分提升多少、公开信号风险的准确率 | **尚不知道** | `SPEC.md` 已列为待盲评 |
 
 被引用于：通-28、通-32、通-33、通-34、通-35、通-36、通-37、通-39／业-41
@@ -370,7 +370,8 @@ source §F 权限矩阵五列里，后两列「提议的档 / 提议的守法」
 
 | 事项 | 结论 |
 |---|---|
-| 本提案引用的行号在仓库演进后仍然正确 | **做不到**；引用的是 2026-09-06 主干 `cc132a7` 与 #75 分支 `97c358e` |
+| 本提案引用的行号在仓库演进后仍然正确 | **做不到**；本次重核后引用的是主干 `d7e20d7`（2026-09-19 合入 #118）与 #75 分支 `97c358e`（PR 记录 head `f652943`；分支已强推为 `2deb489`，其 file:line 未逐条重核）；cc132a7 只在「基线迁移」对照句里出现。本次重核到文档、流程与检查链层，产品代码 file:line 按附录五逐条核过，「实跑」数字未复跑 |
+| 本提案自身的可算数符合 ADR-82 | **部分**：本次迁移把变异数、判据数、需求数、ADR 数改成钉 d7e20d7 或写命令；实跑数（26,410、42 个 fs 调用、837 ✓、3.8 秒）不是仓库可算数，钉在跑它的那棵树上；ADR-82 欠条明写「这条规矩仍然没有机器在守」，评审器会按 `REVIEW.md:18-20` 抓 |
 | 本提案标「实跑」的事项在其他环境成立 | **尚不知道**；验证环境是本次会话的 Linux 容器（Node 22.22.2、Java 21），且脚本与输出不在仓库内，仓库读者只能按附录二复现，不能复核 |
 | 本提案对 #75 的复核算 `4-VERIFY.md` 意义上的独立复核 | **做不到**：本会话在复核前读了 #75 的模型，按 `0-process.md 通-14` 的准入清单已不独立；本会话在读 #75 之前用实跑确认了 CE-1 / CE-2 **存在**，那是对代码缺陷的独立确认，不是对 #75 尺子的复核 |
 | 本提案取代变更评定 | **做不到**；它是提案，任何触及 `requirements.json` 的改动仍走 `process/2-CHANGE.md` |
@@ -379,24 +380,24 @@ source §F 权限矩阵五列里，后两列「提议的档 / 提议的守法」
 
 ## 附录二 · 证据索引（本次会话的调研线）
 
-全部脚本与输出在会话 scratchpad 下，仓库未动（每条线结束时 `git status --short` 为空）。
+全部脚本与输出在会话 scratchpad 下，仓库未动（每条线结束时 `git status --short` 为空）。各线跑在 2026-09-06 的会话里、读的是主干 `cc132a7`（#75 分支 `97c358e`）；本次迁移（2026-09-18）只在 `d7e20d7` 上复核了每条线读的文件是否还在、被引的行号移到了哪，脚本没有重跑 —— 表里的「主要结论」仍是 cc132a7 上的结论，已失去主体的（`lint-rule.ts`、`age-rule.ts`）在「读了什么」列标出。
 
 | 线 | 读了什么 | 跑了什么 | 主要结论 |
 |---|---|---|---|
 | registry | `spec-rule.ts`、`spec-sync.ts`、`audit.ts`、`claims.ts`、`test.ts` 的认领机制、ADR-17/24/33/34/67 | 给登记表注入未知字段跑 `validateRegistry / renderTables / contentHash`；重加退役 `P4.d` | C.0 的全部事实（`1-docs.md 业-01`）；B13 |
 | p3 | `budget.ts`、`tikhub.ts` `get()`、`collect.ts`、`enrich.ts`、`task.ts`、`atomic.ts`、P3/F7/D6 测试与变异 | `budget-probe.ts`（NaN / 边界）、`scan.ts`（10 万 limit）、`kill-fetch.ts` + `e2e-a`（NaN 续跑）、`e2e-c`（SIGKILL 崩溃窗口、`null` 预算、enrich 校验对比） | CE-1 / CE-2 / CE-3；`8-p3-pilot.md §D.5` 的现状转移表 |
-| observation | `types.ts`、`assessment.ts`、`tikhub.ts` 的赋值、`lint-rule.ts`、CONVENTIONS、ADR-18/19/21/46 | `probe.mts`：lint 漏形状、多余 `p1-ok`、`"12K"` 进 number、未知 status、`needsProfile` 重查 | B6 / B7 / B8 / B9 |
+| observation | `types.ts`、`assessment.ts`、`tikhub.ts` 的赋值、`lint-rule.ts`（cc132a7；d7e20d7 已删，ADR-77）、CONVENTIONS、ADR-18/19/21/46 | `probe.mts`：lint 漏形状、多余 `p1-ok`、`"12K"` 进 number、未知 status、`needsProfile` 重查 | B6 / B7 / B8 / B9 |
 | memory | `memory.ts`、`atomic.ts`、`task.ts` 三步协议、ADR-15/38/40/41/42/45/47/50/55/66 | `states.ts`（五类 unreadable）、`threestep.ts`（每步中断、两写入方交错）、`atomicprobe.ts`（权限位、软链、残留清理） | B11；§E.4 的 P4/D4 推荐 |
 | identity | `identity.ts`、`creatorKey`、`memory.ts` 键规范化、ADR-22/32/37 | `prop.ts`（2519 handle + 全码点幂等、往返、查询侧照单全收）、`followup.ts`、`mut/probe-mut.mts`（六条变异的等价断言） | B10；§E.4 的六条属性 |
 | claims (P2) | `outreach-draft.md`、`product-intake.md`、`rows.ts`、`report.ts`、`xlsx.ts`、ADR-01 | `p2-paths.ts`（三条路径的占位符） | B12；`3-rollout.md` H9 |
-| infra | `package.json`、CI、`test.ts` 框架、`mutate*.ts`、`selfcheck.ts`、`size-rule.ts`、`age-rule.ts`、PR #75 / #81 元数据 | 只读检查耗时；`categorize()` 对 `.tla` / 第二测试文件的归类；CI 时长（Actions API） | §E.1 的 CI 成本；`3-rollout.md` H0 的拆分依据；「新增一道检查的接入清单」 |
+| infra | `package.json`、CI、`test.ts` 框架、`mutate*.ts`、`selfcheck.ts`、`size-rule.ts`、`age-rule.ts`（cc132a7 时读的；d7e20d7 已删，ADR-76）、PR #75 / #81 元数据 | 只读检查耗时（cc132a7；ADR-72 之后 mutate 并行，秒数不可比）；`categorize()` 对 `.tla` / 第二测试文件的归类（`categorize` 与阈值在 d7e20d7 未变，ADR-80 只删豁免过期）；CI 时长（Actions API） | §E.1 的 CI 成本；`3-rollout.md` H0 的拆分依据；「新增一道检查的接入清单」 |
 | sensors | `SKILL.md`、`references/*`、`render.ts` 的 meta、`pipeline.ts` 的 keywordStats、`score.ts` / `assessment.ts` 常量 | 无（读代码） | §G 的传感器表与控制变量表；B16 / B17 / B20 |
-| governance | `process/*`、ADR-16/24/30/62/64、`.github/workflows`、GitHub API（分支保护标志、PR #77/#78/#80 的 review 记录） | GitHub 只读查询；git 作者统计 | 权限矩阵的「今天的规则」列（`0-process.md 通-20` 起）；B18 |
+| governance | `process/*`、ADR-16/24/30/62/64、`.github/workflows`、GitHub API（分支保护标志、PR #77/#78/#80 的 review 记录 —— cc132a7 时查的；#78 = `cea614e` 2026-09-06 是历史事实，分支保护与作者统计 d7e20d7 未复核） | GitHub 只读查询；git 作者统计 | 权限矩阵的「今天的规则」列（`0-process.md 通-20` 起）；B18 |
 | tools-hands-on | `budget.ts` | fast-check / z3-solver / TLC / Quint / 零依赖 BFS 各一遍 | §E.0 表 |
 | tools-research | 联网核对（registry.npmjs.org、GitHub releases、搜索摘要） | `probe-budget.ts`、`probe-identity.ts`、`probe-faultfs.ts`（42 个 fs 调用点） | §E.2b；B10 的歧义合并 |
 | 设计面板（`panels/`） | 各自只读 brief 与仓库 | 三份 EARS 设计（两份带可执行原型：`ears/`、`ears-design/`，含 `ears-rule.ts`、JSON Schema + ajv 验证）；三份 P3 设计（原型在 `p3-executable/`、`p3-formal/`）；两份裁决（`judge-*.md`） | C 节的合成（`1-docs.md 业-01…业-02`）：三份（形式化优先 / 兼容优先 / 可审计优先）在「放哪」上结论相同、字段粒度有分歧（C.8，J38）；原型：`ears-rule.ts` 过 `tsc --strict`、JSON Schema 用 ajv 对现行登记表验证为 0 错、退役编号重加被拒（实跑）；D.3–D.6 的整数单位与写前记账 |
 | formal-p3 | `budget.ts`、`tikhub.ts`、#75 的 `BudgetProtocol.tla` | `BudgetP3.tla` + 十个 cfg 在 TLC 2.19 上跑（现状 / 响应后落盘 / 写前记账 × 安全性 / 活性 × 无崩溃 / 一次崩溃）；`milli-parse.ts`（`Math.round(k/1000 × 1000)` 扫描）；`prop-budget-int.ts` | `8-p3-pilot.md §D.6` 的 L1 / L2 结论与安全性对照；§D.3 的换算测试 |
-| p3-executable | 主干 `test.ts` 的 P3 / F7 / D6 用例 | `explore.ts`（独立探索器，两档界）、`verify-existing.ts`（N2 / N3 打到主干跑现有测试：837 ✓ 存活）、`verify-mutations.ts`、`diff.ts` | `8-p3-pilot.md §D.9`「每个 profile 之后 persist 挡不住」；§D.11 的存活结论 |
+| p3-executable | 主干 `test.ts` 的 P3 / F7 / D6 用例 | `explore.ts`（独立探索器，两档界）、`verify-existing.ts`（N2 / N3 打到主干跑现有测试：cc132a7 上 837 ✓ 存活；父级 2-code 写作者在 d7e20d7 导出树上复跑，scratchpad `code-d7/n2.log` / `n3.log` 各 1004 个 ✓、末行「全部通过（覆盖 27 条需求）」—— 本文只计了那两份日志的 ✓，未重跑）、`verify-mutations.ts`、`diff.ts` | `8-p3-pilot.md §D.9`「每个 profile 之后 persist 挡不住」；§D.11 的存活结论 |
 | p3-formal | 同上 | `model.ts` + `props.ts`（随机 + 固定 seed 的属性，N = 2000 → 3.8 s；N = 100,000 中止）、`money.ts`、`gate.mts` | `8-p3-pilot.md §D.10` 的属性预算 |
 | 审阅（`critique/`、`refute/`） | proposal-v1 与 v2 全文 | 第一轮：覆盖度、事实核对 ×2、一致性、对抗性驳斥（`refute/wbe.ts` 写前记账实测、`refute/tla75-check.ts` 复现 #75 的五场景集合对账、`refute/wcost.ts` 落盘开销）；第二轮：一致性、事实核对、覆盖度 | 附录四的修订记录 |
 
@@ -404,19 +405,19 @@ source §F 权限矩阵五列里，后两列「提议的档 / 提议的守法」
 
 ## 附录三 · 与 PR #75 的对照
 
-PR #75（分支 `claude/kol-formal-verification-kr5igx`，draft，2148 行新增 / 18 个文件，base 落后主干 5 次合并，`mergeable_state: dirty`）做了什么、本提案怎么对待它：
+PR #75（分支 `claude/kol-formal-verification-kr5igx`）**已于 2026-09-11T17:46:32Z 关闭，未合入**（联网核对，GitHub API：`state: closed`、`draft: true`、`merged: false`、`mergeable_state: dirty`、+2148 / −14、18 个文件、5 个提交、1 条评论；head `f652943` —— 2026-09-08 的空提交「说清 #75 为什么还没合」，实质代码到 `97c358e`；base `475cfe9`，d7e20d7 已比它多 50 个合并提交、按真实分叉点 `8f2eecb` 算 54 个合并 / 235 个提交；唯一评论是 `chatgpt-codex-connector[bot]` 对 `97c358e` 的安全评审「Completed」、无发现，没有任何人类评论，**关闭理由：未知**）。分支仍在远端，且已于 2026-09-18T19:10Z 被强推为 `2deb489`：5 个提交直接叠在 d7e20d7 上（`git merge-base 2deb489 d7e20d7` = d7e20d7），19 个文件 +2148 / −11，formal 已接进它的 check 链（`mutate` 之后、`selfcheck` 之前），变异 336 条、编号已避让为 `M-P3-c` / `M-P3-d` / `M-D6-l` / `M-H41-a/b/c`（`comm` 两份 id 清单）；主干 d7e20d7 上没有 `formal-rule.ts` / `formal.ts` / `formal/` / ADR-68（docs/adr/ 74 条记录、编号 1–83，68 号空着）。它做了什么、本提案怎么对待它（下表读的仍是 `97c358e` 那棵树，`2deb489` 只核了编号、接线与体量，未逐行重读）：
 
 | #75 做了 | 本提案的立场 |
 |---|---|
-| `scripts/check/formal-rule.ts`（903 行）：状态 `{local, disk, billed, sent, phase, sinceSave, warnedHere, warnTotal, alive, exit, stopped, resumes}`，八个动作，五个场景（`spec` 1586 状态、`entry-cadence` 2236、`no-crash` 56、`bill-non-200` 113、`broken-charge` 81） | 就是 D.3–D.6 的模型，且比本提案多了 F7 的提醒计数与 `persistEvery` 参数。**建议采用它，不另写（J1）。** 903 行里对拍夹具与 trace 打印占大头，拆分方式见 `3-rollout.md` H0 |
+| `scripts/check/formal-rule.ts`（903 行）：状态 `{local, disk, billed, sent, phase, sinceSave, warnedHere, warnTotal, alive, exit, stopped, resumes}`，八个动作，五个场景（`spec` 1586 状态、`entry-cadence` 2236、`no-crash` 56、`bill-non-200` 113、`broken-charge` 81） | 就是 D.3–D.6 的模型，且比本提案多了 F7 的提醒计数与 `persistEvery` 参数。**建议采用它，不另写（J1：重开并拆五条 / 从分支摘取重做 / 弃用 —— 本文不替用户裁决）。** 903 行里对拍夹具与 trace 打印占大头，拆分方式见 `3-rollout.md` H0 |
 | `formal/budget/BudgetProtocol.tla` 与 TS 模型是「同一转移系统的两种写法」，`--tla` 逐字符比可达状态集，五个场景全部相等 | **本次复现**（`refute/tla75-check.ts`，`onlyModel = 0, onlyTlc = 0`；复现条件 `-deadlock -workers 1`）。这是模型—模型一致性的机制，排除「探索器自己写错」。对 429 重试与 IG 两级端点无覆盖 |
 | `runConformance()`：#75 自述 588 个响应序列驱动真实 `TikHub.get()`、555 次真实提交（自述的乘法 `(4+16+64) × 4 × 2 = 672` 与 588 不吻合，未复跑，不知哪个数对） | 这是 D.13 第 2 条。它的界 `CONFORMANCE_LIMITS = [0,1,2,3]` 不含任何误拒点（最小在 9），所以没碰到 CE-3；扩界即可（扩界对拍本次未跑） |
 | `budgetProblem / ledgerProblem`：上限与盘上计数都要过校验，三条入口共用 | 就是 P3.c 的实现，且多守了 `requests: null / "4"`。**建议采用。** 本提案的 `ConfirmedLimit` 品牌类型是它的类型层版本，不在试点内 |
-| ADR-68 五张欠条：崩溃窗口、F7.a「一次」、P3 × D4 交点、「非 200 不计费」、probe 不记账 + 并发覆盖 | P3.e 就是第一张的重启条件里说的「先写打算发一次请求再发」；A2 就是第四张；范围边界就是第五张的后半。**#75 正确地没有替需求裁决**，本提案把这些裁决写成草案交人（`README.md` 待裁决清单） |
+| ADR-68（只在 #75 分支，主干 68 号空着；`2deb489` 上 119 行）五张欠条：崩溃窗口、F7.a「一次」、P3 × D4 交点、「非 200 不计费」、probe 不记账 + 并发覆盖 | P3.e 就是第一张的重启条件里说的「先写打算发一次请求再发」；A2 就是第四张；范围边界就是第五张的后半。**#75 正确地没有替需求裁决**，本提案把这些裁决写成草案交人（`README.md` 待裁决清单） |
 | 保证等级词表，明写「本仓库一条 PROVED_IMPLEMENTATION 都没有」 | C.2 采用这套词表（已写进本提案，`0-process.md 通-10`，不依赖 #75 合入） |
 | `IMPLEMENTATION-MAP.md` 第五节「模型里没有的那一半 —— 人工核对表」 | D.7 假设登记表的雏形，差的是机器可读与失效触发器；`3-rollout.md` H1 把它结构化 |
 | 每个场景记下预期的最短反例长度，「模型被改松、反例变长，一样红」 | D.15 第 1 条直接引用 |
-| 违反自己仓库的两条纪律：源码类新增 1277 行 vs 350（带 `size-ok`）；「闸门自身走最后一块砖」被一条 PR 装完；`M-H16-a/b/c` 与已合入的 #78 撞号 | **这是它合不进去的原因，不是它内容的问题。** 拆法在 `3-rollout.md` H0 |
+| 违反自己仓库的两条纪律：源码类新增 1277 行 vs 350（带 `size-ok`；对 `2deb489` 按现行 `categorize()` 重算 `git diff --numstat d7e20d7 2deb489`：源码 1278 / 测试 203 / 文档 485 / 其他 182，阈值 `size-rule.ts:26-29` 未变，ADR-80）；「闸门自身走最后一块砖」（`6-INTEGRATE.md:262-267`）被一条 PR 装完 —— 本仓库后来按这个形状拆过 ADR-70 的落地 2（判定 #81 先合、接线最后，ADR-70 行 135）；`M-H16-a/b/c` 与已合入的 #78 撞号（`2deb489` 已改为 `M-H41-a/b/c`，主干 harness 组号用到 H40） | **这是它当时合不进去的原因，不是它内容的问题。** PR 已关闭；拆法在 `3-rollout.md` H0，去向是 J1 |
 | 第 6 条「上限是 NaN 时闸门整条不存在」标为「实现违反已有红线，本 PR 修」 | 与本次会话独立实跑的 CE-1 一致。注意 I5 在 #75 里由对真实 `Budget` 的值域扫描守，不是 BFS 模型报出的 |
 
 **本提案相对 #75 新增的只有四样**：EARS 层的判据草案（#75 没有动登记表）、P3.f 不误拒、随机 + shrink 的属性层、机器可读的假设登记表与失效触发器。其余是对 #75 的复核与拆分建议。
@@ -450,5 +451,36 @@ PR #75（分支 `claude/kol-formal-verification-kr5igx`，draft，2148 行新增
 | 属性测试「N 取 100–500、总增量 1 秒内」 | N ≤ 50、× 229 ≈ 23 s，与 `formal` 合计 < 60 s | 原预算没乘变异次数 |
 | 义务指纹不含 `unless` / `where` | 含 | 加例外槽就是放宽 |
 | 「refinement types 没有成熟实现」「没有 npm 包」 | 「联网核对未找到」 | 没找到不等于不存在 |
+| 证据基线 `cc132a7`（2026-09-06）：变异 226 / 229、判据 99、七种豁免、11 步检查链、#75 待决、`lint-rule.ts:33` / `age-rule.ts` / `npm run arch` 等目标文件 | 基线迁移到 `d7e20d7`（2026-09-19 合入 #118）：变异 330、判据 102、有机器读的豁免五种、8 步检查链、#75 已关闭（分支强推为 `2deb489`）、lint / age / arch 三个目标已撤；逐项见附录五 | 主干在 cc132a7 之后走了 199 个提交（ADR-71…83），撤了三道闸门、收窄 adr 与 size、落地 ADR-70 的 by / kills，并以 ADR-82 立规「可算的数不写输出」—— 提案钉在旧树上的数与行号有一部分已在说假话（本次迁移 2026-09-18，只到文档、流程与检查链层，实跑数未复跑） |
+| 业-36 目标行号 `skill/SKILL.md:165` | `:163` | 拆分时抄错的行号，与主干变化无关（`skill/` 在 cc132a7 与 d7e20d7 之间零改动） |
+| README 反向索引一无 业-61 行 | 补一行 | 业-61 是拆分后补的编号，索引漏了；与主干变化无关 |
 
 被引用于：—（历史记录；按 SPEC 改过的结论只在此出现，通 / 业 / 码 不引用）
+
+## 附录五 · 基线迁移：cc132a7 → d7e20d7
+
+提案七个文件的事实基线原是主干 `cc132a7`（2026-09-06）。本次（2026-09-18）把它迁到 `d7e20d7`（PR #118 合并提交，提交日期 2026-09-19 +0800；`git rev-list --count cc132a7..d7e20d7` = 199）。每行一条主干变化：依据只写在 d7e20d7 上实际执行过的命令或读到的记录；「已改到哪」引其他六个文件的改动日志；「未决」是各文件报上来的 open_questions，编号由父级分配，本文不新增编号。产品代码在两基线之间只改了 7 个文件（`git diff --stat cc132a7 d7e20d7 -- scripts/`：`identity.ts` 2、`pipeline.ts` 24、`rows.ts` 22、`score.ts` 10、`probe.ts` 4、`tikhub.ts` 22、`test.ts` +1005/−286，`git diff --numstat cc132a7 d7e20d7 -- scripts/test.ts`），`budget.ts` / `collect.ts` / `enrich.ts` / `memory.ts` / `atomic.ts` / `task.ts` / `render.ts` / `report.ts` / `xlsx.ts` 未变 —— §B 表里指向它们的 `file:line` 原位不动，移位的只有 `test.ts`（B12、B14）与 `pipeline.ts`（B16）三处。
+
+| 变化 | 依据（ADR 或提交） | 对提案的影响（编号） | 已改到哪 | 未决 |
+|---|---|---|---|---|
+| **ADR-71** `score` 不在敏感字段表上，P1.b「任何位置」没落地；修法是结构性的 —— `tierOf(c, score)` 由调用方传分，删 `c.score ?? 0` | ADR-71（2026-09-09，PR #93）；`score.ts:30,38`；ADR-77 行 39–44 引它为「第一档」的例子 | B8、B20（tier fallback）；业-49 / 码-32 / J17 的裁决对象换成「`memory.ts:410` 是否落在 P1.e/f/g 之外的第四条压平路径」 | 本文 B8、B20；1-docs 业-49 / 业-58；2-code 码-32；3-rollout H6 | J17 依据换成 ADR-77 欠条后，码-32 是整条删除还是改题（2-code 提出） |
+| **ADR-72** 变异按核数并行、按目录隔离（`--jobs` / `MUTATE_JOBS`，`mutate.ts:18,20,35,671`）；4 核实测 293 条串行 649.3 s（首量，行 15）/ 644.2 s（预热后三次均值，行 96）→ 302 条并行 227.8 s 墙钟（行 97；行 99 明写「变异条数从 293 涨到 302」，两个数不是同一条数下量的）、3.41 核忙；「倍数可以跨机器参考，秒数不行」 | ADR-72 行 11–25、88–113 | 通-12、码-11、码-39、H4、§D.10 的「× 229 ≈ 23 秒」与一切绝对秒数预算；本文 §E.2 Stryker 评语、§G 传感器表、附录二 infra 行 | 0-process 通-12；2-code 码-11 / 码-39；3-rollout H4 / §D.14 / §D.15；8-p3 §D.10；本文 §E.2、§G、附录二 | 60 / 5 / 30 秒阈值是否改成相对倍数（3-rollout、8-p3、1-docs 业-60 都只加注、标待人定） |
+| **ADR-73** 写数要核正本：「要么钉一棵不会再动的树，要么只写命令、不写输出」；凡列举都是清单，要回去数正本 | ADR-73 行 146–150 | 提案全部可算数与行号（D-18）；本文 §I「本文自身」 | 七个文件逐处；本文头部、§I、附录四 | 与 ADR-82 合看，见下 |
+| **ADR-74** 硬杀判定搬进 `jobs-rule.ts`（462 行）；派出去没结论 → 硬失败（`missingVerdicts`，`mutate.ts:50`）；判定四态 `caught / elsewhere / crashed / survived`（`mutate-rule.ts:301`） | ADR-74；`git diff --stat`（jobs-rule.ts +462） | 本文 §G 传感器表「变异测试」行、§E.2 Stryker 评语；业-43；§D.15 第 3 条「无存活」的判定口径 | 本文 §G、§E.2；1-docs 业-43；3-rollout §D.15 | — |
+| **ADR-75** 验证者共用 V8 编译缓存 `NODE_COMPILE_CACHE`（`mutate.ts:214,346,606`，缺省 `.check-cache/compile-cache`） | ADR-75；`git grep -n NODE_COMPILE_CACHE d7e20d7 -- scripts` | 码-38 / H4 / 业-59 / 本文 §E.1「CI 成本」：量时长要分首跑与热跑 | 本文 §E.1；2-code 码-38；3-rollout H4；1-docs 业-59 | — |
+| **ADR-76** 撤分支寿命闸门：删 `age.ts`（500 行）/ `age-rule.ts`（401）/ `.github/workflows/age.yml`（177）；`age-ok` 消失；6-INTEGRATE 分支寿命节删除（现只剩行 26–27「不再有闸门看着…靠人执行」与第三层表末段 324–328）；**不撤**「合并者不能是写档的那一方」（`6-INTEGRATE.md:201`）；变异 `M-H2-a…w` 23 条随之删除 | ADR-76 行 1–7、85；`git diff --stat cc132a7 d7e20d7`；`6-INTEGRATE.md` grep「48 小时」「age-ok」= 0 | B18、§F 豁免行 / 闸门行 / 合并到主干行、附录二 infra 行；通-21 / 通-22 / 通-25；业-31(4) / 业-59；码-38 / 码-42 / 码-48 / 码-49；H4；3-rollout 三处「48 小时」；§D.15 失败第 4 条与 go/no-go | 本文 B18、§F、附录二；0-process 通-21 / 22 / 25；1-docs 业-31 / 59；2-code 码-38 / 42 / 48 / 49；3-rollout 行 10 / H4 / H5 / §D.15 / go-no-go | — |
+| **ADR-77** 撤纪律 lint：删 `lint.ts`（21）/ `lint-rule.ts`（97）；P1.b 只删「执行机制」那句并登记显式豁免（`mutations.json:2664`）；新增 P1.e / P1.f / P1.g 三条结果判据；`p1-ok` 改「P1 例外：」纯注释；`M-P1-i…p` 8 条随 lint-rule 删除，P1 名下变异 21 → 15；重开条件「同一类坏法半年内两次…表由代码生成或判据别再写『任何位置』」；3-BUILD 把「指令性（别这么写）」定为三档最弱一档 | ADR-77（更正块行 106–127、重开条件行 93–101）；`requirements.json`（P1 判据 4 → 7）；`git grep -c 'p1-ok' d7e20d7 -- scripts` | B8、B18、分级表 P1 行、§E.4 P1 行、§F 豁免行、附录二 observation 行；通-19 / 通-30 / 通-32(1) / 通-36；业-02 / 业-38 / 业-39 / 业-47 / 业-49；码-01 R6 / 码-03 派生表 / 码-29 / 码-32 / 码-36 / 码-46 / 码-47；H6(a) / H8 / H12；J17 / J38 | 本文各处；0-process、1-docs、2-code、3-rollout 对应条目均标「目标已撤（ADR-77，主干 d7e20d7）」并把落点改成「新建判定模块（SYNC 行 33）或改结构性 / 验证性材料」 | 通-30 / 通-36 / 通-19 / 通-32(1) / 码-29 / 码-36 / 码-46 / 码-47 / 业-31(3) 的「扫文本」检查：保留并在 ADR 里直面「最弱一档」、改成结构性 / 验证性材料、还是写「✗ 靠执行」交 REVIEW.md —— 五个文件都要求一个新裁决点；`source_grep` / `file_text` 类 oracle 的验证者归 human 还是新建（业-02 / 码-03 / 通-02，J38 或新裁决点）；「9 处多余 p1-ok」d7e20d7 无法复核 |
+| **ADR-78** 撤架构锚点检查：删 `arch-sync.ts`（156）；`npm run arch` 不存在；锚点表（`ARCHITECTURE.md:41-101`，`BEGIN:ANCHORS` 53–99）与顺序契约表（`:103-125`，`BEGIN:ORDER` 112–122，现 5 行）改「人维护，无机器校验」；文件头行 8–12「下面两张表没有机器核」；SYNC 行 24 / 25 降级；AGENTS.md:66–68、REVIEW.md:15 明写「当索引读别当证据读」 | ADR-78 行 1–12；`ARCHITECTURE.md` grep `BEGIN:` / `END:`；`SYNC.md:24-25` | B14 证据、§G 层级现状 5；通-20 / 通-39；业-22 / 业-27 / 业-28 / 业-39 / 业-42；码-10 / 码-46 | 本文 B14、§G；0-process 通-20 / 39；1-docs 业-22 / 27 / 28 / 39 / 42；2-code 码-10 / 46；3-rollout H0c | oracle-rule（业-28 / 码-06）若读锚点表「服务的需求」列，等于给一张刚宣布「人维护」的表重装机器消费者 —— 是否算重开 ADR-78（1-docs 提出） |
+| **ADR-79** 收窄决策记录闸门：`npm run adr` 一次 git 都不调（`adr-sync.ts` 212 行 grep git = 0；`adr-rule.ts` 138 行），撤 `checkAppendOnly` / `Baseline` / `trunkAdrs` / `GIT_PUSH_BEFORE` 与 `M-H10-c/d`；「编号不可回收」降为第三层（`6-INTEGRATE.md:312`；`docs/adr/README.md:5` ⚠️ 块）；理由「它守的坏法在 diff 里是一行红字」 | ADR-79 行 6、10、28–50；`check.yml` diff 删 `GIT_PUSH_BEFORE` | §F ADR 行、B13；码-08 整条（目标缩窄）；码-06 / 码-07 / 码-42 / 通-21 / 通-24 这一类「对主干比 diff」的闸门与它正面冲突 | 本文 §F、B13；2-code 码-06 / 07 / 08 / 42；0-process 通-21 / 24；3-rollout H5 | J28 是否加「不建闸门，写进 REVIEW.md 交评审」；oracle-rule 建 / 不建 / 只建判定不接链是否单立一个 J 点（0-process、2-code、3-rollout 各自提出） |
+| **ADR-80** 体量豁免不再过期：删 `Waiver.addedAfter` / `SizeReport.stale` / `Overage.note` 与 `M-H9-d`；一条 `size-ok: <类别> <理由>` 管整条分支；阈值 350 / 450 / 600 / 200（`size-rule.ts:26-29`）与 `categorize`（`:40-46`）不变；base 仍是 `merge-base(origin/main\|main, HEAD)`（`size.ts:67`，浅克隆拒答 `:54`） | ADR-80 行 1–14；`git diff cc132a7 d7e20d7 -- scripts/check/size-rule.ts scripts/check/size.ts` | §F 豁免行 / 闸门行、附录三体量归类（仍成立）；码-06「复用 size.ts 的 ADR-63 base 机制」—— 那套 `AGE_PR_BASE` 接线属于已删的 age.ts，size.ts 从未读过；通-21 / H5 / 0-process.md:232 行号 | 本文 §F、附录三；2-code 码-06；0-process 通-21；3-rollout H5 / §D.14 | — |
+| **ADR-81** 驳回撤除 ADR-62 关系钩（判定模块必须有变异）与 selfcheck 那 13 处 `runTool`，只承认「减 harness 变异」那一半已随闸门收缩完成；给出「哑不哑 / 模型能否替代 / 发生过没有」三问与两条死亡条件（挂在「欠条台账可机读」那道闸门上） | ADR-81 行 40–99 | §F 闸门行「判定模块必须有变异」仍在；码-42「每类豁免总数进审计」要对照其死亡条件；通-21 / 通-24 / 码-06 / 码-07 / 码-42 的新闸门须按三问补论证 | 本文 §F；2-code 码-42 / 码-06；0-process 通-21 / 24；3-rollout H5 | 同 ADR-79 行 |
+| **ADR-82** 可算的数不写输出（全仓清 47 处）：`README.md:191` 不再手写需求数、`:197` 检查链指 `package.json`；`AGENTS.md:77` 检查链改 8 步、行 88–90 不再抄清单；`verifier-rule.ts` / `selfcheck.ts` / `mutate-rule.ts` / `audit-rule.ts` / `jobs-rule.ts` 注释去数；`REVIEW.md:18-20` 列为评审特别在意的两条之一；3-BUILD 新第 6 条把「数字与量词要来自跑过并贴出输出的命令」写进通用层；欠条「这条规矩仍然没有机器在守」 | ADR-82 行 1–12、93–107；`README.md:191,197`；`AGENTS.md:62,77` | 提案全部可算数（226 / 229 / 99 / 35 / 17 / 15 / 97 / 837 / 七种 / 三种 / 每天 10–18 次 / 61 条 ADR）；B20；本文 §I 新增一行 | 七个文件逐处：钉 d7e20d7 或改命令；本文头部、§B 首段、B9、B13、B20、分级表、§G、§I、附录二 / 三 / 四 | 实跑数（42 个 fs 调用、837 ✓、26,410、3.8 秒、email 9 / bio 10 / followers 29 处）保留为 cc132a7 实跑并标未复跑 —— 是否要求全部在 d7e20d7 复跑由父级定；scope.md 写「194 个提交」，实核 199（各文件均按 199 写，请父级更正 scope.md） |
+| **ADR-83** 新增 `REVIEW.md`（28 行，只做转发）+ `.github/copilot-instructions.md`（7）+ `.coderabbit.yaml`（11）；`AGENTS.md:56` 路由表加「评审别人的改动 → REVIEW.md」；`SYNC.md:34` 加指针行（✗ 靠执行）；自述「三个文件名一个都没能在仓库里核实」「没验之前，不要把这一条当成『评审已经知道规矩了』」；死亡条件 REVIEW.md 超 30 行或出现无出处规则 | ADR-83 行 1–12、40–50；`git show d7e20d7:REVIEW.md`；PR #75 唯一评论是 Codex 机器评审（联网核对） | B18、§F 红线 / process/ / 合并到主干三行；通-13 / 通-14 / 通-20 / 通-22 / 通-26；业-32 / 业-35(2)；码-49；J16 | 本文 B18、§F；0-process 通-13 / 14 / 20 / 22 / 26；1-docs 业-32 / 35；2-code 码-49；3-rollout H5 | J16 是否正式加「机器评审器（Copilot / CodeRabbit / Codex）作为第二方，独立性未验证」；「仓库只有一个人类身份」「main 保护规则 403」d7e20d7 未复核，需要人用 GitHub API 复核 collaborators 与 branch protection |
+| **PR #75** 于 2026-09-11T17:46:32Z 关闭未合入（draft、dirty、+2148/−14、18 文件、5 提交、1 条 Codex 评论、无人类评论、关闭理由未知；head `f652943`、base `475cfe9` 已落后 50 个合并 / 按分叉点 54 个）；分支 2026-09-18T19:10Z 强推为 `2deb489`：5 提交叠在 d7e20d7 上，19 文件 +2148/−11，formal 已接进其 check 链，变异 336 条、编号避让为 `M-P3-c/d`、`M-D6-l`、`M-H41-a/b/c`；主干无 formal* / ADR-68 | GitHub API `pull_request_read` get / get_comments（联网核对）；`git ls-remote origin`；`git merge-base 2deb489 origin/main`；`git diff --numstat origin/main 2deb489`；`comm` 两份变异 id 清单 | §B 首段、B2 / B3 / B14 / B15 / B21 / B22、分级表 P3 / D6、§E.2 / §E.4、§F 模型不变量行、§I、附录三；H0 / H0a–H0e / J1 / 业-05 / 业-06 / 业-11 / 业-20 / 业-23 / 码-10 / 码-11 / 码-12 / 码-17 / 码-41 / §D.0 / §D.13 | 本文全部；3-rollout H0 / J1（按 2deb489 重写）；1-docs 业-20 等；8-p3 §D.0 / §D.11 / §D.13；2-code 码-10 / 11 / 12 / 41 | J1 三选项（重开并拆五条 / 从分支摘取重做 / 弃用）由用户裁决；「从分支摘取重做」起点钉 `97c358e` 还是 `2deb489`（8-p3、3-rollout 提出，父级统一口径）；事实清单 C-23 记的 head `f652943` 已过期，其他文件凡写「分支仍在 f652943」「M-P3-c 未占用」的句子要按 2deb489 重核（3-rollout 提出）；PR 关闭理由未知 |
+| **变异 226 → 229 → 330**；`exemptions` 3 → 2（P2.a、P1.b；D6.f / P3.b 的豁免撤成 `by: "selfcheck"` 负片 `M-D6-j` / `M-P3-b`）；主干新占 `M-P3-b`（req P3.b，`collect.ts:129`，与 #75 的同名条不同义）；harness 组号用到 H40（H2 随 age 删除后空出、H18 从未用）；`M-P3-c` / `M-D6-i` 主干未占用；ADR-70 正文由 426 行长到 2249 行（装着落地 2–4 与 #105 欠条） | `node -p` 读两版 `mutations.json`；`mutations.json:1949,2068,2656-2664`；`npx tsx scripts/check/mutate.ts --brief` 末行「共 330 个变异、2 处显式豁免」（父级在 scratch 副本上跑） | §B 首段、B13、分级表、§F 豁免行 / 变异集行；码-41 / 码-42 / 码-43 / 码-17 / 码-01 / 码-02 / 码-10；H0b / H0c / H2 / H3；§D.11 N3 / N5 / N8 / N9；业-05 / 业-19 / 业-56 | 本文；2-code、3-rollout、8-p3、1-docs 对应处 | N1–N9 落地编号起点（`M-P3-b` 已占；`2deb489` 又占 `M-P3-c/d`，两路并行推进要一次分配）；变异 id 跨分支不回收是否立规（8-p3 提出，process/ 只写需求号与决策记录号不回收）；`M-D6-i`（#75 旧）/ `M-D6-j`（主干）/ `M-D6-l`（2deb489）是否同一坏法未核 |
+| **判据 99 → 102**（P1.e / P1.f / P1.g）；红线判据 17 → 20（P1 4 → 7）；除 P3.a / P3.b 外 15 → 18；其他判据 97 → 100；需求仍 35；`content_hash` 96e7876c6e7d → 15d87302241b；`requirements.json` 16(+)/3(−)、净 +13（`git diff --numstat cc132a7 d7e20d7 -- docs/requirements.json`），P1 之后判据行号整体 +13（P3.a 66 → 79、P3.b 70 → 83、F7.a 616 → 629、U3.a 691 → 704、U7.d 771 → 784） | `node -p` / python 读两版 `requirements.json`；`npx tsx scripts/check/spec-sync.ts` →「现行 35 条 · 指纹 15d87302241b」（父级在 scratch 副本上跑） | 码-01「99 条判据 5 条会红 / 含糊词 0 条」；业-08 / 业-09 / 业-61 / §1.6 第 5 条；H2「其余 15 / 其他 97」；1-docs 各判据行号 | 2-code 码-01；1-docs 业-04 / 05 / 08 / 09 / 15 / 16 / 18 / 49 / 50 / 54 / 57 / 61；3-rollout H2 | `implementationLeak` 与含糊词表对 P1.e/f/g 是否命中未复跑（未知） |
+| **process/ 六份文件改动**（`git diff --stat cc132a7 d7e20d7 -- process/`：1-REQUIREMENTS 2 行、2-CHANGE +37、3-BUILD +25、4-VERIFY +33、6-INTEGRATE 118 行、README 4 行）：4-VERIFY「做法」节（现 177–210）装入 by / kills、见齐就停、夹具没造对、入口接线 → 硬失败，「三条对策」之后各节整体下移；6-INTEGRATE 删分支寿命节、加「评审中的发现」节（125–261）：替身评论（140–149）、五档路由（151–182）、合并者按每轮清单找替身（204–206）、第三层表新增决策记录编号 / 评审去向 / 欠条 PR 等行（303–328）、「最后一块砖」移到 262–270；2-CHANGE 加「新内容加在哪」小节、决策记录格式与同步规则下移；3-BUILD 加材料三档与「数字来自命令」第 6 条；1-REQUIREMENTS「四条硬要求」标题去掉「四条」；README 6-INTEGRATE 那行改「体量闸门」 | `git diff --stat`；各文件 `grep -n '^#'`（本文核了 4-VERIFY 与 6-INTEGRATE 的标题行） | 通-01…通-40 全部目标文件行号；本文 B18 的 `4-VERIFY.md:235`、§F 合并到主干行 | 0-process 全部行号已重映；本文 B18 → `4-VERIFY.md:260`、§F | 事实清单三处行号与 0-process 实核不一致（2-CHANGE 同步表首行 245 非 242、决策记录格式 166–225、3-BUILD 三档 65–67 / 第 6 条 155–161），0-process 按实核写，其他文件若沿用清单数值会不一致 |
+| **docs/ 与根目录文件改动**（`requirements.json` 16(+)/3(−)、`ARCHITECTURE.md` 50 行、`CONVENTIONS.md` 26、`SYNC.md` 9、`SPEC.md` 2、`AGENTS.md` 10、`README.md` 4、新增 `REVIEW.md` 28 / `.coderabbit.yaml` 11 / `.github/copilot-instructions.md` 7；`check.yml` 缩到 28 行：`npm ci` 行 26、`npm run check` 行 28，删 prbase 步与 `GIT_PUSH_BEFORE` / `AGE_PR_*`）；`skill/` 零改动 | `git diff --stat cc132a7 d7e20d7`；`git show d7e20d7:.github/workflows/check.yml \| cat -n` | B5（CONVENTIONS §7 → 111–120）、B14（ARCHITECTURE 顺序契约 112–122）；业-21…业-35 / 业-56 的行号；码-48（check.yml :27 / :40 → :26 / :28）；通-22 | 本文 B5 / B14 / §E.1；1-docs 各条；2-code 码-48；3-rollout H4 / H5 | ARCHITECTURE 缝隙契约子节 136–147 在现行正文里的落点未重定位（1-docs 标未知） |
+| **主干继续前进**：重核完成后 `d7e20d7` → `3f57067`（3 个提交，PR #119） | ADR-84；`git diff --stat d7e20d7 3f57067`：`process/README.md` +22 行（「第二层」一节）、`process/5-DESIGN.md` 锚点机制一节、`docs/adr/ADR-58` 一处更正 | 通-20 目标文件行号（`process/README.md` §「什么时候不走流程」180–187 → 202–209）；通-19 引用的 `5-DESIGN.md` 行 33–43 在改动之前，不受影响 | 通-20 目标行加注；README 证据基线段 | 本目录仍钉 `d7e20d7`，未对 `3f57067` 逐条重核 |
+
+被引用于：本文头部「编号怎么读」、附录四末行；`README.md` 证据基线段与各文件头部的基线声明（由各文件写作者同步）；通 / 业 / 码 / H 无直接引用

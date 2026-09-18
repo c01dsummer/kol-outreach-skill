@@ -2,7 +2,7 @@
 
 **装什么**：本产品对提案的实例化 —— 登记表字段与草案判据、假设登记表、架构文档、约定、同步表、ADR 清单、Skill 文本、新文件 `docs/EVOLUTION.md`；source §C.2 的 TypeScript 形状、§C.5 的 JSON 示例、§C.6 的迁移 PR、§D.2 术语表与草案判据原文、§D.7 假设表、§G 的传感器 / 控制变量 / 扰动 / 熔断 / 起点数字都原文落在这里；source §C.1 三种放法比较表、§C.3 成分 → 字段表、§C.4 三个坏例、§C.8 交人分歧的原文也在这里。
 **不装什么**：换个产品也成立的规则（只写「实例化：通-xx」，原文在 `0-process.md`）；代码改动（只写「守法：码-xx」，在 `2-code.md`）；现状分析与数字的推导（在 `9-evidence.md`）；落地步骤本身（在 `3-rollout.md`）；P3 试点的叙述（在 `8-p3-pilot.md`）。
-**编号怎么读**：`业-NN` 只在本文件定义；`通-NN` / `码-NN` / `H0a…H12` / `J1…J49` / `B` / `CE` / `I` / `L` / `A` / `N` / `R` 沿用 source（拆分前的单文件版，见 README）；每条末尾的「档」是 `0-process.md 通-20` 的三档（自动 / 提议 / 人批）；「变更分类」都是提议分类，由评定者按 `process/2-CHANGE.md` 定；所有判据都是草案，不改任何现行需求文本；证据标记只用五种（实跑 / #75 自述 / 读代码 / 联网核对 / 尚未验证），无标记按「读代码」；`file:line` 指主干 `cc132a7`，登记表与文档行号按 inventory 已核对的当前文件；「落地」行的「H 第 n 步」= `3-rollout.md` 的 `Hn`（第 0 步的五条子 PR 写「H 第 0a…0e 步」）。
+**编号怎么读**：`业-NN` 只在本文件定义；`通-NN` / `码-NN` / `H0a…H12` / `J1…J55`（J50–J55 不在 source 里，是 2026-09-18 重核 d7e20d7 时在 README 加的） / `B` / `CE` / `I` / `L` / `A` / `N` / `R` 沿用 source（拆分前的单文件版，见 README）；每条末尾的「档」是 `0-process.md 通-20` 的三档（自动 / 提议 / 人批）；「变更分类」都是提议分类，由评定者按 `process/2-CHANGE.md` 定；所有判据都是草案，不改任何现行需求文本；证据标记只用五种（实跑 / #75 自述 / 读代码 / 联网核对 / 尚未验证），无标记按「读代码」；`file:line`、登记表与文档行号一律指主干 `d7e20d7`（2026-09-19 合入 #118 的 `origin/main`，`cc132a7` 之后 199 个提交），除非写明「#75 树（97c358e）」（PR #75 记录的 head f652943 与 97c358e 是同一棵树，`git rev-parse f652943^{tree} 97c358e^{tree}` 相同；本文件引 #75 代码与文档的 file:line 一律指它）、「#75 分支（2deb489）」（远端分支 `claude/kol-formal-verification-kr5igx` 2026-09-18T19:10Z 强推后的 head，5 个提交叠在 d7e20d7 上；只用来说分支现状，不作 file:line 的树）或「cc132a7 实跑」；仓库可算的数按 ADR-82 要么写「N（d7e20d7）」、要么只写命令不写输出；「落地」行的「H 第 n 步」= `3-rollout.md` 的 `Hn`（第 0 步的五条子 PR 写「H 第 0a…0e 步」）。
 
 ---
 
@@ -23,10 +23,10 @@
 - **目标文件**：docs/requirements.json · 字段 `accept[].ears`（§C.2 的 `EarsClause` / `EarsNone` / `Criterion` 落这里）
 - **实例化**：通-01、通-05（字段与消费者同一 PR；句型与验证者派生不存）、通-06（一条判据下的多条子句只能是同一路径的边界枚举）
 - **现状**：给判据加未知字段 `validateRegistry` 0 问题、`renderTables` 输出与基线逐字相同、`--write` 保留键序，但 `content_hash` 会变（source §C.0，实跑）；`Criterion` 今天只有 `id` / `text`。
-- **提议**：`Criterion { id; text; ears?: Ears }`，`Ears = { clauses: EarsClause[] } | { none: EarsNone }`，子句 id 形 `{判据}/{n}`；完整形状见下方代码块（source §C.2 原文）。`unknown` 三个落处：**说的是范围** → 需求正文；**说的是这条判据** → `ears.none`（`human` / `unmeasured`）；**说的是某个术语** → `oracle: none`，三者审计里都单列。句型由 `earsType(clause)` 从字段派生、验证者由 `verifierOf(clause, terms)` 从 oracle 派生（`exit_code` / `stdout_json` / `fixture` → selfcheck，`call` → test，`source_grep` / `file_text` → lint，`human` → 人工），不存字段；范围边界回 `text`（ADR-67 原裁决）。各成分（trigger / state / condition / feature / response / prohibited response / observable outcome / 例外 / 不保证 / 两种 `none` / `oracle: none`）→ 字段 → 术语 kind → P3 例，见下方 §C.3 表。§C.8 交人决定的分歧 —— 子句层存废、`guard` / `if` 分不分字段、`text` 派生时机与开关、验证者存储还是派生、审计是否收紧到判据级变异、`unmeasured` 档存废、`examples` 是否进登记表 —— 每处的两方论据与「评审指出的两处硬伤」逐条原文见本条末尾小节「§C.8 交人决定的分歧（原文）」；本文暂取：保留子句层、合并 guard、迁移期 `text` 不动、派生验证者、保留 `unmeasured` 与 `examples`。
+- **提议**：`Criterion { id; text; ears?: Ears }`，`Ears = { clauses: EarsClause[] } | { none: EarsNone }`，子句 id 形 `{判据}/{n}`；完整形状见下方代码块（source §C.2 原文）。`unknown` 三个落处：**说的是范围** → 需求正文；**说的是这条判据** → `ears.none`（`human` / `unmeasured`）；**说的是某个术语** → `oracle: none`，三者审计里都单列。句型由 `earsType(clause)` 从字段派生、验证者由 `verifierOf(clause, terms)` 从 oracle 派生（`exit_code` / `stdout_json` / `fixture` → selfcheck，`call` → test，`human` → 人工；**`source_grep` / `file_text` 类今天没有对应验证者** —— `mutate-rule.ts:58` 的 `VERIFIERS` 只有 `test` 与 `selfcheck`，扫源码 / 扫文档的检查已随 ADR-77 / ADR-78 撤掉，这类 oracle 要么归「人工」、要么新建一个验证者，后者与 ADR-77「指令性（扫写法）是最弱一档」的取向相悖，需在 ADR 里直面，两个选项归 J51 —— 自 J38 拆出的裁决点），不存字段；范围边界回 `text`（ADR-67 原裁决）。各成分（trigger / state / condition / feature / response / prohibited response / observable outcome / 例外 / 不保证 / 两种 `none` / `oracle: none`）→ 字段 → 术语 kind → P3 例，见下方 §C.3 表。§C.8 交人决定的分歧 —— 子句层存废、`guard` / `if` 分不分字段、`text` 派生时机与开关、验证者存储还是派生、审计是否收紧到判据级变异、`unmeasured` 档存废、`examples` 是否进登记表 —— 每处的两方论据与「评审指出的两处硬伤」逐条原文见本条末尾小节「§C.8 交人决定的分歧（原文）」；本文暂取：保留子句层、合并 guard、迁移期 `text` 不动、派生验证者、保留 `unmeasured` 与 `examples`。
 - **变更分类（提议）**：补充（字段可选，`text` 不动）
 - **守法**：码-01（R1–R6、R9、R11）、码-02（派生渲染）、码-03（审计「靠什么验」列与 `levels` 栏）
-- **落地**：H 第 2 步 · 裁决 J11、J38、J47 · 档：提议
+- **落地**：H 第 2 步 · 裁决 J11、J38、J47、J51 · 档：提议
 
 source §C.3 各成分怎么表示（原文，第 5 问；「术语表在 D.2」指 业-06 的表，`8-p3-pilot.md §D.2` 同一份）：
 
@@ -105,7 +105,7 @@ type Ears = { clauses: EarsClause[] } | { none: EarsNone }
 
 interface Criterion { id: string; text: string; ears?: Ears }   // 只加可选字段；test.ts 的 req() 助手与 selfcheck 的 fixture 不受影响（原型 typecheck 通过）
 
-// ── 证据等级（沿用 PR #75 formal/README.md 的词表，写进本文以便不依赖 #75 合入）──
+// ── 证据等级（沿用 PR #75 formal/README.md 的词表，写进本文以便不依赖 #75 合入 —— #75 已于 2026-09-11 关闭未合入；PR head 记录为 f652943，分支已强推为 2deb489，`formal/README.md` 在 97c358e 与 2deb489 两树上都在）──
 type Level =
   | 'PROVED_IMPLEMENTATION'   // 实际实现经机器证明（本仓库今天一条都没有）
   | 'MODEL_CHECKED'           // 有界模型的全部可达状态被检查，且对拍到实现
@@ -115,7 +115,7 @@ type Level =
   | 'ASSUMED'                 // 靠环境或人的假设
   | 'EMPIRICAL'               // 只能由真实数据评估
 
-// 覆盖记录（.check-cache/test-claims.json，claims.ts 的 CLAIM_LISTS 是为加字段设计的扩展点）新增一栏：
+// 覆盖记录今天是两份（claims.ts:15 CLAIMS_PATH = .check-cache/test-claims.json 由 test.ts 写；claims.ts:35 ENTRY_CLAIMS_PATH = .check-cache/selfcheck-claims.json 由 selfcheck.ts 写，audit 两份都读，缺一份 exit 1；claims.ts:88 的 CLAIM_LISTS 是为加字段设计的扩展点）—— levels 栏两份各写各的（ARCHITECTURE 的 claims.ts 行明写「不合成一份多一栏」）：
 interface ClaimsLevels { levels: Record<string /* 判据 id 或子句 id */, Level> }
 // 由检查自己写：test.ts 写 UNIT_TESTED / PROPERTY_TESTED；formal.ts 写 MODEL_CHECKED / MODEL_ONLY；
 // 假设登记表里被引用且状态为「未验证」的性质，审计把它读作 ASSUMED（不写入，派生）。
@@ -131,8 +131,8 @@ R1–R11 的通用部分（字段决定句型、术语必须存在且 kind 匹�
 - **子句层要不要存在**：兼容优先的设计在判据下挂多条带 id 的子句（`P3.a/1`、`P3.a/2`…），另两份坚持「一条判据 = 一条 EARS 子句、不发第三套编号」。子句 id 今天没有下游消费者（只有 `retired_ids` 与报错用），按「派生或删」要拍板：保留子句层（拒绝 / 放行分支与边界例子在同一判据下），还是把 P3.a 拆成两条判据（ADR-24：true / false 分支算不算不同代码路径）。本文暂取子句层，理由是它不改判据编号。
 - **`guard` 与 `if` 分不分字段**：形式化优先的设计分开，状态机映射更直接；本文合并，按「有 `when` 则 `if` 是 guard」派生。
 - **`text` 由 `ears` 派生的时机与谁按开关**：迁移期 `text` 不动（两个去处无检查）vs 落地即派生（每迁一条红线判据 `text` 就变一次，都要过 ADR-24 复核，且 SPEC 句子变刻板）vs 永不派生只并排渲染。本文取第一种，需人确认能接受迁移期的漂移风险，并定开关时点。
-- **验证者是存储字段还是派生值**：派生符合「派生或删」，但一条 oracle 全是 `call` 的判据派生结果恒为 test，没办法声明「我打算由 selfcheck 验」。
-- **审计是否收紧到「带子句且验证者为 test 的判据必须有判据名下的变异」**：这是迁移的杠杆也是成本；今天 `M-P3-a` 记在需求 P3 名下，收紧后要改成 P3.a 并靠 `audit.ts:143` 的前缀规则让 P3 仍算有变异。
+- **验证者是存储字段还是派生值**：派生符合「派生或删」，但一条 oracle 全是 `call` 的判据派生结果恒为 test，没办法声明「我打算由 selfcheck 验」—— **主干已做（ADR-70 落地 2–4）**一半：今天变异可写 `by: "selfcheck"` + `kills`（`mutate-rule.ts:58` `VERIFIERS = { test, selfcheck }`），自检也发入口认领（`claims.ts:35`），「由 selfcheck 验」在变异与认领两处都能声明了；分歧只剩子句层要不要再存一份。
+- **审计是否收紧到「带子句且验证者为 test 的判据必须有判据名下的变异」**：这是迁移的杠杆也是成本；今天 `M-P3-a` 仍记在需求 P3 名下（d7e20d7），收紧后要改成 P3.a 并靠 `audit-rule.ts:75` `criterionMutations` 的判据级归并 + `audit.ts:174` `mutated = mutatedIds.has(r.id)` 让 P3 仍算有变异；**「计入」这一半主干已做**（审计已报「判据 n(负片 k)/m」，`audit.ts:146`），只剩「是否硬性要求」待裁。
 - **`unmeasured` 档要不要存在**：给「决定了但本仓库测不了」的判据（U6.c）一个显式 `none`，还是写不出 oracle 就不该有 `ears`、保持散文由审计统计。本文保留 `unmeasured`，但它在审计里的分量应与「保持散文」一样。
 - **`examples` 要不要进登记表**：它是测试的输入而不是需求；三份设计都保留，理由是「边界值写在需求旁边比写在测试里更容易被复核」。本文保留，标明不参与计量。
 
@@ -141,21 +141,21 @@ R1–R11 的通用部分（字段决定句型、术语必须存在且 kind 匹�
 ### 1.2 P3.a / P3.b 挂子句（现行判据，`text` 不动）
 
 ### 业-04 · P3.a 挂子句 `P3.a/1`
-- **目标文件**：docs/requirements.json · P3.a（行 66）· 字段 `accept[].ears`
+- **目标文件**：docs/requirements.json · P3.a（行 79）· 字段 `accept[].ears`
 - **实例化**：通-01
-- **现状**：P3.a `text`：「Budget.charge() 在 spent + 本次开销 > limit 时抛 BudgetExceeded 且不增加计数；给定 limit=0.005 与 10 次请求，实际发出的请求不超过 5 次。」（requirements.json:66–68）；无结构化字段；测试认领 `criterion('P3.a')`，变异 M-P3-a；它是一个例子，不表达不变量（B1）。
+- **现状**：P3.a `text`：「Budget.charge() 在 spent + 本次开销 > limit 时抛 BudgetExceeded 且不增加计数；给定 limit=0.005 与 10 次请求，实际发出的请求不超过 5 次。」（requirements.json:79–81）；无结构化字段；测试认领 `criterion('P3.a')`，变异 M-P3-a；它是一个例子，不表达不变量（B1）。
 - **提议**：见下方 §C.5 示例的 `P3.a/1`：`when budget.request_proposed`，`if [budget.cost_exceeds_limit]`，`shall [budget.raise_exceeded]`，`shall_not [provider.emit_request, budget.change_count, budget.notify_threshold]`，`outcome [budget.count_unchanged]`，`examples [{ limit: 0.005, count: 5, cost: 1 }]`；**不挂 `unless` / `boundary_of`**（等 J9）。`text`、认领、变异都不动。
 - **变更分类（提议）**：补充（只加结构，义务与 `text` 一致）
 - **守法**：码-01、码-41（变异 `why` 用子句原句）
 - **落地**：H 第 2 步 · 裁决：无（受 J38「子句层存废」影响） · 档：提议
 
 ### 业-05 · P3.b 挂子句 `P3.b/1`
-- **目标文件**：docs/requirements.json · P3.b（行 70）· 字段 `accept[].ears`
+- **目标文件**：docs/requirements.json · P3.b（行 83）· 字段 `accept[].ears`
 - **实例化**：通-01
-- **现状**：P3.b `text`：「collect 捕获 BudgetExceeded 后保存断点并以退出码 3 结束。」（requirements.json:70–71）；`mutations.json` 对 P3.b 显式豁免（理由引 ADR-13），靠 selfcheck 真跑。
-- **提议**：`when budget.exceeded_caught`，`shall [task.write_checkpoint]`，`outcome [task_json.requests, task_json.done, task_json.offsets, { term: 'process.exit_code', expect: 3 }]`。照字面写**没有**例外槽：今天记忆读不出来时退的是 2（ADR-15 的裁决优先），这条子句在那条路径上与现状不符 —— 正是 ADR-68 第三张欠条说的「P3 × D4 交点未登记」；例外槽的登记是 业-10 / J9。
+- **现状**：P3.b `text`：「collect 捕获 BudgetExceeded 后保存断点并以退出码 3 结束。」（requirements.json:83–84）；**主干已做（ADR-70 落地 4）**：P3.b 今天由变异 `M-P3-b`（req P3.b，`collect.ts:129` 的 `state.requests = budget.count` → `= 0`，`by: "selfcheck"`，`kills` 点名夹具「collect 预算用尽后留下的断点记到了中止那一刻」）守，并由自检发入口认领（`.check-cache/selfcheck-claims.json`）；原先「`mutations.json` 对 P3.b 显式豁免（理由引 ADR-13）」已撤，`exemptions` 只剩 P2.a 与 P1.b。
+- **提议**：`when budget.exceeded_caught`，`shall [task.write_checkpoint]`，`outcome [task_json.requests, task_json.done, task_json.offsets, { term: 'process.exit_code', expect: 3 }]`。照字面写**没有**例外槽：今天记忆读不出来时退的是 2（ADR-15 的裁决优先），这条子句在那条路径上与现状不符 —— 正是 ADR-68（只在 #75 分支，未合入 —— #75 树 97c358e 与远端 head 2deb489 上都有；主干 68 号空着）第三张欠条说的「P3 × D4 交点未登记」；例外槽的登记是 业-10 / J9。
 - **变更分类（提议）**：补充
-- **守法**：码-01、码-41、码-43（N9「exit 3 改 exit 1」先由 selfcheck 夹具守）
+- **守法**：码-01、码-41、码-43（N9「exit 3 改 exit 1」—— by / kills 机制**主干已做（ADR-70 落地 2–4）**，N9 可直接写成 `by: "selfcheck"` + `kills` 的变异，不必先由夹具守再等；夹具 label 要能被 `kills` 清册点名）
 - **落地**：H 第 2 步 · 裁决 J9 · 档：提议
 
 source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准；草案判据 P3.c–f 不在示例里）：
@@ -202,15 +202,15 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 - **提议**：第一批（H 第 2 步第 3 条 PR）只装 P3.a/1、P3.b/1 用到的十三个未标「草案」的术语；标「草案」的随 H 第 3 步登记；`memory.unreadable` 随 J9。全表如下（source §D.2 原文，oracle 栏写的是 §C.2 `Oracle` 联合里的 kind）；每条按 `Term` 形状写 `kind / def / params? / oracle[] / since`。
 - **变更分类（提议）**：需求有歧义 → 补充
 - **守法**：码-01（R2 / R3 / R4 / R8）
-- **落地**：H 第 2 步、H 第 3 步 · 裁决 J9 · 档：提议
+- **落地**：H 第 2 步、H 第 3 步 · 裁决 J9、J51 · 档：提议
 
 | id | kind | 定义 | oracle |
 |---|---|---|---|
 | `budget.request_proposed` | event | 适配层准备向 TikHub 发一次付费请求 | `invoke: TikHub.get()`（自检 fake-fetch） |
 | `budget.paid_request`（草案） | quantity | 一次会向 TikHub 发出的 HTTP 请求 | `call_count: fetch`（fake-fetch 记录） |
 | `budget.confirmed_limit`（草案） | quantity | 任务配置的 `budget_usd` 或 `--budget`，经解析为有限非负数 | `file_json: task.json /budget_usd` |
-| `budget.limit_unparseable`（草案） | condition | `confirmed_limit` 不是有限非负数 | `call: lib/budget budgetProblem returns`（`budgetProblem` 在 #75 分支，主干没有） |
-| `budget.limit_below_spent`（草案） | condition | `round(confirmed_limit × 1000) < 盘上 requests`（`--budget` 是新总额，不是追加） | 入口检查（今天不存在；#75 的 `ledgerProblem` 只守 `requests` 的形状，不比大小） |
+| `budget.limit_unparseable`（草案） | condition | `confirmed_limit` 不是有限非负数 | `call: lib/budget budgetProblem returns`（`budgetProblem` 只在 #75 树 97c358e（2deb489 上亦在）—— #75 已关闭未合入，主干没有） |
+| `budget.limit_below_spent`（草案） | condition | `round(confirmed_limit × 1000) < 盘上 requests`（`--budget` 是新总额，不是追加） | 入口检查（今天不存在；#75 树 97c358e（已关闭未合入）的 `ledgerProblem` 只守 `requests` 的形状，不比大小） |
 | `budget.assumed_limit`（草案） | condition | 配置缺 `budget_usd` | `file_json: task.json /budget_assumed` |
 | `budget.cost_exceeds_limit` | condition | `request_count × unit + cost > confirmed_limit` | `call: lib/budget charge throws BudgetExceeded` |
 | `budget.raise_exceeded` | response | 抛出 `BudgetExceeded` | 同上 |
@@ -247,16 +247,16 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 - **目标文件**：docs/requirements.json · 根键 `ears_policy`
 - **实例化**：通-04（机器只守 R2 + R3 + R6）
 - **现状**：不存在；红线判据是否有机器可读的义务无人守。
-- **提议**：H 第 2 步第 3 条 PR 写 `"ears_policy": { "require": "none" }`（此时 R8 孤儿术语只警告，迁移期先装术语后挂子句不因此红）；第 5 条 PR 升为 `{ "require": "redline" }`：17 条红线判据每条必须有 `ears` 或显式 `none`（R6），R8 从此变红且零孤儿；`all` 不在计划内。
+- **提议**：H 第 2 步第 3 条 PR 写 `"ears_policy": { "require": "none" }`（此时 R8 孤儿术语只警告，迁移期先装术语后挂子句不因此红）；第 5 条 PR 升为 `{ "require": "redline" }`：20 条（d7e20d7）红线判据每条必须有 `ears` 或显式 `none`（R6），R8 从此变红且零孤儿；`all` 不在计划内。
 - **变更分类（提议）**：补充（迁移闸，不改需求要什么）
 - **守法**：码-01（R6 / R8 按 policy 分级）
 - **落地**：H 第 2 步 · 裁决 J46 · 档：提议
 
-### 业-09 · 其余 15 条红线判据各写子句或显式 `none`（P2.a 为 `none`）+「写不出 oracle 的判据清单」
-- **目标文件**：docs/requirements.json · 17 条红线判据里除 P3.a / P3.b 之外的 15 条的 `accept[].ears`（编号以登记表现行判据为准，本文不手工枚举；退役编号见 业-07，不在其列）
+### 业-09 · 其余 18 条红线判据各写子句或显式 `none`（P2.a、P1.b 为 `none`）+「写不出 oracle 的判据清单」
+- **目标文件**：docs/requirements.json · 20 条红线判据（d7e20d7）里除 P3.a / P3.b 之外的 18 条的 `accept[].ears`（编号以登记表现行判据为准，本文不手工枚举；退役编号见 业-07，不在其列）
 - **实例化**：通-04、通-13（每条过独立复核，三档结论、第三档有去向）
-- **现状**：17 条红线判据只有散文；约九条判据是文档存在性或人工判断（S2.a、S2.b、S3.a、S3.b、S5.a、F1.a、F3.b、F4.b、P2.a），S1.a、S4.a 这类其实可用 `source_grep` / 类型断言机械判定，只是今天没有测试（B1）。
-- **提议**：每条写子句或显式 `none`；P2.a 写 `ears: { none: { verify: 'human', why: … } }` 且同时出现在 `mutations.json` 的 `exemptions`（R6）。这是 15 次「改尺子」，本文**不起草**这 15 条的子句原文 —— 每条由独立上下文写并复核；产物之一是「EARS 化时写不出 oracle 的判据清单」，只登记不改，处置（改判据 / 标 `none` / 退役）是 J46。文档存在性类判据的 oracle 是 `source_grep` / `file_text` 或 `none`，审计里被单列 —— 这是诚实不是缺陷。
+- **现状**：20 条红线判据（d7e20d7：P1 7 / P2 2 / P3 2 / P4 3 / P5 6）只有散文；约九条判据是文档存在性或人工判断（S2.a、S2.b、S3.a、S3.b、S5.a、F1.a、F3.b、F4.b、P2.a），S1.a、S4.a 这类其实可用 `source_grep` / 类型断言机械判定，只是今天没有测试（B1）。
+- **提议**：每条写子句或显式 `none`；P2.a 与 P1.b 各写 `ears: { none: { verify: 'human', why: … } }` 且同时出现在 `mutations.json` 的 `exemptions`（R6；两条今天都已在 `exemptions` 里 —— P1.b 是 ADR-77 撤 lint 后按 P2.a 的形状登记的，`mutations.json:2664`，scope「『任何位置』这个全称」）。这是 18 次「改尺子」，本文**不起草**这 18 条的子句原文 —— 每条由独立上下文写并复核；产物之一是「EARS 化时写不出 oracle 的判据清单」，只登记不改，处置（改判据 / 标 `none` / 退役）是 J46。文档存在性类判据的 oracle 是 `source_grep` / `file_text` 或 `none`，审计里被单列 —— 这是诚实不是缺陷。
 - **变更分类（提议）**：逐条由评定者定（补充为主；写不出 oracle 的按 J46）
 - **守法**：码-01
 - **落地**：H 第 2 步 · 裁决 J46 · 档：提议
@@ -264,10 +264,10 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 ### 业-61 · 「句式合规但不可判定」的三个坏例在本产品的登记法
 - **目标文件**：docs/requirements.json · 根键 `terms`（术语的 `def` 与 `oracle[]`）；写不出术语的句子不得成为任何判据 `accept[].ears` 的子句
 - **实例化**：通-04（机器只靠 R2 + R3 + R6：不可判定的词进不了词汇表；进了就得写 oracle；写成 `human` / `none` 的在审计里单列并对红线施压）
-- **现状**：今天不存在词汇表，「unavailable」「safely handle」这类词没有登记处（B1）；含糊词表（「safely」「合理」「适当」…）对现有 99 条判据命中 0 条（source §C.4，实跑）—— 一个在存量上从不红的检查只对新写的术语有约束，不能拿它当「可判定性」的保证。
+- **现状**：今天不存在词汇表，「unavailable」「safely handle」这类词没有登记处（B1）；含糊词表（「safely」「合理」「适当」…）对现有判据命中 0 条（source §C.4，cc132a7 上 99 条实跑；d7e20d7 上判据 102 条，新增的 P1.e/f/g 是否命中未复跑 —— 未知）—— 一个在存量上从不红的检查只对新写的术语有约束，不能拿它当「可判定性」的保证。
 - **提议**：三个坏例在本产品的登记法（source §C.4 原文）—— (1) `When memory is unavailable, the system shall safely handle the error.` → `unavailable` 不在 `terms`（R2 红）；就算登记，`def` 必须写「ENOENT 之外的任何读失败、解析失败、结构不对、键撞」并给 `oracle: [{kind:'call', module:'lib/memory', export:'readMemory', expect:'returns'}]`；`safely handle` 写不出 `response` 术语（R2 红）。 (2) `The system shall respond reasonably fast.` → `reasonably fast` 无术语；登记就得写数字与 oracle。 (3) `The system shall appropriately deduplicate.` → `appropriately` 无术语；`deduplicate` 若登记，oracle 必须指向 `creatorKey` 与 `filterByMemory` 的可观察输出。 业-06 / 业-09 登记新术语时按此写 `def` 与 `oracle`。机器**做不到**的（`0-process.md 通-04`）：判断一个写了 oracle 的术语是否真可判定（oracle 写成 `human` + 一句空话）；判断 oracle 说的「大于」是大于**什么** —— 谓词留在术语 `def` 里靠人。
 - **变更分类（提议）**：补充（登记法示例，不改任何现行判据；新术语随 业-06 / 业-09 走各自的评定）
-- **守法**：码-01（R2 / R3）
+- **守法**：码-01（R2 / R3 —— 本条不新增规则，落点即 `ears-rule.ts` 里「术语必须存在」与「oracle 非空」这两条判定；业-06 / 业-09 登记的新术语在那里被核）
 - **落地**：H 第 2 步 · 裁决 J46 · 档：提议
 
 ### 1.4 交点与草案判据（P3）
@@ -285,7 +285,7 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 - **目标文件**：docs/requirements.json · 新判据 P3.c（草案）
 - **实例化**：通-01、通-04
 - **现状**：`collect --resume <dir> --budget abc` → `Number('abc')` = NaN → `spent + 0.001 > NaN` 恒为 false，闸门永不拒绝（CE-1，实跑：请求数 2 → 17，exit 0，提醒 0 条；`collect.ts:59-60`）；`--budget 0` / `-1` 被接受，首个 charge 即抛、exit 3（CE-5）；`enrich.ts:66-72` 有 `isFinite` 校验、`collect` 没有（B2）。
-- **提议**：草案原文 —— `when task.start_or_resume, if budget.limit_unparseable or budget.limit_below_spent, the system shall_not provider.emit_request; outcome task_json.unchanged, process.exit_code = 2.` 依据 CE-1、CE-5；`enrich` 已经这么做，`collect` 没有；#75 的 `budgetProblem / ledgerProblem` 是它的实现，且比本节多守了 `requests: null / "4"`。**待人定**：`--budget` 是新总额（`collect.ts:60` 直接替换 `budget_usd`），而 stderr（`collect.ts:268,332`）与 SKILL.md 的文案都说「追加」—— 用户按「追加」填一个小于已花的数就落进「低于已花」；这一处是「想立刻停」还是「输错」（exit 2 拒绝续跑 vs 接受并立刻停），以及文案改哪一边（J3，业-36）；`Infinity` 按「不是有限数」处理还是按「用户明确不限」（本文按前者，理由是 P3 的字面「上限」；J2）；精度细于 $0.001 是 J29、字符串写法 J30；先登记为「故意红」还是与代码修复同一条 PR 是 J39。
+- **提议**：草案原文 —— `when task.start_or_resume, if budget.limit_unparseable or budget.limit_below_spent, the system shall_not provider.emit_request; outcome task_json.unchanged, process.exit_code = 2.` 依据 CE-1、CE-5；`enrich` 已经这么做，`collect` 没有；#75 树 97c358e（已关闭未合入；2deb489 上亦在）的 `budgetProblem / ledgerProblem` 是它的实现，且比本节多守了 `requests: null / "4"`。**待人定**：`--budget` 是新总额（`collect.ts:60` 直接替换 `budget_usd`），而 stderr（`collect.ts:268,332`）与 SKILL.md 的文案都说「追加」—— 用户按「追加」填一个小于已花的数就落进「低于已花」；这一处是「想立刻停」还是「输错」（exit 2 拒绝续跑 vs 接受并立刻停），以及文案改哪一边（J3，业-36）；`Infinity` 按「不是有限数」处理还是按「用户明确不限」（本文按前者，理由是 P3 的字面「上限」；J2）；精度细于 $0.001 是 J29、字符串写法 J30；先登记为「故意红」还是与代码修复同一条 PR 是 J39。
 - **变更分类（提议）**：需求有歧义 → 补充（按 `2-CHANGE.md:26` 补充不是变更、不走评定，但它改尺子，走提议档过独立复核；其中「低于已花」与 `Infinity` 是产品取舍 → 人批）
 - **守法**：码-17（入口校验 + exit 2 + `task.json` 不动）、码-44（例子测试）、码-41（N5）、码-39（P3.c 的随机字符串属性）、码-50（`ConfirmedLimit` 品牌类型，可选）
 - **落地**：H 第 0b 步、H 第 3 步 · 裁决 J2、J3、J29、J30、J39 · 档：提议
@@ -318,7 +318,7 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 - **落地**：H 第 3 步 · 裁决 J6 · 档：人批
 
 ### 业-15 · P3 正文的并发范围边界：只登记「边界未声明」，不起草
-- **目标文件**：docs/requirements.json · P3 的 `text`（行 60–64）—— 本文不改，只登记
+- **目标文件**：docs/requirements.json · P3 的 `text`（行 73–77）—— 本文不改，只登记
 - **实例化**：通-09
 - **现状**：P3 `text`「未经用户确认不得超出预算上限。」读起来像无条件保证；`collect.ts:102 / :129` 与 `enrich.ts:77 / :126` 各自读一次、无条件写回 `requests`，两个进程同时采集时预算池可能被花两遍；D4 的同类边界已按 ADR-67 写进正文（ADR-66）；A6「单写入方」是假设登记表条目（业-23）。
 - **提议**：只登记「边界未声明」（ADR-68 第五张欠条已记录同一件事）；范围边界声明是放宽方向，自动执行者不得起草，措辞由需求所有者起草。
@@ -327,7 +327,7 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 - **落地**：H 第 3 步 · 裁决 J7 · 档：人批
 
 ### 业-16 · P3.a 现有判据文本是否改成属性形式并保留 0.005 / 10 次作例子
-- **目标文件**：docs/requirements.json · P3.a `text`（行 66–68）
+- **目标文件**：docs/requirements.json · P3.a `text`（行 79–81）
 - **实例化**：产品专属
 - **现状**：P3.a 是一个例子（limit=0.005、10 次），不表达不变量（B1）；0.005 恰好测不到 CE-3（B4）。
 - **提议**：是否改成属性形式（「对任意 limit 与任意序列…」）并保留 0.005 / 10 次作例子 —— 改现有判据要走 `2-CHANGE.md`；本文只提出，不起草。
@@ -345,7 +345,7 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 - **落地**：H 第 3 步 · 裁决 J40 · 档：人批
 
 ### 业-18 · F7.a「一次」是每进程还是每任务
-- **目标文件**：docs/requirements.json · F7.a（行 616）；docs/adr/ 新 ADR（ADR-68 第二张欠条）
+- **目标文件**：docs/requirements.json · F7.a（行 629）；docs/adr/ 新 ADR（ADR-68 第二张欠条）
 - **实例化**：产品专属
 - **现状**：F7.a `text`：「Budget 在跨越 0.5 与 0.8 阈值时各触发一次回调，且不重复触发。」；`notified` 不落盘（`budget.ts:18`），续跑新建实例后已跨过的阈值再触发一次：`new Budget(0.020, 18).charge()` 同时打出 50% 与 80%（B22，实跑）。
 - **提议**：试点内按「每进程一次」临时解读（I6），建模不裁决（`8-p3-pilot.md §D.0`）；ADR 题目「F7.a 的『一次』：每进程还是每任务」，结论待人定；按任务算则与 D6.a 有未登记交点，须同时登记 `tension`。
@@ -356,16 +356,16 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 ### 1.5 其他需求的草案判据与措辞裁决
 
 ### 业-49 · 裁定 `memory.ts:410` 的 `||` 算不算 P1.b 违规
-- **目标文件**：docs/requirements.json · P1.b（行 23）；docs/adr/ 新 ADR
+- **目标文件**：docs/requirements.json · P1.b（行 23；正文已按 ADR-77 缩为「任何位置不得出现 `?? 0` / `|| ''` 形式的数据兜底。」，机器实现句被删）；docs/adr/ 新 ADR
 - **实例化**：产品专属
-- **现状**：P1 lint 只认字面量兜底：`?? c.followers`（`collect.ts:215`）、`|| e.followers`（`memory.ts:410`）判 clean；16 处 `p1-ok` 中 9 处多余（B8，实跑）。
-- **提议**：ADR 题目「`memory.ts:410` 的 `||` 兜底算不算 P1.b 违规」，结论待人定；裁定后 lint 升级（码-32）才知道它是抓还是豁免。
+- **现状**：**目标已撤（ADR-77，主干 d7e20d7）**：纪律 lint（`lint.ts` / `lint-rule.ts`）已删，「P1 lint 只认字面量兜底：`?? c.followers`（`collect.ts:215`）、`|| e.followers`（`memory.ts:410`）判 clean」这句在 d7e20d7 上无主体 —— 两行原样未动，今天没有任何检查读它们；守 P1 的是 `test.ts:2435` `suite('P1', '三态不得被压平：取值、排序、入池三处各验一次')` 的结果断言（P1.e/f/g）与 P1.b 在 `mutations.json` 的显式豁免；`p1-ok` 标记已改名为纯注释「P1 例外：」，没有工具读（`scripts/` 下 `p1-ok` 只剩 `test.ts:2264` 一处测试字符串、产品代码 0 处，命令 `git grep -n 'p1-ok' d7e20d7 -- scripts`；「P1 例外」19 处，命令 `git grep -o 'P1 例外' d7e20d7 -- scripts | wc -l`）；「16 处中 9 处多余」是 cc132a7 上仓库外 probe 的结论（B8），d7e20d7 未复核 —— 未知。ADR-77 欠条明写「三条轴之外的压平点没人守」。
+- **提议**：ADR 题目改为「`memory.ts:410` 的 `||` 是否落在 P1.e / P1.f / P1.g 三条轴之外的第四条压平路径（ADR-77 欠条）」，结论待人定；裁定后的落点不再是 lint 升级（码-32 的目标 `lint-rule.ts` 已撤）：是 → 给 memory.ts 补一条结果轴断言 + 负片（码-32 撤后的落点）；否 → 记进 P1.b 豁免的 `why`。ADR-77 的重开条件（「同一类坏法在半年内又出现两次…重新装一道，但这次要么表由代码生成，要么判据正文别再写『任何位置』」）是 J17 的新前提。
 - **变更分类（提议）**：需求有歧义
-- **守法**：码-32
+- **守法**：码-32（目标已撤，ADR-77；撤后落点见提议）
 - **落地**：H 第 6 步 · 裁决 J17 · 档：人批
 
 ### 业-50 · profile 查询失败的重试策略归谁；`bio_links` 的未查询态怎么表达
-- **目标文件**：docs/requirements.json · P1 判据（行 19–31）；docs/adr/ 新 ADR
+- **目标文件**：docs/requirements.json · P1 判据（行 18–45：P1.a–P1.g，其中 P1.e/f/g 三条是 ADR-77 新增）；docs/adr/ 新 ADR
 - **实例化**：产品专属
 - **现状**：profile 请求失败（404 / 5xx / 网络 / 402）一律 `bio: undefined`；402 在 profile 阶段被吞成 `profile_failed`，exit 0；429 耗尽在 `run()` 里 exit 1、在 `enrichProfiles` 里被吞；`bio_links` 二态导致有简介无外链者每次续跑重查（付费；测试断言为预期行为）（B6，实跑；`collect.ts:219-225`、`pipeline.ts:78`）。
 - **提议**：ADR 题目「profile 查询失败的重试策略归谁；`bio_links` 的未查询态怎么表达」，结论待人定；先 ADR 再迁移（H 第 6 步 (d)）。
@@ -392,7 +392,7 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 - **落地**：H 第 8 步 · 裁决 J22 · 档：人批
 
 ### 业-54 · 「某侧 ≥ 2 候选同信号 ⇒ 不合并」是否是 D3「不确定」的定义
-- **目标文件**：docs/requirements.json · D3.a / D3.b（行 260–266）；docs/adr/ 新 ADR
+- **目标文件**：docs/requirements.json · D3.a / D3.b（行 273–279）；docs/adr/ 新 ADR
 - **实例化**：产品专属
 - **现状**：D3.a「仅在 bio 外链互指、handle 完全相同、或去标点后相同三种信号之一成立时合并。」D3.b「昵称或头像相近单独不足以触发合并。」；`[tiktok:mei_cooks, tiktok:mei.cooks, instagram:meicooks]` 两个候选同时命中信号 3 时合并了第一个，配对随输入顺序变；`TikTok` 按字面比较被路由进 instagram 桶（B10，实跑；`identity.ts:30,55-61,92`）。
 - **提议**：ADR 题目「『某侧 ≥ 2 候选同信号匹配 ⇒ 一个都不合并』是否是 D3『不确定』的定义」，结论待人定；裁决后六条属性（`creatorKey` 幂等；写入侧收下 ⇒ 读回 ok ∧ 查询命中 ∧ swapcase 命中；昵称相同 handle 无关 ⇒ 不合并；歧义 ⇒ 一个都不合并；任一侧未知 ⇒ 合并结果未知；同数组二次 link 返回 0）与 `merge_reason` 落地。
@@ -410,9 +410,9 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 - **落地**：H 第 9 步 · 裁决 J42 · 档：人批
 
 ### 业-57 · U3.a 措辞：关键词表按任务表出全行，状态三态化（`found = 0 / error / not_run`）
-- **目标文件**：docs/requirements.json · U3.a（行 691）；docs/adr/ 新 ADR
+- **目标文件**：docs/requirements.json · U3.a（行 704）；docs/adr/ 新 ADR
 - **实例化**：通-32（进入控制决策的量必须能表达三态）
-- **现状**：U3.a「报告含关键词表格，列出找到人数、语义通过数、命中率。」；U3 关键词表把「0 结果 / 请求失败 / 未跑」坍缩成「无此行」，`found` 是过滤后计数且随轮转顺序变，`fit_pass` 由 Agent 判定（B16；`pipeline.ts:204-213`、`collect.ts:165-166`）。
+- **现状**：U3.a「报告含关键词表格，列出找到人数、语义通过数、命中率。」；U3 关键词表把「0 结果 / 请求失败 / 未跑」坍缩成「无此行」，`found` 是过滤后计数且随轮转顺序变，`fit_pass` 由 Agent 判定（B16；`pipeline.ts:210-219`、`collect.ts:165-166`）。
 - **提议**：关键词表按 `task.json.tasks` 出全行，状态三态化（`found = 0 / error / not_run`）—— 改 U3.a 的判据措辞，要评定；措辞草案由评定时起草（改现行判据文本，本文不改）；`fit_pass` 的定义不动。
 - **变更分类（提议）**：改需求要什么
 - **守法**：码-28
@@ -426,7 +426,7 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 2. **判定 + 消费者同一条 PR**：`ears-rule.ts`（类型 + R1–R9 + R11；从 `spec-rule.ts` 引用）+ `test.ts` 的 `harness` 断言 + `M-H4-l` 起的变异（每条规则至少一个：R2 的变异是「术语不存在也放行」）+ `renderTables` 在验收标准格里追加派生行 `⟨EARS⟩ …`（同步扩 `shapeProblems`，ADR-33：渲染读的字段必须校验）+ `audit` 的「靠什么验」派生列 + 覆盖记录的 `levels` 栏 + `contentHash` 输入加三个根键。此时登记表里还没有任何 `ears`，检查全绿。R10 之后按需。（码-01、码-02、码-03、业-33）
 3. **词汇表 + 退役清单**：`terms` **只放 P3.a / P3.b 两条子句用到的十三个术语**（D.2 表里未标「草案术语」的那些）；`retired_ids` 填 ADR-67 列的五个判据编号（P4.d、P5.e、D4.o、D1.a、P5.a）；`ears_policy.require = 'none'`（此时 R8 只警告）；`--write` 回写指纹。走 `2-CHANGE.md`：类型是「需求有歧义 → 补充」（不改任何一条需求要什么）—— **提议分类，评定者定**。（业-01、业-06、业-07、业-08）
 4. **给两条现行判据挂 `ears`**（P3.a、P3.b，如 C.5）。`text` 不动，认领不动，变异不动。**不挂 `unless` / `boundary_of`**，等 J9。（业-04、业-05）
-5. **`ears_policy.require` 升到 `'redline'`**：17 条红线判据每条必须有 `ears` 或显式 `none`（P2.a 是 `none`），R8 从此变红。这一步之前要把其余 15 条红线判据的子句写出来 —— 那是 15 次「改尺子」，每条过独立复核；产物之一是「写不出 oracle 的判据清单」（J46）。（业-08、业-09）
+5. **`ears_policy.require` 升到 `'redline'`**：20 条（d7e20d7）红线判据每条必须有 `ears` 或显式 `none`（P2.a、P1.b 是 `none`，两条今天都已在 `exemptions`），R8 从此变红。这一步之前要把其余 18 条红线判据的子句写出来 —— 那是 18 次「改尺子」，每条过独立复核；产物之一是「写不出 oracle 的判据清单」（J46）。（业-08、业-09）
 6. 之后按 H 节的节奏一条需求一条需求地挂；**先红线，再 D 类，U/S/F 类最后甚至不做**（业-47 分级表）。文档存在性类判据挂 `ears` 时 oracle 是 `source_grep` / `file_text`（S1.a、S2.a 这类其实可判定，只是今天没有测试）或 `none`（U6.c）—— 它们在审计里被单列，这是诚实不是缺陷。
 
 ---
@@ -434,7 +434,7 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 ## 2. `docs/SPEC.md`（派生渲染）
 
 ### 业-33 · 验收标准格追加派生行 `⟨EARS⟩ …`
-- **目标文件**：docs/SPEC.md · §「需求登记表」生成区（行 43–117，`BEGIN:GENERATED 由 requirements.json 生成，勿手改`）
+- **目标文件**：docs/SPEC.md · §「需求登记表」生成区（行 45–115，`BEGIN:GENERATED 由 requirements.json 生成，勿手改`）
 - **实例化**：通-01、通-05（终态由结构派生散文）、通-29（判据散文 ↔ 子句的漂移通道：过渡期并排渲染 + 复核）
 - **现状**：SPEC 是 requirements.json 的渲染；加未知字段后 `renderTables` 输出与基线逐字相同（source §C.0，实跑）—— 即今天不渲染 `ears`。
 - **提议**：`renderTables` 在验收标准格里追加派生行 `⟨EARS⟩ …`（同步扩 `shapeProblems`，ADR-33：渲染读的字段必须校验）；过渡期派生行摆在 `text` 下面供人眼对照；由 spec-sync 生成不手改；H 第 2 步第 2 条 PR 的验收项之一是「SPEC 里 P3.a 下出现派生行」（在第 4 条 PR 挂子句之后才出现）。
@@ -449,7 +449,7 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 ### 业-23 · 新文件 `docs/assumptions.json`：A1–A9，含失效触发器与检测方式
 - **目标文件**：docs/assumptions.json（新）
 - **实例化**：通-11（假设登记表方法）、通-10（失效即降级到 ASSUMED）、通-33（起点数字进登记表待校准）、通-34（「当前不可控」目标写进登记表）
-- **现状**：单价上限、非 200 不计费、rename 原子性、fsync 尽力而为散落在注释与 ADR-50（`budget.ts:1`、`tikhub.ts:90`、`atomic.ts:35-37`）；#75 的 `IMPLEMENTATION-MAP.md` 集中了它们但不可机器读；「非 200 不计费」「in-flight 是否计费」未验证；`probe` 的花销不进任何账（B15）。
+- **现状**：单价上限、非 200 不计费、rename 原子性、fsync 尽力而为散落在注释与 ADR-50（`budget.ts:1`、`tikhub.ts:90`、`atomic.ts:35-37`）；#75 分支（已关闭未合入）的 `IMPLEMENTATION-MAP.md` 集中了它们但不可机器读；「非 200 不计费」「in-flight 是否计费」未验证；`probe` 的花销不进任何账（B15）。
 - **提议**：机器可读，进 `content_hash` 同类的指纹，审计读它。每条：是什么、若为假破坏哪条性质、验证方式、状态、失效触发器、触发器由谁怎么检测（外部：TTL 起点 90 天，过期即「未验证」；代码：登记表记相关函数的内容指纹，审计比对，变了即「待重验」）。条目 A1–A9 见下表（source §D.7 原文）。另登记：J34「网络异常（`fetch` reject）是否退款」挂在 A2；A1 / A2 各一位负责人与目标日期由人填、验证日期由人写、审计只读（J15）；对账钩子（人工）：一次真实任务后把供应商后台的请求数与 `Σ task.json.requests` 对照，结果写进 A1 / A2 的「最近验证日期」；`8-p3-pilot.md §D.8` 的「当前不可控」目标（回复率；关键词命中率「当前不可决策」）与起点数字（业-46）也登记在此；Z3 浮点证明脚本与结论入此作证据。**失效后的接线**：状态变「未验证 / 待重验」时依赖它的性质在覆盖记录 `levels` 栏从 `MODEL_CHECKED` 降为 `ASSUMED`，审计对红线判据报「目标等级未达」；这一步依赖 `levels` 栏落地（码-03），之前只能靠审计打印登记表。
 - **变更分类（提议）**：补充（登记假设，不改需求）
 - **守法**：码-45（审计读 + 形状校验 + TTL / 指纹比对 + 变异）、码-03（`levels` 派生 ASSUMED）、码-24（`meta.json.budget.reconciliation` 默认 `unverified`）
@@ -469,21 +469,23 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 
 （source 原表七列；为守「表格不超过 6 列」把「失效触发器」与「触发器检测」合为一格，内容未删。）
 
+A1 / A9 的「代码指纹」触发器在 d7e20d7 上已经触发过一次：`tikhub.ts` 被 ecde780（ADR-77，11 处 `p1-ok:` 注释改名「P1 例外：」，逻辑未动）动过 —— 按内容指纹算即「待重验」，登记表要定注释改动算不算（随 J15）。
+
 ---
 
 ## 4. `docs/ARCHITECTURE.md`
 
 ### 业-22 · ADR + 顺序契约新行：`charge → persist（账本）→ fetch`（适配层 `onAuthorized` 回调）
-- **目标文件**：docs/ARCHITECTURE.md · §「顺序契约」表（行 110–116）新行；docs/adr/ 新 ADR
-- **实例化**：产品专属（沿现行规则：顺序契约每行绑真实变异，`npm run arch` 校验）
-- **现状**：顺序契约表四行，每行绑变异（M-D6-c、M-D6-b 等）；`TikHub.get()` 今天 `charge`（`tikhub.ts:84`）→ `fetch`（`:87`）→ 非 2xx `refund`（`:90`），`persist` 是入口的函数（`collect.ts:128-133`；`enrich.ts:125-129`）。
+- **目标文件**：docs/ARCHITECTURE.md · §「顺序契约」表（行 103–122，`BEGIN:ORDER` 112–122）新行；docs/adr/ 新 ADR
+- **实例化**：产品专属（沿现行规则：顺序契约每行绑真实变异；**`npm run arch` 校验已撤（ADR-78，主干 d7e20d7）**，`ARCHITECTURE.md:108–110` 明写「从 ADR-78 起没有检查验这一条了，靠写的人自己核」）
+- **现状**：顺序契约表五行（d7e20d7；新增 `jobs-rule.ts` 硬来收尾一行，M-H40-g / M-H40-h），每行绑变异（M-D6-c、M-D6-b 等），但绑没绑对已无机器核；`TikHub.get()` 今天 `charge`（`tikhub.ts:84`）→ `fetch`（`:87`）→ 非 2xx `refund`（`:90`），`persist` 是入口的函数（`collect.ts:128-133`；`enrich.ts:125-129`）。
 - **提议**：ADR 题目「写前记账的落点：适配层 `onAuthorized` 回调，顺序契约 `charge → persist（账本）→ fetch`」。结论草稿：`TikHub` 构造时接受 `onAuthorized: () => void`，`get()` 在 `charge()` 之后、`fetch` 之前调用它，入口把只写账本的 `persist` 传进去；另一种落点（`enrichProfiles` 循环里「先 +1 再 persist 再 get」）写下去的是上一次的 `charged`，I2 仍破，不采用；`persist` 失败 ⇒ 不发出，按 error 收尾。顺序契约表新行：`charge → persist（账本）→ fetch` · `scripts/providers/tikhub.ts` `get()` · 错了会怎样：进程被杀时盘上少记，续跑后总花费超出上限 · 守它的变异：N4（落地时续编）。SYNC「改预算 / 成本逻辑」行同步（业-31）。
 - **变更分类（提议）**：架构（顺序契约）
 - **守法**：码-20、码-21、码-41（N4）
-- **落地**：H 第 3 步 · 裁决 J44 · 档：人批
+- **落地**：H 第 3 步 · 裁决 J44、J55 · 档：人批
 
 ### 业-25 · `meta.json` / `task.json` 新字段是否触及 U7 / D6 的评定；缝隙契约写新字段与读取规则
-- **目标文件**：docs/ARCHITECTURE.md · §「缝隙契约：Agent ↔ scripts」（行 121–156）；docs/requirements.json · U7.d（行 771）、D6（行 389–409）
+- **目标文件**：docs/ARCHITECTURE.md · §「缝隙契约：Agent ↔ scripts」（行 126–162）；docs/requirements.json · U7.d（行 784）、D6（行 396 起，`accept[]` 行 400–425）
 - **实例化**：通-40（新增字段缺失读作「无从确认」）
 - **现状**：U7.d「meta.json 按能力分别统计 measured/unavailable/unqueried；公开指标不得把兼容字段 enriched 置为 true。」—— `meta.json` 装什么是 U7.d 的对象；缝隙契约只列入口读写文件与退出码，无字段级契约；`meta.json` 没有代码 / 配置 / schema 版本，429 / schema 未识别 / IG 回退不计数，`profile_failed` 只在 stdout（B17；`render.ts:90-141`、`tikhub.ts:96-100,294`）。
 - **提议**：新增字段 —— `task.json.budget_assumed`；`meta.json.versions: { code, config, provider_shape, node, by_target: { <软目标>: <只含影响它的文件的指纹> } }`；`meta.json.budget: { limit_m, charged, persisted_at_exit, assumed, reconciliation: 'unverified' | { provider_count, checked_at } }`；`meta.json.shadow`；`task.json` 累加 429 次数（selfcheck 验收 `rate_limited === 1`）、schema 半漂移（`raw_count > 0` 但入库 0）关键词数、IG 回退次数；`profile_failed` 带原因分布进 `meta.json`。读取规则统一按 ADR-18：**缺失读作「无从确认」，不读作 `false` / `0` / `ok`**；`meta.json.versions` 缺失时报告声明「版本未知」；旧任务目录续跑（D6）时缺字段不算不兼容。缝隙契约加「字段级新增与读取规则」小节。是否触及 U7 / D6 由评定定（J13）；旧目录续跑行为变化的迁移 / 宽限期是 J36。
@@ -492,34 +494,34 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 - **落地**：H 第 1 步、H 第 3 步、H 第 10 步 · 裁决 J13、J36 · 档：人批
 
 ### 业-26 · 缝隙契约：入口对坏预算 / 坏账本以 exit 2 拒绝续跑且 `task.json` 不动
-- **目标文件**：docs/ARCHITECTURE.md · §「缝隙契约」退出码表（行 136–147）—— `2` 多一个原因，含义不扩展
+- **目标文件**：docs/ARCHITECTURE.md · §「缝隙契约」退出码表（行 141–148，`2` 在行 146）—— `2` 多一个原因，含义不扩展
 - **实例化**：产品专属（沿 ARCHITECTURE「退出码的含义不许扩展」）
 - **现状**：退出码表 `2` = 「用法错 / 缺 `TIKHUB_API_KEY` / 记忆文件读不出来」；旧目录 `budget_usd: null` 续跑今天在第一次 charge 时 `TypeError`，exit 1（CE-1 后半，实跑）；`requests: "4"` 让下一次计数变成 `"41"`（#75 自述，本次未复跑）。
 - **提议**：`2` 的原因列表加「预算 / 账本校验失败：限额不可解析或低于已花、`requests` 不是非负整数」，含义不变（停下问人，重试没有意义），`task.json` 不动，stderr 说明要求 `--budget`；进程内断言失败沿用 exit 1「其他失败」的既有含义，不扩展退出码。从「TypeError exit 1」变为「校验 exit 2 并要求 `--budget`」是行为变化，要不要迁移命令或宽限期是 J36。
 - **变更分类（提议）**：补充（退出码原因，不扩展含义）
-- **守法**：码-17、码-44（selfcheck 三入口真跑：`budget_usd: "abc"`、`requests: null`、`--budget 3.0.0`）
+- **守法**：码-17、码-44（selfcheck 三入口真跑：`budget_usd: "abc"`、`requests: null`、`--budget 3.0.0`；新夹具的 label 要能被变异的 `kills` 清册点名（`named` / `run` / `runBoth`），并由自检发入口认领 —— ADR-70 落地 2 / 3）
 - **落地**：H 第 0b 步 · 裁决 J36、J3 · 档：提议
 
 ### 业-27 · 锚点表新行：`formal-rule.ts`、`formal.ts`、`ears-rule.ts`、`oracle-rule.ts` / `oracle.ts`、崩溃点夹具等新模块
-- **目标文件**：docs/ARCHITECTURE.md · §「模块锚点表」（行 46–96，`BEGIN:ANCHORS`）
+- **目标文件**：docs/ARCHITECTURE.md · §「模块锚点表」（行 41–101，`BEGIN:ANCHORS` 53–99）
 - **实例化**：通-22（闸门代码是尺子的尺子，须登记并由非作者复核）
-- **现状**：锚点表由 `npm run arch` 校验，新增模块必须加行（列：模块 / 层 / 服务的需求 / 它保证什么）；#75 已写 `formal-rule.ts` / `formal.ts` 两行。
-- **提议**：每个新增判定模块各一行（层一律「检查」）：`ears-rule.ts`（服务 P1–P5 判据的结构；保证子句引用可解析、术语有 oracle、退役 id 不回收）；`formal-rule.ts` + `formal.ts`（P3、D6；有界模型无反例 + 对拍）；`oracle-rule.ts` + `oracle.ts`（全部尺子；改尺子必有 trailer）；崩溃点穷举夹具（D4.i / D4.j / D4.k / D4.p）；假设登记表判定模块（业-23）。各行「它保证什么」的措辞随各条 PR 定。
+- **现状**：**目标已撤（ADR-78，主干 d7e20d7）**：`arch-sync.ts` 已删，锚点表存在但「人维护，无机器校验」（`ARCHITECTURE.md:53` 的 `BEGIN:ANCHORS` 注释；说明段 ⚠️ 行 49–51「当索引读，别当证据读」），新增模块加行靠人（`AGENTS.md:66–68`「忘了登记不会有任何东西提醒你」；SYNC 行 24「锚点表靠人核，ADR-78」）；列仍是模块 / 层 / 服务的需求 / 它保证什么；表里已删 lint / age / arch 五行、加 `jobs-rule.ts` / `verifier-rule.ts` 两行；#75 分支（已关闭未合入）写过 `formal-rule.ts` / `formal.ts` 两行。
+- **提议**：登记仍要做，但是人工登记、无机器核 —— 每个新增判定模块各一行（层一律「检查」）：`ears-rule.ts`（服务 P1–P5 判据的结构；保证子句引用可解析、术语有 oracle、退役 id 不回收）；`formal-rule.ts` + `formal.ts`（P3、D6；有界模型无反例 + 对拍）；`oracle-rule.ts` + `oracle.ts`（全部尺子；改尺子必有 trailer）；崩溃点穷举夹具（D4.i / D4.j / D4.k / D4.p）；假设登记表判定模块（业-23）。各行「它保证什么」的措辞随各条 PR 定。
 - **变更分类（提议）**：架构（锚点登记）
 - **守法**：码-10、码-11、码-01、码-06、码-40
-- **落地**：H 第 0c 步、H 第 2 步、H 第 5 步、H 第 7 步 · 裁决：无 · 档：提议
+- **落地**：H 第 0c 步、H 第 2 步、H 第 5 步、H 第 7 步 · 裁决 J55 · 档：提议
 
 ### 业-28 · 「守红线的模块」认定规则：锚点表「服务的需求」列含 P1–P5 者
-- **目标文件**：docs/ARCHITECTURE.md · §「模块锚点表」说明段（行 38–45）
+- **目标文件**：docs/ARCHITECTURE.md · §「模块锚点表」说明段（行 43–52）
 - **实例化**：通-20（触及守红线模块的普通代码升为提议）、通-22
-- **现状**：说明段只讲层的含义与「入口层不许放决策逻辑」；「守红线的模块」没有定义；普通代码直接做（`process/README.md`「什么时候不走流程」）。
-- **提议**：加一句：「锚点表『服务的需求』列含 P1–P5 的模块是守红线的模块；触及它们的普通代码改动从自动升为提议（合并前须独立复核）」；认定靠现有锚点表，不另建清单；oracle-rule 读这一列。
+- **现状**：说明段只讲层的含义与「入口层不许放决策逻辑」；「守红线的模块」没有定义；普通代码直接做（`process/README.md`「什么时候不走流程」，行 180）；d7e20d7 的说明段已加 ⚠️（行 49–51）「这张表是人维护的，没有任何检查核它…当索引读，别当证据读」（ADR-78）。
+- **提议**：加一句：「锚点表『服务的需求』列含 P1–P5 的模块是守红线的模块；触及它们的普通代码改动从自动升为提议（合并前须独立复核）」；认定靠现有锚点表，不另建清单；oracle-rule 读这一列 —— 该列无机器核（ADR-78），oracle-rule 读它时要写明这是人维护的输入，「触及守红线模块升为提议」的判定输入没有机器保证其完整。
 - **变更分类（提议）**：架构 / 治理
 - **守法**：码-06
-- **落地**：H 第 5 步 · 裁决：无（措辞归 J28 的通用层那条） · 档：提议
+- **落地**：H 第 5 步 · 裁决 J52、J55（措辞归 J28 的通用层那条） · 档：提议
 
 ### 业-29 · 字段所有权与缝隙契约新增：`product-facts.json`、`Creator.outreach_claim_ids`、`fit_review`、`shadow.json`、`experiments.json`
-- **目标文件**：docs/ARCHITECTURE.md · §「字段所有权」表（行 158–169）与 §「缝隙契约」入口表（行 126–131）
+- **目标文件**：docs/ARCHITECTURE.md · §「字段所有权」表（行 163–174）与 §「缝隙契约」入口表（行 131–136）
 - **实例化**：产品专属
 - **现状**：字段所有权表四行（collect / Agent：`fit` · `fit_reason` · `outreach_draft` / enrich 只写 `enrichment.json` / render：`score` · `tier` · `tier_adjustments` · `account_assessment`）；入口表四个入口；Phase 01 抓页今天不落盘。
 - **提议**：新增 —— `product-facts.json`：Agent 拥有、Phase 01 写、render 只读，装 `Evidence{ id, sourceUrl, observedAt, contentHash, excerpt }` 与 `Claim{ id, text, evidenceIds, status: 'supported' | 'placeholder' | 'offer' }`；`Creator.outreach_claim_ids`（Agent 写）；`Creator.fit_review: { by: 'human' | 'agent-2', value, at }`（由人或第二判定写，Agent 不写）；`shadow.json`（脚本写、Agent 不读）；`experiments.json`（跨任务台账）。改字段所有权是改尺子，走 `5-DESIGN.md`，依赖 H 第 5 步的 oracle-rule（J41）；新入口与产出文件是缝隙契约改动。
@@ -528,9 +530,9 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 - **落地**：H 第 9 步、H 第 12 步 · 裁决 J41 · 档：人批
 
 ### 业-30 · ADR：`Observation<T> = Unqueried | MeasuredPresent<T> | MeasuredAbsent | Unavailable<Reason>` 作为 Creator 层架构决策
-- **目标文件**：docs/ARCHITECTURE.md · §「三态在类型层的落点」（行 184–197）；docs/adr/ 新 ADR
+- **目标文件**：docs/ARCHITECTURE.md · §「三态在类型层的落点」（行 189–203）；docs/adr/ 新 ADR
 - **实例化**：通-19（非法状态不可表示：DU + `never` 穷尽）
-- **现状**：三态表：`undefined` = 没查过、`null` = 查过没有、有值、`Measurement<T>`（`measured` / `unavailable` / 字段缺席 = 未查询）；「查询失败」与「未查询」同态、Creator 层没有 Unavailable(reason)（B6）；主干 31 处 `status === 'measured' / 'unavailable'` 二分，无 `never` 断言（B9）。
+- **现状**：三态表：`undefined` = 没查过、`null` = 查过没有、有值、`Measurement<T>`（`measured` / `unavailable` / 字段缺席 = 未查询）；「查询失败」与「未查询」同态、Creator 层没有 Unavailable(reason)（B6）；主干 31 处（d7e20d7，口径 `scripts/` 除 `check/` 与 `test.ts`；命令 `git grep -o -E "status === '(measured|unavailable)'" d7e20d7 -- scripts ':!scripts/check' ':!scripts/test.ts' | wc -l`）`status === 'measured' / 'unavailable'` 二分，无 `never` 断言（B9）。
 - **提议**：ADR 题目「Creator 层观测值改为 `Observation<T>` discriminated union」。结论草稿：作为架构决策采纳；迁移按读点数分批（email 9、bio 10、followers 29：一批一个字段）；三态表加一行 `Observation<T>`；不改 P1 的 `text` 与四条判据，不改 `_interface.md` 的跨层契约；验收：新增变异「把 Unavailable 折叠成 Unqueried」被抓到。
 - **变更分类（提议）**：架构
 - **守法**：码-30
@@ -541,19 +543,19 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 ## 5. `docs/CONVENTIONS.md`
 
 ### 业-34 · 第 7 条随 P3.d 裁决改写
-- **目标文件**：docs/CONVENTIONS.md · §「7. 有默认值的配置项 —— 预算不许有默认值」（行 105–114）
+- **目标文件**：docs/CONVENTIONS.md · §「7. 有默认值的配置项 —— 预算不许有默认值」（行 111–120）
 - **实例化**：产品专属
-- **现状**：原文「必须由用户在 Phase 01 设定；用户不给才按 $2 走，**并明确告知这是假设值**。」（CONVENTIONS.md:110）；代码 `cfg.budget_usd ?? 2` 无告知 —— 与自己的约定不一致（B5）。
+- **现状**：原文「必须由用户在 Phase 01 设定；用户不给才按 $2 走，**并明确告知这是假设值**。」（CONVENTIONS.md:116）；代码 `cfg.budget_usd ?? 2` 无告知 —— 与自己的约定不一致（B5）。
 - **提议**：d-ii 采纳则删「用户不给才按 $2 走」一句，改为「缺预算即拒绝采集（exit 2）」；d-i 采纳则补告知口径（stderr「预算为假设值 $N」）与落盘标记 `task.json.budget_assumed = true`。改的是给用户的承诺，走 SYNC「改报错 / 提示里给用户的一句承诺」点名清单（requirements.json 对应判据 → ARCHITECTURE → SKILL）。
 - **变更分类（提议）**：随 J4（补充或改承诺）
 - **守法**：无（文档承诺；机器守的是 业-12 → 码-19）
 - **落地**：H 第 3 步 · 裁决 J4 · 档：提议
 
 ### 业-35 · 第三层表补三条：三种绕法机器守不住、只有一个人类身份、表现表与控制器同源
-- **目标文件**：docs/CONVENTIONS.md · §「11. 关于第三层」（行 170–179）
+- **目标文件**：docs/CONVENTIONS.md · §「11. 关于第三层」（行 178–187，三条在 182–184；整节到 215）
 - **实例化**：通-08（机器认不出恒真化 / 改期望值 / 旁路执行）、通-13（「只有一个人」登记为已知缺口）、通-32（传感器与控制器不得同源）
 - **现状**：第三层表三条：P2 的判断那一半（ADR-01）、写测试时不读实现（ADR-04）、一个改动只回答一个证据问题（体量闸门管上限不管内聚）。
-- **提议**：加三条 —— (1)「断言恒真化、期望值改成运行结果、断言旁路执行（`if (process.env.CI) return`）—— 只有恰好有变异的断言才会红，其余靠变异覆盖与独立复核」；(2)「仓库只有一个人类身份：『必须人批』『非作者复核』今天靠自觉且没有第二个人（B18）—— 见 SYNC 分支保护核对行（业-31）」；(3)「关键词表现表的 `passed` 由 Agent 判定，`output-format.md:104` 把它定为『下次调整策略的依据』—— 传感器与控制器同源；机器守不住『同源』本身，只守结构（`fit_review` 落处与一致率，业-40）」。
+- **提议**：加三条 —— (1)「断言恒真化、期望值改成运行结果、断言旁路执行（`if (process.env.CI) return`）—— 只有恰好有变异的断言才会红，其余靠变异覆盖与独立复核」；(2)「仓库只有一个人类身份：『必须人批』『非作者复核』今天靠自觉且没有第二个人（B18）—— 2026-09-18 起有 `REVIEW.md` + 两份评审器转发（`.github/copilot-instructions.md`、`.coderabbit.yaml`，ADR-83），机器评审器可作复核的一半，但独立性未验证、仍无分支保护配置证据 —— 见 SYNC 分支保护核对行（业-31）」；(3)「关键词表现表的 `passed` 由 Agent 判定，`output-format.md:104` 把它定为『下次调整策略的依据』—— 传感器与控制器同源；机器守不住『同源』本身，只守结构（`fit_review` 落处与一致率，业-40）」。
 - **变更分类（提议）**：补充（显式登记第三层）
 - **守法**：无（第三层，显式留在审计报告里）
 - **落地**：H 第 5 步、H 第 12 步 · 裁决 J16 · 档：自动
@@ -563,19 +565,19 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 ## 6. `docs/SYNC.md`
 
 ### 业-31 · 触发表新行与升级
-- **目标文件**：docs/SYNC.md · §「触发表」（行 13–38）：「增删需求登记表的字段」行（行 28）、「改预算/成本逻辑」行（行 36）、「新增一道闸门」行（行 33）
-- **实例化**：通-29（五对漂移通道）、通-30（`process/` 改动配 ADR、产品词 lint）、通-13（分支保护核对由人做）
-- **现状**：「增删需求登记表的字段」行机器检查列标「✗ 靠执行」（source §C.6 首句）；「改预算/成本逻辑」行 = `budget.ts` · SKILL 成本闸门 · CONVENTIONS 第 7 条，机器检查「部分」；没有 `process/` 那一行，`process/` 无任何检查读（B18）。
-- **提议**：(1)「增删需求登记表的字段」→ 至少要看加 `scripts/check/ears-rule.ts`，机器检查升为 🔒 `spec`（ears-rule）；(2)「改预算/成本逻辑」→ 至少要看加「`scripts/check/formal-rule.ts` 的模型与 `formal/IMPLEMENTATION-MAP.md`」，机器检查 🔒 `formal`（对拍）；(3) 新行「改 `process/` 里的任何一份 → 配一条 ADR；不得混进代码 PR」，机器检查 🔒 `adr` · lint（产品词）；(4) 新行「分支保护核对结果（由人核对后写）：`main` required checks 含 `check` 与 `age`；触及 P1–P5 的 PR 需非作者复核」，机器检查 ✗ 靠人；(5)「新增一道闸门」行加「提交信息 `oracle-change:` trailer + 非作者复核」。
+- **目标文件**：docs/SYNC.md · §「触发表」（行 13–41）：「增删需求登记表的字段」行（行 28）、「改预算/成本逻辑」行（行 37）、「新增一道闸门」行（行 33）、「新增/修改一条验收判据」行（行 18）
+- **实例化**：通-29（五对漂移通道）、通-30（`process/` 改动配 ADR、产品词 lint —— lint 的目标文件已撤，ADR-77）、通-13（分支保护核对由人做）
+- **现状**：「增删需求登记表的字段」行机器检查列标「✗ 靠执行」（source §C.6 首句）；「改预算/成本逻辑」行 = `budget.ts` · SKILL 成本闸门 · CONVENTIONS 第 7 条，机器检查「部分」；没有 `process/` 那一行，`process/` 无任何检查读（B18）；d7e20d7 的表已无 🔒 `arch` / `lint`（行 24「锚点表靠人核，ADR-78」、行 25「✗ 靠执行（ADR-78）」），行 18 改为「两种认领同权…只由自检认领的要配一条 `by: "selfcheck"` 的负片」，行 33「新增一道闸门」机器检查列已是「🔒 `audit`：scripts/check/ 下每个判定模块必须有变异」，行 34 新增「重命名／删掉被 `REVIEW.md` 指到的那几份 → `REVIEW.md` 的指针 | ✗ 靠执行」（ADR-83）。
+- **提议**：(1)「增删需求登记表的字段」→ 至少要看加 `scripts/check/ears-rule.ts`，机器检查升为 🔒 `spec`（ears-rule）；(2)「改预算/成本逻辑」→ 至少要看加「`scripts/check/formal-rule.ts` 的模型与 `formal/IMPLEMENTATION-MAP.md`」，机器检查 🔒 `formal`（对拍；本仓库 2026-09-18 刚撤四道闸门，新加一道要按 ADR-81 的三问补论证）；(3) 新行「改 `process/` 里的任何一份 → 配一条 ADR；不得混进代码 PR」，机器检查 🔒 `adr`；产品词那一半的 lint **目标已撤（ADR-77）**—— 要么新建判定模块（与 ADR-77「指令性是最弱一档」相悖，需 ADR 直面），要么按行 34 的形状写「✗ 靠执行」交评审（`REVIEW.md`），待重定；(4) 新行「分支保护核对结果（由人核对后写）：`main` required checks 含 `check`（`age.yml` 已删，ADR-76）；触及 P1–P5 的 PR 需非作者复核」，机器检查 ✗ 靠人；新行放在行 33 / 34 之后，与 `REVIEW.md` 指针行并列；(5)「新增一道闸门」行加「提交信息 `oracle-change:` trailer + 非作者复核」。
 - **变更分类（提议）**：文档同步（不是需求变更）
-- **守法**：码-11（`formal` 入口 + SYNC 行）、码-01、码-47（`process/` 产品词 lint）
-- **落地**：H 第 0d 步、H 第 2 步、H 第 5 步 · 裁决 J16 · 档：提议
+- **守法**：码-11（`formal` 入口 + SYNC 行）、码-01、码-47（`process/` 产品词 lint —— 目标 `lint-rule.ts` 已撤，落点待重定）
+- **落地**：H 第 0d 步、H 第 2 步、H 第 5 步 · 裁决 J16、J50 · 档：提议
 
 ### 业-32 · 文档地图与入口文件：新增 `docs/assumptions.json`、`docs/EVOLUTION.md`、`formal/`；AGENTS.md 缺口表加「只有一个人」
-- **目标文件**：docs/SYNC.md · §「文档地图」（行 42–60）；AGENTS.md · §「目前已知的缺口」（行 94–111）
+- **目标文件**：docs/SYNC.md · §「文档地图」（行 43–63）；AGENTS.md · §「目前已知的缺口」（行 96–113）
 - **实例化**：通-13
-- **现状**：文档地图无 `assumptions.json` / `EVOLUTION.md` / `formal/`；AGENTS 缺口表三行：P2 判断那一半（ADR-01）、同源污染（ADR-04）、语义筛选与开发信效果未经真实发信验证（`docs/SPEC.md` 尚未确定一节）。
-- **提议**：文档地图加三行 —— `docs/assumptions.json`｜管：环境假设、失效触发器、「当前不可控」目标与起点数字｜不该出现：需求、已被测试保证的事实；`docs/EVOLUTION.md`｜管：本产品的目标 / 传感器 / 控制变量 / 扰动 / 熔断 / 台账 / 分级｜不该出现：换个产品也成立的控制论纪律（那属于 `process/7-EVOLVE.md`）；`formal/`｜管：TLA+ 参考规约、`IMPLEMENTATION-MAP.md` 人工核对表｜不该出现：检查链读的判定逻辑。AGENTS 缺口表加一行「仓库只有一个人类身份，『人批』『非作者复核』没有第二人」，记在 SYNC 分支保护行（业-31）与 B18 对应 ADR。
+- **现状**：文档地图无 `assumptions.json` / `EVOLUTION.md` / `formal/`；AGENTS 缺口表三行：P2 判断那一半（ADR-01）、同源污染（ADR-04）、语义筛选与开发信效果未经真实发信验证（`docs/SPEC.md` 尚未确定一节）；AGENTS 路由表已加行 56「评审别人的改动（人或机器评审器）→ `REVIEW.md`」（ADR-83），缺口表未加「只有一个人」。
+- **提议**：文档地图加三行 —— `docs/assumptions.json`｜管：环境假设、失效触发器、「当前不可控」目标与起点数字｜不该出现：需求、已被测试保证的事实；`docs/EVOLUTION.md`｜管：本产品的目标 / 传感器 / 控制变量 / 扰动 / 熔断 / 台账 / 分级｜不该出现：换个产品也成立的控制论纪律（那属于 `process/7-EVOLVE.md`）；`formal/`｜管：TLA+ 参考规约、`IMPLEMENTATION-MAP.md` 人工核对表｜不该出现：检查链读的判定逻辑。AGENTS 缺口表加一行「仓库只有一个人类身份，『人批』『非作者复核』没有第二人」，记在 SYNC 分支保护行（业-31）与 B18 对应 ADR；措辞要提 ADR-83：今天有两个非作者、不同来源的机器评审器可当第二方，人类身份仍只有一个。
 - **变更分类（提议）**：文档同步
 - **守法**：无
 - **落地**：H 第 1 步、H 第 5 步、H 第 0e 步 · 裁决 J16 · 档：自动
@@ -584,12 +586,12 @@ source §C.5 P3 的完整示例（原文；术语 id 以 §D.2 术语表为准�
 
 ## 7. `docs/adr/`（ADR 清单）
 
-编号不由本文分配（每条写「新 ADR」）；题目与结论都是草稿；按 `0-process.md 通-26`，记录人批结论的 ADR 必须能指到 PR 里人类身份的批准或人类提交，否则按提案读。
+编号不由本文分配（每条写「新 ADR」；主干今天 74 条记录、编号 1–83，缺号 27 29 48 51 52 53 57 60 68 —— 68 是 #75 未合入的那条，d7e20d7；`npm run adr` 会印；ADR-70 已长到 2249 行、装着落地 2–4 全程，引用它时注明节）；题目与结论都是草稿；按 `0-process.md 通-26`，记录人批结论的 ADR 必须能指到 PR 里人类身份的批准或人类提交，否则按提案读。
 
 ### 业-03 · ADR：直面 ADR-67「不新增字段」，写明三个消费者与「`text` 由 `ears` 派生」终态
 - **目标文件**：docs/adr/ · 新 ADR（H 第 2 步第 1 条 PR，文档类可单独先合）
 - **实例化**：通-05、通-26
-- **现状**：ADR-67:25-27 原文：「`accept` 的形状不动，不新增字段：『不保证』在 D4 的正文里本来就有先例，再加一栏只会让同一类内容有两个去处。」
+- **现状**：ADR-67:25-27 原文：「`accept` 的形状不动，不新增字段：『不保证』在 D4 的正文里本来就有先例（『不做多人共享』），再加一栏只会让同一类内容有两个去处。」
 - **提议**：题目「判据下挂结构化子句 `accept[].ears`：字段与三个消费者同一 PR 落地，`text` 终态由结构派生」。结论草稿：采纳 §C.1 的 C2 方案（A 改 `text`：否；B 换判据：否；C1 需求级 `behaviors[]`：否，若 ADR-67 那句被裁定不可推翻则退回 C1；C2 挂在判据下：建议采纳）；四个方案各自的做法 / 优点 / 代价 / 结论见本条末尾的比较表（source §C.1 原文），ADR 正文引用该表而不是只写结论。ADR-67 拒的是**同一类散文**再开一栏；`ears` 落地时若没有任何消费者就恰恰是「同一句话两种写法」，所以硬条件：形状与关系校验、SPEC 派生渲染行、审计「靠什么验」派生列必须同一条 PR 合入，没有消费者的字段不进登记表；终态 `text` 由 `ears` 派生（`renderClause`），两处描述收口成一处；派生时点与开关由谁按另裁（J47）。业务意图层就是今天需求的 `text`，不动；行为判据层挂在判据下。
 - **变更分类（提议）**：流程补缺（推翻 ADR-67 的那一句）
 - **守法**：码-01
@@ -599,8 +601,8 @@ source §C.1 三种放法的比较（原文，第 2 问）：
 
 | 方案 | 做法 | 优点 | 代价 | 结论 |
 |---|---|---|---|---|
-| A. EARS 作为主需求 `text` | 把 `text` 改写成 EARS 句 | 一处真相 | 改 `text` = 改需求含义，35 条全部走变更评定；一条需求多义务塞不进一句；`text` 按 `1-REQUIREMENTS.md` 是「一句话说清要什么」，不是行为规格；ADR-67 已把「不保证」的范围边界放回 `text`，EARS 没有这个槽位 | 否 |
-| B. EARS 替换判据 `accept[].text` | 每条判据改写 | 计量单位不变 | 判据 id「不改含义」的规矩下，改写等于退役 + 新编号，99 条判据全部换号；约十条文档存在性 / 人工判据写成 shall 就是 ADR-67 说的「不可失败判据」；仍是句子，`safely handle` 一样过形状检查 | 否 |
+| A. EARS 作为主需求 `text` | 把 `text` 改写成 EARS 句 | 一处真相 | 改 `text` = 改需求含义，35 条（d7e20d7）全部走变更评定；一条需求多义务塞不进一句；`text` 按 `1-REQUIREMENTS.md` 是「一句话说清要什么」，不是行为规格；ADR-67 已把「不保证」的范围边界放回 `text`，EARS 没有这个槽位 | 否 |
+| B. EARS 替换判据 `accept[].text` | 每条判据改写 | 计量单位不变 | 判据 id「不改含义」的规矩下，改写等于退役 + 新编号，102 条判据（d7e20d7）全部换号；约十条文档存在性 / 人工判据写成 shall 就是 ADR-67 说的「不可失败判据」；仍是句子，`safely handle` 一样过形状检查 | 否 |
 | C1. 需求级并列数组 `behaviors[]` 反指判据 | 不碰判据对象 | 字面上不动 `accept` | 认领单位是判据 id；子句没有 id 就没法认领，另发一套编号就是「两侧各写一遍」（ADR-22） | 否（若 ADR-67 那句被裁定不可推翻，退回此方案） |
 | **C2. 挂在每条判据下 `accept[].ears`** | 判据 `text` 一字不动，旁边挂结构 | 编号、认领、变异、指纹全部兼容（原型实跑：注入后校验 0 问题、渲染相同）；可以一条一条迁；没 EARS 的判据按旧规则计量 | **直接撞 ADR-67:25-27**（见下）；`text` 与 `ears` 两处描述会漂 | **建议采用（待 ADR，J10）** |
 
@@ -608,22 +610,22 @@ source §C.1 三种放法的比较（原文，第 2 问）：
 - **目标文件**：docs/adr/ · 新 ADR（H 第 3 步）
 - **实例化**：通-26、通-14（采纳后测试先行，由独立上下文只读子句与术语表写，模型不在准入读物）
 - **现状**：业务意图「P3 未经用户确认不得超出预算上限。」一字不动（`8-p3-pilot.md §D.1`）；四条草案与「边界未声明」今天只在提案里。
-- **提议**：题目「P3 判据草案的评定：P3.c 限额确认、P3.d 假设值、P3.e 写前记账、P3.f 不误拒，与并发边界未声明的登记」。结论草稿（逐条独立结论）：P3.c —— 提议分类补充，连带 J2 / J3 / J29 / J30 / J39；P3.d —— d-i 或 d-ii（J4），与其余三条分开评定免得拖住整条；P3.e —— 收紧，连带 J5 / J31 / J32，架构另有 ADR（业-22 / J44）；P3.f —— 收紧（J6），架构另有 ADR（业-21 / J43）；边界未声明 —— 只登记，措辞由需求所有者起草（J7）；J35（P3.a 属性形式）、J40（`charge(-1)`）一并挂。采纳后顺序：测试先行（独立上下文）→ 实现 → 变异 N1–N7 续编 → 模型加 `write-ahead` 与 `two-level-endpoint` 场景。冲击的需求：P3、D6、F7。
+- **提议**：题目「P3 判据草案的评定：P3.c 限额确认、P3.d 假设值、P3.e 写前记账、P3.f 不误拒，与并发边界未声明的登记」。结论草稿（逐条独立结论）：P3.c —— 提议分类补充，连带 J2 / J3 / J29 / J30 / J39；P3.d —— d-i 或 d-ii（J4），与其余三条分开评定免得拖住整条；P3.e —— 收紧，连带 J5 / J31 / J32，架构另有 ADR（业-22 / J44）；P3.f —— 收紧（J6），架构另有 ADR（业-21 / J43）；边界未声明 —— 只登记，措辞由需求所有者起草（J7）；J35（P3.a 属性形式）、J40（`charge(-1)`）一并挂。采纳后顺序：测试先行（独立上下文）→ 实现 → 变异 N1–N7 续编（`M-P3-b` 已被主干占用 —— req P3.b、by selfcheck，与 #75 分支的 `M-P3-b` 同名不同义；续编从 `M-P3-c` 起，与 #75 分支的 `M-P3-c` 撞名但主干上不存在） → 模型加 `write-ahead` 与 `two-level-endpoint` 场景。冲击的需求：P3、D6、F7。
 - **变更分类（提议）**：见各条（本条 ADR 是记录）
 - **守法**：无（各草案的守法见 业-11 … 业-15）
-- **落地**：H 第 3 步 · 裁决 J2、J3、J4、J5、J6、J7、J29、J30、J35、J39、J40 · 档：自动（记录人批结论须指到人批痕迹）
+- **落地**：H 第 3 步 · 裁决 J2、J3、J4、J5、J6、J7、J29、J30、J35、J39、J40、J53 · 档：自动（记录人批结论须指到人批痕迹）
 
 ### 业-20 · ADR-68 单独先合（0a）；备选：一条「弃用 #75、按 D 节重做」的 ADR
-- **目标文件**：docs/adr/ · ADR-68（自 #75 分支）；或新 ADR「弃用 #75」
+- **目标文件**：docs/adr/ · ADR-68（自 #75 分支摘取 `docs/adr/ADR-68-*.md`：起点是远端 head 2deb489 上那份（119 行）还是提案读过的 #75 树 97c358e 上那份（118 行；两份相差 4 行增 / 3 行删，`git diff --stat 97c358e 2deb489 -- 'docs/adr/ADR-68-*'`），随 J1 定；主干 68 号空着）；或新 ADR「弃用 #75」
 - **实例化**：产品专属
-- **现状**：ADR-68 在 #75 分支（draft、2148 行新增、18 个文件、base 落后主干 5 次合并、`mergeable_state: dirty`）；它的五张欠条：崩溃窗口、F7.a「一次」、P3 × D4 交点、「非 200 不计费」、probe 不记账 + 并发覆盖。
-- **提议**：0a：ADR-68 从主干开一条 PR 单独合入（ADR 不依赖代码）。备选（J1 选弃用）：新 ADR 题目「弃用 PR #75，按提案 D 节重做 P3 试点」，结论草稿：保留 #75 的五张欠条与等级词表为记录；探索器按 `8-p3-pilot.md §D.3–§D.6` 另写，工作量另估。
+- **现状**：**PR #75 已于 2026-09-11 关闭、未合入**（GitHub API：state closed、draft true、merged false、`mergeable_state: dirty`、2148 行新增 / 14 删除 / 18 个文件、5 个提交；head f652943 —— 提案读的代码是 97c358e 那四个实质提交，f652943 只是 2026-09-08 一条带 `age-ok:` 的空提交；base 仍 475cfe9，主干自它起已 50 次合并、自真实分叉点 8f2eecb 起 54 次；唯一评论是 Codex 机器安全评审、无人类评论，关闭理由：未知）；分支 `claude/kol-formal-verification-kr5igx` 仍在远端，且已于 2026-09-18T19:10Z 强推为 2deb489（5 个提交叠在 d7e20d7 上，`git merge-base 2deb489 d7e20d7` = d7e20d7，所以 `mergeable_state: dirty` 只对 PR 记录的 head f652943 成立；旧 head f652943 留在 `backup/pre-rebase-kr5igx`；`git ls-remote origin`）；主干上没有 `formal-rule.ts` / `formal.ts` / `formal/` / ADR-68；它的五张欠条：崩溃窗口、F7.a「一次」、P3 × D4 交点、「非 200 不计费」、probe 不记账 + 并发覆盖。
+- **提议**：J1 的选项按现状改为三个，本文不替用户裁决：(a) 重开 #75 并拆五条；(b) 从分支摘取重做 —— 0a「ADR-68 从分支摘取、从主干开一条 PR 单独合入（ADR 不依赖代码）」在此项下仍可行，摘取起点钉提案读过的 97c358e 还是 2deb489 随本条一并定；分支已叠在 d7e20d7 上，三个选项都不再含「先并主干」这件活；(c) 弃用，另写探索器。备选 (c) 的新 ADR 题目「弃用 PR #75，按提案 D 节重做 P3 试点」，结论草稿：保留 #75 的五张欠条与等级词表为记录；探索器按 `8-p3-pilot.md §D.3–§D.6` 另写，工作量另估。
 - **变更分类（提议）**：产品与工程取舍
 - **守法**：无
 - **落地**：H 第 0a 步 · 裁决 J1 · 档：自动（文档类）
 
 ### 业-21 · ADR：预算内部表示改为整数毫美元（换算规则、精度拒绝）
-- **目标文件**：docs/adr/ · 新 ADR；docs/ARCHITECTURE.md · §「三态在类型层的落点」（行 184–197）加一行「金额单位」
+- **目标文件**：docs/adr/ · 新 ADR；docs/ARCHITECTURE.md · §「三态在类型层的落点」（行 189–203）加一行「金额单位」
 - **实例化**：产品专属
 - **现状**：`budget.ts:36` 浮点比较；CE-3（业-14）。
 - **提议**：题目「预算内部表示改为整数毫美元（1 unit = $0.001）」。结论草稿：模型与 `Budget` 用整数毫美元，理由是 `k × 0.001 + 0.001 > k/1000` 在 26% 的 k 上为真，而 `k + 1 > k` 永远为假；盘上 `task.json.budget_usd` 仍是用户面的美元数（改盘上表示会碰 D6 的旧目录续跑），续跑时不回写 `limit_m / 1000`，只读不写；边界换算 `limit_m = Math.round(budget_usd × 1000)` 要一条测试：`'0.7' → 700`、`'1.005' → 1005`（`1.005 × 1000 = 1004.9999999999999`，`floor` 给 1004）；`Math.round(k/1000 × 1000) === k` 对 `k = 0 … 2,000,000` 零失败（实跑）；精度细于 $0.001 的预算（0.0005、0.0015）拒绝并 exit 2 还是取整后继续是 J29。ARCHITECTURE 三态表加行「金额单位：内存整数毫美元；盘上美元，只读」。
@@ -635,7 +637,7 @@ source §C.1 三种放法的比较（原文，第 2 问）：
 - **目标文件**：docs/adr/ · 新 ADR
 - **实例化**：产品专属
 - **现状**：ADR-13「缓存不引版本号」；`meta.json` 没有代码 / 配置 / schema 版本，两次任务的差异无法归因（B17；`render.ts:90-141`）。
-- **提议**：题目「交付物的版本指纹不是缓存键：与 ADR-13 的关系」。结论草稿：`meta.json.versions` 记录产出物由哪一版代码 / 配置 / 供应商响应形状 / Node 产出，用于窗口分桶与归因，不参与任何缓存命中判定；ADR-13 不变；`by_target` 只取影响该软目标的文件（整树指纹会让窗口每天重置 —— 主干每天 10–18 次合并）；是否冲突由人定（J14）。
+- **提议**：题目「交付物的版本指纹不是缓存键：与 ADR-13 的关系」。结论草稿：`meta.json.versions` 记录产出物由哪一版代码 / 配置 / 供应商响应形状 / Node 产出，用于窗口分桶与归因，不参与任何缓存命中判定；ADR-13 不变；`by_target` 只取影响该软目标的文件（整树指纹会让窗口每天重置 —— 只要合并频率高于每桶攒满所需天数即成立；频率本身不稳：cc132a7 之后按日 1–11 次、更早有 25 次的日子，命令 `git log d7e20d7 --merges --format=%cd --date=short | sort | uniq -c`）；是否冲突由人定（J14）。
 - **变更分类（提议）**：需评定
 - **守法**：码-23
 - **落地**：H 第 1 步 · 裁决 J14 · 档：自动
@@ -659,9 +661,9 @@ source §C.1 三种放法的比较（原文，第 2 问）：
 - **落地**：H 第 6 步 · 裁决 J19 · 档：提议
 
 ### 业-56 · P2.a 豁免 `scope` 收窄（红线，动豁免要独立复核）
-- **目标文件**：scripts/check/mutations.json · `exemptions[]` P2.a 条目（行 1837 起）；docs/adr/ 新 ADR
+- **目标文件**：scripts/check/mutations.json · `exemptions[]`（行 2656 起；P2.a 行 2658，P1.b 行 2664）；docs/adr/ 新 ADR
 - **实例化**：通-25（新增豁免是提议；理由非空校验）
-- **现状**：P2.a 第三层（ADR-01）；`mutations.json` 的 `exemptions[].mitigation` 没有任何代码读（B20）。
+- **现状**：P2.a 第三层（ADR-01）；`mutations.json` 的 `exemptions[].mitigation` 没有任何代码读（B20；d7e20d7 上 `mutate.ts:69` 声明后无读点，`why` 只被打印 —— `mutate.ts:189–192`、`audit.ts:150` 读入报告 —— 无非空校验）；`exemptions` 今天两条（P2.a、P1.b），ADR-70 落地 2 第 5c 第四片的欠条「有负片就不许再写 mitigation…按 req 判会误删」是 mitigation 的处置方向。
 - **提议**：评定 P2.c（业-55）后把 P2.a 豁免的 `scope` 收窄到「语义蕴含」那一半（引用完整性由 P2.c 机器守）；P2 是红线，动豁免要独立复核（ADR-24）。ADR 题目「P2.a 豁免范围收窄：机器守引用完整性，人守语义」。
 - **变更分类（提议）**：红线判据豁免变更（独立复核）
 - **守法**：码-42
@@ -670,20 +672,20 @@ source §C.1 三种放法的比较（原文，第 2 问）：
 ### 业-59 · ADR：属性测试依赖决策（引不引 fast-check）附 `npm ci` 实测数
 - **目标文件**：docs/adr/ · 新 ADR
 - **实例化**：通-12（固定 seed、重放坐标、反例夹具只增不删）
-- **现状**：无属性测试设施（B13）；本仓库 devDeps 只有三个，产品代码零依赖；2026-09-04 的 `npm ci` 7 分钟根因未明，`age` 是必需检查、贴在 `npm ci` 之后。
+- **现状**：无属性测试设施（B13）；本仓库 devDeps 只有三个（d7e20d7：`@types/node`、`tsx`、`typescript`），产品代码零依赖；2026-09-04 的 `npm ci` 7 分钟根因未明（`check.yml` 里那条注释仍在）；「`age` 是必需检查、贴在 `npm ci` 之后」已不成立 —— 分支寿命闸门与 `age.yml` 已撤（ADR-76），`.github/workflows/` 只剩 `check.yml`；量时长时注意 `NODE_COMPILE_CACHE`（`mutate.ts:214`，ADR-75）已在主干，首跑与热跑要分开量。
 - **提议**：题目「属性测试设施：引入 fast-check 4.9.0（+ `pure-rand`）还是自研约 50 行 `forAll`」。结论草稿：先一条只改 lock 文件的 PR 量 `npm ci` 时长；超过 60 秒则自研（固定 seed、失败走 `fail++` 不 throw、无 shrink）；附实测数；seed 写死、只允许本地环境变量重放，重放坐标（seed / path / replayPath）写进 `4-VERIFY.md`；nightly 随机 seed 另议（J37）。
 - **变更分类（提议）**：依赖决策
 - **守法**：码-38
-- **落地**：H 第 4 步 · 裁决 J12、J37 · 档：人批
+- **落地**：H 第 4 步 · 裁决 J12、J37、J54 · 档：人批
 
 ### 业-60 · ADR：试点回滚记录（D.14 任一命中时撤掉 CI 步骤、保留文件）
 - **目标文件**：docs/adr/ · 新 ADR（触发时才写）
 - **实例化**：通-37（回滚条件预定义）、通-28（自动回滚只限被量的改动）
 - **现状**：无。
-- **提议**：题目「撤下 `formal` 检查步骤：触发条件与重启条件」。触发条件（`8-p3-pilot.md §D.14` 原文）：`npm run formal` 在 CI 上 > 30 秒，或出现不可重现的结果（探索器是确定性的，出现即 bug）；连续三次「反例」被人判定为模型错而不是代码错；模型核心（不含对拍夹具与打印）超过 350 行（体量线）还表达不了 D.9 的全部输入；写前记账的开销：用一个 3000 请求量级的基准（不是 selfcheck）实测账本落盘总耗时 > 限速总时长的 5%。任一命中即撤掉 CI 步骤（保留文件），ADR 记原因；回滚是安全动作不是归因。
+- **提议**：题目「撤下 `formal` 检查步骤：触发条件与重启条件」。触发条件（`8-p3-pilot.md §D.14` 原文）：`npm run formal` 在 CI 上 > 30 秒，或出现不可重现的结果（探索器是确定性的，出现即 bug）；连续三次「反例」被人判定为模型错而不是代码错；模型核心（不含对拍夹具与打印）超过 350 行（体量线）还表达不了 D.9 的全部输入；写前记账的开销：用一个 3000 请求量级的基准（不是 selfcheck）实测账本落盘总耗时 > 限速总时长的 5%。任一命中即撤掉 CI 步骤（保留文件），ADR 记原因；回滚是安全动作不是归因。「> 30 秒」这类绝对秒数按 ADR-72「秒数只在这台机器上成立，倍数可跨机器参考」应改成相对一次 `test.ts` 的倍数，与 `8-p3-pilot.md §D.14` 同步改；formal 步自身时长不乘变异数（变异只跑验证者）。
 - **变更分类（提议）**：记录
 - **守法**：无
-- **落地**：H 第 3 步 · 裁决：无 · 档：自动
+- **落地**：H 第 3 步 · 裁决 J54 · 档：自动
 
 ADR 清单索引（本文件各处提议的 ADR；题目与结论都是草稿）：
 
@@ -692,13 +694,13 @@ ADR 清单索引（本文件各处提议的 ADR；题目与结论都是草稿）
 | 业-03 | 判据下挂 `accept[].ears`，字段与消费者同 PR | 采纳 C2；终态 `text` 派生 | J10 | 自动 |
 | 业-18 | F7.a「一次」：每进程还是每任务 | 待人定；按任务算要登记与 D6.a 的交点 | J8 | 人批 |
 | 业-19 | P3 判据草案评定（P3.c–f + 边界未声明） | 逐条独立结论；P3.d 分开评 | J2–J7、J29、J30、J35、J39、J40 | 自动 |
-| 业-20 | ADR-68 先合 / 弃用 #75 | 拆五条或弃用重做 | J1 | 自动 |
+| 业-20 | ADR-68 先合 / 弃用 #75（#75 已关闭，分支已强推为 2deb489） | 重开拆五条 / 从分支摘取重做 / 弃用 | J1 | 自动 |
 | 业-21 | 预算内部表示改整数毫美元 | `Math.round(× 1000)`；盘上美元只读 | J43、J29 | 人批 |
 | 业-22 | 写前记账落点：`onAuthorized` 回调 | 顺序契约新行 + N4 | J44 | 人批 |
 | 业-24 | 交付物版本指纹 ≠ 缓存键 | ADR-13 不变；`by_target` 指纹 | J14 | 自动 |
 | 业-30 | Creator 层 `Observation<T>` | 分批迁移 email / bio / followers | J20 | 人批 |
 | 业-48 | `replied` 只读消费者与 S3 | 采纳 / 驳回 / 已知缺口 | J26 | 人批 |
-| 业-49 | `memory.ts:410` 的 `\|\|` 与 P1.b | 待人定 | J17 | 人批 |
+| 业-49 | `memory.ts:410` 的 `\|\|` 是否是 P1.e/f/g 之外的第四条压平路径（ADR-77 欠条） | 待人定 | J17 | 人批 |
 | 业-50 | profile 重试策略；`bio_links` 未查询态 | 待人定 | J18 | 人批 |
 | 业-51 | 报告 email 未查询显示「未查询」 | 补充 | J19 | 提议 |
 | 业-52 | 写入方并行（ADR-66 重启条件） | 待人定；触发才建模 | J21 | 人批 |
@@ -714,9 +716,9 @@ ADR 清单索引（本文件各处提议的 ADR；题目与结论都是草稿）
 ## 8. `skill/`（Agent 判断层）
 
 ### 业-36 · `skill/SKILL.md`「追加预算」文案 vs `--budget` 是新总额
-- **目标文件**：skill/SKILL.md · §「超限后的续跑」（行 142–172），行 152「追加预算继续」、行 159「用户选择追加后」、行 165 `--budget <新额度>`；scripts stderr `collect.ts:268,332`
+- **目标文件**：skill/SKILL.md · §「超限后的续跑」（行 142–172），行 152「追加预算继续」、行 159「用户选择追加后」、行 163 `--budget <新额度>`（`skill/` 在 cc132a7 与 d7e20d7 之间无改动，`git diff --stat cc132a7 d7e20d7 -- skill/` 为空；原提案写的 :165 是错行号，这里是纠正不是重映射）；scripts stderr `collect.ts:268,332`
 - **实例化**：产品专属
-- **现状**：SKILL.md:152「1. 追加预算继续 —— 估计还需 $0.6 左右跑完」、:159「用户选择追加后，用 `--resume` 续跑」、:165 `npm run collect -- --resume output/{task} --budget <新额度>`；代码 `collect.ts:60` 把 `--budget` 当新总额替换 `budget_usd`（业-11「待人定」）。
+- **现状**：SKILL.md:152「1. 追加预算继续 —— 估计还需 $0.6 左右跑完」、:159「用户选择追加后，用 `--resume` 续跑」、:163 `npm run collect -- --resume output/{task} --budget <新额度>`；代码 `collect.ts:60` 把 `--budget` 当新总额替换 `budget_usd`（业-11「待人定」）。
 - **提议**：与 J3 一起裁决改哪一边：若「`--budget` 是新总额」为准，SKILL 三处与 stderr 改为「重设预算总额为 $N（含已花）」；若「追加」为准，代码改为累加（那是代码改动，随 码-17 的 J3 分支）。改的是给用户的承诺，走 SYNC 点名清单（`requirements.json` 对应判据 → ARCHITECTURE → SKILL）。
 - **变更分类（提议）**：改给用户的一句承诺
 - **守法**：码-17
@@ -735,19 +737,19 @@ ADR 清单索引（本文件各处提议的 ADR；题目与结论都是草稿）
 - **目标文件**：skill/SKILL.md · §「六个阶段」Phase 06 或 §「不做什么」（行 209–217）
 - **实例化**：通-36（影子运行结果写进控制器不读的文件）
 - **现状**：没有影子机制；「不做什么」表五行（S1–S5）。
-- **提议**：加一行「不读 `output/{task}/shadow.json`（影子运行的候选参数结果）—— 它只给人看，Agent 依据它改任何东西都是同源回路」。注意：这一句本身含文件名，而 source 要求 lint 守 `skill/` 里不出现该文件名 —— 例外形式（例如只允许出现在「不读」那一行）由 码-36 定，source 未写。
+- **提议**：加一行「不读 `output/{task}/shadow.json`（影子运行的候选参数结果）—— 它只给人看，Agent 依据它改任何东西都是同源回路」。注意：这一句本身含文件名，而 source 要求 lint 守 `skill/` 里不出现该文件名 —— 那道 lint 的目标文件 `lint-rule.ts` 已撤（ADR-77），码-36 得新建判定模块或改成验证性材料，且与 ADR-77「指令性是最弱一档」相悖、需 ADR 直面；例外形式（例如只允许出现在「不读」那一行）由 码-36 定，source 未写。
 - **变更分类（提议）**：补充
 - **守法**：码-36
-- **落地**：H 第 12 步 · 裁决：无 · 档：自动
+- **落地**：H 第 12 步 · 裁决 J50 · 档：自动
 
 ### 业-39 · `skill/` 文本里出现的需求编号必须在登记表里存在
-- **目标文件**：skill/SKILL.md 与 skill/references/*（今天 `arch` 只查 `scripts/`）
+- **目标文件**：**目标已撤（ADR-78 / ADR-77，主干 d7e20d7）**：skill/SKILL.md 与 skill/references/*（原写「今天 `arch` 只查 `scripts/`」—— `arch-sync.ts` 与 `lint-rule.ts` 都已删，这句无主体，没有任何可挂的扫描基础设施）
 - **实例化**：通-20（Skill 文本是被量的，改动自动；引用编号要机器守）
-- **现状**：Skill 文本直接做（第三层）；SKILL「不做什么」表引用 S1–S5；无检查核对编号存在。
+- **现状**：Skill 文本直接做（第三层）；SKILL「不做什么」表引用 S1–S5；无检查核对编号存在；`REVIEW.md` 的指针表不指向 `skill/`，评审器不会主动读它（只有 SYNC 行 27「改承诺要点名过 SKILL.md」间接覆盖）。
 - **提议**：`skill/` 里出现的需求编号必须在登记表里存在，退役编号命中即红；Skill 文本改动仍自动，改「给用户的承诺」那一句走 SYNC 表。无文本改动，只加守法。
 - **变更分类（提议）**：无（守法）
-- **守法**：码-46
-- **落地**：H 第 5 步 · 裁决：无 · 档：自动
+- **守法**：码-46（目标 `arch-sync.ts` / `lint-rule.ts` 已撤；撤后落点：新建判定模块，或把「编号存在性」做成 `spec-rule` 的一条关系校验 —— 验证性，不扫写法）
+- **落地**：H 第 5 步 · 裁决 J50 · 档：自动
 
 ### 业-40 · `fit_review` 盲判流程：每任务固定 N = 10 条用户盲判，一致率三态进 `meta.json`
 - **目标文件**：skill/SKILL.md · §「Phase 04 — 语义筛选」（行 83–96）；skill/references/semantic-fit.md
@@ -797,7 +799,7 @@ ADR 清单索引（本文件各处提议的 ADR；题目与结论都是草稿）
 | 2 配置与策略 | 维度权重、竞品词权重 | 关键词表现表（噪声大） | 只能提议 + 人批；纯评分常量可影子运行（H 第 12 步） |
 | 3 prompt / 知识 / 工作流 | `skill/references/*` | 人工盲评 | 只能提议 |
 | 4 代码与测试 | `scripts/` | 检查链 | 修实现自动；改尺子提议 |
-| 5 架构 | 模块边界、顺序契约 | 架构锚点检查 | 人批 |
+| 5 架构 | 模块边界、顺序契约 | **无传感器**（架构锚点检查已撤，ADR-78；锚点表与顺序契约表人维护、无机器核） | 人批 |
 | 6 需求变化 | `requirements.json` | 无 | 只能提议（ADR 草案） |
 | 7 真实业务反馈实验 | 回复率 | **无** | 不可能，先建传感器 |
 
@@ -813,8 +815,8 @@ ADR 清单索引（本文件各处提议的 ADR；题目与结论都是草稿）
 | 传感器 | 读哪里 | 测的是什么（测量 / 代理） | unknown 的表示 | 延迟 | 噪声来源 |
 |---|---|---|---|---|---|
 | 检查链 | `npm run check` 退出码与各步输出 | 逻辑与文档一致性（测量） | 检查可以「无从判断」（size 基线算不出时明说） | 分钟 | 假阳性（体量闸门）、同源污染 |
-| 变异测试 | `mutate.ts` 的三态判定（抓到 / 崩溃 / 存活）+ 锚点失效 | 测试是否能失败（测量） | 崩溃与锚点失效都不算抓到 | 十分钟级 | 变异集只覆盖想到的形状 |
-| 成本 | `task.json.requests`、`meta.json.cost_estimate_usd` | 请求数 × 单价上限（**代理**：真实计费在 TikHub 侧） | 请求数可能**不可读或非法**（`null` / 字符串，B2）—— #75 的 `ledgerProblem` 让它变成显式拒绝而不是静默归零 | 即时 | 崩溃窗口、非 200 是否计费的假设、probe 不记账 |
+| 变异测试 | `mutate-rule.ts:301` 的四态判定（抓到 / 红错地方 / 崩溃 / 存活）+「没有结论」硬失败（`jobs-rule.ts` `missingVerdicts`）+ 锚点失效（`attribution-rule.ts`） | 测试是否能失败（测量） | 崩溃、红错地方、夹具没造对、锚点失效都不算抓到 | 分钟级（随核数；ADR-72 4 核实测并行后约 228 秒墙钟，秒数不跨机器） | 变异集只覆盖想到的形状 |
+| 成本 | `task.json.requests`、`meta.json.cost_estimate_usd` | 请求数 × 单价上限（**代理**：真实计费在 TikHub 侧） | 请求数可能**不可读或非法**（`null` / 字符串，B2）—— #75 分支（已关闭未合入）的 `ledgerProblem` 让它变成显式拒绝而不是静默归零 | 即时 | 崩溃窗口、非 200 是否计费的假设、probe 不记账 |
 | 采集覆盖 | `meta.json` 的 measured / unavailable / unqueried 三计数 | 数据边界（测量） | 三态分开计数 —— 这是本产品做对的地方 | 即时 | 「查询失败」与「未查询」同态（B6）；外部响应无形状校验（B7）；`profile_failed` 只在 stdout 不进 meta |
 | 关键词表现 | 报告的关键词表 `found / passed / hit rate` | 搜索策略质量（**代理**：`passed` 由 Agent 的语义判断给出） | **今天把「0 结果 / 请求失败 / 未跑」坍缩成「无此行」**（B16） | 每任务 | 样本小（一词几十人，IG ≤ 12）、判定者与控制器同源、`found` 随轮转顺序变、跨品类不可比 |
 | 记忆回填 | `memory/creators.json` 的 `contacted / replied / blocked` | 真实联系结果（测量，但稀疏且不及时） | 缺字段 = 未回填，不是 false；读不出来 = 整个传感器失效（D4 已定成「不产出名单」） | 天到周 | 用户是否回填、是否准确 |
@@ -875,7 +877,7 @@ ADR 清单索引（本文件各处提议的 ADR；题目与结论都是草稿）
 ### 业-46 · 实验台账格式、起点数字、影子运行与翻开关 / 回滚流程
 - **目标文件**：docs/EVOLUTION.md（新）· §「状态估计」§「实验台账」§「影子运行」；`experiments.json` 的形状
 - **实例化**：通-28（revert 收紧尺子的 PR 是放宽）、通-33（窗口、区间、分桶、版本指纹）、通-35（迟滞、冷却、单变量、台账）、通-36（影子运行）、通-37（回滚触发器预定义）
-- **现状**：今天只有每任务的 `meta.json`，没有跨任务记录；无影子机制；主干每天 10–18 次合并（`git log --merges`）。
+- **现状**：今天只有每任务的 `meta.json`，没有跨任务记录；无影子机制；主干合并频率不稳（cc132a7 之后按日 1–11 次，更早有 25 次的日子；命令 `git log d7e20d7 --merges --format=%cd --date=short | sort | uniq -c`）。
 - **提议**：**台账** `experiments.json` 每条记：改了什么（配置键）、何时、桶（同品类 × `versions.by_target`）、桶内结果（区间）、回滚触发器、是否回滚。**状态估计的数字**（source §G 原文）：用 Wilson 区间，以 SPEC 首轮记录的命中率量级（竞品词 30%、品类词 38%）算：n = 48 时半宽 ±0.13，n = 200 时 ±0.065，两个 n = 200 的窗口区间不相交需要相差 **≥ 14 个百分点**；SPEC 记录的那条「与预期相反」的观察只差 8 点，要每窗口 n ≈ 600（半宽 ≤ 4 点）到 1000（留出两窗口都偏的余量）才可能被判定 —— **以现有效应量，这个闭环在可见的将来只记录、不决策**。窗口口径：按「同品类、同版本」分桶，桶内攒样本；跨品类不比；版本指纹只取影响该软目标的文件（例如关键词命中率只看 `score.ts` 的维度加分与 `keyword-strategy.md`），不是整棵 `scripts/`。**起点数字**（可失败、待校准，写进 业-23）：桶内 M = 200 名过粉丝闸门的候选；一致率阈值 ≥ 0.8；影子差异上限 = 分层变动 ≤ 10% 候选。**迟滞**例：「竞品词权重下调」的触发是连续两个桶命中率区间低于品类词，改回的触发是连续三个桶高于。**冷却期**：任何参数层改动之后，至少一个完整桶内不得再改任何参数层变量；同一时间只允许一个在途实验。**单变量**：一次改一个变量（码-09 守「一次 PR 只 diff 一个键」）。**影子运行**只对纯评分常量（`score.ts` 的维度加分、竞品词加分、tier 阈值）成立：候选参数与现行参数同时计算（本地纯函数，不花 TikHub 的钱），候选结果写进 Agent 不读的 `shadow.json`，交付物仍按现行参数产出，累积到桶满后人看一眼再决定翻开关；`MAX_PAGES` 这类改变请求数的参数**没有影子形式**；Skill 层规则没有影子形式，只有人工盲评。**回滚条件预定义**：翻开关的那条 PR 里必须写明回滚触发器（例如「两个桶内命中率区间低于翻开关前」或「任何一次 P1–P5 相关检查变红」），触发即 revert，不等复核（限被量的改动）；revert 后指标回升不证明那次改动是原因，归因仍要单变量 + 对照 + 窗口。
 - **变更分类（提议）**：新文档
 - **守法**：码-37（台账 + `fit_review` + 一致率三态）、码-36（`shadow.json`）、码-09（单变量守法）
@@ -887,19 +889,19 @@ ADR 清单索引（本文件各处提议的 ADR；题目与结论都是草稿）
 - **现状**：无分级文档；「今天的守法」列即现状。
 - **提议**：表原文如下（source §B 分级表）。**不值得形式化的（明确说出来，免得被要求「一视同仁」）：** 全部 U 类、S 类、F1–F4；D8–D10 的聚合算法本身（只值得属性）。把重型方法用在它们上面，证明的是格式对，不是产品对。
 - **变更分类（提议）**：新文档
-- **守法**：码-39（三组属性）、码-40（崩溃点穷举）、码-29（身份属性与 lint）、码-31（形状校验）、码-34（占位符变异）
+- **守法**：码-39（三组属性）、码-40（崩溃点穷举）、码-29（身份属性；其 lint 那一半目标已撤，ADR-77）、码-31（形状校验）、码-34（占位符变异）
 - **落地**：H 第 3 步、H 第 6 步、H 第 7 步、H 第 8 步、H 第 9 步 · 裁决：无 · 档：提议
 
 | 需求 | 级别 | 理由 | 今天的守法 |
 |---|---|---|---|
-| **P3** 预算 | **模型检查 + 属性 + 例子** | 状态少、事件少、崩溃与重入交错多、数值边界明确、违反不可逆 | 例子测试 P3.a、变异 M-P3-a；P3.b 靠 selfcheck 真跑（`mutations.json` 显式豁免，理由引 ADR-13）；#75 的模型（未合入） |
-| **D6** 断点续跑 | **模型检查**（与 P3 同一个模型；试点内**建模不裁决**） | 它就是 P3 模型的另一半：`persist` 点、`resume` 初始化 | 例子测试；#75 的 `ResumeKeepsCount` |
+| **P3** 预算 | **模型检查 + 属性 + 例子** | 状态少、事件少、崩溃与重入交错多、数值边界明确、违反不可逆 | 例子测试 P3.a、变异 M-P3-a；P3.b 由 `M-P3-b`（`by: "selfcheck"` + `kills`，ADR-70 落地 4）守并有入口认领，原显式豁免已撤；#75 分支的模型（#75 已关闭未合入） |
+| **D6** 断点续跑 | **模型检查**（与 P3 同一个模型；试点内**建模不裁决**） | 它就是 P3 模型的另一半：`persist` 点、`resume` 初始化 | 例子测试；D6.f 由 `M-D6-j`（`by: "selfcheck"`，kills 四条收尾夹具）守；#75 分支的 `ResumeKeepsCount`（未合入） |
 | **F7** 阈值提醒 | **例子**；「一次」的定义待评定 | 状态太小；但 B22 说明它与 D6 有未登记的交点 | 例子 + 变异 M-F7-a |
-| **P1** 三态 | **类型结构 + 属性 + lint** | 「Unqueried ≠ MeasuredAbsent」是结构性质；不需要模型检查 | undefined/null 约定 + P1 lint + 21 条 `req: P1` 变异 |
+| **P1** 三态 | **类型结构 + 属性 + 结果断言（P1.e/f/g）** | 「Unqueried ≠ MeasuredAbsent」是结构性质；不需要模型检查 | undefined/null 约定 + `test.ts:2435`「三态不得被压平」结果断言（P1 lint 已撤，ADR-77）+ 变异 15 条（d7e20d7：12 条 `req: P1` + 判据级 `M-P1-x`@P1.e、`M-U1-d`@P1.f、`M-P1-d`@P1.g；命令 `node -p "require('./scripts/check/mutations.json').mutations.filter(m=>/^P1(\\.|$)/.test(m.req)).length"`） |
 | **P4 / D4** 记忆 | **崩溃点穷举（单写入方）+ 属性（过滤）+ 例子；并发成为需求时再模型检查** | 三步协议与原子写是交错问题（ADR-38 / 41 记的都是漏掉的交错）；`filterByMemory` 是「对所有 contacted / blocked 永不出现在 kept」的属性 | 例子测试 + 变异 M-P4-a 等；并发明写不保证（ADR-66） |
 | **D1 / D3** 身份 | **属性**（幂等、等价关系两侧同函数、不合并的安全方向、歧义不合并） | 纯函数；输入空间大（Unicode）；不需要状态机 | 例子测试 + 变异 M-D3-a |
 | **P2** 产品事实 | **结构契约（引用完整性）+ 人工语义复核** | 蕴含关系无裁决器（ADR-01） | P2.b 变异 M-P2-a；P2.a 第三层 |
-| **P5** 数据边界声明 | **例子 + 变异**；不值得模型 | 声明的存在性是布尔，穷举没有意义 | 变异 M-P5-a…l（12 条） |
+| **P5** 数据边界声明 | **例子 + 变异**；不值得模型 | 声明的存在性是布尔，穷举没有意义 | 变异 M-P5-a…l（12 条，d7e20d7） |
 | **D5** CSV 转义 | **属性**（round-trip） | 纯函数 | 例子 + 变异 M-D5-a |
 | **D7** 邮箱提取 | **属性 + 例子** | 正则；负例空间无限，属性只能采样 | 例子 + 变异 M-D7-a |
 | **D8 / D9 / D10** 公开指标 | **例子 + 属性（样本量门槛、缺失不按 0）** | 聚合是纯函数 | 例子测试 |
@@ -916,7 +918,7 @@ ADR 清单索引（本文件各处提议的 ADR；题目与结论都是草稿）
 ### 业-58 · B20 七项文档漂移各以哪边为准；粉丝上下限「算不算改需求」
 - **目标文件**：docs/SPEC.md、docs/CONVENTIONS.md、skill/SKILL.md、README.md、AGENTS.md、skill/references/*（B20 点名的各处）
 - **实例化**：产品专属
-- **现状**（B20）：`PR_SIGNALS` 代码正则 ≠ 文档；tier fallback 60/40 无文档；429 退避的文档口径（150 → 300ms）与代码（翻倍封顶 1000 + 额外倍数）不同；粉丝上下限「算不算改需求」两份文档矛盾；SKILL「profile 补全跑在续跑最前面」≠ 代码顺序；README 手写「35 条需求 / 5 条红线」、AGENTS 手写「共 5 条」无检查守；`mutations.json` 的 `exemptions[].mitigation` 没有任何代码读（`mutate.ts:29`）。
+- **现状**（B20）：`PR_SIGNALS` 代码正则 ≠ 文档；tier fallback 60/40 无文档（主干已去掉 `tierOf` 的 `?? 0` 兜底、分数由调用方传入，ADR-71 / `score.ts:30`；60/40 仍无文档）；429 退避的文档口径（150 → 300ms）与代码（翻倍封顶 1000 + 额外倍数）不同；粉丝上下限「算不算改需求」两份文档矛盾；SKILL「profile 补全跑在续跑最前面」≠ 代码顺序；README 手写「35 条需求 / 5 条红线」**已于主干清掉**（ADR-82，`README.md:191` 改为「跑 `npm run audit` 会打印 —— 这里不写数」），AGENTS 手写「共 5 条」仍在（`AGENTS.md:62`）且无检查守；`mutations.json` 的 `exemptions[].mitigation` 没有任何代码读（`mutate.ts:69`）。
 - **提议**：逐项定正本（代码 / 文档哪边为准），各一行 SYNC 或一条 ADR；粉丝上下限先裁「算不算改需求」（J27），是则走 `2-CHANGE.md`。本文不替任何一项定。
 - **变更分类（提议）**：需求有歧义 / 文档
 - **守法**：无（J45 裁决后按项立项）
