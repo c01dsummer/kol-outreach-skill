@@ -94,10 +94,11 @@ IG profile 的 V3→V2 回退再乘一次 —— 最多 8 次提交、1 次计�
 
 ## 连带改动
 
-`package.json`（`formal` 脚本 + 进检查链）· `docs/ARCHITECTURE.md`（两行锚点）·
-`docs/SYNC.md`（预算那一行）· `scripts/lib/budget.ts` · `scripts/collect.ts` ·
+`package.json`（`formal` 脚本 + 进检查链）· `AGENTS.md`（检查链那一行，它是链条的人话正本）·
+`docs/ARCHITECTURE.md`（两行锚点 —— ADR-78 撤掉 `npm run arch` 之后这是纯人工登记，没有机器核）·
+`docs/SYNC.md`（预算那一行，外加形式化模型自己那一行）· `scripts/lib/budget.ts` · `scripts/collect.ts` ·
 `scripts/enrich.ts` · `scripts/probe.ts` · `scripts/test.ts` ·
-`scripts/check/mutations.json`（`M-P3-b` · `M-P3-c` · `M-D6-i` · `M-H16-a/b/c`）·
+`scripts/check/mutations.json`（`M-P3-c` · `M-P3-d` · `M-D6-l` · `M-H41-a/b/c`）·
 新增 `formal/`
 
 ## 教训

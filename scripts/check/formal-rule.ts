@@ -1,7 +1,7 @@
 /**
  * 预算与请求提交协议的**形式化模型**与判定 —— 从入口里抽出来的那一半。
  *
- * 抽出来的理由和 `lint-rule.ts`、`size-rule.ts` 一样：判定有语义就该能被测。
+ * 抽出来的理由和 `size-rule.ts` 一样：判定有语义就该能被测。
  * 跑模型、打印、退出码留在 `formal.ts`。
  *
  * ── 它模型化的是什么 ──────────────────────────────────────────────
@@ -878,7 +878,7 @@ export type TlcVerdict =
  * 三档，不是两档：**跑不起来不算通过，也不算抓到**。语法错、jar 不对、
  * 常量漏给，都会让 TLC 非零退出而一条不变量也没检查过 —— 把那当成
  * 「抓到反例」和当成「通过」一样糟（`process/4-VERIFY.md` 的
- * 「测试进程崩了不算抓到」是同一条）。
+ * 「验证者崩了不算抓到」是同一条）。
  */
 export function tlcVerdict(output: string): TlcVerdict {
   const bad = /^Error: (Invariant|Property) (\w+) is violated\.?$/m.exec(output)

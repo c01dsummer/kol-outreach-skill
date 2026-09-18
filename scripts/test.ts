@@ -439,10 +439,10 @@ suite('P3', '钱不是在 charge() 里花掉的 —— 整条协议要能被穷�
    * 状态机，穷举全部交错。判定在 `check/formal-rule.ts`，命令是 `npm run formal`。
    */
 
-  // 一、不崩溃时协议是对的 —— 六条不变量一条不违反。
+  // 一、不崩溃时协议是对的 —— 不变量一条不违反。
   //    先立这一条，后面那些反例才说得清是崩溃带来的，不是协议本来就错
   const calm = judgeScenario(SCENARIOS.find(x => x.name === 'no-crash')!)
-  eq('不崩溃时六条不变量全部成立', calm.violations.length, 0)
+  eq('不崩溃时不变量一条不违反', calm.violations.length, 0)
   eq('不崩溃时没有意外', calm.surprises.length, 0)
 
   // 二、把预检写成「先记账再判断」，穷举必须抓到，而且要给出**最短**那条。

@@ -33,7 +33,7 @@
 | `persist` | `collect.ts` 的 `persist()`、`enrich.ts` 的 `persist()` | D6.a | **人工核** |
 | `crash` | 进程被杀、主机断电 | — | **模型**（环境动作，`docs/SPEC.md` 的 D4 与 ADR-50 已经把它当成真实环境）|
 | `resume` | `collect.ts --resume` 用盘上的 `requests` 新建一个 `Budget` | D6.a | **人工核** + 对照那一段用 `start` 参数覆盖了「从一个非零计数开始」|
-| `stop` | `collect.ts` 捕获 `BudgetExceeded` → `persist()` → 退出码 3 | P3.b | **人工核**（已由脚本自检端到端守着，见 `mutations.json` 的 `exemptions`）|
+| `stop` | `collect.ts` 捕获 `BudgetExceeded` → `persist()` → 退出码 3 | P3.b | **人工核**（已由 `scripts/check/selfcheck.ts` 的 `criterion('P3.b')` 认领，配 `by: "selfcheck"` 的负片 `M-P3-b` 守着 —— ADR-70 落地 4）|
 
 ## 三、不变量、结论与等级
 
@@ -137,7 +137,7 @@ IG profile 的两级端点再乘一次，最多 8 次提交、1 次计数。
 - `task.json` 的 `requests` 是 `null` 时整本账退回零；是字符串时，下一次请求让计数
   变成拼接（`"4"` → `"41"`），一次请求把账面翻十倍（D6.a）
 
-判定在 `scripts/lib/budget.ts`，三条入口共用；负片是 `M-P3-c` 与 `M-D6-i`。
+判定在 `scripts/lib/budget.ts`，三条入口共用；负片是 `M-P3-d` 与 `M-D6-l`。
 
 ---
 

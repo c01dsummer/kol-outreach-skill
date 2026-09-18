@@ -195,11 +195,12 @@ if (probeOut !== undefined && !probeOut.includes('bio_available')) {
   failed++; console.error('  ✗ probe 输出缺少 bio_available（P1 要求给出分母）')
 }
 
-// ---- 三条入口：钱字段比不了大小就不许开跑（P3 · D6.a）----
+// ---- 入口：钱字段比不了大小就不许开跑（P3 · D6.a）----
 // 闸门是一句「已花 + 本次开销 > 上限」的比较。两边有一个不是数，这句话恒为假 ——
 // 闸门不是宽了一点，是整条不存在，而且百分比同时恒为 0，连提醒都不出现。
-// 判定在 lib/budget.ts（有变异守着），但**接线在三条入口各一份**，
-// 而变异只跑 scripts/test.ts、够不到入口 —— 与 P3.b 处境相同，只能由这里真跑一遍。
+// 判定在 lib/budget.ts（有变异守着），但**接线在每条入口各一份**，而缺省那个
+// 验证者够不到入口，所以只能由这里真跑一遍。
+// ⚠️ 这几条还没配 `by: "selfcheck"` 的负片 —— 跑是真跑了，但没有第三拍。
 {
   const badProbe = join(tmp, 'probe-badbudget.json')
   writeFileSync(badProbe, JSON.stringify({
@@ -235,10 +236,10 @@ if (probeOut !== undefined && !probeOut.includes('bio_available')) {
   // 报的必须是**用户打的那个东西**：`3.0.0` 解析成 NaN，照解析结果印是「null」
   const badArg = run('collect 追加的预算不是数字 → 停下问人',
       [S('collect.ts'), '--resume', 'okledger', '--budget', '3.0.0'], tmp, { status: 2 })
-  if (badArg && !badArg.includes('3.0.0')) {
+  if (badArg !== undefined && !badArg.includes('3.0.0')) {
     failed++
     console.error('  ✗ 报错里没有出现用户打的那个值，他不知道是哪一处写错了')
-  } else if (badArg) console.log('  ✓ 报错指名用户打的那个值')
+  } else if (badArg !== undefined) console.log('  ✓ 报错指名用户打的那个值')
 }
 
 // ---- collect：完整采集 + profile 补全 + 同人合并 + 记忆 ----

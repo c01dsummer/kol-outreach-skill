@@ -118,8 +118,9 @@ formal/
 ```
 
 TypeScript 那一份模型与判定在 `scripts/check/formal-rule.ts`，入口在
-`scripts/check/formal.ts` —— 它们在 `scripts/` 下，所以受架构锚点表管
-（`docs/ARCHITECTURE.md`）。
+`scripts/check/formal.ts` —— 它们在 `scripts/` 下，所以要登记进 `docs/ARCHITECTURE.md`
+的锚点表。**那张表从 ADR-78 起没有机器核了**：忘了登记不会有任何东西拦下来，
+当索引读，别当证据读。
 
 **两份模型是同一个转移系统的两种写法。** 存两份是因为买到的东西不一样：
 
@@ -161,5 +162,5 @@ TypeScript 那一份模型与判定在 `scripts/check/formal-rule.ts`，入口�
 | 改了 `docs/requirements.json` 的 P3 / F7 / D6 | 回头看 `IMPLEMENTATION-MAP.md` 的第一张表：每条不变量认领的编号还在不在、说的还是不是同一件事 |
 
 **模型自己也会写错。** 所以 `scripts/check/formal-rule.ts` 是判定模块，
-在审计的名单上，必须有变异守着（`M-H16-a`／`M-H16-b`／`M-H16-c`）——
+在审计的名单上，必须有变异守着（`M-H41-a`／`M-H41-b`／`M-H41-c`）——
 一个「怎么改都不会红」的模型检查器，和没有检查的区别只有心理作用。
