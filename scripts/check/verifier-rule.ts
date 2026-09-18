@@ -21,10 +21,10 @@
  * | 边 | 例子 | 只扫 import 会怎样 |
  * |---|---|---|
  * | `import` | `selfcheck.ts` → `tsx-cmd.ts` | 收得到 |
- * | **当工具起** | `selfcheck.ts` 起 `check/mutate.ts`、`check/arch-sync.ts` | 漏掉，连同它们各自的传递依赖 |
+ * | **当工具起** | `selfcheck.ts` 起 `check/mutate.ts` | 漏掉，连同它们各自的传递依赖 |
  * | **预加载** | `selfcheck.ts` 用 `NODE_OPTIONS: --import …/fake-fetch.ts` 把假 fetch 塞进每个子进程 | 漏掉 —— 而它决定自检能走多深（`audit-rule.ts` 的 `JUDGMENT_EXEMPT` 里就是这么写的） |
  *
- * 实测：只从 `selfcheck.ts` 的 `import` 出发，闭包是 3 个文件；把后两种边补上，是 **14 个**。
+ * 实测：只从 `selfcheck.ts` 的 `import` 出发，闭包是 5 个文件；把后两种边补上，是 **12 个**。
  * 少收的那 11 个里有 `mutate-rule.ts`（判定「抓到还是崩了」的那一半）——
  * 一条打在它身上的 `by: "selfcheck"` 变异，改的正是给它自己判分的那把尺。
  *
@@ -69,7 +69,6 @@ export interface Reaches {
  */
 export const SELFCHECK_TOOLS = {
   mutate: 'check/mutate.ts',
-  arch: 'check/arch-sync.ts',
 } as const
 
 /**

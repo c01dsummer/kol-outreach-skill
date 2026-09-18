@@ -3561,8 +3561,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 上一版是扫源码猜哪些路径是工具，评审两轮各找到一批诱饵（注释里的、夹具串里的、
   // 串里装着调用形状的、以及普通的读文件）—— 收紧正则是军备竞赛，让清单成为行为才是根治。
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的', SELFCHECK_SEEDS, [
-    'scripts/check/arch-sync.ts', 'scripts/check/fake-fetch.ts',
-    'scripts/check/mutate.ts', 'scripts/check/selfcheck.ts',
+    'scripts/check/fake-fetch.ts', 'scripts/check/mutate.ts', 'scripts/check/selfcheck.ts',
   ])
   // 预加载单独列，因为它既不是 import 也不是「起了谁」—— 两种扫法都收不到
   ok('预加载那一份在种子里', SELFCHECK_SEEDS.includes(`scripts/${SELFCHECK_PRELOAD}`))

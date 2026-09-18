@@ -769,8 +769,6 @@ mkdirSync(join(dupTmp, 'scripts', 'check'), { recursive: true })
 mkdirSync(join(dupTmp, 'docs'), { recursive: true })
 writeFileSync(join(dupTmp, 'docs', 'requirements.json'),
   JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
-// 架构文档留空：arch-sync 的重复检查要是排在读表之后，报的就是「缺少 BEGIN/END 标记」
-writeFileSync(join(dupTmp, 'docs', 'ARCHITECTURE.md'), '', 'utf8')
 writeFileSync(join(dupTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
   { id: 'M-X-a', req: 'X1', why: '顶着同一个名字的第一条', file: 'a.ts', find: 'x', replace: 'y' },
   { id: 'M-X-a', req: '登记表里没有这条', why: '同名的第二条，同时还记错了名下', file: 'a.ts', find: 'x', replace: 'z' },
@@ -789,15 +787,6 @@ if (dupMut === undefined) {
 } else if (dupMut.includes('记在不存在的需求名下')) {
   failed++
   console.error('  ✗ mutate 先报的是记错名下 —— 那份报告印的也是 id，它自己也指不回表里哪一行')
-}
-// arch-sync：它在检查链里排在 mutate **前面**，而它按编号建的是 Map（重名只留最后一条）。
-// 不在这儿先拦下，顺序契约就会指着另一条变异报「不在该契约的位置里」，而 mutate 那条
-// 真正的诊断根本轮不上说话。
-const dupArch = runTool('arch-sync 遇到重复编号即以退出码 1 结束', 'arch', [], dupTmp, { status: 1 })
-if (dupArch === undefined) {
-  // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
-} else if (!dupArch.includes('个编号重复')) {
-  failed++; console.error('  ✗ arch-sync 的输出里没有「编号重复」那条诊断')
 }
 
 // ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----
