@@ -19,7 +19,7 @@
 要么只写命令不写输出（ADR-73、ADR-82）；一句承诺往往有多份副本，改一处要
 点名逐个过、不要 grep（`docs/SYNC.md`）。
 
-**四个坑**：中文文件名要 `-c core.quotePath=false`，否则 `git ls-files` 取到 0 个 ADR；
+**四个坑**：中文文件名要 `-c core.quotePath=false`，否则 `git ls-files` 一个 ADR 都取不到；
 可能是浅克隆而 `git log` 不会说它被截断；换个说法就躲过检索（搜关键词别搜整句，
 搜全仓别只搜 `docs/`）；`npm run check` / `test` / `mutate` 会写覆盖记录文件，
 核事实时它们不是只读命令。
