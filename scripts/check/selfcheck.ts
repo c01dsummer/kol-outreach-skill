@@ -258,6 +258,37 @@ if (tightOut === undefined) {
   // 续跑之后那次解析同样兜住 —— 坏了就说「读不出来」，而不是把整个自检掀掉。
   if (tightTaskJson !== undefined) {
     const before = tightTaskJson
+    // **续跑的预算要从断点里那个数起算 —— 这是 `D6.a`，不是 `P3.b`。**
+    // `D6.a` 逐字：「以 --resume 重入时，task.json 的 done 数组中的索引被跳过；
+    // Budget 以已有 requests 初始化，spent 连续不归零。」后半句说的就是这件事。
+    // ⚠️ 下面那句认领原先把它列进 `P3.b` 的账里 —— 那是**另一条需求的判据**，
+    // 而 `D6.a` 至今没有任何认领（审计逐条报着）。
+    //
+    // 这一半原先只有下面那条「请求数涨了没有」的散文诊断顶着，而它在结构上分不出两种
+    // 起算法：续跑给的额度宽得多，从零起算发的请求只会更多，那条判断照样过
+    // （实测：把起算点改成零，整份自检全绿）。
+    //
+    // 分得开的办法是把额度卡在**只够已经花掉那么多**：起算点对的话第一次请求就超限、
+    // 一个请求都不再发；从零起算的话同一份额度被原样重花一遍。
+    // ⚠️ 认的是**采集进度**，不是断点里那个请求数 —— 两种起算法下那个数都停在
+    // 「额度 ÷ 单价」，恰好相等，拿它断言等于写下一句永远为真的话。
+    const stingy = run('collect --resume 额度只够已经花掉的那些',
+                       [S('collect.ts'), '--resume', tightDir, '--budget', '0.002'], tmp,
+                       { status: 3, stream: 'stdout' })
+    let afterStingy: { offsets?: unknown } | undefined
+    if (stingy !== undefined) { try { afterStingy = JSON.parse(readFileSync(tightTask, 'utf8')) } catch {} }
+    const pagesOf = (t: { offsets?: unknown } | undefined): string =>
+      `${t === undefined ? '读不出来' : JSON.stringify(t.offsets)}`
+    const pagesBefore = pagesOf(before)
+    // ⚠️ 还要求中止那一刻**真的抓到过页**：语料造不出这个前提时两边都空、比较恒真，
+    // 这条断言从写下那天起就没验过任何事 —— 那是这个仓库反复栽的形状。
+    const measurable = !['读不出来', 'undefined', '{}'].includes(pagesBefore)
+    named('续跑的额度只够已经花掉的那些时，一个请求都不再发',
+          measurable && pagesOf(afterStingy) === pagesBefore,
+          measurable
+            ? `采集进度从 ${pagesBefore} 动到了 ${pagesOf(afterStingy)} —— 续跑的预算没有从`
+              + '断点里那个数起算，同一份额度被原样重花了一遍，而用户只确认过一次'
+            : `中止那一刻的采集进度是 ${pagesBefore} —— 这条断言的前提没造出来，它证不了任何事`)
     const resumed = run('collect --resume 追加预算续跑',
                         [S('collect.ts'), '--resume', tightDir, '--budget', '1'], tmp)
     let after: any
@@ -274,11 +305,20 @@ if (tightOut === undefined) {
       console.log(`  ✓ 断点恢复：关键词 ${before.done.length}→${after.done.length}，请求 ${before.requests}→${after.requests}`)
     }
   }
-  // 写在整段之后，不写在「续跑」那一半之前：P3.b 的四半要**全跑到**才认领得起 ——
-  // 退出码 3（`expect` 那一档）、断点在、断点记到中止那一刻、续跑从断点起算。
+  // 写在整段之后，不写在「续跑」那一半之前：`P3.b` 逐字要求的每一件事都要跑到过才认领得起
+  // ——正本在 `docs/requirements.json` 的 `P3.b`，这里不复述它，也不数它有几件。
+  // ⚠️ **原先这里数过**（「四半」），而那张清单与 ADR-70 里同名的那张装的不是同一批东西，
+  // 两张都少一件，全仓也没有第三处写下过总数。一个写在散文里的数没有任何东西守着它（ADR-82）。
   // 缺省那个验证者够不到入口，所以这条认领只有自检发得出（落地 3 第一片）。
   // ⚠️ 它原先的显式豁免逐字写的就是这个理由，**落地 4 已经撤掉** —— 现在由硬失败
-  // 盯着：只由自检认领的判据没有一条 `by: "selfcheck"` 的负片就红（这里是 M-P3-b）。
+  // 盯着：只由自检认领的判据没有一条 `by: "selfcheck"` 的负片就红。
+  // ⚠️ 这条认领只认 `P3.b`。上面那条紧额度断言守的是 `D6.a`（续跑从断点起算），
+  // **不在这条认领里** —— 它另有半句（done 里的索引被跳过）这段夹具没有断言，
+  // 认领整条就是把没验的那半也算进来。`D6.a` 今天仍按「没有认领」报着，这是实情。
+  // ⚠️ 名下的负片各守各的一件：`M-P3-b` 守断点记的内容（`P3.b`）；
+  // `M-D6-m` 守续跑的预算从断点起算、`M-D6-n` 守断点还在契约点名的那个文件名（都是 `D6.a`）。
+  // 后一条**由 `P3.b` 这条夹具抓到** —— 违反的是谁、被谁抓到，不必是同一条。
+  // 「捕获」与「退出码 3」两件今天拿不到负片，理由是判定层的结论，记在 ADR-70。
   criterion('P3.b')
 }
 
