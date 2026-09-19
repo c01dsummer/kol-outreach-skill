@@ -129,7 +129,18 @@ function scan(text: string): { mask: boolean[]; state: State } {
       mask.push(true)
       continue
     }
-    if (run) { state.fence = { char: run[1][0], len: run[1].length }; mask.push(true); continue }
+    /**
+     * **反引号围栏的信息串里不许再有反引号**(规范如此;波浪号围栏不受这条限制)。
+     * 不判这一句的话,一行以三个反引号起头、后面又带反引号的普通文字会被当成开启,
+     * 于是它到下一个闭合之间**整段被遮住** —— 而那中间可能正有一条真的重启条件,
+     * 少遮是危险的那一侧,多遮同样会让判定看不见该看见的东西。
+     */
+    const opensFence = run !== null && !(run[1][0] === '`' && run[2].includes('`'))
+    if (opensFence && run) {
+      state.fence = { char: run[1][0], len: run[1].length }
+      mask.push(true)
+      continue
+    }
     /**
      * **规范的开启条件先判,我那条放宽的注释判据殿后。** 顺序反过来就漏:
      * `<pre><!-- 说明 -->` 是规范认的第 1 类开启符(行首是 `<pre` 后跟 `>`),

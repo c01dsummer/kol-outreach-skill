@@ -2691,6 +2691,14 @@
       "why": "引用记号不再剥了 —— 写在引用块里的围栏一行都遮不住，而这个仓库举例的地方几乎都在引用块里；一段演示怎么写欠条的例子于是被当成真条件，替那张欠条交了差，真正没写条件的那些就报不出来",
       "find": "    const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line.replace(QUOTE_PREFIX, ''))",
       "replace": "    const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)"
+    },
+    {
+      "id": "M-H12-d",
+      "req": "harness",
+      "file": "scripts/check/quoted.ts",
+      "why": "反引号围栏的信息串里再带反引号也照样算开启 —— 规范不认这种开启，而认了之后，一行普通文字会把它到下一个闭合之间整段遮住，那中间可能正有一条真的重启条件，判定于是看不见该看见的东西",
+      "find": "    const opensFence = run !== null && !(run[1][0] === '`' && run[2].includes('`'))",
+      "replace": "    const opensFence = run !== null"
     }
   ],
   "exemptions": [
