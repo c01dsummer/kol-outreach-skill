@@ -8,6 +8,7 @@
  * 它**没有死亡条件,而那是判过的结论、不是漏了** —— 理由记在 ADR-85。
  */
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
+import { entries, ledgerSummary, orphanIous } from './check/debt-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import {
   JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
@@ -4071,6 +4072,60 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
 
   const bad = judge({ 源码: 0, 测试: 0, 文档: 0, 其他: 0 }, [], ['随便'])
   ok('写了不成立的 size-ok，即使没超线也失败 —— 否则它会被当成挡箭牌留在历史里', !bad.ok)
+}
+
+harness('欠条台账：三套写法怎么认，以及写了欠条不写重启条件')
+{
+  const doc = (text: string) => new Map([['docs/adr/X.md', text]])
+
+  // 第一套必须带冒号。裸的「重启条件」三个字一大半不是条件,是在谈这个机制本身 ——
+  // 仓库里 167 行只有 107 行是真条件,逐条分桶记在 ADR-86
+  eq('全角冒号', entries(doc('> 重启条件：下一条碰 `x.ts` 的 PR')).length, 1)
+  eq('半角冒号', entries(doc('> 重启条件:下一条')).length, 1)
+  eq('四种后缀', entries(doc(
+    '> 重启条件收紧：a\n\n> 重启条件不变：b\n\n> 重启条件放宽：c\n\n> 重启条件改为：d')).length, 4)
+  eq('括注也算 —— ADR-70:2009 就长这样', entries(doc(
+    '> 重启条件（扩范围档，按 `6-INTEGRATE.md`）：本 PR 已合入')).length, 1)
+  // 闭集不是讲究:放开成「冒号之前随便什么」,下面这句叙述会被收成一条条件,
+  // 而同一条判据还要拿去判孤儿 —— 一条叙述顶上去,真孤儿就报不出来了
+  eq('叙述句不算条件', entries(doc('> 这是「重启条件响了没人提醒」的第四个实例：见上')).length, 0)
+  eq('不带冒号不算', entries(doc('> 那条欠条的重启条件已经到期')).length, 0)
+
+  // 第二、三套都是整节,判据是节标题加条目形状,不是某个词
+  eq('重开讨论那一节,出了节就不算', entries(doc(
+    '## 什么条件下重开这个讨论\n\n- **A 时**：x\n- **B 时**：y\n\n## 别的\n\n- **C**：z')).length, 2)
+  eq('死亡条件那一节 —— 引子五花八门,共同点是引用块里的加粗', entries(doc(
+    '## 死亡条件\n\n> **ADR-62 那条**：降到 5 个以下时\n\n> ⚠️ 欠条：另一回事 · 重启条件：x')).length, 2)
+  eq('ADR-85 那种不挂在标题下的', entries(doc(
+    '### `adr`\n\n> **什么条件下整个撤掉**：对手方全没了时')).length, 1)
+
+  // 决策记录里有演示这些写法的命令与代码块。不盖住的话,一段教人怎么 grep 欠条的
+  // 示例会变成一条真欠条 —— `quoted.ts` 的文件头写着凡按结构解析都要先过这一道
+  eq('围栏里的示例不算', entries(doc('```bash\n# 重启条件：示例\n```')).length, 0)
+
+  // 孤儿 = 块里没有重启条件的欠条。`docs/SYNC.md`:56 说带重启条件的欠条不算待办,
+  // 反过来:不带的是纯待办,而待办不该住在决策记录里
+  eq('块里有条件 → 不是孤儿', orphanIous(doc('> ⚠️ 欠条：缺 x\n> 重启条件：下次碰 y 时')).length, 0)
+  eq('块里没有 → 孤儿', orphanIous(doc('> ⚠️ 欠条：缺 x，改天再说')).length, 1)
+  // 定界要在第一个非 `>` 行停住。不停的话前一块白蹭后一块的条件 ——
+  // 那正是「0 条孤儿」变成假话的方式,而 0 正是这道闸门放行的意思
+  eq('相邻两块不许互相顶账', orphanIous(doc(
+    '> ⚠️ 欠条：第一块，没写条件\n\n> ⚠️ 欠条：第二块\n> 重启条件：下次 x')).length, 1)
+  eq('不带 > 的散块到空行为止', orphanIous(doc(
+    '⚠️ 欠条：散块没写条件\n\n重启条件：这一行属于下一段')).length, 1)
+
+  // 手搭的数据证不了真仓库。今天 88 个块 88 个都写了条件 —— 这道闸门是绿的,
+  // 它拦的是往后的滑坡,不是现状
+  const realAdr = new Map(readdirSync('docs/adr').filter(f => f.endsWith('.md'))
+    .map(f => [`docs/adr/${f}`, rf(`docs/adr/${f}`, 'utf8')] as const))
+  eq('真仓库里没有孤儿欠条', orphanIous(realAdr).map(o => `${o.file}:${o.line}`), [])
+  eq('真仓库里三套写法都抽得到', new Set(entries(realAdr).map(e => e.notation)).size, 3)
+
+  // 末尾那句限定不是客套:去掉它,读的人会把条数当成「还欠着这么多」,
+  // 而这份清单根本不知道哪一条已经还了
+  const sum = ledgerSummary(entries(realAdr))
+  ok('汇总要写明不判已还', sum.includes('不判已还'))
+  ok('汇总要写明不判踩没踩到', sum.includes('不判这次改动踩到了谁'))
 }
 
 console.log(fail ? `\n${fail} 个失败\n` : `\n全部通过（覆盖 ${covered.size} 条需求）\n`)
