@@ -431,6 +431,21 @@ if (dir && rendered !== undefined) {
     if (!activity || activity.measured + activity.unavailable + activity.unqueried !== activity.total) {
       failed++; console.error('  ✗ meta.json 缺少完整的 creator_activity 三态统计')
     } else console.log('  ✓ meta.json 含 creator_activity 三态统计')
+    // 上面那条只看一个能力，而且**恒等式本身盖不住要防的那件事**：把 unqueried 并进
+    // unavailable，三项之和照样等于 total，报表上却再也分不出「没查」和「查了测不出」。
+    // 所以这里加两层：每个能力各自平账（哪一个漏项都报得出名字），
+    // 以及这一次跑里三个桶**都真的有人**（并桶会让某个桶归零 —— 恒等式看不见，这里看得见）。
+    const caps: Array<[string, Record<string, number>]> = Object.entries(meta.capabilities ?? {})
+    const offBooks = caps.filter(([, v]) => v.measured + v.unavailable + v.unqueried !== v.total)
+    named('每个能力的三态各自平账', caps.length > 0 && offBooks.length === 0,
+      `对不上账的是 ${offBooks.map(([k]) => k).join('、') || '（一个能力都没报出来）'}`)
+    // 这一跑没有配置报价层，所以 collaboration_quote 是**一个人都没查过** ——
+    // 整数必须落在 unqueried 上。并桶的那一刻它会跑到 unavailable 去，
+    // 而恒等式对此一声不吭：上面那两条在并桶时照样全绿，只有这一条会红。
+    // 挑它而不挑别的：这一跑里只有它既走 countMeasurements、又整份是「没查过」。
+    const quote = meta.capabilities?.collaboration_quote
+    named('「没查过」没被并进「查了测不出」', quote !== undefined && quote.unqueried === quote.total,
+      `这一跑没配报价层，collaboration_quote 应当整份记在 unqueried，实际 ${JSON.stringify(quote)}`)
     // P5.h：这条自检的管线不配置邮箱/地域增强层，
     // enriched 必须是 false —— 公开指标不能把邮箱/受众增强伪装成已完成。
     if (meta.enriched !== false) {

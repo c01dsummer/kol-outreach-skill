@@ -91,7 +91,7 @@ import type {
   EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, TaskState,
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
-import { persistListAndStatus, saveTask } from './lib/task.js'
+import { loadRawCreators, persistListAndStatus, saveRawCreators, saveTask } from './lib/task.js'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 
 let fail = 0
@@ -212,17 +212,33 @@ const assessedAccount = (
 
 suite('P1', '缺失数据不得用默认值填充')
 {
-  // 「未查询」与「查过，值为空」必须是两个不同的值
-  const notFetched = mk('tiktok', 'a', { bio: undefined })
-  const fetchedEmpty = mk('tiktok', 'b', { bio: '' })
-  ok('bio 未取到时为 undefined', notFetched.bio === undefined)
-  ok('bio 取到但为空时为空串', fetchedEmpty.bio === '')
+  // 「未查询」与「查过，值为空」必须是两个不同的值。
+  //
+  // 这里原先比的是夹具上一行刚放进去的值（`ok('bio 未取到时为 undefined', …)` 这一族），
+  // 而 `mk` 是纯展开 —— **那种断言无论实现怎么写都绿**（ADR-88 第一节）。
+  // 换成过一趟真正压着正确性的那条路：采集累加器 `creators.raw.json`。
+  // 续跑读的就是它（`loadRawCreators`），读回来分不开，「查过、对方没有」
+  // 下一轮就会被当成「还没查过」再花一次钱查。
+  //
+  // 逐条写标量，不并成数组：`eq` 走 JSON.stringify，而数组里的 undefined 会被
+  // 序列化成 null —— 并起来写，这几条恰好分不出本条要防的那两个态。
+  const rawDir = mkdtempSync(join(tmpdir(), 'kol-p1-raw-'))
+  saveRawCreators(rawDir, [
+    mk('tiktok', 'a', { bio: undefined, email: undefined, followers: undefined }),
+    mk('tiktok', 'b', { bio: null, email: null, followers: 0 }),
+  ])
+  const back = loadRawCreators(rawDir)
+  rmSync(rawDir, { recursive: true, force: true })
+  eq('未查询过一趟持久化仍是未查询：bio', back[0].bio, undefined)
+  eq('未查询过一趟持久化仍是未查询：email', back[0].email, undefined)
+  eq('未查询过一趟持久化仍是未查询：followers', back[0].followers, undefined)
+  eq('「查过、对方没有」过一趟持久化仍是 null，没塌成未查询', back[1].bio, null)
+  eq('「值就是 0」过一趟持久化仍是 0，没塌成未查询', back[1].followers, 0)
 
   // 粉丝数未知不得被当作 0 参与评分 —— 那会让人被下限过滤掉
   const unknown = mk('tiktok', 'c', { followers: undefined, post_count: undefined })
   const zero = mk('tiktok', 'd', { followers: 0, post_count: 0 })
   eq('未知粉丝不得分', scoreCreator(unknown), scoreCreator(zero))
-  ok('未知与 0 在类型上可区分', unknown.followers === undefined && zero.followers === 0)
 
   // 未知 + 已知 的合并结果必须是未知，不能当 0 加
   const m = [mk('tiktok', 'x', { followers: undefined, bio_links: ['https://instagram.com/x'] }),
@@ -281,6 +297,38 @@ suite('P1', 'profile 查回来了、对方没写简介 —— 别再当成「还
   eq('查过、没写简介、有外链 → 不用再补', needsProfile(c({ bio: null, bio_links: ['https://x'] })), false)
   ok('没查过 → 还是要补', needsProfile(c({ bio: undefined, bio_links: ['https://x'] })))
   criterion('P1.c')
+}
+
+suite('P1', '采集侧解析：响应里没有的字段不得落成 0 或空串')
+{
+  /**
+   * P1 的 a–g 七条都停在「数据已经进了系统」那一侧，而三态**第一次成形**是在这里 ——
+   * 搜索响应解析。这一层把缺失读成 0，下游拿到的就全是「值就是 0」，
+   * 后面每一条判据照样绿。ADR-88 把这一处记成真空白。
+   */
+  const stub = (raw: unknown) => {
+    const api = new TikHub('k', new Budget(1))
+    ;(api as unknown as { get: () => Promise<unknown> }).get = async () => raw
+    return api
+  }
+  /** 只换 author 上的那几个字段，别的保持一次真实响应的形状 */
+  const one = async (author: Record<string, unknown>): Promise<Partial<Creator>> =>
+    (await stub({ data: { aweme_list: [{ author: { unique_id: 'u', ...author }, statistics: {} }] } })
+      .search({ keyword: 'k', dimension: 'category', platform: 'tiktok' }, 'US', 0)).creators[0]
+
+  const missing = await one({})
+  eq('响应里没有粉丝数 → 未查询，不落成 0', missing.followers, undefined)
+  eq('响应里没有简介 → 未查询，不落成空串', missing.bio, undefined)
+
+  // 搜索结果里 aweme_count 对**所有人**都返回 0 —— 那不是真实值，是这个端点不填它。
+  // 当成 0，内容积累那一档对全员失效，而 0 是个「值」，类型系统拦不住。
+  eq('搜索结果里的 aweme_count: 0 是占位不是真值 → 记未查询',
+     (await one({ aweme_count: 0 })).post_count, undefined)
+
+  // 反向的一半：真有值时不许被上面那条顺手吞掉
+  eq('aweme_count 有真实值 → 照常记下', (await one({ aweme_count: 42 })).post_count, 42)
+  eq('follower_count 有真实值 → 照常记下', (await one({ follower_count: 31_000 })).followers, 31_000)
+  eq('signature 有内容 → 照常记下', (await one({ signature: 'hi' })).bio, 'hi')
 }
 
 suite('P1', '没取到的播放数不得被判成爆款')
