@@ -944,7 +944,8 @@ if (dir && rendered !== undefined) {
           pathCfg('pdone', { target_count: 9999 }), 0, 'done', FREE, COST)
 
   // 达标提前停下：和上面同为退出码 0、同说「不花钱」，但 stopped 不同 ——
-  // 剩下的关键词一个都没碰过，而续跑会在第一个请求之前再次达标（D6.c）。
+  // 这个夹具里补全没把人筛下去，收尾时 qualified 仍够目标，所以那句话说不花钱
+  // （D6.c 按调用那一刻的 qualified 算）。筛掉之后结论会反过来 —— ADR-94 第十三节。
   endPath('collect 达标提前停下（退出码 0）也说续跑代价',
           pathCfg('ptarget', { target_count: 1 }), 0, 'target', FREE, COST)
 
