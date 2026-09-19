@@ -91,6 +91,9 @@ interface State {
   html: { end: RegExp | 'blank' } | null
 }
 
+/** 行首的引用记号(可以嵌套),剥掉它才认得出引用块里的围栏。 */
+const QUOTE_PREFIX = /^(?: {0,3}>[ \t]?)+/
+
 function scan(text: string): { mask: boolean[]; state: State } {
   const mask: boolean[] = []
   const state: State = { fence: null, comment: false, html: null }
@@ -107,7 +110,16 @@ function scan(text: string): { mask: boolean[]; state: State } {
       if (done) state.html = null
       continue
     }
-    const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)
+    /**
+     * **围栏要先剥掉引用记号再认。** 规范说围栏最多三个前导空格,而 `> ` 不是空白 ——
+     * 于是写在引用块里的围栏整段一行都遮不住(实测,不是推的)。而欠条块、死亡条件、
+     * 决策记录里的例子恰恰都写在引用块里,那正是最需要盖住的地方(ADR-86)。
+     *
+     * 只剥给围栏这一路用,HTML 与注释那两路仍看原行 —— 改得越窄，另外两个
+     * 调用方(体量豁免的示例、决策记录分节)受到的影响越小。而这一剥只会让遮罩
+     * **盖得更多**，正是本文件开头声明的那个故意的偏向。
+     */
+    const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line.replace(QUOTE_PREFIX, ''))
     if (state.fence) {
       const closes = run !== null
         && run[1][0] === state.fence.char
@@ -117,7 +129,18 @@ function scan(text: string): { mask: boolean[]; state: State } {
       mask.push(true)
       continue
     }
-    if (run) { state.fence = { char: run[1][0], len: run[1].length }; mask.push(true); continue }
+    /**
+     * **反引号围栏的信息串里不许再有反引号**(规范如此;波浪号围栏不受这条限制)。
+     * 不判这一句的话,一行以三个反引号起头、后面又带反引号的普通文字会被当成开启,
+     * 于是它到下一个闭合之间**整段被遮住** —— 而那中间可能正有一条真的重启条件,
+     * 少遮是危险的那一侧,多遮同样会让判定看不见该看见的东西。
+     */
+    const opensFence = run !== null && !(run[1][0] === '`' && run[2].includes('`'))
+    if (opensFence && run) {
+      state.fence = { char: run[1][0], len: run[1].length }
+      mask.push(true)
+      continue
+    }
     /**
      * **规范的开启条件先判,我那条放宽的注释判据殿后。** 顺序反过来就漏:
      * `<pre><!-- 说明 -->` 是规范认的第 1 类开启符(行首是 `<pre` 后跟 `>`),

@@ -18,6 +18,7 @@ import {
   fingerprint, sourceFiles,
   type Claims,
 } from './claims.js'
+import { entries as debtEntries, ledgerSummary, orphanIous } from './debt-rule.js'
 import { exemptionCovered, exemptionLead } from './mutate-rule.js'
 import {
   REDLINE_CAT, criteriaCell, mutationCell, requirementVerdict, tensionEvidence, tensionVerdict,
@@ -247,6 +248,33 @@ for (const r of reqs) {
 
 // ---- 5. SPEC 与 json 一致性由 spec-sync 保证，这里只提示 ----
 
+// ---- 6. 欠条台账：三套「什么时候回来」的写法，抽成一份清单 ----
+/**
+ * 这一节**只抽取，不判断** —— 它不说哪条欠条已经还了，也不说这次改动踩到了谁。
+ * 撤掉匹配那一半的理由在 ADR-86：读懂条件是会随模型变强的那一侧，正则不是。
+ *
+ * 决策记录不在 `sources` 里（上面 `ADR_DIR` 那段说了为什么），所以单独读一遍。
+ */
+const adrDocs = new Map(walk(ADR_DIR, '.md').map(f => [f, readFileSync(f, 'utf8')] as const))
+const debts = debtEntries(adrDocs)
+/** 硬失败先判,再看要不要只打清单 —— 反过来的话 `--debts` 这条路把闸门跳过去了 */
+const orphans = orphanIous(adrDocs)
+for (const o of orphans) {
+  hard++
+  gaps.push(`${o.file}:${o.line} 写了欠条却没写重启条件 —— ` +
+            '没有重启条件的登记不是登记，是免责声明（process/6-INTEGRATE.md）')
+}
+if (process.argv.includes('--debts')) {
+  for (const e of debts) console.log(`${e.file}:${e.line}  [${e.notation}]  ${e.text}`)
+  for (const o of orphans) console.log(`${o.file}:${o.line}  [孤儿·没写重启条件]  ${o.text}`)
+  console.log(`\n  ${ledgerSummary(debts)}`)
+  if (orphans.length) {
+    console.error(`\n✗ 欠条台账：${orphans.length} 张欠条没写重启条件`)
+    process.exit(1)
+  }
+  process.exit(0)
+}
+
 console.log('\n链路审计\n')
 console.log(rows.join('\n'))
 console.log(`\n  图例：✓ 完整  ⊘ 显式豁免  · 缺口  ✗ 硬失败\n`)
@@ -298,6 +326,8 @@ const allCrit = reqs.flatMap(r => r.accept)
 const redlineCrit = reqs.filter(r => r.cat === REDLINE_CAT).flatMap(r => r.accept)
 // 三个名单怎么数、分几栏报，都是判定，在 `audit-rule.ts` 里（第一轮评审指出）
 console.log(`  ${coverageSummary(allCrit, redlineCrit, testedCriteria, entryCriteria, exemptIds)}`)
+console.log(`  ${ledgerSummary(debts)}`)
+console.log('    认三种写法，别的形状不在账上 · 全表：`npm run audit -- --debts`')
 
 if (hard) { console.error(`\n✗ 审计：${hard} 项硬失败`); process.exit(1) }
 // 「有测试认领」→「有认领」：入口认领算数之后，未豁免的红线判据里可以有几条是

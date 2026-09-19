@@ -2651,6 +2651,54 @@
       "why": "号在那儿却不能拿去发刀时一声不吭 —— 那意味着确实起过一个验证者而我们不知道该收谁，于是那一组被静默过继出去接着跑被改过的源码，同时这边照样删目录、照样报「收干净了」；它和「压根没起验证者」在输出上长得一模一样，而两者不是一回事",
       "find": "    if (shot === undefined) {\n      warns.push({ do: 'warn', text: `\\n  ⚠️ 验证者的号不能拿去发刀（写了一半、不是个号，`\n                                     + `或者指向不许打的目标）：${s.beacon}`\n                                     + ` —— 那一组没收掉，可能还在跑被改过的源码\\n` })\n      continue\n    }",
       "replace": "    if (shot === undefined) continue"
+    },
+    {
+      "id": "M-H41-a",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "冒号之前放开成随便什么 —— 一句在谈论这个机制的叙述会被收成一条真条件，于是它所在的那个欠条块被判成「写了条件」，真正没写的那些就报不出来，而报不出来正是这道闸门放行的意思",
+      "find": "  /重启条件(?:收紧|不变|放宽|改为|[（(][^）)\\n]{0,30}[）)])?\\s*[：:]/",
+      "replace": "  /重启条件[^：:\\n]{0,24}[：:]/"
+    },
+    {
+      "id": "M-H41-b",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "块的下界不认了，一路扫到文件末尾 —— 前一个欠条块于是白蹭到后面某一块写的条件，两块粘成一块之后，没写条件的那一块看起来是写了的",
+      "find": "      while (end < lines.length &&\n             (quotedBlock ? lines[end].trimStart().startsWith('>') : lines[end].trim() !== '')) end++",
+      "replace": "      while (end < lines.length) end++"
+    },
+    {
+      "id": "M-H41-c",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "汇总末尾那句限定被拿掉 —— 台账并不知道哪一条已经还了，去掉限定之后那个条数读起来就是「还欠着这么多」，而它其实只是「抽到了这么多」",
+      "find": "` —— 只抽取，不判已还、也不判这次改动踩到了谁`",
+      "replace": "''"
+    },
+    {
+      "id": "M-H41-d",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "块内不再过引文遮罩 —— 一段演示「欠条该怎么写」的围栏例子里有那四个字加冒号，它替整个块交了差，于是真正没写条件的那张欠条被判成写了，而漏报正是这道闸门放行的意思",
+      "find": "      const body = lines.slice(i, end).filter((_, k) => !quoted[i + k]).join('\\n')",
+      "replace": "      const body = lines.slice(i, end).join('\\n')"
+    },
+    {
+      "id": "M-H12-c",
+      "req": "harness",
+      "file": "scripts/check/quoted.ts",
+      "why": "引用记号不再剥了 —— 写在引用块里的围栏一行都遮不住，而这个仓库举例的地方几乎都在引用块里；一段演示怎么写欠条的例子于是被当成真条件，替那张欠条交了差，真正没写条件的那些就报不出来",
+      "find": "    const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line.replace(QUOTE_PREFIX, ''))",
+      "replace": "    const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)"
+    },
+    {
+      "id": "M-H12-d",
+      "req": "harness",
+      "file": "scripts/check/quoted.ts",
+      "why": "反引号围栏的信息串里再带反引号也照样算开启 —— 规范不认这种开启，而认了之后，一行普通文字会把它到下一个闭合之间整段遮住，那中间可能正有一条真的重启条件，判定于是看不见该看见的东西",
+      "find": "    const opensFence = run !== null && !(run[1][0] === '`' && run[2].includes('`'))",
+      "replace": "    const opensFence = run !== null"
     }
   ],
   "exemptions": [
