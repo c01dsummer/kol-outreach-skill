@@ -2675,6 +2675,14 @@
       "why": "汇总末尾那句限定被拿掉 —— 台账并不知道哪一条已经还了，去掉限定之后那个条数读起来就是「还欠着这么多」，而它其实只是「抽到了这么多」",
       "find": "` —— 只抽取，不判已还、也不判这次改动踩到了谁`",
       "replace": "''"
+    },
+    {
+      "id": "M-H41-d",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "块内不再过引文遮罩 —— 一段演示「欠条该怎么写」的围栏例子里有那四个字加冒号，它替整个块交了差，于是真正没写条件的那张欠条被判成写了，而漏报正是这道闸门放行的意思",
+      "find": "      const body = lines.slice(i, end).filter((_, k) => !quoted[i + k]).join('\\n')",
+      "replace": "      const body = lines.slice(i, end).join('\\n')"
     }
   ],
   "exemptions": [

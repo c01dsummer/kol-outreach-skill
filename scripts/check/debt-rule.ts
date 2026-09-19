@@ -105,7 +105,12 @@ export function orphanIous(docs: Map<string, string>): Entry[] {
       let end = i + 1
       while (end < lines.length &&
              (quotedBlock ? lines[end].trimStart().startsWith('>') : lines[end].trim() !== '')) end++
-      if (!CONDITION.test(lines.slice(i, end).join('\n'))) {
+      // 块内也要过遮罩:一段演示「欠条该怎么写」的围栏例子里有那四个字加冒号,
+      // 不过滤的话它替这个块交了差 —— 而漏报正是这道闸门放行的意思。
+      // ⚠️ 只够到**裸**围栏:遮罩不认嵌在引用块里的围栏,而欠条块恰恰都是引用块。
+      // 那个洞在 `quoted.ts` 里,不在这里 —— 缺口与重启条件记在 ADR-86
+      const body = lines.slice(i, end).filter((_, k) => !quoted[i + k]).join('\n')
+      if (!CONDITION.test(body)) {
         out.push({ file, line: i + 1, notation: '重启条件', text: plain(line) })
       }
     })

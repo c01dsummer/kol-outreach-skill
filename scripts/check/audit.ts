@@ -257,15 +257,22 @@ for (const r of reqs) {
  */
 const adrDocs = new Map(walk(ADR_DIR, '.md').map(f => [f, readFileSync(f, 'utf8')] as const))
 const debts = debtEntries(adrDocs)
-if (process.argv.includes('--debts')) {
-  for (const e of debts) console.log(`${e.file}:${e.line}  [${e.notation}]  ${e.text}`)
-  console.log(`\n  ${ledgerSummary(debts)}`)
-  process.exit(0)
-}
-for (const o of orphanIous(adrDocs)) {
+/** 硬失败先判,再看要不要只打清单 —— 反过来的话 `--debts` 这条路把闸门跳过去了 */
+const orphans = orphanIous(adrDocs)
+for (const o of orphans) {
   hard++
   gaps.push(`${o.file}:${o.line} 写了欠条却没写重启条件 —— ` +
             '没有重启条件的登记不是登记，是免责声明（process/6-INTEGRATE.md）')
+}
+if (process.argv.includes('--debts')) {
+  for (const e of debts) console.log(`${e.file}:${e.line}  [${e.notation}]  ${e.text}`)
+  for (const o of orphans) console.log(`${o.file}:${o.line}  [孤儿·没写重启条件]  ${o.text}`)
+  console.log(`\n  ${ledgerSummary(debts)}`)
+  if (orphans.length) {
+    console.error(`\n✗ 欠条台账：${orphans.length} 张欠条没写重启条件`)
+    process.exit(1)
+  }
+  process.exit(0)
 }
 
 console.log('\n链路审计\n')
