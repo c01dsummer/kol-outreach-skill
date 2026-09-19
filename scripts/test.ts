@@ -517,12 +517,12 @@ suite('P3', '真实的 TikHub 在提交那一刻必已记账 —— 对着需求
    * 换掉的只有 globalThis.fetch 与 setTimeout 的**返回值**，不换调用位置：providers/tikhub.ts 在
    * 调用那一刻才取全局 fetch，sleep 在调用那一刻才取 setTimeout。跑的是真的 Budget、真的 TikHub。
    *
-   * oracle 只从 P3.a（被拒的请求不计数）与 tikhub.md 的计费列（200 计费、非 200 不计费、402 停）
-   * 推出，**不含重试策略**：文档说非 200 可重试三次，代码只重试 429，两处不一致，这里不替它选边。
-   * 所以下面的性质都写在「被服务的响应序列」上，与「哪个状态码会重试」无关。
+   * oracle 只从 P3.a（被拒的请求不计数）与 tikhub.md 的计费列推出，**不含重试策略**：
+   * tikhub.md 与 providers/tikhub.ts 对「哪些非 200 重试、重试几次」说法不一致（ADR-96 的欠条），
+   * 这里不替它选边。所以下面的性质都写在「被服务的响应序列」上，与「哪个状态码会重试」无关。
    *
-   * 上限折算的次数不许用 floor(limit / 单价) 算：闸门是浮点比较，0.010 只放 9 次。
-   * 这里的上限全在逐次算过的安全集合里（0、0.001、0.002）。
+   * 上限折算的次数不许用 floor(limit / UNIT_PRICE) 算：闸门是浮点比较，有的上限比 floor 少放一次
+   * （哪些、差多少见 ADR-96 第二节）。CASES 里的上限是逐次算过的显式样例，不是推导出来的。
    */
   type Obs = { sent: number; local: number; threw: string; countAtSend: number[]; served: number[] }
 
@@ -615,7 +615,7 @@ suite('P3', '真实的 TikHub 在提交那一刻必已记账 —— 对着需求
   ok('重试耗尽那条分支真的被走到（有序列提交了 4 次）', exhausted > 0)
 
   // ── 二、通用不变量扫六个公开方法：不需要知道方法内部发几次 ────────────────
-  // IG 搜索 reels 空→users 回退（两次 get）、IG profile V3 失败→V2（两级端点）都在对照面上
+  // IG 搜索 reels 空→users 的回退、IG profile V3 失败→V2 的回退都在对照面上
   const generic = (o: Obs, limit: number, start: number): string[] => {
     const bad: string[] = []
     o.countAtSend.forEach((c, i) => {
@@ -647,7 +647,7 @@ suite('P3', '真实的 TikHub 在提交那一刻必已记账 —— 对着需求
     }
   }
   eq('六个公开方法在全部序列上都合通用不变量', genericFailures.slice(0, 5), [])
-  // 只报数不判：长度 2 的序列量不到「IG profile 最多 8 次」，不冒充量出来的数
+  // 只报数不判：这个长度的序列量不到 IG profile 单次调用的提交上界，不冒充量出来的数
   console.log(`    观测到的每方法最大提交数：${[...maxSent].map(([k, v]) => `${k} ${v}`).join(' · ')}`)
 
   // ── 三、oracle 自己要能报不符 —— 否则上面两条恒为空数组 ───────────────────
