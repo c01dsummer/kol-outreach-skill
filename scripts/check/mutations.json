@@ -2791,6 +2791,22 @@
       "file": "scripts/lib/budget.ts",
       "find": "export const ledgerProblem = (v: unknown): string | undefined =>\n  v === undefined ? undefined                        // 字段没写 = 还没花过，按 0 算\n    : typeof v !== 'number' ? `不是数字（${typeof v}）`\n      : !Number.isFinite(v) ? '不是一个有限的数'\n        : v < 0 ? '是负数'\n          : !Number.isInteger(v) ? '不是整数'\n            : undefined",
       "replace": "export const ledgerProblem = (_v: unknown): string | undefined => undefined"
+    },
+    {
+      "id": "M-P3-c",
+      "req": "P3.a",
+      "why": "先把请求发出去，再问预算够不够 —— 超限那一次已经发出去、已经被对面计费，用户却没确认过；最终计数一模一样，只有提交那一刻的账少记一次",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      this.budget.charge()          // 预检 —— 超限在这里抛 BudgetExceeded\n      await sleep(this.interval)\n\n      const res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })",
+      "replace": "      await sleep(this.interval)\n\n      const res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })\n      this.budget.charge()          // 预检 —— 超限在这里抛 BudgetExceeded"
+    },
+    {
+      "id": "M-P3-e",
+      "req": "P3.a",
+      "why": "被预算拒掉的那一次也记进账 —— 判据说的是拒了就不计数，账上却多了一次，续跑从盘上读回来的起点因此偏大一次",
+      "file": "scripts/lib/budget.ts",
+      "find": "    if (this.spent + n * UNIT_PRICE > this.limitUsd) {\n      throw new BudgetExceeded(this.spent, this.limitUsd)\n    }\n    this.requests += n",
+      "replace": "    this.requests += n\n    if (this.spent > this.limitUsd) {\n      throw new BudgetExceeded(this.spent, this.limitUsd)\n    }"
     }
   ],
   "exemptions": [

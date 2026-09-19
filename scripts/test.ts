@@ -59,7 +59,7 @@ import {
 } from './check/verifier-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
-import { TikHub, fillEmail, pickList } from './providers/tikhub.js'
+import { TikHub, TikHubError, fillEmail, pickList } from './providers/tikhub.js'
 import { esc, writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import { writeXlsx } from './lib/xlsx.js'
@@ -68,7 +68,7 @@ import { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { createRequire } from 'node:module'
 import { inflateRawSync } from 'node:zlib'
-import { Budget, BudgetExceeded, budgetProblem, ledgerProblem } from './lib/budget.js'
+import { Budget, BudgetExceeded, UNIT_PRICE, budgetProblem, ledgerProblem } from './lib/budget.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
@@ -87,8 +87,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import type {
-  AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator,
-  EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, TaskState,
+  AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
 import { loadRawCreators, persistListAndStatus, saveRawCreators, saveTask } from './lib/task.js'
@@ -510,6 +509,155 @@ suite('P3', '上限与已花次数是外部输入 —— 闸门先要能拦得�
   criterion('P3.a')
   covered.add('D6')
   covered.add('F7')
+}
+
+suite('P3', '真实的 TikHub 在提交那一刻必已记账 —— 对着需求推的 oracle 跑')
+{
+  /**
+   * 换掉的只有 globalThis.fetch 与 setTimeout 的**返回值**，不换调用位置：providers/tikhub.ts 在
+   * 调用那一刻才取全局 fetch，sleep 在调用那一刻才取 setTimeout。跑的是真的 Budget、真的 TikHub。
+   *
+   * oracle 只从 P3.a（被拒的请求不计数）与 tikhub.md 的计费列（200 计费、非 200 不计费、402 停）
+   * 推出，**不含重试策略**：文档说非 200 可重试三次，代码只重试 429，两处不一致，这里不替它选边。
+   * 所以下面的性质都写在「被服务的响应序列」上，与「哪个状态码会重试」无关。
+   *
+   * 上限折算的次数不许用 floor(limit / 单价) 算：闸门是浮点比较，0.010 只放 9 次。
+   * 这里的上限全在逐次算过的安全集合里（0、0.001、0.002）。
+   */
+  type Obs = { sent: number; local: number; threw: string; countAtSend: number[]; served: number[] }
+
+  // 每个端点一个**最小**的 200 响应体，够让各自的 pick 分支正常返回；IG 搜索的 reels 给空列表，
+  // 好让 reels→users 那次回退真的发生
+  const bodyFor = (path: string): unknown =>
+    path.includes('fetch_video_search_result')
+      ? { data: { aweme_list: [], search_item_list: [{ aweme_info: { author: { unique_id: 'u' } } }], has_more: 1 } }
+      : path.includes('instagram/v2/search_reels') ? { items: [] }
+        : path.includes('instagram/v2/search_users') ? { items: [{ username: 'u' }] }
+          : path.includes('fetch_user_post_videos_v3') || path.includes('instagram/v2/fetch_user_posts') ? { items: [] }
+            : {}
+
+  // 起始计数 start、上限折算 limit 次、按 outcomes 服务响应（序列之外一律 200），驱动一次真实调用
+  async function drive(limit: number, start: number, outcomes: number[],
+                       call: (api: TikHub) => Promise<unknown>): Promise<Obs> {
+    const budget = new Budget(limit * UNIT_PRICE, start)
+    const api = new TikHub('k', budget)
+    const countAtSend: number[] = []
+    const served: number[] = []
+    const realFetch = globalThis.fetch
+    const realTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((fn: () => void) => { fn(); return 0 }) as unknown as typeof setTimeout
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const status = outcomes[served.length] ?? 200
+      countAtSend.push(budget.count)            // 请求真正出去那一刻，本地记了几次
+      served.push(status)
+      const path = new URL(String(input)).pathname
+      return status === 200
+        ? new Response(JSON.stringify(bodyFor(path)), { status, headers: { 'content-type': 'application/json' } })
+        : new Response('nope', { status })
+    }) as typeof fetch
+    let threw = ''
+    try { await call(api) } catch (e) {
+      threw = e instanceof BudgetExceeded ? 'BudgetExceeded'
+        : e instanceof TikHubError ? 'TikHubError' : `unexpected:${String(e)}`
+    } finally {
+      globalThis.fetch = realFetch
+      globalThis.setTimeout = realTimeout
+    }
+    return { sent: served.length, local: budget.count, threw, countAtSend, served }
+  }
+
+  const STATUSES = [200, 402, 429, 500]
+  const sequences = (maxLen: number): number[][] => {
+    const out: number[][] = []
+    const grow = (prefix: number[]) => {
+      if (prefix.length) out.push(prefix)
+      if (prefix.length === maxLen) return
+      for (const s of STATUSES) grow([...prefix, s])
+    }
+    grow([])
+    return out
+  }
+  const CASES: [number, number][] = [[0, 0], [1, 0], [1, 1], [2, 0], [2, 1]]   // [上限折算的次数, 起始计数]
+  const oks = (xs: number[]) => xs.filter(s => s === 200).length
+
+  // ── 一、单次 get() 路径（tiktok 搜索）：四条性质 ──────────────────────────
+  // 每一条都是从需求推的：非 200 退款回起始，所以每次 attempt 前闸门看到的都是起始
+  const singleGet = (o: Obs, limit: number, start: number): string[] => {
+    const bad: string[] = []
+    o.countAtSend.forEach((c, i) => {
+      if (c !== start + 1) bad.push(`第 ${i + 1} 次提交时本地记了 ${c} 次，应是起始 + 1 = ${start + 1}`)
+      if (start + 1 > limit) bad.push(`起始 ${start} 已到上限 ${limit}，却提交了`)
+    })
+    const rejected = start + 1 > limit
+    if ((o.threw === 'BudgetExceeded') !== rejected) bad.push(`抛不抛 BudgetExceeded 应当且仅当起始 + 1 > 上限，实际 threw=${o.threw || '（无）'}`)
+    if (rejected && (o.sent !== 0 || o.local !== start)) bad.push(`被拒那一次不该提交、不该计数：sent=${o.sent} local=${o.local}`)
+    const last = o.served[o.sent - 1]
+    const returned = o.threw === ''
+    if (!rejected && returned !== (last === 200)) bad.push(`正常返回应当且仅当最后被服务的是 200，实际最后是 ${last}、threw=${o.threw || '（无）'}`)
+    if (!rejected && o.local !== start + (last === 200 ? 1 : 0)) bad.push(`返回时本地应记 起始 + (最后是 200 ? 1 : 0)，实际 ${o.local}`)
+    if (oks(o.served.slice(0, -1)) > 0) bad.push('200 之后不该再提交')
+    if (o.sent > 4) bad.push(`提交了 ${o.sent} 次，超过 4`)
+    return bad
+  }
+
+  const searchTikTok = (api: TikHub) =>
+    api.search({ keyword: 'k', dimension: 'category', platform: 'tiktok' } as SearchTask, 'US', 0)
+  const singleFailures: string[] = []
+  let exhausted = 0
+  for (const [limit, start] of CASES) {
+    for (const seq of sequences(4)) {
+      const o = await drive(limit, start, seq, searchTikTok)
+      if (o.sent === 4) exhausted++
+      for (const why of singleGet(o, limit, start)) singleFailures.push(`上限=${limit} 起始=${start} 序列=[${seq}]：${why}`)
+    }
+  }
+  eq('单次 get() 在全部序列上都合四条性质', singleFailures.slice(0, 5), [])
+  ok('重试耗尽那条分支真的被走到（有序列提交了 4 次）', exhausted > 0)
+
+  // ── 二、通用不变量扫六个公开方法：不需要知道方法内部发几次 ────────────────
+  // IG 搜索 reels 空→users 回退（两次 get）、IG profile V3 失败→V2（两级端点）都在对照面上
+  const generic = (o: Obs, limit: number, start: number): string[] => {
+    const bad: string[] = []
+    o.countAtSend.forEach((c, i) => {
+      const want = start + oks(o.served.slice(0, i)) + 1
+      if (c !== want) bad.push(`第 ${i + 1} 次提交时本地记了 ${c} 次，应是 起始 + 此前 200 数 + 1 = ${want}`)
+      if (want > limit) bad.push(`第 ${i + 1} 次提交时已到上限 ${limit}，却提交了`)
+    })
+    if (o.local !== start + oks(o.served)) bad.push(`结束时本地应记 起始 + 200 数 = ${start + oks(o.served)}，实际 ${o.local}`)
+    if (o.threw.startsWith('unexpected')) bad.push(o.threw)
+    return bad
+  }
+  const METHODS: [string, (api: TikHub) => Promise<unknown>][] = [
+    ['search tiktok', searchTikTok],
+    ['search instagram', api => api.search({ keyword: 'k', dimension: 'category', platform: 'instagram' } as SearchTask, 'US', 0)],
+    ['profile tiktok', api => api.profile('u', 'tiktok')],
+    ['profile instagram', api => api.profile('u', 'instagram')],
+    ['recentPosts tiktok', api => api.recentPosts('u', 'tiktok')],
+    ['recentPosts instagram', api => api.recentPosts('u', 'instagram')],
+  ]
+  const genericFailures: string[] = []
+  const maxSent = new Map<string, number>()
+  for (const [name, call] of METHODS) {
+    for (const [limit, start] of CASES) {
+      for (const seq of sequences(2)) {
+        const o = await drive(limit, start, seq, call)
+        maxSent.set(name, Math.max(maxSent.get(name) ?? 0, o.sent))
+        for (const why of generic(o, limit, start)) genericFailures.push(`${name} 上限=${limit} 起始=${start} 序列=[${seq}]：${why}`)
+      }
+    }
+  }
+  eq('六个公开方法在全部序列上都合通用不变量', genericFailures.slice(0, 5), [])
+  // 只报数不判：长度 2 的序列量不到「IG profile 最多 8 次」，不冒充量出来的数
+  console.log(`    观测到的每方法最大提交数：${[...maxSent].map(([k, v]) => `${k} ${v}`).join(' · ')}`)
+
+  // ── 三、oracle 自己要能报不符 —— 否则上面两条恒为空数组 ───────────────────
+  // 把 charge 挪到 fetch 之后，最终值全同，只有提交那一刻读到的是起始而不是起始 + 1
+  const fine: Obs = { sent: 1, local: 1, threw: '', countAtSend: [1], served: [200] }
+  eq('一致时不报', singleGet(fine, 2, 0), [])
+  ok('先发再记会被报出来', singleGet({ ...fine, countAtSend: [0] }, 2, 0).length > 0)
+  ok('被拒却计了数会被报出来', singleGet({ sent: 0, local: 2, threw: 'BudgetExceeded', countAtSend: [], served: [] }, 1, 1).length > 0)
+  ok('通用不变量也报先发再记', generic({ ...fine, countAtSend: [0] }, 2, 0).length > 0)
+  criterion('P3.a')
 }
 
 suite('P4', '已联系/屏蔽的人不得进入名单')
