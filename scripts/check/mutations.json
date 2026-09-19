@@ -2065,8 +2065,8 @@
       "replace": "  return score >= 60 ? 'A' : score >= 20 ? 'B' : 'C'"
     },
     {
-      "id": "M-P3-e",
-      "req": "P3.b",
+      "id": "M-D6-m",
+      "req": "D6.a",
       "why": "续跑时预算从零起算，不从断点里记着的已花请求数起算 —— 用户只确认过一次的那份额度，每续跑一次就被原样重花一遍，实际花掉的钱是上限的若干倍，而工具全程说没有超预算",
       "file": "scripts/collect.ts",
       "find": "const budget = new Budget(state.budget_usd, state.requests, (pct, spent, limit) => {",
@@ -2077,8 +2077,8 @@
       ]
     },
     {
-      "id": "M-P3-f",
-      "req": "P3.b",
+      "id": "M-D6-n",
+      "req": "D6.a",
       "why": "断点落在一个契约没说过的文件名下 —— 用户照着提示续跑时读不到上一次的断点，已经花掉的额度和已经跑完的关键词一起丢失，同一份额度要重新花一遍",
       "file": "scripts/lib/task.ts",
       "find": "export const taskFile = (dir: string): string => join(dir, 'task.json')",
