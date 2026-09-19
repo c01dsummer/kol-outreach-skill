@@ -2775,6 +2775,22 @@
       "file": "scripts/lib/rows.ts",
       "find": "    c.followers === undefined ? 1 : c.followers === 0 ? 2 : 0",
       "replace": "    c.followers === undefined ? 0 : 1"
+    },
+    {
+      "id": "M-P3-d",
+      "req": "P3",
+      "why": "不再拦住比不了大小的预算上限 —— 闸门那句比较恒为假，一路花下去，而且百分比恒为零，连 50%／80% 的提醒都不出现",
+      "file": "scripts/lib/budget.ts",
+      "find": "export const budgetProblem = (v: unknown): string | undefined =>\n  typeof v !== 'number' ? `不是数字（${typeof v}）`\n    : !Number.isFinite(v) ? '不是一个有限的数'\n      : v < 0 ? '是负数'\n        : undefined",
+      "replace": "export const budgetProblem = (_v: unknown): string | undefined => undefined"
+    },
+    {
+      "id": "M-D6-l",
+      "req": "D6",
+      "why": "不再拦住盘上那个「已经花了多少次」的坏取值 —— 续跑时整本账退回零，同一批钱再花一遍",
+      "file": "scripts/lib/budget.ts",
+      "find": "export const ledgerProblem = (v: unknown): string | undefined =>\n  v === undefined ? undefined                        // 字段没写 = 还没花过，按 0 算\n    : typeof v !== 'number' ? `不是数字（${typeof v}）`\n      : !Number.isFinite(v) ? '不是一个有限的数'\n        : v < 0 ? '是负数'\n          : !Number.isInteger(v) ? '不是整数'\n            : undefined",
+      "replace": "export const ledgerProblem = (_v: unknown): string | undefined => undefined"
     }
   ],
   "exemptions": [
