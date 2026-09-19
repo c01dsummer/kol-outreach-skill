@@ -13,6 +13,8 @@
  * 原样复现，否则自检验证的是我的想象而不是 TikHub 的行为。
  * author.aweme_count 实测对所有人都返回 0，同样复现。
  */
+import { appendFileSync } from 'node:fs'
+
 const tiktokVideoSearch = {
   data: {
     aweme_list: [],
@@ -120,6 +122,19 @@ function pick(url: string): unknown {
   return { data: {} }              // 走「无法识别响应结构」分支
 }
 
+// 两个 env 旋钮，未设时严格无副作用 —— 给崩溃续跑那几条轨迹用（ADR-96）。
+// 账本：每次响应之前同步追加一行「状态码 ⇥ pathname」。它就是「供应商真正收到几次」这个
+//       代码里没有任何变量装着的量，由请求真正出去那一刻的观测者写下。
+// 杀：第 n 个 200 响应，先追加账本行，再把自己 SIGKILL。落在假 fetch 内部 —— 此时 tikhub.ts 的
+//       charge 已做完、入口的 persist 还没跑，正是落盘窗口。只传给崩溃那一次 spawn，续跑不带。
+// 不在模块加载时碰账本：NODE_OPTIONS 让 tsx 壳也执行这个模块，只有真正调 fetch 的孙进程才该写。
+const ledger = process.env.FAKE_FETCH_LEDGER
+const killAfterOk = Number(process.env.FAKE_FETCH_KILL_AFTER_OK)   // 没设 → NaN，永不相等
+let oks = 0
+const record = (status: number, url: string) => {
+  if (ledger) appendFileSync(ledger, `${status}\t${new URL(url).pathname}\n`)
+}
+
 let calls = 0
 globalThis.fetch = (async (input: RequestInfo | URL) => {
   calls++
@@ -130,12 +145,16 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
   // 用关键词触发不用环境变量：夹具本来就要写配置，触发条件跟着配置走，读的人在
   // 同一个地方看得到（D6.f 的出错那一条）。
   if (url.includes('force-402')) {
+    record(402, url)
     return new Response('payment required', { status: 402 })
   }
   // 第 7 次调用返回 429，确保错误分支也被执行到
   if (calls === 7) {
+    record(429, url)
     return new Response('rate limited', { status: 429 })
   }
+  record(200, url)
+  if (++oks === killAfterOk) process.kill(process.pid, 'SIGKILL')
   return new Response(JSON.stringify(pick(url)), {
     status: 200, headers: { 'content-type': 'application/json' },
   })

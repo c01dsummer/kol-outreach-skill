@@ -16,7 +16,7 @@
  * 死亡条件记在 ADR-85:一身三半,三半的答案不一样,所以没有整道的那一份。
  */
 import {
-  mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync,
+  cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync,
 } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -115,9 +115,10 @@ const named = (label: string, ok: boolean, why: string) => {
 }
 
 const runBoth = (label: string, args: string[], cwd = process.cwd(),
-  expect?: { status: number }): { ok: boolean; stdout: string; stderr: string } => {
+  expect?: { status: number }, extra: NodeJS.ProcessEnv = {}): { ok: boolean; stdout: string; stderr: string } => {
   const [exe, argv] = tsxCommand(args)
-  const r = spawnSync(exe, argv, { env, cwd, encoding: 'utf8' })
+  // extra 只给这一次 spawn：崩溃续跑那几条轨迹要给「杀掉那一跑」传旋钮、给续跑不传
+  const r = spawnSync(exe, argv, { env: { ...env, ...extra }, cwd, encoding: 'utf8' })
   const stdout = r.stdout ?? ''   // P1 例外：拿不到就是空输出，不是「没查过」——这是子进程的两股流
   const stderr = r.stderr ?? ''   // P1 例外：同上
   const want = expect?.status ?? 0
@@ -145,8 +146,8 @@ const runBoth = (label: string, args: string[], cwd = process.cwd(),
  * `judgeRun` 要拦的错误归因。
  */
 const run = (label: string, args: string[], cwd = process.cwd(),
-  expect?: { status: number; stream?: 'stdout' | 'stderr' }): string | undefined => {
-  const { ok, stdout, stderr } = runBoth(label, args, cwd, expect)
+  expect?: { status: number; stream?: 'stdout' | 'stderr' }, extra?: NodeJS.ProcessEnv): string | undefined => {
+  const { ok, stdout, stderr } = runBoth(label, args, cwd, expect, extra)
   if (!ok) return undefined
   // 没写 expect 的调用点历来拿的是 stdout，写了的默认拿 stderr —— 保持原样，
   // 免得几十个既有断言在这次改动里悄悄换了读的那一股。
@@ -250,6 +251,107 @@ if (probeOut !== undefined && !probeOut.includes('bio_available')) {
     failed++
     console.error('  ✗ 报错里没有出现用户打的那个值，他不知道是哪一处写错了')
   } else if (badArg !== undefined) console.log('  ✓ 报错指名用户打的那个值')
+}
+
+// ---- 崩溃续跑 A / B：真实入口在落盘之前被杀，供应商账本比上限多出窗口大小（P3 · D6.a）----
+// 供应商真正收了几次钱，代码里没有任何变量装着 —— 假 fetch 在请求出去那一刻写一行账（旋钮见
+// fake-fetch.ts）。第 n 个 200 那一瞬间把进程 SIGKILL 掉：tikhub.ts 的 charge 已做完、入口的 persist
+// 还没跑，正是落盘窗口；再 --resume。期望值都是「上限折算的次数 + 落盘窗口内已计费的次数」，
+// 推导在 ADR-96 第三节；上限取自逐次算过的安全集合（闸门是浮点比较，有的上限比 floor 少放一次，见 ADR-96 第二节）。
+// tsx 壳把孙进程的 SIGKILL 译成 128 + 信号号的退出码（实测记在 ADR-96 第三节），所以杀掉那一跑走 runBoth 照常判。
+// 每条轨迹一个独立 cwd：别处把 tmp/memory/creators.json 截坏之后不恢复，共用会让续跑退 2 而不是 3。
+// 被杀那一跑打不出目录名（summary 在循环之后），按产品名前缀在 output/ 下找。**只数账本里 200 的行**：
+// 假 fetch 每进程到某一次调用会回一个 429（第几次写在 fake-fetch.ts），这几条轨迹每进程的调用数够不到；碰到也只是多一行 429。
+const crashCwd = (name: string) => {
+  const cwd = join(tmp, name)
+  mkdirSync(join(cwd, 'memory'), { recursive: true })
+  return cwd
+}
+const ledgerLines = (ledger: string, ok: boolean) => !existsSync(ledger) ? 0
+  : readFileSync(ledger, 'utf8').split('\n').filter(l => /^\d/.test(l) && l.startsWith('200\t') === ok).length
+const warnLines = (s: string) => s.split('\n').filter(l => l.includes('💰 已用')).length
+const onlyDir = (cwd: string, product: string): string | undefined => {
+  const hits = existsSync(join(cwd, 'output'))
+    ? readdirSync(join(cwd, 'output')).filter(n => n.startsWith(`${product}-`)) : []
+  return hits.length === 1 ? join('output', hits[0]) : undefined
+}
+// 断点不在约定的文件名下（M-D6-n 那类变异）→ 读成 NaN 让断言红，不是让自检崩：崩了不算抓到
+const requestsOnDisk = (file: string): number => {
+  try { return (JSON.parse(readFileSync(file, 'utf8')) as { requests: number }).requests } catch { return NaN }
+}
+const diskRequests = (cwd: string, dir: string): number => requestsOnDisk(join(cwd, dir, 'task.json'))
+// 抽取列，只打印不判定：提醒行数是 F7.a「一次是每进程还是每任务」那张欠条的原料
+const extract = (tag: string, disk: number, ledger: string, a: string, b: string) =>
+  console.log(`    抽取 ${tag}：盘上 ${disk} · 账本 200 行 ${ledgerLines(ledger, true)} · 非 200 行 ${ledgerLines(ledger, false)}`
+    + ` · 提醒行 杀掉那跑 ${warnLines(a)} 续跑 ${warnLines(b)}`)
+
+{
+  // A · 搜索循环：每抓一页落一次盘，窗口是一页。第一跑在第二个 200 那一瞬被杀：第一页已落盘，
+  // 第二页只在内存里。第二跑 --resume 把剩下的额度花完、闸门抛、退 3。数字的推导在 ADR-96 第三节。
+  // 前提：罐头 has_more 为 1，kw0 不进 done，续跑才会再搜它。
+  const cwd = crashCwd('crash-a')
+  const ledger = join(tmp, 'ledger-a.tsv')
+  const cfg = join(cwd, 'crash-a.json')
+  writeFileSync(cfg, JSON.stringify({
+    product: 'crasha', market: 'US', target_count: 500, budget_usd: 0.002,
+    tasks: [{ keyword: 'kw0', dimension: 'category', platform: 'tiktok' },
+            { keyword: 'kw1', dimension: 'category', platform: 'tiktok' }],
+  }))
+  const first = runBoth('collect 搜索循环里被杀：进程以 137 结束', [S('collect.ts'), '--config', cfg], cwd,
+                        { status: 137 }, { FAKE_FETCH_LEDGER: ledger, FAKE_FETCH_KILL_AFTER_OK: '2' })
+  const dir = first.ok ? onlyDir(cwd, 'crasha') : undefined
+  if (first.ok && dir === undefined) {
+    failed++
+    console.error(`  ✗ collect 搜索循环里被杀${SELFCHECK_FIXTURE_MARK}：output/ 下找不到恰好一个 crasha- 目录 —— 夹具没造对`)
+  }
+  if (dir !== undefined) {
+    named('collect 搜索循环里被杀：盘上少记的正好是落盘窗口那一次',
+          diskRequests(cwd, dir) === ledgerLines(ledger, true) - 1,
+          `盘上 ${diskRequests(cwd, dir)}，账本 200 行 ${ledgerLines(ledger, true)}，窗口应是 1`)
+    const second = runBoth('collect 搜索循环里被杀后续跑：预算用尽退 3', [S('collect.ts'), '--resume', dir], cwd,
+                           { status: 3 }, { FAKE_FETCH_LEDGER: ledger })
+    if (second.ok) {
+      named('collect 搜索循环里被杀后续跑：供应商多收恰好一次',
+            ledgerLines(ledger, true) === 2 + 1,
+            `账本 200 行 ${ledgerLines(ledger, true)}，应是上限 2 + 窗口 1 = 3`)
+      extract('A', diskRequests(cwd, dir), ledger, first.stderr, second.stderr)
+    }
+  }
+}
+
+{
+  // B · 补 profile 循环：整段循环一次都不落盘，窗口 = 循环里已计费的账号数。
+  // 第一跑：搜索那一页落盘后达标，进补 profile（罐头搜索结果没有 signature，人人都要补），
+  //   在循环里第二个人的 200 那一瞬被杀：盘上只有搜索那一次。
+  // 第二跑：达标不搜索；上次补全的结果一个都没落盘，全员重补，退 0。数字的推导在 ADR-96 第三节。
+  // 上限比刚好够用再多一档：让续跑在 M-P3-b（断点永远写 0）下退出码也不变，否则那条变异会以进程记号判成跑不起来。
+  const cwd = crashCwd('crash-b')
+  const ledger = join(tmp, 'ledger-b.tsv')
+  const cfg = join(cwd, 'crash-b.json')
+  writeFileSync(cfg, JSON.stringify({
+    product: 'crashb', market: 'US', target_count: 1, budget_usd: 0.004,
+    tasks: [{ keyword: 'kw0', dimension: 'category', platform: 'tiktok' }],
+  }))
+  const first = runBoth('collect 补 profile 循环里被杀：进程以 137 结束', [S('collect.ts'), '--config', cfg], cwd,
+                        { status: 137 }, { FAKE_FETCH_LEDGER: ledger, FAKE_FETCH_KILL_AFTER_OK: '3' })
+  const dir = first.ok ? onlyDir(cwd, 'crashb') : undefined
+  if (first.ok && dir === undefined) {
+    failed++
+    console.error(`  ✗ collect 补 profile 循环里被杀${SELFCHECK_FIXTURE_MARK}：output/ 下找不到恰好一个 crashb- 目录 —— 夹具没造对`)
+  }
+  if (dir !== undefined) {
+    named('collect 补 profile 循环里被杀：整段循环都在落盘窗口里',
+          diskRequests(cwd, dir) === ledgerLines(ledger, true) - 2,
+          `盘上 ${diskRequests(cwd, dir)}，账本 200 行 ${ledgerLines(ledger, true)}，窗口应是 2 —— 那个循环里没有落盘`)
+    const second = runBoth('collect 补 profile 循环里被杀后续跑：跑完退 0', [S('collect.ts'), '--resume', dir], cwd,
+                           { status: 0 }, { FAKE_FETCH_LEDGER: ledger })
+    if (second.ok) {
+      named('collect 补 profile 循环里被杀后续跑：供应商多收恰好两次',
+            ledgerLines(ledger, true) === 4 + 2,
+            `账本 200 行 ${ledgerLines(ledger, true)}，应是上限 4 + 窗口 2 = 6`)
+      extract('B', diskRequests(cwd, dir), ledger, first.stderr, second.stderr)
+    }
+  }
 }
 
 // ---- collect：完整采集 + profile 补全 + 同人合并 + 记忆 ----
@@ -487,6 +589,43 @@ if (dir) {
       failed++
       console.error(`  ✗ ${inconsistent.length} 个账号的样本记录与它自己的说法仍不一致`)
     } else console.log(`  ✓ 超窗样本记录零请求收窄（撑大 ${padded} 个账号）`)
+  }
+
+  // ---- 崩溃续跑 C：enrich 每个账号查完落一次盘，窗口 1（P3 · D6.a）----
+  // 复制这个目录（连 creators.raw.json，fit 已经全设 ✅），预算改成只够两个账号、已花归零，删掉缓存。
+  // 第一跑：第一个账号查完落盘，在第二个账号的 200 那一瞬被杀。
+  // 第二跑同一条命令（enrich 没有 --resume，靠 enrichment.json 跳过已查的）：第二个账号重查、落盘，
+  //   第三个账号闸门抛，收尾落盘，退 3。数字的推导在 ADR-96 第三节。
+  const crashDir = `${dir}-crash`
+  cpSync(join(tmp, dir), join(tmp, crashDir), { recursive: true })
+  const crashTaskFile = join(tmp, crashDir, 'task.json')
+  const crashTask = existsSync(crashTaskFile)
+    ? JSON.parse(readFileSync(crashTaskFile, 'utf8')) as Record<string, unknown> : undefined
+  if (!crashTask) {
+    failed++
+    console.error(`  ✗ enrich 两个账号之间被杀${SELFCHECK_FIXTURE_MARK}：复制出来的目录里没有 task.json，改不了预算 —— 夹具没造对`)
+  } else {
+    crashTask.budget_usd = 0.002
+    crashTask.requests = 0
+    writeFileSync(crashTaskFile, JSON.stringify(crashTask, null, 2))
+    rmSync(join(tmp, crashDir, 'enrichment.json'), { force: true })
+    const ledgerC = join(tmp, 'ledger-c.tsv')
+    const diskC = () => requestsOnDisk(crashTaskFile)
+    const firstC = runBoth('enrich 两个账号之间被杀：进程以 137 结束', [S('enrich.ts'), '--dir', crashDir], tmp,
+                           { status: 137 }, { FAKE_FETCH_LEDGER: ledgerC, FAKE_FETCH_KILL_AFTER_OK: '2' })
+    if (firstC.ok) {
+      named('enrich 两个账号之间被杀：盘上少记的正好是落盘窗口那一次',
+            diskC() === ledgerLines(ledgerC, true) - 1,
+            `盘上 ${diskC()}，账本 200 行 ${ledgerLines(ledgerC, true)}，窗口应是 1`)
+      const secondC = runBoth('enrich 两个账号之间被杀后续跑：预算用尽退 3', [S('enrich.ts'), '--dir', crashDir], tmp,
+                              { status: 3 }, { FAKE_FETCH_LEDGER: ledgerC })
+      if (secondC.ok) {
+        named('enrich 两个账号之间被杀后续跑：供应商多收恰好一次',
+              ledgerLines(ledgerC, true) === 2 + 1,
+              `账本 200 行 ${ledgerLines(ledgerC, true)}，应是上限 2 + 窗口 1 = 3`)
+        extract('C', diskC(), ledgerC, firstC.stderr, secondC.stderr)
+      }
+    }
   }
 }
 
