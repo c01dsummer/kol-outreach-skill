@@ -121,19 +121,22 @@ export function sortForOutput(creators: Creator[]): Creator[] {
     return b.score - a.score
   }
   /**
-   * P1.h：同层同分时，粉丝数**未查询**的排在**已查到**的前面。
+   * P1.h：同层同分时，粉丝数分三档 —— **已查到且不是 0 → 未查询 → 确实是 0**。
    *
-   * 已查到的那位是量过了、仍然没拿到粉丝分 —— 我们确定他不够；未查询的那位
-   * 可能够，只是还没去看。把他放到人眼前，而不是埋在一串确认不够的人后面。
+   * 「未查询」只压得过一个确认为 0 的人，压不过任何一个真查到了数的人：
+   * 查到了数的那位有据可依；未查询的那位只是**可能**够，凭一个还没量过的可能
+   * 越过量过的人，是拿不知道当成了本钱。而确实是 0 的那位已经量过、就是 0，
+   * 「不知道」比他多一分指望，所以在他前面。
    *
    * **只改先后，不改分也不改层** —— 给「不知道」加分等于替他编一个他可能没有的
    * 实力，那会把他推进他不该进的档（需求所有者 2026-09-19 裁决，ADR-92）。
    */
-  const knownFollowers = (c: Creator) => (c.followers === undefined ? 0 : 1)
-  const byFollowersKnown = (a: Creator, b: Creator): number =>
-    knownFollowers(a) - knownFollowers(b)
+  const followerRank = (c: Creator) =>
+    c.followers === undefined ? 1 : c.followers === 0 ? 2 : 0
+  const byFollowers = (a: Creator, b: Creator): number =>
+    followerRank(a) - followerRank(b)
   return [...creators].sort((a, b) =>
-    rank(a) - rank(b) || byScore(a, b) || byFollowersKnown(a, b))
+    rank(a) - rank(b) || byScore(a, b) || byFollowers(a, b))
 }
 
 const TIER_LABEL = { A: 'A级 直接发信', B: 'B级 先互动', C: 'C级 观察池' } as const

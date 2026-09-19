@@ -2739,10 +2739,18 @@
     {
       "id": "M-P1-m",
       "req": "P1.h",
-      "why": "名单排序不再把「粉丝数没查到」和「查到了、确实不够」分开。两个人同层同分时谁在前变成取决于他们碰巧的输入顺序，于是那个可能其实很大、只是还没去查的人被埋在一串确认不够的人后面 —— 而运营以为这份名单已经按强弱排好了，不会再往下翻",
+      "why": "名单排序不再把粉丝数的三档分开：查到了数的、还没去查的、查过确实是 0 的，同层同分时谁在前变成取决于他们碰巧的输入顺序。那个还没查过、可能其实不小的人被埋在确认为 0 的人后面，而运营以为这份名单已经按强弱排好了，不会再往下翻",
       "file": "scripts/lib/rows.ts",
-      "find": "  return [...creators].sort((a, b) =>\n    rank(a) - rank(b) || byScore(a, b) || byFollowersKnown(a, b))",
+      "find": "  return [...creators].sort((a, b) =>\n    rank(a) - rank(b) || byScore(a, b) || byFollowers(a, b))",
       "replace": "  return [...creators].sort((a, b) => rank(a) - rank(b) || byScore(a, b))"
+    },
+    {
+      "id": "M-P1-n",
+      "req": "P1.h",
+      "why": "把粉丝数的三档压成两档：只要查到了数就一律排在「还没查过」后面，于是一个查到了五万粉的人被排在一个连查都没查过的人后面 —— 一个还没量过的可能，越过了量过的事实",
+      "file": "scripts/lib/rows.ts",
+      "find": "    c.followers === undefined ? 1 : c.followers === 0 ? 2 : 0",
+      "replace": "    c.followers === undefined ? 0 : 1"
     }
   ],
   "exemptions": [
