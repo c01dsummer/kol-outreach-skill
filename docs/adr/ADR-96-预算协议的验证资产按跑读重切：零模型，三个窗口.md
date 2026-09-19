@@ -264,8 +264,9 @@ const pick=id=>rs.flatMap(r=>[r,...(r.accept||[])]).find(x=>x.id===id);
 const h=t=>crypto.createHash("sha256").update(t,"utf8").digest("hex").slice(0,16);
 const BASE={P3_accept:2,"P3.b":"e4ae884ad1d80193","D6.a":"361ea72adf0855cf","F7.a":"1c0031d3239d283b"};
 const fired=[];
-if (pick("P3").accept.length!==BASE.P3_accept) fired.push(`P3.accept ${BASE.P3_accept}→${pick("P3").accept.length}`);
-for (const id of ["P3.b","D6.a","F7.a"]) { const x=pick(id); if (!x||h(x.text)!==BASE[id]) fired.push(id+(x?" 原文变了":" 没了")); }
+const p3=pick("P3"), n=p3&&Array.isArray(p3.accept)?p3.accept.length:null;
+if (n!==BASE.P3_accept) fired.push(`P3.accept ${BASE.P3_accept}→${n===null?"没了":n}`);
+for (const id of ["P3.b","D6.a","F7.a"]) { const x=pick(id); if (!x||typeof x.text!=="string"||h(x.text)!==BASE[id]) fired.push(id+(x?" 原文变了":" 没了")); }
 console.log(fired.length?"重开："+fired.join("；"):"未响"); process.exit(fired.length?1:0)
 '
 ```
