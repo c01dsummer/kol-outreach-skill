@@ -97,22 +97,23 @@ IG 每词 12 个不同作者、**不带**粉丝数（实测 IG 搜索结果里�
 第 4 个 TikTok 词和两个 IG 词都没跑。后两行说明**顺序修好之后 IG 仍然只占一小部分** ——
 那是上面那个结构性上限，不是调度问题。**本条保证的是「问过」，不是「问到多少人」。**
 
-复现的夹具与命令。`fake-fetch.ts`：
+复现的夹具与命令。`fake-fetch.mjs`：
 
-```ts
+```js
 /**
  * 复现用假 fetch：按真实产量建模 —— TikTok 每页 20 条、每条不同作者、都带粉丝数；
  * IG Reels 每词 12 条、每条不同作者、不带粉丝数（与实测一致）。
  * handle 由 keyword+offset 派生，保证跨页、跨词不撞。
+ *
+ * 写成 .mjs 而不是 .ts：`--import` 的预加载由 node 自己处理，轮不到 tsx，
+ * 而 node 直接加载 .ts 要 22.6+ 才有（本仓库没钉 node 版本）。纯 JS 到处都能跑。
  */
-const q = (u: string, k: string) => new URL(u).searchParams.get(k) ?? ''
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '')
-let calls = 0
-const log: string[] = []
-globalThis.fetch = (async (input: RequestInfo | URL) => {
-  calls++
+const q = (u, k) => new URL(u).searchParams.get(k) ?? ''
+const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '')
+const log = []
+globalThis.fetch = async input => {
   const url = String(input)
-  let body: unknown
+  let body
   if (url.includes('fetch_video_search_result')) {
     const kw = q(url, 'keyword'), off = Number(q(url, 'offset') || 0)
     log.push(`TT ${kw} offset=${off}`)
@@ -135,7 +136,7 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
     body = { data: {} }
   }
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
-}) as typeof fetch
+}
 process.on('exit', () => { console.error(`[fake] 搜索请求顺序:\n  ` + log.join('\n  ')) })
 ```
 
@@ -161,9 +162,14 @@ process.on('exit', () => { console.error(`[fake] 搜索请求顺序:\n  ` + log.
 git worktree add --detach /path/to/wt 825fd2d   # 钉死，换成会动的引用数就跟着漂
 ln -s "$PWD/node_modules" /path/to/wt/node_modules
 cd /path/to/empty-dir   # 在仓库外跑，免得 output/ 落进仓库
-TIKHUB_API_KEY=fake NODE_OPTIONS="--import /abs/path/fake-fetch.ts" \
+TIKHUB_API_KEY=fake NODE_OPTIONS="--import /abs/path/fake-fetch.mjs" \
   node /path/to/wt/node_modules/.bin/tsx /path/to/wt/scripts/collect.ts --config tt-first.json
 ```
+
+⚠️ **夹具是 `.mjs` 不是 `.ts`，这一条有讲究**：`--import` 的预加载由 node 自己处理，
+轮不到 `tsx`，而 node 直接加载 `.ts` 要 22.6+ 才有 —— 本仓库没钉 node 版本，
+写成 `.ts` 的话这条命令在 18/20 上直接失败（#128 第五轮评审指出，头一版就是 `.ts`）。
+`--import` 本身要 node ≥ 18.19 / 20.6。表里四行在换成 `.mjs` 之后重跑过一遍，逐格未变。
 
 看三样：stdout 的 `stopped`、`creators.raw.json` 里各平台人数、
 假 fetch 在进程退出时打到 stderr 的那份请求顺序（`IG` 开头的行数就是 IG 发出的请求数）。
@@ -550,3 +556,21 @@ ADR-25 立那条规矩的时候，栽的就是这个形状。**我在一条撤�
 真正的共同形状是**全称句**：第一轮那条「每一个能抄的例子」、这一条「两个平台都一样」，
 坏消息那一侧的全称同样没人核。判据放宽成：**出现「都」「一定」「一个也不」这类全称，
 就把它覆盖的情形逐个跑一遍**；跑不全就写成「看情况，判断依据是 X」。
+
+## 十一、第五轮评审两条：一条是我上一轮的修里新埋的，一条谁都没跑过
+
+**一 · 第十节的修里又埋了一个全称，这次在好消息那一侧。** 把「补不回来」改成「可能补得回来」时，
+我顺手写了「**离目标还远时后面的词都会被查到**」—— 同样是没跑遍的全称：追加的预算不够，它照样跑不到。
+第十节刚把判据定成「出现全称就逐个跑一遍」，**而我就在写那条判据的同一次改动里破了它**。
+两处都改成「补得回来不保证」，后面跟判断依据。
+
+**二 · 第一节那条复现命令在别人机器上跑不起来。** 原文是
+`NODE_OPTIONS="--import /abs/path/fake-fetch.ts"`，而 `--import` 的预加载由 node 自己处理、
+轮不到 `tsx`；node 直接加载 `.ts` 要 22.6+，本仓库没钉 node 版本。
+**我这台是 22.22，所以我跑得通** —— 于是「写下的命令我跑过一遍」这条判据第一次不够用：
+它保证的是这棵树、这台机器上跑得通，**不保证读记录的人跑得通**。
+夹具改写成纯 JS 的 `.mjs` 抄进第一节，四行换完之后重跑过一遍、逐格未变。
+
+判据再加一格：**命令写进记录之前，先问它依赖了什么本机没钉住的东西**
+（node 版本、全局装的工具、环境变量）。**自己跑得通不等于别人跑得通。**
+
