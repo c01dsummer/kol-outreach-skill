@@ -433,8 +433,12 @@ if (dir && rendered !== undefined) {
     } else console.log('  ✓ meta.json 含 creator_activity 三态统计')
     // 上面那条只看一个能力，而且**恒等式本身盖不住要防的那件事**：把 unqueried 并进
     // unavailable，三项之和照样等于 total，报表上却再也分不出「没查」和「查了测不出」。
-    // 所以这里加两层：每个能力各自平账（哪一个漏项都报得出名字），
-    // 以及这一次跑里三个桶**都真的有人**（并桶会让某个桶归零 —— 恒等式看不见，这里看得见）。
+    // 所以这里加两层，各管一件事：**这一条**把平账铺到每个能力上（哪一个漏项都报得出名字），
+    // **下一条**才是冲着并桶去的 —— 并桶时这一条仍然全绿，只有下一条会红。
+    //
+    // ⚠️ 下一条不是「三个桶都得有人」。那个写法试过，**并桶之后照样全绿** ——
+    // 六个能力里有两个的计数在入口里另算、不走被并掉的那个函数，它们把全局的和撑住了
+    // （ADR-90 第三节）。所以下一条钉的是场景，不是求和。
     const caps: Array<[string, Record<string, number>]> = Object.entries(meta.capabilities ?? {})
     const offBooks = caps.filter(([, v]) => v.measured + v.unavailable + v.unqueried !== v.total)
     named('每个能力的三态各自平账', caps.length > 0 && offBooks.length === 0,
