@@ -2248,7 +2248,7 @@ git diff origin/main -- docs/adr/ | grep -cE '^\+> ⚠️ \*\*第(四次成立|�
 让下一个人不用相信我数的那个数。⚠️ 一个写在散文里的数字没有任何东西守着它 ——
 这句话本文第十节（落地 4 那边）已经写过一次，**而我又用一个新数字踩了两轮。**
 
-## 追记：`P3.b` 补了两条负片，判据没有拆
+## 追记：补两条负片 —— 违反的是 `D6.a`，抓到它们的是 `P3.b` 那段夹具；判据没有拆
 
 `P3.b` 的正本逐字是（`docs/requirements.json`）：
 
@@ -2368,10 +2368,33 @@ git diff origin/main -- docs/adr/ | grep -cE '^\+> ⚠️ \*\*第(四次成立|�
 
 ADR-89 那张欠条的重启条件逐字是「下一条要往 `scripts/check/mutations.json` 加变异的改动
 —— 那一刻顺手看一眼，它盖的是不是一处从来没人盖过的地方」。这一条就是那条改动，
-答案是**是**：`M-D6-m` 盖的那一件此前零断言零负片，`M-D6-n` 盖的那一件此前只有一个
-没人证明会红的合取项。条件响了，在这里对上账。
+答案是**是**。
+
+⚠️ 「此前没人盖过」这句话得能被独立复核，所以钉在一个**不可变的基线**上给命令，
+不写结论（评审指出；按 ADR-82，跑得出来的事实不抄进散文）。基线是本次追记的合入基
+`4f91afa`：
+
+```
+git show 4f91afa:scripts/check/mutations.json | python3 -c 'import json,sys
+for m in json.load(sys.stdin)["mutations"]:
+    if m["file"] in ("scripts/collect.ts", "scripts/lib/task.ts"):
+        print(m["id"], "|", m["req"], "|", m["find"].splitlines()[0])'
+```
+
+逐条看它们的锚点落在哪一行：`collect.ts` 起预算那一行（续跑的起算点）与 `lib/task.ts`
+合成断点文件名那一处，基线上都没有变异指着。
 
 ⚠️ 顺带一条这次评审逼出来的：**「这条变异违反的是哪条需求」和「哪条夹具抓到它」是两个问题，
 而变异集只有一个 `req` 字段装前者。** 头一版把两条都按「抓到它的那条夹具属于谁」记进了
-`P3.b`，那是拿后者去填前者。编号前缀跟着 `req` 走（非 harness 的那批今天只有一处例外），
+`P3.b`，那是拿后者去填前者。编号前缀是跟着 `req` 走的 —— **这条约定没有任何闸门守着**，
+所以不写「今天有几处例外」，给命令：
+
+```
+python3 -c 'import json, re
+for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
+    if m["req"] == "harness": continue
+    if re.match(r"^M-([A-Za-z0-9]+)-", m["id"]).group(1) != m["req"].split(".")[0]:
+        print(m["id"], m["req"])'
+```
+
 所以记错名下不只是记错，连编号都会跟着错。
