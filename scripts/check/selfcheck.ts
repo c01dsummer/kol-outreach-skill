@@ -211,6 +211,14 @@ if (probeOut !== undefined && !probeOut.includes('bio_available')) {
   }))
   run('probe 上限不是数字 → 停下问人', [S('probe.ts'), '--config', badProbe],
       process.cwd(), { status: 2 })
+  // 写了个 null 不等于没写：默认值只给 undefined，null 要被拦下
+  const nullProbe = join(tmp, 'probe-nullbudget.json')
+  writeFileSync(nullProbe, JSON.stringify({
+    market: 'US', budget_usd: null,
+    tasks: [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }],
+  }))
+  run('probe 上限是 null → 也停下问人', [S('probe.ts'), '--config', nullProbe],
+      process.cwd(), { status: 2 })
 
   const badCfg = join(tmp, 'collect-badbudget.json')
   writeFileSync(badCfg, JSON.stringify({

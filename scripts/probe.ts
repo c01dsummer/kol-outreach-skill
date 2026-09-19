@@ -37,7 +37,9 @@ if (!key) {
 // 预算上限在花钱之前查。闸门是一句「已花 + 本次开销 > 上限」的比较：上限不是
 // 有限的数时它恒为假，闸门整条失效（P3）。判定与另外两条入口共用 lib/budget.ts
 // 的那一份 —— 三条入口各写一份表达式时，先改的那边不会报错。
-const probeBudget = cfg.budget_usd ?? 0.5
+// 默认值只给「没写」：`??` 会把显式的 null 也换成 0.5，于是 null 绕过下面那道校验
+// 直接去发请求（三态：undefined 是没写，null 是写了个空）
+const probeBudget = cfg.budget_usd === undefined ? 0.5 : cfg.budget_usd
 const badBudget = budgetProblem(probeBudget)
 if (badBudget) {
   console.error(`${cfgPath} 里的 budget_usd ${badBudget}：${showAmount(cfg.budget_usd)} —— ` +
