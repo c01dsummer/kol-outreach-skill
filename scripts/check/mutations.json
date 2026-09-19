@@ -2699,6 +2699,42 @@
       "why": "反引号围栏的信息串里再带反引号也照样算开启 —— 规范不认这种开启，而认了之后，一行普通文字会把它到下一个闭合之间整段遮住，那中间可能正有一条真的重启条件，判定于是看不见该看见的东西",
       "find": "    const opensFence = run !== null && !(run[1][0] === '`' && run[2].includes('`'))",
       "replace": "    const opensFence = run !== null"
+    },
+    {
+      "id": "M-P1-i",
+      "req": "P1",
+      "why": "采集累加器读回来时给缺失的字段补上默认值：没查过的粉丝数变成 0、没查过的简介变成空串。续跑读的就是这份累加器，于是「我们还没查过这个人」在下一轮变成「查过了，他就是 0 粉、没简介」—— 该补查的人再也不会被补查，而名单上那些 0 看起来跟真实的 0 一模一样",
+      "file": "scripts/lib/task.ts",
+      "find": "  if (existsSync(raw)) return JSON.parse(readFileSync(raw, 'utf8'))",
+      "replace": "  if (existsSync(raw)) return JSON.parse(readFileSync(raw, 'utf8')).map((c: any) => ({ followers: 0, bio: '', ...c }))"
+    },
+    {
+      "id": "M-P1-j",
+      "req": "P1",
+      "why": "搜索结果里缺失的粉丝数被记成 0。这一层是三态第一次成形的地方，记成 0 之后下游再也分不出「没查过」和「真的没有粉丝」，入池判定会把一批还没查过的人当成粉丝数不达标挡掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "        followers: a?.follower_count,   // P1: 缺失即 undefined，不记 0",
+      "replace": "        followers: a?.follower_count ?? 0,"
+    },
+    {
+      "id": "M-P1-k",
+      "req": "P1",
+      "why": "搜索结果里那个恒为 0 的作品数被当成真实值记下。那个端点对所有人都返回 0，它表示「这里不填这个字段」而不是「这个人一条作品都没有」—— 当成真值之后，内容积累那一档对全员失效，而且看不出来：每个人都拿到一个像模像样的 0",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "        post_count: a?.aweme_count === 0 ? undefined : a?.aweme_count,",
+      "replace": "        post_count: a?.aweme_count,"
+    },
+    {
+      "id": "M-P1-l",
+      "req": "P1",
+      "why": "能力统计把「没查过」并进「查了测不出」。**三项之和仍然等于总数** —— 平账那一条照样全绿，而报表上再也分不出「这批人我们没去查」和「查了但测不出来」：前者补一次就有，后者补多少次都没有，运营看到的是同一个数字",
+      "file": "scripts/render.ts",
+      "find": "  unavailable: values.filter(v => v?.status === 'unavailable').length,\n  unqueried: total - values.filter(Boolean).length,",
+      "replace": "  unavailable: values.filter(v => v?.status === 'unavailable').length + (total - values.filter(Boolean).length),\n  unqueried: 0,",
+      "by": "selfcheck",
+      "kills": [
+        "「没查过」没被并进「查了测不出」"
+      ]
     }
   ],
   "exemptions": [
