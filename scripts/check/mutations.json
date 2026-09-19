@@ -2735,6 +2735,14 @@
       "kills": [
         "「没查过」没被并进「查了测不出」"
       ]
+    },
+    {
+      "id": "M-P1-m",
+      "req": "P1.h",
+      "why": "名单排序不再把「粉丝数没查到」和「查到了、确实不够」分开。两个人同层同分时谁在前变成取决于他们碰巧的输入顺序，于是那个可能其实很大、只是还没去查的人被埋在一串确认不够的人后面 —— 而运营以为这份名单已经按强弱排好了，不会再往下翻",
+      "file": "scripts/lib/rows.ts",
+      "find": "  return [...creators].sort((a, b) =>\n    rank(a) - rank(b) || byScore(a, b) || byFollowersKnown(a, b))",
+      "replace": "  return [...creators].sort((a, b) => rank(a) - rank(b) || byScore(a, b))"
     }
   ],
   "exemptions": [

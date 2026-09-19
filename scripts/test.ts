@@ -2522,6 +2522,34 @@ suite('P1', '三态不得被压平：取值、排序、入池三处各验一次'
   criterion('P1.g')
 }
 
+suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」')
+{
+  /**
+   * 需求所有者 2026-09-19 裁决（ADR-92）：同层同分时，粉丝数未查询的排在
+   * 已查到的前面。已查到的那位是量过了、仍然没拿到粉丝分 —— 我们确定他不够；
+   * 未查询的那位可能够。**只改先后，不改分也不改层。**
+   */
+  const pair = (first: string, second: string): Creator[] => [
+    mk('tiktok', first, { tier: 'B', score: 40, followers: first === 'unknown' ? undefined : 0 }),
+    mk('tiktok', second, { tier: 'B', score: 40, followers: second === 'unknown' ? undefined : 0 }),
+  ]
+  eq('未查询的排在已查到的前面', sortForOutput(pair('known', 'unknown')).map(c => c.handle),
+     ['unknown', 'known'])
+
+  // 正序逆序各排一次。只写一个方向分不出「真的排了」和「碰巧是输入顺序」——
+  // 比较器返回 0 时稳定排序会跟着输入走，那时有一半的写法照样绿
+  eq('把输入顺序颠倒，结论不变', sortForOutput(pair('unknown', 'known')).map(c => c.handle),
+     ['unknown', 'known'])
+
+  // 这一条只在打平时说话，不许越过分数插队 —— 否则就等于偷偷给「未查询」加了分
+  eq('分数仍然优先：分高的在前，哪怕他的粉丝数是已查到的 0',
+     sortForOutput([
+       mk('tiktok', 'low-unknown', { tier: 'B', score: 10, followers: undefined }),
+       mk('tiktok', 'high-known', { tier: 'B', score: 40, followers: 0 }),
+     ]).map(c => c.handle), ['high-known', 'low-unknown'])
+  criterion('P1.h')
+}
+
 suite('D1', 'platform:handle 唯一标识，大小写不敏感')
 {
   const c = [mk('tiktok', 'Sarah', { bio_links: [] }), mk('instagram', 'sarah')]

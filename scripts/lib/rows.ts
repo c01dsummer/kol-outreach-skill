@@ -120,7 +120,20 @@ export function sortForOutput(creators: Creator[]): Creator[] {
     if (b.score === undefined) return -1
     return b.score - a.score
   }
-  return [...creators].sort((a, b) => rank(a) - rank(b) || byScore(a, b))
+  /**
+   * P1.h：同层同分时，粉丝数**未查询**的排在**已查到**的前面。
+   *
+   * 已查到的那位是量过了、仍然没拿到粉丝分 —— 我们确定他不够；未查询的那位
+   * 可能够，只是还没去看。把他放到人眼前，而不是埋在一串确认不够的人后面。
+   *
+   * **只改先后，不改分也不改层** —— 给「不知道」加分等于替他编一个他可能没有的
+   * 实力，那会把他推进他不该进的档（需求所有者 2026-09-19 裁决，ADR-92）。
+   */
+  const knownFollowers = (c: Creator) => (c.followers === undefined ? 0 : 1)
+  const byFollowersKnown = (a: Creator, b: Creator): number =>
+    knownFollowers(a) - knownFollowers(b)
+  return [...creators].sort((a, b) =>
+    rank(a) - rank(b) || byScore(a, b) || byFollowersKnown(a, b))
 }
 
 const TIER_LABEL = { A: 'A级 直接发信', B: 'B级 先互动', C: 'C级 观察池' } as const
