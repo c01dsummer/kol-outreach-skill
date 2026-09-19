@@ -2683,6 +2683,14 @@
       "why": "块内不再过引文遮罩 —— 一段演示「欠条该怎么写」的围栏例子里有那四个字加冒号，它替整个块交了差，于是真正没写条件的那张欠条被判成写了，而漏报正是这道闸门放行的意思",
       "find": "      const body = lines.slice(i, end).filter((_, k) => !quoted[i + k]).join('\\n')",
       "replace": "      const body = lines.slice(i, end).join('\\n')"
+    },
+    {
+      "id": "M-H12-c",
+      "req": "harness",
+      "file": "scripts/check/quoted.ts",
+      "why": "引用记号不再剥了 —— 写在引用块里的围栏一行都遮不住，而这个仓库举例的地方几乎都在引用块里；一段演示怎么写欠条的例子于是被当成真条件，替那张欠条交了差，真正没写条件的那些就报不出来",
+      "find": "    const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line.replace(QUOTE_PREFIX, ''))",
+      "replace": "    const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)"
     }
   ],
   "exemptions": [
