@@ -2097,7 +2097,8 @@
       "replace": "  state.requests = 0",
       "by": "selfcheck",
       "kills": [
-        "collect 预算用尽后留下的断点记到了中止那一刻"
+        "collect 预算用尽后留下的断点记到了中止那一刻",
+        "collect 补 profile 循环里被杀：整段循环都在落盘窗口里"
       ]
     },
     {
@@ -2807,6 +2808,26 @@
       "file": "scripts/lib/budget.ts",
       "find": "    if (this.spent + n * UNIT_PRICE > this.limitUsd) {\n      throw new BudgetExceeded(this.spent, this.limitUsd)\n    }\n    this.requests += n",
       "replace": "    this.requests += n\n    if (this.spent > this.limitUsd) {\n      throw new BudgetExceeded(this.spent, this.limitUsd)\n    }"
+    },
+    {
+      "id": "M-P3-f",
+      "req": "P3",
+      "by": "selfcheck",
+      "kills": ["collect 搜索循环里被杀：盘上少记的正好是落盘窗口那一次", "collect 搜索循环里被杀后续跑：供应商多收恰好一次"],
+      "why": "关键词循环里每抓一页那次落盘不做了 —— 收尾那次照样把数写对，主干今天全绿；只有在两次落盘之间把进程杀掉，才看得见盘上少记的那几次、续跑再花一遍的那几次",
+      "file": "scripts/collect.ts",
+      "find": "      }\n      persist()\n    }\n\n    if (stopped === 'target' || !anyProgress) break",
+      "replace": "      }\n    }\n\n    if (stopped === 'target' || !anyProgress) break"
+    },
+    {
+      "id": "M-D6-o",
+      "req": "D6",
+      "by": "selfcheck",
+      "kills": ["enrich 两个账号之间被杀：盘上少记的正好是落盘窗口那一次", "enrich 两个账号之间被杀后续跑：供应商多收恰好一次"],
+      "why": "每个账号查完那次落盘不做了 —— 末尾那次照样写对，只有在两个账号之间把进程杀掉才看得见：盘上少记一次，续跑把那个账号再查一遍、再付一次",
+      "file": "scripts/enrich.ts",
+      "find": "  state.accounts[k] = next\n  newlyQueried++\n  persist()\n}",
+      "replace": "  state.accounts[k] = next\n  newlyQueried++\n}"
     }
   ],
   "exemptions": [
