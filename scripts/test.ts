@@ -2522,6 +2522,41 @@ suite('P1', '三态不得被压平：取值、排序、入池三处各验一次'
   criterion('P1.g')
 }
 
+suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」')
+{
+  /**
+   * 需求所有者 2026-09-19 裁决（ADR-92）：同层同分时，粉丝数分三档 ——
+   * **已查到且不是 0 → 未查询 → 确实是 0**。未查询只压得过确认为 0 的人，
+   * 压不过任何真查到了数的人。**只改先后，不改分也不改层。**
+   */
+  const FOLLOWERS: Record<string, number | undefined> = { big: 50_000, unknown: undefined, zero: 0 }
+  const line = (...handles: string[]): Creator[] =>
+    handles.map(h => mk('tiktok', h, { tier: 'B', score: 40, followers: FOLLOWERS[h] }))
+
+  // 三档的先后。**正序逆序各排一次**：打平时排序稳定，比较器返回 0 就跟着输入
+  // 顺序走 —— 只写一个方向，有一半的错写法照样绿，包括「这一条根本没生效」
+  eq('三档先后：已查到的非 0 → 未查询 → 确实是 0',
+     sortForOutput(line('big', 'unknown', 'zero')).map(c => c.handle), ['big', 'unknown', 'zero'])
+  eq('把输入顺序整个颠倒，结论不变',
+     sortForOutput(line('zero', 'unknown', 'big')).map(c => c.handle), ['big', 'unknown', 'zero'])
+
+  // 两两各钉一次 —— 三个一起排时，只要有一档放对了，另一档错位也可能被挤回正确位置
+  eq('未查询压得过确实是 0 的', sortForOutput(line('zero', 'unknown')).map(c => c.handle),
+     ['unknown', 'zero'])
+  eq('未查询压不过真查到了数的', sortForOutput(line('unknown', 'big')).map(c => c.handle),
+     ['big', 'unknown'])
+  eq('真查到了数的压得过确实是 0 的', sortForOutput(line('zero', 'big')).map(c => c.handle),
+     ['big', 'zero'])
+
+  // 这一条只在打平时说话，不许越过分数插队 —— 否则就等于偷偷给「未查询」加了分
+  eq('分数仍然优先：分高的在前，哪怕他的粉丝数是已查到的 0',
+     sortForOutput([
+       mk('tiktok', 'low-unknown', { tier: 'B', score: 10, followers: undefined }),
+       mk('tiktok', 'high-known', { tier: 'B', score: 40, followers: 0 }),
+     ]).map(c => c.handle), ['high-known', 'low-unknown'])
+  criterion('P1.h')
+}
+
 suite('D1', 'platform:handle 唯一标识，大小写不敏感')
 {
   const c = [mk('tiktok', 'Sarah', { bio_links: [] }), mk('instagram', 'sarah')]
