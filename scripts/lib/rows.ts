@@ -120,7 +120,23 @@ export function sortForOutput(creators: Creator[]): Creator[] {
     if (b.score === undefined) return -1
     return b.score - a.score
   }
-  return [...creators].sort((a, b) => rank(a) - rank(b) || byScore(a, b))
+  /**
+   * P1.h：同层同分时，粉丝数分三档 —— **已查到且不是 0 → 未查询 → 确实是 0**。
+   *
+   * 「未查询」只压得过一个确认为 0 的人，压不过任何一个真查到了数的人：
+   * 查到了数的那位有据可依；未查询的那位只是**可能**够，凭一个还没量过的可能
+   * 越过量过的人，是拿不知道当成了本钱。而确实是 0 的那位已经量过、就是 0，
+   * 「不知道」比他多一分指望，所以在他前面。
+   *
+   * **只改先后，不改分也不改层** —— 给「不知道」加分等于替他编一个他可能没有的
+   * 实力，那会把他推进他不该进的档（需求所有者 2026-09-19 裁决，ADR-92）。
+   */
+  const followerRank = (c: Creator) =>
+    c.followers === undefined ? 1 : c.followers === 0 ? 2 : 0
+  const byFollowers = (a: Creator, b: Creator): number =>
+    followerRank(a) - followerRank(b)
+  return [...creators].sort((a, b) =>
+    rank(a) - rank(b) || byScore(a, b) || byFollowers(a, b))
 }
 
 const TIER_LABEL = { A: 'A级 直接发信', B: 'B级 先互动', C: 'C级 观察池' } as const
