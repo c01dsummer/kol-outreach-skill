@@ -64,14 +64,19 @@ TikTok 视频搜索每页 20 条、有 `offset` 与 `has_more`，一个词最多
 ### 复现
 
 不需要 key、不发真实请求：用一个假 `fetch` 按真实产量建模 —— TikTok 每页 20 个不同作者、带粉丝数；
-IG 每词 12 个不同作者、**不带**粉丝数（实测 IG 搜索结果里没有这个字段）。同一批 6 个关键词
-（4 个 TikTok ＋ 2 个 IG），只改顺序和目标人数。
+IG 每词 12 个不同作者、**不带**粉丝数（实测 IG 搜索结果里没有这个字段）。
+前三行是同一批 6 个关键词（4 个 TikTok ＋ 2 个 IG），只改顺序和目标人数；
+第四行换了词表 —— IG 也出 3 个词，才跑得到耗尽。
 
-**下面这张表钉在 `825fd2d` 上**（本条的基线），夹具就是上一段描述的那个。
-⚠️ **可复现性的边界写清楚**：钉住的是树，**不是夹具** —— 那个假 fetch 不在仓库里，
-要重跑得照上面的描述现搭一个。
+**下面这张表钉在 `825fd2d` 上**（本条的基线），夹具原样抄在本节末尾。
+⚠️ **头一版只钉了树没钉夹具**，假 fetch 留在「照描述现搭一个」上，于是这张表复现不了、
+四个数没人能核（#128 第三轮评审指出）。现在钉的是**树 ＋ 夹具 ＋ 命令**三样。
+**夹具抄进记录、不提交成仓库文件**：没有任何检查会去跑它，提交只会多一个没人认领的夹具，
+而且它会随后来的重构漂走 —— 这张表钉在 `825fd2d` 不动，夹具就该跟它一起冻在这儿。
 
-这张表在 `7469901`、`d7e20d7`、`73eef5f`、`825fd2d` 四棵树上各跑过一遍，逐格一致。
+这张表的**前三行**在 `7469901`、`d7e20d7`、`73eef5f`、`825fd2d` 四棵树上各跑过一遍，逐格一致。
+⚠️ **第四行的配置是这一轮重搭的**（原来那份没留下来），只在 `825fd2d` 上跑过一遍、逐格对上了，
+所以「四棵树一致」这句话**不覆盖第四行** —— 钉夹具才逼出这件事。
 **那是直接观察，不是从 diff 推出来的** —— 想自己核调度那段代码有没有动，跑
 `git diff --quiet 7469901..825fd2d -- scripts/collect.ts`。
 
@@ -92,10 +97,67 @@ IG 每词 12 个不同作者、**不带**粉丝数（实测 IG 搜索结果里�
 第 4 个 TikTok 词和两个 IG 词都没跑。后两行说明**顺序修好之后 IG 仍然只占一小部分** ——
 那是上面那个结构性上限，不是调度问题。**本条保证的是「问过」，不是「问到多少人」。**
 
-复现的夹具与命令：
+复现的夹具与命令。`fake-fetch.ts`：
+
+```ts
+/**
+ * 复现用假 fetch：按真实产量建模 —— TikTok 每页 20 条、每条不同作者、都带粉丝数；
+ * IG Reels 每词 12 条、每条不同作者、不带粉丝数（与实测一致）。
+ * handle 由 keyword+offset 派生，保证跨页、跨词不撞。
+ */
+const q = (u: string, k: string) => new URL(u).searchParams.get(k) ?? ''
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '')
+let calls = 0
+const log: string[] = []
+globalThis.fetch = (async (input: RequestInfo | URL) => {
+  calls++
+  const url = String(input)
+  let body: unknown
+  if (url.includes('fetch_video_search_result')) {
+    const kw = q(url, 'keyword'), off = Number(q(url, 'offset') || 0)
+    log.push(`TT ${kw} offset=${off}`)
+    body = { data: { aweme_list: [], has_more: 1, search_item_list: Array.from({ length: 20 }, (_, i) => ({
+      aweme_info: { desc: `${kw} video ${off + i}`, statistics: { play_count: 5000, digg_count: 100 },
+        author: { unique_id: `tt_${slug(kw)}_${off + i}`, nickname: 'x', follower_count: 20000, aweme_count: 0 } } })) } }
+  } else if (url.includes('instagram/v2/search_reels')) {
+    const kw = q(url, 'keyword')
+    log.push(`IG ${kw}`)
+    body = { data: { data: { count: 12, items: Array.from({ length: 12 }, (_, i) => ({
+      caption: { text: `${kw} reel ${i}` }, play_count: 3000, like_count: 50,
+      user: { id: String(i), username: `ig_${slug(kw)}_${i}`, full_name: 'y', is_verified: false, is_private: false } })) } } }
+  } else if (url.includes('tiktok/web/fetch_user_profile')) {
+    body = { data: { userInfo: { user: { uniqueId: q(url, 'uniqueId'), nickname: 'x', signature: 'hi', verified: false, bioLink: { link: 'https://example.com' } },
+      stats: { followerCount: 20000, videoCount: 50 } } } }
+  } else if (url.includes('fetch_user_info_by_username')) {
+    body = { data: { username: q(url, 'username'), full_name: 'y', biography: 'hi', bio_links: [{ url: 'https://example.com' }],
+      follower_count: 20000, following_count: 100, media_count: null, is_private: false, is_verified: false } }
+  } else {
+    body = { data: {} }
+  }
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+}) as typeof fetch
+process.on('exit', () => { console.error(`[fake] 搜索请求顺序:\n  ` + log.join('\n  ')) })
+```
+
+`tt-first.json` —— **第一行那个配置**，另外三行都是它的改动，逐字写在下面：
+
+```json
+{ "product": "repro-tt-first", "market": "US", "target_count": 50, "budget_usd": 5,
+  "tasks": [
+    { "keyword": "portable blender", "dimension": "category", "platform": "tiktok" },
+    { "keyword": "smoothie recipe", "dimension": "scene", "platform": "tiktok" },
+    { "keyword": "blendjet", "dimension": "competitor", "platform": "tiktok" },
+    { "keyword": "kitchen gadgets", "dimension": "audience", "platform": "tiktok" },
+    { "keyword": "smoothie", "dimension": "scene", "platform": "instagram" },
+    { "keyword": "blendjet", "dimension": "competitor", "platform": "instagram" } ] }
+```
+
+- 第二行：同一个文件，把两个 `instagram` 任务挪到数组最前面
+- 第三行：同一个文件，`target_count` 改成 150
+- 第四行：`target_count` 改成 500，任务列表换成 3 个 TikTok（`portable blender` / `smoothie recipe` / `blendjet`）
+  ＋ 3 个 Instagram（`smoothie` / `blendjet` / `portableblender`）——IG 也出 3 个词，才跑得到耗尽
 
 ```bash
-# 假 fetch 见本节上面的描述；配置就是 task.json 的形状，六个任务、target_count 50
 git worktree add --detach /path/to/wt 825fd2d   # 钉死，换成会动的引用数就跟着漂
 ln -s "$PWD/node_modules" /path/to/wt/node_modules
 cd /path/to/empty-dir   # 在仓库外跑，免得 output/ 落进仓库
@@ -103,8 +165,9 @@ TIKHUB_API_KEY=fake NODE_OPTIONS="--import /abs/path/fake-fetch.ts" \
   node /path/to/wt/node_modules/.bin/tsx /path/to/wt/scripts/collect.ts --config tt-first.json
 ```
 
-看三样：stdout 的 `stopped` 与 `pending_keywords`、`creators.raw.json` 里各平台人数、
-假 fetch 打出来的请求顺序。把两个 IG 任务挪到最前面再跑一次，对比。
+看三样：stdout 的 `stopped`、`creators.raw.json` 里各平台人数、
+假 fetch 在进程退出时打到 stderr 的那份请求顺序（`IG` 开头的行数就是 IG 发出的请求数）。
+`pending_keywords` 也在 stdout 里，第一行那次跑完它会列着六个词一个没少。
 
 ## 二、四条把「少」推向「零」的连带成因
 
@@ -191,8 +254,13 @@ IG 从报告里消失，运营的结论是「这个品类 IG 没人」，下次�
 ```bash
 git -c core.quotePath=false grep -n \
   -e '整个 IG 一' -e '每个维度都保证有产出' -e '不让第一个关键词吃掉全部配额' -e '再多找点' \
-  <要量的那棵树> -- skill docs scripts README.md
+  825fd2d -- .
 ```
+
+⚠️ **树钉死、范围是整个仓库**：`825fd2d` 是本条动手之前的那一棵，撤回的对象在那棵树上都还在；
+`-- .` 就是全仓，不是只有文档。头一版写着「搜全仓」而命令限在 `skill docs scripts README.md`，
+那两件对不上（#128 第三轮评审指出）。这一版两条命中清单我都跑过，逐行相同 ——
+**但对不上的时候，改的是命令而不是那句话**，否则下一个人按窄清单核就核不出「全仓」这个结论。
 
 命中里有五处在说一句不成立的话，本条都改成事实：`skill/SKILL.md` 的 Phase 03 那条与续跑那段、
 `docs/business-requirements.md` 的「采集必须轮转」那段、`scripts/collect.ts` 的 `run()` 函数头注释、
@@ -407,7 +475,9 @@ ADR-25 立那条规矩的时候，栽的就是这个形状。**我在一条撤�
 
 **三、复现那张表是算出来的数，却没钉树。** 命令里写的是 `<要量的那棵树>` 这样一个占位符，
 于是表里那几个数既不钉树、也不只有命令 —— 正是 ADR-73 与 ADR-82 要防的形状。
-已钉到 `825fd2d`，并把**可复现性的边界**写出来：钉住的是树，不是夹具（假 fetch 不在仓库里）。
+已钉到 `825fd2d`。⚠️ **当时只钉了树、没钉夹具，那是修一半** —— 假 fetch 留在
+「照描述现搭一个」上，表里那几个数照样没人能重跑出来。第三轮评审又指出一次，
+夹具在第九节第三条里补上了。
 第五节那两处硬失败同样改成指判定函数，不抄「两处」这个数。
 
 **这一节自己就是 ADR-73 那条教训的又一个实例**：一条讲判据的记录，最容易在自己身上破那条判据 ——
@@ -417,3 +487,47 @@ ADR-25 立那条规矩的时候，栽的就是这个形状。**我在一条撤�
 > ⚠️ 欠条：**「采集期就给粉丝未知的人补 profile」这条没做。** 它能让达标数对两个平台一样准，
 > 总请求数不变、只是把花钱的时机提前；代价是预算中途用尽时的形状变了 · 重启条件：
 > 第一页保证落地后，真实品类里 IG 的「入围 ÷ 找到」低于一半
+
+## 九、第三轮评审：三条，头一条又是一句没核过的宽慰话
+
+三条全部成立，都在本条 PR 里修了（`6-INTEGRATE.md` 的**本改动**档，第三轮）。
+
+**一（Major）·「TikTok 词跳过了还能续」是假的。** `skill/SKILL.md` Phase 03 那条里我写着
+「IG 一词只有一页，跳过了续跑也补不回来；TikTok 词跳过了还能续」。后半句没有依据 ——
+而**这条记录自己的第二节第 1 条**就写着：达标停下之后 `--resume` 一个关键词搜索请求都不发。
+那件事不分平台。
+
+这一轮把两种停法各跑了一遍（夹具与命令同第一节，树钉在 `e04e736`）：
+
+| 怎么停的 | 续跑发出的第一个搜索请求 | 被跳过的那些词 |
+|---|---|---|
+| 达标（`stopped=target`） | 没有，一个都不发 | 一个都没碰，`pending_keywords` 仍列着全部任务 |
+| 预算用尽（`stopped=budget`，追加 `--budget` 续跑） | 排在第 0 位那个词的**下一页** | 仍然没碰 —— 那一页就够重新达标 |
+
+两种停法都不保证补得回来，原因还不一样：达标那种一个请求都不发；预算那种会发，
+但仍从第 0 个任务按 task.json 的顺序排队，`offsets` 让前面那些词接着往深处翻
+（同第二节第 2 条那个机制，只是单次续跑里就看得见）。**顺序在两种停法下都决定谁被查到** ——
+这让「把 IG 写在最前面」这条临时办法的理由更硬，不是更软。
+修法：假的那半句删掉，两种停法各写一句，`SKILL.md` 续跑那一段补上预算那种的口径。
+
+**同一条 PR 里第四次犯 ADR-73 那个形状**（前三次：第一轮的全称量词、第一轮那句
+「一个请求都不会发」、第二轮那条推广来的 `git diff`）。四次唯一的共同点是
+**写下来的那句话没有被它自己那条命令量过**。这一次与第一轮第三条还共着更窄的一层：
+**两句都是「它还能怎么恢复」的宽慰话** —— 那次是「续跑不发请求」，这次是「TikTok 还能续」。
+手里握着坏消息落笔时会本能地配一句「不过……」，而那半句最容易没人去核。
+判据加一格：**写下「还能 X」「X 能补回来」之前先把 X 跑一遍**；跑不动就只写坏消息。
+
+**二 · 那条审计用的 `git grep` 说的是全仓，写的是四个路径。** 第四节那句
+「搜全仓不只搜文档」下面，命令限在 `-- skill docs scripts README.md`，树还是个占位符。
+两处都改：树钉到 `825fd2d`，范围改成 `-- .`。两版命中清单我都跑过，逐行相同 ——
+**但相同不是留着窄版的理由**，下一个人按窄清单核，核不出「全仓」这个结论。
+
+**三 · 那张复现表的夹具没钉住。** 第一轮钉了树，却把假 fetch 留在「照描述现搭一个」上，
+于是这张表没人能重跑，四个数依旧不可核 —— 那条只修了一半。这一轮把假 fetch 与那份配置
+**原样抄进第一节**，另三行写成它的逐字改动（为什么不提交成仓库文件，理由在那一节）。
+**钉夹具当场换来一条发现**：第四行那份配置没留下来，要按描述重搭，于是
+「四棵树逐格一致」覆盖不到它 —— 第一节已收窄。钉不上的那一行，正是当初留了口子的那一行。
+
+> ⚠️ 欠条：**「宽慰句先跑一遍」这条判据没有任何机器守着**，它和第四节那句
+> 「描述保证的话没有检查看着」是同一个缺口，只是换到了记录本身上
+> · 重启条件：下一条被评审指出「写了一句没核过的恢复承诺」的改动
