@@ -39,7 +39,7 @@ ADR-04 把「测试与实现由同一上下文写成」登记为已知缺口，�
 
 **核验结果 —— 那次运行的全部工具调用，原样抄在这里：**
 
-```
+```text
 Read  …/scratchpad/pack/01-需求-P1.md
 Read  …/scratchpad/pack/02-类型声明.ts
 Bash  cat "…/scratchpad/pack/03-对外契约-输出格式.md"
