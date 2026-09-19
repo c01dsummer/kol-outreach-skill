@@ -2545,6 +2545,8 @@ suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」'
      ['unknown', 'zero'])
   eq('未查询压不过真查到了数的', sortForOutput(line('unknown', 'big')).map(c => c.handle),
      ['big', 'unknown'])
+  eq('真查到了数的压得过确实是 0 的', sortForOutput(line('zero', 'big')).map(c => c.handle),
+     ['big', 'zero'])
 
   // 这一条只在打平时说话，不许越过分数插队 —— 否则就等于偷偷给「未查询」加了分
   eq('分数仍然优先：分高的在前，哪怕他的粉丝数是已查到的 0',
