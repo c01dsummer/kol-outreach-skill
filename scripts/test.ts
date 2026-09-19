@@ -174,7 +174,7 @@ function xlsxSheetNames(path: string): string[] {
 
 const mk = (p: 'tiktok' | 'instagram', h: string, over: Partial<Creator> = {}): Creator => ({
   platform: p, handle: h, nickname: h, followers: 10000, post_count: 50,
-  bio: '', bio_links: [], verified: false, profile_url: '',
+  bio: null, bio_links: [], verified: false, profile_url: '',
   source_keyword: 'k', source_dimension: 'category', recent_posts: [], ...over,
 })
 
