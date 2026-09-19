@@ -20,6 +20,8 @@
  *
  * `elsewhere` 单成一态,是因为另外三条路都错:压进 `caught` 会让人以为那条夹具有效,
  * 压进 `survived` 或 `crashed` 又都是假话 —— 它确实被某条断言抓到了,只是不是那一条。
+ *
+ * 这道检查**没有死亡条件,而那是判过的结论、不是漏了** —— 理由记在 ADR-85。
  */
 import ts from 'typescript'
 import { SELFCHECK_FIXTURE_MARK, SELFCHECK_PROCESS_MARK } from './verifier-rule.js'

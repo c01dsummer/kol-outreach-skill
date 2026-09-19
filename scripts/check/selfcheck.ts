@@ -12,6 +12,8 @@
  *
  * 两种都没有的，就是没人跑过，报错。末尾那句话按这两组分开说 ——
  * 合起来说一句「全都从头执行到尾」，在单独跑 `npm run selfcheck` 时是假的。
+ *
+ * 死亡条件记在 ADR-85:一身三半,三半的答案不一样,所以没有整道的那一份。
  */
 import {
   mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync,
