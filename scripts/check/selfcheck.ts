@@ -115,7 +115,7 @@ const named = (label: string, ok: boolean, why: string) => {
 }
 
 const runBoth = (label: string, args: string[], cwd = process.cwd(),
-  expect?: { status: number; soft?: true }, extra: NodeJS.ProcessEnv = {}): { ok: boolean; stdout: string; stderr: string; status: number | null } => {
+  expect?: { status: number; soft?: readonly number[] }, extra: NodeJS.ProcessEnv = {}): { ok: boolean; stdout: string; stderr: string; status: number | null } => {
   const [exe, argv] = tsxCommand(args)
   // extra 只给这一次 spawn：崩溃续跑那几条轨迹要给「杀掉那一跑」传旋钮、给续跑不传
   const r = spawnSync(exe, argv, { env: { ...env, ...extra }, cwd, encoding: 'utf8' })
@@ -123,12 +123,17 @@ const runBoth = (label: string, args: string[], cwd = process.cwd(),
   const stderr = r.stderr ?? ''   // P1 例外：同上
   const want = expect?.status ?? 0
   const bad = Boolean(r.error) || r.status !== want
-  // `soft`：**退出码本身就是判据点名的东西**时（D6.k 逐字写着「不得以退出码 0 收尾」），
-  // 对不上不能打进程记号 —— 记号是一票否决（`judgeRun` 的 `notAssertion`），指着这条
-  // 行为的变异会被判「跑不起来」而不是「被抓到」，功劳记错了人。交回退出码，
-  // 让调用点自己用 `named()` 断言它；**标签要写成字面量**，否则 `labelsOf` 看不见它
-  // （它按语法树找 `named(…)` 的第一个实参，helper 包一层就认不出来了）。
-  if (bad && expect?.soft) {
+  // `soft` 列的是**退出码本身就是判据点名的东西**时，调用点准备用 `named()` 判的那几个
+  // 取值（D6.k 逐字写着「不得以退出码 0 收尾」，所以那里写 `soft: [0]`）。对上了就不打
+  // 进程记号 —— 记号是一票否决（`judgeRun` 的 `notAssertion`），指着这条行为的变异会被判
+  // 「跑不起来」而不是「被抓到」，功劳记错了人。**标签要写成字面量**，否则 `labelsOf`
+  // 看不见它（它按语法树找 `named(…)` 的第一个实参，helper 包一层就认不出来）。
+  //
+  // ⚠️ **列的是取值，不是一个开关。** 头一版写成 `soft: true`，于是**起不来**（`r.error`）
+  // 和**被信号打死**也一起走了这一支：进程记号不打、崩溃现场不打，而后面几条断言接着
+  // 对着半截产出跑。实测（给这条夹具挂上 `FAKE_FETCH_KILL_AFTER_OK`）：退出码 137
+  // 照样被当成「由具名断言判」（#139 评审指出）。真崩了就该是崩了。
+  if (bad && !r.error && r.status !== null && (expect?.soft?.includes(r.status) ?? false)) {
     console.log(`  · ${label}（退出码 ${r.status}，由下面的具名断言判）`)
     return { ok: true, stdout, stderr, status: r.status }
   }
@@ -1386,7 +1391,7 @@ writeFileSync(igCfg, JSON.stringify({
   tasks: [{ keyword: 'force-noparse-kw', dimension: 'scene', platform: 'instagram' }],
 }))
 const burnRun = runBoth('collect IG 兜底撞上预算',
-                        [S('collect.ts'), '--config', igCfg], igBurn, { status: 3, soft: true })
+                        [S('collect.ts'), '--config', igCfg], igBurn, { status: 3, soft: [0] })
 named('IG 兜底撞上预算：按 P3 停下，不以退出码 0 收尾', burnRun.status === 3,
       `实际以退出码 ${burnRun.status} 结束 —— 0 的意思是「这个词跑完了」，`
       + '而预算其实已经见底，兜底那条唯一还能找到人的路一次都没发出去')

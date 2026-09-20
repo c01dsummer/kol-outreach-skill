@@ -871,7 +871,7 @@ IG 兜底撞上预算、进程被杀。盘上于是对着一个**已经付过钱
 **复核还挖出一个结构性缺口：provider 从来没有假 HTTP 层** —— `TikHub.search()`
 未被任何测试直接调用过，所以 `pickList` 抛出、IG 兜底、IG 不走 offset 这几条路
 在整条检查链里一次都没跑过。上面两个 blocking 就长在这几条路上。本条补了一组
-provider 契约测试，四种形状各走一遍。
+provider 契约测试，把那几条路各走一遍。
 
 ### 乙 · 第二轮复核：9 条里 8 条是第一轮的修自己引入的
 
@@ -1027,7 +1027,7 @@ provider 契约测试，四种形状各走一遍。
   而且会遮住循环末尾那次落盘的窗口，负片 `M-P3-f` 指着它）。
   **两张表一律不在这里建，`??=` 都不行**；迁移整个撤掉
 - `scripts/providers/tikhub.ts`：IG 兜底两次请求的条数相加，预算卡在两次之间时照常抛
-- `scripts/check/fake-fetch.ts`：两个旋钮 —— `force-schema`（200、计过费、结构认不出）
+- `scripts/check/fake-fetch.ts`：旋钮 `force-schema`（200、计过费、结构认不出）
   与 `force-noparse`（reels 返回条目但一条都解析不出人），分别是「钱花了、在记下来之前
   抛了」和「IG 兜底」那两条路唯一的入口
 - `scripts/check/selfcheck.ts`：`runBoth` 多一个 `soft` —— 退出码本身就是判据点名的
@@ -1036,8 +1036,8 @@ provider 契约测试，四种形状各走一遍。
   `mutate` 开跑前第三道体检当场拦下（本条实际被拦过一次）
 - 登记表：D6.i（发出过几次付费请求）、D6.j（两张表只在新建时建）、D6.k（IG 兜底的契约，
   含入口那一头）、D6.l（累计拿回几条、`null` 永不消退）、交点 `D6 × P3`
-- 证据：`scripts/test.ts` 新增一组 provider 契约测试（罐头 fetch，四种形状）认领 D6.k
-  与交点 `D6 × P3`；`scripts/check/selfcheck.ts` 五组端到端夹具（付过钱才抛＋结构恢复、
+- 证据：`scripts/test.ts` 新增一组 provider 契约测试（罐头 fetch）认领 D6.k
+  与交点 `D6 × P3`；`scripts/check/selfcheck.ts` 的端到端夹具（付过钱才抛＋结构恢复、
   402 退费、旧目录 a／b、IG 兜底撞预算）认领 D6.i、D6.j、D6.k、D6.l；负片记在
   `M-D6-p`～`M-D6-w` 名下，外加重新锚定的 `M-F9-b`。
   **各有几条不写在这里** —— 那是算出来的数，会漂（ADR-73 · ADR-82）。数它的命令：
