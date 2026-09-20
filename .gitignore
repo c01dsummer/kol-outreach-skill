@@ -1,3 +1,6 @@
+# 不带斜杠 —— 带斜杠只匹配目录，挡不住 worktree 里那条同名的符号链接，
+# 而 `git add -A` 会把它收进仓库：别的检出（含 CI）拿到的是一条指向
+# 作者机器绝对路径的死链。本工作流栽过三次，两次是 `git add -A`
 node_modules
 .env
 .env.local
