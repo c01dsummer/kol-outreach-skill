@@ -1198,6 +1198,116 @@ criterion('F9.b')
 criterion('F9.d')
 criterion('F9.e')
 
+// ---- D6.i：请求发出去了、钱扣了，在记下来之前抛了 —— 盘上不得看不出它问过 ----
+// 供应商换了响应结构：200 已返回、`charge()` 已计费且不退，而 `pickList` 认不出结构抛出。
+// 这条路上 `offsets` 那个键从头到尾没被写过 —— 一度打算拿它兼职回答「问过没有」，
+// 于是一个付过钱的词在盘上看起来像从没问过，续跑照原样再买一次同样的第一页
+// （ADR-94 第十五节甲，独立复核的实测反例）。
+// **只能端到端跑**：写它的是入口脚本搜索调用外面那个 finally，缺省那个验证者够不到。
+const paid = join(tmp, 'paidbutlost')
+mkdirSync(join(paid, 'memory'), { recursive: true })
+const paidCfg = join(paid, 'paid.json')
+writeFileSync(paidCfg, JSON.stringify({
+  product: 'paidlost', market: 'US', target_count: 9999, budget_usd: 1,
+  tasks: [{ keyword: 'force-schema-kw', dimension: 'category', platform: 'tiktok' }],
+}))
+// 认不出结构 → TikHubError 冒到 main()，stopped='error'、退出码 1
+const paidRun = runBoth('collect 请求成功计费之后才抛：以出错收尾',
+                        [S('collect.ts'), '--config', paidCfg], paid, { status: 1 })
+if (paidRun.ok) {
+  const pdir = onlyDir(paid, 'paidlost')
+  // 断点不在约定的文件名下时（`M-D6-n` 那类变异）读成 undefined 让这一段跳过，
+  // **不是让自检崩** —— 崩了那条变异会被判「跑不起来」，功劳记错了人
+  // （同本文件 `requestsOnDisk` 的先例）。
+  let pstate: any
+  try { pstate = JSON.parse(readFileSync(join(paid, pdir ?? '', 'task.json'), 'utf8')) } catch {}
+  if (pstate !== undefined) {
+    named('请求付过钱就留得下痕迹，哪怕它抛在记录之前',
+          pstate.answered?.[0] >= 1 && pstate.requests >= 1 && pstate.offsets?.[0] === undefined,
+          `盘上 answered=${JSON.stringify(pstate.answered)}、offsets=${JSON.stringify(pstate.offsets)}、`
+          + `requests=${pstate.requests} —— 只认 offsets 的话这个词看起来从没问过，`
+          + '而它的钱已经花掉了，续跑会再买一次同样的第一页')
+  }
+}
+
+// ---- D6.j：上一版留下的目录迁移过来时，不许把「无从确认」抹成假话 ----
+// **只能端到端跑**：迁移那段在入口脚本 run() 的开头，缺省那个验证者够不到
+// （实测 M-D6-q／M-D6-r 在 npm test 下存活）。
+//
+// 造法：正常跑出一个目录 → 删掉 answered／found 两张表（＝本条落地之前建的目录）
+// → 续跑 → 读盘上那两张表说什么。
+const migBase = join(tmp, 'migrate')
+mkdirSync(join(migBase, 'memory'), { recursive: true })
+const migCfg = (name: string, budget: number) => {
+  const f = join(migBase, `${name}.json`)
+  writeFileSync(f, JSON.stringify({
+    product: name, market: 'US', target_count: 9999, budget_usd: budget,
+    tasks: [{ keyword: 'mg0', dimension: 'category', platform: 'tiktok' }],
+  }))
+  return f
+}
+/** 删掉两张新表，把目录退回成上一版的样子 */
+const stripNewTables = (dir: string): boolean => {
+  const f = join(migBase, dir, 'task.json')
+  try {
+    const st = JSON.parse(readFileSync(f, 'utf8'))
+    delete st.answered; delete st.found
+    writeFileSync(f, JSON.stringify(st, null, 2), 'utf8')
+    return true
+  } catch { return false }
+}
+const migState = (dir: string): any => {
+  try { return JSON.parse(readFileSync(join(migBase, dir, 'task.json'), 'utf8')) } catch { return undefined }
+}
+
+// (a) 续跑一次请求都发不出去时：**分页记录已经证明它问过**，盘上不许记成「一个都没问过」。
+//     实测过相反的一次：同一目录不续跑读出来是「无从确认」（对的），
+//     续跑一次（零次搜索）之后变成「都没问过」、条数挂着 0，而那个目录的钱早就花了 —— 不可逆。
+{
+  const first = runBoth('collect 迁移夹具 a：先跑出一个正常目录',
+                        [S('collect.ts'), '--config', migCfg('miga', 0.004)], migBase, { status: 3 })
+  const dir = first.ok ? summaryOf(first.stdout).dir : undefined
+  if (dir !== undefined && stripNewTables(dir)) {
+    // 额度一次请求都不够 → 搜索循环第一次 charge 就抛，零次请求
+    const again = runBoth('collect 迁移夹具 a：旧目录上续跑，一次请求都发不出去',
+                          [S('collect.ts'), '--resume', dir, '--budget', '0.0001'],
+                          migBase, { status: 3 })
+    if (again.ok) {
+      const st = migState(dir)
+      named('旧目录续跑之后，分页记录证明问过的词照实记成问过',
+            st?.answered?.[0] >= 1,
+            `盘上 answered=${JSON.stringify(st?.answered)} —— 「一个都没问过」的意思是`
+            + '从未发出过搜索请求，而这个词的钱早就花了；一句「无从确认」退化成一句肯定的假话，'
+            + '而且不可逆')
+      named('升级前那几页无从得知 → 条数记「注定不全」，不记一个偏小的数',
+            st?.found !== undefined && st.found[0] === null,
+            `盘上 found=${JSON.stringify(st?.found)} —— 偏小的数和 0 一样坏：`
+            + '它和真测量值长得一模一样、没有任何记号，读它的人拿它当分母')
+    }
+  }
+}
+
+// (b) 续跑真的又抓了几页时：条数**仍然**是「注定不全」，不许从零凑一个偏小的数
+{
+  const first = runBoth('collect 迁移夹具 b：先跑出一个被预算卡停的目录',
+                        [S('collect.ts'), '--config', migCfg('migb', 0.002)], migBase, { status: 3 })
+  const dir = first.ok ? summaryOf(first.stdout).dir : undefined
+  if (dir !== undefined && stripNewTables(dir)) {
+    const again = runBoth('collect 迁移夹具 b：旧目录上续跑，这次真的又抓了几页',
+                          [S('collect.ts'), '--resume', dir, '--budget', '1'], migBase)
+    if (again.ok) {
+      const st = migState(dir)
+      named('升级后又抓了几页，也不把「注定不全」凑成一个数',
+            st?.answered?.[0] >= 2 && st?.found !== undefined && st.found[0] === null,
+            `盘上 answered=${JSON.stringify(st?.answered)}、found=${JSON.stringify(st?.found)}`
+            + ' —— 升级前抓了几页无从得知，再往上加只会凑出一个偏小、却看起来像测量值的数')
+    }
+  }
+}
+
+criterion('D6.i')
+criterion('D6.j')
+
 // ---- 变异集编号重复：两个入口都命中即以退出码 1 结束（M-H7-b、M-H7-c 的入口那一半）----
 // 判定和「两种毛病同时在时先报哪一种」都由 scripts/test.ts 断言；剩下的那一半是
 // **入口真的调了它、并且以退出码 1 结束** —— 把两处调用整块删掉，那些断言和

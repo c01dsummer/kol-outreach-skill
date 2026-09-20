@@ -4512,6 +4512,97 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
   ok('汇总要写明不判踩没踩到', sum.includes('不判这次改动踩到了谁'))
 }
 
+// ═══════════ provider 的契约：fetch 换成罐头，把四条一直没人跑过的路走一遍 ═══════════
+// 独立复核点出的结构性缺口：`TikHub.search()` **从未被任何测试直接调用过**。
+// 于是 pickList 抛出、IG 兜底、预算卡在两次请求之间这几条路，在整条检查链里一次都没跑过 ——
+// 而复核挖出的两个 blocking 就长在这几条路上。自检那层的假 fetch 永远返回认得出的结构，
+// 够不到这里（ADR-94 第十五节）。
+suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
+{
+  const canned = (bodies: any[]) => {
+    let n = 0
+    const calls: string[] = []
+    const fake = (async (input: any) => {
+      calls.push(String(input))
+      const b = bodies[Math.min(n++, bodies.length - 1)]
+      if (b instanceof Error) throw b
+      return new Response(JSON.stringify(b.body ?? b), { status: b.status ?? 200 })
+    }) as unknown as typeof fetch
+    return { fake, calls: () => calls }
+  }
+  const withFetch = async <T>(fake: typeof fetch, fn: () => Promise<T>): Promise<T> => {
+    const real = globalThis.fetch
+    globalThis.fetch = fake
+    try { return await fn() } finally { globalThis.fetch = real }
+  }
+  const igTask = { keyword: 'smoothie', dimension: 'scene', platform: 'instagram' } as any
+  const reelsWith = (n: number) => ({ data: { data: { count: n, items: Array.from({ length: n },
+    (_, i) => ({ caption: { text: 'x' }, user: { username: 'u' + i, full_name: 'U' } })) } } })
+  /** reels 返回了条目、但每条都取不出 username —— 解析读不懂，不是「没有内容」 */
+  const reelsUnparseable = (n: number) => ({ data: { data: { count: n,
+    items: Array.from({ length: n }, () => ({ caption: { text: 'x' }, nobody: {} })) } } })
+  const usersWith = (n: number) => ({ data: { data: { items: Array.from({ length: n },
+    (_, i) => ({ username: 'm' + i, full_name: 'M', id: String(i) })) } } })
+
+  // ① IG 兜底：reels 有条目但解析不出人 → 改搜账号名。**两次的条数要相加。**
+  //    只交回后一次的话，第一次已经付过钱、供应商也确实返回了 8 条，而盘上记着「拿回 0 条」。
+  {
+    const budget = new Budget(1, 0, () => {})
+    const { fake, calls } = canned([reelsUnparseable(8), usersWith(1)])
+    const page = await withFetch(fake, () => new TikHub('k', budget).search(igTask, 'US', 0))
+    eq('IG 兜底走了两次请求', calls().length, 2)
+    eq('两次的条数相加，第一次那 8 条没被丢掉', page.raw_count, 9)
+    eq('两次都计了费', budget.count, 2)
+  }
+
+  // ② 预算恰好卡在两次请求之间：**照常抛**，不许吞成正常返回。
+  // ⚠️ 这一条头一版断言的是反面（「已经付过钱的那一页要交回去」）—— 把一个错误行为
+  // 锁成了期望。吞掉之后 IG 的 reels 页恒 has_more:false，入口据此把任务推进 `done`
+  // **永久烧掉**：退出码 0、还说「续跑不产生新的请求」，而预算已经见底，
+  // 追加预算续跑时它再也不会被碰（ADR-94 第十五节乙，实测）。
+  {
+    const budget = new Budget(0.001, 0, () => {})     // 只够一次
+    const { fake, calls } = canned([reelsUnparseable(8)])
+    let caught: unknown
+    await withFetch(fake, async () => {
+      try { await new TikHub('k', budget).search(igTask, 'US', 0) } catch (e) { caught = e }
+    })
+    ok('预算卡在两次之间时抛 BudgetExceeded，不吞成正常返回', caught instanceof BudgetExceeded)
+    eq('第二次请求根本没发出去', calls().length, 1)
+    eq('第一次的钱记在预算上 —— 入口据此留下「问过」的痕迹', budget.count, 1)
+  }
+  criterion('D6.k')
+  // ── D6 × P3：已经付过的那一页，和「预算用尽必须停」 ───────────────────────
+  // 上面这一组量的正是那条裁决：兜底的第二次请求撞上预算时**照常抛**，
+  // 第一次那一页的钱就此白花 —— 但那笔损失只是一个「拿回几条无从确认」，
+  // 而吞掉它换来的是把一个可重试的任务永久烧进 `done`。P3 赢。
+  tension('D6', 'P3')
+
+  // ③ schema 漂移：200 已返回、钱已扣，解析认不出结构 → 抛。
+  //    **入口那边要靠预算计数器留下痕迹**，不能把这个词记成「没问过」。
+  {
+    const budget = new Budget(1, 0, () => {})
+    const { fake } = canned([{ body: { data: { 全新的键: [] } } }])
+    let threw = false
+    await withFetch(fake, async () => {
+      try { await new TikHub('k', budget).search(igTask, 'US', 0) } catch { threw = true }
+    })
+    ok('认不出结构时抛出，不静默产出空结果', threw)
+    eq('但钱已经扣了 —— 这就是「发出过请求」的痕迹', budget.count, 1)
+  }
+
+  // ④ IG 不走 offset：第二页不白花请求。这条是「游标 ≠ 累计条数」的根源之一 ——
+  //    兜底那一路两次请求、游标只记最后一个端点，所以 D6.i 要两张表分开记。
+  {
+    const budget = new Budget(1, 0, () => {})
+    const { fake, calls } = canned([reelsWith(2)])
+    const page = await withFetch(fake, () => new TikHub('k', budget).search(igTask, 'US', 20))
+    eq('IG 的第二页一个请求都不发', calls().length, 0)
+    eq('也不谎报条数', page.raw_count, 0)
+  }
+  criterion('D6.i')
+}
+
 console.log(fail ? `\n${fail} 个失败\n` : `\n全部通过（覆盖 ${covered.size} 条需求）\n`)
 if (process.argv.includes('--json')) {
   console.log('COVERED=' + JSON.stringify([...covered]))

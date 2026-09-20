@@ -291,7 +291,19 @@ export class TikHub {
     // IG 的 Reels 搜索没有分页游标，offset > 0 直接返回空，不白花请求
     if (offset > 0) return { creators: [], raw_count: 0, has_more: false }
     const reels = await this.searchInstagramReels(task.keyword)
-    return reels.creators.length ? reels : this.searchInstagramUsers(task.keyword)
+    if (reels.creators.length) return reels
+    // 兜底：reels 一个人都没解析出来时改搜账号名。**两次的条数要相加** ——
+    // 只交回后一次的话，第一次已经付过钱、供应商也确实返回了条目，而报告上那一行
+    // 写着「找到 0」，读作「这个词一条内容都没有」（D6.k，ADR-94 第十五节甲，实测）。
+    // ⚠️ **预算卡在两次之间时照常抛**，不要吞成正常返回。
+    // 头一版为了「别丢掉已付的那一页」把它 catch 掉、交回 reels —— 后果严重得多：
+    // IG 的 reels 页恒 `has_more: false`，于是入口把这个任务推进 `done` **永久烧掉**，
+    // 退出码 0、还告诉用户「续跑不产生新的请求」，而预算其实已经见底 ——
+    // 追加预算续跑时它再也不会被碰（D6 × P3 的裁定，ADR-94 第十五节乙，实测）。
+    // 而且走到这一支就说明 reels **一个人都没解析出来**，交回它并不保住任何人；
+    // 丢的只是条数，那个数由 `TaskState.answered`／`found` 如实报成「未知」。
+    return this.searchInstagramUsers(task.keyword)
+      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))
   }
 
   async profile(handle: string, platform: Platform): Promise<Partial<Creator>> {

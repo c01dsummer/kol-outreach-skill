@@ -71,7 +71,7 @@ if (resume) {
   state = {
     product: cfg.product, market: cfg.market ?? 'US',
     target_count: cfg.target_count ?? 50, budget_usd: cfg.budget_usd ?? 2,
-    tasks: cfg.tasks, done: [], offsets: {}, requests: 0,
+    tasks: cfg.tasks, done: [], offsets: {}, answered: {}, found: {}, requests: 0,
     created_at: new Date().toISOString(), updated_at: '',
   }
   productFrom = cfgPath
@@ -196,6 +196,21 @@ async function run() {
   // ⚠️ **那道闸和这一行是一对**：谁把闸挪走，写入就会静默落进这张局部表、
   // 一个字都不报（负片 `M-F9-f` 指着那道闸，靠的是请求数，不是这张表）。
   const offsets = unknownPaging ? {} : (state.offsets ??= {})
+  // D6.i／D6.j：「问过没有」与「拿回几条」各有自己的表，不与 offsets 合用一张。
+  //
+  // ⚠️ **绝不无条件建空表** —— 空表会把「无从确认」抹成「都没查过」，而且不可逆。
+  // 迁移照实补：分页记录表在，就证明抓过第一页的、标过完成的确实问过，只补 answered；
+  // 抓过几页无从得知，所以 found 记 `null`＝「注定不全」，渲染成「未知」。
+  // 连分页记录表都没有的，两张表都不建（ADR-94 第十五节乙，含实测）。
+  if (state.answered === undefined && state.offsets !== undefined) {
+    const seededAnswered: Record<number, number> = {}
+    const seededFound: Record<number, number | null> = {}
+    for (let i = 0; i < state.tasks.length; i++) {
+      if (i in state.offsets || state.done.includes(i)) { seededAnswered[i] = 1; seededFound[i] = null }
+    }
+    state.answered = seededAnswered
+    state.found ??= seededFound
+  }
   const exhausted = new Set<number>(state.done)
   const addedBy = new Map<number, number>()
   const pages = new Map<number, number>()       // 本关键词已抓页数（跨运行由 offsets 推不出来，只在本轮计）
@@ -221,7 +236,24 @@ async function run() {
 
       const t = state.tasks[i]
       const offset = offsets[i] ?? 0
-      const { creators: found, raw_count, has_more } = await api.search(t, state.market, offset)
+      // D6.i：「应答过几次」取预算计数器的增量（charge() 加、非 200 refund()）。
+      // **写在 finally 里** —— 请求发出去、钱扣了、在记录之前抛了，也不能被报成「未查询」。
+      const paidBefore = budget.count
+      let page
+      try {
+        page = await api.search(t, state.market, offset)
+      } finally {
+        // ⚠️ **只改内存，不在这里落盘**：此刻 offsets[i] 还没更新、人也还没入库，
+        // 落下去就是个自相矛盾的断点；而且会遮住循环末尾那次落盘的窗口（负片 M-P3-f）。
+        // 抛出去那条路由 main() 的 catch 之后那次 persist() 负责。
+        const paid = budget.count - paidBefore
+        // 惰性建表：一次请求都没发的那一跑，不许在盘上留下空表（同上）
+        if (paid > 0) {
+          const tbl = (state.answered ??= {})
+          tbl[i] = (tbl[i] ?? 0) + paid
+        }
+      }
+      const { creators: found, raw_count, has_more } = page
       anyProgress = true
 
       let added = 0
@@ -238,6 +270,10 @@ async function run() {
       // offset 按 API **实际返回条数**递增。固定 +20 会在返回不足的一页之后跳过数据。
       // 写下这个键本身也是「这个任务抓过第一页了」的记录（F9）—— 所以哪怕 raw_count 为 0 也要写。
       offsets[i] = offset + raw_count
+      // 条数单独记 —— 它和 offset 不恒等（IG 兜底那条路上 offset 只记最后一个端点）。
+      // **一旦判定不全（null）就永远是 null**，不许凑出一个偏小却像测量值的数。
+      const ftbl = (state.found ??= {})
+      ftbl[i] = ftbl[i] === null ? null : ((ftbl[i] as number | undefined) ?? 0) + raw_count
       // 快照也要跟着改：**同一个事实记在两处，两处都得更新**。
       // 漏掉这一行的症状只在第二轮才露出来 —— 第一轮没达标、第二轮才达标时，
       // 第一轮抓过的任务会被当成还欠着第一页，于是又被翻一页（违反 F9.d）。

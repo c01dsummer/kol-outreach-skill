@@ -218,6 +218,58 @@
       "replace": "  if (true) return pendingKeywords(state)"
     },
     {
+      "id": "M-D6-p",
+      "req": "D6.i",
+      "why": "请求发出去、钱扣了，却在响应处理抛出时不留痕迹 —— 盘上那个任务看起来像是从未发出过搜索请求，而它的钱已经花掉了：续跑会照原样再买一次同样的第一页",
+      "file": "scripts/collect.ts",
+      "find": "        if (paid > 0) {\n          const tbl = (state.answered ??= {})\n          tbl[i] = (tbl[i] ?? 0) + paid\n        }\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "请求付过钱就留得下痕迹，哪怕它抛在记录之前"
+      ]
+    },
+    {
+      "id": "M-D6-q",
+      "req": "D6.j",
+      "why": "开跑就无条件把两张表建成空表 —— 上一版留下的任务目录续跑一次（哪怕一次请求都没发）之后，盘上就从「无从确认」变成一句肯定的假话「一个都没问过」，而那些词的钱早就花掉了；而且不可逆，此后每次读这个目录都这么说",
+      "file": "scripts/collect.ts",
+      "find": "  if (state.answered === undefined && state.offsets !== undefined) {",
+      "replace": "  if (state.answered === undefined) { state.answered = {}; state.found ??= {} } else if (false) {",
+      "by": "selfcheck",
+      "kills": [
+        "旧目录续跑之后，分页记录证明问过的词照实记成问过"
+      ]
+    },
+    {
+      "id": "M-D6-r",
+      "req": "D6.j",
+      "why": "上一版留下的目录迁移过来时，把「这个数注定不全」当成从零开始数 —— 升级前抓的那几页再也算不进来，而盘上留下的那个偏小的数和真测量值长得一模一样、没有任何记号，读它的人拿它当分母",
+      "file": "scripts/collect.ts",
+      "find": "      ftbl[i] = ftbl[i] === null ? null : ((ftbl[i] as number | undefined) ?? 0) + raw_count",
+      "replace": "      ftbl[i] = ((ftbl[i] as number | undefined) ?? 0) + raw_count",
+      "by": "selfcheck",
+      "kills": [
+        "升级后又抓了几页，也不把「注定不全」凑成一个数"
+      ]
+    },
+    {
+      "id": "M-D6-s",
+      "req": "D6.k",
+      "why": "IG 的兜底路径把第一次请求返回的条数整个丢掉，只交回第二次的 —— 第一次已经付过钱、供应商也确实返回了内容，而盘上记着「这个词拿回 0 条」，读作「一条内容都没有」，下一步据此换词或砍掉整个平台，而换词不会有任何帮助",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))",
+      "replace": "      .then(users => users)"
+    },
+    {
+      "id": "M-D6-t",
+      "req": "D6.k",
+      "why": "IG 的兜底路径把「预算用尽」吞成正常返回 —— reels 页恒 has_more:false，于是这个关键词当场被标记为已跑完、永久跳过，而工具以退出码 0 收尾并告诉用户「续跑不产生新的请求」，实际预算已经见底：追加预算续跑时这个词再也不会被碰，唯一能找到人的那条补充路径一次都没发出去",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "    return this.searchInstagramUsers(task.keyword)\n      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))",
+      "replace": "    try {\n      const users = await this.searchInstagramUsers(task.keyword)\n      return { ...users, raw_count: reels.raw_count + users.raw_count }\n    } catch { return reels }"
+    },
+    {
       "id": "M-F9-c",
       "req": "F9.c",
       "why": "达标之后就说「续跑一个关键词都不会抓」—— 还欠着第一页的那些词，续跑照样会去抓它们，那是要付费的端点，账单在用户不知情时又长一截；反过来他也可能因为「反正不花钱」就去续跑一轮自己没打算花的钱",
@@ -290,8 +342,8 @@
       "req": "F9.b",
       "why": "还没发出请求就先把这个关键词记成「问过第一页了」—— 预算恰好在它这儿用尽时，断点里写着它问过、而它其实一条数据都没拿到：续跑不会再碰它，它的第一页就永远丢了，而中止时那句话把它从「还没问到的」里少报一个",
       "file": "scripts/collect.ts",
-      "find": "      const offset = offsets[i] ?? 0\n      const { creators: found, raw_count, has_more } = await api.search(t, state.market, offset)",
-      "replace": "      const offset = offsets[i] ?? 0\n      offsets[i] = offset\n      const { creators: found, raw_count, has_more } = await api.search(t, state.market, offset)",
+      "find": "      const offset = offsets[i] ?? 0\n      // D6.i",
+      "replace": "      const offset = offsets[i] ?? 0\n      offsets[i] = offset\n      // D6.i",
       "by": "selfcheck",
       "kills": [
         "预算不够抓齐第一页时按预算停下，没问到的如实列出"

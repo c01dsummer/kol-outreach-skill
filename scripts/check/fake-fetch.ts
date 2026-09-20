@@ -148,6 +148,16 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
     record(402, url)
     return new Response('payment required', { status: 402 })
   }
+  // 关键词里带 `force-schema` → **200、计过费，但结构认不出**。
+  // 这是「请求发出去了、钱扣了，在记下来之前抛了」那条路唯一的入口（D6.i）。
+  // 和 402 不是一回事：402 会 refund，这一条的钱**真的花掉了**，所以报告绝不能
+  // 把这个词说成「未查询」。
+  if (url.includes('force-schema')) {
+    record(200, url)
+    return new Response(JSON.stringify({ data: { 全新的键: [] } }), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    })
+  }
   // 第 7 次调用返回 429，确保错误分支也被执行到
   if (calls === 7) {
     record(429, url)
