@@ -310,6 +310,22 @@
       "replace": "  if (answered === undefined) return 'unknown'"
     },
     {
+      "id": "M-U3-j",
+      "req": "U3.b",
+      "why": "累加器里本条之前采的人（来源无从确认）被凭空补上一个来源任务 —— 等于替他打包票说「他只来自这个任务」，而整张表会据此认定归得了人，于是每一行又开始印确定为假的 0，运营据此砍掉其实出了人的方向",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "      const at = seen.source_tasks\n      if (at !== undefined && !at.includes(i)) at.push(i)",
+      "replace": "      if (!seen.source_tasks?.includes(i)) (seen.source_tasks ??= []).push(i)"
+    },
+    {
+      "id": "M-U3-k",
+      "req": "U3.b",
+      "why": "跨平台合并时把「来源无从确认」的那一边当成空集 —— 合出来的人看着归得清，实际少了一半来源；整张表于是从「无从确认」翻成一串偏小却像测量值的数",
+      "file": "scripts/lib/identity.ts",
+      "find": "    primary.source_tasks = mine !== undefined && theirs !== undefined\n      ? [...new Set([...mine, ...theirs])].sort((a, b) => a - b)\n      : undefined",
+      "replace": "    primary.source_tasks = [...new Set([...(mine ?? []), ...(theirs ?? [])])].sort((a, b) => a - b)"
+    },
+    {
       "id": "M-U3-d",
       "req": "U3.c",
       "why": "「入围」那一列的接线换成条目数 —— 两个单位不同的数（供应商返回的条目 vs 过完闸门还在名单上的人）在表上变成同一个，正是本条撤掉命中率那一列要避免的那种合并；运营据此以为每一条内容都出了一个人",
@@ -330,16 +346,16 @@
       "req": "U3.b",
       "why": "同一个人被第二个任务搜到时不把那个任务记进他的来源 —— 后面那个词于是被报成「找到 N 条、一个都没入围」，运营据此把一个其实出了人的词砍掉",
       "file": "scripts/lib/pipeline.ts",
-      "find": "      if (!seen.source_tasks?.includes(i)) (seen.source_tasks ??= []).push(i)",
-      "replace": "      seen.source_tasks ??= []"
+      "find": "      const at = seen.source_tasks\n      if (at !== undefined && !at.includes(i)) at.push(i)",
+      "replace": "      const at = seen.source_tasks\n      if (at !== undefined) { /* 不记这一笔 */ }"
     },
     {
       "id": "M-U3-g",
       "req": "U3.b",
       "why": "跨平台同人被合并时只保留主记录那一侧的来源任务 —— 次记录那一侧的关键词从此再也归不到他，那一行少报入围",
       "file": "scripts/lib/identity.ts",
-      "find": "    const tasks = [...(c.source_tasks ?? []), ...(other.source_tasks ?? [])]",
-      "replace": "    const tasks = [...(primary.source_tasks ?? [])]"
+      "find": "    primary.source_tasks = mine !== undefined && theirs !== undefined\n      ? [...new Set([...mine, ...theirs])].sort((a, b) => a - b)\n      : undefined",
+      "replace": "    primary.source_tasks = mine"
     },
     {
       "id": "M-U3-h",

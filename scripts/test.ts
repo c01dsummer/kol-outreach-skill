@@ -1797,6 +1797,13 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
        (mergePage(acc, [page[0]], 1, t1), acc.get('tiktok:sam')?.source_tasks), [0, 1])
     eq('没有 handle 或 platform 的条目直接跳过',
        mergePage(acc, [{ handle: '', platform: 'tiktok' }, { handle: 'x' }] as any, 0, t0), 0)
+    // ⚠️ 累加器里可能有本条落地之前采的人（`loadRawCreators` 从 creators.raw.json 读回来）——
+    // 他们的来源**无从确认**。凭空补一个 `[i]` 等于替他打包票说「他只来自这个任务」，
+    // 而整张表会据此认定归得了人，每一行又开始印确定为假的 0。
+    const legacyAcc = new Map<string, Creator>([['tiktok:old', mk('tiktok', 'old', {})]])
+    eq('旧人被新任务又搜到一次：不算新增', mergePage(legacyAcc, [{ handle: 'old', platform: 'tiktok' }] as any, 2, t0), 0)
+    eq('而且他的来源仍然是「无从确认」，不许凭空补成 [2]',
+       legacyAcc.get('tiktok:old')?.source_tasks, undefined)
   }
   {
     // 跨平台同人被合并时，次记录那一侧的来源任务不能跟着消失
@@ -1808,6 +1815,14 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
     const primary = merged.find(c => c.merged_into === undefined)
     eq('两侧的来源任务取并集 —— 漏了并集，次记录那一侧的词就再也归不到他',
        primary?.source_tasks, [0, 1])
+    // 有一边无从确认，并集就无从确认 —— 把缺的那边当成空集等于替它打包票
+    const ttOld = mk('tiktok', 'sam2', { bio_links: ['https://instagram.com/sam2'] })
+    const igNew = mk('instagram', 'sam2', { source_tasks: [1], bio_links: [] })
+    const pair2 = [ttOld, igNew]
+    linkCrossPlatform(pair2)
+    const merged2 = mergeCrossPlatform(pair2)
+    eq('一边的来源无从确认 → 合出来的人也无从确认，不留一个看着归得清的残集',
+       merged2.find(c => c.merged_into === undefined)?.source_tasks, undefined)
   }
   criterion('U3.b')
 

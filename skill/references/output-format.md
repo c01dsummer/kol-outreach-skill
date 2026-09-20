@@ -132,7 +132,7 @@ C级 观察池 (3)
     { "keyword": "anker power bank", "dimension": "competitor", "platform": "tiktok",
       "status": "queried", "found": 42, "shortlisted": 12, "fit_pass": 9 },
     { "keyword": "portable charger", "dimension": "category", "platform": "instagram",
-      "status": "unqueried", "found": null, "shortlisted": 0, "fit_pass": 0 }
+      "status": "unqueried", "found": null, "shortlisted": null, "fit_pass": null }
   ],
   "total": 187,
   "tiers": { "A": 23, "B": 61, "C": 103 },

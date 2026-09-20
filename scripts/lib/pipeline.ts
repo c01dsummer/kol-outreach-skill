@@ -368,7 +368,12 @@ export function mergePage(creators: Map<string, Creator>, page: readonly Partial
     const k = creatorKey({ platform: p.platform, handle: p.handle })
     const seen = creators.get(k)
     if (seen) {
-      if (!seen.source_tasks?.includes(i)) (seen.source_tasks ??= []).push(i)
+      // ⚠️ **只在他已经带着来源任务时才追加。** 累加器里可能有本条落地之前采的人
+      // （`loadRawCreators` 从 creators.raw.json 读回来的），他们的来源**无从确认** ——
+      // 凭空给一个 `[i]` 等于替他打包票说「他只来自这个任务」，而 `keywordRows` 会据此
+      // 认定整张名单归得了人，于是每一行又开始印确定为假的 0（#140 评审指出）。
+      const at = seen.source_tasks
+      if (at !== undefined && !at.includes(i)) at.push(i)
       continue
     }
     creators.set(k, { ...(p as Creator), source_keyword: t.keyword,

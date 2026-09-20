@@ -108,9 +108,13 @@ export function mergeCrossPlatform(creators: Creator[]): Creator[] {
     primary.email = mergeEmail(primary.email, secondary.email)
     primary.bio_links = [...new Set([...c.bio_links, ...other.bio_links])]
     // 两边的来源任务取并集 —— 漏了这一笔，跨平台同人被合掉之后，
-    // 次记录那一侧的关键词就再也归不到他，那一行于是少报入围（U3.b）
-    const tasks = [...(c.source_tasks ?? []), ...(other.source_tasks ?? [])]
-    if (tasks.length) primary.source_tasks = [...new Set(tasks)].sort((a, b) => a - b)
+    // 次记录那一侧的关键词就再也归不到他，那一行于是少报入围（U3.b）。
+    // ⚠️ **有一边无从确认，并集就无从确认**：把缺的那边当成空集，等于替它打包票，
+    // 合出来的人看着像「归得清」，而 `keywordRows` 会据此对整张表印假的 0（#140 评审指出）。
+    const mine = c.source_tasks, theirs = other.source_tasks
+    primary.source_tasks = mine !== undefined && theirs !== undefined
+      ? [...new Set([...mine, ...theirs])].sort((a, b) => a - b)
+      : undefined
     primary.recent_posts = [...(primary.recent_posts ?? []), ...(secondary.recent_posts ?? [])]
     primary.linked_handle = `${secondary.platform}:${secondary.handle}`
     secondary.merged_into = `${primary.platform}:${primary.handle}`
