@@ -194,7 +194,7 @@ output/{product}-{timestamp}/
 npm run check
 ```
 
-完整检查有哪几步，正本是 `package.json` 的 `check` 脚本（人话版在 `AGENTS.md` 的「检查命令」那一行）。这里不抄 —— 抄一份就是一份会漂的副本，而它已经漂过一次：ADR-77 撤掉纪律 lint 之后，这句话在主干上说了一段时间的假话。CI 在每次 push 时执行同一条命令。
+完整检查有哪几步，正本是 `package.json` 的 `check` 脚本（人话版在 `AGENTS.md` 的「检查命令」那一行）。这里不抄 —— 抄一份就是一份会漂的副本，而它已经漂过一次：ADR-77 撤掉纪律 lint 之后，这句话在主干上说了一段时间的假话。CI 执行同一条命令 —— 推到 `main` 时，以及每个 pull request 上（`.github/workflows/check.yml`；**既不在 `main`、也没开 PR 的分支不跑**，代价与理由记在 ADR-97）。
 
 ## 当前已知边界
 
