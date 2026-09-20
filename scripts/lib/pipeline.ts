@@ -116,8 +116,9 @@ export function pendingKeywords(state: TaskState): string[] {
  * 脚本；改跑自检的那条路要在变异上写 `by`，这一处还没写，ADR-70）。把数数搬进来，
  * 这一类错误就不再有地方发生（评审指出）。
  *
- * 数法不是新写的：关键词那一半是 `keywordsResumeWillRun`（D6.c —— 达标提前停下时
- * 一个都不会去抓），profile 那一半是 `needsProfile`（D6.d —— 哪些人还要补；
+ * 数法不是新写的：关键词那一半是 `keywordsResumeWillRun`（D6.c —— 按**续跑那一刻**的
+ * `qualified()` 重算，而不是按「不在 done 里的」；达标提前停下**不等于**续跑不去抓，
+ * 补全把粉丝数写回之后那个数会掉，见 ADR-94 第十三节），profile 那一半是 `needsProfile`（D6.d —— 哪些人还要补；
  * 「补全循环与这里共用它」那条约束在 `docs/ARCHITECTURE.md` 的锚点行上）。
  *
  * **`collect.ts` 里有两处调它**，对应两条判据：
