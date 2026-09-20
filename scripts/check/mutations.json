@@ -218,6 +218,100 @@
       "replace": "  if (true) return pendingKeywords(state)"
     },
     {
+      "id": "M-D6-p",
+      "req": "D6.i",
+      "why": "请求发出去、钱扣了，却在响应处理抛出时不留痕迹 —— 盘上那个任务看起来像是从未发出过搜索请求，而它的钱已经花掉了：续跑会照原样再买一次同样的第一页",
+      "file": "scripts/collect.ts",
+      "find": "        if (paid > 0 && state.answered !== undefined) {\n          state.answered[i] = (state.answered[i] ?? 0) + paid\n        }\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "请求付过钱就留得下痕迹，哪怕它抛在记录之前"
+      ]
+    },
+    {
+      "id": "M-D6-w",
+      "req": "D6.i",
+      "why": "把「发出过几次付费请求」算成「试过几次」—— 402／429 退了费的那几次钱一分没花、续跑还会照常重试，却在盘上留下「问过」的痕迹；而且因为它是抛出去的，这个词的条数还会被永久钉成「注定不全」：一个从没真查过的词从此再也报不出准数",
+      "file": "scripts/collect.ts",
+      "find": "        const paid = budget.count - paidBefore",
+      "replace": "        const paid = Math.max(budget.count - paidBefore, 1)",
+      "by": "selfcheck",
+      "kills": [
+        "退了费的那一次不留痕迹 —— 钱没花，续跑会照常重试它"
+      ]
+    },
+    {
+      "id": "M-D6-q",
+      "req": "D6.j",
+      "why": "惰性建表：上一版留下的目录里两张表本来缺着（＝无从确认），第一次付费请求一来就把它们凭空建出来 —— 升级前问过、付过钱的那些词从此全都读作「一个都没问过」，而且不可逆",
+      "file": "scripts/collect.ts",
+      "find": "        if (paid > 0 && state.answered !== undefined) {\n          state.answered[i] = (state.answered[i] ?? 0) + paid\n        }",
+      "replace": "        if (paid > 0) {\n          const tbl = (state.answered ??= {})\n          tbl[i] = (tbl[i] ?? 0) + paid\n        }",
+      "by": "selfcheck",
+      "kills": [
+        "旧目录上又抓了几页，两张表照样不建 —— 惰性建表和开跑就建一样坏"
+      ]
+    },
+    {
+      "id": "M-D6-u",
+      "req": "D6.j",
+      "why": "开跑就无条件把两张表建成空表 —— 上一版留下的任务目录续跑一次（哪怕一次请求都没发）之后，盘上就从「无从确认」变成一句肯定的假话「一个都没问过」，而那些词的钱早就花掉了；而且不可逆，此后每次读这个目录都这么说",
+      "file": "scripts/collect.ts",
+      "find": "  const exhausted = new Set<number>(state.done)",
+      "replace": "  state.answered ??= {}\n  state.found ??= {}\n  const exhausted = new Set<number>(state.done)",
+      "by": "selfcheck",
+      "kills": [
+        "旧目录续跑之后，两张表仍然缺着 —— 不凭空建出一张空表"
+      ]
+    },
+    {
+      "id": "M-D6-v",
+      "req": "D6.l",
+      "why": "付了钱、却在记下条数之前抛了，这一次拿回几条永远补不回来 —— 不记成「注定不全」的话，下一页成功时这个数从 0 重新数起，凑出一个偏小、却和真测量值印在同一列的数，读的人拿它当分母",
+      "file": "scripts/collect.ts",
+      "find": "        if (paid > 0 && page === undefined && state.found !== undefined) {\n          state.found[i] = null\n        }\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "那一次拿回几条永远补不回来 → 条数记成「注定不全」"
+      ]
+    },
+    {
+      "id": "M-D6-r",
+      "req": "D6.l",
+      "why": "「注定不全」被下一页成功时凑成一个数 —— 那一次已付费、却没数上的条目再也算不进来，而盘上留下的那个偏小的数和真测量值长得一模一样、没有任何记号",
+      "file": "scripts/collect.ts",
+      "find": "        ftbl[i] = ftbl[i] === null ? null : ((ftbl[i] as number | undefined) ?? 0) + raw_count",
+      "replace": "        ftbl[i] = ((ftbl[i] as number | undefined) ?? 0) + raw_count",
+      "by": "selfcheck",
+      "kills": [
+        "又抓成功几页，也不把「注定不全」凑成一个数"
+      ]
+    },
+    {
+      "id": "M-D6-s",
+      "req": "D6.k",
+      "why": "IG 的兜底路径把第一次请求返回的条数整个丢掉，只交回第二次的 —— 第一次已经付过钱、供应商也确实返回了内容，而盘上记着「这个词拿回 0 条」，读作「一条内容都没有」，下一步据此换词或砍掉整个平台，而换词不会有任何帮助",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))",
+      "replace": "      .then(users => users)"
+    },
+    {
+      "id": "M-D6-t",
+      "req": "D6.k",
+      "why": "IG 的兜底路径把「预算用尽」吞成正常返回 —— reels 页恒 has_more:false，于是这个关键词当场被标记为已跑完、永久跳过，而工具以退出码 0 收尾并告诉用户「续跑不产生新的请求」，实际预算已经见底：追加预算续跑时这个词再也不会被碰，唯一能找到人的那条补充路径一次都没发出去",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "    return this.searchInstagramUsers(task.keyword)\n      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))",
+      "replace": "    try {\n      const users = await this.searchInstagramUsers(task.keyword)\n      return { ...users, raw_count: reels.raw_count + users.raw_count }\n    } catch { return reels }",
+      "by": "selfcheck",
+      "kills": [
+        "IG 兜底撞上预算：按 P3 停下，不以退出码 0 收尾",
+        "IG 兜底撞上预算：这个任务不进 done，续跑还能再碰它",
+        "IG 兜底撞上预算：不说「续跑不产生新的请求」"
+      ]
+    },
+    {
       "id": "M-F9-c",
       "req": "F9.c",
       "why": "达标之后就说「续跑一个关键词都不会抓」—— 还欠着第一页的那些词，续跑照样会去抓它们，那是要付费的端点，账单在用户不知情时又长一截；反过来他也可能因为「反正不花钱」就去续跑一轮自己没打算花的钱",
@@ -290,8 +384,8 @@
       "req": "F9.b",
       "why": "还没发出请求就先把这个关键词记成「问过第一页了」—— 预算恰好在它这儿用尽时，断点里写着它问过、而它其实一条数据都没拿到：续跑不会再碰它，它的第一页就永远丢了，而中止时那句话把它从「还没问到的」里少报一个",
       "file": "scripts/collect.ts",
-      "find": "      const offset = offsets[i] ?? 0\n      const { creators: found, raw_count, has_more } = await api.search(t, state.market, offset)",
-      "replace": "      const offset = offsets[i] ?? 0\n      offsets[i] = offset\n      const { creators: found, raw_count, has_more } = await api.search(t, state.market, offset)",
+      "find": "      const offset = offsets[i] ?? 0\n      // D6.i",
+      "replace": "      const offset = offsets[i] ?? 0\n      offsets[i] = offset\n      // D6.i",
       "by": "selfcheck",
       "kills": [
         "预算不够抓齐第一页时按预算停下，没问到的如实列出"

@@ -148,6 +148,25 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
     record(402, url)
     return new Response('payment required', { status: 402 })
   }
+  // 关键词里带 `force-schema` → **200、计过费，但结构认不出**。
+  // 这是「请求发出去了、钱扣了，在记下来之前抛了」那条路唯一的入口（D6.i）。
+  // 和 402 不是一回事：402 会 refund，这一条的钱**真的花掉了**，所以报告绝不能
+  // 把这个词说成「未查询」。
+  if (url.includes('force-schema')) {
+    record(200, url)
+    return new Response(JSON.stringify({ data: { 全新的键: [] } }), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    })
+  }
+  // 关键词里带 `force-noparse` → reels **返回了条目、但一条都解析不出人**。
+  // 这是 IG 兜底那条路唯一的入口：走到它就说明第一次请求已经付过钱、也确实拿回了条目，
+  // 而第二次（搜账号名）可能正好撞上预算（D6.k）。
+  if (url.includes('force-noparse') && url.includes('search_reels')) {
+    record(200, url)
+    return new Response(JSON.stringify({ data: { data: { count: 2, items: [
+      { caption: { text: 'no user field here' } }, { caption: { text: 'nor here' } },
+    ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
   // 第 7 次调用返回 429，确保错误分支也被执行到
   if (calls === 7) {
     record(429, url)

@@ -115,21 +115,36 @@ const named = (label: string, ok: boolean, why: string) => {
 }
 
 const runBoth = (label: string, args: string[], cwd = process.cwd(),
-  expect?: { status: number }, extra: NodeJS.ProcessEnv = {}): { ok: boolean; stdout: string; stderr: string } => {
+  expect?: { status: number; soft?: readonly number[] }, extra: NodeJS.ProcessEnv = {}): { ok: boolean; stdout: string; stderr: string; status: number | null } => {
   const [exe, argv] = tsxCommand(args)
   // extra 只给这一次 spawn：崩溃续跑那几条轨迹要给「杀掉那一跑」传旋钮、给续跑不传
   const r = spawnSync(exe, argv, { env: { ...env, ...extra }, cwd, encoding: 'utf8' })
   const stdout = r.stdout ?? ''   // P1 例外：拿不到就是空输出，不是「没查过」——这是子进程的两股流
   const stderr = r.stderr ?? ''   // P1 例外：同上
   const want = expect?.status ?? 0
-  if (r.error || r.status !== want) {
+  const bad = Boolean(r.error) || r.status !== want
+  // `soft` 列的是**退出码本身就是判据点名的东西**时，调用点准备用 `named()` 判的那几个
+  // 取值（D6.k 逐字写着「不得以退出码 0 收尾」，所以那里写 `soft: [0]`）。对上了就不打
+  // 进程记号 —— 记号是一票否决（`judgeRun` 的 `notAssertion`），指着这条行为的变异会被判
+  // 「跑不起来」而不是「被抓到」，功劳记错了人。**标签要写成字面量**，否则 `labelsOf`
+  // 看不见它（它按语法树找 `named(…)` 的第一个实参，helper 包一层就认不出来）。
+  //
+  // ⚠️ **列的是取值，不是一个开关。** 头一版写成 `soft: true`，于是**起不来**（`r.error`）
+  // 和**被信号打死**也一起走了这一支：进程记号不打、崩溃现场不打，而后面几条断言接着
+  // 对着半截产出跑。实测（给这条夹具挂上 `FAKE_FETCH_KILL_AFTER_OK`）：退出码 137
+  // 照样被当成「由具名断言判」（#139 评审指出）。真崩了就该是崩了。
+  if (bad && !r.error && r.status !== null && (expect?.soft?.includes(r.status) ?? false)) {
+    console.log(`  · ${label}（退出码 ${r.status}，由下面的具名断言判）`)
+    return { ok: true, stdout, stderr, status: r.status }
+  }
+  if (bad) {
     failed++
     const why = r.error ? String(r.error) : `预期以退出码 ${want} 结束，实际是 ${r.status}`
     console.error(`  ✗ ${label}${SELFCHECK_PROCESS_MARK}：${why}\n${(stderr || stdout).split('\n').slice(-12).join('\n')}`)
-    return { ok: false, stdout: '', stderr: '' }
+    return { ok: false, stdout: '', stderr: '', status: r.status }
   }
   console.log(`  ✓ ${label}${expect ? `（按预期以退出码 ${want} 结束）` : ''}`)
-  return { ok: true, stdout, stderr }
+  return { ok: true, stdout, stderr, status: r.status }
 }
 
 /**
@@ -1197,6 +1212,212 @@ criterion('F9.a')
 criterion('F9.b')
 criterion('F9.d')
 criterion('F9.e')
+
+// ---- D6.i／D6.l：请求发出去了、钱扣了，在记下来之前抛了 ----
+// 供应商换了响应结构：200 已返回、`charge()` 已计费且不退，而 `pickList` 认不出结构抛出。
+// 这条路上 `offsets` 那个键从头到尾没被写过 —— 一度打算拿它兼职回答「问过没有」，
+// 于是一个付过钱的词在盘上看起来像从没问过（ADR-94 第十五节甲，独立复核的实测反例）。
+// **只能端到端跑**：写它的是入口脚本搜索调用外面那个 finally，缺省那个验证者够不到。
+const paid = join(tmp, 'paidbutlost')
+mkdirSync(join(paid, 'memory'), { recursive: true })
+const paidCfg = join(paid, 'paid.json')
+writeFileSync(paidCfg, JSON.stringify({
+  product: 'paidlost', market: 'US', target_count: 9999, budget_usd: 1,
+  tasks: [{ keyword: 'force-schema-kw', dimension: 'category', platform: 'tiktok' }],
+}))
+// 认不出结构 → TikHubError 冒到 main()，stopped='error'、退出码 1
+const paidRun = runBoth('collect 请求成功计费之后才抛：以出错收尾',
+                        [S('collect.ts'), '--config', paidCfg], paid, { status: 1 })
+if (paidRun.ok) {
+  const pdir = onlyDir(paid, 'paidlost')
+  // 断点不在约定的文件名下时（`M-D6-n` 那类变异）读成 undefined 让这一段跳过，
+  // **不是让自检崩** —— 崩了那条变异会被判「跑不起来」，功劳记错了人
+  // （同本文件 `requestsOnDisk` 的先例）。
+  let pstate: any
+  try { pstate = JSON.parse(readFileSync(join(paid, pdir ?? '', 'task.json'), 'utf8')) } catch {}
+  if (pstate !== undefined) {
+    named('请求付过钱就留得下痕迹，哪怕它抛在记录之前',
+          pstate.answered?.[0] >= 1 && pstate.requests >= 1
+          && pstate.offsets !== undefined && pstate.offsets[0] === undefined,
+          `盘上 answered=${JSON.stringify(pstate.answered)}、offsets=${JSON.stringify(pstate.offsets)}、`
+          + `requests=${pstate.requests} —— 只认 offsets 的话这个词看起来从没问过，`
+          + '而它的钱已经花掉了，续跑会再买一次同样的第一页')
+    named('那一次拿回几条永远补不回来 → 条数记成「注定不全」',
+          pstate.found !== undefined && pstate.found[0] === null,
+          `盘上 found=${JSON.stringify(pstate.found)} —— 不记 null 的话，下一页成功时`
+          + '它会从 0 重新数起，凑出一个偏小、却和真测量值印在同一列的数')
+  }
+  // 供应商把结构改回来之后**又抓成功了几页**：那个 null 不许被凑成一个数（D6.l）。
+  // ⚠️ 这一段就是独立复核第二条 blocking 的复现，实测 found 会从 null 变成 12。
+  if (pdir !== undefined) {
+    let ok = false
+    try {
+      const f = join(paid, pdir, 'task.json')
+      const st = JSON.parse(readFileSync(f, 'utf8'))
+      st.tasks[0].keyword = 'recovered-kw'      // 结构认得出了
+      writeFileSync(f, JSON.stringify(st, null, 2), 'utf8')
+      ok = true
+    } catch {}
+    if (ok) {
+      const again = runBoth('collect 供应商把结构改回来了：同一个词又抓成功几页',
+                            [S('collect.ts'), '--resume', pdir, '--budget', '1'], paid)
+      if (again.ok) {
+        let st2: any
+        try { st2 = JSON.parse(readFileSync(join(paid, pdir, 'task.json'), 'utf8')) } catch {}
+        named('又抓成功几页，也不把「注定不全」凑成一个数',
+              st2?.found !== undefined && st2.found[0] === null && st2.offsets?.[0] > 0,
+              `盘上 found=${JSON.stringify(st2?.found)}、offsets=${JSON.stringify(st2?.offsets)}`
+              + ' —— 真值是它加上第一次那笔已付费的未知条数，凑出来的那个数偏小却像测量值')
+      }
+    }
+  }
+}
+
+// ---- D6.i／D6.l：402 退了费 —— 钱没花，盘上不许记成「发出过付费请求」 ----
+// 判据逐字：「402／429 退了费的不计入 —— 钱没花、续跑会照常重试，读作『还没问过』
+// 既如实也可行动。」这一半在**入口**：`paid` 取的是预算计数器的**净**增量，
+// `charge()` 加、`refund()` 减，402 那一次净增 0。
+// ⚠️ 独立复核实测：把 `paid` 换成 `Math.max(…, 1)`，整条检查链一个字都不说 ——
+// 一个一分钱没花的词从此在盘上「发出过 1 次付费请求」，而且因为它抛了，
+// 条数还被永久钉成 `null`（ADR-94 第十五节丙）。
+const refunded = join(tmp, 'refunded402')
+mkdirSync(join(refunded, 'memory'), { recursive: true })
+const refCfg = join(refunded, 'ref.json')
+writeFileSync(refCfg, JSON.stringify({
+  product: 'refunded', market: 'US', target_count: 9999, budget_usd: 1,
+  tasks: [{ keyword: 'force-402-kw', dimension: 'category', platform: 'tiktok' }],
+}))
+// 402 是对面拒收：不重试、直接抛穿搜索循环 → stopped='error'、退出码 1
+const refRun = runBoth('collect 供应商拒收（402）：以出错收尾',
+                       [S('collect.ts'), '--config', refCfg], refunded, { status: 1 })
+if (refRun.ok) {
+  let rstate: any
+  try {
+    rstate = JSON.parse(readFileSync(join(refunded, onlyDir(refunded, 'refunded') ?? '', 'task.json'), 'utf8'))
+  } catch {}
+  if (rstate !== undefined) {
+    named('退了费的那一次不留痕迹 —— 钱没花，续跑会照常重试它',
+          rstate.answered !== undefined && rstate.answered[0] === undefined
+          && rstate.found !== undefined && rstate.found[0] === undefined
+          && rstate.requests === 0,
+          `盘上 answered=${JSON.stringify(rstate.answered)}、found=${JSON.stringify(rstate.found)}、`
+          + `requests=${rstate.requests} —— 一分钱没花的词被记成「发出过付费请求」，`
+          + '而且因为它抛了，条数还会被永久钉成 null：一个从没查过的词从此「注定不全」')
+  }
+}
+
+// ---- D6.j：上一版留下的目录，两张表缺着就一直缺着 ----
+// **只能端到端跑**：建表那两处都在入口脚本里，缺省那个验证者够不到
+// （实测 `M-D6-q` 在 npm test 下存活）。
+//
+// 造法：正常跑出一个目录 → 删掉 answered／found 两张表（＝本条落地之前建的目录）
+// → 续跑 → 看盘上有没有凭空长出一张空表。
+//
+// ⚠️ 代价是明写在判据里的：这种目录升级之后**也不会**长出这两张表，一直说「无从确认」。
+// 上一版试过「按分页记录照实迁移」，独立复核当场推翻：`offsets` 为空（钱花了、
+// 在写游标之前抛了）的那种旧目录，迁移照样建出 `answered: {}` ——
+// 一句肯定的假话，而同一份文件里 `requests: 1` 证明反面（ADR-94 第十五节丙，含实测）。
+const migBase = join(tmp, 'migrate')
+mkdirSync(join(migBase, 'memory'), { recursive: true })
+const migCfg = (name: string, budget: number) => {
+  const f = join(migBase, `${name}.json`)
+  writeFileSync(f, JSON.stringify({
+    product: name, market: 'US', target_count: 9999, budget_usd: budget,
+    tasks: [{ keyword: 'mg0', dimension: 'category', platform: 'tiktok' }],
+  }))
+  return f
+}
+/** 删掉两张新表，把目录退回成上一版的样子 */
+const stripNewTables = (dir: string): boolean => {
+  const f = join(migBase, dir, 'task.json')
+  try {
+    const st = JSON.parse(readFileSync(f, 'utf8'))
+    delete st.answered; delete st.found
+    writeFileSync(f, JSON.stringify(st, null, 2), 'utf8')
+    return true
+  } catch { return false }
+}
+const migState = (dir: string): any => {
+  try { return JSON.parse(readFileSync(join(migBase, dir, 'task.json'), 'utf8')) } catch { return undefined }
+}
+/** 两张表还缺着没有 —— 诊断文案共用，**标签留给调用点写字面量**（见 `runBoth` 的 soft） */
+const tablesAbsent = (st: any): [boolean, string] => [
+  st !== undefined && st.answered === undefined && st.found === undefined,
+  `盘上 answered=${JSON.stringify(st?.answered)}、found=${JSON.stringify(st?.found)}、`
+  + `requests=${st?.requests} —— 空表是一句肯定的假话（「一个都没问过」），`
+  + '而这种目录的钱早就花了；一句诚实的「无从确认」退化成假话，而且不可逆',
+]
+
+// (a) 续跑一次请求都发不出去：两张表缺着就该一直缺着
+{
+  const first = runBoth('collect 旧目录夹具 a：先跑出一个正常目录',
+                        [S('collect.ts'), '--config', migCfg('miga', 0.004)], migBase, { status: 3 })
+  const dir = first.ok ? summaryOf(first.stdout).dir : undefined
+  if (dir !== undefined && stripNewTables(dir)) {
+    // 额度一次请求都不够 → 搜索循环第一次 charge 就抛，零次请求
+    const again = runBoth('collect 旧目录夹具 a：旧目录上续跑，一次请求都发不出去',
+                          [S('collect.ts'), '--resume', dir, '--budget', '0.0001'],
+                          migBase, { status: 3 })
+    if (again.ok) {
+      named('旧目录续跑之后，两张表仍然缺着 —— 不凭空建出一张空表', ...tablesAbsent(migState(dir)))
+    }
+  }
+}
+
+// (b) 续跑真的又抓了几页：照样不建表 —— 惰性建表和开跑就建一样坏
+{
+  const first = runBoth('collect 旧目录夹具 b：先跑出一个被预算卡停的目录',
+                        [S('collect.ts'), '--config', migCfg('migb', 0.002)], migBase, { status: 3 })
+  const dir = first.ok ? summaryOf(first.stdout).dir : undefined
+  if (dir !== undefined && stripNewTables(dir)) {
+    const again = runBoth('collect 旧目录夹具 b：旧目录上续跑，这次真的又抓了几页',
+                          [S('collect.ts'), '--resume', dir, '--budget', '1'], migBase)
+    if (again.ok) {
+      named('旧目录上又抓了几页，两张表照样不建 —— 惰性建表和开跑就建一样坏',
+            ...tablesAbsent(migState(dir)))
+    }
+  }
+}
+
+// ---- D6.k：IG 兜底撞上预算时，这个任务不许被烧掉 ----
+// 判据逐字点名的三样（不进 done、不以退出码 0 收尾、那句话不说「续跑不产生新的请求」）
+// **全在入口那一层**，provider 契约测试够不到（`scripts/test.ts` 那一组只调 `search()`）。
+// 造法：reels 返回条目但一条都解析不出人 → 走兜底；额度只够一次请求 → 第二次当场抛。
+const igBurn = join(tmp, 'igburn')
+mkdirSync(join(igBurn, 'memory'), { recursive: true })
+const igCfg = join(igBurn, 'ig.json')
+writeFileSync(igCfg, JSON.stringify({
+  product: 'igburn', market: 'US', target_count: 9999, budget_usd: 0.001,
+  tasks: [{ keyword: 'force-noparse-kw', dimension: 'scene', platform: 'instagram' }],
+}))
+const burnRun = runBoth('collect IG 兜底撞上预算',
+                        [S('collect.ts'), '--config', igCfg], igBurn, { status: 3, soft: [0] })
+named('IG 兜底撞上预算：按 P3 停下，不以退出码 0 收尾', burnRun.status === 3,
+      `实际以退出码 ${burnRun.status} 结束 —— 0 的意思是「这个词跑完了」，`
+      + '而预算其实已经见底，兜底那条唯一还能找到人的路一次都没发出去')
+if (burnRun.ok) {
+  let bstate: any
+  try {
+    bstate = JSON.parse(readFileSync(join(igBurn, summaryOf(burnRun.stdout).dir ?? '', 'task.json'), 'utf8'))
+  } catch {}
+  if (bstate !== undefined) {
+    named('IG 兜底撞上预算：这个任务不进 done，续跑还能再碰它',
+          !bstate.done.includes(0) && bstate.answered?.[0] >= 1,
+          `盘上 done=${JSON.stringify(bstate.done)}、answered=${JSON.stringify(bstate.answered)}`
+          + ' —— reels 页恒 has_more:false，把预算用尽吞成正常返回就会当场把它标记完成，'
+          + '追加预算续跑时它再也不会被碰，而它是这个词唯一还能找到人的那条路')
+    named('IG 兜底撞上预算：不说「续跑不产生新的请求」',
+          !burnRun.stderr.includes('续跑不产生新的请求'),
+          `那句话是「${burnRun.stderr.split('\n').find(l =>
+              /续跑不产生新的请求|追加预算续跑|续跑会继续发请求/.test(l)) ?? '（没说）'}」`
+          + ' —— 预算已经见底而工具说「不产生新的请求」，用户据此认定这个词已经跑完了')
+  }
+}
+
+criterion('D6.i')
+criterion('D6.j')
+criterion('D6.k')
+criterion('D6.l')
 
 // ---- 变异集编号重复：两个入口都命中即以退出码 1 结束（M-H7-b、M-H7-c 的入口那一半）----
 // 判定和「两种毛病同时在时先报哪一种」都由 scripts/test.ts 断言；剩下的那一半是

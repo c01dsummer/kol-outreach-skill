@@ -71,7 +71,7 @@ if (resume) {
   state = {
     product: cfg.product, market: cfg.market ?? 'US',
     target_count: cfg.target_count ?? 50, budget_usd: cfg.budget_usd ?? 2,
-    tasks: cfg.tasks, done: [], offsets: {}, requests: 0,
+    tasks: cfg.tasks, done: [], offsets: {}, answered: {}, found: {}, requests: 0,
     created_at: new Date().toISOString(), updated_at: '',
   }
   productFrom = cfgPath
@@ -221,7 +221,31 @@ async function run() {
 
       const t = state.tasks[i]
       const offset = offsets[i] ?? 0
-      const { creators: found, raw_count, has_more } = await api.search(t, state.market, offset)
+      // D6.i：「发出过几次付费请求」取预算计数器的增量（charge() 加、非 200 refund()）。
+      // 记在 finally 里，因为要记的正是**抛出去那条路**：钱扣了、而在写游标之前抛了。
+      const paidBefore = budget.count
+      let page
+      try {
+        page = await api.search(t, state.market, offset)
+      } finally {
+        // ⚠️ **只改内存，不在这里落盘**：此刻 offsets[i] 还没更新、人也还没入库，
+        // 落下去就是个自相矛盾的断点；而且会遮住循环末尾那次落盘的窗口（负片 M-P3-f）。
+        // 抛出去那条路由 main() 的 catch 之后那次 persist() 负责。
+        const paid = budget.count - paidBefore
+        // ⚠️ **两张表一律不在这里建**（`??=` 都不行）—— 缺表＝无从确认，
+        // 凭空建一张就把它抹成「一个都没问过」，不可逆（D6.j，ADR-94 第十五节丙实测）。
+        // 目录新建时就带着这两张表；缺表的是上一版留下的目录，它们从此也不长出来。
+        if (paid > 0 && state.answered !== undefined) {
+          state.answered[i] = (state.answered[i] ?? 0) + paid
+        }
+        // 付了钱、却没走到下面记条数那一步 —— **这一次的条数永远补不回来**。
+        // 于是这个任务的累计条数从此「注定不全」：不这么记的话，下一页成功时
+        // 它会从 0 重新数起，凑出一个偏小、却和真测量值印在同一列的数（D6.l）。
+        if (paid > 0 && page === undefined && state.found !== undefined) {
+          state.found[i] = null
+        }
+      }
+      const { creators: found, raw_count, has_more } = page
       anyProgress = true
 
       let added = 0
@@ -238,6 +262,13 @@ async function run() {
       // offset 按 API **实际返回条数**递增。固定 +20 会在返回不足的一页之后跳过数据。
       // 写下这个键本身也是「这个任务抓过第一页了」的记录（F9）—— 所以哪怕 raw_count 为 0 也要写。
       offsets[i] = offset + raw_count
+      // 条数单独记 —— 它和 offset 不恒等：游标只在这一行写得到，而付了钱在这之前
+      // 抛出去的那几次由上面的 finally 记成 `null`。**一旦判定不全就永远是 null**，
+      // 不许凑出一个偏小却和真测量值印在同一列的数（D6.l）。
+      const ftbl = state.found
+      if (ftbl !== undefined) {
+        ftbl[i] = ftbl[i] === null ? null : ((ftbl[i] as number | undefined) ?? 0) + raw_count
+      }
       // 快照也要跟着改：**同一个事实记在两处，两处都得更新**。
       // 漏掉这一行的症状只在第二轮才露出来 —— 第一轮没达标、第二轮才达标时，
       // 第一轮抓过的任务会被当成还欠着第一页，于是又被翻一页（违反 F9.d）。
