@@ -158,6 +158,15 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
       status: 200, headers: { 'content-type': 'application/json' },
     })
   }
+  // 关键词里带 `force-noparse` → reels **返回了条目、但一条都解析不出人**。
+  // 这是 IG 兜底那条路唯一的入口：走到它就说明第一次请求已经付过钱、也确实拿回了条目，
+  // 而第二次（搜账号名）可能正好撞上预算（D6.k）。
+  if (url.includes('force-noparse') && url.includes('search_reels')) {
+    record(200, url)
+    return new Response(JSON.stringify({ data: { data: { count: 2, items: [
+      { caption: { text: 'no user field here' } }, { caption: { text: 'nor here' } },
+    ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
   // 第 7 次调用返回 429，确保错误分支也被执行到
   if (calls === 7) {
     record(429, url)

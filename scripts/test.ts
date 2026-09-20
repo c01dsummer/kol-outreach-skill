@@ -4579,7 +4579,8 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
   tension('D6', 'P3')
 
   // ③ schema 漂移：200 已返回、钱已扣，解析认不出结构 → 抛。
-  //    **入口那边要靠预算计数器留下痕迹**，不能把这个词记成「没问过」。
+  //    **这就是「游标答不了『问过没有』」的根源**：游标只在 search() 正常返回之后才写，
+  //    而钱在这之前就扣了。入口那边靠预算计数器留下痕迹（D6.i），端到端那一半在自检里。
   {
     const budget = new Budget(1, 0, () => {})
     const { fake } = canned([{ body: { data: { 全新的键: [] } } }])
@@ -4591,8 +4592,7 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
     eq('但钱已经扣了 —— 这就是「发出过请求」的痕迹', budget.count, 1)
   }
 
-  // ④ IG 不走 offset：第二页不白花请求。这条是「游标 ≠ 累计条数」的根源之一 ——
-  //    兜底那一路两次请求、游标只记最后一个端点，所以 D6.i 要两张表分开记。
+  // ④ IG 不走 offset：第二页不白花请求（既有行为，这一组是它第一次被跑到）。
   {
     const budget = new Budget(1, 0, () => {})
     const { fake, calls } = canned([reelsWith(2)])
@@ -4600,7 +4600,11 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
     eq('IG 的第二页一个请求都不发', calls().length, 0)
     eq('也不谎报条数', page.raw_count, 0)
   }
-  criterion('D6.i')
+  // ⚠️ **这一组不认领 D6.i** —— 它一次都没打开过 `task.json`，而 D6.i 说的正是
+  // 「`task.json` 必须记下…」。认领它不只是多说一句：`spec-rule.ts` 那道
+  // 「只由自检认领的判据必须有一条 by:"selfcheck" 负片」的硬失败，**只要单元这边
+  // 认领了就整条跳过** —— 这一行的实际作用是给 D6.i 常年免掉那道闸
+  // （独立复核用对照实验证明的，ADR-94 第十五节丙）。D6.i 的证据全在 selfcheck.ts。
 }
 
 console.log(fail ? `\n${fail} 个失败\n` : `\n全部通过（覆盖 ${covered.size} 条需求）\n`)
