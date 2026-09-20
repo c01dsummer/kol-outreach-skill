@@ -218,6 +218,138 @@
       "replace": "  if (true) return pendingKeywords(state)"
     },
     {
+      "id": "M-P5-m",
+      "req": "P5.i",
+      "why": "一次都没查过的关键词，在报告上被印成「找到 0 条」—— 没测量被说成测量结果是零，运营据此把一个从没查过的方向判成没人、下次预算就不投，而这笔代价由用户承担且不可逆",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "      found: status === 'queried' ? (state.found?.[i] ?? null) : null,",
+      "replace": "      found: state.found?.[i] ?? 0,"
+    },
+    {
+      "id": "M-P5-n",
+      "req": "P5.i",
+      "why": "任务目录里没有那张「应答过几次」的表时，把「无从确认哪些词查过」读成「每个词都没查过」—— 报告于是替一批无从确认的关键词打包票，说它们一次都没被查过，而其中有些早就查过、钱也早就付过",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (answered == null) return 'unknown'",
+      "replace": "  if (answered == null) return 'unqueried'"
+    },
+    {
+      "id": "M-P5-o",
+      "req": "P5.j",
+      "why": "报告上「平台」那一行退回成从采到的人反推 —— 一次都没查到人的平台于是整个从报告上消失，运营看不见它，结论是「这个品类这个平台没人」",
+      "file": "scripts/render.ts",
+      "find": "  platforms: taskPlatforms(state),",
+      "replace": "  platforms: [...new Set(creators.map(c => c.platform))],",
+      "by": "selfcheck",
+      "kills": [
+        "报告副标题与 meta.json 上，一次都没查到人的平台仍然在"
+      ]
+    },
+    {
+      "id": "M-U3-a",
+      "req": "U3.b",
+      "why": "关键词表只列查询过的那些 —— 一次都没查过的词整行不出现在表上，而那张表正是用户决定下次投哪个方向的依据：看不见的方向等于不存在的方向",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return state.tasks.map((t, i) => {",
+      "replace": "  return state.tasks.filter((_, i) => taskQueryStatus(state, i) === 'queried').map((t, i) => {"
+    },
+    {
+      "id": "M-U3-c",
+      "req": "U3.b",
+      "why": "归人退回按（关键词, 平台）—— 那个二元组比行粗，同词同平台的两个任务会数到同一批人：一个从没发过请求的行上于是挂着别人的测量结果，比印 0 更糟",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    const mine = counted ? delivered.filter(c => c.source_tasks?.includes(i)) : []",
+      "replace": "    const mine = counted ? delivered.filter(c => c.source_keyword === t.keyword && c.platform === t.platform) : []"
+    },
+    {
+      "id": "M-P5-t",
+      "req": "P5.i",
+      "why": "「问过、而那一次的条数没记下来」在报告上被印成 0 —— 而盘上那一格是 null：HTML 说「找到 0 条」、meta.json 说「无从确认」，同一份交付物两处对不上，运营看的是前者，据此把一个已经付过钱、条数其实未知的词判成没人",
+      "file": "scripts/lib/report.ts",
+      "find": "    : k.found === null || k.found === undefined ? '未知'\n    : String(k.found)",
+      "replace": "    : String(k.found ?? 0)"
+    },
+    {
+      "id": "M-P5-u",
+      "req": "P5.i",
+      "why": "「查了 0 命中」被印成「—」—— 量出来的零和无从确认长得一模一样，运营分不出「这个词真没人」和「这个词的数没测到」，而前者该换词、后者该重跑（渲染口径同 P1.e）",
+      "file": "scripts/lib/report.ts",
+      "find": "    : String(k.found)",
+      "replace": "    : k.found === 0 ? '—' : String(k.found)"
+    },
+    {
+      "id": "M-P5-v",
+      "req": "P5.i",
+      "why": "一次都没问过的行照样印「入围 0 / 语义通过 0」—— 两个 0 印在真测量值旁边，运营读成「这个词查了、一个人都没有」，据此不再投这个方向；而同一张表里信息更多的「无从确认」那一行反倒印「—」，口径是反的",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    const counted = attributable && status === 'queried'",
+      "replace": "    const counted = attributable"
+    },
+    {
+      "id": "M-P5-w",
+      "req": "U3.b",
+      "why": "不管名单里的人带不带来源任务，一律照常归人 —— 上一条 PR 建的目录（两张表在、人身上没有下标）于是每一行都印「找到 40 / 入围 0」，而名单里明明有人：一个确定为假的 0 印在真测量值旁边",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  const attributable = delivered.every(c => c.source_tasks !== undefined)",
+      "replace": "  const attributable = true"
+    },
+    {
+      "id": "M-U3-i",
+      "req": "U3.b",
+      "why": "把「这一页的条数没记下」当成「这一行的人也归不了」—— 而抛掉的那一页一个人都没入库，前几页采到的人身上下标一个不少：一个确知的入围数被抹成「无从确认」，贡献了名单大半的方向被报成什么都不知道",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "      shortlisted: counted ? mine.length : null,",
+      "replace": "      shortlisted: counted && state.found?.[i] !== null ? mine.length : null,"
+    },
+    {
+      "id": "M-P5-x",
+      "req": "P5.i",
+      "why": "盘上那个值是反序列化进来的外部输入，只判 undefined 的话 `answered: null` 会让判定当场抛 —— 而抛的位置在 render 写完名单、写回记忆之后：csv 与名单已经落盘，报告和 meta.json 还是上一跑的，交付物互相矛盾",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (answered == null) return 'unknown'",
+      "replace": "  if (answered === undefined) return 'unknown'"
+    },
+    {
+      "id": "M-U3-d",
+      "req": "U3.c",
+      "why": "「入围」那一列的接线换成条目数 —— 两个单位不同的数（供应商返回的条目 vs 过完闸门还在名单上的人）在表上变成同一个，正是本条撤掉命中率那一列要避免的那种合并；运营据此以为每一条内容都出了一个人",
+      "file": "scripts/lib/report.ts",
+      "find": "<td>${esc(countText(k.shortlisted))}</td>",
+      "replace": "<td>${esc(countText(k.found))}</td>"
+    },
+    {
+      "id": "M-U3-e",
+      "req": "U3.b",
+      "why": "渲染那一侧再筛一道，只留查询过的行 —— 数据层已经把每个任务都列出来了，报告却把没查过的那几行丢掉：看不见的方向等于不存在的方向，而这正是 IG 为零时最贵的那一半",
+      "file": "scripts/lib/report.ts",
+      "find": "  const kwRows = (meta.keywords ?? []).map((k: any) => `",
+      "replace": "  const kwRows = (meta.keywords ?? []).filter((k: any) => k.status === 'queried').map((k: any) => `"
+    },
+    {
+      "id": "M-U3-f",
+      "req": "U3.b",
+      "why": "同一个人被第二个任务搜到时不把那个任务记进他的来源 —— 后面那个词于是被报成「找到 N 条、一个都没入围」，运营据此把一个其实出了人的词砍掉",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "      if (!seen.source_tasks?.includes(i)) (seen.source_tasks ??= []).push(i)",
+      "replace": "      seen.source_tasks ??= []"
+    },
+    {
+      "id": "M-U3-g",
+      "req": "U3.b",
+      "why": "跨平台同人被合并时只保留主记录那一侧的来源任务 —— 次记录那一侧的关键词从此再也归不到他，那一行少报入围",
+      "file": "scripts/lib/identity.ts",
+      "find": "    const tasks = [...(c.source_tasks ?? []), ...(other.source_tasks ?? [])]",
+      "replace": "    const tasks = [...(primary.source_tasks ?? [])]"
+    },
+    {
+      "id": "M-U3-h",
+      "req": "U3.b",
+      "why": "hashtag 词在行上不再带标记 —— 同词同平台同维度的 hashtag 行与普通行在报告上一模一样，而行的身份本来就包含它：运营看不出两行的差别在哪，只会以为表里有重复",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "      ...(t.as_hashtag ? { as_hashtag: true } : {}),",
+      "replace": ""
+    },
+    {
       "id": "M-D6-p",
       "req": "D6.i",
       "why": "请求发出去、钱扣了，却在响应处理抛出时不留痕迹 —— 盘上那个任务看起来像是从未发出过搜索请求，而它的钱已经花掉了：续跑会照原样再买一次同样的第一页",

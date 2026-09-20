@@ -107,6 +107,10 @@ export function mergeCrossPlatform(creators: Creator[]): Creator[] {
     primary.post_count = sum(c.post_count, other.post_count)
     primary.email = mergeEmail(primary.email, secondary.email)
     primary.bio_links = [...new Set([...c.bio_links, ...other.bio_links])]
+    // 两边的来源任务取并集 —— 漏了这一笔，跨平台同人被合掉之后，
+    // 次记录那一侧的关键词就再也归不到他，那一行于是少报入围（U3.b）
+    const tasks = [...(c.source_tasks ?? []), ...(other.source_tasks ?? [])]
+    if (tasks.length) primary.source_tasks = [...new Set(tasks)].sort((a, b) => a - b)
     primary.recent_posts = [...(primary.recent_posts ?? []), ...(secondary.recent_posts ?? [])]
     primary.linked_handle = `${secondary.platform}:${secondary.handle}`
     secondary.merged_into = `${primary.platform}:${primary.handle}`

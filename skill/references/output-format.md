@@ -103,7 +103,12 @@ C级 观察池 (3)
 需要包含：
 
 - 顶部统计：总人数、A/B/C 分布、有邮箱比例、跨平台人数、实际花费
-- 关键词表现：每个词找到多少人、语义命中率多少 —— **这是下次调整策略的依据**
+- 关键词表现：**关键词×平台一行，任务里的每一个都在表上**，包括 0 命中的和一次都没查过的（U3.b）。
+  每行列「找到」（供应商返回的**条目数**）、「入围」（过完粉丝闸门与去重之后还在名单上的**人数**）、
+  「语义通过」。**「找到」与「入围」不是一个数、也不相除** —— 单位不同，所以没有「命中率」这一列。
+  「找到」那一格四态可分：`N` / `0`（量出来的零）/ `未查询`（从未发出过搜索请求）/
+  `无从确认`（旧目录，连记录都没有）；另有 `未知` ＝问过、而那一次的条数没记下来。
+  **没查过的行不带任何看起来像测量值的数**（P5.i）—— **这是下次调整策略的依据**
 - **分层 tab**（U6）：A级 / B级 / C级，点击只显示对应分层。
   **默认选中第一个非空分层** —— 落在空分层上，打开第一眼是空白会被当成出错。
   初始可见性在渲染时就定好，不依赖 JS 先跑一遍。
@@ -124,8 +129,10 @@ C级 观察池 (3)
   "market": "US",
   "platforms": ["tiktok", "instagram"],
   "keywords": [
-    { "keyword": "anker power bank", "dimension": "competitor",
-      "platform": "tiktok", "found": 42, "fit_pass": 28 }
+    { "keyword": "anker power bank", "dimension": "competitor", "platform": "tiktok",
+      "status": "queried", "found": 42, "shortlisted": 12, "fit_pass": 9 },
+    { "keyword": "portable charger", "dimension": "category", "platform": "instagram",
+      "status": "unqueried", "found": null, "shortlisted": 0, "fit_pass": 0 }
   ],
   "total": 187,
   "tiers": { "A": 23, "B": 61, "C": 103 },
@@ -174,8 +181,9 @@ C级 观察池 (3)
 找到 187 人，A 级 23 个（有邮箱且内容强相关），已附英文开发信草稿。
 过滤掉 23 个此前推荐过的。
 
-关键词表现：竞品词「anker power bank」最好（42 人中 28 人通过语义筛选），
-品类词「power bank review」商家号偏多（40 人只通过 9 个），下次可以少用。
+关键词表现：竞品词「anker power bank」最好（返回 42 条、入围 12 人、其中 9 人语义通过），
+品类词「power bank review」商家号偏多（返回 40 条只入围 3 人），下次可以少用。
+Instagram 的「portable charger」这次一次都没查到 —— 预算停在了它前面，不是这个方向没人。
 
 花费 $0.41 / 预算 $2.00。这是按 $0.001/请求 的上限估算，实际有阶梯折扣会更低。
 

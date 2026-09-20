@@ -17,7 +17,9 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetExceeded, budgetProblem, ledgerProblem, showAmount } from './lib/budget.js'
-import { finalize, firstPagePending, needsProfile, pendingKeywords, resumeCostLine } from './lib/pipeline.js'
+import {
+  finalize, firstPagePending, mergePage, needsProfile, pendingKeywords, resumeCostLine,
+} from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
 import {
@@ -248,14 +250,8 @@ async function run() {
       const { creators: found, raw_count, has_more } = page
       anyProgress = true
 
-      let added = 0
-      for (const p of found) {
-        if (!p.handle || !p.platform) continue
-        const k = creatorKey({ platform: p.platform, handle: p.handle })
-        if (creators.has(k)) continue
-        creators.set(k, { ...(p as Creator), source_keyword: t.keyword, source_dimension: t.dimension })
-        added++
-      }
+      // 去重与归人都在 mergePage 里 —— 判定不留在入口脚本，缺省那个验证者才够得到它
+      const added = mergePage(creators, found, i, t)
       addedBy.set(i, (addedBy.get(i) ?? 0) + added)
       pages.set(i, (pages.get(i) ?? 0) + 1)
 
