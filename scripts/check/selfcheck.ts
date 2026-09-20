@@ -813,8 +813,9 @@ if (dir && rendered !== undefined) {
   // （改跑自检的那条路要在变异上写 by，这一处还没写，ADR-70）。
   // 记忆此刻仍是坏的，所以两次都会走到收尾中止那条路（退出码 2）。
   //
-  // 没活可干：target_count 给 1，达标提前停下 —— 剩下的关键词续跑一个都不会抓
-  // （D6.c），profile 也在这一轮补全过了（D6.d）。
+  // 没活可干：target_count 给 1，达标提前停下 —— 三个关键词都在第一轮问过了第一页
+  // （F9），第一页之后照旧按达标停，所以续跑一个都不会抓（D6.g）；
+  // profile 也在这一轮补全过了（D6.d）。
   const zeroCfg = join(tmp, 'zero.json')
   writeFileSync(zeroCfg, JSON.stringify({
     product: 'zero', market: 'US', target_count: 1, budget_usd: 1,
@@ -858,16 +859,19 @@ if (dir && rendered !== undefined) {
   // 关键词全跑完、只剩 profile 没补时说成「续跑不产生新的请求」，
   // 而续跑第一件事就是去发那些付费请求。
   //
-  // 造法：target_count 给 1 —— 第一个关键词就达标，剩下的续跑一个都不会抓
-  // （D6.c）；预算恰好只够那一次搜索（0.001 = 一次请求），补全循环第一个人
-  // 就撞上预算，三个人全都没补成（D6.d）。所以这一条**只能**由 profile 那一半
-  // 说话，关键词那一半必须一个字都不出现。
+  // 造法：**只给一个关键词** —— 它抓完第一页就不再欠着，target_count 给 1 让它
+  // 当场达标，于是关键词那一半确实为空（D6.g）。预算恰好只够那一次搜索
+  // （0.001 = 一次请求），补全循环第一个人就撞上预算，没人补成（D6.d）。
+  // 所以这一条**只能**由 profile 那一半说话，关键词那一半必须一个字都不出现。
+  //
+  // ⚠️ **原先给的是三个关键词**，靠的是「第一个就达标、剩下两个续跑一个都不会抓」——
+  // F9 之后那句不成立了：没抓过第一页的任务，达标也照样会去抓，于是关键词那一半
+  // 又冒了出来，这条夹具当场红。**它红得对** —— 它守的是「递进去的那批人有没有人守着」，
+  // 而不是「达标之后一律不抓」。把前提换成真正为空的那一种，守的东西一点没变。
   const onlyCfg = join(tmp, 'only-profile.json')
   writeFileSync(onlyCfg, JSON.stringify({
     product: 'onlyprofile', market: 'US', target_count: 1, budget_usd: 0.001,
-    tasks: Array.from({ length: 3 }, (_, i) => ({
-      keyword: `ok${i}`, dimension: 'category', platform: 'tiktok',
-    })),
+    tasks: [{ keyword: 'ok0', dimension: 'category', platform: 'tiktok' }],
   }))
   const onlyErr = run('collect 收尾：只剩 profile 也要说续跑要花钱',
                       [S('collect.ts'), '--config', onlyCfg], tmp, { status: 2, stream: 'stderr' })
@@ -944,8 +948,9 @@ if (dir && rendered !== undefined) {
           pathCfg('pdone', { target_count: 9999 }), 0, 'done', FREE, COST)
 
   // 达标提前停下：和上面同为退出码 0、同说「不花钱」，但 stopped 不同 ——
-  // 这个夹具里补全没把人筛下去，收尾时 qualified 仍够目标，所以那句话说不花钱
-  // （D6.c 按调用那一刻的 qualified 算）。筛掉之后结论会反过来 —— ADR-94 第十三节。
+  // 这个夹具里补全没把人筛下去，收尾时 qualified 仍够目标，且三个关键词都问过了
+  // 第一页，所以那句话说不花钱（D6.g 按调用那一刻的 qualified 算）。
+  // 筛掉之后结论会反过来 —— ADR-94 第十三节。
   endPath('collect 达标提前停下（退出码 0）也说续跑代价',
           pathCfg('ptarget', { target_count: 1 }), 0, 'target', FREE, COST)
 
@@ -1014,6 +1019,117 @@ if (dir && rendered !== undefined) {
     } else console.log('  ✓ 旧任务目录记为 unknown 并在报告上声明')
   }
 }
+
+// ---- F9：达标判断不得让任何一个关键词×平台连第一页都没抓到 ----
+// 达标判断原先跑在**每一次**搜索之前、第一轮也不例外：前面几个词各抓一页就填满目标时，
+// 后面的任务一个请求都不发 —— 而 task.json 的顺序由 Agent 决定，实测 IG 写在后面时
+// 整个平台为零，报告里它和「查了没人」长得一模一样（ADR-94）。
+//
+// 只能这样真跑：缺省那个验证者（scripts/test.ts）够不到入口脚本的调度循环。
+// scripts/test.ts 那一头断言的是「续跑会去抓哪些」那份判定本身（D6.g、F9.c～F9.e）。
+//
+// 「这个任务问过第一页没有」不另外数请求，读 task.json 的分页记录表：写下那个键本身
+// 就是这个任务抓过第一页的记录（F9），所以键在不在就是答案。
+const firstPage = join(tmp, 'firstpage')
+mkdirSync(join(firstPage, 'memory'), { recursive: true })
+const F9_TASKS = 6
+/**
+ * 六个关键词、两个平台交替，`order` 决定它们在 task.json 里的先后。
+ *
+ * `target_count` 给 1：第一个词抓完第一页就达标，于是**整轮都在达标之后跑** ——
+ * 这正是这条需求要管的那个局面。
+ */
+const f9Cfg = (name: string, order: number[], over: Record<string, unknown> = {}) => {
+  const f = join(firstPage, `${name}.json`)
+  const all = Array.from({ length: F9_TASKS }, (_, i) => ({
+    keyword: `f9k${i}`,
+    dimension: i % 2 ? 'scene' : 'category',
+    platform: i % 2 ? 'instagram' : 'tiktok',
+  }))
+  writeFileSync(f, JSON.stringify({
+    product: name, market: 'US', target_count: 1, budget_usd: 1,
+    tasks: order.map(i => all[i]), ...over,
+  }))
+  return f
+}
+/** 分页记录表里有键的任务个数 —— 「问过第一页」的唯一记录 */
+const asked = (dir: string): number => Object.keys(
+  JSON.parse(readFileSync(join(firstPage, dir, 'task.json'), 'utf8')).offsets ?? {}).length
+const summaryOf = (stdout: string): any => { try { return JSON.parse(stdout) } catch { return {} } }
+
+const ascRun = runBoth('collect 第一页保证：正序跑一遍',
+                       [S('collect.ts'), '--config', f9Cfg('asc', [0, 1, 2, 3, 4, 5])], firstPage)
+const descRun = runBoth('collect 第一页保证：同一批任务倒序再跑一遍',
+                        [S('collect.ts'), '--config', f9Cfg('desc', [5, 4, 3, 2, 1, 0])], firstPage)
+if (ascRun.ok && descRun.ok) {
+  const asc = summaryOf(ascRun.stdout)
+  const desc = summaryOf(descRun.stdout)
+  if (asc.stopped !== 'target' || desc.stopped !== 'target') {
+    failed++
+    // 记号在这儿：这一行红说明**夹具废了**，不是断言说了话 —— F9.a 逐字说的是
+    // 「以达标收尾时」，走的不是那条收尾，下面绿了也不算测过（同 endPath 的先例）
+    console.error(`  ✗ 第一页保证的夹具${SELFCHECK_FIXTURE_MARK}：这两次走的不是达标那条收尾`
+                  + `（正序 ${asc.stopped}、倒序 ${desc.stopped}）`)
+  } else {
+    named('达标收尾时每个关键词×平台都问过一次，换个顺序也一样',
+          asked(asc.dir) === F9_TASKS && asked(desc.dir) === F9_TASKS,
+          `正序问过 ${asked(asc.dir)}/${F9_TASKS} 个、倒序 ${asked(desc.dir)}/${F9_TASKS} 个`
+          + ' —— 没问到的那些在报告里和「查了没人」长得一模一样，用户据此以为那个平台没有合适的人')
+
+    // F9.d：第一页保证是**范围边界**，不是「无视达标一直翻」。这个目录里每个任务都
+    // 已经问过第一页，所以续跑一个请求都不该发。请求数跨运行累加（D6.a），
+    // 两次的差就是这一次真发了多少 —— 不必另外数。
+    //
+    // ⚠️ **这一条没有负片指着它**，F9.d 的负片 `M-F9-d` 指的是那份判定本身、跑的是
+    // `scripts/test.ts`。理由实测过：任何让采集多发一次请求的变异，都会把上面
+    // 「补 profile 循环里被杀后续跑」那条额度卡死的夹具顶成退出码 3 ——
+    // 那是**进程级**失败，一票否决整次运行（`judgeRun`），于是变异判「跑不起来」
+    // 而不是「被抓到」。那条夹具的额度是按「上限恰好花完」算的，为了这条去放宽它，
+    // 它自己那句「供应商多收恰好两次」就不成立了。所以这一条是**白得的端到端保险**，
+    // 不是它的第三拍 —— 别把它读成「这段接线有人守着」。
+    const again = run('collect 第一页保证：每个任务都问过之后再续跑一次',
+                      [S('collect.ts'), '--resume', asc.dir, '--budget', '2'], firstPage,
+                      { status: 0, stream: 'stdout' })
+    if (again !== undefined) {
+      const after = summaryOf(again).requests
+      named('第一页之后照旧按达标停下 —— 已经问过的不再多翻一页',
+            after === asc.requests,
+            `续跑又发了 ${after - asc.requests} 次请求 —— 第一页保证只保证第一页，`
+            + '接着翻下去花的是用户没打算花的钱')
+    }
+  }
+}
+
+// F9.b：预算不够给每个任务抓第一页时 **P3 赢** —— 照旧退 3、存断点，
+// 没问到的如实列出，不得为了抓齐第一页超出预算（F9×P3 的裁定，ADR-94 第三节）。
+// 六个任务，预算只够三次搜索，所以没问到的正好三个。**这个数字写死是有意的**：
+// 写成 `\d+` 的话，把没问到的少报一个照样绿 —— 而少报的那一个，续跑不会去抓它，
+// 它的第一页就永远丢了。
+const tightRun = runBoth('collect 第一页保证：预算不够抓齐第一页',
+                         [S('collect.ts'), '--config',
+                          f9Cfg('tight', [0, 2, 4, 1, 3, 5], { budget_usd: 0.003 })],
+                         firstPage, { status: 3 })
+if (tightRun.ok) {
+  const tight = summaryOf(tightRun.stdout)
+  if (tight.stopped !== 'budget') {
+    failed++
+    console.error(`  ✗ 预算不够抓齐第一页的夹具${SELFCHECK_FIXTURE_MARK}：`
+                  + `这一次走的不是预算那条收尾，是 ${tight.stopped}`)
+  } else {
+    named('预算不够抓齐第一页时按预算停下，没问到的如实列出',
+          tight.cost_estimate_usd <= tight.budget_usd && /还有 3 个关键词/.test(tightRun.stderr),
+          `花了 ${tight.cost_estimate_usd}/${tight.budget_usd}，那句话说的是`
+          + `「${tightRun.stderr.split('\n').find(l => l.includes('续跑')) ?? '（没说）'}」`
+          + ' —— 第一页保证在达标判断之前生效，不在预算之前；少报一个，那个词的第一页就永远丢了')
+  }
+}
+
+// 三条一起才是这条需求：换顺序都问过（F9.a）、预算不够时 P3 赢（F9.b）、
+// 第一页之后照旧按达标停（F9.d）。剩下两条判据在 scripts/test.ts 里 ——
+// 「续跑会去抓哪些」那份判定只此一份（F9.c）、整张分页记录表缺失读作无从确认（F9.e）。
+criterion('F9.a')
+criterion('F9.b')
+criterion('F9.d')
 
 // ---- 变异集编号重复：两个入口都命中即以退出码 1 结束（M-H7-b、M-H7-c 的入口那一半）----
 // 判定和「两种毛病同时在时先报哪一种」都由 scripts/test.ts 断言；剩下的那一半是

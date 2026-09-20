@@ -17,7 +17,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetExceeded, budgetProblem, ledgerProblem, showAmount } from './lib/budget.js'
-import { finalize, needsProfile, pendingKeywords, resumeCostLine } from './lib/pipeline.js'
+import { finalize, firstPagePending, needsProfile, pendingKeywords, resumeCostLine } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
 import {
@@ -165,18 +165,27 @@ function persist() {
  * 不能顺序跑完一个词再跑下一个 —— 实测 blendjet 一个词就够 50 人，一个词就能把整轮配额
  * 翻完。**四个维度各有各的价值**正是关键词策略的核心。
  *
- * ⚠️ **轮转只保证「一个词不连翻四页」，没保证每个词都被问过一遍。** 下面那句达标判断跑在
- * **每一次搜索请求**之前，第一轮也不例外：前面几个词各抓一页就填满目标时，`break` 之后排在
- * 后面的任务一个请求都不发 —— 而 task.json 的顺序由 Agent 决定，实测 IG 写在后面时整个
- * 平台为零。**`--resume` 补不补得回来不一定** —— 续跑会不会再搜，取决于续跑那一刻
- * `qualified()` 还够不够目标，而它会变：达标判断用的是补全之前的粉丝数（未知放行，P1），
- * 而 `enrichProfiles()` 跑在本函数之后、把真实粉丝数写回累加器，被闸门筛掉的人一多就掉回目标以下。
- * 说「一定补不回来」是假的（ADR-94 第十三节，实测：IG 全被筛掉时续跑把跳过的词整词补回）。
- * 修法是让每个任务的第一页不受达标判断约束，见 ADR-94（待修）。
+ * **F9：每个任务的第一页不受达标判断约束。** 达标之后仍然给「一页都没抓过」的任务补第一页，
+ * 第一页之后的分页才照旧按达标停（F9.d）。这一条修掉的是「零」，修不掉「少」——
+ * 一个 IG 词只有一页，所以它保证的是**问过**，不保证问到多少人。
+ *
+ * 为什么非改不可：达标判断原先跑在**每一次**搜索之前、第一轮也不例外，于是前面几个词
+ * 各抓一页填满目标时，后面的任务一个请求都不发；而 task.json 的顺序由 Agent 决定 ——
+ * 实测 IG 写在后面时整个平台为零，而报告里它和「查了没人」长得一模一样（ADR-94）。
+ *
+ * 「抓过第一页没有」不另记一张表，就看 `state.offsets` 里有没有这个键 ——
+ * 三态见 `TaskState.offsets` 的注释。判定在 `lib/pipeline.ts` 的 `firstPagePending`，
+ * **调度与「续跑要不要花钱」那句话共用它**，不各写一份。
  */
 async function run() {
+  // 一页都没抓过的任务，本轮要给它们补第一页。
+  // **必须在下面那个 ??= 之前取快照** —— 整张表缺失（F9 落地之前的旧目录）是
+  // 「无从确认哪些任务查过」，而 ??= 之后这个证据就被抹平成「都没查过」，
+  // 于是已经付过费的词会被整批重抓一遍（F9.e）。怎么读那三态在 firstPagePending
+  // 里判，这儿不再写一份。
+  const owedFirstPage = new Set(firstPagePending(state))
   // 从 task.json 恢复 —— 预算中途用尽时，续跑要从断掉的那一页接上
-  state.offsets ??= {}
+  const offsets = (state.offsets ??= {})
   const exhausted = new Set<number>(state.done)
   const addedBy = new Map<number, number>()
   const pages = new Map<number, number>()       // 本关键词已抓页数（跨运行由 offsets 推不出来，只在本轮计）
@@ -186,10 +195,17 @@ async function run() {
 
     for (let i = 0; i < state.tasks.length; i++) {
       if (exhausted.has(i)) continue
-      if (qualified() >= state.target_count) { stopped = 'target'; break }
+      if (qualified() >= state.target_count) {
+        stopped = 'target'
+        // F9：达标之后**不是一律停**，还欠第一页的任务照抓不误。
+        // 这里是 continue 不是 break —— break 会让排在后面、一页都没抓过的任务
+        // 跟着一起被砍掉，而那正是这条需求要修的东西。
+        // 第一页之后的分页照旧按达标停：这个集合里只有「一页都没抓过」的（F9.d）。
+        if (!owedFirstPage.has(i)) continue
+      }
 
       const t = state.tasks[i]
-      const offset = state.offsets[i] ?? 0
+      const offset = offsets[i] ?? 0
       const { creators: found, raw_count, has_more } = await api.search(t, state.market, offset)
       anyProgress = true
 
@@ -205,7 +221,12 @@ async function run() {
       pages.set(i, (pages.get(i) ?? 0) + 1)
 
       // offset 按 API **实际返回条数**递增。固定 +20 会在返回不足的一页之后跳过数据。
-      state.offsets[i] = offset + raw_count
+      // 写下这个键本身也是「这个任务抓过第一页了」的记录（F9）—— 所以哪怕 raw_count 为 0 也要写。
+      offsets[i] = offset + raw_count
+      // 快照也要跟着改：**同一个事实记在两处，两处都得更新**。
+      // 漏掉这一行的症状只在第二轮才露出来 —— 第一轮没达标、第二轮才达标时，
+      // 第一轮抓过的任务会被当成还欠着第一页，于是又被翻一页（违反 F9.d）。
+      owedFirstPage.delete(i)
       // 用 API 自己的 has_more，比「本页新增 0 人」准，也省一次探路请求
       if (!raw_count || !has_more) {
         exhausted.add(i)
@@ -304,8 +325,9 @@ async function main() {
     // 「续跑要不要花钱」有**两种**没干完的活，只数关键词会漏掉后一种：
     // 关键词全跑完了，但只要还有人没补 profile，续跑第一件事就是去补，
     // 那是付费端点（ADR-25）。
-    // 数的是**续跑真正会去抓的**，不是「不在 done 里的」—— 达标提前停下时
-    // 那些关键词一个都没碰过，而续跑会在第一个请求之前再次达标（ADR-25 追记）。
+    // 数的是**续跑真正会去抓的**，不是「不在 done 里的」—— 已经达标、而且每个
+    // 关键词都抓过第一页时，续跑一个请求都不会发；反过来还欠着第一页的那些，
+    // 达标也照样会被抓（F9），说成不花钱就是把要花的钱藏起来（ADR-25 追记 · ADR-94）。
     // 说哪一句、以及两个剩余量各是多少，全在 lib/pipeline.ts 的 resumeCostLine 里 ——
     // 留在这儿的话，把两支对调、或者把某一个剩余量写死成 0，检查链一路全绿
     // （ADR-25 的欠条，评审指出）。这里只剩「把它打出来」。

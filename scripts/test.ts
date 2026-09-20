@@ -72,7 +72,7 @@ import { Budget, BudgetExceeded, UNIT_PRICE, budgetProblem, ledgerProblem } from
 import { enrichedFlag, renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
-  finalize, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators, keywordStats, tierCounts,
+  finalize, firstPagePending, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators, keywordStats, tierCounts,
   resumeCostLine,
 } from './lib/pipeline.js'
 import {
@@ -699,15 +699,68 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
             { keyword: 'b', dimension: 'scene', platform: 'tiktok' }],
     done: [], offsets: {}, requests: 0, created_at: '', updated_at: '', ...over,
   })
-  // 达标提前停下：剩下的关键词一个都没碰过，也没被标记完成 ——
-  // 但续跑的第一件事是再查一次达标，一个请求都不会发。
+  // F9 之后这条口径分成两支：没达标照旧全算；达标之后**只剩「一页都没抓过」的那些**，
+  // 因为第一页不受达标判断约束，续跑照样会去抓它们（D6.g 接替退役的 D6.c）。
   eq('没达标 → 剩下的关键词续跑会去抓', keywordsResumeWillRun(st(), 10).length, 2)
-  eq('已达标 → 续跑一个关键词都不会抓', keywordsResumeWillRun(st(), 50).length, 0)
-  eq('超出目标同理', keywordsResumeWillRun(st(), 99).length, 0)
+  eq('已达标 → 一页都没抓过的仍然会去抓', keywordsResumeWillRun(st(), 50).length, 2)
+  eq('超出目标同理', keywordsResumeWillRun(st(), 99).length, 2)
+  // 抓过第一页的（offsets 里有这个键）在达标之后就不再翻页了 —— 那是 F9.d 的边界
+  eq('已达标 + 都抓过第一页 → 一个都不会抓',
+     keywordsResumeWillRun(st({ offsets: { 0: 20, 1: 20 } }), 99).length, 0)
+  eq('已达标 + 只有一个没抓过 → 只抓那一个',
+     keywordsResumeWillRun(st({ offsets: { 0: 20 } }), 99).length, 1)
   eq('已标记完成的本来就不算', keywordsResumeWillRun(st({ done: [0] }), 10).length, 1)
+  eq('已达标时，标记完成的也不算 —— 它抓过了', keywordsResumeWillRun(st({ done: [0] }), 99).length, 1)
+  // F9.e：整张分页记录表缺失 = 无从确认，不发请求。**不是**读成「都没抓过」去重抓一遍。
+  eq('无从确认 → 一个都不去抓', keywordsResumeWillRun(st({ offsets: undefined }), 99).length, 0)
+  // 「没有那个键」和「没有那张表」要给出**不同**的答案 —— 两行一起看才是那个判据：
+  // 少了后一行，一个「表没了就当都没抓过」的实现照样绿，而它会把付过费的词重抓一遍。
+  eq('有表、没有这个键 → 这两个任务都欠着第一页', firstPagePending(st()).length, 2)
+  eq('整张表都没有 → 交回空集，不是全体', firstPagePending(st({ offsets: undefined })).length, 0)
   // pendingKeywords 仍然报「还没跑完的」—— 它服务的是进度，不是花钱
   eq('进度口径不受达标影响', pendingKeywords(st()).length, 2)
-  criterion('D6.c')
+  criterion('D6.g')
+  criterion('F9.c')
+  criterion('F9.e')
+  // F9.d 是范围边界：第一页之后照旧按达标停。上面「都抓过第一页 → 一个都不会抓」
+  // 就是它 —— 一条「达标之后继续翻页」的实现会让那一行红（ADR-67 要求边界可失败）。
+  // 负片是 M-F9-d：让这份判定不再看「抓没抓过」，只看「标没标完成」。
+  // 采集调度用的是同一份判定，所以这一条同时管住入口那一头（自检那条端到端
+  // 断言为什么拿不到自己的负片，理由写在 selfcheck.ts 那一段上）。
+  criterion('F9.d')
+
+  // ── F9 × D6：续跑会去抓的 ＝ 没抓过第一页的 ∪（未达标时）其余未完成的 ──────
+  // 上面那一组断言逐条量的就是这个并集：没达标那一支全算，达标那一支只剩没抓过的，
+  // 两支之间不重不漏。D6.c 据此退役、D6.g 接替 —— 判据不改含义、不回收复用（ADR-67）。
+  tension('F9', 'D6')
+
+  // ── F9 × P1：不设任何默认的平台配额 ───────────────────────────────────
+  // 第一页保证是**按任务**的，对平台一无所知。谁先谁后、哪个平台，都不改变
+  // 「这个任务抓过第一页没有」这个判断 —— 它只读 done 与 offsets。
+  // 有人往里塞一条「IG 至少留 N 个」的默认配额，下面那几行就红。
+  {
+    const mixed = (over: Partial<TaskState> = {}): TaskState => st({
+      tasks: [{ keyword: 'a', dimension: 'category', platform: 'tiktok' },
+              { keyword: 'b', dimension: 'scene', platform: 'instagram' }],
+      ...over,
+    })
+    eq('两个平台各欠一页 → 两个都算，不分平台', firstPagePending(mixed()).length, 2)
+    eq('把 IG 那个抓过 → 只剩 TikTok 那个，平台不影响结论',
+       firstPagePending(mixed({ offsets: { 1: 12 } })), [0])
+    eq('把 TikTok 那个抓过 → 只剩 IG 那个，同一条规则',
+       firstPagePending(mixed({ offsets: { 0: 20 } })), [1])
+  }
+  tension('F9', 'P1')
+
+  // ── F9 × P3：不超预算 ──────────────────────────────────────────────
+  // **这里认领的是单元那一半，说清楚它证了什么、没证什么。**
+  // 证了：第一页保证从不把自己报成「免费」—— 还欠着第一页时，那句话照旧说要花钱。
+  //       有人为了让「保证」听起来无代价而把这些词从账单里摘掉，下面这行就红。
+  // 没证：预算真的用尽时会不会停下来 —— 那是 run() 里 BudgetExceeded 的事，
+  //       由 F9.b 在自检里端到端跑（退 3、存断点、不为抓齐第一页多花一次）。
+  ok('还欠着第一页时，续跑口径说的是要花钱，不是免费',
+     keywordsResumeWillRun(st({ offsets: {} }), 99).length === 2)
+  tension('F9', 'P3')
 }
 
 suite('D6', '收尾那句话说的是「续跑要不要花钱」—— 两支都得算出来，不能写死')
@@ -721,8 +774,12 @@ suite('D6', '收尾那句话说的是「续跑要不要花钱」—— 两支都
   // 补全过的人：简介查过了、也有外链，`needsProfile` 认他不用再补
   const done1 = mk('tiktok', 'a', { bio: '有简介', bio_links: ['https://x'] })
   const todo1 = mk('tiktok', 'b', { bio: undefined })
-  const line = (o: { qualified?: number; done?: number[]; creators?: Creator[] } = {}) =>
-    resumeCostLine('out/x', st({ done: o.done ?? [] }), o.qualified ?? 10, o.creators ?? [done1])
+  // F9 之后「关键词那一半为零」要两个条件：达标，**并且**每个任务都抓过第一页。
+  // 夹具默认把两个任务的 offsets 都记上 —— 否则 qualified 再高，续跑也还欠着第一页。
+  const line = (o: { qualified?: number; done?: number[]; creators?: Creator[]
+                     offsets?: Record<number, number> } = {}) =>
+    resumeCostLine('out/x', st({ done: o.done ?? [], offsets: o.offsets ?? { 0: 20, 1: 20 } }),
+                   o.qualified ?? 10, o.creators ?? [done1])
 
   // 说反了的代价不对称：说成「不花钱」，账单在用户不知情时又长一截；说成
   // 「要花钱」，用户不敢续跑，那份已经付过钱的名单就永远拿不到（负片 M-D6-f）。
@@ -735,11 +792,14 @@ suite('D6', '收尾那句话说的是「续跑要不要花钱」—— 两支都
     line({ creators: [done1, todo1] }).includes('2 个关键词、1 个人的 profile'))
   ok('两样都没有了 → 才说不产生新的请求',
     line({ qualified: 99 }).includes('续跑不产生新的请求'))
-  // 关键词那一半按「续跑真会去抓的」数（D6.c）。判据数的是**调用那一刻**的 qualified，
+  // 关键词那一半按「续跑真会去抓的」数（D6.g）。判据数的是**调用那一刻**的 qualified，
   // 不是 stopped 的取值 —— 达标停下之后补全会把粉丝数写回，那个数可能掉回目标以下，
-  // 于是续跑照样去抓（ADR-94 第十三节）。下面两处传的 qualified 高于 target_count，是「仍够目标」那一支。
-  ok('达标提前停下 → 那些没跑的关键词不算还剩的活',
+  // 于是续跑照样去抓（ADR-94 第十三节）。下面几处传的 qualified 高于 target_count。
+  ok('达标 + 都抓过第一页 → 那些关键词不算还剩的活',
     !line({ qualified: 99 }).includes('个关键词'))
+  // F9：达标也盖不住还欠着的第一页 —— 这一句要如实说它还要花钱（负片 M-F9-c）
+  ok('达标但还欠着第一页 → 仍然说要花钱',
+    line({ qualified: 99, offsets: {} }).includes('续跑会继续发请求、继续花钱'))
   // 两支都要把结果放在哪儿说清楚 —— 「不会重新抓」「结果都在」指的都是它
   ok('还有活时也说清已抓到的在哪', line().includes('out/x'))
   ok('没活时同样说清结果在哪', line({ qualified: 99 }).includes('out/x'))
@@ -753,7 +813,7 @@ suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环
   ok('查过了但没有外链 → 还要补', needsProfile(c({ bio: '简介', bio_links: [] })))
   eq('查过且有外链 → 不用再补', needsProfile(c({ bio: '简介', bio_links: ['https://x'] })), false)
   // 这个判定决定要不要花钱：关键词全跑完了，只要还有人没补 profile，
-  // 续跑第一件事就是去发付费请求（负片 M-D6-d）。关键词那一半是 D6.c，
+  // 续跑第一件事就是去发付费请求（负片 M-D6-d）。关键词那一半是 D6.g，
   // 在上一个 suite（负片 M-D6-e）—— 两种活坏在不同的地方，所以是两条判据。
   criterion('D6.d')
 }

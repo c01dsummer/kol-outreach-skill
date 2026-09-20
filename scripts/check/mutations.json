@@ -211,11 +211,59 @@
     },
     {
       "id": "M-D6-e",
-      "req": "D6",
-      "why": "把「还没标记完成的关键词」当成「续跑会去抓的」—— 达标提前停下时那些词一个都没碰过，续跑也不会碰，却告诉用户续跑要花钱，他可能因此不敢续跑，永远拿不到那份名单",
+      "req": "D6.g",
+      "why": "把「还没标记完成的关键词」当成「续跑会去抓的」—— 已经达标、而且每个关键词都问过第一页时，续跑一个请求都不会发，却告诉用户续跑还要花钱，他可能因此不敢续跑，永远拿不到那份已经付过钱的名单",
       "file": "scripts/lib/pipeline.ts",
-      "find": "  return qualified >= state.target_count ? [] : pendingKeywords(state)",
-      "replace": "  return pendingKeywords(state)"
+      "find": "  if (qualified < state.target_count) return pendingKeywords(state)",
+      "replace": "  if (true) return pendingKeywords(state)"
+    },
+    {
+      "id": "M-F9-c",
+      "req": "F9.c",
+      "why": "达标之后就说「续跑一个关键词都不会抓」—— 还欠着第一页的那些词，续跑照样会去抓它们，那是要付费的端点，账单在用户不知情时又长一截；反过来他也可能因为「反正不花钱」就去续跑一轮自己没打算花的钱",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  const first = new Set(firstPagePending(state))\n  return state.tasks.filter((_, i) => first.has(i)).map(label)",
+      "replace": "  return []"
+    },
+    {
+      "id": "M-F9-e",
+      "req": "F9.e",
+      "why": "任务目录里没有分页记录表时读成「每个关键词都没问过」—— 而那种目录是上一版留下的，词早就问过、钱早就付过，于是整批重抓一遍，用户为同一批人付两次钱",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (offsets === undefined) return []",
+      "replace": "  if (offsets === undefined) return state.tasks.map((_, i) => i)"
+    },
+    {
+      "id": "M-F9-a",
+      "req": "F9.a",
+      "why": "前面几个关键词填满目标之后整轮就停 —— 排在后面的关键词×平台一个搜索请求都不发，而报告里「查了没人」和「一次都没查」长得一模一样：用户据此以为那个平台没有合适的人，而任务的先后顺序本不该改变哪些任务会被查询",
+      "file": "scripts/collect.ts",
+      "find": "        if (!owedFirstPage.has(i)) continue",
+      "replace": "        break",
+      "by": "selfcheck",
+      "kills": [
+        "达标收尾时每个关键词×平台都问过一次，换个顺序也一样"
+      ]
+    },
+    {
+      "id": "M-F9-d",
+      "req": "F9.d",
+      "why": "「这个关键词一页都没抓过」不再看它抓没抓过，只看它标没标完成 —— 于是达标之后每个没标完成的关键词都被当成还欠着第一页，接着往下翻页：第一页保证本该只保证第一页，这下成了「无视达标一直翻」，多翻出来的那些页花的是用户没打算花的钱；同一个判定还喂着「续跑要不要花钱」那句话，它跟着一起多报",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    .filter(i => !state.done.includes(i) && !(i in offsets))",
+      "replace": "    .filter(i => !state.done.includes(i))"
+    },
+    {
+      "id": "M-F9-b",
+      "req": "F9.b",
+      "why": "还没发出请求就先把这个关键词记成「问过第一页了」—— 预算恰好在它这儿用尽时，断点里写着它问过、而它其实一条数据都没拿到：续跑不会再碰它，它的第一页就永远丢了，而中止时那句话把它从「还没问到的」里少报一个",
+      "file": "scripts/collect.ts",
+      "find": "      const offset = offsets[i] ?? 0\n      const { creators: found, raw_count, has_more } = await api.search(t, state.market, offset)",
+      "replace": "      const offset = offsets[i] ?? 0\n      offsets[i] = offset\n      const { creators: found, raw_count, has_more } = await api.search(t, state.market, offset)",
+      "by": "selfcheck",
+      "kills": [
+        "预算不够抓齐第一页时按预算停下，没问到的如实列出"
+      ]
     },
     {
       "id": "M-P4-b",

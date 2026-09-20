@@ -81,24 +81,56 @@ export function needsProfile(c: Creator): boolean {
 /**
  * **续跑真正会去抓的关键词。**
  *
- * 「不在 done 里」不等于「续跑会去抓」：达标提前停下时，剩下的关键词一个都
- * 没被碰过，也不会被标记完成 —— 而续跑做的第一件事就是再查一次达标，
- * 于是一个请求都不会发（ADR-25 追记）。
+ * 「不在 done 里」不等于「续跑会去抓」：已经达标、而且每个关键词都抓过第一页时，
+ * 续跑一个请求都不会发 —— 那些词没被标记完成，却也不会再被碰（ADR-25 追记）。
+ * 拿 `pendingKeywords` 去说「续跑要花钱」在这种局面下会**多报**：方向和之前
+ * 那几次相反，危害也不同 —— 那几次是让用户少估了开销，这次是让他以为要花钱
+ * 而不敢续跑，而不续跑就永远拿不到那份已经付过钱的名单。
  *
- * 拿 `pendingKeywords` 去说「续跑要花钱」会**多报**。方向和之前那几次相反，
- * 危害也不同：那几次是让用户少估了开销，这次是让他以为要花钱而不敢续跑 ——
- * 而不续跑就永远拿不到那份名单。
+ * 反过来**少报**同样有害，而这正是 F9 改掉的那一半：达标之后仍然要给「一页都
+ * 没抓过」的任务补第一页，说成「续跑不产生新的请求」就是把要花的钱藏起来。
  */
 export function keywordsResumeWillRun(state: TaskState, qualified: number): string[] {
-  return qualified >= state.target_count ? [] : pendingKeywords(state)
+  if (qualified < state.target_count) return pendingKeywords(state)
+  // F9：达标了也照样去抓**一页都没抓过**的那些 —— 第一页不受达标判断约束。
+  // 这里必须和 collect.ts 的调度用同一个 firstPagePending，不能各写一份：
+  // 各写一份的话，先改的那边不会报错，而用户看到的那句话就开始撒谎（同 needsProfile 的先例，ADR-25）。
+  const first = new Set(firstPagePending(state))
+  return state.tasks.filter((_, i) => first.has(i)).map(label)
+}
+
+/**
+ * 一页都没抓过的任务下标（F9）。
+ *
+ * **这份判定只此一份** —— 调度（`collect.ts` 的 `run()`）与「续跑要不要花钱」
+ * 那句话共用它。各写一份表达式的话，先改的那边不会报错，而用户看到的那句话
+ * 就开始撒谎（同 `needsProfile` 的先例，ADR-25）。
+ *
+ * **「没有那个键」和「没有那张表」是两件事**，所以这里有三态、不是两态（F9.e）：
+ * 前者是「这个任务一页都没抓过」，后者是 F9 落地之前留下的旧任务目录 ——
+ * 什么都推不出来。整张表缺失时交回空集：不发请求。这**不是**断言「都查过了」，
+ * 而是「无从确认」在这个判定里唯一安全的取法 —— 推错的代价不对称，读成
+ * 「都没查过」会把已经付过费的词整批重抓一遍。
+ *
+ * 「无从确认」只在这一处判，不在调度那边再写一遍：那两份迟早有一边先改，
+ * 而先改的那边不会报错（ADR-25 的先例，也是 F9.c 逐字要求的那件事）。
+ */
+export function firstPagePending(state: TaskState): number[] {
+  const offsets = state.offsets
+  if (offsets === undefined) return []
+  return state.tasks
+    .map((_, i) => i)
+    .filter(i => !state.done.includes(i) && !(i in offsets))
 }
 
 /** 尚未跑完的关键词 —— Agent 据此向用户报进度、问要不要追加预算 */
 export function pendingKeywords(state: TaskState): string[] {
-  return state.tasks
-    .filter((_, i) => !state.done.includes(i))
-    .map(t => `${t.as_hashtag ? '#' : ''}${t.keyword}(${t.platform})`)
+  return state.tasks.filter((_, i) => !state.done.includes(i)).map(label)
 }
+
+/** 关键词×平台的展示名。两处列表共用，免得一处带 # 一处不带。 */
+const label = (t: TaskState['tasks'][number]): string =>
+  `${t.as_hashtag ? '#' : ''}${t.keyword}(${t.platform})`
 
 /**
  * **收尾时说给用户的那句话：续跑还要不要花钱。**
@@ -116,9 +148,10 @@ export function pendingKeywords(state: TaskState): string[] {
  * 脚本；改跑自检的那条路要在变异上写 `by`，这一处还没写，ADR-70）。把数数搬进来，
  * 这一类错误就不再有地方发生（评审指出）。
  *
- * 数法不是新写的：关键词那一半是 `keywordsResumeWillRun`（D6.c —— 按**续跑那一刻**的
- * `qualified()` 重算，而不是按「不在 done 里的」；达标提前停下**不等于**续跑不去抓，
- * 补全把粉丝数写回之后那个数会掉，见 ADR-94 第十三节），profile 那一半是 `needsProfile`（D6.d —— 哪些人还要补；
+ * 数法不是新写的：关键词那一半是 `keywordsResumeWillRun`（D6.g —— 按**续跑那一刻**的
+ * `qualified()` 重算，而不是按「不在 done 里的」；达标提前停下**不等于**续跑不去抓：
+ * 补全把粉丝数写回之后那个数会掉，而且还欠着第一页的任务无视达标照抓不误，
+ * 见 ADR-94 第十三节与 F9），profile 那一半是 `needsProfile`（D6.d —— 哪些人还要补；
  * 「补全循环与这里共用它」那条约束在 `docs/ARCHITECTURE.md` 的锚点行上）。
  *
  * **`collect.ts` 里有两处调它**，对应两条判据：
