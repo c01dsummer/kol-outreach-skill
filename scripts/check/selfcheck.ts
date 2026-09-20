@@ -1158,16 +1158,22 @@ const legacyFirst = runBoth('collect 第一页保证：先跑出一个被预算�
 if (legacyFirst.ok) {
   const before = summaryOf(legacyFirst.stdout)
   const taskPath = join(firstPage, before.dir, 'task.json')
-  const legacyState = JSON.parse(readFileSync(taskPath, 'utf8'))
-  // 把整张分页记录表删掉 —— 这就是旧目录在盘上的样子（`offsets` 是 7b1acd7 才加的字段）
-  delete legacyState.offsets
-  writeFileSync(taskPath, JSON.stringify(legacyState, null, 2), 'utf8')
+  // 断点不在约定的文件名下时（`M-D6-n` 那类变异）读成 `undefined` 让下面整段跳过，
+  // **不是让自检崩** —— 崩了那条变异就被判「跑不起来」，而它本该被别处的夹具抓到
+  // （同本文件 `requestsOnDisk` 的先例）。
+  let legacyState: any
+  try { legacyState = JSON.parse(readFileSync(taskPath, 'utf8')) } catch { legacyState = undefined }
+  if (legacyState !== undefined) {
+    // 把整张分页记录表删掉 —— 这就是旧目录在盘上的样子（`offsets` 是 7b1acd7 才加的字段）
+    delete legacyState.offsets
+    writeFileSync(taskPath, JSON.stringify(legacyState, null, 2), 'utf8')
+  }
 
   const legacyLedger = join(tmp, 'ledger-legacy.tsv')
   const again = runBoth('collect 第一页保证：在旧目录上续跑',
                         [S('collect.ts'), '--resume', before.dir, '--budget', '2'], firstPage,
                         undefined, { FAKE_FETCH_LEDGER: legacyLedger })
-  if (!legacyState.done.length && again.ok) {
+  if (legacyState !== undefined && !legacyState.done.length && again.ok) {
     named('分页记录表整张缺失时，一次关键词搜索都不发',
           searchHits(legacyLedger) === 0,
           `供应商收到了 ${searchHits(legacyLedger)} 次关键词搜索`
@@ -1179,7 +1185,7 @@ if (legacyFirst.ok) {
           `那句话是「${again.stderr.split('\n').find(l =>
               /无从确认|续跑不产生新的请求|续跑会继续发请求/.test(l)) ?? '（没说）'}」`
           + ' —— 说成「都已跑完」就是把无从确认读成了「都查过了」，F9.e 逐字禁的第二种误读')
-  } else if (again.ok) {
+  } else if (legacyState !== undefined && again.ok) {
     failed++
     console.error(`  ✗ 旧目录夹具${SELFCHECK_FIXTURE_MARK}：第一跑把关键词标完成了`
                   + `（done=${JSON.stringify(legacyState.done)}）—— 续跑在 exhausted 那一关就跳过了，`
