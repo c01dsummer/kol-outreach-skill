@@ -712,11 +712,18 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
   eq('已标记完成的本来就不算', keywordsResumeWillRun(st({ done: [0] }), 10).length, 1)
   eq('已达标时，标记完成的也不算 —— 它抓过了', keywordsResumeWillRun(st({ done: [0] }), 99).length, 1)
   // F9.e：整张分页记录表缺失 = 无从确认，不发请求。**不是**读成「都没抓过」去重抓一遍。
+  // 没达标那一支也要为空 —— #138 评审之前它交回的是「不在 done 里的」全部，
+  // 而调度那边一个都不抓，两句话当场对不上。
   eq('无从确认 → 一个都不去抓', keywordsResumeWillRun(st({ offsets: undefined }), 99).length, 0)
-  // 「没有那个键」和「没有那张表」要给出**不同**的答案 —— 两行一起看才是那个判据：
-  // 少了后一行，一个「表没了就当都没抓过」的实现照样绿，而它会把付过费的词重抓一遍。
-  eq('有表、没有这个键 → 这两个任务都欠着第一页', firstPagePending(st()).length, 2)
-  eq('整张表都没有 → 交回空集，不是全体', firstPagePending(st({ offsets: undefined })).length, 0)
+  eq('无从确认 + 没达标 → 照样一个都不去抓',
+     keywordsResumeWillRun(st({ offsets: undefined }), 0).length, 0)
+  // 「没有那个键」和「没有那张表」要给出**不同**的答案，而且不是空集与空集 ——
+  // 两种都交回 `[]` 的话，调用方分不出「无从确认」和「没有一个欠着」，
+  // 于是没达标那条路直接从 offset 0 重抓，把付过钱的几页再买一遍（#138 评审实测）。
+  eq('有表、没有这个键 → 这两个任务都欠着第一页', firstPagePending(st())?.length, 2)
+  eq('有表、都抓过 → 空集，不是 null', firstPagePending(st({ offsets: { 0: 20, 1: 20 } }))?.length, 0)
+  ok('整张表都没有 → null（无从确认），不是空集也不是全体',
+     firstPagePending(st({ offsets: undefined })) === null)
   // pendingKeywords 仍然报「还没跑完的」—— 它服务的是进度，不是花钱
   eq('进度口径不受达标影响', pendingKeywords(st()).length, 2)
   criterion('D6.g')
@@ -744,7 +751,7 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
               { keyword: 'b', dimension: 'scene', platform: 'instagram' }],
       ...over,
     })
-    eq('两个平台各欠一页 → 两个都算，不分平台', firstPagePending(mixed()).length, 2)
+    eq('两个平台各欠一页 → 两个都算，不分平台', firstPagePending(mixed())?.length, 2)
     eq('把 IG 那个抓过 → 只剩 TikTok 那个，平台不影响结论',
        firstPagePending(mixed({ offsets: { 1: 12 } })), [0])
     eq('把 TikTok 那个抓过 → 只剩 IG 那个，同一条规则',
@@ -776,9 +783,14 @@ suite('D6', '收尾那句话说的是「续跑要不要花钱」—— 两支都
   const todo1 = mk('tiktok', 'b', { bio: undefined })
   // F9 之后「关键词那一半为零」要两个条件：达标，**并且**每个任务都抓过第一页。
   // 夹具默认把两个任务的 offsets 都记上 —— 否则 qualified 再高，续跑也还欠着第一页。
+  // ⚠️ offsets 用 `'offsets' in o` 判缺省，**不能用 `??`** —— 这张表本身就是三态的，
+  // 而 `o.offsets ?? 默认值` 会把「显式传 undefined＝无从确认」吞回默认值，
+  // 于是想测第三支的断言测到的是第二支（实测：四条红三条、还有一条因此假绿）。
+  // 同一个形状正是 F9.e 要治的那件事，夹具自己先栽了一次。
   const line = (o: { qualified?: number; done?: number[]; creators?: Creator[]
                      offsets?: Record<number, number> } = {}) =>
-    resumeCostLine('out/x', st({ done: o.done ?? [], offsets: o.offsets ?? { 0: 20, 1: 20 } }),
+    resumeCostLine('out/x',
+                   st({ done: o.done ?? [], offsets: 'offsets' in o ? o.offsets : { 0: 20, 1: 20 } }),
                    o.qualified ?? 10, o.creators ?? [done1])
 
   // 说反了的代价不对称：说成「不花钱」，账单在用户不知情时又长一截；说成
@@ -803,6 +815,21 @@ suite('D6', '收尾那句话说的是「续跑要不要花钱」—— 两支都
   // 两支都要把结果放在哪儿说清楚 —— 「不会重新抓」「结果都在」指的都是它
   ok('还有活时也说清已抓到的在哪', line().includes('out/x'))
   ok('没活时同样说清结果在哪', line({ qualified: 99 }).includes('out/x'))
+
+  // F9.e：整张分页记录表缺失是**第三支**，不能落进上面那两支里的任何一支。
+  // 关键词那一半确实为零，但理由是「无从确认」—— 说成「采集与补全都已跑完」
+  // 就是把它读成「都查过了」，那是 F9.e 逐字禁的第二种误读（#138 评审指出）。
+  const unknown = (o = {}) => line({ offsets: undefined, qualified: 99, ...o })
+  ok('无从确认 → 说出「没有分页记录」', unknown().includes('没有分页记录'))
+  ok('无从确认 → 不能说成都跑完了', !unknown().includes('采集与补全都已跑完'))
+  ok('无从确认 → 说清为什么不抓：免得重抓已付过钱的词',
+     unknown().includes('已经付过钱'))
+  // profile 那一半照旧说话 —— 关键词不抓不等于续跑免费（同 D6.d）
+  ok('无从确认但还有人要补 profile → 仍然说要花钱',
+     unknown({ creators: [done1, todo1] }).includes('续跑会继续发请求、继续花钱'))
+  ok('无从确认且没人要补 → 说不会有新请求，但理由仍是无从确认',
+     unknown().includes('也不会有新的请求') && unknown().includes('无从确认'))
+  criterion('F9.e')
   criterion('D6.e')
 }
 

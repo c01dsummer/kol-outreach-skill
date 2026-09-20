@@ -178,14 +178,24 @@ function persist() {
  * **调度与「续跑要不要花钱」那句话共用它**，不各写一份。
  */
 async function run() {
-  // 一页都没抓过的任务，本轮要给它们补第一页。
+  // 一页都没抓过的任务，本轮要给它们补第一页；`null` 是「无从确认」（F9.e）。
   // **必须在下面那个 ??= 之前取快照** —— 整张表缺失（F9 落地之前的旧目录）是
   // 「无从确认哪些任务查过」，而 ??= 之后这个证据就被抹平成「都没查过」，
-  // 于是已经付过费的词会被整批重抓一遍（F9.e）。怎么读那三态在 firstPagePending
-  // 里判，这儿不再写一份。
-  const owedFirstPage = new Set(firstPagePending(state))
-  // 从 task.json 恢复 —— 预算中途用尽时，续跑要从断掉的那一页接上
-  const offsets = (state.offsets ??= {})
+  // 于是已经付过费的词会被整批重抓一遍。怎么读那三态在 firstPagePending 里判，
+  // 这儿不再写一份。
+  // ⚠️ **不要写成 `new Set(firstPagePending(state))`** —— `new Set(null)` 在 TS 里合法，
+  // 会把「无从确认」静默压成空集，编译器一个字都不说（#138 评审指出的正是这个形状）。
+  const owed = firstPagePending(state)
+  const owedFirstPage = new Set(owed ?? [])
+  const unknownPaging = owed === null
+  // 从 task.json 恢复 —— 预算中途用尽时，续跑要从断掉的那一页接上。
+  // ⚠️ **无从确认时不要初始化它**：`??= {}` 会把「整张表缺失」当场抹成「表在、都没查过」，
+  // 而收尾那句话是在这之后才算的 —— 于是它说「还有 N 个关键词要抓」，
+  // 调度这边却一个都不抓，两处对不上（ADR-25 的老形状，#138 评审之后实测又踩了一次）。
+  // 下面那道闸保证无从确认时一次搜索都不发，所以这张丢弃的局部表永远不会被写。
+  // ⚠️ **那道闸和这一行是一对**：谁把闸挪走，写入就会静默落进这张局部表、
+  // 一个字都不报（负片 `M-F9-f` 指着那道闸，靠的是请求数，不是这张表）。
+  const offsets = unknownPaging ? {} : (state.offsets ??= {})
   const exhausted = new Set<number>(state.done)
   const addedBy = new Map<number, number>()
   const pages = new Map<number, number>()       // 本关键词已抓页数（跨运行由 offsets 推不出来，只在本轮计）
@@ -195,6 +205,11 @@ async function run() {
 
     for (let i = 0; i < state.tasks.length; i++) {
       if (exhausted.has(i)) continue
+      // F9.e：无从确认哪些任务查过 → 一个关键词都不抓。
+      // **这一条排在达标判断之前**：写在下面那个 if 里面的话，没达标那条路根本走不到它，
+      // 于是旧目录会从 offset 0 整批重抓 —— 实测 `requests` 4 → 172、
+      // `offsets` 被重写成 `{0: 80, 1: 80}`，而 0–40 那几页上一跑已经付过钱了（#138 评审指出）。
+      if (unknownPaging) continue
       if (qualified() >= state.target_count) {
         stopped = 'target'
         // F9：达标之后**不是一律停**，还欠第一页的任务照抓不误。

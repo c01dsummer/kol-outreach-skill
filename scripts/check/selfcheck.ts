@@ -267,6 +267,12 @@ const crashCwd = (name: string) => {
   mkdirSync(join(cwd, 'memory'), { recursive: true })
   return cwd
 }
+/** 账本里关键词搜索的成功次数。端点路径出自 `scripts/providers/tikhub.ts` 的 `searchTikTok`；
+ *  只数搜索，不数 profile —— 续跑要补 profile，拿总请求数当判据会把两件事混在一起。 */
+const searchHits = (ledger: string): number => !existsSync(ledger) ? 0
+  : readFileSync(ledger, 'utf8').split('\n')
+      .filter(l => l.startsWith('200\t') && l.includes('fetch_video_search_result')).length
+
 const ledgerLines = (ledger: string, ok: boolean) => !existsSync(ledger) ? 0
   : readFileSync(ledger, 'utf8').split('\n').filter(l => /^\d/.test(l) && l.startsWith('200\t') === ok).length
 const warnLines = (s: string) => s.split('\n').filter(l => l.includes('💰 已用')).length
@@ -1127,9 +1133,64 @@ if (tightRun.ok) {
 // 三条一起才是这条需求：换顺序都问过（F9.a）、预算不够时 P3 赢（F9.b）、
 // 第一页之后照旧按达标停（F9.d）。剩下两条判据在 scripts/test.ts 里 ——
 // 「续跑会去抓哪些」那份判定只此一份（F9.c）、整张分页记录表缺失读作无从确认（F9.e）。
+
+// F9.e：旧目录 —— `task.json` 里**根本没有**分页记录表（F9 落地之前那一版留下的）。
+// 「无从确认」不得读成「都没查过」：读错了就从 offset 0 把已经付过钱的几页重买一遍。
+//
+// **必须端到端跑。** 单元那一头只看得到判定的返回值，看不到入口在**达标判断之前**
+// 有没有真的把闸放下 —— #138 评审之前那道闸写在 `target` 分支里面，没达标那条路
+// 压根走不到它，实测 `requests` 4 → 172、已付过钱的 offsets 被整批重买。
+//
+// 夹具的两个前提，缺一个这一条就什么都证不到（头一版两个都没造对，M-F9-f 当场存活）：
+// ① **第一跑要被预算卡停，不能跑满页数上限** —— 跑满了两个词都会进 `done`，
+//    续跑在 `exhausted` 那一关就 continue 了，根本走不到要测的那道闸；
+// ② **要数供应商真正收到几次搜索，不能数 `requests`、也不能看盘上那张表** ——
+//    续跑要补 profile，`requests` 本来就会涨；而闸被拿掉时写入落进的是一张丢弃的
+//    局部表，盘上那张表照样缺失（`collect.ts` 里那对注释说的正是这个静默）。
+const legacyCfg = join(firstPage, 'legacy.json')
+writeFileSync(legacyCfg, JSON.stringify({
+  product: 'legacy', market: 'US', target_count: 9999, budget_usd: 0.004,
+  tasks: [{ keyword: 'lg0', dimension: 'category', platform: 'tiktok' },
+          { keyword: 'lg1', dimension: 'category', platform: 'tiktok' }],
+}))
+const legacyFirst = runBoth('collect 第一页保证：先跑出一个被预算卡停的目录',
+                            [S('collect.ts'), '--config', legacyCfg], firstPage, { status: 3 })
+if (legacyFirst.ok) {
+  const before = summaryOf(legacyFirst.stdout)
+  const taskPath = join(firstPage, before.dir, 'task.json')
+  const legacyState = JSON.parse(readFileSync(taskPath, 'utf8'))
+  // 把整张分页记录表删掉 —— 这就是旧目录在盘上的样子（`offsets` 是 7b1acd7 才加的字段）
+  delete legacyState.offsets
+  writeFileSync(taskPath, JSON.stringify(legacyState, null, 2), 'utf8')
+
+  const legacyLedger = join(tmp, 'ledger-legacy.tsv')
+  const again = runBoth('collect 第一页保证：在旧目录上续跑',
+                        [S('collect.ts'), '--resume', before.dir, '--budget', '2'], firstPage,
+                        undefined, { FAKE_FETCH_LEDGER: legacyLedger })
+  if (!legacyState.done.length && again.ok) {
+    named('分页记录表整张缺失时，一次关键词搜索都不发',
+          searchHits(legacyLedger) === 0,
+          `供应商收到了 ${searchHits(legacyLedger)} 次关键词搜索`
+          + ' —— 这个目录里哪些词查过是无从确认的，照第一页重抓等于把已经付过钱的那几页再买一遍')
+    named('分页记录表整张缺失时，收尾那句话说得出「无从确认」',
+          again.stderr.includes('无从确认') && !again.stderr.includes('采集与补全都已跑完'),
+          // 认代价那句话的三种写法，**不认「续跑」两个字** —— 那会先抓到入口打的
+          // 「续跑 <目录> —— 已完成 …」那句横幅，诊断于是说错话（实测）
+          `那句话是「${again.stderr.split('\n').find(l =>
+              /无从确认|续跑不产生新的请求|续跑会继续发请求/.test(l)) ?? '（没说）'}」`
+          + ' —— 说成「都已跑完」就是把无从确认读成了「都查过了」，F9.e 逐字禁的第二种误读')
+  } else if (again.ok) {
+    failed++
+    console.error(`  ✗ 旧目录夹具${SELFCHECK_FIXTURE_MARK}：第一跑把关键词标完成了`
+                  + `（done=${JSON.stringify(legacyState.done)}）—— 续跑在 exhausted 那一关就跳过了，`
+                  + '走不到要测的那道闸')
+  }
+}
+
 criterion('F9.a')
 criterion('F9.b')
 criterion('F9.d')
+criterion('F9.e')
 
 // ---- 变异集编号重复：两个入口都命中即以退出码 1 结束（M-H7-b、M-H7-c 的入口那一半）----
 // 判定和「两种毛病同时在时先报哪一种」都由 scripts/test.ts 断言；剩下的那一半是

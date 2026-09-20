@@ -91,33 +91,38 @@ export function needsProfile(c: Creator): boolean {
  * 没抓过」的任务补第一页，说成「续跑不产生新的请求」就是把要花的钱藏起来。
  */
 export function keywordsResumeWillRun(state: TaskState, qualified: number): string[] {
+  const owed = firstPagePending(state)
+  // F9.e：无从确认 → 续跑一个关键词都不抓，所以这一半是空的。
+  // **这一支要排在达标判断之前** —— 排在后面的话，没达标那条路会交回「不在 done 里的」全部，
+  // 而调度那边一个都不会抓，两句话当场对不上。
+  if (owed === null) return []
   if (qualified < state.target_count) return pendingKeywords(state)
   // F9：达标了也照样去抓**一页都没抓过**的那些 —— 第一页不受达标判断约束。
-  // 这里必须和 collect.ts 的调度用同一个 firstPagePending，不能各写一份：
-  // 各写一份的话，先改的那边不会报错，而用户看到的那句话就开始撒谎（同 needsProfile 的先例，ADR-25）。
-  const first = new Set(firstPagePending(state))
+  const first = new Set(owed)
   return state.tasks.filter((_, i) => first.has(i)).map(label)
 }
 
 /**
- * 一页都没抓过的任务下标（F9）。
+ * 一页都没抓过的任务下标（F9）。**三态在返回值里，调用方分不掉：**
  *
- * **这份判定只此一份** —— 调度（`collect.ts` 的 `run()`）与「续跑要不要花钱」
- * 那句话共用它。各写一份表达式的话，先改的那边不会报错，而用户看到的那句话
- * 就开始撒谎（同 `needsProfile` 的先例，ADR-25）。
+ * - `null` —— 整张分页记录表缺失，**无从确认**哪些任务查过（F9 落地之前的旧任务目录）
+ * - `[]` —— 表在，但没有一个任务欠着第一页
+ * - `[i, …]` —— 这几个任务一页都没抓过
  *
- * **「没有那个键」和「没有那张表」是两件事**，所以这里有三态、不是两态（F9.e）：
- * 前者是「这个任务一页都没抓过」，后者是 F9 落地之前留下的旧任务目录 ——
- * 什么都推不出来。整张表缺失时交回空集：不发请求。这**不是**断言「都查过了」，
- * 而是「无从确认」在这个判定里唯一安全的取法 —— 推错的代价不对称，读成
- * 「都没查过」会把已经付过费的词整批重抓一遍。
+ * **`null` 和 `[]` 不能合成一个。** 早先这里两种都交回 `[]`，调用方于是分不出
+ * 「无从确认」和「没有一个欠着」—— 症状是：没达标那条路根本不问这个集合，直接从
+ * `offset 0` 重抓，把已经付过钱的几页整批重买一遍（#138 评审指出，实测
+ * `requests` 4 → 172、`offsets` 被重写成 `{0: 80, 1: 80}`）。
+ * 推错的代价不对称，所以**无从确认时一个都不抓**；这不是断言「都查过了」，
+ * 而是在拿不到证据时唯一不会多花钱的取法。
  *
- * 「无从确认」只在这一处判，不在调度那边再写一遍：那两份迟早有一边先改，
- * 而先改的那边不会报错（ADR-25 的先例，也是 F9.c 逐字要求的那件事）。
+ * **这份判定只此一份** —— 调度（`collect.ts` 的 `run()`）、「续跑要不要花钱」那句话
+ * 共用它。各写一份表达式的话，先改的那边不会报错，而用户看到的那句话就开始撒谎
+ * （同 `needsProfile` 的先例，ADR-25；也是 F9.c 逐字要求的那件事）。
  */
-export function firstPagePending(state: TaskState): number[] {
+export function firstPagePending(state: TaskState): number[] | null {
   const offsets = state.offsets
-  if (offsets === undefined) return []
+  if (offsets === undefined) return null
   return state.tasks
     .map((_, i) => i)
     .filter(i => !state.done.includes(i) && !(i in offsets))
@@ -182,6 +187,16 @@ export function resumeCostLine(
 ): string {
   const keywordsLeft = keywordsResumeWillRun(state, qualified).length
   const profilesLeft = creators.filter(needsProfile).length
+  // F9.e：整张分页记录表缺失时**要说出来**。走不到下面那两支 ——
+  // 关键词那一半确实为零，但理由是「无从确认」，而下面那句「采集与补全都已跑完」
+  // 会被读成「都查过了」，那正是 F9.e 逐字禁的第二种误读。
+  if (firstPagePending(state) === null) {
+    return `已抓到的都在 ${dir}。这个目录没有分页记录（上一版留下的），无从确认哪些关键词查过 —— `
+      + `为免把已经付过钱的词重抓一遍，续跑不再抓关键词`
+      + (profilesLeft
+        ? `；但还有 ${profilesLeft} 个人的 profile 没补，续跑会继续发请求、继续花钱。`
+        : `，也不会有新的请求。`)
+  }
   const rest = [
     keywordsLeft ? `${keywordsLeft} 个关键词` : '',
     profilesLeft ? `${profilesLeft} 个人的 profile` : '',

@@ -222,7 +222,7 @@
       "req": "F9.c",
       "why": "达标之后就说「续跑一个关键词都不会抓」—— 还欠着第一页的那些词，续跑照样会去抓它们，那是要付费的端点，账单在用户不知情时又长一截；反过来他也可能因为「反正不花钱」就去续跑一轮自己没打算花的钱",
       "file": "scripts/lib/pipeline.ts",
-      "find": "  const first = new Set(firstPagePending(state))\n  return state.tasks.filter((_, i) => first.has(i)).map(label)",
+      "find": "  const first = new Set(owed)\n  return state.tasks.filter((_, i) => first.has(i)).map(label)",
       "replace": "  return []"
     },
     {
@@ -230,8 +230,40 @@
       "req": "F9.e",
       "why": "任务目录里没有分页记录表时读成「每个关键词都没问过」—— 而那种目录是上一版留下的，词早就问过、钱早就付过，于是整批重抓一遍，用户为同一批人付两次钱",
       "file": "scripts/lib/pipeline.ts",
-      "find": "  if (offsets === undefined) return []",
+      "find": "  if (offsets === undefined) return null",
       "replace": "  if (offsets === undefined) return state.tasks.map((_, i) => i)"
+    },
+    {
+      "id": "M-F9-h",
+      "req": "F9.e",
+      "why": "把「整张分页记录表缺失」和「表在、没有一个关键词欠着第一页」压成同一个答案 —— 调用方于是分不出「无从确认」和「都问过了」，没达标那条路会从头把已经付过钱的那几页重买一遍",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (offsets === undefined) return null",
+      "replace": "  if (offsets === undefined) return []"
+    },
+    {
+      "id": "M-F9-f",
+      "req": "F9.e",
+      "why": "任务目录里没有分页记录表时照样去抓关键词 —— 那种目录是上一版留下的，从第一页重新抓起，已经付过钱的那几页被整批重买一遍，而用户没有任何提示",
+      "file": "scripts/collect.ts",
+      "find": "      if (unknownPaging) continue\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "分页记录表整张缺失时一个请求都不发，证据也不被抹平"
+      ]
+    },
+    {
+      "id": "M-F9-g",
+      "req": "F9.e",
+      "why": "任务目录没有分页记录表时，开跑就先把它当成一张空表落盘 —— 「无从确认」的证据被当场抹掉，收尾那句话于是告诉用户「还有 N 个关键词要抓、续跑要花钱」，而这一轮一个都不会抓：两句话对不上，用户照哪句都是错的",
+      "file": "scripts/collect.ts",
+      "find": "  const offsets = unknownPaging ? {} : (state.offsets ??= {})",
+      "replace": "  const offsets = (state.offsets ??= {})",
+      "by": "selfcheck",
+      "kills": [
+        "分页记录表整张缺失时，收尾那句话说得出「无从确认」"
+      ]
     },
     {
       "id": "M-F9-a",
