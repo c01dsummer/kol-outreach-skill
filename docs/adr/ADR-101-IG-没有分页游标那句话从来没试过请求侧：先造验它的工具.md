@@ -57,7 +57,10 @@ npm run probe:ig-paging -- --keyword smoothie
 每跑一次：基线 2 次 ＋ `VARIANTS` 里每个参数各 1 次。**这里不写总数、也不写总价** ——
 两者都是 `VARIANTS` 与 `lib/budget.ts` 单价的函数，而 `VARIANTS` 的注释逐字写着
 「只加不改」，也就是它**注定会长**：写死的数必烂（`REVIEW.md`、ADR-73／ADR-82）。
-实际花了多少由脚本自己打在输出的 `requests` 与 `cost_estimate_usd` 上。
+跑完之后脚本在输出里打出 `requests`（真发出去几次）与 `cost_estimate_usd`。
+⚠️ **后者是估算，不是账单**：它等于请求数乘以 `lib/budget.ts` 里**我们自己写死的**
+`UNIT_PRICE`，对面到底怎么扣费这个脚本看不见，也从来没验过（402 只说明余额不足，
+并不证明这一次扣了钱）。字段名就叫 estimate，散文别把它说成实际支出。
 **要一把充过值的 key** —— 没充值时 IG 端点恒 402，脚本会直说是余额问题，不含糊。
 
 ## 三、这个工具最危险的一支，就是它最可能跑出来的那一支
