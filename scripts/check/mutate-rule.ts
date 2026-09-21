@@ -186,6 +186,35 @@ export function exitRace(source: string): string | undefined {
  * 带插值的、传变量的(`run(label, …)` 这种转发)定不下来,定不下来就不进清册:
  * 清册唯一的用途是「点的这条真的在」,小了是拦住,大了是放行。
  */
+/**
+ * 每条夹具标签属于哪一组 —— 把负片 `kills` 点名的夹具翻成 `--only` 要的组 id。
+ *
+ * **和 `labelsOf` 同一趟语法树、同一份 `declares`，不是第二个解析器。** 认的是
+ * `group('<id>', [...], () => { … })` 这个**代码结构**本身，不认任何注释约定 ——
+ * 注释里的分节线只是装饰，改了不影响这里。
+ *
+ * 重名不在这里判：`labelsOf` 的计数那道闸已经管着「同一个标签出现不止一次」，
+ * 这里只记第一处，免得两处各自报一遍同一件事（ADR-25：一个判断只放一处）。
+ */
+export function groupOfLabel(source: string, declares: readonly string[]): Map<string, string> {
+  const out = new Map<string, string>()
+  const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
+  const walk = (node: ts.Node, group: string | undefined): void => {
+    let inner = group
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const name = node.expression.text
+      const first = node.arguments[0]
+      const label = first !== undefined && ts.isStringLiteralLike(first) ? first.text : undefined
+      if (name === 'group' && label !== undefined) inner = label
+      else if (label !== undefined && group !== undefined && declares.includes(name)
+               && !out.has(label)) out.set(label, group)
+    }
+    ts.forEachChild(node, n => walk(n, inner))
+  }
+  walk(tree, undefined)
+  return out
+}
+
 export function labelsOf(source: string, declares: readonly string[]): Map<string, number> {
   const seen = new Map<string, number>()
   const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)

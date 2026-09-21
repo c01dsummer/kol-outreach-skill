@@ -41,7 +41,7 @@ import { implementationLeak } from './why-rule.js'
 import {
   type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
-  labelFaults, labelsOf,
+  groupOfLabel, labelFaults, labelsOf,
   wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
@@ -160,6 +160,26 @@ const inventoryOf = (by: string): ReadonlyMap<string, number> => {
   const built = labelsOf(existsSync(v.script) ? readFileSync(v.script, 'utf8') : '', v.declares)
   inventories.set(by, built)
   return built
+}
+/**
+ * 这条负片只要跑验证者的哪几组 —— 交回 `undefined` 就是「整跑」。
+ *
+ * **任何一条点名的夹具落不进某一组，就整跑。** 那说明它在组外（比如文件末尾
+ * 不属于任何一组的那段），缩到子集会把它整段漏掉 —— 而漏掉的表现是「跑完、没红」，
+ * 一条本该被抓到的变异会被判成没人抓得住。宁可多跑，不可漏验。
+ */
+const groupsFor = new Map<string, ReadonlyMap<string, string>>()
+const onlyFor = (m: Mut): string[] | undefined => {
+  if (m.by === undefined || m.kills === undefined) return undefined
+  const v = VERIFIERS[m.by]
+  let map = groupsFor.get(m.by)
+  if (map === undefined) {
+    map = groupOfLabel(existsSync(v.script) ? readFileSync(v.script, 'utf8') : '', v.declares)
+    groupsFor.set(m.by, map)
+  }
+  const ids = m.kills.map(k => map!.get(k))
+  if (ids.some(id => id === undefined)) return undefined
+  return [...new Set(ids as string[])]
 }
 const SAY_LABEL: Record<LabelFault, (m: Mut, label: string) => string> = {
   'unknown-label': (m, k) => `点的夹具「${k}」不在 ${m.by} 的清册里 —— 名字写岔了，或者那条夹具没了`,
@@ -334,14 +354,15 @@ const forgetVerifier = (): void => {
   onInterrupt()
 }
 
-const runTest = (verifier: Verifier, kills?: readonly string[]):
+const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly string[]):
   Promise<{ status: number | null; output: string; atStop?: string }> =>
   new Promise(resolve => {
     // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
     // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
     // 自成一组：被打断时要连它一起结束，而只杀手上这一个是杀不掉的 ——
     // `tsx` 自己还要再分出一个真正跑脚本的进程来（POSIX 上才成立，见 `tsx-cmd.ts`）
-    const [exe, argv] = tsxCommand([verifier.script])
+    const [exe, argv] = tsxCommand(
+      only === undefined ? [verifier.script] : [verifier.script, `--only=${only.join(',')}`])
     const kid = spawn(exe, argv,
       { stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1', NODE_COMPILE_CACHE } })
     trackTest(kid)
@@ -417,7 +438,7 @@ const runOne = async (m: Mut): Promise<Ran> => {
     // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null);
     // 点了名的还要再看一层:红的是不是 kills 说的那一条
     const verifier = VERIFIERS[m.by ?? 'test']
-    const r = await runTest(verifier, m.kills)
+    const r = await runTest(verifier, m.kills, onlyFor(m))
     return {
       outcome: judgeRun(r.status, r.output, verifier, m.kills, r.atStop),
       status: r.status, stopped: r.atStop !== undefined, output: r.output,
