@@ -34,6 +34,10 @@ export const BUDGET: Record<Category, number> = {
  *
  * 删除便宜 —— 读一段被删掉的代码不需要理解它将来会怎样。按删除量收费还会
  * 惩罚重构和删代码,而那是应该被鼓励的事。
+ *
+ * ⚠️ `added` 不是「diff 里的新增行」,是**带来新内容的新增行**:吃折扣的后缀
+ * (`WHITESPACE_FREE`)里,只改了行内空白的那些行不算(ADR-98)。总原则是一句
+ * **按内容量收费,不按搬运量** —— 删除、整文件挪位置、重排缩进都只是搬运。
  */
 export interface FileDelta { path: string; added: number }
 
@@ -46,6 +50,83 @@ export function categorize(path: string): Category {
 }
 
 /**
+ * 量新增行要用的 git 参数 —— **它是判定的一部分,不是调用点的细节。**
+ *
+ * `docs/CONVENTIONS.md` 第十节逐字写着:「哪些行算新增……那一半(它决定这道闸门
+ * 看得见多少改动;扫描范围被悄悄缩小和判定写错一样致命,所以它也是判定)」。
+ * 而在这以前,「必须走 `-z`」「也必须开着改名检测」这两条要求写在下面的注释里、
+ * 开关却留在 `size.ts` 的调用点上 —— **规则模块立了两条它自己管不到的规矩**:
+ * 删掉 `-z`、或者在一台 `diff.renames=false` 的机器上跑,7 条 `M-H9-*` 一条都不会红。
+ * 搬进来之后,`scripts/test.ts` 起一个真 git 仓库就能把三条一起钉住。
+ */
+export const GIT_CONFIG = [
+  // 中文路径不许被转义成 `"docs/adr/\346..."`。这个仓库的文件名几乎全是中文,
+  // 转义之后它们匹配不上分类判据,整批掉进「其他」—— 同一个坑栽过三次。
+  // '-c', 'core.quotePath=false',
+  // 改名检测必须开着,理由见 `parseNumstat`。git 2.9 起这是缺省值,
+  // **但缺省值不是保证**:把 `diff.renames=false` 写进全局配置的那台机器上,
+  // 一个 400 行文件挪个位置读出源码 400 行、当场判红(实测)。
+  '-c', 'diff.renames=true',
+]
+
+/** 照实数的那一遍:文件清单由它定,没吃折扣的类别也由它定 */
+export const NUMSTAT = ['diff', '--numstat', '-z']
+/** 忽略行内空白的那一遍:吃折扣的文件,计数取它 */
+export const NUMSTAT_IGNORING_SPACE = [...NUMSTAT, '-w']
+
+/**
+ * 哪些后缀吃「重排缩进不收费」这个折扣。
+ *
+ * **写成白名单,不是黑名单。** 漏掉一种文件类型的后果是「照实全数」——
+ * 也就是今天的行为,失败方向朝安全那边倒。反过来写成「这几类不折价」,
+ * 下一种空白带语义的文件(Python、Makefile、`.rst`)进来时会被静默折价,
+ * 而没有任何东西提醒。ADR-77 撤掉的那张手写敏感字段表,错的正是这个方向。
+ *
+ * 今天只有 `.ts`。markdown 的四空格代码块、围栏缩进、列表层级都带语义
+ * (实测:全仓 `.md` 零内容变化重排,照实数会判红,忽略空白后读 0),
+ * YAML 与 `AGENTS.md.tpl` 同理 —— 它们一律照实数。
+ * 代价写在 ADR-98:`.ts` 的字符串与模板字面量里空白也是内容,那一类改动在这里读 0。
+ */
+export const WHITESPACE_FREE = ['.ts']
+
+/** 这条路径吃不吃折扣 —— 判据只有后缀,理由见上面 `WHITESPACE_FREE` */
+export const discountable = (path: string): boolean =>
+  WHITESPACE_FREE.some(ext => path.endsWith(ext))
+
+/**
+ * 两遍 numstat 合成一份计数:吃折扣的取忽略空白那一遍,其余照实。
+ *
+ * **两遍都不带 pathspec。** 用 `-- ':(exclude)*.md'` 分流看着更直接,却会把一次
+ * **跨类改名**的两端切进不同调用,改名检测就此失效 —— 400 行零内容变化的
+ * `挪走的.md → 挪来的.ts` 会读成「文档侧删 400 ＋ 源码侧增 400」(实测),
+ * 正撞在下面 `parseNumstat` 那段承重注释上:拿走改名折扣去换空白折扣,
+ * 是把这道闸门自己写下的原则换掉一条。
+ *
+ * 吃折扣的文件在忽略空白那一遍里**整个消失**(不是记 0),所以查不到就是 0。
+ */
+export function merge(plain: FileDelta[], ignoringSpace: FileDelta[]): FileDelta[] {
+  const lean = new Map(ignoringSpace.map(f => [f.path, f.added]))
+  return plain.map(f => ({
+    path: f.path,
+    added: discountable(f.path) ? (lean.get(f.path) ?? 0) : f.added,
+  }))
+}
+
+/**
+ * 折掉了多少 —— 逐类。**为 0 也照打**:读的人要分得出「这次没折价」与「没人算过」。
+ *
+ * 量的是**行**不是文件。多数被折价的文件在忽略空白那一遍里并不消失
+ * (600 行包进回调 ＋ 两处真新增 → 照实 604,忽略空白 4,文件两边都在),
+ * 按文件数报会在折价最大的那一类上报 0,那句交代就成了假话。
+ */
+export function discount(plain: Record<Category, number>, merged: Record<Category, number>):
+Record<Category, number> {
+  const out: Record<Category, number> = { 源码: 0, 测试: 0, 文档: 0, 其他: 0 }
+  for (const c of CATEGORIES) out[c] = plain[c] - merged[c]
+  return out
+}
+
+/**
  * 解析 `git diff --numstat -z` 的输出。
  *
  * **必须走 `-z`。** 默认输出会把非 ASCII 路径转义成带引号的形式
@@ -55,6 +136,12 @@ export function categorize(path: string): Category {
  * **也必须开着改名检测。** 关掉之后一次纯改名会被拆成「旧路径全删 + 新路径全增」,
  * 一个 400 行的文件挪个位置就顶掉整个源码预算 —— 而它一行内容都没加。
  * 这和「只数新增行」是同一条理由:按搬运量收费会惩罚重构。
+ *
+ * ⚠️ **别把这个折扣和空白折扣相乘。** 两者天然互斥:忽略行内空白唯一宣称免费的
+ * 那类编辑,恰好是唯一会把改名相似度打到零的那类,于是改名检测认不出来。
+ * 实测:挪个位置同时改 3 行真内容收 3 行;挪个位置、一行内容都不改、只整体缩进
+ * 收满额 60 行 —— **真改内容反而便宜 20 倍**。`-M`、`--find-renames=01%`、`-C`、
+ * `-B`、`--find-copies-harder` 全试过都救不回来:这是结构性的,只能写在明处。
  *
  * 改名记录的形状不一样:`added\tremoved\t` 之后是空的,真正的两个路径跟在
  * 后面两个 NUL 段里。纯改名两个数都是 0,所以照常累加即可。
