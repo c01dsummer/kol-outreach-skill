@@ -3328,6 +3328,31 @@
       "file": "scripts/enrich.ts",
       "find": "  state.accounts[k] = next\n  newlyQueried++\n  persist()\n}",
       "replace": "  state.accounts[k] = next\n  newlyQueried++\n}"
+    },
+    {
+      "id": "M-H44-a",
+      "req": "harness",
+      "why": "传了参数、结果没变时改口说成「不支持分页」—— 把一个观测不到的结论当成事实。未知参数常被服务端静默忽略，那一次观测里「没多给」与「没这个参数」不可区分，而整个 IG 召回上限的论证都压在这句话上",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "fresh.length === 0 ? '这一次没多给'",
+      "replace": "fresh.length === 0 ? '不支持分页'",
+      "by": "selfcheck",
+      "kills": [
+        "传了参数没变化只判「这一次没多给」 —— 不判「不支持分页」"
+      ]
+    },
+    {
+      "id": "M-H44-b",
+      "req": "harness",
+      "why": "省掉基线重跑那一次请求，拿第一次的结果顶替 —— 于是这个端点自己在漂的时候，漂出来的那一批会被读成「参数被服务端认了」，而这两种读法的结论正好相反",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "const idsB = identify(pickList(await ask({}), 'instagram/search_reels')).ids",
+      "replace": "const idsB = idsA",
+      "by": "selfcheck",
+      "kills": [
+        "基线真的跑了两次 —— 少了这一次，「认了」和「端点在漂」就分不开",
+        "基线在漂就全部作废 —— 不借机把任何一个参数判成「认了」"
+      ]
     }
   ],
   "exemptions": [

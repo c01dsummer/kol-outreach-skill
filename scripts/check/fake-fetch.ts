@@ -136,6 +136,8 @@ const record = (status: number, url: string) => {
 }
 
 let calls = 0
+/** `force-drift` 那一支的批次号 —— 每调一次就换一批，供探针的地基对照用 */
+let drifts = 0
 globalThis.fetch = (async (input: RequestInfo | URL) => {
   calls++
   const url = String(input)
@@ -165,6 +167,20 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
     record(200, url)
     return new Response(JSON.stringify({ data: { data: { count: 2, items: [
       { caption: { text: 'no user field here' } }, { caption: { text: 'nor here' } },
+    ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  // 关键词里带 `force-paged` → reels **按 offset 换一批条目**；带 `force-drift` →
+  // **每次都换一批**。这两条是 IG 分页探针那两句判词唯一的入口：它拿「基线重跑」当
+  // 地基，所以「服务端认了这个参数」和「基线自己就在漂」必须能分别造出来。
+  // 造不出来的话，探针永远只走「这一次没多给」那一支 —— 而那恰好是它最容易被读成
+  // 「不支持分页」的一支，也就是这次要防的那个假结论。
+  if (url.includes('search_reels') && (url.includes('force-paged') || url.includes('force-drift'))) {
+    record(200, url)
+    const seed = url.includes('force-drift')
+      ? ++drifts : Number(new URL(url).searchParams.get('offset') ?? 0)
+    return new Response(JSON.stringify({ data: { data: { count: 1, items: [
+      { id: `reel-${seed}`, caption: { text: `item ${seed}` },
+        user: { id: String(seed), username: `user${seed}`, full_name: 'X' } },
     ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
   // 第 7 次调用返回 429，确保错误分支也被执行到

@@ -343,6 +343,50 @@ group('probe', [], () => {
   }
 })
 
+// ---- IG 分页探针：三句判词各走一遍，尤其是最容易被读成假结论的那一句 ----
+//
+// 这个探针要回答的是「Reels 搜索收不收分页参数」。它最危险的一支是**传了参数、
+// 结果没变**：未知的查询参数常被服务端静默忽略，所以那一次观测里「这个参数不存在」
+// 与「这一次没多给」**不可区分**。把它写成「不支持分页」就是拿一个观测不到的结论
+// 当事实，而那句话恰好是 `providers/tikhub.md` 现在写着的、整个 IG 上限论证的地基。
+//
+// 所以这里不只是跑通：三句判词各造一次，并且钉住那句话**不许**出现。
+group('ig-paging-probe', [], () => {
+  const P = S('probe-ig-paging.ts')
+  const trials = (out: string | undefined): { name: string; verdict: string; new_items?: number }[] =>
+    summaryOf(out ?? '').trials ?? []
+  const verdicts = (out: string | undefined) => trials(out).map(t => t.verdict)
+
+  const flat = run('IG 分页探针：参数传了，返回的还是同一批', [P, '--keyword', 'smoothie'])
+  named('传了参数没变化只判「这一次没多给」 —— 不判「不支持分页」',
+    flat !== undefined && verdicts(flat).length > 0
+      && verdicts(flat).every(v => v === '这一次没多给'),
+    `四个参数应当全判「这一次没多给」，实际是 ${JSON.stringify(verdicts(flat))}`)
+  // 那句读法自己带着限定，不留给读的人从表格里总结（ADR-73）
+  named('结论那句话自己说清「没多给 ≠ 不支持」，不把不确定说成确定',
+    typeof summaryOf(flat ?? '').reading === 'string'
+      && String(summaryOf(flat ?? '').reading).includes('这不等于不支持分页'),
+    `结论里缺了那句限定：${JSON.stringify(summaryOf(flat ?? '').reading)}`)
+  // 基线重跑是地基：少了它，「带 offset 拿到另一批」与「端点本来就在漂」分不开，
+  // 而这两种读法的结论正好相反。它被省掉时请求数会少一次，这里就盯着那个数。
+  named('基线真的跑了两次 —— 少了这一次，「认了」和「端点在漂」就分不开',
+    summaryOf(flat ?? '').requests === 2 + trials(flat).length,
+    `请求数应当是 2 次基线 ＋ ${trials(flat).length} 个参数，实际 ${summaryOf(flat ?? '').requests}`)
+
+  const paged = run('IG 分页探针：服务端真按 offset 换了一批', [P, '--keyword', 'force-paged'])
+  named('服务端真给出了基线里没有的条目才判「认了」 —— 只是换个次序不算',
+    trials(paged).some(t => t.name.startsWith('offset') && t.verdict === '认了'
+      && (t as { new_items?: number }).new_items === 1)
+      && trials(paged).filter(t => t.verdict === '认了').length === 1,
+    `只有 offset 那一行该判「认了」、且多出 1 个新条目，实际是 ${JSON.stringify(trials(paged))}`)
+
+  const drift = run('IG 分页探针：基线自己两次就不一样', [P, '--keyword', 'force-drift'])
+  named('基线在漂就全部作废 —— 不借机把任何一个参数判成「认了」',
+    drift !== undefined && summaryOf(drift).baseline_stable === false
+      && verdicts(drift).length > 0 && verdicts(drift).every(v => v.startsWith('作废')),
+    `基线不稳时应当全部作废，实际是 ${JSON.stringify(verdicts(drift))}`)
+})
+
 // ---- 入口：钱字段比不了大小就不许开跑（P3 · D6.a）----
 group('budget-gate', [], () => {
   // 闸门是一句「已花 + 本次开销 > 上限」的比较。两边有一个不是数，这句话恒为假 ——
