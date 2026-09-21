@@ -52,7 +52,11 @@ const EXEMPT: Record<string, string> = {}   // 目前无豁免
 const claimed = new Set<string>()
 const criterion = (...ids: string[]): void => { for (const id of ids) claimed.add(id) }
 const mutating = process.env.MUTATING === '1'
-if (claimsOwnedBy(mutating)) rmSync(ENTRY_CLAIMS_PATH, { force: true })
+const subset = parseOnly(process.argv.slice(2)) !== undefined
+// **子集跑既不删也不写入口认领。** `claimed` 只装这一跑真跑到的那几条判据，
+// 写回去等于拿残缺的记录盖掉完整的，而审计读的就是这份文件（它会报一批
+// 「没有认领」）。删了不写更糟：审计连文件都读不到。所以子集跑按变异跑那一侧走。
+if (!subset && claimsOwnedBy(mutating)) rmSync(ENTRY_CLAIMS_PATH, { force: true })
 const startHash = fingerprint(sourceFiles())
 
 /** 脚本用绝对路径 —— 下面几处会切到临时目录里跑，让产出落在那边 */
@@ -303,9 +307,14 @@ const REGISTERED: (Group & { fn: () => void })[] = []
 const group = (id: string, needs: readonly string[], fn: () => void): void => {
   REGISTERED.push({ id, needs, fn })
 }
-const runGroups = (): void => {
+const runGroups = (): Set<string> | undefined => {
   const pick = wanted(REGISTERED, parseOnly(process.argv.slice(2)))
+  if (pick !== undefined) {
+    // 子集跑先把「这一跑到底跑了哪几组」印出来 —— 后面几处「本次没验」都指着它
+    console.log(`[只跑 ${[...pick].join('、')}]（其余 ${REGISTERED.length - pick.size} 组没跑）\n`)
+  }
   for (const g of REGISTERED) if (pick === undefined || pick.has(g.id)) g.fn()
+  return pick
 }
 
 // ---- probe：双平台 + hashtag + 关键词搜索 ----
@@ -2047,7 +2056,7 @@ group('crashed', [], () => {
   }
 })
 
-runGroups()
+const ranOnly = runGroups()
 
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m
 const briefNone = /^\s*⊘\s+\[[^\]]+\]\s+名下无变异/m
@@ -2099,7 +2108,17 @@ const byChain = new Set(
 // 而判定认的是末尾那一句，于是踩红它的变异会被判成「跑不起来」（评审指出）。
 const orphans = walk('scripts')
   .filter(f => !covered.has(f) && !byChain.has(f) && !(f in EXEMPT))
-if (orphans.length) {
+if (ranOnly !== undefined) {
+  // **子集跑一律不判这一条，也不计 failed。** `covered` 只装这一跑真执行过的脚本，
+  // 没跑的组自然一个都不在里面 —— 判下去必然误报。而误报的代价不是「多一条红」：
+  // `failed` 一涨退出码就非零，`judgeRun` 第一句 `exitCode === 0` 走不到，
+  // **`survived` 这一态对每一条负片都不可达**，于是「这条变异没人抓得住」这个
+  // 最要紧的信号被静默换成 `elsewhere`。
+  //
+  // 照 `noShell` 的先例：缩了就照实说出来，不假装它被守住（ADR-77）。
+  console.log(`  · 这一跑没验「每个可执行文件都有出处」—— 只跑了 ${ranOnly.size} 组，`
+    + `谁都没跑过的那份清单在子集里不成立`)
+} else if (orphans.length) {
   failed += orphans.length
   console.error(`\n  ✗ ${orphans.length} 个可执行文件谁都没跑过\n`)
   for (const f of orphans) console.error(`  · ${f}`)
@@ -2112,6 +2131,8 @@ if (orphans.length) {
 if (failed) {
   console.error(`\n${selfcheckSummary(failed)}`)
   process.exitCode = 1
+} else if (ranOnly !== undefined) {
+  console.log(`\n✓ 脚本自检（只跑 ${ranOnly.size} 组）：点名的那几组都跑完了，一条断言都没红`)
 } else {
   const all = walk('scripts')
   const here = all.filter(f => covered.has(f)).length
@@ -2126,7 +2147,7 @@ if (failed) {
 // 写进去的是**开跑那一刻**的，两头对不上就一个字也不写（`claimsPublishable`）。
 // `covered`／`tensions` 恒空：自检不认领需求级与交点级，那两栏留着只是为了与单元
 // 那份**同形**，同一套 `claimsWellFormed` 守两份。
-if (claimsPublishable(mutating, failed, startHash, fingerprint(sourceFiles()))) {
+if (!subset && claimsPublishable(mutating, failed, startHash, fingerprint(sourceFiles()))) {
   mkdirSync(dirname(ENTRY_CLAIMS_PATH), { recursive: true })
   writeFileAtomic(ENTRY_CLAIMS_PATH, `${JSON.stringify({
     source_hash: startHash,
