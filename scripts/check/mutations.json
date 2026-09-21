@@ -410,8 +410,8 @@
       "req": "D6.m",
       "file": "scripts/lib/pipeline.ts",
       "why": "盘上那个值认不出形状时读作确知的数而不是无从确认 —— 一份被改坏或被上一版写脏的记录会被当成真数用，负数与小数都能绕过上限",
-      "find": "  if (typeof n === 'number' && Number.isInteger(n) && n >= 0) return n",
-      "replace": "  if (typeof n === 'number') return n"
+      "find": "    return typeof n === 'number' && Number.isInteger(n) && n >= 0 ? n : null",
+      "replace": "    return typeof n === 'number' ? n : null"
     },
     {
       "id": "M-D6-a",
@@ -540,16 +540,16 @@
       "req": "F9.e",
       "why": "任务目录里没有分页记录表时读成「每个关键词都没问过」—— 而那种目录是上一版留下的，词早就问过、钱早就付过，于是整批重抓一遍，用户为同一批人付两次钱",
       "file": "scripts/lib/pipeline.ts",
-      "find": "  if (offsets === undefined) return null",
-      "replace": "  if (offsets === undefined) return state.tasks.map((_, i) => i)"
+      "find": "  if (offsets === undefined) return null\n  return state.tasks",
+      "replace": "  if (offsets === undefined) return state.tasks.map((_, i) => i)\n  return state.tasks"
     },
     {
       "id": "M-F9-h",
       "req": "F9.e",
       "why": "把「整张分页记录表缺失」和「表在、没有一个关键词欠着第一页」压成同一个答案 —— 调用方于是分不出「无从确认」和「都问过了」，没达标那条路会从头把已经付过钱的那几页重买一遍",
       "file": "scripts/lib/pipeline.ts",
-      "find": "  if (offsets === undefined) return null",
-      "replace": "  if (offsets === undefined) return []"
+      "find": "  if (offsets === undefined) return null\n  return state.tasks",
+      "replace": "  if (offsets === undefined) return []\n  return state.tasks"
     },
     {
       "id": "M-F9-f",
