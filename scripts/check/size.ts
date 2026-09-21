@@ -13,26 +13,26 @@
  */
 import { execFileSync } from 'node:child_process'
 import {
-  BUDGET, CATEGORIES, type Waiver,
-  judge, parseNumstat, scanMessage, tally,
+  BUDGET, CATEGORIES, GIT_CONFIG, NUMSTAT, NUMSTAT_IGNORING_SPACE, type Waiver,
+  discount, judge, merge, parseNumstat, scanMessage, tally,
 } from './size-rule.js'
 
 const TRUNK_CANDIDATES = ['origin/main', 'main']
 
 /**
- * 所有 git 调用统一走这里,并**一律带上 `-c core.quotePath=false`**。
+ * 所有 git 调用统一走这里,**一律带上 `GIT_CONFIG` 里钉死的那几项**。
  *
- * git 默认把非 ASCII 路径转义成 `"docs/adr/\\346..."`,而这个仓库的文件名
- * 几乎全是中文。同一个坑在这里栽过三次:`diff --numstat`(文档整类被误归)、
- * `ls-tree`(基线读成空的,检查静默失效)、`show --cc`(决策记录归进「其他」)。
- *
- * 前两次是逐处加 `-z` 补的,所以第三次照样中招 —— 一条只写在提交信息里的教训
+ * 逐处补是补不完的:`core.quotePath` 这个坑在这里栽过三次(`diff --numstat`
+ * 文档整类被误归、`ls-tree` 基线读成空的、`show --cc` 决策记录归进「其他」),
+ * 前两次都是逐处加参数补的,所以第三次照样中招 —— 一条只写在提交信息里的教训
  * 挡不住下一个调用点。放在入口才是结构保证(`docs/CONVENTIONS.md`:
- * 能靠结构保证的,就别靠对比保证)。`-z` 该用还用,它另外管住路径里有制表符
- * 或换行的情形。
+ * 能靠结构保证的,就别靠对比保证)。
+ *
+ * **钉哪几项是判定,不是调用细节**,所以清单在 `size-rule.ts`(第十节逐字写着
+ * 「哪些行算新增」那一半也是判定),那里有一个真 git 仓库的夹具守着它。
  */
 function git(...args: string[]): string {
-  return execFileSync('git', ['-c', 'core.quotePath=false', ...args],
+  return execFileSync('git', [...GIT_CONFIG, ...args],
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 }
 function tryGit(...args: string[]): string | null {
@@ -87,8 +87,17 @@ if (!base) {
 
 // ── 量 ──────────────────────────────────────────────────────────
 
-const files = parseNumstat(git('diff', '--numstat', '-z', base, head))
-const counts = tally(files)
+/**
+ * 量两遍:一遍照实,一遍忽略行内空白。
+ *
+ * **文件清单取照实那一遍** —— 只改了空白的文件在另一遍里整个消失,拿它报
+ * 「N 个文件」会少报,而那句话该是真的。**计数取合并后的**(`merge`:吃折扣的
+ * 按忽略空白那遍,其余照实)。两个 `tally` 之差就是折掉的行数,下面逐类打出来。
+ */
+const files = parseNumstat(git(...NUMSTAT, base, head))
+const plain = tally(files)
+const counts = tally(merge(files, parseNumstat(git(...NUMSTAT_IGNORING_SPACE, base, head))))
+const folded = discount(plain, counts)
 
 /**
  * 每条具名豁免,连同**它写下之后最终 diff 里这一类还净增了多少**。
@@ -126,7 +135,10 @@ for (const c of CATEGORIES) {
   console.log(`  ${flag} ${c}  ${String(n).padStart(5)} / ${b} 行新增`)
 }
 console.log('\n  图例:✓ 在线内  ⊘ 超线但已具名豁免  ✗ 超线')
-console.log('  (只数新增行;纯改名不计;未提交的工作区不计)')
+console.log('  (按内容量收费,不按搬运量:只数新增行;纯改名不计;未提交的工作区不计)')
+console.log(`  折掉的行:${CATEGORIES.map(c => `${c} ${folded[c]}`).join(' · ')}`)
+console.log('  —— 只改行内空白的行不计,今天只对 `.ts` 生效(ADR-98)。')
+console.log('  注意折扣与改名互斥:挪个位置同时重排缩进,两个折扣都吃不到。')
 
 if (onTrunk) {
   console.log('\n✓ 体量闸门:HEAD 就在主干上,**只报数不判定**')

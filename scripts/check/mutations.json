@@ -708,6 +708,46 @@
       "replace": "    ok: over.length === 0,"
     },
     {
+      "id": "M-H9-i",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "忽略行内空白那一遍不再忽略 —— 两遍读出同一个数,折扣整个消失,而那条打给用户的「折掉的行」会一直报 0,看不出是没折价还是没人算",
+      "find": "export const NUMSTAT_IGNORING_SPACE = [...NUMSTAT, '-w']",
+      "replace": "export const NUMSTAT_IGNORING_SPACE = [...NUMSTAT]"
+    },
+    {
+      "id": "M-H9-j",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "markdown 也吃折扣 —— 全仓 .md 零内容变化重排从判红变判绿,而四空格代码块、围栏缩进、列表层级都是 Agent 照着执行的语义",
+      "find": "export const WHITESPACE_FREE = ['.ts']",
+      "replace": "export const WHITESPACE_FREE = ['.ts', '.md']"
+    },
+    {
+      "id": "M-H9-k",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "改名检测不再钉死 —— 一台把 diff.renames=false 写进全局配置的机器上,一个 400 行文件挪个位置就顶掉整个源码预算,而这行注释正说它不该发生",
+      "find": "  '-c', 'diff.renames=true',",
+      "replace": "  // '-c', 'diff.renames=true',"
+    },
+    {
+      "id": "M-H9-m",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "吃折扣的文件在忽略空白那一遍里消失时按原数计 —— 而「整个消失」恰恰是纯空白改动的形状,折扣对它正好不生效",
+      "find": "    added: discountable(f.path) ? (lean.get(f.path) ?? 0) : f.added,",
+      "replace": "    added: discountable(f.path) ? (lean.get(f.path) ?? f.added) : f.added,"
+    },
+    {
+      "id": "M-H9-n",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "折掉的行数恒报 0 —— 这道闸门放走了多少就再没有人看得见,而这句交代正是它敢折价的理由",
+      "find": "  for (const c of CATEGORIES) out[c] = plain[c] - merged[c]",
+      "replace": "  for (const c of CATEGORIES) out[c] = 0"
+    },
+    {
       "id": "M-H10-a",
       "req": "harness",
       "file": "scripts/check/adr-rule.ts",

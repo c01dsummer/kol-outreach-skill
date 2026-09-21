@@ -44,7 +44,9 @@ import {
   fingerprint, sourceFiles,
 } from './check/claims.js'
 import {
-  BUDGET, type Waiver, categorize, judge, judgeExemption, parseNumstat, scanMessage, tally,
+  BUDGET, GIT_CONFIG, NUMSTAT, NUMSTAT_IGNORING_SPACE, type Waiver,
+  categorize, discount, discountable, judge, judgeExemption, merge, parseNumstat,
+  scanMessage, tally,
 } from './check/size-rule.js'
 import {
   FILE_RE, checkAll, encodeTarget, escapeCell, fileNameOf, markerFault,
@@ -4573,6 +4575,98 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     [{ path: 'scripts/new.ts', added: 0 }])
   eq('改名记录后面还能继续解析普通记录',
     parseNumstat('0\t0\t\x00a/old.ts\x00a/new.ts\x0012\t0\tscripts/lib/x.ts\x00').length, 2)
+
+  // ── 真起一个 git 仓库量一遍 ─────────────────────────────────────
+  //
+  // 上面那些断言喂的是**手写的** numstat 字符串:它们测的是解析器吃不吃那个形状,
+  // 测不到「git 到底会不会产出那个形状」。而这道闸门看得见多少改动,全取决于
+  // `GIT_CONFIG` 与两个 `NUMSTAT` 里钉死的几项 —— 那几项只有真跑一遍才验得到
+  // (`docs/CONVENTIONS.md` 第十一节:描述保证的那句话,没有任何检查看着)。
+  //
+  // 仓库的本地配置**故意设成反的**:改名检测关掉、中文路径转义打开、行尾自动
+  // 转换关掉。前两项设反是为了让「钉死」这件事真的被验到 —— 钉不住就当场红。
+  // 第三项必须关:开着的话 CRLF 那一笔写进去就被规范化成 LF,两边都读 0、
+  // 断言恒真 —— 那正是本仓库最不许的那种假绿。
+  {
+    const repo = mkdtempSync(join(tmpdir(), 'kol-size-git-'))
+    const g = (...args: string[]) => spawnSync('git', ['-C', repo, ...args], {
+      encoding: 'utf8',
+      // 把这台机器的全局／系统配置整个挡在外面:否则一台设了 core.autocrlf=true
+      // 的机器上,下面那条 CRLF 断言会恒真
+      env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
+    })
+    const w = (rel: string, body: string) => {
+      mkdirSync(join(repo, dirname(rel)), { recursive: true })
+      writeFileSync(join(repo, rel), body, 'utf8')
+    }
+    g('init', '-q', '.')
+    // 六项配置一次写完,不起六个 `git config` 子进程 —— 这条夹具的每一毫秒都要
+    // 乘以缺省验证者名下的变异条数(ADR-97 第二节),八个子进程已经是它的全部成本
+    writeFileSync(join(repo, '.git/config'), [
+      '[user]', '\temail = t@t', '\tname = t',
+      '[diff]', '\trenames = false',      // 故意设反:钉不住就当场红
+      '[core]', '\tquotePath = true',     // 同上
+      '\tautocrlf = false',               // 必须关:开着 CRLF 那一笔会被规范化 → 假绿
+      '[commit]', '\tgpgsign = false',
+    ].join('\n') + '\n', 'utf8')
+
+    w('scripts/check/包起来.ts', '甲\n乙\n丙\n')
+    w('docs/adr/文档.md', '# 标题\n\n1. 甲\n2. 乙\n')
+    w('docs/挪走的.md', Array.from({ length: 40 }, (_, i) => `行 ${i}`).join('\n') + '\n')
+    w('scripts/lib/行尾.ts', '子\n丑\n')
+    g('add', '-A'); g('commit', '-qm', '底')
+
+    // 三笔改动,每一笔的期望值都手推、推导写在旁边:
+    // ① `.ts` 包进回调:三行原样、每行只多了两个空格。照实数把这三行都算成新增,
+    //    再加 `group(() => {` 与 `})` 两行 → 3 + 2 = 5;忽略行内空白后只剩那两行 → 2。
+    w('scripts/check/包起来.ts', 'group(() => {\n  甲\n  乙\n  丙\n})\n')
+    // ② `.md` 只给一行加前导空白:`.md` 不在白名单里,两边都照实数 → 1。
+    w('docs/adr/文档.md', '# 标题\n\n1. 甲\n   2. 乙\n')
+    // ③ 跨类改名、零内容变化:纯改名记录是 `0\t0\t`,与文件多长无关 → 两边都 0。
+    g('mv', 'docs/挪走的.md', 'scripts/lib/挪来的.ts')
+    // ④ 行尾翻转:两行各多一个 \r。照实数两行都算新增 → 2;`.ts` 吃折扣 → 0。
+    //    **这是这条改动明写的代价,不是漏掉的情形** —— 钉住两边的数,
+    //    它哪天变了(比如有人给仓库加了 .gitattributes)这条会红,而不是静默改口径。
+    w('scripts/lib/行尾.ts', '子\r\n丑\r\n')
+    g('add', '-A'); g('commit', '-qm', '改')
+
+    const numstat = (args: readonly string[]) => {
+      const r = g(...GIT_CONFIG, ...args, 'HEAD~1', 'HEAD')
+      return parseNumstat((r.stdout ?? '').trim())
+    }
+    const plainFiles = numstat(NUMSTAT)
+    const mergedFiles = merge(plainFiles, numstat(NUMSTAT_IGNORING_SPACE))
+    const added = (fs: readonly { path: string; added: number }[], path: string) =>
+      fs.find(f => f.path === path)?.added
+
+    // 仓库本地把 `core.quotePath` 打开了,而路径照样是原样的 —— 压住它的是 `-z`
+    // (实测:注掉 `GIT_CONFIG` 里的 `core.quotePath=false`,这条照样绿)。
+    // 所以那一项**今天量不到**,只是给将来不走 `-z` 的调用方留的后手;
+    // 写在这里是为了不假装它被守住(ADR-98 的缺口段)。
+    eq('中文路径原样进分类判据 —— 靠的是 `-z`,不是 quotePath',
+      plainFiles.map(f => f.path).includes('docs/adr/文档.md'), true)
+    eq('① 包进回调:照实数三行重排 + 两行新代码',
+      added(plainFiles, 'scripts/check/包起来.ts'), 5)
+    eq('① 包进回调:忽略行内空白后只剩那两行新代码',
+      added(mergedFiles, 'scripts/check/包起来.ts'), 2)
+    eq('② .md 不在白名单里:纯缩进照样收那一行',
+      added(mergedFiles, 'docs/adr/文档.md'), 1)
+    eq('③ 跨类改名零内容变化:两遍都读 0 —— 仓库本地把改名检测关了,钉死的那一项压住了它',
+      [added(plainFiles, 'scripts/lib/挪来的.ts'), added(mergedFiles, 'scripts/lib/挪来的.ts')],
+      [0, 0])
+    eq('④ 行尾翻转:照实数两行',
+      added(plainFiles, 'scripts/lib/行尾.ts'), 2)
+    eq('④ 行尾翻转:`.ts` 吃折扣读 0 —— 明写的代价,不是漏掉的情形',
+      added(mergedFiles, 'scripts/lib/行尾.ts'), 0)
+    // 折掉的行数逐类:源码 = ①的 5-2=3 加 ④的 2-0=2 = 5;文档 = 0(不吃折扣)
+    eq('折掉的行数逐类算,为 0 也报出来',
+      discount(tally(plainFiles), tally(mergedFiles)),
+      { 源码: 5, 测试: 0, 文档: 0, 其他: 0 })
+    rmSync(repo, { recursive: true, force: true })
+  }
+
+  eq('只有白名单里的后缀吃折扣', [discountable('scripts/a.ts'), discountable('docs/a.md'),
+    discountable('x.yml'), discountable('process/AGENTS.md.tpl')], [true, false, false, false])
 
   eq('豁免必须指名类别', judgeExemption('size-ok: 就这一次'), { kind: 'unjustified', text: '就这一次' })
   eq('指名了类别但没写理由，不放行', judgeExemption('size-ok: 源码'), { kind: 'unjustified', text: '源码' })
