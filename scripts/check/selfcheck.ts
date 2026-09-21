@@ -1419,6 +1419,86 @@ criterion('D6.j')
 criterion('D6.k')
 criterion('D6.l')
 
+// ---- P5.i：一次都没查到人的平台，不得从报告上静默消失 ----
+// 这一条**只能端到端跑**：`meta.platforms` 的接线在 `render.ts` 里，缺省那个验证者
+// （scripts/test.ts）够不到入口脚本。单元那一头断言的是判定本身（`taskPlatforms`、
+// `keywordRows` 的四态）与渲染（直调 `renderHtml`）。
+//
+// 造法：预算只够跑完 TikTok 那几个词，IG 那个**一次都没被查过**。
+// 从采到的人反推的话，`platforms` 里就没有 instagram —— 运营看不见它，
+// 结论是「这个品类 IG 没人」，下次预算就不投（ADR-94 第三节，这条判据的由来）。
+const ghost = join(tmp, 'ghost')
+mkdirSync(join(ghost, 'memory'), { recursive: true })
+const ghostCfg = join(ghost, 'ghost.json')
+writeFileSync(ghostCfg, JSON.stringify({
+  product: 'ghost', market: 'US', target_count: 9999, budget_usd: 0.002,
+  tasks: [{ keyword: 'gt0', dimension: 'category', platform: 'tiktok' },
+          { keyword: 'gt1', dimension: 'category', platform: 'tiktok' },
+          { keyword: 'gig', dimension: 'scene', platform: 'instagram' }],
+}))
+const ghostRun = runBoth('collect 预算只够 TikTok，IG 一次都没被查过',
+                         [S('collect.ts'), '--config', ghostCfg], ghost, { status: 3 })
+if (ghostRun.ok) {
+  const gdir = summaryOf(ghostRun.stdout).dir
+  const rendered = run('render 出一份 IG 零命中的报告', [S('render.ts'), '--dir', gdir], ghost)
+  // 产出物读不到就整段跳过，**不是让自检崩** —— 崩了那条变异会被判「跑不起来」，
+  // 而它本该被别处的夹具抓到，功劳就记错了人（同本文件 `requestsOnDisk` 的先例，
+  // 以及 F9.e 那条旧目录夹具踩过的同一个坑）。
+  const readJson = (f: string): any => {
+    try { return JSON.parse(readFileSync(join(ghost, gdir, f), 'utf8')) } catch { return undefined }
+  }
+  const gmeta = readJson('meta.json')
+  const ghtml = (() => {
+    try { return readFileSync(join(ghost, gdir, 'report.html'), 'utf8') } catch { return undefined }
+  })()
+  const gcreators = readJson('creators.json')
+  if (rendered !== undefined && gmeta !== undefined && ghtml !== undefined
+      && Array.isArray(gcreators)) {
+    const igPeople = gcreators.filter((c: any) => c.platform === 'instagram').length
+    if (igPeople !== 0) {
+      failed++
+      console.error(`  ✗ IG 幽灵平台夹具${SELFCHECK_FIXTURE_MARK}：这一跑 IG 采到了 ${igPeople} 个人`
+                    + ' —— 夹具要的是「一次都没查过、所以一个人都没有」，造错了这条断言就不算测过')
+    } else {
+      // ⚠️ **断言要落在它说的那个东西上。** 这两条头一版写的是整页 `includes(...)`，
+      // 而 `instagram` 恒命中样式表里的 `.pf.instagram{`、`未查询` 恒命中同一个提交里
+      // 新写的那句说明文案 —— 关键词表整个为空时照样绿（ADR-94 第十六节乙，实测）。
+      // `scripts/test.ts` 那一头我改成了切 `<tbody>`，**这一头当时没跟着改**，
+      // 同一个「改了一处没改另一处」的形状。
+      const kwBody = ((ghtml.split('<h2>关键词表现</h2>')[1] ?? '').split('<tbody>')[1] ?? '')
+        .split('</tbody>')[0]
+      const subtitle = (ghtml.split('<div class="sub">')[1] ?? '').split('</div>')[0]
+      named('报告副标题与 meta.json 上，一次都没查到人的平台仍然在',
+            (gmeta.platforms ?? []).includes('instagram') && subtitle.includes('instagram'),
+            `meta.platforms 是 ${JSON.stringify(gmeta.platforms)}，副标题是「${subtitle}」`
+            + ' —— 平台从报告上消失时，运营的结论是「这个品类这个平台没人」，下次预算就不投了')
+      // ⚠️ 两个条件要落在**同一行**上。头一版写的是「表体里有一行、表体里有 gig」，
+      // 两件事不要求同行 —— 今天只有 gig 是未查询所以还成立，多一个未查询的词就恒真了。
+      const gigRow = kwBody.split('<tr>').find(r => r.includes('gig')) ?? ''
+      named('没查过的那个关键词也在表体里，写着「未查询」',
+            (gmeta.keywords ?? []).some((k: any) => k.keyword === 'gig' && k.status === 'unqueried')
+            && gigRow.includes('未查询'),
+            `关键词表体里 gig 那一行是「${(kwBody.split('<tr>').find(r => r.includes('gig')) ?? '（没有这一行）').trim().slice(0, 120)}」`
+            + ' —— 从交付名单反推时它整行都不存在，而「没有这一行」和「查了没人」看起来一模一样')
+      // 反证：把表体整段挖掉，上面那两个字就必须不再命中 —— 否则说明断言看的是
+      // 说明文案或样式表，而不是行。头一版那两条就是这么恒真的。
+      const withoutBody = ghtml.replace(kwBody, '')
+      named('把关键词表体挖空之后「未查询」不再命中 —— 证明上一条测的是行',
+            !((withoutBody.split('<h2>关键词表现</h2>')[1] ?? '').split('<tbody>')[1] ?? '')
+              .split('</tbody>')[0].includes('未查询'),
+            '挖空表体之后那三个字仍然命中，说明那条断言测的不是行')
+    }
+  }
+}
+
+// ⚠️ **只认这两条。** 这个夹具量的是「没查过的平台和词仍然在报告上」（P5.i）
+// 与「每个任务都有自己那一行」（U3.b）—— 它**没有**量 U3.c 说的那三列长什么样，
+// 认领它就是替 U3.c 免掉一道闸（同一轮独立复核在 D6.i 上证明过这个机制，
+// ADR-94 第十五节丙）。U3.c 的证据在 `scripts/test.ts` 里。
+criterion('P5.i')
+criterion('P5.j')
+criterion('U3.b')
+
 // ---- 变异集编号重复：两个入口都命中即以退出码 1 结束（M-H7-b、M-H7-c 的入口那一半）----
 // 判定和「两种毛病同时在时先报哪一种」都由 scripts/test.ts 断言；剩下的那一半是
 // **入口真的调了它、并且以退出码 1 结束** —— 把两处调用整块删掉，那些断言和

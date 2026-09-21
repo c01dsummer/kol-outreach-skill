@@ -11,7 +11,7 @@ import { writeFileAtomic } from './lib/atomic.js'
 import { join } from 'node:path'
 import { taskId, loadTask, loadCreators, loadEnrichment, saveCreators } from './lib/task.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
-import { rankCreators, keywordStats, tierCounts } from './lib/pipeline.js'
+import { rankCreators, keywordRows, taskPlatforms, tierCounts } from './lib/pipeline.js'
 import { recordRecommendations } from './lib/memory.js'
 import { writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, buildSheets } from './lib/rows.js'
@@ -90,8 +90,11 @@ if (!writeBack.written) {
 const meta = {
   product: state.product,
   market: state.market,
-  platforms: [...new Set(creators.map(c => c.platform))],
-  keywords: keywordStats(creators),
+  // P5.i：平台与关键词表都**从任务列表出发** —— 从采到的人反推的话，
+  // 一次都没查到人的平台、一次都没查过的词会整个消失，而报告里「查了没人」
+  // 和「一次都没查」长得一模一样，运营据此不再投这个方向（ADR-94）。
+  platforms: taskPlatforms(state),
+  keywords: keywordRows(state, creators),
   total: creators.length,
   tiers: tierCounts(creators),
   email_count: creators.filter(c => c.email).length,

@@ -1,4 +1,4 @@
-import type { Creator, TaskState } from './types.js'
+import { creatorKey, type Creator, type Platform, type SearchTask, type TaskState } from './types.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './identity.js'
 import {
   passesFollowerGate, scoreCreator, tierOf, applyGeoPenalty, applyAudienceRiskPenalty,
@@ -121,11 +121,35 @@ export function keywordsResumeWillRun(state: TaskState, qualified: number): stri
  * （同 `needsProfile` 的先例，ADR-25；也是 F9.c 逐字要求的那件事）。
  */
 export function firstPagePending(state: TaskState): number[] | null {
+  // **读 offsets，不读 answered** —— 隔壁 `taskQueryStatus` 不是这一份的副本：
+  // 这里问「这一页付过钱没有」，那里问「发出过请求没有」。合用一张表时两者都不准
+  // （ADR-94 第十五节甲）。
   const offsets = state.offsets
   if (offsets === undefined) return null
   return state.tasks
     .map((_, i) => i)
     .filter(i => !state.done.includes(i) && !(i in offsets))
+}
+
+/**
+ * 这个任务查询过没有（P5.i 四态里的前三态）。
+ *
+ * ⚠️ **它和 `firstPagePending` 不是同一份判定，读的也不是同一张表。**
+ * 那个读 `offsets` 答「这一页付过钱没有」，这个读 `answered` 答「发出过请求没有」。
+ * 一度合用一张表，独立复核推翻了那个设计 —— `offsets` 只在 `search()` 正常返回之后才写，
+ * 「请求发了、钱扣了、在写它之前抛了」会塌回「没查过」（ADR-94 第十五节甲）。
+ *
+ * 第四态「查了 0 命中」不在这里 —— 它由条数给（`found[i]` 为 0），见 `keywordRows`。
+ */
+export type TaskQueryStatus = 'unknown' | 'unqueried' | 'queried'
+
+export function taskQueryStatus(state: TaskState, i: number): TaskQueryStatus {
+  const answered = state.answered
+  // ⚠️ `== null` 不是手滑：盘上那个值是**反序列化进来的外部输入**，`null` 与整张表缺失
+  // 一样是「无从确认」。只判 `undefined` 的话，`answered: null` 会让 `i in answered` 当场抛，
+  // 而抛的位置在 render **写完名单、写回记忆之后** —— 交付物互相矛盾（`4-VERIFY.md`）。
+  if (answered == null) return 'unknown'
+  return i in answered ? 'queried' : 'unqueried'
 }
 
 /** 尚未跑完的关键词 —— Agent 据此向用户报进度、问要不要追加预算 */
@@ -253,24 +277,117 @@ export function rankCreators(creators: Creator[], market: string): Creator[] {
   return sortForOutput(kept)
 }
 
-export interface KeywordStat {
+/**
+ * P5.i／U3.b：关键词×平台的战果，一个任务一行。
+ *
+ * **从任务列表出发，不是从交付名单出发。** 从名单出发时，0 命中的词和一次都没查过的词
+ * **整行都不存在** —— 而运营看不见一行，结论就是「这个方向没人」，下次预算就不投。
+ * 那正是 IG 为零时最贵的那一半：报告里它和「查了没人」长得一模一样（ADR-94）。
+ */
+export interface KeywordRow {
   keyword: string
+  platform: Platform
   dimension: string
-  found: number
-  fit_pass: number
+  as_hashtag?: boolean
+  /** 查询过没有（P5.i 四态的前三态，判定在 `taskQueryStatus`） */
+  status: TaskQueryStatus
+  /**
+   * 搜索命中条数 —— 第四态在这里：`0` 是「查过、一条都没返回」。
+   * `null` 是「这个数无从确认」，只在 `status` 不是 `queried` 时出现。
+   * **不要把 null 渲染成 0**：那是把没测量说成测量结果是零（同 P1.e 的口径）。
+   */
+  found: number | null
+  /**
+   * 入围人数；`null` ＝无从确认或注定不全。
+   * ⚠️ **各行相加可以大于名单总人数** —— 一个人可以被多个关键词搜到。
+   * **与 `found` 不得合并**（单位不同：条目 vs 人），所以不再出「命中率」那一列。
+   */
+  shortlisted: number | null
+  /** 入围里语义通过的；无从确认时为 `null` */
+  fit_pass: number | null
 }
 
-/** U3：关键词表现 —— 下一轮调整关键词策略的依据 */
-export function keywordStats(creators: Creator[]): KeywordStat[] {
-  const m = new Map<string, KeywordStat>()
-  for (const c of creators) {
-    const e = m.get(c.source_keyword)
-      ?? { keyword: c.source_keyword, dimension: c.source_dimension, found: 0, fit_pass: 0 }
-    e.found++
-    if (c.fit === '✅') e.fit_pass++
-    m.set(c.source_keyword, e)
+/**
+ * ⚠️ `state` 给顺序与身份，`delivered` 给入围 —— **两个来源缺一不可**。
+ * 只拿 `delivered` 反推就回到了上面说的那个洞；只拿 `state` 则数不出入围。
+ */
+export function keywordRows(state: TaskState, delivered: Creator[]): KeywordRow[] {
+  // **归人算不算得准，是整张名单的属性，不是某一行的。** 只要有一个人身上没带来源任务，
+  // 这份名单就是本条落地之前采的 —— 那时没有这个字段，于是**每一行都会印一个确定为假的 0**。
+  // ⚠️ 上一条 PR（`answered`／`found` 两张表）先合，本条后合，中间那个窗口里建的目录
+  // 正是这个形状：表在、人身上没有下标。独立复核实测到两行都印「找到 40 / 入围 0」，
+  // 而名单里有 3 个人（ADR-94 第十六节丁）。注释一度声称这不可能，那句话只对更早的目录成立。
+  const attributable = delivered.every(c => c.source_tasks !== undefined)
+  return state.tasks.map((t, i) => {
+    const status = taskQueryStatus(state, i)
+    // **只有真问过的行才谈得上「入围几个」。** 没问过的行印 0 就是把「没看」说成
+    // 「看了没有」—— P5.i 逐字禁的那种「看起来像测量值的数」，而同一张表里
+    // 「无从确认」那一行印的是「—」，两边口径必须一致。
+    const counted = attributable && status === 'queried'
+    // **按任务下标归人，不按（关键词, 平台）** —— 那个二元组比行粗（行的身份还带
+    // dimension 与 as_hashtag），同词同平台的两行会数到同一批人，于是一个从没发过
+    // 请求的行上挂着别人的测量结果（ADR-94 第十六节甲）。
+    const mine = counted ? delivered.filter(c => c.source_tasks?.includes(i)) : []
+    return {
+      keyword: t.keyword,
+      platform: t.platform,
+      dimension: t.dimension,
+      ...(t.as_hashtag ? { as_hashtag: true } : {}),
+      status,
+      // 查过才有这个数。`null` 有两种来源，渲染侧都不许写 0：
+      // 没问过／无从确认，以及**问过但那一次的条数没记下来**（抛在记录之前）。
+      found: status === 'queried' ? (state.found?.[i] ?? null) : null,   // null ＝ 这个数注定不全或没记下
+      // ⚠️ **条数不全不等于归人不全。** 一度把两者绑在一起，理由是「同源：升级前那段」——
+      // 而迁移已经被上一条 PR 整个撤掉，`found[i] = null` 今天只发生在「这一页付了钱、
+      // 抛在记条数之前」：那一页一个人都没入库，前几页成功采到的人身上下标一个不少。
+      // 绑着的后果是把一个**确知**的入围数抹成「无从确认」（独立复核实测：真值 3，印「—」）。
+      shortlisted: counted ? mine.length : null,
+      fit_pass: counted ? mine.filter(c => c.fit === '✅').length : null,
+    }
+  })
+}
+
+/**
+ * 把一页搜索结果并进累加器，交回**新增了几个人**。
+ *
+ * **归人就在这里落笔**：同一个人被第二个任务搜到时字段不覆盖，但那个任务的下标要追加进
+ * `source_tasks` —— 漏了这一笔，后面那个词在关键词表上被报成「找到 N 条、一个都没入围」，
+ * 而运营据此把一个其实出了人的词砍掉（U3.b，ADR-94 第十六节甲）。
+ *
+ * ⚠️ **它从入口脚本里搬出来是为了能被缺省那个验证者够到。** 留在 `collect.ts` 的循环里时，
+ * 指着它的负片只能靠整跑一遍自检来验 —— 而那是本仓库最贵的一种验证者（每条这样的负片
+ * 都要把自检从头跑到尾）。判据不变，验证者便宜了一个数量级。
+ *
+ * `creators` 就地改，交回新增数 —— 累加器本来就是跨页跨任务共用的那一份。
+ */
+export function mergePage(creators: Map<string, Creator>, page: readonly Partial<Creator>[],
+  i: number, t: SearchTask): number {
+  let added = 0
+  for (const p of page) {
+    if (!p.handle || !p.platform) continue
+    const k = creatorKey({ platform: p.platform, handle: p.handle })
+    const seen = creators.get(k)
+    if (seen) {
+      // ⚠️ **只在他已经带着来源任务时才追加。** 累加器里可能有本条落地之前采的人
+      // （`loadRawCreators` 从 creators.raw.json 读回来的），他们的来源**无从确认** ——
+      // 凭空给一个 `[i]` 等于替他打包票说「他只来自这个任务」，而 `keywordRows` 会据此
+      // 认定整张名单归得了人，于是每一行又开始印确定为假的 0（#140 评审指出）。
+      const at = seen.source_tasks
+      if (at !== undefined && !at.includes(i)) at.push(i)
+      continue
+    }
+    creators.set(k, { ...(p as Creator), source_keyword: t.keyword,
+                      source_dimension: t.dimension, source_tasks: [i] })
+    added++
   }
-  return [...m.values()]
+  return added
+}
+
+/**
+ * P5.i：从**任务列表**出发 —— 从采到的人反推的话，一次都没查到人的平台会整个消失。
+ */
+export function taskPlatforms(state: TaskState): Platform[] {
+  return [...new Set(state.tasks.map(t => t.platform))]
 }
 
 /** 分层计数。未分层的不计入 —— 三个数之和小于总数就说明有人没被分层。 */

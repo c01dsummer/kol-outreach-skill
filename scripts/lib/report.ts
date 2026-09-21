@@ -141,11 +141,21 @@ export function renderHtml(creators: Creator[], meta: any): string {
     <button onclick="cp(this)">复制</button></details>` : ''}
 </div>`
 
-  // U3：关键词表现是下次调整策略的依据
+  // U3.b：关键词表现是下次调整策略的依据，**一个任务一行** —— 0 命中的与一次都没查过的
+  // 也要在表上。P5.i：四态各说各的话，没查过的那一行不许带出一个看起来像测量值的数。
+  const foundText = (k: any): string =>
+    k.status === 'unknown' ? '无从确认'
+    : k.status === 'unqueried' ? '未查询'
+    // 问过、但那一次的条数没记下来（抛在记录之前）—— 仍然不写 0
+    : k.found === null || k.found === undefined ? '未知'
+    : String(k.found)
+  /** 入围／语义通过：`null` 是无从确认，印「—」；**不印 0** —— 那是把没测量说成零 */
+  const countText = (n: unknown): string => n === null || n === undefined ? '—' : String(n)
   const kwRows = (meta.keywords ?? []).map((k: any) => `
-    <tr><td>${esc(k.keyword)}</td><td>${esc(k.dimension)}</td>
-        <td>${k.found}</td><td>${k.fit_pass}</td>
-        <td>${k.found ? Math.round(k.fit_pass / k.found * 100) : 0}%</td></tr>`).join('')
+    <tr><td>${esc(k.keyword)}${k.as_hashtag ? ' <span class="sub">(hashtag)</span>' : ''}</td>
+        <td>${esc(k.platform ?? '未知')}</td><td>${esc(k.dimension)}</td>
+        <td>${esc(foundText(k))}</td><td>${esc(countText(k.shortlisted))}</td>
+        <td>${esc(countText(k.fit_pass))}</td></tr>`).join('')
 
   const notes: string[] = []
   const missingEmailVerification = meta.capabilities
@@ -267,7 +277,9 @@ th{color:#64748b;font-weight:600;font-size:12px}
 ${notes.length ? `<div class="notes">${notes.map(n => `<div>⚠️ ${esc(n)}</div>`).join('')}</div>` : ''}
 
 <h2>关键词表现</h2>
-<table><thead><tr><th>关键词</th><th>维度</th><th>找到</th><th>语义通过</th><th>命中率</th></tr></thead>
+<p class="sub">「找到」是供应商返回的条目数，「入围」是过完粉丝闸门与去重之后还在名单上的人 ——
+<strong>两个不是一个数，也不该相除</strong>（单位不同）。一次都没查过的词照样在表上，写着「未查询」。</p>
+<table><thead><tr><th>关键词</th><th>平台</th><th>维度</th><th>找到</th><th>入围</th><th>语义通过</th></tr></thead>
 <tbody>${kwRows}</tbody></table>
 
 <h2>名单</h2>

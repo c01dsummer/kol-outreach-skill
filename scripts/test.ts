@@ -72,7 +72,8 @@ import { Budget, BudgetExceeded, UNIT_PRICE, budgetProblem, ledgerProblem } from
 import { enrichedFlag, renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
-  finalize, firstPagePending, keywordsResumeWillRun, needsProfile, pendingKeywords, rankCreators, keywordStats, tierCounts,
+  finalize, firstPagePending, keywordsResumeWillRun, keywordRows, mergePage, needsProfile,
+  pendingKeywords, rankCreators, taskPlatforms, taskQueryStatus, tierCounts,
   resumeCostLine,
 } from './lib/pipeline.js'
 import {
@@ -1681,12 +1682,223 @@ suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时�
 
 suite('U1', '分层管线返回的名单已按 tier 排好序')
 {
-  const c = (h: string, fit: '✅' | '❌') => mk('tiktok', h, { email: 'a@example.com', fit })
-  const out = rankCreators([c('low', '❌'), c('high', '✅')], 'US')
+  const c = (h: string, fit: '✅' | '❌', tasks = [0]) =>
+    mk('tiktok', h, { email: 'a@example.com', fit, source_tasks: tasks })
+  // `high` 被两个词搜到 —— 各行相加可以大于名单总人数，这是 U3.b 明写的
+  const out = rankCreators([c('low', '❌'), c('high', '✅', [0, 5])], 'US')
   eq('A 排在 C 前面', out.map(x => x.tier), ['A', 'C'])
 
-  eq('关键词表现按来源聚合', keywordStats(out), [
-    { keyword: 'k', dimension: 'category', found: 2, fit_pass: 1 }])
+  // U3.b：关键词表从**任务列表**出发 —— 0 命中的词和一次都没查过的词也要有自己那一行。
+  // 从交付名单反推时它们整行消失，而那正是 IG 为零时最贵的那一半（P5.i）。
+  const tstate = (over: any = {}) => ({
+    product: 'p', market: 'US', target_count: 50, budget_usd: 1,
+    tasks: [{ keyword: 'k', dimension: 'category', platform: 'tiktok' },
+            { keyword: 'zero', dimension: 'scene', platform: 'instagram' },
+            { keyword: 'never', dimension: 'competitor', platform: 'instagram' },
+            // ⚠️ 和任务 0 **同词同平台、维度不同**：行的身份比（关键词, 平台）细。
+            // 按那个二元组归人的话，这一行会数到任务 0 那两个人 —— 而它一次都没问过。
+            { keyword: 'k', dimension: 'scene', platform: 'tiktok' },
+            // 问过、而那一次的条数没记下来（D6.l 的 null）—— 四态里最容易被渲染成 0 的那一个
+            { keyword: 'lost', dimension: 'category', platform: 'tiktok' },
+            { keyword: 'tag', dimension: 'category', platform: 'tiktok', as_hashtag: true }],
+    // 三张表各答一个问题：answered＝问过没有（P5.i）、found＝拿回几条（U3.b）、
+    // offsets＝下一页从哪儿接（D6）。任务 2 三张表里都没有 → 一次都没问过。
+    done: [], offsets: { 0: 40, 1: 0, 4: 0, 5: 7 },
+    answered: { 0: 2, 1: 1, 4: 1, 5: 1 }, found: { 0: 40, 1: 0, 4: null, 5: 7 },
+    requests: 0, created_at: '', updated_at: '', ...over,
+  })
+  const rows = keywordRows(tstate(), out)
+  eq('每个任务一行，一个都不少', rows.length, 6)
+  // ⚠️ 逐行取值一律走 `?.` —— 少了一行时要让**断言红**，不是让测试崩：
+  // 崩溃不是任何一条断言的功劳，指着这儿的变异会被判「跑不起来」而不是「被抓到」
+  // （M-U3-a 实测过一次）。
+  eq('查过且有命中：found 是搜索返回的条数，入围是名单里的人 —— 两个数不一样',
+     [rows[0]?.status, rows[0]?.found, rows[0]?.shortlisted, rows[0]?.fit_pass],
+     ['queried', 40, 2, 1])
+  eq('查了 0 命中：found 是 0，不是 null —— 这是量出来的零',
+     [rows[1]?.status, rows[1]?.found, rows[1]?.shortlisted], ['queried', 0, 0])
+  // 本条落地之前采的人身上没有来源任务 —— **整张名单**据此判无从确认，
+  // 不许每一行都印一个确定为假的 0（上一条 PR 先合、本条后合，中间那个窗口就是这个形状）
+  eq('名单里有一个人没带来源任务 → 每一行的入围都印「无从确认」，不印 0',
+     keywordRows(tstate(), [...out, mk('tiktok', 'legacy', {})]).map(r => r.shortlisted),
+     Array(6).fill(null))
+  eq('一次都没查过：found 是 null，入围与语义通过也是 null —— 没测量不能说成测量结果是零',
+     [rows[2]?.status, rows[2]?.found, rows[2]?.shortlisted, rows[2]?.fit_pass],
+     ['unqueried', null, null, null])
+  eq('平台跟着任务走', rows.map(r => r.platform),
+     ['tiktok', 'instagram', 'instagram', 'tiktok', 'tiktok', 'tiktok'])
+  // ⚠️ **条数不全不等于归人不全。** 这一页付了钱、抛在记条数之前 —— 那一页一个人都没入库，
+  // 前几页采到的人身上下标一个不少，所以入围是**确知的**。绑在一起会把一个真数抹成「无从确认」。
+  eq('问过、而那一次的条数没记下：found 是 null，而入围仍然是确知的数',
+     [rows[4]?.status, rows[4]?.found, rows[4]?.shortlisted, rows[4]?.fit_pass],
+     ['queried', null, 0, 0])
+  // 一个人可以被多个词搜到 —— 各行入围相加（2＋1）大于名单总人数（2），U3.b 明写的
+  eq('被第二个词搜到的人，在那一行也算得上',
+     [rows[5]?.shortlisted, rows[5]?.fit_pass, out.length], [1, 1, 2])
+  eq('hashtag 词在行上带得出标记 —— 行的身份比（关键词, 平台）细',
+     [rows[5]?.as_hashtag, rows[0]?.as_hashtag], [true, undefined])
+  // 归人按**任务下标**，不按（关键词, 平台）—— 后者比行粗，同词同平台的两行会数到
+  // 同一批人：一个从没发过请求的行上于是挂着别人的测量结果，比印 0 更糟（负片 M-U3-c）。
+  eq('同词同平台、维度不同的那一行，一个人都不归它 —— 它一次都没问过',
+     [rows[3]?.status, rows[3]?.found, rows[3]?.shortlisted, rows[3]?.fit_pass],
+     ['unqueried', null, null, null])
+  // 无从确认（整张分页记录表缺失，F9 落地之前的旧目录）：四态里的第四态
+  // 旧目录的真实形状：连 `answered` 都没有的目录，人身上当然也没有来源任务
+  const legacyPeople = out.map(c => ({ ...c, source_tasks: undefined }))
+  const unknownRows = keywordRows(tstate({ answered: undefined }), legacyPeople)
+  eq('无从确认 → 每一行都说无从确认，不是「都没查过」',
+     unknownRows.map(r => r.status), Array(6).fill('unknown'))
+  eq('无从确认 → 入围与语义通过也是 null，不是 0 —— 那种目录的人身上没有任务下标',
+     [unknownRows[0]?.shortlisted, unknownRows[0]?.fit_pass], [null, null])
+  // `answered` 是 null（盘上的值是反序列化进来的外部输入）也读作无从确认，不许当场抛 ——
+  // 抛的位置在 render 写完名单、写回记忆之后，交付物会互相矛盾
+  // ⚠️ 抛了要让**断言红**，不是让测试崩 —— 崩了指着这儿的负片会被判「跑不起来」
+  eq('answered 是 null 也读作无从确认，不崩',
+     (() => { try { return keywordRows(tstate({ answered: null }), out).map(r => r.status) }
+              catch (e) { return `抛了：${String(e)}` } })(),
+     Array(6).fill('unknown'))
+  eq('无从确认 → found 一律 null', unknownRows.map(r => r.found), Array(6).fill(null))
+  // 迁移过来的任务：分页记录证明它问过，但升级前抓了几页、采到谁都无从得知 ——
+  // 条数记 null（注定不全），归人也跟着 null。印一个偏小的数和印 0 一样坏，
+  // 都是「看起来像测量值的数」（ADR-94 第十六节）。
+  {
+    const migrated = keywordRows(tstate({ found: { 0: null, 1: 0 } }), out)
+    eq('条数注定不全 → found 是 null，不是一个偏小的数', migrated[0]?.found, null)
+    eq('条数不全，归人照样确知 —— 抛掉的那一页一个人都没入库',
+       [migrated[0]?.shortlisted, migrated[0]?.fit_pass], [2, 1])
+    eq('同一张表里量得准的那一行不受影响',
+       [migrated[1]?.status, migrated[1]?.found, migrated[1]?.shortlisted], ['queried', 0, 0])
+  }
+  // P5.i：平台那一行也从任务列表出发 —— 一次都没查到人的平台不得静默消失
+  eq('平台从任务列表出发，采不到人的平台照样在', taskPlatforms(tstate()), ['tiktok', 'instagram'])
+  // ⚠️ 它与 `firstPagePending` **不是同一份判定** —— 那个读 offsets 答「这一页付过钱没有」，
+  // 这个读 answered 答「发出过请求没有」。#139 之前两者合用一张表，于是各自都不准。
+  eq('问过没有：读的是「应答过几次」那张表，三态齐',
+     [taskQueryStatus(tstate(), 0), taskQueryStatus(tstate(), 2),
+      taskQueryStatus(tstate({ answered: undefined }), 0)],
+     ['queried', 'unqueried', 'unknown'])
+
+  // ── 归人的两个维护点：采集时追加、跨平台合并时取并集 ──────────────────
+  // 两处都是「漏一笔就少报入围」，而独立复核实测：把任一处改坏，整条检查链全绿
+  // （ADR-94 第十六节丁）。它们原先一条断言都没有 —— `source_tasks` 在整份 test.ts 里
+  // 只出现在一个 fixture 的赋值上。
+  {
+    const t0 = { keyword: 'k0', dimension: 'category', platform: 'tiktok' } as any
+    const t1 = { keyword: 'k1', dimension: 'scene', platform: 'tiktok' } as any
+    const acc = new Map<string, Creator>()
+    const page = [{ handle: 'sam', platform: 'tiktok' }, { handle: 'ann', platform: 'tiktok' }] as any
+    eq('第一个任务：两个人都是新的', mergePage(acc, page, 0, t0), 2)
+    // 同一个人被第二个任务搜到：不算新增，但那个任务下标要记进他的来源
+    eq('第二个任务搜到同一批人：一个新增都没有', mergePage(acc, [page[0]], 1, t1), 0)
+    eq('但他的来源里多了那个任务 —— 漏了这一笔，第二个词会被报成「找到 N 条、一个都没入围」',
+       acc.get('tiktok:sam')?.source_tasks, [0, 1])
+    eq('字段不被第二个任务覆盖', acc.get('tiktok:sam')?.source_keyword, 'k0')
+    eq('同一个任务重复搜到他，不会把下标记两遍',
+       (mergePage(acc, [page[0]], 1, t1), acc.get('tiktok:sam')?.source_tasks), [0, 1])
+    eq('没有 handle 或 platform 的条目直接跳过',
+       mergePage(acc, [{ handle: '', platform: 'tiktok' }, { handle: 'x' }] as any, 0, t0), 0)
+    // ⚠️ 累加器里可能有本条落地之前采的人（`loadRawCreators` 从 creators.raw.json 读回来）——
+    // 他们的来源**无从确认**。凭空补一个 `[i]` 等于替他打包票说「他只来自这个任务」，
+    // 而整张表会据此认定归得了人，每一行又开始印确定为假的 0。
+    const legacyAcc = new Map<string, Creator>([['tiktok:old', mk('tiktok', 'old', {})]])
+    eq('旧人被新任务又搜到一次：不算新增', mergePage(legacyAcc, [{ handle: 'old', platform: 'tiktok' }] as any, 2, t0), 0)
+    eq('而且他的来源仍然是「无从确认」，不许凭空补成 [2]',
+       legacyAcc.get('tiktok:old')?.source_tasks, undefined)
+  }
+  {
+    // 跨平台同人被合并时，次记录那一侧的来源任务不能跟着消失
+    const tt = mk('tiktok', 'sam', { source_tasks: [0], bio_links: ['https://instagram.com/sam'] })
+    const ig = mk('instagram', 'sam', { source_tasks: [1], bio_links: [] })
+    const pair = [tt, ig]
+    linkCrossPlatform(pair)               // 就地连线，交回的是连上几对
+    const merged = mergeCrossPlatform(pair)
+    const primary = merged.find(c => c.merged_into === undefined)
+    eq('两侧的来源任务取并集 —— 漏了并集，次记录那一侧的词就再也归不到他',
+       primary?.source_tasks, [0, 1])
+    // 有一边无从确认，并集就无从确认 —— 把缺的那边当成空集等于替它打包票
+    const ttOld = mk('tiktok', 'sam2', { bio_links: ['https://instagram.com/sam2'] })
+    const igNew = mk('instagram', 'sam2', { source_tasks: [1], bio_links: [] })
+    const pair2 = [ttOld, igNew]
+    linkCrossPlatform(pair2)
+    const merged2 = mergeCrossPlatform(pair2)
+    eq('一边的来源无从确认 → 合出来的人也无从确认，不留一个看着归得清的残集',
+       merged2.find(c => c.merged_into === undefined)?.source_tasks, undefined)
+  }
+  criterion('U3.b')
+
+  // P5.i 的渲染那一半：**四态要在报告上分得开**，而且没查过的那一行不许带出
+  // 一个看起来像测量值的数。判定在 report.ts，所以在这里直调 renderHtml 断言
+  // （同 P5.f／P5.g 的形状 —— 留在 render.ts 里没有任何测试够得着）。
+  const kwHtml = renderHtml(out, {
+    product: 'p', market: 'US', platforms: taskPlatforms(tstate()),
+    keywords: rows, total: 2, tiers: { A: 1, B: 0, C: 1 }, email_count: 2,
+    cross_platform_count: 0, requests: 1, cost_estimate_usd: 0.001,
+    budget_usd: 2, enriched: false,
+  })
+  // ⚠️ **断言落在表体上，不是整页。** 头一版写的是 `kwHtml.includes('未查询')` ——
+  // 它命中的是我在同一个提交里新写的那句说明文案，关键词表整个为空时照样绿
+  // （#139 复核第 4 条，实测：`renderHtml([], {keywords: []})` 也命中）。
+  // 那两条断言于是什么都没测，而整条检查链 403/403 全绿。
+  // 切到 <tbody> 为止 —— 那句说明文案在 <h2> 与 <table> 之间，切在 </table> 上它还在里面，
+  // 断言照样恒真（我头一版的修就栽在这儿，切细了才真的只剩行）
+  const kwTable = (h: string): string =>
+    ((h.split('<h2>关键词表现</h2>')[1] ?? '').split('<tbody>')[1] ?? '').split('</tbody>')[0]
+  ok('夹具本身有效：表体里真的有行', /<tr>/.test(kwTable(kwHtml)))
+  ok('没查过的词照样在表体里，写着「未查询」', kwTable(kwHtml).includes('未查询'))
+  ok('空表时那两个字不该出现在表体里 —— 证明上一条测的是行，不是说明文案',
+     !kwTable(renderHtml([], {
+       product: 'p', market: 'US', platforms: [], keywords: [], total: 0,
+       tiers: { A: 0, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0,
+       requests: 0, cost_estimate_usd: 0, budget_usd: 1, enriched: false,
+     } as any)).includes('未查询'))
+  // ⚠️ **断言要落在格子上，不是「这几个字在表体里出现过」。**
+  // 上一版 U3.c 名下全是 `includes('<th>找到</th>')` 这种表头存在性，行的取值一格没测：
+  // 独立复核当场把「入围」那一列的接线换成 `countText(k.found)`（两个数合并成同一个，
+  // 正是 U3.b 逐字禁的），**整条检查链 371/371 全绿**。四态里也只有两态被钉住 ——
+  // 把「未知」印成 0、把「查了 0 命中」印成「—」，两个改法都全绿（ADR-94 第十六节丁，实测）。
+  const cells = (h: string, col: number): string[] =>
+    kwTable(h).split('<tr>').slice(1).map(r =>
+      ([...r.matchAll(/<td>([\s\S]*?)<\/td>/g)].map(m => m[1].trim())[col]) ?? '（没有这一格）')
+  // 四态在**同一张表**上，逐格钉死。分两次渲染各命中一个词的话，「它们互不相同」测不到。
+  eq('「找到」那一列四态俱全，逐格对得上：量出来的 0 印 0，没测量的不印 0',
+     cells(kwHtml, 3), ['40', '0', '未查询', '未查询', '未知', '7'])
+  // ⚠️ 没问过的两行印「—」**不是**印 0 —— P5.i 逐字：未查询的行不得带出看起来像测量值的数。
+  // 而「问过、条数没记下」那一行照样印确知的 0：那一页一个人都没入库，入围是量得出来的。
+  eq('「入围」那一列是人数，不是条目数 —— 和「找到」不是同一个数',
+     cells(kwHtml, 4), ['2', '0', '—', '—', '0', '1'])
+  eq('「语义通过」那一列', cells(kwHtml, 5), ['1', '0', '—', '—', '0', '1'])
+  ok('hashtag 词在报告上看得出来', cells(kwHtml, 0)[5]?.includes('(hashtag)') === true)
+  const unknownHtml = renderHtml(out, {
+    product: 'p', market: 'US', platforms: taskPlatforms(tstate()),
+    keywords: unknownRows, total: 2, tiers: { A: 1, B: 0, C: 1 }, email_count: 2,
+    cross_platform_count: 0, requests: 1, cost_estimate_usd: 0.001,
+    budget_usd: 2, enriched: false,
+  } as any)
+  ok('无从确认那一态也说得出来', kwTable(unknownHtml).includes('无从确认'))
+  // 无从确认时连归人都无从谈起 —— 入围与语义通过要印「—」，不许印 0（P5.i 逐字）
+  ok('无从确认的行不印 0，印「—」',
+     kwTable(unknownHtml).includes('—') && !/<td>0<\/td>/.test(kwTable(unknownHtml)))
+  // 那个 0% 是这条判据逐字点名的东西：命中率那一列本来就是两种单位相除，
+  // 本条把它整列撤掉 —— 没查过的行于是不可能再带出一个像测量值的百分比。
+  ok('关键词表里不再有命中率那一列', !kwHtml.includes('<th>命中率</th>'))
+  ok('平台成了表上的一列 —— 关键词×平台才是一行', kwHtml.includes('<th>平台</th>'))
+  ok('找到与入围各自一列，没有合并', kwHtml.includes('<th>找到</th>') && kwHtml.includes('<th>入围</th>'))
+  // U3.c 接替退役的 U3.a：那一条要求「找到**人数**」与「命中率」，而本条把「找到」
+  // 换成供应商返回的条目数、并撤掉了命中率那一列（两种单位相除无意义）——
+  // 判据不改含义、不回收复用（ADR-67），所以退役、用下一个字母。
+  ok('三列都在：找到、入围、语义通过',
+     kwHtml.includes('<th>找到</th>') && kwHtml.includes('<th>入围</th>')
+     && kwHtml.includes('<th>语义通过</th>'))
+  // ⚠️ 上面这几条只管表头在不在。**U3.c 说的是「每一行列出」**，所以它的承重断言是
+  // 前面那三条逐格比对 —— 表头存在性一条负片都指不动（`M-U3-d` 指的是格子）。
+  criterion('U3.c')
+  criterion('P5.i')
+  // ── U3 × P5：同一份数据，两种坏法 ─────────────────────────────────────
+  // 上面那一组断言同时量了两件事：**每个任务都有自己那一行**（U3.b，表里有什么），
+  // 以及**四态各说各的、平台不会消失**（P5.i，用户会不会据此做错决定）。
+  // 两者都从任务列表出发，所以是同一份数据；但坏起来后果不同 ——
+  // 少一行是表不全，把「没查过」印成 0 是让运营砍掉一个没查过的方向。
+  tension('U3', 'P5')
   eq('分层计数', tierCounts(out), { A: 1, B: 0, C: 1 })
 }
 

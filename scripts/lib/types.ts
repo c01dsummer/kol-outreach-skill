@@ -243,6 +243,15 @@ export interface Creator {
 
   source_keyword: string
   source_dimension: Dimension
+  /**
+   * U3.b：这个人是被**哪几个任务**搜到的（`task.json` 里的下标）。creator 与 task
+   * 多对多，而 `source_keyword` 只记第一个搜到他的词（去重先到先得）—— 拿它归人时，
+   * 后面那些词会被报成「找到 N 条、一个都没入围」（ADR-94 第十六节甲）。
+   *
+   * ⚠️ `source_keyword` 保留不动（CSV 的一列、记忆里的字段），这里只补一份归因用的。
+   * 可选：本条之前采的人没有它，那种目录的关键词表本来就判无从确认。
+   */
+  source_tasks?: number[]
 
   recent_posts: RecentPost[]
 
