@@ -46,7 +46,9 @@ export function wanted(groups: readonly Group[], only?: readonly string[]): Set<
 export function parseOnly(argv: readonly string[]): string[] | undefined {
   const hit = argv.find(a => a.startsWith('--only='))
   if (hit === undefined) return undefined
-  // 空的 `--only=` 交回空数组而不是 `undefined` —— 前者是「一组都不跑」（点得出来的错），
-  // 后者是「全跑」（静默变成另一件事）
+  // 空的 `--only=` 交回空数组而不是 `undefined` —— 两者都是错，但错法不一样：
+  // 空数组是「一组都不跑」，入口据此按红报（`selfcheck.ts` 收尾那支）；
+  // `undefined` 是「全跑」，静默变成另一件事。**这里不抛**，判定只管把两者分开，
+  // 由入口去定性 —— 抛在这儿的话 `wanted` 就得替调用方决定空集算不算错。
   return hit.slice('--only='.length).split(',').filter(s => s !== '')
 }

@@ -4375,6 +4375,8 @@ harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 n
     "  named('甲里的', true, '')",
     "  if (x) { endPath('嵌在块里的') }",
     "  别的函数('不算起名的')",
+    "  别的对象.named('属性调用的', true, '')",
+    "  named(`反引号的`, true, '')",
     '})',
     "group('乙', ['甲'], () => { named('乙里的', true, '') })",
   ].join('\n')
@@ -4385,6 +4387,22 @@ harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 n
   // 组外的标签查不到 —— 调用方据此整跑，而不是缩成一个漏掉它的子集
   eq('组外的标签不在表里', where.get('组外那条'), undefined)
   eq('没写进 declares 的调用不算起名', where.get('不算起名的'), undefined)
+  // 下面两条守的是**照抄过来、却没跟着抄负片**的那两处判断（评审第二轮指出）：
+  // `labelsOf` 那边各有 M-H20-c／M-H20-g，这边原先一条都没有，改了它们在真文件上
+  // 完全等价，全链不可能变红。
+  eq('点号右边那一截不算起名 —— 别的对象上碰巧同名的方法', where.get('属性调用的'), undefined)
+  eq('反引号、没插值的也定得下来，归到那一组', where.get('反引号的'), '甲')
+
+  // **「宁可多跑」之所以成本为零，全靠每条标签都落得进某一组。** 一条落不进，
+  // `onlyFor` 就静默退回整跑 —— 报告一字不差，只有墙钟变了，而检查链里没有任何
+  // 地方量墙钟：这条改动买到的东西可以一秒不剩地漏光而全链照绿（评审实测）。
+  // `misnamed` 那道闸只问「名字在不在清册里」，落不落得进组它不问。手搭的数据证不了
+  // 真源码，照 #85 那条欠条的先例扫真的。
+  const selfDecl = VERIFIERS.selfcheck.declares
+  const selfSrc = rf('scripts/check/selfcheck.ts', 'utf8')
+  const selfGrouped = groupOfLabel(selfSrc, selfDecl)
+  eq('真 selfcheck.ts：清册里的每条标签都翻得出组，一条不落',
+    [...labelsOf(selfSrc, selfDecl).keys()].filter(l => selfGrouped.get(l) === undefined), [])
 }
 
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')

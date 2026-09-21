@@ -735,7 +735,7 @@
       "id": "M-H42-d",
       "req": "harness",
       "file": "scripts/check/group-rule.ts",
-      "why": "空的 --only= 被当成一个叫空串的组 —— 那句「点了不存在的组就抛」会替它报错，掩盖掉「这一跑本该什么都不跑」这个真实意图",
+      "why": "空的 --only= 被当成一个叫空串的组 —— 那会由 wanted 抛「点了不存在的组」，而空集该由入口定性（selfcheck 收尾那支按红报「点了零个组」）；抛在判定里等于让 wanted 替调用方决定空集算不算错，两种写错也就分不出来了",
       "find": "  return hit.slice('--only='.length).split(',').filter(s => s !== '')",
       "replace": "  return hit.slice('--only='.length).split(',')"
     },
@@ -754,6 +754,22 @@
       "why": "任何一处调用都算起名 —— 组里随便一个带字符串首参的调用都会被当成夹具标签，负片点名时翻到的组可能整个是错的",
       "find": "      else if (label !== undefined && group !== undefined && declared.has(name)",
       "replace": "      else if (label !== undefined && group !== undefined && true"
+    },
+    {
+      "id": "M-H43-c",
+      "req": "harness",
+      "file": "scripts/check/mutate-rule.ts",
+      "why": "调用者认成「点号右边那一截」：别的对象上碰巧同名的方法也被当成起名，于是一条本不属于这一组的标签被归进来，负片点名时翻到的组整个是错的（清册那一侧同形的一条是 M-H20-c，归组这一侧原先一条都没有）",
+      "find": "    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {\n      const name = node.expression.text",
+      "replace": "    if (ts.isCallExpression(node) && (ts.isIdentifier(node.expression) || ts.isPropertyAccessExpression(node.expression))) {\n      const name = ts.isIdentifier(node.expression) ? node.expression.text : node.expression.name.text"
+    },
+    {
+      "id": "M-H43-d",
+      "req": "harness",
+      "file": "scripts/check/mutate-rule.ts",
+      "why": "只认引号括起来的那一种字面量：反引号写的、静态一样定得下来的夹具名翻不出组，那条负片于是静默退回整跑 —— 这条改动买到的东西悄悄漏掉，而没有任何东西会红（清册那一侧同形的一条是 M-H20-g，归组这一侧原先一条都没有）",
+      "find": "ts.isStringLiteralLike(first) ? first.text : undefined",
+      "replace": "ts.isStringLiteral(first) ? first.text : undefined"
     },
     {
       "id": "M-H9-i",
@@ -3223,7 +3239,10 @@
       "id": "M-P3-f",
       "req": "P3",
       "by": "selfcheck",
-      "kills": ["collect 搜索循环里被杀：盘上少记的正好是落盘窗口那一次", "collect 搜索循环里被杀后续跑：供应商多收恰好一次"],
+      "kills": [
+        "collect 搜索循环里被杀：盘上少记的正好是落盘窗口那一次",
+        "collect 搜索循环里被杀后续跑：供应商多收恰好一次"
+      ],
       "why": "关键词循环里每抓一页那次落盘不做了 —— 收尾那次照样把数写对，主干今天全绿；只有在两次落盘之间把进程杀掉，才看得见盘上少记的那几次、续跑再花一遍的那几次",
       "file": "scripts/collect.ts",
       "find": "      }\n      persist()\n    }\n\n    if (stopped === 'target' || !anyProgress) break",
@@ -3233,7 +3252,10 @@
       "id": "M-D6-o",
       "req": "D6",
       "by": "selfcheck",
-      "kills": ["enrich 两个账号之间被杀：盘上少记的正好是落盘窗口那一次", "enrich 两个账号之间被杀后续跑：供应商多收恰好一次"],
+      "kills": [
+        "enrich 两个账号之间被杀：盘上少记的正好是落盘窗口那一次",
+        "enrich 两个账号之间被杀后续跑：供应商多收恰好一次"
+      ],
       "why": "每个账号查完那次落盘不做了 —— 末尾那次照样写对，只有在两个账号之间把进程杀掉才看得见：盘上少记一次，续跑把那个账号再查一遍、再付一次",
       "file": "scripts/enrich.ts",
       "find": "  state.accounts[k] = next\n  newlyQueried++\n  persist()\n}",

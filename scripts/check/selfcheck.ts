@@ -13,6 +13,10 @@
  * 两种都没有的，就是没人跑过，报错。末尾那句话按这两组分开说 ——
  * 合起来说一句「全都从头执行到尾」，在单独跑 `npm run selfcheck` 时是假的。
  *
+ * `--only=<组 id>` 只跑点名的那几组 ＋ 依赖闭包（`group-rule.ts`），给上面那句
+ * 无条件的「两种都没有的就报错」开了**两处例外**：子集跑不判孤儿，也不碰入口认领。
+ * 缩掉的面由运行时那两行照实打出来（ADR-77 的先例），这里不假装没缩。
+ *
  * 死亡条件记在 ADR-85:一身三半,三半的答案不一样,所以没有整道的那一份。
  */
 import {
@@ -64,6 +68,11 @@ const covered = new Set<string>()
 const S = (f: string) => { covered.add(`scripts/${f}`); return resolve('scripts', f) }
 
 const tmp = mkdtempSync(join(tmpdir(), 'kol-selfcheck-'))
+// **收尾那句 `rmSync(tmp)` 够不到顶层抛出去的那一路。** `--only` 点错组名会在
+// `runGroups` 里抛，那时目录已经建好、语料已经写盘，收尾一行都不跑，每敲错一次
+// 漏一个目录。照 `mutate.ts` 里 `restoreClaims` 的先例挂在 exit 上 —— 同样管不到
+// 信号杀进来的那一路，写在这儿是为了别把它当成已经保证了的事。
+process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
 const env = {
   ...process.env,
   TIKHUB_API_KEY: 'fake-key-for-selfcheck',
@@ -2130,6 +2139,15 @@ if (ranOnly !== undefined) {
 // （实测 stderr 积压 400 行时 40 次丢 18 次）。由 `exitRace` 守着（`mutate-rule.ts`）。
 if (failed) {
   console.error(`\n${selfcheckSummary(failed)}`)
+  process.exitCode = 1
+} else if (ranOnly !== undefined && ranOnly.size === 0) {
+  // **零组跑完不许打绿。** `--only=` 等号后面空着时 24 组一组没跑，而这一支原本
+  // 打的那句话形状与一次合法的子集全绿一模一样（只有括号里的数字不同），退出码也是 0。
+  // 屏幕上那两行人看得见，但真正的触发路径是 `--only=$IDS` 而 IDS 没设 —— 那时
+  // 没人在看屏幕，看的是退出码。`group-rule.ts` 开头写着「什么也不验、还以退出码 0
+  // 结束，那正是本仓库反复栽的那种假绿」，那条原则对空集一样成立。
+  console.error('\n✗ 脚本自检：`--only=` 点了零个组 —— 这一跑一条断言都没验')
+  console.error('  要整跑就别写 `--only`；要点名就至少给一个组 id。')
   process.exitCode = 1
 } else if (ranOnly !== undefined) {
   console.log(`\n✓ 脚本自检（只跑 ${ranOnly.size} 组）：点名的那几组都跑完了，一条断言都没红`)

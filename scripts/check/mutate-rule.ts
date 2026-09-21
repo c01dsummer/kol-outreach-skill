@@ -189,8 +189,15 @@ export function exitRace(source: string): string | undefined {
 /**
  * 每条夹具标签属于哪一组 —— 把负片 `kills` 点名的夹具翻成 `--only` 要的组 id。
  *
- * **和 `labelsOf` 同一趟语法树、同一份 `declares`，不是第二个解析器。** 认的是
- * `group('<id>', [...], () => { … })` 这个**代码结构**本身，不认任何注释约定 ——
+ * **它和 `labelsOf` 各扫一遍，判定重复了一份 —— 照实写，别否认。** 共享的只有
+ * `declares` 这个参数值：语法树两棵（这里与 `labelsOf` 各 `createSourceFile` 一次），
+ * 调用侧也两趟（`mutate.ts` 的 `inventoryOf` 与 `onlyFor` 各读一次文件）。
+ * 「什么算给夹具起名」这个判定在两处各写了一份：callee 只认光秃秃的 Identifier、
+ * 首参只认 `isStringLiteralLike`、名字要在 `declares` 里。
+ * **改 `labelsOf` 那三条判据时，这里要跟着改。** ADR-25 说的是「一个判断只放一处」，
+ * 这里没做到；合成一趟同时产出两张表是可以的，本条没做，欠条在 ADR-99 第八节。
+ *
+ * 认的是 `group('<id>', [...], () => { … })` 这个**代码结构**本身，不认任何注释约定 ——
  * 注释里的分节线只是装饰，改了不影响这里。
  *
  * 重名不在这里判：`labelsOf` 的计数那道闸已经管着「同一个标签出现不止一次」，
