@@ -54,7 +54,10 @@ TikHub 的 OpenAPI 又不描述响应体（`docs/data-source-strategy.md` 第 3 
 npm run probe:ig-paging -- --keyword smoothie
 ```
 
-六次请求（基线 2 ＋ 四个参数各 1），按 `lib/budget.ts` 的单价约 $0.006。
+每跑一次：基线 2 次 ＋ `VARIANTS` 里每个参数各 1 次。**这里不写总数、也不写总价** ——
+两者都是 `VARIANTS` 与 `lib/budget.ts` 单价的函数，而 `VARIANTS` 的注释逐字写着
+「只加不改」，也就是它**注定会长**：写死的数必烂（`REVIEW.md`、ADR-73／ADR-82）。
+实际花了多少由脚本自己打在输出的 `requests` 与 `cost_estimate_usd` 上。
 **要一把充过值的 key** —— 没充值时 IG 端点恒 402，脚本会直说是余额问题，不含糊。
 
 ## 三、这个工具最危险的一支，就是它最可能跑出来的那一支
