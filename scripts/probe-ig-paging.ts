@@ -109,6 +109,17 @@ const budget = new Budget(1)
  */
 const freshOf = (a: string[], b: string[]) => b.filter(x => !a.includes(x))
 
+/**
+ * 发一次请求。**非 200 直接抛，不重试** —— 与 `providers/tikhub.ts` 的 `get()` 不同，
+ * 那一份会对 429 退避重试三次，于是它的 `requests` 是净计数、可以小于 HTTP 尝试次数。
+ *
+ * 这里刻意不那样：异常穿过 `main()` 落到末尾的 `catch`，打一句诊断就非零退出，
+ * **那份 JSON 一个字都不会打印**。所以反过来成立 —— **输出存在 ⇒ 每一次都是 200 ⇒
+ * `requests` 就是真发出去的次数**。读这个数的人不必再去想退费那一层。
+ *
+ * （这一条被评审误读过一次，按 `get()` 的语义指出「`requests` 不等于尝试次数」。
+ * 在这里不成立，但那说明光看调用点看不出来，所以写在这儿。）
+ */
 async function ask(extra: Record<string, string | number>): Promise<any> {
   const url = new URL(PATH, BASE)
   url.searchParams.set('keyword', keyword!)
