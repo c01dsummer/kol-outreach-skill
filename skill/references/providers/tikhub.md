@@ -162,9 +162,10 @@ data.data.items[].like_count         ⚠️ 可能是 null（作者隐藏赞数�
    `count` 和 `items`」—— 那是**响应**那一侧的观测，而**请求收不收 `offset`／`max_id`
    从来没有人试过**，两件事不是一回事。TikHub 的 OpenAPI 又不描述响应体（见
    `docs/data-source-strategy.md` 第 3 条），所以文档那条路也走不通。
-   要验就跑 `npm run probe:ig-paging -- --keyword smoothie`（基线 2 次 ＋ 每个参数各 1 次；
-   次数与**估算**花费脚本自己打在输出里，这儿不写死 —— 那个花费是请求数乘以我们
-   自己写死的单价，不是 TikHub 的账单。要一把**充过值**的 key）。**它的输出里没有「不支持」这句判词**，只有三句：
+   要验就跑 `npm run probe:ig-paging -- --keyword smoothie`（基线重跑一次做对照，
+   每个待试参数各发一次；真发了几次、估算花了多少，脚本自己打在输出的 `requests`
+   与 `cost_estimate_usd` 上 —— 后者是请求数乘以我们自己写死的单价，不是 TikHub
+   的账单。要一把**充过值**的 key）。**它的输出里没有「不支持」这句判词**，只有三句：
 
    | 判词 | 什么时候打 | 它说了什么 |
    |---|---|---|

@@ -28,7 +28,13 @@
  *
  *   npm run probe:ig-paging -- --keyword smoothie
  *
- * 成本：基线 2 次 ＋ 每个参数 1 次，按 `lib/budget.ts` 的单价算，打在输出里。
+ * 每跑一次发几个请求：基线重跑一次做对照，`VARIANTS` 里每个参数各一次。
+ * **这个形状不是散文里的一个数** —— 自检 `ig-paging-probe` 那组里
+ * 「基线真的跑了两次」那条断言拿 `requests` 跟它对，改了这里的请求次数
+ * 而不改那条断言，检查链当场红（负片 `M-H44-b` 守着它）。
+ *
+ * 花了多少看输出的 `cost_estimate_usd`。⚠️ 那是**估算**：请求数乘以
+ * `lib/budget.ts` 里我们自己写死的单价，不是 TikHub 的账单。
  */
 import { TikHubError, pickList } from './providers/tikhub.js'
 import { Budget, UNIT_PRICE } from './lib/budget.js'
