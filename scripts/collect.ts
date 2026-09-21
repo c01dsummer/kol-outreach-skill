@@ -19,7 +19,7 @@ import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetExceeded, budgetProblem, ledgerProblem, showAmount } from './lib/budget.js'
 import {
   MAX_PAGES, finalize, firstPagePending, mergePage, needsProfile, pagesFetched,
-  pendingKeywords, resumeCostLine,
+  pendingKeywords, resumeCostLine, underPageCap,
 } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
@@ -215,8 +215,10 @@ async function run() {
       // 栽过的同一个形状，collect.ts 上方 #138 评审那几行记着）。
       // 达上限与「无从确认」都写进 done：`pendingKeywords` 只看 done（D6.g），
       // 不写的话调度这边不抓、收尾那句话却把它算进「要花钱」，两处当场对不上（ADR-25）。
-      const fetchedSoFar = pagesFetched(state, i)
-      if (fetchedSoFar === null || fetchedSoFar >= MAX_PAGES) {
+      // **判定用中心那一份，别在这里抄第二遍**（ADR-25）—— 抄一遍就有两处可以各自
+      // 漂走，而带测试与负片的是中心那一份。`pagesFetched` 只留给下面那句措辞。
+      if (!underPageCap(state, i)) {
+        const fetchedSoFar = pagesFetched(state, i)
         exhausted.add(i)
         state.done.push(i)
         console.error(fetchedSoFar === null

@@ -166,8 +166,9 @@ export const MAX_PAGES = 4          // 实测值：第 4 页后新增人数明�
  * - `0`     —— 确知一页都没抓过（分页游标里没有它的键；那个键只在 `search()` 正常
  *              返回之后才写，所以「没有键」⇒「没成功拿回过页」是恒真的，不是推测）
  * - `n > 0` —— 确知抓了 n 页
- * - `null`  —— **无从确认**：分页游标里有它的键（抓过至少一页），而这张表缺失（D6.m），
- *              或者盘上那个值不是非负整数（反序列化进来的外部输入）
+ * - `null`  —— **无从确认**：这张表里有它的键而值认不出（反序列化进来的外部输入：
+ *              负数、小数、字符串），或者表整个缺失而分页游标里有它的键（抓过至少一页，
+ *              几页无从确认，D6.m）
  *
  * **`null` 不许被压成 0。** 压成 0 的话，上一版留下的目录里每个已经抓过页的词都会
  * 重新拿到一份满配额，而那种目录正是今天用户手上的形状 —— 这条需求对现存数据一条都不管。
@@ -177,8 +178,15 @@ export const MAX_PAGES = 4          // 实测值：第 4 页后新增人数明�
  * 都不改变行为，但交回 `null` 才是实话。
  */
 export function pagesFetched(state: TaskState, i: number): number | null {
-  const n = state.pages?.[i]
-  if (typeof n === 'number' && Number.isInteger(n) && n >= 0) return n
+  const pages = state.pages
+  // **先问键在不在，再验值。** 合起来写成 `pages?.[i]` 认不出就往下掉的话，
+  // 一个写脏的值（`-1`、小数、字符串）会在分页游标里恰好**没有**这个键时落进
+  // 下面那句的 `0` —— 「认不出」当场变成「确知一页都没抓过」，再给一份满配额。
+  // 评审指出；而我原来那条断言只试了游标里**有**键的情形，偶然被救回来（M-D6-aa 守着）。
+  if (pages !== undefined && i in pages) {
+    const n = pages[i]
+    return typeof n === 'number' && Number.isInteger(n) && n >= 0 ? n : null
+  }
   const offsets = state.offsets
   if (offsets === undefined) return null
   return i in offsets ? null : 0

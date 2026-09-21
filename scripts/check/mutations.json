@@ -422,7 +422,7 @@
         "开跑时就已达上限：一次关键词搜索都不发，不是「先多买一页再停」"
       ],
       "why": "跨运行那道闸不判了：开跑时就已达上限的任务会先多买一页才被循环里那句拦下，而判据写的是「达到上限之后不得再发出搜索请求」；上一版留下的目录更糟 —— 「无从确认」不再拦，每次续跑都重新给一份满配额，同一个关键词累计翻到任意多页",
-      "find": "      if (fetchedSoFar === null || fetchedSoFar >= MAX_PAGES) {",
+      "find": "      if (!underPageCap(state, i)) {",
       "replace": "      if (false) {"
     },
     {
@@ -448,6 +448,14 @@
       "why": "上一版留下的目录里凭空建出一张空的页数表 —— 把「无从确认」抹成「一页都没抓过」，那个词当场又拿到一份满配额，而且不可逆",
       "find": "      const ptbl = state.pages",
       "replace": "      const ptbl = (state.pages ??= {})"
+    },
+    {
+      "id": "M-D6-aa",
+      "req": "D6.m",
+      "file": "scripts/lib/pipeline.ts",
+      "why": "这张表里有这个键、而值认不出时不再读作无从确认，改成往下掉去问分页游标 —— 一个写脏的值在游标里恰好没有这个键时会被读成「确知一页都没抓过」，那个词当场又拿到一份满配额",
+      "find": "  if (pages !== undefined && i in pages) {",
+      "replace": "  if (false) {"
     },
     {
       "id": "M-D6-q",

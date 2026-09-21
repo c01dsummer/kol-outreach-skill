@@ -749,11 +749,20 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
      pagesFetched(st({ pages: undefined, offsets: { 0: 9 } }), 1), 0)
   ok('连游标都没有 → null（那时 F9.e 已经让这一跑一个词都不抓，但交回 null 才是实话）',
      pagesFetched(st({ pages: undefined, offsets: undefined }), 0) === null)
-  // 盘上那个值是反序列化进来的外部输入 —— 认不出的一律读作无从确认（不多花钱的那一边）
+  // 盘上那个值是反序列化进来的外部输入 —— 认不出的一律读作无从确认（不多花钱的那一边）。
+  // ⚠️ **这几条必须把分页游标留空**：头一版全写成 `offsets: { 0: 9 }`，于是认不出的值
+  // 往下掉、被那句「游标里有键 → null」偶然救了回来 —— 断言绿了，而守的那一半没被走到。
+  // 游标里**没有**这个键时它会落进 `0`（「确知一页都没抓过」），当场再给一份满配额。
+  // 评审指出；M-D6-aa 现在守着「先问键在不在」那一句。
   ok('值不是非负整数 → 读作无从确认，不读作 0',
+     pagesFetched(st({ pages: { 0: -1 }, offsets: {} }), 0) === null)
+  ok('值是小数 → 同样读作无从确认', pagesFetched(st({ pages: { 0: 1.5 }, offsets: {} }), 0) === null)
+  ok('值根本不是数 → 同样读作无从确认',
+     pagesFetched(st({ pages: { 0: 'x' } as unknown as Record<number, number>, offsets: {} }), 0) === null)
+  ok('值认不出、而游标里有键 → 照样是无从确认（两条路都要通到同一处）',
      pagesFetched(st({ pages: { 0: -1 }, offsets: { 0: 9 } }), 0) === null)
-  ok('值是小数 → 同样读作无从确认',
-     pagesFetched(st({ pages: { 0: 1.5 }, offsets: { 0: 9 } }), 0) === null)
+  ok('值认不出、而整张游标都没有 → 同样无从确认',
+     pagesFetched(st({ pages: { 0: -1 }, offsets: undefined }), 0) === null)
   // 上限本身要在**边界**上可失败：写成 `<=` 的实现会让第二行红，写成 `<` 的会让第一行红
   ok('还差一页 → 还能翻', underPageCap(st({ pages: { 0: MAX_PAGES - 1 } }), 0))
   ok('正好到上限 → 不能再翻', !underPageCap(st({ pages: { 0: MAX_PAGES } }), 0))
