@@ -1,8 +1,19 @@
 name: check
 
 on:
+  # ⚠️ **push 只管 main。** 原先是全分支，于是往 PR 分支推一次，同一个 head 上会起
+  # 两个完全一样的 check（实测 #140：106112892980 与 106112885958，起跑差 1 秒）——
+  # 覆盖一点没多，算力翻了一倍。代价明写：既不在 main、也没开 PR 的分支，推上去不再
+  # 自动跑；那种分支本来也拿不到评审，而 `npm run check` 在本地是同一条链（ADR-97）
   push:
+    branches: [main]
   pull_request:
+
+# 连推两次时让被顶替的那一跑自己取消。**main 上不取消** ——
+# 每个进主干的提交都要自己跑过一遍，不许被下一个提交顶掉
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # 只读:检查链不写任何东西
 permissions:

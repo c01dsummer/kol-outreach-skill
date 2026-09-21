@@ -79,7 +79,8 @@
 - **变异清单**：`npm run mutate -- --brief` —— 只列每条变异「违反了什么」，不含实现原文。
   给**写测试的那个上下文**用，见 `process/4-VERIFY.md` 的「给测试上下文一张准入读物清单」
 - **文档同步表**：`docs/SYNC.md`
-- **CI**：`.github/workflows/check.yml`，每次 push 跑同一条链
+- **CI**：`.github/workflows/check.yml`，推 `main` 与每个 pull request 上跑同一条链 ——
+  既不在 `main`、也没开 PR 的分支不跑（ADR-97）
 
 ---
 
