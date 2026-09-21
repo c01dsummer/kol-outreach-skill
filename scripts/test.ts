@@ -19,8 +19,9 @@ import {
   judgeRun, killsMatched,
   labelFault, notAssertion,
   labelFaults,
-  labelsOf, leadWired, processFailed, wiringFault,
+  groupOfLabel, labelsOf, leadWired, processFailed, wiringFault,
 } from './check/mutate-rule.js'
+import { parseOnly, wanted } from './check/group-rule.js'
 import {
   beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
@@ -4335,6 +4336,55 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
   eq('读得出来但不是合法 JSON，是记录坏了', claimsReadFault(new SyntaxError('坏了')), 'unparsable')
   eq('权限不对，是这个路径读不了 —— 不是没跑过', claimsReadFault(errno('EACCES')), 'unreadable')
   eq('路径底下变成了目录，同样是读不了', claimsReadFault(errno('EISDIR')), 'unreadable')
+}
+
+harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 needs 一起跑')
+{
+  const G = [
+    { id: 'collect', needs: [] },
+    { id: 'enrich', needs: ['collect'] },
+    { id: 'render', needs: ['enrich'] },
+    { id: '独立', needs: [] },
+  ]
+  // **不点名就是全跑。** 缺省行为逐字如旧，这是这条改动敢动自检那个文件的前提
+  eq('没写 --only → 交回 undefined，调用方据此全跑', wanted(G, undefined), undefined)
+  // 闭包是**传递**的：点 render 要连 enrich 与 collect 一起，否则 render 读到的是初始值
+  eq('点一个，连它的 needs 递归拖进来', [...wanted(G, ['render'])!].sort(),
+    ['collect', 'enrich', 'render'])
+  eq('没被点也没人需要的，不跑', wanted(G, ['render'])!.has('独立'), false)
+  eq('点两个，并集', [...wanted(G, ['独立', 'enrich'])!].sort(), ['collect', 'enrich', '独立'])
+  eq('点它自己一个，需要它的那些不跟着跑', [...wanted(G, ['collect'])!], ['collect'])
+  // 名字写错的 --only 会让这一跑什么也不验、还以退出码 0 结束 —— 那正是这套方法要防的假绿。
+  // **要它说出是哪个名字，不能只问「抛没抛」**：拿掉那道检查之后 `byId.get(id)!.needs`
+  // 会抛 TypeError，照样是抛，只问抛没抛的断言照样绿（实测：M-H42-b 因此存活了一轮）
+  eq('点了不存在的组，抛的那句话要点出是哪个名字', (() => {
+    try { wanted(G, ['没这个']); return '没抛' } catch (e) {
+      return (e as Error).message.includes('没这个') ? '点了名' : '抛了别的'
+    }
+  })(), '点了名')
+  // 空的 `--only=` 是「一组都不跑」（点得出来的错），不是「全跑」（静默变成另一件事）
+  eq('--only= 空着 → 空数组，不是 undefined', parseOnly(['--only=']), [])
+  eq('没写这个参数 → undefined', parseOnly(['--worker']), undefined)
+  eq('逗号分隔', parseOnly(['--only=a,b']), ['a', 'b'])
+  eq('空集跑不出任何一组', [...wanted(G, [])!], [])
+
+  // 标签落在哪一组 —— 认的是 group(...) 这个代码结构，不认注释里的分节线
+  const src = [
+    "named('组外那条', true, '')",
+    "group('甲', [], () => {",
+    "  named('甲里的', true, '')",
+    "  if (x) { endPath('嵌在块里的') }",
+    "  别的函数('不算起名的')",
+    '})',
+    "group('乙', ['甲'], () => { named('乙里的', true, '') })",
+  ].join('\n')
+  const where = groupOfLabel(src, ['named', 'endPath'])
+  eq('组里的标签归到那一组', where.get('甲里的'), '甲')
+  eq('嵌在块里、嵌在箭头函数里的也认', where.get('嵌在块里的'), '甲')
+  eq('第二组归第二组', where.get('乙里的'), '乙')
+  // 组外的标签查不到 —— 调用方据此整跑，而不是缩成一个漏掉它的子集
+  eq('组外的标签不在表里', where.get('组外那条'), undefined)
+  eq('没写进 declares 的调用不算起名', where.get('不算起名的'), undefined)
 }
 
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')

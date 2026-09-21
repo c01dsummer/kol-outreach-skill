@@ -199,6 +199,11 @@ export function exitRace(source: string): string | undefined {
 export function groupOfLabel(source: string, declares: readonly string[]): Map<string, string> {
   const out = new Map<string, string>()
   const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
+  // **用 Set 查，不要照抄 `labelsOf` 里那句 includes。** 照抄的话同一串字面量在这个
+  // 文件里出现两次，而 `mutate` 只检查锚点在不在、不检查唯一不唯一
+  // （它用的是字符串版 `replace`，只改第一处）。实测：`M-H20-b` 本该改 `labelsOf`，
+  // 结果改了这里，而这里当时还没有测试守着 —— 它「存活」了一整轮全链。
+  const declared = new Set(declares)
   const walk = (node: ts.Node, group: string | undefined): void => {
     let inner = group
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
@@ -206,7 +211,7 @@ export function groupOfLabel(source: string, declares: readonly string[]): Map<s
       const first = node.arguments[0]
       const label = first !== undefined && ts.isStringLiteralLike(first) ? first.text : undefined
       if (name === 'group' && label !== undefined) inner = label
-      else if (label !== undefined && group !== undefined && declares.includes(name)
+      else if (label !== undefined && group !== undefined && declared.has(name)
                && !out.has(label)) out.set(label, group)
     }
     ts.forEachChild(node, n => walk(n, inner))

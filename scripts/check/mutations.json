@@ -708,6 +708,54 @@
       "replace": "    ok: over.length === 0,"
     },
     {
+      "id": "M-H42-a",
+      "req": "harness",
+      "file": "scripts/check/group-rule.ts",
+      "why": "闭包不再递归 —— 点了 render 只跑 render，而它读的 enrichment.json 是 enrich 那一组落下的；缺了前置组那一整节会被条件守着静默跳过，指着它的负片「跑完、没红」",
+      "find": "    for (const n of byId.get(id)!.needs) walk(n)",
+      "replace": "    for (const n of [] as string[]) walk(n)"
+    },
+    {
+      "id": "M-H42-b",
+      "req": "harness",
+      "file": "scripts/check/group-rule.ts",
+      "why": "点了不存在的组不再抛 —— 一个名字写错的 --only 让这一跑什么也不验、还以退出码 0 结束",
+      "find": "  if (unknown.length) {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-H42-c",
+      "req": "harness",
+      "file": "scripts/check/group-rule.ts",
+      "why": "没写 --only 时当成「一组都不跑」而不是「全跑」—— 整条链的自检从此一个字都不验，却照常全绿",
+      "find": "  if (hit === undefined) return undefined",
+      "replace": "  if (hit === undefined) return []"
+    },
+    {
+      "id": "M-H42-d",
+      "req": "harness",
+      "file": "scripts/check/group-rule.ts",
+      "why": "空的 --only= 被当成一个叫空串的组 —— 那句「点了不存在的组就抛」会替它报错，掩盖掉「这一跑本该什么都不跑」这个真实意图",
+      "find": "  return hit.slice('--only='.length).split(',').filter(s => s !== '')",
+      "replace": "  return hit.slice('--only='.length).split(',')"
+    },
+    {
+      "id": "M-H43-a",
+      "req": "harness",
+      "file": "scripts/check/mutate-rule.ts",
+      "why": "进了 group 也不记组名 —— 每条标签都落不进组，于是每条负片都退回整跑，这条改动买到的东西一秒不剩，而没有任何东西会红",
+      "find": "      if (name === 'group' && label !== undefined) inner = label",
+      "replace": "      if (name === 'group' && label !== undefined) inner = group"
+    },
+    {
+      "id": "M-H43-b",
+      "req": "harness",
+      "file": "scripts/check/mutate-rule.ts",
+      "why": "任何一处调用都算起名 —— 组里随便一个带字符串首参的调用都会被当成夹具标签，负片点名时翻到的组可能整个是错的",
+      "find": "      else if (label !== undefined && group !== undefined && declared.has(name)",
+      "replace": "      else if (label !== undefined && group !== undefined && true"
+    },
+    {
       "id": "M-H9-i",
       "req": "harness",
       "file": "scripts/check/size-rule.ts",
