@@ -75,9 +75,9 @@ import { Budget, BudgetExceeded, UNIT_PRICE, budgetProblem, ledgerProblem } from
 import { enrichedFlag, renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
-  finalize, firstPagePending, keywordsResumeWillRun, keywordRows, mergePage, needsProfile,
-  pendingKeywords, rankCreators, taskPlatforms, taskQueryStatus, tierCounts,
-  resumeCostLine,
+  MAX_PAGES, finalize, firstPagePending, keywordsResumeWillRun, keywordRows, mergePage,
+  needsProfile, pagesFetched, pendingKeywords, rankCreators, taskPlatforms, taskQueryStatus,
+  tierCounts, resumeCostLine, underPageCap,
 } from './lib/pipeline.js'
 import {
   ACTIVITY_ACTIVE_MAX_DAYS, ACTIVITY_COOLING_MAX_DAYS,
@@ -733,6 +733,34 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
   criterion('D6.g')
   criterion('F9.c')
   criterion('F9.e')
+
+  // ── D6.h / D6.m：页数上限跨运行 ─────────────────────────────────────
+  // 判定只此一份，调度与「续跑要不要花钱」共用 —— 各写一份的话，先改的那一边
+  // 不会报错（`needsProfile` 栽过的同一个形状，ADR-25）。
+  eq('表在、有这个键 → 确知抓了几页', pagesFetched(st({ pages: { 0: 3 } }), 0), 3)
+  eq('表在、没有这个键、游标里也没有 → 确知一页都没抓过', pagesFetched(st({ pages: {} }), 0), 0)
+  // **`null` 不许被压成 0。** 压成 0 的话，上一版留下的目录里每个已经抓过页的词都会
+  // 重新拿到一份满配额，而那种目录正是今天用户手上的形状 —— 这条需求对现存数据一条都不管。
+  ok('表缺失、游标里有这个键 → null（抓了几页无从确认），不是 0',
+     pagesFetched(st({ pages: undefined, offsets: { 0: 9 } }), 0) === null)
+  // 游标里没有这个键 ⇒ 没成功拿回过页，这是恒真的（那个键只在 search() 正常返回之后才写），
+  // 所以这一条不是推测 —— F9 的第一页保证正靠它在旧目录上活下来。
+  eq('表缺失、游标里没有这个键 → 确知 0，第一页保证不受影响（F9）',
+     pagesFetched(st({ pages: undefined, offsets: { 0: 9 } }), 1), 0)
+  ok('连游标都没有 → null（那时 F9.e 已经让这一跑一个词都不抓，但交回 null 才是实话）',
+     pagesFetched(st({ pages: undefined, offsets: undefined }), 0) === null)
+  // 盘上那个值是反序列化进来的外部输入 —— 认不出的一律读作无从确认（不多花钱的那一边）
+  ok('值不是非负整数 → 读作无从确认，不读作 0',
+     pagesFetched(st({ pages: { 0: -1 }, offsets: { 0: 9 } }), 0) === null)
+  ok('值是小数 → 同样读作无从确认',
+     pagesFetched(st({ pages: { 0: 1.5 }, offsets: { 0: 9 } }), 0) === null)
+  // 上限本身要在**边界**上可失败：写成 `<=` 的实现会让第二行红，写成 `<` 的会让第一行红
+  ok('还差一页 → 还能翻', underPageCap(st({ pages: { 0: MAX_PAGES - 1 } }), 0))
+  ok('正好到上限 → 不能再翻', !underPageCap(st({ pages: { 0: MAX_PAGES } }), 0))
+  ok('超过上限（上一版写下的数）→ 同样不能再翻', !underPageCap(st({ pages: { 0: MAX_PAGES + 5 } }), 0))
+  ok('无从确认 → 不能再翻，不是「随便翻」', !underPageCap(st({ pages: undefined, offsets: { 0: 9 } }), 0))
+  criterion('D6.h')
+  criterion('D6.m')
   // F9.d 是范围边界：第一页之后照旧按达标停。上面「都抓过第一页 → 一个都不会抓」
   // 就是它 —— 一条「达标之后继续翻页」的实现会让那一行红（ADR-67 要求边界可失败）。
   // 负片是 M-F9-d：让这份判定不再看「抓没抓过」，只看「标没标完成」。

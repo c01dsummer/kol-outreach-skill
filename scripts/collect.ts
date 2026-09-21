@@ -18,7 +18,8 @@ import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetExceeded, budgetProblem, ledgerProblem, showAmount } from './lib/budget.js'
 import {
-  finalize, firstPagePending, mergePage, needsProfile, pendingKeywords, resumeCostLine,
+  MAX_PAGES, finalize, firstPagePending, mergePage, needsProfile, pagesFetched,
+  pendingKeywords, resumeCostLine,
 } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
@@ -28,8 +29,6 @@ import {
 } from './lib/task.js'
 import { creatorKey, textProblem } from './lib/types.js'
 import type { Creator, TaskState } from './lib/types.js'
-
-const MAX_PAGES = 4          // 实测值：第 4 页后新增人数明显衰减
 
 /**
  * 记忆读不出来时仍然产出名单。**必须由用户显式打出来** —— 它不让重复打扰的风险
@@ -73,7 +72,7 @@ if (resume) {
   state = {
     product: cfg.product, market: cfg.market ?? 'US',
     target_count: cfg.target_count ?? 50, budget_usd: cfg.budget_usd ?? 2,
-    tasks: cfg.tasks, done: [], offsets: {}, answered: {}, found: {}, requests: 0,
+    tasks: cfg.tasks, done: [], offsets: {}, answered: {}, found: {}, pages: {}, requests: 0,
     created_at: new Date().toISOString(), updated_at: '',
   }
   productFrom = cfgPath
@@ -200,7 +199,6 @@ async function run() {
   const offsets = unknownPaging ? {} : (state.offsets ??= {})
   const exhausted = new Set<number>(state.done)
   const addedBy = new Map<number, number>()
-  const pages = new Map<number, number>()       // 本关键词已抓页数（跨运行由 offsets 推不出来，只在本轮计）
 
   for (let round = 0; round < MAX_PAGES; round++) {
     let anyProgress = false
@@ -212,6 +210,21 @@ async function run() {
       // 于是旧目录会从 offset 0 整批重抓 —— 实测 `requests` 4 → 172、
       // `offsets` 被重写成 `{0: 80, 1: 80}`，而 0–40 那几页上一跑已经付过钱了（#138 评审指出）。
       if (unknownPaging) continue
+      // D6.h：跨运行的页数天花板。**这一条同样排在达标判断之前** —— 写进下面那个 if
+      // 里面的话，没达标那条路根本走不到它，于是续跑又给出一份满配额（F9.e 那道闸
+      // 栽过的同一个形状，collect.ts 上方 #138 评审那几行记着）。
+      // 达上限与「无从确认」都写进 done：`pendingKeywords` 只看 done（D6.g），
+      // 不写的话调度这边不抓、收尾那句话却把它算进「要花钱」，两处当场对不上（ADR-25）。
+      const fetchedSoFar = pagesFetched(state, i)
+      if (fetchedSoFar === null || fetchedSoFar >= MAX_PAGES) {
+        exhausted.add(i)
+        state.done.push(i)
+        console.error(fetchedSoFar === null
+          ? `  ◦ ${state.tasks[i].keyword} · ${state.tasks[i].platform} → 已抓页数无从确认，不再翻页 —— 上一版留下的目录只补第一页（D6.m）`
+          : `  ◦ ${state.tasks[i].keyword} · ${state.tasks[i].platform} → 已达页数上限 ${MAX_PAGES} 页，不再翻页`)
+        persist()
+        continue
+      }
       if (qualified() >= state.target_count) {
         stopped = 'target'
         // F9：达标之后**不是一律停**，还欠第一页的任务照抓不误。
@@ -253,11 +266,14 @@ async function run() {
       // 去重与归人都在 mergePage 里 —— 判定不留在入口脚本，缺省那个验证者才够得到它
       const added = mergePage(creators, found, i, t)
       addedBy.set(i, (addedBy.get(i) ?? 0) + added)
-      pages.set(i, (pages.get(i) ?? 0) + 1)
 
       // offset 按 API **实际返回条数**递增。固定 +20 会在返回不足的一页之后跳过数据。
       // 写下这个键本身也是「这个任务抓过第一页了」的记录（F9）—— 所以哪怕 raw_count 为 0 也要写。
       offsets[i] = offset + raw_count
+      // D6.h：只有真拿回了一页才计一页。**表缺失时不凭空建**（`??=` 也不行，D6.m）——
+      // 凭空建一张就把「无从确认」抹成「一页都没抓过」，不可逆（D6.j 同款）。
+      const ptbl = state.pages
+      const fetched = ptbl === undefined ? undefined : (ptbl[i] = (ptbl[i] ?? 0) + 1)
       // 条数单独记 —— 它和 offset 不恒等：游标只在这一行写得到，而付了钱在这之前
       // 抛出去的那几次由上面的 finally 记成 `null`。**一旦判定不全就永远是 null**，
       // 不许凑出一个偏小却和真测量值印在同一列的数（D6.l）。
@@ -274,6 +290,14 @@ async function run() {
         exhausted.add(i)
         state.done.push(i)
         console.error(`  ✓ ${t.keyword} · ${t.platform} → 共 ${addedBy.get(i)} 人（累计 ${creators.size}）  ${budget.summary()}`)
+      } else if (fetched !== undefined && fetched >= MAX_PAGES) {
+        // **当场记，不留到收尾** —— 收尾那一段排在搜索循环之后，任何从 `api.search`
+        // 抛穿 run() 的异常都会把它整个掀掉（预算用尽只是其中一种，402／换了响应结构
+        // 走的是同一条），于是翻满 4 页却没能进 done 的词在续跑里重新拿一份配额。
+        // 实测过 12 页（上限 4）。记在这里，紧跟着下面那次 persist() 就落盘了。
+        exhausted.add(i)
+        state.done.push(i)
+        console.error(`  ◦ ${t.keyword} · ${t.platform} → 达页数上限 ${MAX_PAGES} 页（累计新增 ${addedBy.get(i) ?? 0} 人）`)
       }
       persist()
     }
@@ -281,18 +305,6 @@ async function run() {
     if (stopped === 'target' || !anyProgress) break
   }
 
-  // 跑满页数上限的关键词记为已完成。
-  // 判据是**抓够了页数**，不是「本次新增 > 0」—— 续跑时同一批人已在库里，
-  // 新增恒为 0，用新增数判断会导致关键词永远标不完，续跑无限重来。
-  if (stopped !== 'budget') {
-    for (let i = 0; i < state.tasks.length; i++) {
-      if (state.done.includes(i)) continue
-      if ((pages.get(i) ?? 0) >= MAX_PAGES) {
-        state.done.push(i)
-        console.error(`  ◦ ${state.tasks[i].keyword} · ${state.tasks[i].platform} → 达页数上限（累计新增 ${addedBy.get(i) ?? 0} 人）`)
-      }
-    }
-  }
   persist()
 }
 

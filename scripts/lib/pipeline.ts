@@ -153,6 +153,43 @@ export function taskQueryStatus(state: TaskState, i: number): TaskQueryStatus {
 }
 
 /** 尚未跑完的关键词 —— Agent 据此向用户报进度、问要不要追加预算 */
+/**
+ * 单个任务的页数上限（D6.h）。**常量与判定放在一起，不从入口传进来** ——
+ * 传参的话调度与「续跑要不要花钱」那句话可以各拿一个数，而先改的那一边不会报错
+ * （`needsProfile` 栽过的同一个形状，ADR-25）。
+ */
+export const MAX_PAGES = 4          // 实测值：第 4 页后新增人数明显衰减
+
+/**
+ * 这个任务**累计拿回了几页** —— 三态，调用方分不掉：
+ *
+ * - `0`     —— 确知一页都没抓过（分页游标里没有它的键；那个键只在 `search()` 正常
+ *              返回之后才写，所以「没有键」⇒「没成功拿回过页」是恒真的，不是推测）
+ * - `n > 0` —— 确知抓了 n 页
+ * - `null`  —— **无从确认**：分页游标里有它的键（抓过至少一页），而这张表缺失（D6.m），
+ *              或者盘上那个值不是非负整数（反序列化进来的外部输入）
+ *
+ * **`null` 不许被压成 0。** 压成 0 的话，上一版留下的目录里每个已经抓过页的词都会
+ * 重新拿到一份满配额，而那种目录正是今天用户手上的形状 —— 这条需求对现存数据一条都不管。
+ * 压成「上限」那一侧（不再翻页）才是拿不到证据时不多花钱的那一边，与 F9.e 同一个取法。
+ *
+ * 分页游标整张缺失时交回 `null`：那时 F9.e 已经让这一跑一个关键词都不抓，这里给什么
+ * 都不改变行为，但交回 `null` 才是实话。
+ */
+export function pagesFetched(state: TaskState, i: number): number | null {
+  const n = state.pages?.[i]
+  if (typeof n === 'number' && Number.isInteger(n) && n >= 0) return n
+  const offsets = state.offsets
+  if (offsets === undefined) return null
+  return i in offsets ? null : 0
+}
+
+/** 还能不能再为这个任务翻一页 —— 上限判定只此一份，调度与收尾那句话共用 */
+export const underPageCap = (state: TaskState, i: number): boolean => {
+  const n = pagesFetched(state, i)
+  return n !== null && n < MAX_PAGES
+}
+
 export function pendingKeywords(state: TaskState): string[] {
   return state.tasks.filter((_, i) => !state.done.includes(i)).map(label)
 }
