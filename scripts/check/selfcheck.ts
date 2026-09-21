@@ -198,6 +198,94 @@ const runToolBoth = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: st
 
 console.log('\n[脚本自检] 假 fetch，无真实请求\n')
 
+
+// ── 跨节引用的声明外提到这里 ──────────────────────────────────
+//
+// 这些名字被后面好几节用着。摊在某一节里的时候，那一节不跑、用它的那几节就
+// `ReferenceError` 当场崩 —— 而崩了不算被抓到（ADR-70）。外提之后它们与「哪一节跑了」
+// 无关，跨节引用只剩下面两个**真运行态**那两条。
+//
+// ⚠️ `bothTmp` 整段一起搬，不是只搬那行 `join(tmp, …)`。只搬路径常量的话，造目录与
+// 写语料还留在原处，用它的地方会拿到 ENOENT —— 那会打出带（进程）记号的失败，
+// 一票否决，整次判「跑不起来」。这一条是 #142 之后那轮独立复核指出的。
+
+const searchHits = (ledger: string): number => !existsSync(ledger) ? 0
+  : readFileSync(ledger, 'utf8').split('\n')
+      .filter(l => l.startsWith('200\t') && l.includes('fetch_video_search_result')).length
+
+const ledgerLines = (ledger: string, ok: boolean) => !existsSync(ledger) ? 0
+  : readFileSync(ledger, 'utf8').split('\n').filter(l => /^\d/.test(l) && l.startsWith('200\t') === ok).length
+const warnLines = (s: string) => s.split('\n').filter(l => l.includes('💰 已用')).length
+const onlyDir = (cwd: string, product: string): string | undefined => {
+  const hits = existsSync(join(cwd, 'output'))
+    ? readdirSync(join(cwd, 'output')).filter(n => n.startsWith(`${product}-`)) : []
+  return hits.length === 1 ? join('output', hits[0]) : undefined
+}
+// 断点不在约定的文件名下（M-D6-n 那类变异）→ 读成 NaN 让断言红，不是让自检崩：崩了不算抓到
+const requestsOnDisk = (file: string): number => {
+  try { return (JSON.parse(readFileSync(file, 'utf8')) as { requests: number }).requests } catch { return NaN }
+}
+const diskRequests = (cwd: string, dir: string): number => requestsOnDisk(join(cwd, dir, 'task.json'))
+// 抽取列，只打印不判定：提醒行数是 F7.a「一次是每进程还是每任务」那张欠条的原料
+const extract = (tag: string, disk: number, ledger: string, a: string, b: string) =>
+  console.log(`    抽取 ${tag}：盘上 ${disk} · 账本 200 行 ${ledgerLines(ledger, true)} · 非 200 行 ${ledgerLines(ledger, false)}`
+    + ` · 提醒行 杀掉那跑 ${warnLines(a)} 续跑 ${warnLines(b)}`)
+
+const summaryOf = (stdout: string): any => { try { return JSON.parse(stdout) } catch { return {} } }
+
+const bothTmp = join(tmp, 'exempt-lead')
+mkdirSync(join(bothTmp, 'scripts', 'check'), { recursive: true })
+mkdirSync(join(bothTmp, 'docs'), { recursive: true })
+writeFileSync(join(bothTmp, 'docs', 'requirements.json'),
+  JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }, { id: 'X1.b' }] }] }), 'utf8')
+// 语料自带的「被测对象」与「验证者」：变异把 keep 改成 gone，而这份测试见了 gone 就红
+writeFileSync(join(bothTmp, 'scripts', 'check', 'a.ts'), "export const v = 'keep'\n", 'utf8')
+// **那一句拼出来，不写成整串** —— 与上面 isoTmp 的 `importLine` 同一个理由：
+// 抽边认的是本文件源码字面里任何一处「from ＋ 相对路径」，写成整串的话，
+// 这行夹具会被当成本文件真的 import，往真闭包里塞一个磁盘上不存在的路径。
+// 头一版正是这么写的，`scripts/test.ts` 里那条「真闭包里没有磁盘上不存在的路径」
+// 当场红（#84 评审抓过同一个诱饵、#85 为它记了欠条，这是第三次 —— 这回是断言抓的）。
+const q = "'"
+writeFileSync(join(bothTmp, 'scripts', 'test.ts'),
+  `import { v } from ${q}./check/a.js${q}\n`
+  + `if (v !== ${q}keep${q}) { console.log('\\n1 个失败\\n'); process.exitCode = 1 }\n`, 'utf8')
+writeFileSync(join(bothTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({
+  mutations: [{ id: 'M-X-h', req: 'X1.a', why: '把那个值改掉，测试该红', 
+                file: 'scripts/check/a.ts', find: 'keep', replace: 'gone' }],
+  exemptions: [
+    { req: 'X1.a', scope: '一半', why: '这一条名下有变异。' },
+    { req: 'X1.b', scope: '一半', why: '这一条名下没有。' },
+  ],
+}), 'utf8')
+
+const seedJobs = (dir: string, muts: unknown[]) => {
+  mkdirSync(join(dir, 'scripts', 'check'), { recursive: true })
+  mkdirSync(join(dir, 'docs'), { recursive: true })
+  writeFileSync(join(dir, 'docs', 'requirements.json'),
+    JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+  writeFileSync(join(dir, 'scripts', 'check', 'a.ts'),
+    "export const v = 'keep'\nexport const w = 'hold'\n", 'utf8')
+  // 验证者每跑一遍就把自己那一刻的当前目录记一笔 —— 派工时它该在某个 worker 副本里
+  const q = "'"
+  writeFileSync(join(dir, 'scripts', 'test.ts'), [
+    `import { v, w } from ${q}./check/a.js${q}`,
+    `import { appendFileSync } from ${q}node:fs${q}`,
+    `appendFileSync(${JSON.stringify(jobsMark)}, process.cwd() + ${q}\\n${q})`,
+    `const bad = (v !== ${q}keep${q} ? 1 : 0) + (w !== ${q}hold${q} ? 1 : 0)`,
+    `if (bad) { console.log(${q}\\n${q} + bad + ${q} 个失败\\n${q}); process.exitCode = 1 }`,
+  ].join('\n') + '\n', 'utf8')
+  writeFileSync(join(dir, 'scripts', 'check', 'mutations.json'),
+    JSON.stringify({ mutations: muts, exemptions: [] }), 'utf8')
+}
+const jobMut = (id: string, find: string, replace: string, file = 'scripts/check/a.ts') =>
+  ({ id, req: 'X1.a', why: '把那个值改掉，测试该红', file, find, replace })
+
+
+/** collect 那一跑的产出目录 —— 真运行态，值由下面那一节写进来 */
+let dir = ''
+/** render 那一跑的产出 —— 真运行态，同上 */
+let rendered: string | undefined
+
 // ---- probe：双平台 + hashtag + 关键词搜索 ----
 const probeCfg = join(tmp, 'probe.json')
 writeFileSync(probeCfg, JSON.stringify({
@@ -284,27 +372,6 @@ const crashCwd = (name: string) => {
 }
 /** 账本里关键词搜索的成功次数。端点路径出自 `scripts/providers/tikhub.ts` 的 `searchTikTok`；
  *  只数搜索，不数 profile —— 续跑要补 profile，拿总请求数当判据会把两件事混在一起。 */
-const searchHits = (ledger: string): number => !existsSync(ledger) ? 0
-  : readFileSync(ledger, 'utf8').split('\n')
-      .filter(l => l.startsWith('200\t') && l.includes('fetch_video_search_result')).length
-
-const ledgerLines = (ledger: string, ok: boolean) => !existsSync(ledger) ? 0
-  : readFileSync(ledger, 'utf8').split('\n').filter(l => /^\d/.test(l) && l.startsWith('200\t') === ok).length
-const warnLines = (s: string) => s.split('\n').filter(l => l.includes('💰 已用')).length
-const onlyDir = (cwd: string, product: string): string | undefined => {
-  const hits = existsSync(join(cwd, 'output'))
-    ? readdirSync(join(cwd, 'output')).filter(n => n.startsWith(`${product}-`)) : []
-  return hits.length === 1 ? join('output', hits[0]) : undefined
-}
-// 断点不在约定的文件名下（M-D6-n 那类变异）→ 读成 NaN 让断言红，不是让自检崩：崩了不算抓到
-const requestsOnDisk = (file: string): number => {
-  try { return (JSON.parse(readFileSync(file, 'utf8')) as { requests: number }).requests } catch { return NaN }
-}
-const diskRequests = (cwd: string, dir: string): number => requestsOnDisk(join(cwd, dir, 'task.json'))
-// 抽取列，只打印不判定：提醒行数是 F7.a「一次是每进程还是每任务」那张欠条的原料
-const extract = (tag: string, disk: number, ledger: string, a: string, b: string) =>
-  console.log(`    抽取 ${tag}：盘上 ${disk} · 账本 200 行 ${ledgerLines(ledger, true)} · 非 200 行 ${ledgerLines(ledger, false)}`
-    + ` · 提醒行 杀掉那跑 ${warnLines(a)} 续跑 ${warnLines(b)}`)
 
 {
   // A · 搜索循环：每抓一页落一次盘，窗口是一页。第一跑在第二个 200 那一瞬被杀：第一页已落盘，
@@ -385,7 +452,6 @@ writeFileSync(taskCfg, JSON.stringify({
   ],
 }))
 const collectOut = run('collect 完整流程', [S('collect.ts'), '--config', taskCfg], tmp)
-let dir = ''
 if (collectOut !== undefined) {
   try { dir = JSON.parse(collectOut).dir } catch {}
   // 走到这里说明进程跑起来了、退出码也对，只是 stdout 里没有可解析的 dir
@@ -655,7 +721,7 @@ if (dir) {
 // 产出物,只在第一条链前面判空的话,后面几条兄弟断言照样会跑 —— 轻则拿上一次的
 // 陈旧产物报「✓」,重则 `readFileSync` 直接抛,自检连末尾那句汇总都打不出来
 // （#94 评审指出；本文件另外两处同一形状,改法相同）。
-const rendered = dir ? run('render 完整产出', [S('render.ts'), '--dir', dir], tmp) : undefined
+rendered = dir ? run('render 完整产出', [S('render.ts'), '--dir', dir], tmp) : undefined
 if (dir && rendered !== undefined) {
   const csv = join(tmp, dir, 'kol.csv')
   const html = join(tmp, dir, 'report.html')
@@ -1076,7 +1142,6 @@ const f9Cfg = (name: string, order: number[], over: Record<string, unknown> = {}
 /** 分页记录表里有键的任务个数 —— 「问过第一页」的唯一记录 */
 const asked = (dir: string): number => Object.keys(
   JSON.parse(readFileSync(join(firstPage, dir, 'task.json'), 'utf8')).offsets ?? {}).length
-const summaryOf = (stdout: string): any => { try { return JSON.parse(stdout) } catch { return {} } }
 
 const ascRun = runBoth('collect 第一页保证：正序跑一遍',
                        [S('collect.ts'), '--config', f9Cfg('asc', [0, 1, 2, 3, 4, 5])], firstPage)
@@ -1672,30 +1737,6 @@ if (badKills === undefined) {
 // 「自己验自己」当场拦下，所以这一处只能有夹具、不能有负片 —— 与本文件另外四处
 // mutate 夹具同一处境）。造一份最小语料真跑一遍整跑：一条会被抓到的变异 ＋ 两条豁免，
 // 一条命中、一条不命中，两支话在同一次输出里各出现一次。约 2.7 秒。
-const bothTmp = join(tmp, 'exempt-lead')
-mkdirSync(join(bothTmp, 'scripts', 'check'), { recursive: true })
-mkdirSync(join(bothTmp, 'docs'), { recursive: true })
-writeFileSync(join(bothTmp, 'docs', 'requirements.json'),
-  JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }, { id: 'X1.b' }] }] }), 'utf8')
-// 语料自带的「被测对象」与「验证者」：变异把 keep 改成 gone，而这份测试见了 gone 就红
-writeFileSync(join(bothTmp, 'scripts', 'check', 'a.ts'), "export const v = 'keep'\n", 'utf8')
-// **那一句拼出来，不写成整串** —— 与上面 isoTmp 的 `importLine` 同一个理由：
-// 抽边认的是本文件源码字面里任何一处「from ＋ 相对路径」，写成整串的话，
-// 这行夹具会被当成本文件真的 import，往真闭包里塞一个磁盘上不存在的路径。
-// 头一版正是这么写的，`scripts/test.ts` 里那条「真闭包里没有磁盘上不存在的路径」
-// 当场红（#84 评审抓过同一个诱饵、#85 为它记了欠条，这是第三次 —— 这回是断言抓的）。
-const q = "'"
-writeFileSync(join(bothTmp, 'scripts', 'test.ts'),
-  `import { v } from ${q}./check/a.js${q}\n`
-  + `if (v !== ${q}keep${q}) { console.log('\\n1 个失败\\n'); process.exitCode = 1 }\n`, 'utf8')
-writeFileSync(join(bothTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({
-  mutations: [{ id: 'M-X-h', req: 'X1.a', why: '把那个值改掉，测试该红', 
-                file: 'scripts/check/a.ts', find: 'keep', replace: 'gone' }],
-  exemptions: [
-    { req: 'X1.a', scope: '一半', why: '这一条名下有变异。' },
-    { req: 'X1.b', scope: '一半', why: '这一条名下没有。' },
-  ],
-}), 'utf8')
 // 前置条件问的是 `ok`,不是「输出非空」—— 跑起来了就必须断言,一个字不打也算红
 const both = runToolBoth('mutate 整跑那份报告的豁免行随负片改口', 'mutate', [], bothTmp)
 if (both.ok && !/^\s*⊘ X1\.a 名下有负片/m.test(both.stdout)) {
@@ -1719,27 +1760,6 @@ if (both.ok && !/^\s*⊘ X1\.a 名下有负片/m.test(both.stdout)) {
 // 只有真派工才成立 —— 那正是整套隔离的地基：改的、还的、写的，全在各自那份副本里。
 const jobsTmp = join(tmp, 'jobs')
 const jobsMark = join(tmp, 'jobs-cwd.txt')
-const seedJobs = (dir: string, muts: unknown[]) => {
-  mkdirSync(join(dir, 'scripts', 'check'), { recursive: true })
-  mkdirSync(join(dir, 'docs'), { recursive: true })
-  writeFileSync(join(dir, 'docs', 'requirements.json'),
-    JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
-  writeFileSync(join(dir, 'scripts', 'check', 'a.ts'),
-    "export const v = 'keep'\nexport const w = 'hold'\n", 'utf8')
-  // 验证者每跑一遍就把自己那一刻的当前目录记一笔 —— 派工时它该在某个 worker 副本里
-  const q = "'"
-  writeFileSync(join(dir, 'scripts', 'test.ts'), [
-    `import { v, w } from ${q}./check/a.js${q}`,
-    `import { appendFileSync } from ${q}node:fs${q}`,
-    `appendFileSync(${JSON.stringify(jobsMark)}, process.cwd() + ${q}\\n${q})`,
-    `const bad = (v !== ${q}keep${q} ? 1 : 0) + (w !== ${q}hold${q} ? 1 : 0)`,
-    `if (bad) { console.log(${q}\\n${q} + bad + ${q} 个失败\\n${q}); process.exitCode = 1 }`,
-  ].join('\n') + '\n', 'utf8')
-  writeFileSync(join(dir, 'scripts', 'check', 'mutations.json'),
-    JSON.stringify({ mutations: muts, exemptions: [] }), 'utf8')
-}
-const jobMut = (id: string, find: string, replace: string, file = 'scripts/check/a.ts') =>
-  ({ id, req: 'X1.a', why: '把那个值改掉，测试该红', file, find, replace })
 
 seedJobs(jobsTmp, [jobMut('M-J-a', 'keep', 'gone'), jobMut('M-J-b', 'hold', 'lost')])
 rmSync(jobsMark, { force: true })
