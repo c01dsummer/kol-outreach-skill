@@ -186,6 +186,47 @@ export function exitRace(source: string): string | undefined {
  * 带插值的、传变量的(`run(label, …)` 这种转发)定不下来,定不下来就不进清册:
  * 清册唯一的用途是「点的这条真的在」,小了是拦住,大了是放行。
  */
+/**
+ * 每条夹具标签属于哪一组 —— 把负片 `kills` 点名的夹具翻成 `--only` 要的组 id。
+ *
+ * **它和 `labelsOf` 各扫一遍，判定重复了一份 —— 照实写，别否认。** 共享的只有
+ * `declares` 这个参数值：语法树两棵（这里与 `labelsOf` 各 `createSourceFile` 一次），
+ * 调用侧也两趟（`mutate.ts` 的 `inventoryOf` 与 `onlyFor` 各读一次文件）。
+ * 「什么算给夹具起名」这个判定在两处各写了一份：callee 只认光秃秃的 Identifier、
+ * 首参只认 `isStringLiteralLike`、名字要在 `declares` 里。
+ * **改 `labelsOf` 那三条判据时，这里要跟着改。** ADR-25 说的是「一个判断只放一处」，
+ * 这里没做到；合成一趟同时产出两张表是可以的，本条没做，欠条在 ADR-99 第八节。
+ *
+ * 认的是 `group('<id>', [...], () => { … })` 这个**代码结构**本身，不认任何注释约定 ——
+ * 注释里的分节线只是装饰，改了不影响这里。
+ *
+ * 重名不在这里判：`labelsOf` 的计数那道闸已经管着「同一个标签出现不止一次」，
+ * 这里只记第一处，免得两处各自报一遍同一件事（ADR-25：一个判断只放一处）。
+ */
+export function groupOfLabel(source: string, declares: readonly string[]): Map<string, string> {
+  const out = new Map<string, string>()
+  const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
+  // **用 Set 查，不要照抄 `labelsOf` 里那句 includes。** 照抄的话同一串字面量在这个
+  // 文件里出现两次，而 `mutate` 只检查锚点在不在、不检查唯一不唯一
+  // （它用的是字符串版 `replace`，只改第一处）。实测：`M-H20-b` 本该改 `labelsOf`，
+  // 结果改了这里，而这里当时还没有测试守着 —— 它「存活」了一整轮全链。
+  const declared = new Set(declares)
+  const walk = (node: ts.Node, group: string | undefined): void => {
+    let inner = group
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const name = node.expression.text
+      const first = node.arguments[0]
+      const label = first !== undefined && ts.isStringLiteralLike(first) ? first.text : undefined
+      if (name === 'group' && label !== undefined) inner = label
+      else if (label !== undefined && group !== undefined && declared.has(name)
+               && !out.has(label)) out.set(label, group)
+    }
+    ts.forEachChild(node, n => walk(n, inner))
+  }
+  walk(tree, undefined)
+  return out
+}
+
 export function labelsOf(source: string, declares: readonly string[]): Map<string, number> {
   const seen = new Map<string, number>()
   const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
