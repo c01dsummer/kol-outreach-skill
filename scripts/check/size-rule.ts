@@ -89,6 +89,7 @@ export const NUMSTAT_IGNORING_SPACE = [...NUMSTAT, '-w']
  */
 export const WHITESPACE_FREE = ['.ts']
 
+/** 这条路径吃不吃折扣 —— 判据只有后缀,理由见上面 `WHITESPACE_FREE` */
 export const discountable = (path: string): boolean =>
   WHITESPACE_FREE.some(ext => path.endsWith(ext))
 

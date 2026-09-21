@@ -4589,20 +4589,44 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
   // 断言恒真 —— 那正是本仓库最不许的那种假绿。
   {
     const repo = mkdtempSync(join(tmpdir(), 'kol-size-git-'))
-    const g = (...args: string[]) => spawnSync('git', ['-C', repo, ...args], {
-      encoding: 'utf8',
-      // 把这台机器的全局／系统配置整个挡在外面:否则一台设了 core.autocrlf=true
-      // 的机器上,下面那条 CRLF 断言会恒真
-      env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
-    })
+    /**
+     * 这条夹具跑 git 的环境。**两件事都得做,漏一件这条夹具就从「验到了」变成「更糟」。**
+     *
+     * 一、把全局与系统配置挡在外面:否则一台设了 `core.autocrlf=true` 的机器上,
+     * 下面那条 CRLF 断言会恒真 —— 假绿。
+     *
+     * 二、**把继承来的仓库指向变量删掉。** `git -C <目录>` 压不住 `GIT_DIR` ——
+     * 实测导出 `GIT_DIR`／`GIT_WORK_TREE` 指向另一个仓库之后,
+     * `git -C 夹具 rev-parse --show-toplevel` 交回的是**那个**仓库。
+     * 而这条夹具会 `init`、`commit`、`mv`,落在别人的仓库上就是真破坏;
+     * 「在 git 钩子里跑 `npm run check`」正好导出这几个变量(#142 评审指出)。
+     */
+    // 诱饵必须摆在 `{...process.env}` **之前** —— 摆在后面的话它进不了子进程的环境,
+    // 下面那条断言就什么都没验(第一版正是这么写的,拿掉删除循环照样全绿)
+    const decoy = process.env.GIT_DIR
+    process.env.GIT_DIR = join(repo, '诱饵.git')
+    const gitEnv: NodeJS.ProcessEnv = {
+      ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null',
+    }
+    for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR',
+      'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete gitEnv[k]
+    /** 在夹具仓库里跑一条 git */
+    const g = (...args: string[]) =>
+      spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', env: gitEnv })
     const w = (rel: string, body: string) => {
       mkdirSync(join(repo, dirname(rel)), { recursive: true })
       writeFileSync(join(repo, rel), body, 'utf8')
     }
     g('init', '-q', '.')
+    // 上面那个诱饵的第三拍就在这里:没把 `GIT_DIR` 删掉的话,`init` 会跑到诱饵那边,
+    // 这个目录里不会有 `.git`。**先断言、再 mkdir 兜住** —— 不兜的话下一句
+    // 写配置会 ENOENT 当场崩,而崩了不算被抓到(ADR-70),后面九条断言一句话都说不上
+    const dotGit = join(repo, '.git')
+    ok('夹具仓库建在它自己的目录里 —— 继承来的 GIT_DIR 没把 init 带走', existsSync(dotGit))
+    mkdirSync(dotGit, { recursive: true })
     // 六项配置一次写完,不起六个 `git config` 子进程 —— 这条夹具的每一毫秒都要
     // 乘以缺省验证者名下的变异条数(ADR-97 第二节),八个子进程已经是它的全部成本
-    writeFileSync(join(repo, '.git/config'), [
+    writeFileSync(join(dotGit, 'config'), [
       '[user]', '\temail = t@t', '\tname = t',
       '[diff]', '\trenames = false',      // 故意设反:钉不住就当场红
       '[core]', '\tquotePath = true',     // 同上
@@ -4662,6 +4686,7 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     eq('折掉的行数逐类算,为 0 也报出来',
       discount(tally(plainFiles), tally(mergedFiles)),
       { 源码: 5, 测试: 0, 文档: 0, 其他: 0 })
+    if (decoy === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = decoy
     rmSync(repo, { recursive: true, force: true })
   }
 
