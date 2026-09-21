@@ -1510,6 +1510,149 @@ group('d6j-legacy', [], () => {
   }
 })
 
+// ---- D6.h / D6.m：页数上限跨运行有效 ----
+group('d6h-pagecap', [], () => {
+  // **只能端到端跑**：计数与那道闸都在入口脚本里，缺省那个验证者够不到；而且这条判据
+  // 说的正是「**跨运行**」—— 一次进程内的断言天然证不了它。
+  //
+  // 修之前实测：同一个关键词跨四次续跑累计抓到 **12** 页（上限 4）。原因不是「预算
+  // 那条路径」—— 把本轮页数兑现成持久事实的那段收尾循环排在搜索循环**之后**，
+  // 任何从 `api.search` 抛穿 `run()` 的异常都会把它整个掀掉（预算用尽只是其中一种，
+  // 供应商换了响应结构走的是同一条），于是翻满 4 页却没进 done 的词在续跑里重新拿一份配额。
+  const capBase = join(tmp, 'pagecap')
+  mkdirSync(join(capBase, 'memory'), { recursive: true })
+  const capCfg = (name: string, budget: number, keywords: readonly string[]) => {
+    const f = join(capBase, `${name}.json`)
+    writeFileSync(f, JSON.stringify({
+      product: name, market: 'US', target_count: 9999, budget_usd: budget,
+      tasks: keywords.map(k => ({ keyword: k, dimension: 'category', platform: 'tiktok' })),
+    }))
+    return f
+  }
+  const capState = (dir: string): any => {
+    try { return JSON.parse(readFileSync(join(capBase, dir, 'task.json'), 'utf8')) } catch { return undefined }
+  }
+
+  // (a) 跨运行累计。额度手算：UNIT_PRICE 0.001，budget 0.003 → 正好 3 次付费搜索，
+  //     于是第一跑停在 3 页（不到上限 4、也没进 done）——这一半正是修之前会被丢掉的记录。
+  {
+    const first = runBoth('collect 页数上限夹具 a：先被预算卡停在上限以下',
+                          [S('collect.ts'), '--config', capCfg('capa', 0.003, ['cap0'])],
+                          capBase, { status: 3 })
+    const dir = first.ok ? summaryOf(first.stdout).dir : undefined
+    if (dir !== undefined) {
+      const mid = capState(dir)
+      named('被预算卡停的那一跑也把已抓页数落了盘 —— 丢了它，续跑就是一份新配额',
+            mid?.pages?.[0] === 3 && mid.done.includes(0) === false,
+            `盘上 pages=${JSON.stringify(mid?.pages)}、done=${JSON.stringify(mid?.done)}`)
+      const capLedger = join(tmp, 'ledger-pagecap.tsv')
+      const again = runBoth('collect 页数上限夹具 a：预算给足，续跑',
+                            [S('collect.ts'), '--resume', dir, '--budget', '2'], capBase,
+                            undefined, { FAKE_FETCH_LEDGER: capLedger })
+      if (again.ok) {
+        const after = capState(dir)
+        // 4 是 `MAX_PAGES`（`lib/pipeline.ts`）。改那个常量本来就该让这一条红 —— 它是对外契约
+        named('跨运行累计停在页数上限 4 页 —— 预算给多少都一样',
+              after?.pages?.[0] === 4 && after.done.includes(0) === true,
+              `盘上 pages=${JSON.stringify(after?.pages)}、done=${JSON.stringify(after?.done)}、`
+              + `offsets=${JSON.stringify(after?.offsets)} —— 修之前这里会一路涨到 12 页`)
+        const moreLedger = join(tmp, 'ledger-pagecap-more.tsv')
+        const third = runBoth('collect 页数上限夹具 a：达上限之后再续一次',
+                              [S('collect.ts'), '--resume', dir, '--budget', '2'], capBase,
+                              undefined, { FAKE_FETCH_LEDGER: moreLedger })
+        if (third.ok) {
+          named('达上限之后续跑一次关键词搜索都不发', searchHits(moreLedger) === 0,
+                `供应商收到了 ${searchHits(moreLedger)} 次关键词搜索 —— 上限只有在「不再发请求」时才是上限`)
+        }
+      }
+    }
+  }
+
+  // (b) 上一版留下的目录（有游标、没有页数表）。两种读法必须分开，不能一刀切。
+  {
+    const first = runBoth('collect 页数上限夹具 b：先跑出一个目录',
+                          [S('collect.ts'), '--config', capCfg('capb', 0.002, ['cap1', 'cap2'])],
+                          capBase, { status: 3 })
+    const dir = first.ok ? summaryOf(first.stdout).dir : undefined
+    let staged = false
+    if (dir !== undefined) {
+      try {
+        const f = join(capBase, dir, 'task.json')
+        const st = JSON.parse(readFileSync(f, 'utf8'))
+        delete st.pages                 // ← 退回成上一版的样子
+        st.offsets = { 0: 9 }           // 任务 0 抓过（几页无从确认）；任务 1 连键都没有
+        st.done = []
+        writeFileSync(f, JSON.stringify(st, null, 2), 'utf8')
+        staged = true
+      } catch {}
+    }
+    if (dir !== undefined && staged) {
+      const legLedger = join(tmp, 'ledger-pagecap-legacy.tsv')
+      const again = runBoth('collect 页数上限夹具 b：上一版留下的目录上续跑',
+                            [S('collect.ts'), '--resume', dir, '--budget', '2'], capBase,
+                            undefined, { FAKE_FETCH_LEDGER: legLedger })
+      if (again.ok) {
+        const after = capState(dir)
+        named('旧目录：页数表缺着就一直缺着，不凭空建出一张空表',
+              after !== undefined && after.pages === undefined,
+              `盘上 pages=${JSON.stringify(after?.pages)} —— 空表把「无从确认」抹成`
+              + '「一页都没抓过」，而那正好给它一份新的满配额，且不可逆')
+        named('旧目录：游标里有键的不再翻页，游标里没有键的照样补到第一页（F9 不受影响）',
+              after?.offsets?.[0] === 9 && after?.offsets?.[1] !== undefined,
+              `盘上 offsets=${JSON.stringify(after?.offsets)} —— 任务 0 的游标一格都不许动`
+              + '（抓了几页无从确认→按已达上限处理），而任务 1 一页都没抓过、必须拿到它的第一页')
+        named('旧目录：冻住的任务写进 done —— 不写的话调度不抓，而收尾那句话仍把它算进要花钱的那一半',
+              after?.done?.includes(0) === true,
+              `盘上 done=${JSON.stringify(after?.done)} —— \`pendingKeywords\` 读的就是它（D6.g）`)
+      }
+    }
+  }
+
+  // (c) 开跑时就已达上限、却不在 done 里 —— 顶上那道闸唯一真正管得着的状态。
+  //     循环里那句 `else if` 只在**本轮又抓到一页之后**才拦得住，也就是说没有这道闸，
+  //     这种状态会先多买一页才停 —— 而判据写的是「达到上限之后不得再发出搜索请求」。
+  //     ⚠️ 这一组是补出来的：头一版没有它，拿掉顶上那道闸的负片红在了别处（`elsewhere`），
+  //     按 ADR-70 那不算抓到。一条没有夹具走到的分支就是没被验证的分支。
+  {
+    const first = runBoth('collect 页数上限夹具 c：先跑出一个目录',
+                          [S('collect.ts'), '--config', capCfg('capc', 0.002, ['cap3'])],
+                          capBase, { status: 3 })
+    const dir = first.ok ? summaryOf(first.stdout).dir : undefined
+    let staged = false
+    if (dir !== undefined) {
+      try {
+        const f = join(capBase, dir, 'task.json')
+        const st = JSON.parse(readFileSync(f, 'utf8'))
+        st.pages = { 0: 4 }      // ← 已达上限（4 ＝ MAX_PAGES）
+        st.done = []             // ← 却不在 done 里：上一版写下的、或被人手改过的状态
+        writeFileSync(f, JSON.stringify(st, null, 2), 'utf8')
+        staged = true
+      } catch {}
+    }
+    if (dir !== undefined && staged) {
+      const capcLedger = join(tmp, 'ledger-pagecap-atcap.tsv')
+      const before = capState(dir)?.offsets?.[0]
+      const again = runBoth('collect 页数上限夹具 c：已达上限的状态上续跑',
+                            [S('collect.ts'), '--resume', dir, '--budget', '2'], capBase,
+                            undefined, { FAKE_FETCH_LEDGER: capcLedger })
+      if (again.ok) {
+        const after = capState(dir)
+        named('开跑时就已达上限：一次关键词搜索都不发，不是「先多买一页再停」',
+              searchHits(capcLedger) === 0 && after?.offsets?.[0] === before,
+              `供应商收到了 ${searchHits(capcLedger)} 次关键词搜索，游标 ${before} → `
+              + `${after?.offsets?.[0]} —— 判据写的是「达到上限之后不得再发出搜索请求」，`
+              + '循环里那句只在又抓到一页之后才拦得住')
+        named('开跑时就已达上限：补记进 done，让调度与收尾那句话对上',
+              after?.done?.includes(0) === true,
+              `盘上 done=${JSON.stringify(after?.done)}`)
+      }
+    }
+  }
+
+  criterion('D6.h')
+  criterion('D6.m')
+})
+
 // ---- D6.k：IG 兜底撞上预算时，这个任务不许被烧掉 ----
 group('d6k-igfallback', [], () => {
   // 判据逐字点名的三样（不进 done、不以退出码 0 收尾、那句话不说「续跑不产生新的请求」）
