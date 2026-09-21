@@ -1269,6 +1269,35 @@ group('f9', [], () => {
     }
   }
 
+  // **预算那一侧，顺序照样决定谁被砍掉** —— 达标那一侧不决定（上面 asc／desc 两跑），
+  // 两件事必须分开说。`skill/SKILL.md` 一度把它写成无条件的「顺序不再决定谁被砍掉，
+  // IG 写在前面还是后面都一样」，而那句话在预算先用尽时是假的：排在后面的**整个平台**
+  // 可能一次都没被问过 —— 正是这条需求最初要修的那个形状的另一半（ADR-94 第一节）。
+  // 这一条钉住的就是那句改过的话：散文不会红，夹具会。
+  {
+    const platformsAsked = (dir: string): string[] => {
+      const st = JSON.parse(readFileSync(join(firstPage, dir, 'task.json'), 'utf8'))
+      return Object.keys(st.offsets ?? {}).map((k: string) => st.tasks[Number(k)].platform).sort()
+    }
+    // 上面那一跑是 [0,2,4,1,3,5]：偶数下标是 tiktok，所以 TikTok 三个排在前面
+    const tkFirstDir = tightRun.ok ? summaryOf(tightRun.stdout).dir : undefined
+    const igRun = runBoth('collect 第一页保证：同一批任务、同样预算，只把 IG 排到最前',
+                          [S('collect.ts'), '--config',
+                           f9Cfg('tightig', [1, 3, 5, 0, 2, 4], { budget_usd: 0.003 })],
+                          firstPage, { status: 3 })
+    const igFirstDir = igRun.ok ? summaryOf(igRun.stdout).dir : undefined
+    if (tkFirstDir !== undefined && igFirstDir !== undefined) {
+      const a = platformsAsked(tkFirstDir)
+      const b = platformsAsked(igFirstDir)
+      named('预算先用尽时顺序决定哪个平台整个挨刀 —— 换个顺序，挨刀的就换一个',
+            a.length === 3 && b.length === 3
+            && a.every(x => x === 'tiktok') && b.every(x => x === 'instagram'),
+            `TikTok 排前时问过的是 ${JSON.stringify(a)}，IG 排前时是 ${JSON.stringify(b)}`
+            + ' —— 两次问过的平台必须相反；一样的话说明顺序不再决定谁挨刀，'
+            + '那 SKILL.md 里「预算不够时把最在意的平台排在前面」这条建议就成了空话')
+    }
+  }
+
   // 三条一起才是这条需求：换顺序都问过（F9.a）、预算不够时 P3 赢（F9.b）、
   // 第一页之后照旧按达标停（F9.d）。剩下两条判据在 scripts/test.ts 里 ——
   // 「续跑会去抓哪些」那份判定只此一份（F9.c）、整张分页记录表缺失读作无从确认（F9.e）。
