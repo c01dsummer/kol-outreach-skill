@@ -3454,10 +3454,10 @@
     {
       "id": "M-H44-k",
       "req": "harness",
-      "why": "把「没写这个 flag」和「写了但没跟数字」合成一种：于是要了一次链式跑、后面漏了数字时，整个 flag 被静默忽略，落回只发一次请求的形状 dump 而且不报错 —— 用户拿到的东西和他要的不是一回事，却没有任何迹象",
+      "why": "把「这个 flag 后面该跟个数」那句诊断换成一句说不清的话 —— 退出码照旧，但用户看不出是哪个参数出的问题。⚠️ 这一条守的是**诊断措辞**，不是退出码本身：改退出码的那种变异在本仓库的变异判定里写不出来（进程级失败一律判 crashed，mutate-rule.ts:14 与 :42-43，那是刻意的保守假阴性）。退出码那一半由断言守着，手工验过它会红",
       "file": "scripts/probe-ig-paging.ts",
-      "find": "  if (!process.argv.includes(`--${flag}`)) return undefined",
-      "replace": "  if (arg(flag) === undefined) return undefined",
+      "find": "    console.error(`--${flag} 后面要跟一个 ≥2 的整数，这次什么都没跟上`)",
+      "replace": "    console.error('参数有问题')",
       "by": "selfcheck",
       "kills": [
         "flag 写了却没给数就报错退出 —— 不许静默当成没写过"
