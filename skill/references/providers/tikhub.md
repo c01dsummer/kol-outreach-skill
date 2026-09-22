@@ -155,12 +155,59 @@ data.data.items[].play_count         ✓
 data.data.items[].like_count         ⚠️ 可能是 null（作者隐藏赞数）—— null 是「不可见」不是 0
 ```
 
-⚠️ **两个实测限制**：
+⚠️ **限制 —— 第一条是我们自己的做法，后两条是这个端点本身的。**
+**别把这张单子读成穷尽的**：它原先写着「两条」，而漏掉的第三条恰恰是最重的那条 ——
+一张宣称自己完整的单子，正是「响应只有 `count` 和 `items`」当年的错法。
 
-1. **没有分页游标。** 响应只有 `count` 和 `items`，一个关键词只能拿一页（约 12 条）。
-   代码里第 2 页起直接返回空，不白花请求
+1. **我们只取一页。** 代码只发 `keyword` 一个参数，第 2 页起直接返回空，不白花请求。
+   ⚠️ **「它没有分页游标」那句话是错的，2026-09-22 真跑一次验掉了。** 那句话原本写在
+   这里，证据只有一句「响应只有 `count` 和 `items`」—— 而那次真调用打出的键路径里，
+   **`data.data` 的兄弟位置上就有一个 `data.pagination_token`**。`pickList` 只取
+   `data.data.items`，所以在那之前没有任何一行代码看得见它：那句「只有 count 和 items」
+   是透过我们自己那个窄窗口看出来的。
+
+   **能翻页 —— 2026-09-22 顺着链翻了一次，实测有效。** 参数名是 `pagination_token`
+   （官方 spec 声明的那一个，不是猜的，出处见下面那张参数名表）。**翻页与漂移是两条独立且叠加的杠杆**：顺着游标翻拿到的去重达人明显多于原样重发同样
+   次数，而原样重发又明显多于只请求一次。具体几个人别抄在这儿 —— 跑一次看输出的
+   `chain_cum_creators` 与 `control_cum_creators`（数记在 ADR-101 第十二节那棵不会再动的树上）。
+   ⚠️ 但它**不是干净的分页** —— 每一次的新条目在满页与个位数之间跳，重叠很重，
+   所以**别按「翻 N 页 = N × 单页条数」估**。
+   ⚠️ 而且那是**一个关键词、一次跑**，换词换时段都没验过（ADR-101 第十二节）。
+
+   ⚠️ **端点会漂**：两次完全相同的请求返回不同的条目集。这件事比参数问题更根本 ——
+   它意味着「一个关键词固定返回那一批人」这个隐含前提也不成立，而且它本身就是一条
+   不需要任何分页参数的召回路径。
+
+   要验就跑探针（要一把**充过值**的 key；真发了几次、估算花了多少，脚本自己打在输出的
+   `requests` 与 `cost_estimate_usd` 上 —— 后者是请求数乘以我们自己写死的单价，
+   不是 TikHub 的账单）：
+
+   ```
+   npm run probe:ig-paging -- --keyword smoothie              # 只打一次，看响应形状
+   npm run probe:ig-paging -- --keyword smoothie --chain 10   # 顺着游标翻，自带对照组
+   npm run probe:ig-paging -- --keyword smoothie --repeat 10  # 原样重发，只量漂移
+   ```
+
+   ⚠️ **`--chain` 一定同时跑对照组**，这就是它发 2N 次请求的原因。端点会漂，少了对照
+   曲线，链上多出来的人分不清是翻页给的还是漂给的 —— **而这两种读法的结论正好相反**。
+
+   ⚠️ **只看人，别看条目。** 同一个人连发几条 Reels，条目在涨而一个新达人都没多给，
+   对召回毫无用处。结论那句话自己会点出是哪一种。
+
+   ⚠️ **它给不出「服务端只有这么多人」这个结论。** 末尾连着几次不涨，说的是
+   「**这 N 次之内**没再涨」——「问完了」与「还没问够」在一次观测里不可区分。
+   **唯一的例外**：服务端不再给下一个游标时链会停下并报出停在第几次 —— 那是它自己说的
+   「没有下一页」，不是我们推的。把推断写成对方的原话，下一个人看了就不再试，
+   而这正是「没有分页游标」那句话上一次的下场（ADR-101）。
+
 2. **对词组敏感。** `smoothie recipe` 返回 **0** 条，`smoothie` 返回 12 条。
    **IG 侧的关键词要比 TikTok 短** —— 生成关键词时分平台处理
+3. **它只找得到发 Reels 的人。** 只发图文／轮播的创作者对这个端点**根本不存在** ——
+   跑多少次、翻多少页都不会出现。所以 IG 那一侧的候选池不是「这个品类的创作者」，
+   而是「这个品类里**发短视频**的创作者」。
+   ⚠️ **这个限定今天下游一处都没提过**，所有 IG 召回的讨论都默认成了前者。
+   它也把上面那条弃用记录的账整个翻过来：话题端点多花的那一跳（id→username）
+   买到的不是「同样的人便宜一点」，而是**一整类 Reels 搜索拿不到的人**
 
 ### 为什么弃用了 v1 的 hashtag 端点
 
@@ -232,13 +279,21 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 
 ### 参数名各版本不一致 —— 踩过的坑
 
-| 端点 | 参数名 |
-|------|--------|
-| `v1/fetch_hashtag_posts` | `hashtag` |
-| `v2/fetch_hashtag_posts` | **`keyword`** |
-| `v3/get_hashtag_posts` | **`tag`** |
-| `v2/search_users` | `keyword` |
-| `v3/search_users` | **`query`** |
+> 出处：TikHub 自己那份**按 OpenAPI 机械生成**的 Python SDK（`TikHub/TikHub-API-Python-SDK`），
+> 2026-09-22 读的 —— `api.tikhub.io` 与 `docs.tikhub.io` 被出网代理整域挡着，官网页打不开。
+> ⚠️ 它只对**路径与请求参数**作数，**响应体一个字都答不了**（那份 spec 本来就不描述响应，
+> 见 `docs/data-source-strategy.md` 第 3 条）。
+
+| 端点 | 参数名 | 分页参数 |
+|------|--------|---------|
+| `v1/fetch_hashtag_posts` | `hashtag` | `end_cursor` |
+| `v2/fetch_hashtag_posts` | **`keyword`** | `pagination_token`（另有 `feed_type`）|
+| ~~`v3/get_hashtag_posts`~~ | — | **这个端点不存在** —— 原先这一行写着参数叫 `tag`，是假的。v3 只有 `search_hashtags`（搜话题，不是取话题下的帖子）|
+| `v2/search_users` | `keyword` | **没有** —— 一次给多少就是全部 |
+| `v3/search_users` | **`query`** | `rank_token` |
+| `v2/search_reels` | `keyword` | **`pagination_token`** —— 官方声明有，**实测顺着它翻是有效的**；今天我们的代码不跟游标、只取一页（见上）|
+| `v2/general_search` | `keyword` | `pagination_token` —— 一个我们没用过的发现面 |
+| `v1`／`v2` `user_id_to_username` | `user_id` | — |
 
 传错会返回 **422** 并明确指出缺哪个字段 —— 这个报错很有用，别急着改别的。
 
@@ -248,7 +303,7 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 |---|---|---|
 | 发现主路径 | 视频搜索 `fetch_video_search_result` | **Reels 搜索 `v2/search_reels`** |
 | 结果路径 | `data.search_item_list[]` | `data.data.items[]` |
-| 分页 | ✅ `offset` + `has_more` | ❌ **无游标，只有一页（约 12 条）** |
+| 分页 | ✅ `offset` + `has_more` | 端点**支持**游标翻页（`pagination_token`，实测有效）；⚠️ **而我们的代码今天不跟游标、只取一页** —— 那是我们自己的做法。另外端点会漂，见上 |
 | 关键词长度 | 2–3 词的自然短语 | **1 个词** —— 词组会返回 0 条 |
 | bio 字段名 | `signature` | `biography` |
 | bio 完整度 | 搜索结果里**没有**，必须补 profile | 搜索结果里也没有，同样要补 |

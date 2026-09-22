@@ -343,6 +343,124 @@ group('probe', [], () => {
   }
 })
 
+// ---- IG 分页探针：每一种读法各造一次，尤其是最容易被读成假结论的那几种 ----
+//
+// 这个探针要回答的是「Reels 搜索顺着官方游标翻，到底能不能多拿到人」。
+// 它最危险的一支是**链上多出来的人其实是端点自己漂出来的**：这个端点两次完全相同的
+// 请求会返回不同条目，所以「翻页有效」与「端点在漂」在只看链那条曲线时**不可区分**，
+// 而两种读法的结论正好相反。对照曲线就是为这一条造的（夹具 `force-drift`）。
+//
+// 另外三种假结论各有一支守着：把「条目在涨」读成「人在涨」（`force-onecreator`）、
+// 把「这 N 次之内没再涨」读成「服务端就只有这么多人」、以及把链提前断掉时
+// 没发生过的那几次算进结论（`force-paged` 第三页到头）。
+//
+// ⚠️ 这一组 2026-09-22 整个重写过。上一版守的是「试猜来的参数名」那套三句判词，
+// 而那些参数名在官方 spec 里根本不存在（ADR-101 第十、十一节），机器连同判词一起删了。
+group('ig-paging-probe', [], () => {
+  const P = S('probe-ig-paging.ts')
+  // 关掉假 fetch 那个「第 7 次回 429」的定位触发器 —— 探针的请求数随跑数增长，
+  // 而它不走 `TikHub.get()`、没有重试，撞上就是整跑中止
+  const NO429 = { FAKE_FETCH_NO_429: '1' }
+  const probe = (label: string, kw: string, mode?: string, n?: number): any =>
+    summaryOf(run(label, mode ? [P, '--keyword', kw, mode, String(n)] : [P, '--keyword', kw],
+                  process.cwd(), undefined, NO429) ?? '')
+
+  // ---- 默认模式：只打一次，报形状 ----
+  const shape = probe('IG 探针：只打一次，报响应形状', 'smoothie')
+  // 2026-09-22 真跑时栽的就是这儿：几个参数的对比全判作废，而响应里躺着一个
+  // `data.pagination_token` —— 只读结论那一行的人整个错过了最重要的发现，
+  // 而那个键后来正是翻页真正的钥匙。游标那一条与任何对比无关（是对一份响应的直接
+  // 观测），所以必须**不分支**地打出来。
+  named('响应里有游标时，结论那句话自己要说出来 —— 不许只躺在字段里',
+    String(shape.reading ?? '').includes('pagination_token'),
+    `reading 里没提响应中的游标键：${JSON.stringify(shape.reading)}`)
+  named('只打一次就只发一次请求 —— 看形状不该顺带花钱',
+    shape.requests === 1,
+    `应当只发 1 次请求，实际 ${JSON.stringify(shape.requests)}`)
+
+  // ---- 链式翻页：服务端真认游标 ----
+  // force-paged 带着游标来就回新一批，翻到第三页不再给游标。
+  const paged = probe('IG 探针：链 —— 服务端真认游标，第三页到头', 'force-paged', '--chain', 3)
+  named('链比对照多拿到人，才判「翻页多拿到了人」',
+    paged.chain_cum_creators === 3 && paged.control_cum_creators === 1
+      && String(paged.reading ?? '').includes('翻页确实多拿到了人'),
+    `链应当 3 人、对照 1 人并判翻页有效，实际 ${JSON.stringify([paged.chain_cum_creators, paged.control_cum_creators])}`)
+  // 「服务端不再给游标」是这个工具唯一一个不靠推断的终止条件 —— 它和「这 N 次之内
+  // 没再涨」不是一回事，混为一谈就等于把推断说成了对方的原话。
+  named('服务端不再给游标就停下，并报出停在第几次',
+    paged.chain_stopped_at_call === 3 && String(paged.reading ?? '').includes('是它自己说的'),
+    `应当停在第 3 次并说明是服务端自己说的，实际 ${JSON.stringify(paged.chain_stopped_at_call)}`)
+  named('链要发够两组 —— 一组链、一组对照，缺了对照这一跑读不出结论',
+    paged.requests === 2 * 3,
+    `--chain 3 应当发 6 次请求（3 链 ＋ 3 对照），实际 ${JSON.stringify(paged.requests)}`)
+
+  // 链提前断掉时，读法里那个次数必须是**实际跑了几次**，不是要求的次数。
+  // 上一版的写法在链不断时两个数恰好相等，所以看不出来 —— 这里特意要 5 次、断在第 3 次。
+  const earlyStop = probe('IG 探针：链 —— 要 5 次，服务端第 3 次就不给游标了', 'force-paged', '--chain', 5)
+  named('链提前断掉时，读法里报的是实际跑了几次，不是要求的次数',
+    earlyStop.chain_stopped_at_call === 3
+      && String(earlyStop.reading ?? '').includes('链：3 次累计')
+      && !String(earlyStop.reading ?? '').includes('链：5 次累计'),
+    `应当停在第 3 次且读法说「链：3 次累计」，实际 ${JSON.stringify([earlyStop.chain_stopped_at_call, earlyStop.reading])}`)
+  // 链断在第三次时对照组也只该跑三次。让对照跑满要求的次数，它的采样就比链多，
+  // 而这个端点会漂 —— 采样多的一方天然累计更多人，于是「翻页有没有用」会偏向判没用。
+  // 这是在本工具最重的那个结论上造**假阴性**。
+  named('链提前断掉时对照组跟着变短 —— 采样不等长就是在制造假阴性',
+    Array.isArray(earlyStop.control_curve) && earlyStop.control_curve.length === 3
+      && earlyStop.requests === 6,
+    `对照曲线应当也是 3 行、总请求 6 次，实际 ${JSON.stringify([(earlyStop.control_curve ?? []).length, earlyStop.requests])}`)
+
+  // ---- 链式翻页：端点在漂，链上多出来的人不是游标给的 ----
+  // 整组里最关键的一条。force-drift 每次都换一批人、每次都照给游标 ——
+  // 只看链那条曲线的话它一路在涨，而对照组涨得一样多。
+  const drifting = probe('IG 探针：链 —— 端点在漂，链和对照涨得一样多', 'force-drift', '--chain', 3)
+  named('链涨了也不算 —— 要减掉对照组，涨的那些可能全是端点自己在漂',
+    drifting.chain_cum_creators === 3 && drifting.control_cum_creators === 3
+      && String(drifting.reading ?? '').includes('是**漂**给的，不是翻页给的'),
+    `链与对照都该是 3 人且判成漂，实际 ${JSON.stringify([drifting.chain_cum_creators, drifting.control_cum_creators, drifting.reading])}`)
+
+  // ---- 链式翻页：游标收了，但回来的还是同一批（实测 2026-09-22 就是这一支）----
+  const ignored = probe('IG 探针：链 —— 游标收下了，回来的还是同一批', 'smoothie', '--chain', 3)
+  named('末尾不涨只说得出「这几次之内没再涨」 —— 不许说成「就只有这么多人」',
+    ignored.tail_calls_without_new_creator === 2
+      && String(ignored.reading ?? '').includes('不可区分'),
+    `末尾平段应当是 2 次且结论里带「不可区分」，实际 ${JSON.stringify([ignored.tail_calls_without_new_creator, ignored.reading])}`)
+
+  // ---- 评审第六轮抓到的三条：工具自己在说假话 ----
+  // 非 200 会 refund（那是「非 200 不计费」那条约定），于是计费数不等于发出数 ——
+  // 中止那一次真的发出去了，却不在计费里。只报计费数就是把「发出 N+1 次」说成「N 次」。
+  const aborted = run('IG 探针：对面拒收时，发出数与计费数分开报',
+                      [P, '--keyword', 'force-402'], process.cwd(),
+                      { status: 1, stream: 'stderr' }, NO429)
+  named('中止时报的「发出几次」是真发出的次数，不是计费次数',
+    String(aborted ?? '').includes('发出 1 次请求，其中 0 次计费'),
+    `中止诊断里应当把发出数与计费数分开报，实际是 ${JSON.stringify(aborted)}`)
+
+  // 「没写这个 flag」与「写了但没给数」必须分开：合起来的话，要了一次链式跑会静默
+  // 退化成只发一次请求的形状 dump，而且不报错 —— 用户拿到的东西和他要的不是一回事。
+  const noOperand = run('IG 探针：--chain 后面没跟数字',
+                        [P, '--keyword', 'smoothie', '--chain'], process.cwd(),
+                        { status: 2, stream: 'stderr' }, NO429)
+  named('flag 写了却没给数就报错退出 —— 不许静默当成没写过',
+    String(noOperand ?? '').includes('--chain 后面要跟一个'),
+    `应当因缺少操作数退出并说明，实际是 ${JSON.stringify(noOperand)}`)
+
+  // ---- 原样重发：只量漂移，不碰游标 ----
+  const REP = 3
+  const oc = probe('IG 探针：照搬 —— 条目一直换，人是同一个', 'force-onecreator', '--repeat', REP)
+  named('召回数的是人不是条目 —— 同一个人的多条视频不算多个人',
+    oc.cum_creators === 1 && oc.cum_items === 2 * REP,
+    `同一个人发的 ${2 * REP} 条应当只算 1 个人，实际 ${JSON.stringify([oc.cum_creators, oc.cum_items])}`)
+  // 这一句是整条曲线最贵的那种误读：曲线在涨，而涨的全是同一批人的更多视频。
+  // 只把数放进字段里不算 —— 读的人会照着「累计条目」下结论（ADR-73）。
+  named('条目在涨而人没涨，结论那句话自己要说出来 —— 不能只躺在字段里',
+    String(oc.reading ?? '').includes('条目在涨，人没涨'),
+    `结论里没点出「条目涨、人没涨」：${JSON.stringify(oc.reading)}`)
+  named('照搬几次就发几次请求 —— 这一支不带任何游标',
+    oc.requests === REP && Array.isArray(oc.curve) && oc.curve.length === REP,
+    `应当是 ${REP} 次请求与 ${REP} 行曲线，实际 ${JSON.stringify([oc.requests, (oc.curve ?? []).length])}`)
+})
+
 // ---- 入口：钱字段比不了大小就不许开跑（P3 · D6.a）----
 group('budget-gate', [], () => {
   // 闸门是一句「已花 + 本次开销 > 上限」的比较。两边有一个不是数，这句话恒为假 ——
@@ -1266,6 +1384,35 @@ group('f9', [], () => {
             `花了 ${tight.cost_estimate_usd}/${tight.budget_usd}，那句话说的是`
             + `「${tightRun.stderr.split('\n').find(l => l.includes('续跑')) ?? '（没说）'}」`
             + ' —— 第一页保证在达标判断之前生效，不在预算之前；少报一个，那个词的第一页就永远丢了')
+    }
+  }
+
+  // **预算那一侧，顺序照样决定谁被砍掉** —— 达标那一侧不决定（上面 asc／desc 两跑），
+  // 两件事必须分开说。`skill/SKILL.md` 一度把它写成无条件的「顺序不再决定谁被砍掉，
+  // IG 写在前面还是后面都一样」，而那句话在预算先用尽时是假的：排在后面的**整个平台**
+  // 可能一次都没被问过 —— 正是这条需求最初要修的那个形状的另一半（ADR-94 第一节）。
+  // 这一条钉住的就是那句改过的话：散文不会红，夹具会。
+  {
+    const platformsAsked = (dir: string): string[] => {
+      const st = JSON.parse(readFileSync(join(firstPage, dir, 'task.json'), 'utf8'))
+      return Object.keys(st.offsets ?? {}).map((k: string) => st.tasks[Number(k)].platform).sort()
+    }
+    // 上面那一跑是 [0,2,4,1,3,5]：偶数下标是 tiktok，所以 TikTok 三个排在前面
+    const tkFirstDir = tightRun.ok ? summaryOf(tightRun.stdout).dir : undefined
+    const igRun = runBoth('collect 第一页保证：同一批任务、同样预算，只把 IG 排到最前',
+                          [S('collect.ts'), '--config',
+                           f9Cfg('tightig', [1, 3, 5, 0, 2, 4], { budget_usd: 0.003 })],
+                          firstPage, { status: 3 })
+    const igFirstDir = igRun.ok ? summaryOf(igRun.stdout).dir : undefined
+    if (tkFirstDir !== undefined && igFirstDir !== undefined) {
+      const a = platformsAsked(tkFirstDir)
+      const b = platformsAsked(igFirstDir)
+      named('预算先用尽时顺序决定哪个平台整个挨刀 —— 换个顺序，挨刀的就换一个',
+            a.length === 3 && b.length === 3
+            && a.every(x => x === 'tiktok') && b.every(x => x === 'instagram'),
+            `TikTok 排前时问过的是 ${JSON.stringify(a)}，IG 排前时是 ${JSON.stringify(b)}`
+            + ' —— 两次问过的平台必须相反；一样的话说明顺序不再决定谁挨刀，'
+            + '那 SKILL.md 里「预算不够时把最在意的平台排在前面」这条建议就成了空话')
     }
   }
 

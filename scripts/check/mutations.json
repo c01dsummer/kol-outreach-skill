@@ -3328,6 +3328,152 @@
       "file": "scripts/enrich.ts",
       "find": "  state.accounts[k] = next\n  newlyQueried++\n  persist()\n}",
       "replace": "  state.accounts[k] = next\n  newlyQueried++\n}"
+    },
+    {
+      "id": "M-H44-a",
+      "req": "harness",
+      "why": "对照组不跑了，只留链那一条曲线 —— 于是这个端点自己漂出来的人会被整笔记到翻页头上。两次完全相同的请求本来就返回不同条目，少了对照，「翻页有效」与「端点在漂」观测上一模一样而结论正好相反",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "  await repeatInto(ctrl, ch.rows.length, '对照')",
+      "replace": "  void ctrl",
+      "by": "selfcheck",
+      "kills": [
+        "链涨了也不算 —— 要减掉对照组，涨的那些可能全是端点自己在漂",
+        "链比对照多拿到人，才判「翻页多拿到了人」",
+        "链要发够两组 —— 一组链、一组对照，缺了对照这一跑读不出结论"
+      ]
+    },
+    {
+      "id": "M-H44-b",
+      "req": "harness",
+      "why": "链和对照打平也算翻页有用 —— 而打平恰恰说明多出来的人一个都不是游标给的。这一处松一格，最该被否掉的那种情形就会被判成肯定结论",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "  const beatsDrift = ch.cumPeople > ctrl.cumPeople",
+      "replace": "  const beatsDrift = ch.cumPeople >= ctrl.cumPeople",
+      "by": "selfcheck",
+      "kills": [
+        "链涨了也不算 —— 要减掉对照组，涨的那些可能全是端点自己在漂"
+      ]
+    },
+    {
+      "id": "M-H44-c",
+      "req": "harness",
+      "why": "把「响应里有像游标的键」那一段从结论里拿掉 —— 那一条与任何对比无关，是对一份响应的直接观测；藏起来之后，只读结论的人会以为什么都没查到，而响应里其实躺着一个可以接着往下翻的东西",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "  const cursorNote = cursorish.length",
+      "replace": "  const cursorNote = false",
+      "by": "selfcheck",
+      "kills": [
+        "响应里有游标时，结论那句话自己要说出来 —— 不许只躺在字段里"
+      ]
+    },
+    {
+      "id": "M-H44-d",
+      "req": "harness",
+      "why": "服务端不再给下一个游标时照样停，但不再报出停在第几次 —— 于是这个工具唯一一个不靠推断的终止条件被抹平成了那句「这几次之内没再涨」。前者是对方的原话，后者是我们的推断，混成一句就是把推断说成了对方说的",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "    if (typeof token !== 'string' || token.length === 0) return call",
+      "replace": "    if (typeof token !== 'string' || token.length === 0) return undefined",
+      "by": "selfcheck",
+      "kills": [
+        "服务端不再给游标就停下，并报出停在第几次"
+      ]
+    },
+    {
+      "id": "M-H44-e",
+      "req": "harness",
+      "why": "回传时不用官方声明的那个参数名，改回一个想当然的名字 —— 未知参数会被服务端静默忽略，于是链一步都翻不动，而判词看上去跟「服务端不支持分页」一模一样。上一版正是在这个坑里烧掉了十几次付费请求",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "const CURSOR_PARAM = 'pagination_token'",
+      "replace": "const CURSOR_PARAM = 'cursor'",
+      "by": "selfcheck",
+      "kills": [
+        "链比对照多拿到人，才判「翻页多拿到了人」"
+      ]
+    },
+    {
+      "id": "M-H44-f",
+      "req": "harness",
+      "why": "把「人」的身份换成条目的身份 —— 于是同一个人连发的多条视频被数成多个达人，曲线看着一路在涨，而一个新达人都没多给。整条召回论证要的是人数，这一处折了，结论正好反过来",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "  const raw = list.map(it => it?.user?.id ?? it?.media?.user?.id",
+      "replace": "  const raw = list.map(it => it?.id ?? it?.media?.user?.id",
+      "by": "selfcheck",
+      "kills": [
+        "召回数的是人不是条目 —— 同一个人的多条视频不算多个人"
+      ]
+    },
+    {
+      "id": "M-H44-g",
+      "req": "harness",
+      "why": "末尾那段「连着几次没多给新人」不再量，恒报零 —— 于是结论永远走「最后一次仍在涨」那一支，一条早就平掉的曲线会被读成还有得挖，下一个人照着它继续花钱",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "    for (let i = this.rows.length - 1; i >= 0 && this.rows[i].new_creators === 0; i--) n++",
+      "replace": "    n += 0",
+      "by": "selfcheck",
+      "kills": [
+        "末尾不涨只说得出「这几次之内没再涨」 —— 不许说成「就只有这么多人」"
+      ]
+    },
+    {
+      "id": "M-H44-h",
+      "req": "harness",
+      "why": "不再跟累计集合比，这一次响应里有几个人就算几个新人 —— 曲线于是永远在涨。而这条曲线整个存在的理由就是「多问几次到底还能不能多拿到人」，这一处折了，它对任何关键词都回答「能」",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "    const freshPeople = new Set(who.ids.filter(x => !this.seenPeople.has(x)))",
+      "replace": "    const freshPeople = new Set(who.ids)",
+      "by": "selfcheck",
+      "kills": [
+        "末尾不涨只说得出「这几次之内没再涨」 —— 不许说成「就只有这么多人」"
+      ]
+    },
+    {
+      "id": "M-H44-i",
+      "req": "harness",
+      "why": "读法里那个「跑了几次」改回用要求的次数，而不是曲线上实际有几行 —— 链提前断掉时两者不再相等，于是结论会把没发生过的几次算进去。这个工具整个存在的理由就是不让观测被说成别的样子，这一处折了，它自己就在说假话",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "  const n = c.rows.length",
+      "replace": "  const n = chain ?? repeat ?? c.rows.length",
+      "by": "selfcheck",
+      "kills": [
+        "链提前断掉时，读法里报的是实际跑了几次，不是要求的次数"
+      ]
+    },
+    {
+      "id": "M-H44-j",
+      "req": "harness",
+      "why": "中止时只报计费次数，把真发出去的那一次吞掉 —— 非 200 按约定退了费，但请求确确实实发出去了。于是「发出 N+1 次」被说成「发出 N 次」，而这个工具整个存在的理由就是不让观测被说成别的样子",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "  console.error(`  这一跑发出 ${sent} 次请求，其中 ${budget.count} 次计费`",
+      "replace": "  console.error(`  这一跑发出 ${budget.count} 次请求，其中 ${budget.count} 次计费`",
+      "by": "selfcheck",
+      "kills": [
+        "中止时报的「发出几次」是真发出的次数，不是计费次数"
+      ]
+    },
+    {
+      "id": "M-H44-k",
+      "req": "harness",
+      "why": "把「这个 flag 后面该跟个数」那句诊断换成一句说不清的话 —— 退出码照旧，但用户看不出是哪个参数出的问题。⚠️ 这一条守的是**诊断措辞**，不是退出码本身：改退出码的那种变异在本仓库的变异判定里写不出来（进程级失败一律判 crashed，mutate-rule.ts:14 与 :42-43，那是刻意的保守假阴性）。退出码那一半由断言守着，手工验过它会红",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "    console.error(`--${flag} 后面要跟一个 ≥2 的整数，这次什么都没跟上`)",
+      "replace": "    console.error('参数有问题')",
+      "by": "selfcheck",
+      "kills": [
+        "flag 写了却没给数就报错退出 —— 不许静默当成没写过"
+      ]
+    },
+    {
+      "id": "M-H44-l",
+      "req": "harness",
+      "why": "链提前断掉时让对照组仍跑满要求的次数 —— 对照的采样就比链多，而这个端点会漂，采样多的一方天然累计更多人。于是「翻页有没有用」那个比较偏向判它没用：这是在本工具最重的那个结论上造假阴性",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "  await repeatInto(ctrl, ch.rows.length, '对照')",
+      "replace": "  await repeatInto(ctrl, n, '对照')",
+      "by": "selfcheck",
+      "kills": [
+        "链提前断掉时对照组跟着变短 —— 采样不等长就是在制造假阴性"
+      ]
     }
   ],
   "exemptions": [

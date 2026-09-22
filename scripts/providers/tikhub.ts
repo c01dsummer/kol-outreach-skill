@@ -186,10 +186,23 @@ export class TikHub {
    * 没有 username 也没有粉丝数，每个创作者还要额外一次 id→username 调用，
    * 成本翻倍且拿不到更多信息。已弃用。
    *
-   * ⚠️ 两个实测限制：
-   *   1. **没有分页游标** —— 响应只有 `count` 和 `items`，一个关键词只能拿一页
+   * ⚠️ 限制 —— **第一条是我们自己的做法，后两条是这个端点本身的**
+   * （**别把这张单子读成穷尽的**：原先它写着「两条」而漏了第三条，
+   * 那正是「响应只有 count 和 items」当年的错法 —— 一张宣称完整的单子）：
+   *   1. **只取一页** —— 下面只发 `keyword` 一个参数，`search()` 见到 `offset > 0` 直接
+   *      返回空。⚠️ **别读成「它没有分页游标」**：那句话原先写在这里，证据只有
+   *      「响应只有 `count` 和 `items`」，那是**响应**那一侧的观测。实际上响应里就有
+   *      `data.pagination_token`，而官方 spec 里 `search_reels` 声明的分页参数正是它
+   *      （ADR-101）。**2026-09-22 顺着链翻了一次，实测能翻页**：同一个关键词，
+   *      翻十次拿到的去重达人是单次的五倍左右，而且还在涨。所以下面这个 `has_more: false`
+   *      与 `search()` 里「offset > 0 就返回空」**才是「IG 只有一页」的真正来源**，
+   *      不是对面的性质。复跑 `npm run probe:ig-paging -- --chain 10`（自带对照组）
    *   2. **对词组敏感** —— "smoothie recipe" 返回 0，"smoothie" 返回 12。
    *      IG 侧的关键词要比 TikTok 短
+   *   3. **它只找得到发 Reels 的人。** 只发图文／轮播的创作者对这个端点根本不存在 ——
+   *      跑多少次、翻多少页都不会出现。所以 IG 那一侧的候选池不是「这个品类的创作者」，
+   *      是「这个品类里**发短视频**的创作者」，而下游没有一处提过这个限定。
+   *      补它要另一条路（话题下的全部媒体），见任务簿里的 hashtag 那条
    */
   private async searchInstagramReels(kw: string): Promise<SearchPage> {
     const raw = await this.get('/api/v1/instagram/v2/search_reels', { keyword: kw })
@@ -224,7 +237,9 @@ export class TikHub {
         recent_posts: [post],
       })
     }
-    // Reels 搜索没有分页游标 —— 永远只有一页
+    // 我们只取一页，所以这里写死 false。**这不是观测到的 `has_more`** —— 响应里压根没有
+    // 那个字段，而它收不收游标没人试过（ADR-101）。下游把这个 false 读成「翻完了」，
+    // 读的是我们自己的决定，不是 TikHub 的性质。
     return { creators: [...byHandle.values()], raw_count: list.length, has_more: false }
   }
 
@@ -288,7 +303,8 @@ export class TikHub {
 
   async search(task: SearchTask, region: string, offset: number): Promise<SearchPage> {
     if (task.platform === 'tiktok') return this.searchTikTok(task.keyword, region, offset)
-    // IG 的 Reels 搜索没有分页游标，offset > 0 直接返回空，不白花请求
+    // 我们只向 IG 取一页：offset > 0 直接返回空，不白花请求。
+    // **第 2 页是空的这个现象是这一行造的**，不是问出来的（ADR-101）。
     if (offset > 0) return { creators: [], raw_count: 0, has_more: false }
     const reels = await this.searchInstagramReels(task.keyword)
     if (reels.creators.length) return reels
