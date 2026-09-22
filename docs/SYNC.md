@@ -27,6 +27,7 @@
 | **改报错/提示里给用户的一句承诺**（比如「续跑要不要花钱」）| **点名逐个过，不要 grep**：**`docs/requirements.json` 的对应判据（机器可读的真相来源，最不该说错）** → `docs/ARCHITECTURE.md` 缝隙契约 → **`skill/SKILL.md`（Agent 照着转述）** → 对应 `skill/references/*` → `README.md` → **那个脚本自己的文件头与块注释**（代码注释也是副本，而且离实现最近、最容易被当成权威）。副本的措辞常常不一样（「不产生新请求」vs「不产生新的请求」），按记忆搜必漏。**承诺的「条件」变了也要重走一遍全表**；**给一个已有取值加第二个来源**时同样要过 —— 承诺一个字没改，但可能已经不再为真（ADR-43） | ✗ 靠执行 |
 | **增删需求登记表的字段** | `scripts/check/spec-rule.ts`（类型与校验）· `scripts/check/spec-sync.ts`（读写）· **`AGENTS.md` 与本表的文档地图**（它们描述这个文件有哪些字段）· `process/1-REQUIREMENTS.md`（如果那是通用概念） | ✗ 靠执行 |
 | **改数据源端点/字段** | `skill/references/providers/tikhub.md` · `scripts/providers/tikhub.ts` · `scripts/check/fake-fetch.ts` | 🔒 `selfcheck` |
+| **改搜索作品标识或并集契约** | `docs/requirements.json` 的 D11 → `docs/ARCHITECTURE.md` → `scripts/lib/types.ts` · `scripts/lib/posts.ts` · `scripts/providers/tikhub.ts` · `scripts/lib/pipeline.ts` · `scripts/lib/identity.ts` → `skill/references/providers/_interface.md` · `tikhub.md` · `skill/references/semantic-fit.md` → 测试与变异；已有结论的替代只在 ADR 末尾追加 | 🔒 `spec` `audit`；副本语义靠人核 |
 | **改公开指标/风险/报价口径** | `docs/requirements.json` · `skill/references/public-metrics.md` · 计算与分层逻辑 · 输出说明 · 测试 | 部分 |
 | **改 CSV 列或报告结构** | `scripts/lib/rows.ts` · `scripts/lib/xlsx.ts` · `scripts/lib/report.ts` · `skill/references/output-format.md` · 测试 · 变异 | 部分 |
 | **新增可执行文件** | 三选一：接进 `scripts/check/selfcheck.ts`、在 `npm run check` 里自成一步、或写进 `EXEMPT` 说明理由 | 🔒 `selfcheck` |
