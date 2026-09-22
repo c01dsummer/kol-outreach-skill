@@ -39,9 +39,14 @@ const tiktokProfile = {
     stats: { followerCount: 82000, videoCount: 214 } } },
 }
 
-/** 实测结构：data.data.items[]，user 里有 username/full_name，无 follower_count */
+/**
+ * 实测结构：data.data.items[]，user 里有 username/full_name，无 follower_count。
+ * `pagination_token` 是 2026-09-22 真跑一次才看见的 —— 它是 `data.data` 的兄弟，
+ * 而 `pickList` 只取 `data.data.items`，所以在那之前没有任何一行代码看得见它。
+ * 放进罐头里有两个用处：让夹具贴住真实形状，以及让探针「响应里有游标」那一支被走到。
+ */
 const igReels = {
-  data: { data: { count: 2, items: [
+  data: { pagination_token: 'fake-token-for-selfcheck', data: { count: 2, items: [
     { caption: { text: 'mango dragon fruit smoothie 🥭 layered tropical' },
       play_count: 1582569, like_count: 200211,
       user: { id: '7763449524', username: 'techwithsarah', full_name: 'Sarah',

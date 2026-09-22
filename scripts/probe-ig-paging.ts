@@ -53,6 +53,22 @@ const VARIANTS: { name: string; extra: Record<string, string | number> }[] = [
 /** 名字里带这些字样的键值得单独点出来 —— 有一个就说明游标可能一直在响应里。 */
 const CURSOR_HINT = /cursor|max_id|next|page|has_more|more_available|token/i
 
+/**
+ * 按键路径把值取出来。**只打键名不够** —— 2026-09-22 那一跑在响应里发现了
+ * `data.pagination_token`，而「它是 null 还是真有个 token」才是下一步要问的，
+ * 光有键名答不了。值截断到能认出形状为止，不整份抄进输出。
+ */
+function valueAt(root: unknown, path: string): string {
+  let cur: any = root
+  for (const seg of path.split('.')) {
+    const m = /^(.*)\[0\]$/.exec(seg)
+    cur = cur?.[m ? m[1] : seg]
+    if (m) cur = cur?.[0]
+    if (cur === undefined || cur === null) break
+  }
+  return cur === undefined ? '(缺)' : cur === null ? 'null' : JSON.stringify(cur).slice(0, 120)
+}
+
 const arg = (name: string): string | undefined => {
   const i = process.argv.indexOf(`--${name}`)
   const v = i < 0 ? undefined : process.argv[i + 1]
@@ -139,17 +155,23 @@ async function main() {
   const listA = pickList(rawA, 'instagram/search_reels')
   const { by, ids: idsA } = identify(listA)
   const paths = keyPaths(rawA)
+  // 只看**最后一段**：`data.data.items[0].is_pinned` 里的 pinned 不算游标
   const cursorish = paths.filter(p => CURSOR_HINT.test(p.split('.').pop() ?? ''))
+    .map(path => ({ path, value: valueAt(rawA, path) }))
 
   console.error(`  基线：${listA.length} 条 · 身份按「${by}」`)
   console.error(`  响应键路径 ${paths.length} 条，其中像游标的 ${cursorish.length} 条：`
-    + `${cursorish.join('、') || '（一条都没有）'}`)
+    + `${cursorish.map(c => `${c.path} = ${c.value}`).join('、') || '（一条都没有）'}`)
 
   // **基线重跑是整个对比的地基，不是一次多余的请求。** 少了它，「带 offset 拿到了
   // 另一批」既可能是参数被认了，也可能只是这个端点本来就在漂 —— 两种读法的结论
   // 正好相反，而观测到的现象一模一样。
   const idsB = identify(pickList(await ask({}), 'instagram/search_reels')).ids
-  const stable = freshOf(idsA, idsB).length === 0 && idsA.length === idsB.length
+  // **漂了多少要量出来，不能只说漂没漂。** 2026-09-22 那一跑四个参数全判「作废」，
+  // 而读的人无从知道该不该当真：基线只漂 1 条、某个参数多给 7 条，那很可疑；
+  // 基线自己就漂 7 条，那就是噪音。两个数摆在一起才读得出来。
+  const baselineDrift = freshOf(idsA, idsB).length
+  const stable = baselineDrift === 0 && idsA.length === idsB.length
   console.error(stable ? '  基线重跑：两次一致 —— 下面的对比作数'
     : '  基线重跑：两次就不一样 —— 这个端点在漂，下面一个参数也不判')
 
@@ -170,21 +192,33 @@ async function main() {
     identity: by,
     baseline_items: listA.length,
     baseline_stable: stable,
+    baseline_drift_items: baselineDrift,
     cursor_like_keys: cursorish,
     all_key_paths: paths,
     trials,
     requests: budget.count,
     cost_estimate_usd: Number(budget.spent.toFixed(4)),
     unit_price_usd: UNIT_PRICE,
-    // 结论那句话自己带着读法 —— 只写进输出，不让读的人从表格里自己总结（ADR-73）
-    reading: !stable
-      ? '基线自己两次就不一样，本次一个参数都没判。换个时段或换个关键词再跑。'
+    // 结论那句话自己带着读法 —— 只写进输出，不让读的人从表格里自己总结（ADR-73）。
+    // ⚠️ **游标那一条排在最前，而且不分支**：它是对一份响应的直接观测，与四个参数的
+    // 对比无关，基线漂了也照样成立。2026-09-22 那一跑正栽在这儿 —— 全部判「作废」，
+    // 而响应里躺着一个 `data.pagination_token`，只读这句话的人整个错过了。
+    reading: (cursorish.length
+      ? `⚠️ 响应里有像游标的键：${cursorish.map(c => `${c.path} = ${c.value}`).join('、')}。`
+        + '**这一条与下面的对比无关**，是对一份响应的直接观测 —— 它直接反驳「响应只有 '
+        + 'count 和 items」那句话。下一步：把这个值当参数回传，看是不是能接着往下翻。'
+        + '（有键不等于能用：值可能是 null，回传也可能被忽略。）\n'
+      : '')
+      + (!stable
+      ? `基线自己两次就不一样（重跑多出 ${baselineDrift} 个基线没有的条目），本次一个参数都没判。`
+        + '拿这个漂移量跟下面每一行的「基线没有的」比：漂移小而某一行大得多，才值得再试；'
+        + '两者一个量级就是噪音。换个时段或换个关键词再跑。'
       : honored.length
         ? `这些参数被服务端认了：${honored.join('、')}。「一个关键词只能拿一页」那句话是错的，`
           + 'IG 侧的召回上限要按这个重算。⚠️ **「有没有游标」还要看认的是哪个** —— '
           + '`count` 只说明页大小可调，`offset`／`max_id` 才是接着往下翻。'
         : '试过的参数这一次都没多给。**这不等于不支持分页** —— 未知参数常被静默忽略，'
-          + `两者在本观测下不可区分。真要否掉分页，得有别的证据（比如 ${PATH} 的接口文档）。`,
+          + `两者在本观测下不可区分。真要否掉分页，得有别的证据（比如 ${PATH} 的接口文档）。`),
   }, null, 2))
 }
 

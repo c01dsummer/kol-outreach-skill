@@ -373,6 +373,16 @@ group('ig-paging-probe', [], () => {
     summaryOf(flat ?? '').requests === 2 + trials(flat).length,
     `请求数应当是 2 次基线 ＋ ${trials(flat).length} 个参数，实际 ${summaryOf(flat ?? '').requests}`)
 
+  // 2026-09-22 真跑一次时栽的就是这儿：四个参数全判「作废」，而响应里躺着一个
+  // `data.pagination_token` —— 只读结论那一行的人整个错过了最重要的发现。
+  // 游标那一条与对比无关（是对一份响应的直接观测），所以它必须**不分支**地打出来。
+  named('响应里有游标时，结论那句话自己要说出来 —— 不许只躺在字段里',
+    String(summaryOf(flat ?? '').reading ?? '').includes('pagination_token'),
+    `reading 里没提响应中的游标键：${JSON.stringify(summaryOf(flat ?? '').reading)}`)
+  named('基线漂移量要报出来 —— 只说「漂了」，读的人没法判断该不该当真',
+    summaryOf(flat ?? '').baseline_drift_items === 0,
+    `基线一致时漂移量应当是 0，实际 ${JSON.stringify(summaryOf(flat ?? '').baseline_drift_items)}`)
+
   const paged = run('IG 分页探针：服务端真按 offset 换了一批', [P, '--keyword', 'force-paged'])
   named('服务端真给出了基线里没有的条目才判「认了」 —— 只是换个次序不算',
     trials(paged).some(t => t.name.startsWith('offset') && t.verdict === '认了'

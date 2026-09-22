@@ -3353,6 +3353,30 @@
         "基线真的跑了两次 —— 少了这一次，「认了」和「端点在漂」就分不开",
         "基线在漂就全部作废 —— 不借机把任何一个参数判成「认了」"
       ]
+    },
+    {
+      "id": "M-H44-c",
+      "req": "harness",
+      "why": "把「响应里有像游标的键」那一段从结论里拿掉 —— 那一条与四个参数的对比无关，是对一份响应的直接观测；藏起来之后，只读结论的人会在四个参数全判作废时以为什么都没查到，而响应里其实躺着一个可以接着往下翻的东西",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "    reading: (cursorish.length",
+      "replace": "    reading: (false",
+      "by": "selfcheck",
+      "kills": [
+        "响应里有游标时，结论那句话自己要说出来 —— 不许只躺在字段里"
+      ]
+    },
+    {
+      "id": "M-H44-d",
+      "req": "harness",
+      "why": "基线漂移量不再量，恒报零 —— 于是「作废」那一支给不出量级，读的人无从判断某个参数多给的那几条到底是信号还是噪音",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "  const baselineDrift = freshOf(idsA, idsB).length",
+      "replace": "  const baselineDrift = 0",
+      "by": "selfcheck",
+      "kills": [
+        "基线在漂就全部作废 —— 不借机把任何一个参数判成「认了」"
+      ]
     }
   ],
   "exemptions": [
