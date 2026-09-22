@@ -66,7 +66,7 @@ output/{product}-{YYYYMMDDHHmm}/
 | `profile_url` | |
 | `source_keyword` | |
 | `source_dimension` | category / scene / competitor / audience |
-| `best_post_desc` | 最能代表其内容方向的一条 |
+| `best_post_desc` | 搜索命中的作品里播放最高那条的文案。`未查询` = 没问过他的作品（IG 按账号名搜到的人）；空白 = 那条作品本身没写文案 |
 | `outreach_draft` | ★ 仅 A 级填写 |
 | `previously_recommended` | 曾推荐过则填「{product} @ {date}」 |
 

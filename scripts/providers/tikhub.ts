@@ -261,7 +261,8 @@ export class TikHub {
         is_private: Boolean(u?.is_private),
         profile_url: `https://www.instagram.com/${handle}/`,
         // **不写 recent_posts** —— 这条路搜的是账号，响应里根本没有作品，我们没问过。
-        // 原先这里写着一个空数组，于是交付表对这批人说「问过了，他没作品」（P1.i）。
+        // 原先这里写着一个空数组，交付表对这批人显示成空白，
+        // 跟「作品文案本来就是空的」混成一个样子（P1.e）。
       }]
     })
     return { creators, raw_count: list.length, has_more: false }

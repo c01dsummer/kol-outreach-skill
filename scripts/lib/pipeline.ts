@@ -419,6 +419,12 @@ export function mergePage(creators: Map<string, Creator>, page: readonly Partial
       // 认定整张名单归得了人，于是每一行又开始印确定为假的 0（#140 评审指出）。
       const at = seen.source_tasks
       if (at !== undefined && !at.includes(i)) at.push(i)
+      // **作品只补不换**：先到的那次没问过作品（IG 按账号名搜人的兜底路径），这一页带来了，
+      // 就补上 —— 不补的话交付表对一个我们明明见过作品的人说「未查询」（P1.e）。
+      // 判「没有」用长度不用 `undefined`：盘上旧数据里的空数组也是没问过（ADR-102）。
+      // 两边都有时不合并：`RecentPost` 还没有作品 id，同一条作品在两个词下各来一次，
+      // 拼起来就成了两条 —— 而重复文案在语义判定里是「非真人」的信号。并集等 id 落地再做。
+      if (p.recent_posts?.length && !seen.recent_posts?.length) seen.recent_posts = p.recent_posts
       continue
     }
     creators.set(k, { ...(p as Creator), source_keyword: t.keyword,

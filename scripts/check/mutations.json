@@ -2535,6 +2535,38 @@
       "replace": "  v === undefined ? '' : v === null ? '' : String(v)"
     },
     {
+      "id": "M-P1-o",
+      "req": "P1.e",
+      "why": "IG 按账号名搜人的那条兜底路径，给搜到的人凭空写上一个空的作品列表 —— 响应里根本没有作品，我们没问过；而空列表读起来就是「问过了，他没作品」，读 creators.json 做语义判定的那一步会据此把人判掉",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "        // **不写 recent_posts** —— 这条路搜的是账号，响应里根本没有作品，我们没问过。",
+      "replace": "        recent_posts: [],"
+    },
+    {
+      "id": "M-P1-p",
+      "req": "P1.e",
+      "why": "同一个人先从兜底路径进来、没带作品，后来被另一个词从 reels 搜到、带着作品 —— 后来那批作品被丢掉。交付表于是对一个我们明明见过作品的人说「未查询」",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "      if (p.recent_posts?.length && !seen.recent_posts?.length) seen.recent_posts = p.recent_posts",
+      "replace": ""
+    },
+    {
+      "id": "M-P1-v",
+      "req": "P1.e",
+      "why": "同一个人被第二个词再搜到时，作品列表整个换成这一次带来的 —— 这一次要是走的兜底路径、根本没带作品，他已有的作品就被抹成「没问过」；带了的话，先到那批被静默换掉",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "      if (p.recent_posts?.length && !seen.recent_posts?.length) seen.recent_posts = p.recent_posts",
+      "replace": "      seen.recent_posts = p.recent_posts"
+    },
+    {
+      "id": "M-P1-w",
+      "req": "P1.e",
+      "why": "交付表的作品那一列，对没问过作品的人印成空白 —— 和「问到了作品、文案本来就是空的」落进同一个格子，运营只能读成后者",
+      "file": "scripts/lib/rows.ts",
+      "find": "  if (!posts?.length) return '未查询'",
+      "replace": "  if (!posts?.length) return ''"
+    },
+    {
       "id": "M-U1-d",
       "req": "P1.f",
       "why": "「还没算过分」和「算出来是 0 分」在排序里被当成同一件事 —— 交付表上这两种人混在一起，看不出哪些是没有依据的",
