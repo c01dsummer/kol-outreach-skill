@@ -260,7 +260,8 @@ export class TikHub {
         verified: Boolean(u?.is_verified),
         is_private: Boolean(u?.is_private),
         profile_url: `https://www.instagram.com/${handle}/`,
-        recent_posts: [],
+        // **不写 recent_posts** —— 这条路搜的是账号，响应里根本没有作品，我们没问过。
+        // 原先这里写着一个空数组，于是交付表对这批人说「问过了，他没作品」（P1.i）。
       }]
     })
     return { creators, raw_count: list.length, has_more: false }
