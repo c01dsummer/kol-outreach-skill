@@ -1,5 +1,6 @@
 import { creatorKey, type Creator, type Platform, type SearchTask, type TaskState } from './types.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './identity.js'
+import { mergeRecentPosts } from './posts.js'
 import {
   passesFollowerGate, scoreCreator, tierOf, applyGeoPenalty, applyAudienceRiskPenalty,
 } from './score.js'
@@ -395,7 +396,7 @@ export function keywordRows(state: TaskState, delivered: Creator[]): KeywordRow[
 /**
  * 把一页搜索结果并进累加器，交回**新增了几个人**。
  *
- * **归人就在这里落笔**：同一个人被第二个任务搜到时保留已有字段，缺的作品可补齐；那个任务的下标要追加进
+ * **归人就在这里落笔**：同一个人被第二个任务搜到时保留已有字段，作品稳定取并集；那个任务的下标要追加进
  * `source_tasks` —— 漏了这一笔，后面那个词在关键词表上被报成「找到 N 条、一个都没入围」，
  * 而运营据此把一个其实出了人的词砍掉（U3.b，ADR-94 第十六节甲）。
  *
@@ -419,15 +420,11 @@ export function mergePage(creators: Map<string, Creator>, page: readonly Partial
       // 认定整张名单归得了人，于是每一行又开始印确定为假的 0（#140 评审指出）。
       const at = seen.source_tasks
       if (at !== undefined && !at.includes(i)) at.push(i)
-      // **作品只补不换**：先到的那次没问过作品（IG 按账号名搜人的兜底路径），这一页带来了，
-      // 就补上 —— 不补的话交付表对一个我们明明见过作品的人说「未查询」（P1.e）。
-      // 判「没有」用长度不用 `undefined`：盘上旧数据里的空数组也是没问过（ADR-102）。
-      // 两边都有时不合并：`RecentPost` 还没有作品 id，同一条作品在两个词下各来一次，
-      // 拼起来就成了两条 —— 而重复文案在语义判定里是「非真人」的信号。并集等 id 落地再做。
-      if (p.recent_posts?.length && !seen.recent_posts?.length) seen.recent_posts = p.recent_posts
+      // D11 / P1.e：后来取得的作品并入已有证据；同 id 保留先到记录，缺 id 不吞掉。
+      seen.recent_posts = mergeRecentPosts(seen.recent_posts, p.recent_posts)
       continue
     }
-    creators.set(k, { ...(p as Creator), source_keyword: t.keyword,
+    creators.set(k, { ...(p as Creator), recent_posts: mergeRecentPosts(undefined, p.recent_posts), source_keyword: t.keyword,
                       source_dimension: t.dimension, source_tasks: [i] })
     added++
   }

@@ -2547,7 +2547,7 @@
       "req": "P1.e",
       "why": "同一个人先从兜底路径进来、没带作品，后来被另一个词从 reels 搜到、带着作品 —— 后来那批作品被丢掉。交付表于是对一个我们明明见过作品的人说「未查询」",
       "file": "scripts/lib/pipeline.ts",
-      "find": "      if (p.recent_posts?.length && !seen.recent_posts?.length) seen.recent_posts = p.recent_posts",
+      "find": "      seen.recent_posts = mergeRecentPosts(seen.recent_posts, p.recent_posts)",
       "replace": ""
     },
     {
@@ -2555,7 +2555,7 @@
       "req": "P1.e",
       "why": "同一个人被第二个词再搜到时，作品列表整个换成这一次带来的 —— 这一次要是走的兜底路径、根本没带作品，他已有的作品就被抹成「没问过」；带了的话，先到那批被静默换掉",
       "file": "scripts/lib/pipeline.ts",
-      "find": "      if (p.recent_posts?.length && !seen.recent_posts?.length) seen.recent_posts = p.recent_posts",
+      "find": "      seen.recent_posts = mergeRecentPosts(seen.recent_posts, p.recent_posts)",
       "replace": "      seen.recent_posts = p.recent_posts"
     },
     {
@@ -2571,8 +2571,8 @@
       "req": "P1.e",
       "why": "只为旧记录补作品，本轮新建的账号后来搜到作品仍不补齐，交付表对已见过作品的人继续显示未查询",
       "file": "scripts/lib/pipeline.ts",
-      "find": "      if (p.recent_posts?.length && !seen.recent_posts?.length) seen.recent_posts = p.recent_posts",
-      "replace": "      if (seen.source_tasks === undefined && p.recent_posts?.length && !seen.recent_posts?.length) seen.recent_posts = p.recent_posts"
+      "find": "      seen.recent_posts = mergeRecentPosts(seen.recent_posts, p.recent_posts)",
+      "replace": "      if (seen.source_tasks === undefined) seen.recent_posts = mergeRecentPosts(seen.recent_posts, p.recent_posts)"
     },
     {
       "id": "M-P1-z",
@@ -2582,7 +2582,9 @@
       "find": "          top_post: c.recent_posts?.length ? c.recent_posts[0].desc.slice(0, 120) : '（未查询）',",
       "replace": "          top_post: c.recent_posts?.length ? c.recent_posts[0].desc.slice(0, 120) : '',",
       "by": "selfcheck",
-      "kills": ["小样试探：未查询作品明确显示未查询"]
+      "kills": [
+        "小样试探：未查询作品明确显示未查询"
+      ]
     },
     {
       "id": "M-U1-d",
@@ -3524,6 +3526,118 @@
       "kills": [
         "链提前断掉时对照组跟着变短 —— 采样不等长就是在制造假阴性"
       ]
+    },
+    {
+      "id": "M-D11-a",
+      "req": "D11.a",
+      "why": "丢掉视频搜索返回的真实作品标识，后续无法识别同一作品",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "id: searchPostId('tiktok', aw?.aweme_id)",
+      "replace": "id: undefined"
+    },
+    {
+      "id": "M-D11-b",
+      "req": "D11.a",
+      "why": "把文案标识冒充作品标识，同一作品的识别依据变成另一类对象",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "id: searchPostId('instagram', item?.id)",
+      "replace": "id: searchPostId('instagram', item?.caption?.id)"
+    },
+    {
+      "id": "M-D11-c",
+      "req": "D11.a",
+      "why": "把所有数字都当成可靠标识，不安全整数和非整数也被保存为作品键",
+      "file": "scripts/lib/posts.ts",
+      "find": "typeof raw === 'number' && Number.isSafeInteger(raw)",
+      "replace": "typeof raw === 'number'"
+    },
+    {
+      "id": "M-D11-d",
+      "req": "D11.a",
+      "why": "来源缺少可用标识时生成空串占位，未知作品获得虚假的共同标识",
+      "file": "scripts/lib/posts.ts",
+      "find": "  return undefined\n}",
+      "replace": "  return ''\n}"
+    },
+    {
+      "id": "M-D11-e",
+      "req": "D11.d",
+      "why": "去重时剥掉平台前缀，两平台原始编号相同的作品被吞成一条",
+      "file": "scripts/lib/posts.ts",
+      "find": "    const id = post.id",
+      "replace": "    const id = post.id?.replace(/^[^:]+:/, '')"
+    },
+    {
+      "id": "M-D11-f",
+      "req": "D11.b",
+      "why": "保留每条重复作品，不再按可靠标识去重",
+      "file": "scripts/lib/posts.ts",
+      "find": "      if (seen.has(id)) continue",
+      "replace": ""
+    },
+    {
+      "id": "M-D11-g",
+      "req": "D11.c",
+      "why": "缺少作品标识的记录被丢弃，旧任务和来源未知的证据都消失",
+      "file": "scripts/lib/posts.ts",
+      "find": "    merged.push(post)",
+      "replace": "    if (post.id !== undefined) merged.push(post)"
+    },
+    {
+      "id": "M-D11-h",
+      "req": "D11.c",
+      "why": "空白标识参与去重，原本未知的作品被视为同一条",
+      "file": "scripts/lib/posts.ts",
+      "find": "typeof id === 'string' && id.trim().length > 0",
+      "replace": "typeof id === 'string'"
+    },
+    {
+      "id": "M-D11-i",
+      "req": "D11.b",
+      "why": "重复标识以后来内容覆盖第一次记录，先到证据被改写",
+      "file": "scripts/lib/posts.ts",
+      "find": "      if (seen.has(id)) continue",
+      "replace": "      if (seen.has(id)) { merged[merged.findIndex(p => p.id === id)] = post; continue }"
+    },
+    {
+      "id": "M-D11-j",
+      "req": "D11.b",
+      "why": "后来作品被排在原有作品之前，稳定的先到顺序与重复保留规则颠倒",
+      "file": "scripts/lib/posts.ts",
+      "find": "[...(left ?? []), ...(right ?? [])]",
+      "replace": "[...(right ?? []), ...(left ?? [])]"
+    },
+    {
+      "id": "M-D11-k",
+      "req": "D11.e",
+      "why": "两侧均未查询作品时制造空数组，未查询状态没有按契约保留",
+      "file": "scripts/lib/posts.ts",
+      "find": "  return merged.length ? merged : undefined",
+      "replace": "  return merged"
+    },
+    {
+      "id": "M-D11-l",
+      "req": "D11.e",
+      "why": "首次收页绕开作品并集，页内重复不会去掉、旧空数组没有归为未查询",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "recent_posts: mergeRecentPosts(undefined, p.recent_posts)",
+      "replace": "recent_posts: p.recent_posts"
+    },
+    {
+      "id": "M-D11-m",
+      "req": "D11.f",
+      "why": "同人合并仍直接拼接作品，重复标识不去重且两侧未知被制造为空数组",
+      "file": "scripts/lib/identity.ts",
+      "find": "primary.recent_posts = mergeRecentPosts(primary.recent_posts, secondary.recent_posts)",
+      "replace": "primary.recent_posts = [...(primary.recent_posts ?? []), ...(secondary.recent_posts ?? [])]"
+    },
+    {
+      "id": "M-D11-n",
+      "req": "D11.a",
+      "why": "保存字符串标识时擅自删除两端空格，原始标识被改写",
+      "file": "scripts/lib/posts.ts",
+      "find": "if (typeof raw === 'string' && raw.trim().length > 0) return `${platform}:${raw}`",
+      "replace": "if (typeof raw === 'string' && raw.trim().length > 0) return `${platform}:${raw.trim()}`"
     }
   ],
   "exemptions": [

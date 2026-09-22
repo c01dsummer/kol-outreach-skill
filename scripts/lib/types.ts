@@ -69,6 +69,8 @@ export type Tier = 'A' | 'B' | 'C'
 export type Fit = '✅' | '⚠️' | '❌'
 
 export interface RecentPost {
+  /** D11：平台:原始作品 id；来源未给可用标识时缺失，不用用户或文案 id 代替。 */
+  id?: string
   /** 空串目前也可能来自来源字段未取到，不能证明作者没写文案（ADR-102 第七节）。 */
   desc: string
   plays?: number

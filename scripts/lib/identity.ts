@@ -1,4 +1,5 @@
 import type { Creator, Platform } from './types.js'
+import { mergeRecentPosts } from './posts.js'
 
 const IG_RE = /instagram\.com\/([A-Za-z0-9._]+)/i
 const TT_RE = /tiktok\.com\/@([A-Za-z0-9._]+)/i
@@ -115,9 +116,8 @@ export function mergeCrossPlatform(creators: Creator[]): Creator[] {
     primary.source_tasks = mine !== undefined && theirs !== undefined
       ? [...new Set([...mine, ...theirs])].sort((a, b) => a - b)
       : undefined
-    // 两边都没问过作品时这里会拼出一个空数组 —— 今天走不到：跨平台必有一边是 TikTok，
-    // 而 TikTok 的人都是先见到作品才建的。万一走到，交付表也把空数组读成「未查询」（ADR-102）。
-    primary.recent_posts = [...(primary.recent_posts ?? []), ...(secondary.recent_posts ?? [])]
+    // D11：主记录在先，关联记录在后；两边没有作品证据仍为未查询。
+    primary.recent_posts = mergeRecentPosts(primary.recent_posts, secondary.recent_posts)
     primary.linked_handle = `${secondary.platform}:${secondary.handle}`
     secondary.merged_into = `${primary.platform}:${primary.handle}`
   }
