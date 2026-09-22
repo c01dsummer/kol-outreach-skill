@@ -200,6 +200,7 @@ stderr 会按实际剩余量说清楚，**不要替它简化成「续跑免费�
 | `undefined` | **没查过** |
 | `null` | 查过，确实没有 |
 | 有值 | 查过，就是它 |
+| `recent_posts` 的空数组 | **例外：读作没查过**，与缺席同一态。今天没有生产者，全是盘上旧数据里 IG 那条兜底路径凭空写的（ADR-102） |
 | `Measurement<T>` | `measured`（带 source / observed_at / sample_size / basis）· `unavailable`（带 reason）· **字段整个缺席 = 未查询** |
 | `meta.json` 的 `capabilities` | 每种能力分别统计 `measured` / `unavailable` / `unqueried`，三个数不合并 |
 

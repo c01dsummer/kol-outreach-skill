@@ -225,6 +225,7 @@ GET /api/v1/instagram/v2/search_users?keyword={kw}
 
 响应 `data.data.items[]`，直接是 user 对象（`username` / `full_name` / `id`），50 条。
 商家号偏多，作为 Reels 搜索无结果时的兜底。
+**响应里没有作品** —— 这条路搜到的人不带 `recent_posts`：没问过，不是没作品（ADR-102）。
 
 ### 补全：用户 Profile
 

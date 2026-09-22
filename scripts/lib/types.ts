@@ -253,7 +253,20 @@ export interface Creator {
    */
   source_tasks?: number[]
 
-  recent_posts: RecentPost[]
+  /**
+   * **搜索命中的**那几条作品（不是主页样本 —— 那在 `account_assessment.sample`，D8）。
+   *
+   * `undefined` 是**没问过**：IG 按账号名搜人的那条兜底路径，响应里根本没有作品。
+   * 有值时恒非空 —— 两条搜索路径都是先见到一条作品才建人记录。
+   *
+   * ⚠️ **空数组在今天的代码里没有生产者。** 盘上的旧 `creators.raw.json`／`creators.json`
+   * 里还躺着一批，全是上面那条兜底路径以前凭空写的，**意思是没问过，不是没作品**。
+   * 所以读它的地方一律把空数组和 `undefined` 当成同一态（P1.e、ADR-102）。
+   *
+   * 「他确实没作品」今天说不出来：唯一够格的证据是主页样本，而 IG 的主页样本只留视频、
+   * 丢了图文帖（ADR-102 欠账）—— 测出来是零，也可能只是他不发视频。
+   */
+  recent_posts?: RecentPost[]
 
   // 采集后填充
   email?: string | null

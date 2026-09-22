@@ -3048,6 +3048,38 @@ suite('P1', '三态不得被压平：取值、排序、入池三处各验一次'
   criterion('P1.g')
 }
 
+suite('P1', '作品那一列：没问过作品不得显示成「文案是空的」')
+{
+  /**
+   * `best_post_desc` 原先把三件事都印成空白：没问过作品（IG 按账号名搜人的兜底路径）、
+   * 盘上旧数据里那个凭空写的空数组、以及作品真的没写文案。运营读到空白只能当成最后一种。
+   * 没有「无作品」这一态 —— 说得出它的证据今天没有（ADR-102）。
+   */
+  const desc = (over: Partial<Creator>) => toRow(mk('instagram', 'x', over))[HEADERS.indexOf('best_post_desc')]
+  eq('没问过作品 → 未查询', desc({ recent_posts: undefined }), '未查询')
+  eq('盘上旧数据里的空数组也是没问过 → 未查询，不是空白', desc({ recent_posts: [] }), '未查询')
+  eq('问到了作品、文案是空的 → 空白', desc({ recent_posts: [{ desc: '' }] }), '')
+  eq('有文案 → 播放最高的那条的文案',
+     desc({ recent_posts: [{ desc: 'low', plays: 1 }, { desc: 'top', plays: 9 }] }), 'top')
+
+  // 补齐：同一个人先从兜底路径进来（没作品），后来被别的词从 reels 搜到（带作品）
+  const t = { keyword: 'k', dimension: 'scene', platform: 'instagram' } as any
+  const posts = (d: string) => [{ desc: d }]
+  const after = (seen: Partial<Creator>, incoming: Partial<Creator>) => {
+    const acc = new Map<string, Creator>([['instagram:ann', mk('instagram', 'ann', seen)]])
+    mergePage(acc, [{ handle: 'ann', platform: 'instagram', ...incoming }], 1, t)
+    return acc.get('instagram:ann')?.recent_posts
+  }
+  eq('先到的那次没问过作品，后来的一页带来了 → 补上', after({ recent_posts: undefined },
+     { recent_posts: posts('hello') }), posts('hello'))
+  eq('旧数据里的空数组同样补上', after({ recent_posts: [] }, { recent_posts: posts('hello') }), posts('hello'))
+  // 两边都有时不动：`RecentPost` 还没有 id，拼起来会把同一条作品算成两条
+  eq('已经有作品 → 不被后来的一页换掉，也不拼接', after({ recent_posts: posts('first') },
+     { recent_posts: posts('second') }), posts('first'))
+  eq('后来的一页没有作品 → 已有的不被抹掉', after({ recent_posts: posts('first') }, {}), posts('first'))
+  criterion('P1.e')
+}
+
 suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」')
 {
   /**
@@ -4989,6 +5021,9 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
     eq('IG 兜底走了两次请求', calls().length, 2)
     eq('两次的条数相加，第一次那 8 条没被丢掉', page.raw_count, 9)
     eq('两次都计了费', budget.count, 2)
+    // 这条路搜的是账号，响应里没有作品。写一个空数组就是替它说「问过了，没作品」——
+    // 读 creators.json 做语义判定的那一步会据此把人判掉（P1.e、ADR-102）
+    eq('兜底搜到的人不带作品字段 —— 没问过，不是没作品', 'recent_posts' in page.creators[0], false)
   }
 
   // ② 预算恰好卡在两次请求之间：**照常抛**，不许吞成正常返回。

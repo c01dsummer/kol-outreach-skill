@@ -28,8 +28,21 @@ const topGeo = (c: Creator): string => {
   return k ? `${k} ${Math.round((v as number) * 100)}%` : ''
 }
 
-const bestPost = (c: Creator): string =>
-    [...(c.recent_posts ?? [])].sort((a, b) => (b.plays ?? 0) - (a.plays ?? 0))[0]?.desc ?? ''   // P1 例外：展示用文本，缺失即无内容
+/**
+ * P1.e：这一列只有三态 —— 没问过作品 →「未查询」，问到了、文案是空的 → 空白，有文案 → 文案。
+ *
+ * 不走 `cell()`：空数组也得落到「未查询」。盘上的旧数据里空数组全是 IG 按账号名搜人那条
+ * 兜底路径凭空写的，意思是没问过（见 `Creator.recent_posts`、ADR-102）。
+ *
+ * 没有「无作品」这一态：说得出这句话的证据只有主页样本，而 IG 的主页样本只留视频、
+ * 把图文帖丢了（ADR-102 欠账）—— 测出来是零也不代表他没发过帖。
+ */
+const bestPost = (c: Creator): string => {
+  const posts = c.recent_posts
+  if (!posts?.length) return '未查询'
+  // 挑播放最高的那条。缺播放数的排在有数的后面 —— 这里只决定展示哪一条，不写回数据
+  return [...posts].sort((a, b) => (b.plays ?? 0) - (a.plays ?? 0))[0].desc   // P1 例外：仅排序取展示项
+}
 
 const metricCell = <T>(m: Measurement<T> | undefined, format: (value: T) => unknown): unknown => {
   if (!m) return '未查询'

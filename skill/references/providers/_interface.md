@@ -28,8 +28,10 @@ interface Creator {
   source_keyword: string
   source_dimension: Dimension
 
-  // 内容样本 —— Phase 04 语义判断的原料
-  recent_posts: Array<{
+  // 内容样本 —— Phase 04 语义判断的原料。搜索命中的那几条作品。
+  // 缺席 = 没问过（按账号名搜人的路径拿不到作品）；有就非空。**不要写空数组** ——
+  // 它读起来是「问过了，他没作品」，而我们其实没问过（P1.e，ADR-102）
+  recent_posts?: Array<{
     desc:   string
     plays?: number
     likes?: number
