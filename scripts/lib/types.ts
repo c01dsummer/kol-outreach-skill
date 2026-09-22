@@ -69,6 +69,7 @@ export type Tier = 'A' | 'B' | 'C'
 export type Fit = '✅' | '⚠️' | '❌'
 
 export interface RecentPost {
+  /** 空串目前也可能来自来源字段未取到，不能证明作者没写文案（ADR-102 第七节）。 */
   desc: string
   plays?: number
   likes?: number

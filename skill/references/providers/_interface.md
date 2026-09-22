@@ -32,7 +32,7 @@ interface Creator {
   // 缺席 = 没问过（按账号名搜人的路径拿不到作品）；有就非空。**不要写空数组** ——
   // 它读起来是「问过了，他没作品」，而我们其实没问过（P1.e，ADR-102）
   recent_posts?: Array<{
-    desc:   string
+    desc:   string  // 空串也可能是来源字段未取到，当前无法与作者未写区分（ADR-102）
     plays?: number
     likes?: number
   }>

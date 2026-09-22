@@ -341,6 +341,39 @@ group('probe', [], () => {
   if (probeOut !== undefined && !probeOut.includes('bio_available')) {
     failed++; console.error('  ✗ probe 输出缺少 bio_available（P1 要求给出分母）')
   }
+
+  const postsCfg = join(tmp, 'probe-posts.json')
+  writeFileSync(postsCfg, JSON.stringify({
+    market: 'US', budget_usd: 0.5,
+    tasks: [
+      { keyword: 'force-noparse', dimension: 'category', platform: 'instagram' },
+      { keyword: 'force-probe-captions', dimension: 'scene', platform: 'instagram' },
+    ],
+  }))
+  const postsOut = run('probe 作品证据三态', [S('probe.ts'), '--config', postsCfg])
+  if (postsOut !== undefined) {
+    const summary = summaryOf(postsOut)
+    const results: any[] = Array.isArray(summary.results) ? summary.results : []
+    const topPost = (keyword: string, handle: string): unknown => {
+      const sample = results.find(r => r.keyword === keyword)?.sample
+      return Array.isArray(sample) ? sample.find(c => c.handle === handle)?.top_post : undefined
+    }
+    const missing = topPost('force-noparse', 'wanderwithmei')
+    const empty = topPost('force-probe-captions', 'probeempty')
+    const text = topPost('force-probe-captions', 'probetext')
+    const long = topPost('force-probe-captions', 'probelong')
+    named('小样试探：未查询作品明确显示未查询', missing === '（未查询）',
+      `top_post 应为「（未查询）」，实际 ${JSON.stringify(missing)}`)
+    named('小样试探：已取得作品的空文案仍为空串', empty === '',
+      `top_post 应为空串，实际 ${JSON.stringify(empty)}`)
+    named('小样试探：有文案时保留第一条而非最高播放', text === 'First caption',
+      `top_post 应为第一条文案，实际 ${JSON.stringify(text)}`)
+    named('小样试探：文案仅保留前120字符', long === 'a'.repeat(119) + 'B',
+      `top_post 应保留第120字符 B、去掉第121字符 C，实际 ${JSON.stringify(long)}`)
+    // 入口只读实时搜索，不读盘上旧记录；当前 search 不产生 recent_posts: []。
+    // 旧空数组的输出要求因此不能靠此入口的假 HTTP 响应走到，不伪造不可达的生产输入。
+    criterion('P1.i')
+  }
 })
 
 // ---- IG 分页探针：每一种读法各造一次，尤其是最容易被读成假结论的那几种 ----

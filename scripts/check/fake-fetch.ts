@@ -176,6 +176,21 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
       { caption: { text: 'no user field here' } }, { caption: { text: 'nor here' } },
     ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
+  // P1.i：同一个真实 reels 响应形状里放空文案、普通文案和超长文案。
+  // 普通文案账号的第二条播放更高，不能拿它替换小样试探承诺的第一条。
+  if (url.includes('force-probe-captions') && url.includes('search_reels')) {
+    record(200, url)
+    return new Response(JSON.stringify({ data: { data: { count: 4, items: [
+      { caption: { text: '' }, play_count: 1,
+        user: { id: 'probe-empty', username: 'probeempty', full_name: 'Empty' } },
+      { caption: { text: 'First caption' }, play_count: 2,
+        user: { id: 'probe-text', username: 'probetext', full_name: 'Text' } },
+      { caption: { text: 'a'.repeat(119) + 'BC' }, play_count: 3,
+        user: { id: 'probe-long', username: 'probelong', full_name: 'Long' } },
+      { caption: { text: 'Later caption with more plays' }, play_count: 100,
+        user: { id: 'probe-text', username: 'probetext', full_name: 'Text' } },
+    ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
   // 关键词里带 `force-onecreator` → reels **每次换一批条目，但都是同一个人发的**。
   // 这是连打模式那条最贵的误读唯一的入口：累计条目一直涨、累计达人一个都不涨。
   // 少了它，把「条目数」当「人数」的写法照样全绿 —— 而那种曲线会让人以为召回有救，

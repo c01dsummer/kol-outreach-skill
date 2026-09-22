@@ -3052,7 +3052,7 @@ suite('P1', '作品那一列：没问过作品不得显示成「文案是空的�
 {
   /**
    * `best_post_desc` 原先把三件事都印成空白：没问过作品（IG 按账号名搜人的兜底路径）、
-   * 盘上旧数据里那个凭空写的空数组、以及作品真的没写文案。运营读到空白只能当成最后一种。
+   * 盘上旧数据里那个凭空写的空数组、以及已取得作品的文案值为空。空文案不证明作者没写。
    * 没有「无作品」这一态 —— 说得出它的证据今天没有（ADR-102）。
    */
   const desc = (over: Partial<Creator>) => toRow(mk('instagram', 'x', over))[HEADERS.indexOf('best_post_desc')]
@@ -3060,11 +3060,25 @@ suite('P1', '作品那一列：没问过作品不得显示成「文案是空的�
   eq('盘上旧数据里的空数组也是没问过 → 未查询，不是空白', desc({ recent_posts: [] }), '未查询')
   eq('问到了作品、文案是空的 → 空白', desc({ recent_posts: [{ desc: '' }] }), '')
   eq('有文案 → 播放最高的那条的文案',
-     desc({ recent_posts: [{ desc: 'low', plays: 1 }, { desc: 'top', plays: 9 }] }), 'top')
+     desc({ recent_posts: [
+       { desc: 'low', plays: 1 }, { desc: 'top', plays: 9 }, { desc: 'last', plays: 3 },
+     ] }), 'top')
 
   // 补齐：同一个人先从兜底路径进来（没作品），后来被别的词从 reels 搜到（带作品）
   const t = { keyword: 'k', dimension: 'scene', platform: 'instagram' } as any
   const posts = (d: string) => [{ desc: d }]
+  // 从本轮空池起步，不能用手造的旧记录替代「新建记录再遇到作品」这条路径。
+  const fresh = new Map<string, Creator>()
+  eq('本轮首次搜到无作品的人 → 新增一人',
+     mergePage(fresh, [{ handle: 'ann', platform: 'instagram' }], 0, t), 1)
+  eq('本轮首次未问过作品 → 仍为未查询', fresh.get('instagram:ann')?.recent_posts, undefined)
+  eq('本轮另一个任务再搜到同人带作品 → 不增加人数',
+     mergePage(fresh, [{ handle: 'ann', platform: 'instagram', recent_posts: posts('hello') }],
+       1, { ...t, keyword: 'second' }), 0)
+  eq('本轮补齐作品后仍只有一个人', fresh.size, 1)
+  eq('本轮新建的人保留两次来源', fresh.get('instagram:ann')?.source_tasks, [0, 1])
+  eq('本轮补齐作品不覆盖最初的来源词', fresh.get('instagram:ann')?.source_keyword, 'k')
+  eq('本轮新建的人后来搜到作品 → 补上', fresh.get('instagram:ann')?.recent_posts, posts('hello'))
   const after = (seen: Partial<Creator>, incoming: Partial<Creator>) => {
     const acc = new Map<string, Creator>([['instagram:ann', mk('instagram', 'ann', seen)]])
     mergePage(acc, [{ handle: 'ann', platform: 'instagram', ...incoming }], 1, t)

@@ -40,7 +40,7 @@ const topGeo = (c: Creator): string => {
 const bestPost = (c: Creator): string => {
   const posts = c.recent_posts
   if (!posts?.length) return '未查询'
-  // 挑播放最高的那条。缺播放数的排在有数的后面 —— 这里只决定展示哪一条，不写回数据
+  // 挑播放最高的那条。缺播放数的按 0 排，与真实 0 并列并保留原顺序；只用于展示，不写回数据
   return [...posts].sort((a, b) => (b.plays ?? 0) - (a.plays ?? 0))[0].desc   // P1 例外：仅排序取展示项
 }
 
