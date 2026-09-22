@@ -3332,35 +3332,36 @@
     {
       "id": "M-H44-a",
       "req": "harness",
-      "why": "传了参数、结果没变时改口说成「不支持分页」—— 把一个观测不到的结论当成事实。未知参数常被服务端静默忽略，那一次观测里「没多给」与「没这个参数」不可区分，而整个 IG 召回上限的论证都压在这句话上",
+      "why": "对照组不跑了，只留链那一条曲线 —— 于是这个端点自己漂出来的人会被整笔记到翻页头上。两次完全相同的请求本来就返回不同条目，少了对照，「翻页有效」与「端点在漂」观测上一模一样而结论正好相反",
       "file": "scripts/probe-ig-paging.ts",
-      "find": "fresh.length === 0 ? '这一次没多给'",
-      "replace": "fresh.length === 0 ? '不支持分页'",
+      "find": "  await repeatInto(ctrl, n, '对照')",
+      "replace": "  void ctrl",
       "by": "selfcheck",
       "kills": [
-        "传了参数没变化只判「这一次没多给」 —— 不判「不支持分页」"
+        "链涨了也不算 —— 要减掉对照组，涨的那些可能全是端点自己在漂",
+        "链比对照多拿到人，才判「翻页多拿到了人」",
+        "链要发够两组 —— 一组链、一组对照，缺了对照这一跑读不出结论"
       ]
     },
     {
       "id": "M-H44-b",
       "req": "harness",
-      "why": "省掉基线重跑那一次请求，拿第一次的结果顶替 —— 于是这个端点自己在漂的时候，漂出来的那一批会被读成「参数被服务端认了」，而这两种读法的结论正好相反",
+      "why": "链和对照打平也算翻页有用 —— 而打平恰恰说明多出来的人一个都不是游标给的。这一处松一格，最该被否掉的那种情形就会被判成肯定结论",
       "file": "scripts/probe-ig-paging.ts",
-      "find": "const idsB = identify(pickList(await ask({}), 'instagram/search_reels')).ids",
-      "replace": "const idsB = idsA",
+      "find": "  const beatsDrift = ch.cumPeople > ctrl.cumPeople",
+      "replace": "  const beatsDrift = ch.cumPeople >= ctrl.cumPeople",
       "by": "selfcheck",
       "kills": [
-        "基线真的跑了两次 —— 少了这一次，「认了」和「端点在漂」就分不开",
-        "基线在漂就全部作废 —— 不借机把任何一个参数判成「认了」"
+        "链涨了也不算 —— 要减掉对照组，涨的那些可能全是端点自己在漂"
       ]
     },
     {
       "id": "M-H44-c",
       "req": "harness",
-      "why": "把「响应里有像游标的键」那一段从结论里拿掉 —— 那一条与四个参数的对比无关，是对一份响应的直接观测；藏起来之后，只读结论的人会在四个参数全判作废时以为什么都没查到，而响应里其实躺着一个可以接着往下翻的东西",
+      "why": "把「响应里有像游标的键」那一段从结论里拿掉 —— 那一条与任何对比无关，是对一份响应的直接观测；藏起来之后，只读结论的人会以为什么都没查到，而响应里其实躺着一个可以接着往下翻的东西",
       "file": "scripts/probe-ig-paging.ts",
-      "find": "    reading: (cursorish.length",
-      "replace": "    reading: (false",
+      "find": "  const cursorNote = cursorish.length",
+      "replace": "  const cursorNote = false",
       "by": "selfcheck",
       "kills": [
         "响应里有游标时，结论那句话自己要说出来 —— 不许只躺在字段里"
@@ -3369,25 +3370,61 @@
     {
       "id": "M-H44-d",
       "req": "harness",
-      "why": "基线漂移量不再量，恒报零 —— 于是「作废」那一支给不出量级，读的人无从判断某个参数多给的那几条到底是信号还是噪音",
+      "why": "服务端不再给下一个游标时照样停，但不再报出停在第几次 —— 于是这个工具唯一一个不靠推断的终止条件被抹平成了那句「这几次之内没再涨」。前者是对方的原话，后者是我们的推断，混成一句就是把推断说成了对方说的",
       "file": "scripts/probe-ig-paging.ts",
-      "find": "  const baselineDrift = freshOf(idsA, idsB).length",
-      "replace": "  const baselineDrift = 0",
+      "find": "    if (typeof token !== 'string' || token.length === 0) return call",
+      "replace": "    if (typeof token !== 'string' || token.length === 0) return undefined",
       "by": "selfcheck",
       "kills": [
-        "基线在漂就全部作废 —— 不借机把任何一个参数判成「认了」"
+        "服务端不再给游标就停下，并报出停在第几次"
       ]
     },
     {
       "id": "M-H44-e",
       "req": "harness",
-      "why": "不再把响应里挖到的游标回传试一次，只剩那几个凭空猜的参数名 —— 于是工具报告「响应里有个游标」之后就停住了，而那个值明明就在手上，试一次只要一次请求",
+      "why": "回传时不用官方声明的那个参数名，改回一个想当然的名字 —— 未知参数会被服务端静默忽略，于是链一步都翻不动，而判词看上去跟「服务端不支持分页」一模一样。上一版正是在这个坑里烧掉了十几次付费请求",
       "file": "scripts/probe-ig-paging.ts",
-      "find": "  const toTry = [...VARIANTS, ...cursorTrials(rawA, cursorPaths)]",
-      "replace": "  const toTry = [...VARIANTS]",
+      "find": "const CURSOR_PARAM = 'pagination_token'",
+      "replace": "const CURSOR_PARAM = 'cursor'",
       "by": "selfcheck",
       "kills": [
-        "响应里有游标就要把它回传试一次 —— 不能只报告「有个游标」就完事"
+        "链比对照多拿到人，才判「翻页多拿到了人」"
+      ]
+    },
+    {
+      "id": "M-H44-f",
+      "req": "harness",
+      "why": "把「人」的身份换成条目的身份 —— 于是同一个人连发的多条视频被数成多个达人，曲线看着一路在涨，而一个新达人都没多给。整条召回论证要的是人数，这一处折了，结论正好反过来",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "  const raw = list.map(it => it?.user?.id ?? it?.media?.user?.id",
+      "replace": "  const raw = list.map(it => it?.id ?? it?.media?.user?.id",
+      "by": "selfcheck",
+      "kills": [
+        "召回数的是人不是条目 —— 同一个人的多条视频不算多个人"
+      ]
+    },
+    {
+      "id": "M-H44-g",
+      "req": "harness",
+      "why": "末尾那段「连着几次没多给新人」不再量，恒报零 —— 于是结论永远走「最后一次仍在涨」那一支，一条早就平掉的曲线会被读成还有得挖，下一个人照着它继续花钱",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "    for (let i = this.rows.length - 1; i >= 0 && this.rows[i].new_creators === 0; i--) n++",
+      "replace": "    n += 0",
+      "by": "selfcheck",
+      "kills": [
+        "末尾不涨只说得出「这几次之内没再涨」 —— 不许说成「就只有这么多人」"
+      ]
+    },
+    {
+      "id": "M-H44-h",
+      "req": "harness",
+      "why": "不再跟累计集合比，这一次响应里有几个人就算几个新人 —— 曲线于是永远在涨。而这条曲线整个存在的理由就是「多问几次到底还能不能多拿到人」，这一处折了，它对任何关键词都回答「能」",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "    const freshPeople = new Set(who.ids.filter(x => !this.seenPeople.has(x)))",
+      "replace": "    const freshPeople = new Set(who.ids)",
+      "by": "selfcheck",
+      "kills": [
+        "末尾不涨只说得出「这几次之内没再涨」 —— 不许说成「就只有这么多人」"
       ]
     }
   ],

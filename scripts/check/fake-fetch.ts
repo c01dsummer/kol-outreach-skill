@@ -143,6 +143,8 @@ const record = (status: number, url: string) => {
 let calls = 0
 /** `force-drift` 那一支的批次号 —— 每调一次就换一批，供探针的地基对照用 */
 let drifts = 0
+/** `force-onecreator` 那一支的批次号 —— 每调一次换一批条目，但发的人始终是同一个 */
+let oneCreator = 0
 globalThis.fetch = (async (input: RequestInfo | URL) => {
   calls++
   const url = String(input)
@@ -174,19 +176,46 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
       { caption: { text: 'no user field here' } }, { caption: { text: 'nor here' } },
     ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
-  // 关键词里带 `force-paged` → reels **按 offset 换一批条目**；带 `force-drift` →
-  // **每次都换一批**。这两条是 IG 分页探针那两句判词唯一的入口：它拿「基线重跑」当
-  // 地基，所以「服务端认了这个参数」和「基线自己就在漂」必须能分别造出来。
-  // 造不出来的话，探针永远只走「这一次没多给」那一支 —— 而那恰好是它最容易被读成
-  // 「不支持分页」的一支，也就是这次要防的那个假结论。
-  if (url.includes('search_reels') && (url.includes('force-paged') || url.includes('force-drift'))) {
+  // 关键词里带 `force-onecreator` → reels **每次换一批条目，但都是同一个人发的**。
+  // 这是连打模式那条最贵的误读唯一的入口：累计条目一直涨、累计达人一个都不涨。
+  // 少了它，把「条目数」当「人数」的写法照样全绿 —— 而那种曲线会让人以为召回有救，
+  // 实际上多问几次只拿到了同一个人的更多视频。
+  if (url.includes('search_reels') && url.includes('force-onecreator')) {
     record(200, url)
-    const seed = url.includes('force-drift')
-      ? ++drifts : Number(new URL(url).searchParams.get('offset') ?? 0)
-    return new Response(JSON.stringify({ data: { data: { count: 1, items: [
-      { id: `reel-${seed}`, caption: { text: `item ${seed}` },
-        user: { id: String(seed), username: `user${seed}`, full_name: 'X' } },
+    const seed = ++oneCreator
+    const same = { id: '900', username: 'sameperson', full_name: 'Same' }
+    return new Response(JSON.stringify({ data: { data: { count: 2, items: [
+      { id: `oc-${seed}-a`, caption: { text: `a ${seed}` }, user: same },
+      { id: `oc-${seed}-b`, caption: { text: `b ${seed}` }, user: same },
     ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  // 关键词里带 `force-paged` → reels **认 `pagination_token`**：带着上一页的游标来就回新一批，
+  // 并给出下一个游标。翻到第三页就**不再给游标** —— 那是「服务端自己说没有下一页了」
+  // 唯一的入口，而它是探针里唯一一个**不靠推断**的终止条件（其余都只说得出
+  // 「这 N 次之内没再涨」）。
+  if (url.includes('search_reels') && url.includes('force-paged')) {
+    record(200, url)
+    const tok = new URL(url).searchParams.get('pagination_token')
+    const page = tok ? Number(tok.replace('page-', '')) : 1
+    const body: any = { data: { data: { count: 1, items: [
+      { id: `pg-${page}`, caption: { text: `page ${page}` },
+        user: { id: `p${page}`, username: `pager${page}`, full_name: 'P' } },
+    ] } } }
+    if (page < 3) body.data.pagination_token = `page-${page + 1}`
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  // 关键词里带 `force-drift` → **每次都换一批人，而且每次都照给游标**。
+  // 这是整组里最关键的判别用例：链和对照**涨得一样多** —— 天真的读法会把它判成
+  // 「翻页有效」，而实际上一个人都不是游标给的，全是这个端点自己在漂。
+  // 少了它，「拿链去减对照」那一步删掉也全绿。
+  if (url.includes('search_reels') && url.includes('force-drift')) {
+    record(200, url)
+    const seed = ++drifts
+    return new Response(JSON.stringify({ data: { pagination_token: `drift-${seed}`, data: {
+      count: 1, items: [
+        { id: `reel-${seed}`, caption: { text: `item ${seed}` },
+          user: { id: String(seed), username: `user${seed}`, full_name: 'X' } },
+      ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
   // 第 7 次调用返回 429，确保 `TikHub.get()` 的退避重试分支也被执行到。
   // ⚠️ **这是个按「第几次」定位的触发器，调用数一变就会误伤。** 分页探针不走

@@ -353,58 +353,71 @@ group('probe', [], () => {
 // 所以这里不只是跑通：三句判词各造一次，并且钉住那句话**不许**出现。
 group('ig-paging-probe', [], () => {
   const P = S('probe-ig-paging.ts')
-  const trials = (out: string | undefined): { name: string; verdict: string; new_items?: number }[] =>
-    summaryOf(out ?? '').trials ?? []
-  const verdicts = (out: string | undefined) => trials(out).map(t => t.verdict)
-
-  // 关掉假 fetch 那个「第 7 次回 429」的定位触发器 —— 探针的请求数会随候选参数增长，
-  // 而它不走 `TikHub.get()`、没有重试，撞上就是整跑中止（实测：加了游标回传之后正好跨过）
+  // 关掉假 fetch 那个「第 7 次回 429」的定位触发器 —— 探针的请求数随跑数增长，
+  // 而它不走 `TikHub.get()`、没有重试，撞上就是整跑中止
   const NO429 = { FAKE_FETCH_NO_429: '1' }
-  const flat = run('IG 分页探针：参数传了，返回的还是同一批', [P, '--keyword', 'smoothie'],
-                   process.cwd(), undefined, NO429)
-  named('传了参数没变化只判「这一次没多给」 —— 不判「不支持分页」',
-    flat !== undefined && verdicts(flat).length > 0
-      && verdicts(flat).every(v => v === '这一次没多给'),
-    `四个参数应当全判「这一次没多给」，实际是 ${JSON.stringify(verdicts(flat))}`)
-  // 那句读法自己带着限定，不留给读的人从表格里总结（ADR-73）
-  named('结论那句话自己说清「没多给 ≠ 不支持」，不把不确定说成确定',
-    typeof summaryOf(flat ?? '').reading === 'string'
-      && String(summaryOf(flat ?? '').reading).includes('这不等于不支持分页'),
-    `结论里缺了那句限定：${JSON.stringify(summaryOf(flat ?? '').reading)}`)
-  // 基线重跑是地基：少了它，「带 offset 拿到另一批」与「端点本来就在漂」分不开，
-  // 而这两种读法的结论正好相反。它被省掉时请求数会少一次，这里就盯着那个数。
-  named('基线真的跑了两次 —— 少了这一次，「认了」和「端点在漂」就分不开',
-    summaryOf(flat ?? '').requests === 2 + trials(flat).length,
-    `请求数应当是 2 次基线 ＋ ${trials(flat).length} 个参数，实际 ${summaryOf(flat ?? '').requests}`)
+  const probe = (label: string, kw: string, mode?: string, n?: number): any =>
+    summaryOf(run(label, mode ? [P, '--keyword', kw, mode, String(n)] : [P, '--keyword', kw],
+                  process.cwd(), undefined, NO429) ?? '')
 
+  // ---- 默认模式：只打一次，报形状 ----
+  const shape = probe('IG 探针：只打一次，报响应形状', 'smoothie')
   // 2026-09-22 真跑一次时栽的就是这儿：四个参数全判「作废」，而响应里躺着一个
   // `data.pagination_token` —— 只读结论那一行的人整个错过了最重要的发现。
-  // 游标那一条与对比无关（是对一份响应的直接观测），所以它必须**不分支**地打出来。
+  // 游标那一条与任何对比无关（是对一份响应的直接观测），所以必须**不分支**地打出来。
   named('响应里有游标时，结论那句话自己要说出来 —— 不许只躺在字段里',
-    String(summaryOf(flat ?? '').reading ?? '').includes('pagination_token'),
-    `reading 里没提响应中的游标键：${JSON.stringify(summaryOf(flat ?? '').reading)}`)
-  // 只报告「响应里有个游标」是把话说到一半 —— 那个值就在手上，试一次的成本是一次请求
-  named('响应里有游标就要把它回传试一次 —— 不能只报告「有个游标」就完事',
-    trials(flat).some(t => t.name.includes('响应里的')),
-    `待试清单里没有从响应挖回来的游标：${JSON.stringify(trials(flat).map(t => t.name))}`)
-  named('基线漂移量要报出来 —— 只说「漂了」，读的人没法判断该不该当真',
-    summaryOf(flat ?? '').baseline_drift_items === 0,
-    `基线一致时漂移量应当是 0，实际 ${JSON.stringify(summaryOf(flat ?? '').baseline_drift_items)}`)
+    String(shape.reading ?? '').includes('pagination_token'),
+    `reading 里没提响应中的游标键：${JSON.stringify(shape.reading)}`)
+  named('只打一次就只发一次请求 —— 看形状不该顺带花钱',
+    shape.requests === 1,
+    `应当只发 1 次请求，实际 ${JSON.stringify(shape.requests)}`)
 
-  const paged = run('IG 分页探针：服务端真按 offset 换了一批', [P, '--keyword', 'force-paged'],
-                    process.cwd(), undefined, NO429)
-  named('服务端真给出了基线里没有的条目才判「认了」 —— 只是换个次序不算',
-    trials(paged).some(t => t.name.startsWith('offset') && t.verdict === '认了'
-      && (t as { new_items?: number }).new_items === 1)
-      && trials(paged).filter(t => t.verdict === '认了').length === 1,
-    `只有 offset 那一行该判「认了」、且多出 1 个新条目，实际是 ${JSON.stringify(trials(paged))}`)
+  // ---- 链式翻页：服务端真认游标 ----
+  // force-paged 带着游标来就回新一批，翻到第三页不再给游标。
+  const paged = probe('IG 探针：链 —— 服务端真认游标，第三页到头', 'force-paged', '--chain', 3)
+  named('链比对照多拿到人，才判「翻页多拿到了人」',
+    paged.chain_cum_creators === 3 && paged.control_cum_creators === 1
+      && String(paged.reading ?? '').includes('翻页确实多拿到了人'),
+    `链应当 3 人、对照 1 人并判翻页有效，实际 ${JSON.stringify([paged.chain_cum_creators, paged.control_cum_creators])}`)
+  // 「服务端不再给游标」是这个工具唯一一个不靠推断的终止条件 —— 它和「这 N 次之内
+  // 没再涨」不是一回事，混为一谈就等于把推断说成了对方的原话。
+  named('服务端不再给游标就停下，并报出停在第几次',
+    paged.chain_stopped_at_call === 3 && String(paged.reading ?? '').includes('是它自己说的'),
+    `应当停在第 3 次并说明是服务端自己说的，实际 ${JSON.stringify(paged.chain_stopped_at_call)}`)
+  named('链要发够两组 —— 一组链、一组对照，缺了对照这一跑读不出结论',
+    paged.requests === 2 * 3,
+    `--chain 3 应当发 6 次请求（3 链 ＋ 3 对照），实际 ${JSON.stringify(paged.requests)}`)
 
-  const drift = run('IG 分页探针：基线自己两次就不一样', [P, '--keyword', 'force-drift'],
-                    process.cwd(), undefined, NO429)
-  named('基线在漂就全部作废 —— 不借机把任何一个参数判成「认了」',
-    drift !== undefined && summaryOf(drift).baseline_stable === false
-      && verdicts(drift).length > 0 && verdicts(drift).every(v => v.startsWith('作废')),
-    `基线不稳时应当全部作废，实际是 ${JSON.stringify(verdicts(drift))}`)
+  // ---- 链式翻页：端点在漂，链上多出来的人不是游标给的 ----
+  // 整组里最关键的一条。force-drift 每次都换一批人、每次都照给游标 ——
+  // 只看链那条曲线的话它一路在涨，而对照组涨得一样多。
+  const drifting = probe('IG 探针：链 —— 端点在漂，链和对照涨得一样多', 'force-drift', '--chain', 3)
+  named('链涨了也不算 —— 要减掉对照组，涨的那些可能全是端点自己在漂',
+    drifting.chain_cum_creators === 3 && drifting.control_cum_creators === 3
+      && String(drifting.reading ?? '').includes('是**漂**给的，不是翻页给的'),
+    `链与对照都该是 3 人且判成漂，实际 ${JSON.stringify([drifting.chain_cum_creators, drifting.control_cum_creators, drifting.reading])}`)
+
+  // ---- 链式翻页：游标收了，但回来的还是同一批（实测 2026-09-22 就是这一支）----
+  const ignored = probe('IG 探针：链 —— 游标收下了，回来的还是同一批', 'smoothie', '--chain', 3)
+  named('末尾不涨只说得出「这几次之内没再涨」 —— 不许说成「就只有这么多人」',
+    ignored.tail_calls_without_new_creator === 2
+      && String(ignored.reading ?? '').includes('不可区分'),
+    `末尾平段应当是 2 次且结论里带「不可区分」，实际 ${JSON.stringify([ignored.tail_calls_without_new_creator, ignored.reading])}`)
+
+  // ---- 原样重发：只量漂移，不碰游标 ----
+  const REP = 3
+  const oc = probe('IG 探针：照搬 —— 条目一直换，人是同一个', 'force-onecreator', '--repeat', REP)
+  named('召回数的是人不是条目 —— 同一个人的多条视频不算多个人',
+    oc.cum_creators === 1 && oc.cum_items === 2 * REP,
+    `同一个人发的 ${2 * REP} 条应当只算 1 个人，实际 ${JSON.stringify([oc.cum_creators, oc.cum_items])}`)
+  // 这一句是整条曲线最贵的那种误读：曲线在涨，而涨的全是同一批人的更多视频。
+  // 只把数放进字段里不算 —— 读的人会照着「累计条目」下结论（ADR-73）。
+  named('条目在涨而人没涨，结论那句话自己要说出来 —— 不能只躺在字段里',
+    String(oc.reading ?? '').includes('条目在涨，人没涨'),
+    `结论里没点出「条目涨、人没涨」：${JSON.stringify(oc.reading)}`)
+  named('照搬几次就发几次请求 —— 这一支不带任何游标',
+    oc.requests === REP && Array.isArray(oc.curve) && oc.curve.length === REP,
+    `应当是 ${REP} 次请求与 ${REP} 行曲线，实际 ${JSON.stringify([oc.requests, (oc.curve ?? []).length])}`)
 })
 
 // ---- 入口：钱字段比不了大小就不许开跑（P3 · D6.a）----
