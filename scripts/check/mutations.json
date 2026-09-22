@@ -3334,7 +3334,7 @@
       "req": "harness",
       "why": "对照组不跑了，只留链那一条曲线 —— 于是这个端点自己漂出来的人会被整笔记到翻页头上。两次完全相同的请求本来就返回不同条目，少了对照，「翻页有效」与「端点在漂」观测上一模一样而结论正好相反",
       "file": "scripts/probe-ig-paging.ts",
-      "find": "  await repeatInto(ctrl, n, '对照')",
+      "find": "  await repeatInto(ctrl, ch.rows.length, '对照')",
       "replace": "  void ctrl",
       "by": "selfcheck",
       "kills": [
@@ -3437,6 +3437,42 @@
       "by": "selfcheck",
       "kills": [
         "链提前断掉时，读法里报的是实际跑了几次，不是要求的次数"
+      ]
+    },
+    {
+      "id": "M-H44-j",
+      "req": "harness",
+      "why": "中止时只报计费次数，把真发出去的那一次吞掉 —— 非 200 按约定退了费，但请求确确实实发出去了。于是「发出 N+1 次」被说成「发出 N 次」，而这个工具整个存在的理由就是不让观测被说成别的样子",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "  console.error(`  这一跑发出 ${sent} 次请求，其中 ${budget.count} 次计费`",
+      "replace": "  console.error(`  这一跑发出 ${budget.count} 次请求，其中 ${budget.count} 次计费`",
+      "by": "selfcheck",
+      "kills": [
+        "中止时报的「发出几次」是真发出的次数，不是计费次数"
+      ]
+    },
+    {
+      "id": "M-H44-k",
+      "req": "harness",
+      "why": "把「没写这个 flag」和「写了但没跟数字」合成一种：于是要了一次链式跑、后面漏了数字时，整个 flag 被静默忽略，落回只发一次请求的形状 dump 而且不报错 —— 用户拿到的东西和他要的不是一回事，却没有任何迹象",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "  if (!process.argv.includes(`--${flag}`)) return undefined",
+      "replace": "  if (arg(flag) === undefined) return undefined",
+      "by": "selfcheck",
+      "kills": [
+        "flag 写了却没给数就报错退出 —— 不许静默当成没写过"
+      ]
+    },
+    {
+      "id": "M-H44-l",
+      "req": "harness",
+      "why": "链提前断掉时让对照组仍跑满要求的次数 —— 对照的采样就比链多，而这个端点会漂，采样多的一方天然累计更多人。于是「翻页有没有用」那个比较偏向判它没用：这是在本工具最重的那个结论上造假阴性",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "  await repeatInto(ctrl, ch.rows.length, '对照')",
+      "replace": "  await repeatInto(ctrl, n, '对照')",
+      "by": "selfcheck",
+      "kills": [
+        "链提前断掉时对照组跟着变短 —— 采样不等长就是在制造假阴性"
       ]
     }
   ],

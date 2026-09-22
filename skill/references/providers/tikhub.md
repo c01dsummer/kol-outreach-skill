@@ -167,9 +167,9 @@ data.data.items[].like_count         ⚠️ 可能是 null（作者隐藏赞数�
    是透过我们自己那个窄窗口看出来的。
 
    **能翻页 —— 2026-09-22 顺着链翻了一次，实测有效。** 参数名是 `pagination_token`
-   （官方 spec 声明的那一个，不是猜的，出处见下面那张参数名表）。同一个关键词：
-   一次请求拿到十一二个达人；原样重发十次（只吃漂移）累计三十几个；**顺着游标翻十次
-   累计五十几个，而且最后一次还在涨**。翻页与漂移是**两条独立且叠加**的杠杆。
+   （官方 spec 声明的那一个，不是猜的，出处见下面那张参数名表）。**翻页与漂移是两条独立且叠加的杠杆**：顺着游标翻拿到的去重达人明显多于原样重发同样
+   次数，而原样重发又明显多于只请求一次。具体几个人别抄在这儿 —— 跑一次看输出的
+   `chain_cum_creators` 与 `control_cum_creators`（数记在 ADR-101 第十二节那棵不会再动的树上）。
    ⚠️ 但它**不是干净的分页** —— 每一次的新条目在满页与个位数之间跳，重叠很重，
    所以**别按「翻 N 页 = N × 单页条数」估**。
    ⚠️ 而且那是**一个关键词、一次跑**，换词换时段都没验过（ADR-101 第十二节）。
@@ -291,7 +291,7 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 | ~~`v3/get_hashtag_posts`~~ | — | **这个端点不存在** —— 原先这一行写着参数叫 `tag`，是假的。v3 只有 `search_hashtags`（搜话题，不是取话题下的帖子）|
 | `v2/search_users` | `keyword` | **没有** —— 一次给多少就是全部 |
 | `v3/search_users` | **`query`** | `rank_token` |
-| `v2/search_reels` | `keyword` | **`pagination_token`** —— 见上，官方声明有，实测回传不翻页 |
+| `v2/search_reels` | `keyword` | **`pagination_token`** —— 官方声明有，**实测顺着它翻是有效的**；今天我们的代码不跟游标、只取一页（见上）|
 | `v2/general_search` | `keyword` | `pagination_token` —— 一个我们没用过的发现面 |
 | `v1`／`v2` `user_id_to_username` | `user_id` | — |
 

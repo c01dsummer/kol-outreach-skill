@@ -113,8 +113,16 @@ if (!key) {
  * 不设上限：上限是 `Budget` 那道闸门，超了当场抛，不会闷头花下去。
  */
 const countOf = (flag: string): number | undefined => {
+  // **「没写这个 flag」与「写了但没给数」必须分开。** 合起来的话
+  // `--chain`（后面漏了数字，或紧跟着另一个 flag）会被当成没写过 —— 于是要了一次
+  // 链式跑，拿回来的是一份只发一次请求的形状 dump，**而且不报错**
+  //（评审第六轮指出，负片 `M-H44-k`）。
+  if (!process.argv.includes(`--${flag}`)) return undefined
   const raw = arg(flag)
-  if (raw === undefined) return undefined
+  if (raw === undefined) {
+    console.error(`--${flag} 后面要跟一个 ≥2 的整数，这次什么都没跟上`)
+    process.exit(2)
+  }
   const n = Number(raw)
   if (!(Number.isInteger(n) && n >= 2)) {
     console.error(`--${flag} 要一个 ≥2 的整数，收到 ${JSON.stringify(raw)}`)
@@ -178,6 +186,15 @@ const whoOf = (list: any[]): { ids: string[]; unidentified: number } => {
 const WHO_BY = '条目里的 user.id，缺了退回 user.username'
 
 const budget = new Budget(1)
+/**
+ * **真的发出去了几次** —— 与计费次数分开数。
+ *
+ * `ask()` 对非 200 会 `refund()`（那是「非 200 不计费」那条约定），于是 `budget.count`
+ * 是**净计费数**，不是发出数：中止那一次的请求确确实实发出去了，却不在里面。
+ * 中止时只报计费数，就会把「发出 N+1 次」说成「发出 N 次」—— 而这个文件整个存在的
+ * 理由就是不让观测被说成别的样子（评审第六轮指出，负片 `M-H44-j`）。
+ */
+let sent = 0
 
 /**
  * 发一次请求。**非 200 直接抛，不重试** —— 与 `providers/tikhub.ts` 的 `get()` 不同，
@@ -192,6 +209,7 @@ async function ask(extra: Record<string, string | number>): Promise<any> {
   url.searchParams.set('keyword', keyword!)
   for (const [k, v] of Object.entries(extra)) url.searchParams.set(k, String(v))
   budget.charge()
+  sent++
   const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` } })
   if (!res.ok) {
     budget.refund()
@@ -324,11 +342,16 @@ async function main() {
   }
 
   const n = chain!
-  console.error(`  顺着游标翻 ${n} 次 ＋ 对照组 ${n} 次 · 估算 $${(2 * n * UNIT_PRICE).toFixed(3)}`)
+  console.error(`  顺着游标翻最多 ${n} 次 ＋ 同样长度的对照组 · 至多 $${(2 * n * UNIT_PRICE).toFixed(3)}`
+    + '（链提前断掉的话两边一起变短）')
   const ch = new Curve()
   const stoppedAt = await chainInto(ch, n, first, cursorPath)
+  // **对照组跟着链的实际长度走，不是跟着要求的次数。** 链提前断掉（服务端不再给游标）
+  // 时若让对照跑满，对照的采样就比链多 —— 而这个端点会漂，采样多的一方天然累计更多人，
+  // 于是「翻页有没有用」那个比较会偏向判它没用。**这是在本工具最重的那个结论上造假阴性**
+  //（评审第六轮指出，负片 `M-H44-l`）。
   const ctrl = new Curve()
-  await repeatInto(ctrl, n, '对照')
+  await repeatInto(ctrl, ch.rows.length, '对照')
   // **链比对照多拿到人，才叫翻页有用。** 端点自己会漂，所以链上多出来的人不减掉
   // 对照那一份，就会把漂的功劳记到翻页头上 —— 这两种读法的结论正好相反。
   const beatsDrift = ch.cumPeople > ctrl.cumPeople
@@ -390,7 +413,8 @@ main().catch(e => {
   // **中止时把已经花掉的说出来。** 非 200 直接抛（不重试），于是前面那几次已付的请求
   // 连同那份 JSON 一起没了 —— 读的人至少要知道这一跑赔了多少。
   console.error(`✗ 探针中止：${e instanceof Error ? e.message : String(e)}`)
-  console.error(`  这一跑已经发出 ${budget.count} 次请求（估算 $${budget.spent.toFixed(3)}），`
-    + '结果没有落地。')
+  // **发出数与计费数分开报。** 中止那一次是非 200，按约定退了费 —— 但它真的发出去了。
+  console.error(`  这一跑发出 ${sent} 次请求，其中 ${budget.count} 次计费`
+    + `（估算 $${budget.spent.toFixed(3)}），结果没有落地。`)
   process.exit(1)
 })

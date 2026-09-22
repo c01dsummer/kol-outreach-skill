@@ -402,6 +402,13 @@ group('ig-paging-probe', [], () => {
       && String(earlyStop.reading ?? '').includes('链：3 次累计')
       && !String(earlyStop.reading ?? '').includes('链：5 次累计'),
     `应当停在第 3 次且读法说「链：3 次累计」，实际 ${JSON.stringify([earlyStop.chain_stopped_at_call, earlyStop.reading])}`)
+  // 链断在第三次时对照组也只该跑三次。让对照跑满要求的次数，它的采样就比链多，
+  // 而这个端点会漂 —— 采样多的一方天然累计更多人，于是「翻页有没有用」会偏向判没用。
+  // 这是在本工具最重的那个结论上造**假阴性**。
+  named('链提前断掉时对照组跟着变短 —— 采样不等长就是在制造假阴性',
+    Array.isArray(earlyStop.control_curve) && earlyStop.control_curve.length === 3
+      && earlyStop.requests === 6,
+    `对照曲线应当也是 3 行、总请求 6 次，实际 ${JSON.stringify([(earlyStop.control_curve ?? []).length, earlyStop.requests])}`)
 
   // ---- 链式翻页：端点在漂，链上多出来的人不是游标给的 ----
   // 整组里最关键的一条。force-drift 每次都换一批人、每次都照给游标 ——
@@ -418,6 +425,25 @@ group('ig-paging-probe', [], () => {
     ignored.tail_calls_without_new_creator === 2
       && String(ignored.reading ?? '').includes('不可区分'),
     `末尾平段应当是 2 次且结论里带「不可区分」，实际 ${JSON.stringify([ignored.tail_calls_without_new_creator, ignored.reading])}`)
+
+  // ---- 评审第六轮抓到的三条：工具自己在说假话 ----
+  // 非 200 会 refund（那是「非 200 不计费」那条约定），于是计费数不等于发出数 ——
+  // 中止那一次真的发出去了，却不在计费里。只报计费数就是把「发出 N+1 次」说成「N 次」。
+  const aborted = run('IG 探针：对面拒收时，发出数与计费数分开报',
+                      [P, '--keyword', 'force-402'], process.cwd(),
+                      { status: 1, stream: 'stderr' }, NO429)
+  named('中止时报的「发出几次」是真发出的次数，不是计费次数',
+    String(aborted ?? '').includes('发出 1 次请求，其中 0 次计费'),
+    `中止诊断里应当把发出数与计费数分开报，实际是 ${JSON.stringify(aborted)}`)
+
+  // 「没写这个 flag」与「写了但没给数」必须分开：合起来的话，要了一次链式跑会静默
+  // 退化成只发一次请求的形状 dump，而且不报错 —— 用户拿到的东西和他要的不是一回事。
+  const noOperand = run('IG 探针：--chain 后面没跟数字',
+                        [P, '--keyword', 'smoothie', '--chain'], process.cwd(),
+                        { status: 2, stream: 'stderr' }, NO429)
+  named('flag 写了却没给数就报错退出 —— 不许静默当成没写过',
+    String(noOperand ?? '').includes('--chain 后面要跟一个'),
+    `应当因缺少操作数退出并说明，实际是 ${JSON.stringify(noOperand)}`)
 
   // ---- 原样重发：只量漂移，不碰游标 ----
   const REP = 3
