@@ -2567,6 +2567,24 @@
       "replace": "  if (!posts?.length) return ''"
     },
     {
+      "id": "M-P1-y",
+      "req": "P1.e",
+      "why": "只为旧记录补作品，本轮新建的账号后来搜到作品仍不补齐，交付表对已见过作品的人继续显示未查询",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "      if (p.recent_posts?.length && !seen.recent_posts?.length) seen.recent_posts = p.recent_posts",
+      "replace": "      if (seen.source_tasks === undefined && p.recent_posts?.length && !seen.recent_posts?.length) seen.recent_posts = p.recent_posts"
+    },
+    {
+      "id": "M-P1-z",
+      "req": "P1.i",
+      "why": "小样试探把未查询作品输出为空串，与已取得作品但文案为空混在一起，方向判断看不到证据缺失",
+      "file": "scripts/probe.ts",
+      "find": "          top_post: c.recent_posts?.length ? c.recent_posts[0].desc.slice(0, 120) : '（未查询）',",
+      "replace": "          top_post: c.recent_posts?.length ? c.recent_posts[0].desc.slice(0, 120) : '',",
+      "by": "selfcheck",
+      "kills": ["小样试探：未查询作品明确显示未查询"]
+    },
+    {
       "id": "M-U1-d",
       "req": "P1.f",
       "why": "「还没算过分」和「算出来是 0 分」在排序里被当成同一件事 —— 交付表上这两种人混在一起，看不出哪些是没有依据的",

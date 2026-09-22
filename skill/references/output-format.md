@@ -66,7 +66,7 @@ output/{product}-{YYYYMMDDHHmm}/
 | `profile_url` | |
 | `source_keyword` | |
 | `source_dimension` | category / scene / competitor / audience |
-| `best_post_desc` | 搜索命中的作品里播放最高那条的文案。`未查询` = 没问过他的作品（IG 按账号名搜到的人）；空白 = 那条作品本身没写文案 |
+| `best_post_desc` | 搜索命中的作品里播放最高那条的文案。`未查询` = 没问过他的作品（IG 按账号名搜到的人）；空白 = 所选作品的文案值为空，可能是作者未写，也可能是来源字段未取到，当前无法区分 |
 | `outreach_draft` | ★ 仅 A 级填写 |
 | `previously_recommended` | 曾推荐过则填「{product} @ {date}」 |
 
