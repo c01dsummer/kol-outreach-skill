@@ -3377,6 +3377,18 @@
       "kills": [
         "基线在漂就全部作废 —— 不借机把任何一个参数判成「认了」"
       ]
+    },
+    {
+      "id": "M-H44-e",
+      "req": "harness",
+      "why": "不再把响应里挖到的游标回传试一次，只剩那几个凭空猜的参数名 —— 于是工具报告「响应里有个游标」之后就停住了，而那个值明明就在手上，试一次只要一次请求",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "  const toTry = [...VARIANTS, ...cursorTrials(rawA, cursorPaths)]",
+      "replace": "  const toTry = [...VARIANTS]",
+      "by": "selfcheck",
+      "kills": [
+        "响应里有游标就要把它回传试一次 —— 不能只报告「有个游标」就完事"
+      ]
     }
   ],
   "exemptions": [

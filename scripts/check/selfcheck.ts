@@ -357,7 +357,11 @@ group('ig-paging-probe', [], () => {
     summaryOf(out ?? '').trials ?? []
   const verdicts = (out: string | undefined) => trials(out).map(t => t.verdict)
 
-  const flat = run('IG 分页探针：参数传了，返回的还是同一批', [P, '--keyword', 'smoothie'])
+  // 关掉假 fetch 那个「第 7 次回 429」的定位触发器 —— 探针的请求数会随候选参数增长，
+  // 而它不走 `TikHub.get()`、没有重试，撞上就是整跑中止（实测：加了游标回传之后正好跨过）
+  const NO429 = { FAKE_FETCH_NO_429: '1' }
+  const flat = run('IG 分页探针：参数传了，返回的还是同一批', [P, '--keyword', 'smoothie'],
+                   process.cwd(), undefined, NO429)
   named('传了参数没变化只判「这一次没多给」 —— 不判「不支持分页」',
     flat !== undefined && verdicts(flat).length > 0
       && verdicts(flat).every(v => v === '这一次没多给'),
@@ -379,18 +383,24 @@ group('ig-paging-probe', [], () => {
   named('响应里有游标时，结论那句话自己要说出来 —— 不许只躺在字段里',
     String(summaryOf(flat ?? '').reading ?? '').includes('pagination_token'),
     `reading 里没提响应中的游标键：${JSON.stringify(summaryOf(flat ?? '').reading)}`)
+  // 只报告「响应里有个游标」是把话说到一半 —— 那个值就在手上，试一次的成本是一次请求
+  named('响应里有游标就要把它回传试一次 —— 不能只报告「有个游标」就完事',
+    trials(flat).some(t => t.name.includes('响应里的')),
+    `待试清单里没有从响应挖回来的游标：${JSON.stringify(trials(flat).map(t => t.name))}`)
   named('基线漂移量要报出来 —— 只说「漂了」，读的人没法判断该不该当真',
     summaryOf(flat ?? '').baseline_drift_items === 0,
     `基线一致时漂移量应当是 0，实际 ${JSON.stringify(summaryOf(flat ?? '').baseline_drift_items)}`)
 
-  const paged = run('IG 分页探针：服务端真按 offset 换了一批', [P, '--keyword', 'force-paged'])
+  const paged = run('IG 分页探针：服务端真按 offset 换了一批', [P, '--keyword', 'force-paged'],
+                    process.cwd(), undefined, NO429)
   named('服务端真给出了基线里没有的条目才判「认了」 —— 只是换个次序不算',
     trials(paged).some(t => t.name.startsWith('offset') && t.verdict === '认了'
       && (t as { new_items?: number }).new_items === 1)
       && trials(paged).filter(t => t.verdict === '认了').length === 1,
     `只有 offset 那一行该判「认了」、且多出 1 个新条目，实际是 ${JSON.stringify(trials(paged))}`)
 
-  const drift = run('IG 分页探针：基线自己两次就不一样', [P, '--keyword', 'force-drift'])
+  const drift = run('IG 分页探针：基线自己两次就不一样', [P, '--keyword', 'force-drift'],
+                    process.cwd(), undefined, NO429)
   named('基线在漂就全部作废 —— 不借机把任何一个参数判成「认了」',
     drift !== undefined && summaryOf(drift).baseline_stable === false
       && verdicts(drift).length > 0 && verdicts(drift).every(v => v.startsWith('作废')),

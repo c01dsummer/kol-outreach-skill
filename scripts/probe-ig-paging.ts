@@ -56,9 +56,13 @@ const CURSOR_HINT = /cursor|max_id|next|page|has_more|more_available|token/i
 /**
  * 按键路径把值取出来。**只打键名不够** —— 2026-09-22 那一跑在响应里发现了
  * `data.pagination_token`，而「它是 null 还是真有个 token」才是下一步要问的，
- * 光有键名答不了。值截断到能认出形状为止，不整份抄进输出。
+ * 光有键名答不了。
+ *
+ * ⚠️ **原值与给人看的值必须分开。** 显示要截断（token 是一长串不透明字符），
+ * 而回传给服务端时**必须用原值** —— 拿截断过的串去当参数，是一次注定失败、
+ * 且失败原因看不出来的试探。第二跑就是在这儿差点栽：显示那一版把引号都截掉了。
  */
-function valueAt(root: unknown, path: string): string {
+function rawAt(root: unknown, path: string): unknown {
   let cur: any = root
   for (const seg of path.split('.')) {
     const m = /^(.*)\[0\]$/.exec(seg)
@@ -66,7 +70,27 @@ function valueAt(root: unknown, path: string): string {
     if (m) cur = cur?.[0]
     if (cur === undefined || cur === null) break
   }
-  return cur === undefined ? '(缺)' : cur === null ? 'null' : JSON.stringify(cur).slice(0, 120)
+  return cur
+}
+
+/** 给人看的那一份：截断到能认出形状为止，不整份抄进输出。 */
+const show = (v: unknown): string =>
+  v === undefined ? '(缺)' : v === null ? 'null' : JSON.stringify(v).slice(0, 120)
+
+/**
+ * 响应里挖回来的游标，**值是观测到的，不是猜的**（2026-09-22 实测有真串，不是 null）。
+ * 但**参数名仍然是猜的** —— 响应里叫 `pagination_token`，请求里未必叫同一个名字，
+ * 所以拿最可能的两个各试一次。只用第一个有真串的游标键，免得候选爆炸。
+ */
+const CURSOR_PARAM_NAMES = ['pagination_token', 'max_id']
+const cursorTrials = (raw: unknown, paths: string[]): { name: string; extra: Record<string, string> }[] => {
+  const hit = paths.map(path => ({ path, v: rawAt(raw, path) }))
+    .find(x => typeof x.v === 'string' && x.v.length > 0)
+  if (!hit) return []
+  return CURSOR_PARAM_NAMES.map(n => ({
+    name: `${n}=<响应里的 ${hit.path}>`,
+    extra: { [n]: hit.v as string },
+  }))
 }
 
 const arg = (name: string): string | undefined => {
@@ -156,8 +180,8 @@ async function main() {
   const { by, ids: idsA } = identify(listA)
   const paths = keyPaths(rawA)
   // 只看**最后一段**：`data.data.items[0].is_pinned` 里的 pinned 不算游标
-  const cursorish = paths.filter(p => CURSOR_HINT.test(p.split('.').pop() ?? ''))
-    .map(path => ({ path, value: valueAt(rawA, path) }))
+  const cursorPaths = paths.filter(p => CURSOR_HINT.test(p.split('.').pop() ?? ''))
+  const cursorish = cursorPaths.map(path => ({ path, value: show(rawAt(rawA, path)) }))
 
   console.error(`  基线：${listA.length} 条 · 身份按「${by}」`)
   console.error(`  响应键路径 ${paths.length} 条，其中像游标的 ${cursorish.length} 条：`
@@ -175,18 +199,26 @@ async function main() {
   console.error(stable ? '  基线重跑：两次一致 —— 下面的对比作数'
     : '  基线重跑：两次就不一样 —— 这个端点在漂，下面一个参数也不判')
 
+  // 猜的那几个在前，**从响应里挖回来的那几个在后** —— 后者的值是观测到的，
+  // 前者连名字都是猜的，两类的证据强度不一样，输出里要看得出先后。
+  const toTry = [...VARIANTS, ...cursorTrials(rawA, cursorPaths)]
   const trials: { name: string; count: number; new_items: number; verdict: string }[] = []
-  for (const v of VARIANTS) {
+  for (const v of toTry) {
     const list = pickList(await ask(v.extra), 'instagram/search_reels')
     const fresh = freshOf(idsA, identify(list).ids)
     const verdict = !stable ? '作废（基线自己在漂）'
       : fresh.length === 0 ? '这一次没多给'
         : '认了'
     trials.push({ name: v.name, count: list.length, new_items: fresh.length, verdict })
-    console.error(`  ${v.name} → ${list.length} 条 · 基线没有的 ${fresh.length} 个 · ${verdict}`)
+    // 漂移量摆在同一行 —— 「基线没有的 6 个」单看是个数，跟「基线自己漂了 5 个」
+    // 并排才读得出它是不是噪音
+    console.error(`  ${v.name} → ${list.length} 条 · 基线没有的 ${fresh.length} 个`
+      + `（基线自己漂 ${baselineDrift}）· ${verdict}`)
   }
 
   const honored = trials.filter(t => t.verdict === '认了').map(t => t.name)
+  // **严格大于**，不设任何阈值 —— 阈值是凭空造的确定性，而这里只需要「排个序」
+  const aboveDrift = trials.filter(t => t.new_items > baselineDrift)
   console.log(JSON.stringify({
     keyword, endpoint: PATH,
     identity: by,
@@ -210,9 +242,13 @@ async function main() {
         + '（有键不等于能用：值可能是 null，回传也可能被忽略。）\n'
       : '')
       + (!stable
-      ? `基线自己两次就不一样（重跑多出 ${baselineDrift} 个基线没有的条目），本次一个参数都没判。`
-        + '拿这个漂移量跟下面每一行的「基线没有的」比：漂移小而某一行大得多，才值得再试；'
-        + '两者一个量级就是噪音。换个时段或换个关键词再跑。'
+      ? `基线自己两次就不一样（重跑多出 ${baselineDrift} 个基线没有的条目），`
+        + `**本次一个参数都没判** —— 判词全是「作废」，这不会因为下面这句话改变。\n`
+        + (aboveDrift.length
+          ? `不过有几行的「基线没有的」**高过**了这个漂移量，值得再试一次（**这是线索，不是结论**）：`
+            + `${aboveDrift.map(t => `${t.name}（${t.new_items} > ${baselineDrift}）`).join('、')}。`
+          : `而且每一行的「基线没有的」都**没高过**这个漂移量 —— 这几个候选这一跑看不出任何信号。`)
+        + '换个时段或换个关键词再跑。'
       : honored.length
         ? `这些参数被服务端认了：${honored.join('、')}。「一个关键词只能拿一页」那句话是错的，`
           + 'IG 侧的召回上限要按这个重算。⚠️ **「有没有游标」还要看认的是哪个** —— '
@@ -223,10 +259,15 @@ async function main() {
 }
 
 main().catch(e => {
+  // **中止时把已经花掉的说出来。** 非 200 直接抛（不重试），于是前面那几次已付的请求
+  // 连同它们的观测一起丢了 —— 读的人至少要知道这一跑赔了多少，才好决定要不要再来一次。
+  const spent = `（这一跑已经发出 ${budget.count} 次请求，估算 $${budget.spent.toFixed(4)}，`
+    + '而结果没有产出 —— 非 200 直接中止，不重试）'
   if (e instanceof TikHubError && e.status === 402) {
-    console.error('\nTikHub 返回 402：这把 key 没有余额。IG 端点不吃免费额度，充值后再跑。')
+    console.error(`\nTikHub 返回 402：这把 key 没有余额。IG 端点不吃免费额度，充值后再跑。${spent}`)
     process.exit(1)
   }
   console.error(e)
+  console.error(spent)
   process.exit(1)
 })

@@ -188,8 +188,13 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
         user: { id: String(seed), username: `user${seed}`, full_name: 'X' } },
     ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
-  // 第 7 次调用返回 429，确保错误分支也被执行到
-  if (calls === 7) {
+  // 第 7 次调用返回 429，确保 `TikHub.get()` 的退避重试分支也被执行到。
+  // ⚠️ **这是个按「第几次」定位的触发器，调用数一变就会误伤。** 分页探针不走
+  // `get()`（它有自己的 `ask()`，非 200 直接抛、不重试），所以这个 429 对它是纯误伤：
+  // 探针一多试几个参数就跨过第 7 次，整跑当场中止。给它一个显式的关门旋钮 ——
+  // 比把上面那条改成关键词触发安全：那样会让 `collect` 那几条轨迹不再顺带走到重试分支，
+  // 而那条分支今天没有任何变异守着，减了覆盖也不会有人报错。
+  if (calls === 7 && process.env.FAKE_FETCH_NO_429 !== '1') {
     record(429, url)
     return new Response('rate limited', { status: 429 })
   }
