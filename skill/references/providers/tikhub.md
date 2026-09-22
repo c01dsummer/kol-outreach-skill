@@ -303,7 +303,7 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 |---|---|---|
 | 发现主路径 | 视频搜索 `fetch_video_search_result` | **Reels 搜索 `v2/search_reels`** |
 | 结果路径 | `data.search_item_list[]` | `data.data.items[]` |
-| 分页 | ✅ `offset` + `has_more` | ⚠️ **我们只取一页**；游标回传试过了，不是翻页；而且端点会漂，见上 |
+| 分页 | ✅ `offset` + `has_more` | 端点**支持**游标翻页（`pagination_token`，实测有效）；⚠️ **而我们的代码今天不跟游标、只取一页** —— 那是我们自己的做法。另外端点会漂，见上 |
 | 关键词长度 | 2–3 词的自然短语 | **1 个词** —— 词组会返回 0 条 |
 | bio 字段名 | `signature` | `biography` |
 | bio 完整度 | 搜索结果里**没有**，必须补 profile | 搜索结果里也没有，同样要补 |
