@@ -318,7 +318,7 @@ async function main() {
       cum_items: c.cumItems, cum_creators: c.cumPeople,
       tail_calls_without_new_creator: c.tailFlat, unidentified_items: c.blind,
       curve: c.rows, ...tail(),
-      reading: cursorNote + readCurve(c, repeat, '原样重发'),
+      reading: cursorNote + readCurve(c, '原样重发'),
     }, null, 2))
     return
   }
@@ -352,12 +352,20 @@ async function main() {
         : `⚠️ **翻页没比原样重发多拿到人**：链累计 ${ch.cumPeople} 人，对照 ${ctrl.cumPeople} 人。`
           + '链上多出来的那些人是**漂**给的，不是翻页给的 —— 这个端点两次相同请求本来就返回'
           + '不同条目。把这算成翻页有效，是把漂的功劳记到了游标头上。\n')
-      + readCurve(ch, n, '链'),
+      + readCurve(ch, '链'),
   }, null, 2))
 }
 
-/** 一条曲线自己那几句读法。**「条目涨而人没涨」必须单独有一支**。 */
-function readCurve(c: Curve, n: number, label: string): string {
+/**
+ * 一条曲线自己那几句读法。**「条目涨而人没涨」必须单独有一支**。
+ *
+ * ⚠️ **跑了几次要从曲线自己数出来，不许用「要求跑几次」那个数。** 链会提前断
+ * （服务端不再给游标），那时两个数不相等，而拿后者去报就是一句假话 —— 正是这个文件
+ * 存在的理由所反对的那种。上一版的 `n` 是待试参数的个数、必然等于实际跑数，换成
+ * 链式翻页之后这条不再成立，而那个写法被照搬了过来（负片 `M-H44-i`）。
+ */
+function readCurve(c: Curve, label: string): string {
+  const n = c.rows.length
   const first = c.rows[0]
   const peopleGrew = c.cumPeople > first.cum_creators
   const itemsGrew = c.cumItems > first.cum_items

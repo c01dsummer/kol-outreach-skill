@@ -193,8 +193,10 @@ export class TikHub {
    *      返回空。⚠️ **别读成「它没有分页游标」**：那句话原先写在这里，证据只有
    *      「响应只有 `count` 和 `items`」，那是**响应**那一侧的观测。实际上响应里就有
    *      `data.pagination_token`，而官方 spec 里 `search_reels` 声明的分页参数正是它
-   *      （ADR-101）。回传试过一步、没给出下一页，但**顺着链一直翻还没试过** ——
-   *      要验跑 `npm run probe:ig-paging -- --chain N`（自带对照组：这个端点会漂）
+   *      （ADR-101）。**2026-09-22 顺着链翻了一次，实测能翻页**：同一个关键词，
+   *      翻十次拿到的去重达人是单次的五倍左右，而且还在涨。所以下面这个 `has_more: false`
+   *      与 `search()` 里「offset > 0 就返回空」**才是「IG 只有一页」的真正来源**，
+   *      不是对面的性质。复跑 `npm run probe:ig-paging -- --chain 10`（自带对照组）
    *   2. **对词组敏感** —— "smoothie recipe" 返回 0，"smoothie" 返回 12。
    *      IG 侧的关键词要比 TikTok 短
    *   3. **它只找得到发 Reels 的人。** 只发图文／轮播的创作者对这个端点根本不存在 ——

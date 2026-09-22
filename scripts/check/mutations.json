@@ -3426,6 +3426,18 @@
       "kills": [
         "末尾不涨只说得出「这几次之内没再涨」 —— 不许说成「就只有这么多人」"
       ]
+    },
+    {
+      "id": "M-H44-i",
+      "req": "harness",
+      "why": "读法里那个「跑了几次」改回用要求的次数，而不是曲线上实际有几行 —— 链提前断掉时两者不再相等，于是结论会把没发生过的几次算进去。这个工具整个存在的理由就是不让观测被说成别的样子，这一处折了，它自己就在说假话",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "  const n = c.rows.length",
+      "replace": "  const n = chain ?? repeat ?? c.rows.length",
+      "by": "selfcheck",
+      "kills": [
+        "链提前断掉时，读法里报的是实际跑了几次，不是要求的次数"
+      ]
     }
   ],
   "exemptions": [
