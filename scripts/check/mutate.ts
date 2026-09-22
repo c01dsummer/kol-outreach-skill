@@ -637,9 +637,8 @@ const dispatch = async (jobs: number): Promise<void> => {
     })
     // 为什么这一问必须在这里、而且在给 stdin 装监听器之前：判定与理由见 `noStdio`。
     // 实测（node v22.22.2）：`spawn` 那一刻剩 ≤6 个 fd 走这一支，剩 ≥8 个正常。
-    // 真入口上撞到哪一支看语料大小 —— 本仓库这棵树上 `cpSync` 排在前面、先撞 EMFILE
-    // （那条路报得对，原话里就带 errno 和文件名）；自检那份小语料上复制几乎不花 fd，
-    // 于是耗在起进程这一步，`ulimit -n` 36～64 派 32 个全部落在这一支（夹具就用这个形状）
+    // 耗尽位置随环境变化，小语料也可能在前面的 cpSync 先撞 EMFILE（ADR-104）。
+    // 自检现在给复制留空间，只在真实 worker spawn 前耗尽描述符，专门验证下面这一支。
     if (noStdio(kid)) {
       console.error('\n✗ 变异测试：worker 起不来 —— 起进程时资源不够，Node 连管道都没装上。'
                     + '最常见是打开的文件数到顶（EMFILE／ENFILE）：调高 `ulimit -n`，'
