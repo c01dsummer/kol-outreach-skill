@@ -146,7 +146,17 @@ npx tsx scripts/check/selfcheck.ts --only=ig-paging-probe
 ⚠️ 欠条：**这个工具至今一次真实请求都没发过。** 罐头响应是我按 2026-08-25 那份
 实测结构捏的，所以「自检全绿」只证明三条路径走得完，**不证明真实端点上的任何事**；
 `identify()` 在真实条目上走哪一支（有没有 `id`／`pk`）也还没见过真的
-· 重启条件：下一个手上有充过值 key 的人跑一次 `npm run probe:ig-paging`
+· 重启条件：下一个**同时有网络与充过值 key** 的人跑一次 `npm run probe:ig-paging`
+>
+> ⚠️ 就地更正（2026-09-22）：**上面这条原先只写了「有 key」，漏掉了「有网络」**——
+> 而 ADR-94 那张欠条逐字写的是「下一次有**网络与 key** 的人」。实测：在本仓库的
+> 沙箱环境里，出网代理**按策略拒掉 `api.tikhub.io`**，`curl` 报
+> `CONNECT tunnel failed, response 403`，代理自己的状态里也记着
+> `connect_rejected · gateway answered 403 to CONNECT · host api.tikhub.io:443`。
+> **所以在那种环境里配上 key 也跑不了**，而脚本会在缺 key 那一步就退 2、
+> 读的人只看见「缺 key」、看不见后面还有一堵墙。这跟 ADR-94 拉不到
+> `openapi.json` 是同一堵。两个条件缺一不可，分开写出来。
+> 怎么复现：`curl -sS "$HTTPS_PROXY/__agentproxy/status"` 看 `recentRelayFailures`。
 
 ⚠️ 欠条：**`VARIANTS` 那四个参数名是猜的。** `count`／`offset`／`page`／`max_id` 取自
 TikTok 侧的命名与 IG 私有 API 的常见写法，没有任何东西保证 TikHub 用的是这几个；
