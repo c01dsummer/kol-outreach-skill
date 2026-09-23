@@ -202,6 +202,43 @@ export const underPageCap = (state: TaskState, i: number): boolean => {
   return n !== null && n < MAX_PAGES
 }
 
+/**
+ * IG 续页（ADR-111 第二节）：拿回这一页之后，这个任务还能不能带着令牌再翻一页。
+ *
+ * 在拿回那一页的**同一次迭代**里判、结论随同一次落盘：交回 `stop` 的任务当场进 `done`。
+ * 停的理由只说本地看到了什么，**不说服务端已经没有更多**：
+ *
+ * - `empty`    —— 本页 0 条（按供应商返回的条目数）
+ * - `unparsed` —— 本页有条目，却一个作者都解析不出
+ * - `no-token` —— 响应里没有令牌，或令牌是空白：本次没有可继续的令牌
+ * - `cap`      —— 达到页数上限，或已抓页数无从确认（同 `underPageCap`）
+ *
+ * **这是令牌的唯一来源**：调度只存这里交回的 `next`，所以空白令牌到不了 `search()` ——
+ * provider 对空串会只发 keyword，等于把首页当续页再买一遍。
+ * 达标之后不再翻（F9.d）不在这里判，仍由调度那一处管。
+ */
+export type IgStop = 'empty' | 'unparsed' | 'no-token' | 'cap'
+export function igAfterPage(
+  state: TaskState, i: number, page: { token: string | undefined; rawCount: number; parsed: number },
+): { next: string } | { stop: IgStop } {
+  throw new Error('ADR-111 第五节第 2 步：尚未实现')
+}
+
+/**
+ * 这个任务在这一跑里还能不能再请求一页 —— **调度与「续跑要不要花钱」那句话共用这一份**（ADR-25）。
+ * `token` 是这一跑手里的 IG 续页令牌（只来自 `igAfterPage`）；续跑时一律没有。
+ *
+ * - 已进 `done`、或分页记录表整张缺失（F9.e）→ 不能
+ * - TikTok → 能（它按 offset 翻；页数上限与 `has_more` 各有自己那一处）
+ * - Instagram 一页都没抓过 → 能（第一页保证，F9.a/c）；抓过 → 只有手里有令牌才能
+ *
+ * 按平台分支**不是平台配额**（F9 × P1）：IG 的令牌只在一次运行内有效、不写盘（ADR-111 第一节），
+ * 续跑时手里没有令牌是事实，不是给 IG 定的页数。
+ */
+export function canRequestPage(state: TaskState, i: number, token: string | undefined): boolean {
+  throw new Error('ADR-111 第五节第 2 步：尚未实现')
+}
+
 export function pendingKeywords(state: TaskState): string[] {
   return state.tasks.flatMap((t, i) => !state.done.includes(i) ? [taskLabel(t, i)] : [])
 }
