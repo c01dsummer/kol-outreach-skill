@@ -17,8 +17,8 @@ Base URL:  https://api.tikhub.io
 `description` 都声明 **0.002 USD/请求**（固定源见下）。本次未核真实账单，不能把仓库旧的
 `$0.001/请求` 继续称为这些接口的费用上限；预算代码尚未因此更改，后续核对见 ADR-101 第十三节。
 
-⚠️ **免费额度不覆盖 Instagram。** 实测（2026-08-25）：TikTok 端点可用注册赠送的
-free credit 调用；Instagram 端点一律返回 **402**，提示
+⚠️ **早期样本中的 IG 请求不接受免费额度。** 实测（2026-08-25）：当时采用的 TikTok 端点可用注册赠送的
+free credit 调用；当时测试的 Instagram 端点返回 **402**，提示
 「this endpoint requires payment and does not accept free credit」。
 **要跑 IG 必须先充值真实余额。**
 
@@ -321,7 +321,7 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 也不使用 `user.id` 或 `caption.id` 代替作品标识。字段数量、覆盖率、作者总数、跨词重叠、
 分页增量和不同 `feed_type` 的实际结果均待原始响应补证；不引用旧对话中的精确统计。
 
-传错会返回 **422** 并明确指出缺哪个字段 —— 这个报错很有用，别急着改别的。
+历史测试曾因缺少正确的必填参数返回 **422** 并指出缺失字段；这不保证所有参数错误都返回相同状态或被拒绝。
 
 ## 双平台差异速查
 
@@ -332,7 +332,7 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 | 分页 | ✅ `offset` + `has_more` | 端点**支持**游标翻页（`pagination_token`，实测有效）；⚠️ **而我们的代码今天不跟游标、只取一页** —— 那是我们自己的做法。另外端点会漂，见上 |
 | 关键词长度 | 2–3 词的自然短语作为起点 | 可先试短词；历史单例不证明词组必为 0，以本次试探为准 |
 | bio 字段名 | `signature` | `biography` |
-| bio 完整度 | 搜索结果里**没有**，必须补 profile | 搜索结果里也没有，同样要补 |
+| bio 完整度 | 早期搜索样本未取得，当前需补 profile | 早期 Reels 样本未取得，当前需补 profile；不外推所有发现端点 |
 | 外链字段 | `bioLink.link`（单个） | `bio_links[]`（数组） |
 | 粉丝数字段 | `followerCount`（驼峰） | `follower_count`（下划线） |
 | 地区过滤 | ✅ `region` 参数 | 本次核对的目标搜索端点未声明地区参数；关键词语言不能证明作者或受众地区 |
