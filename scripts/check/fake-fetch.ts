@@ -201,6 +201,14 @@ const fakeFetch = async (input: RequestInfo | URL) => {
       { caption: { text: 'no user field here' } }, { caption: { text: 'nor here' } },
     ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
+  // D15：真正空的Reels页仍走既有users兜底；zero让两路均空，不能凭请求制造账号来源。
+  if ((url.includes('force-empty-reels') && url.includes('search_reels'))
+    || url.includes('force-discovery-zero')) {
+    record(200, url)
+    return new Response(JSON.stringify({ data: { data: { items: [] } } }), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    })
+  }
   // P1.i：同一个真实 reels 响应形状里放空文案、普通文案和超长文案。
   // 普通文案账号的第二条播放更高，不能拿它替换小样试探承诺的第一条。
   if (url.includes('force-probe-captions') && url.includes('search_reels')) {

@@ -27,6 +27,7 @@ import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { inflateRawSync } from 'node:zlib'
 import { tsxCommand } from './tsx-cmd.js'
 import {
   ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, sourceFiles,
@@ -1143,6 +1144,134 @@ group('cost-http', [], () => {
 })
 
 // ADR-109：独立作者只读需求、费用公开形状及测试设施；未读生产函数体。
+group('discovery', [], () => {
+  // D15/ADR-110：期望取自三条公开路径及五字段契约，不读取适配或输出实现。
+  const tasks = [
+    { keyword: '#Source', dimension: 'category', platform: 'tiktok', as_hashtag: true },
+    { keyword: 'reel-source', dimension: 'scene', platform: 'instagram', as_hashtag: true },
+    { keyword: 'force-empty-reels', dimension: 'audience', platform: 'instagram' },
+  ]
+  const endpoints = [TT_SEARCH, IG_REELS, IG_USERS]
+  const source = (i: number, handle: string) => ({ platform: tasks[i].platform, handle,
+    keyword: tasks[i].keyword, dimension: tasks[i].dimension, endpoint: endpoints[i] })
+  const canonical = (v: any): any => Array.isArray(v) ? v.map(canonical)
+    : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, canonical(v[k])])) : v
+  const equal = (a: unknown, b: unknown) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b))
+  const f = costFixture('discovery', knownCosts(50000, []), { budget_usd: 0.05, target_count: 1,
+    tasks, done: [], offsets: {}, pages: {}, answered: {}, found: {} },
+    ['techwithsarah', 'powerbankdeals', 'mysteryuser'].map(h => costPerson('tiktok', h)).concat(
+      ['techwithsarah', 'privateaccount', 'wanderwithmei'].map(h => costPerson('instagram', h))))
+  const config = join(f.cwd, 'probe.json')
+  writeFileSync(config, JSON.stringify({ market: 'US', budget_usd: 0.05, tasks }))
+  const probeLog = join(f.cwd, 'probe.tsv')
+  const probed = runBoth('发现来源 probe 三路', [S('probe.ts'), '--config', config], f.cwd, undefined, costEnv(probeLog))
+  if (probed.ok) {
+    const view = summaryOf(probed.stdout), rows = view.results
+    named('probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点',
+      Array.isArray(rows) && rows.length === 3 && rows.every((r: any, i: number) =>
+        Array.isArray(r.sample) && r.sample.length > 0 && r.sample.every((c: any) =>
+          equal(c.discovery_sources, [source(i, c.handle)]))), probed.stdout)
+    named('发现来源不增加probe请求或改变原路线费用',
+      equal(fetchAttempts(probeLog), [`200\t${TT_SEARCH}`, `200\t${IG_REELS}`, `200\t${IG_REELS}`, `200\t${IG_USERS}`])
+        && view.requests === 4 && view.cost_estimate_usd === 0.007, probed.stdout)
+  }
+  const emptyCfg = join(f.cwd, 'empty.json')
+  writeFileSync(emptyCfg, JSON.stringify({ market: 'US', tasks: [
+    { keyword: 'force-discovery-zero', dimension: 'category', platform: 'instagram' },
+    { keyword: 'force-402-source', dimension: 'scene', platform: 'tiktok' },
+  ] }))
+  const empty = runBoth('发现来源 空结果及错误', [S('probe.ts'), '--config', emptyCfg], f.cwd, undefined,
+    costEnv(join(f.cwd, 'empty.tsv')))
+  if (empty.ok) named('零账号与请求错误不制造账号发现来源',
+    summaryOf(empty.stdout).results?.[0]?.sample?.length === 0
+      && Boolean(summaryOf(empty.stdout).results?.[1]?.error)
+      && !empty.stdout.includes('discovery_sources'), empty.stdout)
+  const collected = runBoth('发现来源 collect 保存', [S('collect.ts'), '--resume', f.taskDir], f.cwd, undefined, costEnv(f.log))
+  if (collected.ok) {
+    const raw = jsonFile(join(f.taskDir, 'creators.raw.json')), delivery = jsonFile(join(f.taskDir, 'creators.json'))
+    named('三路来源进入raw，空Reels后的账号只有users来源',
+      Array.isArray(raw) && raw.length === 6 && raw.every((c: any) =>
+        equal(c.discovery_sources, [source(c.platform === 'tiktok' ? 0 : c.handle === 'wanderwithmei' ? 2 : 1, c.handle)])),
+      JSON.stringify(raw))
+    named('交付JSON合并账号后保留双方真实来源与原账号', Array.isArray(delivery)
+      && equal(delivery.find((c: any) => c.handle === 'techwithsarah')?.discovery_sources,
+        [source(0, 'techwithsarah'), source(1, 'techwithsarah')])
+      && equal(delivery.find((c: any) => c.handle === 'wanderwithmei')?.discovery_sources, [source(2, 'wanderwithmei')]),
+      JSON.stringify(delivery))
+    const resumed = runBoth('发现来源 collect 零请求恢复', [S('collect.ts'), '--resume', f.taskDir], f.cwd,
+      undefined, costEnv(f.log))
+    if (resumed.ok) named('来源保存恢复不丢记录且不改变请求次数和费用',
+      equal(jsonFile(join(f.taskDir, 'creators.raw.json')), raw)
+        && equal(jsonFile(join(f.taskDir, 'creators.json')), delivery)
+        && fetchAttempts(f.log).length === 4 && summaryOf(resumed.stdout).requests === 4
+        && summaryOf(resumed.stdout).cost_estimate_usd === 0.007, resumed.stdout)
+  }
+  const profile = costFixture('discovery-profile', knownCosts(2000, []), { budget_usd: 0.002 }, [
+    costPerson('tiktok', 'techwithsarah', { bio: undefined, bio_links: [], discovery_sources: [source(0, 'techwithsarah')] }),
+    costPerson('tiktok', 'legacy-source', { bio: undefined, bio_links: [] }),
+  ])
+  const profiles = runBoth('发现来源 profile 仅补资料', [S('collect.ts'), '--resume', profile.taskDir], profile.cwd,
+    undefined, costEnv(profile.log))
+  if (profiles.ok) {
+    const raw = jsonFile(join(profile.taskDir, 'creators.raw.json'))
+    named('profile保留已有发现来源，旧账号未知来源不从资料或任务倒推', Array.isArray(raw)
+      && equal(raw.find((c: any) => c.handle === 'techwithsarah')?.discovery_sources, [source(0, 'techwithsarah')])
+      && !Object.hasOwn(raw.find((c: any) => c.handle === 'legacy-source') ?? {}, 'discovery_sources')
+      && equal(fetchAttempts(profile.log), [`200\t${TT_PROFILE}`, `200\t${TT_PROFILE}`])
+      && summaryOf(profiles.stdout).cost_estimate_usd === 0.002, JSON.stringify(raw))
+  }
+  criterion('D15.a', 'D15.b', 'D15.d', 'D15.e', 'D15.f', 'D15.g')
+  const shown = [source(0, 'display-known'), source(1, 'linked-ig'), source(2, 'users-ig')]
+  shown[0].keyword = 'source,<attribution&payload>'
+  const routes = ['TikTok 视频搜索', 'Instagram Reels 搜索', 'Instagram 账号名搜索']
+  const text = shown.map((s, i) => `${routes[i]} · ${s.platform}:@${s.handle} · ${s.keyword} · ${s.dimension}`).join('；')
+  const display = costFixture('discovery-display', knownCosts(1000, []), { budget_usd: 0.001 }, [
+    costPerson('tiktok', 'display-known', { discovery_sources: shown }),
+    costPerson('tiktok', 'display-missing'), costPerson('instagram', 'display-empty', { discovery_sources: [] }),
+  ])
+  const rendered = runBoth('发现来源 真实交付文件', [S('render.ts'), '--dir', display.taskDir], display.cwd,
+    undefined, costEnv(display.log))
+  if (rendered.ok) {
+    // 只解读标准CSV/ZIP/XML，不调用生产格式化器当预期。
+    const csvRows = fileText(join(display.taskDir, 'kol.csv')).trim().replace(/^\uFEFF/, '').split(/\r?\n/)
+      .map(line => [...line.matchAll(/(?:^|,)(?:"((?:[^"]|"")*)"|([^,]*))/g)].map(m => (m[1] ?? m[2]).replace(/""/g, '"')))
+    named('CSV实际文件末列展示来源，缺席与空数组均明确未知',
+      csvRows[0]?.at(-1) === 'discovery_sources' && csvRows.some(r => r.at(-1) === text)
+        && csvRows.filter(r => r.at(-1) === '来源未知').length === 2, JSON.stringify(csvRows))
+    const entries = new Map<string, string>(), xlsx = join(display.taskDir, 'kol.xlsx')
+    try {
+      const b = readFileSync(xlsx), end = b.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))
+      let p = b.readUInt32LE(end + 16)
+      for (let n = b.readUInt16LE(end + 10); n > 0; n--) {
+        const method = b.readUInt16LE(p + 10), size = b.readUInt32LE(p + 20), nameLen = b.readUInt16LE(p + 28)
+        const name = b.subarray(p + 46, p + 46 + nameLen).toString(), local = b.readUInt32LE(p + 42)
+        const start = local + 30 + b.readUInt16LE(local + 26) + b.readUInt16LE(local + 28), bytes = b.subarray(start, start + size)
+        entries.set(name, (method === 8 ? inflateRawSync(bytes) : bytes).toString('utf8'))
+        p += 46 + nameLen + b.readUInt16LE(p + 30) + b.readUInt16LE(p + 32)
+      }
+    } catch { /* malformed/missing XLSX is the named assertion below, not a verifier crash */ }
+    const decode = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+    const cellText = (s: string) => [...s.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m => decode(m[1])).join('')
+    const shared = [...(entries.get('xl/sharedStrings.xml') ?? '').matchAll(/<si>([\s\S]*?)<\/si>/g)].map(m => cellText(m[1]))
+    const sheetRows = [...entries].filter(([name]) => /^xl\/worksheets\/sheet\d+\.xml$/.test(name))
+      .flatMap(([, xml]) => [...xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)].map(m => {
+        const last = [...m[1].matchAll(/<c\b[^>]*>[\s\S]*?<\/c>/g)].at(-1)?.[0] ?? ''
+        return /\bt="s"/.test(last) ? shared[Number(last.match(/<v>(\d+)<\/v>/)?.[1])] : cellText(last)
+      }))
+    named('XLSX实际工作表末列展示来源，缺席与空数组均明确未知',
+      sheetRows.filter(v => v === 'discovery_sources').length === 3 && sheetRows.includes(text)
+        && sheetRows.filter(v => v === '来源未知').length === 2, JSON.stringify(sheetRows))
+    const html = fileText(join(display.taskDir, 'report.html'))
+    named('HTML展示并转义账号发现来源，未知不伪造路径且声明记录边界',
+      html.includes('已观察发现来源') && html.includes(text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+        && !html.includes('<attribution&payload>') && (html.match(/来源未知/g)?.length ?? 0) === 2
+        && html.includes('仅含已记录的账号发现来源，可能不含完整历史；不对应具体作品或请求次数'), html)
+    named('发现来源渲染不新增请求或制造历史费用', fetchAttempts(display.log).length === 0
+      && jsonFile(join(display.taskDir, 'task.json'))?.requests === 0, rendered.stdout)
+    criterion('D15.h', 'D15.i')
+  }
+})
+
 group('cost-durable', [], () => {
   const history = [costEntry(TT_PROFILE, 1000, 1), costEntry(IG_REELS, 2000, 0, 1)]
   const fresh = { budget_usd: 0.007, done: [], offsets: {}, pages: {}, answered: {}, found: {} }

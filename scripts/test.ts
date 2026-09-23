@@ -62,6 +62,7 @@ import {
 } from './check/verifier-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
+import { formatDiscoverySources, mergeDiscoverySources } from './lib/discovery.js'
 import { TikHub, TikHubError, fillEmail, pickList } from './providers/tikhub.js'
 import { esc, writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
@@ -101,7 +102,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import type {
-  AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
+  AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, DiscoverySource, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
 import { loadRawCreators, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
@@ -3331,6 +3332,146 @@ suite('D11', '同人合并按主记录优先沿用作品并集，作品 id 不�
   criterion('D11.n')
 }
 
+
+// D15：独立上下文按需求与 ADR-110 写成；未读发现来源生产函数体。
+suite('D15', '已观察来源按五元组稳定合并，未知不能从任务配置猜补')
+{
+  const src = (over: Partial<DiscoverySource> = {}): DiscoverySource => ({
+    platform: 'instagram', handle: 'Sam', keyword: ' #Tea ', dimension: 'category',
+    endpoint: '/api/v1/instagram/v2/search_reels', ...over,
+  })
+  const a = src(), caps = src({ platform: 'INSTAGRAM' as DiscoverySource['platform'], handle: 'sAM' })
+  const differences = [src({ platform: 'tiktok' }), src({ handle: 'Sami' }),
+    src({ keyword: '#Tea' }), src({ keyword: ' #tea ' }), src({ keyword: ' Tea ' }),
+    src({ dimension: 'scene' }), src({ endpoint: '/api/v1/instagram/v2/search_users' })]
+  const first = [caps, a, differences[0]], next = [a, ...differences, caps]
+  const before = structuredClone([first, next])
+  eq('五字段任一差异都保留，平台账号大小写重复仅留首次原值与顺序',
+    mergeDiscoverySources(first, next), [caps, ...differences])
+  eq('来源并集不修改两侧数组或记录', [first, next], before)
+  for (const separator of [':', '|', ',', '\u0000', '；', ' · ']) {
+    const pair = [src({ handle: `a${separator}b`, keyword: 'c' }),
+      src({ handle: 'a', keyword: `b${separator}c` })]
+    eq(`五元组边界不被分隔符 ${JSON.stringify(separator)} 碰撞吞掉`, mergeDiscoverySources(pair), pair)
+  }
+  for (const left of [undefined, []] as (DiscoverySource[] | undefined)[])
+    for (const right of [undefined, []] as (DiscoverySource[] | undefined)[])
+      eq('只有两侧均缺席才保留缺席，有空数组就保留空数组', mergeDiscoverySources(left, right),
+        left === undefined && right === undefined ? undefined : [])
+  for (const unknown of [undefined, []] as (DiscoverySource[] | undefined)[]) {
+    eq('未知在前不抹掉后来观察', mergeDiscoverySources(unknown, [a]), [a])
+    eq('未知在后不抹掉已有观察', mergeDiscoverySources([a], unknown), [a])
+  }
+  criterion('D15.c')
+
+  const task: SearchTask = { keyword: 'config-only', dimension: 'audience', platform: 'instagram', as_hashtag: true }
+  const b = src({ keyword: 'later', dimension: 'scene' }), c = src({ keyword: 'third' })
+  const acc = new Map<string, Creator>(), page = [{ platform: 'instagram' as const, handle: 'Sam', discovery_sources: [a, caps, b] }]
+  const pageBefore = structuredClone(page)
+  eq('首次收页新增账号', mergePage(acc, page, 0, task), 1)
+  eq('首次收页也去重且保留响应快照，不改成任务配置', acc.get('instagram:sam')?.discovery_sources, [a, b])
+  eq('首次收页不改输入来源', page, pageBefore)
+  eq('后页同人不增加人数', mergePage(acc, [{ ...page[0], discovery_sources: [b, c, a] }], 1, task), 0)
+  eq('合页来源按旧记录、新页顺序取并集', acc.get('instagram:sam')?.discovery_sources, [a, b, c])
+  for (const sources of [undefined, []] as (DiscoverySource[] | undefined)[]) {
+    const old = new Map([['instagram:sam', mk('instagram', 'Sam', { discovery_sources: sources })]])
+    mergePage(old, [{ platform: 'instagram', handle: 'Sam', discovery_sources: [b] }], 2, task)
+    eq('旧未知来源允许追加真实观察，只留下新的观察', old.get('instagram:sam')?.discovery_sources, [b])
+    eq('新增观察不伪造旧账号完整任务归属', old.get('instagram:sam')?.source_tasks, undefined)
+    const fresh = new Map<string, Creator>()
+    mergePage(fresh, [{ platform: 'instagram', handle: 'Sam', discovery_sources: sources }], 0, task)
+    eq('来源未知不会由配置、首词或任务下标补造', fresh.get('instagram:sam')?.discovery_sources, sources)
+  }
+  criterion('D15.d')
+  tension('D15', 'P1')
+
+  for (const primary of ['tiktok', 'instagram'] as const) {
+    const other = primary === 'tiktok' ? 'instagram' : 'tiktok'
+    const hiSource = src({ platform: primary, handle: 'Main.Case', dimension: 'competitor' })
+    const loSource = src({ platform: other, handle: 'Other.Case', dimension: 'scene' })
+    for (const left of [undefined, [], [hiSource, hiSource]] as (DiscoverySource[] | undefined)[])
+      for (const right of [undefined, [], [loSource, hiSource]] as (DiscoverySource[] | undefined)[]) {
+        const hi = mk(primary, 'Main.Case', { followers: 30_000, email: null, discovery_sources: left,
+          bio_links: [other === 'instagram' ? 'https://instagram.com/Other.Case' : 'https://tiktok.com/@Other.Case'] })
+        const lo = mk(other, 'Other.Case', { followers: 10_000, email: null, discovery_sources: right })
+        const before = structuredClone([left, right]), pair = [lo, hi]
+        eq(`${primary} 主账号与关联账号仍按外链识别`, linkCrossPlatform(pair), 1)
+        const main = mergeCrossPlatform(pair).find(x => x.merged_into === undefined)
+        eq(`${primary} 来源数量与输入位置不改变主账号`, main?.platform, primary)
+        const expected = left?.length ? right?.length ? [hiSource, loSource] : [hiSource]
+          : right?.length ? [loSource, hiSource] : left === undefined && right === undefined ? undefined : []
+        eq(`${primary} 跨平台并集按主次记录保留原平台、账号及维度`, main?.discovery_sources, expected)
+        eq('跨平台来源合并不修改输入来源集合', [left, right], before)
+      }
+  }
+  criterion('D15.e')
+
+  const state: TaskState = { product: 'p', market: 'US', target_count: 1, done: [], tasks: [task],
+    answered: { 0: 1 }, found: { 0: 1 }, created_at: '', updated_at: '' }
+  for (const followers of [undefined, 0, 100, 10_000, 9_000_000]) {
+    const plain = mk('instagram', 'Sam', { followers, email: 'a@example.com', fit: '✅', source_tasks: [0],
+      recent_posts: [{ id: 'instagram:42', desc: 'observed work', plays: 1000 }] })
+    for (const sources of [undefined, [], [a, b, c]] as (DiscoverySource[] | undefined)[]) {
+      const withSources = { ...plain, discovery_sources: sources }
+      eq('来源集合不改变评分、分层或粉丝准入',
+        [scoreCreator(withSources), tierOf(withSources, scoreCreator(withSources)), passesFollowerGate(withSources)],
+        [scoreCreator(plain), tierOf(plain, scoreCreator(plain)), passesFollowerGate(plain)])
+      eq('已知与未知来源均不改变任务归属统计', keywordRows(state, [withSources]), keywordRows(state, [plain]))
+      eq('已知与未知来源均不改变作品交付', toRow(withSources)[HEADERS.indexOf('best_post_desc')], 'observed work')
+    }
+  }
+}
+
+suite('D15', '表格与 HTML 展示真实路线并明确来源记录的边界')
+{
+  const sources: DiscoverySource[] = [
+    { platform: 'tiktok', handle: 'Video', keyword: '#Tea', dimension: 'category', endpoint: '/api/v1/tiktok/app/v3/fetch_video_search_result' },
+    { platform: 'instagram', handle: 'Reel', keyword: ' Tea ', dimension: 'scene', endpoint: '/api/v1/instagram/v2/search_reels' },
+    { platform: 'instagram', handle: 'User', keyword: 'tea', dimension: 'audience', endpoint: '/api/v1/instagram/v2/search_users' },
+  ]
+  const expected = 'TikTok 视频搜索 · tiktok:@Video · #Tea · category；Instagram Reels 搜索 · instagram:@Reel ·  Tea  · scene；Instagram 账号名搜索 · instagram:@User · tea · audience'
+  eq('三条实际路线共享格式，原词和原账号不改写', formatDiscoverySources(sources), expected)
+  for (const unknown of [undefined, []] as (DiscoverySource[] | undefined)[])
+    eq('缺席与空来源显示来源未知', formatDiscoverySources(unknown), '来源未知')
+  const creator = mk('tiktok', 'delivered', { tier: 'A', score: 10, discovery_sources: sources })
+  // 旧列公开契约；不可从改后 HEADERS 的切片取得 expected。
+  const oldHeaders = ['tier', 'score', 'fit', 'fit_reason', 'platform', 'handle', 'nickname', 'followers',
+    'post_count', 'bio', 'email', 'email_verified', 'audience_geo_top', 'metrics_account_followers',
+    'metrics_account_following', 'engagement_rate_followers', 'engagement_rate_views', 'median_views',
+    'median_engagements', 'view_rate', 'following_ratio', 'reach_consistency', 'median_post_gap_days',
+    'latest_post_at', 'days_since_last_post', 'activity_status', 'audience_quality_risk', 'audience_quality_reasons',
+    'tier_adjustments', 'collaboration_quote', 'implied_ecpm', 'implied_ecpe', 'metrics_observed_at',
+    'cross_platform', 'linked_handle', 'profile_url', 'source_keyword', 'source_dimension', 'best_post_desc',
+    'outreach_draft', 'previously_recommended']
+  eq('表头只在原有全部列之后追加来源', HEADERS, [...oldHeaders, 'discovery_sources'])
+  eq('来源列追加在表头末尾', HEADERS.at(-1), 'discovery_sources')
+  eq('来源列追加在数据末尾', toRow(creator).at(-1), expected)
+  eq('行与新增表头一一对应', toRow(creator).length, oldHeaders.length + 1)
+  eq('来源新增列不改变所有既有列的值', toRow(creator).slice(0, -1),
+    toRow({ ...creator, discovery_sources: undefined }).slice(0, -1))
+  const sheets = buildSheets([creator])
+  eq('XLSX 每个 sheet 都保留旧列顺序并追加来源', sheets.map(s => s.headers),
+    Array.from({ length: 3 }, () => [...oldHeaders, 'discovery_sources']))
+  eq('XLSX 来源单元格与 CSV 共用格式', sheets[0].rows[0].at(-1), expected)
+  for (const unknown of [undefined, []] as (DiscoverySource[] | undefined)[])
+    eq('表格未知来源不冒充空白或未查询作品', toRow({ ...creator, discovery_sources: unknown }).at(-1), '来源未知')
+  const dangerous = { ...sources[1], handle: 'Handle<&>', keyword: '<img src=x onerror="boom()">&\'TAG' }
+  const html = renderHtml([creator, mk('instagram', 'empty', { tier: 'B', discovery_sources: [] }),
+    mk('instagram', 'missing', { tier: 'C' }), mk('instagram', 'escaped', { tier: 'C', discovery_sources: [dangerous] })],
+    { product: 'p', market: 'US', platforms: ['tiktok', 'instagram'], keywords: [], total: 4,
+      tiers: { A: 1, B: 1, C: 2 }, email_count: 0, cross_platform_count: 0, ...testCostMeta(), enriched: false })
+  ok('HTML 来源展示与表格使用同一格式', html.includes(expected))
+  eq('HTML 每个账号均有已观察发现来源标签', html.split('已观察发现来源').length - 1, 4)
+  eq('HTML 缺席与空数组分别显示来源未知', html.split('来源未知').length - 1, 2)
+  ok('HTML 转义来源账号、标签边界与 ampersand', html.includes('Handle&lt;&amp;&gt;') &&
+    html.includes('&lt;img src=x') && html.includes('&gt;&amp;') && !html.includes('<img src=x'))
+  ok('HTML 转义来源中的双引号与单引号', !html.includes('onerror="boom()"') && /&(?:#39|#x27|apos);TAG/.test(html))
+  criterion('D15.h')
+  ok('HTML 不把已有记录包装成完整历史、作品来源或请求次数',
+    html.includes('仅含已记录的账号发现来源，可能不含完整历史；不对应具体作品或请求次数'))
+  criterion('D15.i')
+  tension('D15', 'P5')
+}
 
 suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」')
 {
