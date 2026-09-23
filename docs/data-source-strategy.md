@@ -238,8 +238,8 @@ recentPosts(handle, platform) → { posts, followers?, following?, source }
 
 ## 生产端点的固定公开价目（2026-09-23 摘录）
 
-已将同一公开静态价目的八条生产路径及原始 tuple 归档到
-[`tikhub-pricing-20260923.json`](evidence/tikhub-pricing-20260923.json)，带来源 URL、观察时间及资产 SHA256。
+八条生产路径的固定价来自 [TikHub 官方定价资产](https://tikhub.io/_next/static/chunks/16hcexj0jth19.js)
+（价目更新日 2026-07-20，观察日 2026-09-23）。仓库不再提交 evidence 文件；来源与固定版本见 ADR-107 末尾。
 TikTok 搜索、profile、主页作品三路各 $0.001；IG Reels、账号名搜索、主页作品各 $0.002，
 IG profile 的 v3/v2 两路各 $0.001。它是固定公开基础价，不计优惠，不是账单或未来价格上界。
-当前生产仍按旧统一单价；ADR-107 的纯金额模型尚未接入付费入口，不能把归档价格当成已修好的预算。
+当前生产仍按旧统一单价；ADR-107 的纯金额模型尚未接入付费入口，不能把固定价目当成已修好的预算。

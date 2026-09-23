@@ -5388,6 +5388,12 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
     ok(label, error instanceof CostError && error.code === code)
     if (budget) exact(`${label}：拒绝后完整快照不变`, budget.snapshot(), before)
   }
+  const succeeds = (label: string, run: () => void) => {
+    let completed = false, error: unknown
+    try { run(); completed = true } catch (caught) { error = caught }
+    ok(label, completed)
+    if (!completed) console.log(`     escaped=${error instanceof Error ? error.name : typeof error}`)
+  }
   const money = (budget: Cost) => {
     const s = budget.summary()
     return [s.occupied_micro_usd, s.remaining_micro_usd, s.http_200_micro_usd,
@@ -5412,7 +5418,7 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
   }
   criterion('D12.b')
 
-  // 数值来自 docs/evidence/tikhub-pricing-20260923.json，未从报价函数反抄 expected。
+  // 数值由2026-09-23官方定价资产独立摘录，来源见 ADR-107 末尾。
   const version = 'tikhub-public-20260720-5d52fe8fb109'
   const expectedPrices: Record<string, number> = {
     '/api/v1/tiktok/app/v3/fetch_video_search_result': 1000,
@@ -5570,10 +5576,12 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
   const externalCatalog = clone(catalog), isolated = createCostBudget(2000, 'task', externalCatalog)
   externalCatalog.old['/ig'] = 1
   failure('外部改价目不能替内账生成低价', () => isolated.reserve(price('/ig', 1)), 'unknown-price', isolated)
-  const mutablePrice = { ...ig }, isolatedReceipt = isolated.reserve(mutablePrice)
-  mutablePrice.unit_micro_usd = 0
-  isolated.settle(isolatedReceipt, { kind: 'http', status: 200 })
-  exact('预留报价引用不会改变结算金额', isolated.summary().occupied_micro_usd, 2000)
+  succeeds('外部改价目后，合法固定价仍可预留并结算', () => {
+    const mutablePrice = { ...ig }, isolatedReceipt = isolated.reserve(mutablePrice)
+    mutablePrice.unit_micro_usd = 0
+    isolated.settle(isolatedReceipt, { kind: 'http', status: 200 })
+    exact('预留报价引用不会改变结算金额', isolated.summary().occupied_micro_usd, 2000)
+  })
   criterion('D12.u')
   const checked = inspectExistingCostLedger(raw, 3, catalog)
   ok('合法历史记录可检查', checked.status === 'known')
@@ -5592,11 +5600,13 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
   failure('零预算也不替未知路径套零价', () => zeroBook.reserve(price('/missing', 0)), 'unknown-price', zeroBook)
   const exhausted = restoreCostBudget({ ...raw, next_attempt_id: max, entries: [] }, 0, catalog)
   failure('尝试序号递增溢出保持原账', () => exhausted.reserve(zero), 'invalid-money', exhausted)
-  const fullCount = restoreCostBudget({ ...raw, entries: [{ ...zero, http_200_count: max, unknown_result_count: 0 }] }, max, catalog)
-  const overflowReceipt = fullCount.reserve(zero)
-  failure('终态计数溢出不能部分记账', () => fullCount.settle(overflowReceipt, { kind: 'http', status: 200 }), 'invalid-money', fullCount)
-  fullCount.settle(overflowReceipt, { kind: 'http', status: 429 })
-  exact('结算失败仍保留原凭据供有效终态处理', fullCount.summary().requests, max)
+  succeeds('净次数达安全上界仍能零价预留，溢出拒绝后可按429结算', () => {
+    const fullCount = restoreCostBudget({ ...raw, entries: [{ ...zero, http_200_count: max, unknown_result_count: 0 }] }, max, catalog)
+    const overflowReceipt = fullCount.reserve(zero)
+    failure('终态计数溢出不能部分记账', () => fullCount.settle(overflowReceipt, { kind: 'http', status: 200 }), 'invalid-money', fullCount)
+    fullCount.settle(overflowReceipt, { kind: 'http', status: 429 })
+    exact('结算失败仍保留原凭据供有效终态处理', fullCount.summary().requests, max)
+  })
   const overdrawn = restoreCostBudget({ ...raw, limit_micro_usd: 3000 }, 3, catalog)
   exact('已知超额账余额保留负数', overdrawn.summary().remaining_micro_usd, -1000)
   failure('已超额不能因零价获得新请求资格', () => overdrawn.reserve(zero), 'budget-exceeded', overdrawn)

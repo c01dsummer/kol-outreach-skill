@@ -1,4 +1,4 @@
-/** D12 · 固定证据见 docs/evidence/tikhub-pricing-20260923.json；更新追加版本，不覆盖旧价。 */
+/** D12 · 官方定价资产的来源与版本见 ADR-107 末尾；更新追加版本，不覆盖旧价。 */
 import { CostError, type FixedPriceCatalog, type FrozenPrice } from '../lib/cost-ledger.js'
 
 export const TIKHUB_PRICE_VERSION = 'tikhub-public-20260720-5d52fe8fb109'
