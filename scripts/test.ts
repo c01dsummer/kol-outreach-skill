@@ -5511,6 +5511,66 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
     eq('IG 的第二页一个请求都不发', calls().length, 0)
     eq('也不谎报条数', page.raw_count, 0)
   }
+
+  // ⑤ IG 续页令牌（ADR-111 第五节第 1 步：provider 读出、带上；采集入口还不用，行为不变）。
+  //    期望只出自 ADR-111 与对外契约：令牌在与 `data.data` 同级的 `data.pagination_token`，
+  //    请求参数名是 `pagination_token`（固定官方规范）；兜底只属于第一页、
+  //    不取账号名响应里的任何值作令牌、带令牌的续页不走兜底（ADR-111 第二节）。
+  {
+    const withToken = (body: any, token: unknown) => ({ data: Object.assign({}, body.data, { pagination_token: token }) })
+    // 首页：请求一个字不变（不带令牌），响应里的令牌原样交回
+    {
+      const { fake, calls } = canned([withToken(reelsWith(2), 'tok-1')])
+      const page = await withFetch(fake, () => new TikHub('k', fundedBudget()).search(igTask, 'US', 0))
+      eq('首页请求不带续页令牌', new URL(calls()[0] ?? 'https://no.request/').searchParams.has('pagination_token'), false)
+      eq('响应里的续页令牌原样交回', page.next_token, 'tok-1')
+      eq('交回令牌不改「还有没有下一页」—— Reels 页仍是 false', page.has_more, false)
+    }
+    // 响应没给、或给的不是字符串 → 没有令牌，不编一个出来
+    for (const [label, body] of [
+      ['响应里没有续页令牌', reelsWith(2)],
+      ['续页令牌是数字', withToken(reelsWith(2), 12345)],
+      ['续页令牌是 null', withToken(reelsWith(2), null)],
+    ] as const) {
+      const { fake } = canned([body])
+      const page = await withFetch(fake, () => new TikHub('k', fundedBudget()).search(igTask, 'US', 0))
+      eq(`${label}时，搜索结果里没有令牌`, page.next_token, undefined)
+    }
+    // 带令牌：同一个端点、同一个关键词，多带一个 pagination_token；offset 大于 0 也照发
+    {
+      const budget = fundedBudget()
+      const { fake, calls } = canned([withToken(reelsWith(2), 'tok-2')])
+      const page = await withFetch(fake, () => new TikHub('k', budget).search(igTask, 'US', 2, 'tok-1'))
+      eq('带令牌的续页发出一次请求', calls().length, 1)
+      const u = new URL(calls()[0] ?? 'https://no.request/')   // 一次都没发时不崩，照常红在下面几条
+      eq('续页请求的是 Reels 搜索', u.pathname, TEST_IG)
+      eq('续页带上上一页交回的令牌', u.searchParams.get('pagination_token'), 'tok-1')
+      eq('续页的关键词不变', u.searchParams.get('keyword'), 'smoothie')
+      eq('续页交回这一页的令牌', page.next_token, 'tok-2')
+      eq('续页照常计费', budget.count, 1)
+    }
+    // 续页解析不出人：不改搜账号名（兜底只属于第一页），条数照实交回
+    {
+      const { fake, calls } = canned([reelsUnparseable(8), usersWith(1)])
+      const page = await withFetch(fake, () => new TikHub('k', fundedBudget()).search(igTask, 'US', 8, 'tok-1'))
+      eq('续页解析不出人时不改搜账号名', calls().length, 1)
+      eq('续页交回的人数就是 0', page.creators.length, 0)
+      eq('续页的条数照实交回', page.raw_count, 8)
+    }
+    // 第一页走了兜底：两次响应里的令牌都不交回 —— 账号名那次的不是 Reels 的令牌，这个任务当页就结束
+    {
+      const { fake, calls } = canned([withToken(reelsUnparseable(8), 'reels-tok'), withToken(usersWith(1), 'users-tok')])
+      const page = await withFetch(fake, () => new TikHub('k', fundedBudget()).search(igTask, 'US', 0))
+      eq('兜底照常发了两次', calls().length, 2)
+      eq('走了兜底的那一页没有令牌', page.next_token, undefined)
+    }
+    // 没有令牌时，第二页照旧一个请求都不发（④ 的形状，令牌参数明写缺席）
+    {
+      const { fake, calls } = canned([withToken(reelsWith(2), 'tok')])
+      await withFetch(fake, () => new TikHub('k', fundedBudget()).search(igTask, 'US', 2, undefined))
+      eq('没有令牌时第二页仍不发请求', calls().length, 0)
+    }
+  }
   // ⚠️ **这一组不认领 D6.i** —— 它一次都没打开过 `task.json`，而 D6.i 说的正是
   // 「`task.json` 必须记下…」。认领它不只是多说一句：`spec-rule.ts` 那道
   // 「只由自检认领的判据必须有一条 by:"selfcheck" 负片」的硬失败，**只要单元这边
