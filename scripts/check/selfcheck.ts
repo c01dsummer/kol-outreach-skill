@@ -582,14 +582,17 @@ group('ig-paging-probe', [], () => {
     `末尾平段应当是 2 次且结论里带「不可区分」，实际 ${JSON.stringify([ignored.tail_calls_without_new_creator, ignored.reading])}`)
 
   // ---- 评审第六轮抓到的三条：工具自己在说假话 ----
-  // 非 200 会 refund（那是「非 200 不计费」那条约定），于是计费数不等于发出数 ——
-  // 中止那一次真的发出去了，却不在计费里。只报计费数就是把「发出 N+1 次」说成「N 次」。
-  const aborted = run('IG 探针：对面拒收时，发出数与计费数分开报',
+  // 非 200 撤销本次同额占用，不增加净次数（D13.n）；这不是实际账单断言。
+  // 中止那一次真的发出去了，故应分别报告发出 1 次、净次数 0 与费用占用为零。
+  const aborted = run('IG 探针：对面拒收时，发出数与净次数分开报',
                       [P, '--keyword', 'force-402'], process.cwd(),
                       { status: 1, stream: 'stderr' }, NO429)
+  const abortedText = String(aborted ?? '')
   named('中止时报的「发出几次」是真发出的次数，不是计费次数',
-    String(aborted ?? '').includes('发出 1 次请求，其中 0 次计费'),
-    `中止诊断里应当把发出数与计费数分开报，实际是 ${JSON.stringify(aborted)}`)
+    /发出\s*1\s*次请求/.test(abortedText)
+      && /净(?:请求)?次数\s*[:：]?\s*0(?![\d.])/.test(abortedText)
+      && /(?:预算|费用|估算)占用(?:估算)?\s*[:：]?\s*\$0(?:\.0+)?(?![\d.])/.test(abortedText),
+    `中止诊断应当报告发出 1 次、净次数 0 与费用占用 $0，实际是 ${JSON.stringify(aborted)}`)
 
   // 「没写这个 flag」与「写了但没给数」必须分开：合起来的话，要了一次链式跑会静默
   // 退化成只发一次请求的形状 dump，而且不报错 —— 用户拿到的东西和他要的不是一回事。
@@ -1759,11 +1762,11 @@ group('memory', ['collect', 'render'], () => {
         failed++
         console.error('  ✗ 没有说清续跑的代价 —— 或者把「已抓到的不重抓」写成了「续跑免费」')
       } else console.log('  ✓ 续跑的代价按实际剩余工作量说话')
-      // 预算用尽时光 --resume 会立刻再退 3。这里采集已跑完，命令不该带 --budget；
-      // 反过来说了「预算也已用尽」的那条命令必须带 —— 两句话要同进同出
-      const budgetGone = stderr.includes('预算也已用尽')
+      // 余额不足以支付下一请求时，光 --resume 会再退 3（F7.d、D13）；
+      // 无待查项时不该要求改额，有这条不足提示时修复命令必须带 --budget，两者同进同出。
+      const budgetInsufficient = /不足以支付下一(?:次)?请求/.test(stderr)
       const cmdHasBudget = /修好它再跑:.*--budget <新额度>/.test(stderr)
-      if (budgetGone !== cmdHasBudget) {
+      if (budgetInsufficient !== cmdHasBudget) {
         failed++
         console.error('  ✗ 恢复命令与预算状态不一致 —— 用户照着敲会立刻再撞一次退出码 3')
       } else console.log('  ✓ 恢复命令按预算状态决定要不要带 --budget')

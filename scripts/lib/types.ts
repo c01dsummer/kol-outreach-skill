@@ -313,7 +313,9 @@ export interface TaskState {
   product: string
   market: string          // ISO 3166-1 alpha-2，如 US
   target_count: number
-  budget_usd: number
+  /** D13：旧输入可能缺失或不可解释；须经费用边界核验，不能直接计算。 */
+  budget_usd?: unknown
+  cost_ledger?: unknown
 
   tasks: SearchTask[]
   /** 已完成（耗尽或已达标收尾）的 task 索引 */
@@ -338,11 +340,11 @@ export interface TaskState {
   offsets?: Record<number, number>
 
   /**
-   * D6.i：这个任务**发出过几次付费搜索请求**（`charge()` 记了、没被 `refund()`）。
+   * D6.s：这个任务的搜索净次数（HTTP 200 与未取得状态的尝试）。
    * 「从未发出过搜索请求」只能由它回答 —— `offsets` 答不了，那个键只在 `search()`
    * 正常返回之后才写，而钱在那之前就扣了。
    *
-   * ⚠️ **非 200 不计入**：402／429 会 `refund()`，钱没花也没拿回东西，而续跑会重试它 ——
+   * ⚠️ **非 200 不计入**：费用账撤销本次预留，续跑会重试它 ——
    * 读作「还没问过」既如实也可行动。这是取舍，不是 bug。
    *
    * ⚠️ **整张表缺失＝无从确认**，而且它**只在任务目录新建时建**（D6.j）。缺表的是
@@ -383,8 +385,8 @@ export interface TaskState {
    */
   pages?: Record<number, number>
 
-  /** 累计请求数 —— 跨多次运行累加，续跑时不重复计费 */
-  requests: number
+  /** D13：费用账终态净次数；旧输入未知，不把缺席补成零。 */
+  requests?: unknown
 
   /**
    * 这一批名单有没有做过「已联系 / 已推荐」去重（ADR-15）。

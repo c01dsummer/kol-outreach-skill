@@ -6,8 +6,8 @@
  *   首次:  tsx scripts/collect.ts --config task.json
  *   续跑:  tsx scripts/collect.ts --resume output/anker-powerbank-202608251430 [--budget 3]
  *
- * 预算用尽时保存断点并以退出码 3 结束 —— 调用方（Agent）据此询问用户是否追加预算。
- * 续跑时已完成的关键词不会重跑，已花掉的请求数不会重复计费。
+ * 预算不足以支付下一请求时保存断点并以退出码 3 结束。
+ * 续跑跳过已完成的关键词，并从有效逐端点费用账继续估算占用。
  *
  * 记忆文件读不出来时**不产出名单**（退出码 2，采集结果完好，已抓到的不重抓）。
  * 修好后续跑要不要花钱，取决于剩余关键词与待补 profile 是否都为零 ——
@@ -16,7 +16,9 @@
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
-import { Budget, BudgetExceeded, budgetProblem, ledgerProblem, showAmount } from './lib/budget.js'
+import { Budget, BudgetInputError, startBudget } from './lib/budget.js'
+import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
+import { readCostDocument, readCostLimit, stringifyCostJson } from './lib/cost-json.js'
 import {
   MAX_PAGES, finalize, firstPagePending, mergePage, needsProfile, pagesFetched,
   pendingKeywords, resumeCostLine, underPageCap,
@@ -47,44 +49,42 @@ const arg = (n: string) => {
 // ---------- 载入或恢复 ----------
 
 let state: TaskState
-let productFrom: string        // 产品名是从哪读来的 —— 报错要指得出位置
+let productFrom: string
+let freshLimit: number | undefined
 const resume = arg('--resume')
-// 提到这里是为了下面那条上限校验能指得出「毛病在命令行上还是在盘上的旧文件里」
 const newBudgetArg = arg('--budget')
+let replacementLimit: number | undefined
+try {
+  if (argv.includes('--budget')) {
+    if (newBudgetArg === undefined) throw new Error('--budget 缺少金额')
+    try { replacementLimit = parseUsdMicros(newBudgetArg) }
+    catch (e) { throw new Error(`--budget ${newBudgetArg}：${String(e)}`) }
+  }
+  if (resume) {
+    const taskPath = taskFile(resume)
+    if (!existsSync(taskPath)) throw new Error(`找不到 ${taskPath}`)
+    state = loadTask(resume)
+    productFrom = taskPath
+    console.error(`续跑 ${resume} —— 已完成 ${state.done.length}/${state.tasks.length} 个关键词`)
+  } else {
+    const cfgPath = arg('--config')
+    if (!cfgPath) throw new Error('用法: npm run collect -- --config task.json | --resume <dir> [--budget N] [--ignore-memory]')
+    const cfg = readCostDocument<TaskState>(readFileSync(cfgPath, 'utf8'))
+    if (Object.hasOwn(cfg, 'budget_usd')) freshLimit = readCostLimit(cfg)
+    else {
+      freshLimit = parseUsdMicros('2')
+      if (replacementLimit === undefined) console.error('未提供预算，默认采用任务总预算 $2。')
+    }
+    if (replacementLimit !== undefined) freshLimit = replacementLimit
+    state = {
+      product: cfg.product, market: cfg.market ?? 'US', target_count: cfg.target_count ?? 50,
+      tasks: cfg.tasks, done: [], offsets: {}, answered: {}, found: {}, pages: {},
+      created_at: new Date().toISOString(), updated_at: '',
+    }
+    productFrom = cfgPath
+  }
+} catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
 
-if (resume) {
-  const taskPath = taskFile(resume)
-  if (!existsSync(taskPath)) {
-    console.error(`找不到 ${taskPath}`)
-    process.exit(2)
-  }
-  state = loadTask(resume)
-  productFrom = taskPath
-  if (newBudgetArg) state.budget_usd = Number(newBudgetArg)
-  console.error(`续跑 ${resume} —— 已完成 ${state.done.length}/${state.tasks.length} 个关键词，` +
-                `预算 $${state.budget_usd}`)
-} else {
-  const cfgPath = arg('--config')
-  if (!cfgPath) {
-    console.error('用法: npm run collect -- --config task.json | --resume <dir> [--budget N] [--ignore-memory]')
-    process.exit(2)
-  }
-  const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'))
-  state = {
-    product: cfg.product, market: cfg.market ?? 'US',
-    target_count: cfg.target_count ?? 50, budget_usd: cfg.budget_usd ?? 2,
-    tasks: cfg.tasks, done: [], offsets: {}, answered: {}, found: {}, pages: {}, requests: 0,
-    created_at: new Date().toISOString(), updated_at: '',
-  }
-  productFrom = cfgPath
-}
-
-// 产品名一路要用到最后：任务目录名、跨任务记忆里那条「为哪个产品推荐过」。
-// 空的走不到最后 —— 记忆写回会拒收（记下的那条下次会被判成损坏，ADR-46）。
-// **在花钱之前说，不是花完再说**，而且**两条入口都要说**：
-// 续跑读的是盘上的旧 task.json，它可能被手改过，也可能来自还没有这条校验的旧版本。
-// 只守住新建那条的话，--resume 能带着一个空产品名一路采集、补 profile、
-// 花完钱，最后停在写回被拒 —— 钱花了，去重记录一条没记下（ADR-46 追记二）。
 const badProduct = textProblem(state.product)
 if (badProduct) {
   console.error(`${productFrom} 里的 product ${badProduct} —— 它要用作任务目录名，` +
@@ -92,46 +92,25 @@ if (badProduct) {
   process.exit(2)
 }
 
-// 预算上限同样要在花钱之前查，而且**两条入口都要查**。
-// 闸门是一句「已花 + 本次开销 > 上限」的比较：上限不是有限的数时它恒为假，
-// 闸门整条失效，`--budget 3.0.0` 这样一个手误就能一路花下去，而百分比恒为 0，
-// 连提醒都不会出现（P3 · F7）。判定在 lib/budget.ts —— 留在这儿的话，
-// 每条入口各写一份表达式，先改的那边不会报错（ADR-46 的形状）。
-const badBudget = budgetProblem(state.budget_usd)
-if (badBudget) {
-  // 报的是**用户打的那个东西**，不是它被解析之后的样子：`--budget 3.0.0` 解析成
-  // NaN，照解析结果印出来是「null」，用户会以为自己打错成了一个 null
-  const from = newBudgetArg !== undefined ? '--budget' : `${productFrom} 里的 budget_usd`
-  const shown = newBudgetArg !== undefined ? newBudgetArg : showAmount(state.budget_usd)
-  console.error(`${from} ${badBudget}：${shown} —— ` +
-                `预算闸门要拿它和已花的钱比大小，比不了就等于没有闸门。先给一个数再跑。`)
-  process.exit(2)
-}
-
-// 「已经花了多少次」也一样要查：它从盘上反序列化进来，静态类型运行时不拦。
-// null 会让整本账退回零（续跑等于白送一份预算），字符串会让计数在下一次请求上
-// 变成拼接 —— 两种都是安静地发生（D6.a · P3）。
-const badLedger = ledgerProblem(state.requests)
-if (badLedger) {
-  console.error(`${productFrom} 里的 requests ${badLedger}：${showAmount(state.requests)} —— ` +
-                `它是「已经花掉几次请求」，预算闸门从它接着往上加。先把它改回一个整数再跑。`)
-  process.exit(2)
-}
-
-// 目录名就是产品名，所以只能等它过关之后才算得出来
 const dir = resume ?? taskDir(state.product)
-if (!resume) saveTask(dir, state)
-
-const key = process.env.TIKHUB_API_KEY
-if (!key) {
-  console.error('缺少 TIKHUB_API_KEY。到 https://tikhub.io 注册后写入 .env')
+if (!resume && existsSync(taskFile(dir))) {
+  console.error(`${taskFile(dir)} 已存在；请用 --resume 继续原任务，不能重新开账。`)
   process.exit(2)
 }
-
-const budget = new Budget(state.budget_usd, state.requests, (pct, spent, limit) => {
-  console.error(`\n💰 已用 ${(pct * 100).toFixed(0)}% —— $${spent.toFixed(3)} / $${limit.toFixed(2)}\n`)
-})
-const api = new TikHub(key, budget)
+let budget: Budget
+try {
+  const notify = (pct: number, view: ReturnType<Budget['view']>) => {
+    console.error(`\n💰 已用 ${(pct * 100).toFixed(0)}% —— 估算占用 $${view.cost_estimate_usd} / $${view.budget_usd}\n`)
+  }
+  budget = resume ? new Budget(state, notify) : startBudget(state, freshLimit!, 'task', notify)
+  if (resume && replacementLimit !== undefined) budget.setLimit(replacementLimit)
+} catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
+// D13.j：改额先保存根上限及 ledger，一旦保存失败不能发下一请求。
+if (!resume || replacementLimit !== undefined) {
+  try { saveTask(dir, state) }
+  catch (e) { console.error(`保存费用失败：${String(e)}`); process.exit(1) }
+}
+const api = new TikHub(process.env.TIKHUB_API_KEY, budget)
 
 // 已采集的人（续跑时接着累加）。
 // 读的是**累加器** creators.raw.json，不是交付物 creators.json ——
@@ -143,6 +122,7 @@ for (const c of loadRawCreators(dir)) creators.set(creatorKey(c), c)
 
 let stopped: 'budget' | 'target' | 'done' | 'error' = 'done'
 let errorMsg = ''
+let errorExit = 1
 
 /**
  * 达标判断必须数**能进名单的人**，不是采到的总数。
@@ -155,7 +135,6 @@ function qualified(): number {
 }
 
 function persist() {
-  state.requests = budget.count
   saveTask(dir, state)
   // 累加器只增不减 —— 过滤在 main() 末尾只作用于交付物
   saveRawCreators(dir, [...creators.values()])
@@ -239,9 +218,9 @@ async function run() {
 
       const t = state.tasks[i]
       const offset = offsets[i] ?? 0
-      // D6.i：「发出过几次付费请求」取预算计数器的增量（charge() 加、非 200 refund()）。
+      // D6.s：仅在前后费用账均可核验时记录终态净次数增量。
       // 记在 finally 里，因为要记的正是**抛出去那条路**：钱扣了、而在写游标之前抛了。
-      const paidBefore = budget.count
+      const paidBefore = budget.view().cost_status === 'known' ? budget.count : null
       let page
       try {
         page = await api.search(t, state.market, offset)
@@ -249,17 +228,18 @@ async function run() {
         // ⚠️ **只改内存，不在这里落盘**：此刻 offsets[i] 还没更新、人也还没入库，
         // 落下去就是个自相矛盾的断点；而且会遮住循环末尾那次落盘的窗口（负片 M-P3-f）。
         // 抛出去那条路由 main() 的 catch 之后那次 persist() 负责。
-        const paid = budget.count - paidBefore
+        const paidAfter = budget.view().cost_status === 'known' ? budget.count : null
+        const paid = paidBefore === null || paidAfter === null ? null : paidAfter - paidBefore
         // ⚠️ **两张表一律不在这里建**（`??=` 都不行）—— 缺表＝无从确认，
         // 凭空建一张就把它抹成「一个都没问过」，不可逆（D6.j，ADR-94 第十五节丙实测）。
         // 目录新建时就带着这两张表；缺表的是上一版留下的目录，它们从此也不长出来。
-        if (paid > 0 && state.answered !== undefined) {
+        if (paid !== null && paid > 0 && state.answered !== undefined) {
           state.answered[i] = (state.answered[i] ?? 0) + paid
         }
         // 付了钱、却没走到下面记条数那一步 —— **这一次的条数永远补不回来**。
         // 于是这个任务的累计条数从此「注定不全」：不这么记的话，下一页成功时
         // 它会从 0 重新数起，凑出一个偏小、却和真测量值印在同一列的数（D6.l）。
-        if (paid > 0 && page === undefined && state.found !== undefined) {
+        if (paid !== null && paid > 0 && page === undefined && state.found !== undefined) {
           state.found[i] = null
         }
       }
@@ -333,7 +313,7 @@ async function enrichProfiles() {
       // 单个失败不该拖垮整轮（一个 404 就挂掉 50 人的采集是不可接受的）。
       // 但**不静默吞掉** —— 计数上报，且该创作者的 bio/email 保持 undefined，
       // 即「未查询」，不会被下游读成「没有邮箱」。
-      if (e instanceof BudgetExceeded) throw e
+      if (e instanceof CostError || e instanceof BudgetInputError) throw e
       profileFailed++
     }
     if (++done % 10 === 0) console.error(`  ${done}/${list.length}`)
@@ -346,12 +326,13 @@ async function main() {
     await run()
     await enrichProfiles()
   } catch (e) {
-    if (e instanceof BudgetExceeded) {
+    if (e instanceof CostError && e.code === 'budget-exceeded') {
       stopped = 'budget'
     } else if (e instanceof TikHubError && e.status === 402) {
       stopped = 'error'; errorMsg = e.message
     } else {
       stopped = 'error'; errorMsg = String(e)
+      errorExit = e instanceof BudgetInputError ? 2 : 1
     }
   }
 
@@ -378,7 +359,7 @@ async function main() {
     // 无条件说「续跑不会重复花费」，是把「已抓到的不重抓」说成了「续跑免费」，
     // 而剩下的关键词照样要花钱（ADR-22）。
     if (stopped === 'error') console.error(`\n   ⚠️ 本轮采集也没跑完：${errorMsg}`)
-    if (stopped === 'budget') console.error(`\n   ⚠️ 本轮预算也已用尽，续跑需要 --budget 追加`)
+    if (stopped === 'budget') console.error(`\n   ⚠️ 本轮余额不足以支付下一请求，续跑可用 --budget 指定新总额度`)
     // 「续跑要不要花钱」有**两种**没干完的活，只数关键词会漏掉后一种：
     // 关键词全跑完了，但只要还有人没补 profile，续跑第一件事就是去补，
     // 那是付费端点（ADR-25）。
@@ -418,12 +399,9 @@ async function main() {
     keywords_done: state.done.length,
     keywords_total: state.tasks.length,
     pending_keywords: pendingKeywords(state),
-    requests: budget.count,
-    cost_estimate_usd: Number(budget.spent.toFixed(4)),
-    budget_usd: state.budget_usd,
   }
 
-  console.log(JSON.stringify(summary, null, 2))
+  console.log(stringifyCostJson(summary, budget.view()))
 
   // 续跑要不要花钱 —— **产出了名单的四种收尾共用这一句**：关键词跑完（`done`）、
   // 达标提前停下（`target`）、预算用尽（`budget`）、出错中止（`error`）。原先只有
@@ -442,11 +420,11 @@ async function main() {
   console.error(`\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)
 
   if (stopped === 'budget') {
-    console.error(`\n⛔ 预算用尽 ${budget.summary()} —— 断点已保存。`)
-    console.error(`   追加预算续跑: npm run collect -- --resume ${dir} --budget <新额度>`)
+    console.error(`\n⛔ 余额不足以支付下一请求 ${budget.summary()} —— 断点已保存。`)
+    console.error(`   指定新总预算续跑: npm run collect -- --resume ${dir} --budget <新额度>`)
     process.exit(3)              // 3 = 预算用尽，可续跑
   }
-  if (stopped === 'error') process.exit(1)
+  if (stopped === 'error') process.exit(errorExit)
 }
 
 main().catch(e => { console.error(e); process.exit(1) })

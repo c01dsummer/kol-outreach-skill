@@ -2,7 +2,7 @@
 import { CostError, type FixedPriceCatalog, type FrozenPrice } from '../lib/cost-ledger.js'
 
 export const TIKHUB_PRICE_VERSION = 'tikhub-public-20260720-5d52fe8fb109'
-export const TIKHUB_PRICE_BASIS = '固定公开基础价，不计优惠；不是实际账单，不保证供应商未来价格。'
+export const TIKHUB_PRICE_BASIS = '按固定公开基础价、不计优惠的估算；不是实际账单，也不保证供应商未来价格上限。'
 export const TIKHUB_PRICE_CATALOG: FixedPriceCatalog = Object.freeze({
   [TIKHUB_PRICE_VERSION]: Object.freeze({
     '/api/v1/tiktok/app/v3/fetch_video_search_result': 1000,

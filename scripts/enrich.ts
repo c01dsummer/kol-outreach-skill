@@ -17,8 +17,10 @@ import {
   TikHubError,
 } from './providers/tikhub.js'
 import {
-  Budget, BudgetExceeded, UNIT_PRICE, budgetProblem, ledgerProblem, showAmount,
+  Budget, BudgetInputError,
 } from './lib/budget.js'
+import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
+import { stringifyCostJson } from './lib/cost-json.js'
 import {
   accountKey,
   assignAudienceRisks,
@@ -57,44 +59,28 @@ if (!dir || !existsSync(taskFile(dir))) {
   process.exit(2)
 }
 
-const key = process.env.TIKHUB_API_KEY
-if (!key) {
-  console.error('缺少 TIKHUB_API_KEY。公开指标仍由 TikHub 提供，不需要额外供应商。')
-  process.exit(2)
-}
-
-const task: TaskState = loadTask(dir)
-
-// 盘上的两个钱字段先查，再拿它们算任何东西 —— 下面那句 `task.requests * UNIT_PRICE`
-// 拿 null 算出来是 0，于是「新预算不能低于已花」这条校验自己先失了准（D6.a · P3）。
-// 判定与 collect 共用 lib/budget.ts 的那一份：各写一份表达式时，先改的那边不会报错。
-for (const [field, problem] of [
-  ['budget_usd', budgetProblem(task.budget_usd)],
-  ['requests', ledgerProblem(task.requests)],
-] as const) {
-  if (!problem) continue
-  console.error(`${dir}/task.json 里的 ${field} ${problem}：` +
-                `${showAmount((task as unknown as Record<string, unknown>)[field])} —— ` +
-                `预算闸门要拿这两个数比大小，比不了就等于没有闸门。`)
-  process.exit(2)
-}
-
+let task: TaskState
+let budget: Budget
 const newBudget = arg('--budget')
-if (newBudget !== undefined) {
-  const parsed = Number(newBudget)
-  const alreadySpent = task.requests * UNIT_PRICE
-  if (!Number.isFinite(parsed) || parsed < alreadySpent) {
-    console.error(`--budget 必须是至少 $${alreadySpent.toFixed(3)} 的总预算`)
-    process.exit(2)
+try {
+  task = loadTask(dir)
+  budget = new Budget(task, (pct, view) => {
+    console.error(`\n💰 已用 ${(pct * 100).toFixed(0)}% —— 估算占用 $${view.cost_estimate_usd} / $${view.budget_usd}\n`)
+  })
+  if (argv.includes('--budget')) {
+    if (newBudget === undefined) throw new Error('--budget 缺少金额')
+    let limit: number
+    try { limit = parseUsdMicros(newBudget) }
+    catch (e) { throw new Error(`--budget ${newBudget}：${String(e)}`) }
+    budget.setLimit(limit)
   }
-  task.budget_usd = parsed
+} catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
+if (newBudget !== undefined) {
+  try { saveTask(dir, task) }
+  catch (e) { console.error(`保存费用失败：${String(e)}`); process.exit(1) }
 }
-
 const refresh = argv.includes('--refresh')
-const budget = new Budget(task.budget_usd, task.requests, (pct, spent, limit) => {
-  console.error(`\n💰 已用 ${(pct * 100).toFixed(0)}% —— $${spent.toFixed(3)} / $${limit.toFixed(2)}\n`)
-})
-const api = new TikHub(key, budget)
+const api = new TikHub(process.env.TIKHUB_API_KEY, budget)
 const state: EnrichmentState = loadEnrichment(dir) ?? { version: 1, updated_at: '', accounts: {} }
 const creators = loadCreators(dir)
 const rawByKey = new Map(loadRawCreators(dir).map(c => [accountKey(c.platform, c.handle), c]))
@@ -140,7 +126,6 @@ const sourceFor = (platform: Platform): MetricSource => ({
 })
 
 const persist = () => {
-  task.requests = budget.count
   saveTask(dir, task)
   saveEnrichment(dir, state)
 }
@@ -149,6 +134,7 @@ let newlyQueried = 0
 let locallyRecomputed = 0
 let stopped: 'done' | 'budget' | 'error' = 'done'
 let errorMessage = ''
+let errorExit = 1
 
 async function assess(ref: AccountRef): Promise<void> {
   const k = accountKey(ref.platform, ref.handle)
@@ -217,7 +203,7 @@ async function main() {
       try {
         await assess(ref)
       } catch (e) {
-        if (e instanceof BudgetExceeded) throw e
+        if (e instanceof CostError || e instanceof BudgetInputError) throw e
         if (e instanceof TikHubError && e.status === 404) {
           const observedAt = new Date().toISOString()
           const sample = unavailable<never[]>(
@@ -237,11 +223,12 @@ async function main() {
       if (done % 10 === 0) console.error(`  ${done}/${list.length}`)
     }
   } catch (e) {
-    if (e instanceof BudgetExceeded) {
+    if (e instanceof CostError && e.code === 'budget-exceeded') {
       stopped = 'budget'
     } else {
       stopped = 'error'
       errorMessage = e instanceof Error ? e.message : String(e)
+      errorExit = e instanceof BudgetInputError ? 2 : 1
     }
   }
 
@@ -266,7 +253,7 @@ async function main() {
     a.metrics?.audience_quality_risk.status === 'measured' &&
     a.metrics.audience_quality_risk.value.level === 'high').length
 
-  console.log(JSON.stringify({
+  console.log(stringifyCostJson({
     dir,
     stopped,
     ...(errorMessage ? { error: errorMessage } : {}),
@@ -279,16 +266,13 @@ async function main() {
     activity_unavailable: activityUnavailable,
     risks_measured: riskMeasured,
     high_risk: highRisk,
-    requests: budget.count,
-    cost_estimate_usd: Number(budget.spent.toFixed(4)),
-    budget_usd: task.budget_usd,
-  }, null, 2))
+  }, budget.view()))
 
   if (stopped === 'budget') {
-    console.error(`\n⛔ 预算用尽 ${budget.summary()} —— enrichment.json 已保存，可提高总预算后续跑。`)
+    console.error(`\n⛔ 余额不足以支付下一请求 ${budget.summary()} —— enrichment.json 已保存，可提高总预算后续跑。`)
     process.exit(3)
   }
-  if (stopped === 'error') process.exit(1)
+  if (stopped === 'error') process.exit(errorExit)
 }
 
 main().catch(e => { console.error(e); process.exit(1) })

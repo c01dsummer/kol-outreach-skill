@@ -157,6 +157,7 @@ export type AttemptOutcome = { kind: 'http'; status: number } | { kind: 'no_http
 export interface CostBudget {
   snapshot(): CostSnapshot
   summary(): CostSummary
+  setLimit(limit: MicroUsd): void
   reserve(price: FrozenPrice): AttemptReceipt
   settle(receipt: AttemptReceipt, outcome: AttemptOutcome): void
 }
@@ -167,6 +168,13 @@ function openBudget(initial: CostLedgerV1, prices: FixedPriceCatalog): CostBudge
   return {
     snapshot() { return { cost_ledger: structuredClone(ledger), requests: summarize(ledger).requests } },
     summary() { return summarize(ledger) },
+    setLimit(limit) {
+      integer(limit, '上限')
+      if (ledger.pending !== undefined) throw new CostError('pending-attempt', '存在未结预留，不能改额')
+      if (limit < summarize(ledger).occupied_micro_usd)
+        throw new CostError('invalid-money', '总上限不能低于已占用金额')
+      ledger = { ...ledger, limit_micro_usd: limit }
+    },
     reserve(raw) {
       const p = checkedPrice(raw, catalog)
       if (ledger.pending !== undefined) throw new CostError('pending-attempt', '存在未结预留，不能新增请求')
