@@ -277,7 +277,7 @@ const fileText = (path: string): string => {
 }
 const fetchAttempts = (path: string): string[] => fileText(path).split('\n').filter(Boolean)
 // JSON source context 只读原 token，不用生产 parser，也不以舍入后的 Number 作精度 oracle。
-const rootToken = (text: string, key: string): string | undefined => {
+const rootToken = (text: string, key: string, path: readonly (string | number)[] = []): string | undefined => {
   const tokens = new WeakMap<object, Map<string, string>>()
   let root: object | undefined
   try {
@@ -290,7 +290,9 @@ const rootToken = (text: string, key: string): string | undefined => {
       if (name === '') root = value as object
       return value
     })
-    return root ? tokens.get(root)?.get(key) : undefined
+    let holder: any = root
+    for (const part of path) holder = holder?.[part]
+    return holder !== null && typeof holder === 'object' ? tokens.get(holder)?.get(key) : undefined
   } catch { return undefined }
 }
 const costPerson = (platform = 'tiktok', handle = 'cost-person', over: Record<string, unknown> = {}) => ({
@@ -892,6 +894,25 @@ group('cost-local', [], () => {
         && rootToken(fileText(f.task), 'budget_usd') === token
         && !Object.hasOwn(jsonFile(f.task) ?? {}, 'cost_ledger'),
       `${entry}/${String(token)}: status=${result.status}, saved=${rootToken(fileText(f.task), 'budget_usd')}`)
+  }
+  // 根预算类型非法也不是丢弃原始数字的理由；容器里的数字必须直接取 source token。
+  for (const entry of ['collect', 'enrich']) for (const [shape, raw, keys] of [
+    ['object', '{"overflow":1e400,"integer":9007199254740993,"fraction":0.99999999999999999}', ['overflow', 'integer', 'fraction']],
+    ['array', '[1e400,9007199254740993,0.99999999999999999]', ['0', '1', '2']],
+  ] as const) {
+    const f = costFixture(`raw-${entry}-${shape}`, { requests: 0 })
+    writeFileSync(f.task, fileText(f.task).replace('"budget_usd":1,', `"budget_usd":${raw},`))
+    const result = runBoth(`${entry} 原样保留非法${shape}预算中的数字`,
+      [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir], f.cwd,
+      { status: 0, soft: [1, 2, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+    if (!result.ok) continue
+    const after = jsonFile(f.task), saved = fileText(f.task)
+    const tokens = keys.map(key => rootToken(saved, key, ['budget_usd']))
+    named('非法对象或数组预算的零请求写回保留内部原数字，不新造费用账',
+      result.status === 0 && fetchAttempts(f.log).length === 0 && after !== undefined
+        && after.requests === 0 && !Object.hasOwn(after, 'cost_ledger')
+        && JSON.stringify(tokens) === JSON.stringify(['1e400', '9007199254740993', '0.99999999999999999']),
+      `${entry}/${shape}: status=${result.status}, saved tokens=${JSON.stringify(tokens)}`)
   }
   criterion('D13.i')
 })

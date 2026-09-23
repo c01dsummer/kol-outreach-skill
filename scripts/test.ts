@@ -5777,6 +5777,36 @@ suite('D13', '原 JSON 数值与明确新账、旧账诊断使用同一精确费
       exact('缺席、null、string 原样保留，不填默认', JSON.parse(stringifyCostJson(state)), JSON.parse(source))
     }
   })
+  await costSucceeds('非法对象或数组预算的原数字保留，但不能取得付费资格', () => {
+    const tokens = ['1e400', '9007199254740993', '0.99999999999999999']
+    for (const [shape, raw, keys] of [
+      ['对象', '{"overflow":1e400,"integer":9007199254740993,"fraction":0.99999999999999999}', ['overflow', 'integer', 'fraction']],
+      ['数组', '[1e400,9007199254740993,0.99999999999999999]', ['0', '1', '2']],
+    ] as const) {
+      const state = readCostDocument(`{"budget_usd":${raw},"requests":0}`)
+      ;(state as any).business = 'updated locally'
+      const saved = stringifyCostJson(state)
+      const originalNumbers = (text: string) => {
+        const values = numberTokens(text, ['budget_usd'])
+        return keys.map(key => values[key])
+      }
+      // expected 是上述原始字面值；普通 JSON.parse 已舍入后的值不能证明保真。
+      eq(`${shape}预算本地保存保留三个原数字`, originalNumbers(saved), tokens)
+      eq(`${shape}预算本地业务修改仍可保存`, JSON.parse(saved).business, 'updated locally')
+      eq(`${shape}预算不新建费用账`, Object.hasOwn(state, 'cost_ledger'), false)
+      const view = costView(state), budget = new Budget(state, () => {})
+      eq(`${shape}预算仍是旧费用未知`, view.cost_status, 'unknown-history')
+      eq(`${shape}预算可核原计数仍为零`, view.requests, 0)
+      exact(`${shape}预算不可解释且所有金额为未知`, viewAmounts(view), [null, null, null, null, null])
+      ok(`${shape}预算诊断给出具体原因`, view.cost_problems.length > 0 && view.cost_problems.every(p => !!p.path && !!p.reason))
+      rejected(`${shape}预算不能读为合法总额`, () => readCostLimit(state))
+      rejected(`${shape}预算不因零请求获得付费资格`, () => budget.reserve(TEST_TT), 'input')
+      rejected(`${shape}预算不能借改额修复缺账`, () => budget.setLimit(1_000_000), 'input')
+      const after = stringifyCostJson(state)
+      eq(`${shape}预算诊断及拒绝后仍保留原数字`, originalNumbers(after), tokens)
+      eq(`${shape}预算拒绝后不改原计数或补账`, [numberTokens(after).requests, Object.hasOwn(state, 'cost_ledger')], ['0', false])
+    }
+  })
   await costSucceeds('费用账与请求数的原数字也不得在离线写回时舍入', () => {
     for (const token of ['9007199254740993', '1e400']) {
       const state = readCostDocument(`{"budget_usd":1,"requests":${token}}`)
