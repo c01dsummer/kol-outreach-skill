@@ -131,6 +131,13 @@ recentPosts(handle, platform) → { posts, followers?, following?, source }
 - `recentPosts` 已由 TikHub 实现但执行可选；结果进入供应商无关的三态 `Measurement<T>`
 - 当前没有外部 `enrich` 供应商；邮箱验证和受众地域仍明确缺失
 
+搜索作品标识补充（2026-09-23）：用户本地 IG 探针的首条键路径为
+`data.data.items[0].id`，未见 `media` 包层；这只确认该条的路径，不保证所有条目的值可用。
+适配层据此读取 item 直接 `id`，TikTok 读取 `aweme_info.aweme_id`（直接条目兼容路径为
+`aweme_id`）。可用值写为带平台前缀的 `RecentPost.id`；合页和同人合并按标识稳定取并集，
+首次记录优先，缺标识的作品逐条保留。完整边界见
+[ADR-105](adr/ADR-105-搜索作品保留真实标识并稳定取并集.md)。
+
 **当前实现边界**：`probe.ts`、`collect.ts` 与 `enrich.ts` 直接实例化 TikHub；仓库尚未实现按配置切换供应商。未来来源可复用统一测量结构，但必须先通过主体、注册、方法、双平台与真实样本验证。
 
 ---
