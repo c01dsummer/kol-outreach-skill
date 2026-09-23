@@ -1344,9 +1344,18 @@ group('cost-durable', [], () => {
       const resumed = runBoth(`强杀后拒绝付费 ${entry}/${change}`, [...args(entry, f),
         ...(change ? ['--budget', '0.009'] : [])], f.cwd,
         { status: 2, soft: [0, 1, 3] }, costEnv(log))
-      if (validRun(resumed)) named('强杀后恢复未结费用拒绝新增付费及显式改额，退出2且零请求',
-        resumed.status === 2 && fetchAttempts(log).length === 0 && fileText(f.task) === before,
-        `${entry}/change=${change}: exit=${resumed.status}, requests=${fetchAttempts(log).length}, stderr=${resumed.stderr}`)
+      if (validRun(resumed)) {
+        const after = jsonFile(f.task)
+        const changed = [...new Set([...Object.keys(disk ?? {}), ...Object.keys(after ?? {})])]
+          .filter(key => JSON.stringify(disk?.[key]) !== JSON.stringify(after?.[key]))
+        if (changed.length) console.log(`  · ${entry}/change=${change} 恢复拒绝后的任务变字段：${changed.join('、')}`)
+        named('强杀后恢复未结费用拒绝新增付费及显式改额，退出2且零请求',
+          resumed.status === 2 && fetchAttempts(log).length === 0
+            && after?.requests === disk?.requests
+            && JSON.stringify(after?.cost_ledger) === JSON.stringify(disk?.cost_ledger)
+            && rootToken(fileText(f.task), 'budget_usd') === rootToken(before, 'budget_usd'),
+          `${entry}/change=${change}: exit=${resumed.status}, requests=${fetchAttempts(log).length}, changed=${changed}, stderr=${resumed.stderr}`)
+      }
     }
   }
   criterion('D14.f')
@@ -1482,18 +1491,20 @@ group('crash-resume', [], () => {
    *  只数搜索，不数 profile —— 续跑要补 profile，拿总请求数当判据会把两件事混在一起。 */
 
   {
-    // A：第一页完成，第二次请求已开始但未取得可供入口结算的状态。
+    // A：单关键词第一页完成，第二页请求已开始但未取得可供入口结算的状态。
+    // 只有一个词，避免F9先补另一个词的第一页，使第二次请求确实验证同一分页断点。
     // 前提：罐头 has_more 为 1，kw0 不进 done，续跑才会再搜它。
     const cwd = crashCwd('crash-a')
     const ledger = join(tmp, 'ledger-a.tsv')
+    const observations = join(cwd, 'fetch-events.jsonl')
     const cfg = join(cwd, 'crash-a.json')
     writeFileSync(cfg, JSON.stringify({
       product: 'crasha', market: 'US', target_count: 500, budget_usd: 0.002,
-      tasks: [{ keyword: 'kw0', dimension: 'category', platform: 'tiktok' },
-              { keyword: 'kw1', dimension: 'category', platform: 'tiktok' }],
+      tasks: [{ keyword: 'kw0', dimension: 'category', platform: 'tiktok' }],
     }))
     const first = runBoth('collect 搜索循环里被杀：进程以 137 结束', [S('collect.ts'), '--config', cfg], cwd,
-                          { status: 137 }, { FAKE_FETCH_LEDGER: ledger, FAKE_FETCH_KILL_AFTER_OK: '2' })
+                          { status: 137 }, { FAKE_FETCH_LEDGER: ledger, FAKE_FETCH_KILL_AFTER_OK: '2',
+                            FAKE_FETCH_COST_EVENTS: observations })
     const dir = first.ok ? onlyDir(cwd, 'crasha') : undefined
     if (first.ok && dir === undefined) {
       failed++
@@ -1502,12 +1513,17 @@ group('crash-resume', [], () => {
     if (dir !== undefined) {
       const disk = jsonFile(join(cwd, dir, 'task.json'))
       const raw = jsonFile(join(cwd, dir, 'creators.raw.json'))
+      const nextQuery = fileText(observations).split('\n').filter(Boolean).map(line => JSON.parse(line))
+        .filter(e => e.kind === 'fetch')[1]?.query
+      const nextOffset = nextQuery?.offset
       named('collect 搜索循环里被杀：此前页的作者与分页断点已保存',
-        disk?.pages?.[0] === 1 && disk?.offsets?.[0] === 5 && disk?.answered?.[0] === 1
+        disk?.pages?.[0] === 1 && Number.isSafeInteger(disk?.offsets?.[0]) && disk.offsets[0] > 0
+          && nextQuery?.keyword === 'kw0' && nextOffset !== undefined
+          && disk.offsets[0] === Number(nextOffset) && disk?.answered?.[0] === 1
           && disk?.found?.[0] === 3 && Array.isArray(raw)
           && raw.some(c => c.platform === 'tiktok' && c.handle === 'techwithsarah'
             && c.recent_posts?.some((p: any) => p.desc === 'Testing the new GaN charger')),
-        `task=${JSON.stringify(disk)}, raw=${JSON.stringify(raw)}`)
+        `task=${JSON.stringify(disk)}, nextOffset=${nextOffset}, raw=${JSON.stringify(raw)}`)
       named('collect 搜索循环里被杀：最后一次预留在盘上且此前终态未丢',
         diskRequests(cwd, dir) === 1 && ledgerLines(ledger, true) === 2
           && disk?.cost_ledger?.pending?.endpoint === TT_SEARCH

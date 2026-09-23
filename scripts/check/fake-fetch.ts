@@ -281,9 +281,13 @@ const costEvents = process.env.FAKE_FETCH_COST_EVENTS
 const observe = (kind: string, url: string, extra: Record<string, unknown> = {}) => {
   if (!costEvents) return
   let task: unknown, task_error: string | undefined
-  try { task = JSON.parse(readFileSync(process.env.FAKE_FETCH_COST_TASK!, 'utf8')) }
-  catch (error) { task_error = String(error) }
-  appendFileSync(costEvents, `${JSON.stringify({ kind, endpoint: new URL(url).pathname, task, task_error, ...extra })}\n`)
+  if (process.env.FAKE_FETCH_COST_TASK) {
+    try { task = JSON.parse(readFileSync(process.env.FAKE_FETCH_COST_TASK, 'utf8')) }
+    catch (error) { task_error = String(error) }
+  }
+  const parsed = new URL(url)
+  appendFileSync(costEvents, `${JSON.stringify({ kind, endpoint: parsed.pathname,
+    query: Object.fromEntries(parsed.searchParams), task, task_error, ...extra })}\n`)
 }
 globalThis.fetch = (async (input: RequestInfo | URL) => {
   const url = String(input)
