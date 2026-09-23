@@ -546,6 +546,78 @@
       "replace": "  if (false) {"
     },
     {
+      "id": "M-D6-ak",
+      "req": "D6",
+      "why": "IG 续页拿回 0 条时不按「本页 0 条」停，理由被说成「解析不出作者」—— 用户看到的停因和实际发生的不是一件事（ADR-111 第二节）",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (page.rawCount === 0) return { stop: 'empty' }\n",
+      "replace": ""
+    },
+    {
+      "id": "M-D6-al",
+      "req": "D6",
+      "why": "IG 续页有条目却一个作者都解析不出时仍带着令牌接着翻 —— 供应商换了响应结构时，每一页都付钱、每一页都零人，一直翻到上限",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (page.parsed === 0) return { stop: 'unparsed' }\n",
+      "replace": ""
+    },
+    {
+      "id": "M-D6-am",
+      "req": "D6",
+      "why": "只有空白的续页令牌被当成可用的令牌带下去 —— 下一次请求要么被当成首页重买一遍，要么带着一串空白去问（ADR-111 第二节）",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "page.token.trim() === ''",
+      "replace": "page.token === ''"
+    },
+    {
+      "id": "M-D6-an",
+      "req": "D6",
+      "why": "IG 续页不看页数上限，只要有令牌就一直翻 —— D6.h 的上限对 IG 失效，单个关键词的花费没有顶",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (!underPageCap(state, i)) return { stop: 'cap' }\n",
+      "replace": ""
+    },
+    {
+      "id": "M-D6-ao",
+      "req": "D6",
+      "why": "续页令牌被修剪后再带下去 —— 令牌是供应商的，改动一个字就可能问到别的地方去，钱照付",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return { next: page.token }",
+      "replace": "  return { next: page.token.trim() }"
+    },
+    {
+      "id": "M-D6-ap",
+      "req": "D6",
+      "why": "判「这一跑还能不能再请求一页」时不分平台 —— 续跑时手里没有令牌，已经抓过页的 IG 任务仍被算成要抓，收尾那句话多报要花的钱",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (state.tasks[i].platform !== 'instagram') return true\n  return !(i in offsets) || token !== undefined\n",
+      "replace": "  return true\n"
+    },
+    {
+      "id": "M-D6-aq",
+      "req": "D6",
+      "why": "IG 一页都没抓过也要先有令牌才能请求 —— 第一页永远没有令牌，于是 IG 一个请求都不发，而报告里它和「查了没人」长得一样（F9）",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return !(i in offsets) || token !== undefined\n",
+      "replace": "  return token !== undefined\n"
+    },
+    {
+      "id": "M-D6-ar",
+      "req": "D6",
+      "why": "已经进了完成列表的任务仍被判成还能再请求一页 —— 调度会给跑完的词再花钱，收尾那句话也把它算进要花钱的那一半",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (state.done.includes(i)) return false\n  const offsets = state.offsets\n  if (offsets === undefined) return false\n  if (state.tasks[i].platform",
+      "replace": "  const offsets = state.offsets\n  if (offsets === undefined) return false\n  if (state.tasks[i].platform"
+    },
+    {
+      "id": "M-D6-as",
+      "req": "D6",
+      "why": "分页记录表整张缺失时仍判成能请求 —— 那是无从确认哪些词查过的旧目录，照抓会把已经付过钱的几页再买一遍（F9.e）",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (offsets === undefined) return false\n  if (state.tasks[i].platform",
+      "replace": "  if (offsets === undefined) return true\n  if (state.tasks[i].platform"
+    },
+    {
       "id": "M-D6-q",
       "req": "D6.j",
       "why": "惰性建表：上一版留下的目录里两张表本来缺着（＝无从确认），第一次付费请求一来就把它们凭空建出来 —— 升级前问过、付过钱的那些词从此全都读作「一个都没问过」，而且不可逆",
