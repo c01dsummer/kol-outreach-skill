@@ -616,6 +616,62 @@
       ]
     },
     {
+      "id": "M-D6-ad",
+      "req": "D6",
+      "why": "Reels 响应里的续页令牌读不出来，搜索结果永远不带令牌 —— 后两步接上之后 IG 也一页都翻不动，而没有任何一处报错（ADR-111）",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      ...(typeof next === 'string' ? { next_token: next } : {}) }",
+      "replace": "      ...({}) }"
+    },
+    {
+      "id": "M-D6-ae",
+      "req": "D6",
+      "why": "续页令牌不是字符串（null、数字）也照样交回 —— 入口会拿一个根本不存在的令牌去请求，付一次钱换回一个说不清是哪一页的结果",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      ...(typeof next === 'string' ? { next_token: next } : {}) }",
+      "replace": "      ...(next !== undefined ? { next_token: next } : {}) }"
+    },
+    {
+      "id": "M-D6-af",
+      "req": "D6",
+      "why": "续页请求不带上一页交回的 pagination_token，实际问的还是首页 —— 钱照付，拿回来的人和第一页一样",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "    if (token !== undefined) params.pagination_token = token\n",
+      "replace": ""
+    },
+    {
+      "id": "M-D6-ag",
+      "req": "D6",
+      "why": "带令牌的续页只要分页进度已经前进就一个请求都不发 —— 入口接上之后第二页起永远拿回空页，读作「这个词翻不出更多」，而那是我们自己没问",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "    if (token !== undefined) return this.searchInstagramReels(task, token)\n",
+      "replace": "    if (token !== undefined && offset === 0) return this.searchInstagramReels(task, token)\n"
+    },
+    {
+      "id": "M-D6-ah",
+      "req": "D6",
+      "why": "带令牌的续页解析不出人时改搜账号名 —— 兜底只属于第一页（ADR-111 第二节），续页多付一次钱，换回的是一批跟这一页无关的账号",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "    if (token !== undefined) return this.searchInstagramReels(task, token)\n",
+      "replace": "    if (token !== undefined) {\n      const page = await this.searchInstagramReels(task, token)\n      return page.creators.length ? page : this.searchInstagramUsers(task)\n    }\n"
+    },
+    {
+      "id": "M-D6-ai",
+      "req": "D6",
+      "why": "走了兜底的第一页把 Reels 那次的令牌交回 —— 入口会给一个已经换了路的任务接着翻 Reels，而 ADR-111 说这种任务当页结束",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))",
+      "replace": "      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count, next_token: reels.next_token }))"
+    },
+    {
+      "id": "M-D6-aj",
+      "req": "D6",
+      "why": "Reels 响应里有令牌就说「还有下一页」—— 能不能再翻由入口看令牌决定，这一页先替它答了，后两步接上之前就会开始翻 IG",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "raw_count: list.length, has_more: false,\n",
+      "replace": "raw_count: list.length, has_more: typeof next === 'string',\n"
+    },
+    {
       "id": "M-F9-c",
       "req": "F9.c",
       "why": "达标之后就说「续跑一个关键词都不会抓」—— 还欠着第一页的那些词，续跑照样会去抓它们，那是要付费的端点，账单在用户不知情时又长一截；反过来他也可能因为「反正不花钱」就去续跑一轮自己没打算花的钱",
