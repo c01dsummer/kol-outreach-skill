@@ -4258,6 +4258,18 @@
       ]
     },
     {
+      "id": "M-D6-ac",
+      "req": "D6.t",
+      "by": "selfcheck",
+      "kills": [
+        "作者累加器写失败时，盘上这一页的分页进度不前进"
+      ],
+      "why": "每拿回一页先保存分页进度、后保存作者：两次写之间被打断或作者写失败时，盘上的进度已经前进而这一页的作者没存下，续跑从下一页接着翻 —— IG 丢掉的是这个任务唯一的一页",
+      "file": "scripts/collect.ts",
+      "find": "  saveRawCreators(dir, [...creators.values()])\n  saveTask(dir, state)\n}",
+      "replace": "  saveTask(dir, state)\n  saveRawCreators(dir, [...creators.values()])\n}"
+    },
+    {
       "id": "M-D13-t",
       "req": "D13.i",
       "why": "旧任务预算为非法对象或数组时，不再保留内部原始数字，零请求写回也会把大整数舍入或把超范围值变成 null",

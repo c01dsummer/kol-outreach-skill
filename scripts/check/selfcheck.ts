@@ -1554,6 +1554,38 @@ group('cost-save-errors', [], () => {
   }
   criterion('P3.d', 'D13.p')
 
+  // D6.t：作者累加器写失败时，盘上这一页的分页进度不得前进（ADR-113）。
+  // 同上一段只拦最终改名写入的目标，这次是 creators.raw.json；task.json 照常可写，费用检查点不受影响。
+  // 一页一次付费请求：先落盘的若是分页进度，续跑会从下一页接着翻，这一页的作者就永远丢了。
+  {
+    const f = costFixture('raw-save-order', knownCosts(1000, []),
+      { budget_usd: 0.001, done: [], offsets: {}, pages: {}, answered: {}, found: {} })
+    const raw = join(f.taskDir, 'creators.raw.json')
+    const preload = join(f.cwd, 'fail-raw-save.mjs'), mark = join(f.cwd, 'raw-fault.txt')
+    writeFileSync(preload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = function(src, dest) { if (String(dest) === ${JSON.stringify(raw)}) { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('test raw save denied'), { code: 'EIO' }); } return original(src, dest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
+    const result = runBoth('collect 作者累加器写失败', [S('collect.ts'), '--resume', f.taskDir], f.cwd,
+      { status: 1, soft: [0, 2, 3] }, costEnv(f.log, {
+        NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      }))
+    if (result.ok) {
+      if (!fileText(mark).includes('armed')) {
+        failed++
+        console.error(`  ✗ 作者累加器写入故障注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${result.stderr}`)
+      } else {
+        const disk = jsonFile(f.task)
+        const attempts = fetchAttempts(f.log)
+        named('作者累加器写失败时，盘上这一页的分页进度不前进',
+          fileText(mark).includes('injected') && result.status === 1
+            && attempts.length === 1 && attempts[0] === `200\t${TT_SEARCH}`
+            && disk?.offsets !== undefined && !Object.hasOwn(disk.offsets, '0')
+            && disk?.pages !== undefined && !Object.hasOwn(disk.pages, '0')
+            && Array.isArray(disk?.done) && !disk.done.includes(0),
+          `status=${result.status}, attempts=${JSON.stringify(attempts)}, task=${JSON.stringify(disk)}, stderr=${result.stderr}`)
+      }
+    }
+  }
+  criterion('D6.t')
+
   // 公共方法级注入纯费用错误，避免用普通 fetch 错误冒充内部费用错误。
   // --import tsx 在夹具前加载；不读或改写 Budget/CostError 的函数体。
   const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
