@@ -918,12 +918,18 @@ group('cost-local', [], () => {
 })
 
 group('cost-resume', [], () => {
-  // 已完成项是 IG、未完成项是 TT：只看实际 pathname 就能分开，不需要新增假网络协议。
-  const skipped = costFixture('done-skipped', knownCosts(3000, [costEntry(IG_REELS, 2000, 1)]), {
-    budget_usd: 0.003, tasks: [
+  // IG 的一页历史也会被页数上限挡住，不能单独证明 done 生效。再放一个只抓过
+  // 一页的已完成 TT：它尚未达四页上限、目标也未达标，只有 done 应让它退出调度。
+  // 历史共占 0.003，剩余 0.001 只够未完成 TT 搜一次；按任务下标区分两条 TT 的痕迹。
+  const skipped = costFixture('done-skipped', knownCosts(4000, [
+    costEntry(IG_REELS, 2000, 1), costEntry(TT_SEARCH, 1000, 1),
+  ]), {
+    budget_usd: 0.004, tasks: [
       { keyword: 'already-done', dimension: 'scene', platform: 'instagram' },
+      { keyword: 'already-done-tt', dimension: 'scene', platform: 'tiktok' },
       { keyword: 'still-pending', dimension: 'category', platform: 'tiktok' },
-    ], done: [0], offsets: { 0: 5 }, pages: { 0: 1 }, answered: { 0: 1 }, found: { 0: 2 },
+    ], done: [0, 1], offsets: { 0: 5, 1: 5 }, pages: { 0: 1, 1: 1 },
+    answered: { 0: 1, 1: 1 }, found: { 0: 2, 1: 3 },
   })
   const skippedRun = runBoth('续跑跳过 done 中的任务', [S('collect.ts'), '--resume', skipped.taskDir], skipped.cwd,
     { status: 3 }, costEnv(skipped.log))
@@ -931,8 +937,9 @@ group('cost-resume', [], () => {
     const state = jsonFile(skipped.task)
     named('续跑已完成 IG 不重搜，未完成 TT 确实发出请求',
       JSON.stringify(fetchAttempts(skipped.log)) === JSON.stringify([`200\t${TT_SEARCH}`])
-        && state?.done?.includes(0) && state?.answered?.[0] === 1 && state?.answered?.[1] === 1
-        && state?.requests === 2,
+        && state?.done?.includes(0) && state?.done?.includes(1)
+        && state?.answered?.[0] === 1 && state?.answered?.[1] === 1 && state?.answered?.[2] === 1
+        && state?.requests === 3,
       `attempts=${JSON.stringify(fetchAttempts(skipped.log))}, task=${JSON.stringify(state)}`)
     criterion('D6.n')
   }
