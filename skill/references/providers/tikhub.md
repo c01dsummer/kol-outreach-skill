@@ -10,8 +10,12 @@
 Base URL:  https://api.tikhub.io
 认证:      Authorization: Bearer {TIKHUB_API_KEY}
 限速:      10 RPS —— 请求间隔取 150ms
-计费:      $0.001/请求，非 200 不计费
+工具旧估算: $0.001/请求；不是现行统一标价或真实账单
 ```
+
+固定规范中 IG V2 的 `search_reels`、`fetch_hashtag_posts`、`general_search` 各自
+`description` 都声明 **0.002 USD/请求**（固定源见下）。本次未核真实账单，不能把仓库旧的
+`$0.001/请求` 继续称为这些接口的费用上限；预算代码尚未因此更改，后续核对见 ADR-101 第十三节。
 
 ⚠️ **免费额度不覆盖 Instagram。** 实测（2026-08-25）：TikTok 端点可用注册赠送的
 free credit 调用；Instagram 端点一律返回 **402**，提示
@@ -21,7 +25,11 @@ free credit 调用；Instagram 端点一律返回 **402**，提示
 > curl 对这个 host 连接不稳定（LibreSSL SSL_ERROR_SYSCALL 间歇性出现），
 > Node 的 fetch 正常。调试时用 Node，不要用 curl 排查。
 
-**重要：TikHub 不返回缓存数据。** 每次请求都实时抓取并独立计费。响应里的 `cache_url` 只是把那一次响应留存 24 小时供调试和分享，**不是**省钱的重取通道 —— 不要设计"中断重跑复用缓存"的逻辑，不会生效。
+**普通 API 请求与缓存结果直链分开看。** [官方固定 OpenAPI 快照](https://github.com/TikHub/TikHub-API-Python-SDK/blob/2d92927332e1ff0fdc2d05b46381218a0f5a3511/spec/openapi.json)
+的 `ResponseModel.cache_message_zh` 默认说明：缓存结果直链有效 24 小时，访问缓存不另收费。
+`cache_url` 可缺失或为 null，不能保证每次都有可用链接；普通 API 重发不因此免费。
+当前采集器和 `--resume` 没有接入缓存直链，仍按本地断点继续搜索与补 profile。
+本次只核文档声明，未请求真实缓存链接。
 
 ---
 
@@ -62,7 +70,7 @@ data.search_item_list[].aweme_info.desc                  ✓
    字段。当成 0 会让「视频数 > 30」的内容积累加分全员失效。且 0 是个「值」，类型系统
    防不住，只能显式判掉，等 profile 补全。
 
-**为什么用视频搜索而不是用户搜索**：用户搜索按账号名匹配，结果里全是把产品词塞进账号名的商家号和机构号。视频搜索按内容匹配，找到的是"真的在做这类内容"的人，与 TikTok 网页搜索结果一致。
+**为什么当前采用视频搜索**：项目需要作品内容作为判断候选的证据。早期用户搜索样本商家与机构偏多，但这不证明其结果必然如此；视频搜索也不保证排除商家，实际内容仍需语义判断。
 
 **两个参数要用起来**：
 
@@ -131,7 +139,8 @@ data.aweme_list[]
 
 ## Instagram
 
-**发现主路径是 Reels 搜索，不是 hashtag。** 全部端点于 2026-08-25 真实调用核实。
+**当前采集器的发现主路径是 Reels 搜索。** 下文分别标记历史调用、固定规范声明和用户样本摘要；
+没有对应调用证据的端点不算“全部实测通过”。
 
 ### 发现：Reels 搜索（首选）
 
@@ -139,9 +148,9 @@ data.aweme_list[]
 GET /api/v1/instagram/v2/search_reels?keyword={kw}
 ```
 
-这是 TikTok 视频搜索在 IG 上的对应物 —— 按**内容**匹配而非账号名。
+当前用它取得作品及作者线索；实际匹配依据与排序规则未核实，不能保证自动排除商家号。
 
-**实测响应结构**：
+**2026-08 历史 Reels 样本的字段记录（不保证当前所有条目）**：
 
 ```
 data.data.items[].user.username      ✓
@@ -149,15 +158,13 @@ data.data.items[].user.full_name     ✓
 data.data.items[].user.id            ✓
 data.data.items[].user.is_verified   ✓
 data.data.items[].user.is_private    ✓  私密号建联方式受限，值得标出
-data.data.items[].user.follower_count  ✗ 没有，必须补 profile
+data.data.items[].user.follower_count  ✗ 当时样本未取得；当前此解析路径仍待 profile 补全
 data.data.items[].caption.text       ✓
 data.data.items[].play_count         ✓
 data.data.items[].like_count         ⚠️ 可能是 null（作者隐藏赞数）—— null 是「不可见」不是 0
 ```
 
-⚠️ **限制 —— 第一条是我们自己的做法，后两条是这个端点本身的。**
-**别把这张单子读成穷尽的**：它原先写着「两条」，而漏掉的第三条恰恰是最重的那条 ——
-一张宣称自己完整的单子，正是「响应只有 `count` 和 `items`」当年的错法。
+⚠️ **当前实现、历史样本与未知边界分别记。** 下面的样本观察不是端点的穷尽保证。
 
 1. **我们只取一页。** 代码只发 `keyword` 一个参数，第 2 页起直接返回空，不白花请求。
    ⚠️ **「它没有分页游标」那句话是错的，2026-09-22 真跑一次验掉了。** 那句话原本写在
@@ -167,8 +174,8 @@ data.data.items[].like_count         ⚠️ 可能是 null（作者隐藏赞数�
    是透过我们自己那个窄窗口看出来的。
 
    **能翻页 —— 2026-09-22 顺着链翻了一次，实测有效。** 参数名是 `pagination_token`
-   （官方 spec 声明的那一个，不是猜的，出处见下面那张参数名表）。**翻页与漂移是两条独立且叠加的杠杆**：顺着游标翻拿到的去重达人明显多于原样重发同样
-   次数，而原样重发又明显多于只请求一次。具体几个人别抄在这儿 —— 跑一次看输出的
+   （官方 spec 声明的那一个，不是猜的，出处见下面那张参数名表）。**历史 `smoothie` 记录里**：链式请求观察到的累计去重作者多于等次数原样重发，
+   重发又多于单请求；这不证明统计显著性或因果可加性（ADR-101 第十三节）。具体几个人别抄在这儿 —— 跑一次看输出的
    `chain_cum_creators` 与 `control_cum_creators`（数记在 ADR-101 第十二节那棵不会再动的树上）。
    ⚠️ 但它**不是干净的分页** —— 每一次的新条目在满页与个位数之间跳，重叠很重，
    所以**别按「翻 N 页 = N × 单页条数」估**。
@@ -196,26 +203,25 @@ data.data.items[].like_count         ⚠️ 可能是 null（作者隐藏赞数�
 
    ⚠️ **它给不出「服务端只有这么多人」这个结论。** 末尾连着几次不涨，说的是
    「**这 N 次之内**没再涨」——「问完了」与「还没问够」在一次观测里不可区分。
-   **唯一的例外**：服务端不再给下一个游标时链会停下并报出停在第几次 —— 那是它自己说的
-   「没有下一页」，不是我们推的。把推断写成对方的原话，下一个人看了就不再试，
-   而这正是「没有分页游标」那句话上一次的下场（ADR-101）。
+   响应中未取得可用的下一个游标时，探针会停止追链；这只能证明本次没有可继续的游标，
+   不能证明已穷尽全部匹配结果。探针现有结论措辞的限制见 ADR-101 第十三节。
 
-2. **对词组敏感。** `smoothie recipe` 返回 **0** 条，`smoothie` 返回 12 条。
-   **IG 侧的关键词要比 TikTok 短** —— 生成关键词时分平台处理
-3. **它只找得到发 Reels 的人。** 只发图文／轮播的创作者对这个端点**根本不存在** ——
-   跑多少次、翻多少页都不会出现。所以 IG 那一侧的候选池不是「这个品类的创作者」，
-   而是「这个品类里**发短视频**的创作者」。
-   ⚠️ **这个限定今天下游一处都没提过**，所有 IG 召回的讨论都默认成了前者。
-   它也把上面那条弃用记录的账整个翻过来：话题端点多花的那一跳（id→username）
-   买到的不是「同样的人便宜一点」，而是**一整类 Reels 搜索拿不到的人**
+2. **历史样本中短词比词组多返回结果。** 2026-08 的 `smoothie` / `smoothie recipe`
+   记录提示可先试短词，但不足以推出“所有词组都返回 0”，也不是固定页大小的证据。
+   当前关键词应以本次试探为准。
+3. **本稿不作媒体覆盖结论。** 不能由 `search_reels` 名称断言它只会返回视频，或只发
+   图文的作者永远搜不到。固定规范未限定目标 `data` 的媒体类型与字段语义；原批仅留首条
+   摘要，不能据此判定纯图文、轮播、PhotoMode 的覆盖、`play_count` 适用范围或排序。
+   新批范围另行分析；下表仅列原批 V2 hashtag/general 等路径线索。
 
 ### 为什么弃用了 v1 的 hashtag 端点
 
 `/api/v1/instagram/v1/fetch_hashtag_posts` 能跑通（`data.data.hashtag.edge_hashtag_to_media.edges`，
 33 条），但**它的 `owner` 只有 `{id}`** —— 没有 username、没有昵称、没有粉丝数。
 
-每个创作者要额外一次 `user_id_to_username` 调用才能拿到 handle，成本翻倍，
-而且拿到的信息还不如 Reels 搜索多。已弃用。
+该次响应中要额外调用 `user_id_to_username` 才能得到 handle，因此当前采集器未采用 V1。
+这是 **V1 的历史样本**，不能用来断言 V2 hashtag/general 同样没有 username，
+也不能直接换算成整个采集任务成本翻倍。
 
 ### 备选：关键词搜用户
 
@@ -280,21 +286,40 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 
 ### 参数名各版本不一致 —— 踩过的坑
 
-> 出处：TikHub 自己那份**按 OpenAPI 机械生成**的 Python SDK（`TikHub/TikHub-API-Python-SDK`），
-> 2026-09-22 读的 —— `api.tikhub.io` 与 `docs.tikhub.io` 被出网代理整域挡着，官网页打不开。
-> ⚠️ 它只对**路径与请求参数**作数，**响应体一个字都答不了**（那份 spec 本来就不描述响应，
-> 见 `docs/data-source-strategy.md` 第 3 条）。
+> 2026-09-23 直接核对 [官方 SDK 的固定 OpenAPI 快照](https://github.com/TikHub/TikHub-API-Python-SDK/blob/2d92927332e1ff0fdc2d05b46381218a0f5a3511/spec/openapi.json)，
+> 提交 `2d92927332e1ff0fdc2d05b46381218a0f5a3511`。以下只陈述该快照的路径与请求参数，
+> 不当作所有历史版本或当前在线服务的穷尽保证。目标端点的 200 响应均引用 `ResponseModel`；
+> 外壳有 schema，而 `data` 为 `anyOf: [{}, {"type":"null"}]`，不能从该 schema 推出业务字段路径。
+> 端点 `description` 另列返回字段说明，如三路 V2 发现的 `data.items` / `pagination_token`；
+> 实际响应的完整包装层级、字段值与每条覆盖率仍由对应样本核验。
 
-| 端点 | 参数名 | 分页参数 |
+| 端点 | 参数名 | 分页参数或边界 |
 |------|--------|---------|
 | `v1/fetch_hashtag_posts` | `hashtag` | `end_cursor` |
-| `v2/fetch_hashtag_posts` | **`keyword`** | `pagination_token`（另有 `feed_type`）|
-| ~~`v3/get_hashtag_posts`~~ | — | **这个端点不存在** —— 原先这一行写着参数叫 `tag`，是假的。v3 只有 `search_hashtags`（搜话题，不是取话题下的帖子）|
-| `v2/search_users` | `keyword` | **没有** —— 一次给多少就是全部 |
-| `v3/search_users` | **`query`** | `rank_token` |
-| `v2/search_reels` | `keyword` | **`pagination_token`** —— 官方声明有，**实测顺着它翻是有效的**；今天我们的代码不跟游标、只取一页（见上）|
-| `v2/general_search` | `keyword` | `pagination_token` —— 一个我们没用过的发现面 |
-| `v1`／`v2` `user_id_to_username` | `user_id` | — |
+| `v2/fetch_hashtag_posts` | `keyword`；可选 `feed_type`（默认 `top`，说明列 `top`/`recent`/`reels`） | `pagination_token` |
+| `v3/get_hashtag_posts` | — | 此路径在该固定快照中未找到；不推断它在所有版本或当前服务中不存在 |
+| `v2/search_users` | `keyword` | 未声明分页参数；不能据此断言一次返回全部匹配用户 |
+| `v3/search_users` | `query` | `rank_token` |
+| `v2/search_reels` | `keyword` | `pagination_token`；历史 `smoothie` 探针有链式翻页增量，当前采集器只取首页 |
+| `v2/general_search` | `keyword` | `pagination_token`；已有用户首条字段路径摘要，尚未接入采集器 |
+| `v1`／`v2` `user_id_to_username` | `user_id` | 未声明分页参数 |
+
+### V2 发现路径的用户样本摘要（2026-09-23）
+
+用户**原批** `selfcare` / `journaling` 调用交接保留了以下**首条键路径摘要**；原批 JSON
+与先前分析的临时目录已丢失，无法复算。这是解析线索，不证明所有条目都有有效值。
+用户随后重新采样，文件另存于 `output/adiaro-discovery/sample-lInRuK/`；这是不同批次，
+本次事实修订不引用新批的分析数字，也不把它当成原批响应的恢复。
+
+| 来源 | 列表 | 首条作者与作品 id | 首条文案 | 其他首条字段 |
+|---|---|---|---|---|
+| `v2/search_reels` | `data.data.items` | `user.username`、直接 `id` | `caption.text` | — |
+| `v2/fetch_hashtag_posts` | `data.data.items` | `user.username`、直接 `id` | `caption_text` | — |
+| `v2/general_search` | `data.data.items` | `user.username`、直接 `id` | `caption.text` | `user.follower_count` |
+
+表内 item 子路径省略共同前缀 `data.data.items[0].`。这里的 `id` 不加 `media` 包层，
+也不使用 `user.id` 或 `caption.id` 代替作品标识。字段数量、覆盖率、作者总数、跨词重叠、
+分页增量和不同 `feed_type` 的实际结果均待原始响应补证；不引用旧对话中的精确统计。
 
 传错会返回 **422** 并明确指出缺哪个字段 —— 这个报错很有用，别急着改别的。
 
@@ -305,12 +330,12 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 | 发现主路径 | 视频搜索 `fetch_video_search_result` | **Reels 搜索 `v2/search_reels`** |
 | 结果路径 | `data.search_item_list[]` | `data.data.items[]` |
 | 分页 | ✅ `offset` + `has_more` | 端点**支持**游标翻页（`pagination_token`，实测有效）；⚠️ **而我们的代码今天不跟游标、只取一页** —— 那是我们自己的做法。另外端点会漂，见上 |
-| 关键词长度 | 2–3 词的自然短语 | **1 个词** —— 词组会返回 0 条 |
+| 关键词长度 | 2–3 词的自然短语作为起点 | 可先试短词；历史单例不证明词组必为 0，以本次试探为准 |
 | bio 字段名 | `signature` | `biography` |
 | bio 完整度 | 搜索结果里**没有**，必须补 profile | 搜索结果里也没有，同样要补 |
 | 外链字段 | `bioLink.link`（单个） | `bio_links[]`（数组） |
 | 粉丝数字段 | `followerCount`（驼峰） | `follower_count`（下划线） |
-| 地区过滤 | ✅ `region` 参数 | ❌ 无，靠 hashtag 语言间接控制 |
+| 地区过滤 | ✅ `region` 参数 | 本次核对的目标搜索端点未声明地区参数；关键词语言不能证明作者或受众地区 |
 | 时间过滤 | ✅ `publish_time` | ❌ 无 |
 
 **字段命名两边不一致**（驼峰 vs 下划线），归一化时容易出错，写适配器时对着这张表核。
