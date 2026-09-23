@@ -50,7 +50,7 @@ interface SearchTask {
   keyword: string
   dimension: Dimension
   platform: Platform
-  as_hashtag?: boolean
+  as_hashtag?: boolean  // 配置元数据；当前 TikHub 不据此切换端点，不证明实际发现路径
 }
 
 interface SearchPage {

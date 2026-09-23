@@ -151,7 +151,9 @@ npm run enrich -- --dir output/{task}
 预算 $2.00 已用完，当前进度：
 
   已完成 3/6 个关键词，收集到 94 人（目标 150）
-  剩余关键词：#travelessentials(IG), iphone accessories, portable charger review
+  剩余关键词：任务 4 · scenario · instagram · 关键词「travelessentials」
+              任务 5 · audience · tiktok · 关键词「iphone accessories」
+              任务 6 · category · tiktok · 关键词「portable charger review」
 
   1. 追加预算继续 —— 估计还需 $0.6 左右跑完
   2. 就用现在这 94 人收尾

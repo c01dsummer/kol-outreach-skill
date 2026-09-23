@@ -1,6 +1,6 @@
 # 输出格式
 
-> 相关需求：**U1** CSV 排序与列定义 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U6** HTML 分层 tab 与平台标签 · **U7** 公开指标与报价 · **D5** BOM 与转义 · **D8–D10** 指标口径 · **P5** 数据边界声明
+> 相关需求：**U1** CSV 排序与列定义 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U6** HTML 分层 tab 与平台标签 · **U7** 公开指标与报价 · **U8** 任务展示身份 · **D5** BOM 与转义 · **D8–D10** 指标口径 · **P5** 数据边界声明
 
 Phase 06 用。
 
@@ -104,6 +104,8 @@ C级 观察池 (3)
 
 - 顶部统计：总人数、A/B/C 分布、有邮箱比例、跨平台人数、实际花费
 - 关键词表现：**关键词×平台一行，任务里的每一个都在表上**，包括 0 命中的和一次都没查过的（U3.b）。
+  每行先列任务序号（原 task_index 加一）；缺失或非法下标显示「无从确认」，不按显示位置猜补。
+  序号不是查询或命中数；as_hashtag 不渲染成实际路径声明（U8）。
   每行列「找到」（供应商返回的**条目数**）、「入围」（过完粉丝闸门与去重之后还在名单上的**人数**）、
   「语义通过」。**「找到」与「入围」不是一个数、也不相除** —— 单位不同，所以没有「命中率」这一列。
   「找到」那一格四态可分：`N` / `0`（量出来的零）/ `未查询`（从未发出过搜索请求）/
@@ -129,9 +131,9 @@ C级 观察池 (3)
   "market": "US",
   "platforms": ["tiktok", "instagram"],
   "keywords": [
-    { "keyword": "anker power bank", "dimension": "competitor", "platform": "tiktok",
+    { "task_index": 0, "keyword": "anker power bank", "dimension": "competitor", "platform": "tiktok",
       "status": "queried", "found": 42, "shortlisted": 12, "fit_pass": 9 },
-    { "keyword": "portable charger", "dimension": "category", "platform": "instagram",
+    { "task_index": 1, "keyword": "portable charger", "dimension": "category", "platform": "instagram",
       "status": "unqueried", "found": null, "shortlisted": null, "fit_pass": null }
   ],
   "total": 187,
