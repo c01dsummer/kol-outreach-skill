@@ -24,6 +24,7 @@ import {
 } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
+import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { tsxCommand } from './tsx-cmd.js'
@@ -246,6 +247,83 @@ const extract = (tag: string, disk: number, ledger: string, a: string, b: string
     + ` · 提醒行 杀掉那跑 ${warnLines(a)} 续跑 ${warnLines(b)}`)
 
 const summaryOf = (stdout: string): any => { try { return JSON.parse(stdout) } catch { return {} } }
+
+// ADR-107/108 的公开账目形状与固定价格；只给调用方明确选择的已知夹具使用。
+// 旧费用未知的夹具故意不调这个函数，不能在写盘辅助里见到缺账就补零。
+const COST_VERSION = 'tikhub-public-20260720-5d52fe8fb109'
+const COST_BASIS = '按固定公开基础价、不计优惠的估算；不是实际账单，也不保证供应商未来价格上限。'
+const TT_SEARCH = '/api/v1/tiktok/app/v3/fetch_video_search_result'
+const TT_PROFILE = '/api/v1/tiktok/web/fetch_user_profile'
+const TT_POSTS = '/api/v1/tiktok/app/v3/fetch_user_post_videos_v3'
+const IG_REELS = '/api/v1/instagram/v2/search_reels'
+const IG_USERS = '/api/v1/instagram/v2/search_users'
+const IG_PROFILE = '/api/v1/instagram/v1/fetch_user_info_by_username_v3'
+const IG_PROFILE_V2 = '/api/v1/instagram/v1/fetch_user_info_by_username_v2'
+const costEntry = (endpoint: string, unit: number, http = 0, unknown = 0) => ({
+  endpoint, price_version: COST_VERSION, unit_micro_usd: unit,
+  http_200_count: http, unknown_result_count: unknown,
+})
+const knownCosts = (limit: number, entries: ReturnType<typeof costEntry>[], pending?: Record<string, unknown>) => {
+  const requests = entries.reduce((sum, e) => sum + e.http_200_count + e.unknown_result_count, 0)
+  return { requests, cost_ledger: { schema: 1, currency: 'USD', unit: 'micro_usd', scope: 'task',
+    limit_micro_usd: limit, next_attempt_id: requests + (pending ? 2 : 1), entries,
+    ...(pending ? { pending } : {}) } }
+}
+const jsonFile = (path: string): any => {
+  try { return JSON.parse(readFileSync(path, 'utf8')) } catch { return undefined }
+}
+const fileText = (path: string): string => {
+  try { return readFileSync(path, 'utf8') } catch { return '' }
+}
+const fetchAttempts = (path: string): string[] => fileText(path).split('\n').filter(Boolean)
+// JSON source context 只读原 token，不用生产 parser，也不以舍入后的 Number 作精度 oracle。
+const rootToken = (text: string, key: string): string | undefined => {
+  const tokens = new WeakMap<object, Map<string, string>>()
+  let root: object | undefined
+  try {
+    ;(JSON.parse as any)(text, function (this: object, name: string, value: unknown, context?: { source?: string }) {
+      if (context?.source !== undefined) {
+        let own = tokens.get(this)
+        if (!own) { own = new Map(); tokens.set(this, own) }
+        own.set(name, context.source)
+      }
+      if (name === '') root = value as object
+      return value
+    })
+    return root ? tokens.get(root)?.get(key) : undefined
+  } catch { return undefined }
+}
+const costPerson = (platform = 'tiktok', handle = 'cost-person', over: Record<string, unknown> = {}) => ({
+  platform, handle, nickname: handle, followers: 10000, post_count: 50, bio: null,
+  bio_links: ['https://example.com'], verified: false, profile_url: '', source_keyword: 'local',
+  source_dimension: 'category', recent_posts: [], fit: '✅', ...over,
+})
+const costFixture = (name: string, costs: Record<string, unknown>,
+  over: Record<string, unknown> = {}, people: ReturnType<typeof costPerson>[] = []) => {
+  const cwd = join(tmp, `cost-${name}`), taskDir = join(cwd, 'task')
+  mkdirSync(join(cwd, 'memory'), { recursive: true })
+  mkdirSync(taskDir, { recursive: true })
+  writeFileSync(join(taskDir, 'task.json'), JSON.stringify({ product: name, market: 'US',
+    target_count: 9999, budget_usd: 1,
+    tasks: [{ keyword: 'local', dimension: 'category', platform: 'tiktok' }],
+    done: [0], offsets: { 0: 5 }, pages: { 0: 1 }, answered: { 0: 1 }, found: { 0: 3 },
+    created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z',
+    ...costs, ...over }))
+  for (const file of ['creators.json', 'creators.raw.json'])
+    writeFileSync(join(taskDir, file), JSON.stringify(people))
+  return { cwd, taskDir, task: join(taskDir, 'task.json'), log: join(cwd, 'attempts.tsv') }
+}
+const costEnv = (log: string, extra: NodeJS.ProcessEnv = {}) => ({
+  FAKE_FETCH_LEDGER: log, FAKE_FETCH_NO_429: '1', ...extra,
+})
+const moneyFields = ['cost_estimate_usd', 'budget_usd', 'cost_http_200_usd',
+  'cost_unknown_result_usd', 'cost_pending_usd'] as const
+const costViewMatches = (v: any, expected: Record<string, unknown>): boolean => v !== undefined
+  && v.cost_basis === COST_BASIS && Array.isArray(v.cost_price_versions)
+  && Array.isArray(v.cost_problems) && v.cost_problems.every((p: any) =>
+    typeof p?.path === 'string' && typeof p?.reason === 'string')
+  && moneyFields.every(k => v[k] === null || typeof v[k] === 'number')
+  && Object.entries(expected).every(([key, value]) => JSON.stringify(v[key]) === JSON.stringify(value))
 
 const bothTmp = join(tmp, 'exempt-lead')
 mkdirSync(join(bothTmp, 'scripts', 'check'), { recursive: true })
@@ -574,25 +652,558 @@ group('budget-gate', [], () => {
     const stateOf = (requests: unknown) => JSON.stringify({
       product: 'badledger', market: 'US', target_count: 1, budget_usd: 1,
       tasks: [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }],
-      done: [], offsets: {}, requests, created_at: '', updated_at: '',
+      done: [], offsets: {}, ...knownCosts(1_000_000, []), requests, created_at: '', updated_at: '',
     })
     mkdirSync(join(tmp, 'badledger'), { recursive: true })
     writeFileSync(join(tmp, 'badledger', 'task.json'), stateOf(null))
-    run('collect 续跑时盘上的已花次数是 null → 停下问人',
-        [S('collect.ts'), '--resume', 'badledger'], tmp, { status: 2 })
-    run('enrich 同一份坏断点 → 也停下问人',
-        [S('enrich.ts'), '--dir', 'badledger'], tmp, { status: 2 })
+    const paidCreator = [{ platform: 'tiktok', handle: 'costgate', nickname: 'Cost gate',
+      followers: 10000, post_count: 50, bio: null, bio_links: ['https://example.com'],
+      verified: false, profile_url: '', source_keyword: 'k', source_dimension: 'category', fit: '✅' }]
+    writeFileSync(join(tmp, 'badledger', 'creators.json'), JSON.stringify(paidCreator))
+    writeFileSync(join(tmp, 'badledger', 'creators.raw.json'), JSON.stringify(paidCreator))
+    for (const entry of ['collect', 'enrich']) {
+      const log = join(tmp, `badledger-${entry}.tsv`)
+      const result = runBoth(`${entry} 已知空账却将次数写成 null`,
+        [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', 'badledger'], tmp,
+        { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_LEDGER: log })
+      if (result.ok) named('坏次数必须指明费用问题并在实际付费前拒绝',
+        result.status === 2 && /requests|次数/.test(result.stderr) && fetchAttempts(log).length === 0,
+        `${entry}: status=${result.status}, attempts=${fetchAttempts(log).length}, ${result.stderr}`)
+    }
 
     mkdirSync(join(tmp, 'okledger'), { recursive: true })
     writeFileSync(join(tmp, 'okledger', 'task.json'), stateOf(0))
     // 报的必须是**用户打的那个东西**：`3.0.0` 解析成 NaN，照解析结果印是「null」
-    const badArg = run('collect 追加的预算不是数字 → 停下问人',
+    const badArg = run('collect 设置的总预算不是数字 → 停下问人',
         [S('collect.ts'), '--resume', 'okledger', '--budget', '3.0.0'], tmp, { status: 2 })
     if (badArg !== undefined && !badArg.includes('3.0.0')) {
       failed++
       console.error('  ✗ 报错里没有出现用户打的那个值，他不知道是哪一处写错了')
     } else if (badArg !== undefined) console.log('  ✓ 报错指名用户打的那个值')
   }
+})
+
+// ADR-108：独立进程测试。预期取自原始输入、固定价目及公开输出契约，没有读取生产函数体。
+group('cost-input', [], () => {
+  const preciseBad = '0.00499999999999999999999999999999999999999'
+  for (const entry of ['collect', 'probe']) {
+    for (const token of [preciseBad, '9007199254.740992', '1e999', 'null', '"0.005"']) {
+      const cwd = join(tmp, `input-${entry}-${token.replace(/[^a-z0-9]/gi, '_')}`)
+      mkdirSync(cwd, { recursive: true })
+      const cfg = join(cwd, 'config.json'), log = join(cwd, 'attempts.tsv')
+      writeFileSync(cfg, `{"product":"input","market":"US","target_count":1,"nested":{"budget_usd":0.005},"budget_usd":${token},"tasks":[{"keyword":"k","dimension":"category","platform":"tiktok"}]}`)
+      const result = runBoth(`${entry} 原始金额 ${token}`, [S(`${entry}.ts`), '--config', cfg], cwd,
+        { status: 2, soft: [0, 1, 3] }, costEnv(log))
+      if (result.ok) named('原始非法预算不能被浮点舍入、嵌套字段或默认值救活',
+        result.status === 2 && fetchAttempts(log).length === 0 && /budget|预算|金额/i.test(result.stderr),
+        `${entry} token=${token}, status=${result.status}, attempts=${fetchAttempts(log).length}`)
+    }
+  }
+  criterion('D13.a')
+
+  for (const entry of ['collect', 'enrich']) {
+    for (const token of ['3.0.0', preciseBad, '9007199254.740992', undefined]) {
+      const f = costFixture(`cli-${entry}-${String(token)}`, knownCosts(5000, []),
+        { budget_usd: 0.005, done: [] }, [costPerson()])
+      const result = runBoth(`${entry} CLI 原始金额 ${String(token)}`,
+        [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir, '--budget',
+          ...(token === undefined ? [] : [token])], f.cwd,
+        { status: 2, soft: [0, 1, 3] }, costEnv(f.log))
+      if (result.ok) named('CLI 非法金额保留原输入，缺操作数不能当成未指定',
+        result.status === 2 && fetchAttempts(f.log).length === 0
+          && result.stderr.includes(token === undefined ? '--budget' : token)
+          && jsonFile(f.task)?.cost_ledger?.limit_micro_usd === 5000,
+        `${entry} token=${String(token)}, status=${result.status}, stderr=${result.stderr}`)
+    }
+  }
+  criterion('D13.b')
+
+  for (const token of ['0.005', '9007199254.740991']) {
+    const cwd = join(tmp, `precise-${token}`)
+    mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const cfg = join(cwd, 'config.json'), log = join(cwd, 'attempts.tsv')
+    // 嵌套坏值放在根之后；有效根值不能被同名嵌套字段污染。
+    writeFileSync(cfg, `{"product":"precise","market":"US","target_count":1,"budget_usd":${token},"nested":{"budget_usd":${preciseBad}},"tasks":[{"keyword":"k","dimension":"category","platform":"tiktok"}]}`)
+    const result = runBoth(`collect 精确保存 ${token}`, [S('collect.ts'), '--config', cfg], cwd,
+      undefined, costEnv(log))
+    if (!result.ok) continue
+    const taskDir = onlyDir(cwd, 'precise')
+    if (!taskDir) { named('精确金额的新任务必须留下断点目录', false, '没有唯一的 precise 目录'); continue }
+    const task = join(cwd, taskDir, 'task.json')
+    const render = runBoth(`render 精确金额 ${token}`, [S('render.ts'), '--dir', taskDir], cwd,
+      undefined, costEnv(log, { TIKHUB_API_KEY: undefined }))
+    if (render.ok) {
+      named('task、meta 与 stdout 保留最大安全微美元和 0.005 的原数值',
+        [fileText(task), fileText(join(cwd, taskDir, 'meta.json')), result.stdout]
+          .every(text => rootToken(text, 'budget_usd') === token)
+          && fileText(join(cwd, taskDir, 'report.html')).includes(`$${token}`),
+        `token=${token}, task=${rootToken(fileText(task), 'budget_usd')}, stdout=${rootToken(result.stdout, 'budget_usd')}`)
+      criterion('D13.c')
+    }
+  }
+
+  for (const entry of ['collect', 'probe']) {
+    const cwd = join(tmp, `default-${entry}`)
+    mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const cfg = join(cwd, 'config.json'), log = join(cwd, 'attempts.tsv')
+    writeFileSync(cfg, JSON.stringify({ product: 'default', market: 'US', target_count: 1,
+      tasks: [{ keyword: 'default', dimension: 'category', platform: 'tiktok' }] }))
+    const result = runBoth(`${entry} 缺席预算声明默认与范围`, [S(`${entry}.ts`), '--config', cfg],
+      cwd, undefined, costEnv(log))
+    if (result.ok) named('只有新输入预算缺席才使用有范围说明的默认值',
+      costViewMatches(summaryOf(result.stdout), { budget_usd: entry === 'collect' ? 2 : 0.5,
+        cost_scope: entry === 'collect' ? 'task' : 'process', cost_status: 'known' })
+        && /默认/.test(result.stderr) && /任务|进程/.test(result.stderr) && fetchAttempts(log).length > 0,
+      `${entry}: ${result.stdout}\n${result.stderr}`)
+  }
+
+  // 只给这两个子进程固定时间，保证同配置得到同一目录名。没有修改系统时钟。
+  const collision = join(tmp, 'cost-collision')
+  mkdirSync(join(collision, 'memory'), { recursive: true })
+  const clock = join(collision, 'fixed-time.mjs')
+  writeFileSync(clock, `const OriginalDate = Date; globalThis.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : ['2026-01-02T03:04:05.000Z'])); } static now() { return 1767323045000; } };`)
+  const cfg = join(collision, 'config.json'), log = join(collision, 'attempts.tsv')
+  writeFileSync(cfg, JSON.stringify({ product: 'collision', market: 'US', target_count: 1, budget_usd: 0.001,
+    tasks: [{ keyword: 'collision', dimension: 'category', platform: 'tiktok' }] }))
+  const extra = costEnv(log, { NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(clock).href)}` })
+  const first = runBoth('同目录第一次新建', [S('collect.ts'), '--config', cfg], collision, { status: 3 }, extra)
+  if (first.ok) {
+    const taskDir = onlyDir(collision, 'collision'), beforeAttempts = fetchAttempts(log).length
+    const task = taskDir ? join(collision, taskDir, 'task.json') : ''
+    const before = fileText(task)
+    const second = runBoth('同目录第二次新建必须拒绝', [S('collect.ts'), '--config', cfg], collision,
+      { status: 2, soft: [0, 1, 3] }, extra)
+    if (second.ok) {
+      named('再次 config 不能覆盖已有任务、归零账目或重发请求',
+        second.status === 2 && before !== '' && fileText(task) === before
+          && fetchAttempts(log).length === beforeAttempts && /resume/.test(second.stderr),
+        `status=${second.status}, attempts=${beforeAttempts}→${fetchAttempts(log).length}`)
+      criterion('D13.d')
+    }
+  }
+  const missingJson = join(tmp, 'cost-no-raw-json')
+  mkdirSync(missingJson, { recursive: true })
+  const noRaw = join(missingJson, 'no-raw-json.mjs'), noRawConfig = join(missingJson, 'config.json')
+  writeFileSync(noRaw, 'JSON.rawJSON = undefined; console.error("[test-json-capability-disabled]");')
+  writeFileSync(noRawConfig, '{"product":"nojson","market":"US","target_count":1,"budget_usd":0.005,"tasks":[{"keyword":"k","dimension":"category","platform":"tiktok"}]}')
+  const noRawLog = join(missingJson, 'attempts.tsv')
+  const noRawRun = runBoth('缺少精确 JSON 写出能力不得降级付费', [S('collect.ts'), '--config', noRawConfig], missingJson,
+    { status: 2, soft: [0, 1, 3] }, costEnv(noRawLog, {
+      NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(noRaw).href)}`,
+    }))
+  if (noRawRun.ok) named('精确 JSON 能力缺失确实被注入，且没有浮点降级或真实请求',
+    noRawRun.status === 2 && noRawRun.stderr.includes('[test-json-capability-disabled]')
+      && fetchAttempts(noRawLog).length === 0 && /JSON|精确/.test(noRawRun.stderr),
+    `status=${noRawRun.status}, attempts=${fetchAttempts(noRawLog).length}`)
+})
+
+group('cost-local', [], () => {
+  const pending = { endpoint: TT_PROFILE, price_version: COST_VERSION, unit_micro_usd: 1000, attempt_id: 3 }
+  const badPrice = knownCosts(1_000_000, [costEntry(TT_SEARCH, 1001, 1)])
+  const unknownVersion = knownCosts(1_000_000, [costEntry(TT_SEARCH, 1000, 1)])
+  unknownVersion.cost_ledger.entries[0].price_version = 'unknown-version'
+  const cases: { name: string; costs: Record<string, unknown>; status: string }[] = [
+    { name: 'unknown-zero', costs: { requests: 0 }, status: 'unknown-history' },
+    { name: 'unknown-positive', costs: { requests: 7 }, status: 'unknown-history' },
+    { name: 'unknown-invalid-count', costs: { requests: null }, status: 'unknown-history' },
+    { name: 'invalid-price', costs: badPrice, status: 'invalid-ledger' },
+    { name: 'unknown-version', costs: unknownVersion, status: 'unavailable-evidence' },
+    { name: 'pending', costs: knownCosts(1_000_000,
+      [costEntry(TT_SEARCH, 1000, 1), costEntry(IG_REELS, 2000, 0, 1)], pending), status: 'known' },
+  ]
+  for (const scenario of cases) for (const entry of ['collect', 'enrich', 'render']) {
+    // requests=0 的未知 collect/render 最小交点由独立需求测试进程认领；这里保留其余矩阵。
+    if (scenario.name === 'unknown-zero' && entry !== 'enrich') continue
+    const people = entry === 'enrich'
+      ? [costPerson('tiktok', 'cached'), costPerson('instagram', 'private', { is_private: true })]
+      : [costPerson()]
+    const f = costFixture(`local-${scenario.name}-${entry}`, scenario.costs, {}, people)
+    if (entry === 'enrich') writeFileSync(join(f.taskDir, 'enrichment.json'), JSON.stringify({
+      version: 1, updated_at: '2026-01-01T00:00:00.000Z', accounts: {
+        'tiktok:cached': { platform: 'tiktok', handle: 'cached', followers: 10000, following: 100,
+          sample: { status: 'measured', value: Array.from({ length: 6 }, (_, i) => ({
+            id: `cached-${i}`, views: 1000 + i, likes: 20, comments: 1,
+            published_at: `2026-01-0${i + 1}T00:00:00.000Z`, is_pinned: false })),
+          source: { kind: 'public_api', provider: 'tikhub', endpoint: TT_POSTS },
+          observed_at: '2026-01-07T00:00:00.000Z', sample_size: 6, basis: 'cached six posts' } },
+      },
+    }))
+    const before = jsonFile(f.task)
+    const result = runBoth(`${entry} 本地处理 ${scenario.name}`,
+      [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir], f.cwd,
+      { status: 0, soft: [1, 2, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+    if (!result.ok) continue
+    const after = jsonFile(f.task)
+    named('历史费用不可用和恢复 pending 不阻止三个本地入口，缺 key 仍零请求',
+      result.status === 0 && fetchAttempts(f.log).length === 0,
+      `${entry}/${scenario.name}: status=${result.status}, attempts=${JSON.stringify(fetchAttempts(f.log))}`)
+    named('本地保存不新建、修复或结算原费用记录',
+      after !== undefined && ['cost_ledger', 'requests', 'budget_usd'].every(key =>
+        Object.hasOwn(before, key) === Object.hasOwn(after, key)
+          && JSON.stringify(before[key]) === JSON.stringify(after[key])),
+      `${entry}/${scenario.name}: before=${JSON.stringify(scenario.costs)}, after=${JSON.stringify(after?.cost_ledger)}`)
+    const view = entry === 'render' ? jsonFile(join(f.taskDir, 'meta.json')) : summaryOf(result.stdout)
+    const expected = scenario.status === 'known'
+      ? { cost_status: 'known', requests: 2, cost_estimate_usd: 0.004, cost_http_200_usd: 0.001,
+          cost_unknown_result_usd: 0.002, cost_pending_usd: 0.001, cost_price_versions: [COST_VERSION], cost_scope: 'task' }
+      : { cost_status: scenario.status, requests: scenario.costs.requests, cost_estimate_usd: null,
+          budget_usd: 1, cost_scope: null, cost_http_200_usd: null,
+          cost_unknown_result_usd: null, cost_pending_usd: null, cost_price_versions: [] }
+    named('本地费用输出区分未知、损坏、未知版本和三种已知金额',
+      costViewMatches(view, expected) && (scenario.status === 'known'
+        ? view.cost_problems.length === 0 : view.cost_problems.length > 0),
+      `${entry}/${scenario.name}: ${JSON.stringify(view)}`)
+    if (entry === 'enrich') {
+      const accounts = jsonFile(join(f.taskDir, 'enrichment.json'))?.accounts
+      named('离线 enrich 真正完成缓存重算和私密账号记录',
+        accounts?.['tiktok:cached']?.metrics?.median_views?.status === 'measured'
+          && accounts?.['instagram:private']?.sample?.status === 'unavailable'
+          && accounts?.['instagram:private']?.sample?.reason === 'private_account',
+        JSON.stringify(accounts))
+    }
+    if (entry === 'render') {
+      const html = fileText(join(f.taskDir, 'report.html'))
+      named('HTML 的未知金额没有伪造零费用，已知保守留存与未结额分别可见',
+        html !== '' && (scenario.status === 'known'
+          ? html.includes('$0.004') && html.includes('$0.002') && html.includes('$0.001')
+            && /结果不明|保守/.test(html) && /未结|预留/.test(html)
+          : !/\$null|\$0(?:\.0+)?(?=[\s<／/])|已用[^<\n]*0%/.test(html)
+            && /无从确认|未知|不可用|损坏|invalid-ledger|unavailable-evidence/.test(html)),
+        `${scenario.name}: report length=${html.length}`)
+    }
+  }
+  criterion('D13.f', 'D13.g', 'D13.h', 'D13.r')
+
+  // 即使旧根预算本身非法，纯本地写回也不能先 JSON.parse 再把它舍入或变成 null。
+  for (const entry of ['collect', 'enrich']) for (const token of [
+    '0.00499999999999999999999999999999999999999', '1e999', 'null', '"old-budget"', undefined,
+  ]) {
+    const f = costFixture(`raw-${entry}-${String(token)}`, { requests: 0 })
+    const before = fileText(f.task).replace('"budget_usd":1,', token === undefined ? '' : `"budget_usd":${token},`)
+    writeFileSync(f.task, before)
+    const result = runBoth(`${entry} 原样保留历史预算 ${String(token)}`,
+      [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir], f.cwd,
+      { status: 0, soft: [1, 2, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+    if (result.ok) named('未知费用本地写回保留原预算 token，缺席不制造字段',
+      result.status === 0 && fetchAttempts(f.log).length === 0
+        && rootToken(fileText(f.task), 'budget_usd') === token
+        && !Object.hasOwn(jsonFile(f.task) ?? {}, 'cost_ledger'),
+      `${entry}/${String(token)}: status=${result.status}, saved=${rootToken(fileText(f.task), 'budget_usd')}`)
+  }
+  criterion('D13.i')
+})
+
+group('cost-resume', [], () => {
+  // 已完成项是 IG、未完成项是 TT：只看实际 pathname 就能分开，不需要新增假网络协议。
+  const skipped = costFixture('done-skipped', knownCosts(3000, [costEntry(IG_REELS, 2000, 1)]), {
+    budget_usd: 0.003, tasks: [
+      { keyword: 'already-done', dimension: 'scene', platform: 'instagram' },
+      { keyword: 'still-pending', dimension: 'category', platform: 'tiktok' },
+    ], done: [0], offsets: { 0: 5 }, pages: { 0: 1 }, answered: { 0: 1 }, found: { 0: 2 },
+  })
+  const skippedRun = runBoth('续跑跳过 done 中的任务', [S('collect.ts'), '--resume', skipped.taskDir], skipped.cwd,
+    { status: 3 }, costEnv(skipped.log))
+  if (skippedRun.ok) {
+    const state = jsonFile(skipped.task)
+    named('续跑已完成 IG 不重搜，未完成 TT 确实发出请求',
+      JSON.stringify(fetchAttempts(skipped.log)) === JSON.stringify([`200\t${TT_SEARCH}`])
+        && state?.done?.includes(0) && state?.answered?.[0] === 1 && state?.answered?.[1] === 1
+        && state?.requests === 2,
+      `attempts=${JSON.stringify(fetchAttempts(skipped.log))}, task=${JSON.stringify(state)}`)
+    criterion('D6.n')
+  }
+  const bad = knownCosts(5000, [costEntry(TT_SEARCH, 1001, 1)])
+  const missingVersion = knownCosts(5000, [costEntry(TT_SEARCH, 1000, 1)])
+  missingVersion.cost_ledger.entries[0].price_version = 'unverified'
+  const pending = knownCosts(5000, [], {
+    endpoint: TT_SEARCH, price_version: COST_VERSION, unit_micro_usd: 1000, attempt_id: 1,
+  })
+  for (const entry of ['collect', 'enrich']) for (const [kind, costs] of [
+    ['missing', { requests: 0 }], ['bad-price', bad], ['unknown-version', missingVersion], ['pending', pending],
+  ] as const) for (const change of [false, true]) {
+    if (entry === 'collect' && kind === 'missing' && !change) continue
+    const f = costFixture(`blocked-${entry}-${kind}-${change}`, costs,
+      { budget_usd: 0.005, done: [], offsets: {}, pages: {}, answered: {}, found: {} }, [costPerson()])
+    const before = jsonFile(f.task)
+    const result = runBoth(`${entry} ${kind} ${change ? '不能借改额恢复' : '首次付费拒绝'}`,
+      [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir,
+        ...(change ? ['--budget', '0.006'] : [])], f.cwd,
+      { status: 2, soft: [0, 1, 3] }, costEnv(f.log))
+    if (result.ok) {
+      const after = jsonFile(f.task)
+      named('历史未知、坏价、未知版本和恢复 pending 都在付费前拒绝，改额不能洗白',
+        result.status === 2 && fetchAttempts(f.log).length === 0 && after !== undefined
+          && ['cost_ledger', 'budget_usd', 'requests', 'done', 'pages', 'answered', 'found'].every(key =>
+            JSON.stringify(after[key]) === JSON.stringify(before[key]))
+          && /费用|预算|pending|价目|未结/.test(result.stderr),
+        `${entry}/${kind}/${change}: status=${result.status}, attempts=${JSON.stringify(fetchAttempts(f.log))}`)
+    }
+  }
+  criterion('D13.e')
+
+  const history = [costEntry(TT_PROFILE, 1000, 1), costEntry(IG_REELS, 2000, 0, 1)]
+  for (const entry of ['collect', 'enrich']) {
+    const f = costFixture(`conflict-${entry}`, knownCosts(5000, structuredClone(history)),
+      { budget_usd: 0.007, done: [], offsets: {}, pages: {}, answered: {}, found: {} },
+      Array.from({ length: 4 }, (_, i) => costPerson('tiktok', `resume-${i}`)))
+    const before = jsonFile(f.task)
+    const denied = runBoth(`${entry} 根预算冲突禁止付费`,
+      [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir], f.cwd,
+      { status: 2, soft: [0, 1, 3] }, costEnv(f.log))
+    if (!denied.ok) continue
+    named('根预算冲突不静默选择一份，也不发出新请求',
+      denied.status === 2 && fetchAttempts(f.log).length === 0
+        && jsonFile(f.task)?.budget_usd === before.budget_usd
+        && JSON.stringify(jsonFile(f.task)?.cost_ledger) === JSON.stringify(before.cost_ledger),
+      `${entry}: status=${denied.status}, attempts=${fetchAttempts(f.log).length}`)
+    const rendered = runBoth(`${entry} 冲突仍可离线导出`, [S('render.ts'), '--dir', f.taskDir], f.cwd,
+      undefined, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+    if (rendered.ok) {
+      const view = jsonFile(join(f.taskDir, 'meta.json'))
+      named('根预算冲突整体 invalid-ledger，金额与 scope 全 null 且保留合法次数',
+        costViewMatches(view, { cost_status: 'invalid-ledger', requests: 2, cost_scope: null,
+          cost_price_versions: [], ...Object.fromEntries(moneyFields.map(k => [k, null])) })
+          && view.cost_problems.some((p: any) => p.path === 'budget_usd' && p.reason.length > 0),
+        `${entry}: ${JSON.stringify(view)}`)
+    }
+    // 在真正 fetch 的观察点读取磁盘，证实改额先保存了两份一致上限。
+    const observer = join(f.cwd, 'observe-saved-limit.mjs'), snapshots = join(f.cwd, 'at-fetch.jsonl')
+    writeFileSync(observer, `import { readFileSync, appendFileSync } from 'node:fs'; const previous = globalThis.fetch; globalThis.fetch = async (...args) => { appendFileSync(${JSON.stringify(snapshots)}, readFileSync(${JSON.stringify(f.task)}, 'utf8').replace(/\\n/g, '') + '\\n'); return previous(...args); };`)
+    const changed = runBoth(`${entry} 显式设置总额修正冲突`,
+      [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir, '--budget', '0.006'], f.cwd,
+      { status: 3, soft: [0, 1, 2] }, costEnv(f.log, {
+        NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(observer).href)}`,
+      }))
+    if (!changed.ok) continue
+    const after = jsonFile(f.task), atFetch = fileText(snapshots).split('\n').filter(Boolean).map(summaryOf)
+    named('显式预算替换总上限，保存一致后才请求，历史混价费用保持连续',
+      changed.status === 3 && fetchAttempts(f.log).length === 3 && atFetch.length === 3
+        && atFetch.every(s => s.budget_usd === 0.006 && s.cost_ledger?.limit_micro_usd === 6000)
+        && after?.budget_usd === 0.006 && after?.cost_ledger?.limit_micro_usd === 6000
+        && after?.requests === 5 && after?.cost_ledger?.next_attempt_id === 6
+        && history.every(old => after.cost_ledger.entries.some((e: any) =>
+          JSON.stringify(e) === JSON.stringify(old)))
+        && costViewMatches(summaryOf(changed.stdout), { requests: 5, cost_estimate_usd: 0.006,
+          cost_http_200_usd: 0.004, cost_unknown_result_usd: 0.002, cost_pending_usd: 0,
+          budget_usd: 0.006, cost_status: 'known', cost_scope: 'task' }),
+      `${entry}: status=${changed.status}, attempts=${fetchAttempts(f.log).length}, summary=${changed.stdout}`)
+  }
+  criterion('D13.j', 'D13.k', 'D6.o')
+
+  for (const entry of ['collect', 'enrich']) for (const limit of ['0.003', '0.002']) {
+    const f = costFixture(`lower-${entry}-${limit}`, knownCosts(5000, structuredClone(history)),
+      { budget_usd: 0.005, done: [] }, [costPerson()])
+    const before = jsonFile(f.task)
+    const wanted = limit === '0.003' ? 3 : 2
+    const result = runBoth(`${entry} 降额 ${limit}`,
+      [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir, '--budget', limit], f.cwd,
+      { status: wanted, soft: [0, 1, 2, 3].filter(n => n !== wanted) }, costEnv(f.log))
+    if (result.ok) {
+      const after = jsonFile(f.task)
+      named('总上限可降到占用，低于占用拒绝且不写半份上限',
+        result.status === wanted && fetchAttempts(f.log).length === 0 && after?.requests === 2
+          && after?.budget_usd === (limit === '0.003' ? 0.003 : before.budget_usd)
+          && after?.cost_ledger?.limit_micro_usd === (limit === '0.003' ? 3000 : 5000)
+          && after?.cost_ledger?.next_attempt_id === before.cost_ledger.next_attempt_id
+          && JSON.stringify(after?.cost_ledger?.entries) === JSON.stringify(history),
+        `${entry}/${limit}: status=${result.status}, task=${JSON.stringify(after)}`)
+    }
+  }
+  const reminders = costFixture('restored-thresholds', knownCosts(10000, [costEntry(TT_PROFILE, 1000, 8)]),
+    { budget_usd: 0.01, done: [], offsets: {}, pages: {}, answered: {}, found: {} })
+  const reminded = runBoth('恢复已过两条提醒线的费用账', [S('collect.ts'), '--resume', reminders.taskDir],
+    reminders.cwd, { status: 3 }, costEnv(reminders.log))
+  if (reminded.ok) named('恢复已过80%的任务在首个成功预留后提醒两次，后续预留不重复提醒',
+    warnLines(reminded.stderr) === 2 && fetchAttempts(reminders.log).length === 2
+      && summaryOf(reminded.stdout).cost_estimate_usd === 0.01,
+    `提醒=${warnLines(reminded.stderr)}, attempts=${fetchAttempts(reminders.log).length}, stderr=${reminded.stderr}`)
+})
+
+group('cost-http', [], () => {
+  for (const fault of ['bad-json-200', 'bad-body-201', 'bad-body-204', 'bad-body-429', 'bad-body-500', 'no-http-status']) {
+    const cwd = join(tmp, `http-${fault}`)
+    mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const cfg = join(cwd, 'config.json'), log = join(cwd, 'attempts.tsv')
+    writeFileSync(cfg, JSON.stringify({ product: 'http', market: 'US', target_count: 9999, budget_usd: 0.001,
+      tasks: [{ keyword: 'http', dimension: 'category', platform: 'tiktok' }] }))
+    // 不额外定义供应商重试策略。若既有策略重试，下一次为200且恰好占满额度。
+    // 费用 oracle 只读真正发出的响应序列：非200为零、200/无状态各保留1000。
+    const result = runBoth(`collect HTTP 结算 ${fault}`, [S('collect.ts'), '--config', cfg], cwd,
+      { status: 1, soft: [0, 2, 3] }, costEnv(log, {
+        FAKE_FETCH_FAULT_PATH: TT_SEARCH, FAKE_FETCH_FAULT: fault,
+      }))
+    if (!result.ok) continue
+    const taskDir = onlyDir(cwd, 'http'), task = taskDir ? jsonFile(join(cwd, taskDir, 'task.json')) : undefined
+    const rows = fetchAttempts(log)
+    const unknown = fault === 'no-http-status'
+    const firstStatus = unknown ? 'NO_HTTP_STATUS' : fault === 'bad-json-200' ? '200' : fault.slice('bad-body-'.length)
+    const http200 = rows.filter(row => row === `200\t${TT_SEARCH}`).length
+    const retained = http200 + (unknown ? 1 : 0)
+    named('HTTP 故障确实发生在指定搜索端点，退款重试各自独立预检',
+      rows[0] === `${firstStatus}\t${TT_SEARCH}` && rows.length >= 1 && rows.length <= 2
+        && rows.slice(1).every(row => row === `200\t${TT_SEARCH}`) && retained <= 1
+        && (rows.length === 2 ? result.status === 3 : result.status === 1),
+      `${fault}: status=${result.status}, attempts=${JSON.stringify(rows)}`)
+    const view = summaryOf(result.stdout)
+    named('HTTP 200 坏正文仍留存，非 200 坏正文撤销，无状态单列保守占用并保存',
+      task !== undefined && costViewMatches(view, {
+        requests: retained, budget_usd: 0.001, cost_estimate_usd: retained * 0.001,
+        cost_http_200_usd: http200 * 0.001, cost_unknown_result_usd: unknown ? 0.001 : 0,
+        cost_pending_usd: 0, cost_status: 'known', cost_scope: 'task', cost_price_versions: retained ? [COST_VERSION] : [],
+      }) && task.requests === view.requests && !Object.hasOwn(task.cost_ledger ?? {}, 'pending')
+        && task.cost_ledger?.entries?.reduce((sum: number, e: any) => sum
+          + (e.http_200_count + e.unknown_result_count) * e.unit_micro_usd, 0) === retained * 1000
+        && (retained === 0 ? task.answered?.[0] === undefined && task.found?.[0] === undefined
+          : task.answered?.[0] === 1 && (rows.length === 2 || task.found?.[0] === null)),
+      `${fault}: summary=${result.stdout}, task=${JSON.stringify(task)}`)
+  }
+  criterion('D13.m', 'D13.n', 'D13.o', 'D6.s')
+
+  // IG profile 无关键词；第一次500退款后 v2 正常返回，只保留 v2 的 0.001。
+  const profile = costFixture('profile-fallback', knownCosts(1000, []), { budget_usd: 0.001 },
+    [costPerson('instagram', 'profile-fallback', { bio: undefined, bio_links: [] })])
+  const profileRun = runBoth('collect IG profile 一次故障后换 v2',
+    [S('collect.ts'), '--resume', profile.taskDir], profile.cwd, undefined, costEnv(profile.log, {
+      FAKE_FETCH_FAULT_PATH: IG_PROFILE, FAKE_FETCH_FAULT: 'bad-body-500',
+    }))
+  if (profileRun.ok) named('profile fallback 两次实际端点分别计价，非 200 不占后续额度',
+    JSON.stringify(fetchAttempts(profile.log)) === JSON.stringify([`500\t${IG_PROFILE}`, `200\t${IG_PROFILE_V2}`])
+      && costViewMatches(summaryOf(profileRun.stdout), { requests: 1, cost_estimate_usd: 0.001,
+        cost_http_200_usd: 0.001, cost_unknown_result_usd: 0, cost_pending_usd: 0 }),
+    `attempts=${JSON.stringify(fetchAttempts(profile.log))}, summary=${profileRun.stdout}`)
+
+  // probe 普通错误仍输出部分结果；费用不足也保留既有成功结果且退出0。
+  const probeCwd = join(tmp, 'cost-probe')
+  mkdirSync(probeCwd, { recursive: true })
+  const probeCfg = join(probeCwd, 'config.json'), probeLog = join(probeCwd, 'attempts.tsv')
+  writeFileSync(probeCfg, JSON.stringify({ market: 'US', budget_usd: 0.003, tasks: [
+    { keyword: 'first', dimension: 'category', platform: 'instagram' },
+    { keyword: 'second', dimension: 'scene', platform: 'instagram' },
+  ] }))
+  const probe = runBoth('probe 余额不够下一次仍输出部分结果', [S('probe.ts'), '--config', probeCfg], probeCwd,
+    { status: 0, soft: [1, 2, 3] }, costEnv(probeLog))
+  if (probe.ok) named('probe 预算不足退出0且保留一次 IG 成果，不把三分之二说成100%',
+    probe.status === 0 && JSON.stringify(fetchAttempts(probeLog)) === JSON.stringify([`200\t${IG_REELS}`])
+      && costViewMatches(summaryOf(probe.stdout), { cost_status: 'known', cost_scope: 'process',
+        requests: 1, budget_usd: 0.003, cost_estimate_usd: 0.002, cost_http_200_usd: 0.002,
+        cost_unknown_result_usd: 0, cost_pending_usd: 0 })
+      && summaryOf(probe.stdout).results?.some((r: any) => r.keyword === 'first' && !r.error)
+      && !/已用[^\n]*100%/.test(probe.stderr),
+    `status=${probe.status}, stdout=${probe.stdout}, stderr=${probe.stderr}`)
+
+  for (const fault of ['bad-json-200', 'bad-body-201', 'bad-body-204', 'bad-body-429', 'bad-body-500', 'no-http-status']) {
+    const log = join(tmp, `direct-${fault}.tsv`)
+    const direct = runBoth(`直接探针错误 ${fault}`, [S('probe-ig-paging.ts'), '--keyword', 'cost-fault'], tmp,
+      { status: 1, soft: [0, 2, 3] }, costEnv(log, { FAKE_FETCH_FAULT_PATH: IG_REELS, FAKE_FETCH_FAULT: fault }))
+    if (direct.ok) named('直接分页探针非 200、坏正文与无状态均中止且不输出成功 JSON',
+      direct.status === 1 && fetchAttempts(log).length === 1 && direct.stdout.trim() === '',
+      `${fault}: status=${direct.status}, attempts=${JSON.stringify(fetchAttempts(log))}, stdout=${direct.stdout}`)
+  }
+  const directLog = join(tmp, 'direct-known.tsv')
+  const direct = runBoth('直接探针已知费用出口', [S('probe-ig-paging.ts'), '--keyword', 'cost-known'], tmp,
+    undefined, costEnv(directLog))
+  if (direct.ok) named('直接探针固定进程上限1，一次 Reels 的费用为0.002',
+    costViewMatches(summaryOf(direct.stdout), { requests: 1, cost_estimate_usd: 0.002, budget_usd: 1,
+      cost_http_200_usd: 0.002, cost_unknown_result_usd: 0, cost_pending_usd: 0,
+      cost_status: 'known', cost_scope: 'process', cost_price_versions: [COST_VERSION] })
+      && JSON.stringify(fetchAttempts(directLog)) === JSON.stringify([`200\t${IG_REELS}`]),
+    direct.stdout)
+  criterion('D13.l', 'D13.q', 'F7.d')
+})
+
+group('cost-save-errors', [], () => {
+  for (const entry of ['collect', 'enrich', 'probe']) {
+    const f = costFixture(`missing-key-${entry}`, knownCosts(1000, []),
+      { budget_usd: 0.001, done: [] }, [costPerson()])
+    const cfg = join(f.cwd, 'config.json')
+    writeFileSync(cfg, JSON.stringify({ market: 'US', budget_usd: 0.001,
+      tasks: [{ keyword: 'key-required', dimension: 'category', platform: 'tiktok' }] }))
+    const args = entry === 'probe' ? [S('probe.ts'), '--config', cfg]
+      : [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir]
+    const result = runBoth(`${entry} 真正需付费却缺 key`, args, f.cwd,
+      { status: 2, soft: [0, 1, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+    if (result.ok) named('真正需要请求时缺 key 是输入错误，零 fetch 且不冒充预算不足',
+      result.status === 2 && fetchAttempts(f.log).length === 0 && /TIKHUB_API_KEY|密钥|key/i.test(result.stderr),
+      `${entry}: status=${result.status}, attempts=${fetchAttempts(f.log).length}, stderr=${result.stderr}`)
+  }
+  for (const entry of ['collect', 'enrich']) for (const scenario of ['budget', 'change', 'after-http']) {
+    const costs = scenario === 'after-http' ? knownCosts(1000, []) : knownCosts(1000, [costEntry(TT_PROFILE, 1000, 1)])
+    const f = costFixture(`save-${entry}-${scenario}`, costs,
+      { budget_usd: 0.001, done: [], offsets: {}, pages: {}, answered: {}, found: {} },
+      [costPerson('tiktok', 'save-a'), costPerson('tiktok', 'save-b')])
+    const preload = join(f.cwd, 'fail-task-save.mjs'), mark = join(f.cwd, 'save-fault.txt')
+    // 只拦公开最终写入触点 renameSync(src,dest) 的目标；不依赖临时文件名或生产函数体。
+    writeFileSync(preload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = function(src, dest) { if (String(dest) === ${JSON.stringify(f.task)}) { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('test task save denied'), { code: 'EIO' }); } return original(src, dest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
+    const before = fileText(f.task)
+    const result = runBoth(`${entry} 保存失败 ${scenario}`,
+      [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir,
+        ...(scenario === 'change' ? ['--budget', '0.003'] : [])], f.cwd,
+      { status: 1, soft: [0, 2, 3] }, costEnv(f.log, {
+        NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      }))
+    if (!result.ok) continue
+    if (!fileText(mark).includes('armed')) {
+      failed++
+      console.error(`  ✗ 费用保存故障注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${result.stderr}`)
+      continue
+    }
+    const attempts = fetchAttempts(f.log)
+    named('费用保存故障确实发生，失败不得退3、宣称已保存或继续请求',
+      fileText(mark).includes('injected') && result.status === 1 && !result.stderr.includes('已保存')
+        && attempts.length === (scenario === 'after-http' ? 1 : 0)
+        && (scenario !== 'after-http' || attempts[0] === `200\t${entry === 'collect' ? TT_SEARCH : TT_POSTS}`)
+        && fileText(f.task) === before,
+      `${entry}/${scenario}: injected=${fileText(mark)}, status=${result.status}, attempts=${JSON.stringify(attempts)}, stderr=${result.stderr}`)
+  }
+  criterion('P3.d', 'D13.p')
+
+  // 公共方法级注入纯费用错误，避免用普通 fetch 错误冒充内部费用错误。
+  // --import tsx 在夹具前加载；不读或改写 Budget/CostError 的函数体。
+  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
+  const costModule = pathToFileURL(resolve('scripts/lib/cost-ledger.ts')).href
+  for (const entry of ['collect', 'enrich', 'probe']) for (const method of ['reserve', 'settle']) {
+    const f = costFixture(`internal-${entry}-${method}`, knownCosts(10000, []),
+      { budget_usd: 0.01, done: [], offsets: {}, pages: {}, answered: {}, found: {} },
+      [costPerson('tiktok', 'internal-a'), costPerson('tiktok', 'internal-b')])
+    const mark = join(f.cwd, 'internal-fault.txt'), preload = join(f.cwd, 'internal-fault.mjs')
+    writeFileSync(preload, [
+      `import { appendFileSync } from 'node:fs';`,
+      `import { Budget } from ${JSON.stringify(budgetModule)};`,
+      `import { CostError, createCostBudget } from ${JSON.stringify(costModule)};`,
+      `const isolated = createCostBudget(1000, 'process', { test: { '/attempt': 1000 } });`,
+      `const receipt = isolated.reserve({ endpoint: '/attempt', price_version: 'test', unit_micro_usd: 1000 });`,
+      `isolated.settle(receipt, { kind: 'http', status: 200 });`,
+      `let internalError; try { isolated.settle(receipt, { kind: 'http', status: 200 }); } catch (error) { internalError = error; }`,
+      `if (!(internalError instanceof CostError) || internalError.code !== 'invalid-receipt') { console.error(${JSON.stringify(SELFCHECK_FIXTURE_MARK)}); throw new Error('cannot construct public receipt-error fixture'); }`,
+      `Budget.prototype.${method} = function() { appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw internalError; };`,
+      `appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`,
+    ].join('\n'))
+    const cfg = join(f.cwd, 'probe.json')
+    writeFileSync(cfg, JSON.stringify({ market: 'US', budget_usd: 0.01, tasks: [
+      { keyword: 'internal-a', dimension: 'category', platform: 'tiktok' },
+      { keyword: 'internal-b', dimension: 'scene', platform: 'tiktok' },
+    ] }))
+    const args = entry === 'probe' ? [S('probe.ts'), '--config', cfg]
+      : [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir]
+    const result = runBoth(`${entry} 运行中 ${method} 费用错误`, args, f.cwd,
+      { status: 1, soft: [0, 2, 3] }, costEnv(f.log, {
+        NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      }))
+    if (result.ok) {
+      if (!fileText(mark).includes('armed')) {
+        failed++
+        console.error(`  ✗ 内部费用错误注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${result.stderr}`)
+        continue
+      }
+      named('运行中费用错误穿透入口，退出1且不再请求，不伪装成输入或余额不足',
+        fileText(mark).split('\n').filter(line => line === 'injected').length === 1 && result.status === 1
+          && fetchAttempts(f.log).length === (method === 'reserve' ? 0 : 1)
+          && !/追加预算|加钱|余额不足/.test(result.stderr),
+        `${entry}/${method}: injected=${fileText(mark)}, status=${result.status}, attempts=${JSON.stringify(fetchAttempts(f.log))}, stderr=${result.stderr}`)
+    }
+  }
+  criterion('D13.s')
 })
 
 // ---- 崩溃续跑 A / B：真实入口在落盘之前被杀，供应商账本比上限多出窗口大小（P3 · D6.a）----
@@ -765,10 +1376,11 @@ group('collect-resume', [], () => {
       // 一个请求都不再发；从零起算的话同一份额度被原样重花一遍。
       // ⚠️ 认的是**采集进度**，不是断点里那个请求数 —— 两种起算法下那个数都停在
       // 「额度 ÷ 单价」，恰好相等，拿它断言等于写下一句永远为真的话。
+      const stingyLedger = join(tmp, 'stingy-attempts.tsv')
       const stingy = run('collect --resume 额度只够已经花掉的那些',
                          [S('collect.ts'), '--resume', tightDir, '--budget', '0.002'], tmp,
-                         { status: 3, stream: 'stdout' })
-      let afterStingy: { offsets?: unknown } | undefined
+                         { status: 3, stream: 'stdout' }, { FAKE_FETCH_LEDGER: stingyLedger })
+      let afterStingy: any
       if (stingy !== undefined) { try { afterStingy = JSON.parse(readFileSync(tightTask, 'utf8')) } catch {} }
       const pagesOf = (t: { offsets?: unknown } | undefined): string =>
         `${t === undefined ? '读不出来' : JSON.stringify(t.offsets)}`
@@ -777,12 +1389,14 @@ group('collect-resume', [], () => {
       // 这条断言从写下那天起就没验过任何事 —— 那是这个仓库反复栽的形状。
       const measurable = !['读不出来', 'undefined', '{}'].includes(pagesBefore)
       named('续跑的额度只够已经花掉的那些时，一个请求都不再发',
-            measurable && pagesOf(afterStingy) === pagesBefore,
+            measurable && pagesOf(afterStingy) === pagesBefore && fetchAttempts(stingyLedger).length === 0
+              && afterStingy?.requests === before.requests
+              && JSON.stringify(afterStingy?.cost_ledger) === JSON.stringify(before.cost_ledger),
             measurable
               ? `采集进度从 ${pagesBefore} 动到了 ${pagesOf(afterStingy)} —— 续跑的预算没有从`
                 + '断点里那个数起算，同一份额度被原样重花了一遍，而用户只确认过一次'
               : `中止那一刻的采集进度是 ${pagesBefore} —— 这条断言的前提没造出来，它证不了任何事`)
-      const resumed = run('collect --resume 追加预算续跑',
+      const resumed = run('collect --resume 设置新总预算续跑',
                           [S('collect.ts'), '--resume', tightDir, '--budget', '1'], tmp)
       let after: any
       try { after = JSON.parse(readFileSync(tightTask, 'utf8')) } catch {}
@@ -797,6 +1411,7 @@ group('collect-resume', [], () => {
       } else {
         console.log(`  ✓ 断点恢复：关键词 ${before.done.length}→${after.done.length}，请求 ${before.requests}→${after.requests}`)
       }
+      if (stingy !== undefined && resumed !== undefined) criterion('D6.o')
     }
     // 写在整段之后，不写在「续跑」那一半之前：`P3.b` 逐字要求的每一件事都要跑到过才认领得起
     // ——正本在 `docs/requirements.json` 的 `P3.b`，这里不复述它，也不数它有几件。
@@ -812,7 +1427,7 @@ group('collect-resume', [], () => {
     // `M-D6-m` 守续跑的预算从断点起算、`M-D6-n` 守断点还在契约点名的那个文件名（都是 `D6.a`）。
     // 后一条**由 `P3.b` 这条夹具抓到** —— 违反的是谁、被谁抓到，不必是同一条。
     // 「捕获」与「退出码 3」两件今天拿不到负片，理由是判定层的结论，记在 ADR-70。
-    criterion('P3.b')
+    criterion('P3.d')
   }
 })
 
@@ -930,7 +1545,8 @@ group('enrich', ['collect'], () => {
     }
 
     // ---- 崩溃续跑 C：enrich 每个账号查完落一次盘，窗口 1（P3 · D6.a）----
-    // 复制这个目录（连 creators.raw.json，fit 已经全设 ✅），预算改成只够两个账号、已花归零，删掉缓存。
+    // 复制为独立夹具，明确放三个 TikTok 账号、完整新账及一致上限，删掉缓存。
+    // 每个主页作品端点 0.001，0.002 正好够两个；不能只把旧 requests 改零而留下旧账。
     // 第一跑：第一个账号查完落盘，在第二个账号的 200 那一瞬被杀。
     // 第二跑同一条命令（enrich 没有 --resume，靠 enrichment.json 跳过已查的）：第二个账号重查、落盘，
     //   第三个账号闸门抛，收尾落盘，退 3。数字的推导在 ADR-96 第三节。
@@ -944,8 +1560,11 @@ group('enrich', ['collect'], () => {
       console.error(`  ✗ enrich 两个账号之间被杀${SELFCHECK_FIXTURE_MARK}：复制出来的目录里没有 task.json，改不了预算 —— 夹具没造对`)
     } else {
       crashTask.budget_usd = 0.002
-      crashTask.requests = 0
+      Object.assign(crashTask, knownCosts(2000, []))
       writeFileSync(crashTaskFile, JSON.stringify(crashTask, null, 2))
+      for (const file of ['creators.json', 'creators.raw.json'])
+        writeFileSync(join(tmp, crashDir, file), JSON.stringify(
+          Array.from({ length: 3 }, (_, i) => costPerson('tiktok', `crash-${i}`))))
       rmSync(join(tmp, crashDir, 'enrichment.json'), { force: true })
       const ledgerC = join(tmp, 'ledger-c.tsv')
       const diskC = () => requestsOnDisk(crashTaskFile)
@@ -1312,7 +1931,7 @@ group('memory', ['collect', 'render'], () => {
 
     // 四条收尾各跑过一次，每次都验了退出码、`stopped` 取值、那句话说什么 ——
     // D6.f 逐字要求的正是这四条路都说清续跑要不要花钱（落地 3 第一片）
-    criterion('D6.f')
+    criterion('D6.r')
 
     // 逃生口：出名单，但状态必须原样带到 stdout
     const forced = run('collect --ignore-memory 强出名单',
@@ -1493,7 +2112,7 @@ group('f9', [], () => {
       const a = platformsAsked(tkFirstDir)
       const b = platformsAsked(igFirstDir)
       named('预算先用尽时顺序决定哪个平台整个挨刀 —— 换个顺序，挨刀的就换一个',
-            a.length === 3 && b.length === 3
+            a.length === 3 && b.length === 1
             && a.every(x => x === 'tiktok') && b.every(x => x === 'instagram'),
             `TikTok 排前时问过的是 ${JSON.stringify(a)}，IG 排前时是 ${JSON.stringify(b)}`
             + ' —— 两次问过的平台必须相反；一样的话说明顺序不再决定谁挨刀，'
@@ -1716,9 +2335,9 @@ group('d6j-legacy', [], () => {
                           [S('collect.ts'), '--config', migCfg('miga', 0.004)], migBase, { status: 3 })
     const dir = first.ok ? summaryOf(first.stdout).dir : undefined
     if (dir !== undefined && stripNewTables(dir)) {
-      // 额度一次请求都不够 → 搜索循环第一次 charge 就抛，零次请求
+      // 新总上限等于已经占用的 0.004；不能改到占用以下来伪造预算不足分支。
       const again = runBoth('collect 旧目录夹具 a：旧目录上续跑，一次请求都发不出去',
-                            [S('collect.ts'), '--resume', dir, '--budget', '0.0001'],
+                            [S('collect.ts'), '--resume', dir, '--budget', '0.004'],
                             migBase, { status: 3 })
       if (again.ok) {
         named('旧目录续跑之后，两张表仍然缺着 —— 不凭空建出一张空表', ...tablesAbsent(migState(dir)))
@@ -1903,11 +2522,13 @@ group('d6k-igfallback', [], () => {
   mkdirSync(join(igBurn, 'memory'), { recursive: true })
   const igCfg = join(igBurn, 'ig.json')
   writeFileSync(igCfg, JSON.stringify({
-    product: 'igburn', market: 'US', target_count: 9999, budget_usd: 0.001,
+    product: 'igburn', market: 'US', target_count: 9999, budget_usd: 0.003,
     tasks: [{ keyword: 'force-noparse-kw', dimension: 'scene', platform: 'instagram' }],
   }))
+  const burnLedger = join(igBurn, 'attempts.tsv')
   const burnRun = runBoth('collect IG 兜底撞上预算',
-                          [S('collect.ts'), '--config', igCfg], igBurn, { status: 3, soft: [0] })
+                          [S('collect.ts'), '--config', igCfg], igBurn, { status: 3, soft: [0] },
+                          { FAKE_FETCH_LEDGER: burnLedger, FAKE_FETCH_NO_429: '1' })
   named('IG 兜底撞上预算：按 P3 停下，不以退出码 0 收尾', burnRun.status === 3,
         `实际以退出码 ${burnRun.status} 结束 —— 0 的意思是「这个词跑完了」，`
         + '而预算其实已经见底，兜底那条唯一还能找到人的路一次都没发出去')
@@ -1917,6 +2538,12 @@ group('d6k-igfallback', [], () => {
       bstate = JSON.parse(readFileSync(join(igBurn, summaryOf(burnRun.stdout).dir ?? '', 'task.json'), 'utf8'))
     } catch {}
     if (bstate !== undefined) {
+      named('IG 兜底只发出 0.002 的 Reels，余额 0.001 不够下一次请求',
+        JSON.stringify(fetchAttempts(burnLedger)) === JSON.stringify([`200\t${IG_REELS}`])
+          && bstate.requests === 1 && bstate.found?.[0] === null
+          && summaryOf(burnRun.stdout).cost_estimate_usd === 0.002
+          && !/已用[^\n]*100%/.test(burnRun.stderr),
+        `attempts=${JSON.stringify(fetchAttempts(burnLedger))}, summary=${burnRun.stdout}`)
       named('IG 兜底撞上预算：这个任务不进 done，续跑还能再碰它',
             !bstate.done.includes(0) && bstate.answered?.[0] >= 1,
             `盘上 done=${JSON.stringify(bstate.done)}、answered=${JSON.stringify(bstate.answered)}`
@@ -1930,7 +2557,7 @@ group('d6k-igfallback', [], () => {
     }
   }
 
-  criterion('D6.i')
+  criterion('D6.s')
   criterion('D6.j')
   criterion('D6.k')
   criterion('D6.l')
