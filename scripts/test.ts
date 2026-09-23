@@ -20,6 +20,7 @@ import {
   labelFault, notAssertion,
   labelFaults,
   groupOfLabel, labelsOf, leadWired, processFailed, wiringFault,
+  anchorMatches,
 } from './check/mutate-rule.js'
 import { parseOnly, wanted } from './check/group-rule.js'
 import {
@@ -4086,6 +4087,21 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
   // 这条断言照样绿，而 kills 又开始把崩溃算成抓到
   eq('进程级的失败带记号，不算那条夹具红了',
     killsMatched(`  ✗ 某条夹具${SELFCHECK_PROCESS_MARK}：预期以退出码 0 结束，实际是 1`, '某条夹具'), false)
+}
+
+harness('变异的锚点在目标文件里数几处：按起点数，重叠也算')
+{
+  // 判据在 ADR-99 第十一节：find 必须恰好出现一次。替换只改第一处，所以「出现几处」
+  // 要按**起点**数 —— 按不重叠数的话，重叠的那种歧义会被漏成「唯一」
+  eq('恰好一处', anchorMatches('const a = 1\nconst b = 2\n', 'const b'), 1)
+  eq('一处都没有 —— 那是「锚点失效」，不是唯一', anchorMatches('const a = 1\n', 'const z'), 0)
+  eq('两处不重叠', anchorMatches('x = 1\ny = 2\nx = 1\n', 'x = 1'), 2)
+  // 'aaa' 里 'aa' 的起点是 0 和 1 两个位置：替换会挑第一个，而作者可能想的是第二个
+  eq('两处重叠 —— 仍是两处', anchorMatches('aaa', 'aa'), 2)
+  // 跨行的锚点整段比对：两段一模一样就是两处，哪怕中间隔着别的行
+  eq('跨行锚点出现两次', anchorMatches('if (x)\n  go()\nmid\nif (x)\n  go()\n', 'if (x)\n  go()'), 2)
+  // 空锚点在每个位置都「出现」：长度为 2 的文件有 0、1、2 三个起点
+  eq('空锚点在每个起点都出现', anchorMatches('ab', ''), 3)
 }
 
 harness('by 与 kills 同进同出：四种写错各有名字')

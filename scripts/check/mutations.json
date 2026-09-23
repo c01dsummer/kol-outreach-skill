@@ -3000,6 +3000,22 @@
       "replace": "  const room = Math.max(cap - causal.length, 0)\n  return {\n    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),\n    raw: true,\n  }"
     },
     {
+      "id": "M-H45-a",
+      "req": "harness",
+      "why": "锚点只问在不在、不问几处：出现两处的锚点被数成一处，替换静默改掉第一处，而作者要验的那一处一个字没动 —— 正是 ADR-99 第八节那张欠条的原样",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  let n = 0\n  let at = content.indexOf(find)\n  while (at !== -1) {\n    n++\n    if (at >= content.length) break\n    at = content.indexOf(find, at + 1)\n  }\n  return n",
+      "replace": "  return content.includes(find) ? 1 : 0"
+    },
+    {
+      "id": "M-H45-b",
+      "req": "harness",
+      "why": "重叠的出现不算数：一段锚点挪一格又出现一次时被数成一处，替换挑中的那一处未必是作者想的那一处，而报告说它唯一",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    at = content.indexOf(find, at + 1)",
+      "replace": "    at = content.indexOf(find, at + Math.max(find.length, 1))"
+    },
+    {
       "id": "M-H36-a",
       "req": "harness",
       "why": "派工时给了零或者负数当并行度，不再说「说不清要派几个」，而是悄悄收口成 1 跑起来 —— 一个写错的配置被当成没写过，人以为自己在串行跑，实际不是",
