@@ -309,7 +309,8 @@ export class TikHub {
 
   // ---------- 统一入口 ----------
 
-  async search(task: SearchTask, region: string, offset: number): Promise<SearchPage> {
+  /** `token`：上一页交回的 IG 续页令牌（ADR-111）；TikTok 不用它，入口目前也还没传。 */
+  async search(task: SearchTask, region: string, offset: number, token?: string): Promise<SearchPage> {
     if (task.platform === 'tiktok') return this.searchTikTok(task, region, offset)
     // 我们只向 IG 取一页：offset > 0 直接返回空，不白花请求。
     // **第 2 页是空的这个现象是这一行造的**，不是问出来的（ADR-101）。
