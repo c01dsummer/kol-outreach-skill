@@ -1,0 +1,113 @@
+{
+  "price_version": "tikhub-public-20260720-5d52fe8fb109",
+  "currency": "USD",
+  "unit": "micro_usd",
+  "source_url": "https://tikhub.io/pricing",
+  "source_updated_at": "2026-07-20",
+  "observed_at": "2026-09-23T03:31:17.714Z",
+  "source_asset": {
+    "file": "endpoint-prices.js",
+    "url": "https://tikhub.io/_next/static/chunks/16hcexj0jth19.js",
+    "saved_at_utc": "2026-09-23T03:31:17.714Z",
+    "http_status": 200,
+    "bytes": 97015,
+    "sha256": "5d52fe8fb109a569e4e16b39b611ee9d5233c9131d264f1e856a987f23cc8cbf"
+  },
+  "discovery": {
+    "page_script": "pricing.html includes pricing-calculator.js source URL",
+    "dynamic_import": "pricing-calculator.js imports module 24477, mapped to static/chunks/16hcexj0jth19.js / module 57558",
+    "parse": "Extracted JSON literal from JSON.parse wrapper without evaluating script; decoded only verified doubled-backslash JS escapes",
+    "tuple_semantics": "Calculator destructures [F,M,E,D,_]=row; displays M as per-request price; U=1===E controls tiers; 1===D controls free credit; _ renders RPS."
+  },
+  "rows": [
+    {
+      "endpoint": "/api/v1/tiktok/app/v3/fetch_video_search_result",
+      "unit_micro_usd": 1000,
+      "raw_tuple": [
+        "/api/v1/tiktok/app/v3/fetch_video_search_result",
+        0.001,
+        0,
+        1,
+        "10/second"
+      ]
+    },
+    {
+      "endpoint": "/api/v1/tiktok/web/fetch_user_profile",
+      "unit_micro_usd": 1000,
+      "raw_tuple": [
+        "/api/v1/tiktok/web/fetch_user_profile",
+        0.001,
+        1,
+        1,
+        "10/second"
+      ]
+    },
+    {
+      "endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v3",
+      "unit_micro_usd": 1000,
+      "raw_tuple": [
+        "/api/v1/tiktok/app/v3/fetch_user_post_videos_v3",
+        0.001,
+        0,
+        0,
+        "10/second"
+      ]
+    },
+    {
+      "endpoint": "/api/v1/instagram/v2/search_reels",
+      "unit_micro_usd": 2000,
+      "raw_tuple": [
+        "/api/v1/instagram/v2/search_reels",
+        0.002,
+        0,
+        0,
+        "10/second"
+      ]
+    },
+    {
+      "endpoint": "/api/v1/instagram/v2/search_users",
+      "unit_micro_usd": 2000,
+      "raw_tuple": [
+        "/api/v1/instagram/v2/search_users",
+        0.002,
+        0,
+        0,
+        "10/second"
+      ]
+    },
+    {
+      "endpoint": "/api/v1/instagram/v1/fetch_user_info_by_username_v3",
+      "unit_micro_usd": 1000,
+      "raw_tuple": [
+        "/api/v1/instagram/v1/fetch_user_info_by_username_v3",
+        0.001,
+        0,
+        0,
+        "10/second"
+      ]
+    },
+    {
+      "endpoint": "/api/v1/instagram/v1/fetch_user_info_by_username_v2",
+      "unit_micro_usd": 1000,
+      "raw_tuple": [
+        "/api/v1/instagram/v1/fetch_user_info_by_username_v2",
+        0.001,
+        0,
+        0,
+        "10/second"
+      ]
+    },
+    {
+      "endpoint": "/api/v1/instagram/v2/fetch_user_posts",
+      "unit_micro_usd": 2000,
+      "raw_tuple": [
+        "/api/v1/instagram/v2/fetch_user_posts",
+        0.002,
+        0,
+        0,
+        "10/second"
+      ]
+    }
+  ],
+  "boundary": "固定公开基础声明价；不计优惠，不是实际账单，也不保证供应商将来不调价。"
+}
