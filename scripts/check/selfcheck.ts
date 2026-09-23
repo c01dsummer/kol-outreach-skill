@@ -3100,6 +3100,25 @@ group('dup-ids', [], () => {
   }
 })
 
+// ---- 变异锚点不唯一即以退出码 1 结束（anchorMatches 的入口那一半，ADR-99 第十二节）----
+group('anchors', [], () => {
+  // 判定在 mutate-rule.ts 的 anchorMatches，由 scripts/test.ts 断言、M-H45-a／b 守着；
+  // 剩下的是入口真的调了它、点名并以 1 结束。入口在自检的验证基础设施闭包里，
+  // 指着它的变异会被「自己验自己」拒掉，所以这一半只由这条夹具守（ADR-70）。
+  const anchorTmp = join(tmp, 'dup-anchor')
+  mkdirSync(join(anchorTmp, 'scripts', 'check'), { recursive: true })
+  mkdirSync(join(anchorTmp, 'docs'), { recursive: true })
+  writeFileSync(join(anchorTmp, 'docs', 'requirements.json'),
+    JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+  writeFileSync(join(anchorTmp, 'a.ts'), 'const x = 1\nconst y = 2\nconst x = 1\n', 'utf8')
+  writeFileSync(join(anchorTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+    { id: 'M-X-e', req: 'X1', why: '锚点在目标文件里出现两处', file: 'a.ts', find: 'const x = 1', replace: 'const x = 2' },
+  ] }), 'utf8')
+  const out = runTool('mutate 遇到不唯一的锚点即以退出码 1 结束', 'mutate', [], anchorTmp, { status: 1 })
+  if (out !== undefined) named('mutate 开跑前点名不唯一的锚点及其处数',
+    out.includes('锚点不唯一') && out.includes('M-X-e') && out.includes('出现 2 处'), out)
+})
+
 // ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----
 group('wiring', [], () => {
   // 判据是 mutate-rule.ts 的 wiringFault，由 scripts/test.ts 断言、M-H14-t/u/v/w 四条负片
