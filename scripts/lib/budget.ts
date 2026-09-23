@@ -60,11 +60,11 @@ export class Budget {
     try { assertCostJsonRuntime() } catch (e) { throw new BudgetInputError((e as Error).message) }
     if (checkRoot) {
       const view = this.view()
-      if (view.cost_status !== 'known') throw new BudgetInputError(view.cost_problems.map(p => `${p.path}: ${p.reason}`).join('; '))
+      if (view.cost_status !== 'known') throw new BudgetInputError(`费用账不可用：${view.cost_problems.map(p => `${p.path}: ${p.reason}`).join('; ')}`)
     }
     if (this.engine) return this.engine
     const seen = inspectExistingCostLedger(this.state.cost_ledger, this.state.requests, TIKHUB_PRICE_CATALOG)
-    if (seen.status !== 'known') throw new BudgetInputError(seen.problems.map(p => `${p.path}: ${p.reason}`).join('; '))
+    if (seen.status !== 'known') throw new BudgetInputError(`费用账不可用：${seen.problems.map(p => `${p.path}: ${p.reason}`).join('; ')}`)
     if (seen.snapshot.cost_ledger.pending)
       throw new BudgetInputError('cost_ledger.pending 存在未结预留，不能新增付费或改额')
     this.engine = restoreCostBudget(this.state.cost_ledger, this.state.requests, TIKHUB_PRICE_CATALOG)

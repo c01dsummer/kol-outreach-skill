@@ -272,7 +272,10 @@ async function main() {
     console.error(`\n⛔ 余额不足以支付下一请求 ${budget.summary()} —— enrichment.json 已保存，可提高总预算后续跑。`)
     process.exit(3)
   }
-  if (stopped === 'error') process.exit(errorExit)
+  if (stopped === 'error') {
+    console.error(errorMessage)
+    process.exit(errorExit)
+  }
 }
 
 main().catch(e => { console.error(e); process.exit(1) })

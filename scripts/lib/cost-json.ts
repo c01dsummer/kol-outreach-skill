@@ -54,6 +54,9 @@ export function readCostDocument<T extends object = CostState>(text: string): T 
   }
   for (const key of ['requests', 'cost_ledger'])
     if (Object.hasOwn(state, key)) preserveCostNumbers(state, key)
+  // 非法容器预算仍须原样写回；只保护内部数字，不把它变成可用的根金额。
+  if (state.budget_usd !== null && typeof state.budget_usd === 'object')
+    preserveCostNumbers(state, 'budget_usd')
   return parsed as T
 }
 
