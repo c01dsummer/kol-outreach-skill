@@ -3529,7 +3529,7 @@
     },
     {
       "id": "M-D11-a",
-      "req": "D11.a",
+      "req": "D11.g",
       "why": "丢掉视频搜索返回的真实作品标识，后续无法识别同一作品",
       "file": "scripts/providers/tikhub.ts",
       "find": "id: searchPostId('tiktok', aw?.aweme_id)",
@@ -3537,7 +3537,7 @@
     },
     {
       "id": "M-D11-b",
-      "req": "D11.a",
+      "req": "D11.h",
       "why": "把文案标识冒充作品标识，同一作品的识别依据变成另一类对象",
       "file": "scripts/providers/tikhub.ts",
       "find": "id: searchPostId('instagram', item?.id)",
@@ -3545,7 +3545,7 @@
     },
     {
       "id": "M-D11-c",
-      "req": "D11.a",
+      "req": "D11.i",
       "why": "把所有数字都当成可靠标识，不安全整数和非整数也被保存为作品键",
       "file": "scripts/lib/posts.ts",
       "find": "typeof raw === 'number' && Number.isSafeInteger(raw)",
@@ -3553,7 +3553,7 @@
     },
     {
       "id": "M-D11-d",
-      "req": "D11.a",
+      "req": "D11.i",
       "why": "来源缺少可用标识时生成空串占位，未知作品获得虚假的共同标识",
       "file": "scripts/lib/posts.ts",
       "find": "  return undefined\n}",
@@ -3609,7 +3609,7 @@
     },
     {
       "id": "M-D11-k",
-      "req": "D11.e",
+      "req": "D11.l",
       "why": "两侧均未查询作品时制造空数组，未查询状态没有按契约保留",
       "file": "scripts/lib/posts.ts",
       "find": "  return merged.length ? merged : undefined",
@@ -3617,7 +3617,7 @@
     },
     {
       "id": "M-D11-l",
-      "req": "D11.e",
+      "req": "D11.j",
       "why": "首次收页绕开作品并集，页内重复不会去掉、旧空数组没有归为未查询",
       "file": "scripts/lib/pipeline.ts",
       "find": "recent_posts: mergeRecentPosts(undefined, p.recent_posts)",
@@ -3625,7 +3625,7 @@
     },
     {
       "id": "M-D11-m",
-      "req": "D11.f",
+      "req": "D11.m",
       "why": "同人合并仍直接拼接作品，重复标识不去重且两侧未知被制造为空数组",
       "file": "scripts/lib/identity.ts",
       "find": "primary.recent_posts = mergeRecentPosts(primary.recent_posts, secondary.recent_posts)",
@@ -3633,7 +3633,7 @@
     },
     {
       "id": "M-D11-n",
-      "req": "D11.a",
+      "req": "D11.i",
       "why": "保存字符串标识时擅自删除两端空格，原始标识被改写",
       "file": "scripts/lib/posts.ts",
       "find": "if (typeof raw === 'string' && raw.trim().length > 0) return `${platform}:${raw}`",

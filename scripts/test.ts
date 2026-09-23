@@ -3127,6 +3127,7 @@ suite('D11', '搜索作品标识只取可核实的来源字段')
       (rows[i]?.recent_posts?.[0] as SearchEvidence | undefined)?.id,
       expected === undefined ? undefined : `tiktok:${expected}`))
   }
+  criterion('D11.g')
   const igItems = cases.map(([, raw], i) => ({ id: raw,
     caption: { id: 'caption-id', text: `post${i}` }, media: { id: 'media-id' },
     user: { username: `u${i}`, id: 'user-id', full_name: 'U' } }))
@@ -3135,12 +3136,13 @@ suite('D11', '搜索作品标识只取可核实的来源字段')
   cases.forEach(([name, , expected], i) => eq(`Instagram 直接作品 id：${name}`,
     (ig[i]?.recent_posts?.[0] as SearchEvidence | undefined)?.id,
     expected === undefined ? undefined : `instagram:${expected}`))
+  criterion('D11.h', 'D11.i')
   // 同一个原始号来自不同平台，适配后就是两个作品键。
   const tt = await read('tiktok', { data: { aweme_list: [ttItems[0]] } })
   eq('两平台相同原始号各自保留平台前缀',
     [(tt[0].recent_posts?.[0] as SearchEvidence)?.id, (ig[0].recent_posts?.[0] as SearchEvidence)?.id],
     ['tiktok:001', 'instagram:001'])
-  criterion('D11.a', 'D11.d')
+  criterion('D11.d')
 }
 
 suite('D11', '首次收页及跨页都稳定保留作品证据')
@@ -3158,6 +3160,7 @@ suite('D11', '首次收页及跨页都稳定保留作品证据')
   eq('首次单条记录内：重复 id 只留首次，未知 id 逐条保留',
     acc.get('tiktok:sam')?.recent_posts, [a, missing, empty, blank, b, missing])
   eq('首次收页不改输入作品数组或内容', first, firstBefore)
+  criterion('D11.j')
 
   const second = [newerA, c, post('tiktok:c', 'later c'), missing, empty, blank]
   const secondBefore = structuredClone(second)
@@ -3166,6 +3169,7 @@ suite('D11', '首次收页及跨页都稳定保留作品证据')
   eq('跨页稳定并集：保留先到完整记录，新作品按到达顺序追加',
     acc.get('tiktok:sam')?.recent_posts, [a, missing, empty, blank, b, missing, c, missing, empty, blank])
   eq('跨页合并不改任一输入作品数组或内容', [first, second], [firstBefore, secondBefore])
+  criterion('D11.b')
   eq('作品并集保留最初来源与两次来源任务',
     [acc.get('tiktok:sam')?.source_keyword, acc.get('tiktok:sam')?.source_tasks], ['first', [0, 1]])
 
@@ -3194,12 +3198,13 @@ suite('D11', '首次收页及跨页都稳定保留作品证据')
     eq('无作品证据的旧记录后来可以补齐', after(left, [a]), [a])
     eq('后来缺失或空数组都不擦除已有作品', after([a], left), [a])
   }
+  criterion('D11.k', 'D11.l')
   // 对同一未知文案重复出现的次数作属性断言；不能仅靠有 id 的样例证明证据不丢失。
   for (let count = 1; count <= 5; count++) {
     const unknown = Array.from({ length: count }, () => ({ desc: 'same' }))
     eq(`无 id 作品 ${count}+${count} 条全部保留`, after(unknown, unknown), [...unknown, ...unknown])
   }
-  criterion('D11.b', 'D11.c', 'D11.e')
+  criterion('D11.c')
   tension('D11', 'P1')
 }
 
@@ -3228,6 +3233,7 @@ suite('D11', '同人合并按主记录优先沿用作品并集，作品 id 不�
     eq(`${primary} 为主：不改输入作品数组或内容`, [left, right], before)
     eq(`${primary} 为主：粉丝汇总不受作品 id 影响`, main?.followers, 40_000)
   }
+  criterion('D11.d', 'D11.m')
   for (const left of [undefined, []] as (RecentPost[] | undefined)[])
     for (const right of [undefined, []] as (RecentPost[] | undefined)[]) {
       const pair = [mk('tiktok', 'sam', { recent_posts: left }), mk('instagram', 'sam', { recent_posts: right })]
@@ -3235,6 +3241,7 @@ suite('D11', '同人合并按主记录优先沿用作品并集，作品 id 不�
       eq('同人两边均无作品证据时仍未查询',
         mergeCrossPlatform(pair).find(c => c.merged_into === undefined)?.recent_posts, undefined)
     }
+  criterion('D11.l')
 
   const idsOnly = (withIds: boolean, related: boolean) => {
     const pair = [
@@ -3254,10 +3261,11 @@ suite('D11', '同人合并按主记录优先沿用作品并集，作品 id 不�
   for (const related of [false, true])
     eq(`添加作品 id 不改变${related ? '已关联' : '不相关'}账号的识别、主记录、评分与分层`,
       idsOnly(true, related), idsOnly(false, related))
+  criterion('D11.o', 'D11.p', 'D11.q')
   const unrelated = [mk('tiktok', 'alpha', { recent_posts: [post('tiktok:42', 'same')] }),
     mk('instagram', 'beta', { recent_posts: [post('instagram:42', 'same')] })]
   eq('同原始作品号不构成同人证据', linkCrossPlatform(unrelated), 0)
-  criterion('D11.d', 'D11.f')
+  criterion('D11.n')
 }
 
 
