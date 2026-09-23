@@ -135,6 +135,27 @@ export function crashEvidence(output: string, verifier: Verifier, cap = 15):
 export type WiringFault = 'unknown-verifier' | 'missing-kills' | 'kills-without-by'
   | 'kills-not-list'
 
+/**
+ * 一条变异的 `find` 在目标文件里出现几处 —— **按起点数，重叠的也算**（ADR-99 第十一节）。
+ *
+ * 替换只改第一处，所以要问的是「有几个位置都能被当成这一处」。按不重叠数（切开再数段）
+ * 会把 `aa` 在 `aaa` 里数成一处，而替换挑中的那一处未必是作者想的那一处。
+ * 空锚点在每个起点都出现。
+ *
+ * ⚠️ `indexOf` 的起点越过末尾时会被夹回末尾，空锚点就会在最后一个位置原地打转 ——
+ * 所以数到末尾就停，不靠「找不到」停。
+ */
+export function anchorMatches(content: string, find: string): number {
+  let n = 0
+  let at = content.indexOf(find)
+  while (at !== -1) {
+    n++
+    if (at >= content.length) break
+    at = content.indexOf(find, at + 1)
+  }
+  return n
+}
+
 export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault | undefined {
   if (mut.by === undefined) return mut.kills === undefined ? undefined : 'kills-without-by'
   if (!Object.hasOwn(VERIFIERS, mut.by)) return 'unknown-verifier'
