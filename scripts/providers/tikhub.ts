@@ -106,7 +106,7 @@ export class TikHub {
 
   // ---------- TikTok ----------
 
-  /** 视频搜索 → 从 author 提取创作者。按内容匹配，能过滤掉商家号。 */
+  /** 视频搜索 → 从 author 提取创作者与作品线索；商家号仍须后续判断。 */
   private async searchTikTok(kw: string, region: string, offset: number): Promise<SearchPage> {
     const raw = await this.get('/api/v1/tiktok/app/v3/fetch_video_search_result', {
       keyword: kw, offset, count: 20, region,
@@ -181,30 +181,16 @@ export class TikHub {
   /**
    * IG 主路径：Reels 搜索。
    *
-   * 这是 TikTok 视频搜索在 IG 上的对应物 —— 按**内容**匹配而非账号名，
-   * 找到的是真在做这类内容的人。
+   * 当前用它取得作品与作者线索；实际匹配、排序及创作者覆盖未核实。
+   * V1 hashtag 的历史样本 owner 只有 id，当前未采用；不外推到 V2 hashtag/general。
    *
-   * 为什么不用 v1 的 hashtag 端点：实测它的 `owner` 只有 `{id}`，
-   * 没有 username 也没有粉丝数，每个创作者还要额外一次 id→username 调用，
-   * 成本翻倍且拿不到更多信息。已弃用。
+   * 当前实现只发 keyword，search() 见 offset > 0 直接返回空，has_more 写死 false。
+   * 这不是端点只有一页的证据：固定官方规范声明 pagination_token，2026-09-22 的
+   * smoothie 历史记录中链式请求比等次数重发取得更多去重作者（ADR-101 第十三节）。
    *
-   * ⚠️ 限制 —— **第一条是我们自己的做法，后两条是这个端点本身的**
-   * （**别把这张单子读成穷尽的**：原先它写着「两条」而漏了第三条，
-   * 那正是「响应只有 count 和 items」当年的错法 —— 一张宣称完整的单子）：
-   *   1. **只取一页** —— 下面只发 `keyword` 一个参数，`search()` 见到 `offset > 0` 直接
-   *      返回空。⚠️ **别读成「它没有分页游标」**：那句话原先写在这里，证据只有
-   *      「响应只有 `count` 和 `items`」，那是**响应**那一侧的观测。实际上响应里就有
-   *      `data.pagination_token`，而官方 spec 里 `search_reels` 声明的分页参数正是它
-   *      （ADR-101）。**2026-09-22 顺着链翻了一次，实测能翻页**：同一个关键词，
-   *      翻十次拿到的去重达人是单次的五倍左右，而且还在涨。所以下面这个 `has_more: false`
-   *      与 `search()` 里「offset > 0 就返回空」**才是「IG 只有一页」的真正来源**，
-   *      不是对面的性质。复跑 `npm run probe:ig-paging -- --chain 10`（自带对照组）
-   *   2. **对词组敏感** —— "smoothie recipe" 返回 0，"smoothie" 返回 12。
-   *      IG 侧的关键词要比 TikTok 短
-   *   3. **它只找得到发 Reels 的人。** 只发图文／轮播的创作者对这个端点根本不存在 ——
-   *      跑多少次、翻多少页都不会出现。所以 IG 那一侧的候选池不是「这个品类的创作者」，
-   *      是「这个品类里**发短视频**的创作者」，而下游没有一处提过这个限定。
-   *      补它要另一条路（话题下的全部媒体），见任务簿里的 hashtag 那条
+   * 早期短词样本优于词组，不证明所有词组都无结果或页大小固定；按当次试探调整。
+   * 不能由 Reels 名称推断纯图文/轮播作者必然被排除。PhotoMode 是否返回、play_count
+   * 的媒体适用范围、V2 hashtag/general 的覆盖与排序均待样本验证。
    */
   private async searchInstagramReels(kw: string): Promise<SearchPage> {
     const raw = await this.get('/api/v1/instagram/v2/search_reels', { keyword: kw })
@@ -232,7 +218,7 @@ export class TikHub {
         handle,
         user_id: u?.id ?? u?.pk,
         nickname: u?.full_name ?? '',   // P1 例外：展示用
-        // followers / post_count / bio 搜索结果里都没有 —— 保持 undefined 等 profile 补全
+        // 早期 Reels 样本未取得这些字段；此路径暂不解析，保持 undefined 等 profile 补全
         bio_links: [],
         verified: Boolean(u?.is_verified),
         is_private: Boolean(u?.is_private),
@@ -240,9 +226,8 @@ export class TikHub {
         recent_posts: [post],
       })
     }
-    // 我们只取一页，所以这里写死 false。**这不是观测到的 `has_more`** —— 响应里压根没有
-    // 那个字段，而它收不收游标没人试过（ADR-101）。下游把这个 false 读成「翻完了」，
-    // 读的是我们自己的决定，不是 TikHub 的性质。
+    // 我们只取一页，所以写死 false；这是本地停止决定，不是对服务端结果已穷尽的观测。
+    // 历史链式请求已取得更多作者，当前实现仍未接 pagination_token（ADR-101 第十三节）。
     return { creators: [...byHandle.values()], raw_count: list.length, has_more: false }
   }
 
