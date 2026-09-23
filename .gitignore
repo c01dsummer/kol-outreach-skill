@@ -8,3 +8,5 @@ output/
 .check-cache/
 memory/
 .DS_Store
+# 运行证据只在本地保存，不提交到仓库。
+evidence/

@@ -69,9 +69,17 @@ import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
+import { isDeepStrictEqual } from 'node:util'
 import { createRequire } from 'node:module'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetExceeded, UNIT_PRICE, budgetProblem, ledgerProblem } from './lib/budget.js'
+import {
+  CostError, CostLedgerUnavailable, createCostBudget, formatUsd, inspectExistingCostLedger,
+  parseUsdMicros, restoreCostBudget,
+} from './lib/cost-ledger.js'
+import {
+  TIKHUB_PRICE_BASIS, TIKHUB_PRICE_CATALOG, TIKHUB_PRICE_VERSION, quoteTikHub, resolveTikHubPrice,
+} from './providers/tikhub-pricing.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
@@ -5355,6 +5363,261 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
   // 「只由自检认领的判据必须有一条 by:"selfcheck" 负片」的硬失败，**只要单元这边
   // 认领了就整条跳过** —— 这一行的实际作用是给 D6.i 常年免掉那道闸
   // （独立复核用对照实验证明的，ADR-94 第十五节丙）。D6.i 的证据全在 selfcheck.ts。
+}
+
+// 独立上下文先于实现写成；只依据 D12、ADR-107 接口及固定价目证据，未读产品函数体。
+suite('D12', '费用金额按端点与历史价目记账，未知不能变成新增额度')
+{
+  const max = Number.MAX_SAFE_INTEGER
+  const exact = (label: string, got: unknown, want: unknown) => {
+    const equal = isDeepStrictEqual(got, want)
+    if (!equal) console.log(`     got=${JSON.stringify(got)}\n     want=${JSON.stringify(want)}`)
+    ok(label, equal)
+  }
+  type Cost = ReturnType<typeof createCostBudget>
+  const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
+  const price = (endpoint: string, unit_micro_usd: number, price_version = 'old') =>
+    ({ endpoint, price_version, unit_micro_usd })
+  const catalog = { old: { '/tt': 1000, '/ig': 2000 }, newer: { '/tt': 3000, '/ig': 4000 }, free: { '/zero': 0 } }
+  const tt = price('/tt', 1000), ig = price('/ig', 2000), zero = price('/zero', 0, 'free')
+  const fresh = (limit = 10000) => createCostBudget(limit, 'task', catalog)
+  const failure = (label: string, run: () => unknown, code: string, budget?: Cost) => {
+    const before = budget?.snapshot()
+    let error: unknown
+    try { run() } catch (caught) { error = caught }
+    ok(label, error instanceof CostError && error.code === code)
+    if (budget) exact(`${label}：拒绝后完整快照不变`, budget.snapshot(), before)
+  }
+  const succeeds = (label: string, run: () => void) => {
+    let completed = false, error: unknown
+    try { run(); completed = true } catch (caught) { error = caught }
+    ok(label, completed)
+    if (!completed) console.log(`     escaped=${error instanceof Error ? error.name : typeof error}`)
+  }
+  const money = (budget: Cost) => {
+    const s = budget.summary()
+    return [s.occupied_micro_usd, s.remaining_micro_usd, s.http_200_micro_usd,
+      s.unknown_result_micro_usd, s.pending_micro_usd, s.requests,
+      s.http_200_count, s.unknown_result_count, s.pending_count]
+  }
+  const validTokens: [string, number][] = [['0', 0], ['-0', 0], ['0.000001', 1], ['0.005', 5000],
+    ['0.0010000', 1000], ['1e-6', 1], ['10e-7', 1], ['5E-3', 5000], ['-0e999', 0],
+    ['9007199254.740990', max - 1], ['9007199254.740991', max]]
+  for (const [token, micros] of validTokens) exact(`原始十进制精确转换 ${token}`, parseUsdMicros(token), micros)
+  for (const value of ['', ' ', 'NaN', 'Infinity', '0x10', '-0.000001', '0.0000001', '1e', '1.2.3',
+    '0.00499999999999999999999999999999999999999', '9007199254.740992', '1e1000000000',
+    '1e-1000000000', 0, 0.005, null, undefined, true, [], {}])
+    failure(`非法或不可精确表示的美元 ${String(value)}`, () => parseUsdMicros(value as any), 'invalid-money')
+  criterion('D12.a')
+  for (const [micros, text] of [[0, '0'], [1, '0.000001'], [1000, '0.001'], [5000, '0.005'],
+    [1000001, '1.000001'], [max, '9007199254.740991']] as [number, string][])
+    exact(`金额显示不改动 ${micros} 微美元`, formatUsd(micros), text)
+  for (const value of [-1, 0.5, max + 1, NaN, Infinity, '5000', null]) {
+    failure(`拒绝非法展示金额 ${String(value)}`, () => formatUsd(value as any), 'invalid-money')
+    failure(`拒绝非法新建上限 ${String(value)}`, () => createCostBudget(value as any, 'task', catalog), 'invalid-money')
+  }
+  criterion('D12.b')
+
+  // 数值由2026-09-23官方定价资产独立摘录，来源见 ADR-107 末尾。
+  const version = 'tikhub-public-20260720-5d52fe8fb109'
+  const expectedPrices: Record<string, number> = {
+    '/api/v1/tiktok/app/v3/fetch_video_search_result': 1000,
+    '/api/v1/tiktok/web/fetch_user_profile': 1000,
+    '/api/v1/tiktok/app/v3/fetch_user_post_videos_v3': 1000,
+    '/api/v1/instagram/v2/search_reels': 2000,
+    '/api/v1/instagram/v2/search_users': 2000,
+    '/api/v1/instagram/v1/fetch_user_info_by_username_v3': 1000,
+    '/api/v1/instagram/v1/fetch_user_info_by_username_v2': 1000,
+    '/api/v1/instagram/v2/fetch_user_posts': 2000,
+  }
+  exact('当前价目版本绑定固定证据', TIKHUB_PRICE_VERSION, version)
+  exact('本版只列八条已核生产端点', TIKHUB_PRICE_CATALOG, { [version]: expectedPrices })
+  ok('价目表两层均冻结', Object.isFrozen(TIKHUB_PRICE_CATALOG) && Object.values(TIKHUB_PRICE_CATALOG).every(Object.isFrozen))
+  for (const [endpoint, amount] of Object.entries(expectedPrices)) {
+    exact(`固定报价 ${endpoint}`, quoteTikHub(endpoint), price(endpoint, amount, version))
+    exact(`历史版本解析 ${endpoint}`, resolveTikHubPrice(version, endpoint), price(endpoint, amount, version))
+    const quoted = quoteTikHub(endpoint)
+    try { (quoted as any).unit_micro_usd = 0 } catch { /* 冻结副本同样保护价目。 */ }
+    exact(`外部改报价不改固定表 ${endpoint}`, quoteTikHub(endpoint), price(endpoint, amount, version))
+  }
+  for (const endpoint of ['/api/v1/instagram/v2/search_reels/', '/api/v1/instagram/v2/search_hashtag', '/unknown', 'toString'])
+    failure(`未知完整端点不得套价 ${endpoint}`, () => quoteTikHub(endpoint), 'unknown-price')
+  failure('未知历史版本不得换当前价格', () => resolveTikHubPrice('missing', Object.keys(expectedPrices)[0]), 'unknown-price')
+  criterion('D12.c')
+
+  const mixed = fresh(5000)
+  exact('显式新建才产生空账', mixed.snapshot(), { cost_ledger: { schema: 1, currency: 'USD', unit: 'micro_usd',
+    scope: 'task', limit_micro_usd: 5000, next_attempt_id: 1, entries: [] }, requests: 0 })
+  exact('process 范围由显式创建保留', createCostBudget(0, 'process', catalog).snapshot().cost_ledger.scope, 'process')
+  criterion('D12.q')
+  const first = mixed.reserve(tt)
+  exact('预留占用金额但不冒充发出次数', money(mixed), [1000, 4000, 0, 0, 1000, 0, 0, 0, 1])
+  failure('已有未结项不再预留', () => mixed.reserve(ig), 'pending-attempt', mixed)
+  mixed.settle(first, { kind: 'http', status: 200 })
+  exact('200 只转换状态，不重复累计金额', money(mixed), [1000, 4000, 1000, 0, 0, 1, 1, 0, 0])
+  failure('200 后正文失败不能再退款', () => mixed.settle(first, { kind: 'http', status: 500 }), 'invalid-receipt', mixed)
+  for (let i = 0; i < 2; i++) mixed.settle(mixed.reserve(ig), { kind: 'http', status: 200 })
+  // 手算：1000 + 2×2000 = 5000；混合端点净次数为 3，不能按次数×1000。
+  exact('不同价格恰好用满允许且汇总完整', mixed.summary(), { limit_micro_usd: 5000, occupied_micro_usd: 5000,
+    remaining_micro_usd: 0, http_200_micro_usd: 5000, unknown_result_micro_usd: 0, pending_micro_usd: 0,
+    requests: 3, http_200_count: 3, unknown_result_count: 0, pending_count: 0 })
+  exact('同价聚合且保留首次留存顺序', mixed.snapshot().cost_ledger.entries,
+    [{ ...tt, http_200_count: 1, unknown_result_count: 0 }, { ...ig, http_200_count: 2, unknown_result_count: 0 }])
+  failure('超过上限拒绝且不增加尝试序号', () => mixed.reserve(tt), 'budget-exceeded', mixed)
+  const tight = fresh(3000)
+  tight.settle(tight.reserve(ig), { kind: 'http', status: 200 })
+  failure('3000 只够一次 2000，剩余不够第二次', () => tight.reserve(ig), 'budget-exceeded', tight)
+  criterion('D12.e', 'D12.f', 'D12.g', 'D12.h')
+
+  for (const status of [100, 199, 201, 204, 301, 400, 402, 429, 500, 599]) {
+    const budget = fresh(), kept = budget.reserve(tt)
+    budget.settle(kept, { kind: 'http', status: 200 })
+    const refund = budget.reserve(ig)
+    budget.settle(refund, { kind: 'http', status })
+    exact(`HTTP ${status} 只退本次 2000，保留此前 1000`, money(budget), [1000, 9000, 1000, 0, 0, 1, 1, 0, 0])
+    failure(`HTTP ${status} 不允许重复退款`, () => budget.settle(refund, { kind: 'http', status }), 'invalid-receipt', budget)
+  }
+  criterion('D12.i')
+  const uncertain = fresh()
+  uncertain.settle(uncertain.reserve(tt), { kind: 'http', status: 200 })
+  uncertain.settle(uncertain.reserve(ig), { kind: 'no_http_status' })
+  exact('无 HTTP 状态保留同额但与 200 分开', money(uncertain), [3000, 7000, 1000, 2000, 0, 2, 1, 1, 0])
+  exact('未知结果独立记数', uncertain.snapshot().cost_ledger.entries[1], { ...ig, http_200_count: 0, unknown_result_count: 1 })
+  criterion('D12.j')
+
+  const owner = fresh(), foreign = fresh(), ownReceipt = owner.reserve(tt), otherReceipt = foreign.reserve(ig)
+  const otherBefore = foreign.snapshot()
+  failure('外来凭据不能消费本账预留', () => owner.settle(otherReceipt, { kind: 'http', status: 429 }), 'invalid-receipt', owner)
+  exact('拒绝外来凭据也不改变所属账', foreign.snapshot(), otherBefore)
+  failure('快照字段不能伪造可退款凭据', () => owner.settle(owner.snapshot().cost_ledger.pending as any,
+    { kind: 'http', status: 429 }), 'invalid-receipt', owner)
+  for (const outcome of [null, {}, { kind: 'other' }, ...[99, 600, 200.5, NaN, Infinity, '200', null]
+    .map(status => ({ kind: 'http', status }))])
+    failure(`非法结算不消费凭据 ${JSON.stringify(outcome)}`, () => owner.settle(ownReceipt, outcome as any), 'invalid-outcome', owner)
+  owner.settle(ownReceipt, { kind: 'http', status: 200 })
+  exact('此前非法结算之后原凭据仍能成功结算', owner.summary().requests, 1)
+  failure('终态后再次消费原凭据拒绝', () => owner.settle(ownReceipt, { kind: 'no_http_status' }), 'invalid-receipt', owner)
+  foreign.settle(otherReceipt, { kind: 'http', status: 429 })
+  criterion('D12.k')
+
+  const raw = { schema: 1, currency: 'USD', unit: 'micro_usd', scope: 'task', limit_micro_usd: 10000,
+    next_attempt_id: 4, entries: [{ ...tt, http_200_count: 2, unknown_result_count: 0 },
+      { ...ig, http_200_count: 0, unknown_result_count: 1 }] }
+  const unavailable = (label: string, ledger: unknown, requests: unknown, status: string) => {
+    const original = structuredClone({ ledger, requests })
+    const seen = inspectExistingCostLedger(ledger, requests, catalog)
+    exact(`${label}：按证据分类`, seen.status, status)
+    exact(`${label}：不带伪造金额或快照`, Object.keys(seen).sort(), ['problems', 'status'])
+    ok(`${label}：原因逐项可读`, seen.problems.length > 0 && seen.problems.every(p =>
+      typeof p.path === 'string' && typeof p.reason === 'string' && p.reason.length > 0))
+    let error: unknown
+    try { restoreCostBudget(ledger, requests, catalog) } catch (caught) { error = caught }
+    ok(`${label}：恢复使用专门错误`, error instanceof CostLedgerUnavailable)
+    if (error instanceof CostLedgerUnavailable) exact(`${label}：恢复保留同样诊断`,
+      { status: error.status, problems: error.problems }, { status: seen.status, problems: seen.problems })
+    exact(`${label}：读入失败不改原件`, { ledger, requests }, original)
+  }
+  for (const requests of [0, 3, undefined]) unavailable('旧记录费用字段缺席不补零', undefined, requests, 'unknown-history')
+  criterion('D12.r')
+  for (const ledger of [null, {}, [], 'bad']) unavailable('损坏费用账不当新任务', ledger, 0, 'invalid-ledger')
+  unavailable('未来 schema 无从解释', { ...raw, schema: 2 }, 3, 'unavailable-evidence')
+  unavailable('未知历史价格不以当前版代替', { ...raw, entries: [{ ...raw.entries[0], price_version: 'missing' }] }, 2, 'unavailable-evidence')
+  criterion('D12.t')
+  for (const patch of [{ currency: 'EUR' }, { unit: 'usd' }, { scope: 'other' }, { limit_micro_usd: -1 },
+    { limit_micro_usd: 0.5 }, { next_attempt_id: 0 }, { next_attempt_id: max + 1 }, { entries: null }])
+    unavailable('账目结构必须完整有效', { ...raw, ...patch }, 3, 'invalid-ledger')
+  for (const [label, entries] of [['稀疏条目数组', new Array(1)], ['null 条目', [null]]] as const) {
+    let escaped: unknown
+    try { unavailable(`${label}是普通坏账`, { ...raw, entries }, 0, 'invalid-ledger') }
+    catch (error) { escaped = error }
+    ok(`${label}按坏账诊断，不泄漏原生异常`, escaped === undefined)
+    if (escaped !== undefined) console.log(`     escaped=${escaped instanceof Error ? escaped.name : typeof escaped}`)
+  }
+  unavailable('算术自洽也不自动合并重复聚合键', { ...raw, entries: [raw.entries[0], raw.entries[0]] }, 4, 'invalid-ledger')
+  for (const patch of [{ endpoint: '/missing' }, { unit_micro_usd: 0 }, { unit_micro_usd: 1001 },
+    { http_200_count: -1, unknown_result_count: 3 }, { http_200_count: 0.5, unknown_result_count: 1.5 },
+    { http_200_count: '2' }, { unknown_result_count: undefined },
+    { http_200_count: max }, { unit_micro_usd: Infinity }])
+    unavailable('价目与次数不符不得修补', { ...raw, entries: [{ ...raw.entries[0], ...patch }] }, 2, 'invalid-ledger')
+  for (const requests of [0, 4, -1, 1.5, '3', undefined, NaN]) unavailable('外部净次数须与账一致', raw, requests, 'invalid-ledger')
+  // 9007199254740×1000 本身安全；再加 2000 超过最大安全微美元，次数之和仍安全。
+  const almost = { ...tt, http_200_count: 9007199254740, unknown_result_count: 0 }
+  unavailable('分项安全但总金额溢出仍拒绝', { ...raw, entries: [almost, { ...ig, http_200_count: 1,
+    unknown_result_count: 0 }] }, 9007199254741, 'invalid-ledger')
+  unavailable('pending 加入后溢出仍拒绝', { ...raw, entries: [almost], pending: { ...ig, attempt_id: 3 } },
+    9007199254740, 'invalid-ledger')
+  unavailable('两种净计数相加不得溢出', { ...raw, entries: [{ ...zero, http_200_count: max,
+    unknown_result_count: 1 }] }, max, 'invalid-ledger')
+  criterion('D12.d')
+
+  const live = fresh(), liveReceipt = live.reserve(ig), liveSnapshot = live.snapshot()
+  const resumed = restoreCostBudget(liveSnapshot.cost_ledger, liveSnapshot.requests, catalog)
+  exact('恢复未结项原样保留占用与净次数', money(resumed), [2000, 8000, 0, 0, 2000, 0, 0, 0, 1])
+  failure('恢复未结项不能再预留', () => resumed.reserve(tt), 'pending-attempt', resumed)
+  failure('恢复对象也不能消费原进程凭据', () => resumed.settle(liveReceipt, { kind: 'http', status: 429 }), 'invalid-receipt', resumed)
+  live.settle(liveReceipt, { kind: 'http', status: 200 })
+  exact('恢复操作不消费活账的原凭据', live.summary().requests, 1)
+  criterion('D12.m')
+  const input = clone(raw), historicalCatalog = clone(catalog)
+  const history = restoreCostBudget(input, 3, historicalCatalog)
+  exact('旧版金额 2×1000 + 1×2000 保留', money(history), [4000, 6000, 2000, 2000, 0, 3, 2, 1, 0])
+  input.entries[0].http_200_count = 0; input.limit_micro_usd = 0
+  historicalCatalog.old['/tt'] = 1; historicalCatalog.newer['/ig'] = 1
+  history.settle(history.reserve(price('/ig', 4000, 'newer')), { kind: 'http', status: 200 })
+  exact('新版只影响新请求，旧版不重算', money(history), [8000, 2000, 6000, 2000, 0, 4, 3, 1, 0])
+  exact('旧项版本单价仍完整保存', history.snapshot().cost_ledger.entries.slice(0, 2), raw.entries)
+  criterion('D12.s')
+
+  const detached = history.snapshot(), detachedSummary = history.summary()
+  try { (detached as any).cost_ledger.entries[0].http_200_count = 0; (detached as any).cost_ledger.limit_micro_usd = 0;
+    (detached as any).requests = 0; (detachedSummary as any).occupied_micro_usd = 0 } catch { /* 冻结副本也可拒绝外部修改。 */ }
+  exact('调用方改快照和汇总不能改内账', money(history), [8000, 2000, 6000, 2000, 0, 4, 3, 1, 0])
+  criterion('D12.v')
+  const externalCatalog = clone(catalog), isolated = createCostBudget(2000, 'task', externalCatalog)
+  externalCatalog.old['/ig'] = 1
+  failure('外部改价目不能替内账生成低价', () => isolated.reserve(price('/ig', 1)), 'unknown-price', isolated)
+  succeeds('外部改价目后，合法固定价仍可预留并结算', () => {
+    const mutablePrice = { ...ig }, isolatedReceipt = isolated.reserve(mutablePrice)
+    mutablePrice.unit_micro_usd = 0
+    isolated.settle(isolatedReceipt, { kind: 'http', status: 200 })
+    exact('预留报价引用不会改变结算金额', isolated.summary().occupied_micro_usd, 2000)
+  })
+  criterion('D12.u')
+  const checked = inspectExistingCostLedger(raw, 3, catalog)
+  ok('合法历史记录可检查', checked.status === 'known')
+  if (checked.status === 'known') {
+    exact('合法账无诊断问题', checked.problems, [])
+    exact('检查保留已知账与净次数', checked.snapshot, { cost_ledger: raw, requests: 3 })
+    exact('检查直接返回准确金额摘要', checked.summary, { limit_micro_usd: 10000, occupied_micro_usd: 4000,
+      remaining_micro_usd: 6000, http_200_micro_usd: 2000, unknown_result_micro_usd: 2000, pending_micro_usd: 0,
+      requests: 3, http_200_count: 2, unknown_result_count: 1, pending_count: 0 })
+    try { (checked.snapshot as any).cost_ledger.entries[0].unit_micro_usd = 0 } catch { /* 冻结副本也可保护原件。 */ }
+    exact('检查输出不改原始账', raw.entries[0].unit_micro_usd, 1000)
+  }
+  const zeroBook = createCostBudget(0, 'task', catalog)
+  zeroBook.settle(zeroBook.reserve(zero), { kind: 'http', status: 200 })
+  exact('合法零价仍计真实净次数', money(zeroBook), [0, 0, 0, 0, 0, 1, 1, 0, 0])
+  failure('零预算也不替未知路径套零价', () => zeroBook.reserve(price('/missing', 0)), 'unknown-price', zeroBook)
+  const exhausted = restoreCostBudget({ ...raw, next_attempt_id: max, entries: [] }, 0, catalog)
+  failure('尝试序号递增溢出保持原账', () => exhausted.reserve(zero), 'invalid-money', exhausted)
+  succeeds('净次数达安全上界仍能零价预留，溢出拒绝后可按429结算', () => {
+    const fullCount = restoreCostBudget({ ...raw, entries: [{ ...zero, http_200_count: max, unknown_result_count: 0 }] }, max, catalog)
+    const overflowReceipt = fullCount.reserve(zero)
+    failure('终态计数溢出不能部分记账', () => fullCount.settle(overflowReceipt, { kind: 'http', status: 200 }), 'invalid-money', fullCount)
+    fullCount.settle(overflowReceipt, { kind: 'http', status: 429 })
+    exact('结算失败仍保留原凭据供有效终态处理', fullCount.summary().requests, max)
+  })
+  const overdrawn = restoreCostBudget({ ...raw, limit_micro_usd: 3000 }, 3, catalog)
+  exact('已知超额账余额保留负数', overdrawn.summary().remaining_micro_usd, -1000)
+  failure('已超额不能因零价获得新请求资格', () => overdrawn.reserve(zero), 'budget-exceeded', overdrawn)
+  criterion('D12.w')
+  ok('费用依据是可读声明', typeof TIKHUB_PRICE_BASIS === 'string')
+  ok('依据声明固定公开基础价', /固定/.test(TIKHUB_PRICE_BASIS) && /公开/.test(TIKHUB_PRICE_BASIS) && /基础/.test(TIKHUB_PRICE_BASIS))
+  ok('依据声明不计优惠', /不计优惠/.test(TIKHUB_PRICE_BASIS))
+  ok('依据明确非实际账单', /(?:非|不是).{0,6}账单/.test(TIKHUB_PRICE_BASIS))
+  ok('依据不保证供应商未来价格', /(?:不保证|不作为|不是|非).*(?:未来|将来|价格上)/.test(TIKHUB_PRICE_BASIS))
+  criterion('D12.p')
+  tension('D12', 'P1'); tension('D12', 'P3'); tension('D12', 'P5')
 }
 
 console.log(fail ? `\n${fail} 个失败\n` : `\n全部通过（覆盖 ${covered.size} 条需求）\n`)

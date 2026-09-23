@@ -3778,6 +3778,142 @@
       "file": "scripts/lib/report.ts",
       "find": "<td>${esc(k.keyword)}</td>",
       "replace": "<td>${esc(k.keyword)}${k.as_hashtag ? '(hashtag)' : ''}</td>"
+    },
+    {
+      "id": "M-D12-a",
+      "req": "D12.a",
+      "why": "原始预算先舍入成浮点数，超精度授权被悄悄扩大",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "  const m = typeof token === 'string'",
+      "replace": "  return Math.round(Number(token) * 1000000)\n  const m = typeof token === 'string'"
+    },
+    {
+      "id": "M-D12-b",
+      "req": "D12.b",
+      "why": "把精确微美元显示成两位小数，掩盖真实余额",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "  integer(micros, '金额')",
+      "replace": "  return (micros / 1000000).toFixed(2)\n  integer(micros, '金额')"
+    },
+    {
+      "id": "M-D12-c",
+      "req": "D12.c",
+      "why": "把已核的 Instagram 发现端点价格减半",
+      "file": "scripts/providers/tikhub-pricing.ts",
+      "find": "    '/api/v1/instagram/v2/search_reels': 2000,",
+      "replace": "    '/api/v1/instagram/v2/search_reels': 1000,"
+    },
+    {
+      "id": "M-D12-d",
+      "req": "D12.d",
+      "why": "恢复账目不再核对历史版本单价，允许改低已花金额",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "    || raw.unit_micro_usd !== catalog[raw.price_version][raw.endpoint])",
+      "replace": "    || false)"
+    },
+    {
+      "id": "M-D12-e",
+      "req": "D12.e",
+      "why": "把未结预留加入净次数，冒充请求终态",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "requests: bounded(httpCount + unknownCount, '净次数')",
+      "replace": "requests: bounded(httpCount + unknownCount + BigInt(ledger.pending === undefined ? 0 : 1), '净次数')"
+    },
+    {
+      "id": "M-D12-f",
+      "req": "D12.f",
+      "why": "占用金额漏掉结果不明的保守留存",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "httpMoney + unknownMoney + BigInt(pending)",
+      "replace": "httpMoney + BigInt(pending)"
+    },
+    {
+      "id": "M-D12-g",
+      "req": "D12.g",
+      "why": "允许下一次预留超出用户金额上限",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "> BigInt(ledger.limit_micro_usd)",
+      "replace": "> BigInt(ledger.limit_micro_usd) + 1000000n"
+    },
+    {
+      "id": "M-D12-h",
+      "req": "D12.h",
+      "why": "成功结算保留次数却漏记对应费用金额",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "httpMoney += BigInt(line.http_200_count) * BigInt(line.unit_micro_usd)",
+      "replace": "httpMoney += 0n * BigInt(line.http_200_count) * BigInt(line.unit_micro_usd)"
+    },
+    {
+      "id": "M-D12-i",
+      "req": "D12.i",
+      "why": "明确非 200 响应仍按成功费用留存",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "if (outcome.kind === 'no_http_status' || outcome.status === 200) {",
+      "replace": "if (true) {"
+    },
+    {
+      "id": "M-D12-j",
+      "req": "D12.j",
+      "why": "没有 HTTP 状态时自动撤销保守占用",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "if (outcome.kind === 'no_http_status' || outcome.status === 200) {",
+      "replace": "if (outcome.kind === 'http' && outcome.status === 200) {"
+    },
+    {
+      "id": "M-D12-k",
+      "req": "D12.k",
+      "why": "重复消费结算凭据静默放过，不再拒绝",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "    settle(receipt, outcome) {",
+      "replace": "    settle(receipt, outcome) {\n      if (liveReceipt === undefined) return"
+    },
+    {
+      "id": "M-D12-m",
+      "req": "D12.m",
+      "why": "恢复未结账后允许新预留覆盖旧占用",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "if (ledger.pending !== undefined) throw new CostError('pending-attempt'",
+      "replace": "if (ledger.pending !== undefined && liveReceipt !== undefined) throw new CostError('pending-attempt'"
+    },
+    {
+      "id": "M-D12-r",
+      "req": "D12.r",
+      "why": "旧账缺失时新造零费用，允许未知历史变成余额",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "if (raw === undefined) unavailable('cost_ledger', '历史金额无从确认', 'unknown-history')",
+      "replace": "if (raw === undefined) { raw = { schema: 1, currency: 'USD', unit: 'micro_usd', scope: 'task', limit_micro_usd: 0, next_attempt_id: 1, entries: [] }; rawRequests = 0 }"
+    },
+    {
+      "id": "M-D12-v",
+      "req": "D12.v",
+      "why": "把内部账目直接交作快照，调用方可改已验证金额",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "cost_ledger: structuredClone(ledger)",
+      "replace": "cost_ledger: ledger"
+    },
+    {
+      "id": "M-D12-w",
+      "req": "D12.w",
+      "why": "预留被拒之前就改变尝试序号，留下部分改动",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "      const p = checkedPrice(raw, catalog)",
+      "replace": "      ledger.next_attempt_id++\n      const p = checkedPrice(raw, catalog)"
+    },
+    {
+      "id": "M-D12-p",
+      "req": "D12.p",
+      "why": "把固定公开价目声明成未来价格上界与真实账单",
+      "file": "scripts/providers/tikhub-pricing.ts",
+      "find": "固定公开基础价，不计优惠；不是实际账单，不保证供应商未来价格。",
+      "replace": "费用就是实际账单，并保证供应商未来价格上界。"
+    },
+    {
+      "id": "M-D12-x",
+      "req": "D12.d",
+      "why": "稀疏费用条目跳过校验，坏账泄漏原生异常",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "Array.from(raw.entries, (value, i) => {",
+      "replace": "raw.entries.map((value, i) => {"
     }
   ],
   "exemptions": [
