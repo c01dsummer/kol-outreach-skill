@@ -9,9 +9,7 @@
       "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
       "replace": "discovery_sources: undefined,",
       "by": "selfcheck",
-      "kills": [
-        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
-      ]
+      "kills": ["probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"]
     },
     {
       "id": "M-D15-b",
@@ -21,9 +19,7 @@
       "find": "dimension: task.dimension, endpoint: INSTAGRAM_USERS_ENDPOINT }],",
       "replace": "dimension: task.dimension, endpoint: INSTAGRAM_REELS_ENDPOINT }],",
       "by": "selfcheck",
-      "kills": [
-        "三路来源进入raw，空Reels后的账号只有users来源"
-      ]
+      "kills": ["三路来源进入raw，空Reels后的账号只有users来源"]
     },
     {
       "id": "M-D15-c",
@@ -57,9 +53,7 @@
       "find": "seen.discovery_sources = mergeDiscoverySources(seen.discovery_sources, p.discovery_sources)",
       "replace": "seen.discovery_sources = mergeDiscoverySources(seen.discovery_sources)",
       "by": "selfcheck",
-      "kills": [
-        "三路来源进入raw，空Reels后的账号只有users来源"
-      ]
+      "kills": ["三路来源进入raw，空Reels后的账号只有users来源"]
     },
     {
       "id": "M-D15-g",
@@ -69,9 +63,7 @@
       "find": "discovery_sources: c.discovery_sources,",
       "replace": "discovery_sources: undefined,",
       "by": "selfcheck",
-      "kills": [
-        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
-      ]
+      "kills": ["probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"]
     },
     {
       "id": "M-D15-h",
