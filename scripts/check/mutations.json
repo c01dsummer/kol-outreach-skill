@@ -9,7 +9,9 @@
       "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
       "replace": "discovery_sources: undefined,",
       "by": "selfcheck",
-      "kills": ["probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"]
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
     },
     {
       "id": "M-D15-b",
@@ -19,7 +21,9 @@
       "find": "dimension: task.dimension, endpoint: INSTAGRAM_USERS_ENDPOINT }],",
       "replace": "dimension: task.dimension, endpoint: INSTAGRAM_REELS_ENDPOINT }],",
       "by": "selfcheck",
-      "kills": ["三路来源进入raw，空Reels后的账号只有users来源"]
+      "kills": [
+        "三路来源进入raw，空Reels后的账号只有users来源"
+      ]
     },
     {
       "id": "M-D15-c",
@@ -53,7 +57,9 @@
       "find": "seen.discovery_sources = mergeDiscoverySources(seen.discovery_sources, p.discovery_sources)",
       "replace": "seen.discovery_sources = mergeDiscoverySources(seen.discovery_sources)",
       "by": "selfcheck",
-      "kills": ["三路来源进入raw，空Reels后的账号只有users来源"]
+      "kills": [
+        "三路来源进入raw，空Reels后的账号只有users来源"
+      ]
     },
     {
       "id": "M-D15-g",
@@ -63,7 +69,9 @@
       "find": "discovery_sources: c.discovery_sources,",
       "replace": "discovery_sources: undefined,",
       "by": "selfcheck",
-      "kills": ["probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"]
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
     },
     {
       "id": "M-D15-h",
@@ -2998,6 +3006,22 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "  const room = Math.max(cap - causal.length, 0)\n  return {\n    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),\n    raw: false,\n  }",
       "replace": "  const room = Math.max(cap - causal.length, 0)\n  return {\n    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),\n    raw: true,\n  }"
+    },
+    {
+      "id": "M-H45-a",
+      "req": "harness",
+      "why": "锚点只问在不在、不问几处：出现两处的锚点被数成一处，替换静默改掉第一处，而作者要验的那一处一个字没动 —— 正是 ADR-99 第八节那张欠条的原样",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  let n = 0\n  let at = content.indexOf(find)\n  while (at !== -1) {\n    n++\n    if (at >= content.length) break\n    at = content.indexOf(find, at + 1)\n  }\n  return n",
+      "replace": "  return content.includes(find) ? 1 : 0"
+    },
+    {
+      "id": "M-H45-b",
+      "req": "harness",
+      "why": "重叠的出现不算数：一段锚点挪一格又出现一次时被数成一处，替换挑中的那一处未必是作者想的那一处，而报告说它唯一",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    at = content.indexOf(find, at + 1)",
+      "replace": "    at = content.indexOf(find, at + Math.max(find.length, 1))"
     },
     {
       "id": "M-H36-a",
