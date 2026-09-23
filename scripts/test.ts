@@ -71,6 +71,7 @@ import { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { isDeepStrictEqual } from 'node:util'
 import { createRequire } from 'node:module'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetInputError, startBudget, costView, type CostView } from './lib/budget.js'
 import { readCostDocument, readCostLimit, setCostLimitField, stringifyCostJson, type CostState } from './lib/cost-json.js'
@@ -5934,7 +5935,7 @@ suite('D13', '已有数据可离线输出，未知费用不得换来新增付费
   const cwd = mkdtempSync(join(tmpdir(), 'kol-cost-cross-')), dir = join(cwd, 'task'), taskFile = join(dir, 'task.json')
   const log = join(cwd, 'attempts.tsv'), scripts = new URL('./', import.meta.url)
   const preload = new URL('./check/fake-fetch.ts', import.meta.url).href
-  const tsx = createRequire(import.meta.url).resolve('tsx')
+  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
   mkdirSync(dir); mkdirSync(join(cwd, 'memory'))
   const writeLegacy = (paid = false) => {
     writeFileSync(taskFile, JSON.stringify({ product: 'legacy-cross', market: 'US', target_count: 9999,
@@ -5945,7 +5946,7 @@ suite('D13', '已有数据可离线输出，未知费用不得换来新增付费
     for (const file of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, file), '[]')
   }
   const run = (file: string, args: string[], key = '') => spawnSync(process.execPath,
-    ['--import', tsx, '--import', preload, new URL(file, scripts).pathname, ...args], {
+    ['--import', tsx, '--import', preload, fileURLToPath(new URL(file, scripts)), ...args], {
       cwd, encoding: 'utf8', timeout: 20000, env: { ...process.env, NODE_OPTIONS: '',
         TIKHUB_API_KEY: key, FAKE_FETCH_LEDGER: log, FAKE_FETCH_NO_429: '1' },
     })
