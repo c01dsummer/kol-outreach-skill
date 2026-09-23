@@ -48,3 +48,18 @@
 3. 入口（最后一块砖）：配置校验与 `search()` 分派；同一条 PR 改 D15.a/b/h、D11、D6，按 `docs/SYNC.md` 同步
    `skill/references/providers/tikhub.md`、`_interface.md`、`skill/SKILL.md`、`skill/references/keyword-strategy.md`、
    `docs/ARCHITECTURE.md` 缝隙契约，以及 `tikhub.md` 里「实验 hashtag 不成为生产路径」那句。
+
+## 五、2026-09-24 两个上线前提的核对结果
+
+用户在本机运行只读命令（不发数据请求、不用 key），输出贴回会话：
+
+1. **价目**：本地读取的定价资产 SHA256 为 `5d52fe8fb109a569e4e16b39b611ee9d5233c9131d264f1e856a987f23cc8cbf`，
+   与价目版本 `tikhub-public-20260720-5d52fe8fb109` 记录的一致。该资产中的原始元组为
+   `["/api/v1/instagram/v2/fetch_hashtag_posts",0.002,0,0,"10/second"]` —— 单价 0.002 USD（2000 微美元），
+   阶梯标记 0、免费额度标记 0。第三节第 1 条满足，可在同一版本内转录这一行。
+2. **字段**：在用户本地重采样本（`sample-lInRuK`，另一组观测，只用于字段存在性，不用于任何计数结论）的
+   4 份话题响应上：列表在 `data.data.items`（各 23–24 条）；首条 `id` 为字符串、有 `user.username`；
+   文案字段是 `caption_text`（Reels 与 general 是 `caption.text`）；全部条目的 `media_type` 取值为 1、2、8，
+   `is_video` 真假都有，`product_type` 为 `feed`、`clips`、`carousel_container` —— 图文与轮播确实混在话题页里；
+   三条路线的响应都有与 `data.data` 同级的 `data.pagination_token`。
+   只核了每份的首条的作者与文案字段，逐条覆盖率未核：解析器对缺席字段保持缺席，不推算。
