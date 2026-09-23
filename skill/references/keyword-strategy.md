@@ -50,6 +50,11 @@ Reels 搜索名称不保证排除商家、纯图文或轮播作者；对 PhotoMo
 
 每个词、每个平台**只抓 1 页**（TikTok `count=20`，IG 第一页）。请求数按本次词和补全动作计算；费用须核对应端点声明，不能沿用固定美分上限。
 
+结果的 task_index 是原 tasks 中的零起始下标；转述使用原任务序号（下标加一），
+不要因筛选结果重编号。同词同平台的两个任务不能合成一行（U8）。
+as_hashtag 是配置元数据，当前 TikHub 实现不据此切换端点；不要据它加 # 或声称话题搜索。
+关键词本身有 # 时原样保留。
+
 然后把结果摆给用户看，形如：
 
 读取 `probe` 的 `results[].sample[].top_post` 时，`（未查询）` 表示作品未查询，不能据此判断作者没有作品或查询结果为空；
@@ -59,18 +64,18 @@ Reels 搜索名称不保证排除商家、纯图文或轮播作者；对 PhotoMo
 ```
 关键词试探结果（请求数与费用估算按本次输出填写，并说明端点价格差异）
 
-【竞品词】anker power bank · TikTok
+任务 1 · 竞品词 · TikTok · 关键词「anker power bank」
   找到 18 人 · 粉丝中位数 47k
   样例：@techwithsarah（82k，数码测评，最近在测氮化镓充电头）
         @traveldan（31k，旅行 vlog，上周测了三款充电宝）
 
-【品类词】power bank review · TikTok
+任务 2 · 品类词 · TikTok · 关键词「power bank review」
   找到 20 人 · 粉丝中位数 12k
   样例：@powerbankdeals（8k，账号名带产品词，内容是搬运合集）
         @gadgetgrabs（15k，商品链接聚合号）
   ⚠️ 商家号偏多
 
-【场景词】#travelessentials · Instagram
+任务 3 · 场景词 · Instagram · 关键词「travelessentials」
   找到 14 人 · 粉丝中位数 63k
   样例：@wanderwithmei（120k，旅行摄影，行李开箱内容多）
 

@@ -23,6 +23,7 @@ import {
 } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
+import { taskLabel } from './lib/task-label.js'
 import {
   taskDir, taskFile, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators,
   persistListAndStatus,
@@ -222,8 +223,8 @@ async function run() {
         exhausted.add(i)
         state.done.push(i)
         console.error(fetchedSoFar === null
-          ? `  ◦ ${state.tasks[i].keyword} · ${state.tasks[i].platform} → 已抓页数无从确认，不再翻页 —— 上一版留下的目录只补第一页（D6.m）`
-          : `  ◦ ${state.tasks[i].keyword} · ${state.tasks[i].platform} → 已达页数上限 ${MAX_PAGES} 页，不再翻页`)
+          ? `  ◦ ${taskLabel(state.tasks[i], i)} → 已抓页数无从确认，不再翻页 —— 上一版留下的目录只补第一页（D6.m）`
+          : `  ◦ ${taskLabel(state.tasks[i], i)} → 已达页数上限 ${MAX_PAGES} 页，不再翻页`)
         persist()
         continue
       }
@@ -291,7 +292,7 @@ async function run() {
       if (!raw_count || !has_more) {
         exhausted.add(i)
         state.done.push(i)
-        console.error(`  ✓ ${t.keyword} · ${t.platform} → 共 ${addedBy.get(i)} 人（累计 ${creators.size}）  ${budget.summary()}`)
+        console.error(`  ✓ ${taskLabel(t, i)} → 共 ${addedBy.get(i)} 人（累计 ${creators.size}）  ${budget.summary()}`)
       } else if (fetched !== undefined && fetched >= MAX_PAGES) {
         // **当场记，不留到收尾** —— 收尾那一段排在搜索循环之后，任何从 `api.search`
         // 抛穿 run() 的异常都会把它整个掀掉（预算用尽只是其中一种，402／换了响应结构
@@ -299,7 +300,7 @@ async function run() {
         // 实测过 12 页（上限 4）。记在这里，紧跟着下面那次 persist() 就落盘了。
         exhausted.add(i)
         state.done.push(i)
-        console.error(`  ◦ ${t.keyword} · ${t.platform} → 达页数上限 ${MAX_PAGES} 页（累计新增 ${addedBy.get(i) ?? 0} 人）`)
+        console.error(`  ◦ ${taskLabel(t, i)} → 达页数上限 ${MAX_PAGES} 页（累计新增 ${addedBy.get(i) ?? 0} 人）`)
       }
       persist()
     }

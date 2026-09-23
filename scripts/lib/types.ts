@@ -305,7 +305,7 @@ export interface SearchTask {
   keyword: string
   dimension: Dimension
   platform: Platform
-  /** IG hashtag 搜索时为 true，keyword 是不带 # 的话题名 */
+  /** 配置元数据；当前 TikHub 不据此切换端点，不证明实际发现路径。 */
   as_hashtag?: boolean
 }
 

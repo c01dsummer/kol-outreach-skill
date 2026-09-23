@@ -360,7 +360,7 @@
     {
       "id": "M-U3-h",
       "req": "U3.b",
-      "why": "hashtag 词在行上不再带标记 —— 同词同平台同维度的 hashtag 行与普通行在报告上一模一样，而行的身份本来就包含它：运营看不出两行的差别在哪，只会以为表里有重复",
+      "why": "关键词行丢失原任务的话题配置元数据 —— 即使任务序号仍可区分，复核配置时也无法看到原来声明的意图；配置意图不能冒充实际发现路径",
       "file": "scripts/lib/pipeline.ts",
       "find": "      ...(t.as_hashtag ? { as_hashtag: true } : {}),",
       "replace": ""
@@ -532,7 +532,7 @@
       "req": "F9.c",
       "why": "达标之后就说「续跑一个关键词都不会抓」—— 还欠着第一页的那些词，续跑照样会去抓它们，那是要付费的端点，账单在用户不知情时又长一截；反过来他也可能因为「反正不花钱」就去续跑一轮自己没打算花的钱",
       "file": "scripts/lib/pipeline.ts",
-      "find": "  const first = new Set(owed)\n  return state.tasks.filter((_, i) => first.has(i)).map(label)",
+      "find": "  const first = new Set(owed)\n  return state.tasks.flatMap((t, i) => first.has(i) ? [taskLabel(t, i)] : [])",
       "replace": "  return []"
     },
     {
@@ -3638,6 +3638,146 @@
       "file": "scripts/lib/posts.ts",
       "find": "if (typeof raw === 'string' && raw.trim().length > 0) return `${platform}:${raw}`",
       "replace": "if (typeof raw === 'string' && raw.trim().length > 0) return `${platform}:${raw.trim()}`"
+    },
+    {
+      "id": "M-U8-a",
+      "req": "U8.a",
+      "why": "未完成任务标签把不同任务写成同一序号，完全重复的配置无法区分",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "!state.done.includes(i) ? [taskLabel(t, i)] : []",
+      "replace": "!state.done.includes(i) ? [taskLabel(t, 0)] : []"
+    },
+    {
+      "id": "M-U8-b",
+      "req": "U8.b",
+      "why": "达标后的续跑任务在筛选后重新编号，不再对应原任务列表",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "return state.tasks.flatMap((t, i) => first.has(i) ? [taskLabel(t, i)] : [])",
+      "replace": "return state.tasks.filter((_, i) => first.has(i)).map((t, i) => taskLabel(t, i))"
+    },
+    {
+      "id": "M-U8-c",
+      "req": "U8.c",
+      "why": "所有关键词统计行被标成第一个任务，真实归人数与展示身份错配",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "      task_index: i,",
+      "replace": "      task_index: 0,"
+    },
+    {
+      "id": "M-U8-d",
+      "req": "U8.d",
+      "why": "HTML 所有行都展示第一个任务的序号",
+      "file": "scripts/lib/report.ts",
+      "find": "taskOrdinal(k.task_index)",
+      "replace": "taskOrdinal(0)"
+    },
+    {
+      "id": "M-U8-e",
+      "req": "U8.e",
+      "why": "旧行没有有效任务下标时被猜成任务一，未知身份伪装成已确认",
+      "file": "scripts/lib/task-label.ts",
+      "find": "? String(index + 1) : '无从确认'",
+      "replace": "? String(index + 1) : '1'"
+    },
+    {
+      "id": "M-U8-f",
+      "req": "U8.f",
+      "why": "试探成功结果丢失原任务下标",
+      "file": "scripts/probe.ts",
+      "find": "        task_index: i,",
+      "replace": "        // 丢失原任务下标",
+      "by": "selfcheck",
+      "kills": [
+        "probe 成功行带原下标与维度，完全重复任务也不合并"
+      ]
+    },
+    {
+      "id": "M-U8-g",
+      "req": "U8.g",
+      "why": "试探错误结果丢失原任务身份和维度",
+      "file": "scripts/probe.ts",
+      "find": "results.push({ task_index: i, keyword: t.keyword, dimension: t.dimension, platform: t.platform, error: msg })",
+      "replace": "results.push({ keyword: t.keyword, platform: t.platform, error: msg })",
+      "by": "selfcheck",
+      "kills": [
+        "probe 普通错误行带原下标与维度，失败能定位到原任务"
+      ]
+    },
+    {
+      "id": "M-U8-h",
+      "req": "U8.h",
+      "why": "试探成功进度省略原任务身份",
+      "file": "scripts/probe.ts",
+      "find": "console.error(`  ✓ ${label} → ${found.length} 人`)",
+      "replace": "console.error(`  ✓ ${t.keyword} → ${found.length} 人`)",
+      "by": "selfcheck",
+      "kills": [
+        "probe 每条成功进度保留原任务标签，原词不因配置加井号"
+      ]
+    },
+    {
+      "id": "M-U8-i",
+      "req": "U8.h",
+      "why": "试探失败进度省略原任务身份",
+      "file": "scripts/probe.ts",
+      "find": "console.error(`  ✗ ${label} → ${msg}`)",
+      "replace": "console.error(`  ✗ ${t.keyword} → ${msg}`)",
+      "by": "selfcheck",
+      "kills": [
+        "probe 每条失败进度保留原任务标签"
+      ]
+    },
+    {
+      "id": "M-U8-j",
+      "req": "U8.i",
+      "why": "采集搜索完成提示省略原任务身份",
+      "file": "scripts/collect.ts",
+      "find": "✓ ${taskLabel(t, i)} → 共",
+      "replace": "✓ ${t.keyword} → 共",
+      "by": "selfcheck",
+      "kills": [
+        "collect 搜索完成进度保留原任务序号、维度、平台和原词"
+      ]
+    },
+    {
+      "id": "M-U8-k",
+      "req": "U8.j",
+      "why": "本轮达到页数上限的提示省略原任务身份",
+      "file": "scripts/collect.ts",
+      "find": "◦ ${taskLabel(t, i)} → 达页数上限",
+      "replace": "◦ ${t.keyword} → 达页数上限",
+      "by": "selfcheck",
+      "kills": [
+        "collect 本轮达到页数上限的进度保留完整原任务标签"
+      ]
+    },
+    {
+      "id": "M-U8-l",
+      "req": "U8.j",
+      "why": "开跑时已经达到页数上限的提示省略原任务身份",
+      "file": "scripts/collect.ts",
+      "find": "◦ ${taskLabel(state.tasks[i], i)} → 已达页数上限",
+      "replace": "◦ ${state.tasks[i].keyword} → 已达页数上限",
+      "by": "selfcheck",
+      "kills": [
+        "collect 开跑时已达页数上限的进度也保留完整原任务标签"
+      ]
+    },
+    {
+      "id": "M-U8-m",
+      "req": "U8.k",
+      "why": "任务标签根据话题配置添加井号，冒充实际话题搜索",
+      "file": "scripts/lib/task-label.ts",
+      "find": "关键词「${task.keyword}」",
+      "replace": "关键词「${task.as_hashtag ? '#' : ''}${task.keyword}」"
+    },
+    {
+      "id": "M-U8-n",
+      "req": "U8.k",
+      "why": "HTML 根据话题配置添加搜索路径声明",
+      "file": "scripts/lib/report.ts",
+      "find": "<td>${esc(k.keyword)}</td>",
+      "replace": "<td>${esc(k.keyword)}${k.as_hashtag ? '(hashtag)' : ''}</td>"
     }
   ],
   "exemptions": [

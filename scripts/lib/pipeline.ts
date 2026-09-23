@@ -1,6 +1,7 @@
 import { creatorKey, type Creator, type Platform, type SearchTask, type TaskState } from './types.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './identity.js'
 import { mergeRecentPosts } from './posts.js'
+import { taskLabel } from './task-label.js'
 import {
   passesFollowerGate, scoreCreator, tierOf, applyGeoPenalty, applyAudienceRiskPenalty,
 } from './score.js'
@@ -100,7 +101,7 @@ export function keywordsResumeWillRun(state: TaskState, qualified: number): stri
   if (qualified < state.target_count) return pendingKeywords(state)
   // F9：达标了也照样去抓**一页都没抓过**的那些 —— 第一页不受达标判断约束。
   const first = new Set(owed)
-  return state.tasks.filter((_, i) => first.has(i)).map(label)
+  return state.tasks.flatMap((t, i) => first.has(i) ? [taskLabel(t, i)] : [])
 }
 
 /**
@@ -200,12 +201,8 @@ export const underPageCap = (state: TaskState, i: number): boolean => {
 }
 
 export function pendingKeywords(state: TaskState): string[] {
-  return state.tasks.filter((_, i) => !state.done.includes(i)).map(label)
+  return state.tasks.flatMap((t, i) => !state.done.includes(i) ? [taskLabel(t, i)] : [])
 }
-
-/** 关键词×平台的展示名。两处列表共用，免得一处带 # 一处不带。 */
-const label = (t: TaskState['tasks'][number]): string =>
-  `${t.as_hashtag ? '#' : ''}${t.keyword}(${t.platform})`
 
 /**
  * **收尾时说给用户的那句话：续跑还要不要花钱。**
@@ -331,6 +328,8 @@ export function rankCreators(creators: Creator[], market: string): Creator[] {
  * 那正是 IG 为零时最贵的那一半：报告里它和「查了没人」长得一模一样（ADR-94）。
  */
 export interface KeywordRow {
+  /** U8：原 tasks 的零起始下标，不是筛选后的行号。 */
+  task_index: number
   keyword: string
   platform: Platform
   dimension: string
@@ -375,6 +374,7 @@ export function keywordRows(state: TaskState, delivered: Creator[]): KeywordRow[
     // 请求的行上挂着别人的测量结果（ADR-94 第十六节甲）。
     const mine = counted ? delivered.filter(c => c.source_tasks?.includes(i)) : []
     return {
+      task_index: i,
       keyword: t.keyword,
       platform: t.platform,
       dimension: t.dimension,

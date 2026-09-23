@@ -18,6 +18,7 @@ import { TikHub, TikHubError } from './providers/tikhub.js'
 import { Budget, BudgetExceeded, budgetProblem, showAmount } from './lib/budget.js'
 import { extractEmail } from './lib/email.js'
 import type { SearchTask } from './lib/types.js'
+import { taskLabel } from './lib/task-label.js'
 
 const cfgPath = process.argv[process.argv.indexOf('--config') + 1]
 if (!cfgPath || cfgPath.startsWith('--')) {
@@ -64,8 +65,8 @@ const median = (xs: number[]): number | undefined => {
 async function main() {
   const results: any[] = []
 
-  for (const t of cfg.tasks) {
-    const label = `${t.as_hashtag ? '#' : ''}${t.keyword} · ${t.platform}`
+  for (const [i, t] of cfg.tasks.entries()) {
+    const label = taskLabel(t, i)
     try {
       const { creators: found } = await api.search(t, market, 0)
       // P1：粉丝数未知的排除出中位数计算，而不是当作 0 拉低它
@@ -77,6 +78,7 @@ async function main() {
         .slice(Math.floor(found.length / 4), Math.floor(found.length / 4) + 3)
 
       results.push({
+        task_index: i,
         keyword: t.keyword, dimension: t.dimension, platform: t.platform,
         as_hashtag: t.as_hashtag ?? false,
         found: found.length,
@@ -103,7 +105,7 @@ async function main() {
         break
       }
       const msg = e instanceof TikHubError ? e.message : String(e)
-      results.push({ keyword: t.keyword, platform: t.platform, error: msg })
+      results.push({ task_index: i, keyword: t.keyword, dimension: t.dimension, platform: t.platform, error: msg })
       console.error(`  ✗ ${label} → ${msg}`)
       if (e instanceof TikHubError && e.status === 402) break
     }
