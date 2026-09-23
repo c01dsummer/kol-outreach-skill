@@ -349,8 +349,8 @@ group('probe', [], () => {
     tasks: [
       { keyword: 'selfcare', dimension: 'category', platform: 'instagram', as_hashtag: true },
       { keyword: '#Self Care', dimension: 'audience', platform: 'instagram', as_hashtag: true },
-      { keyword: 'selfcare', dimension: 'scenario', platform: 'instagram', as_hashtag: true },
-      { keyword: 'selfcare', dimension: 'scenario', platform: 'instagram', as_hashtag: true },
+      { keyword: 'selfcare', dimension: 'scene', platform: 'instagram', as_hashtag: true },
+      { keyword: 'selfcare', dimension: 'scene', platform: 'instagram', as_hashtag: true },
       // 普通错误会结束本次试探，放在末尾，前面每个成功任务才真正被执行。
       { keyword: 'force-402-selfcare', dimension: 'competitor', platform: 'tiktok' },
     ],
@@ -362,7 +362,7 @@ group('probe', [], () => {
     const rows: any[] = Array.isArray(results) ? results : []
     named('probe 成功行带原下标与维度，完全重复任务也不合并',
       JSON.stringify(rows.filter(r => !r.error).map(r => [r.task_index, r.dimension]))
-        === JSON.stringify([[0, 'category'], [1, 'audience'], [2, 'scenario'], [3, 'scenario']]),
+        === JSON.stringify([[0, 'category'], [1, 'audience'], [2, 'scene'], [3, 'scene']]),
       `成功行身份实际为 ${JSON.stringify(rows.filter(r => !r.error).map(r => [r.task_index, r.dimension]))}`)
     named('probe 普通错误行带原下标与维度，失败能定位到原任务',
       JSON.stringify(rows.filter(r => r.error).map(r => [r.task_index, r.dimension]))
@@ -372,8 +372,8 @@ group('probe', [], () => {
     const expected = [
       '任务 1 · category · instagram · 关键词「selfcare」',
       '任务 2 · audience · instagram · 关键词「#Self Care」',
-      '任务 3 · scenario · instagram · 关键词「selfcare」',
-      '任务 4 · scenario · instagram · 关键词「selfcare」',
+      '任务 3 · scene · instagram · 关键词「selfcare」',
+      '任务 4 · scene · instagram · 关键词「selfcare」',
     ]
     named('probe 每条成功进度保留原任务标签，原词不因配置加井号',
       successLines.length === expected.length && expected.every((label, i) => successLines[i]?.includes(label)),
