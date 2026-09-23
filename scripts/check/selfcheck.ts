@@ -342,6 +342,50 @@ group('probe', [], () => {
     failed++; console.error('  ✗ probe 输出缺少 bio_available（P1 要求给出分母）')
   }
 
+  // ADR-106：同词同平台、不同维度与完全重复项都保留原任务身份。
+  const identityCfg = join(tmp, 'probe-identity.json')
+  writeFileSync(identityCfg, JSON.stringify({
+    market: 'US', budget_usd: 0.5,
+    tasks: [
+      { keyword: 'selfcare', dimension: 'category', platform: 'instagram', as_hashtag: true },
+      { keyword: '#Self Care', dimension: 'audience', platform: 'instagram', as_hashtag: true },
+      { keyword: 'selfcare', dimension: 'scenario', platform: 'instagram', as_hashtag: true },
+      { keyword: 'selfcare', dimension: 'scenario', platform: 'instagram', as_hashtag: true },
+      // 普通错误会结束本次试探，放在末尾，前面每个成功任务才真正被执行。
+      { keyword: 'force-402-selfcare', dimension: 'competitor', platform: 'tiktok' },
+    ],
+  }))
+  const identityRun = runBoth('probe 同词与失败任务身份', [S('probe.ts'), '--config', identityCfg],
+    tmp, undefined, { FAKE_FETCH_NO_429: '1' })
+  if (identityRun.ok) {
+    const results = summaryOf(identityRun.stdout).results
+    const rows: any[] = Array.isArray(results) ? results : []
+    named('probe 成功行带原下标与维度，完全重复任务也不合并',
+      JSON.stringify(rows.filter(r => !r.error).map(r => [r.task_index, r.dimension]))
+        === JSON.stringify([[0, 'category'], [1, 'audience'], [2, 'scenario'], [3, 'scenario']]),
+      `成功行身份实际为 ${JSON.stringify(rows.filter(r => !r.error).map(r => [r.task_index, r.dimension]))}`)
+    named('probe 普通错误行带原下标与维度，失败能定位到原任务',
+      JSON.stringify(rows.filter(r => r.error).map(r => [r.task_index, r.dimension]))
+        === JSON.stringify([[4, 'competitor']]),
+      `错误行身份实际为 ${JSON.stringify(rows.filter(r => r.error).map(r => [r.task_index, r.dimension]))}`)
+    const successLines = identityRun.stderr.split('\n').filter(l => l.trimStart().startsWith('✓'))
+    const expected = [
+      '任务 1 · category · instagram · 关键词「selfcare」',
+      '任务 2 · audience · instagram · 关键词「#Self Care」',
+      '任务 3 · scenario · instagram · 关键词「selfcare」',
+      '任务 4 · scenario · instagram · 关键词「selfcare」',
+    ]
+    named('probe 每条成功进度保留原任务标签，原词不因配置加井号',
+      successLines.length === expected.length && expected.every((label, i) => successLines[i]?.includes(label)),
+      `成功进度实际为 ${JSON.stringify(successLines)}`)
+    const failureLines = identityRun.stderr.split('\n').filter(l => l.trimStart().startsWith('✗'))
+    named('probe 每条失败进度保留原任务标签',
+      failureLines.length === 1
+        && failureLines[0].includes('任务 5 · competitor · tiktok · 关键词「force-402-selfcare」'),
+      `失败进度实际为 ${JSON.stringify(failureLines)}`)
+    criterion('U8.f', 'U8.g', 'U8.h')
+  }
+
   const postsCfg = join(tmp, 'probe-posts.json')
   writeFileSync(postsCfg, JSON.stringify({
     market: 'US', budget_usd: 0.5,
@@ -649,9 +693,14 @@ group('collect', [], () => {
       { keyword: 'smoothie', dimension: 'scene', platform: 'instagram' },
     ],
   }))
-  const collectOut = run('collect 完整流程', [S('collect.ts'), '--config', taskCfg], tmp)
-  if (collectOut !== undefined) {
-    try { dir = JSON.parse(collectOut).dir } catch {}
+  const collected = runBoth('collect 完整流程', [S('collect.ts'), '--config', taskCfg], tmp)
+  if (collected.ok) {
+    try { dir = JSON.parse(collected.stdout).dir } catch {}
+    const completed = collected.stderr.split('\n').filter(l => l.trimStart().startsWith('✓'))
+    named('collect 搜索完成进度保留原任务序号、维度、平台和原词',
+      completed.some(l => l.includes('任务 2 · scene · instagram · 关键词「smoothie」')),
+      `搜索完成进度实际为 ${JSON.stringify(completed)}`)
+    criterion('U8.i')
     // 走到这里说明进程跑起来了、退出码也对，只是 stdout 里没有可解析的 dir
     if (!dir) { failed++; console.error('  ✗ collect 未输出可解析的 dir') }
   }
@@ -952,6 +1001,9 @@ group('render', ['collect', 'enrich'], () => {
     if (!existsSync(metaPath)) { failed++; console.error('  ✗ 未生成 meta.json') }
     else {
       const meta = JSON.parse(readFileSync(metaPath, 'utf8'))
+      named('meta 关键词行保留原任务下标',
+        JSON.stringify(meta.keywords?.map((k: any) => k.task_index)) === '[0,1]',
+        `meta 关键词下标实际为 ${JSON.stringify(meta.keywords?.map((k: any) => k.task_index))}`)
       const activity = meta.capabilities?.creator_activity
       if (!activity || activity.measured + activity.unavailable + activity.unqueried !== activity.total) {
         failed++; console.error('  ✗ meta.json 缺少完整的 creator_activity 三态统计')
@@ -1731,6 +1783,10 @@ group('d6h-pagecap', [], () => {
                             undefined, { FAKE_FETCH_LEDGER: capLedger })
       if (again.ok) {
         const after = capState(dir)
+        named('collect 本轮达到页数上限的进度保留完整原任务标签',
+          again.stderr.split('\n').some(l => l.includes('达页数上限')
+            && l.includes('任务 1 · category · tiktok · 关键词「cap0」')),
+          `达上限进度实际为 ${JSON.stringify(again.stderr.split('\n').filter(l => l.includes('达页数上限')))}`)
         // 4 是 `MAX_PAGES`（`lib/pipeline.ts`）。改那个常量本来就该让这一条红 —— 它是对外契约
         named('跨运行累计停在页数上限 4 页 —— 预算给多少都一样',
               after?.pages?.[0] === 4 && after.done.includes(0) === true,
@@ -1817,6 +1873,11 @@ group('d6h-pagecap', [], () => {
                             undefined, { FAKE_FETCH_LEDGER: capcLedger })
       if (again.ok) {
         const after = capState(dir)
+        named('collect 开跑时已达页数上限的进度也保留完整原任务标签',
+          again.stderr.split('\n').some(l => l.includes('达页数上限')
+            && l.includes('任务 1 · category · tiktok · 关键词「cap3」')),
+          `达上限进度实际为 ${JSON.stringify(again.stderr.split('\n').filter(l => l.includes('达页数上限')))}`)
+        criterion('U8.j')
         named('开跑时就已达上限：一次关键词搜索都不发，不是「先多买一页再停」',
               searchHits(capcLedger) === 0 && after?.offsets?.[0] === before,
               `供应商收到了 ${searchHits(capcLedger)} 次关键词搜索，游标 ${before} → `

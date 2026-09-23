@@ -1,6 +1,7 @@
 import type {
   AccountAssessmentSummary, AudienceRiskFlag, Creator, Measurement,
 } from './types.js'
+import { taskOrdinal } from './task-label.js'
 
 const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, m =>
@@ -152,7 +153,7 @@ export function renderHtml(creators: Creator[], meta: any): string {
   /** 入围／语义通过：`null` 是无从确认，印「—」；**不印 0** —— 那是把没测量说成零 */
   const countText = (n: unknown): string => n === null || n === undefined ? '—' : String(n)
   const kwRows = (meta.keywords ?? []).map((k: any) => `
-    <tr><td>${esc(k.keyword)}${k.as_hashtag ? ' <span class="sub">(hashtag)</span>' : ''}</td>
+    <tr><td>${esc(taskOrdinal(k.task_index))}</td><td>${esc(k.keyword)}</td>
         <td>${esc(k.platform ?? '未知')}</td><td>${esc(k.dimension)}</td>
         <td>${esc(foundText(k))}</td><td>${esc(countText(k.shortlisted))}</td>
         <td>${esc(countText(k.fit_pass))}</td></tr>`).join('')
@@ -279,7 +280,7 @@ ${notes.length ? `<div class="notes">${notes.map(n => `<div>⚠️ ${esc(n)}</di
 <h2>关键词表现</h2>
 <p class="sub">「找到」是供应商返回的条目数，「入围」是过完粉丝闸门与去重之后还在名单上的人 ——
 <strong>两个不是一个数，也不该相除</strong>（单位不同）。一次都没查过的词照样在表上，写着「未查询」。</p>
-<table><thead><tr><th>关键词</th><th>平台</th><th>维度</th><th>找到</th><th>入围</th><th>语义通过</th></tr></thead>
+<table><thead><tr><th>任务</th><th>关键词</th><th>平台</th><th>维度</th><th>找到</th><th>入围</th><th>语义通过</th></tr></thead>
 <tbody>${kwRows}</tbody></table>
 
 <h2>名单</h2>

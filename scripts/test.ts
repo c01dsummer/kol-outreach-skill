@@ -1901,13 +1901,13 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
       ([...r.matchAll(/<td>([\s\S]*?)<\/td>/g)].map(m => m[1].trim())[col]) ?? '（没有这一格）')
   // 四态在**同一张表**上，逐格钉死。分两次渲染各命中一个词的话，「它们互不相同」测不到。
   eq('「找到」那一列四态俱全，逐格对得上：量出来的 0 印 0，没测量的不印 0',
-     cells(kwHtml, 3), ['40', '0', '未查询', '未查询', '未知', '7'])
+     cells(kwHtml, 4), ['40', '0', '未查询', '未查询', '未知', '7'])
   // ⚠️ 没问过的两行印「—」**不是**印 0 —— P5.i 逐字：未查询的行不得带出看起来像测量值的数。
   // 而「问过、条数没记下」那一行照样印确知的 0：那一页一个人都没入库，入围是量得出来的。
   eq('「入围」那一列是人数，不是条目数 —— 和「找到」不是同一个数',
-     cells(kwHtml, 4), ['2', '0', '—', '—', '0', '1'])
-  eq('「语义通过」那一列', cells(kwHtml, 5), ['1', '0', '—', '—', '0', '1'])
-  ok('hashtag 词在报告上看得出来', cells(kwHtml, 0)[5]?.includes('(hashtag)') === true)
+     cells(kwHtml, 5), ['2', '0', '—', '—', '0', '1'])
+  eq('「语义通过」那一列', cells(kwHtml, 6), ['1', '0', '—', '—', '0', '1'])
+  eq('配置的 hashtag 标记不成为报告中的实际路径声明', cells(kwHtml, 1)[5], 'tag')
   const unknownHtml = renderHtml(out, {
     product: 'p', market: 'US', platforms: taskPlatforms(tstate()),
     keywords: unknownRows, total: 2, tiers: { A: 1, B: 0, C: 1 }, email_count: 2,
@@ -1942,7 +1942,7 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
   eq('分层计数', tierCounts(out), { A: 1, B: 0, C: 1 })
 }
 
-suite('F3', '剩余关键词列表按 done 排除，hashtag 带 #')
+suite('F3', '剩余关键词列表按 done 排除，保留任务身份')
 {
   const st = {
     tasks: [{ keyword: 'a', dimension: 'category', platform: 'tiktok' },
@@ -1950,7 +1950,97 @@ suite('F3', '剩余关键词列表按 done 排除，hashtag 带 #')
             { keyword: 'c', dimension: 'audience', platform: 'tiktok' }],
     done: [0],
   } as any
-  eq('跳过已完成，hashtag 带 #', pendingKeywords(st), ['#b(instagram)', 'c(tiktok)'])
+  eq('跳过已完成，原任务身份与关键词照留', pendingKeywords(st), [
+    '任务 2 · scene · instagram · 关键词「b」',
+    '任务 3 · audience · tiktok · 关键词「c」',
+  ])
+}
+
+// ADR-106：独立测试上下文仅依据 U8、P5 与公开契约写成，先于实现见红。
+suite('U8', '搜索任务展示能指回原任务，配置意图不冒充发现路径')
+{
+  const st = (over: Partial<TaskState> = {}): TaskState => ({
+    product: 'p', market: 'US', target_count: 50, budget_usd: 1,
+    tasks: [
+      { keyword: 'done', dimension: 'category', platform: 'tiktok' },
+      { keyword: 'selfcare', dimension: 'category', platform: 'instagram', as_hashtag: true },
+      { keyword: 'selfcare', dimension: 'scene', platform: 'instagram', as_hashtag: true },
+      { keyword: 'selfcare', dimension: 'scene', platform: 'instagram', as_hashtag: true },
+      { keyword: '#Self Care', dimension: 'audience', platform: 'tiktok', as_hashtag: true },
+    ],
+    done: [0], offsets: { 0: 20, 1: 20 }, pages: { 0: 1, 1: 1 },
+    answered: { 0: 1, 1: 1 }, found: { 0: 3, 1: 0 },
+    requests: 2, created_at: '', updated_at: '', ...over,
+  })
+  // 预期直接来自 ADR-106 格式；相同配置的任务 3、4 必须仍可区分。
+  const labels = [
+    '任务 2 · category · instagram · 关键词「selfcare」',
+    '任务 3 · scene · instagram · 关键词「selfcare」',
+    '任务 4 · scene · instagram · 关键词「selfcare」',
+    '任务 5 · audience · tiktok · 关键词「#Self Care」',
+  ]
+  eq('未完成标签逐项保留原序号、维度、平台、原词，完全重复项仍可区分',
+     pendingKeywords(st()), labels)
+  criterion('U8.a')
+  eq('未达标的续跑标签保留原序号与全部实际待查项', keywordsResumeWillRun(st(), 0), labels)
+  eq('达标后只剩未抓首页的任务，筛选不重新编号', keywordsResumeWillRun(st(), 50), labels.slice(1))
+  criterion('U8.b')
+  eq('标签不因 hashtag 配置增添字符，关键词自身的井号原样保留',
+     pendingKeywords(st({ done: [0, 1, 2] })), labels.slice(2))
+
+  const rows = keywordRows(st(), [])
+  // 通过 JSON 读取公开字段，旧返回类型尚未新增字段时也能先看到具体断言红。
+  const indexed = JSON.parse(JSON.stringify(rows))
+  eq('每个关键词行带零起始原下标，包括未查询行和完全重复行',
+     indexed.map((r: any) => r.task_index), [0, 1, 2, 3, 4])
+  eq('无从确认查询状态的行也带原任务下标',
+     JSON.parse(JSON.stringify(keywordRows(st({ answered: undefined }), []))).map((r: any) => r.task_index),
+     [0, 1, 2, 3, 4])
+  criterion('U8.c')
+
+  const table = (keywords: any[]): string[][] => {
+    const html = renderHtml([], {
+      product: 'p', market: 'US', platforms: ['tiktok', 'instagram'], keywords,
+      total: 0, tiers: { A: 0, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0,
+      requests: 2, cost_estimate_usd: 0.002, budget_usd: 1, enriched: false,
+    })
+    const body = ((html.split('<h2>关键词表现</h2>')[1] ?? '').split('<tbody>')[1] ?? '').split('</tbody>')[0]
+    return body.split('<tr>').slice(1).map(r => [...r.matchAll(/<td>([\s\S]*?)<\/td>/g)].map(m => m[1].trim()))
+  }
+  const row = (over: any = {}) => ({ keyword: 'selfcare', dimension: 'scene', platform: 'instagram',
+    status: 'queried', found: 7, shortlisted: 2, fit_pass: 1, ...over })
+  const reordered = table([row({ task_index: 8 }), row({ task_index: 2 }), row({ task_index: 0 })])
+  eq('HTML 任务序号使用每行下标而非显示顺序', reordered.map(r => r[0]), ['9', '3', '1'])
+  eq('最大可显示序号与零下标都保留准确整数',
+     table([row({ task_index: Number.MAX_SAFE_INTEGER - 1 }), row({ task_index: 0 })]).map(r => r[0]),
+     [String(Number.MAX_SAFE_INTEGER), '1'])
+  criterion('U8.d')
+
+  // 缺失与非法值来自旧 JSON；Number.MAX_SAFE_INTEGER 自身虽安全，加一已不安全。
+  const invalid = [undefined, null, -1, 0.5, '2', Number.MAX_SAFE_INTEGER,
+    Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, true]
+  const legacy = table(invalid.map(task_index => row({ task_index })))
+  eq('缺失与非法任务下标一律无从确认，不从行位置或相同关键词猜补',
+     legacy.map(r => r[0]), invalid.map(() => '无从确认'))
+  eq('身份无从确认不会抹掉该行已经查实的计数',
+     legacy.map(r => r.slice(4)), invalid.map(() => ['7', '2', '1']))
+  const states = table([
+    row({ task_index: 6, status: 'unqueried', found: null, shortlisted: null, fit_pass: null }),
+    row({ status: 'queried', found: 0, shortlisted: 0, fit_pass: 0 }),
+    row({ task_index: null, status: 'unknown', found: null, shortlisted: null, fit_pass: null }),
+  ])
+  eq('有任务序号仍可未查询，身份未知仍可测得零，两种未知互不替代', states.map(r => [r[0], ...r.slice(4)]), [
+    ['7', '未查询', '—', '—'], ['无从确认', '0', '0', '0'], ['无从确认', '无从确认', '—', '—'],
+  ])
+  criterion('U8.e')
+  tension('U8', 'P5')
+
+  const rawKeywords = table([row({ task_index: 0, as_hashtag: true }),
+    row({ task_index: 1, keyword: '#Self Care', as_hashtag: true }),
+    row({ task_index: 2, as_hashtag: false })])
+  eq('HTML 原关键词不因 hashtag 配置加井号或路径承诺',
+     rawKeywords.map(r => r[1]), ['selfcare', '#Self Care', 'selfcare'])
+  criterion('U8.k')
 }
 
 suite('P5', '交付必须声明数据边界')
