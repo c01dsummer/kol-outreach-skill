@@ -35,7 +35,7 @@
 | 平台覆盖 | 1,547 个现成 scraper，800+ 网站实时 | 16 个平台、1000+ 接口 |
 | 中文平台 | 基本没有 | 抖音/小红书/快手/微博/B站/知乎 |
 | 计费 | **$1.5 / 1K records**（Scale $499/月档 $1.3/1K） | 历史调研按 $0.001/请求；固定规范的三路 IG V2 发现端点各声明 $0.002/请求，不能沿用统一价，见下文 |
-| 免费额度 | 5,000 records/月 | 注册约 50 次请求，**但不覆盖 Instagram**（见下） |
+| 免费额度 | 5,000 records/月 | 历史注册赠送约 50 次请求；是否接受按具体端点声明，见下文 |
 | 数据形态 | 规整化、字段名稳定，可投递 S3/Snowflake/GCS | 原始响应透传，schema 随端点变化 |
 | 合规 | SOC 2 Type II、ISO 27001、CSA STAR L1、GDPR/CCPA、PwC 审计、Trust Center | 未见公开 SLA 或合规认证 |
 
@@ -62,9 +62,9 @@
 
 以下保留 2026-08-26 的调用记录；2026-09-23 的文档核对另标出处，二者不混作同一次实测。
 
-1. **免费额度不覆盖 Instagram。** 当时 TikTok 端点可用注册赠送的 free credit，
+1. **当时测试的 IG 请求不接受免费额度。** 当时 TikTok 端点可用注册赠送的 free credit，
    IG 端点返回 **402**，提示不接受 free credit、需要付费余额。这是当时的接入记录，
-   本次未复测赠送额度与充值门槛。
+   本次未复测赠送额度与账户充值门槛。公开价目的端点资格另见下方补充。
 2. **当时采用 Reels 作为 IG 主发现路径。** 原先试用的 **V1** hashtag 响应中，
    `owner` 只有 `{id}`，没有 username；该观察不能外推到 V2 hashtag 或 general search。
    当前采集器只取 Reels 首页。2026-09-22 的 `smoothie` 历史探针记录显示响应有
@@ -213,3 +213,25 @@ recentPosts(handle, platform) → { posts, followers?, following?, source }
 **当前 `--resume` 不读取或复用 `cache_url`。** 它跳过已完成任务、保留本地已采集数据，
 仍可能继续付费搜索或补 profile。此更正不修改预算、请求计数或续跑逻辑，也不承诺
 普通 API 重发免费；是否接入缓存属于另一项实现工作。
+
+## 免费额度资格按端点说明（2026-09-23 补充）
+
+[官方 pricing 页](https://tikhub.io/pricing)的[计算器脚本](https://tikhub.io/_next/static/chunks/03dluu4eljhx9.js)
+从[公开静态价目](https://tikhub.io/_next/static/chunks/16hcexj0jth19.js)逐项读取免费额度标记。
+本次读取于 2026-09-23；价目自身 `updatedAt=2026-07-20`，读取日期不是价格更新时间。
+原文 SHA256：`5d52fe8fb109a569e4e16b39b611ee9d5233c9131d264f1e856a987f23cc8cbf`。
+本项目涉及的七条 Instagram 路径，在该快照中的免费额度标记均为 0：
+
+| 完整端点 | 本项目状态 |
+|---|---|
+| `/api/v1/instagram/v2/search_reels` | 生产发现 |
+| `/api/v1/instagram/v2/search_users` | 生产发现兜底 |
+| `/api/v1/instagram/v2/fetch_user_posts` | 生产主页样本 |
+| `/api/v1/instagram/v1/fetch_user_info_by_username_v3` | 生产 profile |
+| `/api/v1/instagram/v1/fetch_user_info_by_username_v2` | 生产 profile 降级 |
+| `/api/v1/instagram/v2/fetch_hashtag_posts` | 仅实验采样，未接入生产 |
+| `/api/v1/instagram/v2/general_search` | 仅实验采样，未接入生产 |
+
+这支持“该快照中的这七条路径不接受免费额度”，不支持“所有 IG 端点永久不接受”。
+不接受免费额度的请求需要可用付费余额；已有足额余额无需再次充值。本次未查询账户余额、
+赠送额度或实际扣费，也未发新的数据请求；是否需要充值不能由历史 402 替具体账户判断。
