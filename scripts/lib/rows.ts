@@ -1,4 +1,5 @@
 import type { AudienceRiskFlag, Creator, Measurement } from './types.js'
+import { formatDiscoverySources } from './discovery.js'
 
 /** U1：列定义固定，顺序即 CSV 表头 */
 export const HEADERS = [
@@ -12,6 +13,7 @@ export const HEADERS = [
   'collaboration_quote', 'implied_ecpm', 'implied_ecpe', 'metrics_observed_at',
   'cross_platform', 'linked_handle', 'profile_url', 'source_keyword',
   'source_dimension', 'best_post_desc', 'outreach_draft', 'previously_recommended',
+  'discovery_sources',
 ] as const
 
 /**
@@ -115,6 +117,7 @@ export function toRow(c: Creator): unknown[] {
     assessment?.sample?.observed_at ?? '未查询',
     c.cross_platform ?? false, c.linked_handle ?? '', c.profile_url, c.source_keyword,
     c.source_dimension, bestPost(c), c.outreach_draft ?? '', c.previously_recommended ?? '',
+    formatDiscoverySources(c.discovery_sources),
   ]
 }
 

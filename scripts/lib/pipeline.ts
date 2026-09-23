@@ -1,6 +1,7 @@
 import { creatorKey, type Creator, type Platform, type SearchTask, type TaskState } from './types.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './identity.js'
 import { mergeRecentPosts } from './posts.js'
+import { mergeDiscoverySources } from './discovery.js'
 import { taskLabel } from './task-label.js'
 import {
   passesFollowerGate, scoreCreator, tierOf, applyGeoPenalty, applyAudienceRiskPenalty,
@@ -431,9 +432,11 @@ export function mergePage(creators: Map<string, Creator>, page: readonly Partial
       if (at !== undefined && !at.includes(i)) at.push(i)
       // D11 / P1.e：后来取得的作品并入已有证据；同 id 保留先到记录，缺 id 不吞掉。
       seen.recent_posts = mergeRecentPosts(seen.recent_posts, p.recent_posts)
+      seen.discovery_sources = mergeDiscoverySources(seen.discovery_sources, p.discovery_sources)
       continue
     }
     creators.set(k, { ...(p as Creator), recent_posts: mergeRecentPosts(undefined, p.recent_posts), source_keyword: t.keyword,
+                      discovery_sources: mergeDiscoverySources(undefined, p.discovery_sources),
                       source_dimension: t.dimension, source_tasks: [i] })
     added++
   }

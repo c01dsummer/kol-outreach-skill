@@ -1,5 +1,6 @@
 import type { Creator, Platform } from './types.js'
 import { mergeRecentPosts } from './posts.js'
+import { mergeDiscoverySources } from './discovery.js'
 
 const IG_RE = /instagram\.com\/([A-Za-z0-9._]+)/i
 const TT_RE = /tiktok\.com\/@([A-Za-z0-9._]+)/i
@@ -118,6 +119,7 @@ export function mergeCrossPlatform(creators: Creator[]): Creator[] {
       : undefined
     // D11：主记录在先，关联记录在后；两边没有作品证据仍为未查询。
     primary.recent_posts = mergeRecentPosts(primary.recent_posts, secondary.recent_posts)
+    primary.discovery_sources = mergeDiscoverySources(primary.discovery_sources, secondary.discovery_sources)
     primary.linked_handle = `${secondary.platform}:${secondary.handle}`
     secondary.merged_into = `${primary.platform}:${primary.handle}`
   }

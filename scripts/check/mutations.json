@@ -2,6 +2,94 @@
   "$comment": "变异集是红线的负片。每个变异是一处故意违反某条需求的改动，跑它的验证者必须失败（缺省是测试；写了 by 的改跑别的。by 与 kills 同进同出 —— 写一个就要写另一个，kills 点明该红的是哪几条夹具，一组，每一条都要红）。变异存活 = 那条测试是假的，要修测试不是删变异。why 用需求语言写 —— `mutate --brief` 会把它单独打印给写测试的上下文（见 process/4-VERIFY.md）。对外契约里的名字算需求语言：stdout 字段、产出文件字段、提供方响应键、命令行参数。本仓库内部的函数名和代码表达式不算，mutate 会当场拦下。",
   "mutations": [
     {
+      "id": "M-D15-a",
+      "req": "D15.a",
+      "why": "TikTok 发现账号没有记录真实路径，试探输出无从追溯",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": ["probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"]
+    },
+    {
+      "id": "M-D15-b",
+      "req": "D15.b",
+      "why": "账号名兜底返回的人被错记为 Reels 发现，空请求冒充实际来源",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "dimension: task.dimension, endpoint: INSTAGRAM_USERS_ENDPOINT }],",
+      "replace": "dimension: task.dimension, endpoint: INSTAGRAM_REELS_ENDPOINT }],",
+      "by": "selfcheck",
+      "kills": ["三路来源进入raw，空Reels后的账号只有users来源"]
+    },
+    {
+      "id": "M-D15-c",
+      "req": "D15.c",
+      "why": "来源去重忽略维度，把同词不同方向的观察吞掉",
+      "file": "scripts/lib/discovery.ts",
+      "find": "[creatorKey(source), source.keyword, source.dimension, source.endpoint]",
+      "replace": "[creatorKey(source), source.keyword, source.endpoint]"
+    },
+    {
+      "id": "M-D15-d",
+      "req": "D15.d",
+      "why": "首次收页直接保留重复来源，使来源列表不再是稳定并集",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "discovery_sources: mergeDiscoverySources(undefined, p.discovery_sources),",
+      "replace": "discovery_sources: p.discovery_sources,"
+    },
+    {
+      "id": "M-D15-e",
+      "req": "D15.e",
+      "why": "跨平台合并只保留主账号来源，关联账号的实际发现路径丢失",
+      "file": "scripts/lib/identity.ts",
+      "find": "primary.discovery_sources = mergeDiscoverySources(primary.discovery_sources, secondary.discovery_sources)",
+      "replace": "primary.discovery_sources = mergeDiscoverySources(primary.discovery_sources)"
+    },
+    {
+      "id": "M-D15-f",
+      "req": "D15.f",
+      "why": "已有账号合页后不保存新观察来源，恢复与交付缺少真实路径",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "seen.discovery_sources = mergeDiscoverySources(seen.discovery_sources, p.discovery_sources)",
+      "replace": "seen.discovery_sources = mergeDiscoverySources(seen.discovery_sources)",
+      "by": "selfcheck",
+      "kills": ["三路来源进入raw，空Reels后的账号只有users来源"]
+    },
+    {
+      "id": "M-D15-g",
+      "req": "D15.g",
+      "why": "试探样本丢弃实际来源，Agent 只能看到不证明路径的任务标签",
+      "file": "scripts/probe.ts",
+      "find": "discovery_sources: c.discovery_sources,",
+      "replace": "discovery_sources: undefined,",
+      "by": "selfcheck",
+      "kills": ["probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"]
+    },
+    {
+      "id": "M-D15-h",
+      "req": "D15.h",
+      "why": "把未知来源显示为空白，使没有历史记录这一边界消失",
+      "file": "scripts/lib/discovery.ts",
+      "find": "if (!sources?.length) return '来源未知'",
+      "replace": "if (!sources?.length) return ''"
+    },
+    {
+      "id": "M-D15-i",
+      "req": "D15.h",
+      "why": "表格来源列不读取已观察记录，CSV 与 XLSX 均丢失真实路径",
+      "file": "scripts/lib/rows.ts",
+      "find": "formatDiscoverySources(c.discovery_sources),",
+      "replace": "formatDiscoverySources(undefined),"
+    },
+    {
+      "id": "M-D15-j",
+      "req": "D15.i",
+      "why": "报告删除来源集合的历史与作品边界，使局部观察看似完整历史",
+      "file": "scripts/lib/report.ts",
+      "find": "<p class=\"sub\">仅含已记录的账号发现来源，可能不含完整历史；不对应具体作品或请求次数。</p>",
+      "replace": ""
+    },
+    {
       "id": "M-P1-a",
       "req": "P1",
       "why": "把「bio 未取到」重新兜底成空串 —— 未查询被伪装成查过且没有",
@@ -518,8 +606,8 @@
       "req": "D6.k",
       "why": "IG 的兜底路径把「预算用尽」吞成正常返回 —— reels 页恒 has_more:false，于是这个关键词当场被标记为已跑完、永久跳过，而工具以退出码 0 收尾并告诉用户「续跑不产生新的请求」，实际预算已经见底：追加预算续跑时这个词再也不会被碰，唯一能找到人的那条补充路径一次都没发出去",
       "file": "scripts/providers/tikhub.ts",
-      "find": "    return this.searchInstagramUsers(task.keyword)\n      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))",
-      "replace": "    try {\n      const users = await this.searchInstagramUsers(task.keyword)\n      return { ...users, raw_count: reels.raw_count + users.raw_count }\n    } catch { return reels }",
+      "find": "    return this.searchInstagramUsers(task)\n      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))",
+      "replace": "    try {\n      const users = await this.searchInstagramUsers(task)\n      return { ...users, raw_count: reels.raw_count + users.raw_count }\n    } catch { return reels }",
       "by": "selfcheck",
       "kills": [
         "IG 兜底撞上预算：按 P3 停下，不以退出码 0 收尾",
