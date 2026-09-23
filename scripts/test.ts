@@ -5520,6 +5520,13 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
   for (const patch of [{ currency: 'EUR' }, { unit: 'usd' }, { scope: 'other' }, { limit_micro_usd: -1 },
     { limit_micro_usd: 0.5 }, { next_attempt_id: 0 }, { next_attempt_id: max + 1 }, { entries: null }])
     unavailable('账目结构必须完整有效', { ...raw, ...patch }, 3, 'invalid-ledger')
+  for (const [label, entries] of [['稀疏条目数组', new Array(1)], ['null 条目', [null]]] as const) {
+    let escaped: unknown
+    try { unavailable(`${label}是普通坏账`, { ...raw, entries }, 0, 'invalid-ledger') }
+    catch (error) { escaped = error }
+    ok(`${label}按坏账诊断，不泄漏原生异常`, escaped === undefined)
+    if (escaped !== undefined) console.log(`     escaped=${escaped instanceof Error ? escaped.name : typeof escaped}`)
+  }
   unavailable('算术自洽也不自动合并重复聚合键', { ...raw, entries: [raw.entries[0], raw.entries[0]] }, 4, 'invalid-ledger')
   for (const patch of [{ endpoint: '/missing' }, { unit_micro_usd: 0 }, { unit_micro_usd: 1001 },
     { http_200_count: -1, unknown_result_count: 3 }, { http_200_count: 0.5, unknown_result_count: 1.5 },
