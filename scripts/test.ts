@@ -71,8 +71,10 @@ import { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { isDeepStrictEqual } from 'node:util'
 import { createRequire } from 'node:module'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
-import { Budget, BudgetExceeded, UNIT_PRICE, budgetProblem, ledgerProblem } from './lib/budget.js'
+import { Budget, BudgetInputError, startBudget, costView, type CostView } from './lib/budget.js'
+import { readCostDocument, readCostLimit, setCostLimitField, stringifyCostJson, type CostState } from './lib/cost-json.js'
 import {
   CostError, CostLedgerUnavailable, createCostBudget, formatUsd, inspectExistingCostLedger,
   parseUsdMicros, restoreCostBudget,
@@ -127,6 +129,46 @@ const eq = (label: string, got: unknown, want: unknown) => {
   else console.log(`  ✓ ${label}`)
 }
 const ok = (label: string, cond: boolean) => eq(label, cond, true)
+
+// 独立费用夹具：金额和八端点单价来自 ADR-107/108，不调用生产 formatter 作 oracle。
+const TEST_PRICE_VERSION = 'tikhub-public-20260720-5d52fe8fb109'
+const TEST_TT = '/api/v1/tiktok/app/v3/fetch_video_search_result'
+const TEST_IG = '/api/v1/instagram/v2/search_reels'
+const TEST_PRICES: Record<string, number> = {
+  [TEST_TT]: 1000, '/api/v1/tiktok/web/fetch_user_profile': 1000,
+  '/api/v1/tiktok/app/v3/fetch_user_post_videos_v3': 1000,
+  [TEST_IG]: 2000, '/api/v1/instagram/v2/search_users': 2000,
+  '/api/v1/instagram/v1/fetch_user_info_by_username_v3': 1000,
+  '/api/v1/instagram/v1/fetch_user_info_by_username_v2': 1000,
+  '/api/v1/instagram/v2/fetch_user_posts': 2000,
+}
+const TEST_COST_BASIS = '按固定公开基础价、不计优惠的估算；不是实际账单，也不保证供应商未来价格上限。'
+const testUsd = (micros: number): string => {
+  const n = BigInt(micros), fraction = String(n % 1000000n).padStart(6, '0').replace(/0+$/, '')
+  return `${n / 1000000n}${fraction ? '.' + fraction : ''}`
+}
+const costFixture = (limit = 1_000_000, http = 0, unknown = 0): CostState => {
+  const ledger = { schema: 1, currency: 'USD', unit: 'micro_usd', scope: 'task',
+    limit_micro_usd: limit, next_attempt_id: http + unknown + 1,
+    entries: http + unknown ? [{ endpoint: TEST_TT, price_version: TEST_PRICE_VERSION,
+      unit_micro_usd: 1000, http_200_count: http, unknown_result_count: unknown }] : [] }
+  return readCostDocument(`{"budget_usd":${testUsd(limit)},"requests":${http + unknown},"cost_ledger":${JSON.stringify(ledger)}}`)
+}
+const fundedBudget = (limit = 1_000_000, notify: Parameters<typeof startBudget>[3] = () => {}) =>
+  startBudget({}, limit, 'process', notify)
+const testCostMeta = (requests = 1, limit = 2_000_000): CostView => ({
+  requests, budget_usd: testUsd(limit), cost_estimate_usd: testUsd(requests * 1000),
+  cost_status: 'known', cost_scope: 'task', cost_http_200_usd: testUsd(requests * 1000),
+  cost_unknown_result_usd: '0', cost_pending_usd: '0', cost_basis: TEST_COST_BASIS,
+  cost_price_versions: requests ? [TEST_PRICE_VERSION] : [], cost_problems: [],
+})
+const costSucceeds = async (label: string, run: () => unknown | Promise<unknown>) => {
+  let completed = false, error: unknown
+  try { await run(); completed = true } catch (caught) { error = caught }
+  ok(label, completed)
+  if (!completed) console.log(`     escaped=${error instanceof Error ? error.name + ': ' + error.message : String(error)}`)
+}
+
 
 /**
  * 认领一条**验收判据**（ADR-24）。计量单位是判据,不是需求 ——
@@ -293,7 +335,7 @@ suite('P1', 'profile 查回来了、对方没写简介 —— 别再当成「还
   // 对方没写。记成 undefined，这个人每轮续跑都会被当成「还没查过」重查一次，
   // 钱一轮一轮地花（负片 M-P1-s、M-P1-t）。
   const stub = (raw: unknown) => {
-    const api = new TikHub('k', new Budget(1))
+    const api = new TikHub('k', fundedBudget())
     ;(api as unknown as { get: () => Promise<unknown> }).get = async () => raw
     return api
   }
@@ -318,7 +360,7 @@ suite('P1', '采集侧解析：响应里没有的字段不得落成 0 或空串'
    * 后面每一条判据照样绿。ADR-88 把这一处记成真空白。
    */
   const stub = (raw: unknown) => {
-    const api = new TikHub('k', new Budget(1))
+    const api = new TikHub('k', fundedBudget())
     ;(api as unknown as { get: () => Promise<unknown> }).get = async () => raw
     return api
   }
@@ -437,7 +479,7 @@ suite('P2', '开发信占位符必须原样保留到产出物')
   const html = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 1, outreach_draft: draft })],
     { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 1,
       tiers: { A: 1, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0,
-      requests: 1, cost_estimate_usd: 0.001, budget_usd: 2, enriched: false })
+      ...testCostMeta(1, 2000000), enriched: false })
   ok('HTML 保留占位符', html.includes('{产品一句话}') && html.includes('{价格待填}'))
 
   const row = toRow(mk('tiktok', 'a', { tier: 'A', score: 1, outreach_draft: draft }))
@@ -468,208 +510,121 @@ suite('P1', '响应结构探测不得被空数组满足')
   ok('报错里带上顶层 key', msg.includes('weird_key'))
 }
 
-suite('P3', '未经确认不得超出预算')
+suite('P3', '按实际端点金额拒绝超额，刚好等于上限允许')
 {
-  const b = new Budget(0.005)             // 只够 5 次
-  let sent = 0
-  let threw = false
-  try { for (let i = 0; i < 10; i++) { b.charge(); sent++ } }
-  catch (e) { threw = e instanceof BudgetExceeded }
-  eq('实际发出请求数受限', sent, 5)
-  ok('超限抛 BudgetExceeded', threw)
-  eq('抛出时不增加计数', b.count, 5)
-  criterion('P3.a')
-
-  // 跨运行累加，不重复计费（D6）
-  const resumed = new Budget(0.010, 5)
-  eq('续跑时已花部分不归零', resumed.spent, 0.005)
-  covered.add('D6')
+  await costSucceeds('预算闸门完整执行', () => {
+    const b = fundedBudget(5000)
+    let sent = 0, caught: unknown
+    try { for (let i = 0; i < 10; i++) { const r = b.reserve(TEST_TT); sent++; b.settle(r, { kind: 'http', status: 200 }) } }
+    catch (e) { caught = e }
+    eq('5000 微美元只允许五次 1000 请求', sent, 5)
+    ok('超额只以 budget-exceeded 表示额度不足', caught instanceof CostError && caught.code === 'budget-exceeded')
+    eq('被拒时不增加净次数', b.count, 5)
+    eq('恰好用满金额没有被浮点拒绝', b.view().cost_estimate_usd, '0.005')
+    const resumed = new Budget(costFixture(10000, 2, 1), () => {})
+    eq('恢复不从净次数重新制造金额或归零', [resumed.count, resumed.view().cost_estimate_usd], [3, '0.003'])
+  })
+  criterion('P3.c')
 }
 
-suite('P3', '上限与已花次数是外部输入 —— 闸门先要能拦得住它们')
+suite('P3', '实际 fetch 前已经预留端点金额，终态才增加净次数')
 {
-  /**
-   * 闸门是一句「已花 + 本次开销 > 上限」的比较。两边只要有一个不是数，这句话
-   * 就恒为假，闸门不是宽了一点，是整条不存在 —— 而且百分比同时恒为 0，
-   * 连提醒都不会出现（F7）。两个数都从命令行或 task.json 进来，都是外部输入：
-   * 「文件是我们自己写的」不构成理由，反序列化进来的就是外部输入
-   * （process/4-VERIFY.md 的那张表里有这一行）。
-   */
-  eq('上限不是数字 → 说不是数字', budgetProblem('3'), '不是数字（string）')
-  eq('上限是 NaN → 说不是有限的数', budgetProblem(Number('abc')), '不是一个有限的数')
-  eq('上限是 Infinity → 同样拦下', budgetProblem(Infinity), '不是一个有限的数')
-  eq('上限是负数 → 说是负数', budgetProblem(-1), '是负数')
-  eq('合法的上限放行', budgetProblem(0.005), undefined)
-  eq('零也是合法的上限', budgetProblem(0), undefined)
-
-  eq('已花次数没写 = 还没花过', ledgerProblem(undefined), undefined)
-  eq('已花次数是 null → 拦下', ledgerProblem(null), '不是数字（object）')
-  eq('已花次数是字符串 → 拦下', ledgerProblem('4'), '不是数字（string）')
-  eq('已花次数是 NaN → 拦下', ledgerProblem(NaN), '不是一个有限的数')
-  eq('已花次数是负数 → 拦下', ledgerProblem(-3), '是负数')
-  eq('已花次数不是整数 → 拦下', ledgerProblem(1.5), '不是整数')
-  eq('合法的已花次数放行', ledgerProblem(7), undefined)
-
-  // 拦不住的时候会发生什么 —— 判据落在**后果**上，不落在「有没有这个函数」上
-  const wild = new Budget(Number('abc'), 0)
-  let stopped = false
-  try { for (let i = 0; i < 2000; i++) wild.charge() } catch { stopped = true }
-  ok('上限比不了大小时，闸门确实一次都没拦', !stopped && wild.count === 2000)
-  eq('而且百分比恒为零 —— 连提醒都不会出现', wild.pct, 0)
-  const reset = new Budget(1, null as unknown as number)
-  eq('已花次数是 null 时，账面确实退回零', reset.spent, 0)
-  criterion('P3.a')
-  covered.add('D6')
-  covered.add('F7')
-}
-
-suite('P3', '真实的 TikHub 在提交那一刻必已记账 —— 对着需求推的 oracle 跑')
-{
-  /**
-   * 换掉的只有 globalThis.fetch 与 setTimeout 的**返回值**，不换调用位置：providers/tikhub.ts 在
-   * 调用那一刻才取全局 fetch，sleep 在调用那一刻才取 setTimeout。跑的是真的 Budget、真的 TikHub。
-   *
-   * oracle 只从 P3.a（被拒的请求不计数）与 tikhub.md 的计费列推出，**不含重试策略**：
-   * tikhub.md 与 providers/tikhub.ts 对「哪些非 200 重试、重试几次」说法不一致（ADR-96 的欠条），
-   * 这里不替它选边。所以下面的性质都写在「被服务的响应序列」上，与「哪个状态码会重试」无关。
-   *
-   * 上限折算的次数不许用 floor(limit / UNIT_PRICE) 算：闸门是浮点比较，有的上限比 floor 少放一次
-   * （哪些、差多少见 ADR-96 第二节）。CASES 里的上限是逐次算过的显式样例，不是推导出来的。
-   */
-  type Obs = { sent: number; local: number; threw: string; countAtSend: number[]; served: number[] }
-
-  // 每个端点一个**最小**的 200 响应体，够让各自的 pick 分支正常返回；IG 搜索的 reels 给空列表，
-  // 好让 reels→users 那次回退真的发生
+  type Obs = { local: number | null; occupied: string | null; threw: string;
+    atSend: { count: number | null; occupied: string | null; pending: string | null }[];
+    served: { path: string; status: number }[] }
   const bodyFor = (path: string): unknown =>
     path.includes('fetch_video_search_result')
       ? { data: { aweme_list: [], search_item_list: [{ aweme_info: { author: { unique_id: 'u' } } }], has_more: 1 } }
       : path.includes('instagram/v2/search_reels') ? { items: [] }
         : path.includes('instagram/v2/search_users') ? { items: [{ username: 'u' }] }
-          : path.includes('fetch_user_post_videos_v3') || path.includes('instagram/v2/fetch_user_posts') ? { items: [] }
-            : {}
-
-  // 起始计数 start、上限折算 limit 次、按 outcomes 服务响应（序列之外一律 200），驱动一次真实调用
-  async function drive(limit: number, start: number, outcomes: number[],
-                       call: (api: TikHub) => Promise<unknown>): Promise<Obs> {
-    const budget = new Budget(limit * UNIT_PRICE, start)
-    const api = new TikHub('k', budget)
-    const countAtSend: number[] = []
-    const served: number[] = []
-    const realFetch = globalThis.fetch
-    const realTimeout = globalThis.setTimeout
+          : path.includes('fetch_user_post_videos_v3') || path.includes('instagram/v2/fetch_user_posts') ? { items: [] } : {}
+  async function drive(limit: number, start: number, outcomes: number[], call: (api: TikHub) => Promise<unknown>): Promise<Obs> {
+    const o: Obs = { local: null, occupied: null, threw: '', atSend: [], served: [] }
+    const realFetch = globalThis.fetch, realTimeout = globalThis.setTimeout
     globalThis.setTimeout = ((fn: () => void) => { fn(); return 0 }) as unknown as typeof setTimeout
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      const status = outcomes[served.length] ?? 200
-      countAtSend.push(budget.count)            // 请求真正出去那一刻，本地记了几次
-      served.push(status)
-      const path = new URL(String(input)).pathname
-      return status === 200
-        ? new Response(JSON.stringify(bodyFor(path)), { status, headers: { 'content-type': 'application/json' } })
-        : new Response('nope', { status })
-    }) as typeof fetch
-    let threw = ''
-    try { await call(api) } catch (e) {
-      threw = e instanceof BudgetExceeded ? 'BudgetExceeded'
-        : e instanceof TikHubError ? 'TikHubError' : `unexpected:${String(e)}`
-    } finally {
-      globalThis.fetch = realFetch
-      globalThis.setTimeout = realTimeout
-    }
-    return { sent: served.length, local: budget.count, threw, countAtSend, served }
+    try {
+      const budget = new Budget(costFixture(limit, start), () => {})
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const status = outcomes[o.served.length] ?? 200, path = new URL(String(input)).pathname
+        const v = budget.view()
+        o.atSend.push({ count: budget.count, occupied: v.cost_estimate_usd, pending: v.cost_pending_usd })
+        o.served.push({ status, path })
+        return status === 200 ? new Response(JSON.stringify(bodyFor(path)), { status }) : new Response('nope', { status })
+      }) as typeof fetch
+      try { await call(new TikHub('k', budget)) } catch (e) {
+        o.threw = e instanceof CostError ? e.code : e instanceof TikHubError ? 'TikHubError' : `unexpected:${String(e)}`
+      }
+      o.local = budget.count; o.occupied = budget.view().cost_estimate_usd
+    } catch (e) { o.threw = `unexpected:${String(e)}` }
+    finally { globalThis.fetch = realFetch; globalThis.setTimeout = realTimeout }
+    return o
   }
-
-  const STATUSES = [200, 402, 429, 500]
-  const sequences = (maxLen: number): number[][] => {
-    const out: number[][] = []
-    const grow = (prefix: number[]) => {
-      if (prefix.length) out.push(prefix)
-      if (prefix.length === maxLen) return
-      for (const s of STATUSES) grow([...prefix, s])
-    }
-    grow([])
-    return out
-  }
-  const CASES: [number, number][] = [[0, 0], [1, 0], [1, 1], [2, 0], [2, 1]]   // [上限折算的次数, 起始计数]
-  const oks = (xs: number[]) => xs.filter(s => s === 200).length
-
-  // ── 一、单次 get() 路径（tiktok 搜索）：四条性质 ──────────────────────────
-  // 每一条都是从需求推的：非 200 退款回起始，所以每次 attempt 前闸门看到的都是起始
-  const singleGet = (o: Obs, limit: number, start: number): string[] => {
-    const bad: string[] = []
-    o.countAtSend.forEach((c, i) => {
-      if (c !== start + 1) bad.push(`第 ${i + 1} 次提交时本地记了 ${c} 次，应是起始 + 1 = ${start + 1}`)
-      if (start + 1 > limit) bad.push(`起始 ${start} 已到上限 ${limit}，却提交了`)
-    })
-    const rejected = start + 1 > limit
-    if ((o.threw === 'BudgetExceeded') !== rejected) bad.push(`抛不抛 BudgetExceeded 应当且仅当起始 + 1 > 上限，实际 threw=${o.threw || '（无）'}`)
-    if (rejected && (o.sent !== 0 || o.local !== start)) bad.push(`被拒那一次不该提交、不该计数：sent=${o.sent} local=${o.local}`)
-    const last = o.served[o.sent - 1]
-    const returned = o.threw === ''
-    if (!rejected && returned !== (last === 200)) bad.push(`正常返回应当且仅当最后被服务的是 200，实际最后是 ${last}、threw=${o.threw || '（无）'}`)
-    if (!rejected && o.local !== start + (last === 200 ? 1 : 0)) bad.push(`返回时本地应记 起始 + (最后是 200 ? 1 : 0)，实际 ${o.local}`)
-    if (oks(o.served.slice(0, -1)) > 0) bad.push('200 之后不该再提交')
-    if (o.sent > 4) bad.push(`提交了 ${o.sent} 次，超过 4`)
-    return bad
-  }
-
-  const searchTikTok = (api: TikHub) =>
-    api.search({ keyword: 'k', dimension: 'category', platform: 'tiktok' } as SearchTask, 'US', 0)
-  const singleFailures: string[] = []
-  let exhausted = 0
-  for (const [limit, start] of CASES) {
-    for (const seq of sequences(4)) {
-      const o = await drive(limit, start, seq, searchTikTok)
-      if (o.sent === 4) exhausted++
-      for (const why of singleGet(o, limit, start)) singleFailures.push(`上限=${limit} 起始=${start} 序列=[${seq}]：${why}`)
-    }
-  }
-  eq('单次 get() 在全部序列上都合四条性质', singleFailures.slice(0, 5), [])
-  ok('重试耗尽那条分支真的被走到（有序列提交了 4 次）', exhausted > 0)
-
-  // ── 二、通用不变量扫六个公开方法：不需要知道方法内部发几次 ────────────────
-  // IG 搜索 reels 空→users 的回退、IG profile V3 失败→V2 的回退都在对照面上
+  // Oracle 用实际服务的状态序列，既不导入生产报价，也不替重试策略作新决定。
   const generic = (o: Obs, limit: number, start: number): string[] => {
-    const bad: string[] = []
-    o.countAtSend.forEach((c, i) => {
-      const want = start + oks(o.served.slice(0, i)) + 1
-      if (c !== want) bad.push(`第 ${i + 1} 次提交时本地记了 ${c} 次，应是 起始 + 此前 200 数 + 1 = ${want}`)
-      if (want > limit) bad.push(`第 ${i + 1} 次提交时已到上限 ${limit}，却提交了`)
+    const bad: string[] = []; let amount = start * 1000, count = start
+    o.served.forEach(({ path, status }, i) => {
+      const price = TEST_PRICES[path], seen = o.atSend[i]
+      if (price === undefined) { bad.push(`未核端点仍 fetch：${path}`); return }
+      if (amount + price > limit) bad.push(`提交越过上限 ${amount}+${price}>${limit}`)
+      if (seen?.count !== count) bad.push(`提交时净次数 ${seen?.count} 应为 ${count}，pending 不计次数`)
+      if (seen?.occupied !== testUsd(amount + price)) bad.push(`提交前未按端点预留完整金额 ${path}`)
+      if (seen?.pending !== testUsd(price)) bad.push(`提交时 pending 未精确等于本次 ${path}`)
+      if (status === 200) { count++; amount += price }
     })
-    if (o.local !== start + oks(o.served)) bad.push(`结束时本地应记 起始 + 200 数 = ${start + oks(o.served)}，实际 ${o.local}`)
+    if (o.local !== count) bad.push(`净次数 ${o.local} 应为 ${count}`)
+    if (o.occupied !== testUsd(amount)) bad.push(`留存金额 ${o.occupied} 应为 ${testUsd(amount)}`)
     if (o.threw.startsWith('unexpected')) bad.push(o.threw)
     return bad
   }
+  const singleGet = (o: Obs, limit: number, start: number): string[] => {
+    const bad = generic(o, limit, start), rejected = start * 1000 + 1000 > limit
+    if ((o.threw === 'budget-exceeded') !== rejected) bad.push(`拒绝与精确余额不符：${o.threw}`)
+    if (rejected && o.served.length) bad.push('不足仍 fetch')
+    if (!rejected && (o.threw === '') !== (o.served.at(-1)?.status === 200)) bad.push('200 与正常返回不符')
+    if (o.served.slice(0, -1).some(s => s.status === 200)) bad.push('200 之后仍在重试')
+    if (o.served.length > 4) bad.push('单次搜索超过既有四次尝试边界')
+    return bad
+  }
+  const sequences = (maxLen: number): number[][] => {
+    const out: number[][] = []
+    const grow = (prefix: number[]) => { if (prefix.length) out.push(prefix); if (prefix.length < maxLen)
+      for (const s of [200, 402, 429, 500]) grow([...prefix, s]) }
+    grow([]); return out
+  }
+  // IG reels→users 各 2000 微美元；4000 的夹具让第二个实际端点也能到达。
+  const CASES: [number, number][] = [[0, 0], [1000, 0], [1000, 1], [2000, 0], [2000, 1], [3000, 1], [4000, 0]]
+  const searchTikTok = (api: TikHub) => api.search({ keyword: 'k', dimension: 'category', platform: 'tiktok' }, 'US', 0)
+  const singleFailures: string[] = []; let exhausted = 0
+  for (const [limit, start] of CASES) for (const seq of sequences(4)) {
+    const o = await drive(limit, start, seq, searchTikTok)
+    if (o.served.length === 4) exhausted++
+    for (const why of singleGet(o, limit, start)) singleFailures.push(`${limit}/${start}/[${seq}] ${why}`)
+  }
+  eq('单次 get() 在全部序列上都合金额与净次数性质', singleFailures.slice(0, 5), [])
+  ok('重试耗尽分支确实发生四次 fake fetch', exhausted > 0)
   const METHODS: [string, (api: TikHub) => Promise<unknown>][] = [
     ['search tiktok', searchTikTok],
-    ['search instagram', api => api.search({ keyword: 'k', dimension: 'category', platform: 'instagram' } as SearchTask, 'US', 0)],
-    ['profile tiktok', api => api.profile('u', 'tiktok')],
-    ['profile instagram', api => api.profile('u', 'instagram')],
-    ['recentPosts tiktok', api => api.recentPosts('u', 'tiktok')],
-    ['recentPosts instagram', api => api.recentPosts('u', 'instagram')],
+    ['search instagram', api => api.search({ keyword: 'k', dimension: 'category', platform: 'instagram' }, 'US', 0)],
+    ['profile tiktok', api => api.profile('u', 'tiktok')], ['profile instagram', api => api.profile('u', 'instagram')],
+    ['recentPosts tiktok', api => api.recentPosts('u', 'tiktok')], ['recentPosts instagram', api => api.recentPosts('u', 'instagram')],
   ]
-  const genericFailures: string[] = []
-  const maxSent = new Map<string, number>()
-  for (const [name, call] of METHODS) {
-    for (const [limit, start] of CASES) {
-      for (const seq of sequences(2)) {
-        const o = await drive(limit, start, seq, call)
-        maxSent.set(name, Math.max(maxSent.get(name) ?? 0, o.sent))
-        for (const why of generic(o, limit, start)) genericFailures.push(`${name} 上限=${limit} 起始=${start} 序列=[${seq}]：${why}`)
-      }
-    }
+  const genericFailures: string[] = [], reached = new Set<string>(), paths = new Set<string>()
+  for (const [name, call] of METHODS) for (const [limit, start] of CASES) for (const seq of sequences(2)) {
+    const o = await drive(limit, start, seq, call)
+    if (o.served.length) reached.add(name)
+    for (const s of o.served) paths.add(s.path)
+    for (const why of generic(o, limit, start)) genericFailures.push(`${name} ${limit}/${start}/[${seq}] ${why}`)
   }
   eq('六个公开方法在全部序列上都合通用不变量', genericFailures.slice(0, 5), [])
-  // 只报数不判：这个长度的序列量不到 IG profile 单次调用的提交上界，不冒充量出来的数
-  console.log(`    观测到的每方法最大提交数：${[...maxSent].map(([k, v]) => `${k} ${v}`).join(' · ')}`)
-
-  // ── 三、oracle 自己要能报不符 —— 否则上面两条恒为空数组 ───────────────────
-  // 把 charge 挪到 fetch 之后，最终值全同，只有提交那一刻读到的是起始而不是起始 + 1
-  const fine: Obs = { sent: 1, local: 1, threw: '', countAtSend: [1], served: [200] }
-  eq('一致时不报', singleGet(fine, 2, 0), [])
-  ok('先发再记会被报出来', singleGet({ ...fine, countAtSend: [0] }, 2, 0).length > 0)
-  ok('被拒却计了数会被报出来', singleGet({ sent: 0, local: 2, threw: 'BudgetExceeded', countAtSend: [], served: [] }, 1, 1).length > 0)
-  ok('通用不变量也报先发再记', generic({ ...fine, countAtSend: [0] }, 2, 0).length > 0)
-  criterion('P3.a')
+  eq('六个方法都实际走过 fake fetch', [...reached].sort(), METHODS.map(([name]) => name).sort())
+  eq('重试与 fallback 实际覆盖固定八端点', [...paths].sort(), Object.keys(TEST_PRICES).sort())
+  const fine: Obs = { local: 1, occupied: '0.001', threw: '',
+    atSend: [{ count: 0, occupied: '0.001', pending: '0.001' }], served: [{ path: TEST_TT, status: 200 }] }
+  eq('独立 oracle 接受正确示例', singleGet(fine, 2000, 0), [])
+  ok('独立 oracle 拦住先发再预留', generic({ ...fine, atSend: [{ count: 0, occupied: '0', pending: '0' }] }, 2000, 0).length > 0)
+  ok('独立 oracle 拦住 pending 冒充净次数', generic({ ...fine, atSend: [{ count: 1, occupied: '0.001', pending: '0.001' }] }, 2000, 0).length > 0)
+  ok('独立 oracle 拦住拒绝后多计次数', singleGet({ local: 2, occupied: '0.001', threw: 'budget-exceeded', atSend: [], served: [] }, 1000, 1).length > 0)
+  criterion('P3.c')
 }
 
 suite('P4', '已联系/屏蔽的人不得进入名单')
@@ -812,7 +767,7 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
   // **这里认领的是单元那一半，说清楚它证了什么、没证什么。**
   // 证了：第一页保证从不把自己报成「免费」—— 还欠着第一页时，那句话照旧说要花钱。
   //       有人为了让「保证」听起来无代价而把这些词从账单里摘掉，下面这行就红。
-  // 没证：预算真的用尽时会不会停下来 —— 那是 run() 里 BudgetExceeded 的事，
+  // 没证：预算真的用尽时会不会停下来 —— 那是入口捕获 budget-exceeded 的事，
   //       由 F9.b 在自检里端到端跑（退 3、存断点、不为抓齐第一页多花一次）。
   ok('还欠着第一页时，续跑口径说的是要花钱，不是免费',
      keywordsResumeWillRun(st({ offsets: {} }), 99).length === 2)
@@ -821,12 +776,16 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
 
 suite('D6', '收尾那句话说的是「续跑要不要花钱」—— 两支都得算出来，不能写死')
 {
-  const st = (over: Partial<TaskState> = {}): TaskState => ({
+  const st = (over: Partial<TaskState> = {}): TaskState => {
+    const state = {
     product: 'p', market: 'US', target_count: 50, budget_usd: 1,
     tasks: [{ keyword: 'a', dimension: 'category', platform: 'tiktok' },
             { keyword: 'b', dimension: 'scene', platform: 'tiktok' }],
     done: [], offsets: {}, requests: 0, created_at: '', updated_at: '', ...over,
-  })
+    } as TaskState
+    startBudget(state, 1_000_000, 'task', () => {})
+    return state
+  }
   // 补全过的人：简介查过了、也有外链，`needsProfile` 认他不用再补
   const done1 = mk('tiktok', 'a', { bio: '有简介', bio_links: ['https://x'] })
   const todo1 = mk('tiktok', 'b', { bio: undefined })
@@ -879,7 +838,18 @@ suite('D6', '收尾那句话说的是「续跑要不要花钱」—— 两支都
   ok('无从确认且没人要补 → 说不会有新请求，但理由仍是无从确认',
      unknown().includes('也不会有新的请求') && unknown().includes('无从确认'))
   criterion('F9.e')
-  criterion('D6.e')
+  for (const [name, state] of [
+    ['历史缺账', { ...st(), cost_ledger: undefined }],
+    ['根预算冲突', readCostDocument<TaskState>(JSON.stringify({
+      ...JSON.parse(stringifyCostJson(st())), budget_usd: 2,
+    }))],
+  ] as [string, TaskState][]) {
+    const text = resumeCostLine('out/x', state, 10, [done1, todo1])
+    ok(`${name}仍说出待查量`, text.includes('2 个关键词、1 个人的 profile'))
+    ok(`${name}不承诺续跑即可花钱`, !text.includes('续跑会继续发请求、继续花钱'))
+    ok(`${name}说出费用阻止原因`, /费用|账|预算/.test(text) && /未知|无从|不可|缺|冲突|不一致|阻止/.test(text))
+  }
+  criterion('D6.q')
 }
 
 suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环与「续跑要花多少钱」共用它')
@@ -891,7 +861,7 @@ suite('D6', '「还要不要补 profile」只有一个判定 —— 补全循环
   // 这个判定决定要不要花钱：关键词全跑完了，只要还有人没补 profile，
   // 续跑第一件事就是去发付费请求（负片 M-D6-d）。关键词那一半是 D6.g，
   // 在上一个 suite（负片 M-D6-e）—— 两种活坏在不同的地方，所以是两条判据。
-  criterion('D6.d')
+  criterion('D6.p')
 }
 
 suite('D6', '续跑不得被本任务自己上一轮的产出滤空')
@@ -1199,9 +1169,9 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     mkdirSync(d, { recursive: true })
     // 用一个同名目录占住 creators.json —— 写它必定失败，模拟「名单没落成」
     mkdirSync(join(d, 'creators.json'))
-    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+    const st = readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
       target_count: 1, done: [], requests: 0, budget_usd: 1,
-      memory_status: 'unreadable_ignored' } as unknown as TaskState
+      memory_status: 'unreadable_ignored' }))
     let threw = false
     try { persistListAndStatus(d, st, [mk('tiktok', 'zoe')], 'ok') } catch { threw = true }
     ok('名单写不进去时确实抛出来', threw)
@@ -1214,9 +1184,9 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   {
     const d = join(tmpdir(), `kol-d4-persist2-${process.pid}`)
     rmSync(d, { recursive: true, force: true })
-    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+    const st = readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
       target_count: 1, done: [], requests: 0, budget_usd: 1,
-      memory_status: 'unreadable_ignored' } as unknown as TaskState
+      memory_status: 'unreadable_ignored' }))
     persistListAndStatus(d, st, [mk('tiktok', 'zoe')], 'ok')
     eq('两边都落成时，状态才是那个肯定的断言',
       JSON.parse(rf(join(d, 'task.json'), 'utf8')).memory_status, 'ok')
@@ -1286,15 +1256,15 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   {
     const d = join(tmpdir(), `kol-d4-atomic-${process.pid}`)
     rmSync(d, { recursive: true, force: true })
-    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+    const st = readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
       target_count: 1, done: [], requests: 0, budget_usd: 1,
-      memory_status: 'ok' } as unknown as TaskState
+      memory_status: 'ok' }))
     saveTask(d, st)
     const before = rf(join(d, 'task.json'), 'utf8')
     // 拿一个同名目录占住临时文件名，写入必定失败
     mkdirSync(join(d, `task.json.${process.pid}.tmp`), { recursive: true })
     let threw = false
-    try { saveTask(d, { ...st, product: '改过的' }) } catch { threw = true }
+    try { saveTask(d, readCostDocument<TaskState>(JSON.stringify({ ...st, product: '改过的' }))) } catch { threw = true }
     ok('任务目录写不进去时抛出来', threw)
     eq('而原来那份 task.json 一个字节没动', rf(join(d, 'task.json'), 'utf8'), before)
     ok('它仍然解析得出来', (() => {
@@ -1323,8 +1293,8 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   {
     const d2 = join(tmpdir(), `kol-d4-mode-${process.pid}`)
     rmSync(d2, { recursive: true, force: true })
-    const st2 = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
-      target_count: 1, done: [], requests: 0, budget_usd: 1 } as unknown as TaskState
+    const st2 = readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1 }))
     saveTask(d2, st2)
     chmodSync(join(d2, 'task.json'), 0o640)
     saveTask(d2, st2)
@@ -1347,13 +1317,13 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   {
     const d3 = join(tmpdir(), `kol-d4-ro-${process.pid}`)
     rmSync(d3, { recursive: true, force: true })
-    const st3 = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
-      target_count: 1, done: [], requests: 0, budget_usd: 1 } as unknown as TaskState
+    const st3 = readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1 }))
     saveTask(d3, st3)
     chmodSync(join(d3, 'task.json'), 0o444)
     const before3 = rf(join(d3, 'task.json'), 'utf8')
     let threw3 = false
-    try { saveTask(d3, { ...st3, product: '改过的' }) } catch { threw3 = true }
+    try { saveTask(d3, readCostDocument<TaskState>(JSON.stringify({ ...st3, product: '改过的' }))) } catch { threw3 = true }
     ok('只读的 task.json 写不进去时抛出来', threw3)
     eq('而它一个字节没动', rf(join(d3, 'task.json'), 'utf8'), before3)
     rmSync(d3, { recursive: true, force: true })
@@ -1483,8 +1453,8 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     mkdirSync(d3, { recursive: true })
     const orphan3 = join(d3, 'task.json.999999.tmp')
     writeFileSync(orphan3, '{}', 'utf8')
-    saveTask(d3, { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
-      target_count: 1, done: [], requests: 0, budget_usd: 1 } as unknown as TaskState)
+    saveTask(d3, readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1 })))
     eq('任务目录里死掉的进程留下的临时文件也被清掉', existsSync(orphan3), false)
     rmSync(d3, { recursive: true, force: true })
   }
@@ -1880,8 +1850,7 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
   const kwHtml = renderHtml(out, {
     product: 'p', market: 'US', platforms: taskPlatforms(tstate()),
     keywords: rows, total: 2, tiers: { A: 1, B: 0, C: 1 }, email_count: 2,
-    cross_platform_count: 0, requests: 1, cost_estimate_usd: 0.001,
-    budget_usd: 2, enriched: false,
+    cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false,
   })
   // ⚠️ **断言落在表体上，不是整页。** 头一版写的是 `kwHtml.includes('未查询')` ——
   // 它命中的是我在同一个提交里新写的那句说明文案，关键词表整个为空时照样绿
@@ -1897,7 +1866,7 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
      !kwTable(renderHtml([], {
        product: 'p', market: 'US', platforms: [], keywords: [], total: 0,
        tiers: { A: 0, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0,
-       requests: 0, cost_estimate_usd: 0, budget_usd: 1, enriched: false,
+       ...testCostMeta(0, 1000000), enriched: false,
      } as any)).includes('未查询'))
   // ⚠️ **断言要落在格子上，不是「这几个字在表体里出现过」。**
   // 上一版 U3.c 名下全是 `includes('<th>找到</th>')` 这种表头存在性，行的取值一格没测：
@@ -1919,8 +1888,7 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
   const unknownHtml = renderHtml(out, {
     product: 'p', market: 'US', platforms: taskPlatforms(tstate()),
     keywords: unknownRows, total: 2, tiers: { A: 1, B: 0, C: 1 }, email_count: 2,
-    cross_platform_count: 0, requests: 1, cost_estimate_usd: 0.001,
-    budget_usd: 2, enriched: false,
+    cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false,
   } as any)
   ok('无从确认那一态也说得出来', kwTable(unknownHtml).includes('无从确认'))
   // 无从确认时连归人都无从谈起 —— 入围与语义通过要印「—」，不许印 0（P5.i 逐字）
@@ -2010,7 +1978,7 @@ suite('U8', '搜索任务展示能指回原任务，配置意图不冒充发现�
     const html = renderHtml([], {
       product: 'p', market: 'US', platforms: ['tiktok', 'instagram'], keywords,
       total: 0, tiers: { A: 0, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0,
-      requests: 2, cost_estimate_usd: 0.002, budget_usd: 1, enriched: false,
+      ...testCostMeta(2, 1000000), enriched: false,
     })
     const body = ((html.split('<h2>关键词表现</h2>')[1] ?? '').split('<tbody>')[1] ?? '').split('</tbody>')[0]
     return body.split('<tr>').slice(1).map(r => [...r.matchAll(/<td>([\s\S]*?)<\/td>/g)].map(m => m[1].trim()))
@@ -2056,8 +2024,7 @@ suite('P5', '交付必须声明数据边界')
   const html = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 50 })],
     { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
       total: 1, tiers: { A: 1, B: 0, C: 0 }, email_count: 0,
-      cross_platform_count: 0, requests: 1, cost_estimate_usd: 0.001,
-      budget_usd: 2, enriched: false })
+      cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false })
   // 下面三条以前合在一条 P5.a 里，拆开是因为它们各自独立地坏：两条 HTML 声明是
   // renderHtml 里两个各带条件的 if 块，enriched 是第三条判定（ADR-67 的就地更正）。
   // 断言整句，判据只要一半：P5.f 沿用 P5.a 原文，只要求声明「未做有效性验证」；
@@ -2087,14 +2054,13 @@ suite('P5', '交付必须声明数据边界')
   const enriched = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 50 })],
     { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
       total: 1, tiers: { A: 1, B: 0, C: 0 }, email_count: 1,
-      cross_platform_count: 0, requests: 1, cost_estimate_usd: 0.001,
-      budget_usd: 2, enriched: true })
+      cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: true })
   ok('已增强时不再声明', !enriched.includes('未做有效性验证'))
 
   const empty = renderHtml([], {
     product: 'p', market: 'US', platforms: [], keywords: [], total: 0,
     tiers: { A: 0, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0,
-    requests: 0, cost_estimate_usd: 0, budget_usd: 2, enriched: false,
+    ...testCostMeta(0, 2000000), enriched: false,
     capabilities: {
       email_verification: { total: 0, measured: 0, unavailable: 0, unqueried: 0 },
       audience_geo: { total: 0, measured: 0, unavailable: 0, unqueried: 0 },
@@ -2108,8 +2074,7 @@ suite('P5', '交付必须声明数据边界')
   // 下一批可能重复推荐（这一批没记下）。后果不同，不能合成一句。
   const base = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
     total: 1, tiers: { A: 1, B: 0, C: 0 }, email_count: 1,
-    cross_platform_count: 0, requests: 1, cost_estimate_usd: 0.001,
-    budget_usd: 2, enriched: true }
+    cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: true }
   const one = [mk('tiktok', 'a', { tier: 'A', score: 50 })]
 
   const skipped = renderHtml(one, { ...base, memory_status: 'unreadable_ignored',
@@ -3209,7 +3174,7 @@ suite('D11', '搜索作品标识只取可核实的来源字段')
     ['bigint', 1n, undefined],
   ]
   const read = async (platform: 'tiktok' | 'instagram', raw: unknown) => {
-    const api = new TikHub('k', new Budget(1))
+    const api = new TikHub('k', fundedBudget())
     ;(api as unknown as { get: () => Promise<unknown> }).get = async () => raw
     return (await api.search({ keyword: 'k', dimension: 'category', platform }, 'US', 0)).creators
   }
@@ -3437,12 +3402,43 @@ suite('F6', '语义判断否定有一票否决权')
   eq('强相关但缺邮箱 → B 而非 C', tierOf(noEmail, 45), 'B')
 }
 
-suite('F7', '预算 50%/80% 各提醒一次')
+suite('F7', '每个运行实例只在成功预留后各提醒一次 50% 与 80%')
 {
-  const seen: number[] = []
-  const b = new Budget(0.010, 0, pct => seen.push(pct))
-  for (let i = 0; i < 9; i++) b.charge()
-  eq('两个阈值各触发一次', seen, [0.5, 0.8])
+  await costSucceeds('阈值、退款、恢复与拒绝组合完整执行', () => {
+    const seen: [number, string | null, string | null][] = []
+    const b = fundedBudget(10000, (threshold, view) => seen.push([threshold, view.cost_estimate_usd, view.cost_pending_usd]))
+    for (let i = 0; i < 4; i++) b.settle(b.reserve(TEST_TT), { kind: 'http', status: 200 })
+    eq('低于一半不提醒', seen, [])
+    b.settle(b.reserve(TEST_TT), { kind: 'http', status: 429 })
+    eq('恰到一半立即提醒，此时本次仍 pending', seen, [[0.5, '0.005', '0.001']])
+    for (let i = 0; i < 5; i++) b.settle(b.reserve(TEST_TT), { kind: 'http', status: 200 })
+    eq('退款不重置；settle 不另提醒', seen, [[0.5, '0.005', '0.001'], [0.8, '0.008', '0.001']])
+    const before = b.view(); let error: unknown
+    try { b.reserve(TEST_IG) } catch (e) { error = e }
+    ok('下一价高于余额时拒绝', error instanceof CostError && error.code === 'budget-exceeded')
+    eq('拒绝不改变费用投影', b.view(), before)
+    eq('拒绝不触发额外提醒', seen.length, 2)
+    ok('余额不足不冒充占用 100%', !/100\s*%/.test(b.summary()))
+    ok('说明不足以支付下一请求', /余额|剩余/.test(String(error)) && /不足|不够/.test(String(error)))
+    const restoredSeen: [number, string | null][] = []
+    const restored = new Budget(costFixture(10000, 8), (threshold, view) => restoredSeen.push([threshold, view.cost_estimate_usd]))
+    eq('单纯恢复不提醒', restoredSeen, [])
+    const receipt = restored.reserve(TEST_TT)
+    eq('恢复超过两线时首个成功预留分别提醒', restoredSeen, [[0.5, '0.009'], [0.8, '0.009']])
+    restored.settle(receipt, { kind: 'http', status: 429 })
+    restored.settle(restored.reserve(TEST_TT), { kind: 'http', status: 200 })
+    eq('恢复实例退款后不重复提醒', restoredSeen.length, 2)
+    const none: number[] = [], empty = fundedBudget(0, pct => none.push(pct))
+    try { empty.reserve(TEST_TT) } catch { /* 零额度仍是合法上限，付费被拒绝。 */ }
+    eq('零额度且拒绝预留不做除零提醒', none, [])
+    eq('零额度占用仍为明确零', empty.view().cost_estimate_usd, '0')
+    // 精确交叉乘法边界：上限 MAX_SAFE_INTEGER，历史占用离一半差 0.0004955。
+    const hugeState = costFixture(Number.MAX_SAFE_INTEGER, 4503599627370)
+    const hugeSeen: number[] = [], huge = new Budget(hugeState, pct => hugeSeen.push(pct))
+    huge.settle(huge.reserve(TEST_TT), { kind: 'http', status: 200 })
+    eq('最大安全金额精确比较，不扩大上限或丢掉 50% 线', hugeSeen, [0.5])
+  })
+  criterion('F7.c', 'F7.d')
 }
 
 suite('F8', '公开信号风险透明降级但不删除')
@@ -3621,7 +3617,7 @@ suite('U2', 'HTML 报告不依赖网络资源')
   const html = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 1, profile_url: 'https://www.tiktok.com/@a' })],
     { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 1,
       tiers: { A: 1, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0,
-      requests: 1, cost_estimate_usd: 0.001, budget_usd: 2, enriched: false })
+      ...testCostMeta(1, 2000000), enriched: false })
   ok('无外部 script', !/<script[^>]+src=/.test(html))
   ok('无外部样式表', !/<link[^>]+href=/.test(html))
   ok('无外部图片', !/<img[^>]+src="https?:/.test(html))
@@ -3633,7 +3629,7 @@ suite('U6', 'HTML 分层 tab 与平台标签')
     [mk('tiktok', 'a', { tier: 'A', score: 1 }), mk('instagram', 'b', { tier: 'B', score: 1 })],
     { product: 'p', market: 'US', platforms: ['tiktok', 'instagram'], keywords: [], total: 2,
       tiers: { A: 1, B: 1, C: 0 }, email_count: 0, cross_platform_count: 0,
-      requests: 1, cost_estimate_usd: 0.001, budget_usd: 2, enriched: false })
+      ...testCostMeta(1, 2000000), enriched: false })
   ok('三个 tab，无「全部」', ['data-f="A"', 'data-f="B"', 'data-f="C"'].every(t => html.includes(t))
      && !html.includes('data-f="all"'))
   ok('卡片带 data-tier 供筛选', html.includes('data-tier="A"') && html.includes('data-tier="B"'))
@@ -3645,7 +3641,7 @@ suite('U6', 'HTML 分层 tab 与平台标签')
   const noA = renderHtml([mk('instagram', 'b', { tier: 'B', score: 1 })],
     { product: 'p', market: 'US', platforms: ['instagram'], keywords: [], total: 1,
       tiers: { A: 0, B: 1, C: 0 }, email_count: 0, cross_platform_count: 0,
-      requests: 1, cost_estimate_usd: 0.001, budget_usd: 2, enriched: false })
+      ...testCostMeta(1, 2000000), enriched: false })
   ok('A 为空时默认落到 B', noA.includes('class="tab B on"') && !noA.includes('class="tab A on"'))
   ok('平台标签区分 class', html.includes('pf tiktok') && html.includes('pf instagram'))
   ok('平台标签有专属配色', html.includes('.pf.tiktok{') && html.includes('.pf.instagram{'))
@@ -3698,7 +3694,7 @@ suite('U7', '公开指标、风险依据、报价效率与边界进入交付物'
   const html = renderHtml([creator], {
     product: 'p', market: 'US', platforms: ['tiktok', 'instagram'], keywords: [], total: 1,
     tiers: { A: 1, B: 0, C: 0 }, email_count: 1, cross_platform_count: 1,
-    requests: 2, cost_estimate_usd: 0.002, budget_usd: 2, enriched: false,
+    ...testCostMeta(2, 2000000), enriched: false,
     high_risk_count: 0,
     capabilities: {
       email_verification: { total: 1, measured: 0, unavailable: 0, unqueried: 1 },
@@ -3725,7 +3721,7 @@ suite('U4', 'A 级附开发信草稿且可复制')
   const html = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 1, outreach_draft: 'Hi there' })],
     { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 1,
       tiers: { A: 1, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0,
-      requests: 1, cost_estimate_usd: 0.001, budget_usd: 2, enriched: false })
+      ...testCostMeta(1, 2000000), enriched: false })
   ok('渲染草稿', html.includes('Hi there'))
   ok('有复制按钮', html.includes('cp(this)'))
 }
@@ -5302,7 +5298,7 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
   // ① IG 兜底：reels 有条目但解析不出人 → 改搜账号名。**两次的条数要相加。**
   //    只交回后一次的话，第一次已经付过钱、供应商也确实返回了 8 条，而盘上记着「拿回 0 条」。
   {
-    const budget = new Budget(1, 0, () => {})
+    const budget = fundedBudget()
     const { fake, calls } = canned([reelsUnparseable(8), usersWith(1)])
     const page = await withFetch(fake, () => new TikHub('k', budget).search(igTask, 'US', 0))
     eq('IG 兜底走了两次请求', calls().length, 2)
@@ -5319,13 +5315,13 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
   // **永久烧掉**：退出码 0、还说「续跑不产生新的请求」，而预算已经见底，
   // 追加预算续跑时它再也不会被碰（ADR-94 第十五节乙，实测）。
   {
-    const budget = new Budget(0.001, 0, () => {})     // 只够一次
+    const budget = fundedBudget(3000)               // 只够一次 2000 的 IG 搜索
     const { fake, calls } = canned([reelsUnparseable(8)])
     let caught: unknown
     await withFetch(fake, async () => {
       try { await new TikHub('k', budget).search(igTask, 'US', 0) } catch (e) { caught = e }
     })
-    ok('预算卡在两次之间时抛 BudgetExceeded，不吞成正常返回', caught instanceof BudgetExceeded)
+    ok('预算卡在两次之间时抛 budget-exceeded，不吞成正常返回', caught instanceof CostError && caught.code === 'budget-exceeded')
     eq('第二次请求根本没发出去', calls().length, 1)
     eq('第一次的钱记在预算上 —— 入口据此留下「问过」的痕迹', budget.count, 1)
   }
@@ -5340,7 +5336,7 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
   //    **这就是「游标答不了『问过没有』」的根源**：游标只在 search() 正常返回之后才写，
   //    而钱在这之前就扣了。入口那边靠预算计数器留下痕迹（D6.i），端到端那一半在自检里。
   {
-    const budget = new Budget(1, 0, () => {})
+    const budget = fundedBudget()
     const { fake } = canned([{ body: { data: { 全新的键: [] } } }])
     let threw = false
     await withFetch(fake, async () => {
@@ -5352,7 +5348,7 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
 
   // ④ IG 不走 offset：第二页不白花请求（既有行为，这一组是它第一次被跑到）。
   {
-    const budget = new Budget(1, 0, () => {})
+    const budget = fundedBudget()
     const { fake, calls } = canned([reelsWith(2)])
     const page = await withFetch(fake, () => new TikHub('k', budget).search(igTask, 'US', 20))
     eq('IG 的第二页一个请求都不发', calls().length, 0)
@@ -5618,6 +5614,383 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
   ok('依据不保证供应商未来价格', /(?:不保证|不作为|不是|非).*(?:未来|将来|价格上)/.test(TIKHUB_PRICE_BASIS))
   criterion('D12.p')
   tension('D12', 'P1'); tension('D12', 'P3'); tension('D12', 'P5')
+}
+
+suite('D13', '实际 HTTP 状态先结算；正文失败、无状态和本地失败彼此不同')
+{
+  const methods: [string, (api: TikHub) => Promise<unknown>][] = [
+    ['TT 搜索', api => api.search({ keyword: 'k', dimension: 'category', platform: 'tiktok' }, 'US', 0)],
+    ['IG 搜索', api => api.search({ keyword: 'k', dimension: 'category', platform: 'instagram' }, 'US', 0)],
+    ['TT profile', api => api.profile('u', 'tiktok')], ['IG profile', api => api.profile('u', 'instagram')],
+    ['TT posts', api => api.recentPosts('u', 'tiktok')], ['IG posts', api => api.recentPosts('u', 'instagram')],
+  ]
+  const realFetch = globalThis.fetch, realTimeout = globalThis.setTimeout
+  globalThis.setTimeout = ((fn: () => void) => { fn(); return 0 }) as unknown as typeof setTimeout
+  try {
+    for (const [name, call] of methods) for (const first of [200, 201, 204, 429, 500, 'no-status'] as const) {
+      await costSucceeds(`${name} ${first} 的费用结算检查完整执行`, async () => {
+        const b = fundedBudget(100000), attempts: { path: string; status: number | 'no-status' }[] = []
+        const atBody: [number | null, string | null, string | null, string | null][] = []
+        globalThis.fetch = (async (input: RequestInfo | URL) => {
+          const path = new URL(String(input)).pathname, status = attempts.length ? 200 : first
+          attempts.push({ path, status })
+          if (status === 'no-status') throw new Error('test fetch rejected before HTTP status')
+          const response = new Response(null, { status })
+          const badBody = async () => {
+            const view = b.view()
+            atBody.push([b.count, view.cost_http_200_usd, view.cost_unknown_result_usd, view.cost_pending_usd])
+            throw new Error('test body read failed after HTTP status')
+          }
+          // 每次实际响应都坏正文；所有重试仍由真实 provider 决定，不把重试次数当结算 oracle。
+          response.json = badBody; response.text = badBody
+          return response
+        }) as typeof fetch
+        let returned = false
+        try { await call(new TikHub('k', b)); returned = true } catch { /* 业务错误是测试输入，检查留存与撤销。 */ }
+        ok(`${name}/${first} 坏正文或非200不变成正常结果`, !returned)
+        ok(`${name}/${first} 至少实际发出一次 fake fetch`, attempts.length > 0)
+        let http = 0, unknown = 0, net = 0
+        for (const attempt of attempts) {
+          const price = TEST_PRICES[attempt.path]
+          ok('实际路径必须是已核报价端点', Number.isSafeInteger(price))
+          if (attempt.status === 200) { http += price; net++ }
+          if (attempt.status === 'no-status') { unknown += price; net++ }
+        }
+        eq(`${name}/${first} 金额按每次实际端点状态手算`,
+          [b.count, b.view().cost_estimate_usd, b.view().cost_http_200_usd, b.view().cost_unknown_result_usd, b.view().cost_pending_usd],
+          [net, testUsd(http + unknown), testUsd(http), testUsd(unknown), '0'])
+        if (first !== 'no-status' && atBody.length) {
+          eq(`${name}/${first} 读第一次正文前已按HTTP结算且无pending`, atBody[0],
+            [first === 200 ? 1 : 0, first === 200 ? testUsd(TEST_PRICES[attempts[0].path]) : '0', '0', '0'])
+        }
+      })
+    }
+    await costSucceeds('本地等待失败不伪造 fetch 无状态留存', async () => {
+      const b = fundedBudget(), calls: string[] = []; let waits = 0
+      globalThis.fetch = (async (input: RequestInfo | URL) => { calls.push(String(input)); return new Response('retry', { status: 429 }) }) as typeof fetch
+      globalThis.setTimeout = (() => { waits++; throw new Error('test local wait failed') }) as unknown as typeof setTimeout
+      try { await methods[0][1](new TikHub('k', b)) } catch { /* 等待没有完成，不能当成未收到HTTP。 */ }
+      ok('本地等待故障确实注入', waits > 0)
+      eq('没有HTTP200或无状态 fetch，不增加净费用', [b.count, b.view().cost_estimate_usd, b.view().cost_unknown_result_usd, b.view().cost_pending_usd], [0, '0', '0', '0'])
+      ok('等待失败后没有继续重试', calls.length <= 1)
+    })
+    globalThis.setTimeout = ((fn: () => void) => { fn(); return 0 }) as unknown as typeof setTimeout
+    await costSucceeds('费用错误穿透 profile fallback 与搜索', async () => {
+      let injected: unknown
+      try { quoteTikHub('/test-unpriced') } catch (error) { injected = error }
+      ok('注入来自公开报价接口的 unknown-price', injected instanceof CostError && injected.code === 'unknown-price')
+      for (const [name, call] of methods) for (const phase of ['reserve', 'settle'] as const) {
+        const b = fundedBudget(), paths: string[] = []; let touched = false, caught: unknown
+        if (phase === 'reserve') b.reserve = () => { touched = true; throw injected }
+        else b.settle = () => { touched = true; throw injected }
+        globalThis.fetch = (async (input: RequestInfo | URL) => {
+          paths.push(new URL(String(input)).pathname); return new Response('{"items":[]}', { status: 200 })
+        }) as typeof fetch
+        try { await call(new TikHub('k', b)) } catch (error) { caught = error }
+        ok(`${name}/${phase} 注入方法确实执行`, touched)
+        ok(`${name}/${phase} 同一个费用错误穿透，不改成供应商失败`, caught === injected)
+        eq(`${name}/${phase} 不触发重试或fallback`, paths.length, phase === 'reserve' ? 0 : 1)
+      }
+    })
+    await costSucceeds('无key只在付费点拒绝，零请求路径仍可执行', async () => {
+      const b = fundedBudget(), api = new TikHub(undefined, b); let fetched = 0
+      globalThis.fetch = (async () => { fetched++; return new Response('{}', { status: 200 }) }) as typeof fetch
+      await api.search({ keyword: 'k', dimension: 'category', platform: 'instagram' }, 'US', 20)
+      eq('IG 已知不翻页路径缺key也零请求', fetched, 0)
+      const before = b.view(); let error: unknown
+      try { await methods[0][1](api) } catch (e) { error = e }
+      ok('实际请求点明确拒绝缺key', error !== undefined)
+      eq('缺key没有 fetch', fetched, 0)
+      eq('缺key的本地拒绝不占费', b.view(), before)
+    })
+  } finally { globalThis.fetch = realFetch; globalThis.setTimeout = realTimeout }
+  // 入口费用保存与退出仍由进程场景验收，本组只守 provider 的真实调用边界。
+}
+
+// D13 独立于生产函数体；金额 expected 来自 ADR-108 与手算，不回抄运行结果。
+suite('D13', '原 JSON 数值与明确新账、旧账诊断使用同一精确费用依据')
+{
+  const exact = (label: string, got: unknown, want: unknown) => ok(label, isDeepStrictEqual(got, want))
+  const rejected = (label: string, run: () => unknown, expected?: 'input' | string) => {
+    let error: unknown, didThrow = false
+    try { run() } catch (e) { error = e; didThrow = true }
+    ok(label, didThrow && (expected === undefined || (expected === 'input'
+      ? error instanceof BudgetInputError : error instanceof CostError && error.code === expected)))
+  }
+  // 测试自己的 root numeric-token 观察器：JSON reviver 的 holder 识别根，不靠生产 serializer。
+  const numberTokens = (text: string, path: (string | number)[] = []): Record<string, string> => {
+    const seen = new WeakMap<object, Record<string, string>>()
+    const parsed = (JSON.parse as any)(text, function(this: object, key: string, value: unknown, context: { source?: string }) {
+      if (typeof value === 'number' && context?.source !== undefined) {
+        const values = seen.get(this) ?? {}; values[key] = context.source; seen.set(this, values)
+      }
+      return value
+    })
+    return seen.get(path.reduce((value, key) => value?.[key], parsed)) ?? {}
+  }
+  const stateLedger = (state: CostState) => state.cost_ledger as any
+  const viewAmounts = (view: CostView) => [view.cost_estimate_usd, view.budget_usd, view.cost_http_200_usd,
+    view.cost_unknown_result_usd, view.cost_pending_usd]
+  const assertUnavailable = (label: string, state: CostState, status: CostView['cost_status'], count: number | null, limit = '1') => {
+    const before = stringifyCostJson(state), b = new Budget(state, () => {}), view = b.view()
+    eq(`${label}：具体状态`, view.cost_status, status)
+    eq(`${label}：可核请求数单独保留`, view.requests, count)
+    exact(`${label}：未知占用不是零，合法总上限仍可解释`, viewAmounts(view), [null, limit, null, null, null])
+    eq(`${label}：不冒充任务范围`, view.cost_scope, null)
+    eq(`${label}：不制造可确认历史版本`, view.cost_price_versions, [])
+    ok(`${label}：具体字段和原因`, view.cost_problems.length > 0 && view.cost_problems.every(p => !!p.path && !!p.reason))
+    eq(`${label}：固定估算声明`, view.cost_basis, TEST_COST_BASIS)
+    eq(`${label}：count 不把未知补零`, b.count, count)
+    rejected(`${label}：付费前是输入错误`, () => b.reserve(TEST_TT), 'input')
+    rejected(`${label}：增加上限不修复未知账`, () => b.setLimit(1_000_000), 'input')
+    eq(`${label}：诊断与拒绝后原费用输入未动`, stringifyCostJson(state), before)
+  }
+  await costSucceeds('根数值 token 与内存金额资格完整执行', () => {
+    for (const [token, amount] of [['0.005', 5000], ['5e-3', 5000], ['9007199254.740991', Number.MAX_SAFE_INTEGER], ['-0e999', 0]] as const) {
+      const state = readCostDocument(`{"nested":{"budget_usd":999},"budget_usd":${token}}`)
+      eq(`读取原根数值 ${token}`, readCostLimit(state), amount)
+      eq(`不经 Number 写回原 token ${token}`, numberTokens(stringifyCostJson(state)).budget_usd, token)
+    }
+    for (const text of ['{}', '{"budget_usd":null}', '{"budget_usd":"0.005"}', '{"budget_usd":true}',
+      '{"budget_usd":[]}', '{"budget_usd":{}}', '{"nested":{"budget_usd":0.005}}',
+      '{"budget_usd":0.00499999999999999999999999999999999999999}', '{"budget_usd":9007199254.740992}',
+      '{"budget_usd":1e999}', '{"budget_usd":-0.001}'])
+      rejected(`根输入不得修补成合法额度 ${text}`, () => readCostLimit(readCostDocument(text)))
+    rejected('普通内存 number 未核原 token', () => readCostLimit({ budget_usd: 0.005 }))
+    const fresh: CostState = {}; setCostLimitField(fresh, Number.MAX_SAFE_INTEGER)
+    eq('显式设置微美元可核验', readCostLimit(fresh), Number.MAX_SAFE_INTEGER)
+    eq('显式设置最大上限精确写出', numberTokens(stringifyCostJson(fresh)).budget_usd, '9007199254.740991')
+    const before = stringifyCostJson(fresh)
+    for (const amount of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '5000', null]) {
+      rejected(`无效改字段不扩大上限 ${String(amount)}`, () => setCostLimitField(fresh, amount as any))
+      eq('无效改字段保持完整原输入', stringifyCostJson(fresh), before)
+    }
+  })
+  await costSucceeds('无 view 的写回保留旧金额语义完整执行', () => {
+    for (const token of ['0.00499999999999999999999999999999999999999', '9007199254.740991', '1e999']) {
+      const state = readCostDocument(`{"budget_usd":${token},"requests":7,"nested":{"budget_usd":5}}`)
+      ;(state as any).business = 'changed'
+      eq(`本地业务写回不改原根 token ${token}`, numberTokens(stringifyCostJson(state)).budget_usd, token)
+      eq('本地业务变化仍可保存', JSON.parse(stringifyCostJson(state)).business, 'changed')
+    }
+    for (const source of ['{}', '{"budget_usd":null}', '{"budget_usd":"original"}']) {
+      const state = readCostDocument(source)
+      exact('缺席、null、string 原样保留，不填默认', JSON.parse(stringifyCostJson(state)), JSON.parse(source))
+    }
+  })
+  await costSucceeds('非法对象或数组预算的原数字保留，但不能取得付费资格', () => {
+    const tokens = ['1e400', '9007199254740993', '0.99999999999999999']
+    for (const [shape, raw, keys] of [
+      ['对象', '{"overflow":1e400,"integer":9007199254740993,"fraction":0.99999999999999999}', ['overflow', 'integer', 'fraction']],
+      ['数组', '[1e400,9007199254740993,0.99999999999999999]', ['0', '1', '2']],
+    ] as const) {
+      const state = readCostDocument(`{"budget_usd":${raw},"requests":0}`)
+      ;(state as any).business = 'updated locally'
+      const saved = stringifyCostJson(state)
+      const originalNumbers = (text: string) => {
+        const values = numberTokens(text, ['budget_usd'])
+        return keys.map(key => values[key])
+      }
+      // expected 是上述原始字面值；普通 JSON.parse 已舍入后的值不能证明保真。
+      eq(`${shape}预算本地保存保留三个原数字`, originalNumbers(saved), tokens)
+      eq(`${shape}预算本地业务修改仍可保存`, JSON.parse(saved).business, 'updated locally')
+      eq(`${shape}预算不新建费用账`, Object.hasOwn(state, 'cost_ledger'), false)
+      const view = costView(state), budget = new Budget(state, () => {})
+      eq(`${shape}预算仍是旧费用未知`, view.cost_status, 'unknown-history')
+      eq(`${shape}预算可核原计数仍为零`, view.requests, 0)
+      exact(`${shape}预算不可解释且所有金额为未知`, viewAmounts(view), [null, null, null, null, null])
+      ok(`${shape}预算诊断给出具体原因`, view.cost_problems.length > 0 && view.cost_problems.every(p => !!p.path && !!p.reason))
+      rejected(`${shape}预算不能读为合法总额`, () => readCostLimit(state))
+      rejected(`${shape}预算不因零请求获得付费资格`, () => budget.reserve(TEST_TT), 'input')
+      rejected(`${shape}预算不能借改额修复缺账`, () => budget.setLimit(1_000_000), 'input')
+      const after = stringifyCostJson(state)
+      eq(`${shape}预算诊断及拒绝后仍保留原数字`, originalNumbers(after), tokens)
+      eq(`${shape}预算拒绝后不改原计数或补账`, [numberTokens(after).requests, Object.hasOwn(state, 'cost_ledger')], ['0', false])
+    }
+  })
+  await costSucceeds('费用账与请求数的原数字也不得在离线写回时舍入', () => {
+    for (const token of ['9007199254740993', '1e400']) {
+      const state = readCostDocument(`{"budget_usd":1,"requests":${token}}`)
+      ;(state as any).business = 'updated locally'
+      eq(`旧 requests ${token} 写回保留原数字`, numberTokens(stringifyCostJson(state)).requests, token)
+      eq(`旧 requests ${token} 不冒充可核次数`, costView(state).requests, null)
+    }
+    const malformed = readCostDocument('{"budget_usd":1,"requests":0,"cost_ledger":1e400}')
+    eq('坏 ledger 数字不能在本地写回时变成 null', numberTokens(stringifyCostJson(malformed)).cost_ledger, '1e400')
+    const nested = readCostDocument('{"budget_usd":1,"requests":0,"cost_ledger":{"entries":[{"unit_micro_usd":1e400}]}}')
+    eq('ledger 内的原数字也不能变成 null',
+      numberTokens(stringifyCostJson(nested), ['cost_ledger', 'entries', 0]).unit_micro_usd, '1e400')
+  })
+  await costSucceeds('费用数字不能先舍入成安全整数再授予付费资格', () => {
+    for (const [field, unit, count, requests] of [
+      ['unit_micro_usd', '999.99999999999999', '1', '1'],
+      ['http_200_count', '1000', '0.99999999999999999', '1'],
+      ['requests', '1000', '1', '0.99999999999999999'],
+    ]) {
+      // 三例经普通 Number 解析会成为合法的 1000/1；原文都不是整数，不能得到 4000 剩余额度。
+      const source = `{"budget_usd":0.005,"requests":${requests},"cost_ledger":{"schema":1,"currency":"USD","unit":"micro_usd","scope":"task","limit_micro_usd":5000,"next_attempt_id":2,"entries":[{"endpoint":"${TEST_TT}","price_version":"${TEST_PRICE_VERSION}","unit_micro_usd":${unit},"http_200_count":${count},"unknown_result_count":0}]}}`
+      const state = readCostDocument(source), budget = new Budget(state, () => {})
+      eq(`${field} 原文非整数必须诊断坏账`, budget.view().cost_status, 'invalid-ledger')
+      rejected(`${field} 不因舍入获得付费资格`, () => budget.reserve(TEST_TT), 'input')
+      const adjustment = new Budget(readCostDocument(source), () => {})
+      rejected(`${field} 也不能借改额修复`, () => adjustment.setLimit(6000), 'input')
+      const saved = stringifyCostJson(readCostDocument(source))
+      eq(`${field} 离线写回保持根 requests 原数字`, numberTokens(saved).requests, requests)
+      const item = numberTokens(saved, ['cost_ledger', 'entries', 0])
+      eq(`${field} 离线写回保持单价与次数原数字`, [item.unit_micro_usd, item.http_200_count], [unit, count])
+    }
+  })
+  await costSucceeds('新账同步 state 与固定费用投影完整执行', () => {
+    const state: CostState = {}, b = startBudget(state, 5000, 'task', () => {})
+    eq('显式新建同一 state 具有已核上限', readCostLimit(state), 5000)
+    exact('新账投影完整且空账版本为空', b.view(), {
+      requests: 0, cost_estimate_usd: '0', budget_usd: '0.005', cost_status: 'known', cost_scope: 'task',
+      cost_http_200_usd: '0', cost_unknown_result_usd: '0', cost_pending_usd: '0',
+      cost_basis: TEST_COST_BASIS, cost_price_versions: [], cost_problems: [],
+    })
+    const a = b.reserve(TEST_TT)
+    eq('state 预留时仍是净零次数', state.requests, 0)
+    ok('state 在预留后有 pending', !!stateLedger(state).pending)
+    b.settle(a, { kind: 'http', status: 200 })
+    b.settle(b.reserve(TEST_IG), { kind: 'no_http_status' })
+    const pending = b.reserve(TEST_TT), view = b.view()
+    // 1000 HTTP200 + 2000 无状态 + 1000 pending = 4000 占用；净次数是 2。
+    exact('混合价三分项与次数彼此独立', [view.requests, ...viewAmounts(view)], [2, '0.004', '0.005', '0.001', '0.002', '0.001'])
+    eq('同版本实际 entries/pending 去重', view.cost_price_versions, [TEST_PRICE_VERSION])
+    exact('costView 与预算 view 使用同一 state', costView(state), view)
+    const json = stringifyCostJson({ product: 'kept' }, view), parsed = JSON.parse(json), tokens = numberTokens(json)
+    exact('外部费用数值精确 token', ['cost_estimate_usd', 'budget_usd', 'cost_http_200_usd', 'cost_unknown_result_usd', 'cost_pending_usd'].map(k => tokens[k]),
+      ['0.004', '0.005', '0.001', '0.002', '0.001'])
+    eq('业务字段没有被费用投影丢掉', parsed.product, 'kept')
+    eq('requests 是净次数数值', parsed.requests, 2)
+    const restored = new Budget(readCostDocument(stringifyCostJson(state)), () => {})
+    exact('保存恢复 pending 金额仍已知', restored.view(), view)
+    rejected('恢复 pending 不得付费', () => restored.reserve(TEST_TT), 'input')
+    rejected('恢复 pending 不得改额', () => restored.setLimit(6000), 'input')
+    b.settle(pending, { kind: 'http', status: 204 })
+    eq('非200只撤销本次pending并同步原state净次数', state.requests, 2)
+    exact('非200不撤销此前200与未知', viewAmounts(b.view()), ['0.003', '0.005', '0.001', '0.002', '0'])
+    rejected('重复receipt保持原CostError', () => b.settle(pending, { kind: 'http', status: 200 }), 'invalid-receipt')
+    rejected('未知端点原样抛unknown-price，不当预算不足', () => b.reserve('/not-priced'), 'unknown-price')
+    const maxState: CostState = {}; startBudget(maxState, Number.MAX_SAFE_INTEGER, 'process', () => {})
+    eq('最大上限费用JSON也是精确数值', numberTokens(stringifyCostJson({}, costView(maxState))).budget_usd, '9007199254.740991')
+  })
+  await costSucceeds('未知、坏账与版本诊断完整执行', () => {
+    for (const requests of [0, 7]) assertUnavailable(`旧账 requests=${requests}`,
+      readCostDocument(`{"budget_usd":1,"requests":${requests}}`), 'unknown-history', requests)
+    for (const requests of [null, -1, 1.5, '7']) assertUnavailable(`旧计数非法 ${String(requests)}`,
+      readCostDocument(JSON.stringify({ budget_usd: 1, requests })), 'unknown-history', null)
+    const bad = costFixture(10000, 1); stateLedger(bad).entries[0].unit_micro_usd = 1
+    assertUnavailable('已知版本却改了单价', bad, 'invalid-ledger', 1, '0.01')
+    const version = costFixture(10000, 1); stateLedger(version).entries[0].price_version = 'future-unverified'
+    assertUnavailable('未知价目版本不能换当前价', version, 'unavailable-evidence', 1, '0.01')
+    const count = costFixture(10000, 1); count.requests = 0
+    assertUnavailable('ledger净次数和原计数冲突', count, 'invalid-ledger', 0, '0.01')
+  })
+  await costSucceeds('总上限替换、根冲突修复和失败原子性完整执行', () => {
+    const state = costFixture(5000, 1, 2), b = new Budget(state, () => {})
+    const priorEntries = structuredClone(stateLedger(state).entries), seq = stateLedger(state).next_attempt_id
+    b.setLimit(6000)
+    eq('6000 是总额度，不是原5000再加6000', readCostLimit(state), 6000)
+    eq('ledger 同步替换总上限', stateLedger(state).limit_micro_usd, 6000)
+    exact('增加额度不改历史价次数和尝试序号', [stateLedger(state).entries, state.requests, stateLedger(state).next_attempt_id], [priorEntries, 3, seq])
+    b.setLimit(3000)
+    eq('允许降至已占用额度', b.view().budget_usd, '0.003')
+    const before = stringifyCostJson(state)
+    rejected('不能把总额度降到占用之下', () => b.setLimit(2999))
+    eq('失败没有写半份新上限', stringifyCostJson(state), before)
+    const original = costFixture(5000, 1, 2)
+    const conflict = readCostDocument(`{"budget_usd":0.007,"requests":3,"cost_ledger":${JSON.stringify(original.cost_ledger)}}`)
+    eq('根冲突夹具的原token确为0.007', readCostLimit(conflict), 7000)
+    const conflictBefore = stringifyCostJson(conflict), cb = new Budget(conflict, () => {}), view = cb.view()
+    eq('根上限冲突是整体 invalid-ledger', view.cost_status, 'invalid-ledger')
+    exact('冲突不挑一份金额假装有效', [...viewAmounts(view), view.cost_scope, view.cost_price_versions, view.requests], [null, null, null, null, null, null, [], 3])
+    ok('冲突诊断具体指出根字段', view.cost_problems.some(p => /budget_usd/.test(p.path) && !!p.reason))
+    rejected('无显式替换不能付费', () => cb.reserve(TEST_TT), 'input')
+    eq('仅诊断不改任何一份上限', stringifyCostJson(conflict), conflictBefore)
+    cb.setLimit(6000)
+    eq('有效原ledger允许显式修复两处上限', [readCostLimit(conflict), stateLedger(conflict).limit_micro_usd], [6000, 6000])
+    exact('修复后历史与净次数仍连续', [stateLedger(conflict).entries, conflict.requests], [priorEntries, 3])
+    eq('修复后整体输出已知', cb.view().cost_status, 'known')
+    const live = fundedBudget(5000), receipt = live.reserve(TEST_TT), liveBefore = live.view()
+    rejected('活实例pending改额也不成功', () => live.setLimit(6000))
+    exact('pending改额失败不动账', live.view(), liveBefore)
+    live.settle(receipt, { kind: 'http', status: 200 })
+    // CostBudget 的新增小接口单独检验：只改 limit；无需包装层才能守住原子性。
+    const pure = createCostBudget(5000, 'task', { test: { '/a': 2000 } })
+    pure.settle(pure.reserve({ endpoint: '/a', price_version: 'test', unit_micro_usd: 2000 }), { kind: 'http', status: 200 })
+    const snapshot = pure.snapshot(); pure.setLimit(2000)
+    exact('纯模型改额保留所有历史字段', pure.snapshot(), { ...snapshot, cost_ledger: { ...snapshot.cost_ledger, limit_micro_usd: 2000 } })
+    const pureBefore = pure.snapshot()
+    for (const limit of [1999, -1, 0.1, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+      rejected(`纯模型拒绝非法或低于占用上限 ${limit}`, () => pure.setLimit(limit))
+      exact('纯模型拒绝原子性', pure.snapshot(), pureBefore)
+    }
+  })
+  // 入口判据 D13.a–s 与交点还需 selfcheck 的进程证据；本组不以纯接口冒领整条入口判据。
+}
+
+suite('D13', '已有数据可离线输出，未知费用不得换来新增付费或伪账单')
+{
+  const cwd = mkdtempSync(join(tmpdir(), 'kol-cost-cross-')), dir = join(cwd, 'task'), taskFile = join(dir, 'task.json')
+  const log = join(cwd, 'attempts.tsv'), scripts = new URL('./', import.meta.url)
+  const preload = new URL('./check/fake-fetch.ts', import.meta.url).href
+  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  mkdirSync(dir); mkdirSync(join(cwd, 'memory'))
+  const writeLegacy = (paid = false) => {
+    writeFileSync(taskFile, JSON.stringify({ product: 'legacy-cross', market: 'US', target_count: 9999,
+      budget_usd: 1, requests: 0, tasks: [{ keyword: 'local', dimension: 'category', platform: 'tiktok' }],
+      done: paid ? [] : [0], offsets: paid ? {} : { 0: 5 }, pages: paid ? {} : { 0: 1 },
+      answered: paid ? {} : { 0: 1 }, found: paid ? {} : { 0: 3 },
+      created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' }))
+    for (const file of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, file), '[]')
+  }
+  const run = (file: string, args: string[], key = '') => spawnSync(process.execPath,
+    ['--import', tsx, '--import', preload, fileURLToPath(new URL(file, scripts)), ...args], {
+      cwd, encoding: 'utf8', timeout: 20000, env: { ...process.env, NODE_OPTIONS: '',
+        TIKHUB_API_KEY: key, FAKE_FETCH_LEDGER: log, FAKE_FETCH_NO_429: '1' },
+    })
+  const noFetch = () => !existsSync(log) || rf(log, 'utf8').trim() === ''
+  try {
+    await costSucceeds('旧账本地处理交点完整执行', () => {
+      writeLegacy()
+      const result = run('collect.ts', ['--resume', dir])
+      eq('没有待办的旧账collect缺key仍成功', result.status, 0)
+      ok('旧账本地collect确实零fetch', noFetch())
+      const after = JSON.parse(rf(taskFile, 'utf8'))
+      eq('本地写回不因requests为0新造ledger', Object.hasOwn(after, 'cost_ledger'), false)
+      eq('本地写回保留可验证原计数与原根预算', [after.requests, after.budget_usd], [0, 1])
+      tension('D13', 'P1')
+    })
+    await costSucceeds('未知费用不产生新增额度交点完整执行', () => {
+      writeLegacy(true)
+      const before = rf(taskFile, 'utf8'), result = run('collect.ts', ['--resume', dir], 'fake-key-for-cost-test')
+      eq('有待办旧账拒绝付费为输入问题', result.status, 2)
+      ok('有待办旧账在实际fetch前拒绝', noFetch())
+      ok('错误点名费用状态而非只让用户加钱', /费用|账|历史/.test(result.stderr) && /未知|无从|缺|不可/.test(result.stderr))
+      const after = JSON.parse(rf(taskFile, 'utf8')), original = JSON.parse(before)
+      eq('拒绝付费不制造ledger', Object.hasOwn(after, 'cost_ledger'), false)
+      eq('拒绝付费不重置费用原字段', [after.requests, after.budget_usd], [original.requests, original.budget_usd])
+      tension('D13', 'P3')
+    })
+    await costSucceeds('未知费用在JSON和HTML如实显示交点完整执行', () => {
+      writeLegacy()
+      const result = run('render.ts', ['--dir', dir])
+      eq('旧账render缺key仍成功', result.status, 0)
+      ok('render确实零fetch', noFetch())
+      const meta = JSON.parse(rf(join(dir, 'meta.json'), 'utf8')), html = rf(join(dir, 'report.html'), 'utf8')
+      eq('未知状态与可解释上限单独输出', [meta.requests, meta.budget_usd, meta.cost_status, meta.cost_scope], [0, 1, 'unknown-history', null])
+      eq('未知占用及三分项不推算为0', [meta.cost_estimate_usd, meta.cost_http_200_usd, meta.cost_unknown_result_usd, meta.cost_pending_usd], [null, null, null, null])
+      eq('所有费用出口都声明固定价估算边界', meta.cost_basis, TEST_COST_BASIS)
+      eq('未知版本列表不是凭空宣称本版历史', meta.cost_price_versions, [])
+      ok('meta给出具体未知原因', Array.isArray(meta.cost_problems) && meta.cost_problems.some((p: any) => p.path && p.reason))
+      ok('HTML费用未知不显示伪零或null金额', /未知|无从确认/.test(html) && !/\$\s*(?:0(?:\.0+)?(?:[^\d.]|$)|null)/.test(html))
+      ok('HTML仍说明估算非账单', html.includes('固定公开基础价') && html.includes('不是实际账单'))
+      const task = JSON.parse(rf(taskFile, 'utf8'))
+      eq('render没有修复未知ledger', Object.hasOwn(task, 'cost_ledger'), false)
+      tension('D13', 'P5')
+    })
+  } finally { rmSync(cwd, { recursive: true, force: true }) }
 }
 
 console.log(fail ? `\n${fail} 个失败\n` : `\n全部通过（覆盖 ${covered.size} 条需求）\n`)

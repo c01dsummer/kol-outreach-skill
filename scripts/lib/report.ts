@@ -2,6 +2,7 @@ import type {
   AccountAssessmentSummary, AudienceRiskFlag, Creator, Measurement,
 } from './types.js'
 import { taskOrdinal } from './task-label.js'
+import type { CostView } from './budget.js'
 
 const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, m =>
@@ -106,6 +107,24 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
  */
 export const enrichedFlag = (creators: Creator[]): boolean =>
   creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)
+
+/** D13.r / P5：金额文本原样展示；未知金额不能变成 $0 或 $null。 */
+const renderCost = (view: CostView): string => {
+  const money = (value: string | null): string => value == null ? '无从确认' : `$${esc(value)}`
+  const status = {
+    known: '已核费用账',
+    'unknown-history': '历史费用未知',
+    'unavailable-evidence': '费用依据不可用',
+    'invalid-ledger': '费用账无效',
+  }[view.cost_status]
+  const scope = view.cost_scope === 'task' ? '任务总额度'
+    : view.cost_scope === 'process' ? '本次进程额度' : '额度范围无从确认'
+  const problems = view.cost_problems.map(p =>
+    `<div>${esc(p.path)}：${esc(p.reason)}</div>`).join('')
+  return `<div class="sub">预算占用估算 ${money(view.cost_estimate_usd)} · 总上限 ${money(view.budget_usd)} · ${esc(status)} · ${scope}</div>
+<div class="sub">HTTP 200 估算 ${money(view.cost_http_200_usd)} · 结果不明保守留存 ${money(view.cost_unknown_result_usd)} · 未结预留 ${money(view.cost_pending_usd)}</div>
+<div class="sub">${esc(view.cost_basis)}${problems}</div>`
+}
 
 /** 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档 */
 export function renderHtml(creators: Creator[], meta: any): string {
@@ -262,7 +281,8 @@ th{color:#64748b;font-weight:600;font-size:12px}
 .notes div{margin:3px 0}
 </style></head><body><div class="wrap">
 <h1>KOL 建联名单 · ${esc(meta.product)}</h1>
-<div class="sub">目标市场 ${esc(meta.market)} · ${(meta.platforms ?? []).join(' + ')} · 花费约 $${meta.cost_estimate_usd}（预算 $${meta.budget_usd}）</div>
+<div class="sub">目标市场 ${esc(meta.market)} · ${(meta.platforms ?? []).join(' + ')}</div>
+${renderCost(meta)}
 
 <div class="stats">
   <div class="stat"><div class="v">${meta.total}</div><div class="l">总人数</div></div>

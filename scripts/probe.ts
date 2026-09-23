@@ -3,7 +3,7 @@
  * Phase 02 —— 小样试探（F3）
  *
  * 每个关键词每个平台只抓 1 页，输出样本供 Agent 判读方向对不对。
- * 成本约 20 次请求（不到 3 美分），用来避免整轮返工。
+ * 费用按实际端点的固定公开价目估算，用来避免整轮返工。
  *
  * 用法：
  *   tsx scripts/probe.ts --config probe.json
@@ -15,41 +15,20 @@
  */
 import { readFileSync } from 'node:fs'
 import { TikHub, TikHubError } from './providers/tikhub.js'
-import { Budget, BudgetExceeded, budgetProblem, showAmount } from './lib/budget.js'
+import { Budget, BudgetInputError, startBudget } from './lib/budget.js'
+import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
+import { readCostDocument, readCostLimit, stringifyCostJson, type CostState } from './lib/cost-json.js'
 import { extractEmail } from './lib/email.js'
 import type { SearchTask } from './lib/types.js'
 import { taskLabel } from './lib/task-label.js'
 
-const cfgPath = process.argv[process.argv.indexOf('--config') + 1]
-if (!cfgPath || cfgPath.startsWith('--')) {
+const cfgIndex = process.argv.indexOf('--config')
+const cfgPath = process.argv[cfgIndex + 1]
+if (cfgIndex < 0 || !cfgPath || cfgPath.startsWith('--')) {
   console.error('用法: tsx scripts/probe.ts --config probe.json')
   process.exit(2)
 }
-const cfg = JSON.parse(readFileSync(cfgPath, 'utf8')) as {
-  market?: string; budget_usd?: number; tasks: SearchTask[]
-}
-
-const key = process.env.TIKHUB_API_KEY
-if (!key) {
-  console.error('缺少 TIKHUB_API_KEY。到 https://tikhub.io 注册后写入 .env')
-  process.exit(2)
-}
-
-// 预算上限在花钱之前查。闸门是一句「已花 + 本次开销 > 上限」的比较：上限不是
-// 有限的数时它恒为假，闸门整条失效（P3）。判定与另外两条入口共用 lib/budget.ts
-// 的那一份 —— 三条入口各写一份表达式时，先改的那边不会报错。
-// 默认值只给「没写」：`??` 会把显式的 null 也换成 0.5，于是 null 绕过下面那道校验
-// 直接去发请求（三态：undefined 是没写，null 是写了个空）
-const probeBudget = cfg.budget_usd === undefined ? 0.5 : cfg.budget_usd
-const badBudget = budgetProblem(probeBudget)
-if (badBudget) {
-  console.error(`${cfgPath} 里的 budget_usd ${badBudget}：${showAmount(cfg.budget_usd)} —— ` +
-                `预算闸门要拿它和已花的钱比大小，比不了就等于没有闸门。`)
-  process.exit(2)
-}
-const budget = new Budget(probeBudget)
-const api = new TikHub(key, budget)
-const market = cfg.market ?? 'US'
+type ProbeConfig = CostState & { market?: string; tasks: SearchTask[] }
 
 /**
  * P1：没有数据时返回 undefined，**不是 0**。
@@ -63,6 +42,22 @@ const median = (xs: number[]): number | undefined => {
 }
 
 async function main() {
+  let cfg: ProbeConfig
+  let budget: Budget
+  try {
+    cfg = readCostDocument<ProbeConfig>(readFileSync(cfgPath, 'utf8'))
+    // D13.a：只在缺席时默认；显式 null、字符串与超精度原 token 均交给共同边界拒绝。
+    const absent = cfg.budget_usd === undefined
+    const limit = absent ? parseUsdMicros('0.5') : readCostLimit(cfg)
+    if (absent) console.error('未提供 budget_usd，本次试探默认使用进程总预算 $0.5。')
+    budget = startBudget(cfg, limit, 'process', (threshold, view) => {
+      console.error(`预算占用已达 ${threshold * 100}%：$${view.cost_estimate_usd} / $${view.budget_usd}`)
+    })
+  } catch (error) {
+    throw new BudgetInputError(`${cfgPath}：${error instanceof Error ? error.message : String(error)}`)
+  }
+  const api = new TikHub(process.env.TIKHUB_API_KEY, budget)
+  const market = cfg.market ?? 'US'
   const results: any[] = []
 
   for (const [i, t] of cfg.tasks.entries()) {
@@ -100,10 +95,11 @@ async function main() {
       })
       console.error(`  ✓ ${label} → ${found.length} 人`)
     } catch (e) {
-      if (e instanceof BudgetExceeded) {
-        console.error(`\n预算用尽（${budget.summary()}），试探未跑完。`)
+      if (e instanceof CostError && e.code === 'budget-exceeded') {
+        console.error(`\n余额不足以支付下一请求（${budget.summary()}），试探未跑完。`)
         break
       }
+      if (e instanceof CostError || e instanceof BudgetInputError) throw e
       const msg = e instanceof TikHubError ? e.message : String(e)
       results.push({ task_index: i, keyword: t.keyword, dimension: t.dimension, platform: t.platform, error: msg })
       console.error(`  ✗ ${label} → ${msg}`)
@@ -112,12 +108,7 @@ async function main() {
   }
 
   // stdout 出 JSON 给 Agent 读，进度信息走 stderr
-  console.log(JSON.stringify({
-    market,
-    requests: budget.count,
-    cost_estimate_usd: Number(budget.spent.toFixed(4)),
-    results,
-  }, null, 2))
+  console.log(stringifyCostJson({ market, results }, budget.view()))
 }
 
-main().catch(e => { console.error(e); process.exit(1) })
+main().catch(e => { console.error(e); process.exit(e instanceof BudgetInputError ? 2 : 1) })

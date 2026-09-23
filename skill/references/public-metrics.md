@@ -13,7 +13,7 @@
 npm run enrich -- --dir output/xxx
 ```
 
-预算不够时会保存 `enrichment.json` 并以退出码 3 结束。用户明确追加的是**总预算**：
+已知额度不足时，断点保存成功后退出 3；保存失败退出 1。`--budget` 修改的是同一任务的**总上限**：
 
 ```bash
 npm run enrich -- --dir output/xxx --budget 3
@@ -21,7 +21,7 @@ npm run enrich -- --dir output/xxx --budget 3
 
 默认跳过已经查询过的账号 —— 跳过的是**重抓**，不是重算：缓存里的指标每次都按
 当前口径就地重新算一遍，零请求。stdout 的 `locally_recomputed` 是这一轮里
-**数真的换过**的账号数。只有用户确实要刷新样本时才加 `--refresh`；它会重新计费。
+**数真的换过**的账号数。全部走缓存/私密账号本地记录时，旧费用不可用或缺 key 不阻止处理；实际请求前才检查费用与凭证。只有用户确实要刷新样本时才加 `--refresh`，它可能新增请求。费用故障与预算不足的处理见 `../SKILL.md`。
 
 ## 样本边界
 

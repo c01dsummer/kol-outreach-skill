@@ -7,6 +7,7 @@ import {
 } from './score.js'
 import { filterByMemory, type MemoryStatus } from './memory.js'
 import { sortForOutput } from './rows.js'
+import { costView } from './budget.js'
 
 /*
  * 入口脚本里不该有决策逻辑。
@@ -254,6 +255,14 @@ export function resumeCostLine(
 ): string {
   const keywordsLeft = keywordsResumeWillRun(state, qualified).length
   const profilesLeft = creators.filter(needsProfile).length
+  // D6.q/r：待查量仍由原调度判定；费用不可用只限制新增付费，不抹去待查项。
+  const cost = costView(state)
+  const costBlock = cost.cost_status !== 'known'
+    ? cost.cost_problems.map(p => `${p.path}：${p.reason}`).join('；')
+    : cost.cost_pending_usd !== '0' ? '存在未结预留，须先核清该次请求的费用' : undefined
+  const nextRequest = costBlock === undefined
+    ? '续跑会继续发请求、继续花钱。'
+    : `费用尚无法核验，当前不能新增付费请求：${costBlock}。`
   // F9.e：整张分页记录表缺失时**要说出来**。走不到下面那两支 ——
   // 关键词那一半确实为零，但理由是「无从确认」，而下面那句「采集与补全都已跑完」
   // 会被读成「都查过了」，那正是 F9.e 逐字禁的第二种误读。
@@ -261,7 +270,7 @@ export function resumeCostLine(
     return `已抓到的都在 ${dir}。这个目录没有分页记录（上一版留下的），无从确认哪些关键词查过 —— `
       + `为免把已经付过钱的词重抓一遍，续跑不再抓关键词`
       + (profilesLeft
-        ? `；但还有 ${profilesLeft} 个人的 profile 没补，续跑会继续发请求、继续花钱。`
+        ? `；但还有 ${profilesLeft} 个人的 profile 没补，${nextRequest}`
         : `，也不会有新的请求。`)
   }
   const rest = [
@@ -269,7 +278,7 @@ export function resumeCostLine(
     profilesLeft ? `${profilesLeft} 个人的 profile` : '',
   ].filter(Boolean).join('、')
   return rest
-    ? `已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，续跑会继续发请求、继续花钱。`
+    ? `已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，${nextRequest}`
     : `采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`
 }
 

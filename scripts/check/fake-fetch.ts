@@ -136,7 +136,7 @@ function pick(url: string): unknown {
 const ledger = process.env.FAKE_FETCH_LEDGER
 const killAfterOk = Number(process.env.FAKE_FETCH_KILL_AFTER_OK)   // 没设 → NaN，永不相等
 let oks = 0
-const record = (status: number, url: string) => {
+const record = (status: number | 'NO_HTTP_STATUS', url: string) => {
   if (ledger) appendFileSync(ledger, `${status}\t${new URL(url).pathname}\n`)
 }
 
@@ -145,9 +145,34 @@ let calls = 0
 let drifts = 0
 /** `force-onecreator` 那一支的批次号 —— 每调一次换一批条目，但发的人始终是同一个 */
 let oneCreator = 0
+// 费用接线用的单次故障：只有本次 spawn 明确指定的 pathname 才命中，随后恢复罐头。
+// profile 没有 keyword，所以用路径定位；不改变既有 force-* 或第 7 次 429 的默认行为。
+let faultUsed = false
 globalThis.fetch = (async (input: RequestInfo | URL) => {
   calls++
   const url = String(input)
+  const fault = process.env.FAKE_FETCH_FAULT
+  if (!faultUsed && fault && new URL(url).pathname === process.env.FAKE_FETCH_FAULT_PATH) {
+    faultUsed = true
+    if (fault === 'no-http-status') {
+      record('NO_HTTP_STATUS', url)
+      throw new Error('fake fetch: connection lost before HTTP status')
+    }
+    if (fault === 'bad-json-200') {
+      record(200, url)
+      return new Response('{broken', { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    const status = Number(fault.replace('bad-body-', ''))
+    if ([201, 204, 429, 500].includes(status)) {
+      record(status, url)
+      // 204 必须以 null 构造，不能让 Response 构造异常伪装成无 HTTP 状态。
+      const response = new Response(status === 204 ? null : 'unreadable', { status })
+      response.text = async () => { throw new Error('fake response: text body unreadable') }
+      response.json = async () => { throw new Error('fake response: JSON body unreadable') }
+      return response
+    }
+    throw new Error(`unknown fake-fetch fault: ${fault}`)
+  }
   // 关键词里带上 `force-402` 就让对面拒收 —— **出错那条收尾路径只有这样才走得到**。
   // 402 是 TikHub 说「你账户没钱了」，和「预算用尽」不是一回事：预算是我们自己设的
   // 闸门（退出码 3），402 是对面拒收（退出码 1），而且 402 不重试、直接抛穿搜索循环。

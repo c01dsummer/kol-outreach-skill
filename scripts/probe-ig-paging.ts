@@ -51,11 +51,14 @@
  *   npm run probe:ig-paging -- --keyword smoothie --chain 10
  *   npm run probe:ig-paging -- --keyword smoothie --repeat 10
  *
- * 花了多少看输出的 `cost_estimate_usd`。⚠️ 那是**估算**：请求数乘以 `lib/budget.ts` 里
- * 我们自己写死的单价，不是 TikHub 的账单。
+ * 费用看 `cost_estimate_usd` 及其分项：按该端点固定公开价估算的进程预算占用，
+ * 含无 HTTP 状态的保守留存与未结预留，不是 TikHub 的账单。
  */
 import { TikHubError, pickList } from './providers/tikhub.js'
-import { Budget, UNIT_PRICE } from './lib/budget.js'
+import { Budget, BudgetInputError, startBudget } from './lib/budget.js'
+import { formatUsd, parseUsdMicros } from './lib/cost-ledger.js'
+import { stringifyCostJson } from './lib/cost-json.js'
+import { quoteTikHub } from './providers/tikhub-pricing.js'
 
 const BASE = 'https://api.tikhub.io'
 const PATH = '/api/v1/instagram/v2/search_reels'
@@ -103,10 +106,6 @@ if (!keyword) {
   process.exit(2)
 }
 const key = process.env.TIKHUB_API_KEY
-if (!key) {
-  console.error('缺少 TIKHUB_API_KEY。IG 端点不吃免费额度，要一把充过值的 —— 没充值时恒 402。')
-  process.exit(2)
-}
 
 /**
  * 跑几次。**至少两次** —— 跑一次量不出「累计」，而「第二次还能不能多给」本身就是要测的。
@@ -185,13 +184,29 @@ const whoOf = (list: any[]): { ids: string[]; unidentified: number } => {
 }
 const WHO_BY = '条目里的 user.id，缺了退回 user.username'
 
-const budget = new Budget(1)
+let budget: Budget
+try {
+  budget = startBudget({}, parseUsdMicros('1'), 'process', (threshold, view) => {
+    console.error(`预算占用已达 ${threshold * 100}%：$${view.cost_estimate_usd} / $${view.budget_usd}`)
+  })
+} catch (error) {
+  console.error(error)
+  process.exit(2)
+}
+console.error('本探针使用进程总预算 $1。')
+const unitMicroUsd = quoteTikHub(PATH).unit_micro_usd
+// 只显示按计划次数算出的固定价估算；过大次数不改变原采样/停止规则。
+const estimatedCost = (calls: number, groups = 1): string => {
+  const micros = BigInt(calls) * BigInt(groups) * BigInt(unitMicroUsd)
+  return micros <= BigInt(Number.MAX_SAFE_INTEGER)
+    ? `$${formatUsd(Number(micros))}` : '金额超出安全微美元显示范围'
+}
 /**
  * **真的发出去了几次** —— 与计费次数分开数。
  *
- * `ask()` 对非 200 会 `refund()`（那是「非 200 不计费」那条约定），于是 `budget.count`
- * 是**净计费数**，不是发出数：中止那一次的请求确确实实发出去了，却不在里面。
- * 中止时只报计费数，就会把「发出 N+1 次」说成「发出 N 次」—— 而这个文件整个存在的
+ * `ask()` 对非 200 撤销本次预留，于是 `budget.count` 只计 HTTP 200 和无状态留存，
+ * 不是发出数：中止那一次的非 200 请求确确实实发出去了，却不在里面。
+ * 中止时只报净次数，就会把「发出 N+1 次」说成「发出 N 次」—— 而这个文件整个存在的
  * 理由就是不让观测被说成别的样子（评审第六轮指出，负片 `M-H44-j`）。
  */
 let sent = 0
@@ -208,11 +223,18 @@ async function ask(extra: Record<string, string | number>): Promise<any> {
   const url = new URL(PATH, BASE)
   url.searchParams.set('keyword', keyword!)
   for (const [k, v] of Object.entries(extra)) url.searchParams.set(k, String(v))
-  budget.charge()
+  if (!key) throw new BudgetInputError('缺少 TIKHUB_API_KEY，未发送请求。')
+  const receipt = budget.reserve(PATH)
   sent++
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` } })
-  if (!res.ok) {
-    budget.refund()
+  let res: Response
+  try {
+    res = await fetch(url, { headers: { Authorization: `Bearer ${key}` } })
+  } catch (error) {
+    budget.settle(receipt, { kind: 'no_http_status' })
+    throw error
+  }
+  budget.settle(receipt, { kind: 'http', status: res.status })
+  if (res.status !== 200) {
     const body = await res.text().catch(() => '')
     throw new TikHubError(res.status, `${res.status} ${PATH} ${body.slice(0, 200)}`)
   }
@@ -306,9 +328,8 @@ async function main() {
 
   const head = { keyword, endpoint: PATH, identity_creators: WHO_BY, cursor_like_keys: cursorish }
   const tail = () => ({
-    requests: budget.count,
-    cost_estimate_usd: Number(budget.spent.toFixed(4)),
-    unit_price_usd: UNIT_PRICE,
+    // 此字段仅为已核 Reels 固定价；所有累计金额由 CostView 精确写出。
+    unit_price_usd: unitMicroUsd / 1_000_000,
   })
   // 游标那一句**不分支**：它是对一份响应的直接观测，与下面任何对比都无关，
   // 所以对比作废也好、没跑对比也好，它照样成立。上一版正栽在把它藏进字段里。
@@ -319,30 +340,30 @@ async function main() {
     : '⚠️ 这一份响应里一个像游标的键都没有。\n'
 
   if (chain === undefined && repeat === undefined) {
-    console.log(JSON.stringify({
+    console.log(stringifyCostJson({
       ...head, mode: '只打一次，报形状', all_key_paths: paths, ...tail(),
       reading: cursorNote + '只打了一次，没有任何对比 —— 要量能拿到多少人，跑 `--chain N`'
         + '（顺着游标翻，自带对照组）或 `--repeat N`（原样重发，只量漂移）。',
-    }, null, 2))
+    }, budget.view()))
     return
   }
 
   if (repeat !== undefined) {
     const c = new Curve()
-    console.error(`  原样重发 ${repeat} 次 · 估算 $${(repeat * UNIT_PRICE).toFixed(3)}`)
+    console.error(`  原样重发 ${repeat} 次 · 固定价目估算 ${estimatedCost(repeat)}`)
     await repeatInto(c, repeat, '照搬', first)
-    console.log(JSON.stringify({
+    console.log(stringifyCostJson({
       ...head, mode: '原样重发', calls: repeat, identity_items: c.by,
       cum_items: c.cumItems, cum_creators: c.cumPeople,
       tail_calls_without_new_creator: c.tailFlat, unidentified_items: c.blind,
       curve: c.rows, ...tail(),
       reading: cursorNote + readCurve(c, '原样重发'),
-    }, null, 2))
+    }, budget.view()))
     return
   }
 
   const n = chain!
-  console.error(`  顺着游标翻最多 ${n} 次 ＋ 同样长度的对照组 · 至多 $${(2 * n * UNIT_PRICE).toFixed(3)}`
+  console.error(`  顺着游标翻最多 ${n} 次 ＋ 同样长度的对照组 · 固定价目估算 ${estimatedCost(n, 2)}`
     + '（链提前断掉的话两边一起变短）')
   const ch = new Curve()
   const stoppedAt = await chainInto(ch, n, first, cursorPath)
@@ -355,7 +376,7 @@ async function main() {
   // **链比对照多拿到人，才叫翻页有用。** 端点自己会漂，所以链上多出来的人不减掉
   // 对照那一份，就会把漂的功劳记到翻页头上 —— 这两种读法的结论正好相反。
   const beatsDrift = ch.cumPeople > ctrl.cumPeople
-  console.log(JSON.stringify({
+  console.log(stringifyCostJson({
     ...head, mode: '顺着游标翻（带对照组）', calls: n, identity_items: ch.by,
     chain_stopped_at_call: stoppedAt,
     chain_cum_creators: ch.cumPeople, control_cum_creators: ctrl.cumPeople,
@@ -376,7 +397,7 @@ async function main() {
           + '链上多出来的那些人是**漂**给的，不是翻页给的 —— 这个端点两次相同请求本来就返回'
           + '不同条目。把这算成翻页有效，是把漂的功劳记到了游标头上。\n')
       + readCurve(ch, '链'),
-  }, null, 2))
+  }, budget.view()))
 }
 
 /**
@@ -410,11 +431,8 @@ function readCurve(c: Curve, label: string): string {
 }
 
 main().catch(e => {
-  // **中止时把已经花掉的说出来。** 非 200 直接抛（不重试），于是前面那几次已付的请求
-  // 连同那份 JSON 一起没了 —— 读的人至少要知道这一跑赔了多少。
+  // D13.q：中止仍报告占用，200、无状态留存与未结额由共同 summary 区分。
   console.error(`✗ 探针中止：${e instanceof Error ? e.message : String(e)}`)
-  // **发出数与计费数分开报。** 中止那一次是非 200，按约定退了费 —— 但它真的发出去了。
-  console.error(`  这一跑发出 ${sent} 次请求，其中 ${budget.count} 次计费`
-    + `（估算 $${budget.spent.toFixed(3)}），结果没有落地。`)
-  process.exit(1)
+  console.error(`  这一跑发出 ${sent} 次请求；${budget.summary()}，结果没有落地。`)
+  process.exit(e instanceof BudgetInputError ? 2 : 1)
 })

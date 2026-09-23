@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { mkdirDurable, writeFileAtomic } from './atomic.js'
 import { basename, join } from 'node:path'
 import type { TaskState, Creator, EnrichmentState, MemoryStatus } from './types.js'
+import { readCostDocument, stringifyCostJson } from './cost-json.js'
 
 export function taskDir(product: string, timestamp?: string): string {
   const ts = timestamp ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
@@ -25,13 +26,13 @@ export function taskDir(product: string, timestamp?: string): string {
 export const taskFile = (dir: string): string => join(dir, 'task.json')
 
 export function loadTask(dir: string): TaskState {
-  return JSON.parse(readFileSync(taskFile(dir), 'utf8'))
+  return readCostDocument<TaskState>(readFileSync(taskFile(dir), 'utf8'))
 }
 
 export function saveTask(dir: string, state: TaskState): void {
   mkdirDurable(dir)
   state.updated_at = new Date().toISOString()
-  writeFileAtomic(taskFile(dir), JSON.stringify(state, null, 2))
+  writeFileAtomic(taskFile(dir), stringifyCostJson(state))
 }
 
 export function loadCreators(dir: string): Creator[] {

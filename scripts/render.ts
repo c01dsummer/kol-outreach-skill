@@ -18,6 +18,8 @@ import { HEADERS, toRow, buildSheets } from './lib/rows.js'
 import { writeXlsx, type Sheet } from './lib/xlsx.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
 import { accountKey, attachAssessments } from './lib/assessment.js'
+import { costView } from './lib/budget.js'
+import { stringifyCostJson } from './lib/cost-json.js'
 import { asMemoryStatus } from './lib/types.js'
 import type { Creator, Measurement } from './lib/types.js'
 
@@ -87,6 +89,8 @@ if (!writeBack.written) {
   console.error(`   解决之前，这一批人不会被记进跨任务记忆。`)
 }
 
+// D13.q/r：JSON 和 HTML 共用只读投影，不从请求数推算或修复历史费用。
+const cost = costView(state)
 const meta = {
   product: state.product,
   market: state.market,
@@ -103,9 +107,7 @@ const meta = {
     const risk = c.account_assessment?.metrics?.audience_quality_risk
     return risk?.status === 'measured' && risk.value.level === 'high'
   }).length,
-  requests: state.requests,
-  cost_estimate_usd: Number((state.requests * 0.001).toFixed(4)),
-  budget_usd: state.budget_usd,
+  ...cost,
   // P5.h：兼容旧消费者；公开帖子指标不能把“邮箱/受众增强”伪装成已完成。
   // 判定在 report.ts（enrichedFlag），这里只接线。
   enriched: enrichedFlag(creators),
@@ -143,12 +145,12 @@ const meta = {
   },
 }
 // 交付物也走整体替换：render 被打断时，上一份完整的 meta.json / report.html 还在（D4）
-writeFileAtomic(join(dir, 'meta.json'), JSON.stringify(meta, null, 2))
+writeFileAtomic(join(dir, 'meta.json'), stringifyCostJson(meta, cost))
 writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta))
 
-console.log(JSON.stringify({
+console.log(stringifyCostJson({
   csv: csvPath,
   xlsx: xlsxPath,
   html: join(dir, 'report.html'),
   ...meta,
-}, null, 2))
+}, cost))

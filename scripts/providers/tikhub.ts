@@ -1,7 +1,8 @@
 import type {
   Creator, Platform, SearchTask, RecentPost, SearchPage, MetricSource, NormalizedPublicPost,
 } from '../lib/types.js'
-import { Budget } from '../lib/budget.js'
+import { Budget, BudgetInputError } from '../lib/budget.js'
+import { CostError } from '../lib/cost-ledger.js'
 import { extractEmail } from '../lib/email.js'
 import { searchPostId } from '../lib/posts.js'
 
@@ -69,7 +70,7 @@ export function pickList(data: any, path: string): any[] {
 }
 
 export class TikHub {
-  constructor(private key: string, private budget: Budget) {}
+  constructor(private key: string | undefined, private budget: Budget) {}
 
   /** 429 的退避重试次数。超过就放弃，不无限重试。 */
   private static readonly MAX_RETRY = 3
@@ -80,15 +81,22 @@ export class TikHub {
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v))
     }
+    if (!this.key) throw new BudgetInputError('缺少 TIKHUB_API_KEY，未发送请求。')
 
     for (let attempt = 0; ; attempt++) {
-      this.budget.charge()          // 预检 —— 超限在这里抛 BudgetExceeded
       await sleep(this.interval)
+      const receipt = this.budget.reserve(path) // P3.c：每次 retry 按实际端点预检
+      let res: Response
+      try {
+        res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })
+      } catch (error) {
+        // D13.o：这里只包 fetch；本地等待与正文错误不能冒充无 HTTP 状态。
+        this.budget.settle(receipt, { kind: 'no_http_status' })
+        throw error
+      }
+      this.budget.settle(receipt, { kind: 'http', status: res.status })
+      if (res.status === 200) return res.json() // D13.m：正文失败不改变终态
 
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })
-      if (res.ok) return res.json()
-
-      this.budget.refund()          // 非 200 不计费
       const body = await res.text().catch(() => '')
 
       if (res.status === 402) {
@@ -263,6 +271,7 @@ export class TikHub {
       const raw = await this.get('/api/v1/instagram/v1/fetch_user_info_by_username_v3', { username: handle })
       u = raw?.data?.user ?? raw?.data ?? {}
     } catch (e) {
+      if (e instanceof CostError || e instanceof BudgetInputError) throw e
       if (e instanceof TikHubError && e.status === 402) throw e
       const raw = await this.get('/api/v1/instagram/v1/fetch_user_info_by_username_v2', { username: handle })
       u = raw?.data?.user ?? raw?.data ?? {}

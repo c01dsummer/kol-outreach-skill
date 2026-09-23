@@ -27,11 +27,11 @@
     },
     {
       "id": "M-P3-a",
-      "req": "P3",
+      "req": "P3.c",
       "why": "预算超限不再抛出，静默继续花用户的钱",
-      "file": "scripts/lib/budget.ts",
-      "find": "      throw new BudgetExceeded(this.spent, this.limitUsd)",
-      "replace": "      /* mutated */"
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "      if (BigInt(summarize(ledger).occupied_micro_usd) + BigInt(p.unit_micro_usd) > BigInt(ledger.limit_micro_usd))\n        throw new CostError('budget-exceeded', '余额不足以支付本次端点费用')",
+      "replace": ""
     },
     {
       "id": "M-P4-a",
@@ -59,11 +59,11 @@
     },
     {
       "id": "M-F7-a",
-      "req": "F7",
+      "req": "F7.c",
       "why": "阈值提醒重复触发 —— 用户被刷屏后会开始忽略预算提醒",
       "file": "scripts/lib/budget.ts",
-      "find": "      if (this.pct >= th && !this.notified.has(th)) {",
-      "replace": "      if (this.pct >= th) {"
+      "find": "      if (limit > 0 && BigInt(occupied) * 10n >= BigInt(limit) * numerator && !this.notified.has(threshold)) {",
+      "replace": "      if (limit > 0 && BigInt(occupied) * 10n >= BigInt(limit) * numerator) {"
     },
     {
       "id": "M-D3-a",
@@ -163,11 +163,11 @@
     },
     {
       "id": "M-D6-f",
-      "req": "D6",
+      "req": "D6.q",
       "why": "收尾时把「续跑要不要花钱」那两句话对调 —— 还有关键词、还有人没补简介的时候告诉用户「续跑不产生新的请求」，他放心去续跑，账单在他不知情时又长一截；反过来全跑完了却说「还会继续花钱」，他不敢续跑，那份已经付过钱的名单就永远拿不到",
       "file": "scripts/lib/pipeline.ts",
-      "find": "  return rest\n    ? `已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，续跑会继续发请求、继续花钱。`\n    : `采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`",
-      "replace": "  return rest\n    ? `采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`\n    : `已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，续跑会继续发请求、继续花钱。`"
+      "find": "  return rest\n    ? `已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，${nextRequest}`\n    : `采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`",
+      "replace": "  return rest\n    ? `采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`\n    : `已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，${nextRequest}`"
     },
     {
       "id": "M-D6-g",
@@ -367,10 +367,10 @@
     },
     {
       "id": "M-D6-p",
-      "req": "D6.i",
-      "why": "请求发出去、钱扣了，却在响应处理抛出时不留痕迹 —— 盘上那个任务看起来像是从未发出过搜索请求，而它的钱已经花掉了：续跑会照原样再买一次同样的第一页",
+      "req": "D6.s",
+      "why": "搜索已留存净次数，却在响应处理抛出时不留痕迹；盘上该任务看起来从未查询，续跑会重新买同一页",
       "file": "scripts/collect.ts",
-      "find": "        if (paid > 0 && state.answered !== undefined) {\n          state.answered[i] = (state.answered[i] ?? 0) + paid\n        }\n",
+      "find": "        if (paid !== null && paid > 0 && state.answered !== undefined) {\n          state.answered[i] = (state.answered[i] ?? 0) + paid\n        }\n",
       "replace": "",
       "by": "selfcheck",
       "kills": [
@@ -379,11 +379,11 @@
     },
     {
       "id": "M-D6-w",
-      "req": "D6.i",
-      "why": "把「发出过几次付费请求」算成「试过几次」—— 402／429 退了费的那几次钱一分没花、续跑还会照常重试，却在盘上留下「问过」的痕迹；而且因为它是抛出去的，这个词的条数还会被永久钉成「注定不全」：一个从没真查过的词从此再也报不出准数",
+      "req": "D6.s",
+      "why": "把已撤销费用的尝试也算进搜索净次数，非 200 没有留存却在盘上留下已查询痕迹，并把该词条数误记为永久不全",
       "file": "scripts/collect.ts",
-      "find": "        const paid = budget.count - paidBefore",
-      "replace": "        const paid = Math.max(budget.count - paidBefore, 1)",
+      "find": "        const paid = paidBefore === null || paidAfter === null ? null : paidAfter - paidBefore",
+      "replace": "        const paid = paidBefore === null || paidAfter === null ? null : Math.max(paidAfter - paidBefore, 1)",
       "by": "selfcheck",
       "kills": [
         "退了费的那一次不留痕迹 —— 钱没花，续跑会照常重试它"
@@ -462,8 +462,8 @@
       "req": "D6.j",
       "why": "惰性建表：上一版留下的目录里两张表本来缺着（＝无从确认），第一次付费请求一来就把它们凭空建出来 —— 升级前问过、付过钱的那些词从此全都读作「一个都没问过」，而且不可逆",
       "file": "scripts/collect.ts",
-      "find": "        if (paid > 0 && state.answered !== undefined) {\n          state.answered[i] = (state.answered[i] ?? 0) + paid\n        }",
-      "replace": "        if (paid > 0) {\n          const tbl = (state.answered ??= {})\n          tbl[i] = (tbl[i] ?? 0) + paid\n        }",
+      "find": "        if (paid !== null && paid > 0 && state.answered !== undefined) {\n          state.answered[i] = (state.answered[i] ?? 0) + paid\n        }",
+      "replace": "        if (paid !== null && paid > 0) {\n          const tbl = (state.answered ??= {})\n          tbl[i] = (tbl[i] ?? 0) + paid\n        }",
       "by": "selfcheck",
       "kills": [
         "旧目录上又抓了几页，两张表照样不建 —— 惰性建表和开跑就建一样坏"
@@ -486,7 +486,7 @@
       "req": "D6.l",
       "why": "付了钱、却在记下条数之前抛了，这一次拿回几条永远补不回来 —— 不记成「注定不全」的话，下一页成功时这个数从 0 重新数起，凑出一个偏小、却和真测量值印在同一列的数，读的人拿它当分母",
       "file": "scripts/collect.ts",
-      "find": "        if (paid > 0 && page === undefined && state.found !== undefined) {\n          state.found[i] = null\n        }\n",
+      "find": "        if (paid !== null && paid > 0 && page === undefined && state.found !== undefined) {\n          state.found[i] = null\n        }\n",
       "replace": "",
       "by": "selfcheck",
       "kills": [
@@ -600,8 +600,8 @@
       "req": "F9.b",
       "why": "还没发出请求就先把这个关键词记成「问过第一页了」—— 预算恰好在它这儿用尽时，断点里写着它问过、而它其实一条数据都没拿到：续跑不会再碰它，它的第一页就永远丢了，而中止时那句话把它从「还没问到的」里少报一个",
       "file": "scripts/collect.ts",
-      "find": "      const offset = offsets[i] ?? 0\n      // D6.i",
-      "replace": "      const offset = offsets[i] ?? 0\n      offsets[i] = offset\n      // D6.i",
+      "find": "      const offset = offsets[i] ?? 0\n      // D6.s",
+      "replace": "      const offset = offsets[i] ?? 0\n      offsets[i] = offset\n      // D6.s",
       "by": "selfcheck",
       "kills": [
         "预算不够抓齐第一页时按预算停下，没问到的如实列出"
@@ -2441,7 +2441,7 @@
     },
     {
       "id": "M-D6-j",
-      "req": "D6.f",
+      "req": "D6.r",
       "why": "产出了名单的四种收尾都不再说续跑要不要花钱：关键词跑完、达标提前停下、预算用尽、出错中止，四条路上「续跑还要不要继续发付费请求、还剩多少没抓」一个字都没有 —— 用户手里没有判断值不值得续跑的依据：该续的不敢续，那份已经付过钱的名单永远拿不到；不该续的照样续，账单在他不知情时又长一截",
       "file": "scripts/collect.ts",
       "find": "  console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
@@ -2612,11 +2612,11 @@
     },
     {
       "id": "M-D6-m",
-      "req": "D6.a",
-      "why": "续跑时预算从零起算，不从断点里记着的已花请求数起算 —— 用户只确认过一次的那份额度，每续跑一次就被原样重花一遍，实际花掉的钱是上限的若干倍，而工具全程说没有超预算",
+      "req": "D6.o",
+      "why": "续跑用原总上限重新开空账，历史净次数与金额从零起算，同一份用户额度每次恢复都能再花一遍",
       "file": "scripts/collect.ts",
-      "find": "const budget = new Budget(state.budget_usd, state.requests, (pct, spent, limit) => {",
-      "replace": "const budget = new Budget(state.budget_usd, 0, (pct, spent, limit) => {",
+      "find": "  budget = resume ? new Budget(state, notify) : startBudget(state, freshLimit!, 'task', notify)",
+      "replace": "  budget = startBudget(state, resume ? readCostLimit(state) : freshLimit!, 'task', notify)",
       "by": "selfcheck",
       "kills": [
         "续跑的额度只够已经花掉的那些时，一个请求都不再发"
@@ -2624,7 +2624,7 @@
     },
     {
       "id": "M-D6-n",
-      "req": "D6.a",
+      "req": "D6",
       "why": "断点落在一个契约没说过的文件名下 —— 用户照着提示续跑时读不到上一次的断点，已经花掉的额度和已经跑完的关键词一起丢失，同一份额度要重新花一遍",
       "file": "scripts/lib/task.ts",
       "find": "export const taskFile = (dir: string): string => join(dir, 'task.json')",
@@ -2636,11 +2636,11 @@
     },
     {
       "id": "M-P3-b",
-      "req": "P3.b",
-      "why": "断点里记着的已花请求数永远是 0 —— 续跑时预算从零起算，同一份额度被反复重开，用户在没有确认过的情况下花掉超出上限的钱",
-      "file": "scripts/collect.ts",
-      "find": "  state.requests = budget.count",
-      "replace": "  state.requests = 0",
+      "req": "P3.d",
+      "why": "断点保存时丢掉全部历史净次数与金额，续跑把已花额度读成空账，同一份预算可被反复重开",
+      "file": "scripts/lib/task.ts",
+      "find": "  writeFileAtomic(taskFile(dir), stringifyCostJson(state))",
+      "replace": "  const saved = readCostDocument<TaskState>(stringifyCostJson(state))\n  if (saved.cost_ledger !== null && typeof saved.cost_ledger === 'object' && !Array.isArray(saved.cost_ledger)) {\n    saved.cost_ledger = { ...saved.cost_ledger, entries: [] }\n    saved.requests = 0\n  }\n  writeFileAtomic(taskFile(dir), stringifyCostJson(saved))",
       "by": "selfcheck",
       "kills": [
         "collect 预算用尽后留下的断点记到了中止那一刻",
@@ -3326,34 +3326,34 @@
     {
       "id": "M-P3-d",
       "req": "P3",
-      "why": "不再拦住比不了大小的预算上限 —— 闸门那句比较恒为假，一路花下去，而且百分比恒为零，连 50%／80% 的提醒都不出现",
-      "file": "scripts/lib/budget.ts",
-      "find": "export const budgetProblem = (v: unknown): string | undefined =>\n  typeof v !== 'number' ? `不是数字（${typeof v}）`\n    : !Number.isFinite(v) ? '不是一个有限的数'\n      : v < 0 ? '是负数'\n        : undefined",
-      "replace": "export const budgetProblem = (_v: unknown): string | undefined => undefined"
+      "why": "非法预算不再被拒绝，而是被改成最大安全金额，未经确认也能获得付费额度",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "export function readCostLimit(state: CostState): MicroUsd {\n  const root = roots.get(state)\n  if (!root || !Object.hasOwn(state, 'budget_usd') || !Object.is(root.value, state.budget_usd))\n    throw new CostError('invalid-money', 'budget_usd 缺少可核验的根数值 token')\n  return parseUsdMicros(root.token)\n}",
+      "replace": "export function readCostLimit(state: CostState): MicroUsd {\n  try {\n    const root = roots.get(state)\n    if (!root || !Object.hasOwn(state, 'budget_usd') || !Object.is(root.value, state.budget_usd))\n      throw new CostError('invalid-money', 'budget_usd 缺少可核验的根数值 token')\n    return parseUsdMicros(root.token)\n  } catch { return Number.MAX_SAFE_INTEGER }\n}"
     },
     {
       "id": "M-D6-l",
       "req": "D6",
       "why": "不再拦住盘上那个「已经花了多少次」的坏取值 —— 续跑时整本账退回零，同一批钱再花一遍",
-      "file": "scripts/lib/budget.ts",
-      "find": "export const ledgerProblem = (v: unknown): string | undefined =>\n  v === undefined ? undefined                        // 字段没写 = 还没花过，按 0 算\n    : typeof v !== 'number' ? `不是数字（${typeof v}）`\n      : !Number.isFinite(v) ? '不是一个有限的数'\n        : v < 0 ? '是负数'\n          : !Number.isInteger(v) ? '不是整数'\n            : undefined",
-      "replace": "export const ledgerProblem = (_v: unknown): string | undefined => undefined"
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "    const summary = summarize(ledger), requests = amount(rawRequests, 'requests')\n    if (requests !== summary.requests) unavailable('requests', '净次数与费用账不一致')",
+      "replace": "    let requests: number\n    try { requests = amount(rawRequests, 'requests') }\n    catch { requests = 0; ledger.entries = []; delete ledger.pending }\n    const summary = summarize(ledger)\n    if (requests !== summary.requests) unavailable('requests', '净次数与费用账不一致')"
     },
     {
       "id": "M-P3-c",
-      "req": "P3.a",
+      "req": "P3.c",
       "why": "先把请求发出去，再问预算够不够 —— 超限那一次已经发出去、已经被对面计费，用户却没确认过；最终计数一模一样，只有提交那一刻的账少记一次",
       "file": "scripts/providers/tikhub.ts",
-      "find": "      this.budget.charge()          // 预检 —— 超限在这里抛 BudgetExceeded\n      await sleep(this.interval)\n\n      const res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })",
-      "replace": "      await sleep(this.interval)\n\n      const res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })\n      this.budget.charge()          // 预检 —— 超限在这里抛 BudgetExceeded"
+      "find": "      const receipt = this.budget.reserve(path) // P3.c：每次 retry 按实际端点预检\n      let res: Response\n      try {\n        res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })\n      } catch (error) {\n        // D13.o：这里只包 fetch；本地等待与正文错误不能冒充无 HTTP 状态。\n        this.budget.settle(receipt, { kind: 'no_http_status' })\n        throw error\n      }\n",
+      "replace": "      let res: Response\n      try {\n        res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })\n      } catch (error) {\n        const receipt = this.budget.reserve(path)\n        this.budget.settle(receipt, { kind: 'no_http_status' })\n        throw error\n      }\n      const receipt = this.budget.reserve(path)\n"
     },
     {
       "id": "M-P3-e",
-      "req": "P3.a",
+      "req": "P3.c",
       "why": "被预算拒掉的那一次也记进账 —— 判据说的是拒了就不计数，账上却多了一次，续跑从盘上读回来的起点因此偏大一次",
-      "file": "scripts/lib/budget.ts",
-      "find": "    if (this.spent + n * UNIT_PRICE > this.limitUsd) {\n      throw new BudgetExceeded(this.spent, this.limitUsd)\n    }\n    this.requests += n",
-      "replace": "    this.requests += n\n    if (this.spent > this.limitUsd) {\n      throw new BudgetExceeded(this.spent, this.limitUsd)\n    }"
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "      if (BigInt(summarize(ledger).occupied_micro_usd) + BigInt(p.unit_micro_usd) > BigInt(ledger.limit_micro_usd))\n        throw new CostError('budget-exceeded', '余额不足以支付本次端点费用')",
+      "replace": "      if (BigInt(summarize(ledger).occupied_micro_usd) + BigInt(p.unit_micro_usd) > BigInt(ledger.limit_micro_usd)) {\n        ledger.entries.push({ ...p, http_200_count: 1, unknown_result_count: 0 })\n        throw new CostError('budget-exceeded', '余额不足以支付本次端点费用')\n      }"
     },
     {
       "id": "M-P3-f",
@@ -3494,10 +3494,10 @@
     {
       "id": "M-H44-j",
       "req": "harness",
-      "why": "中止时只报计费次数，把真发出去的那一次吞掉 —— 非 200 按约定退了费，但请求确确实实发出去了。于是「发出 N+1 次」被说成「发出 N 次」，而这个工具整个存在的理由就是不让观测被说成别的样子",
+      "why": "中止时只报终态净次数，把真实发出但已撤销费用的那次请求吞掉，发出次数因此少报",
       "file": "scripts/probe-ig-paging.ts",
-      "find": "  console.error(`  这一跑发出 ${sent} 次请求，其中 ${budget.count} 次计费`",
-      "replace": "  console.error(`  这一跑发出 ${budget.count} 次请求，其中 ${budget.count} 次计费`",
+      "find": "  console.error(`  这一跑发出 ${sent} 次请求；${budget.summary()}，结果没有落地。`)",
+      "replace": "  console.error(`  这一跑发出 ${budget.count} 次请求；${budget.summary()}，结果没有落地。`)",
       "by": "selfcheck",
       "kills": [
         "中止时报的「发出几次」是真发出的次数，不是计费次数"
@@ -3872,8 +3872,8 @@
       "req": "D12.m",
       "why": "恢复未结账后允许新预留覆盖旧占用",
       "file": "scripts/lib/cost-ledger.ts",
-      "find": "if (ledger.pending !== undefined) throw new CostError('pending-attempt'",
-      "replace": "if (ledger.pending !== undefined && liveReceipt !== undefined) throw new CostError('pending-attempt'"
+      "find": "      if (ledger.pending !== undefined) throw new CostError('pending-attempt', '存在未结预留，不能新增请求')",
+      "replace": "      if (ledger.pending !== undefined && liveReceipt !== undefined) throw new CostError('pending-attempt', '存在未结预留，不能新增请求')"
     },
     {
       "id": "M-D12-r",
@@ -3904,7 +3904,7 @@
       "req": "D12.p",
       "why": "把固定公开价目声明成未来价格上界与真实账单",
       "file": "scripts/providers/tikhub-pricing.ts",
-      "find": "固定公开基础价，不计优惠；不是实际账单，不保证供应商未来价格。",
+      "find": "按固定公开基础价、不计优惠的估算；不是实际账单，也不保证供应商未来价格上限。",
       "replace": "费用就是实际账单，并保证供应商未来价格上界。"
     },
     {
@@ -3914,6 +3914,258 @@
       "file": "scripts/lib/cost-ledger.ts",
       "find": "Array.from(raw.entries, (value, i) => {",
       "replace": "raw.entries.map((value, i) => {"
+    },
+    {
+      "id": "M-D13-a",
+      "req": "D13.a",
+      "why": "根预算先经浮点舍入，超精度的原始授权被扩大为可用额度",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "  return parseUsdMicros(root.token)",
+      "replace": "  return parseUsdMicros(String(state.budget_usd))",
+      "by": "selfcheck",
+      "kills": [
+        "原始非法预算不能被浮点舍入、嵌套字段或默认值救活"
+      ]
+    },
+    {
+      "id": "M-D13-b",
+      "req": "D13.b",
+      "why": "命令行预算先转浮点数，超精度文本被舍入后获准改额",
+      "file": "scripts/collect.ts",
+      "find": "    try { replacementLimit = parseUsdMicros(newBudgetArg) }",
+      "replace": "    try { replacementLimit = parseUsdMicros(String(Number(newBudgetArg))) }",
+      "by": "selfcheck",
+      "kills": [
+        "CLI 非法金额保留原输入，缺操作数不能当成未指定"
+      ]
+    },
+    {
+      "id": "M-D13-c",
+      "req": "D13.c",
+      "why": "费用 JSON 出口把精确金额再转浮点数，最大安全微美元写出后改变",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "      result[field] = view[field] === null ? null : exactJSON.rawJSON!(view[field])",
+      "replace": "      result[field] = view[field] === null ? null : Number(view[field])",
+      "by": "selfcheck",
+      "kills": [
+        "task、meta 与 stdout 保留最大安全微美元和 0.005 的原数值"
+      ]
+    },
+    {
+      "id": "M-D13-d",
+      "req": "D13.d",
+      "why": "再次使用新配置时允许覆盖同目录已有任务，把已花费用重新归零",
+      "file": "scripts/collect.ts",
+      "find": "if (!resume && existsSync(taskFile(dir))) {",
+      "replace": "if (false) {",
+      "by": "selfcheck",
+      "kills": [
+        "再次 config 不能覆盖已有任务、归零账目或重发请求"
+      ]
+    },
+    {
+      "id": "M-D13-e",
+      "req": "D13.e",
+      "why": "恢复费用账不再核对单价，坏价账可继续付费或借改额获得新额度",
+      "file": "scripts/lib/cost-ledger.ts",
+      "find": "    || raw.unit_micro_usd !== catalog[raw.price_version][raw.endpoint])",
+      "replace": "    || false)",
+      "by": "selfcheck",
+      "kills": [
+        "历史未知、坏价、未知版本和恢复 pending 都在付费前拒绝，改额不能洗白"
+      ]
+    },
+    {
+      "id": "M-D13-f",
+      "req": "D13.f",
+      "why": "费用不可用就拒绝 collect 续跑，使没有待查工作的本地整理也无法完成",
+      "file": "scripts/collect.ts",
+      "find": "  budget = resume ? new Budget(state, notify) : startBudget(state, freshLimit!, 'task', notify)",
+      "replace": "  budget = resume ? new Budget(state, notify) : startBudget(state, freshLimit!, 'task', notify)\n  if (resume && budget.view().cost_status !== 'known') throw new BudgetInputError('费用不可用，拒绝本地整理')",
+      "by": "selfcheck",
+      "kills": [
+        "历史费用不可用和恢复 pending 不阻止三个本地入口，缺 key 仍零请求"
+      ]
+    },
+    {
+      "id": "M-D13-g",
+      "req": "D13.g",
+      "why": "enrich 在处理前拒绝未知费用，缓存重算和私密账号的零请求处理也被阻止",
+      "file": "scripts/enrich.ts",
+      "find": "const refresh = argv.includes('--refresh')",
+      "replace": "if (budget.view().cost_status !== 'known') { console.error('费用不可用'); process.exit(2) }\nconst refresh = argv.includes('--refresh')",
+      "by": "selfcheck",
+      "kills": [
+        "历史费用不可用和恢复 pending 不阻止三个本地入口，缺 key 仍零请求"
+      ]
+    },
+    {
+      "id": "M-D13-h",
+      "req": "D13.h",
+      "why": "render 因历史费用不可用而中止，已有数据不能完成离线导出",
+      "file": "scripts/render.ts",
+      "find": "const cost = costView(state)",
+      "replace": "const cost = costView(state)\nif (cost.cost_status !== 'known') { console.error('费用不可用'); process.exit(2) }",
+      "by": "selfcheck",
+      "kills": [
+        "历史费用不可用和恢复 pending 不阻止三个本地入口，缺 key 仍零请求"
+      ]
+    },
+    {
+      "id": "M-D13-i",
+      "req": "D13.i",
+      "why": "未知费用的本地保存把原预算转成浮点数，超精度或超范围原件被舍入或写成 null",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "    result.budget_usd = exactJSON.rawJSON!(root.token)\n  } else {",
+      "replace": "    result.budget_usd = Number(root.token)\n  } else {",
+      "by": "selfcheck",
+      "kills": [
+        "未知费用本地写回保留原预算 token，缺席不制造字段"
+      ]
+    },
+    {
+      "id": "M-D13-j",
+      "req": "D13.j",
+      "why": "显式总预算只更新费用账上限，根预算仍为旧值，写回半份改额结果",
+      "file": "scripts/lib/budget.ts",
+      "find": "    setCostLimitField(this.state, limit)",
+      "replace": "    // mutated: 保留旧根预算",
+      "by": "selfcheck",
+      "kills": [
+        "显式预算替换总上限，保存一致后才请求，历史混价费用保持连续"
+      ]
+    },
+    {
+      "id": "M-D13-k",
+      "req": "D13.k",
+      "why": "根预算与费用账上限冲突时仍认作已知账，未明确改额就继续付费",
+      "file": "scripts/lib/budget.ts",
+      "find": "  if (limit === undefined || limit !== seen.summary.limit_micro_usd) {",
+      "replace": "  if (limit === undefined) {",
+      "by": "selfcheck",
+      "kills": [
+        "根预算冲突不静默选择一份，也不发出新请求"
+      ]
+    },
+    {
+      "id": "M-D13-l",
+      "req": "D13.l",
+      "why": "不同实际端点都按便宜的统一价格预留，使后续请求获得额外额度",
+      "file": "scripts/lib/budget.ts",
+      "find": "    const receipt = engine.reserve(quoteTikHub(endpoint))",
+      "replace": "    const receipt = engine.reserve(quoteTikHub('/api/v1/tiktok/web/fetch_user_profile'))",
+      "by": "selfcheck",
+      "kills": [
+        "probe 预算不足退出0且保留一次 IG 成果，不把三分之二说成100%"
+      ]
+    },
+    {
+      "id": "M-D13-m",
+      "req": "D13.m",
+      "why": "HTTP 200 先读取正文再留存费用，坏正文使已返回状态的费用停在未结项",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      this.budget.settle(receipt, { kind: 'http', status: res.status })\n      if (res.status === 200) return res.json() // D13.m：正文失败不改变终态",
+      "replace": "      if (res.status === 200) {\n        const body = await res.json()\n        this.budget.settle(receipt, { kind: 'http', status: res.status })\n        return body\n      }\n      this.budget.settle(receipt, { kind: 'http', status: res.status })",
+      "by": "selfcheck",
+      "kills": [
+        "HTTP 200 坏正文仍留存，非 200 坏正文撤销，无状态单列保守占用并保存"
+      ]
+    },
+    {
+      "id": "M-D13-n",
+      "req": "D13.n",
+      "why": "实际返回非 200 的请求仍按成功费用留存，已明确应撤销的金额继续占用预算",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      this.budget.settle(receipt, { kind: 'http', status: res.status })",
+      "replace": "      this.budget.settle(receipt, { kind: 'http', status: 200 })",
+      "by": "selfcheck",
+      "kills": [
+        "HTTP 200 坏正文仍留存，非 200 坏正文撤销，无状态单列保守占用并保存"
+      ]
+    },
+    {
+      "id": "M-D13-o",
+      "req": "D13.o",
+      "why": "请求没有返回 HTTP 状态时自动退款，把结果不明的费用变成可再花额度",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "        this.budget.settle(receipt, { kind: 'no_http_status' })",
+      "replace": "        this.budget.settle(receipt, { kind: 'http', status: 500 })",
+      "by": "selfcheck",
+      "kills": [
+        "HTTP 200 坏正文仍留存，非 200 坏正文撤销，无状态单列保守占用并保存"
+      ]
+    },
+    {
+      "id": "M-D13-p",
+      "req": "D13.p",
+      "why": "enrich 吞掉任务费用保存失败，仍继续并声明断点已保存",
+      "file": "scripts/enrich.ts",
+      "find": "  saveTask(dir, task)\n  saveEnrichment(dir, state)",
+      "replace": "  try { saveTask(dir, task) } catch {}\n  saveEnrichment(dir, state)",
+      "by": "selfcheck",
+      "kills": [
+        "费用保存故障确实发生，失败不得退3、宣称已保存或继续请求"
+      ]
+    },
+    {
+      "id": "M-D13-q",
+      "req": "D13.q",
+      "why": "费用 JSON 把不可核实的占用输出为零，让未知历史看起来没有费用",
+      "file": "scripts/lib/budget.ts",
+      "find": "    requests, cost_estimate_usd: null, budget_usd: limit === undefined ? null : formatUsd(limit),",
+      "replace": "    requests, cost_estimate_usd: '0', budget_usd: limit === undefined ? null : formatUsd(limit),",
+      "by": "selfcheck",
+      "kills": [
+        "本地费用输出区分未知、损坏、未知版本和三种已知金额"
+      ]
+    },
+    {
+      "id": "M-D13-r",
+      "req": "D13.r",
+      "why": "HTML 把未知金额显示成零美元，已有费用缺口被伪装成零费用",
+      "file": "scripts/lib/report.ts",
+      "find": "  const money = (value: string | null): string => value == null ? '无从确认' : `$${esc(value)}`",
+      "replace": "  const money = (value: string | null): string => value == null ? '$0' : `$${esc(value)}`",
+      "by": "selfcheck",
+      "kills": [
+        "HTML 的未知金额没有伪造零费用，已知保守留存与未结额分别可见"
+      ]
+    },
+    {
+      "id": "M-D13-s",
+      "req": "D13.s",
+      "why": "collect 把运行中的费用内部错误当成输入问题，错误退出码由 1 变为 2",
+      "file": "scripts/collect.ts",
+      "find": "      errorExit = e instanceof BudgetInputError ? 2 : 1",
+      "replace": "      errorExit = 2",
+      "by": "selfcheck",
+      "kills": [
+        "运行中费用错误穿透入口，退出1且不再请求，不伪装成输入或余额不足"
+      ]
+    },
+    {
+      "id": "M-D6-ab",
+      "req": "D6.n",
+      "why": "续跑丢掉已完成任务集合，已完成的搜索再次参加请求调度",
+      "file": "scripts/collect.ts",
+      "find": "  const exhausted = new Set<number>(state.done)",
+      "replace": "  const exhausted = new Set<number>()",
+      "by": "selfcheck",
+      "kills": [
+        "续跑已完成 IG 不重搜，未完成 TT 确实发出请求"
+      ]
+    },
+    {
+      "id": "M-D13-t",
+      "req": "D13.i",
+      "why": "旧任务预算为非法对象或数组时，不再保留内部原始数字，零请求写回也会把大整数舍入或把超范围值变成 null",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "  if (state.budget_usd !== null && typeof state.budget_usd === 'object')\n    preserveCostNumbers(state, 'budget_usd')\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "非法对象或数组预算的零请求写回保留内部原数字，不新造费用账"
+      ]
     }
   ],
   "exemptions": [
