@@ -136,9 +136,11 @@ function qualified(): number {
 }
 
 function persist() {
-  saveTask(dir, state)
+  // D6.t：先存作者，再推进分页进度。反过来的话，两次写之间被打断或累加器写失败时，
+  // 盘上的进度已经前进而这一页的作者没存下，续跑就跳过了它（ADR-113）。
   // 累加器只增不减 —— 过滤在 main() 末尾只作用于交付物
   saveRawCreators(dir, [...creators.values()])
+  saveTask(dir, state)
 }
 
 /**
