@@ -3087,12 +3087,187 @@ suite('P1', '作品那一列：没问过作品不得显示成「文案是空的�
   eq('先到的那次没问过作品，后来的一页带来了 → 补上', after({ recent_posts: undefined },
      { recent_posts: posts('hello') }), posts('hello'))
   eq('旧数据里的空数组同样补上', after({ recent_posts: [] }, { recent_posts: posts('hello') }), posts('hello'))
-  // 两边都有时不动：`RecentPost` 还没有 id，拼起来会把同一条作品算成两条
-  eq('已经有作品 → 不被后来的一页换掉，也不拼接', after({ recent_posts: posts('first') },
-     { recent_posts: posts('second') }), posts('first'))
+  // ADR-105 / D11 替代原来的「两边都有不拼接」：缺 id 无可靠去重依据，逐条保留。
+  eq('已经有作品 → 先到的不换掉，后到无 id 作品也保留', after({ recent_posts: posts('first') },
+     { recent_posts: posts('second') }), [...posts('first'), ...posts('second')])
   eq('后来的一页没有作品 → 已有的不被抹掉', after({ recent_posts: posts('first') }, {}), posts('first'))
   criterion('P1.e')
 }
+
+// 独立上下文只读 D11/ADR-105、公开契约及既有测试；以下 expected 均先于实现写成。
+suite('D11', '搜索作品标识只取可核实的来源字段')
+{
+  type SearchEvidence = RecentPost & { id?: string }
+  const cases: [string, unknown, string | undefined][] = [
+    ['字符串保留前导零', '001', '001'], ['字符串保留原值', ' raw ', ' raw '],
+    ['数字零', 0, '0'], ['负整数', -7, '-7'], ['负零', -0, '0'],
+    ['最大安全整数', Number.MAX_SAFE_INTEGER, '9007199254740991'],
+    ['最小安全整数', Number.MIN_SAFE_INTEGER, '-9007199254740991'],
+    ['缺失', undefined, undefined], ['null', null, undefined], ['空串', '', undefined],
+    ['空白', ' \n\t', undefined], ['true', true, undefined], ['false', false, undefined],
+    ['对象', { id: 'other' }, undefined], ['数组', ['other'], undefined],
+    ['小数', 1.5, undefined], ['不安全整数', 9007199254740992, undefined],
+    ['NaN', NaN, undefined], ['无穷', Infinity, undefined], ['负无穷', -Infinity, undefined],
+    ['bigint', 1n, undefined],
+  ]
+  const read = async (platform: 'tiktok' | 'instagram', raw: unknown) => {
+    const api = new TikHub('k', new Budget(1))
+    ;(api as unknown as { get: () => Promise<unknown> }).get = async () => raw
+    return (await api.search({ keyword: 'k', dimension: 'category', platform }, 'US', 0)).creators
+  }
+  const ttItems = cases.map(([, raw], i) => ({ aweme_id: raw, desc: `post${i}`,
+    author: { unique_id: `u${i}`, uid: 'user-id' }, statistics: {} }))
+  for (const [label, raw] of [
+    ['TikTok 嵌套作品', { data: { search_item_list: ttItems.map(aweme_info => ({ aweme_info })) } }],
+    ['TikTok 直接作品兼容', { data: { aweme_list: ttItems } }],
+  ] as const) {
+    const rows = await read('tiktok', raw)
+    eq(`${label}：每条作品仍归到对应作者`, rows.map(c => c.handle), cases.map((_, i) => `u${i}`))
+    cases.forEach(([name, , expected], i) => eq(`${label}：${name}`,
+      (rows[i]?.recent_posts?.[0] as SearchEvidence | undefined)?.id,
+      expected === undefined ? undefined : `tiktok:${expected}`))
+  }
+  criterion('D11.g')
+  const igItems = cases.map(([, raw], i) => ({ id: raw,
+    caption: { id: 'caption-id', text: `post${i}` }, media: { id: 'media-id' },
+    user: { username: `u${i}`, id: 'user-id', full_name: 'U' } }))
+  const ig = await read('instagram', { data: { data: { items: igItems } } })
+  eq('Instagram：每条作品仍归到对应作者', ig.map(c => c.handle), cases.map((_, i) => `u${i}`))
+  cases.forEach(([name, , expected], i) => eq(`Instagram 直接作品 id：${name}`,
+    (ig[i]?.recent_posts?.[0] as SearchEvidence | undefined)?.id,
+    expected === undefined ? undefined : `instagram:${expected}`))
+  criterion('D11.h', 'D11.i')
+  // 同一个原始号来自不同平台，适配后就是两个作品键。
+  const tt = await read('tiktok', { data: { aweme_list: [ttItems[0]] } })
+  eq('两平台相同原始号各自保留平台前缀',
+    [(tt[0].recent_posts?.[0] as SearchEvidence)?.id, (ig[0].recent_posts?.[0] as SearchEvidence)?.id],
+    ['tiktok:001', 'instagram:001'])
+  criterion('D11.d')
+}
+
+suite('D11', '首次收页及跨页都稳定保留作品证据')
+{
+  type SearchEvidence = RecentPost & { id?: string }
+  const post = (id: string | undefined, desc: string, plays = 1): SearchEvidence => ({ id, desc, plays })
+  const t: SearchTask = { keyword: 'first', dimension: 'category', platform: 'tiktok' }
+  const a = post('tiktok:a', 'first a', 3), b = post('tiktok:b', 'first b', 4)
+  const c = post('tiktok:c', 'new c', 5), newerA = post('tiktok:a', 'later a', 999)
+  const missing = post(undefined, 'same'), empty = post('', 'same'), blank = post(' \t', 'same')
+  const first = [a, newerA, missing, empty, blank, b, missing]
+  const firstBefore = structuredClone(first)
+  const acc = new Map<string, Creator>()
+  eq('首次收页新增一人', mergePage(acc, [{ handle: 'sam', platform: 'tiktok', recent_posts: first }], 0, t), 1)
+  eq('首次单条记录内：重复 id 只留首次，未知 id 逐条保留',
+    acc.get('tiktok:sam')?.recent_posts, [a, missing, empty, blank, b, missing])
+  eq('首次收页不改输入作品数组或内容', first, firstBefore)
+  criterion('D11.j')
+
+  const second = [newerA, c, post('tiktok:c', 'later c'), missing, empty, blank]
+  const secondBefore = structuredClone(second)
+  eq('另一关键词再搜到同人不增加人数', mergePage(acc,
+    [{ handle: 'sam', platform: 'tiktok', recent_posts: second }], 1, { ...t, keyword: 'second' }), 0)
+  eq('跨页稳定并集：保留先到完整记录，新作品按到达顺序追加',
+    acc.get('tiktok:sam')?.recent_posts, [a, missing, empty, blank, b, missing, c, missing, empty, blank])
+  eq('跨页合并不改任一输入作品数组或内容', [first, second], [firstBefore, secondBefore])
+  criterion('D11.b')
+  eq('作品并集保留最初来源与两次来源任务',
+    [acc.get('tiktok:sam')?.source_keyword, acc.get('tiktok:sam')?.source_tasks], ['first', [0, 1]])
+
+  const samePage = new Map<string, Creator>()
+  mergePage(samePage, [
+    { handle: 'sam', platform: 'tiktok', recent_posts: [a, b] },
+    { handle: 'sam', platform: 'tiktok', recent_posts: [newerA, c] },
+  ], 0, t)
+  eq('首次页内多次命中同人也取作品并集', samePage.get('tiktok:sam')?.recent_posts, [a, b, c])
+
+  const after = (left: RecentPost[] | undefined, right: RecentPost[] | undefined) => {
+    const old = new Map<string, Creator>([['tiktok:sam', mk('tiktok', 'sam', { recent_posts: left })]])
+    mergePage(old, [{ handle: 'sam', platform: 'tiktok', recent_posts: right }], 1, t)
+    return old.get('tiktok:sam')?.recent_posts
+  }
+  eq('旧任务无 id 的相同文案逐条保留',
+    after([{ desc: 'same' }, { desc: 'same' }], [{ desc: 'same' }]),
+    [{ desc: 'same' }, { desc: 'same' }, { desc: 'same' }])
+  for (const left of [undefined, []] as (RecentPost[] | undefined)[]) {
+    const fresh = new Map<string, Creator>()
+    mergePage(fresh, [{ handle: 'sam', platform: 'tiktok', recent_posts: left }], 0, t)
+    eq(`首次作品为 ${left === undefined ? '缺失' : '旧空数组'} 时仍未查询`,
+      fresh.get('tiktok:sam')?.recent_posts, undefined)
+    for (const right of [undefined, []] as (RecentPost[] | undefined)[])
+      eq('两边都无作品证据时仍未查询', after(left, right), undefined)
+    eq('无作品证据的旧记录后来可以补齐', after(left, [a]), [a])
+    eq('后来缺失或空数组都不擦除已有作品', after([a], left), [a])
+  }
+  criterion('D11.k', 'D11.l')
+  // 对同一未知文案重复出现的次数作属性断言；不能仅靠有 id 的样例证明证据不丢失。
+  for (let count = 1; count <= 5; count++) {
+    const unknown = Array.from({ length: count }, () => ({ desc: 'same' }))
+    eq(`无 id 作品 ${count}+${count} 条全部保留`, after(unknown, unknown), [...unknown, ...unknown])
+  }
+  criterion('D11.c')
+  tension('D11', 'P1')
+}
+
+suite('D11', '同人合并按主记录优先沿用作品并集，作品 id 不参与身份或评分')
+{
+  type SearchEvidence = RecentPost & { id?: string }
+  const post = (id: string | undefined, desc: string, plays = 1): SearchEvidence => ({ id, desc, plays })
+  // 公开契约：双方邮箱相同时，粉丝较多者为主。两种平台均作主记录，期望顺序事先固定。
+  for (const primary of ['tiktok', 'instagram'] as const) {
+    const other = primary === 'tiktok' ? 'instagram' : 'tiktok'
+    const first = post(`${primary}:42`, 'primary first', 2)
+    const second = post(`${other}:42`, 'linked first', 3)
+    const unknown = post(undefined, 'same')
+    const left = [first, post(`${primary}:42`, 'primary later', 999), unknown]
+    const right = [second, first, post(`${other}:new`, 'linked new'), unknown, post(' ', 'same')]
+    const before = structuredClone([left, right])
+    const hi = mk(primary, 'sam', { followers: 30_000, email: null, recent_posts: left })
+    const lo = mk(other, 'sam', { followers: 10_000, email: null, recent_posts: right })
+    const pair = [lo, hi] // 输入先放关联记录，不能误把输入顺序当主记录顺序。
+    eq(`${primary} 为主：同人识别照常成立`, linkCrossPlatform(pair), 1)
+    const result = mergeCrossPlatform(pair)
+    const main = result.find(c => c.merged_into === undefined)
+    eq(`${primary} 为主：邮箱相同则粉丝较多者仍为主`, main?.platform, primary)
+    eq(`${primary} 为主：同原始号跨平台保留、同键去重、主记录作品在先`,
+      main?.recent_posts, [first, unknown, second, post(`${other}:new`, 'linked new'), unknown, post(' ', 'same')])
+    eq(`${primary} 为主：不改输入作品数组或内容`, [left, right], before)
+    eq(`${primary} 为主：粉丝汇总不受作品 id 影响`, main?.followers, 40_000)
+  }
+  criterion('D11.d', 'D11.m')
+  for (const left of [undefined, []] as (RecentPost[] | undefined)[])
+    for (const right of [undefined, []] as (RecentPost[] | undefined)[]) {
+      const pair = [mk('tiktok', 'sam', { recent_posts: left }), mk('instagram', 'sam', { recent_posts: right })]
+      linkCrossPlatform(pair)
+      eq('同人两边均无作品证据时仍未查询',
+        mergeCrossPlatform(pair).find(c => c.merged_into === undefined)?.recent_posts, undefined)
+    }
+  criterion('D11.l')
+
+  const idsOnly = (withIds: boolean, related: boolean) => {
+    const pair = [
+      mk('tiktok', 'alpha', { followers: 30_000, email: 'a@example.com', fit: '✅',
+        recent_posts: [post(withIds ? 'tiktok:42' : undefined, 'one', 100)] }),
+      mk('instagram', related ? 'alpha' : 'beta', { followers: 10_000, email: null, fit: '✅',
+        recent_posts: [post(withIds ? 'instagram:42' : undefined, 'two', 200)] }),
+    ]
+    const linked = linkCrossPlatform(pair)
+    const result = mergeCrossPlatform(pair)
+    return { linked, rows: result.map(c => ({
+      platform: c.platform, handle: c.handle, merged_into: c.merged_into,
+      linked_handle: c.linked_handle, followers: c.followers,
+      score: scoreCreator(c), tier: tierOf(c, scoreCreator(c)),
+    })) }
+  }
+  for (const related of [false, true])
+    eq(`添加作品 id 不改变${related ? '已关联' : '不相关'}账号的识别、主记录、评分与分层`,
+      idsOnly(true, related), idsOnly(false, related))
+  criterion('D11.o', 'D11.p', 'D11.q')
+  const unrelated = [mk('tiktok', 'alpha', { recent_posts: [post('tiktok:42', 'same')] }),
+    mk('instagram', 'beta', { recent_posts: [post('instagram:42', 'same')] })]
+  eq('同原始作品号不构成同人证据', linkCrossPlatform(unrelated), 0)
+  criterion('D11.n')
+}
+
 
 suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」')
 {

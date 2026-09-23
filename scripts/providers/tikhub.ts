@@ -3,6 +3,7 @@ import type {
 } from '../lib/types.js'
 import { Budget } from '../lib/budget.js'
 import { extractEmail } from '../lib/email.js'
+import { searchPostId } from '../lib/posts.js'
 
 const BASE = 'https://api.tikhub.io'
 /** 限速 10 RPS —— 留余量 */
@@ -120,6 +121,7 @@ export class TikHub {
       if (!handle) continue
 
       const post: RecentPost = {
+        id: searchPostId('tiktok', aw?.aweme_id),
         desc: aw?.desc ?? '',
         plays: aw?.statistics?.play_count,
         likes: aw?.statistics?.digg_count,
@@ -215,6 +217,7 @@ export class TikHub {
       if (!handle) continue
 
       const post: RecentPost = {
+        id: searchPostId('instagram', item?.id),
         desc: item?.caption?.text ?? '',
         plays: item?.play_count ?? item?.ig_play_count,
         // like_count 实测可能是 null（作者隐藏了赞数）—— null 是「不可见」不是 0
