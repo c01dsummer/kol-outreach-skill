@@ -126,6 +126,8 @@ C级 观察池 (3)
 
 下例展示业务字段；实际费用字段完整契约见 [ADR-108](../../docs/adr/ADR-108-生产请求与输出统一使用逐端点费用账.md)。费用以脚本输出为准，不按请求数重算。`cost_estimate_usd` 是预算占用，含保守留存和 pending；四态 `cost_status` 与 `cost_problems` 决定金额是否可用，未知不显示零或百分比。根预算冲突整体不可用；HTML 同样说明原因，render 不修复任务费用。
 
+费用检查点失败以 stderr 和退出码 1 报错，可能没有本轮结果 JSON；不能拿上一次产物当本轮成功。持久 pending 不代表已发请求或已扣款，恢复时按脚本拒绝原因处理（ADR-109）。
+
 ```json
 {
   "product": "anker-powerbank",

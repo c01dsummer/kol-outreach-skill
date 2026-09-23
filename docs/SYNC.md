@@ -35,7 +35,7 @@
 | **重命名／删掉 `process/` 或 `docs/` 下被 `REVIEW.md` 指到的那几份** | `REVIEW.md` 的指针（三份转发不用动，它们只指 `REVIEW.md`） | ✗ 靠执行 |
 | **改流程阶段** | `skill/SKILL.md` · `docs/business-requirements.md` · 对应 reference | ✗ 靠执行 |
 | **查到新事实 / 旧结论被推翻** | `docs/data-source-strategy.md` **必须改** · `docs/adr/`（多属事实证伪） | 🔒 `adr` 验编号与索引 |
-| **改预算/成本逻辑** | `scripts/lib/cost-ledger.ts` · `cost-json.ts` · `budget.ts` · 价目与所有付费/费用出口 · `skill/SKILL.md` 成本闸门与相关 references · `docs/CONVENTIONS.md` 第 7 条 · `docs/ARCHITECTURE.md` · ADR-108 对外契约 | 部分 |
+| **改预算/成本逻辑** | `scripts/lib/cost-ledger.ts` · `cost-json.ts` · `budget.ts` · `task.ts` 费用检查点 · 价目与所有付费/费用出口 · `skill/SKILL.md` 成本闸门与相关 references · `docs/CONVENTIONS.md` 第 7 条 · `docs/ARCHITECTURE.md` · ADR-108/109 对外契约 | 部分 |
 | **改对外能力、范围、当前状态或交付物** | 对应正本 · `README.md`（只做摘要，不定义新事实） | ✗ 靠执行 |
 | **评审中不修在本 PR 的一条发现（含驳回）** | 回复第一行的档与去向 · 线程 resolve · PR 描述末尾的索引 · 合入后的**欠条 PR** 往 `docs/adr/` 追加 `⚠️ 欠条`（写重启条件；驳回只做前三项，不进欠条）—— 本表唯一允许延后到下一条 PR 的一行：为登记再 push 会再起一轮评审，见 `6-INTEGRATE.md` | 🔒 `audit`：欠条块里没写重启条件当场红（ADR-86）；**写了的那些机器不读** —— 读懂条件是会随模型变强的那一侧，台账只抽取不匹配 |
 

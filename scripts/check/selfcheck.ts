@@ -1142,6 +1142,241 @@ group('cost-http', [], () => {
   criterion('D13.l', 'D13.q', 'F7.d')
 })
 
+// ADR-109：独立作者只读需求、费用公开形状及测试设施；未读生产函数体。
+group('cost-durable', [], () => {
+  const history = [costEntry(TT_PROFILE, 1000, 1), costEntry(IG_REELS, 2000, 0, 1)]
+  const fresh = { budget_usd: 0.007, done: [], offsets: {}, pages: {}, answered: {}, found: {} }
+  const fixture = (name: string, entry: string, over: Record<string, unknown> = {}) => {
+    const f = costFixture(`durable-${name}-${entry}`, knownCosts(7000, structuredClone(history)),
+      { ...fresh, ...over }, entry === 'enrich'
+        ? [costPerson('tiktok', 'durable-a'), costPerson('tiktok', 'durable-b')] : [])
+    return { ...f, events: join(f.cwd, 'events.jsonl'), marks: join(f.cwd, 'save-events.jsonl') }
+  }
+  type Fixture = ReturnType<typeof fixture>
+  const events = (path: string): any[] => fileText(path).split('\n').filter(Boolean).map(line => JSON.parse(line))
+  const args = (entry: string, f: Fixture) => [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir]
+  const observeEnv = (f: Fixture, extra: NodeJS.ProcessEnv = {}) => costEnv(f.log, {
+    FAKE_FETCH_COST_EVENTS: f.events, FAKE_FETCH_COST_TASK: f.task, ...extra,
+  })
+  const retained = (task: any) => Array.isArray(task?.cost_ledger?.entries)
+    ? task.cost_ledger.entries.reduce((n: number, e: any) => n + e?.http_200_count + e?.unknown_result_count, 0) : undefined
+  const unknown = (task: any) => Array.isArray(task?.cost_ledger?.entries)
+    ? task.cost_ledger.entries.reduce((n: number, e: any) => n + e?.unknown_result_count, 0) : undefined
+  const sameEntries = (actual: any, expected: any[]) => {
+    const rows = (items: any[]) => items.map(e => [e?.endpoint, e?.price_version, e?.unit_micro_usd,
+      e?.http_200_count, e?.unknown_result_count]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+    return Array.isArray(actual) && JSON.stringify(rows(actual)) === JSON.stringify(rows(expected))
+  }
+  const validRun = (result: ReturnType<typeof runBoth>) => {
+    if (!result.ok) return false
+    if (/SyntaxError|ReferenceError|TypeError|ERR_MODULE_NOT_FOUND|does not provide an export|TransformError|Error: listen EPERM/.test(result.stderr)) {
+      failed++
+      console.error(`  ✗ 持久费用入口未运行${SELFCHECK_PROCESS_MARK}：缺实现或无法加载，不能记作行为断言\n${result.stderr}`)
+      return false
+    }
+    return true
+  }
+  // 正向顺序 oracle 仅按 ADR-107 手算：历史200一次、无状态一次，共3000微美元。
+  // 下一次 id 从3起；429不加净次数但消耗尝试号；每次正文只能看见已移除 pending 的终态。
+  for (const scenario of ['collect-retry', 'collect-fallback', 'collect-profile-fallback', 'enrich-retry']) {
+    const entry = scenario.startsWith('collect') ? 'collect' : 'enrich'
+    const fallback = scenario === 'collect-fallback', profile = scenario === 'collect-profile-fallback'
+    const endpoint = entry === 'collect' ? (fallback ? IG_REELS : profile ? IG_PROFILE : TT_SEARCH) : TT_POSTS
+    const f = fixture(scenario, entry, fallback ? { tasks: [
+      { keyword: 'force-noparse', dimension: 'category', platform: 'instagram' },
+    ] } : profile ? { done: [0] } : {})
+    if (profile) for (const file of ['creators.json', 'creators.raw.json'])
+      writeFileSync(join(f.taskDir, file), JSON.stringify([
+        costPerson('instagram', 'durable-profile', { bio: undefined, bio_links: [] }),
+      ]))
+    const result = runBoth(`持久费用逐次顺序 ${scenario}`, args(entry, f), f.cwd,
+      { status: entry === 'enrich' || profile ? 0 : 3, soft: [0, 1, 2, 3] }, observeEnv(f, fallback ? {} : {
+        FAKE_FETCH_FAULT_PATH: endpoint, FAKE_FETCH_FAULT: profile ? 'bad-body-500' : 'bad-body-429',
+      }))
+    if (!validRun(result)) continue
+    const seen = events(f.events), fetches = seen.filter(e => e.kind === 'fetch')
+    const expectedEntries = structuredClone(history)
+    let attempt = 3, requests = 2, pendingOK = true, terminalOK = true
+    for (const e of seen) {
+      if (e.kind === 'fetch') {
+        const p = e.task?.cost_ledger?.pending
+        const unit = [IG_REELS, IG_USERS].includes(e.endpoint) ? 2000 : 1000
+        pendingOK &&= p?.endpoint === e.endpoint && p?.price_version === COST_VERSION
+          && p?.unit_micro_usd === unit && p?.attempt_id === attempt++
+          && e.task?.cost_ledger?.next_attempt_id === attempt && e.task?.requests === requests
+          && sameEntries(e.task?.cost_ledger?.entries, expectedEntries)
+      } else if (e.kind === 'http' && e.status === 200) {
+        requests++
+        let row = expectedEntries.find(r => r.endpoint === e.endpoint)
+        if (!row) { row = costEntry(e.endpoint, [IG_REELS, IG_USERS].includes(e.endpoint) ? 2000 : 1000); expectedEntries.push(row) }
+        row.http_200_count++
+      } else if (e.kind === 'body') {
+        terminalOK &&= e.task?.cost_ledger?.pending === undefined && e.task?.requests === requests
+          && sameEntries(e.task?.cost_ledger?.entries, expectedEntries)
+      }
+    }
+    const exercised = fallback
+      ? fetches[0]?.endpoint === IG_REELS && fetches[1]?.endpoint === IG_USERS
+      : profile ? fetches[0]?.endpoint === IG_PROFILE && fetches[1]?.endpoint === IG_PROFILE_V2
+      : fetches.length >= 2 && fetches[0]?.endpoint === endpoint && fetches[1]?.endpoint === endpoint
+        && seen.some(e => e.kind === 'http' && e.status === 429)
+    named('collect/enrich 每次实际请求前已保存对应预留，重试与兜底不例外',
+      exercised && pendingOK && fetches.length >= 2,
+      `${scenario}: fetches=${JSON.stringify(fetches)}, stderr=${result.stderr}`)
+    named('collect/enrich 每次正文读取前已保存HTTP终态，历史费用及净次数连续',
+      exercised && terminalOK && seen.some(e => e.kind === 'body'),
+      `${scenario}: body=${JSON.stringify(seen.filter(e => e.kind === 'body'))}`)
+  }
+  criterion('D14.a')
+
+  // 在文件替换边界注入EIO：看将要落盘的公开pending字段和fetch事件，不依赖临时文件名。
+  // once只失败一次，随后允许收尾保存；persistent持续阻止同阶段保存，两者盘上预期不同。
+  const failSave = (f: Fixture, phase: string, mode: string) => {
+    const preload = join(f.cwd, 'fail-cost-checkpoint.mjs')
+    writeFileSync(preload, [
+      `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module';`,
+      `const original = fs.renameSync; let failures = 0;`,
+      `const mark = row => fs.appendFileSync(${JSON.stringify(f.marks)}, JSON.stringify(row)+'\\n');`,
+      `fs.renameSync = function(src, dest) {`,
+      `  if (String(dest) !== ${JSON.stringify(f.task)}) return original(src, dest);`,
+      `  const next = JSON.parse(fs.readFileSync(src, 'utf8'));`,
+      `  const fetched = fs.existsSync(${JSON.stringify(f.events)}) && fs.readFileSync(${JSON.stringify(f.events)}, 'utf8').includes('"kind":"fetch"');`,
+      `  const hit = ${JSON.stringify(phase)} === 'reserve' ? !!next.cost_ledger?.pending && !fetched : fetched && !next.cost_ledger?.pending;`,
+      `  if (hit && (${JSON.stringify(mode)} === 'persistent' || failures === 0)) { failures++; mark({kind:'injected', task:next}); throw Object.assign(new Error('test durable cost save denied'), {code:'EIO'}); }`,
+      `  const result = original(src, dest); mark({kind:'saved', task:next}); return result;`,
+      `}; syncBuiltinESMExports(); mark({kind:'armed'});`,
+    ].join('\n'))
+    return `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`
+  }
+  for (const route of ['collect-search', 'collect-profile', 'enrich']) for (const outcome of ['reserve', 'http200', 'non200', 'nostatus'])
+    for (const mode of ['persistent', 'once']) {
+      const entry = route.startsWith('collect') ? 'collect' : 'enrich', profile = route === 'collect-profile'
+      const f = fixture(`${route}-${outcome}-${mode}`, entry, profile ? { done: [0] } : entry === 'collect' ? { tasks: [
+        { keyword: 'force-noparse', dimension: 'category', platform: 'instagram' },
+      ] } : {})
+      if (profile) for (const file of ['creators.json', 'creators.raw.json'])
+        writeFileSync(join(f.taskDir, file), JSON.stringify(['a', 'b'].map(h =>
+          costPerson('instagram', `durable-profile-${h}`, { bio: undefined, bio_links: [] }))))
+      const endpoint = entry === 'collect' ? (profile ? IG_PROFILE : IG_REELS) : TT_POSTS
+      const unit = entry === 'collect' && !profile ? 2000 : 1000
+      const beforePeople = fileText(join(f.taskDir, 'creators.json'))
+      // 收尾若错误进入记忆读取，会遇到坏JSON；D14.h要求原费用运行错误仍是退出1。
+      if (mode === 'once') writeFileSync(join(f.cwd, 'memory', 'creators.json'), '{broken-memory')
+      const result = runBoth(`持久费用保存故障 ${route}/${outcome}/${mode}`, args(entry, f), f.cwd,
+        { status: 1, soft: [0, 2, 3] }, observeEnv(f, {
+          NODE_OPTIONS: failSave(f, outcome === 'reserve' ? 'reserve' : 'terminal', mode),
+          ...(outcome === 'non200' || outcome === 'nostatus' ? {
+            FAKE_FETCH_FAULT_PATH: endpoint,
+            FAKE_FETCH_FAULT: outcome === 'non200' ? (profile ? 'bad-body-500' : 'bad-body-429') : 'no-http-status',
+          } : {}),
+        }))
+      if (!validRun(result)) continue
+      const seen = events(f.events), marks = events(f.marks), after = jsonFile(f.task)
+      if (!marks.some(e => e.kind === 'armed')) {
+        failed++
+        console.error(`  ✗ 持久费用故障未安装${SELFCHECK_FIXTURE_MARK}：${result.stderr}`)
+        continue
+      }
+      const injected = marks.filter(e => e.kind === 'injected'), count = seen.filter(e => e.kind === 'fetch').length
+      const why = `${route}/${outcome}/${mode}: exit=${result.status}, fetch=${count}, injected=${injected.length}, disk=${JSON.stringify(after)}, stderr=${result.stderr}`
+      if (outcome === 'reserve') {
+        named('预留保存失败退出1且零请求，不伪造无HTTP状态留存',
+          injected.length > 0 && result.status === 1 && count === 0 && after?.requests === 2
+            && unknown(after) === 1 && retained(after) === 2, why)
+      } else {
+        const stopped = injected.length > 0 && result.status === 1 && count === 1
+          && !seen.some(e => e.kind === 'body')
+        if (outcome === 'http200') named('HTTP200终态保存失败停止正文及后续请求，不走兜底', stopped, why)
+        if (outcome === 'non200') named('非200终态保存失败停止正文及重试，不走兜底', stopped, why)
+        if (outcome === 'nostatus') named('无HTTP状态终态保存失败停止后续请求，不退款或兜底', stopped, why)
+        const pending = after?.cost_ledger?.pending
+        const stablePending = pending?.endpoint === endpoint && pending?.unit_micro_usd === unit
+          && pending?.attempt_id === 3 && pending?.price_version === COST_VERSION
+          && after?.requests === 2 && sameEntries(after?.cost_ledger?.entries, history)
+        const terminal = pending === undefined && after?.requests === (outcome === 'non200' ? 2 : 3)
+          && retained(after) === after.requests && unknown(after) === (outcome === 'nostatus' ? 2 : 1)
+          && (outcome !== 'non200' || sameEntries(after.cost_ledger.entries, history))
+          && (outcome !== 'http200' || after.cost_ledger.entries.some((e: any) => e.endpoint === endpoint && e.http_200_count === 1))
+        named('费用保存持续失败保留盘上pending，一次失败后收尾只保存真实终态',
+          injected.length > 0 && (mode === 'persistent' ? stablePending
+            : terminal && marks.some(e => e.kind === 'saved')), why)
+      }
+      named('费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出1',
+        injected.length > 0 && result.status === 1 && result.stdout.trim() === ''
+          && !/断点已保存|已保存.*(?:续跑|继续)|追加预算|续跑不产生|续跑会继续/.test(result.stderr)
+          && result.stderr.includes('test durable cost save denied')
+          && fileText(join(f.taskDir, 'creators.json')) === beforePeople, why)
+    }
+  criterion('D14.b', 'D14.c', 'D14.d', 'D14.e', 'D14.h')
+
+  for (const entry of ['collect', 'enrich']) {
+    const f = fixture('kill-barrier', entry)
+    const controller = join(f.cwd, 'kill-at-fetch.mjs')
+    // 控制器是同步自检的一个子进程；被测入口是其直接IPC子进程，没有tsx壳的信号换算。
+    writeFileSync(controller, [
+      `import { spawn } from 'node:child_process';`,
+      `const child = spawn(process.execPath, ['--import', ${JSON.stringify(pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href)}, ...${JSON.stringify(args(entry, f))}], {cwd:${JSON.stringify(f.cwd)}, env:process.env, stdio:['ignore','pipe','pipe','ipc']});`,
+      `let stdout='', stderr='', barrier=false;`,
+      `child.stdout.on('data', x => stdout += x); child.stderr.on('data', x => stderr += x);`,
+      `const timer = setTimeout(() => { child.kill('SIGKILL'); }, 15000);`,
+      `child.on('message', m => { if (m?.kind === 'cost-fetch-barrier' && m.pid === child.pid) { barrier=true; child.kill('SIGKILL'); } });`,
+      `child.on('error', error => { clearTimeout(timer); console.error(error); process.exitCode=1; });`,
+      `child.on('close', (code, signal) => { clearTimeout(timer); console.log(JSON.stringify({code,signal,barrier,stdout,stderr})); });`,
+    ].join('\n'))
+    const killed = runBoth(`持久费用确定屏障强杀 ${entry}`, [controller], f.cwd, undefined,
+      observeEnv(f, { FAKE_FETCH_COST_BARRIER: '1' }))
+    if (!killed.ok) continue
+    const report = summaryOf(killed.stdout)
+    if (!report.barrier || report.signal !== 'SIGKILL') {
+      failed++
+      console.error(`  ✗ 持久费用强杀未到屏障${SELFCHECK_FIXTURE_MARK}：${JSON.stringify(report)}`)
+      continue
+    }
+    const before = fileText(f.task), disk = jsonFile(f.task)
+    named('强杀发生在fetch确定屏障时，盘上保留未结占用且不增加净次数',
+      disk?.cost_ledger?.pending?.endpoint === (entry === 'collect' ? TT_SEARCH : TT_POSTS)
+        && disk?.cost_ledger?.pending?.attempt_id === 3 && disk?.requests === 2
+        && sameEntries(disk?.cost_ledger?.entries, history)
+        && events(f.events).filter(e => e.kind === 'fetch').length === 1,
+      `${entry}: disk=${before}, report=${JSON.stringify(report)}`)
+    for (const change of [false, true]) {
+      const log = join(f.cwd, `resume-${change}.tsv`)
+      const resumed = runBoth(`强杀后拒绝付费 ${entry}/${change}`, [...args(entry, f),
+        ...(change ? ['--budget', '0.009'] : [])], f.cwd,
+        { status: 2, soft: [0, 1, 3] }, costEnv(log))
+      if (validRun(resumed)) {
+        const after = jsonFile(f.task)
+        const changed = [...new Set([...Object.keys(disk ?? {}), ...Object.keys(after ?? {})])]
+          .filter(key => JSON.stringify(disk?.[key]) !== JSON.stringify(after?.[key]))
+        if (changed.length) console.log(`  · ${entry}/change=${change} 恢复拒绝后的任务变字段：${changed.join('、')}`)
+        named('强杀后恢复未结费用拒绝新增付费及显式改额，退出2且零请求',
+          resumed.status === 2 && fetchAttempts(log).length === 0
+            && after?.requests === disk?.requests
+            && JSON.stringify(after?.cost_ledger) === JSON.stringify(disk?.cost_ledger)
+            && rootToken(fileText(f.task), 'budget_usd') === rootToken(before, 'budget_usd'),
+          `${entry}/change=${change}: exit=${resumed.status}, requests=${fetchAttempts(log).length}, changed=${changed}, stderr=${resumed.stderr}`)
+      }
+    }
+  }
+  criterion('D14.f')
+
+  // 无任务的两个探针沿用process预算；不得因本次任务持久化改动引入task落盘。
+  for (const direct of [false, true]) {
+    const f = fixture(`process-${direct}`, 'probe')
+    const config = join(f.cwd, 'probe.json'), before = fileText(f.task)
+    writeFileSync(config, JSON.stringify({ market: 'US', budget_usd: 0.005, tasks: [
+      { keyword: 'local', dimension: 'category', platform: 'tiktok' },
+    ] }))
+    const result = runBoth(`探针仍为进程费用 ${direct}`, direct
+      ? [S('probe-ig-paging.ts'), '--keyword', 'local'] : [S('probe.ts'), '--config', config], f.cwd,
+      undefined, observeEnv(f, { NODE_OPTIONS: failSave(f, 'reserve', 'persistent') }))
+    if (validRun(result)) named('probe与直接分页探针保持process费用，不新增任务检查点',
+      summaryOf(result.stdout).cost_scope === 'process' && fetchAttempts(f.log).length === 1
+        && fileText(f.task) === before && !existsSync(join(f.cwd, 'output'))
+        && !events(f.marks).some(e => e.kind === 'injected' || e.kind === 'saved'), result.stderr)
+  }
+})
+
 group('cost-save-errors', [], () => {
   for (const entry of ['collect', 'enrich', 'probe']) {
     const f = costFixture(`missing-key-${entry}`, knownCosts(1000, []),
@@ -1164,7 +1399,8 @@ group('cost-save-errors', [], () => {
       [costPerson('tiktok', 'save-a'), costPerson('tiktok', 'save-b')])
     const preload = join(f.cwd, 'fail-task-save.mjs'), mark = join(f.cwd, 'save-fault.txt')
     // 只拦公开最终写入触点 renameSync(src,dest) 的目标；不依赖临时文件名或生产函数体。
-    writeFileSync(preload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = function(src, dest) { if (String(dest) === ${JSON.stringify(f.task)}) { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('test task save denied'), { code: 'EIO' }); } return original(src, dest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
+    // after-http 的名字限定失败位置：D14预留必须先成功，不能拿「预留失败」代替终态故障。
+    writeFileSync(preload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = function(src, dest) { const active = ${JSON.stringify(scenario)} !== 'after-http' || (fs.existsSync(${JSON.stringify(f.log)}) && fs.readFileSync(${JSON.stringify(f.log)}, 'utf8').length > 0); if (active && String(dest) === ${JSON.stringify(f.task)}) { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('test task save denied'), { code: 'EIO' }); } return original(src, dest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
     const before = fileText(f.task)
     const result = runBoth(`${entry} 保存失败 ${scenario}`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir,
@@ -1183,7 +1419,8 @@ group('cost-save-errors', [], () => {
       fileText(mark).includes('injected') && result.status === 1 && !result.stderr.includes('已保存')
         && attempts.length === (scenario === 'after-http' ? 1 : 0)
         && (scenario !== 'after-http' || attempts[0] === `200\t${entry === 'collect' ? TT_SEARCH : TT_POSTS}`)
-        && fileText(f.task) === before,
+        && (scenario === 'after-http' ? jsonFile(f.task)?.cost_ledger?.pending?.endpoint === (entry === 'collect' ? TT_SEARCH : TT_POSTS)
+          && jsonFile(f.task)?.requests === 0 : fileText(f.task) === before),
       `${entry}/${scenario}: injected=${fileText(mark)}, status=${result.status}, attempts=${JSON.stringify(attempts)}, stderr=${result.stderr}`)
   }
   criterion('P3.d', 'D13.p')
@@ -1237,12 +1474,10 @@ group('cost-save-errors', [], () => {
   criterion('D13.s')
 })
 
-// ---- 崩溃续跑 A / B：真实入口在落盘之前被杀，供应商账本比上限多出窗口大小（P3 · D6.a）----
+// ---- 崩溃续跑 A / B：业务保存窗口仍要验证，费用窗口由D14持久预留封住 ----
 group('crash-resume', [], () => {
-  // 供应商真正收了几次钱，代码里没有任何变量装着 —— 假 fetch 在请求出去那一刻写一行账（旋钮见
-  // fake-fetch.ts）。第 n 个 200 那一瞬间把进程 SIGKILL 掉：tikhub.ts 的 charge 已做完、入口的 persist
-  // 还没跑，正是落盘窗口；再 --resume。期望值都是「上限折算的次数 + 落盘窗口内已计费的次数」，
-  // 推导在 ADR-96 第三节；上限取自逐次算过的安全集合（闸门是浮点比较，有的上限比 floor 少放一次，见 ADR-96 第二节）。
+  // 第n个假200响应确定触发SIGKILL，状态尚未交还，终态未保存。
+  // D14要求盘上已有该次pending，并保留此前终态；D6仍要求此前完成页的业务断点不丢。
   // tsx 壳把孙进程的 SIGKILL 译成 128 + 信号号的退出码（实测记在 ADR-96 第三节），所以杀掉那一跑走 runBoth 照常判。
   // 每条轨迹一个独立 cwd：别处把 tmp/memory/creators.json 截坏之后不恢复，共用会让续跑退 2 而不是 3。
   // 被杀那一跑打不出目录名（summary 在循环之后），按产品名前缀在 output/ 下找。**只数账本里 200 的行**：
@@ -1256,45 +1491,59 @@ group('crash-resume', [], () => {
    *  只数搜索，不数 profile —— 续跑要补 profile，拿总请求数当判据会把两件事混在一起。 */
 
   {
-    // A · 搜索循环：每抓一页落一次盘，窗口是一页。第一跑在第二个 200 那一瞬被杀：第一页已落盘，
-    // 第二页只在内存里。第二跑 --resume 把剩下的额度花完、闸门抛、退 3。数字的推导在 ADR-96 第三节。
+    // A：单关键词第一页完成，第二页请求已开始但未取得可供入口结算的状态。
+    // 只有一个词，避免F9先补另一个词的第一页，使第二次请求确实验证同一分页断点。
     // 前提：罐头 has_more 为 1，kw0 不进 done，续跑才会再搜它。
     const cwd = crashCwd('crash-a')
     const ledger = join(tmp, 'ledger-a.tsv')
+    const observations = join(cwd, 'fetch-events.jsonl')
     const cfg = join(cwd, 'crash-a.json')
     writeFileSync(cfg, JSON.stringify({
       product: 'crasha', market: 'US', target_count: 500, budget_usd: 0.002,
-      tasks: [{ keyword: 'kw0', dimension: 'category', platform: 'tiktok' },
-              { keyword: 'kw1', dimension: 'category', platform: 'tiktok' }],
+      tasks: [{ keyword: 'kw0', dimension: 'category', platform: 'tiktok' }],
     }))
     const first = runBoth('collect 搜索循环里被杀：进程以 137 结束', [S('collect.ts'), '--config', cfg], cwd,
-                          { status: 137 }, { FAKE_FETCH_LEDGER: ledger, FAKE_FETCH_KILL_AFTER_OK: '2' })
+                          { status: 137 }, { FAKE_FETCH_LEDGER: ledger, FAKE_FETCH_KILL_AFTER_OK: '2',
+                            FAKE_FETCH_COST_EVENTS: observations })
     const dir = first.ok ? onlyDir(cwd, 'crasha') : undefined
     if (first.ok && dir === undefined) {
       failed++
       console.error(`  ✗ collect 搜索循环里被杀${SELFCHECK_FIXTURE_MARK}：output/ 下找不到恰好一个 crasha- 目录 —— 夹具没造对`)
     }
     if (dir !== undefined) {
-      named('collect 搜索循环里被杀：盘上少记的正好是落盘窗口那一次',
-            diskRequests(cwd, dir) === ledgerLines(ledger, true) - 1,
-            `盘上 ${diskRequests(cwd, dir)}，账本 200 行 ${ledgerLines(ledger, true)}，窗口应是 1`)
-      const second = runBoth('collect 搜索循环里被杀后续跑：预算用尽退 3', [S('collect.ts'), '--resume', dir], cwd,
-                             { status: 3 }, { FAKE_FETCH_LEDGER: ledger })
+      const disk = jsonFile(join(cwd, dir, 'task.json'))
+      const raw = jsonFile(join(cwd, dir, 'creators.raw.json'))
+      const nextQuery = fileText(observations).split('\n').filter(Boolean).map(line => JSON.parse(line))
+        .filter(e => e.kind === 'fetch')[1]?.query
+      const nextOffset = nextQuery?.offset
+      named('collect 搜索循环里被杀：此前页的作者与分页断点已保存',
+        disk?.pages?.[0] === 1 && Number.isSafeInteger(disk?.offsets?.[0]) && disk.offsets[0] > 0
+          && nextQuery?.keyword === 'kw0' && nextOffset !== undefined
+          && disk.offsets[0] === Number(nextOffset) && disk?.answered?.[0] === 1
+          && disk?.found?.[0] === 3 && Array.isArray(raw)
+          && raw.some(c => c.platform === 'tiktok' && c.handle === 'techwithsarah'
+            && c.recent_posts?.some((p: any) => p.desc === 'Testing the new GaN charger')),
+        `task=${JSON.stringify(disk)}, nextOffset=${nextOffset}, raw=${JSON.stringify(raw)}`)
+      named('collect 搜索循环里被杀：最后一次预留在盘上且此前终态未丢',
+        diskRequests(cwd, dir) === 1 && ledgerLines(ledger, true) === 2
+          && disk?.cost_ledger?.pending?.endpoint === TT_SEARCH
+          && disk?.cost_ledger?.pending?.unit_micro_usd === 1000
+          && disk?.cost_ledger?.entries?.some((e: any) => e.endpoint === TT_SEARCH && e.http_200_count === 1),
+        `task=${JSON.stringify(disk)}, attempts=${ledgerLines(ledger, true)}`)
+      const second = runBoth('collect 搜索循环里被杀后续跑：未结费用退 2', [S('collect.ts'), '--resume', dir], cwd,
+                             { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_LEDGER: ledger })
       if (second.ok) {
-        named('collect 搜索循环里被杀后续跑：供应商多收恰好一次',
-              ledgerLines(ledger, true) === 2 + 1,
-              `账本 200 行 ${ledgerLines(ledger, true)}，应是上限 2 + 窗口 1 = 3`)
+        named('collect 搜索循环里被杀后续跑：未结占用阻止任何新请求',
+              second.status === 2 && ledgerLines(ledger, true) === 2,
+              `退出 ${second.status}，账本 200 行 ${ledgerLines(ledger, true)}，应仍是 2`)
         extract('A', diskRequests(cwd, dir), ledger, first.stderr, second.stderr)
       }
     }
   }
 
   {
-    // B · 补 profile 循环：整段循环一次都不落盘，窗口 = 循环里已计费的账号数。
-    // 第一跑：搜索那一页落盘后达标，进补 profile（罐头搜索结果没有 signature，人人都要补），
-    //   在循环里第二个人的 200 那一瞬被杀：盘上只有搜索那一次。
-    // 第二跑：达标不搜索；上次补全的结果一个都没落盘，全员重补，退 0。数字的推导在 ADR-96 第三节。
-    // 上限比刚好够用再多一档：让续跑在 M-P3-b（断点永远写 0）下退出码也不变，否则那条变异会以进程记号判成跑不起来。
+    // B：搜索及第一个profile已取得200，第二个profile响应交还前被杀。
+    // 即使profile业务结果尚未批量保存，前两次费用终态也不得被清空。
     const cwd = crashCwd('crash-b')
     const ledger = join(tmp, 'ledger-b.tsv')
     const cfg = join(cwd, 'crash-b.json')
@@ -1310,15 +1559,20 @@ group('crash-resume', [], () => {
       console.error(`  ✗ collect 补 profile 循环里被杀${SELFCHECK_FIXTURE_MARK}：output/ 下找不到恰好一个 crashb- 目录 —— 夹具没造对`)
     }
     if (dir !== undefined) {
-      named('collect 补 profile 循环里被杀：整段循环都在落盘窗口里',
-            diskRequests(cwd, dir) === ledgerLines(ledger, true) - 2,
-            `盘上 ${diskRequests(cwd, dir)}，账本 200 行 ${ledgerLines(ledger, true)}，窗口应是 2 —— 那个循环里没有落盘`)
-      const second = runBoth('collect 补 profile 循环里被杀后续跑：跑完退 0', [S('collect.ts'), '--resume', dir], cwd,
-                             { status: 0 }, { FAKE_FETCH_LEDGER: ledger })
+      const disk = jsonFile(join(cwd, dir, 'task.json'))
+      named('collect 补 profile 循环里被杀：历史搜索与profile终态均已保存',
+        diskRequests(cwd, dir) === 2 && ledgerLines(ledger, true) === 3
+          && [TT_SEARCH, TT_PROFILE].every(endpoint => disk?.cost_ledger?.entries?.some((e: any) =>
+            e.endpoint === endpoint && e.http_200_count === 1 && e.unknown_result_count === 0))
+          && disk?.cost_ledger?.pending?.endpoint === TT_PROFILE
+          && disk?.cost_ledger?.pending?.attempt_id === 3,
+        `task=${JSON.stringify(disk)}, attempts=${ledgerLines(ledger, true)}`)
+      const second = runBoth('collect 补 profile 循环里被杀后续跑：未结费用退 2', [S('collect.ts'), '--resume', dir], cwd,
+                             { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_LEDGER: ledger })
       if (second.ok) {
-        named('collect 补 profile 循环里被杀后续跑：供应商多收恰好两次',
-              ledgerLines(ledger, true) === 4 + 2,
-              `账本 200 行 ${ledgerLines(ledger, true)}，应是上限 4 + 窗口 2 = 6`)
+        named('collect 补 profile 循环里被杀后续跑：未结占用阻止任何新请求',
+              second.status === 2 && ledgerLines(ledger, true) === 3,
+              `退出 ${second.status}，账本 200 行 ${ledgerLines(ledger, true)}，应仍是 3`)
         extract('B', diskRequests(cwd, dir), ledger, first.stderr, second.stderr)
       }
     }
@@ -1575,12 +1829,11 @@ group('enrich', ['collect'], () => {
       } else console.log(`  ✓ 超窗样本记录零请求收窄（撑大 ${padded} 个账号）`)
     }
 
-    // ---- 崩溃续跑 C：enrich 每个账号查完落一次盘，窗口 1（P3 · D6.a）----
+    // ---- 崩溃续跑 C：上一账号的业务缓存与下一请求的费用预留都须保存（D6/D14）----
     // 复制为独立夹具，明确放三个 TikTok 账号、完整新账及一致上限，删掉缓存。
     // 每个主页作品端点 0.001，0.002 正好够两个；不能只把旧 requests 改零而留下旧账。
     // 第一跑：第一个账号查完落盘，在第二个账号的 200 那一瞬被杀。
-    // 第二跑同一条命令（enrich 没有 --resume，靠 enrichment.json 跳过已查的）：第二个账号重查、落盘，
-    //   第三个账号闸门抛，收尾落盘，退 3。数字的推导在 ADR-96 第三节。
+    // 第二跑同一条命令拒绝未结费用，不重新查询第二个账号。
     const crashDir = `${dir}-crash`
     cpSync(join(tmp, dir), join(tmp, crashDir), { recursive: true })
     const crashTaskFile = join(tmp, crashDir, 'task.json')
@@ -1602,15 +1855,25 @@ group('enrich', ['collect'], () => {
       const firstC = runBoth('enrich 两个账号之间被杀：进程以 137 结束', [S('enrich.ts'), '--dir', crashDir], tmp,
                              { status: 137 }, { FAKE_FETCH_LEDGER: ledgerC, FAKE_FETCH_KILL_AFTER_OK: '2' })
       if (firstC.ok) {
-        named('enrich 两个账号之间被杀：盘上少记的正好是落盘窗口那一次',
-              diskC() === ledgerLines(ledgerC, true) - 1,
-              `盘上 ${diskC()}，账本 200 行 ${ledgerLines(ledgerC, true)}，窗口应是 1`)
-        const secondC = runBoth('enrich 两个账号之间被杀后续跑：预算用尽退 3', [S('enrich.ts'), '--dir', crashDir], tmp,
-                                { status: 3 }, { FAKE_FETCH_LEDGER: ledgerC })
+        const disk = jsonFile(crashTaskFile)
+        const cached = jsonFile(join(tmp, crashDir, 'enrichment.json'))?.accounts
+        named('enrich 两个账号之间被杀：已完成账号的样本缓存已保存',
+          cached?.['tiktok:crash-0']?.sample?.status === 'measured'
+            && cached['tiktok:crash-0'].sample.value.length === 12
+            && cached['tiktok:crash-1'] === undefined,
+          `accounts=${JSON.stringify(cached)}`)
+        named('enrich 两个账号之间被杀：最后一次预留在盘上且此前终态未丢',
+          diskC() === 1 && ledgerLines(ledgerC, true) === 2
+            && disk?.cost_ledger?.pending?.endpoint === TT_POSTS
+            && disk?.cost_ledger?.pending?.unit_micro_usd === 1000
+            && disk?.cost_ledger?.entries?.some((e: any) => e.endpoint === TT_POSTS && e.http_200_count === 1),
+          `task=${JSON.stringify(disk)}, attempts=${ledgerLines(ledgerC, true)}`)
+        const secondC = runBoth('enrich 两个账号之间被杀后续跑：未结费用退 2', [S('enrich.ts'), '--dir', crashDir], tmp,
+                                { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_LEDGER: ledgerC })
         if (secondC.ok) {
-          named('enrich 两个账号之间被杀后续跑：供应商多收恰好一次',
-                ledgerLines(ledgerC, true) === 2 + 1,
-                `账本 200 行 ${ledgerLines(ledgerC, true)}，应是上限 2 + 窗口 1 = 3`)
+          named('enrich 两个账号之间被杀后续跑：未结占用阻止任何新请求',
+                secondC.status === 2 && ledgerLines(ledgerC, true) === 2,
+                `退出 ${secondC.status}，账本 200 行 ${ledgerLines(ledgerC, true)}，应仍是 2`)
           extract('C', diskC(), ledgerC, firstC.stderr, secondC.stderr)
         }
       }

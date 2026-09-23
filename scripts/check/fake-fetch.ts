@@ -13,7 +13,7 @@
  * 原样复现，否则自检验证的是我的想象而不是 TikHub 的行为。
  * author.aweme_count 实测对所有人都返回 0，同样复现。
  */
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, readFileSync } from 'node:fs'
 
 const tiktokVideoSearch = {
   data: {
@@ -130,8 +130,8 @@ function pick(url: string): unknown {
 // 两个 env 旋钮，未设时严格无副作用 —— 给崩溃续跑那几条轨迹用（ADR-96）。
 // 账本：每次响应之前同步追加一行「状态码 ⇥ pathname」。它就是「供应商真正收到几次」这个
 //       代码里没有任何变量装着的量，由请求真正出去那一刻的观测者写下。
-// 杀：第 n 个 200 响应，先追加账本行，再把自己 SIGKILL。落在假 fetch 内部 —— 此时 tikhub.ts 的
-//       charge 已做完、入口的 persist 还没跑，正是落盘窗口。只传给崩溃那一次 spawn，续跑不带。
+// 杀：第 n 个 200 响应，先追加账本行，再把自己 SIGKILL。落在假 fetch 内部 —— 状态尚未交还，
+//       D14要求预留已保存但终态未保存。只传给崩溃那一次 spawn，续跑不带。
 // 不在模块加载时碰账本：NODE_OPTIONS 让 tsx 壳也执行这个模块，只有真正调 fetch 的孙进程才该写。
 const ledger = process.env.FAKE_FETCH_LEDGER
 const killAfterOk = Number(process.env.FAKE_FETCH_KILL_AFTER_OK)   // 没设 → NaN，永不相等
@@ -148,7 +148,7 @@ let oneCreator = 0
 // 费用接线用的单次故障：只有本次 spawn 明确指定的 pathname 才命中，随后恢复罐头。
 // profile 没有 keyword，所以用路径定位；不改变既有 force-* 或第 7 次 429 的默认行为。
 let faultUsed = false
-globalThis.fetch = (async (input: RequestInfo | URL) => {
+const fakeFetch = async (input: RequestInfo | URL) => {
   calls++
   const url = String(input)
   const fault = process.env.FAKE_FETCH_FAULT
@@ -272,6 +272,40 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
   return new Response(JSON.stringify(pick(url)), {
     status: 200, headers: { 'content-type': 'application/json' },
   })
+}
+
+// D14 的独立观测协议：只在显式启用时读任务快照；观测不替被测入口保存费用。
+// IPC 屏障在 fetch 已产生响应、但尚未交还状态时通知父进程；父进程据事件强杀，
+// 不靠 sleep 猜窗口。正文观测包住实际调用，不能把「有响应」当成「读过正文」。
+const costEvents = process.env.FAKE_FETCH_COST_EVENTS
+const observe = (kind: string, url: string, extra: Record<string, unknown> = {}) => {
+  if (!costEvents) return
+  let task: unknown, task_error: string | undefined
+  if (process.env.FAKE_FETCH_COST_TASK) {
+    try { task = JSON.parse(readFileSync(process.env.FAKE_FETCH_COST_TASK, 'utf8')) }
+    catch (error) { task_error = String(error) }
+  }
+  const parsed = new URL(url)
+  appendFileSync(costEvents, `${JSON.stringify({ kind, endpoint: parsed.pathname,
+    query: Object.fromEntries(parsed.searchParams), task, task_error, ...extra })}\n`)
+}
+globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const url = String(input)
+  observe('fetch', url)
+  let response: Response
+  try { response = await fakeFetch(input) }
+  catch (error) { observe('no-http-status', url); throw error }
+  observe('http', url, { status: response.status })
+  if (process.env.FAKE_FETCH_COST_BARRIER === '1') {
+    if (!process.send) throw new Error('fake fetch: cost barrier requires IPC')
+    process.send({ kind: 'cost-fetch-barrier', pid: process.pid })
+    await new Promise(() => { setInterval(() => {}, 60_000) })
+  }
+  if (costEvents) for (const method of ['text', 'json'] as const) {
+    const original = response[method].bind(response)
+    response[method] = async () => { observe('body', url, { method }); return original() }
+  }
+  return response
 }) as typeof fetch
 
 console.error('[fake-fetch] 已接管 fetch —— 本次运行不发出任何真实请求')

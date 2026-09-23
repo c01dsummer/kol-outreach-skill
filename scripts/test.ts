@@ -77,7 +77,7 @@ import { Budget, BudgetInputError, startBudget, costView, type CostView } from '
 import { readCostDocument, readCostLimit, setCostLimitField, stringifyCostJson, type CostState } from './lib/cost-json.js'
 import {
   CostError, CostLedgerUnavailable, createCostBudget, formatUsd, inspectExistingCostLedger,
-  parseUsdMicros, restoreCostBudget,
+  parseUsdMicros, restoreCostBudget, type CostSnapshot,
 } from './lib/cost-ledger.js'
 import {
   TIKHUB_PRICE_BASIS, TIKHUB_PRICE_CATALOG, TIKHUB_PRICE_VERSION, quoteTikHub, resolveTikHubPrice,
@@ -104,7 +104,7 @@ import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
-import { loadRawCreators, persistListAndStatus, saveRawCreators, saveTask } from './lib/task.js'
+import { loadRawCreators, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 
 let fail = 0
@@ -5991,6 +5991,184 @@ suite('D13', '已有数据可离线输出，未知费用不得换来新增付费
       tension('D13', 'P5')
     })
   } finally { rmSync(cwd, { recursive: true, force: true }) }
+}
+
+// ADR-109：仅由公开保存回调与真实临时文件观察，未读取生产函数体。
+suite('D14', '费用保存回调先于返回，保存失败后本实例停止一切费用变更')
+{
+  const exact = (label: string, got: unknown, want: unknown) => ok(label, isDeepStrictEqual(got, want))
+  const caught = (run: () => unknown): unknown => { try { run() } catch (error) { return error } }
+  const history = { endpoint: TEST_TT, price_version: TEST_PRICE_VERSION, unit_micro_usd: 1000,
+    http_200_count: 1, unknown_result_count: 2 }
+  const pending = { endpoint: TEST_IG, price_version: TEST_PRICE_VERSION, unit_micro_usd: 2000, attempt_id: 4 }
+  const ledger = { schema: 1, currency: 'USD', unit: 'micro_usd', scope: 'task',
+    limit_micro_usd: 10000, next_attempt_id: 5, entries: [history] }
+  const outcomes = [
+    ['200', { kind: 'http', status: 200 }, 1, 0],
+    ['非200', { kind: 'http', status: 429 }, 0, 0],
+    ['无HTTP状态', { kind: 'no_http_status' }, 0, 1],
+  ] as const
+  for (const [name, outcome, http, unknown] of outcomes) await costSucceeds(`${name} 的同步费用快照完整执行`, () => {
+    const state = costFixture(10000, 1, 2), writes: CostSnapshot[] = [], events: string[] = []
+    const budget = new Budget(state, () => {}, (snapshot: CostSnapshot) => {
+      exact(`${name} 回调观察到已同步的内存费用`,
+        { cost_ledger: state.cost_ledger, requests: state.requests }, snapshot)
+      writes.push(structuredClone(snapshot)); events.push('保存')
+    })
+    const before = writes.length, receipt = budget.reserve(TEST_IG)
+    events.push('预留返回')
+    eq(`${name} 每次预留同步保存一次`, writes.length - before, 1)
+    exact(`${name} pending 保存不增加净次数或改历史`, writes.at(-1),
+      { cost_ledger: { ...ledger, pending }, requests: 3 })
+    budget.settle(receipt, outcome); events.push('结算返回')
+    const extra = http + unknown ? [{ endpoint: TEST_IG, price_version: TEST_PRICE_VERSION,
+      unit_micro_usd: 2000, http_200_count: http, unknown_result_count: unknown }] : []
+    exact(`${name} 终态只结算本次并保存正确历史次数`, writes.at(-1),
+      { cost_ledger: { ...ledger, entries: [history, ...extra] }, requests: 3 + http + unknown })
+    eq(`${name} 每次结算同步保存一次`, writes.length - before, 2)
+    exact(`${name} 方法返回前已完成保存`, events, ['保存', '预留返回', '保存', '结算返回'])
+  })
+  await costSucceeds('新任务预算也将保存回调传到预留和结算', () => {
+    const state: CostState = {}, writes: CostSnapshot[] = []
+    const budget = startBudget(state, 5000, 'task', () => {}, (snapshot: CostSnapshot) => writes.push(structuredClone(snapshot)))
+    const before = writes.length, receipt = budget.reserve(TEST_IG)
+    eq('startBudget 第五参数在预留返回前收到 pending',
+      [writes.length - before, writes.at(-1)?.requests, writes.at(-1)?.cost_ledger.pending?.unit_micro_usd], [1, 0, 2000])
+    budget.settle(receipt, { kind: 'http', status: 200 })
+    eq('startBudget 第五参数收到终态且不重复计次',
+      [writes.length - before, writes.at(-1)?.requests, Object.hasOwn(writes.at(-1)?.cost_ledger ?? {}, 'pending')], [2, 1, false])
+  })
+  for (const phase of ['预留', ...outcomes.map(([name]) => name)]) await costSucceeds(`${phase} 保存失败后锁定实例`, () => {
+    const state = costFixture(10000, 1, 2), reason = new Error(`模拟保存失败：${phase}`)
+    const failAt = phase === '预留' ? 1 : 2
+    let calls = 0
+    const budget = new Budget(state, () => {}, () => { if (++calls === failAt) throw reason })
+    let receipt: ReturnType<Budget['reserve']> | undefined
+    const error = caught(() => {
+      receipt = budget.reserve(TEST_IG)
+      if (phase !== '预留') budget.settle(receipt, outcomes.filter(([name]) => name === phase)[0][1])
+    })
+    ok(`${phase} 保存失败是 persistence-failed 而非额度不足`, error instanceof CostError && error.code === 'persistence-failed')
+    ok(`${phase} 保存失败保留实际原因`, error instanceof Error
+      && (error.message.includes(reason.message) || error.cause === reason))
+    const frozen = stringifyCostJson(state), callsAfterFailure = calls
+    // 预留失败没有返回本账凭据；一个异账的合法凭据也不能绕开本实例已锁定的错误。
+    const settleReceipt = receipt ?? fundedBudget().reserve(TEST_TT)
+    for (const [operation, run] of [
+      ['reserve', () => budget.reserve(TEST_TT)],
+      ['settle', () => budget.settle(settleReceipt, { kind: 'http', status: 200 })],
+      ['setLimit', () => budget.setLimit(20000)],
+    ] as const) {
+      const later = caught(run)
+      ok(`${phase} 失败后的 ${operation} 仍报告持久化失败`, later instanceof CostError && later.code === 'persistence-failed')
+      eq(`${phase} 失败后的 ${operation} 不改变费用`, stringifyCostJson(state), frozen)
+      eq(`${phase} 失败后的 ${operation} 不再调用保存`, calls, callsAfterFailure)
+    }
+    if (phase === '预留') {
+      exact('本地预留保存失败不伪造无HTTP结果留存',
+        [(state.cost_ledger as any).entries, state.requests], [[history], 3])
+    }
+    tension('D14', 'P5')
+  })
+}
+
+suite('D14', '费用检查点只推进费用，保留盘上业务与精确预算，并使恢复的未结占用继续有效')
+{
+  const exact = (label: string, got: unknown, want: unknown) => ok(label, isDeepStrictEqual(got, want))
+  const business = (state: Record<string, unknown>) => Object.fromEntries(Object.entries(state)
+    .filter(([key]) => !['cost_ledger', 'requests', 'updated_at'].includes(key)))
+  const rootBudgetToken = (text: string): string | undefined => {
+    const tokens = new WeakMap<object, string>()
+    const parsed = (JSON.parse as any)(text, function(this: object, key: string, value: unknown, context?: { source?: string }) {
+      if (key === 'budget_usd' && typeof value === 'number' && context?.source !== undefined) tokens.set(this, context.source)
+      return value
+    })
+    return tokens.get(parsed)
+  }
+  const root = mkdtempSync(join(tmpdir(), 'kol-d14-checkpoint-'))
+  try {
+    for (const [status, present, token, limit] of [
+      ['ok', true, '9007199254.740991', Number.MAX_SAFE_INTEGER],
+      ['unknown', true, '5e-3', 5000],
+      ['unreadable_ignored', false, '0.005000', 5000],
+      [undefined, false, '0.005', 5000],
+    ] as const) await costSucceeds(`费用检查点保留 ${String(status)} 及 ${token}`, () => {
+      const dir = join(root, String(status)), task = join(dir, 'task.json')
+      mkdirSync(dir)
+      const original = { product: 'disk-product', market: 'US', target_count: 9999,
+        tasks: [{ keyword: 'saved', dimension: 'category', platform: 'tiktok' }],
+        created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z',
+        custom: { nested: { budget_usd: 7 }, zero: 0, empty: null },
+        ...(present ? { done: [], offsets: { 0: 5 }, pages: { 0: 1 }, answered: { 0: 2 }, found: { 0: null } } : {}),
+        ...(status === undefined ? {} : { memory_status: status }),
+        cost_ledger: costFixture(limit, 1, 1).cost_ledger, requests: 2 }
+      writeFileSync(task, `{"budget_usd":${token},${JSON.stringify(original).slice(1)}`)
+      const artifacts = ['creators.json', 'creators.raw.json', 'enrichment.json']
+      for (const file of artifacts) if (present) writeFileSync(join(dir, file), `原盘上内容 ${file}`)
+      const diskBusiness = business(JSON.parse(rf(task, 'utf8')))
+      const state = readCostDocument<Record<string, unknown>>(rf(task, 'utf8'))
+      Object.assign(state, { product: 'not-yet-saved', done: [0], offsets: { 0: 99 }, pages: { 0: 99 },
+        answered: { 0: 99 }, found: { 0: 99 }, memory_status: 'ok' })
+      const snapshots: CostSnapshot[] = []
+      const budget = new Budget(state, () => {}, (snapshot: CostSnapshot) => {
+        saveCostCheckpoint(dir, snapshot); snapshots.push(structuredClone(snapshot))
+      })
+      const before = Date.now(), receipt = budget.reserve(TEST_IG), after = Date.now()
+      const savedText = rf(task, 'utf8'), saved = JSON.parse(savedText)
+      exact(`${String(status)} 预留只替换费用和保存时间`, business(saved), diskBusiness)
+      eq(`${String(status)} 根预算保留原数值 token`, rootBudgetToken(savedText), token)
+      exact(`${String(status)} 盘上保存本次 pending 与原净次数`,
+        [saved.requests, saved.cost_ledger.pending], [2, {
+          endpoint: TEST_IG, price_version: TEST_PRICE_VERSION, unit_micro_usd: 2000, attempt_id: 3 }])
+      exact(`${String(status)} 盘上费用是保存回调的快照`,
+        { cost_ledger: saved.cost_ledger, requests: saved.requests }, snapshots.at(-1))
+      const updated = Date.parse(saved.updated_at)
+      ok(`${String(status)} 费用保存时间真实更新`, updated >= before && updated <= after)
+      const restoredState = readCostDocument(savedText), restored = new Budget(restoredState, () => {})
+      exact(`${String(status)} 恢复不把 pending 冒充已发请求或终态`,
+        [restored.count, restored.view().cost_http_200_usd, restored.view().cost_unknown_result_usd, restored.view().cost_pending_usd],
+        [2, '0.001', '0.001', '0.002'])
+      const persisted = stringifyCostJson(restoredState)
+      for (const [operation, run] of [
+        ['新增请求', () => restored.reserve(TEST_TT)], ['显式改额', () => restored.setLimit(limit)],
+      ] as const) {
+        let error: unknown
+        try { run() } catch (caught) { error = caught }
+        ok(`${String(status)} 恢复未结占用拒绝${operation}`, error instanceof BudgetInputError)
+        eq(`${String(status)} 拒绝${operation}不退款或制造终态`, stringifyCostJson(restoredState), persisted)
+      }
+      tension('D14', 'P1'); tension('D14', 'P3')
+      // 模拟同一写入方在两次费用检查点之间保存了业务变化，第二次必须重读盘上版本。
+      const nextDisk = readCostDocument<Record<string, unknown>>(savedText)
+      nextDisk.market = 'CA'; nextDisk.local_revision = 2
+      if (present) nextDisk.memory_status = 'unreadable_ignored'
+      writeFileSync(task, stringifyCostJson(nextDisk))
+      const nextBusiness = business(JSON.parse(rf(task, 'utf8')))
+      budget.settle(receipt, { kind: 'http', status: 200 })
+      const terminalText = rf(task, 'utf8'), terminal = JSON.parse(terminalText)
+      exact(`${String(status)} 终态保存沿用最新盘上业务，不提升内存去重声明`, business(terminal), nextBusiness)
+      eq(`${String(status)} 终态保存仍不改原预算 token`, rootBudgetToken(terminalText), token)
+      exact(`${String(status)} 终态费用已保存且净次数只增加一次`,
+        [terminal.requests, Object.hasOwn(terminal.cost_ledger, 'pending')], [3, false])
+      for (const file of artifacts) eq(`${String(status)} 费用检查点不提前写 ${file}`,
+        existsSync(join(dir, file)) ? rf(join(dir, file), 'utf8') : undefined, present ? `原盘上内容 ${file}` : undefined)
+      tension('D14', 'P4')
+    })
+    await costSucceeds('不存在的任务不能由费用检查点创建', () => {
+      const pure = createCostBudget(5000, 'task', TIKHUB_PRICE_CATALOG)
+      pure.reserve(quoteTikHub(TEST_IG))
+      for (const name of ['missing-directory', 'missing-task']) {
+        const dir = join(root, name)
+        if (name === 'missing-task') mkdirSync(dir)
+        let threw = false
+        try { saveCostCheckpoint(dir, pure.snapshot()) } catch { threw = true }
+        ok(`${name} 费用保存报错`, threw)
+        eq(`${name} 没有凭空产生 task.json`, existsSync(join(dir, 'task.json')), false)
+      }
+    })
+    criterion('D14.g')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+  // HTTP 前后顺序、强杀窗口与入口退出码由进程测试认领，纯接口不冒领 D14.a–f/h。
 }
 
 console.log(fail ? `\n${fail} 个失败\n` : `\n全部通过（覆盖 ${covered.size} 条需求）\n`)

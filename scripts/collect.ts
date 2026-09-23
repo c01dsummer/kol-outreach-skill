@@ -16,7 +16,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
-import { Budget, BudgetInputError, startBudget } from './lib/budget.js'
+import { Budget, BudgetInputError, startBudget, type PersistCost } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
 import { readCostDocument, readCostLimit, stringifyCostJson } from './lib/cost-json.js'
 import {
@@ -28,7 +28,7 @@ import { passesFollowerGate } from './lib/score.js'
 import { taskLabel } from './lib/task-label.js'
 import {
   taskDir, taskFile, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators,
-  persistListAndStatus,
+  persistListAndStatus, saveCostCheckpoint,
 } from './lib/task.js'
 import { creatorKey, textProblem } from './lib/types.js'
 import type { Creator, TaskState } from './lib/types.js'
@@ -102,7 +102,8 @@ try {
   const notify = (pct: number, view: ReturnType<Budget['view']>) => {
     console.error(`\n💰 已用 ${(pct * 100).toFixed(0)}% —— 估算占用 $${view.cost_estimate_usd} / $${view.budget_usd}\n`)
   }
-  budget = resume ? new Budget(state, notify) : startBudget(state, freshLimit!, 'task', notify)
+  const persistCost: PersistCost = snapshot => saveCostCheckpoint(dir, snapshot)
+  budget = resume ? new Budget(state, notify, persistCost) : startBudget(state, freshLimit!, 'task', notify, persistCost)
   if (resume && replacementLimit !== undefined) budget.setLimit(replacementLimit)
 } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
 // D13.j：改额先保存根上限及 ledger，一旦保存失败不能发下一请求。
@@ -326,6 +327,11 @@ async function main() {
     await run()
     await enrichProfiles()
   } catch (e) {
+    if (e instanceof CostError && e.code === 'persistence-failed') {
+      try { persist() }
+      catch (cleanupError) { console.error(`收尾保存也失败：${String(cleanupError)}`) }
+      throw e
+    }
     if (e instanceof CostError && e.code === 'budget-exceeded') {
       stopped = 'budget'
     } else if (e instanceof TikHubError && e.status === 402) {
