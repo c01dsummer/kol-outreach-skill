@@ -69,6 +69,9 @@ output/{product}-{YYYYMMDDHHmm}/
 | `best_post_desc` | 搜索命中的作品里播放最高那条的文案。`未查询` = 没问过他的作品（IG 按账号名搜到的人）；空白 = 所选作品的文案值为空，可能是作者未写，也可能是来源字段未取到，当前无法区分 |
 | `outreach_draft` | ★ 仅 A 级填写 |
 | `previously_recommended` | 曾推荐过则填「{product} @ {date}」 |
+| `discovery_sources` | 最末列；已观察发现来源，每项为「路线 · 平台:@账号 · 关键词 · 维度」，以 `；` 分隔；缺席或空数组显示「来源未知」 |
+
+实际来源也在 HTML 账号卡片展示，原始集合保留在名单 JSON 及 probe 样本中。只含已记录的账号发现来源，可能不含完整历史；不对应具体作品、请求次数或费用。路线不能由 `source_keyword`、任务标签或 `as_hashtag` 推断（D15）。
 
 **转义**：字段含逗号、引号或换行时用双引号包裹，内部双引号写成两个。`outreach_draft` 一定有换行，务必正确转义。
 

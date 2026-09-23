@@ -345,6 +345,8 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 
 ## 搜索作品标识与并集（D11）
 
+实际发现路径另存于 `Creator.discovery_sources`（D15）：TikTok 视频搜索、IG Reels、IG 账号名搜索只有真正返回该账号时才记录端点、平台、账号、原词及维度。Reels 空结果后的兜底账号只记账号名搜索；profile 不算发现。`as_hashtag` 不改变现有路径。集合只含已观察来源，旧缺席/空数组读作来源未知，不保证完整历史或某条作品的具体来源；合并与展示规则见 ADR-110。
+
 | 搜索来源 | 原始作品 id 字段 | 归一化后的 `RecentPost.id` |
 |---|---|---|
 | TikTok App V3 视频搜索 | `data.search_item_list[].aweme_info.aweme_id`；已有直接作品条目兼容路径仍读该作品的 `aweme_id` | `tiktok:<原始id>` |
