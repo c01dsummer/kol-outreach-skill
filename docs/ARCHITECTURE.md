@@ -69,7 +69,7 @@
 | `scripts/lib/cost-ledger.ts` | 逻辑 | D12 D13 P1 P3 P5 | 精确金额、费用账校验与预留结算；只接收固定价目，不依赖文件或网络；总上限修改不重算历史项 |
 | `scripts/providers/tikhub-pricing.ts` | 适配 | D12 P5 | 固定公开价目的版本与完整端点报价，供费用账核对历史依据；不远程查价、不推断账户账单 |
 | `scripts/lib/budget.ts` | 逻辑 | D13 P3 F7 | 连接价目与费用账，延迟检查付费资格；同一 state 同步账目/次数，费用投影与每实例提醒共用该状态，不自行写盘 |
-| `scripts/lib/cost-json.ts` | 逻辑 | D13 P3 | 根预算原 token 的读取与精确 JSON 写出边界；任务文件、meta 与 stdout 共用，HTML 只读金额文本 |
+| `scripts/lib/cost-json.ts` | 逻辑 | D13 P3 | 根预算、次数与费用账原数值的精确边界；非法费用数字保持不可用并保留原件，任务文件、meta 与 stdout 共用，HTML 只读金额文本 |
 | `scripts/lib/email.ts` | 逻辑 | D7 | 反爬写法的邮箱提取；宁可返回 null 也不误判正常语句 |
 | `scripts/lib/assessment.ts` | 逻辑 | D8 D9 D10 F8 U7 | 公开样本 → 指标 / 风险 / 活跃度 / 报价效率，每项带测量状态与溯源；**样本记录的窗口也截在这里**，入口脚本只负责调用与落盘 |
 | `scripts/lib/rows.ts` | 逻辑 | P2 U1 U5 U7 | 交付物的行与排序；草稿里的占位符必须原样穿透到产出物 |

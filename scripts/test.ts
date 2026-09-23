@@ -590,7 +590,8 @@ suite('P3', '实际 fetch 前已经预留端点金额，终态才增加净次数
       for (const s of [200, 402, 429, 500]) grow([...prefix, s]) }
     grow([]); return out
   }
-  const CASES: [number, number][] = [[0, 0], [1000, 0], [1000, 1], [2000, 0], [2000, 1], [3000, 1]]
+  // IG reels→users 各 2000 微美元；4000 的夹具让第二个实际端点也能到达。
+  const CASES: [number, number][] = [[0, 0], [1000, 0], [1000, 1], [2000, 0], [2000, 1], [3000, 1], [4000, 0]]
   const searchTikTok = (api: TikHub) => api.search({ keyword: 'k', dimension: 'category', platform: 'tiktok' }, 'US', 0)
   const singleFailures: string[] = []; let exhausted = 0
   for (const [limit, start] of CASES) for (const seq of sequences(4)) {
@@ -1167,9 +1168,9 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     mkdirSync(d, { recursive: true })
     // 用一个同名目录占住 creators.json —— 写它必定失败，模拟「名单没落成」
     mkdirSync(join(d, 'creators.json'))
-    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+    const st = readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
       target_count: 1, done: [], requests: 0, budget_usd: 1,
-      memory_status: 'unreadable_ignored' } as unknown as TaskState
+      memory_status: 'unreadable_ignored' }))
     let threw = false
     try { persistListAndStatus(d, st, [mk('tiktok', 'zoe')], 'ok') } catch { threw = true }
     ok('名单写不进去时确实抛出来', threw)
@@ -1182,9 +1183,9 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   {
     const d = join(tmpdir(), `kol-d4-persist2-${process.pid}`)
     rmSync(d, { recursive: true, force: true })
-    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+    const st = readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
       target_count: 1, done: [], requests: 0, budget_usd: 1,
-      memory_status: 'unreadable_ignored' } as unknown as TaskState
+      memory_status: 'unreadable_ignored' }))
     persistListAndStatus(d, st, [mk('tiktok', 'zoe')], 'ok')
     eq('两边都落成时，状态才是那个肯定的断言',
       JSON.parse(rf(join(d, 'task.json'), 'utf8')).memory_status, 'ok')
@@ -1254,15 +1255,15 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   {
     const d = join(tmpdir(), `kol-d4-atomic-${process.pid}`)
     rmSync(d, { recursive: true, force: true })
-    const st = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+    const st = readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
       target_count: 1, done: [], requests: 0, budget_usd: 1,
-      memory_status: 'ok' } as unknown as TaskState
+      memory_status: 'ok' }))
     saveTask(d, st)
     const before = rf(join(d, 'task.json'), 'utf8')
     // 拿一个同名目录占住临时文件名，写入必定失败
     mkdirSync(join(d, `task.json.${process.pid}.tmp`), { recursive: true })
     let threw = false
-    try { saveTask(d, { ...st, product: '改过的' }) } catch { threw = true }
+    try { saveTask(d, readCostDocument<TaskState>(JSON.stringify({ ...st, product: '改过的' }))) } catch { threw = true }
     ok('任务目录写不进去时抛出来', threw)
     eq('而原来那份 task.json 一个字节没动', rf(join(d, 'task.json'), 'utf8'), before)
     ok('它仍然解析得出来', (() => {
@@ -1291,8 +1292,8 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   {
     const d2 = join(tmpdir(), `kol-d4-mode-${process.pid}`)
     rmSync(d2, { recursive: true, force: true })
-    const st2 = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
-      target_count: 1, done: [], requests: 0, budget_usd: 1 } as unknown as TaskState
+    const st2 = readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1 }))
     saveTask(d2, st2)
     chmodSync(join(d2, 'task.json'), 0o640)
     saveTask(d2, st2)
@@ -1315,13 +1316,13 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   {
     const d3 = join(tmpdir(), `kol-d4-ro-${process.pid}`)
     rmSync(d3, { recursive: true, force: true })
-    const st3 = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
-      target_count: 1, done: [], requests: 0, budget_usd: 1 } as unknown as TaskState
+    const st3 = readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1 }))
     saveTask(d3, st3)
     chmodSync(join(d3, 'task.json'), 0o444)
     const before3 = rf(join(d3, 'task.json'), 'utf8')
     let threw3 = false
-    try { saveTask(d3, { ...st3, product: '改过的' }) } catch { threw3 = true }
+    try { saveTask(d3, readCostDocument<TaskState>(JSON.stringify({ ...st3, product: '改过的' }))) } catch { threw3 = true }
     ok('只读的 task.json 写不进去时抛出来', threw3)
     eq('而它一个字节没动', rf(join(d3, 'task.json'), 'utf8'), before3)
     rmSync(d3, { recursive: true, force: true })
@@ -1451,8 +1452,8 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     mkdirSync(d3, { recursive: true })
     const orphan3 = join(d3, 'task.json.999999.tmp')
     writeFileSync(orphan3, '{}', 'utf8')
-    saveTask(d3, { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
-      target_count: 1, done: [], requests: 0, budget_usd: 1 } as unknown as TaskState)
+    saveTask(d3, readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
+      target_count: 1, done: [], requests: 0, budget_usd: 1 })))
     eq('任务目录里死掉的进程留下的临时文件也被清掉', existsSync(orphan3), false)
     rmSync(d3, { recursive: true, force: true })
   }
@@ -5716,7 +5717,7 @@ suite('D13', '原 JSON 数值与明确新账、旧账诊断使用同一精确费
       ? error instanceof BudgetInputError : error instanceof CostError && error.code === expected)))
   }
   // 测试自己的 root numeric-token 观察器：JSON reviver 的 holder 识别根，不靠生产 serializer。
-  const numberTokens = (text: string): Record<string, string> => {
+  const numberTokens = (text: string, path: (string | number)[] = []): Record<string, string> => {
     const seen = new WeakMap<object, Record<string, string>>()
     const parsed = (JSON.parse as any)(text, function(this: object, key: string, value: unknown, context: { source?: string }) {
       if (typeof value === 'number' && context?.source !== undefined) {
@@ -5724,7 +5725,7 @@ suite('D13', '原 JSON 数值与明确新账、旧账诊断使用同一精确费
       }
       return value
     })
-    return seen.get(parsed) ?? {}
+    return seen.get(path.reduce((value, key) => value?.[key], parsed)) ?? {}
   }
   const stateLedger = (state: CostState) => state.cost_ledger as any
   const viewAmounts = (view: CostView) => [view.cost_estimate_usd, view.budget_usd, view.cost_http_200_usd,
@@ -5774,6 +5775,38 @@ suite('D13', '原 JSON 数值与明确新账、旧账诊断使用同一精确费
     for (const source of ['{}', '{"budget_usd":null}', '{"budget_usd":"original"}']) {
       const state = readCostDocument(source)
       exact('缺席、null、string 原样保留，不填默认', JSON.parse(stringifyCostJson(state)), JSON.parse(source))
+    }
+  })
+  await costSucceeds('费用账与请求数的原数字也不得在离线写回时舍入', () => {
+    for (const token of ['9007199254740993', '1e400']) {
+      const state = readCostDocument(`{"budget_usd":1,"requests":${token}}`)
+      ;(state as any).business = 'updated locally'
+      eq(`旧 requests ${token} 写回保留原数字`, numberTokens(stringifyCostJson(state)).requests, token)
+      eq(`旧 requests ${token} 不冒充可核次数`, costView(state).requests, null)
+    }
+    const malformed = readCostDocument('{"budget_usd":1,"requests":0,"cost_ledger":1e400}')
+    eq('坏 ledger 数字不能在本地写回时变成 null', numberTokens(stringifyCostJson(malformed)).cost_ledger, '1e400')
+    const nested = readCostDocument('{"budget_usd":1,"requests":0,"cost_ledger":{"entries":[{"unit_micro_usd":1e400}]}}')
+    eq('ledger 内的原数字也不能变成 null',
+      numberTokens(stringifyCostJson(nested), ['cost_ledger', 'entries', 0]).unit_micro_usd, '1e400')
+  })
+  await costSucceeds('费用数字不能先舍入成安全整数再授予付费资格', () => {
+    for (const [field, unit, count, requests] of [
+      ['unit_micro_usd', '999.99999999999999', '1', '1'],
+      ['http_200_count', '1000', '0.99999999999999999', '1'],
+      ['requests', '1000', '1', '0.99999999999999999'],
+    ]) {
+      // 三例经普通 Number 解析会成为合法的 1000/1；原文都不是整数，不能得到 4000 剩余额度。
+      const source = `{"budget_usd":0.005,"requests":${requests},"cost_ledger":{"schema":1,"currency":"USD","unit":"micro_usd","scope":"task","limit_micro_usd":5000,"next_attempt_id":2,"entries":[{"endpoint":"${TEST_TT}","price_version":"${TEST_PRICE_VERSION}","unit_micro_usd":${unit},"http_200_count":${count},"unknown_result_count":0}]}}`
+      const state = readCostDocument(source), budget = new Budget(state, () => {})
+      eq(`${field} 原文非整数必须诊断坏账`, budget.view().cost_status, 'invalid-ledger')
+      rejected(`${field} 不因舍入获得付费资格`, () => budget.reserve(TEST_TT), 'input')
+      const adjustment = new Budget(readCostDocument(source), () => {})
+      rejected(`${field} 也不能借改额修复`, () => adjustment.setLimit(6000), 'input')
+      const saved = stringifyCostJson(readCostDocument(source))
+      eq(`${field} 离线写回保持根 requests 原数字`, numberTokens(saved).requests, requests)
+      const item = numberTokens(saved, ['cost_ledger', 'entries', 0])
+      eq(`${field} 离线写回保持单价与次数原数字`, [item.unit_micro_usd, item.http_200_count], [unit, count])
     }
   })
   await costSucceeds('新账同步 state 与固定费用投影完整执行', () => {
