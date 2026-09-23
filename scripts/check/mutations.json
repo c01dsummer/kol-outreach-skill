@@ -2615,8 +2615,8 @@
       "req": "D6.o",
       "why": "续跑用原总上限重新开空账，历史净次数与金额从零起算，同一份用户额度每次恢复都能再花一遍",
       "file": "scripts/collect.ts",
-      "find": "  budget = resume ? new Budget(state, notify) : startBudget(state, freshLimit!, 'task', notify)",
-      "replace": "  budget = startBudget(state, resume ? readCostLimit(state) : freshLimit!, 'task', notify)",
+      "find": "  budget = resume ? new Budget(state, notify, persistCost) : startBudget(state, freshLimit!, 'task', notify, persistCost)",
+      "replace": "  budget = startBudget(state, resume ? readCostLimit(state) : freshLimit!, 'task', notify, persistCost)",
       "by": "selfcheck",
       "kills": [
         "续跑的额度只够已经花掉的那些时，一个请求都不再发"
@@ -2644,7 +2644,7 @@
       "by": "selfcheck",
       "kills": [
         "collect 预算用尽后留下的断点记到了中止那一刻",
-        "collect 补 profile 循环里被杀：整段循环都在落盘窗口里"
+        "collect 补 profile 循环里被杀：历史搜索与profile终态均已保存"
       ]
     },
     {
@@ -3357,13 +3357,12 @@
     },
     {
       "id": "M-P3-f",
-      "req": "P3",
+      "req": "D6",
       "by": "selfcheck",
       "kills": [
-        "collect 搜索循环里被杀：盘上少记的正好是落盘窗口那一次",
-        "collect 搜索循环里被杀后续跑：供应商多收恰好一次"
+        "collect 搜索循环里被杀：此前页的作者与分页断点已保存"
       ],
-      "why": "关键词循环里每抓一页那次落盘不做了 —— 收尾那次照样把数写对，主干今天全绿；只有在两次落盘之间把进程杀掉，才看得见盘上少记的那几次、续跑再花一遍的那几次",
+      "why": "每页搜索完成后不保存作者和分页业务断点；后续请求的费用检查点仍会保存金额，但强杀会丢掉此前已经拿回的作者与页数、游标、搜索痕迹和条目数",
       "file": "scripts/collect.ts",
       "find": "      }\n      persist()\n    }\n\n    if (stopped === 'target' || !anyProgress) break",
       "replace": "      }\n    }\n\n    if (stopped === 'target' || !anyProgress) break"
@@ -3373,10 +3372,9 @@
       "req": "D6",
       "by": "selfcheck",
       "kills": [
-        "enrich 两个账号之间被杀：盘上少记的正好是落盘窗口那一次",
-        "enrich 两个账号之间被杀后续跑：供应商多收恰好一次"
+        "enrich 两个账号之间被杀：已完成账号的样本缓存已保存"
       ],
-      "why": "每个账号查完那次落盘不做了 —— 末尾那次照样写对，只有在两个账号之间把进程杀掉才看得见：盘上少记一次，续跑把那个账号再查一遍、再付一次",
+      "why": "每个账号查完后不保存样本缓存；后续请求的费用检查点仍保存金额，但强杀后此前已经查询完成的账号样本丢失",
       "file": "scripts/enrich.ts",
       "find": "  state.accounts[k] = next\n  newlyQueried++\n  persist()\n}",
       "replace": "  state.accounts[k] = next\n  newlyQueried++\n}"
@@ -3980,8 +3978,8 @@
       "req": "D13.f",
       "why": "费用不可用就拒绝 collect 续跑，使没有待查工作的本地整理也无法完成",
       "file": "scripts/collect.ts",
-      "find": "  budget = resume ? new Budget(state, notify) : startBudget(state, freshLimit!, 'task', notify)",
-      "replace": "  budget = resume ? new Budget(state, notify) : startBudget(state, freshLimit!, 'task', notify)\n  if (resume && budget.view().cost_status !== 'known') throw new BudgetInputError('费用不可用，拒绝本地整理')",
+      "find": "  budget = resume ? new Budget(state, notify, persistCost) : startBudget(state, freshLimit!, 'task', notify, persistCost)",
+      "replace": "  budget = resume ? new Budget(state, notify, persistCost) : startBudget(state, freshLimit!, 'task', notify, persistCost)\n  if (resume && budget.view().cost_status !== 'known') throw new BudgetInputError('费用不可用，拒绝本地整理')",
       "by": "selfcheck",
       "kills": [
         "历史费用不可用和恢复 pending 不阻止三个本地入口，缺 key 仍零请求"
@@ -4166,6 +4164,118 @@
       "kills": [
         "非法对象或数组预算的零请求写回保留内部原数字，不新造费用账"
       ]
+    },
+    {
+      "id": "M-D14-a",
+      "req": "D14.a",
+      "why": "任务请求前不保存未结预留，实际请求开始时盘上仍是旧费用快照，重试与兜底也留下强杀丢失占用的窗口",
+      "file": "scripts/lib/budget.ts",
+      "find": "    const receipt = engine.reserve(quoteTikHub(endpoint))\n    this.sync()\n    this.checkpoint()",
+      "replace": "    const receipt = engine.reserve(quoteTikHub(endpoint))\n    this.sync()",
+      "by": "selfcheck",
+      "kills": [
+        "collect/enrich 每次实际请求前已保存对应预留，重试与兜底不例外"
+      ]
+    },
+    {
+      "id": "M-D14-b",
+      "req": "D14.b",
+      "why": "吞掉请求前的费用保存失败，尚未成功写入未结预留就发出该次请求",
+      "file": "scripts/lib/budget.ts",
+      "find": "    const receipt = engine.reserve(quoteTikHub(endpoint))\n    this.sync()\n    this.checkpoint()",
+      "replace": "    const receipt = engine.reserve(quoteTikHub(endpoint))\n    this.sync()\n    try { this.checkpoint() } catch {}",
+      "by": "selfcheck",
+      "kills": [
+        "预留保存失败退出1且零请求，不伪造无HTTP状态留存"
+      ]
+    },
+    {
+      "id": "M-D14-c",
+      "req": "D14.c",
+      "why": "HTTP 200 的费用终态不先保存就进入正文处理和后续请求，保存故障不再阻止这次继续执行",
+      "file": "scripts/lib/budget.ts",
+      "find": "    this.engine.settle(receipt, outcome)\n    this.sync()\n    this.checkpoint()",
+      "replace": "    this.engine.settle(receipt, outcome)\n    this.sync()\n    if (outcome.kind !== 'http' || outcome.status !== 200) this.checkpoint()",
+      "by": "selfcheck",
+      "kills": [
+        "HTTP200终态保存失败停止正文及后续请求，不走兜底"
+      ]
+    },
+    {
+      "id": "M-D14-d",
+      "req": "D14.d",
+      "why": "非 200 的撤销终态不先保存就处理正文、重试或兜底，下一次尝试开始时上次撤销可能仍未落盘",
+      "file": "scripts/lib/budget.ts",
+      "find": "    this.engine.settle(receipt, outcome)\n    this.sync()\n    this.checkpoint()",
+      "replace": "    this.engine.settle(receipt, outcome)\n    this.sync()\n    if (outcome.kind !== 'http' || outcome.status === 200) this.checkpoint()",
+      "by": "selfcheck",
+      "kills": [
+        "非200终态保存失败停止正文及重试，不走兜底"
+      ]
+    },
+    {
+      "id": "M-D14-e",
+      "req": "D14.e",
+      "why": "没有 HTTP 状态时跳过保守留存终态的保存，费用保存故障无法阻止后续兜底请求",
+      "file": "scripts/lib/budget.ts",
+      "find": "    this.engine.settle(receipt, outcome)\n    this.sync()\n    this.checkpoint()",
+      "replace": "    this.engine.settle(receipt, outcome)\n    this.sync()\n    if (outcome.kind !== 'no_http_status') this.checkpoint()",
+      "by": "selfcheck",
+      "kills": [
+        "无HTTP状态终态保存失败停止后续请求，不退款或兜底"
+      ]
+    },
+    {
+      "id": "M-D14-f",
+      "req": "D14.f",
+      "why": "恢复时丢弃未结预留，使强杀后仍无可信终态的占用重新变成可花额度，并允许显式改额",
+      "file": "scripts/lib/budget.ts",
+      "find": "    if (seen.snapshot.cost_ledger.pending)\n      throw new BudgetInputError('cost_ledger.pending 存在未结预留，不能新增付费或改额')",
+      "replace": "    if (seen.snapshot.cost_ledger.pending) {\n      delete seen.snapshot.cost_ledger.pending\n      Object.assign(this.state, seen.snapshot)\n    }",
+      "by": "selfcheck",
+      "kills": [
+        "强杀后恢复未结费用拒绝新增付费及显式改额，退出2且零请求"
+      ]
+    },
+    {
+      "id": "M-D14-g",
+      "req": "D14.g",
+      "why": "费用检查点顺便把去重声明提前写成已去重，覆盖盘上原有或缺席的业务状态",
+      "file": "scripts/lib/task.ts",
+      "find": "  stored.requests = snapshot.requests\n  saveTask(dir, stored)",
+      "replace": "  stored.requests = snapshot.requests\n  stored.memory_status = 'ok'\n  saveTask(dir, stored)"
+    },
+    {
+      "id": "M-D14-h",
+      "req": "D14.h",
+      "why": "collect 的费用保存失败仍进入常规交付收尾，补存成功或后续记忆错误掩盖原来的费用运行错误",
+      "file": "scripts/collect.ts",
+      "find": "    if (e instanceof CostError && e.code === 'persistence-failed') {",
+      "replace": "    if (false) {",
+      "by": "selfcheck",
+      "kills": [
+        "费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出1"
+      ]
+    },
+    {
+      "id": "M-D14-i",
+      "req": "D14.h",
+      "why": "enrich 的费用保存失败仍进入常规结果输出，尽力补存成功后输出本不该生成的普通结果",
+      "file": "scripts/enrich.ts",
+      "find": "    if (e instanceof CostError && e.code === 'persistence-failed') {",
+      "replace": "    if (false) {",
+      "by": "selfcheck",
+      "kills": [
+        "费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出1"
+      ]
+    },
+    {
+      "id": "M-D14-j",
+      "req": "D14.h",
+      "why": "费用保存失败后不锁定本实例，后续操作仍可改变费用或再次尝试保存",
+      "file": "scripts/lib/budget.ts",
+      "find": "    if (this.persistenceFailure) throw this.persistenceFailure",
+      "replace": ""
     }
   ],
   "exemptions": [

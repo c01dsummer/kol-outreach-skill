@@ -35,6 +35,7 @@ import {
   loadRawCreators,
   loadTask,
   saveEnrichment,
+  saveCostCheckpoint,
   saveTask,
   taskFile,
 } from './lib/task.js'
@@ -66,7 +67,7 @@ try {
   task = loadTask(dir)
   budget = new Budget(task, (pct, view) => {
     console.error(`\n💰 已用 ${(pct * 100).toFixed(0)}% —— 估算占用 $${view.cost_estimate_usd} / $${view.budget_usd}\n`)
-  })
+  }, snapshot => saveCostCheckpoint(dir, snapshot))
   if (argv.includes('--budget')) {
     if (newBudget === undefined) throw new Error('--budget 缺少金额')
     let limit: number
@@ -223,6 +224,11 @@ async function main() {
       if (done % 10 === 0) console.error(`  ${done}/${list.length}`)
     }
   } catch (e) {
+    if (e instanceof CostError && e.code === 'persistence-failed') {
+      try { persist() }
+      catch (cleanupError) { console.error(`收尾保存也失败：${String(cleanupError)}`) }
+      throw e
+    }
     if (e instanceof CostError && e.code === 'budget-exceeded') {
       stopped = 'budget'
     } else {

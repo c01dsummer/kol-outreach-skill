@@ -3,6 +3,7 @@ import { mkdirDurable, writeFileAtomic } from './atomic.js'
 import { basename, join } from 'node:path'
 import type { TaskState, Creator, EnrichmentState, MemoryStatus } from './types.js'
 import { readCostDocument, stringifyCostJson } from './cost-json.js'
+import type { CostSnapshot } from './cost-ledger.js'
 
 export function taskDir(product: string, timestamp?: string): string {
   const ts = timestamp ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
@@ -33,6 +34,14 @@ export function saveTask(dir: string, state: TaskState): void {
   mkdirDurable(dir)
   state.updated_at = new Date().toISOString()
   writeFileAtomic(taskFile(dir), stringifyCostJson(state))
+}
+
+/** D14.g：只更新既有任务的费用，业务进度与根预算沿用盘上原值。 */
+export function saveCostCheckpoint(dir: string, snapshot: CostSnapshot): void {
+  const stored = loadTask(dir)
+  stored.cost_ledger = snapshot.cost_ledger
+  stored.requests = snapshot.requests
+  saveTask(dir, stored)
 }
 
 export function loadCreators(dir: string): Creator[] {

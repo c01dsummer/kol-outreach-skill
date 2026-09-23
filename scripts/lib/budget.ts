@@ -1,7 +1,7 @@
-/** D13 · 生产费用账：与保存方共享 state，不在这里写盘。 */
+/** D13/D14 · 生产费用账：共享 state，通过同步回调保存任务费用。 */
 import {
   CostError, createCostBudget, formatUsd, inspectExistingCostLedger, restoreCostBudget,
-  type AttemptOutcome, type AttemptReceipt, type CostBudget, type CostProblem, type MicroUsd,
+  type AttemptOutcome, type AttemptReceipt, type CostBudget, type CostProblem, type CostSnapshot, type MicroUsd,
 } from './cost-ledger.js'
 import { assertCostJsonRuntime, readCostLimit, setCostLimitField, type CostState } from './cost-json.js'
 import { quoteTikHub, TIKHUB_PRICE_BASIS, TIKHUB_PRICE_CATALOG } from '../providers/tikhub-pricing.js'
@@ -20,6 +20,7 @@ export type CostView = {
   cost_problems: CostProblem[]
 }
 export type NotifyCost = (threshold: 0.5 | 0.8, view: CostView) => void
+export type PersistCost = (snapshot: CostSnapshot) => void
 export class BudgetInputError extends Error {
   constructor(message: string) { super(message); this.name = 'BudgetInputError' }
 }
@@ -52,11 +53,13 @@ export function costView(state: CostState): CostView {
 export class Budget {
   private engine?: CostBudget
   private notified = new Set<number>()
-  constructor(private state: CostState, private onNotify: NotifyCost = () => {}) {}
+  private persistenceFailure?: CostError
+  constructor(private state: CostState, private onNotify: NotifyCost = () => {}, private persistCost?: PersistCost) {}
   get count(): number | null { return this.view().requests }
   view(): CostView { return costView(this.state) }
 
   private open(checkRoot: boolean): CostBudget {
+    this.assertWritable()
     try { assertCostJsonRuntime() } catch (e) { throw new BudgetInputError((e as Error).message) }
     if (checkRoot) {
       const view = this.view()
@@ -71,11 +74,23 @@ export class Budget {
     return this.engine
   }
   private sync(): void { Object.assign(this.state, this.engine!.snapshot()) }
+  private assertWritable(): void {
+    if (this.persistenceFailure) throw this.persistenceFailure
+  }
+  private checkpoint(): void {
+    if (!this.persistCost) return
+    try { this.persistCost(this.engine!.snapshot()) }
+    catch (error) {
+      this.persistenceFailure = new CostError('persistence-failed', `保存费用失败：${error instanceof Error ? error.message : String(error)}`)
+      throw this.persistenceFailure
+    }
+  }
 
   reserve(endpoint: string): AttemptReceipt {
     const engine = this.open(true)
     const receipt = engine.reserve(quoteTikHub(endpoint))
     this.sync()
+    this.checkpoint()
     const { occupied_micro_usd: occupied, limit_micro_usd: limit } = engine.summary()
     for (const threshold of [0.5, 0.8] as const) {
       const numerator = threshold === 0.5 ? 5n : 8n
@@ -87,11 +102,14 @@ export class Budget {
     return receipt
   }
   settle(receipt: AttemptReceipt, outcome: AttemptOutcome): void {
+    this.assertWritable()
     if (!this.engine) throw new CostError('invalid-receipt', '本运行没有当前请求凭据')
     this.engine.settle(receipt, outcome)
     this.sync()
+    this.checkpoint()
   }
   setLimit(limit: MicroUsd): void {
+    this.assertWritable()
     formatUsd(limit)
     try { assertCostJsonRuntime() } catch (e) { throw new BudgetInputError((e as Error).message) }
     const engine = this.open(false)
@@ -107,9 +125,9 @@ export class Budget {
   }
 }
 
-export function startBudget(state: CostState, limit: MicroUsd, scope: 'task' | 'process', notify?: NotifyCost): Budget {
+export function startBudget(state: CostState, limit: MicroUsd, scope: 'task' | 'process', notify?: NotifyCost, persist?: PersistCost): Budget {
   const engine = createCostBudget(limit, scope, TIKHUB_PRICE_CATALOG)
   setCostLimitField(state, limit)
   Object.assign(state, engine.snapshot())
-  return new Budget(state, notify)
+  return new Budget(state, notify, persist)
 }

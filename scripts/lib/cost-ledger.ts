@@ -20,7 +20,7 @@ export type ExistingCost =
   | { status: 'known'; snapshot: CostSnapshot; summary: CostSummary; problems: [] }
   | { status: UnavailableStatus; problems: CostProblem[] }
 export type CostErrorCode = 'invalid-money' | 'unknown-price' | 'pending-attempt'
-  | 'invalid-receipt' | 'invalid-outcome' | 'budget-exceeded'
+  | 'invalid-receipt' | 'invalid-outcome' | 'budget-exceeded' | 'persistence-failed'
 export class CostError extends Error {
   constructor(public readonly code: CostErrorCode, message: string) { super(message); this.name = 'CostError' }
 }
