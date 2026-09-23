@@ -4154,6 +4154,18 @@
       "kills": [
         "续跑已完成 IG 不重搜，未完成 TT 确实发出请求"
       ]
+    },
+    {
+      "id": "M-D13-t",
+      "req": "D13.i",
+      "why": "旧任务预算为非法对象或数组时，不再保留内部原始数字，零请求写回也会把大整数舍入或把超范围值变成 null",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "  if (state.budget_usd !== null && typeof state.budget_usd === 'object')\n    preserveCostNumbers(state, 'budget_usd')\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "非法对象或数组预算的零请求写回保留内部原数字，不新造费用账"
+      ]
     }
   ],
   "exemptions": [
