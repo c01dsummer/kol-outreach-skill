@@ -2,6 +2,7 @@ import type {
   AccountAssessmentSummary, AudienceRiskFlag, Creator, Measurement,
 } from './types.js'
 import { taskOrdinal } from './task-label.js'
+import { formatDiscoverySources } from './discovery.js'
 import type { CostView } from './budget.js'
 
 const esc = (s: unknown) =>
@@ -152,6 +153,7 @@ export function renderHtml(creators: Creator[], meta: any): string {
   ${c.tier_adjustments?.length ? `<div class="adjust">${c.tier_adjustments.map(a =>
     esc(`${a.from}→${a.to} ${a.reason}`)).join('<br>')}</div>` : ''}
   ${c.bio ? `<div class="bio">${esc(c.bio)}</div>` : ''}
+  <div class="bio">已观察发现来源：${esc(formatDiscoverySources(c.discovery_sources))}</div>
   ${renderAssessment(c.account_assessment, c.platform === 'tiktok' ? 'TikTok' : 'Instagram')}
   ${c.linked_handle ? renderAssessment(c.linked_account_assessment,
     c.linked_handle.startsWith('tiktok:') ? 'TikTok（关联）' : 'Instagram（关联）') : ''}
@@ -310,6 +312,7 @@ ${notes.length ? `<div class="notes">${notes.map(n => `<div>⚠️ ${esc(n)}</di
   <button class="tab C${def === 'C' ? ' on' : ''}" data-f="C">C级 观察池<span class="n">${meta.tiers.C}</span></button>
 </div>
 <div class="cards" id="cards">${creators.map(card).join('')}</div>
+<p class="sub">仅含已记录的账号发现来源，可能不含完整历史；不对应具体作品或请求次数。</p>
 <div class="empty" id="none" style="display:${meta.tiers[def] ? 'none' : ''}">这一层没有人</div>
 </div>
 <script>

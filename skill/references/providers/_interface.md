@@ -27,6 +27,14 @@ interface Creator {
   // 发现上下文
   source_keyword: string
   source_dimension: Dimension
+  discovery_sources?: Array<{
+    platform: Platform
+    handle: string
+    keyword: string
+    dimension: Dimension
+    endpoint: '/api/v1/tiktok/app/v3/fetch_video_search_result'
+      | '/api/v1/instagram/v2/search_reels' | '/api/v1/instagram/v2/search_users'
+  }> // D15：实际返回该账号的路径；缺席或空数组表示来源未知
 
   // 内容样本 —— Phase 04 语义判断的原料。搜索命中的那几条作品。
   // 缺席 = 没问过（按账号名搜人的路径拿不到作品）；有就非空。**不要写空数组** ——
@@ -112,6 +120,8 @@ recentPosts(handle: string, platform: Platform): Promise<{
 **`bio_links` 必须统一成数组**，即使源数据只有单个值。跨平台同人识别依赖这个字段，两边形状不一致会导致漏识别。
 
 ## 搜索作品并集（D11）
+
+实际发现来源按 D15、ADR-110 独立保存：来源五字段稳定去重，账号及平台大小写不敏感，其余保持原值；合页旧记录在先，同人合并主记录在先。profile 不补来源，任务标签不证明路径。已观察集合可能不含完整历史，不对应具体作品或请求次数；Agent 不补写。probe 原样透传，旧缺席仍缺席。
 
 `recent_posts[].id` 是作品键，不是创作者身份键。外部原始 id 只有非空白字符串或
 安全整数可用：字符串用 `trim()` 仅判断是否为空白，保存时保留原值；安全整数转十进制

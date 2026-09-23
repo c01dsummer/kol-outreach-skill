@@ -7,6 +7,9 @@ import { extractEmail } from '../lib/email.js'
 import { searchPostId } from '../lib/posts.js'
 
 const BASE = 'https://api.tikhub.io'
+const TIKTOK_SEARCH_ENDPOINT = '/api/v1/tiktok/app/v3/fetch_video_search_result'
+const INSTAGRAM_REELS_ENDPOINT = '/api/v1/instagram/v2/search_reels'
+const INSTAGRAM_USERS_ENDPOINT = '/api/v1/instagram/v2/search_users'
 /** 限速 10 RPS —— 留余量 */
 const INTERVAL_MS = 150
 export const TIKTOK_POSTS_ENDPOINT = '/api/v1/tiktok/app/v3/fetch_user_post_videos_v3'
@@ -115,9 +118,9 @@ export class TikHub {
   // ---------- TikTok ----------
 
   /** 视频搜索 → 从 author 提取创作者与作品线索；商家号仍须后续判断。 */
-  private async searchTikTok(kw: string, region: string, offset: number): Promise<SearchPage> {
-    const raw = await this.get('/api/v1/tiktok/app/v3/fetch_video_search_result', {
-      keyword: kw, offset, count: 20, region,
+  private async searchTikTok(task: SearchTask, region: string, offset: number): Promise<SearchPage> {
+    const raw = await this.get(TIKTOK_SEARCH_ENDPOINT, {
+      keyword: task.keyword, offset, count: 20, region,
     })
     const list = pickList(raw, 'tiktok/video_search')
 
@@ -151,6 +154,8 @@ export class TikHub {
         bio_links: [],
         verified: Boolean(a?.custom_verify || a?.enterprise_verify_reason),
         profile_url: `https://www.tiktok.com/@${handle}`,
+        discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,
+          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],
         recent_posts: [post],
       })
     }
@@ -200,8 +205,8 @@ export class TikHub {
    * 不能由 Reels 名称推断纯图文/轮播作者必然被排除。PhotoMode 是否返回、play_count
    * 的媒体适用范围、V2 hashtag/general 的覆盖与排序均待样本验证。
    */
-  private async searchInstagramReels(kw: string): Promise<SearchPage> {
-    const raw = await this.get('/api/v1/instagram/v2/search_reels', { keyword: kw })
+  private async searchInstagramReels(task: SearchTask): Promise<SearchPage> {
+    const raw = await this.get(INSTAGRAM_REELS_ENDPOINT, { keyword: task.keyword })
     const list = pickList(raw, 'instagram/search_reels')
 
     const byHandle = new Map<string, Partial<Creator>>()
@@ -231,6 +236,8 @@ export class TikHub {
         verified: Boolean(u?.is_verified),
         is_private: Boolean(u?.is_private),
         profile_url: `https://www.instagram.com/${handle}/`,
+        discovery_sources: [{ platform: 'instagram', handle, keyword: task.keyword,
+          dimension: task.dimension, endpoint: INSTAGRAM_REELS_ENDPOINT }],
         recent_posts: [post],
       })
     }
@@ -240,10 +247,10 @@ export class TikHub {
   }
 
   /** IG 关键词搜用户 —— Reels 搜索无结果时的补充路径。商家号偏多。 */
-  private async searchInstagramUsers(kw: string): Promise<SearchPage> {
-    const raw = await this.get('/api/v1/instagram/v2/search_users', { keyword: kw })
+  private async searchInstagramUsers(task: SearchTask): Promise<SearchPage> {
+    const raw = await this.get(INSTAGRAM_USERS_ENDPOINT, { keyword: task.keyword })
     const list = pickList(raw, 'instagram/search_users')
-    const creators = list.flatMap((item: any) => {
+    const creators = list.flatMap((item: any): Partial<Creator>[] => {
       const u = item?.user ?? item
       const handle = u?.username
       if (!handle) return []
@@ -256,6 +263,8 @@ export class TikHub {
         verified: Boolean(u?.is_verified),
         is_private: Boolean(u?.is_private),
         profile_url: `https://www.instagram.com/${handle}/`,
+        discovery_sources: [{ platform: 'instagram' as Platform, handle, keyword: task.keyword,
+          dimension: task.dimension, endpoint: INSTAGRAM_USERS_ENDPOINT }],
         // **不写 recent_posts** —— 这条路搜的是账号，响应里根本没有作品，我们没问过。
         // 原先这里写着一个空数组，交付表对这批人显示成空白，
         // 跟「作品文案本来就是空的」混成一个样子（P1.e）。
@@ -301,11 +310,11 @@ export class TikHub {
   // ---------- 统一入口 ----------
 
   async search(task: SearchTask, region: string, offset: number): Promise<SearchPage> {
-    if (task.platform === 'tiktok') return this.searchTikTok(task.keyword, region, offset)
+    if (task.platform === 'tiktok') return this.searchTikTok(task, region, offset)
     // 我们只向 IG 取一页：offset > 0 直接返回空，不白花请求。
     // **第 2 页是空的这个现象是这一行造的**，不是问出来的（ADR-101）。
     if (offset > 0) return { creators: [], raw_count: 0, has_more: false }
-    const reels = await this.searchInstagramReels(task.keyword)
+    const reels = await this.searchInstagramReels(task)
     if (reels.creators.length) return reels
     // 兜底：reels 一个人都没解析出来时改搜账号名。**两次的条数要相加** ——
     // 只交回后一次的话，第一次已经付过钱、供应商也确实返回了条目，而报告上那一行
@@ -317,7 +326,7 @@ export class TikHub {
     // 追加预算续跑时它再也不会被碰（D6 × P3 的裁定，ADR-94 第十五节乙，实测）。
     // 而且走到这一支就说明 reels **一个人都没解析出来**，交回它并不保住任何人；
     // 丢的只是条数，那个数由 `TaskState.answered`／`found` 如实报成「未知」。
-    return this.searchInstagramUsers(task.keyword)
+    return this.searchInstagramUsers(task)
       .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))
   }
 

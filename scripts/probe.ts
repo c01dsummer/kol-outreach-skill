@@ -88,6 +88,7 @@ async function main() {
         email_in_bio: found.filter(c => typeof c.bio === 'string' && extractEmail(c.bio)).length,
         sample: sample.map(c => ({
           handle: c.handle, nickname: c.nickname,
+          discovery_sources: c.discovery_sources,
           followers: c.followers === undefined ? '未知' : c.followers,
           bio: c.bio === undefined ? '（未取到）' : c.bio === null ? '（没写简介）' : c.bio.slice(0, 120),
           top_post: c.recent_posts?.length ? c.recent_posts[0].desc.slice(0, 120) : '（未查询）',

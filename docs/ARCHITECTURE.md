@@ -55,6 +55,7 @@
 | 模块 | 层 | 服务的需求 | 它保证什么 |
 |---|---|---|---|
 | `scripts/probe.ts` | 入口 | F3 P1 P3 | 每词每平台只抓一页，供 Agent 判读方向；拿不到粉丝数报「未知」而不是 0 |
+| `scripts/lib/discovery.ts` | 逻辑 | D15 | 实际观察来源的稳定并集与人读投影；不从任务配置或 profile 推断历史，不控制请求或评分 |
 | `scripts/probe-ig-paging.ts` | 入口 | — | 核实工具，不在任何管线上：拿真 key 问 `instagram/v2/search_reels` 到底能不能翻页。三个模式 —— 默认只打一次报响应形状；`--chain N` 把上一次响应里的 `pagination_token`（**官方 spec 声明的参数名，不是猜的**）接进下一次；`--repeat N` 原样重发只量漂移。**`--chain` 一定同时跑 `--repeat` 那条对照曲线**（所以发 2N 次请求）—— 这个端点会漂，少了对照，链上多出来的人分不清是翻页给的还是漂给的，而两种读法的结论正好相反。量的是**人**不是条目：同一个人的多条视频不算多个人，「条目在涨、人没涨」单独报出来。末尾不涨只说得出「这 N 次之内没再涨」；**唯一不靠推断的终止条件**是服务端不再给下一个游标 —— 那是它自己说的 |
 | `scripts/collect.ts` | 入口 | D6 P3 F7 D4 F9 | 轮转采集不让第一个关键词吃掉全部配额，**且任务列表里每个关键词×平台都至少被问过一次** —— 达标之后仍然给「一页都没抓过」的任务补第一页，第一页之后才按达标停（F9）。⚠️ 它保证的是**问过**，不保证问到多少人；预算比它优先，不够抓齐第一页时照旧存断点退 3；记忆读不出来退 2 且不产出名单 |
 | `scripts/enrich.ts` | 入口 | D8 D10 F8 P3 | 只对语义筛选后的候选抓主页样本；已查过的账号默认不重复付费，但每次都按当前口径就地重算（零请求） |
@@ -123,6 +124,7 @@
 |---|---|---|---|
 | 同人识别 → 合并 → 粉丝闸门 → 记忆过滤 | `scripts/lib/pipeline.ts` | 闸门跑在合并之前，「TikTok 3000 + IG 3000、合起来够线」的人被提前丢掉；记忆过滤跑在闸门之前，`filtered_contacted` 把连闸门都过不了的人也算进去，向用户虚报打扰规模 | M-P1-g M-P4-b |
 | 保留原任务下标 → 再筛选可展示的标签 | `scripts/lib/pipeline.ts` | 剩余任务按新位置重新编号，用户不能把提示指回原任务 | M-U8-a M-U8-b |
+| 实际返回账号时记录来源 → 合页/同人合并保留 → probe 与交付展示 | `scripts/providers/tikhub.ts`、`scripts/lib/pipeline.ts`、`scripts/lib/identity.ts`、`scripts/probe.ts`、`scripts/lib/rows.ts` | 配置替代真实来源、首次或后页观察被吞、关联账号来源丢失，或保存后到交付时消失 | M-D15-a M-D15-b M-D15-d M-D15-e M-D15-f M-D15-g M-D15-i |
 | `finalize` 不得就地修改传入的累加器 | `scripts/lib/pipeline.ts` | 「累加器只增不减」退回成依赖调用方记得先落盘 —— ADR-08 那个数据丢失 bug 的形状 | M-D6-c |
 | 算分 → 分层 → 地域降级 → 风险降级 → 排序 | `scripts/lib/pipeline.ts` | 降级跑在 `tierOf` 之前会被重新计算的 tier 覆盖，地域不达标或高风险的人照样留在 A 级被直接发信；排序跑在降级之前，A 区里混着已经掉到 B 的人 | M-F5-a M-F8-a M-U1-b |
 | 记忆过滤只排除**别的任务**推荐过的人 | `scripts/lib/memory.ts` | render 写回记忆之后再 `--resume`，本任务已付费采集的人全被判成「已推荐过」，产出一份空名单 | M-D6-b |
@@ -185,7 +187,7 @@ collect/enrich 的任务费用先保存预留才发请求，结算保存成功�
 
 | 写者 | 字段 |
 |---|---|
-| `collect`（脚本） | 采集与 profile 的全部原始字段、`source_keyword`、`source_dimension` |
+| `collect`（脚本） | 采集与 profile 的全部原始字段、`source_keyword`、`source_dimension`、`discovery_sources`（仅搜索适配写入） |
 | **Agent** | `fit` · `fit_reason` · `outreach_draft` |
 | `enrich`（脚本） | 只写 `enrichment.json`，**不碰 `creators.json`** |
 | `render`（脚本） | `score` · `tier` · `tier_adjustments` · `account_assessment` |
@@ -202,6 +204,8 @@ collect/enrich 的任务费用先保存预留才发请求，结算保存成功�
 这只汇集关键词命中的证据，不替代 `enrich` 的独立主页样本，也不改变评分或同人识别规则。
 
 ### 两个 creators 文件
+
+实际发现来源归脚本管理（D15、ADR-110）：适配器将返回账号的实际端点与原任务词/维度写入 `discovery_sources`，合页及同人合并稳定取并集；旧缺席不妨碍追加新观察。它不同于完整归属用的 `source_tasks`，不从后者倒推，也不改变后者的未知规则。来源在现有业务保存点落盘；profile、费用检查点及 Agent 不补写它。probe 透传集合；表格与 HTML 使用纯格式化投影，HTML 在输出处转义。集合只代表已记录的账号发现来源，不保证完整历史，不对应某条作品或请求费用次数。
 
 | 文件 | 是什么 | 规则 |
 |---|---|---|

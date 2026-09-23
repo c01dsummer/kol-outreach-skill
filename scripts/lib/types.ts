@@ -68,6 +68,20 @@ export type Dimension = 'category' | 'scene' | 'competitor' | 'audience'
 export type Tier = 'A' | 'B' | 'C'
 export type Fit = '✅' | '⚠️' | '❌'
 
+export type DiscoveryEndpoint =
+  | '/api/v1/tiktok/app/v3/fetch_video_search_result'
+  | '/api/v1/instagram/v2/search_reels'
+  | '/api/v1/instagram/v2/search_users'
+
+/** D15：实际返回该账号的搜索快照，不是完整历史或作品来源。 */
+export interface DiscoverySource {
+  platform: Platform
+  handle: string
+  keyword: string
+  dimension: Dimension
+  endpoint: DiscoveryEndpoint
+}
+
 export interface RecentPost {
   /** D11：平台:原始作品 id；来源未给可用标识时缺失，不用用户或文案 id 代替。 */
   id?: string
@@ -255,6 +269,8 @@ export interface Creator {
    * 可选：本条之前采的人没有它，那种目录的关键词表本来就判无从确认。
    */
   source_tasks?: number[]
+  /** D15：只含已观察来源；缺席或空数组均为来源未知，不由配置倒推。 */
+  discovery_sources?: DiscoverySource[]
 
   /**
    * **搜索命中的**那几条作品（不是主页样本 —— 那在 `account_assessment.sample`，D8）。
