@@ -20,7 +20,10 @@ Base URL:  https://api.tikhub.io
 ⚠️ **早期样本中的 IG 请求不接受免费额度。** 实测（2026-08-25）：当时采用的 TikTok 端点可用注册赠送的
 free credit 调用；当时测试的 Instagram 端点返回 **402**，提示
 「this endpoint requires payment and does not accept free credit」。
-**要跑 IG 必须先充值真实余额。**
+不接受免费额度的端点需要可用付费余额，已有足额余额无需再次充值。
+不能把上述历史 402 外推成所有 IG 端点或所有账户都必须先充值。
+2026-09-23 核到的公开价目中，本项目五条生产 IG 路径和两条实验发现路径均标记不接受
+免费额度；具体范围、快照日期与来源见 `docs/data-source-strategy.md` 的免费额度补充。
 
 > curl 对这个 host 连接不稳定（LibreSSL SSL_ERROR_SYSCALL 间歇性出现），
 > Node 的 fetch 正常。调试时用 Node，不要用 curl 排查。
