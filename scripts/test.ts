@@ -87,9 +87,9 @@ import {
 import { enrichedFlag, renderHtml } from './lib/report.js'
 import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
-  MAX_PAGES, finalize, firstPagePending, keywordsResumeWillRun, keywordRows, mergePage,
-  needsProfile, pagesFetched, pendingKeywords, rankCreators, taskPlatforms, taskQueryStatus,
-  tierCounts, resumeCostLine, underPageCap,
+  MAX_PAGES, canRequestPage, finalize, firstPagePending, igAfterPage, keywordsResumeWillRun,
+  keywordRows, mergePage, needsProfile, pagesFetched, pendingKeywords, rankCreators,
+  taskPlatforms, taskQueryStatus, tierCounts, resumeCostLine, underPageCap,
 } from './lib/pipeline.js'
 import {
   ACTIVITY_ACTIVE_MAX_DAYS, ACTIVITY_COOLING_MAX_DAYS,
@@ -774,6 +774,53 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
   ok('还欠着第一页时，续跑口径说的是要花钱，不是免费',
      keywordsResumeWillRun(st({ offsets: {} }), 99).length === 2)
   tension('F9', 'P3')
+}
+
+// 独立于实现写成：期望只出自 ADR-111 第一、二节与 D6.h、F9 的原文，函数体此时只会抛「尚未实现」。
+suite('D6', 'IG 续页：这一页之后还能不能带着令牌再翻，这一跑还能不能再请求一页')
+{
+  const st = (over: Partial<TaskState> = {}): TaskState => ({
+    product: 'p', market: 'US', target_count: 50, budget_usd: 1,
+    tasks: [{ keyword: 'a', dimension: 'category', platform: 'instagram' },
+            { keyword: 'b', dimension: 'scene', platform: 'tiktok' }],
+    done: [], offsets: { 0: 12 }, pages: { 0: 1 }, requests: 0, created_at: '', updated_at: '', ...over,
+  })
+  // 实现之前函数体会抛；接住它，让每一条各自红，而不是整个文件在第一条上崩掉
+  const tryIt = <T>(f: () => T): T | 'threw' => { try { return f() } catch { return 'threw' } }
+  const after = (page: { token: string | undefined; rawCount: number; parsed: number }, over: Partial<TaskState> = {}) =>
+    tryIt(() => igAfterPage(st(over), 0, page))
+  const good = { token: 'tok-1', rawCount: 12, parsed: 5 }
+
+  // ── 拿回这一页之后（ADR-111 第二节：在同一次迭代里判） ─────────────────────
+  eq('有条目、解析出人、有令牌、没到上限 → 带着这个令牌接着翻', after(good), { next: 'tok-1' })
+  eq('令牌原样带上，不替它修剪', after({ ...good, token: ' tok-1 ' }), { next: ' tok-1 ' })
+  eq('响应里没有令牌 → 本次没有可继续的令牌', after({ ...good, token: undefined }), { stop: 'no-token' })
+  // 空白令牌必须在这里拦下：交给 provider 的话，空串会被当成「没带令牌」只发 keyword ——
+  // 那是把首页当续页再买一遍
+  eq('令牌是空串 → 同样没有可继续的令牌', after({ ...good, token: '' }), { stop: 'no-token' })
+  eq('令牌只有空白 → 同样没有可继续的令牌', after({ ...good, token: '   ' }), { stop: 'no-token' })
+  eq('本页 0 条 → 停', after({ ...good, rawCount: 0, parsed: 0 }), { stop: 'empty' })
+  eq('本页有条目却一个作者都解析不出 → 停', after({ ...good, rawCount: 8, parsed: 0 }), { stop: 'unparsed' })
+  // D6.h 的上限同样管 IG：页数按「这一页已经记上之后」的累计数判，边界两侧都要可失败
+  eq('算上这一页还差一页到上限 → 还能翻', after(good, { pages: { 0: MAX_PAGES - 1 } }), { next: 'tok-1' })
+  eq('算上这一页正好到上限 → 停', after(good, { pages: { 0: MAX_PAGES } }), { stop: 'cap' })
+  // 上一版留下的目录没有页数表：抓了几页无从确认，按不多花钱的那一边停（D6.m）
+  eq('已抓页数无从确认 → 停，不是随便翻', after(good, { pages: undefined }), { stop: 'cap' })
+
+  // ── 这一跑还能不能再请求一页（ADR-111 第一节第 2 条：令牌只在一次运行内有效） ─────
+  const can = (i: number, token: string | undefined, over: Partial<TaskState> = {}) =>
+    tryIt(() => canRequestPage(st(over), i, token))
+  eq('IG 一页都没抓过 → 能，没有令牌也能（第一页保证，F9）', can(0, undefined, { offsets: {}, pages: {} }), true)
+  eq('IG 抓过、手里有令牌 → 能', can(0, 'tok-1'), true)
+  // 续跑时手里没有令牌：已经抓过页、还没进 done 的 IG 任务不再翻页
+  eq('IG 抓过、手里没有令牌 → 不能', can(0, undefined), false)
+  eq('TikTok 抓过、没有令牌 → 能，它按 offset 翻，不看令牌', can(1, undefined, { offsets: { 1: 20 } }), true)
+  eq('TikTok 一页都没抓过 → 能', can(1, undefined), true)
+  eq('IG 已进 done → 不能，有令牌也不能', can(0, 'tok-1', { done: [0] }), false)
+  eq('TikTok 已进 done → 不能', can(1, undefined, { done: [1] }), false)
+  // F9.e：整张分页记录表缺失 = 无从确认哪些查过，一个都不抓 —— 两个平台同一条
+  eq('分页记录表整张缺失 → IG 不能', can(0, 'tok-1', { offsets: undefined }), false)
+  eq('分页记录表整张缺失 → TikTok 也不能', can(1, undefined, { offsets: undefined }), false)
 }
 
 suite('D6', '收尾那句话说的是「续跑要不要花钱」—— 两支都得算出来，不能写死')
