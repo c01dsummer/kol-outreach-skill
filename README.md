@@ -143,7 +143,7 @@ npm run probe -- --config probe.json
 # 方向确认后批量采集
 npm run collect -- --config task.json
 
-# 预算追加后从断点继续，不重复已完成的关键词或请求
+# 用户确认新的总预算后续跑，已完成关键词跳过
 npm run collect -- --resume output/xxx --budget 3
 
 # Agent 完成语义判断后，可选抓取主页近期公开指标
@@ -156,9 +156,9 @@ npm run enrich -- --dir output/xxx --budget 3
 npm run render -- --dir output/xxx
 ```
 
-四个入口都将结构化结果写入 `stdout`、将进度写入 `stderr`，方便 Agent 稳定解析。预算用尽时，`collect.ts` 与 `enrich.ts` 都会保存断点并以退出码 `3` 结束。
+四个入口将结构化结果写入 `stdout`、进度写入 `stderr`。每次请求按固定端点价检查剩余额度；`--budget 3` 是总上限 $3。collect/enrich 额度不足且保存成功才退出 `3`；初始费用/输入问题退出 `2`，运行或保存失败退出 `1`。旧费用未知仍可导出及做零请求本地处理，不能靠增加上限补造历史账。费用契约见 [ADR-108](docs/adr/ADR-108-生产请求与输出统一使用逐端点费用账.md)。
 
-`memory/creators.json` 读不出来时（多半是手改 `contacted` 时改坏了），`collect.ts` 以退出码 `2` 结束且**不产出名单** —— 那个文件记着谁已经联系过，读不出来就无法保证不重复打扰。采集结果与预算状态完好，**已经抓到的不会重抓**；但续跑要不要花钱取决于活干完没有 —— 关键词全跑完、profile 也全补完才是零请求，否则剩下的照样要花钱，`stderr` 会按实际剩余量说清楚（**别把它简化成「续跑免费」**）。确实需要在这种状态下拿名单，显式加 `--ignore-memory`，`meta.json` 与报告会声明本次未做去重（见 `docs/adr/` 的 ADR-15、ADR-25）。
+`memory/creators.json` 读不出来时（多半是手改 `contacted` 时改坏了），`collect.ts` 以退出码 `2` 结束且**不产出名单** —— 那个文件记着谁已经联系过，读不出来就无法保证不重复打扰。采集结果与预算状态完好，**已经抓到的不会重抓**；但续跑要不要花钱取决于活干完没有 —— 关键词全跑完、profile 也全补完才是零请求；有待查项还须费用状态允许付费，`stderr` 会说明剩余量及阻止原因（**别把它简化成「续跑免费」**）。确实需要在这种状态下拿名单，显式加 `--ignore-memory`，`meta.json` 与报告会声明本次未做去重（见 `docs/adr/` 的 ADR-15、ADR-25）。
 
 ## 交付物
 
@@ -172,7 +172,7 @@ output/{product}-{timestamp}/
 ├── creators.json      最终筛选后的结构化名单
 ├── creators.raw.json  原始采集累加器，断点续跑时只增不减
 ├── enrichment.json    分平台公开样本、指标、报价和查询状态（运行 enrich 后）
-├── task.json          采集状态、请求数和断点信息
+├── task.json          采集状态、费用账、请求数和断点信息
 └── meta.json          平台、费用、分能力状态和数据边界
 ```
 
@@ -200,6 +200,7 @@ npm run check
 
 当时采用的双平台路径曾跑通，接口覆盖与最终名单、开发信的效果仍有待验证：
 
+- 每请求前的持久预留尚未实现；现有保存点不保证硬杀后的费用连续性，见 ADR-107 欠条
 - 首轮 Reels 小样本的 Instagram 入围人数较少；跨品类质量、其他发现路径与分页收益仍未充分验证
 - 跨平台同人识别的真实样本仍然不足
 - 单关键词采集四页是否足够，还缺少衰减数据

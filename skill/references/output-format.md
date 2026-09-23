@@ -124,6 +124,8 @@ C级 观察池 (3)
 
 ## meta.json
 
+下例展示业务字段；实际费用字段完整契约见 [ADR-108](../../docs/adr/ADR-108-生产请求与输出统一使用逐端点费用账.md)。费用以脚本输出为准，不按请求数重算。`cost_estimate_usd` 是预算占用，含保守留存和 pending；四态 `cost_status` 与 `cost_problems` 决定金额是否可用，未知不显示零或百分比。根预算冲突整体不可用；HTML 同样说明原因，render 不修复任务费用。
+
 ```json
 {
   "product": "anker-powerbank",
@@ -141,8 +143,6 @@ C级 观察池 (3)
   "email_count": 86,
   "cross_platform_count": 14,
   "requests": 412,
-  "cost_estimate_usd": 0.412,
-  "budget_usd": 2.0,
   "enriched": false,
   "memory_status": "ok",
   "memory_written": true,
@@ -187,8 +187,8 @@ C级 观察池 (3)
 品类词「power bank review」商家号偏多（返回 40 条只入围 3 人），下次可以少用。
 Instagram 的「portable charger」这次一次都没查到 —— 预算停在了它前面，不是这个方向没人。
 
-工具旧估算 $0.41 / 预算 $2.00；不是实际账单或可靠费用上限。当前工具仍按 $0.001/请求，
-而固定规范的 IG V2 Reels/hashtag/general 各声明 $0.002/请求，实际扣费未核；本段仅引用这三路固定规范标价，其他端点不能据此类推。
+预算占用估算与总上限按本次输出填写，并单独说明保守留存或未结金额。
+历史费用无法确认时直接说明原因；固定公开基础价估算不是实际账单，也不是未来价格保证。
 
 ⚠️ 邮箱来自 bio 提取，未做有效性验证，建议首轮小批量试发观察退信率。
 ⚠️ 未配置增强层，无法确认这批人的粉丝是否在美国市场。
