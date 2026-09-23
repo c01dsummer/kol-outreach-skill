@@ -221,7 +221,12 @@ export type IgStop = 'empty' | 'unparsed' | 'no-token' | 'cap'
 export function igAfterPage(
   state: TaskState, i: number, page: { token: string | undefined; rawCount: number; parsed: number },
 ): { next: string } | { stop: IgStop } {
-  throw new Error('ADR-111 第五节第 2 步：尚未实现')
+  if (page.rawCount === 0) return { stop: 'empty' }
+  if (page.parsed === 0) return { stop: 'unparsed' }
+  if (page.token === undefined || page.token.trim() === '') return { stop: 'no-token' }
+  // 这一页已经记进页数之后才判：还差一页就还能翻，正好到上限就停（D6.h）
+  if (!underPageCap(state, i)) return { stop: 'cap' }
+  return { next: page.token }   // 原样带上，不修剪 —— 令牌是供应商的，不猜它的格式
 }
 
 /**
@@ -236,7 +241,11 @@ export function igAfterPage(
  * 续跑时手里没有令牌是事实，不是给 IG 定的页数。
  */
 export function canRequestPage(state: TaskState, i: number, token: string | undefined): boolean {
-  throw new Error('ADR-111 第五节第 2 步：尚未实现')
+  if (state.done.includes(i)) return false
+  const offsets = state.offsets
+  if (offsets === undefined) return false
+  if (state.tasks[i].platform !== 'instagram') return true
+  return !(i in offsets) || token !== undefined
 }
 
 export function pendingKeywords(state: TaskState): string[] {
