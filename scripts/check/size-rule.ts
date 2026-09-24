@@ -361,5 +361,37 @@ export type Baseline =
  * CI 跑在推送之后,在主干上判红只会让主干变红(`size.ts` 里有完整理由)。
  */
 export function resolveBaseline(ask: GitAsk): Baseline {
-  throw new Error('尚未实现')
+  const cannot = (why: string, how: string): Baseline => ({ kind: 'cannot-answer', why, how })
+
+  const head = ask('rev-parse', 'HEAD')
+  if (head === null) return cannot('这里不是一个 git 仓库,或者没有任何提交', '在仓库里跑;新建的仓库先提交一次。')
+
+  // 答不上来也停:问不出是不是浅克隆,就不知道下面算出来的基线可不可信
+  const shallow = ask('rev-parse', '--is-shallow-repository')
+  if (shallow === null) {
+    return cannot('问不出这是不是浅克隆,算出来的基线不知道可不可信',
+      '确认 git 版本支持 `rev-parse --is-shallow-repository`(2.15 起)。')
+  }
+  if (shallow === 'true') {
+    return cannot('这是一个浅克隆,算出来的基线不可信',
+      'CI 里给 actions/checkout 加 `with: { fetch-depth: 0 }`;本地跑 `git fetch --unshallow`。')
+  }
+
+  const trunk = TRUNK_CANDIDATES.find(r => ask('rev-parse', '--verify', `${r}^{commit}`) !== null)
+  if (trunk === undefined) return cannot(`找不到主干引用(试过 ${TRUNK_CANDIDATES.join('、')})`, '先 `git fetch origin main`。')
+
+  const merged = ask('merge-base', trunk, 'HEAD')
+  if (merged === null) return cannot(`HEAD 与 ${trunk} 没有共同祖先`, '确认这条分支确实从主干长出来。')
+
+  const onTrunk = merged === head
+  const base = onTrunk ? ask('rev-parse', `${head}^1`) : merged
+  if (base === null) return { kind: 'not-applicable', trunk }
+
+  // 列不出来 ≠ 没有提交:空串才是「查过、这条分支一个提交都没有」
+  const listed = ask('rev-list', `${base}..${head}`)
+  if (listed === null) {
+    return cannot(`列不出 ${base.slice(0, 7)}..${head.slice(0, 7)} 之间的提交,找不了 size-ok 豁免`,
+      '确认这两个提交都在本地(`git fetch origin main`)。')
+  }
+  return { kind: 'measure', trunk, head, base, onTrunk, commits: listed.split('\n').filter(Boolean) }
 }
