@@ -320,6 +320,12 @@ export class TikHub {
     if (task.platform === 'tiktok') return this.searchTikTok(task, region, offset)
     // 续页：带上上一页交回的令牌再问一次 Reels，不看 offset。**不走兜底** —— 兜底只属于第一页，
     // 续页解析不出人就如实交回这一页（ADR-111 第二节）。
+    // 空白令牌当场报错、一个请求都不发：请求参数里的空串会被 get() 丢掉，发出去就只带 keyword ——
+    // 把首页当续页再买一遍。报错而不是交回空页，免得入口把调用方的错读成「本页 0 条」。
+    // 能不能拿令牌再翻由 pipeline 那份判定决定，它只交出非空白的令牌；这里只守「不为错参数付钱」。
+    if (token !== undefined && token.trim() === '') {
+      throw new Error('IG 续页令牌是空白，未发送请求 —— 空白令牌会被当成首页再请求一次')
+    }
     if (token !== undefined) return this.searchInstagramReels(task, token)
     // 没有令牌时只向 IG 取一页：offset > 0 直接返回空，不白花请求。
     // **第 2 页是空的这个现象是这一行造的**，不是问出来的（ADR-101）。
