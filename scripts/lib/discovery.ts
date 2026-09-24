@@ -19,6 +19,7 @@ const ROUTES: Record<DiscoveryEndpoint, string> = {
   '/api/v1/tiktok/app/v3/fetch_video_search_result': 'TikTok 视频搜索',
   '/api/v1/instagram/v2/search_reels': 'Instagram Reels 搜索',
   '/api/v1/instagram/v2/search_users': 'Instagram 账号名搜索',
+  '/api/v1/instagram/v2/fetch_hashtag_posts': 'Instagram 话题搜索',
 }
 
 /** 展示只陈述已有观察；HTML 调用方负责转义，不修改原数据。 */

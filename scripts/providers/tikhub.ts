@@ -14,6 +14,8 @@ const INSTAGRAM_USERS_ENDPOINT = '/api/v1/instagram/v2/search_users'
 const INTERVAL_MS = 150
 export const TIKTOK_POSTS_ENDPOINT = '/api/v1/tiktok/app/v3/fetch_user_post_videos_v3'
 export const INSTAGRAM_POSTS_ENDPOINT = '/api/v1/instagram/v2/fetch_user_posts'
+/** IG 话题页。解析器已就位，采集入口还不请求它 —— 只由运营显式开启（ADR-112）。 */
+export const INSTAGRAM_HASHTAG_ENDPOINT = '/api/v1/instagram/v2/fetch_hashtag_posts'
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
@@ -70,6 +72,44 @@ export function pickList(data: any, path: string): any[] {
 
   const keys = Object.keys(d ?? {}).join(', ')
   throw new TikHubError(0, `无法识别 ${path} 的响应结构。data 顶层 key: [${keys}]`)
+}
+
+/**
+ * 这一条 IG 条目算不算视频/Reels（D8.a「短视频/Reels」、ADR-112 第二节）。
+ *
+ * **主页作品样本与话题页的播放数共用这一份判定**，不另写第二份。认的信号是响应里的五个键，
+ * 任一成立就算：`is_video` 为 `true`、`media_type` 为 `2`、`media_format` 为 `'video'`、
+ * `media_name` 为 `'reel'`、`product_type` 为 `'clips'`。都不成立 —— 包括这些键缺席、
+ * 条目不是对象 —— 就不算。话题页里混着的图文（`media_type` 1、`product_type` `'feed'`）
+ * 与轮播（`media_type` 8、`product_type` `'carousel_container'`）不算。
+ */
+export function isInstagramVideo(item: unknown): boolean {
+  void item
+  throw new Error('尚未实现')
+}
+
+/**
+ * IG 话题页（`fetch_hashtag_posts`）的一份响应 → 一页搜索结果（ADR-112 第二、五节）。
+ * **只解析**：不发请求、不分派，采集入口还不调用它（第四节第 2 步）。
+ *
+ * - 列表按 `pickList` 探测（话题页在 `data.data.items`）；认不出列表时照 `pickList` 抛出。
+ * - `raw_count` 是列表条目数（供应商返回的条目，不是人数）。`has_more` 为 `false`，
+ *   **不交回续页令牌**：话题页翻不翻另议（ADR-112 第二节），响应里有令牌也不带出来。
+ * - 作者取 `user.username`；没有作者名的条目不产出账号（仍计入 `raw_count`）。
+ *   同一作者的多个条目合成一个账号，作品按条目出现的顺序排。
+ * - 每个账号：`platform` 为 `'instagram'`、`handle`、`profile_url` 为
+ *   `https://www.instagram.com/<handle>/`，其余账号字段与 Reels 路线同样取法；
+ *   `discovery_sources` 恰好一条：平台、账号、**任务关键词原样**（开头有 `#` 也保留，只有请求参数去掉它）、
+ *   任务维度、端点 `INSTAGRAM_HASHTAG_ENDPOINT`。
+ * - 每条作品：`id` 按 D11.i（`instagram:` 前缀加原始 `id`；不可用时缺席），文案取 `caption_text`
+ *   （话题页的文案字段；Reels 与 general 是 `caption.text`，这里不认），缺席时为空串；
+ *   `likes` 取 `like_count`，`null` 或缺席时缺席（赞数被隐藏不是 0）。
+ * - **播放数只给 `isInstagramVideo` 判为视频的条目**（取 `play_count`，缺席时 `ig_play_count`）；
+ *   图文、轮播等其余条目不写播放数 —— 该媒体类型的播放字段语义没确认过，不能当成真实的 0（P1）。
+ */
+export function parseInstagramHashtagPage(raw: unknown, task: SearchTask): SearchPage {
+  void raw; void task
+  throw new Error('尚未实现')
 }
 
 export class TikHub {
