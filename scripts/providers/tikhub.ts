@@ -388,7 +388,14 @@ export class TikHub {
 
   // ---------- 统一入口 ----------
 
-  /** `token`：上一页交回的 IG 续页令牌（ADR-111）；TikTok 不用它，入口只在同一次运行内传。 */
+  /**
+   * `token`：上一页交回的 IG 续页令牌（ADR-111）；TikTok 不用它，入口只在同一次运行内传。
+   *
+   * **话题路线在最前面分派**（D15.k、D6.w，ADR-112 第二节）：`task.ig_route === 'hashtag'` 的 Instagram 任务
+   * 请求 `INSTAGRAM_HASHTAG_ENDPOINT`，参数 `keyword` 为 `hashtagKeyword(task)`、`feed_type` 为 `top`，
+   * 用 `parseInstagramHashtagPage` 解析。只请求首页：`offset > 0` 或带着令牌时直接交回空页、不发请求；
+   * 解析不出人也不改搜账号名。probe 与 collect 都经这里，所以试探与采集走同一条路线。
+   */
   async search(task: SearchTask, region: string, offset: number, token?: string): Promise<SearchPage> {
     if (task.platform === 'tiktok') return this.searchTikTok(task, region, offset)
     // 续页：带上上一页交回的令牌再问一次 Reels，不看 offset。**不走兜底** —— 兜底只属于第一页，

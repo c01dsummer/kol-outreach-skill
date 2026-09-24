@@ -325,6 +325,11 @@ export interface SearchTask {
   platform: Platform
   /** 配置元数据；当前 TikHub 不据此切换端点，不证明实际发现路径。 */
   as_hashtag?: boolean
+  /**
+   * IG 发现路线（D15.j、D15.k，ADR-112）：只由运营在任务配置里显式写 `"hashtag"` 开启话题搜索；
+   * 缺席时走 Reels。只认这一个取值、只能写在 Instagram 任务上 —— 校验见 `igRouteProblems`。
+   */
+  ig_route?: 'hashtag'
 }
 
 export interface TaskState {
