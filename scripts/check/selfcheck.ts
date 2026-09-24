@@ -3437,6 +3437,12 @@ group('hashtag-route', [], () => {
       named('IG 话题入口：collect 话题任务的进度标签照用原关键词',
         progress.some(l => l.includes('任务 1 · scene · instagram · 关键词「#htselfcare」')),
         `搜索完成进度实际为 ${JSON.stringify(progress)}`)
+      // 推导：话题首页的响应里其实带着令牌（ADR-112 第五节），是这条路线只取首页（D6.w）；提示只说本地看到的事（D6.u）
+      //   —— 收尾那一行说「话题路线只取首页」，不说「本次没有可继续的续页令牌」
+      const doneLine = progress.find(l => l.includes('关键词「#htselfcare」'))
+      named('IG 话题入口：collect 话题任务收尾那一行说话题路线只取首页，不说没有可继续的令牌',
+        doneLine !== undefined && doneLine.includes('话题路线只取首页') && !doneLine.includes('续页令牌'),
+        `那一行是 ${JSON.stringify(doneLine)}`)
       // 续跑要认得出话题任务，路线就得跟着任务落盘（D15.j 说续跑也校验 task.json 里的 ig_route）
       named('IG 话题入口：task.json 原样留着每个任务的 ig_route',
         JSON.stringify((Array.isArray(st?.tasks) ? st.tasks : []).map((t: any) => t?.ig_route ?? null))
