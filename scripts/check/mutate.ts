@@ -42,7 +42,7 @@ import {
   type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
   groupOfLabel, labelFaults, labelsOf,
-  wiringFault,
+  anchorMatches, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import {
@@ -105,6 +105,21 @@ if (dirty.length) {
   console.error(`✗ 变异集：${dirty.length} 条 why 夹带实现原文 —— --brief 会把它漏给写测试的上下文\n`)
   for (const d of dirty) console.error(`  ${d}`)
   console.error('\n  why 说「什么会变错、用户会看到什么」，不引代码。对外契约里的名字不算实现原文。')
+  process.exit(1)
+}
+
+// 锚点在目标文件里必须恰好出现一次 —— 出现两处以上时替换只改第一处，作者要验的那一处
+// 可能一个字没动，而报告照样是绿的（ADR-99 第八、十一、十二节）。数法在 `mutate-rule.ts`
+// 的 `anchorMatches`，这里只渲染。零处不在这里拦：那条照旧走「锚点失效，未能应用」。
+const ambiguous = muts.flatMap(m => {
+  if (!existsSync(m.file)) return []
+  const n = anchorMatches(readFileSync(m.file, 'utf8'), m.find)
+  return n > 1 ? [`${m.id}  锚点在 ${m.file} 里出现 ${n} 处`] : []
+})
+if (ambiguous.length) {
+  console.error(`✗ 变异集：${ambiguous.length} 条的锚点不唯一 —— 替换只改第一处，要验的那一处可能一个字没动\n`)
+  for (const a of ambiguous) console.error(`  ${a}`)
+  console.error('\n  把 find 加长到在目标文件里只出现一次（按起点数，重叠的也算两处）。')
   process.exit(1)
 }
 
