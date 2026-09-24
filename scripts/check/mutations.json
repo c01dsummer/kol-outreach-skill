@@ -3786,8 +3786,8 @@
       "req": "D11.h",
       "why": "把文案标识冒充作品标识，同一作品的识别依据变成另一类对象",
       "file": "scripts/providers/tikhub.ts",
-      "find": "id: searchPostId('instagram', item?.id)",
-      "replace": "id: searchPostId('instagram', item?.caption?.id)"
+      "find": "id: searchPostId('instagram', item?.id),\n        desc: item?.caption?.text",
+      "replace": "id: searchPostId('instagram', item?.caption?.id),\n        desc: item?.caption?.text"
     },
     {
       "id": "M-D11-c",
@@ -4628,6 +4628,78 @@
       "file": "scripts/lib/budget.ts",
       "find": "    if (this.persistenceFailure) throw this.persistenceFailure",
       "replace": ""
+    },
+    {
+      "id": "M-D15-k",
+      "req": "D15.a",
+      "why": "话题页返回的账号记成 Reels 搜索来源 —— 来源冒充了实际端点，追溯时以为这个人是 Reels 搜出来的",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "dimension: task.dimension, endpoint: INSTAGRAM_HASHTAG_ENDPOINT }]",
+      "replace": "dimension: task.dimension, endpoint: INSTAGRAM_REELS_ENDPOINT }]"
+    },
+    {
+      "id": "M-D15-l",
+      "req": "D15.a",
+      "why": "话题页来源里的搜索词去掉了开头的井号 —— 来源不再是原搜索词，同一任务的来源与关键词行对不上",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "discovery_sources: [{ platform: 'instagram', handle, keyword: task.keyword,\n        dimension: task.dimension, endpoint: INSTAGRAM_HASHTAG_ENDPOINT }]",
+      "replace": "discovery_sources: [{ platform: 'instagram', handle, keyword: task.keyword.replace(/^#/, ''),\n        dimension: task.dimension, endpoint: INSTAGRAM_HASHTAG_ENDPOINT }]"
+    },
+    {
+      "id": "M-D11-o",
+      "req": "D11",
+      "why": "话题页作品的文案按 Reels 的字段去取 —— 话题页的文案字段是另一个名字，于是每条作品的文案都成了空串，内容匹配证据整批丢失",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "desc: item?.caption_text ?? '',",
+      "replace": "desc: item?.caption?.text ?? '',"
+    },
+    {
+      "id": "M-P1-aa",
+      "req": "P1",
+      "why": "话题页里的图文与轮播也写上播放数 —— 那类媒体的播放字段语义没确认过，把不知道的数当成真实播放参与评分与排序",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "...(isInstagramVideo(item) ? { plays: item?.play_count ?? item?.ig_play_count } : {}),",
+      "replace": "plays: item?.play_count ?? item?.ig_play_count,"
+    },
+    {
+      "id": "M-D8-d",
+      "req": "D8.a",
+      "why": "视频判定漏认「媒体类型为视频」这个信号 —— 只带这个信号的 Reels 被当成图文，主页样本少算视频、话题页丢掉它的播放数",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "return i?.is_video === true || i?.media_type === 2 || i?.media_format === 'video' ||",
+      "replace": "return i?.is_video === true || i?.media_format === 'video' ||"
+    },
+    {
+      "id": "M-D8-e",
+      "req": "D8.a",
+      "why": "视频判定把轮播也当成视频 —— 主页样本把轮播混进短视频绩效，话题页给轮播写上语义不明的播放数",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "    i?.media_name === 'reel' || i?.product_type === 'clips'\n}",
+      "replace": "    i?.media_name === 'reel' || i?.product_type === 'clips' || i?.media_type === 8\n}"
+    },
+    {
+      "id": "M-D6-bb",
+      "req": "D6.u",
+      "why": "话题页把响应里的续页令牌交回 —— 入口会拿它当 Reels 的续页令牌去请求 Reels，用话题页的令牌翻另一个端点，钱花了、结果不知道是什么",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "return { creators: [...byHandle.values()], raw_count: list.length, has_more: false }\n}",
+      "replace": "return { creators: [...byHandle.values()], raw_count: list.length, has_more: false,\n    next_token: (raw as any)?.data?.pagination_token }\n}"
+    },
+    {
+      "id": "M-D6-bc",
+      "req": "D6.l",
+      "why": "话题页的条目数按解析出的人数算 —— 没有作者名的条目、同一作者的多条作品都不计，记下的「拿回几条」偏小，和别的路线印在同一列却不是同一个量",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "return { creators: [...byHandle.values()], raw_count: list.length, has_more: false }\n}",
+      "replace": "return { creators: [...byHandle.values()], raw_count: byHandle.size, has_more: false }\n}"
+    },
+    {
+      "id": "M-D11-p",
+      "req": "D11.h",
+      "why": "话题页作品拿文案的标识冒充作品标识 —— 同一作品的识别依据变成另一类对象，跨路线同一作品认不出来",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "id: searchPostId('instagram', item?.id),\n      desc: item?.caption_text",
+      "replace": "id: searchPostId('instagram', item?.caption?.id),\n      desc: item?.caption_text"
     }
   ],
   "exemptions": [
