@@ -4854,9 +4854,9 @@
       "id": "M-H9-q",
       "req": "harness",
       "file": "scripts/check/size-rule.ts",
-      "why": "问不出是不是浅克隆就当不是 —— 不知道基线可不可信，却报一个可能缩水的数",
-      "find": "  if (shallow === null) {",
-      "replace": "  if (false) {"
+      "why": "只把答不上来当成问不出来 —— 旧 git 把参数原样打回来时被当成「不是浅克隆」，在浅克隆里报一个可能缩水的数",
+      "find": "  if (shallow !== 'false') {",
+      "replace": "  if (shallow === null) {"
     },
     {
       "id": "M-H9-r",
@@ -4886,7 +4886,7 @@
       "id": "M-H9-u",
       "req": "harness",
       "file": "scripts/check/size-rule.ts",
-      "why": "共同祖先答不上来也不停 —— 拿 null 当起点往下走，报出一个不存在的区间",
+      "why": "共同祖先答不上来也不停 —— 起点落空被判成「不适用」、退出 0，一条从主干之外长出来的分支静默放行",
       "find": "  if (merged === null) return cannot(",
       "replace": "  if (false) return cannot("
     },
@@ -4897,6 +4897,30 @@
       "why": "主干上没有上一版时判「无从判断」 —— 仓库第一个提交上闸门以退出码 1 失败，而那里本来就没有可比的东西",
       "find": "  if (base === null) return { kind: 'not-applicable', trunk }",
       "replace": "  if (base === null) return cannot('没有上一版', '—')"
+    },
+    {
+      "id": "M-H9-w",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "不在仓库里或没有任何提交时照样往下问，拿一个不存在的 HEAD 去取共同祖先、列提交，报出的原因不是真正的原因",
+      "find": "  if (head === null) return cannot(",
+      "replace": "  if (false) return cannot("
+    },
+    {
+      "id": "M-H9-x",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "两个主干候选都找不到也不停，拿一个不存在的主干去取共同祖先，试过哪些候选、该先 fetch 哪一个都不说",
+      "find": "  if (trunk === undefined) return cannot(",
+      "replace": "  if (false) return cannot("
+    },
+    {
+      "id": "M-H9-y",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "列不出这条分支的提交时当成「查过、一个提交都没有」，豁免与不合格的 size-ok 一条都不找、提交数报 0",
+      "find": "  if (listed === null) {",
+      "replace": "  if (listed === null) return { kind: 'measure', trunk, head, base, onTrunk, commits: [] }\n  if (false) {"
     }
   ],
   "exemptions": [
