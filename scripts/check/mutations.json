@@ -4913,6 +4913,46 @@
       "why": "乘法乘错了东西 —— 「每慢 1 秒多几秒」写成了合计秒数，而那个乘数应该是条数",
       "find": "整跑串行多 ${r.count} 秒",
       "replace": "整跑串行多 ${Math.round(r.totalMs / 1000)} 秒"
+    },
+    {
+      "id": "M-H36-w",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "计时为 0 的那一行认不出 —— 锚点失效那一条从 worker 回来读不出，整跑报成没有结论",
+      "find": "!Number.isFinite(ms) || ms < 0) return undefined",
+      "replace": "!Number.isFinite(ms) || ms <= 0) return undefined"
+    },
+    {
+      "id": "M-H36-x",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "汇报行不带计时 —— 派工跑的每一条从 worker 回来都读不出，整跑报成没有结论",
+      "find": "JSON.stringify({ ...ran, id, output:",
+      "replace": "JSON.stringify({ ...ran, id, ms: undefined, output:"
+    },
+    {
+      "id": "M-H46-g",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "逐条合计没换算成秒 —— 8932 毫秒印成「8932 秒」，读账的人以为这个验证者要跑两个半小时",
+      "find": "${Math.round(r.totalMs / 1000)} 秒（约",
+      "replace": "${Math.round(r.totalMs)} 秒（约"
+    },
+    {
+      "id": "M-H46-h",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "约几分钟不留小数 —— 不到半分钟的验证者印成「约 0 分钟」，看着像不花时间",
+      "find": "(r.totalMs / 60000).toFixed(1)",
+      "replace": "(r.totalMs / 60000).toFixed(0)"
+    },
+    {
+      "id": "M-H46-i",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "账单又写回等式 —— 平均和合计各自取整，「7 条 × 1.3 秒 = 9 秒」这种自己对不上的算式回来了",
+      "find": "，逐条合计 ",
+      "replace": " = 逐条合计 "
     }
   ],
   "exemptions": [
