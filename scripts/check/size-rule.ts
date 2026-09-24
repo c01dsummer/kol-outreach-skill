@@ -320,3 +320,46 @@ export function judge(
     ok: over.length === 0 && unjustified.length === 0,
   }
 }
+
+// ── 起点：哪些提交算这条分支自己的 ─────────────────────────────────
+
+/**
+ * 找主干时按这个顺序试,取第一个存在的。远端引用排在前面:本地 `main` 可能很久没拉,
+ * 拿它当主干会把起点算得太靠前 —— 别人已合进主干的提交被算成这条分支自己的。
+ */
+export const TRUNK_CANDIDATES = ['origin/main', 'main']
+
+/**
+ * 调用方交进来的 git。答得上来时交回去掉首尾空白的输出;命令失败时交回 `null`。
+ * (`size.ts` 传的是带着 `GIT_CONFIG` 的那个 `tryGit`。)
+ */
+export type GitAsk = (...args: string[]) => string | null
+
+export type Baseline =
+  /** 无从判断:入口照 `why`／`how` 说出来并以退出码 1 失败,不退化成「0 行,通过」 */
+  | { kind: 'cannot-answer'; why: string; how: string }
+  /** HEAD 就在主干上,而且没有父提交 —— 没有可比的上一版,入口说「不适用」并退出 0 */
+  | { kind: 'not-applicable'; trunk: string }
+  /** 量 `base..head`;`commits` 是这条分支自己的提交(豁免只从这些提交信息里找) */
+  | { kind: 'measure'; trunk: string; head: string; base: string; onTrunk: boolean; commits: string[] }
+
+/**
+ * 体量闸门从哪里量起 —— `docs/CONVENTIONS.md` 第十节后半句「哪些提交算这条分支自己的」。
+ * 它决定这道闸门看得见多少改动,也决定去哪些提交信息里找 `size-ok:` 豁免,所以它是判定,不是走法。
+ *
+ * 逐步问 `ask`,任何一步答不上来就停在那一步:
+ * 1. `rev-parse HEAD` 答不上来 → 无从判断:这里不是 git 仓库,或者没有任何提交。
+ * 2. `rev-parse --is-shallow-repository` 答 `true` → 无从判断:浅克隆算出来的基线不可信。
+ * 3. 按 `TRUNK_CANDIDATES` 的顺序问 `rev-parse --verify <候选>^{commit}`,取第一个答得上来的当主干;
+ *    都答不上来 → 无从判断,`why` 里点名试过的每一个候选。
+ * 4. `merge-base <主干> HEAD` 答不上来 → 无从判断:HEAD 与主干没有共同祖先。
+ * 5. 共同祖先就是 HEAD 自己 → HEAD 在主干上(`onTrunk`):改和上一版比,起点是 `rev-parse <HEAD>^1`;
+ *    没有上一版 → 不适用。否则起点就是共同祖先。
+ * 6. 这条分支自己的提交 = `rev-list <起点>..<HEAD>` 按行拆开、去掉空行(没有提交时是空数组)。
+ *
+ * 主干上照样量、照样报数,只是入口不据此判红:这个闸门守的是待评审的改动,
+ * CI 跑在推送之后,在主干上判红只会让主干变红(`size.ts` 里有完整理由)。
+ */
+export function resolveBaseline(ask: GitAsk): Baseline {
+  throw new Error('尚未实现')
+}
