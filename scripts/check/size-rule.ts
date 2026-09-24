@@ -367,15 +367,17 @@ export function resolveBaseline(ask: GitAsk): Baseline {
   const head = ask('rev-parse', 'HEAD')
   if (head === null) return cannot('这里不是一个 git 仓库,或者没有任何提交', '在仓库里跑;新建的仓库先提交一次。')
 
-  // 答不上来也停:问不出是不是浅克隆,就不知道下面算出来的基线可不可信
   const shallow = ask('rev-parse', '--is-shallow-repository')
-  if (shallow === null) {
-    return cannot('问不出这是不是浅克隆,算出来的基线不知道可不可信',
-      '确认 git 版本支持 `rev-parse --is-shallow-repository`(2.15 起)。')
-  }
   if (shallow === 'true') {
     return cannot('这是一个浅克隆,算出来的基线不可信',
       'CI 里给 actions/checkout 加 `with: { fetch-depth: 0 }`;本地跑 `git fetch --unshallow`。')
+  }
+  // 只有答 false 才往下走。2.15 以前的 git 不认识这个参数,会把它原样打回来、退出 0 ——
+  // 那不是「不是浅克隆」,是没问出来;当成 false 接着量,就在浅克隆里报一个可能缩水的数
+  if (shallow !== 'false') {
+    return cannot(`问不出这是不是浅克隆(\`rev-parse --is-shallow-repository\` 答的是 ${JSON.stringify(shallow)}),`
+      + '算出来的基线不知道可不可信',
+      'git 2.15 以前不认识这个参数,会把它原样打回来;升级 git 后再跑。')
   }
 
   const trunk = TRUNK_CANDIDATES.find(r => ask('rev-parse', '--verify', `${r}^{commit}`) !== null)
@@ -391,8 +393,9 @@ export function resolveBaseline(ask: GitAsk): Baseline {
   // 列不出来 ≠ 没有提交:空串才是「查过、这条分支一个提交都没有」
   const listed = ask('rev-list', `${base}..${head}`)
   if (listed === null) {
+    // 这两个提交刚刚都解析出来了,走到这里多半是仓库本身坏了 —— 让人先看 git 自己怎么说
     return cannot(`列不出 ${base.slice(0, 7)}..${head.slice(0, 7)} 之间的提交,找不了 size-ok 豁免`,
-      '确认这两个提交都在本地(`git fetch origin main`)。')
+      `手工跑 \`git rev-list ${base.slice(0, 7)}..${head.slice(0, 7)}\`,看 git 报什么(常见是仓库损坏)。`)
   }
   return { kind: 'measure', trunk, head, base, onTrunk, commits: listed.split('\n').filter(Boolean) }
 }
