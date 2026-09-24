@@ -202,6 +202,9 @@ export const underPageCap = (state: TaskState, i: number): boolean => {
   return n !== null && n < MAX_PAGES
 }
 
+/** IG 续页停下的四种理由，见 `igAfterPage`。 */
+export type IgStop = 'empty' | 'unparsed' | 'no-token' | 'cap'
+
 /**
  * IG 续页（ADR-111 第二节）：拿回这一页之后，这个任务还能不能带着令牌再翻一页。
  *
@@ -217,7 +220,6 @@ export const underPageCap = (state: TaskState, i: number): boolean => {
  * provider 收到空白令牌会当场报错、不发请求（#165）—— 真走到那一步，是调度存错了令牌。
  * 达标之后不再翻（F9.d）不在这里判，仍由调度那一处管。
  */
-export type IgStop = 'empty' | 'unparsed' | 'no-token' | 'cap'
 export function igAfterPage(
   state: TaskState, i: number, page: { token: string | undefined; rawCount: number; parsed: number },
 ): { next: string } | { stop: IgStop } {
