@@ -51,6 +51,7 @@
 | 写测试 | `process/4-VERIFY.md` —— **写测试前必读** |
 | 改模块边界、调用顺序或对外契约 | `process/5-DESIGN.md` + **`docs/ARCHITECTURE.md`** |
 | 改 Skill 的行为 | `skill/SKILL.md` + 对应的 `skill/references/*` |
+| 要新建目录，或要存运行产物（接口响应原件、快照、日志） | `docs/ARCHITECTURE.md`「新东西落在哪个目录」 |
 | 改完了要同步 | `docs/SYNC.md` |
 | 开分支、切改动、回应评审、往主干合 | `process/6-INTEGRATE.md` |
 | **评审别人的改动**（人或机器评审器） | `REVIEW.md` —— 它也只做转发 |
