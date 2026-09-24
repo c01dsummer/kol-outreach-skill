@@ -14,10 +14,8 @@
 import { execFileSync } from 'node:child_process'
 import {
   BUDGET, CATEGORIES, GIT_CONFIG, NUMSTAT, NUMSTAT_IGNORING_SPACE, type Waiver,
-  discount, judge, merge, parseNumstat, scanMessage, tally,
+  discount, judge, merge, parseNumstat, resolveBaseline, scanMessage, tally,
 } from './size-rule.js'
-
-const TRUNK_CANDIDATES = ['origin/main', 'main']
 
 /**
  * 所有 git 调用统一走这里,**一律带上 `GIT_CONFIG` 里钉死的那几项**。
@@ -48,26 +46,10 @@ function cannotAnswer(why: string, how: string): never {
   process.exit(1)
 }
 
-const head = tryGit('rev-parse', 'HEAD')
-if (!head) cannotAnswer('这里不是一个 git 仓库,或者没有任何提交', '在仓库里跑。')
-
-if (tryGit('rev-parse', '--is-shallow-repository') === 'true') {
-  cannotAnswer(
-    '这是一个浅克隆,算出来的基线不可信',
-    'CI 里给 actions/checkout 加 `with: { fetch-depth: 0 }`;本地跑 `git fetch --unshallow`。')
-}
-
-const trunk = TRUNK_CANDIDATES.find(r => tryGit('rev-parse', '--verify', `${r}^{commit}`))
-if (!trunk) {
-  cannotAnswer(
-    `找不到主干引用(试过 ${TRUNK_CANDIDATES.join('、')})`,
-    '先 `git fetch origin main`。')
-}
-
-const merged = tryGit('merge-base', trunk, 'HEAD')
-if (!merged) cannotAnswer(`HEAD 与 ${trunk} 没有共同祖先`, '确认这条分支确实从主干长出来。')
-
 /**
+ * 从哪里量起 —— 「哪些提交算这条分支自己的」—— 是判定,在 `size-rule.ts` 的 `resolveBaseline`
+ * (CONVENTIONS 第十节)。这里只把它的三种结局说出来。
+ *
  * HEAD 就在主干上时**照样量,但不判定**。
  *
  * 这时 `merge-base` 就是 HEAD 自己,没有「相对主干的改动」这回事。早先这里直接
@@ -78,12 +60,13 @@ if (!merged) cannotAnswer(`HEAD 与 ${trunk} 没有共同祖先`, '确认这条�
  * 而主干红了是这套方法最要避免的事。真要拦住直推主干,那是分支保护的活,
  * 不是一个事后才跑的检查。
  */
-const onTrunk = merged === head
-const base = onTrunk ? tryGit('rev-parse', `${head}^1`) : merged
-if (!base) {
-  console.log(`✓ 体量闸门:不适用 —— HEAD 就是 ${trunk} 且没有父提交`)
+const baseline = resolveBaseline(tryGit)
+if (baseline.kind === 'cannot-answer') cannotAnswer(baseline.why, baseline.how)
+if (baseline.kind === 'not-applicable') {
+  console.log(`✓ 体量闸门:不适用 —— HEAD 就是 ${baseline.trunk} 且没有父提交`)
   process.exit(0)
 }
+const { trunk, head, base, onTrunk, commits } = baseline
 
 // ── 量 ──────────────────────────────────────────────────────────
 
@@ -109,7 +92,7 @@ const folded = discount(plain, counts)
  */
 const waivers: Waiver[] = []
 const unjustified: string[] = []
-for (const sha of git('rev-list', `${base}..${head}`).split('\n').filter(Boolean)) {
+for (const sha of commits) {
   const found = scanMessage(git('log', '-1', '--format=%B', sha))
   if (!found.length) continue
   for (const v of found) {
@@ -124,7 +107,7 @@ const report = judge(counts, waivers, unjustified)
 // ── 报 ──────────────────────────────────────────────────────────
 
 const scope = onTrunk ? `${trunk} 的上一版` : trunk
-const nCommits = git('rev-list', '--count', `${base}..${head}`)
+const nCommits = commits.length
 console.log(`\n体量闸门 · 相对 ${scope}(${base.slice(0, 7)}..${head.slice(0, 7)},${nCommits} 个提交,${files.length} 个文件)\n`)
 for (const c of CATEGORIES) {
   const n = counts[c]
