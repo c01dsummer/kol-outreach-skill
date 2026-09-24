@@ -349,7 +349,8 @@ export type Baseline =
  *
  * 逐步问 `ask`,任何一步答不上来就停在那一步:
  * 1. `rev-parse HEAD` 答不上来 → 无从判断:这里不是 git 仓库,或者没有任何提交。
- * 2. `rev-parse --is-shallow-repository` 只有答 `false` 才往下走:答 `true` → 无从判断(浅克隆算出来的基线不可信);
+ * 2. `rev-parse --is-shallow-repository` 只有答 `false` 才往下走:答 `true` → 无从判断(浅克隆算出来的基线不可信,
+ *    `how` 说怎么取完整历史:CI 里 `fetch-depth: 0`、本地 `git fetch --unshallow`);
  *    答别的(2.15 以前的 git 不认识这个参数,会把它原样打回来)或答不上来 → 同样无从判断,`why` 里带上它答了什么。
  * 3. 按 `TRUNK_CANDIDATES` 的顺序问 `rev-parse --verify <候选>^{commit}`,取第一个答得上来的当主干;
  *    都答不上来 → 无从判断,`why` 里点名试过的每一个候选。

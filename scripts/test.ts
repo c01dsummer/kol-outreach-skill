@@ -5859,6 +5859,10 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
     const r = run(onBranch({ [Q_SHALLOW]: 'true' }))
     eq('起点第 2 步：--is-shallow-repository 答 true（浅克隆）→ 无从判断', refusal(r.got), 'cannot-answer')
     eq('起点第 2 步答 true 就停：不再去找主干', r.asked, [Q_HEAD, Q_SHALLOW])
+    // 契约第 2 步：答 true 时 how 说怎么取完整历史 —— 和「问不出来」那一支的结局一样是无从判断，
+    // 分得开的只有这句怎么修（开 PR 前的独立审阅之后补）
+    eq('起点第 2 步答 true：how 说怎么取完整历史（fetch-depth: 0 或 git fetch --unshallow）',
+      typeof r.got !== 'string' && r.got.kind === 'cannot-answer' && /fetch-depth: 0|--unshallow/.test(r.got.how), true)
   }
   // 契约只写了答 true 怎么办；答不上来归开头那句总则「任何一步答不上来就停在那一步」——
   // 当成「不是浅克隆」接着量，是把「没查过」当成「查过、没有」
