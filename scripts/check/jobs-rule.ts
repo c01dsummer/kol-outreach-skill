@@ -177,7 +177,7 @@ export function verifierBill(timed: readonly { verifier: string; ms: number }[])
  */
 export function billLines(rows: readonly BillRow[]): string[] {
   return rows.map(r =>
-    `  ${r.verifier}：${r.count} 条 × 平均每条 ${(r.meanMs / 1000).toFixed(1)} 秒 = 串行合计 `
+    `  ${r.verifier}：${r.count} 条，平均每条 ${(r.meanMs / 1000).toFixed(1)} 秒，逐条合计 `
     + `${Math.round(r.totalMs / 1000)} 秒（约 ${(r.totalMs / 60000).toFixed(1)} 分钟）`
     + ` —— 它每慢 1 秒，整跑串行多 ${r.count} 秒`)
 }

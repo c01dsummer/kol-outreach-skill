@@ -466,10 +466,10 @@ const runOne = async (m: Mut): Promise<Ran> => {
   }
 }
 
-/** 一条变异的结论怎么报、记在哪一摞里。**派工那一侧也走这里**，报告只此一份写法 */
 /** 真跑了的每一条用的哪个验证者、跑了多久 —— 收尾时按验证者记账（ADR-99 第八节那个乘法） */
 const timed: { verifier: string; ms: number }[] = []
 
+/** 一条变异的结论怎么报、记在哪一摞里。**派工那一侧也走这里**，报告只此一份写法 */
 const record = (m: Mut, ran: Ran): void => {
   if (ran.outcome !== 'not-applied') timed.push({ verifier: m.by ?? 'test', ms: ran.ms })
   if (ran.outcome === 'not-applied') {
@@ -726,11 +726,11 @@ for (const e of exemptions) {
   console.log(`  ⊘ ${e.req} ${exemptionLead(exemptionCovered(e.req, muts))}：${e.why.split('。')[0]}。`)
 }
 
-// 那个乘法：每个验证者被几条用 × 每条跑多久。只是参考数，不拿它判任何事（ADR-97）；
-// 串行口径 —— 派工并行时整跑的墙钟比合计短
+// 那个乘法：每个验证者被几条用 × 每条跑多久。只是参考数，不拿它判任何事（ADR-97）。
+// 合计是逐条墙钟相加，同时跑几条就互相抢核 —— 表头印出这一跑派了几个，读的人才知道偏多少（`BillRow.totalMs`）
 const bill = billLines(verifierBill(timed))
 if (bill.length) {
-  console.log('\n  按验证者记账（串行口径，派工并行时整跑墙钟更短）：')
+  console.log(`\n  按验证者记账（这一跑 ${jobs} 个 worker 同时跑；逐条墙钟相加，同时跑时每条都比串着跑偏长；单跑一次，不是区间）：`)
   for (const line of bill) console.log(line)
 }
 
