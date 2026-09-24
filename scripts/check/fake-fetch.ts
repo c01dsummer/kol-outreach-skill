@@ -76,6 +76,39 @@ const igProfile = {
   },
 }
 
+/**
+ * IG 话题页（`fetch_hashtag_posts`）。形状照 ADR-112 第五节在用户本地样本上核过的字段：
+ * 列表在 `data.data.items`，续页令牌 `pagination_token` 与 `data.data` 同级；条目有字符串 `id`、
+ * `user.username`，文案在 `caption_text`；视频（media_type 2 / clips）、图文（1 / feed）
+ * 与轮播（8 / carousel_container）混在一起 —— 三种各放一条，两条同一作者。
+ * 令牌照真实响应放进来：话题路线不交回它（D6.w），夹具里有它，「有也不拿去翻」那一条才测得到。
+ */
+const igHashtag = {
+  data: { pagination_token: 'hashtag-token-never-used', data: { items: [
+    { id: 'ht-video-1', user: { username: 'hashtagreeler', full_name: 'HT Reeler' },
+      caption_text: 'selfcare night routine', media_type: 2, is_video: true, product_type: 'clips',
+      play_count: 4321, like_count: 21 },
+    { id: 'ht-photo-1', user: { username: 'hashtagphoto', full_name: 'HT Photo' },
+      caption_text: 'selfcare flatlay', media_type: 1, is_video: false, product_type: 'feed',
+      play_count: 0, like_count: 5 },
+    { id: 'ht-carousel-1', user: { username: 'hashtagreeler', full_name: 'HT Reeler' },
+      caption_text: 'selfcare carousel', media_type: 8, is_video: false, product_type: 'carousel_container' },
+  ] } },
+}
+
+/**
+ * 关键词里带 `hashtag-nobody` 的话题页：**有条目、一个作者都解析不出**（没有 `user`，或 `user` 里没有 `username`）。
+ * Reels 那边同样的形状会改搜账号名（D6.k）；话题路线不走兜底（D6.w），这是那条路唯一的入口。
+ * 标记不含任何既有 `force-*` 子串，免得撞进上面那些分支。
+ */
+const igHashtagNobody = {
+  data: { pagination_token: 'hashtag-token-never-used', data: { items: [
+    { id: 'ht-nobody-1', caption_text: 'no user here', media_type: 1, product_type: 'feed' },
+    { id: 'ht-nobody-2', user: { full_name: 'No Username' }, caption_text: 'nor here',
+      media_type: 2, is_video: true, product_type: 'clips', play_count: 10 },
+  ] } },
+}
+
 /** D8：主页近期作品与关键词搜索样本分开；六条以上才能形成聚合指标。 */
 const tiktokUserPosts = {
   data: {
@@ -123,6 +156,7 @@ function pick(url: string): unknown {
   if (url.includes('tiktok/web/fetch_user_profile')) return tiktokProfile
   if (url.includes('instagram/v2/search_reels')) return igReels
   if (url.includes('instagram/v2/search_users')) return igSearchUsers
+  if (url.includes('instagram/v2/fetch_hashtag_posts')) return url.includes('hashtag-nobody') ? igHashtagNobody : igHashtag
   if (url.includes('fetch_user_info_by_username')) return igProfile
   return { data: {} }              // 走「无法识别响应结构」分支
 }

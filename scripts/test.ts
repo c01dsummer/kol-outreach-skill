@@ -64,6 +64,7 @@ import {
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { formatDiscoverySources, mergeDiscoverySources } from './lib/discovery.js'
+import { hashtagKeyword, igRouteProblems } from './lib/ig-route.js'
 import {
   INSTAGRAM_HASHTAG_ENDPOINT, TikHub, TikHubError, fillEmail, isInstagramVideo, parseInstagramHashtagPage, pickList,
 } from './providers/tikhub.js'
@@ -3669,6 +3670,247 @@ suite('D15', 'IG 话题页解析：只解析、不分派（ADR-112 第四节第 
     () => formatDiscoverySources([{ platform: 'instagram', handle: 'Tag', keyword: '#Self Care', dimension: 'scene',
       endpoint: INSTAGRAM_HASHTAG_ENDPOINT }]),
     'Instagram 话题搜索 · instagram:@Tag · #Self Care · scene')
+}
+
+// 独立上下文先于实现写成：期望只出自 ADR-112 第二、五节，D15.j、D15.k、D6.w、D11.b 原文，
+// 以及 ig-route.ts 与 TikHub.search 的说明；没有读 search() 与 ig-route.ts 的函数体。
+suite('D15', 'IG 话题入口：配置校验与分派（ADR-112 第四节第 3 步）')
+{
+  // 调用包一层：抛出变成一个显眼的值再比，一次抛出不拖垮后面的断言；标签照样写成字面量，进清册
+  const attempt = <T>(run: () => T): T | string => {
+    try { return run() } catch (e) { return `抛出：${e instanceof Error ? e.message : String(e)}` }
+  }
+  // 端点取字面量，不拿产品常量当预期：话题页见 ADR-112 第五节与价目那一行，Reels 与账号名搜索见 D15.a
+  const HT = '/api/v1/instagram/v2/fetch_hashtag_posts'
+  const REELS = '/api/v1/instagram/v2/search_reels'
+  const USERS = '/api/v1/instagram/v2/search_users'
+
+  // ── hashtagKeyword：去掉**一个**开头的 #，别的一个字不动（D15.k、ig-route.ts 说明）──
+  const kw = (keyword: string) => attempt(() => hashtagKeyword({ keyword }))
+  eq('话题入口：请求关键词没有 # 时原样', kw('selfcare'), 'selfcare')
+  eq('话题入口：请求关键词去掉开头的一个 #', kw('#selfcare'), 'selfcare')
+  eq('话题入口：请求关键词开头两个 # 只去掉一个', kw('##selfcare'), '#selfcare')
+  eq('话题入口：请求关键词只有一个 # 时剩空串', kw('#'), '')
+  eq('话题入口：请求关键词中间的 # 不动', kw('self#care'), 'self#care')
+  // 「不修剪空白」：开头是空白时 # 就不在开头，一个字都不去；末尾的空白原样留着（空白在校验里就拒了）
+  eq('话题入口：请求关键词不修剪空白，开头是空白时 # 不算开头',
+    [kw(' #selfcare'), kw('#selfcare ')], [' #selfcare', 'selfcare '])
+
+  // ── igRouteProblems：合规交回空数组；每个不合规的任务一句话，写明第几个任务（D15.j、ig-route.ts 说明）──
+  const problems = (tasks: unknown): string[] | string => attempt(() => igRouteProblems(tasks))
+  const ig = (keyword: string, over: Record<string, unknown> = {}) =>
+    ({ keyword, dimension: 'scene', platform: 'instagram', ...over })
+  const tt = (keyword: string, over: Record<string, unknown> = {}) =>
+    ({ keyword, dimension: 'category', platform: 'tiktok', ...over })
+  /** 这句话写明的是不是第 n 个任务：从 1 数、同任务标签「任务 N」；写成「第 N 个」也认 */
+  const names = (msg: unknown, n: number): boolean =>
+    typeof msg === 'string' && new RegExp(`任务\\s*${n}(?!\\d)|第\\s*${n}\\s*个`).test(msg)
+
+  const fine: [string, unknown][] = [
+    ['空任务列表', []],
+    // 没写 ig_route 的任务关键词怎么写都不归它管（关键词本身的校验在别处）
+    ['没写 ig_route 的任务', [ig('self care'), tt('#'), ig(''), ig('#self care'), tt('a\tb')]],
+    ['as_hashtag 不是路线', [ig('#selfcare', { as_hashtag: true }), tt('#selfcare', { as_hashtag: true })]],
+    ['IG 任务写 hashtag、关键词没有 #', [ig('selfcare', { ig_route: 'hashtag' })]],
+    ['IG 任务写 hashtag、关键词开头一个 #', [ig('#selfcare', { ig_route: 'hashtag' })]],
+    // 只去掉一个 #：剩下的「#selfcare」「#」都不空、不含空白
+    ['IG 任务写 hashtag、关键词开头两个 #', [ig('##selfcare', { ig_route: 'hashtag' })]],
+    ['IG 任务写 hashtag、关键词是 ##', [ig('##', { ig_route: 'hashtag' })]],
+    ['IG 任务写 hashtag、非拉丁关键词', [ig('#护肤', { ig_route: 'hashtag', as_hashtag: true })]],
+    // 任务列表不是数组时交回空数组，交给别处（ig-route.ts 说明）
+    ['不是数组：undefined', undefined], ['不是数组：null', null], ['不是数组：字符串', 'tasks'],
+    ['不是数组：数字', 42], ['不是数组：像数组的对象', { 0: ig('#a b', { ig_route: 'reels' }), length: 1 }],
+    // 每项是不是对象也不在这里判
+    ['数组里有不是对象的项', [null, 42, 'task', ig('#selfcare', { ig_route: 'hashtag' })]],
+  ]
+  const fineWrong = fine.map(([name, tasks]) => [name, problems(tasks)] as const)
+    .filter(([, got]) => JSON.stringify(got) !== '[]').map(([name, got]) => `${name} → ${JSON.stringify(got)}`)
+  eq('话题入口：合规的路线配置与不归它判的输入都交回空数组', fineWrong, [])
+
+  const bad: [string, Record<string, unknown>][] = [
+    // ig_route 出现了、却不是字符串 "hashtag"
+    ['ig_route 为 null', ig('selfcare', { ig_route: null })],
+    ['ig_route 为空串', ig('selfcare', { ig_route: '' })],
+    ['ig_route 大小写不同', ig('selfcare', { ig_route: 'Hashtag' })],
+    ['ig_route 全大写', ig('selfcare', { ig_route: 'HASHTAG' })],
+    ['ig_route 带空白', ig('selfcare', { ig_route: ' hashtag' })],
+    ['ig_route 是别的路线名', ig('selfcare', { ig_route: 'reels' })],
+    ['ig_route 是 true', ig('selfcare', { ig_route: true })],
+    ['ig_route 是数字', ig('selfcare', { ig_route: 1 })],
+    ['ig_route 是数组', ig('selfcare', { ig_route: ['hashtag'] })],
+    ['ig_route 是对象', ig('selfcare', { ig_route: {} })],
+    // "hashtag" 写在非 Instagram 任务上
+    ['hashtag 写在 TikTok 任务上', tt('selfcare', { ig_route: 'hashtag' })],
+    // 去掉一个开头的 # 之后为空，或含空白（空格、制表符、换行等）
+    ['关键词只有 #', ig('#', { ig_route: 'hashtag' })],
+    ['关键词是空串', ig('', { ig_route: 'hashtag' })],
+    ['关键词去掉 # 后含空格', ig('#self care', { ig_route: 'hashtag' })],
+    ['关键词不带 # 也含空格', ig('self care', { ig_route: 'hashtag' })],
+    ['关键词含制表符', ig('#self\tcare', { ig_route: 'hashtag' })],
+    ['关键词末尾是换行', ig('#selfcare\n', { ig_route: 'hashtag' })],
+    ['关键词开头是空格', ig(' #selfcare', { ig_route: 'hashtag' })],
+    ['# 后面紧跟空格', ig('# selfcare', { ig_route: 'hashtag' })],
+    ['关键词含全角空格', ig('#self　care', { ig_route: 'hashtag' })],
+    // 一个任务两处不合规：仍是「每个不合规的任务一句话」
+    ['TikTok 任务写 hashtag、关键词还只有 #', tt('#', { ig_route: 'hashtag' })],
+    ['TikTok 任务写了别的路线名', tt('selfcare', { ig_route: 'reels' })],
+  ]
+  // 坏的一律放在第 2 个，前面垫一个合规任务：按 0 数的写法会写成「任务 1」
+  const badWrong = bad.map(([name, task]) => [name, problems([tt('plainword'), task])] as const)
+    .filter(([, got]) => !(Array.isArray(got) && got.length === 1 && names(got[0], 2)))
+    .map(([name, got]) => `${name} → ${JSON.stringify(got)}`)
+  eq('话题入口：每个不合规的任务恰好一句话，写明是第 2 个任务', badWrong, [])
+
+  // 好坏相间、跨过两位数：句数等于坏任务数；每个坏任务恰好被一句话点名，好任务一个都不被点名。
+  // 关键词不带数字、取值不用数字，免得句子里的数被误认成序号
+  const mixed = [
+    tt('alpha'), ig('#beta', { ig_route: 'reels' }), ig('#gamma', { ig_route: 'hashtag' }), ig('delta'),
+    tt('#epsilon', { ig_route: 'hashtag' }), ig('zeta'), ig('#eta', { ig_route: 'hashtag' }), tt('theta'),
+    ig('iota'), ig('#kappa lambda', { ig_route: 'hashtag' }), ig('#mu', { ig_route: 'hashtag' }),
+    ig('#', { ig_route: 'hashtag' }),
+  ]
+  const mixedGot = problems(mixed)
+  const namedCount = (n: number) => Array.isArray(mixedGot) ? mixedGot.filter(m => names(m, n)).length : mixedGot
+  eq('话题入口：好坏相间的配置，每个坏任务恰好被一句话点名、好任务不被点名',
+    [Array.isArray(mixedGot) ? mixedGot.length : mixedGot, mixed.map((_, i) => namedCount(i + 1))],
+    [4, [0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1]])
+  // 不是对象的项不判，但照数组位置占号：同任务标签，第 4 项坏了就写第 4 个
+  const holes = problems([null, 42, 'task', ig('#self care', { ig_route: 'hashtag' })])
+  eq('话题入口：不是对象的项不判，序号仍按数组位置从 1 数',
+    Array.isArray(holes) && holes.length === 1 && names(holes[0], 4), true)
+  // 「哪一条不合规」：三种不合规各自单独放在第 1 个任务上，同一个序号，说的必须是三件不同的事
+  const kinds = [ig('selfcare', { ig_route: 'reels' }), tt('selfcare', { ig_route: 'hashtag' }),
+    ig('#', { ig_route: 'hashtag' })].map(t => problems([t]))
+  eq('话题入口：取值不对、不在 IG 任务上、关键词不可用，三种不合规的说法互不相同',
+    kinds.every(k => Array.isArray(k) && k.length === 1)
+      && new Set(kinds.map(k => Array.isArray(k) ? k[0] : k)).size === 3, true)
+  criterion('D15.j')
+
+  // ── search() 在最前面按 ig_route 分派（D15.k、D6.w，TikHub.search 说明）──
+  type Page = Awaited<ReturnType<TikHub['search']>>
+  // 话题页响应形状：列表在 data.data.items，令牌与 data.data 同级（ADR-112 第五节第 2 条）
+  const hashtagBody = (items: unknown[]) => ({ data: { pagination_token: 'ht-token-in-response', data: { items } } })
+  const htItems = [
+    { id: 'h1', user: { username: 'alice' }, caption_text: '话题视频',
+      media_type: 2, is_video: true, product_type: 'clips', play_count: 300 },
+    { id: 'h2', user: { username: 'bob' }, caption_text: '话题图文',
+      media_type: 1, is_video: false, product_type: 'feed' },
+  ]
+  // Reels 也带着令牌：话题任务若被错送到 Reels，「不交回令牌」那条会红，而不是碰巧绿
+  const reelsBody = { data: { pagination_token: 'reels-token-in-response', data: { items: [
+    { id: 'r1', caption: { text: 'Reels 文案' }, play_count: 5, user: { username: 'carol', full_name: 'C' } },
+  ] } } }
+  const usersBody = { data: { data: { items: [{ username: 'fallback', full_name: 'F', id: '1' }] } } }
+  /** 按端点回罐头，记下每一次请求的完整地址；没登记的端点回一个认不出的结构 */
+  const searchVia = async (task: SearchTask, offset: number, token: string | undefined,
+    bodies: Record<string, unknown>) => {
+    const budget = fundedBudget()
+    const calls: URL[] = []
+    const real = globalThis.fetch
+    globalThis.fetch = (async (input: any) => {
+      const u = new URL(String(input))
+      calls.push(u)
+      return new Response(JSON.stringify(bodies[u.pathname] ?? { data: { 认不出: 1 } }), { status: 200 })
+    }) as unknown as typeof fetch
+    let page: Page | undefined, error: string | undefined
+    try { page = await new TikHub('k', budget).search(task, 'US', offset, token) }
+    catch (e) { error = `抛出：${e instanceof Error ? e.message : String(e)}` }
+    finally { globalThis.fetch = real }
+    return { page, error, calls, paid: budget.count }
+  }
+  const sortedCreators = (p: Page | undefined) =>
+    [...(p?.creators ?? [])].sort((a, b) => String(a.handle).localeCompare(String(b.handle)))
+  const all = { [HT]: hashtagBody(htItems), [REELS]: reelsBody, [USERS]: usersBody }
+
+  const htTask: SearchTask = { keyword: '#SelfCare', dimension: 'scene', platform: 'instagram', ig_route: 'hashtag' }
+  const first = await searchVia(htTask, 0, undefined, all)
+  const sent = first.calls[0]?.searchParams
+  eq('话题入口：话题任务首页恰好发一次请求，请求的是话题页', first.calls.map(u => u.pathname), [HT])
+  eq('话题入口：话题请求的 keyword 去掉开头的 #，feed_type 为 top，不带续页令牌',
+    [sent?.get('keyword'), sent?.get('feed_type'), sent?.has('pagination_token')], ['SelfCare', 'top', false])
+  eq('话题入口：话题页照常计费一次', first.paid, 1)
+  eq('话题入口：话题首页交回解析出的账号与条目数，没有抛出',
+    [first.error, sortedCreators(first.page).map(c => c.handle), first.page?.raw_count], [undefined, ['alice', 'bob'], 2])
+  // 原词保留（ADR-112 第二节）：来源照用任务关键词原样，只有请求参数去掉 #
+  eq('话题入口：话题路线的来源是话题端点与任务原关键词，开头的 # 保留',
+    sortedCreators(first.page).map(c => c.discovery_sources?.map(s => [s.platform, s.handle, s.keyword, s.dimension, s.endpoint])),
+    [[['instagram', 'alice', '#SelfCare', 'scene', HT]], [['instagram', 'bob', '#SelfCare', 'scene', HT]]])
+  // D6.w：不交回续页令牌 —— 响应里明明有 data.pagination_token
+  eq('话题入口：话题页不交回续页令牌、has_more 为 false，响应里有令牌也一样',
+    [first.page === undefined, first.page?.next_token, first.page?.has_more], [false, undefined, false])
+  // 「用 parseInstagramHashtagPage 解析」：同一份响应，search 交回的与解析器直接解析的一模一样（解析口径由上一组钉住）
+  eq('话题入口：search 交回的页就是话题解析器对同一份响应的解析',
+    first.page ?? first.error, attempt(() => parseInstagramHashtagPage(hashtagBody(htItems), htTask)))
+
+  const keywordSent = async (keyword: string) =>
+    (await searchVia({ ...htTask, keyword }, 0, undefined, all)).calls[0]?.searchParams.get('keyword')
+  eq('话题入口：关键词没有 # 时请求参数原样，## 开头时只去掉一个',
+    [await keywordSent('selfcare'), await keywordSent('##selfcare')], ['selfcare', '#selfcare'])
+
+  // 有条目、一个作者都解析不出：Reels 这样会改搜账号名（D6.k），话题路线不走兜底（D6.w）
+  const nobody = await searchVia(htTask, 0, undefined, { ...all, [HT]: hashtagBody([
+    { id: 'n1', caption_text: '没有 user' },
+    { id: 'n2', user: { full_name: '有 user 没账号名' }, caption_text: '没有账号名' },
+    { id: 'n3', caption_text: '也没有 user' },
+  ]) })
+  eq('话题入口：话题页解析不出人也不改搜账号名，只发这一次请求', nobody.calls.map(u => u.pathname), [HT])
+  eq('话题入口：解析不出人的话题页照实交回 0 人与条目数，只计费一次',
+    [nobody.error, nobody.page?.creators.length, nobody.page?.raw_count, nobody.paid], [undefined, 0, 3, 1])
+  // D6.w「零条目如实记为 0 条，不改搜账号名」
+  const empty = await searchVia(htTask, 0, undefined, { ...all, [HT]: hashtagBody([]) })
+  eq('话题入口：零条目的话题页如实交回 0 条，不改搜账号名',
+    [empty.calls.map(u => u.pathname), empty.error, empty.page?.raw_count, empty.page?.creators.length], [[HT], undefined, 0, 0])
+
+  // 只请求首页：offset > 0 或带着令牌时直接交回空页、不发请求（TikHub.search 说明、D6.w）
+  const blankPage = (r: Awaited<ReturnType<typeof searchVia>>) =>
+    [r.calls.length, r.paid, r.error, r.page?.creators.length, r.page?.raw_count, r.page?.has_more, r.page?.next_token]
+  eq('话题入口：话题任务 offset 大于 0 时交回空页、一个请求都不发',
+    blankPage(await searchVia(htTask, 20, undefined, all)), [0, 0, undefined, 0, 0, false, undefined])
+  eq('话题入口：话题任务带着令牌时交回空页、一个请求都不发',
+    blankPage(await searchVia(htTask, 0, 'tok-1', all)), [0, 0, undefined, 0, 0, false, undefined])
+  eq('话题入口：话题任务 offset 大于 0 又带着令牌时也不发请求',
+    blankPage(await searchVia(htTask, 3, 'tok-1', all)), [0, 0, undefined, 0, 0, false, undefined])
+
+  // ig_route 缺席照旧走 Reels；路线不由 as_hashtag、关键词写法推断（D15.k）
+  const plainTask: SearchTask = { keyword: '#SelfCare', dimension: 'scene', platform: 'instagram' }
+  eq('话题入口：没写 ig_route 的 IG 任务照走 Reels，关键词带 # 也不改路线',
+    (await searchVia(plainTask, 0, undefined, all)).calls.map(u => u.pathname), [REELS])
+  eq('话题入口：as_hashtag 只是配置元数据，不切换到话题页',
+    (await searchVia({ ...plainTask, as_hashtag: true }, 0, undefined, all)).calls.map(u => u.pathname), [REELS])
+  criterion('D15.k', 'D6.w', 'D15.a')
+
+  // ── 跨路线同一作品 id（ADR-112 第二节末条、D11.b、D11.h）──
+  // Reels 页与话题页都给了 alice 的同一条作品 id 'same'；两页都真的经 search() 分派拿回来，
+  // 再按任务顺序并进同一个累加器：先到的那条整条留下（连同它的播放数），后到的不覆盖；话题独有的那条追加在后
+  const crossBodies = {
+    [REELS]: { data: { data: { items: [
+      { id: 'same', caption: { text: 'Reels 那条' }, play_count: 100, user: { username: 'alice', full_name: 'A' } },
+    ] } } },
+    [HT]: hashtagBody([
+      { id: 'same', user: { username: 'alice' }, caption_text: '话题那条',
+        media_type: 2, is_video: true, product_type: 'clips', play_count: 999 },
+      { id: 'extra', user: { username: 'alice' }, caption_text: '话题独有', media_type: 1, product_type: 'feed' },
+    ]),
+  }
+  const reelsTask: SearchTask = { keyword: 'selfcare', dimension: 'category', platform: 'instagram' }
+  const reelsPage = (await searchVia(reelsTask, 0, undefined, crossBodies)).page
+  const htPage = (await searchVia(htTask, 0, undefined, crossBodies)).page
+  const mergedInOrder = (order: [Page | undefined, SearchTask][]) => attempt(() => {
+    const acc = new Map<string, Creator>()
+    order.forEach(([p, t], i) => { if (!p) throw new Error(`第 ${i + 1} 页没拿到`); mergePage(acc, p.creators, i, t) })
+    const kept = acc.get('instagram:alice')
+    const firstPost = order[0][0]?.creators.find(c => c.handle === 'alice')?.recent_posts?.[0]
+    return [kept?.recent_posts?.map(p => [p.id, p.desc]),
+      JSON.stringify(kept?.recent_posts?.[0]) === JSON.stringify(firstPost),
+      kept?.discovery_sources?.map(s => s.endpoint)]
+  })
+  eq('话题入口：Reels 先到、话题后到的同一作品 id 只留 Reels 那条，话题独有的作品追加在后',
+    mergedInOrder([[reelsPage, reelsTask], [htPage, htTask]]),
+    [[['instagram:same', 'Reels 那条'], ['instagram:extra', '话题独有']], true, [REELS, HT]])
+  eq('话题入口：话题先到、Reels 后到的同一作品 id 只留话题那条，播放数随先到的路线',
+    mergedInOrder([[htPage, htTask], [reelsPage, reelsTask]]),
+    [[['instagram:same', '话题那条'], ['instagram:extra', '话题独有']], true, [HT, REELS]])
+  criterion('D11.b', 'D11.h')
 }
 
 suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」')
