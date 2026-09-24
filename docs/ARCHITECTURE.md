@@ -123,7 +123,7 @@
 | 顺序契约 | 位置 | 错了会怎样 | 守它的变异 |
 |---|---|---|---|
 | 同人识别 → 合并 → 粉丝闸门 → 记忆过滤 | `scripts/lib/pipeline.ts` | 闸门跑在合并之前，「TikTok 3000 + IG 3000、合起来够线」的人被提前丢掉；记忆过滤跑在闸门之前，`filtered_contacted` 把连闸门都过不了的人也算进去，向用户虚报打扰规模 | M-P1-g M-P4-b |
-| 保留原任务下标 → 再筛选可展示的标签 | `scripts/lib/pipeline.ts` | 剩余任务按新位置重新编号，用户不能把提示指回原任务 | M-U8-a M-U8-b |
+| 保留原任务下标 → 再筛选可展示的标签 | `scripts/lib/pipeline.ts` | 剩余任务按新位置重新编号，用户不能把提示指回原任务 | M-U8-a M-U8-b M-U8-o |
 | 实际返回账号时记录来源 → 合页/同人合并保留 → probe 与交付展示 | `scripts/providers/tikhub.ts`、`scripts/lib/pipeline.ts`、`scripts/lib/identity.ts`、`scripts/probe.ts`、`scripts/lib/rows.ts` | 配置替代真实来源、首次或后页观察被吞、关联账号来源丢失，或保存后到交付时消失 | M-D15-a M-D15-b M-D15-d M-D15-e M-D15-f M-D15-g M-D15-i |
 | `finalize` 不得就地修改传入的累加器 | `scripts/lib/pipeline.ts` | 「累加器只增不减」退回成依赖调用方记得先落盘 —— ADR-08 那个数据丢失 bug 的形状 | M-D6-c |
 | 算分 → 分层 → 地域降级 → 风险降级 → 排序 | `scripts/lib/pipeline.ts` | 降级跑在 `tierOf` 之前会被重新计算的 tier 覆盖，地域不达标或高风险的人照样留在 A 级被直接发信；排序跑在降级之前，A 区里混着已经掉到 B 的人 | M-F5-a M-F8-a M-U1-b |

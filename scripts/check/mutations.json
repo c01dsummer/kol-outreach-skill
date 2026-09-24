@@ -4026,6 +4026,14 @@
       "replace": "<td>${esc(k.keyword)}${k.as_hashtag ? '(hashtag)' : ''}</td>"
     },
     {
+      "id": "M-U8-o",
+      "req": "U8.b",
+      "why": "没达标时续跑那张标签表按筛选后的位置重新编号 —— 前面有任务被跳过时，后面的任务序号整体前移，用户不能把提示指回原任务",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "return state.tasks.flatMap((t, i) => canRequestPage(state, i, undefined) ? [taskLabel(t, i)] : [])",
+      "replace": "return state.tasks.filter((_, i) => canRequestPage(state, i, undefined)).map((t, i) => taskLabel(t, i))"
+    },
+    {
       "id": "M-D12-a",
       "req": "D12.a",
       "why": "原始预算先舍入成浮点数，超精度授权被悄悄扩大",
