@@ -4808,6 +4808,18 @@
       "file": "scripts/probe.ts",
       "find": "    if (badRoutes.length) throw new Error(`ig_route 不合规：",
       "replace": "    if (false) throw new Error(`ig_route 不合规："
+    },
+    {
+      "id": "M-D6-bf",
+      "req": "D6.w",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：collect 话题任务收尾那一行说话题路线只取首页，不说没有可继续的令牌"
+      ],
+      "why": "话题任务收尾说「本次没有可继续的续页令牌」—— 话题页的响应其实带着令牌，是这条路线只取首页；运营读到会以为话题页没给令牌、或下次还能接着翻",
+      "file": "scripts/collect.ts",
+      "find": "const why = t.ig_route === 'hashtag' && verdict.stop === 'no-token' ? '话题路线只取首页'",
+      "replace": "const why = false ? '话题路线只取首页'"
     }
   ],
   "exemptions": [
