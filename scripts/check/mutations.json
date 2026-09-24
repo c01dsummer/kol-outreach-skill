@@ -4833,6 +4833,70 @@
       "file": "scripts/collect.ts",
       "find": "const badRoutes = igRouteProblems(state.tasks)",
       "replace": "const badRoutes = resume && replacementLimit !== undefined ? [] : igRouteProblems(state.tasks)"
+    },
+    {
+      "id": "M-H9-o",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "候选顺序反了 —— 先信本地 main：本地 main 很久没拉时起点算得太靠前，别人已合进主干的提交被算成这条分支自己的，连它们提交信息里的 size-ok 豁免也一起捡来",
+      "find": "export const TRUNK_CANDIDATES = ['origin/main', 'main']",
+      "replace": "export const TRUNK_CANDIDATES = ['main', 'origin/main']"
+    },
+    {
+      "id": "M-H9-p",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "浅克隆照样量 —— merge-base 在截断的历史上算出一个假起点，报出来的数可能缩水成几行，闸门静默通过",
+      "find": "  if (shallow === 'true') {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-H9-q",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "问不出是不是浅克隆就当不是 —— 不知道基线可不可信，却报一个可能缩水的数",
+      "find": "  if (shallow === null) {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-H9-r",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "在主干上也拿共同祖先当起点 —— 共同祖先就是 HEAD 自己，量出 0 行，直推主干的大改动连数字都不出现",
+      "find": "  const base = onTrunk ? ask('rev-parse', `${head}^1`) : merged",
+      "replace": "  const base = merged"
+    },
+    {
+      "id": "M-H9-s",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "从主干而不是起点列提交 —— 在主干上时列出来是空的，别处的 size-ok 豁免该找的提交一个都没找",
+      "find": "ask('rev-list', `${base}..${head}`)",
+      "replace": "ask('rev-list', `${trunk}..${head}`)"
+    },
+    {
+      "id": "M-H9-t",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "提交列表不去空行 —— 没有提交时列出一个空串「提交」，拿它去读提交信息",
+      "find": "commits: listed.split('\\n').filter(Boolean) }",
+      "replace": "commits: listed.split('\\n') }"
+    },
+    {
+      "id": "M-H9-u",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "共同祖先答不上来也不停 —— 拿 null 当起点往下走，报出一个不存在的区间",
+      "find": "  if (merged === null) return cannot(",
+      "replace": "  if (false) return cannot("
+    },
+    {
+      "id": "M-H9-v",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "主干上没有上一版时判「无从判断」 —— 仓库第一个提交上闸门以退出码 1 失败，而那里本来就没有可比的东西",
+      "find": "  if (base === null) return { kind: 'not-applicable', trunk }",
+      "replace": "  if (base === null) return cannot('没有上一版', '—')"
     }
   ],
   "exemptions": [
