@@ -116,4 +116,6 @@ async function main() {
   console.log(stringifyCostJson({ market, results }, budget.view()))
 }
 
-main().catch(e => { console.error(e); process.exit(e instanceof BudgetInputError ? 2 : 1) })
+// F3.c：输入问题（退出码 2）只写问题本身 —— 消息里已带配置路径；内部异常的类名与堆栈对运营没有用，
+// 类名 BudgetInputError 还会把路线、读不出配置这类问题说成预算问题。运行中的内部错误（退出码 1）照旧整条打出来。
+main().catch(e => { console.error(e instanceof BudgetInputError ? e.message : e); process.exit(e instanceof BudgetInputError ? 2 : 1) })
