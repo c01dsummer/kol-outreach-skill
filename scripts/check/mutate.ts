@@ -46,9 +46,9 @@ import {
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import {
-  type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, copyIntoWorker,
+  type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, billLines, copyIntoWorker,
   groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
-  noStdio, ownGroup, parseReport, reportLine,
+  noStdio, ownGroup, parseReport, reportLine, verifierBill,
 } from './jobs-rule.js'
 import {
   INTERRUPTS, beginMutation, onInterrupt, restoreMutation, stopJobs, trackTest,
@@ -453,11 +453,13 @@ const runOne = async (m: Mut): Promise<Ran> => {
     // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null);
     // 点了名的还要再看一层:红的是不是 kills 说的那一条
     const verifier = VERIFIERS[m.by ?? 'test']
+    // 量的是验证者那一段：起验证者到它退出（或点名的都红了被停掉）—— 乘法要的就是这个数
+    const started = performance.now()
     const r = await runTest(verifier, m.kills, onlyFor(m))
+    const ms = Math.round(performance.now() - started)
     return {
       outcome: judgeRun(r.status, r.output, verifier, m.kills, r.atStop),
-      status: r.status, stopped: r.atStop !== undefined, output: r.output,
-      ms: 0,   // 尚未实现：计时
+      status: r.status, stopped: r.atStop !== undefined, output: r.output, ms,
     }
   } finally {
     restoreMutation()
@@ -465,7 +467,11 @@ const runOne = async (m: Mut): Promise<Ran> => {
 }
 
 /** 一条变异的结论怎么报、记在哪一摞里。**派工那一侧也走这里**，报告只此一份写法 */
+/** 真跑了的每一条用的哪个验证者、跑了多久 —— 收尾时按验证者记账（ADR-99 第八节那个乘法） */
+const timed: { verifier: string; ms: number }[] = []
+
 const record = (m: Mut, ran: Ran): void => {
+  if (ran.outcome !== 'not-applied') timed.push({ verifier: m.by ?? 'test', ms: ran.ms })
   if (ran.outcome === 'not-applied') {
     notApplied.push(m)
     console.log(`  ⚠ ${m.id}  锚点失效，未能应用`)
@@ -718,6 +724,14 @@ else await dispatch(jobs)
 console.log()
 for (const e of exemptions) {
   console.log(`  ⊘ ${e.req} ${exemptionLead(exemptionCovered(e.req, muts))}：${e.why.split('。')[0]}。`)
+}
+
+// 那个乘法：每个验证者被几条用 × 每条跑多久。只是参考数，不拿它判任何事（ADR-97）；
+// 串行口径 —— 派工并行时整跑的墙钟比合计短
+const bill = billLines(verifierBill(timed))
+if (bill.length) {
+  console.log('\n  按验证者记账（串行口径，派工并行时整跑墙钟更短）：')
+  for (const line of bill) console.log(line)
 }
 
 if (survived.length || elsewhere.length || crashed.length || notApplied.length || silent.length) {

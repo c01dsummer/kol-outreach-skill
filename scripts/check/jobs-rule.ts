@@ -116,13 +116,14 @@ export function parseReport(line: string): ({ id: string } & Ran) | undefined {
   try { raw = JSON.parse(line.slice(MARK.length + 1)) } catch { return undefined }
   if (raw === null || typeof raw !== 'object') return undefined
   const r = raw as Record<string, unknown>
-  const { id, outcome, status, stopped, output } = r
+  const { id, outcome, status, stopped, output, ms } = r
   if (typeof id !== 'string' || id === '') return undefined
   if (typeof outcome !== 'string' || !OUTCOMES.includes(outcome)) return undefined
   if (status !== null && typeof status !== 'number') return undefined
   if (typeof stopped !== 'boolean' || typeof output !== 'string') return undefined
-  // 尚未实现：读回计时（ms 须是有限、非负的数，否则认不出）
-  return { id, outcome: outcome as Outcome, status, stopped, output, ms: 0 }
+  // 计时同样逐字段验：有限、非负的数。写的一侧交了 NaN／Infinity 时线上是 null，手写的 1e999 读回来是 Infinity，都认不出
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return undefined
+  return { id, outcome: outcome as Outcome, status, stopped, output, ms }
 }
 
 /** 一个验证者在这一跑里的账：用了几条、实测花了多久 */
@@ -148,7 +149,15 @@ export interface BillRow {
  * 它回答的是「给这个验证者加一秒，整跑要乘以多少条」—— 答案就是 `count`。
  */
 export function verifierBill(timed: readonly { verifier: string; ms: number }[]): BillRow[] {
-  throw new Error('尚未实现')
+  const by = new Map<string, { count: number; totalMs: number }>()
+  for (const { verifier, ms } of timed) {
+    const row = by.get(verifier) ?? { count: 0, totalMs: 0 }
+    row.count += 1
+    row.totalMs += ms
+    by.set(verifier, row)
+  }
+  return [...by].map(([verifier, { count, totalMs }]) => ({ verifier, count, totalMs, meanMs: totalMs / count }))
+    .sort((a, b) => b.totalMs - a.totalMs || (a.verifier < b.verifier ? -1 : a.verifier > b.verifier ? 1 : 0))
 }
 
 /**
@@ -156,7 +165,10 @@ export function verifierBill(timed: readonly { verifier: string; ms: number }[])
  * 以及那个乘法 ——「它每慢 1 秒，整跑串行多 <条数> 秒」。没有行就交回空数组（什么都不印）。
  */
 export function billLines(rows: readonly BillRow[]): string[] {
-  throw new Error('尚未实现')
+  return rows.map(r =>
+    `  ${r.verifier}：${r.count} 条 × 平均每条 ${(r.meanMs / 1000).toFixed(1)} 秒 = 串行合计 `
+    + `${Math.round(r.totalMs / 1000)} 秒（约 ${(r.totalMs / 60000).toFixed(1)} 分钟）`
+    + ` —— 它每慢 1 秒，整跑串行多 ${r.count} 秒`)
 }
 
 /**
