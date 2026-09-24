@@ -103,7 +103,7 @@
 列表路径均为 `data.data.items`，条目都没有 `media` 包层。24 份逐条核过：每条都有顶层 `id` 与 `user.username`；
 Reels/general 的文案在 `caption.text`（Reels 有 4 条不是字符串），hashtag 在 `caption_text`；`user.follower_count`
 只在 general 上是数值（64 条全是），Reels 与 hashtag 上没有一条是数值，字段在不在没核。
-这只说明这两个词首页上字段的有无与类型，不说明值的含义。
+这只说明这两个词首页上 `id`、`user.username`、`media` 包层在不在，文案与粉丝数是不是字符串／数值，不说明值的含义。
 
 零成本核对（ADR-101 第十五节；两个词、只有首页、两批合计不到 4 分钟、没有粉丝数）：
 - Reels 96 条全是视频；hashtag 191 条里 97 条是图片或轮播，这些条目的 `play_count` 是 0（假零）；
