@@ -1,5 +1,5 @@
 {
-  "$comment": "变异集是红线的负片。每个变异是一处故意违反某条需求的改动，跑它的验证者必须失败（缺省是测试；写了 by 的改跑别的。by 与 kills 同进同出 —— 写一个就要写另一个，kills 点明该红的是哪几条夹具，一组，每一条都要红）。变异存活 = 那条测试是假的，要修测试不是删变异。why 用需求语言写 —— `mutate --brief` 会把它单独打印给写测试的上下文（见 process/4-VERIFY.md）。对外契约里的名字算需求语言：stdout 字段、产出文件字段、提供方响应键、命令行参数。本仓库内部的函数名和代码表达式不算，mutate 会当场拦下。",
+  "$comment": "变异集是红线的负片。每个变异是一处故意违反某条需求的改动，跑它的验证者必须失败（缺省是测试；写了 by 的改跑别的。by 与 kills 同进同出 —— 写一个就要写另一个，kills 点明该红的是哪几条夹具，一组，每一条都要红）。变异存活 = 那条测试是假的，要修测试不是删变异。why 用需求语言写 —— `mutate --brief` 会把它单独打印给写测试的上下文（见 process/4-VERIFY.md）。对外契约里的名字算需求语言：stdout 字段、产出文件字段、提供方响应键、命令行参数。本仓库内部的函数名和代码表达式不算，mutate 会当场拦下。find 必须在目标文件里恰好出现一次（按起点数，重叠也算两处）：出现两处以上时 mutate 开跑前整跑拒绝并点名编号，零处照旧报「锚点失效」。",
   "mutations": [
     {
       "id": "M-D15-a",
@@ -546,6 +546,78 @@
       "replace": "  if (false) {"
     },
     {
+      "id": "M-D6-ak",
+      "req": "D6",
+      "why": "IG 续页拿回 0 条时不按「本页 0 条」停，理由被说成「解析不出作者」—— 用户看到的停因和实际发生的不是一件事（ADR-111 第二节）",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (page.rawCount === 0) return { stop: 'empty' }\n",
+      "replace": ""
+    },
+    {
+      "id": "M-D6-al",
+      "req": "D6",
+      "why": "IG 续页有条目却一个作者都解析不出时仍带着令牌接着翻 —— 供应商换了响应结构时，每一页都付钱、每一页都零人，一直翻到上限",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (page.parsed === 0) return { stop: 'unparsed' }\n",
+      "replace": ""
+    },
+    {
+      "id": "M-D6-am",
+      "req": "D6",
+      "why": "只有空白的续页令牌被当成可用的令牌带下去 —— 下一次请求要么被当成首页重买一遍，要么带着一串空白去问（ADR-111 第二节）",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "page.token.trim() === ''",
+      "replace": "page.token === ''"
+    },
+    {
+      "id": "M-D6-an",
+      "req": "D6",
+      "why": "IG 续页不看页数上限，只要有令牌就一直翻 —— D6.h 的上限对 IG 失效，单个关键词的花费没有顶",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (!underPageCap(state, i)) return { stop: 'cap' }\n",
+      "replace": ""
+    },
+    {
+      "id": "M-D6-ao",
+      "req": "D6",
+      "why": "续页令牌被修剪后再带下去 —— 令牌是供应商的，改动一个字就可能问到别的地方去，钱照付",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return { next: page.token }",
+      "replace": "  return { next: page.token.trim() }"
+    },
+    {
+      "id": "M-D6-ap",
+      "req": "D6",
+      "why": "判「这一跑还能不能再请求一页」时不分平台 —— 续跑时手里没有令牌，已经抓过页的 IG 任务仍被算成要抓，收尾那句话多报要花的钱",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (state.tasks[i].platform !== 'instagram') return true\n  return !(i in offsets) || token !== undefined\n",
+      "replace": "  return true\n"
+    },
+    {
+      "id": "M-D6-aq",
+      "req": "D6",
+      "why": "IG 一页都没抓过也要先有令牌才能请求 —— 第一页永远没有令牌，于是 IG 一个请求都不发，而报告里它和「查了没人」长得一样（F9）",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  return !(i in offsets) || token !== undefined\n",
+      "replace": "  return token !== undefined\n"
+    },
+    {
+      "id": "M-D6-ar",
+      "req": "D6",
+      "why": "已经进了完成列表的任务仍被判成还能再请求一页 —— 调度会给跑完的词再花钱，收尾那句话也把它算进要花钱的那一半",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (state.done.includes(i)) return false\n  const offsets = state.offsets\n  if (offsets === undefined) return false\n  if (state.tasks[i].platform",
+      "replace": "  const offsets = state.offsets\n  if (offsets === undefined) return false\n  if (state.tasks[i].platform"
+    },
+    {
+      "id": "M-D6-as",
+      "req": "D6",
+      "why": "分页记录表整张缺失时仍判成能请求 —— 那是无从确认哪些词查过的旧目录，照抓会把已经付过钱的几页再买一遍（F9.e）",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  if (offsets === undefined) return false\n  if (state.tasks[i].platform",
+      "replace": "  if (offsets === undefined) return true\n  if (state.tasks[i].platform"
+    },
+    {
       "id": "M-D6-q",
       "req": "D6.j",
       "why": "惰性建表：上一版留下的目录里两张表本来缺着（＝无从确认），第一次付费请求一来就把它们凭空建出来 —— 升级前问过、付过钱的那些词从此全都读作「一个都没问过」，而且不可逆",
@@ -614,6 +686,70 @@
         "IG 兜底撞上预算：这个任务不进 done，续跑还能再碰它",
         "IG 兜底撞上预算：不说「续跑不产生新的请求」"
       ]
+    },
+    {
+      "id": "M-D6-ad",
+      "req": "D6",
+      "why": "Reels 响应里的续页令牌读不出来，搜索结果永远不带令牌 —— 后两步接上之后 IG 也一页都翻不动，而没有任何一处报错（ADR-111）",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      ...(typeof next === 'string' ? { next_token: next } : {}) }",
+      "replace": "      ...({}) }"
+    },
+    {
+      "id": "M-D6-ae",
+      "req": "D6",
+      "why": "续页令牌不是字符串（null、数字）也照样交回 —— 入口会拿一个根本不存在的令牌去请求，付一次钱换回一个说不清是哪一页的结果",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      ...(typeof next === 'string' ? { next_token: next } : {}) }",
+      "replace": "      ...(next !== undefined ? { next_token: next } : {}) }"
+    },
+    {
+      "id": "M-D6-af",
+      "req": "D6",
+      "why": "续页请求不带上一页交回的 pagination_token，实际问的还是首页 —— 钱照付，拿回来的人和第一页一样",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "    if (token !== undefined) params.pagination_token = token\n",
+      "replace": ""
+    },
+    {
+      "id": "M-D6-ag",
+      "req": "D6",
+      "why": "带令牌的续页只要分页进度已经前进就一个请求都不发 —— 入口接上之后第二页起永远拿回空页，读作「这个词翻不出更多」，而那是我们自己没问",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "    if (token !== undefined) return this.searchInstagramReels(task, token)\n",
+      "replace": "    if (token !== undefined && offset === 0) return this.searchInstagramReels(task, token)\n"
+    },
+    {
+      "id": "M-D6-ah",
+      "req": "D6",
+      "why": "带令牌的续页解析不出人时改搜账号名 —— 兜底只属于第一页（ADR-111 第二节），续页多付一次钱，换回的是一批跟这一页无关的账号",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "    if (token !== undefined) return this.searchInstagramReels(task, token)\n",
+      "replace": "    if (token !== undefined) {\n      const page = await this.searchInstagramReels(task, token)\n      return page.creators.length ? page : this.searchInstagramUsers(task)\n    }\n"
+    },
+    {
+      "id": "M-D6-ai",
+      "req": "D6",
+      "why": "走了兜底的第一页把 Reels 那次的令牌交回 —— 入口会给一个已经换了路的任务接着翻 Reels，而 ADR-111 说这种任务当页结束",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))",
+      "replace": "      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count, next_token: reels.next_token }))"
+    },
+    {
+      "id": "M-D6-aj",
+      "req": "D6",
+      "why": "Reels 响应里有令牌就说「还有下一页」—— 能不能再翻由入口看令牌决定，这一页先替它答了，后两步接上之前就会开始翻 IG",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "raw_count: list.length, has_more: false,\n",
+      "replace": "raw_count: list.length, has_more: typeof next === 'string',\n"
+    },
+    {
+      "id": "M-D6-az",
+      "req": "D6",
+      "why": "空白的续页令牌照样发出请求 —— 空串参数被丢掉，请求里只剩关键词，付一次钱拿回的是首页，还被当成续页记账",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "    if (token !== undefined && token.trim() === '') {\n",
+      "replace": "    if (false) {\n"
     },
     {
       "id": "M-F9-c",
@@ -4264,6 +4400,18 @@
       "kills": [
         "续跑已完成 IG 不重搜，未完成 TT 确实发出请求"
       ]
+    },
+    {
+      "id": "M-D6-ac",
+      "req": "D6.t",
+      "by": "selfcheck",
+      "kills": [
+        "作者累加器写失败时，盘上这一页的分页进度不前进"
+      ],
+      "why": "每拿回一页先保存分页进度、后保存作者：两次写之间被打断或作者写失败时，盘上的进度已经前进而这一页的作者没存下，续跑从下一页接着翻 —— IG 丢掉的是这个任务唯一的一页",
+      "file": "scripts/collect.ts",
+      "find": "  saveRawCreators(dir, [...creators.values()])\n  saveTask(dir, state)\n}",
+      "replace": "  saveTask(dir, state)\n  saveRawCreators(dir, [...creators.values()])\n}"
     },
     {
       "id": "M-D13-t",

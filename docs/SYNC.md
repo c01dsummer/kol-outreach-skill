@@ -7,6 +7,12 @@
 >
 > 这张表里**能机器检查的部分已经在 `npm run check` 里**（标 🔒）。
 > 剩下的靠执行 —— 纯靠人执行的同步规则，执行率会随时间趋近于零。
+>
+> **两处副本每一行都隐含，却最常被漏：**
+> `docs/SPEC.md` 只有登记表由 `requirements.json` 生成、被 `spec` 校验；表格外「红线为什么是这五条」
+> 「尚未确定的」两节是手写的，`spec` 不看，结论变了它照样说旧话。`docs/adr/` 里陈述过同一事实、
+> 承诺或裁决的记录也是副本 —— 找它们靠读索引标题与正文，不靠名单或正则；改法只有在原记录末尾
+> 追加 `⚠️` 更正块，不改写原文（`process/2-CHANGE.md`「新内容加在哪」）。
 
 ---
 
@@ -24,7 +30,7 @@
 | **新增/删除 `scripts/` 下的模块** | `docs/ARCHITECTURE.md` 锚点表 · `scripts/check/selfcheck.ts`（可执行文件） | 🔒 `audit`（锚点表靠人核，ADR-78） |
 | **改模块之间的依赖方向** | `docs/ARCHITECTURE.md`（含「一件新工作放哪边」那节，如果判据变了） | ✗ 靠执行（ADR-78） |
 | **改入口参数/退出码/产出文件/字段所有权** | `docs/ARCHITECTURE.md` 缝隙契约 · `skill/SKILL.md` · `README.md` 快速开始 | 部分 |
-| **改报错/提示里给用户的一句承诺**（比如「续跑要不要花钱」）| **点名逐个过，不要 grep**：**`docs/requirements.json` 的对应判据（机器可读的真相来源，最不该说错）** → `docs/ARCHITECTURE.md` 缝隙契约 → **`skill/SKILL.md`（Agent 照着转述）** → 对应 `skill/references/*` → `README.md` → **那个脚本自己的文件头与块注释**（代码注释也是副本，而且离实现最近、最容易被当成权威）。副本的措辞常常不一样（「不产生新请求」vs「不产生新的请求」），按记忆搜必漏。**承诺的「条件」变了也要重走一遍全表**；**给一个已有取值加第二个来源**时同样要过 —— 承诺一个字没改，但可能已经不再为真（ADR-43） | ✗ 靠执行 |
+| **改报错/提示里给用户的一句承诺**（比如「续跑要不要花钱」）| **点名逐个过，不要 grep**：**`docs/requirements.json` 的对应判据（机器可读的真相来源，最不该说错）** → `docs/ARCHITECTURE.md` 缝隙契约 → **`skill/SKILL.md`（Agent 照着转述）** → 对应 `skill/references/*` → `README.md` → **那个脚本自己的文件头与块注释**（代码注释也是副本，而且离实现最近、最容易被当成权威）→ `docs/SPEC.md` 表格外的手写两节 → `docs/adr/` 里说过这句承诺的记录（追加 `⚠️` 更正）。副本的措辞常常不一样（「不产生新请求」vs「不产生新的请求」），按记忆搜必漏。**承诺的「条件」变了也要重走一遍全表**；**给一个已有取值加第二个来源**时同样要过 —— 承诺一个字没改，但可能已经不再为真（ADR-43） | ✗ 靠执行 |
 | **增删需求登记表的字段** | `scripts/check/spec-rule.ts`（类型与校验）· `scripts/check/spec-sync.ts`（读写）· **`AGENTS.md` 与本表的文档地图**（它们描述这个文件有哪些字段）· `process/1-REQUIREMENTS.md`（如果那是通用概念） | ✗ 靠执行 |
 | **改数据源端点/字段** | `skill/references/providers/tikhub.md` · `scripts/providers/tikhub.ts` · `scripts/check/fake-fetch.ts` | 🔒 `selfcheck` |
 | **改搜索作品标识或并集契约** | `docs/requirements.json` 的 D11 → `docs/ARCHITECTURE.md` → `scripts/lib/types.ts` · `scripts/lib/posts.ts` · `scripts/providers/tikhub.ts` · `scripts/lib/pipeline.ts` · `scripts/lib/identity.ts` → `skill/references/providers/_interface.md` · `tikhub.md` · `skill/references/semantic-fit.md` → 测试与变异；已有结论的替代只在 ADR 末尾追加 | 🔒 `spec` `audit`；副本语义靠人核 |
@@ -34,7 +40,7 @@
 | **新增一道闸门** | 判定逻辑（`scripts/check/` 下不带 shebang 的 `.ts`）· 测试 · **`scripts/check/mutations.json`**（闸门自己也是需求，它的测试同样要被证明过）· `process/` 里那条纪律 | 🔒 `audit`：scripts/check/ 下每个判定模块必须有变异指向它，否则硬失败；`mutate` 证明那个变异被抓到 |
 | **重命名／删掉 `process/` 或 `docs/` 下被 `REVIEW.md` 指到的那几份** | `REVIEW.md` 的指针（三份转发不用动，它们只指 `REVIEW.md`） | ✗ 靠执行 |
 | **改流程阶段** | `skill/SKILL.md` · `docs/business-requirements.md` · 对应 reference | ✗ 靠执行 |
-| **查到新事实 / 旧结论被推翻** | `docs/data-source-strategy.md` **必须改** · `docs/adr/`（多属事实证伪） | 🔒 `adr` 验编号与索引 |
+| **查到新事实 / 旧结论被推翻** | `docs/data-source-strategy.md` **必须改** · `docs/SPEC.md`「尚未确定的」一节（手写，状态与证据边界常在这里） · `docs/adr/`：新裁决另开一条（多属事实证伪），陈述过旧结论的记录各在末尾追加 `⚠️` 更正 | 🔒 `adr` 验编号与索引 |
 | **改预算/成本逻辑** | `scripts/lib/cost-ledger.ts` · `cost-json.ts` · `budget.ts` · `task.ts` 费用检查点 · 价目与所有付费/费用出口 · `skill/SKILL.md` 成本闸门与相关 references · `docs/CONVENTIONS.md` 第 7 条 · `docs/ARCHITECTURE.md` · ADR-108/109 对外契约 | 部分 |
 | **改对外能力、范围、当前状态或交付物** | 对应正本 · `README.md`（只做摘要，不定义新事实） | ✗ 靠执行 |
 | **评审中不修在本 PR 的一条发现（含驳回）** | 回复第一行的档与去向 · 线程 resolve · PR 描述末尾的索引 · 合入后的**欠条 PR** 往 `docs/adr/` 追加 `⚠️ 欠条`（写重启条件；驳回只做前三项，不进欠条）—— 本表唯一允许延后到下一条 PR 的一行：为登记再 push 会再起一轮评审，见 `6-INTEGRATE.md` | 🔒 `audit`：欠条块里没写重启条件当场红（ADR-86）；**写了的那些机器不读** —— 读懂条件是会随模型变强的那一侧，台账只抽取不匹配 |
@@ -48,7 +54,7 @@
 | 文件 | 管什么 | 不该出现什么 |
 |---|---|---|
 | `docs/requirements.json` | 编号的**唯一真相来源** | 解释、理由、实现方式；**手改 `content_hash`**（派生字段，由 `spec-sync --write` 写、由 `check` 校验）。**没人读又校验不了的元数据一律不留** —— 见 ADR-30 |
-| `docs/SPEC.md` | 需求的人类可读渲染 + 红线为什么是那几条 | 手改的表格（由 json 生成） |
+| `docs/SPEC.md` | 需求的人类可读渲染 + 红线为什么是那几条 + 尚未确定的问题（后两节手写，`spec` 不校验） | 手改的表格（由 json 生成） |
 | `docs/CONVENTIONS.md` | 在本项目里**反着**的通用做法 | 换个产品也成立的规则（那属于 `process/`） |
 | `docs/ARCHITECTURE.md` | **零件之间**：模块边界、顺序契约、缝隙契约、三态落点 | 函数清单、目录树的散文版、需求论证 —— 代码说得出的一律不写 |
 | `docs/SYNC.md` | 本表 | 具体规则 |
