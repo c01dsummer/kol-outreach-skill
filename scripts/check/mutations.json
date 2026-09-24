@@ -302,8 +302,8 @@
       "req": "D6.g",
       "why": "把「还没标记完成的关键词」当成「续跑会去抓的」—— 已经达标、而且每个关键词都问过第一页时，续跑一个请求都不会发，却告诉用户续跑还要花钱，他可能因此不敢续跑，永远拿不到那份已经付过钱的名单",
       "file": "scripts/lib/pipeline.ts",
-      "find": "  if (qualified < state.target_count) return pendingKeywords(state)",
-      "replace": "  if (true) return pendingKeywords(state)"
+      "find": "  if (qualified < state.target_count) return requestableOnResume(state)",
+      "replace": "  if (true) return requestableOnResume(state)"
     },
     {
       "id": "M-P5-m",

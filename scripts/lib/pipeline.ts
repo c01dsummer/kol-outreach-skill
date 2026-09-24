@@ -100,10 +100,18 @@ export function keywordsResumeWillRun(state: TaskState, qualified: number): stri
   // **这一支要排在达标判断之前** —— 排在后面的话，没达标那条路会交回「不在 done 里的」全部，
   // 而调度那边一个都不会抓，两句话当场对不上。
   if (owed === null) return []
-  if (qualified < state.target_count) return pendingKeywords(state)
+  if (qualified < state.target_count) return requestableOnResume(state)
   // F9：达标了也照样去抓**一页都没抓过**的那些 —— 第一页不受达标判断约束。
   const first = new Set(owed)
   return state.tasks.flatMap((t, i) => first.has(i) ? [taskLabel(t, i)] : [])
+}
+
+/**
+ * 续跑时还能请求的任务 —— 判定用调度那一份 `canRequestPage`（ADR-111 第二节）；续跑时手里一律没有令牌。
+ * 与「不在 done 里的」只差一种：抓过页、手里没令牌的 IG 任务，续跑记进 done、一次请求都不发（D6.v）。
+ */
+function requestableOnResume(state: TaskState): string[] {
+  return state.tasks.flatMap((t, i) => canRequestPage(state, i, undefined) ? [taskLabel(t, i)] : [])
 }
 
 /**

@@ -230,7 +230,7 @@ async function run() {
       // ADR-111：IG 抓过页之后，只有手里有这一跑拿到的令牌才能再翻。续跑时遇到抓过页、
       // 还没进 done 的 IG 任务就在这里记进 done、不发请求 —— 同上面那一支：调度不抓的
       // 必须进 done，否则收尾那句话仍把它算进要花钱的那一半（D6.g、ADR-25）。
-      // 判定用中心那一份，收尾那句话与这里共用（ADR-111 第二节）。
+      // 判定用中心那一份，收尾那句话（`keywordsResumeWillRun`）与这里共用（ADR-111 第二节）。
       if (!canRequestPage(state, i, tokens.get(i))) {
         close(i, `  ◦ ${taskLabel(state.tasks[i], i)} → 本次没有可继续的续页令牌（令牌不跨运行），不再翻页`)
         persist()
@@ -330,7 +330,7 @@ async function run() {
     // 再为它请求 —— 当场记进 done，收尾那句话与调度才说同一件事。跑完、达标、预算用尽、
     // 出错都走这里；落盘由下面那次或 main() 的 catch 之后那次负责。
     for (const i of tokens.keys()) {
-      if (!exhausted.has(i)) close(i, `  ◦ ${taskLabel(state.tasks[i], i)} → 续页令牌不跨运行，这个任务本次到此为止`)
+      if (!exhausted.has(i)) close(i, `  ◦ ${taskLabel(state.tasks[i], i)} → 续页令牌不跨运行，不再翻页，续跑也不会再为它请求`)
     }
   }
 
