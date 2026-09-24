@@ -443,7 +443,7 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
  */
 const runOne = async (m: Mut): Promise<Ran> => {
   const orig = readFileSync(m.file, 'utf8')
-  if (!orig.includes(m.find)) return { outcome: 'not-applied', status: null, stopped: false, output: '' }
+  if (!orig.includes(m.find)) return { outcome: 'not-applied', status: null, stopped: false, output: '', ms: 0 }
   beginMutation(m.file, orig)
   try {
     // 写盘也在这一段里面：写盘是先截断再写的，写到一半抛出去（盘满、IO 错）留下的是
@@ -457,6 +457,7 @@ const runOne = async (m: Mut): Promise<Ran> => {
     return {
       outcome: judgeRun(r.status, r.output, verifier, m.kills, r.atStop),
       status: r.status, stopped: r.atStop !== undefined, output: r.output,
+      ms: 0,   // 尚未实现：计时
     }
   } finally {
     restoreMutation()

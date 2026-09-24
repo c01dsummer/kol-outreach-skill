@@ -4850,7 +4850,7 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   // 汇报行：写下去再读回来，五种结论一个不丢。两边各写一份格式的话，
   // 改一边不改另一边的症状是「每一条都没回话」，而人会去翻变异集，不会去翻这个格式
   const ran = (outcome: Outcome, over: Partial<Ran> = {}): Ran =>
-    ({ outcome, status: 1, stopped: false, output: '', ...over })
+    ({ outcome, status: 1, stopped: false, output: '', ms: 0, ...over })
   for (const o of ['caught', 'elsewhere', 'crashed', 'survived', 'not-applied'] as const) {
     eq(`结论「${o}」写下去读回来还是它`, parseReport(reportLine('M-X-a', ran(o))),
       { id: 'M-X-a', ...ran(o) })

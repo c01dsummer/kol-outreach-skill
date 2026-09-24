@@ -63,6 +63,14 @@ export interface Ran {
   stopped: boolean
   /** 验证者说过的话。**只有判 `crashed` 那一档才带回来**，理由在 `reportLine` 上 */
   output: string
+  /**
+   * 跑验证者花了多少毫秒（墙钟，从起验证者到它退出；锚点失效没跑的是 0）。
+   * 点名的都红了、被主动停掉的那几条，量到停下为止。
+   *
+   * 有了它才打得出那个乘法（ADR-99 第八节、第十三节）：每个验证者被几条变异用 × 每条跑多久。
+   * **派工跑的时候它要穿过 worker 的进程边界**，所以和别的字段一样写进汇报行、由 `parseReport` 逐字段验。
+   */
+  ms: number
 }
 
 /**
@@ -113,7 +121,42 @@ export function parseReport(line: string): ({ id: string } & Ran) | undefined {
   if (typeof outcome !== 'string' || !OUTCOMES.includes(outcome)) return undefined
   if (status !== null && typeof status !== 'number') return undefined
   if (typeof stopped !== 'boolean' || typeof output !== 'string') return undefined
-  return { id, outcome: outcome as Outcome, status, stopped, output }
+  // 尚未实现：读回计时（ms 须是有限、非负的数，否则认不出）
+  return { id, outcome: outcome as Outcome, status, stopped, output, ms: 0 }
+}
+
+/** 一个验证者在这一跑里的账：用了几条、实测花了多久 */
+export interface BillRow {
+  /** 验证者的名字（`VERIFIERS` 的键，缺省那个是 `test`） */
+  verifier: string
+  /** 这一跑里由它来验、而且真跑了的变异条数 */
+  count: number
+  /** 这些条实测墙钟合计（毫秒）—— 串行口径：派工并行时整跑的墙钟比它短 */
+  totalMs: number
+  /** 平均每条（毫秒）= totalMs / count */
+  meanMs: number
+}
+
+/**
+ * 按验证者记账 —— 那个一直没打的乘法（ADR-99 第八节欠条）。
+ *
+ * 输入是这一跑里**真跑了**的每一条（锚点失效没跑的由调用方先剔掉）：用的哪个验证者、跑了多少毫秒。
+ * 按验证者分组，交回每组的条数、合计、平均。**合计大的排前面**（同样大时按名字），
+ * 人一眼先看到钱花在哪。没有输入就交回空数组。
+ *
+ * 这只是一个参考数：没有任何检查拿它做判断，规矩也不按秒数拦改动（ADR-97）。
+ * 它回答的是「给这个验证者加一秒，整跑要乘以多少条」—— 答案就是 `count`。
+ */
+export function verifierBill(timed: readonly { verifier: string; ms: number }[]): BillRow[] {
+  throw new Error('尚未实现')
+}
+
+/**
+ * 账单怎么印：每个验证者一行，写出名字、条数、平均每条几秒（保留一位小数）、串行合计，
+ * 以及那个乘法 ——「它每慢 1 秒，整跑串行多 <条数> 秒」。没有行就交回空数组（什么都不印）。
+ */
+export function billLines(rows: readonly BillRow[]): string[] {
+  throw new Error('尚未实现')
 }
 
 /**
