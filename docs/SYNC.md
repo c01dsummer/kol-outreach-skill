@@ -27,7 +27,7 @@
 | **新增红线** | 需求登记表 · **测试** · **变异集** · `docs/CONVENTIONS.md` | 🔒 `audit` 强制红线有测试+变异 |
 | **改评分/分层规则** | `scripts/lib/score.ts` · `scripts/lib/pipeline.ts` · `skill/references/semantic-fit.md` · 测试 | 部分 |
 | **改管线步骤或其顺序** | `scripts/lib/pipeline.ts` · 测试 · **变异集**（顺序有语义，必须有变异守着）· `docs/ARCHITECTURE.md` 顺序契约表 | 🔒 `mutate`（顺序契约表靠人核，ADR-78） |
-| **新增/改名/删除顶层目录或 `docs/` 下的子目录，或者换了运行产物的落点** | `docs/ARCHITECTURE.md`「新东西落在哪个目录」那张表 · `.gitignore`（不进仓库的） · `AGENTS.md`（影响路由时） | ✗ 靠执行（ADR-114） |
+| **新增/改名/删除顶层目录或 `docs/` 下的子目录，或者换了运行产物的落点** | `docs/ARCHITECTURE.md`「新东西落在哪个目录」那张表 · `.gitignore`（不进仓库的） · `scripts/check/jobs-rule.ts` 的 `SKIP`（`.gitignore` 的手抄本） · `AGENTS.md`（影响路由时） | ✗ 靠执行（ADR-114） |
 | **新增/删除 `scripts/` 下的模块** | `docs/ARCHITECTURE.md` 锚点表 · `scripts/check/selfcheck.ts`（可执行文件） | 🔒 `audit`（锚点表靠人核，ADR-78） |
 | **改模块之间的依赖方向** | `docs/ARCHITECTURE.md`（含「一件新工作放哪边」那节，如果判据变了） | ✗ 靠执行（ADR-78） |
 | **改入口参数/退出码/产出文件/字段所有权** | `docs/ARCHITECTURE.md` 缝隙契约 · `skill/SKILL.md` · `README.md` 快速开始 | 部分 |
@@ -57,7 +57,7 @@
 | `docs/requirements.json` | 编号的**唯一真相来源** | 解释、理由、实现方式；**手改 `content_hash`**（派生字段，由 `spec-sync --write` 写、由 `check` 校验）。**没人读又校验不了的元数据一律不留** —— 见 ADR-30 |
 | `docs/SPEC.md` | 需求的人类可读渲染 + 红线为什么是那几条 + 尚未确定的问题（后两节手写，`spec` 不校验） | 手改的表格（由 json 生成） |
 | `docs/CONVENTIONS.md` | 在本项目里**反着**的通用做法 | 换个产品也成立的规则（那属于 `process/`） |
-| `docs/ARCHITECTURE.md` | **零件之间**：模块边界、顺序契约、缝隙契约、三态落点 | 函数清单、目录树的散文版、需求论证 —— 代码说得出的一律不写 |
+| `docs/ARCHITECTURE.md` | **零件之间**：模块边界、顺序契约、缝隙契约、三态落点；新东西落在哪个目录（顶层目录与落点规矩） | 函数清单、逐文件的目录树、需求论证 —— 代码说得出的一律不写 |
 | `docs/SYNC.md` | 本表 | 具体规则 |
 | `docs/business-requirements.md` | 背景、痛点排序、成功指标、论证过程 | 编号定义（那在 json） |
 | `docs/data-source-strategy.md` | 各家 API 调研与选型结论 | 需求 |
