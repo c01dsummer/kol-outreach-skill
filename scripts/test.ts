@@ -680,6 +680,23 @@ suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不�
      keywordsResumeWillRun(st({ offsets: { 0: 20 } }), 99).length, 1)
   eq('已标记完成的本来就不算', keywordsResumeWillRun(st({ done: [0] }), 10).length, 1)
   eq('已达标时，标记完成的也不算 —— 它抓过了', keywordsResumeWillRun(st({ done: [0] }), 99).length, 1)
+  // D6.v：令牌不跨运行 —— 抓过页、不在 done 的 IG 任务续跑一次请求都不发，所以不算进要花钱的那一半
+  // （D6.g 写明的例外）。期望只出自 D6.g、D6.v 原文：同样抓过页的 TikTok 照算（按平台分支不是平台配额，
+  // F9 × P1），一页都没抓过的 IG 照算（第一页保证）。这种任务正常收尾时已进 done，只在进程被硬杀之后出现。
+  {
+    const mixed = st({
+      tasks: [{ keyword: 'tt', dimension: 'category', platform: 'tiktok' },
+              { keyword: 'ig-paged', dimension: 'scene', platform: 'instagram' },
+              { keyword: 'ig-fresh', dimension: 'scene', platform: 'instagram' }],
+      offsets: { 0: 20, 1: 1 },
+    })
+    const left = keywordsResumeWillRun(mixed, 10)
+    eq('没达标：抓过页、没令牌的 IG 任务续跑不会再请求，不算进要花钱的那一半', left.length, 2)
+    ok('没达标：算进去的是抓过页的 TikTok 与没抓过的 IG',
+       left.some(l => l.includes('「tt」')) && left.some(l => l.includes('「ig-fresh」'))
+         && !left.some(l => l.includes('「ig-paged」')))
+    eq('进度口径照旧把没进 done 的 IG 任务列出来', pendingKeywords(mixed).length, 3)
+  }
   // F9.e：整张分页记录表缺失 = 无从确认，不发请求。**不是**读成「都没抓过」去重抓一遍。
   // 没达标那一支也要为空 —— #138 评审之前它交回的是「不在 done 里的」全部，
   // 而调度那边一个都不抓，两句话当场对不上。
@@ -2007,7 +2024,9 @@ suite('U8', '搜索任务展示能指回原任务，配置意图不冒充发现�
   eq('未完成标签逐项保留原序号、维度、平台、原词，完全重复项仍可区分',
      pendingKeywords(st()), labels)
   criterion('U8.a')
-  eq('未达标的续跑标签保留原序号与全部实际待查项', keywordsResumeWillRun(st(), 0), labels)
+  // 任务 2 抓过页、不在 done、是 IG：D6.v 之后续跑不再为它请求（令牌不跨运行），按 U8.b「只包含按既有规则
+  // 会继续搜索的任务」不在这张表里。这一处期望随 D6.v 改过，原先是 `labels` 全部。
+  eq('未达标的续跑标签保留原序号与全部实际待查项', keywordsResumeWillRun(st(), 0), labels.slice(1))
   eq('达标后只剩未抓首页的任务，筛选不重新编号', keywordsResumeWillRun(st(), 50), labels.slice(1))
   criterion('U8.b')
   eq('标签不因 hashtag 配置增添字符，关键词自身的井号原样保留',
