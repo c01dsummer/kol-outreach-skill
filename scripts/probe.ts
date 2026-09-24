@@ -116,4 +116,7 @@ async function main() {
   console.log(stringifyCostJson({ market, results }, budget.view()))
 }
 
-main().catch(e => { console.error(e); process.exit(e instanceof BudgetInputError ? 2 : 1) })
+// F3.c／F3.e：输入问题（BudgetInputError，退出码 2）只写问题本身 —— 内部异常的类名与堆栈对运营没有用，类名还会把
+// 路线、读不出配置这类问题说成预算问题。配置里的问题在 main() 开头那个 try 里抛出，包装时带上了配置路径（F3.d）；
+// 缺 API key 是请求时由 TikHub 抛的，消息里没有配置路径，也用不着。运行中的内部错误（退出码 1）照旧整条打出来。
+main().catch(e => { console.error(e instanceof BudgetInputError ? e.message : e); process.exit(e instanceof BudgetInputError ? 2 : 1) })

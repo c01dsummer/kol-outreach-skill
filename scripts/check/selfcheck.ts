@@ -249,6 +249,24 @@ const extract = (tag: string, disk: number, ledger: string, a: string, b: string
 
 const summaryOf = (stdout: string): any => { try { return JSON.parse(stdout) } catch { return {} } }
 
+// F3.c／F3.d／F3.e：probe 因输入问题以退出码 2 结束时，stderr 不带内部异常的类名与调用堆栈（F3.c 管配置里的问题、F3.e 管缺 key），
+// 配置里的问题还要写出配置路径与问题本身（F3.d）。三条会被不同的代码路径各自弄坏，所以分开认领（process/1-REQUIREMENTS.md）。
+// probe、cost-input、hashtag-route、cost-save-errors 几组各拿它判一类输入问题（配置读不出、预算不合法、初始费用不可用、
+// 路线不合规、缺 API key），判据只此一份。
+// 期望只出自 F3.c 原文与 ADR-112 第六节第一张欠条，没有读 probe.ts 的函数体，也没有照着实现的输出抄：
+//  · 类名：按 JS 的命名惯例认以 `Error` 结尾的标识符 —— 覆盖欠条点名的 `BudgetInputError`，也覆盖换个名字的
+//    同一种泄漏（`TypeError`、`SyntaxError`、`Error: …` 前缀）。给运营看的问题描述用不着这个词
+//  · 调用堆栈：认栈帧的形状「行首空白加 at 」，逐行认（`m` 旗标 —— 不带它只看得到整段的第一行，这半条就成了摆设）
+//  · 配置路径：读作 `--config` 实参那个**文件路径**的原字符串，不是配置里的字段路径。依据：F3.c 把「配置读不出」
+//    列在同一条里，读不出时能指认的只有文件路径；collect 的同类报错也是点名文件（skill/SKILL.md「stderr 提到
+//    memory/creators.json」）。夹具一律传绝对路径，实现照原样打或先 resolve 再打都是同一串
+const probeInputLeak = (stderr: string) => ({
+  className: /\b[A-Za-z]*Error\b/.test(stderr),
+  frames: /^\s+at\s/m.test(stderr),
+})
+// 末 8 行而不是 6 行：泄漏了堆栈时末尾几行全是栈帧，6 行时报错那一句容易被截掉，看不出红在哪
+const stderrTail = (s: string) => JSON.stringify(s.split('\n').filter(Boolean).slice(-8))
+
 // ADR-107/108 的公开账目形状与固定价格；只给调用方明确选择的已知夹具使用。
 // 旧费用未知的夹具故意不调这个函数，不能在写盘辅助里见到缺账就补零。
 const COST_VERSION = 'tikhub-public-20260720-5d52fe8fb109'
@@ -499,6 +517,35 @@ group('probe', [], () => {
     // 旧空数组的输出要求因此不能靠此入口的假 HTTP 响应走到，不伪造不可达的生产输入。
     criterion('P1.i')
   }
+
+  // F3.c／F3.d「配置读不出」那一类：文件不存在、文件在但不是合法 JSON。退出码 2 出自 ADR-108 退出契约表
+  // （probe 的配置问题退出 2），F3.c 也把它列作以退出码 2 结束的输入问题。读不出就无从说是哪一个字段，
+  // 所以问题的措辞不设判据，只要求除了配置路径（和假 fetch 那行接管声明）之外还写着别的 —— 否则只打一个路径
+  // 就能让这条绿，而 F3.d 要的是「配置路径与问题本身」。零请求不在 F3.c／F3.d 里，这里不判
+  const unreadableDir = join(tmp, 'probe-unreadable')
+  mkdirSync(unreadableDir, { recursive: true })
+  const brokenCfg = join(unreadableDir, 'broken.json')
+  writeFileSync(brokenCfg, '{"market": "US", "budget_usd": 0.5, "tasks": [')
+  for (const [what, cfg] of [['文件不存在', join(unreadableDir, 'missing.json')], ['不是合法 JSON', brokenCfg]] as const) {
+    const r = runBoth(`probe 配置读不出：${what}`, [S('probe.ts'), '--config', cfg], unreadableDir,
+      { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_NO_429: '1' })
+    if (!r.ok) continue
+    const leak = probeInputLeak(r.stderr)
+    // 「问题本身」：写着配置路径的那一行，去掉路径之后还得剩下字母或数字 —— 只剩一个冒号不算写了问题。
+    // 这是对「问题本身与配置路径」的一种读法：路径和问题分两行打的实现会在这里红（独立审阅指出，照需求原文收紧）
+    const problem = r.stderr.split('\n').filter(l => l.includes(cfg))
+      .some(l => /[\p{L}\p{N}]/u.test(l.split(cfg).join('')))
+    named('F3.c：probe 的配置读不出以退出码 2 结束时，stderr 不带异常类名与调用栈',
+      r.status === 2 && !leak.className && !leak.frames,
+      `${what}：退出码 ${r.status}、带异常类名=${leak.className}、带栈帧=${leak.frames}，stderr 末几行 ${stderrTail(r.stderr)}`
+      + ' —— F3.c：配置读不出是输入问题，内部异常的类名与堆栈都不该出现')
+    criterion('F3.c')
+    named('F3.d：probe 的配置读不出以退出码 2 结束时，stderr 写出配置路径与问题本身',
+      r.status === 2 && r.stderr.includes(cfg) && problem,
+      `${what}：退出码 ${r.status}、写着配置路径=${r.stderr.includes(cfg)}、路径之外写着问题=${problem}，stderr 末几行 ${stderrTail(r.stderr)}`
+      + ' —— F3.d：配置读不出时，stderr 要写出是哪个配置文件、出了什么问题')
+    criterion('F3.d')
+  }
 })
 
 // ---- IG 分页探针：每一种读法各造一次，尤其是最容易被读成假结论的那几种 ----
@@ -703,6 +750,23 @@ group('cost-input', [], () => {
       if (result.ok) named('原始非法预算不能被浮点舍入、嵌套字段或默认值救活',
         result.status === 2 && fetchAttempts(log).length === 0 && /budget|预算|金额/i.test(result.stderr),
         `${entry} token=${token}, status=${result.status}, attempts=${fetchAttempts(log).length}`)
+      // F3.c／F3.d「配置不合规」那一类（budget_usd 不合法），只管 probe（collect 不在这两条里）。「初始费用不可用」另有夹具。
+      // 问题本身认 `budget_usd` 或「预算／金额」—— 区分大小写，不认裸的 budget：类名 BudgetInputError 本身就含 budget，
+      // 不区分大小写的话，这半条会被要禁掉的那个类名满足
+      if (result.ok && entry === 'probe') {
+        const leak = probeInputLeak(result.stderr)
+        const problem = /budget_usd|预算|金额/.test(result.stderr)
+        named('F3.c：probe 的 budget_usd 不合法以退出码 2 结束时，stderr 不带异常类名与调用栈',
+          result.status === 2 && !leak.className && !leak.frames,
+          `token=${token}、退出码 ${result.status}、带异常类名=${leak.className}、带栈帧=${leak.frames}，stderr 末几行 ${stderrTail(result.stderr)}`
+          + ' —— F3.c：预算不合法是输入问题，内部异常的类名与堆栈都不该出现')
+        criterion('F3.c')
+        named('F3.d：probe 的 budget_usd 不合法以退出码 2 结束时，stderr 写出配置路径与问题本身',
+          result.status === 2 && result.stderr.includes(cfg) && problem,
+          `token=${token}、退出码 ${result.status}、写着配置路径=${result.stderr.includes(cfg)}、写着预算问题=${problem}，stderr 末几行 ${stderrTail(result.stderr)}`
+          + ' —— F3.d：预算不合法时，stderr 要写出是哪个配置文件、预算哪里不对')
+        criterion('F3.d')
+      }
     }
   }
   criterion('D13.a')
@@ -801,6 +865,31 @@ group('cost-input', [], () => {
     noRawRun.status === 2 && noRawRun.stderr.includes('[test-json-capability-disabled]')
       && fetchAttempts(noRawLog).length === 0 && /JSON|精确/.test(noRawRun.stderr),
     `status=${noRawRun.status}, attempts=${fetchAttempts(noRawLog).length}`)
+  // F3.c／F3.d「初始费用不可用」那一类：同一份注入（运行时没有精确 JSON 写出能力），换 probe 跑。
+  // 问题本身沿用上面那条对同一情形的判据（/JSON|精确/，区分大小写 —— 注入标记那行是小写的 json，不会顺带满足）
+  const noRawProbeCfg = join(missingJson, 'probe.json')
+  writeFileSync(noRawProbeCfg, '{"market":"US","budget_usd":0.5,"tasks":[{"keyword":"k","dimension":"category","platform":"tiktok"}]}')
+  const noRawProbe = runBoth('probe 缺少精确 JSON 写出能力', [S('probe.ts'), '--config', noRawProbeCfg], missingJson,
+    { status: 2, soft: [0, 1, 3] }, costEnv(join(missingJson, 'probe-attempts.tsv'), {
+      NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(noRaw).href)}`,
+    }))
+  if (noRawProbe.ok) {
+    const leak = probeInputLeak(noRawProbe.stderr)
+    const problem = /JSON|精确/.test(noRawProbe.stderr.split('\n')
+      .filter(l => !l.startsWith('[fake-fetch]') && !l.includes('[test-json-capability-disabled]'))
+      .join('\n').split(noRawProbeCfg).join(''))
+    const injected = noRawProbe.stderr.includes('[test-json-capability-disabled]')
+    named('F3.c：probe 的初始费用不可用以退出码 2 结束时，stderr 不带异常类名与调用栈',
+      noRawProbe.status === 2 && injected && !leak.className && !leak.frames,
+      `退出码 ${noRawProbe.status}、注入生效=${injected}、带异常类名=${leak.className}、带栈帧=${leak.frames}，stderr 末几行 ${stderrTail(noRawProbe.stderr)}`
+      + ' —— F3.c：初始费用不可用是输入问题，内部异常的类名与堆栈都不该出现')
+    criterion('F3.c')
+    named('F3.d：probe 的初始费用不可用以退出码 2 结束时，stderr 写出配置路径与问题本身',
+      noRawProbe.status === 2 && injected && noRawProbe.stderr.includes(noRawProbeCfg) && problem,
+      `退出码 ${noRawProbe.status}、注入生效=${injected}、写着配置路径=${noRawProbe.stderr.includes(noRawProbeCfg)}、写着问题=${problem}，stderr 末几行 ${stderrTail(noRawProbe.stderr)}`
+      + ' —— F3.d：初始费用不可用时，stderr 要写出是哪个配置文件、出了什么问题')
+    criterion('F3.d')
+  }
 })
 
 group('cost-local', [], () => {
@@ -1524,6 +1613,15 @@ group('cost-save-errors', [], () => {
     if (result.ok) named('真正需要请求时缺 key 是输入错误，零 fetch 且不冒充预算不足',
       result.status === 2 && fetchAttempts(f.log).length === 0 && /TIKHUB_API_KEY|密钥|key/i.test(result.stderr),
       `${entry}: status=${result.status}, attempts=${fetchAttempts(f.log).length}, stderr=${result.stderr}`)
+    // F3.e：缺 API key 只写缺 key 这件事；它不是配置里的问题，不要求写配置路径
+    if (result.ok && entry === 'probe') {
+      const leak = probeInputLeak(result.stderr)
+      named('F3.e：probe 缺 API key 以退出码 2 结束时，stderr 只写缺 key 这件事，不带异常类名与调用栈',
+        result.status === 2 && !leak.className && !leak.frames && /TIKHUB_API_KEY|密钥|key/i.test(result.stderr),
+        `退出码 ${result.status}、带异常类名=${leak.className}、带栈帧=${leak.frames}，stderr 末几行 ${stderrTail(result.stderr)}`
+        + ' —— F3.e：缺 API key 是输入问题，stderr 只写缺 key 这件事，内部异常的类名与堆栈都不该出现')
+      criterion('F3.e')
+    }
   }
   for (const entry of ['collect', 'enrich']) for (const scenario of ['budget', 'change', 'after-http']) {
     const costs = scenario === 'after-http' ? knownCosts(1000, []) : knownCosts(1000, [costEntry(TT_PROFILE, 1000, 1)])
@@ -3396,17 +3494,30 @@ group('hashtag-route', [], () => {
   }
   {
     const cwd = cwdOf('bad-probe'), ledger = join(cwd, 'attempts.tsv')
+    const cfg = cfgOf(cwd, 'htbadprobe', [
+      { keyword: 'htbad-probe-ig', dimension: 'scene', platform: 'instagram' },
+      { keyword: 'htbad-probe-tt', dimension: 'category', platform: 'tiktok', ig_route: 'hashtag' },
+    ])
     const r = runBoth('probe 话题入口：第 2 个任务把 hashtag 写在 TikTok 任务上',
-      [S('probe.ts'), '--config', cfgOf(cwd, 'htbadprobe', [
-        { keyword: 'htbad-probe-ig', dimension: 'scene', platform: 'instagram' },
-        { keyword: 'htbad-probe-tt', dimension: 'category', platform: 'tiktok', ig_route: 'hashtag' },
-      ])], cwd, { status: 2, soft: [0, 1, 3] }, htEnv(ledger))
+      [S('probe.ts'), '--config', cfg], cwd, { status: 2, soft: [0, 1, 3] }, htEnv(ledger))
     if (r.ok) {
       named('IG 话题入口：probe 的 ig_route 不合规，以退出码 2 结束、零请求',
         r.status === 2 && fetchAttempts(ledger).length === 0,
         `退出码 ${r.status}、账本 ${JSON.stringify(fetchAttempts(ledger))} —— D15.j：hashtag 只能写在 Instagram 任务上`)
       named('IG 话题入口：probe 的报错写明第 2 个任务与 ig_route', r.status === 2 && namesTask2(r.stderr),
         `退出码 ${r.status}，stderr 末几行 ${tail(r.stderr)}`)
+      // F3.c／F3.d「路线不合规」那一类：问题本身认 `ig_route`（D15.j 要求点名哪一条不合规），配置路径认 --config 的实参
+      const leak = probeInputLeak(r.stderr)
+      named('F3.c：probe 的 ig_route 不合规以退出码 2 结束时，stderr 不带异常类名与调用栈',
+        r.status === 2 && !leak.className && !leak.frames,
+        `退出码 ${r.status}、带异常类名=${leak.className}、带栈帧=${leak.frames}，stderr 末几行 ${stderrTail(r.stderr)}`
+        + ' —— F3.c：路线不合规是输入问题，内部异常的类名与堆栈都不该出现')
+      criterion('F3.c')
+      named('F3.d：probe 的 ig_route 不合规以退出码 2 结束时，stderr 写出配置路径与问题本身',
+        r.status === 2 && r.stderr.includes(cfg) && r.stderr.includes('ig_route'),
+        `退出码 ${r.status}、写着配置路径=${r.stderr.includes(cfg)}、写着 ig_route=${r.stderr.includes('ig_route')}，stderr 末几行 ${stderrTail(r.stderr)}`
+        + ' —— F3.d：路线不合规时，stderr 要写出是哪个配置文件、哪一条 ig_route 不合规')
+      criterion('F3.d')
     }
   }
   criterion('D15.j')
