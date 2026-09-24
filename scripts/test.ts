@@ -5779,7 +5779,7 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
   ok('写了不成立的 size-ok，即使没超线也失败 —— 否则它会被当成挡箭牌留在历史里', !bad.ok)
 }
 
-// 独立上下文先于实现写成：期望只出自 e234d50 里 TRUNK_CANDIDATES／GitAsk／Baseline／resolveBaseline
+// 独立上下文先于实现写成：期望只出自接口提交里 TRUNK_CANDIDATES／GitAsk／Baseline／resolveBaseline
 // 的契约说明（下文「第 N 步」就是 resolveBaseline 说明里的编号），外加 CONVENTIONS 第十节与 ADR-98
 // 末两节；没读入口 size.ts 里现有的那段实现。写下时函数体只会抛「尚未实现」。
 harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂假的 git 应答，逐步问、答不上来就停')
@@ -5867,6 +5867,14 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
     eq('起点第 2 步答不上来（总则：答不上来就停）→ 无从判断，不当成「不是浅克隆」',
       refusal(r.got), 'cannot-answer')
     eq('起点第 2 步答不上来就停：不再去找主干', r.asked, [Q_HEAD, Q_SHALLOW])
+  }
+  // 契约第 2 步：只有答 false 才往下走。2.15 以前的 git 不认识这个参数，会把它原样打回来、退出 0 ——
+  // 那既不是 true 也不是「答不上来」，当成「不是浅克隆」接着量，就在浅克隆里报一个可能缩水的数（开 PR 前的独立审阅指出）
+  {
+    const r = run(onBranch({ [Q_SHALLOW]: '--is-shallow-repository' }))
+    eq('起点第 2 步把参数原样打回来（旧 git）→ 无从判断，不当成「不是浅克隆」',
+      refusal(r.got), 'cannot-answer')
+    eq('起点第 2 步把参数原样打回来就停：不再去找主干', r.asked, [Q_HEAD, Q_SHALLOW])
   }
 
   // ── 第 3 步：找主干 ──────────────────────────────────────────────
