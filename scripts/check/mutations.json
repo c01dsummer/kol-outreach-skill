@@ -4700,6 +4700,139 @@
       "file": "scripts/providers/tikhub.ts",
       "find": "id: searchPostId('instagram', item?.id),\n      desc: item?.caption_text",
       "replace": "id: searchPostId('instagram', item?.caption?.id),\n      desc: item?.caption_text"
+    },
+    {
+      "id": "M-D15-m",
+      "req": "D15.j",
+      "why": "路线校验放行任何字符串取值 —— 拼错的路线名（比如写成 reels）不报错，任务照走 Reels，运营以为开了话题搜索",
+      "file": "scripts/lib/ig-route.ts",
+      "find": "    if (t.ig_route !== 'hashtag') {",
+      "replace": "    if (typeof t.ig_route !== 'string') {"
+    },
+    {
+      "id": "M-D15-n",
+      "req": "D15.j",
+      "why": "路线校验不看平台 —— TikTok 任务上写了话题路线也放行，配置写错了却没有任何提示",
+      "file": "scripts/lib/ig-route.ts",
+      "find": "    } else if (t.platform !== 'instagram') {",
+      "replace": "    } else if (false) {"
+    },
+    {
+      "id": "M-D15-o",
+      "req": "D15.j",
+      "why": "路线校验不拦含空白的关键词 —— 一个词组被当成话题词发出去，付费请求一个不存在的话题",
+      "file": "scripts/lib/ig-route.ts",
+      "find": "      if (query === '' || /\\s/.test(query)) {",
+      "replace": "      if (query === '') {"
+    },
+    {
+      "id": "M-D15-p",
+      "req": "D15.j",
+      "why": "路线校验判空前没去掉开头的 # —— 关键词只有一个 # 的话题任务被放行，请求参数是空串，付费请求一次空话题",
+      "file": "scripts/lib/ig-route.ts",
+      "find": "      const query = typeof t.keyword === 'string' ? hashtagKeyword(t) : ''",
+      "replace": "      const query = typeof t.keyword === 'string' ? t.keyword : ''"
+    },
+    {
+      "id": "M-D15-q",
+      "req": "D15.k",
+      "why": "话题请求去掉开头所有的井号 —— 需求只去一个，## 开头的关键词被改成另一个话题词去请求",
+      "file": "scripts/lib/ig-route.ts",
+      "find": "  return task.keyword.startsWith('#') ? task.keyword.slice(1) : task.keyword",
+      "replace": "  return task.keyword.replace(/^#+/, '')"
+    },
+    {
+      "id": "M-D15-r",
+      "req": "D15.k",
+      "why": "搜索入口不按路线分派 —— 运营写了话题路线的任务照走 Reels，采集与试探都不是配置里写的那条路",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "    if (task.platform === 'instagram' && task.ig_route === 'hashtag') {",
+      "replace": "    if (false) {"
+    },
+    {
+      "id": "M-D15-s",
+      "req": "D15.k",
+      "why": "话题请求不带 feed_type —— 端点按它自己的缺省排序返回，裁决写的是 top，拿回来的不是说好的那一批",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "{ keyword: hashtagKeyword(task), feed_type: 'top' }",
+      "replace": "{ keyword: hashtagKeyword(task) }"
+    },
+    {
+      "id": "M-D15-t",
+      "req": "D15.k",
+      "why": "话题请求的关键词带着开头的井号 —— 端点收到的不是话题词本身",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "{ keyword: hashtagKeyword(task), feed_type: 'top' }",
+      "replace": "{ keyword: task.keyword, feed_type: 'top' }"
+    },
+    {
+      "id": "M-D6-bd",
+      "req": "D6.w",
+      "why": "话题任务不拦续页 —— 第二页起照样请求话题首页，同一页的钱一次次重花",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      if (offset > 0 || token !== undefined) return { creators: [], raw_count: 0, has_more: false }\n      const raw = await this.get(INSTAGRAM_HASHTAG_ENDPOINT",
+      "replace": "      const raw = await this.get(INSTAGRAM_HASHTAG_ENDPOINT"
+    },
+    {
+      "id": "M-D6-be",
+      "req": "D6.w",
+      "why": "话题页解析不出人时改走 Reels 与账号名兜底 —— 一个话题任务花了两三次请求，来源也混进了别的路线",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      return parseInstagramHashtagPage(raw, task)\n    }",
+      "replace": "      const page = parseInstagramHashtagPage(raw, task)\n      return page.creators.length ? page : this.search({ ...task, ig_route: undefined }, region, 0)\n    }"
+    },
+    {
+      "id": "M-D15-u",
+      "req": "D15.j",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：collect 新建时 ig_route 不合规，以退出码 2 结束、零请求、不建任务目录",
+        "IG 话题入口：collect 新建时的报错写明第 2 个任务与 ig_route",
+        "IG 话题入口：collect 续跑时 task.json 的 ig_route 不合规，以退出码 2 结束、零请求、不留预留",
+        "IG 话题入口：collect 续跑时的报错写明第 2 个任务与 ig_route"
+      ],
+      "why": "collect 不校验路线 —— 配置写错的任务照常建目录、开预算、发请求，运营以为开了话题搜索，钱花在别的路线上",
+      "file": "scripts/collect.ts",
+      "find": "if (badRoutes.length) {\n  console.error(`${productFrom} 里的 ig_route 不合规",
+      "replace": "if (false) {\n  console.error(`${productFrom} 里的 ig_route 不合规"
+    },
+    {
+      "id": "M-D15-v",
+      "req": "D15.j",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：probe 的 ig_route 不合规，以退出码 2 结束、零请求",
+        "IG 话题入口：probe 的报错写明第 2 个任务与 ig_route"
+      ],
+      "why": "probe 不校验路线 —— 试探时照走 Reels 并付费，试探结论说的不是配置里写的那条路",
+      "file": "scripts/probe.ts",
+      "find": "    if (badRoutes.length) throw new Error(`ig_route 不合规：",
+      "replace": "    if (false) throw new Error(`ig_route 不合规："
+    },
+    {
+      "id": "M-D6-bf",
+      "req": "D6.w",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：collect 话题任务收尾那一行说话题路线只取首页，不说没有可继续的令牌"
+      ],
+      "why": "话题任务收尾说「本次没有可继续的续页令牌」—— 话题页的响应其实带着令牌，是这条路线只取首页；运营读到会以为话题页没给令牌、或下次还能接着翻",
+      "file": "scripts/collect.ts",
+      "find": "const why = t.ig_route === 'hashtag' && verdict.stop === 'no-token' ? '话题路线只取首页'",
+      "replace": "const why = false ? '话题路线只取首页'"
+    },
+    {
+      "id": "M-D15-w",
+      "req": "D15.j",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：collect 续跑带 --budget 时 ig_route 不合规，以退出码 2 结束、零请求、不留预留",
+        "IG 话题入口：collect 续跑带 --budget 时 ig_route 不合规，盘上 task.json 原样不动"
+      ],
+      "why": "续跑改额那条路径漏了路线校验 —— 新上限先落了盘，配置写错的任务照常开抓；只带 --resume 的夹具走不到这条路径，看不见",
+      "file": "scripts/collect.ts",
+      "find": "const badRoutes = igRouteProblems(state.tasks)",
+      "replace": "const badRoutes = resume && replacementLimit !== undefined ? [] : igRouteProblems(state.tasks)"
     }
   ],
   "exemptions": [

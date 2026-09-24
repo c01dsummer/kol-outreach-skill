@@ -89,7 +89,7 @@
 上述固定规范中，`/api/v1/instagram/v2/search_reels`、`fetch_hashtag_posts` 与
 `general_search` 的 `get.description` 均声明 **0.002 USD/请求**。这是该快照的声明，
 真实账单未核；既不证明全部端点同价，也不能把历史 `$0.001/请求` 的统一估算说成可靠上界。
-上述为当时文档核对范围；现有八条生产端点的逐端点预算接线契约见 ADR-108，不能用实验端点标价推算其他端点。
+上述为当时文档核对范围；八条缺省生产端点的逐端点预算接线契约见 ADR-108（话题端点接入后按同一机制计价，ADR-112），不能用实验端点标价推算其他端点。
 
 ### Instagram 原批发现路径的样本边界（2026-09-23）
 
@@ -102,7 +102,7 @@ general 的首条另见 `user.follower_count`。这不保证每条都有该字�
 跨词重叠或分页增量，不沿用旧对话中的精确统计。用户后来重新采样，文件保存于
 `output/adiaro-discovery/sample-lInRuK/`；新批是另一组观测，本次不纳入其分析数字，
 也不以新批代替原批的可追溯性。
-V2 hashtag/general 尚未接入采集器；V1 的 `owner` 限制不应成为否定它们的依据。
+V2 general 尚未接入采集器；V2 hashtag 只在运营显式开启（`ig_route: "hashtag"`）时由采集器请求（ADR-112）。V1 的 `owner` 限制不应成为否定它们的依据。
 Reels 对纯图文、轮播及 PhotoMode 的覆盖、`play_count` 的媒体适用范围、匹配与排序规则
 均未核实，不能从接口名称或首条键路径推导排除规则。
 
@@ -228,7 +228,7 @@ recentPosts(handle, platform) → { posts, followers?, following?, source }
 | `/api/v1/instagram/v2/fetch_user_posts` | 生产主页样本 |
 | `/api/v1/instagram/v1/fetch_user_info_by_username_v3` | 生产 profile |
 | `/api/v1/instagram/v1/fetch_user_info_by_username_v2` | 生产 profile 降级 |
-| `/api/v1/instagram/v2/fetch_hashtag_posts` | 仅实验采样，未接入生产 |
+| `/api/v1/instagram/v2/fetch_hashtag_posts` | 生产，只在任务显式写 `ig_route: "hashtag"` 时请求（ADR-112） |
 | `/api/v1/instagram/v2/general_search` | 仅实验采样，未接入生产 |
 
 这支持“该快照中的这七条路径不接受免费额度”，不支持“所有 IG 端点永久不接受”。
@@ -237,10 +237,10 @@ recentPosts(handle, platform) → { posts, followers?, following?, source }
 
 ## 生产端点的固定公开价目（2026-09-23 摘录）
 
-八条生产路径的固定价来自 [TikHub 官方定价资产](https://tikhub.io/_next/static/chunks/16hcexj0jth19.js)
+八条缺省生产路径的固定价来自 [TikHub 官方定价资产](https://tikhub.io/_next/static/chunks/16hcexj0jth19.js)
 （价目更新日 2026-07-20，观察日 2026-09-23）。仓库不再提交 evidence 文件；来源与固定版本见 ADR-107 末尾。
 TikTok 搜索、profile、主页作品三路各 $0.001；IG Reels、账号名搜索、主页作品各 $0.002，
 IG profile 的 v3/v2 两路各 $0.001。它是固定公开基础价，不计优惠，不是账单或未来价格上界。
 同一份资产里 v2 话题端点 `fetch_hashtag_posts` 的一行（$0.002）于 2026-09-24 原样转录进同一版本（ADR-107 末尾）；
-它仍未接入生产，登记价目只是为运营显式开启话题路线（ADR-112）预先备好计价。
+现已接入生产，但只在运营显式开启话题路线时请求（ADR-112）；缺省路线不变。
 生产接线与费用出口按 ADR-108 使用该固定版本逐端点核算；collect/enrich 的请求前持久预留及强制中断边界见 ADR-109，费用占用可恢复不等于业务响应均可恢复。

@@ -13,14 +13,14 @@ Base URL:  https://api.tikhub.io
 费用依据: 按实际端点固定公开基础价估算；不是实际账单
 ```
 
-当前八条生产端点按固定价目计预算：TikTok 三路与 IG 两路 profile 各 $0.001；IG Reels、账号名搜索、主页作品各 $0.002。来源为 [TikHub 官方定价资产](https://tikhub.io/_next/static/chunks/16hcexj0jth19.js)，观察时刻与固定版本见 ADR-107 末尾；不计优惠，不是实付账单或未来价格上界。实验 hashtag/general 不因此成为生产路径。同一价目版本另登记了 v2 话题端点 `fetch_hashtag_posts`（$0.002，同一份资产原样转录，见 ADR-107 末尾）；登记价目不等于接入 —— 采集器目前不请求它，将来也只在运营显式开启时才请求（ADR-112）。
+当前八条缺省生产端点按固定价目计预算：TikTok 三路与 IG 两路 profile 各 $0.001；IG Reels、账号名搜索、主页作品各 $0.002。来源为 [TikHub 官方定价资产](https://tikhub.io/_next/static/chunks/16hcexj0jth19.js)，观察时刻与固定版本见 ADR-107 末尾；不计优惠，不是实付账单或未来价格上界。实验 general 不因此成为生产路径。同一价目版本另登记了 v2 话题端点 `fetch_hashtag_posts`（$0.002，同一份资产原样转录，见 ADR-107 末尾）；**只有运营在任务上显式写 `ig_route: "hashtag"` 时才请求它**，缺省仍走 Reels（D15.j、D15.k，ADR-112）。
 
 ⚠️ **早期样本中的 IG 请求不接受免费额度。** 实测（2026-08-25）：当时采用的 TikTok 端点可用注册赠送的
 free credit 调用；当时测试的 Instagram 端点返回 **402**，提示
 「this endpoint requires payment and does not accept free credit」。
 不接受免费额度的端点需要可用付费余额，已有足额余额无需再次充值。
 不能把上述历史 402 外推成所有 IG 端点或所有账户都必须先充值。
-2026-09-23 核到的公开价目中，本项目五条生产 IG 路径和两条实验发现路径均标记不接受
+2026-09-23 核到的公开价目中，本项目五条缺省生产 IG 路径和两条当时的实验发现路径（话题搜索现已可由运营显式开启，ADR-112）均标记不接受
 免费额度；具体范围、快照日期与来源见 `docs/data-source-strategy.md` 的免费额度补充。
 
 > curl 对这个 host 连接不稳定（LibreSSL SSL_ERROR_SYSCALL 间歇性出现），
@@ -349,12 +349,13 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 
 ## 搜索作品标识与并集（D11）
 
-实际发现路径另存于 `Creator.discovery_sources`（D15）：TikTok 视频搜索、IG Reels、IG 账号名搜索只有真正返回该账号时才记录端点、平台、账号、原词及维度。Reels 空结果后的兜底账号只记账号名搜索；profile 不算发现。`as_hashtag` 不改变现有路径。集合只含已观察来源，旧缺席/空数组读作来源未知，不保证完整历史或某条作品的具体来源；合并与展示规则见 ADR-110。
+实际发现路径另存于 `Creator.discovery_sources`（D15）：TikTok 视频搜索、IG Reels、IG 账号名搜索、IG 话题搜索只有真正返回该账号时才记录端点、平台、账号、原词及维度。Reels 空结果后的兜底账号只记账号名搜索；话题任务（`ig_route: "hashtag"`）只请求话题页首页，请求词去掉一个开头的 `#`、`feed_type=top`，解析不出人也不走兜底，来源里照记原词（D6.w、D15.k）；profile 不算发现。`as_hashtag` 不改变路径，路线只由 `ig_route` 决定。集合只含已观察来源，旧缺席/空数组读作来源未知，不保证完整历史或某条作品的具体来源；合并与展示规则见 ADR-110。
 
 | 搜索来源 | 原始作品 id 字段 | 归一化后的 `RecentPost.id` |
 |---|---|---|
 | TikTok App V3 视频搜索 | `data.search_item_list[].aweme_info.aweme_id`；已有直接作品条目兼容路径仍读该作品的 `aweme_id` | `tiktok:<原始id>` |
 | Instagram V2 Reels 搜索 | `data.data.items[].id`，不使用 `caption.id`、`user.id` 或未核实的其他层级 | `instagram:<原始id>` |
+| Instagram V2 话题搜索（`ig_route: "hashtag"`） | `data.data.items[].id`，同样不使用文案或用户的标识（ADR-112 第五节：4 份样本的首条 `id` 为字符串） | `instagram:<原始id>` |
 
 TikTok 的字段来自交接中的本地调用观察；Instagram 的 2026-09-23 本地键路径只确认
 那次首条存在直接 `id` 键，不证明值非空或所有条目都有 id。归一化仅接收非空白字符串
@@ -376,7 +377,7 @@ TikHub 透传平台原始响应，schema 随端点和版本变化。**首次调�
 
 ```
 1. data.search_item_list      → TikTok 视频搜索
-2. data.data.items            → IG v2 search_reels / search_users
+2. data.data.items            → IG v2 search_reels / search_users / fetch_hashtag_posts
 3. data.user_list / data.users
 4. data.aweme_list            → post 类型，从 .author 提取
 5. data.data.hashtag.edge_hashtag_to_media.edges  → IG v1 hashtag（已弃用）

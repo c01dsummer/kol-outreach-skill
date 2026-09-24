@@ -3283,6 +3283,224 @@ group('d6uv-igpaging', [], () => {
   criterion('D6.v')
 })
 
+// ---- D15.j／D15.k／D6.w：IG 话题入口只由配置显式开启，校验在一切请求之前，probe 与 collect 同一处分派 ----
+group('hashtag-route', [], () => {
+  // **只能端到端跑**：「退出码 2、零请求、不建目录」「续跑也校验」「probe 与 collect 走同一条路线」
+  // 「拿回首页即进 done」都在入口那一层，缺省那个验证者（scripts/test.ts）只够得到
+  // `igRouteProblems` 与 `search()` 本身。独立上下文先于实现写成，没有读 collect.ts、probe.ts。
+  //
+  // 期望一律出自 ADR-112 第二节、D15.j、D15.k、D6.w 原文与假供应商的已知行为（fake-fetch.ts）：
+  //  · 话题页回罐头 igHashtag：3 条（视频、图文、轮播），作者 hashtagreeler（两条）与 hashtagphoto，
+  //    响应里带着令牌；关键词含 `hashtag-nobody` 时回 2 条、一个作者都解析不出
+  //  · 其余 Reels 回罐头 igReels：作者 techwithsarah、privateaccount，每次都给令牌
+  //  · 账本只记 pathname；请求参数从 FAKE_FETCH_COST_EVENTS 的逐次记录里读（同 d6uv-igpaging）
+  // 单价（ADR-107、#167）：话题页与 Reels 各 0.002/次；预算 1 远够，目标 9999 走不到达标。
+  // 每一跑都关掉第 7 次回 429 的触发器，免得多出一行重试。
+  const base = join(tmp, 'hashtag-route')
+  const HT = '/api/v1/instagram/v2/fetch_hashtag_posts'
+  const cwdOf = (name: string): string => {
+    const cwd = join(base, name)
+    mkdirSync(join(cwd, 'memory'), { recursive: true })
+    return cwd
+  }
+  const cfgOf = (cwd: string, product: string, tasks: unknown[]): string => {
+    const f = join(cwd, `${product}.json`)
+    writeFileSync(f, JSON.stringify({ product, market: 'US', target_count: 9999, budget_usd: 1, tasks }))
+    return f
+  }
+  const htEnv = (ledger: string, events?: string): NodeJS.ProcessEnv => ({
+    FAKE_FETCH_LEDGER: ledger, FAKE_FETCH_NO_429: '1',
+    ...(events !== undefined ? { FAKE_FETCH_COST_EVENTS: events } : {}),
+  })
+  /** 某个端点每一次请求带的查询参数，按发出顺序 */
+  const queries = (events: string, endpoint: string): Record<string, string>[] => fileText(events).split('\n')
+    .filter(Boolean)
+    .map((line): any => { try { return JSON.parse(line) } catch { return undefined } })
+    .filter(e => e?.kind === 'fetch' && e.endpoint === endpoint).map(e => e.query ?? {})
+  const hits = (ledger: string, endpoint: string): number =>
+    fetchAttempts(ledger).filter(l => l === `200\t${endpoint}`).length
+  /** 报错写明第 2 个任务（从 1 数、同任务标签「任务 N」；「第 N 个」也认），且点名 ig_route（D15.j） */
+  const namesTask2 = (stderr: string): boolean => /任务\s*2(?!\d)|第\s*2\s*个/.test(stderr) && stderr.includes('ig_route')
+  const taskDirs = (cwd: string, product: string): string[] => existsSync(join(cwd, 'output'))
+    ? readdirSync(join(cwd, 'output')).filter(n => n.startsWith(`${product}-`)) : []
+  const tail = (s: string) => JSON.stringify(s.split('\n').filter(Boolean).slice(-6))
+  /** 来源投影成五元组比：不依赖落盘时对象的键顺序 */
+  const sources = (c: any) => Array.isArray(c?.discovery_sources)
+    ? JSON.stringify(c.discovery_sources.map((s: any) => [s?.platform, s?.handle, s?.keyword, s?.dimension, s?.endpoint]))
+    : String(c?.discovery_sources)
+
+  // (1)–(3) 不合规的配置：三个入口都在建目录、预留与请求之前以退出码 2 结束（D15.j）。
+  //     第 1 个任务一律合规、坏的放第 2 个 —— 「零请求」才分得出「开跑前全部校验」与「抓到那个任务才发现」。
+  //     退出码 2 是下面具名断言点名的东西，所以 soft 放过 0／1／3 由它判（同 cost-input 组）。
+  {
+    const cwd = cwdOf('bad-config'), ledger = join(cwd, 'attempts.tsv')
+    const r = runBoth('collect 话题入口：新建时第 2 个任务的 ig_route 写成 Hashtag',
+      [S('collect.ts'), '--config', cfgOf(cwd, 'htbadcfg', [
+        { keyword: 'htbad-tt-kw', dimension: 'category', platform: 'tiktok' },
+        { keyword: 'htbad-ig-kw', dimension: 'scene', platform: 'instagram', ig_route: 'Hashtag' },
+      ])], cwd, { status: 2, soft: [0, 1, 3] }, htEnv(ledger))
+    if (r.ok) {
+      named('IG 话题入口：collect 新建时 ig_route 不合规，以退出码 2 结束、零请求、不建任务目录',
+        r.status === 2 && fetchAttempts(ledger).length === 0 && taskDirs(cwd, 'htbadcfg').length === 0,
+        `退出码 ${r.status}、账本 ${JSON.stringify(fetchAttempts(ledger))}、任务目录 ${JSON.stringify(taskDirs(cwd, 'htbadcfg'))}`
+        + ' —— D15.j：大小写不同也不是 "hashtag"，要在建任务目录、任何预留与请求之前停下')
+      named('IG 话题入口：collect 新建时的报错写明第 2 个任务与 ig_route', r.status === 2 && namesTask2(r.stderr),
+        `退出码 ${r.status}，stderr 末几行 ${tail(r.stderr)} —— D15.j：要指出是第几个任务、哪一条不合规`)
+    }
+  }
+  {
+    // 续跑：盘上 task.json 本身合规（已知空账、各表齐全），只有第 2 个任务的 ig_route 是 null（JSON 里写得出来的「出现了却不是 hashtag」）。
+    // 第 1 个任务是合规的话题任务：没有这道校验时续跑照常开抓。
+    const f = costFixture('htbadresume', knownCosts(1_000_000, []), { budget_usd: 1, target_count: 9999,
+      tasks: [
+        { keyword: '#htresume-ok', dimension: 'scene', platform: 'instagram', ig_route: 'hashtag' },
+        { keyword: 'htresume-bad-kw', dimension: 'scene', platform: 'instagram', ig_route: null },
+      ], done: [], offsets: {}, pages: {}, answered: {}, found: {} })
+    const r = runBoth('collect 话题入口：续跑的 task.json 里第 2 个任务的 ig_route 是 null',
+      [S('collect.ts'), '--resume', f.taskDir], f.cwd, { status: 2, soft: [0, 1, 3] }, htEnv(f.log))
+    if (r.ok) {
+      const st = jsonFile(f.task)
+      named('IG 话题入口：collect 续跑时 task.json 的 ig_route 不合规，以退出码 2 结束、零请求、不留预留',
+        r.status === 2 && fetchAttempts(f.log).length === 0 && st?.requests === 0
+          && st?.cost_ledger?.pending === undefined,
+        `退出码 ${r.status}、账本 ${JSON.stringify(fetchAttempts(f.log))}、盘上 requests=${st?.requests}、`
+        + `pending=${JSON.stringify(st?.cost_ledger?.pending)} —— D15.j：续跑同样在任何预留与请求之前停下`)
+      named('IG 话题入口：collect 续跑时的报错写明第 2 个任务与 ig_route', r.status === 2 && namesTask2(r.stderr),
+        `退出码 ${r.status}，stderr 末几行 ${tail(r.stderr)}`)
+    }
+  }
+  {
+    // 续跑带 --budget：这条路径在开抓前会把新上限落盘（D13.j），只带 --resume 的上一个夹具走不到。
+    // 盘上同一份 task.json（上限 $1、空账）；--budget 3 不少于当前占用，D13.j 本会接受 —— 拒绝只能来自路线校验。
+    const f = costFixture('htbadresumebudget', knownCosts(1_000_000, []), { budget_usd: 1, target_count: 9999,
+      tasks: [
+        { keyword: '#htresume-ok', dimension: 'scene', platform: 'instagram', ig_route: 'hashtag' },
+        { keyword: 'htresume-bad-kw', dimension: 'scene', platform: 'instagram', ig_route: null },
+      ], done: [], offsets: {}, pages: {}, answered: {}, found: {} })
+    const before = fileText(f.task)
+    const r = runBoth('collect 话题入口：续跑带 --budget，task.json 里第 2 个任务的 ig_route 是 null',
+      [S('collect.ts'), '--resume', f.taskDir, '--budget', '3'], f.cwd, { status: 2, soft: [0, 1, 3] }, htEnv(f.log))
+    if (r.ok) {
+      const st = jsonFile(f.task)
+      named('IG 话题入口：collect 续跑带 --budget 时 ig_route 不合规，以退出码 2 结束、零请求、不留预留',
+        r.status === 2 && fetchAttempts(f.log).length === 0 && st?.requests === 0
+          && st?.cost_ledger?.pending === undefined,
+        `退出码 ${r.status}、账本 ${JSON.stringify(fetchAttempts(f.log))}、盘上 requests=${st?.requests}、`
+        + `pending=${JSON.stringify(st?.cost_ledger?.pending)} —— D15.j：续跑改额同样在任何预留与请求之前停下`)
+      named('IG 话题入口：collect 续跑带 --budget 时 ig_route 不合规，盘上 task.json 原样不动',
+        r.status === 2 && fileText(f.task) === before,
+        `退出码 ${r.status}、盘上 budget_usd=${st?.budget_usd}、limit_micro_usd=${st?.cost_ledger?.limit_micro_usd}`
+        + ' —— D15.j 把整次调用当输入问题以退出码 2 拒绝；改额是这次调用的一部分，'
+        + '同 D13 的口径（有未结项时「显式改额以退出码 2 拒绝」），被拒的调用不带着新上限落盘')
+    }
+  }
+  {
+    const cwd = cwdOf('bad-probe'), ledger = join(cwd, 'attempts.tsv')
+    const r = runBoth('probe 话题入口：第 2 个任务把 hashtag 写在 TikTok 任务上',
+      [S('probe.ts'), '--config', cfgOf(cwd, 'htbadprobe', [
+        { keyword: 'htbad-probe-ig', dimension: 'scene', platform: 'instagram' },
+        { keyword: 'htbad-probe-tt', dimension: 'category', platform: 'tiktok', ig_route: 'hashtag' },
+      ])], cwd, { status: 2, soft: [0, 1, 3] }, htEnv(ledger))
+    if (r.ok) {
+      named('IG 话题入口：probe 的 ig_route 不合规，以退出码 2 结束、零请求',
+        r.status === 2 && fetchAttempts(ledger).length === 0,
+        `退出码 ${r.status}、账本 ${JSON.stringify(fetchAttempts(ledger))} —— D15.j：hashtag 只能写在 Instagram 任务上`)
+      named('IG 话题入口：probe 的报错写明第 2 个任务与 ig_route', r.status === 2 && namesTask2(r.stderr),
+        `退出码 ${r.status}，stderr 末几行 ${tail(r.stderr)}`)
+    }
+  }
+  criterion('D15.j')
+
+  // (4) 合规的 collect：两个话题任务 ＋ 一个没写 ig_route、写了 as_hashtag 的 IG 对照任务。
+  {
+    const cwd = cwdOf('collect'), ledger = join(cwd, 'attempts.tsv'), events = join(cwd, 'fetch-events.jsonl')
+    const r = runBoth('collect 话题入口：两个话题任务与一个 Reels 对照任务',
+      [S('collect.ts'), '--config', cfgOf(cwd, 'htcollect', [
+        { keyword: '#htselfcare', dimension: 'scene', platform: 'instagram', ig_route: 'hashtag' },
+        { keyword: '#hashtag-nobody', dimension: 'audience', platform: 'instagram', ig_route: 'hashtag' },
+        { keyword: 'htplain-kw', dimension: 'category', platform: 'instagram', as_hashtag: true },
+      ])], cwd, { status: 0 }, htEnv(ledger, events))
+    if (r.ok) {
+      const dir1 = summaryOf(r.stdout).dir
+      const st = typeof dir1 === 'string' ? jsonFile(join(cwd, dir1, 'task.json')) : undefined
+      const raw = typeof dir1 === 'string' ? jsonFile(join(cwd, dir1, 'creators.raw.json')) : undefined
+      const people: any[] = Array.isArray(raw) ? raw : []
+      const person = (h: string) => people.find(c => c?.platform === 'instagram' && c?.handle === h)
+      // 推导：话题任务只请求首页、每页一次请求（D6.w）→ 恰好 2 次话题页；请求参数 keyword 去掉一个开头的 #、
+      //   feed_type=top（D15.k）；不交回令牌、也不带令牌（D6.w）。任务顺序不在这里验，按关键词排序后比
+      const htQ = queries(events, HT).map(q => JSON.stringify([q.keyword, q.feed_type, q.pagination_token ?? null])).sort()
+      const wantQ = [['htselfcare', 'top', null], ['hashtag-nobody', 'top', null]].map(q => JSON.stringify(q)).sort()
+      named('IG 话题入口：collect 每个话题任务恰好一次话题页请求，keyword 去掉开头的 #、feed_type 为 top、不带令牌',
+        hits(ledger, HT) === 2 && JSON.stringify(htQ) === JSON.stringify(wantQ),
+        `话题页 ${hits(ledger, HT)} 次，参数 ${JSON.stringify(htQ)}，账本 ${JSON.stringify(fetchAttempts(ledger))}`)
+      // 推导：hashtag-nobody 那一页有条目却一个作者都解析不出 —— Reels 这样会改搜账号名（D6.k），话题路线不会（D6.w）；
+      //   全跑唯一可能走兜底的就是它，所以账号名搜索应为 0。话题任务不走 Reels：Reels 只该出现对照任务的关键词
+      const reelsQ = queries(events, IG_REELS).map(q => q.keyword)
+      named('IG 话题入口：collect 话题页解析不出人也不改搜账号名，话题任务一次 Reels 都不发',
+        hits(ledger, IG_USERS) === 0 && reelsQ.every(k => k === 'htplain-kw'),
+        `账号名搜索 ${hits(ledger, IG_USERS)} 次，Reels 请求的关键词依次是 ${JSON.stringify(reelsQ)}`)
+      // 对照：ig_route 缺席照旧走 Reels，as_hashtag 不切换路线（D15.k）
+      named('IG 话题入口：collect 没写 ig_route 的 IG 任务照走 Reels，as_hashtag 不切换路线',
+        reelsQ.includes('htplain-kw') && !queries(events, HT).some(q => String(q.keyword).includes('htplain')),
+        `Reels 关键词 ${JSON.stringify(reelsQ)}，话题页关键词 ${JSON.stringify(queries(events, HT).map(q => q.keyword))}`)
+      // 推导：拿回首页、不交回令牌（D6.w）→ 按 D6.u「响应没有令牌」当页记进 done；pages 只数真的拿回的页（D6.h）、
+      //   answered 数真发出的请求（D6.s）、found 数供应商返回的条目（D6.l）：igHashtag 3 条、hashtag-nobody 2 条
+      //   —— 解析不出人也照数条目，D6.w「如实记」
+      const books = JSON.stringify([st?.pages?.[0], st?.pages?.[1], st?.answered?.[0], st?.answered?.[1],
+        st?.found?.[0], st?.found?.[1]])
+      named('IG 话题入口：collect 话题任务拿回首页即进 done，pages 与 answered 各记 1，found 记条目数',
+        st?.done?.includes(0) === true && st?.done?.includes(1) === true && books === JSON.stringify([1, 1, 1, 1, 3, 2]),
+        `盘上 done=${JSON.stringify(st?.done)}，两个话题任务的 [pages, pages, answered, answered, found, found]=${books}`)
+      // 原词保留（ADR-112 第二节）：来源、source_keyword 照用任务关键词原样，只有请求参数去掉 #；端点是话题页（D15.a）
+      const want = (h: string) => JSON.stringify([['instagram', h, '#htselfcare', 'scene', HT]])
+      named('IG 话题入口：collect 话题账号的来源是话题端点与原关键词，source_keyword 照用原词',
+        ['hashtagreeler', 'hashtagphoto'].every(h => sources(person(h)) === want(h) && person(h)?.source_keyword === '#htselfcare'),
+        `hashtagreeler 来源 ${sources(person('hashtagreeler'))}、source_keyword ${JSON.stringify(person('hashtagreeler')?.source_keyword)}；`
+        + `hashtagphoto 来源 ${sources(person('hashtagphoto'))}`)
+      // 任务标签照用原关键词（D15.k、U8）：格式同 collect 组那条
+      const progress = r.stderr.split('\n').filter(l => l.trimStart().startsWith('✓'))
+      named('IG 话题入口：collect 话题任务的进度标签照用原关键词',
+        progress.some(l => l.includes('任务 1 · scene · instagram · 关键词「#htselfcare」')),
+        `搜索完成进度实际为 ${JSON.stringify(progress)}`)
+      // 推导：话题首页的响应里其实带着令牌（ADR-112 第五节），是这条路线只取首页（D6.w）；提示只说本地看到的事（D6.u）
+      //   —— 收尾那一行说「话题路线只取首页」，不说「本次没有可继续的续页令牌」
+      const doneLine = progress.find(l => l.includes('关键词「#htselfcare」'))
+      named('IG 话题入口：collect 话题任务收尾那一行说话题路线只取首页，不说没有可继续的令牌',
+        doneLine !== undefined && doneLine.includes('话题路线只取首页') && !doneLine.includes('续页令牌'),
+        `那一行是 ${JSON.stringify(doneLine)}`)
+      // 续跑要认得出话题任务，路线就得跟着任务落盘（D15.j 说续跑也校验 task.json 里的 ig_route）
+      named('IG 话题入口：task.json 原样留着每个任务的 ig_route',
+        JSON.stringify((Array.isArray(st?.tasks) ? st.tasks : []).map((t: any) => t?.ig_route ?? null))
+          === JSON.stringify(['hashtag', 'hashtag', null]),
+        `盘上 tasks=${JSON.stringify(st?.tasks)}`)
+    }
+  }
+
+  // (5) 合规的 probe：同一个 search() 分派，试探与采集走同一条路线（D15.k）。
+  //     推导：probe 每个任务只试探首页（discovery 组：一个 IG 任务一次搜索请求）→ 账本恰好一行话题页
+  {
+    const cwd = cwdOf('probe'), ledger = join(cwd, 'attempts.tsv'), events = join(cwd, 'fetch-events.jsonl')
+    const r = runBoth('probe 话题入口：一个话题任务',
+      [S('probe.ts'), '--config', cfgOf(cwd, 'htprobe', [
+        { keyword: '#htprobe', dimension: 'audience', platform: 'instagram', ig_route: 'hashtag' },
+      ])], cwd, { status: 0 }, htEnv(ledger, events))
+    if (r.ok) {
+      const results = summaryOf(r.stdout).results
+      const sample: any[] = Array.isArray(results?.[0]?.sample) ? results[0].sample : []
+      const sent = queries(events, HT).map(q => [q.keyword, q.feed_type])
+      named('IG 话题入口：probe 与 collect 同一处分派，话题任务试探也只请求一次话题页',
+        JSON.stringify(fetchAttempts(ledger)) === JSON.stringify([`200\t${HT}`])
+          && JSON.stringify(sent) === JSON.stringify([['htprobe', 'top']]),
+        `账本 ${JSON.stringify(fetchAttempts(ledger))}，话题页参数 ${JSON.stringify(sent)}`)
+      named('IG 话题入口：probe 试探出的账号来源是话题端点与原关键词',
+        sample.length > 0 && sample.every(c =>
+          sources(c) === JSON.stringify([['instagram', c?.handle, '#htprobe', 'audience', HT]])),
+        `样本来源 ${JSON.stringify(sample.map(sources))}`)
+    }
+  }
+  criterion('D15.k', 'D6.w', 'D15.a')
+})
+
 // ---- P5.i：一次都没查到人的平台，不得从报告上静默消失 ----
 group('p5i-platform', [], () => {
   // 这一条**只能端到端跑**：`meta.platforms` 的接线在 `render.ts` 里，缺省那个验证者

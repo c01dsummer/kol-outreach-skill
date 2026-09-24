@@ -31,6 +31,7 @@ import {
   persistListAndStatus, saveCostCheckpoint,
 } from './lib/task.js'
 import { creatorKey, textProblem } from './lib/types.js'
+import { igRouteProblems } from './lib/ig-route.js'
 import type { Creator, TaskState } from './lib/types.js'
 
 /**
@@ -89,6 +90,13 @@ const badProduct = textProblem(state.product)
 if (badProduct) {
   console.error(`${productFrom} 里的 product ${badProduct} —— 它要用作任务目录名，` +
                 `也要记进跨任务记忆的「为哪个产品推荐过」。先给它一个名字再跑。`)
+  process.exit(2)
+}
+
+// D15.j：路线不合规就在建目录、预留与请求之前停下 —— 新建与续跑都查（续跑读的是盘上的 task.json）
+const badRoutes = igRouteProblems(state.tasks)
+if (badRoutes.length) {
+  console.error(`${productFrom} 里的 ig_route 不合规：\n  ${badRoutes.join('\n  ')}`)
   process.exit(2)
 }
 
@@ -304,8 +312,10 @@ async function run() {
         if ('next' in verdict) tokens.set(i, verdict.next)
         else {
           tokens.delete(i)
-          const why = { empty: '本页 0 条', unparsed: '本页解析不出作者', 'no-token': '本次没有可继续的续页令牌',
-            cap: `已达页数上限 ${MAX_PAGES} 页或已抓页数无从确认` }[verdict.stop]
+          // 话题页的响应里其实带着令牌，是这条路线只取首页（D6.w）—— 不说成「没有可继续的令牌」
+          const why = t.ig_route === 'hashtag' && verdict.stop === 'no-token' ? '话题路线只取首页'
+            : { empty: '本页 0 条', unparsed: '本页解析不出作者', 'no-token': '本次没有可继续的续页令牌',
+                cap: `已达页数上限 ${MAX_PAGES} 页或已抓页数无从确认` }[verdict.stop]
           finish(t, i, `，${why}，不再翻页`)
         }
       } else if (!raw_count || !has_more) {

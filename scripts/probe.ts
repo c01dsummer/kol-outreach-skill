@@ -21,6 +21,7 @@ import { readCostDocument, readCostLimit, stringifyCostJson, type CostState } fr
 import { extractEmail } from './lib/email.js'
 import type { SearchTask } from './lib/types.js'
 import { taskLabel } from './lib/task-label.js'
+import { igRouteProblems } from './lib/ig-route.js'
 
 const cfgIndex = process.argv.indexOf('--config')
 const cfgPath = process.argv[cfgIndex + 1]
@@ -46,6 +47,9 @@ async function main() {
   let budget: Budget
   try {
     cfg = readCostDocument<ProbeConfig>(readFileSync(cfgPath, 'utf8'))
+    // D15.j：路线不合规在开预算、发请求之前就停下（退出码 2，零请求）
+    const badRoutes = igRouteProblems(cfg.tasks)
+    if (badRoutes.length) throw new Error(`ig_route 不合规：${badRoutes.join('；')}`)
     // D13.a：只在缺席时默认；显式 null、字符串与超精度原 token 均交给共同边界拒绝。
     const absent = cfg.budget_usd === undefined
     const limit = absent ? parseUsdMicros('0.5') : readCostLimit(cfg)

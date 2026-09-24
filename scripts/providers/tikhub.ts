@@ -5,6 +5,7 @@ import { Budget, BudgetInputError } from '../lib/budget.js'
 import { CostError } from '../lib/cost-ledger.js'
 import { extractEmail } from '../lib/email.js'
 import { searchPostId } from '../lib/posts.js'
+import { hashtagKeyword } from '../lib/ig-route.js'
 
 const BASE = 'https://api.tikhub.io'
 const TIKTOK_SEARCH_ENDPOINT = '/api/v1/tiktok/app/v3/fetch_video_search_result'
@@ -14,7 +15,7 @@ const INSTAGRAM_USERS_ENDPOINT = '/api/v1/instagram/v2/search_users'
 const INTERVAL_MS = 150
 export const TIKTOK_POSTS_ENDPOINT = '/api/v1/tiktok/app/v3/fetch_user_post_videos_v3'
 export const INSTAGRAM_POSTS_ENDPOINT = '/api/v1/instagram/v2/fetch_user_posts'
-/** IG 话题页。解析器已就位，采集入口还不请求它 —— 只由运营显式开启（ADR-112）。 */
+/** IG 话题页。只有任务显式写 `ig_route: "hashtag"` 时才请求它，缺省走 Reels（D15.k，ADR-112）。 */
 export const INSTAGRAM_HASHTAG_ENDPOINT = '/api/v1/instagram/v2/fetch_hashtag_posts'
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -57,7 +58,7 @@ export function pickList(data: any, path: string): any[] {
   const d = data?.data ?? data
   const cands = [
     d?.search_item_list,                        // ★ TikTok 视频搜索的真实结果
-    d?.data?.items,                             // ★ IG v2 search_reels / search_users
+    d?.data?.items,                             // ★ IG v2 search_reels / search_users / fetch_hashtag_posts
     d?.user_list, d?.users, d?.aweme_list,
     d?.data?.hashtag?.edge_hashtag_to_media?.edges,   // IG v1 hashtag（已弃用，见下）
     d?.data, d?.items, d?.result,
@@ -91,7 +92,7 @@ export function isInstagramVideo(item: unknown): boolean {
 
 /**
  * IG 话题页（`fetch_hashtag_posts`）的一份响应 → 一页搜索结果（ADR-112 第二、五节）。
- * **只解析**：不发请求、不分派，采集入口还不调用它（第四节第 2 步）。
+ * **只解析**：不发请求；请求与分派在 `TikHub.search()` 最前面（D15.k）。
  *
  * - 列表按 `pickList` 探测（话题页在 `data.data.items`）；认不出列表时照 `pickList` 抛出。
  * - `raw_count` 是列表条目数（供应商返回的条目，不是人数）。`has_more` 为 `false`，
@@ -388,8 +389,21 @@ export class TikHub {
 
   // ---------- 统一入口 ----------
 
-  /** `token`：上一页交回的 IG 续页令牌（ADR-111）；TikTok 不用它，入口只在同一次运行内传。 */
+  /**
+   * `token`：上一页交回的 IG 续页令牌（ADR-111）；TikTok 不用它，入口只在同一次运行内传。
+   *
+   * **话题路线在最前面分派**（D15.k、D6.w，ADR-112 第二节）：`task.ig_route === 'hashtag'` 的 Instagram 任务
+   * 请求 `INSTAGRAM_HASHTAG_ENDPOINT`，参数 `keyword` 为 `hashtagKeyword(task)`、`feed_type` 为 `top`，
+   * 用 `parseInstagramHashtagPage` 解析。只请求首页：`offset > 0` 或带着令牌时直接交回空页、不发请求；
+   * 解析不出人也不改搜账号名。probe 与 collect 都经这里，所以试探与采集走同一条路线。
+   */
   async search(task: SearchTask, region: string, offset: number, token?: string): Promise<SearchPage> {
+    if (task.platform === 'instagram' && task.ig_route === 'hashtag') {
+      // 只请求首页：话题页不交回续页令牌，翻不翻另议（ADR-112 第二节）；也不走账号名兜底（D6.w）
+      if (offset > 0 || token !== undefined) return { creators: [], raw_count: 0, has_more: false }
+      const raw = await this.get(INSTAGRAM_HASHTAG_ENDPOINT, { keyword: hashtagKeyword(task), feed_type: 'top' })
+      return parseInstagramHashtagPage(raw, task)
+    }
     if (task.platform === 'tiktok') return this.searchTikTok(task, region, offset)
     // 续页：带上上一页交回的令牌再问一次 Reels，不看 offset。**不走兜底** —— 兜底只属于第一页，
     // 续页解析不出人就如实交回这一页（ADR-111 第二节）。

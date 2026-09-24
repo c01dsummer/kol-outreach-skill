@@ -34,6 +34,7 @@ interface Creator {
     dimension: Dimension
     endpoint: '/api/v1/tiktok/app/v3/fetch_video_search_result'
       | '/api/v1/instagram/v2/search_reels' | '/api/v1/instagram/v2/search_users'
+      | '/api/v1/instagram/v2/fetch_hashtag_posts'   // 只在任务写了 ig_route: "hashtag" 时（D15.k）
   }> // D15：实际返回该账号的路径；缺席或空数组表示来源未知
 
   // 内容样本 —— Phase 04 语义判断的原料。搜索命中的那几条作品。
@@ -59,6 +60,7 @@ interface SearchTask {
   dimension: Dimension
   platform: Platform
   as_hashtag?: boolean  // 配置元数据；当前 TikHub 不据此切换端点，不证明实际发现路径
+  ig_route?: 'hashtag'  // IG 发现路线，只由运营显式写；缺席走 Reels。不合规时入口以退出码 2 拒绝（D15.j）
 }
 
 interface SearchPage {
@@ -69,6 +71,7 @@ interface SearchPage {
 }
 
 // 当前采集入口要求实现。token 是上一页交回的 IG 续页令牌，可选；采集入口只在同一次运行内传它（ADR-111）
+// ig_route 为 hashtag 的 IG 任务在这里最前面分派到话题页，只取首页、不走兜底（D15.k、D6.w）；probe 与 collect 共用
 search(task: SearchTask, region: string, offset: number, token?: string): Promise<SearchPage>
 profile(handle: string, platform: Platform): Promise<Partial<Creator>>
 
@@ -116,7 +119,7 @@ recentPosts(handle: string, platform: Platform): Promise<{
 | `post_count` | `videoCount` | `media_count` |
 | `bio_links` | `[bioLink.link]` ← 包成数组 | `bio_links` ← 已是数组 |
 | `user_id` | — | `pk` |
-| `recent_posts[].id` | `tiktok:` + 搜索作品 `aweme_info.aweme_id` | `instagram:` + Reels item 直接 `id` |
+| `recent_posts[].id` | `tiktok:` + 搜索作品 `aweme_info.aweme_id` | `instagram:` + Reels 或话题页（`ig_route: "hashtag"`）item 直接 `id` |
 
 **`bio_links` 必须统一成数组**，即使源数据只有单个值。跨平台同人识别依赖这个字段，两边形状不一致会导致漏识别。
 
