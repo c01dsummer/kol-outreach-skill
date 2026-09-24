@@ -67,6 +67,8 @@ export interface Ran {
   /**
    * 跑验证者花了多少毫秒（墙钟，从起验证者到它退出；锚点失效没跑的是 0）。
    * 点名的都红了、被主动停掉的那几条，量到停下为止。
+   * **必须是有限、非负的数**：0 合法（锚点失效那一档写的就是 0），带小数也合法；
+   * 读回来时不是这样的一行认不出（`parseReport`），不替它转换、不兜底成 0。
    *
    * 有了它才打得出那个乘法（ADR-99 第八节、第十三节）：每个验证者被几条变异用 × 每条跑多久。
    * **派工跑的时候它要穿过 worker 的进程边界**，所以和别的字段一样写进汇报行、由 `parseReport` 逐字段验。
@@ -122,7 +124,7 @@ export function parseReport(line: string): ({ id: string } & Ran) | undefined {
   if (typeof outcome !== 'string' || !OUTCOMES.includes(outcome)) return undefined
   if (status !== null && typeof status !== 'number') return undefined
   if (typeof stopped !== 'boolean' || typeof output !== 'string') return undefined
-  // 计时同样逐字段验：有限、非负的数。写的一侧交了 NaN／Infinity 时线上是 null，手写的 1e999 读回来是 Infinity，都认不出
+  // 计时同样逐字段验（契约在 `Ran.ms`）。写的一侧交了 NaN／Infinity 时线上是 null，手写的 1e999 读回来是 Infinity，都认不出
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return undefined
   return { id, outcome: outcome as Outcome, status, stopped, output, ms }
 }
@@ -133,7 +135,10 @@ export interface BillRow {
   verifier: string
   /** 这一跑里由它来验、而且真跑了的变异条数 */
   count: number
-  /** 这些条实测墙钟合计（毫秒）—— 串行口径：派工并行时整跑的墙钟比它短 */
+  /**
+   * 这些条的墙钟逐条相加（毫秒）。**不是串着跑要花多久**：派工并行时各条互相抢核，
+   * 每一条都比串着跑时偏长；而整跑的墙钟又比这个和短。单跑一次的样本，不是区间。
+   */
   totalMs: number
   /** 平均每条（毫秒）= totalMs / count */
   meanMs: number
@@ -162,8 +167,13 @@ export function verifierBill(timed: readonly { verifier: string; ms: number }[])
 }
 
 /**
- * 账单怎么印：每个验证者一行，写出名字、条数、平均每条几秒（保留一位小数）、串行合计，
+ * 账单怎么印：每个验证者一行，写出名字、条数、平均每条几秒（保留一位小数）、
+ * 逐条合计几秒（四舍五入到整秒）与约几分钟（保留一位小数），
  * 以及那个乘法 ——「它每慢 1 秒，整跑串行多 <条数> 秒」。没有行就交回空数组（什么都不印）。
+ *
+ * **不写成等式。** 平均和合计各自取整，「条数 × 平均」与合计常差零点几秒（7 条、平均 1.3 秒，
+ * 合计却是 9 秒）；写成「× … = …」就是一句自己对不上的算式。
+ * 合计叫「逐条合计」不叫「串行合计」，理由在 `BillRow.totalMs`。
  */
 export function billLines(rows: readonly BillRow[]): string[] {
   return rows.map(r =>
