@@ -5564,6 +5564,19 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
       eq('兜底照常发了两次', calls().length, 2)
       eq('走了兜底的那一页没有令牌', page.next_token, undefined)
     }
+    // 空白令牌：一个请求都不发、当场报错。请求参数里的空串会被丢掉，发出去就只带 keyword ——
+    // 把首页当续页再买一遍，钱照付（评审指出）。报错而不是交回空页：交回空页会被入口读成「本页 0 条」，把调用方的错藏起来
+    for (const blank of ['', '   ']) {
+      const budget = fundedBudget()
+      const { fake, calls } = canned([withToken(reelsWith(2), 'tok')])
+      let threw = false
+      await withFetch(fake, async () => {
+        try { await new TikHub('k', budget).search(igTask, 'US', 2, blank) } catch { threw = true }
+      })
+      eq(`空白令牌 ${JSON.stringify(blank)} 一个请求都不发`, calls().length, 0)
+      eq(`空白令牌 ${JSON.stringify(blank)} 不计费`, budget.count, 0)
+      ok(`空白令牌 ${JSON.stringify(blank)} 当场报错，不静默交回空页`, threw)
+    }
     // 没有令牌时，第二页照旧一个请求都不发（④ 的形状，令牌参数明写缺席）
     {
       const { fake, calls } = canned([withToken(reelsWith(2), 'tok')])
