@@ -167,9 +167,11 @@ data.data.items[].like_count         ⚠️ 可能是 null（作者隐藏赞数�
 
 ⚠️ **当前实现、历史样本与未知边界分别记。** 下面的样本观察不是端点的穷尽保证。
 
-1. **我们只取一页。** 采集入口只要首页：首页只发 `keyword` 一个参数，第 2 页起直接返回空，不白花请求。
-   provider 已经能带上 IG 续页令牌（`pagination_token`）再问、并把响应里的下一个令牌交回，
-   但采集入口还不传令牌 —— 翻不翻、翻到哪停在 ADR-111 的后两步接上之前一律不翻。
+1. **顺着续页令牌翻，页数随达标走**（D6.u、D6.v，ADR-111）。首页只发 `keyword`；之后带上一页响应交回的
+   `pagination_token` 再问，没达标就继续翻、达标即停，单个任务仍受 4 页上限约束。
+   本页 0 条、解析不出作者、响应没给令牌或令牌只有空白，就在这一页停下 —— 这只说明**本次没有可继续的令牌**，
+   不说明服务端已经没有更多。走了账号名兜底的那一页不带令牌。**令牌只在同一次运行内有效**，不写进 `task.json`：
+   一次运行结束时还握着令牌的任务记进 `done`，续跑不会再为已经抓过页的 IG 任务请求。
    ⚠️ **「它没有分页游标」那句话是错的，2026-09-22 真跑一次验掉了。** 那句话原本写在
    这里，证据只有一句「响应只有 `count` 和 `items`」—— 而那次真调用打出的键路径里，
    **`data.data` 的兄弟位置上就有一个 `data.pagination_token`**。`pickList` 只取
@@ -303,7 +305,7 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 | `v3/get_hashtag_posts` | — | 此路径在该固定快照中未找到；不推断它在所有版本或当前服务中不存在 |
 | `v2/search_users` | `keyword` | 未声明分页参数；不能据此断言一次返回全部匹配用户 |
 | `v3/search_users` | `query` | `rank_token` |
-| `v2/search_reels` | `keyword` | `pagination_token`；历史 `smoothie` 探针有链式翻页增量，当前采集器只取首页 |
+| `v2/search_reels` | `keyword` | `pagination_token`；历史 `smoothie` 探针有链式翻页增量；采集器按令牌翻页，令牌不跨运行（ADR-111） |
 | `v2/general_search` | `keyword` | `pagination_token`；已有用户首条字段路径摘要，尚未接入采集器 |
 | `v1`／`v2` `user_id_to_username` | `user_id` | 未声明分页参数 |
 
@@ -332,7 +334,7 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 |---|---|---|
 | 发现主路径 | 视频搜索 `fetch_video_search_result` | **Reels 搜索 `v2/search_reels`** |
 | 结果路径 | `data.search_item_list[]` | `data.data.items[]` |
-| 分页 | ✅ `offset` + `has_more` | 端点**支持**游标翻页（`pagination_token`，实测有效）；⚠️ **而我们的代码今天不跟游标、只取一页** —— 那是我们自己的做法。另外端点会漂，见上 |
+| 分页 | ✅ `offset` + `has_more` | 端点**支持**游标翻页（`pagination_token`，实测有效）；采集器顺着它翻、页数随达标走，令牌只在一次运行内有效（ADR-111）。另外端点会漂，见上 |
 | 关键词长度 | 2–3 词的自然短语作为起点 | 可先试短词；历史单例不证明词组必为 0，以本次试探为准 |
 | bio 字段名 | `signature` | `biography` |
 | bio 完整度 | 早期搜索样本未取得，当前需补 profile | 早期 Reels 样本未取得，当前需补 profile；不外推所有发现端点 |

@@ -68,7 +68,7 @@ interface SearchPage {
   next_token?: string   // IG 续页令牌：Reels 响应的 data.pagination_token；缺席 = 这次没给（ADR-111）
 }
 
-// 当前采集入口要求实现。token 是上一页交回的 IG 续页令牌，可选；采集入口目前还不传
+// 当前采集入口要求实现。token 是上一页交回的 IG 续页令牌，可选；采集入口只在同一次运行内传它（ADR-111）
 search(task: SearchTask, region: string, offset: number, token?: string): Promise<SearchPage>
 profile(handle: string, platform: Platform): Promise<Partial<Creator>>
 
