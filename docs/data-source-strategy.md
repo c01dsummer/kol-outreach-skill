@@ -101,11 +101,13 @@
 确实丢了（ADR-101 第十五节）。原始响应只在本机，不进仓库。
 
 列表路径均为 `data.data.items`，条目都没有 `media` 包层。24 份逐条核过：每条都有顶层 `id` 与 `user.username`；
-Reels/general 的文案在 `caption.text`（Reels 有 4 条缺），hashtag 在 `caption_text`；`user.follower_count` 只在 general 上有，
-每条都是数值。这只说明这两个词首页上字段在不在，不说明值的含义。
+Reels/general 的文案在 `caption.text`（Reels 有 4 条不是字符串），hashtag 在 `caption_text`；`user.follower_count`
+只在 general 上是数值（64 条全是），Reels 与 hashtag 上没有一条是数值，字段在不在没核。
+这只说明这两个词首页上字段的有无与类型，不说明值的含义。
 
 零成本核对（ADR-101 第十五节；两个词、只有首页、两批合计不到 4 分钟、没有粉丝数）：
-- Reels 96 条全是视频；hashtag 191 条里 97 条是图片或轮播，这些条目的 `play_count` 是 0（假零），`taken_at` 是字符串；
+- Reels 96 条全是视频；hashtag 191 条里 97 条是图片或轮播，这些条目的 `play_count` 是 0（假零）；
+  hashtag 的 `taken_at` 连视频条目也是字符串，不能当图文标记；
 - 同一请求（同端点、同关键词）重跑，Reels 作者重叠只有 0.21–0.71，hashtag 0.62–1.00；
 - hashtag 的作者两个词都 100% 不在 Reels 与 general 里，而 hashtag 自己重跑冒出的新作者只占 0–22%；
 - IG 两个词之间作者没有交集（三路分开算与合起来算都是 0）。
@@ -163,7 +165,8 @@ recentPosts(handle, platform) → { posts, followers?, following?, source }
 - 当前没有外部 `enrich` 供应商；邮箱验证和受众地域仍明确缺失
 
 搜索作品标识补充（2026-09-23）：用户本地 IG 探针的首条键路径为
-`data.data.items[0].id`，未见 `media` 包层；这只确认该条的路径，不保证所有条目的值可用。
+`data.data.items[0].id`，未见 `media` 包层；这只确认该条的路径，不保证所有条目的值可用
+（`selfcare`／`journaling` 两批首页后来已逐条核过顶层 `id`，见上文「Instagram 发现路径的两批样本」）。
 适配层据此读取 item 直接 `id`，TikTok 读取 `aweme_info.aweme_id`（直接条目兼容路径为
 `aweme_id`）。可用值写为带平台前缀的 `RecentPost.id`；合页和同人合并按标识稳定取并集，
 首次记录优先，缺标识的作品逐条保留。完整边界见

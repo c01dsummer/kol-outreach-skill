@@ -313,7 +313,7 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 | `v2/search_users` | `keyword` | 未声明分页参数；不能据此断言一次返回全部匹配用户 |
 | `v3/search_users` | `query` | `rank_token` |
 | `v2/search_reels` | `keyword` | `pagination_token`；历史 `smoothie` 探针有链式翻页增量；采集器按令牌翻页，令牌不跨运行（ADR-111） |
-| `v2/general_search` | `keyword` | `pagination_token`；已有用户首条字段路径摘要，尚未接入采集器 |
+| `v2/general_search` | `keyword` | `pagination_token`；两批首页已逐条核过字段（见下文），尚未接入采集器 |
 | `v1`／`v2` `user_id_to_username` | `user_id` | 未声明分页参数 |
 
 ### V2 发现路径的样本（2026-09-23 采）
@@ -331,8 +331,8 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 
 表内 item 子路径省略共同前缀 `data.data.items[0].`。这里的 `id` 不加 `media` 包层，
 也不使用 `user.id` 或 `caption.id` 代替作品标识。两批 24 份首页已在本机零成本逐条核过（ADR-101 第十五节）：
-- 每条都有顶层 `id` 与 `user.username`，条目都没有 `media` 包层；文案路径除 4 条 Reels 缺 `caption.text` 外都有；
-  `user.follower_count` 只在 general 上有，每条都是数值；
+- 每条都有顶层 `id` 与 `user.username`，条目都没有 `media` 包层；文案除 4 条 Reels 的 `caption.text` 不是字符串外都是字符串；
+  `user.follower_count` 只在 general 上是数值（64 条全是），Reels 与话题页上没有一条是数值，字段在不在没核；
 - 媒体字段（`media_type`／`product_type`／`is_video`）逐条数过；`play_count` 只数了非视频条目；
 - 同词重跑的作者重叠、跨路线独有与两词交集也算了：话题页作者两个词都不在 Reels 与 general 里；
   Reels 同一请求重跑漂得很厉害；两个词之间作者没有交集。
