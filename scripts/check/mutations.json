@@ -4933,7 +4933,7 @@
     {
       "id": "M-D16-l",
       "req": "D16.g",
-      "why": "同一个任务只报第一个坏字段 —— 改完一个字段再跑，又被同一个任务拦下",
+      "why": "同一个任务的关键词坏了就不再看维度 —— 几个字段都坏时少报一处，改完一个字段再跑，又被同一个任务拦下",
       "file": "scripts/lib/search-tasks.ts",
       "find": "    }\n    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {",
       "replace": "    } else if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {"
@@ -4953,6 +4953,70 @@
       "file": "scripts/lib/search-tasks.ts",
       "find": "    const { keyword, dimension, platform } = t as Record<string, unknown>",
       "replace": "    const { keyword, dimension, platform } = t as Record<string, unknown>\n    if (typeof keyword === 'string') (t as Record<string, unknown>).keyword = keyword.trim()"
+    },
+    {
+      "id": "M-D16-p",
+      "req": "D16.d",
+      "why": "没写维度的任务照常付费采集 —— 缺席被当成了一个合规的维度，评分里静默没有维度加分（P1：缺 dimension 不补成任何一个维度）",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {",
+      "replace": "    if (dimension !== undefined && !(DIMENSIONS as readonly unknown[]).includes(dimension)) {"
+    },
+    {
+      "id": "M-D16-q",
+      "req": "D16.h",
+      "why": "任务列表校验把路线也判了 —— 写着 ig_route 的合规 TikTok 任务被多点名一句，入口一并写出路线问题时同一处报两遍，合规的任务被指出",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {",
+      "replace": "    if (platform === 'tiktok' && 'ig_route' in (t as object)) out.push(`${at} 的 ig_route 只能写在 Instagram 任务上`)\n    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {"
+    },
+    {
+      "id": "M-D16-r",
+      "req": "D16.c",
+      "why": "没写的字段在报错里写成读到了 null —— 用户分不出没写与写了 null（P1）",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "v === undefined ? '缺席' :",
+      "replace": "v === undefined ? '是 null' :"
+    },
+    {
+      "id": "M-D16-s",
+      "req": "D16.d",
+      "why": "没写的字段在报错里写成读到了字符串「缺席」—— 与真写了这两个字的那一句一字不差（P1）",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "v === undefined ? '缺席' :",
+      "replace": "v === undefined ? '是 \"缺席\"' :"
+    },
+    {
+      "id": "M-D16-t",
+      "req": "D16.b",
+      "why": "读到的 null 在报错里写成缺席 —— 写了 null 与没写分不出（P1）",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "v === undefined ? '缺席'",
+      "replace": "v == null ? '缺席'"
+    },
+    {
+      "id": "M-D16-u",
+      "req": "D16.b",
+      "why": "报错里的任务序号从 0 数 —— 与采集输出的任务标签对不上（U8.a）",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "taskOrdinal(i)",
+      "replace": "String(i)"
+    },
+    {
+      "id": "M-D16-v",
+      "req": "D16.b",
+      "why": "同一个值出现两次时后一个按前一个的位置点名 —— 第 4 个报成第 2 个，后面那一处永远不被点名",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "taskOrdinal(i)",
+      "replace": "taskOrdinal(tasks.indexOf(t))"
+    },
+    {
+      "id": "M-D16-w",
+      "req": "D16.c",
+      "why": "读到的字符串在报错里不带引号 —— 读到的文字 7 与数字 7、文字 null 与 null 分不出",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "是 ${JSON.stringify(v)}",
+      "replace": "是 ${String(v)}"
     },
     {
       "id": "M-F3-a",
