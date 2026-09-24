@@ -4478,12 +4478,11 @@
       "req": "D6.v",
       "by": "selfcheck",
       "kills": [
-        "预算不足收尾时手里还握着令牌的 IG 任务记进 done",
-        "预算不足收尾那句话不把握着令牌的 IG 任务算进要抓的关键词"
+        "预算不足收尾时手里还握着令牌的 IG 任务记进 done"
       ],
-      "why": "一次运行结束时手里还握着令牌的 IG 任务不记进完成列表 —— 续跑不会再为它请求，收尾那句话却仍把它算进要花钱的关键词",
+      "why": "一次运行结束时手里还握着令牌的 IG 任务不记进完成列表 —— 续跑不会再为它请求，进度里却仍把它列成没跑完的关键词，用户以为续跑还能接着翻",
       "file": "scripts/collect.ts",
-      "find": "      if (!exhausted.has(i)) close(i, `  ◦ ${taskLabel(state.tasks[i], i)} → 续页令牌不跨运行，这个任务本次到此为止`)\n",
+      "find": "      if (!exhausted.has(i)) close(i, `  ◦ ${taskLabel(state.tasks[i], i)} → 续页令牌不跨运行，不再翻页，续跑也不会再为它请求`)\n",
       "replace": "      void i\n"
     },
     {
