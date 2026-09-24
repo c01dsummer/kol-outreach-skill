@@ -123,7 +123,7 @@
 | 顺序契约 | 位置 | 错了会怎样 | 守它的变异 |
 |---|---|---|---|
 | 同人识别 → 合并 → 粉丝闸门 → 记忆过滤 | `scripts/lib/pipeline.ts` | 闸门跑在合并之前，「TikTok 3000 + IG 3000、合起来够线」的人被提前丢掉；记忆过滤跑在闸门之前，`filtered_contacted` 把连闸门都过不了的人也算进去，向用户虚报打扰规模 | M-P1-g M-P4-b |
-| 保留原任务下标 → 再筛选可展示的标签 | `scripts/lib/pipeline.ts` | 剩余任务按新位置重新编号，用户不能把提示指回原任务 | M-U8-a M-U8-b |
+| 保留原任务下标 → 再筛选可展示的标签 | `scripts/lib/pipeline.ts` | 剩余任务按新位置重新编号，用户不能把提示指回原任务 | M-U8-a M-U8-b M-U8-o |
 | 实际返回账号时记录来源 → 合页/同人合并保留 → probe 与交付展示 | `scripts/providers/tikhub.ts`、`scripts/lib/pipeline.ts`、`scripts/lib/identity.ts`、`scripts/probe.ts`、`scripts/lib/rows.ts` | 配置替代真实来源、首次或后页观察被吞、关联账号来源丢失，或保存后到交付时消失 | M-D15-a M-D15-b M-D15-d M-D15-e M-D15-f M-D15-g M-D15-i |
 | `finalize` 不得就地修改传入的累加器 | `scripts/lib/pipeline.ts` | 「累加器只增不减」退回成依赖调用方记得先落盘 —— ADR-08 那个数据丢失 bug 的形状 | M-D6-c |
 | 算分 → 分层 → 地域降级 → 风险降级 → 排序 | `scripts/lib/pipeline.ts` | 降级跑在 `tierOf` 之前会被重新计算的 tier 覆盖，地域不达标或高风险的人照样留在 A 级被直接发信；排序跑在降级之前，A 区里混着已经掉到 B 的人 | M-F5-a M-F8-a M-U1-b |
@@ -133,7 +133,7 @@
 | 保存任务预留 → 发请求；保存真实终态 → 读正文或重试 | `scripts/lib/budget.ts`、`scripts/providers/tikhub.ts` | 请求先发会留下费用丢失窗口；保存失败后继续读正文或请求，会把本地错误当成供应商重试条件 | M-D14-a M-D14-b M-D14-c M-D14-d M-D14-e |
 | 恢复未结项先拒绝付费与改额；保存失败先锁定本运行 | `scripts/lib/budget.ts`、`scripts/collect.ts`、`scripts/enrich.ts` | 丢掉未结项会重新释放可花额度；费用失败若进入常规收尾，会被成功输出或后续记忆错误盖掉 | M-D14-f M-D14-h M-D14-i M-D14-j |
 | 费用检查点保留盘上业务状态；完成页或账号后再保存业务结果 | `scripts/lib/task.ts`、`scripts/collect.ts`、`scripts/enrich.ts` | 提前保存去重声明会替尚未写入的名单背书；只保存费用会丢掉已完成页与账号的业务进度 | M-D14-g M-P3-f M-D6-o |
-| 作者累加器落盘 → 才推进同一页的分页进度 | `scripts/collect.ts`（`persist()`） | 反过来的话，两次写之间被打断或累加器写失败时，盘上的分页进度已经前进而这一页的作者没存下：TikTok 续跑跳过这一页，IG 丢掉这个任务唯一的一页（D6.t，ADR-113） | M-D6-ac |
+| 作者累加器落盘 → 才推进同一页的分页进度 | `scripts/collect.ts`（`persist()`） | 反过来的话，两次写之间被打断或累加器写失败时，盘上的分页进度已经前进而这一页的作者没存下：TikTok 续跑跳过这一页，IG 丢掉这一页、续跑也不再为这个任务请求（令牌不跨运行，D6.v）（D6.t，ADR-113） | M-D6-ac |
 | 硬来收尾：**收掉各 worker 底下的验证者那一组 → 才删隔离目录** | `scripts/check/jobs-rule.ts` | 反过来的话，刀落下之前那几组还能往一棵正在被删的树里写，盘上重新长出半成品，而「收干净了」那句已经说出口 —— 静默；丢掉按组那一半就回到「硬杀必漏一批跑着被改过源码的进程」 | M-H40-g M-H40-h |
 
 <!-- END:ORDER -->

@@ -942,6 +942,10 @@ group('cost-resume', [], () => {
         && state?.answered?.[0] === 1 && state?.answered?.[1] === 1 && state?.answered?.[2] === 1
         && state?.requests === 3,
       `attempts=${JSON.stringify(fetchAttempts(skipped.log))}, task=${JSON.stringify(state)}`)
+    // 期望出自 D6.n 原文「done 数组中的索引被跳过」：跳过就是不再经手，不会被再记一次完成。
+    named('续跑不把 done 里已有的任务再记一遍',
+      Array.isArray(state?.done) && new Set(state.done).size === state.done.length,
+      `盘上 done=${JSON.stringify(state?.done)} —— 同一个下标出现两次，说明已完成的任务又被调度了一遍`)
     criterion('D6.n')
   }
   const bad = knownCosts(5000, [costEntry(TT_SEARCH, 1001, 1)])
@@ -2623,6 +2627,13 @@ group('f9', [], () => {
             searchHits(legacyLedger) === 0,
             `供应商收到了 ${searchHits(legacyLedger)} 次关键词搜索`
             + ' —— 这个目录里哪些词查过是无从确认的，照第一页重抓等于把已经付过钱的那几页再买一遍')
+      // 期望出自 F9.e 原文「不得读作『都查过了』」：done 就是「查完了」（D6.n），
+      // 这个目录的第一跑没把任何词记完成（上面那个 if 的前提），续跑也不许记。
+      const legacyAfter = jsonFile(taskPath)
+      named('分页记录表整张缺失时，续跑不把任何关键词记成已完成',
+            Array.isArray(legacyAfter?.done) && legacyAfter.done.length === 0,
+            `盘上 done=${JSON.stringify(legacyAfter?.done)} —— 无从确认哪些词查过，记进 done 就是读成了「都查过了」，`
+            + 'F9.e 逐字禁的第二种误读；这些词此后再也不会被碰')
       named('分页记录表整张缺失时，收尾那句话说得出「无从确认」',
             again.stderr.includes('无从确认') && !again.stderr.includes('采集与补全都已跑完'),
             // 认代价那句话的三种写法，**不认「续跑」两个字** —— 那会先抓到入口打的
@@ -3002,7 +3013,7 @@ group('d6k-igfallback', [], () => {
       named('IG 兜底撞上预算：这个任务不进 done，续跑还能再碰它',
             !bstate.done.includes(0) && bstate.answered?.[0] >= 1,
             `盘上 done=${JSON.stringify(bstate.done)}、answered=${JSON.stringify(bstate.answered)}`
-            + ' —— reels 页恒 has_more:false，把预算用尽吞成正常返回就会当场把它标记完成，'
+            + ' —— 走了兜底的那一页不带续页令牌，把预算用尽吞成正常返回就会当场把它标记完成，'
             + '追加预算续跑时它再也不会被碰，而它是这个词唯一还能找到人的那条路')
       named('IG 兜底撞上预算：不说「续跑不产生新的请求」',
             !burnRun.stderr.includes('续跑不产生新的请求'),
@@ -3016,6 +3027,260 @@ group('d6k-igfallback', [], () => {
   criterion('D6.j')
   criterion('D6.k')
   criterion('D6.l')
+})
+
+// ---- D6.u／D6.v：IG Reels 顺着续页令牌翻页，令牌只在一次运行内用 ----
+group('d6uv-igpaging', [], () => {
+  // **只能端到端跑**：「下一页拿什么去请求」「一次运行结束时手里的令牌怎么处置」都是入口脚本的
+  // 调度，缺省那个验证者（scripts/test.ts）够不到；而 D6.v 说的正是**跨运行**的事。
+  //
+  // 期望值一律从需求原文与假供应商的已知行为推出来，推导写在每条断言旁边
+  // （process/4-VERIFY.md「expected 不许来自运行结果」）。用到的假供应商行为（fake-fetch.ts）：
+  //  · 关键词含 `force-paged` 的 Reels：不带令牌回第 1 页（作者 pager1）并给 `page-2`；
+  //    带 `page-2` 回第 2 页并给 `page-3`；带 `page-3` 回第 3 页、**不再给令牌**
+  //  · 其余 Reels 回罐头 `igReels`：每次同样 2 个作者、每次都给同一个令牌 `fake-token-for-selfcheck`
+  //  · 账本（FAKE_FETCH_LEDGER）只记 pathname、**不带查询串** —— 令牌带没带只能从
+  //    FAKE_FETCH_COST_EVENTS 那份逐次记录的 `query` 里读（同 crash-resume A 读 offset 的先例）
+  // 单价（ADR-107/108）：IG Reels 0.002/次、TikTok 搜索 0.001/次、profile 0.001/次；
+  // 页数上限 4（D6.h 的 `MAX_PAGES`，对外契约）。额度按「已占用 + 这一次 ≤ 上限」放行，
+  // 恰好花完那一次照样放行（d6h-pagecap 夹具 a：0.003 正好 3 次 0.001 的搜索）。
+  // 每一跑都关掉第 7 次回 429 的触发器 —— IG 翻页让请求数变多，碰上它就多出一行重试。
+  //
+  // 旧行为（入口没接令牌：IG 每个任务只取一页、第二页起一个请求都不发）下，夹具 1、2、4
+  // 各有一条会红。夹具 3 的「一次请求都不发」那一半**分不出**旧行为 —— 旧行为本来就不为
+  // 第二页发请求；能分出来的是同一条里的记账那一半（没拿回页，pages 就不许动，D6.h）。
+  // 请求数那一半守的是另一种错法：接上了令牌、续跑时却不带令牌退回首页重抓（D6.u 末句、D6.v）。
+  const igBase = join(tmp, 'igpaging')
+  const TOKEN = 'fake-token-for-selfcheck'
+  const igCwd = (name: string): string => {
+    const cwd = join(igBase, name)
+    mkdirSync(join(cwd, 'memory'), { recursive: true })
+    return cwd
+  }
+  /** 目标一律 9999：罐头里的人远凑不够，达标那条路走不到，停下的理由只剩令牌、上限与预算 */
+  const igCfg = (cwd: string, name: string, budget: number, tasks: unknown[]): string => {
+    const f = join(cwd, `${name}.json`)
+    writeFileSync(f, JSON.stringify({
+      product: name, market: 'US', target_count: 9999, budget_usd: budget, tasks,
+    }))
+    return f
+  }
+  const igEnv = (ledger: string, events?: string): NodeJS.ProcessEnv => ({
+    FAKE_FETCH_LEDGER: ledger, FAKE_FETCH_NO_429: '1',
+    ...(events !== undefined ? { FAKE_FETCH_COST_EVENTS: events } : {}),
+  })
+  /** 每一次 Reels 请求带的令牌，按发出顺序；没带（缺这个参数或空串）记 null */
+  const reelsTokens = (events: string): (string | null)[] => fileText(events).split('\n')
+    .filter(Boolean)
+    .map((line): any => { try { return JSON.parse(line) } catch { return undefined } })
+    .filter(e => e?.kind === 'fetch' && e.endpoint === IG_REELS)
+    .map(e => typeof e.query?.pagination_token === 'string' && e.query.pagination_token !== ''
+      ? e.query.pagination_token as string : null)
+  /** 账本里某个端点的 200 行数 */
+  const hits = (ledger: string, endpoint: string): number =>
+    fetchAttempts(ledger).filter(l => l === `200\t${endpoint}`).length
+  /** 收尾那句「续跑要不要花钱」—— 两种说法认一种（同 memory 组的认法） */
+  const resumeLine = (stderr: string): string | undefined =>
+    stderr.split('\n').find(l => /续跑不产生新的请求|续跑会继续发请求/.test(l))
+  /** 把「本地这一次没拿到令牌」说成「服务端那边已经没有了」的那一类说法（D6.u 的措辞约束） */
+  const NOT_LOCAL = /没有更多|没更多|无更多|穷尽|没有下一页|无下一页|最后一页|到底了/
+  const taskOf = (cwd: string, dir: unknown): any =>
+    typeof dir === 'string' ? jsonFile(join(cwd, dir, 'task.json')) : undefined
+
+  // (1) 顺着令牌翻，响应不再给令牌就停。
+  //     推导：force-paged 第 1、2 页各交回一个令牌、第 3 页不交回 → 第 1 次不带、第 2 次带 page-2、
+  //     第 3 次带 page-3；第 3 页「响应没有令牌」（D6.u 列的停止条件之一）→ 当页记进 done、
+  //     不再发第 4 次 → 恰好 3 次 Reels、pages 记 3（三页都真的拿回了，D6.h）。
+  //     预算 1 远够 3 × 0.002 + 3 个人的 profile，目标 9999 走不到达标 —— 能让它停的只有令牌。
+  {
+    const cwd = igCwd('chain')
+    const ledger = join(cwd, 'attempts.tsv'), events = join(cwd, 'fetch-events.jsonl')
+    // 每次请求出去之前把盘上的 task.json 抄一份。只看收尾那一份的话，「途中把令牌写进去、
+    // 进 done 时再删掉」的写法照样干净 —— 而 D6.u 说的是令牌不写进 task.json，不是「最后删掉」。
+    // 写法照 cost-resume 那个 observer：挂在假 fetch 外面一层，只读盘、不改行为。
+    const outDir = join(cwd, 'output'), snaps = join(cwd, 'task-at-fetch.txt')
+    const observer = join(cwd, 'observe-task-at-fetch.mjs')
+    writeFileSync(observer, `import { readFileSync, readdirSync, appendFileSync } from 'node:fs'; `
+      + `import { join } from 'node:path'; `
+      + `const previous = globalThis.fetch; globalThis.fetch = async (...args) => { `
+      + `let ds = []; try { ds = readdirSync(${JSON.stringify(outDir)}) } catch {} `
+      + `for (const d of ds) { try { appendFileSync(${JSON.stringify(snaps)}, `
+      + `readFileSync(join(${JSON.stringify(outDir)}, d, 'task.json'), 'utf8').replace(/\\n/g, '') + '\\n') } catch {} } `
+      + `return previous(...args) };`)
+    const chain = runBoth('collect IG 续页夹具 1：force-paged 的词顺着令牌翻',
+      [S('collect.ts'), '--config', igCfg(cwd, 'igchain', 1,
+        [{ keyword: 'force-paged-kw', dimension: 'scene', platform: 'instagram' }])],
+      cwd, { status: 0 }, { ...igEnv(ledger, events),
+        NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(observer).href)}` })
+    if (chain.ok) {
+      const dir1 = summaryOf(chain.stdout).dir
+      const st = taskOf(cwd, dir1)
+      const toks = reelsTokens(events)
+      named('IG 续页带上一页交回的令牌：第 1 次不带，第 2、3 次依次带 page-2、page-3',
+        JSON.stringify(toks) === JSON.stringify([null, 'page-2', 'page-3']),
+        `Reels 请求带的令牌依次是 ${JSON.stringify(toks)} —— 只取一页的话后两页一次都没问；`
+        + '不带令牌重问的话拿回的永远是第 1 页，钱花了、人一个没多')
+      named('IG 响应不再给令牌就停：恰好 3 次 Reels 搜索，pages 记 3，任务进 done',
+        hits(ledger, IG_REELS) === 3 && st?.pages?.[0] === 3 && st?.done?.includes(0) === true,
+        `Reels ${hits(ledger, IG_REELS)} 次，盘上 pages=${JSON.stringify(st?.pages)}、`
+        + `done=${JSON.stringify(st?.done)} —— 第 3 页没交回令牌，本次就没有可继续的东西了，`
+        + '不记进 done 的话续跑那句话会把它算进要花钱的那一半')
+      // 这一跑真的握过 page-2、page-3 两个令牌、也真的走到了「响应不再给令牌」那一页，
+      // 下面两条才有东西可测；没走到的话上面两条已经红过了
+      if (toks.includes('page-3')) {
+        const during = fileText(snaps).split('\n').filter(Boolean)
+        const final = typeof dir1 === 'string' ? fileText(join(cwd, dir1, 'task.json')) : ''
+        const leaked = [...during, final].filter(t => t.includes('page-2') || t.includes('page-3'))
+        // 前提：第 2、3 次 Reels 发出之前第 1 页已经落盘（D6.t），所以途中至少抄到两份
+        named('IG 续页令牌只在内存里：抓取途中与收尾后的 task.json 都找不到令牌字符串',
+          during.length >= 2 && final !== '' && leaked.length === 0,
+          `途中抄到 ${during.length} 份、收尾那份${final === '' ? '读不出来' : '读得出来'}，`
+          + `其中 ${leaked.length} 份带着 page-2／page-3 —— D6.u：令牌只在同一次运行内有效，`
+          + '写进 task.json 就会被续跑拿去用，而跨运行的令牌能不能用没有任何样本（ADR-111）')
+        const bad = chain.stderr.match(NOT_LOCAL)?.[0]
+        named('IG 没有可继续的令牌而停时，提示说的是令牌，不说服务端已经没有更多',
+          /令牌/.test(chain.stderr) && bad === undefined,
+          `提示里${/令牌/.test(chain.stderr) ? '提到了令牌' : '一处「令牌」都没提'}`
+          + `${bad === undefined ? '' : `，还出现了「${bad}」`}；相关行：`
+          + `${JSON.stringify(chain.stderr.split('\n').filter(l =>
+              l.includes('force-paged-kw') || l.includes('令牌') || NOT_LOCAL.test(l)))}`
+          + ' —— D6.u：提示只说本地看到的事（本次没有可继续的令牌），服务端还有没有，我们不知道')
+      }
+    }
+  }
+
+  // (2) 每页都给令牌，也停在页数上限。
+  //     推导：罐头 igReels 每次都交回同一个令牌、每次 2 个作者（不是 0 条、也解析得出人），
+  //     D6.u 列的停止条件里只剩「累计页数达到上限」→ 第 4 页拿回后当页记进 done（D6.h 上限 4）
+  //     → 恰好 4 次 Reels：第 1 次不带，第 2～4 次各带上一页交回的那个令牌。
+  //     「这一页没多出新的人」不在 D6.u 的停止条件里，不能拿它提前停。
+  {
+    const cwd = igCwd('cap')
+    const ledger = join(cwd, 'attempts.tsv'), events = join(cwd, 'fetch-events.jsonl')
+    const capRun = runBoth('collect IG 续页夹具 2：每页都给令牌的词',
+      [S('collect.ts'), '--config', igCfg(cwd, 'igcap', 1,
+        [{ keyword: 'igcap-kw', dimension: 'scene', platform: 'instagram' }])],
+      cwd, { status: 0 }, igEnv(ledger, events))
+    if (capRun.ok) {
+      const st = taskOf(cwd, summaryOf(capRun.stdout).dir)
+      const toks = reelsTokens(events)
+      named('IG 每页都给令牌也停在页数上限：恰好 4 次 Reels、第 2～4 次带令牌，pages 记 4，任务进 done',
+        JSON.stringify(toks) === JSON.stringify([null, TOKEN, TOKEN, TOKEN])
+          && hits(ledger, IG_REELS) === 4 && st?.pages?.[0] === 4 && st?.done?.includes(0) === true,
+        `Reels ${hits(ledger, IG_REELS)} 次、带的令牌依次是 ${JSON.stringify(toks)}，`
+        + `盘上 pages=${JSON.stringify(st?.pages)}、done=${JSON.stringify(st?.done)}`
+        + ' —— IG 与 TikTok 同一个上限（ADR-111 第一节），有令牌不等于可以一直翻')
+    }
+  }
+
+  // (3) 续跑遇到抓过页、不在 done 的 IG 任务（进程被硬杀留下的样子）。
+  //     造法：先真跑一个目录 —— IG 在前、TikTok 在后，预算 0.003：IG 第 1 页 0.002 ＋ TikTok
+  //     第 1 页 0.001 正好花完（F9 让每个任务先各抓一页），下一次请求放不行 → 退 3。
+  //     然后手改 task.json 把 IG 从 done 里拿掉 —— 按 D6.v 这一跑收尾时它握着令牌、本该进 done；
+  //     被硬杀的进程走不到收尾那一步，盘上就是「offsets 有键、pages 记 1、不在 done」。
+  //     推导：令牌不跨运行，续跑手里没有它的令牌 → D6.v：记进 done、一次请求都不发
+  //     → Reels 与账号名兜底（search_users）都是 0 次；没拿回页，它的 pages／offsets／
+  //     answered／found 一格都不动（D6.h 只数真的拿回了的页，D6.s 只数真发出的请求）。
+  //     对照：TikTok 不看令牌（D6.u、D6.v 只管 Instagram），pages 1 → 上限 4，恰好再搜 3 次。
+  {
+    const cwd = igCwd('stale')
+    const first = runBoth('collect IG 续页夹具 3：先跑出 IG 与 TikTok 各抓了一页的目录',
+      [S('collect.ts'), '--config', igCfg(cwd, 'igstale', 0.003, [
+        { keyword: 'igstale-kw', dimension: 'scene', platform: 'instagram' },
+        { keyword: 'ttctl-kw', dimension: 'category', platform: 'tiktok' },
+      ])], cwd, { status: 3 }, igEnv(join(cwd, 'attempts-first.tsv')))
+    const dir3 = first.ok ? summaryOf(first.stdout).dir : undefined
+    let before: any
+    if (typeof dir3 === 'string') {
+      const f = join(cwd, dir3, 'task.json')
+      const st = jsonFile(f)
+      if (st?.pages?.[0] === 1 && st?.pages?.[1] === 1 && st?.offsets?.[0] !== undefined
+          && st?.offsets?.[1] !== undefined && Array.isArray(st?.done) && !st.done.includes(1)) {
+        st.done = st.done.filter((i: number) => i !== 0)   // ← 硬杀：收尾那一步没走到
+        writeFileSync(f, JSON.stringify(st, null, 2), 'utf8')
+        before = st
+      } else {
+        failed++
+        console.error(`  ✗ IG 续页夹具 3${SELFCHECK_FIXTURE_MARK}：第一跑没留下「两个任务各抓了一页、`
+          + `TikTok 不在 done」的目录（pages=${JSON.stringify(st?.pages)}、offsets=${JSON.stringify(st?.offsets)}、`
+          + `done=${JSON.stringify(st?.done)}）—— 后面的续跑测不到要测的那个状态`)
+      }
+    }
+    if (typeof dir3 === 'string' && before !== undefined) {
+      const ledger = join(cwd, 'attempts-resume.tsv')
+      const again = runBoth('collect IG 续页夹具 3：预算给足续跑',
+        [S('collect.ts'), '--resume', dir3, '--budget', '1'], cwd, { status: 0 }, igEnv(ledger))
+      if (again.ok) {
+        const after = taskOf(cwd, dir3)
+        const igBooks = (t: any) => JSON.stringify([t?.pages?.[0], t?.offsets?.[0], t?.answered?.[0], t?.found?.[0]])
+        named('续跑遇到抓过页、不在 done、手里没令牌的 IG 任务：一次搜索请求都不发，记进 done',
+          hits(ledger, IG_REELS) === 0 && hits(ledger, IG_USERS) === 0
+            && after?.done?.includes(0) === true && igBooks(after) === igBooks(before),
+          `续跑发了 Reels ${hits(ledger, IG_REELS)} 次、账号名搜索 ${hits(ledger, IG_USERS)} 次，`
+          + `盘上 done=${JSON.stringify(after?.done)}，IG 的 [pages, offsets, answered, found] 从 `
+          + `${igBooks(before)} 变成 ${igBooks(after)} —— 令牌不跨运行，不带令牌再问就是退回首页重抓，`
+          + '同一页的钱再花一遍')
+        named('同一次续跑里 TikTok 任务照常翻到页数上限 —— 它不看令牌',
+          hits(ledger, TT_SEARCH) === 3 && after?.pages?.[1] === 4 && after?.done?.includes(1) === true,
+          `TikTok 搜索 ${hits(ledger, TT_SEARCH)} 次，盘上 pages=${JSON.stringify(after?.pages)}、`
+          + `done=${JSON.stringify(after?.done)} —— D6.v 只冻 Instagram，TikTok 被一起冻住就是少抓`)
+        named('续跑收尾那句话不把没令牌的 IG 任务算进要抓的关键词',
+          resumeLine(again.stderr) !== undefined && !/还有 \d+ 个关键词/.test(again.stderr),
+          `那句话是「${resumeLine(again.stderr) ?? '（没说）'}」 —— 两个任务都该在 done 里，`
+          + '说「还有关键词」就是调度不抓、那句话却把它算进要花钱的那一半（D6.g、D6.v）')
+      }
+    }
+  }
+
+  // (4) 一次运行以预算不足收尾时，手里还握着令牌。
+  //     选预算不足这条收尾、不选达标：旧行为（只取一页）下 IG 第 1 页之后 has_more 恒 false、
+  //     照样进 done，达标收尾时新旧两种行为在盘上长得一样，分不出来；预算这条分得出 ——
+  //     新行为会花钱去拿第 2 页，旧行为不会。而且预算不足正是 D6.k 那条「不进 done」的邻居：
+  //     兜底那一页不带令牌、撞上预算不进 done；带着令牌的那一页之后撞上预算，要进 done。
+  //     推导：预算 0.004 → 第 1 页 0.002、第 2 页（带第 1 页交回的令牌）累计 0.004 正好放行，
+  //     第 3 页要到 0.006 放不行 → 按 P3 退 3、stopped=budget；两页都拿回了 → pages 记 2。
+  //     第 2 页照样交回了令牌、2 < 上限 4、目标 9999 没达到、不是 0 条也解析得出人 ——
+  //     D6.u 列的停止条件一条都不成立，能让它进 done 的只剩 D6.v 那一句。
+  //     这一跑只有这一个关键词，所以收尾那句话里不该出现「还有 N 个关键词」；
+  //     两个作者都还没补 profile，那句话说要花钱是对的，这里不断言它。
+  {
+    const cwd = igCwd('budget')
+    const ledger = join(cwd, 'attempts.tsv'), events = join(cwd, 'fetch-events.jsonl')
+    // 退出码 3 是下面第一条具名断言点名的东西（旧行为这里会以 0 收尾），所以 soft 放过 0 由它判
+    const budgetRun = runBoth('collect IG 续页夹具 4：预算只够两页 Reels',
+      [S('collect.ts'), '--config', igCfg(cwd, 'igbudget', 0.004,
+        [{ keyword: 'igbudget-kw', dimension: 'scene', platform: 'instagram' }])],
+      cwd, { status: 3, soft: [0] }, igEnv(ledger, events))
+    if (budgetRun.ok) {
+      const sum = summaryOf(budgetRun.stdout)
+      const st = taskOf(cwd, sum.dir)
+      const toks = reelsTokens(events)
+      named('IG 预算只够两页 Reels：带着令牌抓到第 2 页，第 3 页撞上预算按 P3 停下',
+        budgetRun.status === 3 && sum.stopped === 'budget'
+          && JSON.stringify(toks) === JSON.stringify([null, TOKEN]) && st?.pages?.[0] === 2,
+        `退出码 ${budgetRun.status}、stopped=${sum.stopped}、Reels 带的令牌依次是 ${JSON.stringify(toks)}、`
+        + `盘上 pages=${JSON.stringify(st?.pages)}、账本 ${JSON.stringify(fetchAttempts(ledger))}`)
+      // 收尾那一刻手里确实握着第 2 页交回的令牌，下面三条才有东西可测；不是的话上面那条已经红过了
+      if (sum.stopped === 'budget' && toks.length === 2 && st !== undefined) {
+        named('预算不足收尾时手里还握着令牌的 IG 任务记进 done',
+          st.done?.includes(0) === true,
+          `盘上 done=${JSON.stringify(st.done)}、pages=${JSON.stringify(st.pages)} —— 令牌不跨运行，`
+          + '续跑拿不到它，不记进 done 的话调度不抓、那句话却把它算进要花钱的那一半（D6.v）')
+        const text = fileText(join(cwd, sum.dir, 'task.json'))
+        named('预算不足收尾时握着的令牌不写进 task.json',
+          text !== '' && !text.includes(TOKEN),
+          `task.json ${text === '' ? '读不出来' : `里${text.includes(TOKEN) ? '有' : '没有'} ${TOKEN}`}`
+          + ' —— 收尾时手里还有令牌，最容易被顺手存下来留给续跑，D6.u 逐字不许')
+        named('预算不足收尾那句话不把握着令牌的 IG 任务算进要抓的关键词',
+          resumeLine(budgetRun.stderr) !== undefined && !/还有 \d+ 个关键词/.test(budgetRun.stderr),
+          `那句话是「${resumeLine(budgetRun.stderr) ?? '（没说）'}」 —— 目录里只有这一个关键词，`
+          + '续跑不会再为它请求（D6.v），说「还有关键词」等于让用户为一个不会被抓的词追加预算')
+      }
+    }
+  }
+
+  criterion('D6.u')
+  criterion('D6.v')
 })
 
 // ---- P5.i：一次都没查到人的平台，不得从报告上静默消失 ----

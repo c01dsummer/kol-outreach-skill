@@ -302,8 +302,16 @@
       "req": "D6.g",
       "why": "把「还没标记完成的关键词」当成「续跑会去抓的」—— 已经达标、而且每个关键词都问过第一页时，续跑一个请求都不会发，却告诉用户续跑还要花钱，他可能因此不敢续跑，永远拿不到那份已经付过钱的名单",
       "file": "scripts/lib/pipeline.ts",
-      "find": "  if (qualified < state.target_count) return pendingKeywords(state)",
-      "replace": "  if (true) return pendingKeywords(state)"
+      "find": "  if (qualified < state.target_count) return requestableOnResume(state)",
+      "replace": "  if (true) return requestableOnResume(state)"
+    },
+    {
+      "id": "M-D6-ba",
+      "req": "D6.v",
+      "why": "续跑那句话按「不在完成列表里的」数要花钱的关键词 —— 进程被硬杀之后，抓过页、手里没有续页令牌的 IG 任务被算进要花钱的一半，而续跑一个请求都不会为它发：告诉用户的开销比实际多",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "canRequestPage(state, i, undefined) ? [taskLabel(t, i)] : []",
+      "replace": "!state.done.includes(i) ? [taskLabel(t, i)] : []"
     },
     {
       "id": "M-P5-m",
@@ -676,7 +684,7 @@
     {
       "id": "M-D6-t",
       "req": "D6.k",
-      "why": "IG 的兜底路径把「预算用尽」吞成正常返回 —— reels 页恒 has_more:false，于是这个关键词当场被标记为已跑完、永久跳过，而工具以退出码 0 收尾并告诉用户「续跑不产生新的请求」，实际预算已经见底：追加预算续跑时这个词再也不会被碰，唯一能找到人的那条补充路径一次都没发出去",
+      "why": "IG 的兜底路径把「预算用尽」吞成正常返回 —— 交回的是一页解析不出人、也不带续页令牌的结果，于是这个关键词当场被标记为已跑完、永久跳过，而工具以退出码 0 收尾并告诉用户「续跑不产生新的请求」，实际预算已经见底：追加预算续跑时这个词再也不会被碰，唯一能找到人的那条补充路径一次都没发出去",
       "file": "scripts/providers/tikhub.ts",
       "find": "    return this.searchInstagramUsers(task)\n      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))",
       "replace": "    try {\n      const users = await this.searchInstagramUsers(task)\n      return { ...users, raw_count: reels.raw_count + users.raw_count }\n    } catch { return reels }",
@@ -778,13 +786,13 @@
     {
       "id": "M-F9-f",
       "req": "F9.e",
-      "why": "任务目录里没有分页记录表时照样去抓关键词 —— 那种目录是上一版留下的，从第一页重新抓起，已经付过钱的那几页被整批重买一遍，而用户没有任何提示",
+      "why": "任务目录里没有分页记录表时不先拦下 —— 后面还有一道续页令牌的关口挡住了请求，却把每个关键词记成查完了：无从确认被读成「都查过了」，这些词此后再也不会被碰；那道关口哪天挪走，就退回到从第一页整批重买已经付过钱的那几页",
       "file": "scripts/collect.ts",
       "find": "      if (unknownPaging) continue\n",
       "replace": "",
       "by": "selfcheck",
       "kills": [
-        "分页记录表整张缺失时，一次关键词搜索都不发"
+        "分页记录表整张缺失时，续跑不把任何关键词记成已完成"
       ]
     },
     {
@@ -4018,6 +4026,14 @@
       "replace": "<td>${esc(k.keyword)}${k.as_hashtag ? '(hashtag)' : ''}</td>"
     },
     {
+      "id": "M-U8-o",
+      "req": "U8.b",
+      "why": "没达标时续跑那张标签表按筛选后的位置重新编号 —— 前面有任务被跳过时，后面的任务序号整体前移，用户不能把提示指回原任务",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "return state.tasks.flatMap((t, i) => canRequestPage(state, i, undefined) ? [taskLabel(t, i)] : [])",
+      "replace": "return state.tasks.filter((_, i) => canRequestPage(state, i, undefined)).map((t, i) => taskLabel(t, i))"
+    },
+    {
       "id": "M-D12-a",
       "req": "D12.a",
       "why": "原始预算先舍入成浮点数，超精度授权被悄悄扩大",
@@ -4392,13 +4408,13 @@
     {
       "id": "M-D6-ab",
       "req": "D6.n",
-      "why": "续跑丢掉已完成任务集合，已完成的搜索再次参加请求调度",
+      "why": "续跑丢掉已完成任务集合，已完成的搜索再次参加请求调度 —— 被后面那道续页令牌的关口拦下时又记一次完成、打一句不相干的提示；那道关口哪天挪走，就重新为它们发请求",
       "file": "scripts/collect.ts",
       "find": "  const exhausted = new Set<number>(state.done)",
       "replace": "  const exhausted = new Set<number>()",
       "by": "selfcheck",
       "kills": [
-        "续跑已完成 IG 不重搜，未完成 TT 确实发出请求"
+        "续跑不把 done 里已有的任务再记一遍"
       ]
     },
     {
@@ -4412,6 +4428,82 @@
       "file": "scripts/collect.ts",
       "find": "  saveRawCreators(dir, [...creators.values()])\n  saveTask(dir, state)\n}",
       "replace": "  saveTask(dir, state)\n  saveRawCreators(dir, [...creators.values()])\n}"
+    },
+    {
+      "id": "M-D6-at",
+      "req": "D6.u",
+      "by": "selfcheck",
+      "kills": [
+        "IG 续页带上一页交回的令牌：第 1 次不带，第 2、3 次依次带 page-2、page-3",
+        "IG 响应不再给令牌就停：恰好 3 次 Reels 搜索，pages 记 3，任务进 done"
+      ],
+      "why": "续页请求不带上一页交回的续页令牌 —— IG 第二页起一个请求都不发，每个 IG 关键词又回到只取一页，而没有任何一处报错",
+      "file": "scripts/collect.ts",
+      "find": "page = await api.search(t, state.market, offset, tokens.get(i))",
+      "replace": "page = await api.search(t, state.market, offset)"
+    },
+    {
+      "id": "M-D6-au",
+      "req": "D6.u",
+      "by": "selfcheck",
+      "kills": [
+        "IG 续页带上一页交回的令牌：第 1 次不带，第 2、3 次依次带 page-2、page-3",
+        "IG 响应不再给令牌就停：恰好 3 次 Reels 搜索，pages 记 3，任务进 done",
+        "IG 每页都给令牌也停在页数上限：恰好 4 次 Reels、第 2～4 次带令牌，pages 记 4，任务进 done"
+      ],
+      "why": "拿回一页后不留下这一页交回的令牌 —— 下一轮这个 IG 任务手里没有令牌，当场被记进完成列表，页数随达标走对 IG 失效",
+      "file": "scripts/collect.ts",
+      "find": "        if ('next' in verdict) tokens.set(i, verdict.next)\n",
+      "replace": "        if ('next' in verdict) tokens.delete(i)\n"
+    },
+    {
+      "id": "M-D6-av",
+      "req": "D6.u",
+      "by": "selfcheck",
+      "kills": [
+        "IG 续页令牌只在内存里：抓取途中与收尾后的 task.json 都找不到令牌字符串",
+        "预算不足收尾时握着的令牌不写进 task.json"
+      ],
+      "why": "续页令牌写进了任务文件 —— 令牌只在同一次运行内有效（ADR-111），写盘之后续跑可能拿一个隔了几小时的令牌去请求，失败会让每次续跑卡在同一个任务上",
+      "file": "scripts/collect.ts",
+      "find": "        if ('next' in verdict) tokens.set(i, verdict.next)\n",
+      "replace": "        if ('next' in verdict) { tokens.set(i, verdict.next); (state as any).ig_tokens = { ...(state as any).ig_tokens, [i]: verdict.next } }\n"
+    },
+    {
+      "id": "M-D6-aw",
+      "req": "D6.u",
+      "by": "selfcheck",
+      "kills": [
+        "IG 没有可继续的令牌而停时，提示说的是令牌，不说服务端已经没有更多"
+      ],
+      "why": "IG 没有可继续的令牌而停时，提示说成服务端已经没有更多 —— 那是把本地看到的一件事说成了对方的性质，用户据此以为这个词已经问尽",
+      "file": "scripts/collect.ts",
+      "find": "'no-token': '本次没有可继续的续页令牌'",
+      "replace": "'no-token': '服务端已经没有更多了'"
+    },
+    {
+      "id": "M-D6-ax",
+      "req": "D6.v",
+      "by": "selfcheck",
+      "kills": [
+        "预算不足收尾时手里还握着令牌的 IG 任务记进 done"
+      ],
+      "why": "一次运行结束时手里还握着令牌的 IG 任务不记进完成列表 —— 续跑不会再为它请求，进度里却仍把它列成没跑完的关键词，用户以为续跑还能接着翻",
+      "file": "scripts/collect.ts",
+      "find": "      if (!exhausted.has(i)) close(i, `  ◦ ${taskLabel(state.tasks[i], i)} → 续页令牌不跨运行，不再翻页，续跑也不会再为它请求`)\n",
+      "replace": "      void i\n"
+    },
+    {
+      "id": "M-D6-ay",
+      "req": "D6.v",
+      "by": "selfcheck",
+      "kills": [
+        "续跑遇到抓过页、不在 done、手里没令牌的 IG 任务：一次搜索请求都不发，记进 done"
+      ],
+      "why": "续跑遇到抓过页、手里没令牌的 IG 任务不先拦下 —— 它被当成还能翻，页数记上一页而一条都没拿回，调度与记录各说各的",
+      "file": "scripts/collect.ts",
+      "find": "      if (!canRequestPage(state, i, tokens.get(i))) {\n",
+      "replace": "      if (false) {\n"
     },
     {
       "id": "M-D13-t",

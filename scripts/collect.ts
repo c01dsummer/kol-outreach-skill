@@ -20,8 +20,8 @@ import { Budget, BudgetInputError, startBudget, type PersistCost } from './lib/b
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
 import { readCostDocument, readCostLimit, stringifyCostJson } from './lib/cost-json.js'
 import {
-  MAX_PAGES, finalize, firstPagePending, mergePage, needsProfile, pagesFetched,
-  pendingKeywords, resumeCostLine, underPageCap,
+  MAX_PAGES, canRequestPage, finalize, firstPagePending, igAfterPage, mergePage, needsProfile,
+  pagesFetched, pendingKeywords, resumeCostLine, underPageCap,
 } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
@@ -151,7 +151,7 @@ function persist() {
  *
  * **F9：每个任务的第一页不受达标判断约束。** 达标之后仍然给「一页都没抓过」的任务补第一页，
  * 第一页之后的分页才照旧按达标停（F9.d）。这一条修掉的是「零」，修不掉「少」——
- * 一个 IG 词我们只取一页，所以它保证的是**问过**，不保证问到多少人。
+ * IG 词第一页之后按续页令牌翻、达标即停（D6.u），但它保证的仍只是**问过**，不保证问到多少人。
  *
  * 为什么非改不可：达标判断原先跑在**每一次**搜索之前、第一轮也不例外，于是前面几个词
  * 各抓一页填满目标时，后面的任务一个请求都不发；而 task.json 的顺序由 Agent 决定 ——
@@ -182,7 +182,24 @@ async function run() {
   const offsets = unknownPaging ? {} : (state.offsets ??= {})
   const exhausted = new Set<number>(state.done)
   const addedBy = new Map<number, number>()
+  // IG 续页令牌：只在这一跑的内存里，不写进 task.json（ADR-111 第一节第 2 条）。
+  // 只存 `igAfterPage` 交回的那一个 —— 空白令牌因此到不了 `search()`。
+  const tokens = new Map<number, string>()
+  const close = (i: number, line: string) => {
+    exhausted.add(i)
+    state.done.push(i)
+    console.error(line)
+  }
+  /**
+   * 搜索完成的那一行，带原任务身份（U8.i）。**两个平台共用这一处**：假供应商的 TikTok 恒给
+   * `has_more`，自检里只有 IG 任务走得到「搜索完成」，写成两行的话 TikTok 那一行就没人守。
+   * IG 停下时 `why` 说本地看到了什么。
+   */
+  const finish = (t: TaskState['tasks'][number], i: number, why: string) =>
+    close(i, `  ✓ ${taskLabel(t, i)} → 共 ${addedBy.get(i)} 人（累计 ${creators.size}）${why}  ${budget.summary()}`)
 
+  // 循环体故意不另缩进一格：`mutations.json` 里有十几条变异的锚点按它现在的缩进写，挪一格就一起失效。
+  try {
   for (let round = 0; round < MAX_PAGES; round++) {
     let anyProgress = false
 
@@ -210,6 +227,15 @@ async function run() {
         persist()
         continue
       }
+      // ADR-111：IG 抓过页之后，只有手里有这一跑拿到的令牌才能再翻。续跑时遇到抓过页、
+      // 还没进 done 的 IG 任务就在这里记进 done、不发请求 —— 同上面那一支：调度不抓的
+      // 必须进 done，否则收尾那句话仍把它算进要花钱的那一半（D6.g、ADR-25）。
+      // 判定用中心那一份，收尾那句话（`keywordsResumeWillRun`）与这里共用（ADR-111 第二节）。
+      if (!canRequestPage(state, i, tokens.get(i))) {
+        close(i, `  ◦ ${taskLabel(state.tasks[i], i)} → 本次没有可继续的续页令牌（令牌不跨运行），不再翻页`)
+        persist()
+        continue
+      }
       if (qualified() >= state.target_count) {
         stopped = 'target'
         // F9：达标之后**不是一律停**，还欠第一页的任务照抓不误。
@@ -226,7 +252,7 @@ async function run() {
       const paidBefore = budget.view().cost_status === 'known' ? budget.count : null
       let page
       try {
-        page = await api.search(t, state.market, offset)
+        page = await api.search(t, state.market, offset, tokens.get(i))
       } finally {
         // ⚠️ **只改内存，不在这里落盘**：此刻 offsets[i] 还没更新、人也还没入库，
         // 落下去就是个自相矛盾的断点；而且会遮住循环末尾那次落盘的窗口（负片 M-P3-f）。
@@ -246,7 +272,7 @@ async function run() {
           state.found[i] = null
         }
       }
-      const { creators: found, raw_count, has_more } = page
+      const { creators: found, raw_count, has_more, next_token } = page
       anyProgress = true
 
       // 去重与归人都在 mergePage 里 —— 判定不留在入口脚本，缺省那个验证者才够得到它
@@ -271,11 +297,20 @@ async function run() {
       // 漏掉这一行的症状只在第二轮才露出来 —— 第一轮没达标、第二轮才达标时，
       // 第一轮抓过的任务会被当成还欠着第一页，于是又被翻一页（违反 F9.d）。
       owedFirstPage.delete(i)
-      // 用 API 自己的 has_more，比「本页新增 0 人」准，也省一次探路请求
-      if (!raw_count || !has_more) {
-        exhausted.add(i)
-        state.done.push(i)
-        console.error(`  ✓ ${taskLabel(t, i)} → 共 ${addedBy.get(i)} 人（累计 ${creators.size}）  ${budget.summary()}`)
+      if (t.platform === 'instagram') {
+        // IG 按令牌翻：停不停在拿回这一页的同一次迭代里判，结论随下面那次落盘（ADR-111 第二节）。
+        // 措辞只说本地看到了什么，不说服务端已经没有更多。
+        const verdict = igAfterPage(state, i, { token: next_token, rawCount: raw_count, parsed: found.length })
+        if ('next' in verdict) tokens.set(i, verdict.next)
+        else {
+          tokens.delete(i)
+          const why = { empty: '本页 0 条', unparsed: '本页解析不出作者', 'no-token': '本次没有可继续的续页令牌',
+            cap: `已达页数上限 ${MAX_PAGES} 页或已抓页数无从确认` }[verdict.stop]
+          finish(t, i, `，${why}，不再翻页`)
+        }
+      } else if (!raw_count || !has_more) {
+        // 用 API 自己的 has_more，比「本页新增 0 人」准，也省一次探路请求
+        finish(t, i, '')
       } else if (fetched !== undefined && fetched >= MAX_PAGES) {
         // **当场记，不留到收尾** —— 收尾那一段排在搜索循环之后，任何从 `api.search`
         // 抛穿 run() 的异常都会把它整个掀掉（预算用尽只是其中一种，402／换了响应结构
@@ -289,6 +324,14 @@ async function run() {
     }
 
     if (stopped === 'target' || !anyProgress) break
+  }
+  } finally {
+    // 令牌不跨运行（ADR-111 第一节第 2 条）：这一跑结束时手里还握着令牌的 IG 任务，续跑不会
+    // 再为它请求 —— 当场记进 done，收尾那句话与调度才说同一件事。跑完、达标、预算用尽、
+    // 出错都走这里；落盘由下面那次或 main() 的 catch 之后那次负责。
+    for (const i of tokens.keys()) {
+      if (!exhausted.has(i)) close(i, `  ◦ ${taskLabel(state.tasks[i], i)} → 续页令牌不跨运行，不再翻页，续跑也不会再为它请求`)
+    }
   }
 
   persist()

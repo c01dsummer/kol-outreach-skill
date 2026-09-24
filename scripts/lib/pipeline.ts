@@ -100,10 +100,18 @@ export function keywordsResumeWillRun(state: TaskState, qualified: number): stri
   // **这一支要排在达标判断之前** —— 排在后面的话，没达标那条路会交回「不在 done 里的」全部，
   // 而调度那边一个都不会抓，两句话当场对不上。
   if (owed === null) return []
-  if (qualified < state.target_count) return pendingKeywords(state)
+  if (qualified < state.target_count) return requestableOnResume(state)
   // F9：达标了也照样去抓**一页都没抓过**的那些 —— 第一页不受达标判断约束。
   const first = new Set(owed)
   return state.tasks.flatMap((t, i) => first.has(i) ? [taskLabel(t, i)] : [])
+}
+
+/**
+ * 续跑时还能请求的任务 —— 判定用调度那一份 `canRequestPage`（ADR-111 第二节）；续跑时手里一律没有令牌。
+ * 与「不在 done 里的」只差一种：抓过页、手里没令牌的 IG 任务，续跑记进 done、一次请求都不发（D6.v）。
+ */
+function requestableOnResume(state: TaskState): string[] {
+  return state.tasks.flatMap((t, i) => canRequestPage(state, i, undefined) ? [taskLabel(t, i)] : [])
 }
 
 /**
@@ -202,6 +210,9 @@ export const underPageCap = (state: TaskState, i: number): boolean => {
   return n !== null && n < MAX_PAGES
 }
 
+/** IG 续页停下的四种理由，见 `igAfterPage`。 */
+export type IgStop = 'empty' | 'unparsed' | 'no-token' | 'cap'
+
 /**
  * IG 续页（ADR-111 第二节）：拿回这一页之后，这个任务还能不能带着令牌再翻一页。
  *
@@ -217,7 +228,6 @@ export const underPageCap = (state: TaskState, i: number): boolean => {
  * provider 收到空白令牌会当场报错、不发请求（#165）—— 真走到那一步，是调度存错了令牌。
  * 达标之后不再翻（F9.d）不在这里判，仍由调度那一处管。
  */
-export type IgStop = 'empty' | 'unparsed' | 'no-token' | 'cap'
 export function igAfterPage(
   state: TaskState, i: number, page: { token: string | undefined; rawCount: number; parsed: number },
 ): { next: string } | { stop: IgStop } {
