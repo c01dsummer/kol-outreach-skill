@@ -5,6 +5,7 @@ import { Budget, BudgetInputError } from '../lib/budget.js'
 import { CostError } from '../lib/cost-ledger.js'
 import { extractEmail } from '../lib/email.js'
 import { searchPostId } from '../lib/posts.js'
+import { hashtagKeyword } from '../lib/ig-route.js'
 
 const BASE = 'https://api.tikhub.io'
 const TIKTOK_SEARCH_ENDPOINT = '/api/v1/tiktok/app/v3/fetch_video_search_result'
@@ -397,6 +398,12 @@ export class TikHub {
    * 解析不出人也不改搜账号名。probe 与 collect 都经这里，所以试探与采集走同一条路线。
    */
   async search(task: SearchTask, region: string, offset: number, token?: string): Promise<SearchPage> {
+    if (task.platform === 'instagram' && task.ig_route === 'hashtag') {
+      // 只请求首页：话题页不交回续页令牌，翻不翻另议（ADR-112 第二节）；也不走账号名兜底（D6.w）
+      if (offset > 0 || token !== undefined) return { creators: [], raw_count: 0, has_more: false }
+      const raw = await this.get(INSTAGRAM_HASHTAG_ENDPOINT, { keyword: hashtagKeyword(task), feed_type: 'top' })
+      return parseInstagramHashtagPage(raw, task)
+    }
     if (task.platform === 'tiktok') return this.searchTikTok(task, region, offset)
     // 续页：带上上一页交回的令牌再问一次 Reels，不看 offset。**不走兜底** —— 兜底只属于第一页，
     // 续页解析不出人就如实交回这一页（ADR-111 第二节）。

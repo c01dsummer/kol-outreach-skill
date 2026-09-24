@@ -31,6 +31,7 @@ import {
   persistListAndStatus, saveCostCheckpoint,
 } from './lib/task.js'
 import { creatorKey, textProblem } from './lib/types.js'
+import { igRouteProblems } from './lib/ig-route.js'
 import type { Creator, TaskState } from './lib/types.js'
 
 /**
@@ -89,6 +90,13 @@ const badProduct = textProblem(state.product)
 if (badProduct) {
   console.error(`${productFrom} 里的 product ${badProduct} —— 它要用作任务目录名，` +
                 `也要记进跨任务记忆的「为哪个产品推荐过」。先给它一个名字再跑。`)
+  process.exit(2)
+}
+
+// D15.j：路线不合规就在建目录、预留与请求之前停下 —— 新建与续跑都查（续跑读的是盘上的 task.json）
+const badRoutes = igRouteProblems(state.tasks)
+if (badRoutes.length) {
+  console.error(`${productFrom} 里的 ig_route 不合规：\n  ${badRoutes.join('\n  ')}`)
   process.exit(2)
 }
 
