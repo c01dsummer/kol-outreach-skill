@@ -214,7 +214,7 @@ export const underPageCap = (state: TaskState, i: number): boolean => {
  * - `cap`      —— 达到页数上限，或已抓页数无从确认（同 `underPageCap`）
  *
  * **这是令牌的唯一来源**：调度只存这里交回的 `next`，所以空白令牌到不了 `search()` ——
- * provider 对空串会只发 keyword，等于把首页当续页再买一遍。
+ * provider 收到空白令牌会当场报错、不发请求（#165）—— 真走到那一步，是调度存错了令牌。
  * 达标之后不再翻（F9.d）不在这里判，仍由调度那一处管。
  */
 export type IgStop = 'empty' | 'unparsed' | 'no-token' | 'cap'
