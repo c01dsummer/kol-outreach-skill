@@ -3626,7 +3626,10 @@ group('hashtag-route', [], () => {
   //     打了记号会把它们的整跑判成跑不起来。
   //     错误结果用 `force-402` 造（fake-fetch.ts：URL 里带这个串就回 402，判在按路由挑罐头之前，话题页一样命中）。
   //     402 会让 probe 停在那一条（probe 组「普通错误会结束本次试探」），所以一跑只放一个、放在末尾，前面垫一个成功任务；
-  //     两种错误各跑一次。账本里那一行 402 落在哪个端点，证明错误行来自那个任务、那条路线上的请求，不是别的原因。
+  //     三种错误各跑一次（写了 hashtag 的、没写的 IG 任务、TikTok 任务）。账本里那一行 402 落在哪个端点，只证明请求走了哪条路；
+  //     路线字段是不是出自**这个**任务，靠垫着的成功任务故意和出错任务的路线相反来证明 —— 两个任务路线一样的话，
+  //     错误行拿前一个任务的路线、或按整份配置补写，都会假绿。（这一句与第三跑、以及成功那一跑的第 6 个任务，
+  //     是开 PR 前的审阅指出后补的，写在实现之后，红由 M-D15-ac／ad／ae 重演。）
   const rowsByIndex = (stdout: string): ((i: number) => any) => {
     const results = summaryOf(stdout).results
     const rows: any[] = Array.isArray(results) ? results : []
@@ -3639,7 +3642,7 @@ group('hashtag-route', [], () => {
         sample: Array.isArray(row?.sample) ? row.sample.length : String(row?.sample) })
   {
     const cwd = cwdOf('probe-route-ok'), ledger = join(cwd, 'attempts.tsv')
-    const r = runBoth('probe 话题入口：结果行的 ig_route —— 六个任务混在一份配置里、全部成功',
+    const r = runBoth('probe 话题入口：结果行的 ig_route —— 七个任务混在一份配置里、全部成功',
       [S('probe.ts'), '--config', cfgOf(cwd, 'htrouteok', [
         { keyword: '#htroute-tagged', dimension: 'scene', platform: 'instagram', ig_route: 'hashtag' },
         { keyword: 'htroute-plain', dimension: 'category', platform: 'instagram' },
@@ -3647,6 +3650,8 @@ group('hashtag-route', [], () => {
         { keyword: '#htroute-hashy', dimension: 'competitor', platform: 'instagram' },
         { keyword: 'htroute-tiktok', dimension: 'category', platform: 'tiktok' },
         { keyword: '#hashtag-nobody-htroute', dimension: 'audience', platform: 'instagram', ig_route: 'hashtag' },
+        // 两样线索都占（as_hashtag 且关键词以 # 开头）而没写 ig_route：只在两样同时成立时补写的实现，上面两个单线索诱饵抓不到
+        { keyword: '#htroute-both', dimension: 'scene', platform: 'instagram', as_hashtag: true },
       ])], cwd, { status: 0 }, htEnv(ledger))
     if (r.ok) {
       const at = rowsByIndex(r.stdout)
@@ -3669,6 +3674,9 @@ group('hashtag-route', [], () => {
       named('IG 话题入口：probe 成功结果不由平台补写 ig_route，TikTok 任务那一行没有这个键',
         success(4) && !hasRoute(at(4)),
         `task_index 4 那一行 ${showRow(at(4))} —— D15.l：不由平台推断补写`)
+      named('IG 话题入口：probe 成功结果不由 as_hashtag 与关键词写法合起来推断 ig_route，两样都占而没写 ig_route 的那一行没有这个键',
+        success(6) && !hasRoute(at(6)),
+        `task_index 6 那一行 ${showRow(at(6))} —— D15.l：两种线索合起来也不推断补写`)
       criterion('D15.l')
     }
   }
@@ -3677,7 +3685,8 @@ group('hashtag-route', [], () => {
     const cwd = cwdOf('probe-route-err-tagged'), ledger = join(cwd, 'attempts.tsv')
     const r = runBoth('probe 话题入口：话题任务的话题页请求被拒收（402），排在最后',
       [S('probe.ts'), '--config', cfgOf(cwd, 'htrouteerrtag', [
-        { keyword: '#htroute-err-ok', dimension: 'scene', platform: 'instagram', ig_route: 'hashtag' },
+        // 垫的成功任务故意不写 ig_route（走 Reels），和出错的那个相反
+        { keyword: 'htroute-err-ok', dimension: 'scene', platform: 'instagram' },
         { keyword: '#force-402-htroute', dimension: 'audience', platform: 'instagram', ig_route: 'hashtag' },
       ])], cwd, { status: 0 }, htEnv(ledger))
     if (r.ok) {
@@ -3695,7 +3704,8 @@ group('hashtag-route', [], () => {
     const cwd = cwdOf('probe-route-err-plain'), ledger = join(cwd, 'attempts.tsv')
     const r = runBoth('probe 话题入口：没写 ig_route 的 IG 任务的 Reels 请求被拒收（402），排在最后',
       [S('probe.ts'), '--config', cfgOf(cwd, 'htrouteerrplain', [
-        { keyword: 'htroute-err-plain-ok', dimension: 'category', platform: 'instagram' },
+        // 垫的成功任务故意写了 hashtag（走话题页），和出错的那个相反
+        { keyword: '#htroute-err-plain-ok', dimension: 'category', platform: 'instagram', ig_route: 'hashtag' },
         { keyword: '#force-402-htroute-plain', dimension: 'competitor', platform: 'instagram', as_hashtag: true },
       ])], cwd, { status: 0 }, htEnv(ledger))
     if (r.ok) {
@@ -3708,8 +3718,26 @@ group('hashtag-route', [], () => {
       routeErrorRuns++
     }
   }
-  // 两跑都真跑到了断言才认领 —— 任一跑没起来已经由 runBoth 带记号记过一次失败，这一跑本来也写不下认领
-  if (routeErrorRuns === 2) criterion('D15.m')
+  {
+    // TikTok 任务不可能写 ig_route（D15.j），它的错误行同样不许长出这个字段；垫的成功任务写了 hashtag，和它相反
+    const cwd = cwdOf('probe-route-err-tiktok'), ledger = join(cwd, 'attempts.tsv')
+    const r = runBoth('probe 话题入口：TikTok 任务的视频搜索请求被拒收（402），排在最后',
+      [S('probe.ts'), '--config', cfgOf(cwd, 'htrouteerrtt', [
+        { keyword: '#htroute-err-tt-ok', dimension: 'category', platform: 'instagram', ig_route: 'hashtag' },
+        { keyword: 'force-402-htroute-tt', dimension: 'scene', platform: 'tiktok' },
+      ])], cwd, { status: 0 }, htEnv(ledger))
+    if (r.ok) {
+      const row = rowsByIndex(r.stdout)(1)
+      const refused = fetchAttempts(ledger).includes(`402\t${TT_SEARCH}`)
+      named('IG 话题入口：probe 错误结果不由平台补写 ig_route，TikTok 任务请求失败的那一行没有这个键',
+        refused && row !== undefined && Boolean(row?.error) && !hasRoute(row),
+        `TikTok 搜索那次请求被拒收=${refused}（账本 ${JSON.stringify(fetchAttempts(ledger))}），task_index 1 那一行 ${showRow(row)}`
+        + ' —— D15.m：没写就不带这个字段，TikTok 任务也一样')
+      routeErrorRuns++
+    }
+  }
+  // 三跑都真跑到了断言才认领 —— 任一跑没起来已经由 runBoth 带记号记过一次失败，这一跑本来也写不下认领
+  if (routeErrorRuns === 3) criterion('D15.m')
 })
 
 // ---- P5.i：一次都没查到人的平台，不得从报告上静默消失 ----
