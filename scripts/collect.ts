@@ -312,8 +312,10 @@ async function run() {
         if ('next' in verdict) tokens.set(i, verdict.next)
         else {
           tokens.delete(i)
-          const why = { empty: '本页 0 条', unparsed: '本页解析不出作者', 'no-token': '本次没有可继续的续页令牌',
-            cap: `已达页数上限 ${MAX_PAGES} 页或已抓页数无从确认` }[verdict.stop]
+          // 话题页的响应里其实带着令牌，是这条路线只取首页（D6.w）—— 不说成「没有可继续的令牌」
+          const why = t.ig_route === 'hashtag' && verdict.stop === 'no-token' ? '话题路线只取首页'
+            : { empty: '本页 0 条', unparsed: '本页解析不出作者', 'no-token': '本次没有可继续的续页令牌',
+                cap: `已达页数上限 ${MAX_PAGES} 页或已抓页数无从确认` }[verdict.stop]
           finish(t, i, `，${why}，不再翻页`)
         }
       } else if (!raw_count || !has_more) {
