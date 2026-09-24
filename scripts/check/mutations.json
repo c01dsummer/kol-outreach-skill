@@ -4835,6 +4835,151 @@
       "replace": "const badRoutes = resume && replacementLimit !== undefined ? [] : igRouteProblems(state.tasks)"
     },
     {
+      "id": "M-F3-a",
+      "req": "F3.c",
+      "by": "selfcheck",
+      "kills": [
+        "F3.c：probe 的配置读不出以退出码 2 结束时，stderr 不带异常类名与调用栈",
+        "F3.c：probe 的 budget_usd 不合法以退出码 2 结束时，stderr 不带异常类名与调用栈",
+        "F3.c：probe 的 ig_route 不合规以退出码 2 结束时，stderr 不带异常类名与调用栈",
+        "F3.c：probe 的初始费用不可用以退出码 2 结束时，stderr 不带异常类名与调用栈"
+      ],
+      "why": "probe 的输入问题退回整条打异常 —— stderr 带着 BudgetInputError 的类名与堆栈，路线写错、配置读不出都被说成预算问题",
+      "file": "scripts/probe.ts",
+      "find": "main().catch(e => { console.error(e instanceof BudgetInputError ? e.message : e);",
+      "replace": "main().catch(e => { console.error(e);"
+    },
+    {
+      "id": "M-F3-b",
+      "req": "F3.d",
+      "by": "selfcheck",
+      "kills": [
+        "F3.d：probe 的配置读不出以退出码 2 结束时，stderr 写出配置路径与问题本身",
+        "F3.d：probe 的 budget_usd 不合法以退出码 2 结束时，stderr 写出配置路径与问题本身",
+        "F3.d：probe 的 ig_route 不合规以退出码 2 结束时，stderr 写出配置路径与问题本身",
+        "F3.d：probe 的初始费用不可用以退出码 2 结束时，stderr 写出配置路径与问题本身"
+      ],
+      "why": "probe 的配置问题报错里不写配置路径 —— 运营不知道是哪个配置文件出了错",
+      "file": "scripts/probe.ts",
+      "find": "throw new BudgetInputError(`${cfgPath}：${error instanceof Error ? error.message : String(error)}`)",
+      "replace": "throw new BudgetInputError(error instanceof Error ? error.message : String(error))"
+    },
+    {
+      "id": "M-F3-c",
+      "req": "F3.d",
+      "by": "selfcheck",
+      "kills": [
+        "F3.d：probe 的配置读不出以退出码 2 结束时，stderr 写出配置路径与问题本身",
+        "F3.d：probe 的 budget_usd 不合法以退出码 2 结束时，stderr 写出配置路径与问题本身",
+        "F3.d：probe 的 ig_route 不合规以退出码 2 结束时，stderr 写出配置路径与问题本身",
+        "F3.d：probe 的初始费用不可用以退出码 2 结束时，stderr 写出配置路径与问题本身"
+      ],
+      "why": "probe 的配置问题报错只剩一个配置路径 —— 运营看得到是哪个文件，看不到错在哪",
+      "file": "scripts/probe.ts",
+      "find": "throw new BudgetInputError(`${cfgPath}：${error instanceof Error ? error.message : String(error)}`)",
+      "replace": "throw new BudgetInputError(`${cfgPath}：`)"
+    },
+    {
+      "id": "M-F3-d",
+      "req": "F3.e",
+      "by": "selfcheck",
+      "kills": [
+        "F3.e：probe 缺 API key 以退出码 2 结束时，stderr 只写缺 key 这件事，不带异常类名与调用栈"
+      ],
+      "why": "只把带配置路径的报错当输入问题收拾 —— 请求时缺 key 的报错重新带上 BudgetInputError 的类名与堆栈",
+      "file": "scripts/probe.ts",
+      "find": "console.error(e instanceof BudgetInputError ? e.message : e)",
+      "replace": "console.error(e instanceof BudgetInputError && e.message.startsWith(cfgPath) ? e.message : e)"
+    },
+    {
+      "id": "M-H9-o",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "候选顺序反了 —— 先信本地 main：本地 main 很久没拉时起点算得太靠前，别人已合进主干的提交被算成这条分支自己的，连它们提交信息里的 size-ok 豁免也一起捡来",
+      "find": "export const TRUNK_CANDIDATES = ['origin/main', 'main']",
+      "replace": "export const TRUNK_CANDIDATES = ['main', 'origin/main']"
+    },
+    {
+      "id": "M-H9-p",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "浅克隆照样量 —— merge-base 在截断的历史上算出一个假起点，报出来的数可能缩水成几行，闸门静默通过",
+      "find": "  if (shallow === 'true') {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-H9-q",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "只把答不上来当成问不出来 —— 旧 git 把参数原样打回来时被当成「不是浅克隆」，在浅克隆里报一个可能缩水的数",
+      "find": "  if (shallow !== 'false') {",
+      "replace": "  if (shallow === null) {"
+    },
+    {
+      "id": "M-H9-r",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "在主干上也拿共同祖先当起点 —— 共同祖先就是 HEAD 自己，量出 0 行，直推主干的大改动连数字都不出现",
+      "find": "  const base = onTrunk ? ask('rev-parse', `${head}^1`) : merged",
+      "replace": "  const base = merged"
+    },
+    {
+      "id": "M-H9-s",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "从主干而不是起点列提交 —— 在主干上时列出来是空的，别处的 size-ok 豁免该找的提交一个都没找",
+      "find": "ask('rev-list', `${base}..${head}`)",
+      "replace": "ask('rev-list', `${trunk}..${head}`)"
+    },
+    {
+      "id": "M-H9-t",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "提交列表不去空行 —— 没有提交时列出一个空串「提交」，拿它去读提交信息",
+      "find": "commits: listed.split('\\n').filter(Boolean) }",
+      "replace": "commits: listed.split('\\n') }"
+    },
+    {
+      "id": "M-H9-u",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "共同祖先答不上来也不停 —— 起点落空被判成「不适用」、退出 0，一条从主干之外长出来的分支静默放行",
+      "find": "  if (merged === null) return cannot(",
+      "replace": "  if (false) return cannot("
+    },
+    {
+      "id": "M-H9-v",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "主干上没有上一版时判「无从判断」 —— 仓库第一个提交上闸门以退出码 1 失败，而那里本来就没有可比的东西",
+      "find": "  if (base === null) return { kind: 'not-applicable', trunk }",
+      "replace": "  if (base === null) return cannot('没有上一版', '—')"
+    },
+    {
+      "id": "M-H9-w",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "不在仓库里或没有任何提交时照样往下问，拿一个不存在的 HEAD 去取共同祖先、列提交，报出的原因不是真正的原因",
+      "find": "  if (head === null) return cannot(",
+      "replace": "  if (false) return cannot("
+    },
+    {
+      "id": "M-H9-x",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "两个主干候选都找不到也不停，拿一个不存在的主干去取共同祖先，试过哪些候选、该先 fetch 哪一个都不说",
+      "find": "  if (trunk === undefined) return cannot(",
+      "replace": "  if (false) return cannot("
+    },
+    {
+      "id": "M-H9-y",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "列不出这条分支的提交时当成「查过、一个提交都没有」，豁免与不合格的 size-ok 一条都不找、提交数报 0",
+      "find": "  if (listed === null) {",
+      "replace": "  if (listed === null) return { kind: 'measure', trunk, head, base, onTrunk, commits: [] }\n  if (false) {"
+    },
+    {
       "id": "M-H36-s",
       "req": "harness",
       "file": "scripts/check/jobs-rule.ts",

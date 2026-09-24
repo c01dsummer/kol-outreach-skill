@@ -46,9 +46,10 @@ import {
   fingerprint, sourceFiles,
 } from './check/claims.js'
 import {
-  BUDGET, GIT_CONFIG, NUMSTAT, NUMSTAT_IGNORING_SPACE, type Waiver,
+  BUDGET, GIT_CONFIG, NUMSTAT, NUMSTAT_IGNORING_SPACE, TRUNK_CANDIDATES, type Baseline, type GitAsk,
+  type Waiver,
   categorize, discount, discountable, judge, judgeExemption, merge, parseNumstat,
-  scanMessage, tally,
+  resolveBaseline, scanMessage, tally,
 } from './check/size-rule.js'
 import {
   FILE_RE, checkAll, encodeTarget, escapeCell, fileNameOf, markerFault,
@@ -5926,6 +5927,193 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
 
   const bad = judge({ 源码: 0, 测试: 0, 文档: 0, 其他: 0 }, [], ['随便'])
   ok('写了不成立的 size-ok，即使没超线也失败 —— 否则它会被当成挡箭牌留在历史里', !bad.ok)
+}
+
+// 独立上下文先于实现写成：期望只出自接口提交里 TRUNK_CANDIDATES／GitAsk／Baseline／resolveBaseline
+// 的契约说明（下文「第 N 步」就是 resolveBaseline 说明里的编号），外加 CONVENTIONS 第十节与 ADR-98
+// 末两节；没读入口 size.ts 里现有的那段实现。写下时函数体只会抛「尚未实现」。
+harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂假的 git 应答，逐步问、答不上来就停')
+{
+  // 假 sha 起成一眼认得出的名字，而且没有一个是字面的 `HEAD` 或主干名 ——
+  // 第 5、6 步要的是解析出来的值，把字面量交给 git 的实现在这里拿不到答案
+  const SHA_HEAD = 'sha-head', SHA_FORK = 'sha-fork', SHA_PARENT = 'sha-parent'
+  const SHA_ORIGIN = 'sha-origin-main', SHA_MAIN = 'sha-main'
+  // 本地 main 很久没拉：它与 HEAD 的共同祖先更靠前，从那儿列出来的提交里混着别人已合进主干的
+  // （TRUNK_CANDIDATES 说明里「远端在前」的理由）
+  const SHA_STALE_FORK = 'sha-stale-fork', SHA_OTHERS = 'sha-others-merged'
+  const SHA_C1 = 'sha-c1', SHA_C2 = 'sha-c2'
+
+  // 契约里每条命令的原文：尖括号换成解析出来的值，没加尖括号的 `HEAD`（第 4 步）照字面
+  const Q_HEAD = 'rev-parse HEAD'                              // 第 1 步
+  const Q_SHALLOW = 'rev-parse --is-shallow-repository'        // 第 2 步
+  const Q_ORIGIN = 'rev-parse --verify origin/main^{commit}'   // 第 3 步，第一个候选
+  const Q_MAIN = 'rev-parse --verify main^{commit}'            // 第 3 步，第二个候选
+  const Q_BASE_ORIGIN = 'merge-base origin/main HEAD'          // 第 4 步，主干是 origin/main
+  const Q_BASE_MAIN = 'merge-base main HEAD'                   // 第 4 步，主干是 main
+  const Q_PARENT = `rev-parse ${SHA_HEAD}^1`                   // 第 5 步
+  const Q_LIST_FORK = `rev-list ${SHA_FORK}..${SHA_HEAD}`      // 第 6 步，起点是共同祖先
+  const Q_LIST_PARENT = `rev-list ${SHA_PARENT}..${SHA_HEAD}`  // 第 6 步，起点是上一版
+  const Q_LIST_STALE = `rev-list ${SHA_STALE_FORK}..${SHA_HEAD}`
+
+  /**
+   * 一个在分支上的假仓库：两个候选都在，共同祖先不是 HEAD。每个用例只改它要改的那几条，
+   * 改成 `null` = 那条命令失败（GitAsk 的约定）；表里没有的命令一律答不上来。
+   * 「这条路径本不该问」的几条（本地 main 的共同祖先、HEAD 的上一版）也照真仓库填上答案 ——
+   * 走错路的实现拿到的是一个看得出错在哪的值，而不是笼统的「答不上来」。
+   */
+  const onBranch = (over: Record<string, string | null> = {}): Record<string, string | null> => ({
+    [Q_HEAD]: SHA_HEAD, [Q_SHALLOW]: 'false', [Q_ORIGIN]: SHA_ORIGIN, [Q_MAIN]: SHA_MAIN,
+    [Q_BASE_ORIGIN]: SHA_FORK, [Q_BASE_MAIN]: SHA_STALE_FORK, [Q_PARENT]: SHA_PARENT,
+    [Q_LIST_FORK]: `${SHA_C2}\n${SHA_C1}`, [Q_LIST_STALE]: `${SHA_C2}\n${SHA_C1}\n${SHA_OTHERS}`,
+    [Q_LIST_PARENT]: SHA_HEAD,
+    ...over,
+  })
+  /** 按命令原文查表交回预设答案，并按顺序记下被问过的每一条 */
+  const run = (table: Record<string, string | null>) => {
+    const asked: string[] = []
+    const ask: GitAsk = (...args) => {
+      // 契约里没有一个参数带空白；带了，说明整条命令被塞进了一个参数 —— 真 git 答不上来
+      const q = args.some(a => /\s/.test(a)) ? `（整条命令塞进了一个参数）${JSON.stringify(args)}` : args.join(' ')
+      asked.push(q)
+      return Object.hasOwn(table, q) ? table[q] : null
+    }
+    // 实现之前函数体会抛；接住它，让每一条各自红，而不是整个文件在第一条上崩掉
+    let got: Baseline | string
+    try { got = resolveBaseline(ask) } catch (e) { got = `抛了：${e instanceof Error ? e.message : String(e)}` }
+    return { got, asked }
+  }
+  // 整个对象比较不走 eq：eq 比的是 JSON 串，键的先后不同也算不等，一个写对了的实现会被冤红
+  const exact = (label: string, got: unknown, want: unknown) => {
+    const equal = isDeepStrictEqual(got, want)
+    ok(label, equal)
+    if (!equal) console.log(`     got=${JSON.stringify(got)}\n     want=${JSON.stringify(want)}`)
+  }
+  /** 无从判断、而且 why 与 how 都有话（入口要照着说出来）→ 'cannot-answer'；否则原样交回，红的时候看得见是什么 */
+  const refusal = (got: Baseline | string) =>
+    typeof got !== 'string' && got.kind === 'cannot-answer' && got.why.trim() !== '' && got.how.trim() !== ''
+      ? 'cannot-answer' : got
+  const measure = (trunk: string, base: string, onTrunk: boolean, commits: string[]): Baseline =>
+    ({ kind: 'measure', trunk, head: SHA_HEAD, base, onTrunk, commits })
+
+  // TRUNK_CANDIDATES 的说明：「远端引用排在前面」
+  eq('起点：主干候选的顺序 —— 远端 origin/main 在前，本地 main 在后', TRUNK_CANDIDATES, ['origin/main', 'main'])
+
+  // ── 第 1、2 步：这里能不能算 ──────────────────────────────────────
+  {
+    const r = run(onBranch({ [Q_HEAD]: null }))
+    eq('起点第 1 步：rev-parse HEAD 答不上来（不是仓库／没有提交）→ 无从判断，why 与 how 都有话',
+      refusal(r.got), 'cannot-answer')
+    eq('起点第 1 步答不上来就停：只问过 rev-parse HEAD', r.asked, [Q_HEAD])
+  }
+  {
+    const r = run(onBranch({ [Q_SHALLOW]: 'true' }))
+    eq('起点第 2 步：--is-shallow-repository 答 true（浅克隆）→ 无从判断', refusal(r.got), 'cannot-answer')
+    eq('起点第 2 步答 true 就停：不再去找主干', r.asked, [Q_HEAD, Q_SHALLOW])
+    // 契约第 2 步：答 true 时 how 说怎么取完整历史 —— 和「问不出来」那一支的结局一样是无从判断，
+    // 分得开的只有这句怎么修（开 PR 前的独立审阅之后补）
+    eq('起点第 2 步答 true：how 说怎么取完整历史（fetch-depth: 0 或 git fetch --unshallow）',
+      typeof r.got !== 'string' && r.got.kind === 'cannot-answer' && /fetch-depth: 0|--unshallow/.test(r.got.how), true)
+  }
+  // 契约只写了答 true 怎么办；答不上来归开头那句总则「任何一步答不上来就停在那一步」——
+  // 当成「不是浅克隆」接着量，是把「没查过」当成「查过、没有」
+  {
+    const r = run(onBranch({ [Q_SHALLOW]: null }))
+    eq('起点第 2 步答不上来（总则：答不上来就停）→ 无从判断，不当成「不是浅克隆」',
+      refusal(r.got), 'cannot-answer')
+    eq('起点第 2 步答不上来就停：不再去找主干', r.asked, [Q_HEAD, Q_SHALLOW])
+  }
+  // 契约第 2 步：只有答 false 才往下走。2.15 以前的 git 不认识这个参数，会把它原样打回来、退出 0 ——
+  // 那既不是 true 也不是「答不上来」，当成「不是浅克隆」接着量，就在浅克隆里报一个可能缩水的数（开 PR 前的独立审阅指出）
+  {
+    const r = run(onBranch({ [Q_SHALLOW]: '--is-shallow-repository' }))
+    eq('起点第 2 步把参数原样打回来（旧 git）→ 无从判断，不当成「不是浅克隆」',
+      refusal(r.got), 'cannot-answer')
+    eq('起点第 2 步把参数原样打回来就停：不再去找主干', r.asked, [Q_HEAD, Q_SHALLOW])
+  }
+
+  // ── 第 3 步：找主干 ──────────────────────────────────────────────
+  {
+    const r = run(onBranch({ [Q_ORIGIN]: null, [Q_MAIN]: null }))
+    eq('起点第 3 步：两个候选都答不上来 → 无从判断', refusal(r.got), 'cannot-answer')
+    const why = typeof r.got !== 'string' && r.got.kind === 'cannot-answer' ? r.got.why : ''
+    ok('起点第 3 步：why 点名了 origin/main', why.includes('origin/main'))
+    // 「main」是「origin/main」的子串：只写了远端那一个，includes('main') 照样成立 —— 先抹掉再找
+    ok('起点第 3 步：why 也点名了本地 main（抹掉 origin/main 之后还找得到 main）',
+      why.replaceAll('origin/main', '').includes('main'))
+    eq('起点第 3 步：按候选顺序各问一遍，都答不上来就停，不去取共同祖先', r.asked,
+      [Q_HEAD, Q_SHALLOW, Q_ORIGIN, Q_MAIN])
+  }
+  {
+    const r = run(onBranch({ [Q_ORIGIN]: null }))
+    exact('起点第 3 步：只有本地 main → 主干取 main，拿它取共同祖先、列提交', r.got,
+      measure('main', SHA_STALE_FORK, false, [SHA_C2, SHA_C1, SHA_OTHERS]))
+    eq('起点第 3 步：先问 origin/main，答不上来再问 main', r.asked,
+      [Q_HEAD, Q_SHALLOW, Q_ORIGIN, Q_MAIN, Q_BASE_MAIN, Q_LIST_STALE])
+  }
+
+  // ── 分支上：两个候选都在，共同祖先不是 HEAD ────────────────────────
+  {
+    const r = run(onBranch())
+    // 第 3 步取第一个答得上来的 → origin/main（本地 main 的共同祖先更靠前，取错了 base 会是
+    // sha-stale-fork、commits 里混进 sha-others-merged）；第 5 步「否则起点就是共同祖先」；
+    // 第 6 步按行拆开，顺序照 rev-list 交回的
+    exact('起点：分支上、两个候选都在 → 主干取 origin/main，从共同祖先量起，onTrunk=false', r.got,
+      measure('origin/main', SHA_FORK, false, [SHA_C2, SHA_C1]))
+    // 第 2 步答 false 接着往下问。契约没说第一个候选答上来之后还问不问后面的；
+    // 这里按「取第一个答得上来的」读成不再问
+    eq('起点：逐步问的完整顺序（分支上）—— 浅克隆答 false 接着问，origin/main 答上来就不再问 main', r.asked,
+      [Q_HEAD, Q_SHALLOW, Q_ORIGIN, Q_BASE_ORIGIN, Q_LIST_FORK])
+    eq('起点第 6 步（分支上）：rev-list 问的是 <共同祖先的 sha>..<HEAD 的 sha>，不是字面 HEAD 或主干名',
+      r.asked.filter(q => q.startsWith('rev-list')), [Q_LIST_FORK])
+  }
+  {
+    const r = run(onBranch({ [Q_BASE_ORIGIN]: null }))
+    eq('起点第 4 步：merge-base 答不上来（HEAD 与主干没有共同祖先）→ 无从判断', refusal(r.got), 'cannot-answer')
+    // 表里本地 main 的 merge-base 答得上来：退回去拿 main 再试的实现，上面那条也会红
+    eq('起点第 4 步答不上来就停：不问上一版、不列提交，也不退回去拿 main 再试', r.asked,
+      [Q_HEAD, Q_SHALLOW, Q_ORIGIN, Q_BASE_ORIGIN])
+  }
+
+  // ── 第 5 步：主干上（共同祖先就是 HEAD 自己）─────────────────────────
+  {
+    const r = run(onBranch({ [Q_BASE_ORIGIN]: SHA_HEAD }))
+    exact('起点第 5 步：主干上（共同祖先就是 HEAD）→ 起点是 <HEAD>^1 的答案，onTrunk=true', r.got,
+      measure('origin/main', SHA_PARENT, true, [SHA_HEAD]))
+    eq('起点：逐步问的完整顺序（主干上）—— 共同祖先之后问 <HEAD>^1，再列提交', r.asked,
+      [Q_HEAD, Q_SHALLOW, Q_ORIGIN, Q_BASE_ORIGIN, Q_PARENT, Q_LIST_PARENT])
+    eq('起点第 6 步（主干上）：rev-list 问的是 <上一版的 sha>..<HEAD 的 sha>',
+      r.asked.filter(q => q.startsWith('rev-list')), [Q_LIST_PARENT])
+  }
+  {
+    const r = run(onBranch({ [Q_BASE_ORIGIN]: SHA_HEAD, [Q_PARENT]: null }))
+    exact('起点第 5 步：主干上且没有上一版（<HEAD>^1 答不上来）→ 不适用，带主干名 origin/main', r.got,
+      { kind: 'not-applicable', trunk: 'origin/main' })
+    eq('起点第 5 步 <HEAD>^1 答不上来就停：不再列提交', r.asked,
+      [Q_HEAD, Q_SHALLOW, Q_ORIGIN, Q_BASE_ORIGIN, Q_PARENT])
+  }
+  {
+    const r = run(onBranch({ [Q_ORIGIN]: null, [Q_BASE_MAIN]: SHA_HEAD, [Q_PARENT]: null }))
+    exact('起点第 5 步：不适用时带的是选中的那个主干名 —— 只有本地 main 时是 main', r.got,
+      { kind: 'not-applicable', trunk: 'main' })
+  }
+
+  // ── 第 6 步：这条分支自己的提交 ─────────────────────────────────────
+  {
+    const r = run(onBranch({ [Q_LIST_FORK]: null }))
+    eq('起点第 6 步：rev-list 答不上来（总则：答不上来就停）→ 无从判断，不当成「没有提交」',
+      refusal(r.got), 'cannot-answer')
+  }
+  {
+    const r = run(onBranch({ [Q_LIST_FORK]: '' }))
+    exact('起点第 6 步：rev-list 答空串 → 照量，commits 是空数组（不是 [""]，也不是无从判断）', r.got,
+      measure('origin/main', SHA_FORK, false, []))
+  }
+  {
+    // GitAsk 已经去掉了首尾空白，只有夹在中间的空行能让「去掉空行」这句话被违反
+    const r = run(onBranch({ [Q_LIST_FORK]: `${SHA_C2}\n\n${SHA_C1}` }))
+    eq('起点第 6 步：按行拆开，夹在中间的空行去掉',
+      typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.commits : r.got, [SHA_C2, SHA_C1])
+  }
 }
 
 harness('引文遮罩：引用块里的围栏也要盖住')
