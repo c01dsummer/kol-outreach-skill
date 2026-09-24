@@ -1,6 +1,6 @@
 {
   "$comment": "编号的唯一真相来源。docs/SPEC.md 是它的渲染，两者不一致以本文件为准。content_hash 是派生字段，由 spec-sync --write 写，不要手改 —— 改了需求不回写，npm run check 当场变红。字段含义见 process/1-REQUIREMENTS.md。",
-  "content_hash": "7941815ca5ce",
+  "content_hash": "2768e8c3dd48",
   "categories": {
     "P": "红线 —— 不参与任何取舍",
     "S": "范围 —— 明确不做什么",
@@ -480,6 +480,10 @@
         {
           "id": "D6.v",
           "text": "令牌不跨运行，所以续跑不会再为已经抓过页的 Instagram 任务请求：一次运行结束时（跑完、达标、预算不足、出错），手里还握着令牌的 Instagram 任务记进 done；续跑时遇到抓过页、不在 done、手里没有令牌的 Instagram 任务，同样记进 done 且一次请求都不发。于是「续跑还剩多少关键词要抓」（D6.g）与调度说的是同一件事，不把这些任务算进要花钱的那一半。同一个原因，Instagram 第二页起累加器保存失败而没落盘的那一页，续跑也不再请求 —— 这是 D6.t「续跑重新请求这一页」的例外：那一页的作者丢了，已付的钱照记在费用账上；第一页不受影响，续跑照 D6.t 重新请求。"
+        },
+        {
+          "id": "D6.w",
+          "text": "ig_route 为 hashtag 的 Instagram 任务只请求话题页首页：每一页一次请求，不走账号名兜底，不交回续页令牌 —— 拿回首页后按 D6.u 记进 done；续页与翻页另议（ADR-112）。零条目如实记为 0 条，不改搜账号名。"
         }
       ],
       "adr": [
@@ -490,6 +494,7 @@
         "ADR-100",
         "ADR-108",
         "ADR-111",
+        "ADR-112",
         "ADR-113"
       ],
       "tension": [
@@ -617,7 +622,7 @@
         },
         {
           "id": "D11.h",
-          "text": "Instagram 搜索作品标识取自本次已确认的 items[].id，不以用户 id、文案 id 或其他对象的标识代替。"
+          "text": "Instagram Reels 与话题搜索作品标识取自本次已确认的 items[].id，不以用户 id、文案 id 或其他对象的标识代替。"
         },
         {
           "id": "D11.i",
@@ -952,7 +957,7 @@
       "accept": [
         {
           "id": "D15.a",
-          "text": "TikTok 视频搜索及 Instagram Reels 搜索返回的每个账号携带实际端点、平台、账号、原搜索词与维度；as_hashtag 元数据不改变或冒充实际端点。"
+          "text": "TikTok 视频搜索、Instagram Reels 搜索及 Instagram 话题搜索返回的每个账号携带实际端点、平台、账号、原搜索词与维度；as_hashtag 元数据不改变或冒充实际端点。"
         },
         {
           "id": "D15.b",
@@ -985,10 +990,19 @@
         {
           "id": "D15.i",
           "text": "已观察来源只代表已有记录，不能声称完整历史、某条作品的具体来源或请求及费用次数；缺来源不改变既有作品与关键词任务归属口径。"
+        },
+        {
+          "id": "D15.j",
+          "text": "任务配置里的 ig_route 只能缺席或为 \"hashtag\"，且只能写在 Instagram 任务上；为 hashtag 时，关键词去掉一个开头的 # 之后不得为空、不得含空白。任一不合规时，collect（新建与续跑）与 probe 在建任务目录、任何预留与请求之前以退出码 2 结束，零请求，并指出是第几个任务、哪一条不合规。"
+        },
+        {
+          "id": "D15.k",
+          "text": "ig_route 为 hashtag 的 Instagram 任务请求 Instagram 话题搜索：请求参数取关键词去掉一个开头的 #、feed_type 为 top；来源、任务标签与关键词行照用原关键词。ig_route 缺席时照旧走 Reels 搜索，路线不由 as_hashtag、关键词写法或 Agent 推断。probe 与 collect 经同一处分派，试探与采集走同一条路线。"
         }
       ],
       "adr": [
-        "ADR-110"
+        "ADR-110",
+        "ADR-112"
       ],
       "tension": [
         {
