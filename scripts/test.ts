@@ -6100,7 +6100,7 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
     '/api/v1/instagram/v2/fetch_hashtag_posts': 2000,
   }
   exact('当前价目版本绑定固定证据', TIKHUB_PRICE_VERSION, version)
-  exact('本版只列九条已核端点：八条生产端点与待接入的话题端点', TIKHUB_PRICE_CATALOG, { [version]: expectedPrices })
+  exact('本版只列九条已核端点：八条缺省生产端点与显式开启时才请求的话题端点', TIKHUB_PRICE_CATALOG, { [version]: expectedPrices })
   ok('价目表两层均冻结', Object.isFrozen(TIKHUB_PRICE_CATALOG) && Object.values(TIKHUB_PRICE_CATALOG).every(Object.isFrozen))
   for (const [endpoint, amount] of Object.entries(expectedPrices)) {
     exact(`固定报价 ${endpoint}`, quoteTikHub(endpoint), price(endpoint, amount, version))

@@ -13,14 +13,14 @@ Base URL:  https://api.tikhub.io
 费用依据: 按实际端点固定公开基础价估算；不是实际账单
 ```
 
-当前八条生产端点按固定价目计预算：TikTok 三路与 IG 两路 profile 各 $0.001；IG Reels、账号名搜索、主页作品各 $0.002。来源为 [TikHub 官方定价资产](https://tikhub.io/_next/static/chunks/16hcexj0jth19.js)，观察时刻与固定版本见 ADR-107 末尾；不计优惠，不是实付账单或未来价格上界。实验 general 不因此成为生产路径。同一价目版本另登记了 v2 话题端点 `fetch_hashtag_posts`（$0.002，同一份资产原样转录，见 ADR-107 末尾）；**只有运营在任务上显式写 `ig_route: "hashtag"` 时才请求它**，缺省仍走 Reels（D15.j、D15.k，ADR-112）。
+当前八条缺省生产端点按固定价目计预算：TikTok 三路与 IG 两路 profile 各 $0.001；IG Reels、账号名搜索、主页作品各 $0.002。来源为 [TikHub 官方定价资产](https://tikhub.io/_next/static/chunks/16hcexj0jth19.js)，观察时刻与固定版本见 ADR-107 末尾；不计优惠，不是实付账单或未来价格上界。实验 general 不因此成为生产路径。同一价目版本另登记了 v2 话题端点 `fetch_hashtag_posts`（$0.002，同一份资产原样转录，见 ADR-107 末尾）；**只有运营在任务上显式写 `ig_route: "hashtag"` 时才请求它**，缺省仍走 Reels（D15.j、D15.k，ADR-112）。
 
 ⚠️ **早期样本中的 IG 请求不接受免费额度。** 实测（2026-08-25）：当时采用的 TikTok 端点可用注册赠送的
 free credit 调用；当时测试的 Instagram 端点返回 **402**，提示
 「this endpoint requires payment and does not accept free credit」。
 不接受免费额度的端点需要可用付费余额，已有足额余额无需再次充值。
 不能把上述历史 402 外推成所有 IG 端点或所有账户都必须先充值。
-2026-09-23 核到的公开价目中，本项目五条生产 IG 路径和两条实验发现路径均标记不接受
+2026-09-23 核到的公开价目中，本项目五条缺省生产 IG 路径和两条当时的实验发现路径（话题搜索现已可由运营显式开启，ADR-112）均标记不接受
 免费额度；具体范围、快照日期与来源见 `docs/data-source-strategy.md` 的免费额度补充。
 
 > curl 对这个 host 连接不稳定（LibreSSL SSL_ERROR_SYSCALL 间歇性出现），

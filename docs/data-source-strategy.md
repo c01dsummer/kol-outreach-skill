@@ -89,7 +89,7 @@
 上述固定规范中，`/api/v1/instagram/v2/search_reels`、`fetch_hashtag_posts` 与
 `general_search` 的 `get.description` 均声明 **0.002 USD/请求**。这是该快照的声明，
 真实账单未核；既不证明全部端点同价，也不能把历史 `$0.001/请求` 的统一估算说成可靠上界。
-上述为当时文档核对范围；现有八条生产端点的逐端点预算接线契约见 ADR-108，不能用实验端点标价推算其他端点。
+上述为当时文档核对范围；八条缺省生产端点的逐端点预算接线契约见 ADR-108（话题端点接入后按同一机制计价，ADR-112），不能用实验端点标价推算其他端点。
 
 ### Instagram 原批发现路径的样本边界（2026-09-23）
 
@@ -237,7 +237,7 @@ recentPosts(handle, platform) → { posts, followers?, following?, source }
 
 ## 生产端点的固定公开价目（2026-09-23 摘录）
 
-八条生产路径的固定价来自 [TikHub 官方定价资产](https://tikhub.io/_next/static/chunks/16hcexj0jth19.js)
+八条缺省生产路径的固定价来自 [TikHub 官方定价资产](https://tikhub.io/_next/static/chunks/16hcexj0jth19.js)
 （价目更新日 2026-07-20，观察日 2026-09-23）。仓库不再提交 evidence 文件；来源与固定版本见 ADR-107 末尾。
 TikTok 搜索、profile、主页作品三路各 $0.001；IG Reels、账号名搜索、主页作品各 $0.002，
 IG profile 的 v3/v2 两路各 $0.001。它是固定公开基础价，不计优惠，不是账单或未来价格上界。
