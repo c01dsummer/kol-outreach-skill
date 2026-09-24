@@ -84,8 +84,9 @@ export function pickList(data: any, path: string): any[] {
  * 与轮播（`media_type` 8、`product_type` `'carousel_container'`）不算。
  */
 export function isInstagramVideo(item: unknown): boolean {
-  void item
-  throw new Error('尚未实现')
+  const i = item as any
+  return i?.is_video === true || i?.media_type === 2 || i?.media_format === 'video' ||
+    i?.media_name === 'reel' || i?.product_type === 'clips'
 }
 
 /**
@@ -108,8 +109,40 @@ export function isInstagramVideo(item: unknown): boolean {
  *   图文、轮播等其余条目不写播放数 —— 该媒体类型的播放字段语义没确认过，不能当成真实的 0（P1）。
  */
 export function parseInstagramHashtagPage(raw: unknown, task: SearchTask): SearchPage {
-  void raw; void task
-  throw new Error('尚未实现')
+  const list = pickList(raw, 'instagram/fetch_hashtag_posts')
+  const byHandle = new Map<string, Partial<Creator>>()
+  for (const item of list) {
+    const u = item?.user
+    const handle = u?.username
+    if (!handle) continue
+
+    const post: RecentPost = {
+      id: searchPostId('instagram', item?.id),
+      desc: item?.caption_text ?? '',
+      // 只有视频条目才写播放数：图文、轮播的播放字段语义没确认过，写进去就是把「不知道」当成数（P1）
+      ...(isInstagramVideo(item) ? { plays: item?.play_count ?? item?.ig_play_count } : {}),
+      likes: item?.like_count ?? undefined,
+    }
+
+    const seen = byHandle.get(handle)
+    if (seen) { seen.recent_posts!.push(post); continue }
+
+    byHandle.set(handle, {
+      platform: 'instagram',
+      handle,
+      user_id: u?.id ?? u?.pk,
+      nickname: u?.full_name ?? '',   // P1 例外：展示用
+      bio_links: [],
+      verified: Boolean(u?.is_verified),
+      is_private: Boolean(u?.is_private),
+      profile_url: `https://www.instagram.com/${handle}/`,
+      discovery_sources: [{ platform: 'instagram', handle, keyword: task.keyword,
+        dimension: task.dimension, endpoint: INSTAGRAM_HASHTAG_ENDPOINT }],
+      recent_posts: [post],
+    })
+  }
+  // 话题页翻不翻另议（ADR-112 第二节）：响应里有令牌也不交回，has_more 写死 false
+  return { creators: [...byHandle.values()], raw_count: list.length, has_more: false }
 }
 
 export class TikHub {
@@ -428,9 +461,7 @@ export class TikHub {
     const endpoint = INSTAGRAM_POSTS_ENDPOINT
     const raw = await this.get(endpoint, { username: handle })
     const list = pickList(raw, 'instagram/user_posts')
-    const videos = list.filter((item: any) =>
-      item?.is_video === true || item?.media_type === 2 || item?.media_format === 'video' ||
-      item?.media_name === 'reel' || item?.product_type === 'clips')
+    const videos = list.filter(isInstagramVideo)
     const posts = videos.slice(0, 12).map((item: any): NormalizedPublicPost => ({
       id: String(item?.id ?? item?.pk ?? item?.code ?? ''),   // P1 例外：标识仅用于样本追溯，不参与决策
       views: finiteNumber(item?.play_count) ?? finiteNumber(item?.ig_play_count), // P1 例外：同一指标的两个真实字段别名，不是缺失数据兜底
