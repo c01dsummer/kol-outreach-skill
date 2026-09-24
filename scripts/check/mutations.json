@@ -4890,6 +4890,70 @@
       "file": "scripts/probe.ts",
       "find": "console.error(e instanceof BudgetInputError ? e.message : e)",
       "replace": "console.error(e instanceof BudgetInputError && e.message.startsWith(cfgPath) ? e.message : e)"
+    },
+    {
+      "id": "M-D15-x",
+      "req": "D15.l",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：probe 成功结果带出任务配置里写的 ig_route，写了 hashtag 的 IG 任务那一行原样是 hashtag",
+        "IG 话题入口：probe 成功结果带出任务配置里写的 ig_route，话题页一个人都没解析出来也照样是 hashtag"
+      ],
+      "why": "成功结果不带路线 —— 话题任务 0 人时，只看试探输出分不出走的是话题页还是 Reels",
+      "file": "scripts/probe.ts",
+      "find": "        ...routeOf(t),\n        found: found.length,",
+      "replace": "        found: found.length,"
+    },
+    {
+      "id": "M-D15-y",
+      "req": "D15.m",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：probe 错误结果同样带出任务配置里写的 ig_route，话题页请求失败的那一行原样是 hashtag"
+      ],
+      "why": "错误结果不带路线 —— 话题页请求失败时，看不出失败的是哪条路线",
+      "file": "scripts/probe.ts",
+      "find": "...routeOf(t), error: msg",
+      "replace": "error: msg"
+    },
+    {
+      "id": "M-D15-z",
+      "req": "D15.l",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：probe 成功结果里，没写 ig_route 的 IG 任务那一行没有 ig_route 这个键",
+        "IG 话题入口：probe 成功结果不由 as_hashtag 推断 ig_route，写了 as_hashtag 而没写 ig_route 的那一行没有这个键",
+        "IG 话题入口：probe 成功结果不由关键词写法推断 ig_route，关键词以 # 开头而没写 ig_route 的那一行没有这个键",
+        "IG 话题入口：probe 成功结果不由平台补写 ig_route，TikTok 任务那一行没有这个键"
+      ],
+      "why": "没写路线的任务，结果里也长出路线字段（写成空值）—— 配置里没有的东西被当成了一个值",
+      "file": "scripts/probe.ts",
+      "find": "t.ig_route === undefined ? {} : { ig_route: t.ig_route }",
+      "replace": "t.ig_route === undefined ? { ig_route: null } : { ig_route: t.ig_route }"
+    },
+    {
+      "id": "M-D15-aa",
+      "req": "D15.l",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：probe 成功结果不由 as_hashtag 推断 ig_route，写了 as_hashtag 而没写 ig_route 的那一行没有这个键"
+      ],
+      "why": "把 as_hashtag 当成路线 —— 写了 as_hashtag 的 Reels 任务，在试探结果里被说成走了话题页",
+      "file": "scripts/probe.ts",
+      "find": "        ...routeOf(t),\n        found: found.length,",
+      "replace": "        ...routeOf(t.as_hashtag ? { ...t, ig_route: 'hashtag' } : t),\n        found: found.length,"
+    },
+    {
+      "id": "M-D15-ab",
+      "req": "D15.m",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：probe 错误结果里，没写 ig_route 的 IG 任务请求失败的那一行没有 ig_route 这个键"
+      ],
+      "why": "错误结果给没写路线的任务补上一个路线值 —— 配置里没有的值出现在试探结果里",
+      "file": "scripts/probe.ts",
+      "find": "...routeOf(t), error: msg",
+      "replace": "ig_route: t.ig_route ?? 'reels', error: msg"
     }
   ],
   "exemptions": [
