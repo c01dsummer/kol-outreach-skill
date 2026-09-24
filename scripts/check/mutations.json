@@ -4414,6 +4414,83 @@
       "replace": "  saveTask(dir, state)\n  saveRawCreators(dir, [...creators.values()])\n}"
     },
     {
+      "id": "M-D6-at",
+      "req": "D6.u",
+      "by": "selfcheck",
+      "kills": [
+        "IG 续页带上一页交回的令牌：第 1 次不带，第 2、3 次依次带 page-2、page-3",
+        "IG 响应不再给令牌就停：恰好 3 次 Reels 搜索，pages 记 3，任务进 done"
+      ],
+      "why": "续页请求不带上一页交回的续页令牌 —— IG 第二页起一个请求都不发，每个 IG 关键词又回到只取一页，而没有任何一处报错",
+      "file": "scripts/collect.ts",
+      "find": "page = await api.search(t, state.market, offset, tokens.get(i))",
+      "replace": "page = await api.search(t, state.market, offset)"
+    },
+    {
+      "id": "M-D6-au",
+      "req": "D6.u",
+      "by": "selfcheck",
+      "kills": [
+        "IG 续页带上一页交回的令牌：第 1 次不带，第 2、3 次依次带 page-2、page-3",
+        "IG 响应不再给令牌就停：恰好 3 次 Reels 搜索，pages 记 3，任务进 done",
+        "IG 每页都给令牌也停在页数上限：恰好 4 次 Reels、第 2～4 次带令牌，pages 记 4，任务进 done"
+      ],
+      "why": "拿回一页后不留下这一页交回的令牌 —— 下一轮这个 IG 任务手里没有令牌，当场被记进完成列表，页数随达标走对 IG 失效",
+      "file": "scripts/collect.ts",
+      "find": "        if ('next' in verdict) tokens.set(i, verdict.next)\n",
+      "replace": "        if ('next' in verdict) tokens.delete(i)\n"
+    },
+    {
+      "id": "M-D6-av",
+      "req": "D6.u",
+      "by": "selfcheck",
+      "kills": [
+        "IG 续页令牌只在内存里：抓取途中与收尾后的 task.json 都找不到令牌字符串",
+        "预算不足收尾时握着的令牌不写进 task.json"
+      ],
+      "why": "续页令牌写进了任务文件 —— 令牌只在同一次运行内有效（ADR-111），写盘之后续跑可能拿一个隔了几小时的令牌去请求，失败会让每次续跑卡在同一个任务上",
+      "file": "scripts/collect.ts",
+      "find": "        if ('next' in verdict) tokens.set(i, verdict.next)\n",
+      "replace": "        if ('next' in verdict) { tokens.set(i, verdict.next); (state as any).ig_tokens = { ...(state as any).ig_tokens, [i]: verdict.next } }\n"
+    },
+    {
+      "id": "M-D6-aw",
+      "req": "D6.u",
+      "by": "selfcheck",
+      "kills": [
+        "IG 没有可继续的令牌而停时，提示说的是令牌，不说服务端已经没有更多"
+      ],
+      "why": "IG 没有可继续的令牌而停时，提示说成服务端已经没有更多 —— 那是把本地看到的一件事说成了对方的性质，用户据此以为这个词已经问尽",
+      "file": "scripts/collect.ts",
+      "find": "'no-token': '本次没有可继续的续页令牌'",
+      "replace": "'no-token': '服务端已经没有更多了'"
+    },
+    {
+      "id": "M-D6-ax",
+      "req": "D6.v",
+      "by": "selfcheck",
+      "kills": [
+        "预算不足收尾时手里还握着令牌的 IG 任务记进 done",
+        "预算不足收尾那句话不把握着令牌的 IG 任务算进要抓的关键词"
+      ],
+      "why": "一次运行结束时手里还握着令牌的 IG 任务不记进完成列表 —— 续跑不会再为它请求，收尾那句话却仍把它算进要花钱的关键词",
+      "file": "scripts/collect.ts",
+      "find": "      if (!exhausted.has(i)) close(i, `  ◦ ${taskLabel(state.tasks[i], i)} → 续页令牌不跨运行，这个任务本次到此为止`)\n",
+      "replace": "      void i\n"
+    },
+    {
+      "id": "M-D6-ay",
+      "req": "D6.v",
+      "by": "selfcheck",
+      "kills": [
+        "续跑遇到抓过页、不在 done、手里没令牌的 IG 任务：一次搜索请求都不发，记进 done"
+      ],
+      "why": "续跑遇到抓过页、手里没令牌的 IG 任务不先拦下 —— 它被当成还能翻，页数记上一页而一条都没拿回，调度与记录各说各的",
+      "file": "scripts/collect.ts",
+      "find": "      if (!canRequestPage(state, i, tokens.get(i))) {\n",
+      "replace": "      if (false) {\n"
+    },
+    {
       "id": "M-D13-t",
       "req": "D13.i",
       "why": "旧任务预算为非法对象或数组时，不再保留内部原始数字，零请求写回也会把大整数舍入或把超范围值变成 null",
