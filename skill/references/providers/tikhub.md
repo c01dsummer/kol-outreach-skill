@@ -62,6 +62,11 @@ data.search_item_list[].aweme_info.statistics.play_count / digg_count  ✓
 data.search_item_list[].aweme_info.desc                  ✓
 ```
 
+**图文的样本（2026-09-23，两个词首页 40 条，ADR-101 第十五节）**：40 条都有视频播放地址、正时长与非零
+`statistics.play_count`，`image_infos` 全为 null，没有 `image_post_info`。`aweme_type` 为 0 的 39 条、55 的 1 条，
+**55 那条也是视频** —— 没有找到这个端点的类型枚举，不能拿「`aweme_type` 不是 0」判图文。没看到图文正例，
+不等于这个端点排除图文；主页作品端点这批没有调用。
+
 ⚠️ **两个坑，都是实测才发现的**：
 
 1. **`data.aweme_list` 同时存在，但是空数组。** 解析时若按「第一个存在的数组」取，
@@ -215,9 +220,10 @@ data.data.items[].like_count         ⚠️ 可能是 null（作者隐藏赞数�
    记录提示可先试短词，但不足以推出“所有词组都返回 0”，也不是固定页大小的证据。
    当前关键词应以本次试探为准。
 3. **本稿不作媒体覆盖结论。** 不能由 `search_reels` 名称断言它只会返回视频，或只发
-   图文的作者永远搜不到。固定规范未限定目标 `data` 的媒体类型与字段语义；原批仅留首条
-   摘要，不能据此判定纯图文、轮播、PhotoMode 的覆盖、`play_count` 适用范围或排序。
-   新批范围另行分析；下表仅列原批 V2 hashtag/general 等路径线索。
+   图文的作者永远搜不到。固定规范未限定目标 `data` 的媒体类型与字段语义。
+   2026-09-23 两个词的 8 份 Reels 首页共 96 条，全是视频（ADR-101 第十五节）；这只说明那两个词、
+   那几分钟里没看到图文，不能据此判定纯图文、轮播、PhotoMode 的覆盖、`play_count` 适用范围或排序。
+   话题页同批样本里一半是图片与轮播，它们的 `play_count` 是 0，那是假零，不能拿来和视频比。
 
 ### 为什么弃用了 v1 的 hashtag 端点
 
@@ -309,12 +315,12 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 | `v2/general_search` | `keyword` | `pagination_token`；已有用户首条字段路径摘要，尚未接入采集器 |
 | `v1`／`v2` `user_id_to_username` | `user_id` | 未声明分页参数 |
 
-### V2 发现路径的用户样本摘要（2026-09-23）
+### V2 发现路径的样本（2026-09-23 采）
 
-用户**原批** `selfcare` / `journaling` 调用交接保留了以下**首条键路径摘要**；原批 JSON
-与先前分析的临时目录已丢失，无法复算。这是解析线索，不证明所有条目都有有效值。
-用户随后重新采样，文件另存于 `output/adiaro-discovery/sample-lInRuK/`；这是不同批次，
-本次事实修订不引用新批的分析数字，也不把它当成原批响应的恢复。
+`selfcare` / `journaling` 在三条 V2 路线上各采了两批首页，存在需求所有者本机的
+`output/adiaro-discovery/sample-FUn2by/`（先采的原批）与 `sample-lInRuK/`，两份清单带 SHA256。
+早先说「原批 JSON 已丢失」不成立，原批就是 `sample-FUn2by`（ADR-101 第十五节）。下表是首条的键路径，
+是解析线索，不证明所有条目都有有效值。
 
 | 来源 | 列表 | 首条作者与作品 id | 首条文案 | 其他首条字段 |
 |---|---|---|---|---|
@@ -323,8 +329,9 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 | `v2/general_search` | `data.data.items` | `user.username`、直接 `id` | `caption.text` | `user.follower_count` |
 
 表内 item 子路径省略共同前缀 `data.data.items[0].`。这里的 `id` 不加 `media` 包层，
-也不使用 `user.id` 或 `caption.id` 代替作品标识。字段数量、覆盖率、作者总数、跨词重叠、
-分页增量和不同 `feed_type` 的实际结果均待原始响应补证；不引用旧对话中的精确统计。
+也不使用 `user.id` 或 `caption.id` 代替作品标识。两批首页的媒体字段与作者重叠已在本机零成本核过
+（ADR-101 第十五节：话题页作者两个词都不在 Reels 与 general 里；Reels 同一请求几分钟内重跑漂得很厉害）；
+分页增量和 `top` 以外的 `feed_type` 仍没有样本。
 
 历史测试曾因缺少正确的必填参数返回 **422** 并指出缺失字段；这不保证所有参数错误都返回相同状态或被拒绝。
 
