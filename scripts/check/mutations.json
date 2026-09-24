@@ -4820,6 +4820,19 @@
       "file": "scripts/collect.ts",
       "find": "const why = t.ig_route === 'hashtag' && verdict.stop === 'no-token' ? '话题路线只取首页'",
       "replace": "const why = false ? '话题路线只取首页'"
+    },
+    {
+      "id": "M-D15-w",
+      "req": "D15.j",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：collect 续跑带 --budget 时 ig_route 不合规，以退出码 2 结束、零请求、不留预留",
+        "IG 话题入口：collect 续跑带 --budget 时 ig_route 不合规，盘上 task.json 原样不动"
+      ],
+      "why": "续跑改额那条路径漏了路线校验 —— 新上限先落了盘，配置写错的任务照常开抓；只带 --resume 的夹具走不到这条路径，看不见",
+      "file": "scripts/collect.ts",
+      "find": "const badRoutes = igRouteProblems(state.tasks)",
+      "replace": "const badRoutes = resume && replacementLimit !== undefined ? [] : igRouteProblems(state.tasks)"
     }
   ],
   "exemptions": [

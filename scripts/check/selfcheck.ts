@@ -3370,6 +3370,31 @@ group('hashtag-route', [], () => {
     }
   }
   {
+    // 续跑带 --budget：这条路径在开抓前会把新上限落盘（D13.j），只带 --resume 的上一个夹具走不到。
+    // 盘上同一份 task.json（上限 $1、空账）；--budget 3 不少于当前占用，D13.j 本会接受 —— 拒绝只能来自路线校验。
+    const f = costFixture('htbadresumebudget', knownCosts(1_000_000, []), { budget_usd: 1, target_count: 9999,
+      tasks: [
+        { keyword: '#htresume-ok', dimension: 'scene', platform: 'instagram', ig_route: 'hashtag' },
+        { keyword: 'htresume-bad-kw', dimension: 'scene', platform: 'instagram', ig_route: null },
+      ], done: [], offsets: {}, pages: {}, answered: {}, found: {} })
+    const before = fileText(f.task)
+    const r = runBoth('collect 话题入口：续跑带 --budget，task.json 里第 2 个任务的 ig_route 是 null',
+      [S('collect.ts'), '--resume', f.taskDir, '--budget', '3'], f.cwd, { status: 2, soft: [0, 1, 3] }, htEnv(f.log))
+    if (r.ok) {
+      const st = jsonFile(f.task)
+      named('IG 话题入口：collect 续跑带 --budget 时 ig_route 不合规，以退出码 2 结束、零请求、不留预留',
+        r.status === 2 && fetchAttempts(f.log).length === 0 && st?.requests === 0
+          && st?.cost_ledger?.pending === undefined,
+        `退出码 ${r.status}、账本 ${JSON.stringify(fetchAttempts(f.log))}、盘上 requests=${st?.requests}、`
+        + `pending=${JSON.stringify(st?.cost_ledger?.pending)} —— D15.j：续跑改额同样在任何预留与请求之前停下`)
+      named('IG 话题入口：collect 续跑带 --budget 时 ig_route 不合规，盘上 task.json 原样不动',
+        r.status === 2 && fileText(f.task) === before,
+        `退出码 ${r.status}、盘上 budget_usd=${st?.budget_usd}、limit_micro_usd=${st?.cost_ledger?.limit_micro_usd}`
+        + ' —— D15.j 把整次调用当输入问题以退出码 2 拒绝；改额是这次调用的一部分，'
+        + '同 D13 的口径（有未结项时「显式改额以退出码 2 拒绝」），被拒的调用不带着新上限落盘')
+    }
+  }
+  {
     const cwd = cwdOf('bad-probe'), ledger = join(cwd, 'attempts.tsv')
     const r = runBoth('probe 话题入口：第 2 个任务把 hashtag 写在 TikTok 任务上',
       [S('probe.ts'), '--config', cfgOf(cwd, 'htbadprobe', [
