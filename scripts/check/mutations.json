@@ -5200,6 +5200,14 @@
       "file": "scripts/probe.ts",
       "find": "        ...routeOf(t),\n        found: found.length,",
       "replace": "        ...routeOf(t.as_hashtag && t.keyword.startsWith('#') ? { ...t, ig_route: 'hashtag' } : t),\n        found: found.length,"
+    },
+    {
+      "id": "M-H9-l",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "中文路径转义那一项又被注掉 —— 不走 -z 的调用把中文路径转义成八进制串，分类判据匹配不上，整批掉进「其他」",
+      "find": "  '-c', 'core.quotePath=false',",
+      "replace": "  // '-c', 'core.quotePath=false',"
     }
   ],
   "exemptions": [
