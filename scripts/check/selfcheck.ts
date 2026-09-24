@@ -942,6 +942,10 @@ group('cost-resume', [], () => {
         && state?.answered?.[0] === 1 && state?.answered?.[1] === 1 && state?.answered?.[2] === 1
         && state?.requests === 3,
       `attempts=${JSON.stringify(fetchAttempts(skipped.log))}, task=${JSON.stringify(state)}`)
+    // 期望出自 D6.n 原文「done 数组中的索引被跳过」：跳过就是不再经手，不会被再记一次完成。
+    named('续跑不把 done 里已有的任务再记一遍',
+      Array.isArray(state?.done) && new Set(state.done).size === state.done.length,
+      `盘上 done=${JSON.stringify(state?.done)} —— 同一个下标出现两次，说明已完成的任务又被调度了一遍`)
     criterion('D6.n')
   }
   const bad = knownCosts(5000, [costEntry(TT_SEARCH, 1001, 1)])
@@ -2623,6 +2627,13 @@ group('f9', [], () => {
             searchHits(legacyLedger) === 0,
             `供应商收到了 ${searchHits(legacyLedger)} 次关键词搜索`
             + ' —— 这个目录里哪些词查过是无从确认的，照第一页重抓等于把已经付过钱的那几页再买一遍')
+      // 期望出自 F9.e 原文「不得读作『都查过了』」：done 就是「查完了」（D6.n），
+      // 这个目录的第一跑没把任何词记完成（上面那个 if 的前提），续跑也不许记。
+      const legacyAfter = jsonFile(taskPath)
+      named('分页记录表整张缺失时，续跑不把任何关键词记成已完成',
+            Array.isArray(legacyAfter?.done) && legacyAfter.done.length === 0,
+            `盘上 done=${JSON.stringify(legacyAfter?.done)} —— 无从确认哪些词查过，记进 done 就是读成了「都查过了」，`
+            + 'F9.e 逐字禁的第二种误读；这些词此后再也不会被碰')
       named('分页记录表整张缺失时，收尾那句话说得出「无从确认」',
             again.stderr.includes('无从确认') && !again.stderr.includes('采集与补全都已跑完'),
             // 认代价那句话的三种写法，**不认「续跑」两个字** —— 那会先抓到入口打的
