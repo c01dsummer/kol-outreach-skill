@@ -64,7 +64,7 @@ data.search_item_list[].aweme_info.desc                  ✓
 
 **图文的样本（2026-09-23，两个词首页 40 条，ADR-101 第十五节）**：40 条都有视频播放地址、正时长与非零
 `statistics.play_count`，`image_infos` 全为 null，没有 `image_post_info`。`aweme_type` 为 0 的 39 条、55 的 1 条；
-55 那条同样有视频播放地址、正时长与非零播放数，没有 `image_post_info`。没有找到这个端点的类型枚举，
+55 那条同样有视频播放地址、正时长与非零播放数，没有 `image_post_info`。没有找到这个端点的官方类型枚举，
 它是视频还是图文没有判定，不能拿「`aweme_type` 不是 0」判图文。没确认到图文正例，
 不等于这个端点排除图文；主页作品端点这批没有调用。
 
@@ -319,10 +319,9 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 ### V2 发现路径的样本（2026-09-23 采）
 
 `selfcare` / `journaling` 在三条 V2 路线上各采了两批首页，存在需求所有者本机的
-`output/adiaro-discovery/sample-FUn2by/`（先采两分多钟）与 `sample-lInRuK/`；清单带 SHA256
-（`sample-FUn2by` 节选可见，README 记两个样本目录采样时已对应核对）。早先说「原批 JSON 已丢失」；
-按清单时间推断原批可能就是 `sample-FUn2by`，没核实（ADR-101 第十五节）。下表是首条的键路径，
-是解析线索，不证明所有条目都有有效值。
+`output/adiaro-discovery/sample-FUn2by/`（早两分多钟开始）与 `sample-lInRuK/`；两份清单每次观测都带 `sha256`，
+与原始响应逐份一致。早先说「原批 JSON 已丢失」；按清单时间推断原批可能就是 `sample-FUn2by`，没核实（ADR-101 第十五节）。
+下表是键路径，逐条覆盖见表下。
 
 | 来源 | 列表 | 首条作者与作品 id | 首条文案 | 其他首条字段 |
 |---|---|---|---|---|
@@ -331,10 +330,14 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 | `v2/general_search` | `data.data.items` | `user.username`、直接 `id` | `caption.text` | `user.follower_count` |
 
 表内 item 子路径省略共同前缀 `data.data.items[0].`。这里的 `id` 不加 `media` 包层，
-也不使用 `user.id` 或 `caption.id` 代替作品标识。两批首页的媒体字段（`media_type`／`product_type`／`is_video`／`play_count`）
-与作者用户名已在本机零成本逐条核过，同词重跑的作者重叠与跨路线独有也算了（ADR-101 第十五节：话题页作者两个词都不在
-Reels 与 general 里；Reels 同一请求重跑漂得很厉害）；上表其余字段只看了首条。IG 两个词之间的作者交集还没算；
-分页增量没有样本；`feed_type` 只见过 `top`。
+也不使用 `user.id` 或 `caption.id` 代替作品标识。两批 24 份首页已在本机零成本逐条核过（ADR-101 第十五节）：
+- 每条都有顶层 `id` 与 `user.username`，条目都没有 `media` 包层；文案路径除 4 条 Reels 缺 `caption.text` 外都有；
+  `user.follower_count` 只在 general 上有，每条都是数值；
+- 媒体字段（`media_type`／`product_type`／`is_video`）逐条数过；`play_count` 只数了非视频条目；
+- 同词重跑的作者重叠、跨路线独有与两词交集也算了：话题页作者两个词都不在 Reels 与 general 里；
+  Reels 同一请求重跑漂得很厉害；两个词之间作者没有交集。
+
+分页增量没有样本；`feed_type` 只用过 `top`。
 
 历史测试曾因缺少正确的必填参数返回 **422** 并指出缺失字段；这不保证所有参数错误都返回相同状态或被拒绝。
 

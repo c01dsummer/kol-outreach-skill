@@ -95,20 +95,20 @@
 
 `selfcare` / `journaling` 两个词在 V2 Reels、V2 hashtag 与 V2 general 上各采了两批首页，
 都在需求所有者本机的 `output/adiaro-discovery/` 下：`sample-FUn2by`（03:07:50 UTC 起，12 次）与
-`sample-lInRuK`（03:10:10 UTC 起，12 次），三路各词两次。话题页的 `feed_type` 只在清单节选里见过一次（`top`）。
-2026-09-24 本机逐份重算 SHA256 并与清单比对，没有报不符（依据与限制见 ADR-101 第十五节）。
+`sample-lInRuK`（03:10:10 UTC 起，12 次），三路各词两次，两批合计不到 4 分钟。8 次话题页请求都带 `feed_type=top`。
+两份清单每次观测都带 `sha256`，2026-09-24 本机逐份重算，全部一致（ADR-101 第十五节）。
 早先文档说「原批 JSON 已丢失」；按清单时间推断，原批可能就是现存的 `sample-FUn2by`，但也排除不了原批另在别处、
 确实丢了（ADR-101 第十五节）。原始响应只在本机，不进仓库。
 
-列表路径均为 `data.data.items`，每条都取得到作者用户名。首条有直接 `id`；Reels/general 的首条文案在 `caption.text`，
-hashtag 在 `caption_text`；general 的首条另见 `user.follower_count`。这些是首条的键路径，
-不保证每条都有该字段、值可用或含义一致。
+列表路径均为 `data.data.items`，条目都没有 `media` 包层。24 份逐条核过：每条都有顶层 `id` 与 `user.username`；
+Reels/general 的文案在 `caption.text`（Reels 有 4 条缺），hashtag 在 `caption_text`；`user.follower_count` 只在 general 上有，
+每条都是数值。这只说明这两个词首页上字段在不在，不说明值的含义。
 
-零成本核对（ADR-101 第十五节；两个词、只有首页、两批开始只隔 2 分 20 秒、没有粉丝数）：
+零成本核对（ADR-101 第十五节；两个词、只有首页、两批合计不到 4 分钟、没有粉丝数）：
 - Reels 96 条全是视频；hashtag 191 条里 97 条是图片或轮播，这些条目的 `play_count` 是 0（假零），`taken_at` 是字符串；
 - 同一请求（同端点、同关键词）重跑，Reels 作者重叠只有 0.21–0.71，hashtag 0.62–1.00；
 - hashtag 的作者两个词都 100% 不在 Reels 与 general 里，而 hashtag 自己重跑冒出的新作者只占 0–22%；
-- IG 两个词之间的作者交集没有算。
+- IG 两个词之间作者没有交集（三路分开算与合起来算都是 0）。
 这些只是这两个词上的方向，不能外推到别的品类，也不是「能进名单」的人数。
 V2 general 尚未接入采集器；V2 hashtag 只在运营显式开启（`ig_route: "hashtag"`）时由采集器请求（ADR-112）。V1 的 `owner` 限制不应成为否定它们的依据。
 Reels 对纯图文、轮播及 PhotoMode 的覆盖、`play_count` 的媒体适用范围、匹配与排序规则
