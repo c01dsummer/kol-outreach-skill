@@ -1,3 +1,10 @@
+import { DIMENSIONS, PLATFORMS, textProblem } from './types.js'
+import { taskOrdinal } from './task-label.js'
+
+// 读到的值按 JSON 写法写出；字段缺席时写「缺席」，不写成 undefined 或空白
+const seen = (v: unknown): string => v === undefined ? '缺席' : `是 ${JSON.stringify(v)}`
+const quoted = (values: readonly string[]) => values.map(v => JSON.stringify(v)).join('、')
+
 /**
  * 搜索任务列表合不合规（D16.a–i，ADR-115）。**合规时交回空数组。**
  *
@@ -13,5 +20,30 @@
  * 每个不合规的任务都报；合规的任务（包括与别的任务完全相同的）一个都不点名。
  */
 export function taskListProblems(tasks: unknown): string[] {
-  return []
+  // 列表本身不合规时只报这一句：没有可数的任务，不点名任何「任务 N」。空列表也在这里（ADR-115 第二节）
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return [`tasks 必须是至少有一个任务的数组，这里${seen(tasks)}`]
+  }
+  const out: string[] = []
+  // 按下标走，不用 forEach：稀疏数组的空位也要当成一项报出来
+  for (let i = 0; i < tasks.length; i++) {
+    const t: unknown = tasks[i]
+    const at = `任务 ${taskOrdinal(i)}`
+    if (t === null || typeof t !== 'object' || Array.isArray(t)) {
+      out.push(`${at} 不是一个任务对象，这里${seen(t)}`)
+      continue
+    }
+    // 三个字段互相独立，坏几个报几个（D16.g）；只读不写（D16.i）
+    const { keyword, dimension, platform } = t as Record<string, unknown>
+    if (textProblem(keyword) !== undefined) {
+      out.push(`${at} 的 keyword 必须是去掉首尾空白后仍有内容的字符串，这里${seen(keyword)}`)
+    }
+    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {
+      out.push(`${at} 的 dimension 只能是 ${quoted(DIMENSIONS)} 之一（区分大小写），这里${seen(dimension)}`)
+    }
+    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {
+      out.push(`${at} 的 platform 只能是 ${quoted(PLATFORMS)} 之一（区分大小写），这里${seen(platform)}`)
+    }
+  }
+  return out
 }
