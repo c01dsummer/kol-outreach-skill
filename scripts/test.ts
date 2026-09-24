@@ -64,7 +64,9 @@ import {
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { formatDiscoverySources, mergeDiscoverySources } from './lib/discovery.js'
-import { TikHub, TikHubError, fillEmail, pickList } from './providers/tikhub.js'
+import {
+  INSTAGRAM_HASHTAG_ENDPOINT, TikHub, TikHubError, fillEmail, isInstagramVideo, parseInstagramHashtagPage, pickList,
+} from './providers/tikhub.js'
 import { esc, writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import { writeXlsx } from './lib/xlsx.js'
@@ -3538,6 +3540,135 @@ suite('D15', '表格与 HTML 展示真实路线并明确来源记录的边界')
     html.includes('仅含已记录的账号发现来源，可能不含完整历史；不对应具体作品或请求次数'))
   criterion('D15.i')
   tension('D15', 'P5')
+}
+
+// 独立上下文先于实现写成；期望只依据 ADR-112 第二、五节，D11、P1、D15 的需求文字，
+// 以及 isInstagramVideo、parseInstagramHashtagPage、pickList 的接口说明；不取自任何产品函数体。
+suite('D15', 'IG 话题页解析：只解析、不分派（ADR-112 第四节第 2 步）')
+{
+  // 调用放进 thunk：抛出变成一个显眼的值再比 —— 否则「期望缺席」的断言会被一次抛出静默放行，
+  // 而一次抛出也不会拖垮后面的断言。
+  const probe = (label: string, run: () => unknown, want: unknown) => {
+    let got: unknown
+    try { got = run() } catch (e) { got = `抛出：${e instanceof Error ? e.message : String(e)}` }
+    eq(label, got, want)
+  }
+
+  // 五个信号各自单独成立就算视频；话题页混着的图文与轮播不算（isInstagramVideo 说明、ADR-112 第五节）。
+  const videoCases: [string, unknown, boolean][] = [
+    ['只有 is_video 为 true 也算', { is_video: true }, true],
+    ['只有 media_type 为 2 也算', { media_type: 2 }, true],
+    ['只有 media_format 为 video 也算', { media_format: 'video' }, true],
+    ['只有 media_name 为 reel 也算', { media_name: 'reel' }, true],
+    ['只有 product_type 为 clips 也算', { product_type: 'clips' }, true],
+    // 「任一成立就算」：别的键说不是也不推翻
+    ['任一信号成立就算，is_video 为 false 不推翻 media_type 2', { is_video: false, media_type: 2 }, true],
+    ['话题页的图文不算', { media_type: 1, is_video: false, product_type: 'feed' }, false],
+    ['话题页的轮播不算', { media_type: 8, is_video: false, product_type: 'carousel_container' }, false],
+    ['五个键都缺席的空对象不算', {}, false],
+    ['null 不是对象，不算', null, false],
+    ['undefined 不是对象，不算', undefined, false],
+    ['字符串不是对象，不算', 'reel', false],
+  ]
+  for (const [name, item, want] of videoCases) probe(`IG 视频判定：${name}`, () => isInstagramVideo(item), want)
+
+  const task: SearchTask = { keyword: '#Self Care', dimension: 'scene', platform: 'instagram' }
+  // 话题页响应形状：列表在 data.data.items，续页令牌与 data.data 同级（ADR-112 第五节第 2 条）。
+  const items = [
+    { id: 'abc', user: { username: 'alice' }, caption_text: '话题视频', caption: { text: 'Reels 那边的文案字段' },
+      media_type: 2, play_count: 1000, ig_play_count: 1, like_count: 50 },
+    { id: 'orphan', caption_text: '没有作者', media_type: 2, play_count: 5 },
+    { id: 12345, user: { username: 'bob' }, caption_text: '话题图文',
+      media_type: 1, product_type: 'feed', is_video: false, play_count: 999, like_count: null },
+    { id: '   ', user: { username: 'alice' }, caption_text: '话题轮播',
+      media_type: 8, product_type: 'carousel_container', is_video: false, play_count: 777, like_count: 7 },
+    { user: { username: 'carol' }, caption: { text: '只有 caption.text' }, is_video: true, ig_play_count: 500, like_count: 0 },
+    { id: 'nameless', user: { full_name: '有 user 没账号名' }, caption_text: '没有账号名', media_type: 2 },
+    { id: 'd1', user: { username: 'dave' }, media_type: 2 },
+  ]
+  type Page = ReturnType<typeof parseInstagramHashtagPage>
+  let parsed: Page | undefined, parseError: unknown = new Error('没有解析结果')
+  try { parsed = parseInstagramHashtagPage({ data: { data: { items }, pagination_token: 'NEXT_PAGE_TOKEN' } }, task) }
+  catch (e) { parseError = e }
+  const page = (): Page => { if (parsed === undefined) throw parseError; return parsed }
+  const account = (handle: string) => {
+    const found = page().creators.find(c => c.handle === handle)
+    if (!found) throw new Error(`没有账号 ${handle}`)
+    return found
+  }
+  const post = (handle: string, i: number): RecentPost => {
+    const found = account(handle).recent_posts?.[i]
+    if (!found) throw new Error(`${handle} 没有第 ${i + 1} 条作品`)
+    return found
+  }
+
+  probe('话题页 raw_count 是列表条目数，含没有作者名的条目', () => page().raw_count, 7)
+  // 七条里 orphan（没有 user）与 nameless（user 里没有 username）不产出账号；alice 两条合成一个
+  probe('话题页有作者名的作者各成一个账号，没有作者名的条目不产出账号',
+    () => page().creators.map(c => c.handle).sort(), ['alice', 'bob', 'carol', 'dave'])
+  // 有作者名的五条全在账号名下，orphan 与 nameless 两条不挂到任何人名下
+  probe('话题页没有作者名的条目不挂到任何账号名下',
+    () => page().creators.flatMap(c => c.recent_posts ?? []).length, 5)
+  // 中间隔着 bob 的一条，顺序才真的被检查到
+  probe('话题页同一作者的条目合成一个账号，作品按条目出现顺序排',
+    () => account('alice').recent_posts?.map(p => p.desc), ['话题视频', '话题轮播'])
+  for (const handle of ['alice', 'bob', 'carol', 'dave']) {
+    probe(`话题页账号 ${handle}：平台与主页地址`, () => [account(handle).platform, account(handle).profile_url],
+      ['instagram', `https://www.instagram.com/${handle}/`])
+    // 投影成元组比：不依赖实现拼对象的键顺序；数组长度同时钉住「恰好一条」（alice 两条作品也只一条来源）
+    probe(`话题页账号 ${handle}：来源恰好一条，关键词原样保留开头的 #，端点是话题页`,
+      () => account(handle).discovery_sources?.map(s => [s.platform, s.handle, s.keyword, s.dimension, s.endpoint]),
+      [['instagram', handle, '#Self Care', 'scene', '/api/v1/instagram/v2/fetch_hashtag_posts']])
+    // 解析器写不写 source_keyword 说明里没讲；写了就只能是原词（ADR-112 第二节「原词保留」）
+    probe(`话题页账号 ${handle}：source_keyword 若写出只能是任务原词`,
+      () => [undefined, '#Self Care'].includes(account(handle).source_keyword), true)
+  }
+
+  // D11.i：非空白字符串原样、安全整数转十进制，都加 instagram: 前缀；空白或缺失时缺席
+  probe('话题页作品 id：字符串原样加平台前缀', () => post('alice', 0).id, 'instagram:abc')
+  probe('话题页作品 id：安全整数转十进制加平台前缀', () => post('bob', 0).id, 'instagram:12345')
+  probe('话题页作品 id：空白时缺席，不以空串代替', () => post('alice', 1).id, undefined)
+  probe('话题页作品 id：原始 id 缺失时缺席', () => post('carol', 0).id, undefined)
+  criterion('D11.i')
+
+  probe('话题页文案取 caption_text，同条目里的 caption.text 不认', () => post('alice', 0).desc, '话题视频')
+  probe('话题页只有 caption.text 的条目文案为空串', () => post('carol', 0).desc, '')
+  probe('话题页没有任何文案字段的条目文案为空串', () => post('dave', 0).desc, '')
+
+  probe('话题页赞数取 like_count', () => post('alice', 0).likes, 50)
+  // 0 不是 null 也不是缺席，是真实的值
+  probe('话题页赞数为 0 照写 0', () => post('carol', 0).likes, 0)
+  probe('话题页赞数为 null 时缺席，不写成 0', () => post('bob', 0).likes, undefined)
+  probe('话题页赞数字段缺席时缺席', () => post('dave', 0).likes, undefined)
+
+  // 「取 play_count，缺席时 ig_play_count」：两个都在时 play_count 优先
+  probe('话题页视频条目播放数取 play_count，不被 ig_play_count 盖掉', () => post('alice', 0).plays, 1000)
+  probe('话题页视频条目没有 play_count 时取 ig_play_count', () => post('carol', 0).plays, 500)
+  // 图文、轮播的播放字段语义没确认过，不能当成真实的数，也不能当成 0（ADR-112 第二节、P1）
+  probe('话题页图文条目带着 play_count 也不写播放数', () => post('bob', 0).plays, undefined)
+  probe('话题页轮播条目带着 play_count 也不写播放数', () => post('alice', 1).plays, undefined)
+  // 两个播放字段都缺席：不推算、不补 0（ADR-112 第五节「缺席字段保持缺席」）
+  probe('话题页视频条目两个播放字段都缺席时播放数缺席', () => post('dave', 0).plays, undefined)
+
+  probe('话题页 has_more 为 false', () => page().has_more, false)
+  probe('话题页响应里有 pagination_token 也不交回续页令牌', () => page().next_token, undefined)
+
+  // 全空但确实是数组 = 真的没结果，不报错（P1 那组 pickList 用例的同一条口径）
+  probe('话题页列表为空数组：零条、零人、不报错',
+    () => { const p = parseInstagramHashtagPage({ data: { data: { items: [] } } }, task)
+      return [p.raw_count, p.creators, p.has_more] }, [0, [], false])
+  // 认不出列表时照 pickList 抛出：报错附上 data 下的顶层 key，不硬猜（pickList 说明、P1 那组用例第四条）
+  probe('话题页认不出列表时照 pickList 抛出，报错里带上顶层 key', () => {
+    try { parseInstagramHashtagPage({ data: { hashtag_weird_key: 1 } }, task) } catch (e) {
+      return String(e instanceof Error ? e.message : e).includes('hashtag_weird_key') }
+    return '没有抛出'
+  }, true)
+
+  // 与上一组三条路线同一格式：路线 · 平台:@账号 · 原词 · 维度
+  probe('话题端点来源显示为「Instagram 话题搜索」，格式与另三条路线相同',
+    () => formatDiscoverySources([{ platform: 'instagram', handle: 'Tag', keyword: '#Self Care', dimension: 'scene',
+      endpoint: INSTAGRAM_HASHTAG_ENDPOINT }]),
+    'Instagram 话题搜索 · instagram:@Tag · #Self Care · scene')
 }
 
 suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」')
