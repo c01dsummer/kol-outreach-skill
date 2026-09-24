@@ -4841,12 +4841,44 @@
       "kills": [
         "F3.c：probe 的配置读不出以退出码 2 结束时，stderr 只写问题与配置路径，不带异常类名与调用栈",
         "F3.c：probe 的 budget_usd 不合法以退出码 2 结束时，stderr 只写问题与配置路径，不带异常类名与调用栈",
-        "F3.c：probe 的 ig_route 不合规以退出码 2 结束时，stderr 只写问题与配置路径，不带异常类名与调用栈"
+        "F3.c：probe 的 ig_route 不合规以退出码 2 结束时，stderr 只写问题与配置路径，不带异常类名与调用栈",
+        "F3.c：probe 的初始费用不可用以退出码 2 结束时，stderr 只写问题与配置路径，不带异常类名与调用栈",
+        "F3.c：probe 缺 API key 以退出码 2 结束时，stderr 只写问题本身，不带异常类名与调用栈"
       ],
       "why": "probe 的输入问题退回整条打异常 —— stderr 带着 BudgetInputError 的类名与堆栈，路线写错、配置读不出都被说成预算问题",
       "file": "scripts/probe.ts",
       "find": "main().catch(e => { console.error(e instanceof BudgetInputError ? e.message : e);",
       "replace": "main().catch(e => { console.error(e);"
+    },
+    {
+      "id": "M-F3-b",
+      "req": "F3.c",
+      "by": "selfcheck",
+      "kills": [
+        "F3.c：probe 的配置读不出以退出码 2 结束时，stderr 只写问题与配置路径，不带异常类名与调用栈",
+        "F3.c：probe 的 budget_usd 不合法以退出码 2 结束时，stderr 只写问题与配置路径，不带异常类名与调用栈",
+        "F3.c：probe 的 ig_route 不合规以退出码 2 结束时，stderr 只写问题与配置路径，不带异常类名与调用栈",
+        "F3.c：probe 的初始费用不可用以退出码 2 结束时，stderr 只写问题与配置路径，不带异常类名与调用栈"
+      ],
+      "why": "probe 的配置问题报错里不写配置路径 —— 运营不知道是哪个配置文件出了错",
+      "file": "scripts/probe.ts",
+      "find": "throw new BudgetInputError(`${cfgPath}：${error instanceof Error ? error.message : String(error)}`)",
+      "replace": "throw new BudgetInputError(error instanceof Error ? error.message : String(error))"
+    },
+    {
+      "id": "M-F3-c",
+      "req": "F3.c",
+      "by": "selfcheck",
+      "kills": [
+        "F3.c：probe 的配置读不出以退出码 2 结束时，stderr 只写问题与配置路径，不带异常类名与调用栈",
+        "F3.c：probe 的 budget_usd 不合法以退出码 2 结束时，stderr 只写问题与配置路径，不带异常类名与调用栈",
+        "F3.c：probe 的 ig_route 不合规以退出码 2 结束时，stderr 只写问题与配置路径，不带异常类名与调用栈",
+        "F3.c：probe 的初始费用不可用以退出码 2 结束时，stderr 只写问题与配置路径，不带异常类名与调用栈"
+      ],
+      "why": "probe 的配置问题报错只剩一个配置路径 —— 运营看得到是哪个文件，看不到错在哪",
+      "file": "scripts/probe.ts",
+      "find": "throw new BudgetInputError(`${cfgPath}：${error instanceof Error ? error.message : String(error)}`)",
+      "replace": "throw new BudgetInputError(`${cfgPath}：`)"
     }
   ],
   "exemptions": [
