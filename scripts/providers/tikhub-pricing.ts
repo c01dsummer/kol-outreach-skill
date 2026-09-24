@@ -13,6 +13,9 @@ export const TIKHUB_PRICE_CATALOG: FixedPriceCatalog = Object.freeze({
     '/api/v1/instagram/v1/fetch_user_info_by_username_v3': 1000,
     '/api/v1/instagram/v1/fetch_user_info_by_username_v2': 1000,
     '/api/v1/instagram/v2/fetch_user_posts': 2000,
+    // 话题端点：同一份资产里的原样一行，2026-09-24 追加转录（ADR-107 末尾、ADR-112 第五节）。
+    // 登记价目不等于接入生产路径 —— 入口只在运营显式开启时才会请求它（ADR-112）。
+    '/api/v1/instagram/v2/fetch_hashtag_posts': 2000,
   }),
 })
 

@@ -4154,6 +4154,14 @@
       "replace": "raw.entries.map((value, i) => {"
     },
     {
+      "id": "M-D12-y",
+      "req": "D12.c",
+      "why": "话题端点按错的单价登记 —— 运营开启话题路线后每次请求只记一半的钱，预算闸门按少记的数放行，实际花费超出用户设的上限",
+      "file": "scripts/providers/tikhub-pricing.ts",
+      "find": "    '/api/v1/instagram/v2/fetch_hashtag_posts': 2000,",
+      "replace": "    '/api/v1/instagram/v2/fetch_hashtag_posts': 1000,"
+    },
+    {
       "id": "M-D13-a",
       "req": "D13.a",
       "why": "根预算先经浮点舍入，超精度的原始授权被扩大为可用额度",

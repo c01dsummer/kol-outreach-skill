@@ -13,7 +13,7 @@ Base URL:  https://api.tikhub.io
 费用依据: 按实际端点固定公开基础价估算；不是实际账单
 ```
 
-当前八条生产端点按固定价目计预算：TikTok 三路与 IG 两路 profile 各 $0.001；IG Reels、账号名搜索、主页作品各 $0.002。来源为 [TikHub 官方定价资产](https://tikhub.io/_next/static/chunks/16hcexj0jth19.js)，观察时刻与固定版本见 ADR-107 末尾；不计优惠，不是实付账单或未来价格上界。实验 hashtag/general 不因此成为生产路径。
+当前八条生产端点按固定价目计预算：TikTok 三路与 IG 两路 profile 各 $0.001；IG Reels、账号名搜索、主页作品各 $0.002。来源为 [TikHub 官方定价资产](https://tikhub.io/_next/static/chunks/16hcexj0jth19.js)，观察时刻与固定版本见 ADR-107 末尾；不计优惠，不是实付账单或未来价格上界。实验 hashtag/general 不因此成为生产路径。同一价目版本另登记了 v2 话题端点 `fetch_hashtag_posts`（$0.002，同一份资产原样转录，见 ADR-107 末尾）；登记价目不等于接入 —— 采集器目前不请求它，将来也只在运营显式开启时才请求（ADR-112）。
 
 ⚠️ **早期样本中的 IG 请求不接受免费额度。** 实测（2026-08-25）：当时采用的 TikTok 端点可用注册赠送的
 free credit 调用；当时测试的 Instagram 端点返回 **402**，提示

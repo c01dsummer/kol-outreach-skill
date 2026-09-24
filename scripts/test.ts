@@ -5702,9 +5702,13 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
     '/api/v1/instagram/v1/fetch_user_info_by_username_v3': 1000,
     '/api/v1/instagram/v1/fetch_user_info_by_username_v2': 1000,
     '/api/v1/instagram/v2/fetch_user_posts': 2000,
+    // 话题端点：同一份定价资产（SHA256 与本版本记录的一致）里的原始元组
+    // ["/api/v1/instagram/v2/fetch_hashtag_posts",0.002,0,0,"10/second"]，0.002 USD = 2000 微美元；
+    // 用户本地只读核对，见 ADR-112 第五节。登记价目不等于接入生产路径（ADR-112 第三、四节）。
+    '/api/v1/instagram/v2/fetch_hashtag_posts': 2000,
   }
   exact('当前价目版本绑定固定证据', TIKHUB_PRICE_VERSION, version)
-  exact('本版只列八条已核生产端点', TIKHUB_PRICE_CATALOG, { [version]: expectedPrices })
+  exact('本版只列九条已核端点：八条生产端点与待接入的话题端点', TIKHUB_PRICE_CATALOG, { [version]: expectedPrices })
   ok('价目表两层均冻结', Object.isFrozen(TIKHUB_PRICE_CATALOG) && Object.values(TIKHUB_PRICE_CATALOG).every(Object.isFrozen))
   for (const [endpoint, amount] of Object.entries(expectedPrices)) {
     exact(`固定报价 ${endpoint}`, quoteTikHub(endpoint), price(endpoint, amount, version))
