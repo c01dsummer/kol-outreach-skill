@@ -90,6 +90,17 @@ export const reportLine = (id: string, ran: Ran): string =>
   `${MARK} ${JSON.stringify({ ...ran, id, output: ran.outcome === 'crashed' ? ran.output : '' })}`
 
 /**
+ * 这一行是不是在**试图**汇报结论 —— 认得记号就算，哪怕后面读不出来。
+ *
+ * `parseReport` 把「不是汇报行」和「是汇报行但读不出来」都交回 undefined，对读的人是
+ * 同一件事；**对派工那一侧不是**。前者是验证者漏出来的一句闲话，跳过就行；后者意味着
+ * 那一条从此不会有结论了，而 worker 正等着下一个编号 —— 不收摊的话它永远等下去，
+ * 整跑挂住。而挂住比硬失败更坏：模块头上承诺的是「少一个就是硬失败」，挂住连核账
+ * 那一步都走不到。
+ */
+export const looksLikeReport = (line: string): boolean => line.startsWith(`${MARK} `)
+
+/**
  * 一行汇报读回来。**认不出就是 undefined，不猜。**
  *
  * 认不出的有好几种（不是这个记号开头的、不是合法 JSON、少字段、字段类型不对、
@@ -102,17 +113,6 @@ export const reportLine = (id: string, ran: Ran): string =>
  * 该说「这一行读不出来」的地方变成一句不知所云的诊断（`claims.ts` 的
  * `claimsWellFormed` 是同一条道理，那边也栽过）。
  */
-/**
- * 这一行是不是在**试图**汇报结论 —— 认得记号就算，哪怕后面读不出来。
- *
- * `parseReport` 把「不是汇报行」和「是汇报行但读不出来」都交回 undefined，对读的人是
- * 同一件事；**对派工那一侧不是**。前者是验证者漏出来的一句闲话，跳过就行；后者意味着
- * 那一条从此不会有结论了，而 worker 正等着下一个编号 —— 不收摊的话它永远等下去，
- * 整跑挂住。而挂住比硬失败更坏：模块头上承诺的是「少一个就是硬失败」，挂住连核账
- * 那一步都走不到。
- */
-export const looksLikeReport = (line: string): boolean => line.startsWith(`${MARK} `)
-
 export function parseReport(line: string): ({ id: string } & Ran) | undefined {
   if (!line.startsWith(`${MARK} `)) return undefined
   let raw: unknown
@@ -136,8 +136,9 @@ export interface BillRow {
   /** 这一跑里由它来验、而且真跑了的变异条数 */
   count: number
   /**
-   * 这些条的墙钟逐条相加（毫秒）。**不是串着跑要花多久**：派工并行时各条互相抢核，
-   * 每一条都比串着跑时偏长；而整跑的墙钟又比这个和短。单跑一次的样本，不是区间。
+   * 这些条的墙钟逐条相加（毫秒）。**不是串着跑要花多久的估计**：派工并行时各条可能互相抢核
+   * （验证者自己还会起子进程），单条可能比串着跑慢，也可能不慢；而整跑的墙钟又比这个和短。
+   * 单跑一次的样本，不是区间。
    */
   totalMs: number
   /** 平均每条（毫秒）= totalMs / count */

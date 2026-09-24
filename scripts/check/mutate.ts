@@ -727,10 +727,10 @@ for (const e of exemptions) {
 }
 
 // 那个乘法：每个验证者被几条用 × 每条跑多久。只是参考数，不拿它判任何事（ADR-97）。
-// 合计是逐条墙钟相加，同时跑几条就互相抢核 —— 表头印出这一跑派了几个，读的人才知道偏多少（`BillRow.totalMs`）
+// 合计是逐条墙钟相加，不是串着跑要花多久的估计：同时跑几条时可能互相抢核（`BillRow.totalMs`）—— 表头印出这一跑派了几个
 const bill = billLines(verifierBill(timed))
 if (bill.length) {
-  console.log(`\n  按验证者记账（这一跑 ${jobs} 个 worker 同时跑；逐条墙钟相加，同时跑时每条都比串着跑偏长；单跑一次，不是区间）：`)
+  console.log(`\n  按验证者记账（这一跑 ${jobs} 个 worker 同时跑；逐条墙钟相加，不是串着跑要花多久的估计；单跑一次，不是区间）：`)
   for (const line of bill) console.log(line)
 }
 
