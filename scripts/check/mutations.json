@@ -306,6 +306,14 @@
       "replace": "  if (true) return requestableOnResume(state)"
     },
     {
+      "id": "M-D6-ba",
+      "req": "D6.v",
+      "why": "续跑那句话按「不在完成列表里的」数要花钱的关键词 —— 进程被硬杀之后，抓过页、手里没有续页令牌的 IG 任务被算进要花钱的一半，而续跑一个请求都不会为它发：告诉用户的开销比实际多",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "canRequestPage(state, i, undefined) ? [taskLabel(t, i)] : []",
+      "replace": "!state.done.includes(i) ? [taskLabel(t, i)] : []"
+    },
+    {
       "id": "M-P5-m",
       "req": "P5.i",
       "why": "一次都没查过的关键词，在报告上被印成「找到 0 条」—— 没测量被说成测量结果是零，运营据此把一个从没查过的方向判成没人、下次预算就不投，而这笔代价由用户承担且不可逆",
