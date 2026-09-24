@@ -4833,6 +4833,86 @@
       "file": "scripts/collect.ts",
       "find": "const badRoutes = igRouteProblems(state.tasks)",
       "replace": "const badRoutes = resume && replacementLimit !== undefined ? [] : igRouteProblems(state.tasks)"
+    },
+    {
+      "id": "M-H36-s",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "汇报行不验计时 —— 缺了计时、计时是串的一行照样认得，账单拿一个不是数的东西去加",
+      "find": "  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return undefined\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H36-t",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "计时不验有限 —— 手写的 1e999 读回来是 Infinity，一条就把整张账的合计撑成无穷",
+      "find": "typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0",
+      "replace": "typeof ms !== 'number' || ms < 0"
+    },
+    {
+      "id": "M-H36-u",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "计时不验非负 —— 负的毫秒数被认得，合计被一条坏行往回拉",
+      "find": "typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0",
+      "replace": "typeof ms !== 'number' || !Number.isFinite(ms)"
+    },
+    {
+      "id": "M-H36-v",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "读回来时把计时丢了 —— 派工跑的每一条都记成 0 毫秒，那个乘法永远是 0",
+      "find": "  return { id, outcome: outcome as Outcome, status, stopped, output, ms }",
+      "replace": "  return { id, outcome: outcome as Outcome, status, stopped, output, ms: 0 }"
+    },
+    {
+      "id": "M-H46-a",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "按验证者记账时条数不累加 —— 每个验证者都记成 1 条，乘法的那个乘数错了",
+      "find": "    row.count += 1\n",
+      "replace": "    row.count = 1\n"
+    },
+    {
+      "id": "M-H46-b",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "合计小的排前面 —— 人一眼先看到的不是钱花在哪",
+      "find": ".sort((a, b) => b.totalMs - a.totalMs ||",
+      "replace": ".sort((a, b) => a.totalMs - b.totalMs ||"
+    },
+    {
+      "id": "M-H46-c",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "合计一样大时按名字倒序 —— 同一份输入每次印出来的顺序和说明对不上",
+      "find": "(a.verifier < b.verifier ? -1 : a.verifier > b.verifier ? 1 : 0)",
+      "replace": "(a.verifier > b.verifier ? -1 : a.verifier < b.verifier ? 1 : 0)"
+    },
+    {
+      "id": "M-H46-d",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "平均取整 —— 秒级的验证者被抹成整毫秒还算小事，换了单位的调用方会拿到一个被截过的数",
+      "find": "meanMs: totalMs / count",
+      "replace": "meanMs: Math.floor(totalMs / count)"
+    },
+    {
+      "id": "M-H46-e",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "平均没换算成秒 —— 1276 毫秒印成「1276.0 秒」，读账的人以为一条要跑二十分钟",
+      "find": "${(r.meanMs / 1000).toFixed(1)} 秒",
+      "replace": "${r.meanMs.toFixed(1)} 秒"
+    },
+    {
+      "id": "M-H46-f",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "乘法乘错了东西 —— 「每慢 1 秒多几秒」写成了合计秒数，而那个乘数应该是条数",
+      "find": "整跑串行多 ${r.count} 秒",
+      "replace": "整跑串行多 ${Math.round(r.totalMs / 1000)} 秒"
     }
   ],
   "exemptions": [
