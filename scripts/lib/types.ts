@@ -430,4 +430,9 @@ export interface SearchPage {
   raw_count: number
   /** API 自己说还有没有下一页。比「本页新增 0 人」准，也省一次请求 */
   has_more: boolean
+  /**
+   * IG 续页令牌：Reels 响应里与 `data.data` 同级的 `data.pagination_token`，是字符串就原样交回。
+   * 缺席 = 这次响应没给。与 `offsets`（分页游标）不是一回事；能不能拿它再翻不在这里判（ADR-111）。
+   */
+  next_token?: string
 }

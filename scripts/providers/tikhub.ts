@@ -197,16 +197,20 @@ export class TikHub {
    * 当前用它取得作品与作者线索；实际匹配、排序及创作者覆盖未核实。
    * V1 hashtag 的历史样本 owner 只有 id，当前未采用；不外推到 V2 hashtag/general。
    *
-   * 当前实现只发 keyword，search() 见 offset > 0 直接返回空，has_more 写死 false。
-   * 这不是端点只有一页的证据：固定官方规范声明 pagination_token，2026-09-22 的
-   * smoothie 历史记录中链式请求比等次数重发取得更多去重作者（ADR-101 第十三节）。
+   * 首页只发 keyword；给了 IG 续页令牌就多带一个 pagination_token（固定官方规范声明的参数），
+   * 并把响应里与 data.data 同级的 data.pagination_token 交回为下一个令牌（ADR-111）。
+   * 采集入口目前还不传令牌，所以 search() 见 offset > 0 仍直接返回空，has_more 写死 false。
+   * 这不是端点只有一页的证据：2026-09-22 的 smoothie 历史记录中链式请求比等次数重发
+   * 取得更多去重作者（ADR-101 第十三节）。
    *
    * 早期短词样本优于词组，不证明所有词组都无结果或页大小固定；按当次试探调整。
    * 不能由 Reels 名称推断纯图文/轮播作者必然被排除。PhotoMode 是否返回、play_count
    * 的媒体适用范围、V2 hashtag/general 的覆盖与排序均待样本验证。
    */
-  private async searchInstagramReels(task: SearchTask): Promise<SearchPage> {
-    const raw = await this.get(INSTAGRAM_REELS_ENDPOINT, { keyword: task.keyword })
+  private async searchInstagramReels(task: SearchTask, token?: string): Promise<SearchPage> {
+    const params: Record<string, string> = { keyword: task.keyword }
+    if (token !== undefined) params.pagination_token = token
+    const raw = await this.get(INSTAGRAM_REELS_ENDPOINT, params)
     const list = pickList(raw, 'instagram/search_reels')
 
     const byHandle = new Map<string, Partial<Creator>>()
@@ -241,9 +245,11 @@ export class TikHub {
         recent_posts: [post],
       })
     }
-    // 我们只取一页，所以写死 false；这是本地停止决定，不是对服务端结果已穷尽的观测。
-    // 历史链式请求已取得更多作者，当前实现仍未接 pagination_token（ADR-101 第十三节）。
-    return { creators: [...byHandle.values()], raw_count: list.length, has_more: false }
+    // has_more 写死 false：翻不翻由入口看令牌决定，这是本地停止决定，不是对服务端结果已穷尽的观测。
+    // 令牌只认字符串；缺席或别的类型就不交回，不编一个出来。空白能不能再翻不在这里判（ADR-111）。
+    const next = raw?.data?.pagination_token
+    return { creators: [...byHandle.values()], raw_count: list.length, has_more: false,
+      ...(typeof next === 'string' ? { next_token: next } : {}) }
   }
 
   /** IG 关键词搜用户 —— Reels 搜索无结果时的补充路径。商家号偏多。 */
@@ -309,9 +315,19 @@ export class TikHub {
 
   // ---------- 统一入口 ----------
 
-  async search(task: SearchTask, region: string, offset: number): Promise<SearchPage> {
+  /** `token`：上一页交回的 IG 续页令牌（ADR-111）；TikTok 不用它，入口目前也还没传。 */
+  async search(task: SearchTask, region: string, offset: number, token?: string): Promise<SearchPage> {
     if (task.platform === 'tiktok') return this.searchTikTok(task, region, offset)
-    // 我们只向 IG 取一页：offset > 0 直接返回空，不白花请求。
+    // 续页：带上上一页交回的令牌再问一次 Reels，不看 offset。**不走兜底** —— 兜底只属于第一页，
+    // 续页解析不出人就如实交回这一页（ADR-111 第二节）。
+    // 空白令牌当场报错、一个请求都不发：请求参数里的空串会被 get() 丢掉，发出去就只带 keyword ——
+    // 把首页当续页再买一遍。报错而不是交回空页，免得入口把调用方的错读成「本页 0 条」。
+    // 能不能拿令牌再翻由 pipeline 那份判定决定，它只交出非空白的令牌；这里只守「不为错参数付钱」。
+    if (token !== undefined && token.trim() === '') {
+      throw new Error('IG 续页令牌是空白，未发送请求 —— 空白令牌会被当成首页再请求一次')
+    }
+    if (token !== undefined) return this.searchInstagramReels(task, token)
+    // 没有令牌时只向 IG 取一页：offset > 0 直接返回空，不白花请求。
     // **第 2 页是空的这个现象是这一行造的**，不是问出来的（ADR-101）。
     if (offset > 0) return { creators: [], raw_count: 0, has_more: false }
     const reels = await this.searchInstagramReels(task)
@@ -326,6 +342,7 @@ export class TikHub {
     // 追加预算续跑时它再也不会被碰（D6 × P3 的裁定，ADR-94 第十五节乙，实测）。
     // 而且走到这一支就说明 reels **一个人都没解析出来**，交回它并不保住任何人；
     // 丢的只是条数，那个数由 `TaskState.answered`／`found` 如实报成「未知」。
+    // 这一页**不带令牌**：账号名那次的响应不读令牌，Reels 那次的也不交回 —— 走了兜底的任务当页结束（ADR-111 第二节）。
     return this.searchInstagramUsers(task)
       .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))
   }

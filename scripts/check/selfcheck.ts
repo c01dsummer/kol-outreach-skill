@@ -1554,6 +1554,38 @@ group('cost-save-errors', [], () => {
   }
   criterion('P3.d', 'D13.p')
 
+  // D6.t：作者累加器写失败时，盘上这一页的分页进度不得前进（ADR-113）。
+  // 同上一段只拦最终改名写入的目标，这次是 creators.raw.json；task.json 照常可写，费用检查点不受影响。
+  // 一页一次付费请求：先落盘的若是分页进度，续跑会从下一页接着翻，这一页的作者就永远丢了。
+  {
+    const f = costFixture('raw-save-order', knownCosts(1000, []),
+      { budget_usd: 0.001, done: [], offsets: {}, pages: {}, answered: {}, found: {} })
+    const raw = join(f.taskDir, 'creators.raw.json')
+    const preload = join(f.cwd, 'fail-raw-save.mjs'), mark = join(f.cwd, 'raw-fault.txt')
+    writeFileSync(preload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = function(src, dest) { if (String(dest) === ${JSON.stringify(raw)}) { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('test raw save denied'), { code: 'EIO' }); } return original(src, dest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
+    const result = runBoth('collect 作者累加器写失败', [S('collect.ts'), '--resume', f.taskDir], f.cwd,
+      { status: 1, soft: [0, 2, 3] }, costEnv(f.log, {
+        NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      }))
+    if (result.ok) {
+      if (!fileText(mark).includes('armed')) {
+        failed++
+        console.error(`  ✗ 作者累加器写入故障注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${result.stderr}`)
+      } else {
+        const disk = jsonFile(f.task)
+        const attempts = fetchAttempts(f.log)
+        named('作者累加器写失败时，盘上这一页的分页进度不前进',
+          fileText(mark).includes('injected') && result.status === 1
+            && attempts.length === 1 && attempts[0] === `200\t${TT_SEARCH}`
+            && disk?.offsets !== undefined && !Object.hasOwn(disk.offsets, '0')
+            && disk?.pages !== undefined && !Object.hasOwn(disk.pages, '0')
+            && Array.isArray(disk?.done) && !disk.done.includes(0),
+          `status=${result.status}, attempts=${JSON.stringify(attempts)}, task=${JSON.stringify(disk)}, stderr=${result.stderr}`)
+      }
+    }
+  }
+  criterion('D6.t')
+
   // 公共方法级注入纯费用错误，避免用普通 fetch 错误冒充内部费用错误。
   // --import tsx 在夹具前加载；不读或改写 Budget/CostError 的函数体。
   const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
@@ -3098,6 +3130,31 @@ group('dup-ids', [], () => {
     failed++
     console.error('  ✗ mutate 先报的是记错名下 —— 那份报告印的也是 id，它自己也指不回表里哪一行')
   }
+})
+
+// ---- 变异锚点不唯一即以退出码 1 结束（anchorMatches 的入口那一半，ADR-99 第十二节）----
+group('anchors', [], () => {
+  // 判定在 mutate-rule.ts 的 anchorMatches，由 scripts/test.ts 断言、M-H45-a／b 守着；
+  // 剩下的是入口真的调了它、点名并以 1 结束。入口在自检的验证基础设施闭包里，
+  // 指着它的变异会被「自己验自己」拒掉，所以这一半只由这条夹具守（ADR-70）。
+  const anchorTmp = join(tmp, 'dup-anchor')
+  mkdirSync(join(anchorTmp, 'scripts', 'check'), { recursive: true })
+  mkdirSync(join(anchorTmp, 'docs'), { recursive: true })
+  writeFileSync(join(anchorTmp, 'docs', 'requirements.json'),
+    JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+  const anchorSource = 'const x = 1\nconst y = 2\nconst x = 1\n'
+  writeFileSync(join(anchorTmp, 'a.ts'), anchorSource, 'utf8')
+  writeFileSync(join(anchorTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+    { id: 'M-X-e', req: 'X1', why: '锚点在目标文件里出现两处', file: 'a.ts', find: 'const x = 1', replace: 'const x = 2' },
+  ] }), 'utf8')
+  const out = runTool('mutate 遇到不唯一的锚点即以退出码 1 结束', 'mutate', [], anchorTmp, { status: 1 })
+  if (out !== undefined) named('mutate 开跑前点名不唯一的锚点及其处数',
+    out.includes('锚点不唯一') && out.includes('M-X-e') && out.includes('出现 2 处'), out)
+  // 「开跑前」要看得见：先把变异写进目标文件、再发现不唯一就退出的写法，同样退 1、同样点名，
+  // 而退出会跳过恢复那一步，目标文件就留着一处故意的违例（评审指出）
+  named('mutate 拒绝时目标文件一个字没动',
+    readFileSync(join(anchorTmp, 'a.ts'), 'utf8') === anchorSource,
+    `a.ts 变成了 ${JSON.stringify(readFileSync(join(anchorTmp, 'a.ts'), 'utf8'))}`)
 })
 
 // ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----
