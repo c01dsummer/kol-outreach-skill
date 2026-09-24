@@ -46,9 +46,9 @@ import {
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import {
-  type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, copyIntoWorker,
+  type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, billLines, copyIntoWorker,
   groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
-  noStdio, ownGroup, parseReport, reportLine,
+  noStdio, ownGroup, parseReport, reportLine, verifierBill,
 } from './jobs-rule.js'
 import {
   INTERRUPTS, beginMutation, onInterrupt, restoreMutation, stopJobs, trackTest,
@@ -443,7 +443,7 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
  */
 const runOne = async (m: Mut): Promise<Ran> => {
   const orig = readFileSync(m.file, 'utf8')
-  if (!orig.includes(m.find)) return { outcome: 'not-applied', status: null, stopped: false, output: '' }
+  if (!orig.includes(m.find)) return { outcome: 'not-applied', status: null, stopped: false, output: '', ms: 0 }
   beginMutation(m.file, orig)
   try {
     // 写盘也在这一段里面：写盘是先截断再写的，写到一半抛出去（盘满、IO 错）留下的是
@@ -453,18 +453,25 @@ const runOne = async (m: Mut): Promise<Ran> => {
     // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null);
     // 点了名的还要再看一层:红的是不是 kills 说的那一条
     const verifier = VERIFIERS[m.by ?? 'test']
+    // 量的是验证者那一段：起验证者到它退出（或点名的都红了被停掉）—— 乘法要的就是这个数
+    const started = performance.now()
     const r = await runTest(verifier, m.kills, onlyFor(m))
+    const ms = Math.round(performance.now() - started)
     return {
       outcome: judgeRun(r.status, r.output, verifier, m.kills, r.atStop),
-      status: r.status, stopped: r.atStop !== undefined, output: r.output,
+      status: r.status, stopped: r.atStop !== undefined, output: r.output, ms,
     }
   } finally {
     restoreMutation()
   }
 }
 
+/** 真跑了的每一条用的哪个验证者、跑了多久 —— 收尾时按验证者记账（ADR-99 第八节那个乘法） */
+const timed: { verifier: string; ms: number }[] = []
+
 /** 一条变异的结论怎么报、记在哪一摞里。**派工那一侧也走这里**，报告只此一份写法 */
 const record = (m: Mut, ran: Ran): void => {
+  if (ran.outcome !== 'not-applied') timed.push({ verifier: m.by ?? 'test', ms: ran.ms })
   if (ran.outcome === 'not-applied') {
     notApplied.push(m)
     console.log(`  ⚠ ${m.id}  锚点失效，未能应用`)
@@ -717,6 +724,15 @@ else await dispatch(jobs)
 console.log()
 for (const e of exemptions) {
   console.log(`  ⊘ ${e.req} ${exemptionLead(exemptionCovered(e.req, muts))}：${e.why.split('。')[0]}。`)
+}
+
+// 那个乘法：每个验证者被几条用 × 每条跑多久。只是参考数，不拿它判任何事（ADR-97）。
+// 合计是逐条墙钟相加，不是串着跑要花多久的估计：同时跑几条时可能互相抢核（`BillRow.totalMs`）—— 表头印出这一跑是串着跑还是派了几个 worker
+const bill = billLines(verifierBill(timed))
+if (bill.length) {
+  const how = jobs === 1 ? '这一跑一条一条串着跑，没起 worker' : `这一跑 ${jobs} 个 worker 同时跑`
+  console.log(`\n  按验证者记账（${how}；逐条墙钟相加，不是串着跑要花多久的估计；单跑一次，不是区间）：`)
+  for (const line of bill) console.log(line)
 }
 
 if (survived.length || elsewhere.length || crashed.length || notApplied.length || silent.length) {

@@ -8,5 +8,6 @@ output/
 .check-cache/
 memory/
 .DS_Store
-# 运行证据只在本地保存，不提交到仓库。
+# 运行产物（接口响应原件、诊断快照、价目快照）一律放 output/<名字>/，见 docs/ARCHITECTURE.md「新东西落在哪个目录」。
+# 这一行留着：仓库里曾有过 docs/evidence/，删掉之后防它回来（ADR-107、ADR-114）。
 evidence/

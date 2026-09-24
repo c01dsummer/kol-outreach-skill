@@ -4892,6 +4892,214 @@
       "replace": "console.error(e instanceof BudgetInputError && e.message.startsWith(cfgPath) ? e.message : e)"
     },
     {
+      "id": "M-H9-o",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "候选顺序反了 —— 先信本地 main：本地 main 很久没拉时起点算得太靠前，别人已合进主干的提交被算成这条分支自己的，连它们提交信息里的 size-ok 豁免也一起捡来",
+      "find": "export const TRUNK_CANDIDATES = ['origin/main', 'main']",
+      "replace": "export const TRUNK_CANDIDATES = ['main', 'origin/main']"
+    },
+    {
+      "id": "M-H9-p",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "浅克隆照样量 —— merge-base 在截断的历史上算出一个假起点，报出来的数可能缩水成几行，闸门静默通过",
+      "find": "  if (shallow === 'true') {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-H9-q",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "只把答不上来当成问不出来 —— 旧 git 把参数原样打回来时被当成「不是浅克隆」，在浅克隆里报一个可能缩水的数",
+      "find": "  if (shallow !== 'false') {",
+      "replace": "  if (shallow === null) {"
+    },
+    {
+      "id": "M-H9-r",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "在主干上也拿共同祖先当起点 —— 共同祖先就是 HEAD 自己，量出 0 行，直推主干的大改动连数字都不出现",
+      "find": "  const base = onTrunk ? ask('rev-parse', `${head}^1`) : merged",
+      "replace": "  const base = merged"
+    },
+    {
+      "id": "M-H9-s",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "从主干而不是起点列提交 —— 在主干上时列出来是空的，别处的 size-ok 豁免该找的提交一个都没找",
+      "find": "ask('rev-list', `${base}..${head}`)",
+      "replace": "ask('rev-list', `${trunk}..${head}`)"
+    },
+    {
+      "id": "M-H9-t",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "提交列表不去空行 —— 没有提交时列出一个空串「提交」，拿它去读提交信息",
+      "find": "commits: listed.split('\\n').filter(Boolean) }",
+      "replace": "commits: listed.split('\\n') }"
+    },
+    {
+      "id": "M-H9-u",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "共同祖先答不上来也不停 —— 起点落空被判成「不适用」、退出 0，一条从主干之外长出来的分支静默放行",
+      "find": "  if (merged === null) return cannot(",
+      "replace": "  if (false) return cannot("
+    },
+    {
+      "id": "M-H9-v",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "主干上没有上一版时判「无从判断」 —— 仓库第一个提交上闸门以退出码 1 失败，而那里本来就没有可比的东西",
+      "find": "  if (base === null) return { kind: 'not-applicable', trunk }",
+      "replace": "  if (base === null) return cannot('没有上一版', '—')"
+    },
+    {
+      "id": "M-H9-w",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "不在仓库里或没有任何提交时照样往下问，拿一个不存在的 HEAD 去取共同祖先、列提交，报出的原因不是真正的原因",
+      "find": "  if (head === null) return cannot(",
+      "replace": "  if (false) return cannot("
+    },
+    {
+      "id": "M-H9-x",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "两个主干候选都找不到也不停，拿一个不存在的主干去取共同祖先，试过哪些候选、该先 fetch 哪一个都不说",
+      "find": "  if (trunk === undefined) return cannot(",
+      "replace": "  if (false) return cannot("
+    },
+    {
+      "id": "M-H9-y",
+      "req": "harness",
+      "file": "scripts/check/size-rule.ts",
+      "why": "列不出这条分支的提交时当成「查过、一个提交都没有」，豁免与不合格的 size-ok 一条都不找、提交数报 0",
+      "find": "  if (listed === null) {",
+      "replace": "  if (listed === null) return { kind: 'measure', trunk, head, base, onTrunk, commits: [] }\n  if (false) {"
+    },
+    {
+      "id": "M-H36-s",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "汇报行不验计时 —— 缺了计时、计时是串的一行照样认得，账单拿一个不是数的东西去加",
+      "find": "  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return undefined\n",
+      "replace": ""
+    },
+    {
+      "id": "M-H36-t",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "计时不验有限 —— 手写的 1e999 读回来是 Infinity，一条就把整张账的合计撑成无穷",
+      "find": "typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0",
+      "replace": "typeof ms !== 'number' || ms < 0"
+    },
+    {
+      "id": "M-H36-u",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "计时不验非负 —— 负的毫秒数被认得，合计被一条坏行往回拉",
+      "find": "typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0",
+      "replace": "typeof ms !== 'number' || !Number.isFinite(ms)"
+    },
+    {
+      "id": "M-H36-v",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "读回来时把计时丢了 —— 派工跑的每一条都记成 0 毫秒，那个乘法永远是 0",
+      "find": "  return { id, outcome: outcome as Outcome, status, stopped, output, ms }",
+      "replace": "  return { id, outcome: outcome as Outcome, status, stopped, output, ms: 0 }"
+    },
+    {
+      "id": "M-H46-a",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "按验证者记账时条数不累加 —— 每个验证者都记成 1 条，乘法的那个乘数错了",
+      "find": "    row.count += 1\n",
+      "replace": "    row.count = 1\n"
+    },
+    {
+      "id": "M-H46-b",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "合计小的排前面 —— 人一眼先看到的不是钱花在哪",
+      "find": ".sort((a, b) => b.totalMs - a.totalMs ||",
+      "replace": ".sort((a, b) => a.totalMs - b.totalMs ||"
+    },
+    {
+      "id": "M-H46-c",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "合计一样大时按名字倒序 —— 同一份输入每次印出来的顺序和说明对不上",
+      "find": "(a.verifier < b.verifier ? -1 : a.verifier > b.verifier ? 1 : 0)",
+      "replace": "(a.verifier > b.verifier ? -1 : a.verifier < b.verifier ? 1 : 0)"
+    },
+    {
+      "id": "M-H46-d",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "平均取整 —— 秒级的验证者被抹成整毫秒还算小事，换了单位的调用方会拿到一个被截过的数",
+      "find": "meanMs: totalMs / count",
+      "replace": "meanMs: Math.floor(totalMs / count)"
+    },
+    {
+      "id": "M-H46-e",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "平均没换算成秒 —— 1276 毫秒印成「1276.0 秒」，读账的人以为一条要跑二十分钟",
+      "find": "${(r.meanMs / 1000).toFixed(1)} 秒",
+      "replace": "${r.meanMs.toFixed(1)} 秒"
+    },
+    {
+      "id": "M-H46-f",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "乘法乘错了东西 —— 「每慢 1 秒多几秒」写成了合计秒数，而那个乘数应该是条数",
+      "find": "整跑串行多 ${r.count} 秒",
+      "replace": "整跑串行多 ${Math.round(r.totalMs / 1000)} 秒"
+    },
+    {
+      "id": "M-H36-w",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "计时为 0 的那一行认不出 —— 锚点失效那一条从 worker 回来读不出，整跑报成没有结论",
+      "find": "!Number.isFinite(ms) || ms < 0) return undefined",
+      "replace": "!Number.isFinite(ms) || ms <= 0) return undefined"
+    },
+    {
+      "id": "M-H36-x",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "汇报行不带计时 —— 派工跑的每一条从 worker 回来都读不出，整跑报成没有结论",
+      "find": "JSON.stringify({ ...ran, id, output:",
+      "replace": "JSON.stringify({ ...ran, id, ms: undefined, output:"
+    },
+    {
+      "id": "M-H46-g",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "逐条合计没换算成秒 —— 8932 毫秒印成「8932 秒」，读账的人以为这个验证者要跑两个半小时",
+      "find": "${Math.round(r.totalMs / 1000)} 秒（约",
+      "replace": "${Math.round(r.totalMs)} 秒（约"
+    },
+    {
+      "id": "M-H46-h",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "约几分钟不留小数 —— 不到半分钟的验证者印成「约 0 分钟」，看着像不花时间",
+      "find": "(r.totalMs / 60000).toFixed(1)",
+      "replace": "(r.totalMs / 60000).toFixed(0)"
+    },
+    {
+      "id": "M-H46-i",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "账单又写回等式 —— 平均和合计各自取整，「7 条 × 1.3 秒 = 9 秒」这种自己对不上的算式回来了",
+      "find": "，逐条合计 ",
+      "replace": " = 逐条合计 "
+    },
+    {
       "id": "M-D15-x",
       "req": "D15.l",
       "by": "selfcheck",
