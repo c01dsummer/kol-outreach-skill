@@ -13,7 +13,7 @@ Base URL:  https://api.tikhub.io
 费用依据: 按实际端点固定公开基础价估算；不是实际账单
 ```
 
-当前八条生产端点按固定价目计预算：TikTok 三路与 IG 两路 profile 各 $0.001；IG Reels、账号名搜索、主页作品各 $0.002。来源为 [TikHub 官方定价资产](https://tikhub.io/_next/static/chunks/16hcexj0jth19.js)，观察时刻与固定版本见 ADR-107 末尾；不计优惠，不是实付账单或未来价格上界。实验 hashtag/general 不因此成为生产路径。同一价目版本另登记了 v2 话题端点 `fetch_hashtag_posts`（$0.002，同一份资产原样转录，见 ADR-107 末尾）；登记价目不等于接入 —— 采集器目前不请求它，将来也只在运营显式开启时才请求（ADR-112）。
+当前八条生产端点按固定价目计预算：TikTok 三路与 IG 两路 profile 各 $0.001；IG Reels、账号名搜索、主页作品各 $0.002。来源为 [TikHub 官方定价资产](https://tikhub.io/_next/static/chunks/16hcexj0jth19.js)，观察时刻与固定版本见 ADR-107 末尾；不计优惠，不是实付账单或未来价格上界。实验 general 不因此成为生产路径。同一价目版本另登记了 v2 话题端点 `fetch_hashtag_posts`（$0.002，同一份资产原样转录，见 ADR-107 末尾）；**只有运营在任务上显式写 `ig_route: "hashtag"` 时才请求它**，缺省仍走 Reels（D15.j、D15.k，ADR-112）。
 
 ⚠️ **早期样本中的 IG 请求不接受免费额度。** 实测（2026-08-25）：当时采用的 TikTok 端点可用注册赠送的
 free credit 调用；当时测试的 Instagram 端点返回 **402**，提示
@@ -349,7 +349,7 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 
 ## 搜索作品标识与并集（D11）
 
-实际发现路径另存于 `Creator.discovery_sources`（D15）：TikTok 视频搜索、IG Reels、IG 账号名搜索只有真正返回该账号时才记录端点、平台、账号、原词及维度。Reels 空结果后的兜底账号只记账号名搜索；profile 不算发现。`as_hashtag` 不改变现有路径。集合只含已观察来源，旧缺席/空数组读作来源未知，不保证完整历史或某条作品的具体来源；合并与展示规则见 ADR-110。
+实际发现路径另存于 `Creator.discovery_sources`（D15）：TikTok 视频搜索、IG Reels、IG 账号名搜索、IG 话题搜索只有真正返回该账号时才记录端点、平台、账号、原词及维度。Reels 空结果后的兜底账号只记账号名搜索；话题任务（`ig_route: "hashtag"`）只请求话题页首页，请求词去掉一个开头的 `#`、`feed_type=top`，解析不出人也不走兜底，来源里照记原词（D6.w、D15.k）；profile 不算发现。`as_hashtag` 不改变路径，路线只由 `ig_route` 决定。集合只含已观察来源，旧缺席/空数组读作来源未知，不保证完整历史或某条作品的具体来源；合并与展示规则见 ADR-110。
 
 | 搜索来源 | 原始作品 id 字段 | 归一化后的 `RecentPost.id` |
 |---|---|---|

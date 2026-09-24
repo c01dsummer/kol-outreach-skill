@@ -59,6 +59,7 @@ interface SearchTask {
   dimension: Dimension
   platform: Platform
   as_hashtag?: boolean  // 配置元数据；当前 TikHub 不据此切换端点，不证明实际发现路径
+  ig_route?: 'hashtag'  // IG 发现路线，只由运营显式写；缺席走 Reels。不合规时入口以退出码 2 拒绝（D15.j）
 }
 
 interface SearchPage {
@@ -69,6 +70,7 @@ interface SearchPage {
 }
 
 // 当前采集入口要求实现。token 是上一页交回的 IG 续页令牌，可选；采集入口只在同一次运行内传它（ADR-111）
+// ig_route 为 hashtag 的 IG 任务在这里最前面分派到话题页，只取首页、不走兜底（D15.k、D6.w）；probe 与 collect 共用
 search(task: SearchTask, region: string, offset: number, token?: string): Promise<SearchPage>
 profile(handle: string, platform: Platform): Promise<Partial<Creator>>
 

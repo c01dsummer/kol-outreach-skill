@@ -72,7 +72,7 @@ export type DiscoveryEndpoint =
   | '/api/v1/tiktok/app/v3/fetch_video_search_result'
   | '/api/v1/instagram/v2/search_reels'
   | '/api/v1/instagram/v2/search_users'
-  /** 话题页。解析器与来源类型已就位，采集入口还不请求它（ADR-112 第四节第 2 步）。 */
+  /** 话题页：只有 `ig_route: "hashtag"` 的 IG 任务会请求它（D15.k，ADR-112）。 */
   | '/api/v1/instagram/v2/fetch_hashtag_posts'
 
 /** D15：实际返回该账号的搜索快照，不是完整历史或作品来源。 */

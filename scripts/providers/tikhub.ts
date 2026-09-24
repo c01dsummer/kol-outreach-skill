@@ -15,7 +15,7 @@ const INSTAGRAM_USERS_ENDPOINT = '/api/v1/instagram/v2/search_users'
 const INTERVAL_MS = 150
 export const TIKTOK_POSTS_ENDPOINT = '/api/v1/tiktok/app/v3/fetch_user_post_videos_v3'
 export const INSTAGRAM_POSTS_ENDPOINT = '/api/v1/instagram/v2/fetch_user_posts'
-/** IG 话题页。解析器已就位，采集入口还不请求它 —— 只由运营显式开启（ADR-112）。 */
+/** IG 话题页。只有任务显式写 `ig_route: "hashtag"` 时才请求它，缺省走 Reels（D15.k，ADR-112）。 */
 export const INSTAGRAM_HASHTAG_ENDPOINT = '/api/v1/instagram/v2/fetch_hashtag_posts'
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -92,7 +92,7 @@ export function isInstagramVideo(item: unknown): boolean {
 
 /**
  * IG 话题页（`fetch_hashtag_posts`）的一份响应 → 一页搜索结果（ADR-112 第二、五节）。
- * **只解析**：不发请求、不分派，采集入口还不调用它（第四节第 2 步）。
+ * **只解析**：不发请求；请求与分派在 `TikHub.search()` 最前面（D15.k）。
  *
  * - 列表按 `pickList` 探测（话题页在 `data.data.items`）；认不出列表时照 `pickList` 抛出。
  * - `raw_count` 是列表条目数（供应商返回的条目，不是人数）。`has_more` 为 `false`，
