@@ -166,6 +166,7 @@ Agent 是编排者，它读 stdout 做决策。
 包含原序号、维度、平台、原词；续跑成本提示仍只使用列表长度报告数量。HTML 使用行的下标；旧行缺失或非法下标显示「无从确认」。
 `as_hashtag` 保留为配置元数据，当前不切换 TikHub 搜索端点，不能作已执行路径声明。
 IG 路线只由任务的 `ig_route` 决定：缺席走 Reels；`"hashtag"` 走话题搜索，在 `TikHub.search()` 最前面分派，probe 与 collect 共用。
+probe 的成功与普通错误行照配置带出 `ig_route`：写了才有这个键，不补成 Reels，也不由 `as_hashtag` 推断（D15.l、D15.m）。
 `ig_route` 不合规时 collect（新建与续跑）与 probe 在建目录、预留与请求之前以退出码 2 结束（D15.j）。
 查询状态、计数及任务列表重排的既有边界不变。
 
