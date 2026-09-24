@@ -672,6 +672,14 @@
       "replace": "raw_count: list.length, has_more: typeof next === 'string',\n"
     },
     {
+      "id": "M-D6-az",
+      "req": "D6",
+      "why": "空白的续页令牌照样发出请求 —— 空串参数被丢掉，请求里只剩关键词，付一次钱拿回的是首页，还被当成续页记账",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "    if (token !== undefined && token.trim() === '') {\n",
+      "replace": "    if (false) {\n"
+    },
+    {
       "id": "M-F9-c",
       "req": "F9.c",
       "why": "达标之后就说「续跑一个关键词都不会抓」—— 还欠着第一页的那些词，续跑照样会去抓它们，那是要付费的端点，账单在用户不知情时又长一截；反过来他也可能因为「反正不花钱」就去续跑一轮自己没打算花的钱",
