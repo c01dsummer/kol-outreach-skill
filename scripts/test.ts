@@ -5174,10 +5174,26 @@ harness('变异跑的账：每个验证者被几条变异用、每条跑多久�
   eq('每个验证者一行：两行账印两行', tryIt(() => lines().length), 2)
   eq('每一行真是一行：不含换行', tryIt(() => lines().map(l => l.includes('\n'))), [false, false])
   eq('每一行写出它那个验证者的名字', tryIt(() => lines().map((l, i) => l.includes(rows[i].verifier))), [true, true])
+  // 锚在「平均每条 」后面：只数「这个数出现过」的话，平均和合计对调、或者合计恰好印成同一个数，一样满足
+  const after = (label: string, n: string) => new RegExp(`${label} ${n.replace('.', '\\.')}(?!\\d)`)
   eq('平均每条几秒，保留一位小数：20000 ms → 20.0',
-    tryIt(() => (lines()[0].match(alone('20.0')) ?? []).length > 0), true)
+    tryIt(() => after('平均每条', '20.0').test(lines()[0])), true)
   eq('平均每条几秒，保留一位小数：1276 ms → 1.3（不是 1.2、不是 1.276）',
-    tryIt(() => (lines()[1].match(alone('1.3')) ?? []).length > 0), true)
+    tryIt(() => after('平均每条', '1.3').test(lines()[1])), true)
+  // 契约：逐条合计四舍五入到整秒，另附约几分钟、一位小数
+  //   60000 ms = 60 秒 = 1.0 分钟（整数也要印出那一位）
+  //    8932 ms = 8.932 秒 → 9（截断会印 8，忘了换成秒会印 8932）；= 0.14887 分钟 → 0.1
+  eq('逐条合计几秒，四舍五入到整秒：60000 ms → 60',
+    tryIt(() => after('逐条合计', '60').test(lines()[0])), true)
+  eq('逐条合计几秒，四舍五入到整秒：8932 ms → 9（不是 8、不是 8932）',
+    tryIt(() => after('逐条合计', '9').test(lines()[1])), true)
+  eq('约几分钟，保留一位小数：60000 ms → 约 1.0 分钟',
+    tryIt(() => lines()[0].includes('约 1.0 分钟')), true)
+  eq('约几分钟，保留一位小数：8932 ms → 约 0.1 分钟',
+    tryIt(() => lines()[1].includes('约 0.1 分钟')), true)
+  // 契约：不写成等式。test 那行正是对不上的那种：7 × 1.3 = 9.1，而合计印的是 9
+  eq('不写成等式：两行都不带「=」',
+    tryIt(() => lines().map(l => l.includes('='))), [false, false])
   // 契约把「条数」和那个乘法列成两样：条数本身印一次，乘法里又出现一次，所以至少两次
   eq('条数写出来了：3 条那行里「3」单独出现至少两次（条数一次、乘法一次）',
     tryIt(() => (lines()[0].match(alone('3')) ?? []).length >= 2), true)
