@@ -119,7 +119,7 @@ recentPosts(handle: string, platform: Platform): Promise<{
 | `post_count` | `videoCount` | `media_count` |
 | `bio_links` | `[bioLink.link]` ← 包成数组 | `bio_links` ← 已是数组 |
 | `user_id` | — | `pk` |
-| `recent_posts[].id` | `tiktok:` + 搜索作品 `aweme_info.aweme_id` | `instagram:` + Reels item 直接 `id` |
+| `recent_posts[].id` | `tiktok:` + 搜索作品 `aweme_info.aweme_id` | `instagram:` + Reels 或话题页（`ig_route: "hashtag"`）item 直接 `id` |
 
 **`bio_links` 必须统一成数组**，即使源数据只有单个值。跨平台同人识别依赖这个字段，两边形状不一致会导致漏识别。
 
