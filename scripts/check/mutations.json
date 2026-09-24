@@ -676,7 +676,7 @@
     {
       "id": "M-D6-t",
       "req": "D6.k",
-      "why": "IG 的兜底路径把「预算用尽」吞成正常返回 —— reels 页恒 has_more:false，于是这个关键词当场被标记为已跑完、永久跳过，而工具以退出码 0 收尾并告诉用户「续跑不产生新的请求」，实际预算已经见底：追加预算续跑时这个词再也不会被碰，唯一能找到人的那条补充路径一次都没发出去",
+      "why": "IG 的兜底路径把「预算用尽」吞成正常返回 —— 交回的是一页解析不出人、也不带续页令牌的结果，于是这个关键词当场被标记为已跑完、永久跳过，而工具以退出码 0 收尾并告诉用户「续跑不产生新的请求」，实际预算已经见底：追加预算续跑时这个词再也不会被碰，唯一能找到人的那条补充路径一次都没发出去",
       "file": "scripts/providers/tikhub.ts",
       "find": "    return this.searchInstagramUsers(task)\n      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))",
       "replace": "    try {\n      const users = await this.searchInstagramUsers(task)\n      return { ...users, raw_count: reels.raw_count + users.raw_count }\n    } catch { return reels }",

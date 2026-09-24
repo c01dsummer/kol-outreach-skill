@@ -3002,7 +3002,7 @@ group('d6k-igfallback', [], () => {
       named('IG 兜底撞上预算：这个任务不进 done，续跑还能再碰它',
             !bstate.done.includes(0) && bstate.answered?.[0] >= 1,
             `盘上 done=${JSON.stringify(bstate.done)}、answered=${JSON.stringify(bstate.answered)}`
-            + ' —— reels 页恒 has_more:false，把预算用尽吞成正常返回就会当场把它标记完成，'
+            + ' —— 走了兜底的那一页不带续页令牌，把预算用尽吞成正常返回就会当场把它标记完成，'
             + '追加预算续跑时它再也不会被碰，而它是这个词唯一还能找到人的那条路')
       named('IG 兜底撞上预算：不说「续跑不产生新的请求」',
             !burnRun.stderr.includes('续跑不产生新的请求'),
