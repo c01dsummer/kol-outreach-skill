@@ -34,6 +34,7 @@ interface Creator {
     dimension: Dimension
     endpoint: '/api/v1/tiktok/app/v3/fetch_video_search_result'
       | '/api/v1/instagram/v2/search_reels' | '/api/v1/instagram/v2/search_users'
+      | '/api/v1/instagram/v2/fetch_hashtag_posts'   // 只在任务写了 ig_route: "hashtag" 时（D15.k）
   }> // D15：实际返回该账号的路径；缺席或空数组表示来源未知
 
   // 内容样本 —— Phase 04 语义判断的原料。搜索命中的那几条作品。

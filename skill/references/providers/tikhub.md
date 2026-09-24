@@ -355,6 +355,7 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 |---|---|---|
 | TikTok App V3 视频搜索 | `data.search_item_list[].aweme_info.aweme_id`；已有直接作品条目兼容路径仍读该作品的 `aweme_id` | `tiktok:<原始id>` |
 | Instagram V2 Reels 搜索 | `data.data.items[].id`，不使用 `caption.id`、`user.id` 或未核实的其他层级 | `instagram:<原始id>` |
+| Instagram V2 话题搜索（`ig_route: "hashtag"`） | `data.data.items[].id`，同样不使用文案或用户的标识（ADR-112 第五节：4 份样本的首条 `id` 为字符串） | `instagram:<原始id>` |
 
 TikTok 的字段来自交接中的本地调用观察；Instagram 的 2026-09-23 本地键路径只确认
 那次首条存在直接 `id` 键，不证明值非空或所有条目都有 id。归一化仅接收非空白字符串
@@ -376,7 +377,7 @@ TikHub 透传平台原始响应，schema 随端点和版本变化。**首次调�
 
 ```
 1. data.search_item_list      → TikTok 视频搜索
-2. data.data.items            → IG v2 search_reels / search_users
+2. data.data.items            → IG v2 search_reels / search_users / fetch_hashtag_posts
 3. data.user_list / data.users
 4. data.aweme_list            → post 类型，从 .author 提取
 5. data.data.hashtag.edge_hashtag_to_media.edges  → IG v1 hashtag（已弃用）

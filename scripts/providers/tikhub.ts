@@ -58,7 +58,7 @@ export function pickList(data: any, path: string): any[] {
   const d = data?.data ?? data
   const cands = [
     d?.search_item_list,                        // ★ TikTok 视频搜索的真实结果
-    d?.data?.items,                             // ★ IG v2 search_reels / search_users
+    d?.data?.items,                             // ★ IG v2 search_reels / search_users / fetch_hashtag_posts
     d?.user_list, d?.users, d?.aweme_list,
     d?.data?.hashtag?.edge_hashtag_to_media?.edges,   // IG v1 hashtag（已弃用，见下）
     d?.data, d?.items, d?.result,
