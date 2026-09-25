@@ -173,6 +173,10 @@
       "id": "M-D7-a",
       "req": "D7",
       "why": "放宽到裸 at 配真实点号 —— 'look at gmail.com' 会被当成邮箱",
+      "by": "test",
+      "kills": [
+        "不误判 \"look at x.com\""
+      ],
       "file": "scripts/lib/email.ts",
       "find": "  new RegExp(String.raw`[\\w.+-]+\\s+at\\s+[\\w-]+(?:\\s*${DOT_SPELLED}\\s*[\\w-]+)+`, 'gi'),",
       "replace": "  new RegExp(String.raw`[\\w.+-]+\\s+at\\s+[\\w-]+(?:\\s*${DOT_ANY}\\s*[\\w-]+)+`, 'gi'),"
@@ -891,6 +895,10 @@
       "id": "M-D8-a",
       "req": "D8",
       "why": "先剔置顶再截窗口 —— 12 条之外的旧作品被顶上来补满，「最多取最近 12 条」变成「取决于提供方这次多返回了几条」，同一个账号换个时间查得到不同口径的中位数",
+      "by": "test",
+      "kills": [
+        "窗口外的旧作品不得补进中位播放"
+      ],
       "file": "scripts/lib/assessment.ts",
       "find": "    .slice(0, PUBLIC_POST_SAMPLE_SIZE)\n    .filter(p => p.is_pinned !== true)",
       "replace": "    .filter(p => p.is_pinned !== true)\n    .slice(0, PUBLIC_POST_SAMPLE_SIZE)"
@@ -899,6 +907,10 @@
       "id": "M-D8-b",
       "req": "D8",
       "why": "样本记录照提供方给的条数全记下来 —— basis 写着「最多 12 条」而 sample_size 是 20，落进 enrichment.json 的溯源自己打自己，D10 拿旧样本补算时读到的也不是同一个窗口",
+      "by": "test",
+      "kills": [
+        "窗口之外的第 13 条不进记录"
+      ],
       "file": "scripts/lib/assessment.ts",
       "find": "  const window = posts.slice(0, PUBLIC_POST_SAMPLE_SIZE)",
       "replace": "  const window = posts"
@@ -947,6 +959,10 @@
       "id": "M-D10-a",
       "req": "D10",
       "why": "缓存里活跃字段齐全就跳过重算 —— 上一版口径算出来的中位数、发布间隔与受众风险一直留在交付物里，运营不额外付费重抓就换不掉，而交付物上看不出任何区别",
+      "by": "test",
+      "kills": [
+        "活跃字段齐全的缓存也要按当前窗口重算"
+      ],
       "file": "scripts/lib/assessment.ts",
       "find": "  const sample = cachedSample.status === 'measured'",
       "replace": "  if (cachedMetrics?.activity_status !== undefined) return { sample: cachedSample, metrics: cachedMetrics, changed: false }\n  const sample = cachedSample.status === 'measured'"
@@ -1046,6 +1062,46 @@
       "why": "空的 --only= 被当成一个叫空串的组 —— 那会由 wanted 抛「点了不存在的组」，而空集该由入口定性（selfcheck 收尾那支按红报「点了零个组」）；抛在判定里等于让 wanted 替调用方决定空集算不算错，两种写错也就分不出来了",
       "find": "  return hit.slice('--only='.length).split(',').filter(s => s !== '')",
       "replace": "  return hit.slice('--only='.length).split(',')"
+    },
+    {
+      "id": "M-H42-e",
+      "req": "harness",
+      "why": "需求测试分组登记重名却放行，选中的测试块不再能唯一指向一组",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  if (byId.size !== groups.length) {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-H42-f",
+      "req": "harness",
+      "why": "需求测试组声明了不存在的依赖仍放行，选跑可能跳过前置断言",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    if (!byId.has(need)) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)",
+      "replace": "    if (false) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)"
+    },
+    {
+      "id": "M-H42-g",
+      "req": "harness",
+      "why": "需求测试把拼错的命令行选项当成没有选择，整跑结果掩盖输入错误",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  if (invalid.length) throw new Error(`需求测试不认识参数：${invalid.join('、')}`)",
+      "replace": "  if (false) throw new Error(`需求测试不认识参数：${invalid.join('、')}`)"
+    },
+    {
+      "id": "M-H42-h",
+      "req": "harness",
+      "why": "需求测试接受空组名，少跑测试却仍可能报告通过",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  if (ids.some(id => id === '' || id.trim() !== id)) {",
+      "replace": "  if (false) {"
+    },
+    {
+      "id": "M-H42-i",
+      "req": "harness",
+      "why": "需求测试重复选择同一组仍放行，错误的组清单不再被发现",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  if (new Set(ids).size !== ids.length) throw new Error('--only= 不能重复点同一组')",
+      "replace": "  if (false) throw new Error('--only= 不能重复点同一组')"
     },
     {
       "id": "M-H43-a",
@@ -1467,6 +1523,10 @@
       "id": "M-D8-c",
       "req": "D8",
       "why": "旧缓存的样本记录不再收进窗口 —— 交付物上声称记着 16 条，而指标是按窗口内的 11 条算的，同一行数据自己打自己",
+      "by": "test",
+      "kills": [
+        "旧缓存的样本记录也收进窗口"
+      ],
       "file": "scripts/lib/assessment.ts",
       "find": "    ? publicPostSample(cachedSample.value, cachedSample.source, cachedSample.observed_at,\n        scopeOf(cachedSample, platform))",
       "replace": "    ? cachedSample"
@@ -1475,6 +1535,10 @@
       "id": "M-D10-b",
       "req": "D10",
       "why": "把跨账号那一步才赋值的受众风险算进比较 —— 每一轮都把占位符和已赋值当成变化，向用户虚报「这次有多少账号的数换过」",
+      "by": "test",
+      "kills": [
+        "受众风险由跨账号那一步赋值，不算这一步的改动"
+      ],
       "file": "scripts/lib/assessment.ts",
       "find": "  const { audience_quality_risk: _assignedElsewhere, ...rest } = m\n  return canonical(rest)",
       "replace": "  return canonical(m)"
@@ -2582,6 +2646,22 @@
       "file": "scripts/check/mutate-rule.ts",
       "find": "  walk(tree)",
       "replace": "  walk(tree)\n  for (const m of source.matchAll(/\\b(\\w+)\\(\\s*'([^']*)'/g)) {\n    if (declares.includes(m[1])) {\n      const had = seen.get(m[2])\n      seen.set(m[2], had === undefined ? 1 : had + 1)\n    }\n  }"
+    },
+    {
+      "id": "M-H20-n",
+      "req": "harness",
+      "why": "子集基线的进程失败也被当成正常通过，变异可在失败的正常代码上继续跑",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (status !== 0) return `退出码 ${status === null ? '无（被信号终止）' : status}`",
+      "replace": "  if (false) return `退出码 ${status === null ? '无（被信号终止）' : status}`"
+    },
+    {
+      "id": "M-H20-o",
+      "req": "harness",
+      "why": "子集基线没有完成汇总也算通过，空跑能冒充已执行断言",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (!verifier.subsetSuccess.test(output)) return '没有正常完成的子集汇总'",
+      "replace": "  if (false) return '没有正常完成的子集汇总'"
     },
     {
       "id": "M-H21-a",
@@ -4990,6 +5070,10 @@
       "id": "M-D15-m",
       "req": "D15.j",
       "why": "路线校验放行任何字符串取值 —— 拼错的路线名（比如写成 reels）不报错，任务照走 Reels，运营以为开了话题搜索",
+      "by": "test",
+      "kills": [
+        "话题入口：每个不合规的任务恰好一句话，写明是第 2 个任务"
+      ],
       "file": "scripts/lib/ig-route.ts",
       "find": "    if (t.ig_route !== 'hashtag') {",
       "replace": "    if (typeof t.ig_route !== 'string') {"
@@ -4998,6 +5082,10 @@
       "id": "M-D15-n",
       "req": "D15.j",
       "why": "路线校验不看平台 —— TikTok 任务上写了话题路线也放行，配置写错了却没有任何提示",
+      "by": "test",
+      "kills": [
+        "话题入口：每个不合规的任务恰好一句话，写明是第 2 个任务"
+      ],
       "file": "scripts/lib/ig-route.ts",
       "find": "    } else if (t.platform !== 'instagram') {",
       "replace": "    } else if (false) {"
@@ -5006,6 +5094,10 @@
       "id": "M-D15-o",
       "req": "D15.j",
       "why": "路线校验不拦含空白的关键词 —— 一个词组被当成话题词发出去，付费请求一个不存在的话题",
+      "by": "test",
+      "kills": [
+        "话题入口：每个不合规的任务恰好一句话，写明是第 2 个任务"
+      ],
       "file": "scripts/lib/ig-route.ts",
       "find": "      if (query === '' || /\\s/.test(query)) {",
       "replace": "      if (query === '') {"
@@ -5014,6 +5106,10 @@
       "id": "M-D15-p",
       "req": "D15.j",
       "why": "路线校验判空前没去掉开头的 # —— 关键词只有一个 # 的话题任务被放行，请求参数是空串，付费请求一次空话题",
+      "by": "test",
+      "kills": [
+        "话题入口：每个不合规的任务恰好一句话，写明是第 2 个任务"
+      ],
       "file": "scripts/lib/ig-route.ts",
       "find": "      const query = typeof t.keyword === 'string' ? hashtagKeyword(t) : ''",
       "replace": "      const query = typeof t.keyword === 'string' ? t.keyword : ''"
@@ -5022,6 +5118,10 @@
       "id": "M-D15-q",
       "req": "D15.k",
       "why": "话题请求去掉开头所有的井号 —— 需求只去一个，## 开头的关键词被改成另一个话题词去请求",
+      "by": "test",
+      "kills": [
+        "话题入口：请求关键词开头两个 # 只去掉一个"
+      ],
       "file": "scripts/lib/ig-route.ts",
       "find": "  return task.keyword.startsWith('#') ? task.keyword.slice(1) : task.keyword",
       "replace": "  return task.keyword.replace(/^#+/, '')"
@@ -5123,6 +5223,10 @@
       "id": "M-D16-a",
       "req": "D16.a",
       "why": "任务列表缺席或不是数组时判为合规 —— collect 新建先建好目录再崩溃，probe 带着类名与堆栈退出，而不是以输入问题拒绝",
+      "by": "test",
+      "kills": [
+        "任务列表校验：tasks 缺席、不是数组或是空数组时报出一句，写着 tasks 与读到的值（缺席写明缺席）"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "  if (!Array.isArray(tasks) || tasks.length === 0) {",
       "replace": "  if (!Array.isArray(tasks)) return []\n  if (tasks.length === 0) {"
@@ -5131,6 +5235,10 @@
       "id": "M-D16-o",
       "req": "D16.a",
       "why": "一个任务都没有的列表判为合规 —— 照常建目录、开账、交付一份空名单并说跑完了（需求所有者裁决：空列表直接报错）",
+      "by": "test",
+      "kills": [
+        "任务列表校验：tasks 缺席、不是数组或是空数组时报出一句，写着 tasks 与读到的值（缺席写明缺席）"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "!Array.isArray(tasks) || tasks.length === 0",
       "replace": "!Array.isArray(tasks)"
@@ -5139,6 +5247,10 @@
       "id": "M-D16-b",
       "req": "D16.b",
       "why": "不是对象的任务项不报 —— null 让入口崩溃，字符串或数组那一项按 IG Reels 发出不带关键词的付费请求",
+      "by": "test",
+      "kills": [
+        "任务列表校验：不是对象的一项被点名是第几个任务（从 1 数），并写出这一项读到的值"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "      out.push(`${at} 不是一个任务对象，这里${seen(t)}`)\n      continue",
       "replace": "      continue"
@@ -5147,6 +5259,10 @@
       "id": "M-D16-c",
       "req": "D16.c",
       "why": "关键词是空串或只有空白时放行 —— 付费发出不带关键词的搜索",
+      "by": "test",
+      "kills": [
+        "任务列表校验：keyword 缺席、不是字符串、空串或只含空白时，点名那个任务与 keyword，并写出读到的值（缺席写明缺席）"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (textProblem(keyword) !== undefined) {",
       "replace": "    if (typeof keyword !== 'string') {"
@@ -5155,6 +5271,10 @@
       "id": "M-D16-d",
       "req": "D16.c",
       "why": "没写关键词的任务放行 —— 付费请求不带关键词",
+      "by": "test",
+      "kills": [
+        "任务列表校验：keyword 缺席、不是字符串、空串或只含空白时，点名那个任务与 keyword，并写出读到的值（缺席写明缺席）"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (textProblem(keyword) !== undefined) {",
       "replace": "    if (keyword !== undefined && textProblem(keyword) !== undefined) {"
@@ -5163,6 +5283,10 @@
       "id": "M-D16-e",
       "req": "D16.c",
       "why": "首尾带空白但有内容的关键词被拒 —— 运营照原词写的配置跑不起来",
+      "by": "test",
+      "kills": [
+        "任务列表校验：首尾带空白但有内容的关键词合规"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (textProblem(keyword) !== undefined) {",
       "replace": "    if (textProblem(keyword) !== undefined || (keyword as string).trim() !== keyword) {"
@@ -5171,6 +5295,10 @@
       "id": "M-D16-f",
       "req": "D16.d",
       "why": "写错的维度照常付费采集，评分里静默拿不到竞品词、场景词的加分",
+      "by": "test",
+      "kills": [
+        "任务列表校验：dimension 缺席或不是四个维度之一（区分大小写、不修剪空白）时，点名那个任务与 dimension，并写出读到的值（缺席写明缺席）"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {",
       "replace": "    if (typeof dimension !== 'string') {"
@@ -5179,6 +5307,10 @@
       "id": "M-D16-g",
       "req": "D16.d",
       "why": "写成 Competitor 的任务被放行，评分按原值比较，照样拿不到加分",
+      "by": "test",
+      "kills": [
+        "任务列表校验：dimension 缺席或不是四个维度之一（区分大小写、不修剪空白）时，点名那个任务与 dimension，并写出读到的值（缺席写明缺席）"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {",
       "replace": "    if (!(DIMENSIONS as readonly unknown[]).includes(typeof dimension === 'string' ? dimension.toLowerCase() : dimension)) {"
@@ -5187,6 +5319,10 @@
       "id": "M-D16-h",
       "req": "D16.d",
       "why": "维度列表少了人群词 —— 合规的人群词任务被拒，运营照需求写的配置跑不起来",
+      "by": "test",
+      "kills": [
+        "任务列表校验：合规的任务列表交回空数组，与别的任务配置完全相同的任务也合规"
+      ],
       "file": "scripts/lib/types.ts",
       "find": "export const DIMENSIONS = ['category', 'scene', 'competitor', 'audience'] as const",
       "replace": "export const DIMENSIONS = ['category', 'scene', 'competitor'] as const"
@@ -5195,6 +5331,10 @@
       "id": "M-D16-i",
       "req": "D16.e",
       "why": "没写平台的任务被当成 Instagram 走 Reels 付费 —— 缺席被当成了一个值（P1）",
+      "by": "test",
+      "kills": [
+        "任务列表校验：platform 缺席或不是 tiktok、instagram（区分大小写、不修剪空白）时，点名那个任务与 platform，并写出读到的值（缺席写明缺席）"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {",
       "replace": "    if (platform !== undefined && !(PLATFORMS as readonly unknown[]).includes(platform)) {"
@@ -5203,6 +5343,10 @@
       "id": "M-D16-j",
       "req": "D16.e",
       "why": "写成 TikTok 的任务被放行；搜索入口只认小写，任务改走 IG Reels 付费",
+      "by": "test",
+      "kills": [
+        "任务列表校验：platform 缺席或不是 tiktok、instagram（区分大小写、不修剪空白）时，点名那个任务与 platform，并写出读到的值（缺席写明缺席）"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {",
       "replace": "    if (!(PLATFORMS as readonly unknown[]).includes(typeof platform === 'string' ? platform.toLowerCase() : platform)) {"
@@ -5211,6 +5355,10 @@
       "id": "M-D16-k",
       "req": "D16.f",
       "why": "报出第一个坏任务就不再报 —— 一份有几处错的配置要来回跑几趟才改得完",
+      "by": "test",
+      "kills": [
+        "任务列表校验：列表里每个不合规的任务都被点名，不止第一个"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    const t: unknown = tasks[i]",
       "replace": "    if (out.length) break\n    const t: unknown = tasks[i]"
@@ -5219,6 +5367,10 @@
       "id": "M-D16-l",
       "req": "D16.g",
       "why": "同一个任务的关键词坏了就不再看维度 —— 几个字段都坏时少报一处，改完一个字段再跑，又被同一个任务拦下",
+      "by": "test",
+      "kills": [
+        "任务列表校验：同一个任务几个字段不合规就指出几个，每一处写着字段名与读到的值"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    }\n    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {",
       "replace": "    } else if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {"
@@ -5227,6 +5379,10 @@
       "id": "M-D16-m",
       "req": "D16.h",
       "why": "把配置完全相同的任务判为重复 —— U8.a、D6.h 说它们是两个任务，运营照需求写的配置被拒",
+      "by": "test",
+      "kills": [
+        "任务列表校验：合规的任务列表交回空数组，与别的任务配置完全相同的任务也合规"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    const at = `任务 ${taskOrdinal(i)}`",
       "replace": "    const at = `任务 ${taskOrdinal(i)}`\n    if (tasks.slice(0, i).some(u => JSON.stringify(u) === JSON.stringify(t))) { out.push(`${at} 与前面的任务重复`); continue }"
@@ -5235,6 +5391,10 @@
       "id": "M-D16-n",
       "req": "D16.i",
       "why": "校验顺手把关键词修剪后写回 —— 新建与续跑把修剪后的词落盘，原词（D15.k、U8.k）丢了",
+      "by": "test",
+      "kills": [
+        "任务列表校验：本组每一次调用前后，传入的值连键带值都没变"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    const { keyword, dimension, platform } = t as Record<string, unknown>",
       "replace": "    const { keyword, dimension, platform } = t as Record<string, unknown>\n    if (typeof keyword === 'string') (t as Record<string, unknown>).keyword = keyword.trim()"
@@ -5243,6 +5403,10 @@
       "id": "M-D16-p",
       "req": "D16.d",
       "why": "没写维度的任务照常付费采集 —— 缺席被当成了一个合规的维度，评分里静默没有维度加分（P1：缺 dimension 不补成任何一个维度）",
+      "by": "test",
+      "kills": [
+        "任务列表校验：dimension 缺席或不是四个维度之一（区分大小写、不修剪空白）时，点名那个任务与 dimension，并写出读到的值（缺席写明缺席）"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {",
       "replace": "    if (dimension !== undefined && !(DIMENSIONS as readonly unknown[]).includes(dimension)) {"
@@ -5251,6 +5415,10 @@
       "id": "M-D16-q",
       "req": "D16.h",
       "why": "任务列表校验把路线也判了 —— 写着 ig_route 的合规 TikTok 任务被多点名一句，入口一并写出路线问题时同一处报两遍，合规的任务被指出",
+      "by": "test",
+      "kills": [
+        "任务列表校验：三个必填字段合规时，ig_route 与别的字段怎么写都不在这里报"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {",
       "replace": "    if (platform === 'tiktok' && 'ig_route' in (t as object)) out.push(`${at} 的 ig_route 只能写在 Instagram 任务上`)\n    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {"
@@ -5259,6 +5427,10 @@
       "id": "M-D16-r",
       "req": "D16.c",
       "why": "没写的字段在报错里写成读到了 null —— 用户分不出没写与写了 null（P1）",
+      "by": "test",
+      "kills": [
+        "任务列表校验：缺席与读到 null 分得出，缺席那一句不写 undefined，读到的值那一格写着缺席"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "v === undefined ? '缺席' :",
       "replace": "v === undefined ? '是 null' :"
@@ -5267,6 +5439,10 @@
       "id": "M-D16-s",
       "req": "D16.d",
       "why": "没写的字段在报错里写成读到了字符串「缺席」—— 与真写了这两个字的那一句一字不差（P1）",
+      "by": "test",
+      "kills": [
+        "任务列表校验：缺席与读到字符串「缺席」分得出，缺席那一句不带引号写缺席，两次交回的不一样"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "v === undefined ? '缺席' :",
       "replace": "v === undefined ? '是 \"缺席\"' :"
@@ -5275,6 +5451,10 @@
       "id": "M-D16-t",
       "req": "D16.b",
       "why": "读到的 null 在报错里写成缺席 —— 写了 null 与没写分不出（P1）",
+      "by": "test",
+      "kills": [
+        "任务列表校验：不是对象的一项，读到的值那一格随这一项变：不是规则描述里本来就有的字，也不写成缺席"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "v === undefined ? '缺席'",
       "replace": "v == null ? '缺席'"
@@ -5283,6 +5463,10 @@
       "id": "M-D16-u",
       "req": "D16.b",
       "why": "报错里的任务序号从 0 数 —— 与采集输出的任务标签对不上（U8.a）",
+      "by": "test",
+      "kills": [
+        "任务列表校验：不是对象的一项被点名是第几个任务（从 1 数），并写出这一项读到的值"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "taskOrdinal(i)",
       "replace": "String(i)"
@@ -5291,6 +5475,10 @@
       "id": "M-D16-v",
       "req": "D16.b",
       "why": "同一个值出现两次时后一个按前一个的位置点名 —— 第 4 个报成第 2 个，后面那一处永远不被点名",
+      "by": "test",
+      "kills": [
+        "任务列表校验：同一个值的不是对象的项出现几次，就按各自的位置点名几次"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "taskOrdinal(i)",
       "replace": "taskOrdinal(tasks.indexOf(t))"
@@ -5299,6 +5487,10 @@
       "id": "M-D16-w",
       "req": "D16.c",
       "why": "读到的字符串在报错里不带引号 —— 读到的文字 7 与数字 7、文字 null 与 null 分不出",
+      "by": "test",
+      "kills": [
+        "任务列表校验：不是对象的一项被点名是第几个任务（从 1 数），并写出这一项读到的值"
+      ],
       "file": "scripts/lib/search-tasks.ts",
       "find": "是 ${JSON.stringify(v)}",
       "replace": "是 ${String(v)}"
@@ -5942,6 +6134,10 @@
       "id": "M-D17-a",
       "req": "D17.a",
       "why": "空白市场被当成合规字符串",
+      "by": "test",
+      "kills": [
+        "配置字段校验：三个角色均逐类拒绝非字符串与空白 market，返回字段问题而不抛出"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "textProblem(value) === undefined",
       "replace": "typeof value === 'string'"
@@ -5950,6 +6146,10 @@
       "id": "M-D17-b",
       "req": "D17.b",
       "why": "非有限人数被当成合规数值",
+      "by": "test",
+      "kills": [
+        "配置字段校验：新建与续跑逐类拒绝非数值和非有限 target_count，不转换数字字符串"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "typeof value === 'number' && Number.isFinite(value)",
       "replace": "typeof value === 'number'"
@@ -5958,6 +6158,10 @@
       "id": "M-D17-c",
       "req": "D17.c",
       "why": "续跑缺席的必填配置被静默放行",
+      "by": "test",
+      "kills": [
+        "配置字段校验：续跑分别缺市场或人数时，逐个报告缺席字段"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "if (role === 'resume') out.push",
       "replace": "if (false) out.push"
@@ -5966,6 +6170,10 @@
       "id": "M-D17-d",
       "req": "D17.d",
       "why": "两个配置字段同时出错时只报告第一处",
+      "by": "test",
+      "kills": [
+        "配置字段校验：同一输入两处坏值全部返回，各自指向字段和自己的原值"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "  return out\n",
       "replace": "  return out.slice(0, 1)\n"
@@ -5974,6 +6182,10 @@
       "id": "M-D17-e",
       "req": "D17.e",
       "why": "校验擅自把市场改写成默认值",
+      "by": "test",
+      "kills": [
+        "配置字段校验：本组每次调用前后，自有键、属性、原值及其他字段全部不变"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "  return out\n",
       "replace": "  (raw as { market?: unknown }).market = 'US'\n  return out\n"
@@ -5982,6 +6194,10 @@
       "id": "M-D17-f",
       "req": "D17.f",
       "why": "试探错误拒绝了根本不使用的目标人数",
+      "by": "test",
+      "kills": [
+        "配置字段校验：probe 忽略任何 target_count，包括每种坏类型与非有限数"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "role === 'probe' ? ['market'] as const",
       "replace": "false ? ['market'] as const"
@@ -5990,6 +6206,10 @@
       "id": "M-D17-g",
       "req": "D17.g",
       "why": "新输入允许缺席的配置被错误拒绝",
+      "by": "test",
+      "kills": [
+        "配置字段校验：新建与 probe 允许缺市场，新建也允许缺人数，判定不填缺省"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "if (role === 'resume') out.push",
       "replace": "if (true) out.push"
@@ -5998,6 +6218,10 @@
       "id": "M-D17-h",
       "req": "D17.a",
       "why": "自有但值为未定义的市场被当作缺席后放行",
+      "by": "test",
+      "kills": [
+        "配置字段校验：允许缺席不等于允许自有 undefined，新建与 probe 仍报告使用字段的问题"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "if (!Object.hasOwn(raw, field)) {",
       "replace": "if (!Object.hasOwn(raw, field) || raw[field] === undefined) {"
@@ -6006,6 +6230,10 @@
       "id": "M-D17-i",
       "req": "D17.c",
       "why": "原型上的配置被误当成续跑的自有字段",
+      "by": "test",
+      "kills": [
+        "配置字段校验：原型上的合规字段不算自有字段，续跑仍报两处缺席"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "if (!Object.hasOwn(raw, field)) {",
       "replace": "if (!(field in raw)) {"
@@ -6014,6 +6242,10 @@
       "id": "M-D17-j",
       "req": "D17.d",
       "why": "非有限数的诊断被压平成空值",
+      "by": "test",
+      "kills": [
+        "配置字段校验：人数缺席、undefined、null、字符串缺席及三种非有限数逐一可区分"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "if (typeof value === 'number' && !Number.isFinite(value)) return String(value)",
       "replace": "if (typeof value === 'number' && !Number.isFinite(value)) return 'null'"
@@ -6022,6 +6254,10 @@
       "id": "M-D17-k",
       "req": "D17.d",
       "why": "诊断没有带出实际非法原值",
+      "by": "test",
+      "kills": [
+        "配置字段校验：每个字段问题都带出实际坏值，不能只重复规则"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "${seen(value)}",
       "replace": "${'非法'}"
@@ -6030,6 +6266,10 @@
       "id": "M-D17-l",
       "req": "D17.b",
       "why": "把数值字符串转换后接受",
+      "by": "test",
+      "kills": [
+        "配置字段校验：新建与续跑逐类拒绝非数值和非有限 target_count，不转换数字字符串"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "typeof value === 'number' && Number.isFinite(value)",
       "replace": "Number.isFinite(Number(value))"
@@ -6038,6 +6278,10 @@
       "id": "M-D17-m",
       "req": "D17.b",
       "why": "对本次未限制的零负数小数增加拒绝条件",
+      "by": "test",
+      "kills": [
+        "配置字段校验：非标准市场与所有有限人数边界在三个角色均合规，保留原始大小写和空白"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "typeof value === 'number' && Number.isFinite(value)",
       "replace": "typeof value === 'number' && Number.isInteger(value) && value > 0"
@@ -6046,6 +6290,10 @@
       "id": "M-D17-n",
       "req": "D17.a",
       "why": "把市场偷偷限制为两个大写字母",
+      "by": "test",
+      "kills": [
+        "配置字段校验：非标准市场与所有有限人数边界在三个角色均合规，保留原始大小写和空白"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "textProblem(value) === undefined",
       "replace": "typeof value === 'string' && /^[A-Z]{2}$/.test(value)"
@@ -6054,6 +6302,10 @@
       "id": "M-D17-o",
       "req": "D17.d",
       "why": "错误数组的诊断把内部非有限数压平成空值",
+      "by": "test",
+      "kills": [
+        "配置字段校验：嵌套非有限数、同名字符串与 null 全部报告，且写出各字段的容器与原值"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "if (Array.isArray(value)) return `[${value.map(seen).join(',')}]`",
       "replace": "if (Array.isArray(value)) return JSON.stringify(value)"
@@ -6062,6 +6314,10 @@
       "id": "M-D17-p",
       "req": "D17.d",
       "why": "错误对象的诊断把内部非有限数压平成空值",
+      "by": "test",
+      "kills": [
+        "配置字段校验：嵌套非有限数、同名字符串与 null 全部报告，且写出各字段的容器与原值"
+      ],
       "file": "scripts/lib/config-input.ts",
       "find": "return `{${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)}:${seen(item)}`).join(',')}}`",
       "replace": "return JSON.stringify(value)"
@@ -6333,6 +6589,10 @@
       "id": "M-D19-a",
       "req": "D19.a",
       "why": "恢复断点接受重复的完成任务索引，同一个任务会被当成两次完成",
+      "by": "test",
+      "kills": [
+        "恢复进度：done 缺席、非数组、重复或非法任务索引逐类报错"
+      ],
       "file": "scripts/lib/resume-progress.ts",
       "find": "else if (seen.has(value)) out.push(`done[${position}] 的任务索引 ${value} 重复`)",
       "replace": "else if (false) out.push(`done[${position}] 的任务索引 ${value} 重复`)"
@@ -6341,6 +6601,10 @@
       "id": "M-D19-b",
       "req": "D19.b",
       "why": "恢复断点接受负数页数或条数，后续累计会从错误位置开始",
+      "by": "test",
+      "kills": [
+        "恢复进度：四张表均拒绝坏容器、坏索引与坏值，问题点名原字段"
+      ],
       "file": "scripts/lib/resume-progress.ts",
       "find": "typeof value === 'number' && Number.isSafeInteger(value) && value >= 0",
       "replace": "typeof value === 'number' && Number.isSafeInteger(value)"
@@ -6349,6 +6613,10 @@
       "id": "M-D19-c",
       "req": "D19.d",
       "why": "把旧目录缺席的统计表判成坏表，无法继续已有任务",
+      "by": "test",
+      "kills": [
+        "恢复进度：旧目录的四张整表可缺席；页数高于当前上限仍是有效历史"
+      ],
       "file": "scripts/lib/resume-progress.ts",
       "find": "if (!Object.hasOwn(raw, field)) continue // 旧目录缺整张表＝无从确认；绝不补空表。",
       "replace": "if (!Object.hasOwn(raw, field)) out.push(`${field} 缺席`)"
@@ -6357,6 +6625,10 @@
       "id": "M-D19-d",
       "req": "D19.b",
       "why": "四张统计表均接受 null，把未知数当作已核的空值",
+      "by": "test",
+      "kills": [
+        "恢复进度：只有 found 允许 null，其他表的 null 仍被拒绝"
+      ],
       "file": "scripts/lib/resume-progress.ts",
       "find": "field === 'found' && value === null",
       "replace": "value === null"
@@ -6365,6 +6637,10 @@
       "id": "M-D19-g",
       "req": "D19.c",
       "why": "同一份坏断点只报告第一处问题，其余坏进度被遮住",
+      "by": "test",
+      "kills": [
+        "恢复进度：同一任务文件里的各表问题全部报告且不改原输入"
+      ],
       "file": "scripts/lib/resume-progress.ts",
       "find": "  return out\n}",
       "replace": "  return out.slice(0, 1)\n}"

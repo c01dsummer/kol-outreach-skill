@@ -27,6 +27,12 @@ export interface Group { id: string; needs: readonly string[] }
 export function wanted(groups: readonly Group[], only?: readonly string[]): Set<string> | undefined {
   if (only === undefined) return undefined
   const byId = new Map(groups.map(g => [g.id, g]))
+  if (byId.size !== groups.length) {
+    throw new Error('夹具组 id 重复')
+  }
+  for (const g of groups) for (const need of g.needs) {
+    if (!byId.has(need)) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)
+  }
   const unknown = only.filter(id => !byId.has(id))
   if (unknown.length) {
     throw new Error(`--only 点了不存在的组：${unknown.join('、')}`
@@ -51,4 +57,22 @@ export function parseOnly(argv: readonly string[]): string[] | undefined {
   // `undefined` 是「全跑」，静默变成另一件事。**这里不抛**，判定只管把两者分开，
   // 由入口去定性 —— 抛在这儿的话 `wanted` 就得替调用方决定空集算不算错。
   return hit.slice('--only='.length).split(',').filter(s => s !== '')
+}
+
+/**
+ * 需求测试入口的严格参数解析。`parseOnly` 保留自检已有的宽松行为；这里拒绝
+ * 会把「我没选对」解释成「少跑了一些也通过」的拼写错误。
+ */
+export function parseOnlyStrict(argv: readonly string[], allowed: readonly string[] = []): string[] | undefined {
+  const named = argv.filter(a => a.startsWith('--only='))
+  const invalid = argv.filter(a => !a.startsWith('--only=') && !allowed.includes(a))
+  if (invalid.length) throw new Error(`需求测试不认识参数：${invalid.join('、')}`)
+  if (named.length > 1) throw new Error('需求测试只能写一次 --only=')
+  if (!named.length) return undefined
+  const ids = named[0].slice('--only='.length).split(',')
+  if (ids.some(id => id === '' || id.trim() !== id)) {
+    throw new Error('--only= 必须写非空、无首尾空格的组 id，逗号两侧不能留空')
+  }
+  if (new Set(ids).size !== ids.length) throw new Error('--only= 不能重复点同一组')
+  return ids
 }
