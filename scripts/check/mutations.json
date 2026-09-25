@@ -3638,27 +3638,27 @@
     {
       "id": "M-H44-a",
       "req": "harness",
-      "why": "对照组不跑了，只留链那一条曲线 —— 于是这个端点自己漂出来的人会被整笔记到翻页头上。两次完全相同的请求本来就返回不同条目，少了对照，「翻页有效」与「端点在漂」观测上一模一样而结论正好相反",
+      "why": "不再运行等次数原样重发曲线，链式请求缺少当次比较口径，输出的两边累计量和请求数都不可信",
       "file": "scripts/probe-ig-paging.ts",
       "find": "  await repeatInto(ctrl, ch.rows.length, '对照')",
       "replace": "  void ctrl",
       "by": "selfcheck",
       "kills": [
-        "链涨了也不算 —— 要减掉对照组，涨的那些可能全是端点自己在漂",
-        "链比对照多拿到人，才判「翻页多拿到了人」",
-        "链要发够两组 —— 一组链、一组对照，缺了对照这一跑读不出结论"
+        "链与对照打平，只报告观测量，不能说新人都由漂移产生",
+        "链比对照多拿到人，只报告观测差值，不归因也不建议继续付费",
+        "链要发够两组 —— 缺原样重发就算不出本次差值"
       ]
     },
     {
       "id": "M-H44-b",
       "req": "harness",
-      "why": "链和对照打平也算翻页有用 —— 而打平恰恰说明多出来的人一个都不是游标给的。这一处松一格，最该被否掉的那种情形就会被判成肯定结论",
+      "why": "把链和重发之间的观测差值说成游标的因果增量；两条会波动的曲线不支持这个归因",
       "file": "scripts/probe-ig-paging.ts",
-      "find": "  const beatsDrift = ch.cumPeople > ctrl.cumPeople",
-      "replace": "  const beatsDrift = ch.cumPeople >= ctrl.cumPeople",
+      "find": "      + '差值不能归因给游标或原样重发。\\n'",
+      "replace": "      + '翻页确实多拿到了人。\\n'",
       "by": "selfcheck",
       "kills": [
-        "链涨了也不算 —— 要减掉对照组，涨的那些可能全是端点自己在漂"
+        "链比对照多拿到人，只报告观测差值，不归因也不建议继续付费"
       ]
     },
     {
@@ -3676,13 +3676,13 @@
     {
       "id": "M-H44-d",
       "req": "harness",
-      "why": "服务端不再给下一个游标时照样停，但不再报出停在第几次 —— 于是这个工具唯一一个不靠推断的终止条件被抹平成了那句「这几次之内没再涨」。前者是对方的原话，后者是我们的推断，混成一句就是把推断说成了对方说的",
+      "why": "本次响应没给下一令牌时照样停，但不再报停止发生的请求序号，用户无法区分实际链长与要求链长",
       "file": "scripts/probe-ig-paging.ts",
       "find": "    if (typeof token !== 'string' || token.length === 0) return call",
       "replace": "    if (typeof token !== 'string' || token.length === 0) return undefined",
       "by": "selfcheck",
       "kills": [
-        "服务端不再给游标就停下，并报出停在第几次"
+        "响应不再给游标就停下，只报本次不可续与停在第几次"
       ]
     },
     {
@@ -3694,7 +3694,7 @@
       "replace": "const CURSOR_PARAM = 'cursor'",
       "by": "selfcheck",
       "kills": [
-        "链比对照多拿到人，才判「翻页多拿到了人」"
+        "链比对照多拿到人，只报告观测差值，不归因也不建议继续付费"
       ]
     },
     {
@@ -3712,7 +3712,7 @@
     {
       "id": "M-H44-g",
       "req": "harness",
-      "why": "末尾那段「连着几次没多给新人」不再量，恒报零 —— 于是结论永远走「最后一次仍在涨」那一支，一条早就平掉的曲线会被读成还有得挖，下一个人照着它继续花钱",
+      "why": "不再量末尾连续几次未见新作者，恒报零；本次平段会被错报成最后一次仍见新人",
       "file": "scripts/probe-ig-paging.ts",
       "find": "    for (let i = this.rows.length - 1; i >= 0 && this.rows[i].new_creators === 0; i--) n++",
       "replace": "    n += 0",
@@ -3772,13 +3772,49 @@
     {
       "id": "M-H44-l",
       "req": "harness",
-      "why": "链提前断掉时让对照组仍跑满要求的次数 —— 对照的采样就比链多，而这个端点会漂，采样多的一方天然累计更多人。于是「翻页有没有用」那个比较偏向判它没用：这是在本工具最重的那个结论上造假阴性",
+      "why": "链提前停止却让原样重发跑满要求次数，两边观测时长不一致，仍把累计人数摆在同一次数比较口径下",
       "file": "scripts/probe-ig-paging.ts",
       "find": "  await repeatInto(ctrl, ch.rows.length, '对照')",
       "replace": "  await repeatInto(ctrl, n, '对照')",
       "by": "selfcheck",
       "kills": [
-        "链提前断掉时对照组跟着变短 —— 采样不等长就是在制造假阴性"
+        "链提前停止时重发曲线等长，累计量才有同次数口径"
+      ]
+    },
+    {
+      "id": "M-H44-m",
+      "req": "harness",
+      "why": "响应缺下一令牌时，把本次链不可续说成服务端已经没有下一页；缺令牌不能证明匹配结果耗尽",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "        ? `链在第 ${stoppedAt} 次响应没有可继续的令牌，本次不能继续沿该令牌请求；`",
+      "replace": "        ? `链在第 ${stoppedAt} 次响应没有可继续的令牌：服务端没有下一页了。`",
+      "by": "selfcheck",
+      "kills": [
+        "响应不再给游标就停下，只报本次不可续与停在第几次"
+      ]
+    },
+    {
+      "id": "M-H44-n",
+      "req": "harness",
+      "why": "链与重发累计量打平时，把新作者明确归因给端点漂移；两条曲线相等也不能排除其他来源",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "      + '差值不能归因给游标或原样重发。\\n'",
+      "replace": "      + '链上的新人是**漂**给的，不是翻页给的。\\n'",
+      "by": "selfcheck",
+      "kills": [
+        "链与对照打平，只报告观测量，不能说新人都由漂移产生"
+      ]
+    },
+    {
+      "id": "M-H44-o",
+      "req": "harness",
+      "why": "最后一次仍见新作者时据此建议加跑，单次样本不支持下一次付费请求的收益判断",
+      "file": "scripts/probe-ig-paging.ts",
+      "find": "        + `这只描述本次 ${n} 次请求。`)",
+      "replace": "        + `值得往大了再跑一次。`)",
+      "by": "selfcheck",
+      "kills": [
+        "链比对照多拿到人，只报告观测差值，不归因也不建议继续付费"
       ]
     },
     {
