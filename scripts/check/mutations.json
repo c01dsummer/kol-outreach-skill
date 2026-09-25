@@ -259,7 +259,11 @@
       "why": "算「续跑还剩什么活」时把「还有多少人没补简介」当成 0 —— 关键词全跑完就告诉用户续跑不产生新的请求，而续跑第一件事正是去补那些人的简介，那是要付费的端点，账单在他不知情时又长一截",
       "file": "scripts/lib/pipeline.ts",
       "find": "  const profilesLeft = creators.filter(needsProfile).length",
-      "replace": "  const profilesLeft = 0"
+      "replace": "  const profilesLeft = 0",
+      "by": "test",
+      "kills": [
+        "关键词跑完了但还有人要补 profile → 仍然说要花钱"
+      ]
     },
     {
       "id": "M-D6-f",
@@ -267,7 +271,11 @@
       "why": "收尾时把「续跑要不要花钱」那两句话对调 —— 还有关键词、还有人没补简介的时候告诉用户「续跑不产生新的请求」，他放心去续跑，账单在他不知情时又长一截；反过来全跑完了却说「还会继续花钱」，他不敢续跑，那份已经付过钱的名单就永远拿不到",
       "file": "scripts/lib/pipeline.ts",
       "find": "  return rest\n    ? `已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，${nextRequest}`\n    : `采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`",
-      "replace": "  return rest\n    ? `采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`\n    : `已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，${nextRequest}`"
+      "replace": "  return rest\n    ? `采集与补全都已跑完，结果都在 ${dir}，续跑不产生新的请求。`\n    : `已抓到的都在 ${dir}，不会重新抓；但还有 ${rest} 没跑完，${nextRequest}`",
+      "by": "test",
+      "kills": [
+        "还有关键词 → 说要继续花钱"
+      ]
     },
     {
       "id": "M-D6-g",
@@ -275,7 +283,11 @@
       "why": "算「续跑还剩什么活」时把没补简介的那批人漏掉 —— 关键词全跑完了就说续跑不产生新的请求，而续跑第一件事正是去补那些人的简介，那是要付费的端点",
       "file": "scripts/lib/pipeline.ts",
       "find": "    profilesLeft ? `${profilesLeft} 个人的 profile` : '',",
-      "replace": "    '',"
+      "replace": "    '',",
+      "by": "test",
+      "kills": [
+        "关键词跑完了但还有人要补 profile → 仍然说要花钱"
+      ]
     },
     {
       "id": "M-D6-b",
@@ -283,7 +295,11 @@
       "why": "记忆过滤不再区分「本任务」与「别的任务」—— render 之后每次 --resume 都产出一份空名单，已付费采集的人被判成「已推荐过」",
       "file": "scripts/lib/memory.ts",
       "find": "    const others = e.recommendations.filter(r => !(task && r.task === task))",
-      "replace": "    const others = e.recommendations"
+      "replace": "    const others = e.recommendations",
+      "by": "test",
+      "kills": [
+        "本任务上一轮推荐过的人仍保留"
+      ]
     },
     {
       "id": "M-P1-g",
@@ -291,7 +307,11 @@
       "why": "先过粉丝闸门再合并 —— 「单平台各 3000、合起来 6000 够线」的人在合并之前就被丢掉了",
       "file": "scripts/lib/pipeline.ts",
       "find": "  const merged = mergeCrossPlatform(all)",
-      "replace": "  const merged = mergeCrossPlatform(all.filter(passesFollowerGate))"
+      "replace": "  const merged = mergeCrossPlatform(all.filter(passesFollowerGate))",
+      "by": "test",
+      "kills": [
+        "合并后过线的人保住了"
+      ]
     },
     {
       "id": "M-D6-c",
@@ -299,7 +319,11 @@
       "why": "收尾管线就地修改累加器 —— 「累加器只增不减」退回成依赖调用方记得先落盘，正是 ADR-08 那个 bug 的形状",
       "file": "scripts/lib/pipeline.ts",
       "find": "  const all = structuredClone(raw)",
-      "replace": "  const all = raw"
+      "replace": "  const all = raw",
+      "by": "test",
+      "kills": [
+        "传入对象未被就地合并/打标"
+      ]
     },
     {
       "id": "M-D6-d",
@@ -307,7 +331,11 @@
       "why": "「还要不要补 profile」只看 bio 有没有查过，不看外链取到没有 —— 续跑会对这批人再发一次付费请求，而中止时那句「续跑不产生新的请求」还照说不误",
       "file": "scripts/lib/pipeline.ts",
       "find": "  return c.bio === undefined || !c.bio_links?.length",
-      "replace": "  return c.bio === undefined"
+      "replace": "  return c.bio === undefined",
+      "by": "test",
+      "kills": [
+        "查过了但没有外链 → 还要补"
+      ]
     },
     {
       "id": "M-D6-e",
@@ -315,7 +343,11 @@
       "why": "把「还没标记完成的关键词」当成「续跑会去抓的」—— 已经达标、而且每个关键词都问过第一页时，续跑一个请求都不会发，却告诉用户续跑还要花钱，他可能因此不敢续跑，永远拿不到那份已经付过钱的名单",
       "file": "scripts/lib/pipeline.ts",
       "find": "  if (qualified < state.target_count) return requestableOnResume(state)",
-      "replace": "  if (true) return requestableOnResume(state)"
+      "replace": "  if (true) return requestableOnResume(state)",
+      "by": "test",
+      "kills": [
+        "已达标 + 都抓过第一页 → 一个都不会抓"
+      ]
     },
     {
       "id": "M-D6-ba",
@@ -323,7 +355,11 @@
       "why": "续跑那句话按「不在完成列表里的」数要花钱的关键词 —— 进程被硬杀之后，抓过页、手里没有续页令牌的 IG 任务被算进要花钱的一半，而续跑一个请求都不会为它发：告诉用户的开销比实际多",
       "file": "scripts/lib/pipeline.ts",
       "find": "canRequestPage(state, i, undefined) ? [taskLabel(t, i)] : []",
-      "replace": "!state.done.includes(i) ? [taskLabel(t, i)] : []"
+      "replace": "!state.done.includes(i) ? [taskLabel(t, i)] : []",
+      "by": "test",
+      "kills": [
+        "没达标：抓过页、没令牌的 IG 任务续跑不会再请求，不算进要花钱的那一半"
+      ]
     },
     {
       "id": "M-P5-m",
@@ -331,7 +367,11 @@
       "why": "一次都没查过的关键词，在报告上被印成「找到 0 条」—— 没测量被说成测量结果是零，运营据此把一个从没查过的方向判成没人、下次预算就不投，而这笔代价由用户承担且不可逆",
       "file": "scripts/lib/pipeline.ts",
       "find": "      found: status === 'queried' ? (state.found?.[i] ?? null) : null,",
-      "replace": "      found: state.found?.[i] ?? 0,"
+      "replace": "      found: state.found?.[i] ?? 0,",
+      "by": "test",
+      "kills": [
+        "一次都没查过：found 是 null，入围与语义通过也是 null —— 没测量不能说成测量结果是零"
+      ]
     },
     {
       "id": "M-P5-n",
@@ -339,7 +379,11 @@
       "why": "任务目录里没有那张「应答过几次」的表时，把「无从确认哪些词查过」读成「每个词都没查过」—— 报告于是替一批无从确认的关键词打包票，说它们一次都没被查过，而其中有些早就查过、钱也早就付过",
       "file": "scripts/lib/pipeline.ts",
       "find": "  if (answered == null) return 'unknown'",
-      "replace": "  if (answered == null) return 'unqueried'"
+      "replace": "  if (answered == null) return 'unqueried'",
+      "by": "test",
+      "kills": [
+        "无从确认 → 每一行都说无从确认，不是「都没查过」"
+      ]
     },
     {
       "id": "M-P5-o",
@@ -359,7 +403,11 @@
       "why": "关键词表只列查询过的那些 —— 一次都没查过的词整行不出现在表上，而那张表正是用户决定下次投哪个方向的依据：看不见的方向等于不存在的方向",
       "file": "scripts/lib/pipeline.ts",
       "find": "  return state.tasks.map((t, i) => {",
-      "replace": "  return state.tasks.filter((_, i) => taskQueryStatus(state, i) === 'queried').map((t, i) => {"
+      "replace": "  return state.tasks.filter((_, i) => taskQueryStatus(state, i) === 'queried').map((t, i) => {",
+      "by": "test",
+      "kills": [
+        "每个任务一行，一个都不少"
+      ]
     },
     {
       "id": "M-U3-c",
@@ -391,7 +439,11 @@
       "why": "一次都没问过的行照样印「入围 0 / 语义通过 0」—— 两个 0 印在真测量值旁边，运营读成「这个词查了、一个人都没有」，据此不再投这个方向；而同一张表里信息更多的「无从确认」那一行反倒印「—」，口径是反的",
       "file": "scripts/lib/pipeline.ts",
       "find": "    const counted = attributable && status === 'queried'",
-      "replace": "    const counted = attributable"
+      "replace": "    const counted = attributable",
+      "by": "test",
+      "kills": [
+        "一次都没查过：found 是 null，入围与语义通过也是 null —— 没测量不能说成测量结果是零"
+      ]
     },
     {
       "id": "M-P5-w",
@@ -399,7 +451,11 @@
       "why": "不管名单里的人带不带来源任务，一律照常归人 —— 上一条 PR 建的目录（两张表在、人身上没有下标）于是每一行都印「找到 40 / 入围 0」，而名单里明明有人：一个确定为假的 0 印在真测量值旁边",
       "file": "scripts/lib/pipeline.ts",
       "find": "  const attributable = delivered.every(c => c.source_tasks !== undefined)",
-      "replace": "  const attributable = true"
+      "replace": "  const attributable = true",
+      "by": "test",
+      "kills": [
+        "名单里有一个人没带来源任务 → 每一行的入围都印「无从确认」，不印 0"
+      ]
     },
     {
       "id": "M-U3-i",
@@ -407,7 +463,11 @@
       "why": "把「这一页的条数没记下」当成「这一行的人也归不了」—— 而抛掉的那一页一个人都没入库，前几页采到的人身上下标一个不少：一个确知的入围数被抹成「无从确认」，贡献了名单大半的方向被报成什么都不知道",
       "file": "scripts/lib/pipeline.ts",
       "find": "      shortlisted: counted ? mine.length : null,",
-      "replace": "      shortlisted: counted && state.found?.[i] !== null ? mine.length : null,"
+      "replace": "      shortlisted: counted && state.found?.[i] !== null ? mine.length : null,",
+      "by": "test",
+      "kills": [
+        "条数不全，归人照样确知 —— 抛掉的那一页一个人都没入库"
+      ]
     },
     {
       "id": "M-P5-x",
@@ -415,7 +475,11 @@
       "why": "盘上那个值是反序列化进来的外部输入，只判 undefined 的话 `answered: null` 会让判定当场抛 —— 而抛的位置在 render 写完名单、写回记忆之后：csv 与名单已经落盘，报告和 meta.json 还是上一跑的，交付物互相矛盾",
       "file": "scripts/lib/pipeline.ts",
       "find": "  if (answered == null) return 'unknown'",
-      "replace": "  if (answered === undefined) return 'unknown'"
+      "replace": "  if (answered === undefined) return 'unknown'",
+      "by": "test",
+      "kills": [
+        "answered 是 null 也读作无从确认，不崩"
+      ]
     },
     {
       "id": "M-U3-j",
@@ -423,7 +487,11 @@
       "why": "累加器里本条之前采的人（来源无从确认）被凭空补上一个来源任务 —— 等于替他打包票说「他只来自这个任务」，而整张表会据此认定归得了人，于是每一行又开始印确定为假的 0，运营据此砍掉其实出了人的方向",
       "file": "scripts/lib/pipeline.ts",
       "find": "      const at = seen.source_tasks\n      if (at !== undefined && !at.includes(i)) at.push(i)",
-      "replace": "      if (!seen.source_tasks?.includes(i)) (seen.source_tasks ??= []).push(i)"
+      "replace": "      if (!seen.source_tasks?.includes(i)) (seen.source_tasks ??= []).push(i)",
+      "by": "test",
+      "kills": [
+        "而且他的来源仍然是「无从确认」，不许凭空补成 [2]"
+      ]
     },
     {
       "id": "M-U3-k",
@@ -455,7 +523,11 @@
       "why": "同一个人被第二个任务搜到时不把那个任务记进他的来源 —— 后面那个词于是被报成「找到 N 条、一个都没入围」，运营据此把一个其实出了人的词砍掉",
       "file": "scripts/lib/pipeline.ts",
       "find": "      const at = seen.source_tasks\n      if (at !== undefined && !at.includes(i)) at.push(i)",
-      "replace": "      const at = seen.source_tasks\n      if (at !== undefined) { /* 不记这一笔 */ }"
+      "replace": "      const at = seen.source_tasks\n      if (at !== undefined) { /* 不记这一笔 */ }",
+      "by": "test",
+      "kills": [
+        "但他的来源里多了那个任务 —— 漏了这一笔，第二个词会被报成「找到 N 条、一个都没入围」"
+      ]
     },
     {
       "id": "M-U3-g",
@@ -471,7 +543,11 @@
       "why": "关键词行丢失原任务的话题配置元数据 —— 即使任务序号仍可区分，复核配置时也无法看到原来声明的意图；配置意图不能冒充实际发现路径",
       "file": "scripts/lib/pipeline.ts",
       "find": "      ...(t.as_hashtag ? { as_hashtag: true } : {}),",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "hashtag 词在行上带得出标记 —— 行的身份比（关键词, 平台）细"
+      ]
     },
     {
       "id": "M-D6-p",
@@ -503,7 +579,11 @@
       "file": "scripts/lib/pipeline.ts",
       "why": "整张页数表缺失时读作「一页都没抓过」而不是「无从确认」—— 上一版留下的目录里每个已经抓过页的词都重新拿到一份满配额，而那正是今天用户手上目录的形状，于是这条上限对现存数据一条都不管",
       "find": "  return i in offsets ? null : 0",
-      "replace": "  return 0"
+      "replace": "  return 0",
+      "by": "test",
+      "kills": [
+        "表缺失、游标里有这个键 → null（抓了几页无从确认），不是 0"
+      ]
     },
     {
       "id": "M-D6-y",
@@ -511,7 +591,11 @@
       "file": "scripts/lib/pipeline.ts",
       "why": "上限的边界松一格：正好抓满上限的任务还能再翻一页，每个关键词都多花一次搜索的钱，而报告上那句「单关键词页数上限 N 页」照旧",
       "find": "  return n !== null && n < MAX_PAGES",
-      "replace": "  return n !== null && n <= MAX_PAGES"
+      "replace": "  return n !== null && n <= MAX_PAGES",
+      "by": "test",
+      "kills": [
+        "正好到上限 → 不能再翻"
+      ]
     },
     {
       "id": "M-D6-z",
@@ -519,7 +603,11 @@
       "file": "scripts/lib/pipeline.ts",
       "why": "盘上那个值认不出形状时读作确知的数而不是无从确认 —— 一份被改坏或被上一版写脏的记录会被当成真数用，负数与小数都能绕过上限",
       "find": "    return typeof n === 'number' && Number.isInteger(n) && n >= 0 ? n : null",
-      "replace": "    return typeof n === 'number' ? n : null"
+      "replace": "    return typeof n === 'number' ? n : null",
+      "by": "test",
+      "kills": [
+        "值不是非负整数 → 读作无从确认，不读作 0"
+      ]
     },
     {
       "id": "M-D6-a",
@@ -571,7 +659,11 @@
       "why": "IG 续页拿回 0 条时不按「本页 0 条」停，理由被说成「解析不出作者」—— 用户看到的停因和实际发生的不是一件事（ADR-111 第二节）",
       "file": "scripts/lib/pipeline.ts",
       "find": "  if (page.rawCount === 0) return { stop: 'empty' }\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "本页 0 条 → 停"
+      ]
     },
     {
       "id": "M-D6-al",
@@ -579,7 +671,11 @@
       "why": "IG 续页有条目却一个作者都解析不出时仍带着令牌接着翻 —— 供应商换了响应结构时，每一页都付钱、每一页都零人，一直翻到上限",
       "file": "scripts/lib/pipeline.ts",
       "find": "  if (page.parsed === 0) return { stop: 'unparsed' }\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "本页有条目却一个作者都解析不出 → 停"
+      ]
     },
     {
       "id": "M-D6-am",
@@ -587,7 +683,11 @@
       "why": "只有空白的续页令牌被当成可用的令牌带下去 —— 下一次请求要么被当成首页重买一遍，要么带着一串空白去问（ADR-111 第二节）",
       "file": "scripts/lib/pipeline.ts",
       "find": "page.token.trim() === ''",
-      "replace": "page.token === ''"
+      "replace": "page.token === ''",
+      "by": "test",
+      "kills": [
+        "令牌只有空白 → 同样没有可继续的令牌"
+      ]
     },
     {
       "id": "M-D6-an",
@@ -595,7 +695,11 @@
       "why": "IG 续页不看页数上限，只要有令牌就一直翻 —— D6.h 的上限对 IG 失效，单个关键词的花费没有顶",
       "file": "scripts/lib/pipeline.ts",
       "find": "  if (!underPageCap(state, i)) return { stop: 'cap' }\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "算上这一页正好到上限 → 停"
+      ]
     },
     {
       "id": "M-D6-ao",
@@ -603,7 +707,11 @@
       "why": "续页令牌被修剪后再带下去 —— 令牌是供应商的，改动一个字就可能问到别的地方去，钱照付",
       "file": "scripts/lib/pipeline.ts",
       "find": "  return { next: page.token }",
-      "replace": "  return { next: page.token.trim() }"
+      "replace": "  return { next: page.token.trim() }",
+      "by": "test",
+      "kills": [
+        "令牌原样带上，不替它修剪"
+      ]
     },
     {
       "id": "M-D6-ap",
@@ -611,7 +719,11 @@
       "why": "判「这一跑还能不能再请求一页」时不分平台 —— 续跑时手里没有令牌，已经抓过页的 IG 任务仍被算成要抓，收尾那句话多报要花的钱",
       "file": "scripts/lib/pipeline.ts",
       "find": "  if (state.tasks[i].platform !== 'instagram') return true\n  return !(i in offsets) || token !== undefined\n",
-      "replace": "  return true\n"
+      "replace": "  return true\n",
+      "by": "test",
+      "kills": [
+        "IG 抓过、手里没有令牌 → 不能"
+      ]
     },
     {
       "id": "M-D6-aq",
@@ -619,7 +731,11 @@
       "why": "IG 一页都没抓过也要先有令牌才能请求 —— 第一页永远没有令牌，于是 IG 一个请求都不发，而报告里它和「查了没人」长得一样（F9）",
       "file": "scripts/lib/pipeline.ts",
       "find": "  return !(i in offsets) || token !== undefined\n",
-      "replace": "  return token !== undefined\n"
+      "replace": "  return token !== undefined\n",
+      "by": "test",
+      "kills": [
+        "IG 一页都没抓过 → 能，没有令牌也能（第一页保证，F9）"
+      ]
     },
     {
       "id": "M-D6-ar",
@@ -627,7 +743,11 @@
       "why": "已经进了完成列表的任务仍被判成还能再请求一页 —— 调度会给跑完的词再花钱，收尾那句话也把它算进要花钱的那一半",
       "file": "scripts/lib/pipeline.ts",
       "find": "  if (state.done.includes(i)) return false\n  const offsets = state.offsets\n  if (offsets === undefined) return false\n  if (state.tasks[i].platform",
-      "replace": "  const offsets = state.offsets\n  if (offsets === undefined) return false\n  if (state.tasks[i].platform"
+      "replace": "  const offsets = state.offsets\n  if (offsets === undefined) return false\n  if (state.tasks[i].platform",
+      "by": "test",
+      "kills": [
+        "IG 已进 done → 不能，有令牌也不能"
+      ]
     },
     {
       "id": "M-D6-as",
@@ -635,7 +755,11 @@
       "why": "分页记录表整张缺失时仍判成能请求 —— 那是无从确认哪些词查过的旧目录，照抓会把已经付过钱的几页再买一遍（F9.e）",
       "file": "scripts/lib/pipeline.ts",
       "find": "  if (offsets === undefined) return false\n  if (state.tasks[i].platform",
-      "replace": "  if (offsets === undefined) return true\n  if (state.tasks[i].platform"
+      "replace": "  if (offsets === undefined) return true\n  if (state.tasks[i].platform",
+      "by": "test",
+      "kills": [
+        "分页记录表整张缺失 → IG 不能"
+      ]
     },
     {
       "id": "M-D6-q",
@@ -691,7 +815,11 @@
       "why": "IG 的兜底路径把第一次请求返回的条数整个丢掉，只交回第二次的 —— 第一次已经付过钱、供应商也确实返回了内容，而盘上记着「这个词拿回 0 条」，读作「一条内容都没有」，下一步据此换词或砍掉整个平台，而换词不会有任何帮助",
       "file": "scripts/providers/tikhub.ts",
       "find": "      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))",
-      "replace": "      .then(users => users)"
+      "replace": "      .then(users => users)",
+      "by": "test",
+      "kills": [
+        "两次的条数相加，第一次那 8 条没被丢掉"
+      ]
     },
     {
       "id": "M-D6-t",
@@ -713,7 +841,11 @@
       "why": "Reels 响应里的续页令牌读不出来，搜索结果永远不带令牌 —— 后两步接上之后 IG 也一页都翻不动，而没有任何一处报错（ADR-111）",
       "file": "scripts/providers/tikhub.ts",
       "find": "      ...(typeof next === 'string' ? { next_token: next } : {}) }",
-      "replace": "      ...({}) }"
+      "replace": "      ...({}) }",
+      "by": "test",
+      "kills": [
+        "响应里的续页令牌原样交回"
+      ]
     },
     {
       "id": "M-D6-ae",
@@ -729,7 +861,11 @@
       "why": "续页请求不带上一页交回的 pagination_token，实际问的还是首页 —— 钱照付，拿回来的人和第一页一样",
       "file": "scripts/providers/tikhub.ts",
       "find": "    if (token !== undefined) params.pagination_token = token\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "续页带上上一页交回的令牌"
+      ]
     },
     {
       "id": "M-D6-ag",
@@ -737,7 +873,11 @@
       "why": "带令牌的续页只要分页进度已经前进就一个请求都不发 —— 入口接上之后第二页起永远拿回空页，读作「这个词翻不出更多」，而那是我们自己没问",
       "file": "scripts/providers/tikhub.ts",
       "find": "    if (token !== undefined) return this.searchInstagramReels(task, token)\n",
-      "replace": "    if (token !== undefined && offset === 0) return this.searchInstagramReels(task, token)\n"
+      "replace": "    if (token !== undefined && offset === 0) return this.searchInstagramReels(task, token)\n",
+      "by": "test",
+      "kills": [
+        "带令牌的续页发出一次请求"
+      ]
     },
     {
       "id": "M-D6-ah",
@@ -745,7 +885,11 @@
       "why": "带令牌的续页解析不出人时改搜账号名 —— 兜底只属于第一页（ADR-111 第二节），续页多付一次钱，换回的是一批跟这一页无关的账号",
       "file": "scripts/providers/tikhub.ts",
       "find": "    if (token !== undefined) return this.searchInstagramReels(task, token)\n",
-      "replace": "    if (token !== undefined) {\n      const page = await this.searchInstagramReels(task, token)\n      return page.creators.length ? page : this.searchInstagramUsers(task)\n    }\n"
+      "replace": "    if (token !== undefined) {\n      const page = await this.searchInstagramReels(task, token)\n      return page.creators.length ? page : this.searchInstagramUsers(task)\n    }\n",
+      "by": "test",
+      "kills": [
+        "续页解析不出人时不改搜账号名"
+      ]
     },
     {
       "id": "M-D6-ai",
@@ -753,7 +897,11 @@
       "why": "走了兜底的第一页把 Reels 那次的令牌交回 —— 入口会给一个已经换了路的任务接着翻 Reels，而 ADR-111 说这种任务当页结束",
       "file": "scripts/providers/tikhub.ts",
       "find": "      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count }))",
-      "replace": "      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count, next_token: reels.next_token }))"
+      "replace": "      .then(users => ({ ...users, raw_count: reels.raw_count + users.raw_count, next_token: reels.next_token }))",
+      "by": "test",
+      "kills": [
+        "走了兜底的那一页没有令牌"
+      ]
     },
     {
       "id": "M-D6-aj",
@@ -761,7 +909,11 @@
       "why": "Reels 响应里有令牌就说「还有下一页」—— 能不能再翻由入口看令牌决定，这一页先替它答了，后两步接上之前就会开始翻 IG",
       "file": "scripts/providers/tikhub.ts",
       "find": "raw_count: list.length, has_more: false,\n",
-      "replace": "raw_count: list.length, has_more: typeof next === 'string',\n"
+      "replace": "raw_count: list.length, has_more: typeof next === 'string',\n",
+      "by": "test",
+      "kills": [
+        "交回令牌不改「还有没有下一页」—— Reels 页仍是 false"
+      ]
     },
     {
       "id": "M-D6-az",
@@ -777,7 +929,11 @@
       "why": "达标之后就说「续跑一个关键词都不会抓」—— 还欠着第一页的那些词，续跑照样会去抓它们，那是要付费的端点，账单在用户不知情时又长一截；反过来他也可能因为「反正不花钱」就去续跑一轮自己没打算花的钱",
       "file": "scripts/lib/pipeline.ts",
       "find": "  const first = new Set(owed)\n  return state.tasks.flatMap((t, i) => first.has(i) ? [taskLabel(t, i)] : [])",
-      "replace": "  return []"
+      "replace": "  return []",
+      "by": "test",
+      "kills": [
+        "已达标 → 一页都没抓过的仍然会去抓"
+      ]
     },
     {
       "id": "M-F9-e",
@@ -793,7 +949,11 @@
       "why": "把「整张分页记录表缺失」和「表在、没有一个关键词欠着第一页」压成同一个答案 —— 调用方于是分不出「无从确认」和「都问过了」，没达标那条路会从头把已经付过钱的那几页重买一遍",
       "file": "scripts/lib/pipeline.ts",
       "find": "  if (offsets === undefined) return null\n  return state.tasks",
-      "replace": "  if (offsets === undefined) return []\n  return state.tasks"
+      "replace": "  if (offsets === undefined) return []\n  return state.tasks",
+      "by": "test",
+      "kills": [
+        "整张表都没有 → null（无从确认），不是空集也不是全体"
+      ]
     },
     {
       "id": "M-F9-f",
@@ -837,7 +997,11 @@
       "why": "「这个关键词一页都没抓过」不再看它抓没抓过，只看它标没标完成 —— 于是达标之后每个没标完成的关键词都被当成还欠着第一页，接着往下翻页：第一页保证本该只保证第一页，这下成了「无视达标一直翻」，多翻出来的那些页花的是用户没打算花的钱；同一个判定还喂着「续跑要不要花钱」那句话，它跟着一起多报",
       "file": "scripts/lib/pipeline.ts",
       "find": "    .filter(i => !state.done.includes(i) && !(i in offsets))",
-      "replace": "    .filter(i => !state.done.includes(i))"
+      "replace": "    .filter(i => !state.done.includes(i))",
+      "by": "test",
+      "kills": [
+        "已达标 + 都抓过第一页 → 一个都不会抓"
+      ]
     },
     {
       "id": "M-F9-b",
@@ -857,7 +1021,11 @@
       "why": "记忆过滤跑在粉丝闸门之前 —— filtered_contacted 把连闸门都过不了的人也算进去，向用户虚报打扰规模",
       "file": "scripts/lib/pipeline.ts",
       "find": "  const gated = merged.filter(passesFollowerGate)\n\n  const { kept, filtered_recommended, filtered_contacted, memory_status } =\n    filterByMemory(gated, product, task, { ignoreUnreadable: opts.ignoreUnreadableMemory })",
-      "replace": "  const pre = filterByMemory(merged, product, task,\n                            { ignoreUnreadable: opts.ignoreUnreadableMemory })\n  const { filtered_recommended, filtered_contacted, memory_status } = pre\n  const kept = pre.kept.filter(passesFollowerGate)"
+      "replace": "  const pre = filterByMemory(merged, product, task,\n                            { ignoreUnreadable: opts.ignoreUnreadableMemory })\n  const { filtered_recommended, filtered_contacted, memory_status } = pre\n  const kept = pre.kept.filter(passesFollowerGate)",
+      "by": "test",
+      "kills": [
+        "只数过得了闸门的那一个"
+      ]
     },
     {
       "id": "M-F5-a",
@@ -881,7 +1049,11 @@
       "why": "分层管线不再排序 —— 交付物按采集顺序排，A 级混在几百行里",
       "file": "scripts/lib/pipeline.ts",
       "find": "  return sortForOutput(kept)",
-      "replace": "  return kept"
+      "replace": "  return kept",
+      "by": "test",
+      "kills": [
+        "A 排在 C 前面"
+      ]
     },
     {
       "id": "M-P1-h",
@@ -1109,7 +1281,11 @@
       "file": "scripts/check/mutate-rule.ts",
       "why": "进了 group 也不记组名 —— 每条标签都落不进组，于是每条负片都退回整跑，这条改动买到的东西一秒不剩，而没有任何东西会红",
       "find": "      if (name === 'group' && label !== undefined) inner = label",
-      "replace": "      if (name === 'group' && label !== undefined) inner = group"
+      "replace": "      if (name === 'group' && label !== undefined) inner = group",
+      "by": "test",
+      "kills": [
+        "组里的标签归到那一组"
+      ]
     },
     {
       "id": "M-H43-b",
@@ -1125,7 +1301,11 @@
       "file": "scripts/check/mutate-rule.ts",
       "why": "调用者认成「点号右边那一截」：别的对象上碰巧同名的方法也被当成起名，于是一条本不属于这一组的标签被归进来，负片点名时翻到的组整个是错的（清册那一侧同形的一条是 M-H20-c，归组这一侧原先一条都没有）",
       "find": "    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {\n      const name = node.expression.text",
-      "replace": "    if (ts.isCallExpression(node) && (ts.isIdentifier(node.expression) || ts.isPropertyAccessExpression(node.expression))) {\n      const name = ts.isIdentifier(node.expression) ? node.expression.text : node.expression.name.text"
+      "replace": "    if (ts.isCallExpression(node) && (ts.isIdentifier(node.expression) || ts.isPropertyAccessExpression(node.expression))) {\n      const name = ts.isIdentifier(node.expression) ? node.expression.text : node.expression.name.text",
+      "by": "test",
+      "kills": [
+        "点号右边那一截不算起名 —— 别的对象上碰巧同名的方法"
+      ]
     },
     {
       "id": "M-H43-d",
@@ -1133,7 +1313,11 @@
       "file": "scripts/check/mutate-rule.ts",
       "why": "只认引号括起来的那一种字面量：反引号写的、静态一样定得下来的夹具名翻不出组，那条负片于是静默退回整跑 —— 这条改动买到的东西悄悄漏掉，而没有任何东西会红（清册那一侧同形的一条是 M-H20-g，归组这一侧原先一条都没有）",
       "find": "ts.isStringLiteralLike(first) ? first.text : undefined",
-      "replace": "ts.isStringLiteral(first) ? first.text : undefined"
+      "replace": "ts.isStringLiteral(first) ? first.text : undefined",
+      "by": "test",
+      "kills": [
+        "反引号、没插值的也定得下来，归到那一组"
+      ]
     },
     {
       "id": "M-H9-i",
@@ -1301,7 +1485,11 @@
       "why": "验证者崩掉也算变异被抓到 —— 一处语法错、一个 TypeError 就能让整套变异全绿，而没有任何一条断言真的红过",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (!verifier.summary.test(output)) return 'crashed'\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "非零退出但没有汇总 → 跑不起来，不算抓到"
+      ]
     },
     {
       "id": "M-H14-o",
@@ -1309,7 +1497,11 @@
       "why": "点名的那条夹具只按开头对 —— 一条夹具的名字是另一条的开头时，长的那条红了也算点名的那条红了，归错功劳换个入口原样再来一次，而点名本来就是为了堵这件事",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    return body === label || body.startsWith(`${label}：`)",
-      "replace": "    return body.startsWith(label)"
+      "replace": "    return body.startsWith(label)",
+      "by": "test",
+      "kills": [
+        "点的名只是那一行的前缀，不算"
+      ]
     },
     {
       "id": "M-H14-s",
@@ -1317,7 +1509,11 @@
       "why": "点名的那条和实际红的那一行反过来对 —— 点了一条更长的名字，一条名字更短的夹具红了也算数，同一次归错功劳换个方向原样再来一次",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    return body === label || body.startsWith(`${label}：`)",
-      "replace": "    return label.startsWith(body)"
+      "replace": "    return label.startsWith(body)",
+      "by": "test",
+      "kills": [
+        "那一行只是点的名的前缀，也不算"
+      ]
     },
     {
       "id": "M-H14-p",
@@ -1325,7 +1521,11 @@
       "why": "验证者红在别处也算点名的那条夹具红了 —— 一条对那条夹具什么都没证明的接线变异，会被记成被抓到",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  return allKilled(output, kills) ? 'caught' : 'elsewhere'",
-      "replace": "  return 'caught'"
+      "replace": "  return 'caught'",
+      "by": "test",
+      "kills": [
+        "验证者红了，红的却不是点名那条 → 红错了地方，不算抓到"
+      ]
     },
     {
       "id": "M-H14-q",
@@ -1349,7 +1549,11 @@
       "why": "被信号杀掉的那一次，只要汇总已经打出来就算数 —— 一次没跑完的运行被当成整份证据，它剩下的断言一条也没说过话",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (exitCode === null) return 'crashed'\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "被信号杀掉：汇总已经打出来也不算"
+      ]
     },
     {
       "id": "M-H19-a",
@@ -1357,7 +1561,11 @@
       "why": "验证者崩掉或夹具废掉时漏出来的那些诊断，点名它们也算被抓到 —— 一条只把被测脚本弄崩、没让任何断言真红的变异会被记成抓到，正是把崩溃的功劳记到断言头上",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (notAssertion(output, verifier)) return 'crashed'\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "但整次判的是跑不起来，不是被抓到"
+      ]
     },
     {
       "id": "M-H19-b",
@@ -1365,7 +1573,11 @@
       "why": "凡是报了失败的那一行都算进程级失败 —— 于是每一次真被断言抓到的运行都被判成跑不起来，指定验证者这条路整个作废",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  return output.split('\\n').some(l => l.trimStart().startsWith('✗ ') && l.includes(mark))",
-      "replace": "  return output.split('\\n').some(l => l.trimStart().startsWith('✗ '))"
+      "replace": "  return output.split('\\n').some(l => l.trimStart().startsWith('✗ '))",
+      "by": "test",
+      "kills": [
+        "没崩的那一次照旧算被抓到"
+      ]
     },
     {
       "id": "M-H14-x",
@@ -1373,7 +1585,11 @@
       "why": "验证者里「打完汇总就立刻退出」的写法一律认不出来 —— 那句汇总在管道上被截掉之后，一条真被抓到的变异会被报成跑不起来，而且时红时绿",
       "file": "scripts/check/mutate-rule.ts",
       "find": "const HARD_EXIT = /\\bprocess\\.exit\\s*\\(/",
-      "replace": "const HARD_EXIT = /\\bprocess\\.exitImmediately\\s*\\(/"
+      "replace": "const HARD_EXIT = /\\bprocess\\.exitImmediately\\s*\\(/",
+      "by": "test",
+      "kills": [
+        "打完汇总就硬退出的写法要认出来"
+      ]
     },
     {
       "id": "M-H14-y",
@@ -1381,7 +1597,11 @@
       "why": "只提到那个名字、没有真调用的散文也算撞上 —— 解释这条规矩的那句注释会把它自己判红",
       "file": "scripts/check/mutate-rule.ts",
       "find": "const HARD_EXIT = /\\bprocess\\.exit\\s*\\(/",
-      "replace": "const HARD_EXIT = /\\bprocess\\.exit\\b/"
+      "replace": "const HARD_EXIT = /\\bprocess\\.exit\\b/",
+      "by": "test",
+      "kills": [
+        "只提名字不调用的是散文，不算"
+      ]
     },
     {
       "id": "M-H14-t",
@@ -1397,7 +1617,11 @@
       "why": "验证者的名字认不认得一律放行 —— 写错的名字一路走到跑变异那一段才抛，那一刻报出来的是一个栈，指不回写错的那一行",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (!Object.hasOwn(VERIFIERS, mut.by)) return 'unknown-verifier'\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "验证者的名字不认得"
+      ]
     },
     {
       "id": "M-H14-u",
@@ -1405,7 +1629,11 @@
       "why": "点了名却不说谁来验也算成立 —— 那正是本条记录明写要另外评定的延伸，机制生效、没有规矩、没有记录",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (mut.by === undefined) return mut.kills === undefined ? undefined : 'kills-without-by'",
-      "replace": "  if (mut.by === undefined) return undefined"
+      "replace": "  if (mut.by === undefined) return undefined",
+      "by": "test",
+      "kills": [
+        "点了名却没说谁来验"
+      ]
     },
     {
       "id": "M-H14-v",
@@ -1413,7 +1641,11 @@
       "why": "指了验证者却不点名也算成立 —— 只知道那个验证者红了，红在哪儿不问，一条把别处弄红的变异照样被记成抓到",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (mut.kills === undefined) return 'missing-kills'",
-      "replace": "  if (mut.kills === undefined) return undefined"
+      "replace": "  if (mut.kills === undefined) return undefined",
+      "by": "test",
+      "kills": [
+        "指了验证者却没点名"
+      ]
     },
     {
       "id": "M-H14-b",
@@ -1509,7 +1741,11 @@
       "why": "交点的认领编号改成看两侧写的先后 —— 登记表把交点写在让步的那一方，测试按另一个顺序认领，同一个交点算成两个：认领的那个没人要，红线那个报成没有认领，一次假的硬失败",
       "file": "scripts/check/spec-rule.ts",
       "find": "export const tensionKey = (a: string, b: string): string => [a, b].sort().join('×')",
-      "replace": "export const tensionKey = (a: string, b: string): string => [a, b].join('×')"
+      "replace": "export const tensionKey = (a: string, b: string): string => [a, b].join('×')",
+      "by": "test",
+      "kills": [
+        "两侧顺序不影响认领编号"
+      ]
     },
     {
       "id": "M-H14-n",
@@ -1549,7 +1785,11 @@
       "why": "记忆文件读不出来时退化成一份空记忆 —— 已联系和已屏蔽的人靠一个解析错误重新进名单",
       "file": "scripts/lib/memory.ts",
       "find": "    if (!opts.ignoreUnreadable) throw new MemoryUnreadable(FILE, r.detail)",
-      "replace": "    /* mutated */"
+      "replace": "    /* mutated */",
+      "by": "test",
+      "kills": [
+        "读不出来时抛出而不是返回名单"
+      ]
     },
     {
       "id": "M-P4-d",
@@ -1573,7 +1813,11 @@
       "why": "记忆读不出来时照样写回 —— 一份「谁都没联系过」的记忆盖掉原文件，contacted 和 blocked 永久消失",
       "file": "scripts/lib/memory.ts",
       "find": "  if (r.status === 'unreadable') return { written: false, reason: r.detail }\n  const mem = r.mem",
-      "replace": "  const mem = r.status === 'unreadable' ? empty() : r.mem"
+      "replace": "  const mem = r.status === 'unreadable' ? empty() : r.mem",
+      "by": "test",
+      "kills": [
+        "读不出来时不写回"
+      ]
     },
     {
       "id": "M-D4-f",
@@ -1605,7 +1849,11 @@
       "why": "比较产品名时不去掉两侧的空白 —— 手改时多打的一个空格，就让「这个人已经为这个产品推荐过」整条失效，人被重新推荐一次",
       "file": "scripts/lib/memory.ts",
       "find": "    if (others.some(r => r.product.trim() === want)) { rec++; continue }",
-      "replace": "    if (others.some(r => r.product === product)) { rec++; continue }"
+      "replace": "    if (others.some(r => r.product === product)) { rec++; continue }",
+      "by": "test",
+      "kills": [
+        "产品名两侧的空白不影响「已推荐过」"
+      ]
     },
     {
       "id": "M-D4-ah",
@@ -1613,7 +1861,11 @@
       "why": "入口不去掉任务配置里产品名两侧的空白 —— 运营在配置里多打一个空格，这一轮就查不到「他已经为这个产品推荐过」，整批已经推荐过的人被当成新人再推荐一次，钱和人情一起赔进去",
       "file": "scripts/lib/memory.ts",
       "find": "): FilterResult {\n  const want = product.trim()",
-      "replace": "): FilterResult {\n  const want = product"
+      "replace": "): FilterResult {\n  const want = product",
+      "by": "test",
+      "kills": [
+        "任务配置里的空白同样不影响「已推荐过」"
+      ]
     },
     {
       "id": "M-D4-ag",
@@ -1621,7 +1873,11 @@
       "why": "读记忆时把两侧带空白的产品名判成损坏 —— 写回这一侧存的是 trim 过的产品名，所以踩到它的是历史遗留或被手工改过的记录：那一份记忆此后读不出来，每一次采集都被挡在门外，直到有人手工去修",
       "file": "scripts/lib/memory.ts",
       "find": "      const badProduct = textProblem(rr.product)",
-      "replace": "      const badProduct = textProblem(rr.product) ?? (rr.product === String(rr.product).trim() ? undefined : '两侧有空白')"
+      "replace": "      const badProduct = textProblem(rr.product) ?? (rr.product === String(rr.product).trim() ? undefined : '两侧有空白')",
+      "by": "test",
+      "kills": [
+        "而且没把这份记忆判成损坏"
+      ]
     },
     {
       "id": "M-D4-o",
@@ -1629,7 +1885,11 @@
       "why": "记忆不可用时一律报成「解析失败」—— 而它同样可能是权限不足、父路径不是目录或磁盘出错，那时候用户会去查一份完好的文件，真正的原因在报错里被盖住了",
       "file": "scripts/lib/memory.ts",
       "find": "    super(`记忆文件 ${file} 不可用：${detail}`)",
-      "replace": "    super(`记忆文件 ${file} 解析失败：${detail}`)"
+      "replace": "    super(`记忆文件 ${file} 解析失败：${detail}`)",
+      "by": "test",
+      "kills": [
+        "读不到时报的不是「解析失败」"
+      ]
     },
     {
       "id": "M-D4-q",
@@ -1637,7 +1897,11 @@
       "why": "产品名是空白时照样写进记忆 —— 而下一次读盘正是按「产品名必须非空」判它损坏，一次写回就把一份好好的记忆变成读不出来的，此后每一次采集都被挡在门外，直到有人手工去修",
       "file": "scripts/lib/memory.ts",
       "find": "  const badProduct = textProblem(product)\n  if (badProduct) {\n    return { written: false, reason: `任务的产品名${badProduct} —— 记不下来，因为记下的这条下次会被判成损坏` }\n  }",
-      "replace": "  /* mutated */"
+      "replace": "  /* mutated */",
+      "by": "test",
+      "kills": [
+        "产品名是空白时拒绝写回"
+      ]
     },
     {
       "id": "M-D4-u",
@@ -1661,7 +1925,11 @@
       "why": "记忆里的键不再规范化 —— 手改出来的一个大写字母，就让已联系、已拉黑的人重新进名单，而状态照报「读到了」",
       "file": "scripts/lib/memory.ts",
       "find": "    const norm = key({ platform: rawPlatform, handle: rawHandle })",
-      "replace": "    const norm = raw"
+      "replace": "    const norm = raw",
+      "by": "test",
+      "kills": [
+        "键的大小写不影响身份 —— 已联系的人照样被挡在外面"
+      ]
     },
     {
       "id": "M-P4-g",
@@ -1821,7 +2089,11 @@
       "why": "记忆写不进去时把整个交付一起丢掉 —— 已经算好的名单和报告都没了，而记忆原文件本来就完好，真实损失只有这一轮的记录",
       "file": "scripts/lib/memory.ts",
       "find": "  try {\n    saveMemory(mem)\n  } catch (e) {",
-      "replace": "  saveMemory(mem)\n  if (false) {\n    const e = new Error('mutated')"
+      "replace": "  saveMemory(mem)\n  if (false) {\n    const e = new Error('mutated')",
+      "by": "test",
+      "kills": [
+        "写不进去时不抛"
+      ]
     },
     {
       "id": "M-D4-m",
@@ -1965,7 +2237,11 @@
       "why": "交点不再校验它指向的编号是否真实存在 —— 登记表里可以写一个指向不存在需求的交点",
       "file": "scripts/check/spec-rule.ts",
       "find": "      else if (!ids.has(t.with)) problems.push(`${r.id} 的交点指向不存在的编号 ${t.with}`)",
-      "replace": "      else if (false) problems.push('')"
+      "replace": "      else if (false) problems.push('')",
+      "by": "test",
+      "kills": [
+        "交点指向不存在的编号被抓到"
+      ]
     },
     {
       "id": "M-H4-b",
@@ -1973,7 +2249,11 @@
       "why": "需求的分类不在分类表里也放行 —— 那条需求根本不会出现在渲染出来的文档里，而一致性检查比的是生成结果和生成结果，漏掉的那条与它自己完全一致，照样全绿",
       "file": "scripts/check/spec-rule.ts",
       "find": "    if (!cats.includes(r.cat)) {",
-      "replace": "    if (false) {"
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": [
+        "分类不在分类表里被抓到"
+      ]
     },
     {
       "id": "M-H4-c",
@@ -1981,7 +2261,11 @@
       "why": "编号前缀与分类不一致也放行 —— 一条红线被挪进别的分类，审计从此不再要求它有测试和变异，报出的红线条数比项目声明的少一条，却照样通过",
       "file": "scripts/check/spec-rule.ts",
       "find": "    } else if (!new RegExp(`^${r.cat.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\\\d+$`).test(r.id)) {",
-      "replace": "    } else if (false) {"
+      "replace": "    } else if (false) {",
+      "by": "test",
+      "kills": [
+        "分类声明过但与编号前缀不符也被抓到"
+      ]
     },
     {
       "id": "M-H4-d",
@@ -1989,7 +2273,11 @@
       "why": "验收判据的编号不再校验形状 —— 一条判据挂在别的需求名下也放行，而下游按判据编号认领覆盖，认领就会指到另一条需求上去",
       "file": "scripts/check/spec-rule.ts",
       "find": "        problems.push(`${r.id} 的判据编号 ${c.id} 不是 ${r.id}.x 的形式`)",
-      "replace": "        void c"
+      "replace": "        void c",
+      "by": "test",
+      "kills": [
+        "判据编号挂在别的需求名下被抓到"
+      ]
     },
     {
       "id": "M-H4-e",
@@ -1997,7 +2285,11 @@
       "why": "红线被标作废也放行 —— 作废的会被挡在渲染和审计之外，于是红线条数静静少一条，它的测试、变异、交点要求全部消失，而检查报全部通过",
       "file": "scripts/check/spec-rule.ts",
       "find": "      if (r.cat === REDLINE_CAT) {",
-      "replace": "      if (false) {"
+      "replace": "      if (false) {",
+      "by": "test",
+      "kills": [
+        "红线被标作废，当场拦下"
+      ]
     },
     {
       "id": "M-H4-f",
@@ -2005,7 +2297,11 @@
       "why": "登记表只查关系不查形状 —— 缺了优先级或作废日期的需求照样放行，渲染时把一个空值写进生成的文档，而一致性检查比的是生成结果和生成结果，于是全绿",
       "file": "scripts/check/spec-rule.ts",
       "find": "  const shape = shapeProblems(reqs)\n  if (shape.length) return shape",
-      "replace": "  const shape: string[] = []\n  if (shape.length) return shape"
+      "replace": "  const shape: string[] = []\n  if (shape.length) return shape",
+      "by": "test",
+      "kills": [
+        "作废缺 since 被抓到 —— 它只被渲染、不被任何关系检查碰,是静默那一类"
+      ]
     },
     {
       "id": "M-H4-g",
@@ -2013,7 +2309,11 @@
       "why": "分类表里一条说明写成空值也放行 —— 渲染时把空值当节标题写进生成的文档，而一致性检查比的是生成结果和生成结果，于是全绿",
       "file": "scripts/check/spec-rule.ts",
       "find": "      if (typeof label !== 'string' || !label.trim()) {",
-      "replace": "      if (false) {"
+      "replace": "      if (false) {",
+      "by": "test",
+      "kills": [
+        "分类的说明是 null 被抓到"
+      ]
     },
     {
       "id": "M-H4-h",
@@ -2021,7 +2321,11 @@
       "why": "需求登记表写成一个对象也放行 —— 后面每一步都在它上面遍历，当场抛一句堆栈，把真正的问题盖掉",
       "file": "scripts/check/spec-rule.ts",
       "find": "  if (!Array.isArray(requirements)) bad.push('requirements 不是数组')",
-      "replace": "  void requirements"
+      "replace": "  void requirements",
+      "by": "test",
+      "kills": [
+        "requirements 不是数组被抓到"
+      ]
     },
     {
       "id": "M-H4-i",
@@ -2029,7 +2333,11 @@
       "why": "只看需求正文、不看它的验收判据 —— 判据里点名的决策记录没登记进这条需求的 adr，登记表检查照样报干净",
       "file": "scripts/check/spec-rule.ts",
       "find": "    const cited = new Set([r.text, ...r.accept.map(c => c.text)]",
-      "replace": "    const cited = new Set([r.text]"
+      "replace": "    const cited = new Set([r.text]",
+      "by": "test",
+      "kills": [
+        "判据里点的一样算 —— 正文干净不等于这条需求干净"
+      ]
     },
     {
       "id": "M-H4-j",
@@ -2037,7 +2345,11 @@
       "why": "只扫验收判据、不扫需求正文 —— 正文里点名的决策记录没登记进这条需求的 adr，登记表检查照样报干净",
       "file": "scripts/check/spec-rule.ts",
       "find": "    const cited = new Set([r.text, ...r.accept.map(c => c.text)]",
-      "replace": "    const cited = new Set([...r.accept.map(c => c.text)]"
+      "replace": "    const cited = new Set([...r.accept.map(c => c.text)]",
+      "by": "test",
+      "kills": [
+        "正文点了决策记录、adr 里却没有，被抓到"
+      ]
     },
     {
       "id": "M-H4-k",
@@ -2045,7 +2357,11 @@
       "why": "不看 adr 那一栏里已经登记了什么 —— 点名的决策记录明明登记好了，登记表检查照样报它没登记，一张干净的登记表过不去",
       "file": "scripts/check/spec-rule.ts",
       "find": "    const linked = new Set(r.adr ?? [])",
-      "replace": "    const linked = new Set<string>()"
+      "replace": "    const linked = new Set<string>()",
+      "by": "test",
+      "kills": [
+        "正文点了、adr 里也登记了，放行"
+      ]
     },
     {
       "id": "M-H5-a",
@@ -2053,7 +2369,11 @@
       "why": "决策记录里的需求编号写死成一个大写字母加数字 —— 换一个编号前缀更长的项目，这条检查一条都匹配不到，而且不报错",
       "file": "scripts/check/spec-rule.ts",
       "find": "  const shape = new RegExp(`(?<![A-Za-z0-9_])(?:${escaped.join('|')})\\\\d+(?![A-Za-z0-9_])`, 'g')",
-      "replace": "  const shape = /\\b[A-Z]\\d+\\b/g"
+      "replace": "  const shape = /\\b[A-Z]\\d+\\b/g",
+      "by": "test",
+      "kills": [
+        "两字母前缀的项目一样查得到"
+      ]
     },
     {
       "id": "M-H5-b",
@@ -2061,7 +2381,11 @@
       "why": "同一个方向的交点声明两次也放行 —— 两条可能互相矛盾的裁决，被同一次认领同时算成有测试",
       "file": "scripts/check/spec-rule.ts",
       "find": "      if (declared.has(fwd)) {",
-      "replace": "      if (false) {"
+      "replace": "      if (false) {",
+      "by": "test",
+      "kills": [
+        "同一个方向声明两次被抓到 —— 两条裁决可能相反，而一次认领会同时算数"
+      ]
     },
     {
       "id": "M-H5-c",
@@ -2069,7 +2393,11 @@
       "why": "引文里举例的记录标题也算真实存在 —— 需求引用一条只在围栏示例里出现的决策记录编号，「编号真实存在」照样放行",
       "file": "scripts/check/spec-rule.ts",
       "find": "    if (m && !mask[i]) out.add(m[1])",
-      "replace": "    if (m) out.add(m[1])"
+      "replace": "    if (m) out.add(m[1])",
+      "by": "test",
+      "kills": [
+        "围栏里的示例标题不算记录"
+      ]
     },
     {
       "id": "M-H5-d",
@@ -2077,7 +2405,11 @@
       "why": "分类前缀原样拼进正则 —— 含正则元字符的前缀过得了登记表，到这条检查却直接炸掉，而不是查出指向不存在的编号",
       "file": "scripts/check/spec-rule.ts",
       "find": "  const escaped = prefixes.map(p => p.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'))",
-      "replace": "  const escaped = prefixes"
+      "replace": "  const escaped = prefixes",
+      "by": "test",
+      "kills": [
+        "前缀含正则元字符也查得到"
+      ]
     },
     {
       "id": "M-H5-e",
@@ -2085,7 +2417,11 @@
       "why": "引文里举例的需求编号也算真实引用 —— 围栏示例里写一个不存在的编号，一份合法的决策记录就被报成指向不存在的需求",
       "file": "scripts/check/spec-rule.ts",
       "find": "    if (mask[i]) return",
-      "replace": "    if (false) return"
+      "replace": "    if (false) return",
+      "by": "test",
+      "kills": [
+        "围栏里的示例编号不算引用"
+      ]
     },
     {
       "id": "M-H5-f",
@@ -2093,7 +2429,11 @@
       "why": "编号边界借 JavaScript 的词边界 —— 前缀以标点开头（`+C`）的项目，空格与 `+` 之间没有词边界，指向不存在编号的 `+C99` 永远匹配不到，而且不报错",
       "file": "scripts/check/spec-rule.ts",
       "find": "  const shape = new RegExp(`(?<![A-Za-z0-9_])(?:${escaped.join('|')})\\\\d+(?![A-Za-z0-9_])`, 'g')",
-      "replace": "  const shape = new RegExp(`\\\\b(?:${escaped.join('|')})\\\\d+\\\\b`, 'g')"
+      "replace": "  const shape = new RegExp(`\\\\b(?:${escaped.join('|')})\\\\d+\\\\b`, 'g')",
+      "by": "test",
+      "kills": [
+        "前缀以标点开头也查得到"
+      ]
     },
     {
       "id": "M-H5-g",
@@ -2101,7 +2441,11 @@
       "why": "行内注释连同整行一起按引文跳过 —— 一行真元数据带个行内注释，它引用的不存在编号就漏报",
       "file": "scripts/check/spec-rule.ts",
       "find": "  const bare = lines.map((l, i) => meta.test(l) && !endsOpen(lines.slice(0, i).join('\\n')) ? l.replace(/<!--.*?-->/g, '') : l).join('\\n')",
-      "replace": "  const bare = lines.join('\\n')"
+      "replace": "  const bare = lines.join('\\n')",
+      "by": "test",
+      "kills": [
+        "带行内注释的元数据行照查"
+      ]
     },
     {
       "id": "M-H5-h",
@@ -2109,7 +2453,11 @@
       "why": "下划线不算标识符字符 —— 元数据行里 `legacy_D99` 这样的说明性记号，嵌在里面的 D99 被当成引用，一份合法的决策记录被报成指向不存在的编号",
       "file": "scripts/check/spec-rule.ts",
       "find": "  const shape = new RegExp(`(?<![A-Za-z0-9_])(?:${escaped.join('|')})\\\\d+(?![A-Za-z0-9_])`, 'g')",
-      "replace": "  const shape = new RegExp(`(?<![A-Za-z0-9])(?:${escaped.join('|')})\\\\d+(?![A-Za-z0-9])`, 'g')"
+      "replace": "  const shape = new RegExp(`(?<![A-Za-z0-9])(?:${escaped.join('|')})\\\\d+(?![A-Za-z0-9])`, 'g')",
+      "by": "test",
+      "kills": [
+        "嵌在下划线记号里的编号不算引用"
+      ]
     },
     {
       "id": "M-H5-i",
@@ -2117,7 +2465,11 @@
       "why": "行内注释从每一行上剥，不只元数据行 —— 围栏里 ``` <!-- 示例 --> 这样的假闭合行剥掉注释就成了真闭合，示例里接下来的编号露出来，一份合法的决策记录被报成指向不存在的编号",
       "file": "scripts/check/spec-rule.ts",
       "find": "  const bare = lines.map((l, i) => meta.test(l) && !endsOpen(lines.slice(0, i).join('\\n')) ? l.replace(/<!--.*?-->/g, '') : l).join('\\n')",
-      "replace": "  const bare = lines.map(l => l.replace(/<!--.*?-->/g, '')).join('\\n')"
+      "replace": "  const bare = lines.map(l => l.replace(/<!--.*?-->/g, '')).join('\\n')",
+      "by": "test",
+      "kills": [
+        "围栏里带注释的假闭合行不闭合，后面的示例编号仍是引文"
+      ]
     },
     {
       "id": "M-H5-j",
@@ -2125,7 +2477,11 @@
       "why": "元数据形状的行落在开着的跨行注释里也剥 —— 那行上的关闭记号本是在关注释，剥掉它注释就关不上，后面真的元数据行被整行盖住，它引用的不存在编号漏报",
       "file": "scripts/check/spec-rule.ts",
       "find": "  const bare = lines.map((l, i) => meta.test(l) && !endsOpen(lines.slice(0, i).join('\\n')) ? l.replace(/<!--.*?-->/g, '') : l).join('\\n')",
-      "replace": "  const bare = lines.map(l => meta.test(l) ? l.replace(/<!--.*?-->/g, '') : l).join('\\n')"
+      "replace": "  const bare = lines.map(l => meta.test(l) ? l.replace(/<!--.*?-->/g, '') : l).join('\\n')",
+      "by": "test",
+      "kills": [
+        "开着的跨行注释里的元数据行不剥，后面真的元数据行照查"
+      ]
     },
     {
       "id": "M-H8-e",
@@ -2133,7 +2489,11 @@
       "why": "拆成单文件后的一级记录标题不再认作记录 —— 登记表里每条 adr 引用都报「不存在」，而记录明明在 docs/adr/ 里",
       "file": "scripts/check/spec-rule.ts",
       "find": "    const m = /^#{1,2}\\s+(ADR-\\d+)/.exec(line)",
-      "replace": "    const m = /^##\\s+(ADR-\\d+)/.exec(line)"
+      "replace": "    const m = /^##\\s+(ADR-\\d+)/.exec(line)",
+      "by": "test",
+      "kills": [
+        "单文件里的一级标题也认"
+      ]
     },
     {
       "id": "M-H8-a",
@@ -2141,7 +2501,11 @@
       "why": "内容指纹只认编号，需求文本改了指纹却不变 —— 手改需求不回写，检查照样放行",
       "file": "scripts/check/spec-rule.ts",
       "find": "    .update(JSON.stringify(canonical({\n      requirements: reqs, categories: Object.entries(cats),\n    })))",
-      "replace": "    .update(JSON.stringify(reqs.map(r => r.id)))"
+      "replace": "    .update(JSON.stringify(reqs.map(r => r.id)))",
+      "by": "test",
+      "kills": [
+        "内容一变指纹就变"
+      ]
     },
     {
       "id": "M-H3-a",
@@ -2157,7 +2521,11 @@
       "why": "单元格只转义竖线、不转义反斜杠 —— 需求文本里本来就带 `\\|` 的话，渲染出来前一个反斜杠把转义吃掉，表格多切一列",
       "file": "scripts/check/spec-rule.ts",
       "find": "const esc = (s: string) => s.replace(/(\\\\*)\\|/g, (_, bs: string) => bs + bs + '\\\\|').replace(/\\n/g, ' ')",
-      "replace": "const esc = (s: string) => s.replace(/\\|/g, '\\\\|').replace(/\\n/g, ' ')"
+      "replace": "const esc = (s: string) => s.replace(/\\|/g, '\\\\|').replace(/\\n/g, ' ')",
+      "by": "test",
+      "kills": [
+        "判据里本来就有的反斜杠先转，再转竖线"
+      ]
     },
     {
       "id": "M-H3-c",
@@ -2165,7 +2533,11 @@
       "why": "反斜杠一律转义，不只竖线前面的 —— 需求文本是 Markdown，代码段里的 `\\d+` 渲染成 `\\\\d+`，生成的 SPEC.md 与登记表明着不一样，一致性检查却照过",
       "file": "scripts/check/spec-rule.ts",
       "find": "const esc = (s: string) => s.replace(/(\\\\*)\\|/g, (_, bs: string) => bs + bs + '\\\\|').replace(/\\n/g, ' ')",
-      "replace": "const esc = (s: string) => s.replace(/[\\\\|]/g, c => '\\\\' + c).replace(/\\n/g, ' ')"
+      "replace": "const esc = (s: string) => s.replace(/[\\\\|]/g, c => '\\\\' + c).replace(/\\n/g, ' ')",
+      "by": "test",
+      "kills": [
+        "代码段里的反斜杠不动"
+      ]
     },
     {
       "id": "M-H8-b",
@@ -2173,7 +2545,11 @@
       "why": "内容指纹只认顶层字段 —— 交点的裁决改成相反的意思，指纹纹丝不动，手改需求不回写照样放行",
       "file": "scripts/check/spec-rule.ts",
       "find": "    for (const k of Object.keys(src).sort()) out[k] = canonical(src[k])",
-      "replace": "    for (const k of Object.keys(src).sort()) out[k] = typeof src[k] === 'object' ? null : src[k]"
+      "replace": "    for (const k of Object.keys(src).sort()) out[k] = typeof src[k] === 'object' ? null : src[k]",
+      "by": "test",
+      "kills": [
+        "改交点的裁决,指纹必须变"
+      ]
     },
     {
       "id": "M-H8-c",
@@ -2181,7 +2557,11 @@
       "why": "分类表不进内容指纹 —— 只改一个分类的说明，渲染出来的文档变了而指纹不动，派生元数据名不副实",
       "file": "scripts/check/spec-rule.ts",
       "find": "      requirements: reqs, categories: Object.entries(cats),\n    })))",
-      "replace": "      requirements: reqs,\n    })))"
+      "replace": "      requirements: reqs,\n    })))",
+      "by": "test",
+      "kills": [
+        "只改分类表的说明，指纹也必须变"
+      ]
     },
     {
       "id": "M-H6-a",
@@ -2189,7 +2569,11 @@
       "why": "一条判据都没认领的需求不再报缺口 —— 把仅有的那条认领删掉，缺口反而消失，检查在奖励删证据",
       "file": "scripts/check/spec-rule.ts",
       "find": "    if (unclaimed.length) {\n      flag = '·'\n      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有认领：` +",
-      "replace": "    if (unclaimed.length && claimed.length) {\n      flag = '·'\n      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有认领：` +"
+      "replace": "    if (unclaimed.length && claimed.length) {\n      flag = '·'\n      gaps.push(`${r.id} 有 ${unclaimed.length}/${r.accept.length} 条判据没有认领：` +",
+      "by": "test",
+      "kills": [
+        "非红线一条都没认领 → 同样报缺口，不许更干净"
+      ]
     },
     {
       "id": "M-H6-b",
@@ -2197,7 +2581,11 @@
       "why": "红线的判据漏了认领不再算硬失败 —— 红线的验收标准可以有一半从来没被验过，而审计照样报全部通过",
       "file": "scripts/check/spec-rule.ts",
       "find": "    for (const c of unclaimed) {\n      flag = '✗'; hard++",
-      "replace": "    for (const c of [] as typeof unclaimed) {\n      flag = '✗'; hard++"
+      "replace": "    for (const c of [] as typeof unclaimed) {\n      flag = '✗'; hard++",
+      "by": "test",
+      "kills": [
+        "红线漏一条判据 → 硬失败"
+      ]
     },
     {
       "id": "M-H6-c",
@@ -2205,7 +2593,11 @@
       "why": "有红线的交点没被认领也不算硬失败 —— 一条红线让步到哪为止，登记表上写着，代码里可以完全不是那么做的，而两侧需求各自的判据全绿，没有任何东西会说出来",
       "file": "scripts/check/spec-rule.ts",
       "find": "  if (e.redline) {\n    return { flag: '✗', hard: 1,",
-      "replace": "  if (false) {\n    return { flag: '✗', hard: 1,"
+      "replace": "  if (false) {\n    return { flag: '✗', hard: 1,",
+      "by": "test",
+      "kills": [
+        "有红线的交点没认领 → 硬失败"
+      ]
     },
     {
       "id": "M-H6-d",
@@ -2213,7 +2605,11 @@
       "why": "认领过的交点也照样报缺口 —— 每一个交点都成了待办，真正没人证明过的那些混在里面，报告上多出一串永远消不掉的项",
       "file": "scripts/check/spec-rule.ts",
       "find": "  if (e.claimed) return { flag: '✓', gaps: [], hard: 0 }",
-      "replace": "  if (false) return { flag: '✓', gaps: [], hard: 0 }"
+      "replace": "  if (false) return { flag: '✓', gaps: [], hard: 0 }",
+      "by": "test",
+      "kills": [
+        "认领过的交点不再报缺口"
+      ]
     },
     {
       "id": "M-H6-e",
@@ -2221,7 +2617,12 @@
       "why": "交点上有没有红线改成「两头都是红线才算」 —— 登记表里没有一个交点是两头都红的，于是有红线的交点全部降级成软缺口，少认领一个红线交点，审计照样退 0",
       "file": "scripts/check/spec-rule.ts",
       "find": "): boolean => redlines.has(a) || redlines.has(b)",
-      "replace": "): boolean => redlines.has(a) && redlines.has(b)"
+      "replace": "): boolean => redlines.has(a) && redlines.has(b)",
+      "by": "test",
+      "kills": [
+        "这一头是红线就算",
+        "那一头是红线也算"
+      ]
     },
     {
       "id": "M-H6-f",
@@ -2229,7 +2630,11 @@
       "why": "配证据的时候把「这个交点认领过没有」一律当成认领过 —— 一个交点都没人认领也全打勾，有红线的交点那条硬失败再没有一次会响，而审计末尾照旧报「有测试认领 4」",
       "file": "scripts/check/spec-rule.ts",
       "find": "    claimed: claimed.has(tensionKey(from, t.with)),",
-      "replace": "    claimed: true,"
+      "replace": "    claimed: true,",
+      "by": "test",
+      "kills": [
+        "认领的是别的交点，不算这一个"
+      ]
     },
     {
       "id": "M-H6-g",
@@ -2237,7 +2642,11 @@
       "why": "判据被显式豁免的那一行照样打 ✓ —— 而图例里 ✓ 是「完整」，审计自己在下面又把这几条列成显式缺口，一份报告里两种说法，读的人按哪一种都说得通",
       "file": "scripts/check/spec-rule.ts",
       "find": "  if (flag === '✓' && exempted.length) flag = '⊘'\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "有一条没人认领的豁免 → 打 ⊘，不冒充完整"
+      ]
     },
     {
       "id": "M-H6-h",
@@ -2245,7 +2654,11 @@
       "why": "豁免了几条，数的是没认领也没豁免的那几条 —— 恰好互补，于是真有豁免的时候数出来是零，那一行退回打 ✓，缺的判据去哪了又看不见了",
       "file": "scripts/check/spec-rule.ts",
       "find": "  const exempted = r.accept.filter(c => !claimedBy(c) && e.exemptIds.has(c.id))",
-      "replace": "  const exempted = r.accept.filter(c => !claimedBy(c) && !e.exemptIds.has(c.id))"
+      "replace": "  const exempted = r.accept.filter(c => !claimedBy(c) && !e.exemptIds.has(c.id))",
+      "by": "test",
+      "kills": [
+        "没人认领的豁免有几条要数出来"
+      ]
     },
     {
       "id": "M-H31-a",
@@ -2253,7 +2666,11 @@
       "why": "自检端到端跑过的判据不算认领 —— 红线里只有自检守着的那几条当场报成没人认领，而它们明明每一次检查都真跑过",
       "file": "scripts/check/spec-rule.ts",
       "find": "    e.claimedCriteria.has(c.id) || e.entryCriteria.has(c.id)",
-      "replace": "    e.claimedCriteria.has(c.id)"
+      "replace": "    e.claimedCriteria.has(c.id)",
+      "by": "test",
+      "kills": [
+        "一条判据只由自检认领 → 照样算认领，不是硬失败"
+      ]
     },
     {
       "id": "M-H31-b",
@@ -2261,7 +2678,11 @@
       "why": "单元断言认领的判据不算数，只认自检那一份 —— 绝大多数判据当场报成没人认领，而报告读起来像是测试全没了",
       "file": "scripts/check/spec-rule.ts",
       "find": "  const claimedBy = (c: { id: string }): boolean =>\n    e.claimedCriteria.has(c.id) || e.entryCriteria.has(c.id)",
-      "replace": "  const claimedBy = (c: { id: string }): boolean =>\n    e.entryCriteria.has(c.id)"
+      "replace": "  const claimedBy = (c: { id: string }): boolean =>\n    e.entryCriteria.has(c.id)",
+      "by": "test",
+      "kills": [
+        "只由单元认领 → 照样算认领（别把哪一半丢了）"
+      ]
     },
     {
       "id": "M-H31-c",
@@ -2269,7 +2690,11 @@
       "why": "报告里「判据 N/M」的 N 少算了自检认领的那几条 —— 一条端到端真跑过的判据在表上看着像没人认领，而缺口那一栏又不报它，同一份报告两处对不上",
       "file": "scripts/check/spec-rule.ts",
       "find": "  const claimed = r.accept.filter(claimedBy)",
-      "replace": "  const claimed = r.accept.filter(c => e.claimedCriteria.has(c.id))"
+      "replace": "  const claimed = r.accept.filter(c => e.claimedCriteria.has(c.id))",
+      "by": "test",
+      "kills": [
+        "两边混着认领 → 两条都要数进那个 N"
+      ]
     },
     {
       "id": "M-H6-i",
@@ -2277,7 +2702,11 @@
       "why": "豁免了几条，报的是这条需求判据的总数 —— 一条豁免都没有的需求也显示豁免了几条，每一行都从 ✓ 掉成 ⊘，那个记号于是什么都不说明了",
       "file": "scripts/check/spec-rule.ts",
       "find": "exempted: exempted.length, mutatedCrit }",
-      "replace": "exempted: r.accept.length, mutatedCrit }"
+      "replace": "exempted: r.accept.length, mutatedCrit }",
+      "by": "test",
+      "kills": [
+        "一条豁免都没有 → 不多报"
+      ]
     },
     {
       "id": "M-H6-j",
@@ -2293,7 +2722,11 @@
       "why": "审计那一行不再写豁免了几条 —— 一条判据被显式豁免和根本没人认领，在报告上又变回同一个数，而这两件事一个有人签过字、一个没有",
       "file": "scripts/check/spec-rule.ts",
       "find": "${exempted ? `+⊘${exempted}` : ''}",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "有豁免 → 那一格写出豁免了几条"
+      ]
     },
     {
       "id": "M-H6-l",
@@ -2301,7 +2734,11 @@
       "why": "豁免那半格不再看有没有豁免，一条豁免都没有的需求也照样挂上这个记号，每一行都写着豁免了零条，于是那个记号什么都不说明",
       "file": "scripts/check/spec-rule.ts",
       "find": "${exempted ? `+⊘${exempted}` : ''}",
-      "replace": "${`+⊘${exempted}`}"
+      "replace": "${`+⊘${exempted}`}",
+      "by": "test",
+      "kills": [
+        "没豁免 → 那一格不多写"
+      ]
     },
     {
       "id": "M-H7-b",
@@ -2333,7 +2770,11 @@
       "why": "分类表按排序后的形状进指纹，丢掉它的顺序 —— 只调换两个分类的先后，渲染出来的文档分节顺序就变了，而指纹一动不动",
       "file": "scripts/check/spec-rule.ts",
       "find": "      requirements: reqs, categories: Object.entries(cats),",
-      "replace": "      requirements: reqs, categories: cats,"
+      "replace": "      requirements: reqs, categories: cats,",
+      "by": "test",
+      "kills": [
+        "只调换分类表的顺序，指纹也必须变"
+      ]
     },
     {
       "id": "M-H15-a",
@@ -2549,7 +2990,11 @@
       "why": "定不下来的实参不再跳过，改成把它的源码原文当名字：转发调用和带插值的模板串都被收进清册，而清册大了那一头是放行",
       "file": "scripts/check/mutate-rule.ts",
       "find": "node !== undefined && ts.isStringLiteralLike(node) ? node.text : undefined",
-      "replace": "node !== undefined && ts.isStringLiteralLike(node) ? node.text : node?.getText()"
+      "replace": "node !== undefined && ts.isStringLiteralLike(node) ? node.text : node?.getText()",
+      "by": "test",
+      "kills": [
+        "转发调用（实参是个变量）不进清册"
+      ]
     },
     {
       "id": "M-H20-b",
@@ -2557,7 +3002,11 @@
       "why": "不再问「这个名字在不在起名的那张表里」：任何一处调用都算起名，那张表写什么都不作数",
       "file": "scripts/check/mutate-rule.ts",
       "find": "declares.includes(name)",
-      "replace": "true"
+      "replace": "true",
+      "by": "test",
+      "kills": [
+        "一个起名的函数都没写 → 清册是空的"
+      ]
     },
     {
       "id": "M-H20-c",
@@ -2573,7 +3022,11 @@
       "why": "不再递归进花括号：写在条件、循环、函数体里的起名全部漏出清册，而自检里那几条真夹具正是这么写的",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    ts.forEachChild(node, walk)",
-      "replace": "    if (!ts.isBlock(node)) ts.forEachChild(node, walk)"
+      "replace": "    if (!ts.isBlock(node)) ts.forEachChild(node, walk)",
+      "by": "test",
+      "kills": [
+        "写在块里的调用也收得到 —— 要递归才看得见"
+      ]
     },
     {
       "id": "M-H20-e",
@@ -2581,7 +3034,11 @@
       "why": "同一个名字起过第二次不再累加，清册里永远记着一次 —— 重名从此看不出来，而重名正是点名要堵的那件事",
       "file": "scripts/check/mutate-rule.ts",
       "find": "had === undefined ? 1 : had + 1",
-      "replace": "had === undefined ? 1 : 1"
+      "replace": "had === undefined ? 1 : 1",
+      "by": "test",
+      "kills": [
+        "同一个名字起过两次，数得出来是两次"
+      ]
     },
     {
       "id": "M-H20-f",
@@ -2589,7 +3046,11 @@
       "why": "第一次见到的名字不写进清册：只有起过两次以上的才收得到，起过一次的那些全漏",
       "file": "scripts/check/mutate-rule.ts",
       "find": "        const had = seen.get(label)\n        seen.set(label, had === undefined ? 1 : had + 1)",
-      "replace": "        const had = seen.get(label)\n        if (had !== undefined) seen.set(label, had + 1)"
+      "replace": "        const had = seen.get(label)\n        if (had !== undefined) seen.set(label, had + 1)",
+      "by": "test",
+      "kills": [
+        "声明处的字面量进清册"
+      ]
     },
     {
       "id": "M-H20-g",
@@ -2597,7 +3058,11 @@
       "why": "只认引号括起来的那一种字面量：反引号写的、静态一样定得下来的名字被判成定不下来，好好的点名从此立不住。引号那两种（单引号与双引号）不受影响",
       "file": "scripts/check/mutate-rule.ts",
       "find": "ts.isStringLiteralLike(node) ? node.text",
-      "replace": "ts.isStringLiteral(node) ? node.text"
+      "replace": "ts.isStringLiteral(node) ? node.text",
+      "by": "test",
+      "kills": [
+        "反引号但没插值的也定得下来，算数"
+      ]
     },
     {
       "id": "M-H20-h",
@@ -2605,7 +3070,11 @@
       "why": "清册里查不到那个名字时不再说它立不住，改成放行 —— 点了一个谁也不会打出来的名字从此一路绿到跑完",
       "file": "scripts/check/mutate-rule.ts",
       "find": "if (n === undefined) return 'unknown-label'",
-      "replace": "if (n === undefined) return undefined"
+      "replace": "if (n === undefined) return undefined",
+      "by": "test",
+      "kills": [
+        "清册里没有 → 点了个谁也不会打出来的名字"
+      ]
     },
     {
       "id": "M-H20-i",
@@ -2613,7 +3082,11 @@
       "why": "重名的门槛从两次抬到三次：正好两条夹具同名时分不出红的是哪一条，却照样放行",
       "file": "scripts/check/mutate-rule.ts",
       "find": "return n > 1 ? 'ambiguous-label' : undefined",
-      "replace": "return n > 2 ? 'ambiguous-label' : undefined"
+      "replace": "return n > 2 ? 'ambiguous-label' : undefined",
+      "by": "test",
+      "kills": [
+        "起过两次 → 红的是哪一条分不出"
+      ]
     },
     {
       "id": "M-H20-j",
@@ -2621,7 +3094,11 @@
       "why": "重名的门槛从两次落到一次：只起过一次的名字也被判成分不出，好好的点名从此一条都立不住",
       "file": "scripts/check/mutate-rule.ts",
       "find": "return n > 1 ? 'ambiguous-label' : undefined",
-      "replace": "return n > 0 ? 'ambiguous-label' : undefined"
+      "replace": "return n > 0 ? 'ambiguous-label' : undefined",
+      "by": "test",
+      "kills": [
+        "只起过一次 → 立得住"
+      ]
     },
     {
       "id": "M-H20-k",
@@ -2629,7 +3106,11 @@
       "why": "自检那张表里一个起名的函数都不留：收尾那一族起的名字全部漏出清册，而落地 2 第 5 步要点的第一条正是其中之一",
       "file": "scripts/check/mutate-rule.ts",
       "find": "declares: ['endPath', 'named'],",
-      "replace": "declares: [],"
+      "replace": "declares: [],",
+      "by": "test",
+      "kills": [
+        "自检的真清册收得到 endPath 起的那几个名字"
+      ]
     },
     {
       "id": "M-H20-l",
@@ -2637,7 +3118,11 @@
       "why": "把跑一个脚本那一族也登记成起名的：它们起的名字进得了清册，可它们失败时只打带记号的那一句 —— 点了也永远得不到「被抓到」，放行的正是这道闸要拦的",
       "file": "scripts/check/mutate-rule.ts",
       "find": "declares: ['endPath', 'named'],",
-      "replace": "declares: ['endPath', 'named', 'run'],"
+      "replace": "declares: ['endPath', 'named', 'run'],",
+      "by": "test",
+      "kills": [
+        "跑一个脚本起的名字进不了清册 —— 它永远满足不了点名"
+      ]
     },
     {
       "id": "M-H20-m",
@@ -2645,7 +3130,11 @@
       "why": "在语法树之外再按字面扫一遍源码：串里、注释里写着的一句长得像声明的话又算数了，往任何一份源码里塞一句就能凭空往清册里加名字 —— 正是改用语法树要取消掉的那个洞",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  walk(tree)",
-      "replace": "  walk(tree)\n  for (const m of source.matchAll(/\\b(\\w+)\\(\\s*'([^']*)'/g)) {\n    if (declares.includes(m[1])) {\n      const had = seen.get(m[2])\n      seen.set(m[2], had === undefined ? 1 : had + 1)\n    }\n  }"
+      "replace": "  walk(tree)\n  for (const m of source.matchAll(/\\b(\\w+)\\(\\s*'([^']*)'/g)) {\n    if (declares.includes(m[1])) {\n      const had = seen.get(m[2])\n      seen.set(m[2], had === undefined ? 1 : had + 1)\n    }\n  }",
+      "by": "test",
+      "kills": [
+        "串里写着的调用不算 —— 那是一个字符串的值，结构上就不是调用"
+      ]
     },
     {
       "id": "M-H20-n",
@@ -2653,7 +3142,11 @@
       "why": "子集基线的进程失败也被当成正常通过，变异可在失败的正常代码上继续跑",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (status !== 0) return `退出码 ${status === null ? '无（被信号终止）' : status}`",
-      "replace": "  if (false) return `退出码 ${status === null ? '无（被信号终止）' : status}`"
+      "replace": "  if (false) return `退出码 ${status === null ? '无（被信号终止）' : status}`",
+      "by": "test",
+      "kills": [
+        "断言失败即使误打成功汇总也拒绝"
+      ]
     },
     {
       "id": "M-H20-o",
@@ -2661,7 +3154,11 @@
       "why": "子集基线没有完成汇总也算通过，空跑能冒充已执行断言",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (!verifier.subsetSuccess.test(output)) return '没有正常完成的子集汇总'",
-      "replace": "  if (false) return '没有正常完成的子集汇总'"
+      "replace": "  if (false) return '没有正常完成的子集汇总'",
+      "by": "test",
+      "kills": [
+        "退出 0 却没有完成汇总也拒绝"
+      ]
     },
     {
       "id": "M-H21-a",
@@ -2669,7 +3166,11 @@
       "why": "报告里不再写出一条需求有几条判据级的负片：那几条守着判据的变异又变回一个字都不露，而报告上看着跟从来没人守过一模一样",
       "file": "scripts/check/spec-rule.ts",
       "find": "${mutated ? `(负片 ${mutated})` : ''}",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "有判据级的负片 → 那一格写出几条"
+      ]
     },
     {
       "id": "M-H21-b",
@@ -2677,7 +3178,11 @@
       "why": "一条判据级负片都没有时也照写那一段：满纸都是「负片 0」，而「零」和「没这回事」在审计里是两个意思",
       "file": "scripts/check/spec-rule.ts",
       "find": "${mutated ? `(负片 ${mutated})` : ''}",
-      "replace": "${`(负片 ${mutated})`}"
+      "replace": "${`(负片 ${mutated})`}",
+      "by": "test",
+      "kills": [
+        "没有就不多写这一段"
+      ]
     },
     {
       "id": "M-H21-c",
@@ -2685,7 +3190,11 @@
       "why": "变异那一格不再区分「没人管」与「有人签过字的缺口」：整条豁免了变异的需求打成缺口，报告上跟没人管的那些混作一堆",
       "file": "scripts/check/spec-rule.ts",
       "find": "`变异${mutated ? '✓' : exempt ? '⊘' : '·'}`",
-      "replace": "`变异${mutated ? '✓' : '·'}`"
+      "replace": "`变异${mutated ? '✓' : '·'}`",
+      "by": "test",
+      "kills": [
+        "没变异但整条豁免了 → 打豁免，不打缺口"
+      ]
     },
     {
       "id": "M-H21-d",
@@ -2693,7 +3202,11 @@
       "why": "豁免压过有变异：一条签过字的缺口后来真被变异补上了，报告还印着豁免 —— 报告落后于事实，而落后的方向是低报证据",
       "file": "scripts/check/spec-rule.ts",
       "find": "`变异${mutated ? '✓' : exempt ? '⊘' : '·'}`",
-      "replace": "`变异${exempt ? '⊘' : mutated ? '✓' : '·'}`"
+      "replace": "`变异${exempt ? '⊘' : mutated ? '✓' : '·'}`",
+      "by": "test",
+      "kills": [
+        "既有变异又登记了豁免 → 说有变异"
+      ]
     },
     {
       "id": "M-H21-e",
@@ -2701,7 +3214,12 @@
       "why": "有勾与没有对调：有变异守着的报成缺口、什么都没有的报成完整，一列的意思整个翻过来",
       "file": "scripts/check/spec-rule.ts",
       "find": "`变异${mutated ? '✓' : exempt ? '⊘' : '·'}`",
-      "replace": "`变异${mutated ? '·' : exempt ? '⊘' : '✓'}`"
+      "replace": "`变异${mutated ? '·' : exempt ? '⊘' : '✓'}`",
+      "by": "test",
+      "kills": [
+        "有变异守着 → 打勾",
+        "都没有 → 缺口"
+      ]
     },
     {
       "id": "M-H21-h",
@@ -2709,7 +3227,11 @@
       "why": "有几条判据被变异点着，一律数成零：那一格永远不写负片，等于把上面那条报告改动整个作废",
       "file": "scripts/check/spec-rule.ts",
       "find": "r.accept.filter(c => e.mutatedCriteria.has(c.id)).length",
-      "replace": "0"
+      "replace": "0",
+      "by": "test",
+      "kills": [
+        "有几条判据被变异点着，数得出来"
+      ]
     },
     {
       "id": "M-H21-i",
@@ -2717,7 +3239,11 @@
       "why": "数的不是被点着的那几条，而是判据总条数：一条负片都没有的需求也印着「负片 N」，凭空多出一片证据",
       "file": "scripts/check/spec-rule.ts",
       "find": "const mutatedCrit = r.accept.filter(c => e.mutatedCriteria.has(c.id)).length",
-      "replace": "const mutatedCrit = r.accept.length"
+      "replace": "const mutatedCrit = r.accept.length",
+      "by": "test",
+      "kills": [
+        "一条都没有就是 0"
+      ]
     },
     {
       "id": "M-H21-j",
@@ -2725,7 +3251,11 @@
       "why": "整条需求豁免了变异时打成完整：图例里那个记号是「完整」，而这一条恰恰是有人签过字的缺口 —— 报告把缺口说成了没缺口",
       "file": "scripts/check/spec-rule.ts",
       "find": "} else if (e.exempt) flag = '⊘'",
-      "replace": "} else if (e.exempt) flag = '✓'"
+      "replace": "} else if (e.exempt) flag = '✓'",
+      "by": "test",
+      "kills": [
+        "红线整条豁免了变异 → 打豁免，不算硬失败"
+      ]
     },
     {
       "id": "M-H21-k",
@@ -2733,7 +3263,12 @@
       "why": "红线没变异那一档的条件反过来：整条豁免了的照样记硬失败，而真没变异又没豁免的反倒放行 —— 一道体检两头都错",
       "file": "scripts/check/spec-rule.ts",
       "find": "else if (!e.mutated && !e.exempt) {",
-      "replace": "else if (!e.mutated && e.exempt) {"
+      "replace": "else if (!e.mutated && e.exempt) {",
+      "by": "test",
+      "kills": [
+        "红线整条豁免了变异 → 不进硬失败",
+        "红线没变异又没豁免 → 硬失败"
+      ]
     },
     {
       "id": "M-H22-a",
@@ -2780,7 +3315,11 @@
       "why": "豁免那一行永远说「无变异」：一条判据明明已经有负片指着它，报告还印着它是没人守的缺口 —— 同一份报告里两句话打架，而这正是本次改动要治的",
       "file": "scripts/check/mutate-rule.ts",
       "find": "return mutations.some(m => m.req === req)",
-      "replace": "return false"
+      "replace": "return false",
+      "by": "test",
+      "kills": [
+        "有变异写着这个编号 → 说有负片"
+      ]
     },
     {
       "id": "M-H23-b",
@@ -2788,7 +3327,11 @@
       "why": "编号改成前缀相等：一条记在需求名下的变异被当成守着它下面每一条判据，粗的顶了细的，正是判据级计量当初要治的那件事",
       "file": "scripts/check/mutate-rule.ts",
       "find": "mutations.some(m => m.req === req)",
-      "replace": "mutations.some(m => req.startsWith(m.req))"
+      "replace": "mutations.some(m => req.startsWith(m.req))",
+      "by": "test",
+      "kills": [
+        "需求号的变异不算守着它下面那条判据"
+      ]
     },
     {
       "id": "M-H23-c",
@@ -2796,7 +3339,12 @@
       "why": "那一行开头的两句话对调：有负片的说成没人守，没人守的说成已有负片 —— 一列的意思整个翻过来",
       "file": "scripts/check/mutate-rule.ts",
       "find": "covered ? '名下有负片' : '名下无变异'",
-      "replace": "covered ? '名下无变异' : '名下有负片'"
+      "replace": "covered ? '名下无变异' : '名下有负片'",
+      "by": "test",
+      "kills": [
+        "名下有变异时这么说",
+        "没有时这么说"
+      ]
     },
     {
       "id": "M-H23-d",
@@ -2804,7 +3352,11 @@
       "why": "一条变异都没有时也说名下有负片：豁免表里从此一条缺口都不显示，而那一列本来就是为了让缺口显形",
       "file": "scripts/check/mutate-rule.ts",
       "find": "return mutations.some(m => m.req === req)",
-      "replace": "return mutations.every(m => m.req === req)"
+      "replace": "return mutations.every(m => m.req === req)",
+      "by": "test",
+      "kills": [
+        "一条变异都没有 → 说无变异"
+      ]
     },
     {
       "id": "M-H23-e",
@@ -2812,7 +3364,11 @@
       "why": "编号改成另一个方向的前缀相等：一条记在判据名下的变异被当成守着它上面那整条需求，同一次归错功劳换个方向原样再来",
       "file": "scripts/check/mutate-rule.ts",
       "find": "mutations.some(m => m.req === req)",
-      "replace": "mutations.some(m => m.req.startsWith(req))"
+      "replace": "mutations.some(m => m.req.startsWith(req))",
+      "by": "test",
+      "kills": [
+        "判据号的变异也不算守着整条需求"
+      ]
     },
     {
       "id": "M-H23-f",
@@ -2820,7 +3376,11 @@
       "why": "入口不管调没调那个判定，一律算接着 —— 三处报告里任何一处把那句话换回写死的字面量，都没人吭声，而那正是本次要治的坏法",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  return wired\n}",
-      "replace": "  return true\n}"
+      "replace": "  return true\n}",
+      "by": "test",
+      "kills": [
+        "换成写死的字面量 → 断了"
+      ]
     },
     {
       "id": "M-H23-g",
@@ -2828,7 +3388,11 @@
       "why": "只看外层那个名字，不问它拿的是判定的结果还是写死的话：把参数换成固定文案照样算接着，而那正是要治的坏法本身",
       "file": "scripts/check/mutate-rule.ts",
       "find": "callTo(node.arguments[0], 'exemptionCovered')",
-      "replace": "true"
+      "replace": "true",
+      "by": "test",
+      "kills": [
+        "只调一半也不算接着"
+      ]
     },
     {
       "id": "M-H23-h",
@@ -2860,7 +3424,11 @@
       "why": "IG 按账号名搜人的那条兜底路径，给搜到的人凭空写上一个空的作品列表 —— 响应里根本没有作品，我们没问过；而空列表读起来就是「问过了，他没作品」，读 creators.json 做语义判定的那一步会据此把人判掉",
       "file": "scripts/providers/tikhub.ts",
       "find": "        // **不写 recent_posts** —— 这条路搜的是账号，响应里根本没有作品，我们没问过。",
-      "replace": "        recent_posts: [],"
+      "replace": "        recent_posts: [],",
+      "by": "test",
+      "kills": [
+        "兜底搜到的人不带作品字段 —— 没问过，不是没作品"
+      ]
     },
     {
       "id": "M-P1-p",
@@ -2973,7 +3541,11 @@
       "why": "具名断言那一族不再算「起过名」—— 指着入口接线的变异点它就报「点了个清册里没有的名字」，而那正是这一族存在的理由，于是那类变异从此写不出来",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    declares: ['endPath', 'named'],",
-      "replace": "    declares: ['endPath'],"
+      "replace": "    declares: ['endPath'],",
+      "by": "test",
+      "kills": [
+        "自检的真清册也收得到 named 起的名字"
+      ]
     },
     {
       "id": "M-H25-a",
@@ -2981,7 +3553,11 @@
       "why": "「不是断言的功劳」只认进程级那一种，夹具自己废了不认 —— 自检打出「夹具没造对」时它什么都没测到，判定却把这一次记成点名那条夹具的功劳",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  return (verifier.processMark !== undefined && processFailed(output, verifier.processMark))\n    || (verifier.fixtureMark !== undefined && processFailed(output, verifier.fixtureMark))",
-      "replace": "  return verifier.processMark !== undefined && processFailed(output, verifier.processMark)"
+      "replace": "  return verifier.processMark !== undefined && processFailed(output, verifier.processMark)",
+      "by": "test",
+      "kills": [
+        "夹具废了，整次判的是跑不起来，不是被抓到"
+      ]
     },
     {
       "id": "M-H25-b",
@@ -3005,7 +3581,11 @@
       "why": "点名一组、只要红了其中一条就算被抓到 —— 名单里剩下那几条明天删光，这条变异照样绿，而它对那几条什么也没证明",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  return kills.every(k => killsMatched(output, k))\n",
-      "replace": "  return kills.some(k => killsMatched(output, k))\n"
+      "replace": "  return kills.some(k => killsMatched(output, k))\n",
+      "by": "test",
+      "kills": [
+        "点名两条、只红了头一条 → 红错了地方"
+      ]
     },
     {
       "id": "M-H26-b",
@@ -3013,7 +3593,11 @@
       "why": "kills 写成老写法那个字符串也放行 —— 入口拿它去逐项核对清册时当场抛，人看见的是一个栈，而不是「kills 写错了」；名单里混进不是名字的东西则被误报成「点的夹具不在清册里」，照着去改的是名字，可名字根本没错",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (!Array.isArray(mut.kills) || mut.kills.some(k => typeof k !== 'string')) return 'kills-not-list'\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "kills 写成一个名字（老写法）→ 形状不对"
+      ]
     },
     {
       "id": "M-H26-c",
@@ -3021,7 +3605,11 @@
       "why": "点了验证者、名单却是空的也算成立 —— 判定那边「每一条都红」对空名单恒真，一条什么也没点名的变异会被记成守住了某条夹具",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  return mut.kills.length === 0 ? 'missing-kills' : undefined",
-      "replace": "  return undefined"
+      "replace": "  return undefined",
+      "by": "test",
+      "kills": [
+        "点了验证者、名单是空的 → 等于没点名"
+      ]
     },
     {
       "id": "M-H26-d",
@@ -3029,7 +3617,11 @@
       "why": "名单只查头一项 —— 后面几项点着不存在的夹具、或者点着重名的，一个字都没人说，而判定要求它们全红：那条变异会一直判「红错了地方」，报出来的是「没红」而不是「没这条」",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  return kills.flatMap(label => {",
-      "replace": "  return kills.slice(0, 1).flatMap(label => {"
+      "replace": "  return kills.slice(0, 1).flatMap(label => {",
+      "by": "test",
+      "kills": [
+        "头一项立得住、后一项不在清册里 → 报后一项"
+      ]
     },
     {
       "id": "M-H26-e",
@@ -3037,7 +3629,11 @@
       "why": "名单里立不住的那几项交回时不带自己的名字 —— 报出来的是点名列表里的头一个，人照着去改的是另一条夹具的名字",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    return fault === undefined ? [] : [{ label, fault }]",
-      "replace": "    return fault === undefined ? [] : [{ label: kills[0], fault }]"
+      "replace": "    return fault === undefined ? [] : [{ label: kills[0], fault }]",
+      "by": "test",
+      "kills": [
+        "两项都立不住 → 两条都报，各带各的名字"
+      ]
     },
     {
       "id": "M-H27-a",
@@ -3045,7 +3641,11 @@
       "why": "主动停下的那一次不算被抓到 —— 见齐就停之后退出码和汇总都拿不到，判定于是把每一条见齐停下的变异都记成「跑不起来」，一份好证据被当成跑砸了",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (atStop !== undefined) {\n    return kills !== undefined && allKilled(atStop, kills) && !notAssertion(atStop, verifier)\n      ? 'caught' : 'crashed'\n  }\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "主动停下的那一次凭点名认"
+      ]
     },
     {
       "id": "M-H27-b",
@@ -3053,7 +3653,11 @@
       "why": "主动停下的那一次不问记号 —— 停下之前已经崩过或夹具已经废过，这一次的证据本来整份不算数，却照样记成被抓到",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    return kills !== undefined && allKilled(atStop, kills) && !notAssertion(atStop, verifier)\n      ? 'caught' : 'crashed'",
-      "replace": "    return kills !== undefined && allKilled(atStop, kills) ? 'caught' : 'crashed'"
+      "replace": "    return kills !== undefined && allKilled(atStop, kills) ? 'caught' : 'crashed'",
+      "by": "test",
+      "kills": [
+        "停下之前崩过，整份不算数"
+      ]
     },
     {
       "id": "M-H27-c",
@@ -3061,7 +3665,11 @@
       "why": "主动停下的那一次不再核对点名的是不是真都红过 —— 入口那边一漂，一次连一行具名失败都没有的运行也会被记成被抓到，而那份「证据」里什么都没有",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    return kills !== undefined && allKilled(atStop, kills) && !notAssertion(atStop, verifier)\n      ? 'caught' : 'crashed'",
-      "replace": "    return notAssertion(atStop, verifier) ? 'crashed' : 'caught'"
+      "replace": "    return notAssertion(atStop, verifier) ? 'crashed' : 'caught'",
+      "by": "test",
+      "kills": [
+        "说停了却一行具名失败都没有 → 不算数"
+      ]
     },
     {
       "id": "M-H27-d",
@@ -3069,7 +3677,11 @@
       "why": "还没写完的那半行也当成写完了 —— 边收边看时名字写到一半就算数，后缀还没到就把验证者杀了，一条本该「红错了地方」的变异被记成被抓到",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  return chunk.slice(0, chunk.lastIndexOf('\\n') + 1)",
-      "replace": "  return chunk"
+      "replace": "  return chunk",
+      "by": "test",
+      "kills": [
+        "半行的名字不算它红了"
+      ]
     },
     {
       "id": "M-H27-e",
@@ -3077,7 +3689,11 @@
       "why": "主动停下的那一次改用最终输出判「是不是断言的功劳」，而不是我们动手那一刻它说过的话 —— 那一刀连验证者手上的子进程一起杀，它临死补打的那句进程级失败是我们自己打出来的，拿它一票否决，就把一次本来成立的抓到记成了跑不起来（而且只在机器忙的时候犯，时红时绿）",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    return kills !== undefined && allKilled(atStop, kills) && !notAssertion(atStop, verifier)\n      ? 'caught' : 'crashed'",
-      "replace": "    return kills !== undefined && allKilled(atStop, kills) && !notAssertion(output, verifier)\n      ? 'caught' : 'crashed'"
+      "replace": "    return kills !== undefined && allKilled(atStop, kills) && !notAssertion(output, verifier)\n      ? 'caught' : 'crashed'",
+      "by": "test",
+      "kills": [
+        "开枪之后才冒出来的进程级失败，不算数"
+      ]
     },
     {
       "id": "M-H29-a",
@@ -3141,7 +3757,11 @@
       "why": "单元断言认领过的判据也被要求配一条改跑自检的负片 —— 缺省那个验证者本来就够得到它们，于是几十条本来好好的判据当场报成硬失败",
       "file": "scripts/check/spec-rule.ts",
       "find": "    if (!e.entryCriteria.has(c.id) || e.claimedCriteria.has(c.id)) continue",
-      "replace": "    if (!e.entryCriteria.has(c.id)) continue"
+      "replace": "    if (!e.entryCriteria.has(c.id)) continue",
+      "by": "test",
+      "kills": [
+        "两边都认领 → 不要求改跑自检的负片"
+      ]
     },
     {
       "id": "M-H32-b",
@@ -3149,7 +3769,11 @@
       "why": "拿不带 by 的那种负片去抵这一条 —— 而那种变异在入口上只会「存活」，对这条判据什么也证不了，闸门看着立着，实际放行",
       "file": "scripts/check/spec-rule.ts",
       "find": "    if (e.selfcheckMutatedCriteria.has(c.id)) continue",
-      "replace": "    if (e.mutatedCriteria.has(c.id)) continue"
+      "replace": "    if (e.mutatedCriteria.has(c.id)) continue",
+      "by": "test",
+      "kills": [
+        "只有不带 by 的负片 → 仍是硬失败"
+      ]
     },
     {
       "id": "M-H32-c",
@@ -3157,7 +3781,11 @@
       "why": "这条缺口只进待办、不算硬失败 —— 报告里照样看得见，而检查链绿着放行，「和红线没变异同一级」那句话就成了空话",
       "file": "scripts/check/spec-rule.ts",
       "find": "    flag = '✗'; hard++\n    gaps.push(`${c.id} 只由自检认领，却没有一条 by: \"selfcheck\" 的负片 —— ` +",
-      "replace": "    gaps.push(`${c.id} 只由自检认领，却没有一条 by: \"selfcheck\" 的负片 —— ` +"
+      "replace": "    gaps.push(`${c.id} 只由自检认领，却没有一条 by: \"selfcheck\" 的负片 —— ` +",
+      "by": "test",
+      "kills": [
+        "只由自检认领、却没有改跑自检的负片 → 硬失败"
+      ]
     },
     {
       "id": "M-H32-d",
@@ -3173,7 +3801,11 @@
       "why": "现场按顺序截前几行，带记号的那几行会被普通失败行挤掉 —— 而它们正是说得清「这次为什么不算抓到」的那几行，吵一点的一次运行就只剩下无关的",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),",
-      "replace": "    lines: fails.slice(0, cap),\n    omitted: Math.max(fails.length - cap, 0),"
+      "replace": "    lines: fails.slice(0, cap),\n    omitted: Math.max(fails.length - cap, 0),",
+      "by": "test",
+      "kills": [
+        "带记号的那行在，哪怕它排在二十行之后"
+      ]
     },
     {
       "id": "M-H33-b",
@@ -3181,7 +3813,11 @@
       "why": "封顶只管普通失败行，带记号的另算 —— 一次吵的运行留下来的行数会超出封顶，说好的上限形同虚设",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  const room = Math.max(cap - causal.length, 0)",
-      "replace": "  const room = cap"
+      "replace": "  const room = cap",
+      "by": "test",
+      "kills": [
+        "总行数不超过封顶"
+      ]
     },
     {
       "id": "M-H33-c",
@@ -3189,7 +3825,11 @@
       "why": "带记号的失败行不再优先留 —— 一票否决的原因和普通失败行一样会被截掉，现场留下来了却说不清为什么",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  const causal = fails.filter(marked)",
-      "replace": "  const causal: string[] = []"
+      "replace": "  const causal: string[] = []",
+      "by": "test",
+      "kills": [
+        "带记号的比封顶还多 → 一条不丢，也不去截它们"
+      ]
     },
     {
       "id": "M-H34-a",
@@ -3197,7 +3837,12 @@
       "why": "报告里一条硬失败的需求可以印成「已豁免」或「有缺口」—— 退出码红着，而那一行看着没事，读报告的人找不到红在哪",
       "file": "scripts/check/spec-rule.ts",
       "find": "  if (hard) flag = '✗'",
-      "replace": "  if (hard && flag === '✓') flag = '✗'"
+      "replace": "  if (hard && flag === '✓') flag = '✗'",
+      "by": "test",
+      "kills": [
+        "非红线：硬失败那一行必须打 ✗，不被「缺认领」那一档改写成 ·",
+        "红线整条豁免：也不许把硬失败那一行改写成 ⊘"
+      ]
     },
     {
       "id": "M-H34-b",
@@ -3205,7 +3850,11 @@
       "why": "现场里顺带提到那个记号的行也当成失败行 —— 它们占掉名额，把真正的失败行挤出去，留下来的现场说不清任何事",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  const fails = output.split('\\n').map(l => l.trim()).filter(l => l.startsWith('✗ '))",
-      "replace": "  const fails = output.split('\\n').map(l => l.trim()).filter(l => l.includes('✗'))"
+      "replace": "  const fails = output.split('\\n').map(l => l.trim()).filter(l => l.includes('✗'))",
+      "by": "test",
+      "kills": [
+        "只有以「✗ 」开头的才算失败行"
+      ]
     },
     {
       "id": "M-H35-a",
@@ -3213,7 +3862,11 @@
       "why": "真崩掉的那一次现场是空的 —— 它打的是栈、一行成形的失败行都没有，而这段现场存在的唯一理由就是诊断那一次",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (fails.length === 0) {\n    const tail = output.split('\\n').map(l => l.trim()).filter(l => l !== '')\n    return { lines: tail.slice(-cap), omitted: Math.max(tail.length - cap, 0), raw: true }\n  }",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "没有成形的失败行 → 交回原始输出的尾巴"
+      ]
     },
     {
       "id": "M-H35-b",
@@ -3221,7 +3874,11 @@
       "why": "原始输出取开头那几行而不是末尾 —— 崩的原因通常在最后，留下来的是一堆无关的开场白",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    return { lines: tail.slice(-cap), omitted: Math.max(tail.length - cap, 0), raw: true }",
-      "replace": "    return { lines: tail.slice(0, cap), omitted: Math.max(tail.length - cap, 0), raw: true }"
+      "replace": "    return { lines: tail.slice(0, cap), omitted: Math.max(tail.length - cap, 0), raw: true }",
+      "by": "test",
+      "kills": [
+        "尾巴取末尾那几行"
+      ]
     },
     {
       "id": "M-H35-c",
@@ -3229,7 +3886,11 @@
       "why": "把断言说过话的那一次也标成「原始输出」—— 读现场的人分不出这几行是断言红了还是进程死了，两者要怎么处理完全不同",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  const room = Math.max(cap - causal.length, 0)\n  return {\n    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),\n    raw: false,\n  }",
-      "replace": "  const room = Math.max(cap - causal.length, 0)\n  return {\n    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),\n    raw: true,\n  }"
+      "replace": "  const room = Math.max(cap - causal.length, 0)\n  return {\n    lines: [...causal, ...plain.slice(0, room)],\n    omitted: Math.max(plain.length - room, 0),\n    raw: true,\n  }",
+      "by": "test",
+      "kills": [
+        "有成形的失败行 → raw 为假"
+      ]
     },
     {
       "id": "M-H45-a",
@@ -3237,7 +3898,11 @@
       "why": "锚点只问在不在、不问几处：出现两处的锚点被数成一处，替换静默改掉第一处，而作者要验的那一处一个字没动 —— 正是 ADR-99 第八节那张欠条的原样",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  let n = 0\n  let at = content.indexOf(find)\n  while (at !== -1) {\n    n++\n    if (at >= content.length) break\n    at = content.indexOf(find, at + 1)\n  }\n  return n",
-      "replace": "  return content.includes(find) ? 1 : 0"
+      "replace": "  return content.includes(find) ? 1 : 0",
+      "by": "test",
+      "kills": [
+        "两处不重叠"
+      ]
     },
     {
       "id": "M-H45-b",
@@ -3245,7 +3910,11 @@
       "why": "重叠的出现不算数：一段锚点挪一格又出现一次时被数成一处，替换挑中的那一处未必是作者想的那一处，而报告说它唯一",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    at = content.indexOf(find, at + 1)",
-      "replace": "    at = content.indexOf(find, at + Math.max(find.length, 1))"
+      "replace": "    at = content.indexOf(find, at + Math.max(find.length, 1))",
+      "by": "test",
+      "kills": [
+        "两处重叠 —— 仍是两处"
+      ]
     },
     {
       "id": "M-H36-a",
@@ -3253,7 +3922,12 @@
       "why": "派工时给了零或者负数当并行度，不再说「说不清要派几个」，而是悄悄收口成 1 跑起来 —— 一个写错的配置被当成没写过，人以为自己在串行跑，实际不是",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  if (!Number.isInteger(n) || n < 1) return undefined",
-      "replace": "  if (!Number.isInteger(n)) return undefined"
+      "replace": "  if (!Number.isInteger(n)) return undefined",
+      "by": "test",
+      "kills": [
+        "零个不成立",
+        "负数不成立"
+      ]
     },
     {
       "id": "M-H36-b",
@@ -3261,7 +3935,11 @@
       "why": "命令行上临时指定的并行度不再压过环境变量 —— 人在命令行上写了一个数，跑起来用的却是别的数，而输出里看不出来",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  const asked = flag === undefined ? env : flag.slice('--jobs='.length)",
-      "replace": "  const asked = env"
+      "replace": "  const asked = env",
+      "by": "test",
+      "kills": [
+        "命令行压环境变量 —— 临时改一次不该要求先改环境"
+      ]
     },
     {
       "id": "M-H36-c",
@@ -3269,7 +3947,11 @@
       "why": "派出去的人手比要跑的变异还多时不再收口 —— 多出来那几个只是白起一遍进程，跑得更慢而不是更快",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  return Math.max(1, Math.min(n, total))",
-      "replace": "  return Math.max(1, n)"
+      "replace": "  return Math.max(1, n)",
+      "by": "test",
+      "kills": [
+        "明写的也一样收口"
+      ]
     },
     {
       "id": "M-H36-d",
@@ -3277,7 +3959,11 @@
       "why": "一行结论读回来时不再核对那个词认不认得：认不出的一律照抄 —— 一条崩掉的、或者汇报被截断的变异，会安安静静地记成有测试守着，而它什么也没证明",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  if (typeof outcome !== 'string' || !OUTCOMES.includes(outcome)) return undefined",
-      "replace": "  if (typeof outcome !== 'string') return undefined"
+      "replace": "  if (typeof outcome !== 'string') return undefined",
+      "by": "test",
+      "kills": [
+        "结论那个词不认得：认不出，不猜"
+      ]
     },
     {
       "id": "M-H36-e",
@@ -3285,7 +3971,11 @@
       "why": "派出去却没有结论回来的那些编号不再被点出来 —— 那一跑漏掉了几条变异，报告却说全部通过，而漏掉的正是没人验过的那几条",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  return handed.filter(id => !reported.has(id))",
-      "replace": "  return []"
+      "replace": "  return []",
+      "by": "test",
+      "kills": [
+        "少了谁就报谁，按派出去的顺序"
+      ]
     },
     {
       "id": "M-H36-f",
@@ -3293,7 +3983,12 @@
       "why": "派工时给了一句话或者一个小数当并行度，不再说「说不清要派几个」，而是拿一个算不出来的数去派工 —— 同样是把一个写错的配置当成没写过",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  if (!Number.isInteger(n) || n < 1) return undefined",
-      "replace": "  if (n < 1) return undefined"
+      "replace": "  if (n < 1) return undefined",
+      "by": "test",
+      "kills": [
+        "读不出来的值：说不清要派几个",
+        "小数不成立"
+      ]
     },
     {
       "id": "M-H36-g",
@@ -3301,7 +3996,11 @@
       "why": "没人指定并行度、按机器核数派工那一支，不再按要跑的条数收口 —— 一台核多的机器上，清单只剩三条也照样派出去八个人手，多出来那几个白起一遍进程",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  if (asked === undefined) return Math.max(1, Math.min(cpus, total))",
-      "replace": "  if (asked === undefined) return Math.max(1, cpus)"
+      "replace": "  if (asked === undefined) return Math.max(1, cpus)",
+      "by": "test",
+      "kills": [
+        "比要跑的条数还多：按条数收口"
+      ]
     },
     {
       "id": "M-H36-h",
@@ -3309,7 +4008,11 @@
       "why": "记号后面是 null 的那一行不再被挡下来 —— `typeof null` 也是 object，往下取字段就当场抛出去，一行读不出来的汇报把整跑掀了，而这个函数说好的是「认不出就交回 undefined，不猜」",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  if (raw === null || typeof raw !== 'object') return undefined",
-      "replace": "  if (typeof raw !== 'object') return undefined"
+      "replace": "  if (typeof raw !== 'object') return undefined",
+      "by": "test",
+      "kills": [
+        "记号后面是 null：认不出，不是抛出去"
+      ]
     },
     {
       "id": "M-H36-i",
@@ -3317,7 +4020,11 @@
       "why": "汇报行里的退出码不再核对类型 —— 一份退出码是字符串的行会通过这一关，然后在报告里被当成退出码去印，该说「这一行读不出来」的地方变成一句不知所云的诊断",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  if (status !== null && typeof status !== 'number') return undefined\n  if (typeof stopped !== 'boolean' || typeof output !== 'string') return undefined",
-      "replace": "  if (typeof stopped !== 'boolean' || typeof output !== 'string') return undefined"
+      "replace": "  if (typeof stopped !== 'boolean' || typeof output !== 'string') return undefined",
+      "by": "test",
+      "kills": [
+        "退出码是串：认不出"
+      ]
     },
     {
       "id": "M-H36-j",
@@ -3325,7 +4032,11 @@
       "why": "汇报行里「停没停」那一栏缺了也照收 —— 报告里那一条会说不出它是跑完的还是被主动停掉的，而这两者对「点名的那些红了没有」意味着完全不同的事",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  if (typeof stopped !== 'boolean' || typeof output !== 'string') return undefined",
-      "replace": "  if (typeof output !== 'string') return undefined"
+      "replace": "  if (typeof output !== 'string') return undefined",
+      "by": "test",
+      "kills": [
+        "少了停没停那一栏：认不出"
+      ]
     },
     {
       "id": "M-H36-k",
@@ -3333,7 +4044,11 @@
       "why": "汇报行里的现场那一栏缺了也照收 —— 判「跑不起来」那一档时报告要摆出验证者说过的话，而这一行给的是 undefined，印出来是一句 undefined，不是「这一行读不出来」",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  if (typeof stopped !== 'boolean' || typeof output !== 'string') return undefined",
-      "replace": "  if (typeof stopped !== 'boolean') return undefined"
+      "replace": "  if (typeof stopped !== 'boolean') return undefined",
+      "by": "test",
+      "kills": [
+        "少了现场那一栏：认不出"
+      ]
     },
     {
       "id": "M-H36-l",
@@ -3341,7 +4056,11 @@
       "why": "每一条的结论都把验证者的整份输出捎回来，不再只留「跑不起来」那一档 —— 三百多条各挤一份完整输出过管道，而除了那一档没人读它",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  `${MARK} ${JSON.stringify({ ...ran, id, output: ran.outcome === 'crashed' ? ran.output : '' })}`",
-      "replace": "  `${MARK} ${JSON.stringify({ ...ran, id })}`"
+      "replace": "  `${MARK} ${JSON.stringify({ ...ran, id })}`",
+      "by": "test",
+      "kills": [
+        "别的档不带现场"
+      ]
     },
     {
       "id": "M-H36-r",
@@ -3349,7 +4068,11 @@
       "why": "「是不是在汇报结论」这一问改成认全行，于是带着记号却读不出来的那种不再算在汇报 —— 派工那一侧就把它当成闲话跳过，而那一条已经不会有结论了，跑它的那个人手正等着下一个编号：整跑从此挂住，连「少一个就是硬失败」那一步都走不到",
       "file": "scripts/check/jobs-rule.ts",
       "find": "export const looksLikeReport = (line: string): boolean => line.startsWith(`${MARK} `)",
-      "replace": "export const looksLikeReport = (line: string): boolean => parseReport(line) !== undefined"
+      "replace": "export const looksLikeReport = (line: string): boolean => parseReport(line) !== undefined",
+      "by": "test",
+      "kills": [
+        "带记号但读不出来的：仍然算在汇报"
+      ]
     },
     {
       "id": "M-H37-a",
@@ -3389,7 +4112,11 @@
       "why": "复制源码树时那张按前缀认的表没了，只剩逐字比 —— 于是装着密钥的那份本地环境文件被复制进每个 worker 目录，正常跑完会删，被硬杀就留在盘上",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  return !SKIP.has(name) && !SKIP_PREFIX.some(p => name.startsWith(p))",
-      "replace": "  return !SKIP.has(name)"
+      "replace": "  return !SKIP.has(name)",
+      "by": "test",
+      "kills": [
+        "`.env.local`：不带 —— 逐字比认不出它，这一条正是手抄本漂掉的那个"
+      ]
     },
     {
       "id": "M-H38-b",
@@ -3397,7 +4124,11 @@
       "why": "认的不再是文件名那一节，而是整条路径 —— 目录深处那份环境文件于是不匹配、照样被复制进去，而根目录下那份看着还挡得住，症状只在子目录里出现",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  const name = basename(src)",
-      "replace": "  const name = src"
+      "replace": "  const name = src",
+      "by": "test",
+      "kills": [
+        "认的是文件名那一节，不是整条路径"
+      ]
     },
     {
       "id": "M-H38-c",
@@ -3405,7 +4136,11 @@
       "why": "判进程起没起来时只问明写着空的那一种，不问压根没有这一栏的那一种 —— 而资源不够时交回来的正是后者，于是报出来的原因指向派工代码，人去翻代码，该做的却是调高允许打开的文件数",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  return kid.stdin === null || kid.stdin === undefined",
-      "replace": "  return kid.stdin === null"
+      "replace": "  return kid.stdin === null",
+      "by": "test",
+      "kills": [
+        "压根没有这一栏：没起来"
+      ]
     },
     {
       "id": "M-H38-d",
@@ -3413,7 +4148,12 @@
       "why": "复制源码树时那张逐字比的表没了，只剩按前缀认的那张 —— 于是装不下的那几个大目录（依赖树、缓存、产出）全被复制进每个 worker 目录，而且会把自己的隔离目录复制进自己",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  return !SKIP.has(name) && !SKIP_PREFIX.some(p => name.startsWith(p))",
-      "replace": "  return !SKIP_PREFIX.some(p => name.startsWith(p))"
+      "replace": "  return !SKIP_PREFIX.some(p => name.startsWith(p))",
+      "by": "test",
+      "kills": [
+        "装不下的那几个：不带",
+        "会把自己复制进自己的：不带"
+      ]
     },
     {
       "id": "M-H39-a",
@@ -3421,7 +4161,11 @@
       "why": "判「这个子进程起没起来」时不再认「压根没有号」这一种，一律当成起来了 —— 于是硬来那一步会对一个从没起来的对象发信号，而那一刀落在自己这个进程组上：整跑当场被杀，收尾走不到，半成品连同被改过的源码留在盘上",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  return kid.pid === undefined",
-      "replace": "  return false"
+      "replace": "  return false",
+      "by": "test",
+      "kills": [
+        "压根没有号：没起来，不许发信号"
+      ]
     },
     {
       "id": "M-H39-b",
@@ -3429,7 +4173,11 @@
       "why": "挑「该对谁发信号」时不再把没起来的那些筛掉，一股脑全交回去 —— 于是硬来那一步会对一个从没起来的对象发信号，而那一刀落在自己这个进程组上：整跑当场被杀，收尾走不到",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  return [...kids].filter(kid => !neverStarted(kid))",
-      "replace": "  return [...kids]"
+      "replace": "  return [...kids]",
+      "by": "test",
+      "kills": [
+        "没起来的一个都不要"
+      ]
     },
     {
       "id": "M-H40-a",
@@ -3437,7 +4185,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "号写到一半时也照收：末尾有没有写完那一问被拿掉 —— 一个正在落盘的号被截去最后一位，读回来就是另一个数，硬来那一刀于是对着一整组不相干的进程落下，而且没有任何人会知道",
       "find": "  if (text === undefined || !text.endsWith('\\n')) return undefined",
-      "replace": "  if (text === undefined) return undefined"
+      "replace": "  if (text === undefined) return undefined",
+      "by": "test",
+      "kills": [
+        "没有结束符 —— 写到一半的 12345 被截成 1234，那是杀错一整组"
+      ]
     },
     {
       "id": "M-H40-b",
@@ -3445,7 +4197,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "号是 1 时也照发 —— 而那一刀不是「打 1 号那一组」，是发给这个进程发得出的每一个进程，包括在终端里跑它的那个人手上的一切",
       "find": "  if (n <= 1 || n === self.pid || n === self.pgid) return undefined",
-      "replace": "  if (n <= 0 || n === self.pid || n === self.pgid) return undefined"
+      "replace": "  if (n <= 0 || n === self.pid || n === self.pgid) return undefined",
+      "by": "test",
+      "kills": [
+        "1：kill(-1) 不是「1 号那一组」，是发给发得出的每一个进程"
+      ]
     },
     {
       "id": "M-H40-c",
@@ -3453,7 +4209,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "号是 0 时也照发 —— 那一刀在系统里的意思是「打调用者自己这一组」，收尾一句也走不到，半成品连同被改过的源码留在盘上（#111 的形状）",
       "find": "  if (n <= 1 || n === self.pid || n === self.pgid) return undefined",
-      "replace": "  if (n < 0 || n === self.pid || n === self.pgid) return undefined"
+      "replace": "  if (n < 0 || n === self.pid || n === self.pgid) return undefined",
+      "by": "test",
+      "kills": [
+        "0：POSIX 里打的是调用者自己这一组，而 JS 里 -0 === 0"
+      ]
     },
     {
       "id": "M-H40-d",
@@ -3461,7 +4221,12 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "号的正文不再原样核对回去 —— 十六进制、科学记数法、前导零、空白开头的串全会被悄悄认成一个数，而那个数跟盘上写着的不是同一个，刀落在别处",
       "find": "  if (!Number.isSafeInteger(n) || String(n) !== body) return undefined",
-      "replace": "  if (!Number.isSafeInteger(n)) return undefined"
+      "replace": "  if (!Number.isSafeInteger(n)) return undefined",
+      "by": "test",
+      "kills": [
+        "十六进制 —— Number 认它，往返核对不认",
+        "前导零：同上"
+      ]
     },
     {
       "id": "M-H40-e",
@@ -3469,7 +4234,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "算出来的目标不再是「整组」而是单独那一个 —— 只杀壳，里面那个真正跑脚本的进程照样把后面那次写盘做完，而这条路上写的是被改过的源码；漏掉这一层不响",
       "find": "  return -n\n}",
-      "replace": "  return n\n}"
+      "replace": "  return n\n}",
+      "by": "test",
+      "kills": [
+        "正常：交回负数，入口一处算术都不做"
+      ]
     },
     {
       "id": "M-H40-f",
@@ -3477,7 +4246,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "「这个号正好就是我自己这一组」那一拒被拿掉 —— 一份写坏的号可以让这一跑对着自己开刀，收尾走不到，被改过的源码留在盘上",
       "find": "  if (n <= 1 || n === self.pid || n === self.pgid) return undefined",
-      "replace": "  if (n <= 1 || n === self.pid) return undefined"
+      "replace": "  if (n <= 1 || n === self.pid) return undefined",
+      "by": "test",
+      "kills": [
+        "正好是自己那一组 —— 真正的自杀向量"
+      ]
     },
     {
       "id": "M-H40-g",
@@ -3493,7 +4266,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "硬来那一步不再去收那些自成一组的验证者 —— 它们被过继出去接着跑被改过的源码，谁也没在看着，而闸门这头已经退出并报「收干净了」",
       "find": "  for (const shot of new Set(shots)) steps.push({ do: 'group', shot })\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "每个读得出的组一刀"
+      ]
     },
     {
       "id": "M-H40-k",
@@ -3501,7 +4278,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "两个人报了同一个号时不再合并，同一组要挨两刀 —— 第二刀落下时那一组多半已经散了，而那个号可能已经被系统分给了别人，于是刀落在一个不相干的进程组上",
       "find": "  for (const shot of new Set(shots)) steps.push",
-      "replace": "  for (const shot of shots) steps.push"
+      "replace": "  for (const shot of shots) steps.push",
+      "by": "test",
+      "kills": [
+        "两个 worker 报了同一个号：只挨一刀"
+      ]
     },
     {
       "id": "M-H40-o",
@@ -3509,7 +4290,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "「压根没起验证者」被当成「号读不出来」报出来 —— 每一次正常的硬来都会刷一堆吓人的话，真读不动那一次就淹在里面；两种状态压成一个值正是 `docs/CONVENTIONS.md` 第 3 条骂的那件事",
       "find": "    if (got.error !== undefined) {",
-      "replace": "    if (got.text === undefined) {"
+      "replace": "    if (got.text === undefined) {",
+      "by": "test",
+      "kills": [
+        "没有号文件（那个 worker 没起验证者）：一句话都不说"
+      ]
     },
     {
       "id": "M-H40-i",
@@ -3517,7 +4302,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "验证者压根没起来的时候也照样留一份号 —— 留下的正文里是一句「没有」，读回来是「该收谁不知道」，而它看起来像是有号，比没有更糟",
       "find": "  if (neverStarted({ pid })) return undefined\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "验证者没起来：不留 —— 不许把 undefined 写成一个号"
+      ]
     },
     {
       "id": "M-H40-j",
@@ -3525,7 +4314,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "收号那条路给了个空位置时不再当成「没人收」 —— 这一跑会往一个空位置去写，而那一抛落在收尾的监听器里：那一轮的还原整个不跑，被改过的源文件留在工作区",
       "find": "  return path === '' ? undefined : path",
-      "replace": "  return path"
+      "replace": "  return path",
+      "by": "test",
+      "kills": [
+        "参数在但值是空的：当没人收，不去写空路径"
+      ]
     },
     {
       "id": "M-H40-l",
@@ -3533,7 +4326,12 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "取「自己这一组」时改成整行切 —— 名字里带空格或右括号的进程会取到另一个数上，而那个数会被当成「我自己这一组」拿去比对：比错了等于没有那道自保，而且不响",
       "find": "  const tail = stat.slice(stat.lastIndexOf(')') + 1).trim()",
-      "replace": "  const tail = stat.trim()"
+      "replace": "  const tail = stat.trim()",
+      "by": "test",
+      "kills": [
+        "comm 里带空格：从最后一个 `)` 之后切才对",
+        "comm 里带右括号：同上"
+      ]
     },
     {
       "id": "M-H40-m",
@@ -3541,7 +4339,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "号文件的名字里不再带是谁留下的 —— 同一棵树上另一跑留下的号会被这一跑读走，于是这一跑按别人的号对一整组进程开刀",
       "find": "  return `${jobsDir}/w${i}.${dispatcherPid}.verifier`",
-      "replace": "  return `${jobsDir}/w${i}.verifier`"
+      "replace": "  return `${jobsDir}/w${i}.verifier`",
+      "by": "test",
+      "kills": [
+        "两跑的路径不一样 —— 并发两跑不会读到对方的号"
+      ]
     },
     {
       "id": "M-H40-n",
@@ -3549,7 +4351,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "没人收号的那条路上也交回一个位置去抹 —— 串行那一跑会拿一个空位置去删，而那一抛落在收尾的监听器里，那一轮的还原整个不跑",
       "find": "export function beaconGone(beacon: string | undefined): string | undefined {\n  return beacon\n}",
-      "replace": "export function beaconGone(beacon: string | undefined): string | undefined {\n  return beacon ?? ''\n}"
+      "replace": "export function beaconGone(beacon: string | undefined): string | undefined {\n  return beacon ?? ''\n}",
+      "by": "test",
+      "kills": [
+        "没人收：没有要抹的"
+      ]
     },
     {
       "id": "M-H40-p",
@@ -3557,7 +4363,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "号在那儿却不能拿去发刀时一声不吭 —— 那意味着确实起过一个验证者而我们不知道该收谁，于是那一组被静默过继出去接着跑被改过的源码，同时这边照样删目录、照样报「收干净了」；它和「压根没起验证者」在输出上长得一模一样，而两者不是一回事",
       "find": "    if (shot === undefined) {\n      warns.push({ do: 'warn', text: `\\n  ⚠️ 验证者的号不能拿去发刀（写了一半、不是个号，`\n                                     + `或者指向不许打的目标）：${s.beacon}`\n                                     + ` —— 那一组没收掉，可能还在跑被改过的源码\\n` })\n      continue\n    }",
-      "replace": "    if (shot === undefined) continue"
+      "replace": "    if (shot === undefined) continue",
+      "by": "test",
+      "kills": [
+        "号写了一半：出一句话，不许当成「没起验证者」"
+      ]
     },
     {
       "id": "M-H41-a",
@@ -4027,7 +4837,11 @@
       "why": "未完成任务标签把不同任务写成同一序号，完全重复的配置无法区分",
       "file": "scripts/lib/pipeline.ts",
       "find": "!state.done.includes(i) ? [taskLabel(t, i)] : []",
-      "replace": "!state.done.includes(i) ? [taskLabel(t, 0)] : []"
+      "replace": "!state.done.includes(i) ? [taskLabel(t, 0)] : []",
+      "by": "test",
+      "kills": [
+        "未完成标签逐项保留原序号、维度、平台、原词，完全重复项仍可区分"
+      ]
     },
     {
       "id": "M-U8-b",
@@ -4035,7 +4849,11 @@
       "why": "达标后的续跑任务在筛选后重新编号，不再对应原任务列表",
       "file": "scripts/lib/pipeline.ts",
       "find": "return state.tasks.flatMap((t, i) => first.has(i) ? [taskLabel(t, i)] : [])",
-      "replace": "return state.tasks.filter((_, i) => first.has(i)).map((t, i) => taskLabel(t, i))"
+      "replace": "return state.tasks.filter((_, i) => first.has(i)).map((t, i) => taskLabel(t, i))",
+      "by": "test",
+      "kills": [
+        "达标后只剩未抓首页的任务，筛选不重新编号"
+      ]
     },
     {
       "id": "M-U8-c",
@@ -4043,7 +4861,11 @@
       "why": "所有关键词统计行被标成第一个任务，真实归人数与展示身份错配",
       "file": "scripts/lib/pipeline.ts",
       "find": "      task_index: i,",
-      "replace": "      task_index: 0,"
+      "replace": "      task_index: 0,",
+      "by": "test",
+      "kills": [
+        "每个关键词行带零起始原下标，包括未查询行和完全重复行"
+      ]
     },
     {
       "id": "M-U8-d",
@@ -4167,7 +4989,11 @@
       "why": "没达标时续跑那张标签表按筛选后的位置重新编号 —— 前面有任务被跳过时，后面的任务序号整体前移，用户不能把提示指回原任务",
       "file": "scripts/lib/pipeline.ts",
       "find": "return state.tasks.flatMap((t, i) => canRequestPage(state, i, undefined) ? [taskLabel(t, i)] : [])",
-      "replace": "return state.tasks.filter((_, i) => canRequestPage(state, i, undefined)).map((t, i) => taskLabel(t, i))"
+      "replace": "return state.tasks.filter((_, i) => canRequestPage(state, i, undefined)).map((t, i) => taskLabel(t, i))",
+      "by": "test",
+      "kills": [
+        "未达标的续跑标签保留原序号与全部实际待查项"
+      ]
     },
     {
       "id": "M-D12-a",
@@ -5646,7 +6472,12 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "汇报行不验计时 —— 缺了计时、计时是串的一行照样认得，账单拿一个不是数的东西去加",
       "find": "  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return undefined\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "少了计时那一栏：认不出",
+        "计时是串：认不出，不替它转成数"
+      ]
     },
     {
       "id": "M-H36-t",
@@ -5654,7 +6485,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "计时不验有限 —— 手写的 1e999 读回来是 Infinity，一条就把整张账的合计撑成无穷",
       "find": "typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0",
-      "replace": "typeof ms !== 'number' || ms < 0"
+      "replace": "typeof ms !== 'number' || ms < 0",
+      "by": "test",
+      "kills": [
+        "计时是无穷大（JSON 文本 1e999）：认不出"
+      ]
     },
     {
       "id": "M-H36-u",
@@ -5662,7 +6497,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "计时不验非负 —— 负的毫秒数被认得，合计被一条坏行往回拉",
       "find": "typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0",
-      "replace": "typeof ms !== 'number' || !Number.isFinite(ms)"
+      "replace": "typeof ms !== 'number' || !Number.isFinite(ms)",
+      "by": "test",
+      "kills": [
+        "计时是负数：认不出"
+      ]
     },
     {
       "id": "M-H36-v",
@@ -5670,7 +6509,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "读回来时把计时丢了 —— 派工跑的每一条都记成 0 毫秒，那个乘法永远是 0",
       "find": "  return { id, outcome: outcome as Outcome, status, stopped, output, ms }",
-      "replace": "  return { id, outcome: outcome as Outcome, status, stopped, output, ms: 0 }"
+      "replace": "  return { id, outcome: outcome as Outcome, status, stopped, output, ms: 0 }",
+      "by": "test",
+      "kills": [
+        "计时写下去读回来还是原值（1234 毫秒）"
+      ]
     },
     {
       "id": "M-H46-a",
@@ -5678,7 +6521,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "按验证者记账时条数不累加 —— 每个验证者都记成 1 条，乘法的那个乘数错了",
       "find": "    row.count += 1\n",
-      "replace": "    row.count = 1\n"
+      "replace": "    row.count = 1\n",
+      "by": "test",
+      "kills": [
+        "条数：每个验证者被用了几次（selfcheck 1、smoke 2、test 4）"
+      ]
     },
     {
       "id": "M-H46-b",
@@ -5686,7 +6533,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "合计小的排前面 —— 人一眼先看到的不是钱花在哪",
       "find": ".sort((a, b) => b.totalMs - a.totalMs ||",
-      "replace": ".sort((a, b) => a.totalMs - b.totalMs ||"
+      "replace": ".sort((a, b) => a.totalMs - b.totalMs ||",
+      "by": "test",
+      "kills": [
+        "合计大的排前面：test 8000 > selfcheck 5000 > smoke 1000 —— 不按条数、不按平均、不按先来后到"
+      ]
     },
     {
       "id": "M-H46-c",
@@ -5694,7 +6545,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "合计一样大时按名字倒序 —— 同一份输入每次印出来的顺序和说明对不上",
       "find": "(a.verifier < b.verifier ? -1 : a.verifier > b.verifier ? 1 : 0)",
-      "replace": "(a.verifier > b.verifier ? -1 : a.verifier < b.verifier ? 1 : 0)"
+      "replace": "(a.verifier > b.verifier ? -1 : a.verifier < b.verifier ? 1 : 0)",
+      "by": "test",
+      "kills": [
+        "合计一样大时按名字：alpha, beta, gamma"
+      ]
     },
     {
       "id": "M-H46-d",
@@ -5702,7 +6557,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "平均取整 —— 秒级的验证者被抹成整毫秒还算小事，换了单位的调用方会拿到一个被截过的数",
       "find": "meanMs: totalMs / count",
-      "replace": "meanMs: Math.floor(totalMs / count)"
+      "replace": "meanMs: Math.floor(totalMs / count)",
+      "by": "test",
+      "kills": [
+        "平均不取整：(100 + 101) / 2 = 100.5"
+      ]
     },
     {
       "id": "M-H46-e",
@@ -5710,7 +6569,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "平均没换算成秒 —— 1276 毫秒印成「1276.0 秒」，读账的人以为一条要跑二十分钟",
       "find": "${(r.meanMs / 1000).toFixed(1)} 秒",
-      "replace": "${r.meanMs.toFixed(1)} 秒"
+      "replace": "${r.meanMs.toFixed(1)} 秒",
+      "by": "test",
+      "kills": [
+        "平均每条几秒，保留一位小数：1276 ms → 1.3（不是 1.2、不是 1.276）"
+      ]
     },
     {
       "id": "M-H46-f",
@@ -5718,7 +6581,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "乘法乘错了东西 —— 「每慢 1 秒多几秒」写成了合计秒数，而那个乘数应该是条数",
       "find": "整跑串行多 ${r.count} 秒",
-      "replace": "整跑串行多 ${Math.round(r.totalMs / 1000)} 秒"
+      "replace": "整跑串行多 ${Math.round(r.totalMs / 1000)} 秒",
+      "by": "test",
+      "kills": [
+        "那个乘法：test 每慢 1 秒，整跑串行多 7 秒"
+      ]
     },
     {
       "id": "M-H36-w",
@@ -5726,7 +6593,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "计时为 0 的那一行认不出 —— 锚点失效那一条从 worker 回来读不出，整跑报成没有结论",
       "find": "!Number.isFinite(ms) || ms < 0) return undefined",
-      "replace": "!Number.isFinite(ms) || ms <= 0) return undefined"
+      "replace": "!Number.isFinite(ms) || ms <= 0) return undefined",
+      "by": "test",
+      "kills": [
+        "计时是 0：认得（非负含 0）"
+      ]
     },
     {
       "id": "M-H36-x",
@@ -5734,7 +6605,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "汇报行不带计时 —— 派工跑的每一条从 worker 回来都读不出，整跑报成没有结论",
       "find": "JSON.stringify({ ...ran, id, output:",
-      "replace": "JSON.stringify({ ...ran, id, ms: undefined, output:"
+      "replace": "JSON.stringify({ ...ran, id, ms: undefined, output:",
+      "by": "test",
+      "kills": [
+        "计时写进了汇报行（1234 毫秒）"
+      ]
     },
     {
       "id": "M-H46-g",
@@ -5742,7 +6617,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "逐条合计没换算成秒 —— 8932 毫秒印成「8932 秒」，读账的人以为这个验证者要跑两个半小时",
       "find": "${Math.round(r.totalMs / 1000)} 秒（约",
-      "replace": "${Math.round(r.totalMs)} 秒（约"
+      "replace": "${Math.round(r.totalMs)} 秒（约",
+      "by": "test",
+      "kills": [
+        "逐条合计几秒，四舍五入到整秒：8932 ms → 9（不是 8、不是 8932）"
+      ]
     },
     {
       "id": "M-H46-h",
@@ -5750,7 +6629,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "约几分钟不留小数 —— 不到半分钟的验证者印成「约 0 分钟」，看着像不花时间",
       "find": "(r.totalMs / 60000).toFixed(1)",
-      "replace": "(r.totalMs / 60000).toFixed(0)"
+      "replace": "(r.totalMs / 60000).toFixed(0)",
+      "by": "test",
+      "kills": [
+        "约几分钟，保留一位小数：8932 ms → 约 0.1 分钟"
+      ]
     },
     {
       "id": "M-H46-i",
@@ -5758,7 +6641,11 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "账单又写回等式 —— 平均和合计各自取整，「7 条 × 1.3 秒 = 9 秒」这种自己对不上的算式回来了",
       "find": "，逐条合计 ",
-      "replace": " = 逐条合计 "
+      "replace": " = 逐条合计 ",
+      "by": "test",
+      "kills": [
+        "不写成等式：两行都不带「=」"
+      ]
     },
     {
       "id": "M-D15-x",
