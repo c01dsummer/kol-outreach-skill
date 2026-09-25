@@ -71,6 +71,8 @@ description: 海外 KOL 建联助手 —— 从产品理解到可发信名单。
 
 传给 probe 与 collect 的 `tasks` 至少有一个任务；每项明确写出非空白 `keyword`、`category`/`scene`/`competitor`/`audience` 之一的 `dimension`、`tiktok`/`instagram` 之一的 `platform`。脚本原样校验，不补值；坏任务与 IG 路线问题一起报告，退出 2，不发请求、不写任务文件。旧任务续跑及改预算也查整张列表，包括已完成项。按报错指出的文件、任务和字段修配置，不跳过坏项来继续（D16）。
 
+市场 `market` 写非空白字符串，collect 目标人数 `target_count` 写有限数，保留用户给的合规原值；不自行修剪市场、改大小写或转换人数。新 collect / probe 仅在市场缺席时用 US，并明确转述 stderr 的默认说明；新 collect 仅在人数缺席时用 50，probe 不校验人数。显式 null 或其他坏值不能套缺省；旧任务缺任一字段（含改额续跑）也不能补造。字段错误与任务/路线问题合并报告（collect 预算输入合规时），退出 2，先于建目录、任务写入、预留和请求，旧 task.json 不变。按原始意图修输入，不增加国家或人数限制；细节见 `references/product-intake.md`（D17）。
+
 ### Phase 03 — 规模采集
 
 策略确认后才放量。自动分页、跨关键词全局去重、跨平台同人识别。
