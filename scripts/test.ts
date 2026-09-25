@@ -28,9 +28,9 @@ import {
   testRunning, trackTest,
 } from './check/mutate-restore.js'
 import {
-  type Outcome, type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf,
-  copyIntoWorker, groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
-  neverStarted, noStdio, ownGroup, parseReport, reportLine, signalTargets,
+  type BillRow, type Outcome, type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf,
+  billLines, copyIntoWorker, groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
+  neverStarted, noStdio, ownGroup, parseReport, reportLine, signalTargets, verifierBill,
 } from './check/jobs-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
@@ -4851,7 +4851,7 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   // 汇报行：写下去再读回来，五种结论一个不丢。两边各写一份格式的话，
   // 改一边不改另一边的症状是「每一条都没回话」，而人会去翻变异集，不会去翻这个格式
   const ran = (outcome: Outcome, over: Partial<Ran> = {}): Ran =>
-    ({ outcome, status: 1, stopped: false, output: '', ...over })
+    ({ outcome, status: 1, stopped: false, output: '', ms: 0, ...over })
   for (const o of ['caught', 'elsewhere', 'crashed', 'survived', 'not-applied'] as const) {
     eq(`结论「${o}」写下去读回来还是它`, parseReport(reportLine('M-X-a', ran(o))),
       { id: 'M-X-a', ...ran(o) })
@@ -4882,7 +4882,9 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   const read = (line: string) => {
     try { return parseReport(line) } catch (e) { return `抛了：${String(e)}` }
   }
-  const good = { id: 'M-X-a', outcome: 'caught', status: 1, stopped: false, output: '' }
+  // 计时（ms）是汇报行的第六栏：样本行按新契约带上它，而且用非零的数 ——
+  // 桩与「锚点失效没跑」写的都是 0，拿 0 当样本验不出「读回来的是写下去的那个」
+  const good = { id: 'M-X-a', outcome: 'caught', status: 1, stopped: false, output: '', ms: 1234 }
   eq('好的那一行认得', parseReport(wire(good)), good)
   eq('不是汇报行的：认不出', parseReport('  ✓ M-X-a  [X1] 被抓到'), undefined)
   eq('记号后面不是合法 JSON：认不出', parseReport('⟦结论⟧ caught M-X-a'), undefined)
@@ -4890,10 +4892,54 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   eq('结论那个词不认得：认不出，不猜', parseReport(wire({ ...good, outcome: 'ok' })), undefined)
   eq('没有编号：认不出', parseReport(wire({ ...good, id: '' })), undefined)
   eq('退出码是串：认不出', parseReport(wire({ ...good, status: '1' })), undefined)
+  // 这两行都带上计时：只少它们自己那一栏。不带的话，「少了计时」一样让它们认不出，
+  // 把「停没停」「现场」那两道验拿掉，这两条照样绿 —— 判据被无关的东西满足了
   eq('少了停没停那一栏：认不出',
-    parseReport(wire({ id: 'M-X-a', outcome: 'caught', status: 1, output: '' })), undefined)
+    parseReport(wire({ id: 'M-X-a', outcome: 'caught', status: 1, output: '', ms: 1234 })), undefined)
   eq('少了现场那一栏：认不出',
-    parseReport(wire({ id: 'M-X-a', outcome: 'caught', status: 1, stopped: false })), undefined)
+    parseReport(wire({ id: 'M-X-a', outcome: 'caught', status: 1, stopped: false, ms: 1234 })), undefined)
+
+  // ── 计时那一栏（Ran.ms）。契约：「ms 须是有限、非负的数，否则认不出」；它和别的字段一样
+  // 要穿过 worker 的进程边界，所以写下去读回来必须还是原值 —— 读回一个 0 的话，账单上那个
+  // 乘法乘的就是 0，而人看到的是「这个验证者不花钱」
+  // 写的那一半单独验一次（不经 parseReport）：往返红了的时候，分得清是没写进去还是没读出来
+  eq('计时写进了汇报行（1234 毫秒）', (() => {
+    const line = reportLine('M-X-a', ran('caught', { ms: 1234 }))
+    try { return (JSON.parse(line.slice('⟦结论⟧ '.length)) as { ms?: unknown }).ms } catch (e) { return `抛了：${String(e)}` }
+  })(), 1234)
+  eq('计时写下去读回来还是原值（1234 毫秒）',
+    read(reportLine('M-X-a', ran('caught', { ms: 1234 }))), { id: 'M-X-a', ...ran('caught', { ms: 1234 }) })
+  // 契约只说「有限、非负的数」，没说整数：墙钟量出来带小数是常态，不许被拒、也不许被取整
+  eq('带小数的计时照样认得、原样读回（1234.5 毫秒）',
+    read(reportLine('M-X-a', ran('caught', { ms: 1234.5 }))), { id: 'M-X-a', ...ran('caught', { ms: 1234.5 }) })
+  // 契约：点名的都红了、被主动停掉的那几条，量到停下为止 —— 那个数也要带回来
+  eq('被主动停掉的那一条：计时照样带回来（8765 毫秒）',
+    read(reportLine('M-X-a', ran('caught', { stopped: true, ms: 8765 }))),
+    { id: 'M-X-a', ...ran('caught', { stopped: true, ms: 8765 }) })
+  eq('跑不起来那一档：现场和计时一起带回来',
+    read(reportLine('M-X-a', ran('crashed', { output: '验证者说的话', ms: 4321 }))),
+    { id: 'M-X-a', ...ran('crashed', { output: '验证者说的话', ms: 4321 }) })
+  // 「非负」含 0：锚点失效没跑的那条写的就是 0，把 0 拒掉等于把 not-applied 那一档整个弄丢
+  eq('计时是 0：认得（非负含 0）', read(wire({ ...good, ms: 0 })), { ...good, ms: 0 })
+  eq('少了计时那一栏：认不出',
+    read(wire({ id: 'M-X-a', outcome: 'caught', status: 1, stopped: false, output: '' })), undefined)
+  eq('计时是串：认不出，不替它转成数', read(wire({ ...good, ms: '1234' })), undefined)
+  eq('计时是负数：认不出', read(wire({ ...good, ms: -1 })), undefined)
+  eq('计时是 null：认不出', read(wire({ ...good, ms: null })), undefined)
+  // NaN／Infinity 在 JSON 里写不出来：`JSON.stringify` 把它们写成 null（汇报行整份是 JSON，
+  // `reportLine` 的说明写着）。所以写的一侧真交了个 NaN／Infinity，线上走的是 null ——
+  // 读回来必须认不出，不能变成一个 0 或别的数混进账里
+  eq('写的一侧交了 NaN：线上是 null，读回来认不出',
+    read(reportLine('M-X-a', ran('caught', { ms: NaN }))), undefined)
+  eq('写的一侧交了 Infinity：线上是 null，读回来认不出',
+    read(reportLine('M-X-a', ran('caught', { ms: Infinity }))), undefined)
+  // 读的一侧：JSON 文本 `1e999` 合法，而 `JSON.parse` 把它读成 Infinity —— 这是线上唯一
+  // 能进来的非有限数，只能手写这一行（`wire` 过 `JSON.stringify`，写不出它）。
+  // **NaN 不测**：没有任何一段 JSON 文本会被 `JSON.parse` 读成 NaN，线上进不来
+  const infLine = '⟦结论⟧ {"id":"M-X-a","outcome":"caught","status":1,"stopped":false,"output":"","ms":1e999}'
+  ok('（夹具自检）手写的那一行里，计时读出来确实是 Infinity',
+    (JSON.parse(infLine.slice('⟦结论⟧ '.length)) as { ms: unknown }).ms === Infinity)
+  eq('计时是无穷大（JSON 文本 1e999）：认不出', read(infLine), undefined)
 
   // 「不是汇报行」和「是汇报行但读不出来」对读的人是同一件事，**对派工那一侧不是**：
   // 前者是验证者漏出来的闲话，跳过就行；后者意味着那一条不会有结论了，而 worker 正等着
@@ -5056,6 +5102,110 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
     hardStopPlan(slotsOf({ pid: 11, beacon: 'b0' }),
       reads({ b0: { text: '900\n' } }), me).map(s => s.do))
   eq('一个都没有：空手', signalTargets([]), [])
+}
+
+// 独立于实现写成：期望只出自 `verifierBill`／`billLines`／`BillRow` 的说明（ADR-99 第八节那张
+// 「不打那个乘法」的欠条、第十三节的更正），函数体此时只会抛「尚未实现」。数全是手算的，推导写在旁边。
+harness('变异跑的账：每个验证者被几条变异用、每条跑多久，它每慢 1 秒整跑多几秒')
+{
+  // 实现之前函数体会抛；接住它，让每一条各自红，而不是整个文件在第一条上崩掉
+  const tryIt = <T>(f: () => T): T | 'threw' => { try { return f() } catch { return 'threw' } }
+  const t = (verifier: string, ms: number) => ({ verifier, ms })
+  const byName = ([a]: [string, unknown], [b]: [string, unknown]) => (a < b ? -1 : a > b ? 1 : 0)
+  // 按验证者名字摆好再比：分组对不对和排序对不对各验各的，一处错不连累另一处
+  const per = (timed: readonly { verifier: string; ms: number }[], pick: (r: BillRow) => unknown) =>
+    tryIt(() => Object.fromEntries(verifierBill(timed).map(r => [r.verifier, pick(r)] as [string, unknown]).sort(byName)))
+  // 只取四栏、按固定顺序摆：`eq` 比的是 JSON 串，键的先后不该让一份对的实现红
+  const rowOf = (r: BillRow) => ({ verifier: r.verifier, count: r.count, totalMs: r.totalMs, meanMs: r.meanMs })
+
+  // 三个验证者，交错着给（名字只是串，谁都行；缺省那个叫 test）：
+  //   test      1000 + 2000 + 2000 + 3000 = 8000，4 条，平均 8000 / 4 = 2000
+  //   selfcheck 5000                      = 5000，1 条，平均 5000 / 1 = 5000
+  //   smoke      400 +  600               = 1000，2 条，平均 1000 / 2 = 500
+  // 这组数让几种错的排法各排出一个不同的顺序：
+  //   按合计从大到小（契约）test, selfcheck, smoke
+  //   按条数 test, smoke, selfcheck · 按平均 selfcheck, test, smoke
+  //   按名字、按头一回出现 selfcheck, smoke, test
+  const timed = [t('selfcheck', 5000), t('smoke', 400), t('test', 1000), t('test', 2000),
+    t('smoke', 600), t('test', 2000), t('test', 3000)]
+  eq('按验证者分组：三个验证者，一个一行，不多不少',
+    tryIt(() => verifierBill(timed).map(r => r.verifier).sort()), ['selfcheck', 'smoke', 'test'])
+  eq('条数：每个验证者被用了几次（selfcheck 1、smoke 2、test 4）',
+    per(timed, r => r.count), { selfcheck: 1, smoke: 2, test: 4 })
+  eq('合计：各自那几条的毫秒数加起来（5000、400+600、1000+2000+2000+3000）',
+    per(timed, r => r.totalMs), { selfcheck: 5000, smoke: 1000, test: 8000 })
+  eq('平均 = 合计 / 条数（5000/1、1000/2、8000/4）',
+    per(timed, r => r.meanMs), { selfcheck: 5000, smoke: 500, test: 2000 })
+  eq('合计大的排前面：test 8000 > selfcheck 5000 > smoke 1000 —— 不按条数、不按平均、不按先来后到',
+    tryIt(() => verifierBill(timed).map(r => r.verifier)), ['test', 'selfcheck', 'smoke'])
+  eq('整张账逐栏对得上',
+    tryIt(() => verifierBill(timed).map(rowOf)), [
+      { verifier: 'test', count: 4, totalMs: 8000, meanMs: 2000 },
+      { verifier: 'selfcheck', count: 1, totalMs: 5000, meanMs: 5000 },
+      { verifier: 'smoke', count: 2, totalMs: 1000, meanMs: 500 },
+    ])
+  // 契约写的是「totalMs / count」，没说取整：100 + 101 = 201，2 条，平均 100.5
+  // （向下取整会是 100，四舍五入会是 101）
+  eq('平均不取整：(100 + 101) / 2 = 100.5',
+    tryIt(() => verifierBill([t('test', 100), t('test', 101)]).map(rowOf)),
+    [{ verifier: 'test', count: 2, totalMs: 201, meanMs: 100.5 }])
+  // 三个合计一样大（都是 3000），按名字从小到大排：alpha, beta, gamma。
+  //   alpha 1500 × 2（平均 1500）· beta 1000 × 3（平均 1000）· gamma 3000 × 1（平均 3000）
+  // 给的顺序倒着来（gamma 先出现）；这样按先来后到、按条数（两个方向）、按平均（两个方向）、
+  // 按名字倒序，排出来都不是 alpha, beta, gamma
+  eq('合计一样大时按名字：alpha, beta, gamma',
+    tryIt(() => verifierBill([t('gamma', 3000), t('beta', 1000), t('alpha', 1500), t('beta', 1000),
+      t('alpha', 1500), t('beta', 1000)]).map(r => r.verifier)), ['alpha', 'beta', 'gamma'])
+  eq('没有输入：交回空数组', tryIt(() => verifierBill([])), [])
+
+  // ── 账单怎么印。两行，按 verifierBill 会交出来的顺序给（合计大的在前），
+  // 所以「第几行对第几个验证者」不管它照原样印还是再按合计排一遍都成立。
+  // 数是手挑的，count × meanMs = totalMs 对得上：
+  //   selfcheck 3 条 × 20000 ms = 60000 ms；平均 20000 ms = 20 秒 → 一位小数「20.0」（整数也要印出那一位）
+  //   test      7 条 ×  1276 ms =  8932 ms；平均 1276 ms = 1.276 秒 → 一位小数「1.3」（往上进：
+  //             截断印「1.2」，不取整印「1.276」，忘了换成秒印「1276」—— 都对不上）
+  // 条数 3、7 这两个数字在各自那行的平均、合计里都不会单独出现，数得出它印了几次
+  const rows: BillRow[] = [
+    { verifier: 'selfcheck', count: 3, totalMs: 60000, meanMs: 20000 },
+    { verifier: 'test', count: 7, totalMs: 8932, meanMs: 1276 },
+  ]
+  const lines = () => billLines(rows)
+  // 一个数单独出现：前面不是数字或小数点，后面不是数字（所以「1.3」认不了「1.30」「11.3」）
+  const alone = (n: string) => new RegExp(`(?<![\\d.])${n.replace('.', '\\.')}(?!\\d)`, 'g')
+  eq('每个验证者一行：两行账印两行', tryIt(() => lines().length), 2)
+  eq('每一行真是一行：不含换行', tryIt(() => lines().map(l => l.includes('\n'))), [false, false])
+  eq('每一行写出它那个验证者的名字', tryIt(() => lines().map((l, i) => l.includes(rows[i].verifier))), [true, true])
+  // 锚在「平均每条 」后面：只数「这个数出现过」的话，平均和合计对调、或者合计恰好印成同一个数，一样满足
+  const after = (label: string, n: string) => new RegExp(`${label} ${n.replace('.', '\\.')}(?!\\d)`)
+  eq('平均每条几秒，保留一位小数：20000 ms → 20.0',
+    tryIt(() => after('平均每条', '20.0').test(lines()[0])), true)
+  eq('平均每条几秒，保留一位小数：1276 ms → 1.3（不是 1.2、不是 1.276）',
+    tryIt(() => after('平均每条', '1.3').test(lines()[1])), true)
+  // 契约：逐条合计四舍五入到整秒，另附约几分钟、一位小数
+  //   60000 ms = 60 秒 = 1.0 分钟（整数也要印出那一位）
+  //    8932 ms = 8.932 秒 → 9（截断会印 8，忘了换成秒会印 8932）；= 0.14887 分钟 → 0.1
+  eq('逐条合计几秒，四舍五入到整秒：60000 ms → 60',
+    tryIt(() => after('逐条合计', '60').test(lines()[0])), true)
+  eq('逐条合计几秒，四舍五入到整秒：8932 ms → 9（不是 8、不是 8932）',
+    tryIt(() => after('逐条合计', '9').test(lines()[1])), true)
+  eq('约几分钟，保留一位小数：60000 ms → 约 1.0 分钟',
+    tryIt(() => lines()[0].includes('约 1.0 分钟')), true)
+  eq('约几分钟，保留一位小数：8932 ms → 约 0.1 分钟',
+    tryIt(() => lines()[1].includes('约 0.1 分钟')), true)
+  // 契约：不写成等式。test 那行正是对不上的那种：7 × 1.3 = 9.1，而合计印的是 9
+  eq('不写成等式：两行都不带「=」',
+    tryIt(() => lines().map(l => l.includes('='))), [false, false])
+  // 契约把「条数」和那个乘法列成两样：条数本身印一次，乘法里又出现一次，所以至少两次
+  eq('条数写出来了：3 条那行里「3」单独出现至少两次（条数一次、乘法一次）',
+    tryIt(() => (lines()[0].match(alone('3')) ?? []).length >= 2), true)
+  eq('条数写出来了：7 条那行里「7」单独出现至少两次（条数一次、乘法一次）',
+    tryIt(() => (lines()[1].match(alone('7')) ?? []).length >= 2), true)
+  // 契约原文：「它每慢 1 秒，整跑串行多 <条数> 秒」—— 乘数是条数，不是平均（20、1.3）、不是合计
+  eq('那个乘法：selfcheck 每慢 1 秒，整跑串行多 3 秒',
+    tryIt(() => lines()[0].includes('每慢 1 秒，整跑串行多 3 秒')), true)
+  eq('那个乘法：test 每慢 1 秒，整跑串行多 7 秒',
+    tryIt(() => lines()[1].includes('每慢 1 秒，整跑串行多 7 秒')), true)
+  eq('没有行：交回空数组，什么都不印', tryIt(() => billLines([])), [])
 }
 
 harness('起 tsx 的那条命令：三处共用一份，不经 npx、不经 shell')

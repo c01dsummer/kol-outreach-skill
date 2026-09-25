@@ -17,8 +17,9 @@
  * 先按条数切成 N 份最省事，但**切不平**：指名了验证者的那几条跑的是另一个验证者，
  * 代价与缺省那个不可比 —— 自检一次要几十秒，需求测试一次一两秒。原型上量过：
  * 静态切成几份轮流发，带自检那几份明显落在后面，剩下的空转等它 —— 那段空转
- * 正是那两条自检的代价（当时的条数与秒数钉在 ADR-72）。要靠静态切法摊平，就得先知道每条要跑多久，
- * 而那个数今天没有人量过，猜一个写进代码就是把「不知道」伪装成「知道」。
+ * 正是那两条自检的代价（当时的条数与秒数钉在 ADR-72）。要靠静态切法摊平，就得先知道每条要跑多久。
+ * 那个数如今每跑一次都量（`Ran.ms`，收尾按验证者记账，ADR-99 第十四节），可拿上一跑的数去切下一跑仍是猜，
+ * 而猜一个写进代码就是把「不知道」伪装成「知道」。
  *
  * 一条一派不需要那个数：谁先空出来谁接下一条。代价是每条要回一句话，
  * 也就是下面这个格式。
@@ -63,6 +64,16 @@ export interface Ran {
   stopped: boolean
   /** 验证者说过的话。**只有判 `crashed` 那一档才带回来**，理由在 `reportLine` 上 */
   output: string
+  /**
+   * 跑验证者花了多少毫秒（墙钟，从起验证者到它退出；锚点失效没跑的是 0）。
+   * 点名的都红了、被主动停掉的那几条，量到停下为止。
+   * **必须是有限、非负的数**：0 合法（锚点失效那一档写的就是 0），带小数也合法；
+   * 读回来时不是这样的一行认不出（`parseReport`），不替它转换、不兜底成 0。
+   *
+   * 有了它才打得出那个乘法（ADR-99 第八节、第十三节）：每个验证者被几条变异用 × 每条跑多久。
+   * **派工跑的时候它要穿过 worker 的进程边界**，所以和别的字段一样写进汇报行、由 `parseReport` 逐字段验。
+   */
+  ms: number
 }
 
 /**
@@ -79,6 +90,17 @@ export const reportLine = (id: string, ran: Ran): string =>
   `${MARK} ${JSON.stringify({ ...ran, id, output: ran.outcome === 'crashed' ? ran.output : '' })}`
 
 /**
+ * 这一行是不是在**试图**汇报结论 —— 认得记号就算，哪怕后面读不出来。
+ *
+ * `parseReport` 把「不是汇报行」和「是汇报行但读不出来」都交回 undefined，对读的人是
+ * 同一件事；**对派工那一侧不是**。前者是验证者漏出来的一句闲话，跳过就行；后者意味着
+ * 那一条从此不会有结论了，而 worker 正等着下一个编号 —— 不收摊的话它永远等下去，
+ * 整跑挂住。而挂住比硬失败更坏：模块头上承诺的是「少一个就是硬失败」，挂住连核账
+ * 那一步都走不到。
+ */
+export const looksLikeReport = (line: string): boolean => line.startsWith(`${MARK} `)
+
+/**
  * 一行汇报读回来。**认不出就是 undefined，不猜。**
  *
  * 认不出的有好几种（不是这个记号开头的、不是合法 JSON、少字段、字段类型不对、
@@ -91,29 +113,77 @@ export const reportLine = (id: string, ran: Ran): string =>
  * 该说「这一行读不出来」的地方变成一句不知所云的诊断（`claims.ts` 的
  * `claimsWellFormed` 是同一条道理，那边也栽过）。
  */
-/**
- * 这一行是不是在**试图**汇报结论 —— 认得记号就算，哪怕后面读不出来。
- *
- * `parseReport` 把「不是汇报行」和「是汇报行但读不出来」都交回 undefined，对读的人是
- * 同一件事；**对派工那一侧不是**。前者是验证者漏出来的一句闲话，跳过就行；后者意味着
- * 那一条从此不会有结论了，而 worker 正等着下一个编号 —— 不收摊的话它永远等下去，
- * 整跑挂住。而挂住比硬失败更坏：模块头上承诺的是「少一个就是硬失败」，挂住连核账
- * 那一步都走不到。
- */
-export const looksLikeReport = (line: string): boolean => line.startsWith(`${MARK} `)
-
 export function parseReport(line: string): ({ id: string } & Ran) | undefined {
   if (!line.startsWith(`${MARK} `)) return undefined
   let raw: unknown
   try { raw = JSON.parse(line.slice(MARK.length + 1)) } catch { return undefined }
   if (raw === null || typeof raw !== 'object') return undefined
   const r = raw as Record<string, unknown>
-  const { id, outcome, status, stopped, output } = r
+  const { id, outcome, status, stopped, output, ms } = r
   if (typeof id !== 'string' || id === '') return undefined
   if (typeof outcome !== 'string' || !OUTCOMES.includes(outcome)) return undefined
   if (status !== null && typeof status !== 'number') return undefined
   if (typeof stopped !== 'boolean' || typeof output !== 'string') return undefined
-  return { id, outcome: outcome as Outcome, status, stopped, output }
+  // 计时同样逐字段验（契约在 `Ran.ms`）。写的一侧交了 NaN／Infinity 时线上是 null，手写的 1e999 读回来是 Infinity，都认不出
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return undefined
+  return { id, outcome: outcome as Outcome, status, stopped, output, ms }
+}
+
+/** 一个验证者在这一跑里的账：用了几条、实测花了多久 */
+export interface BillRow {
+  /** 验证者的名字（`VERIFIERS` 的键，缺省那个是 `test`） */
+  verifier: string
+  /** 这一跑里由它来验、而且真跑了的变异条数 */
+  count: number
+  /**
+   * 这些条的墙钟逐条相加（毫秒）。**不是串着跑要花多久的估计**：派工并行时各条可能互相抢核
+   * （验证者自己还会起子进程），单条可能比串着跑慢，也可能不慢。整跑的墙钟也不一定比这个和短：
+   * 这个和只量起验证者到它退出那一段（同 `Ran.ms`），验证者起进程、装模块的时间都在里面；
+   * 开跑前的体检、复制隔离目录、起 worker、写变异与还原、收尾都不在里面。
+   * 各条的时间段互相重叠时整跑才可能比它短。
+   * 单跑一次的样本，不是区间。
+   */
+  totalMs: number
+  /** 平均每条（毫秒）= totalMs / count */
+  meanMs: number
+}
+
+/**
+ * 按验证者记账 —— 那个一直没打的乘法（ADR-99 第八节欠条）。
+ *
+ * 输入是这一跑里**真跑了**的每一条（锚点失效没跑的由调用方先剔掉）：用的哪个验证者、跑了多少毫秒。
+ * 按验证者分组，交回每组的条数、合计、平均。**合计大的排前面**（同样大时按名字），
+ * 人一眼先看到钱花在哪。没有输入就交回空数组。
+ *
+ * 这只是一个参考数：没有任何检查拿它做判断，规矩也不按秒数拦改动（ADR-97）。
+ * 它回答的是「给这个验证者加一秒，整跑要乘以多少条」—— 答案就是 `count`。
+ */
+export function verifierBill(timed: readonly { verifier: string; ms: number }[]): BillRow[] {
+  const by = new Map<string, { count: number; totalMs: number }>()
+  for (const { verifier, ms } of timed) {
+    const row = by.get(verifier) ?? { count: 0, totalMs: 0 }
+    row.count += 1
+    row.totalMs += ms
+    by.set(verifier, row)
+  }
+  return [...by].map(([verifier, { count, totalMs }]) => ({ verifier, count, totalMs, meanMs: totalMs / count }))
+    .sort((a, b) => b.totalMs - a.totalMs || (a.verifier < b.verifier ? -1 : a.verifier > b.verifier ? 1 : 0))
+}
+
+/**
+ * 账单怎么印：每个验证者一行，写出名字、条数、平均每条几秒（保留一位小数）、
+ * 逐条合计几秒（四舍五入到整秒）与约几分钟（保留一位小数），
+ * 以及那个乘法 ——「它每慢 1 秒，整跑串行多 <条数> 秒」。没有行就交回空数组（什么都不印）。
+ *
+ * **不写成等式。** 平均和合计各自取整，「条数 × 平均」与合计常差零点几秒（7 条、平均 1.3 秒，
+ * 合计却是 9 秒）；写成「× … = …」就是一句自己对不上的算式。
+ * 合计叫「逐条合计」不叫「串行合计」，理由在 `BillRow.totalMs`。
+ */
+export function billLines(rows: readonly BillRow[]): string[] {
+  return rows.map(r =>
+    `  ${r.verifier}：${r.count} 条，平均每条 ${(r.meanMs / 1000).toFixed(1)} 秒，逐条合计 `
+    + `${Math.round(r.totalMs / 1000)} 秒（约 ${(r.totalMs / 60000).toFixed(1)} 分钟）`
+    + ` —— 它每慢 1 秒，整跑串行多 ${r.count} 秒`)
 }
 
 /**
