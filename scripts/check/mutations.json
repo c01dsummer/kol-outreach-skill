@@ -135,7 +135,11 @@
       "why": "不再排除已联系/已屏蔽的人，导致重复打扰",
       "file": "scripts/lib/memory.ts",
       "find": "    if (e.contacted || e.blocked) { con++; continue }",
-      "replace": "    if (false) { con++; continue }"
+      "replace": "    if (false) { con++; continue }",
+      "by": "test",
+      "kills": [
+        "记忆完好时只剩没联系过的那个"
+      ]
     },
     {
       "id": "M-P5-a",
@@ -423,7 +427,11 @@
       "why": "「问过、而那一次的条数没记下来」在报告上被印成 0 —— 而盘上那一格是 null：HTML 说「找到 0 条」、meta.json 说「无从确认」，同一份交付物两处对不上，运营看的是前者，据此把一个已经付过钱、条数其实未知的词判成没人",
       "file": "scripts/lib/report.ts",
       "find": "    : k.found === null || k.found === undefined ? '未知'\n    : String(k.found)",
-      "replace": "    : String(k.found ?? 0)"
+      "replace": "    : String(k.found ?? 0)",
+      "by": "test",
+      "kills": [
+        "「找到」那一列四态俱全，逐格对得上：量出来的 0 印 0，没测量的不印 0"
+      ]
     },
     {
       "id": "M-P5-u",
@@ -431,7 +439,11 @@
       "why": "「查了 0 命中」被印成「—」—— 量出来的零和无从确认长得一模一样，运营分不出「这个词真没人」和「这个词的数没测到」，而前者该换词、后者该重跑（渲染口径同 P1.e）",
       "file": "scripts/lib/report.ts",
       "find": "    : String(k.found)",
-      "replace": "    : k.found === 0 ? '—' : String(k.found)"
+      "replace": "    : k.found === 0 ? '—' : String(k.found)",
+      "by": "test",
+      "kills": [
+        "「找到」那一列四态俱全，逐格对得上：量出来的 0 印 0，没测量的不印 0"
+      ]
     },
     {
       "id": "M-P5-v",
@@ -499,7 +511,11 @@
       "why": "跨平台合并时把「来源无从确认」的那一边当成空集 —— 合出来的人看着归得清，实际少了一半来源；整张表于是从「无从确认」翻成一串偏小却像测量值的数",
       "file": "scripts/lib/identity.ts",
       "find": "    primary.source_tasks = mine !== undefined && theirs !== undefined\n      ? [...new Set([...mine, ...theirs])].sort((a, b) => a - b)\n      : undefined",
-      "replace": "    primary.source_tasks = [...new Set([...(mine ?? []), ...(theirs ?? [])])].sort((a, b) => a - b)"
+      "replace": "    primary.source_tasks = [...new Set([...(mine ?? []), ...(theirs ?? [])])].sort((a, b) => a - b)",
+      "by": "test",
+      "kills": [
+        "一边的来源无从确认 → 合出来的人也无从确认，不留一个看着归得清的残集"
+      ]
     },
     {
       "id": "M-U3-d",
@@ -507,7 +523,11 @@
       "why": "「入围」那一列的接线换成条目数 —— 两个单位不同的数（供应商返回的条目 vs 过完闸门还在名单上的人）在表上变成同一个，正是本条撤掉命中率那一列要避免的那种合并；运营据此以为每一条内容都出了一个人",
       "file": "scripts/lib/report.ts",
       "find": "<td>${esc(countText(k.shortlisted))}</td>",
-      "replace": "<td>${esc(countText(k.found))}</td>"
+      "replace": "<td>${esc(countText(k.found))}</td>",
+      "by": "test",
+      "kills": [
+        "「入围」那一列是人数，不是条目数 —— 和「找到」不是同一个数"
+      ]
     },
     {
       "id": "M-U3-e",
@@ -515,7 +535,11 @@
       "why": "渲染那一侧再筛一道，只留查询过的行 —— 数据层已经把每个任务都列出来了，报告却把没查过的那几行丢掉：看不见的方向等于不存在的方向，而这正是 IG 为零时最贵的那一半",
       "file": "scripts/lib/report.ts",
       "find": "  const kwRows = (meta.keywords ?? []).map((k: any) => `",
-      "replace": "  const kwRows = (meta.keywords ?? []).filter((k: any) => k.status === 'queried').map((k: any) => `"
+      "replace": "  const kwRows = (meta.keywords ?? []).filter((k: any) => k.status === 'queried').map((k: any) => `",
+      "by": "test",
+      "kills": [
+        "没查过的词照样在表体里，写着「未查询」"
+      ]
     },
     {
       "id": "M-U3-f",
@@ -535,7 +559,11 @@
       "why": "跨平台同人被合并时只保留主记录那一侧的来源任务 —— 次记录那一侧的关键词从此再也归不到他，那一行少报入围",
       "file": "scripts/lib/identity.ts",
       "find": "    primary.source_tasks = mine !== undefined && theirs !== undefined\n      ? [...new Set([...mine, ...theirs])].sort((a, b) => a - b)\n      : undefined",
-      "replace": "    primary.source_tasks = mine"
+      "replace": "    primary.source_tasks = mine",
+      "by": "test",
+      "kills": [
+        "两侧的来源任务取并集 —— 漏了并集，次记录那一侧的词就再也归不到他"
+      ]
     },
     {
       "id": "M-U3-h",
@@ -651,7 +679,11 @@
       "file": "scripts/lib/pipeline.ts",
       "why": "这张表里有这个键、而值认不出时不再读作无从确认，改成往下掉去问分页游标 —— 一个写脏的值在游标里恰好没有这个键时会被读成「确知一页都没抓过」，那个词当场又拿到一份满配额",
       "find": "  if (pages !== undefined && i in pages) {",
-      "replace": "  if (false) {"
+      "replace": "  if (false) {",
+      "by": "test",
+      "kills": [
+        "值不是非负整数 → 读作无从确认，不读作 0"
+      ]
     },
     {
       "id": "M-D6-ak",
@@ -941,7 +973,11 @@
       "why": "任务目录里没有分页记录表时读成「每个关键词都没问过」—— 而那种目录是上一版留下的，词早就问过、钱早就付过，于是整批重抓一遍，用户为同一批人付两次钱",
       "file": "scripts/lib/pipeline.ts",
       "find": "  if (offsets === undefined) return null\n  return state.tasks",
-      "replace": "  if (offsets === undefined) return state.tasks.map((_, i) => i)\n  return state.tasks"
+      "replace": "  if (offsets === undefined) return state.tasks.map((_, i) => i)\n  return state.tasks",
+      "by": "test",
+      "kills": [
+        "无从确认 → 一个都不去抓"
+      ]
     },
     {
       "id": "M-F9-h",
@@ -1033,7 +1069,11 @@
       "why": "受众降权跑在分层之前 —— 降完立刻被重新算出来的分层覆盖，地域不达标的人照样留在 A 级被直接发信",
       "file": "scripts/lib/pipeline.ts",
       "find": "    const score = scoreCreator(c)\n    c.score = score\n    c.tier = tierOf(c, score)\n    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') {\n      const from = c.tier\n      c.tier = DEMOTE[c.tier]\n      if (from !== c.tier) c.tier_adjustments.push({\n        kind: 'audience_geo', from, to: c.tier,\n        reason: `${market} 受众占比低于 30%`,\n      })\n    }",
-      "replace": "    const score = scoreCreator(c)\n    c.score = score\n    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') {\n      const from = tierOf(c, score)\n      c.tier = DEMOTE[from]\n      if (from !== c.tier) c.tier_adjustments.push({\n        kind: 'audience_geo', from, to: c.tier,\n        reason: `${market} 受众占比低于 30%`,\n      })\n    }\n    c.tier = tierOf(c, score)"
+      "replace": "    const score = scoreCreator(c)\n    c.score = score\n    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)\n    if (geo === 'drop') return false\n    if (geo === 'demote') {\n      const from = tierOf(c, score)\n      c.tier = DEMOTE[from]\n      if (from !== c.tier) c.tier_adjustments.push({\n        kind: 'audience_geo', from, to: c.tier,\n        reason: `${market} 受众占比低于 30%`,\n      })\n    }\n    c.tier = tierOf(c, score)",
+      "by": "test",
+      "kills": [
+        "两项独立风险可连续降级"
+      ]
     },
     {
       "id": "M-F8-a",
@@ -1041,7 +1081,11 @@
       "why": "公开信号高风险不再降级 —— 高异常账号会留在 A 级被直接联系",
       "file": "scripts/lib/pipeline.ts",
       "find": "    if (applyAudienceRiskPenalty(c) === 'demote') {",
-      "replace": "    if (false) {"
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": [
+        "高风险只降一级"
+      ]
     },
     {
       "id": "M-U1-b",
@@ -1153,7 +1197,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "文档归进源码同一个预算 —— 两千行只追加的决策记录和四百行改了控制流的代码在同一个数里互相稀释,而那正是最该被拆开的情形",
       "find": "  if (path.endsWith('.md')) return '文档'",
-      "replace": "  if (path.endsWith('.md')) return '源码'"
+      "replace": "  if (path.endsWith('.md')) return '源码'",
+      "by": "test",
+      "kills": [
+        "决策记录算文档"
+      ]
     },
     {
       "id": "M-H9-b",
@@ -1169,7 +1217,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "指名了类别就放行,理由可以不写 —— 豁免退化成一个开关,没人知道当初为什么放它过去",
       "find": "  const parts = /^(\\S+)\\s+(.+)$/.exec(rest)",
-      "replace": "  const parts = /^(\\S+)\\s*(.*)$/.exec(rest)"
+      "replace": "  const parts = /^(\\S+)\\s*(.*)$/.exec(rest)",
+      "by": "test",
+      "kills": [
+        "指名了类别但没写理由，不放行"
+      ]
     },
     {
       "id": "M-H9-e",
@@ -1177,7 +1229,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "豁免从整条提交信息里找,不再限定在末尾那段指令区 —— 正文里举例说明这个语法的那一行就把这一类豁免了",
       "find": "  for (const line of trailerLines(message)) {\n    const v = judgeExemption(line)",
-      "replace": "  for (const line of message.split('\\n')) {\n    const v = judgeExemption(line)"
+      "replace": "  for (const line of message.split('\\n')) {\n    const v = judgeExemption(line)",
+      "by": "test",
+      "kills": [
+        "正文里的 size-ok 一律不算 —— 围栏、注释、缩进都不必再分别处理"
+      ]
     },
     {
       "id": "M-H9-f",
@@ -1185,7 +1241,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "一条豁免放行四类 —— 豁免掉源码顺手把文档也放过去,最该被看见的那一类被顺手带过去",
       "find": "    const mine = waivers.filter(w => w.category === c)",
-      "replace": "    const mine = waivers"
+      "replace": "    const mine = waivers",
+      "by": "test",
+      "kills": [
+        "豁免了源码，文档照样拦下 —— 一个豁免不放行四类"
+      ]
     },
     {
       "id": "M-H9-g",
@@ -1193,7 +1253,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "读不懂的那一行静默计零 —— 一个读错了还照常给数的闸门,比没有闸门更糟",
       "find": "    if (!rec) throw new Error(`numstat 记录读不懂（缺分隔符）：${JSON.stringify(fields[i])}`)",
-      "replace": "    if (!rec) continue"
+      "replace": "    if (!rec) continue",
+      "by": "test",
+      "kills": [
+        "缺分隔符的记录当场抛，不当成 0 行"
+      ]
     },
     {
       "id": "M-H9-h",
@@ -1201,7 +1265,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "写歪的 size-ok 不再让检查失败 —— 它作为一句看起来像豁免的话留在历史里,下一个人会以为这一类已经被放行过",
       "find": "    ok: over.length === 0 && unjustified.length === 0,",
-      "replace": "    ok: over.length === 0,"
+      "replace": "    ok: over.length === 0,",
+      "by": "test",
+      "kills": [
+        "写了不成立的 size-ok，即使没超线也失败 —— 否则它会被当成挡箭牌留在历史里"
+      ]
     },
     {
       "id": "M-H42-a",
@@ -1365,7 +1433,11 @@
       "file": "scripts/check/adr-rule.ts",
       "why": "两个文件占同一个编号不再报错 —— 而这是撞号唯一的闸：git 那头拦不可靠（文件名撞不撞看两个标题过完有损的 slugify 之后一不一样，多数时候是两份同号记录各自干净落地，什么也没挡住），拿掉它，两条分支抢了同一个号、两份记录又各自作为不同文件留了下来时，就再也没有东西看得见",
       "find": "    if (prev) errors.push(`ADR-${pad(a.num)} 被两个文件同时占用:${prev} 与 ${a.file} —— 编号不复用`)\n    else seen.set(a.num, a.file)",
-      "replace": "    seen.set(a.num, a.file)"
+      "replace": "    seen.set(a.num, a.file)",
+      "by": "test",
+      "kills": [
+        "撞号报一条错"
+      ]
     },
     {
       "id": "M-H10-b",
@@ -1373,7 +1445,11 @@
       "file": "scripts/check/adr-rule.ts",
       "why": "文件名与正文里的编号对不上也放行 —— 索引会指到一个说着别的编号的文件,而下游引用的是编号",
       "find": "    if (a.file !== want) errors.push(`${a.file} 的文件名与正文标题对不上,应为 ${want}`)",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "改了标题却没改文件名，报错"
+      ]
     },
     {
       "id": "M-H10-e",
@@ -1381,7 +1457,11 @@
       "file": "scripts/check/adr-rule.ts",
       "why": "文件名截断按码元数,不按码点 —— 31 个汉字后面跟一个 emoji,切口正好落在它中间,写盘时那半个字符被换掉,盘上的名字和算出来的名字不是同一个,拆分刚写出的文件当场被判文件名与正文不符",
       "find": "  [...title.replace(/[\\/\\\\:*?\"<>|#[\\]()「」『』（）,。.]/g, '').replace(/\\s+/g, '-')]\n    .slice(0, 32).join('')",
-      "replace": "  title.replace(/[\\/\\\\:*?\"<>|#[\\]()「」『』（）,。.]/g, '').replace(/\\s+/g, '-')\n    .slice(0, 32)"
+      "replace": "  title.replace(/[\\/\\\\:*?\"<>|#[\\]()「」『』（）,。.]/g, '').replace(/\\s+/g, '-')\n    .slice(0, 32)",
+      "by": "test",
+      "kills": [
+        "码点切法不留半个字符"
+      ]
     },
     {
       "id": "M-H10-f",
@@ -1389,7 +1469,11 @@
       "file": "scripts/check/adr-rule.ts",
       "why": "索引标签里的竖线不再转义 —— 标题带竖线的那条记录在索引表里多切出一列,而检查仍报「索引一致」",
       "find": "export const escapeCell = (t: string) => t.replace(/[\\\\|[\\]<>`]/g, c => '\\\\' + c)",
-      "replace": "export const escapeCell = (t: string) => t.replace(/[\\\\[\\]<>`]/g, c => '\\\\' + c)"
+      "replace": "export const escapeCell = (t: string) => t.replace(/[\\\\[\\]<>`]/g, c => '\\\\' + c)",
+      "by": "test",
+      "kills": [
+        "标签里的竖线转义，不然多切一列"
+      ]
     },
     {
       "id": "M-H10-g",
@@ -1397,7 +1481,11 @@
       "file": "scripts/check/adr-rule.ts",
       "why": "索引按字典序排 —— ADR-9 排到 ADR-58 后面,而索引本来就是给人按号找记录用的",
       "find": "  const rows = [...adrs].sort((a, b) => a.num - b.num)",
-      "replace": "  const rows = [...adrs].sort((a, b) => (String(a.num) < String(b.num) ? -1 : 1))"
+      "replace": "  const rows = [...adrs].sort((a, b) => (String(a.num) < String(b.num) ? -1 : 1))",
+      "by": "test",
+      "kills": [
+        "按数字排序而不是按字典序，且空号不报错"
+      ]
     },
     {
       "id": "M-H10-h",
@@ -1405,7 +1493,11 @@
       "file": "scripts/check/adr-rule.ts",
       "why": "END 标记在 BEGIN 之前也当正常 —— 回写会在前半段留下 END、后半段再抄一遍 BEGIN,索引被写坏,而那正是报错时让人去跑的那条命令",
       "find": "  if (j < i) return 'reversed'",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "END 在 BEGIN 之前 → reversed（两个下标都非负，只查在不在会放行）"
+      ]
     },
     {
       "id": "M-H10-i",
@@ -1413,7 +1505,11 @@
       "file": "scripts/check/adr-rule.ts",
       "why": "链接目标里的百分号不编码 —— 标题里含 %20 的那条记录,链接指向另一个文件名,而检查仍报一致",
       "find": "  t.replace(/[ %()#[\\]<>\"]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'))",
-      "replace": "  t.replace(/[ ()#[\\]<>\"]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'))"
+      "replace": "  t.replace(/[ ()#[\\]<>\"]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'))",
+      "by": "test",
+      "kills": [
+        "字面量 % 编成 %25"
+      ]
     },
     {
       "id": "M-H11-a",
@@ -1421,7 +1517,11 @@
       "file": "scripts/check/trailer.ts",
       "why": "最后一段不必整段都是指令也算指令区 —— 一条以示例结尾的提交信息,那个示例就成了指令区,超线的改动靠「文档里举了个例子」混过闸门",
       "find": "  if (!last.length || !last.every(l => TRAILER.test(l))) return []",
-      "replace": "  if (!last.length) return []"
+      "replace": "  if (!last.length) return []",
+      "by": "test",
+      "kills": [
+        "最后一段是围栏示例 → 整段不算指令区"
+      ]
     },
     {
       "id": "M-H12-a",
@@ -1429,7 +1529,11 @@
       "file": "scripts/check/quoted.ts",
       "why": "更短的同种围栏也算闭合 —— 四个反引号开的块被三个反引号提前关上,块里的记录标题露出来当成分节,拆分把真记录截断、再写出一条假记录",
       "find": "        && run[1].length >= state.fence.len",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "更短的同种标记不闭合"
+      ]
     },
     {
       "id": "M-H12-b",
@@ -1437,7 +1541,11 @@
       "file": "scripts/check/quoted.ts",
       "why": "跨行 HTML 注释不再盖住 —— 注释里举例的记录标题被当成分节,拆分动的是决策历史本身,这一错不可逆",
       "find": "    if (line.includes('<!--')) {",
-      "replace": "    if (false) {"
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": [
+        "跨行 HTML 注释"
+      ]
     },
     {
       "id": "M-H13-a",
@@ -1445,7 +1553,11 @@
       "why": "判定模块没有变异也不点名 —— 新写一道闸门、只写到两拍，审计照样绿，ADR-59 那张欠条的形状原样重演",
       "file": "scripts/check/audit-rule.ts",
       "find": "  return modules.filter(m => !guarded.has(m))",
-      "replace": "  return []"
+      "replace": "  return []",
+      "by": "test",
+      "kills": [
+        "没有变异指向它的判定模块被点名"
+      ]
     },
     {
       "id": "M-H13-b",
@@ -1453,7 +1565,11 @@
       "why": "入口脚本也被当成判定模块 —— 每个入口都得配变异，而入口里本不该有可变异的判定；这条检查会因为满屏假阳性被忽略",
       "file": "scripts/check/audit-rule.ts",
       "find": "  return files.filter(f => !f.entry && !(f.path in JUDGMENT_EXEMPT)).map(f => f.path).sort()",
-      "replace": "  return files.filter(f => !(f.path in JUDGMENT_EXEMPT)).map(f => f.path).sort()"
+      "replace": "  return files.filter(f => !(f.path in JUDGMENT_EXEMPT)).map(f => f.path).sort()",
+      "by": "test",
+      "kills": [
+        "入口不算、豁免的不算，其余都算"
+      ]
     },
     {
       "id": "M-H13-c",
@@ -1461,7 +1577,11 @@
       "why": "作废的需求混回计量 —— 覆盖率的分母把已经不做的事也算上，「还差多少」成了虚报的数，人会去补一条不该存在的测试",
       "file": "scripts/check/audit-rule.ts",
       "find": "  return { live: active(all), deprecated: all.filter(r => r.deprecated) }",
-      "replace": "  return { live: all, deprecated: all.filter(r => r.deprecated) }"
+      "replace": "  return { live: all, deprecated: all.filter(r => r.deprecated) }",
+      "by": "test",
+      "kills": [
+        "作废的不进计量"
+      ]
     },
     {
       "id": "M-H13-d",
@@ -1469,7 +1589,11 @@
       "why": "作废的被过滤掉之后不再留下 —— 只过滤不展示，那条需求从审计里彻底消失，「它为什么不见了」查不到出处",
       "file": "scripts/check/audit-rule.ts",
       "find": "  return { live: active(all), deprecated: all.filter(r => r.deprecated) }",
-      "replace": "  return { live: active(all), deprecated: [] }"
+      "replace": "  return { live: active(all), deprecated: [] }",
+      "by": "test",
+      "kills": [
+        "作废的单独留着，不是丢掉"
+      ]
     },
     {
       "id": "M-H13-e",
@@ -1477,7 +1601,11 @@
       "req": "harness",
       "file": "scripts/check/audit-rule.ts",
       "find": "                       `${r.deprecated!.superseded_by ? ` → ${r.deprecated!.superseded_by}` : ''}`)",
-      "replace": "                       '')"
+      "replace": "                       '')",
+      "by": "test",
+      "kills": [
+        "有取代者就指出来"
+      ]
     },
     {
       "id": "M-H14-a",
@@ -1797,7 +1925,11 @@
       "why": "解析成功就当结构没问题 —— 一份合法 JSON、错误结构的记忆让打扰过和已拉黑的人全部重新进名单，而状态报的是「读到了」",
       "file": "scripts/lib/memory.ts",
       "find": "  const bad = shapeProblem(parsed)\n  if (bad) return { status: 'unreadable', detail: `结构不对 —— ${bad}` }",
-      "replace": "  /* mutated */"
+      "replace": "  /* mutated */",
+      "by": "test",
+      "kills": [
+        "结构不对时也不得交出一份含已联系者的名单"
+      ]
     },
     {
       "id": "M-D4-a",
@@ -1805,7 +1937,11 @@
       "why": "把「读不出来」报成「文件不存在」—— 交付物上再也分不清「确实没人需要过滤」和「没查到」",
       "file": "scripts/lib/memory.ts",
       "find": "      memory_status: 'unreadable_ignored',",
-      "replace": "      memory_status: 'absent',"
+      "replace": "      memory_status: 'absent',",
+      "by": "test",
+      "kills": [
+        "显式跳过不得伪装成 absent"
+      ]
     },
     {
       "id": "M-D4-b",
@@ -1833,7 +1969,11 @@
       "why": "任何一种读失败都算成「盘上没有这个文件」—— 权限不足、父路径不是目录或 IO 出错时，名单照出还报「记忆里确实没人」，已联系的人重新进名单",
       "file": "scripts/lib/atomic.ts",
       "find": "  (e as NodeJS.ErrnoException | null)?.code === 'ENOENT'",
-      "replace": "  true"
+      "replace": "  true",
+      "by": "test",
+      "kills": [
+        "读不到但不是「不存在」→ 当作读不出来，不是空记忆"
+      ]
     },
     {
       "id": "M-D4-k",
@@ -1909,7 +2049,11 @@
       "why": "必填文字字段只看类型不看有没有内容 —— 这是那条判据本身，读进来、写出去问的都是它。它一松，一条产品名全是空格的推荐记录就既存得进去、又读得出来，而它永远匹配不上任何产品：那条去重记录等于不存在，人会被重新推荐一次",
       "file": "scripts/lib/types.ts",
       "find": "  typeof v !== 'string' ? `不是字符串（${typeof v}）`\n    : !v.trim() ? '是空的'\n      : undefined",
-      "replace": "  typeof v !== 'string' ? `不是字符串（${typeof v}）` : undefined"
+      "replace": "  typeof v !== 'string' ? `不是字符串（${typeof v}）` : undefined",
+      "by": "test",
+      "kills": [
+        "产品名是空白时拒绝写回"
+      ]
     },
     {
       "id": "M-D1-a",
@@ -1917,7 +2061,11 @@
       "why": "身份键只把用户名转小写、不管平台名 —— 平台名大小写不同的两条记录会被当成两个人，去重放过一个、记忆也查不到他，已联系的人重新进名单",
       "file": "scripts/lib/types.ts",
       "find": "  `${c.platform.toLowerCase()}:${c.handle.toLowerCase()}`",
-      "replace": "  `${c.platform}:${c.handle.toLowerCase()}`"
+      "replace": "  `${c.platform}:${c.handle.toLowerCase()}`",
+      "by": "test",
+      "kills": [
+        "平台名大小写不同也是同一个人"
+      ]
     },
     {
       "id": "M-P4-f",
@@ -2073,7 +2221,11 @@
       "why": "名单和它的去重状态改成两步落盘 —— 中间被打断时，盘上会留下一份没去重的名单配一句「已去重」的声明，报告据此压掉警告，把打扰过、已拉黑的人当成去过重的交付出去",
       "file": "scripts/lib/task.ts",
       "find": "  state.memory_status = 'unknown'\n  saveTask(dir, state)\n  // 二、换名单\n  saveCreators(dir, creators)",
-      "replace": "  saveCreators(dir, creators)"
+      "replace": "  saveCreators(dir, creators)",
+      "by": "test",
+      "kills": [
+        "而盘上的状态停在「无从确认」，不是刚要断言的那个 ok"
+      ]
     },
     {
       "id": "M-D4-c",
@@ -2081,7 +2233,11 @@
       "why": "落盘改成直接盖原文件 —— 写到一半被打断就留下一份截断的 JSON。跨任务记忆坏了「谁联系过」永久消失（它是唯一一份），任务目录里的坏了续跑起不来、已经花钱抓到的东西找不回来",
       "file": "scripts/lib/atomic.ts",
       "find": "  const tmp = `${target}.${process.pid}.tmp`",
-      "replace": "  const tmp = target"
+      "replace": "  const tmp = target",
+      "by": "test",
+      "kills": [
+        "任务目录写不进去时抛出来"
+      ]
     },
     {
       "id": "M-D4-e",
@@ -2101,7 +2257,11 @@
       "why": "整体替换时不再把目标文件原有的权限位带过去 —— 改名换掉的是整个 inode，权限跟着新文件走：用户特意收紧过的记忆、任务数据与开发信草稿，每成功写一次就被悄悄放开一次",
       "file": "scripts/lib/atomic.ts",
       "find": "    chmodSync(tmp, mode ?? (0o666 & ~process.umask()))",
-      "replace": "    chmodSync(tmp, 0o666 & ~process.umask())"
+      "replace": "    chmodSync(tmp, 0o666 & ~process.umask())",
+      "by": "test",
+      "kills": [
+        "目标比临时文件宽时也照样还原，不是停在最严那一档"
+      ]
     },
     {
       "id": "M-D4-w",
@@ -2109,7 +2269,11 @@
       "why": "新文件停在临时文件那一档最严的权限 —— 临时文件建得严是为了盖住写入那段窗口，不是替产品决定新文件该多严；每个新建的任务状态、名单、增强结果都变成只有属主可读，而说明里写的是「保持默认」",
       "file": "scripts/lib/atomic.ts",
       "find": "    chmodSync(tmp, mode ?? (0o666 & ~process.umask()))",
-      "replace": "    if (mode !== undefined) chmodSync(tmp, mode)"
+      "replace": "    if (mode !== undefined) chmodSync(tmp, mode)",
+      "by": "test",
+      "kills": [
+        "新文件按 umask 默认，不是临时文件那档最严的"
+      ]
     },
     {
       "id": "M-D4-x",
@@ -2117,7 +2281,11 @@
       "why": "目标是一条软链时，整体替换把链接本身换成普通文件 —— 用户配好的那份真正的记忆从此不再更新，而交付物照样声明「已记入」。静默地停止记录，是这条需求最不能出现的坏法",
       "file": "scripts/lib/atomic.ts",
       "find": "  const target = writeTarget(file)",
-      "replace": "  const target = file"
+      "replace": "  const target = file",
+      "by": "test",
+      "kills": [
+        "链接还是链接，没被换成普通文件"
+      ]
     },
     {
       "id": "M-D4-j",
@@ -2125,7 +2293,11 @@
       "why": "临时名上已经有残留时直接复用它 —— 带着同一个进程号死掉的前任留下的临时文件权限已被调宽，这一次的联系历史就在宽权限下敞开着写；残留是条软链时，内容还会顺着它写到别处去",
       "file": "scripts/lib/atomic.ts",
       "find": "    rmSync(tmp, { force: true })\n    fd = openSync(tmp, 'wx', 0o600)",
-      "replace": "    fd = openSync(tmp, 'w', 0o600)"
+      "replace": "    fd = openSync(tmp, 'w', 0o600)",
+      "by": "test",
+      "kills": [
+        "没有顺着残留的软链写到别处去"
+      ]
     },
     {
       "id": "M-D4-d",
@@ -2133,7 +2305,11 @@
       "why": "kol.csv 的落盘绕开整体替换、直接盖原文件 —— render 写到一半被打断时留下半截 CSV，而上一份完整的名单已经没了",
       "file": "scripts/lib/csv.ts",
       "find": "import { writeFileAtomic } from './atomic.js'",
-      "replace": "import { writeFileSync as writeFileAtomic } from 'node:fs'"
+      "replace": "import { writeFileSync as writeFileAtomic } from 'node:fs'",
+      "by": "test",
+      "kills": [
+        "kol.csv 写不进去时抛出来"
+      ]
     },
     {
       "id": "M-D4-p",
@@ -2141,7 +2317,11 @@
       "why": "kol.xlsx 的落盘绕开整体替换、直接盖原文件 —— render 写到一半被打断时留下一个打不开的半截 ZIP，而上一份完整的已经没了",
       "file": "scripts/lib/xlsx.ts",
       "find": "import { writeFileAtomic } from './atomic.js'",
-      "replace": "import { writeFileSync as writeFileAtomic } from 'node:fs'"
+      "replace": "import { writeFileSync as writeFileAtomic } from 'node:fs'",
+      "by": "test",
+      "kills": [
+        "kol.xlsx 写不进去时抛出来"
+      ]
     },
     {
       "id": "M-D4-r",
@@ -2149,7 +2329,11 @@
       "why": "目标是只读的照样被换掉 —— 用户特意把记忆或任务文件设成只读，直接写会被拒，整体替换却悄悄绕过去：文件被改了，没人知道，交付物还说已记入",
       "file": "scripts/lib/atomic.ts",
       "find": "  if (mode !== undefined) {\n    if ((mode & 0o222) === 0) throw readOnly(target)\n    accessSync(target, constants.W_OK)\n  }\n",
-      "replace": "  /* mutated */\n"
+      "replace": "  /* mutated */\n",
+      "by": "test",
+      "kills": [
+        "只读的记忆不被替换 —— 报未写回"
+      ]
     },
     {
       "id": "M-D4-h",
@@ -2157,7 +2341,11 @@
       "why": "写回前不再清掉已死进程留下的临时文件 —— 一次硬杀之后，盘上永远躺着一份完整的记忆副本，而它谁也不属于",
       "file": "scripts/lib/atomic.ts",
       "find": "  sweepStaleTemps(target)\n",
-      "replace": "  /* mutated */\n"
+      "replace": "  /* mutated */\n",
+      "by": "test",
+      "kills": [
+        "死掉的进程留下的临时文件被清掉"
+      ]
     },
     {
       "id": "M-D4-i",
@@ -2165,7 +2353,11 @@
       "why": "清临时文件时不管那个进程还活着没有 —— 两个任务同时跑时，会把对方正在写的那一份删掉",
       "file": "scripts/lib/atomic.ts",
       "find": "    if (alive(pid) && ageMs < TMP_MAX_AGE_MS) continue",
-      "replace": "    /* mutated */"
+      "replace": "    /* mutated */",
+      "by": "test",
+      "kills": [
+        "活着的进程的临时文件不动"
+      ]
     },
     {
       "id": "M-D4-l",
@@ -2173,7 +2365,11 @@
       "why": "清临时文件时只看那个进程号还在不在，不看文件活了多久 —— 进程号被系统回收给一个长命进程之后，那份完整的记忆副本就再也清不掉了，永远躺在盘上",
       "file": "scripts/lib/atomic.ts",
       "find": "    if (alive(pid) && ageMs < TMP_MAX_AGE_MS) continue",
-      "replace": "    if (alive(pid)) continue"
+      "replace": "    if (alive(pid)) continue",
+      "by": "test",
+      "kills": [
+        "pid 被回收给别的进程时，靠年龄兜底清掉孤儿"
+      ]
     },
     {
       "id": "M-D4-y",
@@ -2181,7 +2377,11 @@
       "why": "清理孤儿临时文件时照着配置里那个路径扫，而不是照着写回真正落在的那个文件扫 —— 目标是软链时两者不是一个目录，硬杀留下的那份完整联系历史就永远躺在盘上，没人知道",
       "file": "scripts/lib/atomic.ts",
       "find": "  sweepStaleTemps(target)\n",
-      "replace": "  sweepStaleTemps(file)\n"
+      "replace": "  sweepStaleTemps(file)\n",
+      "by": "test",
+      "kills": [
+        "终点旁边的孤儿也被清掉了"
+      ]
     },
     {
       "id": "M-D4-z",
@@ -2189,7 +2389,11 @@
       "why": "残留清不掉时让整次写回跟着失败 —— 盘上多一份副本本来只是碍眼，现在变成这一轮的推荐记录全丢",
       "file": "scripts/lib/atomic.ts",
       "find": "    try { rmSync(join(dir, name), { force: true }) } catch { /* 留着，下次再试 */ }",
-      "replace": "    rmSync(join(dir, name), { force: true })"
+      "replace": "    rmSync(join(dir, name), { force: true })",
+      "by": "test",
+      "kills": [
+        "残留清不掉时写回照常成功"
+      ]
     },
     {
       "id": "M-D4-aa",
@@ -2229,7 +2433,11 @@
       "why": "写回失败时不再清掉半成品 —— 那一刻盘上躺着一份完整的内容副本，名字带进程号，没有任何人被告知它在那儿；而调用方拿到的是「没写回」、照常交付。要删掉它只能等同一个进程再写一次同一个文件，可写回失败往往就是最后一次写",
       "file": "scripts/lib/atomic.ts",
       "find": "    try { rmSync(tmp, { force: true }) } catch { /* 同上 */ }\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "写回失败时半成品不留在盘上"
+      ]
     },
     {
       "id": "M-H4-a",
@@ -3276,7 +3484,11 @@
       "why": "判据号那一族的分类条件反过来：收进来的全是需求号，判据级的负片在报告里又一个字都没有 —— 正是本次改动要治的那件事，方向还是低报证据",
       "file": "scripts/check/audit-rule.ts",
       "find": "  return new Set(mutations.map(m => m.req).filter(id => id.includes('.')))",
-      "replace": "  return new Set(mutations.map(m => m.req).filter(id => !id.includes('.')))"
+      "replace": "  return new Set(mutations.map(m => m.req).filter(id => !id.includes('.')))",
+      "by": "test",
+      "kills": [
+        "带点的是判据号，收进来"
+      ]
     },
     {
       "id": "M-H22-b",
@@ -3284,7 +3496,11 @@
       "why": "不再分类，把两种编号一并收进来：每条需求都被算成「它自己那条变异也守着它的判据」，凭空多出一片判据级的证据",
       "file": "scripts/check/audit-rule.ts",
       "find": "new Set(mutations.map(m => m.req).filter(id => id.includes('.')))",
-      "replace": "new Set(mutations.map(m => m.req))"
+      "replace": "new Set(mutations.map(m => m.req))",
+      "by": "test",
+      "kills": [
+        "不带点的是需求号，不收"
+      ]
     },
     {
       "id": "M-H22-c",
@@ -3292,7 +3508,11 @@
       "why": "分类结果一律交空集合：报告退回判据级负片一个字都没有，而单元测试与那一整批格式断言都还绿着",
       "file": "scripts/check/audit-rule.ts",
       "find": "new Set(mutations.map(m => m.req).filter(id => id.includes('.')))",
-      "replace": "new Set<string>()"
+      "replace": "new Set<string>()",
+      "by": "test",
+      "kills": [
+        "带点的是判据号，收进来"
+      ]
     },
     {
       "id": "M-D6-j",
@@ -3701,7 +3921,11 @@
       "why": "汇总里入口认领那一栏连两边都认领过的也数进去 —— 同一条判据被数两遍，三栏加起来比总数还大",
       "file": "scripts/check/audit-rule.ts",
       "find": "       + ` · 入口认领 ${n(all, entryOnly)}`",
-      "replace": "       + ` · 入口认领 ${n(all, id => entry.has(id))}`"
+      "replace": "       + ` · 入口认领 ${n(all, id => entry.has(id))}`",
+      "by": "test",
+      "kills": [
+        "三栏互不重叠，红线那三栏正好分完红线判据"
+      ]
     },
     {
       "id": "M-H29-b",
@@ -3709,7 +3933,11 @@
       "why": "红线那半的入口认领报成了全体的数 —— 报告说红线这边认领得比实际多，撤豁免的判断会照着一个虚的数做",
       "file": "scripts/check/audit-rule.ts",
       "find": "       + ` · 入口认领 ${n(redline, entryOnly)}`",
-      "replace": "       + ` · 入口认领 ${n(all, entryOnly)}`"
+      "replace": "       + ` · 入口认领 ${n(all, entryOnly)}`",
+      "by": "test",
+      "kills": [
+        "交换两份认领的名单，各栏跟着换"
+      ]
     },
     {
       "id": "M-H29-c",
@@ -3725,7 +3953,11 @@
       "why": "已经被自检端到端跑过的判据在汇总里仍算成显式缺口 —— 逐条那一头早把它算成认领了，同一份报告两种说法",
       "file": "scripts/check/audit-rule.ts",
       "find": "  const gapOnly = (id: string): boolean =>\n    exempt.has(id) && !tested.has(id) && !entry.has(id)",
-      "replace": "  const gapOnly = (id: string): boolean =>\n    exempt.has(id) && !tested.has(id)"
+      "replace": "  const gapOnly = (id: string): boolean =>\n    exempt.has(id) && !tested.has(id)",
+      "by": "test",
+      "kills": [
+        "三栏互不重叠，红线那三栏正好分完红线判据"
+      ]
     },
     {
       "id": "M-H30-a",
@@ -3733,7 +3965,11 @@
       "why": "两边都认领过的判据在汇总里数两遍 —— 三栏加起来超过总数，读的人以为覆盖得比实际多",
       "file": "scripts/check/audit-rule.ts",
       "find": "  const entryOnly = (id: string): boolean => entry.has(id) && !tested.has(id)",
-      "replace": "  const entryOnly = (id: string): boolean => entry.has(id)"
+      "replace": "  const entryOnly = (id: string): boolean => entry.has(id)",
+      "by": "test",
+      "kills": [
+        "三栏互不重叠，红线那三栏正好分完红线判据"
+      ]
     },
     {
       "id": "M-H28-a",
@@ -3793,7 +4029,11 @@
       "why": "不管变异改跑的是哪个验证者，一律算数 —— 于是一条够不到入口的普通负片就能替只由自检认领的判据过关",
       "file": "scripts/check/audit-rule.ts",
       "find": "  return new Set(mutations.filter(m => m.by === 'selfcheck').map(m => m.req)\n    .filter(id => id.includes('.')))",
-      "replace": "  return new Set(mutations.map(m => m.req).filter(id => id.includes('.')))"
+      "replace": "  return new Set(mutations.map(m => m.req).filter(id => id.includes('.')))",
+      "by": "test",
+      "kills": [
+        "别的验证者不收"
+      ]
     },
     {
       "id": "M-H33-a",
@@ -4375,7 +4615,11 @@
       "file": "scripts/check/debt-rule.ts",
       "why": "冒号之前放开成随便什么 —— 一句在谈论这个机制的叙述会被收成一条真条件，于是它所在的那个欠条块被判成「写了条件」，真正没写的那些就报不出来，而报不出来正是这道闸门放行的意思",
       "find": "  /重启条件(?:收紧|不变|放宽|改为|[（(][^）)\\n]{0,30}[）)])?\\s*[：:]/",
-      "replace": "  /重启条件[^：:\\n]{0,24}[：:]/"
+      "replace": "  /重启条件[^：:\\n]{0,24}[：:]/",
+      "by": "test",
+      "kills": [
+        "叙述句不算条件"
+      ]
     },
     {
       "id": "M-H41-b",
@@ -4383,7 +4627,11 @@
       "file": "scripts/check/debt-rule.ts",
       "why": "块的下界不认了，一路扫到文件末尾 —— 前一个欠条块于是白蹭到后面某一块写的条件，两块粘成一块之后，没写条件的那一块看起来是写了的",
       "find": "      while (end < lines.length &&\n             (quotedBlock ? lines[end].trimStart().startsWith('>') : lines[end].trim() !== '')) end++",
-      "replace": "      while (end < lines.length) end++"
+      "replace": "      while (end < lines.length) end++",
+      "by": "test",
+      "kills": [
+        "相邻两块不许互相顶账"
+      ]
     },
     {
       "id": "M-H41-c",
@@ -4391,7 +4639,11 @@
       "file": "scripts/check/debt-rule.ts",
       "why": "汇总末尾那句限定被拿掉 —— 台账并不知道哪一条已经还了，去掉限定之后那个条数读起来就是「还欠着这么多」，而它其实只是「抽到了这么多」",
       "find": "` —— 只抽取，不判已还、也不判这次改动踩到了谁`",
-      "replace": "''"
+      "replace": "''",
+      "by": "test",
+      "kills": [
+        "汇总要写明不判已还"
+      ]
     },
     {
       "id": "M-H41-d",
@@ -4399,7 +4651,11 @@
       "file": "scripts/check/debt-rule.ts",
       "why": "块内不再过引文遮罩 —— 一段演示「欠条该怎么写」的围栏例子里有那四个字加冒号，它替整个块交了差，于是真正没写条件的那张欠条被判成写了，而漏报正是这道闸门放行的意思",
       "find": "      const body = lines.slice(i, end).filter((_, k) => !quoted[i + k]).join('\\n')",
-      "replace": "      const body = lines.slice(i, end).join('\\n')"
+      "replace": "      const body = lines.slice(i, end).join('\\n')",
+      "by": "test",
+      "kills": [
+        "块里只有围栏示例写着条件 → 仍是孤儿"
+      ]
     },
     {
       "id": "M-H12-c",
@@ -4407,7 +4663,11 @@
       "file": "scripts/check/quoted.ts",
       "why": "引用记号不再剥了 —— 写在引用块里的围栏一行都遮不住，而这个仓库举例的地方几乎都在引用块里；一段演示怎么写欠条的例子于是被当成真条件，替那张欠条交了差，真正没写条件的那些就报不出来",
       "find": "    const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line.replace(QUOTE_PREFIX, ''))",
-      "replace": "    const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)"
+      "replace": "    const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)",
+      "by": "test",
+      "kills": [
+        "引用块里的围栏也遮"
+      ]
     },
     {
       "id": "M-H12-d",
@@ -4415,7 +4675,11 @@
       "file": "scripts/check/quoted.ts",
       "why": "反引号围栏的信息串里再带反引号也照样算开启 —— 规范不认这种开启，而认了之后，一行普通文字会把它到下一个闭合之间整段遮住，那中间可能正有一条真的重启条件，判定于是看不见该看见的东西",
       "find": "    const opensFence = run !== null && !(run[1][0] === '`' && run[2].includes('`'))",
-      "replace": "    const opensFence = run !== null"
+      "replace": "    const opensFence = run !== null",
+      "by": "test",
+      "kills": [
+        "信息串里带反引号 → 不算开启"
+      ]
     },
     {
       "id": "M-P1-i",
@@ -4491,7 +4755,11 @@
       "why": "先把请求发出去，再问预算够不够 —— 超限那一次已经发出去、已经被对面计费，用户却没确认过；最终计数一模一样，只有提交那一刻的账少记一次",
       "file": "scripts/providers/tikhub.ts",
       "find": "      const receipt = this.budget.reserve(path) // P3.c：每次 retry 按实际端点预检\n      let res: Response\n      try {\n        res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })\n      } catch (error) {\n        // D13.o：这里只包 fetch；本地等待与正文错误不能冒充无 HTTP 状态。\n        this.budget.settle(receipt, { kind: 'no_http_status' })\n        throw error\n      }\n",
-      "replace": "      let res: Response\n      try {\n        res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })\n      } catch (error) {\n        const receipt = this.budget.reserve(path)\n        this.budget.settle(receipt, { kind: 'no_http_status' })\n        throw error\n      }\n      const receipt = this.budget.reserve(path)\n"
+      "replace": "      let res: Response\n      try {\n        res = await fetch(url, { headers: { Authorization: `Bearer ${this.key}` } })\n      } catch (error) {\n        const receipt = this.budget.reserve(path)\n        this.budget.settle(receipt, { kind: 'no_http_status' })\n        throw error\n      }\n      const receipt = this.budget.reserve(path)\n",
+      "by": "test",
+      "kills": [
+        "第二次请求根本没发出去"
+      ]
     },
     {
       "id": "M-P3-e",
@@ -4873,7 +5141,11 @@
       "why": "HTML 所有行都展示第一个任务的序号",
       "file": "scripts/lib/report.ts",
       "find": "taskOrdinal(k.task_index)",
-      "replace": "taskOrdinal(0)"
+      "replace": "taskOrdinal(0)",
+      "by": "test",
+      "kills": [
+        "HTML 任务序号使用每行下标而非显示顺序"
+      ]
     },
     {
       "id": "M-U8-e",
@@ -4881,7 +5153,11 @@
       "why": "旧行没有有效任务下标时被猜成任务一，未知身份伪装成已确认",
       "file": "scripts/lib/task-label.ts",
       "find": "? String(index + 1) : '无从确认'",
-      "replace": "? String(index + 1) : '1'"
+      "replace": "? String(index + 1) : '1'",
+      "by": "test",
+      "kills": [
+        "缺失与非法任务下标一律无从确认，不从行位置或相同关键词猜补"
+      ]
     },
     {
       "id": "M-U8-f",
@@ -4973,7 +5249,11 @@
       "why": "任务标签根据话题配置添加井号，冒充实际话题搜索",
       "file": "scripts/lib/task-label.ts",
       "find": "关键词「${task.keyword}」",
-      "replace": "关键词「${task.as_hashtag ? '#' : ''}${task.keyword}」"
+      "replace": "关键词「${task.as_hashtag ? '#' : ''}${task.keyword}」",
+      "by": "test",
+      "kills": [
+        "标签不因 hashtag 配置增添字符，关键词自身的井号原样保留"
+      ]
     },
     {
       "id": "M-U8-n",
@@ -4981,7 +5261,11 @@
       "why": "HTML 根据话题配置添加搜索路径声明",
       "file": "scripts/lib/report.ts",
       "find": "<td>${esc(k.keyword)}</td>",
-      "replace": "<td>${esc(k.keyword)}${k.as_hashtag ? '(hashtag)' : ''}</td>"
+      "replace": "<td>${esc(k.keyword)}${k.as_hashtag ? '(hashtag)' : ''}</td>",
+      "by": "test",
+      "kills": [
+        "配置的 hashtag 标记不成为报告中的实际路径声明"
+      ]
     },
     {
       "id": "M-U8-o",
@@ -5121,7 +5405,11 @@
       "why": "把固定公开价目声明成未来价格上界与真实账单",
       "file": "scripts/providers/tikhub-pricing.ts",
       "find": "按固定公开基础价、不计优惠的估算；不是实际账单，也不保证供应商未来价格上限。",
-      "replace": "费用就是实际账单，并保证供应商未来价格上界。"
+      "replace": "费用就是实际账单，并保证供应商未来价格上界。",
+      "by": "test",
+      "kills": [
+        "依据不保证供应商未来价格"
+      ]
     },
     {
       "id": "M-D12-x",
@@ -5597,7 +5885,11 @@
       "why": "话题页返回的账号记成 Reels 搜索来源 —— 来源冒充了实际端点，追溯时以为这个人是 Reels 搜出来的",
       "file": "scripts/providers/tikhub.ts",
       "find": "dimension: task.dimension, endpoint: INSTAGRAM_HASHTAG_ENDPOINT }]",
-      "replace": "dimension: task.dimension, endpoint: INSTAGRAM_REELS_ENDPOINT }]"
+      "replace": "dimension: task.dimension, endpoint: INSTAGRAM_REELS_ENDPOINT }]",
+      "by": "test",
+      "kills": [
+        "话题入口：话题路线的来源是话题端点与任务原关键词，开头的 # 保留"
+      ]
     },
     {
       "id": "M-D15-l",
@@ -5605,7 +5897,11 @@
       "why": "话题页来源里的搜索词去掉了开头的井号 —— 来源不再是原搜索词，同一任务的来源与关键词行对不上",
       "file": "scripts/providers/tikhub.ts",
       "find": "discovery_sources: [{ platform: 'instagram', handle, keyword: task.keyword,\n        dimension: task.dimension, endpoint: INSTAGRAM_HASHTAG_ENDPOINT }]",
-      "replace": "discovery_sources: [{ platform: 'instagram', handle, keyword: task.keyword.replace(/^#/, ''),\n        dimension: task.dimension, endpoint: INSTAGRAM_HASHTAG_ENDPOINT }]"
+      "replace": "discovery_sources: [{ platform: 'instagram', handle, keyword: task.keyword.replace(/^#/, ''),\n        dimension: task.dimension, endpoint: INSTAGRAM_HASHTAG_ENDPOINT }]",
+      "by": "test",
+      "kills": [
+        "话题入口：话题路线的来源是话题端点与任务原关键词，开头的 # 保留"
+      ]
     },
     {
       "id": "M-D11-o",
@@ -5613,7 +5909,11 @@
       "why": "话题页作品的文案按 Reels 的字段去取 —— 话题页的文案字段是另一个名字，于是每条作品的文案都成了空串，内容匹配证据整批丢失",
       "file": "scripts/providers/tikhub.ts",
       "find": "desc: item?.caption_text ?? '',",
-      "replace": "desc: item?.caption?.text ?? '',"
+      "replace": "desc: item?.caption?.text ?? '',",
+      "by": "test",
+      "kills": [
+        "话题入口：话题先到、Reels 后到的同一作品 id 只留话题那条，播放数随先到的路线"
+      ]
     },
     {
       "id": "M-P1-aa",
@@ -5874,7 +6174,11 @@
       "why": "话题页把响应里的续页令牌交回 —— 入口会拿它当 Reels 的续页令牌去请求 Reels，用话题页的令牌翻另一个端点，钱花了、结果不知道是什么",
       "file": "scripts/providers/tikhub.ts",
       "find": "return { creators: [...byHandle.values()], raw_count: list.length, has_more: false }\n}",
-      "replace": "return { creators: [...byHandle.values()], raw_count: list.length, has_more: false,\n    next_token: (raw as any)?.data?.pagination_token }\n}"
+      "replace": "return { creators: [...byHandle.values()], raw_count: list.length, has_more: false,\n    next_token: (raw as any)?.data?.pagination_token }\n}",
+      "by": "test",
+      "kills": [
+        "话题入口：话题页不交回续页令牌、has_more 为 false，响应里有令牌也一样"
+      ]
     },
     {
       "id": "M-D6-bc",
@@ -5882,7 +6186,11 @@
       "why": "话题页的条目数按解析出的人数算 —— 没有作者名的条目、同一作者的多条作品都不计，记下的「拿回几条」偏小，和别的路线印在同一列却不是同一个量",
       "file": "scripts/providers/tikhub.ts",
       "find": "return { creators: [...byHandle.values()], raw_count: list.length, has_more: false }\n}",
-      "replace": "return { creators: [...byHandle.values()], raw_count: byHandle.size, has_more: false }\n}"
+      "replace": "return { creators: [...byHandle.values()], raw_count: byHandle.size, has_more: false }\n}",
+      "by": "test",
+      "kills": [
+        "话题入口：解析不出人的话题页照实交回 0 人与条目数，只计费一次"
+      ]
     },
     {
       "id": "M-D11-p",
@@ -5890,7 +6198,11 @@
       "why": "话题页作品拿文案的标识冒充作品标识 —— 同一作品的识别依据变成另一类对象，跨路线同一作品认不出来",
       "file": "scripts/providers/tikhub.ts",
       "find": "id: searchPostId('instagram', item?.id),\n      desc: item?.caption_text",
-      "replace": "id: searchPostId('instagram', item?.caption?.id),\n      desc: item?.caption_text"
+      "replace": "id: searchPostId('instagram', item?.caption?.id),\n      desc: item?.caption_text",
+      "by": "test",
+      "kills": [
+        "话题入口：话题先到、Reels 后到的同一作品 id 只留话题那条，播放数随先到的路线"
+      ]
     },
     {
       "id": "M-D15-m",
@@ -5958,7 +6270,11 @@
       "why": "搜索入口不按路线分派 —— 运营写了话题路线的任务照走 Reels，采集与试探都不是配置里写的那条路",
       "file": "scripts/providers/tikhub.ts",
       "find": "    if (task.platform === 'instagram' && task.ig_route === 'hashtag') {",
-      "replace": "    if (false) {"
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": [
+        "话题入口：话题任务首页恰好发一次请求，请求的是话题页"
+      ]
     },
     {
       "id": "M-D15-s",
@@ -5966,7 +6282,11 @@
       "why": "话题请求不带 feed_type —— 端点按它自己的缺省排序返回，裁决写的是 top，拿回来的不是说好的那一批",
       "file": "scripts/providers/tikhub.ts",
       "find": "{ keyword: hashtagKeyword(task), feed_type: 'top' }",
-      "replace": "{ keyword: hashtagKeyword(task) }"
+      "replace": "{ keyword: hashtagKeyword(task) }",
+      "by": "test",
+      "kills": [
+        "话题入口：话题请求的 keyword 去掉开头的 #，feed_type 为 top，不带续页令牌"
+      ]
     },
     {
       "id": "M-D15-t",
@@ -5974,7 +6294,11 @@
       "why": "话题请求的关键词带着开头的井号 —— 端点收到的不是话题词本身",
       "file": "scripts/providers/tikhub.ts",
       "find": "{ keyword: hashtagKeyword(task), feed_type: 'top' }",
-      "replace": "{ keyword: task.keyword, feed_type: 'top' }"
+      "replace": "{ keyword: task.keyword, feed_type: 'top' }",
+      "by": "test",
+      "kills": [
+        "话题入口：话题请求的 keyword 去掉开头的 #，feed_type 为 top，不带续页令牌"
+      ]
     },
     {
       "id": "M-D6-bd",
@@ -5982,7 +6306,11 @@
       "why": "话题任务不拦续页 —— 第二页起照样请求话题首页，同一页的钱一次次重花",
       "file": "scripts/providers/tikhub.ts",
       "find": "      if (offset > 0 || token !== undefined) return { creators: [], raw_count: 0, has_more: false }\n      const raw = await this.get(INSTAGRAM_HASHTAG_ENDPOINT",
-      "replace": "      const raw = await this.get(INSTAGRAM_HASHTAG_ENDPOINT"
+      "replace": "      const raw = await this.get(INSTAGRAM_HASHTAG_ENDPOINT",
+      "by": "test",
+      "kills": [
+        "话题入口：话题任务 offset 大于 0 时交回空页、一个请求都不发"
+      ]
     },
     {
       "id": "M-D6-be",
@@ -5990,7 +6318,11 @@
       "why": "话题页解析不出人时改走 Reels 与账号名兜底 —— 一个话题任务花了两三次请求，来源也混进了别的路线",
       "file": "scripts/providers/tikhub.ts",
       "find": "      return parseInstagramHashtagPage(raw, task)\n    }",
-      "replace": "      const page = parseInstagramHashtagPage(raw, task)\n      return page.creators.length ? page : this.search({ ...task, ig_route: undefined }, region, 0)\n    }"
+      "replace": "      const page = parseInstagramHashtagPage(raw, task)\n      return page.creators.length ? page : this.search({ ...task, ig_route: undefined }, region, 0)\n    }",
+      "by": "test",
+      "kills": [
+        "话题入口：话题页解析不出人也不改搜账号名，只发这一次请求"
+      ]
     },
     {
       "id": "M-D15-u",
