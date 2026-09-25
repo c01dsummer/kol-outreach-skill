@@ -3404,7 +3404,9 @@ group('d6uv-igpaging', [], () => {
 // 复用现有进程/费用夹具；不导入配置判定，不读入口、预算或任务生产函数体。
 // ---- D16.n–q：render 原样校验任务输入，在一切输出与记忆写入之前拒绝 ----
 // 独立入口夹具；expected 来自 D16.a–i、render 输入契约、U8 与 ADR-108 的离线契约。
-group('render-input', [], () => {
+const renderInputCompleted = { tasks: 0, read: 0, good: 0 }
+// 三类输入独立派跑；造输入和观察器共用，具名断言留在各自 group 回调里供清册归组。
+const renderInputFixture = () => {
   type Problem = { task?: number; field?: string; value?: unknown }
   type Bad = { id: string; tasks?: unknown; problems: Problem[]; good?: number[] }
   const base = join(tmp, 'render-input'), stamp = '2026-01-01T00:00:00.000Z'
@@ -3438,6 +3440,13 @@ group('render-input', [], () => {
     { id: 'json', kind: 'json', text: '{"tasks":[}' },
     ...[null, [], 'root-string', 27, true].map((value, i) => ({ id: `root-${i}`, kind: 'root', text: JSON.stringify(value) })),
   ]
+  const tasks = [good, good, { keyword: 'third', dimension: 'scene', platform: 'instagram',
+    ig_route: 'future-route', as_hashtag: { retained: true }, extra: ['untouched'] },
+    { keyword: 'fourth', dimension: 'competitor', platform: 'tiktok' },
+    { keyword: 'fifth', dimension: 'audience', platform: 'instagram' }]
+  const positive = [{ id: 'unknown-zero', costs: { requests: 0 } }, { id: 'unknown-history', costs: { requests: 7 } },
+    { id: 'pending', costs: knownCosts(1_000_000, [costEntry(TT_SEARCH, 1000, 1)],
+      { endpoint: TT_PROFILE, price_version: COST_VERSION, unit_micro_usd: 1000, attempt_id: 2 }) }]
   // 受控目录内所有文件按字节比较，也发现原本不存在的新文件或残留；空目录不冒充文件写入。
   const tree = (dir: string): string => {
     const files: string[][] = []
@@ -3500,7 +3509,12 @@ group('render-input', [], () => {
       })
     }) && (c.good ?? []).every(i => !parts.some(p => p.task === i))
   }
-  const completed = { tasks: 0, read: 0, good: 0 }
+  return { good, bad, readCases, tasks, positive, tree, bytes, make, runFixture, reports }
+}
+
+group('render-input-tasks', [], () => {
+  const { bad, tree, make, runFixture, reports } = renderInputFixture()
+  const completed = renderInputCompleted
   for (const existing of [true, false]) for (const c of bad) {
     const f = make(c.id, existing, c.tasks), before = [tree(f.taskDir), tree(f.memory)]
     const r = runFixture(f, `render 输入 ${existing}/${c.id}`, 2); if (!r) continue
@@ -3517,6 +3531,11 @@ group('render-input', [], () => {
     if (c.id === 'missing-dimension') named('render 输入：缺维度照实拒绝，不补默认维度', rejected && diagnosis && same, detail)
     completed.tasks++
   }
+})
+
+group('render-input-read', [], () => {
+  const { good, readCases, tree, make, runFixture } = renderInputFixture()
+  const completed = renderInputCompleted
   for (const existing of [true, false]) for (const c of readCases) {
     const f = make(c.id, existing, [good])
     if (c.kind === 'missing' || c.kind === 'directory') rmSync(f.file)
@@ -3538,13 +3557,11 @@ group('render-input', [], () => {
     named('render 输入：读取解析与根形状错误不带内部异常类名或调用栈', rejected && !leak.className && !leak.frames, detail)
     completed.read++
   }
-  const tasks = [good, good, { keyword: 'third', dimension: 'scene', platform: 'instagram',
-    ig_route: 'future-route', as_hashtag: { retained: true }, extra: ['untouched'] },
-    { keyword: 'fourth', dimension: 'competitor', platform: 'tiktok' },
-    { keyword: 'fifth', dimension: 'audience', platform: 'instagram' }]
-  const positive = [{ id: 'unknown-zero', costs: { requests: 0 } }, { id: 'unknown-history', costs: { requests: 7 } },
-    { id: 'pending', costs: knownCosts(1_000_000, [costEntry(TT_SEARCH, 1000, 1)],
-      { endpoint: TT_PROFILE, price_version: COST_VERSION, unit_micro_usd: 1000, attempt_id: 2 }) }]
+})
+
+group('render-input-good', [], () => {
+  const { tasks, positive, bytes, make, runFixture } = renderInputFixture()
+  const completed = renderInputCompleted
   for (const existing of [true, false]) for (const c of positive) {
     const f = make(c.id, existing, tasks, c.costs)
     // 新交付也给真正可渲染名单；坏输入的 absent 形态另行验证名单不能凭空创建。
@@ -3573,6 +3590,12 @@ group('render-input', [], () => {
       r.status === 0 && meta?.enriched === false && !existsSync(enrichment), detail)
     completed.good++
   }
+})
+
+// 旧组名保留为完整入口：依赖三组跑完才可能认领 D16.n–q。
+group('render-input', ['render-input-tasks', 'render-input-read', 'render-input-good'], () => {
+  const { bad, readCases, positive } = renderInputFixture()
+  const completed = renderInputCompleted
   // 认领放在整组末尾；有任何夹具未启动、预加载失败或案例未完成，就不认领相应判据。
   if (completed.good === positive.length * 2 && completed.tasks === bad.length * 2) criterion('D16.n', 'D16.o')
   if (completed.good === positive.length * 2 && completed.read === readCases.length * 2) criterion('D16.p', 'D16.q')
