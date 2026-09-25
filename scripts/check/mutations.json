@@ -227,7 +227,11 @@
       "why": "CSV 不再按 tier 排序 —— A 级混在几百行里，运营找不到该先联系谁",
       "file": "scripts/lib/rows.ts",
       "find": "  const order = { A: 0, B: 1, C: 2 }",
-      "replace": "  const order = { A: 0, B: 0, C: 0 }"
+      "replace": "  const order = { A: 0, B: 0, C: 0 }",
+      "by": "test",
+      "kills": [
+        "A→B→C，同层分数降序"
+      ]
     },
     {
       "id": "M-P1-e",
@@ -247,7 +251,11 @@
       "why": "空分层不建 sheet —— 运营会以为是漏了数据，而不是这一层真的没人",
       "file": "scripts/lib/rows.ts",
       "find": "    out.push({ name: `${TIER_LABEL[t]} (${rows.length})`, headers: [...HEADERS], rows: rows.map(toRow) })",
-      "replace": "    if (rows.length) out.push({ name: `${TIER_LABEL[t]} (${rows.length})`, headers: [...HEADERS], rows: rows.map(toRow) })"
+      "replace": "    if (rows.length) out.push({ name: `${TIER_LABEL[t]} (${rows.length})`, headers: [...HEADERS], rows: rows.map(toRow) })",
+      "by": "test",
+      "kills": [
+        "空分层的 sheet 存在且标出 (0)"
+      ]
     },
     {
       "id": "M-U6-a",
@@ -3732,7 +3740,11 @@
       "why": "还没算过分的人排到了有分的人前面 —— 交付表最上面一批是没有依据的人，而运营读的就是从上往下的顺序",
       "file": "scripts/lib/rows.ts",
       "find": "    if (a.score === undefined) return 1\n    if (b.score === undefined) return -1",
-      "replace": "    if (a.score === undefined) return -1\n    if (b.score === undefined) return 1"
+      "replace": "    if (a.score === undefined) return -1\n    if (b.score === undefined) return 1",
+      "by": "test",
+      "kills": [
+        "排序：没算过分的排在 0 分之后，不与它混同"
+      ]
     },
     {
       "id": "M-P1-x",
@@ -3740,7 +3752,11 @@
       "why": "「未查询」在交付表里渲染成空白 —— 和「查过，他没有」落进同一个格子，运营看不出这个人到底查过没有，也就不知道还该不该回头补查",
       "file": "scripts/lib/rows.ts",
       "find": "  v === undefined ? '未查询' : v === null ? '' : String(v)",
-      "replace": "  v === undefined ? '' : v === null ? '' : String(v)"
+      "replace": "  v === undefined ? '' : v === null ? '' : String(v)",
+      "by": "test",
+      "kills": [
+        "取值：未查询 / 查过为空 / 值就是 0，三个格子各不相同"
+      ]
     },
     {
       "id": "M-P1-o",
@@ -3776,7 +3792,11 @@
       "why": "交付表的作品那一列，对没问过作品的人印成空白 —— 和「问到了作品、文案本来就是空的」落进同一个格子，运营只能读成后者",
       "file": "scripts/lib/rows.ts",
       "find": "  if (!posts?.length) return '未查询'",
-      "replace": "  if (!posts?.length) return ''"
+      "replace": "  if (!posts?.length) return ''",
+      "by": "test",
+      "kills": [
+        "没问过作品 → 未查询"
+      ]
     },
     {
       "id": "M-P1-y",
@@ -3804,7 +3824,11 @@
       "why": "「还没算过分」和「算出来是 0 分」在排序里被当成同一件事 —— 交付表上这两种人混在一起，看不出哪些是没有依据的",
       "file": "scripts/lib/rows.ts",
       "find": "  const byScore = (a: Creator, b: Creator): number => {\n    if (a.score === undefined && b.score === undefined) return 0\n    if (a.score === undefined) return 1\n    if (b.score === undefined) return -1\n    return b.score - a.score\n  }",
-      "replace": "  const byScore = (a: Creator, b: Creator): number => (b.score ?? 0) - (a.score ?? 0)"
+      "replace": "  const byScore = (a: Creator, b: Creator): number => (b.score ?? 0) - (a.score ?? 0)",
+      "by": "test",
+      "kills": [
+        "排序：没算过分的排在 0 分之后，不与它混同"
+      ]
     },
     {
       "id": "M-F5-b",
@@ -4839,7 +4863,11 @@
       "why": "名单排序不再把粉丝数的三档分开：查到了数的、还没去查的、查过确实是 0 的，同层同分时谁在前变成取决于他们碰巧的输入顺序。那个还没查过、可能其实不小的人被埋在确认为 0 的人后面，而运营以为这份名单已经按强弱排好了，不会再往下翻",
       "file": "scripts/lib/rows.ts",
       "find": "  return [...creators].sort((a, b) =>\n    rank(a) - rank(b) || byScore(a, b) || byFollowers(a, b))",
-      "replace": "  return [...creators].sort((a, b) => rank(a) - rank(b) || byScore(a, b))"
+      "replace": "  return [...creators].sort((a, b) => rank(a) - rank(b) || byScore(a, b))",
+      "by": "test",
+      "kills": [
+        "把输入顺序整个颠倒，结论不变"
+      ]
     },
     {
       "id": "M-P1-n",
@@ -4847,7 +4875,11 @@
       "why": "把粉丝数的三档压成两档：只要查到了数就一律排在「还没查过」后面，于是一个查到了五万粉的人被排在一个连查都没查过的人后面 —— 一个还没量过的可能，越过了量过的事实",
       "file": "scripts/lib/rows.ts",
       "find": "    c.followers === undefined ? 1 : c.followers === 0 ? 2 : 0",
-      "replace": "    c.followers === undefined ? 0 : 1"
+      "replace": "    c.followers === undefined ? 0 : 1",
+      "by": "test",
+      "kills": [
+        "未查询压不过真查到了数的"
+      ]
     },
     {
       "id": "M-P3-d",

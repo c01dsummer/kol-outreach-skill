@@ -132,13 +132,16 @@ const GROUPS: readonly Group[] = [
   { id: 'd7-email', needs: [] },
   { id: 'd8-public', needs: [] },
   { id: 'h-spec', needs: [] },
+  { id: 'p1-output-values', needs: [] },
   { id: 'd11-posts', needs: [] },
   { id: 'd15-hashtag-parser', needs: [] },
   { id: 'd15-hashtag', needs: [] },
   { id: 'd16-tasks', needs: [] },
   { id: 'd17-config', needs: [] },
   { id: 'd19-resume', needs: [] },
+  { id: 'p1-followers-sort', needs: [] },
   { id: 'f8-risk', needs: [] },
+  { id: 'u1-u5-output', needs: [] },
   { id: 'h-mutate', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
@@ -3417,6 +3420,8 @@ suite('P1', '跨平台合并不得把「未查询」降级成「查过，没有�
   covered.add('D3')
 }
 
+}
+await group('p1-output-values', () => {
 suite('P1', '三态不得被压平：取值、排序、入池三处各验一次')
 {
   /**
@@ -3502,7 +3507,7 @@ suite('P1', '作品那一列：没问过作品不得显示成「文案是空的�
   criterion('P1.e')
 }
 
-}
+})
 await group('d11-posts', async () => {
 // 独立上下文只读 D11/ADR-105、公开契约及既有测试；以下 expected 均先于实现写成。
 suite('D11', '搜索作品标识只取可核实的来源字段')
@@ -5015,7 +5020,7 @@ suite('D19', '续跑进度字段先验校验')
 }
 
 })
-if (fullRun) {
+await group('p1-followers-sort', () => {
 suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」')
 {
   /**
@@ -5051,6 +5056,8 @@ suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」'
   criterion('P1.h')
 }
 
+})
+if (fullRun) {
 suite('D1', 'platform:handle 唯一标识，大小写不敏感')
 {
   const c = [mk('tiktok', 'Sarah', { bio_links: [] }), mk('instagram', 'sarah')]
@@ -5250,6 +5257,8 @@ suite('F2', '关键词四维度')
 
 // ─────────────────────────── 展示 ───────────────────────────
 
+}
+await group('u1-u5-output', () => {
 suite('U1', 'CSV 排序与三档区分')
 {
   const sorted = sortForOutput([
@@ -5300,6 +5309,8 @@ suite('U5', 'xlsx 分 sheet')
   ul(tmpx)
 }
 
+})
+if (fullRun) {
 suite('U2', 'HTML 报告不依赖网络资源')
 {
   const html = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 1, profile_url: 'https://www.tiktok.com/@a' })],
