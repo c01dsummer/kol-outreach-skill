@@ -1,4 +1,4 @@
-import type { AudienceRiskFlag, Creator, Measurement } from './types.js'
+import type { AccountAssessmentSummary, AudienceRiskFlag, Creator, Measurement } from './types.js'
 import { formatDiscoverySources } from './discovery.js'
 
 /** U1：列定义固定，顺序即 CSV 表头 */
@@ -13,7 +13,7 @@ export const HEADERS = [
   'collaboration_quote', 'implied_ecpm', 'implied_ecpe', 'metrics_observed_at',
   'cross_platform', 'linked_handle', 'profile_url', 'source_keyword',
   'source_dimension', 'best_post_desc', 'outreach_draft', 'previously_recommended',
-  'discovery_sources',
+  'discovery_sources', 'metrics_sample_scope',
 ] as const
 
 /**
@@ -36,8 +36,8 @@ const topGeo = (c: Creator): string => {
  * 不走 `cell()`：空数组也得落到「未查询」。盘上的旧数据里空数组全是 IG 按账号名搜人那条
  * 兜底路径凭空写的，意思是没问过（见 `Creator.recent_posts`、ADR-102）。
  *
- * 没有「无作品」这一态：说得出这句话的证据只有主页样本，而 IG 的主页样本只留视频、
- * 把图文帖丢了（ADR-102 欠账）—— 测出来是零也不代表他没发过帖。
+ * 没有「无作品」这一态：说得出这句话需要可靠的主页全量证据；主页端点返回窗口
+ * 即使测出来是零，也不代表对方没发过帖（ADR-102）。
  */
 const bestPost = (c: Creator): string => {
   const posts = c.recent_posts
@@ -53,6 +53,23 @@ const metricCell = <T>(m: Measurement<T> | undefined, format: (value: T) => unkn
 }
 
 const pct = (value: number): string => `${(value * 100).toFixed(2)}%`
+/** 账号级样本范围：旧视频窗口与本次端点返回窗口不能在交付表里混成一类。 */
+export const sampleScopeText = (a: AccountAssessmentSummary | undefined): string => {
+  const sample = a?.sample
+  if (!sample) return '未查询'
+  if (sample.status === 'unavailable') return `不可用:${sample.reason}`
+  if (a.platform === 'tiktok') return 'TikTok 视频端点返回的近期作品'
+  switch (sample.media_scope) {
+    case 'provider_returned_first12':
+      return '本次端点返回前 12 条作品；播放类仅确认视频，粉丝互动、间隔与活跃取窗口内可用作品'
+    case 'legacy_video_filtered_first12':
+      return '历史仅视频窗口；不能据此判断账号最近发布或全作品互动'
+    case 'unknown':
+    case undefined:
+      return '旧样本媒体范围未知；作品指标不可用'
+  }
+}
+
 const riskFlag = (flag: AudienceRiskFlag): string => {
   const name = {
     engagement_rate_followers: '粉丝互动率',
@@ -73,10 +90,14 @@ const quoteCell = (c: Creator): string => {
 const efficiencyCell = (c: Creator, field: 'implied_ecpm' | 'implied_ecpe'): string => {
   const value = c.account_assessment?.quote_efficiency?.[field]
   if (!value) return '未查询'
-  if (value.status === 'unavailable') return `不可用:${value.reason}`
   const quote = c.account_assessment?.collaboration_quote
+  const reel = field === 'implied_ecpe' && quote?.status === 'measured' &&
+    quote.value.format === 'instagram_reel'
+  if (value.status === 'unavailable') return `不可用:${value.reason}` +
+    (reel && value.sample_size !== undefined ? `（视频互动有效样本 ${value.sample_size} 条）` : '')
   const currency = quote?.status === 'measured' ? quote.value.currency : ''
-  return `${currency} ${value.value.toFixed(2)}`.trim()
+  const amount = `${currency} ${value.value.toFixed(2)}`.trim()
+  return reel ? `${amount}（确认视频互动样本 ${value.sample_size} 条；${value.basis}）` : amount
 }
 
 /**
@@ -117,7 +138,7 @@ export function toRow(c: Creator): unknown[] {
     assessment?.sample?.observed_at ?? '未查询',
     c.cross_platform ?? false, c.linked_handle ?? '', c.profile_url, c.source_keyword,
     c.source_dimension, bestPost(c), c.outreach_draft ?? '', c.previously_recommended ?? '',
-    formatDiscoverySources(c.discovery_sources),
+    formatDiscoverySources(c.discovery_sources), sampleScopeText(assessment),
   ]
 }
 

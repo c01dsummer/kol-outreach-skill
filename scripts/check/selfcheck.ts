@@ -1328,9 +1328,10 @@ group('discovery', [], () => {
     // 只解读标准CSV/ZIP/XML，不调用生产格式化器当预期。
     const csvRows = fileText(join(display.taskDir, 'kol.csv')).trim().replace(/^\uFEFF/, '').split(/\r?\n/)
       .map(line => [...line.matchAll(/(?:^|,)(?:"((?:[^"]|"")*)"|([^,]*))/g)].map(m => (m[1] ?? m[2]).replace(/""/g, '"')))
-    named('CSV实际文件末列展示来源，缺席与空数组均明确未知',
-      csvRows[0]?.at(-1) === 'discovery_sources' && csvRows.some(r => r.at(-1) === text)
-        && csvRows.filter(r => r.at(-1) === '来源未知').length === 2, JSON.stringify(csvRows))
+    const sourceColumn = csvRows[0]?.indexOf('discovery_sources') ?? -1
+    named('CSV实际文件按来源列展示，缺席与空数组均明确未知',
+      sourceColumn >= 0 && csvRows.some(r => r[sourceColumn] === text)
+        && csvRows.filter(r => r[sourceColumn] === '来源未知').length === 2, JSON.stringify(csvRows))
     const entries = new Map<string, string>(), xlsx = join(display.taskDir, 'kol.xlsx')
     try {
       const b = readFileSync(xlsx), end = b.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))
@@ -1347,11 +1348,20 @@ group('discovery', [], () => {
     const cellText = (s: string) => [...s.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m => decode(m[1])).join('')
     const shared = [...(entries.get('xl/sharedStrings.xml') ?? '').matchAll(/<si>([\s\S]*?)<\/si>/g)].map(m => cellText(m[1]))
     const sheetRows = [...entries].filter(([name]) => /^xl\/worksheets\/sheet\d+\.xml$/.test(name))
-      .flatMap(([, xml]) => [...xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)].map(m => {
-        const last = [...m[1].matchAll(/<c\b[^>]*>[\s\S]*?<\/c>/g)].at(-1)?.[0] ?? ''
-        return /\bt="s"/.test(last) ? shared[Number(last.match(/<v>(\d+)<\/v>/)?.[1])] : cellText(last)
-      }))
-    named('XLSX实际工作表末列展示来源，缺席与空数组均明确未知',
+      .flatMap(([, xml]) => {
+        const rows = [...xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)]
+        const cells = (row: string) => [...row.matchAll(/<c\b[^>]*>[\s\S]*?<\/c>/g)].map(m => m[0])
+        const content = (c: string) => /\bt="s"/.test(c)
+          ? shared[Number(c.match(/<v>(\d+)<\/v>/)?.[1])] : cellText(c)
+        const sourceRef = cells(rows[0]?.[1] ?? '').find(c => content(c) === 'discovery_sources')
+          ?.match(/\br="([A-Z]+)1"/)?.[1]
+        if (!sourceRef) return []
+        return rows.map((row, i) => {
+          const sourceCell = cells(row[1]).find(c => c.includes(`r="${sourceRef}${i + 1}"`))
+          return sourceCell ? content(sourceCell) : ''
+        })
+      })
+    named('XLSX实际工作表按来源列展示，缺席与空数组均明确未知',
       sheetRows.filter(v => v === 'discovery_sources').length === 3 && sheetRows.includes(text)
         && sheetRows.filter(v => v === '来源未知').length === 2, JSON.stringify(sheetRows))
     const html = fileText(join(display.taskDir, 'report.html'))
@@ -5119,6 +5129,277 @@ group('ig-search-plays', [], () => {
     }), why)
 })
 
+// ADR-102 §9：从公开入口跑适配器、缓存命中和直接交付；全程假网络。
+group('ig-homepage-mixed', [], () => {
+  // 本组直接用 Node 的 --import tsx：自检在受限环境也不依赖 tsx CLI 的 IPC socket。
+  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const runIg = (label: string, args: string[], cwd = tmp, extra: NodeJS.ProcessEnv = {}) => {
+    const r = spawnSync(process.execPath, ['--import', tsx, ...args],
+      { cwd, env: { ...env, ...extra }, encoding: 'utf8', timeout: 20_000 })
+    const ok = !r.error && r.status === 0
+    if (!ok) { failed++; console.error(`  ✗ ${label}${SELFCHECK_PROCESS_MARK}：${
+      r.error?.message ?? `退出码 ${r.status}`}\n${(r.stderr ?? '').split('\n').slice(-12).join('\n')}`) }
+    else console.log(`  ✓ ${label}`)
+    return { ok, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }
+  }
+  const source = { kind: 'public_api', provider: 'tikhub',
+    endpoint: '/api/v1/instagram/v2/fetch_user_posts' }
+  const at = '2026-09-15T00:00:00.000Z'
+  const raw = Array.from({ length: 14 }, (_, i) => {
+    const video = i % 2 === 1 || i >= 12, rank = Math.floor(i / 2) + 1
+    const signal = i >= 12 ? { is_video: true } : i % 2 === 0
+      ? (i === 10 ? {} : { is_video: false, media_type: i === 4 ? 8 : 1 })
+      : [{ is_video: true }, { media_type: 2 }, { media_format: 'video' },
+        { media_name: 'reel' }, { product_type: 'clips' }, { is_video: true }][rank - 1]
+    return { id: `ig-${i}`, ...signal,
+      play_count: video ? (i >= 12 ? 9_000_000 : rank === 1 ? 0 : rank * 100)
+        : i % 4 === 0 ? 0 : 900_000,
+      ig_play_count: i === 1 ? 123 : undefined,
+      like_count: video ? rank * 10 : 1000 + rank - 1,
+      comment_count: video ? rank : 20,
+      taken_at: (Date.parse(at) - (i + 1) * 86_400_000) / 1000, is_pinned: false }
+  })
+  const adapter = join(tmp, 'ig-homepage-adapter.mjs')
+  writeFileSync(adapter, `
+    import { TikHub } from ${JSON.stringify(pathToFileURL(resolve('scripts/providers/tikhub.ts')).href)};
+    import { startBudget } from ${JSON.stringify(pathToFileURL(resolve('scripts/lib/budget.ts')).href)};
+    const raw = ${JSON.stringify(raw)}, attempts = [];
+    globalThis.fetch = async input => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      attempts.push({ path: url.pathname, username: url.searchParams.get('username') });
+      if (url.pathname !== ${JSON.stringify(source.endpoint)}) throw Error('unlisted fake endpoint');
+      return new Response(JSON.stringify({ data: { data: { count: 14,
+        user: { follower_count: 1000, following_count: 10 }, items: raw } } }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    const costs = ${JSON.stringify(knownCosts(1_000_000, []))};
+    costs.cost_ledger.scope = 'process';
+    const fetched = await new TikHub('fake-key', startBudget(costs, 1_000_000, 'process'))
+      .recentPosts('mixed_creator', 'instagram');
+    console.log(JSON.stringify({ fetched, attempts }));
+  `)
+  const adapterRun = runIg('IG 主页适配器仅内存假响应', [adapter])
+  if (adapterRun.ok) {
+    let result: any
+    try { result = JSON.parse(adapterRun.stdout) }
+    catch { failed++; console.error(`  ✗ IG 主页适配器${SELFCHECK_FIXTURE_MARK}：无法读取 JSON`) }
+    if (result) {
+      const posts: any[] = result.fetched?.posts ?? []
+      const why = JSON.stringify({ ids: posts.map(p => p.id), views: posts.map(p => p.views),
+        evidence: posts.map(p => p.video_confirmed), attempts: result.attempts })
+      named('IG 主页先保留本次返回前十二条作品，无旧视频补位',
+        JSON.stringify(posts.map(p => p.id)) === JSON.stringify(raw.slice(0, 12).map(p => p.id)), why)
+      named('IG 主页五类肯定视频信号逐条保留，其他项目未确认而非已证图文',
+        JSON.stringify(posts.map(p => p.video_confirmed)) ===
+          JSON.stringify(Array.from({ length: 12 }, (_, i) => i % 2 === 1)), why)
+      named('IG 主页非视频假零与假大数都无播放，确认视频真实零不被备用字段覆盖',
+        JSON.stringify(posts.map(p => p.views)) ===
+          JSON.stringify([undefined, 0, undefined, 200, undefined, 300,
+            undefined, 400, undefined, 500, undefined, 600]), why)
+      named('IG 主页未确认视频作品仍交付真实赞评时间置顶',
+        posts[0]?.likes === 1000 && posts[0]?.comments === 20
+          && posts[0]?.published_at === '2026-09-14T00:00:00.000Z'
+          && posts[0]?.is_pinned === false, why)
+      named('IG 主页仅向已列出的端点发一次请求且保留账号值与来源',
+        JSON.stringify(result.attempts) === JSON.stringify([{ path: source.endpoint,
+          username: 'mixed_creator' }]) && result.fetched?.followers === 1000
+          && result.fetched?.following === 10
+          && JSON.stringify(result.fetched?.source) === JSON.stringify(source), why)
+      criterion('D8.e', 'D8.f', 'D8.g')
+    }
+  }
+  const scratch = join(tmp, 'ig-homepage-delivery')
+  mkdirSync(scratch, { recursive: true })
+  const guard = join(scratch, 'deny.mjs')
+  writeFileSync(guard, `
+    import fs, { appendFileSync } from 'node:fs';
+    import { syncBuiltinESMExports } from 'node:module';
+    const log = process.env.IG_HOMEPAGE_ATTEMPTS_LOG;
+    const record = (kind, input) => appendFileSync(log, JSON.stringify({kind,input:String(input)})+'\\n');
+    const protect = input => { if (!/^(?:\\.env)(?:\\.|$)/.test(String(input).split(/[\\\\/]/).pop())) return;
+      record('env-read', input); throw Error('forbidden .env read'); };
+    for (const name of ['readFileSync','openSync','createReadStream','statSync','accessSync',
+      'existsSync','readFile','open','stat','access']) {
+      const prior = fs[name].bind(fs);
+      fs[name] = (input,...rest) => { protect(input); return prior(input,...rest); };
+    }
+    for (const name of ['readFile','open','stat','access']) {
+      const prior = fs.promises[name].bind(fs.promises);
+      fs.promises[name] = (input,...rest) => { protect(input); return prior(input,...rest); };
+    }
+    if (process.loadEnvFile) process.loadEnvFile = input => {
+      protect(input ?? '.env'); throw Error('forbidden env load'); };
+    syncBuiltinESMExports();
+    globalThis.fetch = async (...args) => {
+      record('fetch', args[0]?.url ?? args[0]); throw Error('forbidden fetch'); };
+    console.error('[ig-homepage-guard] installed');
+  `)
+  const guardedEnv = (log: string) => ({ NODE_OPTIONS: `--import ${JSON.stringify(pathToFileURL(guard).href)}`,
+    IG_HOMEPAGE_ATTEMPTS_LOG: log, TIKHUB_API_KEY: '' })
+  const events = (log: string): {kind: string; input: string}[] => existsSync(log)
+    ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(s => JSON.parse(s)) : []
+  const probe = join(scratch, 'probe.mjs'), probeLog = join(scratch, 'probe.jsonl')
+  writeFileSync(probe, `import { readFileSync } from 'node:fs';
+    try { await fetch('data:text/plain,probe') } catch {}
+    try { readFileSync('.env') } catch {}`)
+  const probeRun = runIg('IG 主页零网络保护探针', [probe], scratch, guardedEnv(probeLog))
+  named('IG 主页保护器确实拦截 fetch 与 .env 读取', probeRun.ok
+    && JSON.stringify(events(probeLog).map(e => e.kind)) === JSON.stringify(['fetch','env-read']),
+  JSON.stringify(events(probeLog)))
+  const oldBasis = 'up to 12 latest short-form profile posts; '
+    + 'pinned included for recency and excluded from aggregates'
+  const oldPosts = Array.from({ length: 6 }, (_, i) => ({ id: `old-reel-${i}`,
+    views: 100 + i * 100, likes: 10 + i, comments: 1,
+    published_at: new Date(Date.parse(at) - (i + 1) * 86_400_000).toISOString(),
+    is_pinned: false }))
+  const measuredField = (value: unknown) => ({ status: 'measured', value, source,
+    observed_at: at, sample_size: 6, basis: 'old saved metric' })
+  const oldMetrics = {
+    median_views: measuredField(350), median_engagements: measuredField(13.5),
+    engagement_rate_followers: measuredField(0.0135), engagement_rate_views: measuredField(0.04),
+    view_rate: measuredField(0.35), following_ratio: measuredField(0.01),
+    reach_consistency: measuredField(0.64), median_post_gap_days: measuredField(1),
+    latest_post_at: measuredField('2026-09-14T00:00:00.000Z'),
+    days_since_last_post: measuredField(1), activity_status: measuredField('active'),
+    audience_quality_risk: { status: 'unavailable', reason: 'insufficient_peer_group',
+      source, observed_at: at, sample_size: 6 },
+  }
+  const make = (kind: string, mode: string) => {
+    const cwd = join(scratch, `${kind}-${mode}`), dir = join(cwd, 'task')
+    const handle = `ig_${kind}_${mode}`
+    mkdirSync(dir, { recursive: true }); mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const task = { product: 'test', market: 'US', target_count: 1, budget_usd: 1,
+      tasks: [{ keyword: 'journaling', dimension: 'category', platform: 'instagram' }],
+      done: [0], offsets: { 0: 6 }, pages: { 0: 1 }, answered: { 0: 1 }, found: { 0: 1 },
+      requests: 0, memory_status: 'ok', created_at: at, updated_at: at }
+    const creator = { platform: 'instagram', handle, nickname: handle, followers: 1000,
+      following: 10, post_count: 30, bio: 'Journaling', bio_links: [], verified: false,
+      profile_url: `https://www.instagram.com/${handle}/`, source_keyword: 'journaling',
+      source_dimension: 'category', source_tasks: [0], fit: '✅', fit_reason: 'fixture',
+      score: 60, outreach_draft: 'Hello' }
+    const basis = kind === 'legacy' ? oldBasis : kind === 'new'
+      ? 'provider returned first 12 profile posts' : 'media type was not recorded'
+    const sample = { status: 'measured', value: kind === 'new'
+      ? oldPosts.map(p => ({ ...p, video_confirmed: true })) : oldPosts,
+      source, observed_at: at, sample_size: 6, basis,
+      ...(kind === 'new' ? { media_scope: 'provider_returned_first12' } : {}) }
+    const assessment = { platform: 'instagram', handle, followers: 1000, following: 10,
+      sample, metrics: oldMetrics, collaboration_quote: { status: 'measured',
+        source: { kind: 'manual', provider: 'operator' }, observed_at: at,
+        sample_size: 1, basis: 'creator Reel quote', value: { amount: 770, currency: 'USD',
+          platform: 'instagram', format: 'instagram_reel', quantity: 1,
+          source: 'creator_quote', observed_at: at } } }
+    for (const [file, content] of Object.entries({ 'task.json': task,
+      'creators.raw.json': [creator], 'creators.json': [creator],
+      'enrichment.json': { version: 1, updated_at: at,
+        accounts: { [`instagram:${handle}`]: assessment } } }))
+      writeFileSync(join(dir, file), JSON.stringify(content, null, 2) + '\n')
+    return { cwd, dir, handle, log: join(cwd, 'attempts.jsonl'), ids: oldPosts.map(p => p.id) }
+  }
+  const csvRows = (content: string): string[][] => {
+    const rows: string[][] = [], row: string[] = []; let cell = '', quoted = false
+    const add = () => { row.push(cell); cell = '' }
+    for (let i = 0; i < content.length; i++) {
+      const c = content[i]
+      if (quoted) { if (c === '"' && content[i + 1] === '"') { cell += '"'; i++ }
+        else if (c === '"') quoted = false; else cell += c }
+      else if (c === '"') quoted = true
+      else if (c === ',') add()
+      else if (c === '\n') { add(); rows.push([...row]); row.length = 0 }
+      else if (c !== '\r') cell += c
+    }
+    if (quoted) throw Error('unclosed CSV quote')
+    if (cell || row.length) { add(); rows.push([...row]) }
+    return rows
+  }
+  const card = (html: string, handle: string) => {
+    const marker = html.indexOf(`@${handle}`)
+    if (marker < 0) return ''
+    const starts = [...html.slice(0, marker).matchAll(/<div\b[^>]*\bclass=(['"])[^'"]*\bcard\b[^'"]*\1[^>]*>/gi)]
+    const start = starts.at(-1)?.index
+    if (start === undefined) return ''
+    const tags = /<\/?div\b[^>]*>/gi; tags.lastIndex = start
+    let depth = 0, match: RegExpExecArray | null
+    while ((match = tags.exec(html))) { depth += /^<\/div/i.test(match[0]) ? -1 : 1
+      if (depth === 0) return html.slice(start, tags.lastIndex) }
+    return ''
+  }
+  const scopeShown = (kind: string, content: string) => kind === 'legacy'
+    ? /历史.{0,12}(?:仅视频|Reel)|short.form|video.only|historical.{0,100}video/i.test(content)
+    : kind === 'unknown' ? /范围未知|媒体范围未知|media.{0,15}unknown/i.test(content)
+      : /本次端点返回.{0,15}12|(?:first|up to).{0,20}12.{0,80}(?:returned|provider)|(?:returned|provider).{0,80}(?:first|up to).{0,20}12/i.test(content)
+  const noFullClaim = (s: string) => !/all (?:profile )?(?:posts|media)|所有作品/i.test(s)
+  for (const kind of ['new', 'legacy', 'unknown']) {
+    const cached = make(kind, 'cache'), direct = make(kind, 'direct')
+    const e = runIg(`IG ${kind} 缓存重算子进程`, [S('enrich.ts'), '--dir', cached.dir],
+      cached.cwd, guardedEnv(cached.log))
+    if (!e.ok) continue
+    const saved = JSON.parse(readFileSync(join(cached.dir, 'enrichment.json'), 'utf8'))
+      .accounts[`instagram:${cached.handle}`]
+    const task = JSON.parse(readFileSync(join(cached.dir, 'task.json'), 'utf8'))
+    let summary: any
+    try { summary = JSON.parse(e.stdout) } catch { summary = undefined }
+    named(`IG ${kind} 缓存命中零请求且不补造作品`,
+      events(cached.log).length === 0 && summary?.newly_queried === 0 && task.requests === 0
+      && JSON.stringify(saved?.sample?.value?.map((p: any) => p.id)) === JSON.stringify(cached.ids),
+      JSON.stringify({ events: events(cached.log), summary }))
+    named(`IG ${kind} 缓存保持来源与时间并标明媒体范围`,
+      saved?.sample?.observed_at === at && JSON.stringify(saved?.sample?.source) === JSON.stringify(source)
+      && saved?.sample?.media_scope === (kind === 'new' ? 'provider_returned_first12'
+        : kind === 'legacy' ? 'legacy_video_filtered_first12' : 'unknown')
+      && noFullClaim(saved?.sample?.basis ?? ''), JSON.stringify(saved?.sample))
+    if (kind === 'legacy') named('IG 旧缓存重算不得改写采样时间和来源',
+      saved?.sample?.observed_at === at && JSON.stringify(saved?.sample?.source) === JSON.stringify(source),
+      JSON.stringify(saved?.sample))
+    named(`IG ${kind} 缓存绩效与活跃资格不越过样本范围`,
+      (kind === 'unknown' ? saved?.metrics?.median_views?.status === 'unavailable'
+        : saved?.metrics?.median_views?.status === 'measured')
+      && (kind === 'new' ? saved?.metrics?.activity_status?.status === 'measured'
+        : saved?.metrics?.activity_status?.status === 'unavailable'),
+      JSON.stringify({ views: saved?.metrics?.median_views, activity: saved?.metrics?.activity_status }))
+    const before = readFileSync(join(direct.dir, 'enrichment.json'))
+    const r = runIg(`IG ${kind} 旧 enrichment 直接 render`,
+      [S('render.ts'), '--dir', direct.dir], direct.cwd, guardedEnv(direct.log))
+    if (!r.ok) continue
+    named(`IG ${kind} 直接 render 不请求也不改旧 enrichment`,
+      events(direct.log).length === 0
+      && before.equals(readFileSync(join(direct.dir, 'enrichment.json'))),
+      JSON.stringify(events(direct.log)))
+    const delivered = JSON.parse(readFileSync(join(direct.dir, 'creators.json'), 'utf8'))[0]
+    const account = delivered?.account_assessment
+    const basis = account?.sample?.basis ?? ''
+    const jsonScopeOk = account?.sample?.media_scope === (kind === 'new' ? 'provider_returned_first12'
+        : kind === 'legacy' ? 'legacy_video_filtered_first12' : 'unknown')
+      && scopeShown(kind, basis) && noFullClaim(basis)
+      && (kind !== 'unknown' || (account?.metrics?.median_views?.status === 'unavailable'
+        && account?.quote_efficiency?.implied_ecpm?.status === 'unavailable'
+        && account?.quote_efficiency?.implied_ecpe?.status === 'unavailable'))
+    const jsonWhy = JSON.stringify({ sample: account?.sample, views: account?.metrics?.median_views,
+      quote: account?.quote_efficiency })
+    if (kind === 'unknown') named('IG unknown JSON 摘要显示真实范围与状态', jsonScopeOk, jsonWhy)
+    else named(`IG ${kind} JSON 摘要显示真实范围与状态`, jsonScopeOk, jsonWhy)
+    const table = csvRows(readFileSync(join(direct.dir, 'kol.csv'), 'utf8'))
+    const handleIndex = table[0]?.indexOf('handle') ?? -1
+    const rows = table.slice(1).filter(row => row[handleIndex] === direct.handle)
+    const scopeIndex = table[0]?.indexOf('metrics_sample_scope') ?? -1
+    named(`IG ${kind} CSV 单行显示对应账号的媒体范围`,
+      rows.length === 1 && scopeIndex >= 0 && scopeShown(kind, rows[0][scopeIndex] ?? '')
+      && noFullClaim(rows[0][scopeIndex] ?? ''), JSON.stringify(rows))
+    const html = readFileSync(join(direct.dir, 'report.html'), 'utf8')
+    const accountCard = card(html, direct.handle)
+    const cardText = accountCard.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ')
+    const scopeText = /<div class="scope">([\s\S]*?)<\/div>/.exec(accountCard)?.[1]
+      ?.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ') ?? ''
+    named(`IG ${kind} HTML 账号卡片显示媒体范围`,
+      cardText.includes(direct.handle) && scopeShown(kind, scopeText) && noFullClaim(scopeText),
+      JSON.stringify({ scope: scopeText, card: cardText.slice(0, 400) }))
+    if (kind === 'legacy') named('IG 历史样本 CSV 与 HTML 都显示仅视频范围',
+      rows.length === 1 && scopeIndex >= 0 && scopeShown(kind, rows[0][scopeIndex] ?? '')
+        && cardText.includes(direct.handle) && scopeShown(kind, scopeText) && noFullClaim(scopeText),
+      JSON.stringify({ csv: rows[0]?.[scopeIndex], scope: scopeText }))
+  }
+  criterion('D8.o', 'D8.p', 'D8.q', 'D8.r', 'D8.s', 'D10.g', 'U7.e', 'U7.f', 'U7.g')
+})
 const ranOnly = runGroups()
 
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m

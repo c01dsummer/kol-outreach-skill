@@ -46,10 +46,10 @@ output/{product}-{YYYYMMDDHHmm}/
 | `email_verified` | 有增强层时填，否则留空 |
 | `audience_geo_top` | 如 `US 62%`，无增强层留空 |
 | `metrics_account_followers` / `metrics_account_following` | 当前平台计算公开指标时使用的账号规模；不使用跨平台合计值 |
-| `engagement_rate_followers` | 主页近期作品的粉丝互动率；未查询/不可用显式显示 |
+| `engagement_rate_followers` | 主页近期作品的粉丝互动率；Instagram 新样本用窗口内全部返回作品；未查询/不可用显式显示 |
 | `engagement_rate_views` | 播放互动率 |
 | `median_views` | 中位播放量 |
-| `median_engagements` | 中位互动量；隐含 eCPE 的分母 |
+| `median_engagements` | 中位互动量；Instagram 新样本用全部返回作品，Reels 隐含 eCPE 另用确认视频的互动分母 |
 | `view_rate` | 播粉比 |
 | `following_ratio` | 关注/粉丝比 |
 | `reach_consistency` | `P25(views) / median(views)` |
@@ -71,9 +71,16 @@ output/{product}-{YYYYMMDDHHmm}/
 | `best_post_desc` | 搜索命中的作品里播放最高那条的文案。`未查询` = 没问过他的作品（IG 按账号名搜到的人）；空白 = 所选作品的文案值为空，可能是作者未写，也可能是来源字段未取到，当前无法区分 |
 | `outreach_draft` | ★ 仅 A 级填写 |
 | `previously_recommended` | 曾推荐过则填「{product} @ {date}」 |
-| `discovery_sources` | 最末列；已观察发现来源，每项为「路线 · 平台:@账号 · 关键词 · 维度」，以 `；` 分隔；缺席或空数组显示「来源未知」 |
+| `discovery_sources` | 已观察发现来源，每项为「路线 · 平台:@账号 · 关键词 · 维度」，以 `；` 分隔；缺席或空数组显示「来源未知」 |
+| `metrics_sample_scope` | 最末列；Instagram 公开指标的主页样本范围：本次端点返回前最多 12 条／旧版仅视频窗口／旧范围未知。未查询保持未查询；不能把后两者显示为未标记的新窗口数字 |
 
 实际来源也在 HTML 账号卡片展示，原始集合保留在名单 JSON 及 probe 样本中。只含已记录的账号发现来源，可能不含完整历史；不对应具体作品、请求次数或费用。路线不能由 `source_keyword`、任务标签或 `as_hashtag` 推断（D15）。
+
+`enrichment.json` 与 `creators.json` 保留 Instagram 公开样本的 `media_scope`：
+`provider_returned_first12` 表示新取的提供方返回窗口，`legacy_video_filtered_first12`
+表示可核实的旧视频筛后窗口，`unknown` 表示旧范围无法确认。已测量指标仍保留来源、
+样本数和 `basis`；旧范围未知的作品依赖指标不可用。旧视频窗口的可用表现和 Reels 报价
+只作历史范围展示，不能解释成当前全媒体窗口；旧窗口的当前活跃不可用。
 
 **转义**：字段含逗号、引号或换行时用双引号包裹，内部双引号写成两个。`outreach_draft` 一定有换行，务必正确转义。
 
@@ -124,7 +131,8 @@ C级 观察池 (3)
   与「双平台」「私密号」等次要标签区分开 —— 运营扫一眼就要知道这人在哪个平台，
   因为两个平台的建联方式完全不同
 - A 级卡片展开显示开发信草稿并**可一键复制**
-- 主账号与关联账号分平台展示近期公开指标、样本时间、活跃标签、风险依据和报价效率
+- 主账号与关联账号分平台展示近期公开指标、样本时间、活跃标签、风险依据和报价效率；
+  每个 Instagram 账号卡片分别写明其主页样本范围，新返回窗口、旧版仅视频与旧范围未知可辨
 - 数据边界说明（见下）
 
 ## meta.json

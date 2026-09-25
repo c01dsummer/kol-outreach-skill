@@ -85,6 +85,7 @@ recentPosts(handle: string, platform: Platform): Promise<{
     shares?: number
     published_at?: string
     is_pinned?: boolean
+    video_confirmed?: boolean  // 新 IG 主页作品逐条写 true/false；false=未见肯定视频信号，不等于确认图文；旧样本缺席=未知
   }>
   followers?: number
   following?: number
@@ -99,6 +100,15 @@ recentPosts(handle: string, platform: Platform): Promise<{
 **`recentPosts` 是可选执行能力，不是额外供应商。** 不运行时主流程仍完整完成；
 运行时只用已有 TikHub key，对 `fit=✅/⚠️` 的账号写 `enrichment.json`。
 邮箱仍来自 `bio` 正则且未经验证，受众地域仍缺失。
+
+新 Instagram 主页调用先取提供方返回的前最多 12 条作品，再逐条标记视频资格；
+`is_video === true`、`media_type === 2`、`media_format === 'video'`、
+`media_name === 'reel'` 或 `product_type === 'clips'` 任一成立才确认视频。
+只有确认视频的来源播放数可写入 `views`，真实 0 留下；图文、轮播和类型未明的条目
+保留其真实互动与时间证据。下游独立样本的 `media_scope` 为
+`provider_returned_first12`、`legacy_video_filtered_first12` 或 `unknown`；
+旧缓存没有逐条视频标记，不从已存播放值补判。该范围声明的是端点本次返回的窗口，
+不保证账号所有图文都由端点返回；TikTok 主页图文仍无已核类型契约（D8、P1、P5）。
 
 **不要因为缺公开指标就中断，也不要提示用户去注册增强服务。**
 

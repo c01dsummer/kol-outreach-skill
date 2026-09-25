@@ -1468,7 +1468,7 @@
       "req": "D8",
       "why": "旧缓存的样本记录不再收进窗口 —— 交付物上声称记着 16 条，而指标是按窗口内的 11 条算的，同一行数据自己打自己",
       "file": "scripts/lib/assessment.ts",
-      "find": "    ? publicPostSample(cachedSample.value, cachedSample.source, cachedSample.observed_at)",
+      "find": "    ? publicPostSample(cachedSample.value, cachedSample.source, cachedSample.observed_at,\n        scopeOf(cachedSample, platform))",
       "replace": "    ? cachedSample"
     },
     {
@@ -4671,19 +4671,248 @@
     },
     {
       "id": "M-D8-d",
-      "req": "D8.a",
-      "why": "视频判定漏认「媒体类型为视频」这个信号 —— 只带这个信号的 Reels 被当成图文，主页样本少算视频、话题页丢掉它的播放数",
+      "req": "D8.f",
+      "why": "漏认媒体类型为视频这个肯定信号，主页作品失去视频资格及可用播放，话题页也丢失有来源的播放",
       "file": "scripts/providers/tikhub.ts",
       "find": "return i?.is_video === true || i?.media_type === 2 || i?.media_format === 'video' ||",
       "replace": "return i?.is_video === true || i?.media_format === 'video' ||"
     },
     {
       "id": "M-D8-e",
-      "req": "D8.a",
-      "why": "视频判定把轮播也当成视频 —— 主页样本把轮播混进短视频绩效，话题页给轮播写上语义不明的播放数",
+      "req": "D8.f",
+      "why": "把轮播当作已确认视频，主页播放指标纳入无肯定视频证据的作品，话题页也误填其语义未明的播放数",
       "file": "scripts/providers/tikhub.ts",
       "find": "    i?.media_name === 'reel' || i?.product_type === 'clips'\n}",
       "replace": "    i?.media_name === 'reel' || i?.product_type === 'clips' || i?.media_type === 8\n}"
+    },
+    {
+      "id": "M-D8-f",
+      "req": "D8.e",
+      "why": "Instagram 主页先筛视频再截十二条，让窗口外较旧视频补位，丢掉本次返回窗口内的非视频作品",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "const posts = list.slice(0, 12).map((item: any): NormalizedPublicPost => {",
+      "replace": "const posts = list.filter(isInstagramVideo).slice(0, 12).map((item: any): NormalizedPublicPost => {",
+      "by": "selfcheck",
+      "kills": [
+        "IG 主页先保留本次返回前十二条作品，无旧视频补位"
+      ]
+    },
+    {
+      "id": "M-D8-g",
+      "req": "D8.f",
+      "why": "所有主页作品都被标成已确认视频，非视频与媒体类型未知的条目失去未知状态",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "video_confirmed: videoConfirmed,",
+      "replace": "video_confirmed: true,",
+      "by": "selfcheck",
+      "kills": [
+        "IG 主页五类肯定视频信号逐条保留，其他项目未确认而非已证图文"
+      ]
+    },
+    {
+      "id": "M-D8-h",
+      "req": "D8.g",
+      "why": "未确认视频的主页作品也保存来源中的播放字段，语义未明的数值进入公开样本",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "const views = videoConfirmed\n        ? finiteNumber(item?.play_count) ?? finiteNumber(item?.ig_play_count) : undefined",
+      "replace": "const views = finiteNumber(item?.play_count) ?? finiteNumber(item?.ig_play_count)",
+      "by": "selfcheck",
+      "kills": [
+        "IG 主页非视频假零与假大数都无播放，确认视频真实零不被备用字段覆盖"
+      ]
+    },
+    {
+      "id": "M-D8-i",
+      "req": "D8.g",
+      "why": "已确认视频的来源播放为真实零时改用备用字段，测得的零被覆盖成另一个数",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "? finiteNumber(item?.play_count) ?? finiteNumber(item?.ig_play_count) : undefined",
+      "replace": "? finiteNumber(item?.play_count) || finiteNumber(item?.ig_play_count) : undefined",
+      "by": "selfcheck",
+      "kills": [
+        "IG 主页非视频假零与假大数都无播放，确认视频真实零不被备用字段覆盖"
+      ]
+    },
+    {
+      "id": "M-D8-j",
+      "req": "D8.l",
+      "why": "Instagram 全作品互动指标只计算已确认视频，窗口内真实的非视频赞评被丢弃",
+      "file": "scripts/lib/assessment.ts",
+      "find": "const engagements = posts.flatMap(p =>",
+      "replace": "const engagements = videoPosts.flatMap(p =>",
+      "by": "test",
+      "kills": [
+        "六条未证实视频的高互动也参与全作品中位互动"
+      ]
+    },
+    {
+      "id": "M-D8-q",
+      "req": "D8.h",
+      "why": "Instagram 指标读取带旧播放值的未确认视频作品时放过媒体资格，语义未明的播放进入中位数",
+      "file": "scripts/lib/assessment.ts",
+      "find": "? posts.filter(p => p.video_confirmed === true)\n    : posts",
+      "replace": "? posts\n    : posts",
+      "by": "test",
+      "kills": [
+        "IG 只有 6 条肯定视频且有播放，真实 0 参加中位数"
+      ]
+    },
+    {
+      "id": "M-D8-k",
+      "req": "D8.n",
+      "why": "Instagram 发帖间隔只看已确认视频，窗口内其他作品的真实发布时间不再参与",
+      "file": "scripts/lib/assessment.ts",
+      "find": "const timestamps = posts.flatMap(p => {",
+      "replace": "const timestamps = videoPosts.flatMap(p => {",
+      "by": "test",
+      "kills": [
+        "全作品 12 条有效日期形成 11 个间隔"
+      ]
+    },
+    {
+      "id": "M-D8-l",
+      "req": "D10.e",
+      "why": "Instagram 最新发布时间只看已确认视频，较新的非视频作品不能决定当前活跃",
+      "file": "scripts/lib/assessment.ts",
+      "find": ": calculateActivity(sample.value, source, observedAt,",
+      "replace": ": calculateActivity(sample.value.filter(p => p.video_confirmed === true), source, observedAt,",
+      "by": "test",
+      "kills": [
+        "最新非视频作品决定最近发布和当前活跃"
+      ]
+    },
+    {
+      "id": "M-D8-m",
+      "req": "D10.g",
+      "why": "历史仅视频窗口被当成账号全部近期作品，旧缓存给出没有依据的当前活跃结论",
+      "file": "scripts/lib/assessment.ts",
+      "find": "const activity = scope === 'legacy_video_filtered_first12'",
+      "replace": "const activity = false",
+      "by": "test",
+      "kills": [
+        "确证旧视频筛后样本保持历史视频播放，但当前活跃未知",
+        "历史仅视频样本没有账号当前发布时间或距今状态"
+      ]
+    },
+    {
+      "id": "M-D8-n",
+      "req": "D8.q",
+      "why": "旧 Instagram 样本范围不明时仍照旧计算作品指标，把不可证实的播放和互动交付为测量值",
+      "file": "scripts/lib/assessment.ts",
+      "find": "if (scope === 'unknown') {",
+      "replace": "if (false) {",
+      "by": "test",
+      "kills": [
+        "旧 basis 不匹配时不从 views 推视频或当前活跃"
+      ]
+    },
+    {
+      "id": "M-D8-o",
+      "req": "D8.p",
+      "why": "把不匹配已知历史记录的旧样本也当成历史仅视频窗口，媒体范围未知的数被保留下来",
+      "file": "scripts/lib/assessment.ts",
+      "find": "sample.status === 'measured' && sample.basis === LEGACY_IG_BASIS",
+      "replace": "sample.status === 'measured' && sample.basis.includes('profile posts')",
+      "by": "test",
+      "kills": [
+        "旧 basis 不匹配时不从 views 推视频或当前活跃"
+      ]
+    },
+    {
+      "id": "M-D9-a",
+      "req": "D9.e",
+      "why": "Reel 报价效率用全部作品互动做分母，高互动非视频作品把视频报价压成虚低的效率值",
+      "file": "scripts/lib/assessment.ts",
+      "find": "(scope === 'legacy_video_filtered_first12' || p.video_confirmed === true))",
+      "replace": "true)",
+      "by": "test",
+      "kills": [
+        "Reel eCPE 只除以确认视频的 38.5 中位互动，不借全作品 543"
+      ]
+    },
+    {
+      "id": "M-P1-ab",
+      "req": "P1.e",
+      "why": "Reel 报价已有但主页作品未查询时，凭空生成媒体范围未知的效率状态，交付把未查询写成不可用",
+      "file": "scripts/lib/assessment.ts",
+      "find": "if (account.platform === 'instagram' && !account.sample) return undefined",
+      "replace": "if (account.platform === 'instagram' && !account.sample) return { implied_ecpm: quoteUnavailable('unknown_sample_scope', quote), implied_ecpe: quoteUnavailable('unknown_sample_scope', quote) }",
+      "by": "test",
+      "kills": [
+        "有 Reel 报价但主页未查询时不生成两个效率估值"
+      ]
+    },
+    {
+      "id": "M-F8-b",
+      "req": "F8.e",
+      "why": "Instagram 同行基线混入历史仅视频窗口，和新返回窗口的账号比较不同媒体口径",
+      "file": "scripts/lib/assessment.ts",
+      "find": "scopeOf(a.sample, a.platform) === targetScope)))",
+      "replace": "true)))",
+      "by": "test",
+      "kills": [
+        "IG 同行基线只纳入同媒体范围的八个账号"
+      ]
+    },
+    {
+      "id": "M-D8-p",
+      "req": "D8.s",
+      "why": "直接导出旧任务时跳过内存重核，把盘上的旧公开指标原样写进新名单与报告",
+      "file": "scripts/render.ts",
+      "find": "const enrichment = currentEnrichmentView(loadEnrichment(dir), riskPeers)",
+      "replace": "const enrichment = loadEnrichment(dir)",
+      "by": "selfcheck",
+      "kills": [
+        "IG unknown JSON 摘要显示真实范围与状态"
+      ]
+    },
+    {
+      "id": "M-D8-r",
+      "req": "D8.r",
+      "why": "旧缓存重算改写原采样时间，交付把历史取得的作品说成刚刚采到",
+      "file": "scripts/enrich.ts",
+      "find": "    existing.sample = sample",
+      "replace": "    existing.sample = { ...sample, observed_at: new Date().toISOString() }",
+      "by": "selfcheck",
+      "kills": [
+        "IG 旧缓存重算不得改写采样时间和来源"
+      ]
+    },
+    {
+      "id": "M-U7-c",
+      "req": "U7.e",
+      "why": "交付摘要把旧视频筛后样本写成当前全媒体窗口，媒体范围三态在名单里合成同一种",
+      "file": "scripts/lib/assessment.ts",
+      "find": "...(a.sample.media_scope === undefined ? {} : { media_scope: a.sample.media_scope }),",
+      "replace": "...(a.sample.media_scope === undefined ? {} : { media_scope: 'provider_returned_first12' }),",
+      "by": "selfcheck",
+      "kills": [
+        "IG unknown JSON 摘要显示真实范围与状态"
+      ]
+    },
+    {
+      "id": "M-U7-a",
+      "req": "U7.f",
+      "why": "CSV 指标行不再展示对应账号的主页样本媒体范围，历史仅视频测量被印成无范围的数",
+      "file": "scripts/lib/rows.ts",
+      "find": "formatDiscoverySources(c.discovery_sources), sampleScopeText(assessment),",
+      "replace": "formatDiscoverySources(c.discovery_sources), '未查询',",
+      "by": "selfcheck",
+      "kills": [
+        "IG 历史样本 CSV 与 HTML 都显示仅视频范围"
+      ]
+    },
+    {
+      "id": "M-U7-b",
+      "req": "U7.g",
+      "why": "HTML 账号卡片把历史仅视频样本范围显示为未查询，用户看不出旧样本只包含视频",
+      "file": "scripts/lib/report.ts",
+      "find": "${esc(sampleScopeText(a))}",
+      "replace": "${esc('未查询')}",
+      "by": "selfcheck",
+      "kills": [
+        "IG 历史样本 CSV 与 HTML 都显示仅视频范围"
+      ]
     },
     {
       "id": "M-D6-bb",

@@ -150,7 +150,7 @@ async function assess(ref: AccountRef): Promise<void> {
       existing.following = ref.following
     }
     const { sample, metrics, changed } = recomputeCachedAssessment(
-      existing.sample, existing.followers, existing.following, existing.metrics)
+      existing.sample, existing.followers, existing.following, existing.metrics, ref.platform)
     existing.sample = sample
     existing.metrics = metrics
     if (changed) locallyRecomputed++
@@ -169,7 +169,7 @@ async function assess(ref: AccountRef): Promise<void> {
       ...(ref.followers === undefined ? {} : { followers: ref.followers }),
       ...(ref.following === undefined ? {} : { following: ref.following }),
       sample,
-      metrics: calculatePublicMetrics(sample, ref.followers, ref.following),
+      metrics: calculatePublicMetrics(sample, ref.followers, ref.following, ref.platform),
     }
   } else {
     const fetched = await api.recentPosts(ref.handle, ref.platform)
@@ -177,7 +177,7 @@ async function assess(ref: AccountRef): Promise<void> {
     const observedAt = new Date().toISOString()
     const followers = fetched.followers === undefined ? ref.followers : fetched.followers
     const following = fetched.following === undefined ? ref.following : fetched.following
-    const sample = publicPostSample(fetched.posts, fetched.source, observedAt)
+    const sample = publicPostSample(fetched.posts, fetched.source, observedAt, fetched.media_scope)
     next = {
       ...existing,
       platform: ref.platform,
@@ -185,7 +185,7 @@ async function assess(ref: AccountRef): Promise<void> {
       ...(followers === undefined ? {} : { followers }),
       ...(following === undefined ? {} : { following }),
       sample,
-      metrics: calculatePublicMetrics(sample, followers, following),
+      metrics: calculatePublicMetrics(sample, followers, following, ref.platform),
     }
   }
 
@@ -212,7 +212,7 @@ async function main() {
           const k = accountKey(ref.platform, ref.handle)
           state.accounts[k] = {
             ...state.accounts[k], platform: ref.platform, handle: ref.handle, sample,
-            metrics: calculatePublicMetrics(sample, ref.followers, ref.following),
+            metrics: calculatePublicMetrics(sample, ref.followers, ref.following, ref.platform),
           }
           newlyQueried++
           persist()
