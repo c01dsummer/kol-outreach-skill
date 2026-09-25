@@ -2433,6 +2433,178 @@ suite('D10', '缓存命中时按当前口径重算，不靠新请求')
   eq('不可用的样本记录原样留着', kept.sample, privateSample)
 }
 
+// ADR-102 §9：夹具先按公开契约手算，不以被测适配器的输出反推期望值。
+suite('D8', 'IG 主页混合媒体的窗口、视频资格和独立分母')
+{
+  const at = '2026-09-15T00:00:00.000Z'
+  const source: MetricSource = { kind: 'public_api', provider: 'tikhub',
+    endpoint: '/api/v1/instagram/v2/fetch_user_posts' }
+  // 前 12 条交错媒体；窗口外两条旧 Reel。图文高互动与视频零播放区分缺测和实测零。
+  const posts: NormalizedPublicPost[] = Array.from({ length: 14 }, (_, i) => {
+    const video = i % 2 === 1 || i >= 12
+    const rank = Math.floor(i / 2) + 1
+    // 未确认项刻意带有伪播放值：即使跳过适配器直接读到旧/脏缓存，消费端也须守资格。
+    return { id: `ig-${i}`, video_confirmed: video,
+      views: video ? (i >= 12 ? 9_000_000 : rank === 1 ? 0 : rank * 100)
+        : i % 4 === 0 ? 0 : 900_000,
+      likes: video ? rank * 10 : 1000 + rank - 1,
+      comments: video ? rank : 20,
+      published_at: new Date(Date.parse(at) - (i + 1) * 86_400_000).toISOString(),
+      is_pinned: false }
+  })
+  const newSample = (items: NormalizedPublicPost[]) =>
+    (publicPostSample as (...args: [NormalizedPublicPost[], MetricSource, string,
+      'provider_returned_first12']) => ReturnType<typeof publicPostSample>)(
+        items, source, at, 'provider_returned_first12')
+  const sample = newSample(posts)
+  eq('IG 返回先截前 12 条所有作品，不让旧 Reel 补位',
+    sample.status === 'measured' ? sample.value.map(p => p.id) : [],
+    posts.slice(0, 12).map(p => p.id))
+  eq('新样本明示“本次端点返回前 12 条作品”的有限覆盖范围',
+    sample.status === 'measured' ? (sample as typeof sample & { media_scope?: string }).media_scope : undefined,
+    'provider_returned_first12')
+  ok('新样本 basis 明示提供方返回窗口，不声称账号全量', sample.status === 'measured'
+    && /returned|provider|endpoint|api|返回|提供方|端点/i.test(sample.basis)
+    && /12/.test(sample.basis) && !/all (?:profile )?(?:posts|media)|所有作品/i.test(sample.basis))
+  criterion('D8.e', 'D8.o')
+  tension('D8', 'P5')
+  const metrics = calculatePublicMetrics(sample, 1000, 10)
+  const value = (m: { status: string; value?: unknown }) => m.status === 'measured' ? m.value : undefined
+  eq('IG 只有 6 条肯定视频且有播放，真实 0 参加中位数',
+    [value(metrics.median_views), metrics.median_views.sample_size], [350, 6])
+  eq('播粉比只以视频中位播放除粉丝数',
+    [value(metrics.view_rate), metrics.view_rate.sample_size], [0.35, 6])
+  const noFollowers = calculatePublicMetrics(sample, 0, 10).view_rate
+  eq('IG 播粉比分母为 0 时不交付数值', noFollowers.status, 'unavailable')
+  const equalViews = posts.map(p => ({ ...p, ...(p.video_confirmed && p.id !== 'ig-12'
+    && p.id !== 'ig-13' ? { views: 200 } : {}) }))
+  const equalReach = calculatePublicMetrics(newSample(equalViews), 1000, 10).reach_consistency
+  eq('六条同播放量视频的触达稳定度为 1，不钉 P25 插值实现',
+    [value(equalReach), equalReach.sample_size], [1, 6])
+  const zeroViews = posts.map(p => ({ ...p, ...(p.video_confirmed && Number(p.id.slice(3)) < 12
+    ? { views: 0 } : {}) }))
+  eq('六条视频中位播放为 0 时触达稳定度不除 0',
+    calculatePublicMetrics(newSample(zeroViews), 1000, 10).reach_consistency.status,
+    'unavailable')
+  eq('真实 0 不作播放互动率除数，剩 5 条不可冒充 6 条',
+    [metrics.engagement_rate_views.status, metrics.engagement_rate_views.sample_size],
+    ['unavailable', 5])
+  criterion('D8.h', 'D8.i', 'D8.j', 'D8.k')
+  tension('D8', 'P1')
+  eq('六条未证实视频的高互动也参与全作品中位互动',
+    [value(metrics.median_engagements), metrics.median_engagements.sample_size,
+      value(metrics.engagement_rate_followers)], [543, 12, 0.543])
+  eq('IG 粉丝互动率的有效观测数包含未证实视频作品',
+    metrics.engagement_rate_followers.sample_size, 12)
+  eq('全作品 12 条有效日期形成 11 个间隔',
+    [value(metrics.median_post_gap_days), metrics.median_post_gap_days.sample_size], [1, 11])
+  eq('最新非视频作品决定最近发布和当前活跃',
+    [value(metrics.latest_post_at), value(metrics.activity_status)],
+    ['2026-09-14T00:00:00.000Z', 'active'])
+  criterion('D8.l', 'D8.m', 'D8.n', 'D10.e', 'D10.f')
+
+  const quote: CollaborationQuote = { amount: 770, currency: 'USD', platform: 'instagram',
+    format: 'instagram_reel', quantity: 1, source: 'creator_quote', observed_at: at }
+  const account: AccountAssessment = { platform: 'instagram', handle: 'mixed', followers: 1000,
+    following: 10, sample, metrics, collaboration_quote: measured(quote,
+      { kind: 'manual', provider: 'operator' }, at, 1, 'creator Reel quote') }
+  const efficiency = calculateQuoteEfficiency(account)!
+  eq('Reel eCPM 只除以六条确认视频的中位播放',
+    value(efficiency.implied_ecpm!), 2200)
+  eq('Reel eCPE 只除以确认视频的 38.5 中位互动，不借全作品 543',
+    [value(efficiency.implied_ecpe!), efficiency.implied_ecpe?.sample_size], [20, 6])
+  ok('Reel eCPE basis 说明确认视频互动分母', efficiency.implied_ecpe?.status === 'measured'
+    && /video|reel|视频/i.test(efficiency.implied_ecpe.basis)
+    && /confirm|affirm|确认|肯定|有视频证据/i.test(efficiency.implied_ecpe.basis))
+  criterion('D9.d', 'D9.e', 'D9.f')
+  tension('D9', 'P5')
+  const incomplete = posts.map(p => ({ ...p }))
+  delete incomplete[11].comments
+  const incompleteSample = newSample(incomplete)
+  const incompleteMetrics = calculatePublicMetrics(incompleteSample, 1000, 10)
+  const incompleteEfficiency = calculateQuoteEfficiency({ ...account,
+    sample: incompleteSample, metrics: incompleteMetrics })!
+  eq('六视频仅五个完整赞评：eCPM 可测，eCPE 不可测',
+    [incompleteEfficiency.implied_ecpm?.status, incompleteEfficiency.implied_ecpe?.status,
+      incompleteEfficiency.implied_ecpe?.sample_size], ['measured', 'unavailable', 5])
+  eq('缺评论不补 0，全作品仍有 11 个有效互动观测',
+    [incompleteMetrics.median_engagements.status, incompleteMetrics.median_engagements.sample_size],
+    ['measured', 11])
+  const noView = posts.map(p => ({ ...p }))
+  delete noView[11].views
+  const noViewSample = newSample(noView)
+  const noViewEfficiency = calculateQuoteEfficiency({ ...account, sample: noViewSample,
+    metrics: calculatePublicMetrics(noViewSample, 1000, 10) })!
+  eq('仅五个视频播放：eCPM 不可测，但六个视频赞评仍可算 eCPE',
+    [noViewEfficiency.implied_ecpm?.status, value(noViewEfficiency.implied_ecpe!)],
+    ['unavailable', 20])
+  criterion('D8.g', 'D9.e', 'D9.f')
+  tension('D9', 'P1')
+
+  const legacyBasis = 'up to 12 latest short-form profile posts; '
+    + 'pinned included for recency and excluded from aggregates'
+  const oldPosts = posts.filter(p => p.video_confirmed && Number(p.id.slice(3)) < 12)
+    .map(({ video_confirmed: _oldMarker, ...p }) => p)
+  const oldAt = at
+  const legacy = recomputeCachedAssessment(measured(oldPosts, source, oldAt, 6, legacyBasis),
+    1000, 10, undefined)
+  eq('确证旧视频筛后样本保持历史视频播放，但当前活跃未知',
+    [legacy.metrics.median_views.status, legacy.metrics.activity_status.status],
+    ['measured', 'unavailable'])
+  eq('历史仅视频样本没有账号当前发布时间或距今状态',
+    [legacy.metrics.latest_post_at.status, legacy.metrics.days_since_last_post.status],
+    ['unavailable', 'unavailable'])
+  eq('旧视频样本不补图文、不改观测时间和来源，范围标为历史仅视频',
+    [legacy.sample.status === 'measured' ? legacy.sample.value.map(p => p.id) : [],
+      legacy.sample.observed_at, legacy.sample.source,
+      (legacy.sample as typeof legacy.sample & { media_scope?: string }).media_scope],
+    [oldPosts.map(p => p.id), oldAt, source, 'legacy_video_filtered_first12'])
+  const unknown = recomputeCachedAssessment(measured(oldPosts, source, oldAt, 6,
+    'up to 12 latest profile posts; media type was not recorded'), 1000, 10, undefined)
+  const unknownEfficiency = calculateQuoteEfficiency({ ...account, sample: unknown.sample,
+    metrics: unknown.metrics })!
+  eq('旧 basis 不匹配时不从 views 推视频或当前活跃',
+    [unknown.metrics.median_views.status, unknown.metrics.activity_status.status,
+      unknown.metrics.median_engagements.status,
+      (unknown.sample as typeof unknown.sample & { media_scope?: string }).media_scope],
+    ['unavailable', 'unavailable', 'unavailable', 'unknown'])
+  eq('旧 basis 不匹配时 Reel eCPM/eCPE 都不可用',
+    [unknownEfficiency.implied_ecpm?.status, unknownEfficiency.implied_ecpe?.status],
+    ['unavailable', 'unavailable'])
+  criterion('D8.p', 'D8.q', 'D10.g')
+
+  const riskMetrics = calculatePublicMetrics(sample, 10_000, 100)
+  const oldRiskMetrics = calculatePublicMetrics(legacy.sample, 10_000, 100)
+  const riskAccount: AccountAssessment = { ...account, followers: 10_000, following: 100,
+    metrics: riskMetrics }
+  const accounts: Record<string, AccountAssessment> = {
+    [accountKey('instagram', 'mixed')]: riskAccount,
+  }
+  for (let i = 0; i < 8; i++) {
+    accounts[accountKey('instagram', `new-${i}`)] = { ...riskAccount, handle: `new-${i}`,
+      metrics: structuredClone(riskMetrics) }
+    accounts[accountKey('instagram', `old-${i}`)] = { ...riskAccount, handle: `old-${i}`,
+      sample: legacy.sample, metrics: structuredClone(oldRiskMetrics) }
+  }
+  assignAudienceRisks(accounts)
+  const risk = accounts[accountKey('instagram', 'mixed')].metrics?.audience_quality_risk
+  eq('IG 同行基线只纳入同媒体范围的八个账号',
+    risk?.status === 'measured' ? risk.value.peer_size : risk, 8)
+  criterion('F8.e')
+  const scopedSample = sample.status === 'measured' ? { ...sample, value: sample.value.length } : sample
+  const scoped = mk('instagram', 'mixed', { tier: 'A', score: 60,
+    account_assessment: { ...account, sample: scopedSample } })
+  const scopeColumn = HEADERS.indexOf('metrics_sample_scope')
+  ok('IG 样本范围有独立表格列', scopeColumn >= 0)
+  ok('IG CSV 行明确写本次端点返回范围',
+    /本次端点返回|provider.{0,20}returned/i.test(String(toRow(scoped)[scopeColumn] ?? '')))
+  const populatedSheets = buildSheets([scoped]).filter(sheet => sheet.rows.length)
+  ok('IG XLSX 有账号的各表共用同一范围说明', populatedSheets.length > 0
+    && populatedSheets.every(sheet => /本次端点返回|provider.{0,20}returned/i
+      .test(String(sheet.rows[0]?.[scopeColumn] ?? ''))))
+  criterion('U7.f')
+}
+
 harness('需求登记表的完整性判定')
 {
   const req = (id: string, over: Partial<Req> = {}): Req =>
@@ -3516,18 +3688,21 @@ suite('D15', '表格与 HTML 展示真实路线并明确来源记录的边界')
     'tier_adjustments', 'collaboration_quote', 'implied_ecpm', 'implied_ecpe', 'metrics_observed_at',
     'cross_platform', 'linked_handle', 'profile_url', 'source_keyword', 'source_dimension', 'best_post_desc',
     'outreach_draft', 'previously_recommended']
-  eq('表头只在原有全部列之后追加来源', HEADERS, [...oldHeaders, 'discovery_sources'])
-  eq('来源列追加在表头末尾', HEADERS.at(-1), 'discovery_sources')
-  eq('来源列追加在数据末尾', toRow(creator).at(-1), expected)
-  eq('行与新增表头一一对应', toRow(creator).length, oldHeaders.length + 1)
-  eq('来源新增列不改变所有既有列的值', toRow(creator).slice(0, -1),
-    toRow({ ...creator, discovery_sources: undefined }).slice(0, -1))
+  eq('表头保持旧列与来源顺序，仅末尾追加样本范围', HEADERS,
+    [...oldHeaders, 'discovery_sources', 'metrics_sample_scope'])
+  eq('来源列维持原位置', HEADERS.indexOf('discovery_sources'), oldHeaders.length)
+  eq('来源列维持原单元格', toRow(creator)[HEADERS.indexOf('discovery_sources')], expected)
+  eq('行与新增表头一一对应', toRow(creator).length, oldHeaders.length + 2)
+  eq('样本范围新列不改变所有旧列及来源的值', toRow(creator).slice(0, -1),
+    toRow({ ...creator, account_assessment: undefined }).slice(0, -1))
   const sheets = buildSheets([creator])
-  eq('XLSX 每个 sheet 都保留旧列顺序并追加来源', sheets.map(s => s.headers),
-    Array.from({ length: 3 }, () => [...oldHeaders, 'discovery_sources']))
-  eq('XLSX 来源单元格与 CSV 共用格式', sheets[0].rows[0].at(-1), expected)
+  eq('XLSX 每个 sheet 都保留旧列和来源，末尾追加样本范围', sheets.map(s => s.headers),
+    Array.from({ length: 3 }, () => [...oldHeaders, 'discovery_sources', 'metrics_sample_scope']))
+  eq('XLSX 来源单元格与 CSV 共用格式',
+    sheets[0].rows[0][HEADERS.indexOf('discovery_sources')], expected)
   for (const unknown of [undefined, []] as (DiscoverySource[] | undefined)[])
-    eq('表格未知来源不冒充空白或未查询作品', toRow({ ...creator, discovery_sources: unknown }).at(-1), '来源未知')
+    eq('表格未知来源不冒充空白或未查询作品',
+      toRow({ ...creator, discovery_sources: unknown })[HEADERS.indexOf('discovery_sources')], '来源未知')
   const dangerous = { ...sources[1], handle: 'Handle<&>', keyword: '<img src=x onerror="boom()">&\'TAG' }
   const html = renderHtml([creator, mk('instagram', 'empty', { tier: 'B', discovery_sources: [] }),
     mk('instagram', 'missing', { tier: 'C' }), mk('instagram', 'escaped', { tier: 'C', discovery_sources: [dangerous] })],

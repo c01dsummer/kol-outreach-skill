@@ -3,6 +3,7 @@ import type {
 } from './types.js'
 import { taskOrdinal } from './task-label.js'
 import { formatDiscoverySources } from './discovery.js'
+import { sampleScopeText } from './rows.js'
 import type { CostView } from './budget.js'
 
 const esc = (s: unknown) =>
@@ -28,6 +29,8 @@ const REASON: Record<string, string> = {
   insufficient_comparable_metrics: '可比较指标不足',
   unsupported_content: '报价或内容形式不可比',
   account_unavailable: '账号不可访问',
+  unknown_sample_scope: '旧样本媒体范围未知',
+  legacy_video_only_sample: '旧版仅视频窗口，无法判断最近发布或全作品发帖间隔',
 }
 
 const metricText = <T>(m: Measurement<T> | undefined, format: (value: T) => string): string => {
@@ -68,6 +71,12 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
     const currency = quote?.status === 'measured' ? quote.value.currency : ''
     return `${currency} ${value.toFixed(2)}`.trim()
   })
+  const reelQuote = quote?.status === 'measured' && quote.value.format === 'instagram_reel'
+  const ecpeEvidence = reelQuote && a.quote_efficiency?.implied_ecpe?.status === 'measured'
+    ? `（确认视频互动样本 ${a.quote_efficiency.implied_ecpe.sample_size} 条；${a.quote_efficiency.implied_ecpe.basis}）`
+    : reelQuote && a.quote_efficiency?.implied_ecpe?.status === 'unavailable' &&
+      a.quote_efficiency.implied_ecpe.sample_size !== undefined
+      ? `（视频互动有效样本 ${a.quote_efficiency.implied_ecpe.sample_size} 条）` : ''
   const sample = a.sample?.status === 'measured'
     ? `${a.sample.value} 条 · ${a.sample.source.provider} · ${a.sample.observed_at.slice(0, 10)}`
     : metricText(a.sample, value => `${value} 条`)
@@ -78,6 +87,7 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
   return `<div class="assessment">
     <div class="at">${esc(label)} · @${esc(a.handle)} · ${esc(fmt(a.followers))} 粉丝 ·
       关注 ${esc(fmt(a.following))} · 样本 ${esc(sample)}</div>
+    ${a.sample?.status === 'measured' ? `<div class="scope">样本范围：${esc(sampleScopeText(a))}</div>` : ''}
     <div class="metrics">
       <span>粉丝互动率 <b>${esc(metricText(m?.engagement_rate_followers, pct))}</b></span>
       <span>播放互动率 <b>${esc(metricText(m?.engagement_rate_views, pct))}</b></span>
@@ -90,7 +100,7 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
       <span>活跃状态 <b class="activity ${activity?.status === 'measured' ? activity.value : 'unknown'}">${esc(activityLabel)}</b></span>
       <span>受众风险 <b class="risk ${risk?.status === 'measured' ? risk.value.level : 'unknown'}">${esc(riskLevel)}</b></span>
     </div>${flags}
-    <div class="commercial">合作报价 ${esc(quoteText)} · 隐含 eCPM ${esc(ecpm)} · 隐含 eCPE ${esc(ecpe)}</div>
+    <div class="commercial">合作报价 ${esc(quoteText)} · 隐含 eCPM ${esc(ecpm)} · 隐含 eCPE ${esc(ecpe + ecpeEvidence)}</div>
   </div>`
 }
 
@@ -269,7 +279,7 @@ th{color:#64748b;font-weight:600;font-size:12px}
 .adjust{margin-top:7px;font-size:12px;color:#fbbf24;background:#3f2b0a;padding:7px 9px;border-radius:6px}
 .bio{margin-top:6px;font-size:12px;color:#64748b;white-space:pre-wrap;word-break:break-word}
 .assessment{margin-top:9px;background:#0f172a;border:1px solid #1e293b;border-radius:7px;padding:9px}
-.at{font-size:11px;color:#64748b;margin-bottom:5px}.metrics{display:flex;gap:8px 12px;flex-wrap:wrap;font-size:11px;color:#94a3b8}
+.at{font-size:11px;color:#64748b;margin-bottom:5px}.scope{font-size:11px;color:#94a3b8;margin-bottom:5px}.metrics{display:flex;gap:8px 12px;flex-wrap:wrap;font-size:11px;color:#94a3b8}
 .metrics b{color:#e2e8f0;font-weight:600}.risk.high{color:#ef4444}.risk.medium{color:#f59e0b}.risk.low{color:#22c55e}.risk.unknown{color:#64748b}
 .activity.active{color:#22c55e}.activity.cooling{color:#f59e0b}.activity.dormant{color:#ef4444}.activity.unknown{color:#64748b}
 .flags{font-size:11px;color:#f59e0b;margin-top:5px}.commercial{font-size:11px;color:#94a3b8;margin-top:5px}

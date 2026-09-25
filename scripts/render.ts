@@ -18,7 +18,7 @@ import { writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, buildSheets } from './lib/rows.js'
 import { writeXlsx, type Sheet } from './lib/xlsx.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
-import { accountKey, attachAssessments } from './lib/assessment.js'
+import { accountKey, attachAssessments, currentEnrichmentView } from './lib/assessment.js'
 import { costView } from './lib/budget.js'
 import { stringifyCostJson } from './lib/cost-json.js'
 import { asMemoryStatus } from './lib/types.js'
@@ -46,13 +46,30 @@ let creators = loadCreators(dir)
 linkCrossPlatform(creators)
 creators = mergeCrossPlatform(creators)
 
-// D8/U7：公开指标独立存于 enrichment.json；渲染时按 platform:handle 关联摘要。
-const enrichment = loadEnrichment(dir)
+const accountKeysFor = (list: Creator[]): Set<string> => {
+  const keys = new Set<string>()
+  for (const c of list) {
+    keys.add(accountKey(c.platform, c.handle))
+    if (!c.linked_handle) continue
+    const split = c.linked_handle.indexOf(':')
+    const platform = c.linked_handle.slice(0, split)
+    const handle = c.linked_handle.slice(split + 1)
+    if ((platform === 'tiktok' || platform === 'instagram') && handle) {
+      keys.add(accountKey(platform, handle))
+    }
+  }
+  return keys
+}
+
+// D8/U7：直接导出也先在内存重核旧样本；不改 enrichment.json、不发请求。
+const riskPeers = accountKeysFor(creators.filter(c => c.fit === '✅' || c.fit === '⚠️'))
+const enrichment = currentEnrichmentView(loadEnrichment(dir), riskPeers)
 attachAssessments(creators, enrichment)
 
 // 算分 → 分层 → 受众降权 → 排序。管线在 lib/pipeline.ts
 creators = rankCreators(creators, state.market)
 saveCreators(dir, creators)
+const accountKeys = accountKeysFor(creators)
 
 // ---------- CSV（单表，供脚本与其他工具消费）----------
 const csvPath = join(dir, 'kol.csv')
@@ -72,17 +89,6 @@ const countMeasurements = <T>(total: number, values: Array<Measurement<T> | unde
   unqueried: total - values.filter(Boolean).length,
 })
 
-const accountKeys = new Set<string>()
-for (const c of creators) {
-  accountKeys.add(accountKey(c.platform, c.handle))
-  if (!c.linked_handle) continue
-  const split = c.linked_handle.indexOf(':')
-  const platform = c.linked_handle.slice(0, split)
-  const handle = c.linked_handle.slice(split + 1)
-  if ((platform === 'tiktok' || platform === 'instagram') && handle) {
-    accountKeys.add(accountKey(platform, handle))
-  }
-}
 const assessedAccounts = [...accountKeys].map(k => enrichment?.accounts[k])
 const emailVerified = creators.filter(c => c.email_verified !== undefined).length
 const audienceGeo = creators.filter(c => c.audience_geo !== undefined).length

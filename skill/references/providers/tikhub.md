@@ -275,13 +275,13 @@ data.bio_links[]           ✓  含 `url`（原始地址）和 `lynx_url`（IG �
 `bio_links[].url` 是原始地址可直接用；`lynx_url` 是 `https://l.instagram.com/?u=<编码>` 的包装。
 跨平台同人识别用 `url`。
 
-### 公开指标：用户近期 Reels
+### 公开指标：用户主页近期作品
 
 ```
 GET /api/v1/instagram/v2/fetch_user_posts?username={handle}
 ```
 
-2026-08-26 实测响应为：
+2026-08-26 实测响应为（这次取到的是 12 条 Reels，未验证主页图文条目的字段）：
 
 ```
 data.data.items[]
@@ -295,8 +295,19 @@ data.data.items[]
 data.data.user.follower_count / following_count
 ```
 
-只保留明确标成视频或 Reel 的项目。响应最多取 12 条；明确 pinned 的项目不进入绩效聚合，
-但发布时间仍用于当前活跃标签。
+当前采集从提供方返回顺序中取前 12 条作品，不先按媒体类型筛选，也不向第 13 条补位。
+只有 `is_video === true`、`media_type === 2`、`media_format === 'video'`、
+`media_name === 'reel'` 或 `product_type === 'clips'` 才确认视频；没有这些肯定信号的
+作品仍留在样本中，但不凭播放数字段推断为视频，也不把缺失的播放量补成 0。
+播放类指标及 Reels 报价的播放/互动分母只使用确认视频；普通互动、发布间隔和当前活跃
+使用全部返回作品。明确 pinned 的项目不进入绩效聚合，发布时间仍参与最后发布。
+
+新样本记 `media_scope: 'provider_returned_first12'`。已存旧样本只有来源为
+`public_api/tikhub`、端点为本节 V2 路径且 basis 精确匹配旧视频筛后记录时，才可标
+`legacy_video_filtered_first12`；其表现和 Reels 报价是历史视频样本结果，
+不能据此推断同期图文或当前活跃；无法确认旧口径时标 `unknown`，依赖作品范围的
+指标与报价不可用。旧样本缺失的图文无法从本地缓存复原；要取得新范围须显式刷新，
+可能产生付费请求。上述规则是解析契约，不表示已实际观察到 IG 主页图文返回。
 
 OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公开账号
 `mkbhd` 使用文档默认参数真实调用返回 **400**，响应明确说明不扣费；同一账号 V2 返回

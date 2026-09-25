@@ -1,5 +1,6 @@
 import type {
   Creator, Platform, SearchTask, RecentPost, SearchPage, MetricSource, NormalizedPublicPost,
+  ProfileSampleScope,
 } from '../lib/types.js'
 import { Budget, BudgetInputError } from '../lib/budget.js'
 import { CostError } from '../lib/cost-ledger.js'
@@ -25,6 +26,7 @@ export interface PublicPostSample {
   followers?: number
   following?: number
   source: MetricSource
+  media_scope?: ProfileSampleScope
 }
 
 const finiteNumber = (v: unknown): number | undefined =>
@@ -76,7 +78,7 @@ export function pickList(data: any, path: string): any[] {
 }
 
 /**
- * 这一条 IG 条目算不算视频/Reels（D8.a「短视频/Reels」、ADR-112 第二节）。
+ * 这一条 IG 条目算不算视频/Reels（D8、ADR-112 第二节）。
  *
  * **主页作品样本与 Reels、话题两条搜索路线的播放数共用这一份判定**，不另写第二份。认的信号是响应里的五个键，
  * 任一成立就算：`is_video` 为 `true`、`media_type` 为 `2`、`media_format` 为 `'video'`、
@@ -469,30 +471,37 @@ export class TikHub {
   }
 
   /**
-   * D8：2026-08-26 实测 V3 对公开账号返回 400，V2 返回 12 条完整 Reels 数据，
-   * 因而以 V2 为已验证路径。只保留明确的视频/Reels，不拿图片帖与视频混算。
+   * D8：保留提供方本次返回的前 12 条作品，再标出有肯定证据的视频。
+   * 非视频或类型未明的作品仍贡献可用赞评与发布时间，但不取得播放数。
    */
   private async recentInstagramPosts(handle: string): Promise<PublicPostSample> {
     const endpoint = INSTAGRAM_POSTS_ENDPOINT
     const raw = await this.get(endpoint, { username: handle })
     const list = pickList(raw, 'instagram/user_posts')
-    const videos = list.filter(isInstagramVideo)
-    const posts = videos.slice(0, 12).map((item: any): NormalizedPublicPost => ({
-      id: String(item?.id ?? item?.pk ?? item?.code ?? ''),   // P1 例外：标识仅用于样本追溯，不参与决策
-      views: finiteNumber(item?.play_count) ?? finiteNumber(item?.ig_play_count), // P1 例外：同一指标的两个真实字段别名，不是缺失数据兜底
-      likes: finiteNumber(item?.like_count),
-      comments: finiteNumber(item?.comment_count),
-      shares: finiteNumber(item?.reshare_count),
-      published_at: isoFromUnix(item?.taken_at) ?? isoFromUnix(item?.taken_at_ts), // P1 例外：同一时间字段的响应别名
-      is_pinned: item?.is_pinned === undefined ? undefined : Boolean(item.is_pinned),
-    }))
+    const posts = list.slice(0, 12).map((item: any): NormalizedPublicPost => {
+      const videoConfirmed = isInstagramVideo(item)
+      // P1 例外：同一播放指标的两个真实字段别名；0 也是已取到的值。
+      const views = videoConfirmed
+        ? finiteNumber(item?.play_count) ?? finiteNumber(item?.ig_play_count) : undefined
+      return {
+        id: String(item?.id ?? item?.pk ?? item?.code ?? ''),   // P1 例外：标识仅用于样本追溯，不参与决策
+        video_confirmed: videoConfirmed,
+        ...(views === undefined ? {} : { views }),
+        likes: finiteNumber(item?.like_count),
+        comments: finiteNumber(item?.comment_count),
+        shares: finiteNumber(item?.reshare_count),
+        published_at: isoFromUnix(item?.taken_at) ?? isoFromUnix(item?.taken_at_ts), // P1 例外：同一时间字段的响应别名
+        is_pinned: item?.is_pinned === undefined ? undefined : Boolean(item.is_pinned),
+      }
+    })
     const data = raw?.data?.data ?? raw?.data
-    const user = data?.user ?? videos.find((item: any) => item?.user)?.user
+    const user = data?.user ?? list.find((item: any) => item?.user)?.user
     return {
       posts,
       followers: finiteNumber(user?.follower_count),
       following: finiteNumber(user?.following_count),
       source: { kind: 'public_api', provider: 'tikhub', endpoint },
+      media_scope: 'provider_returned_first12',
     }
   }
 

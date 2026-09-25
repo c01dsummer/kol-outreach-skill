@@ -14,6 +14,8 @@ import type {
   MetricUnavailableReason,
   NormalizedPublicPost,
   Platform,
+  ProfileSampleScope,
+  PublicPostMeasurement,
   PublicMetrics,
   QuoteEfficiency,
 } from './types.js'
@@ -24,6 +26,34 @@ export const MIN_METRIC_POSTS = 6
 export const MIN_PEER_SIZE = 8
 export const ACTIVITY_ACTIVE_MAX_DAYS = 45
 export const ACTIVITY_COOLING_MAX_DAYS = 90
+
+/** 仅用旧生产代码确实写下的来源与文字识别历史视频筛后窗口。 */
+const LEGACY_IG_ENDPOINT = '/api/v1/instagram/v2/fetch_user_posts'
+const LEGACY_IG_BASIS =
+  'up to 12 latest short-form profile posts; pinned included for recency and excluded from aggregates'
+
+const isInstagramSample = (
+  sample: PublicPostMeasurement<NormalizedPublicPost[]>,
+  platform?: Platform,
+): boolean => platform === 'instagram' ||
+  (platform !== 'tiktok' && (sample.media_scope !== undefined ||
+    sample.source.endpoint?.startsWith('/api/v1/instagram/') === true))
+
+const scopeOf = (
+  sample: PublicPostMeasurement<NormalizedPublicPost[]>,
+  platform?: Platform,
+): ProfileSampleScope | undefined => {
+  if (!isInstagramSample(sample, platform)) return undefined
+  if (sample.media_scope === 'provider_returned_first12' ||
+      sample.media_scope === 'legacy_video_filtered_first12') return sample.media_scope
+  if (sample.media_scope === 'unknown') return 'unknown'
+  return sample.source.kind === 'public_api' &&
+    sample.source.provider === 'tikhub' &&
+    sample.source.endpoint === LEGACY_IG_ENDPOINT &&
+    sample.status === 'measured' && sample.basis === LEGACY_IG_BASIS
+    ? 'legacy_video_filtered_first12'
+    : 'unknown'
+}
 
 const FOLLOWER_BANDS = [5_000, 25_000, 100_000, 500_000, 1_000_000, 5_000_001] as const
 const FOLLOWER_BAND_LABELS = [
@@ -109,6 +139,18 @@ const followerMetric = (
   return metricFrom(values.map(v => v / followers), source, observedAt, basis)
 }
 
+const followingRatioFor = (
+  followers: number | undefined,
+  following: number | undefined,
+  source: MetricSource,
+  observedAt: string,
+): Measurement<number> => {
+  if (followers === undefined) return unavailable('missing_followers', source, observedAt)
+  if (followers <= 0) return unavailable('zero_denominator', source, observedAt)
+  if (following === undefined) return unavailable('missing_following', source, observedAt)
+  return measured(following / followers, source, observedAt, 1, 'following / followers')
+}
+
 interface ActivityMeasurements {
   latest_post_at: Measurement<string>
   days_since_last_post: Measurement<number>
@@ -123,6 +165,7 @@ const calculateActivity = (
   posts: NormalizedPublicPost[],
   source: MetricSource,
   observedAt: string,
+  basisSuffix = '',
 ): ActivityMeasurements => {
   const dateValues = posts
     .slice(0, PUBLIC_POST_SAMPLE_SIZE)
@@ -151,13 +194,13 @@ const calculateActivity = (
   return {
     latest_post_at: measured(
       new Date(latest).toISOString(), source, observedAt, sampleSize,
-      'max(published_at) across latest profile posts; pinned included'),
+      `max(published_at) across latest profile posts; pinned included${basisSuffix}`),
     days_since_last_post: measured(
       days, source, observedAt, sampleSize,
-      '(sample observed_at - latest_post_at) / 24h'),
+      `(sample observed_at - latest_post_at) / 24h${basisSuffix}`),
     activity_status: measured(
       status, source, observedAt, sampleSize,
-      'active <=45d; cooling >45d and <=90d; dormant >90d'),
+      `active <=45d; cooling >45d and <=90d; dormant >90d${basisSuffix}`),
   }
 }
 
@@ -173,13 +216,22 @@ export function publicPostSample(
   posts: NormalizedPublicPost[],
   source: MetricSource,
   observedAt: string,
-): Measurement<NormalizedPublicPost[]> {
+  scope?: ProfileSampleScope,
+): PublicPostMeasurement<NormalizedPublicPost[]> {
   const window = posts.slice(0, PUBLIC_POST_SAMPLE_SIZE)
-  return measured(
-    window, source, observedAt, window.length,
-    `up to ${PUBLIC_POST_SAMPLE_SIZE} latest short-form profile posts; ` +
-    'pinned included for recency and excluded from aggregates',
-  )
+  const basis = scope === 'provider_returned_first12'
+    ? 'first up to 12 items returned by this Instagram profile endpoint; ' +
+      'pinned included for recency and excluded from aggregates; video-only playback metrics'
+    : scope === 'legacy_video_filtered_first12'
+      ? 'historical first up to 12 Instagram videos after the old provider filter; ' +
+        'non-video items were discarded and cannot be recovered locally'
+      : scope === 'unknown'
+        ? 'Instagram profile sample media scope unknown; cannot infer video status or complete posting activity'
+        : LEGACY_IG_BASIS
+  return {
+    ...measured(window, source, observedAt, window.length, basis),
+    ...(scope === undefined ? {} : { media_scope: scope }),
+  }
 }
 
 /**
@@ -187,9 +239,10 @@ export function publicPostSample(
  * 某条帖子缺任何一个分子字段时，只让该条退出对应指标，不把缺失当成 0。
  */
 export function calculatePublicMetrics(
-  sample: Measurement<NormalizedPublicPost[]>,
+  sample: PublicPostMeasurement<NormalizedPublicPost[]>,
   followers?: number,
   following?: number,
+  platform?: Platform,
 ): PublicMetrics {
   const source = sample.source
   const observedAt = sample.observed_at
@@ -213,7 +266,37 @@ export function calculatePublicMetrics(
     }
   }
 
-  const activity = calculateActivity(sample.value, source, observedAt)
+  const scope = scopeOf(sample, platform)
+  const followingRatio = followingRatioFor(followers, following, source, observedAt)
+  if (scope === 'unknown') {
+    const unknown = <T>(): Measurement<T> =>
+      unavailable('unknown_sample_scope', source, observedAt, sample.value.length)
+    return {
+      median_views: unknown(),
+      median_engagements: unknown(),
+      engagement_rate_followers: unknown(),
+      engagement_rate_views: unknown(),
+      view_rate: unknown(),
+      following_ratio: followingRatio,
+      reach_consistency: unknown(),
+      median_post_gap_days: unknown(),
+      latest_post_at: unknown(),
+      days_since_last_post: unknown(),
+      activity_status: unknown(),
+      audience_quality_risk: unknown(),
+    }
+  }
+
+  const activity = scope === 'legacy_video_filtered_first12'
+    ? {
+        latest_post_at: unavailable<string>('legacy_video_only_sample', source, observedAt),
+        days_since_last_post: unavailable<number>('legacy_video_only_sample', source, observedAt),
+        activity_status: unavailable<ActivityStatus>('legacy_video_only_sample', source, observedAt),
+      }
+    : calculateActivity(sample.value, source, observedAt,
+        scope === 'provider_returned_first12'
+          ? '; provider-returned first 12 Instagram items, all returned media'
+          : '')
   // D8 的两步有顺序：先把窗口定在最近 12 条，再从窗口里剔置顶。反过来的话，
   // 提供方多返回的第 13、14 条会顶上来补满 12 个 —— TikTok 那一路把整个
   // pickList 结果原样传下来，于是「最近 12 条」的口径变成「取决于这次多返回了几条」。
@@ -223,14 +306,18 @@ export function calculatePublicMetrics(
   const posts = sample.value
     .slice(0, PUBLIC_POST_SAMPLE_SIZE)
     .filter(p => p.is_pinned !== true)
-  const views = posts.flatMap(p => typeof p.views === 'number' && Number.isFinite(p.views) ? [p.views] : [])
+  const videoPosts = scope === 'provider_returned_first12'
+    ? posts.filter(p => p.video_confirmed === true)
+    : posts
+  const views = videoPosts.flatMap(p =>
+    typeof p.views === 'number' && Number.isFinite(p.views) ? [p.views] : [])
   const engagements = posts.flatMap(p =>
     typeof p.likes === 'number' && Number.isFinite(p.likes) &&
     typeof p.comments === 'number' && Number.isFinite(p.comments)
       ? [p.likes + p.comments]
       : [])
 
-  const viewEngagementRates = posts.flatMap(p => {
+  const viewEngagementRates = videoPosts.flatMap(p => {
     if (typeof p.views !== 'number' || !Number.isFinite(p.views) || p.views <= 0) return []
     if (typeof p.likes !== 'number' || !Number.isFinite(p.likes)) return []
     if (typeof p.comments !== 'number' || !Number.isFinite(p.comments)) return []
@@ -246,6 +333,17 @@ export function calculatePublicMetrics(
   // 6 个时间戳形成的 5 个间隔冒充“至少 6 个有效观测”。
   const gaps = timestamps.slice(1).map((time, i) => (time - timestamps[i]) / 86_400_000)
 
+  const videoBasis = scope === 'provider_returned_first12'
+    ? ' in provider-returned first 12 Instagram items, confirmed videos only'
+    : scope === 'legacy_video_filtered_first12'
+      ? ' in historical video-filtered Instagram window'
+      : ''
+  const allMediaBasis = scope === 'provider_returned_first12'
+    ? ' in provider-returned first 12 Instagram items, all returned media'
+    : scope === 'legacy_video_filtered_first12'
+      ? ' in historical video-filtered Instagram window; non-video posts absent'
+      : ''
+
   let reachConsistency: Measurement<number>
   if (views.length < MIN_METRIC_POSTS) {
     reachConsistency = unavailable('insufficient_posts', source, observedAt, views.length)
@@ -254,31 +352,26 @@ export function calculatePublicMetrics(
     reachConsistency = med <= 0
       ? unavailable('zero_denominator', source, observedAt, views.length)
       : measured(percentile(views, 0.25) / med, source, observedAt, views.length,
-          'p25(views) / median(views)')
-  }
-
-  let followingRatio: Measurement<number>
-  if (followers === undefined) {
-    followingRatio = unavailable('missing_followers', source, observedAt)
-  } else if (followers <= 0) {
-    followingRatio = unavailable('zero_denominator', source, observedAt)
-  } else if (following === undefined) {
-    followingRatio = unavailable('missing_following', source, observedAt)
-  } else {
-    followingRatio = measured(following / followers, source, observedAt, 1, 'following / followers')
+          `p25(views) / median(views)${videoBasis}`)
   }
 
   return {
-    median_views: metricFrom(views, source, observedAt, 'median(views)'),
-    median_engagements: metricFrom(engagements, source, observedAt, 'median(likes + comments)'),
+    median_views: metricFrom(views, source, observedAt, `median(views)${videoBasis}`),
+    median_engagements: metricFrom(engagements, source, observedAt,
+      `median(likes + comments)${allMediaBasis}`),
     engagement_rate_followers: followerMetric(
-      engagements, followers, source, observedAt, 'median((likes + comments) / followers)'),
+      engagements, followers, source, observedAt,
+      `median((likes + comments) / followers)${allMediaBasis}`),
     engagement_rate_views: metricFrom(
-      viewEngagementRates, source, observedAt, 'median((likes + comments) / views)'),
-    view_rate: followerMetric(views, followers, source, observedAt, 'median(views / followers)'),
+      viewEngagementRates, source, observedAt,
+      `median((likes + comments) / views)${videoBasis}`),
+    view_rate: followerMetric(views, followers, source, observedAt,
+      `median(views / followers)${videoBasis}`),
     following_ratio: followingRatio,
     reach_consistency: reachConsistency,
-    median_post_gap_days: metricFrom(gaps, source, observedAt, 'median(days between posts)'),
+    median_post_gap_days: scope === 'legacy_video_filtered_first12'
+      ? unavailable('legacy_video_only_sample', source, observedAt, gaps.length)
+      : metricFrom(gaps, source, observedAt, `median(days between posts)${allMediaBasis}`),
     ...activity,
     audience_quality_risk: unavailable('insufficient_peer_group', source, observedAt),
   }
@@ -322,19 +415,45 @@ const comparableMetrics = (m: PublicMetrics): string => {
  * `changed` 只用来照实汇报「手上的数换过没有」，不参与是否重算的决定。
  */
 export function recomputeCachedAssessment(
-  cachedSample: Measurement<NormalizedPublicPost[]>,
+  cachedSample: PublicPostMeasurement<NormalizedPublicPost[]>,
   followers: number | undefined,
   following: number | undefined,
   cachedMetrics: PublicMetrics | undefined,
-): { sample: Measurement<NormalizedPublicPost[]>; metrics: PublicMetrics; changed: boolean } {
+  platform?: Platform,
+): { sample: PublicPostMeasurement<NormalizedPublicPost[]>; metrics: PublicMetrics; changed: boolean } {
   const sample = cachedSample.status === 'measured'
-    ? publicPostSample(cachedSample.value, cachedSample.source, cachedSample.observed_at)
+    ? publicPostSample(cachedSample.value, cachedSample.source, cachedSample.observed_at,
+        scopeOf(cachedSample, platform))
     : cachedSample
-  const metrics = calculatePublicMetrics(sample, followers, following)
+  const metrics = calculatePublicMetrics(sample, followers, following, platform)
   const changed = canonical(cachedSample) !== canonical(sample) ||
     cachedMetrics === undefined ||
     comparableMetrics(cachedMetrics) !== comparableMetrics(metrics)
   return { sample, metrics, changed }
+}
+
+/** 直接 render 旧目录时，在内存中应用与 enrich 相同的样本范围和指标口径。 */
+export function currentEnrichmentView(
+  state: EnrichmentState | undefined,
+  selectedKeys: ReadonlySet<string>,
+): EnrichmentState | undefined {
+  if (!state) return undefined
+  const accounts: Record<string, AccountAssessment> = {}
+  for (const [key, account] of Object.entries(state.accounts)) {
+    if (!account.sample) {
+      accounts[key] = account.platform === 'instagram'
+        ? { ...account, metrics: undefined }
+        : { ...account }
+      continue
+    }
+    const { sample, metrics } = recomputeCachedAssessment(
+      account.sample, account.followers, account.following, account.metrics, account.platform)
+    accounts[key] = { ...account, sample, metrics }
+  }
+  const selectedAccounts = Object.fromEntries(
+    [...selectedKeys].flatMap(key => accounts[key] ? [[key, accounts[key]]] : []))
+  assignAudienceRisks(selectedAccounts)
+  return { ...state, accounts }
 }
 
 const comparableMetricCount = (a: AccountAssessment): number =>
@@ -357,6 +476,12 @@ export function assignAudienceRisks(accounts: Record<string, AccountAssessment>)
         sample.reason, sample.source, sample.observed_at, sample.sample_size)
       continue
     }
+    const targetScope = scopeOf(sample, target.platform)
+    if (targetScope === 'unknown') {
+      metrics.audience_quality_risk = unavailable(
+        'unknown_sample_scope', sample.source, sample.observed_at, sample.sample_size)
+      continue
+    }
     if (target.followers === undefined || bandOf(target.followers) < 0) {
       metrics.audience_quality_risk = unavailable(
         'missing_followers', sample.source, sample.observed_at)
@@ -368,7 +493,10 @@ export function assignAudienceRisks(accounts: Record<string, AccountAssessment>)
     // 同档不足不跨档拼样本；不同规模的自然互动基线不同，硬拼会制造伪精度。
     const peers = all.filter(a =>
       a !== target && a.platform === target.platform && a.followers !== undefined &&
-      bandOf(a.followers) === targetBand && comparableMetricCount(a) >= 2)
+      bandOf(a.followers) === targetBand && comparableMetricCount(a) >= 2 &&
+      (target.platform !== 'instagram' ||
+        (a.sample !== undefined && a.sample.status === 'measured' &&
+          scopeOf(a.sample, a.platform) === targetScope)))
     if (peers.length < MIN_PEER_SIZE) {
       metrics.audience_quality_risk = unavailable(
         'insufficient_peer_group', sample.source, sample.observed_at, peers.length)
@@ -421,15 +549,17 @@ export function assignAudienceRisks(accounts: Record<string, AccountAssessment>)
     metrics.audience_quality_risk = measured(
       risk, sample.source, sample.observed_at, risk.peer_size,
       `same-platform ${FOLLOWER_BAND_LABELS[targetBand]} follower-band P10/P90 anomaly signals; ` +
-      'target excluded; high requires at least two')
+      `target excluded; high requires at least two` +
+      (targetScope === undefined ? '' : `; Instagram sample scope ${targetScope}`))
   }
 }
 
 const quoteUnavailable = (
   reason: MetricUnavailableReason,
   quote: Measurement<CollaborationQuote>,
+  sampleSize?: number,
 ): Measurement<number> =>
-  unavailable(reason, quote.source, quote.observed_at, quote.sample_size)
+  unavailable(reason, quote.source, quote.observed_at, sampleSize)
 
 /** D9：只计算明确、同平台、同形式报价的隐含效率，不自动估价。 */
 export function calculateQuoteEfficiency(account: AccountAssessment): QuoteEfficiency | undefined {
@@ -458,25 +588,71 @@ export function calculateQuoteEfficiency(account: AccountAssessment): QuoteEffic
     basis: string,
   ): Measurement<number> | undefined => {
     if (!m) return undefined
-    if (m.status === 'unavailable') return quoteUnavailable(m.reason, quote)
-    if (m.value <= 0) return quoteUnavailable('zero_denominator', quote)
+    if (m.status === 'unavailable') {
+      return quoteUnavailable(m.reason, quote,
+        m.reason === 'unknown_sample_scope' ? undefined : m.sample_size)
+    }
+    if (m.value <= 0) return quoteUnavailable('zero_denominator', quote, m.sample_size)
     return measured(perDeliverable / m.value * scale, quote.source, quote.observed_at,
       m.sample_size, basis)
   }
 
+  const reelEngagementEfficiency = (): Measurement<number> => {
+    const sample = account.sample
+    if (!sample) return quoteUnavailable('unknown_sample_scope', quote)
+    if (sample.status === 'unavailable') return quoteUnavailable(sample.reason, quote)
+    const scope = scopeOf(sample, account.platform)
+    if (scope !== 'provider_returned_first12' && scope !== 'legacy_video_filtered_first12') {
+      return quoteUnavailable('unknown_sample_scope', quote)
+    }
+    const videoPosts = sample.value.slice(0, PUBLIC_POST_SAMPLE_SIZE)
+      .filter(p => p.is_pinned !== true &&
+        (scope === 'legacy_video_filtered_first12' || p.video_confirmed === true))
+    const values = videoPosts.flatMap(p =>
+      typeof p.likes === 'number' && Number.isFinite(p.likes) &&
+      typeof p.comments === 'number' && Number.isFinite(p.comments)
+        ? [p.likes + p.comments] : [])
+    if (values.length < MIN_METRIC_POSTS) {
+      return quoteUnavailable('insufficient_posts', quote, values.length)
+    }
+    const denominator = median(values)
+    if (denominator <= 0) return quoteUnavailable('zero_denominator', quote, values.length)
+    const window = scope === 'provider_returned_first12'
+      ? 'confirmed videos in provider-returned first 12 Instagram items'
+      : 'historical video-filtered Instagram window; non-video posts absent'
+    return measured(perDeliverable / denominator, quote.source, quote.observed_at,
+      values.length, `(quote / quantity) / median(likes + comments) for ${window}`)
+  }
+
+  const sample = account.sample
+  const scope = sample ? scopeOf(sample, account.platform) : undefined
+  const igEcpmUnavailable = account.platform === 'instagram' &&
+    (!sample || sample.status === 'unavailable' || scope === 'unknown')
   return {
-    implied_ecpm: fromMetric(account.metrics?.median_views, 1_000,
-      '(quote / quantity) / median_views * 1000'),
-    implied_ecpe: fromMetric(account.metrics?.median_engagements, 1,
-      '(quote / quantity) / median(likes + comments)'),
+    implied_ecpm: igEcpmUnavailable
+      ? quoteUnavailable(sample?.status === 'unavailable'
+          ? sample.reason : 'unknown_sample_scope', quote)
+      : fromMetric(account.metrics?.median_views, 1_000,
+      account.platform === 'instagram'
+        ? '(quote / quantity) / median(confirmed-video views) * 1000; Instagram sample scope ' +
+          scope
+        : '(quote / quantity) / median_views * 1000') ??
+        (account.platform === 'instagram' ? quoteUnavailable('insufficient_posts', quote) : undefined),
+    implied_ecpe: account.platform === 'instagram'
+      ? reelEngagementEfficiency()
+      : fromMetric(account.metrics?.median_engagements, 1,
+          '(quote / quantity) / median(likes + comments)'),
   }
 }
 
 const summaryOf = (a: AccountAssessment): AccountAssessmentSummary => {
   const efficiency = calculateQuoteEfficiency(a)
   const sample = a.sample?.status === 'measured'
-    ? measured(a.sample.value.length, a.sample.source, a.sample.observed_at,
-        a.sample.sample_size, a.sample.basis)
+    ? {
+        ...measured(a.sample.value.length, a.sample.source, a.sample.observed_at,
+          a.sample.sample_size, a.sample.basis),
+        ...(a.sample.media_scope === undefined ? {} : { media_scope: a.sample.media_scope }),
+      }
     : a.sample
   return {
     platform: a.platform,

@@ -120,6 +120,8 @@ export type MetricUnavailableReason =
   | 'insufficient_comparable_metrics'
   | 'unsupported_content'
   | 'account_unavailable'
+  | 'unknown_sample_scope'
+  | 'legacy_video_only_sample'
 
 export type Measurement<T> =
   | {
@@ -138,9 +140,21 @@ export type Measurement<T> =
       sample_size?: number
     }
 
+/** 主页样本实际保存的媒体范围；unknown 不代表确认图文或确认视频。 */
+export type ProfileSampleScope =
+  | 'provider_returned_first12'
+  | 'legacy_video_filtered_first12'
+  | 'unknown'
+
+export type PublicPostMeasurement<T> = Measurement<T> & {
+  media_scope?: ProfileSampleScope
+}
+
 /** D8：关键词搜索命中的帖子有选择偏差，公开指标使用单独抓取的主页近期样本。 */
 export interface NormalizedPublicPost {
   id: string
+  /** 仅肯定的视频证据为 true；false 只表示未见到肯定信号。 */
+  video_confirmed?: boolean
   views?: number
   likes?: number
   comments?: number
@@ -203,7 +217,7 @@ export interface AccountAssessment {
   handle: string
   followers?: number
   following?: number
-  sample?: Measurement<NormalizedPublicPost[]>
+  sample?: PublicPostMeasurement<NormalizedPublicPost[]>
   metrics?: PublicMetrics
   collaboration_quote?: Measurement<CollaborationQuote>
 }
@@ -213,7 +227,7 @@ export interface AccountAssessmentSummary {
   handle: string
   followers?: number
   following?: number
-  sample?: Measurement<number>
+  sample?: PublicPostMeasurement<number>
   metrics?: PublicMetrics
   collaboration_quote?: Measurement<CollaborationQuote>
   quote_efficiency?: QuoteEfficiency
@@ -288,8 +302,8 @@ export interface Creator {
    * 里还躺着一批，全是上面那条兜底路径以前凭空写的，**意思是没问过，不是没作品**。
    * 所以读它的地方一律把空数组和 `undefined` 当成同一态（P1.e、ADR-102）。
    *
-   * 「他确实没作品」今天说不出来：唯一够格的证据是主页样本，而 IG 的主页样本只留视频、
-   * 丢了图文帖（ADR-102 欠账）—— 测出来是零，也可能只是他不发视频。
+   * 「他确实没作品」今天说不出来：主页端点只交回有限窗口，没返回作品也不能证明
+   * 账号没有作品；旧 IG 缓存还可能只保存筛过的视频（ADR-102）。
    */
   recent_posts?: RecentPost[]
 

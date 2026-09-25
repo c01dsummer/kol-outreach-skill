@@ -26,13 +26,22 @@ npm run enrich -- --dir output/xxx --budget 3
 ## 样本边界
 
 - TikTok 与 Instagram 分开计算，不把两个平台的粉丝和播放量混在一起
-- 取主页最近 12 条短视频/Reels，不复用关键词搜索命中的帖子
+- TikTok 仍按现有口径取主页最近最多 12 条；Instagram 按提供方返回顺序取前最多 12 条作品，
+  包含没有肯定视频信号的条目。不复用关键词搜索命中的帖子，也不声称端点覆盖了账号全部图文
 - 绩效聚合与发布间隔排除明确标记为 pinned 的帖子；源数据没给 pinned 状态时不猜
 - 两步有先后：窗口先定在最近 12 条，再从这 12 条里剔置顶。剔完不足 12 条就是不足，
   不拿第 13 条往上补 —— 否则「最近 12 条」会变成「取决于提供方这次多返回了几条」
 - 最近发布时间包含 pinned —— 置顶会偏置表现，但不会抹掉一次真实发布
-- 聚合指标至少需要 6 个有效观测；最后发布时间与活跃标签有 1 个有效时间即可
+- 每项聚合至少需要 6 个有效观测；最后发布时间与活跃标签有 1 个有效时间即可
 - 缺点赞、评论、播放或粉丝数时，该条退出对应公式，不按 0 补
+
+Instagram 新样本的 `media_scope` 是 `provider_returned_first12`。逐条作品只在 `is_video === true`、
+`media_type === 2`、`media_format === 'video'`、`media_name === 'reel'` 或
+`product_type === 'clips'` 有任一肯定信号时标 `video_confirmed: true`；其他条目为 false，
+意为尚未确认是视频，不能反过来断言为图文。只有确认视频才保留来源播放量，真实 0 保留；
+播放字段的存在或值本身不证明媒体类型。Instagram 播放类指标只用已确认视频；粉丝互动率、
+中位互动量、发布间隔与当前活跃用全部返回作品，仍排除明确置顶作品的绩效与间隔。
+最后发布时间包含置顶。
 
 `enrichment.json` 的三态：字段不存在 = 未查询；`unavailable` = 查询过但没有资格回答；
 `measured` = 有值，并带来源、时间、样本数和公式。
@@ -44,7 +53,7 @@ npm run enrich -- --dir output/xxx --budget 3
 | 粉丝互动率 | `median((likes + comments) / followers)` | 粉丝规模对应的公开互动能力 |
 | 播放互动率 | `median((likes + comments) / views)` | 内容触达后的互动深度 |
 | 中位播放量 | `median(views)` | 抗单条爆款干扰的典型触达 |
-| 中位互动量 | `median(likes + comments)` | 报价存在时计算隐含 eCPE |
+| 中位互动量 | `median(likes + comments)` | Instagram 用全部返回作品；Reels 隐含 eCPE 另取确认视频的互动分母 |
 | 播粉比 | `median(views / followers)` | 粉丝规模能否转成实际触达 |
 | 关注/粉丝比 | `following / followers` | 同行异常筛查信号，不单独解释成质量结论 |
 | 触达稳定度 | `P25(views) / median(views)` | 常规作品是否稳定，而非只靠一条爆款 |
@@ -68,14 +77,20 @@ npm run enrich -- --dir output/xxx --budget 3
 没有任何发布时间时写 `missing_post_dates`；无法解析或来自未来的时间写
 `invalid_post_date`，都不得补成“刚刚发布”。活跃状态是 `observed_at` 时的快照；以后重新
 查看时若要确认最新状态，应使用 `--refresh`。旧 `enrichment.json` 已保存原始样本时，
-普通 enrich 会按当前口径本地重算全部指标（不只是补新字段），并把样本记录本身也
-收进窗口，不额外请求 API —— 所以口径改过之后不需要为旧账号重新付费。
+普通 enrich 会按保存的证据本地重算，不额外请求 API；直接 render 旧任务也先在内存中
+重核，再交付。旧 Instagram 样本若能凭 `public_api/tikhub` 来源、
+`/api/v1/instagram/v2/fetch_user_posts` 端点及精确匹配的旧 basis 确认是视频筛后窗口，
+标 `media_scope: 'legacy_video_filtered_first12'`：可保留历史视频窗口的绩效，
+但原来被筛掉的图文无法从缓存复原，当前活跃不可用。不能确认旧范围时标
+`media_scope: 'unknown'`，作品范围相关指标与活跃不可用。取得新的全返回窗口
+需要显式 `--refresh`，可能产生付费请求。
 见 `docs/adr/` 的 ADR-13 与 ADR-14。
 
 ## 受众质量风险
 
 这是**任务内同行异常筛查**：被评账号不进入自己的基线；同平台、同粉丝档至少有
-8 个其他可比较账号才计算。同档不足就写 `unknown`，不跨规模档拼接。
+8 个其他可比较账号才计算。同档不足就写 `unknown`，不跨规模档拼接。Instagram
+还必须是相同的 `media_scope`；新窗口、旧视频筛后窗口和未知范围不能混作同行基线。
 
 粉丝档固定为 `5k–<25k`、`25k–<100k`、`100k–<500k`、`500k–<1m`、
 `1m–5m`；名单本身已排除这个范围之外的账号。
@@ -125,12 +140,15 @@ npm run enrich -- --dir output/xxx --budget 3
 
 ```text
 隐含 eCPM = 单条报价 / 中位播放量 × 1000
-隐含 eCPE = 单条报价 / 中位互动量
+隐含 eCPE = 单条报价 / 同形式作品的中位互动量
 ```
 
 混合套餐、缺报价、缺分母一律显示不可计算。不同币种不自动换算。
-当前公开样本是短视频，因此只有 `tiktok_video` 对 TikTok、`instagram_reel` 对 Instagram
-能进入公式；`instagram_post` 与 `mixed_bundle` 可以记录，但不能套用 Reels/视频表现。
+TikTok 仍按现有视频口径处理 `tiktok_video`。Instagram 新窗口中的 `instagram_reel`
+只以确认视频计算：eCPM 用该组可用播放的中位数，eCPE 另用该组赞评齐全的中位互动，
+两者各需至少 6 个有效观测及有效分母，可能一项可算、另一项不可算。旧视频筛后窗口
+可保留明确标注历史范围的 Reels 效率；旧范围未知则不可算。`instagram_post` 与
+`mixed_bundle` 可以记录，但不能套用 Reels 分母。
 
 ## 怎么向用户解释
 
