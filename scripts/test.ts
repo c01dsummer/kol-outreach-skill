@@ -133,6 +133,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd8-public', needs: [] },
   { id: 'h-spec', needs: [] },
   { id: 'd11-posts', needs: [] },
+  { id: 'd15-hashtag-parser', needs: [] },
   { id: 'd15-hashtag', needs: [] },
   { id: 'd16-tasks', needs: [] },
   { id: 'd17-config', needs: [] },
@@ -143,6 +144,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-infra-rules', needs: [] },
   { id: 'h-group', needs: [] },
   { id: 'h-check-rules', needs: [] },
+  { id: 'p1-provider', needs: [] },
   { id: 'd6-provider', needs: [] },
   { id: 'd12-ledger', needs: [] },
 ]
@@ -3840,6 +3842,8 @@ suite('D15', '表格与 HTML 展示真实路线并明确来源记录的边界')
 
 // 独立上下文先于实现写成；期望只依据 ADR-112 第二、五节，D11、P1、D15 的需求文字，
 // 以及 isInstagramVideo、parseInstagramHashtagPage、pickList 的接口说明；不取自任何产品函数体。
+}
+await group('d15-hashtag-parser', () => {
 suite('D15', 'IG 话题页解析：只解析、不分派（ADR-112 第四节第 2 步）')
 {
   // 调用放进 thunk：抛出变成一个显眼的值再比 —— 否则「期望缺席」的断言会被一次抛出静默放行，
@@ -3867,6 +3871,9 @@ suite('D15', 'IG 话题页解析：只解析、不分派（ADR-112 第四节第 
     ['字符串不是对象，不算', 'reel', false],
   ]
   for (const [name, item, want] of videoCases) probe(`IG 视频判定：${name}`, () => isInstagramVideo(item), want)
+  // D8.f 的两个边界单独点名，供变异判定精确归因。
+  eq('仅 media_type=2 也是确认视频', isInstagramVideo({ media_type: 2 }), true)
+  eq('media_type=8 轮播不是确认视频', isInstagramVideo({ media_type: 8 }), false)
 
   const task: SearchTask = { keyword: '#Self Care', dimension: 'scene', platform: 'instagram' }
   // 话题页响应形状：列表在 data.data.items，续页令牌与 data.data 同级（ADR-112 第五节第 2 条）。
@@ -3943,6 +3950,7 @@ suite('D15', 'IG 话题页解析：只解析、不分派（ADR-112 第四节第 
   // 图文、轮播的播放字段语义没确认过，不能当成真实的数，也不能当成 0（ADR-112 第二节、P1）
   probe('话题页图文条目带着 play_count 也不写播放数', () => post('bob', 0).plays, undefined)
   probe('话题页轮播条目带着 play_count 也不写播放数', () => post('alice', 1).plays, undefined)
+  eq('话题页轮播的来源播放字段不成为观测', post('alice', 1).plays, undefined)
   // 两个播放字段都缺席：不推算、不补 0（ADR-112 第五节「缺席字段保持缺席」）
   probe('话题页视频条目两个播放字段都缺席时播放数缺席', () => post('dave', 0).plays, undefined)
 
@@ -3969,7 +3977,7 @@ suite('D15', 'IG 话题页解析：只解析、不分派（ADR-112 第四节第 
 
 // 独立上下文先于实现写成：期望只出自 ADR-112 第二、五节，D15.j、D15.k、D6.w、D11.b 原文，
 // 以及 ig-route.ts 与 TikHub.search 的说明；没有读 search() 与 ig-route.ts 的函数体。
-}
+})
 await group('d15-hashtag', async () => {
 suite('D15', 'IG 话题入口：配置校验与分派（ADR-112 第四节第 3 步）')
 {
@@ -7355,12 +7363,41 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
   ok('汇总要写明不判踩没踩到', sum.includes('不判这次改动踩到了谁'))
 }
 
+})
+await group('p1-provider', async () => {
+suite('P1', '适配器的缺失、查过为空与真实值保持可区分')
+{
+  const noBio = mk('tiktok', 'no-bio', { bio: undefined })
+  fillEmail(noBio)
+  eq('适配器未取得简介时邮箱仍未查询', noBio.email, undefined)
+  const blankBio = mk('tiktok', 'blank-bio', { bio: null })
+  fillEmail(blankBio)
+  eq('适配器已查询但简介为空时邮箱是查过没有', blankBio.email, null)
+
+  eq('前置空数组不能盖掉后面的非空列表',
+    pickList({ data: { search_item_list: [], user_list: [{ id: 1 }] } }, 't').length, 1)
+
+  const stub = (raw: unknown) => {
+    const api = new TikHub('k', fundedBudget())
+    ;(api as unknown as { get: () => Promise<unknown> }).get = async () => raw
+    return api
+  }
+  const tk = await stub({ data: { userInfo: { user: { nickname: 'n' }, stats: {} } } }).profileTikTok('x')
+  eq('TikTok 主页已查但没有简介记为查过没有', tk.bio, null)
+  const ig = await stub({ data: { user: { full_name: 'n' } } }).profileInstagram('x')
+  eq('Instagram 主页已查但没有简介记为查过没有', ig.bio, null)
+  const search = async (author: Record<string, unknown>) =>
+    (await stub({ data: { aweme_list: [{ author: { unique_id: 'u', ...author }, statistics: {} }] } })
+      .search({ keyword: 'k', dimension: 'category', platform: 'tiktok' }, 'US', 0)).creators[0]
+  eq('搜索未返回粉丝数时仍是未查询', (await search({})).followers, undefined)
+  eq('搜索占位作品数零不成为真实零', (await search({ aweme_count: 0 })).post_count, undefined)
+}
+})
 // ═══════════ provider 的契约：fetch 换成罐头，把四条一直没人跑过的路走一遍 ═══════════
-// 独立复核点出的结构性缺口：`TikHub.search()` **从未被任何测试直接调用过**。
-// 于是 pickList 抛出、IG 兜底、预算卡在两次请求之间这几条路，在整条检查链里一次都没跑过 ——
+// 独立复核曾指出：`TikHub.search()` 没有被需求测试直接调用。
+// 当时 pickList 抛出、IG 兜底、预算卡在两次请求之间这几条路，在整条检查链里一次都没跑过 ——
 // 而复核挖出的两个 blocking 就长在这几条路上。自检那层的假 fetch 永远返回认得出的结构，
 // 够不到这里（ADR-94 第十五节）。
-})
 await group('d6-provider', async () => {
 suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
 {
@@ -7473,6 +7510,11 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
       const page = await withFetch(fake, () => new TikHub('k', fundedBudget()).search(igTask, 'US', 0))
       eq(`${label}时，搜索结果里没有令牌`, page.next_token, undefined)
     }
+    {
+      const { fake } = canned([withToken(reelsWith(2), 12345)])
+      const page = await withFetch(fake, () => new TikHub('k', fundedBudget()).search(igTask, 'US', 0))
+      eq('数值续页令牌不交给下一页请求', page.next_token, undefined)
+    }
     // 带令牌：同一个端点、同一个关键词，多带一个 pagination_token；offset 大于 0 也照发
     {
       const budget = fundedBudget()
@@ -7513,6 +7555,16 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
       eq(`空白令牌 ${JSON.stringify(blank)} 一个请求都不发`, calls().length, 0)
       eq(`空白令牌 ${JSON.stringify(blank)} 不计费`, budget.count, 0)
       ok(`空白令牌 ${JSON.stringify(blank)} 当场报错，不静默交回空页`, threw)
+    }
+    {
+      const budget = fundedBudget()
+      const { fake, calls } = canned([withToken(reelsWith(2), 'tok')])
+      let rejected = false
+      await withFetch(fake, async () => {
+        try { await new TikHub('k', budget).search(igTask, 'US', 2, '   ') }
+        catch { rejected = true }
+      })
+      eq('空白续页令牌在请求和计费前拒绝', [rejected, calls().length, budget.count], [true, 0, 0])
     }
     // 没有令牌时，第二页照旧一个请求都不发（④ 的形状，令牌参数明写缺席）
     {
