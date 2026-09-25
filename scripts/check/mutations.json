@@ -4867,6 +4867,30 @@
       ]
     },
     {
+      "id": "M-D8-r",
+      "req": "D8.r",
+      "why": "旧缓存重算改写原采样时间，交付把历史取得的作品说成刚刚采到",
+      "file": "scripts/enrich.ts",
+      "find": "    existing.sample = sample",
+      "replace": "    existing.sample = { ...sample, observed_at: new Date().toISOString() }",
+      "by": "selfcheck",
+      "kills": [
+        "IG 旧缓存重算不得改写采样时间和来源"
+      ]
+    },
+    {
+      "id": "M-U7-c",
+      "req": "U7.e",
+      "why": "交付摘要把旧视频筛后样本写成当前全媒体窗口，媒体范围三态在名单里合成同一种",
+      "file": "scripts/lib/assessment.ts",
+      "find": "...(a.sample.media_scope === undefined ? {} : { media_scope: a.sample.media_scope }),",
+      "replace": "...(a.sample.media_scope === undefined ? {} : { media_scope: 'provider_returned_first12' }),",
+      "by": "selfcheck",
+      "kills": [
+        "IG unknown JSON 摘要显示真实范围与状态"
+      ]
+    },
+    {
       "id": "M-U7-a",
       "req": "U7.f",
       "why": "CSV 指标行不再展示对应账号的主页样本媒体范围，历史仅视频测量被印成无范围的数",

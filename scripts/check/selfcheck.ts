@@ -5348,6 +5348,9 @@ group('ig-homepage-mixed', [], () => {
       && saved?.sample?.media_scope === (kind === 'new' ? 'provider_returned_first12'
         : kind === 'legacy' ? 'legacy_video_filtered_first12' : 'unknown')
       && noFullClaim(saved?.sample?.basis ?? ''), JSON.stringify(saved?.sample))
+    if (kind === 'legacy') named('IG 旧缓存重算不得改写采样时间和来源',
+      saved?.sample?.observed_at === at && JSON.stringify(saved?.sample?.source) === JSON.stringify(source),
+      JSON.stringify(saved?.sample))
     named(`IG ${kind} 缓存绩效与活跃资格不越过样本范围`,
       (kind === 'unknown' ? saved?.metrics?.median_views?.status === 'unavailable'
         : saved?.metrics?.median_views?.status === 'measured')
