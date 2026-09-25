@@ -731,3 +731,14 @@ Instagram 请求都必须先充值。`docs/data-source-strategy.md` 追加官方
 
 同步：`docs/data-source-strategy.md`、`skill/references/providers/tikhub.md` 与 ADR-112 末尾更正。
 `docs/SPEC.md` 的手写未知项不包含旧来历推断或累计费用，其两批现存样本的证据边界保持不变。
+
+## 十七、2026-09-25 更正：综合搜索也在完整公开价目快照中
+
+> ⚠️ 更正（第十五节「综合搜索那 8 次只有规范声明」与第十六节「未收录于该价目快照」）：
+> 本地保存的完整官方公开价目静态资产 `16hcexj0jth19.js`，SHA256 为
+> `5d52fe8fb109a569e4e16b39b611ee9d5233c9131d264f1e856a987f23cc8cbf`，实际包含原样一行
+> `["/api/v1/instagram/v2/general_search",0.002,0,0,"10/second"]`。
+> 因此 `general_search` 的 $0.002 同时有固定 OpenAPI 与完整静态资产佐证；缺席的是仓库生产价目表
+> `scripts/providers/tikhub-pricing.ts` 的转录项，不能据此说官方快照没有该端点。
+> 本次只读核对既有资产；36 次 IG + 2 次 TikTok 的 38 次记录、累计估算 $0.074、实际账单未核、
+> 原批仍丢失及两批现存样本的统计边界均不变，没有新增请求。

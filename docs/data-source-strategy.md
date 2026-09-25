@@ -101,7 +101,8 @@
 与上述两批 2026-09-23 的请求不同；`sample-FUn2by` 不是丢失原批，原批响应仍未恢复（ADR-101 第十六节）。
 本轮 ADIARO 调查有记录的请求合计 36 次 IG、2 次 TikTok，共 38 次；按三条 IG 端点的固定 OpenAPI 声明
 $0.002/次、TikTok 搜索的公开价目快照 $0.001/次重算，累计估算 **$0.074**，不是实际账单，也不包含
-`smoothie` 等本项目其他历史调用。`general_search` 的价格依据是固定 OpenAPI，未收录于固定公开价目快照。
+`smoothie` 等本项目其他历史调用。`general_search` 同时有固定 OpenAPI 与完整公开价目静态资产的 $0.002 同价佐证；
+未转录的是仓库生产价目表（`scripts/providers/tikhub-pricing.ts`），不是官方固定快照（ADR-101 第十七节）。
 两份现存 IG 样本的字段与统计结论不变；原始响应只在本机，不进仓库。
 
 列表路径均为 `data.data.items`，条目都没有 `media` 包层。24 份逐条核过：每条都有顶层 `id` 与 `user.username`；
