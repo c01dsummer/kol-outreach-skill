@@ -5530,6 +5530,138 @@
       ]
     },
     {
+      "id": "M-D16-ah",
+      "req": "D16.n",
+      "why": "空搜索任务列表被允许继续生成报告和写回记忆",
+      "file": "scripts/render.ts",
+      "find": "if (badTasks.length) {",
+      "replace": "if (badTasks.length && !(Array.isArray(state.tasks) && state.tasks.length === 0)) {",
+      "by": "selfcheck",
+      "kills": [
+        "render 输入：坏任务整份退出2且零请求"
+      ]
+    },
+    {
+      "id": "M-D16-ai",
+      "req": "D16.n",
+      "why": "拒绝坏任务之前已经保存或新建名单",
+      "file": "scripts/render.ts",
+      "find": "if (badTasks.length) {",
+      "replace": "if (badTasks.length) {\n  saveCreators(dir, loadCreators(dir))",
+      "by": "selfcheck",
+      "kills": [
+        "render 输入：坏任务不改任何已有文件，也不创建名单交付物或记忆"
+      ]
+    },
+    {
+      "id": "M-D16-aj",
+      "req": "D16.n",
+      "why": "拒绝坏任务之前已经把当前名单写入跨任务推荐记忆",
+      "file": "scripts/render.ts",
+      "find": "if (badTasks.length) {",
+      "replace": "if (badTasks.length) {\n  recordRecommendations(loadCreators(dir), state.product, taskId(dir))",
+      "by": "selfcheck",
+      "kills": [
+        "render 输入：坏任务不改任何已有文件，也不创建名单交付物或记忆"
+      ]
+    },
+    {
+      "id": "M-D16-ak",
+      "req": "D16.o",
+      "why": "坏列表只报告首个问题，遗漏同份任务的其他字段或其他任务",
+      "file": "scripts/render.ts",
+      "find": "badTasks.join('\\n  ')",
+      "replace": "badTasks.slice(0, 1).join('\\n  ')",
+      "by": "selfcheck",
+      "kills": [
+        "render 输入：任务诊断报路径及每个任务每个字段原值，只指出坏项"
+      ]
+    },
+    {
+      "id": "M-D16-al",
+      "req": "D16.o",
+      "why": "坏任务诊断丢失输入文件路径",
+      "file": "scripts/render.ts",
+      "find": "${taskFile(dir)} 里的任务配置不合规",
+      "replace": "任务配置不合规",
+      "by": "selfcheck",
+      "kills": [
+        "render 输入：任务诊断报路径及每个任务每个字段原值，只指出坏项"
+      ]
+    },
+    {
+      "id": "M-D16-am",
+      "req": "D16.o",
+      "why": "坏任务诊断带出内部异常调用栈",
+      "file": "scripts/render.ts",
+      "find": "if (badTasks.length) {",
+      "replace": "if (badTasks.length) {\n  console.error(new Error('任务配置不合规').stack)",
+      "by": "selfcheck",
+      "kills": [
+        "render 输入：任务错误不带内部异常类名或调用栈"
+      ]
+    },
+    {
+      "id": "M-D16-an",
+      "req": "D16.p",
+      "why": "读取任务失败被当作成功退出",
+      "file": "scripts/render.ts",
+      "find": "  process.exit(2)\n}\nconst badTasks",
+      "replace": "  process.exit(0)\n}\nconst badTasks",
+      "by": "selfcheck",
+      "kills": [
+        "render 输入：读不到、坏JSON和非对象根退出2，所有原文件与缺席文件不变"
+      ]
+    },
+    {
+      "id": "M-D16-ao",
+      "req": "D16.p",
+      "why": "任务文件尚未读通就覆盖或创建交付表格",
+      "file": "scripts/render.ts",
+      "find": "try { state = loadTask(dir) }",
+      "replace": "writeFileAtomic(join(dir, 'kol.csv'), 'premature output')\ntry { state = loadTask(dir) }",
+      "by": "selfcheck",
+      "kills": [
+        "render 输入：读不到、坏JSON和非对象根退出2，所有原文件与缺席文件不变"
+      ]
+    },
+    {
+      "id": "M-D16-ap",
+      "req": "D16.q",
+      "why": "所有任务读取或解析失败都被误报为文件不存在",
+      "file": "scripts/render.ts",
+      "find": "${e instanceof Error ? e.message : String(e)}",
+      "replace": "文件不存在",
+      "by": "selfcheck",
+      "kills": [
+        "render 输入：文件诊断报task路径及实际原因，不混说成不存在"
+      ]
+    },
+    {
+      "id": "M-D16-aq",
+      "req": "D16.q",
+      "why": "读取任务失败的诊断没有输入文件路径",
+      "file": "scripts/render.ts",
+      "find": "${taskFile(dir)} 无法读入任务",
+      "replace": "无法读入任务",
+      "by": "selfcheck",
+      "kills": [
+        "render 输入：文件诊断报task路径及实际原因，不混说成不存在"
+      ]
+    },
+    {
+      "id": "M-D16-ar",
+      "req": "D16.q",
+      "why": "任务读取或解析失败向用户泄露内部异常类名与调用栈",
+      "file": "scripts/render.ts",
+      "find": "${e instanceof Error ? e.message : String(e)}",
+      "replace": "${e instanceof Error ? e.stack : String(e)}",
+      "by": "selfcheck",
+      "kills": [
+        "render 输入：读取解析与根形状错误不带内部异常类名或调用栈"
+      ]
+    },
+    {
       "id": "M-D17-a",
       "req": "D17.a",
       "why": "空白市场被当成合规字符串",

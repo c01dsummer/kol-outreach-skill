@@ -3384,6 +3384,182 @@ group('d6uv-igpaging', [], () => {
 // ---- D16.j–m：整张任务表按原值校验，拒绝在落盘和付费之前 ----
 // expected 来自D17 入口契约、D16.k/m、F3.c/d、F9 与公开输入契约。
 // 复用现有进程/费用夹具；不导入配置判定，不读入口、预算或任务生产函数体。
+// ---- D16.n–q：render 原样校验任务输入，在一切输出与记忆写入之前拒绝 ----
+// 独立入口夹具；expected 来自 D16.a–i、render 输入契约、U8 与 ADR-108 的离线契约。
+group('render-input', [], () => {
+  type Problem = { task?: number; field?: string; value?: unknown }
+  type Bad = { id: string; tasks?: unknown; problems: Problem[]; good?: number[] }
+  const base = join(tmp, 'render-input'), stamp = '2026-01-01T00:00:00.000Z'
+  const good = { keyword: '  render input  ', dimension: 'category', platform: 'tiktok' }
+  const bad: Bad[] = [{ id: 'absent', problems: [{ field: 'tasks' }] },
+    ...[null, {}, 'not-a-list', 17, false, []].map((tasks, i) => ({ id: `list-${i}`, tasks,
+      problems: [{ field: 'tasks', value: tasks }] })),
+    { id: 'items', tasks: [good, null, good, [], 'not-a-task', 23, false], good: [1, 3],
+      problems: [null, [], 'not-a-task', 23, false].map((value, i) => ({ task: [2, 4, 5, 6, 7][i], value })) },
+    { id: 'many-fields', tasks: [good, { keyword: '', dimension: 'Scene', platform: 'TikTok' }, good, {}],
+      good: [1, 3], problems: ['keyword', 'dimension', 'platform'].flatMap((field, i) =>
+        [{ task: 2, field, value: ['', 'Scene', 'TikTok'][i] }, { task: 4, field }]) },
+    { id: 'missing-platform', tasks: [good, { keyword: '#renderinput', dimension: 'scene', ig_route: 'hashtag' }],
+      good: [1], problems: [{ task: 2, field: 'platform' }] },
+    { id: 'missing-dimension', tasks: [good, { keyword: 'renderinput', platform: 'tiktok' }],
+      good: [1], problems: [{ task: 2, field: 'dimension' }] },
+  ]
+  const fields: [string, unknown[]][] = [
+    ['keyword', ['', ' \t ', null, 31, false, [], { nested: ['original'] }]],
+    ['dimension', ['Category', ' category', 'scene ', 'brand', null, 17, false, [], {}]],
+    ['platform', ['TikTok', ' tiktok', 'instagram ', 'youtube', null, 19, false, [], {}]],
+  ]
+  for (const [field, values] of fields) {
+    const missing: Record<string, unknown> = { ...good }; delete missing[field]
+    bad.push({ id: `field-${field}`, tasks: [good, ...values.map(value => ({ ...good, [field]: value })), missing, good],
+      good: [1, values.length + 3], problems: [...values.map((value, i) => ({ task: i + 2, field, value })),
+        { task: values.length + 2, field }] })
+  }
+  const readCases = [
+    { id: 'missing-file', kind: 'missing' }, { id: 'directory', kind: 'directory' },
+    { id: 'json', kind: 'json', text: '{"tasks":[}' },
+    ...[null, [], 'root-string', 27, true].map((value, i) => ({ id: `root-${i}`, kind: 'root', text: JSON.stringify(value) })),
+  ]
+  // 受控目录内所有文件按字节比较，也发现原本不存在的新文件或残留；空目录不冒充文件写入。
+  const tree = (dir: string): string => {
+    const files: string[][] = []
+    const walk = (root: string, prefix = ''): void => {
+      if (!existsSync(root)) return
+      for (const e of readdirSync(root, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)))
+        if (e.isDirectory()) walk(join(root, e.name), `${prefix}${e.name}/`)
+        else files.push([`${prefix}${e.name}`, readFileSync(join(root, e.name)).toString('base64')])
+    }
+    try { walk(dir); return JSON.stringify(files) } catch { return 'unreadable' }
+  }
+  const bytes = (path: string) => { try { return readFileSync(path).toString('base64') } catch { return undefined } }
+  const make = (id: string, existing: boolean, tasks: unknown, costs: Record<string, unknown> = { requests: 7 }) => {
+    const cwd = join(base, `${existing ? 'existing' : 'absent'}-${id}`), taskDir = join(cwd, 'task')
+    const memory = join(cwd, 'memory'), file = join(taskDir, 'task.json'), log = join(cwd, 'fetch.jsonl')
+    mkdirSync(taskDir, { recursive: true })
+    const config = { product: 'renderinput', market: 'US', target_count: 1, budget_usd: 1,
+      ...(tasks === undefined ? {} : { tasks }), done: [], offsets: {}, pages: {}, answered: {}, found: {},
+      created_at: stamp, updated_at: stamp, memory_status: existing ? 'ok' : 'absent', ...costs }
+    writeFileSync(file, JSON.stringify(config, null, 2) + '\n')
+    const people = [costPerson('tiktok', 'render_input_person', { source_keyword: good.keyword,
+      source_tasks: [0], email: 'render@example.com', profile_url: 'https://www.tiktok.com/@render_input_person' })]
+    writeFileSync(join(taskDir, 'creators.raw.json'), JSON.stringify(people, null, 2) + '\n')
+    writeFileSync(join(taskDir, 'enrichment.json'), JSON.stringify({ version: 1, updated_at: stamp, accounts: {} }) + '\n')
+    if (existing) {
+      writeFileSync(join(taskDir, 'creators.json'), JSON.stringify(people, null, 2) + '\n')
+      for (const name of ['kol.csv', 'kol.xlsx', 'meta.json', 'report.html'])
+        writeFileSync(join(taskDir, name), Buffer.from(`existing ${name}\n\u0000\ufffd`))
+      mkdirSync(memory)
+      writeFileSync(join(memory, 'creators.json'), JSON.stringify({ version: 1, updated_at: stamp, creators: {} }, null, 2) + '\n')
+    }
+    return { cwd, taskDir, memory, file, log, people }
+  }
+  const runFixture = (f: ReturnType<typeof make>, label: string, status: number) => {
+    const r = runBoth(label, [S('render.ts'), '--dir', f.taskDir], f.cwd,
+      { status, soft: status === 2 ? [0] : [2] }, costEnv(f.log, { TIKHUB_API_KEY: undefined, FAKE_FETCH_COST_EVENTS: f.log }))
+    if (!r.ok) return undefined // 启动失败、退出1或信号仍由进程记号否决，不能记成变异捕获。
+    if (!r.stderr.includes('[fake-fetch] 已接管 fetch')) {
+      failed++; console.error(`  ✗ render 输入假网络${SELFCHECK_FIXTURE_MARK}：预加载未安装`); return undefined
+    }
+    return r
+  }
+  const taskParts = (s: string) => {
+    const marks = [...s.matchAll(/任务\s*(\d+)(?!\d)|第\s*(\d+)\s*个/g)]
+    return marks.map((m, i) => ({ task: Number(m[1] ?? m[2]), text: s.slice(m.index, marks[i + 1]?.index) }))
+  }
+  const compact = (s: string) => (s.match(/"(?:\\.|[^"\\])*"|[^\s]/g) ?? []).join('')
+  const reports = (message: string, c: Bad) => {
+    const parts = taskParts(message)
+    return c.problems.every(p => {
+      const texts = p.task === undefined ? (parts.length ? [] : [message]) : parts.filter(t => t.task === p.task).map(t => t.text)
+      return texts.some(text => {
+        // 同一任务多字段时，原值须属于自己的字段段，不能借别的字段的 null 或空串过关。
+        const marks = [...text.matchAll(/\b(keyword|dimension|platform|tasks)\b/g)]
+        const sections = p.field ? marks.flatMap((m, i) => m[1] === p.field ? [text.slice(m.index, marks[i + 1]?.index)] : []) : [text]
+        return sections.some(section => Object.hasOwn(p, 'value')
+          ? compact(section).includes(JSON.stringify(p.value)!)
+            && /不合规|必须|应为|应是|应取|需要|不能|非空|非法|不是|不支持|不得|至少|只能|只允许|仅允许|不属于|不在|invalid|must|expected|require/i.test(section)
+          : /缺席/.test(section))
+      })
+    }) && (c.good ?? []).every(i => !parts.some(p => p.task === i))
+  }
+  const completed = { tasks: 0, read: 0, good: 0 }
+  for (const existing of [true, false]) for (const c of bad) {
+    const f = make(c.id, existing, c.tasks), before = [tree(f.taskDir), tree(f.memory)]
+    const r = runFixture(f, `render 输入 ${existing}/${c.id}`, 2); if (!r) continue
+    const same = tree(f.taskDir) === before[0] && tree(f.memory) === before[1]
+    const message = r.stderr.replaceAll(f.file, '[输入文件]'), leak = probeInputLeak(message)
+    const rejected = r.status === 2 && fetchAttempts(f.log).length === 0
+    const diagnosis = r.stderr.includes(f.file) && reports(message, c)
+    const detail = `${existing}/${c.id}：退出=${r.status}，目录原样=${same}，stderr=${stderrTail(r.stderr)}`
+    named('render 输入：坏任务整份退出2且零请求', rejected, detail)
+    named('render 输入：坏任务不改任何已有文件，也不创建名单交付物或记忆', rejected && same, detail)
+    named('render 输入：任务诊断报路径及每个任务每个字段原值，只指出坏项', rejected && diagnosis, detail)
+    named('render 输入：任务错误不带内部异常类名或调用栈', rejected && !leak.className && !leak.frames, detail)
+    if (c.id === 'missing-platform') named('render 输入：有话题路线仍点名缺平台且拒绝，不推断平台', rejected && diagnosis && same, detail)
+    if (c.id === 'missing-dimension') named('render 输入：缺维度照实拒绝，不补默认维度', rejected && diagnosis && same, detail)
+    completed.tasks++
+  }
+  for (const existing of [true, false]) for (const c of readCases) {
+    const f = make(c.id, existing, [good])
+    if (c.kind === 'missing' || c.kind === 'directory') rmSync(f.file)
+    if (c.kind === 'directory') { mkdirSync(f.file); writeFileSync(join(f.file, 'keep.txt'), 'directory sentinel\n') }
+    if ('text' in c) writeFileSync(f.file, c.text!)
+    const before = [tree(f.taskDir), tree(f.memory)], r = runFixture(f, `render 文件 ${existing}/${c.id}`, 2)
+    if (!r) continue
+    const same = tree(f.taskDir) === before[0] && tree(f.memory) === before[1]
+    const message = r.stderr.replaceAll(f.file, '[输入文件]'), leak = probeInputLeak(message)
+    const missing = /ENOENT|不存在|not found|no such file/i.test(message)
+    const reason = c.kind === 'missing' ? missing : !missing && (c.kind === 'directory'
+      ? /EISDIR|is a directory|是目录|是一个目录/.test(message) : c.kind === 'json'
+        ? /Unexpected|Expected|position|line \d+|column|JSON.*(?:语法|解析)|(?:语法|解析).*JSON/i.test(message)
+        : /(?:根|顶层|root|top.level).*?(?:对象|object)|(?:必须|需要|应为|不是|非).{0,12}(?:对象|object)/i.test(message))
+    const rejected = r.status === 2 && fetchAttempts(f.log).length === 0
+    const detail = `${existing}/${c.id}：退出=${r.status}，目录原样=${same}，stderr=${stderrTail(r.stderr)}`
+    named('render 输入：读不到、坏JSON和非对象根退出2，所有原文件与缺席文件不变', rejected && same, detail)
+    named('render 输入：文件诊断报task路径及实际原因，不混说成不存在', rejected && r.stderr.includes(f.file) && reason, detail)
+    named('render 输入：读取解析与根形状错误不带内部异常类名或调用栈', rejected && !leak.className && !leak.frames, detail)
+    completed.read++
+  }
+  const tasks = [good, good, { keyword: 'third', dimension: 'scene', platform: 'instagram',
+    ig_route: 'future-route', as_hashtag: { retained: true }, extra: ['untouched'] },
+    { keyword: 'fourth', dimension: 'competitor', platform: 'tiktok' },
+    { keyword: 'fifth', dimension: 'audience', platform: 'instagram' }]
+  const positive = [{ id: 'unknown-zero', costs: { requests: 0 } }, { id: 'unknown-history', costs: { requests: 7 } },
+    { id: 'pending', costs: knownCosts(1_000_000, [costEntry(TT_SEARCH, 1000, 1)],
+      { endpoint: TT_PROFILE, price_version: COST_VERSION, unit_micro_usd: 1000, attempt_id: 2 }) }]
+  for (const existing of [true, false]) for (const c of positive) {
+    const f = make(c.id, existing, tasks, c.costs)
+    // 新交付也给真正可渲染名单；坏输入的 absent 形态另行验证名单不能凭空创建。
+    if (!existing) writeFileSync(join(f.taskDir, 'creators.json'), JSON.stringify(f.people) + '\n')
+    const noEnrichment = c.id === 'unknown-zero', enrichment = join(f.taskDir, 'enrichment.json')
+    if (noEnrichment) rmSync(enrichment) // 真正缺少增强文件，不能只用 accounts:{} 代替此输入。
+    const originals = ['task.json', 'creators.raw.json', 'enrichment.json'].map(n => bytes(join(f.taskDir, n)))
+    const r = runFixture(f, `render 合法 ${existing}/${c.id}`, 0); if (!r) continue
+    const meta = jsonFile(join(f.taskDir, 'meta.json')), rows = meta?.keywords
+    const people = jsonFile(join(f.taskDir, 'creators.json')), record = jsonFile(join(f.memory, 'creators.json'))?.creators?.['tiktok:render_input_person']
+    const detail = `${existing}/${c.id}：退出=${r.status}，meta=${JSON.stringify(meta)}，stderr=${stderrTail(r.stderr)}`
+    named('render 输入：合法重复任务与原词原顺序照常导出，无key无增强且历史未知或pending不阻止',
+      r.status === 0 && fetchAttempts(f.log).length === 0 && meta?.enriched === false
+        && Array.isArray(rows) && rows.length === tasks.length && rows.every((row: any, i: number) =>
+          row.task_index === i && row.keyword === tasks[i].keyword && row.dimension === tasks[i].dimension && row.platform === tasks[i].platform), detail)
+    named('render 输入：合法对照实际生成名单交付物并追加有效记忆', r.status === 0
+      && Array.isArray(people) && people.some((p: any) => p.handle === 'render_input_person')
+      && ['kol.csv', 'kol.xlsx', 'meta.json', 'report.html'].every(n => fileText(join(f.taskDir, n)).length > 0)
+      && ['kol.csv', 'report.html'].every(n => fileText(join(f.taskDir, n)).includes('render_input_person'))
+      && fileText(join(f.taskDir, 'kol.xlsx')).startsWith('PK')
+      && Array.isArray(record?.recommendations) && record.recommendations.some((x: any) => x.product === 'renderinput')
+      && meta?.memory_written === true, detail)
+    named('render 输入：合法导出不修正task原件，不改采集与增强原件',
+      ['task.json', 'creators.raw.json', 'enrichment.json'].every((n, i) => bytes(join(f.taskDir, n)) === originals[i]), detail)
+    if (noEnrichment) named('render 输入：增强文件缺席仍正常导出且不补建增强文件',
+      r.status === 0 && meta?.enriched === false && !existsSync(enrichment), detail)
+    completed.good++
+  }
+  // 认领放在整组末尾；有任何夹具未启动、预加载失败或案例未完成，就不认领相应判据。
+  if (completed.good === positive.length * 2 && completed.tasks === bad.length * 2) criterion('D16.n', 'D16.o')
+  if (completed.good === positive.length * 2 && completed.read === readCases.length * 2) criterion('D16.p', 'D16.q')
+})
+
 group('config-entry', [], () => {
   const output = resolve('output')
   mkdirSync(output, { recursive: true })
