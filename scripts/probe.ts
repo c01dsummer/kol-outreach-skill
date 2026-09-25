@@ -23,6 +23,7 @@ import type { SearchTask } from './lib/types.js'
 import { taskLabel } from './lib/task-label.js'
 import { igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
+import { configFieldProblems } from './lib/config-input.js'
 
 const cfgIndex = process.argv.indexOf('--config')
 const cfgPath = process.argv[cfgIndex + 1]
@@ -52,10 +53,11 @@ async function main() {
   let budget: Budget
   try {
     cfg = readCostDocument<ProbeConfig>(readFileSync(cfgPath, 'utf8'))
-    // D16.l/m、D15.j：原样任务列表与路线一起查，在开预算、发请求之前停下。
+    // D17.j/k、D16.l/m、D15.j：原市场、任务与路线一起查，在开预算、发请求之前停下。
+    const badFields = configFieldProblems(cfg, 'probe')
     const badTasks = taskListProblems(cfg.tasks)
     const badRoutes = igRouteProblems(cfg.tasks)
-    const taskProblems = [...badTasks, ...badRoutes]
+    const taskProblems = [...badFields, ...badTasks, ...badRoutes]
     if (taskProblems.length) throw new Error(`任务配置不合规：${taskProblems.join('；')}`)
     // D13.a：只在缺席时默认；显式 null、字符串与超精度原 token 均交给共同边界拒绝。
     const absent = cfg.budget_usd === undefined
@@ -68,7 +70,8 @@ async function main() {
     throw new BudgetInputError(`${cfgPath}：${error instanceof Error ? error.message : String(error)}`)
   }
   const api = new TikHub(process.env.TIKHUB_API_KEY, budget)
-  const market = cfg.market ?? 'US'
+  const market = Object.hasOwn(cfg, 'market') ? cfg.market! : 'US'
+  if (!Object.hasOwn(cfg, 'market')) console.error('未提供 market，本次采用默认市场 US。')
   const results: any[] = []
 
   for (const [i, t] of cfg.tasks.entries()) {

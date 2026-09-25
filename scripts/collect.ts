@@ -33,6 +33,7 @@ import {
 import { creatorKey, textProblem } from './lib/types.js'
 import { igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
+import { configFieldProblems } from './lib/config-input.js'
 import type { Creator, TaskState } from './lib/types.js'
 
 /**
@@ -77,19 +78,16 @@ try {
       if (replacementLimit === undefined) console.error('未提供预算，默认采用任务总预算 $2。')
     }
     if (replacementLimit !== undefined) freshLimit = replacementLimit
-    state = {
-      product: cfg.product, market: cfg.market ?? 'US', target_count: cfg.target_count ?? 50,
-      tasks: cfg.tasks, done: [], offsets: {}, answered: {}, found: {}, pages: {},
-      created_at: new Date().toISOString(), updated_at: '',
-    }
+    state = cfg
     productFrom = cfgPath
   }
 } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
 
-// D16.j/k、D15.j：原样整表与路线一起查；先于进度读取、建目录、改额、任何预留或写入。
+// D17.h/i、D16.j/k、D15.j：原字段、任务与路线一起查；先于缺省、进度、改额或任何副作用。
+const badFields = configFieldProblems(state, resume ? 'resume' : 'new')
 const badTasks = taskListProblems(state.tasks)
 const badRoutes = igRouteProblems(state.tasks)
-const taskProblems = [...badTasks, ...badRoutes]
+const taskProblems = [...badFields, ...badTasks, ...badRoutes]
 if (taskProblems.length) {
   console.error(`${productFrom} 里的任务配置不合规：\n  ${taskProblems.join('\n  ')}`)
   process.exit(2)
@@ -100,6 +98,18 @@ if (badProduct) {
   console.error(`${productFrom} 里的 product ${badProduct} —— 它要用作任务目录名，` +
                 `也要记进跨任务记忆的「为哪个产品推荐过」。先给它一个名字再跑。`)
   process.exit(2)
+}
+
+// D17.l–o：通过原值校验后，仅新输入缺席的字段采用既有缺省；续跑不补原意图。
+if (!resume) {
+  const cfg = state
+  if (!Object.hasOwn(cfg, 'market')) console.error('未提供 market，本次采用默认市场 US。')
+  state = {
+    product: cfg.product, market: Object.hasOwn(cfg, 'market') ? cfg.market : 'US',
+    target_count: Object.hasOwn(cfg, 'target_count') ? cfg.target_count : 50,
+    tasks: cfg.tasks, done: [], offsets: {}, answered: {}, found: {}, pages: {},
+    created_at: new Date().toISOString(), updated_at: '',
+  }
 }
 
 const dir = resume ?? taskDir(state.product)

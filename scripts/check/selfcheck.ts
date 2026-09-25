@@ -3382,6 +3382,232 @@ group('d6uv-igpaging', [], () => {
 })
 
 // ---- D16.j–m：整张任务表按原值校验，拒绝在落盘和付费之前 ----
+// expected 来自D17 入口契约、D16.k/m、F3.c/d、F9 与公开输入契约。
+// 复用现有进程/费用夹具；不导入配置判定，不读入口、预算或任务生产函数体。
+group('config-entry', [], () => {
+  const output = resolve('output')
+  mkdirSync(output, { recursive: true })
+  const base = mkdtempSync(join(output, 'selfcheck-config-entry-'))
+  process.on('exit', () => rmSync(base, { recursive: true, force: true }))
+  const modes = ['new', 'resume', 'resume-budget', 'probe'] as const
+  type Mode = typeof modes[number]
+  type Field = 'market' | 'target_count'
+  type Problem = { field: Field; value?: unknown; nonfinite?: true }
+  type Case = { id: string; values?: Record<string, unknown>; missing?: Field[];
+    problems?: Problem[]; mixed?: true; nonfinite?: true }
+  const completed = { bad: new Set<string>(), good: new Set<string>(), depth: new Set<number>() }
+  const good = { keyword: 'config-entry-first', dimension: 'category', platform: 'tiktok' }
+  const tasks = [good, { ...good, keyword: 'config-entry-second', dimension: 'scene' }]
+  const badTasks = [good,
+    { keyword: '', dimension: 'Scene', platform: 'instagram', ig_route: 'Hashtag' }, good,
+    { keyword: 'config-entry-route', dimension: 'category', platform: 'tiktok', ig_route: 'hashtag' }]
+  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
+  const make = (mode: Mode, c: Case, positive = false) => {
+    const cwd = join(base, `${mode}-${c.id}`), taskDir = join(cwd, 'task')
+    mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const resume = mode === 'resume' || mode === 'resume-budget'
+    const file = resume ? join(taskDir, 'task.json') : join(cwd, 'config.json')
+    const limit = positive ? 1 : 0.01
+    const config: Record<string, unknown> = { product: 'configentry', market: 'US',
+      target_count: 1, budget_usd: limit, tasks: c.mixed ? badTasks : tasks, ...c.values }
+    for (const key of c.missing ?? []) delete config[key]
+    if (resume) {
+      mkdirSync(taskDir)
+      Object.assign(config, knownCosts(positive ? 1_000_000 : 10_000, []), {
+        done: [], offsets: {}, pages: {}, answered: {}, found: {},
+        created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' })
+      for (const name of ['creators.raw.json', 'creators.json']) writeFileSync(join(taskDir, name), '[]\n')
+    }
+    // JSON.stringify(Infinity) 会变 null；必须让入口真正读取原始 JSON 数字 1e400。
+    if (c.nonfinite) config.target_count = 'config-entry-raw-infinity'
+    const text = JSON.stringify(config, null, 2).replace('"config-entry-raw-infinity"', '1e400') + '\n'
+    writeFileSync(file, text)
+    const files = resume ? [file, join(taskDir, 'creators.raw.json'), join(taskDir, 'creators.json')] : [file]
+    const before = files.map(path => fileText(path))
+    const log = join(cwd, 'fetch.tsv'), events = join(cwd, 'events.jsonl')
+    const reserves = join(cwd, 'reserves.txt'), armed = join(cwd, 'observer.txt')
+    const preload = join(cwd, 'observe-reserve.mjs')
+    writeFileSync(reserves, '')
+    // 只记录并委托 public reserve；不替换其结果，不拦截写盘，不阻止请求。
+    writeFileSync(preload, [
+      `import { appendFileSync } from 'node:fs';`,
+      `import { Budget } from ${JSON.stringify(budgetModule)};`,
+      `const original = Budget.prototype.reserve;`,
+      `Budget.prototype.reserve = function(...args) {`,
+      `  appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n');`,
+      `  return Reflect.apply(original, this, args);`,
+      `};`,
+      `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
+    ].join('\n'))
+    const observation = costEnv(log, { FAKE_FETCH_COST_EVENTS: events,
+      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}` })
+    const args = resume ? [S('collect.ts'), '--resume', taskDir,
+      ...(mode === 'resume-budget' ? ['--budget', positive ? '2' : '0.02'] : [])]
+      : [S(mode === 'probe' ? 'probe.ts' : 'collect.ts'), '--config', file]
+    return { cwd, taskDir, file, files, before, log, events, reserves, armed, observation, args }
+  }
+  const ready = (armed: string, stderr: string): boolean => {
+    if (fetchAttempts(armed).includes('armed')) return true
+    failed++
+    console.error(`  ✗ 市场人数预算观测${SELFCHECK_FIXTURE_MARK}：观察器未安装\n${stderr}`)
+    return false
+  }
+  const unchanged = (f: ReturnType<typeof make>) => f.files.every((p, i) => fileText(p) === f.before[i])
+  const noDirs = (cwd: string) => !existsSync(join(cwd, 'output')) || readdirSync(join(cwd, 'output')).length === 0
+  const inputReady = (f: ReturnType<typeof make>, c: Case): boolean => {
+    if (!c.nonfinite || (/"target_count": 1e400/.test(fileText(f.file))
+      && summaryOf(fileText(f.file)).target_count === Infinity)) return true
+    failed++
+    console.error(`  ✗ 市场人数溢出输入${SELFCHECK_FIXTURE_MARK}：未造出原始 1e400`)
+    return false
+  }
+  // 每个字段只在自己的诊断片段内匹配原值，防止另一个字段或任务的值替它满足断言。
+  const fieldParts = (stderr: string, field: Field): string[] => {
+    const marks = [...stderr.matchAll(/\b(market|target_count)\b/g)]
+    return marks.flatMap((m, i) => m[1] === field ? [stderr.slice(m.index, marks[i + 1]?.index)] : [])
+  }
+  // 嵌套 JSON 可带排版空白；只去掉引号外空白，不把字符串原值里的空格抹掉。
+  const compactJsonText = (text: string): string => (text.match(/"(?:\\.|[^"\\])*"|[^\s]/g) ?? []).join('')
+  const reports = (stderr: string, c: Case, mode: Mode): boolean => (c.problems ?? [])
+    .filter(p => mode !== 'probe' || p.field === 'market').every(p => fieldParts(stderr, p.field).some(text =>
+      p.nonfinite ? /Infinity|1e400|非有限/.test(text) : Object.hasOwn(p, 'value')
+        ? (typeof p.value === 'object' ? compactJsonText(text) : text).includes(JSON.stringify(p.value)!)
+        : /缺席/.test(text) && !/\bnull\b/.test(text)))
+  const mixedReports = (stderr: string): boolean => {
+    const marks = [...stderr.matchAll(/任务\s*(\d+)(?!\d)|第\s*(\d+)\s*个/g)]
+    const parts = marks.map((m, i) => ({ task: Number(m[1] ?? m[2]), text: stderr.slice(m.index, marks[i + 1]?.index) }))
+    return [['keyword', '""'], ['dimension', '"Scene"']].every(([field, value]) =>
+      parts.some(p => p.task === 2 && p.text.includes(field) && p.text.includes(value)))
+      && [2, 4].every(task => parts.some(p => p.task === task && p.text.includes('ig_route')))
+  }
+  const cases: { mode: Mode; c: Case }[] = []
+  for (const mode of modes) {
+    cases.push({ mode, c: { id: 'market-null', values: { market: null }, problems: [{ field: 'market', value: null }] } },
+      { mode, c: { id: 'all-problems', mixed: true, values: { market: 31, target_count: 'not-number' },
+        problems: [{ field: 'market', value: 31 }, { field: 'target_count', value: 'not-number' }] } })
+    if (mode !== 'probe') cases.push(
+      { mode, c: { id: 'target-null', values: { target_count: null }, problems: [{ field: 'target_count', value: null }] } },
+      { mode, c: { id: 'overflow', nonfinite: true, problems: [{ field: 'target_count', nonfinite: true }] } })
+    if (mode === 'resume' || mode === 'resume-budget') for (const missing of
+      [['market'], ['target_count'], ['market', 'target_count']] as Field[][])
+      cases.push({ mode, c: { id: `missing-${missing.join('-')}`, missing, problems: missing.map(field => ({ field })) } })
+  }
+  // 入口各自的空值/缺席由上面独立守；其余类型按入口轮转，不展开无意义的全笛卡尔积。
+  // 嵌套值要求整个 JSON 值出现在 market 的诊断片段里，不能只凭开括号或字段名过关。
+  for (const [i, value] of ['', ' \t ', false, [], { regions: ['US', { raw: false }] }].entries()) cases.push({ mode: modes[i % modes.length],
+    c: { id: `market-type-${i}`, values: { market: value }, problems: [{ field: 'market', value }] } })
+  for (const [i, value] of ['50', false, [], {}].entries()) cases.push({ mode: modes[i % 3],
+    c: { id: `target-type-${i}`, values: { target_count: value }, problems: [{ field: 'target_count', value }] } })
+  for (const { mode, c } of cases) {
+    const f = make(mode, c)
+    if (!inputReady(f, c)) continue
+    const r = runBoth(`市场人数 ${mode}：${c.id}`, f.args, f.cwd, { status: 2, soft: [0, 1, 3] }, f.observation)
+    if (!r.ok || !ready(f.armed, r.stderr)) continue
+    const calls = fetchAttempts(f.reserves), requests = fetchAttempts(f.log)
+    const rejected = r.status === 2 && requests.length === 0 && fetchAttempts(f.events).length === 0
+    const same = unchanged(f), noReserve = r.status === 2 && calls.length === 0
+    // 路径本身含 market-null 等场景名，先移走；它不能替诊断提供字段或原值。
+    const message = r.stderr.replaceAll(f.file, '[输入文件]')
+    const diagnostic = r.status === 2 && r.stderr.includes(f.file) && reports(message, c, mode)
+      && (!c.mixed || mixedReports(message)) && (mode !== 'probe' || !message.includes('target_count'))
+    const detail = `${mode}/${c.id}：退出=${r.status}，fetch=${JSON.stringify(requests)}，`
+      + `reserve=${JSON.stringify(calls)}，文件原样=${same}，stderr=${stderrTail(r.stderr)}`
+    if (mode === 'new') {
+      named('市场人数：新建拒绝前从未调用预算预留', noReserve, detail)
+      named('市场人数：新建坏输入退出2、零请求且不留任务目录', rejected && same && noDirs(f.cwd), detail)
+      named('市场人数：新建报路径和每个原值问题，并报全部任务路线问题', diagnostic, detail)
+    } else if (mode === 'resume') {
+      named('市场人数：续跑拒绝前从未调用预算预留', noReserve, detail)
+      named('市场人数：续跑坏输入退出2、零请求且三个任务文件逐字不变', rejected && same, detail)
+      named('市场人数：续跑逐项报缺席和原值，任务路线问题不被遮住', diagnostic, detail)
+    } else if (mode === 'resume-budget') {
+      named('市场人数：改额续跑拒绝前从未调用预算预留', noReserve, detail)
+      named('市场人数：改额续跑退出2、零请求，三个任务文件原样且新上限不落盘', rejected && same, detail)
+      named('市场人数：改额续跑逐项报缺席和原值，任务路线问题不被遮住', diagnostic, detail)
+    } else {
+      named('市场人数：probe 拒绝前从未调用预算预留', noReserve, detail)
+      named('市场人数：probe 坏市场退出2、零请求且输入不变', rejected && same, detail)
+      named('市场人数：probe 报路径及全部市场任务路线问题', diagnostic, detail)
+      const leak = probeInputLeak(r.stderr)
+      named('市场人数：probe 输入错误不带异常类名或调用栈', r.status === 2 && !leak.className && !leak.frames, detail)
+    }
+    completed.bad.add(`${mode}/${c.id}`)
+  }
+  const positives: { mode: Mode; c: Case }[] = modes.map(mode => ({ mode,
+    c: { id: 'original-zero', values: { market: '  uS  ', target_count: 0 } } }))
+  for (const missing of [['market'], ['target_count'], ['market', 'target_count']] as Field[][])
+    positives.push({ mode: 'new', c: { id: `default-${missing.join('-')}`, missing } })
+  positives.push({ mode: 'probe', c: { id: 'default-market', missing: ['market'] } },
+    { mode: 'new', c: { id: 'negative-target', values: { target_count: -1 } } },
+    { mode: 'resume', c: { id: 'fractional-target', values: { target_count: 0.5 } } })
+  for (const [i, value] of [null, '50', false, [], {}].entries()) positives.push({ mode: 'probe',
+    c: { id: `ignored-target-${i}`, values: { target_count: value } } })
+  positives.push({ mode: 'probe', c: { id: 'ignored-target-missing', missing: ['target_count'] } },
+    { mode: 'probe', c: { id: 'ignored-target-overflow', nonfinite: true } })
+  for (const { mode, c } of positives) {
+    const f = make(mode, c, true)
+    if (!inputReady(f, c)) continue
+    const r = runBoth(`市场人数 ${mode}：${c.id}`, f.args, f.cwd, { status: 0, soft: [1, 2, 3] }, f.observation)
+    if (!r.ok || !ready(f.armed, r.stderr)) continue
+    const searches = fetchAttempts(f.events).map(summaryOf).filter(e => e.kind === 'fetch' && e.endpoint === TT_SEARCH)
+    const market = c.missing?.includes('market') ? 'US' : c.values?.market ?? 'US'
+    const target = c.missing?.includes('target_count') ? 50 : c.values?.target_count ?? 1
+    const searched = r.status === 0 && tasks.every(task => searches.some(e => e.query?.keyword === task.keyword))
+    const detail = `${mode}/${c.id}：退出=${r.status}，搜索=${JSON.stringify(searches)}，stderr=${stderrTail(r.stderr)}`
+    named('市场人数：合法入口证明预算观察器确实记录 reserve 调用',
+      searched && fetchAttempts(f.reserves).includes('reserve'), detail)
+    named('市场人数：合法市场未经修剪或改大小写送入搜索，缺席才用 US',
+      searched && searches.every(e => e.query?.region === market), detail)
+    const defaultNotices = r.stderr.replaceAll(f.file, '[输入文件]').split('\n').filter(line =>
+      /默认|缺省|default/i.test(line) && /\bUS\b/.test(line) && /market|市场/i.test(line)
+        && !/(?:未|不)(?:采用|使用|用)(?:默认|缺省)|(?:不是|并非)(?:默认|缺省)|not (using|the) default/i.test(line))
+    if (c.missing?.includes('market')) named('市场人数：缺市场使用 US 时 stderr 明说市场未提供并采用默认',
+      r.status === 0 && defaultNotices.some(line => /未(?:提供|指定|填写|设置|给出)|没(?:有)?(?:提供|指定|填写|设置)|缺(?:席|失|少)|不存在|不在配置|absent|missing|omitted|not (provided|specified)/i.test(line)), detail)
+    else if (mode === 'new' || mode === 'probe') named('市场人数：显式合法市场不冒称采用默认US',
+      r.status === 0 && defaultNotices.length === 0, detail)
+    if (mode === 'probe') {
+      const rows = summaryOf(r.stdout).results
+      named('市场人数：probe 完全忽略 target_count，仍逐项搜索且输入原样',
+        searched && searches.length === tasks.length && unchanged(f) && Array.isArray(rows) && rows.length === tasks.length
+          && rows.every((row: any, i: number) => !row.error && row.task_index === i && row.keyword === tasks[i].keyword), detail)
+    } else {
+      const dir = mode === 'new' ? onlyDir(f.cwd, 'configentry') : undefined
+      const state = mode === 'new' ? (dir ? jsonFile(join(f.cwd, dir, 'task.json')) : undefined) : jsonFile(f.file)
+      named('市场人数：合法 collect 保留两个原值，缺席的目标人数才写50',
+        searched && state?.market === market && state?.target_count === target, detail)
+      if (c.id === 'original-zero') named('市场人数：目标0仍给每个任务首页，达标后不翻第二页',
+        searched && tasks.every(task => searches.filter(e => e.query?.keyword === task.keyword).length === 1), detail)
+    }
+    completed.good.add(`${mode}/${c.id}`)
+  }
+  // fake-fetch 的 force-paged：每页 1 个新账号，第三页不再给令牌。因此目标1只需首页，
+  // 目标50到第三页仍不足，只能随令牌取完3页。这个分岔不依赖实现或运行结果。
+  for (const target of [1, 50]) {
+    const f = make('new', { id: `target-depth-${target}`, missing: target === 50 ? ['target_count'] : [],
+      values: { target_count: 1, tasks: [{ keyword: 'force-paged-config-target', dimension: 'category', platform: 'instagram' }] } }, true)
+    const r = runBoth(`市场人数：实际目标 ${target}`, f.args, f.cwd, { status: 0, soft: [1, 2, 3] }, f.observation)
+    if (!r.ok || !ready(f.armed, r.stderr)) continue
+    const queries = fetchAttempts(f.events).map(summaryOf).filter(e => e.kind === 'fetch' && e.endpoint === IG_REELS)
+    const tokens = queries.map(e => e.query?.pagination_token ?? null)
+    const expected = target === 1 ? [null] : [null, 'page-2', 'page-3']
+    const dir = onlyDir(f.cwd, 'configentry'), state = dir ? jsonFile(join(f.cwd, dir, 'task.json')) : undefined
+    named('市场人数：缺省50实际继续翻页，显式1在首页后停', r.status === 0
+      && state?.target_count === target && JSON.stringify(tokens) === JSON.stringify(expected)
+      && fetchAttempts(f.reserves).includes('reserve'),
+      `目标=${target}，盘上=${state?.target_count}，实际令牌=${JSON.stringify(tokens)}，stderr=${stderrTail(r.stderr)}`)
+    completed.depth.add(target)
+  }
+  // 完成只表示相关断言已执行；有任一断言失败，既有 claimsPublishable 仍禁止发布覆盖。
+  const completedMode = (mode: Mode): boolean => cases.filter(row => row.mode === mode)
+    .every(({ c }) => completed.bad.has(`${mode}/${c.id}`)) && positives.filter(row => row.mode === mode)
+    .every(({ c }) => completed.good.has(`${mode}/${c.id}`))
+  if (modes.filter(mode => mode !== 'probe').every(completedMode)) criterion('D17.h', 'D17.i')
+  if (completedMode('probe')) criterion('D17.j', 'D17.k', 'D17.f', 'F3.c', 'F3.d')
+  if (modes.every(completedMode)) criterion('D17.l', 'D17.m', 'D17.o', 'F9.a')
+  if (modes.every(completedMode) && completed.depth.size === 2) criterion('D17.n')
+})
+
 group('task-list', [], () => {
   // 独立上下文先于入口实现写成；只读需求、ADR-115 第 1–5 节及入口交点欠条、
   // 缝隙契约、类型声明与测试基础设施，没有读入口或两个校验函数的函数体。

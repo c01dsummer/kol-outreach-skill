@@ -5656,6 +5656,205 @@
       "file": "scripts/lib/config-input.ts",
       "find": "return `{${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)}:${seen(item)}`).join(',')}}`",
       "replace": "return JSON.stringify(value)"
+    },
+    {
+      "id": "M-D17-q",
+      "req": "D17.h",
+      "why": "采集入口没有拒绝非法市场或人数，仍请求并写入任务",
+      "file": "scripts/collect.ts",
+      "find": "const badFields = configFieldProblems(state, resume ? 'resume' : 'new')",
+      "replace": "const badFields: string[] = []",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：新建坏输入退出2、零请求且不留任务目录",
+        "市场人数：续跑坏输入退出2、零请求且三个任务文件逐字不变",
+        "市场人数：改额续跑退出2、零请求，三个任务文件原样且新上限不落盘"
+      ]
+    },
+    {
+      "id": "M-D17-r",
+      "req": "P1",
+      "why": "续跑误用新输入规则，缺席的原市场与人数不再拒绝",
+      "file": "scripts/collect.ts",
+      "find": "const badFields = configFieldProblems(state, resume ? 'resume' : 'new')",
+      "replace": "const badFields = configFieldProblems(state, 'new')",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：续跑逐项报缺席和原值，任务路线问题不被遮住",
+        "市场人数：改额续跑逐项报缺席和原值，任务路线问题不被遮住"
+      ]
+    },
+    {
+      "id": "M-D17-s",
+      "req": "D17.j",
+      "why": "试探入口没有拒绝非法市场，仍发出请求",
+      "file": "scripts/probe.ts",
+      "find": "    const badFields = configFieldProblems(cfg, 'probe')",
+      "replace": "    const badFields: string[] = []",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：probe 坏市场退出2、零请求且输入不变"
+      ]
+    },
+    {
+      "id": "M-D17-t",
+      "req": "D17.i",
+      "why": "采集拒绝坏输入时只报告第一处配置问题，遗漏其余字段任务路线",
+      "file": "scripts/collect.ts",
+      "find": "taskProblems.join('\\n  ')",
+      "replace": "taskProblems.slice(0, 1).join('\\n  ')",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：新建报路径和每个原值问题，并报全部任务路线问题",
+        "市场人数：续跑逐项报缺席和原值，任务路线问题不被遮住",
+        "市场人数：改额续跑逐项报缺席和原值，任务路线问题不被遮住"
+      ]
+    },
+    {
+      "id": "M-D17-u",
+      "req": "D17.k",
+      "why": "试探拒绝坏输入时只报告第一处配置问题，遗漏任务路线",
+      "file": "scripts/probe.ts",
+      "find": "taskProblems.join('；')",
+      "replace": "taskProblems.slice(0, 1).join('；')",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：probe 报路径及全部市场任务路线问题"
+      ]
+    },
+    {
+      "id": "M-D17-v",
+      "req": "D17.l",
+      "why": "新采集缺席市场时实际采用了错误的市场",
+      "file": "scripts/collect.ts",
+      "find": "market: Object.hasOwn(cfg, 'market') ? cfg.market : 'US'",
+      "replace": "market: Object.hasOwn(cfg, 'market') ? cfg.market : 'GB'",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：合法市场未经修剪或改大小写送入搜索，缺席才用 US"
+      ]
+    },
+    {
+      "id": "M-D17-w",
+      "req": "D17.l",
+      "why": "试探缺席市场时实际采用了错误的市场",
+      "file": "scripts/probe.ts",
+      "find": "const market = Object.hasOwn(cfg, 'market') ? cfg.market! : 'US'",
+      "replace": "const market = Object.hasOwn(cfg, 'market') ? cfg.market! : 'GB'",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：合法市场未经修剪或改大小写送入搜索，缺席才用 US"
+      ]
+    },
+    {
+      "id": "M-D17-x",
+      "req": "D17.m",
+      "why": "新采集采用默认市场时没有向用户说明缺席与默认",
+      "file": "scripts/collect.ts",
+      "find": "if (!Object.hasOwn(cfg, 'market')) console.error('未提供 market，本次采用默认市场 US。')",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：缺市场使用 US 时 stderr 明说市场未提供并采用默认"
+      ]
+    },
+    {
+      "id": "M-D17-y",
+      "req": "D17.m",
+      "why": "试探把显式合法市场也说成采用默认市场",
+      "file": "scripts/probe.ts",
+      "find": "if (!Object.hasOwn(cfg, 'market')) console.error('未提供 market，本次采用默认市场 US。')",
+      "replace": "console.error('未提供 market，本次采用默认市场 US。')",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：显式合法市场不冒称采用默认US"
+      ]
+    },
+    {
+      "id": "M-D17-z",
+      "req": "D17.n",
+      "why": "新采集缺席目标人数时采用1，提前结束发现",
+      "file": "scripts/collect.ts",
+      "find": "target_count: Object.hasOwn(cfg, 'target_count') ? cfg.target_count : 50",
+      "replace": "target_count: Object.hasOwn(cfg, 'target_count') ? cfg.target_count : 1",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：缺省50实际继续翻页，显式1在首页后停"
+      ]
+    },
+    {
+      "id": "M-D17-aa",
+      "req": "D17.o",
+      "why": "新采集擅自修剪并改大写已提供的合法市场",
+      "file": "scripts/collect.ts",
+      "find": "market: Object.hasOwn(cfg, 'market') ? cfg.market : 'US'",
+      "replace": "market: Object.hasOwn(cfg, 'market') ? cfg.market.trim().toUpperCase() : 'US'",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：合法市场未经修剪或改大小写送入搜索，缺席才用 US"
+      ]
+    },
+    {
+      "id": "M-D17-ab",
+      "req": "D17.o",
+      "why": "试探擅自修剪并改大写已提供的合法市场",
+      "file": "scripts/probe.ts",
+      "find": "const market = Object.hasOwn(cfg, 'market') ? cfg.market! : 'US'",
+      "replace": "const market = Object.hasOwn(cfg, 'market') ? cfg.market!.trim().toUpperCase() : 'US'",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：合法市场未经修剪或改大小写送入搜索，缺席才用 US"
+      ]
+    },
+    {
+      "id": "M-D17-ac",
+      "req": "D17.h",
+      "why": "坏市场或人数被拒绝前，改额续跑已经把新上限写入旧任务",
+      "file": "scripts/collect.ts",
+      "find": "if (taskProblems.length) {",
+      "replace": "if (taskProblems.length) {\n  if (resume && replacementLimit !== undefined) { new Budget(state).setLimit(replacementLimit); saveTask(resume, state) }",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：改额续跑退出2、零请求，三个任务文件原样且新上限不落盘"
+      ]
+    },
+    {
+      "id": "M-D17-ad",
+      "req": "D17.h",
+      "why": "采集拒绝坏市场人数前已经调用预算预留，即使没有请求仍有副作用",
+      "file": "scripts/collect.ts",
+      "find": "if (taskProblems.length) {",
+      "replace": "if (taskProblems.length) {\n  startBudget({}, parseUsdMicros('0.01'), 'process').reserve('/api/v1/tiktok/app/v3/fetch_video_search_result')",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：新建拒绝前从未调用预算预留",
+        "市场人数：续跑拒绝前从未调用预算预留",
+        "市场人数：改额续跑拒绝前从未调用预算预留"
+      ]
+    },
+    {
+      "id": "M-D17-ae",
+      "req": "D17.j",
+      "why": "试探拒绝坏市场前已经调用预算预留，即使没有请求仍有副作用",
+      "file": "scripts/probe.ts",
+      "find": "    if (taskProblems.length) throw new Error(`任务配置不合规：${taskProblems.join('；')}`)",
+      "replace": "    if (taskProblems.length) {\n      startBudget(cfg, parseUsdMicros('0.01'), 'process').reserve('/api/v1/tiktok/app/v3/fetch_video_search_result')\n      throw new Error(`任务配置不合规：${taskProblems.join('；')}`)\n    }",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：probe 拒绝前从未调用预算预留"
+      ]
+    },
+    {
+      "id": "M-D17-af",
+      "req": "D17.f",
+      "why": "试探入口错误采用新任务规则，拒绝了根本不使用的目标人数",
+      "file": "scripts/probe.ts",
+      "find": "    const badFields = configFieldProblems(cfg, 'probe')",
+      "replace": "    const badFields = configFieldProblems(cfg, 'new')",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：probe 完全忽略 target_count，仍逐项搜索且输入原样"
+      ]
     }
   ],
   "exemptions": [
