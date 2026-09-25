@@ -62,7 +62,9 @@ export function categorize(path: string): Category {
 export const GIT_CONFIG = [
   // 中文路径不许被转义成 `"docs/adr/\346..."`。这个仓库的文件名几乎全是中文,
   // 转义之后它们匹配不上分类判据,整批掉进「其他」—— 同一个坑栽过三次。
-  // '-c', 'core.quotePath=false',
+  // 走 `-z` 的调用本来就不转义;不走 `-z` 的调用(比如列文件名)要靠这一项压住仓库或全局配置里
+  // 打开的转义。它只管非 ASCII 字节 —— 双引号、反斜杠、制表符、换行照样会被转义
+  '-c', 'core.quotePath=false',
   // 改名检测必须开着,理由见 `parseNumstat`。git 2.9 起这是缺省值,
   // **但缺省值不是保证**:把 `diff.renames=false` 写进全局配置的那台机器上,
   // 一个 400 行文件挪个位置读出源码 400 行、当场判红(实测)。

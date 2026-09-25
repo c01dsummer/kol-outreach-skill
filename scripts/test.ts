@@ -5787,12 +5787,12 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     g('init', '-q', '.')
     // 上面那个诱饵的第三拍就在这里:没把 `GIT_DIR` 删掉的话,`init` 会跑到诱饵那边,
     // 这个目录里不会有 `.git`。**先断言、再 mkdir 兜住** —— 不兜的话下一句
-    // 写配置会 ENOENT 当场崩,而崩了不算被抓到(ADR-70),后面九条断言一句话都说不上
+    // 写配置会 ENOENT 当场崩,而崩了不算被抓到(ADR-70),后面的断言一句话都说不上
     const dotGit = join(repo, '.git')
     ok('夹具仓库建在它自己的目录里 —— 继承来的 GIT_DIR 没把 init 带走', existsSync(dotGit))
     mkdirSync(dotGit, { recursive: true })
     // 六项配置一次写完,不起六个 `git config` 子进程 —— 这条夹具的每一毫秒都要
-    // 乘以缺省验证者名下的变异条数(ADR-97 第二节),八个子进程已经是它的全部成本
+    // 乘以缺省验证者名下的变异条数(ADR-97 第二节),九个子进程已经是它的全部成本
     writeFileSync(join(dotGit, 'config'), [
       '[user]', '\temail = t@t', '\tname = t',
       '[diff]', '\trenames = false',      // 故意设反:钉不住就当场红
@@ -5832,10 +5832,14 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
 
     // 仓库本地把 `core.quotePath` 打开了,而路径照样是原样的 —— 压住它的是 `-z`
     // (实测:注掉 `GIT_CONFIG` 里的 `core.quotePath=false`,这条照样绿)。
-    // 所以那一项**今天量不到**,只是给将来不走 `-z` 的调用方留的后手;
-    // 写在这里是为了不假装它被守住(ADR-98 的缺口段)。
     eq('中文路径原样进分类判据 —— 靠的是 `-z`,不是 quotePath',
       plainFiles.map(f => f.path).includes('docs/adr/文档.md'), true)
+    // `core.quotePath=false` 那一项要靠一次**不走 `-z`** 的调用才验得到:仓库本地把转义打开了,
+    // 压得住它的只有 `GIT_CONFIG`。列一遍改过的文件名,中文路径必须原样出来,
+    // 不能是 `"docs/adr/\346\226\207..."` 那种转义串(ADR-98 末尾:它曾被注掉,没人发现,因为之前量不到)
+    const names = (g(...GIT_CONFIG, 'diff', '--name-only', 'HEAD~1', 'HEAD').stdout ?? '').split('\n')
+    eq('不走 -z 的调用:中文路径照样原样出来 —— 仓库本地打开了转义,钉死的 core.quotePath=false 压住了它',
+      names.includes('docs/adr/文档.md'), true)
     eq('① 包进回调:照实数三行重排 + 两行新代码',
       added(plainFiles, 'scripts/check/包起来.ts'), 5)
     eq('① 包进回调:忽略行内空白后只剩那两行新代码',
