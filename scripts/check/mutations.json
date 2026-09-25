@@ -1217,7 +1217,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "源码预算放宽十倍 —— ADR-58 那张表里 926 / 1010 / 1179 行的三条在途分支全部变成线内,而这条线正是按已合并的改动校准的",
       "find": "  源码: 350,",
-      "replace": "  源码: 3500,"
+      "replace": "  源码: 3500,",
+      "by": "test",
+      "kills": [
+        "源码预算仍按已合入改动校准为 350 行"
+      ]
     },
     {
       "id": "M-H9-c",
@@ -1401,7 +1405,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "忽略行内空白那一遍不再忽略 —— 两遍读出同一个数,折扣整个消失,而那条打给用户的「折掉的行」会一直报 0,看不出是没折价还是没人算",
       "find": "export const NUMSTAT_IGNORING_SPACE = [...NUMSTAT, '-w']",
-      "replace": "export const NUMSTAT_IGNORING_SPACE = [...NUMSTAT]"
+      "replace": "export const NUMSTAT_IGNORING_SPACE = [...NUMSTAT]",
+      "by": "test",
+      "kills": [
+        "① 包进回调:忽略行内空白后只剩那两行新代码"
+      ]
     },
     {
       "id": "M-H9-j",
@@ -1409,7 +1417,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "markdown 也吃折扣 —— 全仓 .md 零内容变化重排从判红变判绿,而四空格代码块、围栏缩进、列表层级都是 Agent 照着执行的语义",
       "find": "export const WHITESPACE_FREE = ['.ts']",
-      "replace": "export const WHITESPACE_FREE = ['.ts', '.md']"
+      "replace": "export const WHITESPACE_FREE = ['.ts', '.md']",
+      "by": "test",
+      "kills": [
+        "② .md 不在白名单里:纯缩进照样收那一行"
+      ]
     },
     {
       "id": "M-H9-k",
@@ -1417,7 +1429,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "改名检测不再钉死 —— 一台把 diff.renames=false 写进全局配置的机器上,一个 400 行文件挪个位置就顶掉整个源码预算,而这行注释正说它不该发生",
       "find": "  '-c', 'diff.renames=true',",
-      "replace": "  // '-c', 'diff.renames=true',"
+      "replace": "  // '-c', 'diff.renames=true',",
+      "by": "test",
+      "kills": [
+        "③ 跨类改名零内容变化:两遍都读 0 —— 仓库本地把改名检测关了,钉死的那一项压住了它"
+      ]
     },
     {
       "id": "M-H9-m",
@@ -1425,7 +1441,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "吃折扣的文件在忽略空白那一遍里消失时按原数计 —— 而「整个消失」恰恰是纯空白改动的形状,折扣对它正好不生效",
       "find": "    added: discountable(f.path) ? (lean.get(f.path) ?? 0) : f.added,",
-      "replace": "    added: discountable(f.path) ? (lean.get(f.path) ?? f.added) : f.added,"
+      "replace": "    added: discountable(f.path) ? (lean.get(f.path) ?? f.added) : f.added,",
+      "by": "test",
+      "kills": [
+        "④ 行尾翻转:`.ts` 吃折扣读 0 —— 明写的代价,不是漏掉的情形"
+      ]
     },
     {
       "id": "M-H9-n",
@@ -1433,7 +1453,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "折掉的行数恒报 0 —— 这道闸门放走了多少就再没有人看得见,而这句交代正是它敢折价的理由",
       "find": "  for (const c of CATEGORIES) out[c] = plain[c] - merged[c]",
-      "replace": "  for (const c of CATEGORIES) out[c] = 0"
+      "replace": "  for (const c of CATEGORIES) out[c] = 0",
+      "by": "test",
+      "kills": [
+        "折掉的行数逐类算,为 0 也报出来"
+      ]
     },
     {
       "id": "M-H10-a",
@@ -3997,7 +4021,11 @@
       "why": "显式豁免那一栏报成了有测试认领的数 —— 缺口装成了证据，而一份审计的两个数（逐条与汇总）从此对不上",
       "file": "scripts/check/audit-rule.ts",
       "find": "       + ` · 显式豁免 ${n(redline, gapOnly)}）`",
-      "replace": "       + ` · 显式豁免 ${n(redline, id => tested.has(id))}）`"
+      "replace": "       + ` · 显式豁免 ${n(redline, id => tested.has(id))}）`",
+      "by": "test",
+      "kills": [
+        "三张名单都有它 → 只算测试认领那一次"
+      ]
     },
     {
       "id": "M-H30-b",
@@ -6892,7 +6920,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "候选顺序反了 —— 先信本地 main：本地 main 很久没拉时起点算得太靠前，别人已合进主干的提交被算成这条分支自己的，连它们提交信息里的 size-ok 豁免也一起捡来",
       "find": "export const TRUNK_CANDIDATES = ['origin/main', 'main']",
-      "replace": "export const TRUNK_CANDIDATES = ['main', 'origin/main']"
+      "replace": "export const TRUNK_CANDIDATES = ['main', 'origin/main']",
+      "by": "test",
+      "kills": [
+        "起点：主干候选的顺序 —— 远端 origin/main 在前，本地 main 在后"
+      ]
     },
     {
       "id": "M-H9-p",
@@ -6908,7 +6940,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "只把答不上来当成问不出来 —— 旧 git 把参数原样打回来时被当成「不是浅克隆」，在浅克隆里报一个可能缩水的数",
       "find": "  if (shallow !== 'false') {",
-      "replace": "  if (shallow === null) {"
+      "replace": "  if (shallow === null) {",
+      "by": "test",
+      "kills": [
+        "起点第 2 步把参数原样打回来（旧 git）→ 无从判断，不当成「不是浅克隆」"
+      ]
     },
     {
       "id": "M-H9-r",
@@ -6916,7 +6952,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "在主干上也拿共同祖先当起点 —— 共同祖先就是 HEAD 自己，量出 0 行，直推主干的大改动连数字都不出现",
       "find": "  const base = onTrunk ? ask('rev-parse', `${head}^1`) : merged",
-      "replace": "  const base = merged"
+      "replace": "  const base = merged",
+      "by": "test",
+      "kills": [
+        "起点：逐步问的完整顺序（主干上）—— 共同祖先之后问 <HEAD>^1，再列提交"
+      ]
     },
     {
       "id": "M-H9-s",
@@ -6924,7 +6964,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "从主干而不是起点列提交 —— 在主干上时列出来是空的，别处的 size-ok 豁免该找的提交一个都没找",
       "find": "ask('rev-list', `${base}..${head}`)",
-      "replace": "ask('rev-list', `${trunk}..${head}`)"
+      "replace": "ask('rev-list', `${trunk}..${head}`)",
+      "by": "test",
+      "kills": [
+        "起点第 6 步（分支上）：rev-list 问的是 <共同祖先的 sha>..<HEAD 的 sha>，不是字面 HEAD 或主干名"
+      ]
     },
     {
       "id": "M-H9-t",
@@ -6932,7 +6976,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "提交列表不去空行 —— 没有提交时列出一个空串「提交」，拿它去读提交信息",
       "find": "commits: listed.split('\\n').filter(Boolean) }",
-      "replace": "commits: listed.split('\\n') }"
+      "replace": "commits: listed.split('\\n') }",
+      "by": "test",
+      "kills": [
+        "没有分支提交时列表为空数组"
+      ]
     },
     {
       "id": "M-H9-u",
@@ -6948,7 +6996,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "主干上没有上一版时判「无从判断」 —— 仓库第一个提交上闸门以退出码 1 失败，而那里本来就没有可比的东西",
       "find": "  if (base === null) return { kind: 'not-applicable', trunk }",
-      "replace": "  if (base === null) return cannot('没有上一版', '—')"
+      "replace": "  if (base === null) return cannot('没有上一版', '—')",
+      "by": "test",
+      "kills": [
+        "主干首提交没有上一版时判不适用"
+      ]
     },
     {
       "id": "M-H9-w",
@@ -6956,7 +7008,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "不在仓库里或没有任何提交时照样往下问，拿一个不存在的 HEAD 去取共同祖先、列提交，报出的原因不是真正的原因",
       "find": "  if (head === null) return cannot(",
-      "replace": "  if (false) return cannot("
+      "replace": "  if (false) return cannot(",
+      "by": "test",
+      "kills": [
+        "起点第 1 步答不上来就停：只问过 rev-parse HEAD"
+      ]
     },
     {
       "id": "M-H9-x",
@@ -6964,7 +7020,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "两个主干候选都找不到也不停，拿一个不存在的主干去取共同祖先，试过哪些候选、该先 fetch 哪一个都不说",
       "find": "  if (trunk === undefined) return cannot(",
-      "replace": "  if (false) return cannot("
+      "replace": "  if (false) return cannot(",
+      "by": "test",
+      "kills": [
+        "起点第 3 步：按候选顺序各问一遍，都答不上来就停，不去取共同祖先"
+      ]
     },
     {
       "id": "M-H9-y",
@@ -6972,7 +7032,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "列不出这条分支的提交时当成「查过、一个提交都没有」，豁免与不合格的 size-ok 一条都不找、提交数报 0",
       "find": "  if (listed === null) {",
-      "replace": "  if (listed === null) return { kind: 'measure', trunk, head, base, onTrunk, commits: [] }\n  if (false) {"
+      "replace": "  if (listed === null) return { kind: 'measure', trunk, head, base, onTrunk, commits: [] }\n  if (false) {",
+      "by": "test",
+      "kills": [
+        "起点第 6 步：rev-list 答不上来（总则：答不上来就停）→ 无从判断，不当成「没有提交」"
+      ]
     },
     {
       "id": "M-H36-s",
@@ -7263,7 +7327,11 @@
       "file": "scripts/check/size-rule.ts",
       "why": "中文路径转义那一项又被注掉 —— 不走 -z 的调用把中文路径转义成八进制串，分类判据匹配不上，整批掉进「其他」",
       "find": "  '-c', 'core.quotePath=false',",
-      "replace": "  // '-c', 'core.quotePath=false',"
+      "replace": "  // '-c', 'core.quotePath=false',",
+      "by": "test",
+      "kills": [
+        "不走 -z 的调用:中文路径照样原样出来 —— 仓库本地打开了转义,钉死的 core.quotePath=false 压住了它"
+      ]
     },
     {
       "id": "M-D16-x",

@@ -6843,6 +6843,7 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
 
 harness('体量闸门的判定：四类分开算，豁免必须指名类别且写明理由')
 {
+  eq('源码预算仍按已合入改动校准为 350 行', BUDGET.源码, 350)
   eq('决策记录算文档', categorize('docs/adr/0001-x.md'), '文档')
   eq('需求登记表算文档', categorize('docs/requirements.json'), '文档')
   eq('lib 算源码', categorize('scripts/lib/memory.ts'), '源码')
@@ -7241,6 +7242,8 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
     const r = run(onBranch({ [Q_BASE_ORIGIN]: SHA_HEAD, [Q_PARENT]: null }))
     exact('起点第 5 步：主干上且没有上一版（<HEAD>^1 答不上来）→ 不适用，带主干名 origin/main', r.got,
       { kind: 'not-applicable', trunk: 'origin/main' })
+    eq('主干首提交没有上一版时判不适用',
+      typeof r.got === 'string' ? r.got : r.got.kind, 'not-applicable')
     eq('起点第 5 步 <HEAD>^1 答不上来就停：不再列提交', r.asked,
       [Q_HEAD, Q_SHALLOW, Q_ORIGIN, Q_BASE_ORIGIN, Q_PARENT])
   }
@@ -7260,6 +7263,8 @@ harness('体量闸门的起点：哪些提交算这条分支自己的 —— 喂
     const r = run(onBranch({ [Q_LIST_FORK]: '' }))
     exact('起点第 6 步：rev-list 答空串 → 照量，commits 是空数组（不是 [""]，也不是无从判断）', r.got,
       measure('origin/main', SHA_FORK, false, []))
+    eq('没有分支提交时列表为空数组',
+      typeof r.got !== 'string' && r.got.kind === 'measure' ? r.got.commits : r.got, [])
   }
   {
     // GitAsk 已经去掉了首尾空白，只有夹在中间的空行能让「去掉空行」这句话被违反
