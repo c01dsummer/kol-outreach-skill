@@ -67,6 +67,7 @@ import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { formatDiscoverySources, mergeDiscoverySources } from './lib/discovery.js'
 import { hashtagKeyword, igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
+import { resumeProgressProblems } from './lib/resume-progress.js'
 import { configFieldProblems, type ConfigInputRole } from './lib/config-input.js'
 import {
   INSTAGRAM_HASHTAG_ENDPOINT, TikHub, TikHubError, fillEmail, isInstagramVideo, parseInstagramHashtagPage, pickList,
@@ -82,7 +83,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetInputError, startBudget, costView, type CostView } from './lib/budget.js'
-import { readCostDocument, readCostLimit, setCostLimitField, stringifyCostJson, type CostState } from './lib/cost-json.js'
+import { readCostDocument, readCostLimit, setCostLimitField, sourceNumberToken, stringifyCostJson, type CostState } from './lib/cost-json.js'
 import {
   CostError, CostLedgerUnavailable, createCostBudget, formatUsd, inspectExistingCostLedger,
   parseUsdMicros, restoreCostBudget, type CostSnapshot,
@@ -4826,6 +4827,80 @@ suite('D17', '市场与目标人数按原始字段和输入角色校验')
   // 本次只认领判定函数不补值：续跑缺席和显式非法仍报错，新输入缺席通过但不写默认值。
   // 入口是否先补值再调用不在本组证据范围，入口接线与对应反例另行实现。
   tension('D17', 'P1')
+}
+
+suite('D19', '续跑进度字段先验校验')
+{
+  const fromToken = (field: 'done' | 'pages', token: string): string[] => {
+    const source = field === 'done'
+      ? `{"done":[${token}],"pages":{"0":0}}`
+      : `{"done":[0],"pages":{"0":${token}}}`
+    const parsed = readCostDocument<{ done: unknown; pages: unknown }>(source)
+    return resumeProgressProblems(parsed, 2, (holder, key) => sourceNumberToken(parsed, holder, key))
+  }
+  eq('恢复进度：原始 JSON 小数和指数只有精确等于整数时通过',
+    ['1.0', '1e0', '1e+0', '1.00e0'].map(token =>
+      [fromToken('done', token), fromToken('pages', token)]),
+    [[[], []], [[], []], [[], []], [[], []]])
+  eq('恢复进度：舍入为整数、下溢为零、精度越界和溢出都按原始数字拒绝',
+    [fromToken('done', '0.99999999999999999'), fromToken('pages', '1e-325'),
+      fromToken('pages', '9007199254740990.5'), fromToken('pages', '1e400')]
+      .map(problems => problems.length > 0), [true, true, true, true])
+  eq('恢复进度：无限大按原始指数报告，不把它写成 null',
+    fromToken('pages', '1e400').some(problem => problem.includes('1e400') && !problem.includes('null')), true)
+
+  const base = () => ({ done: [0, 2], offsets: { 0: 0, 2: 80 },
+    answered: { 0: 0, 2: 3 }, found: { 0: null, 2: 40 }, pages: { 0: 0, 2: 12 } })
+  const badDone: [string, unknown][] = [
+    ['缺席', undefined], ['null', null], ['字符串', '0'], ['对象', { 0: 1 }],
+    ['重复', [0, 0]], ['负数', [-1]], ['越界', [3]], ['小数', [0.5]],
+    ['溢出', [Number.MAX_SAFE_INTEGER + 1]], ['字符串项', ['0']],
+  ]
+  const doneFailures = badDone.flatMap(([name, done]) => {
+    const raw: Record<string, unknown> = { ...base(), done }
+    if (name === '缺席') delete raw.done
+    const got = resumeProgressProblems(raw, 3)
+    return got.some(p => p.includes('done')) ? [] : [name]
+  })
+  eq('恢复进度：done 缺席、非数组、重复或非法任务索引逐类报错', doneFailures, [])
+  criterion('D19.a')
+
+  const tables = ['offsets', 'answered', 'found', 'pages'] as const
+  const badTables: [string, unknown][] = [
+    ['null', null], ['数组', [0]], ['字符串', '0'], ['数字', 0],
+    ['负数', { 0: -1 }], ['小数', { 0: 0.5 }],
+    ['溢出', { 0: Number.MAX_SAFE_INTEGER + 1 }], ['字符串值', { 0: '1' }],
+    ['带前导零键', { '00': 1 }], ['负数键', { '-1': 1 }],
+    ['越界键', { 3: 1 }], ['指数键', { '1e0': 1 }], ['非索引键', { abc: 1 }],
+  ]
+  eq('恢复进度：四张表均拒绝坏容器、坏索引与坏值，问题点名原字段',
+    tables.flatMap(field => badTables.flatMap(([name, value]) =>
+      resumeProgressProblems({ ...base(), [field]: value }, 3).some(p => p.includes(field))
+        ? [] : [`${field}/${name}`])), [])
+  eq('恢复进度：只有 found 允许 null，其他表的 null 仍被拒绝',
+    tables.map(field => resumeProgressProblems({ ...base(), [field]: { 0: null } }, 3)
+      .some(p => p.includes(field))), [true, true, false, true])
+  criterion('D19.b')
+
+  const bad = { done: [0, 0, 5], offsets: { '01': -3, 2: 0.2 },
+    answered: { 9: -1 }, found: { 0: 'missing' }, pages: { 1: null } }
+  const before = JSON.stringify(bad)
+  const problems = resumeProgressProblems(bad, 3)
+  eq('恢复进度：同一任务文件里的各表问题全部报告且不改原输入',
+    [tables.every(field => problems.some(p => p.includes(field))),
+      problems.some(p => p.includes('done')), JSON.stringify(bad) === before], [true, true, true])
+  criterion('D19.c')
+
+  const legacy = { done: [0], tasks: ['placeholder'] }
+  eq('恢复进度：旧目录的四张整表可缺席；页数高于当前上限仍是有效历史',
+    [resumeProgressProblems(legacy, 3), resumeProgressProblems(base(), 3)], [[], []])
+  eq('恢复进度：两位任务索引与最大安全整数仍可作为历史进度读取',
+    resumeProgressProblems({ done: [10], offsets: { 10: Number.MAX_SAFE_INTEGER },
+      answered: { 10: Number.MAX_SAFE_INTEGER }, found: { 10: null }, pages: { 10: 12 } }, 11), [])
+  eq('恢复进度：表之间不要求互相推算或补齐',
+    resumeProgressProblems({ done: [1], offsets: { 0: 0 }, answered: { 2: 4 },
+      found: { 1: null }, pages: { 2: 12 } }, 3), [])
+  criterion('D19.d')
 }
 
 suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」')

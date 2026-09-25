@@ -6328,6 +6328,94 @@
         "IG 话题 五种单独视频信号都保留真实零播放",
         "IG 话题 五种单独视频信号及混合信号都保留真实正播放"
       ]
+    },
+    {
+      "id": "M-D19-a",
+      "req": "D19.a",
+      "why": "恢复断点接受重复的完成任务索引，同一个任务会被当成两次完成",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "else if (seen.has(value)) out.push(`done[${position}] 的任务索引 ${value} 重复`)",
+      "replace": "else if (false) out.push(`done[${position}] 的任务索引 ${value} 重复`)"
+    },
+    {
+      "id": "M-D19-b",
+      "req": "D19.b",
+      "why": "恢复断点接受负数页数或条数，后续累计会从错误位置开始",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "typeof value === 'number' && Number.isSafeInteger(value) && value >= 0",
+      "replace": "typeof value === 'number' && Number.isSafeInteger(value)"
+    },
+    {
+      "id": "M-D19-c",
+      "req": "D19.d",
+      "why": "把旧目录缺席的统计表判成坏表，无法继续已有任务",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "if (!Object.hasOwn(raw, field)) continue // 旧目录缺整张表＝无从确认；绝不补空表。",
+      "replace": "if (!Object.hasOwn(raw, field)) out.push(`${field} 缺席`)"
+    },
+    {
+      "id": "M-D19-d",
+      "req": "D19.b",
+      "why": "四张统计表均接受 null，把未知数当作已核的空值",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "field === 'found' && value === null",
+      "replace": "value === null"
+    },
+    {
+      "id": "M-D19-g",
+      "req": "D19.c",
+      "why": "同一份坏断点只报告第一处问题，其余坏进度被遮住",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "  return out\n}",
+      "replace": "  return out.slice(0, 1)\n}"
+    },
+    {
+      "id": "M-D19-h",
+      "req": "D19.b",
+      "why": "恢复断点把原始小数先舍入为整数或把极小指数下溢为零，非法进度能继续付费采集",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "sourceToken === undefined || exactProgressInteger(sourceToken(holder, key) ?? '') === BigInt(value)",
+      "replace": "true",
+      "by": "selfcheck",
+      "kills": [
+        "恢复进度：原始小数及指数 token 不经舍入放行且诊断显示原文"
+      ]
+    },
+    {
+      "id": "M-D19-i",
+      "req": "D19.f",
+      "why": "恢复进度虽拒绝非法数字，但诊断把原始数写成舍入结果，用户无法知道需改哪一处",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "if (token !== undefined) return token",
+      "replace": "if (false) return token",
+      "by": "selfcheck",
+      "kills": [
+        "恢复进度：原始小数及指数 token 不经舍入放行且诊断显示原文"
+      ]
+    },
+    {
+      "id": "M-D19-e",
+      "req": "D19.e",
+      "why": "恢复坏进度时仍进入预算改额或付费路径，原任务文件可能被改写",
+      "file": "scripts/collect.ts",
+      "find": "const progressProblems = resumeProgressProblems(state, state.tasks.length,\n    (holder, key) => sourceNumberToken(state, holder, key))",
+      "replace": "const progressProblems: string[] = []",
+      "by": "selfcheck",
+      "kills": [
+        "恢复进度：坏输入在改额、预留与请求前退出2并保持 task.json 原字节"
+      ]
+    },
+    {
+      "id": "M-D19-f",
+      "req": "D19.f",
+      "why": "恢复进度错误省去 task.json 路径，用户无法定位需修的文件",
+      "file": "scripts/collect.ts",
+      "find": "console.error(`${productFrom} 里的续跑进度不合规：\\n  ${progressProblems.join('\\n  ')}`)",
+      "replace": "console.error(`续跑进度不合规：\\n  ${progressProblems.join('\\n  ')}`)",
+      "by": "selfcheck",
+      "kills": [
+        "恢复进度：错误点名 task.json 路径与所有坏字段"
+      ]
     }
   ],
   "exemptions": [
