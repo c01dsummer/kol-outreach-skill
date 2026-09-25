@@ -157,7 +157,7 @@
 
 | 顺序契约 | 位置 | 错了会怎样 | 守它的变异 |
 |---|---|---|---|
-| 原样任务列表与 IG 路线一并校验 → 才读续跑进度、建目录、开账或改额 | `scripts/collect.ts`、`scripts/probe.ts` | 提前读坏列表会崩溃；先补平台或维度会把缺席当成合法配置；续跑先改额会在拒绝坏任务之前改写旧文件 | M-D16-x M-D16-y M-D16-ab M-D16-ac |
+| 原样任务列表与 IG 路线一并校验 → 才读续跑进度、建目录、开账或改额 | `scripts/collect.ts`、`scripts/probe.ts` | 提前读坏列表会崩溃；先补平台或维度会把缺席当成合法配置；续跑先改额会在拒绝坏任务之前改写旧文件 | M-D16-x M-D16-y M-D16-ab M-D16-ac M-D16-ad M-D16-ae M-D16-af M-D16-ag |
 | 同人识别 → 合并 → 粉丝闸门 → 记忆过滤 | `scripts/lib/pipeline.ts` | 闸门跑在合并之前，「TikTok 3000 + IG 3000、合起来够线」的人被提前丢掉；记忆过滤跑在闸门之前，`filtered_contacted` 把连闸门都过不了的人也算进去，向用户虚报打扰规模 | M-P1-g M-P4-b |
 | 保留原任务下标 → 再筛选可展示的标签 | `scripts/lib/pipeline.ts` | 剩余任务按新位置重新编号，用户不能把提示指回原任务 | M-U8-a M-U8-b M-U8-o |
 | 实际返回账号时记录来源 → 合页/同人合并保留 → probe 与交付展示 | `scripts/providers/tikhub.ts`、`scripts/lib/pipeline.ts`、`scripts/lib/identity.ts`、`scripts/probe.ts`、`scripts/lib/rows.ts` | 配置替代真实来源、首次或后页观察被吞、关联账号来源丢失，或保存后到交付时消失 | M-D15-a M-D15-b M-D15-d M-D15-e M-D15-f M-D15-g M-D15-i |

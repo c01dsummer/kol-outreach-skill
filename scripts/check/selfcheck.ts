@@ -3392,6 +3392,10 @@ group('task-list', [], () => {
   mkdirSync(output, { recursive: true })
   const base = mkdtempSync(join(output, 'selfcheck-task-list-'))
   process.on('exit', () => rmSync(base, { recursive: true, force: true }))
+  // 零 fetch 不能证明此前没有进程内预留。只包裹公共 reserve 方法记录调用，原样委托，
+  // 不读其函数体、不改变返回/抛错；合法入口也用同一观测作对照，防止挂错模块空报绿。
+  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
   type Problem = { task?: number; field?: string; value?: unknown }
   type Scenario = { id: string; tasks?: unknown; problems: Problem[]; good?: number[]; routes?: number[] }
   const good = { keyword: 'task-list-good', dimension: 'category', platform: 'tiktok' }
@@ -3460,10 +3464,32 @@ group('task-list', [], () => {
       for (const f of ['creators.raw.json', 'creators.json']) writeFileSync(join(taskDir, f), '[]\n')
     } else writeFileSync(file, JSON.stringify(config, null, 2) + '\n')
     const log = join(cwd, 'attempts.tsv'), events = join(cwd, 'events.jsonl')
+    const reserves = join(cwd, 'reserve-calls.txt'), armed = join(cwd, 'reserve-observer.txt')
+    const preload = join(cwd, 'observe-reserve.mjs')
+    writeFileSync(reserves, '')
+    writeFileSync(preload, [
+      `import { appendFileSync } from 'node:fs';`,
+      `import { Budget } from ${JSON.stringify(budgetModule)};`,
+      `const original = Budget.prototype.reserve;`,
+      `Budget.prototype.reserve = function(...args) {`,
+      `  appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n');`,
+      `  return Reflect.apply(original, this, args);`,
+      `};`,
+      `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
+    ].join('\n'))
+    const observation = costEnv(log, { FAKE_FETCH_COST_EVENTS: events,
+      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+    })
     const args = resume ? [S('collect.ts'), '--resume', taskDir,
       ...(mode === 'resume-budget' ? ['--budget', '0.02'] : [])]
       : [S(mode === 'probe' ? 'probe.ts' : 'collect.ts'), '--config', file]
-    return { cwd, file, taskDir, log, events, args, before: fileText(file) }
+    return { cwd, file, taskDir, log, events, reserves, armed, observation, args, before: fileText(file) }
+  }
+  const observerReady = (armed: string, stderr: string): boolean => {
+    if (fetchAttempts(armed).includes('armed')) return true
+    failed++
+    console.error(`  ✗ 任务列表预算预留观测${SELFCHECK_FIXTURE_MARK}：预加载观测未成功安装\n${stderr}`)
+    return false
   }
   // 同一问题须在同一任务段里同时点名字段与原值，不能由其他任务的报错凑齐。
   // 不规定一任务分几句；「任务 N」与「第 N 个」都符合一起始序号的契约。
@@ -3488,28 +3514,37 @@ group('task-list', [], () => {
   for (const mode of modes) for (const scenario of scenarios) {
     const f = make(mode, scenario)
     const r = runBoth(`任务列表 ${mode}：${scenario.id}`, f.args, f.cwd,
-      { status: 2, soft: [0, 1, 3] }, costEnv(f.log, { FAKE_FETCH_COST_EVENTS: f.events }))
-    if (!r.ok) continue
+      { status: 2, soft: [0, 1, 3] }, f.observation)
+    if (!r.ok || !observerReady(f.armed, r.stderr)) continue
     const requests = fetchAttempts(f.log), events = fetchAttempts(f.events)
+    const reserveCalls = fetchAttempts(f.reserves)
     const rejected = r.status === 2 && requests.length === 0 && events.length === 0
     const same = fileText(f.file) === f.before
     const noPending = jsonFile(f.file)?.cost_ledger?.pending === undefined
     const detail = `${mode}/${scenario.id}，退出码 ${r.status}、请求 ${JSON.stringify(requests)}、`
-      + `任务文件原样=${same}、无预留=${noPending}，stderr=${stderrTail(r.stderr)}`
+      + `预留调用=${JSON.stringify(reserveCalls)}、任务文件原样=${same}、无预留=${noPending}，stderr=${stderrTail(r.stderr)}`
     const diagnosis = r.status === 2 && r.stderr.includes(f.file) && reports(r.stderr, scenario)
     if (mode === 'new') {
+      named('任务列表：collect 新建拒绝坏输入前从未调用预算预留',
+        r.status === 2 && reserveCalls.length === 0, detail)
       named('任务列表：collect 新建拒绝整份坏输入，退出2、零请求、不建任务目录',
         rejected && taskDirs(f.cwd).length === 0 && same, detail)
       named('任务列表：collect 新建报文件及全部原值问题，路线问题一并报', diagnosis, detail)
     } else if (mode === 'resume') {
+      named('任务列表：collect 续跑拒绝坏输入前从未调用预算预留',
+        r.status === 2 && reserveCalls.length === 0, detail)
       named('任务列表：collect 续跑校验整表，退出2、零请求、不留预留', rejected && noPending, detail)
       named('任务列表：collect 续跑拒绝时 task.json 逐字不变', rejected && same, detail)
       named('任务列表：collect 续跑报 task.json 及全部原值问题，路线问题一并报', diagnosis, detail)
     } else if (mode === 'resume-budget') {
+      named('任务列表：collect 改额续跑拒绝坏输入前从未调用预算预留',
+        r.status === 2 && reserveCalls.length === 0, detail)
       named('任务列表：collect 改额续跑校验整表，退出2、零请求、不留预留', rejected && noPending, detail)
       named('任务列表：collect 改额续跑拒绝时 task.json 逐字不变，新上限不落盘', rejected && same, detail)
       named('任务列表：collect 改额续跑报 task.json 及全部原值问题，路线问题一并报', diagnosis, detail)
     } else {
+      named('任务列表：probe 拒绝坏输入前从未调用预算预留',
+        r.status === 2 && reserveCalls.length === 0, detail)
       named('任务列表：probe 拒绝整份坏输入，退出2、零请求', rejected && same, detail)
       named('任务列表：probe 报全部原值问题，路线问题一并报', diagnosis, detail)
       const leak = probeInputLeak(r.stderr)
@@ -3536,6 +3571,25 @@ group('task-list', [], () => {
     && completed['resume-budget'] === scenarios.length) criterion('D16.j', 'D16.k')
   if (completed.probe === scenarios.length) criterion('D16.l', 'D16.m', 'F3.c', 'F3.d')
 
+  // 相邻回归：任务列表合规、旧断点 done:null 的既有输入错误出口仍为 2（ADR-108）。
+  // 只守这一份已知旧输入，不在这里扩展其他断点字段的规则。
+  {
+    const f = make('resume', { id: 'bad-done', tasks: [good], problems: [], good: [1] })
+    const config = jsonFile(f.file)
+    config.done = null
+    writeFileSync(f.file, JSON.stringify(config, null, 2) + '\n')
+    const before = fileText(f.file)
+    const r = runBoth('任务列表 resume：合法任务与 done:null 旧断点', f.args, f.cwd,
+      { status: 2, soft: [0, 1, 3] }, f.observation)
+    if (r.ok && observerReady(f.armed, r.stderr)) {
+      named('任务列表：合法任务续跑遇到 done:null 仍退出2、零请求且文件不变',
+        r.status === 2 && fetchAttempts(f.log).length === 0 && fetchAttempts(f.events).length === 0
+          && fileText(f.file) === before,
+        `退出码 ${r.status}、请求 ${JSON.stringify(fetchAttempts(f.log))}、`
+          + `文件原样=${fileText(f.file) === before}，stderr=${stderrTail(r.stderr)}`)
+    }
+  }
+
   // 不能把「全部拒绝」当成校验正确。合法非空列表含两个完全相同的任务，四个维度、
   // 双平台及 Reels/话题路线；首尾有空白但有内容的 keyword 合规且须保留（D16.c/h/i）。
   const acceptedTasks = [
@@ -3554,12 +3608,14 @@ group('task-list', [], () => {
     writeFileSync(f.file, JSON.stringify(config))
     const args = mode === 'resume-budget' ? [...f.args.slice(0, -1), '2'] : f.args
     const r = runBoth(`任务列表 ${mode}：合法非空列表`, args, f.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(f.log))
-    if (!r.ok) continue
+      { status: 0, soft: [1, 2, 3] }, f.observation)
+    if (!r.ok || !observerReady(f.armed, r.stderr)) continue
     const requests = fetchAttempts(f.log)
     const searched = r.status === 0 && [TT_SEARCH, IG_REELS, '/api/v1/instagram/v2/fetch_hashtag_posts']
       .every(endpoint => requests.includes(`200\t${endpoint}`))
     const detail = `${mode}，退出码 ${r.status}、请求 ${JSON.stringify(requests)}，stderr=${stderrTail(r.stderr)}`
+    named('任务列表：合法入口的预算预留观测确实记录调用',
+      r.status === 0 && fetchAttempts(f.reserves).includes('reserve'), detail)
     if (mode === 'probe') {
       const rows = summaryOf(r.stdout).results
       named('任务列表：probe 合法非空列表照常搜索，重复任务及原关键词保留',

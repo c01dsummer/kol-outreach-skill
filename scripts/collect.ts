@@ -32,6 +32,7 @@ import {
 } from './lib/task.js'
 import { creatorKey, textProblem } from './lib/types.js'
 import { igRouteProblems } from './lib/ig-route.js'
+import { taskListProblems } from './lib/search-tasks.js'
 import type { Creator, TaskState } from './lib/types.js'
 
 /**
@@ -66,7 +67,6 @@ try {
     if (!existsSync(taskPath)) throw new Error(`找不到 ${taskPath}`)
     state = loadTask(resume)
     productFrom = taskPath
-    console.error(`续跑 ${resume} —— 已完成 ${state.done.length}/${state.tasks.length} 个关键词`)
   } else {
     const cfgPath = arg('--config')
     if (!cfgPath) throw new Error('用法: npm run collect -- --config task.json | --resume <dir> [--budget N] [--ignore-memory]')
@@ -86,17 +86,19 @@ try {
   }
 } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
 
+// D16.j/k、D15.j：原样整表与路线一起查；先于进度读取、建目录、改额、任何预留或写入。
+const badTasks = taskListProblems(state.tasks)
+const badRoutes = igRouteProblems(state.tasks)
+const taskProblems = [...badTasks, ...badRoutes]
+if (taskProblems.length) {
+  console.error(`${productFrom} 里的任务配置不合规：\n  ${taskProblems.join('\n  ')}`)
+  process.exit(2)
+}
+
 const badProduct = textProblem(state.product)
 if (badProduct) {
   console.error(`${productFrom} 里的 product ${badProduct} —— 它要用作任务目录名，` +
                 `也要记进跨任务记忆的「为哪个产品推荐过」。先给它一个名字再跑。`)
-  process.exit(2)
-}
-
-// D15.j：路线不合规就在建目录、预留与请求之前停下 —— 新建与续跑都查（续跑读的是盘上的 task.json）
-const badRoutes = igRouteProblems(state.tasks)
-if (badRoutes.length) {
-  console.error(`${productFrom} 里的 ig_route 不合规：\n  ${badRoutes.join('\n  ')}`)
   process.exit(2)
 }
 
@@ -107,6 +109,7 @@ if (!resume && existsSync(taskFile(dir))) {
 }
 let budget: Budget
 try {
+  if (resume) console.error(`续跑 ${resume} —— 已完成 ${state.done.length}/${state.tasks.length} 个关键词`)
   const notify = (pct: number, view: ReturnType<Budget['view']>) => {
     console.error(`\n💰 已用 ${(pct * 100).toFixed(0)}% —— 估算占用 $${view.cost_estimate_usd} / $${view.budget_usd}\n`)
   }

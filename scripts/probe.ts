@@ -22,6 +22,7 @@ import { extractEmail } from './lib/email.js'
 import type { SearchTask } from './lib/types.js'
 import { taskLabel } from './lib/task-label.js'
 import { igRouteProblems } from './lib/ig-route.js'
+import { taskListProblems } from './lib/search-tasks.js'
 
 const cfgIndex = process.argv.indexOf('--config')
 const cfgPath = process.argv[cfgIndex + 1]
@@ -51,9 +52,11 @@ async function main() {
   let budget: Budget
   try {
     cfg = readCostDocument<ProbeConfig>(readFileSync(cfgPath, 'utf8'))
-    // D15.j：路线不合规在开预算、发请求之前就停下（退出码 2，零请求）
+    // D16.l/m、D15.j：原样任务列表与路线一起查，在开预算、发请求之前停下。
+    const badTasks = taskListProblems(cfg.tasks)
     const badRoutes = igRouteProblems(cfg.tasks)
-    if (badRoutes.length) throw new Error(`ig_route 不合规：${badRoutes.join('；')}`)
+    const taskProblems = [...badTasks, ...badRoutes]
+    if (taskProblems.length) throw new Error(`任务配置不合规：${taskProblems.join('；')}`)
     // D13.a：只在缺席时默认；显式 null、字符串与超精度原 token 均交给共同边界拒绝。
     const absent = cfg.budget_usd === undefined
     const limit = absent ? parseUsdMicros('0.5') : readCostLimit(cfg)
