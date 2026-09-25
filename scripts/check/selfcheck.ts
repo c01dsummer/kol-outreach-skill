@@ -4052,6 +4052,98 @@ group('task-list', [], () => {
   }
 })
 
+group('resume-progress', [], () => {
+  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
+  const invalid: [string, Record<string, unknown>, string[], [string, string, string]?][] = [
+    ['done-null', { done: null }, ['done']],
+    ['done-repeat', { done: [0, 0] }, ['done']],
+    ['offsets-array', { offsets: [0] }, ['offsets']],
+    ['answered-value', { answered: { 0: -1 } }, ['answered']],
+    ['found-value', { found: { 0: '3' } }, ['found']],
+    ['pages-key', { pages: { '01': 2 } }, ['pages']],
+    // 原始 token 必须参与判定：JSON.parse 会把小数舍入、指数下溢或溢出。
+    ['done-rounded', { tasks: [
+      { keyword: 'local', dimension: 'category', platform: 'tiktok' },
+      { keyword: 'other', dimension: 'category', platform: 'tiktok' },
+    ], done: [0] }, ['done'],
+      ['"done":[0]', '"done":[0.99999999999999999]', '0.99999999999999999']],
+    ['pages-underflow', { done: [], pages: { 0: 1 } }, ['pages'],
+      ['"pages":{"0":1}', '"pages":{"0":1e-325}', '1e-325']],
+    ['pages-overflow', { done: [], pages: { 0: 1 } }, ['pages'],
+      ['"pages":{"0":1}', '"pages":{"0":1e400}', '1e400']],
+    ['all', { done: [0, 0], offsets: { '01': -1 }, answered: { 0: -1 },
+      found: { 0: 'unknown' }, pages: { 9: 1 } }, ['done', 'offsets', 'answered', 'found', 'pages']],
+  ]
+  let checked = 0
+  for (const change of [false, true]) for (const [id, over, fields, rawEdit] of invalid) {
+    const f = costFixture(`bad-progress-${id}-${change}`, knownCosts(1_000_000, []),
+      { budget_usd: 1, ...over })
+    if (rawEdit) {
+      const text = fileText(f.task)
+      if (!text.includes(rawEdit[0])) {
+        failed++
+        console.error(`  ✗ 恢复进度原始 token 测试输入${SELFCHECK_FIXTURE_MARK}：${id}/${change}`)
+        continue
+      }
+      writeFileSync(f.task, text.replace(rawEdit[0], rawEdit[1]))
+    }
+    const before = fileText(f.task)
+    const reserves = join(f.cwd, 'reserves.txt'), armed = join(f.cwd, 'armed.txt')
+    const preload = join(f.cwd, 'observe-reserve.mjs')
+    writeFileSync(reserves, '')
+    writeFileSync(preload, [
+      `import { appendFileSync } from 'node:fs';`,
+      `import { Budget } from ${JSON.stringify(budgetModule)};`,
+      `const original = Budget.prototype.reserve;`,
+      `Budget.prototype.reserve = function(...args) {`,
+      `  appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n');`,
+      `  return Reflect.apply(original, this, args);`,
+      `};`,
+      `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
+    ].join('\n'))
+    const r = runBoth(`恢复坏进度 ${id}/${change}`, [S('collect.ts'), '--resume', f.taskDir,
+      ...(change ? ['--budget', '2'] : [])], f.cwd,
+      { status: 2, soft: [0, 1, 3] }, costEnv(f.log, {
+        NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      }))
+    if (!r.ok || !fetchAttempts(armed).includes('armed')) {
+      failed++
+      console.error(`  ✗ 恢复进度观测${SELFCHECK_FIXTURE_MARK}：预算预留观测未安装，${id}/${change}`)
+      continue
+    }
+    const detail = `${id}/${change}: exit=${r.status}, stderr=${stderrTail(r.stderr)}, `
+      + `fileSame=${fileText(f.task) === before}, attempts=${fetchAttempts(f.log).length}, `
+      + `reserves=${fetchAttempts(reserves).length}`
+    named('恢复进度：坏输入在改额、预留与请求前退出2并保持 task.json 原字节',
+      r.status === 2 && fileText(f.task) === before && fetchAttempts(f.log).length === 0
+        && fetchAttempts(reserves).length === 0 && jsonFile(f.task)?.cost_ledger?.pending === undefined,
+      detail)
+    named('恢复进度：错误点名 task.json 路径与所有坏字段',
+      r.status === 2 && r.stderr.includes(f.task) && fields.every(field => r.stderr.includes(field)), detail)
+    if (rawEdit) named('恢复进度：原始小数及指数 token 不经舍入放行且诊断显示原文',
+      r.status === 2 && r.stderr.includes(rawEdit[2]), detail)
+    checked++
+  }
+  if (checked === invalid.length * 2) criterion('D19.e', 'D19.f')
+
+  const good = costFixture('good-progress-legacy', knownCosts(1_000_000, []),
+    { budget_usd: 1, done: [0], offsets: undefined, answered: undefined,
+      found: undefined, pages: undefined })
+  const original = jsonFile(good.task)
+  for (const field of ['offsets', 'answered', 'found', 'pages']) delete original[field]
+  writeFileSync(good.task, JSON.stringify(original))
+  const r = runBoth('恢复进度：旧目录缺四张整表仍可续跑', [S('collect.ts'), '--resume', good.taskDir],
+    good.cwd, { status: 0, soft: [1, 2, 3] }, costEnv(good.log))
+  if (r.ok) {
+    named('恢复进度：旧目录缺表照常收尾且不回填四张表',
+      r.status === 0 && ['offsets', 'answered', 'found', 'pages']
+        .every(field => !Object.hasOwn(jsonFile(good.task), field)),
+      `exit=${r.status}, stderr=${stderrTail(r.stderr)}`)
+    criterion('D19.d')
+  }
+})
+
 // ---- D15.j／D15.k／D6.w：IG 话题入口只由配置显式开启，校验在一切请求之前，probe 与 collect 同一处分派 ----
 group('hashtag-route', [], () => {
   // **只能端到端跑**：「退出码 2、零请求、不建目录」「续跑也校验」「probe 与 collect 走同一条路线」

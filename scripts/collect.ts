@@ -18,7 +18,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetInputError, startBudget, type PersistCost } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
-import { readCostDocument, readCostLimit, stringifyCostJson } from './lib/cost-json.js'
+import { readCostDocument, readCostLimit, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
 import {
   MAX_PAGES, canRequestPage, finalize, firstPagePending, igAfterPage, mergePage, needsProfile,
   pagesFetched, pendingKeywords, resumeCostLine, underPageCap,
@@ -34,6 +34,7 @@ import { creatorKey, textProblem } from './lib/types.js'
 import { igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { configFieldProblems } from './lib/config-input.js'
+import { resumeProgressProblems } from './lib/resume-progress.js'
 import type { Creator, TaskState } from './lib/types.js'
 
 /**
@@ -91,6 +92,16 @@ const taskProblems = [...badFields, ...badTasks, ...badRoutes]
 if (taskProblems.length) {
   console.error(`${productFrom} 里的任务配置不合规：\n  ${taskProblems.join('\n  ')}`)
   process.exit(2)
+}
+
+// 恢复任务的进度只在任务列表有效后才能按索引解释；在首次读取 done、改额和保存前拒绝坏输入。
+if (resume) {
+  const progressProblems = resumeProgressProblems(state, state.tasks.length,
+    (holder, key) => sourceNumberToken(state, holder, key))
+  if (progressProblems.length) {
+    console.error(`${productFrom} 里的续跑进度不合规：\n  ${progressProblems.join('\n  ')}`)
+    process.exit(2)
+  }
 }
 
 const badProduct = textProblem(state.product)

@@ -10,6 +10,9 @@ type ExactJSON = {
 }
 const exactJSON = JSON as unknown as ExactJSON
 const roots = new WeakMap<object, { value: unknown; token: string }>()
+// 进度字段必须按原始 JSON 数字判定；Number 可能把小数舍入为整数或让指数下溢为 0。
+// 按解析根对象关联原 token，不往业务状态写入任何辅助字段。
+const sourceTokens = new WeakMap<object, WeakMap<object, Map<string, string>>>()
 // 无法解释为非负安全整数的费用数字保留原件；对象形态不能误过费用账的 number 校验。
 const unavailableNumbers = new WeakMap<object, string>()
 
@@ -33,6 +36,7 @@ export function readCostDocument<T extends object = CostState>(text: string): T 
   })
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new CostError('invalid-money', '任务或配置必须是 JSON 对象')
+  sourceTokens.set(parsed, tokens)
   const state = parsed as Record<string, unknown>
   const rootToken = tokens.get(parsed)?.get('budget_usd')
   if (rootToken !== undefined) roots.set(parsed, { value: state.budget_usd, token: rootToken })
@@ -58,6 +62,10 @@ export function readCostDocument<T extends object = CostState>(text: string): T 
   if (state.budget_usd !== null && typeof state.budget_usd === 'object')
     preserveCostNumbers(state, 'budget_usd')
   return parsed as T
+}
+
+export function sourceNumberToken(root: object, holder: object, key: string): string | undefined {
+  return sourceTokens.get(root)?.get(holder)?.get(key)
 }
 
 export function readCostLimit(state: CostState): MicroUsd {
