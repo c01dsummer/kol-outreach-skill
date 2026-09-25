@@ -42,7 +42,7 @@ import {
   type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
   groupOfLabel, labelFaults, labelsOf,
-  anchorMatches, wiringFault,
+  anchorMatches, baselineFault, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import {
@@ -369,7 +369,8 @@ const forgetVerifier = (): void => {
   onInterrupt()
 }
 
-const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly string[]):
+const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly string[], cwd?: string,
+  baselineLive?: Set<ChildProcess>):
   Promise<{ status: number | null; output: string; atStop?: string }> =>
   new Promise(resolve => {
     // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
@@ -379,8 +380,12 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     const [exe, argv] = tsxCommand(
       only === undefined ? [verifier.script] : [verifier.script, `--only=${only.join(',')}`])
     const kid = spawn(exe, argv,
-      { stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1', NODE_COMPILE_CACHE } })
-    trackTest(kid)
+      { cwd, stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1', NODE_COMPILE_CACHE } })
+    if (baselineLive === undefined) trackTest(kid)
+    else {
+      baselineLive.add(kid)
+      kid.on('close', () => baselineLive.delete(kid))
+    }
     let out = ''
     let err = ''
     /** 我们动手那一刻它说过的话。**没动手就是 undefined** —— 判定据此分岔 */
@@ -388,7 +393,11 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     // 见齐了就把整组停掉。**杀的是进程组**（负的 pid）：`tsx` 底下还有一个真正跑脚本的
     // 进程，只杀手上这一个杀不掉，剩下那个会一直跑到自己结束 —— 那样「省下的时间」就没了
     const stopIfSeen = (): void => {
-      if (atStop !== undefined || kills === undefined) return
+      // 需求测试的选跑组含有 finally 清理临时目录。见齐即杀会跳过 finally，
+      // 后续变异便可能读到上一条留下的文件；让这类短子集自行完成并照常核对具名失败。
+      // 自检和未归组的旧路径仍可见齐即停。
+      if (atStop !== undefined || kills === undefined ||
+          (only !== undefined && verifier === VERIFIERS.test)) return
       // **两股各自截**：合起来再截会把两者之间那个人为插入的换行当成行尾，于是先到的
       // 那一股的半行被当成整行 —— 名字写到一半就算数，后缀还没到就把人杀了（#99 评审指出）
       const whole = complete(out) + complete(err)
@@ -716,6 +725,73 @@ if (jobs === undefined) {
   console.error('  按机器核数跑请把它去掉，不要写一个读不出来的值。')
   process.exit(1)
 }
+// 同一组选跑配置只做一次正常代码基线。用与变异 worker 相同的复制规则建隔离目录，
+// 在任何一条变异落盘之前跑完；子集及其 needs 由验证者本身解析并执行。
+const subsets = new Map<string, { by: string; only: string[]; count: number }>()
+let fullWithoutKills = 0
+let fullUngrouped = 0
+for (const m of muts) {
+  const only = onlyFor(m)
+  if (only === undefined) {
+    if (m.by === undefined || m.kills === undefined) fullWithoutKills++
+    else fullUngrouped++
+    continue
+  }
+  const by = m.by!
+  const selected = [...only].sort()
+  const key = JSON.stringify([by, selected])
+  const previous = subsets.get(key)
+  if (previous === undefined) subsets.set(key, { by, only: selected, count: 1 })
+  else previous.count++
+}
+if (subsets.size) {
+  const configs = [...subsets.values()]
+  const baselineJobs = Math.min(jobs, configs.length)
+  const dirs = Array.from({ length: baselineJobs }, (_unused, i) => join(JOBS_DIR, `baseline-${i}`))
+  let next = 0
+  const faults: string[] = []
+  const baselineLive = new Set<ChildProcess>()
+  const stopBaseline = (): never => {
+    for (const kid of baselineLive) {
+      if (kid.pid !== undefined) try { process.kill(-kid.pid, 'SIGKILL') } catch { /* 已结束 */ }
+    }
+    rmSync(JOBS_DIR, { recursive: true, force: true })
+    process.exit(1)
+  }
+  for (const sig of INTERRUPTS) process.on(sig, stopBaseline)
+  rmSync(JOBS_DIR, { recursive: true, force: true })
+  try {
+    for (const dir of dirs) {
+      cpSync('.', dir, { recursive: true, filter: copyIntoWorker })
+      symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
+    }
+    await Promise.all(dirs.map(async dir => {
+      while (next < configs.length) {
+        const config = configs[next++]
+        const verifier = VERIFIERS[config.by]
+        const ran = await runTest(verifier, undefined, config.only, dir, baselineLive)
+        const fault = baselineFault(ran.status, ran.output, verifier)
+        if (fault !== undefined) {
+          faults.push(`${config.by} --only=${config.only.join(',')}（${fault}）\n`
+            + ran.output.split('\n').slice(-20).join('\n'))
+          continue
+        }
+        console.log(`  ✓ 子集基线 ${config.by} --only=${config.only.join(',')}（供 ${config.count} 条变异使用）`)
+      }
+    }))
+  } finally {
+    for (const sig of INTERRUPTS) process.off(sig, stopBaseline)
+    rmSync(JOBS_DIR, { recursive: true, force: true })
+  }
+  if (faults.length) {
+    for (const fault of faults) console.error(`\n✗ 子集基线：${fault}`)
+    console.error(`\n✗ 变异测试：${faults.length} 种子集未通过正常代码基线，未施加任何变异`)
+    process.exit(1)
+  }
+}
+const selectedCount = [...subsets.values()].reduce((n, s) => n + s.count, 0)
+console.log(`  子集选跑 ${selectedCount} 条、${subsets.size} 种配置；整跑 ${fullWithoutKills + fullUngrouped} 条`
+  + `（${fullWithoutKills} 条未点名断言，${fullUngrouped} 条断言尚未归组）`)
 // 只有一条路走串行：清单只剩一条、机器只有一个核、或者人明确要求。那条路逐字保持原样，
 // 派工那一侧一个进程都不起 —— 自检里那几份最小语料走的正是它
 if (jobs === 1) for (const m of muts) record(m, await runOne(m))

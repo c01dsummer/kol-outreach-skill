@@ -4805,6 +4805,69 @@ group('exempt-lead', [], () => {
   }
 })
 
+// ---- 子集基线：先验正常代码，同一配置只验一次，未通过就不能施加变异 ----
+group('mutation-baseline', [], () => {
+  const seed = (name: string, badBaseline: boolean) => {
+    const dir = join(tmp, name)
+    const marker = join(tmp, `${name}.calls`)
+    mkdirSync(join(dir, 'scripts', 'check'), { recursive: true })
+    mkdirSync(join(dir, 'docs'), { recursive: true })
+    writeFileSync(join(dir, 'docs', 'requirements.json'),
+      JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }))
+    const source = "export const a = 'keepA'\nexport const b = 'keepB'\n"
+    const target = join(dir, 'scripts', 'check', 'a.ts')
+    writeFileSync(target, source)
+    // marker 在被复制的目录之外：正常基线和后续变异各跑一次，都写进同一份记录。
+    // 假验证者仍用真实的 group/eq 调用形状，清册才能把点名断言归进 only 组。
+    writeFileSync(join(dir, 'scripts', 'test.ts'), [
+      "import { appendFileSync, readFileSync } from 'node:fs'",
+      "const source = readFileSync('scripts/check/a.ts', 'utf8')",
+      "const changed = !source.includes('keepA') || !source.includes('keepB')",
+      `appendFileSync(${JSON.stringify(marker)}, changed ? 'mutant\\n' : 'baseline\\n')`,
+      "const eq = (label: string, cond: boolean) => {",
+      "  if (!cond) { console.log('  ✗ ' + label); process.exitCode = 1 }",
+      '}',
+      'const group = (_id: string, _needs: string[], fn: () => void) => fn()',
+      "if (!process.argv.includes('--only=only')) throw new Error('没有按 only 组选跑')",
+      `group('only', [], () => { eq('甲', ${badBaseline ? 'false' : '!changed'}) })`,
+      "if (process.exitCode === 1) console.log('\\n1 个失败\\n')",
+      "else console.log('\\n全部通过（执行 1 条断言；覆盖 0 条需求）\\n')",
+      '',
+    ].join('\n'))
+    const mutations = [
+      { id: 'M-X-a', req: 'X1.a', why: '正常值被改坏，断言必须失败', file: 'scripts/check/a.ts',
+        find: 'keepA', replace: 'goneA', by: 'test', kills: ['甲'] },
+      { id: 'M-X-b', req: 'X1.a', why: '另一个正常值被改坏，断言必须失败', file: 'scripts/check/a.ts',
+        find: 'keepB', replace: 'goneB', by: 'test', kills: ['甲'] },
+    ]
+    writeFileSync(join(dir, 'scripts', 'check', 'mutations.json'),
+      JSON.stringify({ mutations: badBaseline ? mutations.slice(0, 1) : mutations }))
+    return { dir, marker, target, source }
+  }
+
+  const good = seed('mutation-baseline-once', false)
+  const ran = runToolBoth('mutate 同配置基线一次，随后两条变异各运行一次',
+    'mutate', ['--jobs=1'], good.dir)
+  if (ran.ok) {
+    const calls = fileText(good.marker).split('\n').filter(Boolean)
+    named('mutate 同配置只验一次正常代码，且先于两条变异',
+      JSON.stringify(calls) === JSON.stringify(['baseline', 'mutant', 'mutant']),
+      `实际调用顺序是 ${JSON.stringify(calls)}`)
+    named('mutate 基线之后两条变异都被具名断言抓到',
+      /2 个变异全部被抓到/.test(ran.stdout), ran.stdout)
+  }
+
+  const bad = seed('mutation-baseline-reject', true)
+  const denied = runToolBoth('mutate 正常代码的子集已失败，不施加任何变异',
+    'mutate', ['--jobs=1'], bad.dir, { status: 1 })
+  if (denied.ok) {
+    named('mutate 拒绝失败基线且目标文件仍是原文',
+      denied.stderr.includes('子集基线') && denied.stderr.includes('未施加任何变异')
+        && fileText(bad.marker) === 'baseline\n' && fileText(bad.target) === bad.source,
+      `输出=${denied.stderr}，调用=${JSON.stringify(fileText(bad.marker))}，目标=${JSON.stringify(fileText(bad.target))}`)
+  }
+})
+
 // ---- 派工那条路：真起 worker，真在隔离目录里跑 ----
 group('jobs', [], () => {
   // **上面那些 mutate 夹具没有一处走到派工。** 那几道体检在派几个之前就退出了，`--brief`
