@@ -67,6 +67,7 @@ import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { formatDiscoverySources, mergeDiscoverySources } from './lib/discovery.js'
 import { hashtagKeyword, igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
+import { configFieldProblems, type ConfigInputRole } from './lib/config-input.js'
 import {
   INSTAGRAM_HASHTAG_ENDPOINT, TikHub, TikHubError, fillEmail, isInstagramVideo, parseInstagramHashtagPage, pickList,
 } from './providers/tikhub.js'
@@ -4467,6 +4468,164 @@ suite('D16', '任务列表按必填字段校验')
     [true, [false, true, true, true, true, true, true, false], []])
   eq('任务列表校验：本组每一次调用前后，传入的值连键带值都没变', rewritten, [])
   criterion('D16.i')
+}
+
+suite('D17', '市场与目标人数按原始字段和输入角色校验')
+{
+  // 独立上下文先于实现编写；依据 D17.a–g 与公开签名，不读入口或判定实现。
+  type Raw = Readonly<{ market?: unknown; target_count?: unknown }>
+  type Result = string[] | { threw: string }
+  const roles: ConfigInputRole[] = ['new', 'resume', 'probe']
+  // JSON.stringify 会吞掉 undefined、混淆 NaN/null，故逐个自有键拍照后用深比较。
+  const snapshot = (value: unknown): unknown => value !== null && typeof value === 'object'
+    ? [Object.getPrototypeOf(value), Reflect.ownKeys(value).map(key => {
+      const d = Object.getOwnPropertyDescriptor(value, key)!
+      return [key, d.enumerable, d.configurable, d.writable, snapshot(d.value)]
+    })] : value
+  const rewritten: string[] = []
+  const problems = (raw: Raw, role: ConfigInputRole): Result => {
+    const before = snapshot(raw)
+    let result: Result
+    try { result = configFieldProblems(raw, role) }
+    catch (error) { result = { threw: error instanceof Error ? error.message : String(error) } }
+    if (!isDeepStrictEqual(snapshot(raw), before)) rewritten.push(role)
+    return result
+  }
+  const one = (got: Result, field: string): got is string[] =>
+    Array.isArray(got) && got.length === 1 && typeof got[0] === 'string' && got[0].includes(field)
+  const both = (got: Result): boolean => Array.isArray(got) && got.length === 2
+    && new Set(got).size === 2 && ['market', 'target_count'].every(f => got.some(s => s.includes(f)))
+  const rejected: [string, unknown][] = [
+    ['undefined', undefined], ['null', null], ['true', true], ['false', false],
+    ['空数组', []], ['数组', ['bad-value']], ['空对象', {}], ['对象', { bad_value: 31 }],
+    ['bigint', 71n], ['symbol', Symbol('bad-value')], ['function', () => 71],
+  ]
+  const badMarkets = [...rejected, ['0', 0], ['数字', 71], ['NaN', NaN], ['Infinity', Infinity],
+    ['-Infinity', -Infinity], ['空串', ''], ['空格', ' '], ['tab', '\t'], ['换行', '\r\n'], ['全角空格', '　']] as const
+  const marketFailures = roles.flatMap(role => badMarkets.flatMap(([name, value]) => {
+    const got = problems({ market: value, target_count: 50 }, role)
+    return one(got, 'market') ? [] : [`${role}/${name}`]
+  }))
+  eq('配置字段校验：三个角色均逐类拒绝非字符串与空白 market，返回字段问题而不抛出', marketFailures, [])
+  criterion('D17.a')
+
+  // 1e400 是合法 JSON 数字文本，解析后非有限；不能拿 stringify(Infinity) 生成这个反例。
+  const overflow: unknown = JSON.parse('1e400')
+  const badCounts = [...rejected, ['空串', ''], ['数字字符串', '50'], ['空白数字字符串', ' 50 '],
+    ['NaN', NaN], ['Infinity', Infinity], ['-Infinity', -Infinity], ['JSON溢出数', overflow]] as const
+  eq('配置字段校验：新建与续跑逐类拒绝非数值和非有限 target_count，不转换数字字符串',
+    (['new', 'resume'] as const).flatMap(role => badCounts.flatMap(([name, value]) =>
+      one(problems({ market: 'US', target_count: value }, role), 'target_count') ? [] : [`${role}/${name}`])), [])
+  criterion('D17.b')
+
+  const missing = [
+    ['market', { target_count: 50 }], ['target_count', { market: 'US' }],
+  ] as const
+  eq('配置字段校验：续跑分别缺市场或人数时，逐个报告缺席字段',
+    missing.filter(([field, raw]) => !one(problems(raw, 'resume'), field)).map(([field]) => field), [])
+  ok('配置字段校验：续跑两个字段都缺席时返回两处不同的问题', both(problems({}, 'resume')))
+  const inherited: Raw = Object.create({ market: 'US', target_count: 50 })
+  eq('配置字段校验：原型上的合规字段不算自有字段，续跑仍报两处缺席', both(problems(inherited, 'resume')), true)
+  const inheritedBad: Raw = Object.create({ market: null, target_count: '50' })
+  eq('配置字段校验：原型上的坏字段也算缺席，新建与 probe 不报错',
+    [problems(inheritedBad, 'new'), problems(inheritedBad, 'probe')], [[], []])
+  criterion('D17.c')
+
+  // 只要求字段与原值可辨识，不锁整句措辞、诊断顺序或内部的序列化办法。
+  const rawValues: [string, unknown, string[]][] = [
+    ['null', null, ['null']], ['undefined', undefined, ['undefined']],
+    ['true', true, ['true']], ['false', false, ['false']],
+    ['数组', ['unique-invalid-item'], ['unique-invalid-item']],
+    ['对象', { unique_invalid_key: 391 }, ['unique_invalid_key', '391']],
+  ]
+  eq('配置字段校验：每个字段问题都带出实际坏值，不能只重复规则',
+    (['market', 'target_count'] as const).flatMap(field => rawValues.flatMap(([name, value, tokens]) => {
+      const got = problems({ market: 'US', target_count: 50, [field]: value }, 'new')
+      return one(got, field) && tokens.every(token => got[0].includes(token)) ? [] : [`${field}/${name}`]
+    })), [])
+  eq('配置字段校验：错误人数带出原始数字字符串，错误市场带出原始数值',
+    [['target_count', '0050.00'], ['market', 731]].flatMap(([field, value]) => {
+      const got = problems({ market: 'US', target_count: 50, [field as string]: value }, 'new')
+      return one(got, String(field)) && got[0].includes(String(value)) ? [] : [field]
+    }), [])
+  const states = [
+    { market: 'US' }, { market: 'US', target_count: undefined }, { market: 'US', target_count: null },
+    { market: 'US', target_count: '缺席' }, { market: 'US', target_count: NaN },
+    { market: 'US', target_count: Infinity }, { market: 'US', target_count: -Infinity },
+  ].map(raw => problems(raw, 'resume'))
+  eq('配置字段校验：人数缺席、undefined、null、字符串缺席及三种非有限数逐一可区分',
+    [states.every(got => one(got, 'target_count')), new Set(states.map(got => JSON.stringify(got))).size], [true, 7])
+  const marketStates = [{ target_count: 50 }, { market: undefined, target_count: 50 }, { market: null, target_count: 50 }]
+    .map(raw => problems(raw, 'resume'))
+  eq('配置字段校验：市场缺席、undefined 与 null 逐一可区分',
+    [marketStates.every(got => one(got, 'market')), new Set(marketStates.map(got => JSON.stringify(got))).size], [true, 3])
+  const blankMessages = ['', ' ', '\t', '\n', '　'].map(market => problems({ market, target_count: 50 }, 'new'))
+  eq('配置字段校验：市场空串与不同空白原值的诊断可区分，不把原值先修剪掉',
+    new Set(blankMessages.map(got => JSON.stringify(got))).size, 5)
+  const dualBad = problems({ market: 731, target_count: 'invalid-count-83' }, 'new')
+  ok('配置字段校验：同一输入两处坏值全部返回，各自指向字段和自己的原值',
+    both(dualBad) && Array.isArray(dualBad)
+      && dualBad.some(s => s.includes('market') && s.includes('731'))
+      && dualBad.some(s => s.includes('target_count') && s.includes('invalid-count-83')))
+  // 坏容器中的原值也不能被 JSON 序列化抹平；溢出数仍从原始 JSON 文本生成。
+  const nestedCases: [Raw, string, string][] = [
+    [JSON.parse('{"market":[1e400],"target_count":{"n":-1e400}}'), 'Infinity', '-Infinity'],
+    [{ market: ['Infinity'], target_count: { n: '-Infinity' } }, 'Infinity', '-Infinity'],
+    [{ market: [null], target_count: { n: null } }, 'null', 'null'],
+  ]
+  const nestedResults = nestedCases.map(([raw]) => problems(raw, 'new'))
+  eq('配置字段校验：嵌套非有限数、同名字符串与 null 全部报告，且写出各字段的容器与原值',
+    nestedResults.map((got, i) => both(got) && Array.isArray(got)
+      && got.some(s => s.includes('market') && s.includes('[') && s.includes(']') && s.includes(nestedCases[i][1]))
+      && got.some(s => s.includes('target_count') && s.includes('{') && s.includes('}') && /\bn\b/.test(s)
+        && s.includes(nestedCases[i][2]))), [true, true, true])
+  eq('配置字段校验：同一字段嵌套的非有限数、同名字符串与真 null 三种诊断互不相同',
+    ['market', 'target_count'].map(field => new Set(nestedResults.map(got =>
+      Array.isArray(got) ? got.find(s => s.includes(field)) : undefined)).size), [3, 3])
+  eq('配置字段校验：数组与对象中嵌套 BigInt 仍返回全部字段问题，不因诊断序列化而抛出',
+    (['new', 'resume'] as const).flatMap(role => [
+      both(problems({ market: [71n], target_count: { n: 83n } }, role)),
+      both(problems({ market: { n: 71n }, target_count: [83n] }, role)),
+    ]), [true, true, true, true])
+  criterion('D17.d')
+
+  // D17 没有限制国家编码、整数、正数或最大人数；正例故意跨这些常见误加边界。
+  const markets = ['US', 'uS', ' zz-not-a-country ', '　全球🌍 ', '缺席', 'undefined']
+  const counts = [0, -0, -7, 0.25, -2.75, Number.MIN_VALUE, Number.MAX_VALUE, -Number.MAX_VALUE]
+  eq('配置字段校验：非标准市场与所有有限人数边界在三个角色均合规，保留原始大小写和空白',
+    roles.flatMap(role => markets.flatMap(market => counts.flatMap(target_count => {
+      const got = problems({ market, target_count }, role)
+      return Array.isArray(got) && got.length === 0 ? [] : [`${role}/${market}/${target_count}`]
+    }))), [])
+  const extra = { nested: [undefined, null, NaN, Infinity, -0, { untouched: ' 留下 ' }] }
+  Object.freeze(extra.nested[5]); Object.freeze(extra.nested); Object.freeze(extra)
+  const frozenGood = Object.freeze({ market: ' uS ', target_count: -0.25, extra })
+  const frozenBad = Object.freeze({ market: null, target_count: '50', extra })
+  eq('配置字段校验：深冻结的合法对象照常通过，额外字段原样不动',
+    roles.map(role => problems(frozenGood, role)), [[], [], []])
+  eq('配置字段校验：深冻结的坏对象照常返回全部问题，不因尝试改写而抛出',
+    [both(problems(frozenBad, 'new')), both(problems(frozenBad, 'resume')), one(problems(frozenBad, 'probe'), 'market')],
+    [true, true, true])
+
+  eq('配置字段校验：probe 忽略任何 target_count，包括每种坏类型与非有限数',
+    badCounts.flatMap(([name, target_count]) => {
+      const good = problems({ market: 'US', target_count }, 'probe')
+      const bad = problems({ market: null, target_count }, 'probe')
+      return Array.isArray(good) && good.length === 0 && one(bad, 'market') ? [] : [name]
+    }), [])
+  criterion('D17.f')
+  eq('配置字段校验：新建与 probe 允许缺市场，新建也允许缺人数，判定不填缺省',
+    [problems({}, 'new'), problems({}, 'probe'), problems({ target_count: 0 }, 'new'),
+      problems({ target_count: 'unused' }, 'probe'), problems({ market: 'US' }, 'new')], [[], [], [], [], []])
+  eq('配置字段校验：允许缺席不等于允许自有 undefined，新建与 probe 仍报告使用字段的问题',
+    [both(problems({ market: undefined, target_count: undefined }, 'new')),
+      one(problems({ market: undefined, target_count: undefined }, 'probe'), 'market')], [true, true])
+  criterion('D17.g')
+  eq('配置字段校验：本组每次调用前后，自有键、属性、原值及其他字段全部不变', rewritten, [])
+  criterion('D17.e')
+  // 本次只认领判定函数不补值：续跑缺席和显式非法仍报错，新输入缺席通过但不写默认值。
+  // 入口是否先补值再调用不在本组证据范围，入口接线与对应反例另行实现。
+  tension('D17', 'P1')
 }
 
 suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」')
