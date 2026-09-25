@@ -9,7 +9,9 @@
       "find": "discovery_sources: [{ platform: 'tiktok', handle, keyword: task.keyword,\n          dimension: task.dimension, endpoint: TIKTOK_SEARCH_ENDPOINT }],",
       "replace": "discovery_sources: undefined,",
       "by": "selfcheck",
-      "kills": ["probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"]
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
     },
     {
       "id": "M-D15-b",
@@ -19,7 +21,9 @@
       "find": "dimension: task.dimension, endpoint: INSTAGRAM_USERS_ENDPOINT }],",
       "replace": "dimension: task.dimension, endpoint: INSTAGRAM_REELS_ENDPOINT }],",
       "by": "selfcheck",
-      "kills": ["三路来源进入raw，空Reels后的账号只有users来源"]
+      "kills": [
+        "三路来源进入raw，空Reels后的账号只有users来源"
+      ]
     },
     {
       "id": "M-D15-c",
@@ -53,7 +57,9 @@
       "find": "seen.discovery_sources = mergeDiscoverySources(seen.discovery_sources, p.discovery_sources)",
       "replace": "seen.discovery_sources = mergeDiscoverySources(seen.discovery_sources)",
       "by": "selfcheck",
-      "kills": ["三路来源进入raw，空Reels后的账号只有users来源"]
+      "kills": [
+        "三路来源进入raw，空Reels后的账号只有users来源"
+      ]
     },
     {
       "id": "M-D15-g",
@@ -63,7 +69,9 @@
       "find": "discovery_sources: c.discovery_sources,",
       "replace": "discovery_sources: undefined,",
       "by": "selfcheck",
-      "kills": ["probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"]
+      "kills": [
+        "probe 原样保留三路账号的五字段实际来源，hashtag配置不改端点"
+      ]
     },
     {
       "id": "M-D15-h",
@@ -4793,8 +4801,8 @@
       ],
       "why": "collect 不校验路线 —— 配置写错的任务照常建目录、开预算、发请求，运营以为开了话题搜索，钱花在别的路线上",
       "file": "scripts/collect.ts",
-      "find": "if (badRoutes.length) {\n  console.error(`${productFrom} 里的 ig_route 不合规",
-      "replace": "if (false) {\n  console.error(`${productFrom} 里的 ig_route 不合规"
+      "find": "const badRoutes = igRouteProblems(state.tasks)",
+      "replace": "const badRoutes: string[] = []"
     },
     {
       "id": "M-D15-v",
@@ -4806,8 +4814,8 @@
       ],
       "why": "probe 不校验路线 —— 试探时照走 Reels 并付费，试探结论说的不是配置里写的那条路",
       "file": "scripts/probe.ts",
-      "find": "    if (badRoutes.length) throw new Error(`ig_route 不合规：",
-      "replace": "    if (false) throw new Error(`ig_route 不合规："
+      "find": "    const badRoutes = igRouteProblems(cfg.tasks)",
+      "replace": "    const badRoutes: string[] = []"
     },
     {
       "id": "M-D6-bf",
@@ -5392,6 +5400,134 @@
       "why": "中文路径转义那一项又被注掉 —— 不走 -z 的调用把中文路径转义成八进制串，分类判据匹配不上，整批掉进「其他」",
       "find": "  '-c', 'core.quotePath=false',",
       "replace": "  // '-c', 'core.quotePath=false',"
+    },
+    {
+      "id": "M-D16-x",
+      "req": "D16.j",
+      "why": "collect 未接任务列表校验：新建、续跑和改额续跑把坏任务带到落盘或搜索，不能在付费前整份拒绝",
+      "file": "scripts/collect.ts",
+      "find": "const badTasks = taskListProblems(state.tasks)",
+      "replace": "const badTasks: string[] = []",
+      "by": "selfcheck",
+      "kills": [
+        "任务列表：collect 新建拒绝整份坏输入，退出2、零请求、不建任务目录",
+        "任务列表：collect 续跑校验整表，退出2、零请求、不留预留",
+        "任务列表：collect 改额续跑校验整表，退出2、零请求、不留预留"
+      ]
+    },
+    {
+      "id": "M-D16-y",
+      "req": "D16.l",
+      "why": "probe 未接任务列表校验：缺字段的任务仍可能发出搜索，坏列表到遍历时才崩溃",
+      "file": "scripts/probe.ts",
+      "find": "    const badTasks = taskListProblems(cfg.tasks)",
+      "replace": "    const badTasks: string[] = []",
+      "by": "selfcheck",
+      "kills": [
+        "任务列表：probe 拒绝整份坏输入，退出2、零请求"
+      ]
+    },
+    {
+      "id": "M-D16-z",
+      "req": "D16.k",
+      "why": "collect 只报第一处任务问题，其余字段与路线问题被吞，运营无法一次定位整份配置",
+      "file": "scripts/collect.ts",
+      "find": "taskProblems.join('\\n  ')",
+      "replace": "taskProblems.slice(0, 1).join('\\n  ')",
+      "by": "selfcheck",
+      "kills": [
+        "任务列表：collect 新建报文件及全部原值问题，路线问题一并报",
+        "任务列表：collect 续跑报 task.json 及全部原值问题，路线问题一并报",
+        "任务列表：collect 改额续跑报 task.json 及全部原值问题，路线问题一并报"
+      ]
+    },
+    {
+      "id": "M-D16-aa",
+      "req": "D16.m",
+      "why": "probe 只报第一处任务问题，同一任务的其他坏字段与其他任务的路线问题被吞",
+      "file": "scripts/probe.ts",
+      "find": "taskProblems.join('；')",
+      "replace": "taskProblems.slice(0, 1).join('；')",
+      "by": "selfcheck",
+      "kills": [
+        "任务列表：probe 报全部原值问题，路线问题一并报"
+      ]
+    },
+    {
+      "id": "M-D16-ab",
+      "req": "D16.j",
+      "why": "collect 在拒绝坏任务前先把新预算写入续跑文件，虽无请求仍破坏原任务文件",
+      "file": "scripts/collect.ts",
+      "find": "if (taskProblems.length) {",
+      "replace": "if (taskProblems.length) {\n  if (resume && replacementLimit !== undefined) { new Budget(state).setLimit(replacementLimit); saveTask(resume, state) }",
+      "by": "selfcheck",
+      "kills": [
+        "任务列表：collect 改额续跑拒绝时 task.json 逐字不变，新上限不落盘"
+      ]
+    },
+    {
+      "id": "M-D16-ac",
+      "req": "D16.k",
+      "why": "collect 在任务校验之前打印续跑进度，缺失任务列表先引起异常，报告不再指出文件与缺席字段",
+      "file": "scripts/collect.ts",
+      "find": "const badTasks = taskListProblems(state.tasks)",
+      "replace": "if (resume) console.error(`已完成 ${state.done.length}/${state.tasks.length}`)\nconst badTasks = taskListProblems(state.tasks)",
+      "by": "selfcheck",
+      "kills": [
+        "任务列表：collect 续跑报 task.json 及全部原值问题，路线问题一并报",
+        "任务列表：collect 改额续跑报 task.json 及全部原值问题，路线问题一并报"
+      ]
+    },
+    {
+      "id": "M-D16-ad",
+      "req": "P1",
+      "why": "入口先补缺席平台与维度再校验：任务缺字段被隐藏，路线推断与默认值冒充用户原配置",
+      "file": "scripts/collect.ts",
+      "find": "const badTasks = taskListProblems(state.tasks)",
+      "replace": "const badTasks = taskListProblems(Array.isArray(state.tasks) ? state.tasks.map(t => t && typeof t === 'object' ? { ...t, platform: t.platform ?? 'instagram', dimension: t.dimension ?? 'category' } : t) : state.tasks)",
+      "by": "selfcheck",
+      "kills": [
+        "任务列表：collect 新建不按路线补平台、不补默认维度，点名缺席且零请求",
+        "任务列表：collect 续跑不按路线补平台、不补默认维度，点名缺席且文件不变"
+      ]
+    },
+    {
+      "id": "M-D16-ae",
+      "req": "P1",
+      "why": "入口先补缺席平台与维度再校验：任务缺字段被隐藏，路线推断与默认值冒充用户原配置",
+      "file": "scripts/probe.ts",
+      "find": "const badTasks = taskListProblems(cfg.tasks)",
+      "replace": "const badTasks = taskListProblems(Array.isArray(cfg.tasks) ? cfg.tasks.map(t => t && typeof t === 'object' ? { ...t, platform: t.platform ?? 'instagram', dimension: t.dimension ?? 'category' } : t) : cfg.tasks)",
+      "by": "selfcheck",
+      "kills": [
+        "任务列表：probe 不按路线补平台、不补默认维度，点名缺席且零请求"
+      ]
+    },
+    {
+      "id": "M-D16-af",
+      "req": "D16.l",
+      "why": "坏任务在报错退出之前已经预留过预算，虽然没有发请求，仍违反输入拒绝发生在任何预留之前的契约",
+      "file": "scripts/probe.ts",
+      "find": "    if (taskProblems.length) throw new Error(`任务配置不合规：${taskProblems.join('；')}`)",
+      "replace": "    if (taskProblems.length) {\n      startBudget(cfg, parseUsdMicros('0.01'), 'process').reserve('/api/v1/tiktok/app/v3/fetch_video_search_result')\n      throw new Error(`任务配置不合规：${taskProblems.join('；')}`)\n    }",
+      "by": "selfcheck",
+      "kills": [
+        "任务列表：probe 拒绝坏输入前从未调用预算预留"
+      ]
+    },
+    {
+      "id": "M-D16-ag",
+      "req": "D16.j",
+      "why": "坏任务在报错退出之前已经预留过预算，虽然没有发请求，仍违反输入拒绝发生在任何预留之前的契约",
+      "file": "scripts/collect.ts",
+      "find": "if (taskProblems.length) {",
+      "replace": "if (taskProblems.length) {\n  startBudget({}, parseUsdMicros('0.01'), 'process').reserve('/api/v1/tiktok/app/v3/fetch_video_search_result')",
+      "by": "selfcheck",
+      "kills": [
+        "任务列表：collect 新建拒绝坏输入前从未调用预算预留",
+        "任务列表：collect 续跑拒绝坏输入前从未调用预算预留",
+        "任务列表：collect 改额续跑拒绝坏输入前从未调用预算预留"
+      ]
     }
   ],
   "exemptions": [
