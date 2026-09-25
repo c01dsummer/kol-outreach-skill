@@ -69,6 +69,8 @@ description: 海外 KOL 建联助手 —— 从产品理解到可发信名单。
 
 详见 `references/keyword-strategy.md`。
 
+传给 probe 与 collect 的 `tasks` 至少有一个任务；每项明确写出非空白 `keyword`、`category`/`scene`/`competitor`/`audience` 之一的 `dimension`、`tiktok`/`instagram` 之一的 `platform`。脚本原样校验，不补值；坏任务与 IG 路线问题一起报告，退出 2，不发请求、不写任务文件。旧任务续跑及改预算也查整张列表，包括已完成项。按报错指出的文件、任务和字段修配置，不跳过坏项来继续（D16）。
+
 ### Phase 03 — 规模采集
 
 策略确认后才放量。自动分页、跨关键词全局去重、跨平台同人识别。
