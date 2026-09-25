@@ -5459,7 +5459,7 @@
       "why": "collect 在拒绝坏任务前先把新预算写入续跑文件，虽无请求仍破坏原任务文件",
       "file": "scripts/collect.ts",
       "find": "if (taskProblems.length) {",
-      "replace": "if (taskProblems.length) {\n  if (resume && replacementLimit !== undefined) saveTask(resume, { ...state, budget_usd: replacementLimit / 1e6 })",
+      "replace": "if (taskProblems.length) {\n  if (resume && replacementLimit !== undefined) { new Budget(state).setLimit(replacementLimit); saveTask(resume, state) }",
       "by": "selfcheck",
       "kills": [
         "任务列表：collect 改额续跑拒绝时 task.json 逐字不变，新上限不落盘"
