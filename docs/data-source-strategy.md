@@ -97,8 +97,13 @@
 都在需求所有者本机的 `output/adiaro-discovery/` 下：`sample-FUn2by`（03:07:50 UTC 起，12 次）与
 `sample-lInRuK`（03:10:10 UTC 起，12 次），三路各词两次，两批合计不到 4 分钟。8 次话题页请求都带 `feed_type=top`。
 两份清单每次观测都带 `sha256`，2026-09-24 本机逐份重算，全部一致（ADR-101 第十五节）。
-早先文档说「原批 JSON 已丢失」；按清单时间推断，原批可能就是现存的 `sample-FUn2by`，但也排除不了原批另在别处、
-确实丢了（ADR-101 第十五节）。原始响应只在本机，不进仓库。
+2026-09-25 对照原会话记录确认：丢失原批的后 9 次请求发生于 2026-09-22，连同此前 3 次共 12 次，
+与上述两批 2026-09-23 的请求不同；`sample-FUn2by` 不是丢失原批，原批响应仍未恢复（ADR-101 第十六节）。
+本轮 ADIARO 调查有记录的请求合计 36 次 IG、2 次 TikTok，共 38 次；按三条 IG 端点的固定 OpenAPI 声明
+$0.002/次、TikTok 搜索的公开价目快照 $0.001/次重算，累计估算 **$0.074**，不是实际账单，也不包含
+`smoothie` 等本项目其他历史调用。`general_search` 同时有固定 OpenAPI 与完整公开价目静态资产的 $0.002 同价佐证；
+未转录的是仓库生产价目表（`scripts/providers/tikhub-pricing.ts`），不是官方固定快照（ADR-101 第十七节）。
+两份现存 IG 样本的字段与统计结论不变；原始响应只在本机，不进仓库。
 
 列表路径均为 `data.data.items`，条目都没有 `media` 包层。24 份逐条核过：每条都有顶层 `id` 与 `user.username`；
 Reels/general 的文案在 `caption.text`（Reels 有 4 条不是字符串），hashtag 在 `caption_text`；`user.follower_count`
