@@ -550,14 +550,12 @@ group('probe', [], () => {
 
 // ---- IG 分页探针：每一种读法各造一次，尤其是最容易被读成假结论的那几种 ----
 //
-// 这个探针要回答的是「Reels 搜索顺着官方游标翻，到底能不能多拿到人」。
-// 它最危险的一支是**链上多出来的人其实是端点自己漂出来的**：这个端点两次完全相同的
-// 请求会返回不同条目，所以「翻页有效」与「端点在漂」在只看链那条曲线时**不可区分**，
-// 而两种读法的结论正好相反。对照曲线就是为这一条造的（夹具 `force-drift`）。
+// 这个探针只报告链和原样重发各自观察到的累计量。两条曲线不是随机对照实验：
+// 端点会漂，即使链多拿到人，也不能把差值归因给游标（夹具 `force-drift`）。
 //
 // 另外三种假结论各有一支守着：把「条目在涨」读成「人在涨」（`force-onecreator`）、
 // 把「这 N 次之内没再涨」读成「服务端就只有这么多人」、以及把链提前断掉时
-// 没发生过的那几次算进结论（`force-paged` 第三页到头）。
+// 没发生过的那几次算进结论（`force-paged` 第三次无后续令牌）。
 //
 // ⚠️ 这一组 2026-09-22 整个重写过。上一版守的是「试猜来的参数名」那套三句判词，
 // 而那些参数名在官方 spec 里根本不存在（ADR-101 第十、十一节），机器连同判词一起删了。
@@ -585,44 +583,45 @@ group('ig-paging-probe', [], () => {
 
   // ---- 链式翻页：服务端真认游标 ----
   // force-paged 带着游标来就回新一批，翻到第三页不再给游标。
-  const paged = probe('IG 探针：链 —— 服务端真认游标，第三页到头', 'force-paged', '--chain', 3)
-  named('链比对照多拿到人，才判「翻页多拿到了人」',
+  const paged = probe('IG 探针：链 —— 游标可传递，第三次无后续令牌', 'force-paged', '--chain', 3)
+  named('链比对照多拿到人，只报告观测差值，不归因也不建议继续付费',
     paged.chain_cum_creators === 3 && paged.control_cum_creators === 1
-      && String(paged.reading ?? '').includes('翻页确实多拿到了人'),
-    `链应当 3 人、对照 1 人并判翻页有效，实际 ${JSON.stringify([paged.chain_cum_creators, paged.control_cum_creators])}`)
-  // 「服务端不再给游标」是这个工具唯一一个不靠推断的终止条件 —— 它和「这 N 次之内
-  // 没再涨」不是一回事，混为一谈就等于把推断说成了对方的原话。
-  named('服务端不再给游标就停下，并报出停在第几次',
-    paged.chain_stopped_at_call === 3 && String(paged.reading ?? '').includes('是它自己说的'),
-    `应当停在第 3 次并说明是服务端自己说的，实际 ${JSON.stringify(paged.chain_stopped_at_call)}`)
-  named('链要发够两组 —— 一组链、一组对照，缺了对照这一跑读不出结论',
+      && String(paged.reading ?? '').includes('链累计 3 人，对照累计 1 人')
+      && !/翻页确实|翻页多拿到|该把|接进|值得往大|加跑数/.test(String(paged.reading ?? '')),
+    `链应当 3 人、对照 1 人，且不能作因果或加跑建议，实际 ${JSON.stringify([paged.chain_cum_creators, paged.control_cum_creators, paged.reading])}`)
+  named('响应不再给游标就停下，只报本次不可续与停在第几次',
+    paged.chain_stopped_at_call === 3
+      && String(paged.reading ?? '').includes('第 3 次响应没有可继续的令牌')
+      && !/没有下一页|是它自己说的|服务端不再给/.test(String(paged.reading ?? '')),
+    `应当停在第 3 次，只说明没有可继续令牌，实际 ${JSON.stringify([paged.chain_stopped_at_call, paged.reading])}`)
+  named('链要发够两组 —— 缺原样重发就算不出本次差值',
     paged.requests === 2 * 3,
     `--chain 3 应当发 6 次请求（3 链 ＋ 3 对照），实际 ${JSON.stringify(paged.requests)}`)
 
   // 链提前断掉时，读法里那个次数必须是**实际跑了几次**，不是要求的次数。
   // 上一版的写法在链不断时两个数恰好相等，所以看不出来 —— 这里特意要 5 次、断在第 3 次。
-  const earlyStop = probe('IG 探针：链 —— 要 5 次，服务端第 3 次就不给游标了', 'force-paged', '--chain', 5)
+  const earlyStop = probe('IG 探针：链 —— 要 5 次，第三次响应没有后续令牌', 'force-paged', '--chain', 5)
   named('链提前断掉时，读法里报的是实际跑了几次，不是要求的次数',
     earlyStop.chain_stopped_at_call === 3
       && String(earlyStop.reading ?? '').includes('链：3 次累计')
-      && !String(earlyStop.reading ?? '').includes('链：5 次累计'),
+      && !String(earlyStop.reading ?? '').includes('链：5 次累计')
+      && !String(earlyStop.reading ?? '').includes('没有下一页'),
     `应当停在第 3 次且读法说「链：3 次累计」，实际 ${JSON.stringify([earlyStop.chain_stopped_at_call, earlyStop.reading])}`)
-  // 链断在第三次时对照组也只该跑三次。让对照跑满要求的次数，它的采样就比链多，
-  // 而这个端点会漂 —— 采样多的一方天然累计更多人，于是「翻页有没有用」会偏向判没用。
-  // 这是在本工具最重的那个结论上造**假阴性**。
-  named('链提前断掉时对照组跟着变短 —— 采样不等长就是在制造假阴性',
+  // 链断在第三次时原样重发也只跑三次。若重发仍跑满要求次数，
+  // 两边就不再是同次数的累计量，不能并列解释当次差值。
+  named('链提前停止时重发曲线等长，累计量才有同次数口径',
     Array.isArray(earlyStop.control_curve) && earlyStop.control_curve.length === 3
       && earlyStop.requests === 6,
     `对照曲线应当也是 3 行、总请求 6 次，实际 ${JSON.stringify([(earlyStop.control_curve ?? []).length, earlyStop.requests])}`)
 
-  // ---- 链式翻页：端点在漂，链上多出来的人不是游标给的 ----
-  // 整组里最关键的一条。force-drift 每次都换一批人、每次都照给游标 ——
-  // 只看链那条曲线的话它一路在涨，而对照组涨得一样多。
+  // ---- 链式翻页：两条曲线都增加，但不支持把来源归因给任何一方 ----
+  // force-drift 每次都换一批人、每次都照给游标；两条曲线一样高。
   const drifting = probe('IG 探针：链 —— 端点在漂，链和对照涨得一样多', 'force-drift', '--chain', 3)
-  named('链涨了也不算 —— 要减掉对照组，涨的那些可能全是端点自己在漂',
+  named('链与对照打平，只报告观测量，不能说新人都由漂移产生',
     drifting.chain_cum_creators === 3 && drifting.control_cum_creators === 3
-      && String(drifting.reading ?? '').includes('是**漂**给的，不是翻页给的'),
-    `链与对照都该是 3 人且判成漂，实际 ${JSON.stringify([drifting.chain_cum_creators, drifting.control_cum_creators, drifting.reading])}`)
+      && String(drifting.reading ?? '').includes('链累计 3 人，对照累计 3 人')
+      && !/是\*\*漂\*\*给的|不是翻页给的|翻页没比/.test(String(drifting.reading ?? '')),
+    `链与对照都该是 3 人，只说明观测打平，实际 ${JSON.stringify([drifting.chain_cum_creators, drifting.control_cum_creators, drifting.reading])}`)
 
   // ---- 链式翻页：游标收了，但回来的还是同一批（实测 2026-09-22 就是这一支）----
   const ignored = probe('IG 探针：链 —— 游标收下了，回来的还是同一批', 'smoothie', '--chain', 3)
@@ -653,7 +652,7 @@ group('ig-paging-probe', [], () => {
     String(noOperand ?? '').includes('--chain 后面要跟一个'),
     `应当因缺少操作数退出并说明，实际是 ${JSON.stringify(noOperand)}`)
 
-  // ---- 原样重发：只量漂移，不碰游标 ----
+  // ---- 原样重发：只报本次观测，不碰游标 ----
   const REP = 3
   const oc = probe('IG 探针：照搬 —— 条目一直换，人是同一个', 'force-onecreator', '--repeat', REP)
   named('召回数的是人不是条目 —— 同一个人的多条视频不算多个人',
@@ -667,6 +666,15 @@ group('ig-paging-probe', [], () => {
   named('照搬几次就发几次请求 —— 这一支不带任何游标',
     oc.requests === REP && Array.isArray(oc.curve) && oc.curve.length === REP,
     `应当是 ${REP} 次请求与 ${REP} 行曲线，实际 ${JSON.stringify([oc.requests, (oc.curve ?? []).length])}`)
+
+  const mixed = probe('IG 探针：作者身份键混用且部分条目缺失身份',
+    'force-mixedidentity', '--repeat', 2)
+  named('身份键混用与缺失时，作者数不能声称是严格下限',
+    mixed.cum_creators === 2 && mixed.unidentified_items === 2
+      && String(mixed.reading ?? '').includes('可能少计')
+      && String(mixed.reading ?? '').includes('可能多计')
+      && !String(mixed.reading ?? '').includes('人数是**下限**'),
+    `同一作者的 id 与 username 被分作两键，另有无身份条目；读法须说明上下两种误差，实际 ${JSON.stringify(mixed.reading)}`)
 })
 
 // ---- 入口：钱字段比不了大小就不许开跑（P3 · D6.a）----

@@ -179,6 +179,8 @@ let calls = 0
 let drifts = 0
 /** `force-onecreator` 那一支的批次号 —— 每调一次换一批条目，但发的人始终是同一个 */
 let oneCreator = 0
+/** 同一作者先用 id、后用 username，另有无身份条目；暴露作者数既可多计也可少计。 */
+let mixedIdentity = 0
 // 费用接线用的单次故障：只有本次 spawn 明确指定的 pathname 才命中，随后恢复罐头。
 // profile 没有 keyword，所以用路径定位；不改变既有 force-* 或第 7 次 429 的默认行为。
 let faultUsed = false
@@ -271,10 +273,18 @@ const fakeFetch = async (input: RequestInfo | URL) => {
       { id: `oc-${seed}-b`, caption: { text: `b ${seed}` }, user: same },
     ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
+  if (url.includes('search_reels') && url.includes('force-mixedidentity')) {
+    record(200, url)
+    const call = ++mixedIdentity
+    return new Response(JSON.stringify({ data: { data: { count: 2, items: [
+      { id: `mix-${call}-a`, user: call === 1
+        ? { id: '900', username: 'sameperson' } : { username: 'sameperson' } },
+      { id: `mix-${call}-b` },
+    ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
   // 关键词里带 `force-paged` → reels **认 `pagination_token`**：带着上一页的游标来就回新一批，
-  // 并给出下一个游标。翻到第三页就**不再给游标** —— 那是「服务端自己说没有下一页了」
-  // 唯一的入口，而它是探针里唯一一个**不靠推断**的终止条件（其余都只说得出
-  // 「这 N 次之内没再涨」）。
+  // 并给出下一个游标。第三次响应**不再给游标**，用来验证探针只报告本次不能
+  // 继续追链，不推断服务端的匹配结果已经耗尽。
   if (url.includes('search_reels') && url.includes('force-paged')) {
     record(200, url)
     const tok = new URL(url).searchParams.get('pagination_token')
@@ -287,9 +297,8 @@ const fakeFetch = async (input: RequestInfo | URL) => {
     return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
   }
   // 关键词里带 `force-drift` → **每次都换一批人，而且每次都照给游标**。
-  // 这是整组里最关键的判别用例：链和对照**涨得一样多** —— 天真的读法会把它判成
-  // 「翻页有效」，而实际上一个人都不是游标给的，全是这个端点自己在漂。
-  // 少了它，「拿链去减对照」那一步删掉也全绿。
+  // 这组让链和原样重发**涨得一样多**，验证探针只报两边观测量，不能仅凭
+  // 打平就断言新作者全由漂移产生，也不能断言游标有无作用。
   if (url.includes('search_reels') && url.includes('force-drift')) {
     record(200, url)
     const seed = ++drifts

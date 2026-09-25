@@ -31,19 +31,20 @@
  * | 模式 | 每一次带什么 | 回答什么 | 发几次请求 |
  * |---|---|---|---|
  * | 默认 | 只有 `keyword` | 响应长什么样、有没有像游标的键 | 1 |
- * | `--chain N` | 上一次响应里的 `pagination_token` | **翻页**能拿到多少人 | 2N |
- * | `--repeat N` | 什么都不带，原样再发一次 | **漂移**能刷出多少人 | N |
+ * | `--chain N` | 上一次响应里的 `pagination_token` | 本次链式请求观察到多少人 | 最多 2N |
+ * | `--repeat N` | 什么都不带，原样再发一次 | 本次原样重发观察到多少人 | N |
  *
- * ⚠️ **`--chain` 一定同时跑对照组** —— 这就是它 2N 次请求的来源。这个端点实测会漂：
- * 两次完全相同的请求会返回不同的条目。少了对照曲线，链上多出来的人分不清是翻页给的
- * 还是漂给的，**而这两种读法的结论正好相反**。上一版栽的就是这一类坑。
+ * ⚠️ **`--chain` 一定同时跑原样重发曲线** —— 最多 2N 次请求。这个端点实测会漂：
+ * 两次完全相同的请求会返回不同的条目。两条曲线只能报告各自观测到的累计量和差值，
+ * 不能把差值归因给游标或漂移；它们不是随机对照实验。
  *
- * ⚠️ **数的是人，不是条目。** 同一个人连发三条 Reels，翻页能多拿到视频却一个新达人都
- * 没多给 —— 「条目在涨、人没涨」是这里最贵的误读，所以两条分开报，结论自己会点出来。
+ * ⚠️ **数的是人，不是条目。** 同一个人连发三条 Reels，本次可能多见到条目却没有
+ * 新作者 —— 「条目在涨、人没涨」需要单独报告。
  *
  * ⚠️ **它给不出「服务端只有这么多人」这个结论。** 末尾连着几次不涨，说的是
  * 「**这 N 次之内**没再涨」——「问完了」与「还没问够」在一次观测里不可区分。
- * 唯一的例外是**链自己断了**：服务端不再给下一个游标，那是它自己说的，单独报出来。
+ * 链没有可继续令牌时，单独报告本次响应的形状和停止位置；这不等于服务端
+ * 没有更多匹配结果。
  *
  * ## 用法（要一把**充过值**的 key，IG 端点不吃免费额度，恒 402）
  *
@@ -172,9 +173,8 @@ function identify(list: any[]): { by: string; ids: string[] } {
  * 同一个人连发三条 Reels，多拿两条视频一个新达人都没多给。两条曲线必须分开报，
  * 「条目在涨、人没涨」才看得出来，而那正是这里最贵的误读。
  *
- * 认不出作者的条目**单独计数：既不折成一个人，也不当成零个** —— 折成一个桶会凭空多出
- * 一个达人，当成零个又把「有人、但没认出来」说成「没有人」。两种都是替数据打包票，
- * 所以那个数原样报出来，人头只当**下限**（P1）。
+ * 认不出作者的条目单独计数，不折成一个人，也不隐瞒缺失。
+ * 人数按可用的 id / username 键去重：缺身份可能少计，同一作者跨响应换键可能多计。
  */
 const whoOf = (list: any[]): { ids: string[]; unidentified: number } => {
   const raw = list.map(it => it?.user?.id ?? it?.media?.user?.id
@@ -298,8 +298,8 @@ async function repeatInto(c: Curve, n: number, label: string, first?: any) {
 }
 
 /**
- * 顺着游标翻 N 次。**拿不到下一个游标就停，并报出停在第几次** —— 那是服务端自己说
- * 「没有下一页了」，是这个工具唯一一个**不靠推断**的终止条件（ADR-85）。
+ * 顺着游标翻 N 次。**拿不到下一个游标就停，并报出停在第几次**。
+ * 只能说明本次响应没有可继续的令牌，不能推定服务端结果耗尽。
  */
 async function chainInto(c: Curve, n: number, first: any, cursorPath: string | undefined) {
   let raw = first
@@ -342,8 +342,7 @@ async function main() {
   if (chain === undefined && repeat === undefined) {
     console.log(stringifyCostJson({
       ...head, mode: '只打一次，报形状', all_key_paths: paths, ...tail(),
-      reading: cursorNote + '只打了一次，没有任何对比 —— 要量能拿到多少人，跑 `--chain N`'
-        + '（顺着游标翻，自带对照组）或 `--repeat N`（原样重发，只量漂移）。',
+      reading: cursorNote + '只打了一次，没有对比；此处只报告本次响应形状。',
     }, budget.view()))
     return
   }
@@ -367,15 +366,11 @@ async function main() {
     + '（链提前断掉的话两边一起变短）')
   const ch = new Curve()
   const stoppedAt = await chainInto(ch, n, first, cursorPath)
-  // **对照组跟着链的实际长度走，不是跟着要求的次数。** 链提前断掉（服务端不再给游标）
-  // 时若让对照跑满，对照的采样就比链多 —— 而这个端点会漂，采样多的一方天然累计更多人，
-  // 于是「翻页有没有用」那个比较会偏向判它没用。**这是在本工具最重的那个结论上造假阴性**
-  //（评审第六轮指出，负片 `M-H44-l`）。
+  // **对照组跟着链的实际长度走，不是跟着要求的次数。** 两条曲线要报同样次数的
+  // 观测量；链提前停止后让对照继续，会改变比较口径（负片 `M-H44-l`）。
   const ctrl = new Curve()
   await repeatInto(ctrl, ch.rows.length, '对照')
-  // **链比对照多拿到人，才叫翻页有用。** 端点自己会漂，所以链上多出来的人不减掉
-  // 对照那一份，就会把漂的功劳记到翻页头上 —— 这两种读法的结论正好相反。
-  const beatsDrift = ch.cumPeople > ctrl.cumPeople
+  const observedDifference = ch.cumPeople - ctrl.cumPeople
   console.log(stringifyCostJson({
     ...head, mode: '顺着游标翻（带对照组）', calls: n, identity_items: ch.by,
     chain_stopped_at_call: stoppedAt,
@@ -386,16 +381,12 @@ async function main() {
     chain_curve: ch.rows, control_curve: ctrl.rows, ...tail(),
     reading: cursorNote
       + (stoppedAt !== undefined
-        ? `链在第 ${stoppedAt} 次断了：服务端不再给下一个游标。**这一条不是推的，是它自己说的** ——`
-          + '「没有下一页了」在这里是可验的，和下面那句限定不是一回事。\n'
+        ? `链在第 ${stoppedAt} 次响应没有可继续的令牌，本次不能继续沿该令牌请求；`
+          + '这不说明服务端已没有更多匹配结果。\n'
         : '')
-      + (beatsDrift
-        ? `**翻页确实多拿到了人**：链累计 ${ch.cumPeople} 人，对照（原样重发同样次数）`
-          + `${ctrl.cumPeople} 人。IG 侧的召回上限要按这条曲线重算，`
-          + `而且该把 \`${CURSOR_PARAM}\` 接进 \`providers/tikhub.ts\` 的搜索里。\n`
-        : `⚠️ **翻页没比原样重发多拿到人**：链累计 ${ch.cumPeople} 人，对照 ${ctrl.cumPeople} 人。`
-          + '链上多出来的那些人是**漂**给的，不是翻页给的 —— 这个端点两次相同请求本来就返回'
-          + '不同条目。把这算成翻页有效，是把漂的功劳记到了游标头上。\n')
+      + `本次同次数观测：链累计 ${ch.cumPeople} 人，对照累计 ${ctrl.cumPeople} 人`
+      + `（链减对照 ${observedDifference} 人）。两条曲线均可能受端点波动影响，`
+      + '差值不能归因给游标或原样重发。\n'
       + readCurve(ch, '链'),
   }, budget.view()))
 }
@@ -413,20 +404,20 @@ function readCurve(c: Curve, label: string): string {
   const first = c.rows[0]
   const peopleGrew = c.cumPeople > first.cum_creators
   const itemsGrew = c.cumItems > first.cum_items
-  return `${label}：${n} 次累计去重 ${c.cumPeople} 个达人、${c.cumItems} 条视频`
+  return `${label}：${n} 次累计去重 ${c.cumPeople} 个达人、${c.cumItems} 个条目`
     + `（第一次就拿到 ${first.cum_creators} 人 / ${first.items} 条）。\n`
     + (peopleGrew ? ''
       : itemsGrew
-        ? '⚠️ **条目在涨，人没涨** —— 多拿到的只是同一批人的更多视频，一个新达人都没有。'
-          + '这对召回没用：别把条目数当成人数。\n'
-        : '第一次之后条目和人都没再涨，一个新的都没有。\n')
+        ? '⚠️ **条目在涨，人没涨** —— 本次多见到条目，但未识别出新达人。\n'
+        : '第一次之后，已识别的条目和达人累计数都没再涨。\n')
     + (c.tailFlat
-      ? `末尾连着 ${c.tailFlat} 次一个新达人都没多给。**这只说得出「这 ${n} 次之内没再涨」** ——`
-        + '与「服务端就只有这么多人」在本观测下**不可区分**，想再往下钉只能加跑数或换关键词。'
-      : `**最后一次仍在涨**（这一次还多出 ${c.rows[c.rows.length - 1].new_creators} 个没见过的人）`
-        + ` —— 这 ${n} 次连上限的边都没摸到，值得往大了再跑一次。`)
+      ? `末尾连着 ${c.tailFlat} 次未识别出新达人。**这只说得出「这 ${n} 次之内没再涨」** ——`
+        + '与「服务端就只有这么多人」在本观测下**不可区分**。'
+      : `最后一次仍新识别出 ${c.rows[c.rows.length - 1].new_creators} 个达人；`
+        + `这只描述本次 ${n} 次请求。`)
     + (c.blind
-      ? `\n⚠️ 有 ${c.blind} 条认不出作者，没计进人头、也没折成一个人 —— 上面的人数是**下限**。`
+      ? `\n⚠️ 有 ${c.blind} 条认不出作者，没计进人头；按可用身份键去重的作者数可能少计，` +
+        '同一作者在 id / username 间换键也可能多计。'
       : '')
 }
 

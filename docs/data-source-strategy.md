@@ -68,8 +68,8 @@
 2. **当时采用 Reels 作为 IG 主发现路径。** 原先试用的 **V1** hashtag 响应中，
    `owner` 只有 `{id}`，没有 username；该观察不能外推到 V2 hashtag 或 general search。
    采集器现按 `data.pagination_token` 翻 Reels、页数随达标走、令牌只在一次运行内有效（ADR-111）；
-   此前只取首页。2026-09-22 的 `smoothie` 历史探针记录显示顺着令牌翻取得了更多去重作者；
-   这不表示任意关键词的页大小、召回上限或边际产出相同。历史作者数与结果条目数的区别见 ADR-101 第十三节。
+   此前只取首页。2026-09-22 的 `smoothie` 历史探针记录中，带令牌的请求获正常响应，链式请求累计去重作者多于等次数原样重发；
+   差异不能归因给令牌，也不表示任意关键词的页大小、召回上限或边际产出相同。历史作者数与结果条目数的区别见 ADR-101 第十三节。
 3. **目标接口的响应外壳有 schema，业务 `data` 没有结构约束。**
    2026-09-23 核对的 [官方 SDK 固定 OpenAPI 快照](https://github.com/TikHub/TikHub-API-Python-SDK/blob/2d92927332e1ff0fdc2d05b46381218a0f5a3511/spec/openapi.json)
    （提交 `2d92927332e1ff0fdc2d05b46381218a0f5a3511`）含 **114 个** `components.schemas`。
