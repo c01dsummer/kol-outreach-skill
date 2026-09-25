@@ -138,7 +138,9 @@ const GROUPS: readonly Group[] = [
   { id: 'f8-risk', needs: [] },
   { id: 'h-mutate', needs: [] },
   { id: 'h-jobs', needs: [] },
+  { id: 'h-infra-rules', needs: [] },
   { id: 'h-group', needs: [] },
+  { id: 'h-check-rules', needs: [] },
   { id: 'd6-provider', needs: [] },
   { id: 'd12-ledger', needs: [] },
 ]
@@ -6305,7 +6307,7 @@ harness('变异跑的账：每个验证者被几条变异用、每条跑多久�
 }
 
 })
-if (fullRun) {
+await group('h-infra-rules', () => {
 harness('起 tsx 的那条命令：三处共用一份，不经 npx、不经 shell')
 {
   const args = ['scripts/probe.ts', '--config', 'x.json']
@@ -6535,7 +6537,7 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
   eq('路径底下变成了目录，同样是读不了', claimsReadFault(errno('EISDIR')), 'unreadable')
 }
 
-}
+})
 await group('h-group', () => {
 harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 needs 一起跑')
 {
@@ -6627,7 +6629,7 @@ harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 n
 }
 
 })
-if (fullRun) {
+await group('h-check-rules', () => {
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
 {
   // 这个遮罩守着两条路径：提交信息里的豁免、决策记录的分节。后者不可逆 ——
@@ -7330,7 +7332,7 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
 // 于是 pickList 抛出、IG 兜底、预算卡在两次请求之间这几条路，在整条检查链里一次都没跑过 ——
 // 而复核挖出的两个 blocking 就长在这几条路上。自检那层的假 fetch 永远返回认得出的结构，
 // 够不到这里（ADR-94 第十五节）。
-}
+})
 await group('d6-provider', async () => {
 suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
 {
