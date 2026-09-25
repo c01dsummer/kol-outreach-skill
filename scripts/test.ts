@@ -7579,6 +7579,11 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
     '0.00499999999999999999999999999999999999999', '9007199254.740992', '1e1000000000',
     '1e-1000000000', 0, 0.005, null, undefined, true, [], {}])
     failure(`非法或不可精确表示的美元 ${String(value)}`, () => parseUsdMicros(value as any), 'invalid-money')
+  let impreciseError: unknown
+  try { parseUsdMicros('0.00499999999999999999999999999999999999999') }
+  catch (error) { impreciseError = error }
+  ok('原始金额超微美元精度必须拒绝而非舍入',
+    impreciseError instanceof CostError && impreciseError.code === 'invalid-money')
   criterion('D12.a')
   for (const [micros, text] of [[0, '0'], [1, '0.000001'], [1000, '0.001'], [5000, '0.005'],
     [1000001, '1.000001'], [max, '9007199254.740991']] as [number, string][])
@@ -7587,6 +7592,7 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
     failure(`拒绝非法展示金额 ${String(value)}`, () => formatUsd(value as any), 'invalid-money')
     failure(`拒绝非法新建上限 ${String(value)}`, () => createCostBudget(value as any, 'task', catalog), 'invalid-money')
   }
+  eq('五千微美元必须完整显示为 0.005', formatUsd(5000), '0.005')
   criterion('D12.b')
 
   // 数值由2026-09-23官方定价资产独立摘录，来源见 ADR-107 末尾。
@@ -7627,9 +7633,11 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
   criterion('D12.q')
   const first = mixed.reserve(tt)
   exact('预留占用金额但不冒充发出次数', money(mixed), [1000, 4000, 0, 0, 1000, 0, 0, 0, 1])
+  eq('未结预留不计入净请求数', mixed.summary().requests, 0)
   failure('已有未结项不再预留', () => mixed.reserve(ig), 'pending-attempt', mixed)
   mixed.settle(first, { kind: 'http', status: 200 })
   exact('200 只转换状态，不重复累计金额', money(mixed), [1000, 4000, 1000, 0, 0, 1, 1, 0, 0])
+  eq('HTTP 200 结算保留该次金额', mixed.summary().http_200_micro_usd, 1000)
   failure('200 后正文失败不能再退款', () => mixed.settle(first, { kind: 'http', status: 500 }), 'invalid-receipt', mixed)
   for (let i = 0; i < 2; i++) mixed.settle(mixed.reserve(ig), { kind: 'http', status: 200 })
   // 手算：1000 + 2×2000 = 5000；混合端点净次数为 3，不能按次数×1000。
@@ -7638,6 +7646,13 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
     requests: 3, http_200_count: 3, unknown_result_count: 0, pending_count: 0 })
   exact('同价聚合且保留首次留存顺序', mixed.snapshot().cost_ledger.entries,
     [{ ...tt, http_200_count: 1, unknown_result_count: 0 }, { ...ig, http_200_count: 2, unknown_result_count: 0 }])
+  const capped = fresh(1000)
+  capped.settle(capped.reserve(tt), { kind: 'http', status: 200 })
+  const cappedBefore = capped.snapshot()
+  let capError: unknown
+  try { capped.reserve(tt) } catch (error) { capError = error }
+  ok('预算金额超限时预留必须报错', capError instanceof CostError && capError.code === 'budget-exceeded')
+  ok('预算拒绝后整本账和净次数不变', isDeepStrictEqual(capped.snapshot(), cappedBefore))
   failure('超过上限拒绝且不增加尝试序号', () => mixed.reserve(tt), 'budget-exceeded', mixed)
   const tight = fresh(3000)
   tight.settle(tight.reserve(ig), { kind: 'http', status: 200 })
@@ -7650,6 +7665,8 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
     const refund = budget.reserve(ig)
     budget.settle(refund, { kind: 'http', status })
     exact(`HTTP ${status} 只退本次 2000，保留此前 1000`, money(budget), [1000, 9000, 1000, 0, 0, 1, 1, 0, 0])
+    if (status === 429) eq('非 200 只退本次费用且不加净次数',
+      [budget.summary().occupied_micro_usd, budget.summary().requests], [1000, 1])
     failure(`HTTP ${status} 不允许重复退款`, () => budget.settle(refund, { kind: 'http', status }), 'invalid-receipt', budget)
   }
   criterion('D12.i')
@@ -7657,6 +7674,8 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
   uncertain.settle(uncertain.reserve(tt), { kind: 'http', status: 200 })
   uncertain.settle(uncertain.reserve(ig), { kind: 'no_http_status' })
   exact('无 HTTP 状态保留同额但与 200 分开', money(uncertain), [3000, 7000, 1000, 2000, 0, 2, 1, 1, 0])
+  eq('费用占用包括未知结果的保守留存', uncertain.summary().occupied_micro_usd, 3000)
+  eq('无 HTTP 状态的金额列入未知结果保守留存', uncertain.summary().unknown_result_micro_usd, 2000)
   exact('未知结果独立记数', uncertain.snapshot().cost_ledger.entries[1], { ...ig, http_200_count: 0, unknown_result_count: 1 })
   criterion('D12.j')
 
@@ -7671,6 +7690,9 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
     failure(`非法结算不消费凭据 ${JSON.stringify(outcome)}`, () => owner.settle(ownReceipt, outcome as any), 'invalid-outcome', owner)
   owner.settle(ownReceipt, { kind: 'http', status: 200 })
   exact('此前非法结算之后原凭据仍能成功结算', owner.summary().requests, 1)
+  let duplicateError: unknown
+  try { owner.settle(ownReceipt, { kind: 'no_http_status' }) } catch (error) { duplicateError = error }
+  ok('终态凭据再次消费必须拒绝', duplicateError instanceof CostError && duplicateError.code === 'invalid-receipt')
   failure('终态后再次消费原凭据拒绝', () => owner.settle(ownReceipt, { kind: 'no_http_status' }), 'invalid-receipt', owner)
   foreign.settle(otherReceipt, { kind: 'http', status: 429 })
   criterion('D12.k')
@@ -7678,6 +7700,8 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
   const raw = { schema: 1, currency: 'USD', unit: 'micro_usd', scope: 'task', limit_micro_usd: 10000,
     next_attempt_id: 4, entries: [{ ...tt, http_200_count: 2, unknown_result_count: 0 },
       { ...ig, http_200_count: 0, unknown_result_count: 1 }] }
+  eq('历史单价与已声明版本不符必须拒绝', inspectExistingCostLedger({ ...raw,
+    entries: [{ ...raw.entries[0], unit_micro_usd: 1001 }] }, 2, catalog).status, 'invalid-ledger')
   const unavailable = (label: string, ledger: unknown, requests: unknown, status: string) => {
     const original = structuredClone({ ledger, requests })
     const seen = inspectExistingCostLedger(ledger, requests, catalog)
@@ -7692,6 +7716,7 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
       { status: error.status, problems: error.problems }, { status: seen.status, problems: seen.problems })
     exact(`${label}：读入失败不改原件`, { ledger, requests }, original)
   }
+  eq('费用账缺席不因请求数为零补造金额', inspectExistingCostLedger(undefined, 0, catalog).status, 'unknown-history')
   for (const requests of [0, 3, undefined]) unavailable('旧记录费用字段缺席不补零', undefined, requests, 'unknown-history')
   criterion('D12.r')
   for (const ledger of [null, {}, [], 'bad']) unavailable('损坏费用账不当新任务', ledger, 0, 'invalid-ledger')
@@ -7708,6 +7733,10 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
     ok(`${label}按坏账诊断，不泄漏原生异常`, escaped === undefined)
     if (escaped !== undefined) console.log(`     escaped=${escaped instanceof Error ? escaped.name : typeof escaped}`)
   }
+  let sparseVerdict: string
+  try { sparseVerdict = inspectExistingCostLedger({ ...raw, entries: new Array(1) }, 0, catalog).status }
+  catch { sparseVerdict = 'native-exception' }
+  eq('稀疏费用条目按坏账诊断而不泄漏原生异常', sparseVerdict, 'invalid-ledger')
   unavailable('算术自洽也不自动合并重复聚合键', { ...raw, entries: [raw.entries[0], raw.entries[0]] }, 4, 'invalid-ledger')
   for (const patch of [{ endpoint: '/missing' }, { unit_micro_usd: 0 }, { unit_micro_usd: 1001 },
     { http_200_count: -1, unknown_result_count: 3 }, { http_200_count: 0.5, unknown_result_count: 1.5 },
@@ -7715,6 +7744,9 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
     { http_200_count: max }, { unit_micro_usd: Infinity }])
     unavailable('价目与次数不符不得修补', { ...raw, entries: [{ ...raw.entries[0], ...patch }] }, 2, 'invalid-ledger')
   for (const requests of [0, 4, -1, 1.5, '3', undefined, NaN]) unavailable('外部净次数须与账一致', raw, requests, 'invalid-ledger')
+  const damagedRequestsBook = clone(raw)
+  eq('非法盘上请求数不得重置为零账',
+    inspectExistingCostLedger(damagedRequestsBook, '3', catalog).status, 'invalid-ledger')
   // 9007199254740×1000 本身安全；再加 2000 超过最大安全微美元，次数之和仍安全。
   const almost = { ...tt, http_200_count: 9007199254740, unknown_result_count: 0 }
   unavailable('分项安全但总金额溢出仍拒绝', { ...raw, entries: [almost, { ...ig, http_200_count: 1,
@@ -7728,6 +7760,10 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
   const live = fresh(), liveReceipt = live.reserve(ig), liveSnapshot = live.snapshot()
   const resumed = restoreCostBudget(liveSnapshot.cost_ledger, liveSnapshot.requests, catalog)
   exact('恢复未结项原样保留占用与净次数', money(resumed), [2000, 8000, 0, 0, 2000, 0, 0, 0, 1])
+  const pendingAgain = restoreCostBudget(liveSnapshot.cost_ledger, liveSnapshot.requests, catalog)
+  let pendingError: unknown
+  try { pendingAgain.reserve(tt) } catch (error) { pendingError = error }
+  ok('恢复未结项后不得新增预留', pendingError instanceof CostError && pendingError.code === 'pending-attempt')
   failure('恢复未结项不能再预留', () => resumed.reserve(tt), 'pending-attempt', resumed)
   failure('恢复对象也不能消费原进程凭据', () => resumed.settle(liveReceipt, { kind: 'http', status: 429 }), 'invalid-receipt', resumed)
   live.settle(liveReceipt, { kind: 'http', status: 200 })
@@ -7747,10 +7783,13 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
   try { (detached as any).cost_ledger.entries[0].http_200_count = 0; (detached as any).cost_ledger.limit_micro_usd = 0;
     (detached as any).requests = 0; (detachedSummary as any).occupied_micro_usd = 0 } catch { /* 冻结副本也可拒绝外部修改。 */ }
   exact('调用方改快照和汇总不能改内账', money(history), [8000, 2000, 6000, 2000, 0, 4, 3, 1, 0])
+  eq('外部改快照不能改变内账占用金额', history.summary().occupied_micro_usd, 8000)
   criterion('D12.v')
   const externalCatalog = clone(catalog), isolated = createCostBudget(2000, 'task', externalCatalog)
   externalCatalog.old['/ig'] = 1
+  const invalidPriceBefore = isolated.snapshot()
   failure('外部改价目不能替内账生成低价', () => isolated.reserve(price('/ig', 1)), 'unknown-price', isolated)
+  ok('非法报价被拒后尝试序号与账目原样不动', isDeepStrictEqual(isolated.snapshot(), invalidPriceBefore))
   succeeds('外部改价目后，合法固定价仍可预留并结算', () => {
     const mutablePrice = { ...ig }, isolatedReceipt = isolated.reserve(mutablePrice)
     mutablePrice.unit_micro_usd = 0

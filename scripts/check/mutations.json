@@ -127,7 +127,11 @@
       "why": "预算超限不再抛出，静默继续花用户的钱",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "      if (BigInt(summarize(ledger).occupied_micro_usd) + BigInt(p.unit_micro_usd) > BigInt(ledger.limit_micro_usd))\n        throw new CostError('budget-exceeded', '余额不足以支付本次端点费用')",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "预算金额超限时预留必须报错"
+      ]
     },
     {
       "id": "M-P4-a",
@@ -4827,7 +4831,11 @@
       "why": "不再拦住盘上那个「已经花了多少次」的坏取值 —— 续跑时整本账退回零，同一批钱再花一遍",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "    const summary = summarize(ledger), requests = amount(rawRequests, 'requests')\n    if (requests !== summary.requests) unavailable('requests', '净次数与费用账不一致')",
-      "replace": "    let requests: number\n    try { requests = amount(rawRequests, 'requests') }\n    catch { requests = 0; ledger.entries = []; delete ledger.pending }\n    const summary = summarize(ledger)\n    if (requests !== summary.requests) unavailable('requests', '净次数与费用账不一致')"
+      "replace": "    let requests: number\n    try { requests = amount(rawRequests, 'requests') }\n    catch { requests = 0; ledger.entries = []; delete ledger.pending }\n    const summary = summarize(ledger)\n    if (requests !== summary.requests) unavailable('requests', '净次数与费用账不一致')",
+      "by": "test",
+      "kills": [
+        "非法盘上请求数不得重置为零账"
+      ]
     },
     {
       "id": "M-P3-c",
@@ -4847,7 +4855,11 @@
       "why": "被预算拒掉的那一次也记进账 —— 判据说的是拒了就不计数，账上却多了一次，续跑从盘上读回来的起点因此偏大一次",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "      if (BigInt(summarize(ledger).occupied_micro_usd) + BigInt(p.unit_micro_usd) > BigInt(ledger.limit_micro_usd))\n        throw new CostError('budget-exceeded', '余额不足以支付本次端点费用')",
-      "replace": "      if (BigInt(summarize(ledger).occupied_micro_usd) + BigInt(p.unit_micro_usd) > BigInt(ledger.limit_micro_usd)) {\n        ledger.entries.push({ ...p, http_200_count: 1, unknown_result_count: 0 })\n        throw new CostError('budget-exceeded', '余额不足以支付本次端点费用')\n      }"
+      "replace": "      if (BigInt(summarize(ledger).occupied_micro_usd) + BigInt(p.unit_micro_usd) > BigInt(ledger.limit_micro_usd)) {\n        ledger.entries.push({ ...p, http_200_count: 1, unknown_result_count: 0 })\n        throw new CostError('budget-exceeded', '余额不足以支付本次端点费用')\n      }",
+      "by": "test",
+      "kills": [
+        "预算拒绝后整本账和净次数不变"
+      ]
     },
     {
       "id": "M-P3-f",
@@ -5421,7 +5433,11 @@
       "why": "原始预算先舍入成浮点数，超精度授权被悄悄扩大",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "  const m = typeof token === 'string'",
-      "replace": "  return Math.round(Number(token) * 1000000)\n  const m = typeof token === 'string'"
+      "replace": "  return Math.round(Number(token) * 1000000)\n  const m = typeof token === 'string'",
+      "by": "test",
+      "kills": [
+        "原始金额超微美元精度必须拒绝而非舍入"
+      ]
     },
     {
       "id": "M-D12-b",
@@ -5429,7 +5445,11 @@
       "why": "把精确微美元显示成两位小数，掩盖真实余额",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "  integer(micros, '金额')",
-      "replace": "  return (micros / 1000000).toFixed(2)\n  integer(micros, '金额')"
+      "replace": "  return (micros / 1000000).toFixed(2)\n  integer(micros, '金额')",
+      "by": "test",
+      "kills": [
+        "五千微美元必须完整显示为 0.005"
+      ]
     },
     {
       "id": "M-D12-c",
@@ -5445,7 +5465,11 @@
       "why": "恢复账目不再核对历史版本单价，允许改低已花金额",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "    || raw.unit_micro_usd !== catalog[raw.price_version][raw.endpoint])",
-      "replace": "    || false)"
+      "replace": "    || false)",
+      "by": "test",
+      "kills": [
+        "历史单价与已声明版本不符必须拒绝"
+      ]
     },
     {
       "id": "M-D12-e",
@@ -5453,7 +5477,11 @@
       "why": "把未结预留加入净次数，冒充请求终态",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "requests: bounded(httpCount + unknownCount, '净次数')",
-      "replace": "requests: bounded(httpCount + unknownCount + BigInt(ledger.pending === undefined ? 0 : 1), '净次数')"
+      "replace": "requests: bounded(httpCount + unknownCount + BigInt(ledger.pending === undefined ? 0 : 1), '净次数')",
+      "by": "test",
+      "kills": [
+        "未结预留不计入净请求数"
+      ]
     },
     {
       "id": "M-D12-f",
@@ -5461,7 +5489,11 @@
       "why": "占用金额漏掉结果不明的保守留存",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "httpMoney + unknownMoney + BigInt(pending)",
-      "replace": "httpMoney + BigInt(pending)"
+      "replace": "httpMoney + BigInt(pending)",
+      "by": "test",
+      "kills": [
+        "费用占用包括未知结果的保守留存"
+      ]
     },
     {
       "id": "M-D12-g",
@@ -5469,7 +5501,11 @@
       "why": "允许下一次预留超出用户金额上限",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "> BigInt(ledger.limit_micro_usd)",
-      "replace": "> BigInt(ledger.limit_micro_usd) + 1000000n"
+      "replace": "> BigInt(ledger.limit_micro_usd) + 1000000n",
+      "by": "test",
+      "kills": [
+        "预算金额超限时预留必须报错"
+      ]
     },
     {
       "id": "M-D12-h",
@@ -5477,7 +5513,11 @@
       "why": "成功结算保留次数却漏记对应费用金额",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "httpMoney += BigInt(line.http_200_count) * BigInt(line.unit_micro_usd)",
-      "replace": "httpMoney += 0n * BigInt(line.http_200_count) * BigInt(line.unit_micro_usd)"
+      "replace": "httpMoney += 0n * BigInt(line.http_200_count) * BigInt(line.unit_micro_usd)",
+      "by": "test",
+      "kills": [
+        "HTTP 200 结算保留该次金额"
+      ]
     },
     {
       "id": "M-D12-i",
@@ -5485,7 +5525,11 @@
       "why": "明确非 200 响应仍按成功费用留存",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "if (outcome.kind === 'no_http_status' || outcome.status === 200) {",
-      "replace": "if (true) {"
+      "replace": "if (true) {",
+      "by": "test",
+      "kills": [
+        "非 200 只退本次费用且不加净次数"
+      ]
     },
     {
       "id": "M-D12-j",
@@ -5493,7 +5537,11 @@
       "why": "没有 HTTP 状态时自动撤销保守占用",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "if (outcome.kind === 'no_http_status' || outcome.status === 200) {",
-      "replace": "if (outcome.kind === 'http' && outcome.status === 200) {"
+      "replace": "if (outcome.kind === 'http' && outcome.status === 200) {",
+      "by": "test",
+      "kills": [
+        "无 HTTP 状态的金额列入未知结果保守留存"
+      ]
     },
     {
       "id": "M-D12-k",
@@ -5501,7 +5549,11 @@
       "why": "重复消费结算凭据静默放过，不再拒绝",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "    settle(receipt, outcome) {",
-      "replace": "    settle(receipt, outcome) {\n      if (liveReceipt === undefined) return"
+      "replace": "    settle(receipt, outcome) {\n      if (liveReceipt === undefined) return",
+      "by": "test",
+      "kills": [
+        "终态凭据再次消费必须拒绝"
+      ]
     },
     {
       "id": "M-D12-m",
@@ -5509,7 +5561,11 @@
       "why": "恢复未结账后允许新预留覆盖旧占用",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "      if (ledger.pending !== undefined) throw new CostError('pending-attempt', '存在未结预留，不能新增请求')",
-      "replace": "      if (ledger.pending !== undefined && liveReceipt !== undefined) throw new CostError('pending-attempt', '存在未结预留，不能新增请求')"
+      "replace": "      if (ledger.pending !== undefined && liveReceipt !== undefined) throw new CostError('pending-attempt', '存在未结预留，不能新增请求')",
+      "by": "test",
+      "kills": [
+        "恢复未结项后不得新增预留"
+      ]
     },
     {
       "id": "M-D12-r",
@@ -5517,7 +5573,11 @@
       "why": "旧账缺失时新造零费用，允许未知历史变成余额",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "if (raw === undefined) unavailable('cost_ledger', '历史金额无从确认', 'unknown-history')",
-      "replace": "if (raw === undefined) { raw = { schema: 1, currency: 'USD', unit: 'micro_usd', scope: 'task', limit_micro_usd: 0, next_attempt_id: 1, entries: [] }; rawRequests = 0 }"
+      "replace": "if (raw === undefined) { raw = { schema: 1, currency: 'USD', unit: 'micro_usd', scope: 'task', limit_micro_usd: 0, next_attempt_id: 1, entries: [] }; rawRequests = 0 }",
+      "by": "test",
+      "kills": [
+        "费用账缺席不因请求数为零补造金额"
+      ]
     },
     {
       "id": "M-D12-v",
@@ -5525,7 +5585,11 @@
       "why": "把内部账目直接交作快照，调用方可改已验证金额",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "cost_ledger: structuredClone(ledger)",
-      "replace": "cost_ledger: ledger"
+      "replace": "cost_ledger: ledger",
+      "by": "test",
+      "kills": [
+        "外部改快照不能改变内账占用金额"
+      ]
     },
     {
       "id": "M-D12-w",
@@ -5533,7 +5597,11 @@
       "why": "预留被拒之前就改变尝试序号，留下部分改动",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "      const p = checkedPrice(raw, catalog)",
-      "replace": "      ledger.next_attempt_id++\n      const p = checkedPrice(raw, catalog)"
+      "replace": "      ledger.next_attempt_id++\n      const p = checkedPrice(raw, catalog)",
+      "by": "test",
+      "kills": [
+        "非法报价被拒后尝试序号与账目原样不动"
+      ]
     },
     {
       "id": "M-D12-p",
@@ -5553,7 +5621,11 @@
       "why": "稀疏费用条目跳过校验，坏账泄漏原生异常",
       "file": "scripts/lib/cost-ledger.ts",
       "find": "Array.from(raw.entries, (value, i) => {",
-      "replace": "raw.entries.map((value, i) => {"
+      "replace": "raw.entries.map((value, i) => {",
+      "by": "test",
+      "kills": [
+        "稀疏费用条目按坏账诊断而不泄漏原生异常"
+      ]
     },
     {
       "id": "M-D12-y",
