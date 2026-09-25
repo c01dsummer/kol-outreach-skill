@@ -103,7 +103,11 @@
       "why": "把「bio 未取到」重新兜底成空串 —— 未查询被伪装成查过且没有",
       "file": "scripts/providers/tikhub.ts",
       "find": "  c.email = c.bio === undefined ? undefined\n    // 查过、对方没写简介 —— 那就是「查过，没有邮箱」，不是「没查过」\n    : c.bio === null ? null\n      : (extractEmail(c.bio) ?? null)",
-      "replace": "  c.email = extractEmail(c.bio ?? '') ?? null"
+      "replace": "  c.email = extractEmail(c.bio ?? '') ?? null",
+      "by": "test",
+      "kills": [
+        "适配器未取得简介时邮箱仍未查询"
+      ]
     },
     {
       "id": "M-P1-b",
@@ -227,7 +231,11 @@
       "why": "响应结构探测退回「取第一个存在的数组」—— 空的 aweme_list 会盖掉有数据的 search_item_list，产出「这个关键词没人」，而事实是有 10 个",
       "file": "scripts/providers/tikhub.ts",
       "find": "  const nonEmpty = arrays.find(a => a.length > 0)",
-      "replace": "  const nonEmpty = arrays[0]"
+      "replace": "  const nonEmpty = arrays[0]",
+      "by": "test",
+      "kills": [
+        "前置空数组不能盖掉后面的非空列表"
+      ]
     },
     {
       "id": "M-U5-a",
@@ -889,7 +897,11 @@
       "why": "续页令牌不是字符串（null、数字）也照样交回 —— 入口会拿一个根本不存在的令牌去请求，付一次钱换回一个说不清是哪一页的结果",
       "file": "scripts/providers/tikhub.ts",
       "find": "      ...(typeof next === 'string' ? { next_token: next } : {}) }",
-      "replace": "      ...(next !== undefined ? { next_token: next } : {}) }"
+      "replace": "      ...(next !== undefined ? { next_token: next } : {}) }",
+      "by": "test",
+      "kills": [
+        "数值续页令牌不交给下一页请求"
+      ]
     },
     {
       "id": "M-D6-af",
@@ -957,7 +969,11 @@
       "why": "空白的续页令牌照样发出请求 —— 空串参数被丢掉，请求里只剩关键词，付一次钱拿回的是首页，还被当成续页记账",
       "file": "scripts/providers/tikhub.ts",
       "find": "    if (token !== undefined && token.trim() === '') {\n",
-      "replace": "    if (false) {\n"
+      "replace": "    if (false) {\n",
+      "by": "test",
+      "kills": [
+        "空白续页令牌在请求和计费前拒绝"
+      ]
     },
     {
       "id": "M-F9-c",
@@ -1141,7 +1157,11 @@
       "why": "profile 查回来了、对方没写简介的人，邮箱记成「未查询」而不是「查过，没有」—— 下游据此说「我们还没看过他的简介」，而我们看过了；这批人会被当成还有希望留着，实际是查过、没留邮箱",
       "file": "scripts/providers/tikhub.ts",
       "find": "    : c.bio === null ? null",
-      "replace": "    : c.bio === null ? undefined"
+      "replace": "    : c.bio === null ? undefined",
+      "by": "test",
+      "kills": [
+        "适配器已查询但简介为空时邮箱是查过没有"
+      ]
     },
     {
       "id": "M-P1-s",
@@ -1149,7 +1169,11 @@
       "why": "TikTok 补全已经查回来、对方没写简介时记成「没查过」—— 这个人每轮续跑都被当成还没查过重查一次，钱一轮一轮地花，而名单一次都不会变",
       "file": "scripts/providers/tikhub.ts",
       "find": "      bio: u?.signature ?? null,",
-      "replace": "      bio: u?.signature,"
+      "replace": "      bio: u?.signature,",
+      "by": "test",
+      "kills": [
+        "TikTok 主页已查但没有简介记为查过没有"
+      ]
     },
     {
       "id": "M-P1-t",
@@ -1157,7 +1181,11 @@
       "why": "Instagram 那一侧同样：补全查回来了、对方没写简介，却记成「没查过」，于是这批人每轮续跑重查一遍",
       "file": "scripts/providers/tikhub.ts",
       "find": "      bio: u?.biography ?? null,",
-      "replace": "      bio: u?.biography,"
+      "replace": "      bio: u?.biography,",
+      "by": "test",
+      "kills": [
+        "Instagram 主页已查但没有简介记为查过没有"
+      ]
     },
     {
       "id": "M-P1-u",
@@ -4743,7 +4771,11 @@
       "why": "搜索结果里缺失的粉丝数被记成 0。这一层是三态第一次成形的地方，记成 0 之后下游再也分不出「没查过」和「真的没有粉丝」，入池判定会把一批还没查过的人当成粉丝数不达标挡掉",
       "file": "scripts/providers/tikhub.ts",
       "find": "        followers: a?.follower_count,   // P1: 缺失即 undefined，不记 0",
-      "replace": "        followers: a?.follower_count ?? 0,"
+      "replace": "        followers: a?.follower_count ?? 0,",
+      "by": "test",
+      "kills": [
+        "搜索未返回粉丝数时仍是未查询"
+      ]
     },
     {
       "id": "M-P1-k",
@@ -4751,7 +4783,11 @@
       "why": "搜索结果里那个恒为 0 的作品数被当成真实值记下。那个端点对所有人都返回 0，它表示「这里不填这个字段」而不是「这个人一条作品都没有」—— 当成真值之后，内容积累那一档对全员失效，而且看不出来：每个人都拿到一个像模像样的 0",
       "file": "scripts/providers/tikhub.ts",
       "find": "        post_count: a?.aweme_count === 0 ? undefined : a?.aweme_count,",
-      "replace": "        post_count: a?.aweme_count,"
+      "replace": "        post_count: a?.aweme_count,",
+      "by": "test",
+      "kills": [
+        "搜索占位作品数零不成为真实零"
+      ]
     },
     {
       "id": "M-P1-l",
@@ -6025,7 +6061,11 @@
       "why": "话题页里的图文与轮播也写上播放数 —— 那类媒体的播放字段语义没确认过，把不知道的数当成真实播放参与评分与排序",
       "file": "scripts/providers/tikhub.ts",
       "find": "...(isInstagramVideo(item) ? { plays: item?.play_count ?? item?.ig_play_count } : {}),\n      likes:",
-      "replace": "plays: item?.play_count ?? item?.ig_play_count,\n      likes:"
+      "replace": "plays: item?.play_count ?? item?.ig_play_count,\n      likes:",
+      "by": "test",
+      "kills": [
+        "话题页轮播的来源播放字段不成为观测"
+      ]
     },
     {
       "id": "M-D8-d",
@@ -6033,7 +6073,11 @@
       "why": "漏认媒体类型为视频这个肯定信号，主页作品失去视频资格及可用播放，话题页也丢失有来源的播放",
       "file": "scripts/providers/tikhub.ts",
       "find": "return i?.is_video === true || i?.media_type === 2 || i?.media_format === 'video' ||",
-      "replace": "return i?.is_video === true || i?.media_format === 'video' ||"
+      "replace": "return i?.is_video === true || i?.media_format === 'video' ||",
+      "by": "test",
+      "kills": [
+        "仅 media_type=2 也是确认视频"
+      ]
     },
     {
       "id": "M-D8-e",
@@ -6041,7 +6085,11 @@
       "why": "把轮播当作已确认视频，主页播放指标纳入无肯定视频证据的作品，话题页也误填其语义未明的播放数",
       "file": "scripts/providers/tikhub.ts",
       "find": "    i?.media_name === 'reel' || i?.product_type === 'clips'\n}",
-      "replace": "    i?.media_name === 'reel' || i?.product_type === 'clips' || i?.media_type === 8\n}"
+      "replace": "    i?.media_name === 'reel' || i?.product_type === 'clips' || i?.media_type === 8\n}",
+      "by": "test",
+      "kills": [
+        "media_type=8 轮播不是确认视频"
+      ]
     },
     {
       "id": "M-D8-f",
