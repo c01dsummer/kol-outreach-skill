@@ -43,7 +43,7 @@ interface Creator {
   recent_posts?: Array<{
     id?:    string  // D11：平台:原始作品 id；缺失不填占位，不使用用户或文案 id
     desc:   string  // 空串也可能是来源字段未取到，当前无法与作者未写区分（ADR-102）
-    plays?: number
+    plays?: number  // IG 搜索仅对有视频正信号的作品写入；图文/轮播/未知缺席，真实视频 0 保留（D18）
     likes?: number
   }>
 
@@ -139,6 +139,12 @@ recentPosts(handle: string, platform: Platform): Promise<{
 合并不修改输入作品数组或内容。后页没带作品不擦除已有证据；两侧都缺席或为空数组时
 仍返回未查询，不写出「确认无作品」。这一规则只用于搜索证据，不改变独立 `recentPosts`
 能力产出的主页绩效样本契约，也不参与同人识别、评分或分层（ADR-105）。
+
+Instagram V2 Reels 与话题搜索的作品都保留为内容证据；`plays` 只有逐条确认视频时才写。
+肯定信号为 `is_video === true`、`media_type === 2`、`media_format === 'video'`、
+`media_name === 'reel'` 或 `product_type === 'clips'`。图文、轮播和类型未知时，即使源字段
+给出 0 或正数也不写播放数；确认视频且源值为 0 则保留 0。该口径不外推到 TikTok
+或独立的主页作品样本（D18、ADR-102 第九节）。
 
 ## 当前实现
 
