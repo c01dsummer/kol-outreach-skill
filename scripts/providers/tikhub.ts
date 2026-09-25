@@ -78,7 +78,7 @@ export function pickList(data: any, path: string): any[] {
 /**
  * 这一条 IG 条目算不算视频/Reels（D8.a「短视频/Reels」、ADR-112 第二节）。
  *
- * **主页作品样本与话题页的播放数共用这一份判定**，不另写第二份。认的信号是响应里的五个键，
+ * **主页作品样本与 Reels、话题两条搜索路线的播放数共用这一份判定**，不另写第二份。认的信号是响应里的五个键，
  * 任一成立就算：`is_video` 为 `true`、`media_type` 为 `2`、`media_format` 为 `'video'`、
  * `media_name` 为 `'reel'`、`product_type` 为 `'clips'`。都不成立 —— 包括这些键缺席、
  * 条目不是对象 —— 就不算。话题页里混着的图文（`media_type` 1、`product_type` `'feed'`）
@@ -296,7 +296,8 @@ export class TikHub {
       const post: RecentPost = {
         id: searchPostId('instagram', item?.id),
         desc: item?.caption?.text ?? '',
-        plays: item?.play_count ?? item?.ig_play_count,
+        // 图文与未知媒体仍留作内容线索，但播放字段未经证实；真实视频零值保留（D18）
+        ...(isInstagramVideo(item) ? { plays: item?.play_count ?? item?.ig_play_count } : {}),
         // like_count 实测可能是 null（作者隐藏了赞数）—— null 是「不可见」不是 0
         likes: item?.like_count ?? undefined,
       }

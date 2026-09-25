@@ -4666,8 +4666,8 @@
       "req": "P1",
       "why": "话题页里的图文与轮播也写上播放数 —— 那类媒体的播放字段语义没确认过，把不知道的数当成真实播放参与评分与排序",
       "file": "scripts/providers/tikhub.ts",
-      "find": "...(isInstagramVideo(item) ? { plays: item?.play_count ?? item?.ig_play_count } : {}),",
-      "replace": "plays: item?.play_count ?? item?.ig_play_count,"
+      "find": "...(isInstagramVideo(item) ? { plays: item?.play_count ?? item?.ig_play_count } : {}),\n      likes:",
+      "replace": "plays: item?.play_count ?? item?.ig_play_count,\n      likes:"
     },
     {
       "id": "M-D8-d",
@@ -5986,6 +5986,70 @@
       "by": "selfcheck",
       "kills": [
         "市场人数：probe 完全忽略 target_count，仍逐项搜索且输入原样"
+      ]
+    },
+    {
+      "id": "M-D18-a",
+      "req": "D18.a",
+      "why": "Reels 搜索把未确认媒体给出的数值当作播放观测",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "        ...(isInstagramVideo(item) ? { plays: item?.play_count ?? item?.ig_play_count } : {}),",
+      "replace": "        plays: item?.play_count ?? item?.ig_play_count,",
+      "by": "selfcheck",
+      "kills": [
+        "IG Reels 未确认视频的作品保留证据但不带播放数，源零与大数均不例外"
+      ]
+    },
+    {
+      "id": "M-D18-b",
+      "req": "D18.b",
+      "why": "话题搜索把未确认媒体给出的数值当作播放观测",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "      ...(isInstagramVideo(item) ? { plays: item?.play_count ?? item?.ig_play_count } : {}),\n      likes:",
+      "replace": "      plays: item?.play_count ?? item?.ig_play_count,\n      likes:",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题 未确认视频的作品保留证据但不带播放数，源零与大数均不例外"
+      ]
+    },
+    {
+      "id": "M-D18-c",
+      "req": "D18.c",
+      "why": "Reels 搜索把确认为视频的真实播放也全部丢失",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "        ...(isInstagramVideo(item) ? { plays: item?.play_count ?? item?.ig_play_count } : {}),",
+      "replace": "        // 故意不带任何播放数",
+      "by": "selfcheck",
+      "kills": [
+        "IG Reels 五种单独视频信号都保留真实零播放",
+        "IG Reels 五种单独视频信号及混合信号都保留真实正播放"
+      ]
+    },
+    {
+      "id": "M-D18-d",
+      "req": "D18.c",
+      "why": "Reels 搜索误把真实零播放变成未查询",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "        ...(isInstagramVideo(item) ? { plays: item?.play_count ?? item?.ig_play_count } : {}),",
+      "replace": "        ...(isInstagramVideo(item) && (item?.play_count ?? item?.ig_play_count) ? { plays: item?.play_count ?? item?.ig_play_count } : {}),",
+      "by": "selfcheck",
+      "kills": [
+        "IG Reels 五种单独视频信号都保留真实零播放"
+      ]
+    },
+    {
+      "id": "M-D18-e",
+      "req": "D18.d",
+      "why": "只承认一种视频信号，遗漏另外四种独立成立的已核信号",
+      "file": "scripts/providers/tikhub.ts",
+      "find": "  return i?.is_video === true || i?.media_type === 2 || i?.media_format === 'video' ||\n    i?.media_name === 'reel' || i?.product_type === 'clips'",
+      "replace": "  return i?.is_video === true",
+      "by": "selfcheck",
+      "kills": [
+        "IG Reels 五种单独视频信号都保留真实零播放",
+        "IG Reels 五种单独视频信号及混合信号都保留真实正播放",
+        "IG 话题 五种单独视频信号都保留真实零播放",
+        "IG 话题 五种单独视频信号及混合信号都保留真实正播放"
       ]
     }
   ],

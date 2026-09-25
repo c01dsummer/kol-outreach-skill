@@ -4938,6 +4938,187 @@ group('crashed', [], () => {
   }
 })
 
+// 依据：D18、ADR-102 §9、ADR-112 §2 与 providers/_interface.md 的公开视频信号契约。
+// 不读取或调用视频判定 helper；从真实 TikHub.search 观察播放字段资格。
+group('ig-search-plays', [], () => {
+  type Sample = {
+    id: string; handle: string; desc: string; media: Record<string, unknown>;
+    plays?: number | null; likes?: number | null; confirmed: boolean;
+  }
+  // 五个信号分别单独成立；其余字段留空，防止只认其中一个信号也通过。
+  // 这些是公开输入契约，不是从生产 helper 复制的 oracle。
+  const signals: Array<[string, Record<string, unknown>]> = [
+    ['is-video', { is_video: true }],
+    ['media-type', { media_type: 2 }],
+    ['media-format', { media_format: 'video' }],
+    ['media-name', { media_name: 'reel' }],
+    ['product-type', { product_type: 'clips' }],
+  ]
+  const unconfirmed: Array<[string, Record<string, unknown>]> = [
+    ['photo', { is_video: false, media_type: 1, product_type: 'feed' }],
+    ['carousel', { is_video: false, media_type: 8, product_type: 'carousel_container' }],
+    ['no-signals', {}],
+    ['lookalike-values', { is_video: 'true', media_type: '2', media_format: 'VIDEO',
+      media_name: 'REEL', product_type: 'CLIPS' }],
+    ['truthy-and-other-enums', { is_video: 1, media_type: 55, media_format: 'reels',
+      media_name: 'video', product_type: 'video' }],
+  ]
+  const samples: Sample[] = []
+  for (const [name, media] of signals) for (const plays of [0, 765432]) samples.push({
+    id: `${name}-${plays}`, handle: 'mixedwriter', desc: `confirmed ${name}: ${plays}`,
+    media, plays, likes: plays === 0 ? 0 : 17, confirmed: true,
+  })
+  for (const [name, media] of unconfirmed) for (const plays of [0, 765432]) samples.push({
+    id: `${name}-${plays}`, handle: name === 'photo' ? 'photowriter' : 'mixedwriter',
+    desc: name === 'photo' && plays === 0 ? '' : `evidence ${name}: ${plays}`,
+    media, plays, likes: plays === 0 ? 0 : null, confirmed: false,
+  })
+  // 任一正信号就足够，负信号不能覆盖它；五种已有判定不扩展枚举。
+  samples.push({ id: 'positive-with-negative', handle: 'mixedwriter', desc: 'one positive remains enough',
+    media: { is_video: false, media_type: 1, product_type: 'clips' }, plays: 765432,
+    likes: 19, confirmed: true })
+  // 视频资格不会给缺失数值补零；null 与字段缺席都没有可保留的播放测量值。
+  samples.push({ id: 'video-missing-play', handle: 'mixedwriter', desc: 'missing video count',
+    media: { is_video: true }, confirmed: true })
+  samples.push({ id: 'video-null-play', handle: 'mixedwriter', desc: 'null video count',
+    media: { media_type: 2 }, plays: null, likes: null, confirmed: true })
+
+  const routes = [
+    { key: 'reels', endpoint: IG_REELS,
+      task: { platform: 'instagram', keyword: '#SearchEvidence', dimension: 'scene', as_hashtag: true } },
+    { key: 'hashtag', endpoint: '/api/v1/instagram/v2/fetch_hashtag_posts',
+      task: { platform: 'instagram', keyword: '#SearchEvidence', dimension: 'scene', ig_route: 'hashtag' } },
+  ]
+  const fixtures = routes.map(route => ({ ...route, response: {
+    data: { pagination_token: 'local-token', data: { items: [
+      ...samples.map(sample => ({
+        id: sample.id,
+        user: { username: sample.handle, full_name: `Author ${sample.handle}`, id: 'decoy-user-id' },
+        ...sample.media,
+        // 给另一条路线的文案字段放诱饵，原文案必须仍从本路线已核字段读取。
+        ...(route.key === 'reels'
+          ? { caption: { text: sample.desc, id: 'decoy-caption-id' }, caption_text: 'wrong route caption' }
+          : { caption_text: sample.desc, caption: { text: 'wrong route caption', id: 'decoy-caption-id' } }),
+        ...(sample.plays === undefined ? {} : { play_count: sample.plays }),
+        ...(sample.likes === undefined ? {} : { like_count: sample.likes }),
+      })),
+      // 原始条目计数不是作者数，也不是有播放数的作品数。没作者的条目仍在 raw_count 里。
+      { id: 'orphan-item', caption: { text: 'no author' }, caption_text: 'no author',
+        media_type: 1, play_count: 765432, like_count: 3 },
+    ] } },
+  } }))
+  const ttTask = { platform: 'tiktok', keyword: 'tt-search-evidence', dimension: 'category' }
+  const ttResponse = { data: { aweme_list: [], has_more: 0, search_item_list: [
+    ...[0, 765432].map(plays => ({ aweme_info: {
+      aweme_id: `tt-${plays}`, desc: `TT evidence ${plays}`,
+      statistics: { play_count: plays, digg_count: 11 },
+      author: { unique_id: 'ttwriter', nickname: 'TT Author', follower_count: 10000 },
+    } })),
+  ] } }
+  const runner = join(tmp, 'ig-search-plays.mjs')
+  // 子进程只 import 公开入口；这里不新建生产解析器，也不改通用 fake-fetch 的既有罐头。
+  // 路径用 resolve 而非 S：被 import 的供应商/库不是新增的脚本入口覆盖认领。
+  writeFileSync(runner, `
+    import { TikHub } from ${JSON.stringify(pathToFileURL(resolve('scripts/providers/tikhub.ts')).href)};
+    import { startBudget } from ${JSON.stringify(pathToFileURL(resolve('scripts/lib/budget.ts')).href)};
+    const fixtures = ${JSON.stringify(fixtures)};
+    const ttTask = ${JSON.stringify(ttTask)};
+    const ttResponse = ${JSON.stringify(ttResponse)};
+    const attempts = [];
+    let active;
+    globalThis.fetch = async input => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (!active || url.pathname !== active.endpoint) {
+        throw new Error('unexpected fake endpoint: ' + url.pathname);
+      }
+      attempts.push({ endpoint: url.pathname, query: Object.fromEntries(url.searchParams) });
+      return new Response(JSON.stringify(active.response), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      });
+    };
+    const costs = ${JSON.stringify(knownCosts(1000000, []))};
+    costs.cost_ledger.scope = 'process';
+    const hub = new TikHub('fake-key-for-ig-search-plays', startBudget(costs, 1000000, 'process'));
+    const pages = {};
+    for (const fixture of fixtures) {
+      active = fixture;
+      pages[fixture.key] = await hub.search(fixture.task, 'US', 0);
+    }
+    active = { endpoint: ${JSON.stringify(TT_SEARCH)}, response: ttResponse };
+    pages.tiktok = await hub.search(ttTask, 'US', 0);
+    console.log(JSON.stringify({ pages, attempts }));
+  `)
+  const r = runBoth('IG 搜索播放资格：真实 search 与仅内存假响应', [runner], tmp)
+  if (!r.ok) return
+  let result: any
+  try { result = JSON.parse(r.stdout) }
+  catch (error) {
+    failed++
+    console.error(`  ✗ IG 搜索播放资格${SELFCHECK_FIXTURE_MARK}：子进程未交回可读 JSON：${String(error)}`)
+    return
+  }
+  const rows = (page: any): any[] => !Array.isArray(page?.creators) ? []
+    : page.creators.flatMap((creator: any) => !Array.isArray(creator?.recent_posts) ? []
+      : creator.recent_posts.map((post: any) => ({ creator, post })))
+  const checkCases = (page: any, selected: Sample[], check: (row: any, sample: Sample) => boolean) =>
+    selected.every(sample => {
+      const found = rows(page).filter(row => row.post?.id === `instagram:${sample.id}`)
+      // 避免「整条作品丢了，因此 plays 也没了」满足缺失播放数的断言。
+      return found.length === 1 && check(found[0], sample)
+    })
+  const noPlays = (page: any) => checkCases(page, samples.filter(s => !s.confirmed),
+    row => row.post.plays === undefined)
+  const confirmedPlays = (page: any, n: number) => checkCases(page,
+    samples.filter(s => s.confirmed && s.plays === n), row => row.post.plays === n)
+  const missingPlays = (page: any) => checkCases(page,
+    samples.filter(s => s.confirmed && (s.plays === undefined || s.plays === null)),
+    row => row.post.plays === undefined)
+  const metadata = (page: any, route: typeof routes[number]) =>
+    rows(page).length === samples.length && checkCases(page, samples, (row, sample) => {
+      const creator = row.creator, post = row.post, sources = creator.discovery_sources
+      return creator.platform === 'instagram' && creator.handle === sample.handle
+        && post.desc === sample.desc
+        && post.likes === (typeof sample.likes === 'number' ? sample.likes : undefined)
+        && Array.isArray(sources) && sources.length === 1
+        && sources[0].platform === 'instagram' && sources[0].handle === sample.handle
+        && sources[0].keyword === route.task.keyword && sources[0].dimension === route.task.dimension
+        && sources[0].endpoint === route.endpoint
+    })
+  const reels = result?.pages?.reels, hashtag = result?.pages?.hashtag, tt = result?.pages?.tiktok
+  const why = JSON.stringify(result)
+  named('IG Reels 未确认视频的作品保留证据但不带播放数，源零与大数均不例外', noPlays(reels), why)
+  criterion('D18.a')
+  named('IG Reels 五种单独视频信号都保留真实零播放', confirmedPlays(reels, 0), why)
+  named('IG Reels 五种单独视频信号及混合信号都保留真实正播放', confirmedPlays(reels, 765432), why)
+  named('IG Reels 已确认视频仍不为缺失或null播放数补零', missingPlays(reels), why)
+  criterion('D18.c')
+  named('IG Reels 门控不丢作品id文案点赞与作者来源，纯图文作者仍保留', metadata(reels, routes[0]), why)
+  named('IG 话题 未确认视频的作品保留证据但不带播放数，源零与大数均不例外', noPlays(hashtag), why)
+  criterion('D18.b')
+  named('IG 话题 五种单独视频信号都保留真实零播放', confirmedPlays(hashtag, 0), why)
+  named('IG 话题 五种单独视频信号及混合信号都保留真实正播放', confirmedPlays(hashtag, 765432), why)
+  named('IG 话题 已确认视频仍不为缺失或null播放数补零', missingPlays(hashtag), why)
+  criterion('D18.d')
+  named('IG 话题 门控不丢作品id文案点赞与作者来源，纯图文作者仍保留', metadata(hashtag, routes[1]), why)
+  named('IG 搜索播放门控不改变原始条目数与两条路线的续页口径',
+    reels?.raw_count === samples.length + 1 && hashtag?.raw_count === samples.length + 1
+      && reels?.next_token === 'local-token' && hashtag?.next_token === undefined, why)
+  const attempts = result?.attempts
+  named('IG 搜索播放门控不增加请求，as_hashtag不切路且话题请求保留固定参数',
+    Array.isArray(attempts) && attempts.length === 3
+      && attempts[0].endpoint === IG_REELS && attempts[0].query.keyword === '#SearchEvidence'
+      && attempts[1].endpoint === routes[1].endpoint && attempts[1].query.keyword === 'SearchEvidence'
+      && attempts[1].query.feed_type === 'top' && attempts[1].query.pagination_token === undefined
+      && attempts[2].endpoint === TT_SEARCH, why)
+  named('IG 搜索播放门控不改变 TikTok 无IG媒体信号条目的真实零与正播放',
+    tt?.raw_count === 2 && rows(tt).length === 2 && [0, 765432].every(plays => {
+      const found = rows(tt).filter(row => row.post?.id === `tiktok:tt-${plays}`)
+      return found.length === 1 && found[0].creator.platform === 'tiktok'
+        && found[0].creator.handle === 'ttwriter' && found[0].post.desc === `TT evidence ${plays}`
+        && found[0].post.plays === plays && found[0].post.likes === 11
+    }), why)
+})
+
 const ranOnly = runGroups()
 
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m

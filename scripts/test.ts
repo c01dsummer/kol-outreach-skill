@@ -3884,7 +3884,8 @@ suite('D15', 'IG 话题入口：配置校验与分派（ADR-112 第四节第 3 �
 
   // ── 跨路线同一作品 id（ADR-112 第二节末条、D11.b、D11.h）──
   // Reels 页与话题页都给了 alice 的同一条作品 id 'same'；两页都真的经 search() 分派拿回来，
-  // 再按任务顺序并进同一个累加器：先到的那条整条留下（连同它的播放数），后到的不覆盖；话题独有的那条追加在后
+  // 再按任务顺序并进同一个累加器：先到的那条整条留下，后到的不回填播放数；话题独有的那条追加在后。
+  // Reels 条目虽有源 play_count: 100，却没有确认视频的信号，归一化后的 plays 应缺席。
   const crossBodies = {
     [REELS]: { data: { data: { items: [
       { id: 'same', caption: { text: 'Reels 那条' }, play_count: 100, user: { username: 'alice', full_name: 'A' } },
@@ -3899,21 +3900,24 @@ suite('D15', 'IG 话题入口：配置校验与分派（ADR-112 第四节第 3 �
   const reelsPage = (await searchVia(reelsTask, 0, undefined, crossBodies)).page
   const htPage = (await searchVia(htTask, 0, undefined, crossBodies)).page
   const mergedInOrder = (order: [Page | undefined, SearchTask][]) => attempt(() => {
+    const firstPost = order[0][0]?.creators.find(c => c.handle === 'alice')?.recent_posts?.[0]
+    const firstBefore = structuredClone(firstPost)
     const acc = new Map<string, Creator>()
     order.forEach(([p, t], i) => { if (!p) throw new Error(`第 ${i + 1} 页没拿到`); mergePage(acc, p.creators, i, t) })
     const kept = acc.get('instagram:alice')
-    const firstPost = order[0][0]?.creators.find(c => c.handle === 'alice')?.recent_posts?.[0]
-    return [kept?.recent_posts?.map(p => [p.id, p.desc]),
-      JSON.stringify(kept?.recent_posts?.[0]) === JSON.stringify(firstPost),
+    return [kept?.recent_posts?.map(p => [p.id, p.desc, p.plays]),
+      JSON.stringify(kept?.recent_posts?.[0]) === JSON.stringify(firstBefore),
+      JSON.stringify(firstPost) === JSON.stringify(firstBefore),
       kept?.discovery_sources?.map(s => s.endpoint)]
   })
   eq('话题入口：Reels 先到、话题后到的同一作品 id 只留 Reels 那条，话题独有的作品追加在后',
     mergedInOrder([[reelsPage, reelsTask], [htPage, htTask]]),
-    [[['instagram:same', 'Reels 那条'], ['instagram:extra', '话题独有']], true, [REELS, HT]])
+    [[['instagram:same', 'Reels 那条', undefined], ['instagram:extra', '话题独有', undefined]], true, true, [REELS, HT]])
   eq('话题入口：话题先到、Reels 后到的同一作品 id 只留话题那条，播放数随先到的路线',
     mergedInOrder([[htPage, htTask], [reelsPage, reelsTask]]),
-    [[['instagram:same', '话题那条'], ['instagram:extra', '话题独有']], true, [HT, REELS]])
+    [[['instagram:same', '话题那条', 999], ['instagram:extra', '话题独有', undefined]], true, true, [HT, REELS]])
   criterion('D11.b', 'D11.h')
+  tension('D18', 'P1')
 }
 
 suite('D16', '任务列表按必填字段校验')
