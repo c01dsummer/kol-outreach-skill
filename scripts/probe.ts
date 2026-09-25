@@ -31,6 +31,10 @@ if (cfgIndex < 0 || !cfgPath || cfgPath.startsWith('--')) {
 }
 type ProbeConfig = CostState & { market?: string; tasks: SearchTask[] }
 
+/** 结果行里的 ig_route：任务写了就原样带出，没写就一个键都不加（D15.l、D15.m） */
+const routeOf = (t: SearchTask): { ig_route?: SearchTask['ig_route'] } =>
+  t.ig_route === undefined ? {} : { ig_route: t.ig_route }
+
 /**
  * P1：没有数据时返回 undefined，**不是 0**。
  * 返回 0 会让用户读成「这批全是小号」，而事实是「这个平台的搜索结果不给粉丝数」——
@@ -80,6 +84,9 @@ async function main() {
         task_index: i,
         keyword: t.keyword, dimension: t.dimension, platform: t.platform,
         as_hashtag: t.as_hashtag ?? false,
+        // D15.l：路线只由 ig_route 决定（D15.k），话题任务 0 人时只看这一行也要分得出走的哪条路。
+        // 照配置原样带出；没写就不带这个键 —— 不补成 "reels"，那是配置里没有的值（P1）
+        ...routeOf(t),
         found: found.length,
         follower_count_known: followers.length,
         // JSON.stringify 会直接丢掉 undefined 的键 —— 字段消失后，消费方
@@ -106,7 +113,7 @@ async function main() {
       }
       if (e instanceof CostError || e instanceof BudgetInputError) throw e
       const msg = e instanceof TikHubError ? e.message : String(e)
-      results.push({ task_index: i, keyword: t.keyword, dimension: t.dimension, platform: t.platform, error: msg })
+      results.push({ task_index: i, keyword: t.keyword, dimension: t.dimension, platform: t.platform, ...routeOf(t), error: msg })   // D15.m
       console.error(`  ✗ ${label} → ${msg}`)
       if (e instanceof TikHubError && e.status === 402) break
     }

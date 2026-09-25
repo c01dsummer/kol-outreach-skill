@@ -3942,8 +3942,8 @@
       "req": "U8.g",
       "why": "试探错误结果丢失原任务身份和维度",
       "file": "scripts/probe.ts",
-      "find": "results.push({ task_index: i, keyword: t.keyword, dimension: t.dimension, platform: t.platform, error: msg })",
-      "replace": "results.push({ keyword: t.keyword, platform: t.platform, error: msg })",
+      "find": "results.push({ task_index: i, keyword: t.keyword, dimension: t.dimension, ",
+      "replace": "results.push({ keyword: t.keyword, ",
       "by": "selfcheck",
       "kills": [
         "probe 普通错误行带原下标与维度，失败能定位到原任务"
@@ -5098,6 +5098,108 @@
       "why": "账单又写回等式 —— 平均和合计各自取整，「7 条 × 1.3 秒 = 9 秒」这种自己对不上的算式回来了",
       "find": "，逐条合计 ",
       "replace": " = 逐条合计 "
+    },
+    {
+      "id": "M-D15-x",
+      "req": "D15.l",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：probe 成功结果带出任务配置里写的 ig_route，写了 hashtag 的 IG 任务那一行原样是 hashtag",
+        "IG 话题入口：probe 成功结果带出任务配置里写的 ig_route，话题页一个人都没解析出来也照样是 hashtag"
+      ],
+      "why": "成功结果不带路线 —— 话题任务 0 人时，只看试探输出分不出走的是话题页还是 Reels",
+      "file": "scripts/probe.ts",
+      "find": "        ...routeOf(t),\n        found: found.length,",
+      "replace": "        found: found.length,"
+    },
+    {
+      "id": "M-D15-y",
+      "req": "D15.m",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：probe 错误结果同样带出任务配置里写的 ig_route，话题页请求失败的那一行原样是 hashtag"
+      ],
+      "why": "错误结果不带路线 —— 话题页请求失败时，看不出失败的是哪条路线",
+      "file": "scripts/probe.ts",
+      "find": "...routeOf(t), error: msg",
+      "replace": "error: msg"
+    },
+    {
+      "id": "M-D15-z",
+      "req": "D15.l",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：probe 成功结果里，没写 ig_route 的 IG 任务那一行没有 ig_route 这个键",
+        "IG 话题入口：probe 成功结果不由 as_hashtag 推断 ig_route，写了 as_hashtag 而没写 ig_route 的那一行没有这个键",
+        "IG 话题入口：probe 成功结果不由关键词写法推断 ig_route，关键词以 # 开头而没写 ig_route 的那一行没有这个键",
+        "IG 话题入口：probe 成功结果不由平台补写 ig_route，TikTok 任务那一行没有这个键"
+      ],
+      "why": "没写路线的任务，结果里也长出路线字段（写成空值）—— 配置里没有的东西被当成了一个值",
+      "file": "scripts/probe.ts",
+      "find": "t.ig_route === undefined ? {} : { ig_route: t.ig_route }",
+      "replace": "t.ig_route === undefined ? { ig_route: null } : { ig_route: t.ig_route }"
+    },
+    {
+      "id": "M-D15-aa",
+      "req": "D15.l",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：probe 成功结果不由 as_hashtag 推断 ig_route，写了 as_hashtag 而没写 ig_route 的那一行没有这个键"
+      ],
+      "why": "把 as_hashtag 当成路线 —— 写了 as_hashtag 的 Reels 任务，在试探结果里被说成走了话题页",
+      "file": "scripts/probe.ts",
+      "find": "        ...routeOf(t),\n        found: found.length,",
+      "replace": "        ...routeOf(t.as_hashtag ? { ...t, ig_route: 'hashtag' } : t),\n        found: found.length,"
+    },
+    {
+      "id": "M-D15-ab",
+      "req": "D15.m",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：probe 错误结果里，没写 ig_route 的 IG 任务请求失败的那一行没有 ig_route 这个键"
+      ],
+      "why": "错误结果给没写路线的任务补上一个路线值 —— 配置里没有的值出现在试探结果里",
+      "file": "scripts/probe.ts",
+      "find": "...routeOf(t), error: msg",
+      "replace": "ig_route: t.ig_route ?? 'reels', error: msg"
+    },
+    {
+      "id": "M-D15-ac",
+      "req": "D15.m",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：probe 错误结果不由平台补写 ig_route，TikTok 任务请求失败的那一行没有这个键"
+      ],
+      "why": "错误结果按平台给 TikTok 任务补一个路线字段 —— 配置里没有的值出现在试探结果里，TikTok 的失败读起来像某条 IG 路线的失败",
+      "file": "scripts/probe.ts",
+      "find": "...routeOf(t), error: msg",
+      "replace": "...(t.platform === 'tiktok' ? { ig_route: null } : routeOf(t)), error: msg"
+    },
+    {
+      "id": "M-D15-ad",
+      "req": "D15.m",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：probe 错误结果同样带出任务配置里写的 ig_route，话题页请求失败的那一行原样是 hashtag",
+        "IG 话题入口：probe 错误结果里，没写 ig_route 的 IG 任务请求失败的那一行没有 ig_route 这个键",
+        "IG 话题入口：probe 错误结果不由平台补写 ig_route，TikTok 任务请求失败的那一行没有这个键"
+      ],
+      "why": "错误结果带的是前一个任务的路线，不是这个任务配置里写的 —— 失败被记到了另一条路线上",
+      "file": "scripts/probe.ts",
+      "find": "...routeOf(t), error: msg",
+      "replace": "...routeOf(cfg.tasks[Math.max(0, i - 1)]), error: msg"
+    },
+    {
+      "id": "M-D15-ae",
+      "req": "D15.l",
+      "by": "selfcheck",
+      "kills": [
+        "IG 话题入口：probe 成功结果不由 as_hashtag 与关键词写法合起来推断 ig_route，两样都占而没写 ig_route 的那一行没有这个键"
+      ],
+      "why": "写了 as_hashtag、关键词又以 # 开头的 Reels 任务，在试探结果里被说成走了话题页",
+      "file": "scripts/probe.ts",
+      "find": "        ...routeOf(t),\n        found: found.length,",
+      "replace": "        ...routeOf(t.as_hashtag && t.keyword.startsWith('#') ? { ...t, ig_route: 'hashtag' } : t),\n        found: found.length,"
     }
   ],
   "exemptions": [

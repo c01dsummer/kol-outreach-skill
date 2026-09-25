@@ -3610,6 +3610,134 @@ group('hashtag-route', [], () => {
     }
   }
   criterion('D15.k', 'D6.w', 'D15.a')
+
+  // (6)–(8) probe 的结果行带出任务配置里的 ig_route：成功结果（D15.l）与错误结果（D15.m）。
+  //     独立上下文先于实现写成：只读了 D15、U8、F3 原文，ADR-112，_interface.md 与 types.ts 的 SearchTask 类型，
+  //     以及假供应商（fake-fetch.ts）；没有读 probe.ts、tikhub.ts、lib/ 下的函数体。
+  //     期望只出自需求原文，没有照着实现的输出抄：
+  //      · 「任务写了就原样带出」→ 那一行的 ig_route 恰好是 "hashtag"（D15.j 定死合规取值只有这一个，不合规的走不到结果行）
+  //      · 「没写就不带这个字段」→ 结果对象上**没有** ig_route 这个键。用 Object.hasOwn 判，不判 `=== undefined`：
+  //        JSON 里写出 `"ig_route": null` 也是带了这个字段
+  //      · 「不由 as_hashtag、关键词写法、平台或返回结果推断补写」→ 各放一个诱饵任务：写了 as_hashtag 的、关键词以 # 开头的、
+  //        TikTok 的，都没写 ig_route；另放一个写了 hashtag、话题页却一个人都解析不出的（返回结果里没有任何话题端点来源，
+  //        照样要带出 —— ADR-112 第六节第二张欠条要的正是「话题任务 0 人时只看 stdout 分得出走的哪条路线」）
+  //     结果一律按 task_index 找（U8.f／U8.g），不靠位置对齐。找不到那一行、或那一行的成败与夹具设计的不符，断言照红 ——
+  //     否则「没有这个键」会被一行根本不存在的结果满足。这里不打夹具记号：行找不到也可能是 U8.f／U8.g 那几条变异弄的，
+  //     打了记号会把它们的整跑判成跑不起来。
+  //     错误结果用 `force-402` 造（fake-fetch.ts：URL 里带这个串就回 402，判在按路由挑罐头之前，话题页一样命中）。
+  //     402 会让 probe 停在那一条（probe 组「普通错误会结束本次试探」），所以一跑只放一个、放在末尾，前面垫一个成功任务；
+  //     三种错误各跑一次（写了 hashtag 的、没写的 IG 任务、TikTok 任务）。账本里那一行 402 落在哪个端点，只证明请求走了哪条路；
+  //     路线字段是不是出自**这个**任务，靠垫着的成功任务故意和出错任务的路线相反来证明 —— 两个任务路线一样的话，
+  //     错误行拿前一个任务的路线、或按整份配置补写，都会假绿。（这一句与第三跑、以及成功那一跑的第 6 个任务，
+  //     是开 PR 前的审阅指出后补的，写在实现之后，红由 M-D15-ac／ad／ae 重演。）
+  const rowsByIndex = (stdout: string): ((i: number) => any) => {
+    const results = summaryOf(stdout).results
+    const rows: any[] = Array.isArray(results) ? results : []
+    return i => rows.find(r => r?.task_index === i)
+  }
+  const hasRoute = (row: any): boolean => row !== null && typeof row === 'object' && Object.hasOwn(row, 'ig_route')
+  const showRow = (row: any): string => row === undefined ? '（没有这一行）'
+    : JSON.stringify({ task_index: row?.task_index, keyword: row?.keyword, platform: row?.platform, error: row?.error,
+        has_ig_route: hasRoute(row), ig_route: row?.ig_route,
+        sample: Array.isArray(row?.sample) ? row.sample.length : String(row?.sample) })
+  {
+    const cwd = cwdOf('probe-route-ok'), ledger = join(cwd, 'attempts.tsv')
+    const r = runBoth('probe 话题入口：结果行的 ig_route —— 七个任务混在一份配置里、全部成功',
+      [S('probe.ts'), '--config', cfgOf(cwd, 'htrouteok', [
+        { keyword: '#htroute-tagged', dimension: 'scene', platform: 'instagram', ig_route: 'hashtag' },
+        { keyword: 'htroute-plain', dimension: 'category', platform: 'instagram' },
+        { keyword: 'htroute-ashashtag', dimension: 'audience', platform: 'instagram', as_hashtag: true },
+        { keyword: '#htroute-hashy', dimension: 'competitor', platform: 'instagram' },
+        { keyword: 'htroute-tiktok', dimension: 'category', platform: 'tiktok' },
+        { keyword: '#hashtag-nobody-htroute', dimension: 'audience', platform: 'instagram', ig_route: 'hashtag' },
+        // 两样线索都占（as_hashtag 且关键词以 # 开头）而没写 ig_route：只在两样同时成立时补写的实现，上面两个单线索诱饵抓不到
+        { keyword: '#htroute-both', dimension: 'scene', platform: 'instagram', as_hashtag: true },
+      ])], cwd, { status: 0 }, htEnv(ledger))
+    if (r.ok) {
+      const at = rowsByIndex(r.stdout)
+      const success = (i: number): boolean => at(i) !== undefined && !at(i)?.error
+      named('IG 话题入口：probe 成功结果带出任务配置里写的 ig_route，写了 hashtag 的 IG 任务那一行原样是 hashtag',
+        success(0) && at(0)?.ig_route === 'hashtag',
+        `task_index 0 那一行 ${showRow(at(0))} —— D15.l：任务写了就原样带出`)
+      named('IG 话题入口：probe 成功结果带出任务配置里写的 ig_route，话题页一个人都没解析出来也照样是 hashtag',
+        success(5) && Array.isArray(at(5)?.sample) && at(5).sample.length === 0 && at(5)?.ig_route === 'hashtag',
+        `task_index 5 那一行 ${showRow(at(5))} —— D15.l：照配置带出，不由返回结果推断；样本为空时也要带`)
+      named('IG 话题入口：probe 成功结果里，没写 ig_route 的 IG 任务那一行没有 ig_route 这个键',
+        success(1) && !hasRoute(at(1)),
+        `task_index 1 那一行 ${showRow(at(1))} —— D15.l：没写就不带这个字段`)
+      named('IG 话题入口：probe 成功结果不由 as_hashtag 推断 ig_route，写了 as_hashtag 而没写 ig_route 的那一行没有这个键',
+        success(2) && !hasRoute(at(2)),
+        `task_index 2 那一行 ${showRow(at(2))} —— D15.l：不由 as_hashtag 推断补写`)
+      named('IG 话题入口：probe 成功结果不由关键词写法推断 ig_route，关键词以 # 开头而没写 ig_route 的那一行没有这个键',
+        success(3) && !hasRoute(at(3)),
+        `task_index 3 那一行 ${showRow(at(3))} —— D15.l：不由关键词写法推断补写`)
+      named('IG 话题入口：probe 成功结果不由平台补写 ig_route，TikTok 任务那一行没有这个键',
+        success(4) && !hasRoute(at(4)),
+        `task_index 4 那一行 ${showRow(at(4))} —— D15.l：不由平台推断补写`)
+      named('IG 话题入口：probe 成功结果不由 as_hashtag 与关键词写法合起来推断 ig_route，两样都占而没写 ig_route 的那一行没有这个键',
+        success(6) && !hasRoute(at(6)),
+        `task_index 6 那一行 ${showRow(at(6))} —— D15.l：两种线索合起来也不推断补写`)
+      criterion('D15.l')
+    }
+  }
+  let routeErrorRuns = 0
+  {
+    const cwd = cwdOf('probe-route-err-tagged'), ledger = join(cwd, 'attempts.tsv')
+    const r = runBoth('probe 话题入口：话题任务的话题页请求被拒收（402），排在最后',
+      [S('probe.ts'), '--config', cfgOf(cwd, 'htrouteerrtag', [
+        // 垫的成功任务故意不写 ig_route（走 Reels），和出错的那个相反
+        { keyword: 'htroute-err-ok', dimension: 'scene', platform: 'instagram' },
+        { keyword: '#force-402-htroute', dimension: 'audience', platform: 'instagram', ig_route: 'hashtag' },
+      ])], cwd, { status: 0 }, htEnv(ledger))
+    if (r.ok) {
+      const row = rowsByIndex(r.stdout)(1)
+      const refused = fetchAttempts(ledger).includes(`402\t${HT}`)
+      named('IG 话题入口：probe 错误结果同样带出任务配置里写的 ig_route，话题页请求失败的那一行原样是 hashtag',
+        refused && row !== undefined && Boolean(row?.error) && row?.ig_route === 'hashtag',
+        `话题页那次请求被拒收=${refused}（账本 ${JSON.stringify(fetchAttempts(ledger))}），task_index 1 那一行 ${showRow(row)}`
+        + ' —— D15.m：错误结果同样是任务写了就原样带出')
+      routeErrorRuns++
+    }
+  }
+  {
+    // 诱饵照放：没写 ig_route，但写了 as_hashtag、关键词以 # 开头 —— 两样都不该让错误行长出这个字段
+    const cwd = cwdOf('probe-route-err-plain'), ledger = join(cwd, 'attempts.tsv')
+    const r = runBoth('probe 话题入口：没写 ig_route 的 IG 任务的 Reels 请求被拒收（402），排在最后',
+      [S('probe.ts'), '--config', cfgOf(cwd, 'htrouteerrplain', [
+        // 垫的成功任务故意写了 hashtag（走话题页），和出错的那个相反
+        { keyword: '#htroute-err-plain-ok', dimension: 'category', platform: 'instagram', ig_route: 'hashtag' },
+        { keyword: '#force-402-htroute-plain', dimension: 'competitor', platform: 'instagram', as_hashtag: true },
+      ])], cwd, { status: 0 }, htEnv(ledger))
+    if (r.ok) {
+      const row = rowsByIndex(r.stdout)(1)
+      const refused = fetchAttempts(ledger).includes(`402\t${IG_REELS}`)
+      named('IG 话题入口：probe 错误结果里，没写 ig_route 的 IG 任务请求失败的那一行没有 ig_route 这个键',
+        refused && row !== undefined && Boolean(row?.error) && !hasRoute(row),
+        `Reels 那次请求被拒收=${refused}（账本 ${JSON.stringify(fetchAttempts(ledger))}），task_index 1 那一行 ${showRow(row)}`
+        + ' —— D15.m：没写就不带这个字段')
+      routeErrorRuns++
+    }
+  }
+  {
+    // TikTok 任务不可能写 ig_route（D15.j），它的错误行同样不许长出这个字段；垫的成功任务写了 hashtag，和它相反
+    const cwd = cwdOf('probe-route-err-tiktok'), ledger = join(cwd, 'attempts.tsv')
+    const r = runBoth('probe 话题入口：TikTok 任务的视频搜索请求被拒收（402），排在最后',
+      [S('probe.ts'), '--config', cfgOf(cwd, 'htrouteerrtt', [
+        { keyword: '#htroute-err-tt-ok', dimension: 'category', platform: 'instagram', ig_route: 'hashtag' },
+        { keyword: 'force-402-htroute-tt', dimension: 'scene', platform: 'tiktok' },
+      ])], cwd, { status: 0 }, htEnv(ledger))
+    if (r.ok) {
+      const row = rowsByIndex(r.stdout)(1)
+      const refused = fetchAttempts(ledger).includes(`402\t${TT_SEARCH}`)
+      named('IG 话题入口：probe 错误结果不由平台补写 ig_route，TikTok 任务请求失败的那一行没有这个键',
+        refused && row !== undefined && Boolean(row?.error) && !hasRoute(row),
+        `TikTok 搜索那次请求被拒收=${refused}（账本 ${JSON.stringify(fetchAttempts(ledger))}），task_index 1 那一行 ${showRow(row)}`
+        + ' —— D15.m：没写就不带这个字段，TikTok 任务也一样')
+      routeErrorRuns++
+    }
+  }
+  // 三跑都真跑到了断言才认领 —— 任一跑没起来已经由 runBoth 带记号记过一次失败，这一跑本来也写不下认领
+  if (routeErrorRuns === 3) criterion('D15.m')
 })
 
 // ---- P5.i：一次都没查到人的平台，不得从报告上静默消失 ----
