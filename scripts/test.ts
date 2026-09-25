@@ -2518,6 +2518,27 @@ suite('D8', 'IG 主页混合媒体的窗口、视频资格和独立分母')
     && /confirm|affirm|确认|肯定|有视频证据/i.test(efficiency.implied_ecpe.basis))
   criterion('D9.d', 'D9.e', 'D9.f')
   tension('D9', 'P5')
+  const unqueriedAccount: AccountAssessment = { ...account, handle: 'unqueried',
+    sample: undefined, metrics: undefined }
+  eq('有 Reel 报价但主页未查询时不生成两个效率估值',
+    calculateQuoteEfficiency(unqueriedAccount), undefined)
+  const unqueriedCreator = mk('instagram', 'unqueried', { tier: 'A', score: 60 })
+  attachAssessments([unqueriedCreator], { version: 1, updated_at: at,
+    accounts: { [accountKey('instagram', 'unqueried')]: unqueriedAccount } })
+  eq('未采样账号的表格保留报价，两个效率位各写未查询',
+    ['collaboration_quote', 'implied_ecpm', 'implied_ecpe']
+      .map(field => toRow(unqueriedCreator)[HEADERS.indexOf(field as typeof HEADERS[number])]),
+    ['USD 770 / 1 instagram_reel (creator_quote)', '未查询', '未查询'])
+  const unqueriedHtml = renderHtml([unqueriedCreator], {
+    product: 'p', market: 'US', platforms: ['instagram'], keywords: [], total: 1,
+    tiers: { A: 1, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0,
+    ...testCostMeta(), enriched: true,
+  })
+  eq('未采样账号的 HTML 报价栏仅将两个效率标为未查询',
+    unqueriedHtml.match(/<div class="commercial">([^<]+)<\/div>/)?.[1]?.trim(),
+    '合作报价 USD 770 / 1 instagram_reel · creator_quote · 2026-09-15 · 隐含 eCPM 未查询 · 隐含 eCPE 未查询')
+  criterion('D9.d', 'P1.e')
+  tension('D9', 'P1')
   const incomplete = posts.map(p => ({ ...p }))
   delete incomplete[11].comments
   const incompleteSample = newSample(incomplete)

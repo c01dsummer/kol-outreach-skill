@@ -4831,6 +4831,18 @@
       ]
     },
     {
+      "id": "M-P1-o",
+      "req": "P1.e",
+      "why": "Reel 报价已有但主页作品未查询时，凭空生成媒体范围未知的效率状态，交付把未查询写成不可用",
+      "file": "scripts/lib/assessment.ts",
+      "find": "if (account.platform === 'instagram' && !account.sample) return undefined",
+      "replace": "if (account.platform === 'instagram' && !account.sample) return { implied_ecpm: quoteUnavailable('unknown_sample_scope', quote), implied_ecpe: quoteUnavailable('unknown_sample_scope', quote) }",
+      "by": "test",
+      "kills": [
+        "有 Reel 报价但主页未查询时不生成两个效率估值"
+      ]
+    },
+    {
       "id": "M-F8-b",
       "req": "F8.e",
       "why": "Instagram 同行基线混入历史仅视频窗口，和新返回窗口的账号比较不同媒体口径",

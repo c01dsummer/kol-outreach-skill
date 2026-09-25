@@ -580,6 +580,7 @@ export function calculateQuoteEfficiency(account: AccountAssessment): QuoteEffic
       implied_ecpe: quoteUnavailable('unsupported_content', quote),
     }
   }
+  if (account.platform === 'instagram' && !account.sample) return undefined
 
   const perDeliverable = q.amount / q.quantity
   const fromMetric = (
@@ -597,9 +598,9 @@ export function calculateQuoteEfficiency(account: AccountAssessment): QuoteEffic
       m.sample_size, basis)
   }
 
-  const reelEngagementEfficiency = (): Measurement<number> => {
+  const reelEngagementEfficiency = (): Measurement<number> | undefined => {
     const sample = account.sample
-    if (!sample) return quoteUnavailable('unknown_sample_scope', quote)
+    if (!sample) return undefined
     if (sample.status === 'unavailable') return quoteUnavailable(sample.reason, quote)
     const scope = scopeOf(sample, account.platform)
     if (scope !== 'provider_returned_first12' && scope !== 'legacy_video_filtered_first12') {
@@ -627,7 +628,7 @@ export function calculateQuoteEfficiency(account: AccountAssessment): QuoteEffic
   const sample = account.sample
   const scope = sample ? scopeOf(sample, account.platform) : undefined
   const igEcpmUnavailable = account.platform === 'instagram' &&
-    (!sample || sample.status === 'unavailable' || scope === 'unknown')
+    sample !== undefined && (sample.status === 'unavailable' || scope === 'unknown')
   return {
     implied_ecpm: igEcpmUnavailable
       ? quoteUnavailable(sample?.status === 'unavailable'
@@ -636,8 +637,7 @@ export function calculateQuoteEfficiency(account: AccountAssessment): QuoteEffic
       account.platform === 'instagram'
         ? '(quote / quantity) / median(confirmed-video views) * 1000; Instagram sample scope ' +
           scope
-        : '(quote / quantity) / median_views * 1000') ??
-        (account.platform === 'instagram' ? quoteUnavailable('insufficient_posts', quote) : undefined),
+        : '(quote / quantity) / median_views * 1000'),
     implied_ecpe: account.platform === 'instagram'
       ? reelEngagementEfficiency()
       : fromMetric(account.metrics?.median_engagements, 1,

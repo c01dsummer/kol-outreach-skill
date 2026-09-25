@@ -1328,9 +1328,10 @@ group('discovery', [], () => {
     // 只解读标准CSV/ZIP/XML，不调用生产格式化器当预期。
     const csvRows = fileText(join(display.taskDir, 'kol.csv')).trim().replace(/^\uFEFF/, '').split(/\r?\n/)
       .map(line => [...line.matchAll(/(?:^|,)(?:"((?:[^"]|"")*)"|([^,]*))/g)].map(m => (m[1] ?? m[2]).replace(/""/g, '"')))
-    named('CSV实际文件末列展示来源，缺席与空数组均明确未知',
-      csvRows[0]?.at(-1) === 'discovery_sources' && csvRows.some(r => r.at(-1) === text)
-        && csvRows.filter(r => r.at(-1) === '来源未知').length === 2, JSON.stringify(csvRows))
+    const sourceColumn = csvRows[0]?.indexOf('discovery_sources') ?? -1
+    named('CSV实际文件按来源列展示，缺席与空数组均明确未知',
+      sourceColumn >= 0 && csvRows.some(r => r[sourceColumn] === text)
+        && csvRows.filter(r => r[sourceColumn] === '来源未知').length === 2, JSON.stringify(csvRows))
     const entries = new Map<string, string>(), xlsx = join(display.taskDir, 'kol.xlsx')
     try {
       const b = readFileSync(xlsx), end = b.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))
@@ -1347,11 +1348,20 @@ group('discovery', [], () => {
     const cellText = (s: string) => [...s.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m => decode(m[1])).join('')
     const shared = [...(entries.get('xl/sharedStrings.xml') ?? '').matchAll(/<si>([\s\S]*?)<\/si>/g)].map(m => cellText(m[1]))
     const sheetRows = [...entries].filter(([name]) => /^xl\/worksheets\/sheet\d+\.xml$/.test(name))
-      .flatMap(([, xml]) => [...xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)].map(m => {
-        const last = [...m[1].matchAll(/<c\b[^>]*>[\s\S]*?<\/c>/g)].at(-1)?.[0] ?? ''
-        return /\bt="s"/.test(last) ? shared[Number(last.match(/<v>(\d+)<\/v>/)?.[1])] : cellText(last)
-      }))
-    named('XLSX实际工作表末列展示来源，缺席与空数组均明确未知',
+      .flatMap(([, xml]) => {
+        const rows = [...xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)]
+        const cells = (row: string) => [...row.matchAll(/<c\b[^>]*>[\s\S]*?<\/c>/g)].map(m => m[0])
+        const content = (c: string) => /\bt="s"/.test(c)
+          ? shared[Number(c.match(/<v>(\d+)<\/v>/)?.[1])] : cellText(c)
+        const sourceRef = cells(rows[0]?.[1] ?? '').find(c => content(c) === 'discovery_sources')
+          ?.match(/\br="([A-Z]+)1"/)?.[1]
+        if (!sourceRef) return []
+        return rows.map((row, i) => {
+          const sourceCell = cells(row[1]).find(c => c.includes(`r="${sourceRef}${i + 1}"`))
+          return sourceCell ? content(sourceCell) : ''
+        })
+      })
+    named('XLSX实际工作表按来源列展示，缺席与空数组均明确未知',
       sheetRows.filter(v => v === 'discovery_sources').length === 3 && sheetRows.includes(text)
         && sheetRows.filter(v => v === '来源未知').length === 2, JSON.stringify(sheetRows))
     const html = fileText(join(display.taskDir, 'report.html'))
