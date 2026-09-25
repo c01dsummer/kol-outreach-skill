@@ -5640,6 +5640,22 @@
       "file": "scripts/lib/config-input.ts",
       "find": "textProblem(value) === undefined",
       "replace": "typeof value === 'string' && /^[A-Z]{2}$/.test(value)"
+    },
+    {
+      "id": "M-D17-o",
+      "req": "D17.d",
+      "why": "错误数组的诊断把内部非有限数压平成空值",
+      "file": "scripts/lib/config-input.ts",
+      "find": "if (Array.isArray(value)) return `[${value.map(seen).join(',')}]`",
+      "replace": "if (Array.isArray(value)) return JSON.stringify(value)"
+    },
+    {
+      "id": "M-D17-p",
+      "req": "D17.d",
+      "why": "错误对象的诊断把内部非有限数压平成空值",
+      "file": "scripts/lib/config-input.ts",
+      "find": "return `{${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)}:${seen(item)}`).join(',')}}`",
+      "replace": "return JSON.stringify(value)"
     }
   ],
   "exemptions": [

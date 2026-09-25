@@ -4567,6 +4567,26 @@ suite('D17', '市场与目标人数按原始字段和输入角色校验')
     both(dualBad) && Array.isArray(dualBad)
       && dualBad.some(s => s.includes('market') && s.includes('731'))
       && dualBad.some(s => s.includes('target_count') && s.includes('invalid-count-83')))
+  // 坏容器中的原值也不能被 JSON 序列化抹平；溢出数仍从原始 JSON 文本生成。
+  const nestedCases: [Raw, string, string][] = [
+    [JSON.parse('{"market":[1e400],"target_count":{"n":-1e400}}'), 'Infinity', '-Infinity'],
+    [{ market: ['Infinity'], target_count: { n: '-Infinity' } }, 'Infinity', '-Infinity'],
+    [{ market: [null], target_count: { n: null } }, 'null', 'null'],
+  ]
+  const nestedResults = nestedCases.map(([raw]) => problems(raw, 'new'))
+  eq('配置字段校验：嵌套非有限数、同名字符串与 null 全部报告，且写出各字段的容器与原值',
+    nestedResults.map((got, i) => both(got) && Array.isArray(got)
+      && got.some(s => s.includes('market') && s.includes('[') && s.includes(']') && s.includes(nestedCases[i][1]))
+      && got.some(s => s.includes('target_count') && s.includes('{') && s.includes('}') && /\bn\b/.test(s)
+        && s.includes(nestedCases[i][2]))), [true, true, true])
+  eq('配置字段校验：同一字段嵌套的非有限数、同名字符串与真 null 三种诊断互不相同',
+    ['market', 'target_count'].map(field => new Set(nestedResults.map(got =>
+      Array.isArray(got) ? got.find(s => s.includes(field)) : undefined)).size), [3, 3])
+  eq('配置字段校验：数组与对象中嵌套 BigInt 仍返回全部字段问题，不因诊断序列化而抛出',
+    (['new', 'resume'] as const).flatMap(role => [
+      both(problems({ market: [71n], target_count: { n: 83n } }, role)),
+      both(problems({ market: { n: 71n }, target_count: [83n] }, role)),
+    ]), [true, true, true, true])
   criterion('D17.d')
 
   // D17 没有限制国家编码、整数、正数或最大人数；正例故意跨这些常见误加边界。

@@ -6,6 +6,10 @@ export type ConfigInputRole = 'new' | 'resume' | 'probe'
 const seen = (value: unknown): string => {
   if (typeof value === 'number' && !Number.isFinite(value)) return String(value)
   if (typeof value === 'bigint') return `${value}n`
+  if (Array.isArray(value)) return `[${value.map(seen).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)}:${seen(item)}`).join(',')}}`
+  }
   return JSON.stringify(value) ?? String(value)
 }
 
