@@ -5528,6 +5528,118 @@
         "任务列表：collect 续跑拒绝坏输入前从未调用预算预留",
         "任务列表：collect 改额续跑拒绝坏输入前从未调用预算预留"
       ]
+    },
+    {
+      "id": "M-D17-a",
+      "req": "D17.a",
+      "why": "空白市场被当成合规字符串",
+      "file": "scripts/lib/config-input.ts",
+      "find": "textProblem(value) === undefined",
+      "replace": "typeof value === 'string'"
+    },
+    {
+      "id": "M-D17-b",
+      "req": "D17.b",
+      "why": "非有限人数被当成合规数值",
+      "file": "scripts/lib/config-input.ts",
+      "find": "typeof value === 'number' && Number.isFinite(value)",
+      "replace": "typeof value === 'number'"
+    },
+    {
+      "id": "M-D17-c",
+      "req": "D17.c",
+      "why": "续跑缺席的必填配置被静默放行",
+      "file": "scripts/lib/config-input.ts",
+      "find": "if (role === 'resume') out.push",
+      "replace": "if (false) out.push"
+    },
+    {
+      "id": "M-D17-d",
+      "req": "D17.d",
+      "why": "两个配置字段同时出错时只报告第一处",
+      "file": "scripts/lib/config-input.ts",
+      "find": "  return out\n",
+      "replace": "  return out.slice(0, 1)\n"
+    },
+    {
+      "id": "M-D17-e",
+      "req": "D17.e",
+      "why": "校验擅自把市场改写成默认值",
+      "file": "scripts/lib/config-input.ts",
+      "find": "  return out\n",
+      "replace": "  (raw as { market?: unknown }).market = 'US'\n  return out\n"
+    },
+    {
+      "id": "M-D17-f",
+      "req": "D17.f",
+      "why": "试探错误拒绝了根本不使用的目标人数",
+      "file": "scripts/lib/config-input.ts",
+      "find": "role === 'probe' ? ['market'] as const",
+      "replace": "false ? ['market'] as const"
+    },
+    {
+      "id": "M-D17-g",
+      "req": "D17.g",
+      "why": "新输入允许缺席的配置被错误拒绝",
+      "file": "scripts/lib/config-input.ts",
+      "find": "if (role === 'resume') out.push",
+      "replace": "if (true) out.push"
+    },
+    {
+      "id": "M-D17-h",
+      "req": "D17.a",
+      "why": "自有但值为未定义的市场被当作缺席后放行",
+      "file": "scripts/lib/config-input.ts",
+      "find": "if (!Object.hasOwn(raw, field)) {",
+      "replace": "if (!Object.hasOwn(raw, field) || raw[field] === undefined) {"
+    },
+    {
+      "id": "M-D17-i",
+      "req": "D17.c",
+      "why": "原型上的配置被误当成续跑的自有字段",
+      "file": "scripts/lib/config-input.ts",
+      "find": "if (!Object.hasOwn(raw, field)) {",
+      "replace": "if (!(field in raw)) {"
+    },
+    {
+      "id": "M-D17-j",
+      "req": "D17.d",
+      "why": "非有限数的诊断被压平成空值",
+      "file": "scripts/lib/config-input.ts",
+      "find": "if (typeof value === 'number' && !Number.isFinite(value)) return String(value)",
+      "replace": "if (typeof value === 'number' && !Number.isFinite(value)) return 'null'"
+    },
+    {
+      "id": "M-D17-k",
+      "req": "D17.d",
+      "why": "诊断没有带出实际非法原值",
+      "file": "scripts/lib/config-input.ts",
+      "find": "${seen(value)}",
+      "replace": "${'非法'}"
+    },
+    {
+      "id": "M-D17-l",
+      "req": "D17.b",
+      "why": "把数值字符串转换后接受",
+      "file": "scripts/lib/config-input.ts",
+      "find": "typeof value === 'number' && Number.isFinite(value)",
+      "replace": "Number.isFinite(Number(value))"
+    },
+    {
+      "id": "M-D17-m",
+      "req": "D17.b",
+      "why": "对本次未限制的零负数小数增加拒绝条件",
+      "file": "scripts/lib/config-input.ts",
+      "find": "typeof value === 'number' && Number.isFinite(value)",
+      "replace": "typeof value === 'number' && Number.isInteger(value) && value > 0"
+    },
+    {
+      "id": "M-D17-n",
+      "req": "D17.a",
+      "why": "把市场偷偷限制为两个大写字母",
+      "file": "scripts/lib/config-input.ts",
+      "find": "textProblem(value) === undefined",
+      "replace": "typeof value === 'string' && /^[A-Z]{2}$/.test(value)"
     }
   ],
   "exemptions": [
