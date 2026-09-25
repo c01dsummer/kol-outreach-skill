@@ -9,7 +9,8 @@
  */
 import { writeFileAtomic } from './lib/atomic.js'
 import { join } from 'node:path'
-import { taskId, loadTask, loadCreators, loadEnrichment, saveCreators } from './lib/task.js'
+import { taskFile, taskId, loadTask, loadCreators, loadEnrichment, saveCreators } from './lib/task.js'
+import { taskListProblems } from './lib/search-tasks.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { rankCreators, keywordRows, taskPlatforms, tierCounts } from './lib/pipeline.js'
 import { recordRecommendations } from './lib/memory.js'
@@ -21,13 +22,24 @@ import { accountKey, attachAssessments } from './lib/assessment.js'
 import { costView } from './lib/budget.js'
 import { stringifyCostJson } from './lib/cost-json.js'
 import { asMemoryStatus } from './lib/types.js'
-import type { Creator, Measurement } from './lib/types.js'
+import type { Creator, Measurement, TaskState } from './lib/types.js'
 
 const i = process.argv.indexOf('--dir')
 const dir = i >= 0 ? process.argv[i + 1] : undefined
 if (!dir) { console.error('用法: tsx scripts/render.ts --dir <output/xxx>'); process.exit(2) }
 
-const state = loadTask(dir)
+// D16.n–q：只把任务读取错误当作输入错误；校验先于名单、交付物和记忆写入。
+let state: TaskState
+try { state = loadTask(dir) }
+catch (e) {
+  console.error(`${taskFile(dir)} 无法读入任务：${e instanceof Error ? e.message : String(e)}`)
+  process.exit(2)
+}
+const badTasks = taskListProblems(state.tasks)
+if (badTasks.length) {
+  console.error(`${taskFile(dir)} 里的任务配置不合规：\n  ${badTasks.join('\n  ')}`)
+  process.exit(2)
+}
 let creators = loadCreators(dir)
 
 // 同人识别与合并 —— 在这里再跑一次，render 才能独立于 collect 正确工作（幂等）
