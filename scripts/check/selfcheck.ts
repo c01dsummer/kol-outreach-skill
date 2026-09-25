@@ -3578,18 +3578,24 @@ group('render-input', [], () => {
   if (completed.good === positive.length * 2 && completed.read === readCases.length * 2) criterion('D16.p', 'D16.q')
 })
 
-group('config-entry', [], () => {
+const configEntryModes = ['new', 'resume', 'resume-budget', 'probe'] as const
+type ConfigEntryMode = typeof configEntryModes[number]
+const configEntryCompleted = {
+  bad: new Set<string>(), good: new Set<string>(), depth: new Set<number>(),
+  badModes: new Set<ConfigEntryMode>(), goodModes: new Set<ConfigEntryMode>(),
+}
+
+// 两组共用造输入和观察器；具名断言留在各自的 group 回调里，供变异清册按语法树归组。
+const configEntryFixture = () => {
   const output = resolve('output')
   mkdirSync(output, { recursive: true })
   const base = mkdtempSync(join(output, 'selfcheck-config-entry-'))
   process.on('exit', () => rmSync(base, { recursive: true, force: true }))
-  const modes = ['new', 'resume', 'resume-budget', 'probe'] as const
-  type Mode = typeof modes[number]
+  type Mode = ConfigEntryMode
   type Field = 'market' | 'target_count'
   type Problem = { field: Field; value?: unknown; nonfinite?: true }
   type Case = { id: string; values?: Record<string, unknown>; missing?: Field[];
     problems?: Problem[]; mixed?: true; nonfinite?: true }
-  const completed = { bad: new Set<string>(), good: new Set<string>(), depth: new Set<number>() }
   const good = { keyword: 'config-entry-first', dimension: 'category', platform: 'tiktok' }
   const tasks = [good, { ...good, keyword: 'config-entry-second', dimension: 'scene' }]
   const badTasks = [good,
@@ -3675,6 +3681,16 @@ group('config-entry', [], () => {
       parts.some(p => p.task === 2 && p.text.includes(field) && p.text.includes(value)))
       && [2, 4].every(task => parts.some(p => p.task === task && p.text.includes('ig_route')))
   }
+  return { make, ready, unchanged, noDirs, inputReady, reports, mixedReports, tasks }
+}
+
+group('config-entry-invalid', [], () => {
+  const { make, ready, unchanged, noDirs, inputReady, reports, mixedReports } = configEntryFixture()
+  const modes = configEntryModes
+  type Mode = ConfigEntryMode
+  type Field = 'market' | 'target_count'
+  type Case = Parameters<typeof make>[1]
+  const completed = configEntryCompleted
   const cases: { mode: Mode; c: Case }[] = []
   for (const mode of modes) {
     cases.push({ mode, c: { id: 'market-null', values: { market: null }, problems: [{ field: 'market', value: null }] } },
@@ -3728,6 +3744,17 @@ group('config-entry', [], () => {
     }
     completed.bad.add(`${mode}/${c.id}`)
   }
+  for (const mode of modes) if (cases.filter(row => row.mode === mode)
+    .every(({ c }) => completed.bad.has(`${mode}/${c.id}`))) completed.badModes.add(mode)
+})
+
+group('config-entry-valid', [], () => {
+  const { make, ready, unchanged, inputReady, tasks } = configEntryFixture()
+  const modes = configEntryModes
+  type Mode = ConfigEntryMode
+  type Field = 'market' | 'target_count'
+  type Case = Parameters<typeof make>[1]
+  const completed = configEntryCompleted
   const positives: { mode: Mode; c: Case }[] = modes.map(mode => ({ mode,
     c: { id: 'original-zero', values: { market: '  uS  ', target_count: 0 } } }))
   for (const missing of [['market'], ['target_count'], ['market', 'target_count']] as Field[][])
@@ -3792,10 +3819,17 @@ group('config-entry', [], () => {
       `目标=${target}，盘上=${state?.target_count}，实际令牌=${JSON.stringify(tokens)}，stderr=${stderrTail(r.stderr)}`)
     completed.depth.add(target)
   }
+  for (const mode of modes) if (positives.filter(row => row.mode === mode)
+    .every(({ c }) => completed.good.has(`${mode}/${c.id}`))) completed.goodModes.add(mode)
+})
+
+// 原组名是兼容入口；依赖闭包保证两组真的执行后，才可能认领这一族判据。
+group('config-entry', ['config-entry-invalid', 'config-entry-valid'], () => {
+  const modes = configEntryModes
+  const completed = configEntryCompleted
   // 完成只表示相关断言已执行；有任一断言失败，既有 claimsPublishable 仍禁止发布覆盖。
-  const completedMode = (mode: Mode): boolean => cases.filter(row => row.mode === mode)
-    .every(({ c }) => completed.bad.has(`${mode}/${c.id}`)) && positives.filter(row => row.mode === mode)
-    .every(({ c }) => completed.good.has(`${mode}/${c.id}`))
+  const completedMode = (mode: ConfigEntryMode): boolean =>
+    completed.badModes.has(mode) && completed.goodModes.has(mode)
   if (modes.filter(mode => mode !== 'probe').every(completedMode)) criterion('D17.h', 'D17.i')
   if (completedMode('probe')) criterion('D17.j', 'D17.k', 'D17.f', 'F3.c', 'F3.d')
   if (modes.every(completedMode)) criterion('D17.l', 'D17.m', 'D17.o', 'F9.a')
