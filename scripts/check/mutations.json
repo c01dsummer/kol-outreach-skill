@@ -147,7 +147,11 @@
       "why": "未增强时不再声明数据边界，用户会以为邮箱是验证过的",
       "file": "scripts/lib/report.ts",
       "find": "  if (missingEmailVerification) {",
-      "replace": "  if (false) {"
+      "replace": "  if (false) {",
+      "by": "test",
+      "kills": [
+        "未增强时声明邮箱来自 bio 提取、未做有效性验证"
+      ]
     },
     {
       "id": "M-F6-a",
@@ -2133,7 +2137,11 @@
       "why": "名单没做已联系去重却不声明 —— 运营照着发信，把打扰过甚至已拉黑的人再打扰一次",
       "file": "scripts/lib/report.ts",
       "find": "  if (meta.memory_status === 'unreadable_ignored') {",
-      "replace": "  if (false) {"
+      "replace": "  if (false) {",
+      "by": "test",
+      "kills": [
+        "未去重的名单必须在报告上说出来"
+      ]
     },
     {
       "id": "M-P5-c",
@@ -2141,7 +2149,11 @@
       "why": "这一批没被记进跨任务记忆却不声明 —— 下一批名单会把同一批人重新推荐一遍",
       "file": "scripts/lib/report.ts",
       "find": "  if (meta.memory_written === false) {",
-      "replace": "  if (false) {"
+      "replace": "  if (false) {",
+      "by": "test",
+      "kills": [
+        "没写回记忆也必须说出来"
+      ]
     },
     {
       "id": "M-P5-d",
@@ -2149,7 +2161,11 @@
       "why": "去重状态无从确认的旧名单不再声明 —— 一份没人能担保去过重的名单，被当成正常名单交出去",
       "file": "scripts/lib/report.ts",
       "find": "  } else if (meta.memory_status === 'unknown') {",
-      "replace": "  } else if (false) {"
+      "replace": "  } else if (false) {",
+      "by": "test",
+      "kills": [
+        "去重状态无从确认时也要说出来"
+      ]
     },
     {
       "id": "M-P5-e",
@@ -2157,7 +2173,11 @@
       "why": "没写回的真实原因不再带进报告 —— 磁盘满或没有写权限的人，会被指去修一份根本没坏的文件",
       "file": "scripts/lib/report.ts",
       "find": "               `原因：${meta.memory_write_error ?? '未记录'}。` +",
-      "replace": "               '原因：记忆文件读不出来。' +"
+      "replace": "               '原因：记忆文件读不出来。' +",
+      "by": "test",
+      "kills": [
+        "把真实原因带给用户"
+      ]
     },
     {
       "id": "M-P5-f",
@@ -2165,7 +2185,11 @@
       "why": "去重状态无从确认时，报告替用户断定这批人「由早期版本采集」—— 而它同样可能是刚刚被打断留下的，两种来源事后分不出，用户拿到的是一个编造的诊断",
       "file": "scripts/lib/report.ts",
       "find": "    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认 —— ' +",
-      "replace": "    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认（这批人由早期版本采集）—— ' +"
+      "replace": "    notes.push('本次名单的「已联系 / 已推荐」去重状态无从确认（这批人由早期版本采集）—— ' +",
+      "by": "test",
+      "kills": [
+        "不替用户编一个原因 —— 两个来源事后分不出"
+      ]
     },
     {
       "id": "M-P5-g",
@@ -2173,7 +2197,11 @@
       "why": "去重状态认不出来时原样抄进交付物，而不是读作「无从确认」—— 报告只对两个精确取值发警告，于是一个拼错的或新版本写下的取值会压掉警告，把一份没验证过的名单当成正常的交出去",
       "file": "scripts/lib/types.ts",
       "find": "  (MEMORY_STATUSES as readonly unknown[]).includes(v) ? v as MemoryStatus : 'unknown'",
-      "replace": "  (v ?? 'unknown') as MemoryStatus"
+      "replace": "  (v ?? 'unknown') as MemoryStatus",
+      "by": "test",
+      "kills": [
+        "认不出的去重状态读作 unknown"
+      ]
     },
     {
       "id": "M-P5-h",
@@ -2181,7 +2209,11 @@
       "why": "把跑过的邮箱/地域增强一律报成没跑过 —— meta.json 的 enriched 恒为 false，交付声明与实际不符",
       "file": "scripts/lib/report.ts",
       "find": "  creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)",
-      "replace": "  creators.some(() => false)"
+      "replace": "  creators.some(() => false)",
+      "by": "test",
+      "kills": [
+        "邮箱增强跑过（查了没有邮箱）→ true"
+      ]
     },
     {
       "id": "M-P5-i",
@@ -2189,7 +2221,11 @@
       "why": "未配置增强层时不再声明受众市场无从确认 —— 用户以为这批人的粉丝已经确认在目标市场，照着名单投出去",
       "file": "scripts/lib/report.ts",
       "find": "  if (missingAudienceGeo) {",
-      "replace": "  if (false) {"
+      "replace": "  if (false) {",
+      "by": "test",
+      "kills": [
+        "未增强时声明无法确认粉丝是否在目标市场"
+      ]
     },
     {
       "id": "M-P5-j",
@@ -2197,7 +2233,11 @@
       "why": "未配置增强层却把 meta.json 的 enriched 报成 true —— 交付声称跑过邮箱与受众增强，用户以为邮箱验证过、受众已确认",
       "file": "scripts/lib/report.ts",
       "find": "  creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)",
-      "replace": "  creators.every(() => true)"
+      "replace": "  creators.every(() => true)",
+      "by": "test",
+      "kills": [
+        "没跑过邮箱/地域增强 → enriched false"
+      ]
     },
     {
       "id": "M-P5-k",
@@ -2205,7 +2245,11 @@
       "why": "声明还在，但改口说邮箱来自官网联系页 —— 用户以为这批邮箱有出处可查，实际是从 bio 里抠出来的",
       "file": "scripts/lib/report.ts",
       "find": "    notes.push('邮箱来自 bio 提取，未做有效性验证，建议首轮小批量试发观察退信率。')",
-      "replace": "    notes.push('邮箱来自官网公开联系页，未做有效性验证，建议首轮小批量试发观察退信率。')"
+      "replace": "    notes.push('邮箱来自官网公开联系页，未做有效性验证，建议首轮小批量试发观察退信率。')",
+      "by": "test",
+      "kills": [
+        "未增强时声明邮箱来自 bio 提取、未做有效性验证"
+      ]
     },
     {
       "id": "M-P5-l",
@@ -2213,7 +2257,11 @@
       "why": "声明还在，但把「无从确认」的东西换成别的 —— 受众市场这一条边界没被声明，用户以为粉丝地域是确认过的",
       "file": "scripts/lib/report.ts",
       "find": "    notes.push('未配置增强层，无法确认这批人的粉丝是否在目标市场。')",
-      "replace": "    notes.push('未配置增强层，无法确认这批人的邮箱是否还在用。')"
+      "replace": "    notes.push('未配置增强层，无法确认这批人的邮箱是否还在用。')",
+      "by": "test",
+      "kills": [
+        "未增强时声明无法确认粉丝是否在目标市场"
+      ]
     },
     {
       "id": "M-D4-n",
@@ -4993,7 +5041,11 @@
       "why": "丢掉视频搜索返回的真实作品标识，后续无法识别同一作品",
       "file": "scripts/providers/tikhub.ts",
       "find": "id: searchPostId('tiktok', aw?.aweme_id)",
-      "replace": "id: undefined"
+      "replace": "id: undefined",
+      "by": "test",
+      "kills": [
+        "TikTok 视频搜索保留真实作品标识"
+      ]
     },
     {
       "id": "M-D11-b",
@@ -5001,7 +5053,11 @@
       "why": "把文案标识冒充作品标识，同一作品的识别依据变成另一类对象",
       "file": "scripts/providers/tikhub.ts",
       "find": "id: searchPostId('instagram', item?.id),\n        desc: item?.caption?.text",
-      "replace": "id: searchPostId('instagram', item?.caption?.id),\n        desc: item?.caption?.text"
+      "replace": "id: searchPostId('instagram', item?.caption?.id),\n        desc: item?.caption?.text",
+      "by": "test",
+      "kills": [
+        "Instagram 搜索使用作品 id 而非文案 id"
+      ]
     },
     {
       "id": "M-D11-c",
@@ -5009,7 +5065,11 @@
       "why": "把所有数字都当成可靠标识，不安全整数和非整数也被保存为作品键",
       "file": "scripts/lib/posts.ts",
       "find": "typeof raw === 'number' && Number.isSafeInteger(raw)",
-      "replace": "typeof raw === 'number'"
+      "replace": "typeof raw === 'number'",
+      "by": "test",
+      "kills": [
+        "Instagram 非安全整数不生成作品标识"
+      ]
     },
     {
       "id": "M-D11-d",
@@ -5017,7 +5077,11 @@
       "why": "来源缺少可用标识时生成空串占位，未知作品获得虚假的共同标识",
       "file": "scripts/lib/posts.ts",
       "find": "  return undefined\n}",
-      "replace": "  return ''\n}"
+      "replace": "  return ''\n}",
+      "by": "test",
+      "kills": [
+        "Instagram 缺失标识保持未知"
+      ]
     },
     {
       "id": "M-D11-e",
@@ -5025,7 +5089,11 @@
       "why": "去重时剥掉平台前缀，两平台原始编号相同的作品被吞成一条",
       "file": "scripts/lib/posts.ts",
       "find": "    const id = post.id",
-      "replace": "    const id = post.id?.replace(/^[^:]+:/, '')"
+      "replace": "    const id = post.id?.replace(/^[^:]+:/, '')",
+      "by": "test",
+      "kills": [
+        "同人合并先主后关联且跨平台同号均保留"
+      ]
     },
     {
       "id": "M-D11-f",
@@ -5033,7 +5101,11 @@
       "why": "保留每条重复作品，不再按可靠标识去重",
       "file": "scripts/lib/posts.ts",
       "find": "      if (seen.has(id)) continue",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "首次单条记录内：重复 id 只留首次，未知 id 逐条保留"
+      ]
     },
     {
       "id": "M-D11-g",
@@ -5041,7 +5113,11 @@
       "why": "缺少作品标识的记录被丢弃，旧任务和来源未知的证据都消失",
       "file": "scripts/lib/posts.ts",
       "find": "    merged.push(post)",
-      "replace": "    if (post.id !== undefined) merged.push(post)"
+      "replace": "    if (post.id !== undefined) merged.push(post)",
+      "by": "test",
+      "kills": [
+        "首次单条记录内：重复 id 只留首次，未知 id 逐条保留"
+      ]
     },
     {
       "id": "M-D11-h",
@@ -5049,7 +5125,11 @@
       "why": "空白标识参与去重，原本未知的作品被视为同一条",
       "file": "scripts/lib/posts.ts",
       "find": "typeof id === 'string' && id.trim().length > 0",
-      "replace": "typeof id === 'string'"
+      "replace": "typeof id === 'string'",
+      "by": "test",
+      "kills": [
+        "跨页空白 id 不作去重键，两条作品均保留"
+      ]
     },
     {
       "id": "M-D11-i",
@@ -5057,7 +5137,11 @@
       "why": "重复标识以后来内容覆盖第一次记录，先到证据被改写",
       "file": "scripts/lib/posts.ts",
       "find": "      if (seen.has(id)) continue",
-      "replace": "      if (seen.has(id)) { merged[merged.findIndex(p => p.id === id)] = post; continue }"
+      "replace": "      if (seen.has(id)) { merged[merged.findIndex(p => p.id === id)] = post; continue }",
+      "by": "test",
+      "kills": [
+        "跨页稳定并集：保留先到完整记录，新作品按到达顺序追加"
+      ]
     },
     {
       "id": "M-D11-j",
@@ -5065,7 +5149,11 @@
       "why": "后来作品被排在原有作品之前，稳定的先到顺序与重复保留规则颠倒",
       "file": "scripts/lib/posts.ts",
       "find": "[...(left ?? []), ...(right ?? [])]",
-      "replace": "[...(right ?? []), ...(left ?? [])]"
+      "replace": "[...(right ?? []), ...(left ?? [])]",
+      "by": "test",
+      "kills": [
+        "跨页稳定并集：保留先到完整记录，新作品按到达顺序追加"
+      ]
     },
     {
       "id": "M-D11-k",
@@ -5073,7 +5161,11 @@
       "why": "两侧均未查询作品时制造空数组，未查询状态没有按契约保留",
       "file": "scripts/lib/posts.ts",
       "find": "  return merged.length ? merged : undefined",
-      "replace": "  return merged"
+      "replace": "  return merged",
+      "by": "test",
+      "kills": [
+        "两边都无作品证据时仍未查询"
+      ]
     },
     {
       "id": "M-D11-l",
@@ -5081,7 +5173,11 @@
       "why": "首次收页绕开作品并集，页内重复不会去掉、旧空数组没有归为未查询",
       "file": "scripts/lib/pipeline.ts",
       "find": "recent_posts: mergeRecentPosts(undefined, p.recent_posts)",
-      "replace": "recent_posts: p.recent_posts"
+      "replace": "recent_posts: p.recent_posts",
+      "by": "test",
+      "kills": [
+        "首次单条记录内：重复 id 只留首次，未知 id 逐条保留"
+      ]
     },
     {
       "id": "M-D11-m",
@@ -5089,7 +5185,11 @@
       "why": "同人合并仍直接拼接作品，重复标识不去重且两侧未知被制造为空数组",
       "file": "scripts/lib/identity.ts",
       "find": "primary.recent_posts = mergeRecentPosts(primary.recent_posts, secondary.recent_posts)",
-      "replace": "primary.recent_posts = [...(primary.recent_posts ?? []), ...(secondary.recent_posts ?? [])]"
+      "replace": "primary.recent_posts = [...(primary.recent_posts ?? []), ...(secondary.recent_posts ?? [])]",
+      "by": "test",
+      "kills": [
+        "同人合并先主后关联且跨平台同号均保留"
+      ]
     },
     {
       "id": "M-D11-n",
@@ -5097,7 +5197,11 @@
       "why": "保存字符串标识时擅自删除两端空格，原始标识被改写",
       "file": "scripts/lib/posts.ts",
       "find": "if (typeof raw === 'string' && raw.trim().length > 0) return `${platform}:${raw}`",
-      "replace": "if (typeof raw === 'string' && raw.trim().length > 0) return `${platform}:${raw.trim()}`"
+      "replace": "if (typeof raw === 'string' && raw.trim().length > 0) return `${platform}:${raw.trim()}`",
+      "by": "test",
+      "kills": [
+        "Instagram 字符串标识保留两端空白"
+      ]
     },
     {
       "id": "M-U8-a",

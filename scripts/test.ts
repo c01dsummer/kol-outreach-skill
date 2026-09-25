@@ -128,9 +128,11 @@ const GROUPS: readonly Group[] = [
   { id: 'd4-memory', needs: [] },
   { id: 'u3-keywords', needs: [] },
   { id: 'u8-labels', needs: [] },
+  { id: 'p5-report', needs: [] },
   { id: 'd7-email', needs: [] },
   { id: 'd8-public', needs: [] },
   { id: 'h-spec', needs: [] },
+  { id: 'd11-posts', needs: [] },
   { id: 'd15-hashtag', needs: [] },
   { id: 'd16-tasks', needs: [] },
   { id: 'd17-config', needs: [] },
@@ -2157,7 +2159,7 @@ suite('U8', '搜索任务展示能指回原任务，配置意图不冒充发现�
 }
 
 })
-if (fullRun) {
+await group('p5-report', () => {
 suite('P5', '交付必须声明数据边界')
 {
   const html = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 50 })],
@@ -2246,6 +2248,7 @@ suite('P5', '交付必须声明数据边界')
   // 认不出的取值（null、拼错、新版本写的）必须读作 unknown —— 否则报告只对
   // 两个精确字符串警告，一个认不出的值会**压掉警告**（ADR-47）
   eq('认得出的状态原样读', asMemoryStatus('ok'), 'ok')
+  eq('认不出的去重状态读作 unknown', asMemoryStatus('okk'), 'unknown')
   for (const bad of [null, undefined, 'okk', 'OK', 42, {}]) {
     eq(`认不出的状态（${JSON.stringify(bad)}）读作 unknown`, asMemoryStatus(bad), 'unknown')
   }
@@ -2258,7 +2261,7 @@ suite('P5', '交付必须声明数据边界')
 
 // ─────────────────────────── 数据 ───────────────────────────
 
-}
+})
 await group('d7-email', () => {
 suite('D7', '邮箱提取支持反爬写法且不误判')
 {
@@ -3497,6 +3500,8 @@ suite('P1', '作品那一列：没问过作品不得显示成「文案是空的�
   criterion('P1.e')
 }
 
+}
+await group('d11-posts', async () => {
 // 独立上下文只读 D11/ADR-105、公开契约及既有测试；以下 expected 均先于实现写成。
 suite('D11', '搜索作品标识只取可核实的来源字段')
 {
@@ -3529,6 +3534,10 @@ suite('D11', '搜索作品标识只取可核实的来源字段')
     cases.forEach(([name, , expected], i) => eq(`${label}：${name}`,
       (rows[i]?.recent_posts?.[0] as SearchEvidence | undefined)?.id,
       expected === undefined ? undefined : `tiktok:${expected}`))
+    if (label === 'TikTok 嵌套作品') {
+      eq('TikTok 视频搜索保留真实作品标识',
+        (rows[0]?.recent_posts?.[0] as SearchEvidence | undefined)?.id, 'tiktok:001')
+    }
   }
   criterion('D11.g')
   const igItems = cases.map(([, raw], i) => ({ id: raw,
@@ -3539,6 +3548,12 @@ suite('D11', '搜索作品标识只取可核实的来源字段')
   cases.forEach(([name, , expected], i) => eq(`Instagram 直接作品 id：${name}`,
     (ig[i]?.recent_posts?.[0] as SearchEvidence | undefined)?.id,
     expected === undefined ? undefined : `instagram:${expected}`))
+  const igId = (name: string) =>
+    (ig[cases.findIndex(([caseName]) => caseName === name)]?.recent_posts?.[0] as SearchEvidence | undefined)?.id
+  eq('Instagram 搜索使用作品 id 而非文案 id', igId('字符串保留前导零'), 'instagram:001')
+  eq('Instagram 非安全整数不生成作品标识', igId('不安全整数'), undefined)
+  eq('Instagram 缺失标识保持未知', igId('缺失'), undefined)
+  eq('Instagram 字符串标识保留两端空白', igId('字符串保留原值'), 'instagram: raw ')
   criterion('D11.h', 'D11.i')
   // 同一个原始号来自不同平台，适配后就是两个作品键。
   const tt = await read('tiktok', { data: { aweme_list: [ttItems[0]] } })
@@ -3588,6 +3603,9 @@ suite('D11', '首次收页及跨页都稳定保留作品证据')
     mergePage(old, [{ handle: 'sam', platform: 'tiktok', recent_posts: right }], 1, t)
     return old.get('tiktok:sam')?.recent_posts
   }
+  eq('跨页空白 id 不作去重键，两条作品均保留',
+    after([post(' \t', 'same')], [post(' \t', 'same')]),
+    [post(' \t', 'same'), post(' \t', 'same')])
   eq('旧任务无 id 的相同文案逐条保留',
     after([{ desc: 'same' }, { desc: 'same' }], [{ desc: 'same' }]),
     [{ desc: 'same' }, { desc: 'same' }, { desc: 'same' }])
@@ -3633,6 +3651,10 @@ suite('D11', '同人合并按主记录优先沿用作品并集，作品 id 不�
     eq(`${primary} 为主：邮箱相同则粉丝较多者仍为主`, main?.platform, primary)
     eq(`${primary} 为主：同原始号跨平台保留、同键去重、主记录作品在先`,
       main?.recent_posts, [first, unknown, second, post(`${other}:new`, 'linked new'), unknown, post(' ', 'same')])
+    if (primary === 'tiktok') {
+      eq('同人合并先主后关联且跨平台同号均保留', main?.recent_posts?.map(p => p.id),
+        ['tiktok:42', undefined, 'instagram:42', 'instagram:new', undefined, ' '])
+    }
     eq(`${primary} 为主：不改输入作品数组或内容`, [left, right], before)
     eq(`${primary} 为主：粉丝汇总不受作品 id 影响`, main?.followers, 40_000)
   }
@@ -3671,7 +3693,8 @@ suite('D11', '同人合并按主记录优先沿用作品并集，作品 id 不�
   criterion('D11.n')
 }
 
-
+})
+if (fullRun) {
 // D15：独立上下文按需求与 ADR-110 写成；未读发现来源生产函数体。
 suite('D15', '已观察来源按五元组稳定合并，未知不能从任务配置猜补')
 {
