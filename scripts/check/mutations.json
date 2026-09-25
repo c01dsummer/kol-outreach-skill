@@ -4831,7 +4831,7 @@
       ]
     },
     {
-      "id": "M-P1-o",
+      "id": "M-P1-ab",
       "req": "P1.e",
       "why": "Reel 报价已有但主页作品未查询时，凭空生成媒体范围未知的效率状态，交付把未查询写成不可用",
       "file": "scripts/lib/assessment.ts",
