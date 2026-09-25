@@ -4835,6 +4835,190 @@
       "replace": "const badRoutes = resume && replacementLimit !== undefined ? [] : igRouteProblems(state.tasks)"
     },
     {
+      "id": "M-D16-a",
+      "req": "D16.a",
+      "why": "任务列表缺席或不是数组时判为合规 —— collect 新建先建好目录再崩溃，probe 带着类名与堆栈退出，而不是以输入问题拒绝",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "  if (!Array.isArray(tasks) || tasks.length === 0) {",
+      "replace": "  if (!Array.isArray(tasks)) return []\n  if (tasks.length === 0) {"
+    },
+    {
+      "id": "M-D16-o",
+      "req": "D16.a",
+      "why": "一个任务都没有的列表判为合规 —— 照常建目录、开账、交付一份空名单并说跑完了（需求所有者裁决：空列表直接报错）",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "!Array.isArray(tasks) || tasks.length === 0",
+      "replace": "!Array.isArray(tasks)"
+    },
+    {
+      "id": "M-D16-b",
+      "req": "D16.b",
+      "why": "不是对象的任务项不报 —— null 让入口崩溃，字符串或数组那一项按 IG Reels 发出不带关键词的付费请求",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "      out.push(`${at} 不是一个任务对象，这里${seen(t)}`)\n      continue",
+      "replace": "      continue"
+    },
+    {
+      "id": "M-D16-c",
+      "req": "D16.c",
+      "why": "关键词是空串或只有空白时放行 —— 付费发出不带关键词的搜索",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    if (textProblem(keyword) !== undefined) {",
+      "replace": "    if (typeof keyword !== 'string') {"
+    },
+    {
+      "id": "M-D16-d",
+      "req": "D16.c",
+      "why": "没写关键词的任务放行 —— 付费请求不带关键词",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    if (textProblem(keyword) !== undefined) {",
+      "replace": "    if (keyword !== undefined && textProblem(keyword) !== undefined) {"
+    },
+    {
+      "id": "M-D16-e",
+      "req": "D16.c",
+      "why": "首尾带空白但有内容的关键词被拒 —— 运营照原词写的配置跑不起来",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    if (textProblem(keyword) !== undefined) {",
+      "replace": "    if (textProblem(keyword) !== undefined || (keyword as string).trim() !== keyword) {"
+    },
+    {
+      "id": "M-D16-f",
+      "req": "D16.d",
+      "why": "写错的维度照常付费采集，评分里静默拿不到竞品词、场景词的加分",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {",
+      "replace": "    if (typeof dimension !== 'string') {"
+    },
+    {
+      "id": "M-D16-g",
+      "req": "D16.d",
+      "why": "写成 Competitor 的任务被放行，评分按原值比较，照样拿不到加分",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {",
+      "replace": "    if (!(DIMENSIONS as readonly unknown[]).includes(typeof dimension === 'string' ? dimension.toLowerCase() : dimension)) {"
+    },
+    {
+      "id": "M-D16-h",
+      "req": "D16.d",
+      "why": "维度列表少了人群词 —— 合规的人群词任务被拒，运营照需求写的配置跑不起来",
+      "file": "scripts/lib/types.ts",
+      "find": "export const DIMENSIONS = ['category', 'scene', 'competitor', 'audience'] as const",
+      "replace": "export const DIMENSIONS = ['category', 'scene', 'competitor'] as const"
+    },
+    {
+      "id": "M-D16-i",
+      "req": "D16.e",
+      "why": "没写平台的任务被当成 Instagram 走 Reels 付费 —— 缺席被当成了一个值（P1）",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {",
+      "replace": "    if (platform !== undefined && !(PLATFORMS as readonly unknown[]).includes(platform)) {"
+    },
+    {
+      "id": "M-D16-j",
+      "req": "D16.e",
+      "why": "写成 TikTok 的任务被放行；搜索入口只认小写，任务改走 IG Reels 付费",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {",
+      "replace": "    if (!(PLATFORMS as readonly unknown[]).includes(typeof platform === 'string' ? platform.toLowerCase() : platform)) {"
+    },
+    {
+      "id": "M-D16-k",
+      "req": "D16.f",
+      "why": "报出第一个坏任务就不再报 —— 一份有几处错的配置要来回跑几趟才改得完",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    const t: unknown = tasks[i]",
+      "replace": "    if (out.length) break\n    const t: unknown = tasks[i]"
+    },
+    {
+      "id": "M-D16-l",
+      "req": "D16.g",
+      "why": "同一个任务的关键词坏了就不再看维度 —— 几个字段都坏时少报一处，改完一个字段再跑，又被同一个任务拦下",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    }\n    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {",
+      "replace": "    } else if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {"
+    },
+    {
+      "id": "M-D16-m",
+      "req": "D16.h",
+      "why": "把配置完全相同的任务判为重复 —— U8.a、D6.h 说它们是两个任务，运营照需求写的配置被拒",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    const at = `任务 ${taskOrdinal(i)}`",
+      "replace": "    const at = `任务 ${taskOrdinal(i)}`\n    if (tasks.slice(0, i).some(u => JSON.stringify(u) === JSON.stringify(t))) { out.push(`${at} 与前面的任务重复`); continue }"
+    },
+    {
+      "id": "M-D16-n",
+      "req": "D16.i",
+      "why": "校验顺手把关键词修剪后写回 —— 新建与续跑把修剪后的词落盘，原词（D15.k、U8.k）丢了",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    const { keyword, dimension, platform } = t as Record<string, unknown>",
+      "replace": "    const { keyword, dimension, platform } = t as Record<string, unknown>\n    if (typeof keyword === 'string') (t as Record<string, unknown>).keyword = keyword.trim()"
+    },
+    {
+      "id": "M-D16-p",
+      "req": "D16.d",
+      "why": "没写维度的任务照常付费采集 —— 缺席被当成了一个合规的维度，评分里静默没有维度加分（P1：缺 dimension 不补成任何一个维度）",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {",
+      "replace": "    if (dimension !== undefined && !(DIMENSIONS as readonly unknown[]).includes(dimension)) {"
+    },
+    {
+      "id": "M-D16-q",
+      "req": "D16.h",
+      "why": "任务列表校验把路线也判了 —— 写着 ig_route 的合规 TikTok 任务被多点名一句，入口一并写出路线问题时同一处报两遍，合规的任务被指出",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {",
+      "replace": "    if (platform === 'tiktok' && 'ig_route' in (t as object)) out.push(`${at} 的 ig_route 只能写在 Instagram 任务上`)\n    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {"
+    },
+    {
+      "id": "M-D16-r",
+      "req": "D16.c",
+      "why": "没写的字段在报错里写成读到了 null —— 用户分不出没写与写了 null（P1）",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "v === undefined ? '缺席' :",
+      "replace": "v === undefined ? '是 null' :"
+    },
+    {
+      "id": "M-D16-s",
+      "req": "D16.d",
+      "why": "没写的字段在报错里写成读到了字符串「缺席」—— 与真写了这两个字的那一句一字不差（P1）",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "v === undefined ? '缺席' :",
+      "replace": "v === undefined ? '是 \"缺席\"' :"
+    },
+    {
+      "id": "M-D16-t",
+      "req": "D16.b",
+      "why": "读到的 null 在报错里写成缺席 —— 写了 null 与没写分不出（P1）",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "v === undefined ? '缺席'",
+      "replace": "v == null ? '缺席'"
+    },
+    {
+      "id": "M-D16-u",
+      "req": "D16.b",
+      "why": "报错里的任务序号从 0 数 —— 与采集输出的任务标签对不上（U8.a）",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "taskOrdinal(i)",
+      "replace": "String(i)"
+    },
+    {
+      "id": "M-D16-v",
+      "req": "D16.b",
+      "why": "同一个值出现两次时后一个按前一个的位置点名 —— 第 4 个报成第 2 个，后面那一处永远不被点名",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "taskOrdinal(i)",
+      "replace": "taskOrdinal(tasks.indexOf(t))"
+    },
+    {
+      "id": "M-D16-w",
+      "req": "D16.c",
+      "why": "读到的字符串在报错里不带引号 —— 读到的文字 7 与数字 7、文字 null 与 null 分不出",
+      "file": "scripts/lib/search-tasks.ts",
+      "find": "是 ${JSON.stringify(v)}",
+      "replace": "是 ${String(v)}"
+    },
+    {
       "id": "M-F3-a",
       "req": "F3.c",
       "by": "selfcheck",

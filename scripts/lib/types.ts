@@ -63,8 +63,12 @@ export type MemoryStatus = typeof MEMORY_STATUSES[number]
  */
 export const asMemoryStatus = (v: unknown): MemoryStatus =>
   (MEMORY_STATUSES as readonly unknown[]).includes(v) ? v as MemoryStatus : 'unknown'
-/** F2：关键词的四个维度。竞品词权重最高（评分见 score.ts）。 */
-export type Dimension = 'category' | 'scene' | 'competitor' | 'audience'
+/**
+ * F2：关键词的四个维度。竞品词权重最高（评分见 score.ts）。
+ * **运行时列表与类型从同一处派生**，理由同 `PLATFORMS`：任务列表校验（D16.d）问的就是这一份。
+ */
+export const DIMENSIONS = ['category', 'scene', 'competitor', 'audience'] as const
+export type Dimension = typeof DIMENSIONS[number]
 export type Tier = 'A' | 'B' | 'C'
 export type Fit = '✅' | '⚠️' | '❌'
 

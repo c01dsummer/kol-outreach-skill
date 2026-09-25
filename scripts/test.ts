@@ -66,6 +66,7 @@ import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { formatDiscoverySources, mergeDiscoverySources } from './lib/discovery.js'
 import { hashtagKeyword, igRouteProblems } from './lib/ig-route.js'
+import { taskListProblems } from './lib/search-tasks.js'
 import {
   INSTAGRAM_HASHTAG_ENDPOINT, TikHub, TikHubError, fillEmail, isInstagramVideo, parseInstagramHashtagPage, pickList,
 } from './providers/tikhub.js'
@@ -3912,6 +3913,560 @@ suite('D15', 'IG 话题入口：配置校验与分派（ADR-112 第四节第 3 �
     mergedInOrder([[htPage, htTask], [reelsPage, reelsTask]]),
     [[['instagram:same', '话题那条'], ['instagram:extra', '话题独有']], true, [HT, REELS]])
   criterion('D11.b', 'D11.h')
+}
+
+suite('D16', '任务列表按必填字段校验')
+{
+  // 照 D15：调用包一层，抛出变成一个显眼的值再比，一次抛出不拖垮后面的断言；标签照样写成字面量
+  const attempt = <T>(run: () => T): T | string => {
+    try { return run() } catch (e) { return `抛出：${e instanceof Error ? e.message : String(e)}` }
+  }
+  // 传入值的「形状照」：键、键序与取值都拍进去 —— JSON 看不见值为 undefined 的键，
+  // 把缺席的字段补成 undefined 也得看得见
+  const shape = (v: unknown): unknown =>
+    v !== null && typeof v === 'object'
+      ? [Array.isArray(v) ? '数组' : '对象', Object.keys(v).map(k => [k, shape((v as Record<string, unknown>)[k])])]
+      : [typeof v, v === undefined ? '（undefined）' : v]
+  // D16.i 的属性形式：本组每一次调用前后各拍一张，对不上就记下，组末一条断言一起比 —— 不管喂的是什么，传入值都不变
+  const rewritten: string[] = []
+  const problems = (tasks: unknown): string[] | string => {
+    const before = JSON.stringify(shape(tasks))
+    const got = attempt(() => taskListProblems(tasks))
+    const after = JSON.stringify(shape(tasks))
+    if (after !== before) rewritten.push(`${before} → ${after}`)
+    return got
+  }
+  // 维度与平台取字面量，不拿产品常量当预期（F2.a 的四个维度、S4 的两个平台）
+  const tt = (keyword: string, over: Record<string, unknown> = {}): Record<string, unknown> =>
+    ({ keyword, dimension: 'category', platform: 'tiktok', ...over })
+  const ig = (keyword: string, over: Record<string, unknown> = {}): Record<string, unknown> =>
+    ({ keyword, dimension: 'scene', platform: 'instagram', ...over })
+  /** 缺席 = 没有这个键（不是值为 undefined —— task.json 里写不出 undefined） */
+  const without = (task: Record<string, unknown>, ...keys: string[]) => {
+    const copy = { ...task }
+    for (const k of keys) delete copy[k]
+    return copy
+  }
+  const ABSENT = Symbol('缺席')
+  /**
+   * 这句话点名的是不是第 n 个任务：从 1 数、**同任务标签「任务 N」**（D16.b「同任务标签」，签名说明「写明『任务 N』」）；
+   * 「任务 1」不算点名「任务 12」。与 D15 不同，这里不认「第 N 个」—— 那不是任务标签的写法，用户拿它对不上采集输出里的标签（U8.a）
+   */
+  const names = (msg: unknown, n: number): boolean =>
+    typeof msg === 'string' && new RegExp(`任务\\s*${n}(?!\\d)`).test(msg)
+  /**
+   * 这句话点名了随便哪一个任务。只用在「不点名任何一个任务」那一侧，所以故意比 names 宽 ——
+   * 写成「第 N 个」也算点名了，宽一点只会更严
+   */
+  const namesSome = (msg: unknown): boolean => typeof msg === 'string' && /任务\s*\d|第\s*\d+\s*个/.test(msg)
+  const namedCount = (got: string[] | string, n: number): number | string =>
+    Array.isArray(got) ? got.filter(s => names(s, n)).length : got
+  /**
+   * 这句话写着读到的值 text（按 JSON 写法）。缺席那一格写「缺席」：不带引号 —— 带了就和读到字符串 "缺席" 那一句
+   * 分不出（P1）；也不写 undefined —— JSON 里没有这个值，那是把缺席原样打了出来。
+   * 模板里本来就有「缺席」两个字、读到的值那一格却没写的那一种，这里看不出，由下面「缺席与读到 null」那一组比出来
+   */
+  const writes = (s: string, text: string): boolean =>
+    text === '缺席' ? s.includes('缺席') && !s.includes('"缺席"') && !s.includes('undefined') : s.includes(text)
+  /**
+   * 这一句写进的是整个任务或整份列表，不是这一处读到的值。子串判定「写着读到的值」挡不住它：夹具里的列表本来就含着这一项。
+   * - JSON 的「"键":」写法只会从一个整对象里来 —— 读到的值那一格写不出它（本组夹具没有哪个读到的值是带这三个键的对象），
+   *   任务标签「任务 N」也写不出它；
+   * - 垫在前面的合规任务的关键词 plainword 只会从整份列表里来（只拿它查点名第 2 个及以后任务的那一句）
+   */
+  const dumpsWhole = (s: string): boolean => /"(keyword|dimension|platform)":/.test(s) || s.includes('plainword')
+  /** 点名第 n 个任务的那一句里，同时写着字段名与读到的值（按 JSON 写法；缺席写「缺席」）—— 是这个字段的值，不是整个任务 */
+  const pointsAt = (got: string[] | string, n: number, field: string, text: string): boolean =>
+    Array.isArray(got) && got.some(s => names(s, n) && s.includes(field) && writes(s, text) && !dumpsWhole(s))
+  /** word 在 s 里出现了几次 */
+  const occurrences = (s: string, word: string) => s.split(word).length - 1
+  const missList = (rows: readonly (readonly [string, string[] | string, ...unknown[]])[],
+    pass: (got: string[], row: readonly unknown[]) => boolean) =>
+    rows.filter(row => { const got = row[1]; return !(Array.isArray(got) && pass(got, row)) })
+      .map(([name, got]) => `${name} → ${JSON.stringify(got)}`)
+
+  // ── D16.a：tasks 本身缺席、不是数组或是空数组（空数组是需求所有者的裁决，ADR-115 第二节）──
+  // 读到的值按 JSON 写法、缺席写明缺席；预期写成字面量
+  const wholes: [string, unknown, string][] = [
+    ['缺席', undefined, '缺席'],
+    ['null', null, 'null'],
+    ['空数组', [], '[]'],
+    ['字符串', 'selfcare', '"selfcare"'],
+    ['数字', 7, '7'],
+    ['布尔', true, 'true'],
+    ['空对象', {}, '{}'],
+    // 把单个任务当成了列表
+    ['单个任务对象', tt('selfcare'), '{"keyword":"selfcare","dimension":"category","platform":"tiktok"}'],
+    // 按下标与 length 走一遍，会把它当成一份只有一个合规任务的列表
+    ['类数组对象', { 0: tt('selfcare'), length: 1 },
+      '{"0":{"keyword":"selfcare","dimension":"category","platform":"tiktok"},"length":1}'],
+  ]
+  const wholeGot = wholes.map(([name, tasks, text]) => [name, problems(tasks), text] as const)
+  eq('任务列表校验：tasks 缺席、不是数组或是空数组时报出一句，写着 tasks 与读到的值（缺席写明缺席）',
+    missList(wholeGot, (got, row) => got.some(s => s.includes('tasks') && writes(s, row[2] as string))), [])
+  // 「不点名任何一个任务」要求确实报了话：交回空数组时「一句都没点名」是空洞地成立
+  eq('任务列表校验：tasks 本身不合规时报出的话不点名任何一个任务',
+    missList(wholeGot, got => got.length > 0 && !got.some(namesSome)), [])
+  eq('任务列表校验：tasks 本身不合规时只交回一句（签名说明）',
+    missList(wholeGot, got => got.length === 1), [])
+  // 「写着读到的值」只查子串的话，规则描述就能满足它 —— 「不能是空数组 []」「不能是 null」照抄进句子，读到的值那一格空着，
+  // 那几行照样绿。照 D16.b 的办法：拿读到 7 的那一句当底（7 那一行自己拿读到 "selfcare" 的那一句当底），
+  // 这一行的值的写法在自己那一句里出现得比底那一句多，多出来的只能是读到的值那一格。
+  // 前提同下面「缺席与读到 null」那一组：同一处的句子只随读到的值变。缺席那一行由那一组比
+  const wholeSentence = (got: string[] | string) => (Array.isArray(got) ? got.find(s => s.includes('tasks')) : undefined)
+  const wholeBase = (text: string) => wholeSentence(wholeGot.find(r => r[2] === (text === '7' ? '"selfcare"' : '7'))![1])
+  eq('任务列表校验：tasks 本身不合规时，读到的值那一格随读到的值变，不是规则描述里本来就有的字',
+    missList(wholeGot.filter(r => r[2] !== '缺席'), (got, row) => {
+      const s = wholeSentence(got), base = wholeBase(row[2] as string)
+      return s !== undefined && base !== undefined && occurrences(s, row[2] as string) > occurrences(base, row[2] as string)
+    }), [])
+  criterion('D16.a')
+
+  // ── D16.b：某一项不是对象 —— 写明第几个任务（从 1 数，同任务标签）与这一项读到的值 ──
+  // 坏的一律放在第 2 个，前面垫一个合规任务：按 0 数的写法会写成「任务 1」
+  const items: [string, unknown, string][] = [
+    ['null', null, 'null'],
+    ['空数组', [], '[]'],
+    ['数组', ['selfcare', 'scene', 'tiktok'], '["selfcare","scene","tiktok"]'],
+    // typeof 是 object、三个字段也读得到 —— 可它是数组，不是任务对象
+    ['挂着三个字段的数组', Object.assign([], tt('selfcare')), '[]'],
+    ['字符串', 'selfcare', '"selfcare"'],
+    ['空串', '', '""'],
+    ['数字', 7, '7'],
+    ['数字 0', 0, '0'],
+    ['true', true, 'true'],
+    ['false', false, 'false'],
+  ]
+  const itemGot = items.map(([name, item, text]) => [name, problems([tt('plainword'), item]), text] as const)
+  // 写的是这一项，不是整份列表（dumpsWhole：整份列表里有第 1 个任务的 "keyword": 与 plainword）
+  eq('任务列表校验：不是对象的一项被点名是第几个任务（从 1 数），并写出这一项读到的值',
+    missList(itemGot, (got, row) =>
+      got.some(s => names(s, 2) && s.includes(row[2] as string) && !dumpsWhole(s)) && !got.some(s => names(s, 1))), [])
+  // 「写着读到的值」只查子串的话，规则描述就能满足它 —— 签名说明「不是对象（null、数组、字符串、数字、布尔）」照抄进句子，
+  // null 那一行不看读到的值也绿。拿同一处（第 2 个任务不是对象）读到别的值的那一句当底：这一行的值的写法在自己那一句里
+  // 出现得比底那一句多，多出来的只能是读到的值那一格。底取读到 "selfcare" 的那一句，它不含别的行的写法；
+  // "selfcare" 那一行自己拿读到 7 的那一句当底。前提同下面「缺席与读到 null」那一组：同一处的句子只随读到的值变。
+  // 列表里的项在就是在，不会缺席：点名它的那一句不写缺席 —— 把读到的 null 当缺席写，是把 P1 要分开的两个值压平了
+  const itemSentence = (got: string[] | string, n: number) => (Array.isArray(got) ? got.find(s => names(s, n)) : undefined)
+  const itemBase = (text: string) => itemSentence(itemGot.find(r => r[2] === (text === '"selfcare"' ? '7' : '"selfcare"'))![1], 2)
+  eq('任务列表校验：不是对象的一项，读到的值那一格随这一项变：不是规则描述里本来就有的字，也不写成缺席',
+    missList(itemGot, (got, row) => {
+      const s = itemSentence(got, 2), base = itemBase(row[2] as string)
+      return s !== undefined && base !== undefined && !s.includes('缺席')
+        && occurrences(s, row[2] as string) > occurrences(base, row[2] as string)
+    }), [])
+  // undefined 在 task.json 里写不出来，这里只要它同样被当成不是对象的一项点名（读到的值怎么写不强求）
+  const undefinedItem = problems([tt('plainword'), undefined])
+  ok('任务列表校验：值为 undefined 的一项也按不是对象点名',
+    Array.isArray(undefinedItem) && undefinedItem.some(s => names(s, 2)) && !undefinedItem.some(s => names(s, 1)))
+  eq('任务列表校验：不是对象的一项恰好一句（签名说明：这一项一句）',
+    missList(itemGot, got => got.length === 1 && names(got[0], 2)), [])
+  // 同一个原始值在列表里出现两次（JSON.parse 本来就会产出这种形状）：按「这个值第一次出现在哪」算序号的写法，
+  // 会把第 4 个报成第 2 个、第 6 个报成第 5 个，后出现的那个从来不被点名。每个位置各算各的
+  const dupItems = problems([tt('plainword'), null, tt('beta'), null, 7, 7])
+  eq('任务列表校验：同一个值的不是对象的项出现几次，就按各自的位置点名几次',
+    [Array.isArray(dupItems) ? dupItems.length : dupItems, [1, 2, 3, 4, 5, 6].map(n => namedCount(dupItems, n)),
+      [4, 6].map(n => itemSentence(dupItems, n)?.includes(n === 4 ? 'null' : '7'))],
+    [4, [0, 1, 0, 1, 1, 1], [true, true]])
+  criterion('D16.b')
+
+  // ── D16.c–e：一个字段不合规 —— 点名那个任务与字段名，并写出读到的值（缺席写明缺席）──
+  // 坏的一律是第 2 个任务，第 1 个合规
+  const fieldGot = (field: string, base: Record<string, unknown>, cases: [string, unknown, string][]) =>
+    cases.map(([name, v, text]) => {
+      const task = v === ABSENT ? without(base, field) : { ...base, [field]: v }
+      return [`${field} ${name}`, problems([tt('plainword'), task]), text, field] as const
+    })
+  const fieldMiss = (rows: ReturnType<typeof fieldGot>) =>
+    missList(rows, (got, row) => pointsAt(got, 2, row[3] as string, row[2] as string) && !got.some(s => names(s, 1)))
+
+  // D16.c：是字符串、去掉首尾空白后仍有内容（textProblem 的口径）
+  const keywordRows = fieldGot('keyword', ig('selfcare'), [
+    ['缺席', ABSENT, '缺席'],
+    ['null', null, 'null'],
+    ['数字', 7, '7'],
+    ['数字 0', 0, '0'],
+    ['true', true, 'true'],
+    ['false', false, 'false'],
+    // String() 一下就成了 "selfcare"
+    ['数组', ['selfcare'], '["selfcare"]'],
+    ['对象', { text: 'selfcare' }, '{"text":"selfcare"}'],
+    ['空串', '', '""'],
+    ['一个空格', ' ', '" "'],
+    ['几个空格', '   ', '"   "'],
+    ['制表符', '\t', '"\\t"'],
+    ['换行', '\n', '"\\n"'],
+    ['回车换行夹空格', ' \r\n ', '" \\r\\n "'],
+    ['全角空格', '　', '"　"'],
+    ['全角空格夹半角空格', '　 　', '"　 　"'],
+    ['不换行空格', ' ', '" "'],
+  ])
+  eq('任务列表校验：keyword 缺席、不是字符串、空串或只含空白时，点名那个任务与 keyword，并写出读到的值（缺席写明缺席）',
+    fieldMiss(keywordRows), [])
+  eq('任务列表校验：首尾带空白但有内容的关键词合规',
+    [problems([tt(' selfcare')]), problems([ig('selfcare\n')]), problems([tt('\tself care ')]),
+      problems([ig('　护肤　')]), problems([tt(' #selfcare ')])],
+    [[], [], [], [], []])
+  criterion('D16.c')
+
+  // D16.d：只认 category、scene、competitor、audience，按原值比较、区分大小写、不修剪空白
+  const dimensionRows = fieldGot('dimension', ig('selfcare'), [
+    ['缺席', ABSENT, '缺席'],
+    ['null', null, 'null'],
+    ['数字', 7, '7'],
+    ['true', true, 'true'],
+    // String() 一下就成了 "scene"
+    ['数组', ['scene'], '["scene"]'],
+    ['空对象', {}, '{}'],
+    ['空串', '', '""'],
+    ['一个空格', ' ', '" "'],
+    ['首字母大写', 'Scene', '"Scene"'],
+    ['全大写', 'CATEGORY', '"CATEGORY"'],
+    ['开头空格', ' scene', '" scene"'],
+    ['末尾空格', 'category ', '"category "'],
+    ['末尾换行', 'competitor\n', '"competitor\\n"'],
+    ['开头全角空格', '　audience', '"　audience"'],
+    // 只认整值：截短的、多一截的、拼在一起的都不算
+    ['截短', 'scen', '"scen"'],
+    ['复数', 'categories', '"categories"'],
+    // 去掉末尾 s 再比的写法会放行这三个（categories 去掉 s 是 categorie，挡不住这一类）
+    ['复数 scenes', 'scenes', '"scenes"'],
+    ['复数 competitors', 'competitors', '"competitors"'],
+    ['复数 audiences', 'audiences', '"audiences"'],
+    ['两个维度拼在一起', 'category,scene', '"category,scene"'],
+    ['中文名', '品类词', '"品类词"'],
+    ['平台名', 'tiktok', '"tiktok"'],
+    // 原型链上的键名：拿对象当查找表的写法会放行它们
+    ['toString', 'toString', '"toString"'],
+    ['constructor', 'constructor', '"constructor"'],
+    ['__proto__', '__proto__', '"__proto__"'],
+    ['hasOwnProperty', 'hasOwnProperty', '"hasOwnProperty"'],
+    ['valueOf', 'valueOf', '"valueOf"'],
+    // 写着「缺席」两个字的字符串是读到了值，不是缺席
+    ['字符串「缺席」', '缺席', '"缺席"'],
+  ])
+  eq('任务列表校验：dimension 缺席或不是四个维度之一（区分大小写、不修剪空白）时，点名那个任务与 dimension，并写出读到的值（缺席写明缺席）',
+    fieldMiss(dimensionRows), [])
+  criterion('D16.d')
+
+  // D16.e：只认 tiktok、instagram，按原值比较、区分大小写、不修剪空白；缺席不当作任何一个平台
+  const platformRows = fieldGot('platform', tt('selfcare'), [
+    ['缺席', ABSENT, '缺席'],
+    ['null', null, 'null'],
+    ['数字', 7, '7'],
+    ['false', false, 'false'],
+    ['数组', ['tiktok'], '["tiktok"]'],
+    ['空对象', {}, '{}'],
+    ['空串', '', '""'],
+    ['一个空格', ' ', '" "'],
+    ['TikTok', 'TikTok', '"TikTok"'],
+    ['Instagram', 'Instagram', '"Instagram"'],
+    ['全大写', 'INSTAGRAM', '"INSTAGRAM"'],
+    ['开头空格', ' tiktok', '" tiktok"'],
+    ['末尾空格', 'instagram ', '"instagram "'],
+    ['末尾换行', 'tiktok\n', '"tiktok\\n"'],
+    ['开头全角空格', '　instagram', '"　instagram"'],
+    ['截短', 'tik', '"tik"'],
+    // 去掉末尾 s 再比的写法会放行它们
+    ['复数 tiktoks', 'tiktoks', '"tiktoks"'],
+    ['复数 instagrams', 'instagrams', '"instagrams"'],
+    ['两个平台拼在一起', 'tiktok,instagram', '"tiktok,instagram"'],
+    ['简称', 'ig', '"ig"'],
+    // S4：只做出海平台
+    ['抖音', 'douyin', '"douyin"'],
+    ['小红书', 'xiaohongshu', '"xiaohongshu"'],
+    ['别的平台', 'youtube', '"youtube"'],
+    ['维度名', 'scene', '"scene"'],
+    ['toString', 'toString', '"toString"'],
+    ['constructor', 'constructor', '"constructor"'],
+    ['__proto__', '__proto__', '"__proto__"'],
+    ['hasOwnProperty', 'hasOwnProperty', '"hasOwnProperty"'],
+    ['valueOf', 'valueOf', '"valueOf"'],
+    ['字符串「缺席」', '缺席', '"缺席"'],
+  ])
+  eq('任务列表校验：platform 缺席或不是 tiktok、instagram（区分大小写、不修剪空白）时，点名那个任务与 platform，并写出读到的值（缺席写明缺席）',
+    fieldMiss(platformRows), [])
+  eq('任务列表校验：一个任务只坏一个字段时恰好一句（签名说明：每个不合规的字段各一句）',
+    missList([...keywordRows, ...dimensionRows, ...platformRows], got => got.length === 1 && names(got[0], 2)), [])
+  criterion('D16.e')
+
+  // ── 缺席与读到了值分得出（D16.a、D16.c–e 的「缺席写明缺席」；P1：没有与读到了某个值是两个可区分的值）──
+  // 同一个位置调用四次：缺席（A）、读到 null（N）、读到字符串 "缺席"（S）、读到 7（Z，下面比 null 用）。不比措辞，只比交回的：
+  // - A 那一句不带引号写缺席（上面的 writes）；A 与 S 交回的不同 —— 展示时拿 "缺席" 顶替缺席的写法，两句一字不差；
+  // - A 与 N 交回的不同，且 A 那一句里「缺席」比 N 那一句多 —— 规则描述里本来就有「缺席」两个字的话，两句一样多，
+  //   只有读到的值那一格写了缺席，A 才多出一次。前提：同一处的句子只随读到的值变（签名说明：每一句是「哪一处」加「读到的值」）
+  // keyword 读到 "缺席" 是合规的关键词，S 交回空数组，那一行「与 S 不同」是空洞地成立 —— 靠 A 不带引号撑着
+  /** [哪一处, 按取值造出整份任务列表（ABSENT = 缺席）, 认出说这一处的那一句] */
+  type AbsentRow = [string, (v: unknown) => unknown, (s: string) => boolean]
+  // 字段那几行：坏的是第 2 个任务，第 1 个合规
+  const fieldAbsent = (field: string, base: Record<string, unknown>): AbsentRow => [field,
+    v => [tt('plainword'), v === ABSENT ? without(base, field) : { ...base, [field]: v }],
+    s => names(s, 2) && s.includes(field)]
+  const absentRows = ([
+    ['tasks', v => (v === ABSENT ? undefined : v), s => s.includes('tasks')],
+    fieldAbsent('keyword', ig('selfcare')),
+    fieldAbsent('dimension', ig('selfcare')),
+    fieldAbsent('platform', tt('selfcare')),
+  ] as AbsentRow[]).map(([name, make, mine]) => {
+    const A = problems(make(ABSENT)), N = problems(make(null)), S = problems(make('缺席')), Z = problems(make(7))
+    const pick = (got: string[] | string) => (Array.isArray(got) ? got.find(mine) : undefined)
+    return { name, A, N, S, Z, a: pick(A), n: pick(N), z: pick(Z) }
+  })
+  const absentMiss = (pass: (r: typeof absentRows[number]) => boolean) =>
+    absentRows.filter(r => !pass(r)).map(r => `${r.name} → 缺席 ${JSON.stringify(r.A)}；null ${JSON.stringify(r.N)}；"缺席" ${JSON.stringify(r.S)}`)
+  eq('任务列表校验：缺席与读到字符串「缺席」分得出，缺席那一句不带引号写缺席，两次交回的不一样',
+    absentMiss(r => r.a !== undefined && writes(r.a, '缺席') && JSON.stringify(r.A) !== JSON.stringify(r.S)), [])
+  eq('任务列表校验：缺席与读到 null 分得出，缺席那一句不写 undefined，读到的值那一格写着缺席',
+    absentMiss(r => r.a !== undefined && r.n !== undefined && !r.a.includes('undefined')
+      && JSON.stringify(r.A) !== JSON.stringify(r.N) && occurrences(r.a, '缺席') > occurrences(r.n, '缺席')), [])
+  // 读到 null 那一格同样可能被规则描述满足：「不能是 null」照抄进句子、读到的值那一格空着，上面的子串判定照样绿。
+  // 同一处读到 7 的那一句（Z）当底：null 在 N 那一句里比在 Z 那一句里多，多出来的只能是读到的值那一格
+  eq('任务列表校验：读到 null 那一句里的 null 比读到 7 那一句多，读到的值那一格写着 null',
+    absentRows.filter(r => !(r.n !== undefined && r.z !== undefined && occurrences(r.n, 'null') > occurrences(r.z, 'null')))
+      .map(r => `${r.name} → null ${JSON.stringify(r.N)}；7 ${JSON.stringify(r.Z)}`), [])
+  // 「点名了哪个字段」只查字段名在不在句子里的话，一段把三个字段名都写进去的规则描述就能满足它 ——
+  // 每个坏字段各出一句、句句写着「必填字段（keyword、dimension、platform）有一处不合规」，用户分不出坏的是哪个字段。
+  // 拿第 2 个任务上三个字段各自读到 null 的那三句（上面的 N）两两比：字段 f 在自己那一句里出现得比在别的字段那一句里多。
+  // 三句读到的值一样，差出来的只能是点名的那个字段；规则描述里把三个字段名各列一次的，照样是自己那一句多一次
+  const FIELDS = ['keyword', 'dimension', 'platform']
+  const nullSentence = (field: string) => absentRows.find(r => r.name === field)?.n
+  eq('任务列表校验：点名字段的那一句说的就是这个字段，字段名在自己那一句里比在别的字段那一句里出现得多',
+    FIELDS.flatMap(f => FIELDS.filter(g => g !== f).filter(g => {
+      const sf = nullSentence(f), sg = nullSentence(g)
+      return !(sf !== undefined && sg !== undefined && occurrences(sf, f) > occurrences(sg, f))
+    }).map(g => `${f} 对 ${g}：${JSON.stringify(nullSentence(f))}／${JSON.stringify(nullSentence(g))}`)), [])
+  criterion('D16.a', 'D16.c', 'D16.d', 'D16.e', 'D16.g')
+
+  // ── D16.f、D16.h：好坏相间、跨过两位数 ──
+  // 关键词不带数字、取值不用数字，免得句子里的数被误认成序号
+  const shared = ig('beta')
+  const mixed: unknown[] = [
+    tt('alpha', { dimension: 'Category' }),   // 1 坏：dimension（按 0 数会写成「任务 0」）
+    null,                                     // 2 坏：不是对象
+    shared,                                   // 3
+    tt('gamma'),                              // 4
+    {},                                       // 5 坏：三个字段都缺席
+    shared,                                   // 6 与第 3 个是同一个对象
+    ig('delta', { as_hashtag: true }),        // 7
+    tt('gamma'),                              // 8 与第 4 个配置完全相同
+    tt(' epsilon '),                          // 9
+    ig('zeta', { dimension: 'audience' }),    // 10
+    ig('eta', { platform: 'Instagram' }),     // 11 坏：platform
+    ig('   '),                                // 12 坏：keyword
+    tt('theta', { dimension: 'competitor' }), // 13
+    tt('alpha', { dimension: 'Category' }),   // 14 坏：与第 1 个配置完全相同，各报各的
+  ]
+  const mixedGot = problems(mixed)
+  const isNamed = (n: number) => { const c = namedCount(mixedGot, n); return typeof c === 'number' ? c > 0 : c }
+  eq('任务列表校验：列表里每个不合规的任务都被点名，不止第一个',
+    [1, 2, 5, 11, 12, 14].map(isNamed), [true, true, true, true, true, true])
+  criterion('D16.f')
+  eq('任务列表校验：好坏相间时只点名不合规的那些，合规的（包括与别的任务完全相同的）一个都不点名',
+    mixed.map((_, i) => isNamed(i + 1)),
+    [true, true, false, false, true, false, false, false, false, false, true, true, false, true])
+  // 句数：不是对象的一项一句，对象每个不合规的字段一句 —— 1 + 1 + 3 + 1 + 1 + 1 = 8
+  eq('任务列表校验：好坏相间时的句数按签名说明，一句不多',
+    [Array.isArray(mixedGot) ? mixedGot.length : mixedGot, mixed.map((_, i) => namedCount(mixedGot, i + 1))],
+    [8, [1, 1, 0, 0, 3, 0, 0, 0, 0, 0, 1, 1, 0, 1]])
+
+  // 长列表：三十几个任务、大多数不合规，坏的一直排到两位数的序号上，句数远过十句 ——
+  // 报到第几句、第几个任务就截断的写法（「只报前十处」「再有就写『另有几处』」）在上面那份十四个任务、八句的列表上照样全绿，
+  // 在这里红。不是对象的项在两位数序号上与前面的同值重复（第 21 个同第 8 个、第 30 个同第 12 个），
+  // 同一个坏对象的引用出现两次（第 16、33 个），三个字段全坏的任务也落在两位数上；合规的夹在中间，包括与别的配置完全相同的。
+  // 每一行的句数照签名说明手算，写在行里：不是对象的项一句；对象按 keyword、dimension、platform 里不合规的个数
+  const badSame = ig('omega', { platform: 'Instagram' })
+  const longSpec: [unknown, number][] = [
+    [tt('alpha'), 0],                                                     // 1
+    [ig('beta', { platform: 'TikTok' }), 1],                              // 2 platform
+    [ig('gamma'), 0],                                                     // 3
+    [tt(''), 1],                                                          // 4 keyword
+    [without(ig('delta'), 'dimension'), 1],                               // 5 dimension 缺席
+    [tt('epsilon', { dimension: 'audience' }), 0],                        // 6
+    [{}, 3],                                                              // 7 三个字段缺席
+    [7, 1],                                                               // 8 不是对象
+    [ig('zeta', { dimension: 'competitor' }), 0],                         // 9
+    [{ keyword: null, dimension: 'Audience', platform: 'Instagram' }, 3], // 10 三个字段
+    [without(tt('eta'), 'platform'), 1],                                  // 11 platform 缺席
+    [null, 1],                                                            // 12 不是对象
+    [tt('theta', { dimension: 'toString' }), 1],                          // 13 dimension
+    [tt('alpha'), 0],                                                     // 14 与第 1 个配置完全相同
+    [{ keyword: ' ', dimension: 'SCENE', platform: 'douyin' }, 3],        // 15 三个字段
+    [badSame, 1],                                                         // 16 platform
+    [ig('　'), 1],                                                        // 17 keyword 全角空格
+    [ig('iota', { ig_route: 'hashtag' }), 0],                             // 18
+    [[], 1],                                                              // 19 不是对象
+    [tt('kappa', { dimension: ' scene' }), 1],                            // 20 dimension
+    [7, 1],                                                               // 21 不是对象，与第 8 个同值
+    [{ dimension: 'category', platform: 'ig' }, 2],                       // 22 keyword 缺席、platform
+    [ig('lambda'), 0],                                                    // 23
+    [{}, 3],                                                              // 24 三个字段缺席，与第 7 个配置完全相同
+    [without(ig('mu'), 'dimension'), 1],                                  // 25 dimension 缺席
+    [tt('nu', { platform: '__proto__' }), 1],                             // 26 platform
+    [ig('xi', { keyword: false }), 1],                                    // 27 keyword
+    [tt('omicron', { as_hashtag: true }), 0],                             // 28
+    [without(tt('pi'), 'dimension', 'platform'), 2],                      // 29 dimension、platform 缺席
+    [null, 1],                                                            // 30 不是对象，与第 12 个同值
+    [tt('\t'), 1],                                                        // 31 keyword
+    ['task', 1],                                                          // 32 不是对象
+    [badSame, 1],                                                         // 33 platform，与第 16 个是同一个对象
+    [tt('rho'), 0],                                                       // 34
+  ]
+  const longGot = problems(longSpec.map(([task]) => task))
+  // 句数：25 个坏任务 —— 三处全坏的 4 个（第 7、10、15、24 个）、两处的 2 个（第 22、29 个）、其余 19 个一处：
+  // 19×1 + 2×2 + 4×3 = 35
+  eq('任务列表校验：三十几个任务的长列表里，每个不合规的任务都按各自的位置被点名，句数一句不少一句不多',
+    [Array.isArray(longGot) ? longGot.length : longGot, longSpec.map((_, i) => namedCount(longGot, i + 1))],
+    [35, longSpec.map(([, count]) => count)])
+  // 截断的另一种写法是后面的只点名、不写细节：两位数序号上的每一处照样写字段名与读到的值
+  const longFields: [number, string, string][] = [
+    [10, 'keyword', 'null'], [10, 'dimension', '"Audience"'], [10, 'platform', '"Instagram"'],
+    [15, 'platform', '"douyin"'], [22, 'keyword', '缺席'], [22, 'platform', '"ig"'],
+    [24, 'keyword', '缺席'], [24, 'dimension', '缺席'], [24, 'platform', '缺席'],
+    [29, 'dimension', '缺席'], [29, 'platform', '缺席'], [31, 'keyword', '"\\t"'], [33, 'platform', '"Instagram"'],
+  ]
+  const longItems: [number, string][] = [[12, 'null'], [19, '[]'], [21, '7'], [30, 'null'], [32, '"task"']]
+  eq('任务列表校验：长列表里两位数序号上的每一处也写着字段名或这一项读到的值',
+    [...longFields.filter(([n, field, text]) => !pointsAt(longGot, n, field, text)).map(([n, field]) => `任务 ${n} ${field}`),
+      ...longItems.filter(([n, text]) => {
+        const s = itemSentence(longGot, n)
+        return !(s !== undefined && s.includes(text) && !dumpsWhole(s) && !s.includes('缺席'))
+      }).map(([n]) => `任务 ${n}`)],
+    [])
+  criterion('D16.f', 'D16.g', 'D16.h')
+
+  // 合规一侧：一句都不报
+  const same = ig('selfcare')
+  const fine: [string, unknown][] = [
+    ['一个任务', [tt('selfcare')]],
+    ['四个维度乘两个平台', ['category', 'scene', 'competitor', 'audience'].flatMap(dimension =>
+      ['tiktok', 'instagram'].map(platform => ({ keyword: 'selfcare', dimension, platform })))],
+    ['同一个任务对象出现三次', [same, same, same]],
+    ['配置完全相同的两个任务', [tt('selfcare'), tt('selfcare')]],
+    ['关键词的各种写法', [tt('#'), ig('##selfcare'), tt('self care'), ig('护肤'), tt('a'), tt('0'),
+      tt('toString'), ig('__proto__'), tt('constructor'), ig('缺席')]],
+    ['关键词首尾带空白', [tt(' selfcare'), ig('selfcare\n'), tt('　护肤　')]],
+    ['带着别的字段', [ig('selfcare', { as_hashtag: true }),
+      tt('selfcare', { as_hashtag: false, note: null, Platform: 'Douyin', Dimension: '品类词' })]],
+    ['十五个合规任务', Array.from({ length: 15 }, (_, i) => i % 2 ? tt('selfcare') : ig('selfcare'))],
+  ]
+  eq('任务列表校验：合规的任务列表交回空数组，与别的任务配置完全相同的任务也合规',
+    fine.map(([name, tasks]) => [name, problems(tasks)] as const).filter(([, got]) => JSON.stringify(got) !== '[]')
+      .map(([name, got]) => `${name} → ${JSON.stringify(got)}`), [])
+  // ig_route 由路线校验判（D15.j），别的字段不在这里判（签名说明）：三个必填字段都合规，就一句不报
+  eq('任务列表校验：三个必填字段合规时，ig_route 与别的字段怎么写都不在这里报',
+    problems([tt('selfcare', { ig_route: 'hashtag' }), ig('#self care', { ig_route: 'hashtag' }),
+      ig('selfcare', { ig_route: 'reels' }), ig('#', { ig_route: 'hashtag' }), tt('selfcare', { as_hashtag: 'yes' })]), [])
+  criterion('D16.h')
+
+  // ── D16.g：同一个任务几个字段不合规，就指出几个 ──
+  const multi: [string, Record<string, unknown>, [string, string][]][] = [
+    ['三个字段都缺席', {}, [['keyword', '缺席'], ['dimension', '缺席'], ['platform', '缺席']]],
+    ['三个字段都读到了不合规的值', { keyword: '  ', dimension: 'Scene', platform: 'TikTok' },
+      [['keyword', '"  "'], ['dimension', '"Scene"'], ['platform', '"TikTok"']]],
+    ['keyword 与 platform 不合规', { keyword: 7, dimension: 'scene', platform: null },
+      [['keyword', '7'], ['platform', 'null']]],
+    ['dimension 与 platform 是原型链上的键名', { keyword: 'selfcare', dimension: 'toString', platform: 'constructor' },
+      [['dimension', '"toString"'], ['platform', '"constructor"']]],
+    ['keyword 缺席、dimension 大小写不对', { dimension: 'SCENE', platform: 'instagram', ig_route: 'hashtag' },
+      [['keyword', '缺席'], ['dimension', '"SCENE"']]],
+  ]
+  const multiGot = multi.map(([name, task, want]) => [name, problems([tt('plainword'), task]), want] as const)
+  eq('任务列表校验：同一个任务几个字段不合规就指出几个，每一处写着字段名与读到的值',
+    multiGot.flatMap(([name, got, want]) => want.filter(([field, text]) => !pointsAt(got, 2, field, text))
+      .map(([field]) => `${name}：${field} → ${JSON.stringify(got)}`)), [])
+  // 句句不同：三个字段都缺席时读到的值一样，三句要是一字不差，用户分不出哪一句说的是哪个字段
+  eq('任务列表校验：同一个任务几个字段不合规就恰好几句、句句不同，前面合规的任务不被点名（签名说明）',
+    multiGot.map(([, got]) => [namedCount(got, 2), namedCount(got, 1),
+      Array.isArray(got) ? new Set(got.filter(s => names(s, 2))).size : got]),
+    [[3, 0, 3], [3, 0, 3], [2, 0, 2], [2, 0, 2], [2, 0, 2]])
+  criterion('D16.g')
+
+  // ── 非空、但每一项都不合规的列表：逐项点名，不当成 tasks 本身不合规 ──
+  // 上面的坏夹具前面都垫着一个合规任务；D16.a 那一类只有缺席、不是数组、空数组（ADR-115 第二节：空数组是「一个任务都没有」）。
+  // 把「至少一个任务」读成「至少一个对象任务」「至少一个合规任务」的写法，会把这几份整份报成 tasks 本身 —— 那一句不点名任何任务
+  // 点名这一项的那一句写的是这一项，不是整份列表（整份列表的写法 [null]、[[]]、[null,7] 不能出现），也不写缺席
+  const allBad: [string, string[] | string, (got: string[]) => boolean][] = [
+    ['[null]', problems([null]), got => got.length === 1 && names(got[0], 1) && got[0].includes('null')
+      && !got[0].includes('[null]') && !got[0].includes('缺席')],
+    ['[[]]', problems([[]]), got => got.length === 1 && names(got[0], 1) && got[0].includes('[]')
+      && !got[0].includes('[[]]') && !got[0].includes('缺席')],
+    // 三句读到的值都是缺席，一字不差的三句分不出各说哪个字段
+    ['[{}]', problems([{}]), got => got.length === 3 && got.every(s => names(s, 1)) && new Set(got).size === 3
+      && ['keyword', 'dimension', 'platform'].every(field => pointsAt(got, 1, field, '缺席'))],
+    ['[关键词只含空白]', problems([tt('   ')]), got => got.length === 1 && pointsAt(got, 1, 'keyword', '"   "')],
+    // 第 1 个那一句不写 7、「null」比第 2 个那一句多（规则描述里有 null 的话两句一样多，多出来的是读到的值那一格）
+    ['[null, 7]', problems([null, 7]), got => {
+      const one = got.filter(s => names(s, 1)), two = got.filter(s => names(s, 2))
+      return got.length === 2 && one.length === 1 && two.length === 1
+        && one[0].includes('null') && !one[0].includes('7') && two[0].includes('7')
+        && !one[0].includes('null,7') && !two[0].includes('null,7')
+        && !one[0].includes('缺席') && !two[0].includes('缺席')
+        && occurrences(one[0], 'null') > occurrences(two[0], 'null')
+    }],
+  ]
+  eq('任务列表校验：非空但每一项都不合规的列表逐项点名第几个任务与读到的值，不当成 tasks 本身不合规',
+    missList(allBad, (got, row) => (row[2] as (g: string[]) => boolean)(got)), [])
+  criterion('D16.a', 'D16.b', 'D16.f', 'D16.g')
+
+  // ── P1 交点：缺席不以默认值补齐、不从别的字段推断（ADR-115）──
+  const inferred: [string, Record<string, unknown>, string][] = [
+    ['缺 platform、写了 ig_route: hashtag', without(ig('selfcare', { ig_route: 'hashtag' }), 'platform'), 'platform'],
+    ['缺 platform、写了 as_hashtag', without(ig('#selfcare', { as_hashtag: true }), 'platform'), 'platform'],
+    ['缺 dimension', without(tt('selfcare'), 'dimension'), 'dimension'],
+    ['缺 dimension、关键词长得像维度名', without(tt('competitor'), 'dimension'), 'dimension'],
+    ['缺 keyword', without(ig('selfcare', { ig_route: 'hashtag' }), 'keyword'), 'keyword'],
+  ]
+  eq('任务列表校验：缺席的字段不补默认值、不从别的字段推断，照样点名那个字段并写明缺席',
+    missList(inferred.map(([name, task, field]) => [name, problems([tt('plainword'), task]), field] as const),
+      (got, row) => pointsAt(got, 2, row[2] as string, '缺席')), [])
+  // 这里只守得住交点裁决的函数这一半：校验本身不补、不推断，缺席照样点名。另一半在入口 ——
+  // collect（新建、续跑）与 probe 要是先把任务「规范化」（比如按 ig_route 补上 instagram、补一个默认维度）再交给校验，
+  // 这里一句都看不见，而裁决在产品上并不成立。那一半要 D16.j、D16.l 的入口组来验：同样两份夹具（缺 platform 却写了
+  // ig_route: hashtag；缺 dimension），断言退出码 2、零请求、stderr 点名那个任务的字段并写明缺席。
+  // 这一条 PR 不接入口，认领照写是因为交点里有红线、不认领就是硬失败 —— 缺的那一半写在这里，别当它已经守住了。
+  // 这段注释审计读不到：审计只看认领，会把整个交点报成已守住。入口那一半要在决策记录里登记成欠条（两份入口夹具与上面的断言，
+  // 重启条件绑 D16.j、D16.l 的入口组），测试文件里登记不了
+  tension('D16', 'P1')
+
+  // ── D16.i：校验不改写任务列表 ──
+  const tempting = (): unknown[] => [
+    tt(' Self Care '),                                                     // 1 不修剪、不改大小写
+    ig('selfcare', { dimension: 'Scene' }),                                // 2 不改成小写
+    tt('selfcare', { platform: ' tiktok' }),                               // 3 不修剪
+    without(ig('selfcare', { ig_route: 'hashtag' }), 'platform'),          // 4 不补成 instagram
+    without(tt('selfcare'), 'dimension'),                                  // 5 不补维度
+    without(ig('selfcare', { as_hashtag: true, note: 'keep' }), 'keyword'), // 6 不补关键词，别的字段留着
+    null,                                                                  // 7 坏项不被删掉
+    tt('selfcare'),                                                        // 8
+  ]
+  const has = (t: unknown, k: string) => t !== null && typeof t === 'object' && k in t
+  const read = (t: unknown, k: string) => (t !== null && typeof t === 'object' ? (t as Record<string, unknown>)[k] : t)
+  const list = tempting()
+  const refs = [...list]
+  const listJson = JSON.stringify(list)
+  const listGot = problems(list)
+  eq('任务列表校验：校验之后关键词、维度、平台与别的字段原样留着，缺席的没被补上',
+    [read(list[0], 'keyword'), read(list[1], 'dimension'), read(list[2], 'platform'),
+      has(list[3], 'platform'), has(list[4], 'dimension'), has(list[5], 'keyword'),
+      read(list[3], 'ig_route'), read(list[5], 'as_hashtag'), read(list[5], 'note')],
+    [' Self Care ', 'Scene', ' tiktok', false, false, false, 'hashtag', true, 'keep'])
+  eq('任务列表校验：校验之后任务列表还是那些项、那个顺序，一项不少、一项不换',
+    [Array.isArray(listGot), list.length, list.every((t, i) => t === refs[i]), JSON.stringify(list) === listJson],
+    [true, 8, true, true])
+  // 冻住之后任何改写都会抛出（模块是严格模式）：照常交回结果，说明它没想改
+  const deepFreeze = (v: unknown): unknown => {
+    if (v !== null && typeof v === 'object') { for (const x of Object.values(v)) deepFreeze(x); Object.freeze(v) }
+    return v
+  }
+  const frozenBad = problems(deepFreeze(tempting()))
+  const frozenFine = problems(deepFreeze([tt(' Self Care '), ig('　护肤 ', { ig_route: 'hashtag', as_hashtag: true })]))
+  // 「照常」：冻住的与没冻住的同一份交回的一样，并且照 tempting() 旁边的注释点名第 2–7 个、不点名第 1、8 个
+  const frozenNamed = tempting().map((_, i) => { const c = namedCount(frozenBad, i + 1); return typeof c === 'number' ? c > 0 : c })
+  eq('任务列表校验：冻住的任务列表照常校验，不因为想改它而抛出',
+    [JSON.stringify(frozenBad) === JSON.stringify(listGot), frozenNamed, frozenFine],
+    [true, [false, true, true, true, true, true, true, false], []])
+  eq('任务列表校验：本组每一次调用前后，传入的值连键带值都没变', rewritten, [])
+  criterion('D16.i')
 }
 
 suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」')
