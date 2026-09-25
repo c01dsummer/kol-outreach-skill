@@ -173,9 +173,8 @@ function identify(list: any[]): { by: string; ids: string[] } {
  * 同一个人连发三条 Reels，多拿两条视频一个新达人都没多给。两条曲线必须分开报，
  * 「条目在涨、人没涨」才看得出来，而那正是这里最贵的误读。
  *
- * 认不出作者的条目**单独计数：既不折成一个人，也不当成零个** —— 折成一个桶会凭空多出
- * 一个达人，当成零个又把「有人、但没认出来」说成「没有人」。两种都是替数据打包票，
- * 所以那个数原样报出来，人头只当**下限**（P1）。
+ * 认不出作者的条目单独计数，不折成一个人，也不隐瞒缺失。
+ * 人数按可用的 id / username 键去重：缺身份可能少计，同一作者跨响应换键可能多计。
  */
 const whoOf = (list: any[]): { ids: string[]; unidentified: number } => {
   const raw = list.map(it => it?.user?.id ?? it?.media?.user?.id
@@ -417,7 +416,8 @@ function readCurve(c: Curve, label: string): string {
       : `最后一次仍新识别出 ${c.rows[c.rows.length - 1].new_creators} 个达人；`
         + `这只描述本次 ${n} 次请求。`)
     + (c.blind
-      ? `\n⚠️ 有 ${c.blind} 条认不出作者，没计进人头、也没折成一个人 —— 上面的人数是**下限**。`
+      ? `\n⚠️ 有 ${c.blind} 条认不出作者，没计进人头；按可用身份键去重的作者数可能少计，` +
+        '同一作者在 id / username 间换键也可能多计。'
       : '')
 }
 

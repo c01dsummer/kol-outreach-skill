@@ -179,6 +179,8 @@ let calls = 0
 let drifts = 0
 /** `force-onecreator` 那一支的批次号 —— 每调一次换一批条目，但发的人始终是同一个 */
 let oneCreator = 0
+/** 同一作者先用 id、后用 username，另有无身份条目；暴露作者数既可多计也可少计。 */
+let mixedIdentity = 0
 // 费用接线用的单次故障：只有本次 spawn 明确指定的 pathname 才命中，随后恢复罐头。
 // profile 没有 keyword，所以用路径定位；不改变既有 force-* 或第 7 次 429 的默认行为。
 let faultUsed = false
@@ -269,6 +271,15 @@ const fakeFetch = async (input: RequestInfo | URL) => {
     return new Response(JSON.stringify({ data: { data: { count: 2, items: [
       { id: `oc-${seed}-a`, caption: { text: `a ${seed}` }, user: same },
       { id: `oc-${seed}-b`, caption: { text: `b ${seed}` }, user: same },
+    ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  if (url.includes('search_reels') && url.includes('force-mixedidentity')) {
+    record(200, url)
+    const call = ++mixedIdentity
+    return new Response(JSON.stringify({ data: { data: { count: 2, items: [
+      { id: `mix-${call}-a`, user: call === 1
+        ? { id: '900', username: 'sameperson' } : { username: 'sameperson' } },
+      { id: `mix-${call}-b` },
     ] } } }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
   // 关键词里带 `force-paged` → reels **认 `pagination_token`**：带着上一页的游标来就回新一批，

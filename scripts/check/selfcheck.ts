@@ -666,6 +666,15 @@ group('ig-paging-probe', [], () => {
   named('照搬几次就发几次请求 —— 这一支不带任何游标',
     oc.requests === REP && Array.isArray(oc.curve) && oc.curve.length === REP,
     `应当是 ${REP} 次请求与 ${REP} 行曲线，实际 ${JSON.stringify([oc.requests, (oc.curve ?? []).length])}`)
+
+  const mixed = probe('IG 探针：作者身份键混用且部分条目缺失身份',
+    'force-mixedidentity', '--repeat', 2)
+  named('身份键混用与缺失时，作者数不能声称是严格下限',
+    mixed.cum_creators === 2 && mixed.unidentified_items === 2
+      && String(mixed.reading ?? '').includes('可能少计')
+      && String(mixed.reading ?? '').includes('可能多计')
+      && !String(mixed.reading ?? '').includes('人数是**下限**'),
+    `同一作者的 id 与 username 被分作两键，另有无身份条目；读法须说明上下两种误差，实际 ${JSON.stringify(mixed.reading)}`)
 })
 
 // ---- 入口：钱字段比不了大小就不许开跑（P3 · D6.a）----
