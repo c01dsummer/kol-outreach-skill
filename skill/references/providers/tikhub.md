@@ -62,6 +62,12 @@ data.search_item_list[].aweme_info.statistics.play_count / digg_count  ✓
 data.search_item_list[].aweme_info.desc                  ✓
 ```
 
+**图文的样本（2026-09-23，两个词首页 40 条，ADR-101 第十五节）**：40 条都有视频播放地址、正时长与非零
+`statistics.play_count`，`image_infos` 全为 null，没有 `image_post_info`。`aweme_type` 为 0 的 39 条、55 的 1 条；
+55 那条同样有视频播放地址、正时长与非零播放数，没有 `image_post_info`。没有找到这个端点的官方类型枚举，
+它是视频还是图文没有判定，不能拿「`aweme_type` 不是 0」判图文。没确认到图文正例，
+不等于这个端点排除图文；主页作品端点这批没有调用。
+
 ⚠️ **两个坑，都是实测才发现的**：
 
 1. **`data.aweme_list` 同时存在，但是空数组。** 解析时若按「第一个存在的数组」取，
@@ -215,9 +221,10 @@ data.data.items[].like_count         ⚠️ 可能是 null（作者隐藏赞数�
    记录提示可先试短词，但不足以推出“所有词组都返回 0”，也不是固定页大小的证据。
    当前关键词应以本次试探为准。
 3. **本稿不作媒体覆盖结论。** 不能由 `search_reels` 名称断言它只会返回视频，或只发
-   图文的作者永远搜不到。固定规范未限定目标 `data` 的媒体类型与字段语义；原批仅留首条
-   摘要，不能据此判定纯图文、轮播、PhotoMode 的覆盖、`play_count` 适用范围或排序。
-   新批范围另行分析；下表仅列原批 V2 hashtag/general 等路径线索。
+   图文的作者永远搜不到。固定规范未限定目标 `data` 的媒体类型与字段语义。
+   2026-09-23 两个词的 8 份 Reels 首页共 96 条，全是视频（ADR-101 第十五节）；这只说明那两个词、
+   那几分钟里没看到图文，不能据此判定纯图文、轮播、PhotoMode 的覆盖、`play_count` 适用范围或排序。
+   话题页同批样本里一半是图片与轮播，它们的 `play_count` 是 0，那是假零，不能拿来和视频比。
 
 ### 为什么弃用了 v1 的 hashtag 端点
 
@@ -306,15 +313,15 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 | `v2/search_users` | `keyword` | 未声明分页参数；不能据此断言一次返回全部匹配用户 |
 | `v3/search_users` | `query` | `rank_token` |
 | `v2/search_reels` | `keyword` | `pagination_token`；历史 `smoothie` 探针有链式翻页增量；采集器按令牌翻页，令牌不跨运行（ADR-111） |
-| `v2/general_search` | `keyword` | `pagination_token`；已有用户首条字段路径摘要，尚未接入采集器 |
+| `v2/general_search` | `keyword` | `pagination_token`；两批首页已逐条核过字段（见下文），尚未接入采集器 |
 | `v1`／`v2` `user_id_to_username` | `user_id` | 未声明分页参数 |
 
-### V2 发现路径的用户样本摘要（2026-09-23）
+### V2 发现路径的样本（2026-09-23 采）
 
-用户**原批** `selfcare` / `journaling` 调用交接保留了以下**首条键路径摘要**；原批 JSON
-与先前分析的临时目录已丢失，无法复算。这是解析线索，不证明所有条目都有有效值。
-用户随后重新采样，文件另存于 `output/adiaro-discovery/sample-lInRuK/`；这是不同批次，
-本次事实修订不引用新批的分析数字，也不把它当成原批响应的恢复。
+`selfcare` / `journaling` 在三条 V2 路线上各采了两批首页，存在需求所有者本机的
+`output/adiaro-discovery/sample-FUn2by/`（早两分多钟开始）与 `sample-lInRuK/`；两份清单每次观测都带 `sha256`，
+与原始响应逐份一致。早先说「原批 JSON 已丢失」；按清单时间推断原批可能就是 `sample-FUn2by`，没核实（ADR-101 第十五节）。
+下表是键路径，逐条覆盖见表下。
 
 | 来源 | 列表 | 首条作者与作品 id | 首条文案 | 其他首条字段 |
 |---|---|---|---|---|
@@ -323,8 +330,14 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 | `v2/general_search` | `data.data.items` | `user.username`、直接 `id` | `caption.text` | `user.follower_count` |
 
 表内 item 子路径省略共同前缀 `data.data.items[0].`。这里的 `id` 不加 `media` 包层，
-也不使用 `user.id` 或 `caption.id` 代替作品标识。字段数量、覆盖率、作者总数、跨词重叠、
-分页增量和不同 `feed_type` 的实际结果均待原始响应补证；不引用旧对话中的精确统计。
+也不使用 `user.id` 或 `caption.id` 代替作品标识。两批 24 份首页已在本机零成本逐条核过（ADR-101 第十五节）：
+- 每条都有顶层 `id` 与 `user.username`，条目都没有 `media` 包层；文案除 4 条 Reels 的 `caption.text` 不是字符串外都是字符串；
+  `user.follower_count` 只在 general 上是数值（64 条全是），Reels 与话题页上没有一条是数值，字段在不在没核；
+- 媒体字段（`media_type`／`product_type`／`is_video`）逐条数过；`play_count` 只数了非视频条目；
+- 同词重跑的作者重叠、跨路线独有与两词交集也算了：话题页作者两个词都不在 Reels 与 general 里；
+  Reels 同一请求重跑漂得很厉害；两个词之间作者没有交集。
+
+分页增量没有样本；`feed_type` 只用过 `top`。
 
 历史测试曾因缺少正确的必填参数返回 **422** 并指出缺失字段；这不保证所有参数错误都返回相同状态或被拒绝。
 
@@ -358,7 +371,8 @@ OpenAPI 同时列有 `/api/v1/instagram/v3/get_user_posts`。2026-08-26 对公�
 | Instagram V2 话题搜索（`ig_route: "hashtag"`） | `data.data.items[].id`，同样不使用文案或用户的标识（ADR-112 第五节：4 份样本的首条 `id` 为字符串） | `instagram:<原始id>` |
 
 TikTok 的字段来自交接中的本地调用观察；Instagram 的 2026-09-23 本地键路径只确认
-那次首条存在直接 `id` 键，不证明值非空或所有条目都有 id。归一化仅接收非空白字符串
+那次首条存在直接 `id` 键；`selfcare`／`journaling` 两批 24 份首页后来逐条核过，每条顶层 `id` 都不是 null 或缺席
+（ADR-101 第十五节），但类型与是否空白没有逐条核，所以仍不能说值都可用。归一化仅接收非空白字符串
 或安全整数：字符串只用 `trim()` 判空，保存原值；整数转十进制字符串。其余保持缺失。
 这与主页公开绩效样本的 id 是不同契约，不从主页适配逻辑借用空串兜底。
 
