@@ -3860,7 +3860,8 @@ group('config-entry', ['config-entry-invalid', 'config-entry-valid'], () => {
   if (modes.every(completedMode) && completed.depth.size === 2) criterion('D17.n')
 })
 
-group('task-list', [], () => {
+// 共用夹具按需创建，完整派跑仍保持 collect 坏输入 → probe 坏输入 → 合法对照的原顺序。
+const createTaskListFixture = () => {
   // 独立上下文先于入口实现写成；只读需求、ADR-115 第 1–5 节及入口交点欠条、
   // 缝隙契约、类型声明与测试基础设施，没有读入口或两个校验函数的函数体。
   // expected 来自 D16.a–m、D15.j、F3.c/d：不是对象的项只指认整项；对象的三个字段
@@ -3989,11 +3990,11 @@ group('task-list', [], () => {
   const taskDirs = (cwd: string): string[] => existsSync(join(cwd, 'output'))
     ? readdirSync(join(cwd, 'output')) : []
   const completed: Record<Mode, number> = { new: 0, resume: 0, 'resume-budget': 0, probe: 0 }
-  for (const mode of modes) for (const scenario of scenarios) {
+  const observe = (mode: Mode, scenario: Scenario) => {
     const f = make(mode, scenario)
     const r = runBoth(`任务列表 ${mode}：${scenario.id}`, f.args, f.cwd,
       { status: 2, soft: [0, 1, 3] }, f.observation)
-    if (!r.ok || !observerReady(f.armed, r.stderr)) continue
+    if (!r.ok || !observerReady(f.armed, r.stderr)) return undefined
     const requests = fetchAttempts(f.log), events = fetchAttempts(f.events)
     const reserveCalls = fetchAttempts(f.reserves)
     const rejected = r.status === 2 && requests.length === 0 && events.length === 0
@@ -4002,6 +4003,22 @@ group('task-list', [], () => {
     const detail = `${mode}/${scenario.id}，退出码 ${r.status}、请求 ${JSON.stringify(requests)}、`
       + `预留调用=${JSON.stringify(reserveCalls)}、任务文件原样=${same}、无预留=${noPending}，stderr=${stderrTail(r.stderr)}`
     const diagnosis = r.status === 2 && r.stderr.includes(f.file) && reports(r.stderr, scenario)
+    return { f, r, reserveCalls, rejected, same, noPending, detail, diagnosis }
+  }
+  return { base, good, modes, scenarios, make, observerReady, taskDirs, completed, observe }
+}
+let taskListFixtureState: ReturnType<typeof createTaskListFixture> | undefined
+const taskListFixture = () => {
+  if (taskListFixtureState === undefined) taskListFixtureState = createTaskListFixture()
+  return taskListFixtureState
+}
+
+group('task-list-collect-invalid', ['task-list-good'], () => {
+  const { modes, scenarios, observe, taskDirs, completed } = taskListFixture()
+  for (const mode of modes.filter(mode => mode !== 'probe')) for (const scenario of scenarios) {
+    const observation = observe(mode, scenario)
+    if (observation === undefined) continue
+    const { f, r, reserveCalls, rejected, same, noPending, detail, diagnosis } = observation
     if (mode === 'new') {
       named('任务列表：collect 新建拒绝坏输入前从未调用预算预留',
         r.status === 2 && reserveCalls.length === 0, detail)
@@ -4020,22 +4037,9 @@ group('task-list', [], () => {
       named('任务列表：collect 改额续跑校验整表，退出2、零请求、不留预留', rejected && noPending, detail)
       named('任务列表：collect 改额续跑拒绝时 task.json 逐字不变，新上限不落盘', rejected && same, detail)
       named('任务列表：collect 改额续跑报 task.json 及全部原值问题，路线问题一并报', diagnosis, detail)
-    } else {
-      named('任务列表：probe 拒绝坏输入前从未调用预算预留',
-        r.status === 2 && reserveCalls.length === 0, detail)
-      named('任务列表：probe 拒绝整份坏输入，退出2、零请求', rejected && same, detail)
-      named('任务列表：probe 报全部原值问题，路线问题一并报', diagnosis, detail)
-      const leak = probeInputLeak(r.stderr)
-      named('F3.c：probe 的任务列表不合规以退出码2结束，stderr 不带异常类名与调用栈',
-        r.status === 2 && !leak.className && !leak.frames, detail)
-      named('F3.d：probe 的任务列表不合规以退出码2结束，stderr 写出配置路径与问题本身',
-        diagnosis, detail)
     }
     if (scenario.id === 'missing-platform-hashtag' || scenario.id === 'missing-dimension') {
-      if (mode === 'probe') {
-        named('任务列表：probe 不按路线补平台、不补默认维度，点名缺席且零请求',
-          rejected && diagnosis, detail)
-      } else if (mode === 'new') {
+      if (mode === 'new') {
         named('任务列表：collect 新建不按路线补平台、不补默认维度，点名缺席且零请求',
           rejected && diagnosis && taskDirs(f.cwd).length === 0, detail)
       } else {
@@ -4045,9 +4049,33 @@ group('task-list', [], () => {
     }
     completed[mode]++
   }
-  if (completed.new === scenarios.length && completed.resume === scenarios.length
-    && completed['resume-budget'] === scenarios.length) criterion('D16.j', 'D16.k')
-  if (completed.probe === scenarios.length) criterion('D16.l', 'D16.m', 'F3.c', 'F3.d')
+})
+
+group('task-list-probe-invalid', ['task-list-good'], () => {
+  const { modes, scenarios, observe, completed } = taskListFixture()
+  for (const mode of modes.filter(mode => mode === 'probe')) for (const scenario of scenarios) {
+    const observation = observe(mode, scenario)
+    if (observation === undefined) continue
+    const { r, reserveCalls, rejected, same, detail, diagnosis } = observation
+    named('任务列表：probe 拒绝坏输入前从未调用预算预留',
+      r.status === 2 && reserveCalls.length === 0, detail)
+    named('任务列表：probe 拒绝整份坏输入，退出2、零请求', rejected && same, detail)
+    named('任务列表：probe 报全部原值问题，路线问题一并报', diagnosis, detail)
+    const leak = probeInputLeak(r.stderr)
+    named('F3.c：probe 的任务列表不合规以退出码2结束，stderr 不带异常类名与调用栈',
+      r.status === 2 && !leak.className && !leak.frames, detail)
+    named('F3.d：probe 的任务列表不合规以退出码2结束，stderr 写出配置路径与问题本身',
+      diagnosis, detail)
+    if (scenario.id === 'missing-platform-hashtag' || scenario.id === 'missing-dimension') {
+      named('任务列表：probe 不按路线补平台、不补默认维度，点名缺席且零请求',
+        rejected && diagnosis, detail)
+    }
+    completed[mode]++
+  }
+})
+
+group('task-list-good', [], () => {
+  const { good, modes, make, observerReady } = taskListFixture()
 
   // 相邻回归：任务列表合规、旧断点 done:null 的既有输入错误出口仍为 2（ADR-108）。
   // 只守这一份已知旧输入，不在这里扩展其他断点字段的规则。
@@ -4108,6 +4136,14 @@ group('task-list', [], () => {
         searched && JSON.stringify(state?.tasks) === JSON.stringify(acceptedTasks), detail)
     }
   }
+})
+
+// 旧组名保留完整闭包；坏输入分组共用合法对照，子集仍不写完整入口认领。
+group('task-list', ['task-list-collect-invalid', 'task-list-probe-invalid', 'task-list-good'], () => {
+  const { completed, scenarios } = taskListFixture()
+  if (completed.new === scenarios.length && completed.resume === scenarios.length
+    && completed['resume-budget'] === scenarios.length) criterion('D16.j', 'D16.k')
+  if (completed.probe === scenarios.length) criterion('D16.l', 'D16.m', 'F3.c', 'F3.d')
 })
 
 group('resume-progress', [], () => {
@@ -5678,6 +5714,7 @@ if (brief.ok && !briefLead.test(brief.stdout)) {
 }
 
 rmSync(tmp, { recursive: true, force: true })
+if (taskListFixtureState !== undefined) rmSync(taskListFixtureState.base, { recursive: true, force: true })
 
 for (const [f, why] of Object.entries(EXEMPT)) console.log(`  ⊘ ${f} 豁免：${why}`)
 
