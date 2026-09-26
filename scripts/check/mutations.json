@@ -113,6 +113,10 @@
       "id": "M-P1-b",
       "req": "P1",
       "why": "把未知粉丝数当作「符合区间」给分 —— 不知道却声称合格",
+      "by": "test",
+      "kills": [
+        "未知粉丝不得分"
+      ],
       "file": "scripts/lib/score.ts",
       "find": "if (c.followers !== undefined && c.followers >= FOLLOWER_MIN && c.followers <= FOLLOWER_MAX) s += 20",
       "replace": "if (c.followers === undefined || (c.followers >= FOLLOWER_MIN && c.followers <= FOLLOWER_MAX)) s += 20"
@@ -121,6 +125,10 @@
       "id": "M-P1-c",
       "req": "P1",
       "why": "合并时把未知当 0 相加 —— 得出一个看起来精确的假粉丝数",
+      "by": "test",
+      "kills": [
+        "未知参与求和结果仍为未知"
+      ],
       "file": "scripts/lib/identity.ts",
       "find": "      a === undefined || b === undefined ? undefined : a + b",
       "replace": "      (a ?? 0) + (b ?? 0)"
@@ -165,6 +173,10 @@
       "id": "M-F6-a",
       "req": "F6",
       "why": "取消语义否决权，高分的搬运号会进 A 级被直接发信",
+      "by": "test",
+      "kills": [
+        "❌ 一律降到 C"
+      ],
       "file": "scripts/lib/score.ts",
       "find": "  if (c.fit === '❌') return 'C'",
       "replace": "  /* mutated */"
@@ -181,6 +193,10 @@
       "id": "M-D3-a",
       "req": "D3",
       "why": "仅凭昵称相同就合并 —— 把两个不同的人当成一个",
+      "by": "test",
+      "kills": [
+        "仅昵称相同 → 不合并"
+      ],
       "file": "scripts/lib/identity.ts",
       "find": "  for (const [h, c] of tt) {\n    const m = igByNorm.get(norm(h))\n    if (m) pair(c, m)\n  }",
       "replace": "  for (const c of tt.values()) {\n    for (const o of ig.values()) if (o.nickname === c.nickname) pair(c, o)\n  }"
@@ -281,6 +297,10 @@
       "id": "M-P1-f",
       "req": "P1",
       "why": "合并邮箱时把「两边都没查过」压成「查过，他没留邮箱」—— 运营看到空白就不会再回头补查",
+      "by": "test",
+      "kills": [
+        "两侧都未查询 → 仍是未查询"
+      ],
       "file": "scripts/lib/identity.ts",
       "find": "  if (a) return a\n  if (b) return b\n  if (a === undefined || b === undefined) return undefined\n  return null",
       "replace": "  return a ?? b ?? null"
@@ -1139,6 +1159,10 @@
       "id": "M-P1-h",
       "req": "P1",
       "why": "把未知播放数当成 20 万 —— 「没取到播放数」被伪装成「这条是爆款」，凭空多给 5 分。P1 禁止的是「未知被当成一个具体值」，不论那个值落在阈值哪一侧",
+      "by": "test",
+      "kills": [
+        "没取到的播放数不参与爆款判定"
+      ],
       "file": "scripts/lib/score.ts",
       "find": "if (c.recent_posts?.some(p => p.plays !== undefined && p.plays > 100_000)) s += 5",
       "replace": "if (c.recent_posts?.some(p => (p.plays ?? 200_000) > 100_000)) s += 5"
