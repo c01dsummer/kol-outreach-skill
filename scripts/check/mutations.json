@@ -465,6 +465,11 @@
       "id": "M-U3-c",
       "req": "U3.b",
       "why": "归人退回按（关键词, 平台）—— 那个二元组比行粗，同词同平台的两个任务会数到同一批人：一个从没发过请求的行上于是挂着别人的测量结果，比印 0 更糟",
+      "by": "test",
+      "kills": [
+        "完全相同且已查询的任务 0，只算来源 [0] 与 [0,1] 的入围及语义通过",
+        "完全相同且已查询的任务 1，只算来源 [1] 与 [0,1] 的入围及语义通过"
+      ],
       "file": "scripts/lib/pipeline.ts",
       "find": "    const mine = counted ? delivered.filter(c => c.source_tasks?.includes(i)) : []",
       "replace": "    const mine = counted ? delivered.filter(c => c.source_keyword === t.keyword && c.platform === t.platform) : []"
@@ -3826,6 +3831,11 @@
       "id": "M-P1-p",
       "req": "P1.e",
       "why": "同一个人先从兜底路径进来、没带作品，后来被另一个词从 reels 搜到、带着作品 —— 后来那批作品被丢掉。交付表于是对一个我们明明见过作品的人说「未查询」",
+      "by": "test",
+      "kills": [
+        "先到的那次没问过作品，后来的一页带来了 → 补上",
+        "旧数据里的空数组同样补上"
+      ],
       "file": "scripts/lib/pipeline.ts",
       "find": "      seen.recent_posts = mergeRecentPosts(seen.recent_posts, p.recent_posts)",
       "replace": ""
@@ -3834,6 +3844,11 @@
       "id": "M-P1-v",
       "req": "P1.e",
       "why": "同一个人被第二个词再搜到时，作品列表整个换成这一次带来的 —— 这一次要是走的兜底路径、根本没带作品，他已有的作品就被抹成「没问过」；带了的话，先到那批被静默换掉",
+      "by": "test",
+      "kills": [
+        "已经有作品 → 先到的不换掉，后到无 id 作品也保留",
+        "后来的一页没有作品 → 已有的不被抹掉"
+      ],
       "file": "scripts/lib/pipeline.ts",
       "find": "      seen.recent_posts = mergeRecentPosts(seen.recent_posts, p.recent_posts)",
       "replace": "      seen.recent_posts = p.recent_posts"
@@ -3854,6 +3869,10 @@
       "id": "M-P1-y",
       "req": "P1.e",
       "why": "只为旧记录补作品，本轮新建的账号后来搜到作品仍不补齐，交付表对已见过作品的人继续显示未查询",
+      "by": "test",
+      "kills": [
+        "本轮新建的人后来搜到作品 → 补上"
+      ],
       "file": "scripts/lib/pipeline.ts",
       "find": "      seen.recent_posts = mergeRecentPosts(seen.recent_posts, p.recent_posts)",
       "replace": "      if (seen.source_tasks === undefined) seen.recent_posts = mergeRecentPosts(seen.recent_posts, p.recent_posts)"
@@ -5573,6 +5592,10 @@
       "id": "M-D12-c",
       "req": "D12.c",
       "why": "把已核的 Instagram 发现端点价格减半",
+      "by": "test",
+      "kills": [
+        "Instagram Reels 与账号名发现的固定报价及历史解析均为 2000 微美元"
+      ],
       "file": "scripts/providers/tikhub-pricing.ts",
       "find": "    '/api/v1/instagram/v2/search_reels': 2000,",
       "replace": "    '/api/v1/instagram/v2/search_reels': 1000,"
@@ -5749,6 +5772,10 @@
       "id": "M-D12-y",
       "req": "D12.c",
       "why": "话题端点按错的单价登记 —— 运营开启话题路线后每次请求只记一半的钱，预算闸门按少记的数放行，实际花费超出用户设的上限",
+      "by": "test",
+      "kills": [
+        "Instagram 话题发现的固定报价及历史解析均为 2000 微美元"
+      ],
       "file": "scripts/providers/tikhub-pricing.ts",
       "find": "    '/api/v1/instagram/v2/fetch_hashtag_posts': 2000,",
       "replace": "    '/api/v1/instagram/v2/fetch_hashtag_posts': 1000,"

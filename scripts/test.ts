@@ -1913,6 +1913,40 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
   eq('同词同平台、维度不同的那一行，一个人都不归它 —— 它一次都没问过',
      [rows[3]?.status, rows[3]?.found, rows[3]?.shortlisted, rows[3]?.fit_pass],
      ['unqueried', null, null, null])
+  {
+    const duplicateTask = { keyword: 'k', dimension: 'category', platform: 'tiktok' } as const
+    const duplicateRows = keywordRows(tstate({
+      tasks: [{ ...duplicateTask }, { ...duplicateTask }, { ...duplicateTask }],
+      answered: { 0: 1, 1: 1 }, found: { 0: 5, 1: 7 }, offsets: { 0: 5, 1: 7 },
+    }), [
+      mk('tiktok', 'duplicate-a', { source_keyword: 'k', source_dimension: 'category', source_tasks: [0], fit: '✅' }),
+      mk('tiktok', 'duplicate-b', { source_keyword: 'k', source_dimension: 'category', source_tasks: [1], fit: '❌' }),
+      mk('tiktok', 'duplicate-c', { source_keyword: 'k', source_dimension: 'category', source_tasks: [0, 1], fit: '✅' }),
+    ])
+    const duplicateControlActual = [
+      duplicateRows.length,
+      duplicateRows[0]?.task_index, duplicateRows[1]?.task_index, duplicateRows[2]?.task_index,
+      duplicateRows[0]?.status, duplicateRows[0]?.found,
+      duplicateRows[1]?.status, duplicateRows[1]?.found,
+      duplicateRows[2]?.status, duplicateRows[2]?.found,
+    ]
+    const duplicateControlExpected = [3, 0, 1, 2, 'queried', 5, 'queried', 7, 'unqueried', null]
+    eq('重复任务计数夹具有效：三行原身份与查询条目逐项对得上',
+       duplicateControlActual, duplicateControlExpected)
+    // 控制失败仍由上面的独立 eq 留下失败；只跳过两条计数断言，继续原组。
+    if (duplicateControlActual.every((value, index) => value === duplicateControlExpected[index])) {
+      // U3.b/c：T0 只含 A/C，二人都通过。
+      eq('完全相同且已查询的任务 0，只算来源 [0] 与 [0,1] 的入围及语义通过',
+         [duplicateRows[0]?.shortlisted, duplicateRows[0]?.fit_pass], [2, 2])
+      // U3.b/c：T1 只含 B/C，仅 C 通过。
+      eq('完全相同且已查询的任务 1，只算来源 [1] 与 [0,1] 的入围及语义通过',
+         [duplicateRows[1]?.shortlisted, duplicateRows[1]?.fit_pass], [2, 1])
+    }
+    // P5.i：T2 从未查询，三项测量必须未知，不能写成 0。
+    eq('完全相同但未查询的任务 2，身份仍在且测量全部为 null',
+       [duplicateRows[2]?.task_index, duplicateRows[2]?.status, duplicateRows[2]?.found,
+        duplicateRows[2]?.shortlisted, duplicateRows[2]?.fit_pass], [2, 'unqueried', null, null, null])
+  }
   // 无从确认（整张分页记录表缺失，F9 落地之前的旧目录）：四态里的第四态
   // 旧目录的真实形状：连 `answered` 都没有的目录，人身上当然也没有来源任务
   const legacyPeople = out.map(c => ({ ...c, source_tasks: undefined }))
@@ -7759,6 +7793,39 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
   exact('当前价目版本绑定固定证据', TIKHUB_PRICE_VERSION, version)
   exact('本版只列九条已核端点：八条缺省生产端点与显式开启时才请求的话题端点', TIKHUB_PRICE_CATALOG, { [version]: expectedPrices })
   ok('价目表两层均冻结', Object.isFrozen(TIKHUB_PRICE_CATALOG) && Object.values(TIKHUB_PRICE_CATALOG).every(Object.isFrozen))
+  // 独立历史证据：$0.002 × 1,000,000 = 2000 微美元，来源见 ADR-107/112。
+  const fixedEvidenceVersion = 'tikhub-public-20260720-5d52fe8fb109'
+  const priceTriple = (p: ReturnType<typeof quoteTikHub>) =>
+    [p.endpoint, p.price_version, p.unit_micro_usd] as const
+  let discoveryTriples: unknown, hashtagTriples: unknown
+  let fixedPriceQueriesCompleted = false
+  succeeds('固定价目结果比较前的六次查询全部完成', () => {
+    discoveryTriples = [
+      priceTriple(quoteTikHub('/api/v1/instagram/v2/search_reels')),
+      priceTriple(resolveTikHubPrice(fixedEvidenceVersion, '/api/v1/instagram/v2/search_reels')),
+      priceTriple(quoteTikHub('/api/v1/instagram/v2/search_users')),
+      priceTriple(resolveTikHubPrice(fixedEvidenceVersion, '/api/v1/instagram/v2/search_users')),
+    ]
+    hashtagTriples = [
+      priceTriple(quoteTikHub('/api/v1/instagram/v2/fetch_hashtag_posts')),
+      priceTriple(resolveTikHubPrice(fixedEvidenceVersion, '/api/v1/instagram/v2/fetch_hashtag_posts')),
+    ]
+    fixedPriceQueriesCompleted = true
+  })
+  if (fixedPriceQueriesCompleted) {
+    ok('Instagram Reels 与账号名发现的固定报价及历史解析均为 2000 微美元',
+      isDeepStrictEqual(discoveryTriples, [
+        ['/api/v1/instagram/v2/search_reels', fixedEvidenceVersion, 2000],
+        ['/api/v1/instagram/v2/search_reels', fixedEvidenceVersion, 2000],
+        ['/api/v1/instagram/v2/search_users', fixedEvidenceVersion, 2000],
+        ['/api/v1/instagram/v2/search_users', fixedEvidenceVersion, 2000],
+      ]))
+    ok('Instagram 话题发现的固定报价及历史解析均为 2000 微美元',
+      isDeepStrictEqual(hashtagTriples, [
+        ['/api/v1/instagram/v2/fetch_hashtag_posts', fixedEvidenceVersion, 2000],
+        ['/api/v1/instagram/v2/fetch_hashtag_posts', fixedEvidenceVersion, 2000],
+      ]))
+  }
   for (const [endpoint, amount] of Object.entries(expectedPrices)) {
     exact(`固定报价 ${endpoint}`, quoteTikHub(endpoint), price(endpoint, amount, version))
     exact(`历史版本解析 ${endpoint}`, resolveTikHubPrice(version, endpoint), price(endpoint, amount, version))
