@@ -29,7 +29,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.22.2'
           cache: npm
       # 2026-09-04 起 `npm ci` 从两秒变成七分钟,同样 6 个包、
       # 同样命中缓存。--prefer-offline 有缓存就不回源问元数据,--no-audit 去掉装完
@@ -37,3 +37,5 @@ jobs:
       - run: npm ci --prefer-offline --no-audit
       # 与本地 `npm run check` 是同一条链 —— 谁跑都一样红
       - run: npm run check
+        env:
+          MUTATE_JOBS: '4'

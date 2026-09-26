@@ -43,7 +43,7 @@ import { implementationLeak } from './why-rule.js'
 import {
   type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
-  executionRoutes, labelFaults, labelsOf, mutationEventBase, resolveMutationBaseline, routeDelta, type RouteSnapshot,
+  executionRoutes, groupOfLabel, labelFaults, labelsOf, mutationEventBase, resolveMutationBaseline, routeDelta, type RouteSnapshot,
   anchorMatches, baselineFault, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH, fingerprint, sourceFiles } from './claims.js'
@@ -55,7 +55,7 @@ import {
   noStdio, ownGroup, parseReport, reportLine, verifierBill,
 } from './jobs-rule.js'
 import {
-  INTERRUPTS, beginMutation, claimsRestoreAction, onInterrupt, restoreMutation, stopJobs, trackTest,
+  INTERRUPTS, beginMutation, claimsRestoreAction, onInterrupt, restoreMutation, stopJobs, trackTest, writeReportAndFlush,
 } from './mutate-restore.js'
 import { tsxCommand } from './tsx-cmd.js'
 import { infraClosure, selfVerifying } from './verifier-rule.js'
@@ -271,8 +271,8 @@ if (misnamed.length) {
 }
 
 if (process.argv.includes('--brief')) {
-  // **攒起来一次同步写，不是逐行 console.log。** 下面那句硬退出紧跟在打印之后，而 stdout
-  // 接管道时 `console.log` 是异步的 —— 排在队里还没写出去就被 `process.exit` 掐掉。
+  // **攒起来一次写并等回调，不是逐行 console.log。** 下面那句硬退出紧跟在打印之后，
+  // stdout 接管道时异步队列若未刷完，会被 `process.exit` 掐掉；fd 同步写又可能 EAGAIN。
   // 照自检那条 spawn 路径实测 8 次：豁免行只活下来 2 次，末尾那句汇总只活 1 次，
   // 另外 6 次停在 139／140／221／233 行。而豁免行恰好在最末尾，正是要断言的那一段。
   // 这就是 `mutate-rule.ts` 的 `exitRace` 记着的那个坑 —— 那道判据只查**验证者**，
@@ -284,7 +284,7 @@ if (process.argv.includes('--brief')) {
     out.push(`  ⊘     [${e.req}]  ${lead}${e.scope === undefined ? '' : `（${e.scope}）`}：${e.why}`)
   }
   out.push(`\n共 ${muts.length} 个变异、${exemptions.length} 处显式豁免。`)
-  writeFileSync(1, `${out.join('\n')}\n`)
+  await writeReportAndFlush(process.stdout, `${out.join('\n')}\n`)
   process.exit(0)
 }
 
@@ -592,8 +592,8 @@ const record = (m: Mut, ran: Ran): void => {
  * **只往 stdout 写结论那一种行**，人看的报告由派工那一侧打 —— 两边都打的话，
  * 同一条变异在同一份输出里出现两次，而两次的措辞将来一定会岔开。
  *
- * 写用的是同步那一路（和 `--brief` 同一个理由）：紧接着可能就没有事件循环再跑了，
- * 排在队里没写出去的那一行会被当成「这一条没回话」，而那是硬失败。
+ * 每条线等 stdout 的写回调之后才领下一条；非阻塞管道拥塞时由 Writable
+ * 排队，离开循环前也已经把最后一条刷完，不会因 process.exit(0) 丢回话。
  */
 if (process.argv.includes('--worker')) {
   // coordinator 已核可信历史；worker 在施变前冻结同一正常源码路由，不读取被排除的 .git。
@@ -613,7 +613,7 @@ if (process.argv.includes('--worker')) {
   for await (const line of createInterface({ input: process.stdin })) {
     const m = byId.get(line.trim())
     if (m === undefined) break
-    writeFileSync(1, `${reportLine(m.id, await runOne(m))}\n`)
+    await writeReportAndFlush(process.stdout, `${reportLine(m.id, await runOne(m))}\n`)
   }
   process.exit(0)
 }

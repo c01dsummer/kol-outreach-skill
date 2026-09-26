@@ -27,7 +27,7 @@
  * |---|---|
  * | 显式挑 `npx.cmd` | **走不通**。不带 shell 起不来的正是 `.cmd` 这类文件，挑明名字也一样 |
  * | `spawn(..., { shell: true })` | 能跑，但要经 `cmd.exe`，而 DEP0190 的正文点名了 `spawn`：带 shell 传参数数组时，各个值**不转义、只用空格拼起来，会导致 shell 注入**。也就是说注入面不是「拼字符串才有」，是这条路自带的。（本仓库钉的是 Node v22，那里 DEP0190 是 Documentation-only；v24+ 的 `.cmd` 那一节才写着「不推荐」——**结论不受版本影响**，注入那句在 v22 文档里就在） |
- * | **当前 node + tsx 的 cli** | 不经 shell，也就没有注入面可争论；`.cmd` 压根不参与；还少一层进程 |
+ * | **当前 node + `--import tsx`** | 不经 shell，也就没有注入面可争论；`.cmd` 压根不参与；tsx 不起 cli 的 Unix socket |
  *
  * ⚠️ **本仓库的 CI 只跑 Linux（`.github/workflows/*.yml` 的 `runs-on` 全是
  * `ubuntu-latest`），所以上面关于 Windows 的话没有任何自动化验过。** 它靠的是
@@ -38,18 +38,20 @@
  * POSIX 的进程组语义，而 `detached` 在 Windows 上给的是一个控制台窗口，不是进程组）。
  */
 import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 
 /**
- * tsx 的 cli 入口。
+ * tsx 的包入口，交给 Node 的 `--import` 预加载。
  *
- * `tsx/cli` 是 tsx 包的**公开导出**（它的 `exports` 里有 `"./cli"`），所以用
+ * `tsx` 是包的**公开导出**，所以用
  * `require.resolve` 拿路径，不把 `node_modules/tsx/dist/…` 这种内部路径写死 ——
  * 写死的那种升一次版就指空，而且指空的样子是「起不来」，不是「说不出为什么」。
  *
  * 认的是 `import.meta.url`，**不是 `process.cwd()`**：自检有几处切到临时目录里跑，
  * 按 cwd 找会找到临时目录那一侧去。
+ * 转成 file URL，让 Windows 绝对路径也能作为 ESM 入口交给 Node。
  */
-const TSX_CLI = createRequire(import.meta.url).resolve('tsx/cli')
+const TSX_IMPORT = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
 
 /**
  * 跑这几个参数要用的 `[可执行文件, 参数表]`，直接摊给 `spawn` / `spawnSync`。
@@ -58,4 +60,4 @@ const TSX_CLI = createRequire(import.meta.url).resolve('tsx/cli')
  * 也不经 `PATH`，于是「装了哪个 node」和「跑的是哪个 node」不再是两件事。
  */
 export const tsxCommand = (args: string[]): [string, string[]] =>
-  [process.execPath, [TSX_CLI, ...args]]
+  [process.execPath, ['--import', TSX_IMPORT, ...args]]

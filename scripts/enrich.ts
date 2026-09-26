@@ -10,6 +10,8 @@
  * 默认跳过 enrichment.json 里已经查询过的账号；--refresh 才会重新花费请求。
  */
 import { existsSync } from 'node:fs'
+import { brandCalibrationProblems, prepareReviewProjection, ReviewInputError } from './lib/review.js'
+import { taskListProblems } from './lib/search-tasks.js'
 import {
   INSTAGRAM_POSTS_ENDPOINT,
   TIKTOK_POSTS_ENDPOINT,
@@ -62,9 +64,13 @@ if (!dir || !existsSync(taskFile(dir))) {
 
 let task: TaskState
 let budget: Budget
+let creators: Creator[]
 const newBudget = arg('--budget')
 try {
   task = loadTask(dir)
+  const taskProblems = [...taskListProblems(task.tasks), ...brandCalibrationProblems(task)]
+  if (taskProblems.length) throw new ReviewInputError(taskProblems.map(problem => `${taskFile(dir)}：${problem}`))
+  creators = prepareReviewProjection(dir, task, loadCreators(dir)).creators
   budget = new Budget(task, (pct, view) => {
     console.error(`\n💰 已用 ${(pct * 100).toFixed(0)}% —— 估算占用 $${view.cost_estimate_usd} / $${view.budget_usd}\n`)
   }, snapshot => saveCostCheckpoint(dir, snapshot))
@@ -75,7 +81,10 @@ try {
     catch (e) { throw new Error(`--budget ${newBudget}：${String(e)}`) }
     budget.setLimit(limit)
   }
-} catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
+} catch (e) {
+  console.error(e instanceof ReviewInputError ? e.problems.join('\n') : e instanceof Error ? e.message : String(e))
+  process.exit(2)
+}
 if (newBudget !== undefined) {
   try { saveTask(dir, task) }
   catch (e) { console.error(`保存费用失败：${String(e)}`); process.exit(1) }
@@ -83,7 +92,6 @@ if (newBudget !== undefined) {
 const refresh = argv.includes('--refresh')
 const api = new TikHub(process.env.TIKHUB_API_KEY, budget)
 const state: EnrichmentState = loadEnrichment(dir) ?? { version: 1, updated_at: '', accounts: {} }
-const creators = loadCreators(dir)
 const rawByKey = new Map(loadRawCreators(dir).map(c => [accountKey(c.platform, c.handle), c]))
 
 interface AccountRef {

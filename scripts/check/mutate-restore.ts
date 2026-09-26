@@ -32,6 +32,16 @@ export function claimsRestoreAction(original: Uint8Array | undefined, current: U
   return original.every((byte, index) => byte === current[index]) ? 'keep' : 'restore'
 }
 
+/** Wait for a worker's protocol line to drain before it can accept another job or exit. */
+export function writeReportAndFlush(stream: Pick<NodeJS.WriteStream, 'write'>, line: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    // Pipe stdout is nonblocking: a synchronous fd write can throw EAGAIN under
+    // backpressure. Writable queues that case; its callback means this line left
+    // the worker before the next mutation or process.exit(0).
+    stream.write(line, error => error ? reject(error) : resolve())
+  })
+}
+
 /** 正被改写的那个源文件和它的原文。没有变异在跑的时候是 undefined */
 let inFlight: { file: string; orig: string } | undefined
 

@@ -14,6 +14,13 @@ export const HEADERS = [
   'cross_platform', 'linked_handle', 'profile_url', 'source_keyword',
   'source_dimension', 'best_post_desc', 'outreach_draft', 'previously_recommended',
   'discovery_sources', 'metrics_sample_scope',
+  'eligibility', 'adoption_priority', 'review_status',
+  'observed_content', 'work_evidence', 'natural_integration', 'mismatch_risk',
+  'brand_calibration_version', 'effective_priority', 'effective_priority_account_key', 'manual_round_id',
+  'manual_eligible', 'manual_adopted', 'manual_content_fit',
+  'manual_engagement', 'manual_comment_authenticity',
+  'manual_reject_reason', 'manual_note', 'manual_feedback_accounts',
+  'linked_agent_review',
 ] as const
 
 /**
@@ -139,11 +146,23 @@ export function toRow(c: Creator): unknown[] {
     c.cross_platform ?? false, c.linked_handle ?? '', c.profile_url, c.source_keyword,
     c.source_dimension, bestPost(c), c.outreach_draft ?? '', c.previously_recommended ?? '',
     formatDiscoverySources(c.discovery_sources), sampleScopeText(assessment),
+    c.eligibility ?? '未评', c.adoption_priority ?? '未评', c.review_status ?? '未评',
+    c.observed_content ?? '', c.work_evidence ?? '', c.natural_integration ?? '',
+    c.mismatch_risk ?? '', c.brand_calibration_version ?? '',
+    c.effective_priority ?? '待核实', c.effective_priority_account_key ?? '', c.manual_round_id ?? '',
+    c.manual_eligible ?? '', c.manual_adopted ?? '', c.manual_content_fit ?? '',
+    c.manual_engagement ?? '', c.manual_comment_authenticity ?? '',
+    c.manual_reject_reason ?? '', c.manual_note ?? '',
+    c.manual_feedback_accounts?.map(a => JSON.stringify(a)).join('；') ?? '',
+    c.linked_agent_review ? JSON.stringify(c.linked_agent_review) : '',
   ]
 }
 
-/** U1：tier 升序，同层 score 降序 */
+/** U9：采用优先级 → tier → score；旧分数与粉丝三态的先后保持。 */
 export function sortForOutput(creators: Creator[]): Creator[] {
+  const priority = { '优先联系': 0, '备选': 1, '待核实': 2, '暂不采用': 3 }
+  const priorityRank = (c: Creator): number =>
+    c.effective_priority ? priority[c.effective_priority] : priority['待核实']
   const order = { A: 0, B: 1, C: 2 }
   // 未分层的排末位。写 order[c.tier!] 会在 tier 缺失时得到 NaN 比较器，
   // 而 NaN 是 falsy —— sort 会静默退化成「只按分数排」，且没有任何迹象。
@@ -173,10 +192,10 @@ export function sortForOutput(creators: Creator[]): Creator[] {
   const byFollowers = (a: Creator, b: Creator): number =>
     followerRank(a) - followerRank(b)
   return [...creators].sort((a, b) =>
-    rank(a) - rank(b) || byScore(a, b) || byFollowers(a, b))
+    priorityRank(a) - priorityRank(b) || rank(a) - rank(b) || byScore(a, b) || byFollowers(a, b))
 }
 
-const TIER_LABEL = { A: 'A级 直接发信', B: 'B级 先互动', C: 'C级 观察池' } as const
+const TIER_LABEL = { A: 'A 级', B: 'B 级', C: 'C 级' } as const
 
 /**
  * U5：按分层切成多个 sheet。

@@ -32,7 +32,7 @@
           "keyword": "anker power bank",
           "task": "anker-powerbank-202608251430",
           "tier": "A",
-          "fit_reason": "数码测评方向，最近在测氮化镓充电头"
+          "fit_reason": "本次搜索命中作品涉及氮化镓充电头测评"
         }
       ],
 
@@ -52,6 +52,8 @@
 ## 规则
 
 **任务开始时先读**，任务结束时写回。**「文件不存在」与「文件读不出来」是两件事**：
+
+重新导出同一任务前也重新核对当前 `contacted` 与 `blocked`；人工 `manual_adopted=yes` 不能使这两类账号回到交付名单。同任务重复生成的既有推荐豁免照旧。人工 `manual_adopted=no` 只记录在任务级 `manual-feedback.csv`，不升级成全局 `blocked`，不修改 `contacted` 或 `replied`；离线评估不写推荐记忆。
 
 | | 含义 | 怎么做 |
 |---|---|---|

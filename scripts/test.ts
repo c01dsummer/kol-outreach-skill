@@ -28,7 +28,7 @@ import {
 import { type Group, parseOnly, parseOnlyStrict, wanted } from './check/group-rule.js'
 import {
   beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
-  testRunning, trackTest,
+  testRunning, trackTest, writeReportAndFlush,
 } from './check/mutate-restore.js'
 import {
   type BillRow, type Outcome, type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf,
@@ -82,7 +82,6 @@ import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { isDeepStrictEqual } from 'node:util'
-import { runInNewContext } from 'node:vm'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
@@ -119,6 +118,8 @@ import type {
 import { asMemoryStatus, creatorKey } from './lib/types.js'
 import { loadRawCreators, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
+import { runReviewStorageTests } from './review-test.js'
+import { runScreeningContractTests } from './screening-contract-test.js'
 
 let fail = 0
 let cur = ''
@@ -2147,14 +2148,14 @@ suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时�
     rankCreators([noGeo], 'US')[0].audience_geo, undefined)
 
   // 没做过语义判断（没有 fit）时按分数分层，而分层用的必须是**刚算出来的那个分**。
-  // 三个语料的分数实测落在 30 / 45 / 60，正好跨过两条阈值 —— 传错一个常数进去，
-  // 三条里至少两条会红。原先这一支一条断言都没有：把它整个改成永远返回 C，
-  // 整个测试套照样全绿（#93 评审指出）
+  // 缺语义判断时，分数跨过硬指标阈值也只能是待核实 B（D21.d）。
+  // 三个分数档都试一次，避免高分被误读成内容已核。
   const noFit = (h: string, over: Partial<Creator> = {}) => mk('tiktok', h, over)
-  eq('没做语义判断时按分数分层：30 分 → C',
-    rankCreators([noFit('s30')], 'US')[0].tier, 'C')
+  eq('没做语义判断：30 分仍为待核实 B',
+    rankCreators([noFit('s30')], 'US')[0].tier, 'B')
   eq('45 分 → B', rankCreators([noFit('s45', { source_dimension: 'competitor' })], 'US')[0].tier, 'B')
-  eq('60 分 → A', rankCreators([noFit('s60', { email: 'a@example.com' })], 'US')[0].tier, 'A')
+  eq('没做语义判断：60 分仍为待核实 B',
+    rankCreators([noFit('s60', { email: 'a@example.com' })], 'US')[0].tier, 'B')
 
   tension('F5', 'P1')
 }
@@ -2164,7 +2165,7 @@ await group('u3-keywords', () => {
 suite('U1', '分层管线返回的名单已按 tier 排好序')
 {
   const c = (h: string, fit: '✅' | '❌', tasks = [0]) =>
-    mk('tiktok', h, { email: 'a@example.com', fit, source_tasks: tasks })
+    mk('tiktok', h, { email: 'a@example.com', fit, review_status: '已评', source_tasks: tasks })
   // `high` 被两个词搜到 —— 各行相加可以大于名单总人数，这是 U3.b 明写的
   const out = rankCreators([c('low', '❌'), c('high', '✅', [0, 5])], 'US')
   eq('A 排在 C 前面', out.map(x => x.tier), ['A', 'C'])
@@ -2395,13 +2396,17 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
   // 本条把它整列撤掉 —— 没查过的行于是不可能再带出一个像测量值的百分比。
   ok('关键词表里不再有命中率那一列', !kwHtml.includes('<th>命中率</th>'))
   ok('平台成了表上的一列 —— 关键词×平台才是一行', kwHtml.includes('<th>平台</th>'))
-  ok('找到与入围各自一列，没有合并', kwHtml.includes('<th>找到</th>') && kwHtml.includes('<th>入围</th>'))
+  ok('供应商条目与入围人数各自一列，没有混单位',
+    /<th>[^<]*(?:找到|返回)[^<]*条目<\/th>/.test(kwHtml)
+    && /<th>[^<]*入围[^<]*人<\/th>/.test(kwHtml))
   // U3.c 接替退役的 U3.a：那一条要求「找到**人数**」与「命中率」，而本条把「找到」
   // 换成供应商返回的条目数、并撤掉了命中率那一列（两种单位相除无意义）——
   // 判据不改含义、不回收复用（ADR-67），所以退役、用下一个字母。
-  ok('三列都在：找到、入围、语义通过',
-     kwHtml.includes('<th>找到</th>') && kwHtml.includes('<th>入围</th>')
-     && kwHtml.includes('<th>语义通过</th>'))
+  ok('条目、入围、语义通过及人工已审分别列出',
+     /<th>[^<]*(?:找到|返回)[^<]*条目<\/th>/.test(kwHtml)
+     && /<th>[^<]*入围[^<]*人<\/th>/.test(kwHtml)
+     && /<th>[^<]*语义通过[^<]*人<\/th>/.test(kwHtml)
+     && /<th>[^<]*人工已审[^<]*平台账号<\/th>/.test(kwHtml))
   // ⚠️ 上面这几条只管表头在不在。**U3.c 说的是「每一行列出」**，所以它的承重断言是
   // 前面那三条逐格比对 —— 表头存在性一条负片都指不动（`M-U3-d` 指的是格子）。
   criterion('U3.c')
@@ -2500,14 +2505,15 @@ suite('U8', '搜索任务展示能指回原任务，配置意图不冒充发现�
   eq('缺失与非法任务下标一律无从确认，不从行位置或相同关键词猜补',
      legacy.map(r => r[0]), invalid.map(() => '无从确认'))
   eq('身份无从确认不会抹掉该行已经查实的计数',
-     legacy.map(r => r.slice(4)), invalid.map(() => ['7', '2', '1']))
+     legacy.map(r => r.slice(4)), invalid.map(() => ['7', '2', '1', '—']))
   const states = table([
     row({ task_index: 6, status: 'unqueried', found: null, shortlisted: null, fit_pass: null }),
     row({ status: 'queried', found: 0, shortlisted: 0, fit_pass: 0 }),
     row({ task_index: null, status: 'unknown', found: null, shortlisted: null, fit_pass: null }),
   ])
   eq('有任务序号仍可未查询，身份未知仍可测得零，两种未知互不替代', states.map(r => [r[0], ...r.slice(4)]), [
-    ['7', '未查询', '—', '—'], ['无从确认', '0', '0', '0'], ['无从确认', '无从确认', '—', '—'],
+    ['7', '未查询', '—', '—', '—'], ['无从确认', '0', '0', '0', '—'],
+    ['无从确认', '无从确认', '—', '—', '—'],
   ])
   criterion('U8.e')
   tension('U8', 'P5')
@@ -4183,16 +4189,22 @@ suite('D15', '表格与 HTML 展示真实路线并明确来源记录的边界')
     'tier_adjustments', 'collaboration_quote', 'implied_ecpm', 'implied_ecpe', 'metrics_observed_at',
     'cross_platform', 'linked_handle', 'profile_url', 'source_keyword', 'source_dimension', 'best_post_desc',
     'outreach_draft', 'previously_recommended']
-  eq('表头保持旧列与来源顺序，仅末尾追加样本范围', HEADERS,
-    [...oldHeaders, 'discovery_sources', 'metrics_sample_scope'])
+  const preservedHeaders = [...oldHeaders, 'discovery_sources', 'metrics_sample_scope']
+  eq('旧列、来源和样本范围的前缀顺序保留', HEADERS.slice(0, preservedHeaders.length),
+    preservedHeaders)
+  ok('评审、人工与有效优先级列只在旧列之后追加',
+    ['eligibility', 'adoption_priority', 'review_status', 'observed_content', 'work_evidence',
+      'natural_integration', 'mismatch_risk', 'brand_calibration_version', 'effective_priority',
+      'manual_eligible', 'manual_adopted', 'manual_note']
+      .every(header => (HEADERS as readonly string[]).indexOf(header) >= preservedHeaders.length))
   eq('来源列维持原位置', HEADERS.indexOf('discovery_sources'), oldHeaders.length)
   eq('来源列维持原单元格', toRow(creator)[HEADERS.indexOf('discovery_sources')], expected)
-  eq('行与新增表头一一对应', toRow(creator).length, oldHeaders.length + 2)
-  eq('样本范围新列不改变所有旧列及来源的值', toRow(creator).slice(0, -1),
-    toRow({ ...creator, account_assessment: undefined }).slice(0, -1))
+  eq('行与完整表头一一对应', toRow(creator).length, HEADERS.length)
+  eq('样本范围不改变所有旧列及来源的值', toRow(creator).slice(0, preservedHeaders.length - 1),
+    toRow({ ...creator, account_assessment: undefined }).slice(0, preservedHeaders.length - 1))
   const sheets = buildSheets([creator])
-  eq('XLSX 每个 sheet 都保留旧列和来源，末尾追加样本范围', sheets.map(s => s.headers),
-    Array.from({ length: 3 }, () => [...oldHeaders, 'discovery_sources', 'metrics_sample_scope']))
+  eq('XLSX 每个 sheet 都保留相同旧列前缀和新评审列', sheets.map(s => s.headers),
+    Array.from({ length: 3 }, () => HEADERS))
   eq('XLSX 来源单元格与 CSV 共用格式',
     sheets[0].rows[0][HEADERS.indexOf('discovery_sources')], expected)
   for (const unknown of [undefined, []] as (DiscoverySource[] | undefined)[])
@@ -5670,7 +5682,7 @@ suite('U5', 'xlsx 分 sheet')
   ])
   eq('三个 sheet（含空的 C，无「全部」）', sheets.length, 3)
   eq('sheet 名带计数', sheets.map(s => s.name),
-     ['A级 直接发信 (1)', 'B级 先互动 (1)', 'C级 观察池 (0)'])
+     ['A 级 (1)', 'B 级 (1)', 'C 级 (0)'])
 
   const tmpx = join(tmpdir(), `kol-u5-${process.pid}.xlsx`)
   writeXlsx(tmpx, sheets)
@@ -5683,7 +5695,7 @@ suite('U5', 'xlsx 分 sheet')
 
   // 空分层也必须建 sheet —— 「这一层没人」是信息，隐藏会让人以为漏了数据
   const names = xlsxSheetNames(tmpx)
-  eq('sheet 名读回正确', names, ['A级 直接发信 (1)', 'B级 先互动 (1)', 'C级 观察池 (0)'])
+  eq('sheet 名读回正确', names, ['A 级 (1)', 'B 级 (1)', 'C 级 (0)'])
   ok('空分层的 sheet 存在且标出 (0)', names.some(n => n.endsWith('(0)')))
   ul(tmpx)
 }
@@ -5703,81 +5715,34 @@ suite('U2', 'HTML 报告不依赖网络资源')
 
 }
 await group('u6-report', () => {
-suite('U6', 'HTML 分层 tab 与平台标签')
+suite('U6', 'HTML 双维筛选默认全量与平台标签')
 {
   const html = renderHtml(
     [mk('tiktok', 'a', { tier: 'A', score: 1 }), mk('instagram', 'b', { tier: 'B', score: 1 })],
     { product: 'p', market: 'US', platforms: ['tiktok', 'instagram'], keywords: [], total: 2,
       tiers: { A: 1, B: 1, C: 0 }, email_count: 0, cross_platform_count: 0,
       ...testCostMeta(1, 2000000), enriched: false })
-  ok('三个 tab，无「全部」', ['data-f="A"', 'data-f="B"', 'data-f="C"'].every(t => html.includes(t))
-     && !html.includes('data-f="all"'))
+  ok('优先级与 A/B/C 各有独立筛选且都有全部',
+    ['all', '优先联系', '备选', '待核实', '暂不采用']
+      .every(value => html.includes(`data-kind="priority" data-value="${value}"`))
+    && ['all', 'A', 'B', 'C']
+      .every(value => html.includes(`data-kind="tier" data-value="${value}"`)))
   ok('卡片带 data-tier 供筛选', html.includes('data-tier="A"') && html.includes('data-tier="B"'))
-  ok('默认选中 A（第一个非空）', html.includes('class="tab A on"'))
-  ok('非默认分层初始隐藏（不依赖 JS）', html.includes('data-tier="B" style="display:none"'))
+  ok('两维都默认全部',
+    html.includes('class="tab on" data-kind="priority" data-value="all"')
+    && html.includes('class="tab on" data-kind="tier" data-value="all"'))
+  ok('所有分层卡片初始可见，不依赖 JS',
+    !/data-tier="[ABC]"[^>]*display\s*:\s*none/.test(html))
   ok('切换不滚动页面', !html.includes('scrollIntoView'))
 
-  // 在离线 DOM 模型里执行报告实际输出的内联脚本，再触发真实 click 回调。
-  // 卡片的 dataset 和初始 display 都从 HTML 提取；少了 data-tier 时不能凭 class 猜回去。
-  const clicked = (() => {
-    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1]
-    const cardTags = [...html.matchAll(/<div class="card ([ABC])"([^>]*)>/g)]
-    const tabTags = [...html.matchAll(/<button class="tab ([ABC])( on)?" data-f="([ABC])">/g)]
-    const emptyTag = html.match(/<div class="empty" id="none" style="([^"]*)">/)
-    if (!script || cardTags.length !== 2 || tabTags.length !== 3 || !emptyTag)
-      throw new Error('U6 离线夹具无法读出脚本、卡片或 tab')
-    const display = (attrs: string) => attrs.match(/\bdisplay\s*:\s*([^;\s]+)/)?.[1] ?? ''
-    const cards = cardTags.map(([, tier, attrs]) => ({
-      tier, dataset: { tier: attrs.match(/\bdata-tier="([^"]+)"/)?.[1] },
-      style: { display: display(attrs) },
-    }))
-    const tabs = tabTags.map(([, tier, on, filter]) => {
-      const classes = new Set(['tab', tier, ...(on ? ['on'] : [])])
-      let click: (() => void) | undefined
-      return { dataset: { f: filter }, classes,
-        classList: { add: (name: string) => classes.add(name), remove: (name: string) => classes.delete(name) },
-        addEventListener: (name: string, handler: () => void) => { if (name === 'click') click = handler },
-        trigger: () => click?.(),
-      }
-    })
-    const none = { style: { display: display(emptyTag[1]) } }
-    const document = {
-      querySelectorAll: (selector: string) => selector === '#cards .card' ? cards : selector === '.tab' ? tabs : [],
-      getElementById: (id: string) => id === 'none' ? none : null,
-    }
-    runInNewContext(script, { document })
-    return (['B', 'A', 'C'] as const).map(filter => {
-      const tab = tabs.find(t => t.dataset.f === filter)
-      tab?.trigger()
-      return { selected: tabs.filter(t => t.classes.has('on')).map(t => t.dataset.f),
-        visible: cards.filter(c => c.style.display !== 'none').map(c => c.tier),
-        empty: none.style.display !== 'none',
-      }
-    })
-  })()
-  eq('点击 B、A、C 后只显示所选分层卡片', clicked, [
-    { selected: ['B'], visible: ['B'], empty: false },
-    { selected: ['A'], visible: ['A'], empty: false },
-    { selected: ['C'], visible: [], empty: true },
-  ])
-
-  // A 为空时应默认落在 B，而不是打开就是一片空白
+  // A 为空时仍默认全量，B 卡片无需脚本即可看见。
   const noA = renderHtml([mk('instagram', 'b', { tier: 'B', score: 1 })],
     { product: 'p', market: 'US', platforms: ['instagram'], keywords: [], total: 1,
       tiers: { A: 0, B: 1, C: 0 }, email_count: 0, cross_platform_count: 0,
       ...testCostMeta(1, 2000000), enriched: false })
-  ok('A 为空时默认落到 B', noA.includes('class="tab B on"') && !noA.includes('class="tab A on"'))
-  const noACard = noA.match(/<div class="card B"[^>]*>/)?.[0]
-  ok('A 为空时 B 卡片渲染后立即可见', !!noACard && !/\bdisplay\s*:\s*none/.test(noACard))
-  // U6.b 指向第一个非空层：A/B 都为空时，C 仍应在首次打开时可见。
-  const onlyC = renderHtml([mk('tiktok', 'c', { tier: 'C', score: 1 })],
-    { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 1,
-      tiers: { A: 0, B: 0, C: 1 }, email_count: 0, cross_platform_count: 0,
-      ...testCostMeta(1, 2000000), enriched: false })
-  ok('A、B 为空时默认落到 C', onlyC.includes('class="tab C on"')
-    && !onlyC.includes('class="tab A on"') && !onlyC.includes('class="tab B on"'))
-  const onlyCCard = onlyC.match(/<div class="card C"[^>]*>/)?.[0]
-  ok('A、B 为空时 C 卡片渲染后立即可见', !!onlyCCard && !/\bdisplay\s*:\s*none/.test(onlyCCard))
+  ok('A 为空时仍默认全部并显示 B',
+    noA.includes('class="tab on" data-kind="tier" data-value="all"')
+    && /data-tier="B"(?![^>]*display\s*:\s*none)/.test(noA))
   ok('平台标签区分 class', html.includes('pf tiktok') && html.includes('pf instagram'))
   ok('平台标签有专属配色', html.includes('.pf.tiktok{') && html.includes('.pf.instagram{'))
   ok('平台标签与次要标签不同层级', html.includes('.xp{') && !html.includes('.pf,.xp{'))
@@ -5915,7 +5880,45 @@ await group('h-claims-restore', () => {
       claimsRestoreAction(bytes(0, 255), bytes(88, 0, 255, 77).subarray(1, 3)) === 'keep');
   });
 
-await group('h-mutate', () => {
+await group('h-mutate', async () => {
+harness('变异 worker 的结论行等写回调完成才交出')
+{
+  const line = '{"id":"M-sample","result":"caught"}\n'
+  let written = ''
+  let finish: ((error?: Error | null) => void) | undefined
+  const delayed = {
+    write(chunk: string, callback: (error?: Error | null) => void) {
+      written += chunk
+      finish = callback
+      return false // 模拟 stdout 管道背压
+    },
+  } as unknown as Pick<NodeJS.WriteStream, 'write'>
+  let settled = false
+  const pending = writeReportAndFlush(delayed, line).then(() => { settled = true })
+  await Promise.resolve()
+  eq('stdout 背压时写回调前不得宣称结论已交出', settled, false)
+  ok('完整结论行已交给写入方且注册了完成回调', written === line && finish !== undefined)
+  if (finish) {
+    finish()
+    await pending
+    eq('写回调完成后才结束，结论行包含换行符', [settled, written], [true, line])
+  }
+
+  let failWrite: ((error?: Error | null) => void) | undefined
+  const broken = {
+    write(_chunk: string, callback: (error?: Error | null) => void) {
+      failWrite = callback
+      return false
+    },
+  } as unknown as Pick<NodeJS.WriteStream, 'write'>
+  const result = writeReportAndFlush(broken, line).then(
+    () => 'resolved', error => (error as Error).message)
+  ok('失败路径也注册写回调', failWrite !== undefined)
+  if (failWrite) {
+    failWrite(new Error('report write failed'))
+    eq('写回调报错时明确拒绝', await result, 'report write failed')
+  }
+}
 // 预期来自独立 oracle；宿主控制和断言不以被测判定给自己打分。
 harness('工具选跑：真实调用与无资格证据分开')
 {
@@ -7533,18 +7536,36 @@ harness('起 tsx 的那条命令：三处共用一份，不经 npx、不经 shel
   // 而 npm 在那边生成的是 `tsx.cmd` / `tsx.ps1` / `tsx`(sh shim)（ADR-69 第一块欠条）
   eq('起的是当前这个 node', exe, process.execPath)
 
-  // cli 走 tsx 包的**公开导出**（它的 exports 里有 "./cli"），不写死 `node_modules/tsx/dist/…`
-  // 那种内部路径，也不指 `.bin` 里那个垫片 —— 写死的那种升一次版就指空
-  eq('垫在最前面的是 tsx 那个公开导出解析出来的 cli',
-    argv[0], createRequire(import.meta.url).resolve('tsx/cli'))
+  // Node 直接预加载 tsx 的公开包入口，不经 cli 的 Unix socket；也不指 `.bin` 垫片。
+  eq('先用 --import 预加载 tsx', argv[0], '--import')
+  // 缺失或非法 URL 本身就是断言失败；直接解析会先抛错，吞掉末尾的失败汇总。
+  let loaderPath: string | undefined
+  try { if (typeof argv[1] === 'string') loaderPath = fileURLToPath(argv[1]) } catch {}
+  eq('预加载的是 tsx 公开包入口', loaderPath,
+    createRequire(import.meta.url).resolve('tsx'))
   // 断的是**绝对路径**这一半：相对的那种才会随 cwd 变，而自检有几处切到临时目录里跑。
   // 「切过去再调一次、结果不变」那样的断言写不得 —— 那个常量在 import 阶段就求值一次，
   // 之后怎么切都不会变，那条断言永远不会红（`4-VERIFY.md`：不会失败的检查等于没有检查）
-  ok('而且是一条真的绝对路径', isAbsolute(argv[0]) && existsSync(argv[0]))
+  ok('而且指向真的绝对路径',
+    loaderPath !== undefined && isAbsolute(loaderPath) && existsSync(loaderPath))
 
   // 要跑的那几个原样跟在后面。少一个或顺序反了，起来的就不是要跑的那个脚本，
   // 而那时的样子是「跑起来了、结论不对」，不是「起不来」
-  eq('要跑的那几个参数原样跟在 cli 后面', argv.slice(1), args)
+  eq('要跑的那几个参数原样跟在 --import 后面', argv.slice(2), args)
+
+  const dir = mkdtempSync(join(tmpdir(), 'kol-tsx-command-'))
+  try {
+    const script = join(dir, 'entry.ts')
+    writeFileSync(script, 'const answer: number = 42\nprocess.stdout.write(String(answer))\n')
+    const [child, childArgs] = tsxCommand([script])
+    let outcome: [number | null | undefined, string | undefined]
+    try {
+      const ran = spawnSync(child, childArgs, { cwd: dir, encoding: 'utf8', timeout: 15000 })
+      outcome = [ran.status, ran.stdout]
+    } catch (error) { outcome = [undefined, String(error)] }
+    eq('切到无 node_modules 的临时目录仍能执行 TypeScript',
+      outcome, [0, '42'])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 }
 
 harness('验证基础设施闭包：一条变异改的是不是验证者自己要用的东西')
@@ -9738,6 +9759,10 @@ suite('D14', '费用检查点只推进费用，保留盘上业务与精确预算
 }
 
 })
+if (fullRun) {
+  runReviewStorageTests({ suite, eq, ok })
+  runScreeningContractTests({ suite, eq, ok, criterion, tension })
+}
 if (seenGroups.size !== GROUPS.length) {
   throw new Error(`需求测试组只遇到 ${seenGroups.size}/${GROUPS.length} 组，不能报告完成`)
 }

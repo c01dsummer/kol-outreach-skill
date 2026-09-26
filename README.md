@@ -24,11 +24,11 @@ API 负责提供候选数据，Agent 负责读懂产品、推导搜索策略、�
 
 ## 能做什么
 
-- 根据产品描述或产品页理解品类和卖点
+- 根据产品描述或产品页理解品类和卖点；可在任务中保存品牌偏好与事实来源
 - 从品类、使用场景、竞品、目标人群四个方向生成搜索词
 - 在放量前先采集小样，由用户确认搜索方向
 - 从 TikTok 和 Instagram 搜索并补全创作者资料
-- 根据 bio 和近期内容进行语义匹配，并输出可读的判断理由
+- 根据实际取得的内容证据，分别判断合格性与采用优先级，说明自然植入方式及待核风险
 - 结合硬指标与语义判断生成 A/B/C 分层名单
 - 基于主页近期作品计算公开指标：Instagram 按端点返回的前最多 12 条作品取互动与活跃，播放类指标仅取确认视频；TikTok 仍按现有视频口径
 - 用带同行依据的“受众质量风险”标记异常账号；高风险只降级复核，不自动删除
@@ -36,6 +36,7 @@ API 负责提供候选数据，Agent 负责读懂产品、推导搜索策略、�
 - 为合适且有公开邮箱的 A 级创作者生成个性化英文开发信草稿
 - 记录跨任务创作者状态，排除已联系或已屏蔽的人
 - 输出 HTML、XLSX、CSV 和 JSON，支持断点续跑和预算控制
+- 单独生成可用 Excel 填写的人工反馈 CSV，对照 Agent 判断与团队采用结果
 
 完整工作路径如下：
 
@@ -44,9 +45,9 @@ API 负责提供候选数据，Agent 负责读懂产品、推导搜索策略、�
   → 四维关键词策略
   → 小样试探与方向确认
   → 批量采集
-  → 语义匹配与理由
+  → 语义匹配、自然植入与风险说明
   → 可选的主页公开指标与风险复核
-  → A/B/C 分层与英文开发信草稿
+  → A/B/C 分层、采用优先级与英文开发信草稿
   → 报告、表格和本地记忆
 ```
 
@@ -152,7 +153,14 @@ npm run enrich -- --dir output/xxx
 # 公开指标预算用尽后，提高的是同一任务的总预算
 npm run enrich -- --dir output/xxx --budget 3
 
-# Agent 完成语义判断和草稿后，生成最终交付物并写回本地记忆
+# Agent 把判断与草稿写入任务的 agent-review.json 后，生成最终交付物并写回本地记忆
+npm run render -- --dir output/xxx
+
+# 单独生成 Excel 可填写的人工复核模板；后续新增审核轮次时显式追加空行
+npm run feedback-template -- --dir output/xxx
+npm run feedback-template -- --dir output/xxx --append
+
+# 填好 manual-feedback.csv 后重新导出；render 会只读它并复核当前联系/屏蔽状态
 npm run render -- --dir output/xxx
 ```
 
@@ -166,6 +174,8 @@ collect 续跑还会先检查 `task.json` 的已完成索引和分页统计；�
 
 render 导出同样要求 `task.json` 至少保留一项合规搜索任务。任务文件读不到、JSON/根对象形状不合规或任务列表不合规时，报告路径和具体问题并退出 `2`，不改写或创建名单、交付物与跨任务记忆（D16.n–q）。需按原搜索配置恢复或修正真实任务记录，不能任意添加关键词冒充搜索范围。
 
+可选的 `task.json.brand_calibration` 包含目标创作者、语气审美、自然场景、负面信号、版本和逐项来源；Agent 在小样方向确认时展示。新评审正本是 `agent-review.json`，旧 `creators.json` 的 Agent 字段会在续跑覆盖前保留。人工反馈只在 `manual-feedback.csv`，空白表示未评，`unknown` 表示已看但无法判断。重复 `render` 不覆盖人工文件；无效、重复、冲突或无法关联的人工行先报具体行号，再停止交付。
+
 `memory/creators.json` 读不出来时（多半是手改 `contacted` 时改坏了），`collect.ts` 以退出码 `2` 结束且**不产出名单** —— 那个文件记着谁已经联系过，读不出来就无法保证不重复打扰。采集结果与预算状态完好，**已经抓到的不会重抓**；但续跑要不要花钱取决于活干完没有 —— 关键词全跑完、profile 也全补完才是零请求；有待查项还须费用状态允许付费，`stderr` 会说明剩余量及阻止原因（**别把它简化成「续跑免费」**）。确实需要在这种状态下拿名单，显式加 `--ignore-memory`，`meta.json` 与报告会声明本次未做去重（见 `docs/adr/` 的 ADR-15、ADR-25）。
 
 ## 交付物
@@ -174,11 +184,13 @@ render 导出同样要求 `task.json` 至少保留一项合规搜索任务。任
 
 ```text
 output/{product}-{timestamp}/
-├── report.html        单文件可读报告，支持分层切换和草稿复制
+├── report.html        单文件可读报告，默认全量、按优先级与分层筛选
 ├── kol.xlsx           A/B/C 分 Sheet 的 Excel 名单
 ├── kol.csv            适合脚本和其他工具读取的完整单表
 ├── creators.json      最终筛选后的结构化名单
 ├── creators.raw.json  原始采集累加器，断点续跑时只增不减
+├── agent-review.json  Agent 评审正本及固定审核轮次
+├── manual-feedback.csv 独立模板及人工填写结果（仅显式生成）
 ├── enrichment.json    分平台公开样本、指标、报价和查询状态（运行 enrich 后）
 ├── task.json          采集状态、费用账、请求数和断点信息
 └── meta.json          平台、费用、分能力状态和数据边界
@@ -187,6 +199,8 @@ output/{product}-{timestamp}/
 其中：
 
 - HTML 报告完全内联，不依赖外部样式或脚本
+- CSV/HTML 默认按采用优先级、A/B/C、原分数排序；XLSX 三张表各自在层内按优先级和分数排序
+- 报告并列展示 Agent 与人工结论，合格率和采用率只用各自字段明确 yes/no 的账号作分母
 - CSV 使用 UTF-8 BOM 并正确处理逗号、引号和换行
 - XLSX 始终包含 A/B/C 三个 Sheet，包括空分层
 - A 级候选附带可复制的英文开发信草稿

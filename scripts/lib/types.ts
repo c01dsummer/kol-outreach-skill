@@ -71,6 +71,34 @@ export const DIMENSIONS = ['category', 'scene', 'competitor', 'audience'] as con
 export type Dimension = typeof DIMENSIONS[number]
 export type Tier = 'A' | 'B' | 'C'
 export type Fit = '✅' | '⚠️' | '❌'
+export type Eligibility = '合格' | '不合格' | '待核实'
+export type AdoptionPriority = '优先联系' | '备选' | '待核实' | '暂不采用'
+export type ReviewStatus = '未评' | '已评' | '待重评'
+export type ManualVerdict = 'yes' | 'no' | 'unknown'
+export type ManualLevel = 'high' | 'medium' | 'low' | 'unknown'
+
+/** 可选项目偏好。sources 逐项标注偏好与已证实产品事实，不能互相冒充。 */
+export interface BrandCalibration {
+  version: string
+  target_creator_types: string[]
+  tone_aesthetic: string[]
+  natural_scenarios: string[]
+  negative_signals: string[]
+  sources: Array<{ source: string; kind: 'brand_preference' | 'verified_product_fact'; detail: string }>
+}
+
+export interface ManualFeedbackView {
+  round_id: string
+  account_key: string
+  manual_eligible?: ManualVerdict
+  manual_adopted?: ManualVerdict
+  manual_content_fit?: ManualLevel
+  manual_engagement?: ManualLevel
+  manual_comment_authenticity?: ManualLevel
+  manual_reject_reason?: string
+  manual_note?: string
+  manual_reviewed: boolean
+}
 
 export type DiscoveryEndpoint =
   | '/api/v1/tiktok/app/v3/fetch_video_search_result'
@@ -326,6 +354,38 @@ export interface Creator {
   fit_reason?: string
   tier?: Tier
   outreach_draft?: string
+  /** 新评审的正本在 agent-review.json；这些字段只是交付投影。 */
+  eligibility?: Eligibility
+  adoption_priority?: AdoptionPriority
+  effective_priority?: AdoptionPriority
+  /** 仅当人工结论决定有效优先级时，说明是哪一平台账号的结论。 */
+  effective_priority_account_key?: string
+  review_status?: ReviewStatus
+  observed_content?: string
+  work_evidence?: string
+  natural_integration?: string
+  mismatch_risk?: string
+  brand_calibration_version?: string
+  manual_eligible?: ManualVerdict
+  manual_adopted?: ManualVerdict
+  manual_content_fit?: ManualLevel
+  manual_engagement?: ManualLevel
+  manual_comment_authenticity?: ManualLevel
+  manual_reject_reason?: string
+  manual_note?: string
+  manual_reviewed?: boolean
+  manual_round_id?: string
+  /** 主账号和关联账号分别保存；不会把一个平台的审核算成另一平台已审核。 */
+  manual_feedback_accounts?: ManualFeedbackView[]
+  /** 只展示关联平台自己的 Agent 判断，不作为主账号的判断或优先级。 */
+  linked_agent_review?: {
+    account_key: string
+    eligibility?: Eligibility
+    adoption_priority?: AdoptionPriority
+    review_status: ReviewStatus
+    fit?: Fit
+    fit_reason?: string
+  }
 
   // render 从 enrichment.json 关联的公开指标摘要；原始样本仍只存 enrichment.json
   account_assessment?: AccountAssessmentSummary
@@ -352,6 +412,7 @@ export interface SearchTask {
 
 export interface TaskState {
   product: string
+  brand_calibration?: BrandCalibration
   market: string          // ISO 3166-1 alpha-2，如 US
   target_count: number
   /** D13：旧输入可能缺失或不可解释；须经费用边界核验，不能直接计算。 */

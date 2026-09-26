@@ -1,6 +1,6 @@
 # 输出格式
 
-> 相关需求：**U1** CSV 排序与列定义 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U6** HTML 分层 tab 与平台标签 · **U7** 公开指标与报价 · **U8** 任务展示身份 · **D5** BOM 与转义 · **D8–D10** 指标口径 · **P5** 数据边界声明
+> 相关需求：**U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U7** 公开指标与报价 · **U8** 任务展示身份 · **U9–U11** 优先级、筛选与反馈报告 · **D5** BOM 与转义 · **D8–D10** 指标口径 · **P5** 数据边界声明
 
 Phase 06 用。
 
@@ -13,8 +13,10 @@ output/{product}-{YYYYMMDDHHmm}/
 ├── kol.csv        单表名单 —— 给脚本和其他工具读
 ├── kol.xlsx       分层名单 —— 给人看，按分层分 sheet
 ├── report.html    可读报告
-├── creators.json  交付物 —— 过滤后的名单（Agent 在 Phase 04 回写判断的地方）
+├── creators.json  交付物 —— 过滤后的名单投影，不作评审正本
 ├── creators.raw.json  采集累加器 —— 只增不减，--resume 读它
+├── agent-review.json    Agent 评审正本：判断、证据、草稿、校准版本、审核轮次
+├── manual-feedback.csv  人工反馈；工具只创建模板，报告重生成不覆盖填写内容
 ├── enrichment.json    分平台公开样本、指标、报价与查询状态（运行 enrich 后）
 ├── task.json      采集状态（断点续跑用）
 └── meta.json      本次任务元数据
@@ -72,7 +74,11 @@ output/{product}-{YYYYMMDDHHmm}/
 | `outreach_draft` | ★ 仅 A 级填写 |
 | `previously_recommended` | 曾推荐过则填「{product} @ {date}」 |
 | `discovery_sources` | 已观察发现来源，每项为「路线 · 平台:@账号 · 关键词 · 维度」，以 `；` 分隔；缺席或空数组显示「来源未知」 |
-| `metrics_sample_scope` | 最末列；Instagram 公开指标的主页样本范围：本次端点返回前最多 12 条／旧版仅视频窗口／旧范围未知。未查询保持未查询；不能把后两者显示为未标记的新窗口数字 |
+| `metrics_sample_scope` | 既有列的末列；Instagram 公开指标的主页样本范围：本次端点返回前最多 12 条／旧版仅视频窗口／旧范围未知。未查询保持未查询；不能把后两者显示为未标记的新窗口数字 |
+
+**既有列保持原顺序，新增列一律追加在 `metrics_sample_scope` 后。** 新列并列展示 Agent 与人工：`eligibility`、`adoption_priority`、`review_status`、`observed_content`、`work_evidence`、`natural_integration`、`mismatch_risk`、`brand_calibration_version`、`effective_priority`、`effective_priority_account_key`、`manual_round_id`、`manual_eligible`、`manual_adopted`、`manual_content_fit`、`manual_engagement`、`manual_comment_authenticity`、`manual_reject_reason`、`manual_note`、`manual_feedback_accounts`、`linked_agent_review`。旧任务缺 Agent 字段显示 `review_status=未评`，不写成「不合格」或「暂不采用」；人工空白与显式 `unknown` 也必须分开。
+
+`agent-review.json` 是新 Agent 判断的唯一正本，以规范化的平台账号键关联；`account_keys` 只包含同平台别名，跨平台账号映射由 `linked_handle` 保留并在交付中分别展示。采集续跑重建 `creators.json` 或补公开指标时，用同一关联和投影逻辑保留评审；覆盖旧任务前先保留原 `creators.json` 中的 Agent 字段。评审包含 `observed_content`、`work_evidence`、`natural_integration`、`mismatch_risk`、`eligibility`、`adoption_priority`、兼容的 `fit`／`fit_reason`、`outreach_draft` 与 `brand_calibration_version`。校准版本变化不擦除旧评审，显示待重评。不要把这些写进 `creators.raw.json` 或用人工结论改写它们。
 
 实际来源也在 HTML 账号卡片展示，原始集合保留在名单 JSON 及 probe 样本中。只含已记录的账号发现来源，可能不含完整历史；不对应具体作品、请求次数或费用。路线不能由 `source_keyword`、任务标签或 `as_hashtag` 推断（D15）。
 
@@ -84,18 +90,33 @@ output/{product}-{YYYYMMDDHHmm}/
 
 **转义**：字段含逗号、引号或换行时用双引号包裹，内部双引号写成两个。`outreach_draft` 一定有换行，务必正确转义。
 
-排序：先按 `tier`（A→B→C），同层按 `score` 降序；**同层同分时按粉丝数分三档 ——
+排序：先按 `effective_priority`「优先联系 → 备选 → 待核实 → 暂不采用」，再按 `tier`（A→B→C），再按 `score` 降序；**同优先级、同层、同分时按粉丝数分三档 ——
 「已查到且不是 0」→「未查询」→「确实是 0」**（P1.h）。「不知道」压得过确认为 0 的人，
 压不过任何真查到了数的人。
+
+有效展示优先级只作投影：`manual_adopted=yes` 为「优先联系」；`manual_adopted=no` 或 `manual_eligible=no` 时字段值为「暂不采用」（界面可写「本次暂不采用」）；`manual_adopted=unknown` 为「待核实」；人工未填则沿用 Agent 建议。`manual_eligible=no` 且 `manual_adopted=yes` 是输入冲突，须在写任何交付物前报错。人工采用不能让已联系或屏蔽账号重新进入名单；重复生成同一任务仍遵守既有豁免。
+
+## manual-feedback.csv
+
+工具生成独立模板供 Excel 填写，报告重生成只能读取和校验，不能覆盖已填写文件。列顺序为 `round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note`。`round_id` 指向固定的审核轮次；身份用 `platform` 与 `handle` 派生规范化平台账号键，不另设 `account_key` 列。不按行号匹配，跨平台关联账号各自有独立反馈，一个平台已评不代表另一个平台已评，主账号切换不得丢反馈。
+
+| 字段 | 允许填写 |
+|---|---|
+| `manual_eligible` / `manual_adopted` | `yes`、`no`、`unknown` |
+| `manual_content_fit` / `manual_engagement` / `manual_comment_authenticity` | `high`、`medium`、`low`、`unknown` |
+| `manual_reject_reason` | 商家号、内容不匹配、过度商业化、植入生硬、语气不符、审美不符、互动弱、账号或数据错配、其他 |
+| `manual_note` | 自由文本 |
+
+空白表示尚未审核；`unknown` 表示审核过但没有资格下判断，不能合并统计。重复、冲突、非法值或无法匹配的账号要指出文件中的具体位置，在名单、报告及记忆写入前停止。每轮审核固定候选池和来源；续跑新增账号进新的审核轮次，不改既有轮次的分母。人工「暂不采用」留在本任务的反馈里，不写成全局 `blocked`，也不修改 `contacted`／`replied`。
 
 ## XLSX（U5）
 
 按分层分 sheet，方便运营在 Excel/Numbers 里快速切换：
 
 ```
-A级 直接发信 (15)
-B级 先互动 (30)
-C级 观察池 (3)
+A 级 (15)
+B 级 (30)
+C 级 (3)
 ```
 
 **不设「全部」sheet** —— 完整单表已经由 `kol.csv` 承担，再来一份是冗余，
@@ -104,7 +125,7 @@ C级 观察池 (3)
 - 首行冻结 + 自动筛选
 - **空分层也建 sheet**，名称里标出 `(0)` —— 「这一层一个人都没有」本身是信息，
   隐藏掉会让人以为漏了数据
-- 列定义与 CSV 完全一致
+- 列定义与 CSV 完全一致；每个 sheet 内按有效展示优先级、分数降序排序
 
 实现在 `scripts/lib/xlsx.ts`，手写的最小 XLSX 写出器（零依赖）。
 
@@ -115,22 +136,21 @@ C级 观察池 (3)
 需要包含：
 
 - 顶部统计：总人数、A/B/C 分布、有邮箱比例、跨平台人数；费用显示预算占用估算、总上限与分项（按固定公开基础价估算，不是实际账单），费用不可用时说明原因
-- 关键词表现：**关键词×平台一行，任务里的每一个都在表上**，包括 0 命中的和一次都没查过的（U3.b）。
+- 关键词表现：**来源任务及原 `task_index` 各占一行，任务里的每一个都在表上**，包括同词同平台的不同任务、0 命中和一次都没查过的（U3.b、U8）。
   每行先列任务序号（原 task_index 加一）；缺失或非法下标显示「无从确认」，不按显示位置猜补。
   序号不是查询或命中数；as_hashtag 不渲染成实际路径声明（U8）。
-  每行列「找到」（供应商返回的**条目数**）、「入围」（过完粉丝闸门与去重之后还在名单上的**人数**）、
-  「语义通过」。**「找到」与「入围」不是一个数、也不相除** —— 单位不同，所以没有「命中率」这一列。
+  每行分别列「找到」（供应商返回的**条目数**）、「入围」（过完粉丝闸门与去重之后还在名单上的**人数**）、
+  「语义通过」及「人工审核人数」。一人由多个任务发现时，各来源任务分别计入；两项审核人数都只按来源平台对应账号的判断计，不能把关联平台已评当作本平台已评。没有真实来源时不从首词、当前配置或行位置补造归因。**「找到」与「入围」不是一个数、也不相除** —— 单位不同，所以没有「命中率」这一列。
   「找到」那一格四态可分：`N` / `0`（量出来的零）/ `未查询`（从未发出过搜索请求）/
   `无从确认`（旧目录，连记录都没有）；另有 `未知` ＝问过、而那一次的条数没记下来。
   **没查过的行不带任何看起来像测量值的数**（P5.i）—— **这是下次调整策略的依据**
-- **分层 tab**（U6）：A级 / B级 / C级，点击只显示对应分层。
-  **默认选中第一个非空分层** —— 落在空分层上，打开第一眼是空白会被当成出错。
-  初始可见性在渲染时就定好，不依赖 JS 先跑一遍。
-  **切换不滚动页面** —— 运营常是横向对比几个分层，滚动会让他丢失阅读位置
+- **名单默认展示全部候选**，按有效展示优先级 → A/B/C → 分数排序；可独立筛选优先级与 A/B/C，切换时不滚动页面。初始可见性在渲染时确定，不依赖 JS 先跑一遍
 - 名单卡片：**平台标签用平台专属配色**（TikTok 青、Instagram 橙粉渐变），
   与「双平台」「私密号」等次要标签区分开 —— 运营扫一眼就要知道这人在哪个平台，
   因为两个平台的建联方式完全不同
 - A 级卡片展开显示开发信草稿并**可一键复制**
+- 每张卡片并列展示 Agent 判断与人工反馈，分别标出未评、人工 `unknown`、明确否定及待重评；展示实际作品证据、自然植入、最大风险，避免一句 `fit_reason` 代替结论
+- 人工覆盖情况、人工合格率、采用率、主要拒绝原因、Agent 与团队分歧账号：合格率分母仅为 `manual_eligible` 已有明确 `yes/no` 的人数；采用率分母仅为 `manual_adopted` 已有明确 `yes/no` 的人数；未评与 `unknown` 分开计，分母为零显示「不可计算」
 - 主账号与关联账号分平台展示近期公开指标、样本时间、活跃标签、风险依据和报价效率；
   每个 Instagram 账号卡片分别写明其主页样本范围，新返回窗口、旧版仅视频与旧范围未知可辨
 - 数据边界说明（见下）

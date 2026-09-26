@@ -27,15 +27,12 @@ export function scoreCreator(c: Creator): number {
  * 分层。**语义判断有一票否决权** —— 高分但 ❌ 的（搬运号、品类冲突）不进 A。
  * 反过来，语义强相关但缺邮箱的进 B 而非 C：他值得花时间去私信。
  */
-export function tierOf(c: Creator, score: number): 'A' | 'B' | 'C' {
+export function tierOf(c: Creator, _score: number): 'A' | 'B' | 'C' {
+  if (c.review_status === '待重评') return 'B'
   if (c.fit === '❌') return 'C'
   if (c.email && c.fit === '✅') return 'A'
-  if (c.fit === '✅' || c.fit === '⚠️') return 'B'
-  // 未做语义判断时退化为纯分数。**分数由调用方传进来,不从 `c.score` 读** ——
-  // 那个字段可空,读它就得兜底,而原来正是从它读、缺省成零:「还没算过分」被当成
-  // 0 分,人被静默压到 C 档,正是 P1.b 要防的那件事。调用方在上一行刚算完,
-  // 传进来之后**结构上就不存在「拿不到分」这一态** —— 靠结构保证,不靠运行时兜底。
-  return score >= 60 ? 'A' : score >= 40 ? 'B' : 'C'
+  // 未评不能靠客观分数进 A；数据缺失也不等于不合格。score 参数保留兼容调用方。
+  return 'B'
 }
 
 /** 受众地域降权 —— 有增强数据时生效 */
