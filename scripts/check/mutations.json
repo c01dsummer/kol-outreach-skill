@@ -2185,7 +2185,11 @@
       "why": "写记忆之前不检查即将生成的键能不能用 —— 名单里混进一个展示形态的用户名或不支持的平台，就写下一条自己下次读不出来的记录，此后每一次采集都被挡在门外，直到有人手工去修",
       "file": "scripts/lib/memory.ts",
       "find": "  for (const c of creators) {\n    const bad = keyProblem(c.platform, c.handle)\n    if (bad) return { written: false, reason: `${c.platform}:${c.handle} 记不下来 —— ${bad}` }\n  }",
-      "replace": "  /* mutated */"
+      "replace": "  /* mutated */",
+      "by": "test",
+      "kills": [
+        "记忆仍然读得出来 —— 没有被自己写的键毒掉"
+      ]
     },
     {
       "id": "M-D4-v",
