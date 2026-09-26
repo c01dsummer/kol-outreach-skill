@@ -32,7 +32,7 @@ import { tsxCommand } from './tsx-cmd.js'
 import {
   ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, sourceFiles,
 } from './claims.js'
-import { type Group, parseOnly, wanted } from './group-rule.js'
+import { type Group, parseOnlyStrict, wanted } from './group-rule.js'
 import { writeFileAtomic } from '../lib/atomic.js'
 import {
   SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS,
@@ -58,7 +58,8 @@ const EXEMPT: Record<string, string> = {}   // 目前无豁免
 const claimed = new Set<string>()
 const criterion = (...ids: string[]): void => { for (const id of ids) claimed.add(id) }
 const mutating = process.env.MUTATING === '1'
-const subset = parseOnly(process.argv.slice(2)) !== undefined
+const onlyIds = parseOnlyStrict(process.argv.slice(2))
+const subset = onlyIds !== undefined
 // **子集跑既不删也不写入口认领。** `claimed` 只装这一跑真跑到的那几条判据，
 // 写回去等于拿残缺的记录盖掉完整的，而审计读的就是这份文件（它会报一批
 // 「没有认领」）。删了不写更糟：审计连文件都读不到。所以子集跑按变异跑那一侧走。
@@ -416,7 +417,7 @@ const group = (id: string, needs: readonly string[], fn: () => void): void => {
   REGISTERED.push({ id, needs, fn })
 }
 const runGroups = (): Set<string> | undefined => {
-  const pick = wanted(REGISTERED, parseOnly(process.argv.slice(2)))
+  const pick = wanted(REGISTERED, onlyIds)
   if (pick !== undefined) {
     // 子集跑先把「这一跑到底跑了哪几组」印出来 —— 后面几处「本次没验」都指着它
     console.log(`[只跑 ${[...pick].join('、')}]（其余 ${REGISTERED.length - pick.size} 组没跑）\n`)
@@ -4672,6 +4673,49 @@ group('dup-ids', [], () => {
     failed++
     console.error('  ✗ mutate 先报的是记错名下 —— 那份报告印的也是 id，它自己也指不回表里哪一行')
   }
+})
+
+// 用户要求：非法选择要明确失败，不能过滤掉错误后执行子集或退回全跑。
+// 真起自检入口；每条坏参数都附带轻量组，旧入口即使错误放行也不会跑完整自检。
+group('selfcheck-selection', [], () => {
+  const entry = (args: string[]) => {
+    const [exe, argv] = tsxCommand([S(SELFCHECK_TOOLS.selfcheck), ...args])
+    const r = spawnSync(exe, argv, {
+      cwd: process.cwd(), env: { ...env, MUTATING: '1' }, encoding: 'utf8', timeout: 20_000,
+    })
+    if (r.error || r.status === null) {
+      failed++
+      console.error(`  ✗ 自检选择入口${SELFCHECK_PROCESS_MARK}：${r.error?.message ?? '没有退出码'}`)
+      return undefined
+    }
+    return { status: r.status, stdout: r.stdout, stderr: r.stderr }
+  }
+  const good = entry(['--only=dup-ids'])
+  if (good) named('自检选择：合法轻量组实际执行并正常完成',
+    good.status === 0 && good.stdout.includes('[只跑 dup-ids]')
+      && good.stdout.includes('mutate 遇到重复编号即以退出码 1 结束')
+      && good.stdout.includes('点名的那几组都跑完了，一条断言都没红'),
+    `退出码=${good.status}，stdout=${good.stdout}，stderr=${good.stderr}`)
+  const rejectsBeforeFixtures = (args: string[]) => {
+    const r = entry(args)
+    if (!r) return undefined
+    return {
+      rejected: r.status === 1 && /--only|参数/.test(r.stderr)
+        && !/SyntaxError|ReferenceError|TypeError/.test(r.stderr)
+        && !/^\[只跑 |^\s*✓ /m.test(r.stdout),
+      detail: `退出码=${r.status}，stdout=${r.stdout}，stderr=${r.stderr}`,
+    }
+  }
+  const trailing = rejectsBeforeFixtures(['--only=dup-ids,'])
+  if (trailing) named('自检选择：尾随逗号明确失败且不执行夹具', trailing.rejected, trailing.detail)
+  const unknown = rejectsBeforeFixtures(['--only=dup-ids', '--selection-typo'])
+  if (unknown) named('自检选择：未知参数明确失败且不执行夹具', unknown.rejected, unknown.detail)
+  const repeatedOption = rejectsBeforeFixtures(['--only=dup-ids', '--only=dup-ids'])
+  if (repeatedOption) named('自检选择：重复选择参数明确失败且不执行夹具',
+    repeatedOption.rejected, repeatedOption.detail)
+  const repeatedGroup = rejectsBeforeFixtures(['--only=dup-ids,dup-ids'])
+  if (repeatedGroup) named('自检选择：重复组明确失败且不执行夹具',
+    repeatedGroup.rejected, repeatedGroup.detail)
 })
 
 // ---- 变异锚点不唯一即以退出码 1 结束（anchorMatches 的入口那一半，ADR-99 第十二节）----
