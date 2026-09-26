@@ -53,14 +53,14 @@ export function parseOnly(argv: readonly string[]): string[] | undefined {
   const hit = argv.find(a => a.startsWith('--only='))
   if (hit === undefined) return undefined
   // 空的 `--only=` 交回空数组而不是 `undefined` —— 两者都是错，但错法不一样：
-  // 空数组是「一组都不跑」，入口据此按红报（`selfcheck.ts` 收尾那支）；
+  // 空数组是「一组都不跑」；这个旧解析契约仍由测试与原有负片保留，
   // `undefined` 是「全跑」，静默变成另一件事。**这里不抛**，判定只管把两者分开，
   // 由入口去定性 —— 抛在这儿的话 `wanted` 就得替调用方决定空集算不算错。
   return hit.slice('--only='.length).split(',').filter(s => s !== '')
 }
 
 /**
- * 需求测试入口的严格参数解析。`parseOnly` 保留自检已有的宽松行为；这里拒绝
+ * 自检与需求测试入口共用的严格参数解析。`parseOnly` 保留旧解析契约；这里拒绝
  * 会把「我没选对」解释成「少跑了一些也通过」的拼写错误。
  */
 export function parseOnlyStrict(argv: readonly string[], allowed: readonly string[] = []): string[] | undefined {

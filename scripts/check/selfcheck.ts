@@ -32,7 +32,7 @@ import { tsxCommand } from './tsx-cmd.js'
 import {
   ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, sourceFiles,
 } from './claims.js'
-import { type Group, parseOnly, wanted } from './group-rule.js'
+import { type Group, parseOnlyStrict, wanted } from './group-rule.js'
 import { writeFileAtomic } from '../lib/atomic.js'
 import {
   SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS,
@@ -58,7 +58,8 @@ const EXEMPT: Record<string, string> = {}   // 目前无豁免
 const claimed = new Set<string>()
 const criterion = (...ids: string[]): void => { for (const id of ids) claimed.add(id) }
 const mutating = process.env.MUTATING === '1'
-const subset = parseOnly(process.argv.slice(2)) !== undefined
+const onlyIds = parseOnlyStrict(process.argv.slice(2))
+const subset = onlyIds !== undefined
 // **子集跑既不删也不写入口认领。** `claimed` 只装这一跑真跑到的那几条判据，
 // 写回去等于拿残缺的记录盖掉完整的，而审计读的就是这份文件（它会报一批
 // 「没有认领」）。删了不写更糟：审计连文件都读不到。所以子集跑按变异跑那一侧走。
@@ -416,7 +417,7 @@ const group = (id: string, needs: readonly string[], fn: () => void): void => {
   REGISTERED.push({ id, needs, fn })
 }
 const runGroups = (): Set<string> | undefined => {
-  const pick = wanted(REGISTERED, parseOnly(process.argv.slice(2)))
+  const pick = wanted(REGISTERED, onlyIds)
   if (pick !== undefined) {
     // 子集跑先把「这一跑到底跑了哪几组」印出来 —— 后面几处「本次没验」都指着它
     console.log(`[只跑 ${[...pick].join('、')}]（其余 ${REGISTERED.length - pick.size} 组没跑）\n`)

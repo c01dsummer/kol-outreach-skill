@@ -128,11 +128,11 @@ export const SELFCHECK_FIXTURE_MARK = '（夹具）'
 export const selfcheckSummary = (failed: number) => `✗ 脚本自检：${failed} 项失败`
 
 /** 自检这个验证者的闭包种子：它自己 ＋ 它当工具起的 ＋ 它预加载的。 */
-export const SELFCHECK_SEEDS: string[] = [
+export const SELFCHECK_SEEDS: string[] = [...new Set([
   'scripts/check/selfcheck.ts',
   ...Object.values(SELFCHECK_TOOLS).map(f => `scripts/${f}`),
   `scripts/${SELFCHECK_PRELOAD}`,
-].sort()
+])].sort()
 
 /**
  * 一个文件 `import` 了哪些**本仓库内**的文件 —— 建图的那一半判据。
