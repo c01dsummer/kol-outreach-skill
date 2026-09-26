@@ -211,7 +211,11 @@
       "why": "把粉丝数未知的人静默过滤掉 —— 真实创作者凭空消失且无人知晓",
       "file": "scripts/lib/score.ts",
       "find": "  if (c.followers === undefined) return true",
-      "replace": "  if (c.followers === undefined) return false"
+      "replace": "  if (c.followers === undefined) return false",
+      "by": "test",
+      "kills": [
+        "入池：粉丝数未查询 → 放行"
+      ]
     },
     {
       "id": "M-P2-a",
