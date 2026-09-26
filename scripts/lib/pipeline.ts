@@ -416,6 +416,16 @@ export interface KeywordRow {
   shortlisted: number | null
   /** 入围里语义通过的；无从确认时为 `null` */
   fit_pass: number | null
+  /** 此任务发现的入围账号中，对应任务平台有人工结论或人工注记的人数。 */
+  manual_reviewed: number | null
+}
+
+/** A merged person's other-platform fit is neither evidence nor a pass for this task. */
+function agentFitPassedOnPlatform(c: Creator, platform: Platform): boolean {
+  const account = c.platform === platform ? c :
+    c.linked_agent_review?.account_key.startsWith(`${platform}:`) ? c.linked_agent_review : undefined
+  // Old tasks have a genuine fit judgment without the new review_status fields.
+  return account?.fit === '✅' && account.review_status !== '待重评'
 }
 
 /**
@@ -428,7 +438,9 @@ export function keywordRows(state: TaskState, delivered: Creator[]): KeywordRow[
   // ⚠️ 上一条 PR（`answered`／`found` 两张表）先合，本条后合，中间那个窗口里建的目录
   // 正是这个形状：表在、人身上没有下标。独立复核实测到两行都印「找到 40 / 入围 0」，
   // 而名单里有 3 个人（ADR-94 第十六节丁）。注释一度声称这不可能，那句话只对更早的目录成立。
-  const attributable = delivered.every(c => c.source_tasks !== undefined)
+  const attributable = delivered.every(c =>
+    Array.isArray(c.source_tasks) && c.source_tasks.length > 0 &&
+    c.source_tasks.every(index => Number.isSafeInteger(index) && index >= 0 && index < state.tasks.length))
   return state.tasks.map((t, i) => {
     const status = taskQueryStatus(state, i)
     // **只有真问过的行才谈得上「入围几个」。** 没问过的行印 0 就是把「没看」说成
@@ -454,7 +466,11 @@ export function keywordRows(state: TaskState, delivered: Creator[]): KeywordRow[
       // 抛在记条数之前」：那一页一个人都没入库，前几页成功采到的人身上下标一个不少。
       // 绑着的后果是把一个**确知**的入围数抹成「无从确认」（独立复核实测：真值 3，印「—」）。
       shortlisted: counted ? mine.length : null,
-      fit_pass: counted ? mine.filter(c => c.fit === '✅').length : null,
+      fit_pass: counted ? mine.filter(c => agentFitPassedOnPlatform(c, t.platform)).length : null,
+      // 合并人身上的来源任务可能横跨 IG/TT；此行只数当前任务平台自己的人工审核。
+      manual_reviewed: counted ? mine.filter(c => c.manual_feedback_accounts?.some(
+        row => row.manual_reviewed && row.account_key.startsWith(`${t.platform}:`),
+      )).length : null,
     }
   })
 }

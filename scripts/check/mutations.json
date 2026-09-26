@@ -134,7 +134,7 @@
       "req": "P4",
       "why": "不再排除已联系/已屏蔽的人，导致重复打扰",
       "file": "scripts/lib/memory.ts",
-      "find": "    if (e.contacted || e.blocked) { con++; continue }",
+      "find": "    if (entries.some(e => e.contacted || e.blocked)) { con++; continue }",
       "replace": "    if (false) { con++; continue }"
     },
     {
@@ -173,6 +173,8 @@
       "id": "M-D7-a",
       "req": "D7",
       "why": "放宽到裸 at 配真实点号 —— 'look at gmail.com' 会被当成邮箱",
+      "by": "test",
+      "kills": ["不误判 \"look at x.com\""],
       "file": "scripts/lib/email.ts",
       "find": "  new RegExp(String.raw`[\\w.+-]+\\s+at\\s+[\\w-]+(?:\\s*${DOT_SPELLED}\\s*[\\w-]+)+`, 'gi'),",
       "replace": "  new RegExp(String.raw`[\\w.+-]+\\s+at\\s+[\\w-]+(?:\\s*${DOT_ANY}\\s*[\\w-]+)+`, 'gi'),"
@@ -203,8 +205,8 @@
     },
     {
       "id": "M-U1-a",
-      "req": "U1",
-      "why": "CSV 不再按 tier 排序 —— A 级混在几百行里，运营找不到该先联系谁",
+      "req": "U9.a",
+      "why": "同一采用优先级内不再按 A/B/C 分层排序，名单层级混在一起",
       "file": "scripts/lib/rows.ts",
       "find": "  const order = { A: 0, B: 1, C: 2 }",
       "replace": "  const order = { A: 0, B: 0, C: 0 }"
@@ -227,19 +229,19 @@
     },
     {
       "id": "M-U6-a",
-      "req": "U6",
-      "why": "卡片上不留分层标记，报告里的 tab 切换失效 —— 每个 tab 显示的内容完全一样",
+      "req": "U9.b",
+      "why": "卡片上不留分层标记，按 A/B/C 筛选时每层显示内容完全一样",
       "file": "scripts/lib/report.ts",
-      "find": "<div class=\"card ${c.tier}\" data-tier=\"${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>",
-      "replace": "<div class=\"card ${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>"
+      "find": "<div class=\"card ${c.tier}\" data-tier=\"${esc(c.tier ?? '')}\" data-priority=\"${esc(c.effective_priority ?? '待核实')}\">",
+      "replace": "<div class=\"card ${c.tier}\" data-priority=\"${esc(c.effective_priority ?? '待核实')}\">"
     },
     {
       "id": "M-U6-b",
-      "req": "U6",
-      "why": "默认永远选 A —— A 级为空时打开报告第一眼是空白，会被当成出错了",
+      "req": "U9.b",
+      "why": "HTML 初始只展示 A 级，其他候选打开报告时不可见",
       "file": "scripts/lib/report.ts",
-      "find": "    (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'",
-      "replace": "    'A'"
+      "find": "<div class=\"cards\" id=\"cards\">${creators.map(card).join('')}</div>",
+      "replace": "<div class=\"cards\" id=\"cards\">${creators.filter(c => c.tier === 'A').map(card).join('')}</div>"
     },
     {
       "id": "M-P1-f",
@@ -278,8 +280,8 @@
       "req": "D6",
       "why": "记忆过滤不再区分「本任务」与「别的任务」—— render 之后每次 --resume 都产出一份空名单，已付费采集的人被判成「已推荐过」",
       "file": "scripts/lib/memory.ts",
-      "find": "    const others = e.recommendations.filter(r => !(task && r.task === task))",
-      "replace": "    const others = e.recommendations"
+      "find": "    const others = entries.flatMap(e => e.recommendations.filter(r => !(task && r.task === task)))",
+      "replace": "    const others = entries.flatMap(e => e.recommendations)"
     },
     {
       "id": "M-P1-g",
@@ -394,7 +396,7 @@
       "req": "U3.b",
       "why": "不管名单里的人带不带来源任务，一律照常归人 —— 上一条 PR 建的目录（两张表在、人身上没有下标）于是每一行都印「找到 40 / 入围 0」，而名单里明明有人：一个确定为假的 0 印在真测量值旁边",
       "file": "scripts/lib/pipeline.ts",
-      "find": "  const attributable = delivered.every(c => c.source_tasks !== undefined)",
+      "find": "  const attributable = delivered.every(c =>\n    Array.isArray(c.source_tasks) && c.source_tasks.length > 0 &&\n    c.source_tasks.every(index => Number.isSafeInteger(index) && index >= 0 && index < state.tasks.length))",
       "replace": "  const attributable = true"
     },
     {
@@ -873,8 +875,8 @@
     },
     {
       "id": "M-U1-b",
-      "req": "U1",
-      "why": "分层管线不再排序 —— 交付物按采集顺序排，A 级混在几百行里",
+      "req": "U9.a",
+      "why": "名单没有依采用优先级和分层排序，仍按采集顺序交付",
       "file": "scripts/lib/pipeline.ts",
       "find": "  return sortForOutput(kept)",
       "replace": "  return kept"
@@ -891,6 +893,8 @@
       "id": "M-D8-a",
       "req": "D8",
       "why": "先剔置顶再截窗口 —— 12 条之外的旧作品被顶上来补满，「最多取最近 12 条」变成「取决于提供方这次多返回了几条」，同一个账号换个时间查得到不同口径的中位数",
+      "by": "test",
+      "kills": ["窗口外的旧作品不得补进中位播放"],
       "file": "scripts/lib/assessment.ts",
       "find": "    .slice(0, PUBLIC_POST_SAMPLE_SIZE)\n    .filter(p => p.is_pinned !== true)",
       "replace": "    .filter(p => p.is_pinned !== true)\n    .slice(0, PUBLIC_POST_SAMPLE_SIZE)"
@@ -899,6 +903,8 @@
       "id": "M-D8-b",
       "req": "D8",
       "why": "样本记录照提供方给的条数全记下来 —— basis 写着「最多 12 条」而 sample_size 是 20，落进 enrichment.json 的溯源自己打自己，D10 拿旧样本补算时读到的也不是同一个窗口",
+      "by": "test",
+      "kills": ["窗口之外的第 13 条不进记录"],
       "file": "scripts/lib/assessment.ts",
       "find": "  const window = posts.slice(0, PUBLIC_POST_SAMPLE_SIZE)",
       "replace": "  const window = posts"
@@ -947,6 +953,8 @@
       "id": "M-D10-a",
       "req": "D10",
       "why": "缓存里活跃字段齐全就跳过重算 —— 上一版口径算出来的中位数、发布间隔与受众风险一直留在交付物里，运营不额外付费重抓就换不掉，而交付物上看不出任何区别",
+      "by": "test",
+      "kills": ["活跃字段齐全的缓存也要按当前窗口重算"],
       "file": "scripts/lib/assessment.ts",
       "find": "  const sample = cachedSample.status === 'measured'",
       "replace": "  if (cachedMetrics?.activity_status !== undefined) return { sample: cachedSample, metrics: cachedMetrics, changed: false }\n  const sample = cachedSample.status === 'measured'"
@@ -1467,6 +1475,8 @@
       "id": "M-D8-c",
       "req": "D8",
       "why": "旧缓存的样本记录不再收进窗口 —— 交付物上声称记着 16 条，而指标是按窗口内的 11 条算的，同一行数据自己打自己",
+      "by": "test",
+      "kills": ["旧缓存的样本记录也收进窗口"],
       "file": "scripts/lib/assessment.ts",
       "find": "    ? publicPostSample(cachedSample.value, cachedSample.source, cachedSample.observed_at,\n        scopeOf(cachedSample, platform))",
       "replace": "    ? cachedSample"
@@ -1475,6 +1485,8 @@
       "id": "M-D10-b",
       "req": "D10",
       "why": "把跨账号那一步才赋值的受众风险算进比较 —— 每一轮都把占位符和已赋值当成变化，向用户虚报「这次有多少账号的数换过」",
+      "by": "test",
+      "kills": ["受众风险由跨账号那一步赋值，不算这一步的改动"],
       "file": "scripts/lib/assessment.ts",
       "find": "  const { audience_quality_risk: _assignedElsewhere, ...rest } = m\n  return canonical(rest)",
       "replace": "  return canonical(m)"
@@ -2388,24 +2400,24 @@
       "req": "harness",
       "why": "起 tsx 的那条命令改回走 `npx`：Windows 上 `npx` 是 `npx.cmd`，而 `.cmd` 不带 shell 根本起不来 —— 整条变异链在那边一次都跑不起来，而它是「每条红线的测试真的会红」唯一的证据来源",
       "file": "scripts/check/tsx-cmd.ts",
-      "find": "  [process.execPath, [TSX_CLI, ...args]]",
+      "find": "  [process.execPath, ['--import', TSX_IMPORT, ...args]]",
       "replace": "  ['npx', ['tsx', ...args]]"
     },
     {
       "id": "M-H16-b",
       "req": "harness",
-      "why": "cli 的路径不再从 tsx 那个公开导出解析，改成直指 `node_modules/.bin` 里的垫片 —— 那正是需求测试原先踩的坑：无扩展名的名字在 Windows 上只会被试 `tsx.com` 和 `tsx.exe`，而 npm 在那边生成的是 `tsx.cmd`、`tsx.ps1` 和一个 sh 垫片；而且路径变成相对的，切到临时目录里跑就指空",
+      "why": "预加载入口不再从 tsx 的公开导出解析，改成直指 `node_modules/.bin` 里的垫片 —— 那不是包入口，Windows 上也只会找到 cmd、ps1 或 sh 垫片；而且路径变成相对的，切到临时目录里跑就指空",
       "file": "scripts/check/tsx-cmd.ts",
-      "find": "const TSX_CLI = createRequire(import.meta.url).resolve('tsx/cli')",
-      "replace": "const TSX_CLI = 'node_modules/.bin/tsx'"
+      "find": "const TSX_IMPORT = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href",
+      "replace": "const TSX_IMPORT = pathToFileURL('node_modules/.bin/tsx').href"
     },
     {
       "id": "M-H16-c",
       "req": "harness",
-      "why": "要跑的那几个参数被垫到 cli 前面去 —— 起来的于是不是要跑的那个脚本，而这种坏法的样子是「跑起来了、结论不对」，不是「起不来」",
+      "why": "预加载参数被放到要运行的脚本之后 —— Node 不会再把它当启动参数，脚本可能直接无法解析 TypeScript，或把它当普通脚本参数，结论不对",
       "file": "scripts/check/tsx-cmd.ts",
-      "find": "  [process.execPath, [TSX_CLI, ...args]]",
-      "replace": "  [process.execPath, [...args, TSX_CLI]]"
+      "find": "  [process.execPath, ['--import', TSX_IMPORT, ...args]]",
+      "replace": "  [process.execPath, [...args, '--import', TSX_IMPORT]]"
     },
     {
       "id": "M-H17-b",
@@ -2584,6 +2596,22 @@
       "replace": "  walk(tree)\n  for (const m of source.matchAll(/\\b(\\w+)\\(\\s*'([^']*)'/g)) {\n    if (declares.includes(m[1])) {\n      const had = seen.get(m[2])\n      seen.set(m[2], had === undefined ? 1 : had + 1)\n    }\n  }"
     },
     {
+      "id": "M-H20-n",
+      "req": "harness",
+      "why": "子集基线的进程失败也被当成正常通过，变异可在失败的正常代码上继续跑",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (status !== 0) return `退出码 ${status === null ? '无（被信号终止）' : status}`",
+      "replace": "  if (false) return `退出码 ${status === null ? '无（被信号终止）' : status}`"
+    },
+    {
+      "id": "M-H20-o",
+      "req": "harness",
+      "why": "子集基线没有完成汇总也算通过，空跑能冒充已执行断言",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (!verifier.subsetSuccess.test(output)) return '没有正常完成的子集汇总'",
+      "replace": "  if (false) return '没有正常完成的子集汇总'"
+    },
+    {
       "id": "M-H21-a",
       "req": "harness",
       "why": "报告里不再写出一条需求有几条判据级的负片：那几条守着判据的变异又变回一个字都不露，而报告上看着跟从来没人守过一模一样",
@@ -2760,7 +2788,7 @@
     },
     {
       "id": "M-U1-c",
-      "req": "U1",
+      "req": "P1.f",
       "why": "还没算过分的人排到了有分的人前面 —— 交付表最上面一批是没有依据的人，而运营读的就是从上往下的顺序",
       "file": "scripts/lib/rows.ts",
       "find": "    if (a.score === undefined) return 1\n    if (b.score === undefined) return -1",
@@ -2833,22 +2861,6 @@
       "file": "scripts/lib/rows.ts",
       "find": "  const byScore = (a: Creator, b: Creator): number => {\n    if (a.score === undefined && b.score === undefined) return 0\n    if (a.score === undefined) return 1\n    if (b.score === undefined) return -1\n    return b.score - a.score\n  }",
       "replace": "  const byScore = (a: Creator, b: Creator): number => (b.score ?? 0) - (a.score ?? 0)"
-    },
-    {
-      "id": "M-F5-b",
-      "req": "F5",
-      "why": "分层时用的不是刚算出来的那个分，而是一个写死的常数 —— 没做过语义判断的人一律落到最低档，运营名单里最该先联系的那批人从此不出现在最前面",
-      "file": "scripts/lib/pipeline.ts",
-      "find": "    c.tier = tierOf(c, score)",
-      "replace": "    c.tier = tierOf(c, 0)"
-    },
-    {
-      "id": "M-F5-c",
-      "req": "F5",
-      "why": "进入「B级 先互动」那一档的门槛被调低 —— 分数不够、本该留在「C级 观察池」的人被排进了先互动那一档，运营按这份名单花掉的互动时间落在不值得的人身上",
-      "file": "scripts/lib/score.ts",
-      "find": "  return score >= 60 ? 'A' : score >= 40 ? 'B' : 'C'",
-      "replace": "  return score >= 60 ? 'A' : score >= 20 ? 'B' : 'C'"
     },
     {
       "id": "M-D6-m",
@@ -3568,8 +3580,8 @@
       "req": "P1.h",
       "why": "名单排序不再把粉丝数的三档分开：查到了数的、还没去查的、查过确实是 0 的，同层同分时谁在前变成取决于他们碰巧的输入顺序。那个还没查过、可能其实不小的人被埋在确认为 0 的人后面，而运营以为这份名单已经按强弱排好了，不会再往下翻",
       "file": "scripts/lib/rows.ts",
-      "find": "  return [...creators].sort((a, b) =>\n    rank(a) - rank(b) || byScore(a, b) || byFollowers(a, b))",
-      "replace": "  return [...creators].sort((a, b) => rank(a) - rank(b) || byScore(a, b))"
+      "find": "  return [...creators].sort((a, b) =>\n    priorityRank(a) - priorityRank(b) || rank(a) - rank(b) || byScore(a, b) || byFollowers(a, b))",
+      "replace": "  return [...creators].sort((a, b) =>\n    priorityRank(a) - priorityRank(b) || rank(a) - rank(b) || byScore(a, b))"
     },
     {
       "id": "M-P1-n",
@@ -4990,6 +5002,8 @@
       "id": "M-D15-m",
       "req": "D15.j",
       "why": "路线校验放行任何字符串取值 —— 拼错的路线名（比如写成 reels）不报错，任务照走 Reels，运营以为开了话题搜索",
+      "by": "test",
+      "kills": ["话题入口：每个不合规的任务恰好一句话，写明是第 2 个任务"],
       "file": "scripts/lib/ig-route.ts",
       "find": "    if (t.ig_route !== 'hashtag') {",
       "replace": "    if (typeof t.ig_route !== 'string') {"
@@ -4998,6 +5012,8 @@
       "id": "M-D15-n",
       "req": "D15.j",
       "why": "路线校验不看平台 —— TikTok 任务上写了话题路线也放行，配置写错了却没有任何提示",
+      "by": "test",
+      "kills": ["话题入口：每个不合规的任务恰好一句话，写明是第 2 个任务"],
       "file": "scripts/lib/ig-route.ts",
       "find": "    } else if (t.platform !== 'instagram') {",
       "replace": "    } else if (false) {"
@@ -5006,6 +5022,8 @@
       "id": "M-D15-o",
       "req": "D15.j",
       "why": "路线校验不拦含空白的关键词 —— 一个词组被当成话题词发出去，付费请求一个不存在的话题",
+      "by": "test",
+      "kills": ["话题入口：每个不合规的任务恰好一句话，写明是第 2 个任务"],
       "file": "scripts/lib/ig-route.ts",
       "find": "      if (query === '' || /\\s/.test(query)) {",
       "replace": "      if (query === '') {"
@@ -5014,6 +5032,8 @@
       "id": "M-D15-p",
       "req": "D15.j",
       "why": "路线校验判空前没去掉开头的 # —— 关键词只有一个 # 的话题任务被放行，请求参数是空串，付费请求一次空话题",
+      "by": "test",
+      "kills": ["话题入口：每个不合规的任务恰好一句话，写明是第 2 个任务"],
       "file": "scripts/lib/ig-route.ts",
       "find": "      const query = typeof t.keyword === 'string' ? hashtagKeyword(t) : ''",
       "replace": "      const query = typeof t.keyword === 'string' ? t.keyword : ''"
@@ -5022,6 +5042,8 @@
       "id": "M-D15-q",
       "req": "D15.k",
       "why": "话题请求去掉开头所有的井号 —— 需求只去一个，## 开头的关键词被改成另一个话题词去请求",
+      "by": "test",
+      "kills": ["话题入口：请求关键词开头两个 # 只去掉一个"],
       "file": "scripts/lib/ig-route.ts",
       "find": "  return task.keyword.startsWith('#') ? task.keyword.slice(1) : task.keyword",
       "replace": "  return task.keyword.replace(/^#+/, '')"
@@ -5123,6 +5145,8 @@
       "id": "M-D16-a",
       "req": "D16.a",
       "why": "任务列表缺席或不是数组时判为合规 —— collect 新建先建好目录再崩溃，probe 带着类名与堆栈退出，而不是以输入问题拒绝",
+      "by": "test",
+      "kills": ["任务列表校验：tasks 缺席、不是数组或是空数组时报出一句，写着 tasks 与读到的值（缺席写明缺席）"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "  if (!Array.isArray(tasks) || tasks.length === 0) {",
       "replace": "  if (!Array.isArray(tasks)) return []\n  if (tasks.length === 0) {"
@@ -5131,6 +5155,8 @@
       "id": "M-D16-o",
       "req": "D16.a",
       "why": "一个任务都没有的列表判为合规 —— 照常建目录、开账、交付一份空名单并说跑完了（需求所有者裁决：空列表直接报错）",
+      "by": "test",
+      "kills": ["任务列表校验：tasks 缺席、不是数组或是空数组时报出一句，写着 tasks 与读到的值（缺席写明缺席）"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "!Array.isArray(tasks) || tasks.length === 0",
       "replace": "!Array.isArray(tasks)"
@@ -5139,6 +5165,8 @@
       "id": "M-D16-b",
       "req": "D16.b",
       "why": "不是对象的任务项不报 —— null 让入口崩溃，字符串或数组那一项按 IG Reels 发出不带关键词的付费请求",
+      "by": "test",
+      "kills": ["任务列表校验：不是对象的一项被点名是第几个任务（从 1 数），并写出这一项读到的值"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "      out.push(`${at} 不是一个任务对象，这里${seen(t)}`)\n      continue",
       "replace": "      continue"
@@ -5147,6 +5175,8 @@
       "id": "M-D16-c",
       "req": "D16.c",
       "why": "关键词是空串或只有空白时放行 —— 付费发出不带关键词的搜索",
+      "by": "test",
+      "kills": ["任务列表校验：keyword 缺席、不是字符串、空串或只含空白时，点名那个任务与 keyword，并写出读到的值（缺席写明缺席）"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (textProblem(keyword) !== undefined) {",
       "replace": "    if (typeof keyword !== 'string') {"
@@ -5155,6 +5185,8 @@
       "id": "M-D16-d",
       "req": "D16.c",
       "why": "没写关键词的任务放行 —— 付费请求不带关键词",
+      "by": "test",
+      "kills": ["任务列表校验：keyword 缺席、不是字符串、空串或只含空白时，点名那个任务与 keyword，并写出读到的值（缺席写明缺席）"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (textProblem(keyword) !== undefined) {",
       "replace": "    if (keyword !== undefined && textProblem(keyword) !== undefined) {"
@@ -5163,6 +5195,8 @@
       "id": "M-D16-e",
       "req": "D16.c",
       "why": "首尾带空白但有内容的关键词被拒 —— 运营照原词写的配置跑不起来",
+      "by": "test",
+      "kills": ["任务列表校验：首尾带空白但有内容的关键词合规"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (textProblem(keyword) !== undefined) {",
       "replace": "    if (textProblem(keyword) !== undefined || (keyword as string).trim() !== keyword) {"
@@ -5171,6 +5205,8 @@
       "id": "M-D16-f",
       "req": "D16.d",
       "why": "写错的维度照常付费采集，评分里静默拿不到竞品词、场景词的加分",
+      "by": "test",
+      "kills": ["任务列表校验：dimension 缺席或不是四个维度之一（区分大小写、不修剪空白）时，点名那个任务与 dimension，并写出读到的值（缺席写明缺席）"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {",
       "replace": "    if (typeof dimension !== 'string') {"
@@ -5179,6 +5215,8 @@
       "id": "M-D16-g",
       "req": "D16.d",
       "why": "写成 Competitor 的任务被放行，评分按原值比较，照样拿不到加分",
+      "by": "test",
+      "kills": ["任务列表校验：dimension 缺席或不是四个维度之一（区分大小写、不修剪空白）时，点名那个任务与 dimension，并写出读到的值（缺席写明缺席）"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {",
       "replace": "    if (!(DIMENSIONS as readonly unknown[]).includes(typeof dimension === 'string' ? dimension.toLowerCase() : dimension)) {"
@@ -5187,6 +5225,8 @@
       "id": "M-D16-h",
       "req": "D16.d",
       "why": "维度列表少了人群词 —— 合规的人群词任务被拒，运营照需求写的配置跑不起来",
+      "by": "test",
+      "kills": ["任务列表校验：合规的任务列表交回空数组，与别的任务配置完全相同的任务也合规"],
       "file": "scripts/lib/types.ts",
       "find": "export const DIMENSIONS = ['category', 'scene', 'competitor', 'audience'] as const",
       "replace": "export const DIMENSIONS = ['category', 'scene', 'competitor'] as const"
@@ -5195,6 +5235,8 @@
       "id": "M-D16-i",
       "req": "D16.e",
       "why": "没写平台的任务被当成 Instagram 走 Reels 付费 —— 缺席被当成了一个值（P1）",
+      "by": "test",
+      "kills": ["任务列表校验：platform 缺席或不是 tiktok、instagram（区分大小写、不修剪空白）时，点名那个任务与 platform，并写出读到的值（缺席写明缺席）"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {",
       "replace": "    if (platform !== undefined && !(PLATFORMS as readonly unknown[]).includes(platform)) {"
@@ -5203,6 +5245,8 @@
       "id": "M-D16-j",
       "req": "D16.e",
       "why": "写成 TikTok 的任务被放行；搜索入口只认小写，任务改走 IG Reels 付费",
+      "by": "test",
+      "kills": ["任务列表校验：platform 缺席或不是 tiktok、instagram（区分大小写、不修剪空白）时，点名那个任务与 platform，并写出读到的值（缺席写明缺席）"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {",
       "replace": "    if (!(PLATFORMS as readonly unknown[]).includes(typeof platform === 'string' ? platform.toLowerCase() : platform)) {"
@@ -5211,6 +5255,8 @@
       "id": "M-D16-k",
       "req": "D16.f",
       "why": "报出第一个坏任务就不再报 —— 一份有几处错的配置要来回跑几趟才改得完",
+      "by": "test",
+      "kills": ["任务列表校验：列表里每个不合规的任务都被点名，不止第一个"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    const t: unknown = tasks[i]",
       "replace": "    if (out.length) break\n    const t: unknown = tasks[i]"
@@ -5219,6 +5265,8 @@
       "id": "M-D16-l",
       "req": "D16.g",
       "why": "同一个任务的关键词坏了就不再看维度 —— 几个字段都坏时少报一处，改完一个字段再跑，又被同一个任务拦下",
+      "by": "test",
+      "kills": ["任务列表校验：同一个任务几个字段不合规就指出几个，每一处写着字段名与读到的值"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    }\n    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {",
       "replace": "    } else if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {"
@@ -5227,6 +5275,8 @@
       "id": "M-D16-m",
       "req": "D16.h",
       "why": "把配置完全相同的任务判为重复 —— U8.a、D6.h 说它们是两个任务，运营照需求写的配置被拒",
+      "by": "test",
+      "kills": ["任务列表校验：合规的任务列表交回空数组，与别的任务配置完全相同的任务也合规"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    const at = `任务 ${taskOrdinal(i)}`",
       "replace": "    const at = `任务 ${taskOrdinal(i)}`\n    if (tasks.slice(0, i).some(u => JSON.stringify(u) === JSON.stringify(t))) { out.push(`${at} 与前面的任务重复`); continue }"
@@ -5235,6 +5285,8 @@
       "id": "M-D16-n",
       "req": "D16.i",
       "why": "校验顺手把关键词修剪后写回 —— 新建与续跑把修剪后的词落盘，原词（D15.k、U8.k）丢了",
+      "by": "test",
+      "kills": ["任务列表校验：本组每一次调用前后，传入的值连键带值都没变"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    const { keyword, dimension, platform } = t as Record<string, unknown>",
       "replace": "    const { keyword, dimension, platform } = t as Record<string, unknown>\n    if (typeof keyword === 'string') (t as Record<string, unknown>).keyword = keyword.trim()"
@@ -5243,6 +5295,8 @@
       "id": "M-D16-p",
       "req": "D16.d",
       "why": "没写维度的任务照常付费采集 —— 缺席被当成了一个合规的维度，评分里静默没有维度加分（P1：缺 dimension 不补成任何一个维度）",
+      "by": "test",
+      "kills": ["任务列表校验：dimension 缺席或不是四个维度之一（区分大小写、不修剪空白）时，点名那个任务与 dimension，并写出读到的值（缺席写明缺席）"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (!(DIMENSIONS as readonly unknown[]).includes(dimension)) {",
       "replace": "    if (dimension !== undefined && !(DIMENSIONS as readonly unknown[]).includes(dimension)) {"
@@ -5251,6 +5305,8 @@
       "id": "M-D16-q",
       "req": "D16.h",
       "why": "任务列表校验把路线也判了 —— 写着 ig_route 的合规 TikTok 任务被多点名一句，入口一并写出路线问题时同一处报两遍，合规的任务被指出",
+      "by": "test",
+      "kills": ["任务列表校验：三个必填字段合规时，ig_route 与别的字段怎么写都不在这里报"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {",
       "replace": "    if (platform === 'tiktok' && 'ig_route' in (t as object)) out.push(`${at} 的 ig_route 只能写在 Instagram 任务上`)\n    if (!(PLATFORMS as readonly unknown[]).includes(platform)) {"
@@ -5259,6 +5315,8 @@
       "id": "M-D16-r",
       "req": "D16.c",
       "why": "没写的字段在报错里写成读到了 null —— 用户分不出没写与写了 null（P1）",
+      "by": "test",
+      "kills": ["任务列表校验：缺席与读到 null 分得出，缺席那一句不写 undefined，读到的值那一格写着缺席"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "v === undefined ? '缺席' :",
       "replace": "v === undefined ? '是 null' :"
@@ -5267,6 +5325,8 @@
       "id": "M-D16-s",
       "req": "D16.d",
       "why": "没写的字段在报错里写成读到了字符串「缺席」—— 与真写了这两个字的那一句一字不差（P1）",
+      "by": "test",
+      "kills": ["任务列表校验：缺席与读到字符串「缺席」分得出，缺席那一句不带引号写缺席，两次交回的不一样"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "v === undefined ? '缺席' :",
       "replace": "v === undefined ? '是 \"缺席\"' :"
@@ -5275,6 +5335,8 @@
       "id": "M-D16-t",
       "req": "D16.b",
       "why": "读到的 null 在报错里写成缺席 —— 写了 null 与没写分不出（P1）",
+      "by": "test",
+      "kills": ["任务列表校验：不是对象的一项，读到的值那一格随这一项变：不是规则描述里本来就有的字，也不写成缺席"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "v === undefined ? '缺席'",
       "replace": "v == null ? '缺席'"
@@ -5283,6 +5345,8 @@
       "id": "M-D16-u",
       "req": "D16.b",
       "why": "报错里的任务序号从 0 数 —— 与采集输出的任务标签对不上（U8.a）",
+      "by": "test",
+      "kills": ["任务列表校验：不是对象的一项被点名是第几个任务（从 1 数），并写出这一项读到的值"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "taskOrdinal(i)",
       "replace": "String(i)"
@@ -5291,6 +5355,8 @@
       "id": "M-D16-v",
       "req": "D16.b",
       "why": "同一个值出现两次时后一个按前一个的位置点名 —— 第 4 个报成第 2 个，后面那一处永远不被点名",
+      "by": "test",
+      "kills": ["任务列表校验：同一个值的不是对象的项出现几次，就按各自的位置点名几次"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "taskOrdinal(i)",
       "replace": "taskOrdinal(tasks.indexOf(t))"
@@ -5299,6 +5365,8 @@
       "id": "M-D16-w",
       "req": "D16.c",
       "why": "读到的字符串在报错里不带引号 —— 读到的文字 7 与数字 7、文字 null 与 null 分不出",
+      "by": "test",
+      "kills": ["任务列表校验：不是对象的一项被点名是第几个任务（从 1 数），并写出这一项读到的值"],
       "file": "scripts/lib/search-tasks.ts",
       "find": "是 ${JSON.stringify(v)}",
       "replace": "是 ${String(v)}"
@@ -5942,6 +6010,8 @@
       "id": "M-D17-a",
       "req": "D17.a",
       "why": "空白市场被当成合规字符串",
+      "by": "test",
+      "kills": ["配置字段校验：三个角色均逐类拒绝非字符串与空白 market，返回字段问题而不抛出"],
       "file": "scripts/lib/config-input.ts",
       "find": "textProblem(value) === undefined",
       "replace": "typeof value === 'string'"
@@ -5950,6 +6020,8 @@
       "id": "M-D17-b",
       "req": "D17.b",
       "why": "非有限人数被当成合规数值",
+      "by": "test",
+      "kills": ["配置字段校验：新建与续跑逐类拒绝非数值和非有限 target_count，不转换数字字符串"],
       "file": "scripts/lib/config-input.ts",
       "find": "typeof value === 'number' && Number.isFinite(value)",
       "replace": "typeof value === 'number'"
@@ -5958,6 +6030,8 @@
       "id": "M-D17-c",
       "req": "D17.c",
       "why": "续跑缺席的必填配置被静默放行",
+      "by": "test",
+      "kills": ["配置字段校验：续跑分别缺市场或人数时，逐个报告缺席字段"],
       "file": "scripts/lib/config-input.ts",
       "find": "if (role === 'resume') out.push",
       "replace": "if (false) out.push"
@@ -5966,6 +6040,8 @@
       "id": "M-D17-d",
       "req": "D17.d",
       "why": "两个配置字段同时出错时只报告第一处",
+      "by": "test",
+      "kills": ["配置字段校验：同一输入两处坏值全部返回，各自指向字段和自己的原值"],
       "file": "scripts/lib/config-input.ts",
       "find": "  return out\n",
       "replace": "  return out.slice(0, 1)\n"
@@ -5974,6 +6050,8 @@
       "id": "M-D17-e",
       "req": "D17.e",
       "why": "校验擅自把市场改写成默认值",
+      "by": "test",
+      "kills": ["配置字段校验：本组每次调用前后，自有键、属性、原值及其他字段全部不变"],
       "file": "scripts/lib/config-input.ts",
       "find": "  return out\n",
       "replace": "  (raw as { market?: unknown }).market = 'US'\n  return out\n"
@@ -5982,6 +6060,8 @@
       "id": "M-D17-f",
       "req": "D17.f",
       "why": "试探错误拒绝了根本不使用的目标人数",
+      "by": "test",
+      "kills": ["配置字段校验：probe 忽略任何 target_count，包括每种坏类型与非有限数"],
       "file": "scripts/lib/config-input.ts",
       "find": "role === 'probe' ? ['market'] as const",
       "replace": "false ? ['market'] as const"
@@ -5990,6 +6070,8 @@
       "id": "M-D17-g",
       "req": "D17.g",
       "why": "新输入允许缺席的配置被错误拒绝",
+      "by": "test",
+      "kills": ["配置字段校验：新建与 probe 允许缺市场，新建也允许缺人数，判定不填缺省"],
       "file": "scripts/lib/config-input.ts",
       "find": "if (role === 'resume') out.push",
       "replace": "if (true) out.push"
@@ -5998,6 +6080,8 @@
       "id": "M-D17-h",
       "req": "D17.a",
       "why": "自有但值为未定义的市场被当作缺席后放行",
+      "by": "test",
+      "kills": ["配置字段校验：允许缺席不等于允许自有 undefined，新建与 probe 仍报告使用字段的问题"],
       "file": "scripts/lib/config-input.ts",
       "find": "if (!Object.hasOwn(raw, field)) {",
       "replace": "if (!Object.hasOwn(raw, field) || raw[field] === undefined) {"
@@ -6006,6 +6090,8 @@
       "id": "M-D17-i",
       "req": "D17.c",
       "why": "原型上的配置被误当成续跑的自有字段",
+      "by": "test",
+      "kills": ["配置字段校验：原型上的合规字段不算自有字段，续跑仍报两处缺席"],
       "file": "scripts/lib/config-input.ts",
       "find": "if (!Object.hasOwn(raw, field)) {",
       "replace": "if (!(field in raw)) {"
@@ -6014,6 +6100,8 @@
       "id": "M-D17-j",
       "req": "D17.d",
       "why": "非有限数的诊断被压平成空值",
+      "by": "test",
+      "kills": ["配置字段校验：人数缺席、undefined、null、字符串缺席及三种非有限数逐一可区分"],
       "file": "scripts/lib/config-input.ts",
       "find": "if (typeof value === 'number' && !Number.isFinite(value)) return String(value)",
       "replace": "if (typeof value === 'number' && !Number.isFinite(value)) return 'null'"
@@ -6022,6 +6110,8 @@
       "id": "M-D17-k",
       "req": "D17.d",
       "why": "诊断没有带出实际非法原值",
+      "by": "test",
+      "kills": ["配置字段校验：每个字段问题都带出实际坏值，不能只重复规则"],
       "file": "scripts/lib/config-input.ts",
       "find": "${seen(value)}",
       "replace": "${'非法'}"
@@ -6030,6 +6120,8 @@
       "id": "M-D17-l",
       "req": "D17.b",
       "why": "把数值字符串转换后接受",
+      "by": "test",
+      "kills": ["配置字段校验：新建与续跑逐类拒绝非数值和非有限 target_count，不转换数字字符串"],
       "file": "scripts/lib/config-input.ts",
       "find": "typeof value === 'number' && Number.isFinite(value)",
       "replace": "Number.isFinite(Number(value))"
@@ -6038,6 +6130,8 @@
       "id": "M-D17-m",
       "req": "D17.b",
       "why": "对本次未限制的零负数小数增加拒绝条件",
+      "by": "test",
+      "kills": ["配置字段校验：非标准市场与所有有限人数边界在三个角色均合规，保留原始大小写和空白"],
       "file": "scripts/lib/config-input.ts",
       "find": "typeof value === 'number' && Number.isFinite(value)",
       "replace": "typeof value === 'number' && Number.isInteger(value) && value > 0"
@@ -6046,6 +6140,8 @@
       "id": "M-D17-n",
       "req": "D17.a",
       "why": "把市场偷偷限制为两个大写字母",
+      "by": "test",
+      "kills": ["配置字段校验：非标准市场与所有有限人数边界在三个角色均合规，保留原始大小写和空白"],
       "file": "scripts/lib/config-input.ts",
       "find": "textProblem(value) === undefined",
       "replace": "typeof value === 'string' && /^[A-Z]{2}$/.test(value)"
@@ -6054,6 +6150,8 @@
       "id": "M-D17-o",
       "req": "D17.d",
       "why": "错误数组的诊断把内部非有限数压平成空值",
+      "by": "test",
+      "kills": ["配置字段校验：嵌套非有限数、同名字符串与 null 全部报告，且写出各字段的容器与原值"],
       "file": "scripts/lib/config-input.ts",
       "find": "if (Array.isArray(value)) return `[${value.map(seen).join(',')}]`",
       "replace": "if (Array.isArray(value)) return JSON.stringify(value)"
@@ -6062,6 +6160,8 @@
       "id": "M-D17-p",
       "req": "D17.d",
       "why": "错误对象的诊断把内部非有限数压平成空值",
+      "by": "test",
+      "kills": ["配置字段校验：嵌套非有限数、同名字符串与 null 全部报告，且写出各字段的容器与原值"],
       "file": "scripts/lib/config-input.ts",
       "find": "return `{${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)}:${seen(item)}`).join(',')}}`",
       "replace": "return JSON.stringify(value)"
@@ -6333,6 +6433,8 @@
       "id": "M-D19-a",
       "req": "D19.a",
       "why": "恢复断点接受重复的完成任务索引，同一个任务会被当成两次完成",
+      "by": "test",
+      "kills": ["恢复进度：done 缺席、非数组、重复或非法任务索引逐类报错"],
       "file": "scripts/lib/resume-progress.ts",
       "find": "else if (seen.has(value)) out.push(`done[${position}] 的任务索引 ${value} 重复`)",
       "replace": "else if (false) out.push(`done[${position}] 的任务索引 ${value} 重复`)"
@@ -6341,6 +6443,8 @@
       "id": "M-D19-b",
       "req": "D19.b",
       "why": "恢复断点接受负数页数或条数，后续累计会从错误位置开始",
+      "by": "test",
+      "kills": ["恢复进度：四张表均拒绝坏容器、坏索引与坏值，问题点名原字段"],
       "file": "scripts/lib/resume-progress.ts",
       "find": "typeof value === 'number' && Number.isSafeInteger(value) && value >= 0",
       "replace": "typeof value === 'number' && Number.isSafeInteger(value)"
@@ -6349,6 +6453,8 @@
       "id": "M-D19-c",
       "req": "D19.d",
       "why": "把旧目录缺席的统计表判成坏表，无法继续已有任务",
+      "by": "test",
+      "kills": ["恢复进度：旧目录的四张整表可缺席；页数高于当前上限仍是有效历史"],
       "file": "scripts/lib/resume-progress.ts",
       "find": "if (!Object.hasOwn(raw, field)) continue // 旧目录缺整张表＝无从确认；绝不补空表。",
       "replace": "if (!Object.hasOwn(raw, field)) out.push(`${field} 缺席`)"
@@ -6357,6 +6463,8 @@
       "id": "M-D19-d",
       "req": "D19.b",
       "why": "四张统计表均接受 null，把未知数当作已核的空值",
+      "by": "test",
+      "kills": ["恢复进度：只有 found 允许 null，其他表的 null 仍被拒绝"],
       "file": "scripts/lib/resume-progress.ts",
       "find": "field === 'found' && value === null",
       "replace": "value === null"
@@ -6365,6 +6473,8 @@
       "id": "M-D19-g",
       "req": "D19.c",
       "why": "同一份坏断点只报告第一处问题，其余坏进度被遮住",
+      "by": "test",
+      "kills": ["恢复进度：同一任务文件里的各表问题全部报告且不改原输入"],
       "file": "scripts/lib/resume-progress.ts",
       "find": "  return out\n}",
       "replace": "  return out.slice(0, 1)\n}"
@@ -6416,6 +6526,222 @@
       "kills": [
         "恢复进度：错误点名 task.json 路径与所有坏字段"
       ]
+    },
+    {
+      "id": "M-D20-a",
+      "req": "D20.c",
+      "why": "品牌校准版本已变化，旧的强推荐仍作为当前有效优先级交付",
+      "file": "scripts/lib/review.ts",
+      "find": "if (review.brand_calibration_version !== version) return '待重评'",
+      "replace": "if (version && review.brand_calibration_version !== version) return '待重评'"
+    },
+    {
+      "id": "M-D20-b",
+      "req": "D20.a",
+      "why": "校准来源未标注偏好或已证实事实，仍被接纳为项目输入",
+      "file": "scripts/lib/review.ts",
+      "find": "if (!oneOf(source.kind, ['brand_preference', 'verified_product_fact'])) {",
+      "replace": "if (false) {"
+    },
+    {
+      "id": "M-D21-a",
+      "req": "D21.c",
+      "why": "关联平台的 Agent 评审冒充当前主平台已评，主账号切换后判断来源不清",
+      "file": "scripts/lib/review.ts",
+      "find": "const review = accounts[0] ? lookupReview(document, [accounts[0]]) : undefined",
+      "replace": "const review = accounts[0] ? lookupReview(document, accounts) : undefined"
+    },
+    {
+      "id": "M-D21-b",
+      "req": "D21.a",
+      "why": "新版评审正本缺失后，旧交付投影中的强推荐又被当作历史旧字段恢复",
+      "file": "scripts/lib/review.ts",
+      "find": "if (creator.review_status !== undefined && creator.review_status !== '未评') continue\n    if (['eligibility', 'adoption_priority', 'brand_calibration_version',\n      'observed_content', 'work_evidence', 'natural_integration', 'mismatch_risk']\n      .some(field => creator[field as keyof Creator] !== undefined)) continue",
+      "replace": "if (false) continue"
+    },
+    {
+      "id": "M-D21-c",
+      "req": "D21.b",
+      "why": "Agent 评审账号键无法匹配任务候选池却被静默保留，判断不知属于谁",
+      "file": "scripts/lib/review.ts",
+      "find": "if (!review.account_keys.some(alias => knownAccounts.has(alias))) {",
+      "replace": "if (false) {"
+    },
+    {
+      "id": "M-D21-d",
+      "req": "D21.d",
+      "why": "续跑把新账号冻结成审核轮次，却遗漏原先已交付的旧候选及评审，下一次报告无法稳定关联",
+      "file": "scripts/lib/review.ts",
+      "find": "  freezeNewRound(document, state, previousCreators)\n  freezeNewRound(document, state, creators)",
+      "replace": "  freezeNewRound(document, state, creators)"
+    },
+    {
+      "id": "M-D22-a",
+      "req": "D22.e",
+      "why": "人工明确不采用的账号仍按 Agent 建议成为优先联系",
+      "file": "scripts/lib/review.ts",
+      "find": "const no = decisive(row => row.manual_adopted === 'no' || row.manual_eligible === 'no')",
+      "replace": "const no = decisive(row => row.manual_eligible === 'no')"
+    },
+    {
+      "id": "M-D22-b",
+      "req": "D22.e",
+      "why": "人工明确采用后，名单仍保留较低的 Agent 建议优先级",
+      "file": "scripts/lib/review.ts",
+      "find": "const yes = decisive(row => row.manual_adopted === 'yes')",
+      "replace": "const yes = undefined"
+    },
+    {
+      "id": "M-D22-c",
+      "req": "D22.e",
+      "why": "人工已看但无法判断采用与否，却继续显示 Agent 的强推荐",
+      "file": "scripts/lib/review.ts",
+      "find": "const unknown = decisive(row => row.manual_adopted === 'unknown')",
+      "replace": "const unknown = undefined"
+    },
+    {
+      "id": "M-D22-d",
+      "req": "D22.d",
+      "why": "同一候选跨平台人工采用结论互相矛盾，仍输出单一优先级",
+      "file": "scripts/lib/review.ts",
+      "find": "if (crossPlatformConflicts.size) throw new ReviewInputError([...crossPlatformConflicts])",
+      "replace": "if (false) throw new ReviewInputError([...crossPlatformConflicts])"
+    },
+    {
+      "id": "M-D22-h",
+      "req": "D22.d",
+      "why": "人工表的平台大小写变体被当成不同账号，合法复评无法关联",
+      "file": "scripts/lib/review.ts",
+      "find": "const normalizedPlatform = typeof platform === 'string' ? platform.toLowerCase() : platform",
+      "replace": "const normalizedPlatform = platform"
+    },
+    {
+      "id": "M-D22-e",
+      "req": "D22.a",
+      "why": "冻结的审核轮次来源可被改成另一任务或另一平台，报告仍接受伪归因",
+      "file": "scripts/lib/review.ts",
+      "find": "const sourceProblems = roundSourceProblems(document, state)",
+      "replace": "const sourceProblems: string[] = []"
+    },
+    {
+      "id": "M-D22-f",
+      "req": "D22.e",
+      "why": "Agent 判不合格而团队明确判合格的账号没有进入分歧名单",
+      "file": "scripts/lib/review.ts",
+      "find": "      (row.manual_eligible === 'yes' && agent.eligibility === '不合格')",
+      "replace": "      false"
+    },
+    {
+      "id": "M-D22-g",
+      "req": "U11.b",
+      "why": "人工明确不合格使强推荐变暂不采用，但 Agent 与团队分歧名单漏掉此账号",
+      "file": "scripts/lib/review.ts",
+      "find": "((row.manual_adopted === 'no' || row.manual_eligible === 'no') && agent.adoption_priority !== '暂不采用')",
+      "replace": "(row.manual_adopted === 'no' && agent.adoption_priority !== '暂不采用')"
+    },
+    {
+      "id": "M-F11-a",
+      "req": "F11.a",
+      "why": "已评候选缺实际观察内容与作品证据也能作为有效建议输出",
+      "file": "scripts/lib/review.ts",
+      "find": "if (!nonblank(review[field])) errors.push(`${place}.${field}：已评候选必须填写非空证据`)",
+      "replace": "if (false) errors.push(`${place}.${field}：已评候选必须填写非空证据`)"
+    },
+    {
+      "id": "M-F11-b",
+      "req": "F11.a",
+      "why": "只填一半的新 Agent 判断被当作已评或兼容旧结论，缺关键证据仍进入名单",
+      "file": "scripts/lib/review.ts",
+      "find": "    if (newReview) {",
+      "replace": "    if (false) {"
+    },
+    {
+      "id": "M-F11-c",
+      "req": "F11.b",
+      "why": "Agent 标成不合格却显式写内容适合，账号能凭互相矛盾的判断进入 A 级",
+      "file": "scripts/lib/review.ts",
+      "find": "    if (review.eligibility === '不合格' && review.fit === '✅') {",
+      "replace": "    if (false) {"
+    },
+    {
+      "id": "M-F11-d",
+      "req": "F11.b",
+      "why": "Agent 标成不合格却建议优先联系，名单给出自相矛盾的行动建议",
+      "file": "scripts/lib/review.ts",
+      "find": "    if (review.eligibility === '不合格' && review.adoption_priority === '优先联系') {",
+      "replace": "    if (false) {"
+    },
+    {
+      "id": "M-D20-c",
+      "req": "D20.c",
+      "why": "旧校准判断虽标待重评，仍凭旧内容适合和邮箱留在 A 级",
+      "file": "scripts/lib/score.ts",
+      "find": "  if (c.review_status === '待重评') return 'B'",
+      "replace": "  if (false) return 'B'"
+    },
+    {
+      "id": "M-D20-d",
+      "req": "D20.c",
+      "why": "旧校准的否定结论仍把账号压进 C 级，待重评状态没有统一表现",
+      "file": "scripts/lib/score.ts",
+      "find": "  if (c.review_status === '待重评') return 'B'\n  if (c.fit === '❌') return 'C'",
+      "replace": "  if (c.fit === '❌') return 'C'\n  if (c.review_status === '待重评') return 'B'"
+    },
+    {
+      "id": "M-U11-a",
+      "req": "U11.a",
+      "why": "跨平台合并后，一个平台的人工审核人数被算进另一个平台的关键词任务",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "row => row.manual_reviewed && row.account_key.startsWith(`${t.platform}:`),",
+      "replace": "row => row.manual_reviewed,"
+    },
+    {
+      "id": "M-U11-b",
+      "req": "U11.a",
+      "why": "跨平台合并后，主平台的语义通过被算进尚未评审的另一平台关键词任务",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "fit_pass: counted ? mine.filter(c => agentFitPassedOnPlatform(c, t.platform)).length : null,",
+      "replace": "fit_pass: counted ? mine.filter(c => c.fit === '✅').length : null,"
+    },
+    {
+      "id": "M-U11-c",
+      "req": "U11.a",
+      "why": "来源任务是空表或无效下标仍被当作可核归因，各关键词行输出虚构的确定零",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  const attributable = delivered.every(c =>\n    Array.isArray(c.source_tasks) && c.source_tasks.length > 0 &&\n    c.source_tasks.every(index => Number.isSafeInteger(index) && index >= 0 && index < state.tasks.length))",
+      "replace": "  const attributable = delivered.every(c => c.source_tasks !== undefined)"
+    },
+    {
+      "id": "M-U11-d",
+      "req": "U11.a",
+      "why": "人工已看却无法判断的人被算进采用率和合格率分母，报告的比例被低估",
+      "file": "scripts/lib/review.ts",
+      "find": "rate: yes + no ? yes / (yes + no) : null",
+      "replace": "rate: yes + no ? yes / (yes + no + unknown) : null"
+    },
+    {
+      "id": "M-U10-a",
+      "req": "U10.a",
+      "why": "优先级和分层筛选只要满足其中一项就显示，候选卡片与两个筛选条件不一致",
+      "file": "scripts/lib/report.ts",
+      "find": "(filters.priority==='all'||c.dataset.priority===filters.priority)&&\n      (filters.tier==='all'||c.dataset.tier===filters.tier)",
+      "replace": "(filters.priority==='all'||c.dataset.priority===filters.priority)||\n      (filters.tier==='all'||c.dataset.tier===filters.tier)"
+    },
+    {
+      "id": "M-U10-b",
+      "req": "U10.b",
+      "why": "每张候选卡片都把 Agent 的作品证据显示成未评，运营看不到实际内容依据",
+      "file": "scripts/lib/report.ts",
+      "find": "<div>作品证据：${esc(c.work_evidence ?? '未评')}</div>",
+      "replace": "<div>作品证据：未评</div>"
+    },
+    {
+      "id": "M-P4-m",
+      "req": "P4",
+      "why": "关联平台已经联系或屏蔽的同一创作者重新进入名单",
+      "file": "scripts/lib/memory.ts",
+      "find": "  return [...new Set(keys)]",
+      "replace": "  return keys.slice(0, 1)"
     }
   ],
   "exemptions": [

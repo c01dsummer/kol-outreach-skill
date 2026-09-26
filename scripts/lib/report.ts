@@ -139,15 +139,15 @@ const renderCost = (view: CostView): string => {
 
 /** 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档 */
 export function renderHtml(creators: Creator[], meta: any): string {
-  // 没有「全部」tab，所以必须有一个分层默认选中。取第一个非空的 ——
-  // 默认落在空分层上，打开报告第一眼是空白，会被当成出错了。
-  const def: 'A' | 'B' | 'C' =
-    (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'
+  const reviewed = (value: string | undefined): string => value ?? '未评'
+  const manual = (value: string | undefined): string => value ?? '未评'
+  const feedback = meta.feedback_summary
 
   const card = (c: Creator) => `
-<div class="card ${c.tier}" data-tier="${c.tier}"${c.tier === def ? '' : ' style="display:none"'}>
+<div class="card ${c.tier}" data-tier="${esc(c.tier ?? '')}" data-priority="${esc(c.effective_priority ?? '待核实')}">
   <div class="hd">
     <span class="tier ${c.tier}">${c.tier}</span>
+    <span class="priority">${esc(c.effective_priority ?? '待核实')}</span>
     <span class="pf ${c.platform}">${c.platform === 'tiktok' ? '♪ TikTok' : '◉ Instagram'}</span>
     ${c.cross_platform ? `<span class="xp" title="也在 ${esc(c.linked_handle)}">⇄ 双平台</span>` : ''}
     ${c.is_private ? '<span class="priv">🔒 私密号</span>' : ''}
@@ -160,6 +160,23 @@ export function renderHtml(creators: Creator[], meta: any): string {
     ${c.email ? `<span class="em">${esc(c.email)}</span>` : '<span class="no">无邮箱</span>'}
   </div>
   ${c.fit_reason ? `<div class="fit">${esc(c.fit)} ${esc(c.fit_reason)}</div>` : ''}
+  <div class="review">
+    ${c.effective_priority_account_key ? `<div>排序依据：${esc(c.effective_priority_account_key)} 的人工结论${c.effective_priority_account_key !== `${c.platform}:${c.handle.toLowerCase()}` ? '（关联账号；当前主账号仍按自身字段显示）' : ''}</div>` : ''}
+    <div><b>Agent</b> · ${esc(c.review_status ?? '未评')} · 合格性 ${esc(reviewed(c.eligibility))} · 建议 ${esc(reviewed(c.adoption_priority))}
+      ${c.brand_calibration_version ? `· 校准 ${esc(c.brand_calibration_version)}` : ''}</div>
+    <div>观察内容：${esc(c.observed_content ?? '未评')}</div>
+    <div>作品证据：${esc(c.work_evidence ?? '未评')}</div>
+    <div>自然植入：${esc(c.natural_integration ?? '未评')}</div>
+    <div>最大风险／待核：${esc(c.mismatch_risk ?? '未评')}</div>
+    <div><b>人工</b> · ${esc(c.manual_round_id ?? '未分轮')} · 合格 ${esc(manual(c.manual_eligible))} · 采用 ${esc(manual(c.manual_adopted))}
+      · 内容 ${esc(manual(c.manual_content_fit))} · 互动 ${esc(manual(c.manual_engagement))}
+      · 评论真实性 ${esc(manual(c.manual_comment_authenticity))}</div>
+    ${c.manual_reject_reason ? `<div>拒绝原因：${esc(c.manual_reject_reason)}</div>` : ''}
+    ${c.manual_note ? `<div>人工备注：${esc(c.manual_note)}</div>` : ''}
+    ${c.manual_feedback_accounts?.filter(a => a.account_key !== `${c.platform}:${c.handle.toLowerCase()}`).map(a =>
+      `<div>关联账号人工复核（${esc(a.account_key)}）：合格 ${esc(manual(a.manual_eligible))} · 采用 ${esc(manual(a.manual_adopted))}</div>`).join('') ?? ''}
+    ${c.linked_agent_review ? `<div>关联账号 Agent 评审（${esc(c.linked_agent_review.account_key)}）：${esc(c.linked_agent_review.review_status)} · 合格性 ${esc(reviewed(c.linked_agent_review.eligibility))} · 建议 ${esc(reviewed(c.linked_agent_review.adoption_priority))}</div>` : ''}
+  </div>
   ${c.tier_adjustments?.length ? `<div class="adjust">${c.tier_adjustments.map(a =>
     esc(`${a.from}→${a.to} ${a.reason}`)).join('<br>')}</div>` : ''}
   ${c.bio ? `<div class="bio">${esc(c.bio)}</div>` : ''}
@@ -187,7 +204,21 @@ export function renderHtml(creators: Creator[], meta: any): string {
     <tr><td>${esc(taskOrdinal(k.task_index))}</td><td>${esc(k.keyword)}</td>
         <td>${esc(k.platform ?? '未知')}</td><td>${esc(k.dimension)}</td>
         <td>${esc(foundText(k))}</td><td>${esc(countText(k.shortlisted))}</td>
-        <td>${esc(countText(k.fit_pass))}</td></tr>`).join('')
+        <td>${esc(countText(k.fit_pass))}</td><td>${esc(countText(k.manual_reviewed))}</td></tr>`).join('')
+  const rate = (part: any): string => part?.rate === null || part?.rate === undefined
+    ? '不可计算' : `${(part.rate * 100).toFixed(1)}%（${part.yes}/${part.yes + part.no}）`
+  const roundRows = (feedback?.rounds ?? []).map((r: any) => `
+    <tr><td>${esc(r.round_id)}</td><td>${esc(r.candidates)}</td>
+    <td>${esc(r.reviewed)}</td><td>${esc(r.unreviewed)}</td></tr>`).join('')
+  const reasonRows = (feedback?.reject_reasons ?? []).map((r: any) =>
+    `<li>${esc(r.reason)}：${esc(r.count)}</li>`).join('')
+  const roundSources = (meta.review_rounds ?? []).map((r: any) => `
+    <details class="round"><summary>${esc(r.round_id)} · 固定候选池 ${esc(r.candidates?.length ?? 0)} 个平台账号</summary>
+      <ul>${(r.candidates ?? []).map((c: any) => `<li>${esc(c.account_key)} · ${c.source_tasks === null
+        ? '来源未知' : c.source_tasks?.length
+          ? c.source_tasks.map((s: any) => `任务 ${esc(taskOrdinal(s.task_index))} · ${esc(s.platform)} · ${esc(s.keyword)}`).join('；')
+          : '无已记录任务来源'}</li>`).join('')}</ul>
+    </details>`).join('')
 
   const notes: string[] = []
   const missingEmailVerification = meta.capabilities
@@ -276,6 +307,14 @@ th{color:#64748b;font-weight:600;font-size:12px}
 .st{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:#64748b;margin-top:6px}
 .st .em{color:#22c55e}.st .no{color:#ef4444}
 .fit{margin-top:8px;font-size:13px;color:#e2e8f0;background:#0f172a;padding:7px 9px;border-radius:6px}
+.review{margin-top:8px;font-size:12px;color:#cbd5e1;background:#0f172a;padding:9px;border-radius:6px}
+.review div{margin:3px 0}.review b{color:#38bdf8}
+.priority{font-size:11px;color:#f8fafc;background:#1e293b;border-radius:5px;padding:2px 7px}
+.round{margin:6px 0;background:#111827;border:1px solid #1e293b;border-radius:7px;padding:7px 10px}
+.round summary{cursor:pointer}.round ul{margin:8px 0 0 18px;color:#94a3b8;max-height:280px;overflow:auto}
+.feedback-grid{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0;color:#cbd5e1}
+.feedback-grid span{background:#111827;border:1px solid #1e293b;border-radius:7px;padding:8px 12px}
+.reason-list{margin-left:18px}
 .adjust{margin-top:7px;font-size:12px;color:#fbbf24;background:#3f2b0a;padding:7px 9px;border-radius:6px}
 .bio{margin-top:6px;font-size:12px;color:#64748b;white-space:pre-wrap;word-break:break-word}
 .assessment{margin-top:9px;background:#0f172a;border:1px solid #1e293b;border-radius:7px;padding:9px}
@@ -311,32 +350,53 @@ ${notes.length ? `<div class="notes">${notes.map(n => `<div>⚠️ ${esc(n)}</di
 
 <h2>关键词表现</h2>
 <p class="sub">「找到」是供应商返回的条目数，「入围」是过完粉丝闸门与去重之后还在名单上的人 ——
-<strong>两个不是一个数，也不该相除</strong>（单位不同）。一次都没查过的词照样在表上，写着「未查询」。</p>
-<table><thead><tr><th>任务</th><th>关键词</th><th>平台</th><th>维度</th><th>找到</th><th>入围</th><th>语义通过</th></tr></thead>
+<strong>两个不是一个数，也不该相除</strong>（单位不同）。「语义通过」和「人工已审」只数该任务平台对应账号的判断，未评不当作通过；一次都没查过的词照样在表上，写着「未查询」。</p>
+<table><thead><tr><th>任务</th><th>关键词</th><th>平台</th><th>维度</th><th>找到 · 条目</th><th>入围 · 人</th><th>语义通过 · 人</th><th>人工已审 · 平台账号</th></tr></thead>
 <tbody>${kwRows}</tbody></table>
+
+<h2>人工复核</h2>
+<p class="sub">人工结论按平台账号记录；空白是未评，unknown 是已看但无法判断。比率只用对应字段明确 yes/no 的平台账号数计算。</p>
+<table><thead><tr><th>轮次</th><th>固定候选池</th><th>任一人工字段已评</th><th>未评</th></tr></thead>
+<tbody>${roundRows}</tbody></table>
+<div class="feedback-grid">
+  <span>人工合格率：${esc(rate(feedback?.eligible))} · unknown ${esc(feedback?.eligible?.unknown ?? '未提供')} · 未评 ${esc(feedback?.eligible?.unreviewed ?? '未提供')}</span>
+  <span>人工采用率：${esc(rate(feedback?.adopted))} · unknown ${esc(feedback?.adopted?.unknown ?? '未提供')} · 未评 ${esc(feedback?.adopted?.unreviewed ?? '未提供')}</span>
+</div>
+<div>主要拒绝原因：${reasonRows ? `<ul class="reason-list">${reasonRows}</ul>` : '暂无明确人工拒绝原因'}</div>
+<div>Agent 与团队分歧账号：${feedback?.disagreements?.length
+    ? feedback.disagreements.map((k: string) => esc(k)).join('、') : '暂无可确认分歧'}</div>
+${roundSources}
 
 <h2>名单</h2>
 <div class="tabs">
-  <button class="tab A${def === 'A' ? ' on' : ''}" data-f="A">A级 直接发信<span class="n">${meta.tiers.A}</span></button>
-  <button class="tab B${def === 'B' ? ' on' : ''}" data-f="B">B级 先互动<span class="n">${meta.tiers.B}</span></button>
-  <button class="tab C${def === 'C' ? ' on' : ''}" data-f="C">C级 观察池<span class="n">${meta.tiers.C}</span></button>
+  <button class="tab on" data-kind="priority" data-value="all">全部优先级</button>
+  ${(['优先联系', '备选', '待核实', '暂不采用'] as const).map(p =>
+    `<button class="tab" data-kind="priority" data-value="${p}">${p}</button>`).join('')}
+</div>
+<div class="tabs">
+  <button class="tab on" data-kind="tier" data-value="all">全部分层</button>
+  <button class="tab A" data-kind="tier" data-value="A">A 级<span class="n">${meta.tiers.A}</span></button>
+  <button class="tab B" data-kind="tier" data-value="B">B 级<span class="n">${meta.tiers.B}</span></button>
+  <button class="tab C" data-kind="tier" data-value="C">C 级<span class="n">${meta.tiers.C}</span></button>
 </div>
 <div class="cards" id="cards">${creators.map(card).join('')}</div>
 <p class="sub">仅含已记录的账号发现来源，可能不含完整历史；不对应具体作品或请求次数。</p>
-<div class="empty" id="none" style="display:${meta.tiers[def] ? 'none' : ''}">这一层没有人</div>
+<div class="empty" id="none" style="display:${creators.length ? 'none' : ''}">所选条件下没有候选</div>
 </div>
 <script>
 function cp(b){const t=b.previousElementSibling.textContent;
 navigator.clipboard.writeText(t).then(()=>{b.textContent='已复制';setTimeout(()=>b.textContent='复制',1500)})}
 
 const cards=[...document.querySelectorAll('#cards .card')];
-document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
+const filters={priority:'all',tier:'all'};
+document.querySelectorAll('.tab[data-kind]').forEach(tab=>tab.addEventListener('click',()=>{
+  document.querySelectorAll('.tab[data-kind="'+tab.dataset.kind+'"]').forEach(t=>t.classList.remove('on'));
   tab.classList.add('on');
-  const f=tab.dataset.f;
+  filters[tab.dataset.kind]=tab.dataset.value;
   let shown=0;
   for(const c of cards){
-    const hit = c.dataset.tier===f;
+    const hit=(filters.priority==='all'||c.dataset.priority===filters.priority)&&
+      (filters.tier==='all'||c.dataset.tier===filters.tier);
     c.style.display = hit ? '' : 'none';
     if(hit) shown++;
   }

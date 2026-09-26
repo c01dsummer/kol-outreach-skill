@@ -42,7 +42,7 @@ import {
   type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
   groupOfLabel, labelFaults, labelsOf,
-  anchorMatches, wiringFault,
+  anchorMatches, baselineFault, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
 import {
@@ -51,7 +51,7 @@ import {
   noStdio, ownGroup, parseReport, reportLine, verifierBill,
 } from './jobs-rule.js'
 import {
-  INTERRUPTS, beginMutation, onInterrupt, restoreMutation, stopJobs, trackTest,
+  INTERRUPTS, beginMutation, onInterrupt, restoreMutation, stopJobs, trackTest, writeReportAndFlush,
 } from './mutate-restore.js'
 import { tsxCommand } from './tsx-cmd.js'
 import { infraClosure, selfVerifying } from './verifier-rule.js'
@@ -214,8 +214,8 @@ if (misnamed.length) {
 }
 
 if (process.argv.includes('--brief')) {
-  // **攒起来一次同步写，不是逐行 console.log。** 下面那句硬退出紧跟在打印之后，而 stdout
-  // 接管道时 `console.log` 是异步的 —— 排在队里还没写出去就被 `process.exit` 掐掉。
+  // **攒起来一次写并等回调，不是逐行 console.log。** 下面那句硬退出紧跟在打印之后，
+  // stdout 接管道时异步队列若未刷完，会被 `process.exit` 掐掉；fd 同步写又可能 EAGAIN。
   // 照自检那条 spawn 路径实测 8 次：豁免行只活下来 2 次，末尾那句汇总只活 1 次，
   // 另外 6 次停在 139／140／221／233 行。而豁免行恰好在最末尾，正是要断言的那一段。
   // 这就是 `mutate-rule.ts` 的 `exitRace` 记着的那个坑 —— 那道判据只查**验证者**，
@@ -227,7 +227,7 @@ if (process.argv.includes('--brief')) {
     out.push(`  ⊘     [${e.req}]  ${lead}${e.scope === undefined ? '' : `（${e.scope}）`}：${e.why}`)
   }
   out.push(`\n共 ${muts.length} 个变异、${exemptions.length} 处显式豁免。`)
-  writeFileSync(1, `${out.join('\n')}\n`)
+  await writeReportAndFlush(process.stdout, `${out.join('\n')}\n`)
   process.exit(0)
 }
 
@@ -369,7 +369,8 @@ const forgetVerifier = (): void => {
   onInterrupt()
 }
 
-const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly string[]):
+const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly string[], cwd?: string,
+  baselineLive?: Set<ChildProcess>):
   Promise<{ status: number | null; output: string; atStop?: string }> =>
   new Promise(resolve => {
     // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
@@ -379,8 +380,12 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     const [exe, argv] = tsxCommand(
       only === undefined ? [verifier.script] : [verifier.script, `--only=${only.join(',')}`])
     const kid = spawn(exe, argv,
-      { stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1', NODE_COMPILE_CACHE } })
-    trackTest(kid)
+      { cwd, stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1', NODE_COMPILE_CACHE } })
+    if (baselineLive === undefined) trackTest(kid)
+    else {
+      baselineLive.add(kid)
+      kid.on('close', () => baselineLive.delete(kid))
+    }
     let out = ''
     let err = ''
     /** 我们动手那一刻它说过的话。**没动手就是 undefined** —— 判定据此分岔 */
@@ -508,8 +513,8 @@ const record = (m: Mut, ran: Ran): void => {
  * **只往 stdout 写结论那一种行**，人看的报告由派工那一侧打 —— 两边都打的话，
  * 同一条变异在同一份输出里出现两次，而两次的措辞将来一定会岔开。
  *
- * 写用的是同步那一路（和 `--brief` 同一个理由）：紧接着可能就没有事件循环再跑了，
- * 排在队里没写出去的那一行会被当成「这一条没回话」，而那是硬失败。
+ * 每条线等 stdout 的写回调之后才领下一条；非阻塞管道拥塞时由 Writable
+ * 排队，离开循环前也已经把最后一条刷完，不会因 process.exit(0) 丢回话。
  */
 if (process.argv.includes('--worker')) {
   // **抹号的处理函数要装在第一次 `beginMutation` 之前**，也就是排在 `mutate-restore`
@@ -527,7 +532,7 @@ if (process.argv.includes('--worker')) {
   for await (const line of createInterface({ input: process.stdin })) {
     const m = byId.get(line.trim())
     if (m === undefined) break
-    writeFileSync(1, `${reportLine(m.id, await runOne(m))}\n`)
+    await writeReportAndFlush(process.stdout, `${reportLine(m.id, await runOne(m))}\n`)
   }
   process.exit(0)
 }
@@ -716,6 +721,73 @@ if (jobs === undefined) {
   console.error('  按机器核数跑请把它去掉，不要写一个读不出来的值。')
   process.exit(1)
 }
+// 同一组选跑配置只做一次正常代码基线。用与变异 worker 相同的复制规则建隔离目录，
+// 在任何一条变异落盘之前跑完；子集及其 needs 由验证者本身解析并执行。
+const subsets = new Map<string, { by: string; only: string[]; count: number }>()
+let fullWithoutKills = 0
+let fullUngrouped = 0
+for (const m of muts) {
+  const only = onlyFor(m)
+  if (only === undefined) {
+    if (m.by === undefined || m.kills === undefined) fullWithoutKills++
+    else fullUngrouped++
+    continue
+  }
+  const by = m.by!
+  const selected = [...only].sort()
+  const key = JSON.stringify([by, selected])
+  const previous = subsets.get(key)
+  if (previous === undefined) subsets.set(key, { by, only: selected, count: 1 })
+  else previous.count++
+}
+if (subsets.size) {
+  const configs = [...subsets.values()]
+  const baselineJobs = Math.min(jobs, configs.length)
+  const dirs = Array.from({ length: baselineJobs }, (_unused, i) => join(JOBS_DIR, `baseline-${i}`))
+  let next = 0
+  const faults: string[] = []
+  const baselineLive = new Set<ChildProcess>()
+  const stopBaseline = (): never => {
+    for (const kid of baselineLive) {
+      if (kid.pid !== undefined) try { process.kill(-kid.pid, 'SIGKILL') } catch { /* 已结束 */ }
+    }
+    rmSync(JOBS_DIR, { recursive: true, force: true })
+    process.exit(1)
+  }
+  for (const sig of INTERRUPTS) process.on(sig, stopBaseline)
+  rmSync(JOBS_DIR, { recursive: true, force: true })
+  try {
+    for (const dir of dirs) {
+      cpSync('.', dir, { recursive: true, filter: copyIntoWorker })
+      symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
+    }
+    await Promise.all(dirs.map(async dir => {
+      while (next < configs.length) {
+        const config = configs[next++]
+        const verifier = VERIFIERS[config.by]
+        const ran = await runTest(verifier, undefined, config.only, dir, baselineLive)
+        const fault = baselineFault(ran.status, ran.output, verifier)
+        if (fault !== undefined) {
+          faults.push(`${config.by} --only=${config.only.join(',')}（${fault}）\n`
+            + ran.output.split('\n').slice(-20).join('\n'))
+          continue
+        }
+        console.log(`  ✓ 子集基线 ${config.by} --only=${config.only.join(',')}（供 ${config.count} 条变异使用）`)
+      }
+    }))
+  } finally {
+    for (const sig of INTERRUPTS) process.off(sig, stopBaseline)
+    rmSync(JOBS_DIR, { recursive: true, force: true })
+  }
+  if (faults.length) {
+    for (const fault of faults) console.error(`\n✗ 子集基线：${fault}`)
+    console.error(`\n✗ 变异测试：${faults.length} 种子集未通过正常代码基线，未施加任何变异`)
+    process.exit(1)
+  }
+}
+const selectedCount = [...subsets.values()].reduce((n, s) => n + s.count, 0)
+console.log(`  子集选跑 ${selectedCount} 条、${subsets.size} 种配置；整跑 ${fullWithoutKills + fullUngrouped} 条`
+  + `（${fullWithoutKills} 条未点名断言，${fullUngrouped} 条断言尚未归组）`)
 // 只有一条路走串行：清单只剩一条、机器只有一个核、或者人明确要求。那条路逐字保持原样，
 // 派工那一侧一个进程都不起 —— 自检里那几份最小语料走的正是它
 if (jobs === 1) for (const m of muts) record(m, await runOne(m))

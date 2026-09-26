@@ -303,6 +303,16 @@ export interface FilterResult {
   memory_status: Exclude<MemoryStatus, 'unknown'>
 }
 
+/** Cross-platform merge retains both account identities; either account may carry a P4 stop. */
+function memoryKeysForCreator(c: Creator): string[] {
+  const keys = [key(c)]
+  const linked = c.linked_handle?.split(':')
+  if (linked?.length === 2 && !keyProblem(linked[0], linked[1])) {
+    keys.push(creatorKey({ platform: linked[0], handle: linked[1] }))
+  }
+  return [...new Set(keys)]
+}
+
 /**
  * 按记忆过滤。
  *
@@ -336,12 +346,15 @@ export function filterByMemory(
   let rec = 0, con = 0
 
   for (const c of creators) {
-    const e = mem.creators[key(c)]
-    if (!e) { kept.push(c); continue }
-    if (e.contacted || e.blocked) { con++; continue }
+    const entries = memoryKeysForCreator(c).flatMap(k => {
+      const entry = mem.creators[k]
+      return entry ? [entry] : []
+    })
+    if (!entries.length) { kept.push(c); continue }
+    if (entries.some(e => e.contacted || e.blocked)) { con++; continue }
 
     // 本任务自己留下的记录不算数 —— 否则续跑会把自己上一轮的产出判成「已推荐过」
-    const others = e.recommendations.filter(r => !(task && r.task === task))
+    const others = entries.flatMap(e => e.recommendations.filter(r => !(task && r.task === task)))
     // 比较两侧都去掉首尾空白。**不判成损坏** —— product 来自用户的任务配置，
     // 配置里多一个空格就把我们自己写下的记忆判成读不出来，那是自伤。
     // 首尾空白对「是不是同一个产品」没有意义，和键的大小写是同一类（ADR-40）。

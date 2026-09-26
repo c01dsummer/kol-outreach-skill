@@ -138,7 +138,9 @@ const runBoth = (label: string, args: string[], cwd = process.cwd(),
   const stdout = r.stdout ?? ''   // P1 例外：拿不到就是空输出，不是「没查过」——这是子进程的两股流
   const stderr = r.stderr ?? ''   // P1 例外：同上
   const want = expect?.status ?? 0
-  const bad = Boolean(r.error) || r.status !== want
+  // Node 直接加载 tsx 时，被 SIGKILL 的子进程没有退出码；与 shell 的 128+9 同义。
+  const status = r.status === null && r.signal === 'SIGKILL' ? 137 : r.status
+  const bad = Boolean(r.error) || status !== want
   // `soft` 列的是**退出码本身就是判据点名的东西**时，调用点准备用 `named()` 判的那几个
   // 取值（D6.k 逐字写着「不得以退出码 0 收尾」，所以那里写 `soft: [0]`）。对上了就不打
   // 进程记号 —— 记号是一票否决（`judgeRun` 的 `notAssertion`），指着这条行为的变异会被判
@@ -149,18 +151,18 @@ const runBoth = (label: string, args: string[], cwd = process.cwd(),
   // 和**被信号打死**也一起走了这一支：进程记号不打、崩溃现场不打，而后面几条断言接着
   // 对着半截产出跑。实测（给这条夹具挂上 `FAKE_FETCH_KILL_AFTER_OK`）：退出码 137
   // 照样被当成「由具名断言判」（#139 评审指出）。真崩了就该是崩了。
-  if (bad && !r.error && r.status !== null && (expect?.soft?.includes(r.status) ?? false)) {
-    console.log(`  · ${label}（退出码 ${r.status}，由下面的具名断言判）`)
-    return { ok: true, stdout, stderr, status: r.status }
+  if (bad && !r.error && status !== null && (expect?.soft?.includes(status) ?? false)) {
+    console.log(`  · ${label}（退出码 ${status}，由下面的具名断言判）`)
+    return { ok: true, stdout, stderr, status }
   }
   if (bad) {
     failed++
-    const why = r.error ? String(r.error) : `预期以退出码 ${want} 结束，实际是 ${r.status}`
+    const why = r.error ? String(r.error) : `预期以退出码 ${want} 结束，实际是 ${status}`
     console.error(`  ✗ ${label}${SELFCHECK_PROCESS_MARK}：${why}\n${(stderr || stdout).split('\n').slice(-12).join('\n')}`)
-    return { ok: false, stdout: '', stderr: '', status: r.status }
+    return { ok: false, stdout: '', stderr: '', status }
   }
   console.log(`  ✓ ${label}${expect ? `（按预期以退出码 ${want} 结束）` : ''}`)
-  return { ok: true, stdout, stderr, status: r.status }
+  return { ok: true, stdout, stderr, status }
 }
 
 /**
@@ -1759,7 +1761,7 @@ group('cost-save-errors', [], () => {
 group('crash-resume', [], () => {
   // 第n个假200响应确定触发SIGKILL，状态尚未交还，终态未保存。
   // D14要求盘上已有该次pending，并保留此前终态；D6仍要求此前完成页的业务断点不丢。
-  // tsx 壳把孙进程的 SIGKILL 译成 128 + 信号号的退出码（实测记在 ADR-96 第三节），所以杀掉那一跑走 runBoth 照常判。
+  // 直接用 Node 加载 tsx 时，spawnSync 报 status=null、signal=SIGKILL；runBoth 按等价 137 判。
   // 每条轨迹一个独立 cwd：别处把 tmp/memory/creators.json 截坏之后不恢复，共用会让续跑退 2 而不是 3。
   // 被杀那一跑打不出目录名（summary 在循环之后），按产品名前缀在 output/ 下找。**只数账本里 200 的行**：
   // 假 fetch 每进程到某一次调用会回一个 429（第几次写在 fake-fetch.ts），这几条轨迹每进程的调用数够不到；碰到也只是多一行 429。
@@ -2239,11 +2241,17 @@ group('render', ['collect', 'enrich'], () => {
       if (!h.includes('活跃状态') || !h.includes('最后发布')) {
         failed++; console.error('  ✗ HTML 缺少 KOL 活跃状态（违反 D10/U7）')
       } else console.log('  ✓ HTML 展示 KOL 活跃状态')
-      if (!h.includes('data-f="A"') || !h.includes('data-tier=')) {
-        failed++; console.error('  ✗ HTML 缺分层 tab 或卡片 data-tier（违反 U6）')
+      if (!h.includes('class="tab on" data-kind="priority" data-value="all"')
+          || !h.includes('class="tab on" data-kind="tier" data-value="all"')
+          || !['优先联系', '备选', '待核实', '暂不采用'].every(v => h.includes(`data-kind="priority" data-value="${v}"`))
+          || !['A', 'B', 'C'].every(v => h.includes(`data-kind="tier" data-value="${v}"`))
+          || !h.includes('data-priority=') || !h.includes('data-tier=')) {
+        failed++; console.error('  ✗ HTML 缺默认全量的优先级与分层双维筛选（违反 U10）')
+      } else if (/data-tier="[ABC]"[^>]*display\s*:\s*none/.test(h)) {
+        failed++; console.error('  ✗ HTML 初始隐藏候选卡片（违反 U10）')
       } else if (h.includes('scrollIntoView')) {
-        failed++; console.error('  ✗ HTML 切 tab 会滚动页面（违反 U6）')
-      } else console.log('  ✓ HTML 分层 tab 可用且不滚动')
+        failed++; console.error('  ✗ HTML 切筛选会滚动页面（违反 U10）')
+      } else console.log('  ✓ HTML 默认全量，双维筛选可用且不滚动')
     }
 
     // 防回归，**不认领判据**：P5.h 只管 false 那一头（见 ADR-67 的就地更正）。真跑过
@@ -2520,15 +2528,29 @@ group('memory', ['collect', 'render'], () => {
       console.error(`  ✗ 强出的名单没有声明未去重（memory_status=${forcedSummary.memory_status}）`)
     } else console.log('  ✓ 强出的名单在 stdout 声明 memory_status')
 
-    // render：不写回，不覆盖，且报告上说出来
-    const keptMemory = run('render 记忆读不出来时不覆盖原文件', [S('render.ts'), '--dir', dir], tmp)
-    // 三条后置条件一起守住 —— 后两条读的是这一次 render 的产出物，只守第一条的话
-    // 它们会拿上一次留下的陈旧文件报「✓」，把功劳记在一次失败的运行头上
+    // render 默认也必须遵守 P4：坏记忆时退出，不能改写既有名单或报告。
+    // 旧产物已在盘上，所以比较字节；只检查「文件存在」会误把旧名单算作这次产出。
+    const protectedFiles = ['creators.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html', 'task.json']
+      .map(name => join(tmp, dir, name))
+    const beforeRender = protectedFiles.map(file => readFileSync(file))
+    const rejectedRender = runBoth('render 记忆读不出来时拒绝产出名单',
+      [S('render.ts'), '--dir', dir], tmp, { status: 2 })
+    if (!rejectedRender.ok) return
+    if (readFileSync(memFile, 'utf8') !== broken
+        || protectedFiles.some((file, i) => !readFileSync(file).equals(beforeRender[i]))) {
+      failed++
+      console.error('  ✗ render 拒绝坏记忆后仍改写了记忆或已有名单/报告（违反 P4）')
+    } else console.log('  ✓ render 默认拒绝坏记忆且没有改写既有产物')
+
+    // 逃生口必须由调用者显式指定，并把未去重事实写进交付物。
+    const keptMemory = run('render --ignore-memory 显式出名单并声明',
+      [S('render.ts'), '--dir', dir, '--ignore-memory'], tmp)
+    // 后两条读的是这一次 render 的产出物，运行失败就不能拿陈旧文件报「✓」。
     if (keptMemory !== undefined) {
       if (readFileSync(memFile, 'utf8') !== broken) {
         failed++
         console.error(`  ✗ 读不出来的记忆被覆盖了 —— 原本记着 ${contactedCount} 个人的联系状态`)
-      } else console.log('  ✓ 读不出来的记忆一个字节没动')
+      } else console.log('  ✓ 显式忽略时读不出来的记忆仍一个字节没动')
 
       const metaAfter = JSON.parse(readFileSync(join(tmp, dir, 'meta.json'), 'utf8'))
       const htmlAfter = readFileSync(join(tmp, dir, 'report.html'), 'utf8')
@@ -2539,25 +2561,25 @@ group('memory', ['collect', 'render'], () => {
       } else console.log('  ✓ meta.json 与报告都声明了记忆失效')
     }
 
-    // 旧任务目录：task.json 里根本没有这个字段。**不能读成「去重跑过了」** ——
-    // 产出它的那一版遇到读不出来的记忆会静默当成空记忆（ADR-18）。
+    // 旧任务目录：输入的 task.json 没有去重状态；这次 render 会重新读健康记忆并去重，
+    // 因而当前交付物应如实报 ok。缺字段本身不能代替这次复核的结论。
     writeFileSync(memFile, healthy, 'utf8')
     const taskFile = join(tmp, dir, 'task.json')
     const legacy = JSON.parse(readFileSync(taskFile, 'utf8'))
     delete legacy.memory_status
     writeFileSync(taskFile, JSON.stringify(legacy, null, 2), 'utf8')
 
-    const legacyRun = run('render 旧任务目录的去重状态记为无从确认', [S('render.ts'), '--dir', dir], tmp)
+    const legacyRun = run('render 旧任务目录重新核对健康记忆', [S('render.ts'), '--dir', dir], tmp)
     // 读也放进判空里 —— 同上
     if (legacyRun !== undefined) {
       const legacyMeta = JSON.parse(readFileSync(join(tmp, dir, 'meta.json'), 'utf8'))
       const legacyHtml = readFileSync(join(tmp, dir, 'report.html'), 'utf8')
-      if (legacyMeta.memory_status !== 'unknown') {
+      if (legacyMeta.memory_status !== 'ok') {
         failed++
-        console.error(`  ✗ 缺字段被读成了 ${legacyMeta.memory_status} —— 无从确认的事被当成了肯定答案`)
-      } else if (!legacyHtml.includes('无从确认')) {
-        failed++; console.error('  ✗ 报告没有声明去重状态无从确认')
-      } else console.log('  ✓ 旧任务目录记为 unknown 并在报告上声明')
+        console.error(`  ✗ 重新核对健康记忆后未如实声明 ok（实际 ${legacyMeta.memory_status}）`)
+      } else if (legacyHtml.includes('未做「已联系 / 已推荐」去重')) {
+        failed++; console.error('  ✗ 已重新完成记忆去重的报告仍声明未去重')
+      } else console.log('  ✓ 旧任务目录经本次健康记忆复核后声明 ok')
     }
   }
 })
@@ -5499,6 +5521,111 @@ group('ig-homepage-mixed', [], () => {
       JSON.stringify({ csv: rows[0]?.[scopeIndex], scope: scopeText }))
   }
   criterion('D8.o', 'D8.p', 'D8.q', 'D8.r', 'D8.s', 'D10.g', 'U7.e', 'U7.f', 'U7.g')
+})
+
+group('feedback-template', [], () => {
+  const cwd = mkdtempSync(join(tmp, 'feedback-template-'))
+  const dir = join(cwd, 'task')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'task.json'), JSON.stringify({
+    product: 'feedback-fixture', market: 'US', target_count: 2,
+    tasks: [{ keyword: 'journal with me', dimension: 'scene', platform: 'instagram' }],
+    done: [], created_at: '2026-09-25T00:00:00Z', updated_at: '',
+  }))
+  const person = (handle: string) => ({
+    platform: 'instagram', handle, nickname: handle, bio_links: [], verified: false,
+    profile_url: `https://instagram.com/${handle}`, source_keyword: 'journal with me',
+    source_dimension: 'scene', source_tasks: [0],
+  })
+  writeFileSync(join(dir, 'creators.json'), JSON.stringify([person('first')]))
+  const create = runBoth('人工反馈模板首次创建', [S('feedback-template.ts'), '--dir', dir], cwd)
+  if (!create.ok) return
+  const csv = join(dir, 'manual-feedback.csv')
+  const firstText = fileText(csv)
+  named('人工反馈模板：首轮写入单独 CSV 与冻结来源',
+    firstText.includes('round-001,instagram,first,')
+      && jsonFile(join(dir, 'agent-review.json'))?.rounds?.[0]?.candidates?.[0]?.source_tasks?.[0]?.task_index === 0,
+    JSON.stringify({ csv: firstText, review: jsonFile(join(dir, 'agent-review.json')) }))
+  const priorReview = fileText(join(dir, 'agent-review.json'))
+  const refused = runBoth('人工反馈模板拒绝覆盖已有文件', [S('feedback-template.ts'), '--dir', dir], cwd,
+    { status: 2 })
+  if (!refused.ok) return
+  named('人工反馈模板：重复创建不改人工 CSV 或评审正本',
+    fileText(csv) === firstText && fileText(join(dir, 'agent-review.json')) === priorReview,
+    refused.stderr)
+  const answered = firstText.replace('round-001,instagram,first,,,,,,,',
+    'round-001,instagram,first,yes,yes,,,,,')
+  writeFileSync(csv, answered)
+  writeFileSync(join(dir, 'creators.json'), JSON.stringify([person('first'), person('second')]))
+  const appended = runBoth('人工反馈模板显式追加下一轮', [S('feedback-template.ts'), '--dir', dir, '--append'], cwd)
+  if (!appended.ok) return
+  named('人工反馈模板：显式追加保留原人工答案字节且新账号另轮',
+    fileText(csv).startsWith(answered)
+      && fileText(csv).includes('round-002,instagram,second,')
+      && jsonFile(join(dir, 'agent-review.json'))?.rounds?.length === 2,
+    JSON.stringify({ csv: fileText(csv), review: jsonFile(join(dir, 'agent-review.json')) }))
+  criterion('D22.a')
+})
+
+group('review-entries', [], () => {
+  const cwd = mkdtempSync(join(tmp, 'review-entries-'))
+  const dir = join(cwd, 'task')
+  mkdirSync(dir, { recursive: true })
+  const task = {
+    product: 'review-fixture', market: 'US', target_count: 1, budget_usd: 1,
+    tasks: [{ keyword: 'journal with me', dimension: 'scene', platform: 'instagram' }],
+    done: [0], offsets: { 0: 1 }, pages: { 0: 1 }, answered: { 0: 1 }, found: { 0: 1 },
+    requests: 0, created_at: '2026-09-25T00:00:00Z', updated_at: '',
+  }
+  const person = {
+    platform: 'instagram', handle: 'reviewed', nickname: 'reviewed',
+    followers: 10000, bio: 'journaling', bio_links: [], verified: false, is_private: true,
+    profile_url: 'https://instagram.com/reviewed', source_keyword: 'journal with me',
+    source_dimension: 'scene', source_tasks: [0], fit: '❌',
+  }
+  writeFileSync(join(dir, 'task.json'), JSON.stringify(task))
+  writeFileSync(join(dir, 'creators.json'), JSON.stringify([person]))
+  writeFileSync(join(dir, 'creators.raw.json'), JSON.stringify([person]))
+  writeFileSync(join(dir, 'agent-review.json'), JSON.stringify({
+    version: 1, updated_at: '', reviews: { 'instagram:reviewed': {
+      account_keys: ['instagram:reviewed'], eligibility: '合格', adoption_priority: '备选',
+      observed_content: '手帐记录', work_evidence: '作品链接', natural_integration: '佩戴轻触后记录',
+      mismatch_risk: '受众地区待核',
+    } }, rounds: [{ round_id: 'round-001', created_at: '2026-09-25T00:00:00Z', source: 'task.json',
+      candidates: [{ account_key: 'instagram:reviewed', source_tasks: [{ task_index: 0,
+        keyword: 'journal with me', dimension: 'scene', platform: 'instagram' }] }] }],
+  }))
+  const creatorsBefore = fileText(join(dir, 'creators.json'))
+  const enrich = runBoth('指标补全读取独立 Agent 评审', [S('enrich.ts'), '--dir', dir], cwd)
+  if (!enrich.ok) return
+  named('指标补全：新评审投影选择账号，只写增强与任务而不改 creators',
+    jsonFile(join(dir, 'enrichment.json'))?.accounts?.['instagram:reviewed']?.sample?.reason === 'private_account'
+      && fileText(join(dir, 'creators.json')) === creatorsBefore,
+    JSON.stringify({ enrichment: jsonFile(join(dir, 'enrichment.json')),
+      creators: fileText(join(dir, 'creators.json')) }))
+  const manual = join(dir, 'manual-feedback.csv')
+  writeFileSync(manual,
+    'round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note\n' +
+    'round-001,instagram,reviewed,no,yes,,,,,\n')
+  const guarded = [join(dir, 'task.json'), join(dir, 'creators.json'),
+    join(dir, 'agent-review.json'), manual, join(dir, 'enrichment.json')]
+  const before = guarded.map(fileText)
+  const bad = runBoth('采集续跑先拒绝坏人工输入', [S('collect.ts'), '--resume', dir], cwd,
+    { status: 2 })
+  if (!bad.ok) return
+  named('采集续跑：坏人工 CSV 在费用和名单写入前拒绝且点名行号',
+    bad.stderr.includes('manual-feedback.csv:2')
+      && bad.stderr.includes('manual_eligible=no')
+      && guarded.every((file, index) => fileText(file) === before[index]),
+    bad.stderr)
+  const badEnrich = runBoth('指标补全先拒绝坏人工输入', [S('enrich.ts'), '--dir', dir], cwd,
+    { status: 2 })
+  if (badEnrich.ok) named('指标补全：坏人工 CSV 在增强和任务写入前拒绝且点名行号',
+    badEnrich.stderr.includes('manual-feedback.csv:2')
+      && badEnrich.stderr.includes('manual_eligible=no')
+      && guarded.every((file, index) => fileText(file) === before[index]),
+    badEnrich.stderr)
+  criterion('D21.b', 'D22.d')
 })
 const ranOnly = runGroups()
 

@@ -2,8 +2,8 @@
 /**
  * Phase 06 —— 交付
  *
- * 读 creators.json（Agent 已在 Phase 04 填入 fit / fit_reason / outreach_draft），
- * 算分、分层、写 CSV + HTML 报告 + meta.json，并写回跨任务记忆。
+ * 读 creators.json、agent-review.json 与可选的 manual-feedback.csv，
+ * 投影评审后算分、分层，写 CSV + XLSX + HTML + meta.json，并写回跨任务记忆。
  *
  * 用法: tsx scripts/render.ts --dir output/anker-powerbank-202608251430
  */
@@ -13,7 +13,7 @@ import { taskFile, taskId, loadTask, loadCreators, loadEnrichment, saveCreators 
 import { taskListProblems } from './lib/search-tasks.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { rankCreators, keywordRows, taskPlatforms, tierCounts } from './lib/pipeline.js'
-import { recordRecommendations } from './lib/memory.js'
+import { filterByMemory, MemoryUnreadable, recordRecommendations } from './lib/memory.js'
 import { writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, buildSheets } from './lib/rows.js'
 import { writeXlsx, type Sheet } from './lib/xlsx.js'
@@ -22,11 +22,15 @@ import { accountKey, attachAssessments, currentEnrichmentView } from './lib/asse
 import { costView } from './lib/budget.js'
 import { stringifyCostJson } from './lib/cost-json.js'
 import { asMemoryStatus } from './lib/types.js'
+import {
+  feedbackSummary, prepareReviewProjection, persistReviewProjection, ReviewInputError,
+} from './lib/review.js'
 import type { Creator, Measurement, TaskState } from './lib/types.js'
 
 const i = process.argv.indexOf('--dir')
 const dir = i >= 0 ? process.argv[i + 1] : undefined
 if (!dir) { console.error('用法: tsx scripts/render.ts --dir <output/xxx>'); process.exit(2) }
+const ignoreMemory = process.argv.includes('--ignore-memory')
 
 // D16.n–q：只把任务读取错误当作输入错误；校验先于名单、交付物和记忆写入。
 let state: TaskState
@@ -45,6 +49,33 @@ let creators = loadCreators(dir)
 // 同人识别与合并 —— 在这里再跑一次，render 才能独立于 collect 正确工作（幂等）
 linkCrossPlatform(creators)
 creators = mergeCrossPlatform(creators)
+
+// 所有人工和 Agent 输入先在内存校验；坏行在任何交付、评审正本或 memory 写入前拒绝。
+let prepared
+try { prepared = prepareReviewProjection(dir, state, creators) }
+catch (e) {
+  if (e instanceof ReviewInputError) {
+    console.error(e.problems.join('\n'))
+    process.exit(2)
+  }
+  throw e
+}
+creators = prepared.creators
+
+// 直接重复导出也复核当前 contacted/blocked。人工采用只影响展示，不改变记忆资格；
+// 本任务自己的历史推荐由 filterByMemory 识别并保留。
+let memoryStatus
+try {
+  const current = filterByMemory(creators, state.product, taskId(dir), { ignoreUnreadable: ignoreMemory })
+  creators = current.kept
+  memoryStatus = current.memory_status
+} catch (e) {
+  if (e instanceof MemoryUnreadable) {
+    console.error(e.message)
+    process.exit(2)
+  }
+  throw e
+}
 
 const accountKeysFor = (list: Creator[]): Set<string> => {
   const keys = new Set<string>()
@@ -68,6 +99,7 @@ attachAssessments(creators, enrichment)
 
 // 算分 → 分层 → 受众降权 → 排序。管线在 lib/pipeline.ts
 creators = rankCreators(creators, state.market)
+persistReviewProjection(dir, prepared)
 saveCreators(dir, creators)
 const accountKeys = accountKeysFor(creators)
 
@@ -117,6 +149,8 @@ const meta = {
   // 和「一次都没查」长得一模一样，运营据此不再投这个方向（ADR-94）。
   platforms: taskPlatforms(state),
   keywords: keywordRows(state, creators),
+  feedback_summary: feedbackSummary(prepared.document, prepared.feedback),
+  review_rounds: prepared.document.rounds,
   total: creators.length,
   tiers: tierCounts(creators),
   email_count: creators.filter(c => c.email).length,
@@ -138,7 +172,7 @@ const meta = {
   // unknown 另有一个来源：名单与状态没能一起落成（ADR-41）。两者事后分不出，
   // 所以报告里的措辞与来源无关，不替用户编一个原因（ADR-43）。
   // 缺失、null、拼错、新版本写下的新取值 —— 认不出的一律 unknown（ADR-47）
-  memory_status: asMemoryStatus(state.memory_status),
+  memory_status: asMemoryStatus(memoryStatus),
   memory_written: writeBack.written,
   // 只在真的没写回时出现。原因有两类（读不出来 / 写不进去），
   // 报告要把原文带给用户，否则他会去修一份根本没坏的 JSON（ADR-20）。

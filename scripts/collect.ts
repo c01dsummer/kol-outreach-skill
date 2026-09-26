@@ -15,6 +15,7 @@
  * `--ignore-memory` 是显式逃生口，见 ADR-15。
  */
 import { readFileSync, existsSync } from 'node:fs'
+import { brandCalibrationProblems, prepareReviewProjection, persistReviewProjection, ReviewInputError } from './lib/review.js'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetInputError, startBudget, type PersistCost } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
@@ -28,7 +29,7 @@ import { passesFollowerGate } from './lib/score.js'
 import { taskLabel } from './lib/task-label.js'
 import {
   taskDir, taskFile, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators,
-  persistListAndStatus, saveCostCheckpoint,
+  loadCreators, persistListAndStatus, saveCostCheckpoint,
 } from './lib/task.js'
 import { creatorKey, textProblem } from './lib/types.js'
 import { igRouteProblems } from './lib/ig-route.js'
@@ -88,7 +89,7 @@ try {
 const badFields = configFieldProblems(state, resume ? 'resume' : 'new')
 const badTasks = taskListProblems(state.tasks)
 const badRoutes = igRouteProblems(state.tasks)
-const taskProblems = [...badFields, ...badTasks, ...badRoutes]
+const taskProblems = [...badFields, ...badTasks, ...badRoutes, ...brandCalibrationProblems(state)]
 if (taskProblems.length) {
   console.error(`${productFrom} 里的任务配置不合规：\n  ${taskProblems.join('\n  ')}`)
   process.exit(2)
@@ -111,12 +112,24 @@ if (badProduct) {
   process.exit(2)
 }
 
+// A resume must reject a broken review/feedback file before any budget change,
+// paid request, task checkpoint, or replacement of the delivery list.
+if (resume) {
+  try { prepareReviewProjection(resume, state, loadCreators(resume)) }
+  catch (e) {
+    if (!(e instanceof ReviewInputError)) throw e
+    console.error(`评审输入不合规：\n  ${e.problems.join('\n  ')}`)
+    process.exit(2)
+  }
+}
+
 // D17.l–o：通过原值校验后，仅新输入缺席的字段采用既有缺省；续跑不补原意图。
 if (!resume) {
   const cfg = state
   if (!Object.hasOwn(cfg, 'market')) console.error('未提供 market，本次采用默认市场 US。')
   state = {
     product: cfg.product, market: Object.hasOwn(cfg, 'market') ? cfg.market : 'US',
+    ...(Object.hasOwn(cfg, 'brand_calibration') ? { brand_calibration: cfg.brand_calibration } : {}),
     target_count: Object.hasOwn(cfg, 'target_count') ? cfg.target_count : 50,
     tasks: cfg.tasks, done: [], offsets: {}, answered: {}, found: {}, pages: {},
     created_at: new Date().toISOString(), updated_at: '',
@@ -467,7 +480,17 @@ async function main() {
 
   // 交付物与它的去重状态一起落盘 —— **哪个先写都不安全**，判定在 lib/task.ts
   // 的 persistListAndStatus 里（ADR-41）。累加器 creators.raw.json 由 persist() 保管，不在这里动。
-  persistListAndStatus(dir, state, fin.kept, fin.memory_status)
+  // Review is separate from the raw accumulator. Validate both review files and
+  // retain legacy Agent fields before replacing the filtered delivery view.
+  let preparedReview
+  try { preparedReview = prepareReviewProjection(dir, state, fin.kept) }
+  catch (e) {
+    if (!(e instanceof ReviewInputError)) throw e
+    console.error(`评审输入不合规：\n  ${e.problems.join('\n  ')}`)
+    process.exit(2)
+  }
+  persistReviewProjection(dir, preparedReview)
+  persistListAndStatus(dir, state, preparedReview.creators, fin.memory_status)
 
   const summary = {
     dir, stopped,

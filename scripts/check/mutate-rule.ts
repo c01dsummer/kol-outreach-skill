@@ -30,6 +30,8 @@ import { SELFCHECK_FIXTURE_MARK, SELFCHECK_PROCESS_MARK } from './verifier-rule.
 export interface Verifier {
   script: string
   summary: RegExp
+  /** 正常代码跑完子集的汇总；基线不能只凭退出码 0 认作测到了断言。 */
+  subsetSuccess: RegExp
   /** 不填就是这个验证者分不出「进程级失败」与「断言红了」(`test` 就是) */
   processMark?: string
   /** 不填就是这个验证者分不出「夹具没造对」与「断言红了」(`test` 就是) */
@@ -61,15 +63,24 @@ export const VERIFIERS: Record<string, Verifier> = {
   test: {
     script: 'scripts/test.ts',
     summary: /(^|\n)\d+ 个失败\s*(\n|$)/,
+    subsetSuccess: /(^|\n)全部通过（执行 [1-9]\d* 条断言；覆盖 \d+ 条需求）\s*(\n|$)/,
     declares: ['eq', 'ok'],
   },
   selfcheck: {
     script: 'scripts/check/selfcheck.ts',
     summary: /(^|\n)✗ 脚本自检：\d+ 项失败\s*(\n|$)/,
+    subsetSuccess: /(^|\n)✓ 脚本自检（只跑 [1-9]\d* 组）：点名的那几组都跑完了，一条断言都没红/,
     processMark: SELFCHECK_PROCESS_MARK,
     fixtureMark: SELFCHECK_FIXTURE_MARK,
     declares: ['endPath', 'named'],
   },
+}
+
+/** 施加任何变异之前，正常代码的同一子集必须实际跑完且全绿。 */
+export function baselineFault(status: number | null, output: string, verifier: Verifier): string | undefined {
+  if (status !== 0) return `退出码 ${status === null ? '无（被信号终止）' : status}`
+  if (!verifier.subsetSuccess.test(output)) return '没有正常完成的子集汇总'
+  return undefined
 }
 
 /** 这一次运行里,有没有过一条带**这个记号**的失败 —— 哪一种记号由调用方给。 */

@@ -20,12 +20,12 @@ import {
   labelFault, notAssertion,
   labelFaults,
   groupOfLabel, labelsOf, leadWired, processFailed, wiringFault,
-  anchorMatches,
+  anchorMatches, baselineFault,
 } from './check/mutate-rule.js'
-import { parseOnly, wanted } from './check/group-rule.js'
+import { type Group, parseOnly, parseOnlyStrict, wanted } from './check/group-rule.js'
 import {
   beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
-  testRunning, trackTest,
+  testRunning, trackTest, writeReportAndFlush,
 } from './check/mutate-restore.js'
 import {
   type BillRow, type Outcome, type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf,
@@ -115,17 +115,67 @@ import type {
 import { asMemoryStatus, creatorKey } from './lib/types.js'
 import { loadRawCreators, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
+import { runReviewStorageTests } from './review-test.js'
+import { runScreeningContractTests } from './screening-contract-test.js'
 
 let fail = 0
 let cur = ''
+let assertionCount = 0
 export const covered = new Set<string>()
+
+// 只给已核对独立性的块开放子集。登记顺序就是它们在完整测试中的原顺序；
+// 其余块仍只在完整运行中执行。依赖写在这一份登记里，选跑由 wanted 展开闭包。
+const GROUPS: readonly Group[] = [
+  { id: 'd6-pipeline', needs: [] },
+  { id: 'd4-memory', needs: [] },
+  { id: 'u3-keywords', needs: [] },
+  { id: 'u8-labels', needs: [] },
+  { id: 'd7-email', needs: [] },
+  { id: 'd8-public', needs: [] },
+  { id: 'h-spec', needs: [] },
+  { id: 'd15-hashtag', needs: [] },
+  { id: 'd16-tasks', needs: [] },
+  { id: 'd17-config', needs: [] },
+  { id: 'd19-resume', needs: [] },
+  { id: 'f8-risk', needs: [] },
+  { id: 'h-mutate', needs: [] },
+  { id: 'h-jobs', needs: [] },
+  { id: 'h-group', needs: [] },
+  { id: 'd6-provider', needs: [] },
+  { id: 'd12-ledger', needs: [] },
+]
+const testArgs = process.argv.slice(2)
+const onlyIds = parseOnlyStrict(testArgs, ['--json'])
+if (onlyIds !== undefined && testArgs.includes('--json')) {
+  throw new Error('需求测试子集不输出 COVERED；审计认领只能来自完整 npm test')
+}
+const selectedGroups = wanted(GROUPS, onlyIds)
+const fullRun = selectedGroups === undefined
+const seenGroups = new Set<string>()
+const executedGroups = new Set<string>()
+const group = async (id: string, run: () => void | Promise<void>): Promise<void> => {
+  const spec = GROUPS[seenGroups.size]
+  if (spec?.id !== id) throw new Error(`需求测试组登记与执行顺序不一致：${id}`)
+  seenGroups.add(id)
+  if (selectedGroups !== undefined && !selectedGroups.has(id)) return
+  for (const need of spec.needs) {
+    if (!executedGroups.has(need)) throw new Error(`需求测试组 ${id} 的依赖 ${need} 尚未执行`)
+  }
+  const before = assertionCount
+  await run()
+  if (assertionCount === before) throw new Error(`需求测试组 ${id} 没有执行断言，不能报告通过`)
+  executedGroups.add(id)
+}
+if (!fullRun) {
+  console.log(`[需求测试子集：${[...selectedGroups].join('、')}；其余测试未执行，不认领全量审计]`)
+}
 
 // 开跑前先把上一次的覆盖记录清掉 —— 拥有它的一方负责它的生死（ADR-20）。
 // 挡的是「源码没改、这一跑却红了或者半路死了」那一半：那时指纹对得上，
 // 上一次成功的记录就成了这一次的证据。改坏源码那一半由指纹的范围挡（claims.ts）。
 // 挡不住 import 阶段就崩的那一路 —— 这一行在静态 import 求值之后才跑。
 // 见 claims.ts 里 claimsOwnedBy 的「够不到的那一段」。
-if (claimsOwnedBy(process.env.MUTATING === '1')) rmSync(CLAIMS_PATH, { force: true })
+if (fullRun && claimsOwnedBy(process.env.MUTATING === '1')) rmSync(CLAIMS_PATH, { force: true })
 // 开跑前的指纹。跑完再算一次，两次对不上说明源码在这一跑的过程中被改过 ——
 // 只算跑完那一次的话，记录带的是新那棵树的指纹，而断言执行的是旧的，审计照样
 // 比对得上，于是一棵从没被完整测过的树拿到了证据。
@@ -133,6 +183,7 @@ const startHash = fingerprint(sourceFiles())
 
 const suite = (req: string, name: string) => { cur = req; covered.add(req); console.log(`\n[${req}] ${name}`) }
 const eq = (label: string, got: unknown, want: unknown) => {
+  assertionCount++
   const ok = JSON.stringify(got) === JSON.stringify(want)
   if (!ok) { fail++; console.log(`  ✗ ${label}\n     got=${JSON.stringify(got)}\n     want=${JSON.stringify(want)}`) }
   else console.log(`  ✓ ${label}`)
@@ -272,6 +323,7 @@ const assessedAccount = (
 
 // ─────────────────────────── 红线 ───────────────────────────
 
+if (fullRun) {
 suite('P1', '缺失数据不得用默认值填充')
 {
   // 「未查询」与「查过，值为空」必须是两个不同的值。
@@ -667,6 +719,8 @@ suite('P4', '已联系/屏蔽的人不得进入名单')
   useMemoryFile('memory/creators.json')
 }
 
+}
+await group('d6-pipeline', async () => {
 suite('D6', '续跑要花多少钱，数的是它真会去抓的，不是「不在 done 里的」')
 {
   const st = (over: Partial<TaskState> = {}): TaskState => ({
@@ -1024,6 +1078,8 @@ suite('P4', '收尾管线：闸门在记忆过滤之前，不虚报打扰规模'
   useMemoryFile('memory/creators.json')
 }
 
+})
+await group('d4-memory', () => {
 suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过')
 {
   // 这一族的临时文件放进**本次运行独有**的目录，不直接摊在系统临时目录上。
@@ -1740,6 +1796,8 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
   useMemoryFile('memory/creators.json')
 }
 
+})
+if (fullRun) {
 suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时不中断')
 {
   const withGeo = (pct: number) =>
@@ -1759,22 +1817,24 @@ suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时�
     rankCreators([noGeo], 'US')[0].audience_geo, undefined)
 
   // 没做过语义判断（没有 fit）时按分数分层，而分层用的必须是**刚算出来的那个分**。
-  // 三个语料的分数实测落在 30 / 45 / 60，正好跨过两条阈值 —— 传错一个常数进去，
-  // 三条里至少两条会红。原先这一支一条断言都没有：把它整个改成永远返回 C，
-  // 整个测试套照样全绿（#93 评审指出）
+  // 缺语义判断时，分数跨过硬指标阈值也只能是待核实 B（D21.d）。
+  // 三个分数档都试一次，避免高分被误读成内容已核。
   const noFit = (h: string, over: Partial<Creator> = {}) => mk('tiktok', h, over)
-  eq('没做语义判断时按分数分层：30 分 → C',
-    rankCreators([noFit('s30')], 'US')[0].tier, 'C')
+  eq('没做语义判断：30 分仍为待核实 B',
+    rankCreators([noFit('s30')], 'US')[0].tier, 'B')
   eq('45 分 → B', rankCreators([noFit('s45', { source_dimension: 'competitor' })], 'US')[0].tier, 'B')
-  eq('60 分 → A', rankCreators([noFit('s60', { email: 'a@example.com' })], 'US')[0].tier, 'A')
+  eq('没做语义判断：60 分仍为待核实 B',
+    rankCreators([noFit('s60', { email: 'a@example.com' })], 'US')[0].tier, 'B')
 
   tension('F5', 'P1')
 }
 
+}
+await group('u3-keywords', () => {
 suite('U1', '分层管线返回的名单已按 tier 排好序')
 {
   const c = (h: string, fit: '✅' | '❌', tasks = [0]) =>
-    mk('tiktok', h, { email: 'a@example.com', fit, source_tasks: tasks })
+    mk('tiktok', h, { email: 'a@example.com', fit, review_status: '已评', source_tasks: tasks })
   // `high` 被两个词搜到 —— 各行相加可以大于名单总人数，这是 U3.b 明写的
   const out = rankCreators([c('low', '❌'), c('high', '✅', [0, 5])], 'US')
   eq('A 排在 C 前面', out.map(x => x.tier), ['A', 'C'])
@@ -1971,13 +2031,17 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
   // 本条把它整列撤掉 —— 没查过的行于是不可能再带出一个像测量值的百分比。
   ok('关键词表里不再有命中率那一列', !kwHtml.includes('<th>命中率</th>'))
   ok('平台成了表上的一列 —— 关键词×平台才是一行', kwHtml.includes('<th>平台</th>'))
-  ok('找到与入围各自一列，没有合并', kwHtml.includes('<th>找到</th>') && kwHtml.includes('<th>入围</th>'))
+  ok('供应商条目与入围人数各自一列，没有混单位',
+    /<th>[^<]*(?:找到|返回)[^<]*条目<\/th>/.test(kwHtml)
+    && /<th>[^<]*入围[^<]*人<\/th>/.test(kwHtml))
   // U3.c 接替退役的 U3.a：那一条要求「找到**人数**」与「命中率」，而本条把「找到」
   // 换成供应商返回的条目数、并撤掉了命中率那一列（两种单位相除无意义）——
   // 判据不改含义、不回收复用（ADR-67），所以退役、用下一个字母。
-  ok('三列都在：找到、入围、语义通过',
-     kwHtml.includes('<th>找到</th>') && kwHtml.includes('<th>入围</th>')
-     && kwHtml.includes('<th>语义通过</th>'))
+  ok('条目、入围、语义通过及人工已审分别列出',
+     /<th>[^<]*(?:找到|返回)[^<]*条目<\/th>/.test(kwHtml)
+     && /<th>[^<]*入围[^<]*人<\/th>/.test(kwHtml)
+     && /<th>[^<]*语义通过[^<]*人<\/th>/.test(kwHtml)
+     && /<th>[^<]*人工已审[^<]*平台账号<\/th>/.test(kwHtml))
   // ⚠️ 上面这几条只管表头在不在。**U3.c 说的是「每一行列出」**，所以它的承重断言是
   // 前面那三条逐格比对 —— 表头存在性一条负片都指不动（`M-U3-d` 指的是格子）。
   criterion('U3.c')
@@ -1991,6 +2055,8 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
   eq('分层计数', tierCounts(out), { A: 1, B: 0, C: 1 })
 }
 
+})
+await group('u8-labels', () => {
 suite('F3', '剩余关键词列表按 done 排除，保留任务身份')
 {
   const st = {
@@ -2074,14 +2140,15 @@ suite('U8', '搜索任务展示能指回原任务，配置意图不冒充发现�
   eq('缺失与非法任务下标一律无从确认，不从行位置或相同关键词猜补',
      legacy.map(r => r[0]), invalid.map(() => '无从确认'))
   eq('身份无从确认不会抹掉该行已经查实的计数',
-     legacy.map(r => r.slice(4)), invalid.map(() => ['7', '2', '1']))
+     legacy.map(r => r.slice(4)), invalid.map(() => ['7', '2', '1', '—']))
   const states = table([
     row({ task_index: 6, status: 'unqueried', found: null, shortlisted: null, fit_pass: null }),
     row({ status: 'queried', found: 0, shortlisted: 0, fit_pass: 0 }),
     row({ task_index: null, status: 'unknown', found: null, shortlisted: null, fit_pass: null }),
   ])
   eq('有任务序号仍可未查询，身份未知仍可测得零，两种未知互不替代', states.map(r => [r[0], ...r.slice(4)]), [
-    ['7', '未查询', '—', '—'], ['无从确认', '0', '0', '0'], ['无从确认', '无从确认', '—', '—'],
+    ['7', '未查询', '—', '—', '—'], ['无从确认', '0', '0', '0', '—'],
+    ['无从确认', '无从确认', '—', '—', '—'],
   ])
   criterion('U8.e')
   tension('U8', 'P5')
@@ -2094,6 +2161,8 @@ suite('U8', '搜索任务展示能指回原任务，配置意图不冒充发现�
   criterion('U8.k')
 }
 
+})
+if (fullRun) {
 suite('P5', '交付必须声明数据边界')
 {
   const html = renderHtml([mk('tiktok', 'a', { tier: 'A', score: 50 })],
@@ -2194,6 +2263,8 @@ suite('P5', '交付必须声明数据边界')
 
 // ─────────────────────────── 数据 ───────────────────────────
 
+}
+await group('d7-email', () => {
 suite('D7', '邮箱提取支持反爬写法且不误判')
 {
   eq('普通', extractEmail('biz: sarah@example.com'), 'sarah@example.com')
@@ -2209,7 +2280,9 @@ suite('D7', '邮箱提取支持反爬写法且不误判')
   ok('PR 信号 中文', PR_SIGNALS.test('商务合作请私信'))
   ok('PR 信号 无', !PR_SIGNALS.test('just vibes'))
 }
+})
 
+await group('d8-public', () => {
 suite('D8', '公开指标使用独立近期样本并保留三态与溯源')
 {
   const posts = publicPosts(100, 10)
@@ -2627,6 +2700,8 @@ suite('D8', 'IG 主页混合媒体的窗口、视频资格和独立分母')
   criterion('U7.f')
 }
 
+})
+await group('h-spec', () => {
 harness('需求登记表的完整性判定')
 {
   const req = (id: string, over: Partial<Req> = {}): Req =>
@@ -3141,6 +3216,8 @@ harness('审计对一个交点的裁定')
     tensionVerdict('D4', t, te({ redline: true })).gaps[0]?.includes('P4') === true)
 }
 
+})
+if (fullRun) {
 harness('变异集的 why 不许夹带实现原文')
 {
   /**
@@ -3710,16 +3787,22 @@ suite('D15', '表格与 HTML 展示真实路线并明确来源记录的边界')
     'tier_adjustments', 'collaboration_quote', 'implied_ecpm', 'implied_ecpe', 'metrics_observed_at',
     'cross_platform', 'linked_handle', 'profile_url', 'source_keyword', 'source_dimension', 'best_post_desc',
     'outreach_draft', 'previously_recommended']
-  eq('表头保持旧列与来源顺序，仅末尾追加样本范围', HEADERS,
-    [...oldHeaders, 'discovery_sources', 'metrics_sample_scope'])
+  const preservedHeaders = [...oldHeaders, 'discovery_sources', 'metrics_sample_scope']
+  eq('旧列、来源和样本范围的前缀顺序保留', HEADERS.slice(0, preservedHeaders.length),
+    preservedHeaders)
+  ok('评审、人工与有效优先级列只在旧列之后追加',
+    ['eligibility', 'adoption_priority', 'review_status', 'observed_content', 'work_evidence',
+      'natural_integration', 'mismatch_risk', 'brand_calibration_version', 'effective_priority',
+      'manual_eligible', 'manual_adopted', 'manual_note']
+      .every(header => (HEADERS as readonly string[]).indexOf(header) >= preservedHeaders.length))
   eq('来源列维持原位置', HEADERS.indexOf('discovery_sources'), oldHeaders.length)
   eq('来源列维持原单元格', toRow(creator)[HEADERS.indexOf('discovery_sources')], expected)
-  eq('行与新增表头一一对应', toRow(creator).length, oldHeaders.length + 2)
-  eq('样本范围新列不改变所有旧列及来源的值', toRow(creator).slice(0, -1),
-    toRow({ ...creator, account_assessment: undefined }).slice(0, -1))
+  eq('行与完整表头一一对应', toRow(creator).length, HEADERS.length)
+  eq('样本范围不改变所有旧列及来源的值', toRow(creator).slice(0, preservedHeaders.length - 1),
+    toRow({ ...creator, account_assessment: undefined }).slice(0, preservedHeaders.length - 1))
   const sheets = buildSheets([creator])
-  eq('XLSX 每个 sheet 都保留旧列和来源，末尾追加样本范围', sheets.map(s => s.headers),
-    Array.from({ length: 3 }, () => [...oldHeaders, 'discovery_sources', 'metrics_sample_scope']))
+  eq('XLSX 每个 sheet 都保留相同旧列前缀和新评审列', sheets.map(s => s.headers),
+    Array.from({ length: 3 }, () => HEADERS))
   eq('XLSX 来源单元格与 CSV 共用格式',
     sheets[0].rows[0][HEADERS.indexOf('discovery_sources')], expected)
   for (const unknown of [undefined, []] as (DiscoverySource[] | undefined)[])
@@ -3874,6 +3957,8 @@ suite('D15', 'IG 话题页解析：只解析、不分派（ADR-112 第四节第 
 
 // 独立上下文先于实现写成：期望只出自 ADR-112 第二、五节，D15.j、D15.k、D6.w、D11.b 原文，
 // 以及 ig-route.ts 与 TikHub.search 的说明；没有读 search() 与 ig-route.ts 的函数体。
+}
+await group('d15-hashtag', async () => {
 suite('D15', 'IG 话题入口：配置校验与分派（ADR-112 第四节第 3 步）')
 {
   // 调用包一层：抛出变成一个显眼的值再比，一次抛出不拖垮后面的断言；标签照样写成字面量，进清册
@@ -4117,6 +4202,8 @@ suite('D15', 'IG 话题入口：配置校验与分派（ADR-112 第四节第 3 �
   tension('D18', 'P1')
 }
 
+})
+await group('d16-tasks', () => {
 suite('D16', '任务列表按必填字段校验')
 {
   // 照 D15：调用包一层，抛出变成一个显眼的值再比，一次抛出不拖垮后面的断言；标签照样写成字面量
@@ -4671,6 +4758,8 @@ suite('D16', '任务列表按必填字段校验')
   criterion('D16.i')
 }
 
+})
+await group('d17-config', () => {
 suite('D17', '市场与目标人数按原始字段和输入角色校验')
 {
   // 独立上下文先于实现编写；依据 D17.a–g 与公开签名，不读入口或判定实现。
@@ -4829,6 +4918,8 @@ suite('D17', '市场与目标人数按原始字段和输入角色校验')
   tension('D17', 'P1')
 }
 
+})
+await group('d19-resume', () => {
 suite('D19', '续跑进度字段先验校验')
 {
   const fromToken = (field: 'done' | 'pages', token: string): string[] => {
@@ -4903,6 +4994,8 @@ suite('D19', '续跑进度字段先验校验')
   criterion('D19.d')
 }
 
+})
+if (fullRun) {
 suite('P1', '排序：粉丝数「未查询」不被当成「已确认不够」')
 {
   /**
@@ -5012,6 +5105,8 @@ suite('F7', '每个运行实例只在成功预留后各提醒一次 50% 与 80%'
   criterion('F7.c', 'F7.d')
 }
 
+}
+await group('f8-risk', () => {
 suite('F8', '公开信号风险透明降级但不删除')
 {
   const accounts: Record<string, AccountAssessment> = {}
@@ -5124,6 +5219,8 @@ suite('F8', '公开信号风险透明降级但不删除')
     'unavailable')
 }
 
+})
+if (fullRun) {
 suite('F2', '关键词四维度')
 {
   const dims = ['category', 'scene', 'competitor', 'audience']
@@ -5165,7 +5262,7 @@ suite('U5', 'xlsx 分 sheet')
   ])
   eq('三个 sheet（含空的 C，无「全部」）', sheets.length, 3)
   eq('sheet 名带计数', sheets.map(s => s.name),
-     ['A级 直接发信 (1)', 'B级 先互动 (1)', 'C级 观察池 (0)'])
+     ['A 级 (1)', 'B 级 (1)', 'C 级 (0)'])
 
   const tmpx = join(tmpdir(), `kol-u5-${process.pid}.xlsx`)
   writeXlsx(tmpx, sheets)
@@ -5178,7 +5275,7 @@ suite('U5', 'xlsx 分 sheet')
 
   // 空分层也必须建 sheet —— 「这一层没人」是信息，隐藏会让人以为漏了数据
   const names = xlsxSheetNames(tmpx)
-  eq('sheet 名读回正确', names, ['A级 直接发信 (1)', 'B级 先互动 (1)', 'C级 观察池 (0)'])
+  eq('sheet 名读回正确', names, ['A 级 (1)', 'B 级 (1)', 'C 级 (0)'])
   ok('空分层的 sheet 存在且标出 (0)', names.some(n => n.endsWith('(0)')))
   ul(tmpx)
 }
@@ -5194,26 +5291,34 @@ suite('U2', 'HTML 报告不依赖网络资源')
   ok('无外部图片', !/<img[^>]+src="https?:/.test(html))
 }
 
-suite('U6', 'HTML 分层 tab 与平台标签')
+suite('U6', 'HTML 双维筛选默认全量与平台标签')
 {
   const html = renderHtml(
     [mk('tiktok', 'a', { tier: 'A', score: 1 }), mk('instagram', 'b', { tier: 'B', score: 1 })],
     { product: 'p', market: 'US', platforms: ['tiktok', 'instagram'], keywords: [], total: 2,
       tiers: { A: 1, B: 1, C: 0 }, email_count: 0, cross_platform_count: 0,
       ...testCostMeta(1, 2000000), enriched: false })
-  ok('三个 tab，无「全部」', ['data-f="A"', 'data-f="B"', 'data-f="C"'].every(t => html.includes(t))
-     && !html.includes('data-f="all"'))
+  ok('优先级与 A/B/C 各有独立筛选且都有全部',
+    ['all', '优先联系', '备选', '待核实', '暂不采用']
+      .every(value => html.includes(`data-kind="priority" data-value="${value}"`))
+    && ['all', 'A', 'B', 'C']
+      .every(value => html.includes(`data-kind="tier" data-value="${value}"`)))
   ok('卡片带 data-tier 供筛选', html.includes('data-tier="A"') && html.includes('data-tier="B"'))
-  ok('默认选中 A（第一个非空）', html.includes('class="tab A on"'))
-  ok('非默认分层初始隐藏（不依赖 JS）', html.includes('data-tier="B" style="display:none"'))
+  ok('两维都默认全部',
+    html.includes('class="tab on" data-kind="priority" data-value="all"')
+    && html.includes('class="tab on" data-kind="tier" data-value="all"'))
+  ok('所有分层卡片初始可见，不依赖 JS',
+    !/data-tier="[ABC]"[^>]*display\s*:\s*none/.test(html))
   ok('切换不滚动页面', !html.includes('scrollIntoView'))
 
-  // A 为空时应默认落在 B，而不是打开就是一片空白
+  // A 为空时仍默认全量，B 卡片无需脚本即可看见。
   const noA = renderHtml([mk('instagram', 'b', { tier: 'B', score: 1 })],
     { product: 'p', market: 'US', platforms: ['instagram'], keywords: [], total: 1,
       tiers: { A: 0, B: 1, C: 0 }, email_count: 0, cross_platform_count: 0,
       ...testCostMeta(1, 2000000), enriched: false })
-  ok('A 为空时默认落到 B', noA.includes('class="tab B on"') && !noA.includes('class="tab A on"'))
+  ok('A 为空时仍默认全部并显示 B',
+    noA.includes('class="tab on" data-kind="tier" data-value="all"')
+    && /data-tier="B"(?![^>]*display\s*:\s*none)/.test(noA))
   ok('平台标签区分 class', html.includes('pf tiktok') && html.includes('pf instagram'))
   ok('平台标签有专属配色', html.includes('.pf.tiktok{') && html.includes('.pf.instagram{'))
   ok('平台标签与次要标签不同层级', html.includes('.xp{') && !html.includes('.pf,.xp{'))
@@ -5295,6 +5400,63 @@ suite('U4', 'A 级附开发信草稿且可复制')
       ...testCostMeta(1, 2000000), enriched: false })
   ok('渲染草稿', html.includes('Hi there'))
   ok('有复制按钮', html.includes('cp(this)'))
+}
+
+}
+await group('h-mutate', async () => {
+harness('变异 worker 的结论行等写回调完成才交出')
+{
+  const line = '{"id":"M-sample","result":"caught"}\n'
+  let written = ''
+  let finish: ((error?: Error | null) => void) | undefined
+  const delayed = {
+    write(chunk: string, callback: (error?: Error | null) => void) {
+      written += chunk
+      finish = callback
+      return false // 模拟 stdout 管道背压
+    },
+  } as unknown as Pick<NodeJS.WriteStream, 'write'>
+  let settled = false
+  const pending = writeReportAndFlush(delayed, line).then(() => { settled = true })
+  await Promise.resolve()
+  eq('stdout 背压时写回调前不得宣称结论已交出', settled, false)
+  ok('完整结论行已交给写入方且注册了完成回调', written === line && finish !== undefined)
+  if (finish) {
+    finish()
+    await pending
+    eq('写回调完成后才结束，结论行包含换行符', [settled, written], [true, line])
+  }
+
+  let failWrite: ((error?: Error | null) => void) | undefined
+  const broken = {
+    write(_chunk: string, callback: (error?: Error | null) => void) {
+      failWrite = callback
+      return false
+    },
+  } as unknown as Pick<NodeJS.WriteStream, 'write'>
+  const result = writeReportAndFlush(broken, line).then(
+    () => 'resolved', error => (error as Error).message)
+  ok('失败路径也注册写回调', failWrite !== undefined)
+  if (failWrite) {
+    failWrite(new Error('report write failed'))
+    eq('写回调报错时明确拒绝', await result, 'report write failed')
+  }
+}
+harness('变异子集先过正常代码基线：失败或没跑完不能当绿')
+{
+  const goodTest = '\n全部通过（执行 1 条断言；覆盖 1 条需求）\n'
+  const goodHarness = '\n全部通过（执行 1 条断言；覆盖 0 条需求）\n'
+  const goodSelfcheck = '\n✓ 脚本自检（只跑 1 组）：点名的那几组都跑完了，一条断言都没红\n'
+  eq('需求测试正常完成且执行断言，基线通过', baselineFault(0, goodTest, VERIFIERS.test), undefined)
+  eq('纯检查夹具执行断言但不冒领需求，基线通过', baselineFault(0, goodHarness, VERIFIERS.test), undefined)
+  eq('自检正常完成指定组，基线通过', baselineFault(0, goodSelfcheck, VERIFIERS.selfcheck), undefined)
+  ok('断言失败即使误打成功汇总也拒绝', baselineFault(1, goodTest, VERIFIERS.test) !== undefined)
+  ok('进程被杀没有退出码也拒绝', baselineFault(null, goodTest, VERIFIERS.test) !== undefined)
+  ok('退出 0 却没有完成汇总也拒绝', baselineFault(0, '', VERIFIERS.test) !== undefined)
+  ok('用另一个验证者的汇总冒充完成也拒绝',
+    baselineFault(0, goodSelfcheck, VERIFIERS.test) !== undefined)
+  ok('零条断言的空子集不能冒充完成',
+    baselineFault(0, '\n全部通过（执行 0 条断言；覆盖 0 条需求）\n', VERIFIERS.test) !== undefined)
 }
 
 harness('变异测试：验证者崩了不算抓到')
@@ -5669,6 +5831,8 @@ harness('清册：点的那些夹具真的在，而且各自只有一条叫那�
   eq('夹具往磁盘写的名字没被当成自检自己的声明', labelFault('甲', selfInv), 'unknown-label')
 }
 
+})
+if (fullRun) {
 harness('变异跑到一半被打断：动过的源文件要还回去')
 {
   // 信号杀进来时 finally 不跑，留在工作区里的是一处故意违反某条需求的改动。
@@ -5821,6 +5985,8 @@ harness('派工被打断：先请每个 worker 自己收摊，都收完了再走
   eq('宽限期到了硬来，不陪着它一起挂', hard, 1)
 }
 
+}
+await group('h-jobs', () => {
 harness('变异跑的派工：派几个、结论怎么带回来、派出去没回话的怎么算')
 {
   // 都没写就按机器核数；再按要跑的条数收口 —— 派得比变异还多，多出来那几个只是白起进程
@@ -6197,6 +6363,8 @@ harness('变异跑的账：每个验证者被几条变异用、每条跑多久�
   eq('没有行：交回空数组，什么都不印', tryIt(() => billLines([])), [])
 }
 
+})
+if (fullRun) {
 harness('起 tsx 的那条命令：三处共用一份，不经 npx、不经 shell')
 {
   const args = ['scripts/probe.ts', '--config', 'x.json']
@@ -6208,18 +6376,36 @@ harness('起 tsx 的那条命令：三处共用一份，不经 npx、不经 shel
   // 而 npm 在那边生成的是 `tsx.cmd` / `tsx.ps1` / `tsx`(sh shim)（ADR-69 第一块欠条）
   eq('起的是当前这个 node', exe, process.execPath)
 
-  // cli 走 tsx 包的**公开导出**（它的 exports 里有 "./cli"），不写死 `node_modules/tsx/dist/…`
-  // 那种内部路径，也不指 `.bin` 里那个垫片 —— 写死的那种升一次版就指空
-  eq('垫在最前面的是 tsx 那个公开导出解析出来的 cli',
-    argv[0], createRequire(import.meta.url).resolve('tsx/cli'))
+  // Node 直接预加载 tsx 的公开包入口，不经 cli 的 Unix socket；也不指 `.bin` 垫片。
+  eq('先用 --import 预加载 tsx', argv[0], '--import')
+  // 缺失或非法 URL 本身就是断言失败；直接解析会先抛错，吞掉末尾的失败汇总。
+  let loaderPath: string | undefined
+  try { if (typeof argv[1] === 'string') loaderPath = fileURLToPath(argv[1]) } catch {}
+  eq('预加载的是 tsx 公开包入口', loaderPath,
+    createRequire(import.meta.url).resolve('tsx'))
   // 断的是**绝对路径**这一半：相对的那种才会随 cwd 变，而自检有几处切到临时目录里跑。
   // 「切过去再调一次、结果不变」那样的断言写不得 —— 那个常量在 import 阶段就求值一次，
   // 之后怎么切都不会变，那条断言永远不会红（`4-VERIFY.md`：不会失败的检查等于没有检查）
-  ok('而且是一条真的绝对路径', isAbsolute(argv[0]) && existsSync(argv[0]))
+  ok('而且指向真的绝对路径',
+    loaderPath !== undefined && isAbsolute(loaderPath) && existsSync(loaderPath))
 
   // 要跑的那几个原样跟在后面。少一个或顺序反了，起来的就不是要跑的那个脚本，
   // 而那时的样子是「跑起来了、结论不对」，不是「起不来」
-  eq('要跑的那几个参数原样跟在 cli 后面', argv.slice(1), args)
+  eq('要跑的那几个参数原样跟在 --import 后面', argv.slice(2), args)
+
+  const dir = mkdtempSync(join(tmpdir(), 'kol-tsx-command-'))
+  try {
+    const script = join(dir, 'entry.ts')
+    writeFileSync(script, 'const answer: number = 42\nprocess.stdout.write(String(answer))\n')
+    const [child, childArgs] = tsxCommand([script])
+    let outcome: [number | null | undefined, string | undefined]
+    try {
+      const ran = spawnSync(child, childArgs, { cwd: dir, encoding: 'utf8', timeout: 15000 })
+      outcome = [ran.status, ran.stdout]
+    } catch (error) { outcome = [undefined, String(error)] }
+    eq('切到无 node_modules 的临时目录仍能执行 TypeScript',
+      outcome, [0, '42'])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 }
 
 harness('验证基础设施闭包：一条变异改的是不是验证者自己要用的东西')
@@ -6426,6 +6612,8 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
   eq('路径底下变成了目录，同样是读不了', claimsReadFault(errno('EISDIR')), 'unreadable')
 }
 
+}
+await group('h-group', () => {
 harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 needs 一起跑')
 {
   const G = [
@@ -6455,6 +6643,28 @@ harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 n
   eq('没写这个参数 → undefined', parseOnly(['--worker']), undefined)
   eq('逗号分隔', parseOnly(['--only=a,b']), ['a', 'b'])
   eq('空集跑不出任何一组', [...wanted(G, [])!], [])
+  const rejected = (run: () => unknown): string => {
+    try { run(); return '没有拒绝' } catch (e) { return e instanceof Error ? e.message : String(e) }
+  }
+  eq('需求测试没有选择参数时保留全跑', parseOnlyStrict([]), undefined)
+  eq('需求测试解析合法多组', parseOnlyStrict(['--only=collect,独立']), ['collect', '独立'])
+  for (const arg of ['--only=', '--only=,', '--only=collect,', '--only=,collect',
+    '--only=collect,,独立', '--only= collect', '--only=collect ']) {
+    ok(`需求测试拒绝空或带空格的组名：${arg}`,
+      rejected(() => parseOnlyStrict([arg])).includes('非空'))
+  }
+  ok('需求测试拒绝拼错的参数并点名它',
+    rejected(() => parseOnlyStrict(['--olny=collect'])).includes('--olny=collect'))
+  ok('需求测试拒绝重复选择参数',
+    rejected(() => parseOnlyStrict(['--only=collect', '--only=独立'])).includes('一次'))
+  ok('需求测试拒绝同一组重复点名',
+    rejected(() => parseOnlyStrict(['--only=collect,collect'])).includes('重复'))
+  ok('选跑判定拒绝缺失依赖并点名两端',
+    rejected(() => wanted([{ id: 'render', needs: ['missing'] }], ['render']))
+      .includes('组 render 缺少依赖组 missing'))
+  ok('选跑判定拒绝重复登记 id',
+    rejected(() => wanted([{ id: 'same', needs: [] }, { id: 'same', needs: [] }], ['same']))
+      .includes('id 重复'))
 
   // 标签落在哪一组 —— 认的是 group(...) 这个代码结构，不认注释里的分节线
   const src = [
@@ -6493,6 +6703,8 @@ harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 n
     [...labelsOf(selfSrc, selfDecl).keys()].filter(l => selfGrouped.get(l) === undefined), [])
 }
 
+})
+if (fullRun) {
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
 {
   // 这个遮罩守着两条路径：提交信息里的豁免、决策记录的分节。后者不可逆 ——
@@ -7195,6 +7407,8 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
 // 于是 pickList 抛出、IG 兜底、预算卡在两次请求之间这几条路，在整条检查链里一次都没跑过 ——
 // 而复核挖出的两个 blocking 就长在这几条路上。自检那层的假 fetch 永远返回认得出的结构，
 // 够不到这里（ADR-94 第十五节）。
+}
+await group('d6-provider', async () => {
 suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
 {
   const canned = (bodies: any[]) => {
@@ -7362,6 +7576,8 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
 }
 
 // 独立上下文先于实现写成；只依据 D12、ADR-107 接口及固定价目证据，未读产品函数体。
+})
+await group('d12-ledger', () => {
 suite('D12', '费用金额按端点与历史价目记账，未知不能变成新增额度')
 {
   const max = Number.MAX_SAFE_INTEGER
@@ -7620,6 +7836,8 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
   tension('D12', 'P1'); tension('D12', 'P3'); tension('D12', 'P5')
 }
 
+})
+if (fullRun) {
 suite('D13', '实际 HTTP 状态先结算；正文失败、无状态和本地失败彼此不同')
 {
   const methods: [string, (api: TikHub) => Promise<unknown>][] = [
@@ -8175,7 +8393,21 @@ suite('D14', '费用检查点只推进费用，保留盘上业务与精确预算
   // HTTP 前后顺序、强杀窗口与入口退出码由进程测试认领，纯接口不冒领 D14.a–f/h。
 }
 
-console.log(fail ? `\n${fail} 个失败\n` : `\n全部通过（覆盖 ${covered.size} 条需求）\n`)
+}
+if (fullRun) {
+  runReviewStorageTests({ suite, eq, ok })
+  runScreeningContractTests({ suite, eq, ok, criterion, tension })
+}
+if (seenGroups.size !== GROUPS.length) {
+  throw new Error(`需求测试组只遇到 ${seenGroups.size}/${GROUPS.length} 组，不能报告完成`)
+}
+if (!fullRun && assertionCount === 0) {
+  throw new Error('需求测试子集没有执行断言，不能报告通过')
+}
+console.log(fail ? `\n${fail} 个失败\n` : fullRun
+  ? `\n全部通过（覆盖 ${covered.size} 条需求）\n`
+  : `\n全部通过（执行 ${assertionCount} 条断言；覆盖 ${covered.size} 条需求）\n`)
+if (!fullRun) console.log(`✓ 已完成子集 ${[...selectedGroups].join('、')}；没有认领全量审计`)
 if (process.argv.includes('--json')) {
   console.log('COVERED=' + JSON.stringify([...covered]))
 }
@@ -8195,7 +8427,7 @@ if (process.argv.includes('--json')) {
 // 失败的测试运行同样不写：断言红了还照写，一份没通过的运行会被当成证据交出去。
 // 判定本身在 claims.ts，不留在这个入口里 —— 留在这里就没有测试守得住它。
 const endHash = fingerprint(sourceFiles())
-if (claimsPublishable(process.env.MUTATING === '1', fail, startHash, endHash)) {
+if (fullRun && claimsPublishable(process.env.MUTATING === '1', fail, startHash, endHash)) {
   mkdirSync(dirname(CLAIMS_PATH), { recursive: true })
   // 原子写：半截写坏的记录读起来是合法 JSON 的概率不大，但读的一方要为它写一段
   // 判死的代码 —— 换成写临时文件再改名，这一类根本不会出现（lib/atomic.ts）。
