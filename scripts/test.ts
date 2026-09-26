@@ -5621,6 +5621,118 @@ suite('U4', 'A 级附开发信草稿且可复制')
 
 }
 await group('h-mutate', () => {
+// 预期来自独立 oracle；宿主控制和断言不以被测判定给自己打分。
+harness('工具选跑：真实调用与无资格证据分开')
+{
+  let normalWiring = false
+  try { normalWiring = wiringFault({ by: 'test', kills: ['oracle-目标'] }) === undefined }
+  catch { /* 调用未完成，不能认领目标。 */ }
+  ok('工具接线正常控制 公开 test 身份与非空点名可成立', normalWiring)
+  if (normalWiring) {
+    let completed = false
+    let actual: ReturnType<typeof wiringFault>
+    try {
+      actual = wiringFault({ by: 'toString', kills: ['oracle-目标'] })
+      completed = actual === undefined || [
+        'unknown-verifier', 'missing-kills', 'kills-without-by', 'kills-not-list',
+      ].includes(actual)
+    } catch { /* 异常不是公开语义分类。 */ }
+    ok('工具接线控制 原型名字调用正常返回公开分类', completed)
+    if (completed) eq('工具接线 原型链名字不是已登记验证者', actual, 'unknown-verifier')
+  }
+
+  const declares = ['declareOracle']
+  const normalSource = "group('oracle-correct-group', [], () => { declareOracle('oracle-good-label', () => true) })"
+  let normalGroup = false
+  try {
+    const map = groupOfLabel(normalSource, declares)
+    normalGroup = map instanceof Map && map.get('oracle-good-label') === 'oracle-correct-group'
+  } catch { /* 无正常映射，不能认领排除目标。 */ }
+  ok('工具归组正常控制 声明调用可落入具名组', normalGroup)
+  if (normalGroup) {
+    let ready = false
+    let incidental = false
+    try {
+      const source = normalSource + "\ngroup('oracle-incidental-group', [], () => { note('oracle-incidental-text') })"
+      const map = groupOfLabel(source, declares)
+      if (map instanceof Map && map.get('oracle-good-label') === 'oracle-correct-group') {
+        const found: unknown = map.has('oracle-incidental-text')
+        if (typeof found === 'boolean') { incidental = found; ready = true }
+      }
+    } catch { /* Map 或字段访问未完成，不能当成负项不存在。 */ }
+    ok('工具归组控制 排除输入仍保留正常声明且可观察', ready)
+    if (ready) ok('工具标签归组 普通字符串调用不成为夹具', !incidental)
+  }
+
+  const normalCall = "declareOracle('oracle-good-label', () => true)"
+  let normalLabels = false
+  try {
+    const map = labelsOf(normalCall, declares)
+    normalLabels = map instanceof Map && map.get('oracle-good-label') === 1
+  } catch { /* 正常声明没有可用计数。 */ }
+  ok('工具清册正常控制 真实声明调用计数一次', normalLabels)
+  if (normalLabels) {
+    let ready = false
+    let foreign = false
+    try {
+      const map = labelsOf(normalCall + "\nother.declareOracle('oracle-foreign-label', () => true)", declares)
+      if (map instanceof Map && map.get('oracle-good-label') === 1) {
+        const found: unknown = map.has('oracle-foreign-label')
+        if (typeof found === 'boolean') { foreign = found; ready = true }
+      }
+    } catch { /* Map 或字段访问未完成，不能当成负项不存在。 */ }
+    ok('工具清册控制 排除输入仍保留正常计数且可观察', ready)
+    if (ready) ok('工具标签清册 外部对象同尾方法不成为声明', !foreign)
+  }
+
+  let recordReady = false
+  let actualVerifier: (typeof VERIFIERS)[string] | undefined
+  let fixtureMark: unknown
+  try {
+    const record = VERIFIERS.selfcheck
+    if (record !== null && typeof record === 'object') {
+      fixtureMark = record.fixtureMark
+      recordReady = fixtureMark === undefined || typeof fixtureMark === 'string'
+      actualVerifier = record
+    }
+  } catch { /* 记录或字段不可观察时不认领目标。 */ }
+  ok('工具元数据控制 自检记录及夹具字段可观察', recordReady)
+  if (recordReady) ok('工具验证者声明 自检声明公开夹具无效记号', fixtureMark === '（夹具）')
+
+  // 公共生产方只生成输入；分类预期来自生产/消费关系，不复制任何汇总字符串。
+  let relationReady = false
+  let relationInput = ''
+  let elsewhereInput = ''
+  try {
+    const opaqueSummary = selfcheckSummary(1)
+    relationReady = recordReady && actualVerifier !== undefined && actualVerifier.summary instanceof RegExp
+      && typeof opaqueSummary === 'string' && opaqueSummary.length > 0
+    if (relationReady) {
+      relationInput = `  ✗ oracle-实际自检目标：合成断言失败\n${opaqueSummary}\n`
+      elsewhereInput = `  ✗ oracle-旁路：合成断言失败\n${opaqueSummary}\n`
+    }
+  } catch { /* 生产方或记录不可观察，不认领公共关系。 */ }
+  ok('实际自检关系控制 生产方与记录可观察且报告已构造', relationReady)
+  if (relationReady && actualVerifier !== undefined) {
+    const verifier = actualVerifier
+    const observe = (status: number | null, output: string): { completed: boolean; value?: ReturnType<typeof judgeRun> } => {
+      try {
+        const value = judgeRun(status, output, verifier, ['oracle-实际自检目标'])
+        return { completed: ['caught', 'elsewhere', 'crashed', 'survived'].includes(value), value }
+      } catch { return { completed: false } }
+    }
+    const elsewhere = observe(1, elsewhereInput)
+    ok('实际自检关系控制 旁路调用正常返回公开分类', elsewhere.completed)
+    if (elsewhere.completed) eq('实际自检关系正常控制 不给旁路失败目标记功', elsewhere.value, 'elsewhere')
+    const interrupted = observe(null, relationInput)
+    ok('实际自检关系控制 中断调用正常返回公开分类', interrupted.completed)
+    if (interrupted.completed) eq('实际自检关系正常控制 信号中断不靠汇总恢复资格', interrupted.value, 'crashed')
+    const target = observe(1, relationInput)
+    ok('实际自检关系控制 目标调用正常返回公开分类', target.completed)
+    if (target.completed) eq('工具判定 实际自检记录认领公共失败生产方的精确目标', target.value, 'caught')
+  }
+}
+
 harness('自检故障记号：非空才能区分未测到与断言失败')
 ok('自检进程级失败记号非空', SELFCHECK_PROCESS_MARK.length > 0)
 ok('自检夹具故障记号非空', SELFCHECK_FIXTURE_MARK.length > 0)
