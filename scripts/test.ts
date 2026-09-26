@@ -124,6 +124,8 @@ export const covered = new Set<string>()
 // 只给已核对独立性的块开放子集。登记顺序就是它们在完整测试中的原顺序；
 // 其余块仍只在完整运行中执行。依赖写在这一份登记里，选跑由 wanted 展开闭包。
 const GROUPS: readonly Group[] = [
+  { id: 'p1-missing-values', needs: [] },
+  { id: 'p1-plays', needs: [] },
   { id: 'd6-pipeline', needs: [] },
   { id: 'd4-memory', needs: [] },
   { id: 'u3-keywords', needs: [] },
@@ -132,6 +134,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd7-email', needs: [] },
   { id: 'd8-public', needs: [] },
   { id: 'h-spec', needs: [] },
+  { id: 'd3-identity', needs: [] },
   { id: 'p1-output-values', needs: [] },
   { id: 'd11-posts', needs: [] },
   { id: 'd15-hashtag-parser', needs: [] },
@@ -140,6 +143,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd17-config', needs: [] },
   { id: 'd19-resume', needs: [] },
   { id: 'p1-followers-sort', needs: [] },
+  { id: 'f6-veto', needs: [] },
   { id: 'f8-risk', needs: [] },
   { id: 'u1-u5-output', needs: [] },
   { id: 'h-mutate', needs: [] },
@@ -331,7 +335,7 @@ const assessedAccount = (
 
 // ─────────────────────────── 红线 ───────────────────────────
 
-if (fullRun) {
+await group('p1-missing-values', () => {
 suite('P1', '缺失数据不得用默认值填充')
 {
   // 「未查询」与「查过，值为空」必须是两个不同的值。
@@ -398,6 +402,8 @@ suite('P1', '缺失数据不得用默认值填充')
   ok('区间内放行', passesFollowerGate(mk('tiktok', 'k', { followers: 50_000 })))
 }
 
+})
+if (fullRun) {
 suite('P1', 'profile 查回来了、对方没写简介 —— 别再当成「还没查过」')
 {
   // 适配器那一半：请求已经发出去、人也查回来了，signature／biography 是空只说明
@@ -453,6 +459,8 @@ suite('P1', '采集侧解析：响应里没有的字段不得落成 0 或空串'
   eq('signature 有内容 → 照常记下', (await one({ signature: 'hi' })).bio, 'hi')
 }
 
+}
+await group('p1-plays', () => {
 suite('P1', '没取到的播放数不得被判成爆款')
 {
   /**
@@ -540,6 +548,8 @@ suite('P1', '没取到的播放数不得被判成爆款')
   eq('没取到的播放数不参与爆款判定', decided, [])
 }
 
+})
+if (fullRun) {
 suite('P2', '开发信占位符必须原样保留到产出物')
 {
   // 只验可执行的那一半：render 不得删除/替换草稿里的 {…}
@@ -3384,6 +3394,8 @@ suite('D10', '当前活跃标签与历史内容积累分开且不改变分层')
   }), ['insufficient_peer_group', 'insufficient_peer_group'])
 }
 
+}
+await group('d3-identity', () => {
 suite('D3', '同人识别不确定时不得合并')
 {
   const a = [mk('tiktok', 'sarahtech', { bio_links: ['https://instagram.com/sarah.tech'] }),
@@ -3423,7 +3435,7 @@ suite('P1', '跨平台合并不得把「未查询」降级成「查过，没有�
   covered.add('D3')
 }
 
-}
+})
 await group('p1-output-values', () => {
 suite('P1', '三态不得被压平：取值、排序、入池三处各验一次')
 {
@@ -5083,6 +5095,8 @@ suite('D2', 'bio_links 归一化为数组')
 
 // ─────────────────────────── 流程 ───────────────────────────
 
+}
+await group('f6-veto', () => {
 suite('F6', '语义判断否定有一票否决权')
 {
   const high = mk('tiktok', 'x', { email: 'a@b.com', source_dimension: 'competitor', post_count: 50 })
@@ -5096,6 +5110,8 @@ suite('F6', '语义判断否定有一票否决权')
   eq('强相关但缺邮箱 → B 而非 C', tierOf(noEmail, 45), 'B')
 }
 
+})
+if (fullRun) {
 suite('F7', '每个运行实例只在成功预留后各提醒一次 50% 与 80%')
 {
   await costSucceeds('阈值、退款、恢复与拒绝组合完整执行', () => {
