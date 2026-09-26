@@ -92,7 +92,7 @@ import {
   TIKHUB_PRICE_BASIS, TIKHUB_PRICE_CATALOG, TIKHUB_PRICE_VERSION, quoteTikHub, resolveTikHubPrice,
 } from './providers/tikhub-pricing.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
-import { filterByMemory, recordRecommendations, useMemoryFile } from './lib/memory.js'
+import { filterByMemory, loadMemory, MemoryUnreadable, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   MAX_PAGES, canRequestPage, finalize, firstPagePending, igAfterPage, keywordsResumeWillRun,
   keywordRows, mergePage, needsProfile, pagesFetched, pendingKeywords, rankCreators,
@@ -1745,6 +1745,147 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
 
   rmSync(d4Dir, { recursive: true, force: true })   // 变异可能已经把它删了，清理不该因此崩掉
   useMemoryFile('memory/creators.json')
+}
+
+// 预期由独立上下文按 D4/P4、ADR-21/22/25/37/40/46/56 事前给出；
+// 这里只适配已有隔离路径与字面标签，不用当前错误输出构造 expected。
+suite('D4', '记忆选跑：合法控制、语义拒收与局部写回失败')
+{
+  const dir = mkdtempSync(join(tmpdir(), 'kol-memory-selection-'))
+  const file = join(dir, 'creators.json')
+  const entry = (over: Record<string, unknown> = {}) => ({
+    platform: 'tiktok', handle: 'alice', nickname: 'Alice', followers: 12000,
+    first_seen: '2026-09-25', recommendations: [], contacted: false,
+    replied: false, blocked: false, note: 'synthetic fixture', ...over,
+  })
+  const memory = (pairs: Array<[string, ReturnType<typeof entry>]>) => ({
+    version: 1, updated_at: '2026-09-26', creators: Object.fromEntries(pairs),
+  })
+  const one = (over: Record<string, unknown> = {}, key = 'tiktok:alice') =>
+    memory([[key, entry(over)]])
+  const creator = (over: Record<string, unknown> = {}): Creator => ({
+    platform: 'tiktok', handle: 'alice', nickname: 'Alice', followers: 12000,
+    bio_links: [], verified: false, profile_url: 'https://www.tiktok.com/@alice',
+    source_keyword: 'fixture', source_dimension: 'category', ...over,
+  } as unknown as Creator)
+  const recommendation = { product: 'Foo', date: '2026-09-25', task: 'other-task', keyword: 'fixture' }
+  const prepare = (raw: ReturnType<typeof one>): Buffer | undefined => {
+    const bytes = Buffer.from(JSON.stringify(raw))
+    let ready = false
+    try {
+      writeFileSync(file, bytes)
+      ready = lstatSync(file).isFile() && rf(file).equals(bytes)
+    } catch { /* 预制故障只由独立控制认领，目标不执行。 */ }
+    ok('记忆选跑夹具有效：普通文件与原字节均确认', ready)
+    return ready ? bytes : undefined
+  }
+  const unchanged = (before: Buffer): boolean | undefined => {
+    try { return lstatSync(file).isFile() && rf(file).equals(before) }
+    catch (error) {
+      if (error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return false
+      ok('记忆选跑后置文件可观察：未知 I/O 不作目标结论', false)
+      return undefined
+    }
+  }
+  const readRejected = (raw: ReturnType<typeof one>): boolean | undefined => {
+    const before = prepare(raw)
+    if (before === undefined) return undefined
+    let rejected = false, observable = true
+    try { loadMemory() }
+    catch (error) {
+      // 导出类型与 loadMemory 同一模块实例；普通 TypeError 不能冒充结构拒收。
+      if (error instanceof MemoryUnreadable) rejected = true
+      else observable = false
+    }
+    ok('记忆选跑读取可判定：正常返回或公开语义拒收', observable)
+    if (!observable) return undefined
+    const kept = unchanged(before)
+    ok('记忆选跑读取原字节保留：改写不能冒充拒收', kept === true)
+    return kept === true ? rejected : undefined
+  }
+  const writeRejected = (over: Record<string, unknown>, nonText = false): boolean | undefined => {
+    const before = prepare(one({ contacted: true }))
+    if (before === undefined) return undefined
+    let result: ReturnType<typeof recordRecommendations> | undefined, threw = false
+    try { result = recordRecommendations([creator(over)], 'Foo', 'new-task') }
+    catch { threw = true }
+    // 非文字身份“不抛”本身就是 D4.n 的事前预期；其余场景的意外异常只报控制失败。
+    if (!nonText) {
+      ok('记忆选跑写回可判定：文字身份调用正常返回', !threw)
+      if (threw) return undefined
+    }
+    const kept = unchanged(before)
+    return kept === undefined ? undefined : !threw && result?.written === false &&
+      typeof result.reason === 'string' && kept
+  }
+  const normal = (run: () => boolean): boolean => {
+    try { return run() } catch { return false }
+  }
+  try {
+    useMemoryFile(file)
+    const controls = [
+      normal(() => prepare(one({ note: 'normal-empty', extra_note: 'operator note' })) !== undefined &&
+        loadMemory().creators['tiktok:alice']?.note === 'normal-empty'),
+      normal(() => ['tiktok', 'instagram'].every(platform => {
+        if (prepare(one({ platform, contacted: true }, `${platform.toUpperCase()}:ALICE`)) === undefined) return false
+        const profile_url = platform === 'tiktok'
+          ? 'https://www.tiktok.com/@alice' : 'https://www.instagram.com/alice/'
+        const r = filterByMemory([creator({ platform, profile_url })], 'Foo', 'new-task')
+        return r.kept.length === 0 && r.filtered_contacted === 1 && r.memory_status === 'ok'
+      })),
+      normal(() => {
+        if (prepare(one({ recommendations: [{ ...recommendation, product: ' Foo ' }] })) === undefined) return false
+        return loadMemory().creators['tiktok:alice'] !== undefined
+      }),
+      normal(() => {
+        if (prepare(one({ handle: 'Alice_2.0', contacted: true }, 'tiktok:Alice_2.0')) === undefined) return false
+        const r = filterByMemory([creator({ handle: 'alice_2.0', profile_url: 'https://www.tiktok.com/@alice_2.0' })], 'Foo', 'new-task')
+        return r.kept.length === 0 && r.filtered_contacted === 1
+      }),
+      normal(() => {
+        if (prepare(one({ contacted: true })) === undefined) return false
+        const r = recordRecommendations([creator({ handle: 'bob', profile_url: 'https://www.tiktok.com/@bob' })], 'Foo', 'new-task')
+        const after = loadMemory()
+        return r.written && after.creators['tiktok:alice']?.contacted === true &&
+          after.creators['tiktok:bob'] !== undefined
+      }),
+    ]
+    ok('记忆正常控制 合规空推荐与额外备注可读', controls[0])
+    ok('记忆正常控制 合法平台大小写仍过滤已联系者', controls[1])
+    ok('记忆正常控制 有内容的产品首尾空白可读', controls[2])
+    ok('记忆正常控制 裸 handle 的字母数字下划线点可读', controls[3])
+    ok('记忆写回正常控制 合法身份成功且旧联系标志保留', controls[4])
+    if (controls.every(Boolean)) {
+      const emptyProduct = readRejected(one({ recommendations: [{ ...recommendation, product: '' }] }))
+      if (emptyProduct !== undefined) ok('D4.d 空产品名推荐按坏记忆拒收', emptyProduct)
+      const blankProduct = readRejected(one({ recommendations: [{ ...recommendation, product: '   ' }] }))
+      if (blankProduct !== undefined) ok('D4.d 纯空白产品名推荐按坏记忆拒收', blankProduct)
+      const collisionPairs: Array<[string, ReturnType<typeof entry>]> = [
+        ['tiktok:alice', entry({ contacted: true })], ['TikTok:ALICE', entry({ contacted: false })],
+      ]
+      const collision = [readRejected(memory(collisionPairs)), readRejected(memory([...collisionPairs].reverse()))]
+      if (collision.every(r => r !== undefined)) ok('D4.d 大小写撞键不择一保留', collision.every(Boolean))
+      const multi = readRejected(one({ contacted: true }, 'tiktok:alice:old'))
+      if (multi !== undefined) ok('P4 多分隔符记忆键不得读入', multi)
+      const platform = readRejected(one({ contacted: true }, 'youtube:alice'))
+      if (platform !== undefined) ok('P4 不支持的平台记忆键不得读入', platform)
+      const handle = readRejected(one({ contacted: true }, 'tiktok:@alice'))
+      if (handle !== undefined) ok('P4 展示形态 handle 记忆键不得读入', handle)
+      const multiWrite = writeRejected({ handle: 'alice:old' })
+      if (multiWrite !== undefined) ok('D4.m 多分隔符身份不得写入', multiWrite)
+      const platformWrite = writeRejected({ platform: 'youtube' })
+      if (platformWrite !== undefined) ok('D4.m 不支持的平台身份不得写入', platformWrite)
+      const handleWrite = writeRejected({ handle: '@alice' })
+      if (handleWrite !== undefined) ok('D4.m 展示形态 handle 不得写入', handleWrite)
+      const nullHandle = writeRejected({ handle: null }, true)
+      if (nullHandle !== undefined) ok('D4.n null handle 写回返回未写回', nullHandle)
+      const numericPlatform = writeRejected({ platform: 7 }, true)
+      if (numericPlatform !== undefined) ok('D4.n 数字 platform 写回返回未写回', numericPlatform)
+    }
+  } finally {
+    useMemoryFile('memory/creators.json')
+    rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得靠一个解析错误重新进来')
