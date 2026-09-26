@@ -1454,7 +1454,9 @@
       "file": "scripts/check/mutate-rule.ts",
       "why": "任何一处调用都算起名 —— 组里随便一个带字符串首参的调用都会被当成夹具标签，负片点名时翻到的组可能整个是错的",
       "find": "      else if (label !== undefined && group !== undefined && declared.has(name)",
-      "replace": "      else if (label !== undefined && group !== undefined && true"
+      "replace": "      else if (label !== undefined && group !== undefined && true",
+      "by": "test",
+      "kills": ["工具标签归组 普通字符串调用不成为夹具"]
     },
     {
       "id": "M-H43-c",
@@ -1774,7 +1776,9 @@
       "why": "换了验证者仍按头一个验证者的失败汇总去认 —— 它真的红了也会被判成跑不起来，方向最坏的那种假阴性",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    summary: /(^|\\n)✗ 脚本自检：\\d+ 项失败\\s*(\\n|$)/,",
-      "replace": "    summary: /(^|\\n)\\d+ 个失败\\s*(\\n|$)/,"
+      "replace": "    summary: /(^|\\n)\\d+ 个失败\\s*(\\n|$)/,",
+      "by": "test",
+      "kills": ["工具判定 实际自检记录认领公共失败生产方的精确目标"]
     },
     {
       "id": "M-H14-r",
@@ -1850,7 +1854,9 @@
       "why": "验证者的名字按「原型链上有没有」来认 —— 语言内建的那几个名字照样放行，而取出来的根本不是验证者，判定当场抛，人看见的是一个栈，不是「名字写错了」",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  if (!Object.hasOwn(VERIFIERS, mut.by)) return 'unknown-verifier'",
-      "replace": "  if (!(mut.by in VERIFIERS)) return 'unknown-verifier'"
+      "replace": "  if (!(mut.by in VERIFIERS)) return 'unknown-verifier'",
+      "by": "test",
+      "kills": ["工具接线 原型链名字不是已登记验证者"]
     },
     {
       "id": "M-H14-w",
@@ -3419,7 +3425,9 @@
       "why": "调用者认成「点号右边那一截」：别的对象上的同名方法也被当成起名 —— 一个碰巧同名的方法就能凭空往清册里塞名字",
       "file": "scripts/check/mutate-rule.ts",
       "find": "ts.isIdentifier(node.expression) ? node.expression.text : undefined",
-      "replace": "ts.isIdentifier(node.expression) ? node.expression.text\n      : ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : undefined"
+      "replace": "ts.isIdentifier(node.expression) ? node.expression.text\n      : ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : undefined",
+      "by": "test",
+      "kills": ["工具标签清册 外部对象同尾方法不成为声明"]
     },
     {
       "id": "M-H20-d",
@@ -4012,7 +4020,9 @@
       "why": "自检这个验证者不再声明夹具记号 —— 记号照打、判定照认不出，「夹具没造对」又算成断言红了",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    fixtureMark: SELFCHECK_FIXTURE_MARK,\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": ["工具验证者声明 自检声明公开夹具无效记号"]
     },
     {
       "id": "M-H25-c",
