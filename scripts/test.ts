@@ -5429,6 +5429,10 @@ suite('U4', 'A 级附开发信草稿且可复制')
 
 }
 await group('h-mutate', () => {
+harness('自检故障记号：非空才能区分未测到与断言失败')
+ok('自检进程级失败记号非空', SELFCHECK_PROCESS_MARK.length > 0)
+ok('自检夹具故障记号非空', SELFCHECK_FIXTURE_MARK.length > 0)
+
 harness('变异子集先过正常代码基线：失败或没跑完不能当绿')
 {
   const goodTest = '\n全部通过（执行 1 条断言；覆盖 1 条需求）\n'
