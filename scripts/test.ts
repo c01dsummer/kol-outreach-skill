@@ -146,6 +146,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
   { id: 'h-group', needs: [] },
+  { id: 'h-selfcheck-selection-entry', needs: [] },
   { id: 'h-check-rules', needs: [] },
   { id: 'p1-provider', needs: [] },
   { id: 'd6-provider', needs: [] },
@@ -6674,6 +6675,71 @@ harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 n
   const selfGrouped = groupOfLabel(selfSrc, selfDecl)
   eq('真 selfcheck.ts：清册里的每条标签都翻得出组，一条不落',
     [...labelsOf(selfSrc, selfDecl).keys()].filter(l => selfGrouped.get(l) === undefined), [])
+}
+
+})
+await group('h-selfcheck-selection-entry', () => {
+harness('真实自检入口的严格选择：非法参数不能被忽略后报成功')
+{
+  // 独立上下文只依据 ARCHITECTURE 的入口/认领契约与 ADR-99 的拒绝契约。
+  // dup-ids 的公开登记无依赖；步骤名、单组完成行与临时资源前缀来自既有声明，
+  // 没有把实现运行结果复制成 expected，也不认领任何产品验收判据。
+  const step = '✓ mutate 遇到重复编号即以退出码 1 结束'
+  const done = '✓ 脚本自检（只跑 1 组）：点名的那几组都跑完了，一条断言都没红'
+  const unknown = '--unexpected-selection'
+  const claimsBefore = [CLAIMS_PATH, ENTRY_CLAIMS_PATH].map(path =>
+    [path, existsSync(path) ? rf(path) : undefined] as const)
+  const claimsUnchanged = () => claimsBefore.every(([path, bytes]) =>
+    bytes === undefined ? !existsSync(path) : existsSync(path) && rf(path).equals(bytes))
+  const root = mkdtempSync(join(tmpdir(), 'kol-sel-'))
+  const env: NodeJS.ProcessEnv = { ...process.env, TMPDIR: root, TMP: root, TEMP: root }
+  // 验的是普通子集入口；不能借变异运行的“不拥有认领”掩盖认领清理错误。
+  delete env.MUTATING
+  const hasLine = (output: string, line: string) =>
+    output.split(/\r?\n/).some(found => found.trim() === line)
+  // 步骤声明固定名字，允许紧接完整括号注记；注记内容不作为 expected。
+  const hasStep = (output: string) => output.split(/\r?\n/).some(line => {
+    const found = line.trim()
+    return found === step || (found.startsWith(step)
+      && /^(?:\s*\([^()\r\n]*\)|\s*（[^（）\r\n]*）)$/.test(found.slice(step.length)))
+  })
+  const run = (args: string[]) => {
+    const [exe, argv] = tsxCommand(['scripts/check/selfcheck.ts', ...args])
+    const r = spawnSync(exe, argv, { encoding: 'utf8', env, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 })
+    const output = `${r.stdout}\n${r.stderr}`
+    // 起不来、超时、被信号停下或内部崩溃都没有资格满足具名拒绝断言。
+    if (r.error || r.signal || r.status === null
+      || /\b(?:SyntaxError|TypeError|ReferenceError|RangeError|TransformError|ERR_[A-Z_]+)\b|Cannot find (?:module|package)/.test(output)
+      || output.includes(SELFCHECK_PROCESS_MARK) || output.includes(SELFCHECK_FIXTURE_MARK)) {
+      throw new Error(`自检选择入口没有取得有效进程证据：${r.error?.message ?? r.signal ?? r.status}\n${output}`)
+    }
+    if (!claimsUnchanged()) throw new Error('自检选择子集改变了完整认领记录，入口证据无效')
+    if (readdirSync(root).some(name => name.startsWith('kol-selfcheck-'))) {
+      throw new Error('自检选择入口未回收其临时夹具，入口证据无效')
+    }
+    return { status: r.status, stderr: r.stderr, output }
+  }
+  try {
+    const good = run(['--only=dup-ids'])
+    const completed = good.status === 0 && hasStep(good.output) && hasLine(good.output, done)
+    ok('真实自检入口接受合法单组选跑并执行完成', completed)
+    if (!completed) return
+
+    const bad = run(['--only=dup-ids', unknown])
+    // 拒绝理由按语义核对，不固定一句文案；仍必须点出这次传入的参数原文。
+    const rejected = bad.status === 1 && bad.stderr.includes(unknown)
+      && /未知|未识别|无法识别|不能识别|不(?:认识|识别|支持|受支持|接受)|unknown|unsupported|unrecognized|not (?:recognized|supported|accepted)/i.test(bad.stderr)
+      && !/^\s*[✓✗]\s/m.test(bad.output) && !hasLine(bad.output, done)
+    const wronglyCompleted = bad.status === 0 && hasStep(bad.output) && hasLine(bad.output, done)
+    // 仅真实完成合法轻组却误放行，才让这条拒绝断言自然红；其他非零退出不冒领功劳。
+    if (!rejected && !wronglyCompleted) {
+      throw new Error(`非法选择既未说明参数拒绝，也未实际完成合法组，证据无效\n${bad.output}`)
+    }
+    ok('真实自检入口拒绝未知参数且不执行夹具', rejected)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    if (existsSync(root)) throw new Error('自检选择测试未清理其独占临时根')
+  }
 }
 
 })

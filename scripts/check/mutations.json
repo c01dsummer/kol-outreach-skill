@@ -1396,6 +1396,18 @@
       "replace": "  if (false) throw new Error('--only= 不能重复点同一组')"
     },
     {
+      "id": "M-H42-j",
+      "req": "harness",
+      "why": "自检入口忽略未知命令行参数，在合法子集完成后仍报告成功，未按选择契约拒绝",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "import { type Group, parseOnlyStrict, wanted } from './group-rule.js'",
+      "replace": "import { type Group, parseOnly as parseOnlyStrict, wanted } from './group-rule.js'",
+      "by": "test",
+      "kills": [
+        "真实自检入口拒绝未知参数且不执行夹具"
+      ]
+    },
+    {
       "id": "M-H43-a",
       "req": "harness",
       "file": "scripts/check/mutate-rule.ts",
