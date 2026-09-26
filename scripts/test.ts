@@ -1364,6 +1364,8 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     eq('没有顺着残留的软链写到别处去', rf(elsewhere, 'utf8'), '别处的文件')
     ok('写回的是一个普通文件', !lstatSync(tmp).isSymbolicLink())
     ok('内容是这一次写的', JSON.parse(rf(tmp, 'utf8')).creators['tiktok:erin'] !== undefined)
+    // 变异可能把目标换成软链；断言后先删掉，后续权限夹具才不会重写外部文件。
+    rmSync(tmp, { force: true })
     rmSync(planted, { force: true }); rmSync(elsewhere, { force: true })
   }
 
