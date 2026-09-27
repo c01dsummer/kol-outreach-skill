@@ -27,7 +27,7 @@ import {
 } from './check/mutate-rule.js'
 import { type Group, parseOnly, parseOnlyStrict, wanted } from './check/group-rule.js'
 import {
-  beginMutation, blockingWait, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
+  beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
 } from './check/mutate-restore.js'
 import {
@@ -149,6 +149,7 @@ const GROUPS: readonly Group[] = [
   { id: 'f6-veto', needs: [] },
   { id: 'f8-risk', needs: [] },
   { id: 'u1-u5-output', needs: [] },
+  { id: 'h-claims-restore', needs: [] },
   { id: 'h-mutate', needs: [] },
   { id: 'h-mutation-maintenance', needs: [] },
   { id: 'h-mutation-cost', needs: [] },
@@ -5768,6 +5769,57 @@ suite('U4', 'A 级附开发信草稿且可复制')
 }
 
 }
+// Independently authored from the public claims restoration contract.
+await group('h-claims-restore', () => {
+    const bytes = (...values: number[]) => Uint8Array.from(values);
+    const text = (value: string) => new TextEncoder().encode(value);
+
+    ok('认领恢复：原件和当前均缺席时保留缺席',
+      claimsRestoreAction(undefined, undefined) === 'keep');
+    ok('认领恢复：存在原件而当前缺席时恢复',
+      claimsRestoreAction(bytes(0, 255), undefined) === 'restore');
+    ok('认领恢复：原本缺席而当前存在时删除',
+      claimsRestoreAction(undefined, bytes(0, 255)) === 'remove');
+    ok('认领恢复：不同数组的完全相同字节保留原件',
+      claimsRestoreAction(bytes(0, 7, 255), bytes(0, 7, 255)) === 'keep');
+
+    ok('认领恢复：当前比原件长时恢复',
+      claimsRestoreAction(bytes(1, 2), bytes(1, 2, 3)) === 'restore');
+    ok('认领恢复：当前比原件短时恢复',
+      claimsRestoreAction(bytes(1, 2, 3), bytes(1, 2)) === 'restore');
+    ok('认领恢复：同长度首字节不同也恢复',
+      claimsRestoreAction(bytes(1, 2, 3), bytes(9, 2, 3)) === 'restore');
+    ok('认领恢复：同长度中间字节不同也恢复',
+      claimsRestoreAction(bytes(1, 2, 3), bytes(1, 9, 3)) === 'restore');
+    ok('认领恢复：同长度末字节不同也恢复',
+      claimsRestoreAction(bytes(1, 2, 3), bytes(1, 2, 9)) === 'restore');
+    ok('认领恢复：二进制字节不同不能按解码文本判相同',
+      claimsRestoreAction(bytes(128), bytes(129)) === 'restore');
+    ok('认领恢复：字节次序不同的正向比较恢复',
+      claimsRestoreAction(bytes(1, 2), bytes(2, 1)) === 'restore');
+    ok('认领恢复：字节次序不同的反向比较恢复',
+      claimsRestoreAction(bytes(2, 1), bytes(1, 2)) === 'restore');
+
+    // 两个对象语义相同；字段顺序仍是原字节变化，且两份文本长度相同。
+    ok('认领恢复：同长度同语义JSON的字段次序变化仍恢复',
+      claimsRestoreAction(text('{"a":1,"b":2}'), text('{"b":2,"a":1}')) === 'restore');
+    ok('认领恢复：同语义JSON的空白变化仍恢复',
+      claimsRestoreAction(text('{"a":1}'), text('{"a": 1}\n')) === 'restore');
+
+    ok('认领恢复：空原件遇到当前缺席仍恢复',
+      claimsRestoreAction(bytes(), undefined) === 'restore');
+    ok('认领恢复：空原件和空当前相同则保留',
+      claimsRestoreAction(bytes(), bytes()) === 'keep');
+    ok('认领恢复：空原件遇到非空当前时恢复',
+      claimsRestoreAction(bytes(), bytes(0)) === 'restore');
+    ok('认领恢复：非空原件遇到空当前时恢复',
+      claimsRestoreAction(bytes(0), bytes()) === 'restore');
+    ok('认领恢复：原本缺席而当前空文件时删除',
+      claimsRestoreAction(undefined, bytes()) === 'remove');
+    ok('认领恢复：视图中的相同字节保留原件',
+      claimsRestoreAction(bytes(0, 255), bytes(88, 0, 255, 77).subarray(1, 3)) === 'keep');
+  });
+
 await group('h-mutate', () => {
 // 预期来自独立 oracle；宿主控制和断言不以被测判定给自己打分。
 harness('工具选跑：真实调用与无资格证据分开')
