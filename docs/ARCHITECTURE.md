@@ -163,10 +163,19 @@ CI 从 GitHub 提供的 `GITHUB_EVENT_PATH` 与 `GITHUB_EVENT_NAME` 取得事件
 解释形状与变化判定由检查代码负责，解释语义由评审负责，公开判据见 `process/4-VERIFY.md`。
 维护结果只增加变化清单，不接管验证者的断言归因、进程收尾或认领写入；
 正常基线复用与完整运行的审计认领仍由原执行路径负责。
+
+本仓库的全跑维护解释使用变异条目的
+`full_run: { reason: string, recheck_when: string }`：两个值均须为非空白字符串，
+分别说明全跑原因与重审条件。新增全跑、选跑退回全跑，以及旧全跑的核心正文改变时必须提供。
+核心正文指 `file`、`find`、`replace`、`req`、`by`、`kills`；已有解释不能删除或写坏。
+没有解释且核心正文未变的旧全跑项，依据可信 Git 基线的真实旧条目兼容，不写历史白名单。
+这些具体字段与兼容判据落实 `process/4-VERIFY.md` 的维护原则；不改变范围或具名失败资格。
+
 配置成本报告的公开验收在 `process/4-VERIFY.md`，交付顺序见 ADR-121 末尾。
 当前改动先交 `jobs-rule.ts` 的纯统计与呈现；`mutate.ts` 真实观察及 worker 启动记录接线由下一条独立改动交付。
 worker 回报仍为 `⟦结论⟧ ` 加单行 JSON；可选 `started` 缺席时保留原合法结论，成本未知。
 显式 `started` 只接受布尔值并原样穿过编码与解析；非法值使整行认不出，不能凭它跳过既有必填字段校验或改判 verdict。
+缺启动字段保留旧合法执行结论、成本未知；坏字段沿既有缺/坏回报路径失败。
 启动字段的协议反例先独立验收；实际 spawn 取数、基线关联与自动报告随后用真实入口证据接入。
 现有入口尚未自动输出真实运行成本；以下是后续生产观察的目标边界，不表示接线已实现。
 组合身份沿既有 `by` 与排序后的 `only` 复用键；`only` 缺席为全量，执行组及顺序投影自冻结的 `RouteSnapshot`。
@@ -176,6 +185,25 @@ worker 通过实际 spawn 事件观察启动；结果的可选 `started` 只供�
 正常基线与变异计时分开；全量正常基线在外层完整检查中，当前报告未观测其启动、成功、复用与经过时间，不印作零。
 版本取可信 Git 的 base/head；待验源码身份使用现有 live fingerprint，另记变异目录与依赖锁指纹、命令及生效环境。
 成本观测不重复启动基线、不参与归因或认领资格；运行完整与观测完整分别声明，缺观测不改变旧执行结论。
+
+后续入口的输出协议先记在这里，尚未自动输出，不表示接线已验收：
+普通 coordinator 在收尾时输出一次 `MUTATION_COST_JSON ` 加单行 JSON，人读行使用同一份 `CostSummary`。
+外壳为 `{schema:'mutation-cost/v1',kind:'summary',report:CostSummary}`；
+可信运行身份与实际路由尚未形成时为 `{schema:'mutation-cost/v1',kind:'unavailable',reason:string}`。
+完整保留组合、时间桶、缺失身份与诊断；`--brief` 和 `--worker` 不输出此段。
+信号或未捕获崩溃不能完成收尾时不保证有段；缺段、重复或截断不能从人读行补成成本证据。
+命令记录实际 Node 层 `[process.execPath,...process.execArgv,...process.argv.slice(1)]`，
+环境记录 Node 版本、platform、arch；workers 投影实际采用的并行配置，不用启动数或峰值代替。
+源码身份在首次正常基线和施变前冻结，编码为规范 JSON 四项数组：
+`['mutation-cost-source/v1',liveFingerprint,'sha256:'+catalog原字节SHA256,'sha256:'+lock原字节SHA256]`。
+catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均从原始字节计算 SHA256。
+任一分量读取失败时身份缺席并说明原因，不借 HEAD、空文件或零值填充。
+
+本仓库的入口接线须由实际启动入口的独立验证者验证，需求测试也可承担。
+内部判定单测不能证明未执行的接线。仅由自检端到端认领的验收判据，必须有
+`by: "selfcheck"` 负片；没有则硬失败，不能改登记 `exemptions` 放行。
+指定 `by` 时 `kills` 必填并要求点名的全部断言红；验证基础设施的隔离限制仍适用。
+这些是本仓检查链落实通用验证原则的具体资格，不由成本报告改变。
 维护摘要与完整变化清单共用原料，路由变化先列、配置变化分节后列；不删除逐项清单，ADR-120 呈现欠条在后续真实入口改动验收后兑现。
 
 纯维护规则断言与 M-H47-a…n 的 14 条 `kills` 保留在需求测试；真实维护入口夹具归既有自检的
