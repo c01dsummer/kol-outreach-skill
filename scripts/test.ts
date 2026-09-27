@@ -152,6 +152,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-mutate', needs: [] },
   { id: 'h-mutation-maintenance', needs: [] },
   { id: 'h-mutation-cost', needs: [] },
+  { id: 'h-worker-start', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
   { id: 'h-group', needs: [] },
@@ -6859,6 +6860,86 @@ function runMutationCostTests(): void {
 }
 
 runMutationCostTests()
+})
+
+await group('h-worker-start', () => {
+harness('worker 启动观测协议：兼容旧回报并拒绝坏字段')
+
+// Independent oracle: public worker contract, VERIFY cost acceptance and ADR-121.
+// Hand-authored frames exercise parsing; native JSON.parse exercises encoding.
+{
+  const prefix = '⟦结论⟧ ';
+  const id = 'worker-"\\\ncase';
+  const samples: Ran[] = [
+    { outcome: 'caught', status: null, stopped: true, output: 'caught-"\\\nlog', ms: 0 },
+    { outcome: 'elsewhere', status: 1, stopped: false, output: 'elsewhere log', ms: 12 },
+    { outcome: 'crashed', status: null, stopped: false, output: 'crash-"\\\nlog', ms: 23 },
+    { outcome: 'survived', status: 0, stopped: false, output: 'survived log', ms: 34 },
+    { outcome: 'not-applied', status: 0, stopped: false, output: '', ms: 0 },
+  ];
+  const manual = (row: unknown) => parseReport(prefix + JSON.stringify(row));
+  const preserves = (expected: Ran) => {
+    const actual = manual({ id, ...expected });
+    return actual !== undefined && actual.id === id && actual.outcome === expected.outcome
+      && actual.status === expected.status && actual.stopped === expected.stopped
+      && actual.output === expected.output && actual.ms === expected.ms
+      && actual.started === expected.started;
+  };
+  ok('worker 缺启动观测保留五类旧结论及原字段', samples.every(preserves));
+  ok('worker true 启动观测原样保留且不改五类旧结论',
+    samples.every(ran => preserves({ ...ran, started: true })));
+  ok('worker false 启动观测原样保留且不改五类旧结论',
+    samples.every(ran => preserves({ ...ran, started: false })));
+
+  const rejectsStarted = (value: unknown) => samples.every(ran =>
+    manual({ id, ...ran, started: value }) === undefined);
+  ok('worker null 启动观测拒绝整行', rejectsStarted(null));
+  ok('worker 字符串启动观测拒绝整行', ['true', 'false', ''].every(rejectsStarted));
+  ok('worker 数字启动观测拒绝整行', [0, 1, -1].every(rejectsStarted));
+  ok('worker 数组启动观测拒绝整行', [[], [true], [false]].every(rejectsStarted));
+  ok('worker 对象启动观测拒绝整行', [{}, { value: true }].every(rejectsStarted));
+
+  const row: Record<string, unknown> = { id, ...samples[0] };
+  const missing = ['id', 'outcome', 'status', 'stopped', 'output', 'ms'].map(field => {
+    const incomplete = { ...row };
+    delete incomplete[field];
+    return incomplete;
+  });
+  const malformed = [
+    { ...row, id: 1 }, { ...row, outcome: 'unknown' }, { ...row, status: '0' },
+    { ...row, stopped: 1 }, { ...row, output: [] }, { ...row, ms: '0' },
+  ];
+  const rejectsWithFlags = (rows: Record<string, unknown>[]) => rows.every(value =>
+    [true, false].every(started => manual({ ...value, started }) === undefined));
+  ok('worker 合法启动观测不能豁免缺失必填字段', rejectsWithFlags(missing));
+  ok('worker 合法启动观测不能豁免非法必填字段', rejectsWithFlags(malformed));
+
+  const encoded = (ran: Ran): Record<string, unknown> | undefined => {
+    const line = reportLine(id, ran);
+    if (line.includes('\n')) return undefined;
+    try {
+      const value: unknown = JSON.parse(line.slice(prefix.length));
+      return value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown> : undefined;
+    } catch { return undefined; }
+  };
+  const preservesWire = (ran: Ran) => {
+    const actual = encoded(ran);
+    return actual !== undefined && actual.id === id && actual.outcome === ran.outcome
+      && actual.status === ran.status && actual.stopped === ran.stopped && actual.ms === ran.ms
+      && actual.output === (ran.outcome === 'crashed' ? ran.output : '')
+      && actual.started === ran.started;
+  };
+  ok('worker 编码 true 由原生 JSON 确认且保留原回报字段',
+    samples.every(ran => preservesWire({ ...ran, started: true })));
+  ok('worker 编码 false 由原生 JSON 确认且保留原回报字段',
+    samples.every(ran => preservesWire({ ...ran, started: false })));
+  ok('worker 编码缺启动观测不制造布尔字段', samples.every(ran => {
+    const actual = encoded(ran);
+    return actual !== undefined && !Object.prototype.hasOwnProperty.call(actual, 'started')
+      && preservesWire(ran);
+  }));
+}
 })
 
 await group('h-jobs', () => {
