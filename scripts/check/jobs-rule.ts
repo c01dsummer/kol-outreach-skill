@@ -74,6 +74,11 @@ export interface Ran {
    * **派工跑的时候它要穿过 worker 的进程边界**，所以和别的字段一样写进汇报行、由 `parseReport` 逐字段验。
    */
   ms: number
+  /**
+   * 验证者实际启动的观测；缺席为旧回报没有观测，不从结论或 ms 补出。
+   * 只供成本取数，不改变原结论；实际 spawn 观察由后续入口接线提供。
+   */
+  started?: boolean
 }
 
 /**
