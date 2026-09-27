@@ -5734,6 +5734,12 @@ group('mutation-maintenance-entry', [], () => {
   const { fileURLToPath: entryUrlPath } = entryRequire('node:url') as typeof import('node:url');
   const { spawnSync: entrySpawn } = entryRequire('node:child_process') as typeof import('node:child_process');
   const entryTsx = tsxCommand;
+  const entryEnvironment = (extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv => {
+    const childEnv: NodeJS.ProcessEnv = { ...process.env, ...extra };
+    for (const key of Object.keys(extra)) if (extra[key] === undefined) delete childEnv[key];
+    for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete childEnv[key];
+    return childEnv;
+  };
   const entryRoot = entryTemp(entryJoin(entryTmpdir(), 'kol-maintenance-entry-'));
   const entryPath = entryUrlPath(new URL('./mutate.ts', import.meta.url));
   const entryMutation = { id: 'M-X-a', req: 'X1.a', why: '已确认的安全值不得被删除', file: 'scripts/lib/fixture.ts', find: 'keep', replace: 'gone' };
@@ -5756,7 +5762,7 @@ await group('b', () => { eq('夹具第二组保留已确认值', value(), 'keep'
 console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执行 2 条断言；覆盖 0 条需求）\\n');
 `;
   const entryGit = (cwd: string, ...args: string[]) => {
-    const result = entrySpawn('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } });
+    const result = entrySpawn('git', args, { cwd, encoding: 'utf8', env: entryEnvironment({ GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }) });
     if (result.status !== 0) throw new Error('[fixture-error] Entry Git fixture failed: ' + String(result.stderr));
     return result.stdout.trim();
   };
@@ -5764,8 +5770,7 @@ console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执�
   const entryCommit = (cwd: string, message: string) => { entryGit(cwd, 'add', '.'); entryGit(cwd, 'commit', '--quiet', '-m', message); return entryGit(cwd, 'rev-parse', 'HEAD'); };
   const entryRun = (cwd: string, base: string, script = entryPath, extraEnv: Record<string, string | undefined> = {}) => {
     const [exe, args] = entryTsx(script === entryPath ? [script, '--jobs=1'] : [script]);
-    const env: Record<string, string | undefined> = { ...process.env, MUTATE_BASE_SHA: base, MUTATE_JOBS: '1', KOL_MAINTENANCE_ENTRY_MARKER: entryJoin(cwd, 'verifier.marker'), NODE_COMPILE_CACHE: entryJoin(entryRoot, 'compile-cache'), ...extraEnv };
-    for (const key of Object.keys(extraEnv)) if (extraEnv[key] === undefined) delete env[key];
+    const env = entryEnvironment({ MUTATE_BASE_SHA: base, MUTATE_JOBS: '1', KOL_MAINTENANCE_ENTRY_MARKER: entryJoin(cwd, 'verifier.marker'), NODE_COMPILE_CACHE: entryJoin(entryRoot, 'compile-cache'), ...extraEnv });
     return entrySpawn(exe, args, { cwd, encoding: 'utf8', timeout: 45000, maxBuffer: 1024 * 1024, env });
   };
   const entrySetup = (name: string, missingCatalog = false) => {
@@ -5809,12 +5814,14 @@ console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执�
     named('维护入口-全量施变保护已有认领', (entryRead(claimPath, 'utf8')) === (claimSentinel), '实际值必须与既定期望完全相同');
 // Insert inside the existing entry group's try block after its successful full mutation run.
 {
+  const { realpathSync: entryGitRealpath } = entryRequire('node:fs') as typeof import('node:fs');
+  const entryGitExpectedRoot = entryGitRealpath(fixture.cwd);
   const entryGitLocationKeys = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR'] as const;
   const entryGitOriginalEnvironment = new Map(entryGitLocationKeys.map(key => [key, process.env[key]] as const));
   try {
     for (const key of entryGitLocationKeys) process.env[key] = entryJoin(entryRoot, 'nonexistent-isolation-' + key);
     const entryGitObserved = (() => { try { return entryGit(fixture.cwd, 'rev-parse', '--show-toplevel'); } catch (error) { return { kind: 'command-error', errorType: error instanceof Error ? error.name : typeof error }; } })();
-    named('维护入口-Git子进程隔离继承定位变量', entryGitObserved === fixture.cwd, '期望夹具根路径；实际观察：' + JSON.stringify(entryGitObserved));
+    named('维护入口-Git子进程隔离继承定位变量', typeof entryGitObserved === 'string' && (() => { try { return entryGitRealpath(entryGitObserved) === entryGitExpectedRoot; } catch { return false; } })(), '期望夹具根路径；实际观察：' + JSON.stringify(entryGitObserved));
     entryRemove(fixture.marker, { force: true });
     const entryIsolatedRun = (() => { try { return entryRun(fixture.cwd, fixture.base); } catch (error) { return { status: null, errorType: error instanceof Error ? error.name : typeof error }; } })();
     named('维护入口-施变子进程隔离继承定位变量', entryIsolatedRun.status === 0, '期望退出0；实际退出：' + String(entryIsolatedRun.status));
