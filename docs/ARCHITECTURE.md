@@ -199,6 +199,12 @@ worker 通过实际 spawn 事件观察启动；结果的可选 `started` 只供�
 catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均从原始字节计算 SHA256。
 任一分量读取失败时身份缺席并说明原因，不借 HEAD、空文件或零值填充。
 
+其中 `liveFingerprint` 沿用 `claims.ts` 的源码认领格式：从仓库根递归读取 `scripts/` 下的 `.ts`，
+内容按 UTF8 解码；路径包含 `scripts` 前缀，按当前平台的 `node:path.join` 形成，不另作规范化。
+按 JavaScript 字符串 `<` / `>` 比较的路径顺序排序，逐项将 `路径 + NUL + 内容 + NUL`
+以 UTF8 编码喂给同一 SHA256，取结果的小写十六进制前 12 位。目录遍历顺序不参与身份。
+此补充公开既有格式，供后续独立验收推导预期；不追认为此前草稿已经取得的事前合同。
+
 本仓库的入口接线须由实际启动入口的独立验证者验证，需求测试也可承担。
 内部判定单测不能证明未执行的接线。仅由自检端到端认领的验收判据，必须有
 `by: "selfcheck"` 负片；没有则硬失败，不能改登记 `exemptions` 放行。
