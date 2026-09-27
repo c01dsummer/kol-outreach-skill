@@ -8362,6 +8362,146 @@
       "kills": [
         "恢复进度：错误点名 task.json 路径与所有坏字段"
       ]
+    },
+    {
+      "id": "M-H47-a",
+      "req": "harness",
+      "why": "显式基线被忽略，非法或同版本基线被当成本地默认基线接受",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "if (explicitBase === undefined) {",
+      "replace": "if (true) {",
+      "by": "test",
+      "kills": ["维护-显式基线不能等于HEAD"]
+    },
+    {
+      "id": "M-H47-b",
+      "req": "harness",
+      "why": "待验版本与自身比较被接受，变化被隐藏",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "if (base === head) return cannot('基线不能与待验提交相同')",
+      "replace": "if (false) return cannot('基线不能与待验提交相同')",
+      "by": "test",
+      "kills": ["维护-显式基线不能等于HEAD"]
+    },
+    {
+      "id": "M-H47-c",
+      "req": "harness",
+      "why": "无关历史被当作可信旧版本接受",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "if (ask('merge-base', base, head) !== base) return cannot('基线不是待验提交的祖先或祖先关系无法核实')",
+      "replace": "if (false) return cannot('基线不是待验提交的祖先或祖先关系无法核实')",
+      "by": "test",
+      "kills": ["维护-显式基线不能来自无关历史"]
+    },
+    {
+      "id": "M-H47-d",
+      "req": "harness",
+      "why": "浅历史被当成可核实的完整比较接受",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "if (ask('rev-parse', '--is-shallow-repository') !== 'false') return cannot('历史不完整或无法确认不是浅克隆')",
+      "replace": "if (false) return cannot('历史不完整或无法确认不是浅克隆')",
+      "by": "test",
+      "kills": ["维护-浅历史即使提交都存在也无从比较"]
+    },
+    {
+      "id": "M-H47-e",
+      "req": "harness",
+      "why": "全跑解释只有一段有效文本也被接受",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return ['reason', 'recheck_when'].every(k =>",
+      "replace": "return ['reason', 'recheck_when'].some(k =>",
+      "by": "test",
+      "kills": ["维护-已有解释不得写坏"]
+    },
+    {
+      "id": "M-H47-f",
+      "req": "harness",
+      "why": "原来选组的变异退回全跑却不要求解释",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "else if (prior!.only !== undefined) kind = 'back-to-full'",
+      "replace": "else if (false) kind = 'back-to-full'",
+      "by": "test",
+      "kills": ["维护-选组回全量需解释"]
+    },
+    {
+      "id": "M-H47-g",
+      "req": "harness",
+      "why": "旧全跑正文改变仍借用历史资格",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "else if (core(before) !== core(m)) kind = 'changed-full'",
+      "replace": "else if (false) kind = 'changed-full'",
+      "by": "test",
+      "kills": ["维护-旧全量正文改变逐字段拒绝"]
+    },
+    {
+      "id": "M-H47-h",
+      "req": "harness",
+      "why": "已经提供的全跑解释可被静默删除",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "requires || m.full_run !== undefined || before?.full_run !== undefined",
+      "replace": "requires || m.full_run !== undefined",
+      "by": "test",
+      "kills": ["维护-解释不得删除"]
+    },
+    {
+      "id": "M-H47-i",
+      "req": "harness",
+      "why": "部分点名断言未归组时仍缩为子集执行",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "const only = picked === undefined || picked.some(id => id === undefined) ? undefined : [...new Set(picked as string[])]",
+      "replace": "const only = picked === undefined || picked.every(id => id === undefined) ? undefined : [...new Set(picked.filter(id => id !== undefined) as string[])]",
+      "by": "test",
+      "kills": ["维护-任一点名断言未分组就实际全量"]
+    },
+    {
+      "id": "M-H47-j",
+      "req": "harness",
+      "why": "选组忘记传递依赖，实际需要的前置组被遗漏",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "const selected = wanted(layouts[by], only)",
+      "replace": "const selected = only === undefined ? undefined : new Set(only)",
+      "by": "test",
+      "kills": ["维护-选组带传递依赖且保留实际顺序"]
+    },
+    {
+      "id": "M-H47-k",
+      "req": "harness",
+      "why": "依赖和执行顺序改变不再列给评审",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "const layoutChanges = [...verifiers].filter(by => JSON.stringify(base.layouts[by]) !== JSON.stringify(head.layouts[by]))",
+      "replace": "const layoutChanges: string[] = []",
+      "by": "test",
+      "kills": ["维护-依赖变化列给评审"]
+    },
+    {
+      "id": "M-H47-l",
+      "req": "harness",
+      "why": "分组登记与实际调用不一致时仍猜测执行配置",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "if (registered !== undefined && JSON.stringify(calls.map(c => literal(c.arguments[0]))) !== JSON.stringify(groups.map(g => g.id))) {",
+      "replace": "if (false) {",
+      "by": "test",
+      "kills": ["维护-登记组与实际调用不一致不得猜配置"]
+    },
+    {
+      "id": "M-H47-m",
+      "req": "harness",
+      "why": "PR 事件没有使用其自身目标提交，比较起点错用或被拒绝",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "if (eventName === 'pull_request') {",
+      "replace": "if (false) {",
+      "by": "test",
+      "kills": ["维护事件-PR取自身baseSHA"]
+    },
+    {
+      "id": "M-H47-n",
+      "req": "harness",
+      "why": "事件起点缺失或不是字符串也被接受，未知事件输入被当成有效基线",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "if (typeof base !== 'string') throw new Error('事件基线字段缺失或不是字符串')",
+      "replace": "if (false) throw new Error('事件基线字段缺失或不是字符串')",
+      "by": "test",
+      "kills": ["维护事件-未知缺失与错字段不得退回本地"]
     }
   ],
   "exemptions": [

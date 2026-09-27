@@ -32,7 +32,7 @@
  * 这条防线的强度取决于 `why` 怎么写 —— 引了实现原文的 why，`--brief` 照样把它漏出去。
  */
 import { cpSync, existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -42,7 +42,7 @@ import { implementationLeak } from './why-rule.js'
 import {
   type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
-  groupOfLabel, labelFaults, labelsOf,
+  executionRoutes, labelFaults, labelsOf, mutationEventBase, resolveMutationBaseline, routeDelta, type RouteSnapshot,
   anchorMatches, baselineFault, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH } from './claims.js'
@@ -66,6 +66,8 @@ interface Mut {
    * 没写 `by` 就不许写。只收一个名字时，弄红头一条就算抓到，剩下几条明天删光也照样绿。
    */
   kills?: string[]
+  /** 实际全跑的维护解释；形状与历史兼容由 routeDelta 判。 */
+  full_run?: unknown
 }
 interface Exemption { req: string; scope?: string; why: string; mitigation?: string }
 const cfg = JSON.parse(readFileSync('scripts/check/mutations.json', 'utf8'))
@@ -184,18 +186,19 @@ const inventoryOf = (by: string): ReadonlyMap<string, number> => {
  * 不属于任何一组的那段），缩到子集会把它整段漏掉 —— 而漏掉的表现是「跑完、没红」，
  * 一条本该被抓到的变异会被判成没人抓得住。宁可多跑，不可漏验。
  */
-const groupsFor = new Map<string, ReadonlyMap<string, string>>()
-const onlyFor = (m: Mut): string[] | undefined => {
-  if (m.by === undefined || m.kills === undefined) return undefined
-  const v = VERIFIERS[m.by]
-  let map = groupsFor.get(m.by)
-  if (map === undefined) {
-    map = groupOfLabel(existsSync(v.script) ? readFileSync(v.script, 'utf8') : '', v.declares)
-    groupsFor.set(m.by, map)
+let currentRoutes: RouteSnapshot | undefined
+let routesById: Map<string, RouteSnapshot['routes'][number]> | undefined
+const currentSnapshot = (): RouteSnapshot => {
+  if (currentRoutes === undefined) {
+    currentRoutes = executionRoutes(muts, file => existsSync(file) ? readFileSync(file, 'utf8') : undefined)
+    routesById = new Map(currentRoutes.routes.map(r => [r.id, r]))
   }
-  const ids = m.kills.map(k => map!.get(k))
-  if (ids.some(id => id === undefined)) return undefined
-  return [...new Set(ids as string[])]
+  return currentRoutes
+}
+const onlyFor = (m: Mut): string[] | undefined => {
+  currentSnapshot()
+  const only = routesById!.get(m.id)!.only
+  return only === undefined ? undefined : [...only]
 }
 const SAY_LABEL: Record<LabelFault, (m: Mut, label: string) => string> = {
   'unknown-label': (m, k) => `点的夹具「${k}」不在 ${m.by} 的清册里 —— 名字写岔了，或者那条夹具没了`,
@@ -522,6 +525,8 @@ const record = (m: Mut, ran: Ran): void => {
  * 排在队里没写出去的那一行会被当成「这一条没回话」，而那是硬失败。
  */
 if (process.argv.includes('--worker')) {
+  // coordinator 已核可信历史；worker 在施变前冻结同一正常源码路由，不读取被排除的 .git。
+  currentSnapshot()
   // **抹号的处理函数要装在第一次 `beginMutation` 之前**，也就是排在 `mutate-restore`
   // 那个会退掉进程的处理函数之前 —— 否则温和那条路上 worker 收到 SIGTERM 就走
   // `onInterrupt` 硬退出，`close` 永远不来，整 5 秒宽限期里人人都留着一份死号。
@@ -724,6 +729,78 @@ const jobs = jobsWanted(process.argv, process.env.MUTATE_JOBS, availableParallel
 if (jobs === undefined) {
   console.error('✗ 变异测试：说不清要派几个 —— --jobs= 或 MUTATE_JOBS 要一个 1 以上的整数\n')
   console.error('  按机器核数跑请把它去掉，不要写一个读不出来的值。')
+  process.exit(1)
+}
+// 可信历史与实际路由的核对只由 coordinator 做；拒绝发生在基线或任何施变之前。
+const askGit = (...args: string[]): Promise<string | null> => new Promise(done => {
+  execFile('git', args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 },
+    (error, stdout) => done(error === null ? stdout.trim() : null))
+})
+// 纯判定仍用同步注入接口；缺一个实际 Git 应答就异步读取并缓存，再继续求值。
+// 缓存保存 null 与空串的区别，不复制主干/祖先选择逻辑，也不在信号入口同步等待。
+const withGit = async <T>(consume: (ask: (...args: string[]) => string | null) => T): Promise<T> => {
+  const answers = new Map<string, string | null>()
+  const pending = Symbol('需要 Git 应答')
+  let requested: string[] = []
+  for (;;) {
+    try {
+      return consume((...args) => {
+        const key = JSON.stringify(args)
+        if (answers.has(key)) return answers.get(key)!
+        requested = args
+        throw pending
+      })
+    } catch (e) {
+      if (e !== pending) throw e
+      answers.set(JSON.stringify(requested), await askGit(...requested))
+    }
+  }
+}
+let explicitBase = process.env.MUTATE_BASE_SHA
+try {
+  if (explicitBase === undefined && process.env.GITHUB_ACTIONS === 'true') {
+    const eventPath = process.env.GITHUB_EVENT_PATH
+    if (eventPath === undefined || eventPath.trim() === '') throw new Error('CI 事件文件路径缺失')
+    explicitBase = mutationEventBase(process.env.GITHUB_EVENT_NAME, JSON.parse(readFileSync(eventPath, 'utf8')))
+  }
+} catch (e) {
+  console.error(`✗ 维护基线：无法读取 CI 事件：${e instanceof Error ? e.message : String(e)}；未施加任何变异`)
+  process.exit(1)
+}
+const comparison = await withGit(ask => resolveMutationBaseline(ask, explicitBase))
+if (comparison.kind === 'cannot-answer') {
+  console.error(`✗ 维护基线：${comparison.why}；未施加任何变异`)
+  process.exit(1)
+}
+try {
+  const catalog = await askGit('show', `${comparison.base}:scripts/check/mutations.json`)
+  if (catalog === null) throw new Error('读不到基线的变异目录')
+  const previous = await withGit(ask => executionRoutes(JSON.parse(catalog).mutations,
+    file => ask('show', `${comparison.base}:${file}`) ?? undefined))
+  const current = currentSnapshot()
+  const delta = routeDelta(previous, current)
+  const before = new Map(previous.routes.map(r => [r.id, r]))
+  const after = new Map(current.routes.map(r => [r.id, r]))
+  const names = { 'added-full': '新增全跑', 'back-to-full': '选跑退回全跑',
+    'changed-full': '旧全跑正文改变', configuration: '执行配置改变' }
+  const describe = (r: RouteSnapshot['routes'][number] | undefined): string => r === undefined ? '不存在'
+    : `${r.by} ${r.only === undefined ? '全跑' : `选组 ${r.only.join(',')}`}（执行 ${r.executes.join(',') || '无分组'}）`
+  console.log(`\n维护比较 ${comparison.base.slice(0, 7)}..${comparison.head.slice(0, 7)}：${delta.changes.length} 条路由/正文变化`)
+  for (const change of delta.changes) {
+    console.log(`  ${change.id} ${names[change.kind]}：${describe(before.get(change.id))} → ${describe(after.get(change.id))}`)
+    const explanation = muts.find(m => m.id === change.id)?.full_run as { reason?: unknown; recheck_when?: unknown } | undefined
+    if (explanation !== undefined) console.log(`    全跑原因：${explanation?.reason}；重评条件：${explanation?.recheck_when}`)
+  }
+  for (const by of delta.layoutChanges) {
+    console.log(`  ${by} 分组依赖/顺序变化：${JSON.stringify(previous.layouts[by])} → ${JSON.stringify(current.layouts[by])}`)
+  }
+  if (delta.faults.length) {
+    for (const fault of delta.faults) console.error(`✗ 维护比较：${fault}`)
+    console.error('✗ 维护比较未通过，未启动子集基线，未施加任何变异')
+    process.exit(1)
+  }
+} catch (e) {
+  console.error(`✗ 维护比较：无法核实旧目录或实际分组：${e instanceof Error ? e.message : String(e)}；未施加任何变异`)
   process.exit(1)
 }
 // 同一组选跑配置只做一次正常代码基线。用与变异 worker 相同的复制规则建隔离目录，

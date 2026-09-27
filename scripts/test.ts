@@ -147,6 +147,7 @@ const GROUPS: readonly Group[] = [
   { id: 'f8-risk', needs: [] },
   { id: 'u1-u5-output', needs: [] },
   { id: 'h-mutate', needs: [] },
+  { id: 'h-mutation-maintenance', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
   { id: 'h-group', needs: [] },
@@ -6423,6 +6424,208 @@ harness('派工被打断：先请每个 worker 自己收摊，都收完了再走
 }
 
 }
+await group('h-mutation-maintenance', async () => {
+harness('变异执行范围维护：独立公开判据')
+// Independent contract tests: process/4-VERIFY and process/6-INTEGRATE only.
+// Paste inside the h-mutation-maintenance group; no implementation or prior tests were read.
+{
+type MaintenanceMutation = { id: string; req: string; file: string; find: string; replace: string; by?: string; kills?: readonly string[]; full_run?: unknown };
+type MaintenanceSnapshot = { mutations: readonly MaintenanceMutation[]; routes: readonly { id: string; by: string; only?: readonly string[]; executes: readonly string[] }[]; layouts: Readonly<Record<string, readonly { id: string; needs: readonly string[] }[]>> };
+type MaintenanceDelta = { changes: readonly { id: string; kind: 'added-full' | 'back-to-full' | 'changed-full' | 'configuration' }[]; faults: readonly string[]; layoutChanges: readonly string[] };
+const { resolveMutationBaseline, executionRoutes, routeDelta } = await import('./check/mutate-rule.js') as unknown as {
+  resolveMutationBaseline: (ask: (...args: string[]) => string | null, explicitBase?: string) => { kind: 'compare'; base: string; head: string } | { kind: 'cannot-answer'; why: string };
+  executionRoutes: (mutations: readonly MaintenanceMutation[], readSource: (path: string) => string | undefined) => MaintenanceSnapshot;
+  routeDelta: (base: MaintenanceSnapshot, head: MaintenanceSnapshot) => MaintenanceDelta;
+};
+ok('维护-公开API存在', typeof resolveMutationBaseline === 'function' && typeof executionRoutes === 'function' && typeof routeDelta === 'function');
+// Missing public API has already failed the named assertion; this avoids a subsequent unrelated TypeError.
+if (typeof resolveMutationBaseline === 'function' && typeof executionRoutes === 'function' && typeof routeDelta === 'function') {
+const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+const { join } = await import('node:path');
+const { tmpdir } = await import('node:os');
+const { spawnSync: maintenanceSpawn } = await import('node:child_process');
+const maintenanceMutation = (patch: Partial<MaintenanceMutation> = {}): MaintenanceMutation => ({
+  id: 'M-contract', req: 'H-mutate', file: 'scripts/lib/fixture.ts', find: 'safe', replace: 'unsafe', ...patch,
+});
+const maintenanceReason = { reason: 'Cross-group fixture initialization must be observed.', recheck_when: 'When initialization gets a selectable group.' };
+const maintenanceFixtureDir = mkdtempSync(join(tmpdir(), 'kol-maintenance-contract-'));
+const maintenanceGit = (cwd: string, ...args: string[]): string | null => {
+  const result = maintenanceSpawn('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } });
+  return result.status === 0 ? result.stdout.trim() : null;
+};
+try {
+  const repository = join(maintenanceFixtureDir, 'history');
+  mkdirSync(repository);
+  maintenanceGit(repository, 'init', '--quiet', '-b', 'main');
+  maintenanceGit(repository, 'config', 'user.name', 'Contract fixture');
+  maintenanceGit(repository, 'config', 'user.email', 'contract@example.invalid');
+  maintenanceGit(repository, 'commit', '--quiet', '--allow-empty', '-m', 'base');
+  const base = maintenanceGit(repository, 'rev-parse', 'HEAD');
+  maintenanceGit(repository, 'commit', '--quiet', '--allow-empty', '-m', 'head');
+  const head = maintenanceGit(repository, 'rev-parse', 'HEAD');
+  if (!base || !head) throw new Error('Maintenance Git fixture could not create commits.');
+  const ask = (...args: string[]) => maintenanceGit(repository, ...args);
+  const comparison = resolveMutationBaseline(ask, base);
+  eq('维护-显式基线取真实祖先与HEAD', JSON.stringify(comparison), JSON.stringify({ kind: 'compare', base, head }));
+  for (const invalid of ['', ' ', 'HEAD', base.slice(0, 12), '0'.repeat(40), 'z'.repeat(40)]) {
+    eq(`维护-显式基线拒绝非法SHA ${JSON.stringify(invalid)}`, resolveMutationBaseline(ask, invalid).kind, 'cannot-answer');
+  }
+  eq('维护-显式基线不能等于HEAD', resolveMutationBaseline(ask, head).kind, 'cannot-answer');
+  eq('维护-显式基线提交缺失无从比较', resolveMutationBaseline(ask, 'f'.repeat(40)).kind, 'cannot-answer');
+  maintenanceGit(repository, 'checkout', '--quiet', '--orphan', 'unrelated');
+  maintenanceGit(repository, 'commit', '--quiet', '--allow-empty', '-m', 'unrelated');
+  const unrelated = maintenanceGit(repository, 'rev-parse', 'HEAD');
+  eq('维护-本地基线无共同祖先时无从比较', resolveMutationBaseline(ask).kind, 'cannot-answer');
+  maintenanceGit(repository, 'checkout', '--quiet', 'main');
+  if (!unrelated) throw new Error('Maintenance Git fixture could not create unrelated history.');
+  eq('维护-显式基线不能来自无关历史', resolveMutationBaseline(ask, unrelated).kind, 'cannot-answer');
+  eq('维护-主干本地比较上一版', JSON.stringify(resolveMutationBaseline(ask)), JSON.stringify({ kind: 'compare', base, head }));
+  maintenanceGit(repository, 'checkout', '--quiet', '-b', 'feature');
+  maintenanceGit(repository, 'commit', '--quiet', '--allow-empty', '-m', 'feature');
+  const featureHead = maintenanceGit(repository, 'rev-parse', 'HEAD');
+  if (!featureHead) throw new Error('Maintenance Git fixture could not create feature history.');
+  eq('维护-分支本地比较真实merge-base', JSON.stringify(resolveMutationBaseline(ask)), JSON.stringify({ kind: 'compare', base: head, head: featureHead }));
+  maintenanceGit(repository, 'checkout', '--quiet', 'main');
+  const emptyRepository = join(maintenanceFixtureDir, 'empty');
+  mkdirSync(emptyRepository);
+  maintenanceGit(emptyRepository, 'init', '--quiet', '-b', 'main');
+  eq('维护-HEAD不存在时无从比较', resolveMutationBaseline((...args) => maintenanceGit(emptyRepository, ...args), base).kind, 'cannot-answer');
+  // A real Git shallow boundary keeps both commits resolvable, so this cannot pass merely because base is missing.
+  writeFileSync(join(repository, '.git', 'shallow'), `${base}\n`);
+  eq('维护-浅历史即使提交都存在也无从比较', resolveMutationBaseline(ask, base).kind, 'cannot-answer');
+} finally {
+  rmSync(maintenanceFixtureDir, { recursive: true, force: true });
+}
+
+// Snapshots are public input values with a hand-written two-group configuration.
+// Full execution means only is absent; both groups execute in their listed order.
+const maintenanceSnapshot = (mutations: readonly MaintenanceMutation[], selected = false): ReturnType<typeof executionRoutes> => ({
+  mutations,
+  routes: mutations.map(mutation => ({
+    id: mutation.id, by: mutation.by ?? 'test',
+    ...(selected ? { only: ['g-first'] } : {}),
+    executes: selected ? ['g-first'] : ['g-first', 'g-second'],
+  })),
+  layouts: {
+    test: [{ id: 'g-first', needs: [] }, { id: 'g-second', needs: [] }],
+    selfcheck: [{ id: 'g-first', needs: [] }, { id: 'g-second', needs: [] }],
+  },
+});
+const maintenanceFull = maintenanceMutation();
+const maintenanceEmpty = maintenanceSnapshot([]);
+const maintenanceLegacy = maintenanceSnapshot([maintenanceFull]);
+const maintenanceHasChange = (delta: ReturnType<typeof routeDelta>, id: string, kind: string) => delta.changes.some(change => change.id === id && change.kind === kind);
+eq('维护-历史全量仅原文兼容', routeDelta(maintenanceLegacy, maintenanceSnapshot([{ ...maintenanceFull }])).faults.length, 0);
+const maintenanceAdded = routeDelta(maintenanceEmpty, maintenanceLegacy);
+ok('维护-新增全量需解释', maintenanceAdded.faults.length > 0);
+ok('维护-新增全量列给评审', maintenanceHasChange(maintenanceAdded, maintenanceFull.id, 'added-full'));
+for (const [tag, explanation] of [
+  ['null', null], ['对象缺字段', {}], ['字符串', 'because'],
+  ['reason空白', { reason: ' \t ', recheck_when: 'again' }],
+  ['recheck_when空白', { reason: 'because', recheck_when: '\n ' }],
+  ['reason非文本', { reason: 1, recheck_when: 'again' }],
+  ['recheck_when非文本', { reason: 'because', recheck_when: false }],
+] as const) {
+  ok(`维护-全量解释须两段非空文本 ${tag}`, routeDelta(maintenanceEmpty, maintenanceSnapshot([maintenanceMutation({ full_run: explanation })])).faults.length > 0);
+}
+const maintenanceExplained = maintenanceSnapshot([maintenanceMutation({ full_run: maintenanceReason })]);
+eq('维护-合法全量解释可接受', routeDelta(maintenanceEmpty, maintenanceExplained).faults.length, 0);
+eq('维护-解释不得删除', routeDelta(maintenanceExplained, maintenanceLegacy).faults.length > 0, true);
+eq('维护-已有解释不得写坏', routeDelta(maintenanceExplained, maintenanceSnapshot([maintenanceMutation({ full_run: { reason: ' ', recheck_when: 'again' } })])).faults.length > 0, true);
+const maintenanceOldRoutedFull = maintenanceMutation({ by: 'test', kills: ['unmapped'] });
+const maintenanceOriginalBody = maintenanceSnapshot([maintenanceOldRoutedFull]);
+const maintenanceCoreRefusals: boolean[] = [];
+for (const [field, value] of [
+  ['file', 'scripts/lib/other.ts'], ['find', 'different-safe'], ['replace', 'different-unsafe'],
+  ['req', 'H-other'], ['by', 'selfcheck'], ['kills', ['another-unmapped']],
+] as const) {
+  const revised = { ...maintenanceOldRoutedFull, [field]: value } as MaintenanceMutation;
+  const delta = routeDelta(maintenanceOriginalBody, maintenanceSnapshot([revised]));
+  maintenanceCoreRefusals.push(delta.faults.length > 0);
+  ok(`维护-旧全量正文改动需解释 ${field}`, delta.faults.length > 0);
+  ok(`维护-旧全量正文改动列给评审 ${field}`, maintenanceHasChange(delta, revised.id, 'changed-full'));
+}
+ok('维护-旧全量正文改变逐字段拒绝', maintenanceCoreRefusals.length === 6 && maintenanceCoreRefusals.every(refused => refused));
+const maintenanceNewIdentity = { ...maintenanceFull, id: 'M-new-identity' };
+ok('维护-新ID不能借旧正文资格', routeDelta(maintenanceLegacy, maintenanceSnapshot([maintenanceNewIdentity])).faults.length > 0);
+const maintenanceSelectedMutation = maintenanceMutation({ by: 'test', kills: ['selected-assertion'] });
+const maintenanceSelectedSnapshot = maintenanceSnapshot([maintenanceSelectedMutation], true);
+const maintenanceBackToFull = routeDelta(maintenanceSelectedSnapshot, maintenanceSnapshot([maintenanceSelectedMutation]));
+ok('维护-选组回全量需解释', maintenanceBackToFull.faults.length > 0);
+ok('维护-选组回全量列给评审', maintenanceHasChange(maintenanceBackToFull, maintenanceSelectedMutation.id, 'back-to-full'));
+const maintenanceBackExplained = routeDelta(maintenanceSelectedSnapshot, maintenanceSnapshot([{ ...maintenanceSelectedMutation, full_run: maintenanceReason }]));
+eq('维护-回全量解释合法后资格可接受', maintenanceBackExplained.faults.length, 0);
+const maintenanceMoved = { ...maintenanceSelectedSnapshot, routes: [{ id: maintenanceSelectedMutation.id, by: 'test', only: ['g-second'], executes: ['g-second'] }] };
+ok('维护-分组归属变化列给评审', maintenanceHasChange(routeDelta(maintenanceSelectedSnapshot, maintenanceMoved), maintenanceSelectedMutation.id, 'configuration'));
+const maintenanceDependency = { ...maintenanceSelectedSnapshot, layouts: { ...maintenanceSelectedSnapshot.layouts, test: [{ id: 'g-first', needs: [] }, { id: 'g-second', needs: ['g-first'] }] } };
+ok('维护-依赖变化列给评审', routeDelta(maintenanceSelectedSnapshot, maintenanceDependency).layoutChanges.length > 0);
+const maintenanceOrder = { ...maintenanceSelectedSnapshot, layouts: { ...maintenanceSelectedSnapshot.layouts, test: [{ id: 'g-second', needs: [] }, { id: 'g-first', needs: [] }] } };
+ok('维护-执行顺序变化列给评审', routeDelta(maintenanceSelectedSnapshot, maintenanceOrder).layoutChanges.length > 0);
+
+// Public selfcheck source syntax: group(id, needs, fn).
+// The independent oracle is its visible execution order and transitive needs.
+const maintenanceSelfcheckSource = `
+named('unmapped-assertion', () => {});
+await group('g-unrelated', [], () => { named('unrelated-assertion', () => {}); });
+await group('g-first', [], () => { named('first-assertion', () => {}); });
+await group('g-second', ['g-first'], () => { named('selected-assertion', () => {}); });
+await group('g-third', ['g-second'], () => { named('last-assertion', () => {}); });
+`;
+const maintenanceSelfMutation = maintenanceMutation({ by: 'selfcheck', kills: ['last-assertion'] });
+const maintenanceSelfRoute = executionRoutes([maintenanceSelfMutation], () => maintenanceSelfcheckSource).routes[0];
+ok('维护-可映射全部断言才选组', maintenanceSelfRoute.only !== undefined);
+eq('维护-选组带传递依赖且保留实际顺序', JSON.stringify(maintenanceSelfRoute.executes), JSON.stringify(['g-first', 'g-second', 'g-third']));
+const maintenanceMixedRoute = executionRoutes([{ ...maintenanceSelfMutation, kills: ['last-assertion', 'unmapped-assertion'] }], () => maintenanceSelfcheckSource).routes[0];
+eq('维护-任一点名断言未分组就实际全量', maintenanceMixedRoute.only, undefined);
+eq('维护-全量包含实际全部组', JSON.stringify(maintenanceMixedRoute.executes), JSON.stringify(['g-unrelated', 'g-first', 'g-second', 'g-third']));
+const maintenanceReasonRoute = executionRoutes([{ ...maintenanceSelfMutation, kills: ['unmapped-assertion'], full_run: maintenanceReason }], () => maintenanceSelfcheckSource).routes[0];
+eq('维护-解释不能让未分组断言少跑', maintenanceReasonRoute.only, undefined);
+const maintenanceThrows = (operation: () => unknown) => { try { operation(); return false; } catch { return true; } };
+ok('维护-验证者源缺失不能冒充空配置', maintenanceThrows(() => executionRoutes([maintenanceSelfMutation], () => undefined)));
+ok('维护-验证者语法坏掉不能冒充空配置', maintenanceThrows(() => executionRoutes([maintenanceSelfMutation], () => "await group('broken', [], () => {")));
+ok('维护-动态组名无从取配置时须明确失败', maintenanceThrows(() => executionRoutes([maintenanceSelfMutation], () => "const name = 'g-first'; await group(name, [], () => { named('last-assertion', () => {}); });")));
+
+// Public requirement-test source syntax: a GROUPS array plus group(id, fn).
+const maintenanceTestSource = `
+const GROUPS: readonly Group[] = [
+  { id: 'g-unrelated', needs: [] }, { id: 'g-first', needs: [] },
+  { id: 'g-second', needs: ['g-first'] }, { id: 'g-third', needs: ['g-second'] },
+];
+await group('g-unrelated', () => { ok('unrelated-assertion', true); });
+await group('g-first', () => { eq('first-assertion', 1, 1); });
+await group('g-second', () => { ok('selected-assertion', true); });
+await group('g-third', () => { eq('last-assertion', 1, 1); });
+`;
+const maintenanceTestMutation = maintenanceMutation({ by: 'test', kills: ['last-assertion'] });
+const maintenanceTestRoute = executionRoutes([maintenanceTestMutation], () => maintenanceTestSource).routes[0];
+eq('维护-需求测试也带传递依赖与实际顺序', JSON.stringify(maintenanceTestRoute.executes), JSON.stringify(['g-first', 'g-second', 'g-third']));
+const maintenanceDefaultRoute = executionRoutes([maintenanceFull], () => maintenanceTestSource).routes[0];
+eq('维护-缺省验证者为需求测试', maintenanceDefaultRoute.by, 'test');
+eq('维护-未点名的旧变异实际全量', maintenanceDefaultRoute.only, undefined);
+eq('维护-未点名全量仍按实际组序执行', JSON.stringify(maintenanceDefaultRoute.executes), JSON.stringify(['g-unrelated', 'g-first', 'g-second', 'g-third']));
+const maintenanceMismatchSource = maintenanceTestSource.replace("await group('g-first', () => { eq('first-assertion', 1, 1); });", "await group('g-lost', () => { eq('first-assertion', 1, 1); });");
+ok('维护-登记组与实际调用不一致不得猜配置', maintenanceThrows(() => executionRoutes([maintenanceTestMutation], () => maintenanceMismatchSource)));
+const maintenanceMissingDependency = maintenanceTestSource.replace("needs: ['g-first']", "needs: ['g-absent']");
+ok('维护-依赖组不存在不得冒充可选组', maintenanceThrows(() => executionRoutes([maintenanceTestMutation], () => maintenanceMissingDependency)));
+const maintenanceReorderedCalls = maintenanceTestSource.replace("await group('g-first', () => { eq('first-assertion', 1, 1); });", "await group('g-second', () => { ok('selected-assertion', true); });").replace("await group('g-second', () => { ok('selected-assertion', true); });\nawait group('g-third'", "await group('g-first', () => { eq('first-assertion', 1, 1); });\nawait group('g-third'");
+ok('维护-GROUPS与调用顺序不一致不得放行', maintenanceThrows(() => executionRoutes([maintenanceTestMutation], () => maintenanceReorderedCalls)));
+}
+}
+
+{
+  const { mutationEventBase: maintenanceEventBase } = await import('./check/mutate-rule.js') as unknown as { mutationEventBase: (eventName: string | undefined, event: unknown) => string };
+  ok('维护事件-公开API存在', typeof maintenanceEventBase === 'function');
+  if (typeof maintenanceEventBase === 'function') {
+    const maintenanceObserveEvent = (name: string | undefined, event: unknown) => { try { return maintenanceEventBase(name, event); } catch (error) { return { kind: 'error', why: error instanceof Error ? error.message : String(error) }; } };
+    eq('维护事件-PR取自身baseSHA', maintenanceObserveEvent('pull_request', { before: 'wrong-event-field', pull_request: { base: { sha: 'a'.repeat(40) } } }), 'a'.repeat(40));
+    eq('维护事件-push取自身beforeSHA', maintenanceObserveEvent('push', { before: 'b'.repeat(40), pull_request: { base: { sha: 'wrong-event-field' } } }), 'b'.repeat(40));
+    const maintenanceInvalidEvents: readonly (readonly [string | undefined, unknown])[] = [['unknown', {}], [undefined, {}], ['push', null], ['push', 3], ['push', []], ['pull_request', {}], ['push', {}], ['pull_request', { before: 'a'.repeat(40) }], ['push', { pull_request: { base: { sha: 'a'.repeat(40) } } }], ['push', { before: 1 }], ['pull_request', { pull_request: { base: { sha: null } } }]];
+    ok('维护事件-未知缺失与错字段不得退回本地', maintenanceInvalidEvents.every(([name, event]) => { try { maintenanceEventBase(name, event); return false; } catch { return true; } }));
+  }
+}
+
+})
+
 await group('h-jobs', () => {
 harness('变异跑的派工：派几个、结论怎么带回来、派出去没回话的怎么算')
 {

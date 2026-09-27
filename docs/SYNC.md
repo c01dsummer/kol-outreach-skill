@@ -39,6 +39,7 @@
 | **改 CSV 列或报告结构** | `scripts/lib/rows.ts` · `scripts/lib/xlsx.ts` · `scripts/lib/report.ts` · `skill/references/output-format.md` · 测试 · 变异 | 部分 |
 | **新增可执行文件** | 三选一：接进 `scripts/check/selfcheck.ts`、在 `npm run check` 里自成一步、或写进 `EXEMPT` 说明理由 | 🔒 `selfcheck` |
 | **新增一道闸门** | 判定逻辑（`scripts/check/` 下不带 shebang 的 `.ts`）· 测试 · **`scripts/check/mutations.json`**（闸门自己也是需求，它的测试同样要被证明过）· `process/` 里那条纪律 | 🔒 `audit`：scripts/check/ 下每个判定模块必须有变异指向它，否则硬失败；`mutate` 证明那个变异被抓到 |
+| **改变变异全量/选组路由、`full_run` 解释或验证者分组配置** | `process/4-VERIFY.md` 的维护判据 · `process/6-INTEGRATE.md` 的运行证据 · 实际变异目录与组/依赖/顺序配置 · `docs/ARCHITECTURE.md` 的基线及执行边界 · CI 可信基线传入 · 对应 ADR | 🔒 `mutate` 核真实基线变化与解释形状；解释语义和可比证据靠评审 |
 | **重命名／删掉 `process/` 或 `docs/` 下被 `REVIEW.md` 指到的那几份** | `REVIEW.md` 的指针（三份转发不用动，它们只指 `REVIEW.md`） | ✗ 靠执行 |
 | **改流程阶段** | `skill/SKILL.md` · `docs/business-requirements.md` · 对应 reference | ✗ 靠执行 |
 | **查到新事实 / 旧结论被推翻** | `docs/data-source-strategy.md` **必须改** · `docs/SPEC.md`「尚未确定的」一节（手写，状态与证据边界常在这里） · `docs/adr/`：新裁决另开一条（多属事实证伪），陈述过旧结论的记录各在末尾追加 `⚠️` 更正 | 🔒 `adr` 验编号与索引 |
