@@ -6731,11 +6731,14 @@ function runMutationCostTests(): void {
   ok('已回报缺计时的实际原因进入可读成本报告', configurationCostLines(missingReported).join('\n').includes('fixture reported timer unavailable'))
   // All three values are outside finite nonnegative measured elapsed evidence.
   // Each has zero accepted samples and empty measured sum, plus missing evidence.
-  for (const invalid of [{ name: '非数值NaN', ms: Number.NaN }, { name: '无限值', ms: Number.POSITIVE_INFINITY }, { name: '负值', ms: -1 }]) {
-    const invalidTimes = configurationCost(single(['bad-time'], [baseline('base-C', invalid.ms)], [reported('bad-time', invalid.ms)], 'unknown'))
+  // Three inputs are all constructed before their qualified facts are combined.
+  // Empty measured sums are paired with missing evidence, not full measured zero.
+  const invalidTimingMatrix = [Number.NaN, Number.POSITIVE_INFINITY, -1].map(ms => {
+    const invalidTimes = configurationCost(single(['bad-time'], [baseline('base-C', ms)], [reported('bad-time', ms)], 'unknown'))
     const invalidRow = row(invalidTimes)
-    ok(`基线与变异实测${invalid.name}均不进入计时且保留缺失诊断`, invalidRow !== undefined && invalidRow.baselineTimes.succeeded.samples === 0 && invalidRow.baselineTimes.succeeded.totalMs === 0 && invalidRow.baselineTimes.succeeded.missing.length > 0 && invalidRow.mutationTimes.caught.samples === 0 && invalidRow.mutationTimes.caught.totalMs === 0 && invalidRow.mutationTimes.caught.missing.length > 0 && invalidTimes.complete === false)
-  }
+    return invalidRow !== undefined && invalidRow.baselineTimes.succeeded.samples === 0 && invalidRow.baselineTimes.succeeded.totalMs === 0 && invalidRow.baselineTimes.succeeded.missing.length > 0 && invalidRow.mutationTimes.caught.samples === 0 && invalidRow.mutationTimes.caught.totalMs === 0 && invalidRow.mutationTimes.caught.missing.length > 0 && invalidTimes.complete === false
+  })
+  ok('非法实测时间不能进入正常基线或变异的合计', invalidTimingMatrix.every(pass => pass))
   const stopped = configurationCost(single(['A'], [baseline('base-C', 2)], [reported('A', 4, 'base-C', 'caught', KEY, true)], 'succeeded'))
   ok('合法点名早停保持caught而不被改成未完成', row(stopped)?.actualUsers === 1 && row(stopped)?.mutationTimes.caught.samples === 1 && row(stopped)?.mutationTimes.incomplete.samples === 0 && stopped.identity.state === 'succeeded' && stopped.complete === true)
 

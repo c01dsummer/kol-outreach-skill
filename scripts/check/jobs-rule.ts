@@ -582,13 +582,132 @@ export interface CostSummary {
   /** Cost observations complete; distinct from command success. */
   complete: boolean
 }
-/** Canonical reuse identity; absent only is full, executes keeps frozen order. */
-export function configurationKey(_route: CostRoute): string { return '' }
-/** Cost-only start observation, without changing legacy dispatch results. */
-export function costObservation(id: string, key: string, _ran: Ran & { started?: boolean }, _baselineId?: string): CostMutation {
-  return { id, key, state: 'unknown', reason: '尚未实现' }
+/** Existing baseline reuse key; execution order belongs to the frozen snapshot. */
+export function configurationKey(route: CostRoute): string {
+  return JSON.stringify([route.by, route.only === undefined ? null : [...route.only].sort()])
 }
+/** Optional start evidence affects cost only, never the legacy verdict. */
+export function costObservation(id: string, key: string, ran: Ran & { started?: boolean }, baselineId?: string): CostMutation {
+  if (ran.started === undefined) return { id, key, state: 'unknown', reason: '旧回报没有实际启动观测' }
+  if (ran.outcome === 'not-applied') return { id, key, state: 'not-started', reason: '变异没有施加，未启动验证者' }
+  if (!ran.started) return { id, key, state: 'start-failed', reason: '验证者没有实际启动' }
+  const { outcome, ms, ...result } = ran
+  const elapsed: ElapsedEvidence = Number.isFinite(ms) && ms >= 0
+    ? { kind: 'measured', ms } : { kind: 'unavailable', reason: '经过时间不是有限非负实测值' }
+  return { id, key, state: 'reported', baselineId, result: { ...result, outcome }, elapsed }
+}
+
+/** Index all identities, retaining duplicate evidence instead of silently choosing one. */
+function costIndex<T>(all: readonly T[], id: (item: T) => string): Map<string, T[]> {
+  const index = new Map<string, T[]>()
+  for (const item of all) { const key = id(item); index.set(key, [...(index.get(key) ?? []), item]) }
+  return index
+}
+const costTime = (): CostTime => ({ samples: 0, totalMs: 0, missing: [] })
+
+/** Pure accounting from observations; no execution, attribution or exit-code decision. */
 export function configurationCost(input: CostInput): CostSummary {
-  return { identity: input.identity, rows: [], issues: ['尚未实现'], complete: false }
+  const issues: string[] = []
+  if (input.baselines === undefined) issues.push('正常基线活动观测表未取得')
+  if (input.mutations === undefined) issues.push('变异活动观测表未取得')
+  const combos = costIndex(input.combinations, c => c.key)
+  const planned = costIndex(input.combinations.flatMap(c => c.mutationIds.map(id => ({ id, key: c.key }))), m => m.id)
+  const bases = costIndex(input.baselines ?? [], b => b.id)
+  const mutations = costIndex(input.mutations ?? [], m => m.id)
+  if (!input.identity.sourceIdentity || input.identity.identityFault !== undefined) issues.push(input.identity.identityFault ?? '实际源码身份未观测')
+  if (!input.identity.headSha || !input.identity.comparisonBaseSha || !input.identity.nodeVersion || !input.identity.platform || !input.identity.arch || input.identity.command.length === 0 || !Number.isInteger(input.identity.workers) || input.identity.workers < 1) issues.push('运行身份或生效并行配置不完整')
+  const alienMutations = (input.mutations ?? []).filter(m => !planned.has(m.id) || !combos.has(m.key))
+  const alienBaselines = (input.baselines ?? []).filter(b => !combos.has(b.key))
+  for (const m of alienMutations) issues.push(`变异观测身份或组合不在配置中：${m.id} / ${m.key}`)
+  for (const b of alienBaselines) issues.push(`基线观测组合不在配置中：${b.id} / ${b.key}`)
+  const rows = input.combinations.map(c => {
+    const row: CostRow = {
+      key: c.key, route: c.route, configuredIds: c.mutationIds, observedIds: [], missingIds: [], notStartedIds: [], observedReuse: 0,
+      baselineTimes: { succeeded: costTime(), failed: costTime(), incomplete: costTime() },
+      mutationTimes: { caught: costTime(), elsewhere: costTime(), crashed: costTime(), survived: costTime(), incomplete: costTime() },
+      outsideBaseline: c.route.only === undefined, issues: [],
+    }
+    const fault = (why: string) => { row.issues.push(why) }
+    const invalidRoute = configurationKey(c.route) !== c.key || combos.get(c.key)!.length !== 1 || c.mutationIds.some(id => planned.get(id)!.length !== 1)
+    if (invalidRoute) fault('配置身份重复、与路由不一致或变异身份重复；无法确认该组合')
+    const addTime = (target: CostTime, id: string, elapsed: ElapsedEvidence) => {
+      if (elapsed.kind === 'measured' && Number.isFinite(elapsed.ms) && elapsed.ms >= 0) {
+        target.samples += 1
+        target.totalMs += elapsed.ms
+      } else {
+        target.missing.push(id)
+        fault(`${id} 经过时间未观测：${elapsed.kind === 'unavailable' ? elapsed.reason : '不是有限非负实测值'}`)
+      }
+    }
+    const matchingBases = (input.baselines ?? []).filter(b => b.key === c.key)
+    const knownBases = input.baselines !== undefined && !invalidRoute && alienBaselines.length === 0 && matchingBases.every(b => bases.get(b.id)!.length === 1)
+    if (row.outsideBaseline) {
+      fault('全量正常基线在本命令外，启动、成功、复用和时间未观测')
+    } else if (!knownBases) {
+      fault('正常基线观测缺失或身份重复，启动、成功与复用无从确认')
+    } else {
+      row.baselineStarted = 0
+      row.baselineSucceeded = 0
+      for (const b of matchingBases) {
+        if (!('elapsed' in b)) continue
+        row.baselineStarted += 1
+        if (b.state === 'succeeded') row.baselineSucceeded += 1
+        addTime(row.baselineTimes[b.state], b.id, b.elapsed)
+      }
+    }
+    const uses = new Map<string, number>()
+    let reuseKnown = knownBases && !invalidRoute && input.mutations !== undefined && alienMutations.length === 0
+    for (const id of c.mutationIds) {
+      const observed = mutations.get(id)
+      const m = observed?.length === 1 ? observed[0] : undefined
+      if (invalidRoute || m === undefined || m.key !== c.key || m.state === 'unknown' || (m.state === 'reported' && m.result.started === undefined)) {
+        row.missingIds.push(id)
+        fault(`${id} 启动观测无从确认：${m?.state === 'unknown' ? m.reason : '缺记录、重复记录或组合不一致'}`)
+        reuseKnown = false
+        continue
+      }
+      if (m.state === 'reported' && m.result.started === false) {
+        row.notStartedIds.push(id)
+        fault(`${id} 回报明确未启动，不将结果标签或经过时间当作启动证据`)
+        continue
+      }
+      if (!('elapsed' in m)) { row.notStartedIds.push(id); continue }
+      row.observedIds.push(id)
+      addTime(row.mutationTimes[m.state === 'incomplete' ? 'incomplete' : m.result.outcome], id, m.elapsed)
+      if (row.outsideBaseline) continue
+      const linked = m.baselineId === undefined ? undefined : bases.get(m.baselineId)
+      const b = linked?.length === 1 ? linked[0] : undefined
+      if (b === undefined || b.key !== c.key || b.state !== 'succeeded') {
+        reuseKnown = false
+        fault(`${id} 成功基线关联无从确认：${m.baselineId ?? '没有关联身份'}`)
+      } else {
+        uses.set(b.id, (uses.get(b.id) ?? 0) + 1)
+      }
+    }
+    if (!invalidRoute && input.mutations !== undefined && row.missingIds.length === 0 && alienMutations.length === 0) row.actualUsers = row.observedIds.length
+    for (const users of uses.values()) row.observedReuse += Math.max(0, users - 1)
+    if (!row.outsideBaseline && reuseKnown) row.extraReuse = row.observedReuse
+    return row
+  })
+  return { identity: input.identity, rows, issues, complete: issues.length === 0 && rows.every(row => row.issues.length === 0) }
 }
-export function configurationCostLines(_summary: CostSummary): string[] { return [] }
+
+/** Full evidence, including zero-use/unknown rows; sums are never job or CPU time. */
+export function configurationCostLines(summary: CostSummary): string[] {
+  const known = (n: number | undefined): number | string => n === undefined ? '未观测／无从确认' : n
+  const times = (table: Record<string, CostTime>) => JSON.stringify(Object.fromEntries(Object.entries(table).map(([state, t]) => [state, {
+    实测次数: t.samples, 经过毫秒之和: t.samples === 0 ? '无实测样本' : t.totalMs, 缺失身份: t.missing,
+  }])))
+  const lines = ['配置成本观测（纯汇总；不决定检查通过）',
+    `运行完整性：${summary.identity.state}；成本观测完整：${summary.complete ? '是' : '否'}`,
+    `运行身份：${JSON.stringify(summary.identity)}`,
+    '以下时间为逐次验证者经过时间之和；正常基线与变异分开。不是 job、CPU、串行估计或完整检查耗时。',
+    ...summary.issues.map(why => `无从确认：${why}`)]
+  for (const row of summary.rows) {
+    lines.push(`[配置 ${row.key}] ${row.route.by} ${row.outsideBaseline ? '全量' : `选组 ${JSON.stringify(row.route.only)}`}；实际执行顺序 ${JSON.stringify(row.route.executes)}`,
+      `配置 ${row.configuredIds.length} 条，身份 ${JSON.stringify(row.configuredIds)}；实际使用 ${known(row.actualUsers)}（已观测 ${JSON.stringify(row.observedIds)}，未启动 ${JSON.stringify(row.notStartedIds)}，缺失 ${JSON.stringify(row.missingIds)}）；基线启动 ${known(row.baselineStarted)}，成功 ${known(row.baselineSucceeded)}；额外复用 ${known(row.extraReuse)}（${row.outsideBaseline ? '本命令外未观测' : `已观测部分 ${row.observedReuse}`}）`,
+      `正常基线逐次时间：${row.outsideBaseline ? '本命令外未观测' : times(row.baselineTimes)}；变异逐次时间：${times(row.mutationTimes)}`,
+      ...row.issues.map(why => `  无从确认：${why}`))
+  }
+  return lines
+}

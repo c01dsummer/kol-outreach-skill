@@ -8502,6 +8502,213 @@
       "replace": "if (false) throw new Error('事件基线字段缺失或不是字符串')",
       "by": "test",
       "kills": ["维护事件-未知缺失与错字段不得退回本地"]
+    },
+    {
+      "id": "M-H48-a",
+      "req": "harness",
+      "why": "成本身份不再按选择组排序，等价配置无法沿既有身份复用",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "[...route.only].sort()",
+      "replace": "[...route.only]",
+      "by": "test", "kills": ["成本组合身份沿验证者与排序后的选择组"]
+    },
+    {
+      "id": "M-H48-b",
+      "req": "harness",
+      "why": "成本身份丢掉验证者，不同验证者被合为同一配置",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "return JSON.stringify([route.by, route.only",
+      "replace": "return JSON.stringify(['fixture-tests', route.only",
+      "by": "test", "kills": ["相同选择组的不同验证者有不同成本身份"]
+    },
+    {
+      "id": "M-H48-c",
+      "req": "harness",
+      "why": "全量配置的身份被当成空选组，丢失全量边界",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "route.only === undefined ? null :",
+      "replace": "route.only === undefined ? [] :",
+      "by": "test", "kills": ["成本组合身份区分全量与相同执行组的选组"]
+    },
+    {
+      "id": "M-H48-d",
+      "req": "harness",
+      "why": "旧回报缺启动字段被推断为已知活动",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "if (ran.started === undefined) return { id, key, state: 'unknown', reason: '旧回报没有实际启动观测' }",
+      "replace": "if (false) return { id, key, state: 'unknown', reason: '旧回报没有实际启动观测' }",
+      "by": "test", "kills": ["旧未施变的零哨兵也不能替代缺失的启动证据"]
+    },
+    {
+      "id": "M-H48-e",
+      "req": "harness",
+      "why": "直接回报缺启动观测也被计为实际启动、复用与实测时间",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "m.state === 'reported' && m.result.started === undefined",
+      "replace": "m.state === 'reported' && false",
+      "by": "test", "kills": ["直接reported缺启动观测不能从结果标签猜两位使用者和一次复用"]
+    },
+    {
+      "id": "M-H48-f",
+      "req": "harness",
+      "why": "直接回报明确未启动也被算成使用者并记时间",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "if (m.state === 'reported' && m.result.started === false) {",
+      "replace": "if (false) {",
+      "by": "test", "kills": ["直接reported明确未启动时结果标签和非零时间也不算启动"]
+    },
+    {
+      "id": "M-H48-g",
+      "req": "harness",
+      "why": "非法实测时间进入样本和合计，未知被包装成实测",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "elapsed.kind === 'measured' && Number.isFinite(elapsed.ms) && elapsed.ms >= 0",
+      "replace": "elapsed.kind === 'measured'",
+      "by": "test", "kills": ["非法实测时间不能进入正常基线或变异的合计"]
+    },
+    {
+      "id": "M-H48-h",
+      "req": "harness",
+      "why": "真实测得的零毫秒被当成缺测，丢失合法实测样本",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "Number.isFinite(elapsed.ms) && elapsed.ms >= 0",
+      "replace": "Number.isFinite(elapsed.ms) && elapsed.ms > 0",
+      "by": "test", "kills": ["真实零与各变异结果的经过时间保持分类"]
+    },
+    {
+      "id": "M-H48-i",
+      "req": "harness",
+      "why": "配置条数冒充实际启动次数，未施变也被计入使用",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "row.actualUsers = row.observedIds.length",
+      "replace": "row.actualUsers = row.configuredIds.length",
+      "by": "test", "kills": ["配置三条但仅真实启动两条不能冒充三位使用者"]
+    },
+    {
+      "id": "M-H48-j",
+      "req": "harness",
+      "why": "正常基线启动失败也被计作实际启动",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "if (!('elapsed' in b)) continue",
+      "replace": "if (!('elapsed' in b)) { row.baselineStarted += 1; continue }",
+      "by": "test", "kills": ["启动失败不计正常基线或变异的实际启动"]
+    },
+    {
+      "id": "M-H48-k",
+      "req": "harness",
+      "why": "失败正常基线冒充成功正常基线",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "if (b.state === 'succeeded') row.baselineSucceeded += 1",
+      "replace": "row.baselineSucceeded += 1",
+      "by": "test", "kills": ["失败基线计入启动和失败时间但不冒充成功基线"]
+    },
+    {
+      "id": "M-H48-l",
+      "req": "harness",
+      "why": "失败或未完成的基线时间记入成功基线，混淆证据范围",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "addTime(row.baselineTimes[b.state], b.id, b.elapsed)",
+      "replace": "addTime(row.baselineTimes.succeeded, b.id, b.elapsed)",
+      "by": "test", "kills": ["失败基线计入启动和失败时间但不冒充成功基线"]
+    },
+    {
+      "id": "M-H48-m",
+      "req": "harness",
+      "why": "跨验证者基线引用被接受，错组合关联冒充成功消费",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "b === undefined || b.key !== c.key || b.state",
+      "replace": "b === undefined || false || b.state",
+      "by": "test", "kills": ["跨验证者错关联不能成为同组合的第二次正确消费"]
+    },
+    {
+      "id": "M-H48-n",
+      "req": "harness",
+      "why": "真实消费者引用失败基线也被记为成功复用",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "b === undefined || b.key !== c.key || b.state !== 'succeeded'",
+      "replace": "b === undefined || b.key !== c.key",
+      "by": "test", "kills": ["真实消费者引用失败基线也不能制造成功复用"]
+    },
+    {
+      "id": "M-H48-o",
+      "req": "harness",
+      "why": "复用按总消费者减基线数计算，失去逐份成功关联",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "for (const users of uses.values()) row.observedReuse += Math.max(0, users - 1)",
+      "replace": "row.observedReuse = Math.max(0, row.observedIds.length - (row.baselineSucceeded ?? 0))",
+      "by": "test", "kills": ["额外复用逐份关联不能用总使用者减成功基线数"]
+    },
+    {
+      "id": "M-H48-p",
+      "req": "harness",
+      "why": "缺回报仍把已知使用者数作为全范围确定值",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "row.missingIds.length === 0 && alienMutations.length === 0",
+      "replace": "true && alienMutations.length === 0",
+      "by": "test", "kills": ["少一条回报不能把部分实际使用和复用冒充全范围"]
+    },
+    {
+      "id": "M-H48-q",
+      "req": "harness",
+      "why": "缺正常基线观测表被当成已观测空表，补成零",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "const knownBases = input.baselines !== undefined &&",
+      "replace": "const knownBases = true &&",
+      "by": "test", "kills": ["缺整张观测表不能补成零次启动或零次复用"]
+    },
+    {
+      "id": "M-H48-r",
+      "req": "harness",
+      "why": "同名观测只取最后一条，重复身份被静默合并",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "index.set(key, [...(index.get(key) ?? []), item])",
+      "replace": "index.set(key, [item])",
+      "by": "test", "kills": ["重复基线身份不能提供确定的逐份关联"]
+    },
+    {
+      "id": "M-H48-s",
+      "req": "harness",
+      "why": "缺失的基线引用被同组合另一成功基线代替",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "const b = linked?.length === 1 ? linked[0] : undefined",
+      "replace": "const b = linked?.length === 1 ? linked[0] : matchingBases.find(b => b.state === 'succeeded')",
+      "by": "test", "kills": ["不存在的基线引用不能借同路由基线制造复用"]
+    },
+    {
+      "id": "M-H48-t",
+      "req": "harness",
+      "why": "未配置的观测身份被忽略，完整性与复用不再拒绝幽灵回报",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "!planned.has(m.id) || !combos.has(m.key)",
+      "replace": "false",
+      "by": "test", "kills": ["未配置身份不能虚增正确基线复用"]
+    },
+    {
+      "id": "M-H48-u",
+      "req": "harness",
+      "why": "配置身份冲突、重复或路由不一致也被汇总为可信组合",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "const invalidRoute = configurationKey(c.route) !== c.key || combos.get(c.key)!.length !== 1 || c.mutationIds.some(id => planned.get(id)!.length !== 1)",
+      "replace": "const invalidRoute = false",
+      "by": "test", "kills": ["重复配置身份不能冒充可区分的条目清单"]
+    },
+    {
+      "id": "M-H48-v",
+      "req": "harness",
+      "why": "缺观测及外层全量基线未测仍宣称完整成本",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "complete: issues.length === 0 && rows.every(row => row.issues.length === 0)",
+      "replace": "complete: true",
+      "by": "test", "kills": ["全量外层正常基线未观测不能补启动成功或复用零"]
+    },
+    {
+      "id": "M-H48-w",
+      "req": "harness",
+      "why": "完整列表只展示有实际使用的行，零使用或未知配置消失",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "for (const row of summary.rows) {",
+      "replace": "for (const row of summary.rows.filter(row => (row.actualUsers ?? 0) > 0)) {",
+      "by": "test", "kills": ["可读成本报告不截断验证者选择组或实际依赖组合列表"]
     }
   ],
   "exemptions": [
