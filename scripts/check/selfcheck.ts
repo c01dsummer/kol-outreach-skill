@@ -5863,6 +5863,451 @@ console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执�
   } finally { entryRemove(entryRoot, { recursive: true, force: true }); }
 });
 
+// Independent raw-byte restoration entry cases, mechanically integrated without changing expectations.
+group('claims-restoration-entry', [], () => {
+  const fixtureRequire = createRequire(import.meta.url);
+  const { realpathSync, statSync, symlinkSync } = fixtureRequire('node:fs') as typeof import('node:fs');
+  const { execFileSync } = fixtureRequire('node:child_process') as typeof import('node:child_process');
+  const { createHash } = fixtureRequire('node:crypto') as typeof import('node:crypto');
+  type RestoreFixture = { repo: string; trace: string; preload: string; base: string; head: string };
+  const sourceRoot = realpathSync(process.cwd()), homes: string[] = [];
+  const fixtureEnv = (): NodeJS.ProcessEnv => {
+    const childEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' };
+    for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
+      'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete childEnv[key];
+    return childEnv;
+  };
+  const prepareRestoreFixture = (): RestoreFixture => {
+    const home = mkdtempSync(join(tmpdir(), 'kol-claims-restoration-entry-'));
+    homes.push(home); // Register ownership before any copying or subprocess can fail.
+    const repo = join(home, 'repo');
+    // Production modules remain opaque fixture inputs; expectations are frozen separately.
+    for (const entry of ['scripts', 'docs', 'process', 'package.json', 'package-lock.json', '.gitignore'])
+      cpSync(join(sourceRoot, entry), join(repo, entry), { recursive: true });
+    symlinkSync(join(sourceRoot, 'node_modules'), join(repo, 'node_modules'), 'dir');
+    writeFileSync(join(repo, 'docs/requirements.json'), JSON.stringify({ requirements: [] }) + '\n');
+    execFileSync('git', ['init', '-q'], { cwd: repo, encoding: 'utf8', env: fixtureEnv() });
+    const trace = join(home, 'trace.jsonl'), preload = join(home, 'preload.cjs');
+    writeFileSync(trace, ''); writeFileSync(preload, '');
+    return { repo, trace, preload, base: '', head: '' };
+  };
+  const ownedProcessObserver = String.raw`
+;(() => {
+  const fs = require('node:fs'), cp = require('node:child_process'), path = require('node:path');
+  const { syncBuiltinESMExports } = require('node:module');
+  const append = fs.appendFileSync, trace = process.env.KOL_CLI_TRACE;
+  const note = row => append(trace, JSON.stringify({ pid: process.pid, ...row }) + '\n');
+  let entry = ''; try { entry = fs.realpathSync(path.resolve(process.argv[1] || '.')); } catch {}
+  note({ kind: 'owned-node', ppid: process.ppid, cwd: fs.realpathSync(process.cwd()), entry,
+    command: [process.execPath, ...process.execArgv, ...process.argv.slice(1)] });
+  process.on('exit', code => note({ kind: 'owned-exit', code }));
+  process.on('uncaughtExceptionMonitor', () => note({ kind: 'owned-uncaught' }));
+  for (const name of ['spawn', 'fork', 'execFile']) {
+    const original = cp[name];
+    cp[name] = function(...args) {
+      const child = original.apply(this, args);
+      if (child && Number.isInteger(child.pid)) {
+        const childPid = child.pid;
+        note({ kind: 'owned-child', childPid, api: name });
+        child.once('spawn', () => note({ kind: 'owned-spawn', childPid, api: name }));
+        child.once('exit', (code, signal) => note({ kind: 'owned-child-exit', childPid, code, signal }));
+      }
+      return child;
+    };
+  }
+  syncBuiltinESMExports();
+})();
+`;
+  type OwnedEvent = { kind: string; pid?: number; ppid?: number; childPid?: number; cwd?: string;
+    entry?: string; command?: string[]; code?: number; signal?: string; [key: string]: unknown };
+  function descendsFrom(events: OwnedEvent[], pid: number, ancestor: number) {
+    const parents = new Map<number, number>();
+    for (const row of events) {
+      if (row.kind === 'owned-node' && Number.isInteger(row.pid) && Number.isInteger(row.ppid)) parents.set(row.pid!, row.ppid!);
+      if (row.kind === 'owned-child' && Number.isInteger(row.pid) && Number.isInteger(row.childPid)) parents.set(row.childPid!, row.pid!);
+    }
+    const visited = new Set<number>();
+    while (parents.has(pid) && !visited.has(pid)) {
+      visited.add(pid); pid = parents.get(pid)!; if (pid === ancestor) return true;
+    }
+    return false;
+  }
+  function ended(pid: number) {
+    try { process.kill(pid, 0); return false; }
+    catch (error) { return (error as NodeJS.ErrnoException).code === 'ESRCH'; }
+  }
+  type Ending = 'normal' | 'interrupted';
+  type Case = { id: string; before: string | null; action: 'unchanged' | 'delete' | 'replace'; replacement?: string };
+  const original = '{"fixture":"only","n":1}\n', target = 'scripts/claim-restore-value.ts';
+  const scalar = 'export const restoreValue = 7;\n';
+  const cases: Case[] = [
+    { id: '相同原字节', before: original, action: 'unchanged' },
+    { id: '原件被删除', before: original, action: 'delete' },
+    { id: '同长度改写', before: original, action: 'replace', replacement: '{"fixture":"only","n":2}\n' },
+    { id: '同语义不同字节', before: original, action: 'replace', replacement: '{\n  "n": 1,\n  "fixture": "only"\n}\n' },
+    { id: '空原件被改写', before: '', action: 'replace', replacement: 'fixture-created-content\n' },
+    { id: '原本缺席后出现', before: null, action: 'replace', replacement: original },
+    { id: '两头均缺席', before: null, action: 'unchanged' },
+  ];
+  const sha = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
+  function snapshot(file: string) {
+    if (!existsSync(file)) return { exists: false as const };
+    const value = statSync(file, { bigint: true });
+    return { exists: true as const, hex: readFileSync(file).toString('hex'), dev: String(value.dev), ino: String(value.ino),
+      nlink: String(value.nlink), mode: String(value.mode), uid: String(value.uid), gid: String(value.gid), size: String(value.size),
+      mtimeNs: String(value.mtimeNs), ctimeNs: String(value.ctimeNs), birthtimeNs: String(value.birthtimeNs) };
+  }
+  function trace(file: string): OwnedEvent[] {
+    try { return readFileSync(file, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)); }
+    catch { throw new Error('[fixture-error] owned claim restoration trace unavailable or malformed'); }
+  }
+  function fault(reason: string): never { throw new Error('[fixture-error] ' + reason); }
+  /** ADR123 / ARCHITECTURE raw-byte boundary fixture. Its prefilled
+   * bytes are synthetic fixture data, NOT a fresh complete npm-test claim.
+   * One owned repository is reused; each case runs one tiny normal verifier and
+   * one owned mutation. Seven byte cases use normal exit; owned interruption
+   * covers keep, restore (empty original) and remove without repeating all seven. No production body, old test, mutation body or result supplied expected.
+   * This group owns home/repo cleanup after auditing its PID/resource ledger.
+   * Product isolation directories must already be gone, and all observed owned
+   * PIDs must already have ended. An unreadable ledger or live process retains
+   * the owned home and reports a fixture failure. This proves final cleanup, not
+   * the ordering of every interruption step; existing ordering guards remain.
+   * Metadata excludes atime: fixture/entry reads can update access time without
+   * writing content; inode/mode/mtime/ctime/birthtime and other write metadata are
+   * preserved when bytes are unchanged. No elapsed-time or cost assertion here.
+   */
+  const fileObserver = String.raw`
+;(() => {
+  const fs = require('node:fs'), path = require('node:path'), { fileURLToPath } = require('node:url');
+  const { syncBuiltinESMExports } = require('node:module');
+  const append = fs.appendFileSync, watch = process.env.KOL_RESTORE_WATCH, trace = process.env.KOL_CLI_TRACE;
+  const cwd = fs.realpathSync(process.cwd()), descriptors = new Map();
+  const note = row => append(trace, JSON.stringify({ pid: process.pid, ...row }) + '\n');
+  function location(value) {
+    if (typeof value === 'number') return descriptors.get(value);
+    if (value instanceof URL) value = fileURLToPath(value);
+    if (Buffer.isBuffer(value)) value = value.toString('utf8');
+    if (typeof value !== 'string') return;
+    let absolute = path.resolve(cwd, value), parent = path.dirname(absolute), tail = [path.basename(absolute)];
+    while (!fs.existsSync(parent)) { const next = path.dirname(parent); if (next === parent) return absolute;
+      tail.unshift(path.basename(parent)); parent = next; }
+    try { return path.join(fs.realpathSync(parent), ...tail); } catch { return absolute; }
+  }
+  function completed(api, paths, tree = false) {
+    if (paths.some(file => file === watch || tree && watch.startsWith(file + path.sep)))
+      note({ kind: 'claim-operation', api, paths });
+  }
+  for (const [base, indexes, tree] of [
+    ['writeFile',[0],false],['appendFile',[0],false],['truncate',[0],false],['unlink',[0],false],
+    ['rm',[0],true],['rmdir',[0],true],['rename',[0,1],true],['copyFile',[1],false],['cp',[1],true],
+    ['link',[1],false],['symlink',[1],false],['chmod',[0],false],['chown',[0],false],['utimes',[0],false],
+    ['lchown',[0],false],['lutimes',[0],false],['write',[0],false],['writev',[0],false],['ftruncate',[0],false],
+    ['fchmod',[0],false],['fchown',[0],false],['futimes',[0],false],
+  ]) for (const owner of [fs, fs.promises]) for (const name of owner === fs ? [base, base + 'Sync'] : [base]) {
+    const original = owner[name]; if (typeof original !== 'function') continue;
+    owner[name] = function(...args) {
+      const paths = indexes.map(index => location(args[index])).filter(Boolean), api = (owner === fs ? 'fs.' : 'fs.promises.') + name;
+      if (owner === fs && !name.endsWith('Sync') && typeof args.at(-1) === 'function') {
+        const callback = args.at(-1); args[args.length - 1] = function(error, ...rest) {
+          if (!error) completed(api, paths, tree); return callback.call(this, error, ...rest);
+        };
+      }
+      const result = original.apply(this, args);
+      if (owner === fs.promises) return result.then(value => { completed(api, paths, tree); return value; });
+      if (name.endsWith('Sync')) completed(api, paths, tree);
+      return result;
+    };
+  }
+  const creates = (file, flags) => typeof flags === 'string' ? /^w/.test(flags) || !fs.existsSync(file) && /^[ax]/.test(flags)
+    : typeof flags === 'number' && (!!(flags & fs.constants.O_TRUNC) || !fs.existsSync(file) && !!(flags & fs.constants.O_CREAT));
+  const openSync = fs.openSync;
+  fs.openSync = function(file, flags, ...rest) { const name = location(file), changes = creates(file, flags);
+    const fd = openSync.call(this, file, flags, ...rest); descriptors.set(fd, name);
+    if (changes) completed('fs.openSync', [name]); return fd; };
+  const open = fs.open;
+  fs.open = function(file, flags, ...rest) { const name = location(file), changes = creates(file, flags), callback = rest.at(-1);
+    if (typeof callback === 'function') rest[rest.length - 1] = function(error, fd) {
+      if (!error) { descriptors.set(fd, name); if (changes) completed('fs.open', [name]); }
+      return callback.call(this, error, fd);
+    }; return open.call(this, file, flags, ...rest); };
+  const promiseOpen = fs.promises.open;
+  fs.promises.open = function(file, flags, ...rest) { const name = location(file), changes = creates(file, flags);
+    return promiseOpen.call(this, file, flags, ...rest).then(handle => {
+      descriptors.set(handle.fd, name); if (changes) completed('fs.promises.open', [name]);
+      for (const method of ['write','writev','writeFile','appendFile','truncate','chmod','chown','utimes']) {
+        const original = handle[method]; if (typeof original !== 'function') continue;
+        handle[method] = function(...args) { return original.apply(this, args).then(value => {
+          completed('FileHandle.' + method, [name]); return value;
+        }); };
+      }
+      const close = handle.close, fd = handle.fd; handle.close = function(...args) {
+        return close.apply(this, args).then(value => { descriptors.delete(fd); return value; });
+      }; return handle;
+    }); };
+  for (const method of ['closeSync','close']) { const original = fs[method];
+    fs[method] = function(fd, ...rest) {
+      if (method === 'close' && typeof rest.at(-1) === 'function') { const callback = rest.at(-1);
+        rest[rest.length - 1] = function(error) { if (!error) descriptors.delete(fd); return callback.call(this, error); }; }
+      const result = original.call(this, fd, ...rest); if (method === 'closeSync') descriptors.delete(fd); return result;
+    }; }
+  const stream = fs.createWriteStream;
+  fs.createWriteStream = function(file, ...rest) { const options = rest[0] || {}, suppliedFD = typeof options.fd === 'number';
+    const name = location(suppliedFD ? options.fd : file), changes = !suppliedFD && creates(file, options.flags || 'w');
+    const result = stream.call(this, file, ...rest); let hasData = false;
+    const nonempty = chunk => typeof chunk === 'string' ? Buffer.byteLength(chunk) > 0
+      : ArrayBuffer.isView(chunk) && chunk.byteLength > 0;
+    for (const method of ['write', 'end']) { const original = result[method]; result[method] = function(...args) {
+      if (nonempty(args[0])) hasData = true; return original.apply(this, args);
+    }; }
+    result.once('open', () => { if (changes) completed('fs.createWriteStream.open', [name]); });
+    result.once('finish', () => { if (hasData) completed('fs.createWriteStream', [name]); }); return result; };
+  syncBuiltinESMExports();
+})();
+`;
+  const entryObserver = String.raw`
+;(() => {
+  const fs=require('node:fs'),path=require('node:path'),{createHash}=require('node:crypto');
+  const root=fs.realpathSync(process.env.KOL_CLI_OWNED_ROOT); let entry='';
+  try { entry=fs.realpathSync(path.resolve(process.argv[1]||'.')); } catch {}
+  if(entry===path.join(root,'scripts/check/mutate.ts')&&!process.argv.includes('--worker'))
+    fs.appendFileSync(process.env.KOL_CLI_TRACE,JSON.stringify({kind:'coordinator-node',pid:process.pid,
+      command:[process.execPath,...process.execArgv,...process.argv.slice(1)],
+      moduleSha:createHash('sha256').update(fs.readFileSync(entry)).digest('hex')})+'\n');
+})();
+`;
+  const verifier = String.raw`
+import { appendFileSync, existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
+const GROUPS: readonly { id: string; needs: readonly string[] }[] = [
+  { id: 'setup', needs: [] }, { id: 'alpha', needs: ['setup'] },
+];
+const onlyArg = process.argv.find(arg => arg.startsWith('--only=')), only = onlyArg ? onlyArg.slice(7).split(',') : null;
+const selected = new Set<string>();
+function select(id: string) { const group = GROUPS.find(row => row.id === id); if (!group) throw new Error('[fixture-error] unknown own group');
+  if (selected.has(id)) return; group.needs.forEach(select); selected.add(id); }
+(only ?? GROUPS.map(row => row.id)).forEach(select);
+const owner = JSON.parse(readFileSync(process.env.KOL_RESTORE_OWNER!, 'utf8'));
+const trace = (row: object) => appendFileSync(process.env.KOL_CLI_TRACE!, JSON.stringify({ pid: process.pid, ...row }) + '\n');
+const source = readFileSync('scripts/claim-restore-value.ts', 'utf8'), match = /^export const restoreValue = (\d+);\n$/.exec(source);
+const value = match ? Number(match[1]) : NaN;
+if (owner.kind !== 'claim-restore-cli-fixture/v1' || owner.root !== realpathSync(process.env.KOL_CLI_OWNED_ROOT!)
+  || ![7, 8].includes(value)
+  || createHash('sha256').update(readFileSync('scripts/test.ts')).digest('hex') !== owner.verifierSha)
+  throw new Error('[fixture-error] owned verifier/cwd/source inputs not qualified');
+trace({ kind: 'restore-verifier-start', value, only, cwd: realpathSync(process.cwd()), entry: realpathSync(process.argv[1]),
+  entrySha: createHash('sha256').update(readFileSync(realpathSync(process.argv[1]))).digest('hex') });
+const state = () => existsSync(owner.claim) ? { exists: true, hex: readFileSync(owner.claim).toString('hex') } : { exists: false };
+if (value === 8) {
+  trace({ kind: 'restore-damage-before', state: state() });
+  if (owner.action === 'delete') rmSync(owner.claim, { force: true });
+  else if (owner.action === 'replace') writeFileSync(owner.claim, owner.replacement);
+  else if (owner.action !== 'unchanged') throw new Error('[fixture-error] unknown declared damage');
+  trace({ kind: 'restore-damage-after', action: owner.action, state: state() });
+  if (owner.ending === 'interrupted') {
+    const actor = spawn(process.execPath, [owner.controller, process.env.KOL_RESTORE_OWNER!, String(process.pid)],
+      { cwd: process.cwd(), env: process.env, detached: true, stdio: 'ignore' });
+    actor.on('error', () => trace({ kind: 'fixture-fault', reason: 'owned actor spawn failed' })); actor.unref();
+    trace({ kind: 'restore-actor-spawn', childPid: actor.pid, detached: true, stdio: 'ignore', unref: true });
+    await new Promise(done => setTimeout(done, 3000));
+    trace({ kind: 'fixture-fault', reason: 'owned interruption window expired' });
+    throw new Error('[fixture-error] owned coordinator interruption not established');
+  }
+}
+let assertions = 0; const failed: string[] = [], lines: string[] = [];
+function ok(name: string, pass: boolean) { assertions++; if (!pass) failed.push(name);
+  trace({ kind: 'restore-assertion', name, pass, value }); lines.push((pass ? '✓ ' : '✗ ') + name); }
+async function group(id: string, body: () => void) { if (selected.has(id)) body(); }
+await group('setup', () => { ok('认领恢复夹具值可读取', [7, 8].includes(value)); });
+await group('alpha', () => { ok('认领恢复夹具声明值保持原值', value === 7); });
+trace({ kind: 'restore-verifier-end', value, only, failed }); console.log(lines.join('\n'));
+if (failed.length === 0) console.log('全部通过（执行 ' + assertions + ' 条断言；覆盖 0 条需求）');
+else { console.log(failed.length + ' 个失败'); process.exitCode = 1; }
+`;
+  const controller = String.raw`
+const fs = require('node:fs'), path = require('node:path');
+const owner = JSON.parse(fs.readFileSync(process.argv[2], 'utf8')), verifierPid = Number(process.argv[3]);
+const note = row => fs.appendFileSync(owner.trace, JSON.stringify({ pid: process.pid, ...row }) + '\n');
+function fault(reason) { note({ kind: 'fixture-fault', reason }); throw new Error('[fixture-error] ' + reason); }
+function rows() { try { return fs.readFileSync(owner.trace, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)); }
+  catch { return fault('owned interruption trace malformed'); } }
+const gone = pid => { try { process.kill(pid, 0); return false; } catch (e) { return e.code === 'ESRCH'; } };
+if (process.platform === 'win32' || owner.kind !== 'claim-restore-cli-fixture/v1' || owner.ending !== 'interrupted'
+  || process.ppid !== verifierPid || fs.realpathSync(process.argv[1]) !== owner.controller) fault('detached actor ownership unavailable');
+note({ kind: 'restore-actor-start', verifierPid, ppid: process.ppid });
+let coordinator; const began = Date.now(), pause = new Int32Array(new SharedArrayBuffer(4));
+while (Date.now() - began < 2000) {
+  const events = rows(), candidates = events.filter(row => row.kind === 'coordinator-node');
+  const ownSpawn = events.some(row => row.kind === 'restore-actor-spawn' && row.pid === verifierPid && row.childPid === process.pid
+    && row.detached === true && row.stdio === 'ignore' && row.unref === true);
+  const realSpawn = events.some(row => row.kind === 'owned-spawn' && row.pid === verifierPid && row.childPid === process.pid);
+  const parents = new Map(); for (const row of events) {
+    if (row.kind === 'owned-node') parents.set(row.pid, row.ppid);
+    if (row.kind === 'owned-child') parents.set(row.childPid, row.pid);
+  }
+  let at = verifierPid; const seen = new Set();
+  while (parents.has(at) && !seen.has(at)) { seen.add(at); at = parents.get(at); if (candidates.length === 1 && at === candidates[0].pid) break; }
+  const native = candidates.length === 1 && events.find(row => row.kind === 'owned-node' && row.pid === candidates[0].pid);
+  if (ownSpawn && realSpawn && native && at === native.pid && native.cwd === owner.root
+    && native.entry === path.join(owner.root, 'scripts/check/mutate.ts') && !native.command.includes('--worker')
+    && !events.some(row => row.kind === 'restore-assertion' && row.pid === verifierPid)) { coordinator = native; break; }
+  Atomics.wait(pause, 0, 0, 10);
+}
+if (!coordinator || gone(coordinator.pid)) fault('unique live owned coordinator/ancestry unavailable');
+try { process.kill(coordinator.pid, 'SIGTERM'); } catch { fault('owned coordinator signal delivery failed'); }
+note({ kind: 'restore-coordinator-signal', targetPid: coordinator.pid, verifierPid, signal: 'SIGTERM' });
+const finish = Date.now(); while ((!gone(coordinator.pid) || !gone(verifierPid)) && Date.now() - finish < 4000) Atomics.wait(pause, 0, 0, 10);
+const events = rows(); if (!gone(coordinator.pid) || !gone(verifierPid)
+  || !events.some(row => row.kind === 'owned-exit' && row.pid === coordinator.pid)
+  || events.some(row => row.kind === 'owned-uncaught' && row.pid === coordinator.pid)) fault('coordinator did not establish catchable exit/cleanup');
+note({ kind: 'restore-actor-done', targetPid: coordinator.pid, verifierPid });
+`;
+
+  let fixture: RestoreFixture | undefined;
+  let probeQualified = false;
+  const prepare = () => {
+    if (fixture) return fixture;
+    fixture = prepareRestoreFixture();
+    const root = realpathSync(fixture.repo), home = dirname(root), claim = join(root, '.check-cache/test-claims.json');
+    mkdirSync(dirname(claim), { recursive: true }); writeFileSync(join(root, target), scalar); writeFileSync(join(root, 'scripts/test.ts'), verifier);
+    writeFileSync(join(root, 'scripts/check/mutations.json'), JSON.stringify({ mutations: [{ id: 'M-CLAIM-RESTORE', req: 'harness',
+      why: '自有声明值变坏时点名断言应红', file: target, find: 'restoreValue = 7', replace: 'restoreValue = 8', by: 'test',
+      kills: ['认领恢复夹具声明值保持原值'] }], exemptions: [] }) + '\n');
+    writeFileSync(fixture.preload, entryObserver + ownedProcessObserver + fileObserver);
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8', env: fixtureEnv() }).trim();
+    git('add', '-f', 'scripts', 'docs', 'process', 'package.json', 'package-lock.json', '.gitignore');
+    git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','claim restore B');
+    fixture.base = git('rev-parse','HEAD'); writeFileSync(join(root,'fixture-head.txt'),'claim restore H\n'); git('add','fixture-head.txt');
+    git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','claim restore H'); fixture.head = git('rev-parse','HEAD');
+    writeFileSync(join(home,'restore-controller.cjs'),controller);
+    writeFileSync(join(home,'evidence-owner.json'),JSON.stringify({ kind:'claim-restore-cli-evidence/v1', home, root, claim,
+      fixtureOnly:true, cleanup:'selfcheck group: audit observed PID/cwd ledger; then remove only this owned home', cases:cases.map(row=>row.id) },null,2)+'\n');
+    return fixture;
+  };
+  function call(f: RestoreFixture, id: string, owner: string, args: string[]) {
+    const root = realpathSync(f.repo), home = dirname(root); writeFileSync(f.trace,'');
+    const result = spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',timeout:45000,maxBuffer:8*1024*1024,
+      env:{...fixtureEnv(),MUTATE_BASE_SHA:f.base,KOL_CLI_OWNED_ROOT:root,KOL_CLI_TRACE:f.trace,KOL_CLI_MODE:'none',
+        KOL_CLI_ACK:f.trace+'.ack',KOL_CLI_RESTORE_TARGET:target,KOL_RESTORE_OWNER:owner,KOL_RESTORE_WATCH:join(root,'.check-cache/test-claims.json'),
+        NODE_OPTIONS:((process.env.NODE_OPTIONS||'')+' --require='+f.preload).trim()}});
+    writeFileSync(join(home,id+'.stdout.txt'),result.stdout||''); writeFileSync(join(home,id+'.stderr.txt'),result.stderr||'');
+    writeFileSync(join(home,id+'.exit.json'),JSON.stringify({pid:result.pid,status:result.status,signal:result.signal,error:result.error?.message})+'\n');
+    let events = trace(f.trace); const began = Date.now(), pause = new Int32Array(new SharedArrayBuffer(4));
+    while (Date.now()-began<4500 && ![...new Set(events.flatMap(row=>[row.pid,row.childPid]).filter((pid):pid is number=>Number.isInteger(pid)&&pid!>0))].every(ended)) {
+      Atomics.wait(pause,0,0,10); events=trace(f.trace);
+    }
+    writeFileSync(join(home,id+'.trace.jsonl'),readFileSync(f.trace));
+    const pids=[...new Set(events.flatMap(row=>[row.pid,row.childPid]).filter((pid):pid is number=>Number.isInteger(pid)&&pid!>0))];
+    writeFileSync(join(home,id+'.resources.json'),JSON.stringify({pids,allEnded:pids.every(ended),
+      observedCwds:[...new Set(events.filter(row=>row.kind==='owned-node').map(row=>row.cwd))]},null,2)+'\n');
+    if (result.error || pids.length===0 || !pids.every(ended) || events.some(row=>row.kind==='fixture-fault')) fault(id+' command/observer/PID qualification failed');
+    return {result,events};
+  }
+  try {
+    const f=prepare(),root=realpathSync(f.repo),home=dirname(root),claim=join(root,'.check-cache/test-claims.json');
+    if (!probeQualified) {
+      const probe=join(home,'file-observer-probe.cjs'); writeFileSync(claim,'probe-before\n'); const before=snapshot(claim);
+      writeFileSync(probe,"const fs=require('node:fs'),p=process.env.KOL_RESTORE_WATCH;fs.writeFileSync(p,'probe-before\\n');fs.unlinkSync(p);fs.writeFileSync(p,'probe-after\\n');\n");
+      const check=call(f,'observer-probe','',[probe]);
+      if (check.result.status!==0 || !['fs.writeFileSync','fs.unlinkSync'].every(api=>check.events.some(row=>row.kind==='claim-operation'&&row.api===api))
+        || readFileSync(claim,'utf8')!=='probe-after\n' || JSON.stringify(snapshot(claim))===JSON.stringify(before)) fault('successful same-byte-write/delete observer self-proof unavailable');
+      probeQualified=true;
+    }
+    const results = new Map<string, { restored: boolean; kept: boolean; resources: boolean; nonzero: boolean }>();
+    for (const ending of ['normal','interrupted'] as const) for (const row of ending === 'normal' ? cases
+      : cases.filter(row => ['相同原字节','空原件被改写','原本缺席后出现'].includes(row.id))) {
+      const id=ending+'-'+row.id,owner=join(home,id+'.owner.json'),actor=realpathSync(join(home,'restore-controller.cjs'));
+      mkdirSync(dirname(claim),{recursive:true}); rmSync(claim,{force:true}); if (row.before!==null) writeFileSync(claim,row.before);
+      const sentinel=join(dirname(claim),'claim-fixture-sentinel.bin'); writeFileSync(sentinel,'owned adjacent fixture\n');
+      const before=snapshot(claim), sentinelBefore=snapshot(sentinel);
+      writeFileSync(owner,JSON.stringify({kind:'claim-restore-cli-fixture/v1',fixtureOnly:true,root,trace:f.trace,claim,controller:actor,
+        ending,action:row.action,replacement:row.replacement,before:row.before,verifierSha:sha(readFileSync(join(root,'scripts/test.ts')))},null,2)+'\n');
+      const entrySha=sha(readFileSync(join(root,'scripts/check/mutate.ts')));
+      const run=call(f,id,owner,['node_modules/tsx/dist/cli.mjs','scripts/check/mutate.ts','--jobs=1']);
+      const events=run.events,coordinator=events.filter(item=>item.kind==='coordinator-node');
+      const normal=events.filter(item=>item.kind==='restore-verifier-start'&&item.value===7),changed=events.filter(item=>item.kind==='restore-verifier-start'&&item.value===8);
+      const afterDamage=events.filter(item=>item.kind==='restore-damage-after'),normalEnd=events.filter(item=>item.kind==='restore-verifier-end'&&item.value===7);
+      const native=events.filter(item=>item.kind==='owned-node'),copies=[...new Set([...normal,...changed].map(item=>item.cwd as string))]
+        .filter(copy=>copy!==root);
+      const owned=coordinator.length===1&&coordinator[0].moduleSha===entrySha
+        && native.some(item=>item.pid===coordinator[0].pid&&item.entry===join(root,'scripts/check/mutate.ts')&&item.cwd===root)
+        && normal.length===1&&changed.length===1&&normalEnd.length===1&&Array.isArray(normalEnd[0].failed)&&normalEnd[0].failed.length===0
+        && afterDamage.length===1&&afterDamage[0].pid===changed[0].pid&&afterDamage[0].action===row.action
+        && [...normal,...changed].every(item=>JSON.stringify(item.only)==='["alpha"]'
+          && item.entrySha===sha(readFileSync(join(root,'scripts/test.ts'))) && descendsFrom(events,item.pid!,coordinator[0].pid!)
+          && native.some(node=>node.pid===item.pid&&node.entry===item.entry
+            && [join(root,'scripts/test.ts'),join(item.cwd as string,'scripts/test.ts')].includes(node.entry!)));
+      const expectedDamage=row.action==='delete'?{exists:false}:row.action==='replace'?{exists:true,hex:Buffer.from(row.replacement!).toString('hex')}:undefined;
+      if (!owned || expectedDamage && JSON.stringify(afterDamage[0].state)!==JSON.stringify(expectedDamage)) fault(id+' original CLI/baseline/mutation/damage ownership unavailable');
+      if (ending==='normal') {
+        if (!events.some(item=>item.kind==='restore-verifier-end'&&item.pid===changed[0].pid
+          && JSON.stringify(item.failed)==='["认领恢复夹具声明值保持原值"]')) fault(id+' corresponding owned named assertion was not witnessed red');
+      } else {
+        const actors=events.filter(item=>item.kind==='restore-actor-start'),signals=events.filter(item=>item.kind==='restore-coordinator-signal');
+        if (actors.length!==1||signals.length!==1||signals[0].pid!==actors[0].pid||signals[0].targetPid!==coordinator[0].pid||signals[0].verifierPid!==changed[0].pid||signals[0].signal!=='SIGTERM'
+          || !events.some(item=>item.kind==='restore-actor-spawn'&&item.pid===changed[0].pid&&item.childPid===actors[0].pid
+            && item.detached===true&&item.stdio==='ignore'&&item.unref===true)
+          || !events.some(item=>item.kind==='owned-spawn'&&item.pid===changed[0].pid&&item.childPid===actors[0].pid)
+          || !native.some(item=>item.pid===actors[0].pid&&item.entry===actor)
+          || !events.some(item=>item.kind==='restore-actor-done'&&item.pid===actors[0].pid)
+          || !events.some(item=>item.kind==='owned-exit'&&item.pid===actors[0].pid&&item.code===0)
+          || !events.some(item=>item.kind==='owned-exit'&&item.pid===coordinator[0].pid)
+          || events.some(item=>item.kind==='owned-uncaught'&&(item.pid===actors[0].pid||item.pid===coordinator[0].pid)
+            || item.kind==='restore-assertion'&&item.pid===changed[0].pid)) fault(id+' detached actor/signal/catchable exit ownership unavailable');
+      }
+      const after=snapshot(claim),restored=row.before===null?!after.exists:after.exists&&after.hex===Buffer.from(row.before).toString('hex');
+      const operations=events.filter(item=>item.kind==='claim-operation');
+      results.set(id,{restored:restored&&(ending!=='normal'||run.result.status===0),
+        kept:operations.length===0&&JSON.stringify(before)===JSON.stringify(after),
+        nonzero:run.result.status!==null&&run.result.status!==0&&events.some(item=>item.kind==='owned-exit'
+          && item.pid===coordinator[0].pid&&Number.isInteger(item.code)&&item.code!==0),
+        resources:readFileSync(join(root,target),'utf8')===scalar&&copies.every(copy=>!existsSync(copy))
+          && JSON.stringify(snapshot(sentinel))===JSON.stringify(sentinelBefore)});
+    }
+    const value=(ending:Ending,id:string)=>{const result=results.get(ending+'-'+id);if(!result)fault('declared scenario result missing');return result;};
+    named('认领恢复入口正常同字节不写不删且保留原件元数据',value('normal','相同原字节').restored&&value('normal','相同原字节').kept, '必须满足事前声明的原字节、文件操作或资源收尾契约');
+    named('认领恢复入口正常原件缺失恢复事前字节',value('normal','原件被删除').restored, '必须满足事前声明的原字节、文件操作或资源收尾契约');
+    named('认领恢复入口正常同长度改写仍恢复事前字节',value('normal','同长度改写').restored, '必须满足事前声明的原字节、文件操作或资源收尾契约');
+    named('认领恢复入口正常同语义不同字节仍恢复原件',value('normal','同语义不同字节').restored, '必须满足事前声明的原字节、文件操作或资源收尾契约');
+    named('认领恢复入口正常空原件仍恢复为存在且零字节',value('normal','空原件被改写').restored, '必须满足事前声明的原字节、文件操作或资源收尾契约');
+    named('认领恢复入口正常原本缺席后出现只删新文件',value('normal','原本缺席后出现').restored, '必须满足事前声明的原字节、文件操作或资源收尾契约');
+    named('认领恢复入口正常两头缺席不作文件操作',value('normal','两头均缺席').restored&&value('normal','两头均缺席').kept, '必须满足事前声明的原字节、文件操作或资源收尾契约');
+    named('认领恢复入口自有中断同字节不写不删且保留原件元数据',value('interrupted','相同原字节').restored&&value('interrupted','相同原字节').kept, '必须满足事前声明的原字节、文件操作或资源收尾契约');
+    named('认领恢复入口自有中断空原件仍恢复为存在且零字节',value('interrupted','空原件被改写').restored, '必须满足事前声明的原字节、文件操作或资源收尾契约');
+    named('认领恢复入口自有中断原本缺席后出现只删新文件',value('interrupted','原本缺席后出现').restored, '必须满足事前声明的原字节、文件操作或资源收尾契约');
+    named('认领恢复入口自有中断收尾明确非零退出',['相同原字节','空原件被改写','原本缺席后出现'].every(id=>value('interrupted',id).nonzero), '必须满足事前声明的原字节、文件操作或资源收尾契约');
+    named('认领恢复入口全部场景保留源码原字节清掉隔离目录且保留相邻文件',[...results.values()].every(result=>result.resources), '必须满足事前声明的原字节、文件操作或资源收尾契约');
+  } catch (error) {
+    named('认领恢复入口夹具' + SELFCHECK_FIXTURE_MARK, false, error instanceof Error ? error.message : String(error));
+  } finally {
+    for (const home of homes) {
+      try {
+        const observed = new Set<number>();
+        const remember = (pid: unknown) => { if (typeof pid === 'number' && Number.isInteger(pid) && pid > 0) observed.add(pid); };
+        for (const name of readdirSync(home)) {
+          const file = join(home, name);
+          if (name === 'trace.jsonl' || name.endsWith('.trace.jsonl')) {
+            for (const event of trace(file)) { remember(event.pid); remember(event.childPid); }
+          } else if (name.endsWith('.exit.json')) {
+            const result = JSON.parse(readFileSync(file, 'utf8')) as { pid?: unknown };
+            remember(result.pid);
+          } else if (name.endsWith('.resources.json')) {
+            const resource = JSON.parse(readFileSync(file, 'utf8')) as { pids?: unknown };
+            if (!Array.isArray(resource.pids)) fault('owned cleanup resource ledger malformed');
+            resource.pids.forEach(remember);
+          }
+        }
+        const live = [...observed].filter(pid => !ended(pid));
+        if (live.length !== 0) fault('owned processes have not ended; retaining ' + home + ': ' + live.join(','));
+        rmSync(home, { recursive: true, force: true });
+      } catch (error) {
+        named('认领恢复入口资源收尾' + SELFCHECK_FIXTURE_MARK, false,
+          '保留自有夹具目录 ' + home + '：' + (error instanceof Error ? error.message : String(error)));
+      }
+    }
+  }
+});
+
 const ranOnly = runGroups()
 
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m

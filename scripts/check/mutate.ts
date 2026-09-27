@@ -52,7 +52,7 @@ import {
   noStdio, ownGroup, parseReport, reportLine, verifierBill,
 } from './jobs-rule.js'
 import {
-  INTERRUPTS, beginMutation, onInterrupt, restoreMutation, stopJobs, trackTest,
+  INTERRUPTS, beginMutation, claimsRestoreAction, onInterrupt, restoreMutation, stopJobs, trackTest,
 } from './mutate-restore.js'
 import { tsxCommand } from './tsx-cmd.js'
 import { infraClosure, selfVerifying } from './verifier-rule.js'
@@ -266,8 +266,10 @@ const claimsBackup = existsSync(CLAIMS_PATH) ? readFileSync(CLAIMS_PATH) : undef
 // 本来就没有记录时**要把新长出来的删掉**：变异改的可能正是写盘资格那个判定，
 // 那一跑会凭空写下一份由被改过的源码产生的记录，留下就是给后面的审计递假证。
 const restoreClaims = () => {
-  if (claimsBackup) writeFileSync(CLAIMS_PATH, claimsBackup)
-  else rmSync(CLAIMS_PATH, { force: true })
+  const current = existsSync(CLAIMS_PATH) ? readFileSync(CLAIMS_PATH) : undefined
+  const action = claimsRestoreAction(claimsBackup, current)
+  if (action === 'restore') writeFileSync(CLAIMS_PATH, claimsBackup!)
+  else if (action === 'remove') rmSync(CLAIMS_PATH, { force: true })
 }
 process.on('exit', restoreClaims)
 // 但**信号杀进来时 exit 处理也不跑** —— Ctrl-C、被杀掉、CI 超时、终端关掉，
