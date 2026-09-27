@@ -2596,7 +2596,9 @@
       "why": "把「process.pid 写得出来的名字」放宽成「Number() 吞得下」—— `x.1e3.tmp`、`x.007.tmp`、超出范围的数字串这些别人的文件被当成残留删掉",
       "file": "scripts/lib/atomic.ts",
       "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue",
-      "replace": "    if (!Number.isInteger(pid) || pid <= 0) continue"
+      "replace": "    if (!Number.isInteger(pid) || pid <= 0) continue",
+      "by": "test",
+      "kills": ["D4.k 写回保留不能由进程号生成的数字邻文件"]
     },
     {
       "id": "M-D4-ab",
@@ -2604,7 +2606,9 @@
       "why": "不再要求数字串能原样往返 —— `1e3`、`007` 转成数字后是合法 pid，于是被当成残留删掉",
       "file": "scripts/lib/atomic.ts",
       "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue",
-      "replace": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX) continue"
+      "replace": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX) continue",
+      "by": "test",
+      "kills": ["D4.k 写回保留不能原样往返的进程号文本"]
     },
     {
       "id": "M-D4-ac",
@@ -2612,7 +2616,9 @@
       "why": "不管超没超出 pid 的范围 —— 超出 int32 的名字让 process.kill 抛参数错、被当成死进程的残留删掉，而没有哪个进程写得出这种名字",
       "file": "scripts/lib/atomic.ts",
       "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue",
-      "replace": "    if (!Number.isSafeInteger(pid) || pid <= 0 || String(pid) !== spelled) continue"
+      "replace": "    if (!Number.isSafeInteger(pid) || pid <= 0 || String(pid) !== spelled) continue",
+      "by": "test",
+      "kills": ["D4.k 写回保留超过 int32 范围的数字邻文件"]
     },
     {
       "id": "M-D4-ad",
@@ -2620,7 +2626,9 @@
       "why": "把 pid 上限放宽到 process.kill 收得下的 int32 —— 系统根本发不出的 pid（如 2147483647）被当成死进程的残留删掉，而没有哪个进程写得出这种名字",
       "file": "scripts/lib/atomic.ts",
       "find": "const PID_MAX = 4 * 1024 * 1024",
-      "replace": "const PID_MAX = 0x7fffffff"
+      "replace": "const PID_MAX = 0x7fffffff",
+      "by": "test",
+      "kills": ["D4.k 写回保留超过已声明 PID 上限的数字邻文件"]
     },
     {
       "id": "M-D4-ae",

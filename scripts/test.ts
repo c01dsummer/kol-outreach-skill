@@ -1099,6 +1099,148 @@ suite('P4', '收尾管线：闸门在记忆过滤之前，不虚报打扰规模'
 })
 await group('d4-memory', () => {
 suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过')
+// 事前预期：独立 oracle 2026-09-26、公开提案 atomic 部分；D4.k / ADR-44。
+// 控制与清理先完成，最后才发布目标标签；eq/ok 返回 void，不参与资格判定。
+{
+  type AtomicFile = { file: string; bytes: Buffer }
+  type AtomicObservation = { kind: 'file'; bytes: Buffer } | { kind: 'missing' } | { kind: 'other' }
+  const atomicObserve = (file: string): AtomicObservation | undefined => {
+    try {
+      if (!lstatSync(file).isFile()) return { kind: 'other' }
+      return { kind: 'file', bytes: rf(file) }
+    } catch (error) {
+      if (error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        return { kind: 'missing' }
+      }
+      return undefined // 未知 I/O 不解释成删除或字节变化。
+    }
+  }
+  const atomicMatches = (file: string, bytes: Buffer): boolean => {
+    const seen = atomicObserve(file)
+    return seen?.kind === 'file' && seen.bytes.equals(bytes)
+  }
+  const atomicRequire = (condition: boolean, message: string): void => {
+    if (!condition) throw new Error(message)
+  }
+  const atomicCollect = (prepare: (target: string) => AtomicFile[], removal = false) => {
+    const result = { ready: false, wrote: false, observed: false, cleaned: false,
+      matchesExpected: undefined as boolean | undefined, stoppedAt: '创建隔离目录' }
+    let dir: string | undefined
+    try {
+      dir = mkdtempSync(join(tmpdir(), 'kol-atomic-proposal-'))
+      result.stoppedAt = '确认隔离目录可列出、普通文件可删除'
+      const probe = join(dir, 'fixture-probe')
+      writeFileSync(probe, 'PROBE')
+      atomicRequire(readdirSync(dir).includes('fixture-probe') &&
+        atomicMatches(probe, Buffer.from('PROBE')), '目录或删除探针不可观察')
+      unlinkSync(probe)
+      atomicRequire(atomicObserve(probe)?.kind === 'missing', '目录中的普通文件不可删除')
+      const target = join(dir, 'target.json')
+      result.stoppedAt = '预制 OLD 与陈旧邻文件'
+      writeFileSync(target, 'OLD')
+      atomicRequire(atomicMatches(target, Buffer.from('OLD')), '目标旧字节不符')
+      const neighbors = prepare(target)
+      for (const { file, bytes } of neighbors) {
+        atomicRequire(atomicMatches(file, bytes), '邻文件原普通文件及字节未确认')
+        const old = new Date(Date.now() - 2 * 60 * 60 * 1000)
+        utimesSync(file, old, old)
+        const stat = lstatSync(file)
+        atomicRequire(stat.isFile() && atomicMatches(file, bytes) &&
+          Date.now() - stat.mtimeMs >= 90 * 60 * 1000, '邻文件陈旧状态未确认')
+      }
+      const listed = readdirSync(dir)
+      const prefixLength = dir.length + 1
+      atomicRequire(listed.includes('target.json') &&
+        neighbors.every(n => listed.includes(n.file.slice(prefixLength))), '夹具目录不可列出')
+      result.ready = true
+      result.stoppedAt = '真实公共写入返回并确认 NEW'
+      // 调用异常、目标缺席/变形/读不出均只令独立写回控制失败。
+      writeFileAtomic(target, 'NEW')
+      result.wrote = atomicMatches(target, Buffer.from('NEW'))
+      if (result.wrote) {
+        result.stoppedAt = '后置邻文件观察'
+        const after = neighbors.map(n => atomicObserve(n.file))
+        result.observed = after.every(seen => seen !== undefined)
+        if (result.observed) {
+          result.matchesExpected = after.every((seen, index) => removal
+            ? seen?.kind === 'missing'
+            : seen?.kind === 'file' && seen.bytes.equals(neighbors[index].bytes))
+          result.stoppedAt = '观察完成'
+        }
+      }
+    } catch { /* 预制、公共调用或未知观察只归独立控制；不发布目标失败。 */ }
+    finally {
+      if (dir !== undefined) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+          result.cleaned = atomicObserve(dir)?.kind === 'missing'
+        } catch { /* 清理失败在目标输出之前作废。 */ }
+      }
+    }
+    return result
+  }
+  const atomicUsable = (r: ReturnType<typeof atomicCollect>): boolean =>
+    r.ready && r.wrote && r.observed && r.cleaned && r.matchesExpected !== undefined
+  const normal = atomicCollect(target => {
+    const script = [
+      "const fs = require('node:fs');",
+      "const file = process.argv[1] + '.' + process.pid + '.tmp';",
+      "fs.writeFileSync(file, 'STALE_FROM_CHILD');",
+      "process.stdout.write(JSON.stringify({ pid: process.pid }));",
+    ].join('\n')
+    const child = spawnSync(process.execPath, ['-e', script, target], {
+      encoding: 'utf8', timeout: 10000,
+    })
+    atomicRequire(!child.error && child.status === 0 && child.signal === null,
+      '真实残留写者未确认正常退出')
+    const output: unknown = JSON.parse(child.stdout)
+    const pid = output !== null && typeof output === 'object' && !Array.isArray(output) &&
+      'pid' in output ? output.pid : undefined
+    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0 || pid > 4194304 ||
+      pid !== child.pid || pid === process.pid) throw new Error('PID 身份或公开范围未确认')
+    let dead = false
+    try { process.kill(pid, 0) }
+    catch (error) {
+      dead = error !== null && typeof error === 'object' && 'code' in error && error.code === 'ESRCH'
+    }
+    atomicRequire(dead, 'PID 已复用或死亡状态无从确认')
+    return [{ file: `${target}.${pid}.tmp`, bytes: Buffer.from('STALE_FROM_CHILD') }]
+  }, true)
+  const normalPassed = atomicUsable(normal) && normal.matchesExpected === true
+  ok('原子正常控制 公共写回清掉真实退出 PID 的陈旧邻文件', normalPassed)
+  if (!normalPassed) console.log(`     控制停在：${normal.stoppedAt}；清理确认=${normal.cleaned}`)
+  if (normalPassed) {
+    const suffixes = [
+      ['1e3', '007', '9007199254740993'], // 非正规十进制；2^53+1 超精度和公开上限。
+      ['1e3', '007'], // 转成通常十进制文本为 1000 / 7，均不能原样往返。
+      ['2147483648'], // 2^31 超 int32，也超过公开上限 4194304。
+      ['4194305', '2147483647'], // 均超过 4194304；int32 内不等于有清理资格。
+    ]
+    const cases = suffixes.map(names => atomicCollect(target => names.map(suffix => {
+      atomicRequire(suffix !== String(process.pid), '邻文件与真实 writer 临时文件同名')
+      const file = `${target}.${suffix}.tmp`, bytes = Buffer.from(`KEEP:${suffix}\n`)
+      writeFileSync(file, bytes)
+      return { file, bytes }
+    })))
+    // 每个场景的观察和目录清理均已完成；任一清理未知，整批不发布目标。
+    const allCleaned = cases.every(c => c.cleaned)
+    ok('原子夹具控制 四场景目录清理均已确认', allCleaned)
+    ok('原子写回控制 数字型邻文件场景完成写回', atomicUsable(cases[0]))
+    ok('原子写回控制 非往返文本场景完成写回', atomicUsable(cases[1]))
+    ok('原子写回控制 int32 越界邻文件场景完成写回', atomicUsable(cases[2]))
+    ok('原子写回控制 PID 上限越界邻文件场景完成写回', atomicUsable(cases[3]))
+    cases.forEach((c, index) => {
+      if (!atomicUsable(c)) console.log(`     场景 ${index + 1} 停在：${c.stoppedAt}；清理确认=${c.cleaned}`)
+    })
+    if (allCleaned && cases.every(atomicUsable)) {
+      ok('D4.k 写回保留不能由进程号生成的数字邻文件', cases[0].matchesExpected === true)
+      ok('D4.k 写回保留不能原样往返的进程号文本', cases[1].matchesExpected === true)
+      ok('D4.k 写回保留超过 int32 范围的数字邻文件', cases[2].matchesExpected === true)
+      ok('D4.k 写回保留超过已声明 PID 上限的数字邻文件', cases[3].matchesExpected === true)
+    }
+  }
+}
+
 {
   // 这一族的临时文件放进**本次运行独有**的目录，不直接摊在系统临时目录上。
   // 摊在外面时文件名只能靠进程号划范围，而进程号会被系统回收重发：一次跑弄坏了孤儿
