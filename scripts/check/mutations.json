@@ -7287,8 +7287,8 @@
       "req": "harness",
       "file": "scripts/check/jobs-rule.ts",
       "why": "读回来时把计时丢了 —— 派工跑的每一条都记成 0 毫秒，那个乘法永远是 0",
-      "find": "  return { id, outcome: outcome as Outcome, status, stopped, output, ms }",
-      "replace": "  return { id, outcome: outcome as Outcome, status, stopped, output, ms: 0 }",
+      "find": "  return { id, outcome: outcome as Outcome, status, stopped, output, ms,",
+      "replace": "  return { id, outcome: outcome as Outcome, status, stopped, output, ms: 0,",
       "by": "test",
       "kills": [
         "计时写下去读回来还是原值（1234 毫秒）"
