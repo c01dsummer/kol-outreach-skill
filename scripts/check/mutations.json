@@ -8811,6 +8811,92 @@
       "kills": [
         "worker 缺启动观测保留五类旧结论及原字段"
       ]
+    },
+    {
+      "id": "M-H50-a",
+      "req": "harness",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "return current === undefined ? 'keep' : 'remove'",
+      "replace": "return current === undefined ? 'remove' : 'remove'",
+      "why": "原件与当前均缺席时不得要求删除",
+      "by": "test",
+      "kills": [
+        "认领恢复：原件和当前均缺席时保留缺席"
+      ]
+    },
+    {
+      "id": "M-H50-b",
+      "req": "harness",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "return current === undefined ? 'keep' : 'remove'",
+      "replace": "return current === undefined ? 'keep' : 'keep'",
+      "why": "原本缺席时后来出现的认领必须清除",
+      "by": "test",
+      "kills": [
+        "认领恢复：原本缺席而当前存在时删除",
+        "认领恢复：原本缺席而当前空文件时删除"
+      ]
+    },
+    {
+      "id": "M-H50-c",
+      "req": "harness",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "if (current === undefined) return 'restore'",
+      "replace": "if (current === undefined) return 'keep'",
+      "why": "已有原件被清除时仍必须恢复，空原件也是存在",
+      "by": "test",
+      "kills": [
+        "认领恢复：存在原件而当前缺席时恢复",
+        "认领恢复：空原件遇到当前缺席仍恢复"
+      ]
+    },
+    {
+      "id": "M-H50-d",
+      "req": "harness",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "if (original.length !== current.length) return 'restore'",
+      "replace": "if (original.length !== current.length) return 'keep'",
+      "why": "当前字节长度改变时不得保留错误认领",
+      "by": "test",
+      "kills": [
+        "认领恢复：当前比原件长时恢复",
+        "认领恢复：当前比原件短时恢复",
+        "认领恢复：同语义JSON的空白变化仍恢复",
+        "认领恢复：空原件遇到非空当前时恢复",
+        "认领恢复：非空原件遇到空当前时恢复"
+      ]
+    },
+    {
+      "id": "M-H50-e",
+      "req": "harness",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "original.every((byte, index) => byte === current[index])",
+      "replace": "true",
+      "why": "长度相同不能冒充原字节相同",
+      "by": "test",
+      "kills": [
+        "认领恢复：同长度中间字节不同也恢复",
+        "认领恢复：二进制字节不同不能按解码文本判相同",
+        "认领恢复：同长度首字节不同也恢复",
+        "认领恢复：同长度末字节不同也恢复",
+        "认领恢复：字节次序不同的正向比较恢复",
+        "认领恢复：字节次序不同的反向比较恢复",
+        "认领恢复：同长度同语义JSON的字段次序变化仍恢复"
+      ]
+    },
+    {
+      "id": "M-H50-f",
+      "req": "harness",
+      "file": "scripts/check/mutate-restore.ts",
+      "find": "original.every((byte, index) => byte === current[index])",
+      "replace": "false",
+      "why": "字节相同必须保留原件而非重复恢复",
+      "by": "test",
+      "kills": [
+        "认领恢复：不同数组的完全相同字节保留原件",
+        "认领恢复：空原件和空当前相同则保留",
+        "认领恢复：视图中的相同字节保留原件"
+      ]
     }
   ],
   "exemptions": [

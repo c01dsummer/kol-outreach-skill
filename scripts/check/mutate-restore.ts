@@ -19,6 +19,19 @@
 import { writeFileSync } from 'node:fs'
 import type { ChildProcess } from 'node:child_process'
 
+/**
+ * 完整需求测试认领的原字节恢复动作。相同原件保留；原件缺失或字节被改写才恢复；
+ * 原本缺席而后来出现则删除，两头缺席不操作。空字节串是存在的原件。
+ * 此接口的判定先独立验证；现有入口尚未调用它。
+ */
+export function claimsRestoreAction(original: Uint8Array | undefined, current: Uint8Array | undefined):
+  'keep' | 'restore' | 'remove' {
+  if (original === undefined) return current === undefined ? 'keep' : 'remove'
+  if (current === undefined) return 'restore'
+  if (original.length !== current.length) return 'restore'
+  return original.every((byte, index) => byte === current[index]) ? 'keep' : 'restore'
+}
+
 /** 正被改写的那个源文件和它的原文。没有变异在跑的时候是 undefined */
 let inFlight: { file: string; orig: string } | undefined
 
