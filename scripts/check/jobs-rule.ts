@@ -74,6 +74,11 @@ export interface Ran {
    * **派工跑的时候它要穿过 worker 的进程边界**，所以和别的字段一样写进汇报行、由 `parseReport` 逐字段验。
    */
   ms: number
+  /**
+   * 验证者实际启动的观测；缺席为旧回报没有观测，不从结论或 ms 补出。
+   * 只供成本取数，不改变原结论；实际 spawn 观察由后续入口接线提供。
+   */
+  started?: boolean
 }
 
 /**
@@ -119,14 +124,17 @@ export function parseReport(line: string): ({ id: string } & Ran) | undefined {
   try { raw = JSON.parse(line.slice(MARK.length + 1)) } catch { return undefined }
   if (raw === null || typeof raw !== 'object') return undefined
   const r = raw as Record<string, unknown>
-  const { id, outcome, status, stopped, output, ms } = r
+  const { id, outcome, status, stopped, output, ms, started } = r
   if (typeof id !== 'string' || id === '') return undefined
   if (typeof outcome !== 'string' || !OUTCOMES.includes(outcome)) return undefined
   if (status !== null && typeof status !== 'number') return undefined
   if (typeof stopped !== 'boolean' || typeof output !== 'string') return undefined
   // 计时同样逐字段验（契约在 `Ran.ms`）。写的一侧交了 NaN／Infinity 时线上是 null，手写的 1e999 读回来是 Infinity，都认不出
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return undefined
-  return { id, outcome: outcome as Outcome, status, stopped, output, ms }
+  const hasStarted = Object.hasOwn(r, 'started')
+  if (hasStarted && typeof started !== 'boolean') return undefined
+  return { id, outcome: outcome as Outcome, status, stopped, output, ms,
+    ...(hasStarted ? { started: started as boolean } : {}) }
 }
 
 /** 一个验证者在这一跑里的账：用了几条、实测花了多久 */
