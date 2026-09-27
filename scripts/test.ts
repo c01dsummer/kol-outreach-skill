@@ -6613,6 +6613,18 @@ ok('维护-GROUPS与调用顺序不一致不得放行', maintenanceThrows(() => 
 }
 }
 
+{
+  const { mutationEventBase: maintenanceEventBase } = await import('./check/mutate-rule.js') as unknown as { mutationEventBase: (eventName: string | undefined, event: unknown) => string };
+  ok('维护事件-公开API存在', typeof maintenanceEventBase === 'function');
+  if (typeof maintenanceEventBase === 'function') {
+    const maintenanceObserveEvent = (name: string | undefined, event: unknown) => { try { return maintenanceEventBase(name, event); } catch (error) { return { kind: 'error', why: error instanceof Error ? error.message : String(error) }; } };
+    eq('维护事件-PR取自身baseSHA', maintenanceObserveEvent('pull_request', { before: 'wrong-event-field', pull_request: { base: { sha: 'a'.repeat(40) } } }), 'a'.repeat(40));
+    eq('维护事件-push取自身beforeSHA', maintenanceObserveEvent('push', { before: 'b'.repeat(40), pull_request: { base: { sha: 'wrong-event-field' } } }), 'b'.repeat(40));
+    const maintenanceInvalidEvents: readonly (readonly [string | undefined, unknown])[] = [['unknown', {}], [undefined, {}], ['push', null], ['push', 3], ['push', []], ['pull_request', {}], ['push', {}], ['pull_request', { before: 'a'.repeat(40) }], ['push', { pull_request: { base: { sha: 'a'.repeat(40) } } }], ['push', { before: 1 }], ['pull_request', { pull_request: { base: { sha: null } } }]];
+    ok('维护事件-未知缺失与错字段不得退回本地', maintenanceInvalidEvents.every(([name, event]) => { try { maintenanceEventBase(name, event); return false; } catch { return true; } }));
+  }
+}
+
 })
 
 await group('h-mutation-maintenance-entry', async () => {
@@ -6653,10 +6665,11 @@ console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执�
   };
   const entryCatalog = (cwd: string, mutations: readonly unknown[]) => entryWrite(entryJoin(cwd, 'scripts/check/mutations.json'), JSON.stringify({ mutations, exemptions: [] }));
   const entryCommit = (cwd: string, message: string) => { entryGit(cwd, 'add', '.'); entryGit(cwd, 'commit', '--quiet', '-m', message); return entryGit(cwd, 'rev-parse', 'HEAD'); };
-  const entryRun = (cwd: string, base: string, script = entryPath) => {
+  const entryRun = (cwd: string, base: string, script = entryPath, extraEnv: Record<string, string | undefined> = {}) => {
     const [exe, args] = entryTsx(script === entryPath ? [script, '--jobs=1'] : [script]);
-    return entrySpawn(exe, args, { cwd, encoding: 'utf8', timeout: 45000, maxBuffer: 1024 * 1024,
-      env: { ...process.env, MUTATE_BASE_SHA: base, MUTATE_JOBS: '1', KOL_MAINTENANCE_ENTRY_MARKER: entryJoin(cwd, 'verifier.marker'), NODE_COMPILE_CACHE: entryJoin(entryRoot, 'compile-cache') } });
+    const env: Record<string, string | undefined> = { ...process.env, MUTATE_BASE_SHA: base, MUTATE_JOBS: '1', KOL_MAINTENANCE_ENTRY_MARKER: entryJoin(cwd, 'verifier.marker'), NODE_COMPILE_CACHE: entryJoin(entryRoot, 'compile-cache'), ...extraEnv };
+    for (const key of Object.keys(extraEnv)) if (extraEnv[key] === undefined) delete env[key];
+    return entrySpawn(exe, args, { cwd, encoding: 'utf8', timeout: 45000, maxBuffer: 1024 * 1024, env });
   };
   const entrySetup = (name: string, missingCatalog = false) => {
     const cwd = entryJoin(entryRoot, name);
@@ -6697,6 +6710,20 @@ console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执�
     eq('维护入口-施变仅按顺序执行全部目标组', JSON.stringify(observed), JSON.stringify(['a:gone', 'b:gone']));
     eq('维护入口-施变后恢复目标', entryRead(fixture.target, 'utf8'), 'keep\n');
     eq('维护入口-全量施变保护已有认领', entryRead(claimPath, 'utf8'), claimSentinel);
+    const eventPath = entryJoin(entryRoot, 'github-event.json');
+    for (const [name, payload] of [['pull_request', { pull_request: { base: { sha: fixture.base } } }], ['push', { before: fixture.base }]] as const) {
+      entryWrite(eventPath, JSON.stringify(payload)); entryRemove(fixture.marker, { force: true });
+      const eventRun = entryRun(fixture.cwd, fixture.base, entryPath, { GITHUB_ACTIONS: 'true', MUTATE_BASE_SHA: undefined, GITHUB_EVENT_NAME: name, GITHUB_EVENT_PATH: eventPath });
+      eq('维护入口-事件真实通过 ' + name, eventRun.status, 0);
+      eq('维护入口-事件确实完整施变 ' + name, entryExists(fixture.marker) ? entryRead(fixture.marker, 'utf8') : '未执行', 'a:gone\nb:gone\n');
+      eq('维护入口-事件施变恢复目标 ' + name, entryRead(fixture.target, 'utf8'), 'keep\n');
+    }
+    for (const [kind, contents, path, explicitBase] of [['缺路径', '{}', undefined, undefined], ['坏JSON', '{', eventPath, undefined], ['错事件字段', JSON.stringify({ before: fixture.base }), eventPath, undefined], ['显式空串优先', JSON.stringify({ pull_request: { base: { sha: fixture.base } } }), eventPath, '']] as const) {
+      entryWrite(eventPath, contents); entryWrite(fixture.marker, 'sentinel\n');
+      entryRefusal('维护入口-事件拒绝 ' + kind, entryRun(fixture.cwd, fixture.base, entryPath, { GITHUB_ACTIONS: 'true', MUTATE_BASE_SHA: explicitBase, GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: path }));
+      eq('维护入口-事件拒绝零验证者执行 ' + kind, entryRead(fixture.marker, 'utf8'), 'sentinel\n');
+      eq('维护入口-事件拒绝未施变 ' + kind, entryRead(fixture.target, 'utf8'), 'keep\n');
+    }
     for (const base of [head, 'invalid-base']) {
       entryWrite(fixture.marker, 'sentinel\n');
       entryRefusal('维护入口-显式基线拒绝 ' + base, entryRun(fixture.cwd, base));
