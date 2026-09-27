@@ -7,6 +7,9 @@
  *
  * 它**没有死亡条件,而那是判过的结论、不是漏了** —— 理由记在 ADR-85。
  */
+
+import { configurationKey, costObservation, configurationCost, configurationCostLines, type CostInput, type CostIdentity, type CostRoute, type CostBaseline, type CostMutation, type CostSummary } from './check/jobs-rule.js'
+import type { RunVerdict } from './check/mutate-rule.js'
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { entries, ledgerSummary, orphanIous } from './check/debt-rule.js'
 import { implementationLeak } from './check/why-rule.js'
@@ -148,6 +151,7 @@ const GROUPS: readonly Group[] = [
   { id: 'u1-u5-output', needs: [] },
   { id: 'h-mutate', needs: [] },
   { id: 'h-mutation-maintenance', needs: [] },
+  { id: 'h-mutation-cost', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
   { id: 'h-group', needs: [] },
@@ -6624,6 +6628,237 @@ ok('维护-GROUPS与调用顺序不一致不得放行', maintenanceThrows(() => 
   }
 }
 
+})
+
+await group('h-mutation-cost', () => {
+harness('配置成本：独立手算实际启动、成功基线关联和观测缺失')
+// 独立上下文只读公开契约和类型；期望先于实现，未读既有测试或变异原文。
+const KEY = '["fixture-tests",["checks"]]'
+const ROUTE: CostRoute = { by: 'fixture-tests', only: ['checks'], executes: ['setup', 'checks'] }
+const identity = (state: CostIdentity['state'] = 'failed'): CostIdentity => ({
+  headSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  comparisonBaseSha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  sourceIdentity: 'fixture-source+fixture-catalog+fixture-lock',
+  command: ['npm', 'run', 'mutate', '--', '--fixture-scope'],
+  nodeVersion: 'v24.0.0', platform: 'linux', arch: 'x64', workers: 2, state,
+  ...(state === 'succeeded' ? {} : { reason: `fixture command state ${state}` }),
+})
+const baseline = (id: string, ms: number, key = KEY): CostBaseline => ({ id, key, state: 'succeeded', elapsed: { kind: 'measured', ms } })
+// Helper-only null means deliberately omit the optional baseline association.
+const reported = (id: string, ms: number, baselineId: string | null = 'base-C', outcome: RunVerdict = 'caught', key = KEY, stopped = false): CostMutation => ({
+  id, key, state: 'reported', ...(baselineId === null ? {} : { baselineId }),
+  result: { outcome, status: stopped ? null : 1, stopped, output: outcome === 'crashed' ? 'fixture validator crashed' : '', started: true },
+  elapsed: { kind: 'measured', ms },
+})
+const row = (summary: CostSummary, key = KEY) => summary.rows.find(r => r.key === key)
+const single = (ids: string[], baselines: CostBaseline[] | undefined, mutations: CostMutation[] | undefined, state: CostIdentity['state'] = 'failed'): CostInput => ({
+  identity: identity(state), combinations: [{ key: KEY, route: ROUTE, mutationIds: ids }], baselines, mutations,
+})
+const hasIssues = (summary: CostSummary) => summary.issues.length > 0 || summary.rows.some(r => r.issues.length > 0)
+
+function runMutationCostTests(): void {
+  // Public key contract is JSON [by, sorted only]; executes is not a second key.
+  const selected: CostRoute = { by: 'fixture-tests', only: ['zeta', 'alpha'], executes: ['setup', 'zeta', 'alpha'] }
+  const reordered: CostRoute = { by: 'fixture-tests', only: ['alpha', 'zeta'], executes: ['setup', 'zeta', 'alpha'] }
+  const changedExecution: CostRoute = { ...selected, executes: ['alpha', 'setup', 'zeta'] }
+  const full: CostRoute = { by: 'fixture-tests', executes: ['setup', 'zeta', 'alpha'] }
+  ok('成本组合身份沿验证者与排序后的选择组', configurationKey(selected) === '["fixture-tests",["alpha","zeta"]]' && configurationKey(reordered) === '["fixture-tests",["alpha","zeta"]]')
+  ok('成本组合身份区分全量与相同执行组的选组', configurationKey(full) === '["fixture-tests",null]' && configurationKey(full) !== configurationKey(selected))
+  ok('相同选择组的不同验证者有不同成本身份', configurationKey({ ...selected, by: 'fixture-selfcheck' }) === '["fixture-selfcheck",["alpha","zeta"]]')
+  ok('执行顺序变化不能另造第二份基线复用身份', configurationKey(changedExecution) === '["fixture-tests",["alpha","zeta"]]')
+
+  // Declared before execution: configured=3, launched=2, one shared base -> reuse=1;
+  // baseline 10ms and mutation 20+30=50ms are separate sums.
+  const counted = configurationCost(single(['A', 'B', 'C-unapplied'], [baseline('base-C', 10)], [
+    reported('A', 20), reported('B', 30), { id: 'C-unapplied', key: KEY, state: 'not-started', reason: 'fixture anchor did not match' },
+  ]))
+  const countedRow = row(counted)
+  ok('配置成本保留实际组合行', counted.rows.length === 1 && countedRow !== undefined)
+  ok('配置三条但仅真实启动两条不能冒充三位使用者', countedRow?.configuredIds.length === 3 && countedRow.actualUsers === 2 && countedRow.observedIds.length === 2)
+  ok('明确未启动与没有回报记录是两件事', countedRow?.notStartedIds.includes('C-unapplied') === true && countedRow.missingIds.length === 0)
+  ok('同一成功基线的第二位真实使用者才算一次额外复用', countedRow?.baselineStarted === 1 && countedRow.baselineSucceeded === 1 && countedRow.extraReuse === 1 && countedRow.observedReuse === 1)
+  ok('正常基线与变异的逐次经过时间分别相加', countedRow?.baselineTimes.succeeded.samples === 1 && countedRow.baselineTimes.succeeded.totalMs === 10 && countedRow.mutationTimes.caught.samples === 2 && countedRow.mutationTimes.caught.totalMs === 50)
+  ok('命令失败不抹掉已经完整取得的成本观测', counted.complete === true && counted.identity.state === 'failed')
+
+  // Successful baseline with zero users -> 0, not users(0)-bases(1)=-1.
+  const unused = row(configurationCost(single(['A'], [baseline('base-C', 8)], [{ id: 'A', key: KEY, state: 'not-started', reason: 'fixture not applied' }])))
+  ok('成功但没有消费者的基线额外复用为零', unused?.actualUsers === 0 && unused.baselineStarted === 1 && unused.baselineSucceeded === 1 && unused.extraReuse === 0)
+  // Algorithm diagnostic input: two observed successful bases for the same key
+  // does not claim a valid successful command under the one-baseline rule.
+  const oneEach = row(configurationCost(single(['A', 'B'], [baseline('base-1', 7), baseline('base-2', 9)], [reported('A', 11, 'base-1'), reported('B', 13, 'base-2')], 'unknown')))
+  ok('两份成功基线各消费一次没有额外复用', oneEach?.actualUsers === 2 && oneEach.baselineSucceeded === 2 && oneEach.extraReuse === 0)
+  const uneven = row(configurationCost(single(['A', 'B', 'D'], [baseline('used-base', 2), baseline('unused-base', 3)], [reported('A', 5, 'used-base'), reported('B', 7, 'used-base'), reported('D', 11, 'used-base')], 'unknown')))
+  // used-base: 3 users -> 2 extra; unused-base: 0 -> 0; 2+0=2, not 3-2=1.
+  ok('额外复用逐份关联不能用总使用者减成功基线数', uneven?.actualUsers === 3 && uneven.baselineSucceeded === 2 && uneven.extraReuse === 2)
+
+  const noStart = configurationCost(single(['A', 'B'], [{ id: 'base-C', key: KEY, state: 'start-failed', reason: 'fixture baseline spawn failed' }], [
+    { id: 'A', key: KEY, state: 'start-failed', reason: 'fixture mutation spawn failed' }, { id: 'B', key: KEY, state: 'not-started', reason: 'fixture not dispatched' },
+  ]))
+  const noStartRow = row(noStart)
+  ok('启动失败不计正常基线或变异的实际启动', noStartRow?.baselineStarted === 0 && noStartRow.baselineSucceeded === 0 && noStartRow.actualUsers === 0 && noStartRow.extraReuse === 0)
+  ok('启动失败不能伪装成已启动进程的失败计时', noStartRow?.baselineTimes.failed.samples === 0 && noStartRow.mutationTimes.crashed.samples === 0)
+  const unavailable = configurationCost(single(['A', 'B'], undefined, undefined, 'unknown'))
+  const unavailableRow = row(unavailable)
+  ok('缺整张观测表不能补成零次启动或零次复用', unavailableRow !== undefined && unavailableRow.actualUsers === undefined && unavailableRow.baselineStarted === undefined && unavailableRow.baselineSucceeded === undefined && unavailableRow.extraReuse === undefined && unavailable.complete === false)
+  const empty = row(configurationCost(single(['A'], [], [{ id: 'A', key: KEY, state: 'not-started', reason: 'fixture not dispatched' }])))
+  ok('已观测空活动与观测表缺席保持可区分', empty?.actualUsers === 0 && empty.baselineStarted === 0 && empty.baselineSucceeded === 0 && empty.extraReuse === 0)
+
+  const partial = configurationCost(single(['A', 'B', 'missing-C'], [baseline('base-C', 5)], [reported('A', 7), reported('B', 11)], 'incomplete'))
+  const partialRow = row(partial)
+  // Known A/B: observed reuse 1 and elapsed 18; missing-C startup/association unknown.
+  ok('少一条回报不能把部分实际使用和复用冒充全范围', partialRow !== undefined && partialRow.observedIds.length === 2 && partialRow.missingIds.includes('missing-C') && partialRow.actualUsers === undefined && partialRow.extraReuse === undefined && partialRow.observedReuse === 1 && partial.complete === false)
+  ok('缺回报时仍保留已取得两条变异的十八毫秒部分和', partialRow?.mutationTimes.caught.samples === 2 && partialRow.mutationTimes.caught.totalMs === 18)
+
+  const failedBase = configurationCost(single(['A'], [{ id: 'base-C', key: KEY, state: 'failed', elapsed: { kind: 'measured', ms: 4 }, reason: 'fixture baseline assertion failed' }], [{ id: 'A', key: KEY, state: 'not-started', reason: 'fixture baseline failed' }]))
+  const failedBaseRow = row(failedBase)
+  ok('失败基线计入启动和失败时间但不冒充成功基线', failedBaseRow?.baselineStarted === 1 && failedBaseRow.baselineSucceeded === 0 && failedBaseRow.extraReuse === 0 && failedBaseRow.baselineTimes.failed.samples === 1 && failedBaseRow.baselineTimes.failed.totalMs === 4 && failedBaseRow.baselineTimes.succeeded.samples === 0)
+  const unfinishedBase = row(configurationCost(single(['A'], [{ id: 'base-C', key: KEY, state: 'incomplete', elapsed: { kind: 'measured', ms: 6 }, reason: 'fixture normal baseline interrupted' }], [{ id: 'A', key: KEY, state: 'not-started', reason: 'fixture baseline interrupted' }], 'incomplete')))
+  ok('已观测中断的基线时间单列为未完成', unfinishedBase?.baselineStarted === 1 && unfinishedBase.baselineSucceeded === 0 && unfinishedBase.baselineTimes.incomplete.samples === 1 && unfinishedBase.baselineTimes.incomplete.totalMs === 6)
+
+  const classified = configurationCost(single(['zero', 'crash', 'elsewhere', 'survived', 'unfinished'], [baseline('base-C', 3)], [
+    reported('zero', 0), reported('crash', 7, 'base-C', 'crashed'), reported('elsewhere', 2, 'base-C', 'elsewhere'), reported('survived', 3, 'base-C', 'survived'),
+    { id: 'unfinished', key: KEY, state: 'incomplete', baselineId: 'base-C', elapsed: { kind: 'unavailable', reason: 'fixture missing interrupted timing' }, reason: 'fixture externally killed without a verdict' },
+  ], 'incomplete'))
+  const classifiedRow = row(classified)
+  // All five started and link to the same successful base -> 4 extra uses.
+  ok('崩溃与无结论中断仍属真实使用但缺计时不算完整观测', classifiedRow?.actualUsers === 5 && classifiedRow.extraReuse === 4 && classified.complete === false)
+  ok('真实零与各变异结果的经过时间保持分类', classifiedRow?.mutationTimes.caught.samples === 1 && classifiedRow.mutationTimes.caught.totalMs === 0 && classifiedRow.mutationTimes.crashed.samples === 1 && classifiedRow.mutationTimes.crashed.totalMs === 7 && classifiedRow.mutationTimes.elsewhere.totalMs === 2 && classifiedRow.mutationTimes.survived.totalMs === 3)
+  ok('已启动缺时条目有缺失记录而没有实测零样本', classifiedRow?.mutationTimes.incomplete.samples === 0 && classifiedRow.mutationTimes.incomplete.missing.length === 1)
+  const missingReportedTime: CostMutation = { ...reported('reported-no-time', 1), state: 'reported', result: { outcome: 'caught', status: 1, stopped: false, output: '', started: true }, elapsed: { kind: 'unavailable', reason: 'fixture reported timer unavailable' } }
+  const missingReported = configurationCost(single(['reported-no-time'], [baseline('base-C', 2)], [missingReportedTime]))
+  const missingReportedRow = row(missingReported)
+  ok('已回报但缺计时不补实测零且声明成本观测不完整', missingReportedRow?.actualUsers === 1 && missingReportedRow.mutationTimes.caught.samples === 0 && missingReportedRow.mutationTimes.caught.totalMs === 0 && missingReportedRow.mutationTimes.caught.missing.length === 1 && missingReported.complete === false)
+  ok('已回报缺计时的实际原因进入可读成本报告', configurationCostLines(missingReported).join('\n').includes('fixture reported timer unavailable'))
+  // All three values are outside finite nonnegative measured elapsed evidence.
+  // Each has zero accepted samples and empty measured sum, plus missing evidence.
+  // Three inputs are all constructed before their qualified facts are combined.
+  // Empty measured sums are paired with missing evidence, not full measured zero.
+  const invalidTimingMatrix = [Number.NaN, Number.POSITIVE_INFINITY, -1].map(ms => {
+    const invalidTimes = configurationCost(single(['bad-time'], [baseline('base-C', ms)], [reported('bad-time', ms)], 'unknown'))
+    const invalidRow = row(invalidTimes)
+    return invalidRow !== undefined && invalidRow.baselineTimes.succeeded.samples === 0 && invalidRow.baselineTimes.succeeded.totalMs === 0 && invalidRow.baselineTimes.succeeded.missing.length > 0 && invalidRow.mutationTimes.caught.samples === 0 && invalidRow.mutationTimes.caught.totalMs === 0 && invalidRow.mutationTimes.caught.missing.length > 0 && invalidTimes.complete === false
+  })
+  ok('非法实测时间不能进入正常基线或变异的合计', invalidTimingMatrix.every(pass => pass))
+  const stopped = configurationCost(single(['A'], [baseline('base-C', 2)], [reported('A', 4, 'base-C', 'caught', KEY, true)], 'succeeded'))
+  ok('合法点名早停保持caught而不被改成未完成', row(stopped)?.actualUsers === 1 && row(stopped)?.mutationTimes.caught.samples === 1 && row(stopped)?.mutationTimes.incomplete.samples === 0 && stopped.identity.state === 'succeeded' && stopped.complete === true)
+
+  // costObservation must use started, never infer it from ms/verdict.
+  for (const ms of [0, 8]) {
+    const legacy: Ran = { outcome: 'caught', status: 1, stopped: false, output: '', ms }
+    const observed = costObservation(`legacy-${ms}`, KEY, legacy, 'base-C')
+    ok(`旧回报缺启动证据时成本未知且不改变原判定${ms}`, observed.state === 'unknown' && legacy.outcome === 'caught')
+  }
+  const unknownStart = configurationCost(single(['legacy'], [baseline('base-C', 2)], [costObservation('legacy', KEY, { outcome: 'caught', status: 1, stopped: false, output: '', ms: 8 }, 'base-C')], 'unknown'))
+  ok('缺启动证据的旧回报汇总时仍为未知而非已启动', row(unknownStart) !== undefined && row(unknownStart)?.actualUsers === undefined && row(unknownStart)?.extraReuse === undefined && row(unknownStart)?.mutationTimes.caught.samples === 0 && unknownStart.complete === false)
+  const legacyUnapplied: Ran = { outcome: 'not-applied', status: null, stopped: false, output: '', ms: 0 }
+  ok('旧未施变的零哨兵也不能替代缺失的启动证据', costObservation('legacy-unapplied', KEY, legacyUnapplied).state === 'unknown')
+  const observedZero = costObservation('real-zero', KEY, { outcome: 'caught', status: 1, stopped: false, output: '', ms: 0, started: true }, 'base-C')
+  ok('真实启动且测得零毫秒保留测量与基线引用', observedZero.state === 'reported' && observedZero.result.outcome === 'caught' && observedZero.elapsed.kind === 'measured' && observedZero.elapsed.ms === 0 && observedZero.baselineId === 'base-C')
+  const observedCrash = costObservation('observed-crash', KEY, { outcome: 'crashed', status: 1, stopped: false, output: 'fixture crash', ms: 7, started: true }, 'base-C')
+  ok('启动后崩溃的回报仍保留实际经过时间与崩溃判定', observedCrash.state === 'reported' && observedCrash.result.outcome === 'crashed' && observedCrash.elapsed.kind === 'measured' && observedCrash.elapsed.ms === 7)
+  const observedStop = costObservation('observed-stop', KEY, { outcome: 'caught', status: null, stopped: true, output: '', ms: 4, started: true }, 'base-C')
+  ok('成本观测保留合法主动停下与信号退出事实', observedStop.state === 'reported' && observedStop.result.outcome === 'caught' && observedStop.result.stopped === true && observedStop.result.status === null)
+  const unapplied = costObservation('unapplied', KEY, { outcome: 'not-applied', status: null, stopped: false, output: '', ms: 0, started: false })
+  const neverStarted = row(configurationCost(single(['unapplied'], [], [unapplied])))
+  ok('明确未启动的零哨兵不成为实际使用或实测时间', neverStarted?.actualUsers === 0 && neverStarted.mutationTimes.caught.samples === 0 && neverStarted.mutationTimes.crashed.samples === 0)
+
+  // Direct aggregation bypasses costObservation: reported/verdict/3+5ms do not
+  // prove startup when both optional started fields are absent. No qualified
+  // mutation sample or successful-base consumption is established by these two.
+  const directUnknown = configurationCost(single(['direct-A', 'direct-B'], [baseline('base-C', 2)], [
+    { id: 'direct-A', key: KEY, state: 'reported', baselineId: 'base-C', result: { outcome: 'caught', status: 1, stopped: false, output: '' }, elapsed: { kind: 'measured', ms: 3 } },
+    { id: 'direct-B', key: KEY, state: 'reported', baselineId: 'base-C', result: { outcome: 'caught', status: 1, stopped: false, output: '' }, elapsed: { kind: 'measured', ms: 5 } },
+  ], 'unknown'))
+  const directUnknownRow = row(directUnknown)
+  ok('直接reported缺启动观测不能从结果标签猜两位使用者和一次复用', directUnknownRow !== undefined && directUnknownRow.configuredIds.length === 2 && directUnknownRow.actualUsers === undefined && directUnknownRow.extraReuse === undefined && directUnknown.complete === false && hasIssues(directUnknown))
+  ok('直接reported缺启动证据的合法非零计时不能成为实测', directUnknownRow?.observedIds.length === 0 && directUnknownRow.mutationTimes.caught.samples === 0 && directUnknownRow.mutationTimes.caught.totalMs === 0)
+  const directFalse = row(configurationCost(single(['direct-false'], [baseline('base-C', 2)], [
+    { id: 'direct-false', key: KEY, state: 'reported', baselineId: 'base-C', result: { outcome: 'caught', status: 1, stopped: false, output: '', started: false }, elapsed: { kind: 'measured', ms: 7 } },
+  ])))
+  ok('直接reported明确未启动时结果标签和非零时间也不算启动', directFalse !== undefined && directFalse.configuredIds.length === 1 && directFalse.actualUsers === 0 && directFalse.extraReuse === 0 && directFalse.mutationTimes.caught.samples === 0 && directFalse.mutationTimes.caught.totalMs === 0)
+
+  const missingLink = row(configurationCost(single(['A', 'B'], [baseline('base-C', 2)], [reported('A', 3, null), reported('B', 5, null)], 'unknown')))
+  ok('基线关联缺席不猜复用而保留真实启动与计时', missingLink !== undefined && missingLink.actualUsers === 2 && missingLink.extraReuse === undefined && missingLink.mutationTimes.caught.totalMs === 8)
+  const missingBase = configurationCost(single(['A', 'B'], [baseline('unconsumed-base', 2)], [reported('A', 3, 'absent-base'), reported('B', 5, 'absent-base')], 'unknown'))
+  ok('不存在的基线引用不能借同路由基线制造复用', row(missingBase) !== undefined && row(missingBase)?.extraReuse === undefined && missingBase.complete === false && hasIssues(missingBase))
+  const duplicateBase = configurationCost(single(['A', 'B'], [baseline('base-C', 2), baseline('base-C', 4)], [reported('A', 3), reported('B', 5)], 'unknown'))
+  ok('重复基线身份不能提供确定的逐份关联', row(duplicateBase) !== undefined && row(duplicateBase)?.extraReuse === undefined && duplicateBase.complete === false && hasIssues(duplicateBase))
+  const failedAssociation = configurationCost(single(['A', 'B'], [{ id: 'base-C', key: KEY, state: 'failed', elapsed: { kind: 'measured', ms: 2 }, reason: 'fixture normal baseline failed' }], [reported('A', 3), reported('B', 5)]))
+  ok('真实消费者引用失败基线也不能制造成功复用', row(failedAssociation)?.baselineSucceeded === 0 && (row(failedAssociation)?.extraReuse === undefined || row(failedAssociation)?.extraReuse === 0))
+  const duplicateMutation = configurationCost(single(['A'], [baseline('base-C', 2)], [reported('A', 3), reported('A', 5)], 'unknown'))
+  ok('重复变异回报不能冒充两位消费者和一次复用', row(duplicateMutation) !== undefined && duplicateMutation.complete === false && hasIssues(duplicateMutation) && (row(duplicateMutation)?.extraReuse === undefined || row(duplicateMutation)?.extraReuse === 0) && row(duplicateMutation)?.actualUsers !== 2)
+  const outsideId = configurationCost(single(['A'], [baseline('base-C', 2)], [reported('A', 3), reported('unconfigured-ghost', 5)], 'unknown'))
+  ok('未配置身份不能虚增正确基线复用', row(outsideId) !== undefined && outsideId.complete === false && hasIssues(outsideId) && (row(outsideId)?.extraReuse === undefined || row(outsideId)?.extraReuse === 0))
+  const duplicateConfigured = configurationCost(single(['A', 'A'], [baseline('base-C', 2)], [reported('A', 3)], 'unknown'))
+  ok('重复配置身份不能冒充可区分的条目清单', row(duplicateConfigured) !== undefined && duplicateConfigured.complete === false && hasIssues(duplicateConfigured))
+  const wrongKey = configurationCost(single(['A'], [], [reported('A', 3, 'ghost-base', 'caught', 'unknown-key')], 'unknown'))
+  ok('不存在的组合引用不能自动归给配置中的组合', row(wrongKey) !== undefined && wrongKey.complete === false && hasIssues(wrongKey) && row(wrongKey)?.actualUsers === undefined)
+
+  const secondKey = '["fixture-selfcheck",["checks"]]'
+  const wrongCombination: CostInput = {
+    identity: identity('unknown'),
+    combinations: [{ key: KEY, route: ROUTE, mutationIds: ['A'] }, { key: secondKey, route: { ...ROUTE, by: 'fixture-selfcheck' }, mutationIds: ['B'] }],
+    baselines: [baseline('selfcheck-base', 2, secondKey)], mutations: [reported('A', 3, 'selfcheck-base'), reported('B', 5, 'selfcheck-base', 'caught', secondKey)],
+  }
+  const wrongCombinationSummary = configurationCost(wrongCombination)
+  ok('跨验证者错关联不能成为同组合的第二次正确消费', row(wrongCombinationSummary) !== undefined && row(wrongCombinationSummary, secondKey) !== undefined && wrongCombinationSummary.complete === false && hasIssues(wrongCombinationSummary) && row(wrongCombinationSummary, secondKey)?.extraReuse !== 1)
+  for (const conflict of [{ name: '执行顺序', executes: ['checks', 'setup'] }, { name: '依赖闭包', executes: ['setup', 'new-dependency', 'checks'] }]) {
+    const routeConflict = configurationCost({
+      identity: identity('unknown'),
+      combinations: [{ key: KEY, route: ROUTE, mutationIds: ['A'] }, { key: KEY, route: { ...ROUTE, executes: conflict.executes }, mutationIds: ['B'] }],
+      baselines: [baseline('base-C', 2)], mutations: [reported('A', 3), reported('B', 5)],
+    })
+    ok(`同复用身份的不同${conflict.name}不能静默合成可信复用`, row(routeConflict) !== undefined && routeConflict.complete === false && hasIssues(routeConflict) && routeConflict.rows.every(r => r.extraReuse === undefined))
+  }
+
+  const fullKey = '["fixture-tests",null]'
+  const outsideBaseline = configurationCost({
+    identity: identity('succeeded'), combinations: [{ key: fullKey, route: { by: 'fixture-tests', executes: ['setup', 'checks'] }, mutationIds: ['full-A'] }],
+    baselines: [], mutations: [reported('full-A', 9, null, 'caught', fullKey)],
+  })
+  const fullRow = row(outsideBaseline, fullKey)
+  ok('全量外层正常基线未观测不能补启动成功或复用零', fullRow !== undefined && fullRow.outsideBaseline === true && fullRow.baselineStarted === undefined && fullRow.baselineSucceeded === undefined && fullRow.extraReuse === undefined && outsideBaseline.complete === false)
+  ok('全量基线未知不抹掉已观测变异的真实使用和时间', fullRow?.actualUsers === 1 && fullRow.mutationTimes.caught.samples === 1 && fullRow.mutationTimes.caught.totalMs === 9)
+
+  // Observation completeness is independent of each command state.
+  for (const state of ['failed', 'incomplete', 'unknown'] as const) {
+    const completeObservations = configurationCost(single(['A'], [baseline('base-C', 2)], [reported('A', 3)], state))
+    ok(`保留命令${state}状态并单独报告已完整取得的成本观测`, completeObservations.identity.state === state && completeObservations.complete === true)
+  }
+  const identityUnavailableInput = single(['A'], [baseline('base-C', 2)], [reported('A', 3)], 'unknown')
+  delete identityUnavailableInput.identity.sourceIdentity
+  identityUnavailableInput.identity.identityFault = 'fixture live source identity unavailable'
+  const identityUnavailable = configurationCost(identityUnavailableInput)
+  ok('源码身份缺失不能冒充完整成功证据但保留已知成本事实', identityUnavailable.complete === false && identityUnavailable.identity.sourceIdentity === undefined && identityUnavailable.identity.identityFault === 'fixture live source identity unavailable' && row(identityUnavailable)?.actualUsers === 1)
+  ok('源码身份无从确认的原因进入可读成本报告', configurationCostLines(identityUnavailable).join('\n').includes('fixture live source identity unavailable'))
+
+  // Every configured combination must be present, even with zero actual users.
+  // Keys are literal public identities; display checks use only unique content,
+  // not prescribed punctuation, line count, ordering or decimal formatting.
+  const listInput: CostInput = {
+    identity: identity('failed'),
+    combinations: [
+      { key: '["fixture-list-tests",["scope-alpha"]]', route: { by: 'fixture-list-tests', only: ['scope-alpha'], executes: ['dependency-alpha', 'scope-alpha'] }, mutationIds: ['configured-alpha'] },
+      { key: '["fixture-list-selfcheck",["scope-beta"]]', route: { by: 'fixture-list-selfcheck', only: ['scope-beta'], executes: ['dependency-beta', 'scope-beta'] }, mutationIds: ['configured-beta'] },
+      { key: '["fixture-list-full",null]', route: { by: 'fixture-list-full', executes: ['full-dependency', 'full-scope'] }, mutationIds: ['configured-full'] },
+    ],
+    baselines: [],
+    mutations: [
+      { id: 'configured-alpha', key: '["fixture-list-tests",["scope-alpha"]]', state: 'not-started', reason: 'fixture alpha not applied' },
+      { id: 'configured-beta', key: '["fixture-list-selfcheck",["scope-beta"]]', state: 'not-started', reason: 'fixture beta not applied' },
+      { id: 'configured-full', key: '["fixture-list-full",null]', state: 'not-started', reason: 'fixture full not applied' },
+    ],
+  }
+  const listed = configurationCost(listInput)
+  const lines = configurationCostLines(listed)
+  const text = lines.join('\n')
+  ok('完整配置成本列表保留全量选组和零使用行', listed.rows.length === 3 && listInput.combinations.every(c => listed.rows.some(r => r.key === c.key && r.configuredIds.length === 1)))
+  ok('可读成本报告不截断验证者选择组或实际依赖组合列表', ['fixture-list-tests', 'scope-alpha', 'dependency-alpha', 'fixture-list-selfcheck', 'scope-beta', 'dependency-beta', 'fixture-list-full', 'full-dependency', 'full-scope'].every(value => text.includes(value)))
+  ok('可读成本组合保留依赖在前的实际执行顺序', text.includes('dependency-alpha') && text.lastIndexOf('scope-alpha') > text.indexOf('dependency-alpha'))
+  ok('可读成本报告保留提交比较基线源码及运行版本身份', text.includes(listInput.identity.headSha) && text.includes(listInput.identity.comparisonBaseSha) && text.includes(listInput.identity.sourceIdentity!) && text.includes(listInput.identity.nodeVersion))
+}
+
+runMutationCostTests()
 })
 
 await group('h-jobs', () => {
