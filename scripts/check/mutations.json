@@ -8709,6 +8709,108 @@
       "find": "for (const row of summary.rows) {",
       "replace": "for (const row of summary.rows.filter(row => (row.actualUsers ?? 0) > 0)) {",
       "by": "test", "kills": ["可读成本报告不截断验证者选择组或实际依赖组合列表"]
+    },
+    {
+      "id": "M-H49-a",
+      "req": "harness",
+      "why": "显式非法启动观测必须使整个回报无效，不能当成合法变异结论",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "if (hasStarted && typeof started !== 'boolean') return undefined",
+      "replace": "if (false) return undefined",
+      "by": "test",
+      "kills": [
+        "worker null 启动观测拒绝整行",
+        "worker 字符串启动观测拒绝整行",
+        "worker 数字启动观测拒绝整行",
+        "worker 数组启动观测拒绝整行",
+        "worker 对象启动观测拒绝整行"
+      ]
+    },
+    {
+      "id": "M-H49-b",
+      "req": "harness",
+      "why": "缺启动观测的旧合法回报仍应保留，不能一并拒绝",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "const hasStarted = Object.hasOwn(r, 'started')",
+      "replace": "const hasStarted = true",
+      "by": "test",
+      "kills": [
+        "worker 缺启动观测保留五类旧结论及原字段"
+      ]
+    },
+    {
+      "id": "M-H49-c",
+      "req": "harness",
+      "why": "确知已启动的布尔观测应原样保留，不能读成未启动",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "...(hasStarted ? { started: started as boolean } : {})",
+      "replace": "...(hasStarted ? { started: false } : {})",
+      "by": "test",
+      "kills": [
+        "worker true 启动观测原样保留且不改五类旧结论"
+      ]
+    },
+    {
+      "id": "M-H49-d",
+      "req": "harness",
+      "why": "确知未启动的布尔观测应原样保留，不能读成已启动",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "...(hasStarted ? { started: started as boolean } : {})",
+      "replace": "...(hasStarted ? { started: true } : {})",
+      "by": "test",
+      "kills": [
+        "worker false 启动观测原样保留且不改五类旧结论"
+      ]
+    },
+    {
+      "id": "M-H49-e",
+      "req": "harness",
+      "why": "合法启动观测不能让缺失或非法的既有必填字段通过",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "const { id, outcome, status, stopped, output, ms, started } = r",
+      "replace": "const { id, outcome, status, stopped, output, ms, started } = r\n  if (typeof started === 'boolean') return { ...r } as ({ id: string } & Ran)",
+      "by": "test",
+      "kills": [
+        "worker 合法启动观测不能豁免缺失必填字段",
+        "worker 合法启动观测不能豁免非法必填字段"
+      ]
+    },
+    {
+      "id": "M-H49-f",
+      "req": "harness",
+      "why": "编码回报时必须保留已取得的布尔启动观测，不能丢掉已知状态",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "JSON.stringify({ ...ran, id, output:",
+      "replace": "JSON.stringify({ ...ran, started: undefined, id, output:",
+      "by": "test",
+      "kills": [
+        "worker 编码 true 由原生 JSON 确认且保留原回报字段",
+        "worker 编码 false 由原生 JSON 确认且保留原回报字段"
+      ]
+    },
+    {
+      "id": "M-H49-g",
+      "req": "harness",
+      "why": "没有启动观测的旧回报编码不能制造未启动的布尔观测",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "JSON.stringify({ ...ran, id, output:",
+      "replace": "JSON.stringify({ ...ran, started: ran.started ?? false, id, output:",
+      "by": "test",
+      "kills": [
+        "worker 编码缺启动观测不制造布尔字段"
+      ]
+    },
+    {
+      "id": "M-H49-h",
+      "req": "harness",
+      "why": "缺启动观测的旧合法回报应保留未知，不能读成确知未启动",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "...(hasStarted ? { started: started as boolean } : {})",
+      "replace": "...(hasStarted ? { started: started as boolean } : { started: false })",
+      "by": "test",
+      "kills": [
+        "worker 缺启动观测保留五类旧结论及原字段"
+      ]
     }
   ],
   "exemptions": [
