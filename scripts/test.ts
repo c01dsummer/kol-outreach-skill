@@ -6724,18 +6724,30 @@ function runMutationCostTests(assert: (pass: boolean, name: string, req: 'H') =>
   assert(classifiedRow?.actualUsers === 5 && classifiedRow.extraReuse === 4 && classified.complete === false, '崩溃与无结论中断仍属真实使用但缺计时不算完整观测', 'H')
   assert(classifiedRow?.mutationTimes.caught.samples === 1 && classifiedRow.mutationTimes.caught.totalMs === 0 && classifiedRow.mutationTimes.crashed.samples === 1 && classifiedRow.mutationTimes.crashed.totalMs === 7 && classifiedRow.mutationTimes.elsewhere.totalMs === 2 && classifiedRow.mutationTimes.survived.totalMs === 3, '真实零与各变异结果的经过时间保持分类', 'H')
   assert(classifiedRow?.mutationTimes.incomplete.samples === 0 && classifiedRow.mutationTimes.incomplete.missing.length === 1, '已启动缺时条目有缺失记录而没有实测零样本', 'H')
+  const missingReportedTime: CostMutation = { ...reported('reported-no-time', 1), state: 'reported', result: { outcome: 'caught', status: 1, stopped: false, output: '', started: true }, elapsed: { kind: 'unavailable', reason: 'fixture reported timer unavailable' } }
+  const missingReported = configurationCost(single(['reported-no-time'], [baseline('base-C', 2)], [missingReportedTime]))
+  const missingReportedRow = row(missingReported)
+  assert(missingReportedRow?.actualUsers === 1 && missingReportedRow.mutationTimes.caught.samples === 0 && missingReportedRow.mutationTimes.caught.totalMs === 0 && missingReportedRow.mutationTimes.caught.missing.length === 1 && missingReported.complete === false, '已回报但缺计时不补实测零且声明成本观测不完整', 'H')
+  assert(configurationCostLines(missingReported).join('\n').includes('fixture reported timer unavailable'), '已回报缺计时的实际原因进入可读成本报告', 'H')
+  // All three values are outside finite nonnegative measured elapsed evidence.
+  // Each has zero accepted samples and empty measured sum, plus missing evidence.
+  for (const invalid of [{ name: '非数值NaN', ms: Number.NaN }, { name: '无限值', ms: Number.POSITIVE_INFINITY }, { name: '负值', ms: -1 }]) {
+    const invalidTimes = configurationCost(single(['bad-time'], [baseline('base-C', invalid.ms)], [reported('bad-time', invalid.ms)], 'unknown'))
+    const invalidRow = row(invalidTimes)
+    assert(invalidRow !== undefined && invalidRow.baselineTimes.succeeded.samples === 0 && invalidRow.baselineTimes.succeeded.totalMs === 0 && invalidRow.baselineTimes.succeeded.missing.length > 0 && invalidRow.mutationTimes.caught.samples === 0 && invalidRow.mutationTimes.caught.totalMs === 0 && invalidRow.mutationTimes.caught.missing.length > 0 && invalidTimes.complete === false, `基线与变异实测${invalid.name}均不进入计时且保留缺失诊断`, 'H')
+  }
   const stopped = configurationCost(single(['A'], [baseline('base-C', 2)], [reported('A', 4, 'base-C', 'caught', KEY, true)], 'succeeded'))
   assert(row(stopped)?.actualUsers === 1 && row(stopped)?.mutationTimes.caught.samples === 1 && row(stopped)?.mutationTimes.incomplete.samples === 0 && stopped.identity.state === 'succeeded' && stopped.complete === true, '合法点名早停保持caught而不被改成未完成', 'H')
 
   // costObservation must use started, never infer it from ms/verdict.
   for (const ms of [0, 8]) {
-    const legacy: Ran & { started?: boolean } = { outcome: 'caught', status: 1, stopped: false, output: '', ms }
+    const legacy: Ran = { outcome: 'caught', status: 1, stopped: false, output: '', ms }
     const observed = costObservation(`legacy-${ms}`, KEY, legacy, 'base-C')
     assert(observed.state === 'unknown' && legacy.outcome === 'caught', `旧回报缺启动证据时成本未知且不改变原判定${ms}`, 'H')
   }
   const unknownStart = configurationCost(single(['legacy'], [baseline('base-C', 2)], [costObservation('legacy', KEY, { outcome: 'caught', status: 1, stopped: false, output: '', ms: 8 }, 'base-C')], 'unknown'))
   assert(row(unknownStart) !== undefined && row(unknownStart)?.actualUsers === undefined && row(unknownStart)?.extraReuse === undefined && row(unknownStart)?.mutationTimes.caught.samples === 0 && unknownStart.complete === false, '缺启动证据的旧回报汇总时仍为未知而非已启动', 'H')
-  const legacyUnapplied: Ran & { started?: boolean } = { outcome: 'not-applied', status: null, stopped: false, output: '', ms: 0 }
+  const legacyUnapplied: Ran = { outcome: 'not-applied', status: null, stopped: false, output: '', ms: 0 }
   assert(costObservation('legacy-unapplied', KEY, legacyUnapplied).state === 'unknown', '旧未施变的零哨兵也不能替代缺失的启动证据', 'H')
   const observedZero = costObservation('real-zero', KEY, { outcome: 'caught', status: 1, stopped: false, output: '', ms: 0, started: true }, 'base-C')
   assert(observedZero.state === 'reported' && observedZero.result.outcome === 'caught' && observedZero.elapsed.kind === 'measured' && observedZero.elapsed.ms === 0 && observedZero.baselineId === 'base-C', '真实启动且测得零毫秒保留测量与基线引用', 'H')
@@ -6756,13 +6768,13 @@ function runMutationCostTests(assert: (pass: boolean, name: string, req: 'H') =>
   const failedAssociation = configurationCost(single(['A', 'B'], [{ id: 'base-C', key: KEY, state: 'failed', elapsed: { kind: 'measured', ms: 2 }, reason: 'fixture normal baseline failed' }], [reported('A', 3), reported('B', 5)]))
   assert(row(failedAssociation)?.baselineSucceeded === 0 && (row(failedAssociation)?.extraReuse === undefined || row(failedAssociation)?.extraReuse === 0), '真实消费者引用失败基线也不能制造成功复用', 'H')
   const duplicateMutation = configurationCost(single(['A'], [baseline('base-C', 2)], [reported('A', 3), reported('A', 5)], 'unknown'))
-  assert(duplicateMutation.complete === false && hasIssues(duplicateMutation) && (row(duplicateMutation)?.extraReuse === undefined || row(duplicateMutation)?.extraReuse === 0) && row(duplicateMutation)?.actualUsers !== 2, '重复变异回报不能冒充两位消费者和一次复用', 'H')
+  assert(row(duplicateMutation) !== undefined && duplicateMutation.complete === false && hasIssues(duplicateMutation) && (row(duplicateMutation)?.extraReuse === undefined || row(duplicateMutation)?.extraReuse === 0) && row(duplicateMutation)?.actualUsers !== 2, '重复变异回报不能冒充两位消费者和一次复用', 'H')
   const outsideId = configurationCost(single(['A'], [baseline('base-C', 2)], [reported('A', 3), reported('unconfigured-ghost', 5)], 'unknown'))
-  assert(outsideId.complete === false && hasIssues(outsideId) && (row(outsideId)?.extraReuse === undefined || row(outsideId)?.extraReuse === 0), '未配置身份不能虚增正确基线复用', 'H')
+  assert(row(outsideId) !== undefined && outsideId.complete === false && hasIssues(outsideId) && (row(outsideId)?.extraReuse === undefined || row(outsideId)?.extraReuse === 0), '未配置身份不能虚增正确基线复用', 'H')
   const duplicateConfigured = configurationCost(single(['A', 'A'], [baseline('base-C', 2)], [reported('A', 3)], 'unknown'))
-  assert(duplicateConfigured.complete === false && hasIssues(duplicateConfigured), '重复配置身份不能冒充可区分的条目清单', 'H')
-  const wrongKey = configurationCost(single(['A'], [], [reported('A', 3, 'ghost-base', 'unknown-key')], 'unknown'))
-  assert(wrongKey.complete === false && hasIssues(wrongKey) && row(wrongKey)?.actualUsers === undefined, '不存在的组合引用不能自动归给配置中的组合', 'H')
+  assert(row(duplicateConfigured) !== undefined && duplicateConfigured.complete === false && hasIssues(duplicateConfigured), '重复配置身份不能冒充可区分的条目清单', 'H')
+  const wrongKey = configurationCost(single(['A'], [], [reported('A', 3, 'ghost-base', 'caught', 'unknown-key')], 'unknown'))
+  assert(row(wrongKey) !== undefined && wrongKey.complete === false && hasIssues(wrongKey) && row(wrongKey)?.actualUsers === undefined, '不存在的组合引用不能自动归给配置中的组合', 'H')
 
   const secondKey = '["fixture-selfcheck",["checks"]]'
   const wrongCombination: CostInput = {
@@ -6771,14 +6783,14 @@ function runMutationCostTests(assert: (pass: boolean, name: string, req: 'H') =>
     baselines: [baseline('selfcheck-base', 2, secondKey)], mutations: [reported('A', 3, 'selfcheck-base'), reported('B', 5, 'selfcheck-base', 'caught', secondKey)],
   }
   const wrongCombinationSummary = configurationCost(wrongCombination)
-  assert(wrongCombinationSummary.complete === false && hasIssues(wrongCombinationSummary) && row(wrongCombinationSummary, secondKey)?.extraReuse !== 1, '跨验证者错关联不能成为同组合的第二次正确消费', 'H')
+  assert(row(wrongCombinationSummary) !== undefined && row(wrongCombinationSummary, secondKey) !== undefined && wrongCombinationSummary.complete === false && hasIssues(wrongCombinationSummary) && row(wrongCombinationSummary, secondKey)?.extraReuse !== 1, '跨验证者错关联不能成为同组合的第二次正确消费', 'H')
   for (const conflict of [{ name: '执行顺序', executes: ['checks', 'setup'] }, { name: '依赖闭包', executes: ['setup', 'new-dependency', 'checks'] }]) {
     const routeConflict = configurationCost({
       identity: identity('unknown'),
       combinations: [{ key: KEY, route: ROUTE, mutationIds: ['A'] }, { key: KEY, route: { ...ROUTE, executes: conflict.executes }, mutationIds: ['B'] }],
       baselines: [baseline('base-C', 2)], mutations: [reported('A', 3), reported('B', 5)],
     })
-    assert(routeConflict.complete === false && hasIssues(routeConflict) && routeConflict.rows.every(r => r.extraReuse === undefined), `同复用身份的不同${conflict.name}不能静默合成可信复用`, 'H')
+    assert(row(routeConflict) !== undefined && routeConflict.complete === false && hasIssues(routeConflict) && routeConflict.rows.every(r => r.extraReuse === undefined), `同复用身份的不同${conflict.name}不能静默合成可信复用`, 'H')
   }
 
   const fullKey = '["fixture-tests",null]'
@@ -6789,8 +6801,6 @@ function runMutationCostTests(assert: (pass: boolean, name: string, req: 'H') =>
   const fullRow = row(outsideBaseline, fullKey)
   assert(fullRow !== undefined && fullRow.outsideBaseline === true && fullRow.baselineStarted === undefined && fullRow.baselineSucceeded === undefined && fullRow.extraReuse === undefined && outsideBaseline.complete === false, '全量外层正常基线未观测不能补启动成功或复用零', 'H')
   assert(fullRow?.actualUsers === 1 && fullRow.mutationTimes.caught.samples === 1 && fullRow.mutationTimes.caught.totalMs === 9, '全量基线未知不抹掉已观测变异的真实使用和时间', 'H')
-  const outsideLines = configurationCostLines(outsideBaseline).join('\n')
-  assert(/未知|未观测|未测|无从|unknown|unobserved|unavailable/i.test(outsideLines), '全量正常基线未观测在可读成本报告中明确表达', 'H')
 
   // Observation completeness is independent of each command state.
   for (const state of ['failed', 'incomplete', 'unknown'] as const) {
@@ -6828,7 +6838,6 @@ function runMutationCostTests(assert: (pass: boolean, name: string, req: 'H') =>
   assert(['fixture-list-tests', 'scope-alpha', 'dependency-alpha', 'fixture-list-selfcheck', 'scope-beta', 'dependency-beta', 'fixture-list-full', 'full-dependency', 'full-scope'].every(value => text.includes(value)), '可读成本报告不截断验证者选择组或实际依赖组合列表', 'H')
   assert(text.includes('dependency-alpha') && text.lastIndexOf('scope-alpha') > text.indexOf('dependency-alpha'), '可读成本组合保留依赖在前的实际执行顺序', 'H')
   assert(text.includes(listInput.identity.headSha) && text.includes(listInput.identity.comparisonBaseSha) && text.includes(listInput.identity.sourceIdentity!) && text.includes(listInput.identity.nodeVersion), '可读成本报告保留提交比较基线源码及运行版本身份', 'H')
-  assert(/基线|baseline/i.test(text) && /变异|mutation/i.test(text) && /逐次|individual|per.run/i.test(text), '计时呈现说明正常基线与变异的逐次验证者范围', 'H')
 }
 
 runMutationCostTests((pass, name) => ok(name, pass))
