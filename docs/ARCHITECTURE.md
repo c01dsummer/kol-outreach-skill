@@ -187,7 +187,7 @@ worker 通过实际 spawn 事件观察启动；结果的可选 `started` 只供�
 成本观测不重复启动基线、不参与归因或认领资格；运行完整与观测完整分别声明，缺观测不改变旧执行结论。
 
 后续入口的输出协议先记在这里，尚未自动输出，不表示接线已验收：
-普通 coordinator 在收尾时输出一次 `MUTATION_COST_JSON ` 加单行 JSON，人读行使用同一份 `CostSummary`。
+普通 coordinator 在收尾时输出一次 `MUTATION_COST_JSON`，前缀后接一个 ASCII 空格，再接单行 JSON；人读行使用同一份 `CostSummary`。
 外壳为 `{schema:'mutation-cost/v1',kind:'summary',report:CostSummary}`；
 可信运行身份与实际路由尚未形成时为 `{schema:'mutation-cost/v1',kind:'unavailable',reason:string}`。
 完整保留组合、时间桶、缺失身份与诊断；`--brief` 和 `--worker` 不输出此段。
