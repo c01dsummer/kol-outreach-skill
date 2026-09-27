@@ -25,6 +25,7 @@ import {
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
+import { createRequire as entrySelfcheckCreateRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
@@ -5724,6 +5725,114 @@ group('ig-homepage-mixed', [], () => {
   }
   criterion('D8.o', 'D8.p', 'D8.q', 'D8.r', 'D8.s', 'D10.g', 'U7.e', 'U7.f', 'U7.g')
 })
+// Independent real-entry contract fixture moved mechanically to selfcheck.
+group('mutation-maintenance-entry', [], () => {
+  const entryRequire = entrySelfcheckCreateRequire(import.meta.url);
+  const { mkdtempSync: entryTemp, mkdirSync: entryMkdir, writeFileSync: entryWrite, readFileSync: entryRead, existsSync: entryExists, rmSync: entryRemove } = entryRequire('node:fs') as typeof import('node:fs');
+  const { join: entryJoin } = entryRequire('node:path') as typeof import('node:path');
+  const { tmpdir: entryTmpdir } = entryRequire('node:os') as typeof import('node:os');
+  const { fileURLToPath: entryUrlPath } = entryRequire('node:url') as typeof import('node:url');
+  const { spawnSync: entrySpawn } = entryRequire('node:child_process') as typeof import('node:child_process');
+  const entryTsx = tsxCommand;
+  const entryRoot = entryTemp(entryJoin(entryTmpdir(), 'kol-maintenance-entry-'));
+  const entryPath = entryUrlPath(new URL('./mutate.ts', import.meta.url));
+  const entryMutation = { id: 'M-X-a', req: 'X1.a', why: '已确认的安全值不得被删除', file: 'scripts/lib/fixture.ts', find: 'keep', replace: 'gone' };
+  const entryReason = { reason: 'This fixture must observe every verifier group.', recheck_when: 'When its complete behavior is selectable.' };
+  const entryVerifier = `
+import { appendFileSync, readFileSync } from 'node:fs';
+const GROUPS: readonly { id: string; needs: readonly string[] }[] = [{ id: 'a', needs: [] }, { id: 'b', needs: [] }];
+const value = () => readFileSync('scripts/lib/fixture.ts', 'utf8').trim();
+let failed = 0;
+function eq(label: string, actual: unknown, expected: unknown) {
+  if (actual === expected) console.log('✓ ' + label);
+  else { failed++; console.log('✗ ' + label); process.exitCode = 1; }
+}
+async function group(id: string, run: () => void) {
+  appendFileSync(process.env.KOL_MAINTENANCE_ENTRY_MARKER!, id + ':' + value() + '\\n');
+  run();
+}
+await group('a', () => { eq('夹具第一组保留已确认值', value(), 'keep'); });
+await group('b', () => { eq('夹具第二组保留已确认值', value(), 'keep'); });
+console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执行 2 条断言；覆盖 0 条需求）\\n');
+`;
+  const entryGit = (cwd: string, ...args: string[]) => {
+    const result = entrySpawn('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } });
+    if (result.status !== 0) throw new Error('[fixture-error] Entry Git fixture failed: ' + String(result.stderr));
+    return result.stdout.trim();
+  };
+  const entryCatalog = (cwd: string, mutations: readonly unknown[]) => entryWrite(entryJoin(cwd, 'scripts/check/mutations.json'), JSON.stringify({ mutations, exemptions: [] }));
+  const entryCommit = (cwd: string, message: string) => { entryGit(cwd, 'add', '.'); entryGit(cwd, 'commit', '--quiet', '-m', message); return entryGit(cwd, 'rev-parse', 'HEAD'); };
+  const entryRun = (cwd: string, base: string, script = entryPath, extraEnv: Record<string, string | undefined> = {}) => {
+    const [exe, args] = entryTsx(script === entryPath ? [script, '--jobs=1'] : [script]);
+    const env: Record<string, string | undefined> = { ...process.env, MUTATE_BASE_SHA: base, MUTATE_JOBS: '1', KOL_MAINTENANCE_ENTRY_MARKER: entryJoin(cwd, 'verifier.marker'), NODE_COMPILE_CACHE: entryJoin(entryRoot, 'compile-cache'), ...extraEnv };
+    for (const key of Object.keys(extraEnv)) if (extraEnv[key] === undefined) delete env[key];
+    return entrySpawn(exe, args, { cwd, encoding: 'utf8', timeout: 45000, maxBuffer: 1024 * 1024, env });
+  };
+  const entrySetup = (name: string, missingCatalog = false) => {
+    const cwd = entryJoin(entryRoot, name);
+    for (const dir of ['scripts/check', 'scripts/lib', 'docs']) entryMkdir(entryJoin(cwd, dir), { recursive: true });
+    entryWrite(entryJoin(cwd, 'package.json'), '{"type":"module"}');
+    entryWrite(entryJoin(cwd, '.gitignore'), '.check-cache/\nverifier.marker\n');
+    entryWrite(entryJoin(cwd, 'scripts/test.ts'), entryVerifier);
+    entryWrite(entryJoin(cwd, 'scripts/lib/fixture.ts'), 'keep\n');
+    entryWrite(entryJoin(cwd, 'docs/requirements.json'), JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }));
+    if (!missingCatalog) entryCatalog(cwd, []);
+    entryGit(cwd, 'init', '--quiet', '-b', 'main'); entryGit(cwd, 'config', 'user.name', 'Entry fixture'); entryGit(cwd, 'config', 'user.email', 'entry@example.invalid');
+    const base = entryCommit(cwd, 'trusted baseline');
+    const normal = entryRun(cwd, base, entryJoin(cwd, 'scripts/test.ts'));
+    if (normal.status !== 0 || !entryExists(entryJoin(cwd, 'verifier.marker'))) throw new Error('[fixture-error] Entry normal verifier fixture failed: ' + normal.stdout + normal.stderr);
+    const normalCalls = entryRead(entryJoin(cwd, 'verifier.marker'), 'utf8').split('\n').filter(Boolean);
+    entryRemove(entryJoin(cwd, 'verifier.marker'));
+    return { cwd, base, normalCalls, marker: entryJoin(cwd, 'verifier.marker'), target: entryJoin(cwd, 'scripts/lib/fixture.ts') };
+  };
+  const entryRefusal = (label: string, result: ReturnType<typeof entryRun>) => {
+    named(label + '退出1', (result.status) === (1), '实际值必须与既定期望完全相同');
+    named(label + '明确维护拒绝原因', /维护比较|维护基线/.test(String(result.stdout) + String(result.stderr)), '公开合同要求该条件成立');
+  };
+  try {
+    const fixture = entrySetup('complete');
+    named('维护入口-正常验证者执行全部组', (JSON.stringify(fixture.normalCalls)) === (JSON.stringify(['a:keep', 'b:keep'])), '实际值必须与既定期望完全相同');
+    entryCatalog(fixture.cwd, [entryMutation]); entryCommit(fixture.cwd, 'added full without explanation');
+    entryRefusal('维护入口-新增全量无解释', entryRun(fixture.cwd, fixture.base));
+    named('维护入口-拒绝前没有启动正常验证者', !entryExists(fixture.marker), '公开合同要求该条件成立');
+    named('维护入口-拒绝前没有改写目标', (entryRead(fixture.target, 'utf8')) === ('keep\n'), '实际值必须与既定期望完全相同');
+    entryCatalog(fixture.cwd, [{ ...entryMutation, full_run: entryReason }]);
+    const head = entryCommit(fixture.cwd, 'explained full');
+    entryMkdir(entryJoin(fixture.cwd, '.check-cache'), { recursive: true });
+    const claimPath = entryJoin(fixture.cwd, '.check-cache/test-claims.json');
+    const claimSentinel = '{"sentinel":"preexisting claims"}\n'; entryWrite(claimPath, claimSentinel);
+    const accepted = entryRun(fixture.cwd, fixture.base);
+    named('维护入口-合法解释真实施变通过', (accepted.status) === (0), '实际值必须与既定期望完全相同');
+    const observed = entryExists(fixture.marker) ? entryRead(fixture.marker, 'utf8').split('\n').filter(Boolean) : [];
+    named('维护入口-施变仅按顺序执行全部目标组', (JSON.stringify(observed)) === (JSON.stringify(['a:gone', 'b:gone'])), '实际值必须与既定期望完全相同');
+    named('维护入口-施变后恢复目标', (entryRead(fixture.target, 'utf8')) === ('keep\n'), '实际值必须与既定期望完全相同');
+    named('维护入口-全量施变保护已有认领', (entryRead(claimPath, 'utf8')) === (claimSentinel), '实际值必须与既定期望完全相同');
+    const eventPath = entryJoin(entryRoot, 'github-event.json');
+    for (const [name, payload] of [['pull_request', { pull_request: { base: { sha: fixture.base } } }], ['push', { before: fixture.base }]] as const) {
+      entryWrite(eventPath, JSON.stringify(payload)); entryRemove(fixture.marker, { force: true });
+      const eventRun = entryRun(fixture.cwd, fixture.base, entryPath, { GITHUB_ACTIONS: 'true', MUTATE_BASE_SHA: undefined, GITHUB_EVENT_NAME: name, GITHUB_EVENT_PATH: eventPath });
+      named('维护入口-事件真实通过 ' + name, (eventRun.status) === (0), '实际值必须与既定期望完全相同');
+      named('维护入口-事件确实完整施变 ' + name, (entryExists(fixture.marker) ? entryRead(fixture.marker, 'utf8') : '未执行') === ('a:gone\nb:gone\n'), '实际值必须与既定期望完全相同');
+      named('维护入口-事件施变恢复目标 ' + name, (entryRead(fixture.target, 'utf8')) === ('keep\n'), '实际值必须与既定期望完全相同');
+    }
+    for (const [kind, contents, path, explicitBase] of [['缺路径', '{}', undefined, undefined], ['坏JSON', '{', eventPath, undefined], ['错事件字段', JSON.stringify({ before: fixture.base }), eventPath, undefined], ['显式空串优先', JSON.stringify({ pull_request: { base: { sha: fixture.base } } }), eventPath, '']] as const) {
+      entryWrite(eventPath, contents); entryWrite(fixture.marker, 'sentinel\n');
+      entryRefusal('维护入口-事件拒绝 ' + kind, entryRun(fixture.cwd, fixture.base, entryPath, { GITHUB_ACTIONS: 'true', MUTATE_BASE_SHA: explicitBase, GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: path }));
+      named('维护入口-事件拒绝零验证者执行 ' + kind, (entryRead(fixture.marker, 'utf8')) === ('sentinel\n'), '实际值必须与既定期望完全相同');
+      named('维护入口-事件拒绝未施变 ' + kind, (entryRead(fixture.target, 'utf8')) === ('keep\n'), '实际值必须与既定期望完全相同');
+    }
+    for (const base of [head, 'invalid-base']) {
+      entryWrite(fixture.marker, 'sentinel\n');
+      entryRefusal('维护入口-显式基线拒绝 ' + base, entryRun(fixture.cwd, base));
+      named('维护入口-坏基线未新增验证者执行 ' + base, (entryRead(fixture.marker, 'utf8')) === ('sentinel\n'), '实际值必须与既定期望完全相同');
+    }
+    const missing = entrySetup('missing-baseline-catalog', true);
+    entryCatalog(missing.cwd, [{ ...entryMutation, full_run: entryReason }]); entryCommit(missing.cwd, 'current catalog exists');
+    entryRefusal('维护入口-基线目录缺失', entryRun(missing.cwd, missing.base));
+    named('维护入口-基线目录缺失不能当空目录启动', !entryExists(missing.marker), '公开合同要求该条件成立');
+  } finally { entryRemove(entryRoot, { recursive: true, force: true }); }
+});
+
 const ranOnly = runGroups()
 
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m
