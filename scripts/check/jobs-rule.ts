@@ -530,3 +530,65 @@ export function hardStopPlan<T extends { pid?: number }>(
   steps.push({ do: 'sweep' })
   return steps
 }
+
+// ADR-121: pure cost evidence; production observation is delivered separately.
+export interface CostRoute {
+  by: string; only?: readonly string[]; executes: readonly string[]
+}
+export interface CostCombination {
+  key: string; route: CostRoute; mutationIds: readonly string[]
+}
+export type ElapsedEvidence =
+  | { kind: 'measured'; ms: number }
+  | { kind: 'unavailable'; reason: string }
+export type CostBaseline = { id: string; key: string } & (
+  | { state: 'not-started' | 'start-failed'; reason: string }
+  | { state: 'succeeded'; elapsed: ElapsedEvidence }
+  | { state: 'failed' | 'incomplete'; elapsed: ElapsedEvidence; reason: string }
+)
+export type CostMutation = { id: string; key: string } & (
+  | { state: 'not-started' | 'start-failed' | 'unknown'; reason: string }
+  | { state: 'reported'; baselineId?: string;
+      result: Omit<Ran & { started?: boolean }, 'outcome' | 'ms'> & { outcome: RunVerdict }; elapsed: ElapsedEvidence }
+  | { state: 'incomplete'; baselineId?: string; elapsed: ElapsedEvidence; reason: string }
+)
+export interface CostIdentity {
+  headSha: string; comparisonBaseSha: string
+  /** Live source/catalog/lock identity; unavailable is explicit. */
+  sourceIdentity?: string; identityFault?: string
+  command: readonly string[]; nodeVersion: string; platform: string; arch: string
+  workers: number; state: 'succeeded' | 'failed' | 'incomplete' | 'unknown'; reason?: string
+}
+export interface CostInput {
+  identity: CostIdentity; combinations: readonly CostCombination[]
+  /** undefined means unavailable, [] is an observed empty collection. */
+  baselines?: readonly CostBaseline[]; mutations?: readonly CostMutation[]
+}
+export interface CostTime {
+  samples: number; totalMs: number; missing: string[]
+}
+export interface CostRow {
+  key: string; route: CostRoute; configuredIds: readonly string[]
+  observedIds: string[]; missingIds: string[]; notStartedIds: string[]
+  /** undefined is unknown; observedIds remains a qualified partial scope. */
+  actualUsers?: number; baselineStarted?: number; baselineSucceeded?: number
+  extraReuse?: number; observedReuse: number
+  baselineTimes: Record<'succeeded' | 'failed' | 'incomplete', CostTime>
+  mutationTimes: Record<RunVerdict | 'incomplete', CostTime>
+  outsideBaseline: boolean; issues: string[]
+}
+export interface CostSummary {
+  identity: CostIdentity; rows: CostRow[]; issues: string[]
+  /** Cost observations complete; distinct from command success. */
+  complete: boolean
+}
+/** Canonical reuse identity; absent only is full, executes keeps frozen order. */
+export function configurationKey(_route: CostRoute): string { return '' }
+/** Cost-only start observation, without changing legacy dispatch results. */
+export function costObservation(id: string, key: string, _ran: Ran & { started?: boolean }, _baselineId?: string): CostMutation {
+  return { id, key, state: 'unknown', reason: '尚未实现' }
+}
+export function configurationCost(input: CostInput): CostSummary {
+  return { identity: input.identity, rows: [], issues: ['尚未实现'], complete: false }
+}
+export function configurationCostLines(_summary: CostSummary): string[] { return [] }
