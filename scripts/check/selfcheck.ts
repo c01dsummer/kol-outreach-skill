@@ -5807,6 +5807,29 @@ console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执�
     named('维护入口-施变仅按顺序执行全部目标组', (JSON.stringify(observed)) === (JSON.stringify(['a:gone', 'b:gone'])), '实际值必须与既定期望完全相同');
     named('维护入口-施变后恢复目标', (entryRead(fixture.target, 'utf8')) === ('keep\n'), '实际值必须与既定期望完全相同');
     named('维护入口-全量施变保护已有认领', (entryRead(claimPath, 'utf8')) === (claimSentinel), '实际值必须与既定期望完全相同');
+// Insert inside the existing entry group's try block after its successful full mutation run.
+{
+  const entryGitLocationKeys = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR'] as const;
+  const entryGitOriginalEnvironment = new Map(entryGitLocationKeys.map(key => [key, process.env[key]] as const));
+  try {
+    for (const key of entryGitLocationKeys) process.env[key] = entryJoin(entryRoot, 'nonexistent-isolation-' + key);
+    const entryGitObserved = (() => { try { return entryGit(fixture.cwd, 'rev-parse', '--show-toplevel'); } catch (error) { return { kind: 'command-error', errorType: error instanceof Error ? error.name : typeof error }; } })();
+    named('维护入口-Git子进程隔离继承定位变量', entryGitObserved === fixture.cwd, '期望夹具根路径；实际观察：' + JSON.stringify(entryGitObserved));
+    entryRemove(fixture.marker, { force: true });
+    const entryIsolatedRun = (() => { try { return entryRun(fixture.cwd, fixture.base); } catch (error) { return { status: null, errorType: error instanceof Error ? error.name : typeof error }; } })();
+    named('维护入口-施变子进程隔离继承定位变量', entryIsolatedRun.status === 0, '期望退出0；实际退出：' + String(entryIsolatedRun.status));
+    const entryIsolatedCalls = entryExists(fixture.marker) ? entryRead(fixture.marker, 'utf8') : '未执行';
+    named('维护入口-环境污染下仍完整执行全部组', entryIsolatedCalls === 'a:gone\nb:gone\n', '必须新执行且仅按顺序执行两个施变组');
+    named('维护入口-环境污染下施变后恢复目标', entryRead(fixture.target, 'utf8') === 'keep\n', '目标须恢复为原先已确认值');
+  } finally {
+    for (const key of entryGitLocationKeys) {
+      const original = entryGitOriginalEnvironment.get(key);
+      if (original === undefined) delete process.env[key]; else process.env[key] = original;
+    }
+  }
+  named('维护入口-六个定位变量原样恢复', entryGitLocationKeys.every(key => process.env[key] === entryGitOriginalEnvironment.get(key)), '六个环境变量的值与缺席状态均须原样恢复');
+}
+
     const eventPath = entryJoin(entryRoot, 'github-event.json');
     for (const [name, payload] of [['pull_request', { pull_request: { base: { sha: fixture.base } } }], ['push', { before: fixture.base }]] as const) {
       entryWrite(eventPath, JSON.stringify(payload)); entryRemove(fixture.marker, { force: true });
