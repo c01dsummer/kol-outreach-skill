@@ -24,6 +24,8 @@
  * 这道检查**没有死亡条件,而那是判过的结论、不是漏了** —— 理由记在 ADR-85。
  */
 import ts from 'typescript'
+import { type GitAsk, resolveBaseline } from './size-rule.js'
+import { type Group, wanted } from './group-rule.js'
 import { SELFCHECK_FIXTURE_MARK, SELFCHECK_PROCESS_MARK } from './verifier-rule.js'
 
 /** 一个验证者:跑哪个脚本,失败汇总长什么样,进程级失败带什么记号,哪些调用给夹具起名。 */
@@ -506,4 +508,195 @@ export function judgeRun(exitCode: number | null, output: string,
   if (kills === undefined) return 'caught'
   if (notAssertion(output, verifier)) return 'crashed'
   return allKilled(output, kills) ? 'caught' : 'elsewhere'
+}
+
+
+/** CI 事件只提供其自身的比较起点；提交格式与祖先资格由既有 Git 判定核实。 */
+export function mutationEventBase(eventName: string | undefined, event: unknown): string {
+  const object = (value: unknown): Record<string, unknown> => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('事件基线对象缺失或形状不合规')
+    return value as Record<string, unknown>
+  }
+  const payload = object(event)
+  let base: unknown
+  if (eventName === 'pull_request') {
+    base = object(object(payload.pull_request).base).sha
+  } else if (eventName === 'push') {
+    base = payload.before
+  } else throw new Error('不能从这个 CI 事件确定变异基线')
+  if (typeof base !== 'string') throw new Error('事件基线字段缺失或不是字符串')
+  return base
+}
+
+/** Git 与读盘由入口负责；读不到可信旧版本不能解释成「没有变化」。 */
+export function resolveMutationBaseline(ask: GitAsk, explicitBase?: string):
+  { kind: 'compare'; base: string; head: string } | { kind: 'cannot-answer'; why: string } {
+  const cannot = (why: string): { kind: 'cannot-answer'; why: string } => ({ kind: 'cannot-answer', why })
+  let base: string
+  let head: string
+  if (explicitBase === undefined) {
+    const old = resolveBaseline(ask)
+    if (old.kind === 'cannot-answer') return cannot(old.why)
+    if (old.kind === 'not-applicable') return cannot('没有可比的祖先版本，不能判断变异维护变化')
+    ;({ base, head } = old)
+  } else {
+    if (!/^[0-9a-f]{40}$/i.test(explicitBase) || /^0{40}$/.test(explicitBase)) {
+      return cannot('显式变异基线必须是非零的完整 40 位提交 SHA')
+    }
+    const current = ask('rev-parse', 'HEAD')
+    if (current === null) return cannot('取不到待验提交 HEAD')
+    if (ask('rev-parse', '--is-shallow-repository') !== 'false') return cannot('历史不完整或无法确认不是浅克隆')
+    base = explicitBase.toLowerCase()
+    head = current
+  }
+  if (![base, head].every(s => /^[0-9a-f]{40}$/i.test(s) && !/^0{40}$/.test(s))) {
+    return cannot('基线或待验提交不是可核实的完整提交 SHA')
+  }
+  base = base.toLowerCase()
+  head = head.toLowerCase()
+  if (base === head) return cannot('基线不能与待验提交相同')
+  if (ask('rev-parse', '--verify', `${base}^{commit}`) !== base) return cannot('基线不是可解析的真实提交')
+  if (ask('merge-base', base, head) !== base) return cannot('基线不是待验提交的祖先或祖先关系无法核实')
+  return { kind: 'compare', base, head }
+}
+
+export interface MutationRouteInput {
+  id: string; req: string; file: string; find: string; replace: string
+  by?: string; kills?: readonly string[]; full_run?: unknown
+}
+export interface RouteSnapshot {
+  mutations: readonly MutationRouteInput[]
+  routes: { id: string; by: string; only?: readonly string[]; executes: readonly string[] }[]
+  layouts: Record<string, readonly Group[]>
+}
+
+/** 只接受现有两种字面登记；合法无分组验证者仍可全跑，读不懂不能变成空布局。 */
+function routeLayout(source: string): Group[] {
+  const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
+  if ((tree as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics.length) {
+    throw new Error('验证者源码无法解析')
+  }
+  const literal = (n: ts.Node | undefined): string => {
+    if (n === undefined || !ts.isStringLiteralLike(n) || n.text.trim() === '') throw new Error('分组登记必须是非空字面字符串')
+    return n.text
+  }
+  const list = (n: ts.Node | undefined): string[] => {
+    if (n === undefined || !ts.isArrayLiteralExpression(n)) throw new Error('分组依赖必须是字面数组')
+    return n.elements.map(literal)
+  }
+  const unwrap = (n: ts.Expression): ts.Expression =>
+    ts.isAsExpression(n) || ts.isTypeAssertionExpression(n) || ts.isSatisfiesExpression(n)
+      || ts.isParenthesizedExpression(n) ? unwrap(n.expression) : n
+  let registered: Group[] | undefined
+  const calls: ts.CallExpression[] = []
+  const readLayout = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === 'GROUPS') {
+      if (registered !== undefined || n.initializer === undefined) throw new Error('分组清单缺失或重复登记')
+      const init = unwrap(n.initializer)
+      if (!ts.isArrayLiteralExpression(init)) throw new Error('分组清单必须是字面数组')
+      registered = init.elements.map(item => {
+        if (!ts.isObjectLiteralExpression(item)) throw new Error('分组清单包含动态登记')
+        const props = new Map<string, ts.Expression>()
+        for (const p of item.properties) {
+          if (!ts.isPropertyAssignment(p) || (!ts.isIdentifier(p.name) && !ts.isStringLiteralLike(p.name))) {
+            throw new Error('分组清单包含动态字段')
+          }
+          if (props.has(p.name.text)) throw new Error('分组登记字段重复')
+          props.set(p.name.text, p.initializer)
+        }
+        return { id: literal(props.get('id')), needs: list(props.get('needs')) }
+      })
+    }
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'group') {
+      const parent = ts.isAwaitExpression(n.parent) ? n.parent.parent : n.parent
+      if (!ts.isExpressionStatement(parent) || !ts.isSourceFile(parent.parent)) throw new Error('分组调用不是静态顶层登记')
+      calls.push(n)
+    }
+    ts.forEachChild(n, readLayout)
+  }
+  readLayout(tree)
+  const groups = registered === undefined ? calls.map(c => {
+    if (c.arguments.length !== 3) throw new Error('没有字面分组清单的调用必须登记依赖与回调')
+    return { id: literal(c.arguments[0]), needs: list(c.arguments[1]) }
+  }) : registered
+  if (registered !== undefined && JSON.stringify(calls.map(c => literal(c.arguments[0]))) !== JSON.stringify(groups.map(g => g.id))) {
+    throw new Error('分组登记与实际调用顺序不一致')
+  }
+  for (const c of calls) {
+    const fn = c.arguments[registered === undefined ? 2 : 1]
+    if (fn === undefined || (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn))) throw new Error('分组回调无法静态确认')
+  }
+  wanted(groups, groups.map(g => g.id))
+  return groups
+}
+
+/** 每个实际验证者只读源一次；路由依据实际标签、登记、依赖与原执行顺序。 */
+export function executionRoutes(muts: readonly MutationRouteInput[], readSource: (path: string) => string | undefined): RouteSnapshot {
+  const layouts: Record<string, readonly Group[]> = Object.create(null)
+  const maps = new Map<string, Map<string, string>>()
+  const inventories = new Map<string, Map<string, number>>()
+  const ids = new Set<string>()
+  const routes = muts.map(m => {
+    if (ids.has(m.id)) throw new Error(`变异编号重复：${m.id}`)
+    ids.add(m.id)
+    const fault = wiringFault(m)
+    if (fault !== undefined) throw new Error(`${m.id}：${fault}`)
+    const by = m.by === undefined ? 'test' : m.by
+    const verifier = VERIFIERS[by]
+    if (!Object.hasOwn(layouts, by)) {
+      const source = readSource(verifier.script)
+      if (source === undefined) throw new Error(`读不到验证者源码：${verifier.script}`)
+      layouts[by] = routeLayout(source)
+      maps.set(by, groupOfLabel(source, verifier.declares))
+      inventories.set(by, labelsOf(source, verifier.declares))
+    }
+    if (m.kills !== undefined && labelFaults(m.kills, inventories.get(by)!).length) throw new Error(`${m.id}：点名断言缺失或不唯一`)
+    const picked = m.kills?.map(k => maps.get(by)!.get(k))
+    const only = picked === undefined || picked.some(id => id === undefined) ? undefined : [...new Set(picked as string[])]
+    const selected = wanted(layouts[by], only)
+    return { id: m.id, by, ...(only === undefined ? {} : { only }),
+      executes: layouts[by].filter(g => selected === undefined || selected.has(g.id)).map(g => g.id) }
+  })
+  return { mutations: muts.map(m => ({ ...m, ...(m.kills === undefined ? {} : { kills: [...m.kills] }) })), routes, layouts }
+}
+
+/** 解释只检查形状；是否值得接受由评审判断，不据此减少验证范围。 */
+export function routeDelta(base: RouteSnapshot, head: RouteSnapshot): {
+  changes: { id: string; kind: 'added-full' | 'back-to-full' | 'changed-full' | 'configuration' }[]
+  faults: string[]; layoutChanges: string[]
+} {
+  const changes: { id: string; kind: 'added-full' | 'back-to-full' | 'changed-full' | 'configuration' }[] = []
+  const faults: string[] = []
+  const old = new Map(base.mutations.map(m => [m.id, m]))
+  const oldRoutes = new Map(base.routes.map(r => [r.id, r]))
+  const newRoutes = new Map(head.routes.map(r => [r.id, r]))
+  const reasonOK = (v: unknown): boolean => {
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) return false
+    const fields = v as Record<string, unknown>
+    return ['reason', 'recheck_when'].every(k => typeof fields[k] === 'string' && (fields[k] as string).trim() !== '')
+  }
+  const core = (m: MutationRouteInput): string => JSON.stringify([m.file, m.find, m.replace, m.req, m.by, m.kills])
+  const config = (r: RouteSnapshot['routes'][number]): string => JSON.stringify([r.by, r.only === undefined ? null : [...r.only].sort(), r.executes])
+  for (const m of head.mutations) {
+    const before = old.get(m.id)
+    const prior = oldRoutes.get(m.id)
+    const current = newRoutes.get(m.id)
+    if (current === undefined || (before !== undefined && prior === undefined)) throw new Error('路由快照不完整')
+    let kind: typeof changes[number]['kind'] | undefined
+    if (current.only === undefined) {
+      if (before === undefined) kind = 'added-full'
+      else if (prior!.only !== undefined) kind = 'back-to-full'
+      else if (core(before) !== core(m)) kind = 'changed-full'
+    }
+    const requires = kind !== undefined
+    if (kind === undefined && (prior === undefined || config(prior) !== config(current))) kind = 'configuration'
+    if (kind !== undefined) changes.push({ id: m.id, kind })
+    if ((requires || m.full_run !== undefined || before?.full_run !== undefined) && !reasonOK(m.full_run)) {
+      faults.push(`${m.id}：full_run 必须保留非空 reason 与 recheck_when`)
+    }
+  }
+  for (const m of base.mutations) if (!newRoutes.has(m.id)) changes.push({ id: m.id, kind: 'configuration' })
+  const verifiers = new Set([...Object.keys(base.layouts), ...Object.keys(head.layouts)])
+  const layoutChanges = [...verifiers].filter(by => JSON.stringify(base.layouts[by]) !== JSON.stringify(head.layouts[by]))
+  return { changes, faults, layoutChanges }
 }

@@ -193,9 +193,32 @@ const run = (label: string, args: string[], cwd = process.cwd(),
  * 那张表同时是隔离判据的种子来源（`verifier-rule.ts`），所以「自检起了什么」和
  * 「闭包以为它起了什么」不可能对不上：两边读的是同一份东西。
  */
+// 既有变异执行夹具也提供真实历史：未改的旧全量项按生产规则兼容，不能绕过维护比较。
+const mutationFixtureEnv = (tool: keyof typeof SELFCHECK_TOOLS, rest: readonly string[], cwd: string): NodeJS.ProcessEnv => {
+  if (tool !== 'mutate' || rest.includes('--brief') || cwd === process.cwd()) return {}
+  const git = (...args: string[]): string => {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env,
+      GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } })
+    if (r.status !== 0) {
+      console.error(`  ✗ 变异历史夹具${SELFCHECK_FIXTURE_MARK}：${r.stderr || r.error}`)
+      throw new Error('无法建立变异夹具的真实历史')
+    }
+    return r.stdout.trim()
+  }
+  if (!existsSync(join(cwd, '.git'))) {
+    git('init', '--quiet', '-b', 'main')
+    git('config', 'user.name', 'Mutation fixture')
+    git('config', 'user.email', 'fixture@example.invalid')
+    git('add', '--', 'scripts', 'docs')
+    git('commit', '--quiet', '-m', 'fixture baseline')
+    git('commit', '--quiet', '--allow-empty', '-m', 'fixture head')
+  }
+  return { MUTATE_BASE_SHA: git('rev-parse', 'HEAD^1') }
+}
+
 const runTool = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string[] = [],
   cwd = process.cwd(), expect?: { status: number }) =>
-  run(label, [S(SELFCHECK_TOOLS[tool]), ...rest], cwd, expect)
+  run(label, [S(SELFCHECK_TOOLS[tool]), ...rest], cwd, expect, mutationFixtureEnv(tool, rest, cwd))
 
 /**
  * 同 `runTool`,但把 `ok` 一并交出来。
@@ -211,7 +234,7 @@ const runTool = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string
  */
 const runToolBoth = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string[] = [],
   cwd = process.cwd(), expect?: { status: number }) =>
-  runBoth(label, [S(SELFCHECK_TOOLS[tool]), ...rest], cwd, expect)
+  runBoth(label, [S(SELFCHECK_TOOLS[tool]), ...rest], cwd, expect, mutationFixtureEnv(tool, rest, cwd))
 
 console.log('\n[脚本自检] 假 fetch，无真实请求\n')
 
@@ -5120,7 +5143,8 @@ group('jobs-resource', [], () => {
   const shQuote = (a: string) => `'${a.replace(/'/g, `'\\''`)}'`
   const r = spawnSync('/bin/sh',
     ['-c', `ulimit -n 128; exec ${[fdExe, ...fdArgv].map(shQuote).join(' ')}`],
-    { env: { ...env, NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(fdPreload).href)}` },
+    { env: { ...env, ...mutationFixtureEnv('mutate', [], fdTmp),
+        NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(fdPreload).href)}` },
       cwd: fdTmp, encoding: 'utf8' })
   if (r.error !== undefined) {
     // shell 起不来时没有验证任何断言，沿用显式未验证报告，不拿空输出记通过。
