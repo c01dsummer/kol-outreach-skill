@@ -29,6 +29,8 @@
       "id": "M-D15-c",
       "req": "D15.c",
       "why": "来源去重忽略维度，把同词不同方向的观察吞掉",
+      "by": "test",
+      "kills": ["五字段任一差异都保留，平台账号大小写重复仅留首次原值与顺序"],
       "file": "scripts/lib/discovery.ts",
       "find": "[creatorKey(source), source.keyword, source.dimension, source.endpoint]",
       "replace": "[creatorKey(source), source.keyword, source.endpoint]"
@@ -37,6 +39,8 @@
       "id": "M-D15-d",
       "req": "D15.d",
       "why": "首次收页直接保留重复来源，使来源列表不再是稳定并集",
+      "by": "test",
+      "kills": ["首次收页也去重且保留响应快照，不改成任务配置"],
       "file": "scripts/lib/pipeline.ts",
       "find": "discovery_sources: mergeDiscoverySources(undefined, p.discovery_sources),",
       "replace": "discovery_sources: p.discovery_sources,"
@@ -77,6 +81,8 @@
       "id": "M-D15-h",
       "req": "D15.h",
       "why": "把未知来源显示为空白，使没有历史记录这一边界消失",
+      "by": "test",
+      "kills": ["缺席与空来源显示来源未知"],
       "file": "scripts/lib/discovery.ts",
       "find": "if (!sources?.length) return '来源未知'",
       "replace": "if (!sources?.length) return ''"
@@ -85,6 +91,8 @@
       "id": "M-D15-i",
       "req": "D15.h",
       "why": "表格来源列不读取已观察记录，CSV 与 XLSX 均丢失真实路径",
+      "by": "test",
+      "kills": ["来源列维持原单元格", "XLSX 来源单元格与 CSV 共用格式"],
       "file": "scripts/lib/rows.ts",
       "find": "formatDiscoverySources(c.discovery_sources),",
       "replace": "formatDiscoverySources(undefined),"
@@ -93,6 +101,8 @@
       "id": "M-D15-j",
       "req": "D15.i",
       "why": "报告删除来源集合的历史与作品边界，使局部观察看似完整历史",
+      "by": "test",
+      "kills": ["HTML 不把已有记录包装成完整历史、作品来源或请求次数"],
       "file": "scripts/lib/report.ts",
       "find": "<p class=\"sub\">仅含已记录的账号发现来源，可能不含完整历史；不对应具体作品或请求次数。</p>",
       "replace": ""
