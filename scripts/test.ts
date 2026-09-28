@@ -140,6 +140,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd3-identity', needs: [] },
   { id: 'p1-output-values', needs: [] },
   { id: 'd11-posts', needs: [] },
+  { id: 'd15-discovery-sources', needs: [] },
   { id: 'd15-hashtag-parser', needs: [] },
   { id: 'd15-hashtag', needs: [] },
   { id: 'd16-tasks', needs: [] },
@@ -4040,7 +4041,7 @@ suite('D11', '同人合并按主记录优先沿用作品并集，作品 id 不�
 }
 
 })
-if (fullRun) {
+await group('d15-discovery-sources', () => {
 // D15：独立上下文按需求与 ADR-110 写成；未读发现来源生产函数体。
 suite('D15', '已观察来源按五元组稳定合并，未知不能从任务配置猜补')
 {
@@ -4184,9 +4185,9 @@ suite('D15', '表格与 HTML 展示真实路线并明确来源记录的边界')
   tension('D15', 'P5')
 }
 
+})
 // 独立上下文先于实现写成；期望只依据 ADR-112 第二、五节，D11、P1、D15 的需求文字，
 // 以及 isInstagramVideo、parseInstagramHashtagPage、pickList 的接口说明；不取自任何产品函数体。
-}
 await group('d15-hashtag-parser', () => {
 suite('D15', 'IG 话题页解析：只解析、不分派（ADR-112 第四节第 2 步）')
 {
