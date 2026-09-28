@@ -6223,7 +6223,8 @@ note({ kind: 'restore-actor-done', targetPid: coordinator.pid, verifierPid });
       writeFileSync(owner,JSON.stringify({kind:'claim-restore-cli-fixture/v1',fixtureOnly:true,root,trace:f.trace,claim,controller:actor,
         ending,action:row.action,replacement:row.replacement,before:row.before,verifierSha:sha(readFileSync(join(root,'scripts/test.ts')))},null,2)+'\n');
       const entrySha=sha(readFileSync(join(root,'scripts/check/mutate.ts')));
-      const run=call(f,id,owner,['node_modules/tsx/dist/cli.mjs','scripts/check/mutate.ts','--jobs=1']);
+      const [, tsxArgv] = tsxCommand(['scripts/check/mutate.ts', '--jobs=1']);
+      const run=call(f,id,owner,tsxArgv);
       const events=run.events,coordinator=events.filter(item=>item.kind==='coordinator-node');
       const normal=events.filter(item=>item.kind==='restore-verifier-start'&&item.value===7),changed=events.filter(item=>item.kind==='restore-verifier-start'&&item.value===8);
       const afterDamage=events.filter(item=>item.kind==='restore-damage-after'),normalEnd=events.filter(item=>item.kind==='restore-verifier-end'&&item.value===7);
