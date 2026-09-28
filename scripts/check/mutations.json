@@ -3843,7 +3843,9 @@
       "why": "只看源码最外层那一层，不往里走：真入口里那句话嵌在函数体里，于是三处报告一律被判成断了 —— 每次全量检查都挨一次假警报，久了就没人看它",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    ts.forEachChild(node, visit)",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": ["函数体中的真实豁免来源调用必须被识别"]
     },
     {
       "id": "M-U1-c",
@@ -4759,7 +4761,9 @@
       "file": "scripts/check/jobs-rule.ts",
       "why": "硬来那几步的次序被倒过来：先删隔离目录、再去收那些还在跑的 —— 刀落下之前它们还能往一棵已经被删掉的树里写，盘上重新长出半成品，而「收干净了」那句已经说出口，全程不响",
       "find": "  for (const shot of new Set(shots)) steps.push({ do: 'group', shot })\n  steps.push(...warns)\n  steps.push({ do: 'sweep' })",
-      "replace": "  steps.push({ do: 'sweep' })\n  for (const shot of new Set(shots)) steps.push({ do: 'group', shot })\n  steps.push(...warns)"
+      "replace": "  steps.push({ do: 'sweep' })\n  for (const shot of new Set(shots)) steps.push({ do: 'group', shot })\n  steps.push(...warns)",
+      "by": "test",
+      "kills": ["硬停止计划先列全部验证者组再列诊断最后清理目录"]
     },
     {
       "id": "M-H40-h",
@@ -7205,7 +7209,9 @@
       "file": "scripts/check/size-rule.ts",
       "why": "共同祖先答不上来也不停 —— 起点落空被判成「不适用」、退出 0，一条从主干之外长出来的分支静默放行",
       "find": "  if (merged === null) return cannot(",
-      "replace": "  if (false) return cannot("
+      "replace": "  if (false) return cannot(",
+      "by": "test",
+      "kills": ["起点第 4 步：merge-base 答不上来（HEAD 与主干没有共同祖先）→ 无从判断"]
     },
     {
       "id": "M-H9-v",
