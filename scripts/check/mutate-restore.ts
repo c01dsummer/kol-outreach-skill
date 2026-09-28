@@ -22,7 +22,7 @@ import type { ChildProcess } from 'node:child_process'
 /**
  * 完整需求测试认领的原字节恢复动作。相同原件保留；原件缺失或字节被改写才恢复；
  * 原本缺席而后来出现则删除，两头缺席不操作。空字节串是存在的原件。
- * 此接口的判定先独立验证；现有入口尚未调用它。
+ * 此接口的判定独立验证；入口读取当前字节并按动作执行恢复。
  */
 export function claimsRestoreAction(original: Uint8Array | undefined, current: Uint8Array | undefined):
   'keep' | 'restore' | 'remove' {
