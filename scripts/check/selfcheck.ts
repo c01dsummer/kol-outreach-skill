@@ -6309,6 +6309,212 @@ note({ kind: 'restore-actor-done', targetPid: coordinator.pid, verifierPid });
   }
 });
 
+group('mutation-cost-entry', [], () => {
+  const fs = process.getBuiltinModule('node:fs') as typeof import('node:fs');
+  const path = process.getBuiltinModule('node:path') as typeof import('node:path');
+  const os = process.getBuiltinModule('node:os') as typeof import('node:os');
+  const crypto = process.getBuiltinModule('node:crypto') as typeof import('node:crypto');
+  const cp = process.getBuiltinModule('node:child_process') as typeof import('node:child_process');
+  const mod = process.getBuiltinModule('node:module') as typeof import('node:module');
+  let outer: string | undefined, unknownTree = false;
+  const sha = (b: string | Buffer) => crypto.createHash('sha256').update(b).digest('hex');
+  const cleanEnv = { ...process.env };
+  for (const k of Object.keys(cleanEnv)) if (k.startsWith('GIT_') || k.startsWith('GITHUB_') || k === 'CI' || k === 'NODE_OPTIONS') delete cleanEnv[k];
+  type Obj = Record<string, any>;
+  const readLines = (file: string): Obj[] => fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map(s => JSON.parse(s)) : [];
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code !== 'ESRCH'; } };
+  const productJSON = (s: string): Obj => { try { const v = JSON.parse(s); return v !== null && typeof v === 'object' && !Array.isArray(v) ? v : { malformed: true }; } catch { return { malformed: true }; } };
+  const owned = new Set<number>();
+  try {
+  const source = process.cwd();outer = fs.mkdtempSync(path.join(os.tmpdir(), 'kol-cost-entry-'));
+  const workspace = outer, cli = mod.createRequire(path.join(source, 'package.json')).resolve('tsx/cli');
+  const observer = path.join(workspace, 'observer.cjs'), driver = path.join(workspace, 'driver.cjs');
+  fs.writeFileSync(observer, String.raw`
+const fs = require('node:fs'), cp = require('node:child_process'), mod = require('node:module');
+const log = process.env.COST_OBSERVER_LOG, fault = process.env.COST_OBSERVER_FAULT;
+function put(o) { try { fs.appendFileSync(log, JSON.stringify({ pid:process.pid, ppid:process.ppid, t:Date.now(), ...o })+'\n'); }
+  catch(e) { try { fs.writeFileSync(fault, String(e)); } catch {} process.stderr.write('（夹具）observer I/O: '+String(e)+'\n'); throw e; } }
+function state(kind) { put({kind,cwd:process.cwd(),command:[process.execPath,...process.execArgv,...process.argv.slice(1)],
+  nodeVersion:process.version,platform:process.platform,arch:process.arch,workersEnv:process.env.MUTATE_JOBS}); }
+state('boot'); process.on('exit',()=>state('exit'));
+const spawn = cp.spawn;
+cp.spawn = function(exe,args,opts) { const call=Date.now(); let kid;
+  // Make time before actual spawn distinguishable from verifier time.
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,100);
+  try { kid=spawn.apply(this,arguments); } catch(e) { put({kind:'spawn-error',exe,args,call,error:String(e)}); throw e; }
+  kid.once('spawn',()=>put({kind:'spawn',child:kid.pid,exe,args,cwd:opts&&opts.cwd||process.cwd(),call}));
+  kid.once('close',(status,signal)=>put({kind:'close',child:kid.pid,status,signal,exe,args,call}));
+  return kid; };
+mod.syncBuiltinESMExports();
+`);
+  fs.writeFileSync(driver, String.raw`
+const fs=require('node:fs'),cp=require('node:child_process');
+const cfg=JSON.parse(fs.readFileSync(process.argv[2],'utf8')), out=fs.openSync(cfg.out,'w'), err=fs.openSync(cfg.err,'w');
+const seen=()=>fs.existsSync(cfg.obs)?fs.readFileSync(cfg.obs,'utf8').split('\n').filter(Boolean).map(s=>JSON.parse(s)):[];
+const alive=p=>{try{process.kill(p,0);return true;}catch(e){return e.code!=='ESRCH';}};
+const kill=p=>{try{process.kill(-p,'SIGKILL');}catch{} try{process.kill(p,'SIGKILL');}catch{}};
+const kid=cp.spawn(cfg.node,cfg.args,{cwd:cfg.cwd,env:cfg.env,detached:true,stdio:['pipe',out,err]});
+fs.writeFileSync(cfg.started,JSON.stringify({pid:kid.pid}));
+let timedOut=false, errored; const timer=setTimeout(()=>{timedOut=true;kill(kid.pid);},25000);
+kid.once('error',e=>{errored=String(e);}); kid.stdin.end(cfg.input||'');
+kid.once('close',async(status,signal)=>{clearTimeout(timer);fs.closeSync(out);fs.closeSync(err);
+  let pids; try{pids=[...new Set([kid.pid,...seen().flatMap(r=>[r.pid,r.child]).filter(Number.isInteger)])];}
+  catch(e){fs.writeFileSync(cfg.fault,'driver observer parse: '+String(e));pids=[kid.pid];}
+  let living=pids.filter(alive); const unexpected=living.length>0;
+  for(const p of living)kill(p); for(let i=0;i<50&&living.length;i++){await new Promise(r=>setTimeout(r,20));living=pids.filter(alive);}
+  fs.writeFileSync(cfg.result,JSON.stringify({pid:kid.pid,status,signal,timedOut,errored,pids,living,unexpected}));
+  process.exitCode=timedOut||errored||living.length||unexpected?86:0;
+});
+`);
+  const toy = 'export const x = 7;\nexport const y = 11;\nexport const z = 13;\n';
+  const verifier = String.raw`
+import { readFileSync, appendFileSync, writeFileSync, mkdirSync } from 'node:fs';
+const GROUPS = [{id:'setup',needs:[]},{id:'leaf',needs:['setup']},{id:'full',needs:[]}];
+const onlyArg=process.argv.slice(2).find(x=>x.startsWith('--only=')), only=onlyArg?onlyArg.slice(7).split(','):undefined;
+if(process.argv.slice(2).some(x=>!x.startsWith('--only='))||only&&only.some(x=>x!=='leaf'))throw Error('（夹具）unknown toy selection');
+const source=readFileSync('scripts/toy.ts','utf8');
+const values=['x','y','z'].map(k=>{const m=source.match(new RegExp('const '+k+' = (\\d+)'));if(!m)throw Error('（夹具）toy missing '+k);return Number(m[1]);});
+const trace=(o:object)=>appendFileSync(process.env.COST_TOY_TRACE!,JSON.stringify({pid:process.pid,cwd:process.cwd(),t:Date.now(),...o})+'\n');
+trace({event:'verifier',only:only||null,values});
+let count=0,failed=0;const enabled=only?new Set(['setup',...only]):new Set(GROUPS.map(g=>g.id));
+function eq(label:string,actual:unknown,expected:unknown){count++;const pass=actual===expected;trace({event:'assert',label,actual,expected,pass});if(!pass){failed++;console.log('✗ '+label+'：toy contract');}}
+function ok(label:string,pass:boolean){eq(label,pass,true);}
+async function group(id:string,fn:()=>Promise<void>){if(enabled.has(id)){trace({event:'group',id});await fn();}}
+await group('setup',async()=>{ok('toy setup readable',values.length===3);await new Promise(r=>setTimeout(r,70));});
+await group('leaf',async()=>{eq('toy leaf x',values[0],7);eq('toy leaf y',values[1],11);});
+await group('full',async()=>{eq('toy full z',values[2],13);mkdirSync('.check-cache',{recursive:true});writeFileSync('.check-cache/test-claims.json','toy deliberately rewrote full claim\n');});
+await new Promise(r=>setTimeout(r,50));trace({event:'verifier-end',count,failed});
+if(failed){console.log(failed+' 个失败');process.exitCode=1;}
+else console.log('全部通过（执行 '+count+' 条断言；覆盖 0 条需求）');
+`;
+  const catalog = { mutations: [
+    {id:'toy-x',req:'harness',why:'toy x violates its declared value',file:'scripts/toy.ts',find:'x = 7',replace:'x = 8',by:'test',kills:['toy leaf x']},
+    {id:'toy-y',req:'harness',why:'toy y violates its declared value',file:'scripts/toy.ts',find:'y = 11',replace:'y = 12',by:'test',kills:['toy leaf y']},
+    {id:'toy-full',req:'harness',why:'toy z violates its declared value',file:'scripts/toy.ts',find:'z = 13',replace:'z = 14',full_run:{reason:'whole toy contract is exercised',recheck_when:'toy full assertion receives a named route'}},
+  ], exemptions: [] };
+  function make(name: string) {
+    const root=path.join(workspace,name);fs.mkdirSync(root,{recursive:true});
+    // Opaque copying only: no source/body parsing or old expectation extraction.
+    fs.cpSync(path.join(source,'scripts'),path.join(root,'scripts'),{recursive:true});
+    fs.cpSync(path.join(source,'package-lock.json'),path.join(root,'package-lock.json'));
+    fs.writeFileSync(path.join(root,'package.json'),' {"type":"module"}\n');
+    fs.writeFileSync(path.join(root,'scripts/test.ts'),verifier);
+    fs.writeFileSync(path.join(root,'scripts/check/selfcheck.ts'),"function group(id:string,needs:string[],fn:()=>void){fn()}\nfunction named(label:string,pass:boolean,why:string){if(!pass)throw Error(why)}\ngroup('stub',[],()=>{named('toy stub',true,'stub')});\n");
+    fs.writeFileSync(path.join(root,'scripts/toy.ts'),toy);
+    fs.writeFileSync(path.join(root,'scripts/check/mutations.json'),JSON.stringify(catalog,null,2)+'\n');
+    fs.mkdirSync(path.join(root,'docs'),{recursive:true});fs.writeFileSync(path.join(root,'docs/requirements.json'),'{"requirements":[]}\n');
+    fs.writeFileSync(path.join(root,'.gitignore'),'node_modules/\n.check-cache/\noutput/\n');
+    fs.symlinkSync(path.join(source,'node_modules'),path.join(root,'node_modules'),'dir');
+    const git=(args:string[])=>{const r=cp.spawnSync('git',args,{cwd:root,env:cleanEnv,encoding:'utf8'});if(r.status!==0||r.error)throw Error('（夹具）git: '+r.stderr);return r.stdout.trim();};
+    git(['init','-q']);git(['config','user.name','Independent Toy']);git(['config','user.email','toy@example.invalid']);
+    git(['add','.']);git(['commit','-qm','toy public baseline']);const base=git(['rev-parse','HEAD']);
+    fs.writeFileSync(path.join(root,'fixture-head.txt'),'different descendant\n');git(['add','fixture-head.txt']);git(['commit','-qm','toy head']);
+    const head=git(['rev-parse','HEAD']);fs.appendFileSync(path.join(root,'scripts/toy.ts'),'// uncommitted fixture source identity\n');
+    fs.mkdirSync(path.join(root,'.check-cache'),{recursive:true});
+    fs.writeFileSync(path.join(root,'.check-cache/test-claims.json'),' \n{"fixture":"\\u0061"}\r\n ');
+    fs.writeFileSync(path.join(root,'scripts/toy-neighbor.bin'),Buffer.from([0,255,10,3,13,7]));
+    return {root,base,head};
+  }
+  function bytes(root:string) {
+    const files:string[]=[];const walk=(dir:string)=>{for(const e of fs.readdirSync(path.join(root,dir),{withFileTypes:true})){const p=path.join(dir,e.name);if(e.isDirectory())walk(p);else files.push(p);}};walk('scripts');
+    files.push('package-lock.json','.check-cache/test-claims.json');return new Map(files.map(p=>[p,sha(fs.readFileSync(path.join(root,p)))]));
+  }
+  function identity(root:string) {
+    const names:string[]=[];const walk=(dir:string)=>{for(const e of fs.readdirSync(path.join(root,dir),{withFileTypes:true})){const p=path.join(dir,e.name);if(e.isDirectory())walk(p);else if(p.endsWith('.ts'))names.push(p);}};walk('scripts');
+    names.sort((a,b)=>a<b?-1:a>b?1:0);const h=crypto.createHash('sha256');
+    for(const p of names)h.update(p+'\0'+fs.readFileSync(path.join(root,p),'utf8')+'\0','utf8');
+    return JSON.stringify(['mutation-cost-source/v1',h.digest('hex').slice(0,12),'sha256:'+sha(fs.readFileSync(path.join(root,'scripts/check/mutations.json'))),'sha256:'+sha(fs.readFileSync(path.join(root,'package-lock.json')))]);
+  }
+  function run(f:ReturnType<typeof make>,name:string,args:string[],input='',base=f.base) {
+    const prefix=path.join(workspace,name),cfg={node:process.execPath,args:[cli,...args],cwd:f.root,input,
+      out:prefix+'.out',err:prefix+'.err',obs:prefix+'.obs',fault:prefix+'.fault',result:prefix+'.result',
+      started:prefix+'.started',
+      env:{...cleanEnv,MUTATE_BASE_SHA:base,MUTATE_JOBS:'3',COST_OBSERVER_LOG:prefix+'.obs',COST_OBSERVER_FAULT:prefix+'.fault',COST_TOY_TRACE:prefix+'.toy',NODE_OPTIONS:'--require='+observer}};
+    fs.writeFileSync(prefix+'.config',JSON.stringify(cfg));const d=cp.spawnSync(process.execPath,[driver,prefix+'.config'],{cwd:f.root,env:cleanEnv,encoding:'utf8',timeout:30000});
+    if(d.pid)owned.add(d.pid);
+    if(fs.existsSync(cfg.started)){const started=JSON.parse(fs.readFileSync(cfg.started,'utf8'));if(Number.isInteger(started.pid))owned.add(started.pid);}
+    if(!fs.existsSync(cfg.result)) {
+      unknownTree=true;for(const o of readLines(cfg.obs)){owned.add(o.pid);if(Number.isInteger(o.child))owned.add(o.child);}
+      throw Error('（夹具）driver did not close its process tree: '+String(d.error||d.stderr));
+    }
+    const end=JSON.parse(fs.readFileSync(cfg.result,'utf8'));for(const pid of end.pids)owned.add(pid);
+    if(fs.existsSync(cfg.fault))unknownTree=true;
+    if(d.error||d.status!==0||end.timedOut||end.errored||end.living.length||end.unexpected||fs.existsSync(cfg.fault))throw Error('（夹具）driver/observer/tree qualification: '+JSON.stringify(end));
+    const obs=readLines(cfg.obs),trace=readLines(prefix+'.toy'),out=fs.readFileSync(cfg.out,'utf8'),err=fs.readFileSync(cfg.err,'utf8');
+    if(!obs.some(r=>r.kind==='boot'&&r.pid===end.pid)&&!obs.some(r=>r.kind==='boot'&&r.ppid===end.pid))throw Error('（夹具）entry boot was not observed');
+    return {end,obs,trace,out,err,segments:(out+'\n'+err).split('\n').filter(l=>l.startsWith('MUTATION_COST_JSON ')).map(l=>productJSON(l.slice('MUTATION_COST_JSON '.length)))};
+  }
+  const unchanged=(f:ReturnType<typeof make>,before:Map<string,string>)=>{const after=bytes(f.root);return before.size===after.size&&[...before].every(([p,h])=>after.get(p)===h);};
+  const verifiers=(r:ReturnType<typeof run>)=>r.trace.filter(t=>t.event==='verifier');
+  const groups=(r:ReturnType<typeof run>,pid:number)=>r.trace.filter(t=>t.pid===pid&&t.event==='group').map(t=>t.id);
+  const assertion=(r:ReturnType<typeof run>,pid:number,label:string)=>r.trace.find(t=>t.pid===pid&&t.event==='assert'&&t.label===label);
+  function timerBounds(r:ReturnType<typeof run>,runs:Obj[]) {
+    return runs.map(v=>{const ancestors=new Set<number>();let pid=v.pid;
+      for(let i=0;i<30&&Number.isInteger(pid)&&!ancestors.has(pid);i++){ancestors.add(pid);pid=r.obs.find(o=>o.pid===pid&&o.kind==='boot')?.ppid??r.obs.find(o=>o.kind==='spawn'&&o.child===pid)?.pid;}
+      const edge=r.obs.filter(o=>o.kind==='spawn'&&ancestors.has(o.child)&&(o.args||[]).some((a:string)=>a.endsWith('scripts/test.ts'))).sort((a,b)=>a.call-b.call)[0];
+      const close=r.obs.find(o=>o.kind==='close'&&o.child===edge?.child);
+      if(!edge||!close||close.t<edge.t)throw Error('（夹具）verifier spawn/close timing absent');
+      return {low:Math.max(0,close.t-edge.t-30),high:close.t-edge.t+30};});
+  }
+  const within=(ms:unknown,b:{low:number;high:number}[])=>typeof ms==='number'&&Number.isFinite(ms)&&ms>=b.reduce((s,x)=>s+x.low,0)&&ms<=b.reduce((s,x)=>s+x.high,0);
+    const short=make('short'),shortBefore=bytes(short.root);
+    const brief=run(short,'brief',['scripts/check/mutate.ts','--brief']);
+    named('成本入口 brief 必须正常完成且没有成本段',brief.end.status===0&&!brief.end.signal&&brief.segments.length===0&&catalog.mutations.every(m=>brief.out.includes(m.id))&&verifiers(brief).length===0,'brief 输出与真实进程资格须同时成立');
+    const pre=run(short,'worker-normal',['scripts/test.ts','--only=leaf']);const pv=verifiers(pre);
+    const preEnd=pre.trace.find(t=>t.event==='verifier-end');
+    if(pre.end.status!==0||pv.length!==1||JSON.stringify(pv[0].values)!=='[7,11,13]'||JSON.stringify(groups(pre,pv[0].pid))!=='["setup","leaf"]'||preEnd?.count!==3||preEnd?.failed!==0||!pre.out.includes('全部通过（执行 3 条断言；覆盖 0 条需求）'))throw Error('（夹具）worker normal subset not qualified');
+    const worker=run(short,'worker',['scripts/check/mutate.ts','--worker'],'toy-x\n');
+    const returns=worker.out.split('\n').filter(l=>l.startsWith('⟦结论⟧ ')).map(l=>productJSON(l.slice('⟦结论⟧ '.length))),wv=verifiers(worker);
+    named('成本入口合法 worker 真实处理自有 ID 且没有成本段',worker.end.status===0&&!worker.end.signal&&worker.segments.length===0&&returns.length===1&&returns[0].id==='toy-x'&&returns[0].outcome==='caught'&&returns[0].started===true&&wv.length===1&&JSON.stringify(wv[0].values)==='[8,11,13]'&&JSON.stringify(groups(worker,wv[0].pid))==='["setup","leaf"]'&&assertion(worker,wv[0].pid,'toy leaf x')?.pass===false,'结论必须对应真实 toy 断言与启动');
+    const bad=run(short,'invalid-base',['scripts/check/mutate.ts','--jobs=1'],'','not-a-commit');
+    named('成本入口显式非法基线被拒绝且不启动验证者',bad.end.status!==0&&!bad.end.signal&&bad.segments.length===1&&bad.segments[0].schema==='mutation-cost/v1'&&bad.segments[0].kind==='unavailable'&&typeof bad.segments[0].reason==='string'&&bad.segments[0].reason.length>0&&verifiers(bad).length===0&&!bad.obs.some(o=>o.kind==='spawn'&&(o.args||[]).some((a:string)=>a.endsWith('scripts/test.ts'))),'可捕获拒绝只留下 unknown 原料');
+    named('成本入口短路径保留原源码相邻文件与认领',unchanged(short,shortBefore),'worker 施变和拒绝路径均须恢复原字节');
+    const checks:Obj[]=[];
+    for(const jobs of [1,2]) {
+      const f=make('jobs-'+jobs),before=bytes(f.root),frozen=identity(f.root),r=run(f,'coordinator-'+jobs,['scripts/check/mutate.ts','--jobs='+jobs]);
+      const jobsDir=path.join(f.root,'.check-cache/mutate-jobs');
+      const c:Obj={envelope:!!(r.end.status===0&&!r.end.signal&&r.segments.length===1&&r.segments[0].schema==='mutation-cost/v1'&&r.segments[0].kind==='summary'&&Array.isArray(r.segments[0].report?.rows)&&r.segments[0].report?.identity&&typeof r.segments[0].report.identity==='object'),restored:unchanged(f,before)&&(!fs.existsSync(jobsDir)||fs.readdirSync(jobsDir).length===0)};
+      const vs=verifiers(r),normal=vs.filter(v=>JSON.stringify(v.values)==='[7,11,13]'),mutated=vs.filter(v=>JSON.stringify(v.values)!=='[7,11,13]');
+      const n=normal[0],x=mutated.find(v=>JSON.stringify(v.values)==='[8,11,13]'),y=mutated.find(v=>JSON.stringify(v.values)==='[7,12,13]'),z=mutated.find(v=>JSON.stringify(v.values)==='[7,11,14]');
+      const scope=normal.length===1&&mutated.length===3&&x&&y&&z;
+      if(scope){const ends=r.trace.filter(t=>t.event==='verifier-end'&&t.pid===n.pid),normalExit=r.obs.find(o=>o.kind==='exit'&&o.pid===n.pid);
+        c.baseline=!!(ends.length===1&&ends[0].count===3&&ends[0].failed===0&&JSON.stringify(groups(r,n.pid))==='["setup","leaf"]'&&normalExit&&mutated.every(v=>v.t>=normalExit.t));
+        c.execution=JSON.stringify(groups(r,x.pid))==='["setup","leaf"]'&&JSON.stringify(groups(r,y.pid))==='["setup","leaf"]'&&JSON.stringify(groups(r,z.pid))==='["setup","leaf","full"]'&&assertion(r,x.pid,'toy leaf x')?.pass===false&&assertion(r,y.pid,'toy leaf x')?.pass===true&&assertion(r,y.pid,'toy leaf y')?.pass===false&&assertion(r,z.pid,'toy leaf x')?.pass===true&&assertion(r,z.pid,'toy leaf y')?.pass===true&&assertion(r,z.pid,'toy full z')?.pass===false;
+      }else{c.baseline=false;c.execution=false;}
+      const bounds=scope?{normal:timerBounds(r,[n]),leaf:timerBounds(r,[x,y]),full:timerBounds(r,[z])}:undefined;
+      const entryExit=r.obs.find(o=>o.kind==='exit'&&o.command.some((a:string)=>a.endsWith('scripts/check/mutate.ts'))&&!o.command.includes('--worker')&&o.command.includes('--jobs='+jobs));
+      if(!c.envelope){checks.push(c);continue;}
+      // Bad product payloads fail product assertions; observer/driver faults stay outside this catch.
+      try {
+      const report=r.segments[0].report,rows=report.rows,leaf=rows.find((q:Obj)=>JSON.stringify(q.route?.only)==='["leaf"]'),full=rows.find((q:Obj)=>q.route?.only===undefined);
+      c.rows=rows.length===2&&leaf?.route.by==='test'&&JSON.stringify(leaf.route.executes)==='["setup","leaf"]'&&leaf.configuredIds.length===2&&leaf.configuredIds.includes('toy-x')&&leaf.configuredIds.includes('toy-y')&&leaf.actualUsers===2&&leaf.baselineStarted===1&&leaf.baselineSucceeded===1&&leaf.extraReuse===1&&leaf.observedReuse===1&&leaf.outsideBaseline===false&&leaf.observedIds.length===2&&leaf.missingIds.length===0&&leaf.notStartedIds.length===0&&full?.route.by==='test'&&JSON.stringify(full.route.executes)==='["setup","leaf","full"]'&&JSON.stringify(full.configuredIds)==='["toy-full"]'&&full.actualUsers===1&&full.baselineStarted===undefined&&full.baselineSucceeded===undefined&&full.extraReuse===undefined&&full.outsideBaseline===true;
+      c.qualification=report.identity.state==='succeeded'&&report.complete===false;
+      c.identity=report.identity.headSha===f.head&&report.identity.comparisonBaseSha===f.base&&report.identity.sourceIdentity===frozen&&report.identity.workers===jobs&&entryExit&&JSON.stringify(report.identity.command)===JSON.stringify(entryExit.command)&&report.identity.nodeVersion===entryExit.nodeVersion&&report.identity.platform===entryExit.platform&&report.identity.arch===entryExit.arch&&entryExit.workersEnv==='3';
+      if(bounds){const {normal:nb,leaf:lb,full:fb}=bounds;
+        c.times=leaf?.baselineTimes.succeeded.samples===1&&within(leaf.baselineTimes.succeeded.totalMs,nb)&&leaf.baselineTimes.failed.samples===0&&leaf.baselineTimes.incomplete.samples===0&&leaf.mutationTimes.caught.samples===2&&within(leaf.mutationTimes.caught.totalMs,lb)&&full?.mutationTimes.caught.samples===1&&within(full.mutationTimes.caught.totalMs,fb)&&['elsewhere','crashed','survived','incomplete'].every(k=>leaf.mutationTimes[k].samples===0&&full.mutationTimes[k].samples===0);
+      }else c.times=false;
+      } catch { c.envelope=false; }
+      checks.push(c);
+    }
+    named('成本入口串行与双 worker 都保留完整 summary 外壳',checks.length===2&&checks.every(c=>c.envelope),'不能以缺段或异常完成代替报告');
+    named('成本入口正常叶组基线实际完整全绿且先于施变',checks.every(c=>c.baseline===true),'独立 trace 核对依赖顺序断言数量与结束时点');
+    named('成本入口指定失败归因与全量执行保持真实契约',checks.every(c=>c.execution===true),'所有 toy 值与指定断言结果来自验证者实际执行');
+    named('成本入口组合实际使用成功基线复用与外层未知可分',checks.every(c=>c.rows===true),'自有目录手算：两叶条目复用一次正常基线，全量保持单列与未知');
+    named('成本入口运行完整成功与成本观测不完整分别声明',checks.every(c=>c.qualification===true),'外层未观测不能使完整 caught 运行变失败');
+    named('成本入口源码 Git 命令环境与生效并行身份独立核实',checks.every(c=>c.identity===true),'身份须含首次基线前未提交源字节且 command 对应真实 Node 进程');
+    named('成本入口正常与施变计时分别落在独立启动结束范围',checks.every(c=>c.times===true),'启动证据来自 observer，不来自报告时间或 started');
+    named('成本入口完整运行恢复原件并回收 worker 目录',checks.every(c=>c.restored===true),'源码相邻文件完整认领原件与 worker 收尾均须成立');
+  } catch(e) {
+    named('成本入口独立夹具资格',false,'（夹具）'+String(e));
+  } finally {
+    const living=[...owned].filter(alive);
+    for(const pid of living){try{process.kill(-pid,'SIGKILL');}catch{}try{process.kill(pid,'SIGKILL');}catch{}}
+    const still=[...owned].filter(alive);
+    named('成本入口自有进程全部结束后才删除夹具',still.length===0&&!unknownTree,'（夹具）存活或未知进程树：'+still.join(','));
+    if(still.length===0&&!unknownTree&&outer)fs.rmSync(outer,{recursive:true,force:true});
+  }
+});
+
 const ranOnly = runGroups()
 
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m

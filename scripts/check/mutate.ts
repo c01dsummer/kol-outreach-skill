@@ -33,6 +33,7 @@
  */
 import { cpSync, existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { availableParallelism } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -45,9 +46,11 @@ import {
   executionRoutes, labelFaults, labelsOf, mutationEventBase, resolveMutationBaseline, routeDelta, type RouteSnapshot,
   anchorMatches, baselineFault, wiringFault,
 } from './mutate-rule.js'
-import { CLAIMS_PATH } from './claims.js'
+import { CLAIMS_PATH, fingerprint, sourceFiles } from './claims.js'
 import {
-  type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, billLines, copyIntoWorker,
+  type Ran, type CostBaseline, type CostCombination, type CostIdentity, type CostMutation,
+  BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, billLines, copyIntoWorker,
+  configurationCost, configurationCostLines, configurationKey, costObservation,
   groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
   noStdio, ownGroup, parseReport, reportLine, verifierBill,
 } from './jobs-rule.js'
@@ -56,6 +59,56 @@ import {
 } from './mutate-restore.js'
 import { tsxCommand } from './tsx-cmd.js'
 import { infraClosure, selfVerifying } from './verifier-rule.js'
+
+// 观察不参与检查判定；普通收尾的人读行与机器段共用这一份原料。
+const costEnabled = !process.argv.includes('--brief') && !process.argv.includes('--worker')
+let costContext: { identity: CostIdentity; combinations: CostCombination[] } | undefined
+const costBaselines: CostBaseline[] = []
+const costMutations: CostMutation[] = []
+const costMutationIndex = new Map<string, number>()
+const costReported = new Set<string>()
+const successfulBaselines = new Map<string, string>()
+let costPublished = false
+const costOutput = (): string => {
+  if (costContext === undefined) return 'MUTATION_COST_JSON ' + JSON.stringify({
+    schema: 'mutation-cost/v1', kind: 'unavailable', reason: '可信运行身份与实际路由尚未形成',
+  }) + '\n'
+  const report = configurationCost({ ...costContext, baselines: costBaselines, mutations: costMutations })
+  return [...configurationCostLines(report), 'MUTATION_COST_JSON ' + JSON.stringify({
+    schema: 'mutation-cost/v1', kind: 'summary', report,
+  })].join('\n') + '\n'
+}
+const publishCost = async (): Promise<void> => {
+  if (!costEnabled || costPublished) return
+  costPublished = true
+  // 等待整段写完再允许硬退出，不能用人读行补一份被截断的机器证据。
+  try {
+    const output = costOutput()
+    await new Promise<void>((done, reject) => {
+      const onError = (e: Error): void => reject(e)
+      process.stdout.once('error', onError)
+      process.stdout.write(output, e => {
+        if (e) reject(e)
+        else { process.stdout.off('error', onError); done() }
+      })
+    })
+  } catch (e) {
+    // 缺段／截断不能作成本证据；观察输出故障不为旧检查另立通过闸门。
+    try { writeFileSync(2, `成本报告未能完整输出：${e instanceof Error ? e.message : String(e)}\n`) } catch { /* 输出不可用 */ }
+  }
+}
+const publishCostAtExit = (): void => {
+  if (!costEnabled || costPublished) return
+  costPublished = true
+  // 早期拒绝与不能异步收尾的路径；写不成只表示没有可用成本段，不改原结论。
+  try { writeFileSync(1, costOutput()) } catch { /* 信号、崩溃或输出故障不保证有段 */ }
+}
+process.on('exit', publishCostAtExit)
+const observeHand = (id: string): void => {
+  const index = costMutationIndex.get(id)
+  if (index === undefined) return
+  costMutations[index] = { id, key: costMutations[index].key, state: 'unknown', reason: '已派出，尚未取得实际启动回报' }
+}
 
 interface Mut {
   id: string; req: string; why: string; file: string; find: string; replace: string
@@ -272,6 +325,8 @@ const restoreClaims = () => {
   else if (action === 'remove') rmSync(CLAIMS_PATH, { force: true })
 }
 process.on('exit', restoreClaims)
+process.off('exit', publishCostAtExit)
+process.on('exit', publishCostAtExit)
 // 但**信号杀进来时 exit 处理也不跑** —— Ctrl-C、被杀掉、CI 超时、终端关掉，
 // 留下的是一份被改写的源文件加一份对不上的覆盖记录，而没有任何东西说过它们在那儿。
 // 下面记现场那一步顺手把这几个信号接管了（`mutate-restore.ts`），
@@ -376,8 +431,8 @@ const forgetVerifier = (): void => {
 }
 
 const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly string[], cwd?: string,
-  baselineLive?: Set<ChildProcess>):
-  Promise<{ status: number | null; output: string; atStop?: string }> =>
+  baselineLive?: Set<ChildProcess>, observeSpawn?: () => void):
+  Promise<{ status: number | null; output: string; atStop?: string; started: boolean; ms: number }> =>
   new Promise(resolve => {
     // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
     // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
@@ -387,6 +442,9 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
       only === undefined ? [verifier.script] : [verifier.script, `--only=${only.join(',')}`])
     const kid = spawn(exe, argv,
       { cwd, stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1', NODE_COMPILE_CACHE } })
+    let started = false
+    let began: number | undefined
+    kid.on('spawn', () => { started = true; began = performance.now(); observeSpawn?.() })
     if (baselineLive === undefined) trackTest(kid)
     else {
       baselineLive.add(kid)
@@ -423,7 +481,11 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     // 压根没起来（命令不在、权限不足）也要留下话：那时两股都是空的，
     // 判定只会说「跑不起来」，而人得知道是没起来还是跑崩了
     kid.on('error', e => { err += `\n${e}` })
-    kid.on('close', status => { forgetVerifier(); resolve({ status, output: `${out}\n${err}`, atStop }) })
+    kid.on('close', status => {
+      const ms = began === undefined ? 0 : Math.round(performance.now() - began)
+      forgetVerifier()
+      resolve({ status, output: `${out}\n${err}`, atStop, started, ms })
+    })
     // **留号在装完那两个监听器之后。** 放在 `trackTest` 紧后面的话,这一句一抛就落在
     // 「验证者已经起来、监听器还没装」那个缝里 —— promise 永不落地,`runOne` 的 `finally`
     // 不跑,被改过的源文件留在工作区。
@@ -458,7 +520,7 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
  */
 const runOne = async (m: Mut): Promise<Ran> => {
   const orig = readFileSync(m.file, 'utf8')
-  if (!orig.includes(m.find)) return { outcome: 'not-applied', status: null, stopped: false, output: '', ms: 0 }
+  if (!orig.includes(m.find)) return { outcome: 'not-applied', status: null, stopped: false, output: '', ms: 0, started: false }
   beginMutation(m.file, orig)
   try {
     // 写盘也在这一段里面：写盘是先截断再写的，写到一半抛出去（盘满、IO 错）留下的是
@@ -469,12 +531,10 @@ const runOne = async (m: Mut): Promise<Ran> => {
     // 点了名的还要再看一层:红的是不是 kills 说的那一条
     const verifier = VERIFIERS[m.by ?? 'test']
     // 量的是验证者那一段：起验证者到它退出（或点名的都红了被停掉）—— 乘法要的就是这个数
-    const started = performance.now()
     const r = await runTest(verifier, m.kills, onlyFor(m))
-    const ms = Math.round(performance.now() - started)
     return {
       outcome: judgeRun(r.status, r.output, verifier, m.kills, r.atStop),
-      status: r.status, stopped: r.atStop !== undefined, output: r.output, ms,
+      status: r.status, stopped: r.atStop !== undefined, output: r.output, ms: r.ms, started: r.started,
     }
   } finally {
     restoreMutation()
@@ -486,6 +546,15 @@ const timed: { verifier: string; ms: number }[] = []
 
 /** 一条变异的结论怎么报、记在哪一摞里。**派工那一侧也走这里**，报告只此一份写法 */
 const record = (m: Mut, ran: Ran): void => {
+  const route = routesById?.get(m.id)
+  if (costEnabled && route !== undefined) {
+    const key = configurationKey(route)
+    const observation = costObservation(m.id, key, ran, successfulBaselines.get(key))
+    const index = costMutationIndex.get(m.id)
+    if (index === undefined || costReported.has(m.id)) costMutations.push(observation)
+    else costMutations[index] = observation
+    costReported.add(m.id)
+  }
   if (ran.outcome !== 'not-applied') timed.push({ verifier: m.by ?? 'test', ms: ran.ms })
   if (ran.outcome === 'not-applied') {
     notApplied.push(m)
@@ -690,7 +759,7 @@ const dispatch = async (jobs: number): Promise<void> => {
     const hand = () => {
       const id = queue.shift()
       if (id === undefined) kid.stdin.end()
-      else kid.stdin.write(`${id}\n`)
+      else { observeHand(id); kid.stdin.write(`${id}\n`) }
     }
     createInterface({ input: kid.stdout }).on('line', line => {
       const r = parseReport(line)
@@ -707,6 +776,7 @@ const dispatch = async (jobs: number): Promise<void> => {
       reported.add(r.id)
       const m = byId.get(r.id)
       if (m !== undefined) record(m, r)
+      else costMutations.push(costObservation(r.id, '未知配置', r))
       hand()
     })
     kid.on('close', () => { live.delete(slot); done() })
@@ -787,12 +857,22 @@ try {
     'changed-full': '旧全跑正文改变', configuration: '执行配置改变' }
   const describe = (r: RouteSnapshot['routes'][number] | undefined): string => r === undefined ? '不存在'
     : `${r.by} ${r.only === undefined ? '全跑' : `选组 ${r.only.join(',')}`}（执行 ${r.executes.join(',') || '无分组'}）`
+  const routeChanges = delta.changes.filter(change => change.kind !== 'configuration')
+  const configChanges = delta.changes.filter(change => change.kind === 'configuration')
+  const counts = Object.fromEntries(Object.keys(names).map(kind => [kind,
+    delta.changes.filter(change => change.kind === kind).length]))
   console.log(`\n维护比较 ${comparison.base.slice(0, 7)}..${comparison.head.slice(0, 7)}：${delta.changes.length} 条路由/正文变化`)
-  for (const change of delta.changes) {
+  console.log(`  路由/正文 ${routeChanges.length} 条：新增全跑 ${counts['added-full']}，选跑退回全跑 ${counts['back-to-full']}，`
+    + `旧全跑正文改变 ${counts['changed-full']}；执行配置 ${configChanges.length} 条，验证者布局 ${delta.layoutChanges.length} 份`)
+  const printChange = (change: typeof delta.changes[number]): void => {
     console.log(`  ${change.id} ${names[change.kind]}：${describe(before.get(change.id))} → ${describe(after.get(change.id))}`)
     const explanation = muts.find(m => m.id === change.id)?.full_run as { reason?: unknown; recheck_when?: unknown } | undefined
     if (explanation !== undefined) console.log(`    全跑原因：${explanation?.reason}；重评条件：${explanation?.recheck_when}`)
   }
+  console.log('  路由与全跑正文变化（完整清单）：')
+  for (const change of routeChanges) printChange(change)
+  console.log('  分组执行配置、依赖与顺序变化（完整清单）：')
+  for (const change of configChanges) printChange(change)
   for (const by of delta.layoutChanges) {
     console.log(`  ${by} 分组依赖/顺序变化：${JSON.stringify(previous.layouts[by])} → ${JSON.stringify(current.layouts[by])}`)
   }
@@ -804,6 +884,34 @@ try {
 } catch (e) {
   console.error(`✗ 维护比较：无法核实旧目录或实际分组：${e instanceof Error ? e.message : String(e)}；未施加任何变异`)
   process.exit(1)
+}
+// 在首次正常基线和施变之前冻结 live 源码、目录与锁的原字节身份；读取失败保留未知。
+const combinations = new Map<string, CostCombination>()
+for (const route of currentSnapshot().routes) {
+  const key = configurationKey(route)
+  const previous = combinations.get(key)
+  if (previous === undefined) combinations.set(key, { key,
+    route: { by: route.by, ...(route.only === undefined ? {} : { only: [...route.only].sort() }), executes: [...route.executes] },
+    mutationIds: [route.id] })
+  else combinations.set(key, { ...previous, mutationIds: [...previous.mutationIds, route.id] })
+}
+const identity: CostIdentity = {
+  headSha: comparison.head, comparisonBaseSha: comparison.base,
+  command: [process.execPath, ...process.execArgv, ...process.argv.slice(1)],
+  nodeVersion: process.version, platform: process.platform, arch: process.arch,
+  workers: jobs, state: 'incomplete', reason: '变异执行尚未完成',
+}
+try {
+  const sha = (path: string): string => 'sha256:' + createHash('sha256').update(readFileSync(path)).digest('hex')
+  identity.sourceIdentity = JSON.stringify(['mutation-cost-source/v1', fingerprint(sourceFiles()),
+    sha('scripts/check/mutations.json'), sha('package-lock.json')])
+} catch (e) {
+  identity.identityFault = `待验源码／目录／依赖锁身份未取得：${e instanceof Error ? e.message : String(e)}`
+}
+costContext = { identity, combinations: [...combinations.values()] }
+for (const route of currentSnapshot().routes) {
+  costMutationIndex.set(route.id, costMutations.length)
+  costMutations.push({ id: route.id, key: configurationKey(route), state: 'not-started', reason: '尚未派出变异，未启动验证者' })
 }
 // 同一组选跑配置只做一次正常代码基线。用与变异 worker 相同的复制规则建隔离目录，
 // 在任何一条变异落盘之前跑完；子集及其 needs 由验证者本身解析并执行。
@@ -825,7 +933,11 @@ for (const m of muts) {
   else previous.count++
 }
 if (subsets.size) {
-  const configs = [...subsets.values()]
+  const configs = [...subsets].map(([key, config], i) => {
+    const id = `baseline-${i + 1}`
+    costBaselines.push({ id, key, state: 'not-started', reason: '尚未实际启动正常基线' })
+    return { ...config, key, id, index: costBaselines.length - 1 }
+  })
   const baselineJobs = Math.min(jobs, configs.length)
   const dirs = Array.from({ length: baselineJobs }, (_unused, i) => join(JOBS_DIR, `baseline-${i}`))
   let next = 0
@@ -849,8 +961,18 @@ if (subsets.size) {
       while (next < configs.length) {
         const config = configs[next++]
         const verifier = VERIFIERS[config.by]
-        const ran = await runTest(verifier, undefined, config.only, dir, baselineLive)
+        const ran = await runTest(verifier, undefined, config.only, dir, baselineLive, () => {
+          costBaselines[config.index] = { id: config.id, key: config.key, state: 'incomplete',
+            elapsed: { kind: 'unavailable', reason: '正常基线已实际启动，尚未取得退出计时' }, reason: '正常基线尚未退出' }
+        })
         const fault = baselineFault(ran.status, ran.output, verifier)
+        const baseline = { id: config.id, key: config.key }
+        if (!ran.started) costBaselines[config.index] = { ...baseline, state: 'start-failed', reason: '验证者没有实际 spawn 启动' }
+        else if (fault === undefined) {
+          costBaselines[config.index] = { ...baseline, state: 'succeeded', elapsed: { kind: 'measured', ms: ran.ms } }
+          successfulBaselines.set(config.key, config.id)
+        } else costBaselines[config.index] = { ...baseline, state: ran.status === null ? 'incomplete' : 'failed',
+          elapsed: { kind: 'measured', ms: ran.ms }, reason: fault }
         if (fault !== undefined) {
           faults.push(`${config.by} --only=${config.only.join(',')}（${fault}）\n`
             + ran.output.split('\n').slice(-20).join('\n'))
@@ -866,6 +988,9 @@ if (subsets.size) {
   if (faults.length) {
     for (const fault of faults) console.error(`\n✗ 子集基线：${fault}`)
     console.error(`\n✗ 变异测试：${faults.length} 种子集未通过正常代码基线，未施加任何变异`)
+    identity.state = 'failed'
+    identity.reason = '正常代码子集基线未全部通过；未施加任何变异'
+    await publishCost()
     process.exit(1)
   }
 }
@@ -874,7 +999,7 @@ console.log(`  子集选跑 ${selectedCount} 条、${subsets.size} 种配置；�
   + `（${fullWithoutKills} 条未点名断言，${fullUngrouped} 条断言尚未归组）`)
 // 只有一条路走串行：清单只剩一条、机器只有一个核、或者人明确要求。那条路逐字保持原样，
 // 派工那一侧一个进程都不起 —— 自检里那几份最小语料走的正是它
-if (jobs === 1) for (const m of muts) record(m, await runOne(m))
+if (jobs === 1) for (const m of muts) { observeHand(m.id); record(m, await runOne(m)) }
 else await dispatch(jobs)
 
 console.log()
@@ -900,6 +1025,12 @@ if (survived.length || elsewhere.length || crashed.length || notApplied.length |
   if (elsewhere.length) console.error('  红错了地方也不算抓到：点名的夹具里有没红的，它对那几条就什么也没证明。'
                                       + '先核对名单里的名字是不是都指对了，再看没红的那条夹具在不在、这个变异该不该弄红它。')
   if (crashed.length) console.error('  跑不起来不算抓到：崩溃不是断言的功劳。让那条测试作为断言失败，或者把变异改成一处语义改动而不是语法错误。')
+  identity.state = silent.length ? 'incomplete' : 'failed'
+  identity.reason = silent.length ? '部分变异未回报执行结论' : '有变异未满足既有被抓到资格'
+  await publishCost()
   process.exit(1)
 }
 console.log(`✓ 变异测试：${muts.length} 个变异全部被抓到`)
+identity.state = 'succeeded'
+delete identity.reason
+await publishCost()
