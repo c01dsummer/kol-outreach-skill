@@ -6243,6 +6243,14 @@ harness('豁免那一行开头说的话，要跟变异集对得上')
   // 闭包会跟着撑大，为一行报告不值。退而求其次扫源码问「还在调吗」，
   // 它挡得住「换回写死的字面量」这个坏法，但证不了印出来的话对（差额记在 ADR-70）
   eq('调了判定就算接着', leadWired('exemptionLead(exemptionCovered(x, y))'), true)
+
+  const nestedSource = `
+function entry() {
+  return exemptionLead(exemptionCovered('H23', []));
+}
+entry();
+`
+  ok('函数体中的真实豁免来源调用必须被识别', leadWired(nestedSource) === true)
   eq('中间有空白也认', leadWired('exemptionLead( exemptionCovered (x, y))'), true)
   eq('换成写死的字面量 → 断了', leadWired("const lead = '名下无变异'"), false)
   eq('只调一半也不算接着', leadWired('exemptionLead(covered)'), false)
@@ -7266,6 +7274,48 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
     hardStopPlan(slotsOf({ pid: 11, beacon: 'b0' }),
       reads({ b0: { text: '900\n' } }), me).map(s => s.do))
   eq('一个都没有：空手', signalTargets([]), [])
+}
+
+{
+  const slots = [
+    { kid: { pid: 4111 }, beacon: 'private-beacon/good-first' },
+    { kid: { pid: 4112 }, beacon: 'private-beacon/present-malformed' },
+    { kid: { pid: 4113 }, beacon: 'private-beacon/good-last' },
+  ]
+  const observations = new Map<string, { text: string }>([
+    ['private-beacon/good-first', { text: '4201\n' }],
+    ['private-beacon/present-malformed', { text: 'not-a-group\n' }],
+    ['private-beacon/good-last', { text: '4202\n' }],
+  ])
+  const read = (path: string): { text: string } => {
+    const observation = observations.get(path)
+    if (observation === undefined) {
+      // The host must classify this separately from a named assertion failure.
+      throw new Error(`fixture input: undeclared beacon path ${path}`)
+    }
+    return observation
+  }
+  const plan = hardStopPlan(slots, read, { pid: 4100, pgid: 4100 })
+  const groupTargets = plan.flatMap(step => step.do === 'group' ? [step.shot] : [])
+  const groupIndices = plan.flatMap((step, index) => step.do === 'group' ? [index] : [])
+  const warningCount = plan.filter(step => step.do === 'warn').length
+  const warningIndex = plan.findIndex(step => step.do === 'warn')
+  const sweepCount = plan.filter(step => step.do === 'sweep').length
+  const sweepIndex = plan.findIndex(step => step.do === 'sweep')
+
+  // The two negative targets are derived directly from the two input group
+  // IDs. Presence and phase order share the condition to avoid vacuous green.
+  const bothGroupsPresent = groupTargets.length === 2
+    && groupTargets.includes(-4201)
+    && groupTargets.includes(-4202)
+  const diagnosticPresent = warningCount === 1
+  const sweepIsUniqueAndLast = sweepCount === 1 && sweepIndex === plan.length - 1
+  const groupsThenDiagnosticThenSweep = groupIndices.every(index => index < warningIndex)
+    && warningIndex < sweepIndex
+
+  ok('硬停止计划先列全部验证者组再列诊断最后清理目录',
+    bothGroupsPresent && diagnosticPresent && sweepIsUniqueAndLast
+      && groupsThenDiagnosticThenSweep)
 }
 
 // 独立于实现写成：期望只出自 `verifierBill`／`billLines`／`BillRow` 的说明（ADR-99 第八节那张
