@@ -129,8 +129,10 @@ export const covered = new Set<string>()
 const GROUPS: readonly Group[] = [
   { id: 'p1-missing-values', needs: [] },
   { id: 'p1-plays', needs: [] },
+  { id: 'p2-placeholders', needs: [] },
   { id: 'd6-pipeline', needs: [] },
   { id: 'd4-memory', needs: [] },
+  { id: 'f5-geo', needs: [] },
   { id: 'u3-keywords', needs: [] },
   { id: 'u8-labels', needs: [] },
   { id: 'p5-report', needs: [] },
@@ -147,7 +149,9 @@ const GROUPS: readonly Group[] = [
   { id: 'd17-config', needs: [] },
   { id: 'd19-resume', needs: [] },
   { id: 'p1-followers-sort', needs: [] },
+  { id: 'd5-csv', needs: [] },
   { id: 'f6-veto', needs: [] },
+  { id: 'f7-budget-notices', needs: [] },
   { id: 'f8-risk', needs: [] },
   { id: 'u1-u5-output', needs: [] },
   { id: 'h-claims-restore', needs: [] },
@@ -163,6 +167,8 @@ const GROUPS: readonly Group[] = [
   { id: 'p1-provider', needs: [] },
   { id: 'd6-provider', needs: [] },
   { id: 'd12-ledger', needs: [] },
+  { id: 'p3-budget-token', needs: [] },
+  { id: 'd14-cost-persistence', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -557,7 +563,7 @@ suite('P1', '没取到的播放数不得被判成爆款')
 }
 
 })
-if (fullRun) {
+await group('p2-placeholders', () => {
 suite('P2', '开发信占位符必须原样保留到产出物')
 {
   // 只验可执行的那一半：render 不得删除/替换草稿里的 {…}
@@ -576,6 +582,8 @@ suite('P2', '开发信占位符必须原样保留到产出物')
   criterion('P2.b')
 }
 
+})
+if (fullRun) {
 suite('P1', '响应结构探测不得被空数组满足')
 {
   covered.add('P1')
@@ -2108,7 +2116,7 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
 }
 
 })
-if (fullRun) {
+await group('f5-geo', () => {
 suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时不中断')
 {
   const withGeo = (pct: number) =>
@@ -2140,7 +2148,7 @@ suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时�
   tension('F5', 'P1')
 }
 
-}
+})
 await group('u3-keywords', () => {
 suite('U1', '分层管线返回的名单已按 tier 排好序')
 {
@@ -5404,6 +5412,8 @@ suite('D1', 'platform:handle 唯一标识，大小写不敏感')
   eq('大小写不同视为同一人', linkCrossPlatform(c), 1)
 }
 
+}
+await group('d5-csv', () => {
 suite('D5', 'CSV 转义')
 {
   eq('含逗号', esc('a,b'), '"a,b"')
@@ -5412,6 +5422,8 @@ suite('D5', 'CSV 转义')
   eq('普通不加引号', esc('plain'), 'plain')
 }
 
+})
+if (fullRun) {
 suite('D2', 'bio_links 归一化为数组')
 {
   const c = mk('tiktok', 'a', { bio_links: ['https://x.com'] })
@@ -5436,7 +5448,7 @@ suite('F6', '语义判断否定有一票否决权')
 }
 
 })
-if (fullRun) {
+await group('f7-budget-notices', async () => {
 suite('F7', '每个运行实例只在成功预留后各提醒一次 50% 与 80%')
 {
   await costSucceeds('阈值、退款、恢复与拒绝组合完整执行', () => {
@@ -5476,7 +5488,7 @@ suite('F7', '每个运行实例只在成功预留后各提醒一次 50% 与 80%'
   criterion('F7.c', 'F7.d')
 }
 
-}
+})
 await group('f8-risk', () => {
 suite('F8', '公开信号风险透明降级但不删除')
 {
@@ -9066,6 +9078,15 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
 }
 
 })
+await group('p3-budget-token', () => {
+suite('P3', '未经确认的预算输入不得取得付费额度')
+{
+  let code: string | undefined
+  try { readCostLimit({ budget_usd: 0.005 }) }
+  catch (error) { if (error instanceof CostError) code = error.code }
+  eq('普通内存预算没有原 token 必须拒绝', code, 'invalid-money')
+}
+})
 if (fullRun) {
 suite('D13', '实际 HTTP 状态先结算；正文失败、无状态和本地失败彼此不同')
 {
@@ -9445,6 +9466,8 @@ suite('D13', '已有数据可离线输出，未知费用不得换来新增付费
 }
 
 // ADR-109：仅由公开保存回调与真实临时文件观察，未读取生产函数体。
+}
+await group('d14-cost-persistence', async () => {
 suite('D14', '费用保存回调先于返回，保存失败后本实例停止一切费用变更')
 {
   const exact = (label: string, got: unknown, want: unknown) => ok(label, isDeepStrictEqual(got, want))
@@ -9512,6 +9535,8 @@ suite('D14', '费用保存回调先于返回，保存失败后本实例停止一
     ] as const) {
       const later = caught(run)
       ok(`${phase} 失败后的 ${operation} 仍报告持久化失败`, later instanceof CostError && later.code === 'persistence-failed')
+      if (phase === '预留' && operation === 'reserve')
+        ok('预留保存失败后再次预留仍报告持久化失败', later instanceof CostError && later.code === 'persistence-failed')
       eq(`${phase} 失败后的 ${operation} 不改变费用`, stringifyCostJson(state), frozen)
       eq(`${phase} 失败后的 ${operation} 不再调用保存`, calls, callsAfterFailure)
     }
@@ -9567,6 +9592,10 @@ suite('D14', '费用检查点只推进费用，保留盘上业务与精确预算
       const before = Date.now(), receipt = budget.reserve(TEST_IG), after = Date.now()
       const savedText = rf(task, 'utf8'), saved = JSON.parse(savedText)
       exact(`${String(status)} 预留只替换费用和保存时间`, business(saved), diskBusiness)
+      if (status === undefined)
+        eq('无去重声明时费用检查点仍不得写成已去重', saved.memory_status, undefined)
+      if (status === 'unknown')
+        eq('已有 unknown 去重声明在费用检查点后保留', saved.memory_status, 'unknown')
       eq(`${String(status)} 根预算保留原数值 token`, rootBudgetToken(savedText), token)
       exact(`${String(status)} 盘上保存本次 pending 与原净次数`,
         [saved.requests, saved.cost_ledger.pending], [2, {
@@ -9622,7 +9651,7 @@ suite('D14', '费用检查点只推进费用，保留盘上业务与精确预算
   // HTTP 前后顺序、强杀窗口与入口退出码由进程测试认领，纯接口不冒领 D14.a–f/h。
 }
 
-}
+})
 if (seenGroups.size !== GROUPS.length) {
   throw new Error(`需求测试组只遇到 ${seenGroups.size}/${GROUPS.length} 组，不能报告完成`)
 }

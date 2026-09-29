@@ -197,7 +197,9 @@
       "why": "阈值提醒重复触发 —— 用户被刷屏后会开始忽略预算提醒",
       "file": "scripts/lib/budget.ts",
       "find": "      if (limit > 0 && BigInt(occupied) * 10n >= BigInt(limit) * numerator && !this.notified.has(threshold)) {",
-      "replace": "      if (limit > 0 && BigInt(occupied) * 10n >= BigInt(limit) * numerator) {"
+      "replace": "      if (limit > 0 && BigInt(occupied) * 10n >= BigInt(limit) * numerator) {",
+      "by": "test",
+      "kills": ["恢复实例退款后不重复提醒"]
     },
     {
       "id": "M-D3-a",
@@ -229,7 +231,9 @@
       "why": "去掉 CSV 转义 —— 含换行的开发信会把表格撑烂",
       "file": "scripts/lib/csv.ts",
       "find": "  return /[\",\\n\\r]/.test(s) ? `\"${s.replace(/\"/g, '\"\"')}\"` : s",
-      "replace": "  return s"
+      "replace": "  return s",
+      "by": "test",
+      "kills": ["含换行"]
     },
     {
       "id": "M-P1-d",
@@ -249,7 +253,9 @@
       "why": "render 把草稿里的占位符静默抹掉 —— 运营看不到还有待填项，直接把半成品发了出去",
       "file": "scripts/lib/rows.ts",
       "find": "    c.source_dimension, bestPost(c), c.outreach_draft ?? '', c.previously_recommended ?? '',",
-      "replace": "    c.source_dimension, bestPost(c), (c.outreach_draft ?? '').replace(/\\{[^}]*\\}/g, ''), c.previously_recommended ?? '',"
+      "replace": "    c.source_dimension, bestPost(c), (c.outreach_draft ?? '').replace(/\\{[^}]*\\}/g, ''), c.previously_recommended ?? '',",
+      "by": "test",
+      "kills": ["CSV 保留占位符", "占位符一个不少"]
     },
     {
       "id": "M-U1-a",
@@ -1256,7 +1262,9 @@
       "why": "没有增强层的时候给受众地域补一个猜出来的占比 —— 补的值正好在门槛之上，分层、降权、名单一个都不变，只有那一栏凭空多出一个数，下游再也分不出它是量出来的还是猜的",
       "file": "scripts/lib/pipeline.ts",
       "find": "    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)",
-      "replace": "    c.tier_adjustments = []\n    c.audience_geo ??= { [market]: 0.5 }\n    const geo = applyGeoPenalty(c, market)"
+      "replace": "    c.tier_adjustments = []\n    c.audience_geo ??= { [market]: 0.5 }\n    const geo = applyGeoPenalty(c, market)",
+      "by": "test",
+      "kills": ["缺增强层时地域留空，不补一个猜出来的值"]
     },
     {
       "id": "M-D10-a",
@@ -5064,7 +5072,9 @@
       "why": "非法预算不再被拒绝，而是被改成最大安全金额，未经确认也能获得付费额度",
       "file": "scripts/lib/cost-json.ts",
       "find": "export function readCostLimit(state: CostState): MicroUsd {\n  const root = roots.get(state)\n  if (!root || !Object.hasOwn(state, 'budget_usd') || !Object.is(root.value, state.budget_usd))\n    throw new CostError('invalid-money', 'budget_usd 缺少可核验的根数值 token')\n  return parseUsdMicros(root.token)\n}",
-      "replace": "export function readCostLimit(state: CostState): MicroUsd {\n  try {\n    const root = roots.get(state)\n    if (!root || !Object.hasOwn(state, 'budget_usd') || !Object.is(root.value, state.budget_usd))\n      throw new CostError('invalid-money', 'budget_usd 缺少可核验的根数值 token')\n    return parseUsdMicros(root.token)\n  } catch { return Number.MAX_SAFE_INTEGER }\n}"
+      "replace": "export function readCostLimit(state: CostState): MicroUsd {\n  try {\n    const root = roots.get(state)\n    if (!root || !Object.hasOwn(state, 'budget_usd') || !Object.is(root.value, state.budget_usd))\n      throw new CostError('invalid-money', 'budget_usd 缺少可核验的根数值 token')\n    return parseUsdMicros(root.token)\n  } catch { return Number.MAX_SAFE_INTEGER }\n}",
+      "by": "test",
+      "kills": ["普通内存预算没有原 token 必须拒绝"]
     },
     {
       "id": "M-D6-l",
@@ -6302,7 +6312,9 @@
       "why": "费用检查点顺便把去重声明提前写成已去重，覆盖盘上原有或缺席的业务状态",
       "file": "scripts/lib/task.ts",
       "find": "  stored.requests = snapshot.requests\n  saveTask(dir, stored)",
-      "replace": "  stored.requests = snapshot.requests\n  stored.memory_status = 'ok'\n  saveTask(dir, stored)"
+      "replace": "  stored.requests = snapshot.requests\n  stored.memory_status = 'ok'\n  saveTask(dir, stored)",
+      "by": "test",
+      "kills": ["无去重声明时费用检查点仍不得写成已去重", "已有 unknown 去重声明在费用检查点后保留"]
     },
     {
       "id": "M-D14-h",
@@ -6334,7 +6346,9 @@
       "why": "费用保存失败后不锁定本实例，后续操作仍可改变费用或再次尝试保存",
       "file": "scripts/lib/budget.ts",
       "find": "    if (this.persistenceFailure) throw this.persistenceFailure",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": ["预留保存失败后再次预留仍报告持久化失败"]
     },
     {
       "id": "M-D15-k",
