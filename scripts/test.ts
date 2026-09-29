@@ -7689,7 +7689,9 @@ harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 n
   }
   eq('需求测试没有选择参数时保留全跑', parseOnlyStrict([]), undefined)
   eq('需求测试解析合法多组', parseOnlyStrict(['--only=collect,独立']), ['collect', '独立'])
-  for (const arg of ['--only=', '--only=,', '--only=collect,', '--only=,collect',
+  ok('需求测试拒绝空组名并点明非空要求',
+    rejected(() => parseOnlyStrict(['--only='])).includes('非空'))
+  for (const arg of ['--only=,', '--only=collect,', '--only=,collect',
     '--only=collect,,独立', '--only= collect', '--only=collect ']) {
     ok(`需求测试拒绝空或带空格的组名：${arg}`,
       rejected(() => parseOnlyStrict([arg])).includes('非空'))
