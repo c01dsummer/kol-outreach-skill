@@ -304,7 +304,11 @@
       "why": "卡片上不留分层标记，报告里的 tab 切换失效 —— 每个 tab 显示的内容完全一样",
       "file": "scripts/lib/report.ts",
       "find": "<div class=\"card ${c.tier}\" data-tier=\"${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>",
-      "replace": "<div class=\"card ${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>"
+      "replace": "<div class=\"card ${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>",
+      "by": "test",
+      "kills": [
+        "点击 B、A、C 后只显示所选分层卡片"
+      ]
     },
     {
       "id": "M-U6-b",
@@ -312,7 +316,12 @@
       "why": "默认永远选 A —— A 级为空时打开报告第一眼是空白，会被当成出错了",
       "file": "scripts/lib/report.ts",
       "find": "    (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'",
-      "replace": "    'A'"
+      "replace": "    'A'",
+      "by": "test",
+      "kills": [
+        "A 为空时默认落到 B",
+        "A 为空时 B 卡片渲染后立即可见"
+      ]
     },
     {
       "id": "M-P1-f",

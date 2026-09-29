@@ -82,6 +82,7 @@ import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { isDeepStrictEqual } from 'node:util'
+import { runInNewContext } from 'node:vm'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
@@ -156,6 +157,7 @@ const GROUPS: readonly Group[] = [
   { id: 'f7-budget-notices', needs: [] },
   { id: 'f8-risk', needs: [] },
   { id: 'u1-u5-output', needs: [] },
+  { id: 'u6-report', needs: [] },
   { id: 'h-claims-restore', needs: [] },
   { id: 'h-mutate', needs: [] },
   { id: 'h-restore-interrupt', needs: [] },
@@ -5699,6 +5701,8 @@ suite('U2', 'HTML 报告不依赖网络资源')
   ok('无外部图片', !/<img[^>]+src="https?:/.test(html))
 }
 
+}
+await group('u6-report', () => {
 suite('U6', 'HTML 分层 tab 与平台标签')
 {
   const html = renderHtml(
@@ -5713,17 +5717,65 @@ suite('U6', 'HTML 分层 tab 与平台标签')
   ok('非默认分层初始隐藏（不依赖 JS）', html.includes('data-tier="B" style="display:none"'))
   ok('切换不滚动页面', !html.includes('scrollIntoView'))
 
+  // 在离线 DOM 模型里执行报告实际输出的内联脚本，再触发真实 click 回调。
+  // 卡片的 dataset 和初始 display 都从 HTML 提取；少了 data-tier 时不能凭 class 猜回去。
+  const clicked = (() => {
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1]
+    const cardTags = [...html.matchAll(/<div class="card ([ABC])"([^>]*)>/g)]
+    const tabTags = [...html.matchAll(/<button class="tab ([ABC])( on)?" data-f="([ABC])">/g)]
+    const emptyTag = html.match(/<div class="empty" id="none" style="([^"]*)">/)
+    if (!script || cardTags.length !== 2 || tabTags.length !== 3 || !emptyTag)
+      throw new Error('U6 离线夹具无法读出脚本、卡片或 tab')
+    const display = (attrs: string) => attrs.match(/\bdisplay\s*:\s*([^;\s]+)/)?.[1] ?? ''
+    const cards = cardTags.map(([, tier, attrs]) => ({
+      tier, dataset: { tier: attrs.match(/\bdata-tier="([^"]+)"/)?.[1] },
+      style: { display: display(attrs) },
+    }))
+    const tabs = tabTags.map(([, tier, on, filter]) => {
+      const classes = new Set(['tab', tier, ...(on ? ['on'] : [])])
+      let click: (() => void) | undefined
+      return { dataset: { f: filter }, classes,
+        classList: { add: (name: string) => classes.add(name), remove: (name: string) => classes.delete(name) },
+        addEventListener: (name: string, handler: () => void) => { if (name === 'click') click = handler },
+        trigger: () => click?.(),
+      }
+    })
+    const none = { style: { display: display(emptyTag[1]) } }
+    const document = {
+      querySelectorAll: (selector: string) => selector === '#cards .card' ? cards : selector === '.tab' ? tabs : [],
+      getElementById: (id: string) => id === 'none' ? none : null,
+    }
+    runInNewContext(script, { document })
+    return (['B', 'A', 'C'] as const).map(filter => {
+      const tab = tabs.find(t => t.dataset.f === filter)
+      tab?.trigger()
+      return { selected: tabs.filter(t => t.classes.has('on')).map(t => t.dataset.f),
+        visible: cards.filter(c => c.style.display !== 'none').map(c => c.tier),
+        empty: none.style.display !== 'none',
+      }
+    })
+  })()
+  eq('点击 B、A、C 后只显示所选分层卡片', clicked, [
+    { selected: ['B'], visible: ['B'], empty: false },
+    { selected: ['A'], visible: ['A'], empty: false },
+    { selected: ['C'], visible: [], empty: true },
+  ])
+
   // A 为空时应默认落在 B，而不是打开就是一片空白
   const noA = renderHtml([mk('instagram', 'b', { tier: 'B', score: 1 })],
     { product: 'p', market: 'US', platforms: ['instagram'], keywords: [], total: 1,
       tiers: { A: 0, B: 1, C: 0 }, email_count: 0, cross_platform_count: 0,
       ...testCostMeta(1, 2000000), enriched: false })
   ok('A 为空时默认落到 B', noA.includes('class="tab B on"') && !noA.includes('class="tab A on"'))
+  const noACard = noA.match(/<div class="card B"[^>]*>/)?.[0]
+  ok('A 为空时 B 卡片渲染后立即可见', !!noACard && !/\bdisplay\s*:\s*none/.test(noACard))
   ok('平台标签区分 class', html.includes('pf tiktok') && html.includes('pf instagram'))
   ok('平台标签有专属配色', html.includes('.pf.tiktok{') && html.includes('.pf.instagram{'))
   ok('平台标签与次要标签不同层级', html.includes('.xp{') && !html.includes('.pf,.xp{'))
 }
 
+})
+if (fullRun) {
 suite('U7', '公开指标、风险依据、报价效率与边界进入交付物')
 {
   const primary = assessedAccount('main', 1_000, 100, 100)
