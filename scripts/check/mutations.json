@@ -1288,7 +1288,9 @@
       "why": "变异集里夹带代码表达式不再被拦下 —— --brief 号称不含实现原文，而写测试的那个上下文照样会读到实现",
       "file": "scripts/check/why-rule.ts",
       "find": "  const op = CODE_OP.exec(why)\n  if (op) return op[0]\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": ["变异说明中的代码表达式必须被拦下"]
     },
     {
       "id": "M-H9-a",
@@ -1400,7 +1402,9 @@
       "file": "scripts/check/group-rule.ts",
       "why": "没写 --only 时当成「一组都不跑」而不是「全跑」—— 整条链的自检从此一个字都不验，却照常全绿",
       "find": "  if (hit === undefined) return undefined",
-      "replace": "  if (hit === undefined) return []"
+      "replace": "  if (hit === undefined) return []",
+      "by": "test",
+      "kills": ["没写这个参数 → undefined"]
     },
     {
       "id": "M-H42-d",
@@ -1824,7 +1828,9 @@
       "why": "验证者表里写的脚本路径指空 —— 每一条变异都跑不起来，而报出来的是「崩了」，指着变异本身，不是指着这张表写错了",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    script: 'scripts/test.ts',",
-      "replace": "    script: 'scripts/tests.ts',"
+      "replace": "    script: 'scripts/tests.ts',",
+      "by": "test",
+      "kills": ["需求测试验证者路径指向可执行入口"]
     },
     {
       "id": "M-H19-c",
@@ -3189,7 +3195,9 @@
       "why": "⊘ 那一档不再只往上抬「完整」这一档 —— 一条红线还欠着判据没人认领、或者一条非红线还留着缺口，那一行照样改写成「已豁免」，看上去是有人签过字的缺口，其实没人签过，而豁免恰恰是唯一要人签字的那一档",
       "file": "scripts/check/spec-rule.ts",
       "find": "  if (flag === '✓' && exempted.length) flag = '⊘'",
-      "replace": "  if (exempted.length) flag = '⊘'"
+      "replace": "  if (exempted.length) flag = '⊘'",
+      "by": "test",
+      "kills": ["非红线还欠着认领 → 仍是 ·，豁免盖不住缺口"]
     },
     {
       "id": "M-H6-k",
@@ -3455,7 +3463,9 @@
       "why": "自检末尾那句失败汇总换了说法 —— 判定那边认的还是老那句，于是每一条指名自检的变异都被误报成跑不起来，而两边的测试照样全绿",
       "file": "scripts/check/verifier-rule.ts",
       "find": "export const selfcheckSummary = (failed: number) => `✗ 脚本自检：${failed} 项失败`",
-      "replace": "export const selfcheckSummary = (failed: number) => `✗ 脚本自检：${failed} 项没过`"
+      "replace": "export const selfcheckSummary = (failed: number) => `✗ 脚本自检：${failed} 项没过`",
+      "by": "test",
+      "kills": ["自检真会打的那句汇总，判定认得出来"]
     },
     {
       "id": "M-H17-i",
@@ -7242,7 +7252,9 @@
       "file": "scripts/check/size-rule.ts",
       "why": "浅克隆照样量 —— merge-base 在截断的历史上算出一个假起点，报出来的数可能缩水成几行，闸门静默通过",
       "find": "  if (shallow === 'true') {",
-      "replace": "  if (false) {"
+      "replace": "  if (false) {",
+      "by": "test",
+      "kills": ["起点第 2 步答 true：how 说怎么取完整历史（fetch-depth: 0 或 git fetch --unshallow）"]
     },
     {
       "id": "M-H9-q",
