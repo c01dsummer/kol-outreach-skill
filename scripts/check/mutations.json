@@ -2986,7 +2986,9 @@
       "why": "作废的需求混回现行需求表 —— 已经不做的事看起来还要做，审计的完成度也跟着虚报",
       "file": "scripts/check/spec-rule.ts",
       "find": "  const live = active(reqs)",
-      "replace": "  const live = reqs"
+      "replace": "  const live = reqs",
+      "by": "test",
+      "kills": ["作废的不混进现行表"]
     },
     {
       "id": "M-H3-b",
@@ -3219,7 +3221,9 @@
       "why": "变异编号重复也放行 —— 复制一条忘了改字母时两条都照跑、照样各自被抓到，控制台一片绿；等到其中一条存活，报告里两行顶着同一个名字，「去修它」指不出该修表里哪一行",
       "file": "scripts/check/attribution-rule.ts",
       "find": "  for (const e of entries) (seen.has(e.id) ? dup : seen).add(e.id)",
-      "replace": "  for (const e of entries) seen.add(e.id)"
+      "replace": "  for (const e of entries) seen.add(e.id)",
+      "by": "test",
+      "kills": ["同一个编号出现两次 —— 抓到"]
     },
     {
       "id": "M-H7-c",
@@ -3227,7 +3231,9 @@
       "why": "变异集里同时有「编号重复」和「记在不存在的需求名下」两种毛病时，先报的成了记错名下 —— 那份报告印的也是编号，而编号还没唯一，人照着它去翻名下，翻不到该改表里哪一行",
       "file": "scripts/check/attribution-rule.ts",
       "find": "  const ids = duplicateIds(muts)\n  if (ids.length) return { kind: 'duplicate', ids }\n  const entries = orphanAttributions(attributed, known)\n  return entries.length ? { kind: 'orphan', entries } : undefined",
-      "replace": "  const entries = orphanAttributions(attributed, known)\n  if (entries.length) return { kind: 'orphan', entries }\n  const ids = duplicateIds(muts)\n  return ids.length ? { kind: 'duplicate', ids } : undefined"
+      "replace": "  const entries = orphanAttributions(attributed, known)\n  if (entries.length) return { kind: 'orphan', entries }\n  const ids = duplicateIds(muts)\n  return ids.length ? { kind: 'duplicate', ids } : undefined",
+      "by": "test",
+      "kills": ["重复与记错名下同时在 —— 先报重复"]
     },
     {
       "id": "M-H7-a",
@@ -3235,7 +3241,9 @@
       "why": "变异记在一个不存在的编号名下也放行 —— 那条变异照样跑、照样被抓到，控制台一片绿，而它对任何一条需求都不算数，审计报出的「有变异守着」少了一条却没有人被告知",
       "file": "scripts/check/attribution-rule.ts",
       "find": "  return entries.filter(e => e.req !== HARNESS && !known.has(e.req))",
-      "replace": "  return entries.filter(() => false)"
+      "replace": "  return entries.filter(() => false)",
+      "by": "test",
+      "kills": ["记在不存在的编号名下 —— 抓到"]
     },
     {
       "id": "M-H8-d",
@@ -3397,7 +3405,9 @@
       "why": "闭包只收一层，传递依赖全漏 —— 一条打在判定模块上的变异会被当成合法的，而它改的正是给自己判分的那把尺",
       "file": "scripts/check/verifier-rule.ts",
       "find": "    for (const next of edges.get(f) ?? []) stack.push(next)",
-      "replace": "    for (const next of edges.get(f) ?? []) seen.add(next)"
+      "replace": "    for (const next of edges.get(f) ?? []) seen.add(next)",
+      "by": "test",
+      "kills": ["顺着边一直收到底"]
     },
     {
       "id": "M-H17-c",
@@ -3405,7 +3415,9 @@
       "why": "只要指名了验证者就算自己验自己，不再看那个文件是不是基础设施 —— 这会把「自检真跑被测入口」这个头号用例整个挡在门外",
       "file": "scripts/check/verifier-rule.ts",
       "find": "  return mut.by !== undefined && mut.by !== 'test' && infra.includes(mut.file)",
-      "replace": "  return mut.by !== undefined && mut.by !== 'test'"
+      "replace": "  return mut.by !== undefined && mut.by !== 'test'",
+      "by": "test",
+      "kills": ["打在被测入口上的不算 —— 那正是这条记录要的头号用例"]
     },
     {
       "id": "M-H17-d",
@@ -3413,7 +3425,9 @@
       "why": "种子里不收预加载那一份 —— 假 fetch 是靠 `--import` 塞进每个子进程的，既不是 import 也不是起进程，两种扫法都收不到它。漏掉，闭包就少一个决定自检能走多深的文件，而闭包偏小的那一头是放行",
       "file": "scripts/check/verifier-rule.ts",
       "find": "  `scripts/${SELFCHECK_PRELOAD}`,",
-      "replace": "  // 预加载那一份不进种子"
+      "replace": "  // 预加载那一份不进种子",
+      "by": "test",
+      "kills": ["预加载那一份在种子里"]
     },
     {
       "id": "M-H17-k",
@@ -3421,7 +3435,9 @@
       "why": "收出来的边不再往下走 —— 闭包只剩种子和它们直接引到的那一层，隔一层的基础设施全部放行，而闭包缩小的那一头正是放行",
       "file": "scripts/check/verifier-rule.ts",
       "find": "    pending.push(...node.to)\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": ["两跳的也收得到 —— 只走一层的话它不在"]
     },
     {
       "id": "M-H17-l",
@@ -3429,7 +3445,9 @@
       "why": "读到的边一条都不记进图里 —— 闭包缩回种子那几个，除种子之外的验证基础设施全部放行",
       "file": "scripts/check/verifier-rule.ts",
       "find": "    graph.push(node)\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": ["一跳的收得到"]
     },
     {
       "id": "M-H17-h",
@@ -3445,7 +3463,9 @@
       "why": "抽出来的边不做后缀规格化 —— 图里的路径带着源码里写的那个后缀，和磁盘上的对不上，于是闭包收不到任何一个真文件，自己验自己的变异全部放行",
       "file": "scripts/check/verifier-rule.ts",
       "find": "    return out.join('/').replace(/\\.js$/, '.ts')",
-      "replace": "    return out.join('/')"
+      "replace": "    return out.join('/')",
+      "by": "test",
+      "kills": ["同目录的边，规格化成仓库根起算的 .ts"]
     },
     {
       "id": "M-H17-j",
@@ -3453,7 +3473,9 @@
       "why": "第三方包和内建模块也当成本仓库的文件收进图里 —— 闭包里混进一堆改不动的名字，而判据本来只该管本仓库的文件",
       "file": "scripts/check/verifier-rule.ts",
       "find": "/\\bfrom\\s*'(\\.[^']+)'/g",
-      "replace": "/\\bfrom\\s*'([^']+)'/g"
+      "replace": "/\\bfrom\\s*'([^']+)'/g",
+      "by": "test",
+      "kills": ["node 内建与第三方包不算边"]
     },
     {
       "id": "M-H17-g",
