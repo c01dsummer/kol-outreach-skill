@@ -5769,6 +5769,15 @@ suite('U6', 'HTML 分层 tab 与平台标签')
   ok('A 为空时默认落到 B', noA.includes('class="tab B on"') && !noA.includes('class="tab A on"'))
   const noACard = noA.match(/<div class="card B"[^>]*>/)?.[0]
   ok('A 为空时 B 卡片渲染后立即可见', !!noACard && !/\bdisplay\s*:\s*none/.test(noACard))
+  // U6.b 指向第一个非空层：A/B 都为空时，C 仍应在首次打开时可见。
+  const onlyC = renderHtml([mk('tiktok', 'c', { tier: 'C', score: 1 })],
+    { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 1,
+      tiers: { A: 0, B: 0, C: 1 }, email_count: 0, cross_platform_count: 0,
+      ...testCostMeta(1, 2000000), enriched: false })
+  ok('A、B 为空时默认落到 C', onlyC.includes('class="tab C on"')
+    && !onlyC.includes('class="tab A on"') && !onlyC.includes('class="tab B on"'))
+  const onlyCCard = onlyC.match(/<div class="card C"[^>]*>/)?.[0]
+  ok('A、B 为空时 C 卡片渲染后立即可见', !!onlyCCard && !/\bdisplay\s*:\s*none/.test(onlyCCard))
   ok('平台标签区分 class', html.includes('pf tiktok') && html.includes('pf instagram'))
   ok('平台标签有专属配色', html.includes('.pf.tiktok{') && html.includes('.pf.instagram{'))
   ok('平台标签与次要标签不同层级', html.includes('.xp{') && !html.includes('.pf,.xp{'))
