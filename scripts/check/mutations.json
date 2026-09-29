@@ -1254,7 +1254,11 @@
       "why": "判定不认「查过、对方没写简介」这个态，把这些人一律当成还没查过 —— 采集那一侧记对了也没用，续跑照样把他们重查一遍",
       "file": "scripts/lib/pipeline.ts",
       "find": "  return c.bio === undefined || !c.bio_links?.length",
-      "replace": "  return !c.bio || !c.bio_links?.length"
+      "replace": "  return !c.bio || !c.bio_links?.length",
+      "by": "test",
+      "kills": [
+        "查过、没写简介、有外链 → 不用再补"
+      ]
     },
     {
       "id": "M-P1-q",
@@ -5004,7 +5008,12 @@
       "why": "采集累加器读回来时给缺失的字段补上默认值：没查过的粉丝数变成 0、没查过的简介变成空串。续跑读的就是这份累加器，于是「我们还没查过这个人」在下一轮变成「查过了，他就是 0 粉、没简介」—— 该补查的人再也不会被补查，而名单上那些 0 看起来跟真实的 0 一模一样",
       "file": "scripts/lib/task.ts",
       "find": "  if (existsSync(raw)) return JSON.parse(readFileSync(raw, 'utf8'))",
-      "replace": "  if (existsSync(raw)) return JSON.parse(readFileSync(raw, 'utf8')).map((c: any) => ({ followers: 0, bio: '', ...c }))"
+      "replace": "  if (existsSync(raw)) return JSON.parse(readFileSync(raw, 'utf8')).map((c: any) => ({ followers: 0, bio: '', ...c }))",
+      "by": "test",
+      "kills": [
+        "未查询过一趟持久化仍是未查询：bio",
+        "未查询过一趟持久化仍是未查询：followers"
+      ]
     },
     {
       "id": "M-P1-j",
