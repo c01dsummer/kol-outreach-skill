@@ -18,3 +18,31 @@
 计时分别报告命令、环境、worker、成功次数、中位数和范围；CPU 如可取得另列。
 局部验证者启动收益不得冒充完整 CI 收益，逐条耗时之和也不得写成 job 时间。
 PR 226 已合入；本实现从包含它的 main 独立开出，PR 前在最新 main 上重新验证。
+
+## 固定版本的局部验收
+
+旧版是 `31d25aaf56c13c8189f9b56fedf3262ec7042d90`，候选实现是
+`1e62a536c4b390b9ea1b9d407801f4d4cb4d6211`；两份均从 GitHub 独立克隆，
+同一 `package-lock.json`，Node 22.23.2、Darwin arm64、一个直接 worker。
+旧版与候选版的完整 `npm test` 均通过，三个实际配置
+`p1-plays`、`d7-email`、`d15-discovery-sources` 分别在正常源码上通过，
+执行 2、12、162 条断言。TypeScript 缺失时，候选版的最小选组明确以
+`MODULE_NOT_FOUND` 非零退出，调用栈指向 `mutate-rule.ts`。
+
+目录仍为 771 条；`mutate-rule.ts` 的 78 个 `find` 锚点改前改后均唯一。
+实际路由与基础设施闭包的快照哈希一致：699 条选组、72 条全跑、闭包 15 个文件。
+每次 worker 按同一顺序运行 M-P1-h、M-D7-a、M-D15-c；双方所有运行均以
+`caught` 收齐三条，源码和完整测试认领原件的字节、inode、mtime 均恢复/保留。
+
+预热后按旧→新、新→旧、旧→新交错三对。命令为固定 Node 加锁定 tsx CLI
+启动 `scripts/check/mutate.ts --worker`，从 stdin 送入上述三个 ID 后 EOF；
+双方同为三次完整成功，没有把预热或失败样本计入下表。
+
+| 三条变异的直接 worker | 墙钟秒中位数（范围） | user+sys 秒中位数（范围） |
+|---|---:|---:|
+| 旧加载 | 2.788（2.784–2.849） | 4.163（4.125–4.194） |
+| 同步加载 | 1.864（1.852–1.925） | 2.764（2.726–2.858） |
+
+这三个 ID 的 worker 中位数减少 0.924 秒、约 33.1%。CPU 是命令及其等待的子进程合计，
+不是 CI job 的 CPU。局部对照没有运行完整目录、coordinator 或 GitHub runner，
+不得把此数外推为完整 `npm run check` 的收益；完整 CI 仍须在 PR 上验收。
