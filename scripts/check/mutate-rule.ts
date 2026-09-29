@@ -23,10 +23,13 @@
  *
  * 这道检查**没有死亡条件,而那是判过的结论、不是漏了** —— 理由记在 ADR-85。
  */
-import ts from 'typescript'
+import type * as Ts from 'typescript'
+import { createRequire } from 'node:module'
 import { type GitAsk, resolveBaseline } from './size-rule.js'
 import { type Group, wanted } from './group-rule.js'
 import { SELFCHECK_FIXTURE_MARK, SELFCHECK_PROCESS_MARK } from './verifier-rule.js'
+
+const ts = createRequire(import.meta.url)('typescript') as typeof Ts
 
 /** 一个验证者:跑哪个脚本,失败汇总长什么样,进程级失败带什么记号,哪些调用给夹具起名。 */
 export interface Verifier {
@@ -245,7 +248,7 @@ export function groupOfLabel(source: string, declares: readonly string[]): Map<s
   // （它用的是字符串版 `replace`，只改第一处）。实测：`M-H20-b` 本该改 `labelsOf`，
   // 结果改了这里，而这里当时还没有测试守着 —— 它「存活」了一整轮全链。
   const declared = new Set(declares)
-  const walk = (node: ts.Node, group: string | undefined): void => {
+  const walk = (node: Ts.Node, group: string | undefined): void => {
     let inner = group
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
       const name = node.expression.text
@@ -264,12 +267,12 @@ export function groupOfLabel(source: string, declares: readonly string[]): Map<s
 export function labelsOf(source: string, declares: readonly string[]): Map<string, number> {
   const seen = new Map<string, number>()
   const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
-  const literal = (node: ts.Node | undefined): string | undefined =>
+  const literal = (node: Ts.Node | undefined): string | undefined =>
     node !== undefined && ts.isStringLiteralLike(node) ? node.text : undefined
   /** 调的是谁 —— 只认光秃秃一个名字。`别的对象.eq(…)` 不是那个函数,交回 `undefined` */
-  const callee = (node: ts.CallExpression): string | undefined =>
+  const callee = (node: Ts.CallExpression): string | undefined =>
     ts.isIdentifier(node.expression) ? node.expression.text : undefined
-  const walk = (node: ts.Node): void => {
+  const walk = (node: Ts.Node): void => {
     if (ts.isCallExpression(node)) {
       const name = callee(node)
       const label = literal(node.arguments[0])
@@ -342,11 +345,11 @@ export const exemptionLead = (covered: boolean): string =>
 export function leadWired(source: string): boolean {
   const tree = ts.createSourceFile('entry.ts', source, ts.ScriptTarget.Latest, true)
   /** 调的是不是光秃秃这个名字 —— `别的对象.exemptionLead(…)` 不是那个函数 */
-  const callTo = (node: ts.Node | undefined, name: string): node is ts.CallExpression =>
+  const callTo = (node: Ts.Node | undefined, name: string): node is Ts.CallExpression =>
     node !== undefined && ts.isCallExpression(node) && ts.isIdentifier(node.expression)
       && node.expression.text === name
   let wired = false
-  const visit = (node: ts.Node): void => {
+  const visit = (node: Ts.Node): void => {
     if (callTo(node, 'exemptionLead') && callTo(node.arguments[0], 'exemptionCovered')) wired = true
     ts.forEachChild(node, visit)
   }
@@ -573,30 +576,30 @@ export interface RouteSnapshot {
 /** 只接受现有两种字面登记；合法无分组验证者仍可全跑，读不懂不能变成空布局。 */
 function routeLayout(source: string): Group[] {
   const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
-  if ((tree as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics.length) {
+  if ((tree as Ts.SourceFile & { parseDiagnostics: readonly Ts.Diagnostic[] }).parseDiagnostics.length) {
     throw new Error('验证者源码无法解析')
   }
-  const literal = (n: ts.Node | undefined): string => {
+  const literal = (n: Ts.Node | undefined): string => {
     if (n === undefined || !ts.isStringLiteralLike(n) || n.text.trim() === '') throw new Error('分组登记必须是非空字面字符串')
     return n.text
   }
-  const list = (n: ts.Node | undefined): string[] => {
+  const list = (n: Ts.Node | undefined): string[] => {
     if (n === undefined || !ts.isArrayLiteralExpression(n)) throw new Error('分组依赖必须是字面数组')
     return n.elements.map(literal)
   }
-  const unwrap = (n: ts.Expression): ts.Expression =>
+  const unwrap = (n: Ts.Expression): Ts.Expression =>
     ts.isAsExpression(n) || ts.isTypeAssertionExpression(n) || ts.isSatisfiesExpression(n)
       || ts.isParenthesizedExpression(n) ? unwrap(n.expression) : n
   let registered: Group[] | undefined
-  const calls: ts.CallExpression[] = []
-  const readLayout = (n: ts.Node): void => {
+  const calls: Ts.CallExpression[] = []
+  const readLayout = (n: Ts.Node): void => {
     if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === 'GROUPS') {
       if (registered !== undefined || n.initializer === undefined) throw new Error('分组清单缺失或重复登记')
       const init = unwrap(n.initializer)
       if (!ts.isArrayLiteralExpression(init)) throw new Error('分组清单必须是字面数组')
       registered = init.elements.map(item => {
         if (!ts.isObjectLiteralExpression(item)) throw new Error('分组清单包含动态登记')
-        const props = new Map<string, ts.Expression>()
+        const props = new Map<string, Ts.Expression>()
         for (const p of item.properties) {
           if (!ts.isPropertyAssignment(p) || (!ts.isIdentifier(p.name) && !ts.isStringLiteralLike(p.name))) {
             throw new Error('分组清单包含动态字段')
