@@ -1368,7 +1368,9 @@
       "file": "scripts/check/group-rule.ts",
       "why": "闭包不再递归 —— 点了 render 只跑 render，而它读的 enrichment.json 是 enrich 那一组落下的；缺了前置组那一整节会被条件守着静默跳过，指着它的负片「跑完、没红」",
       "find": "    for (const n of byId.get(id)!.needs) walk(n)",
-      "replace": "    for (const n of [] as string[]) walk(n)"
+      "replace": "    for (const n of [] as string[]) walk(n)",
+      "by": "test",
+      "kills": ["点一个，连它的 needs 递归拖进来"]
     },
     {
       "id": "M-H42-b",
@@ -1376,7 +1378,9 @@
       "file": "scripts/check/group-rule.ts",
       "why": "点了不存在的组不再抛 —— 一个名字写错的 --only 让这一跑什么也不验、还以退出码 0 结束",
       "find": "  if (unknown.length) {",
-      "replace": "  if (false) {"
+      "replace": "  if (false) {",
+      "by": "test",
+      "kills": ["点了不存在的组，抛的那句话要点出是哪个名字"]
     },
     {
       "id": "M-H42-c",
@@ -1392,7 +1396,9 @@
       "file": "scripts/check/group-rule.ts",
       "why": "空的 --only= 被当成一个叫空串的组 —— 那会由 wanted 抛「点了不存在的组」，而空集该由入口定性（selfcheck 收尾那支按红报「点了零个组」）；抛在判定里等于让 wanted 替调用方决定空集算不算错，两种写错也就分不出来了",
       "find": "  return hit.slice('--only='.length).split(',').filter(s => s !== '')",
-      "replace": "  return hit.slice('--only='.length).split(',')"
+      "replace": "  return hit.slice('--only='.length).split(',')",
+      "by": "test",
+      "kills": ["--only= 空着 → 空数组，不是 undefined"]
     },
     {
       "id": "M-H42-e",
@@ -1400,7 +1406,9 @@
       "why": "需求测试分组登记重名却放行，选中的测试块不再能唯一指向一组",
       "file": "scripts/check/group-rule.ts",
       "find": "  if (byId.size !== groups.length) {",
-      "replace": "  if (false) {"
+      "replace": "  if (false) {",
+      "by": "test",
+      "kills": ["选跑判定拒绝重复登记 id"]
     },
     {
       "id": "M-H42-f",
@@ -1408,7 +1416,9 @@
       "why": "需求测试组声明了不存在的依赖仍放行，选跑可能跳过前置断言",
       "file": "scripts/check/group-rule.ts",
       "find": "    if (!byId.has(need)) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)",
-      "replace": "    if (false) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)"
+      "replace": "    if (false) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)",
+      "by": "test",
+      "kills": ["选跑判定拒绝缺失依赖并点名两端"]
     },
     {
       "id": "M-H42-g",
@@ -1416,7 +1426,9 @@
       "why": "需求测试把拼错的命令行选项当成没有选择，整跑结果掩盖输入错误",
       "file": "scripts/check/group-rule.ts",
       "find": "  if (invalid.length) throw new Error(`需求测试不认识参数：${invalid.join('、')}`)",
-      "replace": "  if (false) throw new Error(`需求测试不认识参数：${invalid.join('、')}`)"
+      "replace": "  if (false) throw new Error(`需求测试不认识参数：${invalid.join('、')}`)",
+      "by": "test",
+      "kills": ["需求测试拒绝拼错的参数并点名它"]
     },
     {
       "id": "M-H42-h",
@@ -1424,7 +1436,9 @@
       "why": "需求测试接受空组名，少跑测试却仍可能报告通过",
       "file": "scripts/check/group-rule.ts",
       "find": "  if (ids.some(id => id === '' || id.trim() !== id)) {",
-      "replace": "  if (false) {"
+      "replace": "  if (false) {",
+      "by": "test",
+      "kills": ["需求测试拒绝空组名并点明非空要求"]
     },
     {
       "id": "M-H42-i",
@@ -1432,7 +1446,9 @@
       "why": "需求测试重复选择同一组仍放行，错误的组清单不再被发现",
       "file": "scripts/check/group-rule.ts",
       "find": "  if (new Set(ids).size !== ids.length) throw new Error('--only= 不能重复点同一组')",
-      "replace": "  if (false) throw new Error('--only= 不能重复点同一组')"
+      "replace": "  if (false) throw new Error('--only= 不能重复点同一组')",
+      "by": "test",
+      "kills": ["需求测试拒绝同一组重复点名"]
     },
     {
       "id": "M-H42-j",
