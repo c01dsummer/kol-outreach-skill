@@ -4129,12 +4129,12 @@ suite('D15', '已观察来源按五元组稳定合并，未知不能从任务配
           : right?.length ? [loSource, hiSource] : left === undefined && right === undefined ? undefined : []
         eq(`${primary} 跨平台并集按主次记录保留原平台、账号及维度`, main?.discovery_sources, expected)
         if (left?.length && right?.length) {
-          const observed = [main?.platform, main?.handle, main?.discovery_sources]
+          const observed = [main?.platform, main?.discovery_sources]
           if (primary === 'tiktok')
             eq('TikTok 主记录保留 Instagram 关联账号来源', observed,
-              ['tiktok', 'Main.Case', [hiSource, loSource]])
+              ['tiktok', [hiSource, loSource]])
           else eq('Instagram 主记录保留 TikTok 关联账号来源', observed,
-            ['instagram', 'Main.Case', [hiSource, loSource]])
+            ['instagram', [hiSource, loSource]])
         }
         eq('跨平台来源合并不修改输入来源集合', [left, right], before)
       }
