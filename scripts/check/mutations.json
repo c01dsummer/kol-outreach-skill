@@ -51,7 +51,12 @@
       "why": "跨平台合并只保留主账号来源，关联账号的实际发现路径丢失",
       "file": "scripts/lib/identity.ts",
       "find": "primary.discovery_sources = mergeDiscoverySources(primary.discovery_sources, secondary.discovery_sources)",
-      "replace": "primary.discovery_sources = mergeDiscoverySources(primary.discovery_sources)"
+      "replace": "primary.discovery_sources = mergeDiscoverySources(primary.discovery_sources)",
+      "by": "test",
+      "kills": [
+        "TikTok 主记录保留 Instagram 关联账号来源",
+        "Instagram 主记录保留 TikTok 关联账号来源"
+      ]
     },
     {
       "id": "M-D15-f",
@@ -2148,7 +2153,12 @@
       "why": "推荐记录只看容器不看里面 —— 一条空记录让「已推荐过」这件事悄悄消失，名单上还留下一个没有值的标注；一条 null 直接崩，绕开「读不出来」那条明确的报错路",
       "file": "scripts/lib/memory.ts",
       "find": "    for (const [i, rec] of (r.recommendations as unknown[]).entries()) {",
-      "replace": "    for (const [i, rec] of [] as Array<[number, unknown]>) {"
+      "replace": "    for (const [i, rec] of [] as Array<[number, unknown]>) {",
+      "by": "test",
+      "kills": [
+        "推荐记录是空对象必须报 MemoryUnreadable",
+        "推荐记录是 null 必须报 MemoryUnreadable"
+      ]
     },
     {
       "id": "M-P4-i",
