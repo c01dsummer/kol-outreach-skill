@@ -111,11 +111,12 @@ Node 22.23.2、Darwin arm64 和单 worker 相同，仅以未提交的选择开�
 它达到建议的 15 分钟中位目标，但单次仍可能超过 15 分钟。
 旧路由在 Node 22.23.3 下只有表中一次成功，不能算同版本的旧路由中位数，
 也不能把它与新路由中位数相减声称整条 CI 实测省了多少。
-旧路由另外三次自然成功——[PR #231 第一次](https://github.com/c01dsummer/kol-outreach-skill/actions/runs/36626360807/attempts/1)
+本段另列的三次旧路由自然成功——[PR #231 第一次](https://github.com/c01dsummer/kol-outreach-skill/actions/runs/36626360807/attempts/1)
 16 分 15 秒、[PR #231 第二次](https://github.com/c01dsummer/kol-outreach-skill/actions/runs/36626360807/attempts/2)
 16 分 50 秒、[旧 main 第二次](https://github.com/c01dsummer/kol-outreach-skill/actions/runs/36629591315/attempts/2)
 16 分 58 秒——都实际选中了 Node 22.23.2，故排除在上述同版本表外；
-它们自身的中位数是 16 分 50 秒，范围 16 分 15 秒—16 分 58 秒。
+仅这三次的中位数是 16 分 50 秒，范围 16 分 15 秒—16 分 58 秒，
+不代表旧路由的历史整体中位数。
 工作流只写 `node-version: '22'`，同一旧 main run 的两次 attempt 就选中了不同小版本；
 这次按 `setup-node` 实际输出筛样本，不能只看 workflow 配置。
 同版本的旧 main 一次变异步骤约 12 分 41 秒、独立自检约 4 分 25 秒；
