@@ -139,6 +139,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd7-email', needs: [] },
   { id: 'd8-public', needs: [] },
   { id: 'h-spec', needs: [] },
+  { id: 'h-why', needs: [] },
   { id: 'd3-identity', needs: [] },
   { id: 'p1-output-values', needs: [] },
   { id: 'd11-posts', needs: [] },
@@ -3566,7 +3567,7 @@ harness('审计对一个交点的裁定')
 }
 
 })
-if (fullRun) {
+await group('h-why', () => {
 harness('变异集的 why 不许夹带实现原文')
 {
   /**
@@ -3588,6 +3589,8 @@ harness('变异集的 why 不许夹带实现原文')
   for (const why of leaks) {
     ok(`拦下：${why.slice(0, 16)}…`, implementationLeak(why) !== undefined)
   }
+  ok('变异说明中的代码表达式必须被拦下',
+    implementationLeak('拿不到就 || [] 兜过去') !== undefined)
 
   const clean = [
     '合并邮箱时把「两边都没查过」压成「查过，他没留邮箱」—— 运营看到空白就不会回头补查',
@@ -3612,6 +3615,8 @@ harness('变异集的 why 不许夹带实现原文')
     })
   eq('当前变异集全集干净', dirty, [])
 }
+})
+if (fullRun) {
 
 suite('D9', '互动率与合作报价分开，只有可比报价才计算效率')
 {
@@ -6040,6 +6045,10 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
   eq('打完汇总就硬退出的写法要认出来',
     exitRace(`console.error(汇总); ${hardExit}`), `process.${'exit'}(`)
   eq('只提名字不调用的是散文，不算', exitRace('// 别用 process.exit 那种写法'), undefined)
+
+  const demandEntry = VERIFIERS.test.script
+  const demandSource = existsSync(demandEntry) ? rf(demandEntry, 'utf8') : ''
+  ok('需求测试验证者路径指向可执行入口', demandSource.startsWith('#!'))
 
   // 逐个验证者验两件事。**读文件要带保护**：路径指空时直接读会抛，而抛在这里的样子是
   // 「测试进程崩了」—— 判定如实报「跑不起来」，于是 M-H14-r 那条本该被断言抓到的变异
