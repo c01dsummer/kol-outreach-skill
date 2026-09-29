@@ -3468,7 +3468,7 @@
       "why": "预加载入口不再从 tsx 的公开导出解析，改成直指 `node_modules/.bin` 里的垫片 —— 那不是包入口，Windows 上也只会找到 cmd、ps1 或 sh 垫片；而且路径变成相对的，切到临时目录里跑就指空",
       "file": "scripts/check/tsx-cmd.ts",
       "find": "const TSX_IMPORT = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href",
-      "replace": "const TSX_IMPORT = pathToFileURL('node_modules/.bin/tsx').href",
+      "replace": "const TSX_IMPORT = 'node_modules/.bin/tsx'",
       "by": "test",
       "kills": ["预加载的是 tsx 公开包入口", "而且指向真的绝对路径"]
     },
@@ -9094,6 +9094,10 @@
       "id": "M-D20-a",
       "req": "D20.c",
       "why": "品牌校准版本已变化，旧的强推荐仍作为当前有效优先级交付",
+      "full_run": {
+        "reason": "本条检验“品牌校准版本已变化，旧的强推荐仍作为当前有效优先级交付”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "if (review.brand_calibration_version !== version) return '待重评'",
       "replace": "if (version && review.brand_calibration_version !== version) return '待重评'"
@@ -9102,6 +9106,10 @@
       "id": "M-D20-b",
       "req": "D20.a",
       "why": "校准来源未标注偏好或已证实事实，仍被接纳为项目输入",
+      "full_run": {
+        "reason": "本条检验“校准来源未标注偏好或已证实事实，仍被接纳为项目输入”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "if (!oneOf(source.kind, ['brand_preference', 'verified_product_fact'])) {",
       "replace": "if (false) {"
@@ -9110,6 +9118,10 @@
       "id": "M-D21-a",
       "req": "D21.c",
       "why": "关联平台的 Agent 评审冒充当前主平台已评，主账号切换后判断来源不清",
+      "full_run": {
+        "reason": "本条检验“关联平台的 Agent 评审冒充当前主平台已评，主账号切换后判断来源不清”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "const review = accounts[0] ? lookupReview(document, [accounts[0]]) : undefined",
       "replace": "const review = accounts[0] ? lookupReview(document, accounts) : undefined"
@@ -9118,6 +9130,10 @@
       "id": "M-D21-b",
       "req": "D21.a",
       "why": "新版评审正本缺失后，旧交付投影中的强推荐又被当作历史旧字段恢复",
+      "full_run": {
+        "reason": "本条检验“新版评审正本缺失后，旧交付投影中的强推荐又被当作历史旧字段恢复”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "if (creator.review_status !== undefined && creator.review_status !== '未评') continue\n    if (['eligibility', 'adoption_priority', 'brand_calibration_version',\n      'observed_content', 'work_evidence', 'natural_integration', 'mismatch_risk']\n      .some(field => creator[field as keyof Creator] !== undefined)) continue",
       "replace": "if (false) continue"
@@ -9126,6 +9142,10 @@
       "id": "M-D21-c",
       "req": "D21.b",
       "why": "Agent 评审账号键无法匹配任务候选池却被静默保留，判断不知属于谁",
+      "full_run": {
+        "reason": "本条检验“Agent 评审账号键无法匹配任务候选池却被静默保留，判断不知属于谁”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "if (!review.account_keys.some(alias => knownAccounts.has(alias))) {",
       "replace": "if (false) {"
@@ -9134,14 +9154,34 @@
       "id": "M-D21-d",
       "req": "D21.d",
       "why": "续跑把新账号冻结成审核轮次，却遗漏原先已交付的旧候选及评审，下一次报告无法稳定关联",
+      "full_run": {
+        "reason": "本条检验“续跑把新账号冻结成审核轮次，却遗漏原先已交付的旧候选及评审，下一次报告无法稳定关联”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "  freezeNewRound(document, state, previousCreators)\n  freezeNewRound(document, state, creators)",
       "replace": "  freezeNewRound(document, state, creators)"
     },
     {
+      "id": "M-D21-e",
+      "req": "D21.a",
+      "why": "Agent 评审正本已删除理由或开发信草稿，重新投影仍沿用上一次交付中的旧值",
+      "full_run": {
+        "reason": "正本删除 fit_reason 或 outreach_draft 后清掉旧投影的两条断言位于 scripts/review-test.ts，仅由完整需求测试调用；验证者入口尚无法静态识别其具名选组。",
+        "recheck_when": "当这两条断言可静态归入可选组，正常子集基线通过且本变异使两条具名断言失败，并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
+      "file": "scripts/lib/review.ts",
+      "find": "      'fit_reason', 'outreach_draft', 'brand_calibration_version',\n      'manual_eligible', 'manual_adopted', 'manual_content_fit',",
+      "replace": "      'brand_calibration_version', 'manual_eligible', 'manual_adopted', 'manual_content_fit',"
+    },
+    {
       "id": "M-D22-a",
       "req": "D22.e",
       "why": "人工明确不采用的账号仍按 Agent 建议成为优先联系",
+      "full_run": {
+        "reason": "本条检验“人工明确不采用的账号仍按 Agent 建议成为优先联系”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "const no = decisive(row => row.manual_adopted === 'no' || row.manual_eligible === 'no')",
       "replace": "const no = decisive(row => row.manual_eligible === 'no')"
@@ -9150,6 +9190,10 @@
       "id": "M-D22-b",
       "req": "D22.e",
       "why": "人工明确采用后，名单仍保留较低的 Agent 建议优先级",
+      "full_run": {
+        "reason": "本条检验“人工明确采用后，名单仍保留较低的 Agent 建议优先级”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "const yes = decisive(row => row.manual_adopted === 'yes')",
       "replace": "const yes = undefined"
@@ -9158,6 +9202,10 @@
       "id": "M-D22-c",
       "req": "D22.e",
       "why": "人工已看但无法判断采用与否，却继续显示 Agent 的强推荐",
+      "full_run": {
+        "reason": "本条检验“人工已看但无法判断采用与否，却继续显示 Agent 的强推荐”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "const unknown = decisive(row => row.manual_adopted === 'unknown')",
       "replace": "const unknown = undefined"
@@ -9166,6 +9214,10 @@
       "id": "M-D22-d",
       "req": "D22.d",
       "why": "同一候选跨平台人工采用结论互相矛盾，仍输出单一优先级",
+      "full_run": {
+        "reason": "本条检验“同一候选跨平台人工采用结论互相矛盾，仍输出单一优先级”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "if (crossPlatformConflicts.size) throw new ReviewInputError([...crossPlatformConflicts])",
       "replace": "if (false) throw new ReviewInputError([...crossPlatformConflicts])"
@@ -9174,6 +9226,10 @@
       "id": "M-D22-h",
       "req": "D22.d",
       "why": "人工表的平台大小写变体被当成不同账号，合法复评无法关联",
+      "full_run": {
+        "reason": "本条检验“人工表的平台大小写变体被当成不同账号，合法复评无法关联”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "const normalizedPlatform = typeof platform === 'string' ? platform.toLowerCase() : platform",
       "replace": "const normalizedPlatform = platform"
@@ -9182,6 +9238,10 @@
       "id": "M-D22-e",
       "req": "D22.a",
       "why": "冻结的审核轮次来源可被改成另一任务或另一平台，报告仍接受伪归因",
+      "full_run": {
+        "reason": "本条检验“冻结的审核轮次来源可被改成另一任务或另一平台，报告仍接受伪归因”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "const sourceProblems = roundSourceProblems(document, state)",
       "replace": "const sourceProblems: string[] = []"
@@ -9190,6 +9250,10 @@
       "id": "M-D22-f",
       "req": "D22.e",
       "why": "Agent 判不合格而团队明确判合格的账号没有进入分歧名单",
+      "full_run": {
+        "reason": "本条检验“Agent 判不合格而团队明确判合格的账号没有进入分歧名单”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "      (row.manual_eligible === 'yes' && agent.eligibility === '不合格')",
       "replace": "      false"
@@ -9198,6 +9262,10 @@
       "id": "M-D22-g",
       "req": "U11.b",
       "why": "人工明确不合格使强推荐变暂不采用，但 Agent 与团队分歧名单漏掉此账号",
+      "full_run": {
+        "reason": "本条检验“人工明确不合格使强推荐变暂不采用，但 Agent 与团队分歧名单漏掉此账号”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "((row.manual_adopted === 'no' || row.manual_eligible === 'no') && agent.adoption_priority !== '暂不采用')",
       "replace": "(row.manual_adopted === 'no' && agent.adoption_priority !== '暂不采用')"
@@ -9206,6 +9274,10 @@
       "id": "M-F11-a",
       "req": "F11.a",
       "why": "已评候选缺实际观察内容与作品证据也能作为有效建议输出",
+      "full_run": {
+        "reason": "本条检验“已评候选缺实际观察内容与作品证据也能作为有效建议输出”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "if (!nonblank(review[field])) errors.push(`${place}.${field}：已评候选必须填写非空证据`)",
       "replace": "if (false) errors.push(`${place}.${field}：已评候选必须填写非空证据`)"
@@ -9214,6 +9286,10 @@
       "id": "M-F11-b",
       "req": "F11.a",
       "why": "只填一半的新 Agent 判断被当作已评或兼容旧结论，缺关键证据仍进入名单",
+      "full_run": {
+        "reason": "本条检验“只填一半的新 Agent 判断被当作已评或兼容旧结论，缺关键证据仍进入名单”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "    if (newReview) {",
       "replace": "    if (false) {"
@@ -9222,6 +9298,10 @@
       "id": "M-F11-c",
       "req": "F11.b",
       "why": "Agent 标成不合格却显式写内容适合，账号能凭互相矛盾的判断进入 A 级",
+      "full_run": {
+        "reason": "本条检验“Agent 标成不合格却显式写内容适合，账号能凭互相矛盾的判断进入 A 级”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "    if (review.eligibility === '不合格' && review.fit === '✅') {",
       "replace": "    if (false) {"
@@ -9230,6 +9310,10 @@
       "id": "M-F11-d",
       "req": "F11.b",
       "why": "Agent 标成不合格却建议优先联系，名单给出自相矛盾的行动建议",
+      "full_run": {
+        "reason": "本条检验“Agent 标成不合格却建议优先联系，名单给出自相矛盾的行动建议”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "    if (review.eligibility === '不合格' && review.adoption_priority === '优先联系') {",
       "replace": "    if (false) {"
@@ -9238,6 +9322,10 @@
       "id": "M-D20-c",
       "req": "D20.c",
       "why": "旧校准判断虽标待重评，仍凭旧内容适合和邮箱留在 A 级",
+      "full_run": {
+        "reason": "本条检验“旧校准判断虽标待重评，仍凭旧内容适合和邮箱留在 A 级”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/score.ts",
       "find": "  if (c.review_status === '待重评') return 'B'",
       "replace": "  if (false) return 'B'"
@@ -9246,6 +9334,10 @@
       "id": "M-D20-d",
       "req": "D20.c",
       "why": "旧校准的否定结论仍把账号压进 C 级，待重评状态没有统一表现",
+      "full_run": {
+        "reason": "本条检验“旧校准的否定结论仍把账号压进 C 级，待重评状态没有统一表现”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/score.ts",
       "find": "  if (c.review_status === '待重评') return 'B'\n  if (c.fit === '❌') return 'C'",
       "replace": "  if (c.fit === '❌') return 'C'\n  if (c.review_status === '待重评') return 'B'"
@@ -9254,6 +9346,10 @@
       "id": "M-U11-a",
       "req": "U11.a",
       "why": "跨平台合并后，一个平台的人工审核人数被算进另一个平台的关键词任务",
+      "full_run": {
+        "reason": "本条检验“跨平台合并后，一个平台的人工审核人数被算进另一个平台的关键词任务”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/pipeline.ts",
       "find": "row => row.manual_reviewed && row.account_key.startsWith(`${t.platform}:`),",
       "replace": "row => row.manual_reviewed,"
@@ -9262,6 +9358,10 @@
       "id": "M-U11-b",
       "req": "U11.a",
       "why": "跨平台合并后，主平台的语义通过被算进尚未评审的另一平台关键词任务",
+      "full_run": {
+        "reason": "本条检验“跨平台合并后，主平台的语义通过被算进尚未评审的另一平台关键词任务”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/pipeline.ts",
       "find": "fit_pass: counted ? mine.filter(c => agentFitPassedOnPlatform(c, t.platform)).length : null,",
       "replace": "fit_pass: counted ? mine.filter(c => c.fit === '✅').length : null,"
@@ -9270,6 +9370,10 @@
       "id": "M-U11-c",
       "req": "U11.a",
       "why": "来源任务是空表或无效下标仍被当作可核归因，各关键词行输出虚构的确定零",
+      "full_run": {
+        "reason": "本条检验“来源任务是空表或无效下标仍被当作可核归因，各关键词行输出虚构的确定零”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/pipeline.ts",
       "find": "  const attributable = delivered.every(c =>\n    Array.isArray(c.source_tasks) && c.source_tasks.length > 0 &&\n    c.source_tasks.every(index => Number.isSafeInteger(index) && index >= 0 && index < state.tasks.length))",
       "replace": "  const attributable = delivered.every(c => c.source_tasks !== undefined)"
@@ -9278,6 +9382,10 @@
       "id": "M-U11-d",
       "req": "U11.a",
       "why": "人工已看却无法判断的人被算进采用率和合格率分母，报告的比例被低估",
+      "full_run": {
+        "reason": "本条检验“人工已看却无法判断的人被算进采用率和合格率分母，报告的比例被低估”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/review.ts",
       "find": "rate: yes + no ? yes / (yes + no) : null",
       "replace": "rate: yes + no ? yes / (yes + no + unknown) : null"
@@ -9286,6 +9394,10 @@
       "id": "M-U10-a",
       "req": "U10.a",
       "why": "优先级和分层筛选只要满足其中一项就显示，候选卡片与两个筛选条件不一致",
+      "full_run": {
+        "reason": "本条检验“优先级和分层筛选只要满足其中一项就显示，候选卡片与两个筛选条件不一致”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/report.ts",
       "find": "(filters.priority==='all'||c.dataset.priority===filters.priority)&&\n      (filters.tier==='all'||c.dataset.tier===filters.tier)",
       "replace": "(filters.priority==='all'||c.dataset.priority===filters.priority)||\n      (filters.tier==='all'||c.dataset.tier===filters.tier)"
@@ -9294,6 +9406,10 @@
       "id": "M-U10-b",
       "req": "U10.b",
       "why": "每张候选卡片都把 Agent 的作品证据显示成未评，运营看不到实际内容依据",
+      "full_run": {
+        "reason": "本条检验“每张候选卡片都把 Agent 的作品证据显示成未评，运营看不到实际内容依据”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/report.ts",
       "find": "<div>作品证据：${esc(c.work_evidence ?? '未评')}</div>",
       "replace": "<div>作品证据：未评</div>"
@@ -9302,6 +9418,10 @@
       "id": "M-P4-m",
       "req": "P4",
       "why": "关联平台已经联系或屏蔽的同一创作者重新进入名单",
+      "full_run": {
+        "reason": "本条检验“关联平台已经联系或屏蔽的同一创作者重新进入名单”。对应断言位于仅由完整需求测试调用的拆分测试模块；验证者入口尚无经验证的具名选组路由。",
+        "recheck_when": "当本条断言在验证者入口具备可静态发现的字面量标签和可选组，且正常子集基线通过、本变异使预定断言失败并核对依赖、顺序与全跑对照时，重评选跑。"
+      },
       "file": "scripts/lib/memory.ts",
       "find": "  return [...new Set(keys)]",
       "replace": "  return keys.slice(0, 1)"

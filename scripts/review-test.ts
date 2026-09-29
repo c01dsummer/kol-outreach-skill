@@ -128,6 +128,26 @@ export function runReviewStorageTests({ suite, eq, ok }: Check): void {
     eq('removed new review cannot enter A', tierOf(missing, 99), 'B')
   })
 
+  suite('D21', '新版评审正本删除可选字段后不保留旧投影')
+  withTemp(dir => {
+    const state = task()
+    const person = creator('instagram', 'editedreview')
+    const initial = prepareReviewProjection(dir, state, [person])
+    initial.document.reviews['instagram:editedreview'] = {
+      ...reviewed('instagram:editedreview'), fit_reason: '旧理由', outreach_draft: '旧草稿',
+    }
+    persistReviewProjection(dir, initial)
+    const projected = prepareReviewProjection(dir, state, [person])
+    writeFileSync(join(dir, 'creators.json'), JSON.stringify(projected.creators))
+    const canonical = JSON.parse(readFileSync(join(dir, 'agent-review.json'), 'utf8'))
+    delete canonical.reviews['instagram:editedreview'].fit_reason
+    delete canonical.reviews['instagram:editedreview'].outreach_draft
+    writeFileSync(join(dir, 'agent-review.json'), JSON.stringify(canonical))
+    const refreshed = prepareReviewProjection(dir, state, projected.creators).creators[0]
+    eq('正本仍在但理由已删除时清掉旧投影', refreshed.fit_reason, undefined)
+    eq('正本仍在但草稿已删除时清掉旧投影', refreshed.outreach_draft, undefined)
+  })
+
   suite('D21', '旧供应商账号名无效时不制造评审身份，人工与 Agent 文件仍严格校验')
   withTemp(dir => {
     const state = task()

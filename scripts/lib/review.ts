@@ -565,7 +565,8 @@ export function prepareReviewProjection(dir: string, state: TaskState, creators:
     // Do not trust stale projections from creators.json as a second source of judgment.
     for (const field of ['eligibility', 'adoption_priority', 'effective_priority', 'effective_priority_account_key', 'review_status',
       'observed_content', 'work_evidence', 'natural_integration', 'mismatch_risk',
-      'brand_calibration_version', 'manual_eligible', 'manual_adopted', 'manual_content_fit',
+      'fit_reason', 'outreach_draft', 'brand_calibration_version',
+      'manual_eligible', 'manual_adopted', 'manual_content_fit',
       'manual_engagement', 'manual_comment_authenticity', 'manual_reject_reason', 'manual_note',
       'manual_reviewed', 'manual_round_id', 'manual_feedback_accounts', 'linked_agent_review'] as const) delete c[field]
     if (review) {
