@@ -96,6 +96,36 @@ Node 22.23.2、Darwin arm64 和单 worker 相同，仅以未提交的选择开�
 局部墙钟中位数少 125.31 秒（77.8%），user+sys 中位数少 63.98 秒
 （68.7%）；此表不包括整条检查及 CI 排队，不可直接外推为 job 提速。
 
+合入前后的完整检查另用 GitHub Linux x64、Node 22.23.3 和四个变异 worker
+记录 `Run npm run check` 步骤起止；固定 771 条变异，旧路由为 721 选组／50 全跑，
+新路由为 769 选组／2 全跑。只计自然成功的整条检查：
+
+| 路由与成功运行 | 完整 `npm run check` |
+|---|---:|
+| 旧路由 [main `9283dd2` 第一次](https://github.com/c01dsummer/kol-outreach-skill/actions/runs/36629591315/attempts/1) | 17 分 24 秒 |
+| 新路由 [PR #232 第一次](https://github.com/c01dsummer/kol-outreach-skill/actions/runs/36627837530/attempts/1) | 14 分 07 秒 |
+| 新路由 [PR #232 第二次](https://github.com/c01dsummer/kol-outreach-skill/actions/runs/36627837530/attempts/2) | 14 分 13 秒 |
+| 新路由 [main `4a0bd81`](https://github.com/c01dsummer/kol-outreach-skill/actions/runs/36629620896) | 15 分 13 秒 |
+
+新路由三次完整检查中位数 **14 分 13 秒**，范围 **14 分 07 秒—15 分 13 秒**；
+它达到建议的 15 分钟中位目标，但单次仍可能超过 15 分钟。
+旧路由在 Node 22.23.3 下只有表中一次成功，不能算同版本的旧路由中位数，
+也不能把它与新路由中位数相减声称整条 CI 实测省了多少。
+旧路由另外三次自然成功——[PR #231 第一次](https://github.com/c01dsummer/kol-outreach-skill/actions/runs/36626360807/attempts/1)
+16 分 15 秒、[PR #231 第二次](https://github.com/c01dsummer/kol-outreach-skill/actions/runs/36626360807/attempts/2)
+16 分 50 秒、[旧 main 第二次](https://github.com/c01dsummer/kol-outreach-skill/actions/runs/36629591315/attempts/2)
+16 分 58 秒——都实际选中了 Node 22.23.2，故排除在上述同版本表外；
+它们自身的中位数是 16 分 50 秒，范围 16 分 15 秒—16 分 58 秒。
+工作流只写 `node-version: '22'`，同一旧 main run 的两次 attempt 就选中了不同小版本；
+这次按 `setup-node` 实际输出筛样本，不能只看 workflow 配置。
+同版本的旧 main 一次变异步骤约 12 分 41 秒、独立自检约 4 分 25 秒；
+新路由三次变异步骤中位数约 9 分 42 秒，范围约 9 分 38 秒—10 分 28 秒；
+独立自检中位数约 4 分 15 秒，范围约 4 分 13 秒—4 分 26 秒。
+这些成功运行的耗时差异主要出现在变异步骤；独立自检仍占约四分多钟，未跳过。
+这只是四个 worker 并行的步骤墙钟，不包括排队、checkout、`npm ci` 和 job 收尾；
+CI 没有记录可比的 job CPU。本机十个 worker 的完整检查和上述单 worker 局部对照
+都不能填作本表的 CPU 或整条 check 节省量。
+
 留下的 `M-F5-b` 和 `M-F5-c` 继续全跑，并在本次完整检查中被抓到。
 前者守的是无语义判断时使用刚算出的分数，后者守的是 B 级的 40 分门槛；
 F5 的现行正文只要求缺增强层时照常完成主流程；无语义判断也不等于缺增强层，
