@@ -128,6 +128,7 @@ export const covered = new Set<string>()
 // 其余块仍只在完整运行中执行。依赖写在这一份登记里，选跑由 wanted 展开闭包。
 const GROUPS: readonly Group[] = [
   { id: 'p1-missing-values', needs: [] },
+  { id: 'p1-profile-state', needs: [] },
   { id: 'p1-plays', needs: [] },
   { id: 'p2-placeholders', needs: [] },
   { id: 'd6-pipeline', needs: [] },
@@ -419,7 +420,7 @@ suite('P1', '缺失数据不得用默认值填充')
 }
 
 })
-if (fullRun) {
+await group('p1-profile-state', async () => {
 suite('P1', 'profile 查回来了、对方没写简介 —— 别再当成「还没查过」')
 {
   // 适配器那一半：请求已经发出去、人也查回来了，signature／biography 是空只说明
@@ -443,6 +444,8 @@ suite('P1', 'profile 查回来了、对方没写简介 —— 别再当成「还
   criterion('P1.c')
 }
 
+})
+if (fullRun) {
 suite('P1', '采集侧解析：响应里没有的字段不得落成 0 或空串')
 {
   /**
