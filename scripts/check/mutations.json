@@ -51,7 +51,12 @@
       "why": "跨平台合并只保留主账号来源，关联账号的实际发现路径丢失",
       "file": "scripts/lib/identity.ts",
       "find": "primary.discovery_sources = mergeDiscoverySources(primary.discovery_sources, secondary.discovery_sources)",
-      "replace": "primary.discovery_sources = mergeDiscoverySources(primary.discovery_sources)"
+      "replace": "primary.discovery_sources = mergeDiscoverySources(primary.discovery_sources)",
+      "by": "test",
+      "kills": [
+        "TikTok 主记录保留 Instagram 关联账号来源",
+        "Instagram 主记录保留 TikTok 关联账号来源"
+      ]
     },
     {
       "id": "M-D15-f",
@@ -197,7 +202,9 @@
       "why": "阈值提醒重复触发 —— 用户被刷屏后会开始忽略预算提醒",
       "file": "scripts/lib/budget.ts",
       "find": "      if (limit > 0 && BigInt(occupied) * 10n >= BigInt(limit) * numerator && !this.notified.has(threshold)) {",
-      "replace": "      if (limit > 0 && BigInt(occupied) * 10n >= BigInt(limit) * numerator) {"
+      "replace": "      if (limit > 0 && BigInt(occupied) * 10n >= BigInt(limit) * numerator) {",
+      "by": "test",
+      "kills": ["恢复实例退款后不重复提醒"]
     },
     {
       "id": "M-D3-a",
@@ -229,7 +236,9 @@
       "why": "去掉 CSV 转义 —— 含换行的开发信会把表格撑烂",
       "file": "scripts/lib/csv.ts",
       "find": "  return /[\",\\n\\r]/.test(s) ? `\"${s.replace(/\"/g, '\"\"')}\"` : s",
-      "replace": "  return s"
+      "replace": "  return s",
+      "by": "test",
+      "kills": ["含换行"]
     },
     {
       "id": "M-P1-d",
@@ -249,7 +258,9 @@
       "why": "render 把草稿里的占位符静默抹掉 —— 运营看不到还有待填项，直接把半成品发了出去",
       "file": "scripts/lib/rows.ts",
       "find": "    c.source_dimension, bestPost(c), c.outreach_draft ?? '', c.previously_recommended ?? '',",
-      "replace": "    c.source_dimension, bestPost(c), (c.outreach_draft ?? '').replace(/\\{[^}]*\\}/g, ''), c.previously_recommended ?? '',"
+      "replace": "    c.source_dimension, bestPost(c), (c.outreach_draft ?? '').replace(/\\{[^}]*\\}/g, ''), c.previously_recommended ?? '',",
+      "by": "test",
+      "kills": ["CSV 保留占位符", "占位符一个不少"]
     },
     {
       "id": "M-U1-a",
@@ -293,7 +304,11 @@
       "why": "卡片上不留分层标记，报告里的 tab 切换失效 —— 每个 tab 显示的内容完全一样",
       "file": "scripts/lib/report.ts",
       "find": "<div class=\"card ${c.tier}\" data-tier=\"${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>",
-      "replace": "<div class=\"card ${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>"
+      "replace": "<div class=\"card ${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>",
+      "by": "test",
+      "kills": [
+        "点击 B、A、C 后只显示所选分层卡片"
+      ]
     },
     {
       "id": "M-U6-b",
@@ -301,7 +316,12 @@
       "why": "默认永远选 A —— A 级为空时打开报告第一眼是空白，会被当成出错了",
       "file": "scripts/lib/report.ts",
       "find": "    (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'",
-      "replace": "    'A'"
+      "replace": "    'A'",
+      "by": "test",
+      "kills": [
+        "A 为空时默认落到 B",
+        "A 为空时 B 卡片渲染后立即可见"
+      ]
     },
     {
       "id": "M-P1-f",
@@ -1248,7 +1268,11 @@
       "why": "判定不认「查过、对方没写简介」这个态，把这些人一律当成还没查过 —— 采集那一侧记对了也没用，续跑照样把他们重查一遍",
       "file": "scripts/lib/pipeline.ts",
       "find": "  return c.bio === undefined || !c.bio_links?.length",
-      "replace": "  return !c.bio || !c.bio_links?.length"
+      "replace": "  return !c.bio || !c.bio_links?.length",
+      "by": "test",
+      "kills": [
+        "查过、没写简介、有外链 → 不用再补"
+      ]
     },
     {
       "id": "M-P1-q",
@@ -1256,7 +1280,9 @@
       "why": "没有增强层的时候给受众地域补一个猜出来的占比 —— 补的值正好在门槛之上，分层、降权、名单一个都不变，只有那一栏凭空多出一个数，下游再也分不出它是量出来的还是猜的",
       "file": "scripts/lib/pipeline.ts",
       "find": "    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)",
-      "replace": "    c.tier_adjustments = []\n    c.audience_geo ??= { [market]: 0.5 }\n    const geo = applyGeoPenalty(c, market)"
+      "replace": "    c.tier_adjustments = []\n    c.audience_geo ??= { [market]: 0.5 }\n    const geo = applyGeoPenalty(c, market)",
+      "by": "test",
+      "kills": ["缺增强层时地域留空，不补一个猜出来的值"]
     },
     {
       "id": "M-D10-a",
@@ -1276,7 +1302,9 @@
       "why": "变异集里夹带代码表达式不再被拦下 —— --brief 号称不含实现原文，而写测试的那个上下文照样会读到实现",
       "file": "scripts/check/why-rule.ts",
       "find": "  const op = CODE_OP.exec(why)\n  if (op) return op[0]\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": ["变异说明中的代码表达式必须被拦下"]
     },
     {
       "id": "M-H9-a",
@@ -1388,7 +1416,9 @@
       "file": "scripts/check/group-rule.ts",
       "why": "没写 --only 时当成「一组都不跑」而不是「全跑」—— 整条链的自检从此一个字都不验，却照常全绿",
       "find": "  if (hit === undefined) return undefined",
-      "replace": "  if (hit === undefined) return []"
+      "replace": "  if (hit === undefined) return []",
+      "by": "test",
+      "kills": ["没写这个参数 → undefined"]
     },
     {
       "id": "M-H42-d",
@@ -1812,7 +1842,9 @@
       "why": "验证者表里写的脚本路径指空 —— 每一条变异都跑不起来，而报出来的是「崩了」，指着变异本身，不是指着这张表写错了",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    script: 'scripts/test.ts',",
-      "replace": "    script: 'scripts/tests.ts',"
+      "replace": "    script: 'scripts/tests.ts',",
+      "by": "test",
+      "kills": ["需求测试验证者路径指向可执行入口"]
     },
     {
       "id": "M-H19-c",
@@ -2130,7 +2162,12 @@
       "why": "推荐记录只看容器不看里面 —— 一条空记录让「已推荐过」这件事悄悄消失，名单上还留下一个没有值的标注；一条 null 直接崩，绕开「读不出来」那条明确的报错路",
       "file": "scripts/lib/memory.ts",
       "find": "    for (const [i, rec] of (r.recommendations as unknown[]).entries()) {",
-      "replace": "    for (const [i, rec] of [] as Array<[number, unknown]>) {"
+      "replace": "    for (const [i, rec] of [] as Array<[number, unknown]>) {",
+      "by": "test",
+      "kills": [
+        "推荐记录是空对象必须报 MemoryUnreadable",
+        "推荐记录是 null 必须报 MemoryUnreadable"
+      ]
     },
     {
       "id": "M-P4-i",
@@ -2974,7 +3011,9 @@
       "why": "作废的需求混回现行需求表 —— 已经不做的事看起来还要做，审计的完成度也跟着虚报",
       "file": "scripts/check/spec-rule.ts",
       "find": "  const live = active(reqs)",
-      "replace": "  const live = reqs"
+      "replace": "  const live = reqs",
+      "by": "test",
+      "kills": ["作废的不混进现行表"]
     },
     {
       "id": "M-H3-b",
@@ -3175,7 +3214,9 @@
       "why": "⊘ 那一档不再只往上抬「完整」这一档 —— 一条红线还欠着判据没人认领、或者一条非红线还留着缺口，那一行照样改写成「已豁免」，看上去是有人签过字的缺口，其实没人签过，而豁免恰恰是唯一要人签字的那一档",
       "file": "scripts/check/spec-rule.ts",
       "find": "  if (flag === '✓' && exempted.length) flag = '⊘'",
-      "replace": "  if (exempted.length) flag = '⊘'"
+      "replace": "  if (exempted.length) flag = '⊘'",
+      "by": "test",
+      "kills": ["非红线还欠着认领 → 仍是 ·，豁免盖不住缺口"]
     },
     {
       "id": "M-H6-k",
@@ -3207,7 +3248,9 @@
       "why": "变异编号重复也放行 —— 复制一条忘了改字母时两条都照跑、照样各自被抓到，控制台一片绿；等到其中一条存活，报告里两行顶着同一个名字，「去修它」指不出该修表里哪一行",
       "file": "scripts/check/attribution-rule.ts",
       "find": "  for (const e of entries) (seen.has(e.id) ? dup : seen).add(e.id)",
-      "replace": "  for (const e of entries) seen.add(e.id)"
+      "replace": "  for (const e of entries) seen.add(e.id)",
+      "by": "test",
+      "kills": ["同一个编号出现两次 —— 抓到"]
     },
     {
       "id": "M-H7-c",
@@ -3215,7 +3258,9 @@
       "why": "变异集里同时有「编号重复」和「记在不存在的需求名下」两种毛病时，先报的成了记错名下 —— 那份报告印的也是编号，而编号还没唯一，人照着它去翻名下，翻不到该改表里哪一行",
       "file": "scripts/check/attribution-rule.ts",
       "find": "  const ids = duplicateIds(muts)\n  if (ids.length) return { kind: 'duplicate', ids }\n  const entries = orphanAttributions(attributed, known)\n  return entries.length ? { kind: 'orphan', entries } : undefined",
-      "replace": "  const entries = orphanAttributions(attributed, known)\n  if (entries.length) return { kind: 'orphan', entries }\n  const ids = duplicateIds(muts)\n  return ids.length ? { kind: 'duplicate', ids } : undefined"
+      "replace": "  const entries = orphanAttributions(attributed, known)\n  if (entries.length) return { kind: 'orphan', entries }\n  const ids = duplicateIds(muts)\n  return ids.length ? { kind: 'duplicate', ids } : undefined",
+      "by": "test",
+      "kills": ["重复与记错名下同时在 —— 先报重复"]
     },
     {
       "id": "M-H7-a",
@@ -3223,7 +3268,9 @@
       "why": "变异记在一个不存在的编号名下也放行 —— 那条变异照样跑、照样被抓到，控制台一片绿，而它对任何一条需求都不算数，审计报出的「有变异守着」少了一条却没有人被告知",
       "file": "scripts/check/attribution-rule.ts",
       "find": "  return entries.filter(e => e.req !== HARNESS && !known.has(e.req))",
-      "replace": "  return entries.filter(() => false)"
+      "replace": "  return entries.filter(() => false)",
+      "by": "test",
+      "kills": ["记在不存在的编号名下 —— 抓到"]
     },
     {
       "id": "M-H8-d",
@@ -3243,7 +3290,11 @@
       "why": "变异跑到一半被打断时，动过的那份源文件不再还回去 —— 工作区里留着一处故意违反某条需求的改动，而没有任何东西说过它在那儿；下一次检查只会说「锚点失效」，指着变异集，不指上一次没跑完的那一跑",
       "file": "scripts/check/mutate-restore.ts",
       "find": "  inFlight = undefined\n  writeFileSync(cur.file, cur.orig, 'utf8')",
-      "replace": "  inFlight = undefined"
+      "replace": "  inFlight = undefined",
+      "by": "test",
+      "kills": [
+        "被打断时把动过的那份还回去"
+      ]
     },
     {
       "id": "M-H15-b",
@@ -3251,7 +3302,11 @@
       "why": "打断落在还没开始应用变异的那一段时，照着一个根本不存在的现场去写 —— 还原当场抛在信号处理里，退出也走不成，覆盖记录跟着留在盘上，而人看到的是一堆栈，像是变异集自己坏了",
       "file": "scripts/check/mutate-restore.ts",
       "find": "  const cur = inFlight\n  if (cur === undefined) return\n  inFlight = undefined",
-      "replace": "  const cur = inFlight\n  inFlight = undefined"
+      "replace": "  const cur = inFlight\n  inFlight = undefined",
+      "by": "test",
+      "kills": [
+        "还没开始应用变异就被打断：不抛"
+      ]
     },
     {
       "id": "M-H15-c",
@@ -3259,7 +3314,11 @@
       "why": "只接管 Ctrl-C 那一种打断 —— 被杀掉、CI 超时、终端关掉的时候，动过的源文件照样留在工作区里，而那是一处故意违反某条需求的改动",
       "file": "scripts/check/mutate-restore.ts",
       "find": "export const INTERRUPTS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const",
-      "replace": "export const INTERRUPTS = ['SIGINT'] as const"
+      "replace": "export const INTERRUPTS = ['SIGINT'] as const",
+      "by": "test",
+      "kills": [
+        "三种打断都接管了 —— Ctrl-C、被杀掉、终端关掉"
+      ]
     },
     {
       "id": "M-H15-d",
@@ -3267,7 +3326,11 @@
       "why": "记下现场那一步不再顺手接管信号 —— 入口只要少写一行，一整轮变异就在没人接管信号的情况下跑完，被打断时动过的那份源文件原样留在工作区里",
       "file": "scripts/check/mutate-restore.ts",
       "find": "export function beginMutation(file: string, orig: string): void {\n  restoreOnInterrupt()\n  inFlight = { file, orig }",
-      "replace": "export function beginMutation(file: string, orig: string): void {\n  inFlight = { file, orig }"
+      "replace": "export function beginMutation(file: string, orig: string): void {\n  inFlight = { file, orig }",
+      "by": "test",
+      "kills": [
+        "真挨一刀：动过的那份还是还回去了"
+      ]
     },
     {
       "id": "M-H15-e",
@@ -3275,7 +3338,11 @@
       "why": "接管过还会再接管一遍 —— 两百个变异各装一次，同一个信号上挂满处理函数，Node 开始刷告警，而那时被盖住的正是人来看的那份变异结果",
       "file": "scripts/check/mutate-restore.ts",
       "find": "  if (armed) return\n  armed = true\n",
-      "replace": "  armed = true\n"
+      "replace": "  armed = true\n",
+      "by": "test",
+      "kills": [
+        "接管过就不再接管，处理函数不叠"
+      ]
     },
     {
       "id": "M-H15-f",
@@ -3283,7 +3350,11 @@
       "why": "真被信号杀掉时不再还原 —— 处理函数照样接管、照样非零退出，看上去一切正常，而动过的那份源文件留在工作区里，是一处故意违反某条需求的改动",
       "file": "scripts/check/mutate-restore.ts",
       "find": "export function onInterrupt(): never {\n  killTest()\n  restoreMutation()\n  process.exit(1)\n}",
-      "replace": "export function onInterrupt(): never {\n  killTest()\n  process.exit(1)\n}"
+      "replace": "export function onInterrupt(): never {\n  killTest()\n  process.exit(1)\n}",
+      "by": "test",
+      "kills": [
+        "真挨一刀：动过的那份还是还回去了"
+      ]
     },
     {
       "id": "M-H15-g",
@@ -3291,7 +3362,11 @@
       "why": "真被信号杀掉时以零退出 —— 一次没跑完的检查报成过了，而它连一半的变异都没跑到",
       "file": "scripts/check/mutate-restore.ts",
       "find": "  process.exit(1)\n}",
-      "replace": "  process.exit(0)\n}"
+      "replace": "  process.exit(0)\n}",
+      "by": "test",
+      "kills": [
+        "真挨一刀：这一次检查没跑完，退出码非零"
+      ]
     },
     {
       "id": "M-H15-h",
@@ -3299,7 +3374,11 @@
       "why": "入口有没有同步等子进程,一律说没有 —— 那条判据从此谁都拦不住,而同步等一旦写回去,接管过的那几个信号就一次也派发不出去",
       "file": "scripts/check/mutate-restore.ts",
       "find": "  const hit = BLOCKING_WAIT.exec(src)\n  return hit === null ? undefined : hit[1]",
-      "replace": "  return undefined"
+      "replace": "  return undefined",
+      "by": "test",
+      "kills": [
+        "同步等子进程：撞上了要说出是哪一种"
+      ]
     },
     {
       "id": "M-H15-i",
@@ -3307,7 +3386,12 @@
       "why": "三种同步等法只认头一种 —— 另外两种照样把事件循环挡住,而判据说这个入口没事",
       "file": "scripts/check/mutate-restore.ts",
       "find": "/\\b(execSync|execFileSync|spawnSync)\\s*\\(/",
-      "replace": "/\\b(execSync)\\s*\\(/"
+      "replace": "/\\b(execSync)\\s*\\(/",
+      "by": "test",
+      "kills": [
+        "另一种同步等法也认",
+        "第三种同步等法也认"
+      ]
     },
     {
       "id": "M-H15-j",
@@ -3315,7 +3399,11 @@
       "why": "被打断时先还回去,却不当场停,等手上那个子进程跑完才退 —— 还原和退出码看着都对,而真出事时它要等的是一整轮测试,升级上来的硬杀不会等它等完",
       "file": "scripts/check/mutate-restore.ts",
       "find": "export function onInterrupt(): never {\n  killTest()\n  restoreMutation()\n  process.exit(1)\n}",
-      "replace": "export function onInterrupt(): never {\n  killTest()\n  restoreMutation()\n  return setTimeout(() => process.exit(1), 4000) as never\n}"
+      "replace": "export function onInterrupt(): never {\n  killTest()\n  restoreMutation()\n  return setTimeout(() => process.exit(1), 4000) as never\n}",
+      "by": "test",
+      "kills": [
+        "挨刀的那一刻还在等子进程：当场就停，没等完"
+      ]
     },
     {
       "id": "M-H15-k",
@@ -3323,7 +3411,11 @@
       "why": "被打断时只还原,不停掉正在跑的那一轮测试 —— 父进程退掉不会把它带走,它被过继出去接着跑被改过的源码;还原做完之后它再往盘上写一遍,盘上留下的那一份谁也没审过,而后面的审计会拿它当真的用",
       "file": "scripts/check/mutate-restore.ts",
       "find": "export function onInterrupt(): never {\n  killTest()\n  restoreMutation()",
-      "replace": "export function onInterrupt(): never {\n  restoreMutation()"
+      "replace": "export function onInterrupt(): never {\n  restoreMutation()",
+      "by": "test",
+      "kills": [
+        "挨刀之后那一轮测试也停了：没留下一个还在跑的"
+      ]
     },
     {
       "id": "M-H15-l",
@@ -3331,7 +3423,11 @@
       "why": "被打断时只结束手上拿到的那一个,不结束整棵 —— 拿到的往往只是层壳,真正跑脚本的是壳再分出去的那个进程;壳死了,里面那个照样把后面那一次写盘做完,而「杀掉了吗」这个返回值还是真",
       "file": "scripts/check/mutate-restore.ts",
       "find": "process.kill(-pid, 'SIGKILL')",
-      "replace": "process.kill(pid, 'SIGKILL')"
+      "replace": "process.kill(pid, 'SIGKILL')",
+      "by": "test",
+      "kills": [
+        "挨刀之后那一轮测试也停了：没留下一个还在跑的"
+      ]
     },
     {
       "id": "M-H15-m",
@@ -3339,7 +3435,11 @@
       "why": "一轮测试跑完之后不抹掉记着的那一个 —— 从这一轮结束到下一轮记上之间那段空档里,它拿着的是一个已经散了的组号,而组号系统会重新发给别人;这时候被打断,那一刀就落到不相干的进程身上,而落到谁身上是不响的",
       "file": "scripts/check/mutate-restore.ts",
       "find": "  running = kid\n  kid.on('close', () => { if (running === kid) running = undefined })",
-      "replace": "  running = kid"
+      "replace": "  running = kid",
+      "by": "test",
+      "kills": [
+        "这一轮跑完了：记着的那一个要抹掉，空档里不留散了的组号"
+      ]
     },
     {
       "id": "M-H15-n",
@@ -3347,7 +3447,11 @@
       "why": "抹掉记着的那一个的时候不认人 —— 上一轮迟到送来的那次结束会把下一轮刚记上的抹没,再被打断就没有东西可停,那一轮接着跑被改过的源码",
       "file": "scripts/check/mutate-restore.ts",
       "find": "kid.on('close', () => { if (running === kid) running = undefined })",
-      "replace": "kid.on('close', () => { running = undefined })"
+      "replace": "kid.on('close', () => { running = undefined })",
+      "by": "test",
+      "kills": [
+        "上一轮迟到的结束：不许把下一轮刚记上的抹掉"
+      ]
     },
     {
       "id": "M-H16-a",
@@ -3385,7 +3489,9 @@
       "why": "闭包只收一层，传递依赖全漏 —— 一条打在判定模块上的变异会被当成合法的，而它改的正是给自己判分的那把尺",
       "file": "scripts/check/verifier-rule.ts",
       "find": "    for (const next of edges.get(f) ?? []) stack.push(next)",
-      "replace": "    for (const next of edges.get(f) ?? []) seen.add(next)"
+      "replace": "    for (const next of edges.get(f) ?? []) seen.add(next)",
+      "by": "test",
+      "kills": ["顺着边一直收到底"]
     },
     {
       "id": "M-H17-c",
@@ -3393,7 +3499,9 @@
       "why": "只要指名了验证者就算自己验自己，不再看那个文件是不是基础设施 —— 这会把「自检真跑被测入口」这个头号用例整个挡在门外",
       "file": "scripts/check/verifier-rule.ts",
       "find": "  return mut.by !== undefined && mut.by !== 'test' && infra.includes(mut.file)",
-      "replace": "  return mut.by !== undefined && mut.by !== 'test'"
+      "replace": "  return mut.by !== undefined && mut.by !== 'test'",
+      "by": "test",
+      "kills": ["打在被测入口上的不算 —— 那正是这条记录要的头号用例"]
     },
     {
       "id": "M-H17-d",
@@ -3401,7 +3509,9 @@
       "why": "种子里不收预加载那一份 —— 假 fetch 是靠 `--import` 塞进每个子进程的，既不是 import 也不是起进程，两种扫法都收不到它。漏掉，闭包就少一个决定自检能走多深的文件，而闭包偏小的那一头是放行",
       "file": "scripts/check/verifier-rule.ts",
       "find": "  `scripts/${SELFCHECK_PRELOAD}`,",
-      "replace": "  // 预加载那一份不进种子"
+      "replace": "  // 预加载那一份不进种子",
+      "by": "test",
+      "kills": ["预加载那一份在种子里"]
     },
     {
       "id": "M-H17-k",
@@ -3409,7 +3519,9 @@
       "why": "收出来的边不再往下走 —— 闭包只剩种子和它们直接引到的那一层，隔一层的基础设施全部放行，而闭包缩小的那一头正是放行",
       "file": "scripts/check/verifier-rule.ts",
       "find": "    pending.push(...node.to)\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": ["两跳的也收得到 —— 只走一层的话它不在"]
     },
     {
       "id": "M-H17-l",
@@ -3417,7 +3529,9 @@
       "why": "读到的边一条都不记进图里 —— 闭包缩回种子那几个，除种子之外的验证基础设施全部放行",
       "file": "scripts/check/verifier-rule.ts",
       "find": "    graph.push(node)\n",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": ["一跳的收得到"]
     },
     {
       "id": "M-H17-h",
@@ -3425,7 +3539,9 @@
       "why": "自检末尾那句失败汇总换了说法 —— 判定那边认的还是老那句，于是每一条指名自检的变异都被误报成跑不起来，而两边的测试照样全绿",
       "file": "scripts/check/verifier-rule.ts",
       "find": "export const selfcheckSummary = (failed: number) => `✗ 脚本自检：${failed} 项失败`",
-      "replace": "export const selfcheckSummary = (failed: number) => `✗ 脚本自检：${failed} 项没过`"
+      "replace": "export const selfcheckSummary = (failed: number) => `✗ 脚本自检：${failed} 项没过`",
+      "by": "test",
+      "kills": ["自检真会打的那句汇总，判定认得出来"]
     },
     {
       "id": "M-H17-i",
@@ -3433,7 +3549,9 @@
       "why": "抽出来的边不做后缀规格化 —— 图里的路径带着源码里写的那个后缀，和磁盘上的对不上，于是闭包收不到任何一个真文件，自己验自己的变异全部放行",
       "file": "scripts/check/verifier-rule.ts",
       "find": "    return out.join('/').replace(/\\.js$/, '.ts')",
-      "replace": "    return out.join('/')"
+      "replace": "    return out.join('/')",
+      "by": "test",
+      "kills": ["同目录的边，规格化成仓库根起算的 .ts"]
     },
     {
       "id": "M-H17-j",
@@ -3441,7 +3559,9 @@
       "why": "第三方包和内建模块也当成本仓库的文件收进图里 —— 闭包里混进一堆改不动的名字，而判据本来只该管本仓库的文件",
       "file": "scripts/check/verifier-rule.ts",
       "find": "/\\bfrom\\s*'(\\.[^']+)'/g",
-      "replace": "/\\bfrom\\s*'([^']+)'/g"
+      "replace": "/\\bfrom\\s*'([^']+)'/g",
+      "by": "test",
+      "kills": ["node 内建与第三方包不算边"]
     },
     {
       "id": "M-H17-g",
@@ -4627,7 +4747,11 @@
       "why": "派工跑被打断时，那一刀不再转发给各个 worker —— 它们自成一组、收不到打在派工进程上的那一刀，于是被过继出去接着跑被改过的源码，而没有任何东西看着它们",
       "file": "scripts/check/mutate-restore.ts",
       "find": "    kid.on('close', () => { if (--left === 0) once() })\n    kid.kill('SIGTERM')",
-      "replace": "    kid.on('close', () => { if (--left === 0) once() })"
+      "replace": "    kid.on('close', () => { if (--left === 0) once() })",
+      "by": "test",
+      "kills": [
+        "那一刀要转发给每一个 worker"
+      ]
     },
     {
       "id": "M-H37-b",
@@ -4635,7 +4759,11 @@
       "why": "派工跑被打断时，第一个 worker 一停就当成都停了 —— 剩下那几个还攥着改写和正在跑的验证者，派工进程却已经把目录删了、退出了",
       "file": "scripts/check/mutate-restore.ts",
       "find": "    kid.on('close', () => { if (--left === 0) once() })",
-      "replace": "    kid.on('close', () => { once() })"
+      "replace": "    kid.on('close', () => { once() })",
+      "by": "test",
+      "kills": [
+        "只停了一个也不走"
+      ]
     },
     {
       "id": "M-H37-c",
@@ -4643,7 +4771,11 @@
       "why": "派工跑被打断时收摊那一步不再只跑一次 —— 都停了走一次、宽限期到了又走一次，而那一步是删目录加退出，第二遍删的是别人刚建的东西",
       "file": "scripts/check/mutate-restore.ts",
       "find": "  const once = () => { if (done) return; done = true; hard() }",
-      "replace": "  const once = () => { hard() }"
+      "replace": "  const once = () => { hard() }",
+      "by": "test",
+      "kills": [
+        "收摊至多跑一次 —— 跑两遍时第二遍删的是别人刚建的东西"
+      ]
     },
     {
       "id": "M-H37-d",
@@ -4651,7 +4783,11 @@
       "why": "派工跑被打断时不再给等待设上限 —— 一个卡死的 worker 会把整个打断拖住，人看到的是「按了没反应」，比留下几个进程更难查",
       "file": "scripts/check/mutate-restore.ts",
       "find": "  later(once, graceMs)",
-      "replace": "  void later"
+      "replace": "  void later",
+      "by": "test",
+      "kills": [
+        "宽限期到了硬来，不陪着它一起挂"
+      ]
     },
     {
       "id": "M-H38-a",
@@ -4996,7 +5132,12 @@
       "why": "采集累加器读回来时给缺失的字段补上默认值：没查过的粉丝数变成 0、没查过的简介变成空串。续跑读的就是这份累加器，于是「我们还没查过这个人」在下一轮变成「查过了，他就是 0 粉、没简介」—— 该补查的人再也不会被补查，而名单上那些 0 看起来跟真实的 0 一模一样",
       "file": "scripts/lib/task.ts",
       "find": "  if (existsSync(raw)) return JSON.parse(readFileSync(raw, 'utf8'))",
-      "replace": "  if (existsSync(raw)) return JSON.parse(readFileSync(raw, 'utf8')).map((c: any) => ({ followers: 0, bio: '', ...c }))"
+      "replace": "  if (existsSync(raw)) return JSON.parse(readFileSync(raw, 'utf8')).map((c: any) => ({ followers: 0, bio: '', ...c }))",
+      "by": "test",
+      "kills": [
+        "未查询过一趟持久化仍是未查询：bio",
+        "未查询过一趟持久化仍是未查询：followers"
+      ]
     },
     {
       "id": "M-P1-j",
@@ -5064,7 +5205,9 @@
       "why": "非法预算不再被拒绝，而是被改成最大安全金额，未经确认也能获得付费额度",
       "file": "scripts/lib/cost-json.ts",
       "find": "export function readCostLimit(state: CostState): MicroUsd {\n  const root = roots.get(state)\n  if (!root || !Object.hasOwn(state, 'budget_usd') || !Object.is(root.value, state.budget_usd))\n    throw new CostError('invalid-money', 'budget_usd 缺少可核验的根数值 token')\n  return parseUsdMicros(root.token)\n}",
-      "replace": "export function readCostLimit(state: CostState): MicroUsd {\n  try {\n    const root = roots.get(state)\n    if (!root || !Object.hasOwn(state, 'budget_usd') || !Object.is(root.value, state.budget_usd))\n      throw new CostError('invalid-money', 'budget_usd 缺少可核验的根数值 token')\n    return parseUsdMicros(root.token)\n  } catch { return Number.MAX_SAFE_INTEGER }\n}"
+      "replace": "export function readCostLimit(state: CostState): MicroUsd {\n  try {\n    const root = roots.get(state)\n    if (!root || !Object.hasOwn(state, 'budget_usd') || !Object.is(root.value, state.budget_usd))\n      throw new CostError('invalid-money', 'budget_usd 缺少可核验的根数值 token')\n    return parseUsdMicros(root.token)\n  } catch { return Number.MAX_SAFE_INTEGER }\n}",
+      "by": "test",
+      "kills": ["普通内存预算没有原 token 必须拒绝"]
     },
     {
       "id": "M-D6-l",
@@ -6302,7 +6445,9 @@
       "why": "费用检查点顺便把去重声明提前写成已去重，覆盖盘上原有或缺席的业务状态",
       "file": "scripts/lib/task.ts",
       "find": "  stored.requests = snapshot.requests\n  saveTask(dir, stored)",
-      "replace": "  stored.requests = snapshot.requests\n  stored.memory_status = 'ok'\n  saveTask(dir, stored)"
+      "replace": "  stored.requests = snapshot.requests\n  stored.memory_status = 'ok'\n  saveTask(dir, stored)",
+      "by": "test",
+      "kills": ["无去重声明时费用检查点仍不得写成已去重", "已有 unknown 去重声明在费用检查点后保留"]
     },
     {
       "id": "M-D14-h",
@@ -6334,7 +6479,9 @@
       "why": "费用保存失败后不锁定本实例，后续操作仍可改变费用或再次尝试保存",
       "file": "scripts/lib/budget.ts",
       "find": "    if (this.persistenceFailure) throw this.persistenceFailure",
-      "replace": ""
+      "replace": "",
+      "by": "test",
+      "kills": ["预留保存失败后再次预留仍报告持久化失败"]
     },
     {
       "id": "M-D15-k",
@@ -7197,7 +7344,9 @@
       "file": "scripts/check/size-rule.ts",
       "why": "浅克隆照样量 —— merge-base 在截断的历史上算出一个假起点，报出来的数可能缩水成几行，闸门静默通过",
       "find": "  if (shallow === 'true') {",
-      "replace": "  if (false) {"
+      "replace": "  if (false) {",
+      "by": "test",
+      "kills": ["起点第 2 步答 true：how 说怎么取完整历史（fetch-depth: 0 或 git fetch --unshallow）"]
     },
     {
       "id": "M-H9-q",

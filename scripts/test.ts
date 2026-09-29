@@ -82,6 +82,7 @@ import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { isDeepStrictEqual } from 'node:util'
+import { runInNewContext } from 'node:vm'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
@@ -128,15 +129,19 @@ export const covered = new Set<string>()
 // 其余块仍只在完整运行中执行。依赖写在这一份登记里，选跑由 wanted 展开闭包。
 const GROUPS: readonly Group[] = [
   { id: 'p1-missing-values', needs: [] },
+  { id: 'p1-profile-state', needs: [] },
   { id: 'p1-plays', needs: [] },
+  { id: 'p2-placeholders', needs: [] },
   { id: 'd6-pipeline', needs: [] },
   { id: 'd4-memory', needs: [] },
+  { id: 'f5-geo', needs: [] },
   { id: 'u3-keywords', needs: [] },
   { id: 'u8-labels', needs: [] },
   { id: 'p5-report', needs: [] },
   { id: 'd7-email', needs: [] },
   { id: 'd8-public', needs: [] },
   { id: 'h-spec', needs: [] },
+  { id: 'h-why', needs: [] },
   { id: 'd3-identity', needs: [] },
   { id: 'p1-output-values', needs: [] },
   { id: 'd11-posts', needs: [] },
@@ -147,11 +152,15 @@ const GROUPS: readonly Group[] = [
   { id: 'd17-config', needs: [] },
   { id: 'd19-resume', needs: [] },
   { id: 'p1-followers-sort', needs: [] },
+  { id: 'd5-csv', needs: [] },
   { id: 'f6-veto', needs: [] },
+  { id: 'f7-budget-notices', needs: [] },
   { id: 'f8-risk', needs: [] },
   { id: 'u1-u5-output', needs: [] },
+  { id: 'u6-report', needs: [] },
   { id: 'h-claims-restore', needs: [] },
   { id: 'h-mutate', needs: [] },
+  { id: 'h-restore-interrupt', needs: [] },
   { id: 'h-mutation-maintenance', needs: [] },
   { id: 'h-mutation-cost', needs: [] },
   { id: 'h-worker-start', needs: [] },
@@ -163,6 +172,8 @@ const GROUPS: readonly Group[] = [
   { id: 'p1-provider', needs: [] },
   { id: 'd6-provider', needs: [] },
   { id: 'd12-ledger', needs: [] },
+  { id: 'p3-budget-token', needs: [] },
+  { id: 'd14-cost-persistence', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -411,7 +422,7 @@ suite('P1', '缺失数据不得用默认值填充')
 }
 
 })
-if (fullRun) {
+await group('p1-profile-state', async () => {
 suite('P1', 'profile 查回来了、对方没写简介 —— 别再当成「还没查过」')
 {
   // 适配器那一半：请求已经发出去、人也查回来了，signature／biography 是空只说明
@@ -435,6 +446,8 @@ suite('P1', 'profile 查回来了、对方没写简介 —— 别再当成「还
   criterion('P1.c')
 }
 
+})
+if (fullRun) {
 suite('P1', '采集侧解析：响应里没有的字段不得落成 0 或空串')
 {
   /**
@@ -557,7 +570,7 @@ suite('P1', '没取到的播放数不得被判成爆款')
 }
 
 })
-if (fullRun) {
+await group('p2-placeholders', () => {
 suite('P2', '开发信占位符必须原样保留到产出物')
 {
   // 只验可执行的那一半：render 不得删除/替换草稿里的 {…}
@@ -576,6 +589,8 @@ suite('P2', '开发信占位符必须原样保留到产出物')
   criterion('P2.b')
 }
 
+})
+if (fullRun) {
 suite('P1', '响应结构探测不得被空数组满足')
 {
   covered.add('P1')
@@ -1391,6 +1406,10 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     let caught = ''
     try { filterByMemory(batch, 'p') } catch (e) { caught = (e as Error).name }
     eq(`合法 JSON 但${label} → 当作读不出来`, caught, 'MemoryUnreadable')
+    if (label === '推荐记录是空对象')
+      eq('推荐记录是空对象必须报 MemoryUnreadable', caught, 'MemoryUnreadable')
+    if (label === '推荐记录是 null')
+      eq('推荐记录是 null 必须报 MemoryUnreadable', caught, 'MemoryUnreadable')
   }
   // 但不做全量 schema：运营自己加的字段不该被判成损坏
   writeFileSync(tmp, JSON.stringify({ version: 1, creators: { 'tiktok:a': {
@@ -2108,7 +2127,7 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
 }
 
 })
-if (fullRun) {
+await group('f5-geo', () => {
 suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时不中断')
 {
   const withGeo = (pct: number) =>
@@ -2140,7 +2159,7 @@ suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时�
   tension('F5', 'P1')
 }
 
-}
+})
 await group('u3-keywords', () => {
 suite('U1', '分层管线返回的名单已按 tier 排好序')
 {
@@ -3558,7 +3577,7 @@ harness('审计对一个交点的裁定')
 }
 
 })
-if (fullRun) {
+await group('h-why', () => {
 harness('变异集的 why 不许夹带实现原文')
 {
   /**
@@ -3580,6 +3599,8 @@ harness('变异集的 why 不许夹带实现原文')
   for (const why of leaks) {
     ok(`拦下：${why.slice(0, 16)}…`, implementationLeak(why) !== undefined)
   }
+  ok('变异说明中的代码表达式必须被拦下',
+    implementationLeak('拿不到就 || [] 兜过去') !== undefined)
 
   const clean = [
     '合并邮箱时把「两边都没查过」压成「查过，他没留邮箱」—— 运营看到空白就不会回头补查',
@@ -3604,6 +3625,8 @@ harness('变异集的 why 不许夹带实现原文')
     })
   eq('当前变异集全集干净', dirty, [])
 }
+})
+if (fullRun) {
 
 suite('D9', '互动率与合作报价分开，只有可比报价才计算效率')
 {
@@ -4110,6 +4133,14 @@ suite('D15', '已观察来源按五元组稳定合并，未知不能从任务配
         const expected = left?.length ? right?.length ? [hiSource, loSource] : [hiSource]
           : right?.length ? [loSource, hiSource] : left === undefined && right === undefined ? undefined : []
         eq(`${primary} 跨平台并集按主次记录保留原平台、账号及维度`, main?.discovery_sources, expected)
+        if (left?.length && right?.length) {
+          const observed = [main?.platform, main?.discovery_sources]
+          if (primary === 'tiktok')
+            eq('TikTok 主记录保留 Instagram 关联账号来源', observed,
+              ['tiktok', [hiSource, loSource]])
+          else eq('Instagram 主记录保留 TikTok 关联账号来源', observed,
+            ['instagram', [hiSource, loSource]])
+        }
         eq('跨平台来源合并不修改输入来源集合', [left, right], before)
       }
   }
@@ -5404,6 +5435,8 @@ suite('D1', 'platform:handle 唯一标识，大小写不敏感')
   eq('大小写不同视为同一人', linkCrossPlatform(c), 1)
 }
 
+}
+await group('d5-csv', () => {
 suite('D5', 'CSV 转义')
 {
   eq('含逗号', esc('a,b'), '"a,b"')
@@ -5412,6 +5445,8 @@ suite('D5', 'CSV 转义')
   eq('普通不加引号', esc('plain'), 'plain')
 }
 
+})
+if (fullRun) {
 suite('D2', 'bio_links 归一化为数组')
 {
   const c = mk('tiktok', 'a', { bio_links: ['https://x.com'] })
@@ -5436,7 +5471,7 @@ suite('F6', '语义判断否定有一票否决权')
 }
 
 })
-if (fullRun) {
+await group('f7-budget-notices', async () => {
 suite('F7', '每个运行实例只在成功预留后各提醒一次 50% 与 80%')
 {
   await costSucceeds('阈值、退款、恢复与拒绝组合完整执行', () => {
@@ -5476,7 +5511,7 @@ suite('F7', '每个运行实例只在成功预留后各提醒一次 50% 与 80%'
   criterion('F7.c', 'F7.d')
 }
 
-}
+})
 await group('f8-risk', () => {
 suite('F8', '公开信号风险透明降级但不删除')
 {
@@ -5666,6 +5701,8 @@ suite('U2', 'HTML 报告不依赖网络资源')
   ok('无外部图片', !/<img[^>]+src="https?:/.test(html))
 }
 
+}
+await group('u6-report', () => {
 suite('U6', 'HTML 分层 tab 与平台标签')
 {
   const html = renderHtml(
@@ -5680,17 +5717,74 @@ suite('U6', 'HTML 分层 tab 与平台标签')
   ok('非默认分层初始隐藏（不依赖 JS）', html.includes('data-tier="B" style="display:none"'))
   ok('切换不滚动页面', !html.includes('scrollIntoView'))
 
+  // 在离线 DOM 模型里执行报告实际输出的内联脚本，再触发真实 click 回调。
+  // 卡片的 dataset 和初始 display 都从 HTML 提取；少了 data-tier 时不能凭 class 猜回去。
+  const clicked = (() => {
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1]
+    const cardTags = [...html.matchAll(/<div class="card ([ABC])"([^>]*)>/g)]
+    const tabTags = [...html.matchAll(/<button class="tab ([ABC])( on)?" data-f="([ABC])">/g)]
+    const emptyTag = html.match(/<div class="empty" id="none" style="([^"]*)">/)
+    if (!script || cardTags.length !== 2 || tabTags.length !== 3 || !emptyTag)
+      throw new Error('U6 离线夹具无法读出脚本、卡片或 tab')
+    const display = (attrs: string) => attrs.match(/\bdisplay\s*:\s*([^;\s]+)/)?.[1] ?? ''
+    const cards = cardTags.map(([, tier, attrs]) => ({
+      tier, dataset: { tier: attrs.match(/\bdata-tier="([^"]+)"/)?.[1] },
+      style: { display: display(attrs) },
+    }))
+    const tabs = tabTags.map(([, tier, on, filter]) => {
+      const classes = new Set(['tab', tier, ...(on ? ['on'] : [])])
+      let click: (() => void) | undefined
+      return { dataset: { f: filter }, classes,
+        classList: { add: (name: string) => classes.add(name), remove: (name: string) => classes.delete(name) },
+        addEventListener: (name: string, handler: () => void) => { if (name === 'click') click = handler },
+        trigger: () => click?.(),
+      }
+    })
+    const none = { style: { display: display(emptyTag[1]) } }
+    const document = {
+      querySelectorAll: (selector: string) => selector === '#cards .card' ? cards : selector === '.tab' ? tabs : [],
+      getElementById: (id: string) => id === 'none' ? none : null,
+    }
+    runInNewContext(script, { document })
+    return (['B', 'A', 'C'] as const).map(filter => {
+      const tab = tabs.find(t => t.dataset.f === filter)
+      tab?.trigger()
+      return { selected: tabs.filter(t => t.classes.has('on')).map(t => t.dataset.f),
+        visible: cards.filter(c => c.style.display !== 'none').map(c => c.tier),
+        empty: none.style.display !== 'none',
+      }
+    })
+  })()
+  eq('点击 B、A、C 后只显示所选分层卡片', clicked, [
+    { selected: ['B'], visible: ['B'], empty: false },
+    { selected: ['A'], visible: ['A'], empty: false },
+    { selected: ['C'], visible: [], empty: true },
+  ])
+
   // A 为空时应默认落在 B，而不是打开就是一片空白
   const noA = renderHtml([mk('instagram', 'b', { tier: 'B', score: 1 })],
     { product: 'p', market: 'US', platforms: ['instagram'], keywords: [], total: 1,
       tiers: { A: 0, B: 1, C: 0 }, email_count: 0, cross_platform_count: 0,
       ...testCostMeta(1, 2000000), enriched: false })
   ok('A 为空时默认落到 B', noA.includes('class="tab B on"') && !noA.includes('class="tab A on"'))
+  const noACard = noA.match(/<div class="card B"[^>]*>/)?.[0]
+  ok('A 为空时 B 卡片渲染后立即可见', !!noACard && !/\bdisplay\s*:\s*none/.test(noACard))
+  // U6.b 指向第一个非空层：A/B 都为空时，C 仍应在首次打开时可见。
+  const onlyC = renderHtml([mk('tiktok', 'c', { tier: 'C', score: 1 })],
+    { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 1,
+      tiers: { A: 0, B: 0, C: 1 }, email_count: 0, cross_platform_count: 0,
+      ...testCostMeta(1, 2000000), enriched: false })
+  ok('A、B 为空时默认落到 C', onlyC.includes('class="tab C on"')
+    && !onlyC.includes('class="tab A on"') && !onlyC.includes('class="tab B on"'))
+  const onlyCCard = onlyC.match(/<div class="card C"[^>]*>/)?.[0]
+  ok('A、B 为空时 C 卡片渲染后立即可见', !!onlyCCard && !/\bdisplay\s*:\s*none/.test(onlyCCard))
   ok('平台标签区分 class', html.includes('pf tiktok') && html.includes('pf instagram'))
   ok('平台标签有专属配色', html.includes('.pf.tiktok{') && html.includes('.pf.instagram{'))
   ok('平台标签与次要标签不同层级', html.includes('.xp{') && !html.includes('.pf,.xp{'))
 }
 
+})
+if (fullRun) {
 suite('U7', '公开指标、风险依据、报价效率与边界进入交付物')
 {
   const primary = assessedAccount('main', 1_000, 100, 100)
@@ -6029,6 +6123,10 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
     exitRace(`console.error(汇总); ${hardExit}`), `process.${'exit'}(`)
   eq('只提名字不调用的是散文，不算', exitRace('// 别用 process.exit 那种写法'), undefined)
 
+  const demandEntry = VERIFIERS.test.script
+  const demandSource = existsSync(demandEntry) ? rf(demandEntry, 'utf8') : ''
+  ok('需求测试验证者路径指向可执行入口', demandSource.startsWith('#!'))
+
   // 逐个验证者验两件事。**读文件要带保护**：路径指空时直接读会抛，而抛在这里的样子是
   // 「测试进程崩了」—— 判定如实报「跑不起来」，于是 M-H14-r 那条本该被断言抓到的变异
   // 变成了崩溃。一条只靠崩溃被抓到的变异什么也证明不了，这正是四态要拦的东西
@@ -6336,7 +6434,7 @@ harness('清册：点的那些夹具真的在，而且各自只有一条叫那�
 }
 
 })
-if (fullRun) {
+await group('h-restore-interrupt', async () => {
 harness('变异跑到一半被打断：动过的源文件要还回去')
 {
   // 信号杀进来时 finally 不跑，留在工作区里的是一处故意违反某条需求的改动。
@@ -6489,7 +6587,7 @@ harness('派工被打断：先请每个 worker 自己收摊，都收完了再走
   eq('宽限期到了硬来，不陪着它一起挂', hard, 1)
 }
 
-}
+})
 await group('h-mutation-maintenance', async () => {
 harness('变异执行范围维护：独立公开判据')
 // Independent contract tests: process/4-VERIFY and process/6-INTEGRATE only.
@@ -9066,6 +9164,15 @@ suite('D12', '费用金额按端点与历史价目记账，未知不能变成新
 }
 
 })
+await group('p3-budget-token', () => {
+suite('P3', '未经确认的预算输入不得取得付费额度')
+{
+  let code: string | undefined
+  try { readCostLimit({ budget_usd: 0.005 }) }
+  catch (error) { if (error instanceof CostError) code = error.code }
+  eq('普通内存预算没有原 token 必须拒绝', code, 'invalid-money')
+}
+})
 if (fullRun) {
 suite('D13', '实际 HTTP 状态先结算；正文失败、无状态和本地失败彼此不同')
 {
@@ -9445,6 +9552,8 @@ suite('D13', '已有数据可离线输出，未知费用不得换来新增付费
 }
 
 // ADR-109：仅由公开保存回调与真实临时文件观察，未读取生产函数体。
+}
+await group('d14-cost-persistence', async () => {
 suite('D14', '费用保存回调先于返回，保存失败后本实例停止一切费用变更')
 {
   const exact = (label: string, got: unknown, want: unknown) => ok(label, isDeepStrictEqual(got, want))
@@ -9512,6 +9621,8 @@ suite('D14', '费用保存回调先于返回，保存失败后本实例停止一
     ] as const) {
       const later = caught(run)
       ok(`${phase} 失败后的 ${operation} 仍报告持久化失败`, later instanceof CostError && later.code === 'persistence-failed')
+      if (phase === '预留' && operation === 'reserve')
+        ok('预留保存失败后再次预留仍报告持久化失败', later instanceof CostError && later.code === 'persistence-failed')
       eq(`${phase} 失败后的 ${operation} 不改变费用`, stringifyCostJson(state), frozen)
       eq(`${phase} 失败后的 ${operation} 不再调用保存`, calls, callsAfterFailure)
     }
@@ -9567,6 +9678,10 @@ suite('D14', '费用检查点只推进费用，保留盘上业务与精确预算
       const before = Date.now(), receipt = budget.reserve(TEST_IG), after = Date.now()
       const savedText = rf(task, 'utf8'), saved = JSON.parse(savedText)
       exact(`${String(status)} 预留只替换费用和保存时间`, business(saved), diskBusiness)
+      if (status === undefined)
+        eq('无去重声明时费用检查点仍不得写成已去重', saved.memory_status, undefined)
+      if (status === 'unknown')
+        eq('已有 unknown 去重声明在费用检查点后保留', saved.memory_status, 'unknown')
       eq(`${String(status)} 根预算保留原数值 token`, rootBudgetToken(savedText), token)
       exact(`${String(status)} 盘上保存本次 pending 与原净次数`,
         [saved.requests, saved.cost_ledger.pending], [2, {
@@ -9622,7 +9737,7 @@ suite('D14', '费用检查点只推进费用，保留盘上业务与精确预算
   // HTTP 前后顺序、强杀窗口与入口退出码由进程测试认领，纯接口不冒领 D14.a–f/h。
 }
 
-}
+})
 if (seenGroups.size !== GROUPS.length) {
   throw new Error(`需求测试组只遇到 ${seenGroups.size}/${GROUPS.length} 组，不能报告完成`)
 }
