@@ -1926,7 +1926,9 @@
       "why": "覆盖记录的指纹只算检查链自己那个子目录 —— 别处的实现改坏了、测试跟着崩了，指纹照旧对得上，上一次的记录成了这一次的证据",
       "file": "scripts/check/claims.ts",
       "find": "export const SOURCE_DIR = 'scripts'",
-      "replace": "export const SOURCE_DIR = 'scripts/check'"
+      "replace": "export const SOURCE_DIR = 'scripts/check'",
+      "by": "test",
+      "kills": ["被 import 的实现也在 —— 改坏它就等于改了指纹"]
     },
     {
       "id": "M-H14-c",
@@ -1934,7 +1936,9 @@
       "why": "指纹对得上也判成过期 —— 每一份新鲜覆盖记录都不算数，审计退回到永远「先跑 npm test」",
       "file": "scripts/check/claims.ts",
       "find": "  recordHash === selfHash",
-      "replace": "  recordHash !== selfHash"
+      "replace": "  recordHash !== selfHash",
+      "by": "test",
+      "kills": ["指纹对得上才新鲜"]
     },
     {
       "id": "M-H14-d",
@@ -1942,7 +1946,9 @@
       "why": "写盘条件少掉「断言全过」那一半 —— 一次红着的运行照样写下覆盖记录，审计把没通过的认领当成证据",
       "file": "scripts/check/claims.ts",
       "find": "  claimsOwnedBy(mutating) && fail === 0",
-      "replace": "  claimsOwnedBy(mutating)"
+      "replace": "  claimsOwnedBy(mutating)",
+      "by": "test",
+      "kills": ["断言红过就不写 —— 没通过的运行不是证据"]
     },
     {
       "id": "M-H14-e",
@@ -1950,7 +1956,9 @@
       "why": "把「谁拥有这份记录」改成人人有份 —— 变异运行也会清掉、写脏那份覆盖记录，普通运行留下的证据被一次跑在改坏源码上的运行顶替",
       "file": "scripts/check/claims.ts",
       "find": "export const claimsOwnedBy = (mutating: boolean): boolean => !mutating",
-      "replace": "export const claimsOwnedBy = (mutating: boolean): boolean => true"
+      "replace": "export const claimsOwnedBy = (mutating: boolean): boolean => true",
+      "by": "test",
+      "kills": ["变异运行不拥有它 —— 既不清也不写"]
     },
     {
       "id": "M-H14-f",
@@ -1958,7 +1966,9 @@
       "why": "形状判定不再看字段是不是数组 —— 缺字段、字段类型不对的记录被当成合法记录读进去，审计报出一串根本不存在的缺口，把人支到错的地方去修",
       "file": "scripts/check/claims.ts",
       "find": "  CLAIM_LISTS.every(k =>\n    Array.isArray((v as Claims)[k]) &&\n    (v as Claims)[k].every(x => typeof x === 'string'))",
-      "replace": "  true"
+      "replace": "  true",
+      "by": "test",
+      "kills": ["字段在但不是数组，同样认不出"]
     },
     {
       "id": "M-H14-g",
@@ -1966,7 +1976,9 @@
       "why": "指纹只算文件内容、不算它在哪 —— 把一个文件改名、挪到别处，指纹一个字不变，过期的记录照旧算新鲜",
       "file": "scripts/check/claims.ts",
       "find": "  for (const [p, body] of [...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) h.update(`${p}\\0${body}\\0`)",
-      "replace": "  for (const [p, body] of [...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) h.update(body)"
+      "replace": "  for (const [p, body] of [...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) h.update(body)",
+      "by": "test",
+      "kills": ["路径也算进指纹"]
     },
     {
       "id": "M-H14-h",
@@ -1974,7 +1986,9 @@
       "why": "指纹的范围不往子目录里走 —— 检查链和库里的实现改坏了都不算改动，上一次的记录照旧算新鲜",
       "file": "scripts/check/claims.ts",
       "find": "    if (e.isDirectory()) return sourceFiles(p)",
-      "replace": "    if (e.isDirectory()) return []"
+      "replace": "    if (e.isDirectory()) return []",
+      "by": "test",
+      "kills": ["子目录要走进去"]
     },
     {
       "id": "M-H14-i",
@@ -1982,7 +1996,9 @@
       "why": "形状判定只验到「是数组」为止 —— 元素不是字符串的记录被当成合法记录读进去，审计拿它去比对编号，该说「记录坏了、先重跑测试」的地方变成一串对不上的编号",
       "file": "scripts/check/claims.ts",
       "find": "    (v as Claims)[k].every(x => typeof x === 'string')",
-      "replace": "    true"
+      "replace": "    true",
+      "by": "test",
+      "kills": ["数组里混进非字符串，认不出"]
     },
     {
       "id": "M-H14-j",
@@ -1990,7 +2006,9 @@
       "why": "读不出覆盖记录时三种毛病塌成一种 —— 权限不对、路径底下变成了目录，都被说成「还没跑过、先跑测试」，而重跑一遍照样写不进同一个地方，诊断把人支到跟毛病无关的方向",
       "file": "scripts/check/claims.ts",
       "find": "  if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return 'missing'\n  if (err instanceof SyntaxError) return 'unparsable'\n  return 'unreadable'",
-      "replace": "  return 'missing'"
+      "replace": "  return 'missing'",
+      "by": "test",
+      "kills": ["权限不对，是这个路径读不了 —— 不是没跑过"]
     },
     {
       "id": "M-H14-k",
@@ -1998,7 +2016,9 @@
       "why": "写盘条件少掉「开跑前和跑完两次指纹得一样」那一半 —— 源码在这一跑的过程中被改过也照写，记录带的是新那棵树的指纹而断言执行的是旧的，审计比对得上，一棵从没被完整测过的树拿到了证据",
       "file": "scripts/check/claims.ts",
       "find": "  claimsOwnedBy(mutating) && fail === 0 && startHash === endHash",
-      "replace": "  claimsOwnedBy(mutating) && fail === 0"
+      "replace": "  claimsOwnedBy(mutating) && fail === 0",
+      "by": "test",
+      "kills": ["跑的过程中源码变过就不写"]
     },
     {
       "id": "M-H14-l",
@@ -2006,7 +2026,9 @@
       "why": "那张名单漏掉判据认领那一栏 —— 一份根本没有判据认领的记录被当成合法记录读进去，审计把红线的每一条判据都报成没有认领，人照着去翻那十几条判据，而毛病在记录本身",
       "file": "scripts/check/claims.ts",
       "find": "export const CLAIM_LISTS = ['covered', 'criteria', 'tensions'] as const",
-      "replace": "export const CLAIM_LISTS = ['covered'] as const"
+      "replace": "export const CLAIM_LISTS = ['covered'] as const",
+      "by": "test",
+      "kills": ["缺判据认领那一栏，同样认不出"]
     },
     {
       "id": "M-H14-m",
@@ -2026,7 +2048,9 @@
       "why": "那张名单漏掉交点认领那一栏 —— 一份根本没有交点认领的记录被当成合法记录读进去，审计把有红线的交点全报成没有认领，一次假的硬失败，人照着去翻裁决，而毛病在记录本身",
       "file": "scripts/check/claims.ts",
       "find": "export const CLAIM_LISTS = ['covered', 'criteria', 'tensions'] as const",
-      "replace": "export const CLAIM_LISTS = ['covered', 'criteria'] as const"
+      "replace": "export const CLAIM_LISTS = ['covered', 'criteria'] as const",
+      "by": "test",
+      "kills": ["缺交点认领那一栏，同样认不出"]
     },
     {
       "id": "M-D8-c",
@@ -4256,7 +4280,9 @@
       "why": "入口认领那份记录的路径与单元那份指到同一个地方 —— 两个写方互相抹掉，审计读到的是一份形状合法、内容少了一半的记录，它会照着报「红线判据没有测试认领」，而毛病在记录不在判据",
       "file": "scripts/check/claims.ts",
       "find": "export const ENTRY_CLAIMS_PATH = '.check-cache/selfcheck-claims.json'",
-      "replace": "export const ENTRY_CLAIMS_PATH = '.check-cache/test-claims.json'"
+      "replace": "export const ENTRY_CLAIMS_PATH = '.check-cache/test-claims.json'",
+      "by": "test",
+      "kills": ["两份记录不是同一个路径 —— 指到同一处就互相抹掉"]
     },
     {
       "id": "M-H28-b",
@@ -4264,7 +4290,9 @@
       "why": "入口那份认领记录落在缓存目录外面 —— 那个目录是 git 忽略、随手可以清掉的，记录写在外面会被当成仓库内容提交进去（ADR-35 记着那一次），而「清掉缓存重跑一遍」从此清不干净",
       "file": "scripts/check/claims.ts",
       "find": "export const ENTRY_CLAIMS_PATH = '.check-cache/selfcheck-claims.json'",
-      "replace": "export const ENTRY_CLAIMS_PATH = 'selfcheck-claims.json'"
+      "replace": "export const ENTRY_CLAIMS_PATH = 'selfcheck-claims.json'",
+      "by": "test",
+      "kills": ["两份记录都在 .check-cache 底下"]
     },
     {
       "id": "M-H32-a",
