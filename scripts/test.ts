@@ -157,6 +157,7 @@ const GROUPS: readonly Group[] = [
   { id: 'u1-u5-output', needs: [] },
   { id: 'h-claims-restore', needs: [] },
   { id: 'h-mutate', needs: [] },
+  { id: 'h-restore-interrupt', needs: [] },
   { id: 'h-mutation-maintenance', needs: [] },
   { id: 'h-mutation-cost', needs: [] },
   { id: 'h-worker-start', needs: [] },
@@ -6357,7 +6358,7 @@ harness('清册：点的那些夹具真的在，而且各自只有一条叫那�
 }
 
 })
-if (fullRun) {
+await group('h-restore-interrupt', async () => {
 harness('变异跑到一半被打断：动过的源文件要还回去')
 {
   // 信号杀进来时 finally 不跑，留在工作区里的是一处故意违反某条需求的改动。
@@ -6510,7 +6511,7 @@ harness('派工被打断：先请每个 worker 自己收摊，都收完了再走
   eq('宽限期到了硬来，不陪着它一起挂', hard, 1)
 }
 
-}
+})
 await group('h-mutation-maintenance', async () => {
 harness('变异执行范围维护：独立公开判据')
 // Independent contract tests: process/4-VERIFY and process/6-INTEGRATE only.
