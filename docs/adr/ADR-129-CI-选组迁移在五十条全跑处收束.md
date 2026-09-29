@@ -22,6 +22,10 @@ Node 22.23.2、4 个变异 worker，均由完整 `npm run check` 自然成功；
 | [合入后的 main](https://github.com/c01dsummer/kol-outreach-skill/actions/runs/36617675291) | 14 分 02 秒 | 约 9 分 48 秒 | 约 3 分 58 秒 |
 
 完整检查的两次成功中位数为 **14 分 44.5 秒**，范围 **14 分 02 秒—15 分 27 秒**。
+这些时间取 GitHub Actions API 中 `Run npm run check` 步骤的起止，
+不含排队、checkout、`npm ci` 和 job 收尾。两次 CI 没有记录可比的 job CPU，
+因此本表没有 CPU 中位数或区间；逐条验证者墙钟之和与 ADR-128 的本机局部 CPU
+都不能填补这个缺口。
 这满足“同类 runner 的完整 check 中位数低于 15 分钟”的建议目标，
 不保证每次运行都低于 15 分钟。PR #228 的另一代码树
 [PR 成功运行](https://github.com/c01dsummer/kol-outreach-skill/actions/runs/36609285105)与
