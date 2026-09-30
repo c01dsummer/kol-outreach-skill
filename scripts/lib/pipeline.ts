@@ -480,12 +480,10 @@ export function mergePage(creators: Map<string, Creator>, page: readonly Partial
     const k = creatorKey({ platform: p.platform, handle: p.handle })
     const seen = creators.get(k)
     if (seen) {
-      // ⚠️ **只在他已经带着来源任务时才追加。** 累加器里可能有本条落地之前采的人
-      // （`loadRawCreators` 从 creators.raw.json 读回来的），他们的来源**无从确认** ——
-      // 凭空给一个 `[i]` 等于替他打包票说「他只来自这个任务」，而 `keywordRows` 会据此
-      // 认定整张名单归得了人，于是每一行又开始印确定为假的 0（#140 评审指出）。
+      // ⚠️ 只在已有非空来源任务时追加。缺席、空数组或非数组都表示来源无从确认；
+      // 凭空补上当前任务会让关键词表把未知人数印成确定为假的 0。
       const at = seen.source_tasks
-      if (at !== undefined && !at.includes(i)) at.push(i)
+      if (Array.isArray(at) && at.length > 0 && !at.includes(i)) at.push(i)
       // D11 / P1.e：后来取得的作品并入已有证据；同 id 保留先到记录，缺 id 不吞掉。
       seen.recent_posts = mergeRecentPosts(seen.recent_posts, p.recent_posts)
       seen.discovery_sources = mergeDiscoverySources(seen.discovery_sources, p.discovery_sources)

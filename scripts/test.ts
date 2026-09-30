@@ -2413,6 +2413,68 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
     eq('一边的来源无从确认 → 合出来的人也无从确认，不留一个看着归得清的残集',
        merged2.find(c => c.merged_into === undefined)?.source_tasks, undefined)
   }
+  // U3.b × P5.i：合并或旧人再命中不能把未知来源变成已知归人。
+  // 查询状态与供应商条数来自任务记录，来源不全只影响入围及语义通过。
+  {
+    const crossRows = (ttSource: unknown) => {
+      const state = tstate({
+        tasks: [
+          { keyword: 'tt', dimension: 'category', platform: 'tiktok' },
+          { keyword: 'ig', dimension: 'scene', platform: 'instagram' },
+        ],
+        answered: { 0: 1, 1: 1 }, found: { 0: 4, 1: 6 }, offsets: { 0: 4, 1: 6 },
+      })
+      const pair = [
+        mk('tiktok', 'paired', {
+          fit: '✅', source_tasks: ttSource as number[],
+          bio_links: ['https://instagram.com/paired'],
+        }),
+        mk('instagram', 'paired', { fit: '✅', source_tasks: [1], bio_links: [] }),
+      ]
+      try {
+        linkCrossPlatform(pair)
+        return keywordRows(state, mergeCrossPlatform(pair))
+          .map(r => [r.task_index, r.status, r.found, r.shortlisted, r.fit_pass])
+      } catch (e) { return '抛了：' + String(e) }
+    }
+    eq('跨平台来源控制：两侧都已知时，各任务各归一人',
+       crossRows([0]),
+       [[0, 'queried', 4, 1, 1], [1, 'queried', 6, 1, 1]])
+    const unknown = [[0, 'queried', 4, null, null], [1, 'queried', 6, null, null]]
+    eq('跨平台合并：TT 空来源不能借 IG 有效来源归人，已知查询与找到仍保留',
+       crossRows([]), unknown)
+    eq('跨平台合并：TT null 来源不能借 IG 有效来源归人，已知查询与找到仍保留',
+       crossRows(null), unknown)
+  }
+  {
+    const rehitRows = (oldSource: unknown) => {
+      const newTask = { keyword: 'new', dimension: 'scene', platform: 'tiktok' } as const
+      const state = tstate({
+        tasks: [
+          { keyword: 'old', dimension: 'category', platform: 'tiktok' },
+          newTask,
+        ],
+        answered: { 0: 1, 1: 1 }, found: { 0: 4, 1: 6 }, offsets: { 0: 4, 1: 6 },
+      })
+      const acc = new Map<string, Creator>([[
+        'tiktok:old-rehit',
+        mk('tiktok', 'old-rehit', { fit: '✅', source_tasks: oldSource as number[] }),
+      ]])
+      try {
+        mergePage(acc, [{ handle: 'old-rehit', platform: 'tiktok' }], 1, newTask)
+        return keywordRows(state, [...acc.values()])
+          .map(r => [r.task_index, r.status, r.found, r.shortlisted, r.fit_pass])
+      } catch (e) { return '抛了：' + String(e) }
+    }
+    eq('旧人再命中来源控制：原来源已知时，两任务各归一人',
+       rehitRows([0]),
+       [[0, 'queried', 4, 1, 1], [1, 'queried', 6, 1, 1]])
+    const unknown = [[0, 'queried', 4, null, null], [1, 'queried', 6, null, null]]
+    eq('旧人再命中：原空来源不能借新任务补成可归因，已知查询与找到仍保留',
+       rehitRows([]), unknown)
+    eq('旧人再命中：原 null 来源不能借新任务补成可归因，已知查询与找到仍保留',
+       rehitRows(null), unknown)
+  }
   criterion('U3.b')
 
   // P5.i 的渲染那一半：**四态要在报告上分得开**，而且没查过的那一行不许带出
