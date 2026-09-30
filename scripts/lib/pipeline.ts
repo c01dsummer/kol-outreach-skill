@@ -423,12 +423,12 @@ export interface KeywordRow {
  * 只拿 `delivered` 反推就回到了上面说的那个洞；只拿 `state` 则数不出入围。
  */
 export function keywordRows(state: TaskState, delivered: Creator[]): KeywordRow[] {
-  // **归人算不算得准，是整张名单的属性，不是某一行的。** 只要有一个人身上没带来源任务，
-  // 这份名单就是本条落地之前采的 —— 那时没有这个字段，于是**每一行都会印一个确定为假的 0**。
-  // ⚠️ 上一条 PR（`answered`／`found` 两张表）先合，本条后合，中间那个窗口里建的目录
-  // 正是这个形状：表在、人身上没有下标。独立复核实测到两行都印「找到 40 / 入围 0」，
-  // 而名单里有 3 个人（ADR-94 第十六节丁）。注释一度声称这不可能，那句话只对更早的目录成立。
-  const attributable = delivered.every(c => c.source_tasks !== undefined)
+  // **归人算不算得准，是整张名单的属性，不是某一行的。** 只要有一个人的来源任务
+  // 缺席、为空或含无效下标，整张表的入围与语义通过人数就无从确认，不能印确定为假的 0。
+  // 查询状态和搜索返回条数仍由任务记录决定，不受名单来源缺失影响。
+  const attributable = delivered.every(c =>
+    Array.isArray(c.source_tasks) && c.source_tasks.length > 0 &&
+    c.source_tasks.every(index => Number.isSafeInteger(index) && index >= 0 && index < state.tasks.length))
   return state.tasks.map((t, i) => {
     const status = taskQueryStatus(state, i)
     // **只有真问过的行才谈得上「入围几个」。** 没问过的行印 0 就是把「没看」说成
@@ -480,12 +480,10 @@ export function mergePage(creators: Map<string, Creator>, page: readonly Partial
     const k = creatorKey({ platform: p.platform, handle: p.handle })
     const seen = creators.get(k)
     if (seen) {
-      // ⚠️ **只在他已经带着来源任务时才追加。** 累加器里可能有本条落地之前采的人
-      // （`loadRawCreators` 从 creators.raw.json 读回来的），他们的来源**无从确认** ——
-      // 凭空给一个 `[i]` 等于替他打包票说「他只来自这个任务」，而 `keywordRows` 会据此
-      // 认定整张名单归得了人，于是每一行又开始印确定为假的 0（#140 评审指出）。
+      // ⚠️ 只在已有非空来源任务时追加。缺席、空数组或非数组都表示来源无从确认；
+      // 凭空补上当前任务会让关键词表把未知人数印成确定为假的 0。
       const at = seen.source_tasks
-      if (at !== undefined && !at.includes(i)) at.push(i)
+      if (Array.isArray(at) && at.length > 0 && !at.includes(i)) at.push(i)
       // D11 / P1.e：后来取得的作品并入已有证据；同 id 保留先到记录，缺 id 不吞掉。
       seen.recent_posts = mergeRecentPosts(seen.recent_posts, p.recent_posts)
       seen.discovery_sources = mergeDiscoverySources(seen.discovery_sources, p.discovery_sources)

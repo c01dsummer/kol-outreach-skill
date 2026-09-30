@@ -2292,6 +2292,45 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
        [duplicateRows[2]?.task_index, duplicateRows[2]?.status, duplicateRows[2]?.found,
         duplicateRows[2]?.shortlisted, duplicateRows[2]?.fit_pass], [2, 'unqueried', null, null, null])
   }
+  // U3.b/c × P5.i：只要名单里有一人无法完整归到有效任务下标，整张表的归人数未知；
+  // 搜索是否问过、供应商返回条数仍由任务记录决定，不能跟着丢掉。
+  {
+    const twoTaskRows = (sourceTasks: unknown) => {
+      try {
+        const state = tstate({
+          tasks: [
+            { keyword: 'one', dimension: 'category', platform: 'tiktok' },
+            { keyword: 'two', dimension: 'scene', platform: 'tiktok' },
+          ],
+          answered: { 0: 1, 1: 1 }, found: { 0: 4, 1: 6 }, offsets: { 0: 4, 1: 6 },
+        })
+        const first = mk('tiktok', 'first', {
+          fit: '✅', ...(sourceTasks === undefined ? {} : { source_tasks: sourceTasks as number[] }),
+        })
+        const second = mk('tiktok', 'second', { fit: '❌', source_tasks: [1] })
+        return keywordRows(state, [first, second])
+          .map(r => [r.status, r.found, r.shortlisted, r.fit_pass])
+      } catch (e) { return `抛了：${String(e)}` }
+    }
+    // 两个任务都问过；第一人来自两项，第二人只来自任务 1。
+    eq('合法多任务来源 [0,1]：两行分别计数且保留已知查询与找到条数',
+       twoTaskRows([0, 1]), [['queried', 4, 1, 1], ['queried', 6, 2, 1]])
+    const unknownCounts = [['queried', 4, null, null], ['queried', 6, null, null]]
+    eq('空来源数组：所有行归人数未知，已知查询与找到条数不丢',
+       twoTaskRows([]), unknownCounts)
+    eq('来源含越界任务下标：所有行归人数未知，已知查询与找到条数不丢',
+       twoTaskRows([0, 2]), unknownCounts)
+    eq('来源含负任务下标：所有行归人数未知，已知查询与找到条数不丢',
+       twoTaskRows([0, -1]), unknownCounts)
+    eq('来源含非整数任务下标：所有行归人数未知，已知查询与找到条数不丢',
+       twoTaskRows([0, 0.5]), unknownCounts)
+    eq('来源数组含非数字元素：所有行归人数未知，已知查询与找到条数不丢',
+       twoTaskRows([0, null]), unknownCounts)
+    eq('来源为 null：所有行归人数未知，已知查询与找到条数不丢',
+       twoTaskRows(null), unknownCounts)
+    eq('来源缺席：所有行归人数未知，已知查询与找到条数不丢',
+       twoTaskRows(undefined), unknownCounts)
+  }
   // 无从确认（整张分页记录表缺失，F9 落地之前的旧目录）：四态里的第四态
   // 旧目录的真实形状：连 `answered` 都没有的目录，人身上当然也没有来源任务
   const legacyPeople = out.map(c => ({ ...c, source_tasks: undefined }))
@@ -2373,6 +2412,68 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
     const merged2 = mergeCrossPlatform(pair2)
     eq('一边的来源无从确认 → 合出来的人也无从确认，不留一个看着归得清的残集',
        merged2.find(c => c.merged_into === undefined)?.source_tasks, undefined)
+  }
+  // U3.b × P5.i：合并或旧人再命中不能把未知来源变成已知归人。
+  // 查询状态与供应商条数来自任务记录，来源不全只影响入围及语义通过。
+  {
+    const crossRows = (ttSource: unknown) => {
+      const state = tstate({
+        tasks: [
+          { keyword: 'tt', dimension: 'category', platform: 'tiktok' },
+          { keyword: 'ig', dimension: 'scene', platform: 'instagram' },
+        ],
+        answered: { 0: 1, 1: 1 }, found: { 0: 4, 1: 6 }, offsets: { 0: 4, 1: 6 },
+      })
+      const pair = [
+        mk('tiktok', 'paired', {
+          fit: '✅', source_tasks: ttSource as number[],
+          bio_links: ['https://instagram.com/paired'],
+        }),
+        mk('instagram', 'paired', { fit: '✅', source_tasks: [1], bio_links: [] }),
+      ]
+      try {
+        linkCrossPlatform(pair)
+        return keywordRows(state, mergeCrossPlatform(pair))
+          .map(r => [r.task_index, r.status, r.found, r.shortlisted, r.fit_pass])
+      } catch (e) { return '抛了：' + String(e) }
+    }
+    eq('跨平台来源控制：两侧都已知时，各任务各归一人',
+       crossRows([0]),
+       [[0, 'queried', 4, 1, 1], [1, 'queried', 6, 1, 1]])
+    const unknown = [[0, 'queried', 4, null, null], [1, 'queried', 6, null, null]]
+    eq('跨平台合并：TT 空来源不能借 IG 有效来源归人，已知查询与找到仍保留',
+       crossRows([]), unknown)
+    eq('跨平台合并：TT null 来源不能借 IG 有效来源归人，已知查询与找到仍保留',
+       crossRows(null), unknown)
+  }
+  {
+    const rehitRows = (oldSource: unknown) => {
+      const newTask = { keyword: 'new', dimension: 'scene', platform: 'tiktok' } as const
+      const state = tstate({
+        tasks: [
+          { keyword: 'old', dimension: 'category', platform: 'tiktok' },
+          newTask,
+        ],
+        answered: { 0: 1, 1: 1 }, found: { 0: 4, 1: 6 }, offsets: { 0: 4, 1: 6 },
+      })
+      const acc = new Map<string, Creator>([[
+        'tiktok:old-rehit',
+        mk('tiktok', 'old-rehit', { fit: '✅', source_tasks: oldSource as number[] }),
+      ]])
+      try {
+        mergePage(acc, [{ handle: 'old-rehit', platform: 'tiktok' }], 1, newTask)
+        return keywordRows(state, [...acc.values()])
+          .map(r => [r.task_index, r.status, r.found, r.shortlisted, r.fit_pass])
+      } catch (e) { return '抛了：' + String(e) }
+    }
+    eq('旧人再命中来源控制：原来源已知时，两任务各归一人',
+       rehitRows([0]),
+       [[0, 'queried', 4, 1, 1], [1, 'queried', 6, 1, 1]])
+    const unknown = [[0, 'queried', 4, null, null], [1, 'queried', 6, null, null]]
+    eq('旧人再命中：原空来源不能借新任务补成可归因，已知查询与找到仍保留',
+       rehitRows([]), unknown)
+    eq('旧人再命中：原 null 来源不能借新任务补成可归因，已知查询与找到仍保留',
+       rehitRows(null), unknown)
   }
   criterion('U3.b')
 

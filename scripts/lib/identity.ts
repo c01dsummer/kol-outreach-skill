@@ -111,10 +111,11 @@ export function mergeCrossPlatform(creators: Creator[]): Creator[] {
     primary.bio_links = [...new Set([...c.bio_links, ...other.bio_links])]
     // 两边的来源任务取并集 —— 漏了这一笔，跨平台同人被合掉之后，
     // 次记录那一侧的关键词就再也归不到他，那一行于是少报入围（U3.b）。
-    // ⚠️ **有一边无从确认，并集就无从确认**：把缺的那边当成空集，等于替它打包票，
-    // 合出来的人看着像「归得清」，而 `keywordRows` 会据此对整张表印假的 0（#140 评审指出）。
+    // ⚠️ 任一边缺席、为空或不是数组，合并后仍是无从确认；不能借另一边的来源
+    // 让关键词表把未知人数印成确定为假的 0。
     const mine = c.source_tasks, theirs = other.source_tasks
-    primary.source_tasks = mine !== undefined && theirs !== undefined
+    primary.source_tasks = Array.isArray(mine) && mine.length > 0 &&
+      Array.isArray(theirs) && theirs.length > 0
       ? [...new Set([...mine, ...theirs])].sort((a, b) => a - b)
       : undefined
     // D11：主记录在先，关联记录在后；两边没有作品证据仍为未查询。

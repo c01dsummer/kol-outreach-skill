@@ -642,11 +642,28 @@
       "req": "U3.b",
       "why": "不管名单里的人带不带来源任务，一律照常归人 —— 上一条 PR 建的目录（两张表在、人身上没有下标）于是每一行都印「找到 40 / 入围 0」，而名单里明明有人：一个确定为假的 0 印在真测量值旁边",
       "file": "scripts/lib/pipeline.ts",
-      "find": "  const attributable = delivered.every(c => c.source_tasks !== undefined)",
+      "find": "  const attributable = delivered.every(c =>\n    Array.isArray(c.source_tasks) && c.source_tasks.length > 0 &&\n    c.source_tasks.every(index => Number.isSafeInteger(index) && index >= 0 && index < state.tasks.length))",
       "replace": "  const attributable = true",
       "by": "test",
       "kills": [
         "名单里有一个人没带来源任务 → 每一行的入围都印「无从确认」，不印 0"
+      ]
+    },
+    {
+      "id": "M-U3-l",
+      "req": "U3.b",
+      "why": "来源任务只要字段存在就算归属已知，空列表、无效下标和非数字元素会让关键词表印出看似确定的入围人数，运营会把未知误读成实测结果",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  const attributable = delivered.every(c =>\n    Array.isArray(c.source_tasks) && c.source_tasks.length > 0 &&\n    c.source_tasks.every(index => Number.isSafeInteger(index) && index >= 0 && index < state.tasks.length))",
+      "replace": "  const attributable = delivered.every(c => c.source_tasks !== undefined)",
+      "by": "test",
+      "kills": [
+        "空来源数组：所有行归人数未知，已知查询与找到条数不丢",
+        "来源含越界任务下标：所有行归人数未知，已知查询与找到条数不丢",
+        "来源含非整数任务下标：所有行归人数未知，已知查询与找到条数不丢",
+        "来源为 null：所有行归人数未知，已知查询与找到条数不丢",
+        "来源含负任务下标：所有行归人数未知，已知查询与找到条数不丢",
+        "来源数组含非数字元素：所有行归人数未知，已知查询与找到条数不丢"
       ]
     },
     {
@@ -678,11 +695,13 @@
       "req": "U3.b",
       "why": "累加器里本条之前采的人（来源无从确认）被凭空补上一个来源任务 —— 等于替他打包票说「他只来自这个任务」，而整张表会据此认定归得了人，于是每一行又开始印确定为假的 0，运营据此砍掉其实出了人的方向",
       "file": "scripts/lib/pipeline.ts",
-      "find": "      const at = seen.source_tasks\n      if (at !== undefined && !at.includes(i)) at.push(i)",
+      "find": "      const at = seen.source_tasks\n      if (Array.isArray(at) && at.length > 0 && !at.includes(i)) at.push(i)",
       "replace": "      if (!seen.source_tasks?.includes(i)) (seen.source_tasks ??= []).push(i)",
       "by": "test",
       "kills": [
-        "而且他的来源仍然是「无从确认」，不许凭空补成 [2]"
+        "而且他的来源仍然是「无从确认」，不许凭空补成 [2]",
+        "旧人再命中：原空来源不能借新任务补成可归因，已知查询与找到仍保留",
+        "旧人再命中：原 null 来源不能借新任务补成可归因，已知查询与找到仍保留"
       ]
     },
     {
@@ -690,11 +709,13 @@
       "req": "U3.b",
       "why": "跨平台合并时把「来源无从确认」的那一边当成空集 —— 合出来的人看着归得清，实际少了一半来源；整张表于是从「无从确认」翻成一串偏小却像测量值的数",
       "file": "scripts/lib/identity.ts",
-      "find": "    primary.source_tasks = mine !== undefined && theirs !== undefined\n      ? [...new Set([...mine, ...theirs])].sort((a, b) => a - b)\n      : undefined",
+      "find": "    primary.source_tasks = Array.isArray(mine) && mine.length > 0 &&\n      Array.isArray(theirs) && theirs.length > 0\n      ? [...new Set([...mine, ...theirs])].sort((a, b) => a - b)\n      : undefined",
       "replace": "    primary.source_tasks = [...new Set([...(mine ?? []), ...(theirs ?? [])])].sort((a, b) => a - b)",
       "by": "test",
       "kills": [
-        "一边的来源无从确认 → 合出来的人也无从确认，不留一个看着归得清的残集"
+        "一边的来源无从确认 → 合出来的人也无从确认，不留一个看着归得清的残集",
+        "跨平台合并：TT 空来源不能借 IG 有效来源归人，已知查询与找到仍保留",
+        "跨平台合并：TT null 来源不能借 IG 有效来源归人，已知查询与找到仍保留"
       ]
     },
     {
@@ -726,7 +747,7 @@
       "req": "U3.b",
       "why": "同一个人被第二个任务搜到时不把那个任务记进他的来源 —— 后面那个词于是被报成「找到 N 条、一个都没入围」，运营据此把一个其实出了人的词砍掉",
       "file": "scripts/lib/pipeline.ts",
-      "find": "      const at = seen.source_tasks\n      if (at !== undefined && !at.includes(i)) at.push(i)",
+      "find": "      const at = seen.source_tasks\n      if (Array.isArray(at) && at.length > 0 && !at.includes(i)) at.push(i)",
       "replace": "      const at = seen.source_tasks\n      if (at !== undefined) { /* 不记这一笔 */ }",
       "by": "test",
       "kills": [
@@ -738,7 +759,7 @@
       "req": "U3.b",
       "why": "跨平台同人被合并时只保留主记录那一侧的来源任务 —— 次记录那一侧的关键词从此再也归不到他，那一行少报入围",
       "file": "scripts/lib/identity.ts",
-      "find": "    primary.source_tasks = mine !== undefined && theirs !== undefined\n      ? [...new Set([...mine, ...theirs])].sort((a, b) => a - b)\n      : undefined",
+      "find": "    primary.source_tasks = Array.isArray(mine) && mine.length > 0 &&\n      Array.isArray(theirs) && theirs.length > 0\n      ? [...new Set([...mine, ...theirs])].sort((a, b) => a - b)\n      : undefined",
       "replace": "    primary.source_tasks = mine",
       "by": "test",
       "kills": [
