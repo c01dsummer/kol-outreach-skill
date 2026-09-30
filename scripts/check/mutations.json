@@ -9321,8 +9321,8 @@
       "req": "D20.e",
       "why": "render 跳过坏品牌输入，名单或记忆可能在拒绝前写出",
       "file": "scripts/render.ts",
-      "find": "const taskProblems = [...badTasks, ...brandCalibrationProblems(state)]",
-      "replace": "const taskProblems = [...badTasks]",
+      "find": "const badCalibration = brandCalibrationProblems(state)",
+      "replace": "const badCalibration: string[] = []",
       "by": "selfcheck",
       "kills": [
         "品牌校准：render 坏任务在预留、请求和交付写入前退出2",

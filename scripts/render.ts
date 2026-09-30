@@ -37,10 +37,14 @@ catch (e) {
   console.error(`${taskFile(dir)} 无法读入任务：${e instanceof Error ? e.message : String(e)}`)
   process.exit(2)
 }
+const badCalibration = brandCalibrationProblems(state)
+if (badCalibration.length) {
+  console.error(`${taskFile(dir)} 里的品牌输入不合规：\n  ${badCalibration.join('\n  ')}`)
+  process.exit(2)
+}
 const badTasks = taskListProblems(state.tasks)
-const taskProblems = [...badTasks, ...brandCalibrationProblems(state)]
-if (taskProblems.length) {
-  console.error(`${taskFile(dir)} 里的任务配置不合规：\n  ${taskProblems.join('\n  ')}`)
+if (badTasks.length) {
+  console.error(`${taskFile(dir)} 里的任务配置不合规：\n  ${badTasks.join('\n  ')}`)
   process.exit(2)
 }
 let creators = loadCreators(dir)
