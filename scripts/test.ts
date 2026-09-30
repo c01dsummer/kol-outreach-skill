@@ -80,7 +80,7 @@ import {
   ReviewInputError, type AgentReview, type AgentReviewDocument,
 } from './lib/review.js'
 import { migrateLegacyAgentReviews, projectAgentReviews } from './lib/review-projection.js'
-import { parseManualFeedbackCsv } from './lib/manual-feedback.js'
+import { parseManualFeedbackCsv, type ManualFeedbackRow } from './lib/manual-feedback.js'
 import { planManualFeedbackTemplate, type ManualFeedbackTemplatePlan } from './lib/manual-feedback-template.js'
 import {
   INSTAGRAM_HASHTAG_ENDPOINT, TikHub, TikHubError, fillEmail, isInstagramVideo, parseInstagramHashtagPage, pickList,
@@ -125,7 +125,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import type {
-  AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, ManualFeedbackRow, DiscoverySource, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
+  AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, DiscoverySource, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
 import { loadRawCreators, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
