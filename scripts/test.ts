@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { effectivePriority, projectManualFeedback } from './lib/effective-priority.js'
 /**
  * 需求测试。**每个用例标注它验的是哪条需求编号** —— 审计据此回答覆盖度。
  *
@@ -79,7 +80,7 @@ import {
   ReviewInputError, type AgentReview, type AgentReviewDocument,
 } from './lib/review.js'
 import { migrateLegacyAgentReviews, projectAgentReviews } from './lib/review-projection.js'
-import { parseManualFeedbackCsv } from './lib/manual-feedback.js'
+import { parseManualFeedbackCsv, type ManualFeedbackRow } from './lib/manual-feedback.js'
 import { planManualFeedbackTemplate, type ManualFeedbackTemplatePlan } from './lib/manual-feedback-template.js'
 import {
   INSTAGRAM_HASHTAG_ENDPOINT, TikHub, TikHubError, fillEmail, isInstagramVideo, parseInstagramHashtagPage, pickList,
@@ -190,6 +191,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd22-review-rounds', needs: [] },
   { id: 'd23-manual-feedback', needs: [] },
   { id: 'd24-manual-template', needs: [] },
+  { id: 'd25-effective-priority', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -10933,6 +10935,152 @@ await group('d24-manual-template', () => {
   ok('D24-成功拒绝字节计划未触发受观察标准文件HTTP事件', observedPositive && observedPure)
   eq('D24-观察运行也不更改正本和完整名单', JSON.stringify(document) + JSON.stringify(creators), beforeObservers)
   criterion('D24.h')
+})
+
+await group('d25-effective-priority', () => {
+  suite('D25', '人工反馈有效展示建议的独立公开契约')
+  const errors: string[] = []
+  const calc = (creator: Pick<Creator, 'review_status' | 'adoption_priority'>, rows: readonly ManualFeedbackRow[]) => {
+    try { return effectivePriority(creator, rows) } catch (error) { errors.push(String(error)); return undefined }
+  }
+  const project = (document: AgentReviewDocument, creators: readonly Creator[], rows: readonly ManualFeedbackRow[]) => {
+    try { return projectManualFeedback(document, creators, rows) } catch (error) { errors.push(String(error)); return undefined }
+  }
+  const frozen = [
+    { round_id: 'main-round', keys: ['tiktok:alpha'] },
+    { round_id: 'linked-round', keys: ['instagram:alpha'] },
+    { round_id: 'other-round', keys: ['tiktok:al.pha', 'tiktok:al_pha', 'tiktok:beta', 'tiktok:other', 'instagram:other'] },
+  ]
+  const document: AgentReviewDocument = { version: 1, updated_at: '2026-09-30T00:00:00Z', reviews: {}, rounds: frozen.map(round => ({
+    round_id: round.round_id, created_at: '2026-09-30T00:00:00Z', source: 'task.json',
+    candidates: round.keys.map(account_key => ({ account_key, source_tasks: null })),
+  })) }
+  const row = (key: string, values: Partial<ManualFeedbackRow> = {}): ManualFeedbackRow => ({
+    round_id: frozen.find(round => round.keys.includes(key))!.round_id,
+    platform: key.startsWith('instagram:') ? 'instagram' : 'tiktok', handle: key.slice(key.indexOf(':') + 1),
+    account_key: key, line_number: 2, manual_note: '', ...values,
+  })
+  const creator = (platform: Creator['platform'] = 'tiktok', handle = 'alpha', values: Partial<Creator> = {}): Creator => ({
+    platform, handle, nickname: 'nested creator', bio_links: ['https://example.test/bio'], verified: false,
+    profile_url: 'https://example.test/profile', source_keyword: 'nested', source_dimension: 'scene', source_tasks: [0],
+    recent_posts: [{ desc: 'nested work', likes: 7 }], audience_geo: { US: 0.7 },
+    fit: '❌', fit_reason: 'original Agent reason', outreach_draft: 'original draft', tier: 'C', score: 19,
+    previously_recommended: '2026-09-01', review_status: '未评',
+    ...(values.review_status === '已评' || values.review_status === '待重评' ? { eligibility: '待核实' as const, adoption_priority: '待核实' as const, observed_content: 'observed content', work_evidence: 'observed work', natural_integration: 'natural placement', mismatch_risk: 'known risk' } : {}), ...values,
+  })
+  const mainYes = row('tiktok:alpha', { manual_adopted: 'yes' })
+  eq('D25-人工明确采用优先联系并明示原平台来源', calc({ review_status: '未评' }, [mainYes]), { priority: '优先联系', account_key: 'tiktok:alpha' })
+  // Public rule oracle: adoption yes precedes no/eligible no, then unknown, then Agent fallback.
+  const verdicts: Array<ManualFeedbackRow['manual_adopted']> = [undefined, 'yes', 'no', 'unknown']
+  const legal = verdicts.flatMap(manual_adopted => verdicts.map(manual_eligible => ({ manual_adopted, manual_eligible })))
+    .filter(value => !(value.manual_eligible === 'no' && value.manual_adopted === 'yes'))
+  const rank = (value: typeof legal[number]) => value.manual_adopted === 'yes' ? 0
+    : value.manual_adopted === 'no' || value.manual_eligible === 'no' ? 1 : value.manual_adopted === 'unknown' ? 2 : 3
+  const priorities = ['优先联系', '暂不采用', '待核实', '备选'] as const
+  const pairs = legal.flatMap(primary => legal.map(linked => [primary, linked] as const)).filter(pair =>
+    !pair.some(value => value.manual_adopted === 'yes') || !pair.some(value => value.manual_adopted === 'no'))
+  ok('D25-合法双平台组合遵循采用否定未知与主关联来源次序', pairs.every(pair => {
+    const rows = [row('tiktok:alpha', pair[0]), row('instagram:alpha', pair[1])]
+    const chosen = Math.min(...pair.map(rank)), index = pair.findIndex(value => rank(value) === chosen)
+    const expected = { priority: priorities[chosen], ...(chosen === 3 ? {} : { account_key: rows[index].account_key }) }
+    return isDeepStrictEqual(calc({ review_status: '已评', adoption_priority: '备选' }, rows), expected)
+  }))
+  criterion('D25.a', 'D25.d')
+
+  const statuses: Array<Creator['review_status']> = [undefined, '未评', '待重评', '已评']
+  const agentPriorities: Array<Creator['adoption_priority']> = [undefined, '优先联系', '备选', '待核实', '暂不采用']
+  ok('D25-仅已评且明确Agent建议可回退且不带人工来源', statuses.every(review_status => agentPriorities.every(adoption_priority =>
+    isDeepStrictEqual(calc({ review_status, adoption_priority }, []), { priority: review_status === '已评' && adoption_priority !== undefined ? adoption_priority : '待核实' }))))
+  const neutralFields: Partial<ManualFeedbackRow>[] = [{ manual_eligible: 'yes' }, { manual_eligible: 'unknown' }, { manual_content_fit: 'high' },
+    { manual_engagement: 'high' }, { manual_comment_authenticity: 'high' }, { manual_reject_reason: '其他' }, { manual_note: 'approve-looking note' }]
+  ok('D25-资格等级原因备注兼容fit分数与关联Agent不推断采用', neutralFields.every(fields => {
+    const candidate = creator('tiktok', 'alpha', { review_status: undefined, fit: '✅', score: 100, tier: 'A', linked_handle: 'instagram:alpha', linked_agent_review: { account_key: 'instagram:alpha', review_status: '已评', adoption_priority: '优先联系' } })
+    return isDeepStrictEqual(calc(candidate, [row('tiktok:alpha', fields)]), { priority: '待核实' })
+      && isDeepStrictEqual(calc({ review_status: '已评', adoption_priority: '备选' }, [row('tiktok:alpha', fields)]), { priority: '备选' })
+  }))
+  criterion('D25.b')
+
+  const primary = row('tiktok:alpha', { manual_eligible: 'no', manual_adopted: 'unknown', manual_note: '  main note  ' })
+  const linked = row('instagram:alpha', { manual_eligible: 'yes', manual_adopted: 'yes', manual_content_fit: 'high', manual_engagement: 'medium', manual_comment_authenticity: 'low', manual_note: 'linked note' })
+  const input = [creator('tiktok', ' @ALPHA ', { linked_handle: 'Instagram: @ALPHA ', cross_platform: false, linked_agent_review: { account_key: 'instagram:alpha', review_status: '已评', adoption_priority: '备选' } }), creator('instagram', 'alpha', { linked_handle: 'tiktok:alpha', review_status: '已评', adoption_priority: '备选', linked_agent_review: { account_key: 'tiktok:alpha', review_status: '未评' } })]
+  const feedback = [linked, primary], before = structuredClone([document, input, feedback])
+  const output = project(document, input, feedback), first = output?.[0], second = output?.[1]
+  eq('D25-显式异平台关联无需另一候选或关联标记且规范化匹配', project(document, [input[0]], feedback)?.[0].effective_priority, '优先联系')
+  eq('D25-关联优先采纳压过主资格否定且明示关联来源', first && [first.effective_priority, first.effective_priority_account_key, first.review_status], ['优先联系', 'instagram:alpha', '未评'])
+  eq('D25-主账号七项只取自身作答并原样保留备注', first && [first.manual_eligible, first.manual_adopted, first.manual_content_fit, first.manual_engagement, first.manual_comment_authenticity, first.manual_reject_reason, first.manual_note], ['no', 'unknown', undefined, undefined, undefined, undefined, '  main note  '])
+  ok('D25-未填主判断与原因不生成自身属性', !!first && ['manual_content_fit', 'manual_engagement', 'manual_comment_authenticity', 'manual_reject_reason'].every(key => !Object.hasOwn(first, key)))
+  eq('D25-完整人工行按主关联次序保留与CSV行序无关', first?.manual_feedback_accounts, [primary, linked])
+  eq('D25-换主平台各自七项来源轮次和账户行次序正确', second && [second.manual_eligible, second.manual_adopted, second.manual_content_fit, second.manual_note, second.manual_round_id, second.manual_feedback_accounts], ['yes', 'yes', 'high', 'linked note', 'linked-round', [linked, primary]])
+  const ties = [row('instagram:alpha', { manual_adopted: 'yes' }), mainYes]
+  eq('D25-同条件双人工行来源按主账号优先不按CSV先后', project(document, input, ties)?.map(value => value.effective_priority_account_key), ['tiktok:alpha', 'instagram:alpha'])
+  const onlyLinked = project(document, [input[0]], [linked])?.[0]
+  ok('D25-只有关联人工行不补主七项且不使主已评', !!onlyLinked && !['manual_eligible', 'manual_adopted', 'manual_content_fit', 'manual_engagement', 'manual_comment_authenticity', 'manual_reject_reason', 'manual_note'].some(key => Object.hasOwn(onlyLinked, key))
+    && onlyLinked.manual_reviewed === false && onlyLinked.review_status === '未评' && onlyLinked.manual_round_id === 'main-round')
+  criterion('D25.d', 'D25.e')
+  tension('D25', 'P1')
+
+  const unlinked = project(document, [creator(), creator('instagram', 'alpha')], [linked])
+  eq('D25-同名异平台无显式关联不得串用人工建议', unlinked?.map(value => value.effective_priority), ['待核实', '优先联系'])
+  const invalidLinks = [...['alpha', 'tiktok:alpha', 'instagram:bad!', 'youtube:alpha', ' instagram:alpha', 'instagram :alpha'].map(linked_handle => ({ linked_handle, feedback: [linked] })),
+    { linked_handle: 'tiktok:beta', feedback: [row('tiktok:beta', { manual_adopted: 'yes' })] }]
+  ok('D25-裸同平台非法或不可规范化关联均不建立关系', invalidLinks.every(({ linked_handle, feedback }) => {
+    const value = project(document, [creator('tiktok', 'alpha', { linked_handle })], feedback)?.[0]
+    return !!value && value.effective_priority === '待核实' && value.effective_priority_account_key === undefined && (value.manual_feedback_accounts?.length ?? 0) === 0
+  }))
+  const dots = project(document, [creator('tiktok', 'al_pha'), creator('tiktok', 'al.pha')], [row('tiktok:al.pha', { manual_adopted: 'yes' })])
+  eq('D25-点号下划线不同账号且不按名单或人工行位置匹配', dots?.map(value => value.effective_priority), ['待核实', '优先联系'])
+  const aliasDoc = structuredClone(document)
+  // Public D21.f precondition: review aliases share the canonical platform and include their own key.
+  aliasDoc.reviews['tiktok:alpha'] = { account_keys: ['tiktok:alpha', 'tiktok:beta'], eligibility: '待核实', adoption_priority: '待核实', observed_content: 'content', work_evidence: 'work', natural_integration: 'natural', mismatch_risk: 'risk' }
+  const chain = [creator('tiktok', 'alpha', { linked_handle: 'instagram:other', review_status: '已评', adoption_priority: '待核实', eligibility: '待核实' }), creator('instagram', 'other', { linked_handle: 'tiktok:beta', linked_agent_review: { account_key: 'tiktok:beta', review_status: '已评', adoption_priority: '待核实' } }), creator('tiktok', 'beta', { review_status: '已评', adoption_priority: '待核实', eligibility: '待核实' })]
+  const chainOut = project(aliasDoc, chain, [row('tiktok:beta', { manual_adopted: 'yes' })])
+  eq('D25-不沿别名其他候选关系或关联链传递人工判断', chainOut?.map(value => value.effective_priority), ['待核实', '优先联系', '优先联系'])
+  criterion('D25.c')
+
+  const reviewedCases: Array<[Partial<ManualFeedbackRow>, boolean]> = [[{}, false], [{ manual_note: ' \t\n ' }, false], [{ manual_eligible: 'unknown' }, true], [{ manual_adopted: 'unknown' }, true],
+    [{ manual_content_fit: 'unknown' }, true], [{ manual_engagement: 'medium' }, true], [{ manual_comment_authenticity: 'low' }, true], [{ manual_reject_reason: '其他' }, true], [{ manual_note: ' note ' }, true]]
+  ok('D25-主人工已评只看实际填写unknown等级原因及非空白备注', reviewedCases.every(([fields, expected]) => {
+    const value = project(document, [creator()], [row('tiktok:alpha', fields)])?.[0]
+    return !!value && value.manual_reviewed === expected && value.manual_note === (fields.manual_note ?? '') && value.manual_round_id === 'main-round'
+  }))
+  const noRows = project(document, [creator(), creator('tiktok', 'outside')], [])
+  ok('D25-无主人工行已评为否且冻结轮次保留池外不补轮次', !!noRows && noRows[0].manual_reviewed === false && noRows[0].manual_round_id === 'main-round'
+    && noRows[1].manual_reviewed === false && !Object.hasOwn(noRows[1], 'manual_round_id') && !Object.hasOwn(noRows[0], 'manual_note'))
+  criterion('D25.f')
+
+  const owned = ['manual_eligible', 'manual_adopted', 'manual_content_fit', 'manual_engagement', 'manual_comment_authenticity', 'manual_reject_reason', 'manual_note', 'manual_reviewed', 'manual_round_id', 'manual_feedback_accounts', 'effective_priority', 'effective_priority_account_key']
+  const withoutOwned = (value: Creator) => Object.fromEntries(Object.entries(value).filter(([key]) => !owned.includes(key)))
+  ok('D25-输出保持候选数量次序及全部非人工Agent兼容记忆字段', !!output && output.length === input.length
+    && isDeepStrictEqual(output.map(withoutOwned), input.map(withoutOwned)))
+  const dirty = creator('tiktok', 'alpha', { manual_eligible: 'yes', manual_adopted: 'yes', manual_content_fit: 'high', manual_engagement: 'high', manual_comment_authenticity: 'high', manual_reject_reason: '其他', manual_note: 'stale', manual_reviewed: true,
+    manual_round_id: 'stale-round', manual_feedback_accounts: [mainYes], effective_priority: '优先联系', effective_priority_account_key: 'instagram:alpha' })
+  const blank = project(document, [dirty], [row('tiktok:alpha')])?.[0]
+  ok('D25-删除主人工字段清除旧判断原因有效来源与已评残留', !!blank && ['manual_eligible', 'manual_adopted', 'manual_content_fit', 'manual_engagement', 'manual_comment_authenticity', 'manual_reject_reason', 'effective_priority_account_key'].every(key => !Object.hasOwn(blank, key))
+    && blank.manual_note === '' && blank.manual_reviewed === false && blank.effective_priority === '待核实' && isDeepStrictEqual(blank.manual_feedback_accounts, [row('tiktok:alpha')]))
+  const removed = project(document, [dirty], [])?.[0]
+  ok('D25-删除人工行清除旧七项账户行和有效来源', !!removed && !owned.slice(0, 7).some(key => Object.hasOwn(removed, key)) && !Object.hasOwn(removed, 'effective_priority_account_key')
+    && (removed.manual_feedback_accounts?.length ?? 0) === 0 && removed.manual_reviewed === false && removed.manual_round_id === 'main-round' && removed.effective_priority === '待核实')
+  const defrozen = project({ ...document, rounds: [] }, [dirty], [])?.[0]
+  ok('D25-冻结池删除后清除旧轮次', !!defrozen && !Object.hasOwn(defrozen, 'manual_round_id'))
+  ok('D25-相同输入重复投影稳定且已投影对象可安全重建', !!output && isDeepStrictEqual(project(document, input, feedback), output) && isDeepStrictEqual(project(document, output, feedback), output))
+  criterion('D25.g')
+
+  ok('D25-所有成功计算与投影不修改正本名单人工行及嵌套内容', isDeepStrictEqual([document, input, feedback], before))
+  ok('D25-返回新名单新创作者和独立完整人工行对象', !!output && output !== input && output.every((value, index) => value !== input[index])
+    && first?.manual_feedback_accounts !== feedback && first?.manual_feedback_accounts?.every(value => value !== primary && value !== linked) === true
+    && second?.manual_feedback_accounts?.every(value => !first?.manual_feedback_accounts?.includes(value)) === true)
+  const calcInput = { review_status: '已评' as const, adoption_priority: '备选' as const }, calcRows = [primary]
+  const calcBefore = structuredClone([calcInput, calcRows])
+  const independentlyOwned = calc(calcInput, calcRows), anotherSuggestion = calc(calcInput, calcRows)
+  ok('D25-纯计算不修改状态建议与人工输入', isDeepStrictEqual([calcInput, calcRows], calcBefore))
+  ok('D25-纯计算每次返回独立建议对象', !!independentlyOwned && !!anotherSuggestion && independentlyOwned !== anotherSuggestion)
+  if (independentlyOwned) independentlyOwned.priority = '优先联系'
+  eq('D25-修改计算建议不改变另一次建议', anotherSuggestion, { priority: '暂不采用', account_key: 'tiktok:alpha' })
+  if (first?.manual_feedback_accounts) { first.manual_feedback_accounts[0].manual_note = 'output mutation'; first.manual_feedback_accounts.push(row('tiktok:beta')) }
+  ok('D25-修改输出人工行和数组不反向改变输入或另一创作者', isDeepStrictEqual([document, input, feedback], before)
+    && isDeepStrictEqual(second?.manual_feedback_accounts, [linked, primary]))
+  eq('D25-所有公开合法计算投影路径均无异常', errors, [])
+  criterion('D25.h')
 })
 
 if (seenGroups.size !== GROUPS.length) {

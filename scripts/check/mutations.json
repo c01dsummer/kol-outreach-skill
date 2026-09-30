@@ -10071,6 +10071,186 @@
       "replace": "return { action: 'append', added_accounts: added.length, bytes: existing }",
       "by": "test",
       "kills": ["D24-追加后Buffer独立拥有不借用原文件存储", "D24-修改追加计划字节不改变既有人工文件Buffer"]
+    },
+    {
+      "id": "M-D25-a",
+      "req": "D25.a",
+      "why": "人工明确采用没有展示为优先联系",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "if (yes) return { priority: '优先联系', account_key: yes.account_key }",
+      "replace": "if (yes) return { priority: '备选', account_key: yes.account_key }",
+      "by": "test",
+      "kills": ["D25-人工明确采用优先联系并明示原平台来源"]
+    },
+    {
+      "id": "M-D25-b",
+      "req": "D25.a",
+      "why": "人工明确不合格被忽略，否定结论不再先于未知采用",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "const no = manual.find(row => row.manual_adopted === 'no' || row.manual_eligible === 'no')",
+      "replace": "const no = manual.find(row => row.manual_adopted === 'no')",
+      "by": "test",
+      "kills": ["D25-合法双平台组合遵循采用否定未知与主关联来源次序"]
+    },
+    {
+      "id": "M-D25-c",
+      "req": "D25.a",
+      "why": "人工采用未知被展示为备选，未保持待核实",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "if (unknown) return { priority: '待核实', account_key: unknown.account_key }",
+      "replace": "if (unknown) return { priority: '备选', account_key: unknown.account_key }",
+      "by": "test",
+      "kills": ["D25-合法双平台组合遵循采用否定未知与主关联来源次序"]
+    },
+    {
+      "id": "M-D25-d",
+      "req": "D25.a",
+      "why": "另一平台仅不合格否定盖过人工明确采用，跨平台条件次序改变",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "const yes = manual.find(row => row.manual_adopted === 'yes')",
+      "replace": "const yes = manual.find(row => row.manual_adopted === 'yes' && !manual.some(other => other.manual_eligible === 'no'))",
+      "by": "test",
+      "kills": ["D25-关联优先采纳压过主资格否定且明示关联来源"]
+    },
+    {
+      "id": "M-D25-e",
+      "req": "D25.b",
+      "why": "未评或待重评的 Agent 建议被当作当前可用建议",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "creator.review_status === '已评' && creator.adoption_priority !== undefined",
+      "replace": "creator.adoption_priority !== undefined",
+      "by": "test",
+      "kills": ["D25-仅已评且明确Agent建议可回退且不带人工来源"]
+    },
+    {
+      "id": "M-D25-f",
+      "req": "D25.b",
+      "why": "仅填写人工合格被推断为采用，制造未填写的采用结论",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "const yes = manual.find(row => row.manual_adopted === 'yes')",
+      "replace": "const yes = manual.find(row => row.manual_adopted === 'yes' || row.manual_eligible === 'yes')",
+      "by": "test",
+      "kills": ["D25-资格等级原因备注兼容fit分数与关联Agent不推断采用"]
+    },
+    {
+      "id": "M-D25-g",
+      "req": "D25.c",
+      "why": "带首尾空白的非法平台被接受，建立未通过关联校验的关系",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "return normalizedAccountKey(platform, handle)",
+      "replace": "return normalizedAccountKey(platform.trim(), handle)",
+      "by": "test",
+      "kills": ["D25-裸同平台非法或不可规范化关联均不建立关系"]
+    },
+    {
+      "id": "M-D25-h",
+      "req": "D25.c",
+      "why": "同平台关联被当作异平台关系，另一账号人工结论影响本账号",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "if (linked && linked.split(':')[0] !== primary?.split(':')[0]) accounts.push(linked)",
+      "replace": "if (linked) accounts.push(linked)",
+      "by": "test",
+      "kills": ["D25-裸同平台非法或不可规范化关联均不建立关系"]
+    },
+    {
+      "id": "M-D25-i",
+      "req": "D25.d",
+      "why": "人工明确采用的有效建议没有标出原平台来源账号",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "if (yes) return { priority: '优先联系', account_key: yes.account_key }",
+      "replace": "if (yes) return { priority: '优先联系' }",
+      "by": "test",
+      "kills": ["D25-人工明确采用优先联系并明示原平台来源"]
+    },
+    {
+      "id": "M-D25-j",
+      "req": "D25.d",
+      "why": "同条件人工来源改为关联账号优先，主关联来源次序颠倒",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "const rows = accounts.flatMap(key => {",
+      "replace": "const rows = [...accounts].reverse().flatMap(key => {",
+      "by": "test",
+      "kills": ["D25-同条件双人工行来源按主账号优先不按CSV先后"]
+    },
+    {
+      "id": "M-D25-k",
+      "req": "D25.e",
+      "why": "只有关联人工行时把其作答补为主账号七项人工字段",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "const manual = primary ? byAccount.get(primary) : undefined",
+      "replace": "const manual = rows[0]",
+      "by": "test",
+      "kills": ["D25-只有关联人工行不补主七项且不使主已评"]
+    },
+    {
+      "id": "M-D25-l",
+      "req": "D25.f",
+      "why": "只有等级原因或备注的实际填写未被识别为主账号已评",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "manualFields.some(field =>",
+      "replace": "manualFields.slice(0, 2).some(field =>",
+      "by": "test",
+      "kills": ["D25-主人工已评只看实际填写unknown等级原因及非空白备注"]
+    },
+    {
+      "id": "M-D25-m",
+      "req": "D25.f",
+      "why": "仅有空白备注也被标为人工已评，未评与填写混淆",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "manual[field]!.trim() !== ''",
+      "replace": "manual[field] !== ''",
+      "by": "test",
+      "kills": ["D25-主人工已评只看实际填写unknown等级原因及非空白备注"]
+    },
+    {
+      "id": "M-D25-n",
+      "req": "D25.f",
+      "why": "无人工行的已冻结主账号丢失原轮次归属",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "const round = primary ? byRound.get(primary) : undefined",
+      "replace": "const round = primary && manual ? byRound.get(primary) : undefined",
+      "by": "test",
+      "kills": ["D25-无主人工行已评为否且冻结轮次保留池外不补轮次"]
+    },
+    {
+      "id": "M-D25-o",
+      "req": "D25.g",
+      "why": "重新投影未清除旧人工派生字段，删除作答后旧判断和来源残留",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "as const) delete creator[field]",
+      "replace": "as const) void field",
+      "by": "test",
+      "kills": ["D25-删除主人工字段清除旧判断原因有效来源与已评残留", "D25-删除人工行清除旧七项账户行和有效来源"]
+    },
+    {
+      "id": "M-D25-p",
+      "req": "D25.g",
+      "why": "有效展示建议改写 Agent 原采用建议，混淆两侧判断所有权",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "creator.effective_priority = effective.priority",
+      "replace": "creator.adoption_priority = effective.priority\n    creator.effective_priority = effective.priority",
+      "by": "test",
+      "kills": ["D25-输出保持候选数量次序及全部非人工Agent兼容记忆字段"]
+    },
+    {
+      "id": "M-D25-q",
+      "req": "D25.h",
+      "why": "人工投影直接改写调用方创作者对象，输入名单被污染",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "const creator = { ...original }",
+      "replace": "const creator = original",
+      "by": "test",
+      "kills": ["D25-所有成功计算与投影不修改正本名单人工行及嵌套内容"]
+    },
+    {
+      "id": "M-D25-r",
+      "req": "D25.h",
+      "why": "输出人工行借用输入对象，修改返回作答反向改变原人工行",
+      "file": "scripts/lib/effective-priority.ts",
+      "find": "return row ? [structuredClone(row)] : []",
+      "replace": "return row ? [row] : []",
+      "by": "test",
+      "kills": ["D25-修改输出人工行和数组不反向改变输入或另一创作者"]
     }
   ],
   "exemptions": [

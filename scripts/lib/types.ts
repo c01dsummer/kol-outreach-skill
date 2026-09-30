@@ -1,3 +1,5 @@
+import type { ManualFeedbackRow, ManualLevel, ManualVerdict } from './manual-feedback.js'
+
 /** S4：只做出海平台。抖音/小红书/快手不在范围内 —— 账号体系与合规完全不同。 */
 /**
  * 支持的平台。**运行时列表与类型从同一处派生** —— 手写两份迟早会分叉，
@@ -362,6 +364,20 @@ export interface Creator {
     fit?: Fit
     fit_reason?: string
   }
+
+  /** D25：人工与有效展示由人工投影拥有，不能写回 Agent 正本或采集原件。 */
+  manual_eligible?: ManualVerdict
+  manual_adopted?: ManualVerdict
+  manual_content_fit?: ManualLevel
+  manual_engagement?: ManualLevel
+  manual_comment_authenticity?: ManualLevel
+  manual_reject_reason?: string
+  manual_note?: string
+  manual_reviewed?: boolean
+  manual_round_id?: string
+  manual_feedback_accounts?: ManualFeedbackRow[]
+  effective_priority?: AdoptionPriority
+  effective_priority_account_key?: string
 
   // render 从 enrichment.json 关联的公开指标摘要；原始样本仍只存 enrichment.json
   account_assessment?: AccountAssessmentSummary
