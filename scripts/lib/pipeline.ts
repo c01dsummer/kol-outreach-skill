@@ -423,12 +423,12 @@ export interface KeywordRow {
  * 只拿 `delivered` 反推就回到了上面说的那个洞；只拿 `state` 则数不出入围。
  */
 export function keywordRows(state: TaskState, delivered: Creator[]): KeywordRow[] {
-  // **归人算不算得准，是整张名单的属性，不是某一行的。** 只要有一个人身上没带来源任务，
-  // 这份名单就是本条落地之前采的 —— 那时没有这个字段，于是**每一行都会印一个确定为假的 0**。
-  // ⚠️ 上一条 PR（`answered`／`found` 两张表）先合，本条后合，中间那个窗口里建的目录
-  // 正是这个形状：表在、人身上没有下标。独立复核实测到两行都印「找到 40 / 入围 0」，
-  // 而名单里有 3 个人（ADR-94 第十六节丁）。注释一度声称这不可能，那句话只对更早的目录成立。
-  const attributable = delivered.every(c => c.source_tasks !== undefined)
+  // **归人算不算得准，是整张名单的属性，不是某一行的。** 只要有一个人的来源任务
+  // 缺席、为空或含无效下标，整张表的入围与语义通过人数就无从确认，不能印确定为假的 0。
+  // 查询状态和搜索返回条数仍由任务记录决定，不受名单来源缺失影响。
+  const attributable = delivered.every(c =>
+    Array.isArray(c.source_tasks) && c.source_tasks.length > 0 &&
+    c.source_tasks.every(index => Number.isSafeInteger(index) && index >= 0 && index < state.tasks.length))
   return state.tasks.map((t, i) => {
     const status = taskQueryStatus(state, i)
     // **只有真问过的行才谈得上「入围几个」。** 没问过的行印 0 就是把「没看」说成

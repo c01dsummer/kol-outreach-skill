@@ -642,11 +642,28 @@
       "req": "U3.b",
       "why": "不管名单里的人带不带来源任务，一律照常归人 —— 上一条 PR 建的目录（两张表在、人身上没有下标）于是每一行都印「找到 40 / 入围 0」，而名单里明明有人：一个确定为假的 0 印在真测量值旁边",
       "file": "scripts/lib/pipeline.ts",
-      "find": "  const attributable = delivered.every(c => c.source_tasks !== undefined)",
+      "find": "  const attributable = delivered.every(c =>\n    Array.isArray(c.source_tasks) && c.source_tasks.length > 0 &&\n    c.source_tasks.every(index => Number.isSafeInteger(index) && index >= 0 && index < state.tasks.length))",
       "replace": "  const attributable = true",
       "by": "test",
       "kills": [
         "名单里有一个人没带来源任务 → 每一行的入围都印「无从确认」，不印 0"
+      ]
+    },
+    {
+      "id": "M-U3-l",
+      "req": "U3.b",
+      "why": "来源任务只要字段存在就算归属已知，空列表、无效下标和非数字元素会让关键词表印出看似确定的入围人数，运营会把未知误读成实测结果",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  const attributable = delivered.every(c =>\n    Array.isArray(c.source_tasks) && c.source_tasks.length > 0 &&\n    c.source_tasks.every(index => Number.isSafeInteger(index) && index >= 0 && index < state.tasks.length))",
+      "replace": "  const attributable = delivered.every(c => c.source_tasks !== undefined)",
+      "by": "test",
+      "kills": [
+        "空来源数组：所有行归人数未知，已知查询与找到条数不丢",
+        "来源含越界任务下标：所有行归人数未知，已知查询与找到条数不丢",
+        "来源含非整数任务下标：所有行归人数未知，已知查询与找到条数不丢",
+        "来源为 null：所有行归人数未知，已知查询与找到条数不丢",
+        "来源含负任务下标：所有行归人数未知，已知查询与找到条数不丢",
+        "来源数组含非数字元素：所有行归人数未知，已知查询与找到条数不丢"
       ]
     },
     {

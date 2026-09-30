@@ -2292,6 +2292,45 @@ suite('U1', '分层管线返回的名单已按 tier 排好序')
        [duplicateRows[2]?.task_index, duplicateRows[2]?.status, duplicateRows[2]?.found,
         duplicateRows[2]?.shortlisted, duplicateRows[2]?.fit_pass], [2, 'unqueried', null, null, null])
   }
+  // U3.b/c × P5.i：只要名单里有一人无法完整归到有效任务下标，整张表的归人数未知；
+  // 搜索是否问过、供应商返回条数仍由任务记录决定，不能跟着丢掉。
+  {
+    const twoTaskRows = (sourceTasks: unknown) => {
+      try {
+        const state = tstate({
+          tasks: [
+            { keyword: 'one', dimension: 'category', platform: 'tiktok' },
+            { keyword: 'two', dimension: 'scene', platform: 'tiktok' },
+          ],
+          answered: { 0: 1, 1: 1 }, found: { 0: 4, 1: 6 }, offsets: { 0: 4, 1: 6 },
+        })
+        const first = mk('tiktok', 'first', {
+          fit: '✅', ...(sourceTasks === undefined ? {} : { source_tasks: sourceTasks as number[] }),
+        })
+        const second = mk('tiktok', 'second', { fit: '❌', source_tasks: [1] })
+        return keywordRows(state, [first, second])
+          .map(r => [r.status, r.found, r.shortlisted, r.fit_pass])
+      } catch (e) { return `抛了：${String(e)}` }
+    }
+    // 两个任务都问过；第一人来自两项，第二人只来自任务 1。
+    eq('合法多任务来源 [0,1]：两行分别计数且保留已知查询与找到条数',
+       twoTaskRows([0, 1]), [['queried', 4, 1, 1], ['queried', 6, 2, 1]])
+    const unknownCounts = [['queried', 4, null, null], ['queried', 6, null, null]]
+    eq('空来源数组：所有行归人数未知，已知查询与找到条数不丢',
+       twoTaskRows([]), unknownCounts)
+    eq('来源含越界任务下标：所有行归人数未知，已知查询与找到条数不丢',
+       twoTaskRows([0, 2]), unknownCounts)
+    eq('来源含负任务下标：所有行归人数未知，已知查询与找到条数不丢',
+       twoTaskRows([0, -1]), unknownCounts)
+    eq('来源含非整数任务下标：所有行归人数未知，已知查询与找到条数不丢',
+       twoTaskRows([0, 0.5]), unknownCounts)
+    eq('来源数组含非数字元素：所有行归人数未知，已知查询与找到条数不丢',
+       twoTaskRows([0, null]), unknownCounts)
+    eq('来源为 null：所有行归人数未知，已知查询与找到条数不丢',
+       twoTaskRows(null), unknownCounts)
+    eq('来源缺席：所有行归人数未知，已知查询与找到条数不丢',
+       twoTaskRows(undefined), unknownCounts)
+  }
   // 无从确认（整张分页记录表缺失，F9 落地之前的旧目录）：四态里的第四态
   // 旧目录的真实形状：连 `answered` 都没有的目录，人身上当然也没有来源任务
   const legacyPeople = out.map(c => ({ ...c, source_tasks: undefined }))
