@@ -4066,6 +4066,44 @@ group('brand-calibration-entry', [], () => {
     }
     rejected++
   }
+  // D16.o × D20.e：同一份可读任务文件里，两类坏字段都要一次报出。
+  const dual = taskInput('brand-invalid-render-dual', { ...brand, version: ' ' }, true)
+  writeFileSync(dual.task, JSON.stringify({ ...jsonFile(dual.task), tasks: [
+    { keyword: ' ', dimension: 'Category', platform: 'TikTok' },
+    { keyword: null, platform: 'instagram' },
+  ] }, null, 2) + '\n')
+  const dualMemory = join(dual.cwd, 'memory', 'creators.json')
+  writeFileSync(join(dual.taskDir, 'enrichment.json'), '[]\n')
+  writeFileSync(join(dual.taskDir, 'kol.csv'), 'existing csv\n')
+  writeFileSync(join(dual.taskDir, 'report.html'), '<p>existing report</p>\n')
+  writeFileSync(dualMemory, JSON.stringify({ version: 1, updated_at: '2026-01-01T00:00:00.000Z', creators: {} }) + '\n')
+  const dualFiles = [dual.task, 'creators.raw.json', 'creators.json', 'enrichment.json',
+    'kol.csv', 'kol.xlsx', 'meta.json', 'report.html'].map((file, i) => i === 0 ? file : join(dual.taskDir, file))
+    .concat(dualMemory)
+  const dualBefore = dualFiles.map(file => existsSync(file) ? readFileSync(file) : undefined)
+  const dualRun = runBoth('品牌校准与任务列表同时非法 render', [S('render.ts'), '--dir', dual.taskDir],
+    dual.cwd, { status: 2, soft: [0, 1, 3] }, observed(dual))
+  if (dualRun.ok && ready(dual, dualRun.stderr)) {
+    const matches = [...dualRun.stderr.matchAll(/任务\s*(\d+)(?!\d)|第\s*(\d+)\s*个/g)]
+    const parts = matches.map((match, i) => ({ task: Number(match[1] ?? match[2]),
+      text: dualRun.stderr.slice(match.index, matches[i + 1]?.index) }))
+    const taskProblems = [
+      { task: 1, field: 'keyword', value: JSON.stringify(' ') },
+      { task: 1, field: 'dimension', value: JSON.stringify('Category') },
+      { task: 1, field: 'platform', value: JSON.stringify('TikTok') },
+      { task: 2, field: 'keyword', value: JSON.stringify(null) },
+      { task: 2, field: 'dimension', value: '缺席' },
+    ].every(problem => parts.some(part => part.task === problem.task
+      && part.text.includes(problem.field) && part.text.includes(problem.value)))
+    const kept = dualFiles.every((file, i) => dualBefore[i] === undefined
+      ? !existsSync(file) : existsSync(file) && readFileSync(file).equals(dualBefore[i]))
+    named('品牌校准与任务列表：render 同文件错误一次报全且已有文件原字节不变',
+      dualRun.status === 2 && dualRun.stderr.includes(dual.task) && taskProblems
+        && dualRun.stderr.split('\n').some(line => /brand_calibration.*\bversion\b/.test(line))
+        && !Object.values(probeInputLeak(dualRun.stderr)).some(Boolean)
+        && noReserveOrFetch(dual) && kept,
+      `退出=${dualRun.status}，任务诊断齐全=${taskProblems}，文件字节未动=${kept}，stderr=${stderrTail(dualRun.stderr)}`)
+  }
   const budgetEnrich = taskInput('brand-invalid-enrich-budget', bad, true)
   const budgetEnrichBefore = original(budgetEnrich)
   const budgetEnrichRun = runBoth('品牌校准非法 enrich 改额',
