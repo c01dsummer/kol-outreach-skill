@@ -2058,7 +2058,10 @@ suite('D4', '记忆选跑：合法控制、语义拒收与局部写回失败')
           ['instagram:alice_ig', entry({ platform: 'instagram', handle: 'alice_ig', ...secondary })],
         ])
       const linkedExcluded = (field: 'contacted' | 'blocked') => normal(() =>
-        prepare(linkedMemory({ [field]: true })) !== undefined &&
+        prepare(memory([
+          ['tiktok:alice', entry()],
+          ['instagram:alice_ig', entry({ platform: 'instagram', handle: 'alice_ig', [field]: true })],
+        ])) !== undefined &&
         filterByMemory([creator({ linked_handle: 'instagram:alice_ig' })], 'Foo', 'new-task').kept.length === 0)
       ok('记忆关联账号已联系者被过滤', linkedExcluded('contacted'))
       ok('记忆关联账号已屏蔽者被过滤', linkedExcluded('blocked'))
@@ -2066,6 +2069,14 @@ suite('D4', '记忆选跑：合法控制、语义拒收与局部写回失败')
         prepare(linkedMemory({}, { contacted: true })) !== undefined &&
         filterByMemory([creator({ platform: 'instagram', handle: 'alice_ig',
           profile_url: 'https://www.instagram.com/alice_ig/' })], 'Foo', 'new-task').kept.length === 0))
+      ok('只发现主账号也查到历史关联账号的联系记录', normal(() =>
+        prepare(linkedMemory({ contacted: true })) !== undefined &&
+        filterByMemory([creator()], 'Foo', 'new-task').kept.length === 0))
+      ok('共享历史关联的其他账号已联系也被过滤', normal(() =>
+        prepare(memory([
+          ['tiktok:alice', entry({ linked_to: 'instagram:alice_ig' })],
+          ['tiktok:alice_2', entry({ handle: 'alice_2', linked_to: 'instagram:alice_ig', contacted: true })],
+        ])) !== undefined && filterByMemory([creator()], 'Foo', 'new-task').kept.length === 0))
       ok('删除历史推荐后旧标签不残留', normal(() => {
         if (prepare(one()) === undefined) return false
         const old = creator({ previously_recommended: '曾为旧产品推荐过' })
@@ -9777,6 +9788,8 @@ await group('p4-render-recheck', () => {
   ok('当前主账号已屏蔽不得进入交付', passed('current primary-blocked excludes the person before output and memory write'))
   ok('当前关联账号已联系不得进入交付', passed('current linked-contacted excludes the person before output and memory write'))
   ok('当前关联账号已屏蔽不得进入交付', passed('current linked-blocked excludes the person before output and memory write'))
+  ok('无当前关联字段仍查历史主账号关联', passed('persisted primary link excludes an unlinked candidate when secondary was contacted'))
+  ok('共享历史关联连通的已联系账号也被过滤', passed('shared persisted link excludes an unlinked candidate when another account was contacted'))
   ok('重复交付必须读取此刻联系状态', passed('render rereads current memory even when task status already says ok'))
   ok('坏记忆拒绝交付且显式忽略须声明未去重', passed('unreadable memory stops delivery, and explicit ignore declares no deduplication'))
   ok('同任务先前推荐不妨碍再次交付', passed('recommendation from this same task permits a legitimate repeat render'))

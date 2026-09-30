@@ -190,11 +190,35 @@
       "req": "P4.a",
       "why": "只发现关联账号时不查记忆里已有的跨平台映射，已联系主账号被重新推荐",
       "file": "scripts/lib/memory.ts",
-      "find": "    if (entry.linked_to && keys.has(entry.linked_to.toLowerCase())) keys.add(storedKey)",
-      "replace": "    /* 历史关联未参与查询 */",
+      "find": "    add(target, storedKey)",
+      "replace": "    /* 关联身份不能找回历史主账号 */",
       "by": "test",
       "kills": [
         "只发现关联账号也查到主账号的联系记录"
+      ]
+    },
+    {
+      "id": "M-P4-p",
+      "req": "P4.a",
+      "why": "只发现主账号且本次没有关联字段时，不查它在历史记忆里关联的已联系账号",
+      "file": "scripts/lib/memory.ts",
+      "find": "    add(storedKey, target)",
+      "replace": "    /* 主账号不能找到历史关联身份 */",
+      "by": "test",
+      "kills": [
+        "只发现主账号也查到历史关联账号的联系记录"
+      ]
+    },
+    {
+      "id": "M-P4-q",
+      "req": "P4.a",
+      "why": "两个历史账号共享关联身份时只查第一跳，另一已联系账号没有挡住交付",
+      "file": "scripts/lib/memory.ts",
+      "find": "      pending.push(other)",
+      "replace": "      /* 只查第一跳关联 */",
+      "by": "test",
+      "kills": [
+        "共享历史关联的其他账号已联系也被过滤"
       ]
     },
     {

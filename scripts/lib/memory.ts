@@ -315,17 +315,37 @@ export interface FilterResult {
   memory_status: Exclude<MemoryStatus, 'unknown'>
 }
 
-/** A merged candidate can be known under either account in an earlier task. */
-function accountKeys(c: Creator, mem: MemoryFile): string[] {
+/** Persisted links are undirected person evidence, including links to unsaved accounts. */
+function linkedGraph(mem: MemoryFile): Map<string, Set<string>> {
+  const graph = new Map<string, Set<string>>()
+  const add = (from: string, to: string) => {
+    if (!graph.has(from)) graph.set(from, new Set())
+    graph.get(from)!.add(to)
+  }
+  for (const [storedKey, entry] of Object.entries(mem.creators)) {
+    if (!entry.linked_to) continue
+    const target = entry.linked_to.toLowerCase()
+    add(storedKey, target)
+    add(target, storedKey)
+  }
+  return graph
+}
+
+/** A current candidate may have no link field, yet old memory knows its component. */
+function accountKeys(c: Creator, graph: Map<string, Set<string>>): string[] {
   const keys = new Set([key(c)])
   const linked = c.linked_handle?.split(':')
   if (linked?.length === 2 && !keyProblem(linked[0], linked[1])) {
     keys.add(creatorKey({ platform: linked[0], handle: linked[1] }))
   }
-  // A previous task may have saved the primary account with linked_to, while
-  // this task discovers only its secondary account.
-  for (const [storedKey, entry] of Object.entries(mem.creators)) {
-    if (entry.linked_to && keys.has(entry.linked_to.toLowerCase())) keys.add(storedKey)
+  const pending = [...keys]
+  while (pending.length) {
+    const current = pending.pop()!
+    for (const other of graph.get(current) ?? []) {
+      if (keys.has(other)) continue
+      keys.add(other)
+      pending.push(other)
+    }
   }
   return [...keys]
 }
@@ -361,11 +381,12 @@ export function filterByMemory(
     }
   }
   const mem = r.mem
+  const graph = linkedGraph(mem)
   const kept: Creator[] = []
   let rec = 0, con = 0
 
   for (const c of creators) {
-    const entries = accountKeys(c, mem).flatMap(k => {
+    const entries = accountKeys(c, graph).flatMap(k => {
       const entry = mem.creators[k]
       return entry ? [entry] : []
     })

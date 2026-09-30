@@ -133,10 +133,34 @@ try {
     check(`current ${marked} excludes the person before output and memory write`, () => {
       const f = fixture(marked, true)
       putMemory(f, marked)
+      if (marked.startsWith('linked-')) {
+        const memory = json(f.memory)
+        delete memory.creators[`tiktok:${handle}`].linked_to
+        writeJson(f.memory, memory)
+      }
       success(run(f))
       omitted(f)
     })
   }
+
+  check('persisted primary link excludes an unlinked candidate when secondary was contacted', () => {
+    const f = fixture('unlinked-primary-candidate')
+    putMemory(f, 'linked-contacted')
+    success(run(f))
+    omitted(f)
+  })
+
+  check('shared persisted link excludes an unlinked candidate when another account was contacted', () => {
+    const f = fixture('shared-persisted-link')
+    putMemory(f)
+    const memory = json(f.memory)
+    memory.creators['tiktok:other_sage'] = {
+      ...memoryEntry('tiktok', 'other_sage'), linked_to: `instagram:${linkedHandle}`, contacted: true,
+    }
+    writeJson(f.memory, memory)
+    success(run(f))
+    omitted(f)
+  })
 
   check('render rereads current memory even when task status already says ok', () => {
     const f = fixture('repeat-after-contact')
