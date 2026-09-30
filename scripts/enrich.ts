@@ -21,6 +21,7 @@ import {
 } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
 import { stringifyCostJson } from './lib/cost-json.js'
+import { brandCalibrationProblems } from './lib/brand-calibration.js'
 import {
   accountKey,
   assignAudienceRisks,
@@ -65,6 +66,10 @@ let budget: Budget
 const newBudget = arg('--budget')
 try {
   task = loadTask(dir)
+  const calibrationProblems = brandCalibrationProblems(task)
+  if (calibrationProblems.length) {
+    throw new Error(`${taskFile(dir)} 里的品牌输入不合规：\n  ${calibrationProblems.join('\n  ')}`)
+  }
   budget = new Budget(task, (pct, view) => {
     console.error(`\n💰 已用 ${(pct * 100).toFixed(0)}% —— 估算占用 $${view.cost_estimate_usd} / $${view.budget_usd}\n`)
   }, snapshot => saveCostCheckpoint(dir, snapshot))

@@ -72,6 +72,7 @@ import { hashtagKeyword, igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { resumeProgressProblems } from './lib/resume-progress.js'
 import { configFieldProblems, type ConfigInputRole } from './lib/config-input.js'
+import { brandCalibrationProblems } from './lib/brand-calibration.js'
 import {
   INSTAGRAM_HASHTAG_ENDPOINT, TikHub, TikHubError, fillEmail, isInstagramVideo, parseInstagramHashtagPage, pickList,
 } from './providers/tikhub.js'
@@ -5448,6 +5449,104 @@ suite('D17', '市场与目标人数按原始字段和输入角色校验')
   // 本次只认领判定函数不补值：续跑缺席和显式非法仍报错，新输入缺席通过但不写默认值。
   // 入口是否先补值再调用不在本组证据范围，入口接线与对应反例另行实现。
   tension('D17', 'P1')
+}
+
+suite('D20', '可选品牌校准输入区分项目偏好与已证实产品事实')
+{
+  // 依据附件 §5.1 与 D20.a；不借用校验器常量作为预期。
+  const calibration = {
+    version: 'other-brand-v1',
+    target_creator_types: ['home cooks'],
+    tone_aesthetic: ['warm and practical'],
+    natural_scenarios: ['preparing a weekday lunch'],
+    negative_signals: ['unexplained product claims'],
+    sources: [
+      { source: 'team brief, page 2', kind: 'brand_preference', detail: 'preferred voice' },
+      { source: 'product page, checked 2026-09-30', kind: 'verified_product_fact', detail: 'page states the material' },
+    ],
+  }
+  const problems = (value: unknown): string[] | string => {
+    try { return brandCalibrationProblems(value) }
+    catch (error) { return `threw: ${error instanceof Error ? error.message : String(error)}` }
+  }
+  const rejected = (value: unknown): boolean => {
+    const got = problems({ brand_calibration: value })
+    return Array.isArray(got) && got.length > 0 && got.every(item => typeof item === 'string')
+  }
+  const absent = Object.freeze({ product: 'example' })
+  const inherited = Object.create({ brand_calibration: null })
+  eq('品牌校准：自有字段缺席和原型上的同名字段均视为未提供，判定不补字段',
+    [problems(absent), problems(inherited), Object.hasOwn(absent, 'brand_calibration'),
+      Object.hasOwn(inherited, 'brand_calibration')], [[], [], false, false])
+  eq('品牌校准：非 Adiaro 项目和两种明确来源性质同时合规',
+    problems({ brand_calibration: calibration }), [])
+  eq('品牌校准：四组描述及来源允许空数组，不凭空发明项目偏好',
+    problems({ brand_calibration: { ...calibration, target_creator_types: [], tone_aesthetic: [],
+      natural_scenarios: [], negative_signals: [], sources: [] } }), [])
+
+  const missingFields = ['version', 'target_creator_types', 'tone_aesthetic',
+    'natural_scenarios', 'negative_signals', 'sources'] as const
+  const omitted = missingFields.map(field => ({ field, value: Object.fromEntries(
+    Object.entries(calibration).filter(([key]) => key !== field)) }))
+  const wrongShapes: { name: string; value: unknown }[] = [
+    { name: 'explicit undefined', value: undefined },
+    { name: 'null', value: null },
+    { name: 'array root', value: [] },
+    { name: 'string root', value: 'brand' },
+    ...omitted.map(({ field, value }) => ({ name: `missing ${field}`, value })),
+    { name: 'numeric version', value: { ...calibration, version: 1 } },
+    { name: 'blank version', value: { ...calibration, version: ' \t ' } },
+    ...(['target_creator_types', 'tone_aesthetic', 'natural_scenarios', 'negative_signals'] as const)
+      .flatMap(field => [
+        { name: `${field} scalar`, value: { ...calibration, [field]: 'text' } },
+        { name: `${field} nontext member`, value: { ...calibration, [field]: ['text', 1] } },
+        { name: `${field} blank member`, value: { ...calibration, [field]: [' \t '] } },
+      ]),
+    { name: 'sources scalar', value: { ...calibration, sources: 'brief' } },
+    { name: 'source null member', value: { ...calibration, sources: [null] } },
+  ]
+  eq('品牌校准：显式坏值、缺字段及列表中非文字逐项拒绝',
+    wrongShapes.filter(({ value }) => !rejected(value)).map(({ name }) => name), [])
+
+  const sourceBase = { source: 'traceable page', kind: 'brand_preference', detail: 'project preference' }
+  const wrongSources: { name: string; item: unknown }[] = [
+    { name: 'unknown kind', item: { ...sourceBase, kind: 'product_fact' } },
+    { name: 'source not text', item: { ...sourceBase, source: 42 } },
+    { name: 'source blank', item: { ...sourceBase, source: ' \t ' } },
+    { name: 'detail not text', item: { ...sourceBase, detail: 42 } },
+    { name: 'detail blank', item: { ...sourceBase, detail: ' \t ' } },
+    ...(['source', 'kind', 'detail'] as const).map(field => ({ name: `missing ${field}`,
+      item: Object.fromEntries(Object.entries(sourceBase).filter(([key]) => key !== field)) })),
+  ]
+  eq('品牌校准：来源条目须有出处、性质、详情且性质只取约定两值',
+    wrongSources.filter(({ item }) => !rejected({ ...calibration, sources: [item] }))
+      .map(({ name }) => name), [])
+
+  const mixed = { brand_calibration: { ...calibration, version: ' ',
+    tone_aesthetic: [7], sources: [{ source: ' ', kind: 'unverified_claim', detail: 4 }] } }
+  const mixedBefore = JSON.stringify(mixed)
+  const mixedProblems = problems(mixed)
+  ok('品牌校准：同一输入逐字段指出版本、描述与来源的全部问题',
+    Array.isArray(mixedProblems) && [
+      /brand_calibration.*\bversion\b/,
+      /brand_calibration.*\btone_aesthetic\b/,
+      /brand_calibration.*\bsources\b.*\bsource\b/,
+      /brand_calibration.*\bsources\b.*\bkind\b/,
+      /brand_calibration.*\bsources\b.*\bdetail\b/,
+    ].every(path => mixedProblems.some(problem => path.test(problem))))
+  eq('品牌校准：坏输入被校验后仍保持原值', JSON.stringify(mixed), mixedBefore)
+
+  const frozen = Object.freeze({ brand_calibration: Object.freeze({ ...calibration,
+    target_creator_types: Object.freeze([...calibration.target_creator_types]),
+    tone_aesthetic: Object.freeze([...calibration.tone_aesthetic]),
+    natural_scenarios: Object.freeze([...calibration.natural_scenarios]),
+    negative_signals: Object.freeze([...calibration.negative_signals]),
+    sources: Object.freeze(calibration.sources.map(item => Object.freeze({ ...item }))),
+  }) })
+  const before = JSON.stringify(frozen)
+  eq('品牌校准：校验合规深冻结输入，不改原值或来源性质',
+    [problems(frozen), JSON.stringify(frozen)], [[], before])
+  criterion('D20.a')
 }
 
 })

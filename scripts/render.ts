@@ -11,6 +11,7 @@ import { writeFileAtomic } from './lib/atomic.js'
 import { join } from 'node:path'
 import { taskFile, taskId, loadTask, loadCreators, loadEnrichment, persistListAndStatus } from './lib/task.js'
 import { taskListProblems } from './lib/search-tasks.js'
+import { brandCalibrationProblems } from './lib/brand-calibration.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { rankCreators, keywordRows, taskPlatforms, tierCounts } from './lib/pipeline.js'
 import { filterByMemory, MemoryUnreadable, recordRecommendations } from './lib/memory.js'
@@ -37,8 +38,9 @@ catch (e) {
   process.exit(2)
 }
 const badTasks = taskListProblems(state.tasks)
-if (badTasks.length) {
-  console.error(`${taskFile(dir)} 里的任务配置不合规：\n  ${badTasks.join('\n  ')}`)
+const taskProblems = [...badTasks, ...brandCalibrationProblems(state)]
+if (taskProblems.length) {
+  console.error(`${taskFile(dir)} 里的任务配置不合规：\n  ${taskProblems.join('\n  ')}`)
   process.exit(2)
 }
 let creators = loadCreators(dir)

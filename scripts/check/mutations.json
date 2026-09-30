@@ -9224,6 +9224,108 @@
         "认领恢复：空原件和空当前相同则保留",
         "认领恢复：视图中的相同字节保留原件"
       ]
+    },
+    {
+      "id": "M-D20-a",
+      "req": "D20.a",
+      "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
+      "file": "scripts/lib/brand-calibration.ts",
+      "find": "if (source.kind !== 'brand_preference' && source.kind !== 'verified_product_fact') {",
+      "replace": "if (false) {",
+      "by": "test",
+      "kills": [
+        "品牌校准：来源条目须有出处、性质、详情且性质只取约定两值"
+      ]
+    },
+    {
+      "id": "M-D20-b",
+      "req": "D20.a",
+      "why": "显式 null 或非对象的品牌输入被当作缺席放过",
+      "file": "scripts/lib/brand-calibration.ts",
+      "find": "if (!object(calibration)) return ['brand_calibration 必须是对象；缺席可不填，null 不代表缺席']",
+      "replace": "if (!object(calibration)) return []",
+      "by": "test",
+      "kills": [
+        "品牌校准：显式坏值、缺字段及列表中非文字逐项拒绝"
+      ]
+    },
+    {
+      "id": "M-D20-c",
+      "req": "D20.a",
+      "why": "描述数组里的空白或非文字条目被接受，品牌输入的形状失真",
+      "file": "scripts/lib/brand-calibration.ts",
+      "find": "if (!nonblank(value)) problems.push(`brand_calibration.${field}[${index}] 必须是非空字符串`)",
+      "replace": "if (false) problems.push(`brand_calibration.${field}[${index}] 必须是非空字符串`)",
+      "by": "test",
+      "kills": [
+        "品牌校准：显式坏值、缺字段及列表中非文字逐项拒绝"
+      ]
+    },
+    {
+      "id": "M-D20-d",
+      "req": "D20.d",
+      "why": "新建任务保存时丢掉已经提供的品牌校准",
+      "file": "scripts/collect.ts",
+      "find": "...(Object.hasOwn(cfg, 'brand_calibration') ? { brand_calibration: cfg.brand_calibration } : {}),",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "品牌校准：合法新建确实预留和请求，task.json 原样保存校准"
+      ]
+    },
+    {
+      "id": "M-D20-e",
+      "req": "D20.d",
+      "why": "任务保存时擦掉品牌校准，续跑后的原输入不再可用",
+      "file": "scripts/lib/task.ts",
+      "find": "state.updated_at = new Date().toISOString()\n  writeFileAtomic(taskFile(dir), stringifyCostJson(state))",
+      "replace": "state.updated_at = new Date().toISOString(); state.brand_calibration = undefined\n  writeFileAtomic(taskFile(dir), stringifyCostJson(state))",
+      "by": "selfcheck",
+      "kills": [
+        "品牌校准：合法新建确实预留和请求，task.json 原样保存校准",
+        "品牌校准：普通续跑原样保留品牌输入",
+        "品牌校准：改额续跑原样保留品牌输入"
+      ]
+    },
+    {
+      "id": "M-D20-f",
+      "req": "D20.e",
+      "why": "collect 跳过坏品牌输入，续跑可以在拒绝前预留、请求或改写任务",
+      "file": "scripts/collect.ts",
+      "find": "const badCalibration = brandCalibrationProblems(state)",
+      "replace": "const badCalibration: string[] = []",
+      "by": "selfcheck",
+      "kills": [
+        "品牌校准：非法新建逐字段指出校准路径",
+        "品牌校准：普通续跑坏输入在预留和请求前退出2，任务三文件原字节不变",
+        "品牌校准：改额续跑坏输入在预留和请求前退出2，任务三文件原字节不变"
+      ]
+    },
+    {
+      "id": "M-D20-g",
+      "req": "D20.e",
+      "why": "enrich 跳过坏品牌输入，改额或主页查询可能先发生",
+      "file": "scripts/enrich.ts",
+      "find": "const calibrationProblems = brandCalibrationProblems(task)",
+      "replace": "const calibrationProblems: string[] = []",
+      "by": "selfcheck",
+      "kills": [
+        "品牌校准：enrich 坏任务在预留、请求和交付写入前退出2",
+        "品牌校准：enrich 逐字段指出校准路径"
+      ]
+    },
+    {
+      "id": "M-D20-h",
+      "req": "D20.e",
+      "why": "render 跳过坏品牌输入，名单或记忆可能在拒绝前写出",
+      "file": "scripts/render.ts",
+      "find": "const taskProblems = [...badTasks, ...brandCalibrationProblems(state)]",
+      "replace": "const taskProblems = [...badTasks]",
+      "by": "selfcheck",
+      "kills": [
+        "品牌校准：render 坏任务在预留、请求和交付写入前退出2",
+        "品牌校准：render 逐字段指出校准路径"
+      ]
     }
   ],
   "exemptions": [
