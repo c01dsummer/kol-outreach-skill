@@ -41,12 +41,12 @@ const badTasks = taskListProblems(state.tasks)
 const badCalibration = brandCalibrationProblems(state)
 if (badCalibration.length) {
   console.error(`${taskFile(dir)} 里的品牌输入不合规：\n  ${badCalibration.join('\n  ')}`)
-  process.exit(2)
 }
 if (badTasks.length) {
   console.error(`${taskFile(dir)} 里的任务配置不合规：\n  ${badTasks.join('\n  ')}`)
   process.exit(2)
 }
+if (badCalibration.length) process.exit(2)
 let creators = loadCreators(dir)
 
 // 同人识别与合并 —— 在这里再跑一次，render 才能独立于 collect 正确工作（幂等）
