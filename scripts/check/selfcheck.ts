@@ -29,6 +29,7 @@ import { createRequire as entrySelfcheckCreateRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
+import { isDeepStrictEqual } from 'node:util'
 import { tsxCommand } from './tsx-cmd.js'
 import {
   ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, sourceFiles,
@@ -2335,7 +2336,6 @@ group('memory', ['collect', 'render'], () => {
   if (dir && rendered !== undefined) {
     const memFile = join(tmp, 'memory', 'creators.json')
     const healthy = readFileSync(memFile, 'utf8')
-    const contactedCount = Object.keys(JSON.parse(healthy).creators ?? {}).length
     const broken = healthy.slice(0, Math.floor(healthy.length * 0.6))
     writeFileSync(memFile, broken, 'utf8')
 
@@ -2545,23 +2545,28 @@ group('memory', ['collect', 'render'], () => {
       console.error(`  ✗ 强出的名单没有声明未去重（memory_status=${forcedSummary.memory_status}）`)
     } else console.log('  ✓ 强出的名单在 stdout 声明 memory_status')
 
-    // render：不写回，不覆盖，且报告上说出来
-    const keptMemory = run('render 记忆读不出来时不覆盖原文件', [S('render.ts'), '--dir', dir], tmp)
-    // 三条后置条件一起守住 —— 后两条读的是这一次 render 的产出物，只守第一条的话
-    // 它们会拿上一次留下的陈旧文件报「✓」，把功劳记在一次失败的运行头上
-    if (keptMemory !== undefined) {
-      if (readFileSync(memFile, 'utf8') !== broken) {
-        failed++
-        console.error(`  ✗ 读不出来的记忆被覆盖了 —— 原本记着 ${contactedCount} 个人的联系状态`)
-      } else console.log('  ✓ 读不出来的记忆一个字节没动')
+    // 直接重导出也必须重新读当前记忆。坏记忆未获显式豁免时，旧交付和记忆均不动。
+    const deliveryFiles = ['task.json', 'creators.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
+    const beforeRender = deliveryFiles.map(name => fileText(join(tmp, dir, name)))
+    const refusedRender = runBoth('render 坏记忆默认拒绝交付',
+      [S('render.ts'), '--dir', dir], tmp, { status: 2, soft: [0] })
+    named('render 坏记忆默认拒绝且不改旧交付或记忆',
+      refusedRender.status === 2 && deliveryFiles.every((name, i) =>
+        fileText(join(tmp, dir, name)) === beforeRender[i]) && fileText(memFile) === broken,
+      `退出=${refusedRender.status}，stderr=${stderrTail(refusedRender.stderr)}`)
 
-      const metaAfter = JSON.parse(readFileSync(join(tmp, dir, 'meta.json'), 'utf8'))
-      const htmlAfter = readFileSync(join(tmp, dir, 'report.html'), 'utf8')
-      if (metaAfter.memory_written !== false || metaAfter.memory_status !== 'unreadable_ignored') {
-        failed++; console.error('  ✗ meta.json 没有报出记忆的两个状态')
-      } else if (!htmlAfter.includes('未做「已联系 / 已推荐」去重')) {
-        failed++; console.error('  ✗ 报告没有声明这批名单未去重（P5）')
-      } else console.log('  ✓ meta.json 与报告都声明了记忆失效')
+    const keptMemory = runBoth('render 显式忽略坏记忆',
+      [S('render.ts'), '--dir', dir, '--ignore-memory'], tmp)
+    if (keptMemory.ok) {
+      const metaAfter = jsonFile(join(tmp, dir, 'meta.json'))
+      const taskAfter = jsonFile(join(tmp, dir, 'task.json'))
+      const htmlAfter = fileText(join(tmp, dir, 'report.html'))
+      named('render 显式忽略坏记忆时名单与任务状态都声明未去重',
+        fileText(memFile) === broken && metaAfter?.memory_written === false
+          && metaAfter?.memory_status === 'unreadable_ignored'
+          && taskAfter?.memory_status === 'unreadable_ignored'
+          && htmlAfter.includes('未做「已联系 / 已推荐」去重'),
+        `meta=${JSON.stringify(metaAfter)}，task=${JSON.stringify(taskAfter)}`)
     }
 
     // 旧任务目录：task.json 里根本没有这个字段。**不能读成「去重跑过了」** ——
@@ -2572,17 +2577,19 @@ group('memory', ['collect', 'render'], () => {
     delete legacy.memory_status
     writeFileSync(taskFile, JSON.stringify(legacy, null, 2), 'utf8')
 
-    const legacyRun = run('render 旧任务目录的去重状态记为无从确认', [S('render.ts'), '--dir', dir], tmp)
+    const legacyRun = run('render 旧任务目录按当前记忆重核', [S('render.ts'), '--dir', dir], tmp)
     // 读也放进判空里 —— 同上
     if (legacyRun !== undefined) {
       const legacyMeta = JSON.parse(readFileSync(join(tmp, dir, 'meta.json'), 'utf8'))
       const legacyHtml = readFileSync(join(tmp, dir, 'report.html'), 'utf8')
-      if (legacyMeta.memory_status !== 'unknown') {
+      if (legacyMeta.memory_status !== 'ok') {
         failed++
-        console.error(`  ✗ 缺字段被读成了 ${legacyMeta.memory_status} —— 无从确认的事被当成了肯定答案`)
-      } else if (!legacyHtml.includes('无从确认')) {
-        failed++; console.error('  ✗ 报告没有声明去重状态无从确认')
-      } else console.log('  ✓ 旧任务目录记为 unknown 并在报告上声明')
+        console.error(`  ✗ 当前记忆可用却报 ${legacyMeta.memory_status}`)
+      } else if (jsonFile(taskFile)?.memory_status !== 'ok') {
+        failed++; console.error('  ✗ 任务里的去重状态没有随本次重核更新')
+      } else if (legacyHtml.includes('本次没有做去重')) {
+        failed++; console.error('  ✗ 报告仍保留旧的未知声明')
+      } else console.log('  ✓ 旧任务按本次记忆重核为 ok')
     }
   }
 })
@@ -3593,7 +3600,8 @@ group('render-input-good', [], () => {
     if (!existing) writeFileSync(join(f.taskDir, 'creators.json'), JSON.stringify(f.people) + '\n')
     const noEnrichment = c.id === 'unknown-zero', enrichment = join(f.taskDir, 'enrichment.json')
     if (noEnrichment) rmSync(enrichment) // 真正缺少增强文件，不能只用 accounts:{} 代替此输入。
-    const originals = ['task.json', 'creators.raw.json', 'enrichment.json'].map(n => bytes(join(f.taskDir, n)))
+    const originalTask = jsonFile(join(f.taskDir, 'task.json'))
+    const originalRawAndEnrichment = ['creators.raw.json', 'enrichment.json'].map(n => bytes(join(f.taskDir, n)))
     const r = runFixture(f, `render 合法 ${existing}/${c.id}`, 0); if (!r) continue
     const meta = jsonFile(join(f.taskDir, 'meta.json')), rows = meta?.keywords
     const people = jsonFile(join(f.taskDir, 'creators.json')), record = jsonFile(join(f.memory, 'creators.json'))?.creators?.['tiktok:render_input_person']
@@ -3609,8 +3617,15 @@ group('render-input-good', [], () => {
       && fileText(join(f.taskDir, 'kol.xlsx')).startsWith('PK')
       && Array.isArray(record?.recommendations) && record.recommendations.some((x: any) => x.product === 'renderinput')
       && meta?.memory_written === true, detail)
-    named('render 输入：合法导出不修正task原件，不改采集与增强原件',
-      ['task.json', 'creators.raw.json', 'enrichment.json'].every((n, i) => bytes(join(f.taskDir, n)) === originals[i]), detail)
+    const taskAfter = jsonFile(join(f.taskDir, 'task.json'))
+    const withoutRunStatus = (value: any) => {
+      const { memory_status: _status, updated_at: _updated, ...other } = value
+      return other
+    }
+    named('render 输入：合法导出保留原任务配置与采集增强原件',
+      taskAfter && isDeepStrictEqual(withoutRunStatus(taskAfter), withoutRunStatus(originalTask))
+        && ['creators.raw.json', 'enrichment.json'].every((n, i) =>
+          bytes(join(f.taskDir, n)) === originalRawAndEnrichment[i]), detail)
     if (noEnrichment) named('render 输入：增强文件缺席仍正常导出且不补建增强文件',
       r.status === 0 && meta?.enriched === false && !existsSync(enrichment), detail)
     completed.good++
