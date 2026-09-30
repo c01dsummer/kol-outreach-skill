@@ -80,6 +80,7 @@ import {
 } from './lib/review.js'
 import { migrateLegacyAgentReviews, projectAgentReviews } from './lib/review-projection.js'
 import { parseManualFeedbackCsv } from './lib/manual-feedback.js'
+import { planManualFeedbackTemplate, type ManualFeedbackTemplatePlan } from './lib/manual-feedback-template.js'
 import {
   INSTAGRAM_HASHTAG_ENDPOINT, TikHub, TikHubError, fillEmail, isInstagramVideo, parseInstagramHashtagPage, pickList,
 } from './providers/tikhub.js'
@@ -91,7 +92,8 @@ import { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { isDeepStrictEqual } from 'node:util'
 import { runInNewContext } from 'node:vm'
-import { createRequire } from 'node:module'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
+import { request as templateHttpsRequest } from 'node:https'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetInputError, startBudget, costView, type CostView } from './lib/budget.js'
@@ -187,6 +189,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd21-agent-projection', needs: [] },
   { id: 'd22-review-rounds', needs: [] },
   { id: 'd23-manual-feedback', needs: [] },
+  { id: 'd24-manual-template', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -10763,6 +10766,175 @@ await group('d23-manual-feedback', () => {
   ok('D23 拒绝也不修改CSV正本名单及嵌套内容', refused.error instanceof ReviewInputError
     && isDeepStrictEqual([refusedText, refusedDocument, refusedCreators], refusedBefore))
 })
+await group('d24-manual-template', () => {
+  suite('D24', '人工反馈模板的独立字节计划')
+  const header = 'round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note'
+  // Independent CSV oracle: quote cells containing CSV separators and double embedded quotes.
+  const csv = (cells: readonly string[]) => cells.map(cell => /[",\r\n]/.test(cell) ? '"' + cell.replaceAll('"', '""') + '"' : cell).join(',') + '\n'
+  const row = (round: string, platform: string, handle: string, manual: readonly string[] = ['', '', '', '', '', '', '']) => csv([round, platform, handle, ...manual])
+  const doc = (rounds: readonly { id: string; keys: readonly string[] }[]): AgentReviewDocument => ({
+    version: 1, updated_at: '2026-09-30T00:00:00Z', reviews: {}, rounds: rounds.map(round => ({
+      round_id: round.id, created_at: '2026-09-30T00:00:00Z', source: 'task.json',
+      candidates: round.keys.map(account_key => ({ account_key, source_tasks: [{ task_index: 0, keyword: 'nested', dimension: 'scene', platform: account_key.startsWith('instagram:') ? 'instagram' : 'tiktok' }] })),
+    })),
+  })
+  const creator = (platform: Creator['platform'], handle: string, linked_handle?: string): Creator => ({
+    platform, handle, nickname: 'agent name', bio_links: ['https://example.test/bio'], verified: false,
+    profile_url: 'https://example.test/profile', source_keyword: 'nested', source_dimension: 'scene',
+    source_tasks: [0], recent_posts: [{ desc: 'nested', likes: 7 }], audience_geo: { US: 0.7 },
+    eligibility: '不合格', adoption_priority: '暂不采用', fit: '❌', fit_reason: 'Agent reason',
+    ...(linked_handle === undefined ? {} : { linked_handle, cross_platform: false }),
+  })
+  const attempt = (existing: Buffer | undefined, file: string, document: AgentReviewDocument, creators: readonly Creator[] = [], append = false): { plan?: ManualFeedbackTemplatePlan; error?: unknown } => {
+    try { return { plan: planManualFeedbackTemplate(existing, file, document, creators, append) } }
+    catch (error) { return { error } }
+  }
+  const rejects = (result: ReturnType<typeof attempt>, file: string) => result.error instanceof ReviewInputError
+    && result.error.problems.some(problem => problem.includes(file)) && result.plan === undefined
+  const bytes = (result: ReturnType<typeof attempt>): Buffer | undefined => result.plan && 'bytes' in result.plan ? result.plan.bytes : undefined
+  const unchanged = (result: ReturnType<typeof attempt>) => !!result.plan && isDeepStrictEqual(result.plan, { action: 'unchanged', added_accounts: 0 }) && !('bytes' in result.plan)
+  const minimalDoc = doc([{ id: 'round-one', keys: ['tiktok:fresh_hero'] }])
+  const minimal = attempt(undefined, 'missing-manual.csv', minimalDoc)
+  eq('D24-缺席文件生成单BOM固定表头及候选空白行', minimal.plan ?? { escaped: String(minimal.error) }, {
+    action: 'create', added_accounts: 1, bytes: Buffer.from('\uFEFF' + header + '\nround-one,tiktok,fresh_hero,,,,,,,\n'),
+  })
+  criterion('D24.a')
+  const surrogateRound = 'round-\uD800'
+  const surrogate = attempt(undefined, 'surrogate-round.csv', doc([{ id: surrogateRound, keys: ['tiktok:fresh_hero'] }]))
+  ok('D24-新增轮次孤立代理项拒绝并定位文件轮次字段', rejects(surrogate, 'surrogate-round.csv')
+    && (surrogate.error as ReviewInputError).problems.some(problem => problem.includes('round_id')
+      && (problem.includes(surrogateRound) || problem.includes(JSON.stringify(surrogateRound).slice(1, -1)))))
+
+  const emptyDoc = doc([])
+  eq('D24-空冻结池仍创建单BOM合法表头', bytes(attempt(undefined, 'empty-pool.csv', emptyDoc))?.toString('utf8'), '\uFEFF' + header + '\n')
+  eq('D24-确认缺席显式追加仍创建新模板', attempt(undefined, 'missing-append.csv', minimalDoc, [], true).plan?.action, 'create')
+  const escapedRound = '  round,"one"\nline  '
+  const orderedDoc = doc([{ id: escapedRound, keys: ['tiktok:zulu', 'instagram:same', 'tiktok:same'] }, { id: 'round-two', keys: ['instagram:second.person'] }])
+  const ordered = attempt(undefined, 'ordered.csv', orderedDoc)
+  eq('D24-新模板保持轮次候选顺序并正确转义原轮次', bytes(ordered)?.toString('utf8'), '\uFEFF' + header + '\n'
+    + row(escapedRound, 'tiktok', 'zulu') + row(escapedRound, 'instagram', 'same') + row(escapedRound, 'tiktok', 'same') + row('round-two', 'instagram', 'second.person'))
+  eq('D24-创建计数按实际平台账号行数', ordered.plan?.added_accounts, 4)
+  const unicodeRound = 'round-😀-�'
+  eq('D24-可无损编码的补充字符与真实替换字符原样保留', bytes(attempt(undefined, 'unicode.csv', doc([{ id: unicodeRound, keys: ['tiktok:alpha'] }])))?.toString('utf8'), '\uFEFF' + header + '\n' + row(unicodeRound, 'tiktok', 'alpha'))
+
+  const document = doc([{ id: 'r1', keys: ['tiktok:alpha', 'instagram:alpha', 'tiktok:beta'] }, { id: 'r2', keys: ['instagram:gamma'] }])
+  document.reviews['tiktok:alpha'] = { account_keys: ['tiktok:alpha', 'tiktok:alias_only'], eligibility: '不合格', adoption_priority: '暂不采用', fit: '❌', observed_content: 'Agent observed content', work_evidence: 'Agent work evidence', natural_integration: 'Agent integration evidence', mismatch_risk: 'Agent mismatch' }
+  document.reviews['instagram:alpha'] = { account_keys: ['instagram:alpha'], eligibility: '合格', adoption_priority: '优先联系', fit: '✅', observed_content: 'Other platform content', work_evidence: 'Other platform work evidence', natural_integration: 'Other platform integration evidence', mismatch_risk: 'Other platform mismatch evidence' }
+  const creators = [creator('tiktok', 'alpha', 'instagram:alpha'), creator('instagram', 'current_outside', 'tiktok:linked_outside')]
+  const documentBefore = JSON.stringify(document), creatorsBefore = JSON.stringify(creators)
+  const allRows = row('r1', 'tiktok', 'alpha') + row('r1', 'instagram', 'alpha') + row('r1', 'tiktok', 'beta') + row('r2', 'instagram', 'gamma')
+  const all = Buffer.from(header + '\n' + allRows)
+  const defaultInputs = [Buffer.alloc(0), Buffer.from(header + '\n'), all, Buffer.from([0xff]), ...Array.from({ length: 12 }, (_, i) => Buffer.alloc(i + 1, i * 19))]
+  ok('D24-任意既有Buffer未显式追加均拒绝并定位文件', defaultInputs.every((input, i) => rejects(attempt(input, `default-${i}.csv`, document, creators), `default-${i}.csv`)))
+  ok('D24-默认拒绝不把零字节既有文件当缺席', rejects(attempt(Buffer.alloc(0), 'existing-zero.csv', emptyDoc), 'existing-zero.csv'))
+  criterion('D24.b')
+
+  const legacy = Buffer.from('\uFEFF' + header + '\r\n' + 'r1,TikTok, @ALPHA , yes ,unknown,high,medium,low,"其他; 互动弱","  note, ""quoted""\r\nsecond line  "\r\n\r\n')
+  const legacyBefore = Buffer.from(legacy)
+  const appended = attempt(legacy, 'legacy.csv', document, creators, true), output = bytes(appended)
+  const missingRows = row('r1', 'instagram', 'alpha') + row('r1', 'tiktok', 'beta') + row('r2', 'instagram', 'gamma')
+  ok('D24-追加完整旧BOM换行引号多行备注尾空行逐字节保留', !!output && output.subarray(0, legacy.length).equals(legacyBefore))
+  eq('D24-追加只补规范账号保持轮次池序与同名异平台', output?.subarray(legacy.length).toString('utf8'), missingRows)
+  ok('D24-新增行七项人工字段独立验证全部空白', !!output && output.subarray(legacy.length).toString('utf8').split('\n').filter(Boolean).every(line => {
+    const fields = line.split(','); return fields.length === 10 && fields.slice(3).every(value => value === '')
+  }) && output.subarray(legacy.length).toString('utf8').split('\n').filter(Boolean).length === 3)
+  eq('D24-追加动作和新增行计数准确', appended.plan && [appended.plan.action, appended.plan.added_accounts], ['append', 3])
+  ok('D24-追加后Buffer独立拥有不借用原文件存储', !!output && output !== legacy)
+  if (output) output.fill(0)
+  eq('D24-修改追加计划字节不改变既有人工文件Buffer', [...legacy], [...legacyBefore])
+  criterion('D24.d', 'D24.e', 'D24.i')
+  tension('D24', 'P1')
+
+  const noLf = Buffer.from(header + '\r\n' + row('r1', 'tiktok', 'alpha').trimEnd())
+  eq('D24-原末字节非LF只补一个LF再追加新行', bytes(attempt(noLf, 'no-lf.csv', document, creators, true))?.toString('utf8'), noLf.toString('utf8') + '\n' + missingRows)
+  const quotedLast = Buffer.from(header + '\n' + 'r1,tiktok,alpha,,,,,,,"final note"')
+  eq('D24-无换行且末格有引号的原行保持字节边界', bytes(attempt(quotedLast, 'quoted-final.csv', document, creators, true))?.toString('utf8'), quotedLast.toString('utf8') + '\n' + missingRows)
+  const headerOnly = Buffer.from('\uFEFF' + header)
+  eq('D24-合法仅表头可追加全池且不重复BOM和表头', bytes(attempt(headerOnly, 'header-only.csv', document, creators, true))?.toString('utf8'), '\uFEFF' + header + '\n' + allRows)
+  ok('D24-全池已覆盖返回unchanged零计数且没有bytes属性', unchanged(attempt(all, 'covered.csv', document, creators, true)))
+  ok('D24-空池合法仅表头返回unchanged没有写入字节', unchanged(attempt(headerOnly, 'empty-covered.csv', emptyDoc, [], true)))
+  const reordered = Buffer.from('\uFEFF' + header + '\r\n' + allRows.trimEnd().split('\n').reverse().join('\r\n'))
+  ok('D24-全覆盖旧行顺序和无末换行不触发重写', unchanged(attempt(reordered, 'reordered.csv', document, creators, true)))
+  const replacementNote = Buffer.from(header + '\n' + row('r1', 'tiktok', 'alpha', ['', '', '', '', '', '', '�']) + allRows.slice(row('r1', 'tiktok', 'alpha').length))
+  ok('D24-合法UTF8备注中的真实替换字符不被误拒绝', unchanged(attempt(replacementNote, 'replacement-note.csv', document, creators, true)))
+  const firstCreate = bytes(attempt(undefined, 'own-first.csv', minimalDoc)), secondCreate = bytes(attempt(undefined, 'own-second.csv', minimalDoc))
+  if (firstCreate) firstCreate.fill(0)
+  eq('D24-两次创建返回独立字节不共享可变模板', secondCreate?.toString('utf8'), '\uFEFF' + header + '\nround-one,tiktok,fresh_hero,,,,,,,\n')
+  criterion('D24.f')
+
+  const badHeaders = ['', header.split(',').slice(0, 9).join(','), header + ',extra', header.replace('platform,handle', 'handle,platform'), header.replace('manual_note', 'manual_eligible'), header.replace('manual_note', 'wrong_note'), '\uFEFF\uFEFF' + header]
+  ok('D24-追加拒绝空文件及错名错序缺多重复列双BOM表头', badHeaders.every((value, i) => rejects(attempt(Buffer.from(value + '\n'), `bad-header-${i}.csv`, emptyDoc, [], true), `bad-header-${i}.csv`)))
+  const badCsv = ['r1,tiktok,"alpha"x,,,,,,,\n', 'r1,tiktok,"alpha,,,,,,,\n', 'r1,tiktok,al"pha,,,,,,,\n', 'r1,tiktok,alpha,,,,,,,\r', ' \n', ',,,,,,,,,\n', '""\n', 'r1,tiktok,alpha,,,,,,\n', 'r1,tiktok,alpha,,,,,,,,\n']
+  ok('D24-追加严格拒绝词法结构及非空物理记录的列数错误', badCsv.every((value, i) => rejects(attempt(Buffer.from(header + '\n' + value), `bad-csv-${i}.csv`, document, creators, true), `bad-csv-${i}.csv`)))
+  const badManual = [
+    ['YES', '', '', '', '', '', ''], ['', 'true', '', '', '', '', ''], ['', '', 'HIGH', '', '', '', ''],
+    ['', '', '', 'zero', '', '', ''], ['', '', '', '', 'med', '', ''], ['', '', '', '', '', '不存在的原因', ''],
+    ['', '', '', '', '', '其他;;互动弱', ''], ['no', 'yes', '', '', '', '', ''],
+  ]
+  ok('D24-全池已覆盖仍拒绝非法判断原因和行内作答冲突', badManual.every((manual, i) => {
+    const input = Buffer.from(header + '\n' + row('r1', 'tiktok', 'alpha', manual) + allRows.slice(row('r1', 'tiktok', 'alpha').length))
+    return rejects(attempt(input, `bad-manual-${i}.csv`, document, creators, true), `bad-manual-${i}.csv`)
+  }))
+  const badIdentity = [['', 'tiktok', 'alpha'], ['r2', 'tiktok', 'alpha'], [' r1 ', 'tiktok', 'alpha'], ['r1', 'youtube', 'alpha'], ['r1', 'tiktok', ''], ['r1', 'tiktok', 'alpha!'], ['r1', 'tiktok', 'alias_only'], ['r1', 'instagram', 'current_outside'], ['r1', 'tiktok', 'al_pha']]
+  ok('D24-追加拒绝缺错轮次非法身份及评审别名当前池外账号', badIdentity.every((cells, i) => rejects(attempt(Buffer.from(header + '\n' + row(cells[0], cells[1], cells[2])), `bad-identity-${i}.csv`, document, creators, true), `bad-identity-${i}.csv`)))
+  ok('D24-全池已覆盖仍拒绝规范化后重复人工账号', rejects(attempt(Buffer.concat([all, Buffer.from(row('r1', ' TIKTOK ', ' @ALPHA '))]), 'duplicate.csv', document, creators, true), 'duplicate.csv'))
+  const conflictRows = row('r1', 'tiktok', 'alpha', ['', 'yes', '', '', '', '', '']) + row('r1', 'instagram', 'alpha', ['', 'no', '', '', '', '', '']) + row('r1', 'tiktok', 'beta') + row('r2', 'instagram', 'gamma')
+  ok('D24-全池已覆盖仍校验单向显式关联的跨平台采纳冲突', rejects(attempt(Buffer.from(header + '\n' + conflictRows), 'linked-conflict.csv', document, creators, true), 'linked-conflict.csv'))
+  const acrossRounds = doc([{ id: 'r1', keys: ['tiktok:alpha'] }, { id: 'r2', keys: ['instagram:alpha'] }])
+  ok('D24-跨轮次关联账号采纳冲突也拒绝', rejects(attempt(Buffer.from(header + '\n' + row('r1', 'tiktok', 'alpha', ['', 'yes', '', '', '', '', '']) + row('r2', 'instagram', 'alpha', ['', 'no', '', '', '', '', ''])), 'across-rounds.csv', acrossRounds, creators, true), 'across-rounds.csv'))
+  const noConflict = Buffer.from(header + '\n' + row('r1', 'tiktok', 'alpha', ['', 'yes', '', '', '', '', '']) + row('r1', 'instagram', 'alpha', ['', 'unknown', '', '', '', '', '']) + row('r1', 'tiktok', 'beta') + row('r2', 'instagram', 'gamma'))
+  ok('D24-显式unknown或未填不会制造关联作答冲突', unchanged(attempt(noConflict, 'unknown-partner.csv', document, creators, true)))
+  criterion('D24.c')
+
+  const invalidSequences = [[0xc3, 0x28], [0x80], [0xe0, 0x80, 0x80], [0xed, 0xa0, 0x80], [0xf0, 0x90, 0x80], [0xf4, 0x90, 0x80, 0x80]]
+  ok('D24-合法自由备注中非法UTF8也拒绝不得替换成字符', invalidSequences.every((value, i) => {
+    const input = Buffer.concat([Buffer.from(header + '\nr1,tiktok,alpha,,,,,,,'), Buffer.from(value), Buffer.from('\n' + allRows.slice(row('r1', 'tiktok', 'alpha').length))])
+    return rejects(attempt(input, `bad-utf8-${i}.csv`, document, creators, true), `bad-utf8-${i}.csv`)
+  }))
+  const badRounds = ['round-\uDC00', 'round-\uD800A', 'round-\uD800\uD800']
+  ok('D24-追加待新增行中所有未配对代理项均拒绝', badRounds.every((round, i) => rejects(attempt(Buffer.from(header + '\n'), `bad-round-${i}.csv`, doc([{ id: round, keys: ['tiktok:alpha'] }]), [], true), `bad-round-${i}.csv`)))
+  ok('D24-无需新增行时不重新编码空轮次原值', unchanged(attempt(Buffer.from(header + '\n'), 'surrogate-empty.csv', doc([{ id: surrogateRound, keys: [] }]), [], true)))
+  criterion('D24.g')
+
+  eq('D24-成功拒绝均不改变评审正本及嵌套候选任务', JSON.stringify(document), documentBefore)
+  eq('D24-成功拒绝均不改变完整关联名单及嵌套数据', JSON.stringify(creators), creatorsBefore)
+  eq('D24-默认与追加调用均保留原人工Buffer内容', [...all], [...Buffer.from(header + '\n' + allRows)])
+  const refusedInput = Buffer.from(header + '\n' + row('r1', 'tiktok', 'alpha', ['no', 'yes', '', '', '', '', '']))
+  const refusedBefore = Buffer.from(refusedInput)
+  attempt(refusedInput, 'immutable-rejected.csv', document, creators, true)
+  eq('D24-拒绝坏人工文件也不更改输入Buffer', [...refusedInput], [...refusedBefore])
+  // Observe standard shared file/HTTP APIs; file/request areas have ESM positive controls before target calls.
+  const requireForTemplate = createRequire(import.meta.url), restores: Array<() => void> = [], events: string[] = []
+  const intercept = (api: Record<string, unknown>, key: string, area: string) => {
+    const original = api[key]; if (typeof original !== 'function') return
+    api[key] = () => { events.push(area); throw new Error('D24 controlled I/O observation') }
+    restores.push(() => { api[key] = original })
+  }
+  const fsApi = requireForTemplate('node:fs') as Record<string, unknown>
+  const promiseApi = requireForTemplate('node:fs/promises') as Record<string, unknown>
+  const beforeObservers = JSON.stringify(document) + JSON.stringify(creators)
+  let observedPositive = false, observedPure = false
+  try {
+    for (const key of ['readFileSync', 'readFile', 'writeFileSync', 'writeFile', 'appendFileSync', 'appendFile', 'openSync', 'open', 'statSync', 'stat', 'lstatSync', 'lstat', 'existsSync', 'renameSync', 'rename', 'unlinkSync', 'unlink', 'mkdirSync', 'mkdir', 'rmSync', 'rm', 'copyFileSync', 'copyFile', 'createReadStream', 'createWriteStream']) intercept(fsApi, key, 'file')
+    for (const key of ['readFile', 'writeFile', 'appendFile', 'open', 'stat', 'lstat', 'rename', 'unlink', 'mkdir', 'rm', 'copyFile']) intercept(promiseApi, key, 'file')
+    for (const module of ['node:http', 'node:https']) for (const key of ['request', 'get']) intercept(requireForTemplate(module) as Record<string, unknown>, key, 'request')
+    intercept(globalThis as unknown as Record<string, unknown>, 'fetch', 'request')
+    syncBuiltinESMExports()
+    try { rf(join(process.cwd(), 'package.json'), 'utf8') } catch {}
+    try { templateHttpsRequest('https://example.test/control') } catch {}
+    observedPositive = events.includes('file') && events.includes('request')
+    events.length = 0
+    const createObserved = attempt(undefined, 'D24-must-not-read.csv', document, creators)
+    const appendObserved = attempt(all, 'D24-must-not-write.csv', document, creators, true)
+    const refuseObserved = attempt(refusedInput, 'D24-must-not-repair.csv', document, creators, true)
+    observedPure = createObserved.plan?.action === 'create' && unchanged(appendObserved) && rejects(refuseObserved, 'D24-must-not-repair.csv') && events.length === 0
+  } finally { for (const restore of restores.reverse()) restore(); syncBuiltinESMExports() }
+  ok('D24-文件与HTTP的ESM观察接线有合法参数阳性事件', observedPositive)
+  ok('D24-成功拒绝字节计划未触发受观察标准文件HTTP事件', observedPositive && observedPure)
+  eq('D24-观察运行也不更改正本和完整名单', JSON.stringify(document) + JSON.stringify(creators), beforeObservers)
+  criterion('D24.h')
+})
+
 if (seenGroups.size !== GROUPS.length) {
   throw new Error(`需求测试组只遇到 ${seenGroups.size}/${GROUPS.length} 组，不能报告完成`)
 }
