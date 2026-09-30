@@ -1,6 +1,6 @@
 {
   "$comment": "编号的唯一真相来源。docs/SPEC.md 是它的渲染，两者不一致以本文件为准。content_hash 是派生字段，由 spec-sync --write 写，不要手改 —— 改了需求不回写，npm run check 当场变红。字段含义见 process/1-REQUIREMENTS.md。",
-  "content_hash": "2a5cc6fab78e",
+  "content_hash": "f2171467d61f",
   "categories": {
     "P": "红线 —— 不参与任何取舍",
     "S": "范围 —— 明确不做什么",
@@ -1431,10 +1431,45 @@
         {
           "id": "D21.i",
           "text": "写入前校验整份正本；拒绝不合规输入时，已有 agent-review.json 保持原字节。"
+        },
+        {
+          "id": "D21.j",
+          "text": "仅当 agent-review.json 缺席时，旧创作者记录中实际存在的 fit、fit_reason、outreach_draft 按规范化平台账号迁入待保存的评审正本；不得据此补造 eligibility、adoption_priority、新证据或品牌校准版本。"
+        },
+        {
+          "id": "D21.k",
+          "text": "已存在的 agent-review.json（包括 reviews 为空）是权威正本；旧创作者字段不得再迁入或覆盖它，重复投影也不得改写正本判断。"
+        },
+        {
+          "id": "D21.l",
+          "text": "正本删去一条新评审后，旧 creators.json 中该评审的上次投影不得作为 legacy 评审复活。"
+        },
+        {
+          "id": "D21.m",
+          "text": "Agent 投影以正本当前字段重建主账号判断；正本删除可选字段后，旧名单残留的同字段也须从投影消失，包括 fit_reason 与 outreach_draft。"
+        },
+        {
+          "id": "D21.n",
+          "text": "兼容 fit 只取正本明确保存的 fit；正本未保存 fit 时投影仍缺席，不从 eligibility 或旧投影推断。"
+        },
+        {
+          "id": "D21.o",
+          "text": "主账号与关联账号按各自的平台及规范化账号分别查评审；切换主账号不丢各平台原判断，关联平台已评不得使未评主平台变成已评。"
+        },
+        {
+          "id": "D21.p",
+          "text": "无新评审或仅有 legacy fit 的账号标未评；完整新评审的品牌校准版本与任务当前版本一致（含双方均缺席）标已评，不一致标待重评，原评审内容不因状态变化而改写。"
         }
       ],
       "adr": [
         "ADR-130"
+      ],
+      "tension": [
+        {
+          "with": "P1",
+          "ruling": "P1 优先：旧兼容字段不等于新合格性或采用结论；正本缺失的 fit、理由、草稿和校准版本在投影中保持缺失，过期版本标待重评，不以历史投影补出当前判断。",
+          "adr": "ADR-130"
+        }
       ]
     },
     {

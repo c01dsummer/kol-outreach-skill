@@ -9430,6 +9430,126 @@
       "replace": "return true",
       "by": "test",
       "kills": ["D21 Map 评审容器写入被拒绝", "D21 Map 评审容器拒绝后保留旧字节"]
+    },
+    {
+      "id": "M-D21-j",
+      "req": "D21.j",
+      "why": "评审正本缺席时跳过旧 Agent 判断迁入，已有的兼容判断与草稿消失",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "  for (const creator of legacyCreators) {",
+      "replace": "  for (const creator of legacyCreators.slice(0, 0)) {",
+      "by": "test",
+      "kills": ["D21 旧字段按规范化平台账号迁入"]
+    },
+    {
+      "id": "M-D21-k",
+      "req": "D21.j",
+      "why": "只有旧兼容字段的账号在迁入时被补造合格性，新裁决被伪造",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "    document.reviews[key] = review",
+      "replace": "    document.reviews[key] = { ...review, eligibility: '合格' }",
+      "by": "test",
+      "kills": ["D21 旧字段不补造新裁决证据和版本"]
+    },
+    {
+      "id": "M-D21-l",
+      "req": "D21.k",
+      "why": "已存在的空评审正本被当成缺席，旧名单的兼容判断重新迁入",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "  if (read.status === 'present') return document",
+      "replace": "  if (false) return document",
+      "by": "test",
+      "kills": ["D21 已存在的空正本阻止旧字段迁入"]
+    },
+    {
+      "id": "M-D21-m",
+      "req": "D21.l",
+      "why": "已删除的新评审从旧名单的残留判断中复活",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "    if (!key || (creator.review_status !== undefined && creator.review_status !== '未评')) continue\n    if (newJudgmentFields.some(field => creator[field] !== undefined)) continue",
+      "replace": "    if (!key) continue",
+      "by": "test",
+      "kills": ["D21 缺席正本不把上次新评审投影复活成旧评审"]
+    },
+    {
+      "id": "M-D21-n",
+      "req": "D21.m",
+      "why": "当前评审已删的兼容原因仍从旧名单残留到投影里",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "    for (const field of projectedFields) delete creator[field]",
+      "replace": "    for (const field of projectedFields) if (field !== 'fit_reason') delete creator[field]",
+      "by": "test",
+      "kills": ["D21 主账号以当前正本重建并清除旧可选字段"]
+    },
+    {
+      "id": "M-D21-o",
+      "req": "D21.n",
+      "why": "从合格性推断兼容 fit，使没有兼容结论的账号看似已有结论",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "    creator.review_status = statusOf(review, calibrationVersion)",
+      "replace": "    if (review?.eligibility && !review.fit) creator.fit = review.eligibility === '合格' ? '✅' : '❌'\n    creator.review_status = statusOf(review, calibrationVersion)",
+      "by": "test",
+      "kills": ["D21 合格性不能推断兼容 fit"]
+    },
+    {
+      "id": "M-D21-p",
+      "req": "D21.o",
+      "why": "关联账号的评审被写进主账号，跨平台判断互相覆盖",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "    const review = byAccount.get(primary)",
+      "replace": "    const review = byAccount.get(linkedAccount(original, primary) ?? primary)",
+      "by": "test",
+      "kills": ["D21 关联 IG 已评不使未评 TikTok 主号变成已评", "D21 切换主平台时两侧原判断各归其号"]
+    },
+    {
+      "id": "M-D21-q",
+      "req": "D21.p",
+      "why": "品牌口径变化仍显示已评，旧判断不提示待重评",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "  return review.brand_calibration_version === version ? '已评' : '待重评'",
+      "replace": "  return '已评'",
+      "by": "test",
+      "kills": ["D21 品牌版本一致与不一致的状态含双方均缺席"]
+    },
+    {
+      "id": "M-D21-r",
+      "req": "D21.p",
+      "why": "仅有旧兼容字段的账号被标成已评，缺少新裁决仍混入已评名单",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "  if (!review?.eligibility || !review.adoption_priority) return '未评'",
+      "replace": "  if (!review) return '未评'",
+      "by": "test",
+      "kills": ["D21 品牌版本一致与不一致的状态含双方均缺席"]
+    },
+    {
+      "id": "M-D21-s",
+      "req": "D21.j",
+      "why": "旧兼容字段已迁入正本，却未在首次投影中显示给运营",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "      for (const field of [...legacyFields, ...newJudgmentFields]) {",
+      "replace": "      for (const field of newJudgmentFields) {",
+      "by": "test",
+      "kills": ["D21 首次迁入后投影保留显式旧 Agent 字段"]
+    },
+    {
+      "id": "M-D21-t",
+      "req": "D21.m",
+      "why": "无效主账号在已有空正本下仍沿用旧名单残留的兼容判断和草稿",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "    if (!primary) {\n      creator.review_status = '未评'",
+      "replace": "    if (!primary) {\n      for (const field of legacyFields) { const value = original[field]; if (value !== undefined) (creator as unknown as Record<string, unknown>)[field] = value }\n      creator.review_status = '未评'",
+      "by": "test",
+      "kills": ["D21 空评审正本不保留无效主号的旧兼容字段"]
+    },
+    {
+      "id": "M-D21-u",
+      "req": "D21.o",
+      "why": "同平台的别名或另一账号被显示成跨平台关联评审",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "    return linked.split(':')[0] === primary.split(':')[0] ? undefined : linked",
+      "replace": "    return linked",
+      "by": "test",
+      "kills": ["D21 同平台别名或其他账号不能充当跨平台关联评审"]
     }
   ],
   "exemptions": [
