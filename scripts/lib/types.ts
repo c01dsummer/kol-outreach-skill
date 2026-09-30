@@ -71,6 +71,7 @@ export const DIMENSIONS = ['category', 'scene', 'competitor', 'audience'] as con
 export type Dimension = typeof DIMENSIONS[number]
 export type Tier = 'A' | 'B' | 'C'
 export type Fit = '✅' | '⚠️' | '❌'
+export type ReviewStatus = '未评' | '已评' | '待重评'
 export const ELIGIBILITIES = ['合格', '不合格', '待核实'] as const
 export type Eligibility = typeof ELIGIBILITIES[number]
 export const ADOPTION_PRIORITIES = ['优先联系', '备选', '待核实', '暂不采用'] as const
@@ -344,6 +345,23 @@ export interface Creator {
   fit_reason?: string
   tier?: Tier
   outreach_draft?: string
+  /** D21：由任务级 Agent 正本投影；不是采集原件字段。 */
+  eligibility?: Eligibility
+  adoption_priority?: AdoptionPriority
+  observed_content?: string
+  work_evidence?: string
+  natural_integration?: string
+  mismatch_risk?: string
+  brand_calibration_version?: string
+  review_status?: ReviewStatus
+  linked_agent_review?: {
+    account_key: string
+    eligibility?: Eligibility
+    adoption_priority?: AdoptionPriority
+    review_status: ReviewStatus
+    fit?: Fit
+    fit_reason?: string
+  }
 
   // render 从 enrichment.json 关联的公开指标摘要；原始样本仍只存 enrichment.json
   account_assessment?: AccountAssessmentSummary

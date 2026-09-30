@@ -75,8 +75,9 @@ import { configFieldProblems, type ConfigInputRole } from './lib/config-input.js
 import { brandCalibrationProblems } from './lib/brand-calibration.js'
 import {
   normalizedAccountKey, readAgentReviewDocument, writeAgentReviewDocument,
-  ReviewInputError, type AgentReviewDocument,
+  ReviewInputError, type AgentReview, type AgentReviewDocument,
 } from './lib/review.js'
+import { migrateLegacyAgentReviews, projectAgentReviews } from './lib/review-projection.js'
 import {
   INSTAGRAM_HASHTAG_ENDPOINT, TikHub, TikHubError, fillEmail, isInstagramVideo, parseInstagramHashtagPage, pickList,
 } from './providers/tikhub.js'
@@ -181,6 +182,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd14-cost-persistence', needs: [] },
   { id: 'p4-render-recheck', needs: [] },
   { id: 'd21-review-document', needs: [] },
+  { id: 'd21-agent-projection', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -10190,6 +10192,173 @@ await group('d21-review-document', () => {
     eq('D21 未验证轮次写入仍保留旧字节', rf(file, 'utf8'), original)
     criterion('D21.i')
   } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+await group('d21-agent-projection', () => {
+  suite('D21', '旧 Agent 字段迁移与当前正本投影')
+  const creator = (platform: Creator['platform'], handle: string, extra: Partial<Creator> = {}): Creator => ({
+    platform, handle, nickname: handle, bio_links: [], verified: false,
+    profile_url: `https://example.test/${handle}`, source_keyword: 'desk', source_dimension: 'category',
+    ...extra,
+  })
+  const empty: AgentReviewDocument = { version: 1, updated_at: '2026-09-30T10:00:00Z', reviews: {}, rounds: [] }
+  const document = (reviews: Record<string, AgentReview>): AgentReviewDocument => ({ ...empty, reviews })
+  const full = (key: string, extra: Partial<AgentReview> = {}): AgentReview => ({
+    account_keys: [key], eligibility: '合格', adoption_priority: '备选',
+    observed_content: 'A desk routine video.', work_evidence: 'A dated video shows the routine.',
+    natural_integration: 'The existing desk routine.', mismatch_risk: 'Audience location is unverified.',
+    ...extra,
+  })
+  const attempt = <T>(run: () => T): T | undefined => {
+    try { return run() } catch { return undefined }
+  }
+  const view = (source: AgentReviewDocument, row: Creator, version?: string) =>
+    attempt(() => projectAgentReviews(source, [row], version)[0])
+  const absent = { status: 'absent' as const, document: empty }
+  const legacy = creator('tiktok', ' @MiXeD ', {
+    fit: '⚠️', fit_reason: 'Observed desk routine.', outreach_draft: 'Hi, I liked your desk setup.',
+  })
+  const originalLegacy = JSON.stringify(legacy), originalAbsent = JSON.stringify(absent)
+  const migrated = attempt(() => migrateLegacyAgentReviews(absent, [legacy]))
+  eq('D21 旧字段按规范化平台账号迁入', migrated?.reviews['tiktok:mixed'], {
+    account_keys: ['tiktok:mixed'], fit: '⚠️', fit_reason: 'Observed desk routine.',
+    outreach_draft: 'Hi, I liked your desk setup.',
+  })
+  const migratedView = migrated && view(migrated, legacy)
+  eq('D21 首次迁入后投影保留显式旧 Agent 字段',
+    [migratedView?.fit, migratedView?.fit_reason, migratedView?.outreach_draft],
+    ['⚠️', 'Observed desk routine.', 'Hi, I liked your desk setup.'])
+  eq('D21 没有旧 Agent 字段就不造评审',
+    Object.keys(attempt(() => migrateLegacyAgentReviews(absent, [creator('instagram', 'plain')]))?.reviews ?? {}), [])
+  eq('D21 旧字段不补造新裁决证据和版本',
+    ['eligibility', 'adoption_priority', 'observed_content', 'work_evidence',
+      'natural_integration', 'mismatch_risk', 'brand_calibration_version']
+      .filter(key => Object.hasOwn(migrated?.reviews['tiktok:mixed'] ?? {}, key)), [])
+  eq('D21 迁移不改旧名单或缺席正本',
+    [JSON.stringify(legacy), JSON.stringify(absent)], [originalLegacy, originalAbsent])
+  criterion('D21.j')
+
+  const presentEmpty = attempt(() => migrateLegacyAgentReviews({ status: 'present', document: empty }, [legacy]))
+  eq('D21 已存在的空正本阻止旧字段迁入', presentEmpty, empty)
+  const saved = document({ 'tiktok:mixed': full('tiktok:mixed', { fit: '❌' }) })
+  const savedBefore = JSON.stringify(saved)
+  const authoritative = attempt(() => migrateLegacyAgentReviews({ status: 'present', document: saved }, [legacy]))
+  eq('D21 已存正本不被相反旧 fit 覆盖', authoritative, saved)
+  const first = authoritative && view(authoritative, legacy)
+  const second = authoritative && view(authoritative, legacy)
+  eq('D21 重复投影维持正本判断且不改写正本',
+    [first?.fit, second?.fit, JSON.stringify(saved)], ['❌', '❌', savedBefore])
+  criterion('D21.k')
+
+  const cached = creator('tiktok', '@Deleted', {
+    fit: '✅', fit_reason: 'Old projection.', outreach_draft: 'Old draft.',
+    eligibility: '合格', adoption_priority: '优先联系', observed_content: 'Old observation.',
+    review_status: '已评', linked_agent_review: {
+      account_key: 'instagram:deleted', review_status: '已评', fit: '✅',
+    },
+  })
+  const deleted = attempt(() => migrateLegacyAgentReviews(absent, [cached]))
+  eq('D21 缺席正本不把上次新评审投影复活成旧评审', Object.keys(deleted?.reviews ?? {}), [])
+  const deletedView = deleted && view(deleted, cached)
+  eq('D21 已删除评审的旧投影不再显示', {
+    status: deletedView?.review_status, fit: deletedView?.fit, eligibility: deletedView?.eligibility,
+    linked: deletedView?.linked_agent_review,
+  }, { status: '未评', fit: undefined, eligibility: undefined, linked: undefined })
+  criterion('D21.l')
+
+  const stale = creator('tiktok', '@Fresh', {
+    fit: '✅', fit_reason: 'Stale reason.', outreach_draft: 'Stale draft.',
+    eligibility: '不合格', adoption_priority: '暂不采用', observed_content: 'Stale content.',
+    work_evidence: 'Stale evidence.', natural_integration: 'Stale scene.', mismatch_risk: 'Stale risk.',
+    brand_calibration_version: 'old-brand', review_status: '已评',
+  })
+  const current = document({ 'tiktok:fresh': full('tiktok:fresh') })
+  const staleBefore = JSON.stringify(stale), currentBefore = JSON.stringify(current)
+  const fresh = view(current, stale)
+  eq('D21 主账号以当前正本重建并清除旧可选字段', {
+    status: fresh?.review_status, eligibility: fresh?.eligibility,
+    priority: fresh?.adoption_priority, content: fresh?.observed_content,
+    oldFields: ['fit_reason', 'outreach_draft', 'brand_calibration_version']
+      .filter(key => Object.hasOwn(fresh ?? {}, key)),
+  }, { status: '已评', eligibility: '合格', priority: '备选',
+    content: 'A desk routine video.', oldFields: [] })
+  eq('D21 投影不改创作者输入或评审正本',
+    [JSON.stringify(stale), JSON.stringify(current)], [staleBefore, currentBefore])
+  const invalidWithOldFields = presentEmpty && view(presentEmpty, creator('tiktok', ' ', {
+    fit: '⚠️', fit_reason: 'Stale reason.', outreach_draft: 'Stale draft.',
+  }))
+  eq('D21 空评审正本不保留无效主号的旧兼容字段', {
+    status: invalidWithOldFields?.review_status,
+    oldFields: ['fit', 'fit_reason', 'outreach_draft']
+      .filter(key => Object.hasOwn(invalidWithOldFields ?? {}, key)),
+  }, { status: '未评', oldFields: [] })
+  criterion('D21.m')
+  eq('D21 合格性不能推断兼容 fit',
+    { eligibility: fresh?.eligibility, fitPresent: Object.hasOwn(fresh ?? {}, 'fit') },
+    { eligibility: '合格', fitPresent: false })
+  criterion('D21.n')
+
+  const igOnly = document({ 'instagram:alex': full('instagram:alex', { fit: '❌' }) })
+  const tiktokRow = creator('tiktok', '@Alex', { cross_platform: true, linked_handle: 'instagram:alex' })
+  const isolated = view(igOnly, tiktokRow)
+  eq('D21 关联 IG 已评不使未评 TikTok 主号变成已评', {
+    main: isolated?.review_status, mainFit: isolated?.fit,
+    linkedKey: isolated?.linked_agent_review?.account_key,
+    linkedStatus: isolated?.linked_agent_review?.review_status,
+  }, { main: '未评', mainFit: undefined, linkedKey: 'instagram:alex', linkedStatus: '已评' })
+  const both = document({
+    'tiktok:alex': full('tiktok:alex', { account_keys: ['tiktok:alex', 'tiktok:alex.old'], fit: '✅' }),
+    'instagram:alex': full('instagram:alex', { eligibility: '不合格', adoption_priority: '暂不采用', fit: '❌' }),
+  })
+  const bothBefore = JSON.stringify(both)
+  const tiktokMain = view(both, tiktokRow)
+  const instagramMain = view(both, creator('instagram', '@ALEX', { cross_platform: true, linked_handle: 'tiktok:alex' }))
+  eq('D21 切换主平台时两侧原判断各归其号', {
+    tt: [tiktokMain?.fit, tiktokMain?.linked_agent_review?.fit],
+    ig: [instagramMain?.fit, instagramMain?.linked_agent_review?.fit],
+  }, { tt: ['✅', '❌'], ig: ['❌', '✅'] })
+  eq('D21 同平台别名投影仍命中原评审',
+    view(both, creator('tiktok', '@ALEX.OLD'))?.fit, '✅')
+  const samePlatform = document({
+    ...both.reviews, 'tiktok:other': full('tiktok:other', { fit: '⚠️' }),
+  })
+  const sameAlias = view(samePlatform, creator('tiktok', '@Alex', {
+    cross_platform: true, linked_handle: 'tiktok:alex.old',
+  }))
+  const sameOther = view(samePlatform, creator('tiktok', '@Alex', {
+    cross_platform: true, linked_handle: 'tiktok:other',
+  }))
+  eq('D21 同平台别名或其他账号不能充当跨平台关联评审', {
+    mainAlias: sameAlias?.review_status, aliasLink: sameAlias?.linked_agent_review,
+    mainOther: sameOther?.review_status, otherLink: sameOther?.linked_agent_review,
+  }, { mainAlias: '已评', aliasLink: undefined, mainOther: '已评', otherLink: undefined })
+  eq('D21 切换主平台不改两侧评审正本', JSON.stringify(both), bothBefore)
+  const invalid = view(both, creator('tiktok', ' ', { fit: '⚠️', linked_handle: ' ' }))
+  eq('D21 无效旧账号保持未评且不生关联判断',
+    [invalid?.review_status, invalid?.linked_agent_review], ['未评', undefined])
+  criterion('D21.o')
+
+  const versioned = document({ 'tiktok:brand': full('tiktok:brand', {
+    fit: '✅', brand_calibration_version: 'brand-v2',
+  }) })
+  const unversioned = document({ 'tiktok:brand': full('tiktok:brand') })
+  const brandRow = creator('tiktok', '@Brand', { fit: '❌', review_status: '已评' })
+  const versionedBefore = JSON.stringify(versioned)
+  const same = view(versioned, brandRow, 'brand-v2')
+  const changed = view(versioned, brandRow, 'brand-v3')
+  eq('D21 品牌版本一致与不一致的状态含双方均缺席', {
+    same: same?.review_status, changed: changed?.review_status,
+    bothAbsent: view(unversioned, brandRow)?.review_status,
+    reviewAbsent: view(unversioned, brandRow, 'brand-v2')?.review_status,
+    taskAbsent: view(versioned, brandRow)?.review_status,
+    legacyOnly: migrated && view(migrated, legacy)?.review_status,
+  }, { same: '已评', changed: '待重评', bothAbsent: '已评',
+    reviewAbsent: '待重评', taskAbsent: '待重评', legacyOnly: '未评' })
+  eq('D21 待重评保留原判断内容而不改正本', {
+    fit: changed?.fit, eligibility: changed?.eligibility,
+    evidence: changed?.work_evidence, source: JSON.stringify(versioned),
+  }, { fit: '✅', eligibility: '合格', evidence: 'A dated video shows the routine.', source: versionedBefore })
+  criterion('D21.p')
+  tension('D21', 'P1')
 })
 if (seenGroups.size !== GROUPS.length) {
   throw new Error(`需求测试组只遇到 ${seenGroups.size}/${GROUPS.length} 组，不能报告完成`)
