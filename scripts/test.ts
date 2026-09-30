@@ -75,6 +75,7 @@ import { configFieldProblems, type ConfigInputRole } from './lib/config-input.js
 import { brandCalibrationProblems } from './lib/brand-calibration.js'
 import {
   normalizedAccountKey, readAgentReviewDocument, writeAgentReviewDocument,
+  freezeReviewRounds, reviewRoundSourceProblems,
   ReviewInputError, type AgentReview, type AgentReviewDocument,
 } from './lib/review.js'
 import { migrateLegacyAgentReviews, projectAgentReviews } from './lib/review-projection.js'
@@ -183,6 +184,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p4-render-recheck', needs: [] },
   { id: 'd21-review-document', needs: [] },
   { id: 'd21-agent-projection', needs: [] },
+  { id: 'd22-review-rounds', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -10359,6 +10361,211 @@ await group('d21-agent-projection', () => {
   }, { fit: '✅', eligibility: '合格', evidence: 'A dated video shows the routine.', source: versionedBefore })
   criterion('D21.p')
   tension('D21', 'P1')
+})
+await group('d22-review-rounds', () => {
+  suite('D22', '平台账号候选轮次与来源冻结')
+  const empty: AgentReviewDocument = { version: 1, updated_at: '2026-09-30T10:00:00Z', reviews: {}, rounds: [] }
+  const state: Pick<TaskState, 'tasks'> = { tasks: [
+    { keyword: ' desk ', dimension: 'scene', platform: 'tiktok' },
+    { keyword: 'desk', dimension: 'competitor', platform: 'instagram' },
+    { keyword: ' desk ', dimension: 'scene', platform: 'tiktok' },
+  ] }
+  const sources = state.tasks.map((task, task_index) => ({ task_index, ...task }))
+  const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+  const creator = (platform: Creator['platform'], handle: string, extra: Partial<Creator> = {}): Creator => ({
+    platform, handle, nickname: handle, bio_links: [], verified: false, profile_url: 'https://example.test/account',
+    source_keyword: 'unrelated legacy word', source_dimension: 'audience', ...extra,
+  })
+  const attempt = <T,>(run: () => T): T | undefined => { try { return run() } catch { return undefined } }
+  const stamp = ' 2026-09-30T11:00:00Z '
+  const old = creator('tiktok', '@Old', { source_tasks: [0] })
+  const current = creator('tiktok', '@New', { source_tasks: [2] })
+  const frozen = attempt(() => freezeReviewRounds(empty, state, [old], [old, current], stamp))
+  eq('D22 旧池先冻结而新增账号进入下一轮', frozen?.rounds.map(round => round.candidates.map(candidate => candidate.account_key)),
+    [['tiktok:old'], ['tiktok:new']])
+  eq('D22 空名单不生成空轮次', attempt(() => freezeReviewRounds(empty, state, [], [], stamp))?.rounds, [])
+  criterion('D22.c')
+
+  const legal: AgentReviewDocument = { ...empty, reviews: {
+    'tiktok:held': { account_keys: ['tiktok:held'], fit: '⚠️', fit_reason: 'Saved judgment', outreach_draft: 'Hi Held.' },
+  }, rounds: [
+    { round_id: 'round-1', created_at: ' original time ', source: 'task.json',
+      candidates: [{ account_key: 'tiktok:held', source_tasks: null }] },
+    { round_id: ' an arbitrary existing key ', created_at: '2026-09-20T00:00:00Z', source: 'task.json', candidates: [
+      { account_key: 'tiktok:archived', source_tasks: [sources[0], sources[2]] },
+      { account_key: 'instagram:held', source_tasks: [sources[1]] },
+    ] },
+  ] }
+  const dir = mkdtempSync(join(tmpdir(), 'kol-review-rounds-')), file = join(dir, 'agent-review.json')
+  const originalBytes = JSON.stringify(legal, null, 2) + '\n'
+  const alter = (change: (value: any) => void): unknown => { const value = clone(legal); change(value); return value }
+  const rejected = (value: unknown, location: string): boolean => {
+    writeFileSync(file, JSON.stringify(value))
+    let readError: unknown, writeError: unknown
+    try { readAgentReviewDocument(dir) } catch (error) { readError = error }
+    writeFileSync(file, originalBytes)
+    try { writeAgentReviewDocument(dir, value) } catch (error) { writeError = error }
+    return readError instanceof ReviewInputError && writeError instanceof ReviewInputError
+      && readError.message.includes(file) && writeError.message.includes(file)
+      && readError.message.includes(location) && writeError.message.includes(location)
+      && rf(file, 'utf8') === originalBytes
+  }
+  try {
+    const roundtrip = attempt(() => { writeAgentReviewDocument(dir, legal); return readAgentReviewDocument(dir).document })
+    eq('D22 合法非空轮次读写保留身份时间来源及评审原值', roundtrip, legal)
+    const roundFaults: Array<[unknown, string]> = [
+      [alter(d => { d.rounds[0].round_id = ' ' }), 'rounds[0].round_id'],
+      [alter(d => { d.rounds[0].round_id = 1 }), 'rounds[0].round_id'],
+      [alter(d => { d.rounds[1].round_id = 'round-1' }), 'rounds[1].round_id'],
+      [alter(d => { d.rounds[0].created_at = '' }), 'rounds[0].created_at'],
+      [alter(d => { d.rounds[0].created_at = null }), 'rounds[0].created_at'],
+      [alter(d => { d.rounds[0].source = 'search API' }), 'rounds[0].source'],
+      [alter(d => { d.rounds[0].candidates = null }), 'rounds[0].candidates'],
+      [alter(d => { d.rounds[0] = null }), 'rounds[0]'],
+    ]
+    ok('D22 坏轮次与重复轮次键读写均拒绝并定位且保留原字节', roundFaults.every(([value, location]) => rejected(value, location)))
+    const identityFaults: Array<[unknown, string]> = [
+      [alter(d => { d.rounds[0].candidates[0].account_key = 'TikTok:@Held' }), 'rounds[0].candidates[0].account_key'],
+      [alter(d => { d.rounds[0].candidates[0] = null }), 'rounds[0].candidates[0]'],
+      [alter(d => { d.rounds[0].candidates.push(clone(d.rounds[0].candidates[0])) }), 'rounds[0].candidates[1].account_key'],
+      [alter(d => { d.rounds[1].candidates.push(clone(d.rounds[0].candidates[0])) }), 'rounds[1].candidates[2].account_key'],
+    ]
+    ok('D22 非规范身份与同轮跨轮重复账号读写均拒绝并定位且保留原字节',
+      identityFaults.every(([value, location]) => rejected(value, location)))
+    criterion('D22.a')
+    const sourceLocation = 'rounds[1].candidates[0].source_tasks'
+    const sourceFaults: Array<[unknown, string]> = [
+      ...[[], {}, [null]].map(value => [alter(d => { d.rounds[1].candidates[0].source_tasks = value }), sourceLocation] as [unknown, string]),
+      [alter(d => { delete d.rounds[1].candidates[0].source_tasks }), sourceLocation],
+      ...[-1, 0.5, Number.MAX_SAFE_INTEGER + 1, '0'].map(value =>
+        [alter(d => { d.rounds[1].candidates[0].source_tasks[0].task_index = value }), sourceLocation + '[0].task_index'] as [unknown, string]),
+      [alter(d => { d.rounds[1].candidates[0].source_tasks[0].keyword = ' ' }), sourceLocation + '[0].keyword'],
+      [alter(d => { delete d.rounds[1].candidates[0].source_tasks[0].keyword }), sourceLocation + '[0].keyword'],
+      [alter(d => { d.rounds[1].candidates[0].source_tasks[0].keyword = 1 }), sourceLocation + '[0].keyword'],
+      [alter(d => { d.rounds[1].candidates[0].source_tasks[0].dimension = 'Scene' }), sourceLocation + '[0].dimension'],
+      [alter(d => { delete d.rounds[1].candidates[0].source_tasks[0].dimension }), sourceLocation + '[0].dimension'],
+      [alter(d => { d.rounds[1].candidates[0].source_tasks[0].platform = 'youtube' }), sourceLocation + '[0].platform'],
+      [alter(d => { delete d.rounds[1].candidates[0].source_tasks[0].platform }), sourceLocation + '[0].platform'],
+      [alter(d => { d.rounds[1].candidates[0].source_tasks[0].platform = 'instagram' }), sourceLocation + '[0].platform'],
+      [alter(d => { d.rounds[1].candidates[0].source_tasks[1].task_index = 0 }), sourceLocation + '[1].task_index'],
+    ]
+    ok('D22 坏来源重复下标与跨平台归因读写均拒绝并定位且保留原字节',
+      sourceFaults.every(([value, location]) => rejected(value, location)))
+    criterion('D22.b')
+    const standalone = clone(legal)
+    standalone.rounds[1].candidates[0].source_tasks![0].task_index = 99
+    eq('D22 JSON 读写只核快照结构不借当前任务否定安全下标',
+      attempt(() => { writeAgentReviewDocument(dir, standalone); return readAgentReviewDocument(dir).document }), standalone)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+
+  const previous = [creator('tiktok', '@Old', { source_tasks: [2, 0, 2, 1], cross_platform: true, linked_handle: 'instagram:old' })]
+  const present = [...previous, creator('tiktok', '@New', { source_tasks: [0, 2, 2] })]
+  const inputBefore = JSON.stringify([legal, state, previous, present])
+  const extended = attempt(() => freezeReviewRounds(legal, state, previous, present, stamp))
+  eq('D22 新候选仅按实际下标复制且同词不同下标各保留', extended?.rounds.slice(2).map(round => round.candidates), [
+    [{ account_key: 'tiktok:old', source_tasks: [sources[2], sources[0]] },
+      { account_key: 'instagram:old', source_tasks: [sources[1]] }],
+    [{ account_key: 'tiktok:new', source_tasks: [sources[0], sources[2]] }],
+  ])
+  criterion('D22.e')
+  const sameBatchRows = [
+    creator('tiktok', '@Alex', { source_tasks: [0] }), creator('tiktok', 'alex', { source_tasks: [2] }),
+  ]
+  const sameBatchBefore = JSON.stringify([empty, state, sameBatchRows])
+  const sameBatch = attempt(() => freezeReviewRounds(empty, state, [], sameBatchRows, stamp))
+  eq('D22 同批归一账号合并后出现的真实来源', sameBatch?.rounds[0]?.candidates,
+    [{ account_key: 'tiktok:alex', source_tasks: [sources[0], sources[2]] }])
+  eq('D22 同批来源合并不改重复原记录或任务', JSON.stringify([empty, state, sameBatchRows]), sameBatchBefore)
+  const linkedBatch = attempt(() => freezeReviewRounds(empty, state, [], [
+    creator('tiktok', 'alex', { source_tasks: [0], linked_handle: 'instagram:alex' }),
+    creator('instagram', '@Alex', { source_tasks: [1] }),
+  ], stamp))
+  eq('D22 关联平台先无本平台来源仍保留稍后自身记录来源', linkedBatch?.rounds[0]?.candidates, [
+    { account_key: 'tiktok:alex', source_tasks: [sources[0]] }, { account_key: 'instagram:alex', source_tasks: [sources[1]] },
+  ])
+  eq('D22 新轮使用传入时间旧轮原值及已有判断不改', {
+    old: extended?.rounds.slice(0, 2), times: extended?.rounds.slice(2).map(round => round.created_at), reviews: extended?.reviews,
+  }, { old: legal.rounds, times: [stamp, stamp], reviews: legal.reviews })
+  ok('D22 生成轮次键与任意已有键均不碰撞', !!extended
+    && extended.rounds.every(round => typeof round.round_id === 'string' && !!round.round_id.trim())
+    && new Set(extended.rounds.map(round => round.round_id)).size === 4)
+  eq('D22 冻结不改评审正本任务旧名单或当前名单', JSON.stringify([legal, state, previous, present]), inputBefore)
+  criterion('D22.i')
+  const repeat = extended && attempt(() => freezeReviewRounds(extended, state, previous, present, 'later'))
+  ok('D22 重复冻结没有新增轮次且旧分母原样保留', !!extended && isDeepStrictEqual(repeat?.rounds, extended.rounds))
+  const removed = extended && attempt(() => freezeReviewRounds(extended, state, [], [], 'later'))
+  ok('D22 候选从当前名单消失不删历史候选', !!extended && isDeepStrictEqual(removed?.rounds, extended.rounds))
+  const later = extended && attempt(() => freezeReviewRounds(extended, state, [], [
+    creator('tiktok', 'held', { source_tasks: [0, 2] }), creator('tiktok', 'old', { source_tasks: [0] }),
+  ], 'later'))
+  ok('D22 后来来源不回填未知来源也不改已知来源', !!extended && isDeepStrictEqual(later?.rounds, extended.rounds))
+  const switched = extended && attempt(() => freezeReviewRounds(extended, state, [], [
+    creator('instagram', '@OLD', { source_tasks: [0, 1, 2], cross_platform: true, linked_handle: 'tiktok:old' }),
+  ], 'later'))
+  ok('D22 切换主平台保留两平台旧池与原分母', !!extended && isDeepStrictEqual(switched?.rounds, extended.rounds))
+  criterion('D22.d')
+
+  const unknownSources: unknown[] = [undefined, [], '0', null, [undefined], Array(1), [-1], [0.5], [Number.MAX_SAFE_INTEGER + 1], [3], [0, 3], [1]]
+  const unknownRows = unknownSources.map((source_tasks, i) => creator('tiktok', `unknown${i}`, {
+    source_tasks: source_tasks as number[],
+    discovery_sources: [{ handle: `unknown${i}`, keyword: 'desk', dimension: 'scene', platform: 'tiktok', endpoint: TEST_TT }],
+  }))
+  const unknown = attempt(() => freezeReviewRounds(empty, state, [], unknownRows, stamp))
+  eq('D22 缺席空坏越界与仅另一平台来源全部冻结为未知', unknown?.rounds[0]?.candidates,
+    unknownRows.map((row, i) => ({ account_key: `tiktok:unknown${i}`, source_tasks: null })))
+  const unknownBatches = unknownSources.slice(0, -1).map((source_tasks, i) => [
+    creator('tiktok', `mixed${i}`, { source_tasks: source_tasks as number[] }),
+    creator('tiktok', `mixed${i}`, { source_tasks: [0, 2] }),
+  ])
+  const unknownBatchExpected = unknownBatches.map((rows, i) => [{ account_key: `tiktok:mixed${i}`, source_tasks: null }])
+  eq('D22 同批未知记录在前不被已知记录补成完整来源',
+    unknownBatches.map(rows => attempt(() => freezeReviewRounds(empty, state, [], rows, stamp))?.rounds[0]?.candidates), unknownBatchExpected)
+  eq('D22 同批未知记录在后仍使完整来源无从确认',
+    unknownBatches.map(rows => attempt(() => freezeReviewRounds(empty, state, [], [...rows].reverse(), stamp))?.rounds[0]?.candidates), unknownBatchExpected)
+  const foreignOnly = creator('tiktok', 'proven', { source_tasks: [1] })
+  const platformKnown = creator('tiktok', '@PROVEN', { source_tasks: [0] })
+  const platformExpected = [{ account_key: 'tiktok:proven', source_tasks: [sources[0]] }]
+  eq('D22 仅另一平台的合法来源在前不吞本平台已证来源',
+    attempt(() => freezeReviewRounds(empty, state, [], [foreignOnly, platformKnown], stamp))?.rounds[0]?.candidates, platformExpected)
+  eq('D22 仅另一平台的合法来源在后不吞本平台已证来源',
+    attempt(() => freezeReviewRounds(empty, state, [], [platformKnown, foreignOnly], stamp))?.rounds[0]?.candidates, platformExpected)
+  criterion('D22.f')
+  tension('D22', 'P1')
+  const identityRows = [
+    creator('tiktok', '@SAME', { source_tasks: [0, 1], cross_platform: true, linked_handle: 'instagram:@SAME' }),
+    creator('tiktok', 'solo', { source_tasks: [0], linked_handle: 'tiktok:another' }),
+    creator('tiktok', 'brokenlink', { source_tasks: [0], linked_handle: 'instagram: ' }),
+    creator('tiktok', ' ', { source_tasks: [0, 1], linked_handle: 'instagram:orphan' }),
+    creator('youtube' as Creator['platform'], 'unsupported', { source_tasks: [0, 1], linked_handle: 'instagram:orphan2' }),
+  ]
+  eq('D22 同名异平台各自入池而无效主号或关联不造身份',
+    attempt(() => freezeReviewRounds(empty, state, [], identityRows, stamp))?.rounds[0]?.candidates, [
+      { account_key: 'tiktok:same', source_tasks: [sources[0]] }, { account_key: 'instagram:same', source_tasks: [sources[1]] },
+      { account_key: 'tiktok:solo', source_tasks: [sources[0]] }, { account_key: 'tiktok:brokenlink', source_tasks: [sources[0]] },
+    ])
+  criterion('D22.g')
+
+  const validationBefore = JSON.stringify([legal, state])
+  eq('D22 当前同下标任务一致时无来源问题', attempt(() => reviewRoundSourceProblems(legal, state)), [])
+  const mismatch = (change: (tasks: SearchTask[]) => void, location: string, field: string): boolean => {
+    const other = clone(state); change(other.tasks)
+    const before = JSON.stringify([legal, other])
+    const problems = attempt(() => reviewRoundSourceProblems(legal, other))
+    return JSON.stringify([legal, other]) === before
+      && !!problems?.some(problem => problem.includes('rounds[1].candidates[0].source_tasks' + location) && problem.includes(field))
+  }
+  ok('D22 当前任务关键词不一致明确报告轮次与来源位置', mismatch(tasks => { tasks[0].keyword = 'changed' }, '[0]', 'keyword'))
+  ok('D22 当前任务维度不一致明确报告轮次与来源位置', mismatch(tasks => { tasks[2].dimension = 'audience' }, '[1]', 'dimension'))
+  ok('D22 当前任务平台不一致明确报告轮次与来源位置', mismatch(tasks => { tasks[0].platform = 'instagram' }, '[0]', 'platform'))
+  ok('D22 冻结来源越界明确报告轮次与来源下标位置', mismatch(tasks => { tasks.pop() }, '[1]', 'task_index'))
+  const drift = clone(state)
+  drift.tasks[0].keyword = 'changed'; drift.tasks[2].dimension = 'audience'; drift.tasks[1].keyword = 'changed too'
+  const driftBefore = JSON.stringify(drift), driftProblems = attempt(() => reviewRoundSourceProblems(legal, drift))
+  ok('D22 同时存在的来源差异逐项报告且不重写任务', JSON.stringify(drift) === driftBefore && [
+    'rounds[1].candidates[0].source_tasks[0]', 'rounds[1].candidates[0].source_tasks[1]', 'rounds[1].candidates[1].source_tasks[0]',
+  ].every(location => driftProblems?.some(problem => problem.includes(location))))
+  eq('D22 来源一致性核验不改历史或当前任务', JSON.stringify([legal, state]), validationBefore)
+  criterion('D22.h')
 })
 if (seenGroups.size !== GROUPS.length) {
   throw new Error(`需求测试组只遇到 ${seenGroups.size}/${GROUPS.length} 组，不能报告完成`)
