@@ -3860,8 +3860,6 @@ group('config-entry-valid', [], () => {
       const state = mode === 'new' ? (dir ? jsonFile(join(f.cwd, dir, 'task.json')) : undefined) : jsonFile(f.file)
       named('市场人数：合法 collect 保留两个原值，缺席的目标人数才写50',
         searched && state?.market === market && state?.target_count === target, detail)
-      named('品牌校准：未提供时现有 collect 新建与两种续跑均不补出校准字段',
-        searched && state !== undefined && !Object.hasOwn(state, 'brand_calibration'), detail)
       if (c.id === 'original-zero') named('市场人数：目标0仍给每个任务首页，达标后不翻第二页',
         searched && tasks.every(task => searches.filter(e => e.query?.keyword === task.keyword).length === 1), detail)
     }
@@ -4068,7 +4066,26 @@ group('brand-calibration-entry', [], () => {
     }
     rejected++
   }
-  if (rejected === 5) criterion('D20.e')
+  const budgetEnrich = taskInput('brand-invalid-enrich-budget', bad, true)
+  const budgetEnrichBefore = original(budgetEnrich)
+  const budgetEnrichRun = runBoth('品牌校准非法 enrich 改额',
+    [S('enrich.ts'), '--dir', budgetEnrich.taskDir, '--budget', '2'], budgetEnrich.cwd,
+    { status: 2, soft: [0, 1, 3] }, observed(budgetEnrich))
+  if (budgetEnrichRun.ok && ready(budgetEnrich, budgetEnrichRun.stderr)) {
+    const outputFiles = ['enrichment.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
+      .map(name => join(budgetEnrich.taskDir, name))
+    named('品牌校准：enrich 改额坏任务在预留、请求和交付写入前退出2，任务原字节不变',
+      budgetEnrichRun.status === 2 && noReserveOrFetch(budgetEnrich)
+        && unchanged(budgetEnrich, budgetEnrichBefore)
+        && outputFiles.every(path => !existsSync(path))
+        && !existsSync(join(budgetEnrich.cwd, 'memory', 'creators.json')),
+      `退出=${budgetEnrichRun.status}，预留=${fetchAttempts(budgetEnrich.reserves).length}，`
+        + `请求=${fetchAttempts(budgetEnrich.log).length}`)
+    named('品牌校准：enrich 改额逐字段指出校准路径',
+      budgetEnrichRun.status === 2 && fields(budgetEnrichRun.stderr), stderrTail(budgetEnrichRun.stderr))
+    rejected++
+  }
+  if (rejected === 6) criterion('D20.e')
 })
 
 // 共用夹具按需创建，完整派跑仍保持 collect 坏输入 → probe 坏输入 → 合法对照的原顺序。
