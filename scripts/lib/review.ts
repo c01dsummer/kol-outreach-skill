@@ -42,8 +42,11 @@ export class ReviewInputError extends Error {
 }
 
 const reviewFile = (dir: string): string => join(dir, 'agent-review.json')
-const object = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
+const object = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const prototype: unknown = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
 const nonblank = (value: unknown): value is string =>
   typeof value === 'string' && !!value.trim()
 const oneOf = (value: unknown, options: readonly string[]): boolean =>
@@ -181,7 +184,7 @@ export function readAgentReviewDocument(dir: string): AgentReviewRead {
   const file = reviewFile(dir)
   try { lstatSync(file) }
   catch (error) {
-    if (object(error) && error.code === 'ENOENT') {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
       return { status: 'absent', document: { version: 1, updated_at: '', reviews: {}, rounds: [] } }
     }
     throw new ReviewInputError([`${file} 无法检查：${String(error)}`])

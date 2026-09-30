@@ -10179,6 +10179,12 @@ await group('d21-review-document', () => {
     const invalidWrite = writeFault({ ...complete, version: 2 })
     ok('D21 非法写入抛 ReviewInputError', invalidWrite instanceof ReviewInputError)
     eq('D21 非法写入保留旧正本原字节', rf(file, 'utf8'), original)
+    const mapReviewsWrite = writeFault({ ...complete, reviews: new Map([
+      ['tiktok:marie', complete.reviews['tiktok:marie']],
+    ]) })
+    ok('D21 Map 评审容器写入被拒绝', mapReviewsWrite instanceof ReviewInputError)
+    eq('D21 Map 评审容器拒绝后保留旧字节', rf(file, 'utf8'), original)
+    writeFileSync(file, original)
     const invalidRoundWrite = writeFault({ ...complete, rounds: [{}] })
     ok('D21 未验证轮次写入被拒绝', invalidRoundWrite instanceof ReviewInputError)
     eq('D21 未验证轮次写入仍保留旧字节', rf(file, 'utf8'), original)

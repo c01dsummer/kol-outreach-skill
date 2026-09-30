@@ -9420,6 +9420,16 @@
       "replace": "const valid = document as AgentReviewDocument",
       "by": "test",
       "kills": ["D21 非法写入保留旧正本原字节"]
+    },
+    {
+      "id": "M-D21-i",
+      "req": "D21.i",
+      "why": "非 JSON 评审容器被写入时悄悄丢失原有判断，并覆盖已有正本",
+      "file": "scripts/lib/review.ts",
+      "find": "return prototype === Object.prototype || prototype === null",
+      "replace": "return true",
+      "by": "test",
+      "kills": ["D21 Map 评审容器写入被拒绝", "D21 Map 评审容器拒绝后保留旧字节"]
     }
   ],
   "exemptions": [
