@@ -11,6 +11,7 @@ import { writeFileAtomic } from './lib/atomic.js'
 import { join } from 'node:path'
 import { taskFile, taskId, loadTask, loadCreators, loadEnrichment, persistListAndStatus } from './lib/task.js'
 import { taskListProblems } from './lib/search-tasks.js'
+import { brandCalibrationProblems } from './lib/brand-calibration.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { rankCreators, keywordRows, taskPlatforms, tierCounts } from './lib/pipeline.js'
 import { filterByMemory, MemoryUnreadable, recordRecommendations } from './lib/memory.js'
@@ -37,6 +38,11 @@ catch (e) {
   process.exit(2)
 }
 const badTasks = taskListProblems(state.tasks)
+const badCalibration = brandCalibrationProblems(state)
+if (badCalibration.length) {
+  console.error(`${taskFile(dir)} 里的品牌输入不合规：\n  ${badCalibration.join('\n  ')}`)
+  process.exit(2)
+}
 if (badTasks.length) {
   console.error(`${taskFile(dir)} 里的任务配置不合规：\n  ${badTasks.join('\n  ')}`)
   process.exit(2)

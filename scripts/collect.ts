@@ -34,6 +34,7 @@ import { creatorKey, textProblem } from './lib/types.js'
 import { igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { configFieldProblems } from './lib/config-input.js'
+import { brandCalibrationProblems } from './lib/brand-calibration.js'
 import { resumeProgressProblems } from './lib/resume-progress.js'
 import type { Creator, TaskState } from './lib/types.js'
 
@@ -73,12 +74,6 @@ try {
     const cfgPath = arg('--config')
     if (!cfgPath) throw new Error('用法: npm run collect -- --config task.json | --resume <dir> [--budget N] [--ignore-memory]')
     const cfg = readCostDocument<TaskState>(readFileSync(cfgPath, 'utf8'))
-    if (Object.hasOwn(cfg, 'budget_usd')) freshLimit = readCostLimit(cfg)
-    else {
-      freshLimit = parseUsdMicros('2')
-      if (replacementLimit === undefined) console.error('未提供预算，默认采用任务总预算 $2。')
-    }
-    if (replacementLimit !== undefined) freshLimit = replacementLimit
     state = cfg
     productFrom = cfgPath
   }
@@ -88,10 +83,23 @@ try {
 const badFields = configFieldProblems(state, resume ? 'resume' : 'new')
 const badTasks = taskListProblems(state.tasks)
 const badRoutes = igRouteProblems(state.tasks)
-const taskProblems = [...badFields, ...badTasks, ...badRoutes]
+const badCalibration = brandCalibrationProblems(state)
+const taskProblems = [...badFields, ...badTasks, ...badRoutes, ...badCalibration]
 if (taskProblems.length) {
   console.error(`${productFrom} 里的任务配置不合规：\n  ${taskProblems.join('\n  ')}`)
   process.exit(2)
+}
+
+// D20.e：先报告原始品牌字段问题；合法配置才读取预算 token、应用缺省或开账。
+if (!resume) {
+  try {
+    if (Object.hasOwn(state, 'budget_usd')) freshLimit = readCostLimit(state)
+    else {
+      freshLimit = parseUsdMicros('2')
+      if (replacementLimit === undefined) console.error('未提供预算，默认采用任务总预算 $2。')
+    }
+    if (replacementLimit !== undefined) freshLimit = replacementLimit
+  } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
 }
 
 // 恢复任务的进度只在任务列表有效后才能按索引解释；在首次读取 done、改额和保存前拒绝坏输入。
@@ -118,6 +126,7 @@ if (!resume) {
   state = {
     product: cfg.product, market: Object.hasOwn(cfg, 'market') ? cfg.market : 'US',
     target_count: Object.hasOwn(cfg, 'target_count') ? cfg.target_count : 50,
+    ...(Object.hasOwn(cfg, 'brand_calibration') ? { brand_calibration: cfg.brand_calibration } : {}),
     tasks: cfg.tasks, done: [], offsets: {}, answered: {}, found: {}, pages: {},
     created_at: new Date().toISOString(), updated_at: '',
   }

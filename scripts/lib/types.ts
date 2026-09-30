@@ -72,6 +72,20 @@ export type Dimension = typeof DIMENSIONS[number]
 export type Tier = 'A' | 'B' | 'C'
 export type Fit = '✅' | '⚠️' | '❌'
 
+/** D20：任务原样保存的项目校准输入；来源性质不等同于产品事实验证。 */
+export interface BrandCalibration {
+  version: string
+  target_creator_types: string[]
+  tone_aesthetic: string[]
+  natural_scenarios: string[]
+  negative_signals: string[]
+  sources: Array<{
+    source: string
+    kind: 'brand_preference' | 'verified_product_fact'
+    detail: string
+  }>
+}
+
 export type DiscoveryEndpoint =
   | '/api/v1/tiktok/app/v3/fetch_video_search_result'
   | '/api/v1/instagram/v2/search_reels'
@@ -354,6 +368,7 @@ export interface TaskState {
   product: string
   market: string          // ISO 3166-1 alpha-2，如 US
   target_count: number
+  brand_calibration?: BrandCalibration
   /** D13：旧输入可能缺失或不可解释；须经费用边界核验，不能直接计算。 */
   budget_usd?: unknown
   cost_ledger?: unknown

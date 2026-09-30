@@ -3899,6 +3899,195 @@ group('config-entry', ['config-entry-invalid', 'config-entry-valid'], () => {
   if (modes.every(completedMode) && completed.depth.size === 2) criterion('D17.n')
 })
 
+// B4 的入口负片单列成短组：变异只选这组，不重跑 config-entry 的大矩阵。
+group('brand-calibration-entry', [], () => {
+  const base = mkdtempSync(join(tmpdir(), 'kol-brand-entry-'))
+  process.on('exit', () => rmSync(base, { recursive: true, force: true }))
+  const brand = {
+    version: 'other-brand-v1',
+    target_creator_types: [' home cooks '],
+    tone_aesthetic: ['warm and practical'],
+    natural_scenarios: ['weekday lunch'],
+    negative_signals: ['unsupported promises'],
+    sources: [
+      { source: 'team brief p.2', kind: 'brand_preference', detail: 'voice preference' },
+      { source: 'product page checked 2026-09-30', kind: 'verified_product_fact', detail: 'page claim only' },
+    ],
+  }
+  const bad = { ...brand, version: ' ', tone_aesthetic: [7],
+    sources: [{ source: ' ', kind: 'unknown_fact', detail: 4 }] }
+  const tasks = [{ keyword: 'brand input fixture', dimension: 'category', platform: 'tiktok' }]
+  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
+  const preload = join(base, 'observe-reserve.mjs')
+  writeFileSync(preload, [
+    `import { appendFileSync } from 'node:fs';`,
+    `import { Budget } from ${JSON.stringify(budgetModule)};`,
+    `const original = Budget.prototype.reserve;`,
+    `Budget.prototype.reserve = function(...args) {`,
+    `  appendFileSync(process.env.BRAND_RESERVE_LOG, 'reserve\\n');`,
+    `  return Reflect.apply(original, this, args);`,
+    `};`,
+    `appendFileSync(process.env.BRAND_ARMED_LOG, 'armed\\n');`,
+  ].join('\n'))
+  const observed = (f: { log: string; reserves: string; armed: string }) => costEnv(f.log, {
+    BRAND_RESERVE_LOG: f.reserves, BRAND_ARMED_LOG: f.armed,
+    NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+  })
+  const logs = (cwd: string) => {
+    const log = join(cwd, 'attempts.tsv'), reserves = join(cwd, 'reserves.txt'), armed = join(cwd, 'armed.txt')
+    writeFileSync(reserves, '')
+    return { log, reserves, armed }
+  }
+  const newInput = (id: string, value?: unknown, include = true, budget: unknown = 1) => {
+    const cwd = join(base, id), file = join(cwd, 'config.json')
+    mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const config = { product: 'brandcalibration', market: 'US', target_count: 0,
+      budget_usd: budget, tasks, ...(include ? { brand_calibration: value } : {}) }
+    writeFileSync(file, JSON.stringify(config, null, 2) + '\n')
+    return { cwd, file, ...logs(cwd) }
+  }
+  const taskInput = (id: string, value: unknown, withPerson = false) => {
+    const f = costFixture(id, knownCosts(1_000_000, []), { target_count: 0, done: [],
+      offsets: {}, pages: {}, answered: {}, found: {}, brand_calibration: value },
+    withPerson ? [costPerson('tiktok', `${id}-creator`)] : [])
+    return { ...f, ...logs(f.cwd) }
+  }
+  const original = (f: ReturnType<typeof taskInput>) => [f.task,
+    join(f.taskDir, 'creators.raw.json'), join(f.taskDir, 'creators.json')].map(fileText)
+  const unchanged = (f: ReturnType<typeof taskInput>, before: string[]) =>
+    [f.task, join(f.taskDir, 'creators.raw.json'), join(f.taskDir, 'creators.json')]
+      .every((file, i) => fileText(file) === before[i])
+  const ready = (f: { armed: string }, stderr: string): boolean => {
+    if (fetchAttempts(f.armed).includes('armed')) return true
+    failed++
+    console.error(`  ✗ 品牌校准观察器${SELFCHECK_FIXTURE_MARK}：没有安装预算预留观察器；${stderrTail(stderr)}`)
+    return false
+  }
+  const fields = (stderr: string): boolean => [
+    /brand_calibration.*\bversion\b/,
+    /brand_calibration.*\btone_aesthetic\b/,
+    /brand_calibration.*\bsources\b.*\bsource\b/,
+    /brand_calibration.*\bsources\b.*\bkind\b/,
+    /brand_calibration.*\bsources\b.*\bdetail\b/,
+  ].every(path => stderr.split('\n').some(line => path.test(line)))
+  const noReserveOrFetch = (f: { reserves: string; log: string }): boolean =>
+    fetchAttempts(f.reserves).length === 0 && fetchAttempts(f.log).length === 0
+  let saved = 0, rejected = 0
+
+  const fresh = newInput('valid-new', brand)
+  const freshRun = runBoth('品牌校准合法新建', [S('collect.ts'), '--config', fresh.file], fresh.cwd,
+    { status: 0, soft: [1, 2, 3] }, observed(fresh))
+  if (freshRun.ok && ready(fresh, freshRun.stderr)) {
+    const dir = onlyDir(fresh.cwd, 'brandcalibration')
+    const state = dir ? jsonFile(join(fresh.cwd, dir, 'task.json')) : undefined
+    named('品牌校准：合法新建确实预留和请求，task.json 原样保存校准',
+      freshRun.status === 0 && fetchAttempts(fresh.reserves).length > 0
+        && fetchAttempts(fresh.log).length > 0 && isDeepStrictEqual(state?.brand_calibration, brand),
+      `退出=${freshRun.status}，目录=${dir}，预留=${fetchAttempts(fresh.reserves).length}，`
+        + `请求=${fetchAttempts(fresh.log).length}，盘上=${JSON.stringify(state?.brand_calibration)}`)
+    saved++
+  }
+  const absent = newInput('absent-new', undefined, false)
+  const absentRun = runBoth('品牌校准缺席新建', [S('collect.ts'), '--config', absent.file], absent.cwd,
+    { status: 0, soft: [1, 2, 3] }, observed(absent))
+  if (absentRun.ok && ready(absent, absentRun.stderr)) {
+    const dir = onlyDir(absent.cwd, 'brandcalibration')
+    const state = dir ? jsonFile(join(absent.cwd, dir, 'task.json')) : undefined
+    named('品牌校准：缺席新建后 task.json 仍无该字段',
+      absentRun.status === 0 && state !== undefined && !Object.hasOwn(state, 'brand_calibration'),
+      `退出=${absentRun.status}，目录=${dir}，盘上字段=${JSON.stringify(state?.brand_calibration)}`)
+    saved++
+  }
+  const resume = taskInput('brand-valid-resume', brand)
+  for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
+    const result = runBoth(`品牌校准合法${mode}续跑`, [S('collect.ts'), '--resume', resume.taskDir, ...extra],
+      resume.cwd, { status: 0, soft: [1, 2, 3] }, observed(resume))
+    if (!result.ok || !ready(resume, result.stderr)) continue
+    const state = jsonFile(resume.task)
+    const kept = result.status === 0 && isDeepStrictEqual(state?.brand_calibration, brand)
+    const detail = `${mode}：退出=${result.status}，盘上=${JSON.stringify(state?.brand_calibration)}`
+    if (mode === '普通') named('品牌校准：普通续跑原样保留品牌输入', kept, detail)
+    else named('品牌校准：改额续跑原样保留品牌输入', kept, detail)
+    saved++
+  }
+  if (saved === 4) criterion('D20.d')
+
+  // 同一输入还带坏预算：预算问题不得抢在品牌诊断前把后者遮住。
+  const invalidNew = newInput('invalid-new', bad, true, 'not-a-budget')
+  const newBefore = fileText(invalidNew.file)
+  const newRun = runBoth('品牌校准非法新建', [S('collect.ts'), '--config', invalidNew.file], invalidNew.cwd,
+    { status: 2, soft: [0, 1, 3] }, observed(invalidNew))
+  if (newRun.ok && ready(invalidNew, newRun.stderr)) {
+    const output = join(invalidNew.cwd, 'output')
+    named('品牌校准：非法新建在建目录、预留和请求前退出2',
+      newRun.status === 2 && noReserveOrFetch(invalidNew) && fileText(invalidNew.file) === newBefore
+        && (!existsSync(output) || readdirSync(output).length === 0),
+      `退出=${newRun.status}，预留=${fetchAttempts(invalidNew.reserves).length}，请求=${fetchAttempts(invalidNew.log).length}`)
+    named('品牌校准：非法新建逐字段指出校准路径',
+      newRun.status === 2 && jsonFile(invalidNew.file)?.budget_usd === 'not-a-budget'
+        && fields(newRun.stderr), stderrTail(newRun.stderr))
+    rejected++
+  }
+  for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
+    const f = taskInput(`brand-invalid-${mode}`, bad), before = original(f)
+    const r = runBoth(`品牌校准非法${mode}续跑`, [S('collect.ts'), '--resume', f.taskDir, ...extra],
+      f.cwd, { status: 2, soft: [0, 1, 3] }, observed(f))
+    if (!r.ok || !ready(f, r.stderr)) continue
+    const stopped = r.status === 2 && noReserveOrFetch(f) && unchanged(f, before)
+    const detail = `${mode}：退出=${r.status}，预留=${fetchAttempts(f.reserves).length}，请求=${fetchAttempts(f.log).length}`
+    const diagnosed = r.status === 2 && fields(r.stderr)
+    if (mode === '普通') {
+      named('品牌校准：普通续跑坏输入在预留和请求前退出2，任务三文件原字节不变', stopped, detail)
+      named('品牌校准：普通续跑逐字段指出校准路径', diagnosed, `${mode}：${stderrTail(r.stderr)}`)
+    } else {
+      named('品牌校准：改额续跑坏输入在预留和请求前退出2，任务三文件原字节不变', stopped, detail)
+      named('品牌校准：改额续跑逐字段指出校准路径', diagnosed, `${mode}：${stderrTail(r.stderr)}`)
+    }
+    rejected++
+  }
+  for (const entry of ['enrich', 'render'] as const) {
+    const f = taskInput(`brand-invalid-${entry}`, bad, true), before = original(f)
+    const outputFiles = ['enrichment.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
+      .map(name => join(f.taskDir, name))
+    const r = runBoth(`品牌校准非法 ${entry}`, [S(`${entry}.ts`), '--dir', f.taskDir], f.cwd,
+      { status: 2, soft: [0, 1, 3] }, observed(f))
+    if (!r.ok || !ready(f, r.stderr)) continue
+    const stopped = r.status === 2 && noReserveOrFetch(f) && unchanged(f, before)
+      && outputFiles.every(path => !existsSync(path)) && !existsSync(join(f.cwd, 'memory', 'creators.json'))
+    const detail = `${entry}：退出=${r.status}，预留=${fetchAttempts(f.reserves).length}，请求=${fetchAttempts(f.log).length}`
+    const diagnosed = r.status === 2 && fields(r.stderr)
+    if (entry === 'enrich') {
+      named('品牌校准：enrich 坏任务在预留、请求和交付写入前退出2', stopped, detail)
+      named('品牌校准：enrich 逐字段指出校准路径', diagnosed, stderrTail(r.stderr))
+    } else {
+      named('品牌校准：render 坏任务在预留、请求和交付写入前退出2', stopped, detail)
+      named('品牌校准：render 逐字段指出校准路径', diagnosed, stderrTail(r.stderr))
+    }
+    rejected++
+  }
+  const budgetEnrich = taskInput('brand-invalid-enrich-budget', bad, true)
+  const budgetEnrichBefore = original(budgetEnrich)
+  const budgetEnrichRun = runBoth('品牌校准非法 enrich 改额',
+    [S('enrich.ts'), '--dir', budgetEnrich.taskDir, '--budget', '2'], budgetEnrich.cwd,
+    { status: 2, soft: [0, 1, 3] }, observed(budgetEnrich))
+  if (budgetEnrichRun.ok && ready(budgetEnrich, budgetEnrichRun.stderr)) {
+    const outputFiles = ['enrichment.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
+      .map(name => join(budgetEnrich.taskDir, name))
+    named('品牌校准：enrich 改额坏任务在预留、请求和交付写入前退出2，任务原字节不变',
+      budgetEnrichRun.status === 2 && noReserveOrFetch(budgetEnrich)
+        && unchanged(budgetEnrich, budgetEnrichBefore)
+        && outputFiles.every(path => !existsSync(path))
+        && !existsSync(join(budgetEnrich.cwd, 'memory', 'creators.json')),
+      `退出=${budgetEnrichRun.status}，预留=${fetchAttempts(budgetEnrich.reserves).length}，`
+        + `请求=${fetchAttempts(budgetEnrich.log).length}`)
+    named('品牌校准：enrich 改额逐字段指出校准路径',
+      budgetEnrichRun.status === 2 && fields(budgetEnrichRun.stderr), stderrTail(budgetEnrichRun.stderr))
+    rejected++
+  }
+  if (rejected === 6) criterion('D20.e')
+})
+
 // 共用夹具按需创建，完整派跑仍保持 collect 坏输入 → probe 坏输入 → 合法对照的原顺序。
 const createTaskListFixture = () => {
   // 独立上下文先于入口实现写成；只读需求、ADR-115 第 1–5 节及入口交点欠条、

@@ -93,6 +93,7 @@
 | `scripts/lib/search-tasks.ts` | 逻辑 | D16 P1 | 任务列表与三个必填字段的判定；不补、不改写 |
 | `scripts/lib/resume-progress.ts` | 逻辑 | D19 P1 | 恢复已有采集任务时按有效任务数只读校验原始进度；缺表保留未知 |
 | `scripts/lib/config-input.ts` | 逻辑 | D17 P1 | 按 new / resume / probe 角色只读原始市场与人数；不填缺省，collect 与 probe 在应用缺省和产生副作用前调用 |
+| `scripts/lib/brand-calibration.ts` | 逻辑 | D20 | 只读检查任务级可选品牌输入的形状和来源性质；collect、enrich、render 共用判定，不替 Agent 判断偏好是否合适或事实是否已证实 |
 | `scripts/probe-ig-paging.ts` | 入口 | — | 核实工具，不在任何管线上：默认只打一次报响应形状；`--chain N` 把上一响应的 `pagination_token`（官方 spec 声明的参数名）接进下一次；`--repeat N` 原样重发。`--chain` 同时跑与实际链长相等的重发曲线，最多发 2N 次请求。两条曲线各报累计去重作者、条目及当次差值；端点会漂，差值不能归因给游标或重发。作者数按可用的 id / username 键去重；缺身份可能少计，同一作者换键可能多计。末尾不涨只说得出「这 N 次之内没再涨」；某次响应没有可继续令牌只使本次链停止，不说明匹配结果已耗尽。 |
 | `scripts/collect.ts` | 入口 | D6 P3 F7 D4 F9 | 轮转采集不让第一个关键词吃掉全部配额，**且任务列表里每个关键词×平台都至少被问过一次** —— 达标之后仍然给「一页都没抓过」的任务补第一页，第一页之后才按达标停（F9）。⚠️ 它保证的是**问过**，不保证问到多少人；预算比它优先，不够抓齐第一页时照旧存断点退 3；记忆读不出来退 2 且不产出名单 |
 | `scripts/enrich.ts` | 入口 | D8 D9 D10 F8 P3 | 只对语义筛选后的候选抓主页样本；已查过的账号默认不重复付费，但每次都按当前口径就地重算已保存证据（零请求），不凭重算补回旧样本丢失的图文 |
@@ -147,6 +148,8 @@
 
 `config-input.ts` 与任务列表、路线判定并列，只消费调用方传入的原始字段，不依赖读盘、费用账或供应商。
 读取边界负责根形状；纯判定负责字段问题，collect 与 probe 负责按角色传入原值、聚合问题及控制默认值和副作用顺序（D17、ADR-116）。
+任务级 `brand_calibration` 由外部项目输入拥有，collect 只负责校验并原样带入新建任务，续跑保留盘上原值；
+enrich 和 render 只读校验。来源性质的结构校验不授予脚本核实产品事实的能力（D20、ADR-130）。
 
 `mutate.ts` 只有在 `kills` 全部能归到验证者分组时才选跑；归不了组的仍整跑。
 每种实际使用的验证者与组名组合，先在隔离副本用正常源码跑一次基线，确认断言执行完且全绿，再允许施加变异；这份基线不拥有完整测试的审计认领。
@@ -266,6 +269,7 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | 原样任务列表与 IG 路线一并校验 → 才读续跑进度、建目录、开账或改额 | `scripts/collect.ts`、`scripts/probe.ts` | 提前读坏列表会崩溃；先补平台或维度会把缺席当成合法配置；续跑先改额会在拒绝坏任务之前改写旧文件 | M-D16-x M-D16-y M-D16-ab M-D16-ac M-D16-ad M-D16-ae M-D16-af M-D16-ag |
 | 续跑任务列表有效 → 校验原始进度 → 才读进度行、构造预算、改额、预留或请求 | `scripts/collect.ts`、`scripts/lib/resume-progress.ts`、`scripts/lib/cost-json.ts` | 坏索引与坏统计表会在付费或保存后才暴露；旧缺表若补成空表会把历史未知写成零；数字解析后舍入会放过原始坏值 | M-D19-c M-D19-e M-D19-h |
 | 原始市场/人数问题与任务/路线问题汇总 → 拒绝坏输入 → 合规后才用新配置缺省、开账、改额、写入、预留或请求 | `scripts/collect.ts`、`scripts/probe.ts` | 先套缺省会吞掉 null，首错先抛会漏报任务/路线，续跑先改额会在拒绝前改写旧文件 | M-D17-q M-D17-r M-D17-s M-D17-t M-D17-u M-D17-ac M-D17-ad M-D17-ae |
+| 任务级品牌输入原样校验 → 才解析新建预算、改额、预留、请求或写交付物 | `scripts/collect.ts`、`scripts/enrich.ts`、`scripts/render.ts`、`scripts/lib/brand-calibration.ts` | 品牌字段坏了仍可能留下费用或产物；新建状态若只重建已知字段，会丢原项目输入 | M-D20-d M-D20-e M-D20-f M-D20-g M-D20-h |
 | render 读入任务并校验原样列表 → 才读名单、生成交付物与写回记忆 | `scripts/render.ts` | 坏列表在写入后才被发现，会留下新名单/表格或推荐记忆，却没有对应的新报告 | M-D16-ai M-D16-aj M-D16-ao |
 | render 合并身份 → 当前记忆复核 → 名单与任务去重状态配对保存 → 才生成交付和写推荐记忆 | `scripts/render.ts`、`scripts/lib/memory.ts`、`scripts/lib/task.ts` | 重导出沿用旧联系状态，或中断后留下未去重名单与“已去重”声明 | M-P4-o M-D4-ai |
 | 直接 render 先在内存重核旧 Instagram 主页样本范围与指标 → 才关联创作者并写名单、表格、报告或记忆 | `scripts/render.ts`、`scripts/lib/assessment.ts` | 旧盘上没有范围标记的播放和活跃度被原样当成当前口径交付 | M-D8-p |
