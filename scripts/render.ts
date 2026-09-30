@@ -9,11 +9,11 @@
  */
 import { writeFileAtomic } from './lib/atomic.js'
 import { join } from 'node:path'
-import { taskFile, taskId, loadTask, loadCreators, loadEnrichment, saveCreators } from './lib/task.js'
+import { taskFile, taskId, loadTask, loadCreators, loadEnrichment, persistListAndStatus } from './lib/task.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { rankCreators, keywordRows, taskPlatforms, tierCounts } from './lib/pipeline.js'
-import { recordRecommendations } from './lib/memory.js'
+import { filterByMemory, MemoryUnreadable, recordRecommendations } from './lib/memory.js'
 import { writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, buildSheets } from './lib/rows.js'
 import { writeXlsx, type Sheet } from './lib/xlsx.js'
@@ -27,6 +27,7 @@ import type { Creator, Measurement, TaskState } from './lib/types.js'
 const i = process.argv.indexOf('--dir')
 const dir = i >= 0 ? process.argv[i + 1] : undefined
 if (!dir) { console.error('用法: tsx scripts/render.ts --dir <output/xxx>'); process.exit(2) }
+const ignoreMemory = process.argv.includes('--ignore-memory')
 
 // D16.n–q：只把任务读取错误当作输入错误；校验先于名单、交付物和记忆写入。
 let state: TaskState
@@ -45,6 +46,22 @@ let creators = loadCreators(dir)
 // 同人识别与合并 —— 在这里再跑一次，render 才能独立于 collect 正确工作（幂等）
 linkCrossPlatform(creators)
 creators = mergeCrossPlatform(creators)
+
+// The last delivery may predate a manual contacted/blocked edit. Recheck both
+// account identities before changing any task output or recommendation memory.
+let memoryStatus
+try {
+  const current = filterByMemory(creators, state.product, taskId(dir),
+    { ignoreUnreadable: ignoreMemory })
+  creators = current.kept
+  memoryStatus = current.memory_status
+} catch (e) {
+  if (e instanceof MemoryUnreadable) {
+    console.error(`${e.message}\n修复记忆后重跑；只有明确接受不去重风险时才加 --ignore-memory。`)
+    process.exit(2)
+  }
+  throw e
+}
 
 const accountKeysFor = (list: Creator[]): Set<string> => {
   const keys = new Set<string>()
@@ -68,7 +85,7 @@ attachAssessments(creators, enrichment)
 
 // 算分 → 分层 → 受众降权 → 排序。管线在 lib/pipeline.ts
 creators = rankCreators(creators, state.market)
-saveCreators(dir, creators)
+persistListAndStatus(dir, state, creators, memoryStatus)
 const accountKeys = accountKeysFor(creators)
 
 // ---------- CSV（单表，供脚本与其他工具消费）----------
@@ -138,7 +155,7 @@ const meta = {
   // unknown 另有一个来源：名单与状态没能一起落成（ADR-41）。两者事后分不出，
   // 所以报告里的措辞与来源无关，不替用户编一个原因（ADR-43）。
   // 缺失、null、拼错、新版本写下的新取值 —— 认不出的一律 unknown（ADR-47）
-  memory_status: asMemoryStatus(state.memory_status),
+  memory_status: asMemoryStatus(memoryStatus),
   memory_written: writeBack.written,
   // 只在真的没写回时出现。原因有两类（读不出来 / 写不进去），
   // 报告要把原文带给用户，否则他会去修一份根本没坏的 JSON（ADR-20）。

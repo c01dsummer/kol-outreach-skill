@@ -96,13 +96,14 @@
 | `scripts/probe-ig-paging.ts` | 入口 | — | 核实工具，不在任何管线上：默认只打一次报响应形状；`--chain N` 把上一响应的 `pagination_token`（官方 spec 声明的参数名）接进下一次；`--repeat N` 原样重发。`--chain` 同时跑与实际链长相等的重发曲线，最多发 2N 次请求。两条曲线各报累计去重作者、条目及当次差值；端点会漂，差值不能归因给游标或重发。作者数按可用的 id / username 键去重；缺身份可能少计，同一作者换键可能多计。末尾不涨只说得出「这 N 次之内没再涨」；某次响应没有可继续令牌只使本次链停止，不说明匹配结果已耗尽。 |
 | `scripts/collect.ts` | 入口 | D6 P3 F7 D4 F9 | 轮转采集不让第一个关键词吃掉全部配额，**且任务列表里每个关键词×平台都至少被问过一次** —— 达标之后仍然给「一页都没抓过」的任务补第一页，第一页之后才按达标停（F9）。⚠️ 它保证的是**问过**，不保证问到多少人；预算比它优先，不够抓齐第一页时照旧存断点退 3；记忆读不出来退 2 且不产出名单 |
 | `scripts/enrich.ts` | 入口 | D8 D9 D10 F8 P3 | 只对语义筛选后的候选抓主页样本；已查过的账号默认不重复付费，但每次都按当前口径就地重算已保存证据（零请求），不凭重算补回旧样本丢失的图文 |
-| `scripts/render.ts` | 入口 | P5 U1 U2 U5 U7 D4 D8 D9 D10 D16 F8 | 交付物生成的唯一出口，且是唯一往跨任务记忆写回的地方；任务读取与列表校验先于全部写入；盘上的公开指标在内存里按样本范围重核后才投影交付，直接 render 旧目录也不能绕过；记忆写回在报告之前，报告才能声明它的结果；四个交付物都走整体替换 |
+| `scripts/render.ts` | 入口 | P4 P5 U1 U2 U5 U7 D4 D8 D9 D10 D16 F8 | 交付物生成的唯一出口，且是唯一往跨任务记忆写回的地方；任务读取与列表校验先于全部写入；每次交付前按当前记忆重核主/关联账号，名单与任务去重状态配对保存；盘上的公开指标在内存里按样本范围重核后才投影交付，直接 render 旧目录也不能绕过；记忆写回在报告之前，报告才能声明它的结果；四个交付物都走整体替换 |
 | `scripts/lib/pipeline.ts` | 逻辑 | D6 D11 P1 P4 F5 F8 U1 U3 | 入口脚本原先裸露的两段管线；**顺序契约全在这里**，见下表。「这个人还要不要补 profile」**只此一份**（`needsProfile`）—— 补全循环拿它挑人，「续跑要不要花钱」拿它算钱；各写一份的话，先改的那边不会报错，于是循环去补的人和账单上说的人对不上（ADR-25）。**「这个任务一页都没抓过」同样只此一份**（`firstPagePending`）—— 采集调度拿它决定达标之后还补谁，「续跑要不要花钱」拿它算钱，同一个先例（F9.c）。**「这个任务抓了几页、还能不能再翻」也只此一份**（`pagesFetched`／`underPageCap`，常量 `MAX_PAGES` 与判定放在一起，不从入口传进来）—— 采集调度拿它决定还翻不翻，而「续跑要不要花钱」靠 `done` 与它对上；传参或各写一份的话，两边可以各拿一个数，而先改的那一边不会报错（D6.h／D6.m）|
 | `scripts/lib/task-label.ts` | 逻辑 | U8 P5 | 接收原任务下标生成展示身份；只依赖类型，入口和管线共用，不推断搜索路径 |
 | `scripts/lib/posts.ts` | 逻辑 | D11 P1 | 搜索作品键的归一化与稳定并集共用一份契约；适配器给真实标识加平台前缀，采集累加和同人合并都在这里去重，缺标识不丢作品 |
 | `scripts/lib/score.ts` | 逻辑 | P1 F6 F8 | 打分、分层、粉丝闸门、两种降级判定；语义否决对分层有一票否决权 |
 | `scripts/lib/identity.ts` | 逻辑 | D1 D2 D3 D11 P1 | 跨平台同人识别与合并；不确定不合并，未知粉丝数相加仍是未知 |
-| `scripts/lib/memory.ts` | 逻辑 | P4 D4 D6 | 跨任务记忆的读写与过滤；「文件不存在」与「读不出来」是两个状态，后者抛而不是退化，且绝不拿它去覆盖原文件；解析成功还要过结构校验，键按 D1 规范化，形状不对或撞键当读不出来；写回前生成的键过同一道校验；写回走临时文件加改名，写不进去报为未写回而不中断交付 |
+| `scripts/lib/memory.ts` | 逻辑 | P4 D4 D6 | 跨任务记忆的读写与过滤；合并账号的主/关联身份及记忆中的反向关联共同参与过滤，旧推荐标注每次按当前记忆重算；「文件不存在」与「读不出来」是两个状态，后者抛而不是退化，且绝不拿它去覆盖原文件；解析成功还要过结构校验，键按 D1 规范化，形状不对或撞键当读不出来；写回前生成的键过同一道校验；写回走临时文件加改名，写不进去报为未写回而不中断交付 |
+| `scripts/memory-recheck-test.ts` | 检查 | P4 P5 D4 | 独立黑盒夹具在隔离任务及记忆目录中运行真实 render 入口，验证当前联系状态、关联身份、拒绝坏记忆及声明；由需求测试选组调用 |
 | `scripts/lib/atomic.ts` | 逻辑 | D4 | **唯一一份**整体替换写入：临时文件按最严权限建、目标原有的权限位带过去、失败清半成品、写之前清掉已死进程留下的残留（活着的与刚写下的不动，清不掉不算失败）、目标只读时不替换（改名会绕过文件自己的权限）、目标是软链时写它指向的那份；改名前刷文件、改名后与新建目录逐层尽力刷目录 —— 尽力而为，不作保证（ADR-50）。记忆、任务目录的状态文件、四个交付物、以及两份覆盖记录（`test.ts` 的单元认领、`selfcheck.ts` 的入口认领）都经它落盘 —— 各写一份时同一个权限位的 bug 修好一次又原样重现 |
 | `scripts/lib/cost-ledger.ts` | 逻辑 | D12 D13 P1 P3 P5 | 精确金额、费用账校验与预留结算；只接收固定价目，不依赖文件或网络；总上限修改不重算历史项 |
 | `scripts/providers/tikhub-pricing.ts` | 适配 | D12 P5 | 固定公开价目的版本与完整端点报价，供费用账核对历史依据；不远程查价、不推断账户账单 |
@@ -266,6 +267,7 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | 续跑任务列表有效 → 校验原始进度 → 才读进度行、构造预算、改额、预留或请求 | `scripts/collect.ts`、`scripts/lib/resume-progress.ts`、`scripts/lib/cost-json.ts` | 坏索引与坏统计表会在付费或保存后才暴露；旧缺表若补成空表会把历史未知写成零；数字解析后舍入会放过原始坏值 | M-D19-c M-D19-e M-D19-h |
 | 原始市场/人数问题与任务/路线问题汇总 → 拒绝坏输入 → 合规后才用新配置缺省、开账、改额、写入、预留或请求 | `scripts/collect.ts`、`scripts/probe.ts` | 先套缺省会吞掉 null，首错先抛会漏报任务/路线，续跑先改额会在拒绝前改写旧文件 | M-D17-q M-D17-r M-D17-s M-D17-t M-D17-u M-D17-ac M-D17-ad M-D17-ae |
 | render 读入任务并校验原样列表 → 才读名单、生成交付物与写回记忆 | `scripts/render.ts` | 坏列表在写入后才被发现，会留下新名单/表格或推荐记忆，却没有对应的新报告 | M-D16-ai M-D16-aj M-D16-ao |
+| render 合并身份 → 当前记忆复核 → 名单与任务去重状态配对保存 → 才生成交付和写推荐记忆 | `scripts/render.ts`、`scripts/lib/memory.ts`、`scripts/lib/task.ts` | 重导出沿用旧联系状态，或中断后留下未去重名单与“已去重”声明 | M-P4-o M-D4-ai |
 | 直接 render 先在内存重核旧 Instagram 主页样本范围与指标 → 才关联创作者并写名单、表格、报告或记忆 | `scripts/render.ts`、`scripts/lib/assessment.ts` | 旧盘上没有范围标记的播放和活跃度被原样当成当前口径交付 | M-D8-p |
 | 同人识别 → 合并 → 粉丝闸门 → 记忆过滤 | `scripts/lib/pipeline.ts` | 闸门跑在合并之前，「TikTok 3000 + IG 3000、合起来够线」的人被提前丢掉；记忆过滤跑在闸门之前，`filtered_contacted` 把连闸门都过不了的人也算进去，向用户虚报打扰规模 | M-P1-g M-P4-b |
 | 保留原任务下标 → 再筛选可展示的标签 | `scripts/lib/pipeline.ts` | 剩余任务按新位置重新编号，用户不能把提示指回原任务 | M-U8-a M-U8-b M-U8-o |
@@ -295,7 +297,7 @@ Agent 是编排者，它读 stdout 做决策。
 | `probe` | `--config probe.json` | **不落盘** | 0 · 1 · 2 |
 | `collect` | `--config task.json` 或 `--resume <dir>` `[--ignore-memory]` | `task.json` `creators.raw.json` `creators.json` | 0 · 1 · 2 · **3** |
 | `enrich` | `--dir <dir>`（`task.json` `creators.json`） | `enrichment.json` `task.json` | 0 · 1 · 2 · **3** |
-| `render` | `--dir <dir>`（`task.json` `creators.json` `enrichment.json`） | `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` · **`memory/creators.json`** | 0 · 2 |
+| `render` | `--dir <dir>` `[--ignore-memory]`（`task.json` `creators.json` `enrichment.json` · 当前 `memory/creators.json`） | `task.json` 的去重状态 · `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` · **`memory/creators.json`** | 0 · 2 |
 
 **stdout 是结构化 JSON，stderr 是进度。** 这个分工是硬约束 —— Agent 解析 stdout，
 往里混进度信息会让解析在最需要它的时候（长任务、预算告急）失败。

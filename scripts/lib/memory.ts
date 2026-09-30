@@ -92,6 +92,10 @@ function shapeProblem(v: unknown): string | undefined {
   for (const [k, e] of Object.entries(creators as Record<string, unknown>)) {
     if (!obj(e)) return `${k} 的记录不是对象`
     const r = e as Record<string, unknown>
+    if (r.linked_to !== undefined) {
+      const badLink = linkedKeyProblem(r.linked_to)
+      if (badLink) return `${k} 的 linked_to ${badLink}`
+    }
     // contacted 与 blocked 决定 P4；recommendations 决定跨任务去重。
     // 缺一个就没法回答「这个人能不能联系」，而**答不上来时不许猜**。
     if (typeof r.contacted !== 'boolean') return `${k} 的 contacted 不是 true 或 false`
@@ -217,6 +221,14 @@ function keyProblem(platform: unknown, handle: unknown): string | undefined {
   return undefined
 }
 
+/** linked_to is used for P4 lookup, so an unusable alias makes memory unreadable. */
+function linkedKeyProblem(value: unknown): string | undefined {
+  if (typeof value !== 'string') return `不是 platform:handle 字符串（${typeof value}）`
+  const parts = value.split(':')
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return '不是 platform:handle 的形式'
+  return keyProblem(parts[0], parts[1])
+}
+
 function normalizeKeys(creators: Record<string, MemoryEntry>):
   { ok: true; creators: Record<string, MemoryEntry> } | { ok: false; why: string } {
   const out: Record<string, MemoryEntry> = {}
@@ -303,6 +315,21 @@ export interface FilterResult {
   memory_status: Exclude<MemoryStatus, 'unknown'>
 }
 
+/** A merged candidate can be known under either account in an earlier task. */
+function accountKeys(c: Creator, mem: MemoryFile): string[] {
+  const keys = new Set([key(c)])
+  const linked = c.linked_handle?.split(':')
+  if (linked?.length === 2 && !keyProblem(linked[0], linked[1])) {
+    keys.add(creatorKey({ platform: linked[0], handle: linked[1] }))
+  }
+  // A previous task may have saved the primary account with linked_to, while
+  // this task discovers only its secondary account.
+  for (const [storedKey, entry] of Object.entries(mem.creators)) {
+    if (entry.linked_to && keys.has(entry.linked_to.toLowerCase())) keys.add(storedKey)
+  }
+  return [...keys]
+}
+
 /**
  * 按记忆过滤。
  *
@@ -322,6 +349,8 @@ export function filterByMemory(
 ): FilterResult {
   const want = product.trim()
   const r = readMemory()
+  // This is a projection of the current memory, not an enduring creator fact.
+  for (const c of creators) delete c.previously_recommended
   if (r.status === 'unreadable') {
     if (!opts.ignoreUnreadable) throw new MemoryUnreadable(FILE, r.detail)
     // 一个人都不滤，并把「没滤」原样带出去。**不得在这里返回空记忆了事** ——
@@ -336,12 +365,15 @@ export function filterByMemory(
   let rec = 0, con = 0
 
   for (const c of creators) {
-    const e = mem.creators[key(c)]
-    if (!e) { kept.push(c); continue }
-    if (e.contacted || e.blocked) { con++; continue }
+    const entries = accountKeys(c, mem).flatMap(k => {
+      const entry = mem.creators[k]
+      return entry ? [entry] : []
+    })
+    if (!entries.length) { kept.push(c); continue }
+    if (entries.some(e => e.contacted || e.blocked)) { con++; continue }
 
     // 本任务自己留下的记录不算数 —— 否则续跑会把自己上一轮的产出判成「已推荐过」
-    const others = e.recommendations.filter(r => !(task && r.task === task))
+    const others = entries.flatMap(e => e.recommendations.filter(r => !(task && r.task === task)))
     // 比较两侧都去掉首尾空白。**不判成损坏** —— product 来自用户的任务配置，
     // 配置里多一个空格就把我们自己写下的记忆判成读不出来，那是自伤。
     // 首尾空白对「是不是同一个产品」没有意义，和键的大小写是同一类（ADR-40）。
@@ -393,6 +425,10 @@ export function recordRecommendations(
   for (const c of creators) {
     const bad = keyProblem(c.platform, c.handle)
     if (bad) return { written: false, reason: `${c.platform}:${c.handle} 记不下来 —— ${bad}` }
+    if (c.linked_handle !== undefined) {
+      const badLink = linkedKeyProblem(c.linked_handle)
+      if (badLink) return { written: false, reason: `${c.platform}:${c.handle} 的关联账号记不下来 —— ${badLink}` }
+    }
   }
   const r = readMemory()
   if (r.status === 'unreadable') return { written: false, reason: r.detail }

@@ -165,11 +165,84 @@
       "req": "P4",
       "why": "不再排除已联系/已屏蔽的人，导致重复打扰",
       "file": "scripts/lib/memory.ts",
-      "find": "    if (e.contacted || e.blocked) { con++; continue }",
+      "find": "    if (entries.some(e => e.contacted || e.blocked)) { con++; continue }",
       "replace": "    if (false) { con++; continue }",
       "by": "test",
       "kills": [
         "记忆完好时只剩没联系过的那个"
+      ]
+    },
+    {
+      "id": "M-P4-m",
+      "req": "P4.a",
+      "why": "合并账号只查主平台，关联平台已联系或屏蔽仍进入交付",
+      "file": "scripts/lib/memory.ts",
+      "find": "    keys.add(creatorKey({ platform: linked[0], handle: linked[1] }))",
+      "replace": "    /* 关联平台未参与查询 */",
+      "by": "test",
+      "kills": [
+        "记忆关联账号已联系者被过滤",
+        "记忆关联账号已屏蔽者被过滤"
+      ]
+    },
+    {
+      "id": "M-P4-n",
+      "req": "P4.a",
+      "why": "只发现关联账号时不查记忆里已有的跨平台映射，已联系主账号被重新推荐",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (entry.linked_to && keys.has(entry.linked_to.toLowerCase())) keys.add(storedKey)",
+      "replace": "    /* 历史关联未参与查询 */",
+      "by": "test",
+      "kills": [
+        "只发现关联账号也查到主账号的联系记录"
+      ]
+    },
+    {
+      "id": "M-P4-o",
+      "req": "P4.a",
+      "why": "重复导出虽读取当前记忆，却仍把已联系账号写进新交付",
+      "file": "scripts/render.ts",
+      "find": "  creators = current.kept",
+      "replace": "  /* 忽略此刻过滤出的名单 */",
+      "by": "test",
+      "kills": [
+        "重复交付必须读取此刻联系状态"
+      ]
+    },
+    {
+      "id": "M-D4-ai",
+      "req": "D4",
+      "why": "重导出更新名单却保留旧的去重状态，显式未去重名单仍声明已去重",
+      "file": "scripts/render.ts",
+      "find": "persistListAndStatus(dir, state, creators, memoryStatus)",
+      "replace": "writeFileAtomic(join(dir, 'creators.json'), JSON.stringify(creators, null, 2))",
+      "by": "test",
+      "kills": [
+        "坏记忆拒绝交付且显式忽略须声明未去重"
+      ]
+    },
+    {
+      "id": "M-D4-ak",
+      "req": "D4",
+      "why": "已删除的跨任务推荐继续以旧标签出现在新交付",
+      "file": "scripts/lib/memory.ts",
+      "find": "  for (const c of creators) delete c.previously_recommended",
+      "replace": "  /* 保留旧交付里的推荐标签 */",
+      "by": "test",
+      "kills": [
+        "删除历史推荐后旧标签不残留"
+      ]
+    },
+    {
+      "id": "M-D4-aj",
+      "req": "D4",
+      "why": "损坏的关联身份仍被当成可用记忆，导致去重结论不可信",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (r.linked_to !== undefined) {\n      const badLink = linkedKeyProblem(r.linked_to)\n      if (badLink) return `${k} 的 linked_to ${badLink}`\n    }",
+      "replace": "    /* 不校验用于联系过滤的关联身份 */",
+      "by": "test",
+      "kills": [
+        "关联身份损坏时记忆不可读"
       ]
     },
     {
@@ -376,8 +449,8 @@
       "req": "D6",
       "why": "记忆过滤不再区分「本任务」与「别的任务」—— render 之后每次 --resume 都产出一份空名单，已付费采集的人被判成「已推荐过」",
       "file": "scripts/lib/memory.ts",
-      "find": "    const others = e.recommendations.filter(r => !(task && r.task === task))",
-      "replace": "    const others = e.recommendations",
+      "find": "    const others = entries.flatMap(e => e.recommendations.filter(r => !(task && r.task === task)))",
+      "replace": "    const others = entries.flatMap(e => e.recommendations)",
       "by": "test",
       "kills": [
         "本任务上一轮推荐过的人仍保留"
@@ -2345,8 +2418,8 @@
       "req": "D4",
       "why": "写记忆之前不检查即将生成的键能不能用 —— 名单里混进一个展示形态的用户名或不支持的平台，就写下一条自己下次读不出来的记录，此后每一次采集都被挡在门外，直到有人手工去修",
       "file": "scripts/lib/memory.ts",
-      "find": "  for (const c of creators) {\n    const bad = keyProblem(c.platform, c.handle)\n    if (bad) return { written: false, reason: `${c.platform}:${c.handle} 记不下来 —— ${bad}` }\n  }",
-      "replace": "  /* mutated */",
+      "find": "    const bad = keyProblem(c.platform, c.handle)\n    if (bad) return { written: false, reason: `${c.platform}:${c.handle} 记不下来 —— ${bad}` }",
+      "replace": "    /* 跳过候选人身份检查 */",
       "by": "test",
       "kills": [
         "记忆仍然读得出来 —— 没有被自己写的键毒掉"
@@ -7895,7 +7968,7 @@
       "why": "拒绝坏任务之前已经保存或新建名单",
       "file": "scripts/render.ts",
       "find": "if (badTasks.length) {",
-      "replace": "if (badTasks.length) {\n  saveCreators(dir, loadCreators(dir))",
+      "replace": "if (badTasks.length) {\n  writeFileAtomic(join(dir, 'creators.json'), '[]')",
       "by": "selfcheck",
       "kills": [
         "render 输入：坏任务不改任何已有文件，也不创建名单交付物或记忆"

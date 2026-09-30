@@ -174,6 +174,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd12-ledger', needs: [] },
   { id: 'p3-budget-token', needs: [] },
   { id: 'd14-cost-persistence', needs: [] },
+  { id: 'p4-render-recheck', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -2050,6 +2051,29 @@ suite('D4', '记忆选跑：合法控制、语义拒收与局部写回失败')
       if (nullHandle !== undefined) ok('D4.n null handle 写回返回未写回', nullHandle)
       const numericPlatform = writeRejected({ platform: 7 }, true)
       if (numericPlatform !== undefined) ok('D4.n 数字 platform 写回返回未写回', numericPlatform)
+
+      const linkedMemory = (secondary: Record<string, unknown> = {}, primary: Record<string, unknown> = {}) =>
+        memory([
+          ['tiktok:alice', entry({ linked_to: 'instagram:alice_ig', ...primary })],
+          ['instagram:alice_ig', entry({ platform: 'instagram', handle: 'alice_ig', ...secondary })],
+        ])
+      const linkedExcluded = (field: 'contacted' | 'blocked') => normal(() =>
+        prepare(linkedMemory({ [field]: true })) !== undefined &&
+        filterByMemory([creator({ linked_handle: 'instagram:alice_ig' })], 'Foo', 'new-task').kept.length === 0)
+      ok('记忆关联账号已联系者被过滤', linkedExcluded('contacted'))
+      ok('记忆关联账号已屏蔽者被过滤', linkedExcluded('blocked'))
+      ok('只发现关联账号也查到主账号的联系记录', normal(() =>
+        prepare(linkedMemory({}, { contacted: true })) !== undefined &&
+        filterByMemory([creator({ platform: 'instagram', handle: 'alice_ig',
+          profile_url: 'https://www.instagram.com/alice_ig/' })], 'Foo', 'new-task').kept.length === 0))
+      ok('删除历史推荐后旧标签不残留', normal(() => {
+        if (prepare(one()) === undefined) return false
+        const old = creator({ previously_recommended: '曾为旧产品推荐过' })
+        const kept = filterByMemory([old], 'Foo', 'new-task').kept
+        return kept.length === 1 && kept[0].previously_recommended === undefined
+      }))
+      const badLink = readRejected(one({ linked_to: 42 }))
+      if (badLink !== undefined) ok('关联身份损坏时记忆不可读', badLink)
     }
   } finally {
     useMemoryFile('memory/creators.json')
@@ -9737,6 +9761,27 @@ suite('D14', '费用检查点只推进费用，保留盘上业务与精确预算
   // HTTP 前后顺序、强杀窗口与入口退出码由进程测试认领，纯接口不冒领 D14.a–f/h。
 }
 
+})
+await group('p4-render-recheck', () => {
+  suite('P4', '重复交付按当前记忆复核两个平台的身份')
+  const script = join(dirname(fileURLToPath(import.meta.url)), 'memory-recheck-test.ts')
+  const result = spawnSync(process.execPath, ['--import', 'tsx', script], {
+    cwd: dirname(dirname(script)), encoding: 'utf8', env: process.env,
+  })
+  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`
+  if (result.error || !output.includes('✓ fixture control: unmarked linked creator is deliverable')) {
+    throw new Error(`P4 入口夹具没有正常运行：${result.error ?? output.slice(-1500)}`)
+  }
+  const passed = (label: string) => output.includes(`✓ ${label}\n`)
+  ok('当前主账号已联系不得进入交付', passed('current primary-contacted excludes the person before output and memory write'))
+  ok('当前主账号已屏蔽不得进入交付', passed('current primary-blocked excludes the person before output and memory write'))
+  ok('当前关联账号已联系不得进入交付', passed('current linked-contacted excludes the person before output and memory write'))
+  ok('当前关联账号已屏蔽不得进入交付', passed('current linked-blocked excludes the person before output and memory write'))
+  ok('重复交付必须读取此刻联系状态', passed('render rereads current memory even when task status already says ok'))
+  ok('坏记忆拒绝交付且显式忽略须声明未去重', passed('unreadable memory stops delivery, and explicit ignore declares no deduplication'))
+  ok('同任务先前推荐不妨碍再次交付', passed('recommendation from this same task permits a legitimate repeat render'))
+  criterion('P4.a', 'P4.b', 'P4.c')
+  tension('D4', 'P4')
 })
 if (seenGroups.size !== GROUPS.length) {
   throw new Error(`需求测试组只遇到 ${seenGroups.size}/${GROUPS.length} 组，不能报告完成`)
