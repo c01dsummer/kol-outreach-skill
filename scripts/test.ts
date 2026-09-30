@@ -74,6 +74,10 @@ import { resumeProgressProblems } from './lib/resume-progress.js'
 import { configFieldProblems, type ConfigInputRole } from './lib/config-input.js'
 import { brandCalibrationProblems } from './lib/brand-calibration.js'
 import {
+  normalizedAccountKey, readAgentReviewDocument, writeAgentReviewDocument,
+  ReviewInputError, type AgentReviewDocument,
+} from './lib/review.js'
+import {
   INSTAGRAM_HASHTAG_ENDPOINT, TikHub, TikHubError, fillEmail, isInstagramVideo, parseInstagramHashtagPage, pickList,
 } from './providers/tikhub.js'
 import { esc, writeCsv } from './lib/csv.js'
@@ -176,6 +180,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p3-budget-token', needs: [] },
   { id: 'd14-cost-persistence', needs: [] },
   { id: 'p4-render-recheck', needs: [] },
+  { id: 'd21-review-document', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -9995,6 +10000,196 @@ await group('p4-render-recheck', () => {
   ok('同任务先前推荐不妨碍再次交付', passed('recommendation from this same task permits a legitimate repeat render'))
   criterion('P4.a', 'P4.b', 'P4.c')
   tension('D4', 'P4')
+})
+await group('d21-review-document', () => {
+  suite('D21', '任务级 Agent 评审正本读写与输入拒绝')
+  const dir = mkdtempSync(join(tmpdir(), 'kol-review-document-'))
+  const file = join(dir, 'agent-review.json')
+  const empty: AgentReviewDocument = {
+    version: 1, updated_at: '2026-09-30T10:00:00Z', reviews: {}, rounds: [],
+  }
+  const complete: AgentReviewDocument = {
+    version: 1, updated_at: '2026-09-30T11:00:00Z',
+    reviews: {
+      'tiktok:marie': {
+        account_keys: ['tiktok:marie', 'tiktok:marie.old'],
+        eligibility: '合格', adoption_priority: '优先联系',
+        observed_content: 'Recent desk setup videos show daily use.',
+        work_evidence: 'A dated desk setup video demonstrates the routine.',
+        natural_integration: 'The product can appear during the existing setup routine.',
+        mismatch_risk: 'The audience location remains unverified.',
+        fit: '✅', fit_reason: 'The setup routine matches the category.',
+        outreach_draft: 'Hi Marie, I liked your recent desk setup video.',
+        brand_calibration_version: 'brand-v2', reviewed_at: '2026-09-30T10:30:00Z',
+      },
+      'instagram:marie': {
+        account_keys: ['instagram:marie'], fit: '⚠️',
+      },
+    },
+    rounds: [],
+  }
+  const readFault = (contents: string): unknown => {
+    writeFileSync(file, contents)
+    try { readAgentReviewDocument(dir) } catch (error) { return error }
+    return undefined
+  }
+  const writeFault = (document: unknown): unknown => {
+    try { writeAgentReviewDocument(dir, document) } catch (error) { return error }
+    return undefined
+  }
+  try {
+    let absentRead: ReturnType<typeof readAgentReviewDocument> | undefined
+    try { absentRead = readAgentReviewDocument(dir) } catch { /* 由下一条具名断言报告 */ }
+    eq('D21 缺席正本返回 absent', absentRead?.status, 'absent')
+    if (!absentRead) return
+    eq('D21 缺席读取不创建正本', existsSync(file), false)
+    writeFileSync(file, JSON.stringify(empty))
+    eq('D21 已有空正本返回 present', readAgentReviewDocument(dir).status, 'present')
+    eq('D21 已有空正本仍有空评审与空轮次', readAgentReviewDocument(dir).document, empty)
+    writeAgentReviewDocument(dir, complete)
+    eq('D21 合法评审读写往返保留全部字段', readAgentReviewDocument(dir).document, complete)
+    eq('D21 同名跨平台评审各自保留', Object.keys(readAgentReviewDocument(dir).document.reviews),
+      ['tiktok:marie', 'instagram:marie'])
+    criterion('D21.a', 'D21.e')
+
+    eq('D21 平台大小写与开头 at 归一', normalizedAccountKey('TikTok', ' @MaRiE '), 'tiktok:marie')
+    eq('D21 Instagram 账号大小写归一', normalizedAccountKey('INSTAGRAM', '@Marie'), 'instagram:marie')
+    ok('D21 点号和下划线仍是不同账号',
+      normalizedAccountKey('tiktok', 'marie.old') !== normalizedAccountKey('tiktok', 'marie_old'))
+    ok('D21 同名跨平台仍是不同账号',
+      normalizedAccountKey('tiktok', 'marie') !== normalizedAccountKey('instagram', 'marie'))
+    const missingSelf = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { account_keys: ['tiktok:marie.old'], fit: '✅' },
+    } }))
+    ok('D21 别名缺少自身键拒绝', missingSelf instanceof ReviewInputError)
+    const repeatedAlias = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { account_keys: ['tiktok:marie', 'tiktok:marie'], fit: '✅' },
+    } }))
+    ok('D21 同一评审重复别名拒绝', repeatedAlias instanceof ReviewInputError)
+    const contestedAlias = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { account_keys: ['tiktok:marie', 'tiktok:shared'], fit: '✅' },
+      'tiktok:other': { account_keys: ['tiktok:other', 'tiktok:shared'], fit: '✅' },
+    } }))
+    ok('D21 两条评审争用别名拒绝', contestedAlias instanceof ReviewInputError)
+    const repeatedPrimary = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { account_keys: ['tiktok:marie'], fit: '✅' },
+      'TikTok:@MARIE': { account_keys: ['TikTok:@MARIE'], fit: '✅' },
+    } }))
+    ok('D21 非规范主键拒绝', repeatedPrimary instanceof ReviewInputError)
+    criterion('D21.f')
+
+    const syntaxFault = readFault('{"version":1,"updated_at":')
+    ok('D21 坏 JSON 拒绝并指出正本路径',
+      syntaxFault instanceof ReviewInputError && syntaxFault.message.includes(file))
+    const duplicateRoot = readFault('{"version":1,"version":1,"updated_at":"2026-09-30","reviews":{},"rounds":[]}')
+    ok('D21 重复根 JSON 键拒绝并指出键名',
+      duplicateRoot instanceof ReviewInputError && duplicateRoot.message.includes('version'))
+    const duplicateNested = readFault('{"version":1,"updated_at":"2026-09-30","reviews":{"tiktok:marie":{"account_keys":["tiktok:marie"],"fit":"✅","fit":"❌"}},"rounds":[]}')
+    ok('D21 重复嵌套 JSON 键拒绝并指出键名',
+      duplicateNested instanceof ReviewInputError && duplicateNested.message.includes('fit'))
+    const badRoot = readFault('[]')
+    ok('D21 数组根拒绝并指出正本路径',
+      badRoot instanceof ReviewInputError && badRoot.message.includes(file))
+    const badVersion = readFault(JSON.stringify({ ...empty, version: 2 }))
+    ok('D21 错版本拒绝并指出 version',
+      badVersion instanceof ReviewInputError && badVersion.message.includes('version'))
+    const badReviews = readFault(JSON.stringify({ ...empty, reviews: [] }))
+    ok('D21 非对象 reviews 拒绝并指出字段',
+      badReviews instanceof ReviewInputError && badReviews.message.includes('reviews'))
+    const badRounds = readFault(JSON.stringify({ ...empty, rounds: {} }))
+    ok('D21 非数组 rounds 拒绝并指出字段',
+      badRounds instanceof ReviewInputError && badRounds.message.includes('rounds'))
+    criterion('D21.g')
+
+    const badDate = readFault(JSON.stringify({ ...empty, updated_at: 7 }))
+    ok('D21 非字符串 updated_at 拒绝并指出字段',
+      badDate instanceof ReviewInputError && badDate.message.includes('updated_at'))
+    const badAliases = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { account_keys: null, fit: '✅' },
+    } }))
+    ok('D21 非数组 account_keys 拒绝并指出字段',
+      badAliases instanceof ReviewInputError && badAliases.message.includes('account_keys'))
+    const badEligibility = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { account_keys: ['tiktok:marie'], eligibility: 'approved', adoption_priority: '备选',
+        observed_content: 'Observed', work_evidence: 'Video', natural_integration: 'Routine', mismatch_risk: 'Unknown' },
+    } }))
+    ok('D21 非法 eligibility 枚举拒绝并指出字段',
+      badEligibility instanceof ReviewInputError && badEligibility.message.includes('eligibility'))
+    const badPriority = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { ...complete.reviews['tiktok:marie'], adoption_priority: 'soon' },
+    } }))
+    ok('D21 非法 adoption_priority 枚举拒绝并指出字段',
+      badPriority instanceof ReviewInputError && badPriority.message.includes('adoption_priority'))
+    const badFit = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { account_keys: ['tiktok:marie'], fit: 'maybe' },
+    } }))
+    ok('D21 非法兼容 fit 枚举拒绝并指出字段',
+      badFit instanceof ReviewInputError && badFit.message.includes('fit'))
+    const badEvidenceType = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { account_keys: ['tiktok:marie'], eligibility: '合格', adoption_priority: '备选',
+        observed_content: 8, work_evidence: 'Video', natural_integration: 'Routine', mismatch_risk: 'Unknown' },
+    } }))
+    ok('D21 非字符串 observed_content 拒绝并指出字段',
+      badEvidenceType instanceof ReviewInputError && badEvidenceType.message.includes('observed_content'))
+    const halfReviewed = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { account_keys: ['tiktok:marie'], eligibility: '合格',
+        observed_content: 'Observed', work_evidence: 'Video', natural_integration: 'Routine', mismatch_risk: 'Unknown' },
+    } }))
+    ok('D21 半填新评审缺 adoption_priority 拒绝',
+      halfReviewed instanceof ReviewInputError && halfReviewed.message.includes('adoption_priority'))
+    const missingEligibility = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { account_keys: ['tiktok:marie'], adoption_priority: '备选',
+        observed_content: 'Observed', work_evidence: 'Video', natural_integration: 'Routine', mismatch_risk: 'Unknown' },
+    } }))
+    ok('D21 半填新评审缺 eligibility 拒绝',
+      missingEligibility instanceof ReviewInputError && missingEligibility.message.includes('eligibility'))
+    const blankEvidence = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { account_keys: ['tiktok:marie'], eligibility: '合格', adoption_priority: '备选',
+        observed_content: ' ', work_evidence: 'Video', natural_integration: 'Routine', mismatch_risk: 'Unknown' },
+    } }))
+    ok('D21 已评候选空观察内容拒绝',
+      blankEvidence instanceof ReviewInputError && blankEvidence.message.includes('observed_content'))
+    const blankWork = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { ...complete.reviews['tiktok:marie'], work_evidence: ' ' },
+    } }))
+    ok('D21 已评候选空作品证据拒绝',
+      blankWork instanceof ReviewInputError && blankWork.message.includes('work_evidence'))
+    const blankRisk = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { ...complete.reviews['tiktok:marie'], mismatch_risk: ' ' },
+    } }))
+    ok('D21 已评候选空风险说明拒绝',
+      blankRisk instanceof ReviewInputError && blankRisk.message.includes('mismatch_risk'))
+    const missingContactScene = readFault(JSON.stringify({ ...empty, reviews: {
+      'tiktok:marie': { account_keys: ['tiktok:marie'], eligibility: '合格', adoption_priority: '优先联系',
+        observed_content: 'Observed', work_evidence: 'Video', mismatch_risk: 'Unknown' },
+    } }))
+    ok('D21 优先联系缺自然植入场景拒绝',
+      missingContactScene instanceof ReviewInputError && missingContactScene.message.includes('natural_integration'))
+    writeFileSync(file, JSON.stringify({ ...empty, reviews: {
+      'tiktok:legacy': { account_keys: ['tiktok:legacy'], fit: '⚠️' },
+    } }))
+    eq('D21 旧 fit-only 评审合法', readAgentReviewDocument(dir).status, 'present')
+    const unverifiedRounds = readFault(JSON.stringify({ ...empty, rounds: [{}] }))
+    ok('D21 非空轮次未经验证拒绝',
+      unverifiedRounds instanceof ReviewInputError && unverifiedRounds.message.includes('rounds'))
+    criterion('D21.h')
+
+    const original = '{\n  "version": 1, "updated_at": "2026-09-30", "reviews": {}, "rounds": []\n}\n'
+    writeFileSync(file, original)
+    const invalidWrite = writeFault({ ...complete, version: 2 })
+    ok('D21 非法写入抛 ReviewInputError', invalidWrite instanceof ReviewInputError)
+    eq('D21 非法写入保留旧正本原字节', rf(file, 'utf8'), original)
+    const mapReviewsWrite = writeFault({ ...complete, reviews: new Map([
+      ['tiktok:marie', complete.reviews['tiktok:marie']],
+    ]) })
+    ok('D21 Map 评审容器写入被拒绝', mapReviewsWrite instanceof ReviewInputError)
+    eq('D21 Map 评审容器拒绝后保留旧字节', rf(file, 'utf8'), original)
+    writeFileSync(file, original)
+    const invalidRoundWrite = writeFault({ ...complete, rounds: [{}] })
+    ok('D21 未验证轮次写入被拒绝', invalidRoundWrite instanceof ReviewInputError)
+    eq('D21 未验证轮次写入仍保留旧字节', rf(file, 'utf8'), original)
+    criterion('D21.i')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 if (seenGroups.size !== GROUPS.length) {
   throw new Error(`需求测试组只遇到 ${seenGroups.size}/${GROUPS.length} 组，不能报告完成`)
