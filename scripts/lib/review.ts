@@ -2,8 +2,8 @@ import { lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { writeFileAtomic } from './atomic.js'
 import {
-  ADOPTION_PRIORITIES, ELIGIBILITIES, PLATFORMS, creatorKey,
-  type AdoptionPriority, type Eligibility, type Fit,
+  ADOPTION_PRIORITIES, DIMENSIONS, ELIGIBILITIES, PLATFORMS, creatorKey,
+  type AdoptionPriority, type Creator, type Dimension, type Eligibility, type Fit, type Platform, type TaskState,
 } from './types.js'
 
 /** D21：任务级 Agent 评审正本；采集原件与人工反馈由其他文件拥有。 */
@@ -26,8 +26,113 @@ export interface AgentReviewDocument {
   version: 1
   updated_at: string
   reviews: Record<string, AgentReview>
-  /** A later change will define and validate round records. */
-  rounds: unknown[]
+  rounds: ReviewRound[]
+}
+
+export interface ReviewSourceTask {
+  task_index: number
+  keyword: string
+  dimension: Dimension
+  platform: Platform
+}
+
+export interface ReviewRoundCandidate {
+  account_key: string
+  source_tasks: ReviewSourceTask[] | null
+}
+
+export interface ReviewRound {
+  round_id: string
+  created_at: string
+  source: 'task.json'
+  candidates: ReviewRoundCandidate[]
+}
+
+/** D22：按旧池、当前新账号的顺序冻结平台账号候选；tasks 须先通过 taskListProblems，不改输入。 */
+export function freezeReviewRounds(
+  document: AgentReviewDocument, state: Pick<TaskState, 'tasks'>,
+  previousCreators: readonly Creator[], currentCreators: readonly Creator[], createdAt: string,
+): AgentReviewDocument {
+  if (!nonblank(createdAt)) throw new ReviewInputError(['新轮 created_at 必须是非空字符串'])
+  const frozen = validatedDocument(document, 'agent-review.json')
+  const problems = reviewRoundSourceProblems(frozen, state)
+  if (problems.length) throw new ReviewInputError(problems)
+  const known = new Set(frozen.rounds.flatMap(round => round.candidates.map(candidate => candidate.account_key)))
+  const append = (creators: readonly Creator[]): void => {
+    const added = new Map<string, ReviewRoundCandidate>()
+    for (const creator of creators) for (const account_key of roundAccounts(creator)) {
+      if (known.has(account_key)) continue
+      const sources = roundSources(creator, state, account_key)
+      const candidate = added.get(account_key)
+      if (!candidate) added.set(account_key, { account_key, source_tasks: sources })
+      else if (candidate.source_tasks === null || sources === null) candidate.source_tasks = null
+      else {
+        const indices = new Set(candidate.source_tasks.map(source => source.task_index))
+        candidate.source_tasks.push(...sources.filter(source => !indices.has(source.task_index)))
+      }
+    }
+    if (!added.size) return
+    const last = frozen.rounds.reduce((max, round) => {
+      const digits = /^round-(\d+)$/.exec(round.round_id)?.[1]
+      const value = digits === undefined ? 0n : BigInt(digits)
+      return value > max ? value : max
+    }, 0n)
+    frozen.rounds.push({
+      round_id: `round-${String(last + 1n).padStart(3, '0')}`,
+      created_at: createdAt, source: 'task.json', candidates: [...added.values()].map(candidate => ({
+        ...candidate, source_tasks: candidate.source_tasks?.length ? candidate.source_tasks : null,
+      })),
+    })
+    for (const key of added.keys()) known.add(key)
+  }
+  append(previousCreators)
+  append(currentCreators)
+  return frozen
+}
+
+/** D22：核对已校验正本的冻结来源；tasks 须先通过 taskListProblems，只读同下标元数据。 */
+export function reviewRoundSourceProblems(
+  document: AgentReviewDocument, state: Pick<TaskState, 'tasks'>,
+): string[] {
+  const problems: string[] = []
+  for (const [i, round] of document.rounds.entries()) for (const [j, candidate] of round.candidates.entries()) {
+    if (candidate.source_tasks === null) continue
+    for (const [k, source] of candidate.source_tasks.entries()) {
+      const task = state.tasks[source.task_index]
+      const at = `rounds[${i}].candidates[${j}].source_tasks[${k}]`
+      if (!task) { problems.push(`${at}.task_index ${source.task_index} 超出 task.json 原任务范围`); continue }
+      const changed = (['keyword', 'dimension', 'platform'] as const).filter(field => source[field] !== task[field])
+      if (changed.length) problems.push(`${at} ${changed.join('、')} 与 task.json 原任务 ${source.task_index} 不一致`)
+    }
+  }
+  return problems
+}
+
+function roundAccounts(creator: Creator): string[] {
+  let primary: string
+  try { primary = normalizedAccountKey(creator.platform, creator.handle) }
+  catch { return [] }
+  const parts = typeof creator.linked_handle === 'string' ? creator.linked_handle.split(':') : undefined
+  if (parts?.length !== 2) return [primary]
+  try {
+    const linked = normalizedAccountKey(parts[0], parts[1])
+    return linked.split(':')[0] === primary.split(':')[0] ? [primary] : [primary, linked]
+  } catch { return [primary] }
+}
+
+function roundSources(
+  creator: Creator, state: Pick<TaskState, 'tasks'>, accountKey: string,
+): ReviewSourceTask[] | null {
+  const indices = creator.source_tasks
+  if (!Array.isArray(indices) || !indices.length ||
+    [...indices].some(index => !Number.isSafeInteger(index) || index < 0 || index >= state.tasks.length)) return null
+  // A valid record without this platform's tasks can still meet another record's proven sources.
+  return [...new Set(indices)].flatMap(index => {
+    const task = state.tasks[index]
+    return task.platform === accountKey.split(':')[0]
+      ? [{ task_index: index, keyword: task.keyword, dimension: task.dimension, platform: task.platform }]
+      : []
+  })
 }
 
 export type AgentReviewRead =
@@ -95,6 +200,55 @@ function duplicateJsonKey(raw: string): { key: string; line: number } | undefine
   return undefined
 }
 
+function roundDocumentProblems(rounds: unknown[], file: string): string[] {
+  const problems: string[] = []
+  const ids = new Set<string>(), pooled = new Set<string>()
+  for (const [i, round] of rounds.entries()) {
+    const at = `${file} rounds[${i}]`
+    if (!object(round)) { problems.push(`${at} 必须是对象`); continue }
+    if (!nonblank(round.round_id)) problems.push(`${at}.round_id 必须是非空字符串`)
+    else {
+      if (ids.has(round.round_id)) problems.push(`${at}.round_id 重复 ${round.round_id}`)
+      ids.add(round.round_id)
+    }
+    if (!nonblank(round.created_at)) problems.push(`${at}.created_at 必须是非空字符串`)
+    if (round.source !== 'task.json') problems.push(`${at}.source 必须是 task.json`)
+    if (!Array.isArray(round.candidates)) { problems.push(`${at}.candidates 必须是数组`); continue }
+    for (const [j, candidate] of round.candidates.entries()) {
+      const place = `${at}.candidates[${j}]`
+      if (!object(candidate)) { problems.push(`${place} 必须是对象`); continue }
+      let key: string | undefined
+      try {
+        key = accountKeyFromText(candidate.account_key)
+        if (pooled.has(key)) problems.push(`${place}.account_key ${key} 重复或已在旧轮`)
+        pooled.add(key)
+      } catch (error) { problems.push(`${place}.account_key：${String(error)}`) }
+      if (candidate.source_tasks === null) continue
+      if (!Array.isArray(candidate.source_tasks) || !candidate.source_tasks.length) {
+        problems.push(`${place}.source_tasks 必须是非空数组或 null`)
+        continue
+      }
+      const indices = new Set<number>()
+      for (const [k, source] of candidate.source_tasks.entries()) {
+        const sourceAt = `${place}.source_tasks[${k}]`
+        if (!object(source)) { problems.push(`${sourceAt} 必须是对象`); continue }
+        const index = source.task_index
+        if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0) {
+          problems.push(`${sourceAt}.task_index 必须是非负安全整数`)
+        } else {
+          if (indices.has(index)) problems.push(`${sourceAt}.task_index ${index} 重复`)
+          indices.add(index)
+        }
+        if (!nonblank(source.keyword)) problems.push(`${sourceAt}.keyword 必须是非空字符串`)
+        if (!oneOf(source.dimension, DIMENSIONS)) problems.push(`${sourceAt}.dimension 取值无效`)
+        if (!oneOf(source.platform, PLATFORMS)) problems.push(`${sourceAt}.platform 取值无效`)
+        else if (key && source.platform !== key.split(':')[0]) problems.push(`${sourceAt}.platform 与候选账号平台不一致`)
+      }
+    }
+  }
+  return problems
+}
+
 function validatedDocument(value: unknown, file: string): AgentReviewDocument {
   if (!object(value)) throw new ReviewInputError([`${file} 根结构必须是对象`])
   const problems: string[] = []
@@ -102,7 +256,7 @@ function validatedDocument(value: unknown, file: string): AgentReviewDocument {
   if (typeof value.updated_at !== 'string') problems.push(`${file} updated_at 必须是字符串`)
   if (!object(value.reviews)) problems.push(`${file} reviews 必须是对象`)
   if (!Array.isArray(value.rounds)) problems.push(`${file} rounds 必须是数组`)
-  else if (value.rounds.length) problems.push(`${file} rounds 尚未支持结构校验，不能写入或读取非空轮次`)
+  else problems.push(...roundDocumentProblems(value.rounds, file))
   if (problems.length) throw new ReviewInputError(problems)
 
   const owners = new Map<string, string>()
