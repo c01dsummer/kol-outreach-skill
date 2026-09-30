@@ -71,6 +71,10 @@ export const DIMENSIONS = ['category', 'scene', 'competitor', 'audience'] as con
 export type Dimension = typeof DIMENSIONS[number]
 export type Tier = 'A' | 'B' | 'C'
 export type Fit = '✅' | '⚠️' | '❌'
+export const ELIGIBILITIES = ['合格', '不合格', '待核实'] as const
+export type Eligibility = typeof ELIGIBILITIES[number]
+export const ADOPTION_PRIORITIES = ['优先联系', '备选', '待核实', '暂不采用'] as const
+export type AdoptionPriority = typeof ADOPTION_PRIORITIES[number]
 
 /** D20：任务原样保存的项目校准输入；来源性质不等同于产品事实验证。 */
 export interface BrandCalibration {

@@ -9340,6 +9340,86 @@
         "品牌校准：render 坏任务在预留、请求和交付写入前退出2",
         "品牌校准：render 逐字段指出校准路径"
       ]
+    },
+    {
+      "id": "M-D21-a",
+      "req": "D21.e",
+      "why": "缺席的评审正本被标成已有文档，续跑无法分辨尚无判断与已有空正本",
+      "file": "scripts/lib/review.ts",
+      "find": "return { status: 'absent', document: { version: 1, updated_at: '', reviews: {}, rounds: [] } }",
+      "replace": "return { status: 'present', document: { version: 1, updated_at: '', reviews: {}, rounds: [] } }",
+      "by": "test",
+      "kills": ["D21 缺席正本返回 absent"]
+    },
+    {
+      "id": "M-D21-b",
+      "req": "D21.a",
+      "why": "任务级评审写回时擦掉更新日期，合法文档无法无损往返",
+      "file": "scripts/lib/review.ts",
+      "find": "writeFileAtomic(file, `${JSON.stringify(valid, null, 2)}\\n`)",
+      "replace": "writeFileAtomic(file, `${JSON.stringify({ ...valid, updated_at: '' }, null, 2)}\\n`)",
+      "by": "test",
+      "kills": ["D21 合法评审读写往返保留全部字段"]
+    },
+    {
+      "id": "M-D21-c",
+      "req": "D21.f",
+      "why": "账号中的下划线被改成点号，使本来不同的创作者身份合并",
+      "file": "scripts/lib/review.ts",
+      "find": "const h = handle.trim().replace(/^@/, '').toLowerCase()",
+      "replace": "const h = handle.trim().replace(/^@/, '').replace(/_/g, '.').toLowerCase()",
+      "by": "test",
+      "kills": ["D21 点号和下划线仍是不同账号"]
+    },
+    {
+      "id": "M-D21-d",
+      "req": "D21.f",
+      "why": "同一评审可重复登记同一个账号别名，别名集合不再代表唯一身份",
+      "file": "scripts/lib/review.ts",
+      "find": "if (aliases.has(key)) problems.push(`${aliasAt} 重复别名 ${key}`)",
+      "replace": "if (false) problems.push(`${aliasAt} 重复别名 ${key}`)",
+      "by": "test",
+      "kills": ["D21 同一评审重复别名拒绝"]
+    },
+    {
+      "id": "M-D21-e",
+      "req": "D21.g",
+      "why": "重复的 JSON 键被悄悄读取，损坏的评审正本冒充有效文档",
+      "file": "scripts/lib/review.ts",
+      "find": "if (duplicate) throw new ReviewInputError([`${file}:${duplicate.line} 重复 JSON 键 ${JSON.stringify(duplicate.key)}`])",
+      "replace": "if (false && duplicate) throw new ReviewInputError([`${file}:${duplicate.line} 重复 JSON 键 ${JSON.stringify(duplicate.key)}`])",
+      "by": "test",
+      "kills": ["D21 重复根 JSON 键拒绝并指出键名"]
+    },
+    {
+      "id": "M-D21-f",
+      "req": "D21.h",
+      "why": "已评候选的观察内容只有空白也被接受，判断失去可追溯证据",
+      "file": "scripts/lib/review.ts",
+      "find": "if (!nonblank(review[field])) problems.push(`${at}.${field} 已评候选须有非空证据`)",
+      "replace": "if (field !== 'observed_content' && !nonblank(review[field])) problems.push(`${at}.${field} 已评候选须有非空证据`)",
+      "by": "test",
+      "kills": ["D21 已评候选空观察内容拒绝"]
+    },
+    {
+      "id": "M-D21-g",
+      "req": "D21.h",
+      "why": "未知结构的非空评审轮次被当作有效，读取和写入都放行",
+      "file": "scripts/lib/review.ts",
+      "find": "else if (value.rounds.length) problems.push(`${file} rounds 尚未支持结构校验，不能写入或读取非空轮次`)",
+      "replace": "else if (false) problems.push(`${file} rounds 尚未支持结构校验，不能写入或读取非空轮次`)",
+      "by": "test",
+      "kills": ["D21 非空轮次未经验证拒绝"]
+    },
+    {
+      "id": "M-D21-h",
+      "req": "D21.i",
+      "why": "不合规的评审写入前未经整份校验，覆盖已有正本原字节",
+      "file": "scripts/lib/review.ts",
+      "find": "const valid = validatedDocument(document, file)",
+      "replace": "const valid = document as AgentReviewDocument",
+      "by": "test",
+      "kills": ["D21 非法写入保留旧正本原字节"]
     }
   ],
   "exemptions": [
