@@ -79,6 +79,7 @@ import {
   ReviewInputError, type AgentReview, type AgentReviewDocument,
 } from './lib/review.js'
 import { migrateLegacyAgentReviews, projectAgentReviews } from './lib/review-projection.js'
+import { parseManualFeedbackCsv } from './lib/manual-feedback.js'
 import {
   INSTAGRAM_HASHTAG_ENDPOINT, TikHub, TikHubError, fillEmail, isInstagramVideo, parseInstagramHashtagPage, pickList,
 } from './providers/tikhub.js'
@@ -185,6 +186,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd21-review-document', needs: [] },
   { id: 'd21-agent-projection', needs: [] },
   { id: 'd22-review-rounds', needs: [] },
+  { id: 'd23-manual-feedback', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -10566,6 +10568,200 @@ await group('d22-review-rounds', () => {
   ].every(location => driftProblems?.some(problem => problem.includes(location))))
   eq('D22 来源一致性核验不改历史或当前任务', JSON.stringify([legal, state]), validationBefore)
   criterion('D22.h')
+})
+await group('d23-manual-feedback', () => {
+  // 独立输入与期望只来自 D23.a-k、D23/P1 和公开类型；未读解析器正文。
+  suite('D23', '人工 CSV 只接受冻结账号的合法原始填写')
+  const file = 'feedback.csv'
+  const header = 'round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note'
+  const document: AgentReviewDocument = {
+    version: 1, updated_at: '2026-09-30T10:00:00Z',
+    reviews: { 'tiktok:alpha': { account_keys: ['tiktok:alpha', 'tiktok:alias'] } }, rounds: [{
+      round_id: 'r-main', created_at: '2026-09-30T10:00:00Z', source: 'task.json',
+      candidates: ['tiktok:alpha', 'instagram:alpha', 'tiktok:beta', 'instagram:beta', 'tiktok:a.b', 'tiktok:a_b']
+        .map(account_key => ({ account_key, source_tasks: null })),
+    }, {
+      round_id: 'r-other', created_at: '2026-09-30T11:00:00Z', source: 'task.json',
+      candidates: [{ account_key: 'instagram:omega', source_tasks: null }],
+    }],
+  }
+  const row = (over: Record<number, string> = {}): string => {
+    const fields = ['r-main', 'tiktok', 'alpha', '', '', '', '', '', '', '']
+    for (const [index, value] of Object.entries(over)) fields[Number(index)] = value
+    return fields.map(value => /[",\r\n]/.test(value) ? '"' + value.replaceAll('"', '""') + '"' : value).join(',')
+  }
+  const csv = (...records: string[]): string => header + '\n' + records.join('\n')
+  const call = (text: string, creators: readonly Creator[] = [], source = document) => {
+    try { return { rows: parseManualFeedbackCsv(text, file, source, creators), error: undefined } }
+    catch (error) { return { rows: undefined, error } }
+  }
+  const at = (problem: string, line: number): boolean => problem.includes(file)
+    && new RegExp('(?:^|\\D)' + line + '(?!\\d)').test(problem)
+  const rejected = (text: string, line = 2, creators: readonly Creator[] = []): boolean => {
+    const result = call(text, creators)
+    return result.error instanceof ReviewInputError && result.rows === undefined
+      && result.error.problems.some(problem => at(problem, line))
+  }
+  const blank = { round_id: 'r-main', platform: 'tiktok', handle: 'alpha', account_key: 'tiktok:alpha', line_number: 2, manual_note: '' }
+  ok('D23 最小合法输入返回原始人工空白而不补判断', isDeepStrictEqual(call(csv(row())).rows, [blank]))
+  const linked = [mk('tiktok', 'alpha', { linked_handle: 'instagram:alpha' })]
+  const duplicateConflict = call(csv(row({ 4: 'unknown' }), row({ 4: 'yes' }), row({ 1: 'instagram', 4: 'no' })), linked)
+  const duplicateProblems = duplicateConflict.error instanceof ReviewInputError ? duplicateConflict.error.problems : []
+  ok('D23 重复行不能隐藏后续人工跨平台冲突', duplicateConflict.error instanceof ReviewInputError
+    && duplicateProblems.some(problem => /重复|duplicate/i.test(problem) && at(problem, 2) && at(problem, 3))
+    && duplicateProblems.some(problem => problem.includes('tiktok:alpha') && problem.includes('instagram:alpha')
+      && /冲突|conflict/i.test(problem) && at(problem, 3) && at(problem, 4)))
+  const longFault = call(csv(row({ 3: 'invalid' }) + ',extra'))
+  const longProblems = longFault.error instanceof ReviewInputError ? longFault.error.problems : []
+  ok('D23 长行同时报告列数及已提供的非法人工判断', longFault.error instanceof ReviewInputError
+    && longProblems.some(problem => /列|column|width|fields/i.test(problem) && at(problem, 2))
+    && longProblems.some(problem => problem.includes('manual_eligible') && at(problem, 2)))
+  const shortFault = call(csv('r-main,tiktok,alpha,invalid'))
+  const shortProblems = shortFault.error instanceof ReviewInputError ? shortFault.error.problems : []
+  ok('D23 短行同时报告列数及已提供的非法人工判断', shortFault.error instanceof ReviewInputError
+    && shortProblems.some(problem => /列|column|width|fields/i.test(problem) && at(problem, 2))
+    && shortProblems.some(problem => problem.includes('manual_eligible') && at(problem, 2)))
+  criterion('D23.a')
+  eq('D23 合法只有表头返回空反馈', call(header).rows, [])
+  const columns = header.split(',')
+  const badHeaders = ['', '\ufeff', '\n\n', columns.slice(0, 9).join(','), header + ',extra',
+    [...columns.slice(0, 9), columns[8]].join(','), header.replace('manual_note', 'note'),
+    [columns[1], columns[0], ...columns.slice(2)].join(','), ' ' + header, '\ufeff\ufeff' + header]
+  ok('D23 表头缺多重复错名错序及空文件均拒绝', badHeaders.map(text => rejected(text, 1)).every(Boolean))
+  criterion('D23.b')
+  ok('D23 单个开头BOM与LF或CRLF均合法', ['\n', '\r\n'].map(newline =>
+    isDeepStrictEqual(call('\ufeff' + header + newline + row() + newline).rows, [blank])).every(Boolean))
+  const badLexical = ['r-main,tiktok,al"pha,,,,,,,', 'r-main,tiktok,"alpha"x,,,,,,,',
+    'r-main,tiktok,"alpha,,,,,,,', row() + '\r', 'r-main,tiktok,alpha,,,,,,,"note"x']
+  ok('D23 错误引号位置闭合后字符未闭合与独立CR拒绝', badLexical.map(text => rejected(csv(text))).every(Boolean))
+  ok('D23 逗号空白与引号记录不能当空行忽略', [',', ',,,,,,,,,', ' ', '\t', '""']
+    .map(text => rejected(csv(text))).every(Boolean))
+  eq('D23 真正空物理行被忽略且计入起始行', call(header + '\n\n' + row() + '\n\n').rows,
+    [{ ...blank, line_number: 3 }])
+  criterion('D23.c')
+  ok('D23 短行长行和额外尾逗号不补列或截断', [row().split(',').slice(0, 9).join(','), row() + ',', row() + ',extra,']
+    .map(text => rejected(csv(text))).every(Boolean))
+  // 表头1、空行2、含两次换行的记录3至5、空行6；后一条记录从7开始。
+  const physical = header + '\r\n\r\n' + row({ 9: 'one\r\ntwo\nthree' }) + '\r\n\r\n'
+  const physicalRows = call(physical + row({ 2: 'beta' })).rows
+  ok('D23 引号内换行空行与CRLF给出真实物理起始行', isDeepStrictEqual(physicalRows, [
+    { ...blank, line_number: 3, manual_note: 'one\r\ntwo\nthree' },
+    { ...blank, handle: 'beta', account_key: 'tiktok:beta', line_number: 7 },
+  ]))
+  ok('D23 多行单元格后的错误定位文件与第七行', rejected(physical + row({ 0: 'wrong', 2: 'beta' }), 7))
+  criterion('D23.d')
+  ok('D23 五项合法人工判断去首尾空白后原值保留', isDeepStrictEqual(call(csv(row({
+    3: ' yes ', 4: '\tno ', 5: ' high ', 6: ' medium ', 7: ' low ',
+  }))).rows, [{ ...blank, manual_eligible: 'yes', manual_adopted: 'no', manual_content_fit: 'high',
+    manual_engagement: 'medium', manual_comment_authenticity: 'low' }]))
+  ok('D23 显式unknown保留并与五项缺席分开', isDeepStrictEqual(call(csv(row({
+    3: ' unknown ', 4: 'unknown', 5: 'unknown', 6: 'unknown', 7: 'unknown',
+  }))).rows, [{ ...blank, manual_eligible: 'unknown', manual_adopted: 'unknown', manual_content_fit: 'unknown',
+    manual_engagement: 'unknown', manual_comment_authenticity: 'unknown' }]))
+  ok('D23 部分填写不补其他人工判断', isDeepStrictEqual(call(csv(row({ 5: 'high' }))).rows,
+    [{ ...blank, manual_content_fit: 'high' }]))
+  const verdicts = ['yes', 'no', 'unknown'].map(value => call(csv(row({ 3: value, 4: value }))).rows?.[0])
+  const levels = ['high', 'medium', 'low', 'unknown'].map(value => call(csv(row({ 5: value, 6: value, 7: value }))).rows?.[0])
+  ok('D23 两类枚举每个合法成员均接受', verdicts.every((entry, index) => entry?.manual_eligible === ['yes', 'no', 'unknown'][index]
+    && entry.manual_adopted === entry.manual_eligible) && levels.every((entry, index) => entry?.manual_content_fit === ['high', 'medium', 'low', 'unknown'][index]
+      && entry.manual_engagement === entry.manual_content_fit && entry.manual_comment_authenticity === entry.manual_content_fit))
+  ok('D23 拼错大小写变体和非法人工判断拒绝', [[3, 'YES'], [4, 'No'], [5, 'HIGH'], [6, 'good'], [7, '0']]
+    .map(([index, value]) => rejected(csv(row({ [index]: String(value) })))).every(Boolean))
+  criterion('D23.e')
+  const allReasons = ' 商家号 ; 内容不匹配；过度商业化;植入生硬;语气不符;审美不符;互动弱;账号或数据错配;其他 '
+  eq('D23 九种原因及中英文分号均接受', call(csv(row({ 8: allReasons }))).rows?.[0]?.manual_reject_reason, allReasons)
+  const rawReason = ' \n商家号  ; 内容不匹配；其他\t '
+  const rawNote = ' \tcomma, "quoted"\nnext\r\nlast\rtail '
+  ok('D23 原因和备注逐字符保留解码后的空白引号逗号换行', isDeepStrictEqual(call(csv(row({ 8: rawReason, 9: rawNote }))).rows,
+    [{ ...blank, manual_reject_reason: rawReason, manual_note: rawNote }]))
+  ok('D23 整格空白原因缺席且空白备注原样保留', isDeepStrictEqual(call(csv(row({ 8: ' \t\n ', 9: ' \t ' }))).rows,
+    [{ ...blank, manual_note: ' \t ' }]))
+  ok('D23 非法原因和空原因片段拒绝', ['bogus', '其他;', ';其他', '其他;;商家号', '其他；；商家号', ' ; ', '其他,商家号', '商家号;bogus']
+    .map(value => rejected(csv(row({ 8: value })))).every(Boolean))
+  criterion('D23.f')
+  ok('D23 平台账号规范化大小写空白与首个at符号', isDeepStrictEqual(call(csv(row({ 1: ' TIKTOK ', 2: ' @ALPHA ' }))).rows, [blank]))
+  eq('D23 点下划线与同名异平台各自独立', call(csv(row(), row({ 1: 'instagram' }), row({ 2: 'a.b' }), row({ 2: 'a_b' }))).rows?.map(entry => entry.account_key),
+    ['tiktok:alpha', 'instagram:alpha', 'tiktok:a.b', 'tiktok:a_b'])
+  ok('D23 非法平台空账号和非法字符拒绝而不猜身份', [row({ 1: '' }), row({ 1: 'youtube' }), row({ 1: 'tt' }), row({ 2: '' }),
+    row({ 2: '   ' }), row({ 2: '@@alpha' }), row({ 2: 'alpha space' }), row({ 2: 'alpha/' }), row({ 2: '#alpha' })]
+    .map(text => rejected(csv(text))).every(Boolean))
+  criterion('D23.g')
+  const repeated = call(csv(row(), row({ 1: ' TIKTOK ', 2: ' @ALPHA ' }), row()))
+  const repeatedProblems = repeated.error instanceof ReviewInputError ? repeated.error.problems : []
+  ok('D23 重复账号即使内容相同也拒绝且始终指向最早行', repeated.error instanceof ReviewInputError
+    && repeatedProblems.some(problem => at(problem, 2) && at(problem, 3) && /重复|duplicate/i.test(problem))
+    && repeatedProblems.some(problem => at(problem, 2) && at(problem, 4) && /重复|duplicate/i.test(problem)))
+  criterion('D23.h')
+  const spacedRound = structuredClone(document)
+  spacedRound.rounds[0].round_id = ' r-main '
+  ok('D23 冻结轮次原值含首尾空白时精确匹配并原样保留', isDeepStrictEqual(
+    call(csv(row({ 0: ' r-main ' })), [], spacedRound).rows, [{ ...blank, round_id: ' r-main ' }]))
+  ok('D23 缺轮次错轮次及轮次首尾空白均拒绝', ['', 'wrong', 'r-other', ' r-main', 'r-main ']
+    .map(value => rejected(csv(row({ 0: value })))).every(Boolean))
+  ok('D23 评审别名新账号和相似昵称不能替代冻结身份', ['alias', 'newcomer', 'alphaa']
+    .map(value => rejected(csv(row({ 2: value })), 2, [mk('tiktok', value)])).every(Boolean))
+  criterion('D23.i')
+  ok('D23 同行不合格却采纳明确拒绝', rejected(csv(row({ 3: 'no', 4: 'yes' }))))
+  eq('D23 不合格但采纳unknown没有yes冲突', call(csv(row({ 3: 'no', 4: 'unknown' }))).rows?.[0]?.manual_adopted, 'unknown')
+  const cross = call(csv(row({ 4: 'yes' }), row({ 1: 'instagram', 4: 'no' })), linked)
+  const crossProblems = cross.error instanceof ReviewInputError ? cross.error.problems : []
+  ok('D23 显式合法跨平台关联无需互链旗标或第二条名单仍拒绝冲突', cross.error instanceof ReviewInputError
+    && crossProblems.some(problem => problem.includes('tiktok:alpha') && problem.includes('instagram:alpha') && at(problem, 2) && at(problem, 3)))
+  const acrossRounds = call(csv(row({ 4: 'yes' }), row({ 0: 'r-other', 1: 'instagram', 2: 'omega', 4: 'no' })),
+    [mk('tiktok', 'alpha', { linked_handle: 'instagram:omega' })])
+  ok('D23 跨冻结轮次的显式账号关联仍拒绝采纳冲突', acrossRounds.error instanceof ReviewInputError
+    && acrossRounds.error.problems.some(problem => problem.includes('tiktok:alpha') && problem.includes('instagram:omega') && at(problem, 2) && at(problem, 3)))
+  const allPairs = call(csv(row({ 4: 'yes' }), row({ 1: 'instagram', 4: 'yes' }), row({ 2: 'beta', 4: 'yes' }), row({ 1: 'instagram', 2: 'beta', 4: 'no' })),
+    [...linked, mk('tiktok', 'beta', { linked_handle: 'instagram:beta' })])
+  ok('D23 前一关联一致仍检查后一直接关联的冲突', allPairs.error instanceof ReviewInputError
+    && allPairs.error.problems.some(problem => problem.includes('tiktok:beta') && problem.includes('instagram:beta') && at(problem, 4) && at(problem, 5)))
+  ok('D23 unknown或空白不构成跨平台yesno冲突', ['unknown', ''].map(value => {
+    const result = call(csv(row({ 4: 'yes' }), row({ 1: 'instagram', 4: value })), linked)
+    return result.error === undefined && result.rows?.length === 2
+  }).every(Boolean))
+  const invalidRelations = [mk('youtube' as Creator['platform'], 'alpha', { linked_handle: 'instagram:alpha' }),
+    mk('tiktok', '@@alpha', { linked_handle: 'instagram:alpha' }), mk('tiktok', 'alpha', { linked_handle: 'instagram:@@alpha' }),
+    mk('tiktok', 'alpha', { linked_handle: 'instagram: ' }), mk('tiktok', 'alpha', { linked_handle: 'youtube:alpha' })]
+  ok('D23 无效主账号和无效关联均不建立跨平台关系', invalidRelations.map(creator => {
+    const result = call(csv(row({ 4: 'yes' }), row({ 1: 'instagram', 4: 'no' })), [creator])
+    return result.error === undefined && result.rows?.length === 2
+  }).every(Boolean))
+  const samePlatform = call(csv(row({ 4: 'yes' }), row({ 2: 'beta', 4: 'no' })), [mk('tiktok', 'alpha', { linked_handle: 'tiktok:beta' })])
+  ok('D23 同平台关联不制造跨平台采纳冲突', samePlatform.error === undefined && samePlatform.rows?.length === 2)
+  const chain = call(csv(row({ 4: 'yes' }), row({ 1: 'instagram', 4: 'unknown' }), row({ 2: 'beta', 4: 'no' })),
+    [...linked, mk('instagram', 'alpha', { linked_handle: 'tiktok:beta' })])
+  ok('D23 只查显式直接关联而不推断传递冲突', chain.error === undefined && chain.rows?.length === 3)
+  criterion('D23.j')
+  const mixed = call(csv(row({ 0: 'wrong', 3: 'YES', 6: 'LOUD', 8: 'bogus' }), row({ 2: 'beta', 3: 'no', 4: 'yes' }),
+    row({ 0: '', 2: 'ghost', 5: 'BAD' }), row().split(',').slice(0, 9).join(',')))
+  const mixedProblems = mixed.error instanceof ReviewInputError ? mixed.error.problems : []
+  ok('D23 汇总所有记录字段轮次游离身份冲突与宽度问题并拒绝部分成功', mixed.error instanceof ReviewInputError && mixed.rows === undefined
+    && ['manual_eligible', 'manual_engagement', 'manual_reject_reason', 'round_id'].every(field => mixedProblems.some(problem => problem.includes(field) && at(problem, 2)))
+    && mixedProblems.some(problem => /冲突|conflict/i.test(problem) && at(problem, 3))
+    && mixedProblems.some(problem => problem.includes('ghost') && at(problem, 4))
+    && mixedProblems.some(problem => problem.includes('manual_content_fit') && at(problem, 4))
+    && mixedProblems.some(problem => /列|column|width|fields/i.test(problem) && at(problem, 5)))
+  criterion('D23.k')
+  tension('D23', 'P1')
+  const sourceText = csv(row({ 4: 'yes', 5: 'high' }), row({ 1: 'instagram' }))
+  const successDocument = structuredClone(document), successCreators = structuredClone(linked)
+  const successBefore = structuredClone([sourceText, successDocument, successCreators])
+  const success = call(sourceText, successCreators, successDocument)
+  ok('D23 关联平台人工值不补成本平台也不生成展示或统计字段', isDeepStrictEqual(success.rows, [
+    { ...blank, manual_adopted: 'yes', manual_content_fit: 'high' },
+    { ...blank, platform: 'instagram', account_key: 'instagram:alpha', line_number: 3 },
+  ]))
+  ok('D23 成功不修改CSV正本名单及嵌套内容', success.error === undefined
+    && isDeepStrictEqual([sourceText, successDocument, successCreators], successBefore))
+  for (const entry of success.rows ?? []) { entry.manual_note = 'changed'; entry.round_id = 'changed' }
+  ok('D23 返回反馈可变但不借用正本或名单对象', success.rows?.length === 2
+    && isDeepStrictEqual([sourceText, successDocument, successCreators], successBefore))
+  const refusedDocument = structuredClone(document), refusedCreators = structuredClone(linked)
+  const refusedText = csv(row({ 4: 'yes' }), row({ 1: 'instagram', 4: 'no' }))
+  const refusedBefore = structuredClone([refusedText, refusedDocument, refusedCreators])
+  const refused = call(refusedText, refusedCreators, refusedDocument)
+  ok('D23 拒绝也不修改CSV正本名单及嵌套内容', refused.error instanceof ReviewInputError
+    && isDeepStrictEqual([refusedText, refusedDocument, refusedCreators], refusedBefore))
 })
 if (seenGroups.size !== GROUPS.length) {
   throw new Error(`需求测试组只遇到 ${seenGroups.size}/${GROUPS.length} 组，不能报告完成`)

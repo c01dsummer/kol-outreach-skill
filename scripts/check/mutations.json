@@ -9721,6 +9721,186 @@
       "replace": "indices.some(index => !Number.isSafeInteger(index) || index < 0 || index >= state.tasks.length)) return null",
       "by": "test",
       "kills": ["D22 缺席空坏越界与仅另一平台来源全部冻结为未知"]
+    },
+    {
+      "id": "M-D23-a",
+      "req": "D23.a",
+      "why": "错名或错序的表头仍被接受，人工列失去固定身份",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "header.values.some((value, i) => value !== MANUAL_FEEDBACK_HEADERS[i])",
+      "replace": "false",
+      "by": "test",
+      "kills": ["D23 表头缺多重复错名错序及空文件均拒绝"]
+    },
+    {
+      "id": "M-D23-b",
+      "req": "D23.d",
+      "why": "空白人工合格性被补成 unknown，未评冒充已看而不能判断",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "if (judgments[0]) row.manual_eligible = judgments[0] as ManualVerdict",
+      "replace": "row.manual_eligible = (judgments[0] || 'unknown') as ManualVerdict",
+      "by": "test",
+      "kills": ["D23 最小合法输入返回原始人工空白而不补判断"]
+    },
+    {
+      "id": "M-D23-c",
+      "req": "D23.d",
+      "why": "显式 unknown 人工判断被删除，已看而不能判断变成未评",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "record.values.slice(3, 8).map(value => value.trim())",
+      "replace": "record.values.slice(3, 8).map(value => value.trim() === 'unknown' ? '' : value.trim())",
+      "by": "test",
+      "kills": ["D23 显式unknown保留并与五项缺席分开"]
+    },
+    {
+      "id": "M-D23-d",
+      "req": "D23.b",
+      "why": "结束引号后的普通字符被接受，CSV 词法错误静默放行",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "if (closed) fail('结束引号后只允许分隔符或换行')",
+      "replace": "if (false) fail('结束引号后只允许分隔符或换行')",
+      "by": "test",
+      "kills": ["D23 错误引号位置闭合后字符未闭合与独立CR拒绝"]
+    },
+    {
+      "id": "M-D23-e",
+      "req": "D23.c",
+      "why": "引号内换行未计入物理行，后续记录诊断指向错误行号",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "if (char === '\\n') line++",
+      "replace": "if (false) line++",
+      "by": "test",
+      "kills": ["D23 引号内换行空行与CRLF给出真实物理起始行", "D23 多行单元格后的错误定位文件与第七行"]
+    },
+    {
+      "id": "M-D23-f",
+      "req": "D23.c",
+      "why": "多列记录未被拒绝，整份人工 CSV 仍正常返回",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "if (record.values.length !== MANUAL_FEEDBACK_HEADERS.length) {",
+      "replace": "if (record.values.length < MANUAL_FEEDBACK_HEADERS.length) {",
+      "by": "test",
+      "kills": ["D23 短行长行和额外尾逗号不补列或截断", "D23 长行同时报告列数及已提供的非法人工判断"]
+    },
+    {
+      "id": "M-D23-g",
+      "req": "D23.d",
+      "why": "非法人工判断被接受，拼错或大小写变体没有明确拒绝",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "if (value && !options.includes(value)) problems.push",
+      "replace": "if (false) problems.push",
+      "by": "test",
+      "kills": ["D23 拼错大小写变体和非法人工判断拒绝", "D23 长行同时报告列数及已提供的非法人工判断", "D23 短行同时报告列数及已提供的非法人工判断"]
+    },
+    {
+      "id": "M-D23-h",
+      "req": "D23.e",
+      "why": "拒绝原因中的非法或空片段被接受，固定原因范围失效",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "!MANUAL_REJECT_REASONS.includes(part.trim() as typeof MANUAL_REJECT_REASONS[number])",
+      "replace": "false",
+      "by": "test",
+      "kills": ["D23 非法原因和空原因片段拒绝"]
+    },
+    {
+      "id": "M-D23-i",
+      "req": "D23.e",
+      "why": "非空拒绝原因和备注的首尾空白被删除，解码原文未原样保留",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "return rows",
+      "replace": "return rows.map(row => ({ ...row, manual_note: row.manual_note.trim(), ...(row.manual_reject_reason === undefined ? {} : { manual_reject_reason: row.manual_reject_reason.trim() }) }))",
+      "by": "test",
+      "kills": ["D23 原因和备注逐字符保留解码后的空白引号逗号换行"]
+    },
+    {
+      "id": "M-D23-j",
+      "req": "D23.f",
+      "why": "非法人工平台被猜成 TikTok，没有按原输入拒绝",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "catch (error) { problems.push(`${at} platform 非法：${(error as Error).message}`) }",
+      "replace": "catch (error) { platform = 'tiktok' }",
+      "by": "test",
+      "kills": ["D23 非法平台空账号和非法字符拒绝而不猜身份"]
+    },
+    {
+      "id": "M-D23-k",
+      "req": "D23.g",
+      "why": "后续重复行覆盖最早行号，第三次填写无法指向真正首次记录",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "else first.set(account_key, record.line)",
+      "replace": "first.set(account_key, record.line)",
+      "by": "test",
+      "kills": ["D23 重复账号即使内容相同也拒绝且始终指向最早行"]
+    },
+    {
+      "id": "M-D23-l",
+      "req": "D23.h",
+      "why": "反馈填入另一合法轮次仍被接受，账号没有精确匹配所属冻结轮次",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "else if (expectedRound !== round_id) problems.push",
+      "replace": "else if (false) problems.push",
+      "by": "test",
+      "kills": ["D23 缺轮次错轮次及轮次首尾空白均拒绝"]
+    },
+    {
+      "id": "M-D23-m",
+      "req": "D23.h",
+      "why": "游离账号借用存在的轮次通过，未入冻结池的身份被当成候选",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "if (expectedRound === undefined) problems.push(`${at} ${account_key} 不在冻结候选池`)\n    else if (expectedRound !== round_id) problems.push",
+      "replace": "if (expectedRound !== undefined && expectedRound !== round_id) problems.push",
+      "by": "test",
+      "kills": ["D23 评审别名新账号和相似昵称不能替代冻结身份"]
+    },
+    {
+      "id": "M-D23-n",
+      "req": "D23.i",
+      "why": "同一人工行同时填写不合格与采用仍被接受，行内矛盾没有拒绝",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "if (judgments[0] === 'no' && judgments[1] === 'yes') {",
+      "replace": "if (false) {",
+      "by": "test",
+      "kills": ["D23 同行不合格却采纳明确拒绝"]
+    },
+    {
+      "id": "M-D23-o",
+      "req": "D23.i",
+      "why": "已有显式异平台关联的采用与不采用冲突未报告，重复行也能隐藏冲突",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "if ((a.manual_adopted === 'yes' && b.manual_adopted === 'no') ||\n        (a.manual_adopted === 'no' && b.manual_adopted === 'yes')) {",
+      "replace": "if (false) {",
+      "by": "test",
+      "kills": ["D23 显式合法跨平台关联无需互链旗标或第二条名单仍拒绝冲突", "D23 跨冻结轮次的显式账号关联仍拒绝采纳冲突", "D23 前一关联一致仍检查后一直接关联的冲突", "D23 重复行不能隐藏后续人工跨平台冲突"]
+    },
+    {
+      "id": "M-D23-p",
+      "req": "D23.i",
+      "why": "同平台关联被当作异平台关系，两个独立账号的合法填写被误判冲突",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "if (primary.split(':')[0] === linked.split(':')[0]) return undefined",
+      "replace": "if (false) return undefined",
+      "by": "test",
+      "kills": ["D23 同平台关联不制造跨平台采纳冲突"]
+    },
+    {
+      "id": "M-D23-q",
+      "req": "D23.j",
+      "why": "可独立发现的多项输入问题只报告第一项，字段及列数问题没有汇总",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "if (problems.length) throw new ReviewInputError(problems)",
+      "replace": "if (problems.length) throw new ReviewInputError(problems.slice(0, 1))",
+      "by": "test",
+      "kills": ["D23 汇总所有记录字段轮次游离身份冲突与宽度问题并拒绝部分成功", "D23 长行同时报告列数及已提供的非法人工判断", "D23 短行同时报告列数及已提供的非法人工判断"]
+    },
+    {
+      "id": "M-D23-r",
+      "req": "D23.k",
+      "why": "成功或拒绝人工 CSV 时改写调用方评审正本的轮次原值",
+      "file": "scripts/lib/manual-feedback.ts",
+      "find": "if (problems.length) throw new ReviewInputError(problems)",
+      "replace": "if (document.rounds.length) document.rounds[0].round_id += ' '\n  if (problems.length) throw new ReviewInputError(problems)",
+      "by": "test",
+      "kills": ["D23 成功不修改CSV正本名单及嵌套内容", "D23 拒绝也不修改CSV正本名单及嵌套内容"]
     }
   ],
   "exemptions": [
