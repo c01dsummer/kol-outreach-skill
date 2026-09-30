@@ -9901,6 +9901,176 @@
       "replace": "if (document.rounds.length) document.rounds[0].round_id += ' '\n  if (problems.length) throw new ReviewInputError(problems)",
       "by": "test",
       "kills": ["D23 成功不修改CSV正本名单及嵌套内容", "D23 拒绝也不修改CSV正本名单及嵌套内容"]
+    },
+    {
+      "id": "M-D24-a",
+      "req": "D24.a",
+      "why": "新建人工模板没有单个开头 BOM，字节格式不符合约定",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "const header = Buffer.from(`\\uFEFF${MANUAL_FEEDBACK_HEADERS.join(',')}\\n`, 'utf8')",
+      "replace": "const header = Buffer.from(`${MANUAL_FEEDBACK_HEADERS.join(',')}\\n`, 'utf8')",
+      "by": "test",
+      "kills": ["D24-缺席文件生成单BOM固定表头及候选空白行", "D24-空冻结池仍创建单BOM合法表头"]
+    },
+    {
+      "id": "M-D24-b",
+      "req": "D24.a",
+      "why": "冻结轮次原值的首尾空白被删除，模板不再保留原轮次身份",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "return [round.round_id, platform, handle, '', '', '', '', '', '', '']",
+      "replace": "return [round.round_id.trim(), platform, handle, '', '', '', '', '', '', '']",
+      "by": "test",
+      "kills": ["D24-新模板保持轮次候选顺序并正确转义原轮次"]
+    },
+    {
+      "id": "M-D24-c",
+      "req": "D24.a",
+      "why": "轮次中的逗号引号和换行没有正确转义，新增 CSV 行改变字段边界",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "].map(esc).join(',')",
+      "replace": "].join(',')",
+      "by": "test",
+      "kills": ["D24-新模板保持轮次候选顺序并正确转义原轮次"]
+    },
+    {
+      "id": "M-D24-d",
+      "req": "D24.d",
+      "why": "当前名单里的池外账号被补入人工模板，新增行不再只来自冻结候选池",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "if (existing !== undefined && added.length === 0) return { action: 'unchanged', added_accounts: 0 }",
+      "replace": "for (const creator of creators) {\n    if (!document.rounds.some(round => round.candidates.some(candidate => candidate.account_key === `${creator.platform}:${creator.handle}`))) added.push([document.rounds[0]?.round_id ?? '', creator.platform, creator.handle, '', '', '', '', '', '', ''].map(esc).join(','))\n  }\n  if (existing !== undefined && added.length === 0) return { action: 'unchanged', added_accounts: 0 }",
+      "by": "test",
+      "kills": ["D24-追加只补规范账号保持轮次池序与同名异平台"]
+    },
+    {
+      "id": "M-D24-e",
+      "req": "D24.b",
+      "why": "未显式追加时仍接受已有人工文件并返回模板计划",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "if (existing !== undefined && !append) {",
+      "replace": "if (false) {",
+      "by": "test",
+      "kills": ["D24-任意既有Buffer未显式追加均拒绝并定位文件"]
+    },
+    {
+      "id": "M-D24-f",
+      "req": "D24.c",
+      "why": "追加没有完整校验已有人工 CSV，坏表和跨平台冲突被当作可继续内容",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "for (const row of parseManualFeedbackCsv(text, file, document, creators)) known.add(row.account_key)",
+      "replace": "for (const row of [] as { account_key: string }[]) known.add(row.account_key)",
+      "by": "test",
+      "kills": ["D24-追加拒绝空文件及错名错序缺多重复列双BOM表头", "D24-追加严格拒绝词法结构及非空物理记录的列数错误", "D24-全池已覆盖仍拒绝非法判断原因和行内作答冲突", "D24-追加拒绝缺错轮次非法身份及评审别名当前池外账号", "D24-全池已覆盖仍拒绝规范化后重复人工账号", "D24-全池已覆盖仍校验单向显式关联的跨平台采纳冲突", "D24-跨轮次关联账号采纳冲突也拒绝"]
+    },
+    {
+      "id": "M-D24-g",
+      "req": "D24.d",
+      "why": "已经填写的规范化平台账号仍被当作缺席，追加产生重复人工行",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": ".filter(candidate => !known.has(candidate.account_key))",
+      "replace": ".filter(candidate => !known.has(candidate.account_key.split(':')[1]))",
+      "by": "test",
+      "kills": ["D24-追加只补规范账号保持轮次池序与同名异平台"]
+    },
+    {
+      "id": "M-D24-h",
+      "req": "D24.e",
+      "why": "已有人工文件的 CRLF 被改成 LF，原字节前缀没有完整保留",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "bytes: Buffer.concat([existing, separator, newRows])",
+      "replace": "bytes: Buffer.concat([Buffer.from(existing.toString('utf8').replace(/\\r\\n/g, '\\n')), separator, newRows])",
+      "by": "test",
+      "kills": ["D24-追加完整旧BOM换行引号多行备注尾空行逐字节保留"]
+    },
+    {
+      "id": "M-D24-i",
+      "req": "D24.e",
+      "why": "原文件末尾没有 LF 时未补分隔，新账号行与旧内容粘连",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "const separator = existing[existing.length - 1] === 10 ? Buffer.alloc(0) : Buffer.from('\\n')",
+      "replace": "const separator = Buffer.alloc(0)",
+      "by": "test",
+      "kills": ["D24-原末字节非LF只补一个LF再追加新行", "D24-无换行且末格有引号的原行保持字节边界"]
+    },
+    {
+      "id": "M-D24-j",
+      "req": "D24.a",
+      "why": "新增账号最后一行没有 LF 终止，新模板的行结束格式不合规",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "const newRows = Buffer.from(added.map(row => `${row}\\n`).join(''), 'utf8')",
+      "replace": "const newRows = Buffer.from(added.join('\\n'), 'utf8')",
+      "by": "test",
+      "kills": ["D24-缺席文件生成单BOM固定表头及候选空白行"]
+    },
+    {
+      "id": "M-D24-k",
+      "req": "D24.f",
+      "why": "覆盖全池的合法文件仍提供写入字节，未变化计划不能表达无需写入",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "if (existing !== undefined && added.length === 0) return { action: 'unchanged', added_accounts: 0 }",
+      "replace": "if (existing !== undefined && added.length === 0) return { action: 'unchanged', added_accounts: 0, bytes: Buffer.from(existing) }",
+      "by": "test",
+      "kills": ["D24-全池已覆盖返回unchanged零计数且没有bytes属性", "D24-空池合法仅表头返回unchanged没有写入字节"]
+    },
+    {
+      "id": "M-D24-l",
+      "req": "D24.f",
+      "why": "追加计划新增账号计数大于实际新增行，返回数量与字节内容不一致",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "return { action: 'append', added_accounts: added.length, bytes: Buffer.concat([existing, separator, newRows]) }",
+      "replace": "return { action: 'append', added_accounts: added.length + 1, bytes: Buffer.concat([existing, separator, newRows]) }",
+      "by": "test",
+      "kills": ["D24-追加动作和新增行计数准确"]
+    },
+    {
+      "id": "M-D24-m",
+      "req": "D24.g",
+      "why": "非法 UTF-8 原字节被替代字符解码后继续追加，坏文件没有明确拒绝",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "if (!Buffer.from(text, 'utf8').equals(existing)) {",
+      "replace": "if (false) {",
+      "by": "test",
+      "kills": ["D24-合法自由备注中非法UTF8也拒绝不得替换成字符"]
+    },
+    {
+      "id": "M-D24-n",
+      "req": "D24.g",
+      "why": "新增轮次的未配对代理项被替换编码，原轮次值未保留也没有拒绝",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "if (Buffer.from(round.round_id, 'utf8').toString('utf8') !== round.round_id) {",
+      "replace": "if (false) {",
+      "by": "test",
+      "kills": ["D24-新增轮次孤立代理项拒绝并定位文件轮次字段", "D24-追加待新增行中所有未配对代理项均拒绝"]
+    },
+    {
+      "id": "M-D24-o",
+      "req": "D24.h",
+      "why": "生成或拒绝模板时改写调用方评审正本里的轮次时间，输入嵌套内容被污染",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "if (existing !== undefined && !append) {",
+      "replace": "if (document.rounds.length) document.rounds[0].created_at += ' '\n  if (existing !== undefined && !append) {",
+      "by": "test",
+      "kills": ["D24-成功拒绝均不改变评审正本及嵌套候选任务"]
+    },
+    {
+      "id": "M-D24-p",
+      "req": "D24.i",
+      "why": "新增人工合格性被自动填成 unknown，未评空白变成伪造人工判断",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "return [round.round_id, platform, handle, '', '', '', '', '', '', '']",
+      "replace": "return [round.round_id, platform, handle, 'unknown', '', '', '', '', '', '']",
+      "by": "test",
+      "kills": ["D24-新增行七项人工字段独立验证全部空白"]
+    },
+    {
+      "id": "M-D24-q",
+      "req": "D24.f",
+      "why": "追加计划借用已有人工 Buffer，修改返回字节会改写调用方原输入",
+      "file": "scripts/lib/manual-feedback-template.ts",
+      "find": "return { action: 'append', added_accounts: added.length, bytes: Buffer.concat([existing, separator, newRows]) }",
+      "replace": "return { action: 'append', added_accounts: added.length, bytes: existing }",
+      "by": "test",
+      "kills": ["D24-追加后Buffer独立拥有不借用原文件存储", "D24-修改追加计划字节不改变既有人工文件Buffer"]
     }
   ],
   "exemptions": [
