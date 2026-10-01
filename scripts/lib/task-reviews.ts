@@ -7,11 +7,13 @@ import {
 } from './review.js'
 import { migrateLegacyAgentReviews, projectAgentReviews } from './review-projection.js'
 import { parseManualFeedbackCsv } from './manual-feedback.js'
+import type { ManualFeedbackRow } from './manual-feedback.js'
 import { projectManualFeedback } from './effective-priority.js'
 
 /** D21/D22/D23/D25：生产入口共享只读准备、当前投影与显式保存。 */
 export interface TaskReviews {
   readonly document: AgentReviewDocument
+  readonly feedback: ManualFeedbackRow[]
   freezeCandidates(currentCreators: readonly Creator[], createdAt: string): void
   project(creators: readonly Creator[], fullRelations: readonly Creator[], calibrationVersion?: string): Creator[]
   save(updatedAt: string): boolean
@@ -49,7 +51,7 @@ export function prepareTaskReviews(
   const feedback = (relations: readonly Creator[]) => manualText === undefined ? []
     : parseManualFeedbackCsv(manualText, manualFile, original.document, relations)
   // D23.h：原池授权先于迁移与冻结；后续新轮不能把本次池外作答变合法。
-  feedback(initialRelations)
+  let validatedFeedback = feedback(initialRelations)
   const freeze = (document: AgentReviewDocument, previous: readonly Creator[], current: readonly Creator[], time: string) => {
     try { return freezeReviewRounds(document, sourceState, previous, current, time) }
     catch (error) {
@@ -65,12 +67,15 @@ export function prepareTaskReviews(
   }
   return {
     get document() { return structuredClone(pending) },
+    get feedback() { return structuredClone(validatedFeedback) },
     freezeCandidates(currentCreators, time) {
       pending = freeze(pending, [], currentCreators, time)
     },
     project(creators, fullRelations, calibrationVersion) {
       const rows = feedback([...initialRelations, ...fullRelations])
-      return projectManualFeedback(pending, projectAgentReviews(pending, creators, calibrationVersion), rows)
+      const projected = projectManualFeedback(pending, projectAgentReviews(pending, creators, calibrationVersion), rows)
+      validatedFeedback = rows
+      return projected
     },
     save(updatedAt) {
       if (content(pending) === content(saved)) return false

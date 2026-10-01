@@ -6,6 +6,8 @@ import { formatDiscoverySources } from './discovery.js'
 import { sampleScopeText, sortForReviewOutput, type ReviewOutputOptions } from './rows.js'
 import { normalizedAccountKey } from './review.js'
 import type { CostView } from './budget.js'
+import type { FeedbackSummary } from './manual-feedback-summary.js'
+import type { ReviewRound } from './review.js'
 
 const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, m =>
@@ -193,6 +195,49 @@ const renderReviewDetails = (c: Creator): string => {
     (linkedKey === undefined ? '' : agent(linkedKey, linked === undefined ? {} : linked) + manual(linkedKey, linkedRow, linkedRow?.round_id)) +
     (linkedRows?.filter(row => row.account_key !== linkedKey)
       .map(row => manual(row.account_key, row, row.round_id)).join('') ?? '')
+}
+
+/** U11：只格式化调用方提供的汇总与冻结来源；不由当前卡片重算，也不改筛选。 */
+const renderFeedbackSummary = (summary: FeedbackSummary | undefined, rounds: readonly ReviewRound[] | undefined): string => {
+  const heading = '<section id="feedback-summary"><h2>人工审核汇总</h2>'
+  if (summary === undefined || summary === null) {
+    return heading + '<p class="sub">人工审核统计未提供</p></section>'
+  }
+  const known = (value: unknown): string => value === undefined || value === null ? '无从确认' : esc(value)
+  const snapshots = new Map((rounds === undefined || rounds === null ? [] : rounds).map(round => [round.round_id, round]))
+  const roundRows = summary.rounds?.map(round => `<tr data-round-id="${esc(round.round_id)}">
+    <td>${esc(round.round_id)}</td><td>${known(round.candidates)}</td><td>${known(round.reviewed)}</td>
+    <td>${known(round.unreviewed)}</td><td>${known(snapshots.get(round.round_id)?.created_at)}</td></tr>`).join('')
+  const tallyRow = (field: 'eligible' | 'adopted', label: string): string => {
+    const part = summary[field]
+    const rate = part?.rate === undefined ? '无从确认' : part.rate === null ? '不可计算'
+      : part.rate === 0 ? '0%' : `${(part.rate * 100).toFixed(2)}%`
+    return `<tr data-manual-field="${field}"><td>${label}</td><td>${known(part?.yes)}</td><td>${known(part?.no)}</td>
+      <td>${known(part?.unknown)}</td><td>${known(part?.unreviewed)}</td><td>${known(part?.denominator)}</td><td>${esc(rate)}</td></tr>`
+  }
+  const sources = rounds === undefined || rounds === null ? '<p class="sub">冻结账号与来源无从确认</p>'
+    : rounds.map(round => {
+      const rows = round.candidates?.map(candidate => `<tr data-account-key="${esc(candidate.account_key)}">
+        <td>${esc(candidate.account_key)}</td><td>${candidate.source_tasks === null || candidate.source_tasks === undefined || !candidate.source_tasks.length
+          ? '来源无从确认' : candidate.source_tasks.map(source =>
+            `task_index=${known(source.task_index)} · ${known(source.dimension)} · ${known(source.platform)} · ${known(source.keyword)}`).join('；')}</td></tr>`).join('')
+      return `<details class="assessment" open><summary>${known(round.round_id)} · 冻结账号与来源（历史池）</summary>
+        ${rows === undefined ? '<p class="sub">冻结账号与来源无从确认</p>' : `<table><thead><tr><th>平台账号</th><th>原任务来源</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="2">0 个冻结平台账号（空池）</td></tr>'}</tbody></table>`}</details>`
+    }).join('')
+  const reasons = summary.reject_reasons.map(item => `<li>${esc(item.reason)}：${esc(item.count)} 个平台账号</li>`).join('')
+  return heading + `<p class="sub">任务所有冻结轮次，单位为平台账号，不是独立人数或本次可联系卡片。历史池不随联系过滤或候选筛选缩减。</p>
+    <table><thead><tr><th>轮次</th><th>冻结账号</th><th>已审核</th><th>未审核</th><th>冻结时间</th></tr></thead>
+    <tbody>${roundRows === undefined ? '<tr><td colspan="5">审核轮次无从确认</td></tr>'
+      : roundRows || '<tr><td colspan="5">0 个冻结平台账号（空池）</td></tr>'}</tbody></table>
+    <h2>明确结论与分母</h2><p class="sub">任一人工原字段实际填写即已审核；空白是未评，unknown 是已看但无法判断。两个比率各只用自身明确 yes/no 作分母。</p>
+    <table><thead><tr><th>人工判断</th><th>yes</th><th>no</th><th>unknown</th><th>未作答</th><th>明确分母（yes + no）</th><th>比率</th></tr></thead>
+    <tbody>${tallyRow('eligible', '合格性')}${tallyRow('adopted', '是否采用')}</tbody></table>
+    <h2>拒绝原因（账号数）</h2>${reasons ? `<ul>${reasons}</ul>` : '<p>尚无人工拒绝原因</p>'}
+    <h2>Agent 原记录与人工分歧</h2><p>${summary.disagreements.length
+      ? summary.disagreements.map(esc).join('、') : '尚无可列的分歧账号'}</p>
+    <p class="sub">仅比较完整 Agent 原判断与本平台明确人工答案，可能含历史判断；缺记录不能比较，不代表 Agent 准确率、采用改善或真实发信效果。</p>
+    <h2>冻结账号与原任务来源</h2>${sources}</section>`
 }
 
 export interface HtmlOutputOptions extends ReviewOutputOptions { filters?: 'dual' }
@@ -391,6 +436,8 @@ ${notes.length ? `<div class="notes">${notes.map(n => `<div>⚠️ ${esc(n)}</di
 <strong>两个不是一个数，也不该相除</strong>（单位不同）。一次都没查过的词照样在表上，写着「未查询」。</p>
 <table><thead><tr><th>任务</th><th>关键词</th><th>平台</th><th>维度</th><th>找到</th><th>入围</th><th>语义通过</th></tr></thead>
 <tbody>${kwRows}</tbody></table>
+
+${renderFeedbackSummary(meta.feedback_summary, meta.review_rounds)}
 
 <h2>名单</h2>
 ${dual ? '<div class="candidate-list">' : ''}
