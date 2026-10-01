@@ -145,6 +145,7 @@ if (!writeBack.written) {
 // D13.q/r：JSON 和 HTML 共用只读投影，不从请求数推算或修复历史费用。
 const cost = costView(state)
 const reviewDocument = reviews.document
+const reviewFeedback = reviews.feedback
 const meta = {
   product: state.product,
   market: state.market,
@@ -152,8 +153,8 @@ const meta = {
   // 一次都没查到人的平台、一次都没查过的词会整个消失，而报告里「查了没人」
   // 和「一次都没查」长得一模一样，运营据此不再投这个方向（ADR-94）。
   platforms: taskPlatforms(state),
-  keywords: keywordRows(state, creators),
-  feedback_summary: feedbackSummary(reviewDocument, reviews.feedback),
+  keywords: keywordRows(state, creators, { document: reviewDocument, feedback: reviewFeedback }),
+  feedback_summary: feedbackSummary(reviewDocument, reviewFeedback),
   review_rounds: reviewDocument.rounds,
   total: creators.length,
   tiers: tierCounts(creators),

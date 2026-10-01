@@ -30,7 +30,9 @@
       "req": "D15.c",
       "why": "来源去重忽略维度，把同词不同方向的观察吞掉",
       "by": "test",
-      "kills": ["五字段任一差异都保留，平台账号大小写重复仅留首次原值与顺序"],
+      "kills": [
+        "五字段任一差异都保留，平台账号大小写重复仅留首次原值与顺序"
+      ],
       "file": "scripts/lib/discovery.ts",
       "find": "[creatorKey(source), source.keyword, source.dimension, source.endpoint]",
       "replace": "[creatorKey(source), source.keyword, source.endpoint]"
@@ -40,7 +42,9 @@
       "req": "D15.d",
       "why": "首次收页直接保留重复来源，使来源列表不再是稳定并集",
       "by": "test",
-      "kills": ["首次收页也去重且保留响应快照，不改成任务配置"],
+      "kills": [
+        "首次收页也去重且保留响应快照，不改成任务配置"
+      ],
       "file": "scripts/lib/pipeline.ts",
       "find": "discovery_sources: mergeDiscoverySources(undefined, p.discovery_sources),",
       "replace": "discovery_sources: p.discovery_sources,"
@@ -87,7 +91,9 @@
       "req": "D15.h",
       "why": "把未知来源显示为空白，使没有历史记录这一边界消失",
       "by": "test",
-      "kills": ["缺席与空来源显示来源未知"],
+      "kills": [
+        "缺席与空来源显示来源未知"
+      ],
       "file": "scripts/lib/discovery.ts",
       "find": "if (!sources?.length) return '来源未知'",
       "replace": "if (!sources?.length) return ''"
@@ -97,7 +103,10 @@
       "req": "D15.h",
       "why": "表格来源列不读取已观察记录，CSV 与 XLSX 均丢失真实路径",
       "by": "test",
-      "kills": ["来源列维持原单元格", "XLSX 来源单元格与 CSV 共用格式"],
+      "kills": [
+        "来源列维持原单元格",
+        "XLSX 来源单元格与 CSV 共用格式"
+      ],
       "file": "scripts/lib/rows.ts",
       "find": "formatDiscoverySources(c.discovery_sources),",
       "replace": "formatDiscoverySources(undefined),"
@@ -107,7 +116,9 @@
       "req": "D15.i",
       "why": "报告删除来源集合的历史与作品边界，使局部观察看似完整历史",
       "by": "test",
-      "kills": ["HTML 不把已有记录包装成完整历史、作品来源或请求次数"],
+      "kills": [
+        "HTML 不把已有记录包装成完整历史、作品来源或请求次数"
+      ],
       "file": "scripts/lib/report.ts",
       "find": "<p class=\"sub\">仅含已记录的账号发现来源，可能不含完整历史；不对应具体作品或请求次数。</p>",
       "replace": ""
@@ -301,7 +312,9 @@
       "find": "      if (limit > 0 && BigInt(occupied) * 10n >= BigInt(limit) * numerator && !this.notified.has(threshold)) {",
       "replace": "      if (limit > 0 && BigInt(occupied) * 10n >= BigInt(limit) * numerator) {",
       "by": "test",
-      "kills": ["恢复实例退款后不重复提醒"]
+      "kills": [
+        "恢复实例退款后不重复提醒"
+      ]
     },
     {
       "id": "M-D3-a",
@@ -335,7 +348,9 @@
       "find": "  return /[\",\\n\\r]/.test(s) ? `\"${s.replace(/\"/g, '\"\"')}\"` : s",
       "replace": "  return s",
       "by": "test",
-      "kills": ["含换行"]
+      "kills": [
+        "含换行"
+      ]
     },
     {
       "id": "M-P1-d",
@@ -357,7 +372,10 @@
       "find": "    c.source_dimension, bestPost(c), c.outreach_draft ?? '', c.previously_recommended ?? '',",
       "replace": "    c.source_dimension, bestPost(c), (c.outreach_draft ?? '').replace(/\\{[^}]*\\}/g, ''), c.previously_recommended ?? '',",
       "by": "test",
-      "kills": ["CSV 保留占位符", "占位符一个不少"]
+      "kills": [
+        "CSV 保留占位符",
+        "占位符一个不少"
+      ]
     },
     {
       "id": "M-U1-a",
@@ -1400,7 +1418,9 @@
       "find": "    c.tier_adjustments = []\n    const geo = applyGeoPenalty(c, market)",
       "replace": "    c.tier_adjustments = []\n    c.audience_geo ??= { [market]: 0.5 }\n    const geo = applyGeoPenalty(c, market)",
       "by": "test",
-      "kills": ["缺增强层时地域留空，不补一个猜出来的值"]
+      "kills": [
+        "缺增强层时地域留空，不补一个猜出来的值"
+      ]
     },
     {
       "id": "M-D10-a",
@@ -1422,7 +1442,9 @@
       "find": "  const op = CODE_OP.exec(why)\n  if (op) return op[0]\n",
       "replace": "",
       "by": "test",
-      "kills": ["变异说明中的代码表达式必须被拦下"]
+      "kills": [
+        "变异说明中的代码表达式必须被拦下"
+      ]
     },
     {
       "id": "M-H9-a",
@@ -1516,7 +1538,9 @@
       "find": "    for (const n of byId.get(id)!.needs) walk(n)",
       "replace": "    for (const n of [] as string[]) walk(n)",
       "by": "test",
-      "kills": ["点一个，连它的 needs 递归拖进来"]
+      "kills": [
+        "点一个，连它的 needs 递归拖进来"
+      ]
     },
     {
       "id": "M-H42-b",
@@ -1526,7 +1550,9 @@
       "find": "  if (unknown.length) {",
       "replace": "  if (false) {",
       "by": "test",
-      "kills": ["点了不存在的组，抛的那句话要点出是哪个名字"]
+      "kills": [
+        "点了不存在的组，抛的那句话要点出是哪个名字"
+      ]
     },
     {
       "id": "M-H42-c",
@@ -1536,7 +1562,9 @@
       "find": "  if (hit === undefined) return undefined",
       "replace": "  if (hit === undefined) return []",
       "by": "test",
-      "kills": ["没写这个参数 → undefined"]
+      "kills": [
+        "没写这个参数 → undefined"
+      ]
     },
     {
       "id": "M-H42-d",
@@ -1546,7 +1574,9 @@
       "find": "  return hit.slice('--only='.length).split(',').filter(s => s !== '')",
       "replace": "  return hit.slice('--only='.length).split(',')",
       "by": "test",
-      "kills": ["--only= 空着 → 空数组，不是 undefined"]
+      "kills": [
+        "--only= 空着 → 空数组，不是 undefined"
+      ]
     },
     {
       "id": "M-H42-e",
@@ -1556,7 +1586,9 @@
       "find": "  if (byId.size !== groups.length) {",
       "replace": "  if (false) {",
       "by": "test",
-      "kills": ["选跑判定拒绝重复登记 id"]
+      "kills": [
+        "选跑判定拒绝重复登记 id"
+      ]
     },
     {
       "id": "M-H42-f",
@@ -1566,7 +1598,9 @@
       "find": "    if (!byId.has(need)) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)",
       "replace": "    if (false) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)",
       "by": "test",
-      "kills": ["选跑判定拒绝缺失依赖并点名两端"]
+      "kills": [
+        "选跑判定拒绝缺失依赖并点名两端"
+      ]
     },
     {
       "id": "M-H42-g",
@@ -1576,7 +1610,9 @@
       "find": "  if (invalid.length) throw new Error(`需求测试不认识参数：${invalid.join('、')}`)",
       "replace": "  if (false) throw new Error(`需求测试不认识参数：${invalid.join('、')}`)",
       "by": "test",
-      "kills": ["需求测试拒绝拼错的参数并点名它"]
+      "kills": [
+        "需求测试拒绝拼错的参数并点名它"
+      ]
     },
     {
       "id": "M-H42-h",
@@ -1586,7 +1622,9 @@
       "find": "  if (ids.some(id => id === '' || id.trim() !== id)) {",
       "replace": "  if (false) {",
       "by": "test",
-      "kills": ["需求测试拒绝空组名并点明非空要求"]
+      "kills": [
+        "需求测试拒绝空组名并点明非空要求"
+      ]
     },
     {
       "id": "M-H42-i",
@@ -1596,7 +1634,9 @@
       "find": "  if (new Set(ids).size !== ids.length) throw new Error('--only= 不能重复点同一组')",
       "replace": "  if (false) throw new Error('--only= 不能重复点同一组')",
       "by": "test",
-      "kills": ["需求测试拒绝同一组重复点名"]
+      "kills": [
+        "需求测试拒绝同一组重复点名"
+      ]
     },
     {
       "id": "M-H42-j",
@@ -1630,7 +1670,9 @@
       "find": "      else if (label !== undefined && group !== undefined && declared.has(name)",
       "replace": "      else if (label !== undefined && group !== undefined && true",
       "by": "test",
-      "kills": ["工具标签归组 普通字符串调用不成为夹具"]
+      "kills": [
+        "工具标签归组 普通字符串调用不成为夹具"
+      ]
     },
     {
       "id": "M-H43-c",
@@ -1952,7 +1994,9 @@
       "find": "    summary: /(^|\\n)✗ 脚本自检：\\d+ 项失败\\s*(\\n|$)/,",
       "replace": "    summary: /(^|\\n)\\d+ 个失败\\s*(\\n|$)/,",
       "by": "test",
-      "kills": ["工具判定 实际自检记录认领公共失败生产方的精确目标"]
+      "kills": [
+        "工具判定 实际自检记录认领公共失败生产方的精确目标"
+      ]
     },
     {
       "id": "M-H14-r",
@@ -1962,7 +2006,9 @@
       "find": "    script: 'scripts/test.ts',",
       "replace": "    script: 'scripts/tests.ts',",
       "by": "test",
-      "kills": ["需求测试验证者路径指向可执行入口"]
+      "kills": [
+        "需求测试验证者路径指向可执行入口"
+      ]
     },
     {
       "id": "M-H19-c",
@@ -2032,7 +2078,9 @@
       "find": "  if (!Object.hasOwn(VERIFIERS, mut.by)) return 'unknown-verifier'",
       "replace": "  if (!(mut.by in VERIFIERS)) return 'unknown-verifier'",
       "by": "test",
-      "kills": ["工具接线 原型链名字不是已登记验证者"]
+      "kills": [
+        "工具接线 原型链名字不是已登记验证者"
+      ]
     },
     {
       "id": "M-H14-w",
@@ -2078,7 +2126,9 @@
       "find": "export const SOURCE_DIR = 'scripts'",
       "replace": "export const SOURCE_DIR = 'scripts/check'",
       "by": "test",
-      "kills": ["被 import 的实现也在 —— 改坏它就等于改了指纹"]
+      "kills": [
+        "被 import 的实现也在 —— 改坏它就等于改了指纹"
+      ]
     },
     {
       "id": "M-H14-c",
@@ -2088,7 +2138,9 @@
       "find": "  recordHash === selfHash",
       "replace": "  recordHash !== selfHash",
       "by": "test",
-      "kills": ["指纹对得上才新鲜"]
+      "kills": [
+        "指纹对得上才新鲜"
+      ]
     },
     {
       "id": "M-H14-d",
@@ -2098,7 +2150,9 @@
       "find": "  claimsOwnedBy(mutating) && fail === 0",
       "replace": "  claimsOwnedBy(mutating)",
       "by": "test",
-      "kills": ["断言红过就不写 —— 没通过的运行不是证据"]
+      "kills": [
+        "断言红过就不写 —— 没通过的运行不是证据"
+      ]
     },
     {
       "id": "M-H14-e",
@@ -2108,7 +2162,9 @@
       "find": "export const claimsOwnedBy = (mutating: boolean): boolean => !mutating",
       "replace": "export const claimsOwnedBy = (mutating: boolean): boolean => true",
       "by": "test",
-      "kills": ["变异运行不拥有它 —— 既不清也不写"]
+      "kills": [
+        "变异运行不拥有它 —— 既不清也不写"
+      ]
     },
     {
       "id": "M-H14-f",
@@ -2118,7 +2174,9 @@
       "find": "  CLAIM_LISTS.every(k =>\n    Array.isArray((v as Claims)[k]) &&\n    (v as Claims)[k].every(x => typeof x === 'string'))",
       "replace": "  true",
       "by": "test",
-      "kills": ["字段在但不是数组，同样认不出"]
+      "kills": [
+        "字段在但不是数组，同样认不出"
+      ]
     },
     {
       "id": "M-H14-g",
@@ -2128,7 +2186,9 @@
       "find": "  for (const [p, body] of [...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) h.update(`${p}\\0${body}\\0`)",
       "replace": "  for (const [p, body] of [...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) h.update(body)",
       "by": "test",
-      "kills": ["路径也算进指纹"]
+      "kills": [
+        "路径也算进指纹"
+      ]
     },
     {
       "id": "M-H14-h",
@@ -2138,7 +2198,9 @@
       "find": "    if (e.isDirectory()) return sourceFiles(p)",
       "replace": "    if (e.isDirectory()) return []",
       "by": "test",
-      "kills": ["子目录要走进去"]
+      "kills": [
+        "子目录要走进去"
+      ]
     },
     {
       "id": "M-H14-i",
@@ -2148,7 +2210,9 @@
       "find": "    (v as Claims)[k].every(x => typeof x === 'string')",
       "replace": "    true",
       "by": "test",
-      "kills": ["数组里混进非字符串，认不出"]
+      "kills": [
+        "数组里混进非字符串，认不出"
+      ]
     },
     {
       "id": "M-H14-j",
@@ -2158,7 +2222,9 @@
       "find": "  if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return 'missing'\n  if (err instanceof SyntaxError) return 'unparsable'\n  return 'unreadable'",
       "replace": "  return 'missing'",
       "by": "test",
-      "kills": ["权限不对，是这个路径读不了 —— 不是没跑过"]
+      "kills": [
+        "权限不对，是这个路径读不了 —— 不是没跑过"
+      ]
     },
     {
       "id": "M-H14-k",
@@ -2168,7 +2234,9 @@
       "find": "  claimsOwnedBy(mutating) && fail === 0 && startHash === endHash",
       "replace": "  claimsOwnedBy(mutating) && fail === 0",
       "by": "test",
-      "kills": ["跑的过程中源码变过就不写"]
+      "kills": [
+        "跑的过程中源码变过就不写"
+      ]
     },
     {
       "id": "M-H14-l",
@@ -2178,7 +2246,9 @@
       "find": "export const CLAIM_LISTS = ['covered', 'criteria', 'tensions'] as const",
       "replace": "export const CLAIM_LISTS = ['covered'] as const",
       "by": "test",
-      "kills": ["缺判据认领那一栏，同样认不出"]
+      "kills": [
+        "缺判据认领那一栏，同样认不出"
+      ]
     },
     {
       "id": "M-H14-m",
@@ -2200,7 +2270,9 @@
       "find": "export const CLAIM_LISTS = ['covered', 'criteria', 'tensions'] as const",
       "replace": "export const CLAIM_LISTS = ['covered', 'criteria'] as const",
       "by": "test",
-      "kills": ["缺交点认领那一栏，同样认不出"]
+      "kills": [
+        "缺交点认领那一栏，同样认不出"
+      ]
     },
     {
       "id": "M-D8-c",
@@ -2301,11 +2373,11 @@
     },
     {
       "id": "M-D4-k",
-    "by": "test",
-    "kills": [
-      "D4.d 空产品名推荐按坏记忆拒收",
-      "D4.d 纯空白产品名推荐按坏记忆拒收"
-    ],
+      "by": "test",
+      "kills": [
+        "D4.d 空产品名推荐按坏记忆拒收",
+        "D4.d 纯空白产品名推荐按坏记忆拒收"
+      ],
       "req": "D4",
       "why": "推荐记录的产品名只看类型不看有没有内容 —— 一条空产品名的记录永远匹配不上任何产品，那条去重记录等于不存在，人会被重新推荐一次，名单上那句「上次推的是什么」也少了一半",
       "file": "scripts/lib/memory.ts",
@@ -2410,10 +2482,10 @@
     },
     {
       "id": "M-P4-g",
-    "by": "test",
-    "kills": [
-      "P4 多分隔符记忆键不得读入"
-    ],
+      "by": "test",
+      "kills": [
+        "P4 多分隔符记忆键不得读入"
+      ],
       "req": "P4",
       "why": "记忆的键只要求「有个冒号」—— 平台拼错或多一个分隔符的键照样收下，而查询侧永远匹配不到它，已联系和已拉黑的人重新进名单",
       "file": "scripts/lib/memory.ts",
@@ -2422,11 +2494,11 @@
     },
     {
       "id": "M-P4-h",
-    "by": "test",
-    "kills": [
-      "P4 不支持的平台记忆键不得读入",
-      "D4.m 不支持的平台身份不得写入"
-    ],
+      "by": "test",
+      "kills": [
+        "P4 不支持的平台记忆键不得读入",
+        "D4.m 不支持的平台身份不得写入"
+      ],
       "req": "P4",
       "why": "记忆的键不再校验平台是不是支持的那几个 —— 读进来的拼错平台的键收下之后永远查不到，已联系的人重新进名单；写出去的那一侧也不拦，于是能造出一个自己下次读不出来的文件",
       "file": "scripts/lib/memory.ts",
@@ -2435,11 +2507,11 @@
     },
     {
       "id": "M-P4-l",
-    "by": "test",
-    "kills": [
-      "P4 展示形态 handle 记忆键不得读入",
-      "D4.m 展示形态 handle 不得写入"
-    ],
+      "by": "test",
+      "kills": [
+        "P4 展示形态 handle 记忆键不得读入",
+        "D4.m 展示形态 handle 不得写入"
+      ],
       "req": "P4",
       "why": "记忆的键不再校验 handle 是不是 handle 的形状 —— 手改成展示形态（前面带 @）或粘进一段链接片段，键照样收下而查询侧永远匹配不到；写出去的那一侧也不拦，能造出一个自己下次读不出来的文件",
       "file": "scripts/lib/memory.ts",
@@ -2448,10 +2520,10 @@
     },
     {
       "id": "M-D4-g",
-    "by": "test",
-    "kills": [
-      "D4.d 大小写撞键不择一保留"
-    ],
+      "by": "test",
+      "kills": [
+        "D4.d 大小写撞键不择一保留"
+      ],
       "req": "D4",
       "why": "两个键指向同一个人时随便留一条 —— 两条记录说法相反，该信哪条无从判断，却什么都不报",
       "file": "scripts/lib/memory.ts",
@@ -2472,11 +2544,11 @@
     },
     {
       "id": "M-D4-v",
-    "by": "test",
-    "kills": [
-      "D4.n null handle 写回返回未写回",
-      "D4.n 数字 platform 写回返回未写回"
-    ],
+      "by": "test",
+      "kills": [
+        "D4.n null handle 写回返回未写回",
+        "D4.n 数字 platform 写回返回未写回"
+      ],
       "req": "D4",
       "why": "生成键之前不确认那两个值是文字 —— 手改过的名单里 handle 是空值或平台是数字时，校验自己先抛，而抛出去绕开了「报为未写回、照常完成交付」那条路：算好的名单连同报告一起丢掉，而记忆原文件本来就完好",
       "file": "scripts/lib/memory.ts",
@@ -2803,7 +2875,9 @@
       "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue",
       "replace": "    if (!Number.isInteger(pid) || pid <= 0) continue",
       "by": "test",
-      "kills": ["D4.k 写回保留不能由进程号生成的数字邻文件"]
+      "kills": [
+        "D4.k 写回保留不能由进程号生成的数字邻文件"
+      ]
     },
     {
       "id": "M-D4-ab",
@@ -2813,7 +2887,9 @@
       "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue",
       "replace": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX) continue",
       "by": "test",
-      "kills": ["D4.k 写回保留不能原样往返的进程号文本"]
+      "kills": [
+        "D4.k 写回保留不能原样往返的进程号文本"
+      ]
     },
     {
       "id": "M-D4-ac",
@@ -2823,7 +2899,9 @@
       "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue",
       "replace": "    if (!Number.isSafeInteger(pid) || pid <= 0 || String(pid) !== spelled) continue",
       "by": "test",
-      "kills": ["D4.k 写回保留超过 int32 范围的数字邻文件"]
+      "kills": [
+        "D4.k 写回保留超过 int32 范围的数字邻文件"
+      ]
     },
     {
       "id": "M-D4-ad",
@@ -2833,7 +2911,9 @@
       "find": "const PID_MAX = 4 * 1024 * 1024",
       "replace": "const PID_MAX = 0x7fffffff",
       "by": "test",
-      "kills": ["D4.k 写回保留超过已声明 PID 上限的数字邻文件"]
+      "kills": [
+        "D4.k 写回保留超过已声明 PID 上限的数字邻文件"
+      ]
     },
     {
       "id": "M-D4-ae",
@@ -3131,7 +3211,9 @@
       "find": "  const live = active(reqs)",
       "replace": "  const live = reqs",
       "by": "test",
-      "kills": ["作废的不混进现行表"]
+      "kills": [
+        "作废的不混进现行表"
+      ]
     },
     {
       "id": "M-H3-b",
@@ -3334,7 +3416,9 @@
       "find": "  if (flag === '✓' && exempted.length) flag = '⊘'",
       "replace": "  if (exempted.length) flag = '⊘'",
       "by": "test",
-      "kills": ["非红线还欠着认领 → 仍是 ·，豁免盖不住缺口"]
+      "kills": [
+        "非红线还欠着认领 → 仍是 ·，豁免盖不住缺口"
+      ]
     },
     {
       "id": "M-H6-k",
@@ -3368,7 +3452,9 @@
       "find": "  for (const e of entries) (seen.has(e.id) ? dup : seen).add(e.id)",
       "replace": "  for (const e of entries) seen.add(e.id)",
       "by": "test",
-      "kills": ["同一个编号出现两次 —— 抓到"]
+      "kills": [
+        "同一个编号出现两次 —— 抓到"
+      ]
     },
     {
       "id": "M-H7-c",
@@ -3378,7 +3464,9 @@
       "find": "  const ids = duplicateIds(muts)\n  if (ids.length) return { kind: 'duplicate', ids }\n  const entries = orphanAttributions(attributed, known)\n  return entries.length ? { kind: 'orphan', entries } : undefined",
       "replace": "  const entries = orphanAttributions(attributed, known)\n  if (entries.length) return { kind: 'orphan', entries }\n  const ids = duplicateIds(muts)\n  return ids.length ? { kind: 'duplicate', ids } : undefined",
       "by": "test",
-      "kills": ["重复与记错名下同时在 —— 先报重复"]
+      "kills": [
+        "重复与记错名下同时在 —— 先报重复"
+      ]
     },
     {
       "id": "M-H7-a",
@@ -3388,7 +3476,9 @@
       "find": "  return entries.filter(e => e.req !== HARNESS && !known.has(e.req))",
       "replace": "  return entries.filter(() => false)",
       "by": "test",
-      "kills": ["记在不存在的编号名下 —— 抓到"]
+      "kills": [
+        "记在不存在的编号名下 —— 抓到"
+      ]
     },
     {
       "id": "M-H8-d",
@@ -3579,7 +3669,9 @@
       "find": "  [process.execPath, [TSX_CLI, ...args]]",
       "replace": "  ['npx', ['tsx', ...args]]",
       "by": "test",
-      "kills": ["起的是当前这个 node"]
+      "kills": [
+        "起的是当前这个 node"
+      ]
     },
     {
       "id": "M-H16-b",
@@ -3589,7 +3681,10 @@
       "find": "const TSX_CLI = createRequire(import.meta.url).resolve('tsx/cli')",
       "replace": "const TSX_CLI = 'node_modules/.bin/tsx'",
       "by": "test",
-      "kills": ["垫在最前面的是 tsx 那个公开导出解析出来的 cli", "而且是一条真的绝对路径"]
+      "kills": [
+        "垫在最前面的是 tsx 那个公开导出解析出来的 cli",
+        "而且是一条真的绝对路径"
+      ]
     },
     {
       "id": "M-H16-c",
@@ -3599,7 +3694,9 @@
       "find": "  [process.execPath, [TSX_CLI, ...args]]",
       "replace": "  [process.execPath, [...args, TSX_CLI]]",
       "by": "test",
-      "kills": ["要跑的那几个参数原样跟在 cli 后面"]
+      "kills": [
+        "要跑的那几个参数原样跟在 cli 后面"
+      ]
     },
     {
       "id": "M-H17-b",
@@ -3609,7 +3706,9 @@
       "find": "    for (const next of edges.get(f) ?? []) stack.push(next)",
       "replace": "    for (const next of edges.get(f) ?? []) seen.add(next)",
       "by": "test",
-      "kills": ["顺着边一直收到底"]
+      "kills": [
+        "顺着边一直收到底"
+      ]
     },
     {
       "id": "M-H17-c",
@@ -3619,7 +3718,9 @@
       "find": "  return mut.by !== undefined && mut.by !== 'test' && infra.includes(mut.file)",
       "replace": "  return mut.by !== undefined && mut.by !== 'test'",
       "by": "test",
-      "kills": ["打在被测入口上的不算 —— 那正是这条记录要的头号用例"]
+      "kills": [
+        "打在被测入口上的不算 —— 那正是这条记录要的头号用例"
+      ]
     },
     {
       "id": "M-H17-d",
@@ -3629,7 +3730,9 @@
       "find": "  `scripts/${SELFCHECK_PRELOAD}`,",
       "replace": "  // 预加载那一份不进种子",
       "by": "test",
-      "kills": ["预加载那一份在种子里"]
+      "kills": [
+        "预加载那一份在种子里"
+      ]
     },
     {
       "id": "M-H17-k",
@@ -3639,7 +3742,9 @@
       "find": "    pending.push(...node.to)\n",
       "replace": "",
       "by": "test",
-      "kills": ["两跳的也收得到 —— 只走一层的话它不在"]
+      "kills": [
+        "两跳的也收得到 —— 只走一层的话它不在"
+      ]
     },
     {
       "id": "M-H17-l",
@@ -3649,7 +3754,9 @@
       "find": "    graph.push(node)\n",
       "replace": "",
       "by": "test",
-      "kills": ["一跳的收得到"]
+      "kills": [
+        "一跳的收得到"
+      ]
     },
     {
       "id": "M-H17-h",
@@ -3659,7 +3766,9 @@
       "find": "export const selfcheckSummary = (failed: number) => `✗ 脚本自检：${failed} 项失败`",
       "replace": "export const selfcheckSummary = (failed: number) => `✗ 脚本自检：${failed} 项没过`",
       "by": "test",
-      "kills": ["自检真会打的那句汇总，判定认得出来"]
+      "kills": [
+        "自检真会打的那句汇总，判定认得出来"
+      ]
     },
     {
       "id": "M-H17-i",
@@ -3669,7 +3778,9 @@
       "find": "    return out.join('/').replace(/\\.js$/, '.ts')",
       "replace": "    return out.join('/')",
       "by": "test",
-      "kills": ["同目录的边，规格化成仓库根起算的 .ts"]
+      "kills": [
+        "同目录的边，规格化成仓库根起算的 .ts"
+      ]
     },
     {
       "id": "M-H17-j",
@@ -3679,7 +3790,9 @@
       "find": "/\\bfrom\\s*'(\\.[^']+)'/g",
       "replace": "/\\bfrom\\s*'([^']+)'/g",
       "by": "test",
-      "kills": ["node 内建与第三方包不算边"]
+      "kills": [
+        "node 内建与第三方包不算边"
+      ]
     },
     {
       "id": "M-H17-g",
@@ -3689,7 +3802,9 @@
       "find": "export const SELFCHECK_PROCESS_MARK = '（进程）'",
       "replace": "export const SELFCHECK_PROCESS_MARK = ''",
       "by": "test",
-      "kills": ["自检进程级失败记号非空"]
+      "kills": [
+        "自检进程级失败记号非空"
+      ]
     },
     {
       "id": "M-H20-a",
@@ -3723,7 +3838,9 @@
       "find": "ts.isIdentifier(node.expression) ? node.expression.text : undefined",
       "replace": "ts.isIdentifier(node.expression) ? node.expression.text\n      : ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : undefined",
       "by": "test",
-      "kills": ["工具标签清册 外部对象同尾方法不成为声明"]
+      "kills": [
+        "工具标签清册 外部对象同尾方法不成为声明"
+      ]
     },
     {
       "id": "M-H20-d",
@@ -4123,7 +4240,9 @@
       "find": "    ts.forEachChild(node, visit)",
       "replace": "",
       "by": "test",
-      "kills": ["函数体中的真实豁免来源调用必须被识别"]
+      "kills": [
+        "函数体中的真实豁免来源调用必须被识别"
+      ]
     },
     {
       "id": "M-U1-c",
@@ -4304,7 +4423,9 @@
       "find": "    fixtureMark: SELFCHECK_FIXTURE_MARK,\n",
       "replace": "",
       "by": "test",
-      "kills": ["工具验证者声明 自检声明公开夹具无效记号"]
+      "kills": [
+        "工具验证者声明 自检声明公开夹具无效记号"
+      ]
     },
     {
       "id": "M-H25-c",
@@ -4314,7 +4435,9 @@
       "find": "export const SELFCHECK_FIXTURE_MARK = '（夹具）'",
       "replace": "export const SELFCHECK_FIXTURE_MARK = ''",
       "by": "test",
-      "kills": ["自检夹具故障记号非空"]
+      "kills": [
+        "自检夹具故障记号非空"
+      ]
     },
     {
       "id": "M-H26-a",
@@ -4504,7 +4627,9 @@
       "find": "export const ENTRY_CLAIMS_PATH = '.check-cache/selfcheck-claims.json'",
       "replace": "export const ENTRY_CLAIMS_PATH = '.check-cache/test-claims.json'",
       "by": "test",
-      "kills": ["两份记录不是同一个路径 —— 指到同一处就互相抹掉"]
+      "kills": [
+        "两份记录不是同一个路径 —— 指到同一处就互相抹掉"
+      ]
     },
     {
       "id": "M-H28-b",
@@ -4514,7 +4639,9 @@
       "find": "export const ENTRY_CLAIMS_PATH = '.check-cache/selfcheck-claims.json'",
       "replace": "export const ENTRY_CLAIMS_PATH = 'selfcheck-claims.json'",
       "by": "test",
-      "kills": ["两份记录都在 .check-cache 底下"]
+      "kills": [
+        "两份记录都在 .check-cache 底下"
+      ]
     },
     {
       "id": "M-H32-a",
@@ -5045,7 +5172,9 @@
       "find": "  for (const shot of new Set(shots)) steps.push({ do: 'group', shot })\n  steps.push(...warns)\n  steps.push({ do: 'sweep' })",
       "replace": "  steps.push({ do: 'sweep' })\n  for (const shot of new Set(shots)) steps.push({ do: 'group', shot })\n  steps.push(...warns)",
       "by": "test",
-      "kills": ["硬停止计划先列全部验证者组再列诊断最后清理目录"]
+      "kills": [
+        "硬停止计划先列全部验证者组再列诊断最后清理目录"
+      ]
     },
     {
       "id": "M-H40-h",
@@ -5309,7 +5438,9 @@
       "find": "export function readCostLimit(state: CostState): MicroUsd {\n  const root = roots.get(state)\n  if (!root || !Object.hasOwn(state, 'budget_usd') || !Object.is(root.value, state.budget_usd))\n    throw new CostError('invalid-money', 'budget_usd 缺少可核验的根数值 token')\n  return parseUsdMicros(root.token)\n}",
       "replace": "export function readCostLimit(state: CostState): MicroUsd {\n  try {\n    const root = roots.get(state)\n    if (!root || !Object.hasOwn(state, 'budget_usd') || !Object.is(root.value, state.budget_usd))\n      throw new CostError('invalid-money', 'budget_usd 缺少可核验的根数值 token')\n    return parseUsdMicros(root.token)\n  } catch { return Number.MAX_SAFE_INTEGER }\n}",
       "by": "test",
-      "kills": ["普通内存预算没有原 token 必须拒绝"]
+      "kills": [
+        "普通内存预算没有原 token 必须拒绝"
+      ]
     },
     {
       "id": "M-D6-l",
@@ -6549,7 +6680,10 @@
       "find": "  stored.requests = snapshot.requests\n  saveTask(dir, stored)",
       "replace": "  stored.requests = snapshot.requests\n  stored.memory_status = 'ok'\n  saveTask(dir, stored)",
       "by": "test",
-      "kills": ["无去重声明时费用检查点仍不得写成已去重", "已有 unknown 去重声明在费用检查点后保留"]
+      "kills": [
+        "无去重声明时费用检查点仍不得写成已去重",
+        "已有 unknown 去重声明在费用检查点后保留"
+      ]
     },
     {
       "id": "M-D14-h",
@@ -6583,7 +6717,9 @@
       "find": "    if (this.persistenceFailure) throw this.persistenceFailure",
       "replace": "",
       "by": "test",
-      "kills": ["预留保存失败后再次预留仍报告持久化失败"]
+      "kills": [
+        "预留保存失败后再次预留仍报告持久化失败"
+      ]
     },
     {
       "id": "M-D15-k",
@@ -7448,7 +7584,9 @@
       "find": "  if (shallow === 'true') {",
       "replace": "  if (false) {",
       "by": "test",
-      "kills": ["起点第 2 步答 true：how 说怎么取完整历史（fetch-depth: 0 或 git fetch --unshallow）"]
+      "kills": [
+        "起点第 2 步答 true：how 说怎么取完整历史（fetch-depth: 0 或 git fetch --unshallow）"
+      ]
     },
     {
       "id": "M-H9-q",
@@ -7506,7 +7644,9 @@
       "find": "  if (merged === null) return cannot(",
       "replace": "  if (false) return cannot(",
       "by": "test",
-      "kills": ["起点第 4 步：merge-base 答不上来（HEAD 与主干没有共同祖先）→ 无从判断"]
+      "kills": [
+        "起点第 4 步：merge-base 答不上来（HEAD 与主干没有共同祖先）→ 无从判断"
+      ]
     },
     {
       "id": "M-H9-v",
@@ -8694,7 +8834,9 @@
       "find": "if (explicitBase === undefined) {",
       "replace": "if (true) {",
       "by": "test",
-      "kills": ["维护-显式基线不能等于HEAD"]
+      "kills": [
+        "维护-显式基线不能等于HEAD"
+      ]
     },
     {
       "id": "M-H47-b",
@@ -8704,7 +8846,9 @@
       "find": "if (base === head) return cannot('基线不能与待验提交相同')",
       "replace": "if (false) return cannot('基线不能与待验提交相同')",
       "by": "test",
-      "kills": ["维护-显式基线不能等于HEAD"]
+      "kills": [
+        "维护-显式基线不能等于HEAD"
+      ]
     },
     {
       "id": "M-H47-c",
@@ -8714,7 +8858,9 @@
       "find": "if (ask('merge-base', base, head) !== base) return cannot('基线不是待验提交的祖先或祖先关系无法核实')",
       "replace": "if (false) return cannot('基线不是待验提交的祖先或祖先关系无法核实')",
       "by": "test",
-      "kills": ["维护-显式基线不能来自无关历史"]
+      "kills": [
+        "维护-显式基线不能来自无关历史"
+      ]
     },
     {
       "id": "M-H47-d",
@@ -8724,7 +8870,9 @@
       "find": "if (ask('rev-parse', '--is-shallow-repository') !== 'false') return cannot('历史不完整或无法确认不是浅克隆')",
       "replace": "if (false) return cannot('历史不完整或无法确认不是浅克隆')",
       "by": "test",
-      "kills": ["维护-浅历史即使提交都存在也无从比较"]
+      "kills": [
+        "维护-浅历史即使提交都存在也无从比较"
+      ]
     },
     {
       "id": "M-H47-e",
@@ -8734,7 +8882,9 @@
       "find": "return ['reason', 'recheck_when'].every(k =>",
       "replace": "return ['reason', 'recheck_when'].some(k =>",
       "by": "test",
-      "kills": ["维护-已有解释不得写坏"]
+      "kills": [
+        "维护-已有解释不得写坏"
+      ]
     },
     {
       "id": "M-H47-f",
@@ -8744,7 +8894,9 @@
       "find": "else if (prior!.only !== undefined) kind = 'back-to-full'",
       "replace": "else if (false) kind = 'back-to-full'",
       "by": "test",
-      "kills": ["维护-选组回全量需解释"]
+      "kills": [
+        "维护-选组回全量需解释"
+      ]
     },
     {
       "id": "M-H47-g",
@@ -8754,7 +8906,9 @@
       "find": "else if (core(before) !== core(m)) kind = 'changed-full'",
       "replace": "else if (false) kind = 'changed-full'",
       "by": "test",
-      "kills": ["维护-旧全量正文改变逐字段拒绝"]
+      "kills": [
+        "维护-旧全量正文改变逐字段拒绝"
+      ]
     },
     {
       "id": "M-H47-h",
@@ -8764,7 +8918,9 @@
       "find": "requires || m.full_run !== undefined || before?.full_run !== undefined",
       "replace": "requires || m.full_run !== undefined",
       "by": "test",
-      "kills": ["维护-解释不得删除"]
+      "kills": [
+        "维护-解释不得删除"
+      ]
     },
     {
       "id": "M-H47-i",
@@ -8774,7 +8930,9 @@
       "find": "const only = picked === undefined || picked.some(id => id === undefined) ? undefined : [...new Set(picked as string[])]",
       "replace": "const only = picked === undefined || picked.every(id => id === undefined) ? undefined : [...new Set(picked.filter(id => id !== undefined) as string[])]",
       "by": "test",
-      "kills": ["维护-任一点名断言未分组就实际全量"]
+      "kills": [
+        "维护-任一点名断言未分组就实际全量"
+      ]
     },
     {
       "id": "M-H47-j",
@@ -8784,7 +8942,9 @@
       "find": "const selected = wanted(layouts[by], only)",
       "replace": "const selected = only === undefined ? undefined : new Set(only)",
       "by": "test",
-      "kills": ["维护-选组带传递依赖且保留实际顺序"]
+      "kills": [
+        "维护-选组带传递依赖且保留实际顺序"
+      ]
     },
     {
       "id": "M-H47-k",
@@ -8794,7 +8954,9 @@
       "find": "const layoutChanges = [...verifiers].filter(by => JSON.stringify(base.layouts[by]) !== JSON.stringify(head.layouts[by]))",
       "replace": "const layoutChanges: string[] = []",
       "by": "test",
-      "kills": ["维护-依赖变化列给评审"]
+      "kills": [
+        "维护-依赖变化列给评审"
+      ]
     },
     {
       "id": "M-H47-l",
@@ -8804,7 +8966,9 @@
       "find": "if (registered !== undefined && JSON.stringify(calls.map(c => literal(c.arguments[0]))) !== JSON.stringify(groups.map(g => g.id))) {",
       "replace": "if (false) {",
       "by": "test",
-      "kills": ["维护-登记组与实际调用不一致不得猜配置"]
+      "kills": [
+        "维护-登记组与实际调用不一致不得猜配置"
+      ]
     },
     {
       "id": "M-H47-m",
@@ -8814,7 +8978,9 @@
       "find": "if (eventName === 'pull_request') {",
       "replace": "if (false) {",
       "by": "test",
-      "kills": ["维护事件-PR取自身baseSHA"]
+      "kills": [
+        "维护事件-PR取自身baseSHA"
+      ]
     },
     {
       "id": "M-H47-n",
@@ -8824,7 +8990,9 @@
       "find": "if (typeof base !== 'string') throw new Error('事件基线字段缺失或不是字符串')",
       "replace": "if (false) throw new Error('事件基线字段缺失或不是字符串')",
       "by": "test",
-      "kills": ["维护事件-未知缺失与错字段不得退回本地"]
+      "kills": [
+        "维护事件-未知缺失与错字段不得退回本地"
+      ]
     },
     {
       "id": "M-H48-a",
@@ -8833,7 +9001,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "[...route.only].sort()",
       "replace": "[...route.only]",
-      "by": "test", "kills": ["成本组合身份沿验证者与排序后的选择组"]
+      "by": "test",
+      "kills": [
+        "成本组合身份沿验证者与排序后的选择组"
+      ]
     },
     {
       "id": "M-H48-b",
@@ -8842,7 +9013,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "return JSON.stringify([route.by, route.only",
       "replace": "return JSON.stringify(['fixture-tests', route.only",
-      "by": "test", "kills": ["相同选择组的不同验证者有不同成本身份"]
+      "by": "test",
+      "kills": [
+        "相同选择组的不同验证者有不同成本身份"
+      ]
     },
     {
       "id": "M-H48-c",
@@ -8851,7 +9025,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "route.only === undefined ? null :",
       "replace": "route.only === undefined ? [] :",
-      "by": "test", "kills": ["成本组合身份区分全量与相同执行组的选组"]
+      "by": "test",
+      "kills": [
+        "成本组合身份区分全量与相同执行组的选组"
+      ]
     },
     {
       "id": "M-H48-d",
@@ -8860,7 +9037,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "if (ran.started === undefined) return { id, key, state: 'unknown', reason: '旧回报没有实际启动观测' }",
       "replace": "if (false) return { id, key, state: 'unknown', reason: '旧回报没有实际启动观测' }",
-      "by": "test", "kills": ["旧未施变的零哨兵也不能替代缺失的启动证据"]
+      "by": "test",
+      "kills": [
+        "旧未施变的零哨兵也不能替代缺失的启动证据"
+      ]
     },
     {
       "id": "M-H48-e",
@@ -8869,7 +9049,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "m.state === 'reported' && m.result.started === undefined",
       "replace": "m.state === 'reported' && false",
-      "by": "test", "kills": ["直接reported缺启动观测不能从结果标签猜两位使用者和一次复用"]
+      "by": "test",
+      "kills": [
+        "直接reported缺启动观测不能从结果标签猜两位使用者和一次复用"
+      ]
     },
     {
       "id": "M-H48-f",
@@ -8878,7 +9061,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "if (m.state === 'reported' && m.result.started === false) {",
       "replace": "if (false) {",
-      "by": "test", "kills": ["直接reported明确未启动时结果标签和非零时间也不算启动"]
+      "by": "test",
+      "kills": [
+        "直接reported明确未启动时结果标签和非零时间也不算启动"
+      ]
     },
     {
       "id": "M-H48-g",
@@ -8887,7 +9073,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "elapsed.kind === 'measured' && Number.isFinite(elapsed.ms) && elapsed.ms >= 0",
       "replace": "elapsed.kind === 'measured'",
-      "by": "test", "kills": ["非法实测时间不能进入正常基线或变异的合计"]
+      "by": "test",
+      "kills": [
+        "非法实测时间不能进入正常基线或变异的合计"
+      ]
     },
     {
       "id": "M-H48-h",
@@ -8896,7 +9085,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "Number.isFinite(elapsed.ms) && elapsed.ms >= 0",
       "replace": "Number.isFinite(elapsed.ms) && elapsed.ms > 0",
-      "by": "test", "kills": ["真实零与各变异结果的经过时间保持分类"]
+      "by": "test",
+      "kills": [
+        "真实零与各变异结果的经过时间保持分类"
+      ]
     },
     {
       "id": "M-H48-i",
@@ -8905,7 +9097,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "row.actualUsers = row.observedIds.length",
       "replace": "row.actualUsers = row.configuredIds.length",
-      "by": "test", "kills": ["配置三条但仅真实启动两条不能冒充三位使用者"]
+      "by": "test",
+      "kills": [
+        "配置三条但仅真实启动两条不能冒充三位使用者"
+      ]
     },
     {
       "id": "M-H48-j",
@@ -8914,7 +9109,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "if (!('elapsed' in b)) continue",
       "replace": "if (!('elapsed' in b)) { row.baselineStarted += 1; continue }",
-      "by": "test", "kills": ["启动失败不计正常基线或变异的实际启动"]
+      "by": "test",
+      "kills": [
+        "启动失败不计正常基线或变异的实际启动"
+      ]
     },
     {
       "id": "M-H48-k",
@@ -8923,7 +9121,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "if (b.state === 'succeeded') row.baselineSucceeded += 1",
       "replace": "row.baselineSucceeded += 1",
-      "by": "test", "kills": ["失败基线计入启动和失败时间但不冒充成功基线"]
+      "by": "test",
+      "kills": [
+        "失败基线计入启动和失败时间但不冒充成功基线"
+      ]
     },
     {
       "id": "M-H48-l",
@@ -8932,7 +9133,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "addTime(row.baselineTimes[b.state], b.id, b.elapsed)",
       "replace": "addTime(row.baselineTimes.succeeded, b.id, b.elapsed)",
-      "by": "test", "kills": ["失败基线计入启动和失败时间但不冒充成功基线"]
+      "by": "test",
+      "kills": [
+        "失败基线计入启动和失败时间但不冒充成功基线"
+      ]
     },
     {
       "id": "M-H48-m",
@@ -8941,7 +9145,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "b === undefined || b.key !== c.key || b.state",
       "replace": "b === undefined || false || b.state",
-      "by": "test", "kills": ["跨验证者错关联不能成为同组合的第二次正确消费"]
+      "by": "test",
+      "kills": [
+        "跨验证者错关联不能成为同组合的第二次正确消费"
+      ]
     },
     {
       "id": "M-H48-n",
@@ -8950,7 +9157,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "b === undefined || b.key !== c.key || b.state !== 'succeeded'",
       "replace": "b === undefined || b.key !== c.key",
-      "by": "test", "kills": ["真实消费者引用失败基线也不能制造成功复用"]
+      "by": "test",
+      "kills": [
+        "真实消费者引用失败基线也不能制造成功复用"
+      ]
     },
     {
       "id": "M-H48-o",
@@ -8959,7 +9169,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "for (const users of uses.values()) row.observedReuse += Math.max(0, users - 1)",
       "replace": "row.observedReuse = Math.max(0, row.observedIds.length - (row.baselineSucceeded ?? 0))",
-      "by": "test", "kills": ["额外复用逐份关联不能用总使用者减成功基线数"]
+      "by": "test",
+      "kills": [
+        "额外复用逐份关联不能用总使用者减成功基线数"
+      ]
     },
     {
       "id": "M-H48-p",
@@ -8968,7 +9181,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "row.missingIds.length === 0 && alienMutations.length === 0",
       "replace": "true && alienMutations.length === 0",
-      "by": "test", "kills": ["少一条回报不能把部分实际使用和复用冒充全范围"]
+      "by": "test",
+      "kills": [
+        "少一条回报不能把部分实际使用和复用冒充全范围"
+      ]
     },
     {
       "id": "M-H48-q",
@@ -8977,7 +9193,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "const knownBases = input.baselines !== undefined &&",
       "replace": "const knownBases = true &&",
-      "by": "test", "kills": ["缺整张观测表不能补成零次启动或零次复用"]
+      "by": "test",
+      "kills": [
+        "缺整张观测表不能补成零次启动或零次复用"
+      ]
     },
     {
       "id": "M-H48-r",
@@ -8986,7 +9205,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "index.set(key, [...(index.get(key) ?? []), item])",
       "replace": "index.set(key, [item])",
-      "by": "test", "kills": ["重复基线身份不能提供确定的逐份关联"]
+      "by": "test",
+      "kills": [
+        "重复基线身份不能提供确定的逐份关联"
+      ]
     },
     {
       "id": "M-H48-s",
@@ -8995,7 +9217,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "const b = linked?.length === 1 ? linked[0] : undefined",
       "replace": "const b = linked?.length === 1 ? linked[0] : matchingBases.find(b => b.state === 'succeeded')",
-      "by": "test", "kills": ["不存在的基线引用不能借同路由基线制造复用"]
+      "by": "test",
+      "kills": [
+        "不存在的基线引用不能借同路由基线制造复用"
+      ]
     },
     {
       "id": "M-H48-t",
@@ -9004,7 +9229,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "!planned.has(m.id) || !combos.has(m.key)",
       "replace": "false",
-      "by": "test", "kills": ["未配置身份不能虚增正确基线复用"]
+      "by": "test",
+      "kills": [
+        "未配置身份不能虚增正确基线复用"
+      ]
     },
     {
       "id": "M-H48-u",
@@ -9013,7 +9241,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "const invalidRoute = configurationKey(c.route) !== c.key || combos.get(c.key)!.length !== 1 || c.mutationIds.some(id => planned.get(id)!.length !== 1)",
       "replace": "const invalidRoute = false",
-      "by": "test", "kills": ["重复配置身份不能冒充可区分的条目清单"]
+      "by": "test",
+      "kills": [
+        "重复配置身份不能冒充可区分的条目清单"
+      ]
     },
     {
       "id": "M-H48-v",
@@ -9022,7 +9253,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "complete: issues.length === 0 && rows.every(row => row.issues.length === 0)",
       "replace": "complete: true",
-      "by": "test", "kills": ["全量外层正常基线未观测不能补启动成功或复用零"]
+      "by": "test",
+      "kills": [
+        "全量外层正常基线未观测不能补启动成功或复用零"
+      ]
     },
     {
       "id": "M-H48-w",
@@ -9031,7 +9265,10 @@
       "file": "scripts/check/jobs-rule.ts",
       "find": "for (const row of summary.rows) {",
       "replace": "for (const row of summary.rows.filter(row => (row.actualUsers ?? 0) > 0)) {",
-      "by": "test", "kills": ["可读成本报告不截断验证者选择组或实际依赖组合列表"]
+      "by": "test",
+      "kills": [
+        "可读成本报告不截断验证者选择组或实际依赖组合列表"
+      ]
     },
     {
       "id": "M-H49-a",
@@ -9333,7 +9570,9 @@
       "find": "return { status: 'absent', document: { version: 1, updated_at: '', reviews: {}, rounds: [] } }",
       "replace": "return { status: 'present', document: { version: 1, updated_at: '', reviews: {}, rounds: [] } }",
       "by": "test",
-      "kills": ["D21 缺席正本返回 absent"]
+      "kills": [
+        "D21 缺席正本返回 absent"
+      ]
     },
     {
       "id": "M-D21-b",
@@ -9343,7 +9582,9 @@
       "find": "writeFileAtomic(file, `${JSON.stringify(valid, null, 2)}\\n`)",
       "replace": "writeFileAtomic(file, `${JSON.stringify({ ...valid, updated_at: '' }, null, 2)}\\n`)",
       "by": "test",
-      "kills": ["D21 合法评审读写往返保留全部字段"]
+      "kills": [
+        "D21 合法评审读写往返保留全部字段"
+      ]
     },
     {
       "id": "M-D21-c",
@@ -9353,7 +9594,9 @@
       "find": "const h = handle.trim().replace(/^@/, '').toLowerCase()",
       "replace": "const h = handle.trim().replace(/^@/, '').replace(/_/g, '.').toLowerCase()",
       "by": "test",
-      "kills": ["D21 点号和下划线仍是不同账号"]
+      "kills": [
+        "D21 点号和下划线仍是不同账号"
+      ]
     },
     {
       "id": "M-D21-d",
@@ -9363,7 +9606,9 @@
       "find": "if (aliases.has(key)) problems.push(`${aliasAt} 重复别名 ${key}`)",
       "replace": "if (false) problems.push(`${aliasAt} 重复别名 ${key}`)",
       "by": "test",
-      "kills": ["D21 同一评审重复别名拒绝"]
+      "kills": [
+        "D21 同一评审重复别名拒绝"
+      ]
     },
     {
       "id": "M-D21-e",
@@ -9373,7 +9618,9 @@
       "find": "if (duplicate) throw new ReviewInputError([`${file}:${duplicate.line} 重复 JSON 键 ${JSON.stringify(duplicate.key)}`])",
       "replace": "if (false && duplicate) throw new ReviewInputError([`${file}:${duplicate.line} 重复 JSON 键 ${JSON.stringify(duplicate.key)}`])",
       "by": "test",
-      "kills": ["D21 重复根 JSON 键拒绝并指出键名"]
+      "kills": [
+        "D21 重复根 JSON 键拒绝并指出键名"
+      ]
     },
     {
       "id": "M-D21-f",
@@ -9383,7 +9630,9 @@
       "find": "if (!nonblank(review[field])) problems.push(`${at}.${field} 已评候选须有非空证据`)",
       "replace": "if (field !== 'observed_content' && !nonblank(review[field])) problems.push(`${at}.${field} 已评候选须有非空证据`)",
       "by": "test",
-      "kills": ["D21 已评候选空观察内容拒绝"]
+      "kills": [
+        "D21 已评候选空观察内容拒绝"
+      ]
     },
     {
       "id": "M-D21-g",
@@ -9393,7 +9642,9 @@
       "find": "else problems.push(...roundDocumentProblems(value.rounds, file))",
       "replace": "else {}",
       "by": "test",
-      "kills": ["D21 非空轮次未经验证拒绝"]
+      "kills": [
+        "D21 非空轮次未经验证拒绝"
+      ]
     },
     {
       "id": "M-D21-h",
@@ -9403,7 +9654,9 @@
       "find": "const valid = validatedDocument(document, file)",
       "replace": "const valid = document as AgentReviewDocument",
       "by": "test",
-      "kills": ["D21 非法写入保留旧正本原字节"]
+      "kills": [
+        "D21 非法写入保留旧正本原字节"
+      ]
     },
     {
       "id": "M-D21-i",
@@ -9413,7 +9666,10 @@
       "find": "return prototype === Object.prototype || prototype === null",
       "replace": "return true",
       "by": "test",
-      "kills": ["D21 Map 评审容器写入被拒绝", "D21 Map 评审容器拒绝后保留旧字节"]
+      "kills": [
+        "D21 Map 评审容器写入被拒绝",
+        "D21 Map 评审容器拒绝后保留旧字节"
+      ]
     },
     {
       "id": "M-D21-j",
@@ -9423,7 +9679,9 @@
       "find": "  for (const creator of legacyCreators) {",
       "replace": "  for (const creator of legacyCreators.slice(0, 0)) {",
       "by": "test",
-      "kills": ["D21 旧字段按规范化平台账号迁入"]
+      "kills": [
+        "D21 旧字段按规范化平台账号迁入"
+      ]
     },
     {
       "id": "M-D21-k",
@@ -9433,7 +9691,9 @@
       "find": "    document.reviews[key] = review",
       "replace": "    document.reviews[key] = { ...review, eligibility: '合格' }",
       "by": "test",
-      "kills": ["D21 旧字段不补造新裁决证据和版本"]
+      "kills": [
+        "D21 旧字段不补造新裁决证据和版本"
+      ]
     },
     {
       "id": "M-D21-l",
@@ -9443,7 +9703,9 @@
       "find": "  if (read.status === 'present') return document",
       "replace": "  if (false) return document",
       "by": "test",
-      "kills": ["D21 已存在的空正本阻止旧字段迁入"]
+      "kills": [
+        "D21 已存在的空正本阻止旧字段迁入"
+      ]
     },
     {
       "id": "M-D21-m",
@@ -9453,7 +9715,9 @@
       "find": "    if (!key || (creator.review_status !== undefined && creator.review_status !== '未评')) continue\n    if (newJudgmentFields.some(field => creator[field] !== undefined)) continue",
       "replace": "    if (!key) continue",
       "by": "test",
-      "kills": ["D21 缺席正本不把上次新评审投影复活成旧评审"]
+      "kills": [
+        "D21 缺席正本不把上次新评审投影复活成旧评审"
+      ]
     },
     {
       "id": "M-D21-n",
@@ -9463,7 +9727,9 @@
       "find": "    for (const field of projectedFields) delete creator[field]",
       "replace": "    for (const field of projectedFields) if (field !== 'fit_reason') delete creator[field]",
       "by": "test",
-      "kills": ["D21 主账号以当前正本重建并清除旧可选字段"]
+      "kills": [
+        "D21 主账号以当前正本重建并清除旧可选字段"
+      ]
     },
     {
       "id": "M-D21-o",
@@ -9473,7 +9739,9 @@
       "find": "    creator.review_status = statusOf(review, calibrationVersion)",
       "replace": "    if (review?.eligibility && !review.fit) creator.fit = review.eligibility === '合格' ? '✅' : '❌'\n    creator.review_status = statusOf(review, calibrationVersion)",
       "by": "test",
-      "kills": ["D21 合格性不能推断兼容 fit"]
+      "kills": [
+        "D21 合格性不能推断兼容 fit"
+      ]
     },
     {
       "id": "M-D21-p",
@@ -9483,7 +9751,10 @@
       "find": "    const review = byAccount.get(primary)",
       "replace": "    const review = byAccount.get(linkedAccount(original, primary) ?? primary)",
       "by": "test",
-      "kills": ["D21 关联 IG 已评不使未评 TikTok 主号变成已评", "D21 切换主平台时两侧原判断各归其号"]
+      "kills": [
+        "D21 关联 IG 已评不使未评 TikTok 主号变成已评",
+        "D21 切换主平台时两侧原判断各归其号"
+      ]
     },
     {
       "id": "M-D21-q",
@@ -9493,7 +9764,9 @@
       "find": "  return review.brand_calibration_version === version ? '已评' : '待重评'",
       "replace": "  return '已评'",
       "by": "test",
-      "kills": ["D21 品牌版本一致与不一致的状态含双方均缺席"]
+      "kills": [
+        "D21 品牌版本一致与不一致的状态含双方均缺席"
+      ]
     },
     {
       "id": "M-D21-r",
@@ -9503,7 +9776,9 @@
       "find": "  if (!review?.eligibility || !review.adoption_priority) return '未评'",
       "replace": "  if (!review) return '未评'",
       "by": "test",
-      "kills": ["D21 品牌版本一致与不一致的状态含双方均缺席"]
+      "kills": [
+        "D21 品牌版本一致与不一致的状态含双方均缺席"
+      ]
     },
     {
       "id": "M-D21-s",
@@ -9513,7 +9788,9 @@
       "find": "      for (const field of [...legacyFields, ...newJudgmentFields]) {",
       "replace": "      for (const field of newJudgmentFields) {",
       "by": "test",
-      "kills": ["D21 首次迁入后投影保留显式旧 Agent 字段"]
+      "kills": [
+        "D21 首次迁入后投影保留显式旧 Agent 字段"
+      ]
     },
     {
       "id": "M-D21-t",
@@ -9523,7 +9800,9 @@
       "find": "    if (!primary) {\n      creator.review_status = '未评'",
       "replace": "    if (!primary) {\n      for (const field of legacyFields) { const value = original[field]; if (value !== undefined) (creator as unknown as Record<string, unknown>)[field] = value }\n      creator.review_status = '未评'",
       "by": "test",
-      "kills": ["D21 空评审正本不保留无效主号的旧兼容字段"]
+      "kills": [
+        "D21 空评审正本不保留无效主号的旧兼容字段"
+      ]
     },
     {
       "id": "M-D21-u",
@@ -9533,7 +9812,9 @@
       "find": "    return linked.split(':')[0] === primary.split(':')[0] ? undefined : linked",
       "replace": "    return linked",
       "by": "test",
-      "kills": ["D21 同平台别名或其他账号不能充当跨平台关联评审"]
+      "kills": [
+        "D21 同平台别名或其他账号不能充当跨平台关联评审"
+      ]
     },
     {
       "id": "M-D22-a",
@@ -9543,7 +9824,9 @@
       "find": "if (ids.has(round.round_id)) problems.push(`${at}.round_id 重复 ${round.round_id}`)",
       "replace": "if (false) problems.push(`${at}.round_id 重复 ${round.round_id}`)",
       "by": "test",
-      "kills": ["D22 坏轮次与重复轮次键读写均拒绝并定位且保留原字节"]
+      "kills": [
+        "D22 坏轮次与重复轮次键读写均拒绝并定位且保留原字节"
+      ]
     },
     {
       "id": "M-D22-b",
@@ -9553,7 +9836,9 @@
       "find": "problems.push(`${place}.source_tasks 必须是非空数组或 null`)",
       "replace": "if (false) problems.push(`${place}.source_tasks 必须是非空数组或 null`)",
       "by": "test",
-      "kills": ["D22 坏来源重复下标与跨平台归因读写均拒绝并定位且保留原字节"]
+      "kills": [
+        "D22 坏来源重复下标与跨平台归因读写均拒绝并定位且保留原字节"
+      ]
     },
     {
       "id": "M-D22-c",
@@ -9563,7 +9848,9 @@
       "find": "  append(previousCreators)\n  append(currentCreators)",
       "replace": "  append(currentCreators)\n  append(previousCreators)",
       "by": "test",
-      "kills": ["D22 旧池先冻结而新增账号进入下一轮"]
+      "kills": [
+        "D22 旧池先冻结而新增账号进入下一轮"
+      ]
     },
     {
       "id": "M-D22-d",
@@ -9573,7 +9860,9 @@
       "find": "      if (known.has(account_key)) continue",
       "replace": "      if (known.has(account_key)) {\n        const prior = frozen.rounds.flatMap(round => round.candidates).find(candidate => candidate.account_key === account_key)!\n        prior.source_tasks = roundSources(creator, state, account_key)\n        continue\n      }",
       "by": "test",
-      "kills": ["D22 后来来源不回填未知来源也不改已知来源"]
+      "kills": [
+        "D22 后来来源不回填未知来源也不改已知来源"
+      ]
     },
     {
       "id": "M-D22-e",
@@ -9583,7 +9872,9 @@
       "find": "return [...new Set(indices)].flatMap(index => {",
       "replace": "return [...new Set(indices)].slice(0, 1).flatMap(index => {",
       "by": "test",
-      "kills": ["D22 新候选仅按实际下标复制且同词不同下标各保留"]
+      "kills": [
+        "D22 新候选仅按实际下标复制且同词不同下标各保留"
+      ]
     },
     {
       "id": "M-D22-f",
@@ -9593,7 +9884,9 @@
       "find": "[...indices].some(index => !Number.isSafeInteger(index) || index < 0 || index >= state.tasks.length)) return null",
       "replace": "[...indices].some(index => !Number.isSafeInteger(index) || index < 0 || index >= state.tasks.length))\n    return state.tasks[0] ? [{ task_index: 0, ...state.tasks[0] }] : null",
       "by": "test",
-      "kills": ["D22 缺席空坏越界与仅另一平台来源全部冻结为未知"]
+      "kills": [
+        "D22 缺席空坏越界与仅另一平台来源全部冻结为未知"
+      ]
     },
     {
       "id": "M-D22-g",
@@ -9603,7 +9896,9 @@
       "find": "return linked.split(':')[0] === primary.split(':')[0] ? [primary] : [primary, linked]",
       "replace": "return [primary, linked]",
       "by": "test",
-      "kills": ["D22 同名异平台各自入池而无效主号或关联不造身份"]
+      "kills": [
+        "D22 同名异平台各自入池而无效主号或关联不造身份"
+      ]
     },
     {
       "id": "M-D22-h",
@@ -9627,7 +9922,9 @@
       "find": "const frozen = validatedDocument(document, 'agent-review.json')",
       "replace": "const frozen = document",
       "by": "test",
-      "kills": ["D22 冻结不改评审正本任务旧名单或当前名单"]
+      "kills": [
+        "D22 冻结不改评审正本任务旧名单或当前名单"
+      ]
     },
     {
       "id": "M-D22-j",
@@ -9637,7 +9934,9 @@
       "find": "if (pooled.has(key)) problems.push(`${place}.account_key ${key} 重复或已在旧轮`)",
       "replace": "if (false) problems.push(`${place}.account_key ${key} 重复或已在旧轮`)",
       "by": "test",
-      "kills": ["D22 非规范身份与同轮跨轮重复账号读写均拒绝并定位且保留原字节"]
+      "kills": [
+        "D22 非规范身份与同轮跨轮重复账号读写均拒绝并定位且保留原字节"
+      ]
     },
     {
       "id": "M-D22-k",
@@ -9647,7 +9946,9 @@
       "find": "else if (key && source.platform !== key.split(':')[0]) problems.push(`${sourceAt}.platform 与候选账号平台不一致`)",
       "replace": "else if (false) problems.push(`${sourceAt}.platform 与候选账号平台不一致`)",
       "by": "test",
-      "kills": ["D22 坏来源重复下标与跨平台归因读写均拒绝并定位且保留原字节"]
+      "kills": [
+        "D22 坏来源重复下标与跨平台归因读写均拒绝并定位且保留原字节"
+      ]
     },
     {
       "id": "M-D22-l",
@@ -9657,7 +9958,9 @@
       "find": "if (!task) { problems.push(`${at}.task_index ${source.task_index} 超出 task.json 原任务范围`); continue }",
       "replace": "if (!task) continue",
       "by": "test",
-      "kills": ["D22 冻结来源越界明确报告轮次与来源下标位置"]
+      "kills": [
+        "D22 冻结来源越界明确报告轮次与来源下标位置"
+      ]
     },
     {
       "id": "M-D22-m",
@@ -9667,7 +9970,9 @@
       "find": "candidate.source_tasks.push(...sources.filter(source => !indices.has(source.task_index)))",
       "replace": "candidate.source_tasks.push(...sources.slice(0, 0))",
       "by": "test",
-      "kills": ["D22 同批归一账号合并后出现的真实来源"]
+      "kills": [
+        "D22 同批归一账号合并后出现的真实来源"
+      ]
     },
     {
       "id": "M-D22-n",
@@ -9704,7 +10009,9 @@
       "find": "[...indices].some(index => !Number.isSafeInteger(index) || index < 0 || index >= state.tasks.length)) return null",
       "replace": "indices.some(index => !Number.isSafeInteger(index) || index < 0 || index >= state.tasks.length)) return null",
       "by": "test",
-      "kills": ["D22 缺席空坏越界与仅另一平台来源全部冻结为未知"]
+      "kills": [
+        "D22 缺席空坏越界与仅另一平台来源全部冻结为未知"
+      ]
     },
     {
       "id": "M-D23-a",
@@ -9714,7 +10021,9 @@
       "find": "header.values.some((value, i) => value !== MANUAL_FEEDBACK_HEADERS[i])",
       "replace": "false",
       "by": "test",
-      "kills": ["D23 表头缺多重复错名错序及空文件均拒绝"]
+      "kills": [
+        "D23 表头缺多重复错名错序及空文件均拒绝"
+      ]
     },
     {
       "id": "M-D23-b",
@@ -9724,7 +10033,9 @@
       "find": "if (judgments[0]) row.manual_eligible = judgments[0] as ManualVerdict",
       "replace": "row.manual_eligible = (judgments[0] || 'unknown') as ManualVerdict",
       "by": "test",
-      "kills": ["D23 最小合法输入返回原始人工空白而不补判断"]
+      "kills": [
+        "D23 最小合法输入返回原始人工空白而不补判断"
+      ]
     },
     {
       "id": "M-D23-c",
@@ -9734,7 +10045,9 @@
       "find": "record.values.slice(3, 8).map(value => value.trim())",
       "replace": "record.values.slice(3, 8).map(value => value.trim() === 'unknown' ? '' : value.trim())",
       "by": "test",
-      "kills": ["D23 显式unknown保留并与五项缺席分开"]
+      "kills": [
+        "D23 显式unknown保留并与五项缺席分开"
+      ]
     },
     {
       "id": "M-D23-d",
@@ -9744,7 +10057,9 @@
       "find": "if (closed) fail('结束引号后只允许分隔符或换行')",
       "replace": "if (false) fail('结束引号后只允许分隔符或换行')",
       "by": "test",
-      "kills": ["D23 错误引号位置闭合后字符未闭合与独立CR拒绝"]
+      "kills": [
+        "D23 错误引号位置闭合后字符未闭合与独立CR拒绝"
+      ]
     },
     {
       "id": "M-D23-e",
@@ -9754,7 +10069,10 @@
       "find": "if (char === '\\n') line++",
       "replace": "if (false) line++",
       "by": "test",
-      "kills": ["D23 引号内换行空行与CRLF给出真实物理起始行", "D23 多行单元格后的错误定位文件与第七行"]
+      "kills": [
+        "D23 引号内换行空行与CRLF给出真实物理起始行",
+        "D23 多行单元格后的错误定位文件与第七行"
+      ]
     },
     {
       "id": "M-D23-f",
@@ -9764,7 +10082,10 @@
       "find": "if (record.values.length !== MANUAL_FEEDBACK_HEADERS.length) {",
       "replace": "if (record.values.length < MANUAL_FEEDBACK_HEADERS.length) {",
       "by": "test",
-      "kills": ["D23 短行长行和额外尾逗号不补列或截断", "D23 长行同时报告列数及已提供的非法人工判断"]
+      "kills": [
+        "D23 短行长行和额外尾逗号不补列或截断",
+        "D23 长行同时报告列数及已提供的非法人工判断"
+      ]
     },
     {
       "id": "M-D23-g",
@@ -9774,7 +10095,11 @@
       "find": "if (value && !options.includes(value)) problems.push",
       "replace": "if (false) problems.push",
       "by": "test",
-      "kills": ["D23 拼错大小写变体和非法人工判断拒绝", "D23 长行同时报告列数及已提供的非法人工判断", "D23 短行同时报告列数及已提供的非法人工判断"]
+      "kills": [
+        "D23 拼错大小写变体和非法人工判断拒绝",
+        "D23 长行同时报告列数及已提供的非法人工判断",
+        "D23 短行同时报告列数及已提供的非法人工判断"
+      ]
     },
     {
       "id": "M-D23-h",
@@ -9784,7 +10109,9 @@
       "find": "!MANUAL_REJECT_REASONS.includes(part.trim() as typeof MANUAL_REJECT_REASONS[number])",
       "replace": "false",
       "by": "test",
-      "kills": ["D23 非法原因和空原因片段拒绝"]
+      "kills": [
+        "D23 非法原因和空原因片段拒绝"
+      ]
     },
     {
       "id": "M-D23-i",
@@ -9794,7 +10121,9 @@
       "find": "return rows",
       "replace": "return rows.map(row => ({ ...row, manual_note: row.manual_note.trim(), ...(row.manual_reject_reason === undefined ? {} : { manual_reject_reason: row.manual_reject_reason.trim() }) }))",
       "by": "test",
-      "kills": ["D23 原因和备注逐字符保留解码后的空白引号逗号换行"]
+      "kills": [
+        "D23 原因和备注逐字符保留解码后的空白引号逗号换行"
+      ]
     },
     {
       "id": "M-D23-j",
@@ -9804,7 +10133,9 @@
       "find": "catch (error) { problems.push(`${at} platform 非法：${(error as Error).message}`) }",
       "replace": "catch (error) { platform = 'tiktok' }",
       "by": "test",
-      "kills": ["D23 非法平台空账号和非法字符拒绝而不猜身份"]
+      "kills": [
+        "D23 非法平台空账号和非法字符拒绝而不猜身份"
+      ]
     },
     {
       "id": "M-D23-k",
@@ -9814,7 +10145,9 @@
       "find": "else first.set(account_key, record.line)",
       "replace": "first.set(account_key, record.line)",
       "by": "test",
-      "kills": ["D23 重复账号即使内容相同也拒绝且始终指向最早行"]
+      "kills": [
+        "D23 重复账号即使内容相同也拒绝且始终指向最早行"
+      ]
     },
     {
       "id": "M-D23-l",
@@ -9824,7 +10157,9 @@
       "find": "else if (expectedRound !== round_id) problems.push",
       "replace": "else if (false) problems.push",
       "by": "test",
-      "kills": ["D23 缺轮次错轮次及轮次首尾空白均拒绝"]
+      "kills": [
+        "D23 缺轮次错轮次及轮次首尾空白均拒绝"
+      ]
     },
     {
       "id": "M-D23-m",
@@ -9834,7 +10169,9 @@
       "find": "if (expectedRound === undefined) problems.push(`${at} ${account_key} 不在冻结候选池`)\n    else if (expectedRound !== round_id) problems.push",
       "replace": "if (expectedRound !== undefined && expectedRound !== round_id) problems.push",
       "by": "test",
-      "kills": ["D23 评审别名新账号和相似昵称不能替代冻结身份"]
+      "kills": [
+        "D23 评审别名新账号和相似昵称不能替代冻结身份"
+      ]
     },
     {
       "id": "M-D23-n",
@@ -9844,7 +10181,9 @@
       "find": "if (judgments[0] === 'no' && judgments[1] === 'yes') {",
       "replace": "if (false) {",
       "by": "test",
-      "kills": ["D23 同行不合格却采纳明确拒绝"]
+      "kills": [
+        "D23 同行不合格却采纳明确拒绝"
+      ]
     },
     {
       "id": "M-D23-o",
@@ -9854,7 +10193,12 @@
       "find": "if ((a.manual_adopted === 'yes' && b.manual_adopted === 'no') ||\n        (a.manual_adopted === 'no' && b.manual_adopted === 'yes')) {",
       "replace": "if (false) {",
       "by": "test",
-      "kills": ["D23 显式合法跨平台关联无需互链旗标或第二条名单仍拒绝冲突", "D23 跨冻结轮次的显式账号关联仍拒绝采纳冲突", "D23 前一关联一致仍检查后一直接关联的冲突", "D23 重复行不能隐藏后续人工跨平台冲突"]
+      "kills": [
+        "D23 显式合法跨平台关联无需互链旗标或第二条名单仍拒绝冲突",
+        "D23 跨冻结轮次的显式账号关联仍拒绝采纳冲突",
+        "D23 前一关联一致仍检查后一直接关联的冲突",
+        "D23 重复行不能隐藏后续人工跨平台冲突"
+      ]
     },
     {
       "id": "M-D23-p",
@@ -9864,7 +10208,9 @@
       "find": "if (primary.split(':')[0] === linked.split(':')[0]) return undefined",
       "replace": "if (false) return undefined",
       "by": "test",
-      "kills": ["D23 同平台关联不制造跨平台采纳冲突"]
+      "kills": [
+        "D23 同平台关联不制造跨平台采纳冲突"
+      ]
     },
     {
       "id": "M-D23-q",
@@ -9874,7 +10220,11 @@
       "find": "if (problems.length) throw new ReviewInputError(problems)",
       "replace": "if (problems.length) throw new ReviewInputError(problems.slice(0, 1))",
       "by": "test",
-      "kills": ["D23 汇总所有记录字段轮次游离身份冲突与宽度问题并拒绝部分成功", "D23 长行同时报告列数及已提供的非法人工判断", "D23 短行同时报告列数及已提供的非法人工判断"]
+      "kills": [
+        "D23 汇总所有记录字段轮次游离身份冲突与宽度问题并拒绝部分成功",
+        "D23 长行同时报告列数及已提供的非法人工判断",
+        "D23 短行同时报告列数及已提供的非法人工判断"
+      ]
     },
     {
       "id": "M-D23-r",
@@ -9884,7 +10234,10 @@
       "find": "if (problems.length) throw new ReviewInputError(problems)",
       "replace": "if (document.rounds.length) document.rounds[0].round_id += ' '\n  if (problems.length) throw new ReviewInputError(problems)",
       "by": "test",
-      "kills": ["D23 成功不修改CSV正本名单及嵌套内容", "D23 拒绝也不修改CSV正本名单及嵌套内容"]
+      "kills": [
+        "D23 成功不修改CSV正本名单及嵌套内容",
+        "D23 拒绝也不修改CSV正本名单及嵌套内容"
+      ]
     },
     {
       "id": "M-D24-a",
@@ -9894,7 +10247,10 @@
       "find": "const header = Buffer.from(`\\uFEFF${MANUAL_FEEDBACK_HEADERS.join(',')}\\n`, 'utf8')",
       "replace": "const header = Buffer.from(`${MANUAL_FEEDBACK_HEADERS.join(',')}\\n`, 'utf8')",
       "by": "test",
-      "kills": ["D24-缺席文件生成单BOM固定表头及候选空白行", "D24-空冻结池仍创建单BOM合法表头"]
+      "kills": [
+        "D24-缺席文件生成单BOM固定表头及候选空白行",
+        "D24-空冻结池仍创建单BOM合法表头"
+      ]
     },
     {
       "id": "M-D24-b",
@@ -9904,7 +10260,9 @@
       "find": "return [round.round_id, platform, handle, '', '', '', '', '', '', '']",
       "replace": "return [round.round_id.trim(), platform, handle, '', '', '', '', '', '', '']",
       "by": "test",
-      "kills": ["D24-新模板保持轮次候选顺序并正确转义原轮次"]
+      "kills": [
+        "D24-新模板保持轮次候选顺序并正确转义原轮次"
+      ]
     },
     {
       "id": "M-D24-c",
@@ -9914,7 +10272,9 @@
       "find": "].map(esc).join(',')",
       "replace": "].join(',')",
       "by": "test",
-      "kills": ["D24-新模板保持轮次候选顺序并正确转义原轮次"]
+      "kills": [
+        "D24-新模板保持轮次候选顺序并正确转义原轮次"
+      ]
     },
     {
       "id": "M-D24-d",
@@ -9924,7 +10284,9 @@
       "find": "if (existing !== undefined && added.length === 0) return { action: 'unchanged', added_accounts: 0 }",
       "replace": "for (const creator of creators) {\n    if (!document.rounds.some(round => round.candidates.some(candidate => candidate.account_key === `${creator.platform}:${creator.handle}`))) added.push([document.rounds[0]?.round_id ?? '', creator.platform, creator.handle, '', '', '', '', '', '', ''].map(esc).join(','))\n  }\n  if (existing !== undefined && added.length === 0) return { action: 'unchanged', added_accounts: 0 }",
       "by": "test",
-      "kills": ["D24-追加只补规范账号保持轮次池序与同名异平台"]
+      "kills": [
+        "D24-追加只补规范账号保持轮次池序与同名异平台"
+      ]
     },
     {
       "id": "M-D24-e",
@@ -9934,7 +10296,9 @@
       "find": "if (existing !== undefined && !append) {",
       "replace": "if (false) {",
       "by": "test",
-      "kills": ["D24-任意既有Buffer未显式追加均拒绝并定位文件"]
+      "kills": [
+        "D24-任意既有Buffer未显式追加均拒绝并定位文件"
+      ]
     },
     {
       "id": "M-D24-f",
@@ -9944,7 +10308,15 @@
       "find": "for (const row of parseManualFeedbackCsv(text, file, document, creators)) known.add(row.account_key)",
       "replace": "for (const row of [] as { account_key: string }[]) known.add(row.account_key)",
       "by": "test",
-      "kills": ["D24-追加拒绝空文件及错名错序缺多重复列双BOM表头", "D24-追加严格拒绝词法结构及非空物理记录的列数错误", "D24-全池已覆盖仍拒绝非法判断原因和行内作答冲突", "D24-追加拒绝缺错轮次非法身份及评审别名当前池外账号", "D24-全池已覆盖仍拒绝规范化后重复人工账号", "D24-全池已覆盖仍校验单向显式关联的跨平台采纳冲突", "D24-跨轮次关联账号采纳冲突也拒绝"]
+      "kills": [
+        "D24-追加拒绝空文件及错名错序缺多重复列双BOM表头",
+        "D24-追加严格拒绝词法结构及非空物理记录的列数错误",
+        "D24-全池已覆盖仍拒绝非法判断原因和行内作答冲突",
+        "D24-追加拒绝缺错轮次非法身份及评审别名当前池外账号",
+        "D24-全池已覆盖仍拒绝规范化后重复人工账号",
+        "D24-全池已覆盖仍校验单向显式关联的跨平台采纳冲突",
+        "D24-跨轮次关联账号采纳冲突也拒绝"
+      ]
     },
     {
       "id": "M-D24-g",
@@ -9954,7 +10326,9 @@
       "find": ".filter(candidate => !known.has(candidate.account_key))",
       "replace": ".filter(candidate => !known.has(candidate.account_key.split(':')[1]))",
       "by": "test",
-      "kills": ["D24-追加只补规范账号保持轮次池序与同名异平台"]
+      "kills": [
+        "D24-追加只补规范账号保持轮次池序与同名异平台"
+      ]
     },
     {
       "id": "M-D24-h",
@@ -9964,7 +10338,9 @@
       "find": "bytes: Buffer.concat([existing, separator, newRows])",
       "replace": "bytes: Buffer.concat([Buffer.from(existing.toString('utf8').replace(/\\r\\n/g, '\\n')), separator, newRows])",
       "by": "test",
-      "kills": ["D24-追加完整旧BOM换行引号多行备注尾空行逐字节保留"]
+      "kills": [
+        "D24-追加完整旧BOM换行引号多行备注尾空行逐字节保留"
+      ]
     },
     {
       "id": "M-D24-i",
@@ -9974,7 +10350,10 @@
       "find": "const separator = existing[existing.length - 1] === 10 ? Buffer.alloc(0) : Buffer.from('\\n')",
       "replace": "const separator = Buffer.alloc(0)",
       "by": "test",
-      "kills": ["D24-原末字节非LF只补一个LF再追加新行", "D24-无换行且末格有引号的原行保持字节边界"]
+      "kills": [
+        "D24-原末字节非LF只补一个LF再追加新行",
+        "D24-无换行且末格有引号的原行保持字节边界"
+      ]
     },
     {
       "id": "M-D24-j",
@@ -9984,7 +10363,9 @@
       "find": "const newRows = Buffer.from(added.map(row => `${row}\\n`).join(''), 'utf8')",
       "replace": "const newRows = Buffer.from(added.join('\\n'), 'utf8')",
       "by": "test",
-      "kills": ["D24-缺席文件生成单BOM固定表头及候选空白行"]
+      "kills": [
+        "D24-缺席文件生成单BOM固定表头及候选空白行"
+      ]
     },
     {
       "id": "M-D24-k",
@@ -9994,7 +10375,10 @@
       "find": "if (existing !== undefined && added.length === 0) return { action: 'unchanged', added_accounts: 0 }",
       "replace": "if (existing !== undefined && added.length === 0) return { action: 'unchanged', added_accounts: 0, bytes: Buffer.from(existing) }",
       "by": "test",
-      "kills": ["D24-全池已覆盖返回unchanged零计数且没有bytes属性", "D24-空池合法仅表头返回unchanged没有写入字节"]
+      "kills": [
+        "D24-全池已覆盖返回unchanged零计数且没有bytes属性",
+        "D24-空池合法仅表头返回unchanged没有写入字节"
+      ]
     },
     {
       "id": "M-D24-l",
@@ -10004,7 +10388,9 @@
       "find": "return { action: 'append', added_accounts: added.length, bytes: Buffer.concat([existing, separator, newRows]) }",
       "replace": "return { action: 'append', added_accounts: added.length + 1, bytes: Buffer.concat([existing, separator, newRows]) }",
       "by": "test",
-      "kills": ["D24-追加动作和新增行计数准确"]
+      "kills": [
+        "D24-追加动作和新增行计数准确"
+      ]
     },
     {
       "id": "M-D24-m",
@@ -10014,7 +10400,9 @@
       "find": "if (!Buffer.from(text, 'utf8').equals(existing)) {",
       "replace": "if (false) {",
       "by": "test",
-      "kills": ["D24-合法自由备注中非法UTF8也拒绝不得替换成字符"]
+      "kills": [
+        "D24-合法自由备注中非法UTF8也拒绝不得替换成字符"
+      ]
     },
     {
       "id": "M-D24-n",
@@ -10024,7 +10412,10 @@
       "find": "if (Buffer.from(round.round_id, 'utf8').toString('utf8') !== round.round_id) {",
       "replace": "if (false) {",
       "by": "test",
-      "kills": ["D24-新增轮次孤立代理项拒绝并定位文件轮次字段", "D24-追加待新增行中所有未配对代理项均拒绝"]
+      "kills": [
+        "D24-新增轮次孤立代理项拒绝并定位文件轮次字段",
+        "D24-追加待新增行中所有未配对代理项均拒绝"
+      ]
     },
     {
       "id": "M-D24-o",
@@ -10034,7 +10425,9 @@
       "find": "if (existing !== undefined && !append) {",
       "replace": "if (document.rounds.length) document.rounds[0].created_at += ' '\n  if (existing !== undefined && !append) {",
       "by": "test",
-      "kills": ["D24-成功拒绝均不改变评审正本及嵌套候选任务"]
+      "kills": [
+        "D24-成功拒绝均不改变评审正本及嵌套候选任务"
+      ]
     },
     {
       "id": "M-D24-p",
@@ -10044,7 +10437,9 @@
       "find": "return [round.round_id, platform, handle, '', '', '', '', '', '', '']",
       "replace": "return [round.round_id, platform, handle, 'unknown', '', '', '', '', '', '']",
       "by": "test",
-      "kills": ["D24-新增行七项人工字段独立验证全部空白"]
+      "kills": [
+        "D24-新增行七项人工字段独立验证全部空白"
+      ]
     },
     {
       "id": "M-D24-q",
@@ -10054,7 +10449,10 @@
       "find": "return { action: 'append', added_accounts: added.length, bytes: Buffer.concat([existing, separator, newRows]) }",
       "replace": "return { action: 'append', added_accounts: added.length, bytes: existing }",
       "by": "test",
-      "kills": ["D24-追加后Buffer独立拥有不借用原文件存储", "D24-修改追加计划字节不改变既有人工文件Buffer"]
+      "kills": [
+        "D24-追加后Buffer独立拥有不借用原文件存储",
+        "D24-修改追加计划字节不改变既有人工文件Buffer"
+      ]
     },
     {
       "id": "M-D25-a",
@@ -10064,7 +10462,9 @@
       "find": "if (yes) return { priority: '优先联系', account_key: yes.account_key }",
       "replace": "if (yes) return { priority: '备选', account_key: yes.account_key }",
       "by": "test",
-      "kills": ["D25-人工明确采用优先联系并明示原平台来源"]
+      "kills": [
+        "D25-人工明确采用优先联系并明示原平台来源"
+      ]
     },
     {
       "id": "M-D25-b",
@@ -10074,7 +10474,9 @@
       "find": "const no = manual.find(row => row.manual_adopted === 'no' || row.manual_eligible === 'no')",
       "replace": "const no = manual.find(row => row.manual_adopted === 'no')",
       "by": "test",
-      "kills": ["D25-合法双平台组合遵循采用否定未知与主关联来源次序"]
+      "kills": [
+        "D25-合法双平台组合遵循采用否定未知与主关联来源次序"
+      ]
     },
     {
       "id": "M-D25-c",
@@ -10084,7 +10486,9 @@
       "find": "if (unknown) return { priority: '待核实', account_key: unknown.account_key }",
       "replace": "if (unknown) return { priority: '备选', account_key: unknown.account_key }",
       "by": "test",
-      "kills": ["D25-合法双平台组合遵循采用否定未知与主关联来源次序"]
+      "kills": [
+        "D25-合法双平台组合遵循采用否定未知与主关联来源次序"
+      ]
     },
     {
       "id": "M-D25-d",
@@ -10094,7 +10498,9 @@
       "find": "const yes = manual.find(row => row.manual_adopted === 'yes')",
       "replace": "const yes = manual.find(row => row.manual_adopted === 'yes' && !manual.some(other => other.manual_eligible === 'no'))",
       "by": "test",
-      "kills": ["D25-关联优先采纳压过主资格否定且明示关联来源"]
+      "kills": [
+        "D25-关联优先采纳压过主资格否定且明示关联来源"
+      ]
     },
     {
       "id": "M-D25-e",
@@ -10104,7 +10510,9 @@
       "find": "creator.review_status === '已评' && creator.adoption_priority !== undefined",
       "replace": "creator.adoption_priority !== undefined",
       "by": "test",
-      "kills": ["D25-仅已评且明确Agent建议可回退且不带人工来源"]
+      "kills": [
+        "D25-仅已评且明确Agent建议可回退且不带人工来源"
+      ]
     },
     {
       "id": "M-D25-f",
@@ -10114,7 +10522,9 @@
       "find": "const yes = manual.find(row => row.manual_adopted === 'yes')",
       "replace": "const yes = manual.find(row => row.manual_adopted === 'yes' || row.manual_eligible === 'yes')",
       "by": "test",
-      "kills": ["D25-资格等级原因备注兼容fit分数与关联Agent不推断采用"]
+      "kills": [
+        "D25-资格等级原因备注兼容fit分数与关联Agent不推断采用"
+      ]
     },
     {
       "id": "M-D25-g",
@@ -10124,7 +10534,9 @@
       "find": "return normalizedAccountKey(platform, handle)",
       "replace": "return normalizedAccountKey(platform.trim(), handle)",
       "by": "test",
-      "kills": ["D25-裸同平台非法或不可规范化关联均不建立关系"]
+      "kills": [
+        "D25-裸同平台非法或不可规范化关联均不建立关系"
+      ]
     },
     {
       "id": "M-D25-h",
@@ -10134,7 +10546,9 @@
       "find": "if (linked && linked.split(':')[0] !== primary?.split(':')[0]) accounts.push(linked)",
       "replace": "if (linked) accounts.push(linked)",
       "by": "test",
-      "kills": ["D25-裸同平台非法或不可规范化关联均不建立关系"]
+      "kills": [
+        "D25-裸同平台非法或不可规范化关联均不建立关系"
+      ]
     },
     {
       "id": "M-D25-i",
@@ -10144,7 +10558,9 @@
       "find": "if (yes) return { priority: '优先联系', account_key: yes.account_key }",
       "replace": "if (yes) return { priority: '优先联系' }",
       "by": "test",
-      "kills": ["D25-人工明确采用优先联系并明示原平台来源"]
+      "kills": [
+        "D25-人工明确采用优先联系并明示原平台来源"
+      ]
     },
     {
       "id": "M-D25-j",
@@ -10154,7 +10570,9 @@
       "find": "const rows = accounts.flatMap(key => {",
       "replace": "const rows = [...accounts].reverse().flatMap(key => {",
       "by": "test",
-      "kills": ["D25-同条件双人工行来源按主账号优先不按CSV先后"]
+      "kills": [
+        "D25-同条件双人工行来源按主账号优先不按CSV先后"
+      ]
     },
     {
       "id": "M-D25-k",
@@ -10164,7 +10582,9 @@
       "find": "const manual = primary ? byAccount.get(primary) : undefined",
       "replace": "const manual = rows[0]",
       "by": "test",
-      "kills": ["D25-只有关联人工行不补主七项且不使主已评"]
+      "kills": [
+        "D25-只有关联人工行不补主七项且不使主已评"
+      ]
     },
     {
       "id": "M-D25-l",
@@ -10174,7 +10594,9 @@
       "find": "manualFields.some(field =>",
       "replace": "manualFields.slice(0, 2).some(field =>",
       "by": "test",
-      "kills": ["D25-主人工已评只看实际填写unknown等级原因及非空白备注"]
+      "kills": [
+        "D25-主人工已评只看实际填写unknown等级原因及非空白备注"
+      ]
     },
     {
       "id": "M-D25-m",
@@ -10184,7 +10606,9 @@
       "find": "manual[field]!.trim() !== ''",
       "replace": "manual[field] !== ''",
       "by": "test",
-      "kills": ["D25-主人工已评只看实际填写unknown等级原因及非空白备注"]
+      "kills": [
+        "D25-主人工已评只看实际填写unknown等级原因及非空白备注"
+      ]
     },
     {
       "id": "M-D25-n",
@@ -10194,7 +10618,9 @@
       "find": "const round = primary ? byRound.get(primary) : undefined",
       "replace": "const round = primary && manual ? byRound.get(primary) : undefined",
       "by": "test",
-      "kills": ["D25-无主人工行已评为否且冻结轮次保留池外不补轮次"]
+      "kills": [
+        "D25-无主人工行已评为否且冻结轮次保留池外不补轮次"
+      ]
     },
     {
       "id": "M-D25-o",
@@ -10204,7 +10630,10 @@
       "find": "as const) delete creator[field]",
       "replace": "as const) void field",
       "by": "test",
-      "kills": ["D25-删除主人工字段清除旧判断原因有效来源与已评残留", "D25-删除人工行清除旧七项账户行和有效来源"]
+      "kills": [
+        "D25-删除主人工字段清除旧判断原因有效来源与已评残留",
+        "D25-删除人工行清除旧七项账户行和有效来源"
+      ]
     },
     {
       "id": "M-D25-p",
@@ -10214,7 +10643,9 @@
       "find": "creator.effective_priority = effective.priority",
       "replace": "creator.adoption_priority = effective.priority\n    creator.effective_priority = effective.priority",
       "by": "test",
-      "kills": ["D25-输出保持候选数量次序及全部非人工Agent兼容记忆字段"]
+      "kills": [
+        "D25-输出保持候选数量次序及全部非人工Agent兼容记忆字段"
+      ]
     },
     {
       "id": "M-D25-q",
@@ -10224,7 +10655,9 @@
       "find": "const creator = { ...original }",
       "replace": "const creator = original",
       "by": "test",
-      "kills": ["D25-所有成功计算与投影不修改正本名单人工行及嵌套内容"]
+      "kills": [
+        "D25-所有成功计算与投影不修改正本名单人工行及嵌套内容"
+      ]
     },
     {
       "id": "M-D25-r",
@@ -10234,7 +10667,9 @@
       "find": "return row ? [structuredClone(row)] : []",
       "replace": "return row ? [row] : []",
       "by": "test",
-      "kills": ["D25-修改输出人工行和数组不反向改变输入或另一创作者"]
+      "kills": [
+        "D25-修改输出人工行和数组不反向改变输入或另一创作者"
+      ]
     },
     {
       "id": "M-D21-v",
@@ -10244,7 +10679,9 @@
       "find": "  // 缺判断不等于不合格；保留参数兼容调用方，不从新判断或另一平台补 fit。\n  return 'B'",
       "replace": "  // 缺判断不等于不合格；保留参数兼容调用方，不从新判断或另一平台补 fit。\n  return _score >= 60 ? 'A' : _score >= 40 ? 'B' : 'C'",
       "by": "test",
-      "kills": ["缺主号判断的全部合法输入组合均为 B"]
+      "kills": [
+        "缺主号判断的全部合法输入组合均为 B"
+      ]
     },
     {
       "id": "M-D21-w",
@@ -10254,7 +10691,9 @@
       "find": "  if (c.review_status === '待重评') return 'B'",
       "replace": "  /* mutated: stale review protection omitted */",
       "by": "test",
-      "kills": ["待重评优先于历史判断与邮箱，全部输入组合均为 B"]
+      "kills": [
+        "待重评优先于历史判断与邮箱，全部输入组合均为 B"
+      ]
     },
     {
       "id": "M-D21-x",
@@ -10264,7 +10703,9 @@
       "find": "  if (c.review_status === '待重评') return 'B'\n  if (c.fit === '❌') return 'C'",
       "replace": "  if (c.fit === '❌') return 'C'\n  if (c.review_status === '待重评') return 'B'",
       "by": "test",
-      "kills": ["待重评优先于历史判断与邮箱，全部输入组合均为 B"]
+      "kills": [
+        "待重评优先于历史判断与邮箱，全部输入组合均为 B"
+      ]
     },
     {
       "id": "M-D21-y",
@@ -10274,7 +10715,9 @@
       "find": "  if (c.email && c.fit === '✅') return 'A'",
       "replace": "  if (c.email && (c.fit === '✅' || (!c.fit && c.eligibility === '合格' && c.adoption_priority === '优先联系'))) return 'A'",
       "by": "test",
-      "kills": ["缺主号判断的全部合法输入组合均为 B"]
+      "kills": [
+        "缺主号判断的全部合法输入组合均为 B"
+      ]
     },
     {
       "id": "M-D21-z",
@@ -10284,7 +10727,9 @@
       "find": "  if (c.email && c.fit === '✅') return 'A'",
       "replace": "  if (c.email && (c.fit ?? c.linked_agent_review?.fit) === '✅') return 'A'",
       "by": "test",
-      "kills": ["关联平台与人工显示建议不能补主号判断"]
+      "kills": [
+        "关联平台与人工显示建议不能补主号判断"
+      ]
     },
     {
       "id": "M-D21-aa",
@@ -10294,7 +10739,9 @@
       "find": "  if (c.email && c.fit === '✅') return 'A'",
       "replace": "  if (c.email && (c.fit === '✅' || (!c.fit && (c.manual_adopted === 'yes' || c.effective_priority === '优先联系')))) return 'A'",
       "by": "test",
-      "kills": ["人工和关联评审的全部显示建议均不制造主号判断或硬分"]
+      "kills": [
+        "人工和关联评审的全部显示建议均不制造主号判断或硬分"
+      ]
     },
     {
       "id": "M-D21-ab",
@@ -10304,7 +10751,9 @@
       "find": "  if (c.review_status === '待重评') return 'B'",
       "replace": "  if (c.review_status === '待重评') { delete c.fit; return 'B' }",
       "by": "test",
-      "kills": ["分层不改账号原判断或人工显示字段"]
+      "kills": [
+        "分层不改账号原判断或人工显示字段"
+      ]
     },
     {
       "id": "M-F6-b",
@@ -10314,7 +10763,9 @@
       "find": "  if (c.review_status === '待重评') return 'B'",
       "replace": "  if (c.review_status === '待重评') return 'B'\n  if (c.review_status !== '已评') return 'B'",
       "by": "test",
-      "kills": ["旧式 fit 单独评审保留未评状态并沿用明确判断分层"]
+      "kills": [
+        "旧式 fit 单独评审保留未评状态并沿用明确判断分层"
+      ]
     },
     {
       "id": "M-F6-c",
@@ -10324,199 +10775,305 @@
       "find": "  if (c.email && c.fit === '✅') return 'A'",
       "replace": "  if (c.email && c.fit === '✅' && _score >= 60) return 'A'",
       "by": "test",
-      "kills": ["当前有效肯定判断仅凭邮箱决定 A 或 B"]
+      "kills": [
+        "当前有效肯定判断仅凭邮箱决定 A 或 B"
+      ]
     },
     {
-      "id": "M-U9-a", "req": "U9.b",
+      "id": "M-U9-a",
+      "req": "U9.b",
       "why": "新名单仍由旧层级优先排列，人工有效建议不能把更优先的账号移到前面",
       "file": "scripts/lib/rows.ts",
       "find": "  return sortForOutput(creators).sort((a, b) => rank(a) - rank(b))",
       "replace": "  return sortForOutput(creators)",
-      "by": "test", "kills": ["U9.b 180组冲突键按优先级层级分数粉丝三态稳定排列"]
+      "by": "test",
+      "kills": [
+        "U9.b 180组冲突键按优先级层级分数粉丝三态稳定排列"
+      ]
     },
     {
-      "id": "M-U9-b", "req": "U9.b",
+      "id": "M-U9-b",
+      "req": "U9.b",
       "why": "有效建议相同后跳过原层级、分数缺席零值和粉丝三态规则，次级先后退成输入顺序",
       "file": "scripts/lib/rows.ts",
       "find": "  return sortForOutput(creators).sort((a, b) => rank(a) - rank(b))",
       "replace": "  return [...creators].sort((a, b) => rank(a) - rank(b))",
-      "by": "test", "kills": ["U9.b 180组冲突键按优先级层级分数粉丝三态稳定排列"]
+      "by": "test",
+      "kills": [
+        "U9.b 180组冲突键按优先级层级分数粉丝三态稳定排列"
+      ]
     },
     {
-      "id": "M-U9-c", "req": "U9.d",
+      "id": "M-U9-c",
+      "req": "U9.d",
       "why": "评审表头把新增列移到旧列之前，破坏既有消费者依赖的完整旧前缀",
       "file": "scripts/lib/rows.ts",
       "find": "export const REVIEW_HEADERS = [...HEADERS, ...REVIEW_FIELDS]",
       "replace": "export const REVIEW_HEADERS = [...REVIEW_FIELDS, ...HEADERS]",
-      "by": "test", "kills": ["U9.d 新公共表头符合契约原序64列"]
+      "by": "test",
+      "kills": [
+        "U9.d 新公共表头符合契约原序64列"
+      ]
     },
     {
-      "id": "M-U9-d", "req": "U9.c",
+      "id": "M-U9-d",
+      "req": "U9.c",
       "why": "显式选择评审模式仍交出旧工作表，新有效建议排序和评审字段不能写入真实 Excel",
       "file": "scripts/lib/rows.ts",
       "find": "    if (options.mode === 'review') {",
       "replace": "    if (false) {",
-      "by": "test", "kills": ["U9.c/d/e/f/g/h/i XLSX表头行序原值及JSON全部独立读回"]
+      "by": "test",
+      "kills": [
+        "U9.c/d/e/f/g/h/i XLSX表头行序原值及JSON全部独立读回"
+      ]
     },
     {
-      "id": "M-U9-e", "req": "U9.d",
+      "id": "M-U9-e",
+      "req": "U9.d",
       "why": "评审行将旧单元格次序反转，原草稿占位符和旧字段不再出现在约定列",
       "file": "scripts/lib/rows.ts",
       "find": "  return [...row, ...REVIEW_FIELDS.map(field => {",
       "replace": "  return [...row.reverse(), ...REVIEW_FIELDS.map(field => {",
-      "by": "test", "kills": ["P2.b 评审旧草稿占位符原样保留"]
+      "by": "test",
+      "kills": [
+        "P2.b 评审旧草稿占位符原样保留"
+      ]
     },
     {
-      "id": "M-U9-f", "req": "U9.g",
+      "id": "M-U9-f",
+      "req": "U9.g",
       "why": "新列统一用通用字符串转换，明确 false 消失且平台原作答与关联判断的 JSON 结构无法恢复",
       "file": "scripts/lib/rows.ts",
       "find": "    return field === 'linked_agent_review' || field === 'manual_feedback_accounts'\n      ? JSON.stringify(value) : value",
       "replace": "    return String(value || '')",
-      "by": "test", "kills": ["U9.e/g/h 51组新列原值缺席布尔unknown与JSON状态不压平"]
+      "by": "test",
+      "kills": [
+        "U9.e/g/h 51组新列原值缺席布尔unknown与JSON状态不压平"
+      ]
     },
     {
-      "id": "M-U9-g", "req": "U9.a",
+      "id": "M-U9-g",
+      "req": "U9.a",
       "why": "默认 HTML 自动启用新评审模式，未选择的旧公共调用出现新判断区块与新排序",
       "file": "scripts/lib/report.ts",
       "find": "export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOptions = {}): string {",
       "replace": "export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOptions = { mode: 'review' }): string {",
-      "by": "test", "kills": ["U9.a 默认HTML独立确认没有新判断区块且保留旧理由","U9.a 默认HTML独立确认仍用调用方原顺序"]
+      "by": "test",
+      "kills": [
+        "U9.a 默认HTML独立确认没有新判断区块且保留旧理由",
+        "U9.a 默认HTML独立确认仍用调用方原顺序"
+      ]
     },
     {
-      "id": "M-U9-h", "req": "U9.f",
+      "id": "M-U9-h",
+      "req": "U9.f",
       "why": "HTML 关联平台证据借用主账号字段，两侧看起来分别展示却实际引用同一平台内容",
       "file": "scripts/lib/report.ts",
       "find": "${fieldValue(field, review[field])}",
       "replace": "${fieldValue(field, c[field])}",
-      "by": "test", "kills": ["U9.e/f HTML按两平台独立展示四证据与状态"]
+      "by": "test",
+      "kills": [
+        "U9.e/f HTML按两平台独立展示四证据与状态"
+      ]
     },
     {
-      "id": "M-U9-i", "req": "U9.g",
+      "id": "M-U9-i",
+      "req": "U9.g",
       "why": "HTML 关联平台人工区域借用主账号作答，平台原答案及备注被串用",
       "file": "scripts/lib/report.ts",
       "find": "manual(linkedKey, linkedRow, linkedRow?.round_id)",
       "replace": "manual(linkedKey, c, c.manual_round_id)",
-      "by": "test", "kills": ["U9.g HTML分账号保留人工空白unknown及原备注"]
+      "by": "test",
+      "kills": [
+        "U9.g HTML分账号保留人工空白unknown及原备注"
+      ]
     },
     {
-      "id": "M-U9-j", "req": "U9.h",
+      "id": "M-U9-j",
+      "req": "U9.h",
       "why": "HTML 删除有效建议的人工来源身份，关联账号的采用被显示成没有来源的主号建议",
       "file": "scripts/lib/report.ts",
       "find": "  const source = c.effective_priority_account_key",
       "replace": "  const source: string | undefined = undefined",
-      "by": "test", "kills": ["U9.h HTML有效建议及关联人工来源身份明示"]
+      "by": "test",
+      "kills": [
+        "U9.h HTML有效建议及关联人工来源身份明示"
+      ]
     },
     {
-      "id": "M-U9-k", "req": "U9.e",
+      "id": "M-U9-k",
+      "req": "U9.e",
       "why": "待重评建议失去历史仅展示标识，失效结论仍看起来是可用的当前 Agent 建议",
       "file": "scripts/lib/report.ts",
       "find": "    const suggestion = status === '待重评' ? '历史建议（待重评，仅展示）' : 'Agent 原采用建议'",
       "replace": "    const suggestion = 'Agent 原采用建议'",
-      "by": "test", "kills": ["U9.e 主Agent过期采用建议明确标历史仅展示"]
+      "by": "test",
+      "kills": [
+        "U9.e 主Agent过期采用建议明确标历史仅展示"
+      ]
     },
     {
-      "id": "M-U9-l", "req": "U9.i",
+      "id": "M-U9-l",
+      "req": "U9.i",
       "why": "HTML 新证据与人工备注未经输出转义，原文被解析成注入节点且不可原样读回",
       "file": "scripts/lib/report.ts",
       "find": "  const answer = (value: unknown) => value === undefined ? '未填写'\n    : typeof value === 'string' && !value.trim() ? `未填写<span>${esc(value)}</span>` : esc(value)",
       "replace": "  const answer = (value: unknown) => value === undefined ? '未填写'\n    : typeof value === 'string' && !value.trim() ? `未填写<span>${esc(value)}</span>` : String(value)",
-      "by": "test", "kills": ["U9.i HTML新字段转义后原文可读且没有注入节点"]
+      "by": "test",
+      "kills": [
+        "U9.i HTML新字段转义后原文可读且没有注入节点"
+      ]
     },
     {
-      "id": "M-D21-ac", "req": "D21.r",
+      "id": "M-D21-ac",
+      "req": "D21.r",
       "why": "关联 Agent 投影遗漏四项实际证据，新输出不能保留另一平台原评审内容",
       "file": "scripts/lib/review-projection.ts",
       "find": "        ...(linkedReview.observed_content !== undefined ? { observed_content: linkedReview.observed_content } : {}),\n        ...(linkedReview.work_evidence !== undefined ? { work_evidence: linkedReview.work_evidence } : {}),\n        ...(linkedReview.natural_integration !== undefined ? { natural_integration: linkedReview.natural_integration } : {}),\n        ...(linkedReview.mismatch_risk !== undefined ? { mismatch_risk: linkedReview.mismatch_risk } : {}),",
       "replace": "        /* mutated: linked evidence omitted */",
-      "by": "test", "kills": ["D21.r 关联四证据来自关联评审"]
+      "by": "test",
+      "kills": [
+        "D21.r 关联四证据来自关联评审"
+      ]
     },
     {
-      "id": "M-D21-ad", "req": "D21.r",
+      "id": "M-D21-ad",
+      "req": "D21.r",
       "why": "关联 Agent 投影的四项证据偷取主平台原评审，换主账号后两侧内容无法保持各自来源",
       "file": "scripts/lib/review-projection.ts",
       "find": "        ...(linkedReview.observed_content !== undefined ? { observed_content: linkedReview.observed_content } : {}),\n        ...(linkedReview.work_evidence !== undefined ? { work_evidence: linkedReview.work_evidence } : {}),\n        ...(linkedReview.natural_integration !== undefined ? { natural_integration: linkedReview.natural_integration } : {}),\n        ...(linkedReview.mismatch_risk !== undefined ? { mismatch_risk: linkedReview.mismatch_risk } : {}),",
       "replace": "        ...(linkedReview.observed_content !== undefined ? { observed_content: review?.observed_content } : {}),\n        ...(linkedReview.work_evidence !== undefined ? { work_evidence: review?.work_evidence } : {}),\n        ...(linkedReview.natural_integration !== undefined ? { natural_integration: review?.natural_integration } : {}),\n        ...(linkedReview.mismatch_risk !== undefined ? { mismatch_risk: review?.mismatch_risk } : {}),",
-      "by": "test", "kills": ["D21.r 关联四证据来自关联评审","D21.r 换主账号后两平台各保留自身四证据"]
+      "by": "test",
+      "kills": [
+        "D21.r 关联四证据来自关联评审",
+        "D21.r 换主账号后两平台各保留自身四证据"
+      ]
     },
     {
-      "id": "M-U9-m", "req": "U9.e",
+      "id": "M-U9-m",
+      "req": "U9.e",
       "why": "HTML 观察内容与作品证据值互换，账号、字段名及值集合齐全仍把证据错贴到另一字段",
       "file": "scripts/lib/report.ts",
       "find": "${fieldValue(field, review[field])}",
       "replace": "${fieldValue(field, review[field === 'observed_content' ? 'work_evidence' : field === 'work_evidence' ? 'observed_content' : field])}",
-      "by": "test", "kills": ["U9.e/f HTML按两平台独立展示四证据与状态"]
+      "by": "test",
+      "kills": [
+        "U9.e/f HTML按两平台独立展示四证据与状态"
+      ]
     },
     {
-      "id": "M-U9-n", "req": "U9.g",
+      "id": "M-U9-n",
+      "req": "U9.g",
       "why": "HTML 人工合格性与采用值互换，账号、字段名及值集合齐全仍混淆两种独立人工判断",
       "file": "scripts/lib/report.ts",
       "find": "${fieldValue(field, row?.[field])}",
       "replace": "${fieldValue(field, row?.[field === 'manual_eligible' ? 'manual_adopted' : field === 'manual_adopted' ? 'manual_eligible' : field])}",
-      "by": "test", "kills": ["U9.g HTML分账号保留人工空白unknown及原备注"]
+      "by": "test",
+      "kills": [
+        "U9.g HTML分账号保留人工空白unknown及原备注"
+      ]
     },
     {
-      "id": "M-P1-ac", "req": "P1",
+      "id": "M-P1-ac",
+      "req": "P1",
       "why": "未查询分数在旧名单行及 CSV、Excel 中变为空白，运营无法辨认该账号尚未算分",
       "file": "scripts/lib/rows.ts",
       "find": "    c.tier, c.score === undefined ? '未查询' : c.score,",
       "replace": "    c.tier, c.score,",
-      "by": "test", "kills": ["legacy-row-missing-score","legacy-csv-missing-score","legacy-xlsx-missing-score"]
+      "by": "test",
+      "kills": [
+        "legacy-row-missing-score",
+        "legacy-csv-missing-score",
+        "legacy-xlsx-missing-score"
+      ]
     },
     {
-      "id": "M-P1-ad", "req": "P1",
+      "id": "M-P1-ad",
+      "req": "P1",
       "why": "旧 HTML 缺席分数未显示未知状态，运营无法辨认该账号尚未算分",
       "file": "scripts/lib/report.ts",
       "find": "    <span class=\"sc\">${c.score === undefined ? '未知' : c.score}</span>",
       "replace": "    <span class=\"sc\">${c.score}</span>",
-      "by": "test", "kills": ["legacy-html-missing-score"]
+      "by": "test",
+      "kills": [
+        "legacy-html-missing-score"
+      ]
     },
     {
-      "id": "M-D23-s", "req": "D23.h",
+      "id": "M-D23-s",
+      "req": "D23.h",
       "why": "任务准备没有先拒绝原冻结池之外的人工行，本次旧名单冻结或兼容判断迁移被放行而掩盖了初始授权缺失",
       "file": "scripts/lib/task-reviews.ts",
       "find": "  let validatedFeedback = feedback(initialRelations)",
       "replace": "  let validatedFeedback: ManualFeedbackRow[] = []",
-      "by": "test", "kills": ["任务评审：旧名单尚未保存候选不授权人工行", "任务评审：本次 legacy 迁移不能授权初始池外人工行"]
+      "by": "test",
+      "kills": [
+        "任务评审：旧名单尚未保存候选不授权人工行",
+        "任务评审：本次 legacy 迁移不能授权初始池外人工行"
+      ]
     },
     {
-      "id": "M-D23-t", "req": "D23.i",
+      "id": "M-D23-t",
+      "req": "D23.i",
       "why": "冻结保存后的投影只核准备时关系，忽略后来提供的完整关联，池内两平台采用与不采用冲突未被拒绝",
       "file": "scripts/lib/task-reviews.ts",
       "find": "      const rows = feedback([...initialRelations, ...fullRelations])",
       "replace": "      const rows = feedback(initialRelations)",
-      "by": "test", "kills": ["任务评审：冻结保存后仍核原人工文本及新增完整关系冲突"]
+      "by": "test",
+      "kills": [
+        "任务评审：冻结保存后仍核原人工文本及新增完整关系冲突"
+      ]
     },
     {
-      "id": "M-D21-ae", "req": "D21.e",
+      "id": "M-D21-ae",
+      "req": "D21.e",
       "why": "缺席正本在任务准备时被创建，旧判断迁移与候选冻结尚未显式保存即落盘",
       "file": "scripts/lib/task-reviews.ts",
       "find": "  let pending = freeze(migrateLegacyAgentReviews(original, previousCreators), previousCreators, [], createdAt)",
       "replace": "  let pending = freeze(migrateLegacyAgentReviews(original, previousCreators), previousCreators, [], createdAt)\n  writeAgentReviewDocument(dir, { ...pending, updated_at: createdAt })",
-      "by": "test", "kills": ["任务评审：缺席空正本仅准备不落盘", "任务评审：迁移与冻结均不写文件"]
+      "by": "test",
+      "kills": [
+        "任务评审：缺席空正本仅准备不落盘",
+        "任务评审：迁移与冻结均不写文件"
+      ]
     },
     {
-      "id": "M-D21-af", "req": "D21",
+      "id": "M-D21-af",
+      "req": "D21",
       "why": "内容没有变化的显式保存仍重写正本和更新时间，仅更换保存时间就触碰了已有字节与修改时间",
       "file": "scripts/lib/task-reviews.ts",
       "find": "      if (content(pending) === content(saved)) return false",
       "replace": "      void content(saved)",
-      "by": "test", "kills": ["任务评审：仅改变保存时间不算变化", "任务评审：无变化保持原字节与修改时间"]
+      "by": "test",
+      "kills": [
+        "任务评审：仅改变保存时间不算变化",
+        "任务评审：无变化保持原字节与修改时间"
+      ]
     },
     {
-      "id": "M-D21-ag", "req": "D21",
+      "id": "M-D21-ag",
+      "req": "D21",
       "why": "正本真实写入失败前就把待保存内容和更新时间记为成功，失败不能保留待保存变化并在恢复路径后重试",
       "file": "scripts/lib/task-reviews.ts",
       "find": "      writeAgentReviewDocument(dir, next)\n      // 真实写入成功之后才消费变化；失败仍可重试，且不伪造已保存时间。\n      saved = structuredClone(next)\n      pending = next",
       "replace": "      saved = structuredClone(next)\n      pending = next\n      writeAgentReviewDocument(dir, next)",
-      "by": "test", "kills": ["任务评审：写入失败保留旧文件及更新时间", "任务评审：失败未消费内容恢复路径后可重试"]
+      "by": "test",
+      "kills": [
+        "任务评审：写入失败保留旧文件及更新时间",
+        "任务评审：失败未消费内容恢复路径后可重试"
+      ]
     },
     {
-      "id": "M-D25-s", "req": "D25.b",
+      "id": "M-D25-s",
+      "req": "D25.b",
       "why": "人工展示回退先读取旧名单，再重建当前 Agent 判断，当前已评的明确采用建议未用于有效展示",
       "file": "scripts/lib/task-reviews.ts",
       "find": "      const projected = projectManualFeedback(pending, projectAgentReviews(pending, creators, calibrationVersion), rows)",
       "replace": "      const projected = projectAgentReviews(pending, projectManualFeedback(pending, creators, rows), calibrationVersion)",
-      "by": "test", "kills": ["任务评审：已评明确 Agent 建议可用于展示"]
+      "by": "test",
+      "kills": [
+        "任务评审：已评明确 Agent 建议可用于展示"
+      ]
     },
     {
       "id": "M-U9-o",
@@ -11249,6 +11806,174 @@
       "by": "test",
       "kills": [
         "U11真实HTML呈现独立分母真实零和不可计算"
+      ]
+    },
+    {
+      "id": "M-U11-n",
+      "req": "U11.l",
+      "why": "提供正本仍用主卡片兼容fit，关联平台和缓存判断串入本平台语义通过。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "? c.fit === '✅' : platformFit(c, t.platform)",
+      "replace": "? c.fit === '✅' : c.fit === '✅'",
+      "by": "test",
+      "kills": [
+        "U11关键词语义通过只取原平台fit含同平台别名"
+      ]
+    },
+    {
+      "id": "M-U11-o",
+      "req": "U11.l",
+      "why": "只认原记录首个账号键，合法同平台别名已有fit被漏报。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": ".flatMap(agent => agent.account_keys)",
+      "replace": ".flatMap(agent => agent.account_keys.slice(0, 1))",
+      "by": "test",
+      "kills": [
+        "U11关键词语义通过只取原平台fit含同平台别名"
+      ]
+    },
+    {
+      "id": "M-U11-p",
+      "req": "U11.c",
+      "why": "人工来源退回按词，完全相同词与平台的不同原任务混入同一批冻结账号。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "source.task_index === i && source.platform === t.platform",
+      "replace": "source.keyword === t.keyword && source.platform === t.platform",
+      "by": "test",
+      "kills": [
+        "U11关键词七原字段已审历史来源多任务归因"
+      ]
+    },
+    {
+      "id": "M-U11-q",
+      "req": "U11.c",
+      "why": "人工归因只取冻结首个来源，多来源账号第二个任务少报已审。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "candidate.source_tasks?.some(source =>",
+      "replace": "candidate.source_tasks?.slice(0, 1).some(source =>",
+      "by": "test",
+      "kills": [
+        "U11关键词七原字段已审历史来源多任务归因"
+      ]
+    },
+    {
+      "id": "M-U11-r",
+      "req": "U11.k",
+      "why": "已审只看eligible，显式unknown、等级、原因与备注等独立作答被漏计。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    (['manual_eligible', 'manual_adopted', 'manual_content_fit', 'manual_engagement',\n      'manual_comment_authenticity', 'manual_reject_reason'] as const).some(field => row[field] !== undefined)\n    || row.manual_note.trim() !== ''",
+      "replace": "    row.manual_eligible !== undefined",
+      "by": "test",
+      "kills": [
+        "U11关键词七原字段已审历史来源多任务归因"
+      ]
+    },
+    {
+      "id": "M-U11-s",
+      "req": "U11.k",
+      "why": "纯空白备注被当成已审，且关联IG的空格原行不再保持未评。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    || row.manual_note.trim() !== '').map(row => row.account_key))",
+      "replace": "    || row.manual_note !== '').map(row => row.account_key))",
+      "by": "test",
+      "kills": [
+        "U11关键词七原字段已审历史来源多任务归因"
+      ]
+    },
+    {
+      "id": "M-U11-t",
+      "req": "U11.k",
+      "why": "冻结人工池缩到当前交付账号，空当前名单把历史已审抹成零。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": ": frozen.filter(candidate => candidate.account_key.startsWith",
+      "replace": ": frozen.filter(candidate => delivered.some(c => `${c.platform}:${c.handle}` === candidate.account_key)).filter(candidate => candidate.account_key.startsWith",
+      "by": "test",
+      "kills": [
+        "U11关键词当前名单为空仍保留全部冻结已审"
+      ]
+    },
+    {
+      "id": "M-U11-u",
+      "req": "U11.k",
+      "why": "冻结来源未知不再阻止确定人工数，未知任务被伪报成零或完整部分数。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "unknownPlatforms.has(t.platform) ? null",
+      "replace": "false ? null",
+      "by": "test",
+      "kills": [
+        "U11关键词冻结未知仅污染自身平台人工数"
+      ]
+    },
+    {
+      "id": "M-U11-v",
+      "req": "U11.k",
+      "why": "冻结未知跨平台传播，TT未知来源抹掉来源完整IG人工数。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "unknownPlatforms.has(t.platform) ? null",
+      "replace": "unknownPlatforms.size > 0 ? null",
+      "by": "test",
+      "kills": [
+        "U11关键词冻结未知仅污染自身平台人工数"
+      ]
+    },
+    {
+      "id": "M-U11-w",
+      "req": "U11.k",
+      "why": "没有查询痕迹也输出冻结人工计数，由人工作答补出似已测的数。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "status !== 'queried' || unknownPlatforms.has(t.platform) ? null",
+      "replace": "unknownPlatforms.has(t.platform) ? null",
+      "by": "test",
+      "kills": [
+        "U11关键词查询痕迹缺席不从人工作答补测量数"
+      ]
+    },
+    {
+      "id": "M-U11-x",
+      "req": "U11.k",
+      "why": "当前名单来源未知覆盖来源完整的历史人工归因，混同两个不同统计池。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "manual_reviewed: status !== 'queried' ||",
+      "replace": "manual_reviewed: !attributable || status !== 'queried' ||",
+      "by": "test",
+      "kills": [
+        "U11关键词当前来源未知不抹冻结人工归因"
+      ]
+    },
+    {
+      "id": "M-U11-y",
+      "req": "U11.m",
+      "why": "生产入口未传已校验评审上下文，metadata仍无人工归因且fit串用主平台。",
+      "file": "scripts/render.ts",
+      "find": "keywords: keywordRows(state, creators, { document: reviewDocument, feedback: reviewFeedback }),",
+      "replace": "keywords: keywordRows(state, creators),",
+      "by": "test",
+      "kills": [
+        "U11关键词真实入口meta原任务条目当前fit冻结人工一致"
+      ]
+    },
+    {
+      "id": "M-U11-z",
+      "req": "U11.m",
+      "why": "HTML把未提供与未知人工数补成零，用户无法区分未测与真零。",
+      "file": "scripts/lib/report.ts",
+      "find": "    n === undefined ? '未提供' : n === null ? '无从确认' : String(n)",
+      "replace": "    n === undefined || n === null ? '0' : String(n)",
+      "by": "test",
+      "kills": [
+        "U11关键词公共HTML独立人工列保留零未知缺席"
+      ]
+    },
+    {
+      "id": "M-U11-aa",
+      "req": "U11.m",
+      "why": "关键词维度单元格为空，完整表头仍在但原任务身份无法逐行复核。",
+      "file": "scripts/lib/report.ts",
+      "find": "<td>${esc(k.dimension)}</td>",
+      "replace": "<td></td>",
+      "by": "test",
+      "kills": [
+        "U11关键词公共HTML每行原身份含平台维度不丢不串"
       ]
     }
   ],

@@ -203,6 +203,8 @@ const GROUPS: readonly Group[] = [
   { id: 'u10-report-entry', needs: [] },
   { id: 'u11-feedback-summary', needs: [] },
   { id: 'u11-feedback-report-entry', needs: [] },
+  { id: 'u11-keyword-attribution', needs: [] },
+  { id: 'u11-keyword-report-entry', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -12581,6 +12583,275 @@ await group('u11-feedback-report-entry', async () => {
     const missingRoot = u11ReadHtml(renderHtml([], noSummaryMeta)), missingPanel = u11Nodes(missingRoot).find(node => node.attrs.id === 'feedback-summary')
     ok('U11公共缺统计HTML明示未提供而不冒充零测量', /人工审核统计未提供/.test(u11Text(missingPanel)) && !u11Nodes(missingPanel ?? missingRoot).some(node => node.tag === 'tr' && node.attrs['data-manual-field']))
   } finally { rmSync(isolated, { recursive: true, force: true }) }
+})
+
+// Independent U11 keyword tests v4: public legacy unknown compatibility, no target output read.
+await group('u11-keyword-attribution', async () => {
+  suite('U11', '关键词按原任务、原平台判断及冻结人工来源归因')
+  const { keywordRows } = await import('./lib/pipeline.js')
+  const run = keywordRows as (state: any, delivered: any[], review?: any) => any[]
+  const stamp = '2026-09-25T12:00:00Z'
+  const tasks = [
+    { keyword: 'shared', dimension: 'category', platform: 'tiktok' },
+    { keyword: 'shared', dimension: 'category', platform: 'instagram' },
+    { keyword: 'shared', dimension: 'category', platform: 'tiktok' },
+    { keyword: 'quiet', dimension: 'scene', platform: 'tiktok' },
+    { keyword: 'never', dimension: 'audience', platform: 'instagram' },
+    { keyword: 'quiet', dimension: 'scene', platform: 'instagram' },
+  ]
+  const state = { product: 'blind', market: 'US', target_count: 20, requests: 5, tasks, done: [],
+    answered: { 0: 1, 1: 1, 2: 1, 3: 1, 5: 1 }, found: { 0: 11, 1: 7, 2: 19, 3: 0, 5: 0 },
+    created_at: stamp, updated_at: stamp }
+  const creator = (platform: string, handle: string, source_tasks: number[], extra: any = {}) => ({
+    platform, handle, nickname: handle, bio_links: [], verified: false, profile_url: 'https://example.invalid/' + handle,
+    source_keyword: 'shared', source_dimension: 'category', source_tasks, ...extra })
+  const current = [
+    creator('tiktok', 'alpha', [0, 1, 2], { linked_handle: 'instagram:alpha_ig', fit: '✅', manual_reviewed: true }),
+    creator('tiktok', 'alias_used', [2], { fit: '✅' }),
+    creator('tiktok', 'new_judgment', [0], { fit: '✅', eligibility: '合格', effective_priority: '优先联系', manual_reviewed: true }),
+  ]
+  const source = (i: number) => ({ task_index: i, ...tasks[i] })
+  const candidate = (account_key: string, indices: number[]) => ({ account_key, source_tasks: indices.map(source) })
+  const onlyFields = [
+    ['eligible_only', { manual_eligible: 'no' }], ['adopted_only', { manual_adopted: 'unknown' }],
+    ['content_only', { manual_content_fit: 'low' }], ['engagement_only', { manual_engagement: 'medium' }],
+    ['comment_only', { manual_comment_authenticity: 'unknown' }], ['reason_only', { manual_reject_reason: '其他' }],
+    ['note_only', { manual_note: ' one observed note ' }],
+  ] as const
+  const document = { version: 1, updated_at: stamp, reviews: {
+    'tiktok:alpha': { account_keys: ['tiktok:alpha'], fit: '❌' },
+    'instagram:alpha_ig': { account_keys: ['instagram:alpha_ig'], fit: '✅' },
+    'tiktok:owner': { account_keys: ['tiktok:owner', 'tiktok:alias_used'], fit: '✅' },
+    'tiktok:new_judgment': { account_keys: ['tiktok:new_judgment'], eligibility: '合格', adoption_priority: '优先联系',
+      observed_content: 'observed', work_evidence: 'post', natural_integration: 'scene', mismatch_risk: 'none observed' },
+  }, rounds: [
+    { round_id: 'before', created_at: stamp, source: 'task.json', candidates: [
+      candidate('tiktok:alpha', [0, 2]), candidate('instagram:alpha_ig', [1]), candidate('tiktok:archive', [0]),
+      candidate('tiktok:blank', [2]), candidate('tiktok:space', [2]), candidate('tiktok:absent', [2]),
+    ] },
+    { round_id: 'later', created_at: '2026-09-26T12:00:00Z', source: 'task.json', candidates: [
+      ...onlyFields.map(([handle]) => candidate('tiktok:' + handle, [2])), candidate('instagram:ig_only', [1]),
+      candidate('tiktok:alias_used', [2]), candidate('tiktok:new_judgment', [0]),
+    ] },
+  ] }
+  const feedbackRow = (round_id: string, platform: string, handle: string, extra: any = {}) => ({
+    round_id, platform, handle, account_key: platform + ':' + handle, line_number: 2, manual_note: '', ...extra })
+  const feedback = [
+    feedbackRow('before', 'tiktok', 'alpha', { manual_eligible: 'unknown' }),
+    feedbackRow('before', 'instagram', 'alpha_ig', { manual_note: ' \t ' }),
+    feedbackRow('before', 'tiktok', 'archive', { manual_reject_reason: '商家号' }),
+    feedbackRow('before', 'tiktok', 'blank'), feedbackRow('before', 'tiktok', 'space', { manual_note: '   ' }),
+    ...onlyFields.map(([handle, extra]) => feedbackRow('later', 'tiktok', handle, extra)),
+    feedbackRow('later', 'instagram', 'ig_only', { manual_engagement: 'unknown' }),
+  ].map((row, i) => ({ ...row, line_number: i + 2 }))
+  const freeze = (value: any): any => {
+    if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value) }
+    return value
+  }
+  const context = freeze({ document, feedback })
+  freeze(state); freeze(current)
+  const snapshot = JSON.stringify([state, current, context])
+  const call = (s: any, c: any[], r?: any): { rows?: any[]; error?: string } => {
+    try { const rows = run(s, c, r); return Array.isArray(rows) ? { rows } : { error: 'not an array' } }
+    catch (error) { return { error: String(error) } }
+  }
+  const values = (result: ReturnType<typeof call>, key: string) => result.rows?.map(row => row?.[key])
+  const main = call(state, current, context)
+  eq('U11关键词合法冻结夹具成功调用', main.error, undefined)
+  eq('U11关键词保留重复任务原下标及条目单位', main.rows?.map(r => [r?.task_index, r?.keyword, r?.dimension, r?.platform, r?.found]),
+    [[0, 'shared', 'category', 'tiktok', 11], [1, 'shared', 'category', 'instagram', 7], [2, 'shared', 'category', 'tiktok', 19],
+      [3, 'quiet', 'scene', 'tiktok', 0], [4, 'never', 'audience', 'instagram', null], [5, 'quiet', 'scene', 'instagram', 0]])
+  eq('U11关键词当前多来源入围分别计数', values(main, 'shortlisted'), [2, 1, 2, 0, null, 0])
+  eq('U11关键词语义通过只取原平台fit含同平台别名', values(main, 'fit_pass'), [0, 1, 1, 0, null, 0])
+  // task 0: alpha + historical archive. task 2: alpha + seven distinct single-field answers.
+  eq('U11关键词七原字段已审历史来源多任务归因', values(main, 'manual_reviewed'), [2, 1, 8, 0, null, 0])
+  const reversed = current.map((c, i) => i === 0 ? { ...c, platform: 'instagram', handle: 'alpha_ig', linked_handle: 'tiktok:alpha', fit: '❌' } : c)
+  const reverse = call(state, reversed, context)
+  eq('U11关键词换主平台不串语义通过或人工已审', reverse.rows?.map(r => [r?.shortlisted, r?.fit_pass, r?.manual_reviewed]),
+    [[2, 0, 2], [1, 1, 1], [2, 1, 8], [0, 0, 0], [null, null, null], [0, 0, 0]])
+  const noLinkedFit = structuredClone(context); delete (noLinkedFit.document.reviews as any)['instagram:alpha_ig']
+  eq('U11关键词关联平台无原fit不借主卡片通过', values(call(state, current, noLinkedFit), 'fit_pass'), [0, 0, 1, 0, null, 0])
+  const legacy = call(state, current)
+  eq('U11关键词两参公共计数保留兼容fit', values(legacy, 'fit_pass'), [2, 1, 2, 0, null, 0])
+  eq('U11关键词两参公共形状没有人工统计属性', legacy.rows?.map(r => r != null && Object.prototype.hasOwnProperty.call(r, 'manual_reviewed')), [false, false, false, false, false, false])
+  const empty = call(state, [], context)
+  eq('U11关键词当前名单为空仍保留全部冻结已审', values(empty, 'manual_reviewed'), [2, 1, 8, 0, null, 0])
+  eq('U11关键词当前空名单已查询入围是真零', values(empty, 'shortlisted'), [0, 0, 0, 0, null, 0])
+  const currentUnknown = current.map((c, i) => i === 0 ? { ...c, source_tasks: undefined } : c)
+  const unknownCurrent = call(state, currentUnknown, context)
+  eq('U11关键词当前来源未知使入围和语义全表未知', unknownCurrent.rows?.map(r => [r?.shortlisted, r?.fit_pass]),
+    [[null, null], [null, null], [null, null], [null, null], [null, null], [null, null]])
+  eq('U11关键词当前来源未知不抹冻结人工归因', values(unknownCurrent, 'manual_reviewed'), [2, 1, 8, 0, null, 0])
+  eq('U11关键词当前空或越界来源同样不造入围真零', [[], [999]].map(source_tasks =>
+    values(call(state, current.map((c, i) => i === 0 ? { ...c, source_tasks } : c), context), 'shortlisted')),
+    [[null, null, null, null, null, null], [null, null, null, null, null, null]])
+  const frozenUnknown = structuredClone(context)
+  ;(frozenUnknown.document.rounds[0].candidates[3] as any).source_tasks = null
+  const unknownFrozen = call(state, current, frozenUnknown)
+  eq('U11关键词冻结未知仅污染自身平台人工数', values(unknownFrozen, 'manual_reviewed'), [null, 1, null, null, null, 0])
+  eq('U11关键词冻结未知不抹已知条目及当前语义', unknownFrozen.rows?.map(r => [r?.found, r?.shortlisted, r?.fit_pass]),
+    [[11, 2, 0], [7, 1, 1], [19, 2, 1], [0, 0, 0], [null, null, null], [0, 0, 0]])
+  eq('U11关键词查询痕迹缺席不从人工作答补测量数', values(call({ ...state, answered: undefined }, current, context), 'manual_reviewed'),
+    [null, null, null, null, null, null])
+  eq('U11关键词已查询空冻结池给人工真零', values(call(state, [], { ...context, document: { ...document, rounds: [] }, feedback: [] }), 'manual_reviewed'),
+    [0, 0, 0, 0, null, 0])
+  try { if (main.rows?.[0]) main.rows[0].keyword = 'caller-edit' } catch {}
+  eq('U11关键词只读且返回行不借输入对象', JSON.stringify([state, current, context]), snapshot)
+})
+
+await group('u11-keyword-report-entry', async () => {
+  suite('U11', '关键词人工人数由真实入口交付到独立可见表格')
+  const { renderHtml } = await import('./lib/report.js')
+  const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } = await import('node:fs')
+  const { join } = await import('node:path')
+  const { tmpdir } = await import('node:os')
+  const { fileURLToPath } = await import('node:url')
+  const { spawnSync } = await import('node:child_process')
+  const textCell = (s: string) => s.replace(/<[^>]*>/g, '').replace(/&(?:lt|gt|amp|quot|apos|nbsp);|&#(?:x[\da-f]+|\d+);/gi, e => {
+    const named: Record<string, string> = { '&lt;': '<', '&gt;': '>', '&amp;': '&', '&quot;': '"', '&apos;': "'", '&nbsp;': ' ' }
+    return named[e.toLowerCase()] ?? String.fromCodePoint(e[2].toLowerCase() === 'x' ? parseInt(e.slice(3), 16) : parseInt(e.slice(2), 10))
+  }).trim()
+  // Observe visible tables only: script text, hidden tables, and hidden ancestors cannot serve as evidence.
+  const table = (html?: string) => {
+    if (typeof html !== 'string') return undefined
+    try {
+      const clean = html.replace(/<!--[\s\S]*?-->|<(script|style|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
+      const stack: Array<{ tag: string; hidden: boolean }> = []; let visible = ''
+      for (const token of clean.match(/<[^>]*>|[^<]+/g) ?? []) {
+        const close = token.match(/^<\/([\w-]+)/); const open = token.match(/^<([\w-]+)\b([^>]*)>/)
+        if (close) { const at = stack.map(x => x.tag).lastIndexOf(close[1].toLowerCase()); if (at >= 0) stack.splice(at) }
+        const hidden = stack.some(x => x.hidden) || !!(open && /\bhidden\b|aria-hidden\s*=\s*["']?true|display\s*:\s*none|visibility\s*:\s*hidden/i.test(open[2]))
+        if (!hidden) visible += token
+        if (open && !/\/$/.test(open[2]) && !/^(br|hr|img|input|meta|link)$/i.test(open[1])) stack.push({ tag: open[1].toLowerCase(), hidden })
+      }
+      for (const match of visible.matchAll(/<table\b[^>]*>([\s\S]*?)<\/table\s*>/gi)) {
+        const headers = [...match[1].matchAll(/<th\b[^>]*>([\s\S]*?)<\/th\s*>/gi)].map(x => textCell(x[1]).replace(/\s+/g, ''))
+        const sequenceHeader = headers.find(h => /^(?:任务)?序号$|^任务$/.test(h))
+        if (!sequenceHeader || !['关键词', '维度', '平台', '找到', '入围', '语义通过'].every(h => headers.includes(h))) continue
+        const rows = [...match[1].matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr\s*>/gi)].map(row =>
+          [...row[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td\s*>/gi)].map(x => textCell(x[1]))).filter(row => row.length > 0)
+        return { headers, sequenceHeader, rows, cells: rows.map(row => Object.fromEntries(headers.map((h, i) => [h, row[i]]))) }
+      }
+    } catch {}
+    return undefined
+  }
+  const control = '<table><tr><th>序号</th><th>关键词</th><th>维度</th><th>平台</th><th>找到</th><th>入围</th><th>语义通过</th><th>人工已审（冻结账号）</th></tr><tr><td>8</td><td>observer</td><td>品类</td><td>TikTok</td><td>9</td><td>2</td><td>1</td><td>3</td></tr></table>'
+  const tableHeaders = (view: ReturnType<typeof table>) => {
+    if (!view) return undefined
+    const sequenceHeader = view.sequenceHeader
+    return view.headers.map(h => h === sequenceHeader ? '任务序号' : h).sort()
+  }
+  const allHeaders = ['任务序号', '关键词', '维度', '平台', '找到', '入围', '语义通过', '人工已审（冻结账号）'].sort()
+  const platformOf = (value: unknown) => typeof value === 'string' && /^(tiktok|instagram)$/i.test(value) ? value.toLowerCase() : undefined
+  const dimensionOf = (value: unknown) => {
+    const names: Record<string, string> = { category: 'category', '品类': 'category', '品类词': 'category', scene: 'scene', '场景': 'scene', '场景词': 'scene',
+      competitor: 'competitor', '竞品': 'competitor', '竞品词': 'competitor', audience: 'audience', '人群': 'audience', '人群词': 'audience', '目标人群': 'audience', '受众': 'audience' }
+    return typeof value === 'string' ? names[value.toLowerCase()] : undefined
+  }
+  const identities = (view: ReturnType<typeof table>) => {
+    if (!view) return undefined
+    const sequenceHeader = view.sequenceHeader
+    return view.cells.map(row => [row?.[sequenceHeader], row?.['关键词'], dimensionOf(row?.['维度']), platformOf(row?.['平台'])])
+  }
+  eq('U11关键词HTML观察器正控读取完整表头及对应单元格', [tableHeaders(table(control)), identities(table(control)), table(control)?.cells[0]?.['人工已审（冻结账号）']],
+    [allHeaders, [['8', 'observer', 'category', 'tiktok']], '3'])
+  eq('U11关键词HTML观察器拒绝隐藏和脚本文字假证据', [table('<div hidden>' + control + '</div>'), table('<script>' + control + '</script>')], [undefined, undefined])
+  const keyword = 'fmt-<b>unsafe</b>&'
+  const publicMeta = { product: 'formatter', market: 'US', total: 0, tiers: { A: 0, B: 0, C: 0 }, email_count: 0,
+    cross_platform_count: 0, platforms: ['tiktok', 'instagram'], memory_status: 'absent', memory_written: true,
+    timestamp: '202609271200', requests: 0, enriched: false, budget_usd: 2, cost_estimate_usd: 0,
+    cost_status: 'known', cost_scope: 'task', cost_http_200_usd: 0, cost_unknown_result_usd: 0, cost_pending_usd: 0,
+    cost_basis: '按固定公开基础价、不计优惠的估算；不是实际账单，也不保证供应商未来价格上限。', cost_price_versions: [], cost_problems: [],
+    keywords: [
+      { task_index: 6, keyword, dimension: 'category', platform: 'tiktok', status: 'queried', found: 5, shortlisted: 2, fit_pass: 1, manual_reviewed: 0 },
+      { task_index: 2, keyword, dimension: 'category', platform: 'tiktok', status: 'queried', found: 0, shortlisted: 0, fit_pass: 0, manual_reviewed: null },
+      { task_index: 9, keyword: 'legacy-missing', dimension: 'scene', platform: 'instagram', status: 'unqueried', found: null, shortlisted: null, fit_pass: null },
+    ] }
+  const format = (options?: any): { html?: string; error?: string } => {
+    try { return { html: renderHtml([], publicMeta, options) } } catch (error) { return { error: String(error) } }
+  }
+  const publicBefore = JSON.stringify(publicMeta)
+  const oldFormat = format(); const dualFormat = format({ mode: 'review', filters: 'dual' })
+  eq('U11关键词公共HTML合法元数据两视图均成功格式化', [oldFormat.error, dualFormat.error], [undefined, undefined])
+  const old = table(oldFormat.html); const dual = table(dualFormat.html)
+  eq('U11关键词公共HTML两视图均有非空对应关键词表', [!!old, old?.rows.length, !!dual, dual?.rows.length], [true, 3, true, 3])
+  eq('U11关键词公共HTML保留原七列表头并单列人工', [tableHeaders(old), tableHeaders(dual)], [allHeaders, allHeaders])
+  eq('U11关键词公共HTML每行原身份含平台维度不丢不串', [identities(old), identities(dual)],
+    [[['7', keyword, 'category', 'tiktok'], ['3', keyword, 'category', 'tiktok'], ['10', 'legacy-missing', 'scene', 'instagram']],
+      [['7', keyword, 'category', 'tiktok'], ['3', keyword, 'category', 'tiktok'], ['10', 'legacy-missing', 'scene', 'instagram']]])
+  const unknownCount = (cell: unknown) => typeof cell === 'string' && (cell === '—' || /(?:未知|无从确认|未查询)/.test(cell)) && !/[0-9０-９%％]/.test(cell)
+  eq('U11关键词公共HTML独立人工列保留零未知缺席', old?.cells.map(r => r?.['人工已审（冻结账号）']), ['0', '无从确认', '未提供'])
+  eq('U11关键词公共HTML原任务序号不按展示位置编号', old?.rows.map(r => r?.[0]), ['7', '3', '10'])
+  eq('U11关键词公共HTML原关键词转义且重复任务分行', old?.cells.map(r => r?.['关键词']), [keyword, keyword, 'legacy-missing'])
+  eq('U11关键词公共HTML未查询各测量单元格保持未知', old?.cells[2] && [old.cells[2]['找到'], unknownCount(old.cells[2]['入围']), unknownCount(old.cells[2]['语义通过'])], ['未查询', true, true])
+  eq('U11关键词双筛选初始表格与公共旧视图同样完整', [!!old, !!dual, dual?.cells], [true, true, old?.cells])
+  eq('U11关键词公共HTML只格式化且不改调用方统计', JSON.stringify(publicMeta), publicBefore)
+  const root = mkdtempSync(join(tmpdir(), 'kol-keyword-blind-')); const dir = join(root, 'task'); mkdirSync(dir)
+  try {
+    const stamp = '2026-09-27T12:00:00Z'
+    const tasks = [
+      { keyword: 'cli-shared<&', dimension: 'category', platform: 'tiktok' },
+      { keyword: 'cli-shared<&', dimension: 'category', platform: 'instagram' },
+      { keyword: 'cli-shared<&', dimension: 'category', platform: 'tiktok' },
+      { keyword: 'cli-zero', dimension: 'scene', platform: 'instagram' },
+      { keyword: 'cli-never', dimension: 'audience', platform: 'tiktok' },
+    ]
+    const state = { product: 'blind-entry', market: 'US', target_count: 10, requests: 4, tasks, done: [0, 1, 2, 3],
+      answered: { 0: 1, 1: 1, 2: 1, 3: 1 }, found: { 0: 17, 1: 12, 2: 23, 3: 0 },
+      offsets: { 0: 17, 1: 12, 2: 23, 3: 0 }, pages: { 0: 1, 1: 1, 2: 1, 3: 1 }, created_at: stamp, updated_at: stamp }
+    const creators = [{ platform: 'tiktok', handle: 'paired', nickname: 'paired', followers: 6000, bio: null, bio_links: [],
+      email: null, verified: false, profile_url: 'https://example.invalid/paired', source_keyword: tasks[0].keyword,
+      source_dimension: 'category', source_tasks: [0, 1, 2], linked_handle: 'instagram:paired_ig', cross_platform: true, fit: '✅' }]
+    const source = (i: number) => ({ task_index: i, ...tasks[i] })
+    const rounds = [{ round_id: 'frozen-old', created_at: stamp, source: 'task.json', candidates: [
+      { account_key: 'tiktok:paired', source_tasks: [source(0), source(2)] },
+      { account_key: 'instagram:paired_ig', source_tasks: [source(1)] },
+      { account_key: 'tiktok:history', source_tasks: [source(0)] },
+    ] }]
+    const document = { version: 1, updated_at: stamp, reviews: {
+      'tiktok:paired': { account_keys: ['tiktok:paired'], fit: '❌' },
+      'instagram:paired_ig': { account_keys: ['instagram:paired_ig'], fit: '✅' },
+      'tiktok:history': { account_keys: ['tiktok:history'], fit: '✅' },
+    }, rounds }
+    const headers = 'round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note'
+    const manual = '\uFEFF' + headers + '\nfrozen-old,tiktok,paired,unknown,,,,,,\nfrozen-old,instagram,paired_ig,,,,,,,   \nfrozen-old,tiktok,history,,,,,,商家号,\n'
+    const raw = JSON.stringify(creators); const originalAgent = JSON.stringify(document)
+    writeFileSync(join(dir, 'task.json'), JSON.stringify(state)); writeFileSync(join(dir, 'creators.json'), raw)
+    writeFileSync(join(dir, 'creators.raw.json'), raw); writeFileSync(join(dir, 'agent-review.json'), originalAgent)
+    writeFileSync(join(dir, 'manual-feedback.csv'), manual)
+    let processResult: ReturnType<typeof spawnSync> | undefined
+    try { processResult = spawnSync(process.execPath, ['--import', fileURLToPath(import.meta.resolve('tsx')),
+      fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir], { cwd: root, encoding: 'utf8', timeout: 30000 }) } catch {}
+    eq('U11关键词真实render入口成功退出', processResult?.status, 0)
+    const read = (name: string) => { try { return readFileSync(join(dir, name), 'utf8') } catch { return undefined } }
+    let meta: any; try { const bytes = read('meta.json'); if (bytes !== undefined) meta = JSON.parse(bytes) } catch {}
+    const html = read('report.html'); const observed = table(html)
+    eq('U11关键词真实入口夹具产出可读meta和HTML', [typeof meta, typeof html, !!observed], ['object', 'string', true])
+    eq('U11关键词真实入口meta原任务条目当前fit冻结人工一致', Array.isArray(meta?.keywords) ? meta.keywords.map((r: any) =>
+      [r?.task_index, r?.keyword, r?.dimension, r?.platform, r?.found, r?.shortlisted, r?.fit_pass, r?.manual_reviewed]) : undefined,
+      [[0, 'cli-shared<&', 'category', 'tiktok', 17, 1, 0, 2], [1, 'cli-shared<&', 'category', 'instagram', 12, 1, 1, 0],
+        [2, 'cli-shared<&', 'category', 'tiktok', 23, 1, 0, 1], [3, 'cli-zero', 'scene', 'instagram', 0, 0, 0, 0],
+        [4, 'cli-never', 'audience', 'tiktok', null, null, null, null]])
+    eq('U11关键词真实HTML保留完整关键词列身份', tableHeaders(observed), allHeaders)
+    eq('U11关键词真实HTML原任务序号列在首列', !!observed && observed.headers[0] === observed.sequenceHeader, true)
+    eq('U11关键词真实HTML每行原序号关键词平台维度对应任务', identities(observed),
+      [['1', 'cli-shared<&', 'category', 'tiktok'], ['2', 'cli-shared<&', 'category', 'instagram'], ['3', 'cli-shared<&', 'category', 'tiktok'],
+        ['4', 'cli-zero', 'scene', 'instagram'], ['5', 'cli-never', 'audience', 'tiktok']])
+    eq('U11关键词真实HTML对应任务单元格承接meta', observed?.cells.map((r, i) => [r?.['找到'], i === 4 ? unknownCount(r?.['入围']) : r?.['入围'],
+      i === 4 ? unknownCount(r?.['语义通过']) : r?.['语义通过'], r?.['人工已审（冻结账号）']]),
+      [['17', '1', '0', '2'], ['12', '1', '1', '0'], ['23', '1', '0', '1'], ['0', '0', '0', '0'], ['未查询', true, true, '无从确认']])
+    const roundValues = (value: any) => Array.isArray(value) ? value.map(r => [r?.round_id, r?.created_at, r?.source,
+      Array.isArray(r?.candidates) ? r.candidates.map((c: any) => [c?.account_key, Array.isArray(c?.source_tasks) ?
+        c.source_tasks.map((s: any) => [s?.task_index, s?.keyword, s?.dimension, s?.platform]) : c?.source_tasks]) : undefined]) : undefined
+    eq('U11关键词真实入口保留完整历史冻结轮次', roundValues(meta?.review_rounds), roundValues(rounds))
+    const summary = meta?.feedback_summary
+    const verdict = (v: any) => [v?.yes, v?.no, v?.unknown, v?.unreviewed, v?.denominator, v?.rate]
+    eq('U11关键词真实入口保留人工汇总自身覆盖及零分母', [Array.isArray(summary?.rounds) ? summary.rounds.map((r: any) =>
+      [r?.round_id, r?.candidates, r?.reviewed, r?.unreviewed]) : undefined, verdict(summary?.eligible), verdict(summary?.adopted),
+      Array.isArray(summary?.reject_reasons) ? summary.reject_reasons.map((r: any) => [r?.reason, r?.count]) : undefined, summary?.disagreements],
+      [[['frozen-old', 3, 2, 1]], [0, 0, 1, 2, 0, null], [0, 0, 0, 3, 0, null], [['商家号', 1]], []])
+    eq('U11关键词真实入口保持raw人工与Agent原件字节', [read('creators.raw.json'), read('manual-feedback.csv'), read('agent-review.json')], [raw, manual, originalAgent])
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 if (seenGroups.size !== GROUPS.length) {
