@@ -2656,13 +2656,13 @@ suite('U8', '搜索任务展示能指回原任务，配置意图不冒充发现�
   eq('缺失与非法任务下标一律无从确认，不从行位置或相同关键词猜补',
      legacy.map(r => r[0]), invalid.map(() => '无从确认'))
   eq('身份无从确认不会抹掉该行已经查实的计数',
-     legacy.map(r => r.slice(4)), invalid.map(() => ['7', '2', '1']))
+     legacy.map(r => r.slice(4, 7)), invalid.map(() => ['7', '2', '1']))
   const states = table([
     row({ task_index: 6, status: 'unqueried', found: null, shortlisted: null, fit_pass: null }),
     row({ status: 'queried', found: 0, shortlisted: 0, fit_pass: 0 }),
     row({ task_index: null, status: 'unknown', found: null, shortlisted: null, fit_pass: null }),
   ])
-  eq('有任务序号仍可未查询，身份未知仍可测得零，两种未知互不替代', states.map(r => [r[0], ...r.slice(4)]), [
+  eq('有任务序号仍可未查询，身份未知仍可测得零，两种未知互不替代', states.map(r => [r[0], ...r.slice(4, 7)]), [
     ['7', '未查询', '—', '—'], ['无从确认', '0', '0', '0'], ['无从确认', '无从确认', '—', '—'],
   ])
   criterion('U8.e')
