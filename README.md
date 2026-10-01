@@ -45,7 +45,7 @@ render 导出的 CSV/HTML 先按有效采用建议，再按原分层与分数排
 
 生产 HTML 默认显示全部交付候选，支持有效采用建议与 A/B/C 层级的交集筛选；缺席建议单列「未提供」，空集有提示，切换保留阅读位置与平台专属标签。全部仅指联系过滤后的交付名单。公共 `renderHtml` 只有同时选择 `{ mode: 'review', filters: 'dual' }` 才启用新视图；省略、空选项或仅 `review` 继续保留原单层视图（U9.a）。输出契约见 [输出说明](skill/references/output-format.md#html-报告)。
 
-人工审核汇总按全部冻结的平台账号统计，保留原轮次与来源，位于 HTML 候选筛选之外；平台账号数不是独立人数，也不是本次可联系卡片数。`meta.json` 交付 `feedback_summary` 与完整 `review_rounds`，人工合格率和采用率分别只用自身明确 yes/no 为分母，未评与 unknown 分开，零分母不可计算。原因按账号去重计数，分歧对照 Agent 原判断，可能含历史判断；这不是准确率或真实效果改善结论。关键词的人工审核归因尚未启用。详见 [人工审核汇总](skill/references/output-format.md#人工审核汇总u11)。
+人工审核汇总按全部冻结的平台账号统计，保留原轮次与来源，位于 HTML 候选筛选之外；平台账号数不是独立人数，也不是本次可联系卡片数。`meta.json` 交付 `feedback_summary` 与完整 `review_rounds`，人工合格率和采用率分别只用自身明确 yes/no 为分母，未评与 unknown 分开，零分母不可计算。原因按账号去重计数，分歧对照 Agent 原判断，可能含历史判断；这不是准确率或真实效果改善结论。关键词表按原任务与平台另列全部冻结池的人工已审账号数，未知不补零。详见 [人工审核汇总](skill/references/output-format.md#人工审核汇总u11)。
 
 完整工作路径如下：
 
