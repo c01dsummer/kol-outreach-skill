@@ -10378,8 +10378,8 @@
       "id": "M-U9-g", "req": "U9.a",
       "why": "默认 HTML 自动启用新评审模式，未选择的旧公共调用出现新判断区块与新排序",
       "file": "scripts/lib/report.ts",
-      "find": "export function renderHtml(creators: Creator[], meta: any, options: ReviewOutputOptions = {}): string {",
-      "replace": "export function renderHtml(creators: Creator[], meta: any, options: ReviewOutputOptions = { mode: 'review' }): string {",
+      "find": "export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOptions = {}): string {",
+      "replace": "export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOptions = { mode: 'review' }): string {",
       "by": "test", "kills": ["U9.a 默认HTML独立确认没有新判断区块且保留旧理由","U9.a 默认HTML独立确认仍用调用方原顺序"]
     },
     {
