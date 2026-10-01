@@ -10612,7 +10612,7 @@
       "req": "U9.j",
       "why": "生产 HTML 入口未选择评审输出，最终有效建议的顺序及各平台原评审没有展示。",
       "file": "scripts/render.ts",
-      "find": "writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review' }))",
+      "find": "writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review', filters: 'dual' }))",
       "replace": "writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta))",
       "by": "selfcheck",
       "kills": [
