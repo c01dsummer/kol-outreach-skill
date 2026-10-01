@@ -1,5 +1,6 @@
 #!/usr/bin/env tsx
 import { effectivePriority, projectManualFeedback } from './lib/effective-priority.js'
+import { prepareTaskReviews } from './lib/task-reviews.js'
 /**
  * 需求测试。**每个用例标注它验的是哪条需求编号** —— 审计据此回答覆盖度。
  *
@@ -89,7 +90,7 @@ import { esc, writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
 import * as reviewRowsApi from './lib/rows.js'
 import { writeXlsx } from './lib/xlsx.js'
-import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
+import { readFileSync as rf, unlinkSync as ul, renameSync } from 'node:fs'
 import { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { isDeepStrictEqual } from 'node:util'
@@ -196,6 +197,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd21-tier-guards', needs: [] },
   { id: 'u9-review-output', needs: [] },
   { id: 'p1-legacy-score-output', needs: [] },
+  { id: 'd21-task-reviews', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -11726,6 +11728,214 @@ await group('p1-legacy-score-output', () => {
   eq('legacy-html-platform-labels', platforms, clear)
   eq('legacy-html-default-A-visible', visibility, clear)
   eq('legacy-input-score-states-preserved', isDeepStrictEqual(creators, before), true)
+})
+
+
+await group('d21-task-reviews', () => {
+  const root = mkdtempSync(join(tmpdir(), 'kol-task-reviews-'))
+  const t0 = '2026-09-01T00:00:00Z', t1 = '2026-09-02T00:00:00Z', t2 = '2026-09-03T00:00:00Z'
+  const state: Pick<TaskState, 'tasks'> = { tasks: [
+    { keyword: 'lamp', dimension: 'category', platform: 'tiktok' },
+    { keyword: 'desk', dimension: 'scene', platform: 'instagram' },
+  ] }
+  const header = 'round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note\n'
+  const row = (p: string, h: string, eligible = '', adopted = '', note = '', roundId = 'r-old') =>
+    [roundId, p, h, eligible, adopted, '', '', '', '', note].join(',') + '\n'
+  const copy = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T
+  const saved = (): AgentReviewDocument => ({ version: 1, updated_at: t0, reviews: {}, rounds: [{
+    round_id: 'r-old', created_at: t0, source: 'task.json', candidates: [
+      { account_key: 'tiktok:alpha', source_tasks: [{ task_index: 0, ...state.tasks[0] }] },
+      { account_key: 'instagram:beta', source_tasks: [{ task_index: 1, ...state.tasks[1] }] },
+    ],
+  }] })
+  const directory = (name: string, document?: unknown, manual?: string) => {
+    const dir = join(root, name)
+    mkdirSync(dir)
+    for (const name of ['task.json', 'creators.raw.json', 'creators.json', 'enrichment.json', 'memory.json'])
+      writeFileSync(join(dir, name), `untouched:${name}\n`)
+    if (document !== undefined) writeFileSync(join(dir, 'agent-review.json'), JSON.stringify(document, null, 2) + '\n')
+    if (manual !== undefined) writeFileSync(join(dir, 'manual-feedback.csv'), manual)
+    return dir
+  }
+  const disk = (dir: string) => readdirSync(dir).sort().map(name => {
+    const path = join(dir, name), stat = lstatSync(path)
+    return [name, stat.mtimeMs, stat.isFile() ? rf(path).toString('hex') : stat.isDirectory() ? 'directory' : 'other']
+  })
+  const caught = (run: () => unknown): unknown => { try { run(); return undefined } catch (error) { return error } }
+  try {
+    suite('D21', '任务评审准备与投影只读，保存以真实内容变化为准')
+    const absent = directory('absent', undefined, header)
+    const absentBefore = disk(absent)
+    const empty = prepareTaskReviews(absent, state, [], t0, [])
+    eq('任务评审：缺席空正本仅准备不落盘', disk(absent), absentBefore)
+    eq('任务评审：空正本保存返回未写入', empty.save(t1), false)
+    eq('任务评审：空正本保存后仍无文件', existsSync(join(absent, 'agent-review.json')), false)
+
+    const brokenJson = directory('broken-json', undefined, header)
+    writeFileSync(join(brokenJson, 'agent-review.json'), '{"version":')
+    const brokenJsonBefore = disk(brokenJson)
+    const jsonError = caught(() => prepareTaskReviews(brokenJson, state, [], t0, []))
+    ok('任务评审：坏正本明确定位并拒绝', jsonError instanceof ReviewInputError && String(jsonError).includes(join(brokenJson, 'agent-review.json')))
+    eq('任务评审：坏正本拒绝保留所有文件', disk(brokenJson), brokenJsonBefore)
+    const badCsv = directory('bad-csv', saved(), '')
+    const badCsvBefore = disk(badCsv)
+    const csvError = caught(() => prepareTaskReviews(badCsv, state, [], t0, []))
+    ok('任务评审：已有空人工文件拒绝', csvError instanceof ReviewInputError && String(csvError).includes(join(badCsv, 'manual-feedback.csv')))
+    eq('任务评审：人工文件拒绝不落盘', disk(badCsv), badCsvBefore)
+    const manualDirectory = directory('manual-directory', saved())
+    mkdirSync(join(manualDirectory, 'manual-feedback.csv'))
+    const directoryError = caught(() => prepareTaskReviews(manualDirectory, state, [], t0, []))
+    ok('任务评审：人工路径为目录不能当缺席', directoryError instanceof ReviewInputError && String(directoryError).includes(join(manualDirectory, 'manual-feedback.csv')))
+    const dangling = directory('dangling-manual', saved())
+    symlinkSync(join(dangling, 'missing-target'), join(dangling, 'manual-feedback.csv'))
+    const danglingError = caught(() => prepareTaskReviews(dangling, state, [], t0, []))
+    ok('任务评审：悬空人工链接不能当缺席', danglingError instanceof ReviewInputError && String(danglingError).includes(join(dangling, 'manual-feedback.csv')))
+
+    const legacyDir = directory('legacy')
+    const previous = [mk('tiktok', '@Old', { fit: '✅', fit_reason: 'legacy reason', outreach_draft: 'legacy draft' })]
+    const previousBefore = copy(previous), stateBefore = copy(state), legacyBefore = disk(legacyDir)
+    const legacy = prepareTaskReviews(legacyDir, state, previous, t0, [])
+    eq('任务评审：缺席正本迁入仅实际旧判断', legacy.document.reviews['tiktok:old'], {
+      account_keys: ['tiktok:old'], fit: '✅', fit_reason: 'legacy reason', outreach_draft: 'legacy draft',
+    })
+    eq('任务评审：准备先冻结旧候选且未知来源保留空值', legacy.document.rounds.map(r => r.candidates), [
+      [{ account_key: 'tiktok:old', source_tasks: null }],
+    ])
+    eq('任务评审：准备不改旧名单或任务状态', [previous, state], [previousBefore, stateBefore])
+    const firstRound = copy(legacy.document.rounds[0])
+    const leaked = legacy.document
+    leaked.reviews['tiktok:old'].fit_reason = 'caller edit'
+    leaked.rounds[0].candidates[0].account_key = 'tiktok:hacked'
+    eq('任务评审：正本快照修改不回写上下文', [legacy.document.reviews['tiktok:old'].fit_reason, legacy.document.rounds[0]], ['legacy reason', firstRound])
+    previous[0].fit_reason = 'caller old-list edit'
+    state.tasks[1].keyword = 'caller task edit'
+    const current = [mk('tiktok', 'old', { source_tasks: [0] }), mk('instagram', 'fresh', { source_tasks: [1] })]
+    const currentBefore = copy(current)
+    legacy.freezeCandidates(current, t1)
+    eq('任务评审：新增候选单独成下一轮', legacy.document.rounds.map(r => r.candidates.map(c => c.account_key)), [['tiktok:old'], ['instagram:fresh']])
+    eq('任务评审：旧轮次与未知来源不被回填', legacy.document.rounds[0], firstRound)
+    eq('任务评审：冻结取准备时独立任务快照', legacy.document.rounds[1].candidates[0].source_tasks, [
+      { task_index: 1, keyword: 'desk', dimension: 'scene', platform: 'instagram' },
+    ])
+    eq('任务评审：冻结不改当前输入', current, currentBefore)
+    legacy.freezeCandidates(current, t2)
+    eq('任务评审：重复候选池不加轮次', legacy.document.rounds.length, 2)
+    eq('任务评审：迁移与冻结均不写文件', disk(legacyDir), legacyBefore)
+    eq('任务评审：有变化显式保存确实写入', legacy.save(t1), true)
+    const written = JSON.parse(rf(join(legacyDir, 'agent-review.json'), 'utf8')) as AgentReviewDocument
+    eq('任务评审：成功保存更新时间及完整内容', written, { ...legacy.document, updated_at: t1 })
+    const savedBefore = disk(legacyDir)
+    eq('任务评审：仅改变保存时间不算变化', legacy.save(t2), false)
+    eq('任务评审：无变化保持原字节与修改时间', disk(legacyDir), savedBefore)
+    state.tasks = copy(stateBefore.tasks)
+
+    const authorityDir = directory('authority', { version: 1, updated_at: t0, reviews: {}, rounds: [] }, header)
+    const stale = mk('tiktok', 'alpha', { fit: '❌', fit_reason: 'deleted reason', outreach_draft: 'deleted draft' })
+    const authority = prepareTaskReviews(authorityDir, state, [stale], t0, [])
+    eq('任务评审：已有空正本不复活旧投影判断', authority.document.reviews, {})
+    const withoutReview = authority.project([stale], [], undefined)[0]
+    eq('任务评审：删除正本评审后旧字段清除', [withoutReview.fit === undefined, withoutReview.fit_reason === undefined, withoutReview.outreach_draft === undefined, withoutReview.review_status], [true, true, true, '未评'])
+
+    suite('D22', '任务评审冻结来源核验发生在任何保存之前')
+    const mismatch = saved()
+    mismatch.rounds[0].candidates[0].source_tasks![0].keyword = 'different saved keyword'
+    const mismatchDir = directory('source-mismatch', mismatch, header), mismatchBefore = disk(mismatchDir)
+    const sourceError = caught(() => prepareTaskReviews(mismatchDir, state, [], t1, []))
+    ok('任务评审：冻结来源错配定位轮次并拒绝', sourceError instanceof ReviewInputError && String(sourceError).includes('r-old') && String(sourceError).includes(join(mismatchDir, 'agent-review.json')))
+    eq('任务评审：来源错配不改历史或其他文件', disk(mismatchDir), mismatchBefore)
+    const badLegacyDir = directory('bad-legacy')
+    const badLegacyBefore = disk(badLegacyDir)
+    const invalidLegacy = mk('tiktok', 'old', { fit: 'not-a-fit' as Creator['fit'] })
+    const legacyError = caught(() => prepareTaskReviews(badLegacyDir, state, [invalidLegacy], t0, []))
+    ok('任务评审：旧判断非法不能迁移后保存', legacyError instanceof ReviewInputError)
+    eq('任务评审：旧判断拒绝不创建正本', disk(badLegacyDir), badLegacyBefore)
+
+    suite('D23', '任务人工授权以准备开始时已保存候选为界')
+    // Generated tokens are adversarial input, never an expected ID or an authorization oracle.
+    const tokenDir = directory('authorization-token', saved())
+    const tokenContext = prepareTaskReviews(tokenDir, state, [mk('instagram', 'new', { source_tasks: [1] })], t1, [])
+    const token = tokenContext.document.rounds.find(r => r.candidates.some(c => c.account_key === 'instagram:new'))!.round_id
+    const unauthorizedDir = directory('not-in-original-pool', saved(), header + row('instagram', 'new', '', 'yes', '', token))
+    const unauthorizedBefore = disk(unauthorizedDir)
+    const unauthorizedError = caught(() => prepareTaskReviews(unauthorizedDir, state, [mk('instagram', 'new', { source_tasks: [1] })], t1, []))
+    ok('任务评审：旧名单尚未保存候选不授权人工行', unauthorizedError instanceof ReviewInputError && String(unauthorizedError).includes(join(unauthorizedDir, 'manual-feedback.csv')))
+    eq('任务评审：越界人工反馈拒绝不保存旧池', disk(unauthorizedDir), unauthorizedBefore)
+    const migrationTokenDir = directory('migration-token')
+    const migrationPrevious = [mk('tiktok', 'old', { fit: '✅' })]
+    const migrationTokenContext = prepareTaskReviews(migrationTokenDir, state, migrationPrevious, t0, [])
+    const migrationToken = migrationTokenContext.document.rounds[0].round_id
+    const outsideMigration = directory('manual-before-migration', undefined, header + row('tiktok', 'old', '', 'yes', '', migrationToken))
+    const outsideMigrationBefore = disk(outsideMigration)
+    const migrationAuthError = caught(() => prepareTaskReviews(outsideMigration, state, migrationPrevious, t0, []))
+    ok('任务评审：本次 legacy 迁移不能授权初始池外人工行', migrationAuthError instanceof ReviewInputError)
+    eq('任务评审：越界人工行拒绝后缺席正本仍缺席', disk(outsideMigration), outsideMigrationBefore)
+    const relationDir = directory('relations', saved(), header + row('tiktok', 'alpha', '', 'yes') + row('instagram', 'beta', '', 'no'))
+    const initialRelations = [mk('tiktok', 'alpha', { linked_handle: 'instagram:unanswered' })]
+    const relationContext = prepareTaskReviews(relationDir, state, [], t0, initialRelations)
+    initialRelations[0].linked_handle = 'instagram:beta'
+    eq('任务评审：调用方改关联输入不改变原关系快照', relationContext.project([], []), [])
+    relationContext.freezeCandidates([mk('instagram', 'new', { source_tasks: [1] })], t1)
+    relationContext.save(t1)
+    // Replace the disk text after preparation: project must still check the original validated text.
+    writeFileSync(join(relationDir, 'manual-feedback.csv'), header)
+    const relationBefore = disk(relationDir)
+    const newRelations = [mk('tiktok', 'alpha', { linked_handle: 'instagram:beta' })]
+    const conflict = caught(() => relationContext.project([mk('tiktok', 'alpha')], newRelations))
+    ok('任务评审：冻结保存后仍核原人工文本及新增完整关系冲突', conflict instanceof ReviewInputError && String(conflict).includes('tiktok:alpha') && String(conflict).includes('instagram:beta') && String(conflict).includes(join(relationDir, 'manual-feedback.csv')))
+    eq('任务评审：投影拒绝冲突不改文件字节或时间', disk(relationDir), relationBefore)
+
+    suite('D25', '当前 Agent 正本先投影，人工建议独立叠加')
+    const reviewed = saved()
+    reviewed.reviews['tiktok:alpha'] = {
+      account_keys: ['tiktok:alpha'], eligibility: '合格', adoption_priority: '备选',
+      observed_content: 'desk tutorials', work_evidence: 'post URL evidence',
+      natural_integration: 'desk scene', mismatch_risk: 'no observed issue',
+      brand_calibration_version: 'brand-v1', reviewed_at: t0,
+    }
+    const projectionDir = directory('projection', reviewed, header + row('tiktok', 'alpha', 'unknown', '', '  original note  ') + row('instagram', 'beta', '', 'yes'))
+    const input = [mk('instagram', 'outside', { score: 0 }), mk('tiktok', 'alpha', {
+      linked_handle: 'instagram:beta', fit: '✅', fit_reason: 'stale reason', outreach_draft: 'stale draft',
+      adoption_priority: '暂不采用', tier: 'C', score: 0, previously_recommended: 'old product',
+      manual_adopted: 'no', manual_content_fit: 'low', effective_priority: '暂不采用',
+    })]
+    const inputBefore = copy(input), projectionBefore = disk(projectionDir)
+    const projectedContext = prepareTaskReviews(projectionDir, state, [], t0, input)
+    const projected = projectedContext.project(input, input, 'brand-v1')
+    eq('任务评审：投影保持成员和原顺序', projected.map(c => `${c.platform}:${c.handle}`), ['instagram:outside', 'tiktok:alpha'])
+    eq('任务评审：先重建 Agent 字段并保留缺失 fit', [projected[1].eligibility, projected[1].adoption_priority, projected[1].review_status, projected[1].fit === undefined, projected[1].fit_reason === undefined, projected[1].outreach_draft === undefined], ['合格', '备选', '已评', true, true, true])
+    eq('任务评审：关联人工只改变独立有效建议', [projected[1].effective_priority, projected[1].effective_priority_account_key, projected[1].manual_eligible, projected[1].manual_adopted === undefined, projected[1].manual_content_fit === undefined, projected[1].manual_note], ['优先联系', 'instagram:beta', 'unknown', true, true, '  original note  '])
+    eq('任务评审：各平台人工行独立按主关联顺序保留', projected[1].manual_feedback_accounts!.map(r => [r.account_key, r.manual_adopted === undefined ? 'absent' : r.manual_adopted]), [['tiktok:alpha', 'absent'], ['instagram:beta', 'yes']])
+    eq('任务评审：投影不改分层分数及记忆标记', [projected[1].tier, projected[1].score, projected[1].previously_recommended], ['C', 0, 'old product'])
+    eq('任务评审：名单及嵌套输入不受投影修改', input, inputBefore)
+    projected[1].manual_feedback_accounts![0].manual_note = 'output edit'
+    projected[1].work_evidence = 'output evidence edit'
+    const again = projectedContext.project(input, input, 'brand-v1')
+    eq('任务评审：修改输出不改变后续投影或正本', [again[1].manual_note, again[1].work_evidence], ['  original note  ', 'post URL evidence'])
+    const staleVersion = projectedContext.project(input, input, 'brand-v2')[1]
+    eq('任务评审：当前校准版本控制状态且保留原判断', [staleVersion.review_status, staleVersion.eligibility, staleVersion.adoption_priority, projectedContext.document.reviews['tiktok:alpha'].brand_calibration_version], ['待重评', '合格', '备选', 'brand-v1'])
+    eq('任务评审：成功重复投影不改任务文件', disk(projectionDir), projectionBefore)
+    const fallbackDir = directory('agent-fallback', reviewed, header)
+    const fallback = prepareTaskReviews(fallbackDir, state, [], t0, [])
+    eq('任务评审：已评明确 Agent 建议可用于展示', fallback.project([mk('tiktok', 'alpha')], [], 'brand-v1')[0].effective_priority, '备选')
+    eq('任务评审：过期 Agent 建议展示为待核实', fallback.project([mk('tiktok', 'alpha')], [], 'brand-v2')[0].effective_priority, '待核实')
+
+    suite('D21', '真实保存失败不能吞掉待保存内容')
+    const retryDir = directory('retry', saved(), header)
+    const retry = prepareTaskReviews(retryDir, state, [], t0, [])
+    retry.freezeCandidates([mk('instagram', 'retry_new', { source_tasks: [1] })], t1)
+    const beforeFailure = disk(retryDir), held = join(root, 'held-retry')
+    // A regular file blocks the original directory path; the old document stays intact in held.
+    renameSync(retryDir, held)
+    writeFileSync(retryDir, 'filesystem path blocker')
+    const ioError = caught(() => retry.save(t1))
+    ok('任务评审：真实写入失败传播 IO 错误', ioError instanceof Error && ['ENOTDIR', 'EEXIST'].includes(String((ioError as NodeJS.ErrnoException).code)))
+    eq('任务评审：写入失败保留旧文件及更新时间', [disk(held), retry.document.updated_at], [beforeFailure, t0])
+    unlinkSync(retryDir)
+    renameSync(held, retryDir)
+    eq('任务评审：失败未消费内容恢复路径后可重试', retry.save(t2), true)
+    const retried = JSON.parse(rf(join(retryDir, 'agent-review.json'), 'utf8')) as AgentReviewDocument
+    eq('任务评审：重试写出待保存候选及成功时间', [retried.rounds.map(r => r.candidates.map(c => c.account_key)), retried.updated_at], [[['tiktok:alpha', 'instagram:beta'], ['instagram:retry_new']], t2])
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 
