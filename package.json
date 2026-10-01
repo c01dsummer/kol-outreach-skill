@@ -9,6 +9,7 @@
     "collect": "node --env-file-if-exists=.env node_modules/.bin/tsx scripts/collect.ts",
     "enrich": "node --env-file-if-exists=.env node_modules/.bin/tsx scripts/enrich.ts",
     "render": "node --env-file-if-exists=.env node_modules/.bin/tsx scripts/render.ts",
+    "feedback-template": "node --env-file-if-exists=.env node_modules/.bin/tsx scripts/feedback-template.ts",
     "test": "tsx scripts/test.ts",
     "size": "tsx scripts/check/size.ts",
     "spec": "tsx scripts/check/spec-sync.ts",

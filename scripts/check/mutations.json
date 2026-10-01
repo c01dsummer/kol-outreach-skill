@@ -10740,6 +10740,215 @@
       "kills": [
         "raw 联系核对不制造裸非法同平台同名别名或传递关系"
       ]
+    },
+    {
+      "id": "M-D26-a",
+      "req": "D26.a",
+      "why": "忽略未知或位置参数，未在读取任务前拒绝。",
+      "file": "scripts/feedback-template.ts",
+      "find": "  } else usage()",
+      "replace": "  } else {}",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-参数未知",
+        "模板入口-参数位置"
+      ]
+    },
+    {
+      "id": "M-D26-b",
+      "req": "D26.b",
+      "why": "跳过原任务和品牌输入合规性汇总，坏任务得到错误诊断或放行。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "  if (inputProblems.length) throw",
+      "replace": "  if (false) throw",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-任务品牌同时拒绝"
+      ]
+    },
+    {
+      "id": "M-D26-c",
+      "req": "D26.c",
+      "why": "把缺席 Agent 正本当成合法空池，直接创建人工模板。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "  if (saved.status === 'absent') {",
+      "replace": "  if (false) {",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-正本缺席拒绝"
+      ]
+    },
+    {
+      "id": "M-D26-d",
+      "req": "D26.d",
+      "why": "不核当前任务与冻结来源的一致性，旧来源错配仍可创建。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "  if (sourceProblems.length) {",
+      "replace": "  if (false) {",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-冻结来源核对"
+      ]
+    },
+    {
+      "id": "M-D26-e",
+      "req": "D26.e",
+      "why": "不要求完整旧名单已存在，采集原件或空默认代替缺席名单。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "  try { lstatSync(creatorsFile) }",
+      "replace": "  try {}",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-creators必须存在"
+      ]
+    },
+    {
+      "id": "M-D26-f",
+      "req": "D26.f",
+      "why": "把已存在坏采集原件当成缺席并采用空名单。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "  const inputs = loadReviewCreatorInputs(dir)",
+      "replace": "  const inputs = (() => { try { return loadReviewCreatorInputs(dir) } catch (error) { if (String(error).includes('creators.raw.json')) return { previous: [], raw: [], rawPresent: false }; throw error } })()",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-raw坏原件拒绝",
+        "模板入口-raw悬空不是缺席"
+      ]
+    },
+    {
+      "id": "M-D26-g",
+      "req": "D26.g",
+      "why": "raw 已存在时只用 raw 校验关联，丢掉完整旧名单独有的直接关系。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "    [...inputs.previous, ...inputs.raw], append)",
+      "replace": "    inputs.raw, append)",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-完整旧名单与现存raw联合关系"
+      ]
+    },
+    {
+      "id": "M-D26-h",
+      "req": "D26.h",
+      "why": "把人工目标的读取失败当成缺席，悬空目标被生成替代内容。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "  catch (error) { throw new ReviewInputError([`${file} 无法读取：${String(error)}`]) }",
+      "replace": "  catch (error) { return undefined }",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-人工已存在不可读"
+      ]
+    },
+    {
+      "id": "M-D26-i",
+      "req": "D26.i",
+      "why": "未显式 append 时也授权追加，已有人工目标不再拒绝覆盖。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "    [...inputs.previous, ...inputs.raw], append)",
+      "replace": "    [...inputs.previous, ...inputs.raw], true)",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-默认拒绝已有"
+      ]
+    },
+    {
+      "id": "M-D26-j",
+      "req": "D26.j",
+      "why": "实际新建时丢掉 UTF-8 BOM，保存字节不符合模板契约。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "writeFileAtomic(file, plan.bytes)",
+      "replace": "writeFileAtomic(file, plan.action === 'create' ? plan.bytes.subarray(3) : plan.bytes)",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-create字节"
+      ]
+    },
+    {
+      "id": "M-D26-k",
+      "req": "D26.k",
+      "why": "忽略已读取人工目标，把坏旧 CSV 重新当成新建计划。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "planManualFeedbackTemplate(existing, file, saved.document,",
+      "replace": "planManualFeedbackTemplate(undefined, file, saved.document,",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-append先完整校验"
+      ]
+    },
+    {
+      "id": "M-D26-l",
+      "req": "D26.l",
+      "why": "实际追加只保存原前缀之后的新字节，丢掉已有人工原作答。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "writeFileAtomic(file, plan.bytes)",
+      "replace": "writeFileAtomic(file, plan.action === 'append' ? plan.bytes.subarray(existing!.length) : plan.bytes)",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-append字节"
+      ]
+    },
+    {
+      "id": "M-D26-m",
+      "req": "D26.m",
+      "why": "全池已覆盖仍同字节保存，破坏 unchanged 零写入并触发真实只读失败。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "  if (plan.action !== 'unchanged') writeFileAtomic(file, plan.bytes)",
+      "replace": "  if (plan.action !== 'unchanged') writeFileAtomic(file, plan.bytes)\n  else writeFileAtomic(file, existing!)",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-unchanged零写"
+      ]
+    },
+    {
+      "id": "M-D26-n",
+      "req": "D26.n",
+      "why": "成功 JSON 的新增平台账号数加一，与真实保存行数不一致。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "added_accounts: plan.added_accounts }",
+      "replace": "added_accounts: plan.added_accounts + 1 }",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-create成功协议",
+        "模板入口-append成功协议",
+        "模板入口-unchanged成功协议"
+      ]
+    },
+    {
+      "id": "M-D26-o",
+      "req": "D26.o",
+      "why": "把真实创建或追加保存错误归为输入错误退出码 2。",
+      "file": "scripts/feedback-template.ts",
+      "find": "  process.exitCode = error instanceof ReviewInputError ? 2 : 1",
+      "replace": "  process.exitCode = error instanceof ReviewInputError ? 2 : 2",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-create保存失败",
+        "模板入口-append保存失败"
+      ]
+    },
+    {
+      "id": "M-D26-p",
+      "req": "D26.p",
+      "why": "成功模板写回任务原件，改变原费用及任务字节。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "  return { file, status: plan.action, added_accounts: plan.added_accounts }",
+      "replace": "  writeFileAtomic(taskFile(dir), JSON.stringify(state))\n  return { file, status: plan.action, added_accounts: plan.added_accounts }",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-所有源文件原字节"
+      ]
+    },
+    {
+      "id": "M-D26-q",
+      "req": "D26.q",
+      "why": "本地模板命令额外发外部 fetch 请求。",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "  return { file, status: plan.action, added_accounts: plan.added_accounts }",
+      "replace": "  void fetch('https://example.invalid/template').catch(() => {})\n  return { file, status: plan.action, added_accounts: plan.added_accounts }",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-零外部请求"
+      ]
     }
   ],
   "exemptions": [

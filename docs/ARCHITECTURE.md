@@ -99,6 +99,8 @@
 | `scripts/lib/task-reviews.ts` | 逻辑 | D21 D22 D23 D25 P1 | 协调任务评审的只读准备、候选冻结、当前投影与显式保存；人工授权只取初始已保存轮次，保存成功后才推进已保存基线；collect、enrich、render 共用此边界 |
 | `scripts/lib/manual-feedback.ts` | 逻辑 | D23 P1 | 人工 CSV 原文的严格解析、物理行号诊断、冻结账号与轮次匹配，以及已有显式异平台关联的冲突核验；不写文件，不改 Agent 判断，也不生成有效建议或统计 |
 | `scripts/lib/manual-feedback-template.ts` | 逻辑 | D24 P1 | 以确认缺席或既有 Buffer 生成模板字节计划；默认拒绝既有内容，显式追加先核完整人工表，只补冻结池缺席账号并保留原字节前缀；不读写文件 |
+| `scripts/feedback-template.ts` | 入口 | D26 P1 P3 | 只接受必填 --dir 与显式 --append，调用模板协调边界，诊断进 stderr；实际保存或合法无变化后才输出机械 JSON |
+| `scripts/lib/feedback-template-task.ts` | 逻辑 | D26 D24 P1 P3 | 只读准备已保存任务、冻结正本及完整名单关系，先拒绝坏输入再生成字节计划；仅保存人工目标，保存失败保原件，无变化不写，不迁移或冻结 |
 | `scripts/lib/effective-priority.ts` | 逻辑 | D25 P1 | 消费 Agent 投影、已校验人工行及冻结池，分别保留平台作答并生成带人工来源的有效建议；不改 Agent 判断、不筛选或排序、不读写文件 |
 | `scripts/probe-ig-paging.ts` | 入口 | — | 核实工具，不在任何管线上：默认只打一次报响应形状；`--chain N` 把上一响应的 `pagination_token`（官方 spec 声明的参数名）接进下一次；`--repeat N` 原样重发。`--chain` 同时跑与实际链长相等的重发曲线，最多发 2N 次请求。两条曲线各报累计去重作者、条目及当次差值；端点会漂，差值不能归因给游标或重发。作者数按可用的 id / username 键去重；缺身份可能少计，同一作者换键可能多计。末尾不涨只说得出「这 N 次之内没再涨」；某次响应没有可继续令牌只使本次链停止，不说明匹配结果已耗尽。 |
 | `scripts/collect.ts` | 入口 | D6 D21 D22 D23 D25 U9 P3 F7 D4 F9 | 轮转采集不让第一个关键词吃掉全部配额，**且任务列表里每个关键词×平台都至少被问过一次** —— 达标之后仍然给「一页都没抓过」的任务补第一页，第一页之后才按达标停（F9）。⚠️ 它保证的是**问过**，不保证问到多少人；预算比它优先，不够抓齐第一页时照旧存断点退 3；记忆读不出来退 2 且不产出名单 |
@@ -111,7 +113,7 @@
 | `scripts/lib/identity.ts` | 逻辑 | D1 D2 D3 D11 P1 | 跨平台同人识别与合并；不确定不合并，未知粉丝数相加仍是未知 |
 | `scripts/lib/memory.ts` | 逻辑 | P4 D4 D6 | 跨任务记忆的读写与过滤；每次过滤先建立已存关联的无向邻接；调用方另提供完整直接关系时，只给候选主/关联身份增加其合法直接邻居，再查这些身份的已存记忆关联，旧推荐标注每次按当前记忆重算；「文件不存在」与「读不出来」是两个状态，后者抛而不是退化，且绝不拿它去覆盖原文件；解析成功还要过结构校验，键按 D1 规范化，形状不对或撞键当读不出来；写回前生成的键过同一道校验；写回走临时文件加改名，写不进去报为未写回而不中断交付 |
 | `scripts/memory-recheck-test.ts` | 检查 | P4 P5 D4 | 独立黑盒夹具在隔离任务及记忆目录中运行真实 render 入口，验证当前联系状态、关联身份、拒绝坏记忆及声明；由需求测试选组调用 |
-| `scripts/lib/atomic.ts` | 逻辑 | D4 | **唯一一份**整体替换写入：临时文件按最严权限建、目标原有的权限位带过去、失败清半成品、写之前清掉已死进程留下的残留（活着的与刚写下的不动，清不掉不算失败）、目标只读时不替换（改名会绕过文件自己的权限）、目标是软链时写它指向的那份；改名前刷文件、改名后与新建目录逐层尽力刷目录 —— 尽力而为，不作保证（ADR-50）。记忆、任务目录的状态文件、四个交付物、以及两份覆盖记录（`test.ts` 的单元认领、`selfcheck.ts` 的入口认领）都经它落盘 —— 各写一份时同一个权限位的 bug 修好一次又原样重现 |
+| `scripts/lib/atomic.ts` | 逻辑 | D4 | **唯一一份**整体替换写入：临时文件按最严权限建、目标原有的权限位带过去、失败清半成品、写之前清掉已死进程留下的残留（活着的与刚写下的不动，清不掉不算失败）、目标只读时不替换（改名会绕过文件自己的权限）、目标是软链时写它指向的那份；改名前刷文件、改名后与新建目录逐层尽力刷目录 —— 尽力而为，不作保证（ADR-50）。记忆、任务目录的状态文件、人工模板目标、四个交付物、以及两份覆盖记录（`test.ts` 的单元认领、`selfcheck.ts` 的入口认领）都经它落盘 —— 各写一份时同一个权限位的 bug 修好一次又原样重现 |
 | `scripts/lib/cost-ledger.ts` | 逻辑 | D12 D13 P1 P3 P5 | 精确金额、费用账校验与预留结算；只接收固定价目，不依赖文件或网络；总上限修改不重算历史项 |
 | `scripts/providers/tikhub-pricing.ts` | 适配 | D12 P5 | 固定公开价目的版本与完整端点报价，供费用账核对历史依据；不远程查价、不推断账户账单 |
 | `scripts/lib/budget.ts` | 逻辑 | D13 D14 P3 F7 | 连接价目与费用账，延迟检查付费资格；同一 state 同步账目/次数，由任务入口注入费用保存回调，预留和终态保存失败锁定该实例；process 预算不落盘 |
@@ -182,10 +184,11 @@ render 联系复核同时消费旧名单与完整采集原件的当前合法直�
 新评审三格式输出消费上述已校验投影与已完成基础分层、地域及风险步骤的名单，不读取评审或人工文件，不重新判断有效建议，也不拥有 memory 过滤。关联 Agent 的四项证据由其自身正本投影拥有；换主账号或删字段时不能沿用另一平台或旧名单残留（D21.r）。
 调用方以 `ReviewOutputOptions={mode?:'review'}` 显式选择评审输出：`buildSheets` 的第二参数、`renderHtml` 的第三参数；省略选项保留旧行为。CSV 调用方显式选择 `REVIEW_HEADERS`、`sortForReviewOutput` 和 `toReviewRow`，写出仍走既有 CSV writer；XLSX 仍走既有 writer。列及序列化契约见 `skill/references/output-format.md`，三个格式不能分别计算人工优先级或补造判断。
 CSV/HTML 在完整名单上先排有效建议，再用原层级、分数与同分规则；XLSX 只在各 A/B/C 表内排有效建议及原分数、同分规则。缺席的有效建议只在排序时落在待核实位置，字段保持缺席；排序不改输入名单、判断、层级或分数。HTML 复用现有卡片与单层筛选，评审显示不授予默认全量或双筛选的行为。
-公共 formatter 调用省略模式时继续保留旧输出（U9.a）；生产 render 显式选择评审三格式，collect、enrich 只履行各自文件职责，不自动渲染报告。U1 在本次生产启用时退役，旧公共默认的层级排序由 U9.a 保留；U6 的单层 tab、默认第一个非空层及平台标签继续生效。默认全量、双筛选、模板命令与审核统计仍未启用。
+公共 formatter 调用省略模式时继续保留旧输出（U9.a）；生产 render 显式选择评审三格式，collect、enrich 只履行各自文件职责，不自动渲染报告。U1 在本次生产启用时退役，旧公共默认的层级排序由 U9.a 保留；U6 的单层 tab、默认第一个非空层及平台标签继续生效。默认全量、双筛选与审核统计仍未启用。
 
 模板字节计划消费同一已校验冻结池、完整关联名单及调用方提供的原 Buffer；`undefined` 只表示调用方已确认文件缺席，读取失败不能以它代替。既有内容默认拒绝；显式追加先完整校验人工 CSV，再按冻结池顺序补缺席账号，原轮次归属及全部旧字节保持不变。新增七个人工格为空，不由 Agent 或关联平台补人工答案。无新增时返回没有写入字节的 `unchanged`；该模块不拥有文件读取、原子写、交付或 memory（D24、ADR-130）。
-本次先启用内部生成能力，`feedback-template` 命令仍待完整运行与导出契约可用后接入；文件存在判定、读取异常与缺席的区分、默认防覆盖写入、写失败保原件和无变化不写，须在真实入口另证。报告生成不写人工表也须由报告入口证明，字节计划不代替这些磁盘证据。
+`feedback-template` 的本地入口只消费已保存且通过 D21/D22 校验的正本与冻结池，并按 D22.h 核对当前同下标任务来源；正本缺席提示先由既有生产命令保存真实轮次，不在此迁移 legacy、冻结候选或保存正本。`task.json` 只读校验 JSON 对象、原样 D16 任务及存在时的 D20 品牌输入，同文件两类问题均报；不套新任务缺省，不要求 key 或可付费费用账。完整 `creators.json` 必须存在、可读且为数组；`creators.raw.json` 只在路径真缺席时回退旧名单，坏 JSON、非数组、读取失败或悬空软链均拒绝。追加核验使用两份完整名单已保存的合法直接 `linked_handle`，包括 raw-only 关系；不先过滤、不做新同人识别、不借评审别名、人工答案、同名或传递关系补造关联。此协调模块不调用会迁移或冻结的任务评审协调器；输入准备拒绝以 `ReviewInputError` 交入口报 2，实际保存异常保留真实原因交入口按目标报 1（D26、ADR-130）。
+人工目标只有真缺席才可创建；已有不可读或悬空软链不是缺席。默认任何已有目标均拒绝覆盖，显式追加先核完整原 CSV，即使无新账号也不能跳过。新增行按原冻结轮次与候选顺序，平台账号规范化、七个人工格全空；只补缺席账号，不另添同账号重复复评行。旧 Buffer 前缀、原作答与轮次保留，旧末尾无 LF 时只补一个分隔 LF。合法 `unchanged` 不执行保存，保留目标身份及修改时间；其余计划仅经整体替换实际保存 `manual-feedback.csv`。保存失败保持原目标字节，首次创建失败最终目标仍缺席；其后才输出成功 JSON。任务、正本、raw、完整名单、交付物、memory 和费用账全程不写（D24、D26）。
 
 `mutate.ts` 只有在 `kills` 全部能归到验证者分组时才选跑；归不了组的仍整跑。
 每种实际使用的验证者与组名组合，先在隔离副本用正常源码跑一次基线，确认断言执行完且全绿，再允许施加变异；这份基线不拥有完整测试的审计认领。
@@ -325,13 +328,16 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | 三个入口读旧名单／采集原件、校验评审正本／冻结来源／人工表 → 才改额、预留、请求或覆盖名单 | `scripts/collect.ts`、`scripts/enrich.ts`、`scripts/render.ts`、`scripts/lib/task-reviews.ts` | 坏输入会在花钱或覆盖后才拒绝；旧派生判断可能绕过正本继续进入请求、分层或交付 | M-U9-o M-U9-p M-U9-q M-U9-w M-U9-x M-U9-y M-U9-z |
 | collect 保留实际采集与费用 → 冻结新池 → 以初始人工授权及过滤前完整直接关系重验投影 → 保存正本 → 覆盖配对名单 | `scripts/collect.ts`、`scripts/lib/pipeline.ts`、`scripts/lib/task-reviews.ts` | 本次新发现关系产生冲突时，先保存新池会在拒绝前改变冻结分母；只传幸存者会漏掉已过滤账号的冲突 | M-U9-o M-U9-r M-U9-w M-U9-x |
 | render 当前 Agent／人工投影与完整直接关系 → memory／同行与公开样本复核 → 唯一一次计分分层 → 评审排序及三个 formatter | `scripts/render.ts` | 人工采用可能绕过联系过滤，旧 fit 或旧品牌判断可能形成错误层级，三格式也可能交出不同的有效建议 | M-U9-o M-U9-s M-U9-t M-U9-u M-U9-v M-U9-y M-U9-aa |
+| 模板参数与 task／品牌原值 → 已保存正本及冻结来源 → 完整旧名单／raw 直接关系 → 才读目标并计划写入 | `scripts/feedback-template.ts`、`scripts/lib/feedback-template-task.ts` | 坏输入在写入后才拒绝；缺席正本被迁移或冻结，坏 raw 被当成缺席，过滤后关系漏掉人工冲突 | M-D26-a–i、M-D26-p、M-D26-q |
+| 显式追加先核完整人工 CSV → 再判新增账号／unchanged | `scripts/lib/feedback-template-task.ts`、`scripts/lib/manual-feedback-template.ts` | 无新增时放过坏人工表，或重复写入同账号；同字节重写改变文件身份与修改时间 | M-D26-g、M-D26-k–m |
+| 非 unchanged 计划实际保存成功；合法 unchanged 零写入确认 → 才输出成功 JSON | `scripts/lib/feedback-template-task.ts`、`scripts/feedback-template.ts` | 保存失败仍报成功，或失败覆盖旧作答、留下首次创建目标 | M-D26-j、M-D26-l–o |
 <!-- END:ORDER -->
 
 ---
 
 ## 缝隙契约：Agent ↔ scripts
 
-四个入口都是**一次性进程**，彼此之间只通过磁盘上的文件交接。
+各入口都是**一次性进程**，彼此之间只通过磁盘上的文件交接。
 Agent 是编排者，它读 stdout 做决策。
 
 | 入口 | 读 | 写 | 退出码 |
@@ -340,9 +346,12 @@ Agent 是编排者，它读 stdout 做决策。
 | `collect` | `--config task.json` 或 `--resume <dir>` `[--ignore-memory]`；旧名单、采集原件、评审正本及已有人工表 | `task.json` `creators.raw.json` `creators.json` · 内容变化时 `agent-review.json` | 0 · 1 · 2 · **3** |
 | `enrich` | `--dir <dir>`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv`） | `enrichment.json` `task.json` | 0 · 1 · 2 · **3** |
 | `render` | `--dir <dir>` `[--ignore-memory]`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv` · `enrichment.json` · 当前 `memory/creators.json`） | 内容变化时 `agent-review.json` · `task.json` 的去重状态 · `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` · **`memory/creators.json`** | 0 · 1 · 2 |
+| `feedback-template` | 必填一次 `--dir <dir>`、可选一次 `--append`；既有 `task.json`、已保存 `agent-review.json`、完整 `creators.json`、存在时的 `creators.raw.json` 及人工目标 | 仅 `manual-feedback.csv` 的创建或显式追加；unchanged 不写 | 0 · 1 · 2 |
 
 **stdout 是结构化 JSON，stderr 是进度。** 这个分工是硬约束 —— Agent 解析 stdout，
 往里混进度信息会让解析在最需要它的时候（长任务、预算告急）失败。
+
+`npm run --silent feedback-template -- --dir <dir> [--append]` 提供 D26 的机械 JSON 出口；普通 `npm run` 自身可打印脚本 banner。相对目录按调用 cwd 解析，空白路径、缺值、未知／重复参数或位置参数在任务读写前以 2 拒绝并给用法，不建目录。输入读取、结构、冻结来源或人工表问题均退出 2，stderr 点名实际文件及问题，人工行带物理行；保存失败退出 1 并带目标及真实原因，两者均无成功 JSON。实际保存成功或合法 unchanged 退出 0，只输出 `{file:absolute_path,status:'create'|'append'|'unchanged',added_accounts:number}`；账号行数不是独立人数，unchanged 的新增数为 0（D26）。
 
 `probe` 的 `sample[].top_post` 供 Agent 判断方向：作品字段缺席或空数组写 `（未查询）`，
 有作品则给第一条文案的前 120 字符，空串照留（P1.i）。它不是最高播放量，也不是主页近期样本；
@@ -406,7 +415,8 @@ Agent 判断、人工作答与采集证据各有正本；`creators.json` 的判�
 |---|---|
 | `collect`（脚本） | 采集与 profile 原始字段、`source_keyword`、`source_dimension`、`discovery_sources` 及 raw 累加器；保全旧评审、冻结候选并保存当前名单投影 |
 | **Agent** | 只编辑 `agent-review.json` 对应平台账号的原判断、四项证据、兼容 fit／理由／草稿及实际校准版本；保留冻结轮次、来源与其他评审 |
-| **人工** | `manual-feedback.csv` 的原作答；脚本只读，Agent 不代填 |
+| **人工** | `manual-feedback.csv` 的原作答；Agent 不代填，collect/enrich/render 只读 |
+| `feedback-template`（脚本） | 只创建模板结构或显式追加冻结池缺席账号的空白七字段，不改已有人工字节、轮次、判断或源文件 |
 | `enrich`（脚本） | 只写 `enrichment.json` 与任务状态，不碰评审正本、人工表、raw 或名单 |
 | `render`（脚本） | 当前 Agent／人工投影、`score`、`tier`、`tier_adjustments`、公开指标摘要及交付；正本仅保存迁移或冻结变化，不重写原判断 |
 
