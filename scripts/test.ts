@@ -195,6 +195,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd25-effective-priority', needs: [] },
   { id: 'd21-tier-guards', needs: [] },
   { id: 'u9-review-output', needs: [] },
+  { id: 'p1-legacy-score-output', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -11547,6 +11548,186 @@ await group('u9-review-output', () => {
   eq('U9.a 默认HTML独立确认仍用调用方原顺序', oldNodes.filter(n => n.tag === 'a' && fixtures.some(c => c.profile_url === n.a.href)).map(n => fixtures.find(c => c.profile_url === n.a.href)?.handle), ['zeros', 'missing', 'main'])
 
 })
+await group('p1-legacy-score-output', () => {
+  // Independent contract test: /private/tmp/kol-legacy-score-contract.md and P1.e.
+  // Legal Creator input keeps score absent, 0 and 37; no ranking prepares the fixture.
+  const creators: Creator[] = [
+    mk('tiktok', 'legacy_missing', { tier: 'A', profile_url: 'https://www.tiktok.com/@legacy_missing' }),
+    mk('instagram', 'legacy_zero', { tier: 'A', score: 0, profile_url: 'https://www.instagram.com/legacy_zero/' }),
+    mk('tiktok', 'legacy_known', { tier: 'A', score: 37, profile_url: 'https://www.tiktok.com/@legacy_known' }),
+  ]
+  const before = structuredClone(creators)
+  const meta = {
+    product: '评分状态验证', market: 'US', platforms: ['tiktok', 'instagram'], total: 3,
+    tiers: { A: 3, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0, enriched: false,
+    memory_status: 'ok', memory_written: false, keywords: [], cost_status: 'unknown-history',
+    cost_scope: 'task', cost_estimate_usd: null, budget_usd: '1', cost_http_200_usd: null,
+    cost_unknown_result_usd: null, cost_pending_usd: null, cost_basis: '历史费用未知', cost_problems: [],
+  }
+  const out = join('output', 'legacy-score-validation')
+  mkdirSync(out, { recursive: true })
+  writeFileSync(join(out, 'input.json'), JSON.stringify({ creators, meta }, null, 2))
+  const direct = creators.map(c => toRow(c))
+  const sorted = sortForOutput(creators)
+  const sheets = buildSheets(creators)
+  writeCsv(join(out, 'kol.csv'), HEADERS, sorted.map(c => toRow(c)))
+  writeXlsx(join(out, 'kol.xlsx'), sheets)
+  writeFileSync(join(out, 'kol.html'), renderHtml(creators, meta))
+
+  // CSV oracle follows quoted-field CSV grammar, independently of the serializer.
+  const parseCsv = (source: string): string[][] => {
+    const rows: string[][] = []; let row: string[] = [], value = '', quoted = false
+    for (let i = source.charCodeAt(0) === 0xfeff ? 1 : 0; i < source.length; i++) {
+      const ch = source[i]
+      if (ch === '"') {
+        if (quoted && source[i + 1] === '"') { value += '"'; i++ } else quoted = !quoted
+      } else if (!quoted && (ch === ',' || ch === '\n' || ch === '\r')) {
+        row.push(value); value = ''
+        if (ch !== ',') { rows.push(row); row = []; if (ch === '\r' && source[i + 1] === '\n') i++ }
+      } else value += ch
+    }
+    if (value.length || row.length) { row.push(value); rows.push(row) }
+    if (quoted) throw new Error('independent CSV reader: unclosed quoted field')
+    return rows
+  }
+  const csv = parseCsv(rf(join(out, 'kol.csv'), 'utf8'))
+  const byProfile = (rows: string[][], c: Creator) => rows.filter(row => row.includes(c.profile_url))
+  const csvScore = (c: Creator) => byProfile(csv.slice(1), c)[0]?.[1]
+  const orderedProfiles = (rows: string[][]) => rows.map(row => creators.find(c => row.includes(c.profile_url))?.profile_url)
+  const expectedOrder = [creators[2].profile_url, creators[1].profile_url, creators[0].profile_url]
+  const issues = (): { count: number, first3: string[] } => ({ count: 0, first3: [] })
+  const note = (result: ReturnType<typeof issues>, message: string) => {
+    result.count++; if (result.first3.length < 3) result.first3.push(message)
+  }
+  const clear = { count: 0, first3: [] }
+
+  // ZIP central-directory and OOXML readers use the external file formats only.
+  const archive = rf(join(out, 'kol.xlsx')); const entries = new Map<string, string>()
+  let end = archive.length - 22
+  while (end >= 0 && archive.readUInt32LE(end) !== 0x06054b50) end--
+  if (end < 0) throw new Error('independent ZIP reader: missing central directory')
+  let offset = archive.readUInt32LE(end + 16)
+  for (let i = 0; i < archive.readUInt16LE(end + 10); i++) {
+    if (archive.readUInt32LE(offset) !== 0x02014b50) throw new Error('independent ZIP reader: invalid directory entry')
+    const method = archive.readUInt16LE(offset + 10), size = archive.readUInt32LE(offset + 20)
+    const n = archive.readUInt16LE(offset + 28), extra = archive.readUInt16LE(offset + 30), comment = archive.readUInt16LE(offset + 32)
+    const name = archive.subarray(offset + 46, offset + 46 + n).toString('utf8'), local = archive.readUInt32LE(offset + 42)
+    const start = local + 30 + archive.readUInt16LE(local + 26) + archive.readUInt16LE(local + 28)
+    const bytes = archive.subarray(start, start + size)
+    if (method !== 0 && method !== 8) throw new Error(`independent ZIP reader: unsupported method ${method}`)
+    entries.set(name, (method === 8 ? inflateRawSync(bytes) : bytes).toString('utf8'))
+    offset += 46 + n + extra + comment
+  }
+  const decode = (s: string): string => s.replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (_, entity: string) => {
+    if (entity[0] === '#') return String.fromCodePoint(entity[1].toLowerCase() === 'x' ? parseInt(entity.slice(2), 16) : Number(entity.slice(1)))
+    return ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" } as Record<string, string>)[entity.toLowerCase()]
+  })
+  const attrs = (tag: string): Record<string, string> => Object.fromEntries([...tag.matchAll(/([:\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map(m => [m[1], decode(m[2] ?? m[3])]))
+  const xmlText = (xml: string) => [...xml.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m => decode(m[1])).join('')
+  const shared = [...(entries.get('xl/sharedStrings.xml') ?? '').matchAll(/<si(?:\s[^>]*)?>([\s\S]*?)<\/si>/g)].map(m => xmlText(m[1]))
+  const workbook = [...(entries.get('xl/workbook.xml') ?? '').matchAll(/<sheet\b[^>]*\/?\s*>/g)].map(m => attrs(m[0]))
+  const rels = new Map([...(entries.get('xl/_rels/workbook.xml.rels') ?? '').matchAll(/<Relationship\b[^>]*\/?\s*>/g)].map(m => { const a = attrs(m[0]); return [a.Id, a.Target] }))
+  type ReadCell = { display: string, t?: string, v?: string }
+  const readSheet = (sheet: Record<string, string>): ReadCell[][] => {
+    const target = rels.get(sheet['r:id'])
+    if (target === undefined) throw new Error('independent OOXML reader: missing worksheet relationship')
+    const path = target.startsWith('/') ? target.slice(1) : join('xl', target)
+    const xml = entries.get(path)
+    if (xml === undefined) throw new Error('independent OOXML reader: missing worksheet')
+    return [...xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)].map(row => {
+      const cells: ReadCell[] = []
+      for (const m of row[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+        const a = attrs(m[1]), body = m[2] ?? '', v = body.match(/<v>([\s\S]*?)<\/v>/)?.[1]
+        let col = 0; for (const ch of a.r.match(/^[A-Z]+/)?.[0] ?? '') col = col * 26 + ch.charCodeAt(0) - 64
+        cells[col - 1] = { t: a.t, v, display: a.t === 's' ? shared[Number(v)] : a.t === 'inlineStr' ? xmlText(body) : decode(v ?? '') }
+      }
+      return cells
+    })
+  }
+  const xlsx = workbook.map(readSheet)
+  const xlsxRows = xlsx[0]?.slice(1) ?? []
+  const xlsxScore = (c: Creator) => xlsxRows.find(row => row.some(cell => cell?.display === c.profile_url))?.[1]
+  const xlsxHeaders = issues()
+  xlsx.forEach((sheet, i) => {
+    if (!isDeepStrictEqual(sheet[0]?.map(cell => cell?.display), HEADERS)) note(xlsxHeaders, `worksheet ${i + 1} headers differ`)
+  })
+
+  // Parse cards into a tree so another card or the page's other “未知” cannot satisfy .sc.
+  type HtmlNode = { tag: string, attrs: Record<string, string>, children: (HtmlNode | string)[], parent?: HtmlNode }
+  const html = rf(join(out, 'kol.html'), 'utf8')
+  const root: HtmlNode = { tag: 'root', attrs: {}, children: [] }, stack = [root]
+  const visibleMarkup = html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
+  for (const token of visibleMarkup.match(/<!--[\s\S]*?-->|<![^>]*>|<\/?[^>]+>|[^<]+/g) ?? []) {
+    if (token.startsWith('<!')) continue
+    if (token.startsWith('</')) {
+      const tag = token.match(/^<\/([\w-]+)/)?.[1]?.toLowerCase()
+      for (let i = stack.length - 1; i > 0; i--) if (stack[i].tag === tag) { stack.length = i; break }
+    } else if (token.startsWith('<')) {
+      const tag = token.match(/^<([\w-]+)/)?.[1]?.toLowerCase()
+      if (tag === undefined) continue
+      const parent = stack[stack.length - 1], node: HtmlNode = { tag, attrs: attrs(token), children: [], parent }
+      parent.children.push(node)
+      if (!token.endsWith('/>') && !['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'].includes(tag)) stack.push(node)
+    } else stack[stack.length - 1].children.push(decode(token))
+  }
+  const descendants = (node: HtmlNode): HtmlNode[] => node.children.flatMap(c => typeof c === 'string' ? [] : [c, ...descendants(c)])
+  const textOf = (node: HtmlNode): string => node.children.map(c => typeof c === 'string' ? c : textOf(c)).join('').trim()
+  const hasClass = (node: HtmlNode, name: string) => (node.attrs.class ?? '').split(/\s+/).includes(name)
+  const cards = descendants(root).filter(node => hasClass(node, 'card'))
+  const cardsFor = (c: Creator) => cards.filter(card => descendants(card).some(node => node.tag === 'a' && node.attrs.href === c.profile_url))
+  const scoreNodes = (c: Creator) => cardsFor(c).flatMap(card => descendants(card).filter(node => hasClass(node, 'sc')))
+  const htmlScore = (c: Creator) => scoreNodes(c).length === 1 ? textOf(scoreNodes(c)[0]) : undefined
+  const htmlAccounts = issues(), platforms = issues(), visibility = issues()
+  if (cards.length !== 3) note(htmlAccounts, `card count ${cards.length}`)
+  creators.forEach(c => {
+    const matches = cardsFor(c)
+    if (matches.length !== 1) note(htmlAccounts, `${c.handle}: matching card count ${matches.length}`)
+    if (scoreNodes(c).length !== 1) note(htmlAccounts, `${c.handle}: score node count ${scoreNodes(c).length}`)
+    if (matches.length === 1 && !new RegExp(c.platform, 'i').test(textOf(matches[0]))) note(platforms, `${c.handle}: platform label absent`)
+    for (let node: HtmlNode | undefined = matches[0]; node !== undefined; node = node.parent) {
+      if (node.attrs.hidden !== undefined || /display\s*:\s*none/i.test(node.attrs.style ?? '') || hasClass(node, 'hidden')) note(visibility, `${c.handle}: A card initially hidden`)
+    }
+  })
+  const observedScore = (value: unknown) => ({ type: typeof value, value: value === undefined ? 'undefined' : value })
+  writeFileSync(join(out, 'observations.json'), JSON.stringify({
+    direct: direct.map(row => observedScore(row[1])), csv: csv.map(row => row.slice(0, 2)),
+    xlsxSheets: workbook.map(sheet => sheet.name), xlsxScores: creators.map(c => ({ profile_url: c.profile_url, cell: xlsxScore(c) })),
+    htmlScores: creators.map(c => ({ profile_url: c.profile_url, score: observedScore(htmlScore(c)) })),
+  }, null, 2))
+
+  suite('P1', '旧默认输出区分未计算评分与真实数值')
+  criterion('P1.e', 'P1.f')
+  eq('legacy-row-missing-score', direct[0][1], '未查询')
+  eq('legacy-row-zero-score', direct[1][1], 0)
+  eq('legacy-row-known-score', direct[2][1], 37)
+  eq('legacy-default-header-count', HEADERS.length, 43)
+  eq('legacy-default-sort-order', sorted.map(c => c.profile_url), expectedOrder)
+  suite('U1', '真实 CSV 读回保持旧列及评分状态')
+  criterion('U1.a', 'U1.b')
+  eq('legacy-csv-headers', csv[0], HEADERS)
+  eq('legacy-csv-missing-score', csvScore(creators[0]), '未查询')
+  eq('legacy-csv-zero-score', csvScore(creators[1]), '0')
+  eq('legacy-csv-known-score', csvScore(creators[2]), '37')
+  eq('legacy-csv-sort-order', orderedProfiles(csv.slice(1)), expectedOrder)
+  suite('U5', '真实 XLSX 读回保持三表及数值单元格')
+  criterion('U5.a', 'U5.b')
+  ok('legacy-xlsx-default-three-sheets', workbook.length === 3 && ['A', 'B', 'C'].every((tier, i) => new RegExp(`^${tier}级.*\\(${i === 0 ? 3 : 0}\\)$`).test(workbook[i].name) && xlsx[i].length === (i === 0 ? 4 : 1)))
+  eq('legacy-xlsx-headers', xlsxHeaders, clear)
+  eq('legacy-xlsx-missing-score', xlsxScore(creators[0])?.display, '未查询')
+  ok('legacy-xlsx-zero-numeric-score', [undefined, 'n'].includes(xlsxScore(creators[1])?.t) && xlsxScore(creators[1])?.v === '0')
+  ok('legacy-xlsx-known-numeric-score', [undefined, 'n'].includes(xlsxScore(creators[2])?.t) && xlsxScore(creators[2])?.v === '37')
+  eq('legacy-xlsx-sort-order', orderedProfiles(xlsxRows.map(row => row.map(cell => cell?.display))), expectedOrder)
+  suite('U6', '真实 HTML 定位账号自身的分数节点')
+  criterion('U6.b')
+  eq('legacy-html-account-score-nodes', htmlAccounts, clear)
+  eq('legacy-html-missing-score', htmlScore(creators[0]), '未知')
+  eq('legacy-html-zero-score', htmlScore(creators[1]), '0')
+  eq('legacy-html-known-score', htmlScore(creators[2]), '37')
+  eq('legacy-html-platform-labels', platforms, clear)
+  eq('legacy-html-default-A-visible', visibility, clear)
+  eq('legacy-input-score-states-preserved', isDeepStrictEqual(creators, before), true)
+})
+
 
 if (seenGroups.size !== GROUPS.length) {
   throw new Error(`需求测试组只遇到 ${seenGroups.size}/${GROUPS.length} 组，不能报告完成`)

@@ -10453,6 +10453,22 @@
       "find": "${fieldValue(field, row?.[field])}",
       "replace": "${fieldValue(field, row?.[field === 'manual_eligible' ? 'manual_adopted' : field === 'manual_adopted' ? 'manual_eligible' : field])}",
       "by": "test", "kills": ["U9.g HTML分账号保留人工空白unknown及原备注"]
+    },
+    {
+      "id": "M-P1-ac", "req": "P1",
+      "why": "未查询分数在旧名单行及 CSV、Excel 中变为空白，运营无法辨认该账号尚未算分",
+      "file": "scripts/lib/rows.ts",
+      "find": "    c.tier, c.score === undefined ? '未查询' : c.score,",
+      "replace": "    c.tier, c.score,",
+      "by": "test", "kills": ["legacy-row-missing-score","legacy-csv-missing-score","legacy-xlsx-missing-score"]
+    },
+    {
+      "id": "M-P1-ad", "req": "P1",
+      "why": "旧 HTML 缺席分数未显示未知状态，运营无法辨认该账号尚未算分",
+      "file": "scripts/lib/report.ts",
+      "find": "    <span class=\"sc\">${c.score === undefined ? '未知' : c.score}</span>",
+      "replace": "    <span class=\"sc\">${c.score}</span>",
+      "by": "test", "kills": ["legacy-html-missing-score"]
     }
   ],
   "exemptions": [
