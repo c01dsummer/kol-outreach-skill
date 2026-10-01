@@ -397,7 +397,7 @@
     },
     {
       "id": "M-U6-a",
-      "req": "U6",
+      "req": "U9.a",
       "why": "卡片上不留分层标记，报告里的 tab 切换失效 —— 每个 tab 显示的内容完全一样",
       "file": "scripts/lib/report.ts",
       "find": "<div class=\"card ${c.tier}\" data-tier=\"${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>",
@@ -409,7 +409,7 @@
     },
     {
       "id": "M-U6-b",
-      "req": "U6",
+      "req": "U9.a",
       "why": "默认永远选 A —— A 级为空时打开报告第一眼是空白，会被当成出错了",
       "file": "scripts/lib/report.ts",
       "find": "    (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'",
@@ -10963,6 +10963,138 @@
       "scope": "「任何位置」这个全称",
       "why": "扫写法那道纪律 lint 2026-09-18 撤了（ADR-77）—— 它自称全量扫描，实现却是一张手写的敏感字段表，漏过 `score` 与 `null`。判据正文按「编号不改含义」原样保留，但**没有任何检查能兑现「任何位置」这个全称**：要兑现它得回到扫源码，而那正是撤掉的东西。显式登记为缺口，不假装它被守住。",
       "mitigation": "机器可执行的那部分按路径拆成 P1.e（取值）、P1.f（排序）、P1.g（入池）三条，各有认领与负片；`docs/CONVENTIONS.md` 第 2 条写明写代码时要避开的形状。见 ADR-77。"
+    },
+    {
+      "id": "M-U10-a",
+      "req": "U10.a",
+      "why": "只选一个 HTML 选项也被强制切成双筛选，改变公共默认行为",
+      "file": "scripts/lib/report.ts",
+      "find": "options.mode === 'review' && options.filters === 'dual'",
+      "replace": "options.mode === 'review' || options.filters === 'dual'",
+      "by": "test",
+      "kills": [
+        "公共默认与单一选项仍保留单层首个非空视图"
+      ]
+    },
+    {
+      "id": "M-U10-b",
+      "req": "U10.b",
+      "why": "初始报告把 C 层交付候选藏起，全部名单只在脚本运行后才可能恢复",
+      "file": "scripts/lib/report.ts",
+      "find": "${dual ? `<div class=\"card ${c.tier}\" data-tier=\"${c.tier}\"",
+      "replace": "${dual ? `<div class=\"card ${c.tier}\" style=\"display:${c.tier === 'C' ? 'none' : ''}\" data-tier=\"${c.tier}\"",
+      "by": "test",
+      "kills": [
+        "双筛选初始 HTML 已完整可见且顺序正确"
+      ]
+    },
+    {
+      "id": "M-U10-c",
+      "req": "U10.c",
+      "why": "缺少未提供建议按钮，未知判断无法独立筛选",
+      "file": "scripts/lib/report.ts",
+      "find": "['missing', '未提供']",
+      "replace": "...[]",
+      "by": "test",
+      "kills": [
+        "双筛选提供全部独立选项"
+      ]
+    },
+    {
+      "id": "M-U10-d",
+      "req": "U10.d",
+      "why": "层级与建议条件改取并集，使任一条件命中就显示账号",
+      "file": "scripts/lib/report.ts",
+      "find": "c.dataset.tier===selected.tier)&&",
+      "replace": "c.dataset.tier===selected.tier)||",
+      "by": "test",
+      "kills": [
+        "真实双筛选回调反复操作精确交集并保留选择与空状态"
+      ]
+    },
+    {
+      "id": "M-U10-e",
+      "req": "U10.e",
+      "why": "缺席有效建议借原 Agent 建议补成卡片筛选属性",
+      "file": "scripts/lib/report.ts",
+      "find": "c.effective_priority === undefined ? '' : ` data-priority=",
+      "replace": "c.effective_priority === undefined ? ` data-priority=\"${esc(c.adoption_priority)}\"` : ` data-priority=",
+      "by": "test",
+      "kills": [
+        "缺席有效建议不生成卡片建议属性"
+      ]
+    },
+    {
+      "id": "M-U10-f",
+      "req": "U10.f",
+      "why": "空交集仍隐藏空提示，使零结果看起来像渲染失败",
+      "file": "scripts/lib/report.ts",
+      "find": "document.getElementById('none').style.display=shown?'none':'';",
+      "replace": "document.getElementById('none').style.display='none';",
+      "by": "test",
+      "kills": [
+        "真实双筛选回调反复操作精确交集并保留选择与空状态"
+      ]
+    },
+    {
+      "id": "M-U10-g",
+      "req": "U10.g",
+      "why": "切换不保留名单布局高度，长名单收缩使阅读位置被浏览器夹回",
+      "file": "scripts/lib/report.ts",
+      "find": "list.style.minHeight=list.getBoundingClientRect().height+'px';",
+      "replace": "list.style.minHeight='0px';",
+      "by": "test",
+      "kills": [
+        "长名单短名单空集切换实际阅读位置保持"
+      ]
+    },
+    {
+      "id": "M-U10-h",
+      "req": "U10.h",
+      "why": "Instagram 标签丢失橙粉渐变，两个平台均用同一青色标签",
+      "file": "scripts/lib/report.ts",
+      "find": ".pf.instagram{background:linear-gradient(90deg,#f5843733,#dd2a7b33,#8134af33);color:#f09433;border:1px solid #dd2a7b55}",
+      "replace": ".pf.instagram{background:#25f4ee1f;color:#25f4ee;border:1px solid #25f4ee55}",
+      "by": "test",
+      "kills": [
+        "每张卡片平台配色专属且区别次要标签"
+      ]
+    },
+    {
+      "id": "M-U10-i",
+      "req": "U10.i",
+      "why": "双筛选把报告全局数据边界隐藏，未知能力看似已核实",
+      "file": "scripts/lib/report.ts",
+      "find": ".candidate-list{overflow-anchor:none}",
+      "replace": ".candidate-list{overflow-anchor:none}.notes{display:none}",
+      "by": "test",
+      "kills": [
+        "筛选外可见费用增强公开样本与记忆边界"
+      ]
+    },
+    {
+      "id": "M-U10-j",
+      "req": "U10.j",
+      "why": "真实交付未选择双筛选，生产 HTML 仍默认只显示单层",
+      "file": "scripts/render.ts",
+      "find": "renderHtml(creators, meta, { mode: 'review', filters: 'dual' })",
+      "replace": "renderHtml(creators, meta, { mode: 'review' })",
+      "by": "test",
+      "kills": [
+        "真实生产 HTML 已接入两个独立筛选组"
+      ]
+    },
+    {
+      "id": "M-U10-k",
+      "req": "U10.d",
+      "why": "按钮有可见选项但未接点击，操作不能改变当前名单",
+      "file": "scripts/lib/report.ts",
+      "find": "buttons.forEach(tab=>tab.addEventListener('click',()=>{",
+      "replace": "buttons.forEach(tab=>tab.addEventListener('unused',()=>{",
+      "by": "test",
+      "kills": [
+        "真实报告每个按钮均接入实际 click 回调"
+      ]
     }
   ]
 }
