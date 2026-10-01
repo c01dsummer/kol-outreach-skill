@@ -12697,6 +12697,9 @@ await group('u11-keyword-attribution', async () => {
     [0, 0, 0, 0, null, 0])
   try { if (main.rows?.[0]) main.rows[0].keyword = 'caller-edit' } catch {}
   eq('U11关键词只读且返回行不借输入对象', JSON.stringify([state, current, context]), snapshot)
+  criterion('U11.c')
+  criterion('U11.k')
+  criterion('U11.l')
 })
 
 await group('u11-keyword-report-entry', async () => {
@@ -12851,6 +12854,7 @@ await group('u11-keyword-report-entry', async () => {
       Array.isArray(summary?.reject_reasons) ? summary.reject_reasons.map((r: any) => [r?.reason, r?.count]) : undefined, summary?.disagreements],
       [[['frozen-old', 3, 2, 1]], [0, 0, 1, 2, 0, null], [0, 0, 0, 3, 0, null], [['商家号', 1]], []])
     eq('U11关键词真实入口保持raw人工与Agent原件字节', [read('creators.raw.json'), read('manual-feedback.csv'), read('agent-review.json')], [raw, manual, originalAgent])
+    criterion('U11.m')
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
