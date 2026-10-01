@@ -210,7 +210,7 @@ export function renderHtml(creators: Creator[], meta: any, options: ReviewOutput
     <span class="pf ${c.platform}">${c.platform === 'tiktok' ? '♪ TikTok' : '◉ Instagram'}</span>
     ${c.cross_platform ? `<span class="xp" title="也在 ${esc(c.linked_handle)}">⇄ 双平台</span>` : ''}
     ${c.is_private ? '<span class="priv">🔒 私密号</span>' : ''}
-    <span class="sc">${options.mode === 'review' && c.score === undefined ? '未知' : c.score}</span>
+    <span class="sc">${c.score === undefined ? '未知' : c.score}</span>
   </div>
   <div class="handle"><a href="${esc(c.profile_url)}" target="_blank" rel="noopener">@${esc(c.handle)}</a></div>
   <div class="nm">${esc(c.nickname)}</div>

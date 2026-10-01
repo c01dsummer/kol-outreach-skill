@@ -126,8 +126,8 @@ export function toRow(c: Creator): unknown[] {
     // score 单独留在这一行。原因是当年那条按**行**匹配的纪律 lint 会把它和下面两个
     // 把空串当缺省的表达式判成「score 上有兜底」(实际那两处落在 fit / fit_reason 上)。
     // 闸门 2026-09-18 撤了(ADR-77),这一行照旧分开 —— 分行本来就更好读,
-    // 而且**这里根本没有 score 的兜底**这句话仍然要成立。
-    c.tier, c.score,
+    // 缺席只展示「未查询」，不补数值；已计算评分仍保留 number 类型。
+    c.tier, c.score === undefined ? '未查询' : c.score,
     c.fit ?? '', c.fit_reason ?? '', c.platform, c.handle, c.nickname,
     cell(c.followers), cell(c.post_count), cell(c.bio), cell(c.email), cell(c.email_verified),
     topGeo(c), cell(assessment?.followers), cell(assessment?.following),
