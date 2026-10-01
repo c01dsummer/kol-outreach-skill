@@ -11051,8 +11051,8 @@
       "req": "U10.i",
       "why": "双筛选把报告全局数据边界隐藏，未知能力看似已核实",
       "file": "scripts/lib/report.ts",
-      "find": ".candidate-list{overflow-anchor:none}",
-      "replace": ".candidate-list{overflow-anchor:none}.notes{display:none}",
+      "find": "body{overflow-anchor:none}",
+      "replace": "body{overflow-anchor:none}.notes{display:none}",
       "by": "test",
       "kills": [
         "筛选外可见费用增强公开样本与记忆边界"
@@ -11080,6 +11080,18 @@
       "by": "test",
       "kills": [
         "真实报告每个按钮均接入实际 click 回调"
+      ]
+    },
+    {
+      "id": "M-U10-l",
+      "req": "U10.i",
+      "why": "公开指标边界变成假粉率与带货能力声明，否定意义被反转。",
+      "file": "scripts/lib/report.ts",
+      "find": "受众质量风险只依据近期公开互动异常，不是假粉率，也不能代表实际带货效果。",
+      "replace": "受众质量风险只依据近期公开互动异常，是假粉率，也能代表实际带货效果。",
+      "by": "test",
+      "kills": [
+        "筛选外可见费用增强公开样本与记忆边界"
       ]
     }
   ],

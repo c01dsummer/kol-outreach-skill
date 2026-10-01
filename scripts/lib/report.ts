@@ -345,7 +345,7 @@ th{color:#64748b;font-weight:600;font-size:12px}
 .tab:hover{border-color:#334155;color:#e2e8f0}
 .tab.on{background:#1e293b;color:#f8fafc;border-color:#38bdf8}
 .tab .n{opacity:.6;margin-left:5px;font-size:12px}
-${dual ? '.tabs.dual{flex-direction:column}.candidate-list{overflow-anchor:none}' : ''}
+${dual ? '.tabs.dual{flex-direction:column}body{overflow-anchor:none}' : ''}
 .tab.A.on{border-color:#22c55e}.tab.B.on{border-color:#f59e0b}.tab.C.on{border-color:#64748b}
 .empty{color:#475569;text-align:center;padding:40px;font-size:14px}
 .sc{margin-left:auto;color:#64748b;font-size:12px}

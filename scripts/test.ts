@@ -12048,10 +12048,19 @@ async function u10OfflineDom(html: string) {
       if (!/^(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/.test(el.tagName)) stack.push(el);
     }
     const vars = Object.assign({}, ...rules.filter(([s]) => s === ':root').map(([, d]) => d));
+    const specificity = (s: string) => (s.match(/#/g) || []).length * 100 + (s.match(/\.|\[/g) || []).length * 10;
+    const rankedRules = rules.flatMap(([s, d]) => s.split(',').filter(x => !x.trim().startsWith('@')).map(x => ({ selector: x, declarations: d, rank: specificity(x) }))).sort((a, b) => a.rank - b.rank);
+    const styleCache = new WeakMap<El, { key: string; sheet: Record<string, string> }>();
     const css = (el: El) => {
-      const specificity = (s: string) => (s.match(/#/g) || []).length * 100 + (s.match(/\.|\[/g) || []).length * 10;
-      const matched = rules.flatMap(([s, d]) => s.split(',').filter(x => !x.trim().startsWith('@') && el.matches(x)).map(x => [specificity(x), d] as const)).sort((a, b) => a[0] - b[0]);
-      const value: Record<string, string> = Object.assign({}, ...matched.map(([, d]) => d), el.style);
+      const identity: Record<string, string>[] = [];
+      for (let current: El | undefined = el; current; current = current.parentElement) identity.push(current.attrs);
+      const key = JSON.stringify(identity);
+      let cached = styleCache.get(el);
+      if (!cached || cached.key !== key) {
+        cached = { key, sheet: Object.assign({}, ...rankedRules.filter(r => el.matches(r.selector)).map(r => r.declarations)) };
+        styleCache.set(el, cached);
+      }
+      const value: Record<string, string> = Object.assign({}, cached.sheet, el.style);
       for (const k of Object.keys(value)) value[k] = value[k].replace(/var\((--[^),]+)\)/g, (_: string, n: string) => vars[camel(n)] === undefined ? n : vars[camel(n)]);
       return value;
     };
@@ -12120,6 +12129,17 @@ function u10BadgeText(text: string) {
   return text.replace(/[^\p{Letter}\p{Number}]/gu, '').toLowerCase();
 }
 
+function u10BadgeSkin(dom: { css: (node: any) => Record<string, string> }, node: any) {
+  const label = u10BadgeText(node.textContent), colors = new Set<string>();
+  for (let current = node; current && u10BadgeText(current.textContent) === label; current = current.parentElement) {
+    const style = dom.css(current);
+    for (const key of ['background', 'backgroundColor', 'backgroundImage', 'color', 'borderColor']) {
+      if (style[key]) colors.add(`${key.startsWith('background') ? 'background' : key}:${style[key]}`);
+    }
+  }
+  return [...colors].sort().join('|');
+}
+
 
 await group('u10-report', async () => {
   suite('U10', '双筛选的真实 HTML 与离线交互');
@@ -12166,16 +12186,25 @@ await group('u10-report', async () => {
   eq('公共默认与单一选项仍保留单层首个非空视图', JSON.stringify(legacyIssues), '[]');
   criterion('U10.i');
   const boundary = dom.outsideText();
-  ok('筛选外可见费用增强公开样本与记忆边界', ['费用依据缺失_盲测', '邮箱', '有效性验证', '粉丝', '假粉率', '带货', '记忆'].every(x => boundary.includes(x)));
+  const boundaryWords = boundary.replace(/\s+/g, ' ');
+  const semanticBoundary = {
+    email: /邮箱[^。！？]{0,100}(?:未做|未进行|未经|未完成|尚未|没有(?:做|经过|完成)?)[^。！？]{0,40}(?:有效性验证|验证有效性|验证)/.test(boundaryWords),
+    audience: /(?:无法|不能|无从|尚未)确认[^。！？]{0,100}(?:粉丝|受众)[^。！？]{0,60}(?:市场|地域|US)/.test(boundaryWords) || /(?:粉丝|受众)[^。！？]{0,60}(?:市场|地域|US)[^。！？]{0,60}(?:无法|不能|无从|尚未)确认/.test(boundaryWords),
+    publicSignal: /(?:不是|并非|不等于|不代表)[^。！？]{0,30}假粉率/.test(boundaryWords) && /(?:不能|无法|不)(?:代表|证明|保证)[^。！？]{0,30}带货(?:效果|能力)/.test(boundaryWords),
+    memory: /(?:记忆[^。！？]{0,60}(?:未写入|未写回|未保存|未记入|没有写入|没有保存|没(?:有)?记进去))|(?:(?:未写入|未写回|未保存|未记入|没有写入|没有保存|没(?:有)?记进去)[^。！？]{0,60}记忆)/.test(boundaryWords) && boundaryWords.includes('记忆写入边界_盲测'),
+    memoryDedupUnknown: /(?:有没有|是否)[^。！？；]{0,30}去重[^。！？；]{0,40}(?:无法确认|不能确认|无从确认|确认不了|不知道|尚未确认)/.test(boundaryWords) || /(?:不知道|无法确认|不能确认|无从确认|尚未确认)[^。！？；]{0,10}(?:有没有|是否)[^。！？；]{0,30}去重/.test(boundaryWords) || /去重状态[^。！？；]{0,25}(?:无法确认|不能确认|无从确认|确认不了|不知道|尚未确认)/.test(boundaryWords),
+    historicalCost: /(?:无法|不能|无从|尚未)确认[^。！？]{0,40}历史费用/.test(boundaryWords) || /历史费用[^。！？]{0,60}(?:无法|不能|无从|尚未)确认/.test(boundaryWords)
+  };
+  eq('筛选外可见费用增强公开样本与记忆边界', JSON.stringify(Object.entries(semanticBoundary).filter(([, visible]) => !visible).map(([name]) => name)), '[]');
   criterion('U2.a');
   ok('双筛选报告资源保持单文件内联', ![...html.matchAll(/<(script|link|img)\b[^>]*>/gi)].some(m => /\b(?:src|href)\s*=\s*["']?https?:\/\//i.test(m[0])));
   criterion('U10.h');
   const platformIssues: string[] = [];
   for (const card of dom.cards) {
     const nodes = card.querySelectorAll('*'), platform = String(dom.key(card)).split(':')[0], tag = [...nodes].reverse().find(n => u10BadgeText(n.textContent) === platform);
-    const skin = tag ? u10ColorSkin(dom.css(tag)) : '', colors = u10HueColors(skin);
+    const skin = tag ? u10BadgeSkin(dom, tag) : '', colors = u10HueColors(skin);
     if (!tag || (platform === 'tiktok' ? !colors.some(h => h >= 150 && h <= 210) : !skin.includes('gradient') || !colors.some(h => h >= 10 && h <= 60) || !colors.some(h => h >= 300 && h <= 355))) platformIssues.push(String(dom.key(card)));
-    for (const minor of nodes.filter(n => /^(双平台|私密号)$/.test(u10BadgeText(n.textContent)) && n.children.every(c => c.tagName === '#text'))) if (u10ColorSkin(dom.css(minor)) === skin) platformIssues.push('minor:' + dom.key(card));
+    for (const minor of nodes.filter(n => /^(双平台|私密号)$/.test(u10BadgeText(n.textContent)) && n.children.every(c => c.tagName === '#text'))) if (u10BadgeSkin(dom, minor) === skin) platformIssues.push('minor:' + dom.key(card));
   }
   eq('每张卡片平台配色专属且区别次要标签', JSON.stringify(platformIssues), '[]');
   criterion('U10.g');
