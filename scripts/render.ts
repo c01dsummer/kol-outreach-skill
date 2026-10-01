@@ -15,6 +15,7 @@ import { brandCalibrationProblems } from './lib/brand-calibration.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { canonicalReviewLinks, rankCreators, keywordRows, reviewRelations, taskPlatforms, tierCounts } from './lib/pipeline.js'
 import { prepareTaskReviews, type TaskReviews } from './lib/task-reviews.js'
+import { feedbackSummary } from './lib/manual-feedback-summary.js'
 import { filterByMemory, MemoryUnreadable, recordRecommendations } from './lib/memory.js'
 import { writeCsv } from './lib/csv.js'
 import { REVIEW_HEADERS, toReviewRow, sortForReviewOutput, buildSheets } from './lib/rows.js'
@@ -143,6 +144,7 @@ if (!writeBack.written) {
 
 // D13.q/r：JSON 和 HTML 共用只读投影，不从请求数推算或修复历史费用。
 const cost = costView(state)
+const reviewDocument = reviews.document
 const meta = {
   product: state.product,
   market: state.market,
@@ -151,6 +153,8 @@ const meta = {
   // 和「一次都没查」长得一模一样，运营据此不再投这个方向（ADR-94）。
   platforms: taskPlatforms(state),
   keywords: keywordRows(state, creators),
+  feedback_summary: feedbackSummary(reviewDocument, reviews.feedback),
+  review_rounds: reviewDocument.rounds,
   total: creators.length,
   tiers: tierCounts(creators),
   email_count: creators.filter(c => c.email).length,

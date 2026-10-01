@@ -10474,8 +10474,8 @@
       "id": "M-D23-s", "req": "D23.h",
       "why": "任务准备没有先拒绝原冻结池之外的人工行，本次旧名单冻结或兼容判断迁移被放行而掩盖了初始授权缺失",
       "file": "scripts/lib/task-reviews.ts",
-      "find": "  feedback(initialRelations)",
-      "replace": "  void initialRelations",
+      "find": "  let validatedFeedback = feedback(initialRelations)",
+      "replace": "  let validatedFeedback: ManualFeedbackRow[] = []",
       "by": "test", "kills": ["任务评审：旧名单尚未保存候选不授权人工行", "任务评审：本次 legacy 迁移不能授权初始池外人工行"]
     },
     {
@@ -10514,8 +10514,8 @@
       "id": "M-D25-s", "req": "D25.b",
       "why": "人工展示回退先读取旧名单，再重建当前 Agent 判断，当前已评的明确采用建议未用于有效展示",
       "file": "scripts/lib/task-reviews.ts",
-      "find": "      return projectManualFeedback(pending, projectAgentReviews(pending, creators, calibrationVersion), rows)",
-      "replace": "      return projectAgentReviews(pending, projectManualFeedback(pending, creators, rows), calibrationVersion)",
+      "find": "      const projected = projectManualFeedback(pending, projectAgentReviews(pending, creators, calibrationVersion), rows)",
+      "replace": "      const projected = projectAgentReviews(pending, projectManualFeedback(pending, creators, rows), calibrationVersion)",
       "by": "test", "kills": ["任务评审：已评明确 Agent 建议可用于展示"]
     },
     {
@@ -10523,8 +10523,8 @@
       "req": "U9.j",
       "why": "三个生产入口跳过当前 Agent 与人工判断的投影，旧名单残留决定交付与付费样本范围。",
       "file": "scripts/lib/task-reviews.ts",
-      "find": "      return projectManualFeedback(pending, projectAgentReviews(pending, creators, calibrationVersion), rows)",
-      "replace": "      return structuredClone([...creators])",
+      "find": "      const projected = projectManualFeedback(pending, projectAgentReviews(pending, creators, calibrationVersion), rows)",
+      "replace": "      const projected = structuredClone([...creators])",
       "by": "selfcheck",
       "kills": [
         "CLI collect 旧兼容判断入正本且旧池新候选分轮",
@@ -11092,6 +11092,163 @@
       "by": "test",
       "kills": [
         "筛选外可见费用增强公开样本与记忆边界"
+      ]
+    },
+    {
+      "id": "M-U11-a",
+      "req": "U11.f",
+      "why": "明确结论分母把 unknown 当成 yes/no，合格率口径被扩大",
+      "file": "scripts/lib/manual-feedback-summary.ts",
+      "find": "const denominator = counts.yes + counts.no",
+      "replace": "const denominator = counts.yes + counts.no + counts.unknown",
+      "by": "test",
+      "kills": [
+        "U11人工合格分母只计明确yes和no"
+      ]
+    },
+    {
+      "id": "M-U11-b",
+      "req": "U11.e",
+      "why": "人工采用统计借用合格性作答，两个字段不再独立",
+      "file": "scripts/lib/manual-feedback-summary.ts",
+      "find": "eligible: tally('manual_eligible'), adopted: tally('manual_adopted')",
+      "replace": "eligible: tally('manual_eligible'), adopted: tally('manual_eligible')",
+      "by": "test",
+      "kills": [
+        "U11人工采用分母不借关联账号作答"
+      ]
+    },
+    {
+      "id": "M-U11-c",
+      "req": "U11.e",
+      "why": "已审核只看合格或采用意见，备注及三级原判断被当成未评",
+      "file": "scripts/lib/manual-feedback-summary.ts",
+      "find": "(['manual_eligible', 'manual_adopted', 'manual_content_fit', 'manual_engagement',\n    'manual_comment_authenticity', 'manual_reject_reason'] as const).some(field => row[field] !== undefined)\n  || row.manual_note.trim() !== ''",
+      "replace": "(['manual_eligible', 'manual_adopted'] as const).some(field => row[field] !== undefined)",
+      "by": "test",
+      "kills": [
+        "U11冻结平台账号自身字段决定审核覆盖"
+      ]
+    },
+    {
+      "id": "M-U11-d",
+      "req": "U11.d",
+      "why": "统计改按人工表行数和行序，缺席账号从固定分母消失",
+      "file": "scripts/lib/manual-feedback-summary.ts",
+      "find": "const accounts = document.rounds.flatMap(round => round.candidates.map(candidate => candidate.account_key))",
+      "replace": "const accounts = feedback.map(row => row.account_key)",
+      "by": "test",
+      "kills": [
+        "U11人工合格分母只计明确yes和no"
+      ]
+    },
+    {
+      "id": "M-U11-e",
+      "req": "U11.g",
+      "why": "同账号重复填写同一拒绝原因被多次计数，次数冒充账号数",
+      "file": "scripts/lib/manual-feedback-summary.ts",
+      "find": "const uniqueReasons = new Set(row.manual_reject_reason.split(/[;；]/).map(reason => reason.trim()))",
+      "replace": "const uniqueReasons = row.manual_reject_reason.split(/[;；]/).map(reason => reason.trim())",
+      "by": "test",
+      "kills": [
+        "U11拒绝原因逐账号去重并按数量和首次顺序排列"
+      ]
+    },
+    {
+      "id": "M-U11-f",
+      "req": "U11.h",
+      "why": "合法同平台别名没有对照原 Agent 判断，分歧账号遗漏",
+      "file": "scripts/lib/manual-feedback-summary.ts",
+      "find": "for (const key of agent.account_keys) agents.set(key, agent)",
+      "replace": "for (const key of agent.account_keys.slice(0, 1)) agents.set(key, agent)",
+      "by": "test",
+      "kills": [
+        "U11分歧只对照完整本平台Agent且每账号一次"
+      ]
+    },
+    {
+      "id": "M-U11-g",
+      "req": "U11.h",
+      "why": "人工采用与不采用的明确意见被忽略，只剩合格性相反时才列分歧",
+      "file": "scripts/lib/manual-feedback-summary.ts",
+      "find": "if (adoptionConflict || eligibilityConflict) disagreements.push(key)",
+      "replace": "if (eligibilityConflict) disagreements.push(key)",
+      "by": "test",
+      "kills": [
+        "U11明确采用与合格性每条分歧条件独立成立"
+      ]
+    },
+    {
+      "id": "M-U11-h",
+      "req": "U11.h",
+      "why": "缺完整新 Agent 判断仍参加对照，旧兼容记录补出了分歧",
+      "file": "scripts/lib/manual-feedback-summary.ts",
+      "find": "if (agent?.eligibility === undefined || agent.adoption_priority === undefined) continue",
+      "replace": "if (agent === undefined) continue",
+      "by": "test",
+      "kills": [
+        "U11分歧只对照完整本平台Agent且每账号一次"
+      ]
+    },
+    {
+      "id": "M-U11-i",
+      "req": "U11.f",
+      "why": "零明确分母返回真实零比率，未知被压成已测的零",
+      "file": "scripts/lib/manual-feedback-summary.ts",
+      "find": "rate: denominator === 0 ? null : counts.yes / denominator",
+      "replace": "rate: denominator === 0 ? 0 : counts.yes / denominator",
+      "by": "test",
+      "kills": [
+        "U11空池是零账号且两个比率不可计算"
+      ]
+    },
+    {
+      "id": "M-U11-j",
+      "req": "U11.j",
+      "why": "已校验人工快照借用内部可变对象，调用方改副本会改变后续结果",
+      "file": "scripts/lib/task-reviews.ts",
+      "find": "get feedback() { return structuredClone(validatedFeedback) }",
+      "replace": "get feedback() { return validatedFeedback }",
+      "by": "test",
+      "kills": [
+        "U11已校验反馈和冻结来源getter拥有独立副本"
+      ]
+    },
+    {
+      "id": "M-U11-k",
+      "req": "U11.i",
+      "why": "真实报告把已冻结历史池清空，交付统计和来源快照失去完整原轮次",
+      "file": "scripts/render.ts",
+      "find": "const reviewDocument = reviews.document",
+      "replace": "const reviewDocument = { ...reviews.document, rounds: [] }",
+      "by": "test",
+      "kills": [
+        "U11真实入口metadata按完整冻结池统计",
+        "U11真实入口metadata保留完整原轮次来源"
+      ]
+    },
+    {
+      "id": "M-U11-l",
+      "req": "U11.j",
+      "why": "冻结来源原文直接成为 HTML 标签，字面证据被解释成页面节点",
+      "file": "scripts/lib/report.ts",
+      "find": "const known = (value: unknown): string => value === undefined || value === null ? '无从确认' : esc(value)",
+      "replace": "const known = (value: unknown): string => value === undefined || value === null ? '无从确认' : String(value)",
+      "by": "test",
+      "kills": [
+        "U11真实HTML来源原文可见并安全转义"
+      ]
+    },
+    {
+      "id": "M-U11-m",
+      "req": "U11.f",
+      "why": "HTML 把零分母不可计算印成 0%，呈现变成假的测量结果",
+      "file": "scripts/lib/report.ts",
+      "find": "part.rate === null ? '不可计算'",
+      "replace": "part.rate === null ? '0%'",
+      "by": "test",
+      "kills": [
+        "U11真实HTML呈现独立分母真实零和不可计算"
       ]
     }
   ],

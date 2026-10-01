@@ -201,6 +201,8 @@ const GROUPS: readonly Group[] = [
   { id: 'feedback-template-crossings', needs: [] },
   { id: 'u10-report', needs: [] },
   { id: 'u10-report-entry', needs: [] },
+  { id: 'u11-feedback-summary', needs: [] },
+  { id: 'u11-feedback-report-entry', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -12311,6 +12313,274 @@ await group('u10-report-entry', async () => {
     await fsBlind.rm(rootBlind, { recursive: true, force: true });
   }
 
+})
+
+// Independent U11 tests; expected values were saved before executing production code.
+// Exposure boundary: old freezeReviewRounds/parseManualFeedbackCsv beginnings were accidentally
+// visible while reading type prefixes. Summary/report target bodies and old business tests were not read.
+// Dynamic import: ./lib/manual-feedback-summary.js is loaded only inside its selected group.
+const u11Clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
+function u11Freeze(value: any): any {
+  if (value && typeof value === 'object') { Object.values(value).forEach(u11Freeze); Object.freeze(value) }
+  return value
+}
+function u11Review(key: string, eligibility: AgentReview['eligibility'], priority: AgentReview['adoption_priority'], aliases = [key]): AgentReview {
+  return { account_keys: aliases, eligibility, adoption_priority: priority, observed_content: '观察原文', work_evidence: '作品原文', natural_integration: '植入原文', mismatch_risk: '风险原文' }
+}
+function u11Row(key: string, round: string, fields: Partial<ManualFeedbackRow> = {}): ManualFeedbackRow {
+  const [platform, handle] = key.split(':') as [Creator['platform'], string]
+  return { round_id: round, platform, handle, account_key: key, line_number: 2, manual_note: '', ...fields }
+}
+function u11Doc(groups: Array<[string, string[]]>, reviews: AgentReviewDocument['reviews'] = {}): AgentReviewDocument {
+  return { version: 1, updated_at: '2026-09-29T01:00:00Z', reviews, rounds: groups.map(([round_id, keys], i) => ({
+    round_id, created_at: `2026-09-${i === 0 ? '27' : '28'}T01:00:00Z`, source: 'task.json' as const,
+    candidates: keys.map(account_key => ({ account_key, source_tasks: null })),
+  })) }
+}
+await group('u11-feedback-summary', async () => {
+  suite('U11', '独立人工审核汇总'); tension('U11', 'P1'); tension('U11', 'P5')
+  const u11SummaryApi = await import('./lib/manual-feedback-summary.js').catch((error: any) => {
+    if (error?.code === 'ERR_MODULE_NOT_FOUND' && String(error.message).includes('manual-feedback-summary')) return null
+    throw error
+  })
+  ok('U11汇总公开模块可加载', Boolean(u11SummaryApi))
+  if (!u11SummaryApi) { console.error('U11纯函数案例未执行：公开汇总模块缺席'); return }
+  criterion('U11.a', 'U11.b', 'U11.d', 'U11.e', 'U11.f', 'U11.g', 'U11.h', 'U11.j')
+  const keys = ['tiktok:pair', 'instagram:pair', 'tiktok:alias.old', 'tiktok:blank', 'instagram:missing',
+    'tiktok:note', 'instagram:level', 'tiktok:eng', 'instagram:auth', 'tiktok:reason', 'tiktok:legacy', 'instagram:opposed']
+  const document = u11Doc([['r1', keys.slice(0, 5)], ['r2', keys.slice(5)]], {
+    'tiktok:pair': u11Review('tiktok:pair', '合格', '优先联系'),
+    'instagram:pair': u11Review('instagram:pair', '不合格', '暂不采用'),
+    'tiktok:alias': u11Review('tiktok:alias', '合格', '备选', ['tiktok:alias', 'tiktok:alias.old']),
+    'tiktok:blank': u11Review('tiktok:blank', '合格', '优先联系'),
+    'instagram:missing': u11Review('instagram:missing', '不合格', '暂不采用'),
+    'tiktok:note': u11Review('tiktok:note', '合格', '优先联系'),
+    'instagram:level': u11Review('instagram:level', '合格', '优先联系'),
+    'tiktok:eng': u11Review('tiktok:eng', '合格', '备选'),
+    'instagram:auth': u11Review('instagram:auth', '待核实', '备选'),
+    'tiktok:reason': u11Review('tiktok:reason', '不合格', '暂不采用'),
+    'tiktok:legacy': { account_keys: ['tiktok:legacy'], fit: '✅' },
+    'instagram:opposed': u11Review('instagram:opposed', '合格', '暂不采用'),
+  })
+  const feedback = [u11Row(keys[0], 'r1', { manual_eligible: 'no', manual_adopted: 'unknown', manual_reject_reason: ' 商家号；内容不匹配; 商家号 ' }),
+    u11Row(keys[1], 'r1', { manual_eligible: 'unknown' }), u11Row(keys[2], 'r1', { manual_eligible: 'yes', manual_adopted: 'yes' }),
+    u11Row(keys[3], 'r1', { manual_note: ' \t ' }), u11Row(keys[5], 'r2', { manual_note: ' 原样 <em>备注</em>\n ' }),
+    u11Row(keys[6], 'r2', { manual_content_fit: 'high' }), u11Row(keys[7], 'r2', { manual_engagement: 'medium' }),
+    u11Row(keys[8], 'r2', { manual_comment_authenticity: 'unknown' }), u11Row(keys[9], 'r2', { manual_reject_reason: '内容不匹配;其他;其他' }),
+    u11Row(keys[10], 'r2', { manual_adopted: 'no', manual_reject_reason: '内容不匹配' }), u11Row(keys[11], 'r2', { manual_eligible: 'no' })]
+  feedback.reverse() // CSV order differs from frozen order; expected reasons/disagreements remain pool-ordered.
+  let physicalLine = 2
+  feedback.forEach(row => { row.line_number = physicalLine; physicalLine += 1 + (row.manual_note.match(/\n/g) ?? []).length + (row.manual_reject_reason?.match(/\n/g) ?? []).length })
+  const before = u11Clone({ document, feedback }); u11Freeze(document); u11Freeze(feedback)
+  const summary = u11SummaryApi.feedbackSummary(document, feedback)
+  ok('U11冻结平台账号自身字段决定审核覆盖', isDeepStrictEqual(summary.rounds, [
+    { round_id: 'r1', candidates: 5, reviewed: 3, unreviewed: 2 }, { round_id: 'r2', candidates: 7, reviewed: 7, unreviewed: 0 }]))
+  // Of 12: eligible has yes=1, no=2, unknown=1, absent=8; adopted has 1/1/1/9 independently.
+  ok('U11人工合格分母只计明确yes和no', isDeepStrictEqual(summary.eligible, { yes: 1, no: 2, unknown: 1, unreviewed: 8, denominator: 3, rate: 1 / 3 }))
+  ok('U11人工采用分母不借关联账号作答', isDeepStrictEqual(summary.adopted, { yes: 1, no: 1, unknown: 1, unreviewed: 9, denominator: 2, rate: 1 / 2 }))
+  // Deduplicate per account, then count accounts: content=3; merchant=1 precedes other=1 in frozen order.
+  ok('U11拒绝原因逐账号去重并按数量和首次顺序排列', isDeepStrictEqual(summary.reject_reasons, [
+    { reason: '内容不匹配', count: 3 }, { reason: '商家号', count: 1 }, { reason: '其他', count: 1 }]))
+  eq('U11分歧只对照完整本平台Agent且每账号一次', summary.disagreements, ['tiktok:pair', 'tiktok:alias.old', 'instagram:opposed'])
+  const clauseKeys = ['tiktok:adopt_yes', 'tiktok:adopt_no', 'instagram:eligible_yes', 'instagram:eligible_no', 'tiktok:unknown']
+  const clauseDocument = u11Doc([['clauses', clauseKeys]], {
+    'tiktok:adopt_yes': u11Review('tiktok:adopt_yes', '合格', '备选'), 'tiktok:adopt_no': u11Review('tiktok:adopt_no', '合格', '备选'),
+    'instagram:eligible_yes': u11Review('instagram:eligible_yes', '不合格', '暂不采用'),
+    'instagram:eligible_no': u11Review('instagram:eligible_no', '待核实', '备选'), 'tiktok:unknown': u11Review('tiktok:unknown', '不合格', '暂不采用'),
+  })
+  const clauseRows = [u11Row(clauseKeys[0], 'clauses', { manual_eligible: 'yes', manual_adopted: 'yes' }),
+    u11Row(clauseKeys[1], 'clauses', { manual_eligible: 'yes', manual_adopted: 'no' }), u11Row(clauseKeys[2], 'clauses', { manual_eligible: 'yes' }),
+    u11Row(clauseKeys[3], 'clauses', { manual_eligible: 'no' }), u11Row(clauseKeys[4], 'clauses', { manual_eligible: 'unknown', manual_adopted: 'unknown' })].reverse()
+  clauseRows.forEach((row, i) => { row.line_number = i + 2 })
+  // Four independent positive clauses; unknown does not oppose. Expected order is the frozen pool.
+  eq('U11明确采用与合格性每条分歧条件独立成立', u11SummaryApi.feedbackSummary(clauseDocument, clauseRows).disagreements, clauseKeys.slice(0, 4))
+  ok('U11汇总不改变Agent人工及冻结输入', isDeepStrictEqual({ document, feedback }, before))
+  const empty = u11SummaryApi.feedbackSummary(u11Doc([]), [])
+  ok('U11空池是零账号且两个比率不可计算', isDeepStrictEqual(empty, { rounds: [], eligible: { yes: 0, no: 0, unknown: 0, unreviewed: 0, denominator: 0, rate: null },
+    adopted: { yes: 0, no: 0, unknown: 0, unreviewed: 0, denominator: 0, rate: null }, reject_reasons: [], disagreements: [] }))
+  const zero = u11SummaryApi.feedbackSummary(u11Doc([['zero', ['tiktok:zero']]]), [u11Row('tiktok:zero', 'zero', { manual_eligible: 'no', manual_adopted: 'no' })])
+  ok('U11明确全否是真实零比率而非不可计算', isDeepStrictEqual([zero.eligible, zero.adopted], Array(2).fill({ yes: 0, no: 1, unknown: 0, unreviewed: 0, denominator: 1, rate: 0 })))
+})
+
+// Finite HTML reader: inspect tags and decoded visible text, never embedded JSON or source code.
+type U11Node = { tag: string, attrs: Record<string, string>, children: Array<U11Node | string>, parent?: U11Node, cssHidden?: boolean, cssUnknown?: string[] }
+const u11Decode = (text: string) => text.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (_m, key: string) =>
+  key[0] === '#' ? String.fromCodePoint(key[1].toLowerCase() === 'x' ? parseInt(key.slice(2), 16) : Number(key.slice(1))) : ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" } as any)[key.toLowerCase()])
+const u11Norm = (text: string) => text.replace(/\s+/g, ' ').trim()
+function u11ReadHtml(html: string, announceUnknown = true): U11Node {
+  const root: U11Node = { tag: 'root', attrs: {}, children: [] }, stack = [root]
+  for (const token of html.match(/<!--[\s\S]*?-->|<![^>]*>|<\/?[A-Za-z][^>]*>|[^<]+|</g) ?? []) {
+    if (/^<!/.test(token)) continue
+    const rawTag = stack[stack.length - 1].tag
+    if (/^(script|style|head)$/.test(rawTag) && !token.toLowerCase().startsWith(`</${rawTag}`)) continue
+    if (/^<\//.test(token)) { const tag = token.match(/^<\/([\w-]+)/)![1].toLowerCase(); while (stack.length > 1 && stack.pop()!.tag !== tag) {} }
+    else if (/^<[A-Za-z]/.test(token)) {
+      const name = token.match(/^<([\w-]+)/)![1], attrs: Record<string, string> = {}
+      for (const attr of token.slice(name.length + 1, -1).matchAll(/([\w:-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g)) attrs[attr[1].toLowerCase()] = u11Decode(attr[2] ?? attr[3] ?? attr[4] ?? '')
+      const node: U11Node = { tag: name.toLowerCase(), attrs, children: [], parent: stack[stack.length - 1] }; node.parent!.children.push(node)
+      if (!/^(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/.test(node.tag) && !/\/>$/.test(token)) stack.push(node)
+    } else stack[stack.length - 1].children.push(u11Decode(token))
+  }
+  const css = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi)].map(match => match[1]).join(' ').replace(/\/\*[\s\S]*?\*\//g, '')
+  for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) if (/(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important)?\s*(?:;|$)/i.test(rule[2])) {
+    for (const selector of rule[1].split(',').map(value => value.trim())) {
+      if (!selector) continue
+      const parts = selector.split(/\s+/); if (parts.some(part => !/^(?:[a-z][\w-]*|\*)?(?:[.#][\w-]+)*$/i.test(part))) { (root.cssUnknown ??= []).push(selector); continue }
+      for (const node of u11Nodes(root)) { let at: U11Node | undefined = node, index = parts.length - 1
+        while (at && index >= 0) { const part = parts[index], tag = part.match(/^[a-z][\w-]*/i)?.[0], ids = [...part.matchAll(/#([\w-]+)/g)], classes = [...part.matchAll(/\.([\w-]+)/g)]
+          if ((!tag || at.tag === tag.toLowerCase()) && ids.every(match => at!.attrs.id === match[1]) && classes.every(match => (at!.attrs.class ?? '').split(/\s+/).includes(match[1]))) index--
+          else if (index === parts.length - 1) break
+          at = at.parent
+        } if (index < 0) node.cssHidden = true
+      }
+    }
+  }
+  if (announceUnknown && root.cssUnknown?.length) console.error(`${SELFCHECK_FIXTURE_MARK} U11有限HTML reader不能确认隐藏CSS选择器：${root.cssUnknown.join(', ')}`)
+  return root
+}
+function u11Nodes(root: U11Node): U11Node[] { return [root, ...root.children.flatMap(child => typeof child === 'string' ? [] : u11Nodes(child))] }
+function u11Text(root?: U11Node): string {
+  if (!root) return ''
+  for (let ancestor: U11Node | undefined = root; ancestor; ancestor = ancestor.parent) {
+    if (ancestor.cssUnknown?.length || ancestor.cssHidden || /^(script|style|head|template)$/.test(ancestor.tag) || 'hidden' in ancestor.attrs || ancestor.attrs['aria-hidden'] === 'true' ||
+      /display\s*:\s*none|visibility\s*:\s*hidden/i.test(ancestor.attrs.style ?? '') || (ancestor.tag === 'details' && !('open' in ancestor.attrs))) return ''
+  }
+  return u11Norm(root.children.map(child => typeof child === 'string' ? child : u11Text(child)).join(' '))
+}
+function u11Cells(row: U11Node): string[] { return row.children.filter((child): child is U11Node => typeof child !== 'string' && /^(td|th)$/.test(child.tag)).map(u11Text) }
+function u11TableValue(row: U11Node | undefined, heading: RegExp): string | undefined {
+  if (!row) return undefined
+  let table = row.parent; while (table && table.tag !== 'table') table = table.parent
+  const headers = table && u11Nodes(table).find(node => node.tag === 'tr' && node.children.some(child => typeof child !== 'string' && child.tag === 'th'))
+  const index = headers ? u11Cells(headers).findIndex(text => heading.test(text)) : -1
+  return index < 0 ? undefined : u11Cells(row)[index]
+}
+const u11CountText = (value?: string) => { const count = value?.match(/^(\d+)\s*(?:个)?(?:平台账号|账号|accounts?)?$/i); return count ? String(Number(count[1])) : value }
+function u11Panel(root: U11Node, heading: RegExp): U11Node {
+  const title = u11Nodes(root).filter(node => /^h[1-6]$/.test(node.tag) && heading.test(u11Text(node))).sort((a, b) => Number(b.tag[1]) - Number(a.tag[1]) || u11Text(a).length - u11Text(b).length)[0]
+  if (!title?.parent) return { tag: 'root', attrs: {}, children: [] }
+  const siblings = title.parent.children, start = siblings.indexOf(title), children: Array<U11Node | string> = []
+  for (const child of siblings.slice(start + 1)) { if (typeof child !== 'string' && /^h[1-6]$/.test(child.tag)) break; children.push(child) }
+  return { tag: 'root', attrs: {}, children }
+}
+await group('u11-feedback-report-entry', async () => {
+  suite('U11', '真实render人工审核汇总'); criterion('U11.a', 'U11.b', 'U11.d', 'U11.e', 'U11.f', 'U11.g', 'U11.h', 'U11.i', 'U11.j')
+  tension('U11', 'P1'); tension('U11', 'P4'); tension('U11', 'P5')
+  const readerProof = u11ReadHtml('<section id="visible">VISIBLE</section><script><section>PHANTOM</section></script><div hidden><section>HIDDEN</section></div><style>.off{display:none}</style><section class="off">CSS_HIDDEN</section><template><template></template><section>TEMPLATE_PHANTOM</section></template><details><summary>closed</summary><b>CLOSED</b></details>', false)
+  const unsupported = u11ReadHtml('<style>section[data-x]{display:none}</style><section data-x>UNQUALIFIED</section>', false)
+  ok('U11有限HTML reader用阳性和隐藏诱饵核定资格', u11Text(u11Nodes(readerProof).find(node => node.attrs.id === 'visible')) === 'VISIBLE' &&
+    !/PHANTOM|HIDDEN|CSS_HIDDEN|TEMPLATE_PHANTOM|CLOSED/.test(u11Text(readerProof)) && Boolean(unsupported.cssUnknown?.length) && u11Text(unsupported) === '')
+  const isolated = mkdtempSync(join(tmpdir(), 'u11-feedback-entry-')), taskDir = join(isolated, 'task')
+  mkdirSync(taskDir); mkdirSync(join(isolated, 'memory'))
+  try {
+    const keyword = '<em data-feedback-injected="yes">frozen & "source"</em>', time = '2026-09-29T01:00:00Z'
+    const tasks = [{ keyword, dimension: 'scene' as const, platform: 'tiktok' as const }, { keyword: 'Instagram frozen source', dimension: 'audience' as const, platform: 'instagram' as const },
+      { keyword: 'Second TikTok frozen source', dimension: 'category' as const, platform: 'tiktok' as const }]
+    const keys = ['tiktok:pair', 'instagram:pair', 'tiktok:blank', 'instagram:note', 'tiktok:reason', 'tiktok:legacy']
+    const document = u11Doc([['old<&>pool', keys.slice(0, 3)], ['new-pool', keys.slice(3)]], {
+      'tiktok:pair': u11Review('tiktok:pair', '合格', '优先联系'),
+      'instagram:pair': u11Review('instagram:pair', '不合格', '暂不采用'),
+      'tiktok:blank': u11Review('tiktok:blank', '合格', '优先联系'),
+      'instagram:note': u11Review('instagram:note', '合格', '备选'),
+      'tiktok:legacy': { account_keys: ['tiktok:legacy'], fit: '✅' },
+    })
+    document.rounds.forEach(round => round.candidates.forEach(candidate => { if (candidate.account_key !== 'tiktok:blank') {
+      const index = candidate.account_key.startsWith('tiktok:') ? 0 : 1; candidate.source_tasks = [{ task_index: index, ...tasks[index] }]
+    } }))
+    document.rounds[0].candidates[0].source_tasks = [{ task_index: 2, ...tasks[2] }, { task_index: 0, ...tasks[0] }]
+    const feedback = [u11Row(keys[0], 'old<&>pool', { manual_eligible: 'no', manual_adopted: 'unknown', manual_reject_reason: ' 商家号；内容不匹配; 商家号 ' }),
+      u11Row(keys[1], 'old<&>pool', { manual_eligible: 'unknown' }), u11Row(keys[2], 'old<&>pool', { manual_note: ' \t ' }),
+      u11Row(keys[3], 'new-pool', { manual_note: ' 原备注 <em data-note-injected="yes">& "quoted"</em> ' }),
+      u11Row(keys[4], 'new-pool', { manual_eligible: 'no', manual_reject_reason: '内容不匹配;其他;其他' }),
+      u11Row(keys[5], 'new-pool', { manual_content_fit: 'high' })]
+    feedback.forEach((row, i) => { row.line_number = i + 2 })
+    const creators: Creator[] = keys.map(key => { const [platform, handle] = key.split(':') as [Creator['platform'], string]; return {
+      platform, handle, nickname: handle, followers: 20000, bio_links: [], verified: false, email: null,
+      profile_url: `https://${platform === 'tiktok' ? 'www.tiktok.com/@' : 'www.instagram.com/'}${handle}`,
+      source_keyword: platform === 'tiktok' ? keyword : tasks[1].keyword, source_dimension: 'scene', source_tasks: [platform === 'tiktok' ? 0 : 1], score: 55, tier: 'B',
+    } })
+    creators[0].linked_handle = 'instagram:pair'; creators[1].linked_handle = 'tiktok:pair'
+    const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`
+    const headers = ['round_id', 'platform', 'handle', 'manual_eligible', 'manual_adopted', 'manual_content_fit', 'manual_engagement', 'manual_comment_authenticity', 'manual_reject_reason', 'manual_note']
+    const csv = [headers.join(','), ...feedback.map(row => headers.map(header => csvCell((row as any)[header])).join(','))].join('\n')
+    const inputs: Record<string, string> = { 'task.json': JSON.stringify({ product: 'U11 isolated fixture', market: 'US', target_count: 10, tasks, done: [], created_at: time, updated_at: time }),
+      'agent-review.json': JSON.stringify(document), 'creators.json': JSON.stringify(creators), 'creators.raw.json': JSON.stringify(creators), 'manual-feedback.csv': csv }
+    Object.entries(inputs).forEach(([name, bytes]) => writeFileSync(join(taskDir, name), bytes))
+    writeFileSync(join(isolated, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: time, creators: { 'tiktok:pair': {
+      platform: 'tiktok', handle: 'pair', nickname: 'pair', followers: 20000, first_seen: time, recommendations: [], contacted: true, replied: false, blocked: false, note: '',
+    } } }))
+    const context = prepareTaskReviews(taskDir, { tasks }, creators, time, creators); context.project(creators, creators)
+    const firstFeedback = context.feedback, firstDocument = context.document
+    const getterExpected = u11Clone({ feedback, document })
+    if (firstFeedback?.length) firstFeedback[0].manual_note = 'mutated copy'
+    firstDocument.rounds[0].candidates[0].source_tasks![0].keyword = 'mutated copy'
+    ok('U11已校验反馈和冻结来源getter拥有独立副本', isDeepStrictEqual({ feedback: context.feedback, document: context.document }, getterExpected))
+    const renderAbsolute = join(dirname(fileURLToPath(import.meta.url)), 'render.ts')
+    const run = spawnSync(...tsxCommand([renderAbsolute, '--dir', taskDir]), { cwd: isolated, env: { ...process.env, TIKHUB_API_KEY: '' }, encoding: 'utf8', timeout: 30000 })
+    ok('U11真实render入口成功交付报告', run.status === 0 && existsSync(join(taskDir, 'meta.json')) && existsSync(join(taskDir, 'report.html')))
+    const meta = existsSync(join(taskDir, 'meta.json')) ? JSON.parse(rf(join(taskDir, 'meta.json'), 'utf8')) : {}
+    const expectedSummary = { rounds: [{ round_id: 'old<&>pool', candidates: 3, reviewed: 2, unreviewed: 1 }, { round_id: 'new-pool', candidates: 3, reviewed: 3, unreviewed: 0 }],
+      eligible: { yes: 0, no: 2, unknown: 1, unreviewed: 3, denominator: 2, rate: 0 }, adopted: { yes: 0, no: 0, unknown: 1, unreviewed: 5, denominator: 0, rate: null },
+      reject_reasons: [{ reason: '内容不匹配', count: 2 }, { reason: '商家号', count: 1 }, { reason: '其他', count: 1 }], disagreements: ['tiktok:pair'] }
+    ok('U11真实入口metadata按完整冻结池统计', isDeepStrictEqual(meta.feedback_summary, expectedSummary))
+    ok('U11真实入口metadata保留完整原轮次来源', isDeepStrictEqual(meta.review_rounds, document.rounds))
+    const html = existsSync(join(taskDir, 'report.html')) ? rf(join(taskDir, 'report.html'), 'utf8') : '', root = u11ReadHtml(html)
+    const sections = u11Nodes(root).filter(node => node.tag === 'section' && node.attrs.id === 'feedback-summary'), summary = sections[0] ?? { tag: 'root', attrs: {}, children: [] }
+    ok('U11实际HTML可见性reader资格已确认', !root.cssUnknown?.length)
+    const summaryNodes = u11Nodes(summary), tallyRows = summaryNodes.filter(node => node.tag === 'tr' && node.attrs['data-manual-field'])
+    const eligible = tallyRows.find(row => row.attrs['data-manual-field'] === 'eligible'), adopted = tallyRows.find(row => row.attrs['data-manual-field'] === 'adopted')
+    const tallyValues = (row?: U11Node) => [/^yes$/i, /^no$/i, /^unknown$/i, /未评|缺席|未作答|未回答|未填写|无回答|无作答/, /分母/, /比率|比例|率/].map((heading, index) => {
+      const value = u11TableValue(row, heading), percent = value?.match(/^([+-]?(?:\d+\.?\d*|\.\d+))\s*%$/); return index === 5 ? percent ? `${Number(percent[1])}%` : value : u11CountText(value) })
+    eq('U11真实HTML呈现独立分母真实零和不可计算', [tallyValues(eligible), tallyValues(adopted)], [['0', '2', '1', '3', '2', '0%'], ['0', '0', '1', '5', '0', '不可计算']])
+    const roundRows = summaryNodes.filter(node => node.tag === 'tr' && node.attrs['data-round-id'])
+    eq('U11真实HTML每轮审核覆盖与原时间可复核', roundRows.map(row => [row.attrs['data-round-id'], u11Text(row).includes(row.attrs['data-round-id']) && u11Text(row).includes(document.rounds[roundRows.indexOf(row)]?.created_at),
+      u11CountText(u11TableValue(row, /候选|冻结(?:平台)?账号/)), u11CountText(u11TableValue(row, /已审|已评/)), u11CountText(u11TableValue(row, /未审|未评/))]), [['old<&>pool', true, '3', '2', '1'], ['new-pool', true, '3', '3', '0']])
+    const sourceRows = summaryNodes.filter(node => node.tag === 'tr' && node.attrs['data-account-key'])
+    eq('U11真实HTML冻结来源属于各自账号且保持顺序', sourceRows.map(row => row.attrs['data-account-key']), keys)
+    const frozen = document.rounds.flatMap(round => round.candidates.map(candidate => ({ round, candidate })))
+    let sourceFormatQualified = true
+    const sourceValuesVisible = sourceRows.length === frozen.length && sourceRows.every((row, i) => { if (!frozen[i]) return false; const { round, candidate } = frozen[i]
+      let details = row.parent; while (details && details.tag !== 'details') details = details.parent
+      const title = details?.children.find((child): child is U11Node => typeof child !== 'string' && child.tag === 'summary')
+      if (!u11Text(row).includes(candidate.account_key) || !u11Text(title).includes(round.round_id)) return false
+      if (candidate.source_tasks === null) return /无从确认/.test(u11Text(row)) && tasks.every(task => !u11Text(row).includes(u11Norm(task.keyword)))
+      const sources = candidate.source_tasks, positions = sources.map(source => u11Text(row).indexOf(u11Norm(source.keyword)))
+      let fields = u11TableValue(row, /来源|source_tasks|任务快照/) ?? u11Text(row)
+      for (const literal of [candidate.account_key, round.round_id, round.created_at, ...sources.map(source => u11Norm(source.keyword))]) fields = fields.split(literal).join(' ')
+      const labeled = [...fields.matchAll(/(?:task_index\s*[:=：]?|任务(?:下标|索引)\s*[:=：]?|#)\s*(\d+)/gi)].map(match => Number(match[1]))
+      const rawNumbers = [...fields.matchAll(/(?:^|[^\d])(\d+)(?=[^\d]|$)/g)].map(match => Number(match[1])), indices = labeled.length ? labeled : rawNumbers
+      if (indices.length !== sources.length) { sourceFormatQualified = false; console.error(`${SELFCHECK_FIXTURE_MARK} U11来源下标格式不能唯一定位：${candidate.account_key}`); return false }
+      const dimensions = [...fields.matchAll(/\b(category|scene|competitor|audience)\b/g)].map(match => match[1]), platforms = [...fields.matchAll(/\b(tiktok|instagram)\b/gi)].map(match => match[1].toLowerCase())
+      return positions.every((position, index) => position >= 0 && (index === 0 || position > positions[index - 1])) && isDeepStrictEqual(indices, sources.map(source => source.task_index)) &&
+        isDeepStrictEqual(dimensions, sources.map(source => source.dimension)) && isDeepStrictEqual(platforms, sources.map(source => source.platform))
+    })
+    ok('U11来源字段reader资格已确认', sourceFormatQualified)
+    ok('U11真实HTML来源原文可见并安全转义', sourceValuesVisible && !summaryNodes.some(node => 'data-feedback-injected' in node.attrs) && summaryNodes.filter(node => node.tag === 'details').every(node => 'open' in node.attrs))
+    const reasons = u11Panel(summary, /拒绝原因/), reasonRows = u11Nodes(reasons).filter(node => /^(li|tr)$/.test(node.tag) && /内容不匹配|商家号|其他/.test(u11Text(node)))
+    eq('U11真实HTML拒绝原因及账号数按正确次序呈现', reasonRows.map(row => u11Text(row).match(/(内容不匹配|商家号|其他).*?(\d+)/)?.slice(1)), [['内容不匹配', '2'], ['商家号', '1'], ['其他', '1']])
+    eq('U11真实HTML分歧只列冻结账号自身明确反对', u11Text(u11Panel(summary, /分歧/)).match(/(?:tiktok|instagram):[a-z0-9_.]+/g), ['tiktok:pair'])
+    let ancestor = summary.parent; const ancestors: U11Node[] = [summary]; while (ancestor) { ancestors.push(ancestor); ancestor = ancestor.parent }
+    ok('U11人工统计在候选筛选外并声明历史比较边界', sections.length === 1 && !ancestors.some(node => node.attrs.id === 'cards' || /\b(?:candidate-list|card)\b/.test(node.attrs.class ?? '')) &&
+      /(?:不是|不代表|不构成|不等于).*Agent.*准确率/.test(u11Text(summary)) && /(?:不是|不代表|不构成|不等于).*采用.*改善/.test(u11Text(summary)) &&
+      /(?:历史|冻结)[^。]*(?:不是|不代表|不等于|并非)[^。]*可联系/.test(u11Text(summary)))
+    const delivered = JSON.parse(rf(join(taskDir, 'creators.json'), 'utf8')), memory = JSON.parse(rf(join(isolated, 'memory', 'creators.json'), 'utf8'))
+    const cardRoot = u11Nodes(root).find(node => node.tag === 'div' && node.attrs.id === 'cards')
+    const cards = cardRoot ? u11Nodes(cardRoot).filter(node => node.tag === 'div' && /\bcard\b/.test(node.attrs.class ?? '')) : []
+    const cardKeys = cards.map(card => { const nodes = u11Nodes(card), platform = nodes.find(node => node.tag === 'span' && /\bpf\b/.test(node.attrs.class ?? ''))
+      const anchor = nodes.find(node => node.tag === 'a' && node.parent && /\bhandle\b/.test(node.parent.attrs.class ?? ''))
+      const pf = /\btiktok\b/.test(platform?.attrs.class ?? '') ? 'tiktok' : /\binstagram\b/.test(platform?.attrs.class ?? '') ? 'instagram' : undefined
+      const handle = u11Text(anchor).replace(/^@/, ''); return anchor && pf && delivered.some((creator: Creator) => creator.platform === pf && creator.handle === handle && creator.profile_url === anchor.attrs.href) ? `${pf}:${handle}` : undefined })
+    ok('U11已联系账号只留历史池且不恢复交付卡片', delivered.length > 0 && isDeepStrictEqual(cardKeys.slice().sort(), delivered.map((creator: Creator) => `${creator.platform}:${creator.handle}`).sort()) &&
+      !cardKeys.includes('tiktok:pair') && memory.creators['tiktok:pair'].contacted === true && sourceRows.some(row => row.attrs['data-account-key'] === 'tiktok:pair'))
+    eq('U11真实入口保留Agent人工和采集原字节', ['agent-review.json', 'manual-feedback.csv', 'creators.raw.json'].map(name => rf(join(taskDir, name), 'utf8')), ['agent-review.json', 'manual-feedback.csv', 'creators.raw.json'].map(name => inputs[name]))
+    const emptySummary = { rounds: [], eligible: { yes: 0, no: 0, unknown: 0, unreviewed: 0, denominator: 0, rate: null }, adopted: { yes: 0, no: 0, unknown: 0, unreviewed: 0, denominator: 0, rate: null }, reject_reasons: [], disagreements: [] }
+    const emptyRoot = u11ReadHtml(renderHtml([], { ...meta, feedback_summary: emptySummary, review_rounds: [] })), emptyPanel = u11Nodes(emptyRoot).find(node => node.attrs.id === 'feedback-summary')
+    const emptyTallies = emptyPanel ? u11Nodes(emptyPanel).filter(node => node.tag === 'tr' && node.attrs['data-manual-field']) : []
+    ok('U11公共空池HTML明确零账号而非零比率', /(?:0\s*(?:个)?(?:冻结)?(?:平台)?账号|(?:冻结)?(?:平台)?账号(?:数|总数)?\s*[:：]?\s*0)/.test(u11Text(emptyPanel)) && emptyTallies.length === 2 && emptyTallies.every(row => /不可计算/.test(u11Text(row))) && /尚无人工拒绝原因/.test(u11Text(emptyPanel)))
+    const noSummaryMeta = { ...meta }; delete noSummaryMeta.feedback_summary
+    const missingRoot = u11ReadHtml(renderHtml([], noSummaryMeta)), missingPanel = u11Nodes(missingRoot).find(node => node.attrs.id === 'feedback-summary')
+    ok('U11公共缺统计HTML明示未提供而不冒充零测量', /人工审核统计未提供/.test(u11Text(missingPanel)) && !u11Nodes(missingPanel ?? missingRoot).some(node => node.tag === 'tr' && node.attrs['data-manual-field']))
+  } finally { rmSync(isolated, { recursive: true, force: true }) }
 })
 
 if (seenGroups.size !== GROUPS.length) {
