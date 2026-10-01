@@ -1,6 +1,6 @@
 {
   "$comment": "编号的唯一真相来源。docs/SPEC.md 是它的渲染，两者不一致以本文件为准。content_hash 是派生字段，由 spec-sync --write 写，不要手改 —— 改了需求不回写，npm run check 当场变红。字段含义见 process/1-REQUIREMENTS.md。",
-  "content_hash": "6c741bd127ed",
+  "content_hash": "d17d7daffd6b",
   "categories": {
     "P": "红线 —— 不参与任何取舍",
     "S": "范围 —— 明确不做什么",
@@ -1413,6 +1413,10 @@
           "text": "重复交付以评审正本重建投影，已保存的判断不能沿用过期投影或被清空。"
         },
         {
+          "id": "D21.d",
+          "text": "主账号不为待重评且 fit 缺席时，tierOf 的基础分层为 B，无论硬指标分数高低；不得从 eligibility、adoption_priority、关联账号或人工结论推断缺失的 fit，也不得因此判为 A 或 C。"
+        },
+        {
           "id": "D21.e",
           "text": "读取缺席的 agent-review.json 与读取已存在但没有评审的文档须可区分；只读时不因缺席创建文件。"
         },
@@ -1459,6 +1463,10 @@
         {
           "id": "D21.p",
           "text": "无新评审或仅有 legacy fit 的账号标未评；完整新评审的品牌校准版本与任务当前版本一致（含双方均缺席）标已评，不一致标待重评，原评审内容不因状态变化而改写。"
+        },
+        {
+          "id": "D21.q",
+          "text": "主账号 review_status=待重评时，tierOf 的基础分层为 B，优先于原 fit（包括 ❌）、联系方式和硬指标分数；该分层不改写 D21.p 保留的原评审判断。"
         }
       ],
       "adr": [
@@ -1797,11 +1805,25 @@
       "id": "F6",
       "cat": "F",
       "pri": "P0",
-      "text": "语义判断为否定时对分层有一票否决权，不得因分数高而进入 A 级。",
+      "text": "当前有效的明确语义判断决定基础分层，否定判断不得因分数高而进入 A 级；待重评先按 D21 等待复核。",
       "accept": [
         {
-          "id": "F6.a",
-          "text": "tierOf 对 fit='❌' 的创作者一律返回 'C'，无论 score 多高。"
+          "id": "F6.b",
+          "text": "主账号不为待重评且 fit='❌' 时，tierOf 返回 C，无论硬指标分数多高；接替退役的 F6.a，其原文与退役理由保留在 ADR-130。"
+        },
+        {
+          "id": "F6.c",
+          "text": "主账号不为待重评且 fit='✅' 时，email 为非空字符串则 tierOf 返回 A，email 缺席、null 或空串则返回 B；明确 fit='⚠️' 时返回 B。仅有 legacy 明确 fit、review_status 为未评或缺席时仍按此兼容规则处理，不补造新评审结论。"
+        }
+      ],
+      "adr": [
+        "ADR-130"
+      ],
+      "tension": [
+        {
+          "with": "D21",
+          "ruling": "D21.q 优先：待重评的基础分层先回 B，即使旧 fit 为 ❌；非待重评的明确 fit 按 F6.b/c 处理。D21.p 的 legacy 未评状态不等于 fit 缺席，已有明确兼容判断仍保留，不由状态制造新判断。",
+          "adr": "ADR-130"
         }
       ]
     },

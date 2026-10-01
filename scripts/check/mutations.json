@@ -284,10 +284,10 @@
     {
       "id": "M-F6-a",
       "req": "F6",
-      "why": "取消语义否决权，高分的搬运号会进 A 级被直接发信",
+      "why": "取消当前有效语义否决，明确不匹配的账号离开 C 档进入待核实名单",
       "by": "test",
       "kills": [
-        "❌ 一律降到 C"
+        "有效 ❌ 降到 C"
       ],
       "file": "scripts/lib/score.ts",
       "find": "  if (c.fit === '❌') return 'C'",
@@ -4234,22 +4234,6 @@
       "kills": [
         "排序：没算过分的排在 0 分之后，不与它混同"
       ]
-    },
-    {
-      "id": "M-F5-b",
-      "req": "F5",
-      "why": "分层时用的不是刚算出来的那个分，而是一个写死的常数 —— 没做过语义判断的人一律落到最低档，运营名单里最该先联系的那批人从此不出现在最前面",
-      "file": "scripts/lib/pipeline.ts",
-      "find": "    c.tier = tierOf(c, score)",
-      "replace": "    c.tier = tierOf(c, 0)"
-    },
-    {
-      "id": "M-F5-c",
-      "req": "F5",
-      "why": "进入「B级 先互动」那一档的门槛被调低 —— 分数不够、本该留在「C级 观察池」的人被排进了先互动那一档，运营按这份名单花掉的互动时间落在不值得的人身上",
-      "file": "scripts/lib/score.ts",
-      "find": "  return score >= 60 ? 'A' : score >= 40 ? 'B' : 'C'",
-      "replace": "  return score >= 60 ? 'A' : score >= 20 ? 'B' : 'C'"
     },
     {
       "id": "M-D6-m",
@@ -10251,6 +10235,96 @@
       "replace": "return row ? [row] : []",
       "by": "test",
       "kills": ["D25-修改输出人工行和数组不反向改变输入或另一创作者"]
+    },
+    {
+      "id": "M-D21-v",
+      "req": "D21.d",
+      "why": "缺主号内容判断仍按硬分进入 A 或 C，未评账号被凭空推荐或否定",
+      "file": "scripts/lib/score.ts",
+      "find": "  // 缺判断不等于不合格；保留参数兼容调用方，不从新判断或另一平台补 fit。\n  return 'B'",
+      "replace": "  // 缺判断不等于不合格；保留参数兼容调用方，不从新判断或另一平台补 fit。\n  return _score >= 60 ? 'A' : _score >= 40 ? 'B' : 'C'",
+      "by": "test",
+      "kills": ["缺主号判断的全部合法输入组合均为 B"]
+    },
+    {
+      "id": "M-D21-w",
+      "req": "D21.q",
+      "why": "品牌评审失效后仍沿用旧判断直接分层，待重评账号未保留待核实状态",
+      "file": "scripts/lib/score.ts",
+      "find": "  if (c.review_status === '待重评') return 'B'",
+      "replace": "  /* mutated: stale review protection omitted */",
+      "by": "test",
+      "kills": ["待重评优先于历史判断与邮箱，全部输入组合均为 B"]
+    },
+    {
+      "id": "M-D21-x",
+      "req": "D21.q",
+      "why": "旧否定判断抢先决定 C 档，待重评保护不能覆盖已经失效的否定结论",
+      "file": "scripts/lib/score.ts",
+      "find": "  if (c.review_status === '待重评') return 'B'\n  if (c.fit === '❌') return 'C'",
+      "replace": "  if (c.fit === '❌') return 'C'\n  if (c.review_status === '待重评') return 'B'",
+      "by": "test",
+      "kills": ["待重评优先于历史判断与邮箱，全部输入组合均为 B"]
+    },
+    {
+      "id": "M-D21-y",
+      "req": "D21.d",
+      "why": "新合格与采用建议代替缺席的主号内容判断，账号未经内容判断就进入 A 档",
+      "file": "scripts/lib/score.ts",
+      "find": "  if (c.email && c.fit === '✅') return 'A'",
+      "replace": "  if (c.email && (c.fit === '✅' || (!c.fit && c.eligibility === '合格' && c.adoption_priority === '优先联系'))) return 'A'",
+      "by": "test",
+      "kills": ["缺主号判断的全部合法输入组合均为 B"]
+    },
+    {
+      "id": "M-D21-z",
+      "req": "D21.d",
+      "why": "关联平台的肯定内容判断代替主号缺席判断，另一账号的证据越权推荐主号",
+      "file": "scripts/lib/score.ts",
+      "find": "  if (c.email && c.fit === '✅') return 'A'",
+      "replace": "  if (c.email && (c.fit ?? c.linked_agent_review?.fit) === '✅') return 'A'",
+      "by": "test",
+      "kills": ["关联平台与人工显示建议不能补主号判断"]
+    },
+    {
+      "id": "M-D21-aa",
+      "req": "D21.d",
+      "why": "人工采用或有效显示建议代替缺席的主号内容判断，展示投影越权生成 A 档",
+      "file": "scripts/lib/score.ts",
+      "find": "  if (c.email && c.fit === '✅') return 'A'",
+      "replace": "  if (c.email && (c.fit === '✅' || (!c.fit && (c.manual_adopted === 'yes' || c.effective_priority === '优先联系')))) return 'A'",
+      "by": "test",
+      "kills": ["人工和关联评审的全部显示建议均不制造主号判断或硬分"]
+    },
+    {
+      "id": "M-D21-ab",
+      "req": "D21.q",
+      "why": "待重评保护删除原内容判断，待核实分层破坏用于重评的历史结论",
+      "file": "scripts/lib/score.ts",
+      "find": "  if (c.review_status === '待重评') return 'B'",
+      "replace": "  if (c.review_status === '待重评') { delete c.fit; return 'B' }",
+      "by": "test",
+      "kills": ["分层不改账号原判断或人工显示字段"]
+    },
+    {
+      "id": "M-F6-b",
+      "req": "F6.c",
+      "why": "旧式明确内容判断被未评状态阻断，有邮箱的肯定账号失去兼容的 A 档",
+      "file": "scripts/lib/score.ts",
+      "find": "  if (c.review_status === '待重评') return 'B'",
+      "replace": "  if (c.review_status === '待重评') return 'B'\n  if (c.review_status !== '已评') return 'B'",
+      "by": "test",
+      "kills": ["旧式 fit 单独评审保留未评状态并沿用明确判断分层"]
+    },
+    {
+      "id": "M-F6-c",
+      "req": "F6.c",
+      "why": "当前有效肯定判断与邮箱之外又设置硬分门槛，低分合适账号失去 A 档",
+      "file": "scripts/lib/score.ts",
+      "find": "  if (c.email && c.fit === '✅') return 'A'",
+      "replace": "  if (c.email && c.fit === '✅' && _score >= 60) return 'A'",
+      "by": "test",
+      "kills": ["当前有效肯定判断仅凭邮箱决定 A 或 B"]
     }
   ],
   "exemptions": [

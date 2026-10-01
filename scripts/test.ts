@@ -192,6 +192,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd23-manual-feedback', needs: [] },
   { id: 'd24-manual-template', needs: [] },
   { id: 'd25-effective-priority', needs: [] },
+  { id: 'd21-tier-guards', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -2197,16 +2198,6 @@ suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时�
   // 还是猜的，而 P1 不让步。判别见 docs/CONVENTIONS.md 第 2 条。
   eq('缺增强层时地域留空，不补一个猜出来的值',
     rankCreators([noGeo], 'US')[0].audience_geo, undefined)
-
-  // 没做过语义判断（没有 fit）时按分数分层，而分层用的必须是**刚算出来的那个分**。
-  // 三个语料的分数实测落在 30 / 45 / 60，正好跨过两条阈值 —— 传错一个常数进去，
-  // 三条里至少两条会红。原先这一支一条断言都没有：把它整个改成永远返回 C，
-  // 整个测试套照样全绿（#93 评审指出）
-  const noFit = (h: string, over: Partial<Creator> = {}) => mk('tiktok', h, over)
-  eq('没做语义判断时按分数分层：30 分 → C',
-    rankCreators([noFit('s30')], 'US')[0].tier, 'C')
-  eq('45 分 → B', rankCreators([noFit('s45', { source_dimension: 'competitor' })], 'US')[0].tier, 'B')
-  eq('60 分 → A', rankCreators([noFit('s60', { email: 'a@example.com' })], 'US')[0].tier, 'A')
 
   tension('F5', 'P1')
 }
@@ -5714,7 +5705,7 @@ suite('F6', '语义判断否定有一票否决权')
   high.score = scoreCreator(high)
   ok('分数确实很高', high.score >= 60)
   high.fit = '❌'
-  eq('❌ 一律降到 C', tierOf(high, high.score), 'C')
+  eq('有效 ❌ 降到 C', tierOf(high, high.score), 'C')
   high.fit = '✅'
   eq('✅ 且有邮箱 → A', tierOf(high, high.score), 'A')
   const noEmail = mk('tiktok', 'y', { fit: '✅', score: 45 })
@@ -11081,6 +11072,166 @@ await group('d25-effective-priority', () => {
     && isDeepStrictEqual(second?.manual_feedback_accounts, [linked, primary]))
   eq('D25-所有公开合法计算投影路径均无异常', errors, [])
   criterion('D25.h')
+})
+
+await group('d21-tier-guards', () => {
+suite('D21', '未取得当前主号判断时保留待核实分层')
+{
+  // 依据 D21.d：缺 fit 的高硬分账号仍是待核实 B，不由分数制造 A 推荐。
+  const pending = mk('tiktok', 'pending-high-score', { email: 'a@example.com', source_dimension: 'competitor' })
+  eq('缺主号判断的高硬分账号保留 B', tierOf(pending, 100), 'B')
+
+  // 独立决策表来自 D21.d/q 与 F6.b/c；分数只保留调用兼容性。
+  const expectedTier = (fit: Creator['fit'], email: Creator['email'], status: Creator['review_status']): Creator['tier'] =>
+    status === '待重评' || fit === undefined ? 'B' : fit === '❌' ? 'C' : fit === '✅' && email ? 'A' : 'B'
+  const fits: Creator['fit'][] = [undefined, '✅', '⚠️', '❌']
+  const statuses: Creator['review_status'][] = [undefined, '未评', '已评', '待重评']
+  const contacts: Creator['email'][] = [undefined, null, '', 'a@example.com']
+  const emptyFaults = () => ({ count: 0, examples: [] as string[] })
+  const noteFault = (faults: ReturnType<typeof emptyFaults>, detail: string) => {
+    faults.count++; if (faults.examples.length < 3) faults.examples.push(detail)
+  }
+  const zeroFaults = emptyFaults()
+  const faults = { missing: emptyFaults(), stale: emptyFaults(), negative: emptyFaults(),
+    positive: emptyFaults(), warning: emptyFaults(), changed: emptyFaults() }
+  // 直接函数的枚举检验显示字段隔离，不声称这些枚举组合都是有效评审正本。
+  for (const score of Array.from({ length: 22 }, (_, i) => i * 5)) for (const email of contacts)
+    for (const fit of fits) for (const review_status of statuses)
+      for (const eligibility of ['合格', '不合格', '待核实'] as const)
+        for (const adoption_priority of ['优先联系', '备选', '待核实', '暂不采用'] as const) {
+          const c = mk('tiktok', 'tier-matrix', { score, email, fit, review_status, eligibility, adoption_priority,
+            linked_agent_review: { account_key: 'instagram:linked', review_status: '已评', fit: '✅' },
+            manual_adopted: 'yes', manual_eligible: 'yes', manual_reviewed: true, effective_priority: '优先联系' })
+          const before = JSON.stringify(c), got = tierOf(c, score), want = expectedTier(fit, email, review_status)
+          const bucket = review_status === '待重评' ? 'stale' : fit === undefined ? 'missing' :
+            fit === '❌' ? 'negative' : fit === '✅' ? 'positive' : 'warning'
+          if (got !== want) noteFault(faults[bucket], `${score}/${email}/${fit}/${review_status}/${eligibility}/${adoption_priority}:${got}`)
+          if (JSON.stringify(c) !== before) noteFault(faults.changed, `${score}/${fit}/${review_status}`)
+        }
+  eq('缺主号判断的全部合法输入组合均为 B', faults.missing, zeroFaults)
+  criterion('D21.d')
+  eq('待重评优先于历史判断与邮箱，全部输入组合均为 B', faults.stale, zeroFaults)
+  criterion('D21.q')
+  eq('分层不改账号原判断或人工显示字段', faults.changed, zeroFaults)
+
+  // F4/semantic-fit 的八项公开权重独立相加；判断变化不能增加或减少硬分。
+  const scoreFaults = emptyFaults()
+  for (const email of contacts) for (const followers of [undefined, 4999, 5000, 5000000, 5000001])
+    for (const source_dimension of ['category', 'scene', 'competitor', 'audience'] as const)
+      for (let bits = 0; bits < 16; bits++) {
+        const cross_platform = Boolean(bits & 1), accumulated = Boolean(bits & 2), business = Boolean(bits & 4), popular = Boolean(bits & 8)
+        const hard = mk('tiktok', 'hard-matrix', { email, followers, source_dimension, cross_platform,
+          post_count: accumulated ? 31 : 30, bio: business ? 'business inquiries' : null,
+          recent_posts: [{ desc: 'public work', plays: popular ? 100001 : 100000 }] })
+        const want = (email ? 30 : 0) + (followers !== undefined && followers >= 5000 && followers <= 5000000 ? 20 : 0) +
+          (source_dimension === 'competitor' ? 15 : source_dimension === 'scene' ? 10 : 0) +
+          (cross_platform ? 15 : 0) + (accumulated ? 10 : 0) + (business ? 10 : 0) + (popular ? 5 : 0)
+        for (const fit of fits) for (const review_status of statuses) {
+          const got = scoreCreator({ ...hard, fit, review_status, eligibility: '合格', adoption_priority: '优先联系',
+            manual_adopted: 'yes', effective_priority: '优先联系' })
+          if (got !== want) noteFault(scoreFaults, `${email}/${followers}/${source_dimension}/${bits}/${fit}/${review_status}:${got}≠${want}`)
+        }
+      }
+  eq('判断和显示字段不改变八项硬指标权重或边界', scoreFaults, zeroFaults)
+
+  const complete = { eligibility: '合格' as const, adoption_priority: '优先联系' as const,
+    observed_content: 'Observed public content', work_evidence: 'A named public work',
+    natural_integration: 'A demonstrated integration', mismatch_risk: 'A documented risk',
+    fit_reason: 'Original fit explanation', outreach_draft: 'Original English outreach' }
+  const versions: Array<[string | undefined, string | undefined, Creator['review_status']]> = [
+    ['brand-v1', 'brand-v1', '已评'], [undefined, undefined, '已评'],
+    ['brand-v1', 'brand-v2', '待重评'], [undefined, 'brand-v1', '待重评'], ['brand-v1', undefined, '待重评'],
+  ]
+  const projectionFaults = emptyFaults(), preservationFaults = emptyFaults()
+  for (const fit of fits) for (const email of contacts) for (const [reviewVersion, currentVersion, status] of versions) {
+    const c = mk('tiktok', 'projected', { email })
+    const review = { ...complete, account_keys: ['tiktok:projected'], fit, brand_calibration_version: reviewVersion }
+    const document = { version: 1 as const, updated_at: '2026-10-01T00:00:00Z', reviews: { 'tiktok:projected': review }, rounds: [] }
+    const before = JSON.stringify([document, c]), p = projectAgentReviews(document, [c], currentVersion)[0]
+    const ranked = rankCreators([p], 'US')[0]
+    if (ranked.review_status !== status || ranked.tier !== expectedTier(fit, email, status) || ranked.fit !== fit)
+      noteFault(projectionFaults, `${fit}/${email}/${reviewVersion}/${currentVersion}:${ranked.review_status}/${ranked.tier}/${ranked.fit}`)
+    const fields = ['fit', 'fit_reason', 'outreach_draft', 'observed_content', 'work_evidence', 'natural_integration', 'mismatch_risk', 'brand_calibration_version'] as const
+    if (fields.some(key => ranked[key] !== review[key]) || JSON.stringify([document, c]) !== before)
+      noteFault(preservationFaults, `${fit}/${reviewVersion}/${currentVersion}`)
+  }
+  eq('真实投影到分层遵守版本完全匹配、双方缺席与失效保护', projectionFaults, zeroFaults)
+  eq('失效保护保留原判断证据与草稿，投影输入不变', preservationFaults, zeroFaults)
+
+  const legacyFaults = emptyFaults()
+  for (const fit of ['✅', '⚠️', '❌'] as const) for (const email of contacts) {
+    const document = { version: 1 as const, updated_at: '2026-10-01T00:00:00Z',
+      reviews: { 'tiktok:legacy': { account_keys: ['tiktok:legacy'], fit } }, rounds: [] }
+    const p = projectAgentReviews(document, [mk('tiktok', 'legacy', { email, followers: 0, post_count: 0 })], 'current-brand')[0]
+    if (p.review_status !== '未评' || rankCreators([p], 'US')[0].tier !== expectedTier(fit, email, '未评'))
+      noteFault(legacyFaults, `${fit}/${email}:${p.review_status}/${p.tier}`)
+  }
+  eq('旧式 fit 单独评审保留未评状态并沿用明确判断分层', legacyFaults, zeroFaults)
+  const main = mk('tiktok', 'primary', { email: 'a@example.com', linked_handle: 'instagram:linked',
+    manual_adopted: 'yes', manual_eligible: 'yes', manual_reviewed: true, effective_priority: '优先联系' })
+  const linkedDocument = { version: 1 as const, updated_at: '2026-10-01T00:00:00Z',
+    reviews: { 'instagram:linked': { ...complete, account_keys: ['instagram:linked'], fit: '✅' as const } }, rounds: [] }
+  const linked = rankCreators(projectAgentReviews(linkedDocument, [main]), 'US')[0]
+  eq('关联平台与人工显示建议不能补主号判断',
+    [linked.fit, linked.review_status, linked.tier, linked.linked_agent_review?.fit], [undefined, '未评', 'B', '✅'])
+  const displayFaults = emptyFaults(), decisions: Creator['manual_adopted'][] = [undefined, 'yes', 'no', 'unknown']
+  const displayPriorities: Creator['effective_priority'][] = [undefined, '优先联系', '备选', '待核实', '暂不采用']
+  for (const manual_adopted of decisions) for (const manual_eligible of decisions)
+    for (const manual_reviewed of [false, true]) for (const effective_priority of displayPriorities)
+      for (const linkedFit of fits) for (const linkedStatus of ['未评', '已评', '待重评'] as const)
+        for (const email of [undefined, 'a@example.com']) for (const review_status of statuses) {
+          const c = mk('tiktok', 'display-matrix', { email, review_status, manual_adopted, manual_eligible, manual_reviewed, effective_priority,
+            linked_agent_review: { account_key: 'instagram:linked', review_status: linkedStatus, fit: linkedFit } })
+          if (tierOf(c, 105) !== 'B' || scoreCreator(c) !== (email ? 60 : 30))
+            noteFault(displayFaults, `${manual_adopted}/${manual_eligible}/${manual_reviewed}/${effective_priority}/${linkedFit}/${linkedStatus}/${email}/${review_status}`)
+        }
+  eq('人工和关联评审的全部显示建议均不制造主号判断或硬分', displayFaults, zeroFaults)
+  tension('D21', 'P1')
+
+  suite('F6', '当前有效语义判断保留明确分层兼容')
+  eq('当前有效否定判断的全部输入组合均为 C', faults.negative, zeroFaults)
+  criterion('F6.b')
+  eq('当前有效肯定判断仅凭邮箱决定 A 或 B', faults.positive, zeroFaults)
+  eq('当前有效待核实判断的全部输入组合均为 B', faults.warning, zeroFaults)
+  criterion('F6.c')
+  tension('F6', 'D21')
+
+  // F5/F8 的后续规则照常作用；高风险仅来自当前主号的公开测量。
+  const source = { kind: 'public_api' as const, provider: 'fixture', endpoint: 'public-account' }, observed_at = '2026-10-01T00:00:00Z'
+  const unavailable = { status: 'unavailable' as const, reason: 'insufficient_posts' as const, source, observed_at }
+  const metrics: NonNullable<NonNullable<Creator['account_assessment']>['metrics']> = {
+    median_views: unavailable, median_engagements: unavailable, engagement_rate_followers: unavailable,
+    engagement_rate_views: unavailable, view_rate: unavailable, following_ratio: unavailable, reach_consistency: unavailable,
+    median_post_gap_days: unavailable, latest_post_at: unavailable, days_since_last_post: unavailable, activity_status: unavailable,
+    audience_quality_risk: { status: 'measured', source, observed_at, sample_size: 8, basis: 'Two comparable public metrics',
+      value: { level: 'high', peer_size: 8, flags: [
+        { metric: 'engagement_rate_followers', direction: 'low', value: 0.001, threshold: 0.01, peer_size: 8 },
+        { metric: 'view_rate', direction: 'low', value: 0.001, threshold: 0.01, peer_size: 8 },
+      ] } },
+  }
+  const withRisk = (handle: string, over: Partial<Creator>) => mk('tiktok', handle, { ...over,
+    account_assessment: { platform: 'tiktok', handle, metrics } })
+  const staleRisk = withRisk('stale-risk', { fit: '❌', review_status: '待重评', email: 'a@example.com' })
+  eq('待重评与缺判断的 B 仍受后续主号高风险降权',
+    [rankCreators([staleRisk], 'US')[0].tier, rankCreators([withRisk('missing-risk', {})], 'US')[0].tier], ['C', 'C'])
+  eq('待重评与缺判断的 B 仍受地域降权或剔除', [
+    rankCreators([mk('tiktok', 'stale-geo', { fit: '❌', review_status: '待重评', audience_geo: { US: 0.2 } })], 'US')[0].tier,
+    rankCreators([mk('tiktok', 'missing-geo', { audience_geo: { US: 0.2 } })], 'US')[0].tier,
+    rankCreators([mk('tiktok', 'drop-geo', { review_status: '待重评', audience_geo: { US: 0.1 } })], 'US').length,
+  ], ['C', 'C', 0])
+  const ordered = rankCreators([withRisk('ordered', { fit: '✅', email: 'a@example.com', audience_geo: { US: 0.2 },
+    tier_adjustments: [{ kind: 'audience_geo', from: 'A', to: 'C', reason: 'Old adjustment' }] })], 'US')[0]
+  eq('分层重置旧调整后先地域再公开受众风险', ordered.tier_adjustments?.map(({ kind, from, to }) => [kind, from, to]),
+    [['audience_geo', 'A', 'B'], ['audience_quality_risk', 'B', 'C']])
+  ok('后续两次降权均给出非空理由', ordered.tier === 'C' && ordered.tier_adjustments?.length === 2 &&
+    ordered.tier_adjustments.every(({ reason }) => reason.trim().length > 0))
+  eq('新待核实分层仍按档位和硬分排序', rankCreators([
+    mk('tiktok', 'pending-high', { email: 'a@example.com', source_dimension: 'competitor' }),
+    mk('tiktok', 'positive-low', { fit: '✅', email: 'a@example.com', followers: 0, post_count: 0 }),
+    mk('tiktok', 'negative-high', { fit: '❌', email: 'a@example.com', source_dimension: 'competitor' }),
+    mk('tiktok', 'warning-low', { fit: '⚠️', followers: 0, post_count: 0 }),
+  ], 'US').map(c => c.handle), ['positive-low', 'pending-high', 'warning-low', 'negative-high'])
+}
 })
 
 if (seenGroups.size !== GROUPS.length) {
