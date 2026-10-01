@@ -3,7 +3,8 @@ import type {
 } from './types.js'
 import { taskOrdinal } from './task-label.js'
 import { formatDiscoverySources } from './discovery.js'
-import { sampleScopeText } from './rows.js'
+import { sampleScopeText, sortForReviewOutput, type ReviewOutputOptions } from './rows.js'
+import { normalizedAccountKey } from './review.js'
 import type { CostView } from './budget.js'
 
 const esc = (s: unknown) =>
@@ -137,8 +138,66 @@ const renderCost = (view: CostView): string => {
 <div class="sub">${esc(view.cost_basis)}${problems}</div>`
 }
 
+/** U9：各平台原判断与人工作答并列；展示不补判断、不重算优先级。 */
+const renderReviewDetails = (c: Creator): string => {
+  let main: string | undefined
+  try { main = normalizedAccountKey(c.platform, c.handle) } catch { /* 无法规范化的身份不补键 */ }
+  const identity = (key: string | undefined) => key === undefined ? '' : ` data-account-key="${esc(key)}"`
+  const provided = (value: unknown) => value === undefined ? '未提供' : esc(value)
+  const answer = (value: unknown) => value === undefined ? '未填写'
+    : typeof value === 'string' && !value.trim() ? `未填写<span>${esc(value)}</span>` : esc(value)
+  const fieldValue = (field: string, value: unknown) => `<span data-review-field="${esc(field)}">${answer(value)}</span>`
+  const agentFields = [
+    ['observed_content', '观察内容'], ['work_evidence', '作品证据'],
+    ['natural_integration', '自然植入'], ['mismatch_risk', '风险或未核问题'],
+  ] as const
+  const manualFields = [
+    ['manual_eligible', '人工合格性'], ['manual_adopted', '人工采用'],
+    ['manual_content_fit', '内容匹配'], ['manual_engagement', '互动'],
+    ['manual_comment_authenticity', '评论真实性'], ['manual_reject_reason', '拒绝原因'],
+    ['manual_note', '人工备注'],
+  ] as const
+  const agent = (key: string | undefined, review: Partial<Creator>) => {
+    const status = review.review_status === undefined ? '未评' : review.review_status
+    const suggestion = status === '待重评' ? '历史建议（待重评，仅展示）' : 'Agent 原采用建议'
+    return `<div class="assessment" data-review-kind="agent"${identity(key)}>
+      <div class="at">Agent · ${key === undefined ? '账号无从确认' : esc(key)} · ${esc(status)}</div>
+      <div class="bio">合格性：${fieldValue('eligibility', review.eligibility)}</div>
+      <div class="bio">${suggestion}：${fieldValue('adoption_priority', review.adoption_priority)}</div>
+      <div class="bio">兼容内容判断：${fieldValue('fit', review.fit)} · ${fieldValue('fit_reason', review.fit_reason)}</div>
+      ${agentFields.map(([field, label]) => `<div class="bio">${label}：${fieldValue(field, review[field])}</div>`).join('')}
+    </div>`
+  }
+  const manual = (key: string | undefined, row: Partial<Creator> | undefined,
+    round: string | undefined, reviewed?: boolean) => `<div class="assessment" data-review-kind="manual"${identity(key)}>
+      <div class="at">人工 · ${key === undefined ? '账号无从确认' : esc(key)} · 轮次 ${provided(round)}</div>
+      ${reviewed === undefined ? '' : `<div class="bio">主账号人工已填写：${esc(reviewed)}</div>`}
+      ${manualFields.map(([field, label]) => `<div class="bio">${label}：${fieldValue(field, row?.[field])}</div>`).join('')}
+    </div>`
+  const linked = c.linked_agent_review
+  let linkedKey = linked?.account_key
+  if (linkedKey === undefined && main !== undefined && c.linked_handle !== undefined) {
+    const parts = c.linked_handle.split(':')
+    if (parts.length === 2) try {
+      const key = normalizedAccountKey(parts[0], parts[1])
+      if (key.split(':')[0] !== main.split(':')[0]) linkedKey = key
+    } catch { /* 没有合法显式关联，不从人工或其他账号推断 */ }
+  }
+  const linkedRows = c.manual_feedback_accounts?.filter(row => row.account_key !== main)
+  const linkedRow = linkedRows?.find(row => row.account_key === linkedKey)
+  const source = c.effective_priority_account_key
+  return `<div class="assessment" data-review-kind="effective"${identity(main)}${source === undefined ? '' : ` data-priority-account-key="${esc(source)}"`}>
+      <div class="at">有效展示建议：${provided(c.effective_priority)}</div>
+      ${source === undefined ? '' : `<div class="bio">人工来源账号：${esc(source)}</div>`}
+    </div>` + agent(main, c) + manual(main, c, c.manual_round_id, c.manual_reviewed) +
+    (linkedKey === undefined ? '' : agent(linkedKey, linked === undefined ? {} : linked) + manual(linkedKey, linkedRow, linkedRow?.round_id)) +
+    (linkedRows?.filter(row => row.account_key !== linkedKey)
+      .map(row => manual(row.account_key, row, row.round_id)).join('') ?? '')
+}
+
 /** 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档 */
-export function renderHtml(creators: Creator[], meta: any): string {
+export function renderHtml(creators: Creator[], meta: any, options: ReviewOutputOptions = {}): string {
+  const displayed = options.mode === 'review' ? sortForReviewOutput(creators) : creators
   // 没有「全部」tab，所以必须有一个分层默认选中。取第一个非空的 ——
   // 默认落在空分层上，打开报告第一眼是空白，会被当成出错了。
   const def: 'A' | 'B' | 'C' =
@@ -151,7 +210,7 @@ export function renderHtml(creators: Creator[], meta: any): string {
     <span class="pf ${c.platform}">${c.platform === 'tiktok' ? '♪ TikTok' : '◉ Instagram'}</span>
     ${c.cross_platform ? `<span class="xp" title="也在 ${esc(c.linked_handle)}">⇄ 双平台</span>` : ''}
     ${c.is_private ? '<span class="priv">🔒 私密号</span>' : ''}
-    <span class="sc">${c.score}</span>
+    <span class="sc">${options.mode === 'review' && c.score === undefined ? '未知' : c.score}</span>
   </div>
   <div class="handle"><a href="${esc(c.profile_url)}" target="_blank" rel="noopener">@${esc(c.handle)}</a></div>
   <div class="nm">${esc(c.nickname)}</div>
@@ -159,7 +218,8 @@ export function renderHtml(creators: Creator[], meta: any): string {
     <span>${fmt(c.followers)} 粉丝</span><span>${fmt(c.post_count)} 作品</span>
     ${c.email ? `<span class="em">${esc(c.email)}</span>` : '<span class="no">无邮箱</span>'}
   </div>
-  ${c.fit_reason ? `<div class="fit">${esc(c.fit)} ${esc(c.fit_reason)}</div>` : ''}
+  ${options.mode === 'review' ? renderReviewDetails(c)
+    : c.fit_reason ? `<div class="fit">${esc(c.fit)} ${esc(c.fit_reason)}</div>` : ''}
   ${c.tier_adjustments?.length ? `<div class="adjust">${c.tier_adjustments.map(a =>
     esc(`${a.from}→${a.to} ${a.reason}`)).join('<br>')}</div>` : ''}
   ${c.bio ? `<div class="bio">${esc(c.bio)}</div>` : ''}
@@ -321,7 +381,7 @@ ${notes.length ? `<div class="notes">${notes.map(n => `<div>⚠️ ${esc(n)}</di
   <button class="tab B${def === 'B' ? ' on' : ''}" data-f="B">B级 先互动<span class="n">${meta.tiers.B}</span></button>
   <button class="tab C${def === 'C' ? ' on' : ''}" data-f="C">C级 观察池<span class="n">${meta.tiers.C}</span></button>
 </div>
-<div class="cards" id="cards">${creators.map(card).join('')}</div>
+<div class="cards" id="cards">${displayed.map(card).join('')}</div>
 <p class="sub">仅含已记录的账号发现来源，可能不含完整历史；不对应具体作品或请求次数。</p>
 <div class="empty" id="none" style="display:${meta.tiers[def] ? 'none' : ''}">这一层没有人</div>
 </div>

@@ -361,6 +361,10 @@ export interface Creator {
     eligibility?: Eligibility
     adoption_priority?: AdoptionPriority
     review_status: ReviewStatus
+    observed_content?: string
+    work_evidence?: string
+    natural_integration?: string
+    mismatch_risk?: string
     fit?: Fit
     fit_reason?: string
   }

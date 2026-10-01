@@ -10325,6 +10325,134 @@
       "replace": "  if (c.email && c.fit === '✅' && _score >= 60) return 'A'",
       "by": "test",
       "kills": ["当前有效肯定判断仅凭邮箱决定 A 或 B"]
+    },
+    {
+      "id": "M-U9-a", "req": "U9.b",
+      "why": "新名单仍由旧层级优先排列，人工有效建议不能把更优先的账号移到前面",
+      "file": "scripts/lib/rows.ts",
+      "find": "  return sortForOutput(creators).sort((a, b) => rank(a) - rank(b))",
+      "replace": "  return sortForOutput(creators)",
+      "by": "test", "kills": ["U9.b 180组冲突键按优先级层级分数粉丝三态稳定排列"]
+    },
+    {
+      "id": "M-U9-b", "req": "U9.b",
+      "why": "有效建议相同后跳过原层级、分数缺席零值和粉丝三态规则，次级先后退成输入顺序",
+      "file": "scripts/lib/rows.ts",
+      "find": "  return sortForOutput(creators).sort((a, b) => rank(a) - rank(b))",
+      "replace": "  return [...creators].sort((a, b) => rank(a) - rank(b))",
+      "by": "test", "kills": ["U9.b 180组冲突键按优先级层级分数粉丝三态稳定排列"]
+    },
+    {
+      "id": "M-U9-c", "req": "U9.d",
+      "why": "评审表头把新增列移到旧列之前，破坏既有消费者依赖的完整旧前缀",
+      "file": "scripts/lib/rows.ts",
+      "find": "export const REVIEW_HEADERS = [...HEADERS, ...REVIEW_FIELDS]",
+      "replace": "export const REVIEW_HEADERS = [...REVIEW_FIELDS, ...HEADERS]",
+      "by": "test", "kills": ["U9.d 新公共表头符合契约原序64列"]
+    },
+    {
+      "id": "M-U9-d", "req": "U9.c",
+      "why": "显式选择评审模式仍交出旧工作表，新有效建议排序和评审字段不能写入真实 Excel",
+      "file": "scripts/lib/rows.ts",
+      "find": "    if (options.mode === 'review') {",
+      "replace": "    if (false) {",
+      "by": "test", "kills": ["U9.c/d/e/f/g/h/i XLSX表头行序原值及JSON全部独立读回"]
+    },
+    {
+      "id": "M-U9-e", "req": "U9.d",
+      "why": "评审行将旧单元格次序反转，原草稿占位符和旧字段不再出现在约定列",
+      "file": "scripts/lib/rows.ts",
+      "find": "  return [...row, ...REVIEW_FIELDS.map(field => {",
+      "replace": "  return [...row.reverse(), ...REVIEW_FIELDS.map(field => {",
+      "by": "test", "kills": ["P2.b 评审旧草稿占位符原样保留"]
+    },
+    {
+      "id": "M-U9-f", "req": "U9.g",
+      "why": "新列统一用通用字符串转换，明确 false 消失且平台原作答与关联判断的 JSON 结构无法恢复",
+      "file": "scripts/lib/rows.ts",
+      "find": "    return field === 'linked_agent_review' || field === 'manual_feedback_accounts'\n      ? JSON.stringify(value) : value",
+      "replace": "    return String(value || '')",
+      "by": "test", "kills": ["U9.e/g/h 51组新列原值缺席布尔unknown与JSON状态不压平"]
+    },
+    {
+      "id": "M-U9-g", "req": "U9.a",
+      "why": "默认 HTML 自动启用新评审模式，未选择的旧公共调用出现新判断区块与新排序",
+      "file": "scripts/lib/report.ts",
+      "find": "export function renderHtml(creators: Creator[], meta: any, options: ReviewOutputOptions = {}): string {",
+      "replace": "export function renderHtml(creators: Creator[], meta: any, options: ReviewOutputOptions = { mode: 'review' }): string {",
+      "by": "test", "kills": ["U9.a 默认HTML独立确认没有新判断区块且保留旧理由","U9.a 默认HTML独立确认仍用调用方原顺序"]
+    },
+    {
+      "id": "M-U9-h", "req": "U9.f",
+      "why": "HTML 关联平台证据借用主账号字段，两侧看起来分别展示却实际引用同一平台内容",
+      "file": "scripts/lib/report.ts",
+      "find": "${fieldValue(field, review[field])}",
+      "replace": "${fieldValue(field, c[field])}",
+      "by": "test", "kills": ["U9.e/f HTML按两平台独立展示四证据与状态"]
+    },
+    {
+      "id": "M-U9-i", "req": "U9.g",
+      "why": "HTML 关联平台人工区域借用主账号作答，平台原答案及备注被串用",
+      "file": "scripts/lib/report.ts",
+      "find": "manual(linkedKey, linkedRow, linkedRow?.round_id)",
+      "replace": "manual(linkedKey, c, c.manual_round_id)",
+      "by": "test", "kills": ["U9.g HTML分账号保留人工空白unknown及原备注"]
+    },
+    {
+      "id": "M-U9-j", "req": "U9.h",
+      "why": "HTML 删除有效建议的人工来源身份，关联账号的采用被显示成没有来源的主号建议",
+      "file": "scripts/lib/report.ts",
+      "find": "  const source = c.effective_priority_account_key",
+      "replace": "  const source: string | undefined = undefined",
+      "by": "test", "kills": ["U9.h HTML有效建议及关联人工来源身份明示"]
+    },
+    {
+      "id": "M-U9-k", "req": "U9.e",
+      "why": "待重评建议失去历史仅展示标识，失效结论仍看起来是可用的当前 Agent 建议",
+      "file": "scripts/lib/report.ts",
+      "find": "    const suggestion = status === '待重评' ? '历史建议（待重评，仅展示）' : 'Agent 原采用建议'",
+      "replace": "    const suggestion = 'Agent 原采用建议'",
+      "by": "test", "kills": ["U9.e 主Agent过期采用建议明确标历史仅展示"]
+    },
+    {
+      "id": "M-U9-l", "req": "U9.i",
+      "why": "HTML 新证据与人工备注未经输出转义，原文被解析成注入节点且不可原样读回",
+      "file": "scripts/lib/report.ts",
+      "find": "  const answer = (value: unknown) => value === undefined ? '未填写'\n    : typeof value === 'string' && !value.trim() ? `未填写<span>${esc(value)}</span>` : esc(value)",
+      "replace": "  const answer = (value: unknown) => value === undefined ? '未填写'\n    : typeof value === 'string' && !value.trim() ? `未填写<span>${esc(value)}</span>` : String(value)",
+      "by": "test", "kills": ["U9.i HTML新字段转义后原文可读且没有注入节点"]
+    },
+    {
+      "id": "M-D21-ac", "req": "D21.r",
+      "why": "关联 Agent 投影遗漏四项实际证据，新输出不能保留另一平台原评审内容",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "        ...(linkedReview.observed_content !== undefined ? { observed_content: linkedReview.observed_content } : {}),\n        ...(linkedReview.work_evidence !== undefined ? { work_evidence: linkedReview.work_evidence } : {}),\n        ...(linkedReview.natural_integration !== undefined ? { natural_integration: linkedReview.natural_integration } : {}),\n        ...(linkedReview.mismatch_risk !== undefined ? { mismatch_risk: linkedReview.mismatch_risk } : {}),",
+      "replace": "        /* mutated: linked evidence omitted */",
+      "by": "test", "kills": ["D21.r 关联四证据来自关联评审"]
+    },
+    {
+      "id": "M-D21-ad", "req": "D21.r",
+      "why": "关联 Agent 投影的四项证据偷取主平台原评审，换主账号后两侧内容无法保持各自来源",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "        ...(linkedReview.observed_content !== undefined ? { observed_content: linkedReview.observed_content } : {}),\n        ...(linkedReview.work_evidence !== undefined ? { work_evidence: linkedReview.work_evidence } : {}),\n        ...(linkedReview.natural_integration !== undefined ? { natural_integration: linkedReview.natural_integration } : {}),\n        ...(linkedReview.mismatch_risk !== undefined ? { mismatch_risk: linkedReview.mismatch_risk } : {}),",
+      "replace": "        ...(linkedReview.observed_content !== undefined ? { observed_content: review?.observed_content } : {}),\n        ...(linkedReview.work_evidence !== undefined ? { work_evidence: review?.work_evidence } : {}),\n        ...(linkedReview.natural_integration !== undefined ? { natural_integration: review?.natural_integration } : {}),\n        ...(linkedReview.mismatch_risk !== undefined ? { mismatch_risk: review?.mismatch_risk } : {}),",
+      "by": "test", "kills": ["D21.r 关联四证据来自关联评审","D21.r 换主账号后两平台各保留自身四证据"]
+    },
+    {
+      "id": "M-U9-m", "req": "U9.e",
+      "why": "HTML 观察内容与作品证据值互换，账号、字段名及值集合齐全仍把证据错贴到另一字段",
+      "file": "scripts/lib/report.ts",
+      "find": "${fieldValue(field, review[field])}",
+      "replace": "${fieldValue(field, review[field === 'observed_content' ? 'work_evidence' : field === 'work_evidence' ? 'observed_content' : field])}",
+      "by": "test", "kills": ["U9.e/f HTML按两平台独立展示四证据与状态"]
+    },
+    {
+      "id": "M-U9-n", "req": "U9.g",
+      "why": "HTML 人工合格性与采用值互换，账号、字段名及值集合齐全仍混淆两种独立人工判断",
+      "file": "scripts/lib/report.ts",
+      "find": "${fieldValue(field, row?.[field])}",
+      "replace": "${fieldValue(field, row?.[field === 'manual_eligible' ? 'manual_adopted' : field === 'manual_adopted' ? 'manual_eligible' : field])}",
+      "by": "test", "kills": ["U9.g HTML分账号保留人工空白unknown及原备注"]
     }
   ],
   "exemptions": [

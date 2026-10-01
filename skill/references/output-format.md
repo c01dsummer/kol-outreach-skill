@@ -1,6 +1,6 @@
 # 输出格式
 
-> 相关需求：**U1** CSV 排序与列定义 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U6** HTML 分层 tab 与平台标签 · **U7** 公开指标与报价 · **U8** 任务展示身份 · **D5** BOM 与转义 · **D8–D10** 指标口径 · **P5** 数据边界声明
+> 相关需求：**U1** 现有 CSV 排序与列定义 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U6** HTML 分层 tab 与平台标签 · **U7** 公开指标与报价 · **U8** 任务展示身份 · **U9** 显式评审三格式输出 · **D5** BOM 与转义 · **D8–D10** 指标口径 · **D21/D23/D25** 平台独立评审及人工投影 · **P5** 数据边界声明
 
 Phase 06 用。
 
@@ -72,7 +72,7 @@ output/{product}-{YYYYMMDDHHmm}/
 | `outreach_draft` | ★ 仅 A 级填写 |
 | `previously_recommended` | 曾推荐过则填「{product} @ {date}」 |
 | `discovery_sources` | 已观察发现来源，每项为「路线 · 平台:@账号 · 关键词 · 维度」，以 `；` 分隔；缺席或空数组显示「来源未知」 |
-| `metrics_sample_scope` | 最末列；Instagram 公开指标的主页样本范围：本次端点返回前最多 12 条／旧版仅视频窗口／旧范围未知。未查询保持未查询；不能把后两者显示为未标记的新窗口数字 |
+| `metrics_sample_scope` | 旧表头最后一列；Instagram 公开指标的主页样本范围：本次端点返回前最多 12 条／旧版仅视频窗口／旧范围未知。未查询保持未查询；不能把后两者显示为未标记的新窗口数字 |
 
 实际来源也在 HTML 账号卡片展示，原始集合保留在名单 JSON 及 probe 样本中。只含已记录的账号发现来源，可能不含完整历史；不对应具体作品、请求次数或费用。路线不能由 `source_keyword`、任务标签或 `as_hashtag` 推断（D15）。
 
@@ -107,6 +107,58 @@ C级 观察池 (3)
 - 列定义与 CSV 完全一致
 
 实现在 `scripts/lib/xlsx.ts`，手写的最小 XLSX 写出器（零依赖）。
+
+## 显式评审输出（U9，现有命令未启用）
+
+这条模块路径消费已经完成 D21/D23/D25 校验及投影的名单，不从磁盘旧派生字段重算判断。旧 CSV/XLSX 列、公开指标三态、草稿占位符和 HTML 数据边界原样保留；现有 collect、enrich、render 仍使用上面的旧输出。
+
+评分缺席在新表格显示「未查询」、新 HTML 显示「未知」，真零仍显示 0；不能沿用旧路径把缺席评分写成空白或 undefined 的行为。
+
+CSV/XLSX 的完整旧表头保持前缀，依次追加以下 21 列，两种格式列定义及值一致：
+
+| 追加列 | 取值 |
+|---|---|
+| `effective_priority` | 已投影的有效建议；缺席为空白，不由导出补成待核实 |
+| `effective_priority_account_key` | 人工影响建议时的来源账号；没有来源键为空白 |
+| `eligibility` | 主平台 Agent 原合格性 |
+| `adoption_priority` | 主平台 Agent 原采用建议 |
+| `observed_content` | 主平台实际观察内容 |
+| `work_evidence` | 主平台作品证据原文，不拿发现来源或另一平台证据代填 |
+| `natural_integration` | 主平台自然植入原文 |
+| `mismatch_risk` | 主平台风险或未核问题原文 |
+| `brand_calibration_version` | 主平台评审所用校准版本；缺席为空白 |
+| `review_status` | 已评／未评／待重评；缺席显示未评，不改写输入 |
+| `manual_eligible` | 主平台人工 yes／no／unknown；缺席为空白 |
+| `manual_adopted` | 主平台人工 yes／no／unknown；缺席为空白 |
+| `manual_content_fit` | 主平台人工 high／medium／low／unknown；缺席为空白 |
+| `manual_engagement` | 主平台人工 high／medium／low／unknown；缺席为空白 |
+| `manual_comment_authenticity` | 主平台人工 high／medium／low／unknown；缺席为空白 |
+| `manual_reject_reason` | 主平台人工原因原文；缺席为空白 |
+| `manual_note` | 主平台人工备注原文，包括空串、空白、引号和换行；缺席为空白 |
+| `manual_reviewed` | 缺席为空白，明确 false／true 分别输出 false／true，不从关联平台补值 |
+| `manual_round_id` | 主平台冻结轮次原值；缺席为空白，不从另一平台猜补 |
+| `linked_agent_review` | 存在时为该对象的 JSON，保留账号、状态、原判断及四项证据；缺席为空白 |
+| `manual_feedback_accounts` | 存在时为完整原数组的 JSON，保留各账号、轮次、物理行及人工原值，空数组为 `[]`；缺席为空白 |
+
+其余新增 Agent/人工字段缺席也为空白。JSON 单元格仍由真实 CSV/XLSX writer 转义，不能另造关联平台镜像结论。作品证据、已观察发现来源、冻结任务来源和有效建议的人工账号是不同出处，不互相代填。
+
+CSV/HTML 排序为优先联系→备选→待核实→暂不采用，再按 A/B/C、原分数与同分规则。缺席的有效建议只在排序上落在待核实位置，输入及输出字段仍缺席。XLSX 保留且仅保留三层表，空层也保留；各表内先排有效建议，再按原分数及同分规则，不添加全部表。排序不修改输入名单、判断、层级或分数。
+
+HTML 在原卡片中按主平台、关联平台分别展示 Agent 原判断、四项证据、状态及人工原作答，来源账号明示。Agent/人工缺席字段标未填写，人工 `unknown` 原样展示，不把空白当作 unknown 或 no；有效建议缺席标未提供。待重评的原采用建议标“历史建议（待重评，仅展示）”，不冒充当前建议。原单层 tab、默认第一个非空层、平台配色和不滚动行为继续生效；默认全量及双筛选尚未启用。
+
+评审模式 HTML 的平台区块提供账号定界：Agent／人工区块分别带 `data-review-kind="agent"`／`"manual"`，其 `data-account-key` 为各自规范化平台账号键；有效建议区块带 `data-review-kind="effective"`，`data-account-key` 为主账号键。仅在人工来源键实际存在时，有效建议区块再带 `data-priority-account-key` 原来源键。属性在输出处转义，不能把关联平台标签贴在主平台内容上；旧卡片开头、主页链接及默认模式 markup 保持原样。
+
+每个 Agent／人工字段值另有 `data-review-field` 节点，属性值为原字段名，节点文本只含该字段原值或缺席标识，人读标签位于同一行；主平台和关联平台的“人工合格性”“人工采用”以及四项证据各自对应其字段原值。
+
+调用方显式选择公开模块 API，选项类型为 `ReviewOutputOptions={mode?:'review'}`；省略选项保持旧输出：
+
+```ts
+writeCsv(path, REVIEW_HEADERS, sortForReviewOutput(creators).map(toReviewRow))
+writeXlsx(path, buildSheets(creators, { mode: 'review' }))
+renderHtml(creators, meta, { mode: 'review' })
+```
+
+导出不读写评审正本、人工 CSV、采集原件或 memory，不请求、不补模板、不生成审核统计。U9.j 的真实入口统一启用仍须另证，不能据此告诉运营现有命令已经自动消费新评审。
 
 ## HTML 报告
 
