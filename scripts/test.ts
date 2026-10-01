@@ -87,6 +87,7 @@ import {
 } from './providers/tikhub.js'
 import { esc, writeCsv } from './lib/csv.js'
 import { HEADERS, toRow, cell, sortForOutput, buildSheets } from './lib/rows.js'
+import * as reviewRowsApi from './lib/rows.js'
 import { writeXlsx } from './lib/xlsx.js'
 import { readFileSync as rf, unlinkSync as ul } from 'node:fs'
 import { spawnSync, type ChildProcess } from 'node:child_process'
@@ -193,6 +194,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd24-manual-template', needs: [] },
   { id: 'd25-effective-priority', needs: [] },
   { id: 'd21-tier-guards', needs: [] },
+  { id: 'u9-review-output', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -11232,6 +11234,318 @@ suite('D21', '未取得当前主号判断时保留待核实分层')
     mk('tiktok', 'warning-low', { fit: '⚠️', followers: 0, post_count: 0 }),
   ], 'US').map(c => c.handle), ['positive-low', 'pending-high', 'warning-low', 'negative-high'])
 }
+})
+
+// U9 independent contract tests: no renderer/row/projection bodies or old test bodies were read.
+await group('u9-review-output', () => {
+  suite('U9', '独立评审导出契约：排序、三格式读回及逐账号缺值')
+  criterion('U9.a', 'U9.b', 'U9.c', 'U9.d', 'U9.e', 'U9.f', 'U9.g', 'U9.h', 'U9.i', 'D21.r')
+  tension('U9', 'P1'); tension('U9', 'P2'); tension('U9', 'P5'); tension('D21', 'P1')
+  const oldHeaders = 'tier,score,fit,fit_reason,platform,handle,nickname,followers,post_count,bio,email,email_verified,audience_geo_top,metrics_account_followers,metrics_account_following,engagement_rate_followers,engagement_rate_views,median_views,median_engagements,view_rate,following_ratio,reach_consistency,median_post_gap_days,latest_post_at,days_since_last_post,activity_status,audience_quality_risk,audience_quality_reasons,tier_adjustments,collaboration_quote,implied_ecpm,implied_ecpe,metrics_observed_at,cross_platform,linked_handle,profile_url,source_keyword,source_dimension,best_post_desc,outreach_draft,previously_recommended,discovery_sources,metrics_sample_scope'.split(',')
+  const additions = 'effective_priority,effective_priority_account_key,eligibility,adoption_priority,observed_content,work_evidence,natural_integration,mismatch_risk,brand_calibration_version,review_status,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note,manual_reviewed,manual_round_id,linked_agent_review,manual_feedback_accounts'.split(',')
+  const headers = [...oldHeaders, ...additions]
+  type ReviewSheet = { name: string; headers: string[]; rows: unknown[][] }
+  const api = reviewRowsApi as unknown as {
+    REVIEW_HEADERS: string[]; toReviewRow(c: Creator): unknown[]; sortForReviewOutput(cs: Creator[]): Creator[]
+    buildSheets(cs: Creator[], options?: { mode?: 'review' }): ReviewSheet[]
+  }
+  const html = renderHtml as unknown as (cs: Creator[], meta: any, options?: { mode?: 'review' }) => string
+  const firstSheets = api.buildSheets([mk('tiktok', 'business-red', { tier: 'A' })], { mode: 'review' })
+  eq('U9.a 评审模式在旧表头后原序追加21个字段', firstSheets[0].headers, headers)
+  const available = typeof api.toReviewRow === 'function' && typeof api.sortForReviewOutput === 'function'
+  ok('U9.a 新导出公开入口可调用', available)
+  if (!available) return
+  eq('U9.d 新公共表头符合契约原序64列', api.REVIEW_HEADERS, headers)
+  eq('U9.a 省略模式仍保留旧公共表头', api.buildSheets([]).map(s => s.headers), [oldHeaders, oldHeaders, oldHeaders])
+  const bounded = (xs: string[]) => ({ count: xs.length, examples: xs.slice(0, 3) })
+  const noFaults = { count: 0, examples: [] }
+  const copy = <T>(v: T): T => structuredClone(v)
+  const strings = (row: unknown[]) => row.map(v => v === undefined || v === null ? '' : String(v))
+  const extras = (c: Creator) => additions.map(k => {
+    const v = (c as unknown as Record<string, unknown>)[k]
+    return v === undefined ? k === 'review_status' ? '未评' : ''
+      : k === 'linked_agent_review' || k === 'manual_feedback_accounts' ? JSON.stringify(v) : String(v)
+  })
+  const priorities: (Creator['effective_priority'])[] = ['优先联系', '备选', '待核实', '暂不采用', undefined]
+  const tiers: Creator['tier'][] = ['A', 'B', 'C', undefined]
+  const order = (cs: Creator[], tierOnly = false) => {
+    const p = (c: Creator) => c.effective_priority === undefined ? 2 : priorities.indexOf(c.effective_priority)
+    const t = (c: Creator) => c.tier === undefined ? 3 : tiers.indexOf(c.tier)
+    const f = (c: Creator) => c.followers === undefined ? 1 : c.followers === 0 ? 2 : 0
+    return cs.map((c, i) => ({ c, i })).sort((a, b) => p(a.c) - p(b.c)
+      || (tierOnly ? 0 : t(a.c) - t(b.c))
+      || (a.c.score === undefined ? 1 : 0) - (b.c.score === undefined ? 1 : 0)
+      || (a.c.score !== undefined && b.c.score !== undefined ? b.c.score - a.c.score : 0)
+      || f(a.c) - f(b.c) || a.i - b.i).map(x => x.c.handle)
+  }
+  const matrix: Creator[] = []
+  for (const effective_priority of priorities) for (const tier of tiers)
+    for (const score of [undefined, 0, 41]) for (const followers of [undefined, 0, 7])
+      matrix.unshift(mk(matrix.length % 2 ? 'instagram' : 'tiktok', `sort-${matrix.length}`, {
+        effective_priority, tier, score, followers, adoption_priority: '暂不采用', fit: '❌', review_status: '待重评',
+      }))
+  const beforeMatrix = copy(matrix), sorted = api.sortForReviewOutput(matrix)
+  const matrixExpected = order(matrix)
+  eq('U9.b 180组冲突键按优先级层级分数粉丝三态稳定排列', bounded(sorted.flatMap((c, i) => c.handle === matrixExpected[i] ? [] : [`${i}:${c.handle}/${matrixExpected[i]}`])), noFaults)
+  ok('U9.b 排序返回独立名单', sorted !== matrix)
+  ok('U9.b 排序保留输入每个字段及其缺席状态', isDeepStrictEqual(matrix, beforeMatrix))
+  const matrixSheets = api.buildSheets(matrix, { mode: 'review' })
+  eq('U9.c 三层表内独立排序且不跨层移动', bounded(['A', 'B', 'C'].flatMap((tier, i) => {
+    const got = matrixSheets[i].rows.map(r => String(r[headers.indexOf('handle')]))
+    return isDeepStrictEqual(got, order(matrix.filter(c => c.tier === tier), true)) ? [] : [tier]
+  })), noFaults)
+  const payload = '<u9-probe data-x="a">& quotes,\nnext "line"'
+  const four = ['observed_content', 'work_evidence', 'natural_integration', 'mismatch_risk'] as const
+  const mainReview: AgentReview = {
+    account_keys: ['tiktok:main'], eligibility: '合格', adoption_priority: '备选', fit: '✅', fit_reason: '旧理由不可填证据',
+    observed_content: `主观察 提及待重评不代表本账号过期 ${payload}`, work_evidence: '主作品证据', natural_integration: '主自然植入', mismatch_risk: '主风险',
+    brand_calibration_version: 'v2', outreach_draft: 'Hi {brand}, ask {price} and {warranty}.',
+  }
+  const linkedReview: AgentReview = {
+    account_keys: ['instagram:linked'], eligibility: '不合格', adoption_priority: '暂不采用', fit: '❌', fit_reason: '关联旧理由',
+    observed_content: '关联观察', work_evidence: `关联作品 ${payload}`, natural_integration: '关联自然植入', mismatch_risk: '关联风险',
+    brand_calibration_version: 'v1',
+  }
+  const document: AgentReviewDocument = {
+    version: 1, updated_at: '2026-10-01T00:00:00Z', reviews: { 'tiktok:main': mainReview, 'instagram:linked': linkedReview },
+    rounds: [{ round_id: 'round-1', created_at: '2026-10-01T00:00:00Z', source: 'task.json', candidates: [
+      { account_key: 'tiktok:main', source_tasks: [{ task_index: 0, keyword: 'k', dimension: 'category', platform: 'tiktok' }] },
+      { account_key: 'instagram:linked', source_tasks: [{ task_index: 1, keyword: 'k', dimension: 'category', platform: 'instagram' }] },
+    ] }],
+  }
+  const base = mk('tiktok', 'main', { tier: 'B', score: 0, followers: undefined, email: null, linked_handle: 'instagram:linked', cross_platform: true,
+    profile_url: 'https://www.tiktok.com/@main', previously_recommended: '已有记忆标记' })
+  const documentBefore = copy(document), projected = projectAgentReviews(document, [base], 'v2')[0]
+  suite('D21', '关联账号四项证据从自身评审投影，删除与换主账号保持独立')
+  const linkedEvidence = projected.linked_agent_review as unknown as Record<string, unknown>
+  eq('D21.r 关联四证据来自关联评审', four.map(k => linkedEvidence?.[k]), four.map(k => linkedReview[k]))
+  const removed = copy(document); delete removed.reviews['instagram:linked']
+  const removedLinked = projectAgentReviews(removed, [projected], 'v2')[0].linked_agent_review as unknown as Record<string, unknown> | undefined
+  eq('D21.r 删关联评审后不复活旧四证据', four.map(k => removedLinked?.[k]), [undefined, undefined, undefined, undefined])
+  const legacy = copy(document); legacy.reviews['instagram:linked'] = { account_keys: ['instagram:linked'], fit: '⚠️' }
+  const legacyLinked = projectAgentReviews(legacy, [projected], 'v2')[0].linked_agent_review as unknown as Record<string, unknown>
+  eq('D21.r legacy关联不补造四证据', four.map(k => legacyLinked?.[k]), [undefined, undefined, undefined, undefined])
+  const switched = projectAgentReviews(document, [mk('instagram', 'linked', { linked_handle: 'tiktok:main' })], 'v2')[0]
+  eq('D21.r 换主账号后两平台各保留自身四证据', [four.map(k => switched[k]), four.map(k => (switched.linked_agent_review as unknown as Record<string, unknown>)?.[k])],
+    [four.map(k => linkedReview[k]), four.map(k => mainReview[k])])
+  eq('D21.r 换主账号后状态仍取各自版本', [switched.review_status, switched.linked_agent_review?.review_status], ['待重评', '已评'])
+  ok('D21.r 关联证据投影不改评审正本', isDeepStrictEqual(document, documentBefore))
+  suite('U9', '三格式同一合法名单实写实读，逐账号保留原作答')
+  const manualMain: ManualFeedbackRow = { round_id: 'round-1', platform: 'tiktok', handle: 'main', account_key: 'tiktok:main', line_number: 2,
+    manual_eligible: 'unknown', manual_content_fit: 'medium', manual_engagement: 'low', manual_comment_authenticity: 'unknown',
+    manual_reject_reason: '互动弱', manual_note: ` 主备注 ${payload} ` }
+  const manualLinked: ManualFeedbackRow = { round_id: 'round-1', platform: 'instagram', handle: 'linked', account_key: 'instagram:linked', line_number: 3,
+    manual_eligible: 'yes', manual_adopted: 'yes', manual_content_fit: 'high', manual_engagement: 'unknown', manual_comment_authenticity: 'high',
+    manual_reject_reason: '其他', manual_note: `关联备注\n原第二行 ${payload}` }
+  const publicSource: MetricSource = { kind: 'public_api', provider: 'tikhub', endpoint: '/fixture-public-posts' }
+  const publicNumber = (value: number) => ({ status: 'measured' as const, value, source: publicSource,
+    observed_at: '2026-10-01T00:00:00Z', sample_size: 2, basis: '公开作品夹具独立测量' })
+  const unavailableMetric = { status: 'unavailable' as const, reason: 'insufficient_posts' as const, source: publicSource, observed_at: '2026-10-01T00:00:00Z' }
+  const publicSummary: NonNullable<Creator['account_assessment']> = { platform: 'tiktok', handle: 'main', followers: 7, following: 0,
+    sample: { ...publicNumber(2), media_scope: 'provider_returned_first12' }, metrics: {
+      median_views: publicNumber(100), median_engagements: publicNumber(6), engagement_rate_followers: unavailableMetric,
+      engagement_rate_views: unavailableMetric, view_rate: unavailableMetric, following_ratio: unavailableMetric, reach_consistency: unavailableMetric,
+      median_post_gap_days: unavailableMetric, latest_post_at: unavailableMetric, days_since_last_post: unavailableMetric,
+      activity_status: unavailableMetric, audience_quality_risk: unavailableMetric } }
+  const candidate: Creator = { ...projected, account_assessment: publicSummary, effective_priority: '优先联系', effective_priority_account_key: 'instagram:linked',
+    manual_eligible: manualMain.manual_eligible, manual_content_fit: manualMain.manual_content_fit, manual_engagement: manualMain.manual_engagement,
+    manual_comment_authenticity: manualMain.manual_comment_authenticity, manual_reject_reason: manualMain.manual_reject_reason,
+    manual_note: manualMain.manual_note, manual_reviewed: true, manual_round_id: 'round-1', manual_feedback_accounts: [manualMain, manualLinked] }
+  const missing = mk('instagram', 'missing', { tier: 'C', score: undefined, followers: 0, email: undefined,
+    profile_url: 'https://www.instagram.com/missing/', outreach_draft: '{unknown_fact}', fit_reason: '不能填证据', manual_feedback_accounts: [] })
+  const zeros = mk('tiktok', 'zeros', { tier: 'C', score: 0, followers: 0, email: '',
+    profile_url: 'https://www.tiktok.com/@zeros', effective_priority: '待核实', manual_reviewed: false, manual_note: '' })
+  const fixtures = [zeros, missing, candidate], fixtureBefore = copy(fixtures)
+  const scalarFaults: string[] = []
+  const valueCases: Creator[] = [candidate, missing, zeros]
+  for (const review_status of [undefined, '未评', '已评', '待重评'] as const)
+    for (const manual_reviewed of [undefined, false, true]) for (const manual_adopted of [undefined, 'yes', 'no', 'unknown'] as const)
+      valueCases.push({ ...candidate, review_status, manual_reviewed, manual_adopted })
+  for (const [i, c] of valueCases.entries()) {
+    const r = api.toReviewRow(c)
+    if (r.length !== 64 || !isDeepStrictEqual(strings(r.slice(43)), extras(c))) scalarFaults.push(`case ${i}`)
+  }
+  eq('U9.e/g/h 51组新列原值缺席布尔unknown与JSON状态不压平', bounded(scalarFaults), noFaults)
+  const oldState: Record<string, string[]> = { main: ['0', '未查询', ''], missing: ['未查询', '0', '未查询'], zeros: ['0', '0', ''] }
+  const stateRows = [candidate, missing, zeros].map(c => strings(api.toReviewRow(c)))
+  eq('P1.e 评审旧列仍分未查询空白与真零', stateRows.map(r => [r[1], r[7], r[10]]),
+    [['0', '未查询', ''], ['未查询', '0', '未查询'], ['0', '0', '']])
+  eq('P2.b 评审旧草稿占位符原样保留', stateRows.map(r => r[39]), [mainReview.outreach_draft, '{unknown_fact}', ''])
+  const decode = (s: string): string => s.replace(/&(amp|lt|gt|quot|apos|#\d+|#x[\da-f]+);/gi, (_, k: string) =>
+    k === 'amp' ? '&' : k === 'lt' ? '<' : k === 'gt' ? '>' : k === 'quot' ? '"' : k === 'apos' ? "'"
+      : String.fromCodePoint(k.toLowerCase().startsWith('#x') ? parseInt(k.slice(2), 16) : Number(k.slice(1))))
+  const attrs = (s: string): Record<string, string> => Object.fromEntries([...s.matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map(m => [m[1], decode(m[2] ?? m[3])]))
+  const csvRead = (s: string): string[][] => {
+    const rows: string[][] = [], row: string[] = []; let cell = '', quoted = false
+    for (let i = s.charCodeAt(0) === 0xfeff ? 1 : 0; i < s.length; i++) {
+      const c = s[i]
+      if (c === '"') { if (quoted && s[i + 1] === '"') { cell += '"'; i++ } else quoted = !quoted }
+      else if (c === ',' && !quoted) { row.push(cell); cell = '' }
+      else if ((c === '\n' || c === '\r') && !quoted) { if (c === '\r' && s[i + 1] === '\n') i++; row.push(cell); rows.push([...row]); row.length = 0; cell = '' }
+      else cell += c
+    }
+    if (quoted) throw new Error('CSV夹具引号未闭合')
+    if (cell || row.length) { row.push(cell); rows.push(row) }
+    return rows
+  }
+  const zipRead = (b: Buffer): Map<string, string> => {
+    let end = b.length - 22
+    while (end >= Math.max(0, b.length - 65557) && b.readUInt32LE(end) !== 0x06054b50) end--
+    if (end < Math.max(0, b.length - 65557)) throw new Error('XLSX夹具缺ZIP目录')
+    let pos = b.readUInt32LE(end + 16); const result = new Map<string, string>()
+    for (let n = 0; n < b.readUInt16LE(end + 10); n++) {
+      if (b.readUInt32LE(pos) !== 0x02014b50) throw new Error('XLSX夹具目录项损坏')
+      const method = b.readUInt16LE(pos + 10), size = b.readUInt32LE(pos + 20), nameLen = b.readUInt16LE(pos + 28)
+      const name = b.subarray(pos + 46, pos + 46 + nameLen).toString(), local = b.readUInt32LE(pos + 42)
+      const data = local + 30 + b.readUInt16LE(local + 26) + b.readUInt16LE(local + 28), compressed = b.subarray(data, data + size)
+      if (method !== 0 && method !== 8) throw new Error('XLSX夹具压缩方法不可读')
+      const raw = method === 0 ? compressed : inflateRawSync(compressed)
+      let crc = 0xffffffff
+      for (const byte of raw) { crc ^= byte; for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0) }
+      if (((crc ^ 0xffffffff) >>> 0) !== b.readUInt32LE(pos + 16)) throw new Error(`XLSX夹具CRC错误 ${name}`)
+      result.set(name, raw.toString('utf8')); pos += 46 + nameLen + b.readUInt16LE(pos + 30) + b.readUInt16LE(pos + 32)
+    }
+    return result
+  }
+  const xlsxRead = (b: Buffer): { name: string; rows: string[][] }[] => {
+    const z = zipRead(b), workbook = z.get('xl/workbook.xml'), rels = z.get('xl/_rels/workbook.xml.rels')
+    if (!workbook || !rels) throw new Error('XLSX夹具缺工作簿或关系')
+    const targets = new Map([...rels.matchAll(/<Relationship\b([^>]*)\/?\s*>/g)].map(m => { const a = attrs(m[1]); return [a.Id, a.Target] }))
+    const shared = [...(z.get('xl/sharedStrings.xml') ?? '').matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map(m => [...m[1].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(t => decode(t[1])).join(''))
+    return [...workbook.matchAll(/<sheet\b([^>]*)\/?\s*>/g)].map(m => {
+      const a = attrs(m[1]), target = targets.get(a['r:id']); if (!target) throw new Error('XLSX夹具sheet关系缺席')
+      const xml = z.get(target.startsWith('/') ? target.slice(1) : `xl/${target}`); if (!xml) throw new Error('XLSX夹具sheet缺席')
+      const rows = [...xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)].map(r => {
+        const values: string[] = []
+        for (const c of r[1].matchAll(/<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+          const ca = attrs(c[1]), body = c[2] ?? '', letters = ca.r?.match(/^[A-Z]+/)?.[0]
+          if (!letters) throw new Error('XLSX夹具单元格缺坐标')
+          let col = 0; for (const l of letters) col = col * 26 + l.charCodeAt(0) - 64
+          const v = body.match(/<v\b[^>]*>([\s\S]*?)<\/v>/)?.[1]
+          values[col - 1] = ca.t === 'inlineStr' ? [...body.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(t => decode(t[1])).join('')
+            : ca.t === 's' ? shared[Number(v)] : ca.t === 'b' ? v === '1' ? 'true' : 'false' : v === undefined ? '' : decode(v)
+        }
+        return Array.from({ length: 64 }, (_, i) => values[i] === undefined ? '' : values[i])
+      })
+      return { name: a.name, rows }
+    })
+  }
+  type HtmlNode = { tag: string; a: Record<string, string>; text: string; direct?: string; parent?: HtmlNode }
+  const htmlRead = (s: string): HtmlNode[] => {
+    const root: HtmlNode = { tag: '#root', a: {}, text: '' }, stack = [root], nodes = [root]
+    for (const token of s.match(/<!--[\s\S]*?-->|<[^>]*>|[^<]+/g) ?? []) {
+      if (token.startsWith('<!--') || token.startsWith('<!')) continue
+      if (token.startsWith('</')) { const tag = token.slice(2).match(/^\w+/)?.[0].toLowerCase(); for (let i = stack.length - 1; i > 0; i--) if (stack[i].tag === tag) { stack.length = i; break } }
+      else if (token.startsWith('<')) { const tag = token.slice(1).match(/^\w+/)?.[0].toLowerCase(); if (!tag) continue
+        const node: HtmlNode = { tag, a: attrs(token), text: '', parent: stack[stack.length - 1] }; nodes.push(node)
+        if (!/\/>$/.test(token) && !['br', 'hr', 'img', 'input', 'meta', 'link'].includes(tag)) stack.push(node)
+      } else { const v = decode(token); for (const n of stack) n.text += v; const top = stack[stack.length - 1]; top.direct = (top.direct ?? '') + v }
+    }
+    return nodes
+  }
+  const part = (nodes: HtmlNode[], kind: string, key: string) => nodes.find(n => n.a['data-review-kind'] === kind && n.a['data-account-key'] === key)
+  const fieldLabels: Record<string, string> = { eligibility: '合格性', adoption_priority: 'Agent 原采用建议', observed_content: '观察内容', work_evidence: '作品证据', natural_integration: '自然植入', mismatch_risk: '风险或未核问题', fit: '兼容内容判断', fit_reason: '兼容内容判断', manual_eligible: '人工合格性', manual_adopted: '人工采用', manual_content_fit: '内容匹配', manual_engagement: '互动', manual_comment_authenticity: '评论真实性', manual_reject_reason: '拒绝原因', manual_note: '人工备注' }
+  const fieldNode = (ns: HtmlNode[], block: HtmlNode | undefined, field: string, historical: boolean) => {
+    const matches = ns.filter(n => block !== undefined && n.a['data-review-field'] === field && (() => { let p = n.parent; while (p && !p.a['data-review-kind']) p = p.parent; return p === block })()), n = matches.length === 1 ? matches[0] : undefined, label = n?.parent ? (n.parent.direct ?? '') + ns.filter(s => s.parent === n.parent && s.a['data-review-field'] === undefined).map(s => s.text).join('') : ''
+    return n && label.includes(field === 'adoption_priority' && historical ? '历史建议（待重评，仅展示）' : fieldLabels[field]) ? n : undefined
+  }
+  const fieldIs = (ns: HtmlNode[], block: HtmlNode | undefined, field: string, value: string | undefined, historical: boolean) => { const got = fieldNode(ns, block, field, historical)?.text; return value === undefined ? got === '未填写' : value.trim() ? got === value : typeof got === 'string' && got.includes('未填写') && got.replace('未填写', '') === value }
+  const classHas = (n: HtmlNode, v: string) => (n.a.class ?? '').split(/\s+/).includes(v)
+  const meta: any = { product: '独立导出夹具', market: 'US', total: 3, enriched: false,
+    memory_status: 'unreadable_ignored', memory_written: false, memory_write_error: '测试保存原因',
+    tiers: { A: 0, B: 1, C: 2 }, platforms: ['tiktok', 'instagram'], keywords: [], email_count: 0, cross_platform_count: 1,
+    cost_status: 'unknown-history', cost_scope: 'task', cost_estimate_usd: null, budget_usd: '1',
+    cost_http_200_usd: null, cost_unknown_result_usd: null, cost_pending_usd: null, cost_basis: '历史费用未知', cost_problems: [], high_risk_count: 0,
+    capabilities: { email_verification: { total: 3, measured: 0, unavailable: 0, unqueried: 3 },
+      audience_geo: { total: 3, measured: 0, unavailable: 0, unqueried: 3 },
+      public_post_sample: { total: 3, measured: 1, unavailable: 0, unqueried: 2 } } }
+  const dir = join(process.cwd(), 'output/u9-export-validation')
+  let csvRows: string[][] = [], workbook: ReturnType<typeof xlsxRead> = [], page = '', nodes: HtmlNode[] = [], readbackError: string | undefined
+  try {
+    mkdirSync(dir, { recursive: true })
+    writeCsv(join(dir, 'review.csv'), headers, api.sortForReviewOutput(fixtures).map(c => api.toReviewRow(c)))
+    writeXlsx(join(dir, 'review.xlsx'), api.buildSheets(fixtures, { mode: 'review' }))
+    writeFileSync(join(dir, 'review.html'), html(fixtures, meta, { mode: 'review' }))
+    csvRows = csvRead(rf(join(dir, 'review.csv'), 'utf8')); workbook = xlsxRead(rf(join(dir, 'review.xlsx')))
+    page = rf(join(dir, 'review.html'), 'utf8'); nodes = htmlRead(page)
+  } catch (e) {
+    readbackError = String(e)
+    console.log(`${SELFCHECK_FIXTURE_MARK} U9实际产物夹具无法构建或读回：${readbackError}`)
+  }
+  ok('U9.i 三格式真实夹具成功构建且可独立读回', readbackError === undefined)
+  if (readbackError !== undefined) return
+  eq('U9.d CSV真实读回表头精确64列', csvRows[0], headers)
+  eq('U9.b CSV真实读回采用独立预期顺序', csvRows.slice(1).map(r => r[5]), ['main', 'zeros', 'missing'])
+  eq('U9.d/e/f/g/h/i CSV原列及全部新列按原值读回', bounded(csvRows.slice(1).flatMap(r => {
+    const c = fixtures.find(x => x.handle === r[5]); return c && r.length === 64 && isDeepStrictEqual(r.slice(43), extras(c))
+      && isDeepStrictEqual([r[1], r[7], r[10]], oldState[c.handle]) && r[39] === (c.outreach_draft === undefined ? '' : c.outreach_draft) ? [] : [r[5]]
+  })), noFaults)
+  eq('U9.c XLSX真实工作簿只有三层且保留A级空表', workbook.map(s => [s.name.slice(0, 2), s.rows.length - 1]), [['A级', 0], ['B级', 1], ['C级', 2]])
+  ok('U9.c 空工作表名称明确显示0', /\(0\)/.test(workbook[0].name))
+  eq('U9.c/d/e/f/g/h/i XLSX表头行序原值及JSON全部独立读回', bounded(workbook.flatMap((s, i) => {
+    const errors: string[] = [], tier = ['A', 'B', 'C'][i]
+    if (!isDeepStrictEqual(s.rows[0], headers)) errors.push(`${tier} headers`)
+    if (!isDeepStrictEqual(s.rows.slice(1).map(r => r[5]), order(fixtures.filter(c => c.tier === tier), true))) errors.push(`${tier} order`)
+    for (const r of s.rows.slice(1)) { const c = fixtures.find(x => x.handle === r[5]); if (!c || !isDeepStrictEqual(r.slice(43), extras(c)) || !isDeepStrictEqual([r[1], r[7], r[10]], oldState[c.handle]) || r[39] !== (c.outreach_draft === undefined ? '' : c.outreach_draft)) errors.push(`${tier}/${r[5]} values`) }
+    return errors
+  })), noFaults)
+  eq('U9.b HTML实际主页链接顺序遵守有效建议', nodes.filter(n => n.tag === 'a' && fixtures.some(c => c.profile_url === n.a.href)).map(n => fixtures.find(c => c.profile_url === n.a.href)?.handle), ['main', 'zeros', 'missing'])
+  const mainAgent = part(nodes, 'agent', 'tiktok:main'), linkedAgent = part(nodes, 'agent', 'instagram:linked'), missingAgent = part(nodes, 'agent', 'instagram:missing')
+  eq('U9.e/f HTML按两平台独立展示四证据与状态', bounded([
+    !mainAgent || !(['eligibility', 'adoption_priority', ...four, 'fit', 'fit_reason'] as const).every(k => fieldIs(nodes, mainAgent, k, mainReview[k], false)) || !mainAgent.text.includes('已评') ? 'main evidence/status/judgment' : '',
+    !linkedAgent || !(['eligibility', 'adoption_priority', ...four, 'fit', 'fit_reason'] as const).every(k => fieldIs(nodes, linkedAgent, k, linkedReview[k], true)) || !linkedAgent.text.includes('待重评') ? 'linked evidence/status/judgment' : '',
+    !linkedAgent || !linkedAgent.text.includes('历史建议（待重评，仅展示）') ? 'linked stale history' : '',
+    !missingAgent?.text.includes('未评') || !(['eligibility', 'adoption_priority', ...four, 'fit', 'fit_reason'] as const).every(k => fieldIs(nodes, missingAgent, k, missing[k], false)) ? 'missing agent status/fields' : '',
+    mainAgent && four.some(k => fieldNode(nodes, mainAgent, k, false)?.text === linkedReview[k]) ? 'linked evidence leaked main' : '',
+  ].filter(Boolean)), noFaults)
+  const humanFields = ['manual_eligible', 'manual_adopted', 'manual_content_fit', 'manual_engagement', 'manual_comment_authenticity'] as const
+  const mainManual = part(nodes, 'manual', 'tiktok:main'), linkedManual = part(nodes, 'manual', 'instagram:linked')
+  eq('U9.g HTML分账号保留人工空白unknown及原备注', bounded([
+    !mainManual || !([...humanFields, 'manual_reject_reason', 'manual_note'] as const).every(k => fieldIs(nodes, mainManual, k, manualMain[k], false)) ? 'main manual' : '',
+    !linkedManual || !([...humanFields, 'manual_reject_reason', 'manual_note'] as const).every(k => fieldIs(nodes, linkedManual, k, manualLinked[k], false)) ? 'linked manual' : '',
+    fieldNode(nodes, mainManual, 'manual_note', false)?.text === manualLinked.manual_note ? 'linked note leaked main' : '',
+  ].filter(Boolean)), noFaults)
+  const effective = part(nodes, 'effective', 'tiktok:main'), absentEffective = part(nodes, 'effective', 'instagram:missing')
+  ok('U9.h HTML有效建议及关联人工来源身份明示', effective?.text.includes('优先联系') === true && effective.a['data-priority-account-key'] === 'instagram:linked' && effective.text.includes('instagram:linked'))
+  ok('U9.h HTML缺席建议显示未提供且不推断来源', absentEffective?.text.includes('未提供') === true && absentEffective.a['data-priority-account-key'] === undefined)
+  ok('U9.i HTML新字段转义后原文可读且没有注入节点', !nodes.some(n => n.tag === 'u9') && !nodes.some(n => n.tag === 'u9-probe') && fieldNode(nodes, mainAgent, 'observed_content', false)?.text.includes(payload) === true && fieldNode(nodes, mainManual, 'manual_note', false)?.text.includes(payload) === true)
+  ok('P2.b HTML真实产物保留全部草稿占位符', ['{brand}', '{price}', '{warranty}', '{unknown_fact}'].every(v => nodes[0].text.includes(v)))
+  const missingFaults: string[] = []
+  for (const field of ['eligibility', 'adoption_priority', ...four] as const) {
+    const c = copy(candidate); delete c[field]
+    const ns = htmlRead(html([c], { ...meta, total: 1, tiers: { A: 0, B: 1, C: 0 } }, { mode: 'review' })), n = part(ns, 'agent', 'tiktok:main')
+    if (!fieldIs(ns, n, field, undefined, false)) missingFaults.push(field)
+  }
+  eq('U9.e/f 主Agent逐字段缺席不由理由来源或关联证据补造', bounded(missingFaults), noFaults)
+  const humanFaults: string[] = []
+  for (const field of humanFields) for (const answer of [undefined, 'unknown'] as const) {
+    const row: ManualFeedbackRow = { ...manualMain, manual_eligible: 'yes', manual_adopted: 'yes', manual_content_fit: 'high', manual_engagement: 'high', manual_comment_authenticity: 'high' }
+    const c: Creator = { ...candidate, manual_eligible: 'yes', manual_adopted: 'yes', manual_content_fit: 'high', manual_engagement: 'high', manual_comment_authenticity: 'high', manual_feedback_accounts: [row, manualLinked] }
+    if (answer === undefined) { delete row[field]; delete c[field] } else { row[field] = answer; c[field] = answer }
+    const ns = htmlRead(html([c], { ...meta, total: 1 }, { mode: 'review' })), n = part(ns, 'manual', 'tiktok:main')
+    if (!fieldIs(ns, n, field, answer, false) || fieldNode(ns, n, 'manual_note', false)?.text === manualLinked.manual_note) humanFaults.push(`${field}/${answer}`)
+  }
+  eq('U9.g 五人工判断逐字段区分未填写与unknown且不借关联答案', bounded(humanFaults), noFaults)
+  const stale = { ...candidate, review_status: '待重评' as const }
+  const staleNodes = htmlRead(html([stale], { ...meta, total: 1 }, { mode: 'review' })), stalePart = part(staleNodes, 'agent', 'tiktok:main')
+  ok('U9.e 主Agent过期采用建议明确标历史仅展示', stalePart?.text.includes('历史建议（待重评，仅展示）') === true && fieldIs(staleNodes, stalePart, 'adoption_priority', '备选', true))
+  const tabNodes = nodes.filter(n => classHas(n, 'tab')), cards = nodes.filter(n => classHas(n, 'card'))
+  eq('U9.a 保留三层tabs及首个非空默认B', tabNodes.map(n => [n.a['data-f'], classHas(n, 'on')]), [['A', false], ['B', true], ['C', false]])
+  eq('U9.a 新HTML初始只显示默认层卡片', cards.map(n => [n.a['data-tier'], /display\s*:\s*none/.test(n.a.style ?? '')]), [['B', false], ['C', true], ['C', true]])
+  ok('U9.a 保留两平台专属标签', nodes.some(n => classHas(n, 'pf') && classHas(n, 'tiktok')) && nodes.some(n => classHas(n, 'pf') && classHas(n, 'instagram')))
+  ok('U9.a 保留单文件资源与切层无滚动', !nodes.some(n => ['script', 'link', 'img'].includes(n.tag) && /^https?:\/\//.test(n.a.src ?? n.a.href ?? '')) && !/\bscroll(?:To|By|IntoView)\s*\(/.test(nodes.filter(n => n.tag === 'script').map(n => n.text).join('')))
+  const visible = nodes[0].text
+  ok('U9.i 保留增强层及记忆数据边界', /邮箱[\s\S]{0,40}(未|没有)[\s\S]{0,20}(验证|核验)/.test(visible)
+    && /(无法|不能)[\s\S]{0,40}粉丝[\s\S]{0,40}目标市场/.test(visible) && /未做[\s\S]{0,40}已联系[\s\S]{0,40}去重/.test(visible))
+  ok('U9.i 保留公开指标样本及带货边界', /假粉/.test(visible) && /带货/.test(visible) && /(公开|样本)/.test(visible))
+  ok('U9.i 保留费用观测未知边界', /费用/.test(visible) && /(历史费用未知|历史费用[^。\n]{0,40}(未知|无从确认))/.test(visible))
+  ok('U9.b/c/e/g/h 导出不改输入原判断人工字段分层分数及缺席', isDeepStrictEqual(fixtures, fixtureBefore))
+  const legacyBefore = html(fixtures, meta), legacyAfter = html(fixtures, meta, {})
+  eq('U9.a 省略新模式与空选项仍完全等价', legacyAfter, legacyBefore)
+  const oldNodes = htmlRead(legacyBefore)
+  ok('U9.a 默认HTML独立确认没有新判断区块且保留旧理由', !oldNodes.some(n => ['agent', 'manual', 'effective'].includes(n.a['data-review-kind'])) && oldNodes[0].text.includes(mainReview.fit_reason!))
+  eq('U9.a 默认HTML独立确认仍用调用方原顺序', oldNodes.filter(n => n.tag === 'a' && fixtures.some(c => c.profile_url === n.a.href)).map(n => fixtures.find(c => c.profile_url === n.a.href)?.handle), ['zeros', 'missing', 'main'])
+
 })
 
 if (seenGroups.size !== GROUPS.length) {

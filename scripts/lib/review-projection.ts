@@ -87,6 +87,10 @@ export function projectAgentReviews(
         ...(linkedReview.eligibility !== undefined ? { eligibility: linkedReview.eligibility } : {}),
         ...(linkedReview.adoption_priority !== undefined ? { adoption_priority: linkedReview.adoption_priority } : {}),
         review_status: statusOf(linkedReview, calibrationVersion),
+        ...(linkedReview.observed_content !== undefined ? { observed_content: linkedReview.observed_content } : {}),
+        ...(linkedReview.work_evidence !== undefined ? { work_evidence: linkedReview.work_evidence } : {}),
+        ...(linkedReview.natural_integration !== undefined ? { natural_integration: linkedReview.natural_integration } : {}),
+        ...(linkedReview.mismatch_risk !== undefined ? { mismatch_risk: linkedReview.mismatch_risk } : {}),
         ...(linkedReview.fit !== undefined ? { fit: linkedReview.fit } : {}),
         ...(linkedReview.fit_reason !== undefined ? { fit_reason: linkedReview.fit_reason } : {}),
       }

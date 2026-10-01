@@ -16,6 +16,18 @@ export const HEADERS = [
   'discovery_sources', 'metrics_sample_scope',
 ] as const
 
+/** U9：评审列追加在完整旧前缀之后；原记录的 JSON 由写出器转义。 */
+const REVIEW_FIELDS = [
+  'effective_priority', 'effective_priority_account_key', 'eligibility', 'adoption_priority',
+  'observed_content', 'work_evidence', 'natural_integration', 'mismatch_risk',
+  'brand_calibration_version', 'review_status', 'manual_eligible', 'manual_adopted',
+  'manual_content_fit', 'manual_engagement', 'manual_comment_authenticity',
+  'manual_reject_reason', 'manual_note', 'manual_reviewed', 'manual_round_id',
+  'linked_agent_review', 'manual_feedback_accounts',
+] as const
+export const REVIEW_HEADERS = [...HEADERS, ...REVIEW_FIELDS]
+export interface ReviewOutputOptions { mode?: 'review' }
+
 /**
  * P1：CSV 必须区分三档。
  *   undefined → 「未查询」   null/'' → 空白（查过，没有）   有值 → 值
@@ -142,6 +154,18 @@ export function toRow(c: Creator): unknown[] {
   ]
 }
 
+/** U9：只读当前投影；人工空白不补判断，明确 false/unknown 原样保留。 */
+export function toReviewRow(c: Creator): unknown[] {
+  const row = toRow(c)
+  if (c.score === undefined) row[1] = '未查询'
+  return [...row, ...REVIEW_FIELDS.map(field => {
+    const value = c[field]
+    if (value === undefined) return field === 'review_status' ? '未评' : ''
+    return field === 'linked_agent_review' || field === 'manual_feedback_accounts'
+      ? JSON.stringify(value) : value
+  })]
+}
+
 /** U1：tier 升序，同层 score 降序 */
 export function sortForOutput(creators: Creator[]): Creator[] {
   const order = { A: 0, B: 1, C: 2 }
@@ -176,6 +200,13 @@ export function sortForOutput(creators: Creator[]): Creator[] {
     rank(a) - rank(b) || byScore(a, b) || byFollowers(a, b))
 }
 
+/** U9 / P1：先保持旧层级与分数三态，再稳定按有效建议排序；不制造建议。 */
+export function sortForReviewOutput(creators: Creator[]): Creator[] {
+  const priority = { '优先联系': 0, '备选': 1, '待核实': 2, '暂不采用': 3 }
+  const rank = (c: Creator) => c.effective_priority === undefined ? 2 : priority[c.effective_priority]
+  return sortForOutput(creators).sort((a, b) => rank(a) - rank(b))
+}
+
 const TIER_LABEL = { A: 'A级 直接发信', B: 'B级 先互动', C: 'C级 观察池' } as const
 
 /**
@@ -184,12 +215,17 @@ const TIER_LABEL = { A: 'A级 直接发信', B: 'B级 先互动', C: 'C级 观�
  * **空分层也建 sheet**，名称里标出 `(0)` —— 「这一层一个人都没有」本身是信息。
  * 隐藏掉会让运营以为是数据漏了，而不是这一层真的没人。
  */
-export function buildSheets(creators: Creator[]): Array<{ name: string; headers: string[]; rows: unknown[][] }> {
+export function buildSheets(creators: Creator[], options: ReviewOutputOptions = {}): Array<{ name: string; headers: string[]; rows: unknown[][] }> {
   const sorted = sortForOutput(creators)
   const out: Array<{ name: string; headers: string[]; rows: unknown[][] }> = []
   for (const t of ['A', 'B', 'C'] as const) {
     const rows = sorted.filter(c => c.tier === t)
-    out.push({ name: `${TIER_LABEL[t]} (${rows.length})`, headers: [...HEADERS], rows: rows.map(toRow) })
+    if (options.mode === 'review') {
+      out.push({ name: `${TIER_LABEL[t]} (${rows.length})`, headers: [...REVIEW_HEADERS],
+        rows: sortForReviewOutput(rows).map(toReviewRow) })
+    } else {
+      out.push({ name: `${TIER_LABEL[t]} (${rows.length})`, headers: [...HEADERS], rows: rows.map(toRow) })
+    }
   }
   return out
 }
