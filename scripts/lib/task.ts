@@ -1,9 +1,10 @@
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, lstatSync } from 'node:fs'
 import { mkdirDurable, writeFileAtomic } from './atomic.js'
 import { basename, join } from 'node:path'
 import type { TaskState, Creator, EnrichmentState, MemoryStatus } from './types.js'
 import { readCostDocument, stringifyCostJson } from './cost-json.js'
 import type { CostSnapshot } from './cost-ledger.js'
+import { ReviewInputError } from './review.js'
 
 export function taskDir(product: string, timestamp?: string): string {
   const ts = timestamp ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
@@ -47,6 +48,28 @@ export function saveCostCheckpoint(dir: string, snapshot: CostSnapshot): void {
 export function loadCreators(dir: string): Creator[] {
   const p = join(dir, 'creators.json')
   return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : []
+}
+
+function readOptionalReviewCreators(file: string): Creator[] | undefined {
+  try { lstatSync(file) }
+  catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return undefined
+    throw new ReviewInputError([`${file} 无法检查：${String(error)}`])
+  }
+  try {
+    const creators: unknown = JSON.parse(readFileSync(file, 'utf8'))
+    if (!Array.isArray(creators)) throw new Error('名单必须是数组')
+    return creators as Creator[]
+  } catch (error) { throw new ReviewInputError([`${file} 无法读入名单：${String(error)}`]) }
+}
+
+/** D21/D23：只读原名单与累加器；只有确认路径缺席才采用旧名单 clone。 */
+export function loadReviewCreatorInputs(dir: string): {
+  previous: Creator[]; raw: Creator[]; rawPresent: boolean
+} {
+  const previous = readOptionalReviewCreators(join(dir, 'creators.json')) ?? []
+  const raw = readOptionalReviewCreators(join(dir, RAW))
+  return { previous, raw: raw ?? structuredClone(previous), rawPresent: raw !== undefined }
 }
 
 export function saveCreators(dir: string, creators: Creator[]): void {

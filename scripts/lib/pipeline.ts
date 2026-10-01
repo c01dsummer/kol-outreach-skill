@@ -9,6 +9,7 @@ import {
 import { filterByMemory, type MemoryStatus } from './memory.js'
 import { sortForOutput } from './rows.js'
 import { costView } from './budget.js'
+import { normalizedAccountKey } from './review.js'
 
 /*
  * 入口脚本里不该有决策逻辑。
@@ -25,8 +26,51 @@ import { costView } from './budget.js'
 
 // ═══════════ collect 的收尾 ═══════════
 
+/** D25/P4：当前评审路径使用规范化的合法异平台关联；采集原件保持原值。 */
+export function canonicalReviewLinks(creators: readonly Creator[]): Creator[] {
+  return creators.map(original => {
+    const creator = { ...original }
+    delete creator.linked_handle
+    const parts = typeof original.linked_handle === 'string' ? original.linked_handle.split(':') : []
+    if (parts.length !== 2) return creator
+    try {
+      const primary = normalizedAccountKey(original.platform, original.handle)
+      const linked = normalizedAccountKey(parts[0], parts[1])
+      if (primary.split(':')[0] !== linked.split(':')[0]) creator.linked_handle = linked
+    } catch { /* 非法或同平台关系不制造关联身份。 */ }
+    return creator
+  })
+}
+
+/** D23：保留原直接关联及现有识别结果；不合并、过滤或推断传递关系。 */
+export function reviewRelations(...lists: (readonly Creator[])[]): Creator[] {
+  const originals = structuredClone(lists.flatMap(list => [...list]))
+  const linked = structuredClone(originals)
+  linkCrossPlatform(linked)
+  return [...originals, ...linked]
+}
+
+/** D21/D25：只用于 raw 确认缺席的新 seed，不清洗已有累加器。 */
+export function rawSeedFromLegacy(previous: readonly Creator[]): Creator[] {
+  const seed = structuredClone([...previous])
+  const fields = [
+    'fit', 'fit_reason', 'outreach_draft', 'eligibility', 'adoption_priority',
+    'observed_content', 'work_evidence', 'natural_integration', 'mismatch_risk',
+    'brand_calibration_version', 'review_status', 'linked_agent_review',
+    'manual_eligible', 'manual_adopted', 'manual_content_fit', 'manual_engagement',
+    'manual_comment_authenticity', 'manual_reject_reason', 'manual_note', 'manual_reviewed',
+    'manual_round_id', 'manual_feedback_accounts', 'effective_priority', 'effective_priority_account_key',
+    'score', 'tier', 'tier_adjustments', 'account_assessment', 'linked_account_assessment',
+    'previously_recommended',
+  ] as const
+  for (const creator of seed) for (const field of fields) delete creator[field]
+  return seed
+}
+
 export interface FinalizeResult {
   kept: Creator[]
+  /** D23：包含已合并次记录的完整关联，仅供人工冲突核验。 */
+  full_relations: Creator[]
   linked: number
   unknown_followers: number
   filtered_recommended: number
@@ -68,7 +112,7 @@ export function finalize(
 
   const { kept, filtered_recommended, filtered_contacted, memory_status } =
     filterByMemory(gated, product, task, { ignoreUnreadable: opts.ignoreUnreadableMemory })
-  return { kept, linked, unknown_followers, filtered_recommended, filtered_contacted, memory_status }
+  return { kept, full_relations: all, linked, unknown_followers, filtered_recommended, filtered_contacted, memory_status }
 }
 
 /**
