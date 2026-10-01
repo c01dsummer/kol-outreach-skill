@@ -50,9 +50,10 @@ if (badTasks.length) {
 if (badCalibration.length) process.exit(2)
 let creators: Creator[]
 let reviews: TaskReviews
+let relations: Creator[]
 try {
   const inputs = loadReviewCreatorInputs(dir)
-  const relations = reviewRelations(inputs.previous, inputs.raw)
+  relations = reviewRelations(inputs.previous, inputs.raw)
   reviews = prepareTaskReviews(dir, state, inputs.previous, new Date().toISOString(), relations)
   // 同人识别和当前判断均从独立克隆重建，原件只用作完整关系证据。
   creators = canonicalReviewLinks(structuredClone(inputs.previous))
@@ -65,7 +66,7 @@ try {
 let memoryStatus
 try {
   const current = filterByMemory(creators, state.product, taskId(dir),
-    { ignoreUnreadable: ignoreMemory })
+    { ignoreUnreadable: ignoreMemory, knownRelations: relations })
   creators = current.kept
   memoryStatus = current.memory_status
 } catch (e) {
