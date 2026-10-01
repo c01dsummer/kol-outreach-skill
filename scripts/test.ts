@@ -198,6 +198,7 @@ const GROUPS: readonly Group[] = [
   { id: 'u9-review-output', needs: [] },
   { id: 'p1-legacy-score-output', needs: [] },
   { id: 'd21-task-reviews', needs: [] },
+  { id: 'feedback-template-crossings', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -11938,6 +11939,39 @@ await group('d21-task-reviews', () => {
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+
+await group('feedback-template-crossings', async () => {
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kol-template-crossings-'));
+  const originalFetch = globalThis.fetch, originalKey = process.env.TIKHUB_API_KEY;
+  const task = JSON.stringify({ tasks: [{ keyword: 'saved', dimension: 'category', platform: 'tiktok' }], cost_ledger: { version: 'unusable' }, budget_usd: 'unusable', requests: null }) + '\n';
+  const agent = JSON.stringify({ version: 1, updated_at: 'saved', reviews: { 'tiktok:alpha': {
+    account_keys: ['tiktok:alpha'], eligibility: '合格', adoption_priority: '优先联系', observed_content: '已读内容',
+    work_evidence: '取得作品', natural_integration: '真实场景', mismatch_risk: '未核问题', fit: '✅' } }, rounds: [
+    { round_id: 'saved-round', created_at: 'saved', source: 'task.json', candidates: [{ account_key: 'tiktok:alpha', source_tasks: [{ task_index: 0, keyword: 'saved', dimension: 'category', platform: 'tiktok' }] }] } ] }) + '\n';
+  const creators = JSON.stringify([{ platform: 'tiktok', handle: 'alpha', manual_adopted: 'yes', manual_note: 'derived' }]) + '\n';
+  const expected = '\ufeffround_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note\nsaved-round,tiktok,alpha,,,,,,,\n';
+  fs.writeFileSync(path.join(dir, 'task.json'), task); fs.writeFileSync(path.join(dir, 'agent-review.json'), agent); fs.writeFileSync(path.join(dir, 'creators.json'), creators);
+  let requests = 0;
+  try {
+    process.env.TIKHUB_API_KEY = '';
+    globalThis.fetch = async () => { requests++; return new Response('controlled', { status: 200 }); };
+    await globalThis.fetch('https://example.invalid/controlled');
+    eq('D26交点-同一点请求观察阳性', requests, 1); if (requests !== 1) return;
+    requests = 0;
+    const { runManualFeedbackTemplate } = await import('./lib/feedback-template-task.js');
+    const result = runManualFeedbackTemplate(dir);
+    eq('D26交点-新人工格只有未评空值', fs.readFileSync(path.join(dir, 'manual-feedback.csv'), 'utf8'), expected);
+    ok('D26交点-原判断与名单字节保留', fs.readFileSync(path.join(dir, 'task.json'), 'utf8') === task && fs.readFileSync(path.join(dir, 'agent-review.json'), 'utf8') === agent && fs.readFileSync(path.join(dir, 'creators.json'), 'utf8') === creators && !fs.existsSync(path.join(dir, 'creators.raw.json')));
+    tension('D26', 'P1');
+    ok('D26交点-缺key费用不可用仍完成本地创建', result.file === path.join(dir, 'manual-feedback.csv') && result.status === 'create' && result.added_accounts === 1 && fs.readFileSync(path.join(dir, 'task.json'), 'utf8') === task);
+    eq('D26交点-本地模板零请求', requests, 0); tension('D26', 'P3');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.TIKHUB_API_KEY; else process.env.TIKHUB_API_KEY = originalKey;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 if (seenGroups.size !== GROUPS.length) {
   throw new Error(`需求测试组只遇到 ${seenGroups.size}/${GROUPS.length} 组，不能报告完成`)

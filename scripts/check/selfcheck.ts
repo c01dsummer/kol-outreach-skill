@@ -20,7 +20,7 @@
  * 死亡条件记在 ADR-85:一身三半,三半的答案不一样,所以没有整道的那一份。
  */
 import {
-  chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync,
+  chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, lstatSync, symlinkSync, utimesSync, realpathSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync,
 } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -7289,6 +7289,179 @@ group('render-raw-memory', [], () => {
     && readFileSync(join(ignored.cwd, 'memory', 'creators.json'), 'utf8') === broken, '显式跳过须真实声明，坏记忆原字节不得覆盖')
   named('raw 联系保护不改采集原件 Agent 判断或人工原作答', [forward, reverse, guards, resume, ignored].every(preserved), '所有原件及已完整冻结正本应逐字节保留')
 })
+
+// Independent expected: D26 + D21/D22/D23/D24 only; no production oracle imported.
+group('feedback-template', [], () => {
+  const entry = S('feedback-template.ts'), baseInput = join(tmp, 'feedback-template-blind'); mkdirSync(baseInput, { recursive: true }); const base = realpathSync(baseInput);
+  const header = 'round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note';
+  const roundId = 'round,"one"\n原值', quotedRound = '"round,""one""\n原值"';
+  const blank = ',,,,,,,\n', fresh = Buffer.from('\ufeff' + header + '\n' + quotedRound + ',tiktok,alpha' + blank + quotedRound + ',instagram,alpha' + blank + 'second,tiktok,later' + blank);
+  const old = Buffer.from(header + '\r\n' + quotedRound + ', TIKTOK , @ALPHA ,yes,yes,high,medium,low,其他,"前半 ""引号"",\r\n后半"');
+  const appended = Buffer.concat([old, Buffer.from('\n' + quotedRound + ',instagram,alpha' + blank + 'second,tiktok,later' + blank)]);
+  const source = { task_index: 0, keyword: 'saved', dimension: 'category', platform: 'tiktok' };
+  const document = { version: 1, updated_at: '2026-10-01T00:00:00Z', reviews: { 'tiktok:alpha': {
+    account_keys: ['tiktok:alpha', 'tiktok:alias'], eligibility: '合格', adoption_priority: '优先联系', observed_content: '已读内容',
+    work_evidence: '取得作品', natural_integration: '真实场景', mismatch_risk: '未核问题', fit: '✅', outreach_draft: 'Saved {fact}' } }, rounds: [
+    { round_id: roundId, created_at: '2026-09-29T00:00:00Z', source: 'task.json', candidates: [
+      { account_key: 'tiktok:alpha', source_tasks: [source] }, { account_key: 'instagram:alpha', source_tasks: null } ] },
+    { round_id: 'second', created_at: '2026-10-01T00:00:00Z', source: 'task.json', candidates: [{ account_key: 'tiktok:later', source_tasks: null }] } ] };
+  const names = ['task.json', 'agent-review.json', 'creators.json', 'creators.raw.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html', 'enrichment.json', 'memory/creators.json'];
+  const repoMemory = resolve(entry, '../../memory/creators.json');
+  const json = (dir: string, name: string, value: unknown) => writeFileSync(join(dir, name), JSON.stringify(value, null, 2) + '\n');
+  const read = (file: string): Buffer | undefined => { try { return readFileSync(file); } catch { return undefined; } };
+  const symbolic = (file: string) => { try { return lstatSync(file).isSymbolicLink(); } catch { return false; } };
+  const equal = (a: Buffer | undefined, b: Buffer | undefined) => a === undefined ? b === undefined : b !== undefined && a.equals(b);
+  const capture = (dir: string) => [...names.map(n => join(dir, n)), repoMemory].map(file => ({ file, bytes: read(file), present: existsSync(file) }));
+  const untouched = (before: ReturnType<typeof capture>) => before.every(x => existsSync(x.file) === x.present && equal(read(x.file), x.bytes));
+  const allSourceChecks: { label: string; ok: boolean }[] = [], allRequestChecks: { label: string; ok: boolean }[] = [], allConnections: boolean[] = [];
+  const fixture = (name: string, review: unknown = document) => {
+    const dir = join(base, name); mkdirSync(join(dir, 'memory'), { recursive: true });
+    json(dir, 'task.json', { tasks: [{ keyword: 'saved', dimension: 'category', platform: 'tiktok' }], cost_ledger: { version: 'unusable' }, budget_usd: 'unusable', requests: null });
+    json(dir, 'agent-review.json', review); json(dir, 'creators.json', [{ platform: 'tiktok', handle: 'outside', fit: '❌' }]);
+    for (const name of names.slice(4)) writeFileSync(join(dir, name), Buffer.from('untouched:' + name + '\n'));
+    return realpathSync(dir);
+  };
+  const parseJson = (s: string): any => { try { return JSON.parse(s); } catch { return undefined; } };
+  const protocol = (r: ReturnType<typeof runBoth>, dir: string, status: string, count: number) => {
+    const v = parseJson(r.stdout); return r.status === 0 && v && v.file === join(dir, 'manual-feedback.csv') && v.status === status && v.added_accounts === count;
+  };
+  const line = (s: string, n: number) => new RegExp('(?:[:：]\\s*' + n + '(?:\\D|$)|(?:第|line\\s*)\\s*' + n + '\\s*行?)').test(s);
+  const inputError = (r: ReturnType<typeof runBoth>, dir: string, file: string, tokens: string[] = []) => r.status === 2 && !r.stdout.trim() && r.stderr.includes(join(dir, file)) && tokens.every(x => r.stderr.includes(x));
+  const observer = join(base, 'observer.cjs');
+  writeFileSync(observer, `const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),https=require('node:https'),net=require('node:net');
+const append=fs.appendFileSync.bind(fs),log=process.env.KOL_TEMPLATE_TRACE,root=process.env.KOL_TEMPLATE_ROOT;
+function record(type,data){if(log)append(log,JSON.stringify({type,...data})+'\\n');}
+process.on('uncaughtExceptionMonitor',(error,origin)=>record('crash',{name:error&&error.name,message:String(error&&error.message),origin}));
+function touch(value,type='write'){if(typeof value!=='string'&&!Buffer.isBuffer(value)&&!(value instanceof URL))return;const file=path.resolve(value instanceof URL?decodeURIComponent(value.pathname):String(value));if(file.startsWith(root+path.sep)||/[/\\\\]memory[/\\\\]creators\\.json$/.test(file))record(type,{file});}
+for(const obj of [fs,fs.promises])for(const name of ['readFile','readFileSync','writeFile','appendFile','rename','copyFile','link','unlink','truncate','writeFileSync','appendFileSync','renameSync','copyFileSync','linkSync','unlinkSync','truncateSync','createWriteStream','open','openSync']){const original=obj[name];if(typeof original!=='function')continue;obj[name]=function(...args){if(name==='open'||name==='openSync'){const flag=args[1],writing=typeof flag==='string'?/[wa+]/.test(flag):typeof flag==='number'&&!!(flag&(fs.constants.O_WRONLY|fs.constants.O_RDWR|fs.constants.O_CREAT|fs.constants.O_TRUNC|fs.constants.O_APPEND));touch(args[0],writing?'write':'read');}else{touch(args[0],name.startsWith('read')?'read':'write');if(/rename|copyFile|link/i.test(name))touch(args[1]);}return original.apply(this,args);};}
+function block(kind){return function(){record('request',{kind});throw Error('Controlled request interception');};}
+globalThis.fetch=async function(){record('request',{kind:'fetch'});return new Response('controlled',{status:200});};
+for(const [name,obj]of [['http',http],['https',https]])for(const method of ['request','get'])obj[method]=block(name+'.'+method);
+const connect=net.Socket.prototype.connect;net.Socket.prototype.connect=function(...args){let value=args[0];if(Array.isArray(value))value=value[0];if(typeof value==='number'||value&&typeof value==='object'&&value.port!==undefined)return block('tcp')();return connect.apply(this,args);};
+require('node:module').syncBuiltinESMExports();record('loaded',{argv:process.argv});
+`);
+  const trace = (file: string): any[] | undefined => { const b = read(file); if (!b) return undefined; try { return b.toString().trim().split('\n').filter(Boolean).map(s => JSON.parse(s)); } catch { return undefined; } };
+  const extra = (dir: string, log: string) => ({ TIKHUB_API_KEY: '', NODE_OPTIONS: '--require ' + JSON.stringify(observer), KOL_TEMPLATE_TRACE: log, KOL_TEMPLATE_ROOT: dir });
+  const invoke = (label: string, dir: string, args: string[], status = 0): ReturnType<typeof runBoth> & { events?: any[]; connected?: boolean } => {
+    const before = capture(dir), log = join(base, label + '.ndjson');
+    if (before.some(x => x.present && x.bytes === undefined)) { named('模板入口-源文件观察资格失败', false, SELFCHECK_FIXTURE_MARK + ' 现存来源无法读出原字节'); return { ok: false, stdout: '', stderr: '', status: null }; }
+    const r = runBoth(label, [entry, ...args], dir, { status, soft: [0, 1, 2].filter(x => x !== status) }, extra(dir, log));
+    if (!r.ok) return r;
+    const events = trace(log), connected = !!events?.some(e => e.type === 'loaded' && Array.isArray(e.argv) && e.argv.includes(entry));
+    if (events?.some(e => e.type === 'crash')) { named('模板入口-未处理异常拒绝', false, SELFCHECK_PROCESS_MARK + ' 实际入口记录了未处理异常'); return { ...r, ok: false }; }
+    if (!connected) { named('模板入口-接线资格失败', false, SELFCHECK_FIXTURE_MARK + ' 实际入口没有合法事件接线'); return { ...r, ok: false }; }
+    allConnections.push(connected); allSourceChecks.push({ label, ok: untouched(before) }); allRequestChecks.push({ label, ok: !events!.some(e => e.type === 'request') });
+    return Object.assign(r, { events, connected });
+  };
+  const controlDir = fixture('observer-positive'), control = join(base, 'observer-positive.mjs'), controlLog = join(base, 'observer-positive.ndjson');
+  writeFileSync(control, `import fs from 'node:fs';import http from 'node:http';import https from 'node:https';import net from 'node:net';
+fs.writeFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json','controlled');fs.readFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json');await fetch('https://example.invalid/');for(const f of [()=>http.request('http://example.invalid/'),()=>https.request('https://example.invalid/'),()=>net.connect({host:'127.0.0.1',port:9})])try{f();}catch{}
+`);
+  const controlBefore = capture(controlDir), cr = runBoth('模板观察器合法阳性运行', [control], controlDir, { status: 0 }, extra(controlDir, controlLog)); if (!cr.ok) return;
+  const ce = trace(controlLog), observationReady = !untouched(controlBefore) && !!ce?.some(e => e.type === 'loaded' && e.argv.includes(control)) && ['fetch', 'http.request', 'https.request', 'tcp'].every(k => ce!.some(e => e.type === 'request' && e.kind === k)) && ['read', 'write'].every(type => ce!.some(e => e.type === type && e.file === join(controlDir, 'memory/creators.json')));
+  named('模板入口-观察器合法阳性', observationReady, SELFCHECK_FIXTURE_MARK + ' 请求及文件读写事件阳性未实际记录'); if (!observationReady) return;
+  const crashControl = join(base, 'uncaught-positive.ts'), crashLog = join(base, 'uncaught-positive.ndjson'); writeFileSync(crashControl, "throw new Error('Controlled unhandled exception positive');\n");
+  const cp = runBoth('模板未处理异常阳性运行', [crashControl], controlDir, { status: 1, soft: [0] }, extra(controlDir, crashLog)); if (!cp.ok) return;
+  const crashes = trace(crashLog), crashReady = cp.status === 1 && !!crashes?.some(e => e.type === 'loaded' && e.argv.includes(crashControl)) && !!crashes?.some(e => e.type === 'crash' && e.name === 'Error' && e.message === 'Controlled unhandled exception positive');
+  named('模板入口-未处理异常合法阳性', crashReady, SELFCHECK_FIXTURE_MARK + ' 相同Node/tsx与NODE_OPTIONS接线未记录真实未处理异常'); if (!crashReady) return;
+  const create = fixture('create'), c = invoke('模板真实创建运行', create, ['--dir', '.', '--append']); if (!c.ok) return;
+  named('模板入口-create字节', equal(read(join(create, 'manual-feedback.csv')), fresh), 'D26.j: BOM/转义/冻结顺序/原轮次/七个人工空格'); criterion('D26.j');
+  named('模板入口-create成功协议', !!protocol(c, create, 'create', 3), 'D26.n: 实际保存后的绝对路径/create/三平台账号'); criterion('D26.n');
+  named('模板入口-缺key坏费用仍可创建', c.status === 0 && !!c.connected, 'D26.q: 合法本地创建不能要求付费资格');
+  const empty = fixture('empty', { version: 1, updated_at: 'saved', reviews: {}, rounds: [] }); json(empty, 'creators.json', []);
+  const e = invoke('模板空池创建运行', empty, ['--dir', empty]); if (!e.ok) return;
+  named('模板入口-空池真实创建', equal(read(join(empty, 'manual-feedback.csv')), Buffer.from('\ufeff' + header + '\n')) && !!protocol(e, empty, 'create', 0), 'D26.c/j/n: 合法空池保存表头，绝非正本缺席');
+  const append = fixture('append'); writeFileSync(join(append, 'manual-feedback.csv'), old); json(append, 'creators.raw.json', []);
+  const a = invoke('模板真实追加运行', append, ['--dir', append, '--append']); if (!a.ok) return;
+  named('模板入口-append字节', equal(read(join(append, 'manual-feedback.csv')), appended), 'D26.l: 完整原Buffer前缀、一个LF、仅缺席账号及七空格'); criterion('D26.l');
+  named('模板入口-append成功协议', !!protocol(a, append, 'append', 2), 'D26.n: 追加实际新增两个平台账号');
+  named('模板入口-缺key坏费用仍可追加', a.status === 0 && !!a.connected, 'D26.q: 合法本地追加不能要求付费资格');
+  const overwritten = read(join(create, 'manual-feedback.csv')), o = invoke('模板默认防覆盖运行', create, ['--dir', create], 2); if (!o.ok) return;
+  named('模板入口-默认拒绝已有', inputError(o, create, 'manual-feedback.csv') && equal(read(join(create, 'manual-feedback.csv')), overwritten), 'D26.i: 未授权追加不得覆盖已有人工表'); criterion('D26.i');
+  const argsDir = fixture('args');
+  const p0 = invoke('模板参数缺dir运行', argsDir, [], 2); if (!p0.ok) return;
+  named('模板入口-参数缺dir', p0.status === 2 && !p0.stdout.trim() && /--dir/.test(p0.stderr), 'D26.a: 缺必填参数须给用法');
+  const p1 = invoke('模板参数缺值运行', argsDir, ['--dir'], 2); if (!p1.ok) return;
+  named('模板入口-参数缺值', p1.status === 2 && !p1.stdout.trim() && /--dir/.test(p1.stderr), 'D26.a: 不能读默认任务');
+  const p2 = invoke('模板参数空路径运行', argsDir, ['--dir', '  '], 2); if (!p2.ok) return;
+  named('模板入口-参数空路径', p2.status === 2 && !p2.stdout.trim() && /--dir/.test(p2.stderr), 'D26.a: 空白不是合法路径');
+  const p3 = invoke('模板未知参数运行', argsDir, ['--dir', argsDir, '--wat'], 2); if (!p3.ok) return;
+  named('模板入口-参数未知', p3.status === 2 && !p3.stdout.trim() && /--dir/.test(p3.stderr), 'D26.a: 不忽略未知参数');
+  const p4 = invoke('模板重复dir运行', argsDir, ['--dir', argsDir, '--dir', argsDir], 2); if (!p4.ok) return;
+  named('模板入口-参数重复dir', p4.status === 2 && !p4.stdout.trim() && /--dir/.test(p4.stderr), 'D26.a: dir只能一次');
+  const p5 = invoke('模板重复append运行', argsDir, ['--dir', argsDir, '--append', '--append'], 2); if (!p5.ok) return;
+  named('模板入口-参数重复append', p5.status === 2 && !p5.stdout.trim() && /--dir/.test(p5.stderr), 'D26.a: append至多一次');
+  const p6 = invoke('模板位置参数运行', argsDir, ['--dir', argsDir, 'extra'], 2); if (!p6.ok) return;
+  named('模板入口-参数位置', p6.status === 2 && !p6.stdout.trim() && /--dir/.test(p6.stderr) && !existsSync(join(argsDir, 'manual-feedback.csv')), 'D26.a: 位置参数拒绝且不写目标');
+  named('模板入口-参数在读任务前拒绝', [p0, p1, p2, p3, p4, p5, p6].every(r => !r.events!.some(e => e.type === 'read' && names.some(n => e.file === join(argsDir, n)))), 'D26.a: 已有合法读取阳性，非法参数不能先读任何任务文件'); criterion('D26.a');
+  const missingDir = join(base, 'not-created'), md = invoke('模板缺任务目录运行', argsDir, ['--dir', missingDir], 2); if (!md.ok) return;
+  named('模板入口-不创建任务目录', md.status === 2 && md.stderr.includes(join(missingDir, 'task.json')) && !existsSync(missingDir), 'D26.a/b: 必須只读既有任务');
+  const badTask = fixture('task'); json(badTask, 'task.json', { tasks: null, brand_calibration: { version: 'v1', target_creator_types: [], tone_aesthetic: [], natural_scenarios: [], negative_signals: [], sources: [{ source: 'source', kind: 'invented', detail: 'detail' }] } });
+  const t = invoke('模板坏任务运行', badTask, ['--dir', badTask], 2); if (!t.ok) return;
+  named('模板入口-任务品牌同时拒绝', inputError(t, badTask, 'task.json', ['tasks', 'brand_calibration']) && !existsSync(join(badTask, 'manual-feedback.csv')), 'D26.b: tasks和品牌问题同时报告'); criterion('D26.b');
+  const absent = fixture('absent'); unlinkSync(join(absent, 'agent-review.json')); json(absent, 'creators.json', [{ platform: 'tiktok', handle: 'legacy', fit: '✅', fit_reason: 'saved', outreach_draft: 'saved' }]);
+  const r0 = invoke('模板正本缺席运行', absent, ['--dir', absent], 2); if (!r0.ok) return;
+  named('模板入口-正本缺席拒绝', inputError(r0, absent, 'agent-review.json') && /collect|render|生产|保存|轮次/.test(r0.stderr) && !existsSync(join(absent, 'agent-review.json')) && !existsSync(join(absent, 'manual-feedback.csv')), 'D26.c: 不迁移legacy、不冻结、不创建正本');
+  const corrupt = fixture('corrupt', {}), r1 = invoke('模板坏正本运行', corrupt, ['--dir', corrupt], 2); if (!r1.ok) return;
+  named('模板入口-正本损坏拒绝', inputError(r1, corrupt, 'agent-review.json') && !existsSync(join(corrupt, 'manual-feedback.csv')), 'D26.c: 已存在坏正本不能当缺席'); criterion('D26.c');
+  const sourced = fixture('source', { version: 1, updated_at: 'saved', reviews: {}, rounds: [{ round_id: 'sourced', created_at: 'saved', source: 'task.json', candidates: [{ account_key: 'tiktok:alpha', source_tasks: [{ ...source, keyword: 'changed' }] }] }] });
+  const s = invoke('模板错来源运行', sourced, ['--dir', sourced], 2); if (!s.ok) return;
+  named('模板入口-冻结来源核对', inputError(s, sourced, 'agent-review.json', ['sourced']) && /source_tasks|来源/.test(s.stderr) && !existsSync(join(sourced, 'manual-feedback.csv')), 'D26.d: 合法快照仍须核当前同下标来源'); criterion('D26.d');
+  const list = fixture('list'); unlinkSync(join(list, 'creators.json')); json(list, 'creators.raw.json', []);
+  const l0 = invoke('模板名单缺席运行', list, ['--dir', list], 2); if (!l0.ok) return;
+  named('模板入口-creators必须存在', inputError(l0, list, 'creators.json') && !existsSync(join(list, 'manual-feedback.csv')), 'D26.e: raw不能顶替缺席creators');
+  json(list, 'creators.json', {}); const l1 = invoke('模板坏名单运行', list, ['--dir', list], 2); if (!l1.ok) return;
+  named('模板入口-creators必须为列表', inputError(l1, list, 'creators.json') && !existsSync(join(list, 'manual-feedback.csv')), 'D26.e: 不把非列表压成空列表'); criterion('D26.e');
+  const raw = fixture('raw'); json(raw, 'creators.raw.json', {});
+  const f0 = invoke('模板坏原件运行', raw, ['--dir', raw], 2); if (!f0.ok) return;
+  named('模板入口-raw坏原件拒绝', inputError(f0, raw, 'creators.raw.json') && !existsSync(join(raw, 'manual-feedback.csv')), 'D26.f: 存在非列表不回退');
+  unlinkSync(join(raw, 'creators.raw.json')); symlinkSync(join(raw, 'raw-missing'), join(raw, 'creators.raw.json'));
+  const f1 = invoke('模板悬空原件运行', raw, ['--dir', raw], 2); if (!f1.ok) return;
+  named('模板入口-raw悬空不是缺席', inputError(f1, raw, 'creators.raw.json') && symbolic(join(raw, 'creators.raw.json')), 'D26.f: existsSync假值不能证明路径缺席'); criterion('D26.f');
+  const manual = fixture('manual'); symlinkSync(join(manual, 'manual-missing'), join(manual, 'manual-feedback.csv'));
+  const h = invoke('模板悬空人工运行', manual, ['--dir', manual, '--append'], 2); if (!h.ok) return;
+  named('模板入口-人工已存在不可读', inputError(h, manual, 'manual-feedback.csv') && /ENOENT|不存在|no such/i.test(h.stderr) && symbolic(join(manual, 'manual-feedback.csv')), 'D26.h: 不替换悬空目标'); criterion('D26.h');
+  const one = { version: 1, updated_at: 'saved', reviews: {}, rounds: [{ round_id: 'one', created_at: 'saved', source: 'task.json', candidates: [{ account_key: 'tiktok:alpha', source_tasks: null }] }] };
+  const invalid = fixture('invalid', one), invalidCsv = Buffer.from(header + '\n' + 'one,tiktok,alpha,Yes,,,,,,\n'); writeFileSync(join(invalid, 'manual-feedback.csv'), invalidCsv);
+  const v = invoke('模板旧表校验运行', invalid, ['--dir', invalid, '--append'], 2); if (!v.ok) return;
+  named('模板入口-append先完整校验', inputError(v, invalid, 'manual-feedback.csv') && line(v.stderr, 2) && equal(read(join(invalid, 'manual-feedback.csv')), invalidCsv), 'D26.k: 全池覆盖也拒绝非法旧枚举，定位第2物理行'); criterion('D26.k');
+  const paired = { version: 1, updated_at: 'saved', reviews: {}, rounds: [{ round_id: 'pair', created_at: 'saved', source: 'task.json', candidates: [{ account_key: 'tiktok:alpha', source_tasks: null }, { account_key: 'instagram:beta', source_tasks: null }] }] };
+  const conflictCsv = Buffer.from(header + '\n' + 'pair,tiktok,alpha,yes,yes,,,,,\n' + 'pair,instagram,beta,yes,no,,,,,\n');
+  const rawPair = fixture('raw-pair', paired); json(rawPair, 'creators.json', []); json(rawPair, 'creators.raw.json', [{ platform: 'tiktok', handle: 'alpha', linked_handle: 'instagram:beta', fit: '❌', tier: 'C' }]); writeFileSync(join(rawPair, 'manual-feedback.csv'), conflictCsv);
+  const j0 = invoke('模板完整raw关系运行', rawPair, ['--dir', rawPair, '--append'], 2); if (!j0.ok) return;
+  named('模板入口-完整raw直接关系', inputError(j0, rawPair, 'manual-feedback.csv', ['tiktok:alpha', 'instagram:beta']) && line(j0.stderr, 2) && line(j0.stderr, 3) && equal(read(join(rawPair, 'manual-feedback.csv')), conflictCsv), 'D26.g/k: 仅raw单向关联也拒绝跨平台yes/no冲突');
+  const oldPair = fixture('old-pair', paired); json(oldPair, 'creators.json', [{ platform: 'tiktok', handle: 'alpha', linked_handle: 'instagram:beta' }]); writeFileSync(join(oldPair, 'manual-feedback.csv'), conflictCsv);
+  const j1 = invoke('模板旧名单关系运行', oldPair, ['--dir', oldPair, '--append'], 2); if (!j1.ok) return;
+  named('模板入口-raw真缺席关系回退', inputError(j1, oldPair, 'manual-feedback.csv', ['tiktok:alpha', 'instagram:beta']) && equal(read(join(oldPair, 'manual-feedback.csv')), conflictCsv), 'D26.f/g: 真缺席仍校验完整旧名单直接关系'); criterion('D26.g');
+  json(oldPair, 'creators.raw.json', []); const j1present = invoke('模板现存raw联合旧名单运行', oldPair, ['--dir', oldPair, '--append'], 2); if (!j1present.ok) return;
+  named('模板入口-完整旧名单与现存raw联合关系', inputError(j1present, oldPair, 'manual-feedback.csv', ['tiktok:alpha', 'instagram:beta']) && line(j1present.stderr, 2) && line(j1present.stderr, 3) && equal(read(join(oldPair, 'manual-feedback.csv')), conflictCsv), 'D26.g/k: raw已存在但为空也不能丢旧名单合法直接关系');
+  const direct = fixture('direct-only', { version: 1, updated_at: 'saved', reviews: { 'tiktok:alpha': { account_keys: ['tiktok:alpha', 'tiktok:gamma'], fit: '✅' } }, rounds: [{ round_id: 'direct', created_at: 'saved', source: 'task.json', candidates: ['tiktok:alpha', 'instagram:alpha', 'instagram:beta', 'tiktok:gamma'].map(account_key => ({ account_key, source_tasks: null })) }] });
+  json(direct, 'creators.raw.json', [{ platform: 'tiktok', handle: 'alpha', linked_handle: 'instagram:beta' }, { platform: 'instagram', handle: 'beta', linked_handle: 'tiktok:gamma' }]);
+  const directCsv = Buffer.from(header + '\n' + 'direct,tiktok,alpha,yes,yes,,,,,\n' + 'direct,instagram,alpha,yes,no,,,,,\n' + 'direct,instagram,beta,yes,unknown,,,,,\n' + 'direct,tiktok,gamma,yes,no,,,,,\n'); writeFileSync(join(direct, 'manual-feedback.csv'), directCsv);
+  const j2 = invoke('模板不补造关系运行', direct, ['--dir', direct, '--append']); if (!j2.ok) return;
+  named('模板入口-不补造关联', !!protocol(j2, direct, 'unchanged', 0) && equal(read(join(direct, 'manual-feedback.csv')), directCsv), 'D26.g: 同名异平台/Agent别名/传递链均不制造人工采用冲突');
+  const failureCreate = fixture('failure-create'), failureAppend = fixture('failure-append'), unchanged = fixture('unchanged');
+  writeFileSync(join(failureAppend, 'manual-feedback.csv'), old); writeFileSync(join(unchanged, 'manual-feedback.csv'), fresh); utimesSync(join(unchanged, 'manual-feedback.csv'), new Date('2000-01-01'), new Date('2000-01-01'));
+  const barrier = join(base, 'barrier.mjs'); writeFileSync(barrier, `import fs from 'node:fs';try{fs.writeFileSync(process.env.KOL_TEMPLATE_TARGET,'probe',{flag:process.env.KOL_TEMPLATE_APPEND?'a':'wx'});console.log(JSON.stringify({blocked:false}));}catch(e){console.log(JSON.stringify({blocked:true,code:e.code}));}`);
+  for (const dir of [failureCreate, failureAppend, unchanged]) { if (existsSync(join(dir, 'manual-feedback.csv'))) chmodSync(join(dir, 'manual-feedback.csv'), 0o444); chmodSync(dir, 0o555); }
+  try {
+    const bc = runBoth('模板创建保存屏障阳性运行', [barrier], failureCreate, { status: 0 }, { KOL_TEMPLATE_TARGET: join(failureCreate, 'manual-feedback.csv') }); if (!bc.ok) return;
+    const ba = runBoth('模板追加保存屏障阳性运行', [barrier], failureAppend, { status: 0 }, { KOL_TEMPLATE_TARGET: join(failureAppend, 'manual-feedback.csv'), KOL_TEMPLATE_APPEND: 'yes' }); if (!ba.ok) return;
+    const barrierReady = [bc, ba].every(r => { const b = parseJson(r.stdout); return b?.blocked === true && /EACCES|EPERM|EROFS/.test(b.code); });
+    named('模板入口-保存屏障合法阳性', barrierReady, SELFCHECK_FIXTURE_MARK + ' 真实文件权限屏障未阻止创建/追加'); if (!barrierReady) return;
+    const fc = invoke('模板创建保存失败运行', failureCreate, ['--dir', failureCreate], 1); if (!fc.ok) return;
+    named('模板入口-create保存失败', fc.status === 1 && !fc.stdout.trim() && fc.stderr.includes(join(failureCreate, 'manual-feedback.csv')) && /EACCES|EPERM|EROFS/.test(fc.stderr) && !existsSync(join(failureCreate, 'manual-feedback.csv')), 'D26.o: 合法需创建输入的真实保存失败为1且目标仍缺席');
+    const fa = invoke('模板追加保存失败运行', failureAppend, ['--dir', failureAppend, '--append'], 1); if (!fa.ok) return;
+    named('模板入口-append保存失败', fa.status === 1 && !fa.stdout.trim() && fa.stderr.includes(join(failureAppend, 'manual-feedback.csv')) && /EACCES|EPERM|EROFS/.test(fa.stderr) && equal(read(join(failureAppend, 'manual-feedback.csv')), old), 'D26.o: 合法需追加输入保存失败为1且旧表完整'); criterion('D26.o');
+    const before = statSync(join(unchanged, 'manual-feedback.csv')), u = invoke('模板无变化运行', unchanged, ['--dir', unchanged, '--append']); if (!u.ok) return;
+    const after = statSync(join(unchanged, 'manual-feedback.csv'));
+    named('模板入口-unchanged零写', u.status === 0 && equal(read(join(unchanged, 'manual-feedback.csv')), fresh) && before.ino === after.ino && before.dev === after.dev && before.mtimeMs === after.mtimeMs && !!u.connected && !u.events!.some((e: any) => e.type === 'write' && e.file === join(unchanged, 'manual-feedback.csv')), 'D26.m: 有效保存屏障下保持字节/文件身份/mtime且目标零保存'); criterion('D26.m');
+    named('模板入口-unchanged成功协议', !!protocol(u, unchanged, 'unchanged', 0), 'D26.n: 合法无变化的单份JSON');
+  } finally { for (const dir of [failureCreate, failureAppend, unchanged]) { chmodSync(dir, 0o755); if (existsSync(join(dir, 'manual-feedback.csv'))) chmodSync(join(dir, 'manual-feedback.csv'), 0o644); } }
+  named('模板入口-观察接线有效', allConnections.length > 0 && allConnections.every(Boolean), SELFCHECK_FIXTURE_MARK + ' 实际模板入口未加载独立事件观察器'); if (!allConnections.every(Boolean)) return;
+  named('模板入口-所有源文件原字节', allSourceChecks.length > 0 && allSourceChecks.every(x => x.ok), 'D26.p: 源文件发生变化的案例=' + allSourceChecks.filter(x => !x.ok).map(x => x.label).join(',')); criterion('D26.p');
+  named('模板入口-零外部请求', allRequestChecks.length > 0 && allRequestChecks.every(x => x.ok), 'D26.q: 真实请求记录的案例=' + allRequestChecks.filter(x => !x.ok).map(x => x.label).join(',')); criterion('D26.q');
+});
 
 const ranOnly = runGroups()
 

@@ -36,6 +36,7 @@ API 负责提供候选数据，Agent 负责读懂产品、推导搜索策略、�
 - 为合适且有公开邮箱的 A 级创作者生成个性化英文开发信草稿
 - 记录跨任务创作者状态，排除已联系或已屏蔽的人
 - 输出 HTML、XLSX、CSV 和 JSON，支持断点续跑和预算控制
+- 本次改动开放本地人工复评模板命令：基于已保存冻结池创建空表，显式追加保留已有作答
 
 缺语义判断或评审所用品牌版本已过期的候选先进入基础 B。三个命令按任务级 Agent 评审正本和人工反馈重建当前判断；后续受众地域与公开风险规则仍可降级，地域规则仍可剔除。人工反馈与 Agent 原判断分别保留，人工采用不豁免已联系或已屏蔽过滤。
 
@@ -92,6 +93,7 @@ scripts/
 ├── collect.ts                   批量采集与断点续跑
 ├── enrich.ts                    主页公开指标与可续跑风险评估
 ├── render.ts                    计分、分层和交付物生成
+├── feedback-template.ts         已保存冻结池的人工复评模板创建／追加
 ├── lib/                         预算、邮箱、身份、记忆、CSV/XLSX 等
 ├── providers/                   数据源实现
 └── check/                       纪律检查、变异测试、自检和审计
@@ -158,9 +160,15 @@ npm run enrich -- --dir output/xxx --budget 3
 
 # Agent 将判断和草稿保存至 agent-review.json 后，生成最终交付物并写回本地记忆
 npm run render -- --dir output/xxx
+
+# 本次改动开放：为已保存冻结轮次创建人工复评空表（不请求 API）
+npm run --silent feedback-template -- --dir output/xxx
+
+# 保留已有人工作答，只追加冻结池中缺席的平台账号
+npm run --silent feedback-template -- --dir output/xxx --append
 ```
 
-四个入口将结构化结果写入 `stdout`、进度写入 `stderr`。每次请求按固定端点价检查剩余额度；`--budget 3` 是总上限 $3。collect/enrich 额度不足且保存成功才退出 `3`；初始费用/输入问题退出 `2`，运行或保存失败退出 `1`。旧费用未知仍可导出及做零请求本地处理，不能靠增加上限补造历史账。费用契约见 [ADR-108](docs/adr/ADR-108-生产请求与输出统一使用逐端点费用账.md)。
+各脚本将结构化结果写入 `stdout`、进度或诊断写入 `stderr`；机械消费使用 `npm run --silent` 去掉 npm 自身 banner。每次请求按固定端点价检查剩余额度；`--budget 3` 是总上限 $3。collect/enrich 额度不足且保存成功才退出 `3`；初始费用/输入问题退出 `2`，运行或保存失败退出 `1`。旧费用未知仍可导出及做零请求本地处理，不能靠增加上限补造历史账。费用契约见 [ADR-108](docs/adr/ADR-108-生产请求与输出统一使用逐端点费用账.md)。
 
 probe 与 collect 要求 `tasks` 至少包含一个任务，每项明确写出非空白 `keyword`、四维之一的 `dimension` 和 `tiktok`/`instagram` 的 `platform`。坏任务与 IG 路线问题会带文件路径一起报告，退出 `2`，不请求或写任务文件；旧任务续跑（含 `--budget`）同样整表检查，不补默认字段、不跳过坏项（D16）。
 
@@ -169,6 +177,8 @@ probe 与 collect 要求 `tasks` 至少包含一个任务，每项明确写出�
 collect 续跑还会先检查 `task.json` 的已完成索引和分页统计；损坏时指出文件及字段，退出 `2`，不改写原文件或发请求。旧目录缺少整张统计表可继续，缺失仍保留为历史未知（D19）。
 
 collect、enrich、render 在改预算、预留、请求或交付写入前校验 Agent 正本、冻结来源及已有人工反馈。读取失败、坏 JSON、游离账号或冲突人工行会指出实际文件和位置，以退出码 `2` 拒绝；正本真实保存失败退出 `1`。只确认 `creators.raw.json` 路径缺席时才使用旧名单的采集证据，已有坏原件不能当作缺席；enrich 和 render 不改写采集原件或人工表。
+
+`feedback-template` 只接受必填一次 `--dir` 和可选一次 `--append`，相对目录按调用 cwd 解析。只读校验任务、已保存正本及冻结来源，要求完整 `creators.json` 数组；raw 仅真缺席时回退，合法直接关联由完整旧名单及 raw 提供。正本缺席时先由既有生产命令保存真实轮次，模板不迁移或冻结。默认已有人工文件均退出 `2` 防覆盖；显式追加先校验完整原表，保留旧字节，新账号七个人工字段全空，同账号不重复加行。合法无新增返回 `unchanged` 且实际不保存；其他输入问题退出 `2`，实际保存失败退出 `1` 并保原件，均无成功 JSON。成功 JSON 的 `file` 为绝对路径、`status` 为 create/append/unchanged、`added_accounts` 为新增平台账号行数。命令只保存人工目标，不改任务、名单、正本、raw、报告、memory 或费用账，不要求 key 或可付费账。填写与追加边界见[输出说明](skill/references/output-format.md#人工反馈模板d23d24d26)；默认全量 HTML、双筛选及审核统计仍未启用。
 
 render 导出同样要求 `task.json` 至少保留一项合规搜索任务。任务文件读不到、JSON/根对象形状不合规或任务列表不合规时，报告路径和具体问题并退出 `2`，不改写或创建名单、交付物与跨任务记忆（D16.n–q）。需按原搜索配置恢复或修正真实任务记录，不能任意添加关键词冒充搜索范围。
 
@@ -188,7 +198,7 @@ output/{product}-{timestamp}/
 ├── creators.json      最终筛选后的结构化名单与当前评审投影
 ├── creators.raw.json  原始采集累加器，断点续跑时只增不减
 ├── agent-review.json  Agent 判断、平台账号别名与冻结候选轮次的正本
-├── manual-feedback.csv 人工反馈原作答（已有人工表时读取，不由报告生成）
+├── manual-feedback.csv 人工反馈原作答（模板命令创建／显式追加，报告只读）
 ├── enrichment.json    分平台公开样本、指标、报价和查询状态（运行 enrich 后）
 ├── task.json          采集状态、费用账、请求数和断点信息
 └── meta.json          平台、费用、分能力状态和数据边界

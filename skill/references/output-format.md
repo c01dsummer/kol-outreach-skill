@@ -1,6 +1,6 @@
 # 输出格式
 
-> 相关需求：**U9.a** 公共格式默认兼容 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U6** HTML 分层 tab 与平台标签 · **U7** 公开指标与报价 · **U8** 任务展示身份 · **U9** 显式评审三格式输出 · **D5** BOM 与转义 · **D8–D10** 指标口径 · **D21/D23/D25** 平台独立评审及人工投影 · **P5** 数据边界声明
+> 相关需求：**U9.a** 公共格式默认兼容 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U6** HTML 分层 tab 与平台标签 · **U7** 公开指标与报价 · **U8** 任务展示身份 · **U9** 显式评审三格式输出 · **D5** BOM 与转义 · **D8–D10** 指标口径 · **D21/D23/D25** 平台独立评审及人工投影 · **D24/D26** 人工模板及真实本地入口 · **P5** 数据边界声明
 
 Phase 06 用。
 
@@ -16,7 +16,7 @@ output/{product}-{YYYYMMDDHHmm}/
 ├── creators.json  交付物 —— 过滤后的名单及当前评审投影
 ├── creators.raw.json  采集累加器 —— 只增不减，--resume 读它
 ├── agent-review.json Agent 判断与冻结轮次正本 —— Agent 在此保存判断和草稿
-├── manual-feedback.csv 人工原作答 —— 已有时读取，不由报告生成
+├── manual-feedback.csv 人工原作答 —— 模板命令创建／显式追加，报告只读
 ├── enrichment.json    分平台公开样本、指标、报价与查询状态（运行 enrich 后）
 ├── task.json      采集状态（断点续跑用）
 └── meta.json      本次任务元数据
@@ -27,6 +27,31 @@ output/{product}-{YYYYMMDDHHmm}/
 只留 xlsx 会让机器消费变麻烦，只留 CSV 就没法分层切换。
 
 `{product}` 用短横线小写，如 `anker-powerbank`。
+
+## 人工反馈模板（D23、D24、D26）
+
+本次改动开放的本地入口只为已保存冻结池创建或追加空白人工表：
+
+```bash
+npm run --silent feedback-template -- --dir output/{task}
+npm run --silent feedback-template -- --dir output/{task} --append
+```
+
+必填一次非空白 `--dir`，可选一次 `--append`；相对目录按调用 cwd 解析。缺值、未知／重复参数或位置参数退出 2，给出用法且不建任务目录。`task.json` 须是可读 JSON 对象，原样任务与存在时的品牌输入均合规；同时有问题时两类均报。正本 `agent-review.json` 必须已保存且通过结构、冻结来源与当前同下标任务核验；缺席时先由既有生产命令保存真实轮次，不在模板入口迁移或冻结。完整 `creators.json` 必须存在且为可读 JSON 数组；只有 raw 路径真缺席才回退旧名单，坏 JSON、非数组、读取错误或悬空软链均退出 2。
+
+追加校验消费完整旧名单及 raw 中已保存的合法直接 `linked_handle`，包括 raw-only 关系；不先过滤，也不通过新识别、评审别名、人工答案、同名或传递关系补造关联。人工目标同样只在路径真缺席时创建；已有不可读或悬空软链拒绝。未显式追加时任何已有文件都拒绝覆盖，包括零字节和只有表头。显式追加先严格校验完整旧 CSV、账号轮次与跨平台采用冲突，坏表不修成空表，即使没有新账号也照常校验；诊断点名实际文件及物理行。
+
+新表使用单个 UTF-8 BOM、以下固定十列表头、正确 CSV 转义、LF 并以 LF 结束。各行按冻结轮次及候选顺序保留原 `round_id` 和规范化平台账号；空池仍保存合法表头。
+
+```csv
+round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note
+```
+
+七个人工字段全空表示未评，不由 Agent、历史投影或关联平台代填。人工合格性及采用只接受 `yes/no/unknown` 或空白；内容匹配、互动、评论真实性只接受 `high/medium/low/unknown` 或空白。空白与 `unknown` 分开。原因只接受商家号、内容不匹配、过度商业化、植入生硬、语气不符、审美不符、互动弱、账号或数据错配、其他；多项用中文或英文分号分隔，备注保留原文。同账号重复复评的纵向语义尚未确定，当前每个平台账号仅一行，追加只补缺席账号。
+
+合法追加保留完整原 Buffer 前缀、原 BOM／CRLF／引号／备注／尾部空行及轮次，新行只用 LF；旧末尾没有 LF 时仅补一个 LF 分隔，不重写旧行或重复表头、BOM。合法文件已覆盖全池时为 `unchanged`，实际零保存，保留内容、文件身份与修改时间。
+
+退出 0 时 stdout 仅一份机械 JSON：`{file,status,added_accounts}`，`file` 是人工目标绝对路径，`status` 为 `create/append/unchanged`，`added_accounts` 是实际新增平台账号行数，不能称为独立人数；无变化为 0。上述 `--silent` 消除 npm 自身 banner。输入拒绝退出 2，实际保存失败退出 1；两者诊断进 stderr、无成功 JSON。保存失败保留旧目标完整字节，首次创建失败最终目标仍缺席。该命令只可保存人工目标，任务、正本、名单、raw、交付物、memory 和费用账均保原字节；不请求、不要求 key 或可付费账，不建立或修复费用。
 
 ## CSV
 
