@@ -11570,7 +11570,7 @@ await group('p1-legacy-score-output', () => {
   const direct = creators.map(c => toRow(c))
   const sorted = sortForOutput(creators)
   const sheets = buildSheets(creators)
-  writeCsv(join(out, 'kol.csv'), HEADERS, sorted.map(c => toRow(c)))
+  writeCsv(join(out, 'kol.csv'), [...HEADERS], sorted.map(c => toRow(c)))
   writeXlsx(join(out, 'kol.xlsx'), sheets)
   writeFileSync(join(out, 'kol.html'), renderHtml(creators, meta))
 
