@@ -198,7 +198,7 @@ const meta = {
 }
 // 交付物也走整体替换：render 被打断时，上一份完整的 meta.json / report.html 还在（D4）
 writeFileAtomic(join(dir, 'meta.json'), stringifyCostJson(meta, cost))
-writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review' }))
+writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review', filters: 'dual' }))
 
 console.log(stringifyCostJson({
   csv: csvPath,

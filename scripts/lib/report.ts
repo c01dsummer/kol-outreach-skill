@@ -195,16 +195,19 @@ const renderReviewDetails = (c: Creator): string => {
       .map(row => manual(row.account_key, row, row.round_id)).join('') ?? '')
 }
 
+export interface HtmlOutputOptions extends ReviewOutputOptions { filters?: 'dual' }
+
 /** 单文件、内联样式、不依赖网络 —— 运营要发给同事、要存档 */
-export function renderHtml(creators: Creator[], meta: any, options: ReviewOutputOptions = {}): string {
+export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOptions = {}): string {
   const displayed = options.mode === 'review' ? sortForReviewOutput(creators) : creators
-  // 没有「全部」tab，所以必须有一个分层默认选中。取第一个非空的 ——
-  // 默认落在空分层上，打开报告第一眼是空白，会被当成出错了。
+  const dual = options.mode === 'review' && options.filters === 'dual'
+  // 公共旧视图保留第一个非空分层；新视图从完整交付名单开始。
   const def: 'A' | 'B' | 'C' =
     (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'
 
   const card = (c: Creator) => `
-<div class="card ${c.tier}" data-tier="${c.tier}"${c.tier === def ? '' : ' style="display:none"'}>
+${dual ? `<div class="card ${c.tier}" data-tier="${c.tier}"${c.effective_priority === undefined ? '' : ` data-priority="${esc(c.effective_priority)}"`}>`
+  : `<div class="card ${c.tier}" data-tier="${c.tier}"${c.tier === def ? '' : ' style="display:none"'}>`}
   <div class="hd">
     <span class="tier ${c.tier}">${c.tier}</span>
     <span class="pf ${c.platform}">${c.platform === 'tiktok' ? '♪ TikTok' : '◉ Instagram'}</span>
@@ -231,6 +234,19 @@ export function renderHtml(creators: Creator[], meta: any, options: ReviewOutput
   ${c.outreach_draft ? `<details class="dr"><summary>开发信草稿</summary>
     <pre>${esc(c.outreach_draft)}</pre>
     <button onclick="cp(this)">复制</button></details>` : ''}
+</div>`
+
+  const button = (group: string, value: string, label: string) =>
+    `<button type="button" class="tab${value === 'all' ? ' on' : ''}" data-filter="${group}" data-value="${esc(value)}" aria-pressed="${value === 'all'}">${esc(label)}</button>`
+  const filters = dual ? `<div class="tabs dual">
+    <div class="hd"><span>有效建议</span>${[['all', '全部'], ['优先联系', '优先联系'], ['备选', '备选'], ['待核实', '待核实'], ['暂不采用', '暂不采用'], ['missing', '未提供']]
+      .map(([value, label]) => button('priority', value, label)).join('')}</div>
+    <div class="hd"><span>层级</span>${['all', 'A', 'B', 'C'].map(value => button('tier', value, value === 'all' ? '全部' : value)).join('')}</div>
+    <div class="empty" id="none" style="display:${displayed.length ? 'none' : ''}">当前筛选下没有候选</div>
+  </div>` : `<div class="tabs">
+  <button class="tab A${def === 'A' ? ' on' : ''}" data-f="A">A级 直接发信<span class="n">${meta.tiers.A}</span></button>
+  <button class="tab B${def === 'B' ? ' on' : ''}" data-f="B">B级 先互动<span class="n">${meta.tiers.B}</span></button>
+  <button class="tab C${def === 'C' ? ' on' : ''}" data-f="C">C级 观察池<span class="n">${meta.tiers.C}</span></button>
 </div>`
 
   // U3.b：关键词表现是下次调整策略的依据，**一个任务一行** —— 0 命中的与一次都没查过的
@@ -329,6 +345,7 @@ th{color:#64748b;font-weight:600;font-size:12px}
 .tab:hover{border-color:#334155;color:#e2e8f0}
 .tab.on{background:#1e293b;color:#f8fafc;border-color:#38bdf8}
 .tab .n{opacity:.6;margin-left:5px;font-size:12px}
+${dual ? '.tabs.dual{flex-direction:column}body{overflow-anchor:none}' : ''}
 .tab.A.on{border-color:#22c55e}.tab.B.on{border-color:#f59e0b}.tab.C.on{border-color:#64748b}
 .empty{color:#475569;text-align:center;padding:40px;font-size:14px}
 .sc{margin-left:auto;color:#64748b;font-size:12px}
@@ -376,21 +393,41 @@ ${notes.length ? `<div class="notes">${notes.map(n => `<div>⚠️ ${esc(n)}</di
 <tbody>${kwRows}</tbody></table>
 
 <h2>名单</h2>
-<div class="tabs">
-  <button class="tab A${def === 'A' ? ' on' : ''}" data-f="A">A级 直接发信<span class="n">${meta.tiers.A}</span></button>
-  <button class="tab B${def === 'B' ? ' on' : ''}" data-f="B">B级 先互动<span class="n">${meta.tiers.B}</span></button>
-  <button class="tab C${def === 'C' ? ' on' : ''}" data-f="C">C级 观察池<span class="n">${meta.tiers.C}</span></button>
-</div>
+${dual ? '<div class="candidate-list">' : ''}
+${filters}
 <div class="cards" id="cards">${displayed.map(card).join('')}</div>
+${dual ? '</div>' : ''}
 <p class="sub">仅含已记录的账号发现来源，可能不含完整历史；不对应具体作品或请求次数。</p>
-<div class="empty" id="none" style="display:${meta.tiers[def] ? 'none' : ''}">这一层没有人</div>
+${dual ? '' : `<div class="empty" id="none" style="display:${meta.tiers[def] ? 'none' : ''}">这一层没有人</div>`}
 </div>
 <script>
 function cp(b){const t=b.previousElementSibling.textContent;
 navigator.clipboard.writeText(t).then(()=>{b.textContent='已复制';setTimeout(()=>b.textContent='复制',1500)})}
 
 const cards=[...document.querySelectorAll('#cards .card')];
-document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{
+${dual ? `const list=document.getElementById('cards');
+const selected={priority:'all',tier:'all'};
+const buttons=[...document.querySelectorAll('button.tab')];
+buttons.forEach(tab=>tab.addEventListener('click',()=>{
+  // 先保留列表高度，避免短名单或空集使浏览器夹回页面底部。
+  list.style.minHeight=list.getBoundingClientRect().height+'px';
+  const group=tab.dataset.filter;
+  selected[group]=tab.dataset.value;
+  for(const button of buttons){
+    const on=button.dataset.value===selected[button.dataset.filter];
+    button.classList.toggle('on',on);
+    button.setAttribute('aria-pressed',String(on));
+  }
+  let shown=0;
+  for(const c of cards){
+    const priority=selected.priority;
+    const hit=(selected.tier==='all'||c.dataset.tier===selected.tier)&&
+      (priority==='all'||(priority==='missing'?c.dataset.priority===undefined:c.dataset.priority===priority));
+    c.style.display=hit?'':'none';
+    if(hit) shown++;
+  }
+  document.getElementById('none').style.display=shown?'none':'';
+}));` : `document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
   tab.classList.add('on');
   const f=tab.dataset.f;
@@ -401,6 +438,6 @@ document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>
     if(hit) shown++;
   }
   document.getElementById('none').style.display = shown ? 'none' : '';
-}));
+}));`}
 </script></body></html>`
 }

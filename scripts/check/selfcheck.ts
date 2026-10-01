@@ -2274,11 +2274,17 @@ group('render', ['collect', 'enrich'], () => {
       if (!h.includes('活跃状态') || !h.includes('最后发布')) {
         failed++; console.error('  ✗ HTML 缺少 KOL 活跃状态（违反 D10/U7）')
       } else console.log('  ✓ HTML 展示 KOL 活跃状态')
-      if (!h.includes('data-f="A"') || !h.includes('data-tier=')) {
-        failed++; console.error('  ✗ HTML 缺分层 tab 或卡片 data-tier（违反 U6）')
+      // 生产入口采用 U10；U9.a 的旧公共单层行为仍由原需求测试守住。
+      const buttons = h.match(/<button\b[^>]*>/g) ?? []
+      const hasDefaultAll = (filter: string) => buttons.some(button =>
+        /class="[^"]*\btab\b[^"]*"/.test(button) && /class="[^"]*\bon\b[^"]*"/.test(button) &&
+        button.includes(`data-filter="${filter}"`) && button.includes('data-value="all"') &&
+        button.includes('aria-pressed="true"'))
+      if (!hasDefaultAll('priority') || !hasDefaultAll('tier') || !h.includes('data-tier=')) {
+        failed++; console.error('  ✗ HTML 缺默认全部双筛选按钮或卡片 data-tier（U10 结构检查）')
       } else if (h.includes('scrollIntoView')) {
-        failed++; console.error('  ✗ HTML 切 tab 会滚动页面（违反 U6）')
-      } else console.log('  ✓ HTML 分层 tab 可用且不滚动')
+        failed++; console.error('  ✗ HTML 含 scrollIntoView（U10）')
+      } else console.log('  ✓ HTML 双筛选结构齐全且未含 scrollIntoView')
     }
 
     // 防回归，**不认领判据**：P5.h 只管 false 那一头（见 ADR-67 的就地更正）。真跑过

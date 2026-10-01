@@ -199,6 +199,8 @@ const GROUPS: readonly Group[] = [
   { id: 'p1-legacy-score-output', needs: [] },
   { id: 'd21-task-reviews', needs: [] },
   { id: 'feedback-template-crossings', needs: [] },
+  { id: 'u10-report', needs: [] },
+  { id: 'u10-report-entry', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -5951,7 +5953,7 @@ suite('U2', 'HTML 报告不依赖网络资源')
 
 }
 await group('u6-report', () => {
-suite('U6', 'HTML 分层 tab 与平台标签')
+suite('U9', '公共旧 HTML 分层 tab 与平台标签兼容')
 {
   const html = renderHtml(
     [mk('tiktok', 'a', { tier: 'A', score: 1 }), mk('instagram', 'b', { tier: 'B', score: 1 })],
@@ -11720,8 +11722,8 @@ await group('p1-legacy-score-output', () => {
   ok('legacy-xlsx-zero-numeric-score', [undefined, 'n'].includes(xlsxScore(creators[1])?.t) && xlsxScore(creators[1])?.v === '0')
   ok('legacy-xlsx-known-numeric-score', [undefined, 'n'].includes(xlsxScore(creators[2])?.t) && xlsxScore(creators[2])?.v === '37')
   eq('legacy-xlsx-sort-order', orderedProfiles(xlsxRows.map(row => row.map(cell => cell?.display))), expectedOrder)
-  suite('U6', '真实 HTML 定位账号自身的分数节点')
-  criterion('U6.b')
+  suite('U9', '公共旧 HTML 定位账号自身的分数节点')
+  criterion('U9.a')
   eq('legacy-html-account-score-nodes', htmlAccounts, clear)
   eq('legacy-html-missing-score', htmlScore(creators[0]), '未知')
   eq('legacy-html-zero-score', htmlScore(creators[1]), '0')
@@ -11972,6 +11974,344 @@ await group('feedback-template-crossings', async () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+async function u10OfflineDom(html: string) {
+  const { Script, createContext } = await import('node:vm');
+  const decode = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (_, x) => {
+    const named: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+    return x[0] === '#' ? String.fromCodePoint(parseInt(x.slice(x[1] === 'x' ? 2 : 1), x[1] === 'x' ? 16 : 10)) : named[x];
+  });
+    const scripts: string[] = [], rules: Array<[string, Record<string, string>]> = [];
+    const camel = (s: string) => s.replace(/-([a-z])/g, (_, x) => x.toUpperCase());
+    const declarations = (s: string) => Object.fromEntries(s.split(';').filter(x => x.includes(':')).map(x => {
+      const i = x.indexOf(':');
+      return [camel(x.slice(0, i).trim()), x.slice(i + 1).trim().replace(/\s*!important$/, '')];
+    }));
+    class El {
+      children: El[] = []; parentElement?: El; attrs: Record<string, string> = {}; style: Record<string, string> = {};
+      events: Record<string, Function[]> = {}; onclick?: Function; raw = '';
+      constructor(public tagName: string) {}
+      get textContent(): string { return this.raw + this.children.map(x => x.textContent).join(''); }
+      get dataset() { return Object.fromEntries(Object.entries(this.attrs).filter(([k]) => k.startsWith('data-')).map(([k, v]) => [camel(k.slice(5)), v])); }
+      get classList() {
+        const read = () => (this.attrs.class === undefined ? '' : this.attrs.class).split(/\s+/).filter(Boolean);
+        return { contains: (x: string) => read().includes(x), add: (...xs: string[]) => { this.attrs.class = [...new Set([...read(), ...xs])].join(' '); },
+          remove: (...xs: string[]) => { this.attrs.class = read().filter(x => !xs.includes(x)).join(' '); },
+          toggle: (x: string, force?: boolean) => { const on = force === undefined ? !read().includes(x) : force; on ? this.classList.add(x) : this.classList.remove(x); return on; } };
+      }
+      getAttribute(k: string) { return this.attrs[k] === undefined ? null : this.attrs[k]; }
+      setAttribute(k: string, v: unknown) { this.attrs[k] = String(v); }
+      matches(selector: string): boolean {
+        const parts = selector.trim().split(/\s+/), last = parts.pop()!;
+        const tag = last.match(/^[\w-]+/);
+        if (tag && this.tagName !== tag[0].toLowerCase()) return false;
+        for (const m of last.matchAll(/([.#])([\w-]+)|\[([^\]=\s]+)(?:=["']?([^\]"']+)["']?)?\]/g)) {
+          if (m[1] === '.' && !this.classList.contains(m[2])) return false;
+          if (m[1] === '#' && this.attrs.id !== m[2]) return false;
+          if (m[3] && (this.attrs[m[3]] === undefined || (m[4] !== undefined && this.attrs[m[3]] !== m[4]))) return false;
+        }
+        if (!parts.length) return true;
+        for (let p = this.parentElement; p; p = p.parentElement) if (p.matches(parts.join(' '))) return true;
+        return false;
+      }
+      querySelectorAll(selector: string): El[] {
+        return this.children.flatMap(x => [x, ...x.querySelectorAll('*')]).filter(x => x.tagName !== '#text' && selector.split(',').some(s => x.matches(s)));
+      }
+      querySelector(selector: string) { return this.querySelectorAll(selector)[0]; }
+      closest(selector: string): El | undefined { return this.matches(selector) ? this : this.parentElement?.closest(selector); }
+      addEventListener(kind: string, fn: Function) { (this.events[kind] ||= []).push(fn); }
+      click() {
+        for (let p: El | undefined = this; p; p = p.parentElement) {
+          const e = { target: this, currentTarget: p, preventDefault() {}, stopPropagation() {} };
+          if (p.onclick) p.onclick.call(p, e);
+          for (const fn of p.events.click || []) fn.call(p, e);
+        }
+      }
+      getBoundingClientRect() { return { height: this.attrs.id === 'cards' ? height() : 240, top: 300 - y, bottom: 300 - y + height() }; }
+      scrollIntoView() { y = Math.min(maxY(), 300); }
+    }
+    const document = new El('document'), stack = [document];
+    for (const token of html.matchAll(/<!--[\s\S]*?-->|<![^>]*>|<(script|style)\b[^>]*>([\s\S]*?)<\/\1\s*>|<\/?[a-z][^>]*>|[^<]+/gi)) {
+      const t = token[0];
+      if (t.startsWith('<!')) continue;
+      if (token[1]) {
+        if (token[1].toLowerCase() === 'script') scripts.push(token[2]);
+        else for (const r of token[2].matchAll(/([^{}]+)\{([^{}]*)\}/g)) rules.push([r[1].trim(), declarations(r[2])]);
+        continue;
+      }
+      if (t.startsWith('</')) { stack.pop(); continue; }
+      if (t[0] !== '<') { const text = new El('#text'); text.raw = decode(t); text.parentElement = stack.at(-1); stack.at(-1)!.children.push(text); continue; }
+      const el = new El(t.match(/^<([a-z][\w-]*)/i)![1].toLowerCase());
+      for (const a of t.matchAll(/\s([\w-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) el.attrs[a[1]] = decode(a[2] !== undefined ? a[2] : a[3] !== undefined ? a[3] : a[4] !== undefined ? a[4] : '');
+      if (el.attrs.style !== undefined) el.style = declarations(el.attrs.style);
+      el.parentElement = stack.at(-1); el.parentElement!.children.push(el);
+      if (!/^(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/.test(el.tagName)) stack.push(el);
+    }
+    const vars = Object.assign({}, ...rules.filter(([s]) => s === ':root').map(([, d]) => d));
+    const specificity = (s: string) => (s.match(/#/g) || []).length * 100 + (s.match(/\.|\[/g) || []).length * 10;
+    const rankedRules = rules.flatMap(([s, d]) => s.split(',').filter(x => !x.trim().startsWith('@')).map(x => ({ selector: x, declarations: d, rank: specificity(x) }))).sort((a, b) => a.rank - b.rank);
+    const styleCache = new WeakMap<El, { key: string; sheet: Record<string, string> }>();
+    const css = (el: El) => {
+      const identity: Record<string, string>[] = [];
+      for (let current: El | undefined = el; current; current = current.parentElement) identity.push(current.attrs);
+      const key = JSON.stringify(identity);
+      let cached = styleCache.get(el);
+      if (!cached || cached.key !== key) {
+        cached = { key, sheet: Object.assign({}, ...rankedRules.filter(r => el.matches(r.selector)).map(r => r.declarations)) };
+        styleCache.set(el, cached);
+      }
+      const value: Record<string, string> = Object.assign({}, cached.sheet, el.style);
+      for (const k of Object.keys(value)) value[k] = value[k].replace(/var\((--[^),]+)\)/g, (_: string, n: string) => vars[camel(n)] === undefined ? n : vars[camel(n)]);
+      return value;
+    };
+    const visible = (el: El): boolean => {
+      const style = css(el);
+      return el.attrs.hidden === undefined && style.display !== 'none' && style.visibility !== 'hidden' && style.visibility !== 'collapse' && parseFloat(style.opacity) !== 0 && (!el.parentElement || visible(el.parentElement));
+    };
+    const visibleText = (el: El): string => !visible(el) ? '' : el.raw + el.children.map(visibleText).join('');
+    const cards = document.querySelectorAll('#cards .card'), buttons = document.querySelectorAll('button.tab');
+    const container = document.querySelector('#cards'), none = document.querySelector('#none');
+    let y = 0;
+    const height = () => Math.max(cards.filter(visible).length * 240, container && container.style.minHeight !== undefined ? parseFloat(container.style.minHeight) : 0);
+    const maxY = () => Math.max(0, 300 + height() + 200 - 600);
+    const clamp = () => { y = Math.max(0, Math.min(y, maxY())); };
+    const window: any = { document, navigator: { clipboard: { writeText: async () => {} } }, getComputedStyle: css, requestAnimationFrame: (fn: Function) => fn() };
+    Object.defineProperties(window, { scrollY: { get: () => y }, pageYOffset: { get: () => y }, scrollX: { get: () => 0 } });
+    window.scrollTo = (x: number | { top: number }, next?: number) => { y = typeof x === 'object' ? x.top : next!; clamp(); };
+    window.addEventListener = document.addEventListener.bind(document);
+    (document as any).getElementById = (id: string) => document.querySelector('#' + id);
+    const key = (card: El) => card.querySelector('[data-review-kind=effective]')?.getAttribute('data-account-key');
+    return { document, cards, buttons, none, container, visible, visibleText, css, key, scripts,
+      members: () => cards.filter(visible).map(key), currentY: () => y,
+      outsideText: () => { const walk = (el: El): string => el === container || el === none || !visible(el) ? '' : el.raw + el.children.map(walk).join(''); return walk(document); },
+      boot: () => {
+        const context: any = { ...window, window, document };
+        Object.defineProperties(context, { scrollY: { get: () => y }, pageYOffset: { get: () => y } });
+        try {
+          const sandbox = createContext(context);
+          for (const s of scripts) new Script(s).runInContext(sandbox);
+          for (const el of document.querySelectorAll('[onclick]')) el.onclick = new Script('(function(event){' + el.attrs.onclick + '})').runInContext(sandbox);
+          for (const fn of document.events.DOMContentLoaded || []) fn();
+        }
+        catch (error) { throw new Error('（进程）报告实际内联脚本不能执行：' + String(error)); }
+        clamp();
+      },
+      wired: (button: El) => { for (let p: El | undefined = button; p; p = p.parentElement) if (p.onclick || p.events.click?.length) return true; return false; },
+      atReadingPosition: () => { y = 1100; clamp(); },
+      click: (group: string, value: string) => { const b = buttons.find(x => x.dataset.filter === group && x.dataset.value === value); if (!b) return false; b.click(); clamp(); return true; },
+      collapseControl: () => { if (container) container.style.minHeight = '0px'; for (const c of cards) c.style.display = 'none'; clamp(); } };
+  }
+
+function u10ColorSkin(style: Record<string, string>) {
+  return ['background', 'backgroundColor', 'backgroundImage', 'color', 'borderColor'].map(k => style[k] === undefined ? '' : style[k]).join('|');
+}
+function u10HueColors(s: string) {
+  const result: number[] = [];
+  const rgbHue = (rgb: number[]) => {
+    const max = Math.max(...rgb), min = Math.min(...rgb), d = max - min;
+    if (d) result.push(((max === rgb[0] ? (rgb[1] - rgb[2]) / d : max === rgb[1] ? (rgb[2] - rgb[0]) / d + 2 : (rgb[0] - rgb[1]) / d + 4) * 60 + 360) % 360);
+  };
+  for (const m of s.matchAll(/#([0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})\b/gi)) {
+    const hex = m[1].length <= 4 ? m[1].split('').map(x => x + x).join('') : m[1];
+    if (hex.length !== 8 || parseInt(hex.slice(6), 16) > 0) rgbHue([0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16)));
+  }
+  for (const m of s.matchAll(/(rgba?|hsla?)\(([^)]+)\)/gi)) {
+    const values = m[2].split(/[\s,/]+/).filter(Boolean);
+    if (values.length > 3 && parseFloat(values[3]) === 0) continue;
+    if (m[1].toLowerCase().startsWith('hsl')) { if (parseFloat(values[1]) > 0 && parseFloat(values[2]) > 0 && parseFloat(values[2]) < 100) result.push((parseFloat(values[0]) + 360) % 360); }
+    else rgbHue(values.slice(0, 3).map(x => parseFloat(x) * (x.endsWith('%') ? 2.55 : 1)));
+  }
+  const named: Record<string, number> = { cyan: 180, aqua: 180, turquoise: 174, teal: 180, orange: 39, coral: 16, pink: 350, hotpink: 330, deeppink: 328, fuchsia: 300, magenta: 300 };
+  for (const word of s.toLowerCase().match(/[a-z]+/g) || []) if (named[word] !== undefined) result.push(named[word]);
+  return result;
+}
+function u10BadgeText(text: string) {
+  return text.replace(/[^\p{Letter}\p{Number}]/gu, '').toLowerCase();
+}
+
+function u10BadgeSkin(dom: { css: (node: any) => Record<string, string> }, node: any) {
+  const label = u10BadgeText(node.textContent), colors = new Set<string>();
+  for (let current = node; current && u10BadgeText(current.textContent) === label; current = current.parentElement) {
+    const style = dom.css(current);
+    for (const key of ['background', 'backgroundColor', 'backgroundImage', 'color', 'borderColor']) {
+      if (style[key]) colors.add(`${key.startsWith('background') ? 'background' : key}:${style[key]}`);
+    }
+  }
+  return [...colors].sort().join('|');
+}
+
+
+await group('u10-report', async () => {
+  suite('U10', '双筛选的真实 HTML 与离线交互');
+  tension('U10', 'P1');
+  tension('U10', 'P5');
+  const make = (handle: string, tier: string, score: number, effective_priority?: string, extra: object = {}) => ({
+    platform: handle === 'p_c' || handle === 'm_b' ? 'instagram' : 'tiktok', handle, nickname: handle, bio_links: [], verified: false,
+    profile_url: 'https://example.test/' + handle, source_keyword: 'portable', source_dimension: 'category', tier, score, followers: 80000,
+    fit: '✅', fit_reason: '原判断', ...(effective_priority === undefined ? {} : { effective_priority }), ...extra
+  });
+  const creators = [make('n_c', 'C', 100, '暂不采用'), make('m_b', 'B', 90, undefined, { adoption_priority: '备选', manual_adopted: 'no', review_status: '未评', is_private: true }),
+    make('p_c', 'C', 100, '优先联系', { cross_platform: true }), make('v_a', 'A', 60, '待核实'), make('m_a', 'A', 80, undefined, { adoption_priority: '优先联系', manual_adopted: 'yes', review_status: '待重评' }),
+    make('b_b', 'B', 70, '备选'), make('m_c', 'C', 30, undefined, { adoption_priority: '待核实', fit: '❌' }), make('p_a', 'A', 90, '优先联系', { account_assessment: { platform: 'tiktok', handle: 'p_a', followers: 80000, sample: { status: 'measured', value: 3, source: { kind: 'manual', provider: 'offline-profile-observation' }, observed_at: '2026-10-01T00:00:00Z', sample_size: 3, basis: '主页公开观察的三条作品' } } })];
+  const original = JSON.stringify(creators);
+  const ordered = ['p_a', 'p_c', 'b_b', 'm_a', 'v_a', 'm_b', 'm_c', 'n_c'].map(h => creators.find(c => c.handle === h)!);
+  const meta = { product: 'blind-report', market: 'US', timestamp: '20261001', platforms: ['tiktok', 'instagram'], keywords: [], total: 8,
+    tiers: { A: 3, B: 2, C: 3 }, email_count: 0, cross_platform_count: 1, enriched: false, memory_status: 'unknown', memory_written: false,
+    memory_write_error: '记忆写入边界_盲测', requests: null, cost_estimate_usd: null, budget_usd: null, cost_status: 'unknown-history', cost_scope: null,
+    cost_http_200_usd: null, cost_unknown_result_usd: null, cost_pending_usd: null, cost_price_versions: [],
+    cost_basis: '按固定公开基础价、不计优惠的估算；不是实际账单，也不保证供应商未来价格上限。',
+    cost_problems: [{ path: 'cost_ledger', reason: '旧任务未保存逐端点费用账，无法确认历史费用。费用依据缺失_盲测' }],
+    capabilities: Object.fromEntries(['email_verification', 'audience_geo', 'public_post_sample', 'audience_quality_risk', 'creator_activity', 'collaboration_quote'].map(k => [k, { total: 8, measured: k === 'public_post_sample' ? 1 : 0, unavailable: 0, unqueried: k === 'public_post_sample' ? 7 : 8 }])) };
+  const html = renderHtml(creators as any, meta, { mode: 'review', filters: 'dual' } as any), dom = await u10OfflineDom(html);
+  const keys = (cs: typeof creators) => cs.map(c => `${c.platform}:${c.handle}`).join(',');
+  criterion('U10.b');
+  eq('双筛选初始 HTML 已完整可见且顺序正确', dom.members().join(','), keys(ordered));
+  criterion('U10.c');
+  eq('双筛选提供全部独立选项', dom.buttons.map(b => `${b.dataset.filter}:${b.dataset.value}`).sort().join(','), ['priority:all', 'priority:优先联系', 'priority:备选', 'priority:待核实', 'priority:暂不采用', 'priority:missing', 'tier:all', 'tier:A', 'tier:B', 'tier:C'].sort().join(','));
+  const active = (group: string) => dom.buttons.filter(b => b.dataset.filter === group && (b.classList.contains('on') || b.getAttribute('aria-pressed') === 'true'));
+  const initial = ['priority', 'tier'].map(g => {
+    const buttons = dom.buttons.filter(b => b.dataset.filter === g), on = buttons.filter(b => b.classList.contains('on')), pressed = buttons.filter(b => b.getAttribute('aria-pressed') === 'true');
+    return { on: on.map(b => b.dataset.value), pressed: pressed.map(b => b.dataset.value), consistent: buttons.every(b => b.classList.contains('on') === (b.getAttribute('aria-pressed') === 'true')) };
+  });
+  eq('两个全部的初始 on 与 aria 分别一致', JSON.stringify(initial), JSON.stringify([{ on: ['all'], pressed: ['all'], consistent: true }, { on: ['all'], pressed: ['all'], consistent: true }]));
+  ok('双筛选按钮文字可辨', dom.buttons.every(b => b.textContent.trim().length > 0) && dom.buttons.some(b => b.dataset.value === 'missing' && b.textContent.includes('未提供')));
+  criterion('U10.e');
+  eq('缺席有效建议不生成卡片建议属性', dom.cards.filter(c => c.getAttribute('data-priority') === null).map(dom.key).sort().join(','), keys(ordered.filter(c => c.effective_priority === undefined)).split(',').sort().join(','));
+  criterion('U10.a');
+  const legacyIssues: string[] = [];
+  for (const options of [undefined, {}, { mode: 'review' }, { filters: 'dual' }]) {
+    const legacy = await u10OfflineDom(renderHtml(creators as any, meta, options as any));
+    if (legacy.cards.filter(legacy.visible).some(c => c.getAttribute('data-tier') !== 'A') || !legacy.cards.some(legacy.visible) || legacy.buttons.some(b => b.dataset.filter === 'priority')) legacyIssues.push(JSON.stringify(options));
+  }
+  eq('公共默认与单一选项仍保留单层首个非空视图', JSON.stringify(legacyIssues), '[]');
+  criterion('U10.i');
+  const boundary = dom.outsideText();
+  const boundaryWords = boundary.replace(/\s+/g, ' ');
+  const semanticBoundary = {
+    email: /邮箱[^。！？]{0,100}(?:未做|未进行|未经|未完成|尚未|没有(?:做|经过|完成)?)[^。！？]{0,40}(?:有效性验证|验证有效性|验证)/.test(boundaryWords),
+    audience: /(?:无法|不能|无从|尚未)确认[^。！？]{0,100}(?:粉丝|受众)[^。！？]{0,60}(?:市场|地域|US)/.test(boundaryWords) || /(?:粉丝|受众)[^。！？]{0,60}(?:市场|地域|US)[^。！？]{0,60}(?:无法|不能|无从|尚未)确认/.test(boundaryWords),
+    publicSignal: /(?:不是|并非|不等于|不代表)[^。！？]{0,30}假粉率/.test(boundaryWords) && /(?:不能|无法|不)(?:代表|证明|保证)[^。！？]{0,30}带货(?:效果|能力)/.test(boundaryWords),
+    memory: /(?:记忆[^。！？]{0,60}(?:未写入|未写回|未保存|未记入|没有写入|没有保存|没(?:有)?记进去))|(?:(?:未写入|未写回|未保存|未记入|没有写入|没有保存|没(?:有)?记进去)[^。！？]{0,60}记忆)/.test(boundaryWords) && boundaryWords.includes('记忆写入边界_盲测'),
+    memoryDedupUnknown: /(?:有没有|是否)[^。！？；]{0,30}去重[^。！？；]{0,40}(?:无法确认|不能确认|无从确认|确认不了|不知道|尚未确认)/.test(boundaryWords) || /(?:不知道|无法确认|不能确认|无从确认|尚未确认)[^。！？；]{0,10}(?:有没有|是否)[^。！？；]{0,30}去重/.test(boundaryWords) || /去重状态[^。！？；]{0,25}(?:无法确认|不能确认|无从确认|确认不了|不知道|尚未确认)/.test(boundaryWords),
+    historicalCost: /(?:无法|不能|无从|尚未)确认[^。！？]{0,40}历史费用/.test(boundaryWords) || /历史费用[^。！？]{0,60}(?:无法|不能|无从|尚未)确认/.test(boundaryWords)
+  };
+  eq('筛选外可见费用增强公开样本与记忆边界', JSON.stringify(Object.entries(semanticBoundary).filter(([, visible]) => !visible).map(([name]) => name)), '[]');
+  criterion('U2.a');
+  ok('双筛选报告资源保持单文件内联', ![...html.matchAll(/<(script|link|img)\b[^>]*>/gi)].some(m => /\b(?:src|href)\s*=\s*["']?https?:\/\//i.test(m[0])));
+  criterion('U10.h');
+  const platformIssues: string[] = [];
+  for (const card of dom.cards) {
+    const nodes = card.querySelectorAll('*'), platform = String(dom.key(card)).split(':')[0], tag = [...nodes].reverse().find(n => u10BadgeText(n.textContent) === platform);
+    const skin = tag ? u10BadgeSkin(dom, tag) : '', colors = u10HueColors(skin);
+    if (!tag || (platform === 'tiktok' ? !colors.some(h => h >= 150 && h <= 210) : !skin.includes('gradient') || !colors.some(h => h >= 10 && h <= 60) || !colors.some(h => h >= 300 && h <= 355))) platformIssues.push(String(dom.key(card)));
+    for (const minor of nodes.filter(n => /^(双平台|私密号)$/.test(u10BadgeText(n.textContent)) && n.children.every(c => c.tagName === '#text'))) if (u10BadgeSkin(dom, minor) === skin) platformIssues.push('minor:' + dom.key(card));
+  }
+  eq('每张卡片平台配色专属且区别次要标签', JSON.stringify(platformIssues), '[]');
+  criterion('U10.g');
+  if (dom.buttons.filter(b => b.dataset.filter === 'priority').length === 6 && dom.buttons.filter(b => b.dataset.filter === 'tier').length === 4 && dom.cards.length === 8) {
+  const positive = await u10OfflineDom(html); positive.boot(); positive.atReadingPosition(); const beforeCollapse = positive.currentY(); positive.collapseControl();
+  ok('同布局接线阳性证明缩短高度会丢失阅读位置', beforeCollapse === 1100 && positive.currentY() < beforeCollapse);
+  dom.boot(); dom.atReadingPosition();
+  ok('真实报告每个按钮均接入实际 click 回调', dom.buttons.every(dom.wired));
+  const interactionIssues: string[] = [], positionIssues: string[] = [], boundaryIssues: string[] = [], reviewIssues: string[] = [];
+  let priority = 'all', tier = 'all';
+  const operate = (group: string, value: string) => {
+    if (group === 'priority') priority = value; else tier = value;
+    if (!dom.click(group, value)) interactionIssues.push('missing:' + group + ':' + value);
+    const want = ordered.filter(c => (tier === 'all' || c.tier === tier) && (priority === 'all' || (priority === 'missing' ? c.effective_priority === undefined : c.effective_priority === priority)));
+    if (dom.members().join(',') !== keys(want)) interactionIssues.push(`${priority}/${tier}:members`);
+    for (const g of ['priority', 'tier']) {
+      const chosen = active(g), expected = g === 'priority' ? priority : tier;
+      if (chosen.length !== 1 || chosen[0].dataset.value !== expected || !chosen[0].classList.contains('on') || chosen[0].getAttribute('aria-pressed') !== 'true') interactionIssues.push(`${priority}/${tier}:active:${g}`);
+    }
+    if (!dom.none || dom.visible(dom.none) !== (want.length === 0)) interactionIssues.push(`${priority}/${tier}:empty`);
+    if (dom.currentY() !== 1100) positionIssues.push(`${priority}/${tier}:${dom.currentY()}`);
+    if (dom.outsideText() !== boundary) boundaryIssues.push(`${priority}/${tier}`);
+    for (const creator of want) {
+      const card = dom.cards.find(c => dom.key(c) === `${creator.platform}:${creator.handle}`), text = card ? dom.visibleText(card) : '';
+      const state = (creator as any).review_status;
+      if (!text.includes(state === '待重评' ? '待重评' : '未评') || (state === '待重评' && !text.includes('历史建议'))) reviewIssues.push(`${priority}/${tier}:${creator.handle}`);
+    }
+  };
+  for (const p of ['all', '优先联系', '备选', '待核实', '暂不采用', 'missing']) for (const t of ['all', 'A', 'B', 'C']) { operate('priority', p); operate('tier', t); operate('priority', p); }
+  for (const t of ['C', 'B', 'A', 'all']) for (const p of ['missing', '暂不采用', '待核实', '备选', '优先联系', 'all']) { operate('tier', t); operate('priority', p); operate('tier', t); }
+  operate('priority', 'all'); operate('tier', 'all');
+  criterion('U10.d'); criterion('U10.f');
+  eq('真实双筛选回调反复操作精确交集并保留选择与空状态', JSON.stringify(interactionIssues), '[]');
+  eq('长名单短名单空集切换实际阅读位置保持', JSON.stringify(positionIssues), '[]');
+  eq('卡片筛选始终保留外部数据边界', JSON.stringify(boundaryIssues), '[]');
+  eq('命中卡片自身评审状态与历史建议保持可见', JSON.stringify(reviewIssues), '[]');
+  eq('恢复两个全部后原成员与排序恢复', dom.members().join(','), keys(ordered));
+  } else process.stdout.write('双筛选实际点击与几何案例未执行：报告缺少公开双控件或完整卡片；上面的产品断言给出缺席结果。\n');
+  const empty = await u10OfflineDom(renderHtml([] as any, { ...meta, total: 0, cross_platform_count: 0, tiers: { A: 0, B: 0, C: 0 }, capabilities: Object.fromEntries(Object.keys(meta.capabilities).map(k => [k, { total: 0, measured: 0, unavailable: 0, unqueried: 0 }])) }, { mode: 'review', filters: 'dual' } as any));
+  ok('初始空名单明确为空并保留全部控件', empty.cards.length === 0 && empty.buttons.length === 10 && !!empty.none && empty.visible(empty.none) && empty.none.textContent.includes('当前筛选下没有候选'));
+  ok('初始空名单两个全部的 on 与 aria 分别一致', ['priority', 'tier'].every(group => {
+    const buttons = empty.buttons.filter(b => b.dataset.filter === group), on = buttons.filter(b => b.classList.contains('on')), pressed = buttons.filter(b => b.getAttribute('aria-pressed') === 'true');
+    return on.length === 1 && pressed.length === 1 && on[0].dataset.value === 'all' && pressed[0].dataset.value === 'all' && buttons.every(b => b.classList.contains('on') === (b.getAttribute('aria-pressed') === 'true'));
+  }));
+  eq('双筛选不改输入名单及任何原判断', JSON.stringify(creators), original);
+
+})
+
+await group('u10-report-entry', async () => {
+  suite('U10', '生产 report 默认全部且只含交付名单');
+  criterion('U10.j');
+  tension('U10', 'P4');
+  const fsBlind = await import('node:fs/promises');
+  const pathBlind = await import('node:path');
+  const osBlind = await import('node:os');
+  const { fileURLToPath: filePathBlind } = await import('node:url');
+  const { spawnSync: spawnBlind } = await import('node:child_process');
+  const rootBlind = await fsBlind.mkdtemp(pathBlind.join(osBlind.tmpdir(), 'kol-u10-entry-'));
+  try {
+    const taskDir = pathBlind.join(rootBlind, 'task'), cwdBlind = pathBlind.join(rootBlind, 'cwd');
+    await fsBlind.mkdir(taskDir);
+    await fsBlind.mkdir(pathBlind.join(cwdBlind, 'memory'), { recursive: true });
+    const now = '2026-10-01T00:00:00Z';
+    const legacy = (handle: string, fit: string, email: string | null) => ({
+      platform: 'tiktok', handle, nickname: handle, followers: 80000, bio: 'Creator profile', bio_links: [], verified: false,
+      profile_url: 'https://www.tiktok.com/@' + handle, source_keyword: 'portable', source_dimension: 'category', source_tasks: [0],
+      fit, fit_reason: '旧名单保存的内容判断', outreach_draft: 'Hello [Product],\nYour work fits [Scenario].', email
+    });
+    const prior = [legacy('fresh_mail', '✅', 'fresh@example.test'), legacy('fresh_no_mail', '⚠️', null), legacy('seen_contacted', '✅', 'contacted@example.test'), legacy('seen_blocked', '✅', 'blocked@example.test')];
+    const raw = [...prior, legacy('raw_only', '✅', 'raw@example.test')];
+    const entry = (handle: string, contacted: boolean, blocked: boolean) => ({
+      platform: 'tiktok', handle, nickname: handle, followers: 80000, first_seen: '2026-09-01', recommendations: [], contacted, replied: false, blocked, note: ''
+    });
+    await fsBlind.writeFile(pathBlind.join(taskDir, 'task.json'), JSON.stringify({
+      product: 'blind-entry', market: 'US', target_count: 4, tasks: [{ keyword: 'portable', dimension: 'category', platform: 'tiktok' }], done: [0], created_at: now, updated_at: now
+    }));
+    await fsBlind.writeFile(pathBlind.join(taskDir, 'creators.json'), JSON.stringify(prior));
+    await fsBlind.writeFile(pathBlind.join(taskDir, 'creators.raw.json'), JSON.stringify(raw));
+    await fsBlind.writeFile(pathBlind.join(cwdBlind, 'memory', 'creators.json'), JSON.stringify({
+      version: 1, updated_at: now, creators: { 'tiktok:seen_contacted': entry('seen_contacted', true, false), 'tiktok:seen_blocked': entry('seen_blocked', false, true) }
+    }));
+    const [nodeBlind, argsBlind] = tsxCommand([filePathBlind(new URL('./render.ts', import.meta.url)), '--dir', taskDir]);
+    const executed = spawnBlind(nodeBlind, argsBlind, { cwd: cwdBlind, encoding: 'utf8', timeout: 30000 });
+    if (executed.error || executed.status !== 0) throw new Error('（进程）真实 render 未完成：' + String(executed.error || executed.stderr));
+    const delivered = JSON.parse(await fsBlind.readFile(pathBlind.join(taskDir, 'creators.json'), 'utf8')) as Array<{ platform: string; handle: string; tier: string }>;
+    const report = await fsBlind.readFile(pathBlind.join(taskDir, 'report.html'), 'utf8');
+    const review = JSON.parse(await fsBlind.readFile(pathBlind.join(taskDir, 'agent-review.json'), 'utf8')) as { rounds: Array<{ candidates: Array<{ account_key: string }> }> };
+    const frozen = review.rounds.flatMap(r => r.candidates.map(c => c.account_key));
+    ok('真实旧任务冻结池确实仍含已联系与屏蔽账号', ['tiktok:seen_contacted', 'tiktok:seen_blocked'].every(k => frozen.includes(k)));
+    eq('真实生产全部名单只保留当前联系过滤后的候选', delivered.map(c => c.handle).sort().join(','), 'fresh_mail,fresh_no_mail');
+    const dom = await u10OfflineDom(report);
+    eq('真实生产 HTML 全部成员与联系过滤后的名单一致', dom.cards.map(dom.key).sort().join(','), 'tiktok:fresh_mail,tiktok:fresh_no_mail');
+    eq('真实生产 HTML 初始全量无需执行脚本', dom.members().sort().join(','), 'tiktok:fresh_mail,tiktok:fresh_no_mail');
+    eq('真实生产 HTML 已接入两个独立筛选组', dom.buttons.length, 10);
+    ok('真实生产 HTML 两个全部的 on 与 aria 一致', ['priority', 'tier'].every(group => {
+      const buttons = dom.buttons.filter(b => b.dataset.filter === group), on = buttons.filter(b => b.classList.contains('on')), pressed = buttons.filter(b => b.getAttribute('aria-pressed') === 'true');
+      return on.length === 1 && pressed.length === 1 && on[0].dataset.value === 'all' && pressed[0].dataset.value === 'all' && buttons.every(b => b.classList.contains('on') === (b.getAttribute('aria-pressed') === 'true'));
+    }));
+    const htmlTiers = Object.fromEntries(dom.cards.map(c => [dom.key(c), c.getAttribute('data-tier')]));
+    const listTiers = Object.fromEntries(delivered.map(c => [`${c.platform}:${c.handle}`, c.tier]));
+    eq('真实生产每个卡片层级与其交付账号对应', JSON.stringify(Object.entries(htmlTiers).sort()), JSON.stringify(Object.entries(listTiers).sort()));
+    eq('真实生产没有改写采集原件或补回 raw-only 成员', await fsBlind.readFile(pathBlind.join(taskDir, 'creators.raw.json'), 'utf8'), JSON.stringify(raw));
+  } finally {
+    await fsBlind.rm(rootBlind, { recursive: true, force: true });
+  }
+
+})
 
 if (seenGroups.size !== GROUPS.length) {
   throw new Error(`需求测试组只遇到 ${seenGroups.size}/${GROUPS.length} 组，不能报告完成`)
