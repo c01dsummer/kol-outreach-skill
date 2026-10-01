@@ -7055,7 +7055,7 @@ group('review-cli-entry', [], () => {
 
   const note = ' ,"人工 <script>danger</script>"\n原文 ', evidence = '作品,"证据"\n<b>不可执行</b>'
   const draft = 'Hello {creator_name},\nPlease confirm {commission} & {warranty}.'
-  const rendered = fixture('formats', [person('main', { linked_handle: 'instagram:linked', fit: '✅', email: 'main@example.com' }),
+  const rendered = fixture('formats', [person('main', { linked_handle: 'InStAgRaM: @LiNkEd ', fit: '✅', email: 'main@example.com' }),
     person('alpha', { email: 'alpha@example.com' }), person('stale', { email: 'stale@example.com' }),
     person('excluded', { audience_geo: { US: 0.1 } }),
     person('negative', { email: 'negative@example.com' }), person('contacted'), person('linked_blocked', { linked_handle: 'INSTAGRAM:@blocked ' })])
@@ -7078,6 +7078,8 @@ group('review-cli-entry', [], () => {
   const rr = runBoth('评审真实三格式交付', entry('render', rendered), rendered.cwd, undefined, observed(rendered))
   const listRead = jsonFile(join(rendered.taskDir, 'creators.json'))
   const delivered: any[] = Array.isArray(listRead) && listRead.every(p => p && typeof p === 'object') ? listRead : [], by = Object.fromEntries(delivered.map(p => [p.handle, p]))
+named('CLI render 阳性合法关联字段按账号契约规范化', rr.ok && by.main?.linked_handle === 'instagram:linked',
+  '当前合法异平台关联 InStAgRaM: @LiNkEd 必须输出 instagram:linked；无联系阳性不得遗漏关联或保留原拼写')
   named('CLI render 当前memory不能被人工采用恢复', rr.ok && !by.contacted && !by.linked_blocked && !!by.alpha &&
     jsonFile(join(rendered.taskDir, 'meta.json'))?.memory_status === 'ok', '主或关联联系状态未复核、或同任务推荐被误删')
   named('CLI render 待重评基础B仍经过地域排除', rr.ok && by.stale?.tier === 'B' && !by.excluded &&

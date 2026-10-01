@@ -10647,14 +10647,14 @@
     {
       "id": "M-U9-y",
       "req": "D25.c",
-      "why": "评审消费端保留合法关联的原大小写、账号标记与两端空白，enrich 漏取关联样本，render 漏掉关联账号当前拉黑状态。",
+      "why": "评审消费端保留合法关联的原大小写、账号标记与两端空白，enrich 漏取关联样本，render 交付关联字段没有按现行账号契约规范化。",
       "file": "scripts/lib/pipeline.ts",
       "find": "      if (primary.split(':')[0] !== linked.split(':')[0]) creator.linked_handle = linked",
       "replace": "      if (primary.split(':')[0] !== linked.split(':')[0]) creator.linked_handle = original.linked_handle",
       "by": "selfcheck",
       "kills": [
         "CLI enrich 正本fit与合法关联决定付费范围",
-        "CLI render 当前memory不能被人工采用恢复"
+        "CLI render 阳性合法关联字段按账号契约规范化"
       ]
     },
     {
