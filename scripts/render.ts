@@ -2,21 +2,22 @@
 /**
  * Phase 06 —— 交付
  *
- * 读 creators.json（Agent 已在 Phase 04 填入 fit / fit_reason / outreach_draft），
- * 算分、分层、写 CSV + HTML 报告 + meta.json，并写回跨任务记忆。
+ * 从任务级 Agent 正本及人工表重建 creators.json 的当前投影，
+ * 算分、分层、写评审 CSV/XLSX/HTML + meta.json，并写回跨任务记忆。
  *
  * 用法: tsx scripts/render.ts --dir output/anker-powerbank-202608251430
  */
 import { writeFileAtomic } from './lib/atomic.js'
 import { join } from 'node:path'
-import { taskFile, taskId, loadTask, loadCreators, loadEnrichment, persistListAndStatus } from './lib/task.js'
+import { taskFile, taskId, loadTask, loadCreators, loadReviewCreatorInputs, loadEnrichment, persistListAndStatus } from './lib/task.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { brandCalibrationProblems } from './lib/brand-calibration.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
-import { rankCreators, keywordRows, taskPlatforms, tierCounts } from './lib/pipeline.js'
+import { canonicalReviewLinks, rankCreators, keywordRows, reviewRelations, taskPlatforms, tierCounts } from './lib/pipeline.js'
+import { prepareTaskReviews, type TaskReviews } from './lib/task-reviews.js'
 import { filterByMemory, MemoryUnreadable, recordRecommendations } from './lib/memory.js'
 import { writeCsv } from './lib/csv.js'
-import { HEADERS, toRow, buildSheets } from './lib/rows.js'
+import { REVIEW_HEADERS, toReviewRow, sortForReviewOutput, buildSheets } from './lib/rows.js'
 import { writeXlsx, type Sheet } from './lib/xlsx.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
 import { accountKey, attachAssessments, currentEnrichmentView } from './lib/assessment.js'
@@ -47,11 +48,17 @@ if (badTasks.length) {
   process.exit(2)
 }
 if (badCalibration.length) process.exit(2)
-let creators = loadCreators(dir)
-
-// 同人识别与合并 —— 在这里再跑一次，render 才能独立于 collect 正确工作（幂等）
-linkCrossPlatform(creators)
-creators = mergeCrossPlatform(creators)
+let creators: Creator[]
+let reviews: TaskReviews
+try {
+  const inputs = loadReviewCreatorInputs(dir)
+  const relations = reviewRelations(inputs.previous, inputs.raw)
+  reviews = prepareTaskReviews(dir, state, inputs.previous, new Date().toISOString(), relations)
+  // 同人识别和当前判断均从独立克隆重建，原件只用作完整关系证据。
+  creators = canonicalReviewLinks(structuredClone(inputs.previous))
+  linkCrossPlatform(creators)
+  creators = reviews.project(mergeCrossPlatform(creators), relations, state.brand_calibration?.version)
+} catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
 
 // The last delivery may predate a manual contacted/blocked edit. Recheck both
 // account identities before changing any task output or recommendation memory.
@@ -91,18 +98,21 @@ attachAssessments(creators, enrichment)
 
 // 算分 → 分层 → 受众降权 → 排序。管线在 lib/pipeline.ts
 creators = rankCreators(creators, state.market)
+creators = sortForReviewOutput(creators)
+try { reviews.save(new Date().toISOString()) }
+catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1) }
 persistListAndStatus(dir, state, creators, memoryStatus)
 const accountKeys = accountKeysFor(creators)
 
 // ---------- CSV（单表，供脚本与其他工具消费）----------
 const csvPath = join(dir, 'kol.csv')
-writeCsv(csvPath, [...HEADERS], creators.map(toRow))   // rankCreators 已排好序
+writeCsv(csvPath, [...REVIEW_HEADERS], creators.map(toReviewRow))
 
 // ---------- XLSX（分 sheet，供人快速切换）----------
 // CSV 规范里没有「工作表」这个概念，多 sheet 只能走 xlsx。两个文件各司其职：
 // CSV 给机器读，xlsx 给人看。
 const xlsxPath = join(dir, 'kol.xlsx')
-writeXlsx(xlsxPath, buildSheets(creators) as Sheet[])
+writeXlsx(xlsxPath, buildSheets(creators, { mode: 'review' }) as Sheet[])
 
 // ---------- HTML + meta ----------
 const countMeasurements = <T>(total: number, values: Array<Measurement<T> | undefined>) => ({
@@ -187,7 +197,7 @@ const meta = {
 }
 // 交付物也走整体替换：render 被打断时，上一份完整的 meta.json / report.html 还在（D4）
 writeFileAtomic(join(dir, 'meta.json'), stringifyCostJson(meta, cost))
-writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta))
+writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review' }))
 
 console.log(stringifyCostJson({
   csv: csvPath,

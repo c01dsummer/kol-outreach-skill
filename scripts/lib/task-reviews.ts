@@ -9,7 +9,7 @@ import { migrateLegacyAgentReviews, projectAgentReviews } from './review-project
 import { parseManualFeedbackCsv } from './manual-feedback.js'
 import { projectManualFeedback } from './effective-priority.js'
 
-/** D21/D22/D23/D25：只读准备与显式保存；生产入口尚未接线。 */
+/** D21/D22/D23/D25：生产入口共享只读准备、当前投影与显式保存。 */
 export interface TaskReviews {
   readonly document: AgentReviewDocument
   freezeCandidates(currentCreators: readonly Creator[], createdAt: string): void

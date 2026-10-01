@@ -20,7 +20,7 @@
  * 死亡条件记在 ADR-85:一身三半,三半的答案不一样,所以没有整道的那一份。
  */
 import {
-  cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync,
+  chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync,
 } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -340,7 +340,7 @@ const rootToken = (text: string, key: string, path: readonly (string | number)[]
     return holder !== null && typeof holder === 'object' ? tokens.get(holder)?.get(key) : undefined
   } catch { return undefined }
 }
-const costPerson = (platform = 'tiktok', handle = 'cost-person', over: Record<string, unknown> = {}) => ({
+const costPerson = (platform = 'tiktok', handle = 'cost_person', over: Record<string, unknown> = {}) => ({
   platform, handle, nickname: handle, followers: 10000, post_count: 50, bio: null,
   bio_links: ['https://example.com'], verified: false, profile_url: '', source_keyword: 'local',
   source_dimension: 'category', recent_posts: [], fit: '✅', ...over,
@@ -1104,7 +1104,7 @@ group('cost-resume', [], () => {
   for (const entry of ['collect', 'enrich']) {
     const f = costFixture(`conflict-${entry}`, knownCosts(5000, structuredClone(history)),
       { budget_usd: 0.007, done: [], offsets: {}, pages: {}, answered: {}, found: {} },
-      Array.from({ length: 4 }, (_, i) => costPerson('tiktok', `resume-${i}`)))
+      Array.from({ length: 4 }, (_, i) => costPerson('tiktok', `resume_${i}`)))
     const before = jsonFile(f.task)
     const denied = runBoth(`${entry} 根预算冲突禁止付费`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir], f.cwd,
@@ -1415,7 +1415,7 @@ group('cost-durable', [], () => {
   const fixture = (name: string, entry: string, over: Record<string, unknown> = {}) => {
     const f = costFixture(`durable-${name}-${entry}`, knownCosts(7000, structuredClone(history)),
       { ...fresh, ...over }, entry === 'enrich'
-        ? [costPerson('tiktok', 'durable-a'), costPerson('tiktok', 'durable-b')] : [])
+        ? [costPerson('tiktok', 'durable_a'), costPerson('tiktok', 'durable_b')] : [])
     return { ...f, events: join(f.cwd, 'events.jsonl'), marks: join(f.cwd, 'save-events.jsonl') }
   }
   type Fixture = ReturnType<typeof fixture>
@@ -1671,7 +1671,7 @@ group('cost-save-errors', [], () => {
     const costs = scenario === 'after-http' ? knownCosts(1000, []) : knownCosts(1000, [costEntry(TT_PROFILE, 1000, 1)])
     const f = costFixture(`save-${entry}-${scenario}`, costs,
       { budget_usd: 0.001, done: [], offsets: {}, pages: {}, answered: {}, found: {} },
-      [costPerson('tiktok', 'save-a'), costPerson('tiktok', 'save-b')])
+      [costPerson('tiktok', 'save_a'), costPerson('tiktok', 'save_b')])
     const preload = join(f.cwd, 'fail-task-save.mjs'), mark = join(f.cwd, 'save-fault.txt')
     // 只拦公开最终写入触点 renameSync(src,dest) 的目标；不依赖临时文件名或生产函数体。
     // after-http 的名字限定失败位置：D14预留必须先成功，不能拿「预留失败」代替终态故障。
@@ -1740,7 +1740,7 @@ group('cost-save-errors', [], () => {
   for (const entry of ['collect', 'enrich', 'probe']) for (const method of ['reserve', 'settle']) {
     const f = costFixture(`internal-${entry}-${method}`, knownCosts(10000, []),
       { budget_usd: 0.01, done: [], offsets: {}, pages: {}, answered: {}, found: {} },
-      [costPerson('tiktok', 'internal-a'), costPerson('tiktok', 'internal-b')])
+      [costPerson('tiktok', 'internal_a'), costPerson('tiktok', 'internal_b')])
     const mark = join(f.cwd, 'internal-fault.txt'), preload = join(f.cwd, 'internal-fault.mjs')
     writeFileSync(preload, [
       `import { appendFileSync } from 'node:fs';`,
@@ -2028,9 +2028,14 @@ group('enrich', ['collect'], () => {
   if (dir) {
     const creatorsPath = join(tmp, dir, 'creators.json')
     const creators = JSON.parse(readFileSync(creatorsPath, 'utf8'))
-    // enrich 明确只处理完成语义判断的幸存者；自检补上这一步的输入契约。
-    for (const c of creators) c.fit = '✅'
-    writeFileSync(creatorsPath, JSON.stringify(creators, null, 2), 'utf8')
+    // enrich 消费评审正本；这里只补原费用/样本夹具已明确的 fit 输入。
+    const reviewPath = join(tmp, dir, 'agent-review.json')
+    const reviews = JSON.parse(readFileSync(reviewPath, 'utf8'))
+    for (const c of creators) {
+      const key = `${c.platform}:${c.handle}`
+      reviews.reviews[key] = { account_keys: [key], fit: '✅' }
+    }
+    writeFileSync(reviewPath, JSON.stringify(reviews, null, 2), 'utf8')
 
     const out = run('enrich 公开指标完整流程', [S('enrich.ts'), '--dir', dir], tmp)
     const enrichment = join(tmp, dir, 'enrichment.json')
@@ -2153,9 +2158,13 @@ group('enrich', ['collect'], () => {
       crashTask.budget_usd = 0.002
       Object.assign(crashTask, knownCosts(2000, []))
       writeFileSync(crashTaskFile, JSON.stringify(crashTask, null, 2))
+      const crashPeople = Array.from({ length: 3 }, (_, i) => costPerson('tiktok', `crash_${i}`))
       for (const file of ['creators.json', 'creators.raw.json'])
-        writeFileSync(join(tmp, crashDir, file), JSON.stringify(
-          Array.from({ length: 3 }, (_, i) => costPerson('tiktok', `crash-${i}`))))
+        writeFileSync(join(tmp, crashDir, file), JSON.stringify(crashPeople))
+      writeFileSync(join(tmp, crashDir, 'agent-review.json'), JSON.stringify({ version: 1,
+        updated_at: '2026-01-01T00:00:00.000Z', rounds: [],
+        reviews: Object.fromEntries(crashPeople.map(c => [`${c.platform}:${c.handle}`,
+          { account_keys: [`${c.platform}:${c.handle}`], fit: '✅' }])) }))
       rmSync(join(tmp, crashDir, 'enrichment.json'), { force: true })
       const ledgerC = join(tmp, 'ledger-c.tsv')
       const diskC = () => requestsOnDisk(crashTaskFile)
@@ -2165,9 +2174,9 @@ group('enrich', ['collect'], () => {
         const disk = jsonFile(crashTaskFile)
         const cached = jsonFile(join(tmp, crashDir, 'enrichment.json'))?.accounts
         named('enrich 两个账号之间被杀：已完成账号的样本缓存已保存',
-          cached?.['tiktok:crash-0']?.sample?.status === 'measured'
-            && cached['tiktok:crash-0'].sample.value.length === 12
-            && cached['tiktok:crash-1'] === undefined,
+          cached?.['tiktok:crash_0']?.sample?.status === 'measured'
+            && cached['tiktok:crash_0'].sample.value.length === 12
+            && cached['tiktok:crash_1'] === undefined,
           `accounts=${JSON.stringify(cached)}`)
         named('enrich 两个账号之间被杀：最后一次预留在盘上且此前终态未丢',
           diskC() === 1 && ledgerLines(ledgerC, true) === 2
@@ -6756,6 +6765,390 @@ else console.log('全部通过（执行 '+count+' 条断言；覆盖 0 条需求
     if(still.length===0&&!unknownTree&&outer)fs.rmSync(outer,{recursive:true,force:true});
   }
 });
+
+group('review-cli-entry', [], () => {
+  const base = join(tmp, 'review-cli-entry')
+  mkdirSync(base, { recursive: true })
+  const clock = '2026-01-01T00:00:00.000Z'
+  const manualName = 'manual-feedback.csv'
+  const agentName = 'agent-review.json'
+  const manualHeaders = 'round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note'
+  const oldHeaders = ('tier,score,fit,fit_reason,platform,handle,nickname,followers,post_count,bio,email,email_verified,audience_geo_top,' +
+    'metrics_account_followers,metrics_account_following,engagement_rate_followers,engagement_rate_views,median_views,median_engagements,view_rate,following_ratio,reach_consistency,median_post_gap_days,latest_post_at,days_since_last_post,activity_status,audience_quality_risk,audience_quality_reasons,tier_adjustments,collaboration_quote,implied_ecpm,implied_ecpe,metrics_observed_at,' +
+    'cross_platform,linked_handle,profile_url,source_keyword,source_dimension,best_post_desc,outreach_draft,previously_recommended,discovery_sources,metrics_sample_scope').split(',')
+  const addedHeaders = ('effective_priority,effective_priority_account_key,eligibility,adoption_priority,observed_content,work_evidence,natural_integration,mismatch_risk,brand_calibration_version,review_status,' +
+    'manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note,manual_reviewed,manual_round_id,linked_agent_review,manual_feedback_accounts').split(',')
+  const calibration = (version = 'v1') => ({ version, target_creator_types: [], tone_aesthetic: [],
+    natural_scenarios: [], negative_signals: [], sources: [] })
+  const person = (handle: string, over: Record<string, unknown> = {}) => costPerson('tiktok', handle,
+    { user_id: handle, email: null, source_tasks: [0], profile_url: `https://example.com/${handle}`, ...over })
+  const review = (key: string, over: Record<string, unknown> = {}) => ({ account_keys: [key],
+    eligibility: '合格', adoption_priority: '备选', observed_content: `内容 ${key}`,
+    work_evidence: `作品 ${key}`, natural_integration: `植入 ${key}`, mismatch_risk: `风险 ${key}`,
+    fit: '✅', fit_reason: `理由 ${key}`, brand_calibration_version: 'v1', reviewed_at: clock, ...over })
+  const document = (reviews: Record<string, unknown> = {}, keys: string[] = []) => ({ version: 1,
+    updated_at: clock, reviews, rounds: [{ round_id: 'frozen', created_at: clock, source: 'task.json',
+      candidates: keys.map(account_key => ({ account_key, source_tasks: null })) }] })
+  const put = (f: { taskDir: string }, name: string, value: unknown) =>
+    writeFileSync(join(f.taskDir, name), typeof value === 'string' ? value : JSON.stringify(value))
+  const manual = (...rows: unknown[][]) => manualHeaders + '\n' + rows.map(row => row.map(value =>
+    `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\n') + '\n'
+  const row = (handle: string, adopted = '', over: Record<number, string> = {}) =>
+    ['frozen', 'tiktok', handle, '', adopted, '', '', '', '', ''].map((v, i) => over[i] ?? v)
+  const fixture = (name: string, people: any[] = [], taskOver: Record<string, unknown> = {}) => {
+    const f = costFixture(`review-${name}`, knownCosts(1_000_000, []),
+      { brand_calibration: calibration(), ...taskOver }, people)
+    return { ...f, reserves: join(f.cwd, 'reserve.log'), armed: join(f.cwd, 'armed.log') }
+  }
+  const files = ['task.json', 'creators.json', 'creators.raw.json', agentName, manualName,
+    'enrichment.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
+  const snapshot = (f: { taskDir: string; cwd: string }) => [...files.map(name => join(f.taskDir, name)),
+    join(f.cwd, 'memory', 'creators.json')].map(path => [path,
+    existsSync(path) ? (statSync(path).isDirectory() ? 'directory' : readFileSync(path).toString('base64')) : null] as const)
+  const unchanged = (before: ReturnType<typeof snapshot>) => before.every(([path, bytes]) =>
+    bytes === (existsSync(path) ? (statSync(path).isDirectory() ? 'directory' : readFileSync(path).toString('base64')) : null))
+  const stamp = (path: string): { bytes: string; mtime: number } | undefined => {
+    try { return { bytes: readFileSync(path).toString('base64'), mtime: statSync(path).mtimeMs } } catch { return undefined }
+  }
+  const sameStamp = (path: string, before: ReturnType<typeof stamp>) => before !== undefined && isDeepStrictEqual(stamp(path), before)
+  const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
+  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const preload = join(base, 'observe-reserve.mjs')
+  writeFileSync(preload, ["import { appendFileSync } from 'node:fs';",
+    `import { Budget } from ${JSON.stringify(budgetModule)};`, 'const original = Budget.prototype.reserve;',
+    'Budget.prototype.reserve = function(...args) {',
+    "appendFileSync(process.env.REVIEW_RESERVE_LOG, 'reserve\\n'); return Reflect.apply(original, this, args); };",
+    "appendFileSync(process.env.REVIEW_ARMED_LOG, 'armed\\n');"].join('\n'))
+  const observed = (f: ReturnType<typeof fixture>) => costEnv(f.log, {
+    REVIEW_RESERVE_LOG: f.reserves, REVIEW_ARMED_LOG: f.armed,
+    NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+  })
+  const noPaid = (f: ReturnType<typeof fixture>) => fileText(f.armed).includes('armed') &&
+    fetchAttempts(f.log).length === 0 && fileText(f.reserves) === ''
+  const entry = (command: string, f: ReturnType<typeof fixture>, budget = false) => [S(`${command}.ts`),
+    command === 'collect' ? '--resume' : '--dir', f.taskDir, ...(budget ? ['--budget', '2'] : [])]
+
+  // Shared positive controls prove both interception points before any zero-event claim.
+  const paidCollect = fixture('paid-collect', [], { target_count: 0, done: [], offsets: {}, pages: {}, answered: {}, found: {} })
+  const pc = runBoth('评审入口 collect 阳性请求', entry('collect', paidCollect), paidCollect.cwd, undefined, observed(paidCollect))
+  const paidEnrich = fixture('paid-enrich', [person('paid')])
+  put(paidEnrich, agentName, document({ 'tiktok:paid': review('tiktok:paid') }, ['tiktok:paid']))
+  const pe = runBoth('评审入口 enrich 阳性请求', entry('enrich', paidEnrich), paidEnrich.cwd, undefined, observed(paidEnrich))
+  const positive = pc.ok && pe.ok && [paidCollect, paidEnrich].every(f =>
+    fileText(f.armed).includes('armed') && fileText(f.reserves).includes('reserve') && fetchAttempts(f.log).length > 0)
+  named('CLI 评审零费用观察器同接线阳性', positive, '未实际记录 reserve/fetch，阴性不能据此认领')
+
+  // Cases are aggregated once: named tags do not execute repeatedly inside the matrix.
+  const rejects: Array<{ command: string; kind: string; ok: boolean }> = []
+  for (const command of ['collect', 'enrich', 'render']) {
+    for (const kind of ['authority', 'snapshot', 'manual', 'future-authorized', 'conflict', 'read-error', 'raw-error', 'brand-task']) {
+      const p = person('first', { linked_handle: 'instagram:second', followers: 1 })
+      const f = fixture(`${command}-${kind}`, [p])
+      const d: any = document({ 'tiktok:first': review('tiktok:first') }, ['tiktok:first', 'instagram:second'])
+      let badFile = join(f.taskDir, agentName), diagnostic = 'eligibility'
+      if (kind === 'authority') d.reviews['tiktok:first'].eligibility = 'invented'
+      if (kind === 'snapshot') {
+        d.rounds[0].candidates[0].source_tasks = [{ task_index: 0, keyword: 'changed', dimension: 'category', platform: 'tiktok' }]
+        diagnostic = 'frozen'
+      }
+      put(f, agentName, d)
+      if (kind === 'manual') { put(f, manualName, manual(row('outsider', 'yes'))); badFile = join(f.taskDir, manualName); diagnostic = 'outsider' }
+      if (kind === 'future-authorized') { d.rounds[0].candidates = []; put(f, agentName, d); put(f, manualName, manual(row('first', 'yes'))); badFile = join(f.taskDir, manualName); diagnostic = 'first' }
+      if (kind === 'conflict') {
+        put(f, 'creators.json', [person('first', { followers: 1 })]) // Relationship is present only in intact raw evidence.
+        put(f, manualName, manual(row('first', 'yes'), ['frozen', 'instagram', 'second', '', 'no', '', '', '', '', '']))
+        badFile = join(f.taskDir, manualName); diagnostic = 'second'
+      }
+      if (kind === 'read-error') { mkdirSync(join(f.taskDir, manualName)); badFile = join(f.taskDir, manualName); diagnostic = '' }
+      if (kind === 'raw-error') { put(f, 'creators.raw.json', '{'); badFile = join(f.taskDir, 'creators.raw.json'); diagnostic = '' }
+      if (kind === 'brand-task') {
+        put(f, 'task.json', { ...jsonFile(f.task), tasks: [{ keyword: '', dimension: 'category', platform: 'tiktok' }], brand_calibration: { version: 1 } })
+        badFile = f.task; diagnostic = 'brand_calibration'
+      }
+      for (const name of ['kol.csv', 'kol.xlsx', 'meta.json', 'report.html']) put(f, name, `old-${name}`)
+      const before = snapshot(f)
+      const result = runBoth(`评审拒绝 ${command}/${kind}`, entry(command, f, command !== 'render'), f.cwd,
+        { status: 2, soft: [0] }, observed(f))
+      rejects.push({ command, kind, ok: result.ok && result.status === 2 && result.stderr.includes(badFile) &&
+        result.stderr.includes(diagnostic) && (kind !== 'brand-task' || result.stderr.includes('keyword')) &&
+        unchanged(before) && positive && noPaid(f) })
+    }
+  }
+  named('CLI 三入口坏评审与人工先拒绝且零改额零写入', rejects.every(r => r.ok), JSON.stringify(rejects.filter(r => !r.ok)))
+
+  const newBad = fixture('new-invalid')
+  put(newBad, 'task.json', { ...jsonFile(newBad.task), tasks: [], brand_calibration: { version: 1 } })
+  const newBefore = snapshot(newBad)
+  const nb = runBoth('评审新任务输入拒绝', [resolve('scripts/collect.ts'), '--config', newBad.task], newBad.cwd,
+    { status: 2, soft: [0] }, observed(newBad))
+  named('CLI collect 新任务与品牌问题并报且不建输出', nb.ok && nb.status === 2 && nb.stderr.includes(newBad.task) &&
+    nb.stderr.includes('tasks') && nb.stderr.includes('brand_calibration') && !existsSync(join(newBad.cwd, 'output')) &&
+    unchanged(newBefore) && positive && noPaid(newBad), '漏报输入或新建副作用')
+
+  const progress = fixture('bad-progress', [person('old')], { done: [0, 0], found: { 0: -1 } })
+  const progressBefore = snapshot(progress)
+  const pr = runBoth('评审入口坏断点', entry('collect', progress, true), progress.cwd, { status: 2, soft: [0] }, observed(progress))
+  named('CLI collect 坏断点不被评审接线推迟', pr.ok && pr.status === 2 && pr.stderr.includes(progress.task) &&
+    pr.stderr.includes('done') && pr.stderr.includes('found') && unchanged(progressBefore) && positive && noPaid(progress), '断点问题、费用或字节发生变化')
+
+  const legacyDraft = 'Hello {commission}\nold'
+  const old = person('old', { source_tasks: undefined, fit: '⚠️', fit_reason: '旧理由', outreach_draft: legacyDraft })
+  const grown = fixture('grow', [old])
+  put(grown, 'creators.raw.json', [person('old'), person('new')])
+  const rawBefore = jsonFile(join(grown.taskDir, 'creators.raw.json'))
+  const gr = runBoth('评审续跑保全旧判断', entry('collect', grown), grown.cwd, undefined, observed(grown))
+  const gd = jsonFile(join(grown.taskDir, agentName)), gp = jsonFile(join(grown.taskDir, 'creators.json'))
+  named('CLI collect 旧兼容判断入正本且旧池新候选分轮', gr.ok && gd?.reviews?.['tiktok:old']?.fit === '⚠️' &&
+    gd.reviews['tiktok:old'].outreach_draft === legacyDraft && gd.rounds?.length === 2 &&
+    gd.rounds?.[0]?.candidates?.length === 1 && gd.rounds?.[0]?.candidates?.[0]?.account_key === 'tiktok:old' &&
+    gd.rounds?.[0]?.candidates?.[0]?.source_tasks === null && gd.rounds?.[1]?.candidates?.[0]?.account_key === 'tiktok:new' &&
+    gd.rounds?.[1]?.candidates?.[0]?.source_tasks?.[0]?.keyword === 'local' && Array.isArray(gp) && gp.find((p: any) => p.handle === 'old')?.fit === '⚠️' &&
+    isDeepStrictEqual(jsonFile(join(grown.taskDir, 'creators.raw.json')), rawBefore), '旧评审丢失、历史来源回填、轮次合并或已有raw被清洗')
+  const stable = stamp(join(grown.taskDir, agentName))
+  const again = runBoth('评审续跑重复', entry('collect', grown), grown.cwd, undefined, observed(grown))
+  named('CLI 正本无变化重复运行不改字节时间', again.ok && sameStamp(join(grown.taskDir, agentName), stable),
+    stable ? '重复运行重写了正本' : '上一条未生成 agent-review.json，没有可比较的正本')
+
+  const seed = fixture('missing-raw', [person('seed', { eligibility: '不合格', manual_adopted: 'yes',
+    effective_priority: '优先联系', score: 99, tier: 'A', account_assessment: { stale: true }, fit_reason: 'stale projected reason' }),
+    person('legacy', { fit_reason: 'genuine legacy reason', outreach_draft: 'Hello {commission}' })])
+  unlinkSync(join(seed.taskDir, 'creators.raw.json'))
+  const sr = runBoth('评审旧目录建立raw seed', entry('collect', seed), seed.cwd, undefined, observed(seed))
+  const seeded = jsonFile(join(seed.taskDir, 'creators.raw.json'))?.[0]
+  named('CLI 缺raw旧目录只清seed派生字段且保全旧判断', sr.ok && seeded?.handle === 'seed' && seeded?.email === null &&
+    seeded?.source_tasks?.[0] === 0 && ['fit', 'fit_reason', 'eligibility', 'manual_adopted', 'effective_priority', 'score', 'tier', 'account_assessment'].every(k => !(k in seeded)) &&
+    jsonFile(join(seed.taskDir, agentName))?.reviews?.['tiktok:legacy']?.fit_reason === 'genuine legacy reason' &&
+    !jsonFile(join(seed.taskDir, agentName))?.reviews?.['tiktok:seed'], '身份原件丢失、派生值仍留raw或新投影冒充legacy')
+
+  const authority = fixture('authority-removal', [person('deleted', { fit: '✅', fit_reason: 'stale', outreach_draft: 'stale',
+    eligibility: '合格', adoption_priority: '优先联系', manual_adopted: 'yes', effective_priority: '优先联系' })])
+  put(authority, agentName, document({}, ['tiktok:deleted']))
+  const ar = runBoth('评审删除正本判断后续跑', entry('collect', authority), authority.cwd, undefined, observed(authority))
+  const ap = jsonFile(join(authority.taskDir, 'creators.json'))?.[0]
+  named('CLI 正本空reviews与人工删除不复活旧投影', ar.ok && ap?.review_status === '未评' && ap?.effective_priority === '待核实' &&
+    ['fit', 'fit_reason', 'outreach_draft', 'eligibility', 'adoption_priority', 'manual_adopted'].every(k => !(k in ap)) &&
+    Object.keys(jsonFile(join(authority.taskDir, agentName))?.reviews ?? {}).length === 0, '旧投影被迁回当前判断')
+
+  const selected = fixture('enrich-selection', [person('wanted', { fit: '❌', linked_handle: 'INSTAGRAM:@other ' }),
+    person('denied', { fit: '✅' }), person('stale', { fit: '❌', linked_handle: 'tiktok:denied' })])
+  put(selected, agentName, document({ 'tiktok:wanted': review('tiktok:wanted'),
+    'tiktok:denied': review('tiktok:denied', { fit: '❌' }),
+    'tiktok:stale': review('tiktok:stale', { fit: '⚠️', brand_calibration_version: 'old' }) },
+    ['tiktok:wanted', 'instagram:other', 'tiktok:denied', 'tiktok:stale']))
+  put(selected, manualName, manual(row('denied', 'yes'), row('wanted', 'no')))
+  const selectBefore = snapshot(selected).filter(([path]) => ![selected.task, join(selected.taskDir, 'enrichment.json')].includes(path))
+  const selectEvents = join(selected.cwd, 'events.jsonl')
+  const se = runBoth('评审选择公开样本请求', entry('enrich', selected), selected.cwd, undefined, {
+    ...observed(selected), FAKE_FETCH_COST_EVENTS: selectEvents, FAKE_FETCH_COST_TASK: selected.task })
+  const accounts = Object.keys(jsonFile(join(selected.taskDir, 'enrichment.json'))?.accounts ?? {}).sort()
+  const queries = fileText(selectEvents).split('\n').filter(Boolean).map(line => JSON.parse(line)).filter(e => e.kind === 'fetch')
+  named('CLI enrich 正本fit与合法关联决定付费范围', se.ok && isDeepStrictEqual(accounts,
+    ['instagram:other', 'tiktok:stale', 'tiktok:wanted']) && queries.some(e => e.query.unique_id === 'wanted') &&
+    queries.some(e => e.query.unique_id === 'stale') && queries.some(e => e.query.username === 'other') &&
+    !queries.some(e => e.query.unique_id === 'denied') && unchanged(selectBefore), '采用反馈改变付费范围或enrich写越界文件')
+
+  const late = fixture('late-relation', [person('future_sarah', { bio: undefined, email: undefined }),
+    person('techwithsarah', { platform: 'instagram', bio: 'Profile already queried', email: null, bio_links: [] })])
+  put(late, 'creators.raw.json', [...jsonFile(join(late.taskDir, 'creators.raw.json')), person('late_new')])
+  put(late, agentName, document({}, ['tiktok:future_sarah', 'instagram:techwithsarah']))
+  put(late, manualName, manual(row('future_sarah', 'yes'), ['frozen', 'instagram', 'techwithsarah', '', 'no', '', '', '', '', '']))
+  const lateList = fileText(join(late.taskDir, 'creators.json')), lateManual = fileText(join(late.taskDir, manualName))
+  const lateAgent = fileText(join(late.taskDir, agentName)), lateRounds = jsonFile(join(late.taskDir, agentName)).rounds
+  const lr = runBoth('评审请求后发现关联冲突', entry('collect', late), late.cwd, { status: 2, soft: [0] }, observed(late))
+  named('CLI 新发现关联冲突保留费用原件且不交付', lr.ok && lr.status === 2 && lr.stderr.includes(manualName) &&
+    fetchAttempts(late.log).length > 0 && fileText(late.reserves).includes('reserve') && jsonFile(late.task)?.requests > 0 &&
+    jsonFile(join(late.taskDir, 'creators.raw.json'))?.some((p: any) => p.bio?.includes('sarahbiz@example.com')) &&
+    fileText(join(late.taskDir, 'creators.json')) === lateList && fileText(join(late.taskDir, manualName)) === lateManual &&
+    fileText(join(late.taskDir, agentName)) === lateAgent && isDeepStrictEqual(jsonFile(join(late.taskDir, agentName))?.rounds, lateRounds) &&
+    !existsSync(join(late.taskDir, 'kol.csv')) && !existsSync(join(late.cwd, 'memory', 'creators.json')), '已付费证据丢失或冲突仍交付')
+
+  const save = fixture('save-failure', [person('old')])
+  put(save, agentName, { version: 1, updated_at: clock, reviews: {}, rounds: [] })
+  const saveBefore = snapshot(save)
+  chmodSync(join(save.taskDir, agentName), 0o444)
+  let sf: ReturnType<typeof runBoth>
+  try { sf = runBoth('评审正本真实只读保存失败', entry('collect', save), save.cwd, { status: 1, soft: [0, 2, 3] }, observed(save)) }
+  finally { chmodSync(join(save.taskDir, agentName), 0o644) }
+  named('CLI 正本保存失败退出1且不提前覆盖名单', sf!.ok && sf!.status === 1 && sf!.stderr.includes(agentName) &&
+    !/断点.*已保存|已保存.*断点|预算不足/.test(sf!.stderr) && unchanged(saveBefore) && positive && noPaid(save), '保存失败伪装输入、预算或成功')
+  const stop = fixture('budget-stop', [], { budget_usd: 0, ...knownCosts(0, []), done: [], offsets: {}, answered: {}, found: {}, pages: {} })
+  const bs = runBoth('评审入口预算不足断点', entry('collect', stop), stop.cwd, { status: 3, soft: [0, 1, 2] }, observed(stop))
+  named('CLI 预算不足仍退出3保存真实断点', bs.ok && bs.status === 3 && bs.stderr.includes('保存') && jsonFile(stop.task)?.done?.length === 0 &&
+    jsonFile(stop.task)?.requests === 0 && fetchAttempts(stop.log).length === 0 && fileText(stop.armed).includes('armed') && positive,
+    '预算状态被输入或保存错误掩盖、或请求提前发出')
+
+  // Independent readers consume actual files; none import production rows, parsers or writers.
+  const csvRead = (text: string): string[][] | undefined => {
+    const result: string[][] = [], fields: string[] = []; let cell = '', quoted = false
+    for (let i = text.charCodeAt(0) === 0xfeff ? 1 : 0; i < text.length; i++) {
+      const c = text[i]
+      if (c === '"') { if (quoted && text[i + 1] === '"') { cell += '"'; i++ } else quoted = !quoted }
+      else if (!quoted && (c === ',' || c === '\n')) { fields.push(cell); cell = ''; if (c === '\n') { result.push(fields.splice(0)); } }
+      else if (!quoted && c === '\r' && text[i + 1] === '\n') continue
+      else cell += c
+    }
+    if (quoted) return undefined
+    if (cell || fields.length) { fields.push(cell); result.push(fields) }
+    return result
+  }
+  const decode = (value: string) => value.replace(/&#(x[0-9a-f]+|\d+);|&(amp|lt|gt|quot|apos);/gi, (_, n, entity) =>
+    n ? String.fromCodePoint(n[0].toLowerCase() === 'x' ? parseInt(n.slice(1), 16) : Number(n)) : ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" } as any)[entity])
+  const xlsxRead = (path: string, width = oldHeaders.length + addedHeaders.length) => {
+    try {
+      const bytes = readFileSync(path), entries: Record<string, string> = {}; let offset = 0
+      while (bytes.readUInt32LE(offset) === 0x04034b50) {
+        const method = bytes.readUInt16LE(offset + 8), size = bytes.readUInt32LE(offset + 18)
+        const nameLen = bytes.readUInt16LE(offset + 26), extra = bytes.readUInt16LE(offset + 28), start = offset + 30 + nameLen + extra
+        const name = bytes.subarray(offset + 30, offset + 30 + nameLen).toString(), data = bytes.subarray(start, start + size)
+        if (method !== 0 && method !== 8) return undefined
+        entries[name] = (method === 8 ? inflateRawSync(data) : data).toString(); offset = start + size
+      }
+      const texts = (xml: string) => [...xml.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(m => decode(m[1])).join('')
+      const shared = [...(entries['xl/sharedStrings.xml'] ?? '').matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map(m => texts(m[1]))
+      const names = [...entries['xl/workbook.xml'].matchAll(/<sheet\b[^>]*\bname="([^"]+)"/g)].map(m => decode(m[1]))
+      return names.map((name, i) => ({ name, rows: [...entries[`xl/worksheets/sheet${i + 1}.xml`].matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)].map(r => {
+        const cells = Array<string>(width).fill(''); let nextColumn = 0
+        for (const c of r[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
+          const reference = c[1].match(/\br=(["'])([A-Z]+)\d+\1/i)?.[2]
+          const column = reference ? [...reference.toUpperCase()].reduce((n, letter) => n * 26 + letter.charCodeAt(0) - 64, 0) - 1 : nextColumn
+          nextColumn = column + 1
+          const v = c[2].match(/<v\b[^>]*>([\s\S]*?)<\/v>/)?.[1]
+          const type = c[1].match(/\bt=(["'])(.*?)\1/)?.[2]
+          cells[column] = type === 'inlineStr' ? texts(c[2]) : type === 's' ? shared[Number(v)] :
+            type === 'b' ? (v === '1' ? 'true' : v === '0' ? 'false' : decode(v ?? '')) : decode(v ?? '')
+        }
+        return cells
+      }) }))
+    } catch { return undefined }
+  }
+  const htmlRead = (html: string) => {
+    const scopes: Array<{ kind: string; key: string; priority?: string; fields: Record<string, string> }> = []
+    const stack: Array<{ tag: string; scope?: typeof scopes[number]; field?: string }> = []
+    for (const token of html.match(/<[^>]*>|[^<]+/g) ?? []) {
+      if (token.startsWith('</')) { const tag = token.slice(2).match(/^\w+/)?.[0]; while (stack.length) if (stack.pop()?.tag === tag) break }
+      else if (token.startsWith('<')) {
+        const tag = token.slice(1).match(/^\w+/)?.[0]; if (!tag) continue
+        const attrs = Object.fromEntries([...token.matchAll(/([\w-]+)="([^"]*)"/g)].map(m => [m[1], decode(m[2])]))
+        let scope: typeof scopes[number] | undefined
+        if (attrs['data-review-kind']) { scope = { kind: attrs['data-review-kind'], key: attrs['data-account-key'], priority: attrs['data-priority-account-key'], fields: {} }; scopes.push(scope) }
+        stack.push({ tag, scope, field: attrs['data-review-field'] })
+      } else {
+        const scope = [...stack].reverse().find(s => s.scope)?.scope, field = [...stack].reverse().find(s => s.field)?.field
+        if (scope && field) scope.fields[field] = (scope.fields[field] ?? '') + decode(token)
+      }
+    }
+    return scopes
+  }
+  if (!isDeepStrictEqual(csvRead('a,b\r\n"x""y","z\nq"\r\n'), [['a', 'b'], ['x"y', 'z\nq']])) {
+    failed++; console.error(`  ✗ 评审独立CSV读回器${SELFCHECK_FIXTURE_MARK}：机械控制失败`); return
+  }
+  const readerZip = join(base, 'reader-control.zip'), chunks: Buffer[] = []
+  for (const [name, text] of [['xl/workbook.xml', '<workbook><sheet name="one"/></workbook>'],
+    ['xl/worksheets/sheet1.xml', '<worksheet><row><c r="A1" t="inlineStr"><is><t>x&amp;y</t></is></c><c r="C1"><v>0</v></c><c r="D1" t="b"><v>0</v></c><c r="E1" t="b"><v>1</v></c></row></worksheet>']]) {
+    const h = Buffer.alloc(30), n = Buffer.from(name), data = Buffer.from(text)
+    h.writeUInt32LE(0x04034b50); h.writeUInt32LE(data.length, 18); h.writeUInt16LE(n.length, 26); chunks.push(h, n, data)
+  }
+  writeFileSync(readerZip, Buffer.concat([...chunks, Buffer.alloc(4)]))
+  if (!isDeepStrictEqual(xlsxRead(readerZip, 6), [{ name: 'one', rows: [['x&y', '', '0', 'false', 'true', '']] }])) {
+    failed++; console.error(`  ✗ 评审独立ZIP读回器${SELFCHECK_FIXTURE_MARK}：机械控制失败`); return
+  }
+
+  const note = ' ,"人工 <script>danger</script>"\n原文 ', evidence = '作品,"证据"\n<b>不可执行</b>'
+  const draft = 'Hello {creator_name},\nPlease confirm {commission} & {warranty}.'
+  const rendered = fixture('formats', [person('main', { linked_handle: 'instagram:linked', fit: '✅', email: 'main@example.com' }),
+    person('alpha', { email: 'alpha@example.com' }), person('stale', { email: 'stale@example.com' }),
+    person('excluded', { audience_geo: { US: 0.1 } }),
+    person('negative', { email: 'negative@example.com' }), person('contacted'), person('linked_blocked', { linked_handle: 'INSTAGRAM:@blocked ' })])
+  const keys = ['main', 'alpha', 'stale', 'excluded', 'negative', 'contacted', 'linked_blocked'].map(h => `tiktok:${h}`).concat('instagram:linked', 'instagram:blocked')
+  put(rendered, agentName, document({ 'tiktok:alpha': review('tiktok:alpha', { work_evidence: evidence, outreach_draft: draft }),
+    'tiktok:stale': review('tiktok:stale', { fit: '❌', brand_calibration_version: 'old', adoption_priority: '优先联系' }),
+    'tiktok:excluded': review('tiktok:excluded', { brand_calibration_version: 'old' }),
+    'tiktok:negative': review('tiktok:negative', { fit: '❌', adoption_priority: '暂不采用' }),
+    'instagram:linked': review('instagram:linked', { work_evidence: evidence }) }, keys))
+  put(rendered, manualName, manual(row('main', '', { 9: ' ' }), ['frozen', 'instagram', 'linked', 'unknown', 'yes', '', '', '', '', note],
+    row('contacted', 'yes'), row('linked_blocked', 'yes')))
+  const memory = (platform: string, handle: string, over: Record<string, unknown> = {}) => ({ platform, handle, nickname: handle, followers: 10000,
+    first_seen: clock, recommendations: [], contacted: false, replied: false, blocked: false, note: '', ...over })
+  writeFileSync(join(rendered.cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: clock, creators: {
+    'tiktok:contacted': memory('tiktok', 'contacted', { contacted: true }), 'instagram:blocked': memory('instagram', 'blocked', { blocked: true }),
+    'tiktok:alpha': memory('tiktok', 'alpha', { recommendations: [{ date: clock, product: jsonFile(rendered.task).product, keyword: 'local', task: 'task' }] }),
+  } }))
+  const authoritative = stamp(join(rendered.taskDir, agentName)), rawRender = stamp(join(rendered.taskDir, 'creators.raw.json'))
+  const manualRender = stamp(join(rendered.taskDir, manualName))
+  const rr = runBoth('评审真实三格式交付', entry('render', rendered), rendered.cwd, undefined, observed(rendered))
+  const listRead = jsonFile(join(rendered.taskDir, 'creators.json'))
+  const delivered: any[] = Array.isArray(listRead) && listRead.every(p => p && typeof p === 'object') ? listRead : [], by = Object.fromEntries(delivered.map(p => [p.handle, p]))
+  named('CLI render 当前memory不能被人工采用恢复', rr.ok && !by.contacted && !by.linked_blocked && !!by.alpha &&
+    jsonFile(join(rendered.taskDir, 'meta.json'))?.memory_status === 'ok', '主或关联联系状态未复核、或同任务推荐被误删')
+  named('CLI render 待重评基础B仍经过地域排除', rr.ok && by.stale?.tier === 'B' && !by.excluded &&
+    by.negative?.tier === 'C' && by.main?.tier === 'B' && by.alpha?.tier === 'A', '基础分层或最终地域处理被重新分层覆盖')
+  const csv = csvRead(fileText(join(rendered.taskDir, 'kol.csv'))), book = xlsxRead(join(rendered.taskDir, 'kol.xlsx'))
+  const html = fileText(join(rendered.taskDir, 'report.html')), scopes = htmlRead(html), headers = [...oldHeaders, ...addedHeaders]
+  const reportText = decode(html.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ')
+  const csvRows = csv?.slice(1).map(row => Object.fromEntries(headers.map((h, i) => [h, row[i]]))) ?? []
+  const csvBy = Object.fromEntries(csvRows.map(row => [row.handle, row]))
+  const cellJson = (value: string | undefined) => { try { return JSON.parse(value ?? 'null') } catch { return undefined } }
+  const { account_keys: aliases, reviewed_at: reviewedAt, brand_calibration_version: calibrationVersion, ...linkedValues } = review('instagram:linked', { work_evidence: evidence })
+  const linkedExpected = { account_key: 'instagram:linked', review_status: '已评', ...linkedValues }
+  const manualExpected = [{ round_id: 'frozen', platform: 'tiktok', handle: 'main', account_key: 'tiktok:main', line_number: 2, manual_note: ' ' },
+    { round_id: 'frozen', platform: 'instagram', handle: 'linked', account_key: 'instagram:linked', line_number: 3,
+      manual_eligible: 'unknown', manual_adopted: 'yes', manual_note: note }]
+  const expectedOrder = ['main', 'alpha', 'stale', 'negative']
+  named('CLI 新CSV与HTML按当前有效建议再按最终层级排序', rr.ok && isDeepStrictEqual(csvRows.map(r => r.handle), expectedOrder) &&
+    isDeepStrictEqual(scopes.filter(s => s.kind === 'effective').map(s => s.key), expectedOrder.map(h => `tiktok:${h}`)), '排序采用过期判断或HTML仍按旧层级优先')
+  named('CLI 实际XLSX仅三层表且与CSV原值一致', rr.ok && book?.length === 3 && book.every((s, i) => s.name.startsWith(`${'ABC'[i]}级`) &&
+    isDeepStrictEqual(s.rows[0], headers) && isDeepStrictEqual(s.rows.slice(1), csv?.slice(1).filter(r => r[0] === 'ABC'[i]))) &&
+    isDeepStrictEqual(csv?.[0], headers) && Array.isArray(csv) && csv.every(r => r.length === headers.length) &&
+    fileText(join(rendered.taskDir, 'kol.csv')).charCodeAt(0) === 0xfeff, '完整旧前缀、新21列、层内排序或独立读回内容不一致')
+  const field = (kind: string, key: string, name: string) => scopes.find(s => s.kind === kind && s.key === key)?.fields[name]
+  named('CLI 三格式主关联评审与空白unknown保持各自身份', rr.ok && csvBy.main?.review_status === '未评' &&
+    csvBy.main?.work_evidence === '' && csvBy.main?.manual_eligible === '' && csvBy.main?.manual_reviewed === 'false' &&
+    csvBy.main?.effective_priority === '优先联系' && csvBy.main?.effective_priority_account_key === 'instagram:linked' &&
+    isDeepStrictEqual(cellJson(csvBy.main?.linked_agent_review), linkedExpected) &&
+    isDeepStrictEqual(cellJson(csvBy.main?.manual_feedback_accounts), manualExpected) &&
+    by.main?.manual_feedback_accounts?.[1]?.manual_eligible === 'unknown' && by.main?.manual_feedback_accounts?.[1]?.manual_note === note &&
+    field('agent', 'tiktok:main', 'work_evidence') === '未填写' && field('agent', 'instagram:linked', 'work_evidence') === evidence &&
+    field('manual', 'tiktok:main', 'manual_eligible') === '未填写' && field('manual', 'instagram:linked', 'manual_eligible') === 'unknown' &&
+    scopes.find(s => s.kind === 'effective' && s.key === 'tiktok:main')?.priority === 'instagram:linked', '跨平台补造主结论或人工原值丢失')
+  named('CLI 三格式转义占位符历史建议及数据边界保留', rr.ok && csvBy.alpha?.work_evidence === evidence && csvBy.alpha?.outreach_draft === draft &&
+    field('agent', 'tiktok:alpha', 'work_evidence') === evidence && !html.includes('<script>danger</script>') && decode(html).includes(draft) &&
+    csvBy.stale?.review_status === '待重评' && csvBy.stale?.adoption_priority === '优先联系' && csvBy.stale?.effective_priority === '待核实' &&
+    html.includes('历史建议（待重评，仅展示）') && /邮箱.*未.*验证/.test(html) && /无法确认.*粉丝/.test(html) &&
+    csvBy.alpha?.median_views === '未查询' && jsonFile(join(rendered.taskDir, 'meta.json'))?.capabilities?.public_post_sample?.measured === 0 && /估算/.test(reportText) &&
+    /(?:不是|并非|不代表|不等于|不能视为)[^。！？]{0,40}(?:实际|真实)[^。！？]{0,16}账单/.test(reportText) && jsonFile(join(rendered.taskDir, 'meta.json'))?.enriched === false &&
+    sameStamp(join(rendered.taskDir, agentName), authoritative) && sameStamp(join(rendered.taskDir, manualName), manualRender) &&
+    sameStamp(join(rendered.taskDir, 'creators.raw.json'), rawRender), '文本损坏、过期建议冒充当前或边界/磁盘所有权丢失')
+
+  const empty = fixture('empty-tiers', [person('only', { email: 'only@example.com' })])
+  put(empty, agentName, document({ 'tiktok:only': review('tiktok:only') }, ['tiktok:only']))
+  const er = runBoth('评审空层仍真实写表', entry('render', empty), empty.cwd, undefined, observed(empty))
+  const eb = xlsxRead(join(empty.taskDir, 'kol.xlsx'))
+  named('CLI 新XLSX仍保留两个空层', er.ok && eb?.length === 3 && eb[0].rows.length === 2 &&
+    eb.slice(1).every(s => s.name.endsWith('(0)') && s.rows.length === 1 && isDeepStrictEqual(s.rows[0], headers)), '空层消失或增加全部表')
+
+  // Hand oracle: eight comparable peers have view_rate=.1 and follower engagement=.01;
+  // risk has .0001 and 0 respectively, so both are below P10 and high must demote stale base B to C.
+  const riskPeople = ['risk', ...Array.from({ length: 8 }, (_, i) => `peer${i}`)].map(h => person(h, { following: 100, fit: '❌' }))
+  const risk = fixture('stale-risk', riskPeople)
+  put(risk, agentName, document(Object.fromEntries(riskPeople.map(p => [`tiktok:${p.handle}`, review(`tiktok:${p.handle}`,
+    p.handle === 'risk' ? { fit: '⚠️', brand_calibration_version: 'old' } : { fit: '✅' })])), riskPeople.map(p => `tiktok:${p.handle}`)))
+  put(risk, 'enrichment.json', { version: 1, updated_at: clock, accounts: Object.fromEntries(riskPeople.map(p => [`tiktok:${p.handle}`,
+    { platform: 'tiktok', handle: p.handle, followers: 10000, following: 100, sample: { status: 'measured',
+      source: { kind: 'public_api', provider: 'TikHub', endpoint: TT_POSTS }, observed_at: clock, sample_size: 12, basis: '独立公开作品夹具',
+      value: Array.from({ length: 12 }, (_, i) => ({ id: `tiktok:${p.handle}-${i}`, views: p.handle === 'risk' ? 1 : 1000,
+        likes: p.handle === 'risk' ? 0 : 100, comments: 0, shares: 0, published_at: `2025-12-${String(20 + i).padStart(2, '0')}T00:00:00.000Z` })) } }])) })
+  const rk = runBoth('评审待重评风险顺序', entry('render', risk), risk.cwd, undefined, observed(risk))
+  const riskRead = jsonFile(join(risk.taskDir, 'creators.json'))
+  const riskResult = Array.isArray(riskRead) ? riskRead.find((p: any) => p?.handle === 'risk') : undefined
+  const riskReportText = decode(fileText(join(risk.taskDir, 'report.html')).replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ')
+  const deniesFakeRate = /(?:不是|并非|不代表|不等于|不能(?:视为|当作|证明|确认)|无法(?:证明|确认))[^。！？；]{0,40}假粉(?:率|比例)|假粉(?:率|比例)[^。！？；]{0,24}(?:未(?:核实|验证)|不可(?:测|确认)|无法(?:证明|确认))/.test(riskReportText)
+  const deniesSales = /(?:不是|并非|不代表|不等于|不能(?:代表|证明|确认)|无法(?:证明|确认))[^。！？；]{0,40}带货效果|带货效果[^。！？；]{0,24}(?:未(?:核实|验证)|无法(?:证明|确认))/.test(riskReportText)
+  const assertsFakeRate = /(?:已核(?:实)?|已确认|已验证)[^。！？；]{0,12}假粉(?:率|比例)/.test(riskReportText)
+  named('CLI 待重评基础B后公开高风险仍降C保留候选', rk.ok && riskResult?.review_status === '待重评' &&
+    riskResult?.fit === '⚠️' && riskResult?.tier === 'C' && riskResult?.account_assessment?.metrics?.audience_quality_risk?.value?.level === 'high' &&
+    deniesFakeRate && deniesSales && !assertsFakeRate, '新导出或评审路径恢复基础B、高风险误删候选，或公开风险边界丢失')
+  criterion('U9.j')
+})
 
 const ranOnly = runGroups()
 

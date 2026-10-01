@@ -2209,7 +2209,7 @@ suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时�
 
 })
 await group('u3-keywords', () => {
-suite('U1', '分层管线返回的名单已按 tier 排好序')
+suite('U9', '分层管线返回的名单已按 tier 排好序')
 {
   const c = (h: string, fit: '✅' | '❌', tasks = [0]) =>
     mk('tiktok', h, { email: 'a@example.com', fit, source_tasks: tasks })
@@ -5885,7 +5885,7 @@ suite('F2', '关键词四维度')
 
 }
 await group('u1-u5-output', () => {
-suite('U1', 'CSV 排序与三档区分')
+suite('U9', 'CSV 排序与三档区分')
 {
   const sorted = sortForOutput([
     mk('tiktok', 'c1', { tier: 'C', score: 90 }),
@@ -11704,8 +11704,8 @@ await group('p1-legacy-score-output', () => {
   eq('legacy-row-known-score', direct[2][1], 37)
   eq('legacy-default-header-count', HEADERS.length, 43)
   eq('legacy-default-sort-order', sorted.map(c => c.profile_url), expectedOrder)
-  suite('U1', '真实 CSV 读回保持旧列及评分状态')
-  criterion('U1.a', 'U1.b')
+  suite('U9', '真实 CSV 读回保持旧列及评分状态')
+  criterion('U9.a')
   eq('legacy-csv-headers', csv[0], HEADERS)
   eq('legacy-csv-missing-score', csvScore(creators[0]), '未查询')
   eq('legacy-csv-zero-score', csvScore(creators[1]), '0')

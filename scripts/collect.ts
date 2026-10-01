@@ -20,14 +20,14 @@ import { Budget, BudgetInputError, startBudget, type PersistCost } from './lib/b
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
 import { readCostDocument, readCostLimit, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
 import {
-  MAX_PAGES, canRequestPage, finalize, firstPagePending, igAfterPage, mergePage, needsProfile,
-  pagesFetched, pendingKeywords, resumeCostLine, underPageCap,
+  MAX_PAGES, canRequestPage, canonicalReviewLinks, finalize, firstPagePending, igAfterPage, mergePage, needsProfile,
+  pagesFetched, pendingKeywords, rawSeedFromLegacy, resumeCostLine, reviewRelations, underPageCap,
 } from './lib/pipeline.js'
 import { MemoryUnreadable } from './lib/memory.js'
 import { passesFollowerGate } from './lib/score.js'
 import { taskLabel } from './lib/task-label.js'
 import {
-  taskDir, taskFile, taskId, loadTask, saveTask, loadRawCreators, saveRawCreators,
+  taskDir, taskFile, taskId, loadTask, saveTask, loadReviewCreatorInputs, saveRawCreators,
   persistListAndStatus, saveCostCheckpoint,
 } from './lib/task.js'
 import { creatorKey, textProblem } from './lib/types.js'
@@ -36,6 +36,8 @@ import { taskListProblems } from './lib/search-tasks.js'
 import { configFieldProblems } from './lib/config-input.js'
 import { brandCalibrationProblems } from './lib/brand-calibration.js'
 import { resumeProgressProblems } from './lib/resume-progress.js'
+import { prepareTaskReviews, type TaskReviews } from './lib/task-reviews.js'
+import { ReviewInputError } from './lib/review.js'
 import type { Creator, TaskState } from './lib/types.js'
 
 /**
@@ -137,6 +139,16 @@ if (!resume && existsSync(taskFile(dir))) {
   console.error(`${taskFile(dir)} 已存在；请用 --resume 继续原任务，不能重新开账。`)
   process.exit(2)
 }
+// 判断与旧候选池先保全；坏原件或人工表在改额、预留及请求前拒绝。
+let inputs: ReturnType<typeof loadReviewCreatorInputs>
+let reviews: TaskReviews
+try {
+  inputs = loadReviewCreatorInputs(dir)
+  reviews = prepareTaskReviews(dir, state, inputs.previous, new Date().toISOString(),
+    reviewRelations(inputs.previous, inputs.raw))
+} catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
+try { reviews.save(new Date().toISOString()) }
+catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1) }
 let budget: Budget
 try {
   if (resume) console.error(`续跑 ${resume} —— 已完成 ${state.done.length}/${state.tasks.length} 个关键词`)
@@ -158,7 +170,8 @@ const api = new TikHub(process.env.TIKHUB_API_KEY, budget)
 // 读的是**累加器** creators.raw.json，不是交付物 creators.json ——
 // 交付物是过滤后的结果，拿它当续跑的输入会让每轮都比上一轮少人。
 const creators = new Map<string, Creator>()
-for (const c of loadRawCreators(dir)) creators.set(creatorKey(c), c)
+const rawSeed = inputs.rawPresent ? inputs.raw : rawSeedFromLegacy(inputs.previous)
+for (const c of rawSeed) creators.set(creatorKey(c), c)
 
 // ---------- 采集 ----------
 
@@ -441,7 +454,7 @@ async function main() {
   // 「续跑不花钱」：续跑还剩多少活，由下面那段按实际情况算（ADR-25）。
   let fin
   try {
-    fin = finalize([...creators.values()], state.product, taskId(dir),
+    fin = finalize(canonicalReviewLinks([...creators.values()]), state.product, taskId(dir),
                    { ignoreUnreadableMemory: ignoreMemory })
   } catch (e) {
     if (!(e instanceof MemoryUnreadable)) throw e
@@ -476,6 +489,10 @@ async function main() {
 
   // 交付物与它的去重状态一起落盘 —— **哪个先写都不安全**，判定在 lib/task.ts
   // 的 persistListAndStatus 里（ADR-41）。累加器 creators.raw.json 由 persist() 保管，不在这里动。
+  reviews.freezeCandidates(fin.kept, new Date().toISOString())
+  // 新关系可能揭示人工冲突；重验原授权成功之前不保存新轮次。
+  fin.kept = reviews.project(fin.kept, fin.full_relations, state.brand_calibration?.version)
+  reviews.save(new Date().toISOString())
   persistListAndStatus(dir, state, fin.kept, fin.memory_status)
 
   const summary = {
@@ -521,4 +538,7 @@ async function main() {
   if (stopped === 'error') process.exit(errorExit)
 }
 
-main().catch(e => { console.error(e); process.exit(1) })
+main().catch(e => {
+  console.error(e instanceof Error ? e.message : String(e))
+  process.exit(e instanceof ReviewInputError ? 2 : 1)
+})

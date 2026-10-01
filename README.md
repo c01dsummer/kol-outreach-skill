@@ -37,9 +37,9 @@ API 负责提供候选数据，Agent 负责读懂产品、推导搜索策略、�
 - 记录跨任务创作者状态，排除已联系或已屏蔽的人
 - 输出 HTML、XLSX、CSV 和 JSON，支持断点续跑和预算控制
 
-缺语义判断的候选先进入待核实的基础 B；已标为待重评的候选也先进入基础 B。后续受众地域与公开风险规则仍可降级，地域规则仍可剔除。按品牌版本自动投影评审状态的运行接线尚未启用，人工反馈与采用建议的模块也尚未在现有命令中开放。
+缺语义判断或评审所用品牌版本已过期的候选先进入基础 B。三个命令按任务级 Agent 评审正本和人工反馈重建当前判断；后续受众地域与公开风险规则仍可降级，地域规则仍可剔除。人工反馈与 Agent 原判断分别保留，人工采用不豁免已联系或已屏蔽过滤。
 
-评审三格式导出提供默认关闭的内部路径：旧列后追加评审字段，Agent 与人工分平台展示，来源和待重评状态可辨。现有命令仍保持原分层排序与单层 HTML 筛选；新入口启用尚未实现。公开输出契约见 [输出说明](skill/references/output-format.md#显式评审输出u9现有命令未启用)。
+render 导出的 CSV/HTML 先按有效采用建议，再按原分层与分数排序；XLSX 保留 A/B/C 三表，各表内先按建议排序。旧列后追加评审字段，Agent 与人工分平台展示，来源和待重评状态可辨；HTML 仍默认显示第一个非空分层。输出契约见 [输出说明](skill/references/output-format.md#评审输出u9)。
 
 完整工作路径如下：
 
@@ -150,13 +150,13 @@ npm run collect -- --config task.json
 # 用户确认新的总预算后续跑，已完成关键词跳过
 npm run collect -- --resume output/xxx --budget 3
 
-# Agent 完成语义判断后，可选抓取主页近期公开指标
+# Agent 将语义判断保存至 agent-review.json 后，可选抓取主页近期公开指标
 npm run enrich -- --dir output/xxx
 
 # 公开指标预算用尽后，提高的是同一任务的总预算
 npm run enrich -- --dir output/xxx --budget 3
 
-# Agent 完成语义判断和草稿后，生成最终交付物并写回本地记忆
+# Agent 将判断和草稿保存至 agent-review.json 后，生成最终交付物并写回本地记忆
 npm run render -- --dir output/xxx
 ```
 
@@ -167,6 +167,8 @@ probe 与 collect 要求 `tasks` 至少包含一个任务，每项明确写出�
 `market` 须为非空白字符串，collect 的 `target_count` 须为有限数；合规原值保留，不另加国家或人数范围限制。新 collect / probe 仅在市场缺席时用 US，并在 stderr 说明默认；新 collect 仅在人数缺席时用 50，probe 不校验人数。显式 null 不算缺席，旧任务缺任一字段直接拒绝。字段问题按输入路径与任务、路线问题一起报告（collect 的 CLI 预算及新建预算须合规），退出 `2`，不建任务目录、不写任务、不预留、不请求；改额续跑也保留原 task.json（D17）。
 
 collect 续跑还会先检查 `task.json` 的已完成索引和分页统计；损坏时指出文件及字段，退出 `2`，不改写原文件或发请求。旧目录缺少整张统计表可继续，缺失仍保留为历史未知（D19）。
+
+collect、enrich、render 在改预算、预留、请求或交付写入前校验 Agent 正本、冻结来源及已有人工反馈。读取失败、坏 JSON、游离账号或冲突人工行会指出实际文件和位置，以退出码 `2` 拒绝；正本真实保存失败退出 `1`。只确认 `creators.raw.json` 路径缺席时才使用旧名单的采集证据，已有坏原件不能当作缺席；enrich 和 render 不改写采集原件或人工表。
 
 render 导出同样要求 `task.json` 至少保留一项合规搜索任务。任务文件读不到、JSON/根对象形状不合规或任务列表不合规时，报告路径和具体问题并退出 `2`，不改写或创建名单、交付物与跨任务记忆（D16.n–q）。需按原搜索配置恢复或修正真实任务记录，不能任意添加关键词冒充搜索范围。
 
@@ -183,8 +185,10 @@ output/{product}-{timestamp}/
 ├── report.html        单文件可读报告，支持分层切换和草稿复制
 ├── kol.xlsx           A/B/C 分 Sheet 的 Excel 名单
 ├── kol.csv            适合脚本和其他工具读取的完整单表
-├── creators.json      最终筛选后的结构化名单
+├── creators.json      最终筛选后的结构化名单与当前评审投影
 ├── creators.raw.json  原始采集累加器，断点续跑时只增不减
+├── agent-review.json  Agent 判断、平台账号别名与冻结候选轮次的正本
+├── manual-feedback.csv 人工反馈原作答（已有人工表时读取，不由报告生成）
 ├── enrichment.json    分平台公开样本、指标、报价和查询状态（运行 enrich 后）
 ├── task.json          采集状态、费用账、请求数和断点信息
 └── meta.json          平台、费用、分能力状态和数据边界

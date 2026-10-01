@@ -22,6 +22,9 @@ import {
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
 import { stringifyCostJson } from './lib/cost-json.js'
 import { brandCalibrationProblems } from './lib/brand-calibration.js'
+import { taskListProblems } from './lib/search-tasks.js'
+import { canonicalReviewLinks, reviewRelations } from './lib/pipeline.js'
+import { prepareTaskReviews } from './lib/task-reviews.js'
 import {
   accountKey,
   assignAudienceRisks,
@@ -31,9 +34,8 @@ import {
   unavailable,
 } from './lib/assessment.js'
 import {
-  loadCreators,
+  loadReviewCreatorInputs,
   loadEnrichment,
-  loadRawCreators,
   loadTask,
   saveEnrichment,
   saveCostCheckpoint,
@@ -62,14 +64,21 @@ if (!dir || !existsSync(taskFile(dir))) {
 }
 
 let task: TaskState
+let inputs: ReturnType<typeof loadReviewCreatorInputs>
+let creators: Creator[]
 let budget: Budget
 const newBudget = arg('--budget')
 try {
   task = loadTask(dir)
   const calibrationProblems = brandCalibrationProblems(task)
-  if (calibrationProblems.length) {
-    throw new Error(`${taskFile(dir)} 里的品牌输入不合规：\n  ${calibrationProblems.join('\n  ')}`)
+  const taskProblems = taskListProblems(task.tasks)
+  if (calibrationProblems.length || taskProblems.length) {
+    throw new Error(`${taskFile(dir)} 里的任务或品牌输入不合规：\n  ${[...taskProblems, ...calibrationProblems].join('\n  ')}`)
   }
+  inputs = loadReviewCreatorInputs(dir)
+  const relations = reviewRelations(inputs.previous, inputs.raw)
+  const reviews = prepareTaskReviews(dir, task, inputs.previous, new Date().toISOString(), relations)
+  creators = canonicalReviewLinks(reviews.project(inputs.previous, relations, task.brand_calibration?.version))
   budget = new Budget(task, (pct, view) => {
     console.error(`\n💰 已用 ${(pct * 100).toFixed(0)}% —— 估算占用 $${view.cost_estimate_usd} / $${view.budget_usd}\n`)
   }, snapshot => saveCostCheckpoint(dir, snapshot))
@@ -88,8 +97,7 @@ if (newBudget !== undefined) {
 const refresh = argv.includes('--refresh')
 const api = new TikHub(process.env.TIKHUB_API_KEY, budget)
 const state: EnrichmentState = loadEnrichment(dir) ?? { version: 1, updated_at: '', accounts: {} }
-const creators = loadCreators(dir)
-const rawByKey = new Map(loadRawCreators(dir).map(c => [accountKey(c.platform, c.handle), c]))
+const rawByKey = new Map(inputs.raw.map(c => [accountKey(c.platform, c.handle), c]))
 
 interface AccountRef {
   platform: Platform

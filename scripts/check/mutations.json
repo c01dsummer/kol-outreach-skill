@@ -361,8 +361,8 @@
     },
     {
       "id": "M-U1-a",
-      "req": "U1",
-      "why": "CSV 不再按 tier 排序 —— A 级混在几百行里，运营找不到该先联系谁",
+      "req": "U9.a",
+      "why": "公共默认输出不再按A/B/C层级及同层分数降序，违反未选择评审模式时的旧排序兼容。",
       "file": "scripts/lib/rows.ts",
       "find": "  const order = { A: 0, B: 1, C: 2 }",
       "replace": "  const order = { A: 0, B: 0, C: 0 }",
@@ -1298,8 +1298,8 @@
     },
     {
       "id": "M-U1-b",
-      "req": "U1",
-      "why": "分层管线不再排序 —— 交付物按采集顺序排，A 级混在几百行里",
+      "req": "U9.a",
+      "why": "公共基础分层管线不再按旧层级排序，违反未选择评审模式时的默认输出兼容。",
       "file": "scripts/lib/pipeline.ts",
       "find": "  return sortForOutput(kept)",
       "replace": "  return kept",
@@ -4127,8 +4127,8 @@
     },
     {
       "id": "M-U1-c",
-      "req": "U1",
-      "why": "还没算过分的人排到了有分的人前面 —— 交付表最上面一批是没有依据的人，而运营读的就是从上往下的顺序",
+      "req": "U9.a",
+      "why": "公共默认排序把未算评分排在真实数值前面，违反未选择评审模式时的旧三态排序兼容。",
       "file": "scripts/lib/rows.ts",
       "find": "    if (a.score === undefined) return 1\n    if (b.score === undefined) return -1",
       "replace": "    if (a.score === undefined) return -1\n    if (b.score === undefined) return 1",
@@ -10517,6 +10517,169 @@
       "find": "      return projectManualFeedback(pending, projectAgentReviews(pending, creators, calibrationVersion), rows)",
       "replace": "      return projectAgentReviews(pending, projectManualFeedback(pending, creators, rows), calibrationVersion)",
       "by": "test", "kills": ["任务评审：已评明确 Agent 建议可用于展示"]
+    },
+    {
+      "id": "M-U9-o",
+      "req": "U9.j",
+      "why": "三个生产入口跳过当前 Agent 与人工判断的投影，旧名单残留决定交付与付费样本范围。",
+      "file": "scripts/lib/task-reviews.ts",
+      "find": "      return projectManualFeedback(pending, projectAgentReviews(pending, creators, calibrationVersion), rows)",
+      "replace": "      return structuredClone([...creators])",
+      "by": "selfcheck",
+      "kills": [
+        "CLI collect 旧兼容判断入正本且旧池新候选分轮",
+        "CLI 正本空reviews与人工删除不复活旧投影",
+        "CLI enrich 正本fit与合法关联决定付费范围",
+        "CLI render 待重评基础B仍经过地域排除",
+        "CLI 待重评基础B后公开高风险仍降C保留候选"
+      ]
+    },
+    {
+      "id": "M-U9-p",
+      "req": "D21",
+      "why": "仅缺失采集原件的旧目录从派生名单直接建立新原件，Agent、人工与评分派生值留在原件中。",
+      "file": "scripts/collect.ts",
+      "find": "const rawSeed = inputs.rawPresent ? inputs.raw : rawSeedFromLegacy(inputs.previous)",
+      "replace": "const rawSeed = inputs.raw",
+      "by": "selfcheck",
+      "kills": [
+        "CLI 缺raw旧目录只清seed派生字段且保全旧判断"
+      ]
+    },
+    {
+      "id": "M-U9-q",
+      "req": "U9.j",
+      "why": "三个生产入口忽略已存在的人工文件，非法人工行和读取失败未在改额、请求及写入前拒绝。",
+      "file": "scripts/lib/task-reviews.ts",
+      "find": "  const manualText = readManualFile(manualFile)",
+      "replace": "  const manualText: string | undefined = undefined",
+      "by": "selfcheck",
+      "kills": [
+        "CLI 三入口坏评审与人工先拒绝且零改额零写入"
+      ]
+    },
+    {
+      "id": "M-U9-r",
+      "req": "D23.i",
+      "why": "collect 在本次新关联揭示人工采用冲突前保存新候选轮次，拒绝交付仍改变了评审正本。",
+      "file": "scripts/collect.ts",
+      "find": "  fin.kept = reviews.project(fin.kept, fin.full_relations, state.brand_calibration?.version)\n  reviews.save(new Date().toISOString())",
+      "replace": "  reviews.save(new Date().toISOString())\n  fin.kept = reviews.project(fin.kept, fin.full_relations, state.brand_calibration?.version)",
+      "by": "selfcheck",
+      "kills": [
+        "CLI 新发现关联冲突保留费用原件且不交付"
+      ]
+    },
+    {
+      "id": "M-U9-s",
+      "req": "P4",
+      "why": "render 重新读取当前记忆后仍保留已经联系或拉黑的账号，人工采用使它们重新进入交付。",
+      "file": "scripts/render.ts",
+      "find": "  creators = current.kept",
+      "replace": "  void current.kept",
+      "by": "selfcheck",
+      "kills": [
+        "CLI render 当前memory不能被人工采用恢复"
+      ]
+    },
+    {
+      "id": "M-U9-t",
+      "req": "U9.j",
+      "why": "生产 CSV 入口仍使用旧表头和旧名单行，新评审列及两平台原判断不能从实际文件读回。",
+      "file": "scripts/render.ts",
+      "find": "import { REVIEW_HEADERS, toReviewRow, sortForReviewOutput, buildSheets } from './lib/rows.js'",
+      "replace": "import { HEADERS as REVIEW_HEADERS, toRow as toReviewRow, sortForReviewOutput, buildSheets } from './lib/rows.js'",
+      "by": "selfcheck",
+      "kills": [
+        "CLI 实际XLSX仅三层表且与CSV原值一致"
+      ]
+    },
+    {
+      "id": "M-U9-u",
+      "req": "U9.j",
+      "why": "生产 XLSX 入口未选择评审输出，三层真实工作表仍只有旧列而与新 CSV 不一致。",
+      "file": "scripts/render.ts",
+      "find": "writeXlsx(xlsxPath, buildSheets(creators, { mode: 'review' }) as Sheet[])",
+      "replace": "writeXlsx(xlsxPath, buildSheets(creators) as Sheet[])",
+      "by": "selfcheck",
+      "kills": [
+        "CLI 实际XLSX仅三层表且与CSV原值一致",
+        "CLI 新XLSX仍保留两个空层"
+      ]
+    },
+    {
+      "id": "M-U9-v",
+      "req": "U9.j",
+      "why": "生产 HTML 入口未选择评审输出，最终有效建议的顺序及各平台原评审没有展示。",
+      "file": "scripts/render.ts",
+      "find": "writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review' }))",
+      "replace": "writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta))",
+      "by": "selfcheck",
+      "kills": [
+        "CLI 新CSV与HTML按当前有效建议再按最终层级排序",
+        "CLI 三格式主关联评审与空白unknown保持各自身份"
+      ]
+    },
+    {
+      "id": "M-U9-w",
+      "req": "U9.j",
+      "why": "collect 把评审正本真实保存失败归为输入拒绝，退出码变为 2 而不是写入失败的 1。",
+      "file": "scripts/collect.ts",
+      "find": "try { reviews.save(new Date().toISOString()) }\ncatch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1) }",
+      "replace": "try { reviews.save(new Date().toISOString()) }\ncatch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }",
+      "by": "selfcheck",
+      "kills": [
+        "CLI 正本保存失败退出1且不提前覆盖名单"
+      ]
+    },
+    {
+      "id": "M-U9-x",
+      "req": "D23.i",
+      "why": "三个入口只核旧名单关联，采集原件已有的直接跨平台关联被遗漏，人工采用冲突在过滤前未被拒绝。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "  const originals = structuredClone(lists.flatMap(list => [...list]))",
+      "replace": "  const originals = structuredClone([...(lists[0] ?? [])])",
+      "by": "selfcheck",
+      "kills": [
+        "CLI 三入口坏评审与人工先拒绝且零改额零写入"
+      ]
+    },
+    {
+      "id": "M-U9-y",
+      "req": "D25.c",
+      "why": "评审消费端保留合法关联的原大小写、账号标记与两端空白，enrich 漏取关联样本，render 漏掉关联账号当前拉黑状态。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "      if (primary.split(':')[0] !== linked.split(':')[0]) creator.linked_handle = linked",
+      "replace": "      if (primary.split(':')[0] !== linked.split(':')[0]) creator.linked_handle = original.linked_handle",
+      "by": "selfcheck",
+      "kills": [
+        "CLI enrich 正本fit与合法关联决定付费范围",
+        "CLI render 当前memory不能被人工采用恢复"
+      ]
+    },
+    {
+      "id": "M-U9-z",
+      "req": "D25.c",
+      "why": "评审消费端把同平台不同账号也当成合法关联，enrich 对当前正本排除的同平台账号仍发付费样本请求。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "      if (primary.split(':')[0] !== linked.split(':')[0]) creator.linked_handle = linked",
+      "replace": "      if (primary !== linked) creator.linked_handle = linked",
+      "by": "selfcheck",
+      "kills": [
+        "CLI enrich 正本fit与合法关联决定付费范围"
+      ]
+    },
+    {
+      "id": "M-U9-aa",
+      "req": "U9.j",
+      "why": "render 已取得当前 Agent 判断却仍按旧名单残留选择公开风险同行，当前合法同行未参与基线，待重评候选未得到应有的高风险降级。",
+      "file": "scripts/render.ts",
+      "find": "const riskPeers = accountKeysFor(creators.filter(c => c.fit === '✅' || c.fit === '⚠️'))",
+      "replace": "const riskPeers = accountKeysFor(loadReviewCreatorInputs(dir).previous.filter(c => c.fit === '✅' || c.fit === '⚠️'))",
+      "by": "selfcheck",
+      "kills": [
+        "CLI 待重评基础B后公开高风险仍降C保留候选"
+      ]
     }
   ],
   "exemptions": [

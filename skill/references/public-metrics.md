@@ -7,7 +7,7 @@
 
 ## 执行
 
-只处理 `fit=✅/⚠️` 的幸存者：
+enrich 先校验任务列表、品牌输入、Agent 正本、冻结来源与已有人工表，并从正本重建当前判断；再处理主账号 `fit=✅/⚠️` 的幸存者及其合法关联账号。人工采用建议不扩大或缩小付费池，待重评的原 fit 仍按既有请求选择口径处理，不据此声称已重新评审：
 
 ```bash
 npm run enrich -- --dir output/xxx
@@ -18,6 +18,8 @@ npm run enrich -- --dir output/xxx
 ```bash
 npm run enrich -- --dir output/xxx --budget 3
 ```
+
+输入不合规退出 2，先于改额、任务写入、费用预留与请求，stderr 指明文件及具体位置；不把坏文件当作缺席。enrich 只写 `enrichment.json` 与 `task.json`，不改 Agent 正本、人工表、采集原件或名单。
 
 默认跳过已经查询过的账号 —— 跳过的是**重抓**，不是重算：缓存里的指标每次都按
 当前口径就地重新算一遍，零请求。stdout 的 `locally_recomputed` 是这一轮里
