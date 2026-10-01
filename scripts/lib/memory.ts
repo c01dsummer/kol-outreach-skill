@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { isAbsence, mkdirDurable, writeFileAtomic, writeTarget } from './atomic.js'
 import { PLATFORMS, creatorKey, textProblem, type Creator, type MemoryStatus } from './types.js'
+import { normalizedAccountKey } from './review.js'
 
 /** D4：本地单文件，不做多人共享。团队场景需另行设计。 */
 const DEFAULT_FILE = 'memory/creators.json'
@@ -331,12 +332,37 @@ function linkedGraph(mem: MemoryFile): Map<string, Set<string>> {
   return graph
 }
 
+/** P4：当前完整原件只补合法双向直接关系，不扩大人物图或改写候选。 */
+function knownDirectLinks(relations: readonly Creator[]): Map<string, Set<string>> {
+  const direct = new Map<string, Set<string>>()
+  const connect = (from: string, to: string) => {
+    if (!direct.has(from)) direct.set(from, new Set())
+    direct.get(from)!.add(to)
+  }
+  for (const c of relations) {
+    const parts = typeof c.linked_handle === 'string' ? c.linked_handle.split(':') : []
+    if (parts.length !== 2) continue
+    try {
+      const primary = normalizedAccountKey(c.platform, c.handle)
+      const linked = normalizedAccountKey(parts[0], parts[1])
+      if (primary.split(':')[0] === linked.split(':')[0]) continue
+      connect(primary, linked)
+      connect(linked, primary)
+    } catch { /* 非法关系不建立身份；不改变记忆读取的失败判定。 */ }
+  }
+  return direct
+}
+
 /** A current candidate may have no link field, yet old memory knows its component. */
-function accountKeys(c: Creator, graph: Map<string, Set<string>>): string[] {
+function accountKeys(c: Creator, graph: Map<string, Set<string>>, direct: Map<string, Set<string>>): string[] {
   const keys = new Set([key(c)])
   const linked = c.linked_handle?.split(':')
   if (linked?.length === 2 && !keyProblem(linked[0], linked[1])) {
     keys.add(creatorKey({ platform: linked[0], handle: linked[1] }))
+  }
+  // 固定初始主／关联键，只加各自直接邻居；新邻居不反过来遍历采集关系。
+  for (const seed of [...keys]) {
+    for (const other of direct.get(seed) ?? []) keys.add(other)
   }
   const pending = [...keys]
   while (pending.length) {
@@ -365,7 +391,7 @@ function accountKeys(c: Creator, graph: Map<string, Set<string>>): string[] {
  */
 export function filterByMemory(
   creators: Creator[], product: string, task?: string,
-  opts: { ignoreUnreadable?: boolean } = {},
+  opts: { ignoreUnreadable?: boolean; knownRelations?: readonly Creator[] } = {},
 ): FilterResult {
   const want = product.trim()
   const r = readMemory()
@@ -382,11 +408,12 @@ export function filterByMemory(
   }
   const mem = r.mem
   const graph = linkedGraph(mem)
+  const direct = knownDirectLinks(opts.knownRelations ?? [])
   const kept: Creator[] = []
   let rec = 0, con = 0
 
   for (const c of creators) {
-    const entries = accountKeys(c, graph).flatMap(k => {
+    const entries = accountKeys(c, graph, direct).flatMap(k => {
       const entry = mem.creators[k]
       return entry ? [entry] : []
     })

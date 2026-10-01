@@ -10680,6 +10680,66 @@
       "kills": [
         "CLI 待重评基础B后公开高风险仍降C保留候选"
       ]
+    },
+    {
+      "id": "M-P4-r",
+      "req": "P4.a",
+      "why": "交付主账号没有关联字段时，遗漏采集原件里已知的直接关联，已联系或已屏蔽账号再次进入名单。",
+      "file": "scripts/render.ts",
+      "find": "    { ignoreUnreadable: ignoreMemory, knownRelations: relations })",
+      "replace": "    { ignoreUnreadable: ignoreMemory })",
+      "by": "selfcheck",
+      "kills": [
+        "raw 正向 contacted 与 blocked 不因人工优先联系进入四种交付"
+      ]
+    },
+    {
+      "id": "M-P4-s",
+      "req": "P4.a",
+      "why": "采集原件中只有另一平台账号直接指回主账号时，遗漏反向联系保护，已联系或已屏蔽的人再次进入名单。",
+      "file": "scripts/lib/memory.ts",
+      "find": "      connect(linked, primary)\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "raw 另一账号直接指回时 contacted 与 blocked 同样排除主账号"
+      ]
+    },
+    {
+      "id": "M-P4-t",
+      "req": "P4.a",
+      "why": "合法关联 handle 的首个 @ 与两端空白没有按等价账号核对，已联系记录查不到并再次进入名单。",
+      "file": "scripts/lib/memory.ts",
+      "find": "      const linked = normalizedAccountKey(parts[0], parts[1])",
+      "replace": "      const linked = creatorKey({ platform: parts[0], handle: parts[1] })",
+      "by": "selfcheck",
+      "kills": [
+        "raw 正向关系按大小写首个 @ 和 handle 空白核对当前记忆"
+      ]
+    },
+    {
+      "id": "M-P4-u",
+      "req": "P4.a",
+      "why": "把同平台 linked_handle 当成跨平台同人关系，未联系候选被另一个账号的联系状态错误删除。",
+      "file": "scripts/lib/memory.ts",
+      "find": "      if (primary.split(':')[0] === linked.split(':')[0]) continue\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "raw 联系核对不制造裸非法同平台同名别名或传递关系"
+      ]
+    },
+    {
+      "id": "M-P4-v",
+      "req": "P4.a",
+      "why": "沿采集原件的多跳关联推断同人，删除没有与候选直接关联的可联系账号。",
+      "file": "scripts/lib/memory.ts",
+      "find": "  for (const seed of [...keys]) {",
+      "replace": "  for (const seed of keys) {",
+      "by": "selfcheck",
+      "kills": [
+        "raw 联系核对不制造裸非法同平台同名别名或传递关系"
+      ]
     }
   ],
   "exemptions": [

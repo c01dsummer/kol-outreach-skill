@@ -7150,6 +7150,144 @@ group('review-cli-entry', [], () => {
   criterion('U9.j')
 })
 
+group('render-raw-memory', [], () => {
+  const xmlText = (s: string) => s.replace(/&#(x[0-9a-f]+|[0-9]+);/gi, (_, n: string) =>
+    String.fromCodePoint(n[0].toLowerCase() === 'x' ? parseInt(n.slice(1), 16) : Number(n)))
+    .replace(/&(amp|lt|gt|quot|apos);/g, (_, n: string) => ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" })[n as 'amp'])
+  const csvRows = (source: string): string[][] => {
+    const rows: string[][] = []; let row: string[] = [], cell = '', quoted = false
+    for (let i = source.charCodeAt(0) === 0xfeff ? 1 : 0; i < source.length; i++) {
+      const c = source[i]
+      if (c === '"') { if (quoted && source[i + 1] === '"') { cell += '"'; i++ } else quoted = !quoted }
+      else if (!quoted && (c === ',' || c === '\n' || c === '\r')) {
+        row.push(cell); cell = ''
+        if (c !== ',') { rows.push(row); row = []; if (c === '\r' && source[i + 1] === '\n') i++ }
+      } else cell += c
+    }
+    if (quoted) throw new Error('independent CSV readback: unclosed quote')
+    if (cell || row.length) { row.push(cell); rows.push(row) }
+    return rows
+  }
+  const unzip = (bytes: Buffer): Map<string, string> => {
+    const entries = new Map<string, string>(), lower = Math.max(0, bytes.length - 65557); let end = bytes.length - 22
+    while (end >= lower && bytes.readUInt32LE(end) !== 0x06054b50) end--
+    if (end < lower) throw new Error('independent XLSX readback: missing ZIP directory')
+    let at = bytes.readUInt32LE(end + 16)
+    for (let i = 0; i < bytes.readUInt16LE(end + 10); i++) {
+      if (bytes.readUInt32LE(at) !== 0x02014b50) throw new Error('invalid ZIP directory entry')
+      const method = bytes.readUInt16LE(at + 10), size = bytes.readUInt32LE(at + 20)
+      const nameLen = bytes.readUInt16LE(at + 28), extraLen = bytes.readUInt16LE(at + 30), commentLen = bytes.readUInt16LE(at + 32)
+      const local = bytes.readUInt32LE(at + 42), name = bytes.subarray(at + 46, at + 46 + nameLen).toString('utf8')
+      if (bytes.readUInt32LE(local) !== 0x04034b50) throw new Error('invalid ZIP local entry')
+      const start = local + 30 + bytes.readUInt16LE(local + 26) + bytes.readUInt16LE(local + 28)
+      const data = bytes.subarray(start, start + size)
+      if (method !== 0 && method !== 8) throw new Error('unsupported ZIP compression')
+      entries.set(name, (method === 8 ? inflateRawSync(data) : data).toString('utf8'))
+      at += 46 + nameLen + extraLen + commentLen
+    }
+    return entries
+  }
+  const cellsText = (s: string) => Array.from(s.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g), m => xmlText(m[1])).join('')
+  const xlsxRows = (path: string): string[][][] => {
+    const entries = unzip(readFileSync(path)), shared = Array.from((entries.get('xl/sharedStrings.xml') ?? '').matchAll(/<si(?:\s[^>]*)?>([\s\S]*?)<\/si>/g), m => cellsText(m[1]))
+    return Array.from(entries).filter(([name]) => /^xl\/worksheets\/sheet[0-9]+\.xml$/.test(name)).map(([, xml]) =>
+      Array.from(xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g), m => {
+        const row: string[] = []
+        for (const c of m[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
+          const ref = /\br="([A-Z]+)[0-9]+"/.exec(c[1]); if (!ref) throw new Error('XLSX cell has no position')
+          const col = Array.from(ref[1]).reduce((n, l) => n * 26 + l.charCodeAt(0) - 64, 0) - 1
+          const value = /<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(c[2])
+          row[col] = /\bt="s"/.test(c[1]) ? shared[Number(value?.[1])] : /\bt="inlineStr"/.test(c[1]) ? cellsText(c[2]) : value ? xmlText(value[1]) : ''
+        }
+        return row
+      }))
+  }
+  const key = (p: { platform: string; handle: string }) => `${p.platform.toLowerCase()}:${p.handle.trim().replace(/^@/, '').toLowerCase()}`
+  const fromRows = (rows: string[][]) => rows.slice(1).map(row => Object.fromEntries(rows[0].map((h, i) => [h, row[i]])))
+  const exported = (dir: string) => {
+    const csv = fromRows(csvRows(readFileSync(join(dir, 'kol.csv'), 'utf8'))), xlsx = xlsxRows(join(dir, 'kol.xlsx')).flatMap(fromRows)
+    const html = readFileSync(join(dir, 'report.html'), 'utf8')
+    const htmlKeys = Array.from(html.matchAll(/<[^>]*\bdata-review-kind="effective"[^>]*>/g), m => {
+      const account = /\bdata-account-key="([^"]+)"/.exec(m[0]); if (!account) throw new Error('HTML effective block has no account')
+      return xmlText(account[1])
+    })
+    return { json: jsonFile(join(dir, 'creators.json')), csv, xlsx, html, htmlKeys }
+  }
+  const exact = (actual: string[], wanted: string[]) => isDeepStrictEqual([...actual].sort(), [...wanted].sort())
+  const identities = (out: ReturnType<typeof exported>, wanted: string[]) => Array.isArray(out.json)
+    && exact(out.json.map(key), wanted) && exact(out.csv.map(p => key(p as { platform: string; handle: string })), wanted)
+    && exact(out.xlsx.map(p => key(p as { platform: string; handle: string })), wanted) && exact(out.htmlKeys, wanted)
+  const person = (platform: string, handle: string, over: Record<string, unknown> = {}) => costPerson(platform, handle, { bio_links: [], followers: 12000, ...over })
+  const memoryEntry = (platform: string, handle: string, over: Record<string, unknown> = {}) => ({
+    platform, handle, nickname: handle, followers: 12000, first_seen: '2026-01-01', recommendations: [], contacted: false, replied: false, blocked: false, note: '', ...over,
+  })
+  const make = (name: string, people: ReturnType<typeof person>[], raw: ReturnType<typeof person>[], memory: Record<string, unknown> | string, manualYes = false) => {
+    const f = costFixture(name, knownCosts(1000000, []), { memory_status: 'ok' }, people)
+    writeFileSync(join(f.taskDir, 'creators.raw.json'), JSON.stringify(raw, null, 2) + '\n')
+    const accounts = Array.from(new Map([...people, ...raw].map(p => [key(p), p])).keys())
+    const reviews = Object.fromEntries(accounts.map(k => [k, { account_keys: [k], eligibility: '合格', adoption_priority: '优先联系',
+      observed_content: `observed ${k}`, work_evidence: `work ${k}`, natural_integration: `integration ${k}`, mismatch_risk: `risk ${k}`, fit: '✅' }]))
+    if (name === 'raw-memory-guards') reviews['tiktok:alias_only'].account_keys.push('tiktok:alias_marker')
+    writeFileSync(join(f.taskDir, 'agent-review.json'), JSON.stringify({ version: 1, updated_at: '2026-01-01', reviews,
+      rounds: [{ round_id: 'r1', created_at: '2026-01-01', source: 'task.json', candidates: accounts.map(account_key => ({ account_key, source_tasks: null })) }] }, null, 2) + '\n')
+    writeFileSync(join(f.taskDir, 'manual-feedback.csv'), 'round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note\n'
+      + (manualYes ? people.map(p => `r1,${p.platform},${p.handle},yes,yes,,,,,operator yes\n`).join('') : ''))
+    writeFileSync(join(f.cwd, 'memory', 'creators.json'), typeof memory === 'string' ? memory : JSON.stringify({ version: 1, updated_at: '2026-01-01', creators: memory }))
+    const originals = ['creators.raw.json', 'agent-review.json', 'manual-feedback.csv'].map(n => [n, readFileSync(join(f.taskDir, n), 'utf8')] as const)
+    return { ...f, originals }
+  }
+  const preserved = (f: ReturnType<typeof make>) => f.originals.every(([n, bytes]) => readFileSync(join(f.taskDir, n), 'utf8') === bytes)
+  const forwardPeople = ['forward_contacted', 'forward_blocked', 'forward_positive'].map(h => person('tiktok', h))
+  const forward = make('raw-memory-forward', forwardPeople, [
+    person('tiktok', 'forward_contacted', { linked_handle: 'InStAgRaM: @FORWARD_SEEN ' }), person('tiktok', 'forward_blocked', { linked_handle: 'instagram:forward_ban' }),
+    forwardPeople[2], person('instagram', 'forward_seen'), person('instagram', 'forward_ban')], {
+    'INSTAGRAM:FoRwArD_SeEn': memoryEntry('instagram', 'forward_seen', { contacted: true }), 'instagram:forward_ban': memoryEntry('instagram', 'forward_ban', { blocked: true }) }, true)
+  runBoth('raw 原件正向关联联系保护实际 render', [S('render.ts'), '--dir', forward.taskDir], forward.cwd)
+  const forwardOut = exported(forward.taskDir)
+  named('raw 正向 contacted 与 blocked 不因人工优先联系进入四种交付', identities(forwardOut, ['tiktok:forward_positive']), '须仅保留阳性主账号；raw 关联账号不得补进任何交付')
+  named('raw 正向关系按大小写首个 @ 和 handle 空白核对当前记忆', jsonFile(join(forward.taskDir, 'meta.json'))?.memory_status === 'ok' && forwardOut.json.every((p: any) => !['forward_contacted', 'forward_blocked'].includes(p.handle)), 'ok 声明必须伴随实际联系过滤')
+  const reversePeople = ['reverse_contacted', 'reverse_blocked', 'reverse_positive'].map(h => person('instagram', h))
+  const reverse = make('raw-memory-reverse', reversePeople, [...reversePeople,
+    person('tiktok', 'reverse_source_seen', { linked_handle: 'InStAgRaM: @REVERSE_CONTACTED ' }), person('tiktok', 'reverse_source_ban', { linked_handle: 'instagram:reverse_blocked' })], {
+    'TIKTOK:REVERSE_SOURCE_SEEN': memoryEntry('tiktok', 'reverse_source_seen', { contacted: true }), 'tiktok:reverse_source_ban': memoryEntry('tiktok', 'reverse_source_ban', { blocked: true }) }, true)
+  runBoth('raw 原件反向关联联系保护实际 render', [S('render.ts'), '--dir', reverse.taskDir], reverse.cwd)
+  named('raw 另一账号直接指回时 contacted 与 blocked 同样排除主账号', identities(exported(reverse.taskDir), ['instagram:reverse_positive']), '反向直接关系同样须保护联系且保留无关系阳性')
+  const guardHandles = ['no_link', 'bare_link', 'invalid_link', 'same_platform', 'unblocked', 'alias_only', 'chain_start']
+  const guardPeople = guardHandles.map(h => person('tiktok', h)), guardRaw = guardPeople.map(p => ({ ...p }))
+  Object.assign(guardRaw[1], { linked_handle: 'bare_marker' }); Object.assign(guardRaw[2], { linked_handle: 'instagram :invalid_marker' })
+  Object.assign(guardRaw[3], { linked_handle: 'tiktok:same_marker' }); Object.assign(guardRaw[4], { linked_handle: 'instagram:open_marker', followers: 99000, email: 'raw-only@invalid.example' })
+  Object.assign(guardRaw[6], { linked_handle: 'instagram:chain_middle' })
+  guardRaw.push(person('instagram', 'open_marker', { followers: 88000 }), person('instagram', 'chain_middle', { linked_handle: 'tiktok:chain_end' }), person('tiktok', 'chain_end'))
+  const guardMemory = Object.fromEntries([['instagram', 'no_link'], ['instagram', 'bare_marker'], ['instagram', 'invalid_marker'], ['tiktok', 'same_marker'], ['tiktok', 'alias_marker'], ['tiktok', 'chain_end']]
+    .map(([platform, handle]) => [`${platform}:${handle}`, memoryEntry(platform, handle, { contacted: true })]))
+  guardMemory['instagram:open_marker'] = memoryEntry('instagram', 'open_marker')
+  const guards = make('raw-memory-guards', guardPeople, guardRaw, guardMemory)
+  runBoth('raw 直接关系边界实际 render', [S('render.ts'), '--dir', guards.taskDir], guards.cwd)
+  const guardOut = exported(guards.taskDir), open = guardOut.json.find((p: any) => p.handle === 'unblocked')
+  named('raw 联系核对不制造裸非法同平台同名别名或传递关系', identities(guardOut, guardHandles.map(h => `tiktok:${h}`)), '合法无阻止关系与无直接关系候选均应保留')
+  named('raw 联系核对不补进原件账号粉丝或缺失采集字段', open?.followers === 12000 && !('email' in open)
+    && [...guardOut.csv, ...guardOut.xlsx].filter(p => p.handle === 'unblocked').every(p => p.followers === '12000') && !guardOut.html.includes('raw-only@invalid.example'), '交付候选保留当前采集值，不能用 raw 关联视图补指标或字段')
+  const resumePeople = ['same_task', 'other_task', 'other_product'].map(h => person('tiktok', h))
+  const resumeRaw = resumePeople.map((p, i) => ({ ...p, linked_handle: `instagram:resume_marker_${i}` }))
+  const resumeMemory = Object.fromEntries(resumePeople.map((p, i) => [`instagram:resume_marker_${i}`, memoryEntry('instagram', `resume_marker_${i}`, {
+    recommendations: [{ date: '2026-01-01', product: i === 2 ? 'different-product' : 'raw-memory-resume', keyword: 'local', task: i === 0 ? 'task' : 'previous-task' }],
+  })]))
+  const resume = make('raw-memory-resume', resumePeople, [...resumeRaw, ...resumePeople.map((p, i) => person('instagram', `resume_marker_${i}`))], resumeMemory)
+  runBoth('raw 关联推荐记录实际 render', [S('render.ts'), '--dir', resume.taskDir], resume.cwd)
+  named('raw 关联仅本任务推荐可重导出且保留别产品阳性', identities(exported(resume.taskDir), ['tiktok:same_task', 'tiktok:other_product']), '仅同产品别任务推荐须排除，不能把推荐状态升级成已联系')
+  const broken = '{"creators":', ignored = make('raw-memory-ignored', [person('tiktok', 'ignore_positive')], [person('tiktok', 'ignore_positive', { linked_handle: 'instagram:ignore_marker' }), person('instagram', 'ignore_marker')], broken)
+  const before = readFileSync(join(ignored.taskDir, 'creators.json'), 'utf8')
+  runBoth('raw 坏记忆默认拒绝实际 render', [S('render.ts'), '--dir', ignored.taskDir], ignored.cwd, { status: 2 })
+  named('raw 当前记忆读不出默认不产出名单', readFileSync(join(ignored.taskDir, 'creators.json'), 'utf8') === before
+    && ['kol.csv', 'kol.xlsx', 'meta.json', 'report.html'].every(n => !existsSync(join(ignored.taskDir, n))) && preserved(ignored), '坏记忆须拒绝且不覆盖原名单或输入正本')
+  runBoth('raw 显式忽略坏记忆实际 render', [S('render.ts'), '--dir', ignored.taskDir, '--ignore-memory'], ignored.cwd)
+  const ignoredOut = exported(ignored.taskDir), ignoredMeta = jsonFile(join(ignored.taskDir, 'meta.json'))
+  named('raw 显式忽略坏记忆保留候选并声明未做联系去重', identities(ignoredOut, ['tiktok:ignore_positive']) && ignoredMeta?.memory_status === 'unreadable_ignored'
+    && ignoredMeta?.memory_written === false && /(?:没有做|未做|没做|跳过)[^。]{0,120}已联系|已联系[^。]{0,120}(?:没有做|未做|没做|跳过)/.test(xmlText(ignoredOut.html.replace(/<[^>]*>/g, '')))
+    && readFileSync(join(ignored.cwd, 'memory', 'creators.json'), 'utf8') === broken, '显式跳过须真实声明，坏记忆原字节不得覆盖')
+  named('raw 联系保护不改采集原件 Agent 判断或人工原作答', [forward, reverse, guards, resume, ignored].every(preserved), '所有原件及已完整冻结正本应逐字节保留')
+})
+
 const ranOnly = runGroups()
 
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m
