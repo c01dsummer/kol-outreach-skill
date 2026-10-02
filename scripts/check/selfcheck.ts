@@ -6945,6 +6945,8 @@ group('review-cli-entry-collect', [], () => {
     seeded?.source_tasks?.[0] === 0 && ['fit', 'fit_reason', 'eligibility', 'manual_adopted', 'effective_priority', 'score', 'tier', 'account_assessment'].every(k => !(k in seeded)) &&
     jsonFile(join(seed.taskDir, agentName))?.reviews?.['tiktok:legacy']?.fit_reason === 'genuine legacy reason' &&
     !jsonFile(join(seed.taskDir, agentName))?.reviews?.['tiktok:seed'], '身份原件丢失、派生值仍留raw或新投影冒充legacy')
+  // 上面三条：续跑经累加器重建名单后，旧兼容判断与已存正本都不丢（ADR-130 末节）。
+  criterion('D21.b')
 
   const authority = fixture('authority-removal', [person('deleted', { fit: '✅', fit_reason: 'stale', outreach_draft: 'stale',
     eligibility: '合格', adoption_priority: '优先联系', manual_adopted: 'yes', effective_priority: '优先联系' })])
@@ -6954,6 +6956,7 @@ group('review-cli-entry-collect', [], () => {
   named('CLI 正本空reviews与人工删除不复活旧投影', ar.ok && ap?.review_status === '未评' && ap?.effective_priority === '待核实' &&
     ['fit', 'fit_reason', 'outreach_draft', 'eligibility', 'adoption_priority', 'manual_adopted'].every(k => !(k in ap)) &&
     Object.keys(jsonFile(join(authority.taskDir, agentName))?.reviews ?? {}).length === 0, '旧投影被迁回当前判断')
+  criterion('D21.c')
   reviewCliEntryCompleted.collect = true
 })
 
@@ -7159,6 +7162,8 @@ named('CLI render 阳性合法关联字段按账号契约规范化', rr.ok && by
     /(?:不是|并非|不代表|不等于|不能视为)[^。！？]{0,40}(?:实际|真实)[^。！？]{0,16}账单/.test(reportText) && jsonFile(join(rendered.taskDir, 'meta.json'))?.enriched === false &&
     sameStamp(join(rendered.taskDir, agentName), authoritative) && sameStamp(join(rendered.taskDir, manualName), manualRender) &&
     sameStamp(join(rendered.taskDir, 'creators.raw.json'), rawRender), '文本损坏、过期建议冒充当前或边界/磁盘所有权丢失')
+  // 重复交付：旧名单里的过期 fit 不定层级，正本已存的证据与草稿照样交付（ADR-130 末节）。
+  criterion('D21.c')
 
   const empty = fixture('empty-tiers', [person('only', { email: 'only@example.com' })])
   put(empty, agentName, document({ 'tiktok:only': review('tiktok:only') }, ['tiktok:only']))
