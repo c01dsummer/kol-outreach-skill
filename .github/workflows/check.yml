@@ -10,10 +10,11 @@ on:
   pull_request:
 
 # 连推两次时让被顶替的那一跑自己取消。**main 上不取消** ——
-# 每个进主干的提交都要自己跑过一遍，不许被下一个提交顶掉。
+# 每次推到主干的检查都要自己跑完，不许被下一次推送顶掉。
 # ⚠️ 只关 cancel-in-progress 不够：同一组里排队的那一跑会被更新的排队者顶掉，
 # 与这个开关无关（实测 #242 的 run 36735791078 没起一个 job 就被取消）。
-# 所以 main 上每个提交单独一组，PR 仍按 ref 分组、新推送取消旧跑（ADR-97）
+# 所以 main 上每次推送按其 sha 单独一组，PR 仍按 ref 分组、新推送取消旧跑（ADR-97）。
+# 一次推送带多个提交时只检查最末那个 —— 触发单位是推送，不是提交
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
