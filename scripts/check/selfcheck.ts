@@ -6772,7 +6772,12 @@ else console.log('全部通过（执行 '+count+' 条断言；覆盖 0 条需求
   }
 });
 
-group('review-cli-entry', [], () => {
+// U9.j 入口按变异实际点名的用例拆组：零事件类断言所在的组依赖阳性组，读它真实跑出的结果；
+// 造夹具和观察器共用，具名断言留在各自 group 回调里供清册归组（ADR-131）。
+const reviewCliEntryCompleted = { positive: false, reject: false, collect: false, enrich: false, exit: false, render: false }
+// 阳性组没跑或没跑完时保持 undefined；依赖它的组只认 true，不能把缺席当成已证明接线。
+const reviewCliEntryPositive: { value?: boolean } = {}
+const reviewCliEntryFixture = () => {
   const base = join(tmp, 'review-cli-entry')
   mkdirSync(base, { recursive: true })
   const clock = '2026-01-01T00:00:00.000Z'
@@ -6833,7 +6838,12 @@ group('review-cli-entry', [], () => {
     fetchAttempts(f.log).length === 0 && fileText(f.reserves) === ''
   const entry = (command: string, f: ReturnType<typeof fixture>, budget = false) => [S(`${command}.ts`),
     command === 'collect' ? '--resume' : '--dir', f.taskDir, ...(budget ? ['--budget', '2'] : [])]
+  return { base, clock, manualName, agentName, oldHeaders, addedHeaders, person, review, document, put, manual, row,
+    fixture, snapshot, unchanged, stamp, sameStamp, observed, noPaid, entry }
+}
 
+group('review-cli-entry-positive', [], () => {
+  const { agentName, person, review, document, put, fixture, observed, entry } = reviewCliEntryFixture()
   // Shared positive controls prove both interception points before any zero-event claim.
   const paidCollect = fixture('paid-collect', [], { target_count: 0, done: [], offsets: {}, pages: {}, answered: {}, found: {} })
   const pc = runBoth('评审入口 collect 阳性请求', entry('collect', paidCollect), paidCollect.cwd, undefined, observed(paidCollect))
@@ -6843,7 +6853,13 @@ group('review-cli-entry', [], () => {
   const positive = pc.ok && pe.ok && [paidCollect, paidEnrich].every(f =>
     fileText(f.armed).includes('armed') && fileText(f.reserves).includes('reserve') && fetchAttempts(f.log).length > 0)
   named('CLI 评审零费用观察器同接线阳性', positive, '未实际记录 reserve/fetch，阴性不能据此认领')
+  reviewCliEntryPositive.value = positive
+  reviewCliEntryCompleted.positive = true
+})
 
+group('review-cli-entry-reject', ['review-cli-entry-positive'], () => {
+  const { manualName, agentName, person, review, document, put, manual, row, fixture, snapshot, unchanged, observed, noPaid, entry } = reviewCliEntryFixture()
+  const positive = reviewCliEntryPositive.value === true
   // Cases are aggregated once: named tags do not execute repeatedly inside the matrix.
   const rejects: Array<{ command: string; kind: string; ok: boolean }> = []
   for (const command of ['collect', 'enrich', 'render']) {
@@ -6896,7 +6912,11 @@ group('review-cli-entry', [], () => {
   const pr = runBoth('评审入口坏断点', entry('collect', progress, true), progress.cwd, { status: 2, soft: [0] }, observed(progress))
   named('CLI collect 坏断点不被评审接线推迟', pr.ok && pr.status === 2 && pr.stderr.includes(progress.task) &&
     pr.stderr.includes('done') && pr.stderr.includes('found') && unchanged(progressBefore) && positive && noPaid(progress), '断点问题、费用或字节发生变化')
+  reviewCliEntryCompleted.reject = true
+})
 
+group('review-cli-entry-collect', [], () => {
+  const { agentName, person, fixture, put, document, stamp, sameStamp, observed, entry } = reviewCliEntryFixture()
   const legacyDraft = 'Hello {commission}\nold'
   const old = person('old', { source_tasks: undefined, fit: '⚠️', fit_reason: '旧理由', outreach_draft: legacyDraft })
   const grown = fixture('grow', [old])
@@ -6934,7 +6954,11 @@ group('review-cli-entry', [], () => {
   named('CLI 正本空reviews与人工删除不复活旧投影', ar.ok && ap?.review_status === '未评' && ap?.effective_priority === '待核实' &&
     ['fit', 'fit_reason', 'outreach_draft', 'eligibility', 'adoption_priority', 'manual_adopted'].every(k => !(k in ap)) &&
     Object.keys(jsonFile(join(authority.taskDir, agentName))?.reviews ?? {}).length === 0, '旧投影被迁回当前判断')
+  reviewCliEntryCompleted.collect = true
+})
 
+group('review-cli-entry-enrich', [], () => {
+  const { manualName, agentName, person, review, document, put, manual, row, fixture, snapshot, unchanged, observed, entry } = reviewCliEntryFixture()
   const selected = fixture('enrich-selection', [person('wanted', { fit: '❌', linked_handle: 'INSTAGRAM:@other ' }),
     person('denied', { fit: '✅' }), person('stale', { fit: '❌', linked_handle: 'tiktok:denied' })])
   put(selected, agentName, document({ 'tiktok:wanted': review('tiktok:wanted'),
@@ -6952,7 +6976,12 @@ group('review-cli-entry', [], () => {
     ['instagram:other', 'tiktok:stale', 'tiktok:wanted']) && queries.some(e => e.query.unique_id === 'wanted') &&
     queries.some(e => e.query.unique_id === 'stale') && queries.some(e => e.query.username === 'other') &&
     !queries.some(e => e.query.unique_id === 'denied') && unchanged(selectBefore), '采用反馈改变付费范围或enrich写越界文件')
+  reviewCliEntryCompleted.enrich = true
+})
 
+group('review-cli-entry-collect-exit', ['review-cli-entry-positive'], () => {
+  const { clock, manualName, agentName, person, document, put, manual, row, fixture, snapshot, unchanged, observed, noPaid, entry } = reviewCliEntryFixture()
+  const positive = reviewCliEntryPositive.value === true
   const late = fixture('late-relation', [person('future_sarah', { bio: undefined, email: undefined }),
     person('techwithsarah', { platform: 'instagram', bio: 'Profile already queried', email: null, bio_links: [] })])
   put(late, 'creators.raw.json', [...jsonFile(join(late.taskDir, 'creators.raw.json')), person('late_new')])
@@ -6982,7 +7011,11 @@ group('review-cli-entry', [], () => {
   named('CLI 预算不足仍退出3保存真实断点', bs.ok && bs.status === 3 && bs.stderr.includes('保存') && jsonFile(stop.task)?.done?.length === 0 &&
     jsonFile(stop.task)?.requests === 0 && fetchAttempts(stop.log).length === 0 && fileText(stop.armed).includes('armed') && positive,
     '预算状态被输入或保存错误掩盖、或请求提前发出')
+  reviewCliEntryCompleted.exit = true
+})
 
+group('review-cli-entry-render', [], () => {
+  const { base, clock, manualName, agentName, oldHeaders, addedHeaders, person, review, document, put, manual, row, fixture, stamp, sameStamp, observed, entry } = reviewCliEntryFixture()
   // Independent readers consume actual files; none import production rows, parsers or writers.
   const csvRead = (text: string): string[][] | undefined => {
     const result: string[][] = [], fields: string[] = []; let cell = '', quoted = false
@@ -7155,7 +7188,13 @@ named('CLI render 阳性合法关联字段按账号契约规范化', rr.ok && by
   named('CLI 待重评基础B后公开高风险仍降C保留候选', rk.ok && riskResult?.review_status === '待重评' &&
     riskResult?.fit === '⚠️' && riskResult?.tier === 'C' && riskResult?.account_assessment?.metrics?.audience_quality_risk?.value?.level === 'high' &&
     deniesFakeRate && deniesSales && !assertsFakeRate, '新导出或评审路径恢复基础B、高风险误删候选，或公开风险边界丢失')
-  criterion('U9.j')
+  reviewCliEntryCompleted.render = true
+})
+
+// 旧组名保留为完整入口：依赖六组全部跑完才认领 U9.j；读回器机械控制失败提前返回的组不算跑完。
+group('review-cli-entry', ['review-cli-entry-positive', 'review-cli-entry-reject', 'review-cli-entry-collect',
+  'review-cli-entry-enrich', 'review-cli-entry-collect-exit', 'review-cli-entry-render'], () => {
+  if (Object.values(reviewCliEntryCompleted).every(Boolean)) criterion('U9.j')
 })
 
 group('render-raw-memory', [], () => {
