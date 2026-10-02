@@ -10511,6 +10511,30 @@
       "by": "test", "kills": ["任务评审：写入失败保留旧文件及更新时间", "任务评审：失败未消费内容恢复路径后可重试"]
     },
     {
+      "id": "M-D21-ah", "req": "D21.b",
+      "why": "续跑读入已有 agent-review.json 时丢掉其中已保存的 Agent 评审，按累加器重建名单并保存后，已有判断从正本消失",
+      "file": "scripts/lib/task-reviews.ts",
+      "find": "  let pending = freeze(migrateLegacyAgentReviews(original, previousCreators), previousCreators, [], createdAt)",
+      "replace": "  let pending = freeze(migrateLegacyAgentReviews({ ...original, document: { ...original.document, reviews: {} } }, previousCreators), previousCreators, [], createdAt)",
+      "by": "selfcheck", "kills": ["CLI 正本无变化重复运行不改字节时间"]
+    },
+    {
+      "id": "M-D21-aj", "req": "D21.b",
+      "why": "续跑在正本缺席时不再从重建前的原名单保全旧兼容判断，fit、理由与草稿随累加器重建一起丢失",
+      "file": "scripts/lib/task-reviews.ts",
+      "find": "  let pending = freeze(migrateLegacyAgentReviews(original, previousCreators), previousCreators, [], createdAt)",
+      "replace": "  let pending = freeze(migrateLegacyAgentReviews(original, []), previousCreators, [], createdAt)",
+      "by": "selfcheck", "kills": ["CLI collect 旧兼容判断入正本且旧池新候选分轮", "CLI 缺raw旧目录只清seed派生字段且保全旧判断"]
+    },
+    {
+      "id": "M-D21-ai", "req": "D21.c",
+      "why": "render 重复交付不以评审正本重建投影，沿用上次名单里的过期判断定层级，正本已保存的证据与草稿没有进入交付",
+      "file": "scripts/render.ts",
+      "find": "  creators = reviews.project(mergeCrossPlatform(creators), relations, state.brand_calibration?.version)",
+      "replace": "  creators = mergeCrossPlatform(creators)",
+      "by": "selfcheck", "kills": ["CLI render 待重评基础B仍经过地域排除", "CLI 三格式转义占位符历史建议及数据边界保留"]
+    },
+    {
       "id": "M-D25-s", "req": "D25.b",
       "why": "人工展示回退先读取旧名单，再重建当前 Agent 判断，当前已评的明确采用建议未用于有效展示",
       "file": "scripts/lib/task-reviews.ts",
