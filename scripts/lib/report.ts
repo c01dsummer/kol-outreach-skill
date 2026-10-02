@@ -304,11 +304,14 @@ ${dual ? `<div class="card ${c.tier}" data-tier="${c.tier}"${c.effective_priorit
     : String(k.found)
   /** 入围／语义通过：`null` 是无从确认，印「—」；**不印 0** —— 那是把没测量说成零 */
   const countText = (n: unknown): string => n === null || n === undefined ? '—' : String(n)
+  // U11.m：旧调用未提供、来源未知和已查真零分别呈现。
+  const manualCountText = (n: unknown): string =>
+    n === undefined ? '未提供' : n === null ? '无从确认' : String(n)
   const kwRows = (meta.keywords ?? []).map((k: any) => `
     <tr><td>${esc(taskOrdinal(k.task_index))}</td><td>${esc(k.keyword)}</td>
         <td>${esc(k.platform ?? '未知')}</td><td>${esc(k.dimension)}</td>
         <td>${esc(foundText(k))}</td><td>${esc(countText(k.shortlisted))}</td>
-        <td>${esc(countText(k.fit_pass))}</td></tr>`).join('')
+        <td>${esc(countText(k.fit_pass))}</td><td>${esc(manualCountText(k.manual_reviewed))}</td></tr>`).join('')
 
   const notes: string[] = []
   const missingEmailVerification = meta.capabilities
@@ -369,6 +372,7 @@ h2{font-size:15px;margin:22px 0 10px;color:#94a3b8}
 table{width:100%;border-collapse:collapse;font-size:13px;background:#111827;border-radius:8px;overflow:hidden}
 th,td{padding:8px 12px;text-align:left;border-bottom:1px solid #1e293b}
 th{color:#64748b;font-weight:600;font-size:12px}
+.keyword-table{max-width:100%;overflow-x:auto}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
 .card{background:#111827;border:1px solid #1e293b;border-radius:10px;padding:14px}
 .card.A{border-left:3px solid #22c55e}.card.B{border-left:3px solid #f59e0b}.card.C{border-left:3px solid #475569}
@@ -432,10 +436,11 @@ ${renderCost(meta)}
 ${notes.length ? `<div class="notes">${notes.map(n => `<div>⚠️ ${esc(n)}</div>`).join('')}</div>` : ''}
 
 <h2>关键词表现</h2>
-<p class="sub">「找到」是供应商返回的条目数，「入围」是过完粉丝闸门与去重之后还在名单上的人 ——
-<strong>两个不是一个数，也不该相除</strong>（单位不同）。一次都没查过的词照样在表上，写着「未查询」。</p>
-<table><thead><tr><th>任务</th><th>关键词</th><th>平台</th><th>维度</th><th>找到</th><th>入围</th><th>语义通过</th></tr></thead>
-<tbody>${kwRows}</tbody></table>
+<p class="sub">「找到」是供应商返回条目；「入围」是当前交付人数，「语义通过」是入围中的原记录已标注通过数（生产按对应平台判断）；
+「人工已审」是全部冻结轮次的平台账号。多来源账号在各任务行分别计入，<strong>各行合计不是独立人数，条目与人数也不该相除</strong>。
+语义通过不是准确率或最新合格性。一次都没查过的词照样在表上，写着「未查询」。</p>
+<div class="keyword-table"><table><thead><tr><th>任务</th><th>关键词</th><th>平台</th><th>维度</th><th>找到</th><th>入围</th><th>语义通过</th><th>人工已审（冻结账号）</th></tr></thead>
+<tbody>${kwRows}</tbody></table></div>
 
 ${renderFeedbackSummary(meta.feedback_summary, meta.review_rounds)}
 

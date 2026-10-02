@@ -217,7 +217,15 @@ renderHtml(creators, meta, { mode: 'review', filters: 'dual' })
 
 汇总与轮次快照独立拥有输出，不修改 Agent、人工原行、当前投影、冻结池、raw 或 memory，不请求或生成模板。formatter 不读盘、不写人工或 memory、不计算统计；HTML 只在输出处转义和展示。无论旧公共单层视图还是新双筛选视图，只要提供统计就展示，不由 `mode` 或 `filters` 开关决定。公共报告未提供统计时明示“人工审核统计未提供”，不能印出貌似已测的零。
 
-本次只启用上述人工审核汇总；关键词的人工审核归因（U11.c）尚未启用，现有关键词表不新增该统计。
+### 关键词人工归因（U11.c/k–m）
+
+`keywords[].manual_reviewed` 是该来源任务的人工已审冻结平台账号数，按原 `task_index` 和平台匹配冻结 `source_tasks`，覆盖全部冻结轮次。不同任务下标即使词、平台、维度相同也不合并；多来源账号各行分别计一次，各行合计不是独立人数。计数使用 U11.e 的七个人工原字段，不读取投影、关联平台或 Agent 答案，联系过滤和当前名单缩小不改变历史池。
+
+本平台任一冻结来源为 null 时，该平台各任务人工人数均为 null，其他平台仍可确定；当前来源未知只影响原入围/语义通过，不抹掉来源完整的人工归因。未查询或状态未知的任务人工数为 null；已查询且本平台冻结来源完整才可给真零。HTML 单独列“人工已审（冻结账号）”，缺字段为“未提供”、null 为“无从确认”、真零为“0”，位于候选筛选之外。
+
+生产 `fit_pass` 读取当前入围中对应平台账号 Agent 原 `fit=✅`，可查合法同平台别名，不能把主平台判断借给关联平台，也不能从人工、新合格性或有效建议补 fit。这是原记录已标注通过数，不是最新合格性或准确率。`keywordRows` 第三参 `{document,feedback}` 必须是既有完整校验后的评审上下文；两参公共调用保留旧形状与兼容计数，不新增人工字段。
+
+供应商“找到”仍为条目数，入围/语义通过是当前交付，人工已审是历史冻结平台账号；人数可能不同，不相除。仅处理单个任务目录，不将不同目录的裸 task_index 混用。归因只读原输入，HTML 不读盘重算；既有汇总和完整轮次保持。
 
 ## HTML 报告
 
@@ -230,7 +238,7 @@ renderHtml(creators, meta, { mode: 'review', filters: 'dual' })
   每行先列任务序号（原 task_index 加一）；缺失或非法下标显示「无从确认」，不按显示位置猜补。
   序号不是查询或命中数；as_hashtag 不渲染成实际路径声明（U8）。
   每行列「找到」（供应商返回的**条目数**）、「入围」（过完粉丝闸门与去重之后还在名单上的**人数**）、
-  「语义通过」。**「找到」与「入围」不是一个数、也不相除** —— 单位不同，所以没有「命中率」这一列。
+  「语义通过」及历史池的「人工已审（冻结账号）」。**「找到」与「入围」不是一个数、也不相除** —— 单位不同，所以没有「命中率」这一列。
   「找到」那一格四态可分：`N` / `0`（量出来的零）/ `未查询`（从未发出过搜索请求）/
   `无从确认`（旧目录，连记录都没有）；另有 `未知` ＝问过、而那一次的条数没记下来。
   **没查过的行不带任何看起来像测量值的数**（P5.i）—— **这是下次调整策略的依据**
@@ -262,9 +270,9 @@ renderHtml(creators, meta, { mode: 'review', filters: 'dual' })
   "platforms": ["tiktok", "instagram"],
   "keywords": [
     { "task_index": 0, "keyword": "anker power bank", "dimension": "competitor", "platform": "tiktok",
-      "status": "queried", "found": 42, "shortlisted": 12, "fit_pass": 9 },
+      "status": "queried", "found": 42, "shortlisted": 12, "fit_pass": 9, "manual_reviewed": 8 },
     { "task_index": 1, "keyword": "portable charger", "dimension": "category", "platform": "instagram",
-      "status": "unqueried", "found": null, "shortlisted": null, "fit_pass": null }
+      "status": "unqueried", "found": null, "shortlisted": null, "fit_pass": null, "manual_reviewed": null }
   ],
   "total": 187,
   "tiers": { "A": 23, "B": 61, "C": 103 },
@@ -285,7 +293,7 @@ renderHtml(creators, meta, { mode: 'review', filters: 'dual' })
 }
 ```
 
-`keywords[].fit_pass` 记的是语义判断通过数 —— 跨任务累积后能看出哪些维度对这个品类真正有效。
+`keywords[].fit_pass` 记对应平台原记录已标注通过数，人工已审另列；这些计数不能单独证明某维度有效。
 
 `enriched` 是兼容旧消费者的字段，只代表外部邮箱/受众增强；运行公开指标后仍为 false。
 新代码应读取 `capabilities`，不要再用一个布尔推断所有数据能力。

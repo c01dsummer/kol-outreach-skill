@@ -9,7 +9,8 @@ import {
 import { filterByMemory, type MemoryStatus } from './memory.js'
 import { sortForOutput } from './rows.js'
 import { costView } from './budget.js'
-import { normalizedAccountKey } from './review.js'
+import { normalizedAccountKey, type AgentReviewDocument } from './review.js'
+import type { ManualFeedbackRow } from './manual-feedback.js'
 
 /*
  * 入口脚本里不该有决策逻辑。
@@ -460,13 +461,40 @@ export interface KeywordRow {
   shortlisted: number | null
   /** 入围里语义通过的；无从确认时为 `null` */
   fit_pass: number | null
+  /** U11.k：全部冻结平台账号自身已审；缺席为旧公共调用，null 为无从确认。 */
+  manual_reviewed?: number | null
+}
+
+export interface KeywordReviewContext {
+  document: AgentReviewDocument
+  feedback: readonly ManualFeedbackRow[]
 }
 
 /**
  * ⚠️ `state` 给顺序与身份，`delivered` 给入围 —— **两个来源缺一不可**。
  * 只拿 `delivered` 反推就回到了上面说的那个洞；只拿 `state` 则数不出入围。
  */
-export function keywordRows(state: TaskState, delivered: Creator[]): KeywordRow[] {
+export function keywordRows(
+  state: TaskState, delivered: Creator[], review?: KeywordReviewContext,
+): KeywordRow[] {
+  // U11.c/k/l：正本与原人工行已由协调器校验；两个统计各自拥有来源完整性。
+  const passedAccounts = new Set(review === undefined ? [] : Object.values(review.document.reviews)
+    .filter(agent => agent.fit === '✅').flatMap(agent => agent.account_keys))
+  const frozen = review === undefined ? [] : review.document.rounds.flatMap(round => round.candidates)
+  const unknownPlatforms = new Set(frozen.filter(candidate => candidate.source_tasks === null)
+    .map(candidate => candidate.account_key.split(':')[0]))
+  const reviewedAccounts = new Set(review?.feedback.filter(row =>
+    (['manual_eligible', 'manual_adopted', 'manual_content_fit', 'manual_engagement',
+      'manual_comment_authenticity', 'manual_reject_reason'] as const).some(field => row[field] !== undefined)
+    || row.manual_note.trim() !== '').map(row => row.account_key))
+  const platformFit = (creator: Creator, platform: Platform): boolean => {
+    const direct = canonicalReviewLinks([creator])[0]
+    try {
+      const primary = normalizedAccountKey(direct.platform, direct.handle)
+      const key = primary.startsWith(`${platform}:`) ? primary : direct.linked_handle
+      return key !== undefined && key.startsWith(`${platform}:`) && passedAccounts.has(key)
+    } catch { return false }
+  }
   // **归人算不算得准，是整张名单的属性，不是某一行的。** 只要有一个人的来源任务
   // 缺席、为空或含无效下标，整张表的入围与语义通过人数就无从确认，不能印确定为假的 0。
   // 查询状态和搜索返回条数仍由任务记录决定，不受名单来源缺失影响。
@@ -498,7 +526,14 @@ export function keywordRows(state: TaskState, delivered: Creator[]): KeywordRow[
       // 抛在记条数之前」：那一页一个人都没入库，前几页成功采到的人身上下标一个不少。
       // 绑着的后果是把一个**确知**的入围数抹成「无从确认」（独立复核实测：真值 3，印「—」）。
       shortlisted: counted ? mine.length : null,
-      fit_pass: counted ? mine.filter(c => c.fit === '✅').length : null,
+      fit_pass: counted ? mine.filter(c => review === undefined
+        ? c.fit === '✅' : platformFit(c, t.platform)).length : null,
+      ...(review === undefined ? {} : {
+        manual_reviewed: status !== 'queried' || unknownPlatforms.has(t.platform) ? null
+          : frozen.filter(candidate => candidate.account_key.startsWith(`${t.platform}:`) &&
+            reviewedAccounts.has(candidate.account_key) && candidate.source_tasks?.some(source =>
+              source.task_index === i && source.platform === t.platform)).length,
+      }),
     }
   })
 }

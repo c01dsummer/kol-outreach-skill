@@ -11250,6 +11250,174 @@
       "kills": [
         "U11真实HTML呈现独立分母真实零和不可计算"
       ]
+    },
+    {
+      "id": "M-U11-n",
+      "req": "U11.l",
+      "why": "提供正本仍用主卡片兼容fit，关联平台和缓存判断串入本平台语义通过。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "? c.fit === '✅' : platformFit(c, t.platform)",
+      "replace": "? c.fit === '✅' : c.fit === '✅'",
+      "by": "test",
+      "kills": [
+        "U11关键词语义通过只取原平台fit含同平台别名"
+      ]
+    },
+    {
+      "id": "M-U11-o",
+      "req": "U11.l",
+      "why": "只认原记录首个账号键，合法同平台别名已有fit被漏报。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": ".flatMap(agent => agent.account_keys)",
+      "replace": ".flatMap(agent => agent.account_keys.slice(0, 1))",
+      "by": "test",
+      "kills": [
+        "U11关键词语义通过只取原平台fit含同平台别名"
+      ]
+    },
+    {
+      "id": "M-U11-p",
+      "req": "U11.c",
+      "why": "人工来源退回按词，完全相同词与平台的不同原任务混入同一批冻结账号。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "source.task_index === i && source.platform === t.platform",
+      "replace": "source.keyword === t.keyword && source.platform === t.platform",
+      "by": "test",
+      "kills": [
+        "U11关键词七原字段已审历史来源多任务归因"
+      ]
+    },
+    {
+      "id": "M-U11-q",
+      "req": "U11.c",
+      "why": "人工归因只取冻结首个来源，多来源账号第二个任务少报已审。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "candidate.source_tasks?.some(source =>",
+      "replace": "candidate.source_tasks?.slice(0, 1).some(source =>",
+      "by": "test",
+      "kills": [
+        "U11关键词七原字段已审历史来源多任务归因"
+      ]
+    },
+    {
+      "id": "M-U11-r",
+      "req": "U11.k",
+      "why": "已审只看eligible，显式unknown、等级、原因与备注等独立作答被漏计。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    (['manual_eligible', 'manual_adopted', 'manual_content_fit', 'manual_engagement',\n      'manual_comment_authenticity', 'manual_reject_reason'] as const).some(field => row[field] !== undefined)\n    || row.manual_note.trim() !== ''",
+      "replace": "    row.manual_eligible !== undefined",
+      "by": "test",
+      "kills": [
+        "U11关键词七原字段已审历史来源多任务归因"
+      ]
+    },
+    {
+      "id": "M-U11-s",
+      "req": "U11.k",
+      "why": "纯空白备注被当成已审，且关联IG的空格原行不再保持未评。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "    || row.manual_note.trim() !== '').map(row => row.account_key))",
+      "replace": "    || row.manual_note !== '').map(row => row.account_key))",
+      "by": "test",
+      "kills": [
+        "U11关键词七原字段已审历史来源多任务归因"
+      ]
+    },
+    {
+      "id": "M-U11-t",
+      "req": "U11.k",
+      "why": "冻结人工池缩到当前交付账号，空当前名单把历史已审抹成零。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": ": frozen.filter(candidate => candidate.account_key.startsWith",
+      "replace": ": frozen.filter(candidate => delivered.some(c => `${c.platform}:${c.handle}` === candidate.account_key)).filter(candidate => candidate.account_key.startsWith",
+      "by": "test",
+      "kills": [
+        "U11关键词当前名单为空仍保留全部冻结已审"
+      ]
+    },
+    {
+      "id": "M-U11-u",
+      "req": "U11.k",
+      "why": "冻结来源未知不再阻止确定人工数，未知任务被伪报成零或完整部分数。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "unknownPlatforms.has(t.platform) ? null",
+      "replace": "false ? null",
+      "by": "test",
+      "kills": [
+        "U11关键词冻结未知仅污染自身平台人工数"
+      ]
+    },
+    {
+      "id": "M-U11-v",
+      "req": "U11.k",
+      "why": "冻结未知跨平台传播，TT未知来源抹掉来源完整IG人工数。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "unknownPlatforms.has(t.platform) ? null",
+      "replace": "unknownPlatforms.size > 0 ? null",
+      "by": "test",
+      "kills": [
+        "U11关键词冻结未知仅污染自身平台人工数"
+      ]
+    },
+    {
+      "id": "M-U11-w",
+      "req": "U11.k",
+      "why": "没有查询痕迹也输出冻结人工计数，由人工作答补出似已测的数。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "status !== 'queried' || unknownPlatforms.has(t.platform) ? null",
+      "replace": "unknownPlatforms.has(t.platform) ? null",
+      "by": "test",
+      "kills": [
+        "U11关键词查询痕迹缺席不从人工作答补测量数"
+      ]
+    },
+    {
+      "id": "M-U11-x",
+      "req": "U11.k",
+      "why": "当前名单来源未知覆盖来源完整的历史人工归因，混同两个不同统计池。",
+      "file": "scripts/lib/pipeline.ts",
+      "find": "manual_reviewed: status !== 'queried' ||",
+      "replace": "manual_reviewed: !attributable || status !== 'queried' ||",
+      "by": "test",
+      "kills": [
+        "U11关键词当前来源未知不抹冻结人工归因"
+      ]
+    },
+    {
+      "id": "M-U11-y",
+      "req": "U11.m",
+      "why": "生产入口未传已校验评审上下文，metadata仍无人工归因且fit串用主平台。",
+      "file": "scripts/render.ts",
+      "find": "keywords: keywordRows(state, creators, { document: reviewDocument, feedback: reviewFeedback }),",
+      "replace": "keywords: keywordRows(state, creators),",
+      "by": "test",
+      "kills": [
+        "U11关键词真实入口meta原任务条目当前fit冻结人工一致"
+      ]
+    },
+    {
+      "id": "M-U11-z",
+      "req": "U11.m",
+      "why": "HTML把未提供与未知人工数补成零，用户无法区分未测与真零。",
+      "file": "scripts/lib/report.ts",
+      "find": "    n === undefined ? '未提供' : n === null ? '无从确认' : String(n)",
+      "replace": "    n === undefined || n === null ? '0' : String(n)",
+      "by": "test",
+      "kills": [
+        "U11关键词公共HTML独立人工列保留零未知缺席"
+      ]
+    },
+    {
+      "id": "M-U11-aa",
+      "req": "U11.m",
+      "why": "关键词维度单元格为空，完整表头仍在但原任务身份无法逐行复核。",
+      "file": "scripts/lib/report.ts",
+      "find": "<td>${esc(k.dimension)}</td>",
+      "replace": "<td></td>",
+      "by": "test",
+      "kills": [
+        "U11关键词公共HTML每行原身份含平台维度不丢不串"
+      ]
     }
   ],
   "exemptions": [
