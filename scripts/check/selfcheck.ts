@@ -17,24 +17,29 @@
  * 无条件的「两种都没有的就报错」开了**两处例外**：子集跑不判孤儿，也不碰入口认领。
  * 缩掉的面由运行时那两行照实打出来（ADR-77 的先例），这里不假装没缩。
  *
+ * 不带 `--only` 的完整跑（非变异）默认拆成多个子进程（ADR-132）：本进程按 `needs` 把组并成族，
+ * 每个子进程用 `--only` 跑一整族，跑完交回回报；本进程合并之后，孤儿检查、汇总与入口认领照上面
+ * 的规矩走，与单进程整跑同一段收尾。`SELFCHECK_JOBS=1` 照旧单进程；子集跑与变异跑从来不拆。
+ *
  * 死亡条件记在 ADR-85:一身三半,三半的答案不一样,所以没有整道的那一份。
  */
 import {
-  chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, lstatSync, symlinkSync, utimesSync, realpathSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync,
+  chmodSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, lstatSync, symlinkSync, utimesSync, realpathSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync, openSync,
 } from 'node:fs'
-import { spawnSync } from 'node:child_process'
-import { tmpdir } from 'node:os'
+import { spawn, spawnSync } from 'node:child_process'
+import { availableParallelism, tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { createRequire as entrySelfcheckCreateRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
 import { isDeepStrictEqual } from 'node:util'
-import { tsxCommand } from './tsx-cmd.js'
+import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
 import {
   ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, sourceFiles,
 } from './claims.js'
 import { type Group, parseOnlyStrict, wanted } from './group-rule.js'
+import { type ShardRun, families, mergeShards, readShardReport, shardJobs } from './group-rule.js'
 import { writeFileAtomic } from '../lib/atomic.js'
 import {
   SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS,
@@ -62,6 +67,10 @@ const criterion = (...ids: string[]): void => { for (const id of ids) claimed.ad
 const mutating = process.env.MUTATING === '1'
 const onlyIds = parseOnlyStrict(process.argv.slice(2))
 const subset = onlyIds !== undefined
+// 完整跑拆成多个子进程时（ADR-132），父进程把回报落点交给子进程。读完就从本进程的环境里摘掉：
+// 本文件有几组会再起一次自检入口当夹具，继承了它就会把回报写到同一处、盖掉真正那一份。
+const shardReportPath = process.env.SELFCHECK_SHARD_REPORT
+delete process.env.SELFCHECK_SHARD_REPORT
 // **子集跑既不删也不写入口认领。** `claimed` 只装这一跑真跑到的那几条判据，
 // 写回去等于拿残缺的记录盖掉完整的，而审计读的就是这份文件（它会报一批
 // 「没有认领」）。删了不写更糟：审计连文件都读不到。所以子集跑按变异跑那一侧走。
@@ -81,6 +90,8 @@ process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
 const env = {
   ...process.env,
   TIKHUB_API_KEY: 'fake-key-for-selfcheck',
+  // 与变异那一步共用一份编译缓存：检查链里它先跑，这里起的几百个进程直接命中（ADR-132）
+  NODE_COMPILE_CACHE: compileCacheDir(),
   NODE_OPTIONS: `--import ${JSON.stringify(pathToFileURL(resolve('scripts', SELFCHECK_PRELOAD)).href)}`,
 }
 
@@ -449,6 +460,48 @@ const runGroups = (): Set<string> | undefined => {
   }
   for (const g of REGISTERED) if (pick === undefined || pick.has(g.id)) g.fn()
   return pick
+}
+
+/**
+ * 完整、非变异的整跑拆成多个子进程（ADR-132）。**本进程一组也不跑**：按族派给子进程，
+ * 每个子进程用现有的 `--only` 跑一整族（族内同进程、按登记顺序，与单进程整跑一样），
+ * 跑完各自交回回报；合并之后把失败数、认领、出处并进本进程，后面的收尾一字不改。
+ *
+ * 派工是队列：谁空了领下一族，不靠写死的耗时表（那种表会烂，ADR-77）。各族的输出
+ * 先落盘，再按族的登记顺序整段转出，不交错。合并是判定，在 `group-rule.ts`。
+ */
+const runShards = async (jobs: number): Promise<void> => {
+  const fams = families(REGISTERED)
+  console.log(`[拆成 ${jobs} 个子进程跑 ${fams.length} 族，各族输出按登记顺序整段转出]\n`)
+  const shardDir = mkdtempSync(join(tmp, 'shards-'))
+  const runs: ShardRun[] = [], logs: string[] = []
+  let next = 0, printed = 0
+  const one = (i: number) => new Promise<void>(done => {
+    const report = join(shardDir, `${i}.json`), out = join(shardDir, `${i}.log`), fd = openSync(out, 'w')
+    const [exe, args] = tsxCommand([resolve('scripts/check/selfcheck.ts'), `--only=${fams[i].join(',')}`])
+    let settled = false
+    const settle = (status: number | null, signal: string | null) => {
+      if (settled) return
+      settled = true
+      closeSync(fd)
+      let text: string | undefined
+      try { text = readFileSync(report, 'utf8') } catch { /* 没写出来：下面按没交回结果算 */ }
+      runs[i] = { family: fams[i], status, signal, report: text === undefined ? undefined : readShardReport(text) }
+      logs[i] = readFileSync(out, 'utf8')
+      for (; printed < fams.length && runs[printed] !== undefined; printed++) process.stdout.write(logs[printed])
+      done()
+    }
+    const kid = spawn(exe, args, { stdio: ['ignore', fd, fd],
+      env: { ...process.env, SELFCHECK_SHARD_REPORT: report, NODE_COMPILE_CACHE: env.NODE_COMPILE_CACHE } })
+    kid.on('error', () => settle(null, null))
+    kid.on('close', (status, signal) => settle(status, signal))
+  })
+  await Promise.all(Array.from({ length: jobs }, async () => { while (next < fams.length) await one(next++) }))
+  const merged = mergeShards(runs, REGISTERED.map(g => g.id))
+  for (const p of merged.problems) console.error(`  ✗ 拆进程跑${SELFCHECK_PROCESS_MARK}：${p}`)
+  failed += merged.failed
+  for (const c of merged.claimed) claimed.add(c)
+  for (const c of merged.covered) covered.add(c)
 }
 
 // ---- probe：双平台 + hashtag + 关键词搜索 ----
@@ -7513,17 +7566,29 @@ fs.writeFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json','controll
   named('模板入口-零外部请求', allRequestChecks.length > 0 && allRequestChecks.every(x => x.ok), 'D26.q: 真实请求记录的案例=' + allRequestChecks.filter(x => !x.ok).map(x => x.label).join(',')); criterion('D26.q');
 });
 
-const ranOnly = runGroups()
+// 拆不拆、拆几个是判定（`shardJobs`）：只有完整、非变异的整跑才拆；`SELFCHECK_JOBS=1` 照旧单进程。
+const shardCount = shardJobs({ subset, mutating, env: process.env.SELFCHECK_JOBS,
+  cpus: availableParallelism(), families: families(REGISTERED).length })
+if (shardCount === undefined) {
+  console.error(`✗ 脚本自检：SELFCHECK_JOBS=${process.env.SELFCHECK_JOBS} 说不清要拆几个进程（要正整数）`)
+  process.exit(2)
+}
+let ranOnly: Set<string> | undefined
+if (shardCount > 1) await runShards(shardCount)
+else ranOnly = runGroups()
 
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m
 const briefNone = /^\s*⊘\s+\[[^\]]+\]\s+名下无变异/m
-const brief = runToolBoth('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'], bothTmp)
-if (brief.ok && !briefLead.test(brief.stdout)) {
-  failed++
-  console.error('  ✗ --brief 的豁免行没有随负片改口 —— 那句写死的「无变异」又回来了')
-} else if (brief.ok && !briefNone.test(brief.stdout)) {
-  failed++
-  console.error('  ✗ --brief 里名下没有变异的那条没这么说')
+// 拆进程跑时这一条只由父进程跑一次（它不属于任何一组，各子进程都跑就是重复几十遍）
+if (shardReportPath === undefined) {
+  const brief = runToolBoth('mutate --brief（变异清单，不跑变异）', 'mutate', ['--brief'], bothTmp)
+  if (brief.ok && !briefLead.test(brief.stdout)) {
+    failed++
+    console.error('  ✗ --brief 的豁免行没有随负片改口 —— 那句写死的「无变异」又回来了')
+  } else if (brief.ok && !briefNone.test(brief.stdout)) {
+    failed++
+    console.error('  ✗ --brief 里名下没有变异的那条没这么说')
+  }
 }
 
 rmSync(tmp, { recursive: true, force: true })
@@ -7622,4 +7687,12 @@ if (!subset && claimsPublishable(mutating, failed, startHash, fingerprint(source
     criteria: [...claimed].sort(),
     tensions: [],
   }, null, 2)}\n`)
+}
+
+// 拆进程跑的子进程：把这一跑交回给父进程（ADR-132）。只在子集跑里写 —— 子进程拿到的总是 `--only`。
+// 写在最后，失败数已经数完；崩在半路就写不出来，父进程据此按「没交回结果」算。
+if (shardReportPath !== undefined && ranOnly !== undefined) {
+  writeFileAtomic(shardReportPath, JSON.stringify({
+    groups: [...ranOnly], failed, claimed: [...claimed].sort(), covered: [...covered].sort(),
+  }))
 }

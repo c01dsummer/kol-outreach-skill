@@ -57,7 +57,7 @@ import {
 import {
   INTERRUPTS, beginMutation, claimsRestoreAction, onInterrupt, restoreMutation, stopJobs, trackTest,
 } from './mutate-restore.js'
-import { tsxCommand } from './tsx-cmd.js'
+import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
 import { infraClosure, selfVerifying } from './verifier-rule.js'
 
 // 观察不参与检查判定；普通收尾的人读行与机器段共用这一份原料。
@@ -303,7 +303,7 @@ if (process.argv.includes('--brief')) {
  *
  * 认已有的值：外面已经指了一份就用那份，不覆盖人家的安排。
  */
-const NODE_COMPILE_CACHE = process.env.NODE_COMPILE_CACHE ?? resolve('.check-cache/compile-cache')
+const NODE_COMPILE_CACHE = compileCacheDir()
 
 const survived: Mut[] = []
 const elsewhere: Mut[] = []

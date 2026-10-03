@@ -27,7 +27,7 @@ import {
   groupOfLabel, labelsOf, leadWired, processFailed, wiringFault,
   anchorMatches, baselineFault,
 } from './check/mutate-rule.js'
-import { type Group, parseOnly, parseOnlyStrict, wanted } from './check/group-rule.js'
+import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, wanted } from './check/group-rule.js'
 import {
   beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
@@ -8096,6 +8096,100 @@ harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 n
   const selfGrouped = groupOfLabel(selfSrc, selfDecl)
   eq('真 selfcheck.ts：清册里的每条标签都翻得出组，一条不落',
     [...labelsOf(selfSrc, selfDecl).keys()].filter(l => selfGrouped.get(l) === undefined), [])
+}
+harness('独立自检拆进程：needs 连起来的成一族、族内同进程；子进程交回的结果合并后才算数')
+{
+  const rejected = (run: () => unknown): string => {
+    try { run(); return '没有拒绝' } catch (e) { return e instanceof Error ? e.message : String(e) }
+  }
+  // 族按 needs 连通、不分方向：共用一个前置组的两组也在同一族，否则那个前置组要在两个进程里各跑一遍，
+  // 而两份运行态互不相通。族内按登记顺序，族按首个成员的登记位置排。
+  const R = [
+    { id: 'a', needs: [] }, { id: '独立', needs: [] }, { id: 'b', needs: ['a'] }, { id: 'c', needs: ['b'] },
+    { id: '先登记', needs: ['后登记'] }, { id: '后登记', needs: [] },
+    { id: '左', needs: ['底'] }, { id: '底', needs: [] }, { id: '右', needs: ['底'] },
+  ]
+  eq('needs 连起来的成一族，族内按登记顺序，族按首个成员排',
+    families(R), [['a', 'b', 'c'], ['独立'], ['先登记', '后登记'], ['左', '底', '右']])
+  eq('每组恰好落在一族', families(R).flat().sort(), R.map(g => g.id).sort())
+  eq('没有 needs 的各自成族', families([{ id: 'x', needs: [] }, { id: 'y', needs: [] }]), [['x'], ['y']])
+  ok('族划分拒绝缺失依赖并点名两端',
+    rejected(() => families([{ id: 'r', needs: ['missing'] }])).includes('组 r 缺少依赖组 missing'))
+  ok('族划分拒绝重复登记 id',
+    rejected(() => families([{ id: 's', needs: [] }, { id: 's', needs: [] }])).includes('id 重复'))
+
+  // 只有完整、非变异的那一跑才拆：变异那一步的验证者靠单进程输出判「见齐就停」
+  const full = { subset: false, mutating: false, env: undefined, cpus: 4, families: 47 }
+  eq('完整跑按核数拆', shardJobs(full), 4)
+  eq('子集跑不拆', shardJobs({ ...full, subset: true }), 1)
+  eq('变异跑不拆', shardJobs({ ...full, mutating: true }), 1)
+  eq('族比核少，按族数收口', shardJobs({ ...full, cpus: 8, families: 3 }), 3)
+  eq('单核机器照旧单进程', shardJobs({ ...full, cpus: 1 }), 1)
+  eq('环境变量要一个：照旧单进程', shardJobs({ ...full, env: '1' }), 1)
+  eq('环境变量读不出来：说不清要几个', shardJobs({ ...full, env: 'abc' }), undefined)
+  eq('子集跑不看拆进程的环境变量', shardJobs({ ...full, subset: true, env: 'abc' }), 1)
+
+  const all = ['a', 'b', 'c', '独立']
+  const fam = [['a', 'b', 'c'], ['独立']]
+  const rep = (groups: string[], failed: number, claimed: string[] = [], covered: string[] = []) =>
+    ({ groups, failed, claimed, covered })
+  const green = mergeShards([
+    { family: fam[0], status: 0, signal: null, report: rep(['a', 'b', 'c'], 0, ['X1.b', 'X1.a'], ['scripts/x.ts']) },
+    { family: fam[1], status: 0, signal: null, report: rep(['独立'], 0, ['X1.a'], ['scripts/y.ts', 'scripts/x.ts']) },
+  ], all)
+  eq('子进程全绿：零失败、没有问题', [green.failed, green.problems], [0, []])
+  eq('认领取各子进程的并集，去重排序', green.claimed, ['X1.a', 'X1.b'])
+  eq('出处取各子进程的并集，去重排序', green.covered, ['scripts/x.ts', 'scripts/y.ts'])
+  const red = mergeShards([
+    { family: fam[0], status: 1, signal: null, report: rep(['a', 'b', 'c'], 2) },
+    { family: fam[1], status: 1, signal: null, report: rep(['独立'], 1) },
+  ], all)
+  eq('各子进程的断言失败数相加，断言红不算进程问题', [red.failed, red.problems], [3, []])
+  const crashed = mergeShards([
+    { family: fam[0], status: null, signal: 'SIGKILL' },
+    { family: fam[1], status: 0, signal: null, report: rep(['独立'], 0) },
+  ], all)
+  eq('子进程没交回结果：算一处失败，不因它那族的组没报回来再重复计', crashed.failed, 1)
+  ok('子进程没交回结果：点出是哪一族、怎么结束的',
+    crashed.problems.length === 1 && crashed.problems[0].includes('a') && crashed.problems[0].includes('SIGKILL'))
+  const liar = mergeShards([
+    { family: fam[0], status: 1, signal: null, report: rep(['a', 'b', 'c'], 0) },
+    { family: fam[1], status: 0, signal: null, report: rep(['独立'], 0) },
+  ], all)
+  ok('报告全绿而退出码非零：算一处进程问题并点名那一族',
+    liar.failed === 1 && liar.problems.length === 1 && liar.problems[0].includes('a'))
+  const hush = mergeShards([
+    { family: fam[0], status: 0, signal: null, report: rep(['a', 'b', 'c'], 2) },
+    { family: fam[1], status: 0, signal: null, report: rep(['独立'], 0) },
+  ], all)
+  eq('报告有失败而退出码为零：失败照算，另记一处进程问题', [hush.failed, hush.problems.length], [3, 1])
+  const short = mergeShards([
+    { family: fam[0], status: 0, signal: null, report: rep(['a', 'b'], 0) },
+    { family: fam[1], status: 0, signal: null, report: rep(['独立'], 0) },
+  ], all)
+  ok('子进程跑的组与派给它的那族对不上：点出缺的那组',
+    short.failed === 1 && short.problems.length === 1 && short.problems[0].includes('c'))
+  const unplanned = mergeShards([
+    { family: fam[0], status: 0, signal: null, report: rep(['a', 'b', 'c'], 0) },
+  ], all)
+  ok('有组没派给任何子进程：点出那组',
+    unplanned.failed === 1 && unplanned.problems.length === 1 && unplanned.problems[0].includes('独立'))
+  const twice = mergeShards([
+    { family: fam[0], status: 0, signal: null, report: rep(['a', 'b', 'c'], 0) },
+    { family: ['c', '独立'], status: 0, signal: null, report: rep(['c', '独立'], 0) },
+  ], all)
+  ok('同一组派给了两个子进程：点出那组',
+    twice.failed === 1 && twice.problems.length === 1 && twice.problems[0].includes('c'))
+  // 子进程写回的那份读不出来，就是没交回结果 —— 不能半截读进去、更不能当成零失败
+  const text = JSON.stringify({ groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'] })
+  eq('读得出的回报原样交回', readShardReport(text),
+    { groups: ['a'], failed: 0, claimed: ['X1.a'], covered: ['scripts/x.ts'] })
+  eq('写了一半的回报读不出', readShardReport(text.slice(0, -3)), undefined)
+  eq('失败数不是非负整数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: -1, claimed: [], covered: [] })), undefined)
+  eq('失败数是小数读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0.5, claimed: [], covered: [] })), undefined)
+  eq('缺一栏读不出', readShardReport(JSON.stringify({ groups: ['a'], failed: 0, claimed: [] })), undefined)
+  eq('组名不是字符串读不出', readShardReport(JSON.stringify({ groups: [1], failed: 0, claimed: [], covered: [] })), undefined)
+  eq('根不是对象读不出', readShardReport('[]'), undefined)
 }
 
 })
