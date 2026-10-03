@@ -480,21 +480,26 @@ const runShards = async (jobs: number): Promise<void> => {
     const report = join(shardDir, `${i}.json`), out = join(shardDir, `${i}.log`), fd = openSync(out, 'w')
     const [exe, args] = tsxCommand([resolve('scripts/check/selfcheck.ts'), `--only=${fams[i].join(',')}`])
     let settled = false
-    const settle = (status: number | null, signal: string | null) => {
+    const settle = (status: number | null, signal: string | null, error?: string) => {
       if (settled) return
       settled = true
       closeSync(fd)
       let text: string | undefined
       try { text = readFileSync(report, 'utf8') } catch { /* 没写出来：下面按没交回结果算 */ }
-      runs[i] = { family: fams[i], status, signal, report: text === undefined ? undefined : readShardReport(text) }
+      runs[i] = { family: fams[i], status, signal, error, report: text === undefined ? undefined : readShardReport(text) }
       logs[i] = readFileSync(out, 'utf8')
       for (; printed < fams.length && runs[printed] !== undefined; printed++) process.stdout.write(logs[printed])
       done()
     }
-    const kid = spawn(exe, args, { stdio: ['ignore', fd, fd],
-      env: { ...process.env, SELFCHECK_SHARD_REPORT: report, NODE_COMPILE_CACHE: env.NODE_COMPILE_CACHE } })
-    kid.on('error', () => settle(null, null))
-    kid.on('close', (status, signal) => settle(status, signal))
+    // 起不来时 Node 给原因有两条路（ADR-72）：有的 errno 同步抛，其余只发 `error` 事件（资源
+    // 不够那一种也走事件；这里不接管道，不必另问 `noStdio`）。两条都把原因交给合并、报成
+    // 「没起来」—— 混进「没交回结果」的话，人会去翻那份空的子进程输出
+    try {
+      const kid = spawn(exe, args, { stdio: ['ignore', fd, fd],
+        env: { ...process.env, SELFCHECK_SHARD_REPORT: report, NODE_COMPILE_CACHE: env.NODE_COMPILE_CACHE } })
+      kid.on('error', e => settle(null, null, e.message))
+      kid.on('close', (status, signal) => settle(status, signal))
+    } catch (e) { settle(null, null, e instanceof Error ? e.message : String(e)) }
   })
   await Promise.all(Array.from({ length: jobs }, async () => { while (next < fams.length) await one(next++) }))
   const merged = mergeShards(runs, REGISTERED.map(g => g.id))

@@ -127,18 +127,24 @@ export function shardJobs(o: {
 
 /** 子进程跑完交回给父进程的那一份：它跑了哪几组、红了几处、认领了什么、执行过哪些脚本 */
 export interface ShardReport { groups: string[]; failed: number; claimed: string[]; covered: string[] }
-/** 父进程手上的一条派工记录。`report` 缺席 = 子进程没交回结果（崩了、被杀、写不出来） */
-export interface ShardRun { family: readonly string[]; status: number | null; signal: string | null; report?: ShardReport }
+/**
+ * 父进程手上的一条派工记录。`report` 缺席 = 子进程没交回结果（崩了、被杀、写不出来）；
+ * `error` = 子进程**根本没起来**，带的是 Node 交回的原因（命令不在、资源不够）
+ */
+export interface ShardRun {
+  family: readonly string[]; status: number | null; signal: string | null; error?: string; report?: ShardReport
+}
 export interface ShardMerge { failed: number; claimed: string[]; covered: string[]; problems: string[] }
 
 /**
  * 把各子进程交回的结果合成一次完整跑的结论。**合并之后才算数** —— 父进程据此打汇总、
  * 判孤儿、决定写不写入口认领，与单进程整跑走同一段收尾。
  *
- * 失败数 = 各子进程报告的断言失败数之和 ＋ 每一处进程级问题各算一处。进程级问题有四种，
- * 每一种都会让「全绿」这句话失去根据：子进程没交回结果；退出码与它自己报的失败数对不上；
- * 它跑的组与派给它的那族对不上；某一组没派给任何子进程、或派给了不止一个。
- * 没交回结果的那一族只记一处，不再因为它那几组没报回来重复计。
+ * 失败数 = 各子进程报告的断言失败数之和 ＋ 每一处进程级问题各算一处。进程级问题有五种，
+ * 每一种都会让「全绿」这句话失去根据：子进程没起来；子进程没交回结果；退出码与它自己报的
+ * 失败数对不上；它跑的组与派给它的那族对不上；某一组没派给任何子进程、或派给了不止一个。
+ * 没起来、没交回结果的那一族只记一处，不再因为它那几组没报回来重复计。没起来要单说、带上
+ * 原因：说成「没交回结果（退出码 null）」，人会去翻子进程的输出，而那里什么都没有。
  */
 export function mergeShards(runs: readonly ShardRun[], all: readonly string[]): ShardMerge {
   const problems: string[] = []
@@ -154,6 +160,7 @@ export function mergeShards(runs: readonly ShardRun[], all: readonly string[]): 
   for (const run of runs) {
     const name = `${run.family[0]} 那一族（${run.family.length} 组）`
     const ended = run.signal !== null ? `信号 ${run.signal}` : `退出码 ${run.status}`
+    if (run.error !== undefined) { problems.push(`${name}的子进程没起来（${run.error}）`); continue }
     if (run.report === undefined) { problems.push(`${name}的子进程没交回结果（${ended}）`); continue }
     const r = run.report
     failed += r.failed

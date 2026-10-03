@@ -1701,6 +1701,26 @@
       "kills": ["子进程没交回结果：算一处失败，不因它那族的组没报回来再重复计", "子进程没交回结果：点出是哪一族、怎么结束的"]
     },
     {
+      "id": "M-H42-ac",
+      "req": "harness",
+      "why": "子进程根本没起来时整族静默略过，那一族一组没跑，这一跑照样能报全绿",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    if (run.error !== undefined) { problems.push(`${name}的子进程没起来（${run.error}）`); continue }",
+      "replace": "    if (run.error !== undefined) continue",
+      "by": "test",
+      "kills": ["子进程没起来：算一处失败", "子进程没起来：带上 Node 交回的原因，不说成没交回结果"]
+    },
+    {
+      "id": "M-H42-ad",
+      "req": "harness",
+      "why": "子进程根本没起来时不单说，起不来的原因丢掉，报成没交回结果，人去翻那份空的子进程输出",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    if (run.error !== undefined) { problems.push(`${name}的子进程没起来（${run.error}）`); continue }",
+      "replace": "    if (false) continue",
+      "by": "test",
+      "kills": ["子进程没起来：带上 Node 交回的原因，不说成没交回结果"]
+    },
+    {
       "id": "M-H42-s",
       "req": "harness",
       "why": "子进程的退出码与它自己报的失败数对不上时不追究，崩在报告之后的那一种被当成正常结束",

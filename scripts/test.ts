@@ -8152,6 +8152,14 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
   eq('子进程没交回结果：算一处失败，不因它那族的组没报回来再重复计', crashed.failed, 1)
   ok('子进程没交回结果：点出是哪一族、怎么结束的',
     crashed.problems.length === 1 && crashed.problems[0].includes('a') && crashed.problems[0].includes('SIGKILL'))
+  const unborn = mergeShards([
+    { family: fam[0], status: null, signal: null, error: 'spawn tsx ENOENT' },
+    { family: fam[1], status: 0, signal: null, report: rep(['独立'], 0) },
+  ], all)
+  eq('子进程没起来：算一处失败', unborn.failed, 1)
+  ok('子进程没起来：带上 Node 交回的原因，不说成没交回结果',
+    unborn.problems.length === 1 && unborn.problems[0].includes('没起来')
+      && unborn.problems[0].includes('spawn tsx ENOENT') && !unborn.problems[0].includes('没交回结果'))
   const liar = mergeShards([
     { family: fam[0], status: 1, signal: null, report: rep(['a', 'b', 'c'], 0) },
     { family: fam[1], status: 0, signal: null, report: rep(['独立'], 0) },
