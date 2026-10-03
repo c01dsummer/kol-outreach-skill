@@ -7569,12 +7569,13 @@ fs.writeFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json','controll
 // 拆不拆、拆几个是判定（`shardJobs`）：只有完整、非变异的整跑才拆；`SELFCHECK_JOBS=1` 照旧单进程。
 const shardCount = shardJobs({ subset, mutating, env: process.env.SELFCHECK_JOBS,
   cpus: availableParallelism(), families: families(REGISTERED).length })
-if (shardCount === undefined) {
-  console.error(`✗ 脚本自检：SELFCHECK_JOBS=${process.env.SELFCHECK_JOBS} 说不清要拆几个进程（要正整数）`)
-  process.exit(2)
-}
 let ranOnly: Set<string> | undefined
-if (shardCount > 1) await runShards(shardCount)
+if (shardCount === undefined) {
+  // 不硬退出（`exitRace`）：记一处失败、一组不跑，经同一句汇总以非零结束，也不写入口认领
+  failed++
+  console.error(`  ✗ SELFCHECK_JOBS=${process.env.SELFCHECK_JOBS} 说不清要拆几个进程（要正整数），这一跑一组也没跑`)
+  ranOnly = new Set()
+} else if (shardCount > 1) await runShards(shardCount)
 else ranOnly = runGroups()
 
 const briefLead = /^\s*⊘\s+\[[^\]]+\]\s+名下有负片/m
