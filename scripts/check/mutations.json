@@ -1611,6 +1611,206 @@
       ]
     },
     {
+      "id": "M-H42-k",
+      "req": "harness",
+      "why": "族划分不再按依赖合并，前置组与用它产出的组被派进不同进程，后者读到的是初始值",
+      "file": "scripts/check/group-rule.ts",
+      "find": "      root[find(i)] = find(j)",
+      "replace": "      void find(j)",
+      "by": "test",
+      "kills": ["needs 连起来的成一族，族内按登记顺序，族按首个成员排"]
+    },
+    {
+      "id": "M-H42-l",
+      "req": "harness",
+      "why": "族划分对指向不存在的前置组一声不吭，那一组拆进程后照样被派出去、读不到它要的产出",
+      "file": "scripts/check/group-rule.ts",
+      "find": "      if (j === undefined) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)",
+      "replace": "      if (j === undefined) continue",
+      "by": "test",
+      "kills": ["族划分拒绝缺失依赖并点名两端"]
+    },
+    {
+      "id": "M-H42-m",
+      "req": "harness",
+      "why": "族划分不拒绝重复登记的组，同名的两组被当成一组派出，其中一组从来没跑",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  if (index.size !== groups.length) throw new Error('夹具组 id 重复')",
+      "replace": "  if (false) throw new Error('夹具组 id 重复')",
+      "by": "test",
+      "kills": ["族划分拒绝重复登记 id"]
+    },
+    {
+      "id": "M-H42-n",
+      "req": "harness",
+      "why": "变异跑的整跑也拆成多个进程，四个 worker 底下各起几个进程互相抢核",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  if (o.subset || o.mutating) return 1",
+      "replace": "  if (o.subset) return 1",
+      "by": "test",
+      "kills": ["变异跑不拆"]
+    },
+    {
+      "id": "M-H42-o",
+      "req": "harness",
+      "why": "子集跑也拆成多个进程，变异那一步见齐就停读到的不再是验证者自己的输出",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  if (o.subset || o.mutating) return 1",
+      "replace": "  if (o.mutating) return 1",
+      "by": "test",
+      "kills": ["子集跑不拆", "子集跑不看拆进程的环境变量"]
+    },
+    {
+      "id": "M-H42-ab",
+      "req": "harness",
+      "why": "拆进程数不按族数收口，族比核少时多起的进程领不到活",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  return jobsWanted([], o.env, o.cpus, o.families)",
+      "replace": "  return jobsWanted([], o.env, o.cpus, Infinity)",
+      "by": "test",
+      "kills": ["族比核少，按族数收口"]
+    },
+    {
+      "id": "M-H42-p",
+      "req": "harness",
+      "why": "有组没派给任何子进程时不算问题，那一组从来没跑，这一跑却照样报全绿",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    if (n === 0) problems.push(`组 ${id} 没派给任何子进程`)",
+      "replace": "    if (n === 0) continue",
+      "by": "test",
+      "kills": ["有组没派给任何子进程：点出那组"]
+    },
+    {
+      "id": "M-H42-q",
+      "req": "harness",
+      "why": "同一组派给两个子进程时不算问题，两份运行态互不相通，跑了两遍也看不出来",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    else if (n > 1) problems.push(`组 ${id} 派给了 ${n} 个子进程`)",
+      "replace": "    else if (n > 1) continue",
+      "by": "test",
+      "kills": ["同一组派给了两个子进程：点出那组"]
+    },
+    {
+      "id": "M-H42-r",
+      "req": "harness",
+      "why": "子进程崩溃、没交回结果时整族静默略过，这一跑照样能报全绿并写入口认领",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    if (run.report === undefined) { problems.push(`${name}的子进程没交回结果（${ended}）`); continue }",
+      "replace": "    if (run.report === undefined) continue",
+      "by": "test",
+      "kills": ["子进程没交回结果：算一处失败，不因它那族的组没报回来再重复计", "子进程没交回结果：点出是哪一族、怎么结束的"]
+    },
+    {
+      "id": "M-H42-ac",
+      "req": "harness",
+      "why": "子进程根本没起来时整族静默略过，那一族一组没跑，这一跑照样能报全绿",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    if (run.error !== undefined) { problems.push(`${name}的子进程没起来（${run.error}）`); continue }",
+      "replace": "    if (run.error !== undefined) continue",
+      "by": "test",
+      "kills": ["子进程没起来：算一处失败", "子进程没起来：带上 Node 交回的原因，不说成没交回结果"]
+    },
+    {
+      "id": "M-H42-ad",
+      "req": "harness",
+      "why": "子进程根本没起来时不单说，起不来的原因丢掉，报成没交回结果，人去翻那份空的子进程输出",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    if (run.error !== undefined) { problems.push(`${name}的子进程没起来（${run.error}）`); continue }",
+      "replace": "    if (false) continue",
+      "by": "test",
+      "kills": ["子进程没起来：带上 Node 交回的原因，不说成没交回结果"]
+    },
+    {
+      "id": "M-H42-s",
+      "req": "harness",
+      "why": "子进程的退出码与它自己报的失败数对不上时不追究，崩在报告之后的那一种被当成正常结束",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    if ((r.failed === 0) !== (run.status === 0)) {",
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": ["报告全绿而退出码非零：算一处进程问题并点名那一族", "报告有失败而退出码为零：失败照算，另记一处进程问题"]
+    },
+    {
+      "id": "M-H42-t",
+      "req": "harness",
+      "why": "子进程实际跑的组与派给它的那族对不上时不追究，漏跑的组照样算跑过",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    if (missing.length || extra.length) {",
+      "replace": "    if (false) {",
+      "by": "test",
+      "kills": ["子进程跑的组与派给它的那族对不上：点出缺的那组"]
+    },
+    {
+      "id": "M-H42-u",
+      "req": "harness",
+      "why": "进程级问题只打印不计入失败数，这一跑照样以退出码零结束并写入口认领",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  return { failed: failed + problems.length,",
+      "replace": "  return { failed,",
+      "by": "test",
+      "kills": ["子进程没交回结果：算一处失败，不因它那族的组没报回来再重复计"]
+    },
+    {
+      "id": "M-H42-v",
+      "req": "harness",
+      "why": "各子进程报告的断言失败不再相加，子进程里红了父进程照样报全绿",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    failed += r.failed",
+      "replace": "    failed += 0",
+      "by": "test",
+      "kills": ["各子进程的断言失败数相加，断言红不算进程问题"]
+    },
+    {
+      "id": "M-H42-w",
+      "req": "harness",
+      "why": "各子进程执行过的脚本不再合并，孤儿检查把跑过的入口报成谁都没跑过",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    for (const c of r.covered) covered.add(c)",
+      "replace": "    for (const c of r.covered) void c",
+      "by": "test",
+      "kills": ["出处取各子进程的并集，去重排序"]
+    },
+    {
+      "id": "M-H42-x",
+      "req": "harness",
+      "why": "各子进程认领的判据不再合并，写出的入口认领缺一大半",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    for (const c of r.claimed) claimed.add(c)",
+      "replace": "    for (const c of r.claimed) void c",
+      "by": "test",
+      "kills": ["认领取各子进程的并集，去重排序"]
+    },
+    {
+      "id": "M-H42-y",
+      "req": "harness",
+      "why": "读回报时接受负的失败数，失败数相加后可能被抵成零",
+      "file": "scripts/check/group-rule.ts",
+      "find": "|| r.failed < 0) return undefined",
+      "replace": ") return undefined",
+      "by": "test",
+      "kills": ["失败数不是非负整数读不出"]
+    },
+    {
+      "id": "M-H42-z",
+      "req": "harness",
+      "why": "读回报时接受小数失败数，写坏的回报被当成合法结果读进去",
+      "file": "scripts/check/group-rule.ts",
+      "find": "!Number.isInteger(r.failed) || ",
+      "replace": "",
+      "by": "test",
+      "kills": ["失败数是小数读不出"]
+    },
+    {
+      "id": "M-H42-aa",
+      "req": "harness",
+      "why": "读回报时只看组名那一栏，缺了认领或出处的半截回报被当成完整结果",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  if (!strings(r.groups) || !strings(r.claimed) || !strings(r.covered)) return undefined",
+      "replace": "  if (!strings(r.groups)) return undefined",
+      "by": "test",
+      "kills": ["缺一栏读不出"]
+    },
+    {
       "id": "M-H43-a",
       "req": "harness",
       "file": "scripts/check/mutate-rule.ts",

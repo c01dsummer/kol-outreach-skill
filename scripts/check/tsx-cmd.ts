@@ -38,6 +38,7 @@
  * POSIX 的进程组语义，而 `detached` 在 Windows 上给的是一个控制台窗口，不是进程组）。
  */
 import { createRequire } from 'node:module'
+import { resolve } from 'node:path'
 
 /**
  * tsx 的 cli 入口。
@@ -59,3 +60,12 @@ const TSX_CLI = createRequire(import.meta.url).resolve('tsx/cli')
  */
 export const tsxCommand = (args: string[]): [string, string[]] =>
   [process.execPath, [TSX_CLI, ...args]]
+
+/**
+ * 起这些子进程时给的 V8 编译缓存目录（理由写在 `mutate.ts` 那个常量上）。**变异与独立自检
+ * 共用这一份**：检查链里变异那一步先跑、把它焐热，独立自检起的几百个进程直接命中
+ * （ADR-97 第八节那张欠条，ADR-132）。两处各写一份路径的话，改了一处，另一处就悄悄退回冷启动。
+ *
+ * 认已有的值：外面已经指了一份就用那份。按调用时的工作目录解析 —— 两处都在仓库根上取。
+ */
+export const compileCacheDir = (): string => process.env.NODE_COMPILE_CACHE ?? resolve('.check-cache/compile-cache')
