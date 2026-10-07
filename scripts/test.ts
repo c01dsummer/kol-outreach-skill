@@ -28,7 +28,7 @@ import {
   anchorMatches, baselineFault,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, wanted } from './check/group-rule.js'
-import { scanShares } from './check/share-rule.js'
+import { judgeShares, scanShares } from './check/share-rule.js'
 import {
   beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
@@ -182,6 +182,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-infra-rules', needs: [] },
   { id: 'h-group', needs: [] },
   { id: 'h-group-share', needs: [] },
+  { id: 'h-group-share-real', needs: [] },
   { id: 'h-selfcheck-selection-entry', needs: [] },
   { id: 'h-selfcheck-shard-entry', needs: [] },
   { id: 'h-check-rules', needs: [] },
@@ -8350,6 +8351,34 @@ harness('自检组之间共享的运行态：needs 写全才不会在拆进程�
   // 抛出去的话同一次扫出的别的 problems 全丢，报错还指着用它的那一组
   eq('needs 指到形状扫不了的组：两处都报扫不了，不抛', shape("const n = 'a'", 'group(n, [], () => {})', "group('b', ['a'], () => {})"), 2)
   eq('needs 里的组名写错：报扫不了，不抛', shape("group('b', ['nope'], () => {})"), 1)
+}
+})
+await group('h-group-share-real', () => {
+harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
+{
+  const said = (s: { faults: { kind: string; state: string; writer: string; reader: string }[] }) =>
+    s.faults.map(f => `${f.kind} ${f.state}: ${f.writer} → ${f.reader}`).sort()
+  const real = rf('scripts/check/selfcheck.ts', 'utf8')
+  // 登记本身坏了（重复 id、缺依赖）时 scanShares 会抛：接住，让它带着原文红在「每一组都扫得了」上，
+  // 不让整个 test.ts 进程崩掉、排在后面的组跑不了（ADR-134 第六节）
+  let thrown = ''
+  const scanned = (() => { try { return scanShares(real) } catch (e) { thrown = `抛了：${(e as Error).message}` } })()
+  eq('真 selfcheck.ts：每一组都扫得了', scanned === undefined ? [thrown] : scanned.problems, [])
+  if (scanned === undefined) return
+  eq('真 selfcheck.ts：扫得见的组间共享都在 needs 里', said(scanned), [])
+  // 阳性对照：同一份真源码扫出的读写，拿掉一组的 needs 再判，该报的要报出来。
+  // 哪组读什么、谁写，见 ADR-132 第二节那张表。只比「拿掉之后多出来的」—— 上面那条红着的时候，
+  // 这两条照样各说各的。按组 id 认，不按 needs 的源码文本认：改 needs 的写法不该弄红它
+  const dropped = (id: string) => {
+    const before = new Set(said(scanned))
+    const groups = scanned.groups.map(g => g.id === id ? { ...g, needs: [] } : g)
+    return said(judgeShares(groups, scanned.effects)).filter(f => !before.has(f))
+  }
+  eq('真 selfcheck.ts 拿掉 memory 的 needs：它读 collect 写的 dir、render 写的 rendered，自成一族',
+    dropped('memory'),
+    ['family dir: collect → memory', 'family rendered: render → memory'])
+  eq('真 selfcheck.ts 拿掉 enrich 的 needs：render 仍把它连在族里，只在选跑时读不到 dir',
+    dropped('enrich'), ['closure dir: collect → enrich'])
 }
 })
 await group('h-selfcheck-selection-entry', () => {
