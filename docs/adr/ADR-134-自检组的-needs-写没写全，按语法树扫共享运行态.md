@@ -114,3 +114,21 @@
   `git show <树>:scripts/check/selfcheck.ts | npx tsx -e "import('./scripts/check/share-rule.ts').then(async m=>{let s='';for await(const c of process.stdin)s+=c;const r=m.scanShares(s);console.log('组 '+r.groups.length+'，problems '+r.problems.length+'，faults '+r.faults.length);for(const f of r.faults)console.log('  '+f.kind+' '+f.state+': '+f.writer+' → '+f.reader);for(const p of r.problems)console.log('  '+p)})"`
 
   被扫的树取 `5e4e43c`、`fad416d`、`cf5d63a`，三棵结果相同：65 组，扫不了的 0 处，报出 2 条。两条都是 `family tmp/jobs-cwd.txt`，`jobs → jobs-resource` 与 `jobs-resource → jobs` 各一条，就是第一节那一处良性报告的两个方向。这三个数是本节作者在本节所在 PR 的树上跑出来的，那棵树里的 `share-rule.ts` 与 R 上的相同。
+
+## 九、第五节第 3、4 步落地（2026-10-07）
+
+第 3、4 步各一条 PR，先后合入；本节随第 4 步那条（最后一块砖）合入。判定、测试与变异仍出自同一个工作流（第六节「独立性」）。
+
+- **第 3 步。** `selfcheck.ts` 里，`seedJobs` 多收一个落点参数；`jobs` 在组内定义自己的 `tmp/jobs-cwd.txt`，`jobs-resource` 改用 `tmp/jobs-fd-cwd.txt`。不碰 `needs`、`REGISTERED` 与登记顺序，没有补假依赖。完整自检两种跑法的实跑证据在那条 PR 的描述里。改完之后，用第八节那条命令扫改后的 `selfcheck.ts`：65 组，扫不了的 0 处，报出 0 条。
+- **第 4 步。** `scripts/test.ts` 新增 `h-group-share-real`，读真 `selfcheck.ts`，共四条断言：
+  - 「每一组都扫得了」与「扫得见的组间共享都在 needs 里」。
+  - 两条阳性对照：拿掉 `memory`、`enrich` 的 `needs` 再判，期望值取自 ADR-132 第二节那张表。
+  - 登记本身坏了时 `scanShares` 会抛。这一组把异常接住，让它带着原文红在「每一组都扫得了」上，就是第六节第三条说的那一层。
+- **配的变异。** `mutations.json` 新增 `M-H51-af`…`M-H51-ai`。
+  - `af`、`ag` 指向 `selfcheck.ts`，`by: test`，是两条阴性断言的负片：`af` 让两族重新共用同一个落点，`ag` 把一组的 `needs` 写成扫不了的形状。
+  - `ah`、`ai` 指向 `share-rule.ts`，是两条阳性对照的第三拍。
+- **文档。** `docs/ARCHITECTURE.md` 分组合同那一段补了一句：自检组跨组共享的运行态要写进 `needs`，扫描只证扫得见的那部分。锚点表 `share-rule.ts` 那一行去掉了「还没接上」。
+- **先红后绿。** 对着两个导出都交回空的桩跑 `npx tsx scripts/test.ts --only=h-group-share-real`：两条阳性对照红，两条阴性断言绿 —— 空桩什么都不报，阴性那两条本来就该绿，它们的第三拍由 `af`、`ag` 给。换上定稿后 4 条全绿。
+- **逐条施加变异。** 4 条逐条施加到工作树、跑同一条命令，每条红的恰好是它点名的那一条，没有别的红。另在副本里把一组的 id 改成与另一组重复：`scanShares` 抛「夹具组 id 重复」，「每一组都扫得了」带着这句原文红；同一次跑里排在它后面的 `h-check-rules` 照样跑完。
+- **路由。** 用第八节那套算法对本节所在 PR 的基线算：4 条都是「执行配置改变：不存在 → test 选组 h-group-share-real」，新增全跑 0；`test` 的分组布局多了 `h-group-share-real` 一组。
+- **还了什么。** 「复核发现一」扫得见的那一半由此还上，见 ADR-132 末尾那一块。扫不见的那一半由第七节第一张欠条接着挂。

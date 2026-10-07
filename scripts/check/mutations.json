@@ -9905,6 +9905,46 @@
       "kills": ["回调不是内联函数：扫不了"]
     },
     {
+      "id": "M-H51-af",
+      "req": "harness",
+      "why": "派工两族又共用临时目录下同一个落点，真自检源码上的组间共享检查仍报全绿",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "jobMut(`M-J-fd${i}`, `k${i} = 'keep'`, `k${i} = 'gone'`)), join(tmp, 'jobs-fd-cwd.txt'))",
+      "replace": "jobMut(`M-J-fd${i}`, `k${i} = 'keep'`, `k${i} = 'gone'`)), join(tmp, 'jobs-cwd.txt'))",
+      "by": "test",
+      "kills": ["真 selfcheck.ts：扫得见的组间共享都在 needs 里"]
+    },
+    {
+      "id": "M-H51-ag",
+      "req": "harness",
+      "why": "真自检源码里有一组的依赖写成扫不了的形状，检查仍报每一组都扫得了",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "group('probe', [], () => {",
+      "replace": "group('probe', [] as string[], () => {",
+      "by": "test",
+      "kills": ["真 selfcheck.ts：每一组都扫得了"]
+    },
+    {
+      "id": "M-H51-ah",
+      "req": "harness",
+      "why": "所有组都被当成同一族，真自检源码上拿掉一组依赖后跨族读写扫不出来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "familyOf.set(id, i)",
+      "replace": "familyOf.set(id, 0)",
+      "by": "test",
+      "kills": ["真 selfcheck.ts 拿掉 memory 的 needs：它读 collect 写的 dir、render 写的 rendered，自成一族"]
+    },
+    {
+      "id": "M-H51-ai",
+      "req": "harness",
+      "why": "读方闭包被当成全部组，真自检源码上同族里漏写的依赖扫不出来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "[r.id])!.has(w.id)",
+      "replace": "groups.map(g => g.id))!.has(w.id)",
+      "by": "test",
+      "kills": ["真 selfcheck.ts 拿掉 enrich 的 needs：render 仍把它连在族里，只在选跑时读不到 dir"]
+    },
+    {
       "id": "M-H51-aj",
       "req": "harness",
       "why": "依赖指到没扫到的组时不说扫不了 —— 那条依赖被悄悄去掉，形状扫不了的那一组或写错的组名从结果里消失",
