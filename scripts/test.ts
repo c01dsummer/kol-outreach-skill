@@ -8337,10 +8337,19 @@ harness('自检组之间共享的运行态：needs 写全才不会在拆进程�
   }
   eq('组 id 不是字面量：扫不了', shape("const n = 'a'", 'group(n, [], () => {})'), 1)
   eq('needs 不是字面量数组：扫不了', shape("const deps = ['a']", "group('b', deps, () => {})"), 1)
-  eq('needs 数组里混了非字面量：扫不了', shape("const n = 'a'", "group('a', [], () => {})", "group('b', ['a', n], () => {})"), 1)
+  // 扫不了要点出是哪一行（「第 N 行…」打头），只数条数分不出「这一处形状扫不了」与「别处的依赖指到它」。
+  // 第 7 行手数：top 占 4 行，下面三行依次是第 5、6、7 行
+  const shapeAt = (...lines: string[]): string[] | string => {
+    try { return scan(...lines).problems.map(p => p.slice(0, p.indexOf('行') + 1)) } catch (e) { return `抛了：${(e as Error).message}` }
+  }
+  eq('needs 数组里混了非字面量：扫不了', shapeAt("const n = 'a'", "group('a', [], () => {})", "group('b', ['a', n], () => {})"), ['第 7 行'])
   eq('回调不是内联函数：扫不了', shape('const body = () => {}', "group('a', [], body)"), 1)
   eq('group 不在顶层：扫不了', shape("if (dir) { group('a', [], () => {}) }"), 1)
   eq('顶层没有 tmp：tmp 下的路径扫不了', scanShares("group('a', [], () => {})").problems.length, 1)
+  // needs 指到没扫到的组（那一组形状扫不了被跳过，或名字写错）：也是扫不了，要落在 problems 里；
+  // 抛出去的话同一次扫出的别的 problems 全丢，报错还指着用它的那一组
+  eq('needs 指到形状扫不了的组：两处都报扫不了，不抛', shape("const n = 'a'", 'group(n, [], () => {})', "group('b', ['a'], () => {})"), 2)
+  eq('needs 里的组名写错：报扫不了，不抛', shape("group('b', ['nope'], () => {})"), 1)
 }
 })
 await group('h-selfcheck-selection-entry', () => {

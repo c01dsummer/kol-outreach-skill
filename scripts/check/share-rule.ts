@@ -226,7 +226,15 @@ export function scanShares(source: string, root = 'tmp', merged: readonly string
     ts.forEachChild(n, findGroups)
   }
   findGroups(file)
-  return { groups, effects, problems, ...judgeShares(groups, effects, root, merged) }
+  // needs 指到没扫到的组（那一组形状扫不了被跳过，或名字写错）也是扫不了：报出来、去掉那条边再判。
+  // 留着那条边的话族划分当场抛，同一次扫出的别的 problems 全丢，报错还指着用它的那一组
+  const known = new Set(groups.map(g => g.id))
+  const judged = groups.map(g => {
+    const unknown = g.needs.filter(x => !known.has(x))
+    for (const x of unknown) problems.push(`组 ${g.id} 的 needs 里的 ${x} 没有扫到对应的组，扫不了`)
+    return unknown.length ? { ...g, needs: g.needs.filter(x => known.has(x)) } : g
+  })
+  return { groups: judged, effects, problems, ...judgeShares(judged, effects, root, merged) }
 }
 
 /**

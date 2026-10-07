@@ -9787,7 +9787,7 @@
     {
       "id": "M-H51-t",
       "req": "harness",
-      "why": "依赖里混了不是字面量的名字时不说扫不了",
+      "why": "依赖里混了不是字面量的名字时不按形状扫不了来报，点不出是哪一行，只剩一句依赖指到了没扫到的组",
       "file": "scripts/check/share-rule.ts",
       "find": "needs === undefined || needs.some(x => x === undefined)",
       "replace": "needs === undefined",
@@ -9903,6 +9903,26 @@
       "replace": "|| fn === undefined",
       "by": "test",
       "kills": ["回调不是内联函数：扫不了"]
+    },
+    {
+      "id": "M-H51-aj",
+      "req": "harness",
+      "why": "依赖指到没扫到的组时不说扫不了 —— 那条依赖被悄悄去掉，形状扫不了的那一组或写错的组名从结果里消失",
+      "file": "scripts/check/share-rule.ts",
+      "find": "    for (const x of unknown) problems.push(`组 ${g.id} 的 needs 里的 ${x} 没有扫到对应的组，扫不了`)",
+      "replace": "    void unknown",
+      "by": "test",
+      "kills": ["needs 指到形状扫不了的组：两处都报扫不了，不抛", "needs 里的组名写错：报扫不了，不抛"]
+    },
+    {
+      "id": "M-H51-ak",
+      "req": "harness",
+      "why": "依赖指到没扫到的组时整次扫描直接抛错，同一次扫出的别的扫不了全丢，报错还指着用它的那一组",
+      "file": "scripts/check/share-rule.ts",
+      "find": "    return unknown.length ? { ...g, needs: g.needs.filter(x => known.has(x)) } : g",
+      "replace": "    return g",
+      "by": "test",
+      "kills": ["needs 指到形状扫不了的组：两处都报扫不了，不抛", "needs 里的组名写错：报扫不了，不抛"]
     },
     {
       "id": "M-D20-a",
