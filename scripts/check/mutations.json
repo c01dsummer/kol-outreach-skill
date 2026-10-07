@@ -9595,6 +9595,336 @@
       ]
     },
     {
+      "id": "M-H51-a",
+      "req": "harness",
+      "why": "组里提到别组写的模块级状态不再算读，漏写依赖的组读到初始值也扫不出来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "else if (state !== undefined) (writes(n, direct === undefined) ? t.writes : t.reads).add(state)",
+      "replace": "else if (state !== undefined && writes(n, direct === undefined)) t.writes.add(state)",
+      "by": "test",
+      "kills": ["漏写 needs 的组跨族读写方的模块级变量：点出状态、写方、读方", "needs 写全时那一对仍被扫出来（阳性对照）"]
+    },
+    {
+      "id": "M-H51-b",
+      "req": "harness",
+      "why": "给模块级变量赋值不再算写，写方从此隐身，读它的组漏写依赖也照样过",
+      "file": "scripts/check/share-rule.ts",
+      "find": "p.operatorToken.kind >= ts.SyntaxKind.FirstAssignment",
+      "replace": "p.operatorToken.kind > ts.SyntaxKind.LastAssignment",
+      "by": "test",
+      "kills": ["给顶层 let 赋值算写", "复合赋值算写"]
+    },
+    {
+      "id": "M-H51-c",
+      "req": "harness",
+      "why": "自增自减不再算写，完成计数这一类写方隐身",
+      "file": "scripts/check/share-rule.ts",
+      "find": "p.operator === ts.SyntaxKind.MinusMinusToken)) return true",
+      "replace": "p.operator === ts.SyntaxKind.MinusMinusToken)) return false",
+      "by": "test",
+      "kills": ["顶层变量自增算写"]
+    },
+    {
+      "id": "M-H51-d",
+      "req": "harness",
+      "why": "只认给变量本身赋值，改它的属性、下标不算写，完成标记对象的写方全部隐身",
+      "file": "scripts/check/share-rule.ts",
+      "find": "    while (up(n.parent)) n = n.parent\n",
+      "replace": "\n",
+      "by": "test",
+      "kills": ["改顶层对象的属性算写", "改顶层对象的下标算写"]
+    },
+    {
+      "id": "M-H51-e",
+      "req": "harness",
+      "why": "删掉模块级对象上的属性不算写",
+      "file": "scripts/check/share-rule.ts",
+      "find": "if (ts.isDeleteExpression(p)) return true",
+      "replace": "if (ts.isDeleteExpression(p)) return false",
+      "by": "test",
+      "kills": ["删顶层对象的属性算写"]
+    },
+    {
+      "id": "M-H51-f",
+      "req": "harness",
+      "why": "往模块级集合里加东西、往数组里推东西不算写",
+      "file": "scripts/check/share-rule.ts",
+      "find": "&& MUTATORS.has(n.name.text)",
+      "replace": "&& MUTATORS.has(n.getText())",
+      "by": "test",
+      "kills": ["调顶层集合会改自己的方法算写", "改顶层对象里嵌着的数组算写"]
+    },
+    {
+      "id": "M-H51-g",
+      "req": "harness",
+      "why": "组里先取一个别名再经由它改模块级对象，不算写",
+      "file": "scripts/check/share-rule.ts",
+      "find": "if (state !== undefined && self !== undefined && !state.startsWith(PATH)) aliases.set(self, state)",
+      "replace": "void self",
+      "by": "test",
+      "kills": ["经由组里的别名改属性算写"]
+    },
+    {
+      "id": "M-H51-h",
+      "req": "harness",
+      "why": "别名自己被重新赋值也算改了那份状态，扫出不存在的写方",
+      "file": "scripts/check/share-rule.ts",
+      "find": "writes(n, direct === undefined)",
+      "replace": "writes(n, false)",
+      "by": "test",
+      "kills": ["别名自己被重新赋值不算改那份状态"]
+    },
+    {
+      "id": "M-H51-i",
+      "req": "harness",
+      "why": "经由顶层函数的读写只传一层，再隔一层调用的写方隐身",
+      "file": "scripts/check/share-rule.ts",
+      "find": "for (let grew = true; grew;) {",
+      "replace": "for (let grew = false; grew;) {",
+      "by": "test",
+      "kills": ["经由两层顶层函数写的也记到组头上"]
+    },
+    {
+      "id": "M-H51-j",
+      "req": "harness",
+      "why": "组里调用顶层函数时不把那个函数读写的状态记到组头上，惰性夹具这一类整个看不见",
+      "file": "scripts/check/share-rule.ts",
+      "find": "        absorb(t)\n        effects.set(id, t)",
+      "replace": "        effects.set(id, t)",
+      "by": "test",
+      "kills": ["惰性夹具：跨族就报，两个方向都报", "顶层函数当实参传出去也算提到它"]
+    },
+    {
+      "id": "M-H51-k",
+      "req": "harness",
+      "why": "临时目录下的固定路径不再记账，两族碰同一个文件扫不出来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "return parts.length && parts.every(p => p !== undefined) ? PATH + parts.join('/') : undefined",
+      "replace": "return undefined",
+      "by": "test",
+      "kills": ["顶层 join(tmp, 字面量) 被两族的组碰到：两个方向都报", "组里直接写的 join(tmp, 字面量) 也算"]
+    },
+    {
+      "id": "M-H51-l",
+      "req": "harness",
+      "why": "一组碰上级目录、另一组碰目录里的文件，不算碰到同一处",
+      "file": "scripts/check/share-rule.ts",
+      "find": "a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`)",
+      "replace": "a === b",
+      "by": "test",
+      "kills": ["一条是另一条的上级目录也算碰到同一处"]
+    },
+    {
+      "id": "M-H51-m",
+      "req": "harness",
+      "why": "路径名只是开头几个字相同就算碰到同一处，互不相干的两组被报成共享",
+      "file": "scripts/check/share-rule.ts",
+      "find": "a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`)",
+      "replace": "a === b || a.startsWith(b) || b.startsWith(a)",
+      "by": "test",
+      "kills": ["名字只是开头相同不算同一处"]
+    },
+    {
+      "id": "M-H51-n",
+      "req": "harness",
+      "why": "写方与读方不在同一族时不再报，完整跑拆进程后读方读到初始值、整节静默跳过",
+      "file": "scripts/check/share-rule.ts",
+      "find": "if (familyOf.get(w.id) !== familyOf.get(r.id)) faults.push",
+      "replace": "if (familyOf.get(w.id) === undefined) faults.push",
+      "by": "test",
+      "kills": ["漏写 needs 的组跨族读写方的模块级变量：点出状态、写方、读方", "顶层 join(tmp, 字面量) 被两族的组碰到：两个方向都报"]
+    },
+    {
+      "id": "M-H51-o",
+      "req": "harness",
+      "why": "只读的一方依赖闭包里没有写方时不再报，选跑点它时写方不跑",
+      "file": "scripts/check/share-rule.ts",
+      "find": "&& !wanted(groups, [r.id])!.has(w.id)) faults.push",
+      "replace": "&& false) faults.push",
+      "by": "test",
+      "kills": ["同族但读方的闭包里没有写方：只在选跑时读不到，报 closure"]
+    },
+    {
+      "id": "M-H51-p",
+      "req": "harness",
+      "why": "自己也写那份状态的组（惰性建夹具）也按闭包判，同族里互不依赖的几组被报成缺依赖",
+      "file": "scripts/check/share-rule.ts",
+      "find": "!state.startsWith(PATH) && !e.writes.has(state)",
+      "replace": "!state.startsWith(PATH)",
+      "by": "test",
+      "kills": ["惰性夹具：同族的几组互不在闭包里，不报"]
+    },
+    {
+      "id": "M-H51-q",
+      "req": "harness",
+      "why": "组里读子进程各写一份、父进程才合并的失败数或认领时不报，拆进程后它只看得见本进程那一份",
+      "file": "scripts/check/share-rule.ts",
+      "find": "if (merged.includes(state)) faults.push({ state, writer: '各进程', reader: g.id, kind: 'merged' })",
+      "replace": "void merged",
+      "by": "test",
+      "kills": ["组里读合并量要报：拆进程后只看得见本进程那一份"]
+    },
+    {
+      "id": "M-H51-r",
+      "req": "harness",
+      "why": "各族都写的失败数与认领也算组间共享，几乎每一组都被报",
+      "file": "scripts/check/share-rule.ts",
+      "find": "    if (merged.includes(state)) continue\n",
+      "replace": "\n",
+      "by": "test",
+      "kills": ["各族都写合并量（失败数、认领）不算共享"]
+    },
+    {
+      "id": "M-H51-s",
+      "req": "harness",
+      "why": "登记写在别的语句里面的组照样当成扫过，那一组读写什么没人看",
+      "file": "scripts/check/share-rule.ts",
+      "find": "if (!topLevel.has(n)) problems.push(`${where}不在顶层，扫不了`)\n      else if",
+      "replace": "if (false) problems.push('')\n      else if",
+      "by": "test",
+      "kills": ["group 不在顶层：扫不了"]
+    },
+    {
+      "id": "M-H51-t",
+      "req": "harness",
+      "why": "依赖里混了不是字面量的名字时不按形状扫不了来报，点不出是哪一行，只剩一句依赖指到了没扫到的组",
+      "file": "scripts/check/share-rule.ts",
+      "find": "needs === undefined || needs.some(x => x === undefined)",
+      "replace": "needs === undefined",
+      "by": "test",
+      "kills": ["needs 数组里混了非字面量：扫不了"]
+    },
+    {
+      "id": "M-H51-u",
+      "req": "harness",
+      "why": "组名不是字面量时不说扫不了",
+      "file": "scripts/check/share-rule.ts",
+      "find": "if (!topLevel.has(n)) problems.push(`${where}不在顶层，扫不了`)\n      else if (id === undefined || ",
+      "replace": "if (!topLevel.has(n)) problems.push(`${where}不在顶层，扫不了`)\n      else if (",
+      "by": "test",
+      "kills": ["组 id 不是字面量：扫不了"]
+    },
+    {
+      "id": "M-H51-v",
+      "req": "harness",
+      "why": "找不到临时目录那个绑定时不说，临时目录下的路径一条都没扫却照样报无共享",
+      "file": "scripts/check/share-rule.ts",
+      "find": "if (base === undefined) problems.push(",
+      "replace": "if (false) problems.push(",
+      "by": "test",
+      "kills": ["顶层没有 tmp：tmp 下的路径扫不了"]
+    },
+    {
+      "id": "M-H51-w",
+      "req": "harness",
+      "why": "解构赋值把值写进模块级变量时不算写，写方隐身，漏写依赖的读方照样过",
+      "file": "scripts/check/share-rule.ts",
+      "find": "t.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken) return true",
+      "replace": "t.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken) return false",
+      "by": "test",
+      "kills": ["数组解构赋值的目标是顶层绑定算写", "对象解构赋值的目标是顶层绑定算写"]
+    },
+    {
+      "id": "M-H51-x",
+      "req": "harness",
+      "why": "循环变量直接用模块级变量时不算写，写方隐身",
+      "file": "scripts/check/share-rule.ts",
+      "find": "      if ((ts.isForOfStatement(p) || ts.isForInStatement(p)) && p.initializer === n) return true",
+      "replace": "      if ((ts.isForOfStatement(p) || ts.isForInStatement(p)) && p.initializer === n) return false",
+      "by": "test",
+      "kills": ["for-of 的循环变量是顶层绑定算写"]
+    },
+    {
+      "id": "M-H51-y",
+      "req": "harness",
+      "why": "解构赋值右侧只是被读的模块级变量也被当成写，两族都只读也报",
+      "file": "scripts/check/share-rule.ts",
+      "find": "      if (t !== n && ts.isBinaryExpression(t.parent) && t.parent.left === t\n",
+      "replace": "      if (t !== n && ts.isBinaryExpression(t.parent)\n",
+      "by": "test",
+      "kills": ["解构赋值的右侧提到它只是读"]
+    },
+    {
+      "id": "M-H51-z",
+      "req": "harness",
+      "why": "依赖写全、写方在读方闭包里的那一对反而被报成选跑读不到",
+      "file": "scripts/check/share-rule.ts",
+      "find": "!wanted(groups, [r.id])!.has(w.id)",
+      "replace": "wanted(groups, [r.id])!.has(w.id)",
+      "by": "test",
+      "kills": ["needs 写全：同族、在闭包里，不报"]
+    },
+    {
+      "id": "M-H51-aa",
+      "req": "harness",
+      "why": "只读不改的查询方法也被当成写，两族都只读也报",
+      "file": "scripts/check/share-rule.ts",
+      "find": "'splice', 'sort', 'reverse', 'fill', 'copyWithin'])",
+      "replace": "'splice', 'sort', 'reverse', 'fill', 'copyWithin', 'has'])",
+      "by": "test",
+      "kills": ["只调不改自己的方法不算写：两边都只读，不报"]
+    },
+    {
+      "id": "M-H51-ab",
+      "req": "harness",
+      "why": "名字按文本认、不按作用域认，组里同名的局部变量被当成那份模块级状态",
+      "file": "scripts/check/share-rule.ts",
+      "find": "const direct = s === undefined || s === base ? undefined : states.get(s)",
+      "replace": "const direct = s === base ? undefined : [...states].find(([k]) => k.name === n.text)?.[1]",
+      "by": "test",
+      "kills": ["组里同名的局部变量、顶层函数的同名形参，不是那个顶层绑定"]
+    },
+    {
+      "id": "M-H51-ac",
+      "req": "harness",
+      "why": "同一族的组碰同一处临时目录路径也报，依赖写全了照样红",
+      "file": "scripts/check/share-rule.ts",
+      "find": "if (familyOf.get(w.id) !== familyOf.get(r.id)) faults.push({ ...pair, kind: 'family' })",
+      "replace": "if (familyOf.get(w.id) !== familyOf.get(r.id) || state.startsWith(PATH)) faults.push({ ...pair, kind: 'family' })",
+      "by": "test",
+      "kills": ["同族碰同一路径不报"]
+    },
+    {
+      "id": "M-H51-ad",
+      "req": "harness",
+      "why": "依赖写成扫不了的形状时被当成没有依赖，这一组照样参与判定，扫不了的那处不说出来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "? needsArg.elements.map(literal) : undefined",
+      "replace": "? needsArg.elements.map(literal) : []",
+      "by": "test",
+      "kills": ["needs 不是字面量数组：扫不了"]
+    },
+    {
+      "id": "M-H51-ae",
+      "req": "harness",
+      "why": "回调不是内联函数时照样当成扫过了，它读写了什么一样也看不见却不说出来",
+      "file": "scripts/check/share-rule.ts",
+      "find": "|| fn === undefined || !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))",
+      "replace": "|| fn === undefined",
+      "by": "test",
+      "kills": ["回调不是内联函数：扫不了"]
+    },
+    {
+      "id": "M-H51-aj",
+      "req": "harness",
+      "why": "依赖指到没扫到的组时不说扫不了 —— 那条依赖被悄悄去掉，形状扫不了的那一组或写错的组名从结果里消失",
+      "file": "scripts/check/share-rule.ts",
+      "find": "    for (const x of unknown) problems.push(`组 ${g.id} 的 needs 里的 ${x} 没有扫到对应的组，扫不了`)",
+      "replace": "    void unknown",
+      "by": "test",
+      "kills": ["needs 指到形状扫不了的组：两处都报扫不了，不抛", "needs 里的组名写错：报扫不了，不抛"]
+    },
+    {
+      "id": "M-H51-ak",
+      "req": "harness",
+      "why": "依赖指到没扫到的组时整次扫描直接抛错，同一次扫出的别的扫不了全丢，报错还指着用它的那一组",
+      "file": "scripts/check/share-rule.ts",
+      "find": "    return unknown.length ? { ...g, needs: g.needs.filter(x => known.has(x)) } : g",
+      "replace": "    return g",
+      "by": "test",
+      "kills": ["needs 指到形状扫不了的组：两处都报扫不了，不抛", "needs 里的组名写错：报扫不了，不抛"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",

@@ -96,3 +96,21 @@
 > ⚠️ 欠条：第二节列出的那些通道，扫描看不见；扫描绿只说明扫得见的组间共享都在 `needs` 里。还法是第三节丙的两种之一（完整跑结束时的痕迹核，或把拆进程跑与单进程跑的对照接进检查链）。找候选（只找候选，不是判定）：`git grep -nE "join\(tmp, [^'\"]" -- scripts/check/selfcheck.ts`、`git grep -nE ", tmp[,)]" -- scripts/check/selfcheck.ts` · 重启条件：新增或改动的自检组（含改它的 `needs`）用到第二节任一看不见的通道时；或者拆进程跑与单进程跑的入口认领、✓ 行出现差异时
 
 > ⚠️ 欠条：第五节第 2 步合入后，`share-rule.ts` 是第三份识别 `group(…)` 的语法树扫描，它与 `mutate-rule.ts` 的 `routeLayout` 在 `await group(…)` 上口径不同（前者报扫不了，后者接受） · 重启条件：下一条改动碰 `mutate-rule.ts` 的 `routeLayout`，或 `share-rule.ts` 的组识别时
+
+## 八、第五节第 2 步落地（2026-10-07）
+
+判定、测试与变异出自同一个工作流（第六节「独立性」）：本节作者把设计阶段的定稿落进仓库，没有另找独立作者重写测试。
+
+- **改了什么。** 新增 `scripts/check/share-rule.ts`，导出 `scanShares` 与 `judgeShares`，内容取自设计阶段定稿，只改了一处：评审（CodeRabbit）指出，某组的 `needs` 指到没扫到的组（形状扫不了被跳过，或组名写错）时，定稿在族划分里直接抛，同一次扫出的别的扫不了全丢；现在报成扫不了、去掉那条边再判。`scripts/test.ts` 新增合成用例组 `h-group-share`，39 条断言，期望值按文件头的判据手推。`scripts/check/mutations.json` 新增 `M-H51-a`…`M-H51-ae` 与 `M-H51-aj`、`M-H51-ak` 共 33 条，都是 `by: test`，各自点名 `h-group-share` 里的断言（`af`…`ai` 留给第 4 步）。`docs/ARCHITECTURE.md` 锚点表登记了新模块。`selfcheck.ts` 不改，读真源码的断言也没接，那是第 3、4 步。
+- **先红后绿。** 先把 `share-rule.ts` 换成一个桩，两个导出都交回空，然后跑 `npx tsx scripts/test.ts --only=h-group-share`：30 条红、9 条绿，绿的 9 条都是期望「不报」的阴性对照。换上定稿后，39 条全绿。评审补的那两条（`needs` 指到没扫到的组）另对着定稿原样先看过红：两条都拿到「抛了：组 b 缺少依赖组 …」。
+- **逐条施加变异。** 33 条变异逐条施加到工作树上，跑同一条命令。每条点名的断言都红了；`test.ts` 进程没有崩，红的都是具名断言。
+  - `M-H51-t` 要单说。施加后，混了非字面量的 `needs` 不再按形状扫不了来报；那一组照样被扫，非字面量的那一项落进「指到没扫到的组」那一支，报成「组 b 的 needs 里的 undefined 没有扫到对应的组」。条数仍是一条，点不出是哪一行。所以「needs 数组里混了非字面量」那条断言比的是「第几行」，不是条数；施加后拿到的是空串，带着它红。评审那一处改之前，这条变异是靠判族时抛错才红的。
+  - 9 条阴性对照各有一条往「多报」方向改的变异：`h`、`m`、`p`、`r`、`y`、`z`、`aa`、`ab`、`ac`。
+  - 完整变异以本节所在 PR 的 CI 为准。本地是 root 容器，`feedback-template` 那一组的「保存屏障合法阳性」夹具在 root 下必红，完整变异的基线在这里跑不通。
+- **路由。** 用 `mutate.ts` 维护比较那一段的同一套算法（`executionRoutes`、`routeDelta`），对本节所在 PR 的基线算了一遍：33 条都是「执行配置改变：不存在 → test 选组 h-group-share」，新增全跑 0；`test` 的分组布局多了 `h-group-share` 一组。
+- **ADR-89 第六节那张欠条**（往 `mutations.json` 加变异时，看一眼盖的是不是一处从来没人盖过的地方）：看过了，33 条盖的都是本步新加的模块。
+- **第一节答应要钉树的数。** 规则取加入它的那个主干提交 R（`git log --format=%H --diff-filter=A -- scripts/check/share-rule.ts | tail -1`），在 R 的工作树里跑下面这条命令，`<树>` 换成被扫的那棵：
+
+  `git show <树>:scripts/check/selfcheck.ts | npx tsx -e "import('./scripts/check/share-rule.ts').then(async m=>{let s='';for await(const c of process.stdin)s+=c;const r=m.scanShares(s);console.log('组 '+r.groups.length+'，problems '+r.problems.length+'，faults '+r.faults.length);for(const f of r.faults)console.log('  '+f.kind+' '+f.state+': '+f.writer+' → '+f.reader);for(const p of r.problems)console.log('  '+p)})"`
+
+  被扫的树取 `5e4e43c`、`fad416d`、`cf5d63a`，三棵结果相同：65 组，扫不了的 0 处，报出 2 条。两条都是 `family tmp/jobs-cwd.txt`，`jobs → jobs-resource` 与 `jobs-resource → jobs` 各一条，就是第一节那一处良性报告的两个方向。这三个数是本节作者在本节所在 PR 的树上跑出来的，那棵树里的 `share-rule.ts` 与 R 上的相同。
