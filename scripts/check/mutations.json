@@ -1611,6 +1611,66 @@
       ]
     },
     {
+      "id": "M-H42-ae",
+      "req": "harness",
+      "why": "拆进程跑的子进程照旧打末尾那句汇总：红了的那一族让同形的「脚本自检」失败汇总在日志里出现两次、数还各不一样，变异判定认的那一句不再只出自合并之后的父进程",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "if (shardChild) {\n  // 红的绿的都不打",
+      "replace": "if (false) {\n  // 红的绿的都不打",
+      "by": "test",
+      "kills": [
+        "拆进程跑的子进程不打末尾汇总：那一句只由父进程合并后打"
+      ]
+    },
+    {
+      "id": "M-H42-af",
+      "req": "harness",
+      "why": "拆进程跑的子进程照旧说这一跑没验出处：每族一句「没验」，与父进程合并之后那句「都有出处」自相矛盾",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "if (shardChild) {\n  // 出处归父进程判",
+      "replace": "if (false) {\n  // 出处归父进程判",
+      "by": "test",
+      "kills": [
+        "拆进程跑的子进程不说这一跑没验出处：出处由父进程合并后判"
+      ]
+    },
+    {
+      "id": "M-H42-ag",
+      "req": "harness",
+      "why": "不拆进程的子集跑（变异的验证者、人手点名）也不再说这一跑没验出处，子集缩掉的那一面被静默藏起",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "if (shardChild) {\n  // 出处归父进程判",
+      "replace": "if (ranOnly !== undefined) {\n  // 出处归父进程判",
+      "by": "test",
+      "kills": [
+        "不拆进程的子集跑照旧说出这一跑没验出处"
+      ]
+    },
+    {
+      "id": "M-H42-ah",
+      "req": "harness",
+      "why": "不拆进程的子集跑也不再打末尾汇总，变异那一步的验证者找不到它认的那一句，正常子集跑也认不出完成",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "if (shardChild) {\n  // 红的绿的都不打",
+      "replace": "if (ranOnly !== undefined) {\n  // 红的绿的都不打",
+      "by": "test",
+      "kills": [
+        "不拆进程的子集跑照旧跑完点名的那一组并打子集汇总"
+      ]
+    },
+    {
+      "id": "M-H42-ai",
+      "req": "harness",
+      "why": "拆进程跑里绿的子进程也以非零退出码结束：父进程对账时把每一族都记成一处进程问题，一次全绿的完整自检报红",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "  if (failed) process.exitCode = 1\n} else if (failed) {",
+      "replace": "  process.exitCode = 1\n} else if (failed) {",
+      "by": "test",
+      "kills": [
+        "拆进程跑的子进程跑完点名的那一组、交回全绿回报并以 0 结束"
+      ]
+    },
+    {
       "id": "M-H42-k",
       "req": "harness",
       "why": "族划分不再按依赖合并，前置组与用它产出的组被派进不同进程，后者读到的是初始值",
