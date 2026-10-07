@@ -40,6 +40,7 @@ import {
 } from './claims.js'
 import { type Group, parseOnlyStrict, wanted } from './group-rule.js'
 import { type ShardRun, families, mergeShards, readShardReport, shardJobs } from './group-rule.js'
+import { type ProcessProbe, processEnded } from './jobs-rule.js'
 import { writeFileAtomic } from '../lib/atomic.js'
 import {
   SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS,
@@ -6637,7 +6638,12 @@ group('mutation-cost-entry', [], () => {
   for (const k of Object.keys(cleanEnv)) if (k.startsWith('GIT_') || k.startsWith('GITHUB_') || k === 'CI' || k === 'NODE_OPTIONS') delete cleanEnv[k];
   type Obj = Record<string, any>;
   const readLines = (file: string): Obj[] => fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map(s => JSON.parse(s)) : [];
-  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code !== 'ESRCH'; } };
+  // 先读状态、后发 0 号信号：反过来的话，信号送达之后、读状态之前被回收的僵尸会读不到正文，被判成「不算结束」。
+  // 读不到就不带正文，交给判定按不算结束处理；判在 processEnded（ADR-133）。
+  const probe = (pid: number): ProcessProbe & { pid: number; statError?: string } => { let stat: string | undefined, statError: string | undefined;
+    try { stat = fs.readFileSync('/proc/' + pid + '/stat', 'utf8'); } catch (e) { statError = String((e as NodeJS.ErrnoException).code); }
+    let signal0 = 'delivered'; try { process.kill(pid, 0); } catch (e) { signal0 = String((e as NodeJS.ErrnoException).code); }
+    return { pid, signal0, ...(stat === undefined ? { statError } : { stat }) }; };
   const productJSON = (s: string): Obj => { try { const v = JSON.parse(s); return v !== null && typeof v === 'object' && !Array.isArray(v) ? v : { malformed: true }; } catch { return { malformed: true }; } };
   const owned = new Set<number>();
   try {
@@ -6666,7 +6672,8 @@ mod.syncBuiltinESMExports();
 const fs=require('node:fs'),cp=require('node:child_process');
 const cfg=JSON.parse(fs.readFileSync(process.argv[2],'utf8')), out=fs.openSync(cfg.out,'w'), err=fs.openSync(cfg.err,'w');
 const seen=()=>fs.existsSync(cfg.obs)?fs.readFileSync(cfg.obs,'utf8').split('\n').filter(Boolean).map(s=>JSON.parse(s)):[];
-const alive=p=>{try{process.kill(p,0);return true;}catch(e){return e.code!=='ESRCH';}};
+const probe=p=>{let stat,statError;try{stat=fs.readFileSync('/proc/'+p+'/stat','utf8');}catch(e){statError=e.code;}
+  let signal0='delivered';try{process.kill(p,0);}catch(e){signal0=e.code;}return stat===undefined?{pid:p,signal0,statError}:{pid:p,signal0,stat};};
 const kill=p=>{try{process.kill(-p,'SIGKILL');}catch{} try{process.kill(p,'SIGKILL');}catch{}};
 const kid=cp.spawn(cfg.node,cfg.args,{cwd:cfg.cwd,env:cfg.env,detached:true,stdio:['pipe',out,err]});
 fs.writeFileSync(cfg.started,JSON.stringify({pid:kid.pid}));
@@ -6675,10 +6682,10 @@ kid.once('error',e=>{errored=String(e);}); kid.stdin.end(cfg.input||'');
 kid.once('close',async(status,signal)=>{clearTimeout(timer);fs.closeSync(out);fs.closeSync(err);
   let pids; try{pids=[...new Set([kid.pid,...seen().flatMap(r=>[r.pid,r.child]).filter(Number.isInteger)])];}
   catch(e){fs.writeFileSync(cfg.fault,'driver observer parse: '+String(e));pids=[kid.pid];}
-  let living=pids.filter(alive); const unexpected=living.length>0;
-  for(const p of living)kill(p); for(let i=0;i<50&&living.length;i++){await new Promise(r=>setTimeout(r,20));living=pids.filter(alive);}
-  fs.writeFileSync(cfg.result,JSON.stringify({pid:kid.pid,status,signal,timedOut,errored,pids,living,unexpected}));
-  process.exitCode=timedOut||errored||living.length||unexpected?86:0;
+  const atClose=pids.map(probe); for(const r of atClose)if(r.signal0!=='ESRCH')kill(r.pid);
+  let afterKill=pids.map(probe); for(let i=0;i<50&&afterKill.some(r=>r.signal0!=='ESRCH');i++){await new Promise(r=>setTimeout(r,20));afterKill=pids.map(probe);}
+  fs.writeFileSync(cfg.result,JSON.stringify({pid:kid.pid,status,signal,timedOut,errored,pids,atClose,afterKill}));
+  process.exitCode=timedOut||errored?86:0;
 });
 `);
   const toy = 'export const x = 7;\nexport const y = 11;\nexport const z = 13;\n';
@@ -6754,7 +6761,8 @@ else console.log('全部通过（执行 '+count+' 条断言；覆盖 0 条需求
     }
     const end=JSON.parse(fs.readFileSync(cfg.result,'utf8'));for(const pid of end.pids)owned.add(pid);
     if(fs.existsSync(cfg.fault))unknownTree=true;
-    if(d.error||d.status!==0||end.timedOut||end.errored||end.living.length||end.unexpected||fs.existsSync(cfg.fault))throw Error('（夹具）driver/observer/tree qualification: '+JSON.stringify(end));
+    const unexpected=end.atClose.some((r:ProcessProbe)=>!processEnded(r)),living=end.afterKill.filter((r:ProcessProbe)=>!processEnded(r));
+    if(d.error||d.status!==0||end.timedOut||end.errored||living.length||unexpected||fs.existsSync(cfg.fault))throw Error('（夹具）driver/observer/tree qualification: '+JSON.stringify(end));
     const obs=readLines(cfg.obs),trace=readLines(prefix+'.toy'),out=fs.readFileSync(cfg.out,'utf8'),err=fs.readFileSync(cfg.err,'utf8');
     if(!obs.some(r=>r.kind==='boot'&&r.pid===end.pid)&&!obs.some(r=>r.kind==='boot'&&r.ppid===end.pid))throw Error('（夹具）entry boot was not observed');
     return {end,obs,trace,out,err,segments:(out+'\n'+err).split('\n').filter(l=>l.startsWith('MUTATION_COST_JSON ')).map(l=>productJSON(l.slice('MUTATION_COST_JSON '.length)))};
@@ -6822,10 +6830,10 @@ else console.log('全部通过（执行 '+count+' 条断言；覆盖 0 条需求
   } catch(e) {
     named('成本入口独立夹具资格',false,'（夹具）'+String(e));
   } finally {
-    const living=[...owned].filter(alive);
-    for(const pid of living){try{process.kill(-pid,'SIGKILL');}catch{}try{process.kill(pid,'SIGKILL');}catch{}}
-    const still=[...owned].filter(alive);
-    named('成本入口自有进程全部结束后才删除夹具',still.length===0&&!unknownTree,'（夹具）存活或未知进程树：'+still.join(','));
+    const living=[...owned].map(probe).filter(r=>!processEnded(r));
+    for(const {pid} of living){try{process.kill(-pid,'SIGKILL');}catch{}try{process.kill(pid,'SIGKILL');}catch{}}
+    const still=[...owned].map(probe).filter(r=>!processEnded(r));
+    named('成本入口自有进程全部结束后才删除夹具',still.length===0&&!unknownTree,'（夹具）存活或未知进程树：'+JSON.stringify(still));
     if(still.length===0&&!unknownTree&&outer)fs.rmSync(outer,{recursive:true,force:true});
   }
 });
