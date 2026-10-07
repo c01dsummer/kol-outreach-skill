@@ -165,7 +165,7 @@ export function mergeShards(runs: readonly ShardRun[], all: readonly string[]): 
     const r = run.report
     failed += r.failed
     if ((r.failed === 0) !== (run.status === 0)) {
-      problems.push(`${name}的子进程报告 ${r.failed} 处失败，却以${ended}结束`)
+      problems.push(`${name}的子进程报告 ${r.failed} 处失败，却以${ended} 结束`)
     }
     const ran = new Set(r.groups)
     const missing = run.family.filter(id => !ran.has(id))
