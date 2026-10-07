@@ -28,6 +28,7 @@ import {
   anchorMatches, baselineFault,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, wanted } from './check/group-rule.js'
+import { scanShares } from './check/share-rule.js'
 import {
   beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
@@ -180,6 +181,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
   { id: 'h-group', needs: [] },
+  { id: 'h-group-share', needs: [] },
   { id: 'h-selfcheck-selection-entry', needs: [] },
   { id: 'h-selfcheck-shard-entry', needs: [] },
   { id: 'h-check-rules', needs: [] },
@@ -8238,6 +8240,108 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
   eq('根不是对象读不出', readShardReport('[]'), undefined)
 }
 
+})
+await group('h-group-share', () => {
+harness('自检组之间共享的运行态：needs 写全才不会在拆进程或选跑时读到初始值')
+{
+  // expected 全部按 share-rule.ts 头上的判据手推：写方 ≠ 读方；不同族 → family；
+  // 同族、读方只读不写、闭包里没有写方 → closure；组里读合并量 → merged。
+  const said = (s: { faults: { kind: string; state: string; writer: string; reader: string }[] }) =>
+    s.faults.map(f => `${f.kind} ${f.state}: ${f.writer} → ${f.reader}`).sort()
+  const top = "const tmp = mkdtempSync('x')\nlet failed = 0\nconst claimed = new Set<string>()\nlet dir = ''\n"
+  const scan = (...lines: string[]) => scanShares(top + lines.join('\n'))
+
+  // ── 判两种 ──
+  const leak = scan("group('collect', [], () => { dir = 'out' })", "group('peek', [], () => { if (dir) {} })")
+  eq('漏写 needs 的组跨族读写方的模块级变量：点出状态、写方、读方', said(leak), ['family dir: collect → peek'])
+  const full = scan("group('collect', [], () => { dir = 'out' })", "group('peek', ['collect'], () => { if (dir) {} })")
+  eq('needs 写全：同族、在闭包里，不报', said(full), [])
+  eq('needs 写全时那一对仍被扫出来（阳性对照）', full.pairs, [{ state: 'dir', writer: 'collect', reader: 'peek' }])
+  eq('同族但读方的闭包里没有写方：只在选跑时读不到，报 closure', said(scan(
+    "group('collect', [], () => { dir = 'out' })", "group('peek', [], () => { if (dir) {} })",
+    "group('both', ['collect', 'peek'], () => {})")), ['closure dir: collect → peek'])
+  // 惰性建夹具：每组都先读后写同一份状态，谁先跑谁建 —— 看不出谁靠谁，只要求同族
+  const lazy = "let fx: number | undefined\nconst fixture = () => { if (fx === undefined) fx = 1; return fx }"
+  eq('惰性夹具：同族的几组互不在闭包里，不报', said(scan(lazy,
+    "group('a', [], () => { fixture() })", "group('b', [], () => { fixture() })",
+    "group('all', ['a', 'b'], () => { fixture() })")), [])
+  // 跨族就报是规则有意保守。报出来之后的回应是给每组各自的路径或状态，不补一条假依赖：
+  // 假 needs 会把两族并成一族，静默降低拆进程的并行度，而没有机器分得出真边与假边（ADR-134 第二节）
+  eq('惰性夹具：跨族就报，两个方向都报', said(scan(lazy,
+    "group('a', [], () => { fixture() })", "group('b', [], () => { fixture() })")),
+    ['family fx: a → b', 'family fx: b → a'])
+
+  // ── 什么算写 ──
+  const written = (decl: string, body: string) => said(scan(decl,
+    `group('w', [], () => { ${body} })`, "group('r', [], () => { void S })"))
+    .includes('family S: w → r')
+  ok('给顶层 let 赋值算写', written('let S = 0', 'S = 1'))
+  ok('顶层变量自增算写', written('let S = 0', 'S++'))
+  ok('复合赋值算写', written('let S = 0', 'S += 2'))
+  ok('改顶层对象的属性算写', written('const S = { n: 0 }', 'S.n = 1'))
+  ok('改顶层对象的下标算写', written('const S: Record<string, number> = {}', "S['k'] += 1"))
+  ok('删顶层对象的属性算写', written('const S: { n?: number } = {}', 'delete S.n'))
+  ok('调顶层集合会改自己的方法算写', written('const S = new Set<number>()', 'S.add(1)'))
+  ok('改顶层对象里嵌着的数组算写', written('const S = { list: [] as number[] }', 'S.list.push(1)'))
+  ok('经由组里的别名改属性算写', written('const S = { n: 0 }', 'const c = S; c.n++'))
+  eq('只调不改自己的方法不算写：两边都只读，不报', written('const S = new Set<number>()', 'S.has(1)'), false)
+  eq('别名自己被重新赋值不算改那份状态', written('const S = { n: 0 }', 'let c = S; c = { n: 2 }; void c'), false)
+  ok('数组解构赋值的目标是顶层绑定算写', written('let S = 0', '[S] = [1]'))
+  ok('对象解构赋值的目标是顶层绑定算写', written("let S = ''", "({ S } = { S: 'x' })"))
+  ok('for-of 的循环变量是顶层绑定算写', written("let S = ''", "for (S of ['a']) {}"))
+  eq('解构赋值的右侧提到它只是读', written('let S = 0', 'let a = 0; [a] = [S]; void a'), false)
+
+  // ── 经由顶层函数、按作用域认名字 ──
+  eq('经由两层顶层函数写的也记到组头上', said(scan(
+    "const set = () => { dir = 'x' }", 'function setDeep() { set() }',
+    "group('w', [], () => { setDeep() })", "group('r', [], () => { void dir })")), ['family dir: w → r'])
+  eq('顶层函数当实参传出去也算提到它', said(scan(
+    "const set = () => { dir = 'x' }",
+    "group('w', [], () => { [1].forEach(set) })", "group('r', [], () => { void dir })")), ['family dir: w → r'])
+  eq('组里同名的局部变量、顶层函数的同名形参，不是那个顶层绑定', said(scan(
+    'const len = (dir: string) => dir.length',
+    "group('collect', [], () => { dir = 'out' })",
+    "group('local', [], () => { for (const dir of ['a']) void dir; len('b') })")), [])
+
+  // ── tmp 下的固定路径 ──
+  eq('顶层 join(tmp, 字面量) 被两族的组碰到：两个方向都报', said(scan(
+    "const mark = join(tmp, 'mark.txt')",
+    "group('a', [], () => { writeFileSync(mark, '') })", "group('b', [], () => { readFileSync(mark) })")),
+    ['family tmp/mark.txt: a → b', 'family tmp/mark.txt: b → a'])
+  eq('组里直接写的 join(tmp, 字面量) 也算', said(scan(
+    "group('a', [], () => { writeFileSync(join(tmp, 'x.json'), '') })",
+    "group('b', [], () => { readFileSync(join(tmp, 'x.json')) })")),
+    ['family tmp/x.json: a → b', 'family tmp/x.json: b → a'])
+  eq('一条是另一条的上级目录也算碰到同一处', said(scan(
+    "group('a', [], () => { readdirSync(join(tmp, 'memory')) })",
+    "group('b', [], () => { readFileSync(join(tmp, 'memory', 'creators.json')) })")),
+    ['family tmp/memory/creators.json: b → a', 'family tmp/memory: a → b'])
+  eq('名字只是开头相同不算同一处', said(scan(
+    "group('a', [], () => { mkdirSync(join(tmp, 'jobs')) })",
+    "group('b', [], () => { readFileSync(join(tmp, 'jobs-cwd.txt')) })")), [])
+  eq('同族碰同一路径不报', said(scan(
+    "group('a', [], () => { writeFileSync(join(tmp, 'x.json'), '') })",
+    "group('b', ['a'], () => { readFileSync(join(tmp, 'x.json')) })")), [])
+
+  // ── 合并量 ──
+  eq('各族都写合并量（失败数、认领）不算共享', said(scan(
+    "group('a', [], () => { failed++; claimed.add('X1.a') })", "group('b', [], () => { failed++ })")), [])
+  eq('组里读合并量要报：拆进程后只看得见本进程那一份', said(scan(
+    "group('a', [], () => { claimed.add('X1.a') })", "group('b', [], () => { if (claimed.has('X1.a')) {} })")),
+    ['merged claimed: 各进程 → b'])
+
+  // ── 扫不了就说扫不了 ──
+  // 扫不了要落在 problems 里说出来；抛出去的话交回异常原文，断言带着它红（而不是让整个测试进程崩掉）
+  const shape = (...lines: string[]): number | string => {
+    try { return scan(...lines).problems.length } catch (e) { return `抛了：${(e as Error).message}` }
+  }
+  eq('组 id 不是字面量：扫不了', shape("const n = 'a'", 'group(n, [], () => {})'), 1)
+  eq('needs 不是字面量数组：扫不了', shape("const deps = ['a']", "group('b', deps, () => {})"), 1)
+  eq('needs 数组里混了非字面量：扫不了', shape("const n = 'a'", "group('a', [], () => {})", "group('b', ['a', n], () => {})"), 1)
+  eq('回调不是内联函数：扫不了', shape('const body = () => {}', "group('a', [], body)"), 1)
+  eq('group 不在顶层：扫不了', shape("if (dir) { group('a', [], () => {}) }"), 1)
+  eq('顶层没有 tmp：tmp 下的路径扫不了', scanShares("group('a', [], () => {})").problems.length, 1)
+}
 })
 await group('h-selfcheck-selection-entry', () => {
 harness('真实自检入口的严格选择：非法参数不能被忽略后报成功')
