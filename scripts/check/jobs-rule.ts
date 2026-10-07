@@ -29,6 +29,12 @@
  * worker 崩了、被杀了、汇报行被截断 —— 这几种在输出上长得都一样：**那一条没有结论**。
  * 把它当成「跑过了、没事」是 `process/README.md` 总纲里那个头号事故（把第三档压进
  * 「是」）。所以派出去的编号要逐个核回来，少一个就是硬失败。
+ *
+ * ## 不属派工的一格
+ *
+ * `processEnded` 是自检夹具判「观察到的进程收完了没有」的判定（ADR-133），不是派工。它住这里，
+ * 是因为它与 `ownGroup` 读同一种 `/proc/<pid>/stat` 正文、用同一种切法；自检本身在验证基础设施
+ * 闭包里，这条判定只有放在规则模块里才有变异守着。
  */
 import { basename } from 'node:path'
 
@@ -415,6 +421,36 @@ export function ownGroup(stat: string): number | undefined {
   if (pgrp === undefined) return undefined
   const n = Number(pgrp)
   return Number.isSafeInteger(n) && String(n) === pgrp ? n : undefined
+}
+
+/**
+ * 对一个进程的一次观察：`/proc/<pid>/stat` 的正文（读得到时），以及随后发 0 号信号的结局
+ * （`'delivered'` 或 errno 码）。只装事实，判在 `processEnded`。先读状态、后发信号是接线那边的事，
+ * 理由写在那里。
+ */
+export type ProcessProbe = { signal0: string; stat?: string }
+
+/**
+ * 观察到的这个进程**还会不会再执行任何代码**。自检夹具据此判「进程树收完了没有」（ADR-133）。
+ *
+ * 0 号信号对僵尸照样送达。僵尸只差父进程回收；收养孤儿的进程回收得慢时，只看信号就把
+ * 「已经结束」判成「还活着」，夹具在被测入口正常收尾时也判红。所以送达了还要看状态。
+ *
+ * 但**状态 `Z` 不等于整个进程不再执行**：线程组的头线程先退出、别的线程还在跑时，`stat`
+ * 那一格同样是 `Z`。所以还要看同一行里的线程数（第 20 段，从最后一个 `)` 之后数是下标 17）：
+ * 只剩它自己那一个，才是真的僵尸。
+ *
+ * 切法与 `ownGroup` 同一条理由：从**最后一个** `)` 之后切 —— comm 里可以带空格和右括号。
+ * 没有正文（非 Linux、procfs 没挂）、认不出形状都**不算结束**：那一侧是照旧报红，响的；
+ * 反过来把认不出当成结束，是把一个还会执行的进程放过去，不响。
+ */
+export function processEnded(probe: ProcessProbe): boolean {
+  if (probe.signal0 === 'ESRCH') return true
+  if (probe.stat === undefined) return false
+  const close = probe.stat.lastIndexOf(')')
+  if (close < 0) return false
+  const after = probe.stat.slice(close + 1).trim().split(/\s+/)
+  return after[0] === 'Z' && after[17] === '1'
 }
 
 /**
