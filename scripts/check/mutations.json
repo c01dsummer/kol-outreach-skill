@@ -5357,6 +5357,109 @@
       ]
     },
     {
+      "id": "M-H40-q",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "进程已经不存在却判成还会执行 —— 夹具在任何机器上都判「进程树没收完」，这一组必然误红",
+      "find": "  if (probe.signal0 === 'ESRCH') return true",
+      "replace": "  if (probe.signal0 === 'ESRCH') return false",
+      "by": "test",
+      "kills": [
+        "0 号信号说没这个进程：已结束"
+      ]
+    },
+    {
+      "id": "M-H40-r",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "读不到进程状态（非 Linux、procfs 没挂）时当成已结束 —— 一个还在跑的进程被放过，夹具在它还能写盘时删目录，而且不响",
+      "find": "  if (probe.stat === undefined) return false",
+      "replace": "  if (probe.stat === undefined) return true",
+      "by": "test",
+      "kills": [
+        "读不到状态（非 Linux、procfs 没挂）：不算结束，照旧报",
+        "没权限发信号也读不到状态：不算结束"
+      ]
+    },
+    {
+      "id": "M-H40-s",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "认不出形状的状态行被当成整行来读 —— 一行没有进程名的正文碰巧以僵尸记号开头时，一个说不清的进程被判已结束，不响",
+      "find": "  if (close < 0) return false",
+      "replace": "  if (close < -1) return false",
+      "by": "test",
+      "kills": [
+        "认不出形状（没有右括号，切掉了号和名字）：不算结束，不猜"
+      ]
+    },
+    {
+      "id": "M-H40-t",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "进程名里带右括号时从名字中间切出状态 —— 读到的是名字的一截而不是状态，真僵尸认不出、名字里写着僵尸记号的活进程反被放过",
+      "find": "  const close = probe.stat.lastIndexOf(')')",
+      "replace": "  const close = probe.stat.indexOf(')')",
+      "by": "test",
+      "kills": [
+        "comm 里带右括号的僵尸：照样认出"
+      ]
+    },
+    {
+      "id": "M-H40-u",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "僵尸不算已结束 —— 收养孤儿的进程回收得慢的机器上，夹具在被测入口正常收尾时也判红（ADR-133）",
+      "find": "after[0] === 'Z'",
+      "replace": "after[0] === 'X'",
+      "by": "test",
+      "kills": [
+        "僵尸、只剩一个线程：已结束，只是没人回收",
+        "comm 里带右括号的僵尸：照样认出",
+        "comm 里带空格的僵尸：照样认出"
+      ]
+    },
+    {
+      "id": "M-H40-v",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "把睡眠、暂停这些不在运行的状态都当成已结束 —— 等着被唤醒或被继续的活进程被放过，不响",
+      "find": "after[0] === 'Z'",
+      "replace": "after[0] !== 'R'",
+      "by": "test",
+      "kills": [
+        "睡着的进程：还活着",
+        "被暂停的进程：还活着 —— 继续一下就接着跑",
+        "comm 里带「) Z」的活进程：状态取最后一个 `)` 之后那一段"
+      ]
+    },
+    {
+      "id": "M-H40-w",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "只看状态那一格不看线程数 —— 头线程退出、别的线程还在写盘的进程同样显示僵尸记号，被判已结束，不响",
+      "find": " && after[17] === '1'",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "头线程退出、另一个线程还在跑：stat 同样写 Z，不算结束"
+      ]
+    },
+    {
+      "id": "M-H40-x",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "线程数取错了段 —— 读到的是相邻那一格，真僵尸认不出，夹具在被测入口正常收尾时也判红",
+      "find": "after[17] === '1'",
+      "replace": "after[18] === '1'",
+      "by": "test",
+      "kills": [
+        "僵尸、只剩一个线程：已结束，只是没人回收",
+        "comm 里带右括号的僵尸：照样认出",
+        "comm 里带空格的僵尸：照样认出"
+      ]
+    },
+    {
       "id": "M-H41-a",
       "req": "harness",
       "file": "scripts/check/debt-rule.ts",

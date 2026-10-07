@@ -35,7 +35,7 @@ import {
 import {
   type BillRow, type Outcome, type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf,
   billLines, copyIntoWorker, groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
-  neverStarted, noStdio, ownGroup, parseReport, reportLine, signalTargets, verifierBill,
+  neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill,
 } from './check/jobs-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
@@ -7772,6 +7772,33 @@ harness('变异跑的账：每个验证者被几条变异用、每条跑多久�
   eq('那个乘法：test 每慢 1 秒，整跑串行多 7 秒',
     tryIt(() => lines()[1].includes('每慢 1 秒，整跑串行多 7 秒')), true)
   eq('没有行：交回空数组，什么都不印', tryIt(() => billLines([])), [])
+}
+
+harness('自检夹具判进程收完没有：僵尸而且只剩它自己一个线程，才算结束')
+{
+  // 输入是本机真实读到的 /proc/<pid>/stat 整行（含末尾换行）：僵尸那几行后半段全是 0，就是这个形状。
+  // 期望值从「不再执行任何代码才算结束，认不出一律不算」手推，不来自运行结果。
+  const zombie = '27397 (esbuild) Z 27395 27395 27392 0 -1 4227084 460 0 0 0 0 0 0 0 20 0 1 0 833010 0 0 18446744073709551615 0 0 0 0 0 0 0 0 2143420159 1 0 0 17 3 0 0 0 0 0 0 0 0 0 0 0 0 0\n'
+  eq('0 号信号说没这个进程：已结束', processEnded({ signal0: 'ESRCH' }), true)
+  eq('僵尸、只剩一个线程：已结束，只是没人回收', processEnded({ signal0: 'delivered', stat: zombie }), true)
+  eq('头线程退出、另一个线程还在跑：stat 同样写 Z，不算结束',
+    processEnded({ signal0: 'delivered', stat: '27405 (python3) Z 27395 27395 27392 0 -1 4227084 1056 0 0 0 1 0 0 0 20 0 2 0 833221 0 0 18446744073709551615 0 0 0 0 0 0 0 16781312 2 0 0 0 17 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n' }), false)
+  eq('睡着的进程：还活着',
+    processEnded({ signal0: 'delivered', stat: '27407 (sleep) S 27395 27395 27392 0 -1 4194304 67 0 0 0 0 0 0 0 20 0 1 0 833526 3170304 446 18446744073709551615 94399217795072 94399217809073 140733529782016 0 0 0 0 0 0 1 0 0 17 2 0 0 0 0 0 94399217818576 94399217819800 94400186044416 140733529788440 140733529788448 140733529788448 140733529796585 0\n' }), false)
+  eq('被暂停的进程：还活着 —— 继续一下就接着跑',
+    processEnded({ signal0: 'delivered', stat: '27407 (sleep) T 27395 27395 27392 0 -1 4194304 67 0 0 0 0 0 0 0 20 0 1 0 833526 3170304 446 18446744073709551615 94399217795072 94399217809073 140733529782016 0 0 0 0 0 0 1 0 0 17 2 0 0 0 0 0 94399217818576 94399217819800 94400186044416 140733529788440 140733529788448 140733529788448 140733529796585 19\n' }), false)
+  eq('正在跑的进程：还活着',
+    processEnded({ signal0: 'delivered', stat: '27408 (node) R 27395 27395 27392 0 -1 4194560 2447 0 0 0 3 0 0 0 20 0 7 0 833566 766316544 11134 18446744073709551615 14876672 54527057 140735608448176 0 0 0 0 16781312 17922 0 0 0 17 2 0 0 0 0 0 110917864 111098960 918949888 140735608455101 140735608455194 140735608455194 140735608463331 0\n' }), false)
+  eq('读不到状态（非 Linux、procfs 没挂）：不算结束，照旧报', processEnded({ signal0: 'delivered' }), false)
+  eq('没权限发信号也读不到状态：不算结束', processEnded({ signal0: 'EPERM' }), false)
+  eq('comm 里带「) Z」的活进程：状态取最后一个 `)` 之后那一段',
+    processEnded({ signal0: 'delivered', stat: '27404 (a) Z b) S 27395 27395 27392 0 -1 4194304 1031 0 0 0 2 0 0 0 20 0 1 0 833181 16175104 2458 18446744073709551615 4325376 7450353 140722934297072 0 0 0 0 16781312 2 1 0 0 17 3 0 0 0 0 0 10137016 10728016 123596800 140722934304655 140722934304798 140722934304798 140722934312935 0\n' }), false)
+  eq('comm 里带右括号的僵尸：照样认出',
+    processEnded({ signal0: 'delivered', stat: '27402 (a) b) Z 27395 27395 27392 0 -1 4227084 1037 0 0 0 2 0 0 0 20 0 1 0 833061 0 0 18446744073709551615 0 0 0 0 0 0 0 16781312 0 1 0 0 17 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n' }), true)
+  eq('comm 里带空格的僵尸：照样认出',
+    processEnded({ signal0: 'delivered', stat: '27403 (node foo) Z 27395 27395 27392 0 -1 4227084 1036 0 0 0 1 1 0 0 20 0 1 0 833121 0 0 18446744073709551615 0 0 0 0 0 0 0 16781312 0 1 0 0 17 3 0 0 0 0 0 0 0 0 0 0 0 0 0\n' }), true)
+  eq('认不出形状（没有右括号，切掉了号和名字）：不算结束，不猜',
+    processEnded({ signal0: 'delivered', stat: zombie.slice(zombie.indexOf(') ') + 2) }), false)
 }
 
 })
