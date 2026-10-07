@@ -181,6 +181,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-infra-rules', needs: [] },
   { id: 'h-group', needs: [] },
   { id: 'h-selfcheck-selection-entry', needs: [] },
+  { id: 'h-selfcheck-shard-entry', needs: [] },
   { id: 'h-check-rules', needs: [] },
   { id: 'p1-provider', needs: [] },
   { id: 'd6-provider', needs: [] },
@@ -8289,6 +8290,72 @@ harness('真实自检入口的严格选择：非法参数不能被忽略后报�
   } finally {
     rmSync(root, { recursive: true, force: true })
     if (existsSync(root)) throw new Error('自检选择测试未清理其独占临时根')
+  }
+}
+
+})
+await group('h-selfcheck-shard-entry', () => {
+harness('拆进程跑的子进程：出处那句与末尾汇总只由父进程说')
+{
+  // **实现上下文所写**：作者读过 selfcheck.ts 的收尾段，不是上一组那种独立上下文的测试。
+  // 拆进程那两条对着未修的入口先红过；「不拆进程的子集跑照旧」两条改前改后都绿，是回归断言，
+  // 它们会红由变异重演。expected 来自 ADR-132 第五节「出处移到父进程」「judgeRun 认的末行
+  // 汇总只由父进程打」与 ADR-99 第五节「子集跑照实打一句『这一跑没验…』」；
+  // 步骤名与单组完成行照抄上一组的既有声明，不取自这一组的运行结果。
+  const step = '✓ mutate 遇到重复编号即以退出码 1 结束'
+  const done = '✓ 脚本自检（只跑 1 组）：点名的那几组都跑完了，一条断言都没红'
+  const claimsBefore = [CLAIMS_PATH, ENTRY_CLAIMS_PATH].map(path =>
+    [path, existsSync(path) ? rf(path) : undefined] as const)
+  const claimsUnchanged = () => claimsBefore.every(([path, bytes]) =>
+    bytes === undefined ? !existsSync(path) : existsSync(path) && rf(path).equals(bytes))
+  const root = mkdtempSync(join(tmpdir(), 'kol-shard-'))
+  // 两跑都从同一份干净环境起：不借变异跑的身份，也不继承任何回报落点 —— 子进程身份只由下面显式给
+  const env: NodeJS.ProcessEnv = { ...process.env, TMPDIR: root, TMP: root, TEMP: root }
+  delete env.MUTATING
+  delete env.SELFCHECK_SHARD_REPORT
+  const lines = (output: string) => output.split(/\r?\n/).map(line => line.trim())
+  const hasLine = (output: string, line: string) => lines(output).includes(line)
+  const hasStep = (output: string) => lines(output).some(line => line.startsWith(step))
+  // 同一个观察器两头用：不拆进程那一跑必须看得见它，拆进程那一跑才能拿「看不见」作证
+  const provenanceSkipped = (output: string) =>
+    lines(output).some(line => line.includes('没验') && line.includes('每个可执行文件都有出处'))
+  const run = (extra: NodeJS.ProcessEnv) => {
+    const [exe, argv] = tsxCommand(['scripts/check/selfcheck.ts', '--only=dup-ids'])
+    const r = spawnSync(exe, argv, { encoding: 'utf8', env: { ...env, ...extra }, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 })
+    const output = `${r.stdout}\n${r.stderr}`
+    // 起不来、超时、被信号停下、内部崩溃、动了认领、留下临时夹具：都没有资格作证（与上一组同一道门）
+    if (r.error || r.signal || r.status === null
+      || /\b(?:SyntaxError|TypeError|ReferenceError|RangeError|TransformError|ERR_[A-Z_]+)\b|Cannot find (?:module|package)/.test(output)
+      || output.includes(SELFCHECK_PROCESS_MARK) || output.includes(SELFCHECK_FIXTURE_MARK)) {
+      throw new Error(`自检入口没有取得有效进程证据：${r.error?.message ?? r.signal ?? r.status}\n${output}`)
+    }
+    if (!claimsUnchanged()) throw new Error('拆进程子进程测试改变了认领记录，入口证据无效')
+    if (readdirSync(root).some(name => name.startsWith('kol-selfcheck-'))) {
+      throw new Error('拆进程子进程测试的入口未回收其临时夹具，入口证据无效')
+    }
+    return { status: r.status, output }
+  }
+  try {
+    // 对照记成断言、不抛（ADR-119）：别处的变异弄坏 dup-ids 那一组时，这里照常计一处失败、保住汇总
+    const plain = run({})
+    const plainDone = plain.status === 0 && hasStep(plain.output) && hasLine(plain.output, done)
+    ok('不拆进程的子集跑照旧跑完点名的那一组并打子集汇总', plainDone)
+    if (!plainDone) return
+    ok('不拆进程的子集跑照旧说出这一跑没验出处', provenanceSkipped(plain.output))
+
+    const report = join(root, 'shard-report.json')
+    const shard = run({ SELFCHECK_SHARD_REPORT: report })
+    // 回报只核两栏，栏名照 `ShardReport` 的声明手写核，不借实现里的读法（`readShardReport`）
+    const back = existsSync(report) ? JSON.parse(rf(report, 'utf8')) : undefined
+    const shardDone = shard.status === 0 && hasStep(shard.output)
+      && isDeepStrictEqual(back?.groups, ['dup-ids']) && back?.failed === 0
+    ok('拆进程跑的子进程跑完点名的那一组、交回全绿回报并以 0 结束', shardDone)
+    if (!shardDone) return
+    ok('拆进程跑的子进程不打末尾汇总：那一句只由父进程合并后打', !hasLine(shard.output, done))
+    ok('拆进程跑的子进程不说这一跑没验出处：出处由父进程合并后判', !provenanceSkipped(shard.output))
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    if (existsSync(root)) throw new Error('拆进程子进程测试未清理其独占临时根')
   }
 }
 

@@ -20,6 +20,8 @@
  * 不带 `--only` 的完整跑（非变异）默认拆成多个子进程（ADR-132）：本进程按 `needs` 把组并成族，
  * 每个子进程用 `--only` 跑一整族，跑完交回回报；本进程合并之后，孤儿检查、汇总与入口认领照上面
  * 的规矩走，与单进程整跑同一段收尾。`SELFCHECK_JOBS=1` 照旧单进程；子集跑与变异跑从来不拆。
+ * 子进程虽带着 `--only`，却不打上面那两行里的「没验」，也不打末尾汇总：它只是用户那一次完整跑的一段，
+ * 出处与汇总由本进程合并之后说。
  *
  * 死亡条件记在 ADR-85:一身三半,三半的答案不一样,所以没有整道的那一份。
  */
@@ -72,6 +74,10 @@ const subset = onlyIds !== undefined
 // 本文件有几组会再起一次自检入口当夹具，继承了它就会把回报写到同一处、盖掉真正那一份。
 const shardReportPath = process.env.SELFCHECK_SHARD_REPORT
 delete process.env.SELFCHECK_SHARD_REPORT
+// 拆进程跑的子进程 = 交到了回报落点、又带着 `--only` 的那一跑。收尾那两句（出处、末尾汇总）它都不说，
+// 只交回回报、照旧设退出码，由父进程拿退出码与回报对账（`mergeShards`）后说唯一那一遍（ADR-132 第五节）。
+// 只认落点的话，一次继承了落点、`SELFCHECK_JOBS` 又写错的完整跑也会被当成子进程，那句失败汇总就被吞掉
+const shardChild = shardReportPath !== undefined && subset
 // **子集跑既不删也不写入口认领。** `claimed` 只装这一跑真跑到的那几条判据，
 // 写回去等于拿残缺的记录盖掉完整的，而审计读的就是这份文件（它会报一批
 // 「没有认领」）。删了不写更糟：审计连文件都读不到。所以子集跑按变异跑那一侧走。
@@ -470,6 +476,7 @@ const runGroups = (): Set<string> | undefined => {
  *
  * 派工是队列：谁空了领下一族，不靠写死的耗时表（那种表会烂，ADR-77）。各族的输出
  * 先落盘，再按族的登记顺序整段转出，不交错。合并是判定，在 `group-rule.ts`。
+ * 子进程的两股输出写进同一份日志、整段转到本进程的 stdout，红行也在 stdout；要分开看用 `SELFCHECK_JOBS=1`。
  */
 const runShards = async (jobs: number): Promise<void> => {
   const fams = families(REGISTERED)
@@ -7645,7 +7652,9 @@ const byChain = new Set(
 // 而判定认的是末尾那一句，于是踩红它的变异会被判成「跑不起来」（评审指出）。
 const orphans = walk('scripts')
   .filter(f => !covered.has(f) && !byChain.has(f) && !(f in EXEMPT))
-if (ranOnly !== undefined) {
+if (shardChild) {
+  // 出处归父进程判（拿各子进程交回的并集）。这里再说「没验」，日志里就是每族一句「没验」、后面跟着父进程那句「都有出处」
+} else if (ranOnly !== undefined) {
   // **子集跑一律不判这一条，也不计 failed。** `covered` 只装这一跑真执行过的脚本，
   // 没跑的组自然一个都不在里面 —— 判下去必然误报。而误报的代价不是「多一条红」：
   // `failed` 一涨退出码就非零，`judgeRun` 第一句 `exitCode === 0` 走不到，
@@ -7665,7 +7674,10 @@ if (ranOnly !== undefined) {
 
 // **设退出码，不硬退出**：汇总是最后打的，紧跟着硬退出会在管道上把它截掉
 // （实测 stderr 积压 400 行时 40 次丢 18 次）。由 `exitRace` 守着（`mutate-rule.ts`）。
-if (failed) {
+if (shardChild) {
+  // 红的绿的都不打：父进程合并之后打唯一那一句，这里再打，红了的那一族会让同形的失败汇总出现两次
+  if (failed) process.exitCode = 1
+} else if (failed) {
   console.error(`\n${selfcheckSummary(failed)}`)
   process.exitCode = 1
 } else if (ranOnly !== undefined && ranOnly.size === 0) {
