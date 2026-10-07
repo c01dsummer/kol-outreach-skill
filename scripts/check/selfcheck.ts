@@ -415,10 +415,8 @@ writeFileSync(join(bothTmp, 'scripts', 'check', 'mutations.json'), JSON.stringif
   ],
 }), 'utf8')
 
-/** 派工那几组共用的落点 —— `seedJobs` 写进语料里，派工那一节读它 */
-const jobsMark = join(tmp, 'jobs-cwd.txt')
-
-const seedJobs = (dir: string, muts: unknown[]) => {
+/** `mark`：语料里的验证者每跑一遍记一笔当前目录的落点。各组各给一个：共用一处就是跨族共用 `tmp` 下同一路径（`share-rule.ts`） */
+const seedJobs = (dir: string, muts: unknown[], mark: string) => {
   mkdirSync(join(dir, 'scripts', 'check'), { recursive: true })
   mkdirSync(join(dir, 'docs'), { recursive: true })
   writeFileSync(join(dir, 'docs', 'requirements.json'),
@@ -430,7 +428,7 @@ const seedJobs = (dir: string, muts: unknown[]) => {
   writeFileSync(join(dir, 'scripts', 'test.ts'), [
     `import { v, w } from ${q}./check/a.js${q}`,
     `import { appendFileSync } from ${q}node:fs${q}`,
-    `appendFileSync(${JSON.stringify(jobsMark)}, process.cwd() + ${q}\\n${q})`,
+    `appendFileSync(${JSON.stringify(mark)}, process.cwd() + ${q}\\n${q})`,
     `const bad = (v !== ${q}keep${q} ? 1 : 0) + (w !== ${q}hold${q} ? 1 : 0)`,
     `if (bad) { console.log(${q}\\n${q} + bad + ${q} 个失败\\n${q}); process.exitCode = 1 }`,
   ].join('\n') + '\n', 'utf8')
@@ -5364,9 +5362,9 @@ group('jobs', [], () => {
   // **断言认的是「跑那一遍的当前目录在哪」，不是「结论对不对」。** 结论对不对串行也能对，
   // 证不了它真的派了工；而验证者跑在 `.check-cache/mutate-jobs/` 底下这件事，
   // 只有真派工才成立 —— 那正是整套隔离的地基：改的、还的、写的，全在各自那份副本里。
-  const jobsTmp = join(tmp, 'jobs')
+  const jobsTmp = join(tmp, 'jobs'), jobsMark = join(tmp, 'jobs-cwd.txt')
 
-  seedJobs(jobsTmp, [jobMut('M-J-a', 'keep', 'gone'), jobMut('M-J-b', 'hold', 'lost')])
+  seedJobs(jobsTmp, [jobMut('M-J-a', 'keep', 'gone'), jobMut('M-J-b', 'hold', 'lost')], jobsMark)
   rmSync(jobsMark, { force: true })
   const jobs = runToolBoth('mutate 派工：两条变异各在自己的隔离目录里跑', 'mutate',
     ['--jobs=2'], jobsTmp)
@@ -5394,7 +5392,7 @@ group('jobs', [], () => {
   seedJobs(silentTmp, [
     jobMut('M-J-c', 'keep', 'gone'),
     jobMut('M-J-d', '不存在', 'x', 'scripts/check/没有这个文件.ts'),
-  ])
+  ], jobsMark)
   const silent = runToolBoth('mutate 派工：有一条没回话，判成没有结论而不是通过', 'mutate',
     ['--jobs=2'], silentTmp, { status: 1 })
   if (silent.ok && !/M-J-d.*没有结论/.test(silent.stdout)) {
@@ -5429,7 +5427,7 @@ group('jobs-resource', [], () => {
   // ⚠️ Windows 没验过，与打断那几条同一处境（ADR-72 记着）。
   const fdTmp = join(tmp, 'jobs-fd')
   seedJobs(fdTmp, Array.from({ length: 40 }, (_unused, i) =>
-    jobMut(`M-J-fd${i}`, `k${i} = 'keep'`, `k${i} = 'gone'`)))
+    jobMut(`M-J-fd${i}`, `k${i} = 'keep'`, `k${i} = 'gone'`)), join(tmp, 'jobs-fd-cwd.txt'))
   writeFileSync(join(fdTmp, 'scripts', 'check', 'a.ts'),
     Array.from({ length: 40 }, (_unused, i) => `export const k${i} = 'keep'`).join('\n') + '\n', 'utf8')
   // 引号拼出来，不写成字面量 —— 闭包那一步按**源码文本**扫 import（「注释里的也收，
