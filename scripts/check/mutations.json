@@ -1801,6 +1801,16 @@
       "kills": ["子进程跑的组与派给它的那族对不上：点出缺的那组"]
     },
     {
+      "id": "M-H42-aj",
+      "req": "harness",
+      "why": "子进程跑了派给它那族以外的组时不追究 —— 那一组在别的进程里又跑一遍，派工单上每组仍恰好派一次，跑重了也看不出来",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    const extra = r.groups.filter(id => !run.family.includes(id))",
+      "replace": "    const extra: string[] = []",
+      "by": "test",
+      "kills": ["子进程跑的组与派给它的那族对不上：点出多跑的那组"]
+    },
+    {
       "id": "M-H42-u",
       "req": "harness",
       "why": "进程级问题只打印不计入失败数，这一跑照样以退出码零结束并写入口认领",

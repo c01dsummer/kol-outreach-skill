@@ -8205,6 +8205,16 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
   ], all)
   ok('子进程跑的组与派给它的那族对不上：点出缺的那组',
     short.failed === 1 && short.problems.length === 1 && short.problems[0].includes('c'))
+  // 对不上的另一侧是多跑：族按 needs 闭合时碰不到。族划分漏并一条依赖边时，子进程拿到的 --only 照样沿
+  // needs 收闭包，前置组就在用它的那一族的进程里再跑一遍（group-rule.ts 里 families 的注释）；派工单那一关
+  // 只看派了什么。期望手算：两份回报零失败、退出码零，每组恰好派一次，唯一的进程级问题是「后继」那一族
+  // 多跑了「前置」—— 按合并的约定记一处失败，并像上一条一样点出那一组
+  const dragged = mergeShards([
+    { family: ['前置'], status: 0, signal: null, report: rep(['前置'], 0) },
+    { family: ['后继'], status: 0, signal: null, report: rep(['前置', '后继'], 0) },
+  ], ['前置', '后继'])
+  eq('子进程跑的组与派给它的那族对不上：点出多跑的那组',
+    [dragged.failed, dragged.problems.length, dragged.problems.some(p => p.includes('前置'))], [1, 1, true])
   const unplanned = mergeShards([
     { family: fam[0], status: 0, signal: null, report: rep(['a', 'b', 'c'], 0) },
   ], all)
