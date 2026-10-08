@@ -311,7 +311,7 @@ export function signalTargets<T extends { pid?: number }>(kids: Iterable<T>): T[
  * 拓扑是两层,而且两层的组不一样(`mutate.ts` 两处 `spawn` 实测):
  * worker 起的时候没有 `detached`,跟派工进程同一组;验证者起的时候 **有** `detached`,
  * 自成一组。验证者那个 `detached` 去不掉 —— 「见齐就停」靠 `process.kill(-验证者pid)`
- * 连验证者自己起的子进程一起收(那一刀是 SIGTERM,tsx 壳会转发给底下那个真正跑脚本的
+ * 连验证者自己起的(没再自成一组的)子进程一起收(那一刀是 SIGTERM,tsx 壳会转发给底下那个真正跑脚本的
  * 进程,再往下一层它够不到);硬来和被打断时那一刀是 SIGKILL,壳转发不了,连底下那个
  * 也要靠这个负号。不自成一组就没有那个负号可用(实跑见 ADR-70 末尾)。
  *

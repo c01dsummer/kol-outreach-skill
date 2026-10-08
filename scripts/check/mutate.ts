@@ -446,7 +446,7 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
     // 自成一组：被打断时要连它一起结束，而只杀手上这一个是杀不掉的 —— 那一刀是 SIGKILL
     // （`mutate-restore.ts` 的 `killTest`），`tsx` 壳转发不了它，壳底下真正跑脚本的那个进程
-    // 照样跑到底（ADR-74 第一节那张表；按这里的起法又实跑过一次，见 ADR-70 末尾）。
+    // 照样跑到底（ADR-74 第一节那张表；按这里的起法又实跑过几轮，见 ADR-70 末尾）。
     // 见齐就停发的是 SIGTERM，要这一组另有理由，见下面 `stopIfSeen`。负 pid 是进程组语义，
     // POSIX 上才成立（见 `tsx-cmd.ts`）
     const [exe, argv] = tsxCommand(
@@ -466,8 +466,9 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     /** 我们动手那一刻它说过的话。**没动手就是 undefined** —— 判定据此分岔 */
     let atStop: string | undefined
     // 见齐了就把整组停掉。**杀的是进程组**（负的 pid）。只给手上那个 `tsx` 壳发 SIGTERM，
-    // 真正跑脚本的那个进程也会停 —— 壳会转发，等不到它回话就改发 SIGKILL（ADR-74 第一节
-    // 那张表）；自检的子进程不接这边的管道，关闭照样几十毫秒就来，省下的时间不会丢。
+    // 真正跑脚本的那个进程也会停 —— 壳会转发（ADR-74 第一节那张表）；里面那个卡在同步等里
+    // 回不了话时，壳隔几十毫秒改发 SIGKILL（读 tsx 4.23.12 的源码得来，见 ADR-70 末尾）。
+    // 自检的子进程不接这边的管道，关闭照样几十毫秒就来，省下的时间不会丢。
     // 停不到的是验证者**自己起的**子进程：没人杀它们，验证者停了，它们照样跑到自己结束、
     // 照样写盘（按这里的起法实跑过，见 ADR-70 末尾）。自检是同步等子进程的，见齐那一刻
     // 手上可能正跑着一个 —— 下面「快照留在开枪之前」那句说的临死补打，就是这一刀打到了它
