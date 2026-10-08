@@ -8359,8 +8359,9 @@ harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
   const said = (s: { faults: { kind: string; state: string; writer: string; reader: string }[] }) =>
     s.faults.map(f => `${f.kind} ${f.state}: ${f.writer} → ${f.reader}`).sort()
   const real = rf('scripts/check/selfcheck.ts', 'utf8')
-  // 登记本身坏了（重复 id、缺依赖）时 scanShares 会抛：接住，让它带着原文红在「每一组都扫得了」上，
-  // 不让整个 test.ts 进程崩掉、排在后面的组跑不了（ADR-134 第六节）
+  // 登记本身坏了时：重复 id 让 scanShares 抛 —— 接住，让它带着原文红在「每一组都扫得了」上，
+  // 不让整个 test.ts 进程崩掉、排在后面的组跑不了（ADR-134 第六节）；needs 指到不存在的组
+  // 不抛，报成一条扫不了，红在同一条上（ADR-134 第八节）
   let thrown = ''
   const scanned = (() => { try { return scanShares(real) } catch (e) { thrown = `抛了：${(e as Error).message}` } })()
   eq('真 selfcheck.ts：每一组都扫得了', scanned === undefined ? [thrown] : scanned.problems, [])

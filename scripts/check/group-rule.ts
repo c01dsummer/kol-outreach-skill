@@ -88,7 +88,9 @@ export function parseOnlyStrict(argv: readonly string[], allowed: readonly strin
  * 拆开的话前置组要在两个进程里各跑一遍，两份运行态互不相通（ADR-132 第二节）。
  * 族内按登记顺序，族按首个成员的登记位置排，于是派工与输出顺序都是确定的。
  *
- * 校验与 `wanted` 同一套：重复 id、缺失依赖当场抛 —— 一组落不进任何族，就是一组没人跑。
+ * 校验与 `wanted` 同一套：重复 id、缺失依赖当场抛。自检入口不分跑法、开跑前先调这里一次（选跑在它之后），
+ * 所以登记坏了每一种跑法都在开跑前停下：缺失依赖说出是哪一组缺了哪个，重复 id 只说有重复、不说是哪个；
+ * 不拆进程的整跑里选跑不校验，开跑前只有这一处（ADR-132 第九节讲 `M-H42-l`、`M-H42-m` 的那一块）。
  */
 export function families(groups: readonly Group[]): string[][] {
   const index = new Map(groups.map((g, i) => [g.id, i]))
