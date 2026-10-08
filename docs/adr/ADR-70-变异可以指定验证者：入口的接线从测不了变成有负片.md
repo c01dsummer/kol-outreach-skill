@@ -2451,3 +2451,7 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 > 判据该不该拆，仍按 `process/1-REQUIREMENTS.md:73-80` 那一条，由人读需求原文和实现来判。真要拆，改的是 `docs/requirements.json` 的 `accept`，那是改需求，按 `AGENTS.md:33` 走 `process/2-CHANGE.md`；判据编号不改含义、不回收复用（`process/1-REQUIREMENTS.md:68-69`）。这张表出了哪一行，都不构成拆的理由。
 >
 > 第 552 行那段「今天它产出 0 行」以本块为准。第 2018 行那张欠条（「一条判据是不是该拆成两条」今天全靠评审器）不在本块范围，照旧挂着；它句中的「那张表今天产出 0 行」也以本块为准：表里有了行，照样答不了拆不拆。
+
+> ⚠️ 更正（第 1770–1771 行「它只能有夹具，不能有负片」那句的理由 · 来由：ADR-132 第 375 行那张欠条，条件里有「改动碰到这几句所在的那条记录时，就地订正」，本块所在 PR 往本文追加了块，条件响了）：那句说 `mutate.ts` 在验证基础设施闭包里，「指着它的变异会被『自己验自己』当场拦下」。这条理由只对写了 `by`、又不是 `test` 的变异成立（`scripts/check/verifier-rule.ts` 的 `selfVerifying`）：自检把 `mutate.ts` 当工具起，`by: selfcheck` 改它，判拦。不写 `by` 或写 `by: test` 的变异由需求测试来验，指着 `mutate.ts` 不被拦。它们今天照样配不上，原因是另一件事：`scripts/test.ts` 不起 `mutate.ts`，只在两处读它的源码（`leadWired` 查豁免行还从判定取、`blockingWait` 查没有同步等子进程），那一段留下的失败行有几条、哪几条，需求测试碰不到。`mutations.json` 今天也没有一条变异指着 `mutate.ts`。结论「只能有夹具」照旧，换的只是理由；哪天需求测试像 `M-H42-j` 起真 `selfcheck.ts` 那样起了真 `mutate.ts`，这一处就能配负片。以上按树 `367393e` 核。
+>
+> 本文里同一句理由还有两处，说的是 `selfcheck.ts`：第 902–903 行（`run` 那一处「只能有夹具」）与第 1017–1020 行那张欠条。第 375 行那张欠条点的是说 `mutate.ts` 的副本，这两处不在里面；`selfcheck.ts` 那一头的理由，ADR-132 第 373 行已经更正过。两者的差别在于 `scripts/test.ts` 起真 `selfcheck.ts`，`by: test` 那条路对它是通的。这两处的结论今天还成不成立，本块没核；第 1017–1020 行那张欠条照旧挂着。第 272 行那张欠条里的同一句，上面的对账块已经写过（「走不通的是原文的改法」那几句）。
