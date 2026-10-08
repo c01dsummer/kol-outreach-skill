@@ -1673,7 +1673,7 @@
     {
       "id": "M-H42-k",
       "req": "harness",
-      "why": "族划分不再按依赖合并，前置组与用它产出的组被派进不同进程，后者读到的是初始值",
+      "why": "族划分不再按依赖合并，每组各成一族；用前置组产出的那几组照样沿依赖把前置组拉进自己的进程再跑一遍，同一组在几个进程里重复跑，合并时逐处报多跑，拆进程的完整自检每次都红",
       "file": "scripts/check/group-rule.ts",
       "find": "      root[find(i)] = find(j)",
       "replace": "      void find(j)",
@@ -1683,7 +1683,7 @@
     {
       "id": "M-H42-l",
       "req": "harness",
-      "why": "族划分对指向不存在的前置组一声不吭，那一组拆进程后照样被派出去、读不到它要的产出",
+      "why": "族划分不再在开跑前拦下指向不存在的前置组、说出是哪一组缺了哪个依赖；照样红，只是红得晚、红在别处：拆进程跑每一族的子进程都死在选跑上，汇总里一族一句没交回结果，不拆进程的整跑把各组全跑完，只红在起真自检入口点名跑一组的那条夹具上",
       "file": "scripts/check/group-rule.ts",
       "find": "      if (j === undefined) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)",
       "replace": "      if (j === undefined) continue",
@@ -1693,7 +1693,7 @@
     {
       "id": "M-H42-m",
       "req": "harness",
-      "why": "族划分不拒绝重复登记的组，同名的两组被当成一组派出，其中一组从来没跑",
+      "why": "族划分不再在开跑前拒绝重复登记的组 id；照样红，只是红得晚、红在别处：拆进程跑那个 id 被报成派给了两个子进程，每一族的子进程又都死在选跑上，汇总里一族一句没交回结果，不拆进程的整跑同名的两组都跑完，只红在起真自检入口点名跑一组的那条夹具上",
       "file": "scripts/check/group-rule.ts",
       "find": "  if (index.size !== groups.length) throw new Error('夹具组 id 重复')",
       "replace": "  if (false) throw new Error('夹具组 id 重复')",
