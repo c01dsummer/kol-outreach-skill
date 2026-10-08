@@ -377,6 +377,14 @@ process.on('exit', publishCostAtExit)
  * 那是个**响**的坏法（假的「没测过」），不是静默的假证据 —— 方向要说准，
  * 否则修它的人会去防一个不会发生的事。
  *
+ * ⚠️ 从「覆盖记录也在这个窗口里」起的这两段，说的是**跑全套、又走串行**的那一种（只派一个：
+ * `--jobs=1`、`MUTATE_JOBS=1`、单核机器、清单只剩一条）。
+ * 照今天的派法，前一样走不到：`test.ts` 删和写都只在跑全套时做，而 M-H14-e 从 #229 起只跑
+ * `h-infra-rules` 一组（ADR-128）—— 它那一跑连删都不删，事先放的记录原样留着（实测记在
+ * ADR-69 末尾那块）。后一样在多核机器上也不是缺省：派工跑时验证者跑在 worker 自己那份目录里，那份目录
+ * 不带 `.check-cache`（`jobs-rule.ts` 的 `copyIntoWorker`），删的写的都不是审计读的那一份。
+ * 两样都退回去，这两段才又成立。
+ *
  * **这一条至今没修，也不假装修了** —— 改它要碰 `mutate-restore.ts` 的杀进程策略
  * （Windows 上得换成 `taskkill /T` 之类），是另一个证据问题。
  *
@@ -436,8 +444,11 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
   new Promise(resolve => {
     // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
     // 记录只能由一次干净的测试运行写（test.ts 据此跳过写盘）。
-    // 自成一组：被打断时要连它一起结束，而只杀手上这一个是杀不掉的 ——
-    // `tsx` 自己还要再分出一个真正跑脚本的进程来（POSIX 上才成立，见 `tsx-cmd.ts`）
+    // 自成一组：被打断时要连它一起结束，而只杀手上这一个是杀不掉的 —— 那一刀是 SIGKILL
+    // （`mutate-restore.ts` 的 `killTest`），`tsx` 壳转发不了它，壳底下真正跑脚本的那个进程
+    // 照样跑到底（ADR-74 第一节那张表；按这里的起法又实跑过几轮，见 ADR-70 末尾）。
+    // 见齐就停发的是 SIGTERM，要这一组另有理由，见下面 `stopIfSeen`。负 pid 是进程组语义，
+    // POSIX 上才成立（见 `tsx-cmd.ts`）
     const [exe, argv] = tsxCommand(
       only === undefined ? [verifier.script] : [verifier.script, `--only=${only.join(',')}`])
     const kid = spawn(exe, argv,
@@ -454,8 +465,14 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     let err = ''
     /** 我们动手那一刻它说过的话。**没动手就是 undefined** —— 判定据此分岔 */
     let atStop: string | undefined
-    // 见齐了就把整组停掉。**杀的是进程组**（负的 pid）：`tsx` 底下还有一个真正跑脚本的
-    // 进程，只杀手上这一个杀不掉，剩下那个会一直跑到自己结束 —— 那样「省下的时间」就没了
+    // 见齐了就把整组停掉。**杀的是进程组**（负的 pid）。只给手上那个 `tsx` 壳发 SIGTERM，
+    // 真正跑脚本的那个进程也会停 —— 壳会转发（ADR-74 第一节那张表）；里面那个卡在同步等里
+    // 回不了话时，壳隔几十毫秒改发 SIGKILL（读 tsx 4.23.12 的源码得来，见 ADR-70 末尾）。
+    // 自检的子进程不接这边的管道，关闭照样几十毫秒就来，省下的时间不会丢。
+    // 只给壳发的话，停不到的是验证者**自己起的**子进程：没人杀它们，验证者停了，它们照样
+    // 跑到自己结束、照样写盘（按这里的起法实跑过，见 ADR-70 末尾）—— 所以要杀整组，它们在
+    // 组里，一起停。整组也收不到的，只有验证者那边又自成一组的子进程。自检是同步等子进程的，
+    // 见齐那一刻手上可能正跑着一个 —— 下面「快照留在开枪之前」那句说的临死补打，就是这一刀打到了它
     const stopIfSeen = (): void => {
       // 需求测试的选跑组含有 finally 清理临时目录。见齐即杀会跳过 finally，
       // 后续变异便可能读到上一条留下的文件；让这类短子集自行完成并照常核对具名失败。

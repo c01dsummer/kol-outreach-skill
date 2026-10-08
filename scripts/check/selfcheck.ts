@@ -143,7 +143,9 @@ let failed = 0
  * 清册不收 —— `scripts/test.ts` 有一条断言钉着。收了的话 `kills` 就能点着一句在崩溃之后
  * 照打的话,正是 `judgeRun` 那道记号闸要堵的错误归因。
  *
- * ⚠️ **本条只把 P3.b 那一段改成具名的**,全文件几十处一起改是另一个改动(ADR-70 记着)。
+ * 要点名哪一句,就把那一句写成 `named`;没人点名的照旧是散文,不为改而改(ADR-70「5b」
+ * 那一节的欠条按这条做法销掉了,见 ADR-70 末尾)。点到散文不会悄悄放过:`kills` 点的名字
+ * 不在清册里,`mutate` 开跑前就停,报「点的夹具「…」不在 selfcheck 的清册里」。
  */
 const named = (label: string, ok: boolean, why: string) => {
   if (ok) { console.log(`  ✓ ${label}`); return }
@@ -3077,7 +3079,7 @@ group('d6h-pagecap', [], () => {
     try { return JSON.parse(readFileSync(join(capBase, dir, 'task.json'), 'utf8')) } catch { return undefined }
   }
 
-  // (a) 跨运行累计。额度手算：UNIT_PRICE 0.001，budget 0.003 → 正好 3 次付费搜索，
+  // (a) 跨运行累计。额度手算：TikTok 搜索单价 0.001/次（ADR-107/108），budget 0.003 → 正好 3 次付费搜索，
   //     于是第一跑停在 3 页（不到上限 4、也没进 done）——这一半正是修之前会被丢掉的记录。
   {
     const first = runBoth('collect 页数上限夹具 a：先被预算卡停在上限以下',

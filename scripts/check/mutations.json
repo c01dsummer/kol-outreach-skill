@@ -2373,7 +2373,7 @@
     {
       "id": "M-H14-e",
       "req": "harness",
-      "why": "把「谁拥有这份记录」改成人人有份 —— 变异运行也会清掉、写脏那份覆盖记录，普通运行留下的证据被一次跑在改坏源码上的运行顶替",
+      "why": "把「谁拥有这份记录」改成人人有份 —— 跑全套的变异运行开跑时也会删掉上一次干净运行留下的覆盖记录，而它跑的是改坏的源码，写不回一份作数的；删掉的记录没被放回去时，审计报「先跑 npm test」，测过的树被说成没测过",
       "file": "scripts/check/claims.ts",
       "find": "export const claimsOwnedBy = (mutating: boolean): boolean => !mutating",
       "replace": "export const claimsOwnedBy = (mutating: boolean): boolean => true",
