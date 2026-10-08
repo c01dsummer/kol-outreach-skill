@@ -93,3 +93,13 @@ ADR-19 让 `written: false` 有了第二个原因（目录不可写、磁盘满�
 
 所以立一条硬失败的规矩时，配套要问一句：**怎么在不触发它的情况下违反它？**
 答得出来，那就是这条规矩的真实强度。
+
+> ⚠️ 文首第 3–16 行那张欠条（认领只从 `scripts/test.ts` 收，自检端到端跑出的覆盖审计看不见；豁免里的 `mitigation` 是没人核的散文）已还。做的人没回这里销账，本块补上。修法记在 ADR-70，分三步进了主干：
+>
+> - **自检写认领。** 5bab6a8（#102，ADR-70「落地 3 第一片」）让自检跑完写一份 `.check-cache/selfcheck-claims.json`（`scripts/check/claims.ts` 的 `ENTRY_CLAIMS_PATH`），审计另读这一份（`scripts/check/audit.ts:140`）。走的是欠条给的第一个方向，但记录没有合成一份：合成一份的话两个写方会互相抹掉，单独跑 `npm test` 会把自检写下的那一栏一起清掉。理由记在 `claims.ts` 那段注释和 ADR-70 那一节；合并只做在判定里（下一条）。分成两份，审计汇总行就能单独报「入口认领」（`scripts/check/audit-rule.ts:162–168`），第二个方向要的分开计不用在判据上手标。
+> - **入口认领算数。** 039435d（#104，「落地 3 第二片」）让入口认领和单元认领在「这条判据有没有人认领」上同权（`scripts/check/spec-rule.ts` 的 `requirementVerdict`）。
+> - **散文换成负片。** 6fad02e（#105，「落地 4」）加了硬失败：只由自检认领的判据，必须有一条 `by: "selfcheck"` 的负片（`spec-rule.ts:508–520`）。这种负片必须用 `kills` 点名夹具（`scripts/check/mutate-rule.ts` 的 `wiringFault`）；按代码读，夹具被删，`npm run mutate` 开跑前就因点名的夹具不在清册里以 1 退出（`scripts/check/mutate.ts` 的 `misnamed` 那段），检查链红。P3.b、D6.f 两条豁免同时撤掉（ADR-70「落地 4」第二节）。
+>
+> 现在 `scripts/check/mutations.json` 的 `exemptions` 只剩 P2.a 与 P1.b，都不是靠端到端夹具守的那一类：P2.a 豁免的「是否编造」那一半不经过任何代码路径，P1.b 的「任何位置」没有检查能兑现。它们的 `mitigation` 仍是散文；拿不到负片的豁免留着它，是 ADR-70 开头「评审更正」块第四条定的（P1.b 那条是 2026-09-18 照 ADR-77 登记的），不归这张欠条管。
+>
+> 欠条写的触发事件在修法之前没有出现：cee0866（#70）登记这张欠条时点名 D6.f 是头一条，从那里到 5bab6a8，`docs/requirements.json` 一条判据都没加。修法落地之后登记、只由自检认领的头几条是 F9.a、F9.b（#138）与 D6.i、D6.j、D6.l（#139），提交日期都是 2026-09-20（UTC），登记时已经被入口认领和那道硬失败接住。本块只读了 ADR、代码与 git 历史，没有另跑。
