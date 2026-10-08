@@ -1561,7 +1561,7 @@
     {
       "id": "M-H42-f",
       "req": "harness",
-      "why": "需求测试组声明了不存在的依赖仍放行，选跑可能跳过前置断言",
+      "why": "选跑不再拦下组表里指向不存在的前置组：依赖闭包碰到那一组的选跑照样当场失败，报的却是一个读不到属性的类型错误，看不出是哪一组缺了哪个依赖；碰不到它的子集跑照常跑完、以退出码零结束，组表写错一声不吭；整跑时需求测试自己的组登记照样点名拦下",
       "file": "scripts/check/group-rule.ts",
       "find": "    if (!byId.has(need)) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)",
       "replace": "    if (false) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)",
