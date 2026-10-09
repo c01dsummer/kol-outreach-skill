@@ -39,7 +39,7 @@
 | **改 CSV 列或报告结构** | `scripts/lib/rows.ts` · `scripts/lib/xlsx.ts` · `scripts/lib/report.ts` · `skill/references/output-format.md` · 测试 · 变异 | 部分 |
 | **新增可执行文件** | 三选一：接进 `scripts/check/selfcheck.ts`、在 `npm run check` 里自成一步、或写进 `EXEMPT` 说明理由 | 🔒 `selfcheck` |
 | **新增一道闸门** | 判定逻辑（`scripts/check/` 下不带 shebang 的 `.ts`）· 测试 · **`scripts/check/mutations.json`**（闸门自己也是需求，它的测试同样要被证明过）· `process/` 里那条纪律 | 🔒 `audit`：scripts/check/ 下每个判定模块必须有变异指向它，否则硬失败；`mutate` 证明那个变异被抓到 |
-| **改变变异全量/选组路由、`full_run` 解释或验证者分组配置** | `process/4-VERIFY.md` 缩小运行范围前先跑正常基线那一条 · `process/6-INTEGRATE.md`「改验证成本时」的运行证据 · 实际变异目录与组/依赖/顺序配置 · `docs/ARCHITECTURE.md` 的维护判据、具体字段、基线及执行边界 · CI 可信基线传入 · 对应 ADR | 🔒 `mutate` 核真实基线变化与解释形状；解释语义和可比证据靠评审 |
+| **改变变异全量/选组路由、`full_run` 解释或验证者分组配置** | `process/4-VERIFY.md`「只跑验证者的一部分时」那一条 · `process/6-INTEGRATE.md`「改验证成本时」的运行证据 · 实际变异目录与组/依赖/顺序配置 · `docs/ARCHITECTURE.md` 的维护判据、具体字段、基线及执行边界 · CI 可信基线传入 · 对应 ADR | 🔒 `mutate` 核真实基线变化与解释形状；解释语义和可比证据靠评审 |
 | **改变变异配置使用、基线复用或经过时间报告** | `docs/ARCHITECTURE.md` 的计量语义（公开验收）、具体取数、输出协议和观察/汇总边界 · `process/6-INTEGRATE.md`「改验证成本时」的可比证据 · 对应 ADR 与完整变化清单 | ✗ 报告只提供原料，不新增性能闸门 |
 | **改两层的判别规则** | `process/README.md`「为什么要分两层」（原则）· `process/AGENTS.md.tpl` · `AGENTS.md` · 本表「一条判别规则」· `REVIEW.md` 那句指针 | ✗ 靠执行（替代「读」的，不建检查；判据见 `process/README.md` 第二层） |
 | **重命名／删掉 `process/` 或 `docs/` 下被 `REVIEW.md` 指到的那几份** | `REVIEW.md` 的指针（三份转发不用动，它们只指 `REVIEW.md`） | ✗ 靠执行 |
