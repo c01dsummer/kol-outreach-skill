@@ -13362,10 +13362,11 @@ suite('D20', '内容哈希版本按规范化 JSON 算出，复算只核对已有
     [versionOf(frozenCalibration), JSON.stringify(frozenCalibration)], [base, frozenBefore])
   // 依据 D20.f「全部内容（含未列出的键）」：键下嵌多深都得算进哈希，规范化 JSON 对任何深度都有定义、不抛。
   // 期望串按构造写，不交给递归的 oracle；深对象也不交给 eq/ok 比较或打印（那本身会栈溢出）。
+  // 每层两个成员、对象键按与码点序相反的顺序插入：只在浅层排序、只在浅层写分隔符、只对单成员链特判的写法在深处也露馅。
   const DEPTH = 100000
   let deepObject: unknown = 1, deepArray: unknown = 1
-  for (let i = 0; i < DEPTH; i++) { deepObject = { a: deepObject }; deepArray = [deepArray] }
-  const DEEP_OBJECT = '{"a":'.repeat(DEPTH) + '1' + '}'.repeat(DEPTH), DEEP_ARRAY = '['.repeat(DEPTH) + '1' + ']'.repeat(DEPTH)
+  for (let i = 0; i < DEPTH; i++) { deepObject = { b: 0, a: deepObject }; deepArray = [deepArray, 0] }
+  const DEEP_OBJECT = '{"a":'.repeat(DEPTH) + '1' + ',"b":0}'.repeat(DEPTH), DEEP_ARRAY = '['.repeat(DEPTH) + '1' + ',0]'.repeat(DEPTH)
   // 几十万字符的长串只回报是否相等；不等时只给前 80 个字符（多半是 threw: …）。
   const sameLong = (got: unknown, want: string) => got === want || (typeof got === 'string' ? got.slice(0, 80) : typeof got)
   eq('规范化 JSON：十万层对象嵌套照常算出，不因深度抛错', sameLong(attempt(() => canonicalJson(deepObject)), DEEP_OBJECT), true)
