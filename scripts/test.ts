@@ -13360,6 +13360,31 @@ suite('D20', '内容哈希版本按规范化 JSON 算出，复算只核对已有
   const frozenBefore = JSON.stringify(frozenCalibration)
   eq('校准内容版本：深冻结输入照算不抛，算后原值不变',
     [versionOf(frozenCalibration), JSON.stringify(frozenCalibration)], [base, frozenBefore])
+  // 依据 D20.f「全部内容（含未列出的键）」：键下嵌多深都得算进哈希，规范化 JSON 对任何深度都有定义、不抛。
+  // 期望串按构造写，不交给递归的 oracle；深对象也不交给 eq/ok 比较或打印（那本身会栈溢出）。
+  const DEPTH = 100000
+  let deepObject: unknown = 1, deepArray: unknown = 1
+  for (let i = 0; i < DEPTH; i++) { deepObject = { a: deepObject }; deepArray = [deepArray] }
+  const DEEP_OBJECT = '{"a":'.repeat(DEPTH) + '1' + '}'.repeat(DEPTH), DEEP_ARRAY = '['.repeat(DEPTH) + '1' + ']'.repeat(DEPTH)
+  // 几十万字符的长串只回报是否相等；不等时只给前 80 个字符（多半是 threw: …）。
+  const sameLong = (got: unknown, want: string) => got === want || (typeof got === 'string' ? got.slice(0, 80) : typeof got)
+  eq('规范化 JSON：十万层对象嵌套照常算出，不因深度抛错', sameLong(attempt(() => canonicalJson(deepObject)), DEEP_OBJECT), true)
+  eq('规范化 JSON：十万层数组嵌套照常算出，不因深度抛错', sameLong(attempt(() => canonicalJson(deepArray)), DEEP_ARRAY), true)
+  eq('内容哈希：十万层对象嵌套的值等于按构造写出的规范化串的 SHA256', attempt(() => calibrationHash(deepObject)), sha256Of(DEEP_OBJECT))
+  // 合 D20.a 的校准另挂一个未列出的深键：oracle 只算浅的一层（深值先换成占位串），再把带引号的占位串换成构造串。
+  const deepCalibration = { ...calibration, zz_extra: deepObject }
+  const HOLE = 'zz-deep-placeholder'
+  const shallow = oracleJson(Object.fromEntries(Object.entries({ ...calibration, zz_extra: HOLE }).filter(([key]) => key !== 'version')))
+  const deepVersion = sha256Of(shallow.split(JSON.stringify(HOLE)).join(DEEP_OBJECT))
+  const deepAccepted = attempt(() => brandCalibrationProblems({ brand_calibration: deepCalibration }))
+  ok('深嵌套夹具有效：未列出的键挂十万层嵌套的校准通过已有的 D20.a 判定', Array.isArray(deepAccepted) && deepAccepted.length === 0)
+  eq('校准内容版本：未列出的键挂十万层嵌套时照常算出，等于按构造推出的哈希', versionOf(deepCalibration), deepVersion)
+  eq('版本复算：未列出的键挂十万层嵌套、版本与内容一致时返回空清单',
+    attempt(() => calibrationVersionProblems({ product: 'deep-extra', brand_calibration: { ...deepCalibration, version: deepVersion } })), [])
+  const deepStale = attempt(() => calibrationVersionProblems({ product: 'deep-extra', brand_calibration: { ...deepCalibration, version: 'sha256:' + '0'.repeat(64) } }))
+  eq('版本复算：未列出的键挂十万层嵌套、版本不一致时恰好一条问题，指出 brand_calibration.version 并给出复算值',
+    Array.isArray(deepStale) ? deepStale.map(problem => [typeof problem === 'string' && problem.includes('brand_calibration.version'),
+      typeof problem === 'string' && problem.includes(deepVersion)]) : deepStale, [[true, true]])
   criterion('D20.f')
 
   // D20 × P1：复算只核对已有内容，不补字段、不改写版本；缺席或结构不合时不算哈希。
