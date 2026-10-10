@@ -176,7 +176,7 @@ Q4（归纳规则何时开放，即 ADR-130:18 的 3–5 轮真实人工审核�
 
 第四节第 1 步要求：第 2 步开工前，固定一条偏好变更，按现行做法记下从提出到重新交付的四个数。这里是在离线夹具上量的；全程到重新交付与待重评数在真实任务上另测（第四节第 1 步），不由本节代替。
 
-**夹具与那条变更。** 树 `1a57446`。一个任务目录，6 个已评 TikTok 账号（5 个合格、1 个不合格），评审都记着校准版本 `brand-v1`；`render` 带 `scripts/check/fake-fetch.ts` 预载在临时目录里跑，全程 0 次外部请求。固定的那条变更：运营口头补一条负面信号「heavy discount-code spam」，校准里同时补一条 `brand_preference` 来源。夹具脚本在仓库外，不提交。
+**夹具与那条变更。** 树 `1a57446`。一个任务目录，6 个已评 TikTok 账号（5 个合格、1 个不合格），评审都记着校准版本 `brand-v1`；`render` 带 `scripts/check/fake-fetch.ts` 预载在临时目录里跑，全程 0 次外部请求。固定的那条变更：运营口头补一条负面信号「heavy discount-code spam」，校准里同时补一条 `brand_preference` 来源。夹具不进仓库，照下面可以重建：任务目录里 `task.json` 带这份校准，`creators.json` 与 `creators.raw.json` 是同一份 6 人名单，`agent-review.json` 每人一条完整新评审；每一步之后在夹具根目录跑 `env TIKHUB_API_KEY= NODE_OPTIONS= node --import file://<仓库>/node_modules/tsx/dist/loader.mjs --import file://<仓库>/scripts/check/fake-fetch.ts <仓库>/scripts/render.ts --dir task`，前后对 `task/` 与 `memory/` 取 sha256 比对。下面的文件数与待重评数只取决于树和已评账号数 N，与夹具里写了什么无关：`render` 每次整体改写同样 7 个文件，版本对不上的完整评审一律待重评（D21.p）。
 
 **按现行做法走一遍**（`skill/references/product-intake.md:66`、`skill/references/semantic-fit.md:148`）：
 
@@ -191,7 +191,7 @@ Q4（归纳规则何时开放，即 ADR-130:18 的 3–5 轮真实人工审核�
 **四个数：**
 
 - **改动的文件数。** 人或 Agent 亲手改 2 个（`task.json`、`agent-review.json`）；每次 `render` 改写 7 个，其中 `memory/creators.json` 在任务目录外。从改前到再交付，净变化 7 个文件（`report.html` 回到改前原字节，`agent-review.json` 变了）。
-- **人工步骤。** 一次编辑或一次命令算一步：Agent 改校准内容 1 步、手写 version 1 步、重评 6 个账号 6 步（每个都是重新判断，不只是换版本号，`semantic-fit.md:148`），`render` 1 步（中间先看一眼待重评就是 2 步）。合计 9 步，其中 6 步随已评账号数 N 线性增长；运营只说一句话。
+- **人工步骤。** 一次编辑或一次命令算一步，照上表：Agent 改校准内容 1 步、手写 version 1 步、`render` 重新交付 1 步、重评 6 个账号 6 步（每个都是重新判断，不只是换版本号，`semantic-fit.md:148`）、`render` 再交付 1 步。合计 10 步（不看中间那次交付就是 9 步），其中 6 步随已评账号数 N 线性增长；运营只说一句话。
 - **原资料重读次数。** 现行流程不要求重读，也没有原件可读：`sources` 只存出处与说明两段文字（`scripts/lib/brand-calibration.ts:24-36`）。这条变更是运营口头给的，按流程是 0；变更涉及产品事实时，要重新打开商品页或请运营重新上传，次数在离线夹具上量不出，留给真实任务。
 - **待重评数。** 改后第一次交付 6/6（等于已评账号数 N）；重评后 0。
 
