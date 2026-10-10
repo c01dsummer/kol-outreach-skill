@@ -161,9 +161,9 @@ Q4（归纳规则何时开放，即 ADR-130:18 的 3–5 轮真实人工审核�
    第 6 步的离线比较记其中三项（改动的文件、人工步骤、原资料重读次数）；全程到重新交付与待重评数在真实任务上另测，与基线对照。
    批次 A 预期减少人工步骤与重读，待重评量不降（原地改校准换 version 后，旧评审照 D21.p 全部待重评）。
 2. **规范化 JSON 与内容哈希**、`calibration version`、collect/enrich/render 入口复算（ADR-136）；登记 D20 新判据。
-3. **原件、提案、验证与授权记录**及对应命令（D27、D28）；`memory/brands/<brand-id>/` 的 `staging/`、`authorizations/` 按 ADR-137 在这一步落地，同步 `docs/ARCHITECTURE.md:53` 目录表。
+3. **原件、提案、验证与授权记录**及对应命令（D27、D28）；`memory/brands/<brand-id>/` 的 `staging/`、`authorizations/` 按 ADR-137 在这一步落地，按 ADR-137 第五节同步目录表、规矩 2、D4 主句的措辞与 ADR-114 的更正。
 4. **发布包、激活与通用基线**（D29）；补齐 ADR-137 的 `releases/`、`registry/`、`current.json`。
-5. **任务范围、`calibration generate`、产品事实输出条件**（D30、D31）；同一条 PR 同步 Skill（`skill/SKILL.md`、`skill/references/product-intake.md`、`skill/references/semantic-fit.md:114`、`skill/references/outreach-draft.md:101`：没有输出为 `verified_product_fact`、商品页原文也找不到出处的产品事实，草稿对应处保留占位符）。
+5. **任务范围、`calibration generate`、产品事实输出条件**（D30、D31）；同一条 PR 同步 Skill（`skill/SKILL.md`、`skill/references/product-intake.md`、`skill/references/semantic-fit.md:114`、`skill/references/outreach-draft.md:101`：没有输出为 `verified_product_fact`、商品页原文也找不到出处的产品事实，草稿对应处保留占位符）与 `docs/business-requirements.md:161`（Phase 01 的可选品牌校准：可由发布包生成，产品事实按 D31 输出）。
 6. **离线比较工具**；同一条 PR 登记它的需求。
 
 每片在主干上都要全绿。没接入口之前，不得宣称上线。

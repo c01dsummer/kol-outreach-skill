@@ -7,7 +7,7 @@
   `skill/references/memory.md:13` 写的是同一个决定，目录表的 `memory/` 一行也只列了 `memory/creators.json`（`docs/ARCHITECTURE.md:53`）。
   `output/` 下是 collect 一次建一个的任务目录 `output/<产品>-<时间戳>/`（`docs/ARCHITECTURE.md:52`）；
   发布包要被以后的任务按 `policy_ref` 引用，建它的那个任务目录删掉之后也必须仍可读
-- 冲击的需求：D4（不变：创作者记忆仍是 `memory/creators.json`，D4.a 原样）；`docs/business-requirements.md` 决定表第 2 条的含义收窄为「创作者记忆」；品牌发布与激活的新需求见 ADR-135 第三节
+- 冲击的需求：D4（判据不变：创作者记忆仍是 `memory/creators.json`，D4.a 原样；主句的「跨任务记忆」只指创作者记忆，措辞随第 3 步澄清，见第一节第 4 条）；`docs/business-requirements.md` 决定表第 2 条的含义收窄为「创作者记忆」；品牌发布与激活的新需求见 ADR-135 第三节
 - 结论：采纳。本条不改代码、目录与需求登记表；目录随 ADR-135 施工顺序第 3、4 步的实现 PR 落地（第 3 步 `staging/`、`authorizations/`，第 4 步其余）
 - 理由：不碰红线；不缩范围、不降标准；补的是可信（任务目录删掉后，已绑定的发布包仍可读）；落盘位置不易逆，所以由需求所有者定。逐条见第三节
 - 连带改动：本记录；`docs/adr/README.md` 索引（`npm run adr -- --write`）。目录表、Skill 与业务文档的同步在实现 PR 里做，清单见第五节
@@ -35,7 +35,8 @@
    不合规就拒绝，不替运营转小写、删字符或截断；任务的品牌一项缺席时，不按名称相近补出品牌（ADR-135 D29 × P1）。
 3. **只存品牌资料与派生摘录。** 供应商接口的响应原件不进品牌目录，仍只放 `output/<名字>/`（`docs/ARCHITECTURE.md:64` 规矩 2）；
    保存品牌原件时，从本地导入 `output/` 下的文件一律拒绝（D27.a）；发布只从 D27 的原件库复制摘录，不读 `output/`（D29.b）。
-4. **creators.json 仍是唯一的创作者记忆。** 它的路径、结构与 D4 的全部判据不变。品牌目录不保存任何创作者的推荐、联系或屏蔽状态；
+4. **creators.json 仍是唯一的创作者记忆。** 它的路径、结构与 D4 的全部判据不变。D4 主句「跨任务记忆以 platform:handle 为主键持久化在本地 JSON」说的就是它；
+   品牌目录不以 platform:handle 为键，不是 D4 所说的记忆，D4 的判据不管它（默认指针的原子替换另见下面判据草案 (iii)）。品牌目录不保存任何创作者的推荐、联系或屏蔽状态；
    案例只作 Agent 可读的示例。已联系去重（P4）照旧只读 `memory/creators.json`。
 5. **单机、单人。** 不做多人共享（同决定表第 2 条）。`memory/` 已被 `.gitignore:9` 忽略，也已在变异 worker 不复制的 `SKIP` 里
    （`scripts/check/jobs-rule.ts:255`），实现 PR 不用改这两处。品牌目录不进仓库，也没有备份保证。
@@ -53,7 +54,7 @@
 
 - **不放进建它的任务目录。** `output/<产品>-<时间戳>/` 只属于一个任务（`docs/ARCHITECTURE.md:52`）。发布包放在那里，
   运营删掉那个任务目录，别的任务的 `policy_ref` 就指向不存在的东西。
-- **不另开 `output/<名字>/`。** 规矩 2（`docs/ARCHITECTURE.md:64`）说运行时产生的东西一律放 `output/<名字>/`，
+- **不另开 `output/<名字>/`。** 规矩 2（`docs/ARCHITECTURE.md:64`，出自 ADR-114:33）说运行时产生的东西一律放 `output/<名字>/`，
   列的是接口响应原件、诊断快照、价目快照、日志 —— 一次运行留下的证据，没有哪个流程按默认指针回头去读。
   跨任务、默认要回头读的状态今天已有例外 `memory/creators.json`（`:53`）；发布包是以后的新任务默认要读的跨任务状态，与它同一类，
   规矩 2 的字句在实现 PR 里补（第五节）。供应商原件照旧守规矩 2（第一节第 3 条）。
@@ -92,4 +93,6 @@
 - `docs/ARCHITECTURE.md:64` 规矩 2：补一句跨任务状态放 `memory/`，见目录表；
 - `skill/references/memory.md:13`：「单文件」限定为创作者记忆，并指向品牌存储；
 - `docs/business-requirements.md:380`：决定表第 2 条限定为创作者记忆，补一句品牌策略另存 `memory/brands/`（本条）；
+- `docs/requirements.json` D4 主句：「跨任务记忆」限定为创作者的跨任务记忆。只澄清措辞、判据不变；改正文就是改需求，随该 PR 的第一个提交登记，`adr` 追加 ADR-137；
+- ADR-114 末尾追加一块 `> ⚠️ 更正：…`：规矩 2 补的那句（跨任务状态放 `memory/`）出自本条（`docs/SYNC.md:15`）。同一条改动登记了 `memory/brands/`，ADR-114「重开这个讨论」那条（没登记的新目录进了主干）不因此响；
 - `.gitignore:9` 与 `scripts/check/jobs-rule.ts:255` 不用改（第一节第 5 条）。
