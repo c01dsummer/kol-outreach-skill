@@ -171,3 +171,28 @@ Q4（归纳规则何时开放，即 ADR-130:18 的 3–5 轮真实人工审核�
 ## 五、分步启用说明
 
 > ⚠️ 分步启用说明：本条「采纳」记录的是批次 A 的范围与需求所有者 2026-10-09 的选择，不表示任何新行为已在主干上线。本次只合入本条、ADR-136、ADR-137 与索引，不改需求登记、Skill 或运行代码；现行 D20（版本只校验结构）、D21.p（版本字符串相等即已评）、D4（单文件创作者记忆、并发写回不保证）与 Skill 现行的校准流程（`skill/references/product-intake.md:66`）继续生效。D27 起的新需求与 D20 新判据随第四节各步的实现 PR 登记，各自的能力与入口接上后才算落地。在那之前，不得把资料验证、品牌策略发布包、内容哈希版本或 `calibration` 两条命令称为已上线功能；离线比较的一致数不称准确率，也不得据此宣称误推率或采用率改善（ADR-130:18）。
+
+## 2026-10-10：第 2 步开工前的基线
+
+第四节第 1 步要求：第 2 步开工前，固定一条偏好变更，按现行做法记下从提出到重新交付的四个数。这里是在离线夹具上量的；全程到重新交付与待重评数在真实任务上另测（第四节第 1 步），不由本节代替。
+
+**夹具与那条变更。** 树 `1a57446`。一个任务目录，6 个已评 TikTok 账号（5 个合格、1 个不合格），评审都记着校准版本 `brand-v1`；`render` 带 `scripts/check/fake-fetch.ts` 预载在临时目录里跑，全程 0 次外部请求。固定的那条变更：运营口头补一条负面信号「heavy discount-code spam」，校准里同时补一条 `brand_preference` 来源。夹具不进仓库，照下面可以重建：任务目录里 `task.json` 带这份校准，`creators.json` 与 `creators.raw.json` 是同一份 6 人名单，`agent-review.json` 每人一条完整新评审；每一步之后在夹具根目录跑 `env TIKHUB_API_KEY= NODE_OPTIONS= node --import file://<仓库>/node_modules/tsx/dist/loader.mjs --import file://<仓库>/scripts/check/fake-fetch.ts <仓库>/scripts/render.ts --dir task`，前后对 `task/` 与 `memory/` 取 sha256 比对。下面的文件数与待重评数只取决于树和已评账号数 N，与夹具里写了什么无关：`render` 每次整体改写同样 7 个文件，版本对不上的完整评审一律待重评（D21.p）。
+
+**按现行做法走一遍**（`skill/references/product-intake.md:66`、`skill/references/semantic-fit.md:148`）：
+
+| 步骤 | 谁做 | 写到的文件 | 交付名单里的待重评 |
+|---|---|---|---|
+| 改前交付 | 命令 `render` | — | 0（已评 6） |
+| 改 `task.json` 的校准内容，手写新 version `brand-v2` | Agent | `task.json` | — |
+| 重新交付 | 命令 `render` | 改写 7 个：`task.json` `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` `memory/creators.json` | **6**：全部落到 B 层，HTML 6 条「历史建议（待重评，仅展示）」 |
+| 逐个账号重评，写新版本 | Agent | `agent-review.json` | — |
+| 再交付 | 命令 `render` | 同上 7 个 | 0（层级回到改前） |
+
+**四个数：**
+
+- **改动的文件数。** 人或 Agent 亲手改 2 个（`task.json`、`agent-review.json`）；每次 `render` 改写 7 个，其中 `memory/creators.json` 在任务目录外。从改前到再交付，净变化 7 个文件（`report.html` 回到改前原字节，`agent-review.json` 变了）。
+- **人工步骤。** 一次编辑或一次命令算一步，照上表：Agent 改校准内容 1 步、手写 version 1 步、`render` 重新交付 1 步、重评 6 个账号 6 步（每个都是重新判断，不只是换版本号，`semantic-fit.md:148`）、`render` 再交付 1 步。合计 10 步（不看中间那次交付就是 9 步），其中 6 步随已评账号数 N 线性增长；运营只说一句话。
+- **原资料重读次数。** 现行流程不要求重读，也没有原件可读：`sources` 只存出处与说明两段文字（`scripts/lib/brand-calibration.ts:24-36`）。这条变更是运营口头给的，按流程是 0；变更涉及产品事实时，要重新打开商品页或请运营重新上传，次数在离线夹具上量不出，留给真实任务。
+- **待重评数。** 改后第一次交付 6/6（等于已评账号数 N）；重评后 0。
+
+**对照：只改内容、不换 version。** 同一夹具、同一条变更，version 留在 `brand-v1`：再交付时 6 个账号仍显示已评，`kol.csv`、`kol.xlsx`、`report.html` 与改前逐字节相同。这就是 ADR-130:244 记下的那条边界，ADR-136 对内容哈希版本补上它。
