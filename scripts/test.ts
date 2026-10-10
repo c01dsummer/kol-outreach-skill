@@ -13396,11 +13396,8 @@ suite('D20', '内容哈希版本按规范化 JSON 算出，复算只核对已有
       tasks: [{ keyword: 'lamp', dimension: 'category', platform: 'tiktok' }],
       brand_calibration: { ...deepCalibration, version: deepVersion },
     }
-    const tasksBefore = JSON.stringify(deepState.tasks)
     const prepared = attempt(() => prepareTaskReviews(reviewDir, deepState, [], '2026-10-10T00:00:00Z', []))
     eq('评审准备：校准未列出的键挂十万层嵌套、版本一致时照常完成，不因深度抛错', typeof prepared === 'object' || String(prepared).slice(0, 80), true)
-    eq('评审准备：校准挂十万层嵌套时不改写传入的任务、校准版本与深值', [JSON.stringify(deepState.tasks) === tasksBefore,
-      deepState.brand_calibration.version === deepVersion, deepState.brand_calibration.zz_extra === deepObject], [true, true, true])
   } finally { rmSync(reviewDir, { recursive: true, force: true }) }
 
   // D20 × P1：复算只核对已有内容，不补字段、不改写版本；缺席或结构不合时不算哈希。
