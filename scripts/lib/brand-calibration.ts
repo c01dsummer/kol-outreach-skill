@@ -1,4 +1,6 @@
 /** D20：只读检查整份任务输入中的可选项目校准。 */
+import { contentHash } from './content-hash.js'
+
 const object = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
 const nonblank = (value: unknown): value is string =>
@@ -39,14 +41,13 @@ export function brandCalibrationProblems(state: unknown): string[] {
 
 /** D20.f：version 是否为内容哈希格式 —— `sha256:` 加 64 位小写十六进制，别的写法都不是。 */
 export function isContentVersion(version: unknown): boolean {
-  void version
-  throw new Error('尚未实现')
+  return typeof version === 'string' && /^sha256:[0-9a-f]{64}$/.test(version)
 }
 
 /** D20.f：brand_calibration 除 version 外全部内容（含 D20.a 未列出的键）的内容哈希；不改写输入。 */
 export function calibrationContentVersion(calibration: object): string {
-  void calibration
-  throw new Error('尚未实现')
+  // 只去掉顶层 version；嵌套对象里同名的键照样进哈希
+  return contentHash(Object.fromEntries(Object.entries(calibration).filter(([key]) => key !== 'version')))
 }
 
 /**
@@ -56,6 +57,12 @@ export function calibrationContentVersion(calibration: object): string {
  * 人工反馈模板命令不调用它（D20.j）。
  */
 export function calibrationVersionProblems(state: unknown): string[] {
-  void state
-  throw new Error('尚未实现')
+  // D20 × P1：缺席或结构不合 D20.a 时只报结构问题，不另算哈希
+  if (!object(state) || brandCalibrationProblems(state).length) return []
+  const calibration = state.brand_calibration
+  // D20.i：不是内容哈希格式的版本只校验结构
+  if (!object(calibration) || !isContentVersion(calibration.version)) return []
+  const recomputed = calibrationContentVersion(calibration)
+  if (recomputed === calibration.version) return []
+  return [`brand_calibration.version 是内容哈希版本，与按当前内容复算的 ${recomputed} 不一致：写下版本之后校准内容又改过`]
 }

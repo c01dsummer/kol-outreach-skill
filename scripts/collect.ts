@@ -34,7 +34,7 @@ import { creatorKey, textProblem } from './lib/types.js'
 import { igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { configFieldProblems } from './lib/config-input.js'
-import { brandCalibrationProblems } from './lib/brand-calibration.js'
+import { brandCalibrationProblems, calibrationVersionProblems } from './lib/brand-calibration.js'
 import { resumeProgressProblems } from './lib/resume-progress.js'
 import { prepareTaskReviews, type TaskReviews } from './lib/task-reviews.js'
 import { ReviewInputError } from './lib/review.js'
@@ -86,6 +86,7 @@ const badFields = configFieldProblems(state, resume ? 'resume' : 'new')
 const badTasks = taskListProblems(state.tasks)
 const badRoutes = igRouteProblems(state.tasks)
 const badCalibration = brandCalibrationProblems(state)
+badCalibration.push(...calibrationVersionProblems(state))
 const taskProblems = [...badFields, ...badTasks, ...badRoutes, ...badCalibration]
 if (taskProblems.length) {
   console.error(`${productFrom} 里的任务配置不合规：\n  ${taskProblems.join('\n  ')}`)
