@@ -10178,7 +10178,7 @@
     {
       "id": "M-D20-q",
       "req": "D20.g",
-      "why": "enrich 不复算内容哈希版本，内容改过的校准照常预留、请求并写出交付物",
+      "why": "enrich 不复算内容哈希版本，内容改过的校准照常预留、请求并改写任务与公开指标文件",
       "file": "scripts/enrich.ts",
       "find": "calibrationProblems.push(...calibrationVersionProblems(task))",
       "replace": "",
@@ -10246,6 +10246,55 @@
       "by": "selfcheck",
       "kills": [
         "内容哈希版本不一致：人工反馈模板不复算，照常创建模板并以 0 退出"
+      ]
+    },
+    {
+      "id": "M-D20-v",
+      "req": "D20.f",
+      "why": "一个键是另一个键的前缀时长的排在前面，规范化 JSON 与按码点排序的约定不符",
+      "file": "scripts/lib/content-hash.ts",
+      "find": "return x.length - y.length",
+      "replace": "return y.length - x.length",
+      "by": "test",
+      "kills": [
+        "规范化 JSON：一个键是另一个键的前缀时短的排在前面，嵌套一层也一样"
+      ]
+    },
+    {
+      "id": "M-D20-w",
+      "req": "D20.g",
+      "why": "brand_calibration 缺席的任务在复算时被补出一份校准，缺席不再是缺席",
+      "file": "scripts/lib/brand-calibration.ts",
+      "find": "  if (!object(state) || brandCalibrationProblems(state).length) return []",
+      "replace": "  if (object(state) && !Object.hasOwn(state, 'brand_calibration')) state.brand_calibration = { version: 'sha256:' }\n  if (!object(state) || brandCalibrationProblems(state).length) return []",
+      "by": "test",
+      "kills": [
+        "版本复算：brand_calibration 缺席时返回空清单，不给输入补出校准"
+      ]
+    },
+    {
+      "id": "M-D20-x",
+      "req": "D20.i",
+      "why": "任何版本串都被当作内容哈希版本复算，手写标签的内容改了就被拒绝",
+      "file": "scripts/lib/brand-calibration.ts",
+      "find": "return typeof version === 'string' && /^sha256:[0-9a-f]{64}$/.test(version)",
+      "replace": "return typeof version === 'string'",
+      "by": "selfcheck",
+      "kills": [
+        "手写标签版本内容改了：collect 续跑与 render 照常运行，版本不被改写",
+        "位数不符的 sha256 版本内容改了：collect 续跑与 render 照常运行，版本不被改写"
+      ]
+    },
+    {
+      "id": "M-D20-y",
+      "req": "D20.g",
+      "why": "结构不合 D20.a 的校准在入口照样复算哈希，结构问题之外又多报版本不一致",
+      "file": "scripts/lib/brand-calibration.ts",
+      "find": "if (!object(state) || brandCalibrationProblems(state).length) return []",
+      "replace": "if (!object(state)) return []",
+      "by": "selfcheck",
+      "kills": [
+        "内容哈希版本不一致而结构不合 D20.a：render 只报结构问题，不另算哈希，零预留零请求"
       ]
     },
     {

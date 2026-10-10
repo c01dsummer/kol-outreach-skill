@@ -64,5 +64,5 @@ export function calibrationVersionProblems(state: unknown): string[] {
   if (!object(calibration) || !isContentVersion(calibration.version)) return []
   const recomputed = calibrationContentVersion(calibration)
   if (recomputed === calibration.version) return []
-  return [`brand_calibration.version 是内容哈希版本，与按当前内容复算的 ${recomputed} 不一致：写下版本之后校准内容又改过`]
+  return [`brand_calibration.version 是内容哈希版本，与按当前内容复算的 ${recomputed} 不一致：校准内容改过，或版本不是按 ADR-136 的规范化规则算出的`]
 }

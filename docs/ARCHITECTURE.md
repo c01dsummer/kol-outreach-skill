@@ -93,7 +93,7 @@
 | `scripts/lib/search-tasks.ts` | 逻辑 | D16 P1 | 任务列表与三个必填字段的判定；不补、不改写 |
 | `scripts/lib/resume-progress.ts` | 逻辑 | D19 P1 | 恢复已有采集任务时按有效任务数只读校验原始进度；缺表保留未知 |
 | `scripts/lib/config-input.ts` | 逻辑 | D17 P1 | 按 new / resume / probe 角色只读原始市场与人数；不填缺省，collect 与 probe 在应用缺省和产生副作用前调用 |
-| `scripts/lib/brand-calibration.ts` | 逻辑 | D20 | 只读检查任务级可选品牌输入的形状和来源性质；结构合规且 version 为内容哈希时另按内容复算，不改写输入、不补字段；collect、enrich、render 共用两项判定，人工反馈模板命令只用结构判定；不替 Agent 判断偏好是否合适或事实是否已证实 |
+| `scripts/lib/brand-calibration.ts` | 逻辑 | D20 P1 | 只读检查任务级可选品牌输入的形状和来源性质；结构合规且 version 为内容哈希时另按内容复算，不改写输入、不补字段；collect、enrich、render 共用两项判定，人工反馈模板命令只用结构判定；不替 Agent 判断偏好是否合适或事实是否已证实 |
 | `scripts/lib/content-hash.ts` | 逻辑 | D20 | 规范化 JSON（对象键逐码点排序、数组保持原顺序、无空白、标量照 `JSON.stringify`）与 `sha256:` 内容哈希；批次 A 只有这一份实现，不读写文件 |
 | `scripts/lib/review.ts` | 逻辑 | D21 D22 P1 | 任务级 Agent 评审正本的严格读写、平台身份及候选轮次冻结；旧池先于新池，已冻结来源不回填，读写只核快照结构，当前任务来源一致性由持有任务状态的调用方核验；不读写采集原件或人工反馈 |
 | `scripts/lib/review-projection.ts` | 逻辑 | D21 P1 | 从旧名单迁入有据可查的 Agent 字段，按评审正本重建主账号与关联平台判断及各自四项证据；纯逻辑，不读写文件，也不处理人工反馈或分层 |

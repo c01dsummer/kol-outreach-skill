@@ -13263,6 +13263,11 @@ suite('D20', '内容哈希版本按规范化 JSON 算出，复算只核对已有
   eq('规范化 JSON：对象键按码点递归排序，数组保持原顺序，不含空白', attempt(() => canonicalJson(handVector)), HAND)
   eq('规范化 JSON：同层键 ～ 排在 😀 之前而不是按 UTF-16 码元排', attempt(() => canonicalJson(pair)), PAIR)
   eq('规范化 JSON：标量照 JSON.stringify 写，转义与溢出成无穷大的数字照它的结果', attempt(() => canonicalJson(escapeVector)), ESCAPE)
+  // 手推：键 a 是 ab 的前缀，按码点短的在前；插入顺序故意把长的放前面，嵌套一层同样。
+  const prefixVector = { ab: 1, a: 2, z: { yx: 1, y: 2 } }
+  const PREFIX = '{"a":2,"ab":1,"z":{"y":2,"yx":1}}'
+  eq('规范化 JSON：一个键是另一个键的前缀时短的排在前面，嵌套一层也一样',
+    [attempt(() => canonicalJson(prefixVector)), oracleJson(prefixVector)], [PREFIX, PREFIX])
   eq('内容哈希：值是 sha256: 加规范化字符串按 UTF-8 编码后 SHA256 的小写十六进制',
     [handVector, pair, escapeVector].map(value => attempt(() => calibrationHash(value))),
     [sha256Of(HAND), sha256Of(PAIR), sha256Of(ESCAPE)])
