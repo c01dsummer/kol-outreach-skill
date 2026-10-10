@@ -1,6 +1,6 @@
 {
   "$comment": "编号的唯一真相来源。docs/SPEC.md 是它的渲染，两者不一致以本文件为准。content_hash 是派生字段，由 spec-sync --write 写，不要手改 —— 改了需求不回写，npm run check 当场变红。字段含义见 process/1-REQUIREMENTS.md。",
-  "content_hash": "0c41316946b0",
+  "content_hash": "18b6580fbabe",
   "categories": {
     "P": "红线 —— 不参与任何取舍",
     "S": "范围 —— 明确不做什么",
@@ -1375,7 +1375,7 @@
       "id": "D20",
       "cat": "D",
       "pri": "P1",
-      "text": "任务可持久保存品牌校准输入，并区分项目偏好与已证实产品事实。",
+      "text": "任务可持久保存品牌校准输入，并区分项目偏好与已证实产品事实；版本写成内容哈希时，入口按内容核对。",
       "accept": [
         {
           "id": "D20.a",
@@ -1388,10 +1388,38 @@
         {
           "id": "D20.e",
           "text": "collect、enrich、render 读取到不合规 brand_calibration 时明确指出字段，以退出码 2 在费用预留、外部请求和任务或交付物写入前拒绝；续跑及改额时盘上 task.json 保持原字节。"
+        },
+        {
+          "id": "D20.f",
+          "text": "内容哈希版本是 `sha256:` 加 64 位小写十六进制，其值等于 brand_calibration 除 version 外的全部内容（含 D20.a 未列出的键）按 ADR-136 的规范化 JSON 规则序列化、再按 UTF-8 编码后的 SHA256：对象键按 Unicode 码点递归排序，数组保持原顺序，不含空白；调换数组元素顺序、改动或增删任一非 version 字段都改变该值，只改 version 不改变它。"
+        },
+        {
+          "id": "D20.g",
+          "text": "version 为内容哈希版本且 brand_calibration 合 D20.a 时，collect（新建、普通续跑、改额续跑）、enrich（普通、改额）与 render 按内容复算；与 version 不一致时明确指出 brand_calibration.version，以退出码 2 在费用预留、外部请求和任务或交付物写入前拒绝，续跑及改额时盘上 task.json 保持原字节；同文件任务列表也不合规时两类问题均报。"
+        },
+        {
+          "id": "D20.h",
+          "text": "内容哈希版本与按内容复算的值一致时，collect、enrich、render 不因版本拒绝，照常运行。"
+        },
+        {
+          "id": "D20.i",
+          "text": "version 是内容哈希格式以外的非空字符串（包括大写十六进制或位数不符的 `sha256:` 串）时只按 D20.a 校验结构、不复算；内容改了而这类版本没换时，collect、enrich、render 不因此拒绝。"
+        },
+        {
+          "id": "D20.j",
+          "text": "人工反馈模板命令只按 D20.a 校验品牌输入，不复算内容哈希版本；版本与内容不一致时不因此拒绝。"
         }
       ],
       "adr": [
-        "ADR-130"
+        "ADR-130",
+        "ADR-136"
+      ],
+      "tension": [
+        {
+          "with": "P1",
+          "ruling": "P1 优先：复算只核对已有内容，不补出缺失的字段，也不以复算值改写不一致的版本；brand_calibration 缺席时不复算、不生成校准或版本，结构不合 D20.a 时只报结构问题、不另算哈希。",
+          "adr": "ADR-136"
+        }
       ]
     },
     {
