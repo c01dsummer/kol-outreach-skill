@@ -10069,6 +10069,186 @@
       ]
     },
     {
+      "id": "M-D20-i",
+      "req": "D20.f",
+      "why": "规范化时对象键按 UTF-16 码元排而不是按 Unicode 码点排，同一份校准算出另一个内容哈希版本",
+      "file": "scripts/lib/content-hash.ts",
+      "find": "Object.keys(record).sort(byCodePoint)",
+      "replace": "Object.keys(record).sort()",
+      "by": "test",
+      "kills": [
+        "规范化 JSON：同层键 ～ 排在 😀 之前而不是按 UTF-16 码元排",
+        "规范化 JSON：对象键按码点递归排序，数组保持原顺序，不含空白"
+      ]
+    },
+    {
+      "id": "M-D20-j",
+      "req": "D20.f",
+      "why": "规范化 JSON 在对象成员之间带了空白，内容哈希版本与约定的规则不符",
+      "file": "scripts/lib/content-hash.ts",
+      "find": ".join(',')}}",
+      "replace": ".join(', ')}}",
+      "by": "test",
+      "kills": [
+        "规范化 JSON：对象键按码点递归排序，数组保持原顺序，不含空白",
+        "规范化 JSON：同层键 ～ 排在 😀 之前而不是按 UTF-16 码元排"
+      ]
+    },
+    {
+      "id": "M-D20-k",
+      "req": "D20.f",
+      "why": "数组元素先排序再算哈希，调换数组元素顺序不再改变内容哈希版本",
+      "file": "scripts/lib/content-hash.ts",
+      "find": "value.map(canonicalJson).join(',')",
+      "replace": "value.map(canonicalJson).sort().join(',')",
+      "by": "test",
+      "kills": [
+        "内容哈希：调换数组元素顺序改变值，各等于 oracle",
+        "规范化 JSON：对象键按码点递归排序，数组保持原顺序，不含空白"
+      ]
+    },
+    {
+      "id": "M-D20-l",
+      "req": "D20.f",
+      "why": "嵌套对象里叫 version 的键也被当成版本去掉，改它不再改变内容哈希版本",
+      "file": "scripts/lib/brand-calibration.ts",
+      "find": "return contentHash(Object.fromEntries(Object.entries(calibration).filter(([key]) => key !== 'version')))",
+      "replace": "return contentHash(JSON.parse(JSON.stringify(calibration), (key, value) => key === 'version' ? undefined : value))",
+      "by": "test",
+      "kills": [
+        "校准内容版本：等于除 version 外全部内容（含 D20.a 未列出的键）的 oracle 哈希",
+        "校准内容版本：改动或增删任一非 version 字段都换成该内容的 oracle 值"
+      ]
+    },
+    {
+      "id": "M-D20-m",
+      "req": "D20.f",
+      "why": "带换行的版本串里只要某一行像内容哈希就被当作内容哈希版本",
+      "file": "scripts/lib/brand-calibration.ts",
+      "find": "/^sha256:[0-9a-f]{64}$/.test(version)",
+      "replace": "/^sha256:[0-9a-f]{64}$/m.test(version)",
+      "by": "test",
+      "kills": [
+        "内容哈希版本格式：大写、位数不符、缺前缀、前后空白与非字符串都不算"
+      ]
+    },
+    {
+      "id": "M-D20-n",
+      "req": "D20.g",
+      "why": "复算不一致时拿复算值改写了 brand_calibration.version，而不是只核对已有内容并报告",
+      "file": "scripts/lib/brand-calibration.ts",
+      "find": "if (recomputed === calibration.version) return []",
+      "replace": "if (recomputed === calibration.version) return []\n  calibration.version = recomputed",
+      "by": "test",
+      "kills": [
+        "版本复算：不一致时不以复算值改写版本，输入原样",
+        "版本复算：不一致时深冻结输入不抛，给出同样的问题"
+      ]
+    },
+    {
+      "id": "M-D20-o",
+      "req": "D20.g",
+      "why": "结构不合 D20.a 的校准照样复算哈希，结构问题之外又多报版本不一致",
+      "file": "scripts/lib/brand-calibration.ts",
+      "find": "if (!object(state) || brandCalibrationProblems(state).length) return []",
+      "replace": "if (!object(state)) return []",
+      "by": "test",
+      "kills": [
+        "版本复算：结构不合 D20.a 时即使版本是哈希格式也不另算哈希"
+      ]
+    },
+    {
+      "id": "M-D20-p",
+      "req": "D20.g",
+      "why": "collect 不复算内容哈希版本，内容改过的校准照常建目录、预留、请求并改写任务",
+      "file": "scripts/collect.ts",
+      "find": "badCalibration.push(...calibrationVersionProblems(state))",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "内容哈希版本不一致：collect 新建在建目录、预留和请求前退出2",
+        "内容哈希版本不一致：collect 新建指出 brand_calibration.version",
+        "内容哈希版本不一致：collect 新建的提示给出按当前内容复算的版本值",
+        "内容哈希版本不一致：collect 普通续跑在预留和请求前退出2，任务三文件原字节不变",
+        "内容哈希版本不一致：collect 普通续跑指出 brand_calibration.version 并给出复算值",
+        "内容哈希版本不一致：collect 改额续跑在预留和请求前退出2，任务三文件原字节不变",
+        "内容哈希版本不一致：collect 改额续跑指出 brand_calibration.version 并给出复算值"
+      ]
+    },
+    {
+      "id": "M-D20-q",
+      "req": "D20.g",
+      "why": "enrich 不复算内容哈希版本，内容改过的校准照常预留、请求并写出交付物",
+      "file": "scripts/enrich.ts",
+      "find": "calibrationProblems.push(...calibrationVersionProblems(task))",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "内容哈希版本不一致：enrich 在预留、请求和交付写入前退出2，任务原字节不变",
+        "内容哈希版本不一致：enrich 指出 brand_calibration.version 并给出复算值",
+        "内容哈希版本不一致：enrich 改额在预留、请求和交付写入前退出2，任务原字节不变",
+        "内容哈希版本不一致：enrich 改额指出 brand_calibration.version 并给出复算值",
+        "内容哈希版本不一致且任务列表也坏：enrich 两类问题都报且给出复算值，零预留零请求，文件原字节不变"
+      ]
+    },
+    {
+      "id": "M-D20-r",
+      "req": "D20.g",
+      "why": "render 不复算内容哈希版本，内容改过的校准照常交付名单并写记忆",
+      "file": "scripts/render.ts",
+      "find": "badCalibration.push(...calibrationVersionProblems(state))",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "内容哈希版本不一致：render 在预留、请求和交付写入前退出2，不写记忆",
+        "内容哈希版本不一致：render 指出 brand_calibration.version 并给出复算值",
+        "内容哈希版本不一致且任务列表也坏：render 两类问题都报且给出复算值，零预留零请求，文件原字节不变"
+      ]
+    },
+    {
+      "id": "M-D20-s",
+      "req": "D20.h",
+      "why": "复算把 version 本身也算进哈希，版本与内容一致的校准也被拒绝",
+      "file": "scripts/lib/brand-calibration.ts",
+      "find": "filter(([key]) => key !== 'version')",
+      "replace": "filter(() => true)",
+      "by": "selfcheck",
+      "kills": [
+        "内容哈希版本一致：collect 新建确实预留和请求，task.json 原样保存校准",
+        "内容哈希版本一致：enrich 确实预留和请求，不因版本拒绝，不改写校准",
+        "内容哈希版本一致：enrich 改额确实预留和请求，不因版本拒绝，不改写校准",
+        "内容哈希版本一致：collect 普通续跑确实预留和请求，不因版本拒绝，不改写校准",
+        "内容哈希版本一致：collect 改额续跑确实预留和请求，不因版本拒绝，不改写校准",
+        "内容哈希版本一致：render 照常交付名单并写记忆，不改写校准"
+      ]
+    },
+    {
+      "id": "M-D20-t",
+      "req": "D20.i",
+      "why": "大写十六进制或大写前缀的 sha256 串被当作内容哈希版本复算，内容改了版本没换就被拒绝",
+      "file": "scripts/lib/brand-calibration.ts",
+      "find": "/^sha256:[0-9a-f]{64}$/.test(version)",
+      "replace": "/^sha256:[0-9a-f]{64}$/i.test(version)",
+      "by": "selfcheck",
+      "kills": [
+        "大写 SHA256 前缀版本内容改了：collect 续跑与 render 照常运行，版本不被改写",
+        "大写十六进制的 sha256 版本内容改了：collect 续跑与 render 照常运行，版本不被改写",
+        "大写十六进制的 sha256 版本内容改了：enrich 照常运行，版本不被改写"
+      ]
+    },
+    {
+      "id": "M-D20-u",
+      "req": "D20.j",
+      "why": "人工反馈模板命令也复算内容哈希版本，版本与内容不一致时拒绝建模板",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "import { brandCalibrationProblems } from './brand-calibration.js'",
+      "replace": "import { brandCalibrationProblems as structureProblems, calibrationVersionProblems } from './brand-calibration.js'\nconst brandCalibrationProblems = (state: unknown) => [...structureProblems(state), ...calibrationVersionProblems(state)]",
+      "by": "selfcheck",
+      "kills": [
+        "内容哈希版本不一致：人工反馈模板不复算，照常创建模板并以 0 退出"
+      ]
+    },
+    {
       "id": "M-D21-a",
       "req": "D21.e",
       "why": "缺席的评审正本被标成已有文档，续跑无法分辨尚无判断与已有空正本",
