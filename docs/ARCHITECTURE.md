@@ -93,7 +93,8 @@
 | `scripts/lib/search-tasks.ts` | 逻辑 | D16 P1 | 任务列表与三个必填字段的判定；不补、不改写 |
 | `scripts/lib/resume-progress.ts` | 逻辑 | D19 P1 | 恢复已有采集任务时按有效任务数只读校验原始进度；缺表保留未知 |
 | `scripts/lib/config-input.ts` | 逻辑 | D17 P1 | 按 new / resume / probe 角色只读原始市场与人数；不填缺省，collect 与 probe 在应用缺省和产生副作用前调用 |
-| `scripts/lib/brand-calibration.ts` | 逻辑 | D20 | 只读检查任务级可选品牌输入的形状和来源性质；collect、enrich、render 共用判定，不替 Agent 判断偏好是否合适或事实是否已证实 |
+| `scripts/lib/brand-calibration.ts` | 逻辑 | D20 P1 | 只读检查任务级可选品牌输入的形状和来源性质；结构合规且 version 为内容哈希时另按内容复算，不改写输入、不补字段；collect、enrich、render 共用两项判定，人工反馈模板命令只用结构判定；不替 Agent 判断偏好是否合适或事实是否已证实 |
+| `scripts/lib/content-hash.ts` | 逻辑 | D20 | 规范化 JSON（对象键逐码点排序、数组保持原顺序、无空白、标量照 `JSON.stringify`）与 `sha256:` 内容哈希；批次 A 只有这一份实现，不读写文件 |
 | `scripts/lib/review.ts` | 逻辑 | D21 D22 P1 | 任务级 Agent 评审正本的严格读写、平台身份及候选轮次冻结；旧池先于新池，已冻结来源不回填，读写只核快照结构，当前任务来源一致性由持有任务状态的调用方核验；不读写采集原件或人工反馈 |
 | `scripts/lib/review-projection.ts` | 逻辑 | D21 P1 | 从旧名单迁入有据可查的 Agent 字段，按评审正本重建主账号与关联平台判断及各自四项证据；纯逻辑，不读写文件，也不处理人工反馈或分层 |
 | `scripts/lib/task-reviews.ts` | 逻辑 | D21 D22 D23 D25 P1 | 协调任务评审的只读准备、候选冻结、当前投影与显式保存；人工授权只取初始已保存轮次，保存成功后才推进已保存基线；collect、enrich、render 共用此边界 |
@@ -160,6 +161,8 @@
 读取边界负责根形状；纯判定负责字段问题，collect 与 probe 负责按角色传入原值、聚合问题及控制默认值和副作用顺序（D17、ADR-116）。
 任务级 `brand_calibration` 由外部项目输入拥有，collect 只负责校验并原样带入新建任务，续跑保留盘上原值；
 enrich 和 render 只读校验。来源性质的结构校验不授予脚本核实产品事实的能力（D20、ADR-130）。
+version 是 `sha256:` 内容哈希时，三个入口在结构校验那一处另按内容复算，对不上与结构问题进同一份清单、同样退出 2；
+手写的版本只校验结构，人工反馈模板命令不复算（D20.g–D20.j、ADR-136）。
 `agent-review.json` 由评审正本读写模块拥有；旧字段迁移与 Agent 投影只消费其缺席／存在状态和已校验文档，
 从不反向读取旧名单里的新判断。collect、enrich、render 统一在入口读取与校验后从正本重建投影；
 仅 collect 与 render 在内容变化时保存正本，enrich 保持只读。平台账号轮次由正本拥有；冻结逻辑先保存旧池、
@@ -347,7 +350,7 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | 原样任务列表与 IG 路线一并校验 → 才读续跑进度、建目录、开账或改额 | `scripts/collect.ts`、`scripts/probe.ts` | 提前读坏列表会崩溃；先补平台或维度会把缺席当成合法配置；续跑先改额会在拒绝坏任务之前改写旧文件 | M-D16-x M-D16-y M-D16-ab M-D16-ac M-D16-ad M-D16-ae M-D16-af M-D16-ag |
 | 续跑任务列表有效 → 校验原始进度 → 才读进度行、构造预算、改额、预留或请求 | `scripts/collect.ts`、`scripts/lib/resume-progress.ts`、`scripts/lib/cost-json.ts` | 坏索引与坏统计表会在付费或保存后才暴露；旧缺表若补成空表会把历史未知写成零；数字解析后舍入会放过原始坏值 | M-D19-c M-D19-e M-D19-h |
 | 原始市场/人数问题与任务/路线问题汇总 → 拒绝坏输入 → 合规后才用新配置缺省、开账、改额、写入、预留或请求 | `scripts/collect.ts`、`scripts/probe.ts` | 先套缺省会吞掉 null，首错先抛会漏报任务/路线，续跑先改额会在拒绝前改写旧文件 | M-D17-q M-D17-r M-D17-s M-D17-t M-D17-u M-D17-ac M-D17-ad M-D17-ae |
-| 任务级品牌输入原样校验；enrich/render 同文件的任务列表也坏时两类问题均报告 → 才解析新建预算、改额、预留、请求或写交付物 | `scripts/collect.ts`、`scripts/enrich.ts`、`scripts/render.ts`、`scripts/lib/brand-calibration.ts` | 品牌字段坏了仍可能留下费用或产物；先退会遮住任务错误；新建状态若只重建已知字段，会丢原项目输入 | M-D20-d M-D20-e M-D20-f M-D20-g M-D20-h M-D16-as |
+| 任务级品牌输入原样校验，内容哈希版本同一处按内容复算；enrich/render 同文件的任务列表也坏时两类问题均报告 → 才解析新建预算、改额、预留、请求或写交付物 | `scripts/collect.ts`、`scripts/enrich.ts`、`scripts/render.ts`、`scripts/lib/brand-calibration.ts`、`scripts/lib/task.ts` | 品牌字段坏了或版本与内容对不上，仍可能留下费用或产物；先退会遮住任务错误；新建状态若只重建已知字段，会丢原项目输入 | M-D20-d M-D20-e M-D20-f M-D20-g M-D20-h M-D20-p M-D20-q M-D20-r M-D16-as |
 | render 读入任务并校验原样列表 → 才读名单、生成交付物与写回记忆 | `scripts/render.ts` | 坏列表在写入后才被发现，会留下新名单/表格或推荐记忆，却没有对应的新报告 | M-D16-ai M-D16-aj M-D16-ao |
 | render 合并身份 → 当前评审投影与完整直接关系 → 当前记忆复核 → 正本保存成功 → 名单与任务去重状态配对保存 → 才生成交付和写推荐记忆 | `scripts/render.ts`、`scripts/lib/memory.ts`、`scripts/lib/task.ts` | 重导出沿用旧联系状态、漏查仅在原件里的直接关联，或中断后留下未去重名单与“已去重”声明 | M-P4-o M-D4-ai M-P4-r M-P4-s M-P4-t M-P4-u M-P4-v |
 | 直接 render 先在内存重核旧 Instagram 主页样本范围与指标 → 才关联创作者并写名单、表格、报告或记忆 | `scripts/render.ts`、`scripts/lib/assessment.ts` | 旧盘上没有范围标记的播放和活跃度被原样当成当前口径交付 | M-D8-p |
@@ -419,7 +422,7 @@ collect 恢复已有任务还要校验原始进度（D19、ADR-117）：`done` �
 任务列表有效后、首次读取进度行与预算构造前拒绝坏进度；普通续跑和改额续跑都退出 2，
 stderr 点名任务文件及坏字段，任务原字节不变、零预留和请求。
 
-enrich 与 render 同样使用 `taskListProblems` 校验原样任务列表；与品牌输入同时有问题时两类均报，先于改额、预留、请求和任务／交付写入。render 空数组也拒绝（D16.n–q、ADR-115 第十一节）。
+enrich 与 render 同样使用 `taskListProblems` 校验原样任务列表；与品牌输入（含内容哈希版本对不上）同时有问题时两类均报，先于改额、预留、请求和任务／交付写入。render 空数组也拒绝（D16.n–q、ADR-115 第十一节）。
 任务文件读不到、JSON 或根对象形状不合规、列表不合规时，在读名单及任何写入前退出 2；stderr 写任务文件路径及实际问题，
 任务列表问题一次报全，不带内部异常类名或堆栈。已有任务文件、名单、交付物和记忆保持原字节，原本不存在的输出不创建。
 输入读取的异常处理只包任务读取，后续保存与运行错误不改报输入问题。此入口不套新任务缺省，也不接搜索路线或市场/人数校验。

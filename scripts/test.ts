@@ -75,7 +75,11 @@ import { hashtagKeyword, igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { resumeProgressProblems } from './lib/resume-progress.js'
 import { configFieldProblems, type ConfigInputRole } from './lib/config-input.js'
-import { brandCalibrationProblems } from './lib/brand-calibration.js'
+import {
+  brandCalibrationProblems, calibrationContentVersion, calibrationVersionProblems, isContentVersion,
+} from './lib/brand-calibration.js'
+import { canonicalJson, contentHash as calibrationHash } from './lib/content-hash.js'
+import { createHash } from 'node:crypto'
 import {
   normalizedAccountKey, readAgentReviewDocument, writeAgentReviewDocument,
   freezeReviewRounds, reviewRoundSourceProblems,
@@ -209,6 +213,7 @@ const GROUPS: readonly Group[] = [
   { id: 'u11-feedback-report-entry', needs: [] },
   { id: 'u11-keyword-attribution', needs: [] },
   { id: 'u11-keyword-report-entry', needs: [] },
+  { id: 'd20-content-version', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -13205,6 +13210,240 @@ await group('u11-keyword-report-entry', async () => {
     eq('U11关键词真实入口保持raw人工与Agent原件字节', [read('creators.raw.json'), read('manual-feedback.csv'), read('agent-review.json')], [raw, manual, originalAgent])
     criterion('U11.m')
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+await group('d20-content-version', () => {
+suite('D20', '内容哈希版本按规范化 JSON 算出，复算只核对已有内容')
+{
+  // 依据 D20.f 与 ADR-136 2026-10-10 补记；期望值只来自下面的独立 oracle 与手推字符串，不借被测函数。
+  const byCodePoint = (a: string, b: string): number => {
+    const x = [...a], y = [...b]
+    for (let i = 0; i < x.length && i < y.length; i++) {
+      const d = (x[i].codePointAt(0) as number) - (y[i].codePointAt(0) as number)
+      if (d !== 0) return d
+    }
+    return x.length - y.length
+  }
+  const oracleJson = (value: unknown, order: (a: string, b: string) => number = byCodePoint): string => {
+    if (Array.isArray(value)) return `[${value.map(item => oracleJson(item, order)).join(',')}]`
+    if (value !== null && typeof value === 'object') {
+      const record = value as Record<string, unknown>
+      return `{${Object.keys(record).sort(order)
+        .map(key => `${JSON.stringify(key)}:${oracleJson(record[key], order)}`).join(',')}}`
+    }
+    return JSON.stringify(value)
+  }
+  const sha256Of = (text: string): string => 'sha256:' + createHash('sha256').update(text, 'utf8').digest('hex')
+  const oracleHash = (value: unknown): string => sha256Of(oracleJson(value))
+  const oracleVersion = (calibration: object): string =>
+    oracleHash(Object.fromEntries(Object.entries(calibration).filter(([key]) => key !== 'version')))
+  // 被测函数会抛时把抛出变成一个值，让断言红而不是让进程崩。
+  const attempt = <T>(run: () => T): T | string => {
+    try { return run() } catch (error) { return `threw: ${error instanceof Error ? error.message : String(error)}` }
+  }
+  const deepFreeze = <T>(value: T): T => {
+    if (value !== null && typeof value === 'object') { for (const item of Object.values(value)) deepFreeze(item); Object.freeze(value) }
+    return value
+  }
+
+  // 手推：键按码点 a < n < é < ～(U+FF5E) < 😀(U+1F600)，"10" 排在 "9" 前；-0 写成 0，1e21 写成 1e+21。
+  const handVector = { '😀': [3, 'b', 1], '～': 'tilde', 'é': { z: true, '9': null, '10': false },
+    a: 'ünï 中文 ～😀', n: [0.1, 1e21, -0, 1.5e-7, 100] }
+  const HAND = '{"a":"ünï 中文 ～😀","n":[0.1,1e+21,0,1.5e-7,100],"é":{"10":false,"9":null,"z":true},"～":"tilde","😀":[3,"b",1]}'
+  const pair = { '😀': 1, '～': 2 }
+  const PAIR = '{"～":2,"😀":1}'
+  const escapeVector = { s: 'line\n"q"\\\u0007', big: JSON.parse('1e999') as unknown }
+  const ESCAPE = String.raw`{"big":null,"s":"line\n\"q\"\\\u0007"}`
+  eq('内容哈希：独立 oracle 与手推的规范化字符串逐字相同',
+    [oracleJson(handVector), oracleJson(pair), oracleJson(escapeVector)], [HAND, PAIR, ESCAPE])
+  const utf16Pair = oracleJson(pair, (a, b) => a < b ? -1 : a > b ? 1 : 0)
+  eq('内容哈希：码点序那一对键按 UTF-16 码元排会得到另一串和另一个哈希',
+    [utf16Pair, sha256Of(utf16Pair) !== sha256Of(PAIR)], ['{"😀":1,"～":2}', true])
+
+  eq('规范化 JSON：对象键按码点递归排序，数组保持原顺序，不含空白', attempt(() => canonicalJson(handVector)), HAND)
+  eq('规范化 JSON：同层键 ～ 排在 😀 之前而不是按 UTF-16 码元排', attempt(() => canonicalJson(pair)), PAIR)
+  eq('规范化 JSON：标量照 JSON.stringify 写，转义与溢出成无穷大的数字照它的结果', attempt(() => canonicalJson(escapeVector)), ESCAPE)
+  // 手推：键 a 是 ab 的前缀，按码点短的在前；插入顺序故意把长的放前面，嵌套一层同样。
+  const prefixVector = { ab: 1, a: 2, z: { yx: 1, y: 2 } }
+  const PREFIX = '{"a":2,"ab":1,"z":{"y":2,"yx":1}}'
+  eq('规范化 JSON：一个键是另一个键的前缀时短的排在前面，嵌套一层也一样',
+    [attempt(() => canonicalJson(prefixVector)), oracleJson(prefixVector)], [PREFIX, PREFIX])
+  eq('内容哈希：值是 sha256: 加规范化字符串按 UTF-8 编码后 SHA256 的小写十六进制',
+    [handVector, pair, escapeVector].map(value => attempt(() => calibrationHash(value))),
+    [sha256Of(HAND), sha256Of(PAIR), sha256Of(ESCAPE)])
+  const nestedA = { outer: { b: [1, { y: 'deep', x: ['keep', 'order'] }], a: null }, top: '顶层' }
+  const nestedB = { top: '顶层', outer: { a: null, b: [1, { x: ['keep', 'order'], y: 'deep' }] } }
+  eq('内容哈希：嵌套对象换键的插入顺序不改变值，等于 oracle',
+    [attempt(() => calibrationHash(nestedA)), attempt(() => calibrationHash(nestedB))], [oracleHash(nestedA), oracleHash(nestedA)])
+  const listed = [1, 'a', { k: 1 }]
+  const swapped = [{ k: 1 }, 'a', 1]
+  eq('内容哈希：调换数组元素顺序改变值，各等于 oracle',
+    [attempt(() => calibrationHash(listed)), attempt(() => calibrationHash(swapped)), oracleHash(listed) !== oracleHash(swapped)],
+    [oracleHash(listed), oracleHash(swapped), true])
+  eq('内容哈希：非 ASCII 字符串按 UTF-8 编码后算哈希',
+    attempt(() => calibrationHash({ text: 'ünï 中文 ～😀' })), sha256Of('{"text":"ünï 中文 ～😀"}'))
+
+  const hex = 'abcdef0123456789'.repeat(4)
+  const accepted = ['sha256:' + hex, 'sha256:' + '0'.repeat(64), sha256Of(HAND)]
+  eq('内容哈希版本格式：sha256: 加 64 位小写十六进制被认出',
+    accepted.map(version => attempt(() => isContentVersion(version))), [true, true, true])
+  const refused: { name: string; value: unknown }[] = [
+    { name: 'uppercase hex', value: 'sha256:' + hex.toUpperCase() },
+    { name: 'uppercase prefix', value: 'SHA256:' + hex },
+    { name: '63 digits', value: 'sha256:' + hex.slice(1) },
+    { name: '65 digits', value: 'sha256:' + hex + 'a' },
+    { name: 'bare 64 hex', value: hex },
+    { name: 'other algorithm', value: 'sha512:' + hex },
+    { name: 'non-hex digits', value: 'sha256:' + 'g'.repeat(64) },
+    { name: 'space after prefix', value: 'sha256: ' + hex.slice(1) },
+    { name: 'leading space', value: ' sha256:' + hex },
+    { name: 'trailing space', value: 'sha256:' + hex + ' ' },
+    { name: 'trailing newline', value: 'sha256:' + hex + '\n' },
+    { name: 'text on an earlier line', value: 'x\nsha256:' + hex },
+    { name: 'brand label', value: 'brand-v1' },
+    { name: 'empty', value: '' },
+    { name: 'number', value: 256 },
+    { name: 'null', value: null },
+    { name: 'undefined', value: undefined },
+    { name: 'array', value: ['sha256:' + hex] },
+    { name: 'String object', value: new String('sha256:' + hex) },
+  ]
+  eq('内容哈希版本格式：大写、位数不符、缺前缀、前后空白与非字符串都不算',
+    refused.filter(({ value }) => attempt(() => isContentVersion(value)) !== false).map(({ name }) => name), [])
+
+  // D20.a 合规的校准，另带两个 D20.a 未列出的键（正是码点序那一对）；嵌套对象里也有一个叫 version 的键 ——
+  // 「除 version 外的全部内容」只去掉顶层那一个，嵌套的照样进哈希。
+  const calibration = {
+    version: 'brand-v1',
+    target_creator_types: ['home cooks', 'café owners'],
+    tone_aesthetic: ['warm and practical'],
+    natural_scenarios: ['preparing a weekday lunch', '周末野餐'],
+    negative_signals: ['unexplained product claims'],
+    sources: [
+      { source: 'team brief, page 2', kind: 'brand_preference', detail: 'preferred voice' },
+      { source: 'product page, checked 2026-09-30', kind: 'verified_product_fact', detail: 'page states the material' },
+    ],
+    '～': 'extra key outside D20.a',
+    '😀': { note: 'extra nested key', '9': 1, '10': 2, version: 'inner' },
+  }
+  const base = oracleVersion(calibration)
+  const versionOf = (value: object) => attempt(() => calibrationContentVersion(value))
+  eq('校准内容版本：等于除 version 外全部内容（含 D20.a 未列出的键）的 oracle 哈希', versionOf(calibration), base)
+  eq('校准内容版本：只改 version 不改变值',
+    [versionOf({ ...calibration, version: 'brand-v2' }), versionOf({ ...calibration, version: base })], [base, base])
+  const [first, second] = calibration.sources
+  const without = (key: string) => Object.fromEntries(Object.entries(calibration).filter(([field]) => field !== key))
+  const changes: { name: string; value: object }[] = [
+    { name: 'target_creator_types appended', value: { ...calibration, target_creator_types: ['home cooks', 'café owners', 'students'] } },
+    { name: 'target_creator_types swapped', value: { ...calibration, target_creator_types: ['café owners', 'home cooks'] } },
+    { name: 'tone_aesthetic edited', value: { ...calibration, tone_aesthetic: ['warm and practical!'] } },
+    { name: 'natural_scenarios swapped', value: { ...calibration, natural_scenarios: ['周末野餐', 'preparing a weekday lunch'] } },
+    { name: 'negative_signals emptied', value: { ...calibration, negative_signals: [] } },
+    { name: 'sources swapped', value: { ...calibration, sources: [second, first] } },
+    { name: 'sources kind changed', value: { ...calibration, sources: [{ ...first, kind: 'verified_product_fact' }, second] } },
+    { name: 'sources detail changed', value: { ...calibration, sources: [first, { ...second, detail: 'page states the size' }] } },
+    { name: 'sources source changed', value: { ...calibration, sources: [{ ...first, source: 'team brief, page 3' }, second] } },
+    { name: 'sources emptied', value: { ...calibration, sources: [] } },
+    { name: 'extra key value changed', value: { ...calibration, '～': 'extra key changed' } },
+    { name: 'extra nested value changed', value: { ...calibration, '😀': { ...calibration['😀'], '10': 3 } } },
+    { name: 'nested version changed', value: { ...calibration, '😀': { ...calibration['😀'], version: 'inner-v2' } } },
+    { name: 'nested version removed', value: { ...calibration, '😀': { note: 'extra nested key', '9': 1, '10': 2 } } },
+    { name: 'extra key removed', value: without('😀') },
+    { name: 'extra key added', value: { ...calibration, campaign: 'spring' } },
+  ]
+  eq('校准内容版本：改动或增删任一非 version 字段都换成该内容的 oracle 值',
+    changes.filter(({ value }) => {
+      const got = versionOf(value)
+      return got !== oracleVersion(value) || got === base
+    }).map(({ name }) => name), [])
+  const frozenCalibration = deepFreeze(structuredClone(calibration))
+  const frozenBefore = JSON.stringify(frozenCalibration)
+  eq('校准内容版本：深冻结输入照算不抛，算后原值不变',
+    [versionOf(frozenCalibration), JSON.stringify(frozenCalibration)], [base, frozenBefore])
+  // 依据 D20.f「全部内容（含未列出的键）」：键下嵌多深都得算进哈希，规范化 JSON 对任何深度都有定义、不抛。
+  // 期望串按构造写，不交给递归的 oracle；深对象也不交给 eq/ok 比较或打印（那本身会栈溢出）。
+  // 每层两个成员、对象键按与码点序相反的顺序插入：只在浅层排序、只在浅层写分隔符、只对单成员链特判的写法在深处也露馅。
+  const DEPTH = 100000
+  let deepObject: unknown = 1, deepArray: unknown = 1
+  for (let i = 0; i < DEPTH; i++) { deepObject = { b: 0, a: deepObject }; deepArray = [deepArray, 0] }
+  const DEEP_OBJECT = '{"a":'.repeat(DEPTH) + '1' + ',"b":0}'.repeat(DEPTH), DEEP_ARRAY = '['.repeat(DEPTH) + '1' + ',0]'.repeat(DEPTH)
+  // 几十万字符的长串只回报是否相等；不等时只给前 80 个字符（多半是 threw: …）。
+  const sameLong = (got: unknown, want: string) => got === want || (typeof got === 'string' ? got.slice(0, 80) : typeof got)
+  eq('规范化 JSON：十万层对象嵌套照常算出，不因深度抛错', sameLong(attempt(() => canonicalJson(deepObject)), DEEP_OBJECT), true)
+  eq('规范化 JSON：十万层数组嵌套照常算出，不因深度抛错', sameLong(attempt(() => canonicalJson(deepArray)), DEEP_ARRAY), true)
+  eq('内容哈希：十万层对象嵌套的值等于按构造写出的规范化串的 SHA256', attempt(() => calibrationHash(deepObject)), sha256Of(DEEP_OBJECT))
+  // 合 D20.a 的校准另挂一个未列出的深键：oracle 只算浅的一层（深值先换成占位串），再把带引号的占位串换成构造串。
+  const deepCalibration = { ...calibration, zz_extra: deepObject }
+  const HOLE = 'zz-deep-placeholder'
+  const shallow = oracleJson(Object.fromEntries(Object.entries({ ...calibration, zz_extra: HOLE }).filter(([key]) => key !== 'version')))
+  const deepVersion = sha256Of(shallow.split(JSON.stringify(HOLE)).join(DEEP_OBJECT))
+  const deepAccepted = attempt(() => brandCalibrationProblems({ brand_calibration: deepCalibration }))
+  ok('深嵌套夹具有效：未列出的键挂十万层嵌套的校准通过已有的 D20.a 判定', Array.isArray(deepAccepted) && deepAccepted.length === 0)
+  eq('校准内容版本：未列出的键挂十万层嵌套时照常算出，等于按构造推出的哈希', versionOf(deepCalibration), deepVersion)
+  eq('版本复算：未列出的键挂十万层嵌套、版本与内容一致时返回空清单',
+    attempt(() => calibrationVersionProblems({ product: 'deep-extra', brand_calibration: { ...deepCalibration, version: deepVersion } })), [])
+  const deepStale = attempt(() => calibrationVersionProblems({ product: 'deep-extra', brand_calibration: { ...deepCalibration, version: 'sha256:' + '0'.repeat(64) } }))
+  eq('版本复算：未列出的键挂十万层嵌套、版本不一致时恰好一条问题，指出 brand_calibration.version 并给出复算值',
+    Array.isArray(deepStale) ? deepStale.map(problem => [typeof problem === 'string' && problem.includes('brand_calibration.version'),
+      typeof problem === 'string' && problem.includes(deepVersion)]) : deepStale, [[true, true]])
+  criterion('D20.f')
+
+  // D20 × P1：复算只核对已有内容，不补字段、不改写版本；缺席或结构不合时不算哈希。
+  const recheck = (state: object) => {
+    const before = JSON.stringify(state)
+    const got = attempt(() => calibrationVersionProblems(state))
+    const frozen = deepFreeze(structuredClone(state))
+    const frozenGot = attempt(() => calibrationVersionProblems(frozen))
+    return { got, frozenGot, unchanged: JSON.stringify(state) === before && JSON.stringify(frozen) === before }
+  }
+  const consistent = { ...calibration, version: base }
+  const edited = { ...consistent, tone_aesthetic: ['bold and loud'] }
+  const recomputed = oracleVersion(edited)
+  const absentState = { product: 'no-calibration', market: 'US' }
+  const absent = recheck(absentState)
+  eq('版本复算：brand_calibration 缺席时返回空清单，不给输入补出校准',
+    [absent.got, absent.frozenGot, Object.hasOwn(absentState, 'brand_calibration'), absent.unchanged], [[], [], false, true])
+  const structuralFixtures = [
+    Object.fromEntries(Object.entries(edited).filter(([key]) => key !== 'negative_signals')),
+    { ...edited, tone_aesthetic: [7] },
+    { version: base },
+  ]
+  // 夹具自检（用已有的 D20.a 判定，不用被测的新函数）：下面「结构不合」的夹具确实被 D20.a 拒，
+  // 「结构合规」的夹具确实不被拒 —— 否则空清单或那一条问题可能另有来由。
+  const d20aRejects = (brand_calibration: unknown): boolean => {
+    const got = attempt(() => brandCalibrationProblems({ brand_calibration }))
+    return Array.isArray(got) && got.length > 0
+  }
+  const d20aAccepts = (brand_calibration: unknown): boolean => {
+    const got = attempt(() => brandCalibrationProblems({ brand_calibration }))
+    return Array.isArray(got) && got.length === 0
+  }
+  ok('版本复算夹具有效：三份结构不合的校准都被已有的 D20.a 判定拒绝', structuralFixtures.every(d20aRejects))
+  ok('版本复算夹具有效：一致、改过内容与手写版本的校准都通过已有的 D20.a 判定',
+    [consistent, edited, { ...edited, version: 'brand-v1' }, { ...edited, version: 'SHA256:' + base.slice(7) }].every(d20aAccepts))
+  const structural = structuralFixtures.map(brand_calibration => recheck({ product: 'broken-calibration', brand_calibration }))
+  eq('版本复算：结构不合 D20.a 时即使版本是哈希格式也不另算哈希',
+    structural.map(({ got, frozenGot, unchanged }) => [got, frozenGot, unchanged]), [[[], [], true], [[], [], true], [[], [], true]])
+  const handwritten = ['brand-v1', 'sha256:' + base.slice(7).toUpperCase(), 'SHA256:' + base.slice(7),
+    'sha256:' + base.slice(8), 'sha256:' + base.slice(7) + '0']
+    .map(version => recheck({ product: 'handwritten', brand_calibration: { ...edited, version } }))
+  eq('版本复算：内容改了而版本不是内容哈希格式时不复算',
+    handwritten.map(({ got, frozenGot, unchanged }) => [got, frozenGot, unchanged]),
+    [[[], [], true], [[], [], true], [[], [], true], [[], [], true], [[], [], true]])
+  const matched = recheck({ product: 'matched', brand_calibration: consistent })
+  eq('版本复算：内容哈希版本与内容一致时返回空清单',
+    [matched.got, matched.frozenGot, matched.unchanged], [[], [], true])
+  const staleState = { product: 'stale', brand_calibration: edited }
+  const stale = recheck(staleState)
+  eq('版本复算：不一致时恰好一条问题，指出 brand_calibration.version 并给出按当前内容复算的值',
+    Array.isArray(stale.got) ? stale.got.map(problem => [typeof problem === 'string' && problem.includes('brand_calibration.version'),
+      typeof problem === 'string' && problem.includes(recomputed)]) : stale.got, [[true, true]])
+  eq('版本复算：不一致时深冻结输入不抛，给出同样的问题',
+    [Array.isArray(stale.frozenGot) && stale.frozenGot.length === 1, JSON.stringify(stale.frozenGot) === JSON.stringify(stale.got)], [true, true])
+  eq('版本复算：不一致时不以复算值改写版本，输入原样',
+    [Array.isArray(stale.got), stale.unchanged, staleState.brand_calibration.version], [true, true, base])
+  tension('D20', 'P1')
+}
 })
 
 if (seenGroups.size !== GROUPS.length) {

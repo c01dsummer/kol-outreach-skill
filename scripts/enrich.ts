@@ -21,7 +21,7 @@ import {
 } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
 import { stringifyCostJson } from './lib/cost-json.js'
-import { brandCalibrationProblems } from './lib/brand-calibration.js'
+import { brandCalibrationProblems, calibrationVersionProblems } from './lib/brand-calibration.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { canonicalReviewLinks, reviewRelations } from './lib/pipeline.js'
 import { prepareTaskReviews } from './lib/task-reviews.js'
@@ -71,6 +71,7 @@ const newBudget = arg('--budget')
 try {
   task = loadTask(dir)
   const calibrationProblems = brandCalibrationProblems(task)
+  calibrationProblems.push(...calibrationVersionProblems(task))
   const taskProblems = taskListProblems(task.tasks)
   if (calibrationProblems.length || taskProblems.length) {
     throw new Error(`${taskFile(dir)} 里的任务或品牌输入不合规：\n  ${[...taskProblems, ...calibrationProblems].join('\n  ')}`)

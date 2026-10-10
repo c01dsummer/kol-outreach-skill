@@ -11,7 +11,7 @@ import { writeFileAtomic } from './lib/atomic.js'
 import { join } from 'node:path'
 import { taskFile, taskId, loadTask, loadCreators, loadReviewCreatorInputs, loadEnrichment, persistListAndStatus } from './lib/task.js'
 import { taskListProblems } from './lib/search-tasks.js'
-import { brandCalibrationProblems } from './lib/brand-calibration.js'
+import { brandCalibrationProblems, calibrationVersionProblems } from './lib/brand-calibration.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { canonicalReviewLinks, rankCreators, keywordRows, reviewRelations, taskPlatforms, tierCounts } from './lib/pipeline.js'
 import { prepareTaskReviews, type TaskReviews } from './lib/task-reviews.js'
@@ -41,6 +41,7 @@ catch (e) {
 }
 const badTasks = taskListProblems(state.tasks)
 const badCalibration = brandCalibrationProblems(state)
+badCalibration.push(...calibrationVersionProblems(state))
 if (badCalibration.length) {
   console.error(`${taskFile(dir)} 里的品牌输入不合规：\n  ${badCalibration.join('\n  ')}`)
 }

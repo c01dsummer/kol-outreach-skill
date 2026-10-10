@@ -7586,6 +7586,396 @@ fs.writeFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json','controll
   named('模板入口-零外部请求', allRequestChecks.length > 0 && allRequestChecks.every(x => x.ok), 'D26.q: 真实请求记录的案例=' + allRequestChecks.filter(x => !x.ok).map(x => x.label).join(',')); criterion('D26.q');
 });
 
+// D20.g–D20.j：内容哈希版本的入口复算。期望只出自 D20.f–D20.j、ADR-136（含 2026-10-10 追加块）与入口契约；
+// 版本值由本组手写的规范化 JSON 加 node:crypto 独立算出，不调用被测的内容哈希实现。
+group('brand-content-version-entry', [], () => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'kol-brand-version-')))
+  process.on('exit', () => rmSync(base, { recursive: true, force: true }))
+  // 只借内建模块、不加新的模块引用：被自检引用的仓库模块会变成变异碰不到的基础设施
+  const { createHash } = createRequire(import.meta.url)('node:crypto') as { createHash: (algorithm: string) =>
+    { update: (data: string, encoding: 'utf8') => { digest: (encoding: 'hex') => string } } }
+  const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex')
+  // 键按 Unicode 码点比较；默认 sort 比的是 UTF-16 码元，U+1F600 会排到 U+FF5E 前面
+  const byCodePoint = (a: string, b: string): number => {
+    const x = [...a].map(c => c.codePointAt(0)!), y = [...b].map(c => c.codePointAt(0)!)
+    for (let i = 0; i < x.length && i < y.length; i++) if (x[i] !== y[i]) return x[i] - y[i]
+    return x.length - y.length
+  }
+  const canonical = (value: unknown): string => {
+    if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+    if (value !== null && typeof value === 'object') {
+      const record = value as Record<string, unknown>
+      return `{${Object.keys(record).sort(byCodePoint)
+        .map(key => `${JSON.stringify(key)}:${canonical(record[key])}`).join(',')}}`
+    }
+    return JSON.stringify(value)
+  }
+  const versionOf = (calibration: Record<string, unknown>): string => {
+    const { version: _version, ...content } = calibration
+    return `sha256:${sha256(canonical(content))}`
+  }
+  // 手推的规范化串与公开的 SHA256 向量，与上面的 oracle 互证；对不上是夹具自己坏了，不记成入口红
+  const oracleReady = canonical({ '\u{1f600}': 1, '～': 2, a: [2, 1], b: { y: '中', x: null } })
+      === '{"a":[2,1],"b":{"x":null,"y":"中"},"～":2,"\u{1f600}":1}'
+    && sha256('abc') === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+  if (!oracleReady) {
+    failed++
+    console.error(`  ✗ 内容哈希 oracle${SELFCHECK_FIXTURE_MARK}：手写规范化或 SHA256 与手推向量不符`)
+    return
+  }
+  // 合 D20.a 的校准，另带 D20.a 未列出的键：码点序与码元序相反的一对、嵌套对象、中文值，键也不按序写
+  const content: Record<string, unknown> = {
+    tone_aesthetic: ['warm and practical'],
+    target_creator_types: ['家庭厨师', 'home cooks'],
+    '\u{1f600}': { z: 'last', a: ['b', 'a'] },
+    natural_scenarios: ['weekday lunch', '周末野餐'],
+    negative_signals: ['unsupported promises'],
+    '～': '全角波浪号',
+    sources: [{ source: 'team brief p.2', kind: 'brand_preference', detail: '语气偏好' }],
+  }
+  const good = { version: versionOf(content), ...content }
+  // 内容改了而版本没换：只动一个数组元素
+  const stale = { ...good, natural_scenarios: ['weekday lunch', '周末露营'] }
+  const recomputed = versionOf(stale)
+  const hex = good.version.slice('sha256:'.length)
+  const tasks = [{ keyword: 'brand version fixture', dimension: 'category', platform: 'tiktok' }]
+  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
+  const preload = join(base, 'observe-reserve.mjs')
+  writeFileSync(preload, [
+    `import { appendFileSync } from 'node:fs';`,
+    `import { Budget } from ${JSON.stringify(budgetModule)};`,
+    `const original = Budget.prototype.reserve;`,
+    `Budget.prototype.reserve = function(...args) {`,
+    `  appendFileSync(process.env.BRAND_VERSION_RESERVE_LOG, 'reserve\\n');`,
+    `  return Reflect.apply(original, this, args);`,
+    `};`,
+    `appendFileSync(process.env.BRAND_VERSION_ARMED_LOG, 'armed\\n');`,
+  ].join('\n'))
+  const observed = (f: { log: string; reserves: string; armed: string }) => costEnv(f.log, {
+    BRAND_VERSION_RESERVE_LOG: f.reserves, BRAND_VERSION_ARMED_LOG: f.armed,
+    NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+  })
+  const logs = (cwd: string) => {
+    const log = join(cwd, 'attempts.tsv'), reserves = join(cwd, 'reserves.txt'), armed = join(cwd, 'armed.txt')
+    writeFileSync(reserves, '')
+    return { log, reserves, armed }
+  }
+  const newInput = (id: string, value: unknown) => {
+    const cwd = join(base, id), file = join(cwd, 'config.json')
+    mkdirSync(join(cwd, 'memory'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ product: 'brandversion', market: 'US', target_count: 0,
+      budget_usd: 1, tasks, brand_calibration: value }, null, 2) + '\n')
+    return { cwd, file, ...logs(cwd) }
+  }
+  // 每一跑一份新夹具：预留与请求记录不跨跑累计
+  const taskInput = (id: string, value: unknown, withPerson = false) => {
+    const f = costFixture(`brand-version-${id}`, knownCosts(1_000_000, []), { target_count: 0, done: [],
+      offsets: {}, pages: {}, answered: {}, found: {}, brand_calibration: value },
+    withPerson ? [costPerson('tiktok', `brand_version_${id.replaceAll('-', '_')}`)] : [])
+    return { ...f, ...logs(f.cwd) }
+  }
+  type Fixture = ReturnType<typeof taskInput>
+  const taskFiles = (f: Fixture) => [f.task, join(f.taskDir, 'creators.raw.json'), join(f.taskDir, 'creators.json')]
+  const original = (f: Fixture) => taskFiles(f).map(fileText)
+  const unchanged = (f: Fixture, before: string[]) => taskFiles(f).every((file, i) => fileText(file) === before[i])
+  const deliveries = (f: Fixture) => ['enrichment.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
+    .map(name => join(f.taskDir, name)).concat(join(f.cwd, 'memory', 'creators.json'))
+  const ready = (f: { armed: string }, stderr: string): boolean => {
+    if (fetchAttempts(f.armed).includes('armed')) return true
+    failed++
+    console.error(`  ✗ 内容哈希版本观察器${SELFCHECK_FIXTURE_MARK}：没有安装预算预留观察器；${stderrTail(stderr)}`)
+    return false
+  }
+  const noReserveOrFetch = (f: { reserves: string; log: string }): boolean =>
+    fetchAttempts(f.reserves).length === 0 && fetchAttempts(f.log).length === 0
+  const namesVersion = (stderr: string): boolean =>
+    stderr.split('\n').some(line => /brand_calibration.*\bversion\b/.test(line))
+  const events = (f: { reserves: string; log: string }) =>
+    `预留=${fetchAttempts(f.reserves).length}，请求=${fetchAttempts(f.log).length}`
+  const delivered = (f: Fixture): boolean => ['kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
+    .every(name => fileText(join(f.taskDir, name)).length > 0)
+  const keptCalibration = (f: Fixture, value: unknown): boolean =>
+    isDeepStrictEqual(jsonFile(f.task)?.brand_calibration, value)
+  let passed = 0, refused = 0, structural = 0, template = 0
+
+  // D20.h：版本与内容一致时照常运行。collect 新建同时是下面零预留、零请求断言的阳性对照
+  const fresh = newInput('match-new', good)
+  const freshRun = runBoth('内容哈希版本一致新建', [S('collect.ts'), '--config', fresh.file], fresh.cwd,
+    { status: 0, soft: [1, 2, 3] }, observed(fresh))
+  if (freshRun.ok && ready(fresh, freshRun.stderr)) {
+    const dir = onlyDir(fresh.cwd, 'brandversion')
+    const state = dir ? jsonFile(join(fresh.cwd, dir, 'task.json')) : undefined
+    named('内容哈希版本一致：collect 新建确实预留和请求，task.json 原样保存校准',
+      freshRun.status === 0 && fetchAttempts(fresh.reserves).length > 0 && fetchAttempts(fresh.log).length > 0
+        && isDeepStrictEqual(state?.brand_calibration, good),
+      `退出=${freshRun.status}，目录=${dir}，${events(fresh)}，stderr=${stderrTail(freshRun.stderr)}`)
+    passed++
+  }
+  const matchEnrich = taskInput('match-enrich', good, true)
+  const matchEnrichRun = runBoth('内容哈希版本一致 enrich', [S('enrich.ts'), '--dir', matchEnrich.taskDir],
+    matchEnrich.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchEnrich))
+  if (matchEnrichRun.ok && ready(matchEnrich, matchEnrichRun.stderr)) {
+    named('内容哈希版本一致：enrich 确实预留和请求，不因版本拒绝，不改写校准',
+      matchEnrichRun.status === 0 && fetchAttempts(matchEnrich.reserves).length > 0
+        && fetchAttempts(matchEnrich.log).length > 0 && !namesVersion(matchEnrichRun.stderr)
+        && keptCalibration(matchEnrich, good),
+      `退出=${matchEnrichRun.status}，${events(matchEnrich)}，stderr=${stderrTail(matchEnrichRun.stderr)}`)
+    passed++
+  }
+  // 续跑、改额续跑与 enrich 改额各有一条一致对照：下面这几条路径上的「退出2、零预留零请求」要归到版本上，
+  // 而不是复算本身算错（例如把 version 也算进哈希）或者 --budget 改额让它停下。同一种任务夹具，也是零事件断言的阳性对照
+  const matchEnrichBudget = taskInput('match-enrich-budget', good, true)
+  const matchEnrichBudgetRun = runBoth('内容哈希版本一致 enrich 改额',
+    [S('enrich.ts'), '--dir', matchEnrichBudget.taskDir, '--budget', '2'],
+    matchEnrichBudget.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchEnrichBudget))
+  if (matchEnrichBudgetRun.ok && ready(matchEnrichBudget, matchEnrichBudgetRun.stderr)) {
+    named('内容哈希版本一致：enrich 改额确实预留和请求，不因版本拒绝，不改写校准',
+      matchEnrichBudgetRun.status === 0 && fetchAttempts(matchEnrichBudget.reserves).length > 0
+        && fetchAttempts(matchEnrichBudget.log).length > 0 && !namesVersion(matchEnrichBudgetRun.stderr)
+        && keptCalibration(matchEnrichBudget, good),
+      `退出=${matchEnrichBudgetRun.status}，${events(matchEnrichBudget)}，stderr=${stderrTail(matchEnrichBudgetRun.stderr)}`)
+    passed++
+  }
+  for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
+    const f = taskInput(mode === '普通' ? 'match-resume' : 'match-resume-budget', good)
+    const r = runBoth(`内容哈希版本一致${mode}续跑`, [S('collect.ts'), '--resume', f.taskDir, ...extra],
+      f.cwd, { status: 0, soft: [1, 2, 3] }, observed(f))
+    if (!r.ok || !ready(f, r.stderr)) continue
+    const ok = r.status === 0 && fetchAttempts(f.reserves).length > 0 && fetchAttempts(f.log).length > 0
+      && !namesVersion(r.stderr) && keptCalibration(f, good)
+    const detail = `${mode}：退出=${r.status}，${events(f)}，stderr=${stderrTail(r.stderr)}`
+    if (mode === '普通') named('内容哈希版本一致：collect 普通续跑确实预留和请求，不因版本拒绝，不改写校准', ok, detail)
+    else named('内容哈希版本一致：collect 改额续跑确实预留和请求，不因版本拒绝，不改写校准', ok, detail)
+    passed++
+  }
+  const matchRender = taskInput('match-render', good, true)
+  const matchRenderRun = runBoth('内容哈希版本一致 render', [S('render.ts'), '--dir', matchRender.taskDir],
+    matchRender.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchRender))
+  if (matchRenderRun.ok && ready(matchRender, matchRenderRun.stderr)) {
+    named('内容哈希版本一致：render 照常交付名单并写记忆，不改写校准',
+      matchRenderRun.status === 0 && delivered(matchRender) && keptCalibration(matchRender, good)
+        && fileText(join(matchRender.cwd, 'memory', 'creators.json')).length > 0,
+      `退出=${matchRenderRun.status}，stderr=${stderrTail(matchRenderRun.stderr)}`)
+    passed++
+  }
+  if (passed === 6) criterion('D20.h')
+
+  // D20.g：版本与内容不一致时，三个入口在预留、请求和写入前以 2 拒绝
+  const staleNew = newInput('stale-new', stale)
+  const staleNewRun = runBoth('内容哈希版本不一致新建', [S('collect.ts'), '--config', staleNew.file], staleNew.cwd,
+    { status: 2, soft: [0, 1, 3] }, observed(staleNew))
+  if (staleNewRun.ok && ready(staleNew, staleNewRun.stderr)) {
+    // 照常运行的新建会在 output/ 下建 brandversion-* 任务目录；拒绝时一个都不能有
+    const output = join(staleNew.cwd, 'output')
+    const made = existsSync(output) ? readdirSync(output) : []
+    named('内容哈希版本不一致：collect 新建在建目录、预留和请求前退出2',
+      staleNewRun.status === 2 && noReserveOrFetch(staleNew) && made.length === 0,
+      `退出=${staleNewRun.status}，${events(staleNew)}，output=${JSON.stringify(made)}`)
+    named('内容哈希版本不一致：collect 新建指出 brand_calibration.version',
+      staleNewRun.status === 2 && namesVersion(staleNewRun.stderr), stderrTail(staleNewRun.stderr))
+    named('内容哈希版本不一致：collect 新建的提示给出按当前内容复算的版本值',
+      staleNewRun.status === 2 && staleNewRun.stderr.includes(recomputed),
+      `复算值=${recomputed}，stderr=${stderrTail(staleNewRun.stderr)}`)
+    refused++
+  }
+  for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
+    const f = taskInput(mode === '普通' ? 'stale-resume' : 'stale-resume-budget', stale), before = original(f)
+    const r = runBoth(`内容哈希版本不一致${mode}续跑`, [S('collect.ts'), '--resume', f.taskDir, ...extra],
+      f.cwd, { status: 2, soft: [0, 1, 3] }, observed(f))
+    if (!r.ok || !ready(f, r.stderr)) continue
+    const stopped = r.status === 2 && noReserveOrFetch(f) && unchanged(f, before)
+    const detail = `${mode}：退出=${r.status}，${events(f)}，三文件原字节=${unchanged(f, before)}`
+    const diagnosed = r.status === 2 && namesVersion(r.stderr) && r.stderr.includes(recomputed)
+    const said = `复算值=${recomputed}，stderr=${stderrTail(r.stderr)}`
+    if (mode === '普通') {
+      named('内容哈希版本不一致：collect 普通续跑在预留和请求前退出2，任务三文件原字节不变', stopped, detail)
+      named('内容哈希版本不一致：collect 普通续跑指出 brand_calibration.version 并给出复算值', diagnosed, said)
+    } else {
+      named('内容哈希版本不一致：collect 改额续跑在预留和请求前退出2，任务三文件原字节不变', stopped, detail)
+      named('内容哈希版本不一致：collect 改额续跑指出 brand_calibration.version 并给出复算值', diagnosed, said)
+    }
+    refused++
+  }
+  for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
+    const f = taskInput(mode === '普通' ? 'stale-enrich' : 'stale-enrich-budget', stale, true), before = original(f)
+    const r = runBoth(`内容哈希版本不一致 enrich ${mode}`, [S('enrich.ts'), '--dir', f.taskDir, ...extra],
+      f.cwd, { status: 2, soft: [0, 1, 3] }, observed(f))
+    if (!r.ok || !ready(f, r.stderr)) continue
+    const stopped = r.status === 2 && noReserveOrFetch(f) && unchanged(f, before)
+      && deliveries(f).every(path => !existsSync(path))
+    const detail = `${mode}：退出=${r.status}，${events(f)}，三文件原字节=${unchanged(f, before)}`
+    const diagnosed = r.status === 2 && namesVersion(r.stderr) && r.stderr.includes(recomputed)
+    const said = `复算值=${recomputed}，stderr=${stderrTail(r.stderr)}`
+    if (mode === '普通') {
+      named('内容哈希版本不一致：enrich 在预留、请求和交付写入前退出2，任务原字节不变', stopped, detail)
+      named('内容哈希版本不一致：enrich 指出 brand_calibration.version 并给出复算值', diagnosed, said)
+    } else {
+      named('内容哈希版本不一致：enrich 改额在预留、请求和交付写入前退出2，任务原字节不变', stopped, detail)
+      named('内容哈希版本不一致：enrich 改额指出 brand_calibration.version 并给出复算值', diagnosed, said)
+    }
+    refused++
+  }
+  const staleRender = taskInput('stale-render', stale, true), staleRenderBefore = original(staleRender)
+  const staleRenderRun = runBoth('内容哈希版本不一致 render', [S('render.ts'), '--dir', staleRender.taskDir],
+    staleRender.cwd, { status: 2, soft: [0, 1, 3] }, observed(staleRender))
+  if (staleRenderRun.ok && ready(staleRender, staleRenderRun.stderr)) {
+    named('内容哈希版本不一致：render 在预留、请求和交付写入前退出2，不写记忆',
+      staleRenderRun.status === 2 && noReserveOrFetch(staleRender) && unchanged(staleRender, staleRenderBefore)
+        && deliveries(staleRender).every(path => !existsSync(path)),
+      `退出=${staleRenderRun.status}，${events(staleRender)}，三文件原字节=${unchanged(staleRender, staleRenderBefore)}，`
+        + `交付物与记忆未写=${deliveries(staleRender).every(path => !existsSync(path))}`)
+    named('内容哈希版本不一致：render 指出 brand_calibration.version 并给出复算值',
+      staleRenderRun.status === 2 && namesVersion(staleRenderRun.stderr) && staleRenderRun.stderr.includes(recomputed),
+      `复算值=${recomputed}，stderr=${stderrTail(staleRenderRun.stderr)}`)
+    refused++
+  }
+  // 同一份任务文件里任务列表也坏：版本问题与任务问题都要报出来（enrich、render 各一次）。
+  // 照 brand-calibration-entry 组的同文件检查按任务切开 stderr：每个字段的问题要落在它那条任务的诊断里
+  const dualInput = (id: string) => {
+    const f = taskInput(id, stale, true)
+    writeFileSync(f.task, JSON.stringify({ ...jsonFile(f.task),
+      tasks: [{ keyword: ' ', dimension: 'Category', platform: 'TikTok' }] }, null, 2) + '\n')
+    return f
+  }
+  const taskProblemsReported = (stderr: string): boolean => {
+    const matches = [...stderr.matchAll(/任务\s*(\d+)(?!\d)|第\s*(\d+)\s*个/g)]
+    const parts = matches.map((match, i) => ({ task: Number(match[1] ?? match[2]),
+      text: stderr.slice(match.index, matches[i + 1]?.index) }))
+    return [
+      { field: 'keyword', value: JSON.stringify(' ') },
+      { field: 'dimension', value: JSON.stringify('Category') },
+      { field: 'platform', value: JSON.stringify('TikTok') },
+    ].every(problem => parts.some(part => part.task === 1
+      && part.text.includes(problem.field) && part.text.includes(problem.value)))
+  }
+  const dual = dualInput('stale-render-dual'), dualBefore = original(dual)
+  const dualRun = runBoth('内容哈希版本不一致且任务列表非法 render', [S('render.ts'), '--dir', dual.taskDir],
+    dual.cwd, { status: 2, soft: [0, 1, 3] }, observed(dual))
+  if (dualRun.ok && ready(dual, dualRun.stderr)) {
+    const taskProblems = taskProblemsReported(dualRun.stderr)
+    named('内容哈希版本不一致且任务列表也坏：render 两类问题都报且给出复算值，零预留零请求，文件原字节不变',
+      dualRun.status === 2 && dualRun.stderr.includes(dual.task) && taskProblems && namesVersion(dualRun.stderr)
+        && dualRun.stderr.includes(recomputed)
+        && noReserveOrFetch(dual) && unchanged(dual, dualBefore) && deliveries(dual).every(path => !existsSync(path)),
+      `退出=${dualRun.status}，任务诊断齐全=${taskProblems}，复算值=${recomputed}，${events(dual)}，`
+        + `stderr=${stderrTail(dualRun.stderr)}`)
+    refused++
+  }
+  const dualEnrich = dualInput('stale-enrich-dual'), dualEnrichBefore = original(dualEnrich)
+  const dualEnrichRun = runBoth('内容哈希版本不一致且任务列表非法 enrich', [S('enrich.ts'), '--dir', dualEnrich.taskDir],
+    dualEnrich.cwd, { status: 2, soft: [0, 1, 3] }, observed(dualEnrich))
+  if (dualEnrichRun.ok && ready(dualEnrich, dualEnrichRun.stderr)) {
+    const taskProblems = taskProblemsReported(dualEnrichRun.stderr)
+    named('内容哈希版本不一致且任务列表也坏：enrich 两类问题都报且给出复算值，零预留零请求，文件原字节不变',
+      dualEnrichRun.status === 2 && dualEnrichRun.stderr.includes(dualEnrich.task) && taskProblems
+        && namesVersion(dualEnrichRun.stderr) && dualEnrichRun.stderr.includes(recomputed)
+        && noReserveOrFetch(dualEnrich) && unchanged(dualEnrich, dualEnrichBefore)
+        && deliveries(dualEnrich).every(path => !existsSync(path)),
+      `退出=${dualEnrichRun.status}，任务诊断齐全=${taskProblems}，复算值=${recomputed}，${events(dualEnrich)}，`
+        + `stderr=${stderrTail(dualEnrichRun.stderr)}`)
+    refused++
+  }
+  // D20.g 的前提是「合 D20.a」：结构不合时只报结构问题、不另算哈希（D20 × P1 的入口一侧），
+  // 即使版本是哈希格式且与内容不一致。stderr 里有结构问题，没有版本问题，也没有任何复算值
+  const broken = { ...stale, tone_aesthetic: [7] }
+  const brokenRecomputed = versionOf(broken)
+  const structureFirst = taskInput('stale-render-structure', broken, true), structureBefore = original(structureFirst)
+  const structureRun = runBoth('内容哈希版本不一致且结构非法 render', [S('render.ts'), '--dir', structureFirst.taskDir],
+    structureFirst.cwd, { status: 2, soft: [0, 1, 3] }, observed(structureFirst))
+  if (structureRun.ok && ready(structureFirst, structureRun.stderr)) {
+    named('内容哈希版本不一致而结构不合 D20.a：render 只报结构问题，不另算哈希，零预留零请求',
+      structureRun.status === 2
+        && structureRun.stderr.split('\n').some(line => /brand_calibration.*\btone_aesthetic\b/.test(line))
+        && !namesVersion(structureRun.stderr)
+        && !structureRun.stderr.includes(brokenRecomputed) && !structureRun.stderr.includes(recomputed)
+        && noReserveOrFetch(structureFirst) && unchanged(structureFirst, structureBefore)
+        && deliveries(structureFirst).every(path => !existsSync(path)),
+      `退出=${structureRun.status}，按当前内容的复算值=${brokenRecomputed}，${events(structureFirst)}，`
+        + `stderr=${stderrTail(structureRun.stderr)}`)
+    refused++
+  }
+  if (refused === 9) criterion('D20.g')
+
+  // D20.i：不是内容哈希格式的版本只校验结构；内容改了版本没换也照常运行，版本不被改写
+  const loose = [
+    ['手写标签', 'brand-v1'],
+    ['大写前缀与十六进制', `SHA256:${hex.toUpperCase()}`],
+    ['大写十六进制', `sha256:${hex.toUpperCase()}`],
+    ['63位十六进制', `sha256:${hex.slice(0, 63)}`],
+  ] as const
+  for (const [kind, version] of loose) {
+    const value = { ...stale, version }
+    const id = loose.findIndex(([k]) => k === kind)
+    const resume = taskInput(`loose-${id}-resume`, value)
+    const resumeRun = runBoth(`非哈希版本${kind}续跑`, [S('collect.ts'), '--resume', resume.taskDir], resume.cwd,
+      { status: 0, soft: [1, 2, 3] }, costEnv(resume.log))
+    if (!resumeRun.ok) continue
+    const render = taskInput(`loose-${id}-render`, value, true)
+    const renderRun = runBoth(`非哈希版本${kind} render`, [S('render.ts'), '--dir', render.taskDir], render.cwd,
+      { status: 0, soft: [1, 2, 3] }, costEnv(render.log))
+    if (!renderRun.ok) continue
+    const ok = resumeRun.status === 0 && keptCalibration(resume, value)
+      && renderRun.status === 0 && delivered(render) && keptCalibration(render, value)
+    const detail = `${version}：续跑退出=${resumeRun.status}，render 退出=${renderRun.status}，`
+      + `续跑 stderr=${stderrTail(resumeRun.stderr)}，render stderr=${stderrTail(renderRun.stderr)}`
+    if (kind === '手写标签') named('手写标签版本内容改了：collect 续跑与 render 照常运行，版本不被改写', ok, detail)
+    else if (kind === '大写前缀与十六进制') named('大写 SHA256 前缀版本内容改了：collect 续跑与 render 照常运行，版本不被改写', ok, detail)
+    else if (kind === '大写十六进制') named('大写十六进制的 sha256 版本内容改了：collect 续跑与 render 照常运行，版本不被改写', ok, detail)
+    else named('位数不符的 sha256 版本内容改了：collect 续跑与 render 照常运行，版本不被改写', ok, detail)
+    structural++
+  }
+  // enrich 也只校验结构：取最像哈希的一种（只差在大小写），大小写不敏感地认哈希的实现会在这里复算并拒绝
+  const looseEnrichValue = { ...stale, version: `sha256:${hex.toUpperCase()}` }
+  const looseEnrich = taskInput('loose-enrich', looseEnrichValue, true)
+  const looseEnrichRun = runBoth('非哈希版本大写十六进制 enrich', [S('enrich.ts'), '--dir', looseEnrich.taskDir],
+    looseEnrich.cwd, { status: 0, soft: [1, 2, 3] }, costEnv(looseEnrich.log))
+  if (looseEnrichRun.ok) {
+    named('大写十六进制的 sha256 版本内容改了：enrich 照常运行，版本不被改写',
+      looseEnrichRun.status === 0 && !namesVersion(looseEnrichRun.stderr) && keptCalibration(looseEnrich, looseEnrichValue),
+      `${looseEnrichValue.version}：退出=${looseEnrichRun.status}，stderr=${stderrTail(looseEnrichRun.stderr)}`)
+    structural++
+  }
+  if (structural === loose.length + 1) criterion('D20.i')
+
+  // D20.j：人工反馈模板命令只按 D20.a 校验，不复算。夹具形状照 feedback-template 组：已保存冻结轮次与完整名单
+  const templateFixture = (id: string, calibration: unknown) => {
+    const dir = join(base, `template-${id}`)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'task.json'), JSON.stringify({ tasks: [{ keyword: 'saved', dimension: 'category',
+      platform: 'tiktok' }], brand_calibration: calibration }, null, 2) + '\n')
+    writeFileSync(join(dir, 'agent-review.json'), JSON.stringify({ version: 1, updated_at: '2026-10-01T00:00:00Z',
+      reviews: {}, rounds: [{ round_id: 'brand-version', created_at: '2026-10-01T00:00:00Z', source: 'task.json',
+        candidates: [{ account_key: 'tiktok:alpha', source_tasks: null }] }] }, null, 2) + '\n')
+    writeFileSync(join(dir, 'creators.json'), '[]\n')
+    return dir
+  }
+  const templateDir = templateFixture('stale', stale), templateTask = fileText(join(templateDir, 'task.json'))
+  const templateRun = runBoth('内容哈希版本不一致人工反馈模板', [S('feedback-template.ts'), '--dir', templateDir],
+    templateDir, { status: 0, soft: [1, 2] })
+  if (templateRun.ok) {
+    const csv = fileText(join(templateDir, 'manual-feedback.csv'))
+    const reply = summaryOf(templateRun.stdout)
+    named('内容哈希版本不一致：人工反馈模板不复算，照常创建模板并以 0 退出',
+      templateRun.status === 0 && csv.startsWith('\uFEFFround_id,platform,handle,') && csv.includes('brand-version,tiktok,alpha')
+        && reply.status === 'create' && reply.file === join(templateDir, 'manual-feedback.csv')
+        && fileText(join(templateDir, 'task.json')) === templateTask,
+      `退出=${templateRun.status}，stdout=${templateRun.stdout.trim()}，stderr=${stderrTail(templateRun.stderr)}`)
+    template++
+  }
+  // 对照：同一夹具的品牌输入结构不合 D20.a 时照旧拒绝 —— 上面放行不是因为模板命令根本不读品牌输入
+  const badDir = templateFixture('bad-structure', { ...stale, version: ' ' })
+  const badRun = runBoth('品牌输入结构非法人工反馈模板', [S('feedback-template.ts'), '--dir', badDir],
+    badDir, { status: 2, soft: [0, 1] })
+  if (badRun.ok) {
+    named('人工反馈模板对照：品牌输入结构不合 D20.a 时照旧以 2 拒绝且不建模板',
+      badRun.status === 2 && namesVersion(badRun.stderr) && !existsSync(join(badDir, 'manual-feedback.csv')),
+      `退出=${badRun.status}，stderr=${stderrTail(badRun.stderr)}`)
+    template++
+  }
+  if (template === 2) criterion('D20.j')
+})
+
 // 拆不拆、拆几个是判定（`shardJobs`）：只有完整、非变异的整跑才拆；`SELFCHECK_JOBS=1` 照旧单进程。
 const shardCount = shardJobs({ subset, mutating, env: process.env.SELFCHECK_JOBS,
   cpus: availableParallelism(), families: families(REGISTERED).length })
