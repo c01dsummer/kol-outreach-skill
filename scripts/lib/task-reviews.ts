@@ -38,7 +38,8 @@ export function prepareTaskReviews(
 ): TaskReviews {
   const file = join(dir, 'agent-review.json')
   const manualFile = join(dir, 'manual-feedback.csv')
-  const sourceState = structuredClone(state)
+  // 下游只读 tasks；入口传来的整份状态连着校准，未列出的键嵌得深时整份复制会栈溢出（D20.h）。
+  const sourceState = { tasks: structuredClone(state.tasks) }
   const original = readAgentReviewDocument(dir)
   const sourceProblems = reviewRoundSourceProblems(original.document, sourceState)
   if (sourceProblems.length) throw new ReviewInputError(sourceProblems.map(problem => {

@@ -10315,6 +10315,18 @@
       ]
     },
     {
+      "id": "M-D20-aa",
+      "req": "D20.h",
+      "why": "评审准备整份复制任务状态，校准里未列出的键嵌得深时，版本一致的任务在三个入口照样栈溢出、以 2 退出",
+      "file": "scripts/lib/task-reviews.ts",
+      "find": "const sourceState = { tasks: structuredClone(state.tasks) }",
+      "replace": "const sourceState = structuredClone(state)",
+      "by": "test",
+      "kills": [
+        "评审准备：校准未列出的键挂十万层嵌套、版本一致时照常完成，不因深度抛错"
+      ]
+    },
+    {
       "id": "M-D21-a",
       "req": "D21.e",
       "why": "缺席的评审正本被标成已有文档，续跑无法分辨尚无判断与已有空正本",

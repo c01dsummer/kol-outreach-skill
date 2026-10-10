@@ -13388,6 +13388,18 @@ suite('D20', '内容哈希版本按规范化 JSON 算出，复算只核对已有
       typeof problem === 'string' && problem.includes(deepVersion)]) : deepStale, [[true, true]])
   criterion('D20.f')
 
+  // 回归（依据 D20.h 与 ADR-136 末尾那张既有缺陷的欠条）：三个入口把整份任务状态（含校准）交给评审准备，
+  // 版本一致时须照常完成、不因校准嵌得深而抛错。复用上面的十万层夹具；结果与深对象都不交给 eq 比较或打印。
+  const reviewDir = mkdtempSync(join(tmpdir(), 'kol-d20-deep-review-'))
+  try {
+    const deepState: Pick<TaskState, 'tasks'> & { brand_calibration: typeof deepCalibration } = {
+      tasks: [{ keyword: 'lamp', dimension: 'category', platform: 'tiktok' }],
+      brand_calibration: { ...deepCalibration, version: deepVersion },
+    }
+    const prepared = attempt(() => prepareTaskReviews(reviewDir, deepState, [], '2026-10-10T00:00:00Z', []))
+    eq('评审准备：校准未列出的键挂十万层嵌套、版本一致时照常完成，不因深度抛错', typeof prepared === 'object' || String(prepared).slice(0, 80), true)
+  } finally { rmSync(reviewDir, { recursive: true, force: true }) }
+
   // D20 × P1：复算只核对已有内容，不补字段、不改写版本；缺席或结构不合时不算哈希。
   const recheck = (state: object) => {
     const before = JSON.stringify(state)
