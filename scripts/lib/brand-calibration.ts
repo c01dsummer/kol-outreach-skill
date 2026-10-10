@@ -36,3 +36,26 @@ export function brandCalibrationProblems(state: unknown): string[] {
   }
   return problems
 }
+
+/** D20.f：version 是否为内容哈希格式 —— `sha256:` 加 64 位小写十六进制，别的写法都不是。 */
+export function isContentVersion(version: unknown): boolean {
+  void version
+  throw new Error('尚未实现')
+}
+
+/** D20.f：brand_calibration 除 version 外全部内容（含 D20.a 未列出的键）的内容哈希；不改写输入。 */
+export function calibrationContentVersion(calibration: object): string {
+  void calibration
+  throw new Error('尚未实现')
+}
+
+/**
+ * D20.g–D20.i、D20 × P1：brand_calibration 存在、合 D20.a 且 version 为内容哈希格式时按内容复算；
+ * 不一致时返回一条指出 brand_calibration.version、并给出复算值的问题，其余情况返回空数组。
+ * 不改写输入，不补字段。collect、enrich、render 把它的结果并进 brandCalibrationProblems 的同一份问题清单；
+ * 人工反馈模板命令不调用它（D20.j）。
+ */
+export function calibrationVersionProblems(state: unknown): string[] {
+  void state
+  throw new Error('尚未实现')
+}
