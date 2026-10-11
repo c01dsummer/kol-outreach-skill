@@ -57,13 +57,15 @@ Phase 01 用。目标：**用最少的提问拿到足够信息**。
 
 | 字段 | 写什么 |
 |------|--------|
-| `version` | 非空字符串，标识这一版校准 |
+| `version` | 建任务前写一个非空的手写标签（如 `brand-v1`），标识这一版校准；任务建好后由 `calibration version` 按内容换成 `sha256:` 内容哈希，不手写哈希 |
 | `target_creator_types`、`tone_aesthetic`、`natural_scenarios`、`negative_signals` | 目标创作者类型、语气审美、自然使用场景、负面信号；各为非空字符串组成的数组，可为空 |
 | `sources` | 逐条写 `source`（出处）、`detail`（内容）与 `kind`：`brand_preference` 是品牌偏好；`verified_product_fact` 只用于商品页或产品资料实际证实的产品事实 |
 
 资料没有证实的功能、规格、价格和承诺不写成 `verified_product_fact`，开发信里也保持占位符。偏好只属于本项目，不当作其他品牌的筛除规则。
 
-把校准要点和来源跟小样放在同一次「这批对吗」确认里，一起说完。用户修正后改 `version` 再用；任务建好以后要改，就改任务目录 `task.json` 里的 `brand_calibration` 并换一个 `version`。评审是否过期按版本字符串判断：手写的版本内容改了而没换，旧评审仍显示为已评。collect、enrich、render 校验结构，不合规时退出 2 并指出字段；`version` 若是 `sha256:` 加 64 位小写十六进制的内容哈希，还会按内容核对，对不上同样退出 2（D20）。
+把校准要点和来源跟小样放在同一次「这批对吗」确认里，一起说完。用户修正后改 `version` 标签再用。新任务建好后、进入 Phase 04 评审之前，运行一次 `npm run --silent calibration -- version --dir output/{task}`：它按内容算出 `sha256:` 加 64 位小写十六进制的版本，只换 `brand_calibration.version`，校准其余字段都不动。任务建好以后要改，就改任务目录 `task.json` 里的 `brand_calibration`，改完再运行一次这条命令换 version，不手写哈希；旧评审照旧待重评。这条命令不要与同一任务的 collect、enrich、render 同时运行。已有评审、version 还是手写标签的旧任务不必为换格式而运行：内容没变也会让全部旧评审待重评。
+
+评审是否过期按版本字符串判断：手写的版本内容改了而没换，旧评审仍显示为已评。collect、enrich、render 校验结构，不合规时退出 2 并指出字段；`version` 是内容哈希时还会按内容核对，对不上同样退出 2 并给出复算值 —— 改了内容忘了运行命令就是这样，先核对校准内容无误，再运行一次命令；内容也可能是误改的，不核对就运行等于给误改背书。命令本身：以 0 结束时 stdout 的 `status` 是 `written`（已换）、`unchanged`（本来就一致，没写盘）或 `absent`（任务没有品牌校准，不生成校准或版本 —— 照实告诉用户，不补造）；退出 2 是参数不对、读不到任务或校准结构不合规，按 stderr 指出的问题修正后再运行；退出 1 是保存失败，version 没换，不能说已换（D20.k–D20.u）。
 
 ---
 

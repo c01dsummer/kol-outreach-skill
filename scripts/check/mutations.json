@@ -10327,6 +10327,217 @@
       ]
     },
     {
+      "id": "M-D20-ab",
+      "req": "D20.k",
+      "why": "子命令不认识时照常读写任务，不以 2 拒绝、不给用法",
+      "file": "scripts/calibration.ts",
+      "find": "if (command !== 'version') usage()",
+      "replace": "if (command === undefined) usage()",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 子命令不认识：以 2 拒绝并给出用法，stdout 为空，不建任务目录"
+      ]
+    },
+    {
+      "id": "M-D20-ac",
+      "req": "D20.l",
+      "why": "读不到 task.json（不存在、是目录、坏 JSON、根不是对象）时当成任务没有品牌校准，以 0 报 absent，而不是以 2 拒绝并写出路径与实际原因",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "catch (error) { throw new ReviewInputError([`${file} 无法读取任务：${error instanceof Error ? error.message : String(error)}`]) }",
+      "replace": "catch { return { file, status: 'absent' } }",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 任务目录不存在：以 2 拒绝，stderr 写出 task.json 路径与不存在，不建目录，无异常类名与堆栈",
+        "calibration version task.json 不存在：以 2 拒绝，stderr 写出路径与不存在，不建 task.json，无异常类名与堆栈",
+        "calibration version task.json 不是合法 JSON：以 2 拒绝，stderr 写出路径与解析问题而不说成不存在，原字节不变",
+        "calibration version task.json 根是数组：以 2 拒绝，stderr 写出路径与根不是对象，三种原因的说法互不相同",
+        "calibration version task.json 是目录（无法读取）：以 2 拒绝，stderr 写出路径与读取问题而不说成不存在，无异常类名与堆栈，那个目录原样留着"
+      ]
+    },
+    {
+      "id": "M-D20-ad",
+      "req": "D20.m",
+      "why": "task.json 没有 brand_calibration 键时补出一份校准并写盘，缺席不再是缺席，task.json 不再保持原字节",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "if (plan.action === 'absent') return { file, status: 'absent' }",
+      "replace": "if (plan.action === 'absent') {\n    state.brand_calibration = { version: 'absent', target_creator_types: [], tone_aesthetic: [], natural_scenarios: [], negative_signals: [], sources: [] }\n    saveTask(dir, state)\n    return { file, status: 'absent' }\n  }",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 无 brand_calibration：以 0 报 absent 且不带 version，stderr 说明没有品牌校准，task.json 原字节、身份与修改时间不变"
+      ]
+    },
+    {
+      "id": "M-D20-ae",
+      "req": "D20.n",
+      "why": "brand_calibration 有几处不合 D20.a 时只报第一处，其余不合规的字段不写出",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "if (plan.action === 'invalid') throw new ReviewInputError(plan.problems.map(p => `${file}: ${p}`))",
+      "replace": "if (plan.action === 'invalid') throw new ReviewInputError([`${file}: ${plan.problems[0]}`])",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 校准缺 negative_signals 且 tone_aesthetic 含非字符串：以 2 拒绝，stderr 两处都写出，不给哈希，原字节不变"
+      ]
+    },
+    {
+      "id": "M-D20-af",
+      "req": "D20.o",
+      "why": "要写入的版本按整份 brand_calibration（连同顶层 version）算哈希，不等于除顶层 version 外内容的内容哈希版本，写回后再判也永远不一致",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "import { brandCalibrationProblems, calibrationContentVersion } from './brand-calibration.js'",
+      "replace": "import { brandCalibrationProblems } from './brand-calibration.js'\nimport { contentHash as calibrationContentVersion } from './content-hash.js'",
+      "by": "test",
+      "kills": [
+        "校准版本命令：合 D20.a 的校准、version 是手写标签时要写入除顶层 version 外内容的内容哈希版本",
+        "校准版本命令：D20.a 未列出的键与嵌套对象里叫 version 的键都算入要写入的值",
+        "校准版本命令：写入的值写回 task.json 再读入后，按内容判定仍等于该值、不需要再写"
+      ]
+    },
+    {
+      "id": "M-D20-ag",
+      "req": "D20.p",
+      "why": "原 version 是与内容不一致的内容哈希版本时按入口复算的规矩判为不合规，而不是换成按内容算出的值",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "import { brandCalibrationProblems, calibrationContentVersion } from './brand-calibration.js'",
+      "replace": "import { brandCalibrationProblems as structureProblems, calibrationContentVersion, calibrationVersionProblems } from './brand-calibration.js'\nconst brandCalibrationProblems = (state: unknown) => [...structureProblems(state), ...calibrationVersionProblems(state)]",
+      "by": "test",
+      "kills": [
+        "校准版本命令：原 version 是手写标签、大写或位数不符的 sha256 串、与内容不一致的哈希时都换成按内容算出的值，不拒绝"
+      ]
+    },
+    {
+      "id": "M-D20-ah",
+      "req": "D20.p",
+      "why": "原 version 是与内容不一致的内容哈希版本时命令按入口复算的规矩以 2 拒绝，而不是以 0 写入按内容算出的值",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "import { brandCalibrationProblems, calibrationContentVersion } from './brand-calibration.js'",
+      "replace": "import { brandCalibrationProblems as structureProblems, calibrationContentVersion, calibrationVersionProblems } from './brand-calibration.js'\nconst brandCalibrationProblems = (state: unknown) => [...structureProblems(state), ...calibrationVersionProblems(state)]",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 原 version 是与内容不一致的哈希、大写或位数不符的 sha256 串：都以 0 写入按内容算出的值，不拒绝"
+      ]
+    },
+    {
+      "id": "M-D20-ai",
+      "req": "D20.q",
+      "why": "写盘时按 D20.a 所列字段重建 brand_calibration，未列出的键被丢掉",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "state.brand_calibration!.version = plan.version",
+      "replace": "const { target_creator_types, tone_aesthetic, natural_scenarios, negative_signals, sources } = state.brand_calibration!\n  state.brand_calibration = { version: plan.version, target_creator_types, tone_aesthetic, natural_scenarios, negative_signals, sources }",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 写盘只换 version 与 updated_at：其余按规范化 JSON 与运行前相同，预算原文 token 保留，updated_at 已刷新，文件确实重写"
+      ]
+    },
+    {
+      "id": "M-D20-aj",
+      "req": "D20.r",
+      "why": "version 已与内容一致时照样保存 task.json，原字节、文件身份与修改时间都变了",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "if (plan.action === 'unchanged') return { file, status: 'unchanged', version: plan.version }",
+      "replace": "if (plan.action === 'unchanged') {\n    saveTask(dir, state)\n    return { file, status: 'unchanged', version: plan.version }\n  }",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 版本已等于内容哈希：以 0 报 unchanged 与该版本，task.json 原字节、文件身份与修改时间不变"
+      ]
+    },
+    {
+      "id": "M-D20-ak",
+      "req": "D20.s",
+      "why": "保存 task.json 失败被改报成输入问题，以 2 退出而不是 1",
+      "file": "scripts/calibration.ts",
+      "find": "process.exitCode = error instanceof ReviewInputError ? 2 : 1",
+      "replace": "process.exitCode = 2",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 需要写盘而保存失败：以 1 退出，stderr 含 task.json 路径与实际原因，stdout 为空，盘上原字节不变"
+      ]
+    },
+    {
+      "id": "M-D20-al",
+      "req": "D20.t",
+      "why": "以 1 或 2 退出时 stdout 也打出一份 JSON，Agent 会把拒绝当成结果去解析",
+      "file": "scripts/calibration.ts",
+      "find": "process.exitCode = error instanceof ReviewInputError ? 2 : 1",
+      "replace": "process.exitCode = error instanceof ReviewInputError ? 2 : 1\n  console.log(JSON.stringify({ file: taskFile(taskDir), status: 'rejected' }))",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 0 退出时 stdout 是一份 JSON：file 为 task.json 绝对路径，written 与 unchanged 带盘上此刻的 version，absent 不带；1、2 退出时 stdout 为空",
+        "calibration version 需要写盘而保存失败：以 1 退出，stderr 含 task.json 路径与实际原因，stdout 为空，盘上原字节不变"
+      ]
+    },
+    {
+      "id": "M-D20-am",
+      "req": "D20.u",
+      "why": "写盘前在任务目录里另存一份旧任务，task.json 之外多出一个文件",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "saveTask(dir, state)",
+      "replace": "saveTask(resolve(dir, 'backup'), loadTask(dir))\n  saveTask(dir, state)",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 写入、unchanged、absent 后，任务目录与跨任务记忆里除 task.json 外的文件不多不改"
+      ]
+    },
+    {
+      "id": "M-D20-an",
+      "req": "P1",
+      "why": "brand_calibration 不合 D20.a 时命令照样按内容算出哈希并写进问题清单，结构问题之外另给出版本值",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "if (problems.length) return { action: 'invalid', problems }",
+      "replace": "if (problems.length) return { action: 'invalid', problems: [...problems, `按当前内容应写的版本是 ${calibrationContentVersion(Object((state as { brand_calibration: unknown }).brand_calibration))}`] }",
+      "by": "test",
+      "kills": [
+        "校准版本命令：校准为 null、version 缺席、空白、不是字符串、缺 D20.a 必填字段、数组元素不是非空字符串或来源的性质、详情、出处不合规时判为不合规并列出问题，问题里没有哈希值"
+      ]
+    },
+    {
+      "id": "M-D20-ao",
+      "req": "D20.u",
+      "why": "命令要求环境里有 API key，没有 key 时不写入、以 2 拒绝，纯本地的操作被卡在一个用不上的凭据上",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "const plan = planCalibrationVersion(state)",
+      "replace": "if (!process.env.TIKHUB_API_KEY) throw new ReviewInputError(['缺 TIKHUB_API_KEY：先在环境里给出 API key'])\n  const plan = planCalibrationVersion(state)",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 纯本地：不给 TIKHUB_API_KEY、费用账不可用也以 0 完成，每一跑请求账本零行"
+      ]
+    },
+    {
+      "id": "M-D20-ap",
+      "req": "D20.l",
+      "why": "读不到 task.json 时不论原因都说成同一句「无法读取任务」，不写出实际的解析错误或读取错误码",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "catch (error) { throw new ReviewInputError([`${file} 无法读取任务：${error instanceof Error ? error.message : String(error)}`]) }",
+      "replace": "catch { throw new ReviewInputError([`${file} 无法读取任务 JSON`]) }",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 读不到任务的四种原因（task.json 不存在、坏 JSON、根是数组、task.json 是目录）说法两两不同，坏 JSON 写出实际的解析错误，目录写出实际的读取错误码"
+      ]
+    },
+    {
+      "id": "M-D20-aq",
+      "req": "D20.n",
+      "why": "brand_calibration 不合 D20.a 时只给一句写死的结构说明，把所有字段名都列上，不说出到底哪一处不合规",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "if (plan.action === 'invalid') throw new ReviewInputError(plan.problems.map(p => `${file}: ${p}`))",
+      "replace": "if (plan.action === 'invalid') throw new ReviewInputError([`${file}: brand_calibration 不合 D20.a —— 须为对象，含非空 version，以及 target_creator_types、tone_aesthetic、natural_scenarios、negative_signals 四组字符串数组与 sources 来源数组`])",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 不合 D20.a 时只点名实际的不合规：只缺 negative_signals 不提其余三组数组，只缺 version 不提 negative_signals 与 tone_aesthetic"
+      ]
+    },
+    {
+      "id": "M-D20-ar",
+      "req": "D20.p",
+      "why": "照人工反馈模板命令的先例先校验任务列表，任务列表不合规时以 2 拒绝，校准合规也不换版本",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "const plan = planCalibrationVersion(state)",
+      "replace": "if (!Array.isArray(state.tasks)) throw new ReviewInputError([`${file}: tasks 必须是数组`])\n  const plan = planCalibrationVersion(state)",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 校准合 D20.a 而任务其余部分不合规（tasks 不是数组、缺 market）：照样以 0 写入按内容算出的版本，任务列表与其余内容按规范化 JSON 原样保留"
+      ]
+    },
+    {
       "id": "M-D21-a",
       "req": "D21.e",
       "why": "缺席的评审正本被标成已有文档，续跑无法分辨尚无判断与已有空正本",

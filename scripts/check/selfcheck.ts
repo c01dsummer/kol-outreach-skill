@@ -7976,6 +7976,240 @@ group('brand-content-version-entry', [], () => {
   if (template === 2) criterion('D20.j')
 })
 
+// D20.k–D20.u：`calibration version` 的真入口。期望只出自 D20.a、D20.f、D20.k–D20.u、ADR-136、D26 的先例与入口契约，
+// 没有读被测函数体；版本值由本组手写的规范化 JSON 加 node:crypto 独立算出，不调用被测实现。
+group('calibration-version-entry', [], () => {
+  const entry = S('calibration.ts')
+  // 前缀与夹具名里不含 version、sha256、brand_calibration、--dir、json：下面按这些词认 stderr，路径不能替它们作证
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'kol-calver-')))
+  process.on('exit', () => rmSync(base, { recursive: true, force: true }))
+  // 只借内建模块、不加新的模块引用（同 brand-content-version-entry 组）
+  const { createHash } = createRequire(import.meta.url)('node:crypto') as { createHash: (algorithm: string) =>
+    { update: (data: string, encoding: 'utf8') => { digest: (encoding: 'hex') => string } } }
+  const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex')
+  // 对象键逐码点比较（默认 sort 比 UTF-16 码元），数组保持原顺序，无空白，标量照 JSON.stringify
+  const byCodePoint = (a: string, b: string): number => {
+    const x = [...a].map(c => c.codePointAt(0)!), y = [...b].map(c => c.codePointAt(0)!), i = x.findIndex((v, j) => v !== y[j])
+    return i < 0 ? x.length - y.length : i >= y.length ? 1 : x[i] - y[i]
+  }
+  const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]`
+    : value !== null && typeof value === 'object' ? `{${Object.entries(value).sort(([a], [b]) => byCodePoint(a, b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}`
+    : JSON.stringify(value)
+  // 只去掉顶层 version：嵌套对象里叫 version 的键照样算入（D20.o）
+  const versionOf = ({ version: _version, ...content }: Record<string, unknown>) => `sha256:${sha256(canonical(content))}`
+  if (canonical({ '\u{1f600}': 1, '～': 2, a: [2, 1], ab: 0, b: { y: '中', x: null } })
+      !== '{"a":[2,1],"ab":0,"b":{"x":null,"y":"中"},"～":2,"\u{1f600}":1}'
+    || sha256('abc') !== 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') {
+    failed++; console.error(`  ✗ calibration version 内容哈希 oracle${SELFCHECK_FIXTURE_MARK}：手写规范化或 SHA256 与手推向量不符`); return
+  }
+  // 合 D20.a，另挂 D20.a 未列出的键（码点序与码元序相反的一对，里面嵌一个 version）；各数组都不按字典序
+  const content = { target_creator_types: ['home cooks', 'busy parents'], tone_aesthetic: ['warm', 'calm'],
+    natural_scenarios: ['周末野餐', 'weekday lunch'], negative_signals: [], '\u{1f600}': { z: [3, 1, 2], version: 'nested, still hashed' },
+    sources: [{ source: 'brief p.2', kind: 'verified_product_fact', detail: '容量 600ml' },
+      { source: 'call notes', kind: 'brand_preference', detail: '语气偏好' }], '～': '全角波浪号' }
+  const manual = { version: 'brand-v1', ...content }, expected = versionOf(manual), same = { ...content, version: expected }
+  // 任务列表、费用字段（预算写成 JSON.stringify 写不出的原文 token）、续跑进度与其他顶层字段
+  const top = { product: 'calver', market: 'US', target_count: 7, budget_usd: '<budget>',
+    ...knownCosts(1_500_000, [costEntry(TT_SEARCH, 1000, 1)]),
+    tasks: [{ keyword: 'calver fixture', dimension: 'category', platform: 'tiktok' }], done: [0], offsets: { 0: 5 },
+    pages: { 0: 1 }, operator_note: '未列出的顶层字段', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' }
+  // 任务目录 <cwd>/output/<名>，跨任务记忆 <cwd>/memory（同 brand-content-version-entry 组 render 写记忆处）；task.json 修改时间拨回过去，同字节就地重写也看得出
+  const fixture = (name: string, over: Record<string, unknown>) => {
+    const cwd = join(base, name), dir = join(cwd, 'output', name), task = join(dir, 'task.json')
+    mkdirSync(dir, { recursive: true }); mkdirSync(join(cwd, 'memory')); writeFileSync(join(cwd, 'memory', 'creators.json'), '[]\n')
+    for (const file of ['creators.json', 'creators.raw.json', 'agent-review.json', 'kol.csv']) writeFileSync(join(dir, file), `untouched ${file}\n`)
+    writeFileSync(task, JSON.stringify({ ...top, ...over }, null, 2).replace('"<budget>"', '1.50') + '\n')
+    utimesSync(task, new Date('2001-01-01'), new Date('2001-01-01'))
+    return { cwd, dir, task }
+  }
+  type Fixture = ReturnType<typeof fixture>
+  const stamp = (file: string) => { try { const s = statSync(file); return `${s.dev}:${s.ino}:${s.mtimeMs}` } catch { return 'missing' } }
+  // 任务目录与跨任务记忆里除 task.json 外的每个文件及其字节（D20.u）
+  const others = (f: Fixture): string => [f.dir, join(f.cwd, 'memory')]
+    .flatMap(d => existsSync(d) ? readdirSync(d, { recursive: true, withFileTypes: true }) : [])
+    .map(e => join(e.parentPath, e.name)).filter(p => p !== f.task && statSync(p).isFile())
+    .map(p => `${p}=${readFileSync(p).toString('hex')}`).sort().join('\n')
+  // 被测进程装上这份预加载就记下自己的 argv：账本零行之前，先证明这一跑确实在 fake-fetch 的接线下
+  const armedPreload = join(base, 'armed.mjs')
+  writeFileSync(armedPreload, `import { appendFileSync } from 'node:fs'; appendFileSync(process.env.CALVER_ARMED, JSON.stringify(process.argv) + '\\n');`)
+  const wiring = `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(armedPreload).href)}`
+  const requests: number[] = [], quiet: boolean[] = []
+  let runs = 0
+  // 每一跑各自的请求账本与接线记录；环境里不给 TIKHUB_API_KEY（同 cost-save-errors 组）
+  const call = (label: string, script: string, args: string[], cwd: string, status: number, preload = '') => {
+    const ledger = join(base, `run-${++runs}.tsv`), armed = join(base, `run-${runs}.armed`)
+    const r = runBoth(label, [script, ...args], cwd, { status, soft: [0, 1, 2, 3].filter(x => x !== status) },
+      { TIKHUB_API_KEY: undefined, FAKE_FETCH_LEDGER: ledger, CALVER_ARMED: armed, NODE_OPTIONS: `${wiring} ${preload}` })
+    if (r.ok && !fetchAttempts(armed).some(line => summaryOf(line)?.[1] === script)) {
+      failed++; console.error(`  ✗ ${label}${SELFCHECK_FIXTURE_MARK}：被测进程没有装上请求观察器；${stderrTail(r.stderr)}`)
+      return { ...r, ok: false, requests: NaN }
+    }
+    if (r.ok && script === entry) { requests.push(fetchAttempts(ledger).length); if (r.status !== 0) quiet.push(r.stdout === '') }
+    return { ...r, requests: fetchAttempts(ledger).length }
+  }
+  type Run = ReturnType<typeof call>
+  const parsed = (text: string): Record<string, any> => { const v = summaryOf(text); return v !== null && typeof v === 'object' && !Array.isArray(v) ? v : {} }
+  const out = (r: Run) => parsed(r.stdout)
+  const why = (r: Run) => `退出=${r.status}，stdout=${JSON.stringify(r.stdout)}，stderr=${stderrTail(r.stderr)}`
+  const control = join(base, 'control.mjs'); writeFileSync(control, `await fetch('https://example.invalid/calver-control')\n`)
+  const c = call('calibration version 请求观察器对照运行', control, [], base, 0)
+  if (c.ok) named('calibration version 请求观察器阳性：同一接线下对照脚本的一次 fetch 确实记进账本', c.requests === 1,
+    `${SELFCHECK_FIXTURE_MARK} 账本 ${c.requests} 行；${stderrTail(c.stderr)}`)
+  if (!c.ok || c.requests !== 1) return
+
+  // D20.k：参数在读写任务前以 2 拒绝并给出用法；每跑各用一个不存在的路径（#），指向真任务的几条逐跑比原字节（吞掉坏参数照常写盘的在这里红）
+  const args = fixture('args', { brand_calibration: manual })
+  const k = [['--dir', '#'], ['bogus', '--dir', '#'], ['version'], ['version', '--dir'], ['version', '--dir', '  '],
+    ['version', '--dir', args.dir, '--dir', args.dir], ['version', '--dir', args.dir, '--wat'], ['version', '--dir', args.dir, 'extra'],
+    ['--dir', args.dir], ['bogus', '--dir', args.dir]]
+    .map((argv, i) => { const missing = join(base, `never-made-${i}`), before = fileText(args.task)
+      const r = call(`calibration 参数拒绝第 ${i} 种运行`, entry, argv.map(a => a === '#' ? missing : a), base, 2)
+      return { ...r, kept: fileText(args.task) === before && !existsSync(missing) } })
+  const refused = (r: typeof k[number]) => r.status === 2 && r.stdout === '' && /用法|usage/i.test(r.stderr) && /version/.test(r.stderr) && /--dir/.test(r.stderr) && r.kept
+  if (k[0].ok && k[8].ok) named('calibration version 缺子命令：以 2 拒绝并给出用法，stdout 为空，不建任务目录', refused(k[0]) && refused(k[8]), why(k[0]) + why(k[8]))
+  if (k[1].ok && k[9].ok) named('calibration version 子命令不认识：以 2 拒绝并给出用法，stdout 为空，不建任务目录', refused(k[1]) && refused(k[9]), why(k[1]) + why(k[9]))
+  if (k[2].ok) named('calibration version 缺 --dir：以 2 拒绝并给出用法，stdout 为空', refused(k[2]), why(k[2]))
+  if (k[3].ok) named('calibration version --dir 缺值：以 2 拒绝并给出用法，stdout 为空', refused(k[3]), why(k[3]))
+  if (k[4].ok) named('calibration version --dir 为空白：以 2 拒绝并给出用法，stdout 为空，不建那个空白目录', refused(k[4]) && !existsSync(join(base, '  ')), why(k[4]))
+  if (k[5].ok) named('calibration version 重复 --dir：以 2 拒绝并给出用法，stdout 为空，任务原字节不变', refused(k[5]), why(k[5]))
+  if (k[6].ok) named('calibration version 未知参数：以 2 拒绝并给出用法，stdout 为空，任务原字节不变', refused(k[6]), why(k[6]))
+  if (k[7].ok) named('calibration version 多余位置参数：以 2 拒绝并给出用法，stdout 为空，任务原字节不变', refused(k[7]), why(k[7]))
+  const rel = fixture('relative', { brand_calibration: manual, budget_usd: 'unusable', cost_ledger: { version: 'unusable' }, requests: null }), kr = call('calibration version 相对 --dir 运行', entry, ['version', '--dir', join('output', 'relative')], rel.cwd, 0)
+  if (kr.ok) named('calibration version 相对 --dir 按调用 cwd 解析：以 0 写入那个任务，file 为其绝对路径',
+    kr.status === 0 && out(kr).file === rel.task && parsed(fileText(rel.task)).brand_calibration?.version === expected, why(kr))
+  criterion('D20.k')
+
+  // D20.l：目录或 task.json 不存在、坏 JSON、根不是对象、task.json 是目录（无法读取）各以 2 拒绝；去掉路径后的说法互不相同，后三种不说成不存在
+  const told = (r: Run, task: string) => r.stderr.split(task).join('<T>').split(dirname(task)).join('<D>').replace(/(?<!_)calibration version/g, '<C>')
+  const unreadable = (r: Run, task: string) => r.status === 2 && r.stdout === '' && r.stderr.includes(task)
+    && !probeInputLeak(r.stderr).className && !probeInputLeak(r.stderr).frames
+  const notFound = /ENOENT|不存在|no such file|找不到/i
+  const gone = join(base, 'gone'), [noFile, garbled, listRoot, dirTask] = ['no-file', 'garbled', 'list-root', 'dir-task'].map(name => fixture(name, {}))
+  unlinkSync(noFile.task); writeFileSync(garbled.task, '{"tasks": ['); writeFileSync(listRoot.task, '[]\n'); unlinkSync(dirTask.task); mkdirSync(dirTask.task)
+  const lTasks = [join(gone, 'task.json'), noFile.task, garbled.task, listRoot.task, dirTask.task], lBytes = lTasks.map(fileText)
+  const l = lTasks.map((task, i) => call(`calibration version 读不到任务第 ${i} 种运行`, entry, ['version', '--dir', dirname(task)], base, 2))
+  const said = l.map((r, i) => told(r, lTasks[i]))
+  if (l[0].ok) named('calibration version 任务目录不存在：以 2 拒绝，stderr 写出 task.json 路径与不存在，不建目录，无异常类名与堆栈',
+    unreadable(l[0], lTasks[0]) && notFound.test(said[0]) && !existsSync(gone), why(l[0]))
+  if (l[1].ok) named('calibration version task.json 不存在：以 2 拒绝，stderr 写出路径与不存在，不建 task.json，无异常类名与堆栈',
+    unreadable(l[1], lTasks[1]) && notFound.test(said[1]) && !existsSync(noFile.task), why(l[1]))
+  if (l[2].ok) named('calibration version task.json 不是合法 JSON：以 2 拒绝，stderr 写出路径与解析问题而不说成不存在，原字节不变',
+    unreadable(l[2], lTasks[2]) && /JSON|解析|pars/i.test(said[2]) && !notFound.test(said[2]) && fileText(garbled.task) === lBytes[2], why(l[2]))
+  if (l[1].ok && l[2].ok && l[3].ok) named('calibration version task.json 根是数组：以 2 拒绝，stderr 写出路径与根不是对象，三种原因的说法互不相同',
+    unreadable(l[3], lTasks[3]) && /对象|object/i.test(said[3]) && !notFound.test(said[3]) && fileText(listRoot.task) === lBytes[3]
+      && new Set(said.slice(1, 4)).size === 3, why(l[3]))
+  if (l[4].ok) named('calibration version task.json 是目录（无法读取）：以 2 拒绝，stderr 写出路径与读取问题而不说成不存在，无异常类名与堆栈，那个目录原样留着',
+    unreadable(l[4], lTasks[4]) && !notFound.test(said[4]) && statSync(dirTask.task).isDirectory(), why(l[4]))
+  // 实际原因由内建模块在本进程里对同一份文本、同一个目录给出（同 D20.s 认注入错误的原文或错误码）；内建不抛时得到 stderr 不会含的 \0
+  const cause = (f: () => unknown, key: 'message' | 'code') => { try { f(); return '\0' } catch (e) { return String((e as Record<string, unknown>)[key]) } }
+  const parseCause = cause(() => JSON.parse(lBytes[2]), 'message'), readCause = cause(() => readFileSync(dirTask.task), 'code')
+  if (l.slice(1).every(r => r.ok)) named('calibration version 读不到任务的四种原因（task.json 不存在、坏 JSON、根是数组、task.json 是目录）说法两两不同，坏 JSON 写出实际的解析错误，目录写出实际的读取错误码',
+    new Set(said.slice(1, 5)).size === 4 && said[2].includes(parseCause) && said[4].includes(readCause),
+    `解析错误=${JSON.stringify(parseCause)}，读取错误码=${JSON.stringify(readCause)}，去掉路径后：${JSON.stringify(said.slice(1, 5))}`)
+  criterion('D20.l')
+
+  // D20.m：没有 brand_calibration 键 —— 不生成、不写盘，以 0 报 absent
+  const absent = fixture('absent', {}), absentBytes = fileText(absent.task), absentStamp = stamp(absent.task), absentOthers = others(absent)
+  const m = call('calibration version 无品牌校准运行', entry, ['version', '--dir', absent.dir], absent.cwd, 0)
+  if (m.ok) named('calibration version 无 brand_calibration：以 0 报 absent 且不带 version，stderr 说明没有品牌校准，task.json 原字节、身份与修改时间不变',
+    m.status === 0 && out(m).status === 'absent' && !Object.hasOwn(out(m), 'version') && /brand_calibration|品牌校准/.test(m.stderr)
+      && fileText(absent.task) === absentBytes && stamp(absent.task) === absentStamp, why(m))
+  criterion('D20.m')
+
+  // D20.n：不合 D20.a（null、version 缺席或空白、缺必填字段，以及两处同时不合）以 2 拒绝、不写盘；stderr 点名问题，不给任何哈希
+  const { version: _manualVersion, ...noVersion } = manual, { negative_signals: _negative, ...noNegative } = manual
+  const bad = [null, noVersion, { ...manual, version: '  ' }, noNegative, { ...noNegative, tone_aesthetic: [7] }].map((value, i) => fixture(`invalid-${i}`, { brand_calibration: value }))
+    .map((f, i) => ({ f, before: fileText(f.task), r: call(`calibration version 不合 D20.a 第 ${i} 种运行`, entry, ['version', '--dir', f.dir], base, 2) }))
+  const invalid = ({ f, before, r }: typeof bad[number], field: string) => r.status === 2 && r.stdout === ''
+    && r.stderr.includes(f.task) && told(r, f.task).includes(field) && !/sha256:|[0-9a-f]{64}/.test(r.stderr) && fileText(f.task) === before
+  if (bad[0].r.ok) named('calibration version brand_calibration 为 null：以 2 拒绝，stderr 写出 task.json 路径与 brand_calibration，不给哈希，原字节不变', invalid(bad[0], 'brand_calibration'), why(bad[0].r))
+  if (bad[1].r.ok) named('calibration version 校准缺 version：以 2 拒绝，stderr 写出 task.json 路径与 version，不给哈希，原字节不变', invalid(bad[1], 'version'), why(bad[1].r))
+  if (bad[2].r.ok) named('calibration version 校准的 version 为空白：以 2 拒绝，stderr 写出 task.json 路径与 version，不给哈希，原字节不变', invalid(bad[2], 'version'), why(bad[2].r))
+  if (bad[3].r.ok) named('calibration version 校准缺必填的 negative_signals：以 2 拒绝，stderr 写出 task.json 路径与该字段，不给哈希，原字节不变', invalid(bad[3], 'negative_signals'), why(bad[3].r))
+  if (bad[4].r.ok) named('calibration version 校准缺 negative_signals 且 tone_aesthetic 含非字符串：以 2 拒绝，stderr 两处都写出，不给哈希，原字节不变',
+    invalid(bad[4], 'negative_signals') && told(bad[4].r, bad[4].f.task).includes('tone_aesthetic'), why(bad[4].r))
+  // 「每一处不合规」也意味着没有的不报成有：上一条两处都点名是这里的阳性对照
+  const [onlyVersion, onlyNegative] = [bad[1], bad[3]].map(({ f, r }) => told(r, f.task))
+  if (bad[1].r.ok && bad[3].r.ok) named('calibration version 不合 D20.a 时只点名实际的不合规：只缺 negative_signals 不提其余三组数组，只缺 version 不提 negative_signals 与 tone_aesthetic',
+    onlyNegative.includes('negative_signals') && !/tone_aesthetic|target_creator_types|natural_scenarios/.test(onlyNegative)
+      && onlyVersion.includes('version') && !/negative_signals|tone_aesthetic/.test(onlyVersion), why(bad[3].r) + why(bad[1].r))
+  criterion('D20.n')
+
+  // D20.o（只断言盘上的值，由 test.ts 认领）与 D20.q：手写版本换成内容哈希版本，其余按规范化 JSON 不变
+  const rest = (text: string): string => { const { updated_at: _updated, brand_calibration: calibration, ...state } = parsed(text)
+    const { version: _old, ...kept } = parsed(JSON.stringify(calibration ?? null)); return canonical({ ...state, brand_calibration: kept }) }
+  const w = fixture('write', { brand_calibration: manual }), wBefore = fileText(w.task), wStamp = stamp(w.task), wOthers = others(w)
+  named('calibration version 文件快照阳性：写入那一跑的快照里确实有跨任务记忆与任务目录里的交付物', [join(w.cwd, 'memory', 'creators.json'), join(w.dir, 'kol.csv')]
+    .every(p => wOthers.includes(`${p}=`)), `${SELFCHECK_FIXTURE_MARK} 快照里的文件：${JSON.stringify(wOthers.replace(/=[0-9a-f]*/g, ''))}`)
+  const wr = call('calibration version 手写版本写入运行', entry, ['version', '--dir', w.dir], w.cwd, 0)
+  const wText = fileText(w.task), wDisk = parsed(wText), wrote = wr.ok && wr.status === 0 && stamp(w.task) !== wStamp
+  if (wr.ok) {
+    named('calibration version 合 D20.a 时写盘：brand_calibration.version 等于按除顶层 version 外全部内容独立算出的内容哈希版本',
+      wr.status === 0 && wDisk.brand_calibration?.version === expected, `期望=${expected}，盘上=${wDisk.brand_calibration?.version}，${why(wr)}`)
+    named('calibration version 写盘只换 version 与 updated_at：其余按规范化 JSON 与运行前相同，预算原文 token 保留，updated_at 已刷新，文件确实重写',
+      wrote && rest(wText) === rest(wBefore) && rootToken(wText, 'budget_usd') === '1.50' && typeof wDisk.updated_at === 'string'
+        && wDisk.updated_at !== top.updated_at && !Number.isNaN(Date.parse(wDisk.updated_at)),
+      `其余相同=${rest(wText) === rest(wBefore)}，预算 token=${rootToken(wText, 'budget_usd')}，updated_at=${wDisk.updated_at}，重写=${wrote}，${why(wr)}`)
+  }
+  criterion('D20.q')
+
+  // D20.r：版本已一致时零写入；上一条确实重写了文件（身份或修改时间变了）是这里「没变」的阳性对照。费用账另设成不可用（D20.u）
+  const u = fixture('same', { brand_calibration: same, budget_usd: 'unusable', cost_ledger: { version: 'unusable' }, requests: null })
+  const uBefore = fileText(u.task), uStamp = stamp(u.task), uOthers = others(u)
+  const ur = call('calibration version 版本已一致运行', entry, ['version', '--dir', u.dir], u.cwd, 0)
+  if (wr.ok && ur.ok) named('calibration version 版本已等于内容哈希：以 0 报 unchanged 与该版本，task.json 原字节、文件身份与修改时间不变',
+    wrote && ur.status === 0 && out(ur).status === 'unchanged' && out(ur).version === expected
+      && fileText(u.task) === uBefore && stamp(u.task) === uStamp, `写入对照重写了文件=${wrote}，${why(ur)}`)
+  criterion('D20.r')
+
+  // D20.p（入口一侧）：原 version 是与内容不一致的哈希、大写或少一位的 sha256 串时不按 D20.g 拒绝，照样以 0 写入按内容算出的值
+  const drift = ['sha256:' + '0'.repeat(64), 'sha256:' + expected.slice(7).toUpperCase(), expected.slice(0, -1)].map((version, i) => fixture(`stale-${i}`, { brand_calibration: { ...manual, version } }))
+    .map((f, i) => ({ f, r: call(`calibration version 原版本与内容不一致第 ${i} 种运行`, entry, ['version', '--dir', f.dir], f.cwd, 0) }))
+  if (drift.every(({ r }) => r.ok)) named('calibration version 原 version 是与内容不一致的哈希、大写或位数不符的 sha256 串：都以 0 写入按内容算出的值，不拒绝',
+    drift.every(({ f, r }) => r.status === 0 && out(r).status === 'written' && parsed(fileText(f.task)).brand_calibration?.version === expected), drift.map(({ r }) => why(r)).join('；'))
+  // 以 2 拒绝的原因只有参数、读不到任务、校准不合 D20.a（D20.k–D20.n）；任务列表是 D20.q 保留的内容，不合规也不拦写入
+  const junk = fixture('junk-tasks', { brand_calibration: manual, tasks: 'junk', market: undefined }), junkBefore = fileText(junk.task)
+  const jr = call('calibration version 任务列表不合规运行', entry, ['version', '--dir', junk.dir], junk.cwd, 0), junkText = fileText(junk.task)
+  if (jr.ok) named('calibration version 校准合 D20.a 而任务其余部分不合规（tasks 不是数组、缺 market）：照样以 0 写入按内容算出的版本，任务列表与其余内容按规范化 JSON 原样保留',
+    jr.status === 0 && out(jr).status === 'written' && parsed(junkText).brand_calibration?.version === expected && rest(junkText) === rest(junkBefore)
+      && parsed(junkText).tasks === 'junk', `盘上=${parsed(junkText).brand_calibration?.version}，其余相同=${rest(junkText) === rest(junkBefore)}，${why(jr)}`)
+  criterion('D20.p')
+
+  // D20.s：需要写盘而保存失败。预加载让改名到 task.json 失败：armed 证明装上了，injected 证明确实触发
+  const s = fixture('save-fails', { brand_calibration: manual }), sBefore = fileText(s.task), sOthers = others(s)
+  const mark = join(base, 'save-fault.txt'), inject = join(base, 'fail-save.mjs')
+  writeFileSync(inject, `import fs from 'node:fs'; import { resolve } from 'node:path'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = function (src, dest) { if (resolve(String(dest)) === ${JSON.stringify(s.task)}) { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('calver task save denied'), { code: 'EIO' }); } return original(src, dest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
+  const sr = call('calibration version 保存失败运行', entry, ['version', '--dir', s.dir], s.cwd, 1, `--import ${JSON.stringify(pathToFileURL(inject).href)}`)
+  if (sr.ok && !fileText(mark).includes('armed')) {
+    failed++; console.error(`  ✗ calibration version 保存故障注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未安装；${stderrTail(sr.stderr)}`)
+  } else if (sr.ok) named('calibration version 需要写盘而保存失败：以 1 退出，stderr 含 task.json 路径与实际原因，stdout 为空，盘上原字节不变',
+    fileText(mark).includes('injected') && sr.status === 1 && sr.stdout === '' && sr.stderr.includes(s.task)
+      && /calver task save denied|EIO/.test(sr.stderr) && fileText(s.task) === sBefore, `注入记录=${JSON.stringify(fileText(mark))}，${why(sr)}`)
+  if (sr.ok && fileText(mark).includes('armed')) named('calibration version 保存失败后，任务目录与跨任务记忆里除 task.json 外的文件不多不改（不留临时文件）',
+    fileText(mark).includes('injected') && others(s) === sOthers, `注入记录=${JSON.stringify(fileText(mark))}，此刻的文件：${JSON.stringify(others(s).replace(/=[0-9a-f]*/g, ''))}`)
+  criterion('D20.s')
+
+  // D20.t：0 退出时 stdout 恰好一份 JSON；1、2 退出时 stdout 为空（上面每一跑都记了）
+  const shaped = (r: Run, f: Fixture, status: string) => r.status === 0 && out(r).file === f.task && out(r).status === status
+    && (status === 'absent' ? !Object.hasOwn(out(r), 'version') : typeof out(r).version === 'string'
+      && out(r).version === parsed(fileText(f.task)).brand_calibration?.version)
+  if (wr.ok && ur.ok && m.ok) named('calibration version 0 退出时 stdout 是一份 JSON：file 为 task.json 绝对路径，written 与 unchanged 带盘上此刻的 version，absent 不带；1、2 退出时 stdout 为空',
+    shaped(wr, w, 'written') && shaped(ur, u, 'unchanged') && shaped(m, absent, 'absent') && quiet.length > 0 && quiet.every(Boolean),
+    `written=${wr.stdout.trim()}，unchanged=${ur.stdout.trim()}，absent=${m.stdout.trim()}，1／2 退出时 stdout 为空=${quiet.join(',')}`)
+  criterion('D20.t')
+
+  // D20.u：纯本地 —— 不给 key，每一跑零请求（观察器阳性在组首）；除 task.json 外任务目录与记忆里的文件不多不改
+  if (wr.ok && ur.ok && m.ok) {
+    named('calibration version 纯本地：不给 TIKHUB_API_KEY、费用账不可用也以 0 完成，每一跑请求账本零行',
+      [wr, ur, m, kr].every(r => r.status === 0) && requests.length > 0 && requests.every(n => n === 0), `各跑请求数=${requests.join(',')}`)
+    named('calibration version 写入、unchanged、absent 后，任务目录与跨任务记忆里除 task.json 外的文件不多不改',
+      [wr, ur, m].every(r => r.status === 0) && others(w) === wOthers && others(u) === uOthers && others(absent) === absentOthers,
+      `写入=${others(w) === wOthers}，unchanged=${others(u) === uOthers}，absent=${others(absent) === absentOthers}`)
+  }
+  criterion('D20.u')
+})
+
 // 拆不拆、拆几个是判定（`shardJobs`）：只有完整、非变异的整跑才拆；`SELFCHECK_JOBS=1` 照旧单进程。
 const shardCount = shardJobs({ subset, mutating, env: process.env.SELFCHECK_JOBS,
   cpus: availableParallelism(), families: families(REGISTERED).length })
