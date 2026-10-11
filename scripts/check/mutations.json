@@ -10490,6 +10490,18 @@
       ]
     },
     {
+      "id": "M-D20-ao",
+      "req": "D20.u",
+      "why": "命令要求环境里有 API key，没有 key 时不写入、以 2 拒绝，纯本地的操作被卡在一个用不上的凭据上",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "const plan = planCalibrationVersion(state)",
+      "replace": "if (!process.env.TIKHUB_API_KEY) throw new ReviewInputError(['缺 TIKHUB_API_KEY：先在环境里给出 API key'])\n  const plan = planCalibrationVersion(state)",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 纯本地：不给 TIKHUB_API_KEY、费用账不可用也以 0 完成，每一跑请求账本零行"
+      ]
+    },
+    {
       "id": "M-D21-a",
       "req": "D21.e",
       "why": "缺席的评审正本被标成已有文档，续跑无法分辨尚无判断与已有空正本",
