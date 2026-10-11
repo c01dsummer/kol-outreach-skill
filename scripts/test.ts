@@ -5788,6 +5788,18 @@ suite('D19', '续跑进度字段先验校验')
       verbose.map(text => typeof text === 'string' ? JSON.parse(text).updated_at !== STAMP : text), [true, true])
     eq('saveTask 与费用检查点整份写回后，合法进度里写成 1e+0、2e0、-0、1E0 与 1.0 的整数盘上原文逐字不变，不改换写法',
       verbose.map(text => onDisk(text, pathsOf(VERBOSE))), [tokensOf(VERBOSE), tokensOf(VERBOSE)])
+
+    // 未完成的任务、进度手写为 0 与 0.0（D19.b 允许，D19.d 不要求互相推算）：按 collect 的顺序推进，经费用检查点再 saveTask 整份写回。
+    const ZERO = [['done', 0, ''], ['offsets', '0', '0'], ['answered', '0', '0'], ['found', '0', '0.0'], ['pages', '0', '0']] as const
+    const zeroText = progressText(ZERO), advanced = readBack(seeded('zero-advanced', zeroText), dir => {
+      const state = loadTask(dir)
+      state.offsets![0] = 9; state.answered![0] = 3; state.found![0] = 5; state.pages![0] = 2
+      new Budget(state, () => {}, snapshot => saveCostCheckpoint(dir, snapshot)).reserve(TEST_IG)
+      saveTask(dir, state)
+    })
+    eq('整份写回夹具有效：done 为空、进度手写为 0 与 0.0 的未完成任务合法，collect 不拒绝；推进后确实写回（updated_at 已刷新）',
+      [problemsOf(zeroText), typeof advanced === 'string' ? JSON.parse(advanced).updated_at !== STAMP : advanced], [[], true])
+    eq('整份写回时原值为 0 的进度被改过后照新值写，不写回旧的 0', onDisk(advanced, pathsOf(ZERO).slice(1)), ['9', '3', '5', '2'])
   } finally { rmSync(root, { recursive: true, force: true }) }
   criterion('D19.g')
   tension('D19', 'P1')
@@ -10121,6 +10133,8 @@ suite('D13', '原 JSON 数值与明确新账、旧账诊断使用同一精确费
       eq(`旧 requests ${token} 写回保留原数字`, numberTokens(stringifyCostJson(state)).requests, token)
       eq(`旧 requests ${token} 不冒充可核次数`, costView(state).requests, null)
     }
+    eq('根上读不出精确值的 requests 整份写回后仍是原数字',
+      numberTokens(stringifyCostJson(readCostDocument('{"budget_usd":1,"requests":9007199254740993}'))).requests, '9007199254740993')
     const malformed = readCostDocument('{"budget_usd":1,"requests":0,"cost_ledger":1e400}')
     eq('坏 ledger 数字不能在本地写回时变成 null', numberTokens(stringifyCostJson(malformed)).cost_ledger, '1e400')
     const nested = readCostDocument('{"budget_usd":1,"requests":0,"cost_ledger":{"entries":[{"unit_micro_usd":1e400}]}}')

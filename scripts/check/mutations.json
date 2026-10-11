@@ -6843,6 +6843,31 @@
       ]
     },
     {
+      "id": "M-D13-u",
+      "req": "D13.i",
+      "why": "读入时不再精确保存根上的 requests，读不出精确值的旧请求数在整份写回时被舍入或写成 null，原费用依据丢失",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "for (const key of ['requests', 'cost_ledger'])",
+      "replace": "for (const key of ['cost_ledger'])",
+      "by": "test",
+      "kills": [
+        "根上读不出精确值的 requests 整份写回后仍是原数字"
+      ]
+    },
+    {
+      "id": "M-D13-v",
+      "req": "D13.i",
+      "why": "读入时不再精确保存费用账里的数字，坏的或读不出精确值的费用账数字在整份写回时变成 null，原费用依据丢失",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "for (const key of ['requests', 'cost_ledger'])",
+      "replace": "for (const key of ['requests'])",
+      "by": "test",
+      "kills": [
+        "坏 ledger 数字不能在本地写回时变成 null",
+        "ledger 内的原数字也不能变成 null"
+      ]
+    },
+    {
       "id": "M-D14-a",
       "req": "D14.a",
       "why": "任务请求前不保存未结预留，实际请求开始时盘上仍是旧费用快照，重试与兜底也留下强杀丢失占用的窗口",
@@ -9134,6 +9159,18 @@
       "by": "selfcheck",
       "kills": [
         "跨运行累计停在页数上限 4 页 —— 预算给多少都一样"
+      ]
+    },
+    {
+      "id": "M-D6-bh",
+      "req": "D6.h",
+      "why": "原值为 0 的进度被 collect 推进后，整份写回时仍写成读入时的 0，盘上页数与游标不前进，跨运行页数上限失守，同一页重复付费",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "if (token !== undefined && Object.is(item, Number(token)))",
+      "replace": "if (token !== undefined && (Object.is(item, Number(token)) || Number(token) === 0))",
+      "by": "test",
+      "kills": [
+        "整份写回时原值为 0 的进度被改过后照新值写，不写回旧的 0"
       ]
     },
     {
