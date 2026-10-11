@@ -91,6 +91,7 @@ const moneyFields = ['cost_estimate_usd', 'budget_usd', 'cost_http_200_usd',
   'cost_unknown_result_usd', 'cost_pending_usd'] as const
 const costRootKeys = new Set(['requests', 'cost_ledger', 'budget_usd'])
 
+/** 写出任务或配置 JSON：费用字段按 D13 精确写出；整份写回 readCostDocument 读入的根时，没被改动的非费用数字照原文写回（D19.g、ADR-138）。 */
 export function stringifyCostJson(value: object, view?: CostView): string {
   assertCostJsonRuntime()
   const result: Record<string, unknown> = { ...value }
