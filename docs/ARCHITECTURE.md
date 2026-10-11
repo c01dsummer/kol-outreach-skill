@@ -121,7 +121,7 @@
 | `scripts/lib/cost-ledger.ts` | 逻辑 | D12 D13 P1 P3 P5 | 精确金额、费用账校验与预留结算；只接收固定价目，不依赖文件或网络；总上限修改不重算历史项 |
 | `scripts/providers/tikhub-pricing.ts` | 适配 | D12 P5 | 固定公开价目的版本与完整端点报价，供费用账核对历史依据；不远程查价、不推断账户账单 |
 | `scripts/lib/budget.ts` | 逻辑 | D13 D14 P3 F7 | 连接价目与费用账，延迟检查付费资格；同一 state 同步账目/次数，由任务入口注入费用保存回调，预留和终态保存失败锁定该实例；process 预算不落盘 |
-| `scripts/lib/cost-json.ts` | 逻辑 | D13 P3、D19 P1 | 根预算、次数与费用账原数值的精确边界；非法费用数字保持不可用并保留原件；向恢复进度校验提供原始 JSON 数字 token；任务文件、meta 与 stdout 共用，HTML 只读金额文本 |
+| `scripts/lib/cost-json.ts` | 逻辑 | D13 D14 P3、D19 P1 | 根预算、次数与费用账原数值的精确边界；非法费用数字保持不可用并保留原件；向恢复进度校验提供原始 JSON 数字 token；整份写回时，读入根上没被改动的非费用数字按原文写出，费用三棵子树只走 D13 的专用路径；任务文件、meta 与 stdout 共用，HTML 只读金额文本 |
 | `scripts/lib/email.ts` | 逻辑 | D7 | 反爬写法的邮箱提取；宁可返回 null 也不误判正常语句 |
 | `scripts/lib/assessment.ts` | 逻辑 | D8 D9 D10 F8 U7 | 公开样本范围归一化 → 指标 / 风险 / 活跃度 / 报价效率，每项带测量状态与溯源；新抓与缓存重算在这里共用窗口与媒体范围契约，入口脚本只负责调用与落盘 |
 | `scripts/lib/rows.ts` | 逻辑 | P1 P2 U5 U7 U9 | 旧行与排序保持；显式评审输出消费已投影判断，旧列前缀后追加评审列，按有效建议再按原层级和分数排序；草稿占位符原样穿透 |
@@ -401,7 +401,7 @@ Agent 是编排者，它读 stdout 做决策。
 
 `npm run --silent feedback-template -- --dir <dir> [--append]` 提供 D26 的机械 JSON 出口；普通 `npm run` 自身可打印脚本 banner。相对目录按调用 cwd 解析，空白路径、缺值、未知／重复参数或位置参数在任务读写前以 2 拒绝并给用法，不建目录。输入读取、结构、冻结来源或人工表问题均退出 2，stderr 点名实际文件及问题，人工行带物理行；保存失败退出 1 并带目标及真实原因，两者均无成功 JSON。实际保存成功或合法 unchanged 退出 0，只输出 `{file:absolute_path,status:'create'|'append'|'unchanged',added_accounts:number}`；账号行数不是独立人数，unchanged 的新增数为 0（D26）。
 
-`npm run --silent calibration -- version --dir <dir>` 提供 D20.k–D20.u 的机械出口：缺子命令或子命令不认识、`--dir` 缺值、空白、重复、未知参数或位置参数在读写任务前以 2 拒绝并给用法，不建目录。读不到任务（不存在、是目录、坏 JSON、根不是对象）与结构不合 D20.a 退出 2，stderr 点名 task.json 及每处问题，不给出哈希；保存失败退出 1 并带 task.json 及真实原因，两者均无成功 JSON，task.json 保持原字节。写入成功、合法 unchanged（零写入）或任务没有品牌校准（absent，零写入，stderr 说明）退出 0，只输出 `{file:absolute_path,status:'written'|'unchanged'|'absent',version?}`，absent 不带 version。保存经 `saveTask`：其余字段的值与数组顺序保留，对象键的先后与费用字段以外数字的原文写法不保证（D20.q）。不发请求，不要求 key 或可付费费用账；不加锁，与同一任务的 collect、enrich、render 并发写 task.json 互不覆盖不保证（同 D4、ADR-66），由 Skill 要求串行（ADR-136）。
+`npm run --silent calibration -- version --dir <dir>` 提供 D20.k–D20.u 的机械出口：缺子命令或子命令不认识、`--dir` 缺值、空白、重复、未知参数或位置参数在读写任务前以 2 拒绝并给用法，不建目录。读不到任务（不存在、是目录、坏 JSON、根不是对象）与结构不合 D20.a 退出 2，stderr 点名 task.json 及每处问题，不给出哈希；保存失败退出 1 并带 task.json 及真实原因，两者均无成功 JSON，task.json 保持原字节。写入成功、合法 unchanged（零写入）或任务没有品牌校准（absent，零写入，stderr 说明）退出 0，只输出 `{file:absolute_path,status:'written'|'unchanged'|'absent',version?}`，absent 不带 version。保存经 `saveTask`：按规范化 JSON 比较其余内容不变、数组顺序保留（D20.q）；费用字段以外、读入后没被改动的数字照原文写回，`1e400` 这类读不出精确值的不再写成 `null`（D19.g、ADR-138）；对象键的先后不保证。不发请求，不要求 key 或可付费费用账；不加锁，与同一任务的 collect、enrich、render 并发写 task.json 互不覆盖不保证（同 D4、ADR-66），由 Skill 要求串行（ADR-136）。
 
 `probe` 的 `sample[].top_post` 供 Agent 判断方向：作品字段缺席或空数组写 `（未查询）`，
 有作品则给第一条文案的前 120 字符，空串照留（P1.i）。它不是最高播放量，也不是主页近期样本；
@@ -428,6 +428,8 @@ collect 恢复已有任务还要校验原始进度（D19、ADR-117）：`done` �
 整表缺席仍表示历史未知，不回填；已记录页数可高于当前页数上限，不作跨表推算。
 任务列表有效后、首次读取进度行与预算构造前拒绝坏进度；普通续跑和改额续跑都退出 2，
 stderr 点名任务文件及坏字段，任务原字节不变、零预留和请求。
+enrich（含改额）、render、`calibration version` 与费用检查点整份写回 task.json 时，进度数字照原文留下，
+坏断点留给 collect 续跑按原文拒绝（D19.g、ADR-138）。
 
 enrich 与 render 同样使用 `taskListProblems` 校验原样任务列表；与品牌输入（含内容哈希版本对不上）同时有问题时两类均报，先于改额、预留、请求和任务／交付写入。render 空数组也拒绝（D16.n–q、ADR-115 第十一节）。
 任务文件读不到、JSON 或根对象形状不合规、列表不合规时，在读名单及任何写入前退出 2；stderr 写任务文件路径及实际问题，
