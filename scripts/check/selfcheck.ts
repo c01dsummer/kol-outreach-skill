@@ -4777,7 +4777,9 @@ group('resume-progress', [], () => {
     const text = fileText(f.task)
     if (!text.includes(from)) { failed++; console.error(`  ✗ 重复进度键测试输入${SELFCHECK_FIXTURE_MARK}：${name} 的夹具里找不到 ${from}`); return undefined }
     writeFileSync(f.task, text.replace(from, to))
-    const before = fileText(f.task)
+    // 任务目录与记忆整棵比（复核发现，ADR-140 第五节）：只比 task.json 的话，拒绝前写出的别的文件看不见；预留观测的文件放在它们之外
+    const dirs = () => `${snapshot(f.taskDir)}|${snapshot(join(f.cwd, 'memory'))}`
+    const before = fileText(f.task), beforeDirs = dirs()
     const reserves = join(f.cwd, 'reserves.txt'), armed = join(f.cwd, 'armed.txt'), preload = join(f.cwd, 'observe-reserve.mjs')
     writeFileSync(reserves, '')
     writeFileSync(preload, [
@@ -4795,7 +4797,7 @@ group('resume-progress', [], () => {
     }))
     if (!r.ok) return undefined
     if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ 重复进度键预留观测${SELFCHECK_FIXTURE_MARK}：预算预留观测未安装，${name}`); return undefined }
-    return { f, r, before, reserves: fetchAttempts(reserves).length, attempts: fetchAttempts(f.log).length }
+    return { f, r, before, same: dirs() === beforeDirs, reserves: fetchAttempts(reserves).length, attempts: fetchAttempts(f.log).length }
   }
   const collectLeaked: string[] = [], collectHidden: string[] = []
   let collectDup = 0
@@ -4807,14 +4809,14 @@ group('resume-progress', [], () => {
     for (const change of [false, true]) {
       const got = dupCollect(`${id}-${change ? 'budget' : 'resume'}`, from, dup, change ? ['--budget', '2'] : [], { status: 2, soft: [0, 1, 3] })
       if (!got) continue
-      const { f, r, before, reserves, attempts } = got
-      const at = `${id}/${change ? '--budget 2' : '--resume'}：exit=${r.status}，fileSame=${fileText(f.task) === before}，reserves=${reserves}，attempts=${attempts}，stderr=${stderrTail(r.stderr)}`
-      if (r.status !== 2 || fileText(f.task) !== before || reserves !== 0 || attempts !== 0) collectLeaked.push(at)
+      const { f, r, before, same, reserves, attempts } = got
+      const at = `${id}/${change ? '--budget 2' : '--resume'}：exit=${r.status}，fileSame=${fileText(f.task) === before}，目录原样=${same}，reserves=${reserves}，attempts=${attempts}，stderr=${stderrTail(r.stderr)}`
+      if (r.status !== 2 || fileText(f.task) !== before || !same || reserves !== 0 || attempts !== 0) collectLeaked.push(at)
       if (r.status !== 2 || !dupListed(r.stderr, f, field, tokens)) collectHidden.push(at)
       collectDup++
     }
   }
-  if (collectDup > 0) named('重复进度键：collect 续跑与 --budget 改额见进度键写了不止一次，在预留与请求前退出2，task.json 原字节不变', !collectLeaked.length, collectLeaked.join('；'))
+  if (collectDup > 0) named('重复进度键：collect 续跑与 --budget 改额见进度键写了不止一次，在预留与请求前退出2，task.json、任务目录与记忆原字节不变', !collectLeaked.length, collectLeaked.join('；'))
   if (collectDup > 0) named('重复进度键：collect 拒绝时 stderr 写出 task.json 路径、重复的字段，并按文件先后写出每一处原文，不只最后一处', !collectHidden.length, collectHidden.join('；'))
 
   // render：上面那条阳性对照（同样的哨兵与记忆、进度合规以 0 生成 kol.csv）成立才跑；每个用例另跑一份只留最后一处的对照

@@ -5750,6 +5750,41 @@ suite('D19', '续跑进度字段先验校验')
     eq('恢复进度：重复键阳性对照 —— 只留最后一处的同一份进度合规，四张表各有同一个索引 917 也不算重复', judged(doc()), [])
     eq('恢复进度：重复键阳性对照 —— tasks 数组里几个任务对象各写一遍同名键不算重复',
       judged(doc({}, ',"tasks":[{"keyword":"a","dimension":"category","platform":"tiktok"},{"keyword":"b","dimension":"scene","platform":"tiktok"}]')), [])
+    // 复核发现（ADR-140 第五节）：判据只管根上的五个进度键与四张表，别处的重复不由它判（D19.k 末句），也就不能让合规的进度被拒（D19.j）——
+    // 根上别的键、根下别的对象、不在那两层的同名进度键（根下别的对象里、任务对象里）
+    const OUTSIDE: [string, string][] = [
+      ['根上别的键', doc({}, ',"budget_usd":1,"budget_usd":2')],
+      ['根下别的对象', doc({}, ',"brand_calibration":{"a":1,"a":2}')],
+      ['根下别的对象里同名的进度表', doc({}, ',"brand_calibration":{"found":{"917":1,"917":2}}')],
+      ['任务对象里同名的进度键', doc({}, ',"tasks":[{"found":1,"found":2}]')],
+    ]
+    eq('恢复进度：根与四张表以外位置上的重复键不让进度不合规 —— 根上别的键、根下别的对象、更深处同名的进度键都不算',
+      OUTSIDE.flatMap(([name, text]) => {
+        const problems = judged(text)
+        return Array.isArray(problems) && problems.length === 0 ? [] : [`${name}: ${JSON.stringify(problems)}`]
+      }), [])
+    // 复核发现（ADR-140 第五节）：读得进来的文件里有九百万字的字符串（这里是根上的 notes），判据不抛异常、不带堆栈；
+    // 没有重复照样合规（D19.j），重复写在它后面照样点名 —— 扫描确实越过了它
+    const LONG = `"notes":"${'x'.repeat(9_000_000)}",`
+    const longFirst = (text: string) => `{${LONG}${text.slice(1)}`
+    eq('恢复进度：读得进来的任务文件里有超长字符串时照常判 —— 没有重复就合规，写在它后面的重复照样点名并列出原文',
+      [judged(longFirst(doc())), misses([['long', longFirst(doc({ found: '"found":{"917":1e400,"917":4.00e1}' })), ['found', '917'], ['1e400', '4.00e1']]])
+        .map(miss => miss.slice(0, 300))], [[], []])
+    // 字符串在重复的两处之间、里面有转义的引号（\"}）或以转义的反斜杠结尾（\\）：都在字符串里面，那张表没有到此为止，
+    // 两处照样认得出、列得出。表里多出的键 "x" 另报「不是任务索引」，那一条也点名 found
+    const between = (inside: string) => doc({ found: `"found":{"917":1e400,"x":"${inside}","917":4.00e1}` })
+    const QUOTED: DupCase[] = [
+      ['escaped-quote', between('\\"}'), ['found', '917'], ['1e400', '4.00e1']],
+      ['trailing-backslash', between('a\\\\'), ['found', '917'], ['1e400', '4.00e1']],
+    ]
+    eq('恢复进度：字符串里转义的引号与以反斜杠结尾的字符串不打乱判据 —— 写在它们后面的重复照样点名并列出原文', misses(QUOTED), [])
+    // 复核发现（ADR-140 第五节）：读入时的原文找不到（这里是读入后做的副本）就无从核对有没有重复，判为不合规，不当成没有重复。
+    // 「done 为空、没有统计表」别的判据都没话说；同一份不做副本时合规是阳性对照
+    const plain = readCostDocument<Record<string, unknown>>('{"done":[]}'), copied = structuredClone(plain)
+    const withDuplicates = (raw: Record<string, unknown>) =>
+      resumeProgressProblems(raw, N, (holder, key) => sourceNumberToken(raw, holder, key), sourceDuplicateKeys(raw))
+    eq('恢复进度：找不到读入时原文的任务无从核对重复键，判为不合规而不是当成没有重复',
+      [withDuplicates(plain), withDuplicates(copied).length > 0], [[], true])
     criterion('D19.k')
   }
 

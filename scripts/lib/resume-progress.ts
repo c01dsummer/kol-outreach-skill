@@ -32,7 +32,7 @@ export function resumeProgressProblems(raw: Readonly<{
   done?: unknown; offsets?: unknown; answered?: unknown; found?: unknown; pages?: unknown
 }>, taskCount: number,
 sourceToken?: (holder: object, key: string) => string | undefined,
-duplicates: readonly SourceDuplicate[] = []): string[] {
+duplicates?: readonly SourceDuplicate[] | null): string[] {
   const out: string[] = []
   // 显示读到的值：每个数字（含整张表位置上的、装在坏容器里的）都按原文 token 写，溢出不显示成 Infinity 或 null（D19.f、D19.i）。
   // 坏容器只展开几层：再深的不是要人改的那一处，也不该为显示它递归到栈溢出（ADR-136 记过深键）
@@ -86,7 +86,8 @@ duplicates: readonly SourceDuplicate[] = []): string[] {
   }
 
   // D19.k：重复的进度键读进来的只有最后一处，前面的在整份写回时会消失；哪一处是真的只有人知道，不按留下的那处放行
-  for (const { parent, key, values } of duplicates) {
+  if (duplicates === null) out.push('找不到这份任务读入时的原文，无从核对进度键有没有写重复')
+  for (const { parent, key, values } of duplicates ?? []) {
     const at = parent === undefined
       ? (['done', 'offsets', 'answered', 'found', 'pages'].includes(key) ? key : undefined)
       : (['offsets', 'answered', 'found', 'pages'].includes(parent) ? `${parent}[${JSON.stringify(key)}]` : undefined)
