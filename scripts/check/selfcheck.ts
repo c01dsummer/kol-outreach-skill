@@ -8061,13 +8061,14 @@ group('calibration-version-entry', [], () => {
   // D20.k：参数在读写任务前以 2 拒绝并给出用法；每跑各用一个不存在的路径（#），指向真任务的几条逐跑比原字节（吞掉坏参数照常写盘的在这里红）
   const args = fixture('args', { brand_calibration: manual })
   const k = [['--dir', '#'], ['bogus', '--dir', '#'], ['version'], ['version', '--dir'], ['version', '--dir', '  '],
-    ['version', '--dir', args.dir, '--dir', args.dir], ['version', '--dir', args.dir, '--wat'], ['version', '--dir', args.dir, 'extra']]
+    ['version', '--dir', args.dir, '--dir', args.dir], ['version', '--dir', args.dir, '--wat'], ['version', '--dir', args.dir, 'extra'],
+    ['--dir', args.dir], ['bogus', '--dir', args.dir]]
     .map((argv, i) => { const missing = join(base, `never-made-${i}`), before = fileText(args.task)
       const r = call(`calibration 参数拒绝第 ${i} 种运行`, entry, argv.map(a => a === '#' ? missing : a), base, 2)
       return { ...r, kept: fileText(args.task) === before && !existsSync(missing) } })
   const refused = (r: typeof k[number]) => r.status === 2 && r.stdout === '' && /用法|usage/i.test(r.stderr) && /version/.test(r.stderr) && /--dir/.test(r.stderr) && r.kept
-  if (k[0].ok) named('calibration version 缺子命令：以 2 拒绝并给出用法，stdout 为空，不建任务目录', refused(k[0]), why(k[0]))
-  if (k[1].ok) named('calibration version 子命令不认识：以 2 拒绝并给出用法，stdout 为空，不建任务目录', refused(k[1]), why(k[1]))
+  if (k[0].ok && k[8].ok) named('calibration version 缺子命令：以 2 拒绝并给出用法，stdout 为空，不建任务目录', refused(k[0]) && refused(k[8]), why(k[0]) + why(k[8]))
+  if (k[1].ok && k[9].ok) named('calibration version 子命令不认识：以 2 拒绝并给出用法，stdout 为空，不建任务目录', refused(k[1]) && refused(k[9]), why(k[1]) + why(k[9]))
   if (k[2].ok) named('calibration version 缺 --dir：以 2 拒绝并给出用法，stdout 为空', refused(k[2]), why(k[2]))
   if (k[3].ok) named('calibration version --dir 缺值：以 2 拒绝并给出用法，stdout 为空', refused(k[3]), why(k[3]))
   if (k[4].ok) named('calibration version --dir 为空白：以 2 拒绝并给出用法，stdout 为空，不建那个空白目录', refused(k[4]) && !existsSync(join(base, '  ')), why(k[4]))
