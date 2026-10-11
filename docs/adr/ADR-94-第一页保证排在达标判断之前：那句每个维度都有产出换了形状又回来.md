@@ -1273,3 +1273,5 @@ P5.i 是红线判据，它逐字禁的就是这个形状。
 > ⚠️ 欠条：「三态靠字段存不存在来表达」这个更根本的形状 —— 任何一次 JSON round-trip、任何一个默认值填充都会毁掉它 · 重启条件：下一条给 `TaskState` 加字段、或者再碰 `offsets`、`answered`、`found` 这三张表的改动（重新起算）
 
 > ⚠️ 2026-10-11，ADR-139 那条 PR 上第 1273 行那张（「三态靠字段存不存在来表达」）的条件「再碰 `offsets`、`answered`、`found` 这三张表」响了：render 导出前按原文校验这几张表，坏的以 2 拒绝；`answered: null` 过去被 render 当成「无从确认」，现在被拒（D19.b 不允许整表为 null，collect 本来就拒）；缺整张表照常导出，写回后仍缺席（D19.j 那段自检另有一条断言、配 M-D19-r）。没还：没给 `TaskState` 加字段，「三态靠字段存不存在」的形状没变 · 重启条件：下一条给 `TaskState` 加字段、或者再碰 `offsets`、`answered`、`found` 这三张表的改动（重新起算）
+
+> ⚠️ 2026-10-11，ADR-140 那条 PR 上第 1275 行那张（「三态靠字段存不存在来表达」，ADR-139 重挂）的条件「再碰 `offsets`、`answered`、`found` 这三张表」响了：collect 续跑与 render 现在判这几张表（与 `pages`）里写重复的任务索引键，判为不合规、以 2 拒绝。顺带的事实：`"found":{"0":null,"0":3}` 过去被读成 `3`，整份写回后 D6.l 那一态的 `null` 跟着消失；现在 collect 与 render 拒绝它，enrich 与 `calibration version` 写回时仍会抹掉它（ADR-140 第四节的欠条）。没还：没给 `TaskState` 加字段（源文本留在 `cost-json.ts` 的 WeakMap 里，不在任务状态上），「三态靠字段存不存在」的形状没变 · 重启条件：下一条给 `TaskState` 加字段、或者再碰 `offsets`、`answered`、`found` 这三张表的改动（重新起算）
