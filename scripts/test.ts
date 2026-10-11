@@ -5778,14 +5778,15 @@ suite('D19', '续跑进度字段先验校验')
     eq('部分下溢的 offsets 整份写回后 collect 按原文判定仍只拒绝 offsets 并点名 3e-324',
       subnormal.map(subnormalNamed), [[true, true, true], [true, true, true]])
 
-    // 值不变、只是写法不规范：五张表全合法，offsets 写 2e0、pages 写 1.0（D19.b 允许），经 saveTask 与费用检查点各写回一次。
-    const VERBOSE = [['done', 0, '0'], ['offsets', '0', '2e0'], ['answered', '0', '0'], ['found', '0', '5'], ['pages', '0', '1.0']] as const
+    // 值不变、只是写法不规范：五张表全合法，done 写 1e+0、offsets 写 2e0、answered 写 -0、found 写 1E0、pages 写 1.0
+    // （D19.a、D19.b 允许：精确等于非负安全整数，-0 精确等于 0），经 saveTask 与费用检查点各写回一次。
+    const VERBOSE = [['done', 0, '1e+0'], ['offsets', '0', '2e0'], ['answered', '0', '-0'], ['found', '0', '1E0'], ['pages', '0', '1.0']] as const
     const verboseText = progressText(VERBOSE), verbose = writers.map((write, i) => readBack(seeded(`verbose-${i}`, verboseText), write))
-    eq('整份写回夹具有效：写成 2e0 与 1.0 的整数进度合法，collect 不拒绝；普通 JSON 往返会把它们改写成 2 与 1',
-      [problemsOf(verboseText), diskTokens(JSON.stringify(JSON.parse(verboseText)), [['offsets', '0'], ['pages', '0']])], [[], ['2', '1']])
+    eq('整份写回夹具有效：写成 1e+0、2e0、-0、1E0 与 1.0 的整数进度合法，collect 不拒绝；普通 JSON 往返会把它们改写成 1、2、0、1 与 1',
+      [problemsOf(verboseText), diskTokens(JSON.stringify(JSON.parse(verboseText)), pathsOf(VERBOSE))], [[], ['1', '2', '0', '1', '1']])
     eq('整份写回夹具有效：写法不规范的合法进度经 saveTask 与费用检查点确实写回（updated_at 已刷新）',
       verbose.map(text => typeof text === 'string' ? JSON.parse(text).updated_at !== STAMP : text), [true, true])
-    eq('saveTask 与费用检查点整份写回后，合法进度里写成 2e0 与 1.0 的整数盘上原文逐字不变，不改换写法成 2 与 1',
+    eq('saveTask 与费用检查点整份写回后，合法进度里写成 1e+0、2e0、-0、1E0 与 1.0 的整数盘上原文逐字不变，不改换写法',
       verbose.map(text => onDisk(text, pathsOf(VERBOSE))), [tokensOf(VERBOSE), tokensOf(VERBOSE)])
   } finally { rmSync(root, { recursive: true, force: true }) }
   criterion('D19.g')

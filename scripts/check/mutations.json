@@ -9068,7 +9068,7 @@
       "replace": "const tokens = sourceTokens.get(result)",
       "by": "selfcheck",
       "kills": [
-        "续跑进度写回：render、enrich、enrich 改额与 calibration version 整份写回后坏进度数字的十进制值不变",
+        "续跑进度写回：render、enrich、enrich 改额与 calibration version 整份写回后坏进度数字与写回前盘上的原文逐字相同，不改换写法",
         "续跑进度写回：手改坏的进度经写回后 collect 续跑仍在请求前以 2 拒绝且 task.json 原字节不变",
         "续跑进度写回：手改坏的进度经写回后 collect 续跑的 stderr 写出 task.json 路径与盘上原文"
       ]
@@ -9097,7 +9097,7 @@
       "replace": "const exact = (text: string): string => {\n        const m = /^(-?)(\\d+)(?:\\.(\\d+))?(?:[eE]([+-]?\\d+))?$/.exec(text)\n        if (!m) return text\n        const all = `${m[2]}${m[3] ?? ''}`.replace(/^0+/, ''), sig = all.replace(/0+$/, '')\n        return sig === '' ? '0' : `${m[1]}${sig}e${BigInt(m[4] ?? 0) - BigInt(m[3]?.length ?? 0) + BigInt(all.length - sig.length)}`\n      }\n      if (token !== undefined && Object.is(item, Number(token)) && exact(token) !== exact(String(item))) return exactJSON.rawJSON!(token)",
       "by": "test",
       "kills": [
-        "saveTask 与费用检查点整份写回后，合法进度里写成 2e0 与 1.0 的整数盘上原文逐字不变，不改换写法成 2 与 1"
+        "saveTask 与费用检查点整份写回后，合法进度里写成 1e+0、2e0、-0、1E0 与 1.0 的整数盘上原文逐字不变，不改换写法"
       ]
     },
     {

@@ -4584,16 +4584,10 @@ group('resume-progress', [], () => {
     criterion('D19.d')
   }
 
-  // D19.g：四个写回方整份写回后，手改坏的进度数字十进制值不变，collect 续跑仍按 D19.e、D19.f 拒绝。期望只取写进夹具的原文；
-  // 盘上原文用 rootToken（JSON source context）读，按手写的十进制规范化（符号、有效数字、指数）比值 —— 写法不在 D19.g 保证之内
-  const decimal = (t = ''): string => {
-    const m = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(t)
-    if (!m) return `不是数字 ${t}`
-    const all = `${m[2]}${m[3] ?? ''}`.replace(/^0+/, ''), sig = all.replace(/0+$/, '')
-    return sig === '' ? '0' : `${m[1]}${sig}e${BigInt(m[4] ?? 0) - BigInt(m[3]?.length ?? 0) + BigInt(all.length - sig.length)}`
-  }
+  // D19.g：四个写回方整份写回后，手改坏的进度数字与写回前盘上的原文逐字相同（不写成 null、0 或另一个数，也不改换写法），
+  // collect 续跑仍按 D19.e、D19.f 拒绝。期望只取写进夹具的原文；盘上原文用 rootToken（JSON source context）读，逐字比较
   // [名, 合法原文, 坏原文, 坏 token, 位置, 根上没有 budget_usd]：舍入后才成整数、下溢成 0、溢出成无穷大；found 溢出在主干上会写成 D6.l 的 null；
-  // 根预算可以缺席（D13.i 缺席仍缺席），这种任务的坏进度同样要保值 —— 原文不能只在根上有预算时才照写
+  // 根预算可以缺席（D13.i 缺席仍缺席），这种任务的坏进度同样要逐字留下 —— 原文不能只在根上有预算时才照写
   const bad: [string, string, string, string, [string, string], boolean?][] = [
     ['done-rounded', '"done":[0,1]', '"done":[0,0.99999999999999999]', '0.99999999999999999', ['done', '1']],
     ['pages-underflow', '"pages":{"0":1}', '"pages":{"0":1e-325}', '1e-325', ['pages', '0']],
@@ -4603,10 +4597,10 @@ group('resume-progress', [], () => {
   const writers: [string, (dir: string) => string[]][] = [['render', d => [S('render.ts'), '--dir', d]],
     ['enrich', d => [S('enrich.ts'), '--dir', d]], ['enrich-budget', d => [S('enrich.ts'), '--dir', d, '--budget', '2']],
     ['calibration', d => [S('calibration.ts'), 'version', '--dir', d]]]
-  // 阳性对照：规范化把手推的同值异写认成相等；普通 JSON 往返确实改掉每个坏数字的值，否则「写回后值没变」分不出写回保没保值
-  const lossy = decimal('10e399') === decimal('1.0e400') && decimal('0.50') === decimal('5e-1')
-    && bad.every(([, , raw, token, [field, key]]) => decimal(rootToken(JSON.stringify(JSON.parse(`{${raw}}`)), key, [field])) !== decimal(token))
-  if (!lossy) { failed++; console.error(`  ✗ 续跑进度写回坏数字${SELFCHECK_FIXTURE_MARK}：规范化认不出同值异写，或普通 JSON 往返没有改掉某个坏数字的值`); return }
+  // 阳性对照：rootToken 读得到普通 JSON 往返后的原文，且确实与每个坏数字的原文不同，否则「写回后原文没变」分不出写回保没保原文
+  const lossy = bad.every(([, , raw, token, [field, key]]) => {
+    const t = rootToken(JSON.stringify(JSON.parse(`{${raw}}`)), key, [field]); return t !== undefined && t !== token })
+  if (!lossy) { failed++; console.error(`  ✗ 续跑进度写回坏数字${SELFCHECK_FIXTURE_MARK}：普通 JSON 往返没有改掉某个坏数字的原文`); return }
   const armedJs = join(tmp, 'kept-progress-armed.mjs')
   writeFileSync(armedJs, `import { appendFileSync } from 'node:fs'; appendFileSync(process.env.KEPT_PROGRESS_ARMED, 'armed\\n');`)
   const lost: string[] = [], accepted: string[] = [], hidden: string[] = [], grew: string[] = []
@@ -4633,7 +4627,7 @@ group('resume-progress', [], () => {
     if (!c.ok) continue
     if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ 续跑进度写回请求观测${SELFCHECK_FIXTURE_MARK}：${writer}/${id}`); continue }
     const at = `${writer}/${id}：写回后 ${field}[${key}]=${saved}，续跑 exit=${c.status}，请求=${fetchAttempts(ledger).length}，stderr=${stderrTail(c.stderr)}`
-    const same = decimal(saved) === decimal(token)
+    const same = saved === token
     if (!same) lost.push(at)
     if (c.status !== 2 || fileText(f.task) !== before || fetchAttempts(ledger).length !== 0) accepted.push(at)
     if (!same || !c.stderr.includes(f.task) || !c.stderr.includes(saved)) hidden.push(at)
@@ -4641,7 +4635,7 @@ group('resume-progress', [], () => {
     if (bare && writer !== 'enrich-budget') { bareKept++; if (before.includes('"budget_usd"')) grew.push(at) }
     kept++
   }
-  if (kept > 0) named('续跑进度写回：render、enrich、enrich 改额与 calibration version 整份写回后坏进度数字的十进制值不变', !lost.length, lost.join('；'))
+  if (kept > 0) named('续跑进度写回：render、enrich、enrich 改额与 calibration version 整份写回后坏进度数字与写回前盘上的原文逐字相同，不改换写法', !lost.length, lost.join('；'))
   if (kept > 0) named('续跑进度写回：手改坏的进度经写回后 collect 续跑仍在请求前以 2 拒绝且 task.json 原字节不变', !accepted.length, accepted.join('；'))
   if (kept > 0) named('续跑进度写回：手改坏的进度经写回后 collect 续跑的 stderr 写出 task.json 路径与盘上原文', !hidden.length, hidden.join('；'))
   if (bareKept > 0) named('续跑进度写回：根上没有 budget_usd 的任务经 render、enrich 与 calibration version 写回后根上仍没有 budget_usd', !grew.length, grew.join('；'))
