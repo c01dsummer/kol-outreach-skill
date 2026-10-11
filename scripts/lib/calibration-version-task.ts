@@ -1,7 +1,9 @@
 /** D20.k–D20.u：`calibration version` 的判定与读写（ADR-136 第一节第 1 条）。入口 scripts/calibration.ts 只接线。 */
 import { resolve } from 'node:path'
 import { brandCalibrationProblems, calibrationContentVersion } from './brand-calibration.js'
+import { sourceDuplicateKeys } from './cost-json.js'
 import { ReviewInputError } from './review.js'
+import { duplicateProgressProblems } from './resume-progress.js'
 import { loadTask, saveTask, taskFile } from './task.js'
 
 /** 纯判定的四种结果；不读写文件、不改写输入。 */
@@ -37,7 +39,7 @@ export interface CalibrationVersionResult {
 
 /**
  * 读 dir 下的 task.json，按 planCalibrationVersion 判定：absent、unchanged 不写盘；write 只换
- * brand_calibration.version 再按任务保存的惯例写回（D20.q）。读不到任务或不合 D20.a 抛 ReviewInputError
+ * brand_calibration.version 再按任务保存的惯例写回（D20.q）。读不到任务、不合 D20.a、或要写盘而进度键写重复（D19.n）抛 ReviewInputError
  * （入口以 2 退出）；保存错误原样传播（入口以 1 退出）。
  */
 export function runCalibrationVersion(dir: string): CalibrationVersionResult {
@@ -49,10 +51,13 @@ export function runCalibrationVersion(dir: string): CalibrationVersionResult {
   catch (error) { throw new ReviewInputError([`${file} 无法读取任务：${error instanceof Error ? error.message : String(error)}`]) }
   const plan = planCalibrationVersion(state)
   if (plan.action === 'absent') return { file, status: 'absent' }
-  // D20.n：每处不合规一条，都带 task.json 路径
-  if (plan.action === 'invalid') throw new ReviewInputError(plan.problems.map(p => `${file}: ${p}`))
   // D20.r：已一致就零写入，不以同字节重写代替，也不刷新 updated_at
   if (plan.action === 'unchanged') return { file, status: 'unchanged', version: plan.version }
+  // D19.n：要写盘、或已不合 D20.a 时，写重复的进度键一并报 —— 整份写回只会留下最后一处；上面两种不写盘，没有东西会丢
+  const duplicates = duplicateProgressProblems(sourceDuplicateKeys(state))
+  // D20.n：每处不合规一条，都带 task.json 路径
+  if (plan.action === 'invalid') throw new ReviewInputError(plan.problems.concat(duplicates).map(p => `${file}: ${p}`))
+  if (duplicates.length) throw new ReviewInputError(duplicates.map(p => `${file}: ${p}`))
   // D20.q：只给读进来的那个对象换 version 一个字段，不按已知字段重建；同一个对象交给 saveTask，
   // 读入时的原文 token 才跟得上（费用字段按 D13，其余没改动的数字按 D19.g、ADR-138）。updated_at 由 saveTask 照惯例刷新
   state.brand_calibration!.version = plan.version

@@ -10877,7 +10877,7 @@
       "req": "D20.n",
       "why": "brand_calibration 有几处不合 D20.a 时只报第一处，其余不合规的字段不写出",
       "file": "scripts/lib/calibration-version-task.ts",
-      "find": "if (plan.action === 'invalid') throw new ReviewInputError(plan.problems.map(p => `${file}: ${p}`))",
+      "find": "if (plan.action === 'invalid') throw new ReviewInputError(plan.problems.concat(duplicates).map(p => `${file}: ${p}`))",
       "replace": "if (plan.action === 'invalid') throw new ReviewInputError([`${file}: ${plan.problems[0]}`])",
       "by": "selfcheck",
       "kills": [
@@ -11024,7 +11024,7 @@
       "req": "D20.n",
       "why": "brand_calibration 不合 D20.a 时只给一句写死的结构说明，把所有字段名都列上，不说出到底哪一处不合规",
       "file": "scripts/lib/calibration-version-task.ts",
-      "find": "if (plan.action === 'invalid') throw new ReviewInputError(plan.problems.map(p => `${file}: ${p}`))",
+      "find": "if (plan.action === 'invalid') throw new ReviewInputError(plan.problems.concat(duplicates).map(p => `${file}: ${p}`))",
       "replace": "if (plan.action === 'invalid') throw new ReviewInputError([`${file}: brand_calibration 不合 D20.a —— 须为对象，含非空 version，以及 target_creator_types、tone_aesthetic、natural_scenarios、negative_signals 四组字符串数组与 sources 来源数组`])",
       "by": "selfcheck",
       "kills": [
