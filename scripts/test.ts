@@ -13486,15 +13486,17 @@ suite('D20', '内容哈希版本按规范化 JSON 算出，复算只核对已有
   const absentPlan = judge(noCalibration)
   eq('校准版本命令：没有 brand_calibration 键时判为缺席，不给输入补出校准',
     [absentPlan.got, Object.hasOwn(noCalibration, 'brand_calibration')], [{ action: 'absent' }, false])
-  const broken: unknown[] = [null, without('version'), { ...calibration, version: '   ' }, { ...calibration, version: 7 }, without('negative_signals')]
-  ok('校准版本命令夹具有效：五份不合规的校准都被已有的 D20.a 判定拒绝', broken.every(d20aRejects))
+  const broken: unknown[] = [null, without('version'), { ...calibration, version: '   ' }, { ...calibration, version: 7 }, without('negative_signals'),
+    { ...calibration, tone_aesthetic: [7] }, { ...calibration, natural_scenarios: [''] }, { ...calibration, sources: [{ ...first, kind: 'rumor' }, second] },
+    { ...calibration, sources: [first, { ...second, detail: '' }] }, { ...calibration, sources: [{ ...first, source: '' }, second] }]
+  ok('校准版本命令夹具有效：十份不合规的校准都被已有的 D20.a 判定拒绝', broken.every(d20aRejects))
   const brokenPlans = broken.map(brand_calibration => judge({ product: 'broken', brand_calibration }))
   const invalidShape = (got: unknown) => {
     const { action, problems } = (typeof got === 'object' && got !== null ? got : {}) as { action?: unknown; problems?: unknown }
     return Array.isArray(problems)
       ? [action, problems.length > 0, problems.every(problem => typeof problem === 'string' && !problem.includes('sha256:'))] : got
   }
-  eq('校准版本命令：校准为 null、version 缺席、空白、不是字符串或缺 D20.a 必填字段时判为不合规并列出问题，问题里没有哈希值',
+  eq('校准版本命令：校准为 null、version 缺席、空白、不是字符串、缺 D20.a 必填字段、数组元素不是非空字符串或来源的性质、详情、出处不合规时判为不合规并列出问题，问题里没有哈希值',
     brokenPlans.map(({ got }) => invalidShape(got)), broken.map(() => ['invalid', true, true]))
   const purity = [absentPlan, ...brokenPlans, judge({ product: 'listed-only', brand_calibration: listedOnly })]
   eq('校准版本命令：缺席、不合规与要写入时都不改写输入，深冻结输入照判不抛且结果相同',
