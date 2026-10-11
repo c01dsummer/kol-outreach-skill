@@ -37,6 +37,7 @@ API 负责提供候选数据，Agent 负责读懂产品、推导搜索策略、�
 - 记录跨任务创作者状态，排除已联系或已屏蔽的人
 - 输出 HTML、XLSX、CSV 和 JSON，支持断点续跑和预算控制
 - 本地人工复评模板命令：基于已保存冻结池创建空表，显式追加保留已有作答
+- 本地校准版本命令：按内容算出任务品牌校准的版本；校准改了而版本没换时，collect、enrich、render 会拒绝
 - 展示人工审核覆盖、明确结论分母、拒绝原因及与 Agent 原判断的分歧
 
 缺语义判断或评审所用品牌版本已过期的候选先进入基础 B。三个命令按任务级 Agent 评审正本和人工反馈重建当前判断；后续受众地域与公开风险规则仍可降级，地域规则仍可剔除。人工反馈与 Agent 原判断分别保留，人工采用不豁免已联系或已屏蔽过滤。
@@ -99,6 +100,7 @@ scripts/
 ├── enrich.ts                    主页公开指标与可续跑风险评估
 ├── render.ts                    计分、分层和交付物生成
 ├── feedback-template.ts         已保存冻结池的人工复评模板创建／追加
+├── calibration.ts               任务品牌校准的内容哈希版本（calibration version）
 ├── lib/                         预算、邮箱、身份、记忆、CSV/XLSX 等
 ├── providers/                   数据源实现
 └── check/                       纪律检查、变异测试、自检和审计
@@ -157,6 +159,9 @@ npm run collect -- --config task.json
 # 用户确认新的总预算后续跑，已完成关键词跳过
 npm run collect -- --resume output/xxx --budget 3
 
+# 新任务建好后、Agent 评审之前：把品牌校准的手写版本换成内容哈希（不请求 API；没有品牌校准的任务不需要）
+npm run --silent calibration -- version --dir output/xxx
+
 # Agent 将语义判断保存至 agent-review.json 后，可选抓取主页近期公开指标
 npm run enrich -- --dir output/xxx
 
@@ -184,6 +189,8 @@ collect 续跑还会先检查 `task.json` 的已完成索引和分页统计；�
 collect、enrich、render 在改预算、预留、请求或交付写入前校验 Agent 正本、冻结来源及已有人工反馈。读取失败、坏 JSON、游离账号或冲突人工行会指出实际文件和位置，以退出码 `2` 拒绝；正本真实保存失败退出 `1`。只确认 `creators.raw.json` 路径缺席时才使用旧名单的采集证据，已有坏原件不能当作缺席；enrich 和 render 不改写采集原件或人工表。
 
 `feedback-template` 只接受必填一次 `--dir` 和可选一次 `--append`，相对目录按调用 cwd 解析。只读校验任务、已保存正本及冻结来源，要求完整 `creators.json` 数组；raw 仅真缺席时回退，合法直接关联由完整旧名单及 raw 提供。正本缺席时先由既有生产命令保存真实轮次，模板不迁移或冻结。默认已有人工文件均退出 `2` 防覆盖；显式追加先校验完整原表，保留旧字节，新账号七个人工字段全空，同账号不重复加行。合法无新增返回 `unchanged` 且实际不保存；其他输入问题退出 `2`，实际保存失败退出 `1` 并保原件，均无成功 JSON。成功 JSON 的 `file` 为绝对路径、`status` 为 create/append/unchanged、`added_accounts` 为新增平台账号行数。命令只保存人工目标，不改任务、名单、正本、raw、报告、memory 或费用账，不要求 key 或可付费账。填写与追加边界见[输出说明](skill/references/output-format.md#人工反馈模板d23d24d26)；生产 HTML 的默认全部与双筛选按 U10 启用，人工审核汇总及关键词按原任务、平台分列的冻结人工已审人数见同页 U11 说明。
+
+`calibration version` 只接受子命令 `version` 和必填一次 `--dir`，相对目录按调用 cwd 解析，只读写 `task.json` 的 `brand_calibration`：先按 D20.a 校验结构，合规时对除 version 外的全部内容按规范化 JSON 算 SHA256，只把 `version` 换成 `sha256:` 加 64 位小写十六进制再保存（`updated_at` 照例刷新），原 version 是手写标签或与内容不一致都照换。已一致返回 `unchanged` 且实际不保存；任务没有品牌校准返回 `absent`，不生成校准或版本、不写盘。成功 JSON 的 `file` 为绝对路径、`status` 为 written/unchanged/absent，前两种带 `version`。参数不对、读不到任务或结构不合规退出 `2` 并指出问题，保存失败退出 `1` 并保原件，均无成功 JSON。保存经同一条任务写盘路径：数组顺序与各字段的值保留，对象键的先后和费用字段以外数字的原文写法（如 `1e400`）不保证。命令不请求、不要求 key 或可付费账，不加锁，不要与同一任务的 collect、enrich、render 同时运行；已有评审的旧任务换成哈希版本后内容没变也会全部待重评，所以只在新任务评审前、或原地改完校准后运行（D20.k–D20.u、[ADR-136](docs/adr/ADR-136-校准版本改由命令按内容算出，原地改校准的流程保留.md)）。
 
 render 导出同样要求 `task.json` 至少保留一项合规搜索任务。任务文件读不到、JSON/根对象形状不合规或任务列表不合规时，报告路径和具体问题并退出 `2`，不改写或创建名单、交付物与跨任务记忆（D16.n–q）。需按原搜索配置恢复或修正真实任务记录，不能任意添加关键词冒充搜索范围。
 

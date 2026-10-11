@@ -103,6 +103,8 @@
 | `scripts/lib/manual-feedback-template.ts` | 逻辑 | D24 P1 | 以确认缺席或既有 Buffer 生成模板字节计划；默认拒绝既有内容，显式追加先核完整人工表，只补冻结池缺席账号并保留原字节前缀；不读写文件 |
 | `scripts/feedback-template.ts` | 入口 | D26 P1 P3 | 只接受必填 --dir 与显式 --append，调用模板协调边界，诊断进 stderr；实际保存或合法无变化后才输出机械 JSON |
 | `scripts/lib/feedback-template-task.ts` | 逻辑 | D26 D24 P1 P3 | 只读准备已保存任务、冻结正本及完整名单关系，先拒绝坏输入再生成字节计划；仅保存人工目标，保存失败保原件，无变化不写，不迁移或冻结 |
+| `scripts/calibration.ts` | 入口 | D20 P1 P3 | 只接受子命令 version 与必填一次 --dir，调用校准版本协调边界，诊断进 stderr；实际保存或合法无变化、缺席后才输出机械 JSON |
+| `scripts/lib/calibration-version-task.ts` | 逻辑 | D20 P1 P3 | 纯判定缺席／结构不合 D20.a／已一致／待写，与只读一次任务、只换 `brand_calibration.version` 再按任务保存惯例写回的协调；不并入口复算，缺席与已一致不写，保存失败保原件 |
 | `scripts/lib/effective-priority.ts` | 逻辑 | D25 P1 | 消费 Agent 投影、已校验人工行及冻结池，分别保留平台作答并生成带人工来源的有效建议；不改 Agent 判断、不筛选或排序、不读写文件 |
 | `scripts/probe-ig-paging.ts` | 入口 | — | 核实工具，不在任何管线上：默认只打一次报响应形状；`--chain N` 把上一响应的 `pagination_token`（官方 spec 声明的参数名）接进下一次；`--repeat N` 原样重发。`--chain` 同时跑与实际链长相等的重发曲线，最多发 2N 次请求。两条曲线各报累计去重作者、条目及当次差值；端点会漂，差值不能归因给游标或重发。作者数按可用的 id / username 键去重；缺身份可能少计，同一作者换键可能多计。末尾不涨只说得出「这 N 次之内没再涨」；某次响应没有可继续令牌只使本次链停止，不说明匹配结果已耗尽。 |
 | `scripts/collect.ts` | 入口 | D6 D21 D22 D23 D25 U9 P3 F7 D4 F9 | 轮转采集不让第一个关键词吃掉全部配额，**且任务列表里每个关键词×平台都至少被问过一次** —— 达标之后仍然给「一页都没抓过」的任务补第一页，第一页之后才按达标停（F9）。⚠️ 它保证的是**问过**，不保证问到多少人；预算比它优先，不够抓齐第一页时照旧存断点退 3；记忆读不出来退 2 且不产出名单 |
@@ -159,10 +161,12 @@
 
 `config-input.ts` 与任务列表、路线判定并列，只消费调用方传入的原始字段，不依赖读盘、费用账或供应商。
 读取边界负责根形状；纯判定负责字段问题，collect 与 probe 负责按角色传入原值、聚合问题及控制默认值和副作用顺序（D17、ADR-116）。
-任务级 `brand_calibration` 由外部项目输入拥有，collect 只负责校验并原样带入新建任务，续跑保留盘上原值；
+任务级 `brand_calibration` 由外部项目输入拥有（任务建好后 version 由命令改写，见下），collect 只负责校验并原样带入新建任务，续跑保留盘上原值；
 enrich 和 render 只读校验。来源性质的结构校验不授予脚本核实产品事实的能力（D20、ADR-130）。
 version 是 `sha256:` 内容哈希时，三个入口在结构校验那一处另按内容复算，对不上与结构问题进同一份清单、同样退出 2；
 手写的版本只校验结构，人工反馈模板命令不复算（D20.g–D20.j、ADR-136）。
+`calibration version` 是唯一按内容写 version 的入口：先按 D20.a 校验，合规时用同一份规范化实现算出内容哈希，只替换 `brand_calibration.version` 再按任务保存的惯例写回（`updated_at` 照例刷新）；
+校准其余字段仍归外部项目输入，命令不生成、不补、不改它们，缺席时不写。三个入口的复算只核对、不改写（D20.k–D20.u、ADR-136）。
 `agent-review.json` 由评审正本读写模块拥有；旧字段迁移与 Agent 投影只消费其缺席／存在状态和已校验文档，
 从不反向读取旧名单里的新判断。collect、enrich、render 统一在入口读取与校验后从正本重建投影；
 仅 collect 与 render 在内容变化时保存正本，enrich 保持只读。平台账号轮次由正本拥有；冻结逻辑先保存旧池、
@@ -389,12 +393,15 @@ Agent 是编排者，它读 stdout 做决策。
 | `collect` | `--config task.json` 或 `--resume <dir>` `[--ignore-memory]`；旧名单、采集原件、评审正本及已有人工表 | `task.json` `creators.raw.json` `creators.json` · 内容变化时 `agent-review.json` | 0 · 1 · 2 · **3** |
 | `enrich` | `--dir <dir>`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv`） | `enrichment.json` `task.json` | 0 · 1 · 2 · **3** |
 | `render` | `--dir <dir>` `[--ignore-memory]`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv` · `enrichment.json` · 当前 `memory/creators.json`） | 内容变化时 `agent-review.json` · `task.json` 的去重状态 · `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` · **`memory/creators.json`** | 0 · 1 · 2 |
+| `calibration version` | 子命令 `version` 与必填一次 `--dir <dir>`；既有 `task.json` 的 `brand_calibration` | 仅 `task.json` 的 `brand_calibration.version`（与 `updated_at`）；缺席、结构不合、已一致与保存失败不写 | 0 · 1 · 2 |
 | `feedback-template` | 必填一次 `--dir <dir>`、可选一次 `--append`；既有 `task.json`、已保存 `agent-review.json`、完整 `creators.json`、存在时的 `creators.raw.json` 及人工目标 | 仅 `manual-feedback.csv` 的创建或显式追加；unchanged 不写 | 0 · 1 · 2 |
 
 **stdout 是结构化 JSON，stderr 是进度。** 这个分工是硬约束 —— Agent 解析 stdout，
 往里混进度信息会让解析在最需要它的时候（长任务、预算告急）失败。
 
 `npm run --silent feedback-template -- --dir <dir> [--append]` 提供 D26 的机械 JSON 出口；普通 `npm run` 自身可打印脚本 banner。相对目录按调用 cwd 解析，空白路径、缺值、未知／重复参数或位置参数在任务读写前以 2 拒绝并给用法，不建目录。输入读取、结构、冻结来源或人工表问题均退出 2，stderr 点名实际文件及问题，人工行带物理行；保存失败退出 1 并带目标及真实原因，两者均无成功 JSON。实际保存成功或合法 unchanged 退出 0，只输出 `{file:absolute_path,status:'create'|'append'|'unchanged',added_accounts:number}`；账号行数不是独立人数，unchanged 的新增数为 0（D26）。
+
+`npm run --silent calibration -- version --dir <dir>` 提供 D20.k–D20.u 的机械出口：缺子命令或子命令不认识、`--dir` 缺值、空白、重复、未知参数或位置参数在读写任务前以 2 拒绝并给用法，不建目录。读不到任务（不存在、是目录、坏 JSON、根不是对象）与结构不合 D20.a 退出 2，stderr 点名 task.json 及每处问题，不给出哈希；保存失败退出 1 并带 task.json 及真实原因，两者均无成功 JSON，task.json 保持原字节。写入成功、合法 unchanged（零写入）或任务没有品牌校准（absent，零写入，stderr 说明）退出 0，只输出 `{file:absolute_path,status:'written'|'unchanged'|'absent',version?}`，absent 不带 version。保存经 `saveTask`：其余字段的值与数组顺序保留，对象键的先后与费用字段以外数字的原文写法不保证（D20.q）。不发请求，不要求 key 或可付费费用账；不加锁，与同一任务的 collect、enrich、render 并发写 task.json 互不覆盖不保证（同 D4、ADR-66），由 Skill 要求串行（ADR-136）。
 
 `probe` 的 `sample[].top_post` 供 Agent 判断方向：作品字段缺席或空数组写 `（未查询）`，
 有作品则给第一条文案的前 120 字符，空串照留（P1.i）。它不是最高播放量，也不是主页近期样本；
@@ -459,6 +466,7 @@ Agent 判断、人工作答与采集证据各有正本；`creators.json` 的判�
 | `collect`（脚本） | 采集与 profile 原始字段、`source_keyword`、`source_dimension`、`discovery_sources` 及 raw 累加器；保全旧评审、冻结候选并保存当前名单投影 |
 | **Agent** | 只编辑 `agent-review.json` 对应平台账号的原判断、四项证据、兼容 fit／理由／草稿及实际校准版本；保留冻结轮次、来源与其他评审 |
 | **人工** | `manual-feedback.csv` 的原作答；Agent 不代填，collect/enrich/render 只读 |
+| `calibration version`（脚本） | 只写 `task.json` 的 `brand_calibration.version`（保存时 `updated_at` 照例刷新）；校准其余字段、任务其余字段、评审正本、名单、人工表与交付都不碰；不生成缺席的校准 |
 | `feedback-template`（脚本） | 只创建模板结构或显式追加冻结池缺席账号的空白七字段，不改已有人工字节、轮次、判断或源文件 |
 | `enrich`（脚本） | 只写 `enrichment.json` 与任务状态，不碰评审正本、人工表、raw 或名单 |
 | `render`（脚本） | 当前 Agent／人工投影、`score`、`tier`、`tier_adjustments`、公开指标摘要及交付；正本仅保存迁移或冻结变化，不重写原判断 |
