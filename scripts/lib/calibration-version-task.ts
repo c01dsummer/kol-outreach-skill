@@ -54,7 +54,7 @@ export function runCalibrationVersion(dir: string): CalibrationVersionResult {
   // D20.r：已一致就零写入，不以同字节重写代替，也不刷新 updated_at
   if (plan.action === 'unchanged') return { file, status: 'unchanged', version: plan.version }
   // D20.q：只给读进来的那个对象换 version 一个字段，不按已知字段重建；同一个对象交给 saveTask，
-  // 费用字段的原文 token 才跟得上。updated_at 由 saveTask 照惯例刷新
+  // 读入时的原文 token 才跟得上（费用字段按 D13，其余没改动的数字按 D19.g、ADR-138）。updated_at 由 saveTask 照惯例刷新
   state.brand_calibration!.version = plan.version
   saveTask(dir, state)
   return { file, status: 'written', version: plan.version }
