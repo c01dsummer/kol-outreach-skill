@@ -4754,6 +4754,100 @@ group('resume-progress', [], () => {
   }
   if (renderedGood === acceptCases.length) criterion('D19.j')
   if (writebackHeld && renderKeptLegal) criterion('D19.g')
+
+  // D19.l：进度键写了不止一次（D19.k）时，collect 续跑（含 --budget 改额）与 render 分别照 D19.e、D19.h 以 2 拒绝。
+  // 期望只来自判据原文与写进夹具的字面值：表里重复的最后一处 3.000 合法（D19.b 允许小数写法），根上重复的最后一处是夹具本来的合法表；
+  // 前几处 1e400、7.25e1、"zz-mid" 读入后不留痕迹，stderr 里按先后找得到它们才是「不只显示最后一处」。
+  // 阳性对照是同一份夹具只留最后一处：collect 照常预留并发出请求（观测确实接上、拒绝只能是因为重复），render 照常以 0 生成 kol.csv
+  // [名, 夹具里的合法原文, 改成的重复写法, 只留最后一处的写法, 重复的字段, 按文件先后的每一处原文（对象不列）]
+  const dupCases: [string, string, string, string, string, string[]][] = [
+    ['found-table', '"found":{"0":3}', '"found":{"0":1e400,"0":3.000}', '"found":{"0":3.000}', 'found', ['1e400', '3.000']],
+    ['pages-root', '"pages":{"0":1}', '"pages":7.25e1,"pages":"zz-mid","pages":{"0":1}', '"pages":{"0":1}', 'pages', ['7.25e1', 'zz-mid']],
+  ]
+  // 夹具目录名里带着用例名，字段与原文只在去掉路径之后的 stderr 里按先后找
+  const dupListed = (stderr: string, f: ReturnType<typeof costFixture>, field: string, tokens: readonly string[]) => {
+    const message = stderr.replaceAll(f.task, '[任务文件]').replaceAll(f.cwd, '[目录]')
+    let at = 0
+    for (const token of tokens) { const i = message.indexOf(token, at); if (i < 0) return false; at = i + token.length }
+    return stderr.includes(f.task) && message.includes(field)
+  }
+  // 起一次 collect --resume，盘上那一处换成 to；done 为空，进度合规时它一定会去搜，预留观测与上面 D19.e 一段同一种接法
+  const dupCollect = (name: string, from: string, to: string, extra: string[], expect: { status: number; soft: number[] }) => {
+    const f = costFixture(`dup-progress-${name}`, knownCosts(1_000_000, []), { done: [] })
+    const text = fileText(f.task)
+    if (!text.includes(from)) { failed++; console.error(`  ✗ 重复进度键测试输入${SELFCHECK_FIXTURE_MARK}：${name} 的夹具里找不到 ${from}`); return undefined }
+    writeFileSync(f.task, text.replace(from, to))
+    const before = fileText(f.task)
+    const reserves = join(f.cwd, 'reserves.txt'), armed = join(f.cwd, 'armed.txt'), preload = join(f.cwd, 'observe-reserve.mjs')
+    writeFileSync(reserves, '')
+    writeFileSync(preload, [
+      `import { appendFileSync } from 'node:fs';`,
+      `import { Budget } from ${JSON.stringify(budgetModule)};`,
+      `const original = Budget.prototype.reserve;`,
+      `Budget.prototype.reserve = function(...args) {`,
+      `  appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n');`,
+      `  return Reflect.apply(original, this, args);`,
+      `};`,
+      `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
+    ].join('\n'))
+    const r = runBoth(`重复进度键 collect ${name}`, [S('collect.ts'), '--resume', f.taskDir, ...extra], f.cwd, expect, costEnv(f.log, {
+      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+    }))
+    if (!r.ok) return undefined
+    if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ 重复进度键预留观测${SELFCHECK_FIXTURE_MARK}：预算预留观测未安装，${name}`); return undefined }
+    return { f, r, before, reserves: fetchAttempts(reserves).length, attempts: fetchAttempts(f.log).length }
+  }
+  const collectLeaked: string[] = [], collectHidden: string[] = []
+  let collectDup = 0
+  for (const [id, from, dup, last, field, tokens] of dupCases) {
+    const lastOnly = dupCollect(`${id}-control`, from, last, [], { status: 0, soft: [1, 2, 3] })
+    if (!lastOnly) continue
+    if (lastOnly.reserves === 0 || lastOnly.attempts === 0) { failed++
+      console.error(`  ✗ 重复进度键 collect 阳性对照${SELFCHECK_FIXTURE_MARK}：${id} 只留最后一处时没有照常预留并请求，exit=${lastOnly.r.status}，reserves=${lastOnly.reserves}，attempts=${lastOnly.attempts}，stderr=${stderrTail(lastOnly.r.stderr)}`); continue }
+    for (const change of [false, true]) {
+      const got = dupCollect(`${id}-${change ? 'budget' : 'resume'}`, from, dup, change ? ['--budget', '2'] : [], { status: 2, soft: [0, 1, 3] })
+      if (!got) continue
+      const { f, r, before, reserves, attempts } = got
+      const at = `${id}/${change ? '--budget 2' : '--resume'}：exit=${r.status}，fileSame=${fileText(f.task) === before}，reserves=${reserves}，attempts=${attempts}，stderr=${stderrTail(r.stderr)}`
+      if (r.status !== 2 || fileText(f.task) !== before || reserves !== 0 || attempts !== 0) collectLeaked.push(at)
+      if (r.status !== 2 || !dupListed(r.stderr, f, field, tokens)) collectHidden.push(at)
+      collectDup++
+    }
+  }
+  if (collectDup > 0) named('重复进度键：collect 续跑与 --budget 改额见进度键写了不止一次，在预留与请求前退出2，task.json 原字节不变', !collectLeaked.length, collectLeaked.join('；'))
+  if (collectDup > 0) named('重复进度键：collect 拒绝时 stderr 写出 task.json 路径、重复的字段，并按文件先后写出每一处原文，不只最后一处', !collectHidden.length, collectHidden.join('；'))
+
+  // render：上面那条阳性对照（同样的哨兵与记忆、进度合规以 0 生成 kol.csv）成立才跑；每个用例另跑一份只留最后一处的对照
+  const renderLeaked: string[] = [], renderHidden: string[] = []
+  let renderDup = 0
+  for (const [id, from, dup, last, field, tokens] of c.ok && c.status === 0 ? dupCases : []) {
+    const fixture = (name: string, to: string) => {
+      const f = costFixture(`render-dup-progress-${name}`, knownCosts(1_000_000, []), {}, [costPerson()])
+      const text = fileText(f.task)
+      if (!text.includes(from)) return undefined
+      writeFileSync(f.task, text.replace(from, to)); seed(f); return f
+    }
+    const lastOnly = fixture(`${id}-control`, last), f = fixture(id, dup)
+    if (!lastOnly || !f) { failed++; console.error(`  ✗ render 重复进度键测试输入${SELFCHECK_FIXTURE_MARK}：${id} 的夹具里找不到 ${from}`); continue }
+    const plain = runBoth(`render 重复进度键阳性对照 ${id}`, [S('render.ts'), '--dir', lastOnly.taskDir], lastOnly.cwd,
+      { status: 0, soft: [1, 2, 3] }, costEnv(lastOnly.log, { TIKHUB_API_KEY: undefined }))
+    if (!plain.ok) continue
+    if (plain.status !== 0 || !existsSync(join(lastOnly.taskDir, 'kol.csv'))) { failed++
+      console.error(`  ✗ render 重复进度键阳性对照${SELFCHECK_FIXTURE_MARK}：${id} 只留最后一处时没有以 0 结束并生成 kol.csv，exit=${plain.status}，stderr=${stderrTail(plain.stderr)}`); continue }
+    const before = [snapshot(f.taskDir), snapshot(join(f.cwd, 'memory'))]
+    const r = runBoth(`render 重复进度键 ${id}`, [S('render.ts'), '--dir', f.taskDir], f.cwd,
+      { status: 2, soft: [0, 1, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+    if (!r.ok) continue
+    const same = snapshot(f.taskDir) === before[0] && snapshot(join(f.cwd, 'memory')) === before[1]
+    const created = ['kol.csv', 'kol.xlsx'].filter(name => existsSync(join(f.taskDir, name)))
+    const at = `${id}：exit=${r.status}，目录原样=${same}，新建=${JSON.stringify(created)}，stderr=${stderrTail(r.stderr)}`
+    if (r.status !== 2 || !same || created.length) renderLeaked.push(at)
+    if (r.status !== 2 || !dupListed(r.stderr, f, field, tokens)) renderHidden.push(at)
+    renderDup++
+  }
+  if (renderDup > 0) named('重复进度键：render 见进度键写了不止一次，在任何写入前退出2，任务目录与记忆原字节不变，原本没有的交付物不被创建', !renderLeaked.length, renderLeaked.join('；'))
+  if (renderDup > 0) named('重复进度键：render 拒绝时 stderr 写出 task.json 路径、重复的字段，并按文件先后写出每一处原文，不只最后一处', !renderHidden.length, renderHidden.join('；'))
+  if (collectDup === dupCases.length * 2 && renderDup === dupCases.length) criterion('D19.l')
 })
 
 // ---- D15.j／D15.k／D6.w：IG 话题入口只由配置显式开启，校验在一切请求之前，probe 与 collect 同一处分派 ----
