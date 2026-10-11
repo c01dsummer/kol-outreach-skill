@@ -79,6 +79,7 @@ import {
   brandCalibrationProblems, calibrationContentVersion, calibrationVersionProblems, isContentVersion,
 } from './lib/brand-calibration.js'
 import { canonicalJson, contentHash as calibrationHash } from './lib/content-hash.js'
+import { planCalibrationVersion } from './lib/calibration-version-task.js'
 import { createHash } from 'node:crypto'
 import {
   normalizedAccountKey, readAgentReviewDocument, writeAgentReviewDocument,
@@ -13454,6 +13455,72 @@ suite('D20', '内容哈希版本按规范化 JSON 算出，复算只核对已有
     [Array.isArray(stale.frozenGot) && stale.frozenGot.length === 1, JSON.stringify(stale.frozenGot) === JSON.stringify(stale.got)], [true, true])
   eq('版本复算：不一致时不以复算值改写版本，输入原样',
     [Array.isArray(stale.got), stale.unchanged, staleState.brand_calibration.version], [true, true, base])
+  tension('D20', 'P1')
+
+  // `calibration version` 的判定（依据 D20.o、D20.p 与 D20 × P1 的命令一侧）：期望值只来自上面的 oracleVersion，不借被测函数。
+  // 结果对象按键排好再比（键的先后不在要求之内）；抛出照原样成为 threw: … 的值。
+  const sortedKeys = (got: unknown): unknown => typeof got === 'object' && got !== null
+    ? Object.fromEntries(Object.entries(got).sort(([a], [b]) => byCodePoint(a, b))) : got
+  const plan = (state: unknown): unknown => sortedKeys(attempt(() => planCalibrationVersion(state)))
+  const listedOnly = Object.fromEntries(Object.entries(calibration).filter(([key]) => key !== '～' && key !== '😀'))
+  // 下面两次传浅拷贝：被测函数若就地改写 version，后面复用的夹具不受牵连，红落在「不改写输入」那一条上。
+  eq('校准版本命令：合 D20.a 的校准、version 是手写标签时要写入除顶层 version 外内容的内容哈希版本',
+    plan({ product: 'listed-only', brand_calibration: { ...listedOnly } }), { action: 'write', version: oracleVersion(listedOnly) })
+  eq('校准版本命令：D20.a 未列出的键与嵌套对象里叫 version 的键都算入要写入的值',
+    plan({ product: 'extra-keys', brand_calibration: { ...calibration } }), { action: 'write', version: base })
+  const staleVersions = ['brand-v2', 'sha256:' + base.slice(7).toUpperCase(), 'sha256:' + base.slice(8), 'sha256:' + '0'.repeat(64)]
+  eq('校准版本命令：原 version 是手写标签、大写或位数不符的 sha256 串、与内容不一致的哈希时都换成按内容算出的值，不拒绝',
+    staleVersions.map(version => plan({ product: 'stale-version', brand_calibration: { ...calibration, version } })),
+    staleVersions.map(() => ({ action: 'write', version: base })))
+  eq('校准版本命令：version 已等于按内容算出的值时判为不需要写入',
+    plan({ product: 'current', brand_calibration: { ...calibration, version: base } }), { action: 'unchanged', version: base })
+
+  // D20 × P1（命令一侧）：缺席不补出校准；不合 D20.a（含 null、version 缺席、空白或不是字符串）时只报结构问题、不另算哈希；
+  // 哪种情况都不改写输入。输入里不放任何 sha256: 串，问题清单里出现它只能是算出来的。
+  const judge = (state: object) => {
+    const before = JSON.stringify(state)
+    const got = plan(state), frozen = plan(deepFreeze(structuredClone(state)))
+    return { got, frozenOk: typeof frozen === 'object' && JSON.stringify(frozen) === JSON.stringify(got), unchanged: JSON.stringify(state) === before }
+  }
+  const noCalibration = { product: 'no-calibration', market: 'US' }
+  const absentPlan = judge(noCalibration)
+  eq('校准版本命令：没有 brand_calibration 键时判为缺席，不给输入补出校准',
+    [absentPlan.got, Object.hasOwn(noCalibration, 'brand_calibration')], [{ action: 'absent' }, false])
+  const broken: unknown[] = [null, without('version'), { ...calibration, version: '   ' }, { ...calibration, version: 7 }, without('negative_signals')]
+  ok('校准版本命令夹具有效：五份不合规的校准都被已有的 D20.a 判定拒绝', broken.every(d20aRejects))
+  const brokenPlans = broken.map(brand_calibration => judge({ product: 'broken', brand_calibration }))
+  const invalidShape = (got: unknown) => {
+    const { action, problems } = (typeof got === 'object' && got !== null ? got : {}) as { action?: unknown; problems?: unknown }
+    return Array.isArray(problems)
+      ? [action, problems.length > 0, problems.every(problem => typeof problem === 'string' && !problem.includes('sha256:'))] : got
+  }
+  eq('校准版本命令：校准为 null、version 缺席、空白、不是字符串或缺 D20.a 必填字段时判为不合规并列出问题，问题里没有哈希值',
+    brokenPlans.map(({ got }) => invalidShape(got)), broken.map(() => ['invalid', true, true]))
+  const purity = [absentPlan, ...brokenPlans, judge({ product: 'listed-only', brand_calibration: listedOnly })]
+  eq('校准版本命令：缺席、不合规与要写入时都不改写输入，深冻结输入照判不抛且结果相同',
+    purity.map(({ frozenOk, unchanged }) => [frozenOk, unchanged]), purity.map(() => [true, true]))
+
+  // D20.o「写盘后」：写入的值写回再读仍自洽。写出时 1e400 与整数形的键会被改写，规范化 JSON 对此不变。
+  const roundText = `{"product":"round-trip","brand_calibration":${JSON.stringify(listedOnly).slice(0, -1)},"zz_extra":{"zz_big":1e400,"2024":"year"}}}`
+  const roundCalibration = (JSON.parse(roundText) as { brand_calibration: object }).brand_calibration
+  const roundVersion = oracleVersion(roundCalibration)
+  ok('校准版本命令夹具有效：只含 D20.a 所列字段的校准与写回夹具里的校准都通过已有的 D20.a 判定',
+    [listedOnly, roundCalibration].every(d20aAccepts))
+  const rewritten = attempt(() => stringifyCostJson(readCostDocument(roundText)))
+  ok('校准版本命令写回夹具有效：写出时 1e400 不再是原写法，整数形的键排到了原先在它前面的键之前',
+    !rewritten.includes('1e400') && /"2024":\s*"year",\s*"zz_big":/.test(rewritten))
+  const roundTrip = attempt(() => {
+    const first = readCostDocument<{ brand_calibration: { version: unknown } }>(roundText)
+    const planned = planCalibrationVersion(first)
+    if (planned.action !== 'write') return [planned]
+    first.brand_calibration.version = planned.version
+    return [planned, planCalibrationVersion(readCostDocument(stringifyCostJson(first)))]
+  })
+  eq('校准版本命令：写入的值写回 task.json 再读入后，按内容判定仍等于该值、不需要再写',
+    Array.isArray(roundTrip) ? roundTrip.map(sortedKeys) : roundTrip,
+    [{ action: 'write', version: roundVersion }, { action: 'unchanged', version: roundVersion }])
+  criterion('D20.o')
+  criterion('D20.p')
   tension('D20', 'P1')
 }
 })
