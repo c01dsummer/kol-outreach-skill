@@ -8101,6 +8101,12 @@ group('calibration-version-entry', [], () => {
       && new Set(said.slice(1, 4)).size === 3, why(l[3]))
   if (l[4].ok) named('calibration version task.json 是目录（无法读取）：以 2 拒绝，stderr 写出路径与读取问题而不说成不存在，无异常类名与堆栈，那个目录原样留着',
     unreadable(l[4], lTasks[4]) && !notFound.test(said[4]) && statSync(dirTask.task).isDirectory(), why(l[4]))
+  // 实际原因由内建模块在本进程里对同一份文本、同一个目录给出（同 D20.s 认注入错误的原文或错误码）；内建不抛时得到 stderr 不会含的 \0
+  const cause = (f: () => unknown, key: 'message' | 'code') => { try { f(); return '\0' } catch (e) { return String((e as Record<string, unknown>)[key]) } }
+  const parseCause = cause(() => JSON.parse(lBytes[2]), 'message'), readCause = cause(() => readFileSync(dirTask.task), 'code')
+  if (l.slice(1).every(r => r.ok)) named('calibration version 读不到任务的四种原因（task.json 不存在、坏 JSON、根是数组、task.json 是目录）说法两两不同，坏 JSON 写出实际的解析错误，目录写出实际的读取错误码',
+    new Set(said.slice(1, 5)).size === 4 && said[2].includes(parseCause) && said[4].includes(readCause),
+    `解析错误=${JSON.stringify(parseCause)}，读取错误码=${JSON.stringify(readCause)}，去掉路径后：${JSON.stringify(said.slice(1, 5))}`)
   criterion('D20.l')
 
   // D20.m：没有 brand_calibration 键 —— 不生成、不写盘，以 0 报 absent
@@ -8123,6 +8129,11 @@ group('calibration-version-entry', [], () => {
   if (bad[3].r.ok) named('calibration version 校准缺必填的 negative_signals：以 2 拒绝，stderr 写出 task.json 路径与该字段，不给哈希，原字节不变', invalid(bad[3], 'negative_signals'), why(bad[3].r))
   if (bad[4].r.ok) named('calibration version 校准缺 negative_signals 且 tone_aesthetic 含非字符串：以 2 拒绝，stderr 两处都写出，不给哈希，原字节不变',
     invalid(bad[4], 'negative_signals') && told(bad[4].r, bad[4].f.task).includes('tone_aesthetic'), why(bad[4].r))
+  // 「每一处不合规」也意味着没有的不报成有：上一条两处都点名是这里的阳性对照
+  const [onlyVersion, onlyNegative] = [bad[1], bad[3]].map(({ f, r }) => told(r, f.task))
+  if (bad[1].r.ok && bad[3].r.ok) named('calibration version 不合 D20.a 时只点名实际的不合规：只缺 negative_signals 不提其余三组数组，只缺 version 不提 negative_signals 与 tone_aesthetic',
+    onlyNegative.includes('negative_signals') && !/tone_aesthetic|target_creator_types|natural_scenarios/.test(onlyNegative)
+      && onlyVersion.includes('version') && !/negative_signals|tone_aesthetic/.test(onlyVersion), why(bad[3].r) + why(bad[1].r))
   criterion('D20.n')
 
   // D20.o（只断言盘上的值，由 test.ts 认领）与 D20.q：手写版本换成内容哈希版本，其余按规范化 JSON 不变
@@ -8157,6 +8168,12 @@ group('calibration-version-entry', [], () => {
     .map((f, i) => ({ f, r: call(`calibration version 原版本与内容不一致第 ${i} 种运行`, entry, ['version', '--dir', f.dir], f.cwd, 0) }))
   if (drift.every(({ r }) => r.ok)) named('calibration version 原 version 是与内容不一致的哈希、大写或位数不符的 sha256 串：都以 0 写入按内容算出的值，不拒绝',
     drift.every(({ f, r }) => r.status === 0 && out(r).status === 'written' && parsed(fileText(f.task)).brand_calibration?.version === expected), drift.map(({ r }) => why(r)).join('；'))
+  // 以 2 拒绝的原因只有参数、读不到任务、校准不合 D20.a（D20.k–D20.n）；任务列表是 D20.q 保留的内容，不合规也不拦写入
+  const junk = fixture('junk-tasks', { brand_calibration: manual, tasks: 'junk', market: undefined }), junkBefore = fileText(junk.task)
+  const jr = call('calibration version 任务列表不合规运行', entry, ['version', '--dir', junk.dir], junk.cwd, 0), junkText = fileText(junk.task)
+  if (jr.ok) named('calibration version 校准合 D20.a 而任务其余部分不合规（tasks 不是数组、缺 market）：照样以 0 写入按内容算出的版本，任务列表与其余内容按规范化 JSON 原样保留',
+    jr.status === 0 && out(jr).status === 'written' && parsed(junkText).brand_calibration?.version === expected && rest(junkText) === rest(junkBefore)
+      && parsed(junkText).tasks === 'junk', `盘上=${parsed(junkText).brand_calibration?.version}，其余相同=${rest(junkText) === rest(junkBefore)}，${why(jr)}`)
   criterion('D20.p')
 
   // D20.s：需要写盘而保存失败。预加载让改名到 task.json 失败：armed 证明装上了，injected 证明确实触发
