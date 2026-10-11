@@ -1,6 +1,6 @@
 {
   "$comment": "编号的唯一真相来源。docs/SPEC.md 是它的渲染，两者不一致以本文件为准。content_hash 是派生字段，由 spec-sync --write 写，不要手改 —— 改了需求不回写，npm run check 当场变红。字段含义见 process/1-REQUIREMENTS.md。",
-  "content_hash": "2c4d7ac0c803",
+  "content_hash": "078403e6a84c",
   "categories": {
     "P": "红线 —— 不参与任何取舍",
     "S": "范围 —— 明确不做什么",
@@ -1340,7 +1340,7 @@
       "id": "D19",
       "cat": "D",
       "pri": "P1",
-      "text": "collect 恢复已有 task.json 时与 render 读入 task.json 时，先校验原始搜索进度，坏断点不许在改额、预留或请求后才暴露，也不许经其他命令整份写回后变得看不出来，也不许被 render 印成另一个数；旧目录缺少整张统计表仍表示历史未知，不补造成零。",
+      "text": "collect 恢复已有 task.json 时与 render 读入 task.json 时，先校验原始搜索进度，坏断点不许在改额、预留或请求后才暴露，也不许经其他命令整份写回后变得看不出来，也不许被 render 印成另一个数；同一个进度键写了不止一次时不许只按读入后留下的最后一处放行；旧目录缺少整张统计表仍表示历史未知，不补造成零。",
       "accept": [
         {
           "id": "D19.a",
@@ -1368,7 +1368,7 @@
         },
         {
           "id": "D19.g",
-          "text": "enrich（普通、改额，含其费用检查点）、render 与 `calibration version` 整份写回 task.json 后，done 与 offsets、answered、found、pages 里每个 JSON 数字与写回前盘上的原文逐字相同：溢出不写成 null，下溢不写成 0，超出双精度的写法不舍入成另一个数，也不改换写法。手改坏的进度经它们写回后，collect --resume 仍按 D19.e 以 2 拒绝、按 D19.f 显示原文。"
+          "text": "enrich（普通、改额，含其费用检查点）、render 与 `calibration version` 整份写回 task.json 后，done 与 offsets、answered、found、pages 里每个 JSON 数字与写回前盘上的原文逐字相同：溢出不写成 null，下溢不写成 0，超出双精度的写法不舍入成另一个数，也不改换写法。手改坏的进度经 enrich 或 `calibration version` 写回后，collect --resume 仍按 D19.e 以 2 拒绝、按 D19.f 显示原文；render 见到坏进度按 D19.h 在写回前拒绝，经它写回的只有合规进度。"
         },
         {
           "id": "D19.h",
@@ -1381,6 +1381,14 @@
         {
           "id": "D19.j",
           "text": "render 判进度不比 collect 严：按 D19.a–b 合规的进度照常以 0 结束并生成交付物，包括 D19.d 缺整张表的旧目录与用小数或指数写成的整数。"
+        },
+        {
+          "id": "D19.k",
+          "text": "task.json 根上的 done、offsets、answered、found、pages 任一键出现不止一次，或 offsets、answered、found、pages 某张表里同一个任务索引键出现不止一次（按 JSON 解码后的键名相同即算，如 \"0\" 与 \"\\u0030\"）时，原始进度判为不合规，即使最后一处的值合法；问题点名该字段（表里的重复还点名键）与出现次数，并按在文件里的先后列出每一处：数字与字符串照原文，对象与数组只标出是对象或数组。不同表里的同名键不算重复；根与这四张表以外位置上的重复键不由本条判。"
+        },
+        {
+          "id": "D19.l",
+          "text": "collect --resume（含 --budget 改额）与 render 读入的 task.json 有 D19.k 的重复时，分别按 D19.e、D19.h 以退出码 2 拒绝：零预留、零请求，在任何文件或跨任务记忆写入之前，task.json 保持原字节；stderr 写出 task.json 路径、重复的字段与每一处的原文，不只显示读入后留下的最后一处。"
         }
       ],
       "adr": [
@@ -1391,7 +1399,7 @@
       "tension": [
         {
           "with": "P1",
-          "ruling": "P1 优先：读不出精确值的续跑进度数字（溢出、下溢、超出双精度），由不写续跑进度的命令整份写回时照原值留下，不改写成 null、0 或舍入后的合法值 —— 尤其不把坏的 found 写成 D6.l「注定不全」的 null；坏断点留给 collect 续跑按原文拒绝，不由任何命令修补或补成合法值。",
+          "ruling": "P1 优先：读不出精确值的续跑进度数字（溢出、下溢、超出双精度），由不写续跑进度的命令整份写回时照原值留下，不改写成 null、0 或舍入后的合法值 —— 尤其不把坏的 found 写成 D6.l「注定不全」的 null；坏断点留给 collect 续跑与 render 导出（D19.h）按原文拒绝，不由任何命令修补或补成合法值。",
           "adr": "ADR-138"
         }
       ]

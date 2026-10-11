@@ -2,6 +2,8 @@
  * task.json 的原始进度字段问题（collect 续跑与 render 导出前共用，D19.e、D19.h）。只读，不修复旧任务，也不从别的表推算。
  * 任务列表须先经 taskListProblems 校验；它的长度定义唯一合法的索引范围。
  */
+import type { SourceDuplicate } from './cost-json.js'
+
 const maxSafe = BigInt(Number.MAX_SAFE_INTEGER)
 
 /** JSON 数字可以用小数或指数写成整数；按十进制原文计算，绝不先用 Number 舍入。 */
@@ -29,7 +31,8 @@ function exactProgressInteger(token: string): bigint | null {
 export function resumeProgressProblems(raw: Readonly<{
   done?: unknown; offsets?: unknown; answered?: unknown; found?: unknown; pages?: unknown
 }>, taskCount: number,
-sourceToken?: (holder: object, key: string) => string | undefined): string[] {
+sourceToken?: (holder: object, key: string) => string | undefined,
+duplicates: readonly SourceDuplicate[] = []): string[] {
   const out: string[] = []
   // 显示读到的值：每个数字（含整张表位置上的、装在坏容器里的）都按原文 token 写，溢出不显示成 Infinity 或 null（D19.f、D19.i）。
   // 坏容器只展开几层：再深的不是要人改的那一处，也不该为显示它递归到栈溢出（ADR-136 记过深键）

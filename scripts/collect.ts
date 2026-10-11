@@ -18,7 +18,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetInputError, startBudget, type PersistCost } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
-import { readCostDocument, readCostLimit, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
+import { readCostDocument, readCostLimit, sourceDuplicateKeys, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
 import {
   MAX_PAGES, canRequestPage, canonicalReviewLinks, finalize, firstPagePending, igAfterPage, mergePage, needsProfile,
   pagesFetched, pendingKeywords, rawSeedFromLegacy, resumeCostLine, reviewRelations, underPageCap,
@@ -108,7 +108,7 @@ if (!resume) {
 // 恢复任务的进度只在任务列表有效后才能按索引解释；在首次读取 done、改额和保存前拒绝坏输入。
 if (resume) {
   const progressProblems = resumeProgressProblems(state, state.tasks.length,
-    (holder, key) => sourceNumberToken(state, holder, key))
+    (holder, key) => sourceNumberToken(state, holder, key), sourceDuplicateKeys(state))
   if (progressProblems.length) {
     console.error(`${productFrom} 里的续跑进度不合规：\n  ${progressProblems.join('\n  ')}`)
     process.exit(2)

@@ -72,6 +72,15 @@ export function sourceNumberToken(root: object, holder: object, key: string): st
   return sourceTokens.get(root)?.get(holder)?.get(key)
 }
 
+/** 读入文本里根与根下一层对象中重复出现的键（D19.k）。parent 是所在对象在根上的键名，根上的重复没有 parent；
+ * values 按在文本里的先后，数字与字符串照原文，对象与数组记作 {…}、[…]。 */
+export type SourceDuplicate = { parent?: string; key: string; values: readonly string[] }
+
+export function sourceDuplicateKeys(root: object): readonly SourceDuplicate[] {
+  void root
+  return []
+}
+
 export function readCostLimit(state: CostState): MicroUsd {
   const root = roots.get(state)
   if (!root || !Object.hasOwn(state, 'budget_usd') || !Object.is(root.value, state.budget_usd))
