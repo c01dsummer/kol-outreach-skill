@@ -1,4 +1,7 @@
-/** D13 · 根预算与费用字段保留精确数值证据；其余业务字段照常解析。 */
+/**
+ * D13 · 根预算与费用字段保留精确数值证据；其余业务字段照常解析成 number。
+ * D19.g／D14.g（ADR-138）· 整份写回读入的根时，没被程序改动的非费用数字照读入时的原文写回。
+ */
 import { CostError, formatUsd, parseUsdMicros, type MicroUsd } from './cost-ledger.js'
 import type { CostView } from './budget.js'
 
@@ -12,6 +15,7 @@ const exactJSON = JSON as unknown as ExactJSON
 const roots = new WeakMap<object, { value: unknown; token: string }>()
 // 进度字段必须按原始 JSON 数字判定；Number 可能把小数舍入为整数或让指数下溢为 0。
 // 按解析根对象关联原 token，不往业务状态写入任何辅助字段。
+// 这张表也供 D19.g／D14.g 的整份写回用：stringifyCostJson 写出读入的根时，没改动的非费用数字照它写回原文。
 const sourceTokens = new WeakMap<object, WeakMap<object, Map<string, string>>>()
 // 无法解释为非负安全整数的费用数字保留原件；对象形态不能误过费用账的 number 校验。
 const unavailableNumbers = new WeakMap<object, string>()
@@ -85,7 +89,9 @@ export function setCostLimitField(state: CostState, limit: MicroUsd): void {
 
 const moneyFields = ['cost_estimate_usd', 'budget_usd', 'cost_http_200_usd',
   'cost_unknown_result_usd', 'cost_pending_usd'] as const
+const costRootKeys = new Set(['requests', 'cost_ledger', 'budget_usd'])
 
+/** 写出任务或配置 JSON：费用字段按 D13 精确写出；整份写回 readCostDocument 读入的根时，没被改动的非费用数字照原文写回（D19.g、ADR-138）。 */
 export function stringifyCostJson(value: object, view?: CostView): string {
   assertCostJsonRuntime()
   const result: Record<string, unknown> = { ...value }
@@ -103,10 +109,20 @@ export function stringifyCostJson(value: object, view?: CostView): string {
     if (root && Object.hasOwn(value, 'budget_usd') && Object.is(root.value, (value as CostState).budget_usd))
       result.budget_usd = exactJSON.rawJSON!(root.token)
   }
-  return JSON.stringify(result, (_key, item: unknown) => {
+  // D19.g／D14.g：只查传进来的那个根的原文表；新建的根（meta、stdout）查不到，照常写。
+  const tokens = sourceTokens.get(value)
+  // 顶层费用三棵子树只走上面的 D13 专用路径，下层随写出往下传；下层与费用同名的键不算。
+  const costHolders = new WeakSet<object>()
+  return JSON.stringify(result, function(this: object, key: string, item: unknown) {
+    const cost = this === result ? costRootKeys.has(key) : costHolders.has(this)
     if (item !== null && typeof item === 'object') {
       const token = unavailableNumbers.get(item)
       if (token !== undefined) return exactJSON.rawJSON!(token)
+      if (cost) costHolders.add(item)
+    } else if (typeof item === 'number' && tokens && !cost) {
+      // 结果是浅拷贝：顶层键回读入的根查，嵌套对象与根共用。当前值仍等于原文的值才写原文，改过的照新值写。
+      const token = tokens.get(this === result ? value : this)?.get(key)
+      if (token !== undefined && Object.is(item, Number(token))) return exactJSON.rawJSON!(token)
     }
     return item
   }, 2)

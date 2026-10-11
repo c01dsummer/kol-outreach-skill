@@ -136,7 +136,7 @@ import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, DiscoverySource, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
-import { loadRawCreators, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
+import { loadRawCreators, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 
 let fail = 0
@@ -285,6 +285,20 @@ const costFixture = (limit = 1_000_000, http = 0, unknown = 0): CostState => {
     entries: http + unknown ? [{ endpoint: TEST_TT, price_version: TEST_PRICE_VERSION,
       unit_micro_usd: 1000, http_200_count: http, unknown_result_count: unknown }] : [] }
   return readCostDocument(`{"budget_usd":${testUsd(limit)},"requests":${http + unknown},"cost_ledger":${JSON.stringify(ledger)}}`)
+}
+// 测试自己的盘上原文观察器（ADR-138）：Node 内建 JSON.parse 的 source context 按路径取原始 token，
+// 不借被测的 readCostDocument／sourceNumberToken；null 也记下原文，让「溢出写成 null」红成 "null"。
+const diskTokens = (text: string, paths: readonly (readonly (string | number)[])[]): (string | undefined)[] => {
+  const tokens = new WeakMap<object, Map<string, string>>()
+  const parsed = (JSON.parse as any)(text, function(this: object, key: string, value: unknown, context?: { source?: string }) {
+    if ((value === null || typeof value !== 'object') && context?.source !== undefined)
+      tokens.set(this, (tokens.get(this) ?? new Map()).set(key, context.source))
+    return value
+  })
+  return paths.map(path => {
+    const holder = path.slice(0, -1).reduce<any>((value, step) => value?.[step], parsed)
+    return holder !== null && typeof holder === 'object' ? tokens.get(holder)?.get(String(path.at(-1))) : undefined
+  })
 }
 const fundedBudget = (limit = 1_000_000, notify: Parameters<typeof startBudget>[3] = () => {}) =>
   startBudget({}, limit, 'process', notify)
@@ -5652,6 +5666,143 @@ suite('D19', '续跑进度字段先验校验')
     resumeProgressProblems({ done: [1], offsets: { 0: 0 }, answered: { 2: 4 },
       found: { 1: null }, pages: { 2: 12 } }, 3), [])
   criterion('D19.d')
+
+  // D19.g、D19 × P1（ADR-138）：整份写回 task.json 后，读不出精确值的进度数字照原文留下，collect 仍按原文拒绝。
+  // 期望只来自下面写进夹具的字面值；盘上原文由 diskTokens 取，不借被测函数。两个任务：done 的 0.99999999999999999 舍入后是合法的 1。
+  const attempt = <T>(run: () => T): T | { threw: string } => {
+    try { return run() } catch (error) { return { threw: error instanceof Error ? error.message : String(error) } }
+  }
+  const INEXACT = [['done', 0, '0.99999999999999999'], ['offsets', '1', '2.0000000000000001'],
+    ['answered', '0', '9007199254740993'], ['found', '1', '1e400'], ['pages', '0', '1e-325']] as const
+  const literals = INEXACT.map(([, , token]) => token), paths = INEXACT.map(([field, key]) => [field, key])
+  const STAMP = '2026-01-01T00:00:00.000Z'
+  // 五张表各一项；budget 子句可去掉，造一份没有 budget_usd 键的任务。
+  const progressText = (entries: readonly (readonly [string, string | number, string])[], budget = '"budget_usd":0.005,') =>
+    `{"product":"p","market":"US","target_count":1,"created_at":"${STAMP}","updated_at":"${STAMP}",`
+    + '"tasks":[{"keyword":"a","dimension":"category","platform":"tiktok"},{"keyword":"b","dimension":"scene","platform":"instagram"}],'
+    + entries.map(([field, key, token]) => field === 'done' ? `"done":[${token}]` : `"${field}":{"${key}":${token}}`).join(',')
+    + `,${budget}"requests":2,"cost_ledger":${JSON.stringify(costFixture(5000, 1, 1).cost_ledger)}}`
+  const inexactText = progressText(INEXACT)
+  // collect 的接法（见上面 fromToken）：按原文取 token 判进度。
+  const problemsOf = (text: string | { threw: string }) => typeof text !== 'string' ? text : attempt(() => {
+    const parsed = readCostDocument<Record<string, unknown>>(text)
+    return resumeProgressProblems(parsed, 2, (holder, key) => sourceNumberToken(parsed, holder, key))
+  })
+  const namedBy = (text: string | { threw: string }) => {
+    const problems = problemsOf(text)
+    return Array.isArray(problems) ? INEXACT.map(([field, , token]) => problems.some(p => p.includes(field) && p.includes(token))) : problems
+  }
+  // 只有一处坏进度的任务（其余四张表合法）：有问题、问题全在那一张表、点名原文。
+  const lone = (field: string, token: string) => (text: string | { threw: string }) => {
+    const problems = problemsOf(text)
+    return Array.isArray(problems)
+      ? [problems.length > 0, problems.every(p => p.includes(field)), problems.some(p => p.includes(token))] : problems
+  }
+  const NEGATIVE = [['done', 0, '0'], ['offsets', '0', '0'], ['answered', '0', '0'], ['found', '1', '-1e400'], ['pages', '0', '1']] as const
+  const SUBNORMAL = [['done', 0, '0'], ['offsets', '1', '3e-324'], ['answered', '0', '0'], ['found', '0', '5'], ['pages', '0', '1']] as const
+  const negativeText = progressText(NEGATIVE), subnormalText = progressText(SUBNORMAL), noBudgetText = progressText(INEXACT, '')
+  const negativeNamed = lone('found', '-1e400'), subnormalNamed = lone('offsets', '3e-324')
+  const tokensOf = (entries: readonly (readonly [string, string | number, string])[]) => entries.map(([, , token]) => token)
+  const pathsOf = (entries: readonly (readonly [string, string | number, string])[]) => entries.map(([field, key]) => [field, key])
+  const onDisk = (text: string | { threw: string }, at: readonly (readonly (string | number)[])[] = paths) =>
+    typeof text === 'string' ? diskTokens(text, at) : text
+  eq('整份写回夹具有效：普通 JSON 往返会把五张进度表里读不出精确值的数字各改成另一个值',
+    diskTokens(JSON.stringify(JSON.parse(inexactText)), paths), ['1', '2', '9007199254740992', 'null', '0'])
+  eq('整份写回夹具有效：写回前 collect 按原文判定，五张进度表各被拒绝并点名原文', namedBy(inexactText), INEXACT.map(() => true))
+  const root = mkdtempSync(join(tmpdir(), 'kol-d19g-'))
+  try {
+    const seeded = (name: string, text = inexactText) => { const dir = join(root, name); mkdirSync(dir); writeFileSync(join(dir, 'task.json'), text); return dir }
+    const readBack = (dir: string, write: (dir: string) => void) => attempt(() => { write(dir); return rf(join(dir, 'task.json'), 'utf8') })
+    const saved = readBack(seeded('save-task'), dir => saveTask(dir, loadTask(dir)))
+    const checkpointed = readBack(seeded('cost-checkpoint'), dir => {
+      new Budget(loadTask(dir), () => {}, snapshot => saveCostCheckpoint(dir, snapshot)).reserve(TEST_IG)
+    })
+    const edited = readBack(seeded('edited'), dir => {
+      const state = loadTask(dir)
+      state.offsets![1] = 7; state.found![1] = 3
+      saveTask(dir, state)
+    })
+    eq('整份写回夹具有效：saveTask 与费用检查点确实写回了 task.json（updated_at 已刷新）',
+      [saved, checkpointed].map(text => typeof text === 'string' ? JSON.parse(text).updated_at !== STAMP : text), [true, true])
+    eq('saveTask 整份写回后，五张进度表里每个数字的原文与写回前盘上的原文相同', onDisk(saved), literals)
+    eq('费用检查点写回后，五张进度表里每个数字的原文与写回前盘上的原文相同', onDisk(checkpointed), literals)
+    eq('整份写回后 collect 按原文判定仍拒绝五张表并点名各自原文，溢出的 found 不被读成 null',
+      [namedBy(saved), namedBy(checkpointed)], [INEXACT.map(() => true), INEXACT.map(() => true)])
+    eq('整份写回时程序改过的进度照新值写：offsets 与 found 改成 7 与 3 后盘上就是 7 与 3',
+      onDisk(edited, [['offsets', '1'], ['found', '1']]), ['7', '3'])
+    eq('整份写回时同一份里没改过的 pages 仍是写回前盘上的原文', onDisk(edited, [['pages', '0']]), ['1e-325'])
+
+    // enrich 改额：在读入的同一份对象上经 Budget 改额，再预留一次（触发费用检查点），然后整份 saveTask；根预算确实变了，进度原文照旧。
+    let checkpoints = 0
+    const changed = readBack(seeded('budget-change'), dir => {
+      const state = loadTask(dir)
+      const budget = new Budget(state, () => {}, snapshot => { saveCostCheckpoint(dir, snapshot); checkpoints++ })
+      budget.setLimit(10000); budget.reserve(TEST_IG)
+      saveTask(dir, state)
+    })
+    eq('改额整份写回夹具有效：费用检查点确实写过，盘上根预算确实从 0.005 改成 0.01，updated_at 已刷新',
+      typeof changed === 'string' ? [checkpoints > 0, JSON.parse(changed).budget_usd, JSON.parse(changed).updated_at !== STAMP] : changed, [true, 0.01, true])
+    eq('经 Budget 改额（带费用检查点）后在同一份对象上 saveTask 整份写回，五张进度表里每个数字的原文与写回前盘上的原文相同', onDisk(changed), literals)
+    eq('改额后整份写回的任务，collect 按原文判定仍拒绝五张表并点名各自原文', namedBy(changed), INEXACT.map(() => true))
+
+    // render（persistListAndStatus）与 saveTask 写回一份没有 budget_usd 键的任务。
+    eq('无根预算写回夹具有效：任务里没有 budget_usd 键，写回前 collect 按原文拒绝五张表并点名原文',
+      [Object.hasOwn(JSON.parse(noBudgetText), 'budget_usd'), namedBy(noBudgetText)], [false, INEXACT.map(() => true)])
+    const noBudget = [readBack(seeded('no-budget-render', noBudgetText), dir => persistListAndStatus(dir, loadTask(dir), [], 'unknown')),
+      readBack(seeded('no-budget-save', noBudgetText), dir => saveTask(dir, loadTask(dir)))]
+    eq('无根预算写回夹具有效：persistListAndStatus 与 saveTask 确实写回了 task.json（updated_at 已刷新）',
+      noBudget.map(text => typeof text === 'string' ? JSON.parse(text).updated_at !== STAMP : text), [true, true])
+    eq('没有 budget_usd 键的任务经 persistListAndStatus 与 saveTask 整份写回后，五张进度表里每个数字的原文不变',
+      noBudget.map(text => onDisk(text)), [literals, literals])
+    eq('没有 budget_usd 键的任务整份写回后 collect 按原文判定仍拒绝五张表，溢出的 found 仍点名 1e400',
+      noBudget.map(namedBy), [INEXACT.map(() => true), INEXACT.map(() => true)])
+
+    // 负溢出与部分下溢：各一份只有那一处坏、其余四张表合法的任务，经 saveTask 与费用检查点各写回一次。
+    eq('整份写回夹具有效：普通 JSON 往返会把负溢出的 found 改成 null、把部分下溢的 offsets 改成另一个次正规数 5e-324',
+      [diskTokens(JSON.stringify(JSON.parse(negativeText)), [['found', '1']]), diskTokens(JSON.stringify(JSON.parse(subnormalText)), [['offsets', '1']])],
+      [['null'], ['5e-324']])
+    eq('整份写回夹具有效：写回前 collect 按原文判定，两份只坏一处的任务各只拒绝那一张表并点名原文 -1e400 与 3e-324',
+      [negativeNamed(negativeText), subnormalNamed(subnormalText)], [[true, true, true], [true, true, true]])
+    const writers = [(dir: string) => saveTask(dir, loadTask(dir)),
+      (dir: string) => { new Budget(loadTask(dir), () => {}, snapshot => saveCostCheckpoint(dir, snapshot)).reserve(TEST_IG) }]
+    const negative = writers.map((write, i) => readBack(seeded(`negative-${i}`, negativeText), write))
+    const subnormal = writers.map((write, i) => readBack(seeded(`subnormal-${i}`, subnormalText), write))
+    eq('整份写回夹具有效：负溢出与部分下溢两份任务经 saveTask 与费用检查点确实写回（updated_at 已刷新）',
+      [...negative, ...subnormal].map(text => typeof text === 'string' ? JSON.parse(text).updated_at !== STAMP : text), [true, true, true, true])
+    eq('saveTask 与费用检查点整份写回后，负溢出的 found 盘上原文仍是 -1e400，不写成 null，其余进度原文不变',
+      negative.map(text => onDisk(text, pathsOf(NEGATIVE))), [tokensOf(NEGATIVE), tokensOf(NEGATIVE)])
+    eq('负溢出的 found 整份写回后 collect 按原文判定仍只拒绝 found 并点名 -1e400',
+      negative.map(negativeNamed), [[true, true, true], [true, true, true]])
+    eq('saveTask 与费用检查点整份写回后，部分下溢的 offsets 盘上原文仍是 3e-324，不舍入成 5e-324，其余进度原文不变',
+      subnormal.map(text => onDisk(text, pathsOf(SUBNORMAL))), [tokensOf(SUBNORMAL), tokensOf(SUBNORMAL)])
+    eq('部分下溢的 offsets 整份写回后 collect 按原文判定仍只拒绝 offsets 并点名 3e-324',
+      subnormal.map(subnormalNamed), [[true, true, true], [true, true, true]])
+
+    // 值不变、只是写法不规范：五张表全合法，done 写 1e+0、offsets 写 2e0、answered 写 -0、found 写 1E0、pages 写 1.0
+    // （D19.a、D19.b 允许：精确等于非负安全整数，-0 精确等于 0），经 saveTask 与费用检查点各写回一次。
+    const VERBOSE = [['done', 0, '1e+0'], ['offsets', '0', '2e0'], ['answered', '0', '-0'], ['found', '0', '1E0'], ['pages', '0', '1.0']] as const
+    const verboseText = progressText(VERBOSE), verbose = writers.map((write, i) => readBack(seeded(`verbose-${i}`, verboseText), write))
+    eq('整份写回夹具有效：写成 1e+0、2e0、-0、1E0 与 1.0 的整数进度合法，collect 不拒绝；普通 JSON 往返会把它们改写成 1、2、0、1 与 1',
+      [problemsOf(verboseText), diskTokens(JSON.stringify(JSON.parse(verboseText)), pathsOf(VERBOSE))], [[], ['1', '2', '0', '1', '1']])
+    eq('整份写回夹具有效：写法不规范的合法进度经 saveTask 与费用检查点确实写回（updated_at 已刷新）',
+      verbose.map(text => typeof text === 'string' ? JSON.parse(text).updated_at !== STAMP : text), [true, true])
+    eq('saveTask 与费用检查点整份写回后，合法进度里写成 1e+0、2e0、-0、1E0 与 1.0 的整数盘上原文逐字不变，不改换写法',
+      verbose.map(text => onDisk(text, pathsOf(VERBOSE))), [tokensOf(VERBOSE), tokensOf(VERBOSE)])
+
+    // 未完成的任务、进度手写为 0 与 0.0（D19.b 允许，D19.d 不要求互相推算）：按 collect 的顺序推进，经费用检查点再 saveTask 整份写回。
+    const ZERO = [['done', 0, ''], ['offsets', '0', '0'], ['answered', '0', '0'], ['found', '0', '0.0'], ['pages', '0', '0']] as const
+    const zeroText = progressText(ZERO), advanced = readBack(seeded('zero-advanced', zeroText), dir => {
+      const state = loadTask(dir)
+      state.offsets![0] = 9; state.answered![0] = 3; state.found![0] = 5; state.pages![0] = 2
+      new Budget(state, () => {}, snapshot => saveCostCheckpoint(dir, snapshot)).reserve(TEST_IG)
+      saveTask(dir, state)
+    })
+    eq('整份写回夹具有效：done 为空、进度手写为 0 与 0.0 的未完成任务合法，collect 不拒绝；推进后确实写回（updated_at 已刷新）',
+      [problemsOf(zeroText), typeof advanced === 'string' ? JSON.parse(advanced).updated_at !== STAMP : advanced], [[], true])
+    eq('整份写回时原值为 0 的进度被改过后照新值写，不写回旧的 0', onDisk(advanced, pathsOf(ZERO).slice(1)), ['9', '3', '5', '2'])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+  criterion('D19.g')
+  tension('D19', 'P1')
 }
 
 })
@@ -9780,6 +9931,15 @@ suite('P3', '未经确认的预算输入不得取得付费额度')
   try { readCostLimit({ budget_usd: 0.005 }) }
   catch (error) { if (error instanceof CostError) code = error.code }
   eq('普通内存预算没有原 token 必须拒绝', code, 'invalid-money')
+  // 期望取夹具字面值，原文由模块级 diskTokens 读；每对前一半是阳性对照：普通 JSON 往返确实会改掉这些数字。
+  const roundTrips = (text: string, at: (string | number)[][]) => [diskTokens(JSON.stringify(JSON.parse(text)), at),
+    (() => { try { return diskTokens(stringifyCostJson(readCostDocument(text)), at) } catch (error) { return String(error) } })()]
+  eq('根上读不出精确值的 requests 整份写回后仍是原数字',
+    roundTrips('{"budget_usd":1,"requests":9007199254740993}', [['requests']]), [['9007199254740992'], ['9007199254740993']])
+  const ledger = '{"budget_usd":1,"requests":0,"cost_ledger":{"next_attempt_id":9007199254740993,"entries":[{"unit_micro_usd":1e400,"http_200_count":9007199254740993}]}}'
+  eq('费用账里读不出精确值的数字整份写回后仍是原数字', roundTrips(ledger, [['cost_ledger', 'next_attempt_id'],
+    ['cost_ledger', 'entries', 0, 'unit_micro_usd'], ['cost_ledger', 'entries', 0, 'http_200_count']]),
+    [['9007199254740992', 'null', '9007199254740992'], ['9007199254740993', '1e400', '9007199254740993']])
 }
 })
 if (fullRun) {
@@ -10341,6 +10501,42 @@ suite('D14', '费用检查点只推进费用，保留盘上业务与精确预算
         eq(`${name} 没有凭空产生 task.json`, existsSync(join(dir, 'task.json')), false)
       }
     })
+    // 「其他业务字段保持盘上版本」在进度以外读不出精确值的数字上（ADR-138）：期望即夹具字面值，盘上原文由 diskTokens 取。
+    {
+      const dir = join(root, 'inexact-business'), task = join(dir, 'task.json'), STAMP = '2026-01-01T00:00:00.000Z'
+      const positions = [[['top_extra'], '2.0000000000000001'], [['custom', 'nested', 'big'], '1e400'],
+        [['custom', 'nested', 'tiny'], '1e-400'], [['custom', 'nested', 'beyond'], '9007199254740993'],
+        [['tasks', 0, 'task_extra'], '1e-400'], [['brand_calibration', 'calibration_extra'], '1e400']] as const
+      const at = positions.map(([path]) => path), literals = positions.map(([, token]) => token)
+      const text = `{"budget_usd":0.005,"product":"p","market":"US","target_count":1,"updated_at":"${STAMP}","top_extra":2.0000000000000001,`
+        + '"custom":{"nested":{"big":1e400,"tiny":1e-400,"beyond":9007199254740993},"neg":{"big":-1e400,"beyond":-9007199254740993},"sub":3e-324,'
+        + '"costlike":{"requests":2.0000000000000001,"budget_usd":1e400,"cost_ledger":{"n":9007199254740993}}},'
+        + '"tasks":[{"keyword":"k","dimension":"category","platform":"tiktok","task_extra":1e-400,"requests":1e-400}],'
+        + `"brand_calibration":{"calibration_extra":1e400,"budget_usd":1e400},"cost_ledger":${JSON.stringify(costFixture(5000, 1, 1).cost_ledger)},"requests":2}`
+      // 负溢出、负的超精度整数、部分下溢，以及顶层以下与费用字段同名的业务键（不是顶层费用子树，不走 D13 路径）。
+      const signed = [['custom', 'neg', 'big'], ['custom', 'neg', 'beyond']], tiny = [['custom', 'sub']]
+      const costNamed = [['tasks', 0, 'requests'], ['custom', 'costlike', 'requests'], ['custom', 'costlike', 'budget_usd'],
+        ['custom', 'costlike', 'cost_ledger', 'n'], ['brand_calibration', 'budget_usd']]
+      mkdirSync(dir); writeFileSync(task, text)
+      let wrote: unknown = true
+      try { new Budget(readCostDocument(text), () => {}, snapshot => saveCostCheckpoint(dir, snapshot)).reserve(TEST_IG) } catch (error) { wrote = String(error) }
+      const savedText = rf(task, 'utf8')
+      eq('费用检查点业务字段夹具有效：写回确实发生（updated_at 已刷新），普通 JSON 往返会改掉这六个数字',
+        [wrote, JSON.parse(savedText).updated_at !== STAMP, diskTokens(JSON.stringify(JSON.parse(text)), at)],
+        [true, true, ['2', 'null', '0', '9007199254740992', '0', 'null']])
+      eq('费用检查点写回后，未列出的顶层键、嵌套对象、任务条目与品牌校准里读不出精确值的数字盘上原文不变', diskTokens(savedText, at), literals)
+      const roundTrip = JSON.stringify(JSON.parse(text)), saved = JSON.parse(savedText)
+      eq('费用检查点业务字段夹具有效：普通 JSON 往返把负溢出写成 null、负的超精度整数与部分下溢舍入成另一个数、下层费用同名键上的数字也改掉',
+        [diskTokens(roundTrip, signed), diskTokens(roundTrip, tiny), diskTokens(roundTrip, costNamed)],
+        [['null', '-9007199254740992'], ['5e-324'], ['0', '2', 'null', '9007199254740992', 'null']])
+      eq('费用检查点写回后，业务字段里负溢出的 -1e400 与负的超精度整数 -9007199254740993 盘上原文不变',
+        diskTokens(savedText, signed), ['-1e400', '-9007199254740993'])
+      eq('费用检查点写回后，业务字段里部分下溢的 3e-324 盘上原文不变，不舍入成 5e-324', diskTokens(savedText, tiny), ['3e-324'])
+      eq('费用检查点写回后，任务条目、嵌套对象与品牌校准里与费用字段同名的 requests、budget_usd、cost_ledger 下的数字盘上原文不变',
+        diskTokens(savedText, costNamed), ['1e-400', '2.0000000000000001', '1e400', '9007199254740993', '1e400'])
+      eq('费用检查点业务字段夹具里顶层费用仍走费用路径：根预算原文 0.005 不变，requests 仍是 2，盘上 pending 是本次预留',
+        [rootBudgetToken(savedText), saved.requests, saved.cost_ledger?.pending?.attempt_id], ['0.005', 2, 3])
+    }
     criterion('D14.g')
   } finally { rmSync(root, { recursive: true, force: true }) }
   // HTTP 前后顺序、强杀窗口与入口退出码由进程测试认领，纯接口不冒领 D14.a–f/h。
@@ -13502,15 +13698,15 @@ suite('D20', '内容哈希版本按规范化 JSON 算出，复算只核对已有
   eq('校准版本命令：缺席、不合规与要写入时都不改写输入，深冻结输入照判不抛且结果相同',
     purity.map(({ frozenOk, unchanged }) => [frozenOk, unchanged]), purity.map(() => [true, true]))
 
-  // D20.o「写盘后」：写入的值写回再读仍自洽。写出时 1e400 与整数形的键会被改写，规范化 JSON 对此不变。
+  // D20.o「写盘后」：写入的值写回再读仍自洽。写出时整数形的键会排到前面，规范化 JSON 对此不变。
   const roundText = `{"product":"round-trip","brand_calibration":${JSON.stringify(listedOnly).slice(0, -1)},"zz_extra":{"zz_big":1e400,"2024":"year"}}}`
   const roundCalibration = (JSON.parse(roundText) as { brand_calibration: object }).brand_calibration
   const roundVersion = oracleVersion(roundCalibration)
   ok('校准版本命令夹具有效：只含 D20.a 所列字段的校准与写回夹具里的校准都通过已有的 D20.a 判定',
     [listedOnly, roundCalibration].every(d20aAccepts))
   const rewritten = attempt(() => stringifyCostJson(readCostDocument(roundText)))
-  ok('校准版本命令写回夹具有效：写出时 1e400 不再是原写法，整数形的键排到了原先在它前面的键之前',
-    !rewritten.includes('1e400') && /"2024":\s*"year",\s*"zz_big":/.test(rewritten))
+  ok('校准版本命令写回夹具有效：写出时整数形的键排到了原先在它前面的键之前',
+    /"2024":\s*"year",\s*"zz_big":/.test(rewritten))
   const roundTrip = attempt(() => {
     const first = readCostDocument<{ brand_calibration: { version: unknown } }>(roundText)
     const planned = planCalibrationVersion(first)
