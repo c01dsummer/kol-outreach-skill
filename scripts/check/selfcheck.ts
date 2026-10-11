@@ -4584,7 +4584,7 @@ group('resume-progress', [], () => {
     criterion('D19.d')
   }
 
-  // D19.g：四个写回方整份写回后，手改坏的进度数字与写回前盘上的原文逐字相同（不写成 null、0 或另一个数，也不改换写法），
+  // D19.g：三个写回方（render 见下面 D19.h–j 一段）整份写回后，手改坏的进度数字与写回前盘上的原文逐字相同（不写成 null、0 或另一个数，也不改换写法），
   // collect 续跑仍按 D19.e、D19.f 拒绝。期望只取写进夹具的原文；盘上原文用 rootToken（JSON source context）读，逐字比较
   // [名, 合法原文, 坏原文, 坏 token, 位置, 根上没有 budget_usd]：舍入后才成整数、下溢成 0、溢出成无穷大；found 溢出在主干上会写成 D6.l 的 null；
   // 根预算可以缺席（D13.i 缺席仍缺席），这种任务的坏进度同样要逐字留下 —— 原文不能只在根上有预算时才照写
@@ -4594,7 +4594,8 @@ group('resume-progress', [], () => {
     ['pages-overflow', '"pages":{"0":1}', '"pages":{"0":1e400}', '1e400', ['pages', '0']],
     ['found-overflow', '"found":{"0":3}', '"found":{"0":1e400}', '1e400', ['found', '0']],
     ['found-overflow-budgetless', '"found":{"0":3}', '"found":{"0":1e400}', '1e400', ['found', '0'], true]]
-  const writers: [string, (dir: string) => string[]][] = [['render', d => [S('render.ts'), '--dir', d]],
+  // render 不在这里：D19.h 起它见坏进度在任何写入前以 2 拒绝，坏数字到不了它的写回；它写回合法原文的那一半在下面 D19.j 一段（ADR-139）
+  const writers: [string, (dir: string) => string[]][] = [
     ['enrich', d => [S('enrich.ts'), '--dir', d]], ['enrich-budget', d => [S('enrich.ts'), '--dir', d, '--budget', '2']],
     ['calibration', d => [S('calibration.ts'), 'version', '--dir', d]]]
   // 阳性对照：rootToken 读得到普通 JSON 往返后的原文，且确实与每个坏数字的原文不同，否则「写回后原文没变」分不出写回保没保原文
@@ -4635,11 +4636,124 @@ group('resume-progress', [], () => {
     if (bare && writer !== 'enrich-budget') { bareKept++; if (before.includes('"budget_usd"')) grew.push(at) }
     kept++
   }
-  if (kept > 0) named('续跑进度写回：render、enrich、enrich 改额与 calibration version 整份写回后坏进度数字与写回前盘上的原文逐字相同，不改换写法', !lost.length, lost.join('；'))
+  if (kept > 0) named('续跑进度写回：enrich、enrich 改额与 calibration version 整份写回后坏进度数字与写回前盘上的原文逐字相同，不改换写法', !lost.length, lost.join('；'))
   if (kept > 0) named('续跑进度写回：手改坏的进度经写回后 collect 续跑仍在请求前以 2 拒绝且 task.json 原字节不变', !accepted.length, accepted.join('；'))
   if (kept > 0) named('续跑进度写回：手改坏的进度经写回后 collect 续跑的 stderr 写出 task.json 路径与盘上原文', !hidden.length, hidden.join('；'))
-  if (bareKept > 0) named('续跑进度写回：根上没有 budget_usd 的任务经 render、enrich 与 calibration version 写回后根上仍没有 budget_usd', !grew.length, grew.join('；'))
-  if (kept === writers.length * bad.length && !lost.length && !accepted.length && !hidden.length && !grew.length) criterion('D19.g')
+  if (bareKept > 0) named('续跑进度写回：根上没有 budget_usd 的任务经 enrich 与 calibration version 写回后根上仍没有 budget_usd', !grew.length, grew.join('；'))
+  // D19.g 的 render 一半在下面 D19.j 那段（合法而写法不规范的整数照原文写回），两半都成立才认领
+  const writebackHeld = kept === writers.length * bad.length && !lost.length && !accepted.length && !hidden.length && !grew.length
+
+  // D19.h–j：render 读入 task.json 时按 D19.a–b 判原始进度，坏的在任何写入前以 2 拒绝，不再把 1e400 印成 Infinity（ADR-139）。
+  // 期望只来自判据原文与写进夹具的字面值：退出码 2、任务目录与记忆目录逐字节不变、原本没有的交付物不出现；
+  // stderr 点名 task.json 路径、坏字段与坏 token 原文，不出现 Infinity，不带异常类名与栈帧
+  const snapshot = (root: string): string => {
+    const files: string[][] = []
+    const walk = (at: string, prefix = ''): void => {
+      if (!existsSync(at)) return
+      for (const e of readdirSync(at, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)))
+        if (e.isDirectory()) walk(join(at, e.name), `${prefix}${e.name}/`)
+        else files.push([`${prefix}${e.name}`, readFileSync(join(at, e.name)).toString('base64')])
+    }
+    try { walk(root); return JSON.stringify(files) } catch { return 'unreadable' }
+  }
+  // [名, 改动（字节替换与覆盖字段）, 该点名的字段（含品牌输入）, 盘上坏 token]。夹具目录名里带着 id，
+  // 所以点名字段与 token 只在去掉 task.json 路径之后的 stderr 里找，不然路径本身就满足它们
+  const rejectCases: [string, [string, string][], Record<string, unknown>, string[], string[]][] = [
+    ['found-overflow', [['"found":{"0":3}', '"found":{"0":1e400}']], {}, ['found'], ['1e400']],
+    ['found-negative-overflow', [['"found":{"0":3}', '"found":{"0":-1e400}']], {}, ['found'], ['-1e400']],
+    ['offsets-rounded', [['"offsets":{"0":5}', '"offsets":{"0":5.0000000000000001}']], {}, ['offsets'], ['5.0000000000000001']],
+    ['pages-underflow', [['"pages":{"0":1}', '"pages":{"0":1e-325}']], {}, ['pages'], ['1e-325']],
+    // 坏数字不在条目上：整张表的位置是一个溢出数、表是装着溢出数的数组 —— 照样显示原文，不印 Infinity 或 [null]
+    ['pages-table-overflow', [['"pages":{"0":1}', '"pages":1e400']], {}, ['pages'], ['1e400']],
+    ['found-array-overflow', [['"found":{"0":3}', '"found":[1e400]']], {}, ['found'], ['1e400']],
+    // 读得进来、却深到逐层展开会栈溢出的坏容器：照样以 2 拒绝、点名字段，不带栈帧（这个深度在本机读得进来，展开到底则溢出）
+    ['found-deep', [['"found":{"0":3}', `"found":${'['.repeat(2400)}1e400${']'.repeat(2400)}`]], {}, ['found'], []],
+    ['answered-null', [], { answered: null }, ['answered'], []],
+    ['done-repeat', [], { done: [0, 0] }, ['done'], []],
+    // 「每个」：同一份文件里几处坏进度都点名；品牌输入也坏时两类一起报，不因先撞上一类就只报一类
+    ['several', [['"found":{"0":3}', '"found":{"0":1e400}'], ['"pages":{"0":1}', '"pages":{"0":1e-325}']], { done: [0, 0] },
+      ['done', 'found', 'pages'], ['1e400', '1e-325']],
+    ['with-calibration', [['"found":{"0":3}', '"found":{"0":1e400}']], { brand_calibration: 'x' }, ['brand_calibration', 'found'], ['1e400']],
+  ]
+  // 已有的交付物与记忆放哨兵；kol.csv、kol.xlsx 故意不放，用来看原本没有的会不会被创建。记忆得是读得进来的合法文件，
+  // 否则 render 会因为记忆坏了以 2 退出，「退出 2、原样不变」被无关的原因满足 —— 下面的阳性对照就是证这一点
+  const seed = (f: ReturnType<typeof costFixture>) => {
+    for (const name of ['report.html', 'meta.json']) writeFileSync(join(f.taskDir, name), `sentinel ${name}\n`)
+    writeFileSync(join(f.cwd, 'memory', 'creators.json'),
+      JSON.stringify({ version: 1, updated_at: '2026-01-01T00:00:00.000Z', creators: {} }, null, 2) + '\n')
+  }
+  const control = costFixture('render-progress-control', knownCosts(1_000_000, []), {}, [costPerson()])
+  seed(control)
+  const c = runBoth('render 坏进度阳性对照：同样的哨兵与记忆、进度合规', [S('render.ts'), '--dir', control.taskDir], control.cwd,
+    { status: 0, soft: [1, 2, 3] }, costEnv(control.log, { TIKHUB_API_KEY: undefined }))
+  if (c.ok && (c.status !== 0 || !existsSync(join(control.taskDir, 'kol.csv')))) {
+    failed++; console.error(`  ✗ render 坏进度阳性对照${SELFCHECK_FIXTURE_MARK}：合规进度没有以 0 结束并生成 kol.csv，exit=${c.status}，stderr=${stderrTail(c.stderr)}`)
+  }
+  // 判「溢出没被误报成 null」只看进度那几行「这里是」之后显示的值：found 的说明本身写着「或 null」，品牌输入那一行也提到 null
+  const progressLines = (text: string) => text.split('\n').filter(line => !line.trim().startsWith('brand_calibration')).join('\n')
+  let refused = 0
+  for (const [id, edits, over, fields, tokens] of c.ok && c.status === 0 ? rejectCases : []) {
+    const f = costFixture(`render-progress-bad-${id}`, knownCosts(1_000_000, []), over, [costPerson()])
+    const text = fileText(f.task)
+    if (!edits.every(([from]) => text.includes(from))) { failed++; console.error(`  ✗ render 坏进度测试输入${SELFCHECK_FIXTURE_MARK}：${id}`); continue }
+    writeFileSync(f.task, edits.reduce((t, [from, to]) => t.replace(from, to), text))
+    seed(f)
+    const before = [snapshot(f.taskDir), snapshot(join(f.cwd, 'memory'))]
+    const r = runBoth(`render 坏进度 ${id}`, [S('render.ts'), '--dir', f.taskDir], f.cwd,
+      { status: 2, soft: [0, 1, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+    if (!r.ok) continue
+    const same = snapshot(f.taskDir) === before[0] && snapshot(join(f.cwd, 'memory')) === before[1]
+    const leak = probeInputLeak(r.stderr), message = r.stderr.replaceAll(f.task, '[任务文件]')
+    const detail = `${id}：退出=${r.status}，目录原样=${same}，kol.csv=${existsSync(join(f.taskDir, 'kol.csv'))}，stderr=${stderrTail(r.stderr)}`
+    named('render 坏进度：在任何写入前退出2，task.json、已有交付物与记忆原字节不变，原本没有的交付物不被创建',
+      r.status === 2 && same && !existsSync(join(f.taskDir, 'kol.csv')) && !existsSync(join(f.taskDir, 'kol.xlsx')), detail)
+    named('render 坏进度：stderr 点名 task.json 路径与每个坏字段，坏数字显示原文而不是 Infinity 或 null，不带异常类名与栈帧',
+      r.status === 2 && r.stderr.includes(f.task) && fields.every(field => message.includes(field))
+        && tokens.every(token => message.includes(token)) && !message.includes('Infinity')
+        && (id === 'answered-null' || !/这里是[^\n]*null/.test(progressLines(message))) && !leak.className && !leak.frames, detail)
+    refused++
+  }
+  if (refused === rejectCases.length) criterion('D19.h', 'D19.i')
+
+  // D19.j 与 D19.g 的 render 一半：合规进度照常渲染。缺整张表的旧目录（D19.d）、小数与指数写成的整数（D19.b）都以 0 结束、
+  // 生成交付物；写回 task.json 时那两个合法 token 逐字留下，meta.json 里 found 是按值的 3
+  const acceptCases: [string, (text: string) => string | undefined, [string, string, string][]][] = [
+    ['legacy-tables', text => {
+      const o = JSON.parse(text)
+      for (const table of ['offsets', 'answered', 'found', 'pages']) delete o[table]
+      return JSON.stringify(o)
+    }, []],
+    ['non-canonical', text => text.includes('"found":{"0":3}') && text.includes('"offsets":{"0":5}')
+      ? text.replace('"found":{"0":3}', '"found":{"0":3.0}').replace('"offsets":{"0":5}', '"offsets":{"0":5e0}') : undefined,
+      [['found', '0', '3.0'], ['offsets', '0', '5e0']]],
+  ]
+  let renderedGood = 0, renderKeptLegal = false
+  for (const [id, edit, kept] of acceptCases) {
+    const f = costFixture(`render-progress-good-${id}`, knownCosts(1_000_000, []), {}, [costPerson()])
+    const text = edit(fileText(f.task))
+    if (text === undefined) { failed++; console.error(`  ✗ render 合规进度测试输入${SELFCHECK_FIXTURE_MARK}：${id}`); continue }
+    writeFileSync(f.task, text)
+    const r = runBoth(`render 合规进度 ${id}`, [S('render.ts'), '--dir', f.taskDir], f.cwd,
+      { status: 0, soft: [1, 2, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+    if (!r.ok) continue
+    const after = fileText(f.task), meta = jsonFile(join(f.taskDir, 'meta.json')), saved = jsonFile(f.task)
+    const tokens = kept.map(([table, key]) => rootToken(after, key, [table]) ?? '缺席')
+    const detail = `${id}：退出=${r.status}，盘上=${JSON.stringify(tokens)}，meta.keywords=${JSON.stringify(meta?.keywords)}，stderr=${stderrTail(r.stderr)}`
+    named('render 合规进度：缺整张表的旧目录与小数或指数写成的整数照常以0结束并生成交付物',
+      r.status === 0 && ['kol.csv', 'kol.xlsx', 'meta.json', 'report.html'].every(n => fileText(join(f.taskDir, n)).length > 0), detail)
+    // 阳性对照：render 确实写回了 task.json（updated_at 已刷新），否则「原文没变」分不出是保住了还是根本没写
+    if (kept.length) {
+      renderKeptLegal = r.status === 0 && saved?.updated_at !== '2026-01-01T00:00:00.000Z'
+        && tokens.every((t, i) => t === kept[i][2]) && meta?.keywords?.[0]?.found === 3
+      named('render 合规进度：写回 task.json 后小数与指数写成的整数原文逐字不变，meta.json 里 found 按值是 3', renderKeptLegal, detail)
+    }
+    else named('render 合规进度：缺整张表的旧目录导出并写回 task.json 后仍没有那几张表，不回填成空表',
+      r.status === 0 && saved?.updated_at !== '2026-01-01T00:00:00.000Z'
+        && ['offsets', 'answered', 'found', 'pages'].every(table => saved !== undefined && !Object.hasOwn(saved, table)), detail)
+    renderedGood++
+  }
+  if (renderedGood === acceptCases.length) criterion('D19.j')
+  if (writebackHeld && renderKeptLegal) criterion('D19.g')
 })
 
 // ---- D15.j／D15.k／D6.w：IG 话题入口只由配置显式开启，校验在一切请求之前，probe 与 collect 同一处分派 ----

@@ -91,7 +91,7 @@
 | `scripts/lib/discovery.ts` | 逻辑 | D15 | 实际观察来源的稳定并集与人读投影；不从任务配置或 profile 推断历史，不控制请求或评分 |
 | `scripts/lib/ig-route.ts` | 逻辑 | D15 | IG 路线配置的校验与话题请求词；collect 与 probe 共用这一份，在任何请求之前调用 |
 | `scripts/lib/search-tasks.ts` | 逻辑 | D16 P1 | 任务列表与三个必填字段的判定；不补、不改写 |
-| `scripts/lib/resume-progress.ts` | 逻辑 | D19 P1 | 恢复已有采集任务时按有效任务数只读校验原始进度；缺表保留未知 |
+| `scripts/lib/resume-progress.ts` | 逻辑 | D19 P1 | 恢复已有采集任务与 render 导出前按有效任务数只读校验原始进度；缺表保留未知 |
 | `scripts/lib/config-input.ts` | 逻辑 | D17 P1 | 按 new / resume / probe 角色只读原始市场与人数；不填缺省，collect 与 probe 在应用缺省和产生副作用前调用 |
 | `scripts/lib/brand-calibration.ts` | 逻辑 | D20 P1 | 只读检查任务级可选品牌输入的形状和来源性质；结构合规且 version 为内容哈希时另按内容复算，不改写输入、不补字段；collect、enrich、render 共用两项判定，人工反馈模板命令只用结构判定；不替 Agent 判断偏好是否合适或事实是否已证实 |
 | `scripts/lib/content-hash.ts` | 逻辑 | D20 | 规范化 JSON（对象键逐码点排序、数组保持原顺序、无空白、标量照 `JSON.stringify`）与 `sha256:` 内容哈希；批次 A 只有这一份实现，不读写文件 |
@@ -353,6 +353,7 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | 可信基线与两侧维护比较通过 → 实际选组正常基线全绿 → 施加变异 | `scripts/check/mutate.ts`、`scripts/check/mutate-rule.ts` | 读不到旧内容却作无变化放行，会绕过全量解释；跳过正常基线会把选组未执行或本来失败误归因给变异 | 规则基线/路由判定：M-H47-a…n；实际入口顺序：独立真实入口负测试，不声称负片可修改受保护入口 |
 | 原样任务列表与 IG 路线一并校验 → 才读续跑进度、建目录、开账或改额 | `scripts/collect.ts`、`scripts/probe.ts` | 提前读坏列表会崩溃；先补平台或维度会把缺席当成合法配置；续跑先改额会在拒绝坏任务之前改写旧文件 | M-D16-x M-D16-y M-D16-ab M-D16-ac M-D16-ad M-D16-ae M-D16-af M-D16-ag |
 | 续跑任务列表有效 → 校验原始进度 → 才读进度行、构造预算、改额、预留或请求 | `scripts/collect.ts`、`scripts/lib/resume-progress.ts`、`scripts/lib/cost-json.ts` | 坏索引与坏统计表会在付费或保存后才暴露；旧缺表若补成空表会把历史未知写成零；数字解析后舍入会放过原始坏值 | M-D19-c M-D19-e M-D19-h |
+| render 任务列表有效 → 按原文校验进度 → 才读名单、写任务、交付物或记忆 | `scripts/render.ts`、`scripts/lib/resume-progress.ts`、`scripts/lib/cost-json.ts` | 溢出的 `found` 会在报告里印成 Infinity、在 meta.json 里写成 null；先写再拒绝会让任务目录不再是原字节 | M-D19-m M-D19-n |
 | 原始市场/人数问题与任务/路线问题汇总 → 拒绝坏输入 → 合规后才用新配置缺省、开账、改额、写入、预留或请求 | `scripts/collect.ts`、`scripts/probe.ts` | 先套缺省会吞掉 null，首错先抛会漏报任务/路线，续跑先改额会在拒绝前改写旧文件 | M-D17-q M-D17-r M-D17-s M-D17-t M-D17-u M-D17-ac M-D17-ad M-D17-ae |
 | 任务级品牌输入原样校验，内容哈希版本同一处按内容复算；enrich/render 同文件的任务列表也坏时两类问题均报告 → 才解析新建预算、改额、预留、请求或写交付物 | `scripts/collect.ts`、`scripts/enrich.ts`、`scripts/render.ts`、`scripts/lib/brand-calibration.ts`、`scripts/lib/task.ts` | 品牌字段坏了或版本与内容对不上，仍可能留下费用或产物；先退会遮住任务错误；新建状态若只重建已知字段，会丢原项目输入 | M-D20-d M-D20-e M-D20-f M-D20-g M-D20-h M-D20-p M-D20-q M-D20-r M-D16-as |
 | render 读入任务并校验原样列表 → 才读名单、生成交付物与写回记忆 | `scripts/render.ts` | 坏列表在写入后才被发现，会留下新名单/表格或推荐记忆，却没有对应的新报告 | M-D16-ai M-D16-aj M-D16-ao |
@@ -428,8 +429,11 @@ collect 恢复已有任务还要校验原始进度（D19、ADR-117）：`done` �
 整表缺席仍表示历史未知，不回填；已记录页数可高于当前页数上限，不作跨表推算。
 任务列表有效后、首次读取进度行与预算构造前拒绝坏进度；普通续跑和改额续跑都退出 2，
 stderr 点名任务文件及坏字段，任务原字节不变、零预留和请求。
-enrich（含改额）、render、`calibration version` 与费用检查点整份写回 task.json 时，进度数字照原文留下，
-坏断点留给 collect 续跑按原文拒绝（D19.g、ADR-138）。
+enrich（含改额）、`calibration version` 与费用检查点整份写回 task.json 时，进度数字照原文留下，
+坏断点留给 collect 续跑按原文拒绝（D19.g、ADR-138）；render 写回时合法进度同样照原文留下，坏的到不了写回（下一句）。
+render 在任务列表有效后、读名单及任何写入前按同一判据校验进度，坏的退出 2，stderr 点名任务文件、坏字段与原文 token
+（整张表位置上的与装在坏容器里的数字也按原文显示，坏容器只展开有限几层）；
+任务文件、名单、交付物和记忆保持原字节，不把溢出的 `found` 印成 Infinity 或 null。合规进度（含缺整表、`1.0`、`1e0`）照常导出（D19.h–j、ADR-139）。
 
 enrich 与 render 同样使用 `taskListProblems` 校验原样任务列表；与品牌输入（含内容哈希版本对不上）同时有问题时两类均报，先于改额、预留、请求和任务／交付写入。render 空数组也拒绝（D16.n–q、ADR-115 第十一节）。
 任务文件读不到、JSON 或根对象形状不合规、列表不合规时，在读名单及任何写入前退出 2；stderr 写任务文件路径及实际问题，

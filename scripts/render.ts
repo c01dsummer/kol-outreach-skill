@@ -23,7 +23,8 @@ import { writeXlsx, type Sheet } from './lib/xlsx.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
 import { accountKey, attachAssessments, currentEnrichmentView } from './lib/assessment.js'
 import { costView } from './lib/budget.js'
-import { stringifyCostJson } from './lib/cost-json.js'
+import { sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
+import { resumeProgressProblems } from './lib/resume-progress.js'
 import { asMemoryStatus } from './lib/types.js'
 import type { Creator, Measurement, TaskState } from './lib/types.js'
 
@@ -49,7 +50,14 @@ if (badTasks.length) {
   console.error(`${taskFile(dir)} 里的任务配置不合规：\n  ${badTasks.join('\n  ')}`)
   process.exit(2)
 }
-if (badCalibration.length) process.exit(2)
+// D19.h–i：进度只在任务列表有效后才能按索引解释。按原文判，坏断点在任何写入前拒绝 ——
+// 放过去的话，溢出的 found 会在报告里印成 Infinity、在 meta.json 里写成 null（ADR-139）。
+const badProgress = resumeProgressProblems(state, state.tasks.length,
+  (holder, key) => sourceNumberToken(state, holder, key))
+if (badProgress.length) {
+  console.error(`${taskFile(dir)} 里的搜索进度不合规：\n  ${badProgress.join('\n  ')}`)
+}
+if (badCalibration.length || badProgress.length) process.exit(2)
 let creators: Creator[]
 let reviews: TaskReviews
 let relations: Creator[]
