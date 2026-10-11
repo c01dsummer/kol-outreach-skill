@@ -1,5 +1,5 @@
 /**
- * 续跑 task.json 的原始进度字段问题。只读，不修复旧任务，也不从别的表推算。
+ * task.json 的原始进度字段问题（collect 续跑与 render 导出前共用，D19.e、D19.h）。只读，不修复旧任务，也不从别的表推算。
  * 任务列表须先经 taskListProblems 校验；它的长度定义唯一合法的索引范围。
  */
 const maxSafe = BigInt(Number.MAX_SAFE_INTEGER)
@@ -31,12 +31,18 @@ export function resumeProgressProblems(raw: Readonly<{
 }>, taskCount: number,
 sourceToken?: (holder: object, key: string) => string | undefined): string[] {
   const out: string[] = []
-  const shown = (value: unknown, holder?: object, key?: string): string => {
-    const token = typeof value === 'number' && holder && key !== undefined
-      ? sourceToken?.(holder, key) : undefined
-    if (token !== undefined) return token
-    if (typeof value === 'number' && !Number.isFinite(value)) return String(value)
-    return JSON.stringify(value) ?? String(value)
+  // 显示读到的值：每个数字（含整张表位置上的、装在坏容器里的）都按原文 token 写，溢出不显示成 Infinity 或 null（D19.f、D19.i）。
+  // 坏容器只展开几层：再深的不是要人改的那一处，也不该为显示它递归到栈溢出（ADR-136 记过深键）
+  const shown = (value: unknown, holder?: object, key?: string, depth = 0): string => {
+    if (typeof value === 'number') {
+      const token = holder && key !== undefined ? sourceToken?.(holder, key) : undefined
+      if (token !== undefined) return token
+      return Number.isFinite(value) ? JSON.stringify(value) : String(value)
+    }
+    if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? String(value)
+    if (depth >= 4) return Array.isArray(value) ? '[…]' : '{…}'
+    if (Array.isArray(value)) return `[${value.map((item, i) => shown(item, value, String(i), depth + 1)).join(',')}]`
+    return `{${Object.entries(value).map(([k, item]) => `${JSON.stringify(k)}:${shown(item, value, k, depth + 1)}`).join(',')}}`
   }
   const nonnegative = (value: unknown, holder: object, key: string): value is number =>
     typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
@@ -45,7 +51,7 @@ sourceToken?: (holder: object, key: string) => string | undefined): string[] {
     nonnegative(value, holder, key) && value < taskCount
 
   if (!Array.isArray(raw.done)) {
-    out.push(`done 必须是任务索引数组，这里${Object.hasOwn(raw, 'done') ? `是 ${shown(raw.done)}` : '缺席'}`)
+    out.push(`done 必须是任务索引数组，这里${Object.hasOwn(raw, 'done') ? `是 ${shown(raw.done, raw, 'done')}` : '缺席'}`)
   } else {
     const seen = new Set<number>()
     for (let position = 0; position < raw.done.length; position++) {
@@ -61,7 +67,7 @@ sourceToken?: (holder: object, key: string) => string | undefined): string[] {
     if (!Object.hasOwn(raw, field)) continue // 旧目录缺整张表＝无从确认；绝不补空表。
     const table = raw[field]
     if (table === null || typeof table !== 'object' || Array.isArray(table)) {
-      out.push(`${field} 必须是按任务索引记录的对象，这里是 ${shown(table)}`)
+      out.push(`${field} 必须是按任务索引记录的对象，这里是 ${shown(table, raw, field)}`)
       continue
     }
     for (const [key, value] of Object.entries(table)) {
