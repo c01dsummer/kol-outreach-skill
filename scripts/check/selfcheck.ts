@@ -4583,6 +4583,69 @@ group('resume-progress', [], () => {
       `exit=${r.status}, stderr=${stderrTail(r.stderr)}`)
     criterion('D19.d')
   }
+
+  // D19.g：四个写回方整份写回后，手改坏的进度数字十进制值不变，collect 续跑仍按 D19.e、D19.f 拒绝。期望只取写进夹具的原文；
+  // 盘上原文用 rootToken（JSON source context）读，按手写的十进制规范化（符号、有效数字、指数）比值 —— 写法不在 D19.g 保证之内
+  const decimal = (t = ''): string => {
+    const m = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(t)
+    if (!m) return `不是数字 ${t}`
+    const all = `${m[2]}${m[3] ?? ''}`.replace(/^0+/, ''), sig = all.replace(/0+$/, '')
+    return sig === '' ? '0' : `${m[1]}${sig}e${BigInt(m[4] ?? 0) - BigInt(m[3]?.length ?? 0) + BigInt(all.length - sig.length)}`
+  }
+  // [名, 合法原文, 坏原文, 坏 token, 位置, 根上没有 budget_usd]：舍入后才成整数、下溢成 0、溢出成无穷大；found 溢出在主干上会写成 D6.l 的 null；
+  // 根预算可以缺席（D13.i 缺席仍缺席），这种任务的坏进度同样要保值 —— 原文不能只在根上有预算时才照写
+  const bad: [string, string, string, string, [string, string], boolean?][] = [
+    ['done-rounded', '"done":[0,1]', '"done":[0,0.99999999999999999]', '0.99999999999999999', ['done', '1']],
+    ['pages-underflow', '"pages":{"0":1}', '"pages":{"0":1e-325}', '1e-325', ['pages', '0']],
+    ['pages-overflow', '"pages":{"0":1}', '"pages":{"0":1e400}', '1e400', ['pages', '0']],
+    ['found-overflow', '"found":{"0":3}', '"found":{"0":1e400}', '1e400', ['found', '0']],
+    ['found-overflow-budgetless', '"found":{"0":3}', '"found":{"0":1e400}', '1e400', ['found', '0'], true]]
+  const writers: [string, (dir: string) => string[]][] = [['render', d => [S('render.ts'), '--dir', d]],
+    ['enrich', d => [S('enrich.ts'), '--dir', d]], ['enrich-budget', d => [S('enrich.ts'), '--dir', d, '--budget', '2']],
+    ['calibration', d => [S('calibration.ts'), 'version', '--dir', d]]]
+  // 阳性对照：规范化把手推的同值异写认成相等；普通 JSON 往返确实改掉每个坏数字的值，否则「写回后值没变」分不出写回保没保值
+  const lossy = decimal('10e399') === decimal('1.0e400') && decimal('0.50') === decimal('5e-1')
+    && bad.every(([, , raw, token, [field, key]]) => decimal(rootToken(JSON.stringify(JSON.parse(`{${raw}}`)), key, [field])) !== decimal(token))
+  if (!lossy) { failed++; console.error(`  ✗ 续跑进度写回坏数字${SELFCHECK_FIXTURE_MARK}：规范化认不出同值异写，或普通 JSON 往返没有改掉某个坏数字的值`); return }
+  const armedJs = join(tmp, 'kept-progress-armed.mjs')
+  writeFileSync(armedJs, `import { appendFileSync } from 'node:fs'; appendFileSync(process.env.KEPT_PROGRESS_ARMED, 'armed\\n');`)
+  const lost: string[] = [], accepted: string[] = [], hidden: string[] = [], grew: string[] = []
+  let kept = 0, bareKept = 0
+  for (const [writer, argv] of writers) for (const [id, from, raw, token, [field, key], bare] of bad) {
+    // 品牌校准合 D20.a（否则 calibration version 以 2 退出、根本不写盘）；两个任务都在 done 里，舍入后的 1 仍是合法下标
+    const f = costFixture(`kept-progress-${writer}-${id}`, knownCosts(1_000_000, []), { ...(bare ? { budget_usd: undefined } : {}), done: [0, 1], tasks: [
+      { keyword: 'local', dimension: 'category', platform: 'tiktok' }, { keyword: 'other', dimension: 'category', platform: 'tiktok' }],
+      brand_calibration: { version: 'kept-v1', target_creator_types: [], tone_aesthetic: [], natural_scenarios: [], negative_signals: [], sources: [] } })
+    const text = fileText(f.task)
+    if (!text.includes(from) || (bare && text.includes('"budget_usd"'))) { failed++; console.error(`  ✗ 续跑进度写回测试输入${SELFCHECK_FIXTURE_MARK}：${writer}/${id}`); continue }
+    writeFileSync(f.task, text.replace(from, raw))
+    const w = runBoth(`续跑进度写回 ${writer}/${id}`, argv(f.taskDir), f.cwd, { status: 0, soft: [1, 2, 3] },
+      costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+    if (!w.ok) continue
+    if (w.status !== 0 || jsonFile(f.task)?.updated_at === '2026-01-01T00:00:00.000Z') { failed++
+      console.error(`  ✗ 续跑进度写回阳性对照${SELFCHECK_FIXTURE_MARK}：${writer}/${id} 没有以 0 退出并刷新 updated_at，exit=${w.status}，stderr=${stderrTail(w.stderr)}`); continue }
+    const before = fileText(f.task), saved = rootToken(before, key, [field]) ?? '缺席'
+    // 阳性对照：改额确实把根预算写上盘，按字节找 "budget_usd" 认得出写回方补上的根预算
+    if (bare && writer === 'enrich-budget' && !before.includes('"budget_usd"')) { failed++; console.error(`  ✗ 续跑进度写回根预算观测${SELFCHECK_FIXTURE_MARK}：${writer}/${id} 改额写回后盘上找不到 "budget_usd"`) }
+    const armed = join(f.cwd, 'armed.txt'), ledger = join(f.cwd, 'resume.tsv')
+    const c = runBoth(`续跑进度写回后续跑 ${writer}/${id}`, [S('collect.ts'), '--resume', f.taskDir], f.cwd, { status: 2, soft: [0, 1, 3] },
+      costEnv(ledger, { KEPT_PROGRESS_ARMED: armed, NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(armedJs).href)}` }))
+    if (!c.ok) continue
+    if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ 续跑进度写回请求观测${SELFCHECK_FIXTURE_MARK}：${writer}/${id}`); continue }
+    const at = `${writer}/${id}：写回后 ${field}[${key}]=${saved}，续跑 exit=${c.status}，请求=${fetchAttempts(ledger).length}，stderr=${stderrTail(c.stderr)}`
+    const same = decimal(saved) === decimal(token)
+    if (!same) lost.push(at)
+    if (c.status !== 2 || fileText(f.task) !== before || fetchAttempts(ledger).length !== 0) accepted.push(at)
+    if (!same || !c.stderr.includes(f.task) || !c.stderr.includes(saved)) hidden.push(at)
+    // 不改额的写回方没有理由给缺席的根预算补值；enrich --budget 本就写 budget_usd，不算
+    if (bare && writer !== 'enrich-budget') { bareKept++; if (before.includes('"budget_usd"')) grew.push(at) }
+    kept++
+  }
+  if (kept > 0) named('续跑进度写回：render、enrich、enrich 改额与 calibration version 整份写回后坏进度数字的十进制值不变', !lost.length, lost.join('；'))
+  if (kept > 0) named('续跑进度写回：手改坏的进度经写回后 collect 续跑仍在请求前以 2 拒绝且 task.json 原字节不变', !accepted.length, accepted.join('；'))
+  if (kept > 0) named('续跑进度写回：手改坏的进度经写回后 collect 续跑的 stderr 写出 task.json 路径与盘上原文', !hidden.length, hidden.join('；'))
+  if (bareKept > 0) named('续跑进度写回：根上没有 budget_usd 的任务经 render、enrich 与 calibration version 写回后根上仍没有 budget_usd', !grew.length, grew.join('；'))
+  if (kept === writers.length * bad.length && !lost.length && !accepted.length && !hidden.length && !grew.length) criterion('D19.g')
 })
 
 // ---- D15.j／D15.k／D6.w：IG 话题入口只由配置显式开启，校验在一切请求之前，probe 与 collect 同一处分派 ----
