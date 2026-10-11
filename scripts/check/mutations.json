@@ -9157,7 +9157,7 @@
       "replace": "console.error(`搜索进度不合规：",
       "by": "selfcheck",
       "kills": [
-        "render 坏进度：stderr 点名 task.json 路径与坏字段，坏数字显示原文而不是 Infinity，不带异常类名与栈帧"
+        "render 坏进度：stderr 点名 task.json 路径与每个坏字段，坏数字显示原文而不是 Infinity 或 null，不带异常类名与栈帧"
       ]
     },
     {
@@ -9182,6 +9182,78 @@
       "by": "selfcheck",
       "kills": [
         "render 合规进度：写回 task.json 后小数与指数写成的整数原文逐字不变，meta.json 里 found 按值是 3"
+      ]
+    },
+    {
+      "id": "M-D19-r",
+      "req": "D19.d",
+      "why": "render 导出时给缺整张统计表的旧目录补上空表写回任务文件，历史未知被写成查过为零",
+      "file": "scripts/render.ts",
+      "find": "persistListAndStatus(dir, state, creators, memoryStatus)",
+      "replace": "if (!state.found) state.found = {}\npersistListAndStatus(dir, state, creators, memoryStatus)",
+      "by": "selfcheck",
+      "kills": [
+        "render 合规进度：缺整张表的旧目录导出并写回 task.json 后仍没有那几张表，不回填成空表"
+      ]
+    },
+    {
+      "id": "M-D19-s",
+      "req": "D19.i",
+      "why": "整张表位置上的溢出数在诊断里显示成 Infinity，用户看不到盘上原文",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "这里是 ${shown(table, raw, field)}",
+      "replace": "这里是 ${shown(table)}",
+      "by": "selfcheck",
+      "kills": [
+        "render 坏进度：stderr 点名 task.json 路径与每个坏字段，坏数字显示原文而不是 Infinity 或 null，不带异常类名与栈帧"
+      ]
+    },
+    {
+      "id": "M-D19-t",
+      "req": "D19.i",
+      "why": "坏容器里的溢出数在诊断里显示成 Infinity，用户看不到盘上原文",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "value.map((item, i) => shown(item, value, String(i), depth + 1))",
+      "replace": "value.map((item, i) => shown(item, undefined, undefined, depth + 1))",
+      "by": "selfcheck",
+      "kills": [
+        "render 坏进度：stderr 点名 task.json 路径与每个坏字段，坏数字显示原文而不是 Infinity 或 null，不带异常类名与栈帧"
+      ]
+    },
+    {
+      "id": "M-D19-u",
+      "req": "D19.i",
+      "why": "读得进来的深层坏容器在诊断时逐层展开到栈溢出，进程带着调用堆栈退出",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "if (depth >= 4) return",
+      "replace": "if (depth >= 1e9) return",
+      "by": "selfcheck",
+      "kills": [
+        "render 坏进度：stderr 点名 task.json 路径与每个坏字段，坏数字显示原文而不是 Infinity 或 null，不带异常类名与栈帧"
+      ]
+    },
+    {
+      "id": "M-D19-v",
+      "req": "D19.i",
+      "why": "同一份任务文件里有几处坏进度时 render 只报第一处，其余被遮住",
+      "file": "scripts/render.ts",
+      "find": "里的搜索进度不合规：\\n  ${badProgress.join('\\n  ')}",
+      "replace": "里的搜索进度不合规：\\n  ${badProgress.slice(0, 1).join('\\n  ')}",
+      "by": "selfcheck",
+      "kills": [
+        "render 坏进度：stderr 点名 task.json 路径与每个坏字段，坏数字显示原文而不是 Infinity 或 null，不带异常类名与栈帧"
+      ]
+    },
+    {
+      "id": "M-D19-w",
+      "req": "D19.i",
+      "why": "品牌输入与搜索进度同时有问题时 render 只报品牌输入就退出，坏进度没被点名",
+      "file": "scripts/render.ts",
+      "find": "// D19.h–i：进度只在任务列表有效后才能按索引解释。",
+      "replace": "if (badCalibration.length) process.exit(2)\n// D19.h–i：进度只在任务列表有效后才能按索引解释。",
+      "by": "selfcheck",
+      "kills": [
+        "render 坏进度：stderr 点名 task.json 路径与每个坏字段，坏数字显示原文而不是 Infinity 或 null，不带异常类名与栈帧"
       ]
     },
     {
