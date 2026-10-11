@@ -9060,6 +9060,83 @@
       ]
     },
     {
+      "id": "M-D19-j",
+      "req": "D19.g",
+      "why": "整份写回 task.json 时不再沿用读入时盘上的原文，手改坏的进度数字被改写成合法整数、0 或 null，collect 续跑不再按原文拒绝",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "const tokens = sourceTokens.get(value)",
+      "replace": "const tokens = sourceTokens.get(result)",
+      "by": "selfcheck",
+      "kills": [
+        "续跑进度写回：render、enrich、enrich 改额与 calibration version 整份写回后坏进度数字的十进制值不变",
+        "续跑进度写回：手改坏的进度经写回后 collect 续跑仍在请求前以 2 拒绝且 task.json 原字节不变",
+        "续跑进度写回：手改坏的进度经写回后 collect 续跑的 stderr 写出 task.json 路径与盘上原文"
+      ]
+    },
+    {
+      "id": "M-D19-k",
+      "req": "D19.g",
+      "why": "整份写回 task.json 时只有对象里的数字照原文写回，done 数组里的元素照常改写，舍入后才成合法索引的坏完成索引被洗成合法值",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "const token = tokens.get(this === result ? value : this)?.get(key)",
+      "replace": "const token = Array.isArray(this) ? undefined : tokens.get(this === result ? value : this)?.get(key)",
+      "by": "test",
+      "kills": [
+        "saveTask 整份写回后，五张进度表里每个数字的原文与写回前盘上的原文相同",
+        "费用检查点写回后，五张进度表里每个数字的原文与写回前盘上的原文相同",
+        "整份写回后 collect 按原文判定仍拒绝五张表并点名各自原文，溢出的 found 不被读成 null",
+        "没有 budget_usd 键的任务经 persistListAndStatus 与 saveTask 整份写回后，五张进度表里每个数字的原文不变"
+      ]
+    },
+    {
+      "id": "M-D19-l",
+      "req": "D19.g",
+      "why": "整份写回 task.json 时只写回照常写会变值的原文，合法进度里值相同而写法不规范的整数被改换写法，盘上原文不再逐字不变",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "if (token !== undefined && Object.is(item, Number(token))) return exactJSON.rawJSON!(token)",
+      "replace": "const exact = (text: string): string => {\n        const m = /^(-?)(\\d+)(?:\\.(\\d+))?(?:[eE]([+-]?\\d+))?$/.exec(text)\n        if (!m) return text\n        const all = `${m[2]}${m[3] ?? ''}`.replace(/^0+/, ''), sig = all.replace(/0+$/, '')\n        return sig === '' ? '0' : `${m[1]}${sig}e${BigInt(m[4] ?? 0) - BigInt(m[3]?.length ?? 0) + BigInt(all.length - sig.length)}`\n      }\n      if (token !== undefined && Object.is(item, Number(token)) && exact(token) !== exact(String(item))) return exactJSON.rawJSON!(token)",
+      "by": "test",
+      "kills": [
+        "saveTask 与费用检查点整份写回后，合法进度里写成 2e0 与 1.0 的整数盘上原文逐字不变，不改换写法成 2 与 1"
+      ]
+    },
+    {
+      "id": "M-D14-k",
+      "req": "D14.g",
+      "why": "费用检查点整份写回时，任务根上未列出的业务键不再对回读入时的原文，读不出精确值的数字被舍入成另一个数",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "tokens.get(this === result ? value : this)",
+      "replace": "tokens.get(this)",
+      "by": "test",
+      "kills": [
+        "费用检查点写回后，未列出的顶层键、嵌套对象、任务条目与品牌校准里读不出精确值的数字盘上原文不变"
+      ]
+    },
+    {
+      "id": "M-D14-l",
+      "req": "D14.g",
+      "why": "任何深度上与费用字段同名的键都按费用处理，任务条目、嵌套对象与品牌校准里叫 requests、budget_usd、cost_ledger 的业务数字经费用检查点写回后丢值或丢精度",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "const cost = this === result ? costRootKeys.has(key) : costHolders.has(this)",
+      "replace": "const cost = costRootKeys.has(key) || costHolders.has(this)",
+      "by": "test",
+      "kills": [
+        "费用检查点写回后，任务条目、嵌套对象与品牌校准里与费用字段同名的 requests、budget_usd、cost_ledger 下的数字盘上原文不变"
+      ]
+    },
+    {
+      "id": "M-D6-bg",
+      "req": "D6.h",
+      "why": "整份写回 task.json 时不管程序改没改过都写回读入时的旧数字，collect 续跑推进的已抓页数与游标被写回成旧值，页数上限不再跨运行累计",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "if (token !== undefined && Object.is(item, Number(token)))",
+      "replace": "if (token !== undefined)",
+      "by": "selfcheck",
+      "kills": [
+        "跨运行累计停在页数上限 4 页 —— 预算给多少都一样"
+      ]
+    },
+    {
       "id": "M-H47-a",
       "req": "harness",
       "why": "显式基线被忽略，非法或同版本基线被当成本地默认基线接受",
