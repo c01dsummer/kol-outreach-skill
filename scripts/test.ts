@@ -79,7 +79,7 @@ import {
   brandCalibrationProblems, calibrationContentVersion, calibrationVersionProblems, isContentVersion,
 } from './lib/brand-calibration.js'
 import { canonicalJson, contentHash as calibrationHash } from './lib/content-hash.js'
-import { planCalibrationVersion } from './lib/calibration-version-task.js'
+import { planCalibrationVersion, runCalibrationVersion } from './lib/calibration-version-task.js'
 import { createHash } from 'node:crypto'
 import {
   normalizedAccountKey, readAgentReviewDocument, writeAgentReviewDocument,
@@ -13841,6 +13841,65 @@ suite('D20', '内容哈希版本按规范化 JSON 算出，复算只核对已有
   criterion('D20.o')
   criterion('D20.p')
   tension('D20', 'P1')
+
+  // D19.n 的读写一侧（依据 D19.k、D19.n 原文与夹具字面值，没有读被测函数体；不认领 —— D19.n 由入口自检认领）：
+  // 读入的 task.json 写重复了进度键、而要写盘时，抛出入口据以 2 退出的输入错误（函数签名处的约定），不写盘；
+  // 问题点名重复的字段，并按文件先后写出每一处原文（前几处读入后不留痕迹，只有盘上原文里有）。不合 D20.a 时两类问题都在；
+  // 缺席或 version 已一致时不写盘、照常返回。阳性对照是同一份文本只留最后一处：照常写入，盘上字节与修改时间确实变了。
+  // 修改时间拨回过去：同字节重写也看得出
+  const dupDir = mkdtempSync(join(tmpdir(), 'kol-d19n-'))
+  try {
+    const ledger = { schema: 1, currency: 'USD', unit: 'micro_usd', scope: 'task', limit_micro_usd: 1_000_000, next_attempt_id: 1, entries: [] }
+    // [名, 写重复的进度原文, 只留最后一处的原文, 重复的字段, 按文件先后的每一处原文（对象不列）]
+    const dupProgress: [string, string, string, string, string[]][] = [
+      ['found-table', '"found":{"0":1e400,"0":3.000},"pages":{"0":1}', '"found":{"0":3.000},"pages":{"0":1}', 'found', ['1e400', '3.000']],
+      ['pages-root', '"found":{"0":3},"pages":7.25e1,"pages":"zz-mid","pages":{"0":1}', '"found":{"0":3},"pages":{"0":1}', 'pages', ['7.25e1', 'zz-mid']],
+    ]
+    let made = 0
+    const taskAt = (progress: string, brand?: object): string => {
+      const dir = join(dupDir, `t${++made}`), file = join(dir, 'task.json')
+      mkdirSync(dir)
+      writeFileSync(file, `{"product":"d19n","market":"US","target_count":1,"budget_usd":1,"requests":0,"cost_ledger":${JSON.stringify(ledger)},`
+        + `"tasks":[{"keyword":"lamp","dimension":"category","platform":"tiktok"}],"done":[0],"offsets":{"0":5},"answered":{"0":1},${progress},`
+        + (brand === undefined ? '' : `"brand_calibration":${JSON.stringify(brand)},`)
+        + `"created_at":"2026-01-01T00:00:00.000Z","updated_at":"2026-01-01T00:00:00.000Z"}\n`)
+      utimesSync(file, new Date('2001-01-01'), new Date('2001-01-01'))
+      return dir
+    }
+    const stampOf = (file: string) => { const s = statSync(file); return `${s.ino}:${s.mtimeMs}` }
+    const runAt = (dir: string) => {
+      const file = join(dir, 'task.json'), before = rf(file, 'utf8'), stamp = stampOf(file)
+      let result: { status?: unknown; version?: unknown } | undefined, error: unknown
+      try { result = runCalibrationVersion(dir) } catch (caught) { error = caught }
+      const said = error instanceof Error ? error.message.split(dupDir).join('<D>') : ''
+      return { result, error, said, kept: rf(file, 'utf8') === before && stampOf(file) === stamp }
+    }
+    const listedInOrder = (said: string, field: string, tokens: readonly string[]) => {
+      let at = 0
+      for (const token of tokens) { const i = said.indexOf(token, at); if (i < 0) return false; at = i + token.length }
+      return said.includes(field)
+    }
+    const handVersion = { ...listedOnly, version: 'hand-v1' }, current = oracleVersion(listedOnly)
+    const sameVersion = { ...listedOnly, version: current }
+    const controls = dupProgress.map(([, , last]) => runAt(taskAt(last, handVersion)))
+    const sameControls = dupProgress.map(([, , last]) => runAt(taskAt(last, sameVersion)))
+    ok('校准版本命令重复进度键夹具有效：只留最后一处、version 是手写标签时照常写入，盘上字节与修改时间确实变了；version 已一致时判为不需要写入',
+      controls.every(({ result, error, kept }) => error === undefined && result?.status === 'written' && !kept)
+        && sameControls.every(({ result, error, kept }) => error === undefined && result?.status === 'unchanged' && kept))
+    const writes = dupProgress.map(([, dup]) => runAt(taskAt(dup, handVersion)))
+    eq('校准版本命令：进度键写了不止一次而要写盘时以输入问题拒绝（入口以 2 退出），不写盘，盘上原字节与修改时间不变',
+      writes.map(({ error, kept }) => [error instanceof ReviewInputError, kept]), dupProgress.map(() => [true, true]))
+    eq('校准版本命令：进度键写了不止一次而拒绝时，问题点名重复的字段并按文件先后写出每一处原文，不只最后一处',
+      writes.map(({ said }, i) => listedInOrder(said, dupProgress[i][3], dupProgress[i][4])), dupProgress.map(() => true))
+    const mixed = dupProgress.map(([, dup]) => runAt(taskAt(dup, { ...handVersion, tone_aesthetic: [7] })))
+    eq('校准版本命令：进度键写了不止一次且 brand_calibration 不合 D20.a 时以输入问题拒绝、不写盘，两类问题都写出',
+      mixed.map(({ error, said, kept }, i) => [error instanceof ReviewInputError, kept, said.includes('tone_aesthetic'),
+        listedInOrder(said, dupProgress[i][3], dupProgress[i][4])]), dupProgress.map(() => [true, true, true, true]))
+    const quiet = dupProgress.flatMap(([, dup]) => [runAt(taskAt(dup)), runAt(taskAt(dup, sameVersion))])
+    eq('校准版本命令：brand_calibration 缺席或 version 已一致时进度键写了不止一次也不拒绝、不写盘，照常返回 absent 与 unchanged',
+      quiet.map(({ result, error, kept }) => [error === undefined, result?.status, result?.status === 'unchanged' ? result?.version === current : true, kept]),
+      dupProgress.flatMap(() => [[true, 'absent', true, true], [true, 'unchanged', true, true]]))
+  } finally { rmSync(dupDir, { recursive: true, force: true }) }
 }
 })
 
