@@ -1,7 +1,9 @@
 /**
- * task.json 的原始进度字段问题（collect 续跑与 render 导出前共用，D19.e、D19.h）。只读，不修复旧任务，也不从别的表推算。
+ * task.json 的原始进度字段问题（collect 续跑与 render 导出前共用，D19.e、D19.h；重复键 D19.k）。只读，不修复旧任务，也不从别的表推算。
  * 任务列表须先经 taskListProblems 校验；它的长度定义唯一合法的索引范围。
  */
+import type { SourceDuplicate } from './cost-json.js'
+
 const maxSafe = BigInt(Number.MAX_SAFE_INTEGER)
 
 /** JSON 数字可以用小数或指数写成整数；按十进制原文计算，绝不先用 Number 舍入。 */
@@ -29,7 +31,8 @@ function exactProgressInteger(token: string): bigint | null {
 export function resumeProgressProblems(raw: Readonly<{
   done?: unknown; offsets?: unknown; answered?: unknown; found?: unknown; pages?: unknown
 }>, taskCount: number,
-sourceToken?: (holder: object, key: string) => string | undefined): string[] {
+sourceToken?: (holder: object, key: string) => string | undefined,
+duplicates?: readonly SourceDuplicate[] | null): string[] {
   const out: string[] = []
   // 显示读到的值：每个数字（含整张表位置上的、装在坏容器里的）都按原文 token 写，溢出不显示成 Infinity 或 null（D19.f、D19.i）。
   // 坏容器只展开几层：再深的不是要人改的那一处，也不该为显示它递归到栈溢出（ADR-136 记过深键）
@@ -80,6 +83,16 @@ sourceToken?: (holder: object, key: string) => string | undefined): string[] {
         out.push(`${field}[${JSON.stringify(key)}] 必须是非负安全整数${field === 'found' ? '或 null' : ''}，这里是 ${shown(value, table, key)}`)
       }
     }
+  }
+
+  // D19.k：重复的进度键读进来的只有最后一处，前面的在整份写回时会消失；哪一处是真的只有人知道，不按留下的那处放行
+  if (duplicates === null) out.push('找不到这份任务读入时的原文，无从核对进度键有没有写重复')
+  for (const { parent, key, values } of duplicates ?? []) {
+    const at = parent === undefined
+      ? (['done', 'offsets', 'answered', 'found', 'pages'].includes(key) ? key : undefined)
+      : (['offsets', 'answered', 'found', 'pages'].includes(parent) ? `${parent}[${JSON.stringify(key)}]` : undefined)
+    if (at !== undefined)
+      out.push(`${at} 在文件里写了 ${values.length} 次，依次是 ${values.join('、')}；读入只留最后一处，哪一处是真的要人来定`)
   }
   return out
 }

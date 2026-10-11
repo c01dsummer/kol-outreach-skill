@@ -1,6 +1,7 @@
 /**
  * D13 · 根预算与费用字段保留精确数值证据；其余业务字段照常解析成 number。
  * D19.g／D14.g（ADR-138）· 整份写回读入的根时，没被程序改动的非费用数字照读入时的原文写回。
+ * D19.k（ADR-140）· 读入时留住源文本，判进度时才找出根与根下一层对象里重复的键：JSON.parse 只留最后一处，前面的原文只在源文本里找得到。
  */
 import { CostError, formatUsd, parseUsdMicros, type MicroUsd } from './cost-ledger.js'
 import type { CostView } from './budget.js'
@@ -19,6 +20,70 @@ const roots = new WeakMap<object, { value: unknown; token: string }>()
 const sourceTokens = new WeakMap<object, WeakMap<object, Map<string, string>>>()
 // 无法解释为非负安全整数的费用数字保留原件；对象形态不能误过费用账的 number 校验。
 const unavailableNumbers = new WeakMap<object, string>()
+// 只有判进度的入口要重复键：读入时只留住原文，用到时才扫，扫过的按根缓存。
+const sourceTexts = new WeakMap<object, string>()
+const duplicateKeys = new WeakMap<object, readonly SourceDuplicate[]>()
+
+/** 字符串记号的结尾（右引号之后）。不用正则：正则引擎逐字符回溯，九百万字的字符串就栈溢出（ADR-140 第五节）。
+ * 找下一个引号，前面紧挨着偶数个反斜杠才是右引号。 */
+function stringEnd(text: string, at: number): number {
+  for (let quote = text.indexOf('"', at + 1); ; quote = text.indexOf('"', quote + 1)) {
+    let slashes = 0
+    while (text.charCodeAt(quote - 1 - slashes) === 92) slashes++
+    if (slashes % 2 === 0) return quote + 1
+  }
+}
+
+const blank = (c: number) => c === 32 || c === 10 || c === 13 || c === 9
+
+/** 逐个记号扫一遍 JSON.parse 已接受的文本。只给根与根下一层的对象记键，更深的只记层数；不递归，深嵌套也不爆栈（ADR-136）。 */
+function topDuplicateKeys(text: string): SourceDuplicate[] {
+  const out: SourceDuplicate[] = []
+  const open: ({ parent?: string; seen: Map<string, string[]>; key?: string } | undefined)[] = []
+  for (let i = 0; i < text.length;) {
+    const c = text.charCodeAt(i)
+    if (blank(c) || c === 44 || c === 58) { i++; continue } // 空白、逗号、冒号
+    const top = open.at(-1)
+    if (c === 125 || c === 93) { // } ]
+      const frame = open.pop()
+      for (const [key, values] of frame?.seen ?? [])
+        if (values.length > 1) out.push({ ...(frame!.parent === undefined ? {} : { parent: frame!.parent }), key, values })
+      i++
+      continue
+    }
+    let raw: string
+    if (c === 34) {
+      const end = stringEnd(text, i)
+      let next = end
+      while (blank(text.charCodeAt(next))) next++
+      // 后面跟着冒号的是键。键按解码后的名字比："0" 与 "\u0030" 是同一个键；没有反斜杠的键原文就是解码后的名字
+      if (text.charCodeAt(next) === 58) {
+        if (top) {
+          const body = text.slice(i + 1, end - 1)
+          top.key = body.includes('\\') ? JSON.parse(text.slice(i, end)) as string : body
+        }
+        i = next + 1
+        continue
+      }
+      raw = text.slice(i, end); i = end
+    } else if (c === 123 || c === 91) { raw = c === 123 ? '{…}' : '[…]'; i++ }
+    else {
+      let end = i + 1
+      // 字面量（数字、true、false、null）在空白、逗号与右括号前结束
+      for (let d = text.charCodeAt(end); end < text.length && !blank(d) && d !== 44 && d !== 93 && d !== 125; d = text.charCodeAt(++end));
+      raw = text.slice(i, end); i = end
+    }
+    // 是值：记在所在对象当前的键名下
+    if (top?.key !== undefined) {
+      const values = top.seen.get(top.key) ?? []
+      values.push(raw)
+      top.seen.set(top.key, values)
+    }
+    if (c === 123 || c === 91) open.push(c === 123 && open.length < 2
+      ? { ...(top?.key === undefined ? {} : { parent: top.key }), seen: new Map() } : undefined)
+  }
+  return out
+}
 
 /** 缺少原生精确 JSON 能力时，不允许有损写回或新增付费。 */
 export function assertCostJsonRuntime(): void {
@@ -41,6 +106,7 @@ export function readCostDocument<T extends object = CostState>(text: string): T 
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new CostError('invalid-money', '任务或配置必须是 JSON 对象')
   sourceTokens.set(parsed, tokens)
+  sourceTexts.set(parsed, text)
   const state = parsed as Record<string, unknown>
   const rootToken = tokens.get(parsed)?.get('budget_usd')
   if (rootToken !== undefined) roots.set(parsed, { value: state.budget_usd, token: rootToken })
@@ -70,6 +136,19 @@ export function readCostDocument<T extends object = CostState>(text: string): T 
 
 export function sourceNumberToken(root: object, holder: object, key: string): string | undefined {
   return sourceTokens.get(root)?.get(holder)?.get(key)
+}
+
+/** 读入文本里根与根下一层对象中重复出现的键（D19.k）。parent 是所在对象在根上的键名，根上的重复没有 parent；
+ * values 按在文本里的先后，数字与字符串照原文，对象与数组记作 {…}、[…]。 */
+export type SourceDuplicate = { parent?: string; key: string; values: readonly string[] }
+
+/** 找不到读入时的原文（不是 readCostDocument 读入的根，或是它的副本）交回 null：无从核对，不当成没有重复。 */
+export function sourceDuplicateKeys(root: object): readonly SourceDuplicate[] | null {
+  const text = sourceTexts.get(root)
+  if (text === undefined) return null
+  let found = duplicateKeys.get(root)
+  if (!found) duplicateKeys.set(root, found = topDuplicateKeys(text))
+  return found
 }
 
 export function readCostLimit(state: CostState): MicroUsd {

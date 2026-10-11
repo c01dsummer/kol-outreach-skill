@@ -106,7 +106,7 @@ import { request as templateHttpsRequest } from 'node:https'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetInputError, startBudget, costView, type CostView } from './lib/budget.js'
-import { readCostDocument, readCostLimit, setCostLimitField, sourceNumberToken, stringifyCostJson, type CostState } from './lib/cost-json.js'
+import { readCostDocument, readCostLimit, setCostLimitField, sourceDuplicateKeys, sourceNumberToken, stringifyCostJson, type CostState } from './lib/cost-json.js'
 import {
   CostError, CostLedgerUnavailable, createCostBudget, formatUsd, inspectExistingCostLedger,
   parseUsdMicros, restoreCostBudget, type CostSnapshot,
@@ -5666,6 +5666,127 @@ suite('D19', '续跑进度字段先验校验')
     resumeProgressProblems({ done: [1], offsets: { 0: 0 }, answered: { 2: 4 },
       found: { 1: null }, pages: { 2: 12 } }, 3), [])
   criterion('D19.d')
+
+  // D19.k：进度键写了不止一次。JSON.parse 只留最后一处 —— "found":{"917":1e400,"917":4.00e1} 读进来是合法的 40，1e400 不见了。
+  // 走 collect 与 render 的同一接法（readCostDocument 读入，按原文 token 与原文里的重复键判）。期望只来自判据原文与下面写进夹具的字面值：
+  // 一千个任务，索引 917 与各处原文都是夹具里独有的写法，问题里找得到就不是碰巧。合法的那一份用不规范写法 8.0e1、0.3e1、4.00e1、1.20e1
+  // （D19.b 允许，精确等于 80、3、40、12）；每个用例只在它前面多写几处，所以「只留最后一处」就是 LEGAL 本身 —— 它不报问题（阳性对照），拒绝只能是因为重复
+  {
+    const N = 1000
+    const LEGAL = { done: '"done":[917]', offsets: '"offsets":{"917":8.0e1}', answered: '"answered":{"917":0.3e1}',
+      found: '"found":{"917":4.00e1}', pages: '"pages":{"917":1.20e1}' }
+    type Field = keyof typeof LEGAL
+    const doc = (swap: Partial<Record<Field, string>> = {}, tail = '') =>
+      `{${(Object.keys(LEGAL) as Field[]).map(field => swap[field] ?? LEGAL[field]).join(',')}${tail}}`
+    const judged = (text: string): string[] | { threw: string } => {
+      try {
+        const parsed = readCostDocument<Record<string, unknown>>(text)
+        return resumeProgressProblems(parsed, N, (holder, key) => sourceNumberToken(parsed, holder, key), sourceDuplicateKeys(parsed))
+      } catch (error) { return { threw: error instanceof Error ? error.message : String(error) } }
+    }
+    // 一条问题里按先后找得到 ordered 的每一处（后一处从前一处的末尾往后找）
+    const inOrder = (line: string, ordered: readonly string[]) => {
+      let at = 0
+      for (const token of ordered) { const i = line.indexOf(token, at); if (i < 0) return false; at = i + token.length }
+      return true
+    }
+    // [名, 文本, 该点名的（头一个是字段）, 按文件先后的原文]：有问题、问题全在那个字段、有一条点齐名字并按先后列出原文。
+    // 合格的交回 []，不合格的连同实际问题交回，红的时候看得到错值
+    type DupCase = readonly [string, string, readonly string[], readonly string[]]
+    const misses = (cases: readonly DupCase[], extra: (line: string) => boolean = () => true) =>
+      cases.flatMap(([name, text, names, ordered]) => {
+        const problems = judged(text)
+        const hit = Array.isArray(problems) && problems.length > 0 && problems.every(p => p.includes(names[0]))
+          && problems.some(p => names.every(n => p.includes(n)) && inOrder(p, ordered) && extra(p))
+        return hit ? [] : [`${name}: ${JSON.stringify(problems)}`]
+      })
+    const ROOT: DupCase[] = [
+      ['done', doc({ done: `"done":7.50e0,${LEGAL.done}` }), ['done'], ['7.50e0']],
+      ['offsets', doc({ offsets: `"offsets":-2.5e1,${LEGAL.offsets}` }), ['offsets'], ['-2.5e1']],
+      // 字符串照原文：盘上写的是转义的 u002d，解码后才是连字符，列得出 u002dfirst 才是原文
+      ['answered', doc({ answered: `"answered":"zq\\u002dfirst",${LEGAL.answered}` }), ['answered'], ['u002dfirst']],
+      ['found', doc({ found: `"found":{"618":7},${LEGAL.found}` }), ['found'], []],
+      ['pages', doc({ pages: `"pages":[618,716],${LEGAL.pages}` }), ['pages'], []],
+    ]
+    const TABLE: DupCase[] = [
+      ['offsets', doc({ offsets: '"offsets":{"917":1e400,"917":8.0e1}' }), ['offsets', '917'], ['1e400', '8.0e1']],
+      ['answered', doc({ answered: '"answered":{"917":"zq\\u002dfirst","917":0.3e1}' }), ['answered', '917'], ['u002dfirst', '0.3e1']],
+      // 两处都合法（525 与 40）：判的是重复本身，不是哪一处的值
+      ['found', doc({ found: '"found":{"917":5.250e2,"917":4.00e1}' }), ['found', '917'], ['5.250e2', '4.00e1']],
+      ['pages', doc({ pages: '"pages":{"917":9.75e0,"917":1.20e1}' }), ['pages', '917'], ['9.75e0', '1.20e1']],
+    ]
+    const ESCAPED: DupCase[] = [
+      ['found', doc({ found: '"found":{"917":1e400,"91\\u0037":4.00e1}' }), ['found', '917'], ['1e400', '4.00e1']],
+      ['pages', doc({ pages: '"pages":1e400,"p\\u0061ges":{"917":1.20e1}' }), ['pages'], ['1e400']],
+    ]
+    const THRICE: DupCase[] = [
+      ['pages-table', doc({ pages: '"pages":{"917":5.250e2,"917":7.10e1,"917":1.20e1}' }), ['pages', '917'], ['5.250e2', '7.10e1', '1.20e1']],
+      ['pages-root', doc({ pages: `"pages":1e400,"pages":"zz\\u002dmid",${LEGAL.pages}` }), ['pages'], ['1e400', 'u002dmid']],
+    ]
+    // 对象与数组只标出是哪一种：一样长的 [618,716] 与 {"618":7} 两份问题必须不同（标出了种类），且都不带 618（没有展开内容）
+    const containers = [
+      ['root', doc({ done: `"done":[618,716],${LEGAL.done}` }), doc({ done: `"done":{"618":7},${LEGAL.done}` }), ['done']],
+      ['table', doc({ pages: '"pages":{"917":[618,716],"917":1.20e1}' }), doc({ pages: '"pages":{"917":{"618":7},"917":1.20e1}' }), ['pages', '917']],
+    ] as const
+    // 夹具有效：普通 JSON.parse 把每一份都读成与 LEGAL 一模一样的值 —— 前几处读入后不留痕迹，留下的最后一处合法
+    eq('重复键夹具有效：普通 JSON.parse 把每一份写了重复键的进度都读成只留最后一处的合法那一份',
+      [...ROOT, ...TABLE, ...ESCAPED, ...THRICE, ...containers.flatMap(([name, a, o]) => [[`${name}-array`, a], [`${name}-object`, o]])]
+        .filter(([, text]) => !isDeepStrictEqual(JSON.parse(text), JSON.parse(doc()))).map(([name]) => name), [])
+    eq('恢复进度：根上 done、offsets、answered、found、pages 任一键写了不止一次即不合规，即使最后一处合法；问题点名该字段，数字与字符串照原文列出',
+      misses(ROOT), [])
+    eq('恢复进度：offsets、answered、found、pages 表里同一个任务索引写了不止一次即不合规，最后一处合法、哪怕每一处都合法也一样；问题点名字段与键，按文件先后列出每一处原文',
+      misses(TABLE), [])
+    eq('恢复进度：按 JSON 解码后相同的键也算重复 —— 表里的 "917" 与 "91\\u0037"，根上的 pages 与 "p\\u0061ges"', misses(ESCAPED), [])
+    // 字段、键 917、一千个任务与三处原文里都没有 3，问题里出现 3（或「三」）只能是在写出现次数
+    eq('恢复进度：同一个键出现三次时写出出现次数，三处原文按文件先后全部列出（表里与根上各一份）',
+      misses(THRICE, line => /[3三]/.test(line)), [])
+    eq('恢复进度：重复键的某一处是对象或数组时，问题只标出它是对象还是数组，不展开其中内容',
+      containers.flatMap(([name, asArray, asObject, names]) => {
+        const [a, o] = [judged(asArray), judged(asObject)]
+        const fine = [a, o].every(problems => Array.isArray(problems) && problems.some(p => names.every(n => p.includes(n)))
+          && !problems.some(p => p.includes('618'))) && JSON.stringify(a) !== JSON.stringify(o)
+        return fine ? [] : [`${name}: 数组=${JSON.stringify(a)} 对象=${JSON.stringify(o)}`]
+      }), [])
+    eq('恢复进度：重复键阳性对照 —— 只留最后一处的同一份进度合规，四张表各有同一个索引 917 也不算重复', judged(doc()), [])
+    eq('恢复进度：重复键阳性对照 —— tasks 数组里几个任务对象各写一遍同名键不算重复',
+      judged(doc({}, ',"tasks":[{"keyword":"a","dimension":"category","platform":"tiktok"},{"keyword":"b","dimension":"scene","platform":"tiktok"}]')), [])
+    // 复核发现（ADR-140 第五节）：判据只管根上的五个进度键与四张表，别处的重复不由它判（D19.k 末句），也就不能让合规的进度被拒（D19.j）——
+    // 根上别的键、根下别的对象、不在那两层的同名进度键（根下别的对象里、任务对象里）
+    const OUTSIDE: [string, string][] = [
+      ['根上别的键', doc({}, ',"budget_usd":1,"budget_usd":2')],
+      ['根下别的对象', doc({}, ',"brand_calibration":{"a":1,"a":2}')],
+      ['根下别的对象里同名的进度表', doc({}, ',"brand_calibration":{"found":{"917":1,"917":2}}')],
+      ['任务对象里同名的进度键', doc({}, ',"tasks":[{"found":1,"found":2}]')],
+    ]
+    eq('恢复进度：根与四张表以外位置上的重复键不让进度不合规 —— 根上别的键、根下别的对象、更深处同名的进度键都不算',
+      OUTSIDE.flatMap(([name, text]) => {
+        const problems = judged(text)
+        return Array.isArray(problems) && problems.length === 0 ? [] : [`${name}: ${JSON.stringify(problems)}`]
+      }), [])
+    // 复核发现（ADR-140 第五节）：读得进来的文件里有九百万字的字符串（这里是根上的 notes），判据不抛异常、不带堆栈；
+    // 没有重复照样合规（D19.j），重复写在它后面照样点名 —— 扫描确实越过了它
+    const LONG = `"notes":"${'x'.repeat(9_000_000)}",`
+    const longFirst = (text: string) => `{${LONG}${text.slice(1)}`
+    eq('恢复进度：读得进来的任务文件里有超长字符串时照常判 —— 没有重复就合规，写在它后面的重复照样点名并列出原文',
+      [judged(longFirst(doc())), misses([['long', longFirst(doc({ found: '"found":{"917":1e400,"917":4.00e1}' })), ['found', '917'], ['1e400', '4.00e1']]])
+        .map(miss => miss.slice(0, 300))], [[], []])
+    // 字符串在重复的两处之间、里面有转义的引号（\"}）或以转义的反斜杠结尾（\\）：都在字符串里面，那张表没有到此为止，
+    // 两处照样认得出、列得出。表里多出的键 "x" 另报「不是任务索引」，那一条也点名 found
+    const between = (inside: string) => doc({ found: `"found":{"917":1e400,"x":"${inside}","917":4.00e1}` })
+    const QUOTED: DupCase[] = [
+      ['escaped-quote', between('\\"}'), ['found', '917'], ['1e400', '4.00e1']],
+      ['trailing-backslash', between('a\\\\'), ['found', '917'], ['1e400', '4.00e1']],
+    ]
+    eq('恢复进度：字符串里转义的引号与以反斜杠结尾的字符串不打乱判据 —— 写在它们后面的重复照样点名并列出原文', misses(QUOTED), [])
+    // 复核发现（ADR-140 第五节）：读入时的原文找不到（这里是读入后做的副本）就无从核对有没有重复，判为不合规，不当成没有重复。
+    // 「done 为空、没有统计表」别的判据都没话说；同一份不做副本时合规是阳性对照
+    const plain = readCostDocument<Record<string, unknown>>('{"done":[]}'), copied = structuredClone(plain)
+    const withDuplicates = (raw: Record<string, unknown>) =>
+      resumeProgressProblems(raw, N, (holder, key) => sourceNumberToken(raw, holder, key), sourceDuplicateKeys(raw))
+    eq('恢复进度：找不到读入时原文的任务无从核对重复键，判为不合规而不是当成没有重复',
+      [withDuplicates(plain), withDuplicates(copied).length > 0], [[], true])
+    criterion('D19.k')
+  }
 
   // D19.g、D19 × P1（ADR-138）：整份写回 task.json 后，读不出精确值的进度数字照原文留下，collect 仍按原文拒绝。
   // 期望只来自下面写进夹具的字面值；盘上原文由 diskTokens 取，不借被测函数。两个任务：done 的 0.99999999999999999 舍入后是合法的 1。

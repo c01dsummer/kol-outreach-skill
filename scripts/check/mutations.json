@@ -9064,7 +9064,7 @@
       "req": "D19.e",
       "why": "恢复坏进度时仍进入预算改额或付费路径，原任务文件可能被改写",
       "file": "scripts/collect.ts",
-      "find": "const progressProblems = resumeProgressProblems(state, state.tasks.length,\n    (holder, key) => sourceNumberToken(state, holder, key))",
+      "find": "const progressProblems = resumeProgressProblems(state, state.tasks.length,\n    (holder, key) => sourceNumberToken(state, holder, key), sourceDuplicateKeys(state))",
       "replace": "const progressProblems: string[] = []",
       "by": "selfcheck",
       "kills": [
@@ -9129,7 +9129,7 @@
       "req": "D19.h",
       "why": "render 不判搜索进度，溢出的 found 照常渲染，报告里印成 Infinity、meta.json 里写成 null",
       "file": "scripts/render.ts",
-      "find": "const badProgress = resumeProgressProblems(state, state.tasks.length,\n  (holder, key) => sourceNumberToken(state, holder, key))",
+      "find": "const badProgress = resumeProgressProblems(state, state.tasks.length,\n  (holder, key) => sourceNumberToken(state, holder, key), sourceDuplicateKeys(state))",
       "replace": "const badProgress: string[] = []",
       "by": "selfcheck",
       "kills": [
@@ -9254,6 +9254,267 @@
       "by": "selfcheck",
       "kills": [
         "render 坏进度：stderr 点名 task.json 路径与每个坏字段，坏数字显示原文而不是 Infinity 或 null，不带异常类名与栈帧"
+      ]
+    },
+    {
+      "id": "M-D19-x",
+      "req": "D19.k",
+      "why": "进度键写了不止一次时按读入后留下的最后一处放行，前面几处原文在整份写回时被悄悄丢掉",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "for (const { parent, key, values } of duplicates ?? []) {",
+      "replace": "for (const { parent, key, values } of (duplicates ?? []).slice(0, 0)) {",
+      "by": "test",
+      "kills": [
+        "恢复进度：根上 done、offsets、answered、found、pages 任一键写了不止一次即不合规，即使最后一处合法；问题点名该字段，数字与字符串照原文列出",
+        "恢复进度：offsets、answered、found、pages 表里同一个任务索引写了不止一次即不合规，最后一处合法、哪怕每一处都合法也一样；问题点名字段与键，按文件先后列出每一处原文",
+        "恢复进度：按 JSON 解码后相同的键也算重复 —— 表里的 \"917\" 与 \"91\\u0037\"，根上的 pages 与 \"p\\u0061ges\"",
+        "恢复进度：同一个键出现三次时写出出现次数，三处原文按文件先后全部列出（表里与根上各一份）",
+        "恢复进度：重复键的某一处是对象或数组时，问题只标出它是对象还是数组，不展开其中内容"
+      ]
+    },
+    {
+      "id": "M-D19-y",
+      "req": "D19.k",
+      "why": "写法不同而按 JSON 解码后相同的键（转义写法）不算重复，前一处照样被丢掉",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "top.key = body.includes('\\\\') ? JSON.parse(text.slice(i, end)) as string : body",
+      "replace": "top.key = body",
+      "by": "test",
+      "kills": [
+        "恢复进度：按 JSON 解码后相同的键也算重复 —— 表里的 \"917\" 与 \"91\\u0037\"，根上的 pages 与 \"p\\u0061ges\""
+      ]
+    },
+    {
+      "id": "M-D19-z",
+      "req": "D19.k",
+      "why": "统计表里同一个任务索引写了不止一次时不报，前一处原文被丢掉",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": ": (['offsets', 'answered', 'found', 'pages'].includes(parent) ? `${parent}[${JSON.stringify(key)}]` : undefined)",
+      "replace": ": undefined",
+      "by": "test",
+      "kills": [
+        "恢复进度：offsets、answered、found、pages 表里同一个任务索引写了不止一次即不合规，最后一处合法、哪怕每一处都合法也一样；问题点名字段与键，按文件先后列出每一处原文"
+      ]
+    },
+    {
+      "id": "M-D19-aa",
+      "req": "D19.k",
+      "why": "根上的进度键写了不止一次时不报，前一整张表或前一份完成列表被丢掉",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "? (['done', 'offsets', 'answered', 'found', 'pages'].includes(key) ? key : undefined)",
+      "replace": "? undefined",
+      "by": "test",
+      "kills": [
+        "恢复进度：根上 done、offsets、answered、found、pages 任一键写了不止一次即不合规，即使最后一处合法；问题点名该字段，数字与字符串照原文列出"
+      ]
+    },
+    {
+      "id": "M-D19-ab",
+      "req": "D19.k",
+      "why": "重复键的诊断只显示读入后留下的最后一处，被丢掉的那几处原文看不到",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "依次是 ${values.join('、')}",
+      "replace": "依次是 ${values.at(-1)}",
+      "by": "test",
+      "kills": [
+        "恢复进度：offsets、answered、found、pages 表里同一个任务索引写了不止一次即不合规，最后一处合法、哪怕每一处都合法也一样；问题点名字段与键，按文件先后列出每一处原文",
+        "恢复进度：同一个键出现三次时写出出现次数，三处原文按文件先后全部列出（表里与根上各一份）"
+      ]
+    },
+    {
+      "id": "M-D19-ac",
+      "req": "D19.k",
+      "why": "重复键的诊断里每一处原文不按在文件里的先后排列",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "依次是 ${values.join('、')}",
+      "replace": "依次是 ${[...values].reverse().join('、')}",
+      "by": "test",
+      "kills": [
+        "恢复进度：offsets、answered、found、pages 表里同一个任务索引写了不止一次即不合规，最后一处合法、哪怕每一处都合法也一样；问题点名字段与键，按文件先后列出每一处原文",
+        "恢复进度：同一个键出现三次时写出出现次数，三处原文按文件先后全部列出（表里与根上各一份）"
+      ]
+    },
+    {
+      "id": "M-D19-ad",
+      "req": "D19.k",
+      "why": "重复键的诊断不写出现了几次",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "写了 ${values.length} 次，",
+      "replace": "写了好几次，",
+      "by": "test",
+      "kills": [
+        "恢复进度：同一个键出现三次时写出出现次数，三处原文按文件先后全部列出（表里与根上各一份）"
+      ]
+    },
+    {
+      "id": "M-D19-ae",
+      "req": "D19.k",
+      "why": "重复键的某一处是对象还是数组，诊断里分不出来",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "raw = c === 123 ? '{…}' : '[…]'",
+      "replace": "raw = '[…]'",
+      "by": "test",
+      "kills": [
+        "恢复进度：重复键的某一处是对象或数组时，问题只标出它是对象还是数组，不展开其中内容"
+      ]
+    },
+    {
+      "id": "M-D19-af",
+      "req": "D19.k",
+      "why": "不同统计表里的同一个任务索引被当成重复，合规的进度被拒",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "seen: new Map() } : undefined)",
+      "replace": "seen: open[0]?.seen ?? new Map() } : undefined)",
+      "by": "test",
+      "kills": [
+        "恢复进度：重复键阳性对照 —— 只留最后一处的同一份进度合规，四张表各有同一个索引 917 也不算重复"
+      ]
+    },
+    {
+      "id": "M-D19-ag",
+      "req": "D19.k",
+      "why": "写重复的进度键在哪一处都发现不了，按读入后留下的最后一处放行",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "  sourceTexts.set(parsed, text)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "恢复进度：根上 done、offsets、answered、found、pages 任一键写了不止一次即不合规，即使最后一处合法；问题点名该字段，数字与字符串照原文列出",
+        "恢复进度：offsets、answered、found、pages 表里同一个任务索引写了不止一次即不合规，最后一处合法、哪怕每一处都合法也一样；问题点名字段与键，按文件先后列出每一处原文"
+      ]
+    },
+    {
+      "id": "M-D19-ah",
+      "req": "D19.l",
+      "why": "collect 续跑见到写重复的进度键照常预留、请求并整份写回，前面几处原文消失",
+      "file": "scripts/collect.ts",
+      "find": "(holder, key) => sourceNumberToken(state, holder, key), sourceDuplicateKeys(state))",
+      "replace": "(holder, key) => sourceNumberToken(state, holder, key))",
+      "by": "selfcheck",
+      "kills": [
+        "重复进度键：collect 续跑与 --budget 改额见进度键写了不止一次，在预留与请求前退出2，task.json、任务目录与记忆原字节不变",
+        "重复进度键：collect 拒绝时 stderr 写出 task.json 路径、重复的字段，并按文件先后写出每一处原文，不只最后一处"
+      ]
+    },
+    {
+      "id": "M-D19-ai",
+      "req": "D19.l",
+      "why": "render 见到写重复的进度键照常导出并整份写回，前面几处原文消失",
+      "file": "scripts/render.ts",
+      "find": "(holder, key) => sourceNumberToken(state, holder, key), sourceDuplicateKeys(state))",
+      "replace": "(holder, key) => sourceNumberToken(state, holder, key))",
+      "by": "selfcheck",
+      "kills": [
+        "重复进度键：render 见进度键写了不止一次，在任何写入前退出2，任务目录与记忆原字节不变，原本没有的交付物不被创建",
+        "重复进度键：render 拒绝时 stderr 写出 task.json 路径、重复的字段，并按文件先后写出每一处原文，不只最后一处"
+      ]
+    },
+    {
+      "id": "M-D19-aj",
+      "req": "D19.k",
+      "why": "任务文件里有很长的字符串时判进度栈溢出、带着堆栈退出，合规的进度也导不出来",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "  for (let quote = text.indexOf('\"', at + 1); ; quote = text.indexOf('\"', quote + 1)) {",
+      "replace": "  { const string = /\"(?:[^\"\\\\]|\\\\.)*\"/y; string.lastIndex = at; string.exec(text); return string.lastIndex }\n  for (let quote = text.indexOf('\"', at + 1); ; quote = text.indexOf('\"', quote + 1)) {",
+      "by": "test",
+      "kills": [
+        "恢复进度：读得进来的任务文件里有超长字符串时照常判 —— 没有重复就合规，写在它后面的重复照样点名并列出原文"
+      ]
+    },
+    {
+      "id": "M-D19-ak",
+      "req": "D19.k",
+      "why": "找不到读入时的原文时当成没有重复，写重复的进度键照样放行",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "if (text === undefined) return null",
+      "replace": "if (text === undefined) return []",
+      "by": "test",
+      "kills": [
+        "恢复进度：找不到读入时原文的任务无从核对重复键，判为不合规而不是当成没有重复"
+      ]
+    },
+    {
+      "id": "M-D19-al",
+      "req": "D19.k",
+      "why": "无从核对有没有重复时不报，当成没有重复放行",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "if (duplicates === null) out.push(",
+      "replace": "if (false) out.push(",
+      "by": "test",
+      "kills": [
+        "恢复进度：找不到读入时原文的任务无从核对重复键，判为不合规而不是当成没有重复"
+      ]
+    },
+    {
+      "id": "M-D19-am",
+      "req": "D19.k",
+      "why": "根上任何键写重复都让进度不合规，预算等别的键写重复时合规的进度也被拒",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "(['done', 'offsets', 'answered', 'found', 'pages'].includes(key) ? key : undefined)",
+      "replace": "key",
+      "by": "test",
+      "kills": [
+        "恢复进度：根与四张表以外位置上的重复键不让进度不合规 —— 根上别的键、根下别的对象、更深处同名的进度键都不算"
+      ]
+    },
+    {
+      "id": "M-D19-an",
+      "req": "D19.k",
+      "why": "根下任何对象里写重复的键都让进度不合规，品牌输入或费用账里的重复也让合规的进度被拒",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": "(['offsets', 'answered', 'found', 'pages'].includes(parent) ? `${parent}[${JSON.stringify(key)}]` : undefined)",
+      "replace": "`${parent}[${JSON.stringify(key)}]`",
+      "by": "test",
+      "kills": [
+        "恢复进度：根与四张表以外位置上的重复键不让进度不合规 —— 根上别的键、根下别的对象、更深处同名的进度键都不算"
+      ]
+    },
+    {
+      "id": "M-D19-ao",
+      "req": "D19.k",
+      "why": "更深处与进度键同名的键写重复也被当成进度键重复，合规的进度被拒",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "c === 123 && open.length < 2",
+      "replace": "c === 123 && open.length < 3",
+      "by": "test",
+      "kills": [
+        "恢复进度：根与四张表以外位置上的重复键不让进度不合规 —— 根上别的键、根下别的对象、更深处同名的进度键都不算"
+      ]
+    },
+    {
+      "id": "M-D19-ap",
+      "req": "D19.l",
+      "why": "collect 续跑见到写重复的进度键时先往任务目录写了文件才退出",
+      "file": "scripts/collect.ts",
+      "find": "  if (progressProblems.length) {",
+      "replace": "  if (progressProblems.length) { process.getBuiltinModule('node:fs').writeFileSync(taskFile(resume) + '.partial', '')",
+      "by": "selfcheck",
+      "kills": [
+        "重复进度键：collect 续跑与 --budget 改额见进度键写了不止一次，在预留与请求前退出2，task.json、任务目录与记忆原字节不变"
+      ]
+    },
+    {
+      "id": "M-D19-aq",
+      "req": "D19.k",
+      "why": "以转义反斜杠结尾的字符串被当成没结束，后面写重复的进度键认不出来",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "    if (slashes % 2 === 0) return quote + 1",
+      "replace": "    if (slashes === 0) return quote + 1",
+      "by": "test",
+      "kills": [
+        "恢复进度：字符串里转义的引号与以反斜杠结尾的字符串不打乱判据 —— 写在它们后面的重复照样点名并列出原文"
+      ]
+    },
+    {
+      "id": "M-D19-ar",
+      "req": "D19.k",
+      "why": "字符串里转义的引号被当成字符串结束，后面写重复的进度键认不出来",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "    while (text.charCodeAt(quote - 1 - slashes) === 92) slashes++\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "恢复进度：字符串里转义的引号与以反斜杠结尾的字符串不打乱判据 —— 写在它们后面的重复照样点名并列出原文"
       ]
     },
     {
