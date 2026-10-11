@@ -1,5 +1,5 @@
 /**
- * task.json 的原始进度字段问题（collect 续跑与 render 导出前共用，D19.e、D19.h；重复键 D19.k）。只读，不修复旧任务，也不从别的表推算。
+ * task.json 的原始进度字段问题（collect 续跑与 render 导出前共用，D19.e、D19.h；重复键 D19.k，enrich 与 `calibration version` 写回前也判，D19.m–n）。只读，不修复旧任务，也不从别的表推算。
  * 任务列表须先经 taskListProblems 校验；它的长度定义唯一合法的索引范围。
  */
 import type { SourceDuplicate } from './cost-json.js'
@@ -85,14 +85,20 @@ duplicates?: readonly SourceDuplicate[] | null): string[] {
     }
   }
 
-  // D19.k：重复的进度键读进来的只有最后一处，前面的在整份写回时会消失；哪一处是真的只有人知道，不按留下的那处放行
-  if (duplicates === null) out.push('找不到这份任务读入时的原文，无从核对进度键有没有写重复')
-  for (const { parent, key, values } of duplicates ?? []) {
+  // D19.k：调用方传了读入时扫出的重复才判；没传（只判值的调用）就不判
+  if (duplicates !== undefined) out.push(...duplicateProgressProblems(duplicates))
+  return out
+}
+
+/** D19.k 的那一半：根上五个进度键与四张表里写重复的键各报一条，按文件里的先后列出每一处原文；找不到读入时的原文（null）报无从核对。
+ * collect 续跑与 render 经 resumeProgressProblems 一并判；enrich 与 `calibration version` 写回前只判这一项，不判进度的值（D19.m、D19.n）。 */
+export function duplicateProgressProblems(duplicates: readonly SourceDuplicate[] | null): string[] {
+  // 重复的进度键读进来的只有最后一处，前面的在整份写回时会消失；哪一处是真的只有人知道，不按留下的那处放行
+  if (duplicates === null) return ['找不到这份任务读入时的原文，无从核对进度键有没有写重复']
+  return duplicates.flatMap(({ parent, key, values }) => {
     const at = parent === undefined
       ? (['done', 'offsets', 'answered', 'found', 'pages'].includes(key) ? key : undefined)
       : (['offsets', 'answered', 'found', 'pages'].includes(parent) ? `${parent}[${JSON.stringify(key)}]` : undefined)
-    if (at !== undefined)
-      out.push(`${at} 在文件里写了 ${values.length} 次，依次是 ${values.join('、')}；读入只留最后一处，哪一处是真的要人来定`)
-  }
-  return out
+    return at === undefined ? [] : [`${at} 在文件里写了 ${values.length} 次，依次是 ${values.join('、')}；读入只留最后一处，哪一处是真的要人来定`]
+  })
 }

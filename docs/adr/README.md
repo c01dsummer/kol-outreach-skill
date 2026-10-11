@@ -178,4 +178,5 @@
 | **ADR-138** | [整份写回 task.json 时读入后没改动的数字照原文写回，坏断点不再被洗成合法值](ADR-138-整份写回-taskjson-时读入后没改动的数字照原文写回，坏断.md) |
 | **ADR-139** | [render 导出前按原文校验搜索进度，坏断点以 2 拒绝，不再把溢出印成 Infinity](ADR-139-render-导出前按原文校验搜索进度，坏断点以-2-拒绝，不再.md) |
 | **ADR-140** | [进度键在 task.json 里写重复时按每一处原文拒绝，不再只按读入后留下的最后一处放行](ADR-140-进度键在-taskjson-里写重复时按每一处原文拒绝，不再只按.md) |
+| **ADR-141** | [enrich 与 calibration version 见到写重复的进度键时在写回前以 2 拒绝，不再整份写回成只剩最后一处](ADR-141-enrich-与-calibration-version-见到写.md) |
 <!-- END:GENERATED -->

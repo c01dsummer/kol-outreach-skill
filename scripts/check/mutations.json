@@ -9261,8 +9261,8 @@
       "req": "D19.k",
       "why": "进度键写了不止一次时按读入后留下的最后一处放行，前面几处原文在整份写回时被悄悄丢掉",
       "file": "scripts/lib/resume-progress.ts",
-      "find": "for (const { parent, key, values } of duplicates ?? []) {",
-      "replace": "for (const { parent, key, values } of (duplicates ?? []).slice(0, 0)) {",
+      "find": "return duplicates.flatMap(({ parent, key, values }) => {",
+      "replace": "return duplicates.slice(0, 0).flatMap(({ parent, key, values }) => {",
       "by": "test",
       "kills": [
         "恢复进度：根上 done、offsets、answered、found、pages 任一键写了不止一次即不合规，即使最后一处合法；问题点名该字段，数字与字符串照原文列出",
@@ -9438,8 +9438,8 @@
       "req": "D19.k",
       "why": "无从核对有没有重复时不报，当成没有重复放行",
       "file": "scripts/lib/resume-progress.ts",
-      "find": "if (duplicates === null) out.push(",
-      "replace": "if (false) out.push(",
+      "find": "if (duplicates === null) return ['",
+      "replace": "if (duplicates === null) return []; if (duplicates === null) return ['",
       "by": "test",
       "kills": [
         "恢复进度：找不到读入时原文的任务无从核对重复键，判为不合规而不是当成没有重复"
