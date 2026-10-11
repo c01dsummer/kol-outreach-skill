@@ -6863,8 +6863,7 @@
       "replace": "for (const key of ['requests'])",
       "by": "test",
       "kills": [
-        "坏 ledger 数字不能在本地写回时变成 null",
-        "ledger 内的原数字也不能变成 null"
+        "费用账里读不出精确值的数字整份写回后仍是原数字"
       ]
     },
     {

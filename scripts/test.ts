@@ -9931,6 +9931,15 @@ suite('P3', '未经确认的预算输入不得取得付费额度')
   try { readCostLimit({ budget_usd: 0.005 }) }
   catch (error) { if (error instanceof CostError) code = error.code }
   eq('普通内存预算没有原 token 必须拒绝', code, 'invalid-money')
+  // 期望取夹具字面值，原文由模块级 diskTokens 读；每对前一半是阳性对照：普通 JSON 往返确实会改掉这些数字。
+  const roundTrips = (text: string, at: (string | number)[][]) => [diskTokens(JSON.stringify(JSON.parse(text)), at),
+    (() => { try { return diskTokens(stringifyCostJson(readCostDocument(text)), at) } catch (error) { return String(error) } })()]
+  eq('根上读不出精确值的 requests 整份写回后仍是原数字',
+    roundTrips('{"budget_usd":1,"requests":9007199254740993}', [['requests']]), [['9007199254740992'], ['9007199254740993']])
+  const ledger = '{"budget_usd":1,"requests":0,"cost_ledger":{"next_attempt_id":9007199254740993,"entries":[{"unit_micro_usd":1e400,"http_200_count":9007199254740993}]}}'
+  eq('费用账里读不出精确值的数字整份写回后仍是原数字', roundTrips(ledger, [['cost_ledger', 'next_attempt_id'],
+    ['cost_ledger', 'entries', 0, 'unit_micro_usd'], ['cost_ledger', 'entries', 0, 'http_200_count']]),
+    [['9007199254740992', 'null', '9007199254740992'], ['9007199254740993', '1e400', '9007199254740993']])
 }
 })
 if (fullRun) {
@@ -10133,8 +10142,6 @@ suite('D13', '原 JSON 数值与明确新账、旧账诊断使用同一精确费
       eq(`旧 requests ${token} 写回保留原数字`, numberTokens(stringifyCostJson(state)).requests, token)
       eq(`旧 requests ${token} 不冒充可核次数`, costView(state).requests, null)
     }
-    eq('根上读不出精确值的 requests 整份写回后仍是原数字',
-      numberTokens(stringifyCostJson(readCostDocument('{"budget_usd":1,"requests":9007199254740993}'))).requests, '9007199254740993')
     const malformed = readCostDocument('{"budget_usd":1,"requests":0,"cost_ledger":1e400}')
     eq('坏 ledger 数字不能在本地写回时变成 null', numberTokens(stringifyCostJson(malformed)).cost_ledger, '1e400')
     const nested = readCostDocument('{"budget_usd":1,"requests":0,"cost_ledger":{"entries":[{"unit_micro_usd":1e400}]}}')
