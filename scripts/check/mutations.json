@@ -9064,7 +9064,7 @@
       "req": "D19.e",
       "why": "恢复坏进度时仍进入预算改额或付费路径，原任务文件可能被改写",
       "file": "scripts/collect.ts",
-      "find": "const progressProblems = resumeProgressProblems(state, state.tasks.length,\n    (holder, key) => sourceNumberToken(state, holder, key))",
+      "find": "const progressProblems = resumeProgressProblems(state, state.tasks.length,\n    (holder, key) => sourceNumberToken(state, holder, key), sourceDuplicateKeys(state))",
       "replace": "const progressProblems: string[] = []",
       "by": "selfcheck",
       "kills": [
@@ -9129,7 +9129,7 @@
       "req": "D19.h",
       "why": "render 不判搜索进度，溢出的 found 照常渲染，报告里印成 Infinity、meta.json 里写成 null",
       "file": "scripts/render.ts",
-      "find": "const badProgress = resumeProgressProblems(state, state.tasks.length,\n  (holder, key) => sourceNumberToken(state, holder, key))",
+      "find": "const badProgress = resumeProgressProblems(state, state.tasks.length,\n  (holder, key) => sourceNumberToken(state, holder, key), sourceDuplicateKeys(state))",
       "replace": "const badProgress: string[] = []",
       "by": "selfcheck",
       "kills": [
