@@ -10502,6 +10502,42 @@
       ]
     },
     {
+      "id": "M-D20-ap",
+      "req": "D20.l",
+      "why": "读不到 task.json 时不论原因都说成同一句「无法读取任务」，不写出实际的解析错误或读取错误码",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "catch (error) { throw new ReviewInputError([`${file} 无法读取任务：${error instanceof Error ? error.message : String(error)}`]) }",
+      "replace": "catch { throw new ReviewInputError([`${file} 无法读取任务 JSON`]) }",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 读不到任务的四种原因（task.json 不存在、坏 JSON、根是数组、task.json 是目录）说法两两不同，坏 JSON 写出实际的解析错误，目录写出实际的读取错误码"
+      ]
+    },
+    {
+      "id": "M-D20-aq",
+      "req": "D20.n",
+      "why": "brand_calibration 不合 D20.a 时只给一句写死的结构说明，把所有字段名都列上，不说出到底哪一处不合规",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "if (plan.action === 'invalid') throw new ReviewInputError(plan.problems.map(p => `${file}: ${p}`))",
+      "replace": "if (plan.action === 'invalid') throw new ReviewInputError([`${file}: brand_calibration 不合 D20.a —— 须为对象，含非空 version，以及 target_creator_types、tone_aesthetic、natural_scenarios、negative_signals 四组字符串数组与 sources 来源数组`])",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 不合 D20.a 时只点名实际的不合规：只缺 negative_signals 不提其余三组数组，只缺 version 不提 negative_signals 与 tone_aesthetic"
+      ]
+    },
+    {
+      "id": "M-D20-ar",
+      "req": "D20.p",
+      "why": "照人工反馈模板命令的先例先校验任务列表，任务列表不合规时以 2 拒绝，校准合规也不换版本",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "const plan = planCalibrationVersion(state)",
+      "replace": "if (!Array.isArray(state.tasks)) throw new ReviewInputError([`${file}: tasks 必须是数组`])\n  const plan = planCalibrationVersion(state)",
+      "by": "selfcheck",
+      "kills": [
+        "calibration version 校准合 D20.a 而任务其余部分不合规（tasks 不是数组、缺 market）：照样以 0 写入按内容算出的版本，任务列表与其余内容按规范化 JSON 原样保留"
+      ]
+    },
+    {
       "id": "M-D21-a",
       "req": "D21.e",
       "why": "缺席的评审正本被标成已有文档，续跑无法分辨尚无判断与已有空正本",
