@@ -1,6 +1,7 @@
 /**
  * D13 · 根预算与费用字段保留精确数值证据；其余业务字段照常解析成 number。
  * D19.g／D14.g（ADR-138）· 整份写回读入的根时，没被程序改动的非费用数字照读入时的原文写回。
+ * D19.k（ADR-140）· 读入时记下根与根下一层对象里重复的键：JSON.parse 只留最后一处，前面的原文只在源文本里找得到。
  */
 import { CostError, formatUsd, parseUsdMicros, type MicroUsd } from './cost-ledger.js'
 import type { CostView } from './budget.js'
@@ -19,6 +20,38 @@ const roots = new WeakMap<object, { value: unknown; token: string }>()
 const sourceTokens = new WeakMap<object, WeakMap<object, Map<string, string>>>()
 // 无法解释为非负安全整数的费用数字保留原件；对象形态不能误过费用账的 number 校验。
 const unavailableNumbers = new WeakMap<object, string>()
+// 只有判进度的入口要重复键：读入时只留住原文，用到时才扫，扫过的按根缓存。
+const sourceTexts = new WeakMap<object, string>()
+const duplicateKeys = new WeakMap<object, readonly SourceDuplicate[]>()
+
+/** 逐个记号扫一遍 JSON.parse 已接受的文本。只给根与根下一层的对象记键，更深的只记层数；不递归，深嵌套也不爆栈（ADR-136）。 */
+function topDuplicateKeys(text: string): SourceDuplicate[] {
+  const out: SourceDuplicate[] = []
+  const open: ({ parent?: string; seen: Map<string, string[]>; key?: string } | undefined)[] = []
+  const token = /[ \t\n\r]*(?:("(?:[^"\\]|\\.)*")([ \t\n\r]*:)?|([{[])|([}\]])|(,)|([^ \t\n\r{}[\],:"]+))/y
+  for (let m = token.exec(text); m; m = token.exec(text)) {
+    const [, string, colon, opener, closer, comma, literal] = m
+    const top = open.at(-1)
+    if (comma) continue
+    // 键按解码后的名字比："0" 与 "\u0030" 是同一个键
+    if (colon) { if (top) top.key = JSON.parse(string) as string; continue }
+    if (closer) {
+      const frame = open.pop()
+      for (const [key, values] of frame?.seen ?? [])
+        if (values.length > 1) out.push({ ...(frame!.parent === undefined ? {} : { parent: frame!.parent }), key, values })
+      continue
+    }
+    // 其余都是值：记在所在对象当前的键名下
+    if (top?.key !== undefined) {
+      const values = top.seen.get(top.key) ?? []
+      values.push(opener === '{' ? '{…}' : opener === '[' ? '[…]' : string ?? literal ?? '')
+      top.seen.set(top.key, values)
+    }
+    if (opener) open.push(opener === '{' && open.length < 2
+      ? { ...(top?.key === undefined ? {} : { parent: top.key }), seen: new Map() } : undefined)
+  }
+  return out
+}
 
 /** 缺少原生精确 JSON 能力时，不允许有损写回或新增付费。 */
 export function assertCostJsonRuntime(): void {
@@ -41,6 +74,7 @@ export function readCostDocument<T extends object = CostState>(text: string): T 
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new CostError('invalid-money', '任务或配置必须是 JSON 对象')
   sourceTokens.set(parsed, tokens)
+  sourceTexts.set(parsed, text)
   const state = parsed as Record<string, unknown>
   const rootToken = tokens.get(parsed)?.get('budget_usd')
   if (rootToken !== undefined) roots.set(parsed, { value: state.budget_usd, token: rootToken })
@@ -77,8 +111,10 @@ export function sourceNumberToken(root: object, holder: object, key: string): st
 export type SourceDuplicate = { parent?: string; key: string; values: readonly string[] }
 
 export function sourceDuplicateKeys(root: object): readonly SourceDuplicate[] {
-  void root
-  return []
+  let found = duplicateKeys.get(root)
+  const text = sourceTexts.get(root)
+  if (!found && text !== undefined) duplicateKeys.set(root, found = topDuplicateKeys(text))
+  return found ?? []
 }
 
 export function readCostLimit(state: CostState): MicroUsd {

@@ -1,5 +1,5 @@
 /**
- * task.json 的原始进度字段问题（collect 续跑与 render 导出前共用，D19.e、D19.h）。只读，不修复旧任务，也不从别的表推算。
+ * task.json 的原始进度字段问题（collect 续跑与 render 导出前共用，D19.e、D19.h；重复键 D19.k）。只读，不修复旧任务，也不从别的表推算。
  * 任务列表须先经 taskListProblems 校验；它的长度定义唯一合法的索引范围。
  */
 import type { SourceDuplicate } from './cost-json.js'
@@ -83,6 +83,15 @@ duplicates: readonly SourceDuplicate[] = []): string[] {
         out.push(`${field}[${JSON.stringify(key)}] 必须是非负安全整数${field === 'found' ? '或 null' : ''}，这里是 ${shown(value, table, key)}`)
       }
     }
+  }
+
+  // D19.k：重复的进度键读进来的只有最后一处，前面的在整份写回时会消失；哪一处是真的只有人知道，不按留下的那处放行
+  for (const { parent, key, values } of duplicates) {
+    const at = parent === undefined
+      ? (['done', 'offsets', 'answered', 'found', 'pages'].includes(key) ? key : undefined)
+      : (['offsets', 'answered', 'found', 'pages'].includes(parent) ? `${parent}[${JSON.stringify(key)}]` : undefined)
+    if (at !== undefined)
+      out.push(`${at} 在文件里写了 ${values.length} 次，依次是 ${values.join('、')}；读入只留最后一处，哪一处是真的要人来定`)
   }
   return out
 }
