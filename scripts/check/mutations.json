@@ -11134,7 +11134,7 @@
     {
       "id": "M-H52-d",
       "req": "harness",
-      "why": "没有点名断言的变异也算见齐就停：它其实跑完全程，判定却按没打印过的标签去量",
+      "why": "谓词自己说没点名断言就不提前停；今天两个调用方都先挡掉了没点名的那一路，这条只守谓词本身，免得哪天新调用方直接信它",
       "file": "scripts/check/mutate-rule.ts",
       "find": "  return kills !== undefined && !(only !== undefined && verifier === VERIFIERS.test)",
       "replace": "  return !(only !== undefined && verifier === VERIFIERS.test)",

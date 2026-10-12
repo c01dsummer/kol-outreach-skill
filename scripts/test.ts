@@ -7848,7 +7848,7 @@ const keyOf = (by: LaunchVerifier, only: readonly string[]): string => configura
 const canon = (v: unknown): unknown => Array.isArray(v) ? v.map(canon) : v !== null && typeof v === 'object'
   ? Object.fromEntries(Object.keys(v).sort().map(k => [k, canon((v as Record<string, unknown>)[k])])) : v
 const loose = (fs: readonly LaunchFinding[]): unknown => canon(fs.map(f => f.kind === 'missing' ? { ...f, ids: [...f.ids].sort() } : f))
-const same = (label: string, got: readonly LaunchFinding[], want: readonly LaunchFinding[]) => eq(label, loose(got), loose(want))
+// 判定的断言都直接写成 eq('…', loose(…), loose(…))：变异点名用的清册只认 eq、ok 的字面量首参，包一层就点不着（ADR-145 复核发现 1）
 
 // ── 两条线（结论、第二节）与停不停（第一节：有点名的断言，且不是「需求测试 ＋ 选了组」）
 eq('规则一的线是每条会提前停的变异 50 次入口启动', LAUNCH_LIMIT.paid, 50)
@@ -7894,55 +7894,55 @@ const DF: Record<LaunchVerifier, readonly string[]> = {
 }
 const S1 = keyOf('selfcheck', ['g1'])
 const S1base = new Map([[S1, base(80, pr('自检甲', 50), pr('自检乙', 51), pr('自检丙', 70))]])
-same('规则一：付 50 次正好在线上，不报', launchFindings([mut('M-a', 'selfcheck', ['g1'], ['自检甲'])], S1base, DF), [])
-same('规则一：付 51 次超线，报这条变异、它的配置与它付的次数',
-  launchFindings([mut('M-b', 'selfcheck', ['g1'], ['自检乙'])], S1base, DF), [{ kind: 'paid', config: S1, id: 'M-b', paid: 51 }])
+eq('规则一：付 50 次正好在线上，不报', loose(launchFindings([mut('M-a', 'selfcheck', ['g1'], ['自检甲'])], S1base, DF)), loose([]))
+eq('规则一：付 51 次超线，报这条变异、它的配置与它付的次数',
+  loose(launchFindings([mut('M-b', 'selfcheck', ['g1'], ['自检乙'])], S1base, DF)), loose([{ kind: 'paid', config: S1, id: 'M-b', paid: 51 }]))
 // 自检乙在 g2、g3 的基线里都没打印 → 各付整个配置：g2 51 次超线，g3 50 次在线上
-same('规则一：点名标签没打印时按整个配置的启动数算，51 次超线、50 次不超线',
-  launchFindings([mut('M-c', 'selfcheck', ['g2'], ['自检乙']), mut('M-d', 'selfcheck', ['g3'], ['自检乙'])],
-    new Map([[keyOf('selfcheck', ['g2']), base(51, pr('自检甲', 4))], [keyOf('selfcheck', ['g3']), base(50, pr('自检甲', 4))]]), DF),
-  [{ kind: 'paid', config: keyOf('selfcheck', ['g2']), id: 'M-c', paid: 51 }])
+eq('规则一：点名标签没打印时按整个配置的启动数算，51 次超线、50 次不超线',
+  loose(launchFindings([mut('M-c', 'selfcheck', ['g2'], ['自检乙']), mut('M-d', 'selfcheck', ['g3'], ['自检乙'])],
+    new Map([[keyOf('selfcheck', ['g2']), base(51, pr('自检甲', 4))], [keyOf('selfcheck', ['g3']), base(50, pr('自检甲', 4))]]), DF)),
+  loose([{ kind: 'paid', config: keyOf('selfcheck', ['g2']), id: 'M-c', paid: 51 }]))
 // 自检清单有「共用标签（细）」，第 70 次那行归它，共用标签只付 10 → 不报；错拿需求测试的清单会把第 70 次记给共用标签 → 报
-same('规则一：按变异自己那个验证者的声明标签归属打印',
-  launchFindings([mut('M-e', 'selfcheck', ['g4'], ['共用标签'])],
-    new Map([[keyOf('selfcheck', ['g4']), base(80, pr('共用标签', 10), pr('共用标签（细）：第二遍', 70))]]), DF), [])
+eq('规则一：按变异自己那个验证者的声明标签归属打印',
+  loose(launchFindings([mut('M-e', 'selfcheck', ['g4'], ['共用标签'])],
+    new Map([[keyOf('selfcheck', ['g4']), base(80, pr('共用标签', 10), pr('共用标签（细）：第二遍', 70))]]), DF)), loose([]))
 // 200 × 3 = 600，但三条都会提前停，各付 10、20、10 → 不报
-same('会提前停的配置不按启动数乘条数判',
-  launchFindings([mut('M-f', 'selfcheck', ['g5'], ['自检甲']), mut('M-g', 'selfcheck', ['g5'], ['自检乙']), mut('M-h', 'selfcheck', ['g5'], ['自检甲'])],
-    new Map([[keyOf('selfcheck', ['g5']), base(200, pr('自检甲', 10), pr('自检乙', 20))]]), DF), [])
+eq('会提前停的配置不按启动数乘条数判',
+  loose(launchFindings([mut('M-f', 'selfcheck', ['g5'], ['自检甲']), mut('M-g', 'selfcheck', ['g5'], ['自检乙']), mut('M-h', 'selfcheck', ['g5'], ['自检甲'])],
+    new Map([[keyOf('selfcheck', ['g5']), base(200, pr('自检甲', 10), pr('自检乙', 20))]]), DF)), loose([]))
 // 排序后同一个键：自检甲第 55 次 → 报 55；需求测试 2 条 × 51 = 102 → 报（拆成两种配置的话各 51 × 1，都不超）
-same('选组写法顺序不同的变异归同一种配置：找得到同一份基线，也一起数条数',
-  launchFindings([mut('M-i', 'selfcheck', ['k', 'j'], ['自检甲']), mut('N-q', 'test', ['i', 'h'], ['测试甲']), mut('N-p', 'test', ['h', 'i'], ['测试甲'])],
-    new Map([[keyOf('selfcheck', ['j', 'k']), base(60, pr('自检甲', 55))], [keyOf('test', ['h', 'i']), base(51)]]), DF),
-  [{ kind: 'paid', config: '["selfcheck",["j","k"]]', id: 'M-i', paid: 55 }, { kind: 'product', config: '["test",["h","i"]]', launches: 51, ids: ['N-p', 'N-q'] }])
+eq('选组写法顺序不同的变异归同一种配置：找得到同一份基线，也一起数条数',
+  loose(launchFindings([mut('M-i', 'selfcheck', ['k', 'j'], ['自检甲']), mut('N-q', 'test', ['i', 'h'], ['测试甲']), mut('N-p', 'test', ['h', 'i'], ['测试甲'])],
+    new Map([[keyOf('selfcheck', ['j', 'k']), base(60, pr('自检甲', 55))], [keyOf('test', ['h', 'i']), base(51)]]), DF)),
+  loose([{ kind: 'paid', config: '["selfcheck",["j","k"]]', id: 'M-i', paid: 55 }, { kind: 'product', config: '["test",["h","i"]]', launches: 51, ids: ['N-p', 'N-q'] }]))
 // 20 × 5 = 100，等于线 → 不报
-same('规则二：启动 20 次乘 5 条正好 100，不报',
-  launchFindings(['N-1', 'N-2', 'N-3', 'N-4', 'N-5'].map(id => mut(id, 'test', ['h1'], ['测试甲'])), new Map([[keyOf('test', ['h1']), base(20)]]), DF), [])
+eq('规则二：启动 20 次乘 5 条正好 100，不报',
+  loose(launchFindings(['N-1', 'N-2', 'N-3', 'N-4', 'N-5'].map(id => mut(id, 'test', ['h1'], ['测试甲'])), new Map([[keyOf('test', ['h1']), base(20)]]), DF)), loose([]))
 // 101 × 1 = 101 → 报一条，launches 取这种配置的启动数；测试甲第 90 次才打印，但需求测试选组不提前停，不判规则一
 const T2 = keyOf('test', ['h2'])
-same('规则二：启动 101 次乘 1 条超线，这种配置报一条，不按付费启动判',
-  launchFindings([mut('N-a', 'test', ['h2'], ['测试甲'])], new Map([[T2, base(101, pr('测试甲', 90))]]), DF),
-  [{ kind: 'product', config: T2, launches: 101, ids: ['N-a'] }])
+eq('规则二：启动 101 次乘 1 条超线，这种配置报一条，不按付费启动判',
+  loose(launchFindings([mut('N-a', 'test', ['h2'], ['测试甲'])], new Map([[T2, base(101, pr('测试甲', 90))]]), DF)),
+  loose([{ kind: 'product', config: T2, launches: 101, ids: ['N-a'] }]))
 // 34 × 3 = 102 → 报一条；ids 按编号排成 x、y、z（输入是 z、x、y）
 const T3 = keyOf('test', ['h3'])
-same('规则二：超线的配置只报一条，变异编号按编号排',
-  launchFindings([mut('N-z', 'test', ['h3'], ['测试甲']), mut('N-x', 'test', ['h3'], ['测试乙']), mut('N-y', 'test', ['h3'], ['测试甲'])], new Map([[T3, base(34)]]), DF),
-  [{ kind: 'product', config: T3, launches: 34, ids: ['N-x', 'N-y', 'N-z'] }])
+eq('规则二：超线的配置只报一条，变异编号按编号排',
+  loose(launchFindings([mut('N-z', 'test', ['h3'], ['测试甲']), mut('N-x', 'test', ['h3'], ['测试乙']), mut('N-y', 'test', ['h3'], ['测试甲'])], new Map([[T3, base(34)]]), DF)),
+  loose([{ kind: 'product', config: T3, launches: 34, ids: ['N-x', 'N-y', 'N-z'] }]))
 // 全跑（第一节第 3 条）：没有基线计数，按超线报；不记 0、不跳过，也不另报缺基线
-same('全跑变异：自检的与需求测试的各报一条全跑，按编号排',
-  launchFindings([mut('F-b', 'test', undefined, ['测试甲']), mut('F-a', 'selfcheck', undefined, ['自检甲'])], new Map(), DF),
-  [{ kind: 'full-run', id: 'F-a' }, { kind: 'full-run', id: 'F-b' }])
+eq('全跑变异：自检的与需求测试的各报一条全跑，按编号排',
+  loose(launchFindings([mut('F-b', 'test', undefined, ['测试甲']), mut('F-a', 'selfcheck', undefined, ['自检甲'])], new Map(), DF)),
+  loose([{ kind: 'full-run', id: 'F-a' }, { kind: 'full-run', id: 'F-b' }]))
 // 缺基线（第五节末「数据缺失不放行」）：报一条 missing，不再判两条规则；表里的 S1 没人落到，不判
-same('缺基线：自检选组配置报一条缺基线，带上落到它的全部变异',
-  launchFindings([mut('M-q', 'selfcheck', ['g9'], ['自检甲']), mut('M-p', 'selfcheck', ['g9'], ['自检乙'])], S1base, DF),
-  [{ kind: 'missing', config: keyOf('selfcheck', ['g9']), ids: ['M-p', 'M-q'] }])
-same('没有变异落到的基线不判，哪怕它的数远超两条线',
-  launchFindings([], new Map([[keyOf('selfcheck', ['idle']), base(999, pr('自检甲', 998))], [keyOf('test', ['idle']), base(999)]]), DF), [])
+eq('缺基线：自检选组配置报一条缺基线，带上落到它的全部变异',
+  loose(launchFindings([mut('M-q', 'selfcheck', ['g9'], ['自检甲']), mut('M-p', 'selfcheck', ['g9'], ['自检乙'])], S1base, DF)),
+  loose([{ kind: 'missing', config: keyOf('selfcheck', ['g9']), ids: ['M-p', 'M-q'] }]))
+eq('没有变异落到的基线不判，哪怕它的数远超两条线',
+  loose(launchFindings([], new Map([[keyOf('selfcheck', ['idle']), base(999, pr('自检甲', 998))], [keyOf('test', ['idle']), base(999)]]), DF)), loose([]))
 // 排序（第九节）：全跑按编号最前；其余按配置键字符串比较；同一配置里 paid 按编号。手排的键：
 //   ["selfcheck",["Zed"]] < …["alpha"]] < …["gamma"]] < ["test",["beta"]] < …["delta"]]（s < t；Z 0x5A < a 0x61 < g 0x67，大写在前）
 // Zed 三条：P-a 60、P-b 70、P-c 52，按编号 a、b、c，与付费升序 c、a、b、降序 b、a、c、输入次序 b、c、a 都不同。
 // alpha：Q-a 55；beta：51 × 2 = 102；gamma、delta 没有基线；idle 没人落到
-same('排序：全跑的排最前，其余按配置键排，同一配置里按变异编号', launchFindings([
+eq('排序：全跑的排最前，其余按配置键排，同一配置里按变异编号', loose(launchFindings([
   mut('R-b', 'test', ['beta'], ['测试甲']), mut('T-a', 'test', ['delta'], ['测试甲']), mut('F-e', 'test', undefined, ['测试甲']),
   mut('P-b', 'selfcheck', ['Zed'], ['自检乙']), mut('S-a', 'selfcheck', ['gamma'], ['自检甲']), mut('Q-a', 'selfcheck', ['alpha'], ['自检甲']),
   mut('P-c', 'selfcheck', ['Zed'], ['自检丙']), mut('R-a', 'test', ['beta'], ['测试乙']), mut('P-a', 'selfcheck', ['Zed'], ['自检甲']),
@@ -7950,7 +7950,7 @@ same('排序：全跑的排最前，其余按配置键排，同一配置里按�
 ], new Map([
   [keyOf('test', ['beta']), base(51)], [keyOf('selfcheck', ['idle']), base(999)], [keyOf('selfcheck', ['alpha']), base(80, pr('自检甲', 55))],
   [keyOf('selfcheck', ['Zed']), base(90, pr('自检丙', 52), pr('自检甲', 60), pr('自检乙', 70))],
-]), DF), [
+]), DF)), loose([
   { kind: 'full-run', id: 'F-d' }, { kind: 'full-run', id: 'F-e' },
   { kind: 'paid', config: '["selfcheck",["Zed"]]', id: 'P-a', paid: 60 },
   { kind: 'paid', config: '["selfcheck",["Zed"]]', id: 'P-b', paid: 70 },
@@ -7959,7 +7959,7 @@ same('排序：全跑的排最前，其余按配置键排，同一配置里按�
   { kind: 'missing', config: '["selfcheck",["gamma"]]', ids: ['S-a'] },
   { kind: 'product', config: '["test",["beta"]]', launches: 51, ids: ['R-a', 'R-b'] },
   { kind: 'missing', config: '["test",["delta"]]', ids: ['T-a'] },
-])
+]))
 
 // ── 属性：随机路由与基线（有的缺基线、有的没人落到），对着照第一节、第九节手写的小 oracle 逐条比。固定种子，每次一样
 {
@@ -8045,8 +8045,8 @@ ok('报错文本点到每条发现的变异或配置', ['M-Q1-a', 'M-Q2-b'].ever
   && (reportText.includes(missingConfig) || reportText.includes('M-Q4-e')))
 ok('全跑那一条写明全跑变异没有基线计数、按规则视为超线', reportText.includes('全跑变异没有基线计数') && reportText.includes('视为超线'))
 ok('报错文本附上三种改法：拆组、每个用例各一条、移出需求测试组', ['拆组', '每个用例各一条', '移出需求测试组'].every(w => reportText.includes(w)))
-ok('报错文本写明少写变异不是改法', reportText.includes('少写变异'))
-ok('报错文本写明上限只由决策记录调', reportText.includes('决策记录'))
+ok('报错文本写明少写变异不是改法', reportText.includes('少写变异不是改法'))
+ok('报错文本写明上限只由决策记录调', reportText.includes('上限只能改常量、写决策记录'))
 })
 
 await group('h-worker-start', () => {
