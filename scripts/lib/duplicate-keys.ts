@@ -12,9 +12,11 @@ const inProgress = (path: readonly (string | number)[]): boolean => path.length 
   ? PROGRESS_ROOT.has(path[0] as string)
   : path.length === 2 && PROGRESS_TABLES.has(path[0] as string)
 
-/** 根上的键照写，往下对象里的键写成 ["键"]、数组里的下标写成 [下标]，与 D19.k 的 found["0"] 同一种写法 */
+/** 根上的键照写，往下对象里的键写成 ["键"]、数组里的下标写成 [下标]，与 D19.k 的 found["0"] 同一种写法。
+ * 根上的键为空、或含字母、数字与 _ . - 以外的字符时也写成 ["键"]：空的读不出位置，控制字符会原样进终端，`x["y"]` 会与 x 里的 y 混同 */
+const plain = /^[\p{L}\p{N}_.-]+$/u
 const where = (path: readonly (string | number)[]): string => path
-  .map((step, i) => typeof step === 'number' ? `[${step}]` : i === 0 ? step : `[${JSON.stringify(step)}]`).join('')
+  .map((step, i) => typeof step === 'number' ? `[${step}]` : i === 0 && plain.test(step) ? step : `[${JSON.stringify(step)}]`).join('')
 
 /**
  * 每一处写重复的键一条问题：位置、次数与按先后的每一处原文。`outsideProgress` 为真时跳过 D19.k 那几处

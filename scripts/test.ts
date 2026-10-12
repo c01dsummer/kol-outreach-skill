@@ -5968,7 +5968,7 @@ suite('D27', 'task.json 任一层写重复的键：按读入时的原文认出�
   const one = (name: string, swap: Partial<Record<Part, string>>, path: readonly (string | number)[], values: readonly string[],
     d19k = false, last: Partial<Record<Part, string>> = {}): DupCase => [name, doc(swap), doc(last), path, values, d19k]
   const OUTSIDE: DupCase[] = [
-    one('tasks-root', { tasks: `"tasks":"zq-first-tasks",${BASE.tasks}` }, ['tasks'], ['zq-first-tasks', '[…]']),
+    one('tasks-root', { tasks: `"tasks":"zq-first-list",${BASE.tasks}` }, ['tasks'], ['zq-first-list', '[…]']),
     one('task-keyword', { tasks: '"tasks":[{"keyword":"zq\\u002dold","dimension":"category","keyword":"lamp","platform":"tiktok"}]' },
       ['tasks', 0, 'keyword'], ['zq\\u002dold', 'lamp']),
     one('budget-root', { budget: '"budget_usd":9.5e1,"budget_usd":1' }, ['budget_usd'], ['9.5e1', '1']),
@@ -6037,6 +6037,16 @@ suite('D27', 'task.json 任一层写重复的键：按读入时的原文认出�
     CASES.filter(([name]) => name === 'nested-arrays').flatMap(([name, text]) => {
       const got = scan(text)
       return 'all' in got && got.all.length === 1 && !/9\.75e2|8\.25e2|"x"/.test(got.all[0]) ? [] : [`${name}: ${JSON.stringify(got)}`]
+    }), [])
+  // 位置要读得出（复核发现 4，写在接上实现之后）：根上的键为空、或含字母、数字与 _ . - 以外的字符时也写成 ["键"]，
+  // 键名里的引号、反斜杠与控制字符按 JSON 转义 —— 空的位置读不出，控制字符原样进终端，根上的 x["y"] 会与 x 里的 y 混同
+  const ODD: [string, string, boolean][] = [['root-empty', '', false], ['root-control', 'a\u001b[31m', false], ['root-brackets', 'x["y"]', false],
+    ['inner-quote', 'a"b', true], ['inner-backslash', 'a\\b', true]]
+  eq('任一层写重复的键：位置读得出 —— 根上的键为空或含字母、数字与 _ . - 以外的字符时也写成 ["键"]，键名里的引号、反斜杠与控制字符按 JSON 转义，不把控制字符原样写出',
+    ODD.flatMap(([name, key, inner]) => {
+      const k = JSON.stringify(key), at = inner ? `x[${k}]` : `[${k}]`
+      const got = scan(inner ? `{"x":{${k}:7.5e0,${k}:1}}` : `{${k}:7.5e0,${k}:1,"x":{"y":1}}`)
+      return 'all' in got && got.all.length === 1 && got.all[0].startsWith(at) && !/[\u0000-\u001f]/.test(got.all[0]) ? [] : [`${name}: ${JSON.stringify(got)}`]
     }), [])
   // outsideProgress：只跳过 D19.k 那几处（那几处由 duplicateProgressProblems 报），挨着边界的其余位置一处不少
   eq('任一层写重复的键：只报 D19.k 以外那几处时跳过根上五个进度键与四张表里的键，别处的照报 —— 包括 done 里的键、表里更深一层、别的对象里叫 found 的表与任务对象里叫 found 的键',
@@ -12898,7 +12908,7 @@ await group('feedback-template-crossings', async () => {
     const base = '{"tasks":[{"keyword":"saved","dimension":"category","platform":"tiktok"}],"cost_ledger":{"version":"unusable"},"budget_usd":"unusable","requests":null}';
     // [名, 写重复的改法, 只留最后一处的改法, 位置（D19.k 那一处只认字段名）, 按文件先后被丢掉的前几处原文]
     const cases: [string, [string, string], [string, string], string, string[]][] = [
-      ['tasks-root', ['"tasks":[', '"tasks":"zq-first-tasks","tasks":['], ['"tasks":[', '"tasks":['], 'tasks', ['zq-first-tasks']],
+      ['tasks-root', ['"tasks":[', '"tasks":"zq-first-list","tasks":['], ['"tasks":[', '"tasks":['], 'tasks', ['zq-first-list']],
       ['task-keyword', ['"keyword":"saved"', '"keyword":"zq\\u002dold","keyword":"saved"'], ['"keyword":"saved"', '"keyword":"saved"'], 'tasks[0]["keyword"]', ['zq\\u002dold']],
       ['progress-key', ['"requests":null', '"requests":null,"found":{"0":1e400,"0":3}'], ['"requests":null', '"requests":null,"found":{"0":3}'], 'found', ['1e400']],
       ['progress-deep', ['"requests":null', '"requests":null,"found":{"0":{"zq":7.25e0,"zq":3}}'], ['"requests":null', '"requests":null,"found":{"0":{"zq":3}}'], 'found["0"]["zq"]', ['7.25e0']],
@@ -14191,7 +14201,7 @@ suite('D20', '内容哈希版本按规范化 JSON 算出，复算只核对已有
     type Variant = { parts?: Partial<Record<Part, string>>; brandDup?: boolean }
     // [名, 写重复的那一份, 只留最后一处的那一份, 位置, 按文件先后被丢掉的前几处原文]
     const CASES: [string, Variant, Variant, string, string[]][] = [
-      ['tasks-root', { parts: { tasks: `"tasks":"zq-first-tasks",${PART.tasks}` } }, {}, 'tasks', ['zq-first-tasks']],
+      ['tasks-root', { parts: { tasks: `"tasks":"zq-first-list",${PART.tasks}` } }, {}, 'tasks', ['zq-first-list']],
       ['task-keyword', { parts: { tasks: '"tasks":[{"keyword":"zq\\u002dold","keyword":"lamp","dimension":"category","platform":"tiktok"}]' } }, {},
         'tasks[0]["keyword"]', ['zq\\u002dold']],
       ['found-deep', { parts: { found: '"found":{"0":{"zq":7.25e0,"zq":3}}' } }, { parts: { found: '"found":{"0":{"zq":3}}' } }, 'found["0"]["zq"]', ['7.25e0']],
@@ -14245,6 +14255,11 @@ suite('D20', '内容哈希版本按规范化 JSON 算出，复算只核对已有
     eq('校准版本命令：brand_calibration 缺席或 version 已一致时任一层写重复了键也不拒绝、不写盘，照常返回 absent 与 unchanged，盘上几处原样留着',
       quiet.map(({ result, error, kept }) => [error === undefined, result?.status, result?.status === 'unchanged' ? result?.version === current : true, kept]),
       CASES.flatMap(([, dup]) => [...dup.brandDup ? [] : [[true, 'absent', true, true]], [true, 'unchanged', true, true]]))
+    // 进度键与别处同时写重复（复核发现 3，写在接上实现之后）：D19.k 那几处照 D19.n 报、其余位置照 D27.c 报，两处都写出，同一处不报两遍
+    const both = runAt(taskAt({ parts: { found: '"found":{"0":1e400,"0":3}', requests: '"requests":7.5e1,"requests":0' } }, handVersion))
+    const times = (token: string) => both.said.split(token).length - 1
+    eq('校准版本命令：进度键与别处同时写重复而要写盘时以输入问题拒绝、不写盘，两处都写出，每一处只写一遍',
+      [both.error instanceof ReviewInputError, both.kept, times('1e400'), times('7.5e1')], [true, true, 1, 1])
   } finally { rmSync(d27Dir, { recursive: true, force: true }) }
   tension('D27', 'P1')
 }

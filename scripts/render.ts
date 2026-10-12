@@ -42,8 +42,9 @@ catch (e) {
   process.exit(2)
 }
 const badTasks = taskListProblems(state.tasks)
-// D27.b：写重复的键跟任务列表一起报，在读名单与任何写入之前；D19.k 那几处留给下面的进度那一道
-badTasks.push(...duplicateKeyProblems(sourceDuplicates(state), true))
+// D27.b：写重复的键先写出，在读名单与任何写入之前；任务列表有效时进度那一道照判，D19.k 那几处与坏进度在那里一起报
+const badDuplicates = duplicateKeyProblems(sourceDuplicates(state), true)
+if (badDuplicates.length) console.error(`${taskFile(dir)} 里写重复的键：\n  ${badDuplicates.join('\n  ')}`)
 const badCalibration = brandCalibrationProblems(state)
 badCalibration.push(...calibrationVersionProblems(state))
 if (badCalibration.length) {
@@ -61,6 +62,7 @@ if (badProgress.length) {
   console.error(`${taskFile(dir)} 里的搜索进度不合规：\n  ${badProgress.join('\n  ')}`)
 }
 if (badCalibration.length || badProgress.length) process.exit(2)
+if (badDuplicates.length) process.exit(2)
 let creators: Creator[]
 let reviews: TaskReviews
 let relations: Creator[]

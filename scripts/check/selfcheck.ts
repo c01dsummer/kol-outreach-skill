@@ -5012,7 +5012,7 @@ group('resume-progress', [], () => {
   // [名, 夹具里的合法原文, 改成的重复写法, 只留最后一处的写法, 位置, 按文件先后被丢掉的前几处原文]
   type D27Case = [string, string, string, string, string, string[]]
   const d27Cases: D27Case[] = [
-    ['tasks-root', '"tasks":[', '"tasks":"zq-first-tasks","tasks":[', '"tasks":[', 'tasks', ['zq-first-tasks']],
+    ['tasks-root', '"tasks":[', '"tasks":"zq-first-list","tasks":[', '"tasks":[', 'tasks', ['zq-first-list']],
     ['task-keyword', '"keyword":"local"', '"keyword":"zq\\u002dold","keyword":"local"', '"keyword":"local"', 'tasks[0]["keyword"]', ['zq\\u002dold']],
     // D27 × P3：请求计数、根预算与费用账上限写重复
     ['requests', '"requests":0', '"requests":7.5e1,"requests":"zz-mid","requests":0', '"requests":0', 'requests', ['7.5e1', 'zz-mid']],
@@ -5113,12 +5113,12 @@ group('resume-progress', [], () => {
   const d27Mixed: string[] = []
   let d27MixedRan = 0
   for (const [mode, entry] of [['collect --resume', 'collect'], ['enrich', 'enrich'], ['render', 'render']] as const) {
-    const got = d27Run(entry, [['"tasks":[', '"tasks":"zq-first-tasks","tasks":[']], [], { status: 2, soft: [0, 1, 3] },
+    const got = d27Run(entry, [['"tasks":[', '"tasks":"zq-first-list","tasks":[']], [], { status: 2, soft: [0, 1, 3] },
       { tasks: [{ keyword: 'local', dimension: 'Category', platform: 'TikTok' }] })
     if (!got) continue
     const message = got.r.stderr.replaceAll(got.f.task, '[任务文件]').replaceAll(got.f.cwd, '[目录]')
     const taskSaid = ['dimension', 'platform', JSON.stringify('Category'), JSON.stringify('TikTok')].every(s => message.includes(s))
-    const dupSaid = dupListed(got.r.stderr, got.f, 'tasks', ['zq-first-tasks'])
+    const dupSaid = dupListed(got.r.stderr, got.f, 'tasks', ['zq-first-list'])
     if (got.r.status !== 2 || !taskSaid || !dupSaid || got.after !== got.before || !got.same || got.reserves !== 0 || got.attempts !== 0)
       d27Mixed.push(`${mode}：任务列表=${taskSaid}，重复键=${dupSaid}，${d27Said(got)}`)
     d27MixedRan++
@@ -5126,8 +5126,8 @@ group('resume-progress', [], () => {
   if (d27MixedRan > 0) named('写重复的键：tasks 写了两次且最后那份任务列表不合规时，collect、enrich 与 render 退出2，stderr 任务列表问题与 tasks 的每一处都写出', !d27Mixed.length, d27Mixed.join('；'))
 
   // D19.k 那几处照 D19.l、D19.m 报，不重复报（D27.b 末句）：同一份里进度键 found 的 "0" 与 requests 都写了重复。
-  // enrich 只有一道，两处都写出、各只列一遍；collect 与 render 的进度那一道在任务列表那一道之后（ADR-142 第一节第 3 条），
-  // 这一次至少写出 requests 那一处；写出进度键那一处时也只列一遍 —— 去掉路径的 stderr 里 7.5e1 恰好一次、1e400 至多一次
+  // 三个入口两处都写出、各只列一遍 —— 去掉路径的 stderr 里 7.5e1 与 1e400 各恰好一次。collect 与 render 的进度那一道在任务列表那一道之后：
+  // 任务列表有效时它照判，其余位置的重复不遮住它（复核发现 2）；坏进度值（D19.h、D19.i）同样不被遮住
   const d27Twice: string[] = []
   let d27BothRan = 0
   for (const [mode, entry] of [['collect --resume', 'collect'], ['enrich', 'enrich'], ['render', 'render']] as const) {
@@ -5135,12 +5135,18 @@ group('resume-progress', [], () => {
     if (!got) continue
     const message = got.r.stderr.replaceAll(got.f.task, '[任务文件]').replaceAll(got.f.cwd, '[目录]')
     const times = (token: string) => message.split(token).length - 1
-    const fine = got.r.status === 2 && dupListed(got.r.stderr, got.f, 'requests', ['7.5e1']) && times('7.5e1') === 1 && times('1e400') <= 1
-      && (entry !== 'enrich' || (times('1e400') === 1 && dupListed(got.r.stderr, got.f, 'found', ['1e400', '3.000'])))
+    const fine = got.r.status === 2 && dupListed(got.r.stderr, got.f, 'requests', ['7.5e1']) && times('7.5e1') === 1 && times('1e400') === 1
+      && dupListed(got.r.stderr, got.f, 'found', ['1e400', '3.000'])
     if (!fine) d27Twice.push(`${mode}：7.5e1 出现 ${times('7.5e1')} 次，1e400 出现 ${times('1e400')} 次，${d27Said(got)}`)
     d27BothRan++
+    if (entry === 'enrich') continue // enrich 不判进度的值（D19.m 末句）
+    const bad = d27Run(entry, [['"found":{"0":3}', '"found":{"0":-9.25e2}'], ['"requests":0', '"requests":7.5e1,"requests":0']], [], { status: 2, soft: [0, 1, 3] })
+    if (!bad) continue
+    const badMessage = bad.r.stderr.replaceAll(bad.f.task, '[任务文件]').replaceAll(bad.f.cwd, '[目录]')
+    if (bad.r.status !== 2 || !dupListed(bad.r.stderr, bad.f, 'requests', ['7.5e1']) || !badMessage.includes('-9.25e2'))
+      d27Twice.push(`${mode} 坏进度：-9.25e2 写出=${badMessage.includes('-9.25e2')}，${d27Said(bad)}`)
   }
-  if (d27BothRan > 0) named('写重复的键：进度键与别处同时写重复时，每一处只报一遍、不因两条判据报两遍；enrich 两处都写出', !d27Twice.length, d27Twice.join('；'))
+  if (d27BothRan > 0) named('写重复的键：进度键或坏进度与别处同时出问题时，三个入口都写出每一处，每一处只报一遍、不因两条判据报两遍', !d27Twice.length, d27Twice.join('；'))
   if (d27Ran === d27Planned && d27MixedRan === 3 && d27BothRan === 3) criterion('D27.b')
 
   // D27.e：不多拒 —— 两个一模一样的任务（不同对象里的同名键、数组里相同的元素）、费用账两项各有同名键、根上一个装着相同元素的数组，
@@ -8203,7 +8209,7 @@ fs.writeFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json','controll
   const d27Base = '{"tasks":[{"keyword":"saved","dimension":"category","platform":"tiktok"}],"cost_ledger":{"version":"unusable"},"budget_usd":"unusable","requests":null}';
   // [名, 写重复的改法, 只留最后一处的改法, 位置（D19.k 那一处只认字段名）, 按文件先后被丢掉的前几处原文, 带着旧人工表追加]
   const d27Cases: [string, [string, string], [string, string], string, string[], boolean][] = [
-    ['tasks-root', ['"tasks":[', '"tasks":"zq-first-tasks","tasks":['], ['"tasks":[', '"tasks":['], 'tasks', ['zq-first-tasks'], false],
+    ['tasks-root', ['"tasks":[', '"tasks":"zq-first-list","tasks":['], ['"tasks":[', '"tasks":['], 'tasks', ['zq-first-list'], false],
     ['task-keyword', ['"keyword":"saved"', '"keyword":"zq\\u002dold","keyword":"saved"'], ['"keyword":"saved"', '"keyword":"saved"'], 'tasks[0]["keyword"]', ['zq\\u002dold'], false],
     ['progress-key', ['"requests":null', '"requests":null,"found":{"0":1e400,"0":3}'], ['"requests":null', '"requests":null,"found":{"0":3}'], 'found', ['1e400'], false],
     ['progress-deep', ['"requests":null', '"requests":null,"found":{"0":{"zq":7.25e0,"zq":3}}'], ['"requests":null', '"requests":null,"found":{"0":{"zq":3}}'], 'found["0"]["zq"]', ['7.25e0'], false],
@@ -8238,7 +8244,7 @@ fs.writeFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json','controll
   if (d27Ran > 0) named('模板入口-写重复的键列出每一处', !d27Hidden.length, 'D27.d: stderr须写出task.json路径、键的位置与按先后被丢掉的每一处原文；' + d27Hidden.join('；'));
   // 「与 D26.b 的任务列表、品牌输入问题一起」：tasks 写了两次、最后那份任务列表不合规，品牌来源的性质也不合规。
   // 对照是同一份去掉第一处 tasks：照 D26.b 以 2 拒绝、写出 "Category"、"TikTok" 与 brand_calibration —— 任务与品牌问题的写法取自这一份，不靠猜
-  const d27MixedText = (dupTasks: boolean) => `{${dupTasks ? '"tasks":"zq-first-tasks",' : ''}"tasks":[{"keyword":"saved","dimension":"Category","platform":"TikTok"}],`
+  const d27MixedText = (dupTasks: boolean) => `{${dupTasks ? '"tasks":"zq-first-list",' : ''}"tasks":[{"keyword":"saved","dimension":"Category","platform":"TikTok"}],`
     + '"brand_calibration":{"version":"v1","target_creator_types":[],"tone_aesthetic":[],"natural_scenarios":[],"negative_signals":[],"sources":[{"source":"source","kind":"invented","detail":"detail"}]}}';
   const d27MixedControl = fixture('d27-mixed-control'), d27MixedDir = fixture('d27-mixed');
   writeFileSync(join(d27MixedControl, 'task.json'), d27MixedText(false) + '\n'); writeFileSync(join(d27MixedDir, 'task.json'), d27MixedText(true) + '\n');
@@ -8251,7 +8257,7 @@ fs.writeFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json','controll
     if (mx.ok) {
       const message = mx.stderr.split(d27MixedDir).join('[目录]');
       named('模板入口-写重复的键与任务品牌问题同报', inputError(mx, d27MixedDir, 'task.json', ['"Category"', '"TikTok"', 'brand_calibration']) && message.includes('tasks')
-        && d27InOrder(message, ['zq-first-tasks']) && !existsSync(join(d27MixedDir, 'manual-feedback.csv')), 'D27.d/D26.b: 写重复的键须与任务列表、品牌输入问题同一次写出；' + stderrTail(mx.stderr));
+        && d27InOrder(message, ['zq-first-list']) && !existsSync(join(d27MixedDir, 'manual-feedback.csv')), 'D27.d/D26.b: 写重复的键须与任务列表、品牌输入问题同一次写出；' + stderrTail(mx.stderr));
       d27MixedRan++;
     }
   }
