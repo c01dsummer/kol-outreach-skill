@@ -9953,10 +9953,9 @@
       "file": "scripts/lib/cost-json.ts",
       "find": "...(c === 123 ? { seen: new Map() } : {})",
       "replace": "...(c === 123 ? { seen: top && !top.seen ? ((top as Frame & { shared?: Map<string, string[]> }).shared ??= new Map()) : new Map() } : {})",
-      "by": "selfcheck",
+      "by": "test",
       "kills": [
-        "写重复的键不多拒：两个任务各有同名键、费用账两项各有同名键与数组里相同的元素不算重复，collect 续跑与改额、enrich 与改额、render、calibration version 照常进行",
-        "模板入口-写重复判据不多拒"
+        "任一层写重复的键不多拒：不同对象里的同名键、数组里相同的元素、字符串里像重复键的文字与解码后不同名的键都不算重复"
       ]
     },
     {

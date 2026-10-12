@@ -6066,6 +6066,9 @@ suite('D27', 'task.json 任一层写重复的键：按读入时的原文认出�
   const clean = scan(CLEAN)
   eq('任一层写重复的键不多拒：不同对象里的同名键、数组里相同的元素、字符串里像重复键的文字与解码后不同名的键都不算重复',
     'dups' in clean ? [clean.dups, clean.all, clean.outside] : clean, [[], [], []])
+  // D27.e 判据那一半在这里认领（复核发现 1）：入口那一半由自检认领，但任何一种多拒的扫描都会让自检里带费用账条目的阳性对照
+  // 一并失败、带上夹具记号，自检那边的负片按规矩记不上功；判据这一层没有夹具记号，负片记在这里
+  criterion('D27.e')
   // 读得进来的深层嵌套与超长字符串（D19.k 那条复核发现的同类）：不抛异常，写在里面或后面的重复照样认出
   const DEPTH = 2400
   const deepText = doc({ matrix: `"matrix":${'['.repeat(DEPTH)}{"a":5.5e0,"a":1}${']'.repeat(DEPTH)}` })
