@@ -9261,8 +9261,8 @@
       "req": "D19.k",
       "why": "进度键写了不止一次时按读入后留下的最后一处放行，前面几处原文在整份写回时被悄悄丢掉",
       "file": "scripts/lib/resume-progress.ts",
-      "find": "for (const { parent, key, values } of duplicates ?? []) {",
-      "replace": "for (const { parent, key, values } of (duplicates ?? []).slice(0, 0)) {",
+      "find": "return duplicates.flatMap(({ parent, key, values }) => {",
+      "replace": "return duplicates.slice(0, 0).flatMap(({ parent, key, values }) => {",
       "by": "test",
       "kills": [
         "恢复进度：根上 done、offsets、answered、found、pages 任一键写了不止一次即不合规，即使最后一处合法；问题点名该字段，数字与字符串照原文列出",
@@ -9438,8 +9438,8 @@
       "req": "D19.k",
       "why": "无从核对有没有重复时不报，当成没有重复放行",
       "file": "scripts/lib/resume-progress.ts",
-      "find": "if (duplicates === null) out.push(",
-      "replace": "if (false) out.push(",
+      "find": "if (duplicates === null) return ['",
+      "replace": "if (duplicates === null) return []; if (duplicates === null) return ['",
       "by": "test",
       "kills": [
         "恢复进度：找不到读入时原文的任务无从核对重复键，判为不合规而不是当成没有重复"
@@ -9515,6 +9515,115 @@
       "by": "test",
       "kills": [
         "恢复进度：字符串里转义的引号与以反斜杠结尾的字符串不打乱判据 —— 写在它们后面的重复照样点名并列出原文"
+      ]
+    },
+    {
+      "id": "M-D19-as",
+      "req": "D19.m",
+      "why": "enrich 见到写重复的进度键照常改额、预留、请求并整份写回，前几处原文悄悄消失",
+      "file": "scripts/enrich.ts",
+      "find": "const progressProblems = duplicateProgressProblems(sourceDuplicateKeys(task))",
+      "replace": "const progressProblems: string[] = []",
+      "by": "selfcheck",
+      "kills": [
+        "重复进度键：enrich 与 --budget 改额见进度键写了不止一次，在改额、预留与请求前退出2，task.json、任务目录与记忆原字节不变"
+      ]
+    },
+    {
+      "id": "M-D19-at",
+      "req": "D19.m",
+      "why": "enrich 因写重复的进度键拒绝时 stderr 不写出重复的字段与各处原文，用户看不出要改哪里",
+      "file": "scripts/enrich.ts",
+      "find": "...calibrationProblems, ...progressProblems].join(",
+      "replace": "...calibrationProblems].join(",
+      "by": "selfcheck",
+      "kills": [
+        "重复进度键：enrich 拒绝时 stderr 写出 task.json 路径、重复的字段，并按文件先后写出每一处原文，不只最后一处",
+        "重复进度键：enrich 见进度键重复且任务列表与品牌输入也不合规时退出2，stderr 三类问题都写出，重复键按文件先后写出每一处原文"
+      ]
+    },
+    {
+      "id": "M-D19-au",
+      "req": "D19.m",
+      "why": "enrich 拒绝之前先把 task.json 整份写回，前几处原文已经没了",
+      "file": "scripts/enrich.ts",
+      "find": "if (calibrationProblems.length || taskProblems.length || progressProblems.length) {",
+      "replace": "if (calibrationProblems.length || taskProblems.length || progressProblems.length) { saveTask(dir, task)",
+      "by": "selfcheck",
+      "kills": [
+        "重复进度键：enrich 与 --budget 改额见进度键写了不止一次，在改额、预留与请求前退出2，task.json、任务目录与记忆原字节不变"
+      ]
+    },
+    {
+      "id": "M-D19-av",
+      "req": "D19.n",
+      "why": "calibration version 要写盘时见到写重复的进度键照常写回，前几处原文消失",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "const duplicates = duplicateProgressProblems(sourceDuplicateKeys(state))",
+      "replace": "const duplicates: string[] = []",
+      "by": "selfcheck",
+      "kills": [
+        "重复进度键：calibration version 要写盘而进度键写了不止一次时退出2、不写盘，task.json 原字节、文件身份与修改时间不变，stdout 为空"
+      ]
+    },
+    {
+      "id": "M-D19-aw",
+      "req": "D19.n",
+      "why": "brand_calibration 不合 D20.a 时只报校准问题，写重复的进度键要等校准改好再撞一次才说",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "plan.problems.concat(duplicates).map(",
+      "replace": "plan.problems.map(",
+      "by": "test",
+      "kills": [
+        "校准版本命令：进度键写了不止一次且 brand_calibration 不合 D20.a 时以输入问题拒绝、不写盘，两类问题都写出"
+      ]
+    },
+    {
+      "id": "M-D19-ax",
+      "req": "D19.n",
+      "why": "version 已一致、本不写盘时也因写重复的进度键拒绝",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "if (plan.action === 'unchanged') return { file, status: 'unchanged', version: plan.version }",
+      "replace": "if (plan.action === 'unchanged' && duplicateProgressProblems(sourceDuplicateKeys(state)).length === 0) return { file, status: 'unchanged', version: plan.version }",
+      "by": "test",
+      "kills": [
+        "校准版本命令：brand_calibration 缺席或 version 已一致时进度键写了不止一次也不拒绝、不写盘，照常返回 absent 与 unchanged"
+      ]
+    },
+    {
+      "id": "M-D19-ay",
+      "req": "D19.n",
+      "why": "brand_calibration 缺席、本不写盘时也因写重复的进度键拒绝",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "if (plan.action === 'absent') return { file, status: 'absent' }",
+      "replace": "if (plan.action === 'absent' && duplicateProgressProblems(sourceDuplicateKeys(state)).length === 0) return { file, status: 'absent' }",
+      "by": "test",
+      "kills": [
+        "校准版本命令：brand_calibration 缺席或 version 已一致时进度键写了不止一次也不拒绝、不写盘，照常返回 absent 与 unchanged"
+      ]
+    },
+    {
+      "id": "M-D19-az",
+      "req": "D19.n",
+      "why": "calibration version 拒绝之前先把 task.json 整份写回，前几处原文已经没了",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "if (duplicates.length) throw new ReviewInputError(",
+      "replace": "if (duplicates.length && (saveTask(dir, state), true)) throw new ReviewInputError(",
+      "by": "test",
+      "kills": [
+        "校准版本命令：进度键写了不止一次而要写盘时以输入问题拒绝（入口以 2 退出），不写盘，盘上原字节与修改时间不变"
+      ]
+    },
+    {
+      "id": "M-D19-ba",
+      "req": "D19.n",
+      "why": "calibration version 因写重复的进度键拒绝时只说写重复了，不点名字段、不列出各处原文",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "if (duplicates.length) throw new ReviewInputError(duplicates.map(p => `${file}: ${p}`))",
+      "replace": "if (duplicates.length) throw new ReviewInputError([`${file}: 进度键写了不止一次`])",
+      "by": "test",
+      "kills": [
+        "校准版本命令：进度键写了不止一次而拒绝时，问题点名重复的字段并按文件先后写出每一处原文，不只最后一处"
       ]
     },
     {
@@ -10877,7 +10986,7 @@
       "req": "D20.n",
       "why": "brand_calibration 有几处不合 D20.a 时只报第一处，其余不合规的字段不写出",
       "file": "scripts/lib/calibration-version-task.ts",
-      "find": "if (plan.action === 'invalid') throw new ReviewInputError(plan.problems.map(p => `${file}: ${p}`))",
+      "find": "if (plan.action === 'invalid') throw new ReviewInputError(plan.problems.concat(duplicates).map(p => `${file}: ${p}`))",
       "replace": "if (plan.action === 'invalid') throw new ReviewInputError([`${file}: ${plan.problems[0]}`])",
       "by": "selfcheck",
       "kills": [
@@ -11024,7 +11133,7 @@
       "req": "D20.n",
       "why": "brand_calibration 不合 D20.a 时只给一句写死的结构说明，把所有字段名都列上，不说出到底哪一处不合规",
       "file": "scripts/lib/calibration-version-task.ts",
-      "find": "if (plan.action === 'invalid') throw new ReviewInputError(plan.problems.map(p => `${file}: ${p}`))",
+      "find": "if (plan.action === 'invalid') throw new ReviewInputError(plan.problems.concat(duplicates).map(p => `${file}: ${p}`))",
       "replace": "if (plan.action === 'invalid') throw new ReviewInputError([`${file}: brand_calibration 不合 D20.a —— 须为对象，含非空 version，以及 target_creator_types、tone_aesthetic、natural_scenarios、negative_signals 四组字符串数组与 sources 来源数组`])",
       "by": "selfcheck",
       "kills": [

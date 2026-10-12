@@ -20,9 +20,10 @@ import {
   Budget, BudgetInputError,
 } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
-import { stringifyCostJson } from './lib/cost-json.js'
+import { sourceDuplicateKeys, stringifyCostJson } from './lib/cost-json.js'
 import { brandCalibrationProblems, calibrationVersionProblems } from './lib/brand-calibration.js'
 import { taskListProblems } from './lib/search-tasks.js'
+import { duplicateProgressProblems } from './lib/resume-progress.js'
 import { canonicalReviewLinks, reviewRelations } from './lib/pipeline.js'
 import { prepareTaskReviews } from './lib/task-reviews.js'
 import {
@@ -73,8 +74,10 @@ try {
   const calibrationProblems = brandCalibrationProblems(task)
   calibrationProblems.push(...calibrationVersionProblems(task))
   const taskProblems = taskListProblems(task.tasks)
-  if (calibrationProblems.length || taskProblems.length) {
-    throw new Error(`${taskFile(dir)} 里的任务或品牌输入不合规：\n  ${[...taskProblems, ...calibrationProblems].join('\n  ')}`)
+  // D19.m：写重复的进度键整份写回就只剩最后一处，要在改额、预留与任何写入之前拦下；进度的值照旧不判（ADR-138）
+  const progressProblems = duplicateProgressProblems(sourceDuplicateKeys(task))
+  if (calibrationProblems.length || taskProblems.length || progressProblems.length) {
+    throw new Error(`${taskFile(dir)} 里的任务、品牌输入或续跑进度不合规：\n  ${[...taskProblems, ...calibrationProblems, ...progressProblems].join('\n  ')}`)
   }
   inputs = loadReviewCreatorInputs(dir)
   const relations = reviewRelations(inputs.previous, inputs.raw)

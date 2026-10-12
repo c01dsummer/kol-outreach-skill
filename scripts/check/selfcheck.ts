@@ -4850,6 +4850,158 @@ group('resume-progress', [], () => {
   if (renderDup > 0) named('重复进度键：render 见进度键写了不止一次，在任何写入前退出2，任务目录与记忆原字节不变，原本没有的交付物不被创建', !renderLeaked.length, renderLeaked.join('；'))
   if (renderDup > 0) named('重复进度键：render 拒绝时 stderr 写出 task.json 路径、重复的字段，并按文件先后写出每一处原文，不只最后一处', !renderHidden.length, renderHidden.join('；'))
   if (collectDup === dupCases.length * 2 && renderDup === dupCases.length) criterion('D19.l')
+
+  // D19.m：enrich（普通与 --budget 改额）见进度键写了不止一次（D19.k）时，在改额、预留、请求与任何写入之前以 2 拒绝（ADR-141）。
+  // 期望只来自判据原文与上面 dupCases 写进夹具的字面值：前几处 1e400、7.25e1、"zz-mid" 读入后不留痕迹，stderr 里按先后找得到它们
+  // 才是「每一处的原文」。阳性对照是同一份夹具、同一种模式只留最后一处：enrich 照常预留、请求并写回 task.json（观测确实接上、
+  // 目录与 task.json 确实会变），拒绝只能是因为重复。夹具里放一个待补的创作者，否则 enrich 本来就零预留零请求。
+  // 夹具目录名（也是任务的 product）只带序号：不含 found、pages 这些字段名，路径或产品名不能替字段作证
+  const enrichDup = (name: string, edits: [string, string][], over: Record<string, unknown>, extra: string[],
+    expect: { status: number; soft: number[] }) => {
+    const f = costFixture(`enrich-dup-${name}`, knownCosts(1_000_000, []), over, [costPerson()])
+    const text = fileText(f.task)
+    if (!edits.every(([from]) => text.includes(from))) {
+      failed++; console.error(`  ✗ enrich 重复进度键测试输入${SELFCHECK_FIXTURE_MARK}：${name} 的夹具里找不到 ${edits.map(([from]) => from).join('、')}`); return undefined }
+    writeFileSync(f.task, edits.reduce((t, [from, to]) => t.replace(from, to), text))
+    seed(f)
+    const dirs = () => `${snapshot(f.taskDir)}|${snapshot(join(f.cwd, 'memory'))}`
+    const before = fileText(f.task), beforeDirs = dirs()
+    const reserves = join(f.cwd, 'reserves.txt'), armed = join(f.cwd, 'armed.txt'), preload = join(f.cwd, 'observe-reserve.mjs')
+    writeFileSync(reserves, '')
+    writeFileSync(preload, [
+      `import { appendFileSync } from 'node:fs';`,
+      `import { Budget } from ${JSON.stringify(budgetModule)};`,
+      `const original = Budget.prototype.reserve;`,
+      `Budget.prototype.reserve = function(...args) {`,
+      `  appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n');`,
+      `  return Reflect.apply(original, this, args);`,
+      `};`,
+      `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
+    ].join('\n'))
+    const r = runBoth(`重复进度键 enrich ${name}`, [S('enrich.ts'), '--dir', f.taskDir, ...extra], f.cwd, expect, costEnv(f.log, {
+      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+    }))
+    if (!r.ok) return undefined
+    if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ enrich 重复进度键预留观测${SELFCHECK_FIXTURE_MARK}：预算预留观测未安装，${name}`); return undefined }
+    const after = fileText(f.task)
+    return { f, r, before, after, same: dirs() === beforeDirs, reserves: fetchAttempts(reserves).length,
+      attempts: fetchAttempts(f.log).length, refreshed: jsonFile(f.task)?.updated_at !== '2026-01-01T00:00:00.000Z' }
+  }
+  const enrichModes = [['plain', []], ['budget', ['--budget', '2']]] as const
+  const enrichLeaked: string[] = [], enrichHidden: string[] = []
+  let enrichDupRan = 0
+  for (const [i, [id, from, dup, last, field, tokens]] of dupCases.entries()) for (const [mode, extra] of enrichModes) {
+    const lastOnly = enrichDup(`k${i}-${mode}-control`, [[from, last]], {}, [...extra], { status: 0, soft: [1, 2, 3] })
+    if (!lastOnly) continue
+    if (lastOnly.r.status !== 0 || lastOnly.reserves === 0 || lastOnly.attempts === 0 || lastOnly.after === lastOnly.before || !lastOnly.refreshed) { failed++
+      console.error(`  ✗ enrich 重复进度键阳性对照${SELFCHECK_FIXTURE_MARK}：${id}/${mode} 只留最后一处时没有照常预留、请求并写回 task.json，exit=${lastOnly.r.status}，reserves=${lastOnly.reserves}，attempts=${lastOnly.attempts}，写回=${lastOnly.after !== lastOnly.before}，stderr=${stderrTail(lastOnly.r.stderr)}`); continue }
+    const got = enrichDup(`k${i}-${mode}`, [[from, dup]], {}, [...extra], { status: 2, soft: [0, 1, 3] })
+    if (!got) continue
+    const { f, r, before, after, same, reserves, attempts } = got
+    const at = `${id}/${mode}：exit=${r.status}，fileSame=${after === before}，目录原样=${same}，reserves=${reserves}，attempts=${attempts}，stderr=${stderrTail(r.stderr)}`
+    if (r.status !== 2 || after !== before || !same || reserves !== 0 || attempts !== 0) enrichLeaked.push(at)
+    if (r.status !== 2 || !dupListed(r.stderr, f, field, tokens)) enrichHidden.push(at)
+    enrichDupRan++
+  }
+  if (enrichDupRan > 0) named('重复进度键：enrich 与 --budget 改额见进度键写了不止一次，在改额、预留与请求前退出2，task.json、任务目录与记忆原字节不变', !enrichLeaked.length, enrichLeaked.join('；'))
+  if (enrichDupRan > 0) named('重复进度键：enrich 拒绝时 stderr 写出 task.json 路径、重复的字段，并按文件先后写出每一处原文，不只最后一处', !enrichHidden.length, enrichHidden.join('；'))
+
+  // 「与任务列表、品牌输入的问题同时存在时都写出」：同一份夹具另把任务列表（D16）与品牌输入（D20.a 的 version 空白）写坏。
+  // 这里退出 2 本来就由另两类问题满足，所以只断言三类问题都写出；任务问题按 D16 的写法认字段名与 JSON 原值
+  const mixedLost: string[] = []
+  let enrichMixedRan = 0
+  const [mixedId, mixedFrom, mixedDup, , mixedField, mixedTokens] = dupCases[0]
+  for (const [mode, extra] of enrichModes) {
+    const got = enrichDup(`mixed-${mode}`, [[mixedFrom, mixedDup]], {
+      tasks: [{ keyword: ' ', dimension: 'Category', platform: 'TikTok' }],
+      brand_calibration: { version: ' ', target_creator_types: [], tone_aesthetic: [], natural_scenarios: [], negative_signals: [], sources: [] },
+    }, [...extra], { status: 2, soft: [0, 1, 3] })
+    if (!got) continue
+    const { f, r } = got
+    const message = r.stderr.replaceAll(f.task, '[任务文件]').replaceAll(f.cwd, '[目录]')
+    const taskSaid = ['dimension', 'platform', JSON.stringify('Category'), JSON.stringify('TikTok')].every(s => message.includes(s))
+    const brandSaid = message.split('\n').some(line => /brand_calibration.*\bversion\b/.test(line))
+    const dupSaid = dupListed(r.stderr, f, mixedField, mixedTokens)
+    if (r.status !== 2 || !taskSaid || !brandSaid || !dupSaid) mixedLost.push(`${mixedId}/${mode}：exit=${r.status}，任务列表=${taskSaid}，品牌输入=${brandSaid}，重复键=${dupSaid}，stderr=${stderrTail(r.stderr)}`)
+    enrichMixedRan++
+  }
+  if (enrichMixedRan > 0) named('重复进度键：enrich 见进度键重复且任务列表与品牌输入也不合规时退出2，stderr 三类问题都写出，重复键按文件先后写出每一处原文', !mixedLost.length, mixedLost.join('；'))
+
+  // D19.m 末句：enrich 只判重复、不按 D19.a–b 判进度的值。没有重复而溢出的 found 照常预留、请求、以 0 结束，并照 D19.g 原文写回
+  const alone = enrichDup('alone', [['"found":{"0":3}', '"found":{"0":1e400}']], {}, [], { status: 0, soft: [1, 2, 3] })
+  if (alone) {
+    const saved = rootToken(alone.after, '0', ['found']) ?? '缺席'
+    named('重复进度键：enrich 不因此判进度的值，没有重复的坏进度（found 溢出）照常预留、请求并以0结束，写回后原文逐字不变',
+      alone.r.status === 0 && alone.reserves > 0 && alone.attempts > 0 && alone.refreshed && saved === '1e400',
+      `exit=${alone.r.status}，reserves=${alone.reserves}，attempts=${alone.attempts}，updated_at 刷新=${alone.refreshed}，写回后 found[0]=${saved}，stderr=${stderrTail(alone.r.stderr)}`)
+  }
+  if (enrichDupRan === dupCases.length * enrichModes.length && enrichMixedRan === enrichModes.length && alone) criterion('D19.m')
+
+  // D19.n：`calibration version` 读入的 task.json 有 D19.k 的重复、而按 D20.q 要写盘时以 2 拒绝、不写盘；不合 D20.a 时两类问题都写出；
+  // 缺席（D20.m）与 version 已一致（D20.r）不写盘，有重复也照旧以 0 结束。期望只来自判据原文与夹具字面值。
+  // 要写盘的阳性对照：同一份夹具只留最后一处、version 是手写标签，照常以 0 写入（文件身份或修改时间确实变了）—— 「不写盘」可分辨。
+  // 已一致的版本按 D20.f 独立算：五组都是空数组的最小校准，除 version 外的内容按码点排好键、无空白，手写成下面这一串
+  const { createHash } = createRequire(import.meta.url)('node:crypto') as { createHash: (algorithm: string) =>
+    { update: (data: string, encoding: 'utf8') => { digest: (encoding: 'hex') => string } } }
+  const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex')
+  const calContent = { target_creator_types: [], tone_aesthetic: [], natural_scenarios: [], negative_signals: [], sources: [] }
+  const calCanonical = '{"natural_scenarios":[],"negative_signals":[],"sources":[],"target_creator_types":[],"tone_aesthetic":[]}'
+  const calSame = `sha256:${sha256(calCanonical)}`
+  if (sha256('abc') !== 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+    || JSON.stringify(Object.fromEntries(Object.entries(calContent).sort(([a], [b]) => a < b ? -1 : 1))) !== calCanonical) {
+    failed++; console.error(`  ✗ calibration version 重复进度键内容哈希 oracle${SELFCHECK_FIXTURE_MARK}：手写规范化串或 SHA256 与手推向量不符`); return
+  }
+  // task.json 修改时间拨回过去：同字节就地重写也看得出（同 calibration-version-entry 组）
+  const calStamp = (file: string) => { try { const s = statSync(file); return `${s.dev}:${s.ino}:${s.mtimeMs}` } catch { return 'missing' } }
+  const calDup = (name: string, from: string, to: string, calibration: Record<string, unknown> | undefined, expect: { status: number; soft: number[] }) => {
+    const f = costFixture(`calver-dup-${name}`, knownCosts(1_000_000, []), calibration === undefined ? {} : { brand_calibration: calibration })
+    const text = fileText(f.task)
+    if (!text.includes(from) || (calibration === undefined && text.includes('"brand_calibration"'))) {
+      failed++; console.error(`  ✗ calibration version 重复进度键测试输入${SELFCHECK_FIXTURE_MARK}：${name} 的夹具里找不到 ${from}`); return undefined }
+    writeFileSync(f.task, text.replace(from, to))
+    utimesSync(f.task, new Date('2001-01-01'), new Date('2001-01-01'))
+    const before = fileText(f.task), stamp = calStamp(f.task)
+    const r = runBoth(`重复进度键 calibration version ${name}`, [S('calibration.ts'), 'version', '--dir', f.taskDir], f.cwd, expect,
+      costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+    if (!r.ok) return undefined
+    return { f, r, kept: fileText(f.task) === before && calStamp(f.task) === stamp, out: summaryOf(r.stdout) }
+  }
+  const calWrote: string[] = [], calHidden: string[] = [], calMixed: string[] = [], calAbsent: string[] = [], calUnchanged: string[] = []
+  let calRan = 0
+  for (const [i, [id, from, dup, last, field, tokens]] of dupCases.entries()) {
+    const manualCal = { version: 'kept-v1', ...calContent }
+    const control = calDup(`k${i}-control`, from, last, manualCal, { status: 0, soft: [1, 2, 3] })
+    if (!control) continue
+    if (control.r.status !== 0 || control.out?.status !== 'written' || control.kept || jsonFile(control.f.task)?.updated_at === '2026-01-01T00:00:00.000Z') { failed++
+      console.error(`  ✗ calibration version 重复进度键阳性对照${SELFCHECK_FIXTURE_MARK}：${id} 只留最后一处时没有以 0 写入，exit=${control.r.status}，stdout=${JSON.stringify(control.r.stdout)}，stderr=${stderrTail(control.r.stderr)}`); continue }
+    // 已一致的对照：同一份只留最后一处、version 是上面独立算出的值，以 0 报 unchanged —— oracle 与被测命令对得上
+    const sameControl = calDup(`k${i}-same-control`, from, last, { version: calSame, ...calContent }, { status: 0, soft: [1, 2, 3] })
+    if (!sameControl) continue
+    if (sameControl.r.status !== 0 || sameControl.out?.status !== 'unchanged' || !sameControl.kept) { failed++
+      console.error(`  ✗ calibration version 重复进度键已一致对照${SELFCHECK_FIXTURE_MARK}：${id} 只留最后一处、version=${calSame} 时没有以 0 报 unchanged，exit=${sameControl.r.status}，stdout=${JSON.stringify(sameControl.r.stdout)}，stderr=${stderrTail(sameControl.r.stderr)}`); continue }
+    const w = calDup(`k${i}-write`, from, dup, manualCal, { status: 2, soft: [0, 1, 3] })
+    const m = calDup(`k${i}-invalid`, from, dup, { ...manualCal, tone_aesthetic: [7] }, { status: 2, soft: [0, 1, 3] })
+    const a = calDup(`k${i}-absent`, from, dup, undefined, { status: 0, soft: [1, 2, 3] })
+    const u = calDup(`k${i}-same`, from, dup, { version: calSame, ...calContent }, { status: 0, soft: [1, 2, 3] })
+    if (!w || !m || !a || !u) continue
+    const said = (got: NonNullable<ReturnType<typeof calDup>>) => `exit=${got.r.status}，原样=${got.kept}，stdout=${JSON.stringify(got.r.stdout)}，stderr=${stderrTail(got.r.stderr)}`
+    if (w.r.status !== 2 || !w.kept || w.r.stdout !== '') calWrote.push(`${id}：${said(w)}`)
+    if (w.r.status !== 2 || !dupListed(w.r.stderr, w.f, field, tokens)) calHidden.push(`${id}：${said(w)}`)
+    const mMessage = m.r.stderr.replaceAll(m.f.task, '[任务文件]').replaceAll(m.f.cwd, '[目录]')
+    if (m.r.status !== 2 || !m.kept || m.r.stdout !== '' || !mMessage.includes('tone_aesthetic') || !dupListed(m.r.stderr, m.f, field, tokens))
+      calMixed.push(`${id}：tone_aesthetic=${mMessage.includes('tone_aesthetic')}，重复键=${dupListed(m.r.stderr, m.f, field, tokens)}，${said(m)}`)
+    if (a.r.status !== 0 || a.out?.status !== 'absent' || !a.kept) calAbsent.push(`${id}：${said(a)}`)
+    if (u.r.status !== 0 || u.out?.status !== 'unchanged' || u.out?.version !== calSame || !u.kept) calUnchanged.push(`${id}：${said(u)}`)
+    calRan++
+  }
+  if (calRan > 0) {
+    named('重复进度键：calibration version 要写盘而进度键写了不止一次时退出2、不写盘，task.json 原字节、文件身份与修改时间不变，stdout 为空', !calWrote.length, calWrote.join('；'))
+    named('重复进度键：calibration version 拒绝时 stderr 写出 task.json 路径、重复的字段，并按文件先后写出每一处原文，不只最后一处', !calHidden.length, calHidden.join('；'))
+    named('重复进度键：calibration version 的 brand_calibration 同时不合 D20.a 时退出2、不写盘、stdout 为空，stderr 两类问题都写出', !calMixed.length, calMixed.join('；'))
+    named('重复进度键：calibration version 的 brand_calibration 缺席时有重复也以0报 absent，不写盘，task.json 原字节、文件身份与修改时间不变', !calAbsent.length, calAbsent.join('；'))
+    named('重复进度键：calibration version 的 version 已一致时有重复也以0报 unchanged，不写盘，task.json 原字节、文件身份与修改时间不变', !calUnchanged.length, calUnchanged.join('；'))
+  }
+  if (calRan === dupCases.length) criterion('D19.n')
 })
 
 // ---- D15.j／D15.k／D6.w：IG 话题入口只由配置显式开启，校验在一切请求之前，probe 与 collect 同一处分派 ----

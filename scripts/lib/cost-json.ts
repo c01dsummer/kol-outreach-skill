@@ -20,7 +20,7 @@ const roots = new WeakMap<object, { value: unknown; token: string }>()
 const sourceTokens = new WeakMap<object, WeakMap<object, Map<string, string>>>()
 // 无法解释为非负安全整数的费用数字保留原件；对象形态不能误过费用账的 number 校验。
 const unavailableNumbers = new WeakMap<object, string>()
-// 只有判进度的入口要重复键：读入时只留住原文，用到时才扫，扫过的按根缓存。
+// 只有判进度的入口与写回前要判重复的 enrich、calibration version 要重复键：读入时只留住原文，用到时才扫，扫过的按根缓存。
 const sourceTexts = new WeakMap<object, string>()
 const duplicateKeys = new WeakMap<object, readonly SourceDuplicate[]>()
 
