@@ -4984,7 +4984,26 @@ group('resume-progress-dup-enrich', [], () => {
       alone.r.status === 0 && alone.reserves > 0 && alone.attempts > 0 && alone.refreshed && saved === '1e400',
       `exit=${alone.r.status}，reserves=${alone.reserves}，attempts=${alone.attempts}，updated_at 刷新=${alone.refreshed}，写回后 found[0]=${saved}，stderr=${stderrTail(alone.r.stderr)}`)
   }
-  if (enrichDupRan === dupCases.length * enrichModes.length && enrichMixedRan === enrichModes.length && alone) criterion('D19.m')
+
+  // D19.k 说的是表里「同一个键」，不只是任务索引（main 审计 2026-10-12 第 3 条）：enrich 不判进度的值，表里写了两次的 "zq"
+  // 只有 D19.k 拦着。阳性对照是同一份只留最后一处：enrich 照常预留、请求并写回（上一条断言里不判值的那一半）；
+  // 前一处 6.25e1 读入后不留痕迹，stderr 里找得到它才是「每一处的原文」。只跑普通模式：改额那一支走同一个判定，上面已各跑过
+  const nonIndexFrom = '"found":{"0":3}'
+  const nonIndexControl = enrichDup('k9-control', [[nonIndexFrom, '"found":{"0":3,"zq":5}']], {}, [], { status: 0, soft: [1, 2, 3] })
+  let nonIndexRan = false
+  if (nonIndexControl && (nonIndexControl.r.status !== 0 || nonIndexControl.reserves === 0 || nonIndexControl.attempts === 0 || nonIndexControl.after === nonIndexControl.before)) { failed++
+    console.error(`  ✗ enrich 重复进度键阳性对照${SELFCHECK_FIXTURE_MARK}：表里非任务索引的键只留最后一处时没有照常预留、请求并写回 task.json，exit=${nonIndexControl.r.status}，reserves=${nonIndexControl.reserves}，attempts=${nonIndexControl.attempts}，stderr=${stderrTail(nonIndexControl.r.stderr)}`) }
+  else if (nonIndexControl) {
+    const got = enrichDup('k9', [[nonIndexFrom, '"found":{"0":3,"zq":6.25e1,"zq":5}']], {}, [], { status: 2, soft: [0, 1, 3] })
+    if (got) {
+      const { f, r, before, after, same, reserves, attempts } = got
+      named('重复进度键：enrich 见表里不是任务索引的键写了不止一次同样在预留与请求前退出2，task.json 与任务目录原字节不变，stderr 按文件先后写出每一处原文',
+        r.status === 2 && after === before && same && reserves === 0 && attempts === 0 && dupListed(r.stderr, f, 'zq', ['6.25e1', '5']),
+        `exit=${r.status}，fileSame=${after === before}，目录原样=${same}，reserves=${reserves}，attempts=${attempts}，stderr=${stderrTail(r.stderr)}`)
+      nonIndexRan = true
+    }
+  }
+  if (enrichDupRan === dupCases.length * enrichModes.length && enrichMixedRan === enrichModes.length && alone && nonIndexRan) criterion('D19.m')
 })
 
 // D19.n：`calibration version` 读入的 task.json 有 D19.k 的重复、而按 D20.q 要写盘时以 2 拒绝、不写盘；不合 D20.a 时两类问题都写出；

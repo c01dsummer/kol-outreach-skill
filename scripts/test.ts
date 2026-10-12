@@ -5766,6 +5766,27 @@ suite('D19', '续跑进度字段先验校验')
     eq('恢复进度：offsets、answered、found、pages 表里同一个任务索引写了不止一次即不合规，最后一处合法、哪怕每一处都合法也一样；问题点名字段与键，按文件先后列出每一处原文',
       misses(TABLE), [])
     eq('恢复进度：按 JSON 解码后相同的键也算重复 —— 表里的 "917" 与 "91\\u0037"，根上的 pages 与 "p\\u0061ges"', misses(ESCAPED), [])
+    // D19.k 说的是表里「同一个键」，不只是任务索引（main 审计 2026-10-12 第 3 条）：enrich 与 calibration version 不判进度的值，
+    // 表里写了两次的 "zq" 只有这一条拦着。走它们的同一接法（只判重复，不判值）：表里多一个写了两次的 "zq"，前一处的
+    // 5.250e2、7.10e1 这些读入后不留痕迹；只留最后一处的同一份不报问题（阳性对照），有问题只能是因为重复。
+    // 原文里都不含 zq（answered 那一处是 yy-first），问题里找得到 zq 只能是在点名键
+    const NON_INDEX: [Field, string, string, readonly string[]][] = [
+      ['offsets', '"offsets":{"917":8.0e1,"zq":5.250e2,"zq":8.0e1}', '"offsets":{"917":8.0e1,"zq":8.0e1}', ['5.250e2', '8.0e1']],
+      ['answered', '"answered":{"917":0.3e1,"zq":"yy\\u002dfirst","zq":0.3e1}', '"answered":{"917":0.3e1,"zq":0.3e1}', ['u002dfirst', '0.3e1']],
+      ['found', '"found":{"917":4.00e1,"zq":7.10e1,"z\\u0071":4.00e1}', '"found":{"917":4.00e1,"zq":4.00e1}', ['7.10e1', '4.00e1']],
+      ['pages', '"pages":{"917":1.20e1,"zq":9.75e0,"zq":1.20e1}', '"pages":{"917":1.20e1,"zq":1.20e1}', ['9.75e0', '1.20e1']],
+    ]
+    const dupOnly = (text: string): string[] | { threw: string } => {
+      try { return duplicateProgressProblems(sourceDuplicateKeys(readCostDocument<Record<string, unknown>>(text))) }
+      catch (error) { return { threw: error instanceof Error ? error.message : String(error) } }
+    }
+    eq('恢复进度：表里不是任务索引的键写了不止一次同样不合规 —— 只判重复的那一接法也点名字段与键，按文件先后列出每一处原文；只留最后一处的同一份不报',
+      NON_INDEX.flatMap(([field, dup, last, ordered]) => {
+        const [got, control] = [dupOnly(doc({ [field]: dup })), dupOnly(doc({ [field]: last }))]
+        const fine = Array.isArray(got) && got.some(p => p.includes(field) && p.includes('zq') && inOrder(p, ordered))
+          && isDeepStrictEqual(control, []) && isDeepStrictEqual(JSON.parse(doc({ [field]: dup })), JSON.parse(doc({ [field]: last })))
+        return fine ? [] : [`${field}: 重复=${JSON.stringify(got)} 对照=${JSON.stringify(control)}`]
+      }), [])
     // 字段、键 917、一千个任务与三处原文里都没有 3，问题里出现 3（或「三」）只能是在写出现次数
     eq('恢复进度：同一个键出现三次时写出出现次数，三处原文按文件先后全部列出（表里与根上各一份）',
       misses(THRICE, line => /[3三]/.test(line)), [])
@@ -6075,6 +6096,13 @@ suite('D27', 'task.json 任一层写重复的键：按读入时的原文认出�
       const k = JSON.stringify(key), at = inner ? `x[${k}]` : `[${k}]`
       const got = scan(inner ? `{"x":{${k}:7.5e0,${k}:1}}` : `{${k}:7.5e0,${k}:1,"x":{"y":1}}`)
       return 'all' in got && got.all.length === 1 && got.all[0].startsWith(at) && !/[\u0000-\u001f]/.test(got.all[0]) ? [] : [`${name}: ${JSON.stringify(got)}`]
+    }), [])
+  // 反方向（main 审计 2026-10-12 第 4 条）：根上只含字母、数字与 _ . - 的键照原样写，不加 ["…"]。上面「写出位置」那条用 includes 比，
+  // ["budget_usd"] 也包含 budget_usd，加了括号照样绿；这里问题从独立 oracle 拼出的位置开头（与上一条同一种比法），根上的键不带括号
+  eq('任一层写重复的键：根上只含字母、数字与 _ . - 的键照原样写出位置，不写成 ["键"] —— 问题以 budget_usd、tasks[0]["keyword"] 这样的位置开头',
+    CASES.flatMap(([name, text, , path]) => {
+      const got = scan(text)
+      return 'all' in got && got.all.length === 1 && got.all[0].startsWith(position(path)) ? [] : [`${name}: ${JSON.stringify('all' in got ? got.all : got)}`]
     }), [])
   // outsideProgress：只跳过 D19.k 那几处（那几处由 duplicateProgressProblems 报），挨着边界的其余位置一处不少
   eq('任一层写重复的键：只报 D19.k 以外那几处时跳过根上五个进度键与四张表里的键，别处的照报 —— 包括 done 里的键、表里更深一层、别的对象里叫 found 的表与任务对象里叫 found 的键',
