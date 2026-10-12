@@ -11866,6 +11866,56 @@
       "kills": ["计数预加载：验证者显式调 process.exit 退出，收尾那行照样写、只一行、仍是最后一行"]
     },
     {
+      "id": "M-H54-v",
+      "req": "harness",
+      "why": "两股共用一份没写完的半行：一股写了半行时另一股写完一行，两行拼成一行记，打印的行与已起几次都记错",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "  for (const stream of [process.stdout, process.stderr]) {\n    const write = stream.write\n    let pending = ''\n",
+      "replace": "  let pending = ''\n  for (const stream of [process.stdout, process.stderr]) {\n    const write = stream.write\n",
+      "by": "test",
+      "kills": ["计数预加载：stdout 写了半行时 stderr 写完一行，两股各自按换行切，各记各的整行，已起几次照各自写完那一刻算"]
+    },
+    {
+      "id": "M-H54-w",
+      "req": "harness",
+      "why": "包过的写函数丢了编码与回调、恒交回成功：等写完回调的验证者挂住，计数那一跑与不计数时走的路不同",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "return Reflect.apply(write, this, [chunk, ...rest])",
+      "replace": "Reflect.apply(write, this, [chunk]); return true",
+      "by": "test",
+      "kills": ["计数预加载：带回调往 stdout 写一行，回调照样被调，那一行照样记下"]
+    },
+    {
+      "id": "M-H54-x",
+      "req": "harness",
+      "why": "选项里的 shell 只认恰好等于真：给的是一个 shell 路径时，经它起的 git 当成直接起的 git 从账上抹掉，付费偏小",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "Boolean((opts as { shell?: unknown }).shell)",
+      "replace": "(opts as { shell?: unknown }).shell === true",
+      "by": "test",
+      "kills": ["计数预加载：选项里 shell 为真却不等于 true（给的是 /bin/sh）时照样记成带 shell，读出来算一次启动"]
+    },
+    {
+      "id": "M-H54-y",
+      "req": "harness",
+      "why": "读不出参数时不兜住：验证者接到的是预加载自己抛的错，不是原函数该抛的那个，这一次也没记下，整份日志判认不得",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "    } catch { /* 不打扰验证者 */ }\n    launches++",
+      "replace": "    } finally { /* 不打扰验证者 */ }\n    launches++",
+      "by": "test",
+      "kills": ["计数预加载：起进程的参数本身转不成字符串时，抛出的东西与不计数时一样，日志照样读得出来，这一次与之后起的都照样算"]
+    },
+    {
+      "id": "M-H54-z",
+      "req": "harness",
+      "why": "写的是字节而不是字符串时不认：那样写出的 ✓／✗ 行不算打印过，点名它的变异付费按整个配置算",
+      "file": "scripts/check/launch-preload.ts",
+      "find": ": Buffer.from(chunk as Uint8Array).toString('utf8')",
+      "replace": ": ''",
+      "by": "test",
+      "kills": ["计数预加载：往 stderr 写一个 Buffer，那一行照样记下"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
