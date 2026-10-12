@@ -9277,8 +9277,8 @@
       "req": "D19.k",
       "why": "写法不同而按 JSON 解码后相同的键（转义写法）不算重复，前一处照样被丢掉",
       "file": "scripts/lib/cost-json.ts",
-      "find": "top.key = body.includes('\\\\') ? JSON.parse(text.slice(i, end)) as string : body",
-      "replace": "top.key = body",
+      "find": "top!.key = body.includes('\\\\') ? JSON.parse(text.slice(i, end)) as string : body",
+      "replace": "top!.key = body",
       "by": "test",
       "kills": [
         "恢复进度：按 JSON 解码后相同的键也算重复 —— 表里的 \"917\" 与 \"91\\u0037\"，根上的 pages 与 \"p\\u0061ges\""
@@ -9363,8 +9363,8 @@
       "req": "D19.k",
       "why": "不同统计表里的同一个任务索引被当成重复，合规的进度被拒",
       "file": "scripts/lib/cost-json.ts",
-      "find": "seen: new Map() } : undefined)",
-      "replace": "seen: open[0]?.seen ?? new Map() } : undefined)",
+      "find": "...(c === 123 ? { seen: new Map() } : {})",
+      "replace": "...(c === 123 ? { seen: open[0]?.seen ?? new Map() } : {})",
       "by": "test",
       "kills": [
         "恢复进度：重复键阳性对照 —— 只留最后一处的同一份进度合规，四张表各有同一个索引 917 也不算重复"
@@ -9474,8 +9474,8 @@
       "req": "D19.k",
       "why": "更深处与进度键同名的键写重复也被当成进度键重复，合规的进度被拒",
       "file": "scripts/lib/cost-json.ts",
-      "find": "c === 123 && open.length < 2",
-      "replace": "c === 123 && open.length < 3",
+      "find": "path.length <= 2)\n    .map(({ path, values }) => path.length === 1\n      ? { key: path[0] as string, values }\n      : { parent: path[0] as string, key: path[1] as string, values })",
+      "replace": "typeof path.at(-2) !== 'number')\n    .map(({ path, values }) => path.length === 1\n      ? { key: path[0] as string, values }\n      : { parent: path.at(-2) as string, key: path.at(-1) as string, values })",
       "by": "test",
       "kills": [
         "恢复进度：根与四张表以外位置上的重复键不让进度不合规 —— 根上别的键、根下别的对象、更深处同名的进度键都不算"
@@ -9624,6 +9624,338 @@
       "by": "test",
       "kills": [
         "校准版本命令：进度键写了不止一次而拒绝时，问题点名重复的字段并按文件先后写出每一处原文，不只最后一处"
+      ]
+    },
+    {
+      "id": "M-D27-a",
+      "req": "D27.a",
+      "why": "只认根与根下一层对象里的键，任务条目、费用账条目与更深处写重复的键认不出来，读入只留最后一处照样放行",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "...(c === 123 ? { seen: new Map() } : {})",
+      "replace": "...(c === 123 && open.length < 2 ? { seen: new Map() } : {})",
+      "by": "test",
+      "kills": [
+        "任一层写重复的键：根上、对象里、数组元素里任一层同一对象写了不止一次的键都认得出，即使最后一处合法；位置逐层是键名与下标，每一处原文按文件先后"
+      ]
+    },
+    {
+      "id": "M-D27-b",
+      "req": "D27.a",
+      "why": "数组里不数下标，每个元素都记成第 0 个，问题里的位置指错元素",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "} else if (top) at = top.index++",
+      "replace": "} else if (top) at = top.index",
+      "by": "test",
+      "kills": [
+        "任一层写重复的键：根上、对象里、数组元素里任一层同一对象写了不止一次的键都认得出，即使最后一处合法；位置逐层是键名与下标，每一处原文按文件先后"
+      ]
+    },
+    {
+      "id": "M-D27-c",
+      "req": "D27.a",
+      "why": "位置少了根上那一层键名，人照着找不到写重复的地方",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "for (let f: Frame | undefined = frame; f?.up; f = f.up) path.push(f.at!)",
+      "replace": "for (let f: Frame | undefined = frame; f?.up?.up; f = f.up) path.push(f.at!)",
+      "by": "test",
+      "kills": [
+        "任一层写重复的键：根上、对象里、数组元素里任一层同一对象写了不止一次的键都认得出，即使最后一处合法；位置逐层是键名与下标，每一处原文按文件先后"
+      ]
+    },
+    {
+      "id": "M-D27-d",
+      "req": "D27.a",
+      "why": "问题只写最后一处原文，被丢掉的前几处人看不到",
+      "file": "scripts/lib/duplicate-keys.ts",
+      "find": "依次是 ${values.join('、')}",
+      "replace": "依次是 ${values.at(-1)}",
+      "by": "test",
+      "kills": [
+        "任一层写重复的键：每一处写重复的键一条问题，写出位置（根上的键名往下接 [\"键\"] 与 [下标]）并按文件先后列出每一处原文"
+      ]
+    },
+    {
+      "id": "M-D27-e",
+      "req": "D27.a",
+      "why": "写了三次的键问题里也说两次",
+      "file": "scripts/lib/duplicate-keys.ts",
+      "find": "在文件里写了 ${values.length} 次",
+      "replace": "在文件里写了 2 次",
+      "by": "test",
+      "kills": [
+        "任一层写重复的键：问题写出出现次数 —— 写了两次的写出 2，写了三次的写出 3"
+      ]
+    },
+    {
+      "id": "M-D27-f",
+      "req": "D27.a",
+      "why": "数组下标写成对象键的样子，人分不出写重复的地方在数组里还是对象里",
+      "file": "scripts/lib/duplicate-keys.ts",
+      "find": "typeof step === 'number' ? `[${step}]`",
+      "replace": "typeof step === 'number' ? `[\"${step}\"]`",
+      "by": "test",
+      "kills": [
+        "任一层写重复的键：每一处写重复的键一条问题，写出位置（根上的键名往下接 [\"键\"] 与 [下标]）并按文件先后列出每一处原文"
+      ]
+    },
+    {
+      "id": "M-D27-g",
+      "req": "D27.b",
+      "why": "进度表里更深一层写重复的键被当成 D19.k 那几处跳过，两条判据都不报，enrich 照样整份写回成只剩最后一处",
+      "file": "scripts/lib/duplicate-keys.ts",
+      "find": ": path.length === 2 && PROGRESS_TABLES.has(path[0] as string)",
+      "replace": ": path.length >= 2 && PROGRESS_TABLES.has(path[0] as string)",
+      "by": "test",
+      "kills": [
+        "任一层写重复的键：只报 D19.k 以外那几处时跳过根上五个进度键与四张表里的键，别处的照报 —— 包括 done 里的键、表里更深一层、别的对象里叫 found 的表与任务对象里叫 found 的键"
+      ]
+    },
+    {
+      "id": "M-D27-h",
+      "req": "D27.b",
+      "why": "requests 写重复被当成进度键跳过，collect 与 enrich 按最后一处的请求计数照常花钱",
+      "file": "scripts/lib/duplicate-keys.ts",
+      "find": "const PROGRESS_ROOT = new Set(['done', ",
+      "replace": "const PROGRESS_ROOT = new Set(['requests', 'done', ",
+      "by": "test",
+      "kills": [
+        "费用字段写重复：requests、cost_ledger（整份或其中一项）、budget_usd 写重复时，只判进度键以外那几处的判据也各写成一条问题，按先后列出被丢掉的前几处原文",
+        "费用字段写重复：collect --resume --budget 2 与 enrich --budget 2 见 requests、cost_ledger 或 budget_usd 写重复时以 2 退出，零改额（task.json 原字节）、零预留、零请求"
+      ]
+    },
+    {
+      "id": "M-D27-i",
+      "req": "D27.b",
+      "why": "D19.k 那几处被两条判据各报一遍",
+      "file": "scripts/lib/duplicate-keys.ts",
+      "find": ".filter(({ path }) => !(outsideProgress && inProgress(path)))",
+      "replace": ".filter(() => true)",
+      "by": "test",
+      "kills": [
+        "任一层写重复的键：只报 D19.k 以外那几处时跳过根上五个进度键与四张表里的键，别处的照报 —— 包括 done 里的键、表里更深一层、别的对象里叫 found 的表与任务对象里叫 found 的键",
+        "任一层写重复的键：同一份里又有进度键的重复时，只报 D19.k 以外那几处的判据把更深的四处各报一次，不报进度键那两处"
+      ]
+    },
+    {
+      "id": "M-D27-j",
+      "req": "D27.d",
+      "why": "不分场合都跳过 D19.k 那几处，人工反馈模板命令见写重复的进度键照常生成模板",
+      "file": "scripts/lib/duplicate-keys.ts",
+      "find": "!(outsideProgress && inProgress(path))",
+      "replace": "!inProgress(path)",
+      "by": "test",
+      "kills": [
+        "D27模板-任一层写重复的键（含进度键）以输入错误拒绝，不建 manual-feedback.csv，task.json 原字节不变"
+      ]
+    },
+    {
+      "id": "M-D27-k",
+      "req": "D27.a",
+      "why": "找不到读入时的原文时当成没有重复，写重复的键照样放行",
+      "file": "scripts/lib/duplicate-keys.ts",
+      "find": "if (duplicates === null) return ['找不到这份任务读入时的原文，无从核对有没有写重复的键']",
+      "replace": "if (duplicates === null) return []",
+      "by": "test",
+      "kills": [
+        "任一层写重复的键：找不到读入时原文的任务无从核对，判为有问题而不是当成没有重复"
+      ]
+    },
+    {
+      "id": "M-D27-l",
+      "req": "D27.b",
+      "why": "collect 续跑见到任一层写重复的键照常改额、预留、请求并整份写回，前几处原文悄悄消失",
+      "file": "scripts/collect.ts",
+      "find": "const badDuplicates = resume ? duplicateKeyProblems(sourceDuplicates(state), true) : []",
+      "replace": "const badDuplicates: string[] = []",
+      "by": "selfcheck",
+      "kills": [
+        "写重复的键：collect 续跑与 --budget 改额见 task.json 任一层写重复的键，在改额、预留与请求前退出2，task.json、任务目录与记忆原字节不变",
+        "写重复的键：collect 拒绝时 stderr 写出 task.json 路径与键的位置，并按文件先后写出每一处被丢掉的原文"
+      ]
+    },
+    {
+      "id": "M-D27-m",
+      "req": "D27.b",
+      "why": "render 见到任一层写重复的键照常按最后一处导出交付物",
+      "file": "scripts/render.ts",
+      "find": "const badDuplicates = duplicateKeyProblems(sourceDuplicates(state), true)",
+      "replace": "const badDuplicates: string[] = []",
+      "by": "selfcheck",
+      "kills": [
+        "写重复的键：render 见 task.json 任一层写重复的键，在任何写入前退出2，任务目录与记忆原字节不变，原本没有的交付物不被创建",
+        "写重复的键：render 拒绝时 stderr 写出 task.json 路径与键的位置，并按文件先后写出每一处被丢掉的原文"
+      ]
+    },
+    {
+      "id": "M-D27-n",
+      "req": "D27.b",
+      "why": "enrich 见到进度键以外写重复的键照常改额、预留、请求并整份写回，前几处原文悄悄消失",
+      "file": "scripts/enrich.ts",
+      "find": "taskProblems.push(...duplicateKeyProblems(sourceDuplicates(task), true))",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "写重复的键：enrich 与 --budget 改额见 task.json 任一层写重复的键（含进度值里更深一层），在改额、预留与请求前退出2，task.json、任务目录与记忆原字节不变",
+        "写重复的键：enrich 拒绝时 stderr 写出 task.json 路径与键的位置，并按文件先后写出每一处被丢掉的原文"
+      ]
+    },
+    {
+      "id": "M-D27-o",
+      "req": "D27.c",
+      "why": "calibration version 要写盘时见到进度键以外写重复的键照常写回，前几处原文消失",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "duplicates.push(...duplicateKeyProblems(sourceDuplicates(state), true))",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "写重复的键：calibration version 要写盘而 task.json 任一层写重复了键时退出2、不写盘，task.json 原字节、文件身份与修改时间不变，stdout 为空",
+        "写重复的键：calibration version 拒绝时 stderr 写出 task.json 路径与键的位置，并按文件先后写出每一处被丢掉的原文"
+      ]
+    },
+    {
+      "id": "M-D27-p",
+      "req": "D27.c",
+      "why": "version 已一致、本不写盘时也因写重复的键拒绝",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "if (plan.action === 'unchanged') return { file, status: 'unchanged', version: plan.version }",
+      "replace": "if (plan.action === 'unchanged' && duplicateKeyProblems(sourceDuplicates(state), true).length === 0) return { file, status: 'unchanged', version: plan.version }",
+      "by": "test",
+      "kills": [
+        "校准版本命令：brand_calibration 缺席或 version 已一致时任一层写重复了键也不拒绝、不写盘，照常返回 absent 与 unchanged，盘上几处原样留着"
+      ]
+    },
+    {
+      "id": "M-D27-q",
+      "req": "D27.c",
+      "why": "brand_calibration 缺席、本不写盘时也因写重复的键拒绝",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "if (plan.action === 'absent') return { file, status: 'absent' }",
+      "replace": "if (plan.action === 'absent' && duplicateKeyProblems(sourceDuplicates(state), true).length === 0) return { file, status: 'absent' }",
+      "by": "test",
+      "kills": [
+        "校准版本命令：brand_calibration 缺席或 version 已一致时任一层写重复了键也不拒绝、不写盘，照常返回 absent 与 unchanged，盘上几处原样留着"
+      ]
+    },
+    {
+      "id": "M-D27-r",
+      "req": "D27.d",
+      "why": "人工反馈模板命令见到写重复的键照常按最后一处生成模板",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": ",\n    ...duplicateKeyProblems(sourceDuplicates(state))]",
+      "replace": "]",
+      "by": "selfcheck",
+      "kills": [
+        "模板入口-写重复的键拒绝且不动人工表",
+        "模板入口-写重复的键列出每一处",
+        "模板入口-写重复的键与任务品牌问题同报"
+      ]
+    },
+    {
+      "id": "M-D27-s",
+      "req": "D27.d",
+      "why": "人工反馈模板命令只报 D19.k 以外那几处，写重复的进度键照常生成模板",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "...duplicateKeyProblems(sourceDuplicates(state))]",
+      "replace": "...duplicateKeyProblems(sourceDuplicates(state), true)]",
+      "by": "test",
+      "kills": [
+        "D27模板-任一层写重复的键（含进度键）以输入错误拒绝，不建 manual-feedback.csv，task.json 原字节不变"
+      ]
+    },
+    {
+      "id": "M-D27-t",
+      "req": "D27.c",
+      "why": "calibration version 把 D19.k 那几处按两条判据各报一遍",
+      "file": "scripts/lib/calibration-version-task.ts",
+      "find": "duplicates.push(...duplicateKeyProblems(sourceDuplicates(state), true))",
+      "replace": "duplicates.push(...duplicateKeyProblems(sourceDuplicates(state)))",
+      "by": "test",
+      "kills": [
+        "校准版本命令：进度键与别处同时写重复而要写盘时以输入问题拒绝、不写盘，两处都写出，每一处只写一遍"
+      ]
+    },
+    {
+      "id": "M-D27-u",
+      "req": "D27.b",
+      "why": "collect 续跑把 D19.k 那几处按两条判据各报一遍",
+      "file": "scripts/collect.ts",
+      "find": "resume ? duplicateKeyProblems(sourceDuplicates(state), true) : []",
+      "replace": "resume ? duplicateKeyProblems(sourceDuplicates(state)) : []",
+      "by": "selfcheck",
+      "kills": [
+        "写重复的键：进度键或坏进度与别处同时出问题时，三个入口都写出每一处，每一处只报一遍、不因两条判据报两遍"
+      ]
+    },
+    {
+      "id": "M-D27-v",
+      "req": "D27.b",
+      "why": "render 把 D19.k 那几处按两条判据各报一遍",
+      "file": "scripts/render.ts",
+      "find": "const badDuplicates = duplicateKeyProblems(sourceDuplicates(state), true)",
+      "replace": "const badDuplicates = duplicateKeyProblems(sourceDuplicates(state))",
+      "by": "selfcheck",
+      "kills": [
+        "写重复的键：进度键或坏进度与别处同时出问题时，三个入口都写出每一处，每一处只报一遍、不因两条判据报两遍"
+      ]
+    },
+    {
+      "id": "M-D27-w",
+      "req": "D27.b",
+      "why": "collect 续跑见到其余位置写重复就先拒，同一份里 D19.k 的重复与坏进度这一轮都不报，用户改完一轮再撞下一轮",
+      "file": "scripts/collect.ts",
+      "find": "if (badDuplicates.length) console.error(`${productFrom} 里写重复的键：\\n  ${badDuplicates.join('\\n  ')}`)",
+      "replace": "if (badDuplicates.length) { console.error(`${productFrom} 里写重复的键：\\n  ${badDuplicates.join('\\n  ')}`); process.exit(2) }",
+      "by": "selfcheck",
+      "kills": [
+        "写重复的键：进度键或坏进度与别处同时出问题时，三个入口都写出每一处，每一处只报一遍、不因两条判据报两遍"
+      ]
+    },
+    {
+      "id": "M-D27-x",
+      "req": "D27.b",
+      "why": "render 见到其余位置写重复就先拒，同一份里 D19.k 的重复与坏进度这一轮都不报，用户改完一轮再撞下一轮",
+      "file": "scripts/render.ts",
+      "find": "if (badDuplicates.length) console.error(`${taskFile(dir)} 里写重复的键：\\n  ${badDuplicates.join('\\n  ')}`)",
+      "replace": "if (badDuplicates.length) { console.error(`${taskFile(dir)} 里写重复的键：\\n  ${badDuplicates.join('\\n  ')}`); process.exit(2) }",
+      "by": "selfcheck",
+      "kills": [
+        "写重复的键：进度键或坏进度与别处同时出问题时，三个入口都写出每一处，每一处只报一遍、不因两条判据报两遍"
+      ]
+    },
+    {
+      "id": "M-D27-y",
+      "req": "D27.a",
+      "why": "根上的键原样写出：空键的位置读不出，控制字符原样进终端，根上的 x[\"y\"] 与 x 里的 y 混同",
+      "file": "scripts/lib/duplicate-keys.ts",
+      "find": "i === 0 && plain.test(step) ? step",
+      "replace": "i === 0 ? step",
+      "by": "test",
+      "kills": [
+        "任一层写重复的键：位置读得出 —— 根上的键为空或含字母、数字与 _ . - 以外的字符时也写成 [\"键\"]，键名里的引号、反斜杠与控制字符按 JSON 转义，不把控制字符原样写出"
+      ]
+    },
+    {
+      "id": "M-D27-z",
+      "req": "D27.a",
+      "why": "下层键名不按 JSON 转义，键名里的引号与反斜杠让位置读错",
+      "file": "scripts/lib/duplicate-keys.ts",
+      "find": "`[${JSON.stringify(step)}]`",
+      "replace": "`[\"${step}\"]`",
+      "by": "test",
+      "kills": [
+        "任一层写重复的键：位置读得出 —— 根上的键为空或含字母、数字与 _ . - 以外的字符时也写成 [\"键\"]，键名里的引号、反斜杠与控制字符按 JSON 转义，不把控制字符原样写出"
+      ]
+    },
+    {
+      "id": "M-D27-aa",
+      "req": "D27.e",
+      "why": "同一个数组里的几个对象共用一份键表，两个任务各有 keyword、费用账两项各有同名键就被当成写重复，合规的任务被拒",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "...(c === 123 ? { seen: new Map() } : {})",
+      "replace": "...(c === 123 ? { seen: top && !top.seen ? ((top as Frame & { shared?: Map<string, string[]> }).shared ??= new Map()) : new Map() } : {})",
+      "by": "test",
+      "kills": [
+        "任一层写重复的键不多拒：不同对象里的同名键、数组里相同的元素、字符串里像重复键的文字与解码后不同名的键都不算重复"
       ]
     },
     {

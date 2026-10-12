@@ -18,7 +18,8 @@ import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetInputError, startBudget, type PersistCost } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
-import { readCostDocument, readCostLimit, sourceDuplicateKeys, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
+import { readCostDocument, readCostLimit, sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
+import { duplicateKeyProblems } from './lib/duplicate-keys.js'
 import {
   MAX_PAGES, canRequestPage, canonicalReviewLinks, finalize, firstPagePending, igAfterPage, mergePage, needsProfile,
   pagesFetched, pendingKeywords, rawSeedFromLegacy, resumeCostLine, reviewRelations, underPageCap,
@@ -84,6 +85,10 @@ try {
 // D17.h/i、D16.j/k、D15.j：原字段、任务与路线一起查；先于缺省、进度、改额或任何副作用。
 const badFields = configFieldProblems(state, resume ? 'resume' : 'new')
 const badTasks = taskListProblems(state.tasks)
+// D27.b：续跑读的 task.json 写重复的键先写出 —— tasks 写重复时任务列表按最后那份判，两类一起报；
+// 任务列表有效时进度那一道照判，D19.k 那几处与坏进度在那里一起报，不因这里先拒而漏掉
+const badDuplicates = resume ? duplicateKeyProblems(sourceDuplicates(state), true) : []
+if (badDuplicates.length) console.error(`${productFrom} 里写重复的键：\n  ${badDuplicates.join('\n  ')}`)
 const badRoutes = igRouteProblems(state.tasks)
 const badCalibration = brandCalibrationProblems(state)
 badCalibration.push(...calibrationVersionProblems(state))
@@ -113,6 +118,7 @@ if (resume) {
     console.error(`${productFrom} 里的续跑进度不合规：\n  ${progressProblems.join('\n  ')}`)
     process.exit(2)
   }
+  if (badDuplicates.length) process.exit(2)
 }
 
 const badProduct = textProblem(state.product)

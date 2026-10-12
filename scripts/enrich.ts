@@ -20,7 +20,8 @@ import {
   Budget, BudgetInputError,
 } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
-import { sourceDuplicateKeys, stringifyCostJson } from './lib/cost-json.js'
+import { sourceDuplicateKeys, sourceDuplicates, stringifyCostJson } from './lib/cost-json.js'
+import { duplicateKeyProblems } from './lib/duplicate-keys.js'
 import { brandCalibrationProblems, calibrationVersionProblems } from './lib/brand-calibration.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { duplicateProgressProblems } from './lib/resume-progress.js'
@@ -74,6 +75,8 @@ try {
   const calibrationProblems = brandCalibrationProblems(task)
   calibrationProblems.push(...calibrationVersionProblems(task))
   const taskProblems = taskListProblems(task.tasks)
+  // D27.b：其余位置写重复的键同样在改额、预留与任何写入之前拦下，跟任务列表一起报
+  taskProblems.push(...duplicateKeyProblems(sourceDuplicates(task), true))
   // D19.m：写重复的进度键整份写回就只剩最后一处，要在改额、预留与任何写入之前拦下；进度的值照旧不判（ADR-138）
   const progressProblems = duplicateProgressProblems(sourceDuplicateKeys(task))
   if (calibrationProblems.length || taskProblems.length || progressProblems.length) {

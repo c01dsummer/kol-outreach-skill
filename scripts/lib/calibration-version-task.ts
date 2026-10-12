@@ -1,7 +1,8 @@
 /** D20.k–D20.u：`calibration version` 的判定与读写（ADR-136 第一节第 1 条）。入口 scripts/calibration.ts 只接线。 */
 import { resolve } from 'node:path'
 import { brandCalibrationProblems, calibrationContentVersion } from './brand-calibration.js'
-import { sourceDuplicateKeys } from './cost-json.js'
+import { sourceDuplicateKeys, sourceDuplicates } from './cost-json.js'
+import { duplicateKeyProblems } from './duplicate-keys.js'
 import { ReviewInputError } from './review.js'
 import { duplicateProgressProblems } from './resume-progress.js'
 import { loadTask, saveTask, taskFile } from './task.js'
@@ -39,7 +40,7 @@ export interface CalibrationVersionResult {
 
 /**
  * 读 dir 下的 task.json，按 planCalibrationVersion 判定：absent、unchanged 不写盘；write 只换
- * brand_calibration.version 再按任务保存的惯例写回（D20.q）。读不到任务、不合 D20.a、或要写盘而进度键写重复（D19.n）抛 ReviewInputError
+ * brand_calibration.version 再按任务保存的惯例写回（D20.q）。读不到任务、不合 D20.a、或要写盘而写了重复的键（D19.n、D27.c）抛 ReviewInputError
  * （入口以 2 退出）；保存错误原样传播（入口以 1 退出）。
  */
 export function runCalibrationVersion(dir: string): CalibrationVersionResult {
@@ -55,6 +56,8 @@ export function runCalibrationVersion(dir: string): CalibrationVersionResult {
   if (plan.action === 'unchanged') return { file, status: 'unchanged', version: plan.version }
   // D19.n：要写盘、或已不合 D20.a 时，写重复的进度键一并报 —— 整份写回只会留下最后一处；上面两种不写盘，没有东西会丢
   const duplicates = duplicateProgressProblems(sourceDuplicateKeys(state))
+  // D27.c：其余位置写重复的键同一处、同一套
+  duplicates.push(...duplicateKeyProblems(sourceDuplicates(state), true))
   // D20.n：每处不合规一条，都带 task.json 路径
   if (plan.action === 'invalid') throw new ReviewInputError(plan.problems.concat(duplicates).map(p => `${file}: ${p}`))
   if (duplicates.length) throw new ReviewInputError(duplicates.map(p => `${file}: ${p}`))

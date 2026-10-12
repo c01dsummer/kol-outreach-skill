@@ -92,6 +92,7 @@
 | `scripts/lib/ig-route.ts` | 逻辑 | D15 | IG 路线配置的校验与话题请求词；collect 与 probe 共用这一份，在任何请求之前调用 |
 | `scripts/lib/search-tasks.ts` | 逻辑 | D16 P1 | 任务列表与三个必填字段的判定；不补、不改写 |
 | `scripts/lib/resume-progress.ts` | 逻辑 | D19 P1 | 恢复已有采集任务与 render 导出前按有效任务数只读校验原始进度，进度键写重复也拒；enrich 与 `calibration version` 写回前只用其中判重复的一半；缺表保留未知 |
+| `scripts/lib/duplicate-keys.ts` | 逻辑 | D27 P1 P3 | task.json 任一层写重复的键逐处成问题：位置、次数与按先后的每一处原文；可跳过 D19.k 那几处，留给进度判据报；找不到原文判为无从核对；不改输入 |
 | `scripts/lib/config-input.ts` | 逻辑 | D17 P1 | 按 new / resume / probe 角色只读原始市场与人数；不填缺省，collect 与 probe 在应用缺省和产生副作用前调用 |
 | `scripts/lib/brand-calibration.ts` | 逻辑 | D20 P1 | 只读检查任务级可选品牌输入的形状和来源性质；结构合规且 version 为内容哈希时另按内容复算，不改写输入、不补字段；collect、enrich、render 共用两项判定，人工反馈模板命令只用结构判定；不替 Agent 判断偏好是否合适或事实是否已证实 |
 | `scripts/lib/content-hash.ts` | 逻辑 | D20 | 规范化 JSON（对象键逐码点排序、数组保持原顺序、无空白、标量照 `JSON.stringify`）与 `sha256:` 内容哈希；批次 A 只有这一份实现，不读写文件 |
@@ -102,14 +103,14 @@
 | `scripts/lib/manual-feedback-summary.ts` | 机械 | U11 | 只读冻结平台账号池与原平台人工行，计算明确分母、覆盖、账号原因与原 Agent 分歧；不消费当前交付名单或有效建议，不取得写入与判断权限 |
 | `scripts/lib/manual-feedback-template.ts` | 逻辑 | D24 P1 | 以确认缺席或既有 Buffer 生成模板字节计划；默认拒绝既有内容，显式追加先核完整人工表，只补冻结池缺席账号并保留原字节前缀；不读写文件 |
 | `scripts/feedback-template.ts` | 入口 | D26 P1 P3 | 只接受必填 --dir 与显式 --append，调用模板协调边界，诊断进 stderr；实际保存或合法无变化后才输出机械 JSON |
-| `scripts/lib/feedback-template-task.ts` | 逻辑 | D26 D24 P1 P3 | 只读准备已保存任务、冻结正本及完整名单关系，先拒绝坏输入再生成字节计划；仅保存人工目标，保存失败保原件，无变化不写，不迁移或冻结 |
+| `scripts/lib/feedback-template-task.ts` | 逻辑 | D26 D24 P1 P3 | 只读准备已保存任务、冻结正本及完整名单关系，先拒绝坏输入（含 task.json 里写重复的键，D27.d）再生成字节计划；仅保存人工目标，保存失败保原件，无变化不写，不迁移或冻结 |
 | `scripts/calibration.ts` | 入口 | D20 P1 P3 | 只接受子命令 version 与必填一次 --dir，调用校准版本协调边界，诊断进 stderr；实际保存或合法无变化、缺席后才输出机械 JSON |
-| `scripts/lib/calibration-version-task.ts` | 逻辑 | D20 P1 P3 | 纯判定缺席／结构不合 D20.a／已一致／待写，与只读一次任务、只换 `brand_calibration.version` 再按任务保存惯例写回的协调；不并入口复算，缺席与已一致不写，要写盘而进度键写重复时拒绝（D19.n），保存失败保原件 |
+| `scripts/lib/calibration-version-task.ts` | 逻辑 | D20 P1 P3 | 纯判定缺席／结构不合 D20.a／已一致／待写，与只读一次任务、只换 `brand_calibration.version` 再按任务保存惯例写回的协调；不并入口复算，缺席与已一致不写，要写盘而 task.json 里有写重复的键时拒绝（D19.n、D27.c），保存失败保原件 |
 | `scripts/lib/effective-priority.ts` | 逻辑 | D25 P1 | 消费 Agent 投影、已校验人工行及冻结池，分别保留平台作答并生成带人工来源的有效建议；不改 Agent 判断、不筛选或排序、不读写文件 |
 | `scripts/probe-ig-paging.ts` | 入口 | — | 核实工具，不在任何管线上：默认只打一次报响应形状；`--chain N` 把上一响应的 `pagination_token`（官方 spec 声明的参数名）接进下一次；`--repeat N` 原样重发。`--chain` 同时跑与实际链长相等的重发曲线，最多发 2N 次请求。两条曲线各报累计去重作者、条目及当次差值；端点会漂，差值不能归因给游标或重发。作者数按可用的 id / username 键去重；缺身份可能少计，同一作者换键可能多计。末尾不涨只说得出「这 N 次之内没再涨」；某次响应没有可继续令牌只使本次链停止，不说明匹配结果已耗尽。 |
-| `scripts/collect.ts` | 入口 | D6 D21 D22 D23 D25 U9 P3 F7 D4 F9 | 轮转采集不让第一个关键词吃掉全部配额，**且任务列表里每个关键词×平台都至少被问过一次** —— 达标之后仍然给「一页都没抓过」的任务补第一页，第一页之后才按达标停（F9）。⚠️ 它保证的是**问过**，不保证问到多少人；预算比它优先，不够抓齐第一页时照旧存断点退 3；记忆读不出来退 2 且不产出名单 |
-| `scripts/enrich.ts` | 入口 | D8 D9 D10 D19 D21 D22 D23 D25 U9 F8 P3 | 只对语义筛选后的候选抓主页样本；进度键写重复时在改额、预留、请求与写入前拒绝，不判进度的值；已查过的账号默认不重复付费，但每次都按当前口径就地重算已保存证据（零请求），不凭重算补回旧样本丢失的图文 |
-| `scripts/render.ts` | 入口 | P4 P5 U2 U5 U7 U9 U10 U11 D4 D8 D9 D10 D16 D21 D22 D23 D25 F8 | 交付物生成的唯一出口，且是唯一往跨任务记忆写回的地方；任务读取与列表校验先于全部写入；每次交付前按当前记忆重核主/关联账号，名单与任务去重状态配对保存；盘上的公开指标在内存里按样本范围重核后才投影交付，直接 render 旧目录也不能绕过；记忆写回在报告之前，报告才能声明它的结果；四个交付物都走整体替换 |
+| `scripts/collect.ts` | 入口 | D6 D21 D22 D23 D25 D27 U9 P3 F7 D4 F9 | 轮转采集不让第一个关键词吃掉全部配额，**且任务列表里每个关键词×平台都至少被问过一次** —— 达标之后仍然给「一页都没抓过」的任务补第一页，第一页之后才按达标停（F9）。⚠️ 它保证的是**问过**，不保证问到多少人；预算比它优先，不够抓齐第一页时照旧存断点退 3；记忆读不出来退 2 且不产出名单 |
+| `scripts/enrich.ts` | 入口 | D8 D9 D10 D19 D21 D22 D23 D25 D27 U9 F8 P3 | 只对语义筛选后的候选抓主页样本；task.json 任一层写重复的键（含进度键）在改额、预留、请求与写入前拒绝，不判进度的值；已查过的账号默认不重复付费，但每次都按当前口径就地重算已保存证据（零请求），不凭重算补回旧样本丢失的图文 |
+| `scripts/render.ts` | 入口 | P4 P5 U2 U5 U7 U9 U10 U11 D4 D8 D9 D10 D16 D21 D22 D23 D25 D27 F8 | 交付物生成的唯一出口，且是唯一往跨任务记忆写回的地方；任务读取与列表校验先于全部写入；每次交付前按当前记忆重核主/关联账号，名单与任务去重状态配对保存；盘上的公开指标在内存里按样本范围重核后才投影交付，直接 render 旧目录也不能绕过；记忆写回在报告之前，报告才能声明它的结果；四个交付物都走整体替换 |
 | `scripts/lib/pipeline.ts` | 逻辑 | D6 D11 D21 D23 P1 P4 F5 F8 U9 U3 U11 | 入口脚本原先裸露的两段管线；**顺序契约全在这里**，见下表。「这个人还要不要补 profile」**只此一份**（`needsProfile`）—— 补全循环拿它挑人，「续跑要不要花钱」拿它算钱；各写一份的话，先改的那边不会报错，于是循环去补的人和账单上说的人对不上（ADR-25）。**「这个任务一页都没抓过」同样只此一份**（`firstPagePending`）—— 采集调度拿它决定达标之后还补谁，「续跑要不要花钱」拿它算钱，同一个先例（F9.c）。**「这个任务抓了几页、还能不能再翻」也只此一份**（`pagesFetched`／`underPageCap`，常量 `MAX_PAGES` 与判定放在一起，不从入口传进来）—— 采集调度拿它决定还翻不翻，而「续跑要不要花钱」靠 `done` 与它对上；传参或各写一份的话，两边可以各拿一个数，而先改的那一边不会报错（D6.h／D6.m）|
 | `scripts/lib/task-label.ts` | 逻辑 | U8 P5 | 接收原任务下标生成展示身份；只依赖类型，入口和管线共用，不推断搜索路径 |
 | `scripts/lib/posts.ts` | 逻辑 | D11 P1 | 搜索作品键的归一化与稳定并集共用一份契约；适配器给真实标识加平台前缀，采集累加和同人合并都在这里去重，缺标识不丢作品 |
@@ -121,7 +122,7 @@
 | `scripts/lib/cost-ledger.ts` | 逻辑 | D12 D13 P1 P3 P5 | 精确金额、费用账校验与预留结算；只接收固定价目，不依赖文件或网络；总上限修改不重算历史项 |
 | `scripts/providers/tikhub-pricing.ts` | 适配 | D12 P5 | 固定公开价目的版本与完整端点报价，供费用账核对历史依据；不远程查价、不推断账户账单 |
 | `scripts/lib/budget.ts` | 逻辑 | D13 D14 P3 F7 | 连接价目与费用账，延迟检查付费资格；同一 state 同步账目/次数，由任务入口注入费用保存回调，预留和终态保存失败锁定该实例；process 预算不落盘 |
-| `scripts/lib/cost-json.ts` | 逻辑 | D13 D14 P3、D19 P1 | 根预算、次数与费用账原数值的精确边界；非法费用数字保持不可用并保留原件；向恢复进度校验提供原始 JSON 数字 token，读入时留住源文本、判进度或写回前判重复时才扫出根与根下一层对象里的重复键及每一处原文；整份写回时，读入根上没被改动的非费用数字按原文写出，费用三棵子树只走 D13 的专用路径；任务文件、meta 与 stdout 共用，HTML 只读金额文本 |
+| `scripts/lib/cost-json.ts` | 逻辑 | D13 D14 P3、D19 P1 | 根预算、次数与费用账原数值的精确边界；非法费用数字保持不可用并保留原件；向恢复进度校验提供原始 JSON 数字 token，读入时留住源文本、判重复时才扫出每一层对象里的重复键及每一处原文（D19.k 只取根与根下一层）；整份写回时，读入根上没被改动的非费用数字按原文写出，费用三棵子树只走 D13 的专用路径；任务文件、meta 与 stdout 共用，HTML 只读金额文本 |
 | `scripts/lib/email.ts` | 逻辑 | D7 | 反爬写法的邮箱提取；宁可返回 null 也不误判正常语句 |
 | `scripts/lib/assessment.ts` | 逻辑 | D8 D9 D10 F8 U7 | 公开样本范围归一化 → 指标 / 风险 / 活跃度 / 报价效率，每项带测量状态与溯源；新抓与缓存重算在这里共用窗口与媒体范围契约，入口脚本只负责调用与落盘 |
 | `scripts/lib/rows.ts` | 逻辑 | P1 P2 U5 U7 U9 | 旧行与排序保持；显式评审输出消费已投影判断，旧列前缀后追加评审列，按有效建议再按原层级和分数排序；草稿占位符原样穿透 |
@@ -197,7 +198,7 @@ CSV/HTML 在完整名单上先排有效建议，再用原层级、分数与同�
 新视图按有效建议和原层级取交集，改一个条件保留另一个；空集显示提示并保留控件，长名单切短或为空时仍保留实际阅读位置，平台专属标签与原数据边界继续展示（U10）。人工审核汇总按 U11 由调用方提供，位于候选筛选之外；任务平台的人工归因由关键词表独立列出，口径见 U11.c/k–m。
 
 模板字节计划消费同一已校验冻结池、完整关联名单及调用方提供的原 Buffer；`undefined` 只表示调用方已确认文件缺席，读取失败不能以它代替。既有内容默认拒绝；显式追加先完整校验人工 CSV，再按冻结池顺序补缺席账号，原轮次归属及全部旧字节保持不变。新增七个人工格为空，不由 Agent 或关联平台补人工答案。无新增时返回没有写入字节的 `unchanged`；该模块不拥有文件读取、原子写、交付或 memory（D24、ADR-130）。
-`feedback-template` 的本地入口只消费已保存且通过 D21/D22 校验的正本与冻结池，并按 D22.h 核对当前同下标任务来源；正本缺席提示先由既有生产命令保存真实轮次，不在此迁移 legacy、冻结候选或保存正本。`task.json` 只读校验 JSON 对象、原样 D16 任务及存在时的 D20 品牌输入，同文件两类问题均报；不套新任务缺省，不要求 key 或可付费费用账。完整 `creators.json` 必须存在、可读且为数组；`creators.raw.json` 只在路径真缺席时回退旧名单，坏 JSON、非数组、读取失败或悬空软链均拒绝。追加核验使用两份完整名单已保存的合法直接 `linked_handle`，包括 raw-only 关系；不先过滤、不做新同人识别、不借评审别名、人工答案、同名或传递关系补造关联。此协调模块不调用会迁移或冻结的任务评审协调器；输入准备拒绝以 `ReviewInputError` 交入口报 2，实际保存异常保留真实原因交入口按目标报 1（D26、ADR-130）。
+`feedback-template` 的本地入口只消费已保存且通过 D21/D22 校验的正本与冻结池，并按 D22.h 核对当前同下标任务来源；正本缺席提示先由既有生产命令保存真实轮次，不在此迁移 legacy、冻结候选或保存正本。`task.json` 只读校验 JSON 对象、原样 D16 任务及存在时的 D20 品牌输入，任一层写重复的键（连进度键）同样拒绝（D27.d），同文件几类问题均报；不套新任务缺省，不要求 key 或可付费费用账。完整 `creators.json` 必须存在、可读且为数组；`creators.raw.json` 只在路径真缺席时回退旧名单，坏 JSON、非数组、读取失败或悬空软链均拒绝。追加核验使用两份完整名单已保存的合法直接 `linked_handle`，包括 raw-only 关系；不先过滤、不做新同人识别、不借评审别名、人工答案、同名或传递关系补造关联。此协调模块不调用会迁移或冻结的任务评审协调器；输入准备拒绝以 `ReviewInputError` 交入口报 2，实际保存异常保留真实原因交入口按目标报 1（D26、ADR-130）。
 人工目标只有真缺席才可创建；已有不可读或悬空软链不是缺席。默认任何已有目标均拒绝覆盖，显式追加先核完整原 CSV，即使无新账号也不能跳过。新增行按原冻结轮次与候选顺序，平台账号规范化、七个人工格全空；只补缺席账号，不另添同账号重复复评行。旧 Buffer 前缀、原作答与轮次保留，旧末尾无 LF 时只补一个分隔 LF。合法 `unchanged` 不执行保存，保留目标身份及修改时间；其余计划仅经整体替换实际保存 `manual-feedback.csv`。保存失败保持原目标字节，首次创建失败最终目标仍缺席；其后才输出成功 JSON。任务、正本、raw、完整名单、交付物、memory 和费用账全程不写（D24、D26）。
 
 ### 变异维护的输入与执行边界（ADR-120）
@@ -354,7 +355,7 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | 原样任务列表与 IG 路线一并校验 → 才读续跑进度、建目录、开账或改额 | `scripts/collect.ts`、`scripts/probe.ts` | 提前读坏列表会崩溃；先补平台或维度会把缺席当成合法配置；续跑先改额会在拒绝坏任务之前改写旧文件 | M-D16-x M-D16-y M-D16-ab M-D16-ac M-D16-ad M-D16-ae M-D16-af M-D16-ag |
 | 续跑任务列表有效 → 校验原始进度 → 才读进度行、构造预算、改额、预留或请求 | `scripts/collect.ts`、`scripts/lib/resume-progress.ts`、`scripts/lib/cost-json.ts` | 坏索引与坏统计表会在付费或保存后才暴露；旧缺表若补成空表会把历史未知写成零；数字解析后舍入会放过原始坏值 | M-D19-c M-D19-e M-D19-h |
 | render 任务列表有效 → 按原文校验进度 → 才读名单、写任务、交付物或记忆 | `scripts/render.ts`、`scripts/lib/resume-progress.ts`、`scripts/lib/cost-json.ts` | 溢出的 `found` 会在报告里印成 Infinity、在 meta.json 里写成 null；先写再拒绝会让任务目录不再是原字节 | M-D19-m M-D19-n |
-| enrich 与要写盘的 `calibration version` 按原文判进度键写没写重复 → 才整份写回 task.json | `scripts/enrich.ts`、`scripts/lib/calibration-version-task.ts`、`scripts/lib/resume-progress.ts`、`scripts/lib/cost-json.ts` | 整份写回只留最后一处；先写再拒绝，前几处原文已从盘上消失，拒绝了也找不回 | M-D19-au M-D19-az |
+| enrich 与要写盘的 `calibration version` 按原文判写没写重复的键（进度键与其余位置） → 才整份写回 task.json | `scripts/enrich.ts`、`scripts/lib/calibration-version-task.ts`、`scripts/lib/resume-progress.ts`、`scripts/lib/duplicate-keys.ts`、`scripts/lib/cost-json.ts` | 整份写回只留最后一处；先写再拒绝，前几处原文已从盘上消失，拒绝了也找不回 | M-D19-au M-D19-az M-D27-n M-D27-o |
 | 原始市场/人数问题与任务/路线问题汇总 → 拒绝坏输入 → 合规后才用新配置缺省、开账、改额、写入、预留或请求 | `scripts/collect.ts`、`scripts/probe.ts` | 先套缺省会吞掉 null，首错先抛会漏报任务/路线，续跑先改额会在拒绝前改写旧文件 | M-D17-q M-D17-r M-D17-s M-D17-t M-D17-u M-D17-ac M-D17-ad M-D17-ae |
 | 任务级品牌输入原样校验，内容哈希版本同一处按内容复算；enrich/render 同文件的任务列表也坏时两类问题均报告 → 才解析新建预算、改额、预留、请求或写交付物 | `scripts/collect.ts`、`scripts/enrich.ts`、`scripts/render.ts`、`scripts/lib/brand-calibration.ts`、`scripts/lib/task.ts` | 品牌字段坏了或版本与内容对不上，仍可能留下费用或产物；先退会遮住任务错误；新建状态若只重建已知字段，会丢原项目输入 | M-D20-d M-D20-e M-D20-f M-D20-g M-D20-h M-D20-p M-D20-q M-D20-r M-D16-as |
 | render 读入任务并校验原样列表 → 才读名单、生成交付物与写回记忆 | `scripts/render.ts` | 坏列表在写入后才被发现，会留下新名单/表格或推荐记忆，却没有对应的新报告 | M-D16-ai M-D16-aj M-D16-ao |
@@ -403,7 +404,7 @@ Agent 是编排者，它读 stdout 做决策。
 
 `npm run --silent feedback-template -- --dir <dir> [--append]` 提供 D26 的机械 JSON 出口；普通 `npm run` 自身可打印脚本 banner。相对目录按调用 cwd 解析，空白路径、缺值、未知／重复参数或位置参数在任务读写前以 2 拒绝并给用法，不建目录。输入读取、结构、冻结来源或人工表问题均退出 2，stderr 点名实际文件及问题，人工行带物理行；保存失败退出 1 并带目标及真实原因，两者均无成功 JSON。实际保存成功或合法 unchanged 退出 0，只输出 `{file:absolute_path,status:'create'|'append'|'unchanged',added_accounts:number}`；账号行数不是独立人数，unchanged 的新增数为 0（D26）。
 
-`npm run --silent calibration -- version --dir <dir>` 提供 D20.k–D20.u 的机械出口：缺子命令或子命令不认识、`--dir` 缺值、空白、重复、未知参数或位置参数在读写任务前以 2 拒绝并给用法，不建目录。读不到任务（不存在、是目录、坏 JSON、根不是对象）、结构不合 D20.a、或要写盘而续跑进度键写了不止一次（D19.n）退出 2，stderr 点名 task.json 及每处问题，不给出哈希；保存失败退出 1 并带 task.json 及真实原因，两者均无成功 JSON，task.json 保持原字节。写入成功、合法 unchanged（零写入）或任务没有品牌校准（absent，零写入，stderr 说明）退出 0，只输出 `{file:absolute_path,status:'written'|'unchanged'|'absent',version?}`，absent 不带 version。保存经 `saveTask`：按规范化 JSON 比较其余内容不变、数组顺序保留（D20.q）；费用字段以外、读入后没被改动的数字今天照原文写回，`1e400` 这类读不出精确值的不再写成 `null`（ADR-138；判据只担保续跑进度五张表，见 D19.g —— 校准里的这类数字只靠实现，D20.q 不保证）；对象键的先后不保证。不发请求，不要求 key 或可付费费用账；不加锁，与同一任务的 collect、enrich、render 并发写 task.json 互不覆盖不保证（同 D4、ADR-66），由 Skill 要求串行（ADR-136）。
+`npm run --silent calibration -- version --dir <dir>` 提供 D20.k–D20.u 的机械出口：缺子命令或子命令不认识、`--dir` 缺值、空白、重复、未知参数或位置参数在读写任务前以 2 拒绝并给用法，不建目录。读不到任务（不存在、是目录、坏 JSON、根不是对象）、结构不合 D20.a、或要写盘而 task.json 里有写重复的键（D19.n、D27.c）退出 2，stderr 点名 task.json 及每处问题，不给出哈希；保存失败退出 1 并带 task.json 及真实原因，两者均无成功 JSON，task.json 保持原字节。写入成功、合法 unchanged（零写入）或任务没有品牌校准（absent，零写入，stderr 说明）退出 0，只输出 `{file:absolute_path,status:'written'|'unchanged'|'absent',version?}`，absent 不带 version。保存经 `saveTask`：按规范化 JSON 比较其余内容不变、数组顺序保留（D20.q）；费用字段以外、读入后没被改动的数字今天照原文写回，`1e400` 这类读不出精确值的不再写成 `null`（ADR-138；判据只担保续跑进度五张表，见 D19.g —— 校准里的这类数字只靠实现，D20.q 不保证）；对象键的先后不保证。不发请求，不要求 key 或可付费费用账；不加锁，与同一任务的 collect、enrich、render 并发写 task.json 互不覆盖不保证（同 D4、ADR-66），由 Skill 要求串行（ADR-136）。
 
 `probe` 的 `sample[].top_post` 供 Agent 判断方向：作品字段缺席或空数组写 `（未查询）`，
 有作品则给第一条文案的前 120 字符，空串照留（P1.i）。它不是最高播放量，也不是主页近期样本；
@@ -427,7 +428,7 @@ collect 恢复已有任务还要校验原始进度（D19、ADR-117）：`done` �
 四张可选统计表存在时必须以标准十进制任务索引为键，值为非负安全整数，仅 `found` 的项允许 null。
 进度数字使用 JSON source context 取得原 token 并按精确十进制值判定，允许 `1.0`、`1e0`，
 拒绝经 Number 舍入或下溢后才成为整数的原文；错误显示非法 token，不把溢出数写成 null。
-根上五个进度键、或四张表里同一任务索引键（按解码后的键名比）写了不止一次也判不合规：JSON 读入只留最后一处，
+根上五个进度键、或四张表里同一个键（按解码后的键名比）写了不止一次也判不合规：JSON 读入只留最后一处，
 判据回到源文本找出每一处，诊断按文件里的先后列出原文，对象与数组只标类型（D19.k–l、ADR-140）。
 整表缺席仍表示历史未知，不回填；已记录页数可高于当前页数上限，不作跨表推算。
 任务列表有效后、首次读取进度行与预算构造前拒绝坏进度；普通续跑和改额续跑都退出 2，
@@ -436,6 +437,8 @@ enrich（含改额）、`calibration version` 与费用检查点整份写回 tas
 坏断点留给 collect 续跑按原文拒绝（D19.g、ADR-138）；render 写回时合法进度同样照原文留下，坏的到不了写回（下一句）。
 重复的进度键读入后只剩最后一处，到不了写回：enrich 在改额、预留、请求与写入前，`calibration version` 在要写盘时以 2 拒绝，
 stderr 按先后列出每一处原文（D19.m–n、ADR-141）；两者都不判进度的值。
+进度以外的位置写重复同样到不了写回（D27、ADR-142）：task.json 任一层同一个对象里同一个键写了不止一次，collect 续跑与 render 先写出它们、再照常判任务列表与进度（任务列表有效时两类一起报，不遮住进度问题），
+enrich 与 `feedback-template` 在它们唯一的那一道、`calibration version` 在要写盘时以 2 拒绝；D19.k 那几处照上面报，不报两遍。
 render 在任务列表有效后、读名单及任何写入前按同一判据校验进度，坏的退出 2，stderr 点名任务文件、坏字段与原文 token
 （整张表位置上的与装在坏容器里的数字也按原文显示，坏容器只展开有限几层）；
 任务文件、名单、交付物和记忆保持原字节，不把溢出的 `found` 印成 Infinity 或 null。合规进度（含缺整表、`1.0`、`1e0`）照常导出（D19.h–j、ADR-139）。

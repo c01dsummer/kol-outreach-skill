@@ -179,4 +179,5 @@
 | **ADR-139** | [render 导出前按原文校验搜索进度，坏断点以 2 拒绝，不再把溢出印成 Infinity](ADR-139-render-导出前按原文校验搜索进度，坏断点以-2-拒绝，不再.md) |
 | **ADR-140** | [进度键在 task.json 里写重复时按每一处原文拒绝，不再只按读入后留下的最后一处放行](ADR-140-进度键在-taskjson-里写重复时按每一处原文拒绝，不再只按.md) |
 | **ADR-141** | [enrich 与 calibration version 见到写重复的进度键时在写回前以 2 拒绝，不再整份写回成只剩最后一处](ADR-141-enrich-与-calibration-version-见到写.md) |
+| **ADR-142** | [task.json 里任何一层写重复的键都在写回与请求之前以 2 拒绝，不再只管进度键](ADR-142-taskjson-里任何一层写重复的键都在写回与请求之前以-2-.md) |
 <!-- END:GENERATED -->

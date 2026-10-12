@@ -62,7 +62,7 @@ import {
   renderIndex, slugify,
 } from './check/adr-rule.js'
 import { endsOpen, quotedMask } from './check/quoted.js'
-import { tsxCommand } from './check/tsx-cmd.js'
+import { compileCacheDir, tsxCommand } from './check/tsx-cmd.js'
 import {
   SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_SEEDS,
   SELFCHECK_TOOLS,
@@ -73,7 +73,8 @@ import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { formatDiscoverySources, mergeDiscoverySources } from './lib/discovery.js'
 import { hashtagKeyword, igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
-import { resumeProgressProblems } from './lib/resume-progress.js'
+import { duplicateProgressProblems, resumeProgressProblems } from './lib/resume-progress.js'
+import { duplicateKeyProblems } from './lib/duplicate-keys.js'
 import { configFieldProblems, type ConfigInputRole } from './lib/config-input.js'
 import {
   brandCalibrationProblems, calibrationContentVersion, calibrationVersionProblems, isContentVersion,
@@ -106,7 +107,7 @@ import { request as templateHttpsRequest } from 'node:https'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
 import { Budget, BudgetInputError, startBudget, costView, type CostView } from './lib/budget.js'
-import { readCostDocument, readCostLimit, setCostLimitField, sourceDuplicateKeys, sourceNumberToken, stringifyCostJson, type CostState } from './lib/cost-json.js'
+import { readCostDocument, readCostLimit, setCostLimitField, sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson, type CostState, type KeyDuplicate } from './lib/cost-json.js'
 import {
   CostError, CostLedgerUnavailable, createCostBudget, formatUsd, inspectExistingCostLedger,
   parseUsdMicros, restoreCostBudget, type CostSnapshot,
@@ -5924,6 +5925,258 @@ suite('D19', '续跑进度字段先验校验')
   } finally { rmSync(root, { recursive: true, force: true }) }
   criterion('D19.g')
   tension('D19', 'P1')
+}
+
+suite('D27', 'task.json 任一层写重复的键：按读入时的原文认出，每一处按先后列出')
+{
+  // D27.a（ADR-142）。期望只来自 D27.a 原文、KeyDuplicate 类型与 duplicateKeyProblems 签名处的约定，以及下面写进夹具的字面值；
+  // 没有读 sourceDuplicates、duplicateKeyProblems、sourceDuplicateKeys 的函数体。读法与 collect、render 读 task.json 相同：
+  // readCostDocument 读入，sourceDuplicates 从读入时的原文里找写重复的键，duplicateKeyProblems 写成问题。
+  // 每个用例只有一处写重复，前几处的原文是夹具里独有的写法（zq-old、7.5e1、zz-mid 这些），问题里找得到就不是碰巧；
+  // 最后一处一律是基准那一份的值，所以普通 JSON.parse 读出来与基准一模一样（第一条断言），前几处只在原文里找得到
+  type Scan = { dups: readonly KeyDuplicate[] | null; all: string[]; outside: string[] }
+  const scan = (text: string): Scan | { threw: string } => {
+    try {
+      const parsed = readCostDocument<Record<string, unknown>>(text)
+      const dups = sourceDuplicates(parsed)
+      return { dups, all: duplicateKeyProblems(dups), outside: duplicateKeyProblems(dups, true) }
+    } catch (error) { return { threw: error instanceof Error ? error.message : String(error) } }
+  }
+  // 位置的独立 oracle（D27.a 原文）：根上的键名，往下对象里的键接 ["键"]、数组里的元素接 [下标]
+  const position = (path: readonly (string | number)[]) =>
+    path.map((step, i) => i === 0 ? String(step) : typeof step === 'number' ? `[${step}]` : `[${JSON.stringify(step)}]`).join('')
+  // 字符串照原文：盘上写的是 - 这种转义，列出来的也得是转义，解码后的连字符不算原文。
+  // 列的时候连不连两端的引号判据没说，比较前去掉两端引号；数字、{…}、[…] 原样比
+  const bare = (value: string) => /^".*"$/s.test(value) ? value.slice(1, -1) : value
+  const inOrder = (line: string, ordered: readonly string[]) => {
+    let at = 0
+    for (const token of ordered) { const i = line.indexOf(token, at); if (i < 0) return false; at = i + token.length }
+    return true
+  }
+  const BASE = {
+    tasks: '"tasks":[{"keyword":"lamp","dimension":"category","platform":"tiktok"}]',
+    done: '"done":[0]', offsets: '"offsets":{"0":5}', answered: '"answered":{"0":1}', found: '"found":{"0":3}', pages: '"pages":{"0":1}',
+    budget: '"budget_usd":1', requests: '"requests":0',
+    ledger: '"cost_ledger":{"schema":1,"limit_micro_usd":1000000,"entries":[{"endpoint":"a","unit_micro_usd":1000}]}',
+    brand: '"brand_calibration":{"version":"v","natural_scenarios":["x"]}',
+    matrix: '"matrix":[[0,{"k":1}]]', extra: '"extra":{"a":1}',
+  }
+  type Part = keyof typeof BASE
+  const doc = (swap: Partial<Record<Part, string>> = {}) => `{${(Object.keys(BASE) as Part[]).map(part => swap[part] ?? BASE[part]).join(',')}}`
+  // [名, 写了重复键的文本, 只留最后一处的文本, 写重复的位置, 按文件先后的每一处原文（去掉两端引号）, 是不是 D19.k 那几处]
+  type DupCase = readonly [string, string, string, readonly (string | number)[], readonly string[], boolean]
+  const one = (name: string, swap: Partial<Record<Part, string>>, path: readonly (string | number)[], values: readonly string[],
+    d19k = false, last: Partial<Record<Part, string>> = {}): DupCase => [name, doc(swap), doc(last), path, values, d19k]
+  const OUTSIDE: DupCase[] = [
+    one('tasks-root', { tasks: `"tasks":"zq-first-list",${BASE.tasks}` }, ['tasks'], ['zq-first-list', '[…]']),
+    one('task-keyword', { tasks: '"tasks":[{"keyword":"zq\\u002dold","dimension":"category","keyword":"lamp","platform":"tiktok"}]' },
+      ['tasks', 0, 'keyword'], ['zq\\u002dold', 'lamp']),
+    one('budget-root', { budget: '"budget_usd":9.5e1,"budget_usd":1' }, ['budget_usd'], ['9.5e1', '1']),
+    one('requests-thrice', { requests: '"requests":7.5e1,"requests":"zz-mid","requests":0' }, ['requests'], ['7.5e1', 'zz-mid', '0']),
+    one('ledger-entry', { ledger: '"cost_ledger":{"schema":1,"limit_micro_usd":1000000,"entries":[{"endpoint":"a","unit_micro_usd":6.5e2,"unit_micro_usd":1000}]}' },
+      ['cost_ledger', 'entries', 0, 'unit_micro_usd'], ['6.5e2', '1000']),
+    // 对象与数组只标出是哪一种，不展开：里面的 9.75e2 与 8.25e2 不该出现在问题里
+    one('nested-arrays', { matrix: '"matrix":[[0,{"k":{"x":9.75e2},"k":[8.25e2],"k":1}]]' }, ['matrix', 0, 1, 'k'], ['{…}', '[…]', '1']),
+    one('brand-inner', { brand: '"brand_calibration":{"version":"v","natural_scenarios":"zq-first-scene","natural_scenarios":["x"]}' },
+      ['brand_calibration', 'natural_scenarios'], ['zq-first-scene', '[…]']),
+    // D27.a 原文里的例子："a" 与 "a" 解码后同名；键名里的转义同样（keyword 与 keyword）
+    one('escaped-a', { extra: '"extra":{"a":5.5e0,"\\u0061":1}' }, ['extra', 'a'], ['5.5e0', '1']),
+    one('escaped-keyword', { tasks: '"tasks":[{"keyword":"zq-escaped","dimension":"category","k\\u0065yword":"lamp","platform":"tiktok"}]' },
+      ['tasks', 0, 'keyword'], ['zq-escaped', 'lamp']),
+    // 挨着 D19.k 的边界，都不是 D19.k 那几处：done 不是那四张表之一；表里更深一层；别的对象里叫 found 的表；任务对象里叫 found 的键
+    one('done-object', { done: '"done":{"0":7.5e0,"0":0}' }, ['done', '0'], ['7.5e0', '0'], false, { done: '"done":{"0":0}' }),
+    one('found-deep', { found: '"found":{"0":{"zq":7.25e0,"zq":3}}' }, ['found', '0', 'zq'], ['7.25e0', '3'], false, { found: '"found":{"0":{"zq":3}}' }),
+    one('pages-array-deep', { pages: '"pages":{"0":[{"zq":8.5e0,"zq":1}]}' }, ['pages', '0', 0, 'zq'], ['8.5e0', '1'], false, { pages: '"pages":{"0":[{"zq":1}]}' }),
+    one('brand-found-table', { brand: '"brand_calibration":{"version":"v","natural_scenarios":["x"],"found":{"0":9.5e0,"0":1}}' },
+      ['brand_calibration', 'found', '0'], ['9.5e0', '1'], false, { brand: '"brand_calibration":{"version":"v","natural_scenarios":["x"],"found":{"0":1}}' }),
+    one('task-found', { tasks: '"tasks":[{"keyword":"lamp","dimension":"category","platform":"tiktok","found":4.75e0,"found":1}]' },
+      ['tasks', 0, 'found'], ['4.75e0', '1'], false, { tasks: '"tasks":[{"keyword":"lamp","dimension":"category","platform":"tiktok","found":1}]' }),
+  ]
+  // D19.k 那几处：根上五个进度键、四张表里直接写重复的任务索引（表里那一处的键用转义写一次）
+  const PROGRESS: DupCase[] = [
+    one('done-root', { done: '"done":7.5e0,"done":[0]' }, ['done'], ['7.5e0', '[…]'], true),
+    one('offsets-root', { offsets: '"offsets":6.5e0,"offsets":{"0":5}' }, ['offsets'], ['6.5e0', '{…}'], true),
+    one('answered-root', { answered: '"answered":"zq-first-answered","answered":{"0":1}' }, ['answered'], ['zq-first-answered', '{…}'], true),
+    one('found-root', { found: '"found":[1e400],"found":{"0":3}' }, ['found'], ['[…]', '{…}'], true),
+    one('pages-root', { pages: '"pages":1e400,"pages":{"0":1}' }, ['pages'], ['1e400', '{…}'], true),
+    one('offsets-key', { offsets: '"offsets":{"0":1e400,"0":5}' }, ['offsets', '0'], ['1e400', '5'], true),
+    one('answered-key', { answered: '"answered":{"0":2.5e0,"0":1}' }, ['answered', '0'], ['2.5e0', '1'], true),
+    one('found-key', { found: '"found":{"0":9.25e2,"\\u0030":3}' }, ['found', '0'], ['9.25e2', '3'], true),
+    one('pages-key', { pages: '"pages":{"0":4.5e0,"0":1}' }, ['pages', '0'], ['4.5e0', '1'], true),
+  ]
+  // 缩进写出的任务文件（saveTask 写回的就是带空白的）：原文不带两边的空白
+  const pretty = JSON.stringify(JSON.parse(doc()), null, 2)
+  const PRETTY: DupCase = ['pretty', pretty.replace('"budget_usd": 1', '"budget_usd": 9.5e1,\n  "budget_usd": 1'), pretty, ['budget_usd'], ['9.5e1', '1'], false]
+  const CASES = [...OUTSIDE, ...PROGRESS, PRETTY]
+  eq('任一层写重复的键夹具有效：普通 JSON.parse 把每一份都读成只留最后一处的那一份，前几处读入后不留痕迹',
+    CASES.filter(([, text, last]) => text === last || !isDeepStrictEqual(JSON.parse(text), JSON.parse(last))).map(([name]) => name), [])
+  // 结构：每份恰好一处写重复，位置是对象里的键名与数组里的下标（类型上分得开），每一处原文按先后
+  const structured = (cases: readonly DupCase[]) => cases.flatMap(([name, text, , path, values]) => {
+    const got = scan(text)
+    const fine = 'dups' in got && got.dups !== null && got.dups.length === 1
+      && isDeepStrictEqual([...got.dups[0].path], [...path]) && isDeepStrictEqual(got.dups[0].values.map(bare), [...values])
+    return fine ? [] : [`${name}: ${JSON.stringify('dups' in got ? got.dups : got)}`]
+  })
+  eq('任一层写重复的键：根上、对象里、数组元素里任一层同一对象写了不止一次的键都认得出，即使最后一处合法；位置逐层是键名与下标，每一处原文按文件先后',
+    structured([...OUTSIDE, ...PROGRESS]), [])
+  eq('任一层写重复的键：按 JSON 解码后相同的键也算重复 —— "a" 与 "\\u0061"、keyword 与 k\\u0065yword、表里的 "0" 与 "\\u0030"',
+    structured(CASES.filter(([name]) => ['escaped-a', 'escaped-keyword', 'found-key'].includes(name))), [])
+  eq('任一层写重复的键：缩进写出的任务文件里每一处原文不带两边的空白', structured([PRETTY]), [])
+  // 问题：每一处写重复的键恰好一条，写出位置（独立 oracle 拼出的那一串）与按先后的每一处原文
+  const written = (cases: readonly DupCase[], extra: (line: string) => boolean = () => true) => cases.flatMap(([name, text, , path, values]) => {
+    const got = scan(text)
+    const fine = 'all' in got && got.all.length === 1 && got.all[0].includes(position(path)) && inOrder(got.all[0], values) && extra(got.all[0])
+    return fine ? [] : [`${name}: ${JSON.stringify('all' in got ? got.all : got)}`]
+  })
+  eq('任一层写重复的键：每一处写重复的键一条问题，写出位置（根上的键名往下接 ["键"] 与 [下标]）并按文件先后列出每一处原文',
+    written(CASES), [])
+  eq('任一层写重复的键：问题写出出现次数 —— 写了两次的写出 2，写了三次的写出 3',
+    [...written(CASES.filter(([name]) => name === 'budget-root'), line => /[2两二]/.test(line)),
+      ...written(CASES.filter(([name]) => name === 'requests-thrice'), line => /[3三]/.test(line))], [])
+  eq('任一层写重复的键：某一处是对象或数组时问题只标出是对象还是数组，不展开其中内容',
+    CASES.filter(([name]) => name === 'nested-arrays').flatMap(([name, text]) => {
+      const got = scan(text)
+      return 'all' in got && got.all.length === 1 && !/9\.75e2|8\.25e2|"x"/.test(got.all[0]) ? [] : [`${name}: ${JSON.stringify(got)}`]
+    }), [])
+  // 位置要读得出（复核发现 4，写在接上实现之后）：根上的键为空、或含字母、数字与 _ . - 以外的字符时也写成 ["键"]，
+  // 键名里的引号、反斜杠与控制字符按 JSON 转义 —— 空的位置读不出，控制字符原样进终端，根上的 x["y"] 会与 x 里的 y 混同
+  const ODD: [string, string, boolean][] = [['root-empty', '', false], ['root-control', 'a\u001b[31m', false], ['root-brackets', 'x["y"]', false],
+    ['inner-quote', 'a"b', true], ['inner-backslash', 'a\\b', true]]
+  eq('任一层写重复的键：位置读得出 —— 根上的键为空或含字母、数字与 _ . - 以外的字符时也写成 ["键"]，键名里的引号、反斜杠与控制字符按 JSON 转义，不把控制字符原样写出',
+    ODD.flatMap(([name, key, inner]) => {
+      const k = JSON.stringify(key), at = inner ? `x[${k}]` : `[${k}]`
+      const got = scan(inner ? `{"x":{${k}:7.5e0,${k}:1}}` : `{${k}:7.5e0,${k}:1,"x":{"y":1}}`)
+      return 'all' in got && got.all.length === 1 && got.all[0].startsWith(at) && !/[\u0000-\u001f]/.test(got.all[0]) ? [] : [`${name}: ${JSON.stringify(got)}`]
+    }), [])
+  // outsideProgress：只跳过 D19.k 那几处（那几处由 duplicateProgressProblems 报），挨着边界的其余位置一处不少
+  eq('任一层写重复的键：只报 D19.k 以外那几处时跳过根上五个进度键与四张表里的键，别处的照报 —— 包括 done 里的键、表里更深一层、别的对象里叫 found 的表与任务对象里叫 found 的键',
+    CASES.flatMap(([name, text, , , , d19k]) => {
+      const got = scan(text)
+      const fine = 'all' in got && got.all.length === 1 && (d19k ? got.outside.length === 0 : isDeepStrictEqual(got.outside, got.all))
+      return fine ? [] : [`${name}: ${JSON.stringify('outside' in got ? got.outside : got)}`]
+    }), [])
+  // 不多拒：不同对象里的同名键（两个任务各有 keyword、四张表各有 "0"、费用账两项各有同名键、对象里套着同名的对象）、
+  // 数组里相同的元素、字符串里长得像重复键的文字、解码后不同名的键（"a" 与 "aa"、键名里转义的引号）都不算
+  const CLEAN = '{"tasks":[{"keyword":"lamp","dimension":"category","platform":"tiktok"},{"keyword":"lamp","dimension":"category","platform":"tiktok"}],'
+    + '"done":[0,0,1],"offsets":{"0":5,"1":5},"answered":{"0":5,"1":5},"found":{"0":5,"1":5},"pages":{"0":5,"1":5},'
+    + '"cost_ledger":{"entries":[{"endpoint":"a","unit_micro_usd":1000},{"endpoint":"a","unit_micro_usd":1000}]},'
+    + '"nest":{"k":{"k":{"k":1}},"j":{"k":1}},"list":[{"a":1},{"a":1},[1,1],[1,1],"x","x",null,null],'
+    + '"brand_calibration":{"found":{"0":1},"tasks":[{"keyword":"x"}]},"notes":"\\"a\\":1,\\"a\\":2,{\\"b\\":1,\\"b\\":2}",'
+    + '"esc":{"a":1,"\\u0062":2,"a\\u0061":3,"q\\"x":4,"q":5}}'
+  const clean = scan(CLEAN)
+  eq('任一层写重复的键不多拒：不同对象里的同名键、数组里相同的元素、字符串里像重复键的文字与解码后不同名的键都不算重复',
+    'dups' in clean ? [clean.dups, clean.all, clean.outside] : clean, [[], [], []])
+  // D27.e 判据那一半在这里认领（复核发现 1）：入口那一半由自检认领，但任何一种多拒的扫描都会让自检里带费用账条目的阳性对照
+  // 一并失败、带上夹具记号，自检那边的负片按规矩记不上功；判据这一层没有夹具记号，负片记在这里
+  criterion('D27.e')
+  // 读得进来的深层嵌套与超长字符串（D19.k 那条复核发现的同类）：不抛异常，写在里面或后面的重复照样认出
+  const DEPTH = 2400
+  const deepText = doc({ matrix: `"matrix":${'['.repeat(DEPTH)}{"a":5.5e0,"a":1}${']'.repeat(DEPTH)}` })
+  const longText = `{"notes":"${'x'.repeat(9_000_000)}",${doc({ budget: '"budget_usd":9.5e1,"budget_usd":1' }).slice(1)}`
+  const deep = scan(deepText), long = scan(longText)
+  eq('任一层写重复的键：读得进来的深层嵌套与超长字符串照常判，不抛异常，写在里面或后面的重复照样认出并列出原文',
+    [JSON.parse(deepText) !== undefined && JSON.parse(longText) !== undefined,
+      'dups' in deep && deep.dups?.length === 1 && isDeepStrictEqual([...deep.dups[0].path], ['matrix', ...Array(DEPTH).fill(0), 'a'])
+        && deep.all.length === 1 && inOrder(deep.all[0], ['5.5e0', '1']) ? true : JSON.stringify(deep).slice(0, 300),
+      'dups' in long && long.dups?.length === 1 && long.all.length === 1 && long.all[0].includes('budget_usd') && inOrder(long.all[0], ['9.5e1', '1'])
+        ? true : JSON.stringify(long).slice(0, 300)], [true, true, true])
+  // 找不到读入时的原文（读入后的副本、普通 JSON.parse 读出的对象）就无从核对：交回 null，写成问题，不当成没有重复（两种模式都是）。
+  // 同一份不做副本时没有重复、没有问题是阳性对照
+  const plainDoc = readCostDocument<Record<string, unknown>>(doc())
+  const unknowns = [structuredClone(plainDoc), JSON.parse(doc())].map(root => sourceDuplicates(root))
+  eq('任一层写重复的键：找不到读入时原文的任务无从核对，判为有问题而不是当成没有重复',
+    [sourceDuplicates(plainDoc), duplicateKeyProblems(sourceDuplicates(plainDoc)), unknowns,
+      duplicateKeyProblems(null).length > 0, duplicateKeyProblems(null, true).length > 0], [[], [], [null, null], true, true])
+  criterion('D27.a')
+
+  // D19.k 的判据范围不因 D27 变宽：同一份文件里既有 D19.k 那几处又有更深的重复时，sourceDuplicateKeys 与 D19.k 的问题只有那几处；
+  // 更深一层的 zq-old、6.5e0、4.5e0、3.5e0 一处都不出现（它们归 D27，由 duplicateKeyProblems 报）
+  const MIXED = '{"tasks":[{"keyword":"zq-old","keyword":"lamp","dimension":"category","platform":"tiktok"}],"done":[0],'
+    + '"pages":7.5e1,"pages":{"0":1},"found":{"0":9.5e1,"0":3,"1":{"zq":6.5e0,"zq":8}},"answered":{"0":[{"zq":4.5e0,"zq":2}]},'
+    + '"cost_ledger":{"entries":[{"http_200_count":3.5e0,"http_200_count":1}]}}'
+  let mixedRead: Record<string, unknown> | undefined, mixedThrew = ''
+  try { mixedRead = readCostDocument<Record<string, unknown>>(MIXED) } catch (error) { mixedThrew = error instanceof Error ? error.message : String(error) }
+  const keys = mixedRead === undefined ? undefined : sourceDuplicateKeys(mixedRead)
+  const progressHalf = keys === undefined || keys === null ? `threw=${mixedThrew} keys=${keys}` : {
+    shape: keys.map(({ parent, key, values }) => ({ parent: parent ?? null, key, values: [...values] }))
+      .sort((a, b) => `${a.parent}/${a.key}`.localeCompare(`${b.parent}/${b.key}`)),
+    problems: [duplicateProgressProblems(keys).length, duplicateProgressProblems(keys).some(p => /zq-old|6\.5e0|4\.5e0|3\.5e0/.test(p))] }
+  eq('D19.k 的判据范围不变：同一份里又有更深的重复时，进度键那一半只认根上的 pages 与 found 表里的 "0" 两处，不报更深的那几处',
+    progressHalf, { shape: [{ parent: 'found', key: '0', values: ['9.5e1', '3'] }, { parent: null, key: 'pages', values: ['7.5e1', '{…}'] }],
+      problems: [2, false] })
+  const deeper = mixedRead === undefined ? `threw=${mixedThrew}` : duplicateKeyProblems(sourceDuplicates(mixedRead), true)
+  eq('任一层写重复的键：同一份里又有进度键的重复时，只报 D19.k 以外那几处的判据把更深的四处各报一次，不报进度键那两处',
+    Array.isArray(deeper) ? [deeper.length, ['zq-old', '6.5e0', '4.5e0', '3.5e0'].map(token => deeper.filter(p => p.includes(token)).length),
+      deeper.some(p => /7\.5e1|9\.5e1/.test(p))] : deeper, [4, [1, 1, 1, 1], false])
+
+  // D27 × P3（ADR-142）：requests、cost_ledger、budget_usd 写重复时读入只留最后一处 —— 不判的话按最后一处的计数、费用账或上限花钱。
+  // 判据一侧：collect、render 在任务列表那一道只判 D19.k 以外那几处（outsideProgress），这三处照样各写成一条问题，被丢掉的前几处原文列得出来；
+  // 夹具有效：同一份读入后的根预算、计数与费用账确实是最后一处的值。期望只来自 D27 × P3 裁决与夹具字面值
+  const LEDGER = (limit: string) => `{"schema":1,"currency":"USD","unit":"micro_usd","scope":"task","limit_micro_usd":${limit},"next_attempt_id":1,"entries":[]}`
+  const costText = (swap: { budget?: string; requests?: string; ledger?: string } = {}, done = '[]') =>
+    `{"product":"d27-p3","market":"US","target_count":9999,${swap.budget ?? '"budget_usd":1'},`
+    + `"tasks":[{"keyword":"local","dimension":"category","platform":"tiktok"}],"done":${done},"offsets":{"0":5},"pages":{"0":1},"answered":{"0":1},"found":{"0":3},`
+    + `"created_at":"2026-01-01T00:00:00.000Z","updated_at":"2026-01-01T00:00:00.000Z",${swap.requests ?? '"requests":0'},${swap.ledger ?? `"cost_ledger":${LEDGER('1000000')}`}}`
+  // [名, 写重复的文本, 位置, 被丢掉的前几处原文]
+  const P3: [string, string, string, string[]][] = [
+    ['budget_usd', costText({ budget: '"budget_usd":9.5e1,"budget_usd":1' }), 'budget_usd', ['9.5e1']],
+    ['requests', costText({ requests: '"requests":7.5e1,"requests":0' }), 'requests', ['7.5e1']],
+    ['cost_ledger', costText({ ledger: `"cost_ledger":${LEDGER('9.5e7')},"cost_ledger":${LEDGER('1000000')}` }), 'cost_ledger', ['{…}', '{…}']],
+    ['cost_ledger-limit', costText({ ledger: `"cost_ledger":${LEDGER('9.5e7,"limit_micro_usd":1000000')}` }), 'cost_ledger["limit_micro_usd"]', ['9.5e7']],
+  ]
+  const lastRead = P3.map(([, text]) => { const plain = JSON.parse(text); return [plain.budget_usd, plain.requests, plain.cost_ledger?.limit_micro_usd] })
+  eq('费用字段写重复夹具有效：读入后根预算、请求计数与费用账上限都是最后一处的值（1 美元、0 次、1000000 微美元）',
+    lastRead, P3.map(() => [1, 0, 1_000_000]))
+  eq('费用字段写重复：requests、cost_ledger（整份或其中一项）、budget_usd 写重复时，只判进度键以外那几处的判据也各写成一条问题，按先后列出被丢掉的前几处原文',
+    P3.flatMap(([name, text, at, tokens]) => {
+      const got = scan(text)
+      return 'outside' in got && got.outside.length === 1 && got.outside[0].includes(at) && inOrder(got.outside[0], tokens)
+        ? [] : [`${name}: ${JSON.stringify(got)}`]
+    }), [])
+  // 入口一侧：collect --resume --budget 2 与 enrich --budget 2 读到这几份任务，零改额（task.json 原字节）、零预留、零请求，以 2 退出。
+  // 观测：fake-fetch 逐次记请求，预加载在 Budget.prototype.reserve 上记预留，armed 证明预加载真的装上了。
+  // 阳性对照：同一份只留最后一处的任务、同一种接线，照常预留并请求（collect 去搜那个没完成的任务，enrich 去补那个创作者）
+  const p3Root = mkdtempSync(join(tmpdir(), 'kol-d27-p3-'))
+  try {
+    const tsxLoader = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+    const fakeFetch = pathToFileURL(join(process.cwd(), 'scripts', 'check', 'fake-fetch.ts')).href
+    const budgetModule = pathToFileURL(join(process.cwd(), 'scripts', 'lib', 'budget.ts')).href
+    const person = { platform: 'tiktok', handle: 'cost_person', nickname: 'cost_person', followers: 10000, post_count: 50, bio: null,
+      bio_links: ['https://example.com'], verified: false, profile_url: '', source_keyword: 'local', source_dimension: 'category', recent_posts: [], fit: '✅' }
+    let made = 0
+    const runEntry = (entry: 'collect' | 'enrich', text: string) => {
+      const cwd = join(p3Root, `run-${++made}`), taskDir = join(cwd, 'task'), file = join(taskDir, 'task.json')
+      mkdirSync(join(cwd, 'memory'), { recursive: true }); mkdirSync(taskDir)
+      writeFileSync(file, text)
+      for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(taskDir, name), JSON.stringify(entry === 'enrich' ? [person] : []))
+      const ledger = join(cwd, 'attempts.tsv'), reserves = join(cwd, 'reserves.txt'), armed = join(cwd, 'armed.txt'), preload = join(cwd, 'observe-reserve.mjs')
+      writeFileSync(reserves, '')
+      writeFileSync(preload, [
+        `import { appendFileSync } from 'node:fs';`,
+        `import { Budget } from ${JSON.stringify(budgetModule)};`,
+        `const original = Budget.prototype.reserve;`,
+        `Budget.prototype.reserve = function(...args) { appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n'); return Reflect.apply(original, this, args); };`,
+        `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
+      ].join('\n'))
+      const argv = entry === 'collect' ? [join(process.cwd(), 'scripts', 'collect.ts'), '--resume', taskDir, '--budget', '2']
+        : [join(process.cwd(), 'scripts', 'enrich.ts'), '--dir', taskDir, '--budget', '2']
+      const [exe, args] = tsxCommand(argv)
+      const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d27', FAKE_FETCH_LEDGER: ledger,
+        FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(),
+        NODE_OPTIONS: `--import ${JSON.stringify(tsxLoader)} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}` } })
+      const lines = (path: string) => existsSync(path) ? rf(path, 'utf8').split('\n').filter(Boolean).length : 0
+      return { status: r.status, armed: lines(armed) > 0, kept: rf(file, 'utf8') === text, reserves: lines(reserves), attempts: lines(ledger),
+        stderr: (r.stderr ?? '').split('\n').filter(Boolean).slice(-2).join(' | ') }
+    }
+    const entries = ['collect', 'enrich'] as const
+    const controls = entries.map(entry => runEntry(entry, costText()))
+    eq('费用字段写重复入口夹具有效：只留最后一处的同一份任务，collect --resume --budget 2 与 enrich --budget 2 照常预留并请求，观测确实装上了',
+      controls.map(({ status, armed, reserves, attempts }) => [status, armed, reserves > 0, attempts > 0]), entries.map(() => [0, true, true, true]))
+    const refused = entries.flatMap(entry => P3.map(([name, text]) => ({ at: `${entry}/${name}`, ...runEntry(entry, text) })))
+    eq('费用字段写重复：collect --resume --budget 2 与 enrich --budget 2 见 requests、cost_ledger 或 budget_usd 写重复时以 2 退出，零改额（task.json 原字节）、零预留、零请求',
+      refused.filter(({ status, armed, kept, reserves, attempts }) => !(status === 2 && armed && kept && reserves === 0 && attempts === 0)), [])
+  } finally { rmSync(p3Root, { recursive: true, force: true }) }
+  tension('D27', 'P3')
 }
 
 })
@@ -12649,6 +12902,43 @@ await group('feedback-template-crossings', async () => {
     if (originalKey === undefined) delete process.env.TIKHUB_API_KEY; else process.env.TIKHUB_API_KEY = originalKey;
     fs.rmSync(dir, { recursive: true, force: true });
   }
+  // D27.d 的读写一侧（依据 D27.a、D27.d 原文与夹具字面值，没有读被测函数体；D27.d 由入口自检认领）：task.json 任一层写重复了键
+  // （含 D19.k 那几处）时抛出入口据以 2 退出的输入错误，不建 manual-feedback.csv，task.json 原字节；问题写出键的位置与按先后的每一处原文。
+  // 输入错误的种类取自同一入口已有的 D26.b 拒绝（tasks 为 null）—— 那一份照样抛它，是对照；阳性对照是同一份只留最后一处，照常创建
+  const d27Dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kol-d27d-'));
+  try {
+    const { runManualFeedbackTemplate } = await import('./lib/feedback-template-task.js');
+    const base = '{"tasks":[{"keyword":"saved","dimension":"category","platform":"tiktok"}],"cost_ledger":{"version":"unusable"},"budget_usd":"unusable","requests":null}';
+    // [名, 写重复的改法, 只留最后一处的改法, 位置（D19.k 那一处只认字段名）, 按文件先后被丢掉的前几处原文]
+    const cases: [string, [string, string], [string, string], string, string[]][] = [
+      ['tasks-root', ['"tasks":[', '"tasks":"zq-first-list","tasks":['], ['"tasks":[', '"tasks":['], 'tasks', ['zq-first-list']],
+      ['task-keyword', ['"keyword":"saved"', '"keyword":"zq\\u002dold","keyword":"saved"'], ['"keyword":"saved"', '"keyword":"saved"'], 'tasks[0]["keyword"]', ['zq\\u002dold']],
+      ['progress-key', ['"requests":null', '"requests":null,"found":{"0":1e400,"0":3}'], ['"requests":null', '"requests":null,"found":{"0":3}'], 'found', ['1e400']],
+      ['progress-deep', ['"requests":null', '"requests":null,"found":{"0":{"zq":7.25e0,"zq":3}}'], ['"requests":null', '"requests":null,"found":{"0":{"zq":3}}'], 'found["0"]["zq"]', ['7.25e0']],
+      ['requests', ['"requests":null', '"requests":7.5e1,"requests":"zz-mid","requests":null'], ['"requests":null', '"requests":null'], 'requests', ['7.5e1', 'zz-mid']],
+    ];
+    let made = 0;
+    const runAt = (text: string) => {
+      const at = path.join(d27Dir, `t${++made}`), file = path.join(at, 'task.json'), csv = path.join(at, 'manual-feedback.csv');
+      fs.mkdirSync(at); fs.writeFileSync(file, text + '\n'); fs.writeFileSync(path.join(at, 'agent-review.json'), agent); fs.writeFileSync(path.join(at, 'creators.json'), creators);
+      let result: { status?: unknown } | undefined, error: unknown;
+      try { result = runManualFeedbackTemplate(at); } catch (caught) { error = caught; }
+      const said = error instanceof Error ? error.message.split(d27Dir).join('<D>') : '';
+      return { result, error, said, kept: fs.readFileSync(file, 'utf8') === text + '\n', csv: fs.existsSync(csv) };
+    };
+    const inOrder = (said: string, tokens: readonly string[]) => { let i = 0; for (const token of tokens) { const j = said.indexOf(token, i); if (j < 0) return false; i = j + token.length; } return true; };
+    const edited = (edit: [string, string]) => base.includes(edit[0]) ? base.replace(edit[0], edit[1]) : 'missing ' + edit[0];
+    const badTasks = runAt(base.replace('"tasks":[{"keyword":"saved","dimension":"category","platform":"tiktok"}]', '"tasks":null'));
+    const controls = cases.map(([, , last]) => runAt(edited(last)));
+    ok('D27模板-夹具有效：tasks 为 null 照 D26.b 以输入错误拒绝；只留最后一处的同一份任务照常创建人工表',
+      badTasks.error instanceof ReviewInputError && !badTasks.csv
+        && controls.every(({ result, error, csv }) => error === undefined && result?.status === 'create' && csv));
+    const refused = cases.map(([, dup]) => runAt(edited(dup)));
+    eq('D27模板-任一层写重复的键（含进度键）以输入错误拒绝，不建 manual-feedback.csv，task.json 原字节不变',
+      refused.map(({ error, kept, csv }) => [error instanceof ReviewInputError, kept, csv]), cases.map(() => [true, true, false]));
+    eq('D27模板-拒绝时写出键的位置并按文件先后写出每一处被丢掉的原文',
+      refused.map(({ said }, i) => said.includes(cases[i][3]) && inOrder(said, cases[i][4])), cases.map(() => true));
+  } finally { fs.rmSync(d27Dir, { recursive: true, force: true }); }
 });
 
 async function u10OfflineDom(html: string) {
@@ -13900,6 +14190,81 @@ suite('D20', '内容哈希版本按规范化 JSON 算出，复算只核对已有
       quiet.map(({ result, error, kept }) => [error === undefined, result?.status, result?.status === 'unchanged' ? result?.version === current : true, kept]),
       dupProgress.flatMap(() => [[true, 'absent', true, true], [true, 'unchanged', true, true]]))
   } finally { rmSync(dupDir, { recursive: true, force: true }) }
+
+  // D27.c 的读写一侧（依据 D27.a、D27.c 与 D27 × P1 原文、夹具字面值，没有读被测函数体；D27.c 不在这里认领 —— 由入口自检认领）：
+  // task.json 任一层写重复了键（D19.k 那几处以外：根上的 tasks、任务对象里、进度值更深一层、requests、brand_calibration 里面）、
+  // 而要写盘时，抛出入口据以 2 退出的输入错误，不写盘；问题写出键的位置并按文件先后写出每一处原文（前几处读入后不留痕迹，只有盘上原文里有）。
+  // 不合 D20.a 时两类问题都在；缺席或 version 已一致时不写盘、照常返回，盘上的几处原样留着（D27 × P1）。
+  // 阳性对照：同一份只留最后一处，照常写入，盘上字节与修改时间确实变了；修改时间拨回过去，同字节重写也看得出
+  const d27Dir = mkdtempSync(join(tmpdir(), 'kol-d27c-'))
+  try {
+    const ledger = { schema: 1, currency: 'USD', unit: 'micro_usd', scope: 'task', limit_micro_usd: 1_000_000, next_attempt_id: 1, entries: [] }
+    const PART = { tasks: '"tasks":[{"keyword":"lamp","dimension":"category","platform":"tiktok"}]', found: '"found":{"0":3}', requests: '"requests":0' }
+    type Part = keyof typeof PART
+    type Variant = { parts?: Partial<Record<Part, string>>; brandDup?: boolean }
+    // [名, 写重复的那一份, 只留最后一处的那一份, 位置, 按文件先后被丢掉的前几处原文]
+    const CASES: [string, Variant, Variant, string, string[]][] = [
+      ['tasks-root', { parts: { tasks: `"tasks":"zq-first-list",${PART.tasks}` } }, {}, 'tasks', ['zq-first-list']],
+      ['task-keyword', { parts: { tasks: '"tasks":[{"keyword":"zq\\u002dold","keyword":"lamp","dimension":"category","platform":"tiktok"}]' } }, {},
+        'tasks[0]["keyword"]', ['zq\\u002dold']],
+      ['found-deep', { parts: { found: '"found":{"0":{"zq":7.25e0,"zq":3}}' } }, { parts: { found: '"found":{"0":{"zq":3}}' } }, 'found["0"]["zq"]', ['7.25e0']],
+      ['requests', { parts: { requests: '"requests":7.5e1,"requests":"zz-mid","requests":0' } }, {}, 'requests', ['7.5e1', 'zz-mid']],
+      ['brand-inner', { brandDup: true }, {}, 'brand_calibration["natural_scenarios"]', ['zq-first-scene']],
+    ]
+    let made = 0
+    const taskAt = ({ parts = {}, brandDup = false }: Variant, brand?: object): string => {
+      const dir = join(d27Dir, `t${++made}`), file = join(dir, 'task.json')
+      mkdirSync(dir)
+      const brandText = brand === undefined ? undefined : brandDup
+        ? JSON.stringify(brand).replace('"natural_scenarios":', '"natural_scenarios":"zq-first-scene","natural_scenarios":') : JSON.stringify(brand)
+      writeFileSync(file, `{"product":"d27c","market":"US","target_count":1,"budget_usd":1,${parts.requests ?? PART.requests},"cost_ledger":${JSON.stringify(ledger)},`
+        + `${parts.tasks ?? PART.tasks},"done":[0],"offsets":{"0":5},"answered":{"0":1},${parts.found ?? PART.found},"pages":{"0":1},`
+        + (brandText === undefined ? '' : `"brand_calibration":${brandText},`)
+        + `"created_at":"2026-01-01T00:00:00.000Z","updated_at":"2026-01-01T00:00:00.000Z"}\n`)
+      utimesSync(file, new Date('2001-01-01'), new Date('2001-01-01'))
+      return dir
+    }
+    const stampOf = (file: string) => { const s = statSync(file); return `${s.ino}:${s.mtimeMs}` }
+    const runAt = (dir: string) => {
+      const file = join(dir, 'task.json'), before = rf(file, 'utf8'), stamp = stampOf(file)
+      let result: { status?: unknown; version?: unknown } | undefined, error: unknown
+      try { result = runCalibrationVersion(dir) } catch (caught) { error = caught }
+      const said = error instanceof Error ? error.message.split(d27Dir).join('<D>') : ''
+      return { result, error, said, kept: rf(file, 'utf8') === before && stampOf(file) === stamp }
+    }
+    const listedInOrder = (said: string, at: string, tokens: readonly string[]) => {
+      let i = 0
+      for (const token of tokens) { const j = said.indexOf(token, i); if (j < 0) return false; i = j + token.length }
+      return said.includes(at)
+    }
+    const handVersion = { ...listedOnly, version: 'hand-v1' }, current = oracleVersion(listedOnly)
+    const sameVersion = { ...listedOnly, version: current }
+    ok('校准版本命令写重复键夹具有效：brand_calibration 里确实有一处 natural_scenarios 可以写重复', JSON.stringify(handVersion).split('"natural_scenarios":').length === 2)
+    const controls = CASES.map(([, , last]) => [runAt(taskAt(last, handVersion)), runAt(taskAt(last, sameVersion))])
+    ok('校准版本命令写重复键夹具有效：只留最后一处、version 是手写标签时照常写入，盘上字节与修改时间确实变了；version 已一致时判为不需要写入',
+      controls.every(([written, same]) => written.error === undefined && written.result?.status === 'written' && !written.kept
+        && same.error === undefined && same.result?.status === 'unchanged' && same.kept))
+    const writes = CASES.map(([, dup]) => runAt(taskAt(dup, handVersion)))
+    eq('校准版本命令：task.json 任一层写重复了键而要写盘时以输入问题拒绝（入口以 2 退出），不写盘，盘上原字节与修改时间不变',
+      writes.map(({ error, kept }) => [error instanceof ReviewInputError, kept]), CASES.map(() => [true, true]))
+    eq('校准版本命令：任一层写重复了键而拒绝时，问题写出键的位置并按文件先后写出每一处被丢掉的原文，不只最后一处',
+      writes.map(({ said }, i) => listedInOrder(said, CASES[i][3], CASES[i][4])), CASES.map(() => true))
+    const mixedWrites = CASES.map(([, dup]) => runAt(taskAt(dup, { ...handVersion, tone_aesthetic: [7] })))
+    eq('校准版本命令：任一层写重复了键且 brand_calibration 不合 D20.a 时以输入问题拒绝、不写盘，两类问题都写出',
+      mixedWrites.map(({ error, said, kept }, i) => [error instanceof ReviewInputError, kept, said.includes('tone_aesthetic'),
+        listedInOrder(said, CASES[i][3], CASES[i][4])]), CASES.map(() => [true, true, true, true]))
+    // 缺席时没有 brand_calibration，里面那一处写重复也就无从谈起，那个用例只跑 version 已一致的一半
+    const quiet = CASES.flatMap(([, dup]) => [...dup.brandDup ? [] : [runAt(taskAt(dup))], runAt(taskAt(dup, sameVersion))])
+    eq('校准版本命令：brand_calibration 缺席或 version 已一致时任一层写重复了键也不拒绝、不写盘，照常返回 absent 与 unchanged，盘上几处原样留着',
+      quiet.map(({ result, error, kept }) => [error === undefined, result?.status, result?.status === 'unchanged' ? result?.version === current : true, kept]),
+      CASES.flatMap(([, dup]) => [...dup.brandDup ? [] : [[true, 'absent', true, true]], [true, 'unchanged', true, true]]))
+    // 进度键与别处同时写重复（复核发现 3，写在接上实现之后）：D19.k 那几处照 D19.n 报、其余位置照 D27.c 报，两处都写出，同一处不报两遍
+    const both = runAt(taskAt({ parts: { found: '"found":{"0":1e400,"0":3}', requests: '"requests":7.5e1,"requests":0' } }, handVersion))
+    const times = (token: string) => both.said.split(token).length - 1
+    eq('校准版本命令：进度键与别处同时写重复而要写盘时以输入问题拒绝、不写盘，两处都写出，每一处只写一遍',
+      [both.error instanceof ReviewInputError, both.kept, times('1e400'), times('7.5e1')], [true, true, 1, 1])
+  } finally { rmSync(d27Dir, { recursive: true, force: true }) }
+  tension('D27', 'P1')
 }
 })
 
