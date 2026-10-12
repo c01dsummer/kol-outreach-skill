@@ -180,4 +180,5 @@
 | **ADR-140** | [进度键在 task.json 里写重复时按每一处原文拒绝，不再只按读入后留下的最后一处放行](ADR-140-进度键在-taskjson-里写重复时按每一处原文拒绝，不再只按.md) |
 | **ADR-141** | [enrich 与 calibration version 见到写重复的进度键时在写回前以 2 拒绝，不再整份写回成只剩最后一处](ADR-141-enrich-与-calibration-version-见到写.md) |
 | **ADR-142** | [task.json 里任何一层写重复的键都在写回与请求之前以 2 拒绝，不再只管进度键](ADR-142-taskjson-里任何一层写重复的键都在写回与请求之前以-2-.md) |
+| **ADR-143** | [collect --config 与 probe 读的配置文件写重复的键时在开账与请求之前以 2 拒绝](ADR-143-collect---config-与-probe-读的配置文件写.md) |
 <!-- END:GENERATED -->
