@@ -356,7 +356,7 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | 续跑任务列表有效 → 校验原始进度 → 才读进度行、构造预算、改额、预留或请求 | `scripts/collect.ts`、`scripts/lib/resume-progress.ts`、`scripts/lib/cost-json.ts` | 坏索引与坏统计表会在付费或保存后才暴露；旧缺表若补成空表会把历史未知写成零；数字解析后舍入会放过原始坏值 | M-D19-c M-D19-e M-D19-h |
 | render 任务列表有效 → 按原文校验进度 → 才读名单、写任务、交付物或记忆 | `scripts/render.ts`、`scripts/lib/resume-progress.ts`、`scripts/lib/cost-json.ts` | 溢出的 `found` 会在报告里印成 Infinity、在 meta.json 里写成 null；先写再拒绝会让任务目录不再是原字节 | M-D19-m M-D19-n |
 | enrich 与要写盘的 `calibration version` 按原文判写没写重复的键（进度键与其余位置） → 才整份写回 task.json | `scripts/enrich.ts`、`scripts/lib/calibration-version-task.ts`、`scripts/lib/resume-progress.ts`、`scripts/lib/duplicate-keys.ts`、`scripts/lib/cost-json.ts` | 整份写回只留最后一处；先写再拒绝，前几处原文已从盘上消失，拒绝了也找不回 | M-D19-au M-D19-az M-D27-n M-D27-o |
-| 原始市场/人数问题、配置里写重复的键与任务/路线问题汇总 → 拒绝坏输入 → 合规后才用新配置缺省、开账、改额、写入、预留或请求 | `scripts/collect.ts`、`scripts/probe.ts` | 先套缺省会吞掉 null，首错先抛会漏报任务/路线，续跑先改额会在拒绝前改写旧文件；写重复的键与别的问题只报一类会让用户改完一轮再撞下一轮，配置写重复时先开账再拒会在拒绝前留下预留 | M-D17-q M-D17-r M-D17-s M-D17-t M-D17-u M-D17-ac M-D17-ad M-D17-ae M-D28-c M-D28-d M-D28-e M-D28-f M-D28-j M-D28-k M-D28-l |
+| 原始市场/人数问题、配置里写重复的键与任务/路线问题汇总 → 拒绝坏输入 → 合规后才用新配置缺省、开账、改额、写入、预留或请求 | `scripts/collect.ts`、`scripts/probe.ts` | 先套缺省会吞掉 null，首错先抛会漏报任务/路线，续跑先改额会在拒绝前改写旧文件；写重复的键与别的问题只报一类会让用户改完一轮再撞下一轮，配置写重复时先套缺省再拒会在 stderr 说采用了默认，先开账再拒会在拒绝前留下预留 | M-D17-q M-D17-r M-D17-s M-D17-t M-D17-u M-D17-ac M-D17-ad M-D17-ae M-D27-w M-D28-c M-D28-d M-D28-e M-D28-f M-D28-j M-D28-k M-D28-l M-D28-n M-D28-o |
 | 任务级品牌输入原样校验，内容哈希版本同一处按内容复算；enrich/render 同文件的任务列表也坏时两类问题均报告 → 才解析新建预算、改额、预留、请求或写交付物 | `scripts/collect.ts`、`scripts/enrich.ts`、`scripts/render.ts`、`scripts/lib/brand-calibration.ts`、`scripts/lib/task.ts` | 品牌字段坏了或版本与内容对不上，仍可能留下费用或产物；先退会遮住任务错误；新建状态若只重建已知字段，会丢原项目输入 | M-D20-d M-D20-e M-D20-f M-D20-g M-D20-h M-D20-p M-D20-q M-D20-r M-D16-as |
 | render 读入任务并校验原样列表 → 才读名单、生成交付物与写回记忆 | `scripts/render.ts` | 坏列表在写入后才被发现，会留下新名单/表格或推荐记忆，却没有对应的新报告 | M-D16-ai M-D16-aj M-D16-ao |
 | render 合并身份 → 当前评审投影与完整直接关系 → 当前记忆复核 → 正本保存成功 → 名单与任务去重状态配对保存 → 才生成交付和写推荐记忆 | `scripts/render.ts`、`scripts/lib/memory.ts`、`scripts/lib/task.ts` | 重导出沿用旧联系状态、漏查仅在原件里的直接关联，或中断后留下未去重名单与“已去重”声明 | M-P4-o M-D4-ai M-P4-r M-P4-s M-P4-t M-P4-u M-P4-v |
@@ -439,7 +439,7 @@ enrich（含改额）、`calibration version` 与费用检查点整份写回 tas
 stderr 按先后列出每一处原文（D19.m–n、ADR-141）；两者都不判进度的值。
 进度以外的位置写重复同样到不了写回（D27、ADR-142）：task.json 任一层同一个对象里同一个键写了不止一次，collect 续跑与 render 先写出它们、再照常判任务列表与进度（任务列表有效时两类一起报，不遮住进度问题），
 enrich 与 `feedback-template` 在它们唯一的那一道、`calibration version` 在要写盘时以 2 拒绝；D19.k 那几处照上面报，不报两遍。
-collect --config 与 probe 读的配置同样判（D28、ADR-143）：写重复的键与原字段、任务、路线问题同一道报，在读预算 token、建目录、开账与请求之前以 2 拒绝；配置不续跑，进度键照别的键报。
+collect --config 与 probe 读的配置同样判（D28、ADR-143）：写重复的键与原字段、任务、路线问题同一道报，在套缺省、建目录、开账与请求之前以 2 拒绝；配置不续跑，进度键照别的键报。
 render 在任务列表有效后、读名单及任何写入前按同一判据校验进度，坏的退出 2，stderr 点名任务文件、坏字段与原文 token
 （整张表位置上的与装在坏容器里的数字也按原文显示，坏容器只展开有限几层）；
 任务文件、名单、交付物和记忆保持原字节，不把溢出的 `found` 印成 Infinity 或 null。合规进度（含缺整表、`1.0`、`1e0`）照常导出（D19.h–j、ADR-139）。

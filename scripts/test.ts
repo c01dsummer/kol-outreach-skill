@@ -14284,7 +14284,7 @@ suite('D28', 'collect --config 与 probe 读的配置写重复的键：在建目
     `{"product":"d28dup",${swap.market ?? CFG.market},"target_count":1,${swap.budget ?? CFG.budget},${swap.tasks ?? CFG.tasks},${swap.found ?? CFG.found}}\n`
   // at 是位置（照 D27.a：根上的键名往下接 [下标] 与 ["键"]），tokens 是按文件先后被丢掉的前几处原文（都不含位置本身，免得原文替位置作证），
   // times 是出现次数，other 是同一份配置里另一类问题该写出的字段与原值
-  type Dup = { name: string; text: string; at: string; tokens: readonly string[]; times?: number; other?: readonly string[] }
+  type Dup = { name: string; text: string; at: string; tokens: readonly string[]; times?: number; other?: readonly string[]; only?: 'collect' }
   const DUPS: Dup[] = [
     // D28 × P3：根预算写重复，读入只留最后一处的 1 美元
     { name: 'budget_usd', text: cfg({ budget: '"budget_usd":9.5e1,"budget_usd":1' }), at: 'budget_usd', tokens: ['9.5e1'], times: 2 },
@@ -14330,14 +14330,14 @@ suite('D28', 'collect --config 与 probe 读的配置写重复的键：在建目
       // 路径先移走：它不能替问题提供位置、原文或次数
       const stderr = r.stderr ?? '', message = stderr.replaceAll(file, '[配置]').replaceAll(root, '[目录]')
       return { ...dup, mode, status: r.status, armed: lines(armed) > 0, reserves: lines(reserves), attempts: lines(ledger), kept: rf(file, 'utf8') === text,
-        same: tree(cwd) === before, stdout: r.stdout ?? '', pathSaid: stderr.includes(file), message, tail: message.split('\n').filter(Boolean).slice(-3).join(' | ') }
+        same: tree(cwd) === before, made: existsSync(join(cwd, 'output')), stdout: r.stdout ?? '', pathSaid: stderr.includes(file), message, tail: message.split('\n').filter(Boolean).slice(-3).join(' | ') }
     }
     type Got = ReturnType<typeof runConfig>
     const brief = (g: Got) => `${g.mode}/${g.name ?? '-'}: exit=${g.status} armed=${g.armed} reserves=${g.reserves} attempts=${g.attempts}`
       + ` 配置原字节=${g.kept} 目录原样=${g.same} stdout=${g.stdout.length}字 stderr=${g.tail}`
     const controls = MODES.map(mode => runConfig(mode, cfg()))
     eq('配置写重复的键入口夹具有效：只留最后一处的同一份配置，collect --config、collect --config --budget 2 与 probe 照常以 0 结束、预留并请求，观测确实装上了；collect 建了任务目录、probe 往 stdout 写了结果',
-      controls.map(g => [g.status, g.armed, g.reserves > 0, g.attempts > 0, g.mode === 'probe' ? g.stdout.trim() !== '' : !g.same]),
+      controls.map(g => [g.status, g.armed, g.reserves > 0, g.attempts > 0, g.mode === 'probe' ? g.stdout.trim() !== '' : g.made]),
       MODES.map(() => [0, true, true, true, true]))
     if (controls.some(g => g.status !== 0 || g.reserves === 0 || g.attempts === 0)) console.log(`     ${controls.map(brief).join('\n     ')}`)
     const inOrder = (text: string, tokens: readonly string[]) => {
@@ -14362,19 +14362,33 @@ suite('D28', 'collect --config 与 probe 读的配置写重复的键：在建目
       probes.filter(g => !(held(g) && g.stdout === '')).map(brief), [])
     eq('probe 拒绝时 stderr 写出配置文件路径、键的位置、出现次数与按文件先后每一处被丢掉的原文，不带内部异常的类名与调用堆栈',
       probes.filter(g => !listed(g) || leaks(g)).map(brief), [])
-    // D28.b、D28.c「一起」：同一份配置里另有任务列表（D16）或市场（D17）的问题。退出 2 本来就由那一类问题满足，要的是两类在同一次拒绝里都写出，
+    // D28.b、D28.c「一起」：同一份配置里另有任务列表（D16）、市场（D17）、路线（D15）或品牌（D20，只有 collect 判）的问题。退出 2 本来就由那一类问题满足，要的是两类在同一次拒绝里都写出，
     // 不让用户先照最后一处改完任务、再撞上写重复。任务问题按 D16.d 认字段名与 JSON 原值，市场问题按 D17.d 认字段与原值
     const MIXED: Dup[] = [
       { name: 'with-task-list', at: 'tasks[0]["keyword"]', tokens: ['zq-old'], other: ['dimension', '"zq-bad-dim"'],
         text: cfg({ tasks: '"tasks":[{"keyword":"zq-old","dimension":"category","keyword":"local","platform":"tiktok"},{"keyword":"local","dimension":"zq-bad-dim","platform":"tiktok"}]' }) },
       { name: 'with-market', at: 'found', tokens: ['7.25e0'], other: ['market', 'zq-bad-market'],
         text: cfg({ market: '"market":["zq-bad-market"]', found: '"found":7.25e0,"found":{"0":3}' }) },
+      // 复核之后由写实现的上下文补（ADR-143 第五节）：路线问题（D15.j，第几个任务、哪一条）与品牌问题（D20.e，只有 collect 判）
+      { name: 'with-route', at: 'budget_usd', tokens: ['9.5e1'], other: ['ig_route', 'zq-bad-route'],
+        text: cfg({ budget: '"budget_usd":9.5e1,"budget_usd":1',
+          tasks: '"tasks":[{"keyword":"local","dimension":"category","platform":"tiktok"},{"keyword":"local-two","dimension":"scene","platform":"instagram","ig_route":"zq-bad-route"}]' }) },
+      { name: 'with-brand', at: 'found', tokens: ['7.25e0'], other: ['brand_calibration'], only: 'collect',
+        text: cfg({ found: '"found":7.25e0,"found":{"0":3},"brand_calibration":"zq-bad-brand"' }) },
     ]
-    const mixed = (['collect', 'probe'] as const).flatMap(mode => MIXED.map(dup => runConfig(mode, dup.text, dup)))
-    eq('写重复的键与同一份配置里的任务列表或市场问题一起：collect --config 与 probe 以 2 退出、零预留零请求、目录与配置原样，stderr 写出写重复的那一处与被丢掉的原文',
+    const mixed = (['collect', 'probe'] as const).flatMap(mode => MIXED.filter(dup => !dup.only || dup.only === mode).map(dup => runConfig(mode, dup.text, dup)))
+    eq('写重复的键与同一份配置里的任务列表、市场、路线或品牌问题一起：collect --config 与 probe 以 2 退出、零预留零请求、目录与配置原样，stderr 写出写重复的那一处与被丢掉的原文',
       mixed.filter(g => !(held(g) && listed(g))).map(brief), [])
-    eq('写重复的键与同一份配置里的任务列表或市场问题一起：那一类问题不被写重复遮住，stderr 照写出字段与原值',
+    eq('写重复的键与同一份配置里的任务列表、市场、路线或品牌问题一起：那一类问题不被写重复遮住，stderr 照写出字段与原值',
       mixed.filter(g => !(g.status === 2 && g.other!.every(s => g.message.includes(s)))).map(brief), [])
+    // 复核之后由写实现的上下文补（ADR-143 第五节）：D17.l 只在相关配置问题都消除后才套缺省 —— 写重复的键被拒时，
+    // 配置里没写的 market 与 budget_usd 不该先被说成采用了默认。对照是只留最后一处的同一份，要照常以 0 结束并说明默认，证明认得出那句话
+    const bareText = (found: string) => `{"product":"d28dup","target_count":1,${CFG.tasks},${found}}\n`
+    const BARE: Dup = { name: 'no-defaults', at: 'found', tokens: ['7.25e0'], text: bareText('"found":7.25e0,"found":{"0":3}') }
+    const bare = (['collect', 'probe'] as const).flatMap(mode => [runConfig(mode, bareText(CFG.found)), runConfig(mode, BARE.text, BARE)])
+    const defaulted = (g: Got) => /默认|缺省|default/i.test(g.message)
+    eq('写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常以 0 结束并说明默认）',
+      bare.filter(g => g.name === undefined ? !(g.status === 0 && defaulted(g)) : !(held(g) && listed(g)) || defaulted(g)).map(brief), [])
     criterion('D28.a', 'D28.b', 'D28.c')
     tension('D28', 'P1')
     tension('D28', 'P3')
