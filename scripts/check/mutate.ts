@@ -44,7 +44,7 @@ import {
   type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
   executionRoutes, labelFaults, labelsOf, mutationEventBase, resolveMutationBaseline, routeDelta, type RouteSnapshot,
-  anchorMatches, baselineFault, wiringFault,
+  anchorMatches, baselineFault, stopsEarly, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH, fingerprint, sourceFiles } from './claims.js'
 import {
@@ -474,11 +474,9 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     // 组里，一起停。整组也收不到的，只有验证者那边又自成一组的子进程。自检是同步等子进程的，
     // 见齐那一刻手上可能正跑着一个 —— 下面「快照留在开枪之前」那句说的临死补打，就是这一刀打到了它
     const stopIfSeen = (): void => {
-      // 需求测试的选跑组含有 finally 清理临时目录。见齐即杀会跳过 finally，
-      // 后续变异便可能读到上一条留下的文件；让这类短子集自行完成并照常核对具名失败。
-      // 自检和未归组的旧路径仍可见齐即停。
-      if (atStop !== undefined || kills === undefined ||
-          (only !== undefined && verifier === VERIFIERS.test)) return
+      // 停不停与启动数的判定共用一个谓词（`stopsEarly`，理由在它头上）；`kills === undefined` 那一半它也判，
+      // 这里再写一遍只为让下面拿到收窄过的类型
+      if (atStop !== undefined || kills === undefined || !stopsEarly(verifier, kills, only)) return
       // **两股各自截**：合起来再截会把两者之间那个人为插入的换行当成行尾，于是先到的
       // 那一股的半行被当成整行 —— 名字写到一半就算数，后缀还没到就把人杀了（#99 评审指出）
       const whole = complete(out) + complete(err)

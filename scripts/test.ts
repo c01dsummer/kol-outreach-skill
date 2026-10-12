@@ -12,6 +12,11 @@ import { prepareTaskReviews } from './lib/task-reviews.js'
 
 import { configurationKey, costObservation, configurationCost, configurationCostLines, type CostInput, type CostIdentity, type CostRoute, type CostBaseline, type CostMutation, type CostSummary } from './check/jobs-rule.js'
 import type { RunVerdict } from './check/mutate-rule.js'
+import { stopsEarly } from './check/mutate-rule.js'
+import {
+  LAUNCH_LIMIT, launchFindings, launchReport, paidLaunches, printLabel,
+  type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchPrint, type LaunchVerifier,
+} from './check/launch-rule.js'
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { entries, ledgerSummary, orphanIous } from './check/debt-rule.js'
 import { implementationLeak } from './check/why-rule.js'
@@ -184,6 +189,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-restore-interrupt', needs: [] },
   { id: 'h-mutation-maintenance', needs: [] },
   { id: 'h-mutation-cost', needs: [] },
+  { id: 'h-launch-rule', needs: [] },
   { id: 'h-worker-start', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
@@ -7826,6 +7832,221 @@ function runMutationCostTests(): void {
 }
 
 runMutationCostTests()
+})
+
+await group('h-launch-rule', () => {
+harness('入口启动数的两条上限：一行打印归哪条标签、每条变异付几次、两条线怎么判、怎么报（ADR-145）')
+// 先于实现写成：期望值只从 ADR-145 第一到第六节、第九节推出，没读判定模块的函数体，也没把它的输出抄回来。
+// launched 是「打印那一行时已起了几次」，按打印先后不减、不超过 total。整组只调纯函数，不起子进程。
+const pr = (body: string, launched: number): LaunchPrint => ({ body, launched })
+const base = (total: number, ...prints: LaunchPrint[]): BaselineLaunches => ({ total, prints })
+const mut = (id: string, by: LaunchVerifier, only: readonly string[] | undefined, kills: readonly string[]): LaunchMutation =>
+  only === undefined ? { id, by, kills } : { id, by, only, kills }
+// 基线键与成本表同一个公式（第九节）：JSON 的 [验证者, 排序后的选组]；executes 不进键
+const keyOf = (by: LaunchVerifier, only: readonly string[]): string => configurationKey({ by, only: [...only], executes: [] })
+// 比较时不看字段的书写先后；missing 的 ids 契约没定次序，先排；product 的 ids 契约定了按 id 排，原样比
+const canon = (v: unknown): unknown => Array.isArray(v) ? v.map(canon) : v !== null && typeof v === 'object'
+  ? Object.fromEntries(Object.keys(v).sort().map(k => [k, canon((v as Record<string, unknown>)[k])])) : v
+const loose = (fs: readonly LaunchFinding[]): unknown => canon(fs.map(f => f.kind === 'missing' ? { ...f, ids: [...f.ids].sort() } : f))
+const same = (label: string, got: readonly LaunchFinding[], want: readonly LaunchFinding[]) => eq(label, loose(got), loose(want))
+
+// ── 两条线（结论、第二节）与停不停（第一节：有点名的断言，且不是「需求测试 ＋ 选了组」）
+eq('规则一的线是每条会提前停的变异 50 次入口启动', LAUNCH_LIMIT.paid, 50)
+eq('规则二的线是每种不提前停的配置启动数乘变异条数 100', LAUNCH_LIMIT.product, 100)
+eq('自检变异点名了断言又选了组：见齐就停', stopsEarly(VERIFIERS.selfcheck, ['某条断言'], ['某组']), true)
+eq('自检变异点名了断言、跑全量：照样见齐就停', stopsEarly(VERIFIERS.selfcheck, ['某条断言'], undefined), true)
+eq('需求测试选了组：哪怕点名了断言也不提前停', stopsEarly(VERIFIERS.test, ['某条断言'], ['某组']), false)
+eq('需求测试跑全量又点名了断言：见齐就停', stopsEarly(VERIFIERS.test, ['某条断言'], undefined), true)
+eq('自检变异没有点名断言：不提前停', stopsEarly(VERIFIERS.selfcheck, undefined, ['某组']), false)
+eq('需求测试没有点名断言也没选组：不提前停', stopsEarly(VERIFIERS.test, undefined, undefined), false)
+
+// ── 一行打印归哪条标签（第一节）：正文等于 L，或以「L：」「L（」开头（只认全角）；几条都对得上取最长的
+const D = ['费用', '费用（含重试）', '退出码']
+eq('标签归属：正文就是标签本身', printLabel('退出码', D), '退出码')
+eq('标签归属：标签后跟全角冒号与说明仍归这条标签', printLabel('退出码：多了一行', D), '退出码')
+eq('标签归属：按预期以退出码结束的那种括注仍归这条标签', printLabel('退出码（按预期以退出码 2 结束）', D), '退出码')
+// 三种正文都同时对得上「费用（」与长标签 → 取长的。清单正序、倒序各一次：挡住「取第一条对得上的」与「取最后一条」
+eq('标签归属：一条标签是另一条的前缀时取最长的那条',
+  [printLabel('费用（含重试）：多算一次', D), printLabel('费用（含重试）：多算一次', [...D].reverse()), printLabel('费用（含重试）', D)],
+  ['费用（含重试）', '费用（含重试）', '费用（含重试）'])
+eq('标签归属：以标签开头但紧跟别的字不算这条标签', printLabel('退出码不对', D), undefined)
+eq('标签归属：半角冒号、标签在正文中间、清单里没有的，都归不到任何标签',
+  [printLabel('退出码:多了一行', D), printLabel('看退出码', D), printLabel('别的断言', D), printLabel('退出码', [])].map(x => x === undefined ? '未归属' : x),
+  ['未归属', '未归属', '未归属', '未归属'])
+
+// ── 每条会提前停的变异付几次（第一节第 1、2 条）：点名的每条标签末次打印时已起了几次，取最大；
+// 有一条一次也没打印，就记整个配置的启动数
+const DP = ['甲', '乙', '丙', '丁', '总数', '总数（含重试）']
+const B = base(30, pr('甲', 2), pr('乙', 5), pr('戊', 7), pr('甲', 9),
+  pr('丙（按预期以退出码 2 结束）', 12), pr('总数', 24), pr('总数（含重试）：多一次', 27))
+// 甲首次第 2 次、末次第 9 次 → 9（也不是最后一行的 27）
+eq('付费启动：同一标签打印两次，取末次打印时已起的启动数', paidLaunches(['甲'], B, DP), 9)
+// 甲 9、丙 12（括注那一行归丙）→ 12。两种顺序：挡住「取第一条点名的」与「取最后一条点名的」
+eq('付费启动：点名顺序倒过来仍取最大的那个', [paidLaunches(['甲', '丙'], B, DP), paidLaunches(['丙', '甲'], B, DP)], [12, 12])
+// 丁声明了、没打印 → 记整个配置的 30（不是 0，也不是最后一行的 27）；和打印过的甲一起点名也是 30
+eq('付费启动：点名的标签一次也没打印，记整个配置的启动数', [paidLaunches(['丁'], B, DP), paidLaunches(['甲', '丁'], B, DP)], [30, 30])
+// 「总数（含重试）：多一次」（第 27 次）归较长的那条；「总数」自己只有第 24 次
+eq('付费启动：较长标签的打印不记到它前缀那条较短标签头上', paidLaunches(['总数'], B, DP), 24)
+
+// ── 两条规则（第九节 launchFindings 的规矩）
+const DF: Record<LaunchVerifier, readonly string[]> = {
+  selfcheck: ['自检甲', '自检乙', '自检丙', '共用标签', '共用标签（细）'], test: ['测试甲', '测试乙', '共用标签'],
+}
+const S1 = keyOf('selfcheck', ['g1'])
+const S1base = new Map([[S1, base(80, pr('自检甲', 50), pr('自检乙', 51), pr('自检丙', 70))]])
+same('规则一：付 50 次正好在线上，不报', launchFindings([mut('M-a', 'selfcheck', ['g1'], ['自检甲'])], S1base, DF), [])
+same('规则一：付 51 次超线，报这条变异、它的配置与它付的次数',
+  launchFindings([mut('M-b', 'selfcheck', ['g1'], ['自检乙'])], S1base, DF), [{ kind: 'paid', config: S1, id: 'M-b', paid: 51 }])
+// 自检乙在 g2、g3 的基线里都没打印 → 各付整个配置：g2 51 次超线，g3 50 次在线上
+same('规则一：点名标签没打印时按整个配置的启动数算，51 次超线、50 次不超线',
+  launchFindings([mut('M-c', 'selfcheck', ['g2'], ['自检乙']), mut('M-d', 'selfcheck', ['g3'], ['自检乙'])],
+    new Map([[keyOf('selfcheck', ['g2']), base(51, pr('自检甲', 4))], [keyOf('selfcheck', ['g3']), base(50, pr('自检甲', 4))]]), DF),
+  [{ kind: 'paid', config: keyOf('selfcheck', ['g2']), id: 'M-c', paid: 51 }])
+// 自检清单有「共用标签（细）」，第 70 次那行归它，共用标签只付 10 → 不报；错拿需求测试的清单会把第 70 次记给共用标签 → 报
+same('规则一：按变异自己那个验证者的声明标签归属打印',
+  launchFindings([mut('M-e', 'selfcheck', ['g4'], ['共用标签'])],
+    new Map([[keyOf('selfcheck', ['g4']), base(80, pr('共用标签', 10), pr('共用标签（细）：第二遍', 70))]]), DF), [])
+// 200 × 3 = 600，但三条都会提前停，各付 10、20、10 → 不报
+same('会提前停的配置不按启动数乘条数判',
+  launchFindings([mut('M-f', 'selfcheck', ['g5'], ['自检甲']), mut('M-g', 'selfcheck', ['g5'], ['自检乙']), mut('M-h', 'selfcheck', ['g5'], ['自检甲'])],
+    new Map([[keyOf('selfcheck', ['g5']), base(200, pr('自检甲', 10), pr('自检乙', 20))]]), DF), [])
+// 排序后同一个键：自检甲第 55 次 → 报 55；需求测试 2 条 × 51 = 102 → 报（拆成两种配置的话各 51 × 1，都不超）
+same('选组写法顺序不同的变异归同一种配置：找得到同一份基线，也一起数条数',
+  launchFindings([mut('M-i', 'selfcheck', ['k', 'j'], ['自检甲']), mut('N-q', 'test', ['i', 'h'], ['测试甲']), mut('N-p', 'test', ['h', 'i'], ['测试甲'])],
+    new Map([[keyOf('selfcheck', ['j', 'k']), base(60, pr('自检甲', 55))], [keyOf('test', ['h', 'i']), base(51)]]), DF),
+  [{ kind: 'paid', config: '["selfcheck",["j","k"]]', id: 'M-i', paid: 55 }, { kind: 'product', config: '["test",["h","i"]]', launches: 51, ids: ['N-p', 'N-q'] }])
+// 20 × 5 = 100，等于线 → 不报
+same('规则二：启动 20 次乘 5 条正好 100，不报',
+  launchFindings(['N-1', 'N-2', 'N-3', 'N-4', 'N-5'].map(id => mut(id, 'test', ['h1'], ['测试甲'])), new Map([[keyOf('test', ['h1']), base(20)]]), DF), [])
+// 101 × 1 = 101 → 报一条，launches 取这种配置的启动数；测试甲第 90 次才打印，但需求测试选组不提前停，不判规则一
+const T2 = keyOf('test', ['h2'])
+same('规则二：启动 101 次乘 1 条超线，这种配置报一条，不按付费启动判',
+  launchFindings([mut('N-a', 'test', ['h2'], ['测试甲'])], new Map([[T2, base(101, pr('测试甲', 90))]]), DF),
+  [{ kind: 'product', config: T2, launches: 101, ids: ['N-a'] }])
+// 34 × 3 = 102 → 报一条；ids 按编号排成 x、y、z（输入是 z、x、y）
+const T3 = keyOf('test', ['h3'])
+same('规则二：超线的配置只报一条，变异编号按编号排',
+  launchFindings([mut('N-z', 'test', ['h3'], ['测试甲']), mut('N-x', 'test', ['h3'], ['测试乙']), mut('N-y', 'test', ['h3'], ['测试甲'])], new Map([[T3, base(34)]]), DF),
+  [{ kind: 'product', config: T3, launches: 34, ids: ['N-x', 'N-y', 'N-z'] }])
+// 全跑（第一节第 3 条）：没有基线计数，按超线报；不记 0、不跳过，也不另报缺基线
+same('全跑变异：自检的与需求测试的各报一条全跑，按编号排',
+  launchFindings([mut('F-b', 'test', undefined, ['测试甲']), mut('F-a', 'selfcheck', undefined, ['自检甲'])], new Map(), DF),
+  [{ kind: 'full-run', id: 'F-a' }, { kind: 'full-run', id: 'F-b' }])
+// 缺基线（第五节末「数据缺失不放行」）：报一条 missing，不再判两条规则；表里的 S1 没人落到，不判
+same('缺基线：自检选组配置报一条缺基线，带上落到它的全部变异',
+  launchFindings([mut('M-q', 'selfcheck', ['g9'], ['自检甲']), mut('M-p', 'selfcheck', ['g9'], ['自检乙'])], S1base, DF),
+  [{ kind: 'missing', config: keyOf('selfcheck', ['g9']), ids: ['M-p', 'M-q'] }])
+same('没有变异落到的基线不判，哪怕它的数远超两条线',
+  launchFindings([], new Map([[keyOf('selfcheck', ['idle']), base(999, pr('自检甲', 998))], [keyOf('test', ['idle']), base(999)]]), DF), [])
+// 排序（第九节）：全跑按编号最前；其余按配置键字符串比较；同一配置里 paid 按编号。手排的键：
+//   ["selfcheck",["Zed"]] < …["alpha"]] < …["gamma"]] < ["test",["beta"]] < …["delta"]]（s < t；Z 0x5A < a 0x61 < g 0x67，大写在前）
+// Zed 三条：P-a 60、P-b 70、P-c 52，按编号 a、b、c，与付费升序 c、a、b、降序 b、a、c、输入次序 b、c、a 都不同。
+// alpha：Q-a 55；beta：51 × 2 = 102；gamma、delta 没有基线；idle 没人落到
+same('排序：全跑的排最前，其余按配置键排，同一配置里按变异编号', launchFindings([
+  mut('R-b', 'test', ['beta'], ['测试甲']), mut('T-a', 'test', ['delta'], ['测试甲']), mut('F-e', 'test', undefined, ['测试甲']),
+  mut('P-b', 'selfcheck', ['Zed'], ['自检乙']), mut('S-a', 'selfcheck', ['gamma'], ['自检甲']), mut('Q-a', 'selfcheck', ['alpha'], ['自检甲']),
+  mut('P-c', 'selfcheck', ['Zed'], ['自检丙']), mut('R-a', 'test', ['beta'], ['测试乙']), mut('P-a', 'selfcheck', ['Zed'], ['自检甲']),
+  mut('F-d', 'selfcheck', undefined, ['自检甲']),
+], new Map([
+  [keyOf('test', ['beta']), base(51)], [keyOf('selfcheck', ['idle']), base(999)], [keyOf('selfcheck', ['alpha']), base(80, pr('自检甲', 55))],
+  [keyOf('selfcheck', ['Zed']), base(90, pr('自检丙', 52), pr('自检甲', 60), pr('自检乙', 70))],
+]), DF), [
+  { kind: 'full-run', id: 'F-d' }, { kind: 'full-run', id: 'F-e' },
+  { kind: 'paid', config: '["selfcheck",["Zed"]]', id: 'P-a', paid: 60 },
+  { kind: 'paid', config: '["selfcheck",["Zed"]]', id: 'P-b', paid: 70 },
+  { kind: 'paid', config: '["selfcheck",["Zed"]]', id: 'P-c', paid: 52 },
+  { kind: 'paid', config: '["selfcheck",["alpha"]]', id: 'Q-a', paid: 55 },
+  { kind: 'missing', config: '["selfcheck",["gamma"]]', ids: ['S-a'] },
+  { kind: 'product', config: '["test",["beta"]]', launches: 51, ids: ['R-a', 'R-b'] },
+  { kind: 'missing', config: '["test",["delta"]]', ids: ['T-a'] },
+])
+
+// ── 属性：随机路由与基线（有的缺基线、有的没人落到），对着照第一节、第九节手写的小 oracle 逐条比。固定种子，每次一样
+{
+  let seed = 145
+  const rnd = () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 2 ** 32
+  const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]
+  const SUFFIX = ['', '', '：说明', '（按预期以退出码 2 结束）', '不对', ':半角']
+  const label = (body: string, ls: readonly string[]) => ls.filter(L => body === L || body.startsWith(L + '：') || body.startsWith(L + '（'))
+    .reduce<string | undefined>((best, L) => best === undefined || L.length > best.length ? L : best, undefined)
+  const paidOf = (kills: readonly string[], b: BaselineLaunches, ls: readonly string[]) => Math.max(...kills.map(k => {
+    const hits = b.prints.filter(p => label(p.body, ls) === k)
+    return hits.length === 0 ? b.total : hits[hits.length - 1].launched
+  }))
+  const byId = (a: { readonly id: string }, b: { readonly id: string }) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  // 今天会提前停的选组变异就是自检的；需求测试选组的不停（生成的点名都不空）
+  const oracle = (ms: readonly LaunchMutation[], bs: ReadonlyMap<string, BaselineLaunches>): LaunchFinding[] => {
+    const out: LaunchFinding[] = ms.filter(m => m.only === undefined).map(m => ({ kind: 'full-run' as const, id: m.id })).sort(byId)
+    const routed = new Map<string, LaunchMutation[]>()
+    for (const m of ms) if (m.only !== undefined) routed.set(keyOf(m.by, m.only), [...(routed.get(keyOf(m.by, m.only)) ?? []), m])
+    for (const k of [...routed.keys()].sort()) {
+      const ins = routed.get(k)!, b = bs.get(k), tests = ins.filter(m => m.by === 'test')
+      if (b === undefined) { out.push({ kind: 'missing', config: k, ids: ins.map(m => m.id) }); continue }
+      for (const m of [...ins].sort(byId)) if (m.by === 'selfcheck' && paidOf(m.kills, b, DF.selfcheck) > 50)
+        out.push({ kind: 'paid', config: k, id: m.id, paid: paidOf(m.kills, b, DF.selfcheck) })
+      if (tests.length > 0 && b.total * tests.length > 100) out.push({ kind: 'product', config: k, launches: b.total, ids: tests.map(m => m.id).sort() })
+    }
+    return out
+  }
+  // 选组里有大写开头的（C3、T3），键要按逐字符编码排；编号补齐三位，排序没有歧义
+  const CONFIGS: readonly (readonly [LaunchVerifier, readonly string[]])[] = [
+    ['selfcheck', ['c0']], ['selfcheck', ['c2', 'c1']], ['selfcheck', ['C3']], ['test', ['t0']], ['test', ['t2', 't1']], ['test', ['T3']],
+  ]
+  const kinds = new Set<string>()
+  let quiet = 0, bounded = true, counterexample: string | undefined
+  for (let i = 0; i < 200; i++) {
+    const bs = new Map<string, BaselineLaunches>()
+    for (const [by, only] of CONFIGS) {
+      if (rnd() >= 0.8) continue
+      const total = Math.floor(rnd() * (by === 'selfcheck' ? 91 : 61)), prints: LaunchPrint[] = []
+      for (let n = Math.floor(rnd() * 9), at = 0; n > 0; n--) {
+        at = Math.min(total, at + Math.floor(rnd() * 12))
+        prints.push(pr(rnd() < 0.15 ? '戊' : pick(DF[by]) + pick(SUFFIX), at))
+      }
+      bs.set(keyOf(by, only), base(total, ...prints))
+    }
+    const ms: LaunchMutation[] = []
+    for (let n = Math.floor(rnd() * 10); n > 0; n--) {
+      const [by, only] = pick(CONFIGS), ks = DF[by].filter(() => rnd() < 0.35)
+      let id: string
+      do { id = `m${String(Math.floor(rnd() * 1000)).padStart(3, '0')}` } while (ms.some(m => m.id === id))
+      ms.push(mut(id, by, rnd() < 0.1 ? undefined : only, ks.length > 0 ? ks : [pick(DF[by])]))
+    }
+    // 每行都不超过整跑时，付费也不超过整跑；点名几条时等于逐条单独算的最大值
+    for (const m of ms) {
+      const b = m.only === undefined ? undefined : bs.get(keyOf(m.by, m.only))
+      if (b === undefined) continue
+      const paid = paidLaunches(m.kills, b, DF[m.by])
+      if (paid > b.total || paid !== Math.max(...m.kills.map(k => paidLaunches([k], b, DF[m.by])))) bounded = false
+    }
+    const want = oracle(ms, bs), got = launchFindings(ms, bs, DF)
+    for (const f of want) kinds.add(f.kind)
+    if (want.length === 0) quiet++
+    if (counterexample === undefined && JSON.stringify(loose(got)) !== JSON.stringify(loose(want))) counterexample = JSON.stringify({ ms, bs: [...bs], got, want })
+  }
+  // 先确认夹具四种发现都造到了、也有不报的 —— 少造一种，后两条对它什么也没证明
+  ok('两条规则属性：随机夹具四种发现都造出来过，也有什么都不报的情形', ['paid', 'product', 'full-run', 'missing'].every(k => kinds.has(k)) && quiet > 0)
+  ok('付费启动属性：从不超过整跑启动数，点名几条时等于逐条单独算的最大值', bounded)
+  ok('两条规则属性：随机路由下的判定与按第九节规矩手写的判法逐条相同', counterexample === undefined)
+  if (counterexample !== undefined) console.log(`     首个反例：${counterexample}`)
+}
+
+// ── 报错文本（第九节、第三节、第一节第 3 条）。只验点了名的词；其余措辞、行格式、空清单打印什么都没定，不验
+const productConfig = keyOf('test', ['q3']), missingConfig = keyOf('test', ['q4'])
+const reportLines = launchReport([
+  { kind: 'full-run', id: 'M-Q1-a' }, { kind: 'paid', config: keyOf('selfcheck', ['q2']), id: 'M-Q2-b', paid: 61 },
+  { kind: 'product', config: productConfig, launches: 39, ids: ['M-Q3-c', 'M-Q3-d'] }, { kind: 'missing', config: missingConfig, ids: ['M-Q4-e'] },
+])
+const reportText = reportLines.join('\n')
+ok('报错文本是一行行的字符串，每条发现至少各占一行', reportLines.length >= 4 && reportLines.every(l => typeof l === 'string'))
+// 乘积与缺基线说的是一种配置：点出配置键本身，或点出落到它的每一条变异，都算点到了
+ok('报错文本点到每条发现的变异或配置', ['M-Q1-a', 'M-Q2-b'].every(id => reportText.includes(id))
+  && (reportText.includes(productConfig) || ['M-Q3-c', 'M-Q3-d'].every(id => reportText.includes(id)))
+  && (reportText.includes(missingConfig) || reportText.includes('M-Q4-e')))
+ok('全跑那一条写明全跑变异没有基线计数、按规则视为超线', reportText.includes('全跑变异没有基线计数') && reportText.includes('视为超线'))
+ok('报错文本附上三种改法：拆组、每个用例各一条、移出需求测试组', ['拆组', '每个用例各一条', '移出需求测试组'].every(w => reportText.includes(w)))
+ok('报错文本写明少写变异不是改法', reportText.includes('少写变异'))
+ok('报错文本写明上限只由决策记录调', reportText.includes('决策记录'))
 })
 
 await group('h-worker-start', () => {

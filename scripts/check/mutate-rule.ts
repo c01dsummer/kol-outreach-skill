@@ -81,6 +81,19 @@ export const VERIFIERS: Record<string, Verifier> = {
   },
 }
 
+/**
+ * 这条变异跑的时候会不会见齐就停：有 `kills`，且不是「需求测试 ＋ 选了组」。
+ *
+ * 需求测试的选跑组含有 finally 清理临时目录，见齐即杀会跳过 finally，后续变异便可能读到上一条留下的文件；
+ * 所以那一类让它自行跑完，照常核对具名失败。自检和未归组的旧路径见齐即停。
+ * `mutate.ts` 的 `stopIfSeen` 与启动数的判定（`launch-rule.ts`，ADR-145）共用这一处：判定立的规矩，
+ * 要是停法管不到的，账面上的「会停」与实际不停就各说各的。
+ */
+export function stopsEarly(verifier: Verifier, kills: readonly string[] | undefined,
+  only: readonly string[] | undefined): boolean {
+  return kills !== undefined && !(only !== undefined && verifier === VERIFIERS.test)
+}
+
 /** 施加任何变异之前，正常代码的同一子集必须实际跑完且全绿。 */
 export function baselineFault(status: number | null, output: string, verifier: Verifier): string | undefined {
   if (status !== 0) return `退出码 ${status === null ? '无（被信号终止）' : status}`
