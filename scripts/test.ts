@@ -14,8 +14,8 @@ import { configurationKey, costObservation, configurationCost, configurationCost
 import type { RunVerdict } from './check/mutate-rule.js'
 import { stopsEarly } from './check/mutate-rule.js'
 import {
-  LAUNCH_LIMIT, launchFindings, launchRecheck, launchReport, launchTally, paidLaunches, printLabel, settleLaunches, tallyLine,
-  type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchPrint, type LaunchTally, type LaunchVerifier,
+  LAUNCH_LIMIT, launchFindings, launchGate, launchRecheck, launchReport, launchTally, paidLaunches, printLabel, settleLaunches, tallyLine,
+  type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchPrint, type LaunchTally, type LaunchTrunk, type LaunchVerifier,
 } from './check/launch-rule.js'
 import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog } from './check/launch-count.js'
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
@@ -8257,6 +8257,81 @@ eq('启动数不确定的配置报两行：哪种配置、两次差在哪、不�
 ok('启动数不确定与别的发现一起报时，那两行挨着照原样出现', withOthers.some((l, i) => l === U1 && withOthers[i + 1] === U2))
 ok('改法只在有启动数不确定以外的发现时才附', ['拆组', '少写变异不是改法', '上限只能改常量、写决策记录'].every(w =>
   !launchReport([U, shaky('["test",["h8"]]', '打印 1 行对 2 行')]).join('\n').includes(w) && withOthers.join('\n').includes(w)))
+
+// ══ 第三片（第二十一节）：检查链最后一步的启动数闸门。同样先于实现写成，期望值只从第二十一节第 2 到 4 小节推，没读判定模块：
+// 报告行照第 3 小节「原样、不加缩进」直接取 launchReport 的，其余每行手抄第 4 小节。抛错时交回抛错原文，断言红而不崩
+const gate = (record: unknown, source: string | undefined, trunk: LaunchTrunk): unknown => {
+  try { const g = launchGate(record, source, trunk); return { red: g.red, lines: g.lines } } catch (e) { return `抛错：${String(e)}` }
+}
+const OFF: LaunchTrunk = { onTrunk: false }, ON: LaunchTrunk = { onTrunk: true }, FOG: LaunchTrunk = { unknown: '浅克隆，找不到主干的历史' }
+// 源码身份取一个 64 位十六进制串；另一棵树的取它的前 12 位：短哈希那样的前缀也不算对得上
+const SRC = '3f9a0c27'.repeat(8), SHORT = SRC.slice(0, 12)
+const GK = keyOf('selfcheck', ['g']), MK = keyOf('selfcheck', ['m']), TK = keyOf('test', ['g']), UK = keyOf('test', ['u']), XK = keyOf('test', ['x'])
+// 形状照第十三节第 2 小节：tally 三行，baselines、again 以配置键为键
+const rec = (findings: unknown, more: object = {}): Record<string, unknown> => ({
+  schema: 'mutation-launches/v1', head: '064df53', source: SRC, tally: [tal(GK, 80, 0, ['M-1', 60], ['M-2', 60]), tal(TK, 51, 2), tal(UK, 34, 1)],
+  findings, baselines: { [GK]: base(80), [TK]: base(51), [UK]: base(34) }, again: {}, ...more,
+})
+
+// ── 第 2 小节：六条按先后核，报第一条不过的，红，在主干上也红。每个样本在 PR 上、主干上、无从判断时各判一次；
+// 除第 6 条外，每条都另有一个样本同时也不过它后面的几条，报的仍须是这一条
+const NO_DATA = (why: string) => ({ red: true, lines: [`✗ 启动数闸门：无从判断 —— ${why}`,
+  '  先跑 npm run mutate：它在全部正常基线都绿了以后写 output/mutation-launches/launches.json；数的那一段出错时不写，看它输出里「启动数没数成」那一行'] })
+const refused = (...cases: (readonly [unknown, string | undefined])[]) => cases.flatMap(([r, s]) => [OFF, ON, FOG].map(t => gate(r, s, t)))
+const thrice = (n: number, why: string) => Array(n * 3).fill(NO_DATA(why))
+eq('启动数闸门数据第 1 条：没有文件，或读出来是 null、数组、字符串、数，报没有启动数文件，主干上也红',
+  refused([undefined, SRC], [null, SRC], [[], SRC], [[rec([])], SRC], ['{}', SRC], [3, undefined]), thrice(6, '没有启动数文件，或读不出来、不是一个 JSON 对象'))
+eq('启动数闸门数据第 2 条：schema 缺了或不是 mutation-launches/v1，报 schema 不对，主干上也红',
+  refused([rec([], { schema: undefined }), SRC], [rec([], { schema: 'mutation-launches/v2' }), SRC], [rec('坏', { schema: 'Mutation-Launches/v1', source: null, tally: 0 }), undefined]),
+  thrice(3, '启动数文件的 schema 不是 mutation-launches/v1'))
+eq('启动数闸门数据第 3 条：文件里的源码身份是 null、缺了或不是字符串，报没有源码身份，主干上也红',
+  refused([rec([], { source: null }), SRC], [rec([], { source: undefined }), SRC], [rec([{ kind: '慢' }], { source: 7 }), undefined]),
+  thrice(3, '启动数文件里没有源码身份（变异一步没取到）'))
+eq('启动数闸门数据第 4 条：当前树的源码身份取不到，报取不到，主干上也红',
+  refused([rec([]), undefined], [rec(null, { source: SHORT }), undefined]), thrice(2, '当前树的源码身份取不到'))
+eq('启动数闸门数据第 5 条：两边源码身份不同，哪边是另一边的前缀也算，报另一棵树上写的，主干上也红',
+  refused([rec([]), SHORT], [rec([], { source: SHORT }), SRC], [rec({}, { source: SHORT, tally: null }), SRC]), thrice(3, '启动数文件是另一棵树上写的（源码身份对不上）'))
+// 种类只认那五种：大小写不同、对象原型上的名字、没有 kind、空元素都认不得；像数组的对象不是数组
+eq('启动数闸门数据第 6 条：tally 或 findings 不是数组，或有一条发现的种类认不得，主干上也红',
+  refused([rec([], { tally: undefined }), SRC], [rec([], { tally: { length: 0 } }), SRC], [rec(undefined), SRC], [rec({ 0: over(GK, 'M-1'), length: 1 }), SRC],
+    [rec([over(GK, 'M-1'), { ...over(GK, 'M-2'), kind: 'Paid' }]), SRC], [rec([{ kind: 'toString' }]), SRC], [rec([many(TK, 'N-1'), { config: TK }]), SRC], [rec([null]), SRC]),
+  thrice(8, '启动数文件的 tally 或 findings 不是数组，或有一条发现的种类认不得'))
+
+// ── 第 3、4 小节：没有发现时一行、绿，N 是 tally 的条数；不核 head，不读 baselines，没有发现时也不看 again
+const calm = rec([], { tally: [tal(GK, 12, 0, ['M-1', 9]), tal(TK, 3, 4)] })
+eq('启动数闸门：没有发现时只打一行几种配置有计数、都在线内，在不在主干上都不红',
+  [...[OFF, ON, FOG].map(t => gate(calm, SRC, t)), gate(rec([], { tally: [], head: undefined, baselines: undefined, again: '坏' }), SRC, OFF)],
+  [...Array(3).fill({ red: false, lines: ['✓ 启动数闸门：2 种配置有计数，都在线内'] }), { red: false, lines: ['✓ 启动数闸门：0 种配置有计数，都在线内'] }])
+// MIX 照 launchFindings 的先后（全跑最前，其余按配置键）：GK 两条超线、MK 缺基线、TK 乘积超线、UK 不确定，共 6 条。
+// n 是发现的条数，不是报告的行数；只有一条不确定时在 PR 上也红（第 3 小节）
+const MIX: LaunchFinding[] = [{ kind: 'full-run', id: 'F-1' }, over(GK, 'M-1'), over(GK, 'M-2'), { kind: 'missing', config: MK, ids: ['M-9'] },
+  many(TK, 'N-1', 'N-2'), shaky(UK, '整跑 34 次对 35 次')]
+const R6 = launchReport(MIX), V6 = '✗ 启动数闸门：6 条发现，不设豁免（ADR-145）', ONE = [shaky(UK, '整跑 34 次对 35 次')]
+eq('启动数闸门：有发现、不在主干上，报告行原样在前，最后一行几条发现、不设豁免，红',
+  [gate(rec(MIX), SRC, OFF), gate(rec(ONE), SRC, OFF)],
+  [{ red: true, lines: [...R6, V6] }, { red: true, lines: [...launchReport(ONE), '✗ 启动数闸门：1 条发现，不设豁免（ADR-145）'] }])
+eq('启动数闸门：有发现、无从判断在不在主干上，最后一行带着原因，按 PR 判红', gate(rec(MIX), SRC, FOG),
+  { red: true, lines: [...R6, '✗ 启动数闸门：6 条发现；无从判断 HEAD 在不在主干上（浅克隆，找不到主干的历史），按 PR 判红'] })
+// 主干上只报数、不红，判词换成第 4 小节那几行：拆组那行只在有一条不是不确定的发现时打，死亡条件那行只在有不确定时打。
+// 主干上的样本不放缺基线与全跑：它们算不算第 2 小节末「量得出来的超线」没说定，不替需求所有者猜
+const MAIN = ['启动数闸门：HEAD 就在主干上，只报数不判红（ADR-145 第四节）',
+  '  主干上有发现：按「主干红了」的优先级先开拆组的那一条，其余在途 PR 等它合了再把主干合进来',
+  '  主干上报了启动数不确定：第六节的死亡条件响了，这道闸门退不退成只报数由需求所有者定']
+const SPLIT = [over(GK, 'M-1'), many(TK, 'N-1', 'N-2')], SHAKY = [shaky(UK, '整跑 34 次对 35 次'), shaky(XK, '打印 1 行对 2 行')], BOTH = [...SPLIT, ...SHAKY]
+eq('启动数闸门：在主干上只报数不红，有超线才打拆组那行，有不确定才打死亡条件那行',
+  [SPLIT, SHAKY, BOTH].map(fs => gate(rec(fs), SRC, ON)),
+  [{ red: false, lines: [...launchReport(SPLIT), MAIN[0], MAIN[1]] }, { red: false, lines: [...launchReport(SHAKY), MAIN[0], MAIN[2]] },
+    { red: false, lines: [...launchReport(BOTH), ...MAIN] }])
+// again 里恰好是 null、又是要重跑的配置（有超线的 GK、TK）才打，按配置键排、每种一行、在判词之前；
+// 缺基线的 MK、不确定的 UK、没有发现的 XK 不重跑，是 null 也不打。again 的键故意倒着写
+const NOTE = (k: string) => `  ${k} 重跑那次没拿到计数，超线照第一次报（第五节末）`
+eq('启动数闸门：重跑那次没拿到计数的配置在报告行之后、判词之前各打一行，只对重跑过的配置打',
+  [gate(rec(MIX, { again: { [XK]: null, [UK]: null, [TK]: null, [MK]: null, [GK]: null } }), SRC, OFF),
+    gate(rec(BOTH, { again: { [UK]: null, [TK]: base(51), [GK]: null } }), SRC, ON)],
+  [{ red: true, lines: [...R6, NOTE(GK), NOTE(TK), V6] }, { red: false, lines: [...launchReport(BOTH), NOTE(GK), ...MAIN] }])
+eq('启动数闸门：again 不是对象，或那一项缺了、是计数、是 0、false 或字符串 null 时不打重跑那行',
+  [null, undefined, '{}', [null], {}, { [GK]: base(80), [TK]: 0 }, { [GK]: 'null', [TK]: false }].map(again => gate(rec(MIX, { again }), SRC, OFF)),
+  Array(7).fill({ red: true, lines: [...R6, V6] }))
 })
 
 // 计数预加载两组共用：经 tsxCommand 起玩具一次（tsx 壳 + 里面那个 node，与变异一步起验证者一样），给了 log 就计数；
