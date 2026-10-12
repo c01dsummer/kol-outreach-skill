@@ -215,3 +215,15 @@ export function tallyLine(tally: readonly LaunchTally[]): string {
     : `不提前停的启动×条数最多 ${product.launches * product.running}（${product.config}，${product.launches} × ${product.running}）`
   return `启动数（只报数）：${tally.length} 种配置有计数；${early}；${running}`
 }
+
+/** HEAD 在不在主干上：resolveBaseline 答得出来时是 onTrunk；答不出来时是它给的原因 */
+export type LaunchTrunk = { readonly onTrunk: boolean } | { readonly unknown: string }
+export interface LaunchGate { readonly red: boolean; readonly lines: readonly string[] }
+
+/**
+ * 检查链最后一步的判定（ADR-145 第二十一节）。record：launches.json 读出来的值（没有、读不出、不是 JSON 时是 undefined）；
+ * source：当前树的源码身份（取不到时是 undefined）
+ */
+export function launchGate(_record: unknown, _source: string | undefined, _trunk: LaunchTrunk): LaunchGate {
+  throw new Error('launchGate 还没实现')
+}

@@ -153,3 +153,8 @@ export const claimsReadFault = (err: unknown): ClaimsFault => {
   if (err instanceof SyntaxError) return 'unparsable'
   return 'unreadable'
 }
+
+/** 变异一步写进成本报告与启动数文件的那份源码身份（ADR-145 第二十一节）；读不到文件时抛错 */
+export function mutationSourceIdentity(): string {
+  throw new Error('mutationSourceIdentity 还没实现')
+}
