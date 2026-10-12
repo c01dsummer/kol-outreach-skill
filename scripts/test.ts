@@ -138,7 +138,7 @@ import {
   readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, DiscoverySource, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
 } from './lib/types.js'
@@ -191,6 +191,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-mutation-maintenance', needs: [] },
   { id: 'h-mutation-cost', needs: [] },
   { id: 'h-launch-rule', needs: [] },
+  { id: 'h-launch-preload', needs: [] },
   { id: 'h-worker-start', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
@@ -8217,6 +8218,105 @@ ok('改法只在有启动数不确定以外的发现时才附', ['拆组', '少�
   !launchReport([U, shaky('["test",["h8"]]', '打印 1 行对 2 行')]).join('\n').includes(w) && withOthers.join('\n').includes(w)))
 })
 
+await group('h-launch-preload', () => {
+harness('入口启动的计数预加载：真起一个玩具验证者，看它记下了什么、改没改验证者的行为（ADR-145 第十三节）')
+// 先于预加载写成：期望值只从第十三节第 1、4 小节推，没读预加载与 launch-count 的实现。
+// 玩具按固定先后起进程、往两股打 ✓／✗ 行，经 tsxCommand 起（tsx 壳 + 里面那个 node，与变异一步起验证者一样）。
+// 一共起三次：不计数、计数且原来没有 NODE_OPTIONS、计数且原来有一个不改输出的 NODE_OPTIONS。组内只这三次启动
+const dir = mkdtempSync(join(tmpdir(), 'kol-lp-'))
+try {
+  const toy = join(dir, 'toy.mjs'), kid = join(dir, 'kid.cjs'), NO = '--max-old-space-size=512'
+  // 玩具自己与它的子进程各报一次看到的 [LAUNCH_COUNT, NODE_OPTIONS]
+  const VIEW = `JSON.stringify([process.env[${JSON.stringify(LAUNCH_COUNT_ENV)}] ?? null, process.env.NODE_OPTIONS ?? null])`
+  writeFileSync(kid, '')
+  writeFileSync(toy, [
+    `import cp, { spawnSync, execFileSync } from 'node:child_process'`,
+    `import fs from 'node:fs'`,
+    `import { syncBuiltinESMExports } from 'node:module'`,
+    `import { promisify } from 'node:util'`,
+    `const closed = child => new Promise(r => child.on('close', r)), seen = { own: ${VIEW} }`,
+    // 前两次经具名导入；第 3 次 execSync 抛错；4–7 次是四个异步的；8、9 是两个 promisify 版 →「九次之后」前已起 9 次
+    `console.log('  ✓ 开头')`,
+    `const shape = [spawnSync('true').status]`,
+    `seen.kid = execFileSync(process.execPath, ['-e', ${JSON.stringify(`process.stdout.write(${VIEW})`)}], { encoding: 'utf8' })`,
+    `console.error('✗ 同步两次之后')`,
+    `try { cp.execSync('exit 7') } catch (e) { shape.push(e.constructor.name, e.status) }`,
+    `shape.push(await closed(cp.spawn('true')))`,
+    `await new Promise(r => cp.execFile('true', r))`,
+    `await new Promise(r => cp.exec('true', r))`,
+    `shape.push(await closed(cp.fork(${JSON.stringify(kid)}, [], { execArgv: [] })))`,
+    `shape.push(await promisify(cp.execFile)('true'), await promisify(cp.exec)('true'))`,
+    `shape.push(['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork'].map(n => cp[n].name))`,
+    `process.stdout.write('✓ 九次之后\\n')`,
+    // 两次直接起的 git 不算，经 shell 起的 git 算（第 10 次）
+    `spawnSync('git', ['--version']); execFileSync('git', ['--version']); cp.spawnSync('git', ['--version'], { shell: true })`,
+    `process.stderr.write('  ✗ git 之后\\n')`,
+    // 换掉 fs 的写函数并同步到具名导入（需求测试里就有这么做的），这期间起第 11 次、打一行，再换回
+    `const saved = ['writeSync', 'appendFileSync', 'writeFileSync', 'openSync'].map(n => [n, fs[n]])`,
+    `for (const [n] of saved) fs[n] = () => { throw new Error('写函数换掉了') }`,
+    `syncBuiltinESMExports()`,
+    `try { fs.appendFileSync(${JSON.stringify(join(dir, 'probe'))}, '') } catch (e) { seen.swapped = e.message }`,
+    `cp.spawnSync('true')`,
+    `process.stdout.write('✓ 换掉 fs 时\\n')`,
+    `for (const [n, f] of saved) fs[n] = f`,
+    `syncBuiltinESMExports()`,
+    // 一行分两次写，中间起第 12 次：整行写完时已起 12 次
+    `process.stdout.write('✓ 半'); cp.spawnSync('true'); process.stdout.write('行\\n')`,
+    `seen.shape = shape; console.log('结果 ' + JSON.stringify(seen))`,
+    // stderr 末尾留半行不写完；exit 回调挂在预加载的收尾之后
+    `process.stderr.write('✗ 没写完')`,
+    `process.on('exit', () => process.stdout.write('✓ 退出时才打\\n'))`,
+    `process.exitCode = 3`,
+  ].join('\n'))
+  // 短路径：tsx 壳的 IPC socket 开在 TMPDIR 下，路径太长就起不来
+  const clean: Record<string, string | undefined> = { ...process.env, TMPDIR: dir, TMP: dir, TEMP: dir }
+  delete clean.NODE_OPTIONS; delete clean[LAUNCH_COUNT_ENV]
+  const preload = pathToFileURL(resolve('scripts/check/launch-preload.ts')).href
+  const marks = (s: string | null) => (s ?? '').split('\n').filter(l => /^\s*[✓✗] /.test(l))
+  const run = (env: Record<string, string | undefined>, log?: string) => {
+    const r = spawnSync(...tsxCommand([toy]), { encoding: 'utf8', timeout: 30_000, env: log === undefined ? env : countingEnv(env, { log, target: toy, preload }) })
+    const said = (r.stdout ?? '').split('\n').find(l => l.startsWith('结果 '))
+    const text = log !== undefined && existsSync(log) ? rf(log, 'utf8') : ''
+    const rows = text.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return {} } })
+    return { status: r.status, stdout: r.stdout ?? '', out: marks(r.stdout), err: marks(r.stderr), parsed: parseLaunchLog(text), rows,
+      L: rows.filter(x => x.t === 'L'), seen: (() => { try { return JSON.parse(said!.slice(3)) } catch { return undefined } })() }
+  }
+  const plain = run(clean), bare = run(clean, join(dir, 'bare.log')), kept = run({ ...clean, NODE_OPTIONS: NO }, join(dir, 'kept.log'))
+  const fmt = (x: { api?: unknown; file?: unknown } | undefined) => x === undefined ? undefined : `${x.api} ${x.file}`
+  const printsOf = (b: BaselineLaunches | undefined) => b?.prints.map(p => [p.body, p.launched])
+  // 两股各两行在内；git 之后是 10 不是 12；「半」「行」之间起了第 12 次；没写完的半行与 exit 回调里那行都不在
+  const PRINTS = [['开头', 0], ['同步两次之后', 2], ['九次之后', 9], ['git 之后', 10], ['换掉 fs 时', 11], ['半行', 12]]
+
+  // 阳性对照：不计数时玩具照常跑完，下面「与不计数时相同」比的才不是两边一起坏掉。shape 依次是 spawnSync 的 status、
+  // execSync 抛出的错误类与 status、spawn 与 fork 的退出码、两个 promisify 版交回的 { stdout, stderr }、七个函数的名字（Node 文档）
+  eq('计数预加载的玩具夹具有效：不计数时照常跑完、以退出码 3 结束，两股打出预定的 ✓／✗ 行',
+    [plain.status, plain.out, plain.err, plain.seen?.swapped, plain.seen?.shape],
+    [3, ['  ✓ 开头', '✓ 九次之后', '✓ 换掉 fs 时', '✓ 半行', '✓ 退出时才打'], ['✗ 同步两次之后', '  ✗ git 之后', '✗ 没写完'], '写函数换掉了',
+      [0, 'Error', 7, 0, 0, { stdout: '', stderr: '' }, { stdout: '', stderr: '' }, ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork']]])
+  // 九次各记一行，先后与玩具里一样；fork 的 file 是传进去的模块路径
+  eq('计数预加载：七个函数与 exec、execFile 的 promisify 版每调一次记一次，exec 里套的那次不另记', bare.L.slice(0, 9).map(fmt),
+    ['spawnSync true', `execFileSync ${process.execPath}`, 'execSync exit 7', 'spawn true', 'execFile true', 'exec true', `fork ${kid}`, 'execFile true', 'exec true'])
+  eq('计数预加载：经 ESM 具名导入拿到的函数也被计', [0, 1, 9, 10].map(i => fmt(bare.L[i])),
+    ['spawnSync true', `execFileSync ${process.execPath}`, 'spawnSync git', 'execFileSync git'])
+  // 14 行启动里直接起的 git 两行记下、不算；经 shell 起的那次带着 shell 记下、算 → 12
+  eq('计数预加载：直接起的 git 记下但不算启动，经 shell 起的 git 算',
+    [bare.parsed?.total, kept.parsed?.total, bare.L.slice(9, 12).map(x => `${fmt(x)}${x.shell === true ? ' shell' : ''}`)], [12, 12, ['spawnSync git', 'execFileSync git', 'spawnSync git shell']])
+  eq('计数预加载：两股的 ✓／✗ 行都记下，记下时已起几次也对', [printsOf(bare.parsed), printsOf(kept.parsed)], [PRINTS, PRINTS])
+  // 壳要是也记，会多一行它起里面那个 node 的 spawn、多一行收尾
+  eq('计数预加载：tsx 壳里不记，日志只来自玩具那个进程', [bare, kept].map(r => [r.L.length, r.rows.filter(x => x.t === 'E').length]), [[14, 1], [14, 1]])
+  eq('计数预加载：玩具与它起的子进程都看不到 LAUNCH_COUNT，NODE_OPTIONS 与不计数时一样', [plain, bare, kept].map(r => [r.seen?.own, r.seen?.kid]),
+    [['[null,null]', '[null,null]'], ['[null,null]', '[null,null]'], [JSON.stringify([null, NO]), JSON.stringify([null, NO])]])
+  eq('计数预加载：有无计数，两股的 ✓／✗ 行序列与退出码都相同', [bare, kept].map(r => [r.status, r.out, r.err]), [plain, plain].map(r => [r.status, r.out, r.err]))
+  eq('计数预加载：包过的函数名字、返回值、抛出的东西与 promisify 版交回的形状都不变', [bare.seen?.shape, kept.seen?.shape], [plain.seen?.shape, plain.seen?.shape])
+  // 换掉期间起的第 11 次与「换掉 fs 时」那一行：预加载要是用的是当时的 fs，这两行写不进去，收尾的数就对不上
+  ok('计数预加载：玩具中途换掉 fs 的写函数再起进程，计数照样完整', [bare, kept].every(r => r.seen?.swapped === '写函数换掉了'
+    && r.parsed?.total === 12 && r.parsed.prints.some(p => p.body === '换掉 fs 时' && p.launched === 11)))
+  // exit 回调里那行照样打到了 stdout（阳性），日志里没有；收尾仍是最后一行，记的是 6 行打印
+  ok('计数预加载：exit 回调里后打的行不记，收尾那行仍是最后一行', [bare, kept].every(r => r.stdout.includes('✓ 退出时才打\n')
+    && r.rows.at(-1)?.t === 'E' && r.rows.at(-1)?.prints === 6 && !r.rows.some(x => String(x.line).includes('退出时才打'))))
+} finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 await group('h-worker-start', () => {
 harness('worker 启动观测协议：兼容旧回报并拒绝坏字段')
 
@@ -8776,11 +8876,23 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 种子这份清单**就是行为**：自检从 SELFCHECK_TOOLS 起工具，闭包从同一份取种子。
   // 上一版是扫源码猜哪些路径是工具，评审两轮各找到一批诱饵（注释里的、夹具串里的、
   // 串里装着调用形状的、以及普通的读文件）—— 收紧正则是军备竞赛，让清单成为行为才是根治。
-  eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的', SELFCHECK_SEEDS, [
-    'scripts/check/fake-fetch.ts', 'scripts/check/mutate.ts', 'scripts/check/selfcheck.ts',
+  // 第四份是计数预加载：自检当工具起的 mutate，在正常基线那一跑经 NODE_OPTIONS 的 --import
+  // 把它加载进验证者（ADR-145 第十三节第 1、2 小节）。期望值 = 原来那三份 ＋ 第 1 小节写明的路径，
+  // 按字符串排（f < l < m < s）—— 手排的，不来自运行结果
+  eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
+    'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
+    'scripts/check/mutate.ts', 'scripts/check/selfcheck.ts',
   ])
   // 预加载单独列，因为它既不是 import 也不是「起了谁」—— 两种扫法都收不到
   ok('预加载那一份在种子里', SELFCHECK_SEEDS.includes(`scripts/${SELFCHECK_PRELOAD}`))
+  // 计数预加载也单独列，理由同上，还多隔一层：它连自检自己预加载的都不是，是自检起的 mutate
+  // 给玩具树的验证者预加载的。自检里那十几处起真 mutate 的夹具都经它跑正常基线，所以它是
+  // 自检要用的东西；可它不被谁 import，也不在自检「起了谁」那张表里，抽边与工具表都够不着 ——
+  // 种子漏了它，闭包就小一份，而闭包缩小的那一头是**放行**自己验自己的变异
+  // （与下面「宁可闭包偏大」那条同一个道理）。路径照第十三节第 1 小节写成字面量：
+  // 期望值从记录来，不从实现那边取
+  ok('计数预加载那一份也在种子里 —— 是自检起的 mutate 给验证者预加载的，抽边与工具表都收不到',
+    SELFCHECK_SEEDS.includes('scripts/check/launch-preload.ts'))
   ok('三个工具一个不少', Object.values(SELFCHECK_TOOLS)
     .every(f => SELFCHECK_SEEDS.includes(`scripts/${f}`)))
 
