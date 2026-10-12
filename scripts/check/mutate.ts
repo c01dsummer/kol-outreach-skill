@@ -31,7 +31,7 @@
  *
  * 这条防线的强度取决于 `why` 怎么写 —— 引了实现原文的 why，`--brief` 照样把它漏出去。
  */
-import { cpSync, existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { availableParallelism } from 'node:os'
@@ -58,7 +58,12 @@ import {
   INTERRUPTS, beginMutation, claimsRestoreAction, onInterrupt, restoreMutation, stopJobs, trackTest,
 } from './mutate-restore.js'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
-import { infraClosure, selfVerifying } from './verifier-rule.js'
+import { countingEnv, parseLaunchLog } from './launch-count.js'
+import {
+  type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchVerifier,
+  launchFindings, launchRecheck, launchReport, launchTally, settleLaunches, tallyLine,
+} from './launch-rule.js'
+import { LAUNCH_PRELOAD, infraClosure, selfVerifying } from './verifier-rule.js'
 
 // 观察不参与检查判定；普通收尾的人读行与机器段共用这一份原料。
 const costEnabled = !process.argv.includes('--brief') && !process.argv.includes('--worker')
@@ -438,8 +443,15 @@ const forgetVerifier = (): void => {
   onInterrupt()
 }
 
+// 正常基线那一跑注入的计数预加载（ADR-145 第十三节）；按本文件的位置找，玩具树里起的 mutate 也找得到
+const launchPreload = new URL(`../${LAUNCH_PRELOAD}`, import.meta.url).href
+const verifierEnv = (verifier: Verifier, cwd: string | undefined, countLog: string | undefined): NodeJS.ProcessEnv => {
+  const env = { ...process.env, MUTATING: '1', NODE_COMPILE_CACHE }
+  return countLog === undefined ? env
+    : countingEnv(env, { log: countLog, target: resolve(cwd ?? '.', verifier.script), preload: launchPreload })
+}
 const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly string[], cwd?: string,
-  baselineLive?: Set<ChildProcess>, observeSpawn?: () => void):
+  baselineLive?: Set<ChildProcess>, observeSpawn?: () => void, countLog?: string):
   Promise<{ status: number | null; output: string; atStop?: string; started: boolean; ms: number }> =>
   new Promise(resolve => {
     // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
@@ -452,7 +464,7 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     const [exe, argv] = tsxCommand(
       only === undefined ? [verifier.script] : [verifier.script, `--only=${only.join(',')}`])
     const kid = spawn(exe, argv,
-      { cwd, stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1', NODE_COMPILE_CACHE } })
+      { cwd, stdio: 'pipe', detached: true, env: verifierEnv(verifier, cwd, countLog) })
     let started = false
     let began: number | undefined
     kid.on('spawn', () => { started = true; began = performance.now(); observeSpawn?.() })
@@ -928,9 +940,50 @@ for (const route of currentSnapshot().routes) {
   costMutationIndex.set(route.id, costMutations.length)
   costMutations.push({ id: route.id, key: configurationKey(route), state: 'not-started', reason: '尚未派出变异，未启动验证者' })
 }
+/**
+ * 全部正常基线都绿了以后：照第三片的判法判一遍，超线的配置在头一个基线目录里各再跑一次基线确认，
+ * 交回要打的那几行，并把同样的东西写进 `output/mutation-launches/launches.json`（ADR-145 第十三节第 2 小节）。
+ * 只报数：这里的任何结果都不改任何一条变异的结论，也不改退出码；出了错只打一行，变异照常跑。
+ */
+const countLaunches = async (configs: readonly { by: string; only: string[]; key: string; id: string }[], dir: string,
+  live: Set<ChildProcess>): Promise<string[]> => {
+  try {
+    const mutations: LaunchMutation[] = muts.map(m =>
+      ({ id: m.id, by: (m.by ?? 'test') as LaunchVerifier, only: onlyFor(m), kills: m.kills ?? [] }))
+    const declared = { selfcheck: [...inventoryOf('selfcheck').keys()], test: [...inventoryOf('test').keys()] }
+    const again = new Map<string, BaselineLaunches | undefined>()
+    let findings: LaunchFinding[] = launchFindings(mutations, launchCounts, declared)
+    for (const key of launchRecheck(findings)) {
+      const config = configs.find(c => c.key === key)!
+      const verifier = VERIFIERS[config.by]
+      const ran = await runTest(verifier, undefined, config.only, dir, live, undefined, launchLog(`${config.id}-again`))
+      again.set(key, baselineFault(ran.status, ran.output, verifier) === undefined ? launchRead(launchLog(`${config.id}-again`)) : undefined)
+    }
+    findings = settleLaunches(findings, launchCounts, again)
+    const tally = launchTally(mutations, launchCounts, declared)
+    const record = { schema: 'mutation-launches/v1', head: comparison.head, source: identity.sourceIdentity ?? null, tally, findings }
+    const lines = [`  ${tallyLine(tally)}`]
+    if (findings.length) lines.push('  照第三片的判法会报下面这些（这一片只报数，不判红）：', ...launchReport(findings).map(l => `    ${l}`))
+    try {
+      mkdirSync('output/mutation-launches', { recursive: true })
+      writeFileSync('output/mutation-launches/launches.json', JSON.stringify({ ...record, baselines: Object.fromEntries(launchCounts),
+        again: Object.fromEntries([...again].map(([key, b]) => [key, b ?? null])) }, null, 2) + '\n')
+    } catch (e) {
+      lines.push(`  启动数文件没写成（${e instanceof Error ? e.message : String(e)}）`)
+    }
+    return [...lines, 'MUTATION_LAUNCHES_JSON ' + JSON.stringify(record)]
+  } catch (e) {
+    return [`  启动数没数成（${e instanceof Error ? e.message : String(e)}）；只报数，变异照常跑`]
+  }
+}
 // 同一组选跑配置只做一次正常代码基线。用与变异 worker 相同的复制规则建隔离目录，
 // 在任何一条变异落盘之前跑完；子集及其 needs 由验证者本身解析并执行。
 const subsets = new Map<string, { by: string; only: string[]; count: number }>()
+// 启动数（ADR-145 第二片）：只报数，不改任何结论、不改退出码。计数只在正常基线那一跑里数
+const launchCounts = new Map<string, BaselineLaunches>()
+const launchLog = (name: string): string => resolve(JOBS_DIR, `${name}.launches.jsonl`)
+const launchRead = (log: string): BaselineLaunches | undefined => parseLaunchLog(existsSync(log) ? readFileSync(log, 'utf8') : '')
+let launchOutput: string[] = []
 let fullWithoutKills = 0
 let fullUngrouped = 0
 for (const m of muts) {
@@ -979,8 +1032,10 @@ if (subsets.size) {
         const ran = await runTest(verifier, undefined, config.only, dir, baselineLive, () => {
           costBaselines[config.index] = { id: config.id, key: config.key, state: 'incomplete',
             elapsed: { kind: 'unavailable', reason: '正常基线已实际启动，尚未取得退出计时' }, reason: '正常基线尚未退出' }
-        })
+        }, launchLog(config.id))
         const fault = baselineFault(ran.status, ran.output, verifier)
+        const counted = fault === undefined ? launchRead(launchLog(config.id)) : undefined
+        if (counted !== undefined) launchCounts.set(config.key, counted)
         const baseline = { id: config.id, key: config.key }
         if (!ran.started) costBaselines[config.index] = { ...baseline, state: 'start-failed', reason: '验证者没有实际 spawn 启动' }
         else if (fault === undefined) {
@@ -996,6 +1051,7 @@ if (subsets.size) {
         console.log(`  ✓ 子集基线 ${config.by} --only=${config.only.join(',')}（供 ${config.count} 条变异使用）`)
       }
     }))
+    if (faults.length === 0) launchOutput = await countLaunches(configs, dirs[0], baselineLive)
   } finally {
     for (const sig of INTERRUPTS) process.off(sig, stopBaseline)
     rmSync(JOBS_DIR, { recursive: true, force: true })
@@ -1008,10 +1064,11 @@ if (subsets.size) {
     await publishCost()
     process.exit(1)
   }
-}
+} else launchOutput = await countLaunches([], '.', new Set())
 const selectedCount = [...subsets.values()].reduce((n, s) => n + s.count, 0)
 console.log(`  子集选跑 ${selectedCount} 条、${subsets.size} 种配置；整跑 ${fullWithoutKills + fullUngrouped} 条`
   + `（${fullWithoutKills} 条未点名断言，${fullUngrouped} 条断言尚未归组）`)
+for (const line of launchOutput) console.log(line)
 // 只有一条路走串行：清单只剩一条、机器只有一个核、或者人明确要求。那条路逐字保持原样，
 // 派工那一侧一个进程都不起 —— 自检里那几份最小语料走的正是它
 if (jobs === 1) for (const m of muts) { observeHand(m.id); record(m, await runOne(m)) }
