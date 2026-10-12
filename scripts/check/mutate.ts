@@ -976,13 +976,16 @@ const countLaunches = async (configs: readonly { by: string; only: string[]; key
     return [`  启动数没数成（${e instanceof Error ? e.message : String(e)}）；只报数，变异照常跑`]
   }
 }
-// 同一组选跑配置只做一次正常代码基线。用与变异 worker 相同的复制规则建隔离目录，
+// 同一组选跑配置只做一次正常代码基线（启动数超线的配置另在 countLaunches 里为计数重跑一次，不进成本报告）。用与变异 worker 相同的复制规则建隔离目录，
 // 在任何一条变异落盘之前跑完；子集及其 needs 由验证者本身解析并执行。
 const subsets = new Map<string, { by: string; only: string[]; count: number }>()
 // 启动数（ADR-145 第二片）：只报数，不改任何结论、不改退出码。计数只在正常基线那一跑里数
 const launchCounts = new Map<string, BaselineLaunches>()
 const launchLog = (name: string): string => resolve(JOBS_DIR, `${name}.launches.jsonl`)
-const launchRead = (log: string): BaselineLaunches | undefined => parseLaunchLog(existsSync(log) ? readFileSync(log, 'utf8') : '')
+// 读不出来（没有权限、是个目录）与没有这份日志一样算缺计数：数的那一段从不让变异一步失败
+const launchRead = (log: string): BaselineLaunches | undefined => {
+  try { return parseLaunchLog(existsSync(log) ? readFileSync(log, 'utf8') : '') } catch { return undefined }
+}
 let launchOutput: string[] = []
 let fullWithoutKills = 0
 let fullUngrouped = 0
