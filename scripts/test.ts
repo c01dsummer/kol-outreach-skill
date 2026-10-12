@@ -171,7 +171,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd16-tasks', needs: [] },
   { id: 'd17-config', needs: [] },
   { id: 'd19-resume', needs: [] },
-  { id: 'd27-p3-entry', needs: [] },
+  { id: 'd27-p3-entry', needs: ['d19-resume'] },
   { id: 'p1-followers-sort', needs: [] },
   { id: 'd5-csv', needs: [] },
   { id: 'f6-veto', needs: [] },
@@ -221,7 +221,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd28-collect', needs: ['d28-control'] },
   { id: 'd28-probe', needs: ['d28-control'] },
   { id: 'd28-mixed', needs: ['d28-control'] },
-  { id: 'd28-defaults', needs: [] },
+  { id: 'd28-defaults', needs: ['d28-control'] },
   { id: 'd28-no-overreject', needs: [] },
   { id: 'd28-config-duplicates', needs: ['d28-control', 'd28-collect', 'd28-probe', 'd28-mixed', 'd28-defaults', 'd28-no-overreject'] },
 ]
@@ -6149,7 +6149,8 @@ suite('D27', 'task.json 任一层写重复的键：按读入时的原文认出�
 await group('d27-p3-entry', () => {
 suite('D27', 'task.json 写重复的费用字段：collect 续跑与 enrich 改额在入口上以 2 拒绝')
 {
-  // 从 d19-resume 拆出（ADR-144）：这 10 次真入口启动只有 M-D27-h 用得到；留在 d19-resume 里，那一组的 39 条变异每条都要付一遍（需求测试选组不提前停）
+  // 从 d19-resume 拆出（ADR-144）：这 10 次真入口启动只有 M-D27-h 用得到；留在 d19-resume 里，那一组的 39 条变异每条都要付一遍（需求测试选组不提前停）。
+  // needs d19-resume：「费用字段写重复夹具有效」留在那一组，下面的以 2 退出要以它为前提，不然可能是最后一处本身不合规（ADR-144 复核发现 3）
   // 入口一侧：collect --resume --budget 2 与 enrich --budget 2 读到这几份任务，零改额（task.json 原字节）、零预留、零请求，以 2 退出。
   // 观测：fake-fetch 逐次记请求，预加载在 Budget.prototype.reserve 上记预留，armed 证明预加载真的装上了。
   // 阳性对照：同一份只留最后一处的任务、同一种接线，照常预留并请求（collect 去搜那个没完成的任务，enrich 去补那个创作者）
@@ -14442,7 +14443,8 @@ suite('D28', '配置写重复的键被拒时不先套缺省')
 {
 d28Run(({ MODES, runConfig, brief, inOrder, held, listed, leaks }) => {
   // 复核之后由写实现的上下文补（ADR-143 第五节）：D17.l 只在相关配置问题都消除后才套缺省 —— 写重复的键被拒时，
-  // 配置里没写的 market 与 budget_usd 不该先被说成采用了默认。对照是只留最后一处的同一份，要照常以 0 结束并说明默认，证明认得出那句话
+  // 配置里没写的 market 与 budget_usd 不该先被说成采用了默认。对照是只留最后一处的同一份，要照常以 0 结束并说明默认，证明认得出那句话。
+  // 它不核预留与请求，held() 的零预留零请求以 d28-control 的入口对照为前提，所以 needs 它（ADR-144 复核发现 1）
   const bareText = (found: string) => `{"product":"d28dup","target_count":1,${CFG.tasks},${found}}\n`
   const BARE: Dup = { name: 'no-defaults', at: 'found', tokens: ['7.25e0'], text: bareText('"found":7.25e0,"found":{"0":3}') }
   const bare = (['collect', 'probe'] as const).flatMap(mode => [runConfig(mode, bareText(CFG.found)), runConfig(mode, BARE.text, BARE)])
@@ -14470,7 +14472,8 @@ d28Run(({ MODES, runConfig, brief, inOrder, held, listed, leaks }) => {
 await group('d28-config-duplicates', () => {
 suite('D28', 'collect --config 与 probe 读的配置写重复的键：在建目录、开账、预留与请求之前以 2 拒绝，按先后列出每一处')
 {
-  // 旧组名保留为完整入口（ADR-144，照 ADR-131）：needs 拉齐上面六组，六组都跑完才认领
+  // 旧组名保留为完整入口（ADR-144，照 ADR-131）：needs 拉齐上面六组，六组都跑完才认领。
+  // 下面这条只为满足「每组至少执行一条断言」：哪一组没跑完，group() 先就抛了，它红不了
   const parts = ['d28-control', 'd28-collect', 'd28-probe', 'd28-mixed', 'd28-defaults', 'd28-no-overreject']
   eq('配置写重复的键：拆开的六组都跑完', parts.filter(id => !d28Done.has(id)), [])
   criterion('D28.a', 'D28.b', 'D28.c')

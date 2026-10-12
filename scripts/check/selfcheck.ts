@@ -4497,7 +4497,8 @@ group('task-list', ['task-list-collect-invalid', 'task-list-probe-invalid', 'tas
 // 照 ADR-131 按变异点名的用例拆：一条自检变异只在它点名的断言出结果之前付启动，组切得越贴近它实际要的用例，
 // 它被迫先跑的无关前缀就越短。断言、标签、失败文案与 kills 一个字不改；旧组名 resume-progress 保留为完整入口，
 // needs 拉齐十五组，D19.g、D19.l、D27.b 这三条跨组的认领在它里面。
-// 模块级的只有只读的夹具与造入口的函数，外加下面这几个由一组写、旧组名读的结果（needs 边都在）
+// 模块级的只有只读的夹具与造入口的函数，外加下面这几个由一组写、另一组读的结果：renderControlOk 由 render-reject 与 dup-render 读，
+// 其余由旧组名读（needs 边都在）
 let writebackHeld = false, renderKeptLegal = false, renderControlOk = false
 let collectDup = 0, renderDup = 0, d27MainDone = false, d27MixedRan = 0, d27BothRan = 0
 const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
@@ -5169,8 +5170,9 @@ group('resume-progress-d27-entries', [], () => {
   d27MainDone = d27Ran === d27Planned
 })
 
-group('resume-progress-d27-mixed', [], () => {
+group('resume-progress-d27-mixed', ['resume-progress-d27-entries'], () => {
   const d27Run = d27Runner('mixed-')
+  // 指向 d27-entries 的边不为读它的结果：下面的判定含零预留、零请求，以主循环里各入口的阳性对照先跑过为前提（ADR-131；ADR-144 复核发现 2）
   // 「与同文件的任务列表问题一起」（D27.b、ADR-142 第一节第 3 条）：tasks 写了两次、最后那份任务列表不合规 —— 任务列表按最后那份判，
   // 两类问题在同一次拒绝里都写出，不让用户先照最后那份改完任务、再撞上写重复。退出 2 本来就由任务列表的问题满足，所以要的是两类都写出；
   // 任务问题按 D16 的写法认字段名与 JSON 原值
