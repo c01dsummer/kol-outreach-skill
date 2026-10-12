@@ -238,7 +238,7 @@ function recordFault(record: unknown, source: string | undefined): string | unde
 
 /**
  * 检查链最后一步的判定（ADR-145 第二十一节）：先核数据，缺了、另一棵树上写的都红，主干上也红；
- * 再看发现：没有就绿，有就在 PR 上红（「不确定」也红），在主干上只报数。不重判，读文件里变异一步判好的发现。
+ * 再看发现：没有就绿，有就在 PR 上红（「不确定」也红），在主干上只报数，缺计数的除外。不重判，读文件里变异一步判好的发现。
  */
 export function launchGate(record: unknown, source: string | undefined, trunk: LaunchTrunk): LaunchGate {
   const fault = recordFault(record, source)
@@ -253,6 +253,10 @@ export function launchGate(record: unknown, source: string | undefined, trunk: L
   if ('unknown' in trunk) return { red: true,
     lines: [...lines, `✗ 启动数闸门：${findings.length} 条发现；无从判断 HEAD 在不在主干上（${trunk.unknown}），按 PR 判红`] }
   if (!trunk.onTrunk) return { red: true, lines: [...lines, `✗ 启动数闸门：${findings.length} 条发现，不设豁免（ADR-145）`] }
+  // 缺计数不是超线：第五节末「某种配置的计数缺了，判定一律报错」，主干上也红；每种配置至多一条 missing
+  const missing = findings.filter(f => f.kind === 'missing').length
+  if (missing > 0) return { red: true, lines: [...lines,
+    `✗ 启动数闸门：${findings.length} 条发现，其中 ${missing} 种配置没有启动计数：HEAD 就在主干上也红，计数缺了不放行（ADR-145 第五节末）`] }
   lines.push('启动数闸门：HEAD 就在主干上，只报数不判红（ADR-145 第四节）')
   if (findings.some(f => f.kind !== 'unsteady'))
     lines.push('  主干上有发现：按「主干红了」的优先级先开拆组的那一条，其余在途 PR 等它合了再把主干合进来')
