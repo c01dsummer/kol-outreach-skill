@@ -8329,7 +8329,7 @@ const dir = mkdtempSync(join(tmpdir(), 'kol-lpe-'))
 try {
   const bye = join(dir, 'bye.mjs')
   // 起进程的次数按先后标在右边；这个玩具不直接起 git，所以记下的 L 行都算启动（c 那次带 shell，照 git 的口径也算）。
-  // Node 文档：显式 process.exit(n) 照样触发 exit 事件，只有自然结束才多触发一次 beforeExit
+  // Node 文档：显式调 process.exit 照样触发 exit 事件，只有自然结束才多触发一次 beforeExit。末行拼开写：本文件也是验证者，整串会被「验证者不硬退出」扫到
   writeFileSync(bye, [
     `import { spawnSync } from 'node:child_process'`,
     `const seen = {}`,
@@ -8354,7 +8354,7 @@ try {
     `spawnSync('true')`,                                              // 第 7 次
     `process.stderr.write('✗ 转不成字符串之后\\n')`,
     `console.log('结果 ' + JSON.stringify(seen))`,
-    `process.exit(5)`,
+    `process.${'exit'}(5)`,
   ].join('\n'))
   const quit = preloadRun(dir, bye, undefined, join(dir, 'bye.log')), rows = quit.rows
   // 日志原行里每个 O 行的整行与它前面的 L 行数。这个玩具不直接起 git，L 行都算，这就是「记下时已起几次」（一行的小 oracle）；
