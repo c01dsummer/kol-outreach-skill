@@ -11102,6 +11102,186 @@
       "kills": ["needs 指到形状扫不了的组：两处都报扫不了，不抛", "needs 里的组名写错：报扫不了，不抛"]
     },
     {
+      "id": "M-H52-a",
+      "req": "harness",
+      "why": "规则一的线被放宽到 60：一条付 51 到 60 次的自检变异照样合得进去",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "export const LAUNCH_LIMIT = { paid: 50, product: 100 } as const",
+      "replace": "export const LAUNCH_LIMIT = { paid: 60, product: 100 } as const",
+      "by": "test",
+      "kills": ["规则一的线是每条会提前停的变异 50 次入口启动"]
+    },
+    {
+      "id": "M-H52-b",
+      "req": "harness",
+      "why": "规则二的线被放宽到 200：启动乘条数到 200 的需求测试配置照样合得进去",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "export const LAUNCH_LIMIT = { paid: 50, product: 100 } as const",
+      "replace": "export const LAUNCH_LIMIT = { paid: 50, product: 200 } as const",
+      "by": "test",
+      "kills": ["规则二的线是每种不提前停的配置启动数乘变异条数 100"]
+    },
+    {
+      "id": "M-H52-c",
+      "req": "harness",
+      "why": "需求测试选了组也算见齐就停：判定按末次打印量它，账面上的付费比实际跑完全程的少，规则二管不到它",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return kills !== undefined && !(only !== undefined && verifier === VERIFIERS.test)",
+      "replace": "  return kills !== undefined",
+      "by": "test",
+      "kills": ["需求测试选了组：哪怕点名了断言也不提前停"]
+    },
+    {
+      "id": "M-H52-d",
+      "req": "harness",
+      "why": "谓词自己说没点名断言就不提前停；今天两个调用方都先挡掉了没点名的那一路，这条只守谓词本身，免得哪天新调用方直接信它",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return kills !== undefined && !(only !== undefined && verifier === VERIFIERS.test)",
+      "replace": "  return !(only !== undefined && verifier === VERIFIERS.test)",
+      "by": "test",
+      "kills": ["自检变异没有点名断言：不提前停"]
+    },
+    {
+      "id": "M-H52-e",
+      "req": "harness",
+      "why": "按预期以退出码结束的那种括注行不再归到它的标签：那条标签像是从没打印过，付费被记成整个配置",
+      "file": "scripts/check/launch-rule.ts",
+      "find": " || body.startsWith(`${label}（`)",
+      "replace": "",
+      "by": "test",
+      "kills": ["标签归属：按预期以退出码结束的那种括注仍归这条标签"]
+    },
+    {
+      "id": "M-H52-f",
+      "req": "harness",
+      "why": "一条标签是另一条的前缀时归给先登记的那条，不取最长：长标签的成本记到短标签头上",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (hit && (best === undefined || label.length > best.length)) best = label",
+      "replace": "if (hit && best === undefined) best = label",
+      "by": "test",
+      "kills": ["标签归属：一条标签是另一条的前缀时取最长的那条"]
+    },
+    {
+      "id": "M-H52-g",
+      "req": "harness",
+      "why": "正文只要以标签开头就算这条标签，不管后面接的是不是全角冒号：别的断言的打印被记到它头上",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "body.startsWith(`${label}：`)",
+      "replace": "body.startsWith(label)",
+      "by": "test",
+      "kills": ["标签归属：以标签开头但紧跟别的字不算这条标签"]
+    },
+    {
+      "id": "M-H52-h",
+      "req": "harness",
+      "why": "同一标签打印多次时取首次打印：在循环里打印的标签，往首次之后加启动不改变账面数",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "    if (label !== undefined) last.set(label, launched)",
+      "replace": "    if (label !== undefined && !last.has(label)) last.set(label, launched)",
+      "by": "test",
+      "kills": ["付费启动：同一标签打印两次，取末次打印时已起的启动数"]
+    },
+    {
+      "id": "M-H52-i",
+      "req": "harness",
+      "why": "点名的标签一次也没打印时跳过它：那条变异其实跑到底，账面上却只记打印过的那几条",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "    if (at === undefined) return baseline.total",
+      "replace": "    if (at === undefined) continue",
+      "by": "test",
+      "kills": ["付费启动：点名的标签一次也没打印，记整个配置的启动数"]
+    },
+    {
+      "id": "M-H52-j",
+      "req": "harness",
+      "why": "点名几条标签时只取最后点名的那条：前面那条更晚打印的标签的付费被漏掉",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "    paid = Math.max(paid, at)",
+      "replace": "    paid = at",
+      "by": "test",
+      "kills": ["付费启动：点名顺序倒过来仍取最大的那个"]
+    },
+    {
+      "id": "M-H52-k",
+      "req": "harness",
+      "why": "付正好 50 次的自检变异也报超线：线上的不该红",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (paid > LAUNCH_LIMIT.paid)",
+      "replace": "if (paid >= LAUNCH_LIMIT.paid)",
+      "by": "test",
+      "kills": ["规则一：付 50 次正好在线上，不报"]
+    },
+    {
+      "id": "M-H52-l",
+      "req": "harness",
+      "why": "启动乘条数正好 100 的配置也报超线：线上的不该红",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "baseline.total * running.length > LAUNCH_LIMIT.product",
+      "replace": "baseline.total * running.length >= LAUNCH_LIMIT.product",
+      "by": "test",
+      "kills": ["规则二：启动 20 次乘 5 条正好 100，不报"]
+    },
+    {
+      "id": "M-H52-m",
+      "req": "harness",
+      "why": "全跑变异不报：没有基线计数的那一类被当成没超线放过去",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "    if (m.only === undefined) { fullRun.push(m.id); continue }",
+      "replace": "    if (m.only === undefined) continue",
+      "by": "test",
+      "kills": ["全跑变异：自检的与需求测试的各报一条全跑，按编号排"]
+    },
+    {
+      "id": "M-H52-n",
+      "req": "harness",
+      "why": "有变异落到却没有计数的配置不报：删掉计数就等于关掉闸门",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "    if (baseline === undefined) { out.push({ kind: 'missing', config: key, ids }); continue }",
+      "replace": "    if (baseline === undefined) continue",
+      "by": "test",
+      "kills": ["缺基线：自检选组配置报一条缺基线，带上落到它的全部变异"]
+    },
+    {
+      "id": "M-H52-o",
+      "req": "harness",
+      "why": "超线配置里的变异编号不按编号排，按登记先后：同一份树两次报出来的顺序可能不同",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "    const routed = [...byConfig.get(key)!].sort((a, b) => byText(a.id, b.id))",
+      "replace": "    const routed = [...byConfig.get(key)!]",
+      "by": "test",
+      "kills": ["规则二：超线的配置只报一条，变异编号按编号排"]
+    },
+    {
+      "id": "M-H52-p",
+      "req": "harness",
+      "why": "自检变异按另一个验证者的声明标签归属打印：它点名的标签认不出来，付费被记成整个配置",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "      const paid = paidLaunches(m.kills, baseline, declared[m.by])",
+      "replace": "      const paid = paidLaunches(m.kills, baseline, declared.test)",
+      "by": "test",
+      "kills": ["规则一：按变异自己那个验证者的声明标签归属打印"]
+    },
+    {
+      "id": "M-H52-q",
+      "req": "harness",
+      "why": "报错文本不写少写变异不是改法：最便宜的过线办法没人拦",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  少写变异不是改法。不设豁免；",
+      "replace": "  不设豁免；",
+      "by": "test",
+      "kills": ["报错文本写明少写变异不是改法"]
+    },
+    {
+      "id": "M-H52-r",
+      "req": "harness",
+      "why": "全跑变异那一行不说它为什么算超线：人会以为是误报",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "：全跑变异没有基线计数，按规则视为超线`",
+      "replace": "：没有计数`",
+      "by": "test",
+      "kills": ["全跑那一条写明全跑变异没有基线计数、按规则视为超线"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
