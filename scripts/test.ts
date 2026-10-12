@@ -8222,10 +8222,11 @@ await group('h-launch-preload', () => {
 harness('入口启动的计数预加载：真起一个玩具验证者，看它记下了什么、改没改验证者的行为（ADR-145 第十三节）')
 // 先于预加载写成：期望值只从第十三节第 1、4 小节推，没读预加载与 launch-count 的实现。
 // 玩具按固定先后起进程、往两股打 ✓／✗ 行，经 tsxCommand 起（tsx 壳 + 里面那个 node，与变异一步起验证者一样）。
-// 一共起三次：不计数、计数且原来没有 NODE_OPTIONS、计数且原来有一个不改输出的 NODE_OPTIONS。组内只这三次启动
+// 这个玩具起三次：不计数、计数且原来没有 NODE_OPTIONS、计数且原来有一个不改输出的 NODE_OPTIONS；
+// 另有一个显式调 process.exit 退出的小玩具计数跑一次（末尾两条，后补的，同样只从第十三节第 1 小节与 Node 文档推）。组内只这四次启动
 const dir = mkdtempSync(join(tmpdir(), 'kol-lp-'))
 try {
-  const toy = join(dir, 'toy.mjs'), kid = join(dir, 'kid.cjs'), NO = '--max-old-space-size=512'
+  const toy = join(dir, 'toy.mjs'), kid = join(dir, 'kid.cjs'), bye = join(dir, 'bye.mjs'), NO = '--max-old-space-size=512'
   // 玩具自己与它的子进程各报一次看到的 [LAUNCH_COUNT, NODE_OPTIONS]
   const VIEW = `JSON.stringify([process.env[${JSON.stringify(LAUNCH_COUNT_ENV)}] ?? null, process.env.NODE_OPTIONS ?? null])`
   writeFileSync(kid, '')
@@ -8268,13 +8269,23 @@ try {
     `process.on('exit', () => process.stdout.write('✓ 退出时才打\\n'))`,
     `process.exitCode = 3`,
   ].join('\n'))
+  // 显式退出的小玩具：起一次、stdout 打一行、再起一次、stderr 打一行，然后 process.exit(5)。
+  // Node 文档：显式 process.exit(n) 照样触发 exit 事件，只有自然结束才多触发一次 beforeExit
+  writeFileSync(bye, [
+    `import { spawnSync } from 'node:child_process'`,
+    `spawnSync('true')`,
+    `console.log('  ✓ 显式退出前起了一次')`,
+    `spawnSync('true')`,
+    `process.stderr.write('✗ 显式退出前起了两次\\n')`,
+    `process.exit(5)`,
+  ].join('\n'))
   // 短路径：tsx 壳的 IPC socket 开在 TMPDIR 下，路径太长就起不来
   const clean: Record<string, string | undefined> = { ...process.env, TMPDIR: dir, TMP: dir, TEMP: dir }
   delete clean.NODE_OPTIONS; delete clean[LAUNCH_COUNT_ENV]
   const preload = pathToFileURL(resolve('scripts/check/launch-preload.ts')).href
   const marks = (s: string | null) => (s ?? '').split('\n').filter(l => /^\s*[✓✗] /.test(l))
-  const run = (env: Record<string, string | undefined>, log?: string) => {
-    const r = spawnSync(...tsxCommand([toy]), { encoding: 'utf8', timeout: 30_000, env: log === undefined ? env : countingEnv(env, { log, target: toy, preload }) })
+  const run = (env: Record<string, string | undefined>, log?: string, script = toy) => {
+    const r = spawnSync(...tsxCommand([script]), { encoding: 'utf8', timeout: 30_000, env: log === undefined ? env : countingEnv(env, { log, target: script, preload }) })
     const said = (r.stdout ?? '').split('\n').find(l => l.startsWith('结果 '))
     const text = log !== undefined && existsSync(log) ? rf(log, 'utf8') : ''
     const rows = text.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return {} } })
@@ -8314,6 +8325,15 @@ try {
   // exit 回调里那行照样打到了 stdout（阳性），日志里没有；收尾仍是最后一行，记的是 6 行打印
   ok('计数预加载：exit 回调里后打的行不记，收尾那行仍是最后一行', [bare, kept].every(r => r.stdout.includes('✓ 退出时才打\n')
     && r.rows.at(-1)?.t === 'E' && r.rows.at(-1)?.prints === 6 && !r.rows.some(x => String(x.line).includes('退出时才打'))))
+
+  // ── 显式 process.exit：收尾那行「在 exit 事件里写」（第十三节第 1 小节），挂在 beforeExit 上的话这一跑没有收尾、读不出来。
+  // 两次 true 都算 → 2；两行各在第 1、2 次之后打 → 记下时已起 1、2 次；退出码是传给 process.exit 的 5
+  const quit = run(clean, join(dir, 'bye.log'), bye)
+  eq('计数预加载：验证者显式调 process.exit 退出，退出码照原样，日志读得出来、启动数与打印时已起几次都对',
+    [quit.status, quit.parsed?.total, printsOf(quit.parsed)], [5, 2, [['显式退出前起了一次', 1], ['显式退出前起了两次', 2]]])
+  // 两行 L、两行 O、一行 E，共 5 行；收尾只一行、在最后、两个数与前面对得上（不经 parseLaunchLog，直接看日志原行）
+  ok('计数预加载：验证者显式调 process.exit 退出，收尾那行照样写、只一行、仍是最后一行', quit.rows.length === 5
+    && quit.rows.filter(x => x.t === 'E').length === 1 && quit.rows.at(-1)?.t === 'E' && quit.rows.at(-1)?.launches === 2 && quit.rows.at(-1)?.prints === 2)
 } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 

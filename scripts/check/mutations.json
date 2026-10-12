@@ -11856,6 +11856,16 @@
       "kills": ["计数预加载：玩具中途换掉 fs 的写函数再起进程，计数照样完整"]
     },
     {
+      "id": "M-H54-u",
+      "req": "harness",
+      "why": "收尾行挂在自然结束才有的那个事件上：验证者主动调退出时一行收尾也不写，整份日志判认不得",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "process.on('exit', () => { emit",
+      "replace": "process.on('beforeExit', () => { emit",
+      "by": "test",
+      "kills": ["计数预加载：验证者显式调 process.exit 退出，收尾那行照样写、只一行、仍是最后一行"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",

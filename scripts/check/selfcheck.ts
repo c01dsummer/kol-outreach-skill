@@ -6185,6 +6185,28 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
   // 有计数的 3 种（t-bypass 缺计数，全跑没有基线）；会提前停的两条都付 51，并列取配置键在前的 s-drift；不提前停的只有 t-pass
   const tally = `启动数（只报数）：3 种配置有计数；会提前停的最多付 51 次（M-L-drift，${DRIFT}）；不提前停的启动×条数最多 100（${PASS}，20 × 5）`
   named('启动数入口：只报数那一行照格式打在 stdout 里', lines.some(l => l.trim() === tally), `应有一行：${tally}`)
+  // head 是维护比较的那个 head 提交（第十三节第 2 小节第 3 条）。玩具树由 mutationFixtureEnv 建成两个提交、把 HEAD^1 交给
+  // MUTATE_BASE_SHA 当比较基线，所以 head 是玩具仓库的 HEAD（mutation-cost-entry 也把成本报告的 headSha 钉在 rev-parse HEAD 上）；
+  // HEAD^1 一并取出来：写成比较基线那一个的话，两者不同，这条红
+  const revs = spawnSync('git', ['rev-parse', 'HEAD', 'HEAD^1'], { cwd: root, encoding: 'utf8',
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } })
+  const [toyHead, toyBase] = revs.status === 0 ? revs.stdout.trim().split('\n') : []
+  if (!toyHead || !toyBase || toyHead === toyBase) { failed++; console.error(`  ✗ 启动数入口玩具仓库的提交${SELFCHECK_FIXTURE_MARK}：${revs.stderr || revs.error || revs.stdout}`) }
+  else named('启动数入口：机器段与计数文件的 head 都是玩具仓库当前的 HEAD 提交，不是比较基线那一个',
+    out.head === toyHead && file.head === toyHead,
+    `玩具仓库 HEAD ${toyHead}、比较基线 ${toyBase}；机器段 ${JSON.stringify(out.head)}，文件 ${JSON.stringify(file.head)}`)
+  // 文件比机器段多的两样（第十三节第 2 小节第 4 条），只核每种配置记下的整跑启动数，照玩具的设计手推、git 不算。
+  // baselines 是每种配置第一次的计数：t-pass 20（另起的 10 次 git 不算）；s-over 断言之前 51、之后 3，整跑算全程 → 54
+  // （付费 51 是打印那一刻的数，不是整跑）；s-drift 第一次断言之后不多起 → 51（错记成重跑那次就是 52）；
+  // t-bypass 绕过 exit 事件、没有计数，不在里面；全跑没有正常基线，也不在
+  const totals = (m: any) => m !== null && typeof m === 'object' && !Array.isArray(m)
+    ? Object.fromEntries(Object.entries(m).map(([k, c]: [string, any]) => [k, c === null ? null : c?.total])) : m
+  named('启动数入口：计数文件的 baselines 只有拿到计数的三种配置，各记第一次正常基线的整跑启动数',
+    isDeepStrictEqual(totals(file.baselines), { [DRIFT]: 51, [OVER]: 54, [PASS]: 20 }), `文件里的 baselines：${JSON.stringify(file.baselines)}`)
+  // again 是重跑的那几种：第一遍判定里有 paid 的 s-drift、s-over（同上面「再跑一次」那条），t-pass、t-bypass 不重跑、不在里面；
+  // 两次重跑都拿到了计数，没有 null。s-drift 重跑那次断言之后多起 1 次 → 52；s-over 每次一样 → 54
+  named('启动数入口：计数文件的 again 只有重跑过的两种配置，各记重跑那次的整跑启动数',
+    isDeepStrictEqual(totals(file.again), { [DRIFT]: 52, [OVER]: 54 }), `文件里的 again：${JSON.stringify(file.again)}`)
 })
 
 // ---- 派工那条路：真起 worker，真在隔离目录里跑 ----
