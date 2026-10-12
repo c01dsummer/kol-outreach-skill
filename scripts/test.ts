@@ -192,6 +192,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-mutation-cost', needs: [] },
   { id: 'h-launch-rule', needs: [] },
   { id: 'h-launch-preload', needs: [] },
+  { id: 'h-launch-preload-edge', needs: [] },
   { id: 'h-worker-start', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
@@ -8222,11 +8223,11 @@ await group('h-launch-preload', () => {
 harness('入口启动的计数预加载：真起一个玩具验证者，看它记下了什么、改没改验证者的行为（ADR-145 第十三节）')
 // 先于预加载写成：期望值只从第十三节第 1、4 小节推，没读预加载与 launch-count 的实现。
 // 玩具按固定先后起进程、往两股打 ✓／✗ 行，经 tsxCommand 起（tsx 壳 + 里面那个 node，与变异一步起验证者一样）。
-// 这个玩具起三次：不计数、计数且原来没有 NODE_OPTIONS、计数且原来有一个不改输出的 NODE_OPTIONS；
-// 另有一个显式调 process.exit 退出的小玩具计数跑一次（末尾两条，后补的，同样只从第十三节第 1 小节与 Node 文档推）。组内只这四次启动
+// 这个玩具起三次：不计数、计数且原来没有 NODE_OPTIONS、计数且原来有一个不改输出的 NODE_OPTIONS。组内只这三次启动；
+// 显式调 process.exit 退出的那个小玩具与它的两条断言挪到了下一组 h-launch-preload-edge（ADR-145 第三节第 1 种改法：拆组）
 const dir = mkdtempSync(join(tmpdir(), 'kol-lp-'))
 try {
-  const toy = join(dir, 'toy.mjs'), kid = join(dir, 'kid.cjs'), bye = join(dir, 'bye.mjs'), NO = '--max-old-space-size=512'
+  const toy = join(dir, 'toy.mjs'), kid = join(dir, 'kid.cjs'), NO = '--max-old-space-size=512'
   // 玩具自己与它的子进程各报一次看到的 [LAUNCH_COUNT, NODE_OPTIONS]
   const VIEW = `JSON.stringify([process.env[${JSON.stringify(LAUNCH_COUNT_ENV)}] ?? null, process.env.NODE_OPTIONS ?? null])`
   writeFileSync(kid, '')
@@ -8269,23 +8270,13 @@ try {
     `process.on('exit', () => process.stdout.write('✓ 退出时才打\\n'))`,
     `process.exitCode = 3`,
   ].join('\n'))
-  // 显式退出的小玩具：起一次、stdout 打一行、再起一次、stderr 打一行，然后 process.exit(5)。
-  // Node 文档：显式 process.exit(n) 照样触发 exit 事件，只有自然结束才多触发一次 beforeExit
-  writeFileSync(bye, [
-    `import { spawnSync } from 'node:child_process'`,
-    `spawnSync('true')`,
-    `console.log('  ✓ 显式退出前起了一次')`,
-    `spawnSync('true')`,
-    `process.stderr.write('✗ 显式退出前起了两次\\n')`,
-    `process.exit(5)`,
-  ].join('\n'))
   // 短路径：tsx 壳的 IPC socket 开在 TMPDIR 下，路径太长就起不来
   const clean: Record<string, string | undefined> = { ...process.env, TMPDIR: dir, TMP: dir, TEMP: dir }
   delete clean.NODE_OPTIONS; delete clean[LAUNCH_COUNT_ENV]
   const preload = pathToFileURL(resolve('scripts/check/launch-preload.ts')).href
   const marks = (s: string | null) => (s ?? '').split('\n').filter(l => /^\s*[✓✗] /.test(l))
-  const run = (env: Record<string, string | undefined>, log?: string, script = toy) => {
-    const r = spawnSync(...tsxCommand([script]), { encoding: 'utf8', timeout: 30_000, env: log === undefined ? env : countingEnv(env, { log, target: script, preload }) })
+  const run = (env: Record<string, string | undefined>, log?: string) => {
+    const r = spawnSync(...tsxCommand([toy]), { encoding: 'utf8', timeout: 30_000, env: log === undefined ? env : countingEnv(env, { log, target: toy, preload }) })
     const said = (r.stdout ?? '').split('\n').find(l => l.startsWith('结果 '))
     const text = log !== undefined && existsSync(log) ? rf(log, 'utf8') : ''
     const rows = text.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return {} } })
@@ -8325,15 +8316,94 @@ try {
   // exit 回调里那行照样打到了 stdout（阳性），日志里没有；收尾仍是最后一行，记的是 6 行打印
   ok('计数预加载：exit 回调里后打的行不记，收尾那行仍是最后一行', [bare, kept].every(r => r.stdout.includes('✓ 退出时才打\n')
     && r.rows.at(-1)?.t === 'E' && r.rows.at(-1)?.prints === 6 && !r.rows.some(x => String(x.line).includes('退出时才打'))))
+} finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+await group('h-launch-preload-edge', () => {
+harness('计数预加载的边角，一个显式调 process.exit 退出的玩具只计数跑一次：收尾照写、两股各自按换行切、包过的写函数不改行为、shell 为真就算带 shell、参数转不成字符串时抛的与日志（ADR-145 第十三节第 1 小节）')
+// 从 h-launch-preload 拆出来（ADR-145 第三节第 1 种改法）：那一组三次启动、点名它的变异二十来条，再往里并玩具、加变异就逼近
+// 「启动 × 条数不超过 100」。这一组只起这一个玩具、只起一次（计数跑），组内 1 次启动。末尾两条是从那一组原样挪来的，标签没改，
+// 期望随玩具改了、照第十三节第 1 小节重推；其余五条是独立复核后补的。期望值只从第十三节第 1 小节、Node 文档与下面注明的
+// node -e 不计数实测推，没读预加载与 launch-count 的实现
+const dir = mkdtempSync(join(tmpdir(), 'kol-lpe-'))
+try {
+  const bye = join(dir, 'bye.mjs')
+  // 起进程的次数按先后标在右边；这个玩具不直接起 git，所以记下的 L 行都算启动（c 那次带 shell，照 git 的口径也算）。
+  // Node 文档：显式 process.exit(n) 照样触发 exit 事件，只有自然结束才多触发一次 beforeExit
+  writeFileSync(bye, [
+    `import { spawnSync } from 'node:child_process'`,
+    `const seen = {}`,
+    `spawnSync('true')`,                                              // 第 1 次
+    `console.log('  ✓ 显式退出前起了一次')`,
+    `spawnSync('true')`,                                              // 第 2 次
+    `process.stderr.write('✗ 显式退出前起了两次\\n')`,
+    // a：stdout 先写半行不换行，中间起一次、stderr 写完一整行，再起一次，stdout 才补上后半与换行
+    `process.stdout.write('✓ 两股')`,
+    `spawnSync('true')`,                                              // 第 3 次
+    `process.stderr.write('✗ 夹在半行中间\\n')`,
+    `spawnSync('true')`,                                              // 第 4 次
+    `process.stdout.write('各自切\\n')`,
+    // b：带回调往 stdout 写一行，等回调；5 秒没调就记「没调」往下走，坏实现吞了回调也不至于把玩具挂住。再往 stderr 写一个 Buffer
+    `seen.callback = await new Promise(r => { const t = setTimeout(r, 5000, '没调'); process.stdout.write('✓ 带回调写\\n', () => { clearTimeout(t); r('调了') }) })`,
+    `process.stderr.write(Buffer.from('✗ 写的是字节\\n'))`,
+    // c：shell 给的是字符串 '/bin/sh'：为真，但不等于 true
+    `spawnSync('git', ['--version'], { shell: '/bin/sh' })`,          // 第 5 次
+    // d：第一个参数是没有原型的空对象，转不成字符串（String() 对它抛 TypeError）；后面再起一次 true，看之后起的还记不记
+    `process.stdout.write('✓ 转不成字符串之前\\n')`,
+    `try { spawnSync(Object.create(null)) } catch (e) { seen.thrown = [e.constructor.name, e.code] }`,   // 第 6 次
+    `spawnSync('true')`,                                              // 第 7 次
+    `process.stderr.write('✗ 转不成字符串之后\\n')`,
+    `console.log('结果 ' + JSON.stringify(seen))`,
+    `process.exit(5)`,
+  ].join('\n'))
+  // 短路径：tsx 壳的 IPC socket 开在 TMPDIR 下，路径太长就起不来
+  const clean: Record<string, string | undefined> = { ...process.env, TMPDIR: dir, TMP: dir, TEMP: dir }
+  delete clean.NODE_OPTIONS; delete clean[LAUNCH_COUNT_ENV]
+  const log = join(dir, 'bye.log'), preload = pathToFileURL(resolve('scripts/check/launch-preload.ts')).href
+  const r = spawnSync(...tsxCommand([bye]), { encoding: 'utf8', timeout: 30_000, env: countingEnv(clean, { log, target: bye, preload }) })
+  const text = existsSync(log) ? rf(log, 'utf8') : '', said = (r.stdout ?? '').split('\n').find(l => l.startsWith('结果 '))
+  const rows = text.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return {} } })
+  const quit = { status: r.status, parsed: parseLaunchLog(text), rows,
+    seen: (() => { try { return JSON.parse(said!.slice(3)) } catch { return undefined } })() }
+  const printsOf = (b: BaselineLaunches | undefined) => b?.prints.map(p => [p.body, p.launched])
+  // 日志原行里每个 O 行的整行与它前面的 L 行数。这个玩具不直接起 git，L 行都算，这就是「记下时已起几次」（一行的小 oracle）；
+  // a、b 两样只看它们，不经 parseLaunchLog —— 不跟着 d 那一次可能弄坏的「整份日志读不读得出来」一起红
+  const raw = rows.flatMap((x, i) => x.t === 'O' ? [[x.line, rows.slice(0, i).filter(y => y.t === 'L').length]] : [])
+
+  // a：两股各切各的 → stderr 那行写完时已起 3 次，stdout 那行补完换行时已起 4 次。共用一份缓冲的话，拼成「✓ 两股✗ 夹在半行中间」一行
+  // 记在 3，补上的「各自切」不以记号开头、不记；每次写入单独当一行的话，半截「✓ 两股」记在 2
+  eq('计数预加载：stdout 写了半行时 stderr 写完一行，两股各自按换行切，各记各的整行，已起几次照各自写完那一刻算',
+    raw.filter(([l]) => /两股|半行中间/.test(String(l))), [['✗ 夹在半行中间', 3], ['✓ 两股各自切', 4]])
+  // b：包过的写函数不改验证者的行为（第十三节第 4 小节「有无计数……行序列与退出码相同」，第 1 小节「不打扰验证者」）：
+  // 回调照样被调；两行都在第 4 次之后、c 之前写完 → 记下时已起 4 次。第十三节第 1 小节记的是「往 stdout 或 stderr 写完的一整行」，没分字符串与 Buffer
+  eq('计数预加载：带回调往 stdout 写一行，回调照样被调，那一行照样记下',
+    [quit.seen?.callback, raw.filter(([l]) => l === '✓ 带回调写')], ['调了', [['✓ 带回调写', 4]]])
+  eq('计数预加载：往 stderr 写一个 Buffer，那一行照样记下', raw.filter(([l]) => l === '✗ 写的是字节'), [['✗ 写的是字节', 4]])
+  // c：第十三节第 1 小节「选项里 shell 为真时多一个 "shell":true」—— 判的是为真，'/bin/sh' 也是；git 的口径是「没有 shell」才是 git、
+  // 不算，带 shell 的验证者起的是 shell，算。后一半拿预加载记下的那一行原样、配一行收尾（1 次启动、0 行打印）单独读，
+  // 不跟着整份日志读不读得出来走。照「等于 true」判的话那一行不带 shell，读出来是 git、0 次
+  const viaShell = rows.filter(x => x.t === 'L' && x.file === 'git')
+  eq('计数预加载：选项里 shell 为真却不等于 true（给的是 /bin/sh）时照样记成带 shell，读出来算一次启动',
+    [viaShell.map(x => [x.api, x.file, x.shell]), parseLaunchLog(viaShell.map(x => JSON.stringify(x) + '\n').join('') + JSON.stringify({ t: 'E', launches: viaShell.length, prints: 0 }) + '\n')?.total],
+    [[['spawnSync', 'git', true]], 1])
+  // d：不计数时 Node 自己对这个参数抛 TypeError、code 是 ERR_INVALID_ARG_TYPE（Node 22.22.0 上 `node -e` 不计数实测，spawnSync、
+  // execFileSync、spawn 都是；消息是 The "file" argument must be of type string）。包过的函数「抛出的东西都与原来一样」→ 计数时也是这两样。
+  // 「调用那一刻先记、再调原函数；进程起没起来都算一次」→ 它算第 6 次；它后面那次 true 是第 7 次，之后起的照样记。
+  // 所以「转不成字符串之前」（第 5 次之后）与「之后」（第 7 次之后）读出来差 2；日志读不出来就没有这个差
+  const at = (body: string) => quit.parsed?.prints.find(p => p.body === body)?.launched
+  eq('计数预加载：起进程的参数本身转不成字符串时，抛出的东西与不计数时一样，日志照样读得出来，这一次与之后起的都照样算',
+    [quit.seen?.thrown, quit.parsed === undefined ? '日志读不出来' : (at('转不成字符串之后') ?? NaN) - (at('转不成字符串之前') ?? NaN)],
+    [['TypeError', 'ERR_INVALID_ARG_TYPE'], 2])
 
   // ── 显式 process.exit：收尾那行「在 exit 事件里写」（第十三节第 1 小节），挂在 beforeExit 上的话这一跑没有收尾、读不出来。
-  // 两次 true 都算 → 2；两行各在第 1、2 次之后打 → 记下时已起 1、2 次；退出码是传给 process.exit 的 5
-  const quit = run(clean, join(dir, 'bye.log'), bye)
+  // 七次启动都算 → 7（四次 true、c 带 shell 的 git、d 那一次、它后面那次 true）；八行打印，各自写完那一刻已起几次照上面右边标的次数：
+  // 第 1、2 次之后各一行；a 的两行 3、4；b 的两行都是 4；d 前后两行 5、7。退出码是传给 process.exit 的 5
   eq('计数预加载：验证者显式调 process.exit 退出，退出码照原样，日志读得出来、启动数与打印时已起几次都对',
-    [quit.status, quit.parsed?.total, printsOf(quit.parsed)], [5, 2, [['显式退出前起了一次', 1], ['显式退出前起了两次', 2]]])
-  // 两行 L、两行 O、一行 E，共 5 行；收尾只一行、在最后、两个数与前面对得上（不经 parseLaunchLog，直接看日志原行）
-  ok('计数预加载：验证者显式调 process.exit 退出，收尾那行照样写、只一行、仍是最后一行', quit.rows.length === 5
-    && quit.rows.filter(x => x.t === 'E').length === 1 && quit.rows.at(-1)?.t === 'E' && quit.rows.at(-1)?.launches === 2 && quit.rows.at(-1)?.prints === 2)
+    [quit.status, quit.parsed?.total, printsOf(quit.parsed)], [5, 7, [['显式退出前起了一次', 1], ['显式退出前起了两次', 2],
+      ['夹在半行中间', 3], ['两股各自切', 4], ['带回调写', 4], ['写的是字节', 4], ['转不成字符串之前', 5], ['转不成字符串之后', 7]]])
+  // 七行 L、八行 O、一行 E，共 16 行；收尾只一行、在最后、两个数与前面对得上（不经 parseLaunchLog，直接看日志原行）
+  ok('计数预加载：验证者显式调 process.exit 退出，收尾那行照样写、只一行、仍是最后一行', quit.rows.length === 16
+    && quit.rows.filter(x => x.t === 'E').length === 1 && quit.rows.at(-1)?.t === 'E' && quit.rows.at(-1)?.launches === 7 && quit.rows.at(-1)?.prints === 8)
 } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 

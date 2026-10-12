@@ -6185,6 +6185,20 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
   // 有计数的 3 种（t-bypass 缺计数，全跑没有基线）；会提前停的两条都付 51，并列取配置键在前的 s-drift；不提前停的只有 t-pass
   const tally = `启动数（只报数）：3 种配置有计数；会提前停的最多付 51 次（M-L-drift，${DRIFT}）；不提前停的启动×条数最多 100（${PASS}，20 × 5）`
   named('启动数入口：只报数那一行照格式打在 stdout 里', lines.some(l => l.trim() === tally), `应有一行：${tally}`)
+  // 人读的那几行（第十三节第 2 小节「输出」第 2 条）：有发现时一行标题，后面是 launchReport 的每一行、各缩进四格，都在「子集选跑」
+  // 那一行后面。这一跑有四条发现（上面 expected），所以标题必须在。其中 s-drift 那条不确定，照第十三节第 3 小节末的原文报两行：
+  // 第一行 drift 是上面手推的「整跑 51 次对 52 次」，缩进四格；第二行原文本身以四格起头，再缩进四格就是八格，紧跟在第一行后面。
+  // 全跑那条排在它前面（第九节），它的原文这里不推，只要求标题与这一行之间都是缩进四格的报告行
+  const subset = lines.findIndex(l => l.includes('子集选跑 8 条、4 种配置；整跑 1 条'))
+  const title = lines.findIndex(l => l.trim() === '照第三片的判法会报下面这些（这一片只报数，不判红）：')
+  named('启动数入口：有发现时打一行「照第三片的判法会报下面这些」，在子集选跑那一行后面', subset >= 0 && title > subset,
+    `子集选跑在第 ${subset} 行，标题在第 ${title} 行（-1 是没有）：\n${lines.slice(Math.max(subset, 0)).join('\n')}`)
+  const shaky1 = `    ✗ ${DRIFT} 的启动数不确定：同一棵树上两次正常基线不一样（整跑 51 次对 52 次），不按超线报`
+  const shaky2 = '        启动数不再是树的函数，判红就成了按运气红（第六节）：先查这种配置两次起的进程为什么不一样'
+  const at = lines.indexOf(shaky1)
+  named('启动数入口：标题后面是报告的每一行、各缩进四格，启动数不确定那一条的两行照原文挨着',
+    title >= 0 && at > title && lines[at + 1] === shaky2 && lines.slice(title + 1, at).every(l => l.startsWith('    ')),
+    `标题在第 ${title} 行，不确定那一条的第一行在第 ${at} 行（-1 是没有）：\n${lines.slice(Math.max(subset, 0)).join('\n')}`)
   // head 是维护比较的那个 head 提交（第十三节第 2 小节第 3 条）。玩具树由 mutationFixtureEnv 建成两个提交、把 HEAD^1 交给
   // MUTATE_BASE_SHA 当比较基线，所以 head 是玩具仓库的 HEAD（mutation-cost-entry 也把成本报告的 headSha 钉在 rev-parse HEAD 上）；
   // HEAD^1 一并取出来：写成比较基线那一个的话，两者不同，这条红
