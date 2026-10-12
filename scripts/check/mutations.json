@@ -11282,6 +11282,276 @@
       "kills": ["全跑那一条写明全跑变异没有基线计数、按规则视为超线"]
     },
     {
+      "id": "M-H52-s",
+      "req": "harness",
+      "why": "只有启动数不确定时也附上拆组那几条改法：人会去拆一个根本没超线的组",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (findings.every(f => f.kind === 'unsteady')) return lines",
+      "replace": "if (false) return lines",
+      "by": "test",
+      "kills": ["改法只在有启动数不确定以外的发现时才附"]
+    },
+    {
+      "id": "M-H52-t",
+      "req": "harness",
+      "why": "缺计数与已判不确定的配置也拿去重跑：白花一次整跑，缺计数的照样不放行",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "findings.flatMap(f => f.kind === 'paid' || f.kind === 'product' ? [f.config] : [])",
+      "replace": "findings.flatMap(f => f.kind !== 'full-run' ? [f.config] : [])",
+      "by": "test",
+      "kills": ["要再跑一次的配置：有超线发现的配置键去重、按字符串比较排，全跑、缺基线与已判不确定的不重跑"]
+    },
+    {
+      "id": "M-H52-u",
+      "req": "harness",
+      "why": "重跑那一次没有计数时照原样按超线报：拿不准的数判了红",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "const drift = b === undefined ? '第二次没有计数' : a === undefined ? '第一次没有计数' : launchDrift(a, b)",
+      "replace": "const drift = a === undefined || b === undefined ? undefined : launchDrift(a, b)",
+      "by": "test",
+      "kills": ["重跑确认：两次不一样或缺一次计数的配置，超线发现换成一条启动数不确定，放在它原来第一条发现的位置"]
+    },
+    {
+      "id": "M-H52-v",
+      "req": "harness",
+      "why": "同一种配置的每条超线发现各换成一条不确定：一种配置报好几遍",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (!placed.has(f.config)) out.push(",
+      "replace": "out.push(",
+      "by": "test",
+      "kills": ["重跑确认：两次不一样或缺一次计数的配置，超线发现换成一条启动数不确定，放在它原来第一条发现的位置"]
+    },
+    {
+      "id": "M-H52-w",
+      "req": "harness",
+      "why": "重跑两次一样的配置也换成不确定：真超线的配置永远判不了红",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (drift !== undefined) drifts.set(key, drift)",
+      "replace": "drifts.set(key, drift ?? '')",
+      "by": "test",
+      "kills": ["重跑确认：两次计数一样的配置照原样留下，全跑与缺基线的发现不动"]
+    },
+    {
+      "id": "M-H52-x",
+      "req": "harness",
+      "why": "会提前停的变异也算进不提前停的条数：只报数那一行的乘积虚高",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "running: routed.length - stopping.length",
+      "replace": "running: routed.length",
+      "by": "test",
+      "kills": ["计数汇总：有变异落到又有计数的配置各一行，会提前停的列每条付几次，不提前停的数条数"]
+    },
+    {
+      "id": "M-H52-y",
+      "req": "harness",
+      "why": "会提前停的付费并列时取先交进来的那条：同一份计数换个先后，报的那一条就变",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "|| (p.paid === paid.paid && before([t.config, p.id], [paid.config, paid.id]))",
+      "replace": "",
+      "by": "test",
+      "kills": ["只报数那一行：几种配置有计数、会提前停的最多付几次、不提前停的启动乘条数最多多少，并列取配置键再取编号在前的"]
+    },
+    {
+      "id": "M-H52-z",
+      "req": "harness",
+      "why": "不提前停的乘积并列时取先交进来的那种配置：同一份计数换个先后，报的那一种就变",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "|| (x === product.launches * product.running && before([t.config], [product.config]))",
+      "replace": "",
+      "by": "test",
+      "kills": ["只报数那一行：几种配置有计数、会提前停的最多付几次、不提前停的启动乘条数最多多少，并列取配置键再取编号在前的"]
+    },
+    {
+      "id": "M-H52-aa",
+      "req": "harness",
+      "why": "没有不提前停变异的配置也进乘积那一栏：本该写没有，报成一个乘积是 0 的配置",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (t.running > 0 && (product === undefined",
+      "replace": "if ((product === undefined",
+      "by": "test",
+      "kills": ["只报数那一行：没有会提前停的、没有不提前停的，各写没有"]
+    },
+    {
+      "id": "M-H52-ab",
+      "req": "harness",
+      "why": "不提前停的按启动数取最大、不按启动乘条数：条数多的那种配置被漏看",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "|| x > product.launches * product.running",
+      "replace": "|| t.launches > product.launches",
+      "by": "test",
+      "kills": ["只报数那一行：几种配置有计数、会提前停的最多付几次、不提前停的启动乘条数最多多少，并列取配置键再取编号在前的"]
+    },
+    {
+      "id": "M-H53-a",
+      "req": "harness",
+      "why": "原来的 NODE_OPTIONS 不交给预加载还原：验证者起的子进程丢了用户自己的 Node 选项，正常基线与变异运行跑在两种环境里",
+      "file": "scripts/check/launch-count.ts",
+      "find": "[LAUNCH_COUNT_ENV]: JSON.stringify(before === undefined",
+      "replace": "[LAUNCH_COUNT_ENV]: JSON.stringify(true",
+      "by": "test",
+      "kills": ["计数环境：原来的 NODE_OPTIONS 留在前面、隔一个空格，原样记进 options，旧的 LAUNCH_COUNT 换掉"]
+    },
+    {
+      "id": "M-H53-b",
+      "req": "harness",
+      "why": "原来的 NODE_OPTIONS 被换成只剩预加载：验证者进程自己丢了那些选项（比如内存上限），正常基线不是用户那份环境",
+      "file": "scripts/check/launch-count.ts",
+      "find": "? load : `${before} ${load}`",
+      "replace": "? load : load",
+      "by": "test",
+      "kills": ["计数环境：原来的 NODE_OPTIONS 留在前面、隔一个空格，原样记进 options，旧的 LAUNCH_COUNT 换掉"]
+    },
+    {
+      "id": "M-H53-c",
+      "req": "harness",
+      "why": "只给一整条命令、经 shell 起的 git 也当 git 不算：真起的是一个 shell，那次启动从账上消失",
+      "file": "scripts/check/launch-count.ts",
+      "find": "return DIRECT.has(api) && !shell &&",
+      "replace": "return !shell &&",
+      "by": "test",
+      "kills": ["git 口径：exec、execSync 起的是 shell、fork 起的是 node，命令写 git 也算"]
+    },
+    {
+      "id": "M-H53-d",
+      "req": "harness",
+      "why": "带 shell 选项起的 git 也不算：真起的是 shell，账面少记",
+      "file": "scripts/check/launch-count.ts",
+      "find": "&& !shell &&",
+      "replace": "&&",
+      "by": "test",
+      "kills": ["git 口径：带 shell 起的 git 算"]
+    },
+    {
+      "id": "M-H53-e",
+      "req": "harness",
+      "why": "路径只按正斜杠切：反斜杠写的 git.exe 认不出，按普通启动算，同一棵树在两种系统上数出两个数",
+      "file": "scripts/check/launch-count.ts",
+      "find": "file.split(/[/\\\\]/)",
+      "replace": "file.split('/')",
+      "by": "test",
+      "kills": ["git 口径：路径按 / 与 \\ 都切开，只看最后一段"]
+    },
+    {
+      "id": "M-H53-f",
+      "req": "harness",
+      "why": "git 也算进启动数：账面多出每条变异都付的 git 调用，与决策记录的计数单位不一样",
+      "file": "scripts/check/launch-count.ts",
+      "find": "if (!isGit(e.api as string, e.file, e.shell === true)) counted++",
+      "replace": "counted++",
+      "by": "test",
+      "kills": ["计数日志：只数不是 git 的启动，每行打印按先后记下正文与它之前起了几次"]
+    },
+    {
+      "id": "M-H53-g",
+      "req": "harness",
+      "why": "收尾行后面还有行也认：exit 之后多记的、或被别的进程续写的行被悄悄丢掉",
+      "file": "scripts/check/launch-count.ts",
+      "find": "return i === lines.length - 1 && e.launches",
+      "replace": "return e.launches",
+      "by": "test",
+      "kills": ["计数日志认不得：没有收尾行、收尾行不止一行、收尾行不是最后一行"]
+    },
+    {
+      "id": "M-H53-h",
+      "req": "harness",
+      "why": "收尾行的启动数不核：预加载写丢一行启动，账面少一次也照收",
+      "file": "scripts/check/launch-count.ts",
+      "find": "&& e.launches === launches &&",
+      "replace": "&&",
+      "by": "test",
+      "kills": ["计数日志认不得：收尾行记的启动数（git 也算在内）或打印数与行数对不上"]
+    },
+    {
+      "id": "M-H53-i",
+      "req": "harness",
+      "why": "收尾行的打印数不核：预加载写丢一行打印，那条标签像是没打印过、付费记成整个配置",
+      "file": "scripts/check/launch-count.ts",
+      "find": "&& e.prints === prints.length",
+      "replace": "",
+      "by": "test",
+      "kills": ["计数日志认不得：收尾行记的启动数（git 也算在内）或打印数与行数对不上"]
+    },
+    {
+      "id": "M-H53-j",
+      "req": "harness",
+      "why": "启动行的 shell 写成 true 以外的值也认：日志格式坏了照样拿来判",
+      "file": "scripts/check/launch-count.ts",
+      "find": "if (e.shell !== undefined && e.shell !== true) return undefined",
+      "replace": "if (false) return undefined",
+      "by": "test",
+      "kills": ["计数日志认不得：启动行写了 shell 却不是 true"]
+    },
+    {
+      "id": "M-H53-k",
+      "req": "harness",
+      "why": "不以 ✓、✗ 开头的打印行也认：不是断言结果的一行被当成某条标签的打印",
+      "file": "scripts/check/launch-count.ts",
+      "find": "if (!line.startsWith('✓ ') && !line.startsWith('✗ ')) return undefined",
+      "replace": "if (false) return undefined",
+      "by": "test",
+      "kills": ["计数日志认不得：打印行的 line 不是字符串，或去掉行首空白后不以「✓ 」「✗ 」开头"]
+    },
+    {
+      "id": "M-H53-l",
+      "req": "harness",
+      "why": "行首带缩进的结果行认不得：需求测试的断言行都缩进两格，整份计数作废",
+      "file": "scripts/check/launch-count.ts",
+      "find": "const line = e.line.trimStart()",
+      "replace": "const line = e.line",
+      "by": "test",
+      "kills": ["计数日志：只数不是 git 的启动，每行打印按先后记下正文与它之前起了几次"]
+    },
+    {
+      "id": "M-H53-m",
+      "req": "harness",
+      "why": "末尾那个换行之后的空串也当一行读：每份写完的日志都认不得",
+      "file": "scripts/check/launch-count.ts",
+      "find": "if (lines[lines.length - 1] === '') lines.pop()",
+      "replace": "",
+      "by": "test",
+      "kills": ["计数日志：一次没起、一行没打也认得，是 0 不是认不得"]
+    },
+    {
+      "id": "M-H53-n",
+      "req": "harness",
+      "why": "写坏的一行跳过不管：预加载写到一半被打断的那行没了，剩下的照样拿来判",
+      "file": "scripts/check/launch-count.ts",
+      "find": "catch { return undefined }",
+      "replace": "catch { continue }",
+      "by": "test",
+      "kills": ["计数日志认不得：某行不是 JSON 对象，或 t 不是 L、O、E"]
+    },
+    {
+      "id": "M-H53-o",
+      "req": "harness",
+      "why": "启动行的名字不在那七个里也认：日志格式变了，计数照旧拿来判",
+      "file": "scripts/check/launch-count.ts",
+      "find": "!LAUNCH_APIS.includes(e.api as never) || ",
+      "replace": "",
+      "by": "test",
+      "kills": ["计数日志认不得：启动行的 api 不在那七个名字里"]
+    },
+    {
+      "id": "M-H53-p",
+      "req": "harness",
+      "why": "两次整跑次数不同不算出入：只差在最后一行打印之后的启动，判不出不确定",
+      "file": "scripts/check/launch-count.ts",
+      "find": "if (a.total !== b.total) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": ["两次计数整跑次数不同：先报这个，哪怕打印也不同"]
+    },
+    {
+      "id": "M-H53-q",
+      "req": "harness",
+      "why": "两次只差在某行打印时已起几次也算一样：付费随运气变，照样按超线报",
+      "file": "scripts/check/launch-count.ts",
+      "find": "if (p.launched !== q.launched) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": ["两次计数逐行比：正文相同、记下时已起几次不同，报那一行与两边的次数"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
