@@ -131,7 +131,7 @@ export function launchReport(findings: readonly LaunchFinding[]): string[] {
       lines.push(`✗ ${f.config} 的启动数不确定：同一棵树上两次正常基线不一样（${f.drift}），不按超线报`,
         '    启动数不再是树的函数，判红就成了按运气红（第六节）：先查这种配置两次起的进程为什么不一样')
   }
-  // 改法是给超线与缺计数的；只有「不确定」时附上它们，等于叫人去拆一个没超线的组
+  // 改法是给超线与缺计数的；只有「不确定」时附上它们，等于叫人去拆一个没判成超线的组
   if (findings.every(f => f.kind === 'unsteady')) return lines
   lines.push('  改法只有三种：拆组（按变异点名的用例拆，ADR-131）；',
     '        把覆盖整个矩阵的一条断言改成每个用例各一条；',
@@ -146,8 +146,9 @@ export function launchRecheck(findings: readonly LaunchFinding[]): string[] {
 }
 
 /**
- * 拿重跑的计数确认（第一节末）：两次不同、或有一次没有计数，这种配置的超线发现换成一条 `unsteady`，
- * 放在它原来第一条的位置；两次相同就原样留下。别的发现不动。
+ * 拿重跑的计数确认（第一节末）：两次都有计数而且不同，这种配置的超线发现换成一条 `unsteady`，
+ * 放在它原来第一条的位置；两次相同就原样留下。有一次没有计数也原样留下：缺数照第五节末是红的，
+ * 不能因为重跑那次没写全，超线就换成不确定、不按超线报。别的发现不动。
  */
 export function settleLaunches(findings: readonly LaunchFinding[], first: ReadonlyMap<string, BaselineLaunches>,
   again: ReadonlyMap<string, BaselineLaunches | undefined>): LaunchFinding[] {
@@ -155,7 +156,7 @@ export function settleLaunches(findings: readonly LaunchFinding[], first: Readon
   for (const key of launchRecheck(findings)) {
     const a = first.get(key)
     const b = again.get(key)
-    const drift = b === undefined ? '第二次没有计数' : a === undefined ? '第一次没有计数' : launchDrift(a, b)
+    const drift = a === undefined || b === undefined ? undefined : launchDrift(a, b)
     if (drift !== undefined) drifts.set(key, drift)
   }
   const out: LaunchFinding[] = []

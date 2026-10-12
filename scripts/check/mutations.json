@@ -11284,7 +11284,7 @@
     {
       "id": "M-H52-s",
       "req": "harness",
-      "why": "只有启动数不确定时也附上拆组那几条改法：人会去拆一个根本没超线的组",
+      "why": "只有启动数不确定时也附上拆组那几条改法：人会去拆一个没判成超线的组",
       "file": "scripts/check/launch-rule.ts",
       "find": "if (findings.every(f => f.kind === 'unsteady')) return lines",
       "replace": "if (false) return lines",
@@ -11304,12 +11304,12 @@
     {
       "id": "M-H52-u",
       "req": "harness",
-      "why": "重跑那一次没有计数时照原样按超线报：拿不准的数判了红",
+      "why": "重跑那一次没有计数时把超线换成不确定、不按超线报：预加载在第二次写坏一回，超线就从判红里溜走",
       "file": "scripts/check/launch-rule.ts",
-      "find": "const drift = b === undefined ? '第二次没有计数' : a === undefined ? '第一次没有计数' : launchDrift(a, b)",
-      "replace": "const drift = a === undefined || b === undefined ? undefined : launchDrift(a, b)",
+      "find": "const drift = a === undefined || b === undefined ? undefined : launchDrift(a, b)",
+      "replace": "const drift = a === undefined || b === undefined ? '没有计数' : launchDrift(a, b)",
       "by": "test",
-      "kills": ["重跑确认：两次不一样或缺一次计数的配置，超线发现换成一条启动数不确定，放在它原来第一条发现的位置"]
+      "kills": ["重跑确认：有一次没有计数的配置，超线发现照原样留下"]
     },
     {
       "id": "M-H52-v",
@@ -11319,12 +11319,12 @@
       "find": "if (!placed.has(f.config)) out.push(",
       "replace": "out.push(",
       "by": "test",
-      "kills": ["重跑确认：两次不一样或缺一次计数的配置，超线发现换成一条启动数不确定，放在它原来第一条发现的位置"]
+      "kills": ["重跑确认：两次计数不一样的配置，超线发现换成一条启动数不确定，放在它原来第一条发现的位置"]
     },
     {
       "id": "M-H52-w",
       "req": "harness",
-      "why": "重跑两次一样的配置也换成不确定：真超线的配置永远判不了红",
+      "why": "重跑两次一样的配置也换成不确定：真超线的配置报成不确定、不按超线报，主干上一超线就触发退成只报数",
       "file": "scripts/check/launch-rule.ts",
       "find": "if (drift !== undefined) drifts.set(key, drift)",
       "replace": "drifts.set(key, drift ?? '')",
@@ -11404,7 +11404,7 @@
     {
       "id": "M-H53-c",
       "req": "harness",
-      "why": "只给一整条命令、经 shell 起的 git 也当 git 不算：真起的是一个 shell，那次启动从账上消失",
+      "why": "命令正好是裸 git、经 shell 起的那次也当 git 不算：真起的是一个 shell，那次启动从账上消失",
       "file": "scripts/check/launch-count.ts",
       "find": "return DIRECT.has(api) && !shell &&",
       "replace": "return !shell &&",
@@ -11424,7 +11424,7 @@
     {
       "id": "M-H53-e",
       "req": "harness",
-      "why": "路径只按正斜杠切：反斜杠写的 git.exe 认不出，按普通启动算，同一棵树在两种系统上数出两个数",
+      "why": "路径只按正斜杠切：Windows 上反斜杠写的 git.exe 认不出、按普通启动算，同一棵树在 Windows 上多数出 git 那几次",
       "file": "scripts/check/launch-count.ts",
       "find": "file.split(/[/\\\\]/)",
       "replace": "file.split('/')",
@@ -11464,7 +11464,7 @@
     {
       "id": "M-H53-i",
       "req": "harness",
-      "why": "收尾行的打印数不核：预加载写丢一行打印，那条标签像是没打印过、付费记成整个配置",
+      "why": "收尾行记的打印数与打印行数对不上也照收：预加载少记或多记了一行打印，付费按缺了行的日志算",
       "file": "scripts/check/launch-count.ts",
       "find": "&& e.prints === prints.length",
       "replace": "",
@@ -11514,7 +11514,7 @@
     {
       "id": "M-H53-n",
       "req": "harness",
-      "why": "写坏的一行跳过不管：预加载写到一半被打断的那行没了，剩下的照样拿来判",
+      "why": "日志里多出一行写坏的、其余都对得上时照收：混进日志的半行被悄悄丢掉，计数照旧拿来判",
       "file": "scripts/check/launch-count.ts",
       "find": "catch { return undefined }",
       "replace": "catch { continue }",
@@ -11550,6 +11550,46 @@
       "replace": "if (false) return",
       "by": "test",
       "kills": ["两次计数逐行比：正文相同、记下时已起几次不同，报那一行与两边的次数"]
+    },
+    {
+      "id": "M-H53-r",
+      "req": "harness",
+      "why": "第二次比第一次多打了几行也算一样：多出的打印都在比过的那几行之后，判不出不确定",
+      "file": "scripts/check/launch-count.ts",
+      "find": "if (a.prints.length !== b.prints.length) return",
+      "replace": "if (a.prints.length > b.prints.length) return",
+      "by": "test",
+      "kills": ["两次计数整跑相同、打印行数不同：报行数，哪一边多都报"]
+    },
+    {
+      "id": "M-H53-s",
+      "req": "harness",
+      "why": "没有收尾行也照样交回计数：预加载被杀或验证者绕过 exit 退出时，写了一半的日志被当成完整的数",
+      "file": "scripts/check/launch-count.ts",
+      "find": "日志是半份\n  return undefined",
+      "replace": "日志是半份\n  return { total: counted, prints }",
+      "by": "test",
+      "kills": ["计数日志认不得：没有收尾行、收尾行不止一行、收尾行不是最后一行"]
+    },
+    {
+      "id": "M-H53-t",
+      "req": "harness",
+      "why": "两次只差在某行打的是哪条断言也算一样（只要已起次数相同）：打印的先后变了的配置照样按超线报",
+      "file": "scripts/check/launch-count.ts",
+      "find": "if (p.body !== q.body) return",
+      "replace": "if (false) return",
+      "by": "test",
+      "kills": ["两次计数逐行比：报从 1 数的第一处出入，正文不同报两边的正文"]
+    },
+    {
+      "id": "M-H53-u",
+      "req": "harness",
+      "why": "认不得的行类型跳过不管：日志里混进别的东西，计数照旧拿来判",
+      "file": "scripts/check/launch-count.ts",
+      "find": "    } else return undefined",
+      "replace": "    }",
+      "by": "test",
+      "kills": ["计数日志认不得：某行不是 JSON 对象，或 t 不是 L、O、E"]
     },
     {
       "id": "M-D20-a",

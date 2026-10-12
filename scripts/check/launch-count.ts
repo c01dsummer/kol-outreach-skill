@@ -9,7 +9,10 @@
  */
 import type { BaselineLaunches, LaunchPrint } from './launch-rule.js'
 
-/** 预加载认的那个环境变量。预加载只能 import `node:` 内建，不能从这里取，得另写一份同样的字面量 */
+/**
+ * 预加载认的那个环境变量。预加载不能从这里取，得另写一份同样的字面量：它也在 tsx 的壳里加载，那里没有 tsx 的转换，
+ * 本仓库按 `.js` 写的相对导入解析不到 `.ts` 文件，所以它只 import `node:` 内建（ADR-145 第十三节第 1 小节）
+ */
 export const LAUNCH_COUNT_ENV = 'LAUNCH_COUNT'
 /** 预加载包住的七个函数，也是日志里 `api` 认得的全部名字（promisify 版记成原名） */
 export const LAUNCH_APIS = ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork'] as const
@@ -63,6 +66,7 @@ export function parseLaunchLog(text: string): BaselineLaunches | undefined {
       prints.push({ body: line.slice(2), launched: counted })
     } else return undefined
   }
+  // 走完了还没见到 E：预加载没走到 exit（被杀、绕过 exit 退出），日志是半份
   return undefined
 }
 

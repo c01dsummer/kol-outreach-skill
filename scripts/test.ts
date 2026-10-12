@@ -8051,8 +8051,9 @@ ok('报错文本写明上限只由决策记录调', reportText.includes('上限�
 
 // ══ 第二片（第十三节第 1、3 小节）：读计数日志、两次计数比对、重跑确认、只报数那一行。同样先于实现写成，
 // 期望值只从第十三节推，没读 launch-count 与本片对判定模块的改动
-eq('计数预加载认的环境变量叫 LAUNCH_COUNT', LAUNCH_COUNT_ENV, 'LAUNCH_COUNT')
-eq('计数预加载包住的是那七个起进程的函数，也是日志里认得的全部名字', LAUNCH_APIS, ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork'])
+// 预加载另写一份同样的字面量（它不能从 launch-count 取）；两份对不对得上由 2b 的 h-launch-preload 真起进程去验
+eq('读日志这一侧认的计数环境变量叫 LAUNCH_COUNT', LAUNCH_COUNT_ENV, 'LAUNCH_COUNT')
+eq('读日志这一侧认得的起进程函数是那七个', LAUNCH_APIS, ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork'])
 
 // ── 计数环境：env 每项原样，外加 NODE_OPTIONS（原来的有且不空才垫在前面、隔一个空格）与 LAUNCH_COUNT（原来有 NODE_OPTIONS 就原样记进 options，空串也记）
 // 路径里带空格：JSON.stringify 给它加上双引号，空格留在引号里
@@ -8105,8 +8106,9 @@ eq('计数日志认不得：启动行写了 shell 却不是 true',
 eq('计数日志认不得：打印行的 line 不是字符串，或去掉行首空白后不以「✓ 」「✗ 」开头',
   [sick(L1, Or(7), E11), sick(L1, Or(null), E11), sick(L1, { t: 'O' }, E11), sick(L1, Or('甲'), E11), sick(L1, Or('✓甲'), E11), sick(L1, Or('✔ 甲'), E11), sick(L1, Or('看 ✓ 甲'), E11)],
   [true, true, true, true, true, true, true])
+// 后两个收尾行记的数都对得上，只错在它后面还有行
 eq('计数日志认不得：没有收尾行、收尾行不止一行、收尾行不是最后一行',
-  [sick(L1, O1), sick(L1, O1, E11, E11), sick(L1, E11, O1), sick(E11, L1, O1)], [true, true, true, true])
+  [sick(L1, O1), sick(L1, O1, E11, E11), sick(L1, O1, E11, O1), sick(Er(0, 0), L1, O1)], [true, true, true, true])
 // 第一个：两行 L 里一行是 git，收尾记 1（只数了不是 git 的）—— launches 数的是全部 L 行
 eq('计数日志认不得：收尾行记的启动数（git 也算在内）或打印数与行数对不上',
   [sick(L1, Lr('spawnSync', 'git'), O1, Er(1, 1)), sick(L1, O1, Er(2, 1)), sick(L1, O1, Er(1, 0)), sick(L1, O1, Er(1, 2))], [true, true, true, true])
@@ -8115,7 +8117,8 @@ eq('计数日志认不得：收尾行记的启动数（git 也算在内）或打
 const A3 = base(30, pr('甲', 2), pr('乙', 5), pr('丙', 9))
 eq('两次计数完全一样时没有出入', [launchDrift(A3, base(30, pr('甲', 2), pr('乙', 5), pr('丙', 9))) === undefined, launchDrift(base(0), base(0)) === undefined], [true, true])
 eq('两次计数整跑次数不同：先报这个，哪怕打印也不同', launchDrift(A3, base(31, pr('丁', 1))), '整跑 30 次对 31 次')
-eq('两次计数整跑相同、打印行数不同：报行数', launchDrift(A3, base(30, pr('甲', 2), pr('乙', 5))), '打印 3 行对 2 行')
+const A2 = base(30, pr('甲', 2), pr('乙', 5))
+eq('两次计数整跑相同、打印行数不同：报行数，哪一边多都报', [launchDrift(A3, A2), launchDrift(A2, A3)], ['打印 3 行对 2 行', '打印 2 行对 3 行'])
 // 第 2 行正文与 launched 都不同：正文在先；第 3 行也不同，但只报第一处
 eq('两次计数逐行比：报从 1 数的第一处出入，正文不同报两边的正文', launchDrift(A3, base(30, pr('甲', 2), pr('丁', 6), pr('戊', 9))), '第 2 行打印的不同：「乙」对「丁」')
 eq('两次计数逐行比：正文相同、记下时已起几次不同，报那一行与两边的次数', launchDrift(A3, base(30, pr('甲', 2), pr('乙', 6), pr('戊', 9))), '第 2 行「乙」打印时 5 次对 6 次')
@@ -8133,12 +8136,16 @@ const B30 = base(30, pr('甲', 2)), first = new Map([['ka', B30], ['kc', base(34
 eq('重跑确认：两次计数一样的配置照原样留下，全跑与缺基线的发现不动',
   loose(settleLaunches([FULL, over('ka', 'M-1'), MISS, many('kf', 'N-3')], first, new Map([['ka', base(30, pr('甲', 2))], ['kf', B30]]))),
   loose([FULL, over('ka', 'M-1'), MISS, many('kf', 'N-3')]))
-// kc 整跑 34 对 35；kd 第二次没这个键、kf 第二次的值是 undefined → 第二次没有计数；kg 第一次没有；ka 两次一样照留。
-// kd 的两条在第 3、7 位：换成一条放在第 3 位，第 7 位那条拿掉
-eq('重跑确认：两次不一样或缺一次计数的配置，超线发现换成一条启动数不确定，放在它原来第一条发现的位置',
-  loose(settleLaunches([FULL, over('ka', 'M-1'), over('kd', 'M-4'), MISS, many('kc', 'N-1', 'N-2'), over('ka', 'M-2'), over('kd', 'M-5'), many('kf', 'N-3'), over('kg', 'M-7')],
-    first, new Map<string, BaselineLaunches | undefined>([['ka', base(30, pr('甲', 2))], ['kc', base(35)], ['kf', undefined], ['kg', B30]]))),
-  loose([FULL, over('ka', 'M-1'), shaky('kd', '第二次没有计数'), MISS, shaky('kc', '整跑 34 次对 35 次'), over('ka', 'M-2'), shaky('kf', '第二次没有计数'), shaky('kg', '第一次没有计数')]))
+// kc 整跑 34 对 35；kd 第 1 行打印时 2 次对 3 次；ka 两次一样照留。kd 的两条在第 3、7 位：换成一条放在第 3 位，第 7 位那条拿掉
+eq('重跑确认：两次计数不一样的配置，超线发现换成一条启动数不确定，放在它原来第一条发现的位置',
+  loose(settleLaunches([FULL, over('ka', 'M-1'), over('kd', 'M-4'), MISS, many('kc', 'N-1', 'N-2'), over('ka', 'M-2'), over('kd', 'M-5')],
+    first, new Map([['ka', base(30, pr('甲', 2))], ['kc', base(35)], ['kd', base(30, pr('甲', 3))]]))),
+  loose([FULL, over('ka', 'M-1'), shaky('kd', '第 1 行「甲」打印时 2 次对 3 次'), MISS, shaky('kc', '整跑 34 次对 35 次'), over('ka', 'M-2')]))
+// kd 第二次没这个键、kf 第二次的值是 undefined、kg 第一次没有：缺数是红的（第五节末），不换成不确定
+eq('重跑确认：有一次没有计数的配置，超线发现照原样留下',
+  loose(settleLaunches([over('kd', 'M-4'), many('kf', 'N-3'), over('kg', 'M-7')], first,
+    new Map<string, BaselineLaunches | undefined>([['kf', undefined], ['kg', B30]]))),
+  loose([over('kd', 'M-4'), many('kf', 'N-3'), over('kg', 'M-7')]))
 
 // ── 计数汇总（参数同 launchFindings）：有变异落到、也有计数的配置各一行，按配置键排；会提前停的每条都列付几次（没超线的也列），
 // 不提前停的只数条数；全跑的 F-a、没计数的 g9、没人落到的 idle 都不在里面。g1：自检甲第 10 次、自检乙第 51 次打印
