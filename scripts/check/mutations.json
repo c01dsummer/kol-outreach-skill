@@ -328,6 +328,34 @@
       "replace": "  new RegExp(String.raw`[\\w.+-]+\\s+at\\s+[\\w-]+(?:\\s*${DOT_ANY}\\s*[\\w-]+)+`, 'gi'),"
     },
     {
+      "id": "M-D7-b",
+      "req": "D7.c",
+      "why": "@ 前面允许隔空白而后面紧贴名字 —— 'follow @jane.doe' 这类 @提及会被拼成一个假邮箱",
+      "by": "test",
+      "kills": [
+        "不误判 \"follow @jane.doe\"",
+        "不误判 \"dm @brand.official for collabs\"",
+        "不误判换行后的 @提及",
+        "@提及之后的真邮箱照样取到",
+        "@ 前面多一个空格的真邮箱与 @提及分不开，宁可漏取"
+      ],
+      "file": "scripts/lib/email.ts",
+      "find": "const AT_SYM = String.raw`(?:@|\\s+@(?=\\s)|",
+      "replace": "const AT_SYM = String.raw`(?:\\s*@|"
+    },
+    {
+      "id": "M-D7-c",
+      "req": "D7.c",
+      "why": "@ 一律要求紧贴前面的名字 —— 'press @ example.com' 这种两边隔空格的邮箱取不到了",
+      "by": "test",
+      "kills": [
+        "@ 两边都隔空格仍是邮箱"
+      ],
+      "file": "scripts/lib/email.ts",
+      "find": "const AT_SYM = String.raw`(?:@|\\s+@(?=\\s)|",
+      "replace": "const AT_SYM = String.raw`(?:@|"
+    },
+    {
       "id": "M-D5-a",
       "req": "D5",
       "why": "去掉 CSV 转义 —— 含换行的开发信会把表格撑烂",

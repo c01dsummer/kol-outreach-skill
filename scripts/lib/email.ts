@@ -7,13 +7,16 @@
  *
  * 两条模式而非一条：符号 @ 可以配任意 dot 形式；但**拼写出来的 " at " 必须配
  * 拼写出来的 " dot "**。否则 "look at gmail.com" 这类正常语句会被误判成邮箱。
+ *
+ * 符号 @ 前面隔了空白、后面紧贴着名字的，是 @提及（"follow @jane.doe"），不是邮箱：
+ * 那个 @ 要么紧贴前面的名字，要么两边都隔空白（"press @ example.com"）。
  */
-const AT_SYM = String.raw`(?:@|\(\s*at\s*\)|\[\s*at\s*\])`
+const AT_SYM = String.raw`(?:@|\s+@(?=\s)|\s*\(\s*at\s*\)|\s*\[\s*at\s*\])`
 const DOT_ANY = String.raw`(?:\.|\(\s*dot\s*\)|\[\s*dot\s*\]|\s+dot\s+)`
 const DOT_SPELLED = String.raw`(?:\(\s*dot\s*\)|\[\s*dot\s*\]|\s+dot\s+)`
 
 const PATTERNS = [
-  new RegExp(String.raw`[\w.+-]+\s*${AT_SYM}\s*[\w-]+(?:\s*${DOT_ANY}\s*[\w-]+)+`, 'gi'),
+  new RegExp(String.raw`[\w.+-]+${AT_SYM}\s*[\w-]+(?:\s*${DOT_ANY}\s*[\w-]+)+`, 'gi'),
   new RegExp(String.raw`[\w.+-]+\s+at\s+[\w-]+(?:\s*${DOT_SPELLED}\s*[\w-]+)+`, 'gi'),
 ]
 
