@@ -8222,6 +8222,8 @@ fs.writeFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json','controll
     return dir;
   };
   const d27InOrder = (said: string, tokens: readonly string[]) => { let i = 0; for (const token of tokens) { const j = said.indexOf(token, i); if (j < 0) return false; i = j + token.length; } return true; };
+  // 对照只核照常保存（退出码、status、保存路径），不核 added_accounts：那一项归 D26.n 的断言，核了它 M-D26-n 就落进对照、带夹具记号，记不上功
+  const d27Saved = (r: ReturnType<typeof runBoth>, dir: string, status: string) => { const v = parseJson(r.stdout); return r.status === 0 && v?.status === status && v?.file === join(dir, 'manual-feedback.csv') && existsSync(join(dir, 'manual-feedback.csv')); };
   const d27Bad: string[] = [], d27Refused: string[] = [], d27Hidden: string[] = [];
   let d27Ran = 0;
   for (const [id, dup, last, at, tokens, append] of d27Cases) {
@@ -8229,7 +8231,7 @@ fs.writeFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json','controll
     if (lastText === undefined || dupText === undefined) { d27Bad.push(`${id}: 夹具里找不到要改的原文`); continue; }
     const controlDir = d27Fixture(`d27-${id}-control`, lastText, append), c = invoke(`模板写重复键对照运行-${id}`, controlDir, args(controlDir));
     if (!c.ok) continue;
-    if (!protocol(c, controlDir, append ? 'append' : 'create', append ? 2 : 3)) { d27Bad.push(`${id}: 只留最后一处时 exit=${c.status} stdout=${JSON.stringify(c.stdout)} stderr=${stderrTail(c.stderr)}`); continue; }
+    if (!d27Saved(c, controlDir, append ? 'append' : 'create')) { d27Bad.push(`${id}: 只留最后一处时 exit=${c.status} stdout=${JSON.stringify(c.stdout)} stderr=${stderrTail(c.stderr)}`); continue; }
     const dir = d27Fixture(`d27-${id}`, dupText, append), csvBefore = read(join(dir, 'manual-feedback.csv')), label = `模板写重复键运行-${id}`;
     const r = invoke(label, dir, args(dir), 2);
     if (!r.ok) continue;
