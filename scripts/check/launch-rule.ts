@@ -15,6 +15,7 @@
  * 不设豁免。超线的改法只有三种，写在 `launchReport` 的末尾；调线要改这里的常量、写决策记录、由需求所有者批。
  */
 import { configurationKey } from './jobs-rule.js'
+import { launchDrift } from './launch-count.js'
 import { VERIFIERS, stopsEarly } from './mutate-rule.js'
 
 export const LAUNCH_LIMIT = { paid: 50, product: 100 } as const
@@ -36,6 +37,8 @@ export type LaunchFinding =
   | { readonly kind: 'product'; readonly config: string; readonly launches: number; readonly ids: readonly string[] }
   | { readonly kind: 'full-run'; readonly id: string }
   | { readonly kind: 'missing'; readonly config: string; readonly ids: readonly string[] }
+  /** 超线的配置再跑一次基线，两次计数不同（第一节末）：不报超线，报这一条 */
+  | { readonly kind: 'unsteady'; readonly config: string; readonly drift: string }
 
 /**
  * 一行正文归到哪条声明标签：**最长的** `L`，使正文等于 `L`、或以 `L：`、`L（` 开头。
@@ -69,6 +72,19 @@ export function paidLaunches(kills: readonly string[], baseline: BaselineLaunche
 
 const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
+/** 按配置分组：配置键排好，组里按 id 排；全跑的（没选组）单列，也按 id 排。判定与汇总共用这一份 */
+function byConfiguration(mutations: readonly LaunchMutation[]): { fullRun: string[]; configs: [string, LaunchMutation[]][] } {
+  const fullRun: string[] = []
+  const byConfig = new Map<string, LaunchMutation[]>()
+  for (const m of mutations) {
+    if (m.only === undefined) { fullRun.push(m.id); continue }
+    const key = configurationKey({ by: m.by, only: m.only, executes: [] })
+    byConfig.set(key, [...byConfig.get(key) ?? [], m])
+  }
+  return { fullRun: fullRun.sort(byText),
+    configs: [...byConfig.keys()].sort(byText).map(key => [key, [...byConfig.get(key)!].sort((a, b) => byText(a.id, b.id))]) }
+}
+
 /**
  * 两条规则的判定。`baselines` 以 `configurationKey` 为键；`declared` 是每个验证者的声明标签清单。
  * 顺序：全跑的按 id 排在前，其余先按配置键、同一配置里 `paid` 按变异 id。
@@ -78,16 +94,9 @@ export function launchFindings(
   baselines: ReadonlyMap<string, BaselineLaunches>,
   declared: Readonly<Record<LaunchVerifier, readonly string[]>>,
 ): LaunchFinding[] {
-  const fullRun: string[] = []
-  const byConfig = new Map<string, LaunchMutation[]>()
-  for (const m of mutations) {
-    if (m.only === undefined) { fullRun.push(m.id); continue }
-    const key = configurationKey({ by: m.by, only: m.only, executes: [] })
-    byConfig.set(key, [...byConfig.get(key) ?? [], m])
-  }
-  const out: LaunchFinding[] = fullRun.sort(byText).map(id => ({ kind: 'full-run', id }))
-  for (const key of [...byConfig.keys()].sort(byText)) {
-    const routed = [...byConfig.get(key)!].sort((a, b) => byText(a.id, b.id))
+  const { fullRun, configs } = byConfiguration(mutations)
+  const out: LaunchFinding[] = fullRun.map(id => ({ kind: 'full-run', id }))
+  for (const [key, routed] of configs) {
     const ids = routed.map(m => m.id)
     const baseline = baselines.get(key)
     if (baseline === undefined) { out.push({ kind: 'missing', config: key, ids }); continue }
@@ -116,12 +125,93 @@ export function launchReport(findings: readonly LaunchFinding[]): string[] {
         `    选组的需求测试不提前停：组里每加 1 次启动，乘以 ${f.ids.length}（${f.ids.join('、')}）`)
     else if (f.kind === 'full-run')
       lines.push(`✗ ${f.id} 是全跑变异：全跑变异没有基线计数，按规则视为超线`)
-    else
+    else if (f.kind === 'missing')
       lines.push(`✗ ${f.config} 没有启动计数（落到它的变异：${f.ids.join('、')}）—— 计数缺了不放行`)
+    else
+      lines.push(`✗ ${f.config} 的启动数不确定：同一棵树上两次正常基线不一样（${f.drift}），不按超线报`,
+        '    启动数不再是树的函数，判红就成了按运气红（第六节）：先查这种配置两次起的进程为什么不一样')
   }
+  // 改法是给超线与缺计数的；只有「不确定」时附上它们，等于叫人去拆一个没判成超线的组
+  if (findings.every(f => f.kind === 'unsteady')) return lines
   lines.push('  改法只有三种：拆组（按变异点名的用例拆，ADR-131）；',
     '        把覆盖整个矩阵的一条断言改成每个用例各一条；',
     '        把真入口用例移出需求测试组（ADR-120）。',
     '  少写变异不是改法。不设豁免；上限只能改常量、写决策记录、由需求所有者批（ADR-145）')
   return lines
+}
+
+/** 要再跑一次基线确认的配置：有 `paid` 或 `product` 发现的配置键，去重、排好 */
+export function launchRecheck(findings: readonly LaunchFinding[]): string[] {
+  return [...new Set(findings.flatMap(f => f.kind === 'paid' || f.kind === 'product' ? [f.config] : []))].sort(byText)
+}
+
+/**
+ * 拿重跑的计数确认（第一节末）：两次都有计数而且不同，这种配置的超线发现换成一条 `unsteady`，
+ * 放在它原来第一条的位置；两次相同就原样留下。有一次没有计数也原样留下：缺数照第五节末是红的，
+ * 不能因为重跑那次没写全，超线就换成不确定、不按超线报。别的发现不动。
+ */
+export function settleLaunches(findings: readonly LaunchFinding[], first: ReadonlyMap<string, BaselineLaunches>,
+  again: ReadonlyMap<string, BaselineLaunches | undefined>): LaunchFinding[] {
+  const drifts = new Map<string, string>()
+  for (const key of launchRecheck(findings)) {
+    const a = first.get(key)
+    const b = again.get(key)
+    const drift = a === undefined || b === undefined ? undefined : launchDrift(a, b)
+    if (drift !== undefined) drifts.set(key, drift)
+  }
+  const out: LaunchFinding[] = []
+  const placed = new Set<string>()
+  for (const f of findings) {
+    const drift = f.kind === 'paid' || f.kind === 'product' ? drifts.get(f.config) : undefined
+    if (drift === undefined || (f.kind !== 'paid' && f.kind !== 'product')) { out.push(f); continue }
+    if (!placed.has(f.config)) out.push({ kind: 'unsteady', config: f.config, drift })
+    placed.add(f.config)
+  }
+  return out
+}
+
+/** 每种有计数的配置一行，给只报数那一行与机器段用 */
+export interface LaunchTally {
+  readonly config: string; readonly launches: number
+  /** 会提前停的每条变异付几次，按 id 排 */
+  readonly paid: readonly { readonly id: string; readonly paid: number }[]
+  /** 不提前停、落到这种配置的变异条数 */
+  readonly running: number
+}
+
+/** 有变异落到、也有计数的配置各一行，按配置键排；全跑的与没有计数的不在里面（它们由 `launchFindings` 报） */
+export function launchTally(
+  mutations: readonly LaunchMutation[],
+  baselines: ReadonlyMap<string, BaselineLaunches>,
+  declared: Readonly<Record<LaunchVerifier, readonly string[]>>,
+): LaunchTally[] {
+  const out: LaunchTally[] = []
+  for (const [key, routed] of byConfiguration(mutations).configs) {
+    const baseline = baselines.get(key)
+    if (baseline === undefined) continue
+    const stopping = routed.filter(m => stopsEarly(VERIFIERS[m.by], m.kills, m.only))
+    out.push({ config: key, launches: baseline.total,
+      paid: stopping.map(m => ({ id: m.id, paid: paidLaunches(m.kills, baseline, declared[m.by]) })),
+      running: routed.length - stopping.length })
+  }
+  return out
+}
+
+/** 人读的那一行：几种配置有计数、会提前停的最多付几次、不提前停的启动×条数最多多少；并列取排在前的 */
+export function tallyLine(tally: readonly LaunchTally[]): string {
+  // 并列按配置键、再按 id 取排在前的：不靠交进来的先后
+  const before = (a: readonly string[], b: readonly string[]): boolean => byText(a.join('\0'), b.join('\0')) < 0
+  let paid: { id: string; paid: number; config: string } | undefined
+  let product: LaunchTally | undefined
+  for (const t of tally) {
+    for (const p of t.paid) if (paid === undefined || p.paid > paid.paid
+      || (p.paid === paid.paid && before([t.config, p.id], [paid.config, paid.id]))) paid = { ...p, config: t.config }
+    const x = t.launches * t.running
+    if (t.running > 0 && (product === undefined || x > product.launches * product.running
+      || (x === product.launches * product.running && before([t.config], [product.config])))) product = t
+  }
+  const early = paid === undefined ? '会提前停的：没有' : `会提前停的最多付 ${paid.paid} 次（${paid.id}，${paid.config}）`
+  const running = product === undefined ? '不提前停的：没有'
+    : `不提前停的启动×条数最多 ${product.launches * product.running}（${product.config}，${product.launches} × ${product.running}）`
+  return `启动数（只报数）：${tally.length} 种配置有计数；${early}；${running}`
 }
