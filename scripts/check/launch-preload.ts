@@ -25,8 +25,8 @@ let count: { log: string; target: string; options?: string } | undefined
 try { count = raw === undefined ? undefined : JSON.parse(raw) } catch { count = undefined }
 const script = process.argv[1]
 
-// worker 线程里也会加载这个文件（tsx 冷缓存时从那里起 esbuild）。那个 worker 的 argv[1] 是 esbuild 自己的入口，
-// 真实路径那一关已经挡住它；另要求主线程是多一道保险，第十三节写的就是主线程
+// worker 线程里也会加载这个文件（tsx 冷缓存时从那里起 esbuild）。那个 worker 是 tsx 起的，那时主线程已经删掉了环境变量；
+// 即便没删，它的 argv[1] 是 esbuild 自己的入口，真实路径那一关也挡住它。另要求主线程是多一道保险，第十三节写的就是主线程
 if (isMainThread && count !== undefined && script !== undefined && real(script) !== undefined && real(script) === real(count.target)) {
   delete process.env[ENV]
   if (count.options === undefined) delete process.env.NODE_OPTIONS
@@ -50,7 +50,8 @@ if (isMainThread && count !== undefined && script !== undefined && real(script) 
     // 参数本身读不出来（转不成字符串、选项上的读取抛错）也照记一次，原函数自己去抛它该抛的
     let event: object = { t: 'L', api, file: '' }
     try {
-      const opts = Array.isArray(args[1]) ? args[2] : args[1]
+      // 参数表给的是数组、null 或没给时，Node 都从第三个参数读选项
+      const opts = Array.isArray(args[1]) || args[1] == null ? args[2] : args[1]
       const shell = opts !== null && typeof opts === 'object' && Boolean((opts as { shell?: unknown }).shell)
       event = { t: 'L', api, file: String(args[0]), ...(shell ? { shell: true } : {}) }
     } catch { /* 不打扰验证者 */ }
