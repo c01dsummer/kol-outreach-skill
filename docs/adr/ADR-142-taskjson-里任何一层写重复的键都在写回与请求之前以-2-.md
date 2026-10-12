@@ -1,11 +1,11 @@
 # ADR-142 task.json 里任何一层写重复的键都在写回与请求之前以 2 拒绝，不再只管进度键
 
-- 日期 · 2026-10-12 · 还 ADR-140 第四节第二张既有缺陷的欠条（根上其他键写重复时任何入口都不判）与 ADR-141 第四节第一张（进度字段更深一层写重复的键）。需求所有者 2026-10-11 定为修、另开一条 PR（「再开一条 PR」）；修法按整份判，是 2026-10-12 决定卡上的推荐项
+- 日期 · 2026-10-12 · 还 ADR-140 第四节第二张既有缺陷的欠条（根上其他键写重复时任何入口都不判）与 ADR-141 第四节第一张（进度字段更深一层写重复的键）。需求所有者 2026-10-11 定为修、另开一条 PR（「再开一条 PR」），2026-10-12 在决定卡上选了整份判（「整份判」）
 - 类型：既有缺陷。读入只留最后一处，经任何命令整份写回后前几处从盘上消失；`tasks` 写重复时续跑按最后那份列表判，`requests`、`cost_ledger` 写重复时按最后一处的计数花钱。新增需求 D27，按改需求逐条评定，见第二节
-- 触发它的事实：待填
+- 触发它的事实：对着 `ff11f98`（`sourceDuplicates` 恒交回空、`duplicateKeyProblems` 恒交回空）跑新测试。把合法夹具里的一处改写成写重复 —— `"tasks":"zq-first-tasks","tasks":[…]`、任务里的 `"keyword":"zq\u002dold","keyword":"local"`、`"requests":7.5e1,"requests":"zz-mid","requests":0`、`"budget_usd":9.5e1,"budget_usd":1`、费用账里的 `"limit_micro_usd":9.5e2,"limit_micro_usd":1000000` —— collect 续跑与 `--budget 2` 每例都以 0 结束，预留 6 次、请求 6 次，task.json 与任务目录都被改写；enrich 普通与 `--budget 2` 以 0 结束，预留 1 次、请求 1 次、整份写回（进度值里更深一层的 `"found":{"0":{"zq":7.25e0,"zq":3}}` 也一样）；render 以 0 结束并写出 `kol.csv`、`kol.xlsx`；`calibration version` 要写盘时以 0 报 `written`；人工反馈模板命令以 0 报 `create`、建出 `manual-feedback.csv`。`tasks` 写两次而最后那份不合规时三个入口以 2 退出，stderr 只写最后那份的问题，不提前一处
 - 冲击的需求：D27（新增）；D19（D19.g 那句更深一层的重复改由 D27 判）；D20（D20.p 与 D20 × P1 裁决补上 D27.c）；D26（D26.b 补上 D27.d）；P1、P3（新交点 D27 × P1、D27 × P3）
 - 结论：采纳。task.json 任一层对象里写重复的键，collect 续跑、enrich、render 与人工反馈模板命令在任何写入与请求之前，`calibration version` 在要写盘时，以 2 拒绝，按先后列出每一处原文
-- 连带改动：待填
+- 连带改动：`docs/ARCHITECTURE.md` 锚点表新增 `duplicate-keys` 一行、改六行（collect、enrich、render、`cost-json`、`calibration-version-task`、`feedback-template-task`），顺序契约表 enrich 与 `calibration version` 那一行改措辞，写回那一段与 `calibration version`、`feedback-template` 两段补 D27；README、SKILL、`output-format.md` 与 `product-intake.md` 的提醒补上其余位置；D19.k 改成「某张表里同一个键」、末句补「由 D27 判」（ADR-141 第四节第二张那张登记，扫描一改就响），D19.g 末句、D20.p、D20 × P1 裁决与 D26.b 补措辞；ADR-140 第四节第二张、ADR-141 第四节两张记已还；`cost-json.ts` 的扫描改成每一层都记键，`sourceDuplicateKeys` 从同一次扫描里只取根与根下一层（D19.k 的结果不变），变异 M-D19-y、M-D19-af、M-D19-ao 的 find 跟着改（replace 的含义不变）
 
 ---
 

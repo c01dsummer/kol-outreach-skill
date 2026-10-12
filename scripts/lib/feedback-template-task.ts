@@ -2,6 +2,8 @@ import { lstatSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { writeFileAtomic } from './atomic.js'
 import { brandCalibrationProblems } from './brand-calibration.js'
+import { sourceDuplicates } from './cost-json.js'
+import { duplicateKeyProblems } from './duplicate-keys.js'
 import { planManualFeedbackTemplate } from './manual-feedback-template.js'
 import { readAgentReviewDocument, reviewRoundSourceProblems, ReviewInputError } from './review.js'
 import { taskListProblems } from './search-tasks.js'
@@ -30,7 +32,9 @@ export function runManualFeedbackTemplate(dir: string, append = false): ManualFe
   let state: ReturnType<typeof loadTask>
   try { state = loadTask(dir) }
   catch (error) { throw new ReviewInputError([`${taskFile(dir)} 无法读取任务：${String(error)}`]) }
-  const inputProblems = [...taskListProblems(state.tasks), ...brandCalibrationProblems(state)]
+  // D27.d：写重复的键（连 D19.k 那几处）跟任务列表、品牌输入一起报，模板据此生成，读入只留最后一处就不能放行
+  const inputProblems = [...taskListProblems(state.tasks), ...brandCalibrationProblems(state),
+    ...duplicateKeyProblems(sourceDuplicates(state))]
   if (inputProblems.length) throw new ReviewInputError(inputProblems.map(p => `${taskFile(dir)}: ${p}`))
 
   const saved = readAgentReviewDocument(dir)

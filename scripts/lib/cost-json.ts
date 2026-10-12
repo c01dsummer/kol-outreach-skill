@@ -20,9 +20,9 @@ const roots = new WeakMap<object, { value: unknown; token: string }>()
 const sourceTokens = new WeakMap<object, WeakMap<object, Map<string, string>>>()
 // 无法解释为非负安全整数的费用数字保留原件；对象形态不能误过费用账的 number 校验。
 const unavailableNumbers = new WeakMap<object, string>()
-// 只有判进度的入口与写回前要判重复的 enrich、calibration version 要重复键：读入时只留住原文，用到时才扫，扫过的按根缓存。
+// 读 task.json 的入口判写重复的键（D19.k、D27）：读入时只留住原文，用到时才扫，扫过的按根缓存。
 const sourceTexts = new WeakMap<object, string>()
-const duplicateKeys = new WeakMap<object, readonly SourceDuplicate[]>()
+const duplicateKeys = new WeakMap<object, readonly KeyDuplicate[]>()
 
 /** 字符串记号的结尾（右引号之后）。不用正则：正则引擎逐字符回溯，九百万字的字符串就栈溢出（ADR-140 第五节）。
  * 找下一个引号，前面紧挨着偶数个反斜杠才是右引号。 */
@@ -36,18 +36,28 @@ function stringEnd(text: string, at: number): number {
 
 const blank = (c: number) => c === 32 || c === 10 || c === 13 || c === 9
 
-/** 逐个记号扫一遍 JSON.parse 已接受的文本。只给根与根下一层的对象记键，更深的只记层数；不递归，深嵌套也不爆栈（ADR-136）。 */
-function topDuplicateKeys(text: string): SourceDuplicate[] {
-  const out: SourceDuplicate[] = []
-  const open: ({ parent?: string; seen: Map<string, string[]>; key?: string } | undefined)[] = []
+/** 一层容器：挂在上一层的哪个键或下标（根没有），对象另记各键的每一处，数组只数下标。 */
+type Frame = { up?: Frame; at?: string | number; seen?: Map<string, string[]>; key?: string; index: number }
+
+/** 从根到这一层的路径；每层只记自己挂在哪儿，报重复时才拼，深嵌套也不逐层复制路径 */
+function pathOf(frame: Frame): (string | number)[] {
+  const path: (string | number)[] = []
+  for (let f: Frame | undefined = frame; f?.up; f = f.up) path.push(f.at!)
+  return path.reverse()
+}
+
+/** 逐个记号扫一遍 JSON.parse 已接受的文本，给每一层对象记键（D27.a）；不递归，深嵌套也不爆栈（ADR-136）。 */
+function scanDuplicateKeys(text: string): KeyDuplicate[] {
+  const out: KeyDuplicate[] = []
+  const open: Frame[] = []
   for (let i = 0; i < text.length;) {
     const c = text.charCodeAt(i)
     if (blank(c) || c === 44 || c === 58) { i++; continue } // 空白、逗号、冒号
     const top = open.at(-1)
     if (c === 125 || c === 93) { // } ]
-      const frame = open.pop()
-      for (const [key, values] of frame?.seen ?? [])
-        if (values.length > 1) out.push({ ...(frame!.parent === undefined ? {} : { parent: frame!.parent }), key, values })
+      const frame = open.pop()!
+      for (const [key, values] of frame.seen ?? [])
+        if (values.length > 1) out.push({ path: [...pathOf(frame), key], values })
       i++
       continue
     }
@@ -58,10 +68,8 @@ function topDuplicateKeys(text: string): SourceDuplicate[] {
       while (blank(text.charCodeAt(next))) next++
       // 后面跟着冒号的是键。键按解码后的名字比："0" 与 "\u0030" 是同一个键；没有反斜杠的键原文就是解码后的名字
       if (text.charCodeAt(next) === 58) {
-        if (top) {
-          const body = text.slice(i + 1, end - 1)
-          top.key = body.includes('\\') ? JSON.parse(text.slice(i, end)) as string : body
-        }
+        const body = text.slice(i + 1, end - 1)
+        top!.key = body.includes('\\') ? JSON.parse(text.slice(i, end)) as string : body
         i = next + 1
         continue
       }
@@ -73,14 +81,15 @@ function topDuplicateKeys(text: string): SourceDuplicate[] {
       for (let d = text.charCodeAt(end); end < text.length && !blank(d) && d !== 44 && d !== 93 && d !== 125; d = text.charCodeAt(++end));
       raw = text.slice(i, end); i = end
     }
-    // 是值：记在所在对象当前的键名下
-    if (top?.key !== undefined) {
-      const values = top.seen.get(top.key) ?? []
+    // 是值：对象里记在当前的键名下，数组里数下标
+    let at: string | number | undefined
+    if (top?.seen) {
+      at = top.key!
+      const values = top.seen.get(at) ?? []
       values.push(raw)
-      top.seen.set(top.key, values)
-    }
-    if (c === 123 || c === 91) open.push(c === 123 && open.length < 2
-      ? { ...(top?.key === undefined ? {} : { parent: top.key }), seen: new Map() } : undefined)
+      top.seen.set(at, values)
+    } else if (top) at = top.index++
+    if (c === 123 || c === 91) open.push({ up: top, at, ...(c === 123 ? { seen: new Map() } : {}), index: 0 })
   }
   return out
 }
@@ -144,11 +153,11 @@ export type SourceDuplicate = { parent?: string; key: string; values: readonly s
 
 /** 找不到读入时的原文（不是 readCostDocument 读入的根，或是它的副本）交回 null：无从核对，不当成没有重复。 */
 export function sourceDuplicateKeys(root: object): readonly SourceDuplicate[] | null {
-  const text = sourceTexts.get(root)
-  if (text === undefined) return null
-  let found = duplicateKeys.get(root)
-  if (!found) duplicateKeys.set(root, found = topDuplicateKeys(text))
-  return found
+  // D19.k 只看根与根下一层的对象：路径一段是根上的键，两段是根上某个对象里的键
+  return sourceDuplicates(root)?.filter(({ path }) => path.length <= 2)
+    .map(({ path, values }) => path.length === 1
+      ? { key: path[0] as string, values }
+      : { parent: path[0] as string, key: path[1] as string, values }) ?? null
 }
 
 /** 读入文本里任一层对象中重复出现的键（D27.a）。path 从根往下：对象里的键名、数组里的下标，最后一段是写重复的那个键；
@@ -157,8 +166,11 @@ export type KeyDuplicate = { path: readonly (string | number)[]; values: readonl
 
 /** 找不到读入时的原文交回 null，同 sourceDuplicateKeys。 */
 export function sourceDuplicates(root: object): readonly KeyDuplicate[] | null {
-  if (!sourceTexts.has(root)) return null
-  return [] // 接口桩：D27 的扫描还没接上
+  const text = sourceTexts.get(root)
+  if (text === undefined) return null
+  let found = duplicateKeys.get(root)
+  if (!found) duplicateKeys.set(root, found = scanDuplicateKeys(text))
+  return found
 }
 
 export function readCostLimit(state: CostState): MicroUsd {

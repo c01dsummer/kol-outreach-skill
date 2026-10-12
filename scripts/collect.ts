@@ -18,7 +18,8 @@ import { readFileSync, existsSync } from 'node:fs'
 import { TikHub, TikHubError, fillEmail } from './providers/tikhub.js'
 import { Budget, BudgetInputError, startBudget, type PersistCost } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
-import { readCostDocument, readCostLimit, sourceDuplicateKeys, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
+import { readCostDocument, readCostLimit, sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
+import { duplicateKeyProblems } from './lib/duplicate-keys.js'
 import {
   MAX_PAGES, canRequestPage, canonicalReviewLinks, finalize, firstPagePending, igAfterPage, mergePage, needsProfile,
   pagesFetched, pendingKeywords, rawSeedFromLegacy, resumeCostLine, reviewRelations, underPageCap,
@@ -84,6 +85,8 @@ try {
 // D17.h/i、D16.j/k、D15.j：原字段、任务与路线一起查；先于缺省、进度、改额或任何副作用。
 const badFields = configFieldProblems(state, resume ? 'resume' : 'new')
 const badTasks = taskListProblems(state.tasks)
+// D27.b：续跑读的 task.json 写重复的键跟任务列表一起报 —— tasks 写重复时任务列表按最后那份判；D19.k 那几处留给进度那一道
+if (resume) badTasks.push(...duplicateKeyProblems(sourceDuplicates(state), true))
 const badRoutes = igRouteProblems(state.tasks)
 const badCalibration = brandCalibrationProblems(state)
 badCalibration.push(...calibrationVersionProblems(state))

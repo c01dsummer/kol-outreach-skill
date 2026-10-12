@@ -23,7 +23,8 @@ import { writeXlsx, type Sheet } from './lib/xlsx.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
 import { accountKey, attachAssessments, currentEnrichmentView } from './lib/assessment.js'
 import { costView } from './lib/budget.js'
-import { sourceDuplicateKeys, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
+import { sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
+import { duplicateKeyProblems } from './lib/duplicate-keys.js'
 import { resumeProgressProblems } from './lib/resume-progress.js'
 import { asMemoryStatus } from './lib/types.js'
 import type { Creator, Measurement, TaskState } from './lib/types.js'
@@ -41,6 +42,8 @@ catch (e) {
   process.exit(2)
 }
 const badTasks = taskListProblems(state.tasks)
+// D27.b：写重复的键跟任务列表一起报，在读名单与任何写入之前；D19.k 那几处留给下面的进度那一道
+badTasks.push(...duplicateKeyProblems(sourceDuplicates(state), true))
 const badCalibration = brandCalibrationProblems(state)
 badCalibration.push(...calibrationVersionProblems(state))
 if (badCalibration.length) {
