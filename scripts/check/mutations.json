@@ -9627,6 +9627,30 @@
       ]
     },
     {
+      "id": "M-D19-bb",
+      "req": "D19.k",
+      "why": "四张表里只把任务索引那样的数字键写重复判为不合规，别的键写了不止一次照常放行，读入只留最后一处",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": ": (['offsets', 'answered', 'found', 'pages'].includes(parent) ? ",
+      "replace": ": (['offsets', 'answered', 'found', 'pages'].includes(parent) && /^\\d+$/.test(key) ? ",
+      "by": "test",
+      "kills": [
+        "恢复进度：表里不是任务索引的键写了不止一次同样不合规 —— 只判重复的那一接法也点名字段与键，按文件先后列出每一处原文；只留最后一处的同一份不报"
+      ]
+    },
+    {
+      "id": "M-D19-bc",
+      "req": "D19.m",
+      "why": "enrich 见表里不是任务索引的键写了不止一次照常预留、请求并整份写回，前面几处原文消失",
+      "file": "scripts/lib/resume-progress.ts",
+      "find": ": (['offsets', 'answered', 'found', 'pages'].includes(parent) ? ",
+      "replace": ": (['offsets', 'answered', 'found', 'pages'].includes(parent) && /^\\d+$/.test(key) ? ",
+      "by": "selfcheck",
+      "kills": [
+        "重复进度键：enrich 见表里不是任务索引的键写了不止一次同样在预留与请求前退出2，task.json 与任务目录原字节不变，stderr 按文件先后写出每一处原文"
+      ]
+    },
+    {
       "id": "M-D27-a",
       "req": "D27.a",
       "why": "只认根与根下一层对象里的键，任务条目、费用账条目与更深处写重复的键认不出来，读入只留最后一处照样放行",
@@ -9956,6 +9980,18 @@
       "by": "test",
       "kills": [
         "任一层写重复的键不多拒：不同对象里的同名键、数组里相同的元素、字符串里像重复键的文字与解码后不同名的键都不算重复"
+      ]
+    },
+    {
+      "id": "M-D27-ab",
+      "req": "D27.a",
+      "why": "根上只含字母、数字与 _ . - 的键自己写重复时也写成 [\"键\"]，位置不再是根上的键名（往下的位置照旧）",
+      "file": "scripts/lib/duplicate-keys.ts",
+      "find": "i === 0 && plain.test(step) ? step",
+      "replace": "i === 0 && plain.test(step) && path.length > 1 ? step",
+      "by": "test",
+      "kills": [
+        "任一层写重复的键：根上只含字母、数字与 _ . - 的键照原样写出位置，不写成 [\"键\"] —— 问题以 budget_usd、tasks[0][\"keyword\"] 这样的位置开头"
       ]
     },
     {
