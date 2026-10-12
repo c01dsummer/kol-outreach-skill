@@ -181,4 +181,5 @@
 | **ADR-141** | [enrich 与 calibration version 见到写重复的进度键时在写回前以 2 拒绝，不再整份写回成只剩最后一处](ADR-141-enrich-与-calibration-version-见到写.md) |
 | **ADR-142** | [task.json 里任何一层写重复的键都在写回与请求之前以 2 拒绝，不再只管进度键](ADR-142-taskjson-里任何一层写重复的键都在写回与请求之前以-2-.md) |
 | **ADR-143** | [collect --config 与 probe 读的配置文件写重复的键时在开账与请求之前以 2 拒绝](ADR-143-collect---config-与-probe-读的配置文件写.md) |
+| **ADR-144** | [续跑进度的自检组与两个需求测试组按变异点名的用例拆开](ADR-144-续跑进度的自检组与两个需求测试组按变异点名的用例拆开.md) |
 <!-- END:GENERATED -->
