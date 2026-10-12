@@ -8312,16 +8312,16 @@ eq('启动数闸门：有发现、不在主干上，报告行原样在前，最�
   [{ red: true, lines: [...R6, V6] }, { red: true, lines: [...launchReport(ONE), '✗ 启动数闸门：1 条发现，不设豁免（ADR-145）'] }])
 eq('启动数闸门：有发现、无从判断在不在主干上，最后一行带着原因，按 PR 判红', gate(rec(MIX), SRC, FOG),
   { red: true, lines: [...R6, '✗ 启动数闸门：6 条发现；无从判断 HEAD 在不在主干上（浅克隆，找不到主干的历史），按 PR 判红'] })
-// 主干上只报数、不红，判词换成第 4 小节那几行：拆组那行只在有一条不是不确定的发现时打，死亡条件那行只在有不确定时打。
-// 主干上的样本不放缺基线与全跑：它们算不算第 2 小节末「量得出来的超线」没说定，不替需求所有者猜
+// 主干上没有缺基线时只报数、不红，判词换成第 4 小节那几行：拆组那行只在有一条不是不确定的发现时打，死亡条件那行只在有不确定时打。
+// 全跑在第九节就算超线（不是某种配置的计数缺了），主干上与超线一样只报数（第 3 小节末条）：SPLIT 带着 MIX 头一条全跑，也单放一次
 const MAIN = ['启动数闸门：HEAD 就在主干上，只报数不判红（ADR-145 第四节）',
   '  主干上有发现：按「主干红了」的优先级先开拆组的那一条，其余在途 PR 等它合了再把主干合进来',
   '  主干上报了启动数不确定：第六节的死亡条件响了，这道闸门退不退成只报数由需求所有者定']
-const SPLIT = [over(GK, 'M-1'), many(TK, 'N-1', 'N-2')], SHAKY = [shaky(UK, '整跑 34 次对 35 次'), shaky(XK, '打印 1 行对 2 行')], BOTH = [...SPLIT, ...SHAKY]
+const SPLIT = [MIX[0], over(GK, 'M-1'), many(TK, 'N-1', 'N-2')], SHAKY = [shaky(UK, '整跑 34 次对 35 次'), shaky(XK, '打印 1 行对 2 行')], BOTH = [...SPLIT, ...SHAKY]
 eq('启动数闸门：在主干上只报数不红，有超线才打拆组那行，有不确定才打死亡条件那行',
-  [SPLIT, SHAKY, BOTH].map(fs => gate(rec(fs), SRC, ON)),
+  [SPLIT, SHAKY, BOTH, [MIX[0]]].map(fs => gate(rec(fs), SRC, ON)),
   [{ red: false, lines: [...launchReport(SPLIT), MAIN[0], MAIN[1]] }, { red: false, lines: [...launchReport(SHAKY), MAIN[0], MAIN[2]] },
-    { red: false, lines: [...launchReport(BOTH), ...MAIN] }])
+    { red: false, lines: [...launchReport(BOTH), ...MAIN] }, { red: false, lines: [...launchReport([MIX[0]]), MAIN[0], MAIN[1]] }])
 // again 里恰好是 null、又是要重跑的配置（有超线的 GK、TK）才打，按配置键排、每种一行、在判词之前；
 // 缺基线的 MK、不确定的 UK、没有发现的 XK 不重跑，是 null 也不打。again 的键故意倒着写
 const NOTE = (k: string) => `  ${k} 重跑那次没拿到计数，超线照第一次报（第五节末）`
@@ -8332,6 +8332,13 @@ eq('启动数闸门：重跑那次没拿到计数的配置在报告行之后、�
 eq('启动数闸门：again 不是对象，或那一项缺了、是计数、是 0、false 或字符串 null 时不打重跑那行',
   [null, undefined, '{}', [null], {}, { [GK]: base(80), [TK]: 0 }, { [GK]: 'null', [TK]: false }].map(again => gate(rec(MIX, { again }), SRC, OFF)),
   Array(7).fill({ red: true, lines: [...R6, V6] }))
+// 主干上有缺基线（第 3 小节）：照第五节末也红，报告行与重跑那行照旧在前，主干上只报数那几行都不打；
+// n 是全部发现的条数，m 是缺基线的条数。MIX 里 6 条混着、1 条缺基线、GK 重跑没拿到计数；只缺基线的两条 n、m 都是 2
+const LACK = (n: number, m: number) => `✗ 启动数闸门：${n} 条发现，其中 ${m} 种配置没有启动计数：HEAD 就在主干上也红，计数缺了不放行（ADR-145 第五节末）`
+const LACKS: LaunchFinding[] = [MIX[3], { kind: 'missing', config: keyOf('test', ['m']), ids: ['N-8', 'N-9'] }]
+eq('启动数闸门：在主干上有缺基线时也红，报告行与重跑那行照旧在前，最后一行说几种配置没有启动计数，主干上只报数那几行都不打',
+  [gate(rec(MIX, { again: { [GK]: null } }), SRC, ON), gate(rec(LACKS), SRC, ON)],
+  [{ red: true, lines: [...R6, NOTE(GK), LACK(6, 1)] }, { red: true, lines: [...launchReport(LACKS), LACK(2, 2)] }])
 })
 
 // 计数预加载两组共用：经 tsxCommand 起玩具一次（tsx 壳 + 里面那个 node，与变异一步起验证者一样），给了 log 就计数；

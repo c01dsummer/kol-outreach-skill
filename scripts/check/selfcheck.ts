@@ -6232,14 +6232,12 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
   const rep = body.map(l => l.slice(4)), gateOut = (r: { stdout: string }) => r.stdout.split('\n').filter(l => l.trim() !== '')
   const gitToy = (...a: string[]) => spawnSync('git', a, { cwd: root, encoding: 'utf8',
     env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } })
-  // 玩具没有 origin/main，主干就是 main（size-rule 的 TRUNK_CANDIDATES），HEAD 在它上面：只报数、以 0 退出。
-  // 四条发现里有不是 unsteady 的（拆组那行），也有 unsteady（死亡条件那行）
-  const trunk = ['启动数闸门：HEAD 就在主干上，只报数不判红（ADR-145 第四节）',
-    '  主干上有发现：按「主干红了」的优先级先开拆组的那一条，其余在途 PR 等它合了再把主干合进来',
-    '  主干上报了启动数不确定：第六节的死亡条件响了，这道闸门退不退成只报数由需求所有者定']
-  const onMain = runToolBoth('launches 在启动数玩具树的 main 上判', 'launches', [], root, { status: 0, soft: [1] })
-  if (onMain.ok) named('启动数入口：HEAD 在玩具的 main 上时闸门以 0 退出，报告行原样在前、主干上那三行在后',
-    onMain.status === 0 && rep.length > 0 && isDeepStrictEqual(gateOut(onMain), [...rep, ...trunk]),
+  // 玩具没有 origin/main，主干就是 main（size-rule 的 TRUNK_CANDIDATES），HEAD 在它上面。四条发现里有一条缺计数（t-bypass 那种配置），
+  // 所以主干上也红：最后一行是第 4 小节主干上缺计数那句（n=4、m=1），主干上只报数那几行都不打（第 3 小节），整段输出逐行相等即含这一点
+  const onMain = runToolBoth('launches 在启动数玩具树的 main 上判', 'launches', [], root, { status: 1, soft: [0] })
+  if (onMain.ok) named('启动数入口：玩具在主干上、发现里有一条缺计数时闸门以 1 退出，报告行原样在前、最后一行是主干上缺计数那句',
+    onMain.status === 1 && rep.length > 0 && isDeepStrictEqual(gateOut(onMain),
+      [...rep, '✗ 启动数闸门：4 条发现，其中 1 种配置没有启动计数：HEAD 就在主干上也红，计数缺了不放行（ADR-145 第五节末）']),
     `退出码 ${onMain.status}；变异一步标题下的报告行 ${rep.length} 行（0 是标题没找到）；闸门打的：\n${onMain.stdout}stderr 末几行：${stderrTail(onMain.stderr)}`)
   // 切一个分支加一个空提交（提交身份用 mutationFixtureEnv 写进玩具仓库的那份）：内容不变、源码身份照旧对得上，HEAD 不在主干上
   const co = gitToy('checkout', '--quiet', '-b', 'toy-pr'), pr = co.status === 0 ? gitToy('commit', '--quiet', '--allow-empty', '-m', 'toy pr') : co
