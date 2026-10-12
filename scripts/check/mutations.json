@@ -9765,7 +9765,7 @@
       "req": "D27.b",
       "why": "collect 续跑见到任一层写重复的键照常改额、预留、请求并整份写回，前几处原文悄悄消失",
       "file": "scripts/collect.ts",
-      "find": "const badDuplicates = resume ? duplicateKeyProblems(sourceDuplicates(state), true) : []",
+      "find": "const badDuplicates = duplicateKeyProblems(sourceDuplicates(state), !!resume)",
       "replace": "const badDuplicates: string[] = []",
       "by": "selfcheck",
       "kills": [
@@ -9879,8 +9879,8 @@
       "req": "D27.b",
       "why": "collect 续跑把 D19.k 那几处按两条判据各报一遍",
       "file": "scripts/collect.ts",
-      "find": "resume ? duplicateKeyProblems(sourceDuplicates(state), true) : []",
-      "replace": "resume ? duplicateKeyProblems(sourceDuplicates(state)) : []",
+      "find": "duplicateKeyProblems(sourceDuplicates(state), !!resume)",
+      "replace": "duplicateKeyProblems(sourceDuplicates(state))",
       "by": "selfcheck",
       "kills": [
         "写重复的键：进度键或坏进度与别处同时出问题时，三个入口都写出每一处，每一处只报一遍、不因两条判据报两遍"
@@ -9956,6 +9956,196 @@
       "by": "test",
       "kills": [
         "任一层写重复的键不多拒：不同对象里的同名键、数组里相同的元素、字符串里像重复键的文字与解码后不同名的键都不算重复"
+      ]
+    },
+    {
+      "id": "M-D28-a",
+      "req": "D28.b",
+      "why": "collect --config 新建时不看配置里写重复的键：按最后一处的 budget_usd 开账、按后一处的 keyword 新建任务并请求，前几处从新建的 task.json 里消失",
+      "file": "scripts/collect.ts",
+      "find": "const badDuplicates = duplicateKeyProblems(sourceDuplicates(state), !!resume)",
+      "replace": "const badDuplicates = resume ? duplicateKeyProblems(sourceDuplicates(state), true) : []",
+      "by": "test",
+      "kills": [
+        "collect --config（含 --budget 2）见配置任一层写重复的键（根上的 budget_usd、任务里的 keyword、根上的进度键 found）以 2 退出：零预留、零请求，不建任务目录、不写任何文件与记忆，配置文件原字节",
+        "collect --config 拒绝时 stderr 写出配置文件路径、键的位置与出现次数，并按文件先后写出每一处被丢掉的原文",
+        "写重复的键与同一份配置里的任务列表、市场、路线或品牌问题一起：collect --config 与 probe 以 2 退出、零预留零请求、目录与配置原样，stderr 写出写重复的那一处与被丢掉的原文"
+      ]
+    },
+    {
+      "id": "M-D28-b",
+      "req": "D28.a",
+      "why": "collect --config 新建时照续跑跳过根上的进度键，配置里写了几次的 found 不报，照常新建任务、开账与请求",
+      "file": "scripts/collect.ts",
+      "find": "duplicateKeyProblems(sourceDuplicates(state), !!resume)",
+      "replace": "duplicateKeyProblems(sourceDuplicates(state), true)",
+      "by": "test",
+      "kills": [
+        "collect --config（含 --budget 2）见配置任一层写重复的键（根上的 budget_usd、任务里的 keyword、根上的进度键 found）以 2 退出：零预留、零请求，不建任务目录、不写任何文件与记忆，配置文件原字节",
+        "collect --config 拒绝时 stderr 写出配置文件路径、键的位置与出现次数，并按文件先后写出每一处被丢掉的原文",
+        "写重复的键与同一份配置里的任务列表、市场、路线或品牌问题一起：collect --config 与 probe 以 2 退出、零预留零请求、目录与配置原样，stderr 写出写重复的那一处与被丢掉的原文"
+      ]
+    },
+    {
+      "id": "M-D28-c",
+      "req": "D28.b",
+      "why": "collect --config 写出了写重复的键却不退出，照常新建任务目录、开账、预留与请求",
+      "file": "scripts/collect.ts",
+      "find": "if (!resume && badDuplicates.length) process.exit(2)",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "collect --config（含 --budget 2）见配置任一层写重复的键（根上的 budget_usd、任务里的 keyword、根上的进度键 found）以 2 退出：零预留、零请求，不建任务目录、不写任何文件与记忆，配置文件原字节",
+        "collect --config 拒绝时 stderr 写出配置文件路径、键的位置与出现次数，并按文件先后写出每一处被丢掉的原文"
+      ]
+    },
+    {
+      "id": "M-D28-d",
+      "req": "D28.b",
+      "why": "collect --config 见写重复的键以 2 结束，但退出之前已经新建任务目录、开账或预留",
+      "file": "scripts/collect.ts",
+      "find": "if (!resume && badDuplicates.length) process.exit(2)",
+      "replace": "if (!resume && badDuplicates.length) setImmediate(() => process.exit(2))",
+      "by": "test",
+      "kills": [
+        "collect --config（含 --budget 2）见配置任一层写重复的键（根上的 budget_usd、任务里的 keyword、根上的进度键 found）以 2 退出：零预留、零请求，不建任务目录、不写任何文件与记忆，配置文件原字节"
+      ]
+    },
+    {
+      "id": "M-D28-e",
+      "req": "D28.b",
+      "why": "collect --config 同一份配置里另有字段或任务问题时只报那一类，写重复的键这一轮不报，用户照最后一处改完再撞下一轮",
+      "file": "scripts/collect.ts",
+      "find": "if (badDuplicates.length) console.error(",
+      "replace": "if (badDuplicates.length && (resume || !badFields.length && !badTasks.length)) console.error(",
+      "by": "test",
+      "kills": [
+        "写重复的键与同一份配置里的任务列表、市场、路线或品牌问题一起：collect --config 与 probe 以 2 退出、零预留零请求、目录与配置原样，stderr 写出写重复的那一处与被丢掉的原文"
+      ]
+    },
+    {
+      "id": "M-D28-f",
+      "req": "D28.b",
+      "why": "collect --config 见写重复的键就先退出，同一份配置里的字段与任务问题这一轮不报，用户改完一轮再撞下一轮",
+      "file": "scripts/collect.ts",
+      "find": "const badRoutes = igRouteProblems(state.tasks)",
+      "replace": "if (!resume && badDuplicates.length) process.exit(2)\nconst badRoutes = igRouteProblems(state.tasks)",
+      "by": "test",
+      "kills": [
+        "写重复的键与同一份配置里的任务列表、市场、路线或品牌问题一起：那一类问题不被写重复遮住，stderr 照写出字段与原值"
+      ]
+    },
+    {
+      "id": "M-D28-g",
+      "req": "D28.b",
+      "why": "collect --config 带 --budget 时写出了配置里写重复的键却不拒绝（实参盖过了预算，就当配置没写错），照常按最后一处的 keyword 新建任务、开账与请求",
+      "file": "scripts/collect.ts",
+      "find": "if (!resume && badDuplicates.length) process.exit(2)",
+      "replace": "if (!resume && replacementLimit === undefined && badDuplicates.length) process.exit(2)",
+      "by": "test",
+      "kills": [
+        "collect --config（含 --budget 2）见配置任一层写重复的键（根上的 budget_usd、任务里的 keyword、根上的进度键 found）以 2 退出：零预留、零请求，不建任务目录、不写任何文件与记忆，配置文件原字节",
+        "collect --config 拒绝时 stderr 写出配置文件路径、键的位置与出现次数，并按文件先后写出每一处被丢掉的原文"
+      ]
+    },
+    {
+      "id": "M-D28-h",
+      "req": "D28.c",
+      "why": "probe 不看配置里写重复的键：按最后一处的 budget_usd 开预算、按后一处的 keyword 请求",
+      "file": "scripts/probe.ts",
+      "find": "const taskProblems = [...duplicateKeyProblems(sourceDuplicates(cfg)), ...badFields, ...badTasks, ...badRoutes]",
+      "replace": "const taskProblems = [...badFields, ...badTasks, ...badRoutes]",
+      "by": "test",
+      "kills": [
+        "probe 见配置任一层写重复的键以 2 退出：零预留、零请求，stdout 为空，工作目录与配置文件原字节",
+        "probe 拒绝时 stderr 写出配置文件路径、键的位置、出现次数与按文件先后每一处被丢掉的原文，不带内部异常的类名与调用堆栈",
+        "写重复的键与同一份配置里的任务列表、市场、路线或品牌问题一起：collect --config 与 probe 以 2 退出、零预留零请求、目录与配置原样，stderr 写出写重复的那一处与被丢掉的原文"
+      ]
+    },
+    {
+      "id": "M-D28-i",
+      "req": "D28.a",
+      "why": "probe 照续跑跳过根上的进度键，配置里写了几次的 found 不报，照常开预算与请求",
+      "file": "scripts/probe.ts",
+      "find": "duplicateKeyProblems(sourceDuplicates(cfg))",
+      "replace": "duplicateKeyProblems(sourceDuplicates(cfg), true)",
+      "by": "test",
+      "kills": [
+        "probe 见配置任一层写重复的键以 2 退出：零预留、零请求，stdout 为空，工作目录与配置文件原字节",
+        "probe 拒绝时 stderr 写出配置文件路径、键的位置、出现次数与按文件先后每一处被丢掉的原文，不带内部异常的类名与调用堆栈",
+        "写重复的键与同一份配置里的任务列表、市场、路线或品牌问题一起：collect --config 与 probe 以 2 退出、零预留零请求、目录与配置原样，stderr 写出写重复的那一处与被丢掉的原文"
+      ]
+    },
+    {
+      "id": "M-D28-j",
+      "req": "D28.c",
+      "why": "probe 见写重复的键只报这一类，同一份配置里的市场与任务问题这一轮不报，用户改完一轮再撞下一轮",
+      "file": "scripts/probe.ts",
+      "find": "const taskProblems = [...duplicateKeyProblems(sourceDuplicates(cfg)), ...badFields, ...badTasks, ...badRoutes]",
+      "replace": "const duplicates = duplicateKeyProblems(sourceDuplicates(cfg))\n    const taskProblems = duplicates.length ? duplicates : [...badFields, ...badTasks, ...badRoutes]",
+      "by": "test",
+      "kills": [
+        "写重复的键与同一份配置里的任务列表、市场、路线或品牌问题一起：那一类问题不被写重复遮住，stderr 照写出字段与原值"
+      ]
+    },
+    {
+      "id": "M-D28-k",
+      "req": "D28.c",
+      "why": "probe 同一份配置里另有市场或任务问题时只报那一类，写重复的键这一轮不报，用户照最后一处改完再撞下一轮",
+      "file": "scripts/probe.ts",
+      "find": "const taskProblems = [...duplicateKeyProblems(sourceDuplicates(cfg)), ...badFields, ...badTasks, ...badRoutes]",
+      "replace": "const taskProblems = [...badFields, ...badTasks, ...badRoutes]\n    if (!taskProblems.length) taskProblems.push(...duplicateKeyProblems(sourceDuplicates(cfg)))",
+      "by": "test",
+      "kills": [
+        "写重复的键与同一份配置里的任务列表、市场、路线或品牌问题一起：collect --config 与 probe 以 2 退出、零预留零请求、目录与配置原样，stderr 写出写重复的那一处与被丢掉的原文"
+      ]
+    },
+    {
+      "id": "M-D28-l",
+      "req": "D28.c",
+      "why": "probe 配置里只有写重复的键时，拒绝之前已经开预算并预留",
+      "file": "scripts/probe.ts",
+      "find": "const taskProblems = [...duplicateKeyProblems(sourceDuplicates(cfg)), ...badFields, ...badTasks, ...badRoutes]",
+      "replace": "const taskProblems = [...duplicateKeyProblems(sourceDuplicates(cfg)), ...badFields, ...badTasks, ...badRoutes]\n    if (taskProblems.length && !badFields.length && !badTasks.length && !badRoutes.length) startBudget(cfg, parseUsdMicros('0.01'), 'process').reserve('/api/v1/tiktok/app/v3/fetch_video_search_result')",
+      "by": "test",
+      "kills": [
+        "probe 见配置任一层写重复的键以 2 退出：零预留、零请求，stdout 为空，工作目录与配置文件原字节"
+      ]
+    },
+    {
+      "id": "M-D28-m",
+      "req": "D28.d",
+      "why": "同一个数组里的几个对象共用一份键表，配置里每个任务各有 keyword 就被当成写重复，collect --config 与 probe 拒绝合规的配置",
+      "file": "scripts/lib/cost-json.ts",
+      "find": "...(c === 123 ? { seen: new Map() } : {})",
+      "replace": "...(c === 123 ? { seen: top && !top.seen ? ((top as Frame & { shared?: Map<string, string[]> }).shared ??= new Map()) : new Map() } : {})",
+      "by": "test",
+      "kills": [
+        "写重复的键不多拒：各个任务各有 keyword 与任务数组里一模一样的两项不算写重复，collect --config 与 probe 照常以 0 结束、预留并请求"
+      ]
+    },
+    {
+      "id": "M-D28-n",
+      "req": "D28.b",
+      "why": "collect --config 见写重复的键先读了预算、套了缺省预算并在 stderr 说采用默认，才以 2 拒绝，用户以为配置已被接受",
+      "file": "scripts/collect.ts",
+      "find": "if (!resume && badDuplicates.length) process.exit(2)\n\n// D20.e：先报告原始品牌字段问题；合法配置才读取预算 token、应用缺省或开账。\nif (!resume) {\n  try {\n    if (Object.hasOwn(state, 'budget_usd')) freshLimit = readCostLimit(state)\n    else {\n      freshLimit = parseUsdMicros('2')\n      if (replacementLimit === undefined) console.error('未提供预算，默认采用任务总预算 $2。')\n    }\n    if (replacementLimit !== undefined) freshLimit = replacementLimit\n  } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }\n}",
+      "replace": "// D20.e：先报告原始品牌字段问题；合法配置才读取预算 token、应用缺省或开账。\nif (!resume) {\n  try {\n    if (Object.hasOwn(state, 'budget_usd')) freshLimit = readCostLimit(state)\n    else {\n      freshLimit = parseUsdMicros('2')\n      if (replacementLimit === undefined) console.error('未提供预算，默认采用任务总预算 $2。')\n    }\n    if (replacementLimit !== undefined) freshLimit = replacementLimit\n  } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }\n}\nif (!resume && badDuplicates.length) process.exit(2)",
+      "by": "test",
+      "kills": [
+        "写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常以 0 结束并说明默认）"
+      ]
+    },
+    {
+      "id": "M-D28-o",
+      "req": "D28.c",
+      "why": "probe 见写重复的键先读了预算、套了缺省预算并在 stderr 说采用默认，才以 2 拒绝；同一份配置里另有市场或任务问题时写重复的键这一轮不报",
+      "file": "scripts/probe.ts",
+      "find": "    const taskProblems = [...duplicateKeyProblems(sourceDuplicates(cfg)), ...badFields, ...badTasks, ...badRoutes]\n    if (taskProblems.length) throw new Error(`任务配置不合规：${taskProblems.join('；')}`)\n    // D13.a：只在缺席时默认；显式 null、字符串与超精度原 token 均交给共同边界拒绝。\n    const absent = cfg.budget_usd === undefined\n    const limit = absent ? parseUsdMicros('0.5') : readCostLimit(cfg)\n    if (absent) console.error('未提供 budget_usd，本次试探默认使用进程总预算 $0.5。')",
+      "replace": "    const taskProblems = [...badFields, ...badTasks, ...badRoutes]\n    if (taskProblems.length) throw new Error(`任务配置不合规：${taskProblems.join('；')}`)\n    // D13.a：只在缺席时默认；显式 null、字符串与超精度原 token 均交给共同边界拒绝。\n    const absent = cfg.budget_usd === undefined\n    const limit = absent ? parseUsdMicros('0.5') : readCostLimit(cfg)\n    if (absent) console.error('未提供 budget_usd，本次试探默认使用进程总预算 $0.5。')\n    taskProblems.push(...duplicateKeyProblems(sourceDuplicates(cfg)))\n    if (taskProblems.length) throw new Error(`任务配置不合规：${taskProblems.join('；')}`)",
+      "by": "test",
+      "kills": [
+        "写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常以 0 结束并说明默认）"
       ]
     },
     {

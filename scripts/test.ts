@@ -216,6 +216,7 @@ const GROUPS: readonly Group[] = [
   { id: 'u11-keyword-attribution', needs: [] },
   { id: 'u11-keyword-report-entry', needs: [] },
   { id: 'd20-content-version', needs: [] },
+  { id: 'd28-config-duplicates', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -14265,6 +14266,140 @@ suite('D20', '内容哈希版本按规范化 JSON 算出，复算只核对已有
       [both.error instanceof ReviewInputError, both.kept, times('1e400'), times('7.5e1')], [true, true, 1, 1])
   } finally { rmSync(d27Dir, { recursive: true, force: true }) }
   tension('D27', 'P1')
+}
+})
+
+await group('d28-config-duplicates', () => {
+suite('D28', 'collect --config 与 probe 读的配置写重复的键：在建目录、开账、预留与请求之前以 2 拒绝，按先后列出每一处')
+{
+  // D28（ADR-143）。测试先于实现、由另一个上下文写成：期望只来自 D28.a–d、D27.a 原文、D28 × P1 与 D28 × P3 的裁决和下面写进夹具的字面值；
+  // 没有读 collect.ts、probe.ts、cost-json.ts、duplicate-keys.ts 的函数体，也没有照着入口的输出抄。
+  // 每份夹具只有一处写重复，前几处是夹具里独有的写法（9.5e1、zq-old、7.25e0、zq-mid-two），最后一处就是基准那一份的值 ——
+  // 普通 JSON.parse 读出来与基准一模一样（第一条断言），前几处只在原文里找得到，stderr 里按先后找得到它们才是「每一处」。
+  // 观测与 D27 × P3 那一段同一种接法：fake-fetch 逐次记请求，预加载在 Budget.prototype.reserve 上记预留，armed 证明预加载装上了；
+  // 观测文件放在入口的工作目录之外，工作目录（配置文件、记忆、output/）整棵比。阳性对照是只留最后一处的同一份配置、同一种接线
+  const CFG = { market: '"market":"US"', budget: '"budget_usd":1', found: '"found":{"0":3}',
+    tasks: '"tasks":[{"keyword":"local","dimension":"category","platform":"tiktok"}]' }
+  const cfg = (swap: Partial<Record<keyof typeof CFG, string>> = {}) =>
+    `{"product":"d28dup",${swap.market ?? CFG.market},"target_count":1,${swap.budget ?? CFG.budget},${swap.tasks ?? CFG.tasks},${swap.found ?? CFG.found}}\n`
+  // at 是位置（照 D27.a：根上的键名往下接 [下标] 与 ["键"]），tokens 是按文件先后被丢掉的前几处原文（都不含位置本身，免得原文替位置作证），
+  // times 是出现次数，other 是同一份配置里另一类问题该写出的字段与原值
+  type Dup = { name: string; text: string; at: string; tokens: readonly string[]; times?: number; other?: readonly string[]; only?: 'collect' }
+  const DUPS: Dup[] = [
+    // D28 × P3：根预算写重复，读入只留最后一处的 1 美元
+    { name: 'budget_usd', text: cfg({ budget: '"budget_usd":9.5e1,"budget_usd":1' }), at: 'budget_usd', tokens: ['9.5e1'], times: 2 },
+    // D28 × P1：任务里写了两次的 keyword，按最后一处新建的 task.json 里只会剩 local
+    { name: 'keyword', text: cfg({ tasks: '"tasks":[{"keyword":"zq-old","dimension":"category","keyword":"local","platform":"tiktok"}]' }),
+      at: 'tasks[0]["keyword"]', tokens: ['zq-old'], times: 2 },
+    // D28.a：配置不续跑，根上的进度键与别的键一样报（D19.k 不适用）；写了三次，中间那一处的键名用转义写（按 JSON 解码后同名即算）
+    { name: 'found', text: cfg({ found: '"found":7.25e0,"f\\u006fund":"zq-mid-two","found":{"0":3}' }), at: 'found', tokens: ['7.25e0', 'zq-mid-two'], times: 3 },
+  ]
+  eq('配置写重复的键夹具有效：每一份经普通 JSON.parse 读成与只留最后一处的那一份相同，前几处读入后不留痕迹',
+    DUPS.filter(({ text }) => !isDeepStrictEqual(JSON.parse(text), JSON.parse(cfg()))).map(({ name }) => name), [])
+  const root = mkdtempSync(join(tmpdir(), 'kol-d28-'))
+  try {
+    const tsxLoader = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+    const fakeFetch = pathToFileURL(join(process.cwd(), 'scripts', 'check', 'fake-fetch.ts')).href
+    const budgetModule = pathToFileURL(join(process.cwd(), 'scripts', 'lib', 'budget.ts')).href
+    const tree = (dir: string) => JSON.stringify(readdirSync(dir, { recursive: true }).map(String).sort()
+      .map(p => statSync(join(dir, p)).isDirectory() ? `${p}/` : `${p}:${rf(join(dir, p), 'base64')}`))
+    const MODES = ['collect', 'collect --budget 2', 'probe'] as const
+    type Mode = typeof MODES[number]
+    let made = 0
+    const runConfig = (mode: Mode, text: string, dup?: Dup) => {
+      const run = join(root, `run-${++made}`), cwd = join(run, 'cwd'), obs = join(run, 'obs'), file = join(cwd, 'config.json')
+      mkdirSync(join(cwd, 'memory'), { recursive: true }); mkdirSync(obs)
+      writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: '2026-01-01T00:00:00.000Z', creators: {} }, null, 2) + '\n')
+      writeFileSync(file, text)
+      const before = tree(cwd)
+      const ledger = join(obs, 'attempts.tsv'), reserves = join(obs, 'reserves.txt'), armed = join(obs, 'armed.txt'), preload = join(obs, 'observe-reserve.mjs')
+      writeFileSync(reserves, '')
+      writeFileSync(preload, [
+        `import { appendFileSync } from 'node:fs';`,
+        `import { Budget } from ${JSON.stringify(budgetModule)};`,
+        `const original = Budget.prototype.reserve;`,
+        `Budget.prototype.reserve = function(...args) { appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n'); return Reflect.apply(original, this, args); };`,
+        `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
+      ].join('\n'))
+      const [exe, args] = tsxCommand([join(process.cwd(), 'scripts', mode === 'probe' ? 'probe.ts' : 'collect.ts'), '--config', file,
+        ...mode === 'collect --budget 2' ? ['--budget', '2'] : []])
+      const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d28', FAKE_FETCH_LEDGER: ledger,
+        FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(),
+        NODE_OPTIONS: `--import ${JSON.stringify(tsxLoader)} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}` } })
+      const lines = (path: string) => existsSync(path) ? rf(path, 'utf8').split('\n').filter(Boolean).length : 0
+      // 路径先移走：它不能替问题提供位置、原文或次数
+      const stderr = r.stderr ?? '', message = stderr.replaceAll(file, '[配置]').replaceAll(root, '[目录]')
+      return { ...dup, mode, status: r.status, armed: lines(armed) > 0, reserves: lines(reserves), attempts: lines(ledger), kept: rf(file, 'utf8') === text,
+        same: tree(cwd) === before, made: existsSync(join(cwd, 'output')), stdout: r.stdout ?? '', pathSaid: stderr.includes(file), message, tail: message.split('\n').filter(Boolean).slice(-3).join(' | ') }
+    }
+    type Got = ReturnType<typeof runConfig>
+    const brief = (g: Got) => `${g.mode}/${g.name ?? '-'}: exit=${g.status} armed=${g.armed} reserves=${g.reserves} attempts=${g.attempts}`
+      + ` 配置原字节=${g.kept} 目录原样=${g.same} stdout=${g.stdout.length}字 stderr=${g.tail}`
+    const controls = MODES.map(mode => runConfig(mode, cfg()))
+    eq('配置写重复的键入口夹具有效：只留最后一处的同一份配置，collect --config、collect --config --budget 2 与 probe 照常以 0 结束、预留并请求，观测确实装上了；collect 建了任务目录、probe 往 stdout 写了结果',
+      controls.map(g => [g.status, g.armed, g.reserves > 0, g.attempts > 0, g.mode === 'probe' ? g.stdout.trim() !== '' : g.made]),
+      MODES.map(() => [0, true, true, true, true]))
+    if (controls.some(g => g.status !== 0 || g.reserves === 0 || g.attempts === 0)) console.log(`     ${controls.map(brief).join('\n     ')}`)
+    const inOrder = (text: string, tokens: readonly string[]) => {
+      let at = 0
+      for (const token of tokens) { const i = text.indexOf(token, at); if (i < 0) return false; at = i + token.length }
+      return true
+    }
+    // 拒绝：退出 2，预留与请求都是零（观测装上了），配置文件原字节，工作目录整棵不变 —— 没有任务目录、没有写记忆
+    const held = (g: Got) => g.status === 2 && g.armed && g.reserves === 0 && g.attempts === 0 && g.kept && g.same
+    // 列出：配置文件路径、位置、按先后每一处被丢掉的原文；出现次数在写着第一处原文的那一行里（写了两次的 2，三次的 3）
+    const listed = (g: Got) => g.status === 2 && g.pathSaid && g.message.includes(g.at!) && inOrder(g.message, g.tokens!)
+      && (g.times === undefined || (g.times === 2 ? /[2两二]/ : /[3三]/).test(g.message.split('\n').find(line => line.includes(g.tokens![0])) ?? ''))
+    // F3.c：内部异常的类名（以 Error 结尾的标识符）与栈帧（行首空白加 at ）都不出现
+    const leaks = (g: Got) => /\b[A-Za-z]*Error\b/.test(g.message) || /^\s+at\s/m.test(g.message)
+    const refused = MODES.flatMap(mode => DUPS.map(dup => runConfig(mode, dup.text, dup)))
+    const collects = refused.filter(g => g.mode !== 'probe'), probes = refused.filter(g => g.mode === 'probe')
+    eq('collect --config（含 --budget 2）见配置任一层写重复的键（根上的 budget_usd、任务里的 keyword、根上的进度键 found）以 2 退出：零预留、零请求，不建任务目录、不写任何文件与记忆，配置文件原字节',
+      collects.filter(g => !held(g)).map(brief), [])
+    eq('collect --config 拒绝时 stderr 写出配置文件路径、键的位置与出现次数，并按文件先后写出每一处被丢掉的原文',
+      collects.filter(g => !listed(g)).map(brief), [])
+    eq('probe 见配置任一层写重复的键以 2 退出：零预留、零请求，stdout 为空，工作目录与配置文件原字节',
+      probes.filter(g => !(held(g) && g.stdout === '')).map(brief), [])
+    eq('probe 拒绝时 stderr 写出配置文件路径、键的位置、出现次数与按文件先后每一处被丢掉的原文，不带内部异常的类名与调用堆栈',
+      probes.filter(g => !listed(g) || leaks(g)).map(brief), [])
+    // D28.b、D28.c「一起」：同一份配置里另有任务列表（D16）、市场（D17）、路线（D15）或品牌（D20，只有 collect 判）的问题。退出 2 本来就由那一类问题满足，要的是两类在同一次拒绝里都写出，
+    // 不让用户先照最后一处改完任务、再撞上写重复。任务问题按 D16.d 认字段名与 JSON 原值，市场问题按 D17.d 认字段与原值
+    const MIXED: Dup[] = [
+      { name: 'with-task-list', at: 'tasks[0]["keyword"]', tokens: ['zq-old'], other: ['dimension', '"zq-bad-dim"'],
+        text: cfg({ tasks: '"tasks":[{"keyword":"zq-old","dimension":"category","keyword":"local","platform":"tiktok"},{"keyword":"local","dimension":"zq-bad-dim","platform":"tiktok"}]' }) },
+      { name: 'with-market', at: 'found', tokens: ['7.25e0'], other: ['market', 'zq-bad-market'],
+        text: cfg({ market: '"market":["zq-bad-market"]', found: '"found":7.25e0,"found":{"0":3}' }) },
+      // 复核之后由写实现的上下文补（ADR-143 第五节）：路线问题（D15.j，第几个任务、哪一条）与品牌问题（D20.e，只有 collect 判）
+      { name: 'with-route', at: 'budget_usd', tokens: ['9.5e1'], other: ['ig_route', 'zq-bad-route'],
+        text: cfg({ budget: '"budget_usd":9.5e1,"budget_usd":1',
+          tasks: '"tasks":[{"keyword":"local","dimension":"category","platform":"tiktok"},{"keyword":"local-two","dimension":"scene","platform":"instagram","ig_route":"zq-bad-route"}]' }) },
+      { name: 'with-brand', at: 'found', tokens: ['7.25e0'], other: ['brand_calibration'], only: 'collect',
+        text: cfg({ found: '"found":7.25e0,"found":{"0":3},"brand_calibration":"zq-bad-brand"' }) },
+    ]
+    const mixed = (['collect', 'probe'] as const).flatMap(mode => MIXED.filter(dup => !dup.only || dup.only === mode).map(dup => runConfig(mode, dup.text, dup)))
+    eq('写重复的键与同一份配置里的任务列表、市场、路线或品牌问题一起：collect --config 与 probe 以 2 退出、零预留零请求、目录与配置原样，stderr 写出写重复的那一处与被丢掉的原文',
+      mixed.filter(g => !(held(g) && listed(g))).map(brief), [])
+    eq('写重复的键与同一份配置里的任务列表、市场、路线或品牌问题一起：那一类问题不被写重复遮住，stderr 照写出字段与原值',
+      mixed.filter(g => !(g.status === 2 && g.other!.every(s => g.message.includes(s)))).map(brief), [])
+    // 复核之后由写实现的上下文补（ADR-143 第五节）：D17.l 只在相关配置问题都消除后才套缺省 —— 写重复的键被拒时，
+    // 配置里没写的 market 与 budget_usd 不该先被说成采用了默认。对照是只留最后一处的同一份，要照常以 0 结束并说明默认，证明认得出那句话
+    const bareText = (found: string) => `{"product":"d28dup","target_count":1,${CFG.tasks},${found}}\n`
+    const BARE: Dup = { name: 'no-defaults', at: 'found', tokens: ['7.25e0'], text: bareText('"found":7.25e0,"found":{"0":3}') }
+    const bare = (['collect', 'probe'] as const).flatMap(mode => [runConfig(mode, bareText(CFG.found)), runConfig(mode, BARE.text, BARE)])
+    const defaulted = (g: Got) => /默认|缺省|default/i.test(g.message)
+    eq('写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常以 0 结束并说明默认）',
+      bare.filter(g => g.name === undefined ? !(g.status === 0 && defaulted(g)) : !(held(g) && listed(g)) || defaulted(g)).map(brief), [])
+    criterion('D28.a', 'D28.b', 'D28.c')
+    tension('D28', 'P1')
+    tension('D28', 'P3')
+    // D28.d 不多拒：不同对象里的同名键（每个任务各有 keyword，值各不相同）与数组里相同的元素（后两个任务一模一样）都不算写重复
+    const SAME = cfg({ tasks: '"tasks":[{"keyword":"local","dimension":"category","platform":"tiktok"},'
+      + '{"keyword":"local-two","dimension":"scene","platform":"tiktok"},{"keyword":"local-two","dimension":"scene","platform":"tiktok"}]' })
+    const normal = (['collect', 'probe'] as const).map(mode => runConfig(mode, SAME))
+    eq('写重复的键不多拒：各个任务各有 keyword 与任务数组里一模一样的两项不算写重复，collect --config 与 probe 照常以 0 结束、预留并请求',
+      normal.map(g => [g.status, g.armed, g.reserves > 0, g.attempts > 0]), normal.map(() => [0, true, true, true]))
+    criterion('D28.d')
+  } finally { rmSync(root, { recursive: true, force: true }) }
 }
 })
 

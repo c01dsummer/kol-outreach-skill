@@ -1,6 +1,6 @@
 /**
- * task.json 里写重复的键（D27）。读入只留最后一处，哪一处是真的只有人知道：
- * 读它的命令在写回与请求之前拒绝，不替用户挑一处留下（ADR-142）。
+ * task.json 与 collect --config、probe 读的配置里写重复的键（D27、D28）。读入只留最后一处，哪一处是真的只有人知道：
+ * 读它的命令在写回与请求之前拒绝，不替用户挑一处留下（ADR-142、ADR-143）。
  */
 import type { KeyDuplicate } from './cost-json.js'
 

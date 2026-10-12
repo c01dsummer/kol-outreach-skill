@@ -182,7 +182,7 @@ npm run --silent feedback-template -- --dir output/xxx --append
 
 probe 与 collect 要求 `tasks` 至少包含一个任务，每项明确写出非空白 `keyword`、四维之一的 `dimension` 和 `tiktok`/`instagram` 的 `platform`。坏任务与 IG 路线问题会带文件路径一起报告，退出 `2`，不请求或写任务文件；旧任务续跑（含 `--budget`）同样整表检查，不补默认字段、不跳过坏项（D16）。
 
-`market` 须为非空白字符串，collect 的 `target_count` 须为有限数；合规原值保留，不另加国家或人数范围限制。新 collect / probe 仅在市场缺席时用 US，并在 stderr 说明默认；新 collect 仅在人数缺席时用 50，probe 不校验人数。显式 null 不算缺席，旧任务缺任一字段直接拒绝。字段问题按输入路径与任务、路线问题一起报告（collect 的 CLI 预算及新建预算须合规），退出 `2`，不建任务目录、不写任务、不预留、不请求；改额续跑也保留原 task.json（D17）。
+`market` 须为非空白字符串，collect 的 `target_count` 须为有限数；合规原值保留，不另加国家或人数范围限制。新 collect / probe 仅在市场缺席时用 US，并在 stderr 说明默认；新 collect 仅在人数缺席时用 50，probe 不校验人数。显式 null 不算缺席，旧任务缺任一字段直接拒绝。字段问题按输入路径与任务、路线问题一起报告（collect 的 CLI 预算及新建预算须合规），退出 `2`，不建任务目录、不写任务、不预留、不请求；改额续跑也保留原 task.json（D17）。配置文件里同一个对象把同一个键写了不止一次（`budget_usd` 写了两个数、某个任务里 `keyword` 写了两次）时读入只留最后一处，collect --config 与 probe 把它与上面这些问题一起报告，按先后列出每一处原文，同样退出 `2`、不开账不请求（D28）。
 
 collect 续跑还会先检查 `task.json` 的已完成索引和分页统计；损坏时指出文件及字段，退出 `2`，不改写原文件或发请求。旧目录缺少整张统计表可继续，缺失仍保留为历史未知（D19）。同一个进度键（已完成索引或某张统计表里的同一项）在文件里写了不止一次也算损坏，stderr 按先后列出每一处原文（数字与字符串照原文，对象与数组只标出 `{…}`、`[…]`，那几处要到 `task.json` 里看；D19.k–l）；enrich 与要写盘的 `calibration version` 遇到同样的重复也退出 `2`、不写回（D19.m–n）。进度以外的位置写重复也一样：`task.json` 任一层同一个对象里同一个键写了不止一次（`tasks` 写了两遍、`requests` 写了两个数、某个任务里 `keyword` 写了两次），collect 续跑、enrich、render 与 `feedback-template` 都在任何写入与请求之前退出 `2`，要写盘的 `calibration version` 同样退出 `2`，按先后列出每一处原文（D27）。render 导出前做同一项检查，损坏时同样退出 `2`，不写名单、交付物与跨任务记忆，报告里不会出现由坏统计印出的 `Infinity`（D19.h–j）。
 

@@ -17,13 +17,14 @@ import { readFileSync } from 'node:fs'
 import { TikHub, TikHubError } from './providers/tikhub.js'
 import { Budget, BudgetInputError, startBudget } from './lib/budget.js'
 import { CostError, parseUsdMicros } from './lib/cost-ledger.js'
-import { readCostDocument, readCostLimit, stringifyCostJson, type CostState } from './lib/cost-json.js'
+import { readCostDocument, readCostLimit, sourceDuplicates, stringifyCostJson, type CostState } from './lib/cost-json.js'
 import { extractEmail } from './lib/email.js'
 import type { SearchTask } from './lib/types.js'
 import { taskLabel } from './lib/task-label.js'
 import { igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { configFieldProblems } from './lib/config-input.js'
+import { duplicateKeyProblems } from './lib/duplicate-keys.js'
 
 const cfgIndex = process.argv.indexOf('--config')
 const cfgPath = process.argv[cfgIndex + 1]
@@ -57,7 +58,8 @@ async function main() {
     const badFields = configFieldProblems(cfg, 'probe')
     const badTasks = taskListProblems(cfg.tasks)
     const badRoutes = igRouteProblems(cfg.tasks)
-    const taskProblems = [...badFields, ...badTasks, ...badRoutes]
+    // D28.c：配置里任一层写重复的键与原市场、任务、路线问题同一道报；配置不续跑，根上的进度键照别的键报（不跳过 D19.k 那几处）
+    const taskProblems = [...duplicateKeyProblems(sourceDuplicates(cfg)), ...badFields, ...badTasks, ...badRoutes]
     if (taskProblems.length) throw new Error(`任务配置不合规：${taskProblems.join('；')}`)
     // D13.a：只在缺席时默认；显式 null、字符串与超精度原 token 均交给共同边界拒绝。
     const absent = cfg.budget_usd === undefined
