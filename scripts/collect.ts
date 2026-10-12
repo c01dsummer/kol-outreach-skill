@@ -86,8 +86,9 @@ try {
 const badFields = configFieldProblems(state, resume ? 'resume' : 'new')
 const badTasks = taskListProblems(state.tasks)
 // D27.b：续跑读的 task.json 写重复的键先写出 —— tasks 写重复时任务列表按最后那份判，两类一起报；
-// 任务列表有效时进度那一道照判，D19.k 那几处与坏进度在那里一起报，不因这里先拒而漏掉
-const badDuplicates = resume ? duplicateKeyProblems(sourceDuplicates(state), true) : []
+// 任务列表有效时进度那一道照判，D19.k 那几处与坏进度在那里一起报，不因这里先拒而漏掉。
+// D28.b：新建读的配置同样先写出，配置不续跑，根上的进度键照别的键报；与原字段、任务、路线、品牌问题同一道退出
+const badDuplicates = duplicateKeyProblems(sourceDuplicates(state), !!resume)
 if (badDuplicates.length) console.error(`${productFrom} 里写重复的键：\n  ${badDuplicates.join('\n  ')}`)
 const badRoutes = igRouteProblems(state.tasks)
 const badCalibration = brandCalibrationProblems(state)
@@ -97,6 +98,7 @@ if (taskProblems.length) {
   console.error(`${productFrom} 里的任务配置不合规：\n  ${taskProblems.join('\n  ')}`)
   process.exit(2)
 }
+if (!resume && badDuplicates.length) process.exit(2)
 
 // D20.e：先报告原始品牌字段问题；合法配置才读取预算 token、应用缺省或开账。
 if (!resume) {

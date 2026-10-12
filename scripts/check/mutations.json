@@ -9765,7 +9765,7 @@
       "req": "D27.b",
       "why": "collect 续跑见到任一层写重复的键照常改额、预留、请求并整份写回，前几处原文悄悄消失",
       "file": "scripts/collect.ts",
-      "find": "const badDuplicates = resume ? duplicateKeyProblems(sourceDuplicates(state), true) : []",
+      "find": "const badDuplicates = duplicateKeyProblems(sourceDuplicates(state), !!resume)",
       "replace": "const badDuplicates: string[] = []",
       "by": "selfcheck",
       "kills": [
@@ -9879,8 +9879,8 @@
       "req": "D27.b",
       "why": "collect 续跑把 D19.k 那几处按两条判据各报一遍",
       "file": "scripts/collect.ts",
-      "find": "resume ? duplicateKeyProblems(sourceDuplicates(state), true) : []",
-      "replace": "resume ? duplicateKeyProblems(sourceDuplicates(state)) : []",
+      "find": "duplicateKeyProblems(sourceDuplicates(state), !!resume)",
+      "replace": "duplicateKeyProblems(sourceDuplicates(state))",
       "by": "selfcheck",
       "kills": [
         "写重复的键：进度键或坏进度与别处同时出问题时，三个入口都写出每一处，每一处只报一遍、不因两条判据报两遍"
