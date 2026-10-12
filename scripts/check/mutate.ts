@@ -66,6 +66,11 @@ import { LAUNCH_PRELOAD, infraClosure, selfVerifying } from './verifier-rule.js'
 
 // 观察不参与检查判定；普通收尾的人读行与机器段共用这一份原料。
 const costEnabled = !process.argv.includes('--brief') && !process.argv.includes('--worker')
+// 启动数文件这一跑重写，开跑先删旧的，排在变异集体检之前：这一跑在哪一步停下、数没数成，
+// 检查链最后一步都读不到上一跑的（ADR-145 第二十一节第 2 小节）。删不掉（比如那是个目录）时
+// 这一跑也写不进去，闸门照样读不到对的
+const LAUNCHES_FILE = 'output/mutation-launches/launches.json'
+if (costEnabled) try { rmSync(LAUNCHES_FILE, { force: true }) } catch { /* 见上 */ }
 let costContext: { identity: CostIdentity; combinations: CostCombination[] } | undefined
 const costBaselines: CostBaseline[] = []
 const costMutations: CostMutation[] = []
@@ -829,10 +834,6 @@ if (jobs === undefined) {
   console.error('  按机器核数跑请把它去掉，不要写一个读不出来的值。')
   process.exit(1)
 }
-// 启动数文件这一跑重写，开跑先删旧的：数没数成，检查链最后一步都读不到上一跑的（ADR-145 第二十一节第 2 小节）。
-// 删不掉（比如那是个目录）时这一跑也写不进去，闸门照样读不到对的
-const LAUNCHES_FILE = 'output/mutation-launches/launches.json'
-try { rmSync(LAUNCHES_FILE, { force: true }) } catch { /* 见上 */ }
 // 可信历史与实际路由的核对只由 coordinator 做；拒绝发生在基线或任何施变之前。
 const askGit = (...args: string[]): Promise<string | null> => new Promise(done => {
   execFile('git', args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 },
