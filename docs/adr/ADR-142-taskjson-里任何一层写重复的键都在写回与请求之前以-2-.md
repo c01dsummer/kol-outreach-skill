@@ -25,7 +25,15 @@
 
 ## 三、测试与变异
 
-待填。
+1. **测试先于实现、由另一个上下文写成**：只读需求原文、函数签名、夹具与 `mutate --brief`，不读实现。`scripts/test.ts` 的 `d19-resume` 组新增 D27 一段（库层的 D27.a、D19.k 的判据范围不变、D27 × P3 起真入口 `collect --resume --budget 2` 与 `enrich --budget 2`），`d20-content-version` 组补 D27.c 库层与 D27 × P1，`feedback-template-crossings` 组补 D27.d 库层；自检 `resume-progress` 组补五个入口里四个（collect、enrich、render、`calibration version`）的 D27.b、D27.c、D27.e，`feedback-template` 组补 D27.d、D27.e。每个拒绝用例都先跑同一模式下只留最后一处的阳性对照：collect、enrich 要照常预留并请求，render 要照常导出，`calibration version` 要照常写入或报 `unchanged`，模板命令要照常建表；对照不过就带夹具记号、跳过该例。
+2. **对着接口看红**：`test.ts` 十七条红（`d19-resume` 十二、`d20-content-version` 三、`feedback-template-crossings` 二），自检十五条红（`resume-progress` 十二、`feedback-template` 三），都是新断言；原有断言一条没变色，没有夹具或进程记号。观测值见文首「触发它的事实」。绿着的是夹具有效性、D27.e 不多拒、D19.k 的判据范围与 `calibration version` 缺席、已一致两条 —— 断的是现状本来就对的那一半。接上实现（`a822ea6`）后全绿。
+3. **变异 M-D27-a 至 M-D27-s，十九条**（五条 `by: selfcheck`、十四条 `by: test`）：
+   - 扫描：只认根与根下一层、数组不数下标、位置少了根上那一层；
+   - 问题文本：只写最后一处、次数写死、下标写成键的样子、找不到原文当成没有重复；
+   - 跳过 D19.k 那几处的判据：把表里更深一层也跳过、把 `requests` 当进度键跳过、不跳过（报两遍）、不分场合都跳过；
+   - 入口：去掉 collect、render、enrich、`calibration version`、模板命令各自的那一次调用，`calibration version` 缺席与已一致也拒，模板命令只报 D19.k 以外。
+   每条在副本里单独施变后只跑点名的组（非 root 用户）：点名的断言都红，没有夹具或进程记号。M-D19-y、M-D19-af、M-D19-ao 跟着扫描改了 find，同样单独验过。
+4. **没写成变异的一条**：collect 不分 `--resume` 都判（`if (resume)` 去掉）。那样 `collect --config` 读的配置写重复时也会被拒，而 D27.a 把配置文件划在范围外；没有测试钉「配置写重复照常收下」—— 那是在钉一条需求没说的行为，这条变异施下去什么都不会红。
 
 ## 四、边界
 
@@ -38,4 +46,22 @@
 
 ## 六、本条那条 PR 上响了的欠条
 
-待填。
+普查办法同 ADR-140 第六节：`scripts/check/debt-rule.ts` 的 `entries` 按块列出 `docs/adr/` 里带重启条件的条目，295 条，逐条按字面读重启条件，再读全块、查后面有没有已还或销掉。只列响了的。
+
+- ADR-140 第 89 行（第四节第二张，根上其他键写重复时任何入口都不判）：本条要还的那张，还了，ADR-140 末尾 `⚠️ 已还`。
+- ADR-141 第 41 行（第四节第一张，进度字段更深一层写重复的键）：本条一并还了，ADR-141 末尾 `⚠️ 已还`。
+- ADR-141 第 45 行（D19.k「同一个任务索引键」的措辞比实现窄，条件是改 `cost-json.ts` 的重复键扫描）：响了，还了 —— D19.k 改成「某张表里同一个键」，末句补「由 D27 判」，ADR-141 末尾 `⚠️ 已还`。
+- ADR-139 第 126 行（重挂 ADR-97 第 190–192 行：下一条往入口脚本里加判定）：响了。collect、render、enrich 三个入口各多一次调用，M-D27-l、m、n 只由自检抓。没还，记在 ADR-139 末尾并重挂。
+- ADR-94 第 1281 行（ADR-141 重挂的「三态靠字段存不存在来表达」，条件之一是再碰 `offsets`、`answered`、`found`）：响了，没还，记在 ADR-94 末尾并重挂。
+- ADR-94 第 465 行（F9、P5.i、U3.b、D6.g、D6.h 的登记表条目，兜底条件是下一条碰 `docs/requirements.json`）：响了，核过缺 0 条，D6.c 已退役，ADR-94 末尾 `⚠️ 已还`。
+- ADR-134 第 96 行（新增或改动的自检组用到看不见的通道）：`resume-progress` 组新段经 `costFixture` 用拼出来的路径 `cost-d27-*`、`cost-calver-dup-d27-*`，`feedback-template` 组新段用组内 `base` 下的 `d27-*`，都起子进程，`resume-progress` 那一段经 `NODE_OPTIONS` 装预留观测。
+  核过：前缀不与别的夹具名重名，两组的 `needs` 仍为空；`scripts/check/share-rule.ts` 的扫描在 `7214352` 与本条上都是 67 组、没有报问题，`feedback-template` 组的读写集相同，`resume-progress` 组多读两个顶层常量 `TT_SEARCH`、`TT_PROFILE`（没有组写它们）。拆进程跑与单进程跑的 ✓ 行对照没做。没还，照旧挂着。
+- ADR-89 第 91–93 行（往 `mutations.json` 加变异时看一眼盖的是不是从来没人盖过的地方）：看过了。十九条新变异里十七条的 find 在 `7214352` 上出现 0 次、在本条上恰好一次，盖的是本条新写的代码；M-D27-p、q 锚在主干就有的 `unchanged`、`absent` 两行，那两行原有 M-D19-ax、ay 守着「有进度键的重复也不拒绝」，「有其余位置的重复也不拒绝」这一半是第一次有变异守。改了 find 的 M-D19-y、af、ao 在主干上也是 0 次。那张欠条照原样留着。
+- ADR-78 第 78–81 行（改 `ARCHITECTURE.md` 顺序契约表）：响了 —— 本条改了 enrich 与 `calibration version` 那一行的措辞，位置栏补上 `scripts/lib/duplicate-keys.ts`。按 ADR-78 第 93 行那条字面规则在 `7214352` 与本条上各跑一遍，输出相同：只有三行旧的不过（算分 → 基础分层、三个入口读旧名单、render 当前 Agent／人工投影）。表里点名的变异本条一条没动。没还，照旧挂着。
+
+普查判为没响、但离得近的：
+- ADR-136 第 137 行（改 collect、enrich 读任务失败时报错的改动）：读任务失败那条路没动。
+- ADR-138 第 76 行（开始读任务条目或 `brand_calibration` 里此前未列出的键）：扫描器在源文本里认每一层的键名，但只为找重复，不把任何未列出键的值读进任务状态，也不改它们怎么写回。
+- ADR-88 第 189 行（下一次有红线需求变更时）与 ADR-90 第 107 行（下一次有隔离上下文重写测试、或动 `test.ts` 里别的红线 suite）：P1、P3 原文没动，D27 一侧声明了两个交点；测试是另一个上下文新写的，不是重写，P1 到 P5 的 suite 没碰。
+- ADR-132 第 310 行（往 `selfcheck.ts` 新增组、改 `needs`、或新增跨组读运行结果）：没有新组，`needs` 没改，新段只读本组与顶层常量。
+- ADR-12 开头四块（锚点表说明列）：本条新增一行、改六行说明，那张欠条 2026-10-08 已由需求所有者收尾、不再挂条件。
