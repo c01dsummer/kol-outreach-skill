@@ -151,6 +151,16 @@ export function sourceDuplicateKeys(root: object): readonly SourceDuplicate[] | 
   return found
 }
 
+/** 读入文本里任一层对象中重复出现的键（D27.a）。path 从根往下：对象里的键名、数组里的下标，最后一段是写重复的那个键；
+ * values 按在文本里的先后，数字与字符串照原文，对象与数组记作 {…}、[…]。 */
+export type KeyDuplicate = { path: readonly (string | number)[]; values: readonly string[] }
+
+/** 找不到读入时的原文交回 null，同 sourceDuplicateKeys。 */
+export function sourceDuplicates(root: object): readonly KeyDuplicate[] | null {
+  if (!sourceTexts.has(root)) return null
+  return [] // 接口桩：D27 的扫描还没接上
+}
+
 export function readCostLimit(state: CostState): MicroUsd {
   const root = roots.get(state)
   if (!root || !Object.hasOwn(state, 'budget_usd') || !Object.is(root.value, state.budget_usd))
