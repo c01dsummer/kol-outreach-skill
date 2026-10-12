@@ -5002,6 +5002,219 @@ group('resume-progress', [], () => {
     named('重复进度键：calibration version 的 version 已一致时有重复也以0报 unchanged，不写盘，task.json 原字节、文件身份与修改时间不变', !calUnchanged.length, calUnchanged.join('；'))
   }
   if (calRan === dupCases.length) criterion('D19.n')
+
+  // ---- D27.b、D27.c、D27.e 与 D27 × P3（ADR-142）：task.json 任一层写重复的键 ----
+  // 期望只来自 D27.a–c、D27.e、D27 × P3 原文与写进夹具的字面值，没有读 collect.ts、enrich.ts、render.ts、calibration.ts 与判据的函数体。
+  // 夹具是 costFixture 那一份合法任务，把某一处改写成写重复：前几处是夹具里独有的写法，最后一处就是原来那一处（found-deep 另给只留最后一处的写法）。
+  // 前几处读入后不留痕迹，stderr 里按先后找得到它们才是「每一处」；位置照 D27.a 写成根上的键名往下接 ["键"] 与 [下标]。
+  // 每种模式、每份只留最后一处的文本先跑一份阳性对照（文本相同的对照只跑一次）：collect、enrich 照常预留并请求，render 照常导出 kol.csv，
+  // calibration version 照常写入 —— 观测确实接上、拒绝只能是因为重复；对照不成立记夹具失败，不让一份废夹具冒充拒绝
+  // [名, 夹具里的合法原文, 改成的重复写法, 只留最后一处的写法, 位置, 按文件先后被丢掉的前几处原文]
+  type D27Case = [string, string, string, string, string, string[]]
+  const d27Cases: D27Case[] = [
+    ['tasks-root', '"tasks":[', '"tasks":"zq-first-tasks","tasks":[', '"tasks":[', 'tasks', ['zq-first-tasks']],
+    ['task-keyword', '"keyword":"local"', '"keyword":"zq\\u002dold","keyword":"local"', '"keyword":"local"', 'tasks[0]["keyword"]', ['zq\\u002dold']],
+    // D27 × P3：请求计数、根预算与费用账上限写重复
+    ['requests', '"requests":0', '"requests":7.5e1,"requests":"zz-mid","requests":0', '"requests":0', 'requests', ['7.5e1', 'zz-mid']],
+    ['budget-root', '"budget_usd":1,', '"budget_usd":9.5e1,"budget_usd":1,', '"budget_usd":1,', 'budget_usd', ['9.5e1']],
+    ['ledger-limit', '"limit_micro_usd":1000000', '"limit_micro_usd":9.5e2,"limit_micro_usd":1000000', '"limit_micro_usd":1000000',
+      'cost_ledger["limit_micro_usd"]', ['9.5e2']],
+  ]
+  const d27P3 = new Set(['requests', 'budget-root', 'ledger-limit'])
+  // 进度值里更深一层（不是 D19.k 那几处）。collect 与 render 按 D19.b 本来就拒绝对象形的进度值，只留最后一处也成立不了阳性对照，
+  // 所以只给不判进度值的 enrich（D19.m 末句）与 calibration version
+  const d27Deep: D27Case = ['found-deep', '"found":{"0":3}', '"found":{"0":{"zq":7.25e0,"zq":3}}', '"found":{"0":{"zq":3}}', 'found["0"]["zq"]', ['7.25e0']]
+  type D27Entry = 'collect' | 'enrich' | 'render'
+  let d27Made = 0
+  // 起一次入口：collect 的 done 为空（进度合规时一定会去搜）；enrich 与 render 放一个待补的创作者，再放哨兵与记忆（同上面 render 一段的 seed）。
+  // 预留观测与上面 D19.e 一段同一种接法；任务目录与记忆整棵比，原本没有的交付物另看有没有被创建
+  const d27Run = (entry: D27Entry, edits: [string, string][], extra: readonly string[], expect: { status: number; soft: number[] },
+    over: Record<string, unknown> = {}) => {
+    const name = `d27-${entry}-${++d27Made}`
+    const f = costFixture(name, knownCosts(1_000_000, []), { ...(entry === 'collect' ? { done: [] } : {}), ...over }, entry === 'collect' ? [] : [costPerson()])
+    const text = fileText(f.task)
+    if (!edits.every(([from]) => text.includes(from))) {
+      failed++; console.error(`  ✗ 写重复的键测试输入${SELFCHECK_FIXTURE_MARK}：${name} 的夹具里找不到 ${edits.map(([from]) => from).join('、')}`); return undefined }
+    writeFileSync(f.task, edits.reduce((t, [from, to]) => t.replace(from, to), text))
+    if (entry !== 'collect') seed(f)
+    const dirs = () => `${snapshot(f.taskDir)}|${snapshot(join(f.cwd, 'memory'))}`
+    const before = fileText(f.task), beforeDirs = dirs()
+    const reserves = join(f.cwd, 'reserves.txt'), armed = join(f.cwd, 'armed.txt'), preload = join(f.cwd, 'observe-reserve.mjs')
+    writeFileSync(reserves, '')
+    writeFileSync(preload, [
+      `import { appendFileSync } from 'node:fs';`,
+      `import { Budget } from ${JSON.stringify(budgetModule)};`,
+      `const original = Budget.prototype.reserve;`,
+      `Budget.prototype.reserve = function(...args) {`,
+      `  appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n');`,
+      `  return Reflect.apply(original, this, args);`,
+      `};`,
+      `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
+    ].join('\n'))
+    const args = entry === 'collect' ? [S('collect.ts'), '--resume', f.taskDir] : [S(entry === 'enrich' ? 'enrich.ts' : 'render.ts'), '--dir', f.taskDir]
+    const r = runBoth(`写重复的键 ${name}`, [...args, ...extra], f.cwd, expect, costEnv(f.log, {
+      ...(entry === 'render' ? { TIKHUB_API_KEY: undefined } : {}),
+      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+    }))
+    if (!r.ok) return undefined
+    if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ 写重复的键预留观测${SELFCHECK_FIXTURE_MARK}：预算预留观测未安装，${name}`); return undefined }
+    const after = fileText(f.task)
+    return { f, r, before, after, same: dirs() === beforeDirs, reserves: fetchAttempts(reserves).length, attempts: fetchAttempts(f.log).length,
+      refreshed: jsonFile(f.task)?.updated_at !== '2026-01-01T00:00:00.000Z', created: ['kol.csv', 'kol.xlsx'].filter(n => existsSync(join(f.taskDir, n))) }
+  }
+  type D27Got = NonNullable<ReturnType<typeof d27Run>>
+  // 阳性对照照常进行：collect 预留并请求；enrich 预留、请求并写回 task.json；render 以 0 生成 kol.csv
+  const d27Normal = (entry: D27Entry, got: D27Got) => got.r.status === 0 && (entry === 'render' ? got.created.includes('kol.csv')
+    : got.reserves > 0 && got.attempts > 0 && (entry === 'collect' || (got.after !== got.before && got.refreshed)))
+  const d27Said = (got: D27Got) => `exit=${got.r.status}，fileSame=${got.after === got.before}，目录原样=${got.same}，reserves=${got.reserves}，`
+    + `attempts=${got.attempts}，新建=${JSON.stringify(got.created)}，stderr=${stderrTail(got.r.stderr)}`
+  const d27Modes: [string, D27Entry, string[]][] = [
+    ['collect --resume', 'collect', []], ['collect --resume --budget 2', 'collect', ['--budget', '2']],
+    ['enrich', 'enrich', []], ['enrich --budget 2', 'enrich', ['--budget', '2']], ['render', 'render', []],
+  ]
+  const d27Controls = new Map<string, boolean>()
+  const d27Leaked: Record<D27Entry, string[]> = { collect: [], enrich: [], render: [] }
+  const d27Hidden: Record<D27Entry, string[]> = { collect: [], enrich: [], render: [] }
+  const d27RanBy: Record<D27Entry, number> = { collect: 0, enrich: 0, render: 0 }
+  const d27Spent: string[] = []
+  let d27Planned = 0, d27Ran = 0, d27P3Ran = 0
+  for (const [mode, entry, extra] of d27Modes) for (const [id, from, dup, last, at, tokens] of entry === 'enrich' ? [...d27Cases, d27Deep] : d27Cases) {
+    d27Planned++
+    // 只留最后一处就是夹具原样（from 与 last 相同）的几个用例共用一份对照：文本一样，对照只跑一次
+    const key = `${mode}|${from === last ? '' : `${from}→${last}`}`
+    if (!d27Controls.has(key)) {
+      const control = d27Run(entry, [[from, last]], extra, { status: 0, soft: [1, 2, 3] })
+      const fine = control !== undefined && d27Normal(entry, control)
+      if (control !== undefined && !fine) { failed++
+        console.error(`  ✗ 写重复的键阳性对照${SELFCHECK_FIXTURE_MARK}：${mode} 只留最后一处（${id}）时没有照常${entry === 'render' ? '以 0 生成 kol.csv' : '预留并请求'}，${d27Said(control)}`) }
+      d27Controls.set(key, fine)
+    }
+    if (!d27Controls.get(key)) continue
+    const got = d27Run(entry, [[from, dup]], extra, { status: 2, soft: [0, 1, 3] })
+    if (!got) continue
+    const at2 = `${mode}/${id}：${d27Said(got)}`
+    const held = got.r.status === 2 && got.after === got.before && got.same && got.reserves === 0 && got.attempts === 0 && got.created.length === 0
+    if (!held) d27Leaked[entry].push(at2)
+    if (d27P3.has(id) && entry !== 'render') { d27P3Ran++; if (!held) d27Spent.push(at2) }
+    if (got.r.status !== 2 || !dupListed(got.r.stderr, got.f, at, tokens)) d27Hidden[entry].push(at2)
+    d27RanBy[entry]++; d27Ran++
+  }
+  if (d27RanBy.collect > 0) named('写重复的键：collect 续跑与 --budget 改额见 task.json 任一层写重复的键，在改额、预留与请求前退出2，task.json、任务目录与记忆原字节不变', !d27Leaked.collect.length, d27Leaked.collect.join('；'))
+  if (d27RanBy.collect > 0) named('写重复的键：collect 拒绝时 stderr 写出 task.json 路径与键的位置，并按文件先后写出每一处被丢掉的原文', !d27Hidden.collect.length, d27Hidden.collect.join('；'))
+  if (d27RanBy.enrich > 0) named('写重复的键：enrich 与 --budget 改额见 task.json 任一层写重复的键（含进度值里更深一层），在改额、预留与请求前退出2，task.json、任务目录与记忆原字节不变', !d27Leaked.enrich.length, d27Leaked.enrich.join('；'))
+  if (d27RanBy.enrich > 0) named('写重复的键：enrich 拒绝时 stderr 写出 task.json 路径与键的位置，并按文件先后写出每一处被丢掉的原文', !d27Hidden.enrich.length, d27Hidden.enrich.join('；'))
+  if (d27RanBy.render > 0) named('写重复的键：render 见 task.json 任一层写重复的键，在任何写入前退出2，任务目录与记忆原字节不变，原本没有的交付物不被创建', !d27Leaked.render.length, d27Leaked.render.join('；'))
+  if (d27RanBy.render > 0) named('写重复的键：render 拒绝时 stderr 写出 task.json 路径与键的位置，并按文件先后写出每一处被丢掉的原文', !d27Hidden.render.length, d27Hidden.render.join('；'))
+  if (d27P3Ran > 0) named('写重复的键：requests、cost_ledger、budget_usd 写重复时 collect 与 enrich（含改额）不按最后一处花钱 —— 零改额、零预留、零请求', !d27Spent.length, d27Spent.join('；'))
+
+  // 「与同文件的任务列表问题一起」（D27.b、ADR-142 第一节第 3 条）：tasks 写了两次、最后那份任务列表不合规 —— 任务列表按最后那份判，
+  // 两类问题在同一次拒绝里都写出，不让用户先照最后那份改完任务、再撞上写重复。退出 2 本来就由任务列表的问题满足，所以要的是两类都写出；
+  // 任务问题按 D16 的写法认字段名与 JSON 原值
+  const d27Mixed: string[] = []
+  let d27MixedRan = 0
+  for (const [mode, entry] of [['collect --resume', 'collect'], ['enrich', 'enrich'], ['render', 'render']] as const) {
+    const got = d27Run(entry, [['"tasks":[', '"tasks":"zq-first-tasks","tasks":[']], [], { status: 2, soft: [0, 1, 3] },
+      { tasks: [{ keyword: 'local', dimension: 'Category', platform: 'TikTok' }] })
+    if (!got) continue
+    const message = got.r.stderr.replaceAll(got.f.task, '[任务文件]').replaceAll(got.f.cwd, '[目录]')
+    const taskSaid = ['dimension', 'platform', JSON.stringify('Category'), JSON.stringify('TikTok')].every(s => message.includes(s))
+    const dupSaid = dupListed(got.r.stderr, got.f, 'tasks', ['zq-first-tasks'])
+    if (got.r.status !== 2 || !taskSaid || !dupSaid || got.after !== got.before || !got.same || got.reserves !== 0 || got.attempts !== 0)
+      d27Mixed.push(`${mode}：任务列表=${taskSaid}，重复键=${dupSaid}，${d27Said(got)}`)
+    d27MixedRan++
+  }
+  if (d27MixedRan > 0) named('写重复的键：tasks 写了两次且最后那份任务列表不合规时，collect、enrich 与 render 退出2，stderr 任务列表问题与 tasks 的每一处都写出', !d27Mixed.length, d27Mixed.join('；'))
+
+  // D19.k 那几处照 D19.l、D19.m 报，不重复报（D27.b 末句）：同一份里进度键 found 的 "0" 与 requests 都写了重复。
+  // enrich 只有一道，两处都写出、各只列一遍；collect 与 render 的进度那一道在任务列表那一道之后（ADR-142 第一节第 3 条），
+  // 这一次至少写出 requests 那一处；写出进度键那一处时也只列一遍 —— 去掉路径的 stderr 里 7.5e1 恰好一次、1e400 至多一次
+  const d27Twice: string[] = []
+  let d27BothRan = 0
+  for (const [mode, entry] of [['collect --resume', 'collect'], ['enrich', 'enrich'], ['render', 'render']] as const) {
+    const got = d27Run(entry, [['"found":{"0":3}', '"found":{"0":1e400,"0":3.000}'], ['"requests":0', '"requests":7.5e1,"requests":0']], [], { status: 2, soft: [0, 1, 3] })
+    if (!got) continue
+    const message = got.r.stderr.replaceAll(got.f.task, '[任务文件]').replaceAll(got.f.cwd, '[目录]')
+    const times = (token: string) => message.split(token).length - 1
+    const fine = got.r.status === 2 && dupListed(got.r.stderr, got.f, 'requests', ['7.5e1']) && times('7.5e1') === 1 && times('1e400') <= 1
+      && (entry !== 'enrich' || (times('1e400') === 1 && dupListed(got.r.stderr, got.f, 'found', ['1e400', '3.000'])))
+    if (!fine) d27Twice.push(`${mode}：7.5e1 出现 ${times('7.5e1')} 次，1e400 出现 ${times('1e400')} 次，${d27Said(got)}`)
+    d27BothRan++
+  }
+  if (d27BothRan > 0) named('写重复的键：进度键与别处同时写重复时，每一处只报一遍、不因两条判据报两遍；enrich 两处都写出', !d27Twice.length, d27Twice.join('；'))
+  if (d27Ran === d27Planned && d27MixedRan === 3 && d27BothRan === 3) criterion('D27.b')
+
+  // D27.e：不多拒 —— 两个一模一样的任务（不同对象里的同名键、数组里相同的元素）、费用账两项各有同名键、根上一个装着相同元素的数组，
+  // collect 续跑与改额照常预留并请求，enrich 与改额照常预留、请求并写回，render 照常导出，calibration version 照常写入
+  const d27SameNames = {
+    tasks: [{ keyword: 'local', dimension: 'category', platform: 'tiktok' }, { keyword: 'local', dimension: 'category', platform: 'tiktok' }],
+    notes: ['same', 'same', { k: 1 }, { k: 1 }], ...knownCosts(1_000_000, [costEntry(TT_SEARCH, 1000, 1), costEntry(TT_PROFILE, 1000, 1)]),
+  }
+  const d27Rejected: string[] = []
+  let d27NormalRan = 0
+  for (const [mode, entry, extra] of d27Modes) {
+    const got = d27Run(entry, [], extra, { status: 0, soft: [1, 2, 3] }, d27SameNames)
+    if (!got) continue
+    if (!d27Normal(entry, got)) d27Rejected.push(`${mode}：${d27Said(got)}`)
+    d27NormalRan++
+  }
+  const d27CalNormal = costFixture('d27-calibration-same-names', knownCosts(1_000_000, []), { ...d27SameNames, brand_calibration: { version: 'kept-v1', ...calContent } })
+  const d27CalNormalRun = runBoth('写重复的键不多拒 calibration version', [S('calibration.ts'), 'version', '--dir', d27CalNormal.taskDir], d27CalNormal.cwd,
+    { status: 0, soft: [1, 2, 3] }, costEnv(d27CalNormal.log, { TIKHUB_API_KEY: undefined }))
+  if (d27CalNormalRun.ok) {
+    if (d27CalNormalRun.status !== 0 || summaryOf(d27CalNormalRun.stdout)?.status !== 'written')
+      d27Rejected.push(`calibration version：exit=${d27CalNormalRun.status}，stdout=${JSON.stringify(d27CalNormalRun.stdout)}，stderr=${stderrTail(d27CalNormalRun.stderr)}`)
+    d27NormalRan++
+  }
+  if (d27NormalRan > 0) named('写重复的键不多拒：两个任务各有同名键、费用账两项各有同名键与数组里相同的元素不算重复，collect 续跑与改额、enrich 与改额、render、calibration version 照常进行', !d27Rejected.length, d27Rejected.join('；'))
+  if (d27NormalRan === d27Modes.length + 1) criterion('D27.e')
+
+  // D27.c：calibration version 读入的 task.json 任一层写重复了键、而按 D20.q 要写盘时以 2 拒绝、不写盘，stdout 为空；brand_calibration 同时不合 D20.a
+  // 时两类问题都写出；缺席（D20.m）与 version 已一致（D20.r）时不写盘，有重复也照旧以 0 结束。上面 D19.n 一段的 calDup、calContent、calSame 照用。
+  // 每份只留最后一处的文本先跑两份对照：version 是手写标签时以 0 写入（文件确实变了），version 已一致时以 0 报 unchanged（oracle 与被测命令对得上）
+  const d27CalCases: D27Case[] = [d27Cases[0], d27Cases[1], d27Cases[2], d27Deep,
+    ['brand-inner', '"natural_scenarios":[]', '"natural_scenarios":"zq-first-scene","natural_scenarios":[]', '"natural_scenarios":[]',
+      'brand_calibration["natural_scenarios"]', ['zq-first-scene']]]
+  const d27CalControls = new Map<string, boolean>()
+  const d27CalWrote: string[] = [], d27CalHidden: string[] = [], d27CalMixed: string[] = [], d27CalAbsent: string[] = [], d27CalUnchanged: string[] = []
+  let d27CalRan = 0
+  for (const [id, from, dup, last, at, tokens] of d27CalCases) {
+    const manualCal = { version: 'kept-v1', ...calContent }, sameCal = { version: calSame, ...calContent }
+    const key = from === last ? '' : `${from}→${last}`
+    if (!d27CalControls.has(key)) {
+      const control = calDup(`d27-${id}-control`, from, last, manualCal, { status: 0, soft: [1, 2, 3] })
+      const same = control && calDup(`d27-${id}-same-control`, from, last, sameCal, { status: 0, soft: [1, 2, 3] })
+      const fine = !!control && !!same && control.r.status === 0 && control.out?.status === 'written' && !control.kept
+        && jsonFile(control.f.task)?.updated_at !== '2026-01-01T00:00:00.000Z' && same.r.status === 0 && same.out?.status === 'unchanged' && same.kept
+      if (control && same && !fine) { failed++
+        console.error(`  ✗ calibration version 写重复的键阳性对照${SELFCHECK_FIXTURE_MARK}：${id} 只留最后一处时没有以 0 写入、或 version 已一致时没有以 0 报 unchanged，`
+          + `写入 exit=${control.r.status}、stdout=${JSON.stringify(control.r.stdout)}；已一致 exit=${same.r.status}、stdout=${JSON.stringify(same.r.stdout)}`) }
+      d27CalControls.set(key, fine)
+    }
+    if (!d27CalControls.get(key)) continue
+    const w = calDup(`d27-${id}-write`, from, dup, manualCal, { status: 2, soft: [0, 1, 3] })
+    const m = calDup(`d27-${id}-invalid`, from, dup, { ...manualCal, tone_aesthetic: [7] }, { status: 2, soft: [0, 1, 3] })
+    // 缺席时没有 brand_calibration，里面那一处写重复也就无从谈起：brand-inner 只跑 version 已一致的一半
+    const a = id === 'brand-inner' ? null : calDup(`d27-${id}-absent`, from, dup, undefined, { status: 0, soft: [1, 2, 3] })
+    const u = calDup(`d27-${id}-same`, from, dup, sameCal, { status: 0, soft: [1, 2, 3] })
+    if (!w || !m || a === undefined || !u) continue
+    const said = (got: NonNullable<ReturnType<typeof calDup>>) => `exit=${got.r.status}，原样=${got.kept}，stdout=${JSON.stringify(got.r.stdout)}，stderr=${stderrTail(got.r.stderr)}`
+    if (w.r.status !== 2 || !w.kept || w.r.stdout !== '') d27CalWrote.push(`${id}：${said(w)}`)
+    if (w.r.status !== 2 || !dupListed(w.r.stderr, w.f, at, tokens)) d27CalHidden.push(`${id}：${said(w)}`)
+    const mMessage = m.r.stderr.replaceAll(m.f.task, '[任务文件]').replaceAll(m.f.cwd, '[目录]')
+    if (m.r.status !== 2 || !m.kept || m.r.stdout !== '' || !mMessage.includes('tone_aesthetic') || !dupListed(m.r.stderr, m.f, at, tokens))
+      d27CalMixed.push(`${id}：tone_aesthetic=${mMessage.includes('tone_aesthetic')}，重复键=${dupListed(m.r.stderr, m.f, at, tokens)}，${said(m)}`)
+    if (a !== null && (a.r.status !== 0 || a.out?.status !== 'absent' || !a.kept)) d27CalAbsent.push(`${id}：${said(a)}`)
+    if (u.r.status !== 0 || u.out?.status !== 'unchanged' || u.out?.version !== calSame || !u.kept) d27CalUnchanged.push(`${id}：${said(u)}`)
+    d27CalRan++
+  }
+  if (d27CalRan > 0) {
+    named('写重复的键：calibration version 要写盘而 task.json 任一层写重复了键时退出2、不写盘，task.json 原字节、文件身份与修改时间不变，stdout 为空', !d27CalWrote.length, d27CalWrote.join('；'))
+    named('写重复的键：calibration version 拒绝时 stderr 写出 task.json 路径与键的位置，并按文件先后写出每一处被丢掉的原文', !d27CalHidden.length, d27CalHidden.join('；'))
+    named('写重复的键：calibration version 的 brand_calibration 同时不合 D20.a 时退出2、不写盘、stdout 为空，stderr 两类问题都写出', !d27CalMixed.length, d27CalMixed.join('；'))
+    named('写重复的键：calibration version 的 brand_calibration 缺席时任一层写重复了键也以0报 absent，不写盘，task.json 原字节、文件身份与修改时间不变', !d27CalAbsent.length, d27CalAbsent.join('；'))
+    named('写重复的键：calibration version 的 version 已一致时任一层写重复了键也以0报 unchanged，不写盘，task.json 原字节、文件身份与修改时间不变', !d27CalUnchanged.length, d27CalUnchanged.join('；'))
+  }
+  if (d27CalRan === d27CalCases.length) criterion('D27.c')
 })
 
 // ---- D15.j／D15.k／D6.w：IG 话题入口只由配置显式开启，校验在一切请求之前，probe 与 collect 同一处分派 ----
@@ -7982,6 +8195,72 @@ fs.writeFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json','controll
   const directCsv = Buffer.from(header + '\n' + 'direct,tiktok,alpha,yes,yes,,,,,\n' + 'direct,instagram,alpha,yes,no,,,,,\n' + 'direct,instagram,beta,yes,unknown,,,,,\n' + 'direct,tiktok,gamma,yes,no,,,,,\n'); writeFileSync(join(direct, 'manual-feedback.csv'), directCsv);
   const j2 = invoke('模板不补造关系运行', direct, ['--dir', direct, '--append']); if (!j2.ok) return;
   named('模板入口-不补造关联', !!protocol(j2, direct, 'unchanged', 0) && equal(read(join(direct, 'manual-feedback.csv')), directCsv), 'D26.g: 同名异平台/Agent别名/传递链均不制造人工采用冲突');
+  // D27.d（ADR-142）：task.json 任一层写重复了键（含 D19.k 那几处）时，与 D26.b 的任务列表、品牌输入问题一起以 2 拒绝，stderr 写出 task.json 路径与每一处重复；
+  // manual-feedback.csv 不被创建或改动，task.json 与其余文件原字节（invoke 记进 D26.p 那份清单，这里另按用例核），stdout 为空。
+  // 期望只来自 D27.a、D27.d、D27.e 原文与夹具字面值，没有读 feedback-template.ts 与判据的函数体；前几处读入后不留痕迹，stderr 里按先后找得到才是「每一处」。
+  // 每个用例先跑一份只留最后一处的阳性对照，照常创建（追加那一例照常追加）—— 拒绝只能是因为重复；对照不成立记夹具失败，不跑那一例。
+  // 这一段不在失败时 return：后面 D26.m、D26.o 那几条与它无关，照常跑
+  const d27Base = '{"tasks":[{"keyword":"saved","dimension":"category","platform":"tiktok"}],"cost_ledger":{"version":"unusable"},"budget_usd":"unusable","requests":null}';
+  // [名, 写重复的改法, 只留最后一处的改法, 位置（D19.k 那一处只认字段名）, 按文件先后被丢掉的前几处原文, 带着旧人工表追加]
+  const d27Cases: [string, [string, string], [string, string], string, string[], boolean][] = [
+    ['tasks-root', ['"tasks":[', '"tasks":"zq-first-tasks","tasks":['], ['"tasks":[', '"tasks":['], 'tasks', ['zq-first-tasks'], false],
+    ['task-keyword', ['"keyword":"saved"', '"keyword":"zq\\u002dold","keyword":"saved"'], ['"keyword":"saved"', '"keyword":"saved"'], 'tasks[0]["keyword"]', ['zq\\u002dold'], false],
+    ['progress-key', ['"requests":null', '"requests":null,"found":{"0":1e400,"0":3}'], ['"requests":null', '"requests":null,"found":{"0":3}'], 'found', ['1e400'], false],
+    ['progress-deep', ['"requests":null', '"requests":null,"found":{"0":{"zq":7.25e0,"zq":3}}'], ['"requests":null', '"requests":null,"found":{"0":{"zq":3}}'], 'found["0"]["zq"]', ['7.25e0'], false],
+    ['requests-append', ['"requests":null', '"requests":7.5e1,"requests":"zz-mid","requests":null'], ['"requests":null', '"requests":null'], 'requests', ['7.5e1', 'zz-mid'], true],
+  ];
+  const d27Edit = (edit: [string, string]) => d27Base.includes(edit[0]) ? d27Base.replace(edit[0], edit[1]) : undefined;
+  const d27Fixture = (name: string, text: string, append: boolean) => {
+    const dir = fixture(name); writeFileSync(join(dir, 'task.json'), text + '\n');
+    if (append) { writeFileSync(join(dir, 'manual-feedback.csv'), old); json(dir, 'creators.raw.json', []); }
+    return dir;
+  };
+  const d27InOrder = (said: string, tokens: readonly string[]) => { let i = 0; for (const token of tokens) { const j = said.indexOf(token, i); if (j < 0) return false; i = j + token.length; } return true; };
+  const d27Bad: string[] = [], d27Refused: string[] = [], d27Hidden: string[] = [];
+  let d27Ran = 0;
+  for (const [id, dup, last, at, tokens, append] of d27Cases) {
+    const lastText = d27Edit(last), dupText = d27Edit(dup), args = (dir: string) => ['--dir', dir, ...(append ? ['--append'] : [])];
+    if (lastText === undefined || dupText === undefined) { d27Bad.push(`${id}: 夹具里找不到要改的原文`); continue; }
+    const controlDir = d27Fixture(`d27-${id}-control`, lastText, append), c = invoke(`模板写重复键对照运行-${id}`, controlDir, args(controlDir));
+    if (!c.ok) continue;
+    if (!protocol(c, controlDir, append ? 'append' : 'create', append ? 2 : 3)) { d27Bad.push(`${id}: 只留最后一处时 exit=${c.status} stdout=${JSON.stringify(c.stdout)} stderr=${stderrTail(c.stderr)}`); continue; }
+    const dir = d27Fixture(`d27-${id}`, dupText, append), csvBefore = read(join(dir, 'manual-feedback.csv')), label = `模板写重复键运行-${id}`;
+    const r = invoke(label, dir, args(dir), 2);
+    if (!r.ok) continue;
+    const kept = allSourceChecks.find(x => x.label === label)?.ok === true, csvSame = equal(read(join(dir, 'manual-feedback.csv')), csvBefore);
+    const message = r.stderr.split(dir).join('[目录]'), detail = `${id}: exit=${r.status} 源文件原字节=${kept} 人工表不变=${csvSame} stdout=${JSON.stringify(r.stdout)} stderr=${stderrTail(r.stderr)}`;
+    if (!(inputError(r, dir, 'task.json') && kept && csvSame)) d27Refused.push(detail);
+    if (!(r.status === 2 && r.stderr.includes(join(dir, 'task.json')) && message.includes(at) && d27InOrder(message, tokens))) d27Hidden.push(detail);
+    d27Ran++;
+  }
+  named('模板入口-写重复键对照照常保存', !d27Bad.length, SELFCHECK_FIXTURE_MARK + ' 只留最后一处的同一份任务没有照常创建或追加：' + d27Bad.join('；'));
+  if (d27Ran > 0) named('模板入口-写重复的键拒绝且不动人工表', !d27Refused.length, 'D27.d: 任一层写重复（含进度键）须以2拒绝、stdout为空、人工表不建不改、源文件原字节；' + d27Refused.join('；'));
+  if (d27Ran > 0) named('模板入口-写重复的键列出每一处', !d27Hidden.length, 'D27.d: stderr须写出task.json路径、键的位置与按先后被丢掉的每一处原文；' + d27Hidden.join('；'));
+  // 「与 D26.b 的任务列表、品牌输入问题一起」：tasks 写了两次、最后那份任务列表不合规，品牌来源的性质也不合规。
+  // 对照是同一份去掉第一处 tasks：照 D26.b 以 2 拒绝、写出 "Category"、"TikTok" 与 brand_calibration —— 任务与品牌问题的写法取自这一份，不靠猜
+  const d27MixedText = (dupTasks: boolean) => `{${dupTasks ? '"tasks":"zq-first-tasks",' : ''}"tasks":[{"keyword":"saved","dimension":"Category","platform":"TikTok"}],`
+    + '"brand_calibration":{"version":"v1","target_creator_types":[],"tone_aesthetic":[],"natural_scenarios":[],"negative_signals":[],"sources":[{"source":"source","kind":"invented","detail":"detail"}]}}';
+  const d27MixedControl = fixture('d27-mixed-control'), d27MixedDir = fixture('d27-mixed');
+  writeFileSync(join(d27MixedControl, 'task.json'), d27MixedText(false) + '\n'); writeFileSync(join(d27MixedDir, 'task.json'), d27MixedText(true) + '\n');
+  const mc = invoke('模板写重复键同报对照运行', d27MixedControl, ['--dir', d27MixedControl], 2);
+  const mixedReady = mc.ok && inputError(mc, d27MixedControl, 'task.json', ['"Category"', '"TikTok"', 'brand_calibration']);
+  named('模板入口-写重复同报对照照D26拒绝', mixedReady, SELFCHECK_FIXTURE_MARK + ' 不合规的任务与品牌输入没有照 D26.b 以2拒绝并写出两类问题：' + stderrTail(mc.stderr));
+  let d27MixedRan = 0;
+  if (mixedReady) {
+    const mx = invoke('模板写重复键同报运行', d27MixedDir, ['--dir', d27MixedDir], 2);
+    if (mx.ok) {
+      const message = mx.stderr.split(d27MixedDir).join('[目录]');
+      named('模板入口-写重复的键与任务品牌问题同报', inputError(mx, d27MixedDir, 'task.json', ['"Category"', '"TikTok"', 'brand_calibration']) && message.includes('tasks')
+        && d27InOrder(message, ['zq-first-tasks']) && !existsSync(join(d27MixedDir, 'manual-feedback.csv')), 'D27.d/D26.b: 写重复的键须与任务列表、品牌输入问题同一次写出；' + stderrTail(mx.stderr));
+      d27MixedRan++;
+    }
+  }
+  if (d27Ran === d27Cases.length && d27MixedRan === 1) criterion('D27.d');
+  // D27.e：不多拒 —— 两个一模一样的任务（不同对象里的同名键、数组里相同的元素）与根上装着相同元素的数组，照常创建
+  const d27Same = fixture('d27-same-names');
+  json(d27Same, 'task.json', { tasks: [0, 1].map(() => ({ keyword: 'saved', dimension: 'category', platform: 'tiktok' })), cost_ledger: { version: 'unusable' }, budget_usd: 'unusable', requests: null, notes: ['same', 'same', { k: 1 }, { k: 1 }] });
+  const sn = invoke('模板写重复键不多拒运行', d27Same, ['--dir', d27Same]);
+  if (sn.ok) { named('模板入口-写重复判据不多拒', !!protocol(sn, d27Same, 'create', 3), 'D27.e: 不同对象里的同名键与数组里相同的元素照常创建；' + stderrTail(sn.stderr)); criterion('D27.e'); }
   const failureCreate = fixture('failure-create'), failureAppend = fixture('failure-append'), unchanged = fixture('unchanged');
   writeFileSync(join(failureAppend, 'manual-feedback.csv'), old); writeFileSync(join(unchanged, 'manual-feedback.csv'), fresh); utimesSync(join(unchanged, 'manual-feedback.csv'), new Date('2000-01-01'), new Date('2000-01-01'));
   const barrier = join(base, 'barrier.mjs'); writeFileSync(barrier, `import fs from 'node:fs';try{fs.writeFileSync(process.env.KOL_TEMPLATE_TARGET,'probe',{flag:process.env.KOL_TEMPLATE_APPEND?'a':'wx'});console.log(JSON.stringify({blocked:false}));}catch(e){console.log(JSON.stringify({blocked:true,code:e.code}));}`);
