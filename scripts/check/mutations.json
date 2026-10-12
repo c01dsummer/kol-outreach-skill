@@ -11656,6 +11656,266 @@
       "kills": ["计数日志认不得：某行不是 JSON 对象，或 t 不是 L、O、E"]
     },
     {
+      "id": "M-H54-a",
+      "req": "harness",
+      "why": "预加载认的环境变量名与读日志那一侧的不一样：注入了计数，预加载却从不启用，日志一行也没有",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "const ENV = 'LAUNCH_COUNT'",
+      "replace": "const ENV = 'LAUNCH_COUNTS'",
+      "by": "test",
+      "kills": ["计数预加载：玩具与它起的子进程都看不到 LAUNCH_COUNT，NODE_OPTIONS 与不计数时一样"]
+    },
+    {
+      "id": "M-H54-b",
+      "req": "harness",
+      "why": "少包一个起进程的函数：经它起的进程不记，付费偏小",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "'execSync', 'fork'] as const",
+      "replace": "'execSync'] as const",
+      "by": "test",
+      "kills": ["计数预加载：七个函数与 exec、execFile 的 promisify 版每调一次记一次，exec 里套的那次不另记"]
+    },
+    {
+      "id": "M-H54-c",
+      "req": "harness",
+      "why": "不核是不是验证者那个进程：tsx 壳自己就启用了，记下的是壳起里面那个 node 的一次，验证者自己起的一次也没记",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "real(script) === real(count.target)",
+      "replace": "real(script) !== undefined",
+      "by": "test",
+      "kills": ["计数预加载：tsx 壳里不记，日志只来自玩具那个进程"]
+    },
+    {
+      "id": "M-H54-d",
+      "req": "harness",
+      "why": "启用后不删自己的环境变量：验证者与它起的进程看得见计数的设置，跑的不是不计数时那份环境",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "  delete process.env[ENV]\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["计数预加载：玩具与它起的子进程都看不到 LAUNCH_COUNT，NODE_OPTIONS 与不计数时一样"]
+    },
+    {
+      "id": "M-H54-e",
+      "req": "harness",
+      "why": "原来没有 NODE_OPTIONS 时不删掉：验证者起的子进程都带着预加载，跑的不是不计数时那份环境",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "if (count.options === undefined) delete process.env.NODE_OPTIONS",
+      "replace": "if (count.options === undefined) process.env.NODE_OPTIONS += ''",
+      "by": "test",
+      "kills": ["计数预加载：玩具与它起的子进程都看不到 LAUNCH_COUNT，NODE_OPTIONS 与不计数时一样"]
+    },
+    {
+      "id": "M-H54-f",
+      "req": "harness",
+      "why": "原来有 NODE_OPTIONS 时不还原：验证者起的子进程丢了用户自己的 Node 选项",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "else process.env.NODE_OPTIONS = count.options",
+      "replace": "else delete process.env.NODE_OPTIONS",
+      "by": "test",
+      "kills": ["计数预加载：玩具与它起的子进程都看不到 LAUNCH_COUNT，NODE_OPTIONS 与不计数时一样"]
+    },
+    {
+      "id": "M-H54-g",
+      "req": "harness",
+      "why": "被包住的调用里面再调到的也记：经 shell 起一条命令，内部再转一道别的起进程函数，就记成两次，同一次启动付两份",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "if (depth > 0) return",
+      "replace": "if (depth > 9) return",
+      "by": "test",
+      "kills": ["计数预加载：七个函数与 exec、execFile 的 promisify 版每调一次记一次，exec 里套的那次不另记"]
+    },
+    {
+      "id": "M-H54-h",
+      "req": "harness",
+      "why": "先起进程再记：起进程那一刻就抛错的那一次（命令以非零状态结束）不记，付费偏小",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "record(api, args); return Reflect.apply(original, this, args) }",
+      "replace": "const r = Reflect.apply(original, this, args); record(api, args); return r }",
+      "by": "test",
+      "kills": ["计数预加载：七个函数与 exec、execFile 的 promisify 版每调一次记一次，exec 里套的那次不另记"]
+    },
+    {
+      "id": "M-H54-i",
+      "req": "harness",
+      "why": "带 shell 的那一次不记下：经 shell 起的 git 被当成直接起的 git 从账上抹掉，付费偏小",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "...(shell ? { shell: true } : {})",
+      "replace": "...({})",
+      "by": "test",
+      "kills": ["计数预加载：直接起的 git 记下但不算启动，经 shell 起的 git 算"]
+    },
+    {
+      "id": "M-H54-j",
+      "req": "harness",
+      "why": "记下的可执行文件不是第一个参数：认 git 认的是别的东西，真启动可能当成 git 抹掉，git 也可能算进去",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "file: String(args[0])",
+      "replace": "file: String(args[1])",
+      "by": "test",
+      "kills": ["计数预加载：七个函数与 exec、execFile 的 promisify 版每调一次记一次，exec 里套的那次不另记"]
+    },
+    {
+      "id": "M-H54-k",
+      "req": "harness",
+      "why": "promisify 版不另包：等着它交回结果的那几次交回的东西变了（只剩标准输出），计数那一跑与不计数时走的路不同",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "if (typeof custom === 'function') Object",
+      "replace": "if (typeof custom === 'symbol') Object",
+      "by": "test",
+      "kills": ["计数预加载：包过的函数名字、返回值、抛出的东西与 promisify 版交回的形状都不变"]
+    },
+    {
+      "id": "M-H54-l",
+      "req": "harness",
+      "why": "包过的函数丢了原来的名字：按函数名分支的代码，计数那一跑与不计数时走的路不同",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "  Object.defineProperty(wrapped, 'name', { value: original.name })\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["计数预加载：包过的函数名字、返回值、抛出的东西与 promisify 版交回的形状都不变"]
+    },
+    {
+      "id": "M-H54-m",
+      "req": "harness",
+      "why": "不同步到具名导入：用具名导入拿到起进程函数的那几处，起的进程不记",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "  syncBuiltinESMExports()\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["计数预加载：经 ESM 具名导入拿到的函数也被计"]
+    },
+    {
+      "id": "M-H54-n",
+      "req": "harness",
+      "why": "只看标准输出一股：打在标准错误上的那几行不算打印过，点名它的变异付费按整个配置算",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "[process.stdout, process.stderr]",
+      "replace": "[process.stdout]",
+      "by": "test",
+      "kills": ["计数预加载：两股的 ✓／✗ 行都记下，记下时已起几次也对"]
+    },
+    {
+      "id": "M-H54-o",
+      "req": "harness",
+      "why": "每次写入单独当一行：一行分两次写，前半截丢了，那一行不算打印过",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "pending += typeof chunk",
+      "replace": "pending = typeof chunk",
+      "by": "test",
+      "kills": ["计数预加载：两股的 ✓／✗ 行都记下，记下时已起几次也对"]
+    },
+    {
+      "id": "M-H54-p",
+      "req": "harness",
+      "why": "不去掉行首空白：带缩进的断言行全都不认，需求测试那一侧的打印一行也不记",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "const head = line.trimStart()",
+      "replace": "const head = line",
+      "by": "test",
+      "kills": ["计数预加载：两股的 ✓／✗ 行都记下，记下时已起几次也对"]
+    },
+    {
+      "id": "M-H54-q",
+      "req": "harness",
+      "why": "收尾行记的打印数比实际少：读的那一侧对不上数，整份日志判认不得",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "{ prints++; emit(",
+      "replace": "{ emit(",
+      "by": "test",
+      "kills": ["计数预加载：exit 回调里后打的行不记，收尾那行仍是最后一行"]
+    },
+    {
+      "id": "M-H54-r",
+      "req": "harness",
+      "why": "收尾行记的启动数比实际少：读的那一侧对不上数，整份日志判认不得",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "    launches++\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["计数预加载：直接起的 git 记下但不算启动，经 shell 起的 git 算"]
+    },
+    {
+      "id": "M-H54-s",
+      "req": "harness",
+      "why": "收尾以后还接着记：退出时回调里打的行跟在收尾后面，整份日志判认不得",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "; closed = true })",
+      "replace": " })",
+      "by": "test",
+      "kills": ["计数预加载：exit 回调里后打的行不记，收尾那行仍是最后一行"]
+    },
+    {
+      "id": "M-H54-t",
+      "req": "harness",
+      "why": "写日志用的是当时的写函数：验证者换掉写函数那段时间里起的进程与打的行写不进去，整份日志判认不得",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "try { writeSync(fd, JSON.stringify(event)",
+      "replace": "try { fs.writeSync(fd, JSON.stringify(event)",
+      "by": "test",
+      "kills": ["计数预加载：玩具中途换掉 fs 的写函数再起进程，计数照样完整"]
+    },
+    {
+      "id": "M-H54-u",
+      "req": "harness",
+      "why": "收尾行挂在自然结束才有的那个事件上：验证者主动调退出时一行收尾也不写，整份日志判认不得",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "process.on('exit', () => { emit",
+      "replace": "process.on('beforeExit', () => { emit",
+      "by": "test",
+      "kills": ["计数预加载：验证者显式调 process.exit 退出，收尾那行照样写、只一行、仍是最后一行"]
+    },
+    {
+      "id": "M-H54-v",
+      "req": "harness",
+      "why": "两股共用一份没写完的半行：一股写了半行时另一股写完一行，两行拼成一行记，打印的行与已起几次都记错",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "  for (const stream of [process.stdout, process.stderr]) {\n    const write = stream.write\n    let pending = ''\n",
+      "replace": "  let pending = ''\n  for (const stream of [process.stdout, process.stderr]) {\n    const write = stream.write\n",
+      "by": "test",
+      "kills": ["计数预加载：stdout 写了半行时 stderr 写完一行，两股各自按换行切，各记各的整行，已起几次照各自写完那一刻算"]
+    },
+    {
+      "id": "M-H54-w",
+      "req": "harness",
+      "why": "包过的写函数丢了编码与回调、恒交回成功：等写完回调的验证者挂住，计数那一跑与不计数时走的路不同",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "return Reflect.apply(write, this, [chunk, ...rest])",
+      "replace": "Reflect.apply(write, this, [chunk]); return true",
+      "by": "test",
+      "kills": ["计数预加载：带回调往 stdout 写一行，回调照样被调，那一行照样记下"]
+    },
+    {
+      "id": "M-H54-x",
+      "req": "harness",
+      "why": "选项里的 shell 只认恰好等于真：给的是一个 shell 路径时，经它起的 git 当成直接起的 git 从账上抹掉，付费偏小",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "Boolean((opts as { shell?: unknown }).shell)",
+      "replace": "(opts as { shell?: unknown }).shell === true",
+      "by": "test",
+      "kills": ["计数预加载：选项里 shell 为真却不等于 true（给的是 /bin/sh），或参数表给的是 null、选项在第三个，都照样记成带 shell，读出来各算一次启动"]
+    },
+    {
+      "id": "M-H54-y",
+      "req": "harness",
+      "why": "读不出参数时不兜住：验证者接到的是预加载自己抛的错，不是原函数该抛的那个；这一次在记下之前就抛出去，启动数少算一次，偏的是放行的方向",
+      "file": "scripts/check/launch-preload.ts",
+      "find": "    } catch { /* 不打扰验证者 */ }\n    launches++",
+      "replace": "    } finally { /* 不打扰验证者 */ }\n    launches++",
+      "by": "test",
+      "kills": ["计数预加载：起进程的参数本身转不成字符串时，抛出的东西与不计数时一样，日志照样读得出来，这一次与之后起的都照样算"]
+    },
+    {
+      "id": "M-H54-z",
+      "req": "harness",
+      "why": "写的是字节而不是字符串时不认：那样写出的 ✓／✗ 行不算打印过，点名它的变异付费按整个配置算",
+      "file": "scripts/check/launch-preload.ts",
+      "find": ": Buffer.from(chunk as Uint8Array).toString('utf8')",
+      "replace": ": ''",
+      "by": "test",
+      "kills": ["计数预加载：往 stderr 写一个 Buffer，那一行照样记下"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",

@@ -6097,6 +6097,132 @@ group('mutation-baseline', [], () => {
   }
 })
 
+// ---- 变异入口的启动数：真起 mutate，核计数接上了、只报数不判红（ADR-145 第十三节第 4 小节第二条）----
+// 不进任何变异的路由（与 mutation-cost-entry 同一要求）。期望全部从 ADR-145 第一、九、十三节手推、写在断言旁边，没有照实现的输出抄。
+group('launch-count-entry', [], () => {
+  const root = join(tmp, 'launch-count-entry'), calls = join(tmp, 'launch-count-entry.calls')
+  // 两个玩具验证者共用的开头：每跑一次往被复制的目录之外那份记录追加「选组:baseline|mutant」；seen 是此前同一选组跑过几次正常基线
+  const head = String.raw`import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+const only = process.argv.find(a => a.startsWith('--only='))?.slice(7).split(',')
+const src = readFileSync('scripts/toy.ts', 'utf8'), v = (k: string) => src.includes(k + " = 'ok'")
+const sel = only?.join(',') ?? '全跑', mode = src.includes("'no'") ? 'mutant' : 'baseline', rec = ${JSON.stringify(calls)}
+const seen = existsSync(rec) ? readFileSync(rec, 'utf8').split('\n').filter(l => l === sel + ':baseline').length : 0
+appendFileSync(rec, sel + ':' + mode + '\n')
+const start = (n: number) => { for (let i = 0; i < n; i++) spawnSync('true') }
+`
+  // 玩具需求测试：t-pass 起 20 次 true 再起 10 次 git；t-bypass 打完成功汇总后绕过 exit 事件退出（退出码与几行输出都完整，单独实测过）；t-full 给全跑那条
+  const test = String.raw`const GROUPS = [{ id: 't-pass', needs: [] }, { id: 't-bypass', needs: [] }, { id: 't-full', needs: [] }]
+let n = 0, bad = 0; const ok = (label: string, pass: boolean) => { n++; if (!pass) bad++; console.log((pass ? '  ✓ ' : '  ✗ ') + label) }
+function group(id: string, fn: () => void) { if (!only || only.includes(id)) fn() }
+group('t-pass', () => { start(20); for (let i = 0; i < 10; i++) spawnSync('git', ['--version']); ok('线内组的五个值都没变', ['p1', 'p2', 'p3', 'p4', 'p5'].every(v)) })
+group('t-bypass', () => { ok('绕过退出事件组的值没变', v('bypass')) })
+group('t-full', () => { ok('全跑组的值没变', v('full')) })
+if (bad) { console.log('\n' + bad + ' 个失败\n'); process.exitCode = 1 } else console.log('\n全部通过（执行 ' + n + ' 条断言；覆盖 0 条需求）\n')
+if (sel === 't-bypass') (process as any).reallyExit(process.exitCode ?? 0)
+`
+  // 玩具自检：s-over 在点名的断言之前起 51 次、之后再起 3 次（付费按打印那一刻算，不按整跑）；
+  // s-drift 每次都在断言之前起 51 次，第二次正常基线在断言之后多起 1 次 —— 整跑 51 对 52，付费两次都是 51
+  const self = String.raw`let bad = 0
+const named = (label: string, pass: boolean, why: string) => { if (pass) console.log('  ✓ ' + label); else { bad++; console.log('  ✗ ' + label + '：' + why) } }
+const group = (id: string, _needs: string[], fn: () => void) => { if (only?.includes(id)) fn() }
+group('s-over', [], () => { start(51); named('超线组的值没变', v('over'), '值被改了'); start(3) })
+group('s-drift', [], () => { start(51); named('计数不稳组的值没变', v('drift'), '值被改了'); if (mode === 'baseline' && seen > 0) start(1) })
+if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exitCode = 1 } else console.log('✓ 脚本自检（只跑 ' + only!.length + ' 组）：点名的那几组都跑完了，一条断言都没红')
+`
+  const mut = (k: string, route: object) => ({ id: `M-L-${k}`, req: 'harness', why: '玩具验证者读的那个值被改坏，读它的断言该红',
+    file: 'scripts/toy.ts', find: `${k} = 'ok'`, replace: `${k} = 'no'`, ...route })
+  const mutations = [...['p1', 'p2', 'p3', 'p4', 'p5'].map(k => mut(k, { by: 'test', kills: ['线内组的五个值都没变'] })),
+    mut('bypass', { by: 'test', kills: ['绕过退出事件组的值没变'] }), mut('over', { by: 'selfcheck', kills: ['超线组的值没变'] }),
+    mut('drift', { by: 'selfcheck', kills: ['计数不稳组的值没变'] }),
+    mut('full', { full_run: { reason: '玩具的全跑组没有点名的断言', recheck_when: '全跑组的断言有了点名' } })]
+  let ran: ReturnType<typeof runToolBoth> | undefined
+  try {
+    for (const d of ['scripts/check', 'docs']) mkdirSync(join(root, d), { recursive: true })
+    // 玩具源码每条变异的锚点各一行；依赖锁随便写一份 —— 成本报告的源码身份含它的指纹，缺了就取不到
+    for (const [f, text] of [['docs/requirements.json', '{"requirements":[]}\n'], ['package-lock.json', '{}\n'],
+      ['scripts/toy.ts', mutations.map(m => `export const ${m.find}\n`).join('')], ['scripts/test.ts', head + test],
+      ['scripts/check/selfcheck.ts', head + self], ['scripts/check/mutations.json', JSON.stringify({ mutations, exemptions: [] })]])
+      writeFileSync(join(root, f), text)
+    ran = runToolBoth('mutate 在启动数玩具树上照常跑完', 'mutate', ['--jobs=1'], root)
+  } catch (e) { failed++; console.error(`  ✗ 启动数入口夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`) }
+  if (!ran?.ok) return   // 没跑起来：上面或 runBoth 已带记号报过，下面的断言只会说错原因
+  // 玩具树按设计路由成 4 种选组配置（8 条）加 1 条全跑，才轮得到下面的断言；不然是夹具没造对，不是计数红了
+  if (!ran.stdout.includes('子集选跑 8 条、4 种配置；整跑 1 条')) { failed++; console.error(`  ✗ 启动数入口玩具路由${SELFCHECK_FIXTURE_MARK}：${ran.stdout}`); return }
+  const lines = ran.stdout.split('\n'), segs = (p: string) => lines.filter(l => l.startsWith(p)).map(l => summaryOf(l.slice(p.length)))
+  const cost = segs('MUTATION_COST_JSON '), seg = segs('MUTATION_LAUNCHES_JSON ')
+  const source = cost.length === 1 ? cost[0].report?.identity?.sourceIdentity : undefined
+  const out = seg.length === 1 ? seg[0] : {}, file = jsonFile(join(root, 'output', 'mutation-launches', 'launches.json')) ?? {}
+  const findings: any[] = Array.isArray(out.findings) ? out.findings : [], has = (f: object) => findings.some(g => isDeepStrictEqual(g, f))
+  const said = `机器段 ${seg.length} 行，发现：${JSON.stringify(out.findings)}`
+  // 配置键 = JSON.stringify([验证者, 排序后的选组])。先后（第九节）：全跑在最前，其余按配置键的字符串比较（"s" < "t"，
+  // s-drift < s-over，t-bypass < t-pass）；不确定那条顶在它原来那条 paid 的位置（第十三节 settleLaunches）
+  const key = (by: string, g: string) => JSON.stringify([by, [g]])
+  const [DRIFT, OVER, BYPASS, PASS] = [key('selfcheck', 's-drift'), key('selfcheck', 's-over'), key('test', 't-bypass'), key('test', 't-pass')]
+  const expected = [{ kind: 'full-run', id: 'M-L-full' }, { kind: 'unsteady', config: DRIFT, drift: '整跑 51 次对 52 次' },
+    { kind: 'paid', config: OVER, id: 'M-L-over', paid: 51 }, { kind: 'missing', config: BYPASS, ids: ['M-L-bypass'] }]
+  // 20 次 true × 5 条 = 100，等于线不报；git 算进去就是 30 × 5 = 150，会报
+  const pass = (Array.isArray(out.tally) ? out.tally : []).find((t: any) => t?.config === PASS)
+  named('启动数入口：需求测试配置起 20 次、落 5 条变异正好 100 不报，同组另起的 10 次 git 不计',
+    pass?.launches === 20 && pass?.running === 5 && Array.isArray(out.findings) && !findings.some(f => f?.config === PASS),
+    `线内那种配置的计数：${JSON.stringify(pass)}；${said}`)
+  named('启动数入口：自检变异在点名的断言之前起 51 次，报超线 51', has(expected[2]), said)
+  const runs: Record<string, number> = {}
+  for (const l of fileText(calls).split('\n')) if (l.endsWith(':baseline')) runs[l.slice(0, -9)] = (runs[l.slice(0, -9)] ?? 0) + 1
+  // 第一遍判定里 s-over、s-drift 都有 paid（51 > 50），各重跑一次；t-pass 无发现、t-bypass 缺计数，都不重跑；全跑没有正常基线
+  named('启动数入口：报了超线的配置再跑一次正常基线，其余配置只跑一次',
+    isDeepStrictEqual(runs, { 's-drift': 2, 's-over': 2, 't-bypass': 1, 't-pass': 1 }), `各选组的正常基线次数：${JSON.stringify(runs)}`)
+  named('启动数入口：两次正常基线计数不同的配置报不确定、不报超线',
+    has(expected[1]) && !findings.some(f => f?.kind === 'paid' && f?.config === DRIFT), said)
+  named('启动数入口：验证者绕过 exit 事件退出的配置报缺计数', has(expected[3]), said)
+  named('启动数入口：没有选组的全跑变异报全跑', has(expected[0]), said)
+  named('启动数入口：这些都报出来时 mutate 照样以 0 退出、报全部被抓到', /9 个变异全部被抓到/.test(ran.stdout), lines.slice(-12).join('\n'))
+  named('启动数入口：机器段与计数文件的树身份都等于同一跑成本报告的源码身份',
+    typeof source === 'string' && out.schema === 'mutation-launches/v1' && out.source === source && file.source === source,
+    `成本报告 ${JSON.stringify(source)}，机器段 ${JSON.stringify(out.source)}，文件 ${JSON.stringify(file.source)}`)
+  named('启动数入口：机器段与计数文件的发现一致，正是手推的四条',
+    isDeepStrictEqual(out.findings, expected) && isDeepStrictEqual(file.findings, expected), `${said}；文件里：${JSON.stringify(file.findings)}`)
+  // 有计数的 3 种（t-bypass 缺计数，全跑没有基线）；会提前停的两条都付 51，并列取配置键在前的 s-drift；不提前停的只有 t-pass
+  const tally = `启动数（只报数）：3 种配置有计数；会提前停的最多付 51 次（M-L-drift，${DRIFT}）；不提前停的启动×条数最多 100（${PASS}，20 × 5）`
+  named('启动数入口：只报数那一行照格式打在 stdout 里', lines.some(l => l.trim() === tally), `应有一行：${tally}`)
+  // 人读的那几行（第十三节第 2 小节「输出」第 2 条）：有发现时一行标题，后面是 launchReport 的每一行、各缩进四格，都在「子集选跑」
+  // 那一行后面。这一跑有四条发现（上面 expected），所以标题必须在。其中 s-drift 那条不确定，照第十三节第 3 小节末的原文报两行：
+  // 第一行 drift 是上面手推的「整跑 51 次对 52 次」，缩进四格；第二行原文本身以四格起头，再缩进四格就是八格，紧跟在第一行后面。
+  // 全跑那条排在它前面（第九节），它的原文这里不推，只要求不确定那条不是标题下的头一行，且从标题下一行直到机器段（第 3 条，标题后那行 MUTATION_LAUNCHES_JSON）之前每行都缩进四格
+  const subset = lines.findIndex(l => l.includes('子集选跑 8 条、4 种配置；整跑 1 条'))
+  const title = lines.findIndex(l => l.trim() === '照第三片的判法会报下面这些（这一片只报数，不判红）：')
+  named('启动数入口：有发现时打一行「照第三片的判法会报下面这些」，在子集选跑那一行后面', subset >= 0 && title > subset,
+    `子集选跑在第 ${subset} 行，标题在第 ${title} 行（-1 是没有）：\n${lines.slice(Math.max(subset, 0)).join('\n')}`)
+  const shaky1 = `    ✗ ${DRIFT} 的启动数不确定：同一棵树上两次正常基线不一样（整跑 51 次对 52 次），不按超线报`
+  const shaky2 = '        启动数不再是树的函数，判红就成了按运气红（第六节）：先查这种配置两次起的进程为什么不一样'
+  const at = lines.indexOf(shaky1), json = title < 0 ? -1 : lines.findIndex((l, i) => i > title && l.startsWith('MUTATION_LAUNCHES_JSON ')), body = json > title ? lines.slice(title + 1, json) : []
+  named('启动数入口：标题后面是报告的每一行、各缩进四格，启动数不确定那一条的两行照原文挨着',
+    title >= 0 && at > title + 1 && json > at + 1 && lines[at + 1] === shaky2 && body.every(l => l.startsWith('    ')),
+    `标题在第 ${title} 行，不确定那一条的第一行在第 ${at} 行，标题后的机器段在第 ${json} 行（-1 是没有）；其间没缩进四格的：${JSON.stringify(body.filter(l => !l.startsWith('    ')))}：\n${lines.slice(Math.max(subset, 0)).join('\n')}`)
+  // head 是维护比较的那个 head 提交（第十三节第 2 小节第 3 条）。玩具树由 mutationFixtureEnv 建成两个提交、把 HEAD^1 交给
+  // MUTATE_BASE_SHA 当比较基线，所以 head 是玩具仓库的 HEAD（mutation-cost-entry 也把成本报告的 headSha 钉在 rev-parse HEAD 上）；
+  // HEAD^1 一并取出来：写成比较基线那一个的话，两者不同，这条红
+  const revs = spawnSync('git', ['rev-parse', 'HEAD', 'HEAD^1'], { cwd: root, encoding: 'utf8',
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } })
+  const [toyHead, toyBase] = revs.status === 0 ? revs.stdout.trim().split('\n') : []
+  if (!toyHead || !toyBase || toyHead === toyBase) { failed++; console.error(`  ✗ 启动数入口玩具仓库的提交${SELFCHECK_FIXTURE_MARK}：${revs.stderr || revs.error || revs.stdout}`) }
+  else named('启动数入口：机器段与计数文件的 head 都是玩具仓库当前的 HEAD 提交，不是比较基线那一个',
+    out.head === toyHead && file.head === toyHead,
+    `玩具仓库 HEAD ${toyHead}、比较基线 ${toyBase}；机器段 ${JSON.stringify(out.head)}，文件 ${JSON.stringify(file.head)}`)
+  // 文件比机器段多的两样（第十三节第 2 小节第 4 条），只核每种配置记下的整跑启动数，照玩具的设计手推、git 不算。
+  // baselines 是每种配置第一次的计数：t-pass 20（另起的 10 次 git 不算）；s-over 断言之前 51、之后 3，整跑算全程 → 54
+  // （付费 51 是打印那一刻的数，不是整跑）；s-drift 第一次断言之后不多起 → 51（错记成重跑那次就是 52）；
+  // t-bypass 绕过 exit 事件、没有计数，不在里面；全跑没有正常基线，也不在
+  const totals = (m: any) => m !== null && typeof m === 'object' && !Array.isArray(m)
+    ? Object.fromEntries(Object.entries(m).map(([k, c]: [string, any]) => [k, c === null ? null : c?.total])) : m
+  named('启动数入口：计数文件的 baselines 只有拿到计数的三种配置，各记第一次正常基线的整跑启动数',
+    isDeepStrictEqual(totals(file.baselines), { [DRIFT]: 51, [OVER]: 54, [PASS]: 20 }), `文件里的 baselines：${JSON.stringify(file.baselines)}`)
+  // again 是重跑的那几种：第一遍判定里有 paid 的 s-drift、s-over（同上面「再跑一次」那条），t-pass、t-bypass 不重跑、不在里面；
+  // 两次重跑都拿到了计数，没有 null。s-drift 重跑那次断言之后多起 1 次 → 52；s-over 每次一样 → 54
+  named('启动数入口：计数文件的 again 只有重跑过的两种配置，各记重跑那次的整跑启动数',
+    isDeepStrictEqual(totals(file.again), { [DRIFT]: 52, [OVER]: 54 }), `文件里的 again：${JSON.stringify(file.again)}`)
+})
+
 // ---- 派工那条路：真起 worker，真在隔离目录里跑 ----
 group('jobs', [], () => {
   // **上面那些 mutate 夹具没有一处走到派工。** 那几道体检在派几个之前就退出了，`--brief`
