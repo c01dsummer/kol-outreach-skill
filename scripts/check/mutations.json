@@ -11893,7 +11893,7 @@
       "find": "Boolean((opts as { shell?: unknown }).shell)",
       "replace": "(opts as { shell?: unknown }).shell === true",
       "by": "test",
-      "kills": ["计数预加载：选项里 shell 为真却不等于 true（给的是 /bin/sh）时照样记成带 shell，读出来算一次启动"]
+      "kills": ["计数预加载：选项里 shell 为真却不等于 true（给的是 /bin/sh），或参数表给的是 null、选项在第三个，都照样记成带 shell，读出来各算一次启动"]
     },
     {
       "id": "M-H54-y",
