@@ -4493,9 +4493,43 @@ group('task-list', ['task-list-collect-invalid', 'task-list-probe-invalid', 'tas
   if (completed.probe === scenarios.length) criterion('D16.l', 'D16.m', 'F3.c', 'F3.d')
 })
 
-group('resume-progress', [], () => {
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
-  const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
+// ---- D19.d–n、D27.b、D27.c、D27.e：坏的与写重复的续跑进度（resume-progress 拆成下面十五组，ADR-144）----
+// 照 ADR-131 按变异点名的用例拆：一条自检变异只在它点名的断言出结果之前付启动，组切得越贴近它实际要的用例，
+// 它被迫先跑的无关前缀就越短。断言、标签、失败文案与 kills 一个字不改；旧组名 resume-progress 保留为完整入口，
+// needs 拉齐十五组，D19.g、D19.l、D27.b 这三条跨组的认领在它里面。
+// 模块级的只有只读的夹具与造入口的函数，外加下面这几个由一组写、旧组名读的结果（needs 边都在）
+let writebackHeld = false, renderKeptLegal = false, renderControlOk = false
+let collectDup = 0, renderDup = 0, d27MainDone = false, d27MixedRan = 0, d27BothRan = 0
+const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
+
+group('resume-progress-collect-control', [], () => {
+  // A、C 两段（D19.e、D19.f、D19.g 的 collect 一半）的「零预留、零请求」以这条阳性对照为前提（ADR-144，照 ADR-131）：
+  // 同一种预留观测接法、进度合规的 collect 续跑，照常预留并请求 —— 观测确实接上。拆组之前这件事只靠同一进程里碰巧后跑的 D19.l、D27 两段对照
+  const f = costFixture('resume-progress-collect-control', knownCosts(1_000_000, []), { done: [] })
+  const reserves = join(f.cwd, 'reserves.txt'), armed = join(f.cwd, 'armed.txt'), preload = join(f.cwd, 'observe-reserve.mjs')
+  writeFileSync(reserves, '')
+  writeFileSync(preload, [
+    `import { appendFileSync } from 'node:fs';`,
+    `import { Budget } from ${JSON.stringify(budgetModule)};`,
+    `const original = Budget.prototype.reserve;`,
+    `Budget.prototype.reserve = function(...args) {`,
+    `  appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n');`,
+    `  return Reflect.apply(original, this, args);`,
+    `};`,
+    `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
+  ].join('\n'))
+  const r = runBoth('恢复进度阳性对照：进度合规的 collect 续跑照常预留并请求', [S('collect.ts'), '--resume', f.taskDir], f.cwd,
+    { status: 0, soft: [1, 2, 3] }, costEnv(f.log, {
+      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+    }))
+  if (r.ok && (r.status !== 0 || !fetchAttempts(armed).includes('armed') || fetchAttempts(reserves).length === 0 || fetchAttempts(f.log).length === 0)) {
+    failed++; console.error(`  ✗ 恢复进度阳性对照${SELFCHECK_FIXTURE_MARK}：进度合规的 collect 续跑没有照常预留并请求，exit=${r.status}，`
+      + `reserves=${fetchAttempts(reserves).length}，attempts=${fetchAttempts(f.log).length}，stderr=${stderrTail(r.stderr)}`)
+  }
+})
+
+group('resume-progress-collect-bad', ['resume-progress-collect-control'], () => {
   const invalid: [string, Record<string, unknown>, string[], [string, string, string]?][] = [
     ['done-null', { done: null }, ['done']],
     ['done-repeat', { done: [0, 0] }, ['done']],
@@ -4583,7 +4617,9 @@ group('resume-progress', [], () => {
       `exit=${r.status}, stderr=${stderrTail(r.stderr)}`)
     criterion('D19.d')
   }
+})
 
+group('resume-progress-writeback', ['resume-progress-collect-control'], () => {
   // D19.g：三个写回方（render 见下面 D19.h–j 一段）整份写回后，手改坏的进度数字与写回前盘上的原文逐字相同（不写成 null、0 或另一个数，也不改换写法），
   // collect 续跑仍按 D19.e、D19.f 拒绝。期望只取写进夹具的原文；盘上原文用 rootToken（JSON source context）读，逐字比较
   // [名, 合法原文, 坏原文, 坏 token, 位置, 根上没有 budget_usd]：舍入后才成整数、下溢成 0、溢出成无穷大；found 溢出在主干上会写成 D6.l 的 null；
@@ -4641,47 +4677,50 @@ group('resume-progress', [], () => {
   if (kept > 0) named('续跑进度写回：手改坏的进度经写回后 collect 续跑的 stderr 写出 task.json 路径与盘上原文', !hidden.length, hidden.join('；'))
   if (bareKept > 0) named('续跑进度写回：根上没有 budget_usd 的任务经 enrich 与 calibration version 写回后根上仍没有 budget_usd', !grew.length, grew.join('；'))
   // D19.g 的 render 一半在下面 D19.j 那段（合法而写法不规范的整数照原文写回），两半都成立才认领
-  const writebackHeld = kept === writers.length * bad.length && !lost.length && !accepted.length && !hidden.length && !grew.length
+  writebackHeld = kept === writers.length * bad.length && !lost.length && !accepted.length && !hidden.length && !grew.length
+})
 
-  // D19.h–j：render 读入 task.json 时按 D19.a–b 判原始进度，坏的在任何写入前以 2 拒绝，不再把 1e400 印成 Infinity（ADR-139）。
-  // 期望只来自判据原文与写进夹具的字面值：退出码 2、任务目录与记忆目录逐字节不变、原本没有的交付物不出现；
-  // stderr 点名 task.json 路径、坏字段与坏 token 原文，不出现 Infinity，不带异常类名与栈帧
-  const snapshot = (root: string): string => {
-    const files: string[][] = []
-    const walk = (at: string, prefix = ''): void => {
-      if (!existsSync(at)) return
-      for (const e of readdirSync(at, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)))
-        if (e.isDirectory()) walk(join(at, e.name), `${prefix}${e.name}/`)
-        else files.push([`${prefix}${e.name}`, readFileSync(join(at, e.name)).toString('base64')])
-    }
-    try { walk(root); return JSON.stringify(files) } catch { return 'unreadable' }
+// D19.h–j：render 读入 task.json 时按 D19.a–b 判原始进度，坏的在任何写入前以 2 拒绝，不再把 1e400 印成 Infinity（ADR-139）。
+// 期望只来自判据原文与写进夹具的字面值：退出码 2、任务目录与记忆目录逐字节不变、原本没有的交付物不出现；
+// stderr 点名 task.json 路径、坏字段与坏 token 原文，不出现 Infinity，不带异常类名与栈帧
+const snapshot = (root: string): string => {
+  const files: string[][] = []
+  const walk = (at: string, prefix = ''): void => {
+    if (!existsSync(at)) return
+    for (const e of readdirSync(at, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)))
+      if (e.isDirectory()) walk(join(at, e.name), `${prefix}${e.name}/`)
+      else files.push([`${prefix}${e.name}`, readFileSync(join(at, e.name)).toString('base64')])
   }
-  // [名, 改动（字节替换与覆盖字段）, 该点名的字段（含品牌输入）, 盘上坏 token]。夹具目录名里带着 id，
-  // 所以点名字段与 token 只在去掉 task.json 路径之后的 stderr 里找，不然路径本身就满足它们
-  const rejectCases: [string, [string, string][], Record<string, unknown>, string[], string[]][] = [
-    ['found-overflow', [['"found":{"0":3}', '"found":{"0":1e400}']], {}, ['found'], ['1e400']],
-    ['found-negative-overflow', [['"found":{"0":3}', '"found":{"0":-1e400}']], {}, ['found'], ['-1e400']],
-    ['offsets-rounded', [['"offsets":{"0":5}', '"offsets":{"0":5.0000000000000001}']], {}, ['offsets'], ['5.0000000000000001']],
-    ['pages-underflow', [['"pages":{"0":1}', '"pages":{"0":1e-325}']], {}, ['pages'], ['1e-325']],
-    // 坏数字不在条目上：整张表的位置是一个溢出数、表是装着溢出数的数组 —— 照样显示原文，不印 Infinity 或 [null]
-    ['pages-table-overflow', [['"pages":{"0":1}', '"pages":1e400']], {}, ['pages'], ['1e400']],
-    ['found-array-overflow', [['"found":{"0":3}', '"found":[1e400]']], {}, ['found'], ['1e400']],
-    // 读得进来、却深到逐层展开会栈溢出的坏容器：照样以 2 拒绝、点名字段，不带栈帧（这个深度在本机读得进来，展开到底则溢出）
-    ['found-deep', [['"found":{"0":3}', `"found":${'['.repeat(2400)}1e400${']'.repeat(2400)}`]], {}, ['found'], []],
-    ['answered-null', [], { answered: null }, ['answered'], []],
-    ['done-repeat', [], { done: [0, 0] }, ['done'], []],
-    // 「每个」：同一份文件里几处坏进度都点名；品牌输入也坏时两类一起报，不因先撞上一类就只报一类
-    ['several', [['"found":{"0":3}', '"found":{"0":1e400}'], ['"pages":{"0":1}', '"pages":{"0":1e-325}']], { done: [0, 0] },
-      ['done', 'found', 'pages'], ['1e400', '1e-325']],
-    ['with-calibration', [['"found":{"0":3}', '"found":{"0":1e400}']], { brand_calibration: 'x' }, ['brand_calibration', 'found'], ['1e400']],
-  ]
-  // 已有的交付物与记忆放哨兵；kol.csv、kol.xlsx 故意不放，用来看原本没有的会不会被创建。记忆得是读得进来的合法文件，
-  // 否则 render 会因为记忆坏了以 2 退出，「退出 2、原样不变」被无关的原因满足 —— 下面的阳性对照就是证这一点
-  const seed = (f: ReturnType<typeof costFixture>) => {
-    for (const name of ['report.html', 'meta.json']) writeFileSync(join(f.taskDir, name), `sentinel ${name}\n`)
-    writeFileSync(join(f.cwd, 'memory', 'creators.json'),
-      JSON.stringify({ version: 1, updated_at: '2026-01-01T00:00:00.000Z', creators: {} }, null, 2) + '\n')
-  }
+  try { walk(root); return JSON.stringify(files) } catch { return 'unreadable' }
+}
+// [名, 改动（字节替换与覆盖字段）, 该点名的字段（含品牌输入）, 盘上坏 token]。夹具目录名里带着 id，
+// 所以点名字段与 token 只在去掉 task.json 路径之后的 stderr 里找，不然路径本身就满足它们
+const rejectCases: [string, [string, string][], Record<string, unknown>, string[], string[]][] = [
+  ['found-overflow', [['"found":{"0":3}', '"found":{"0":1e400}']], {}, ['found'], ['1e400']],
+  ['found-negative-overflow', [['"found":{"0":3}', '"found":{"0":-1e400}']], {}, ['found'], ['-1e400']],
+  ['offsets-rounded', [['"offsets":{"0":5}', '"offsets":{"0":5.0000000000000001}']], {}, ['offsets'], ['5.0000000000000001']],
+  ['pages-underflow', [['"pages":{"0":1}', '"pages":{"0":1e-325}']], {}, ['pages'], ['1e-325']],
+  // 坏数字不在条目上：整张表的位置是一个溢出数、表是装着溢出数的数组 —— 照样显示原文，不印 Infinity 或 [null]
+  ['pages-table-overflow', [['"pages":{"0":1}', '"pages":1e400']], {}, ['pages'], ['1e400']],
+  ['found-array-overflow', [['"found":{"0":3}', '"found":[1e400]']], {}, ['found'], ['1e400']],
+  // 读得进来、却深到逐层展开会栈溢出的坏容器：照样以 2 拒绝、点名字段，不带栈帧（这个深度在本机读得进来，展开到底则溢出）
+  ['found-deep', [['"found":{"0":3}', `"found":${'['.repeat(2400)}1e400${']'.repeat(2400)}`]], {}, ['found'], []],
+  ['answered-null', [], { answered: null }, ['answered'], []],
+  ['done-repeat', [], { done: [0, 0] }, ['done'], []],
+  // 「每个」：同一份文件里几处坏进度都点名；品牌输入也坏时两类一起报，不因先撞上一类就只报一类
+  ['several', [['"found":{"0":3}', '"found":{"0":1e400}'], ['"pages":{"0":1}', '"pages":{"0":1e-325}']], { done: [0, 0] },
+    ['done', 'found', 'pages'], ['1e400', '1e-325']],
+  ['with-calibration', [['"found":{"0":3}', '"found":{"0":1e400}']], { brand_calibration: 'x' }, ['brand_calibration', 'found'], ['1e400']],
+]
+// 已有的交付物与记忆放哨兵；kol.csv、kol.xlsx 故意不放，用来看原本没有的会不会被创建。记忆得是读得进来的合法文件，
+// 否则 render 会因为记忆坏了以 2 退出，「退出 2、原样不变」被无关的原因满足 —— 下面的阳性对照就是证这一点
+const seed = (f: ReturnType<typeof costFixture>) => {
+  for (const name of ['report.html', 'meta.json']) writeFileSync(join(f.taskDir, name), `sentinel ${name}\n`)
+  writeFileSync(join(f.cwd, 'memory', 'creators.json'),
+    JSON.stringify({ version: 1, updated_at: '2026-01-01T00:00:00.000Z', creators: {} }, null, 2) + '\n')
+}
+
+group('resume-progress-render-control', [], () => {
   const control = costFixture('render-progress-control', knownCosts(1_000_000, []), {}, [costPerson()])
   seed(control)
   const c = runBoth('render 坏进度阳性对照：同样的哨兵与记忆、进度合规', [S('render.ts'), '--dir', control.taskDir], control.cwd,
@@ -4689,10 +4728,14 @@ group('resume-progress', [], () => {
   if (c.ok && (c.status !== 0 || !existsSync(join(control.taskDir, 'kol.csv')))) {
     failed++; console.error(`  ✗ render 坏进度阳性对照${SELFCHECK_FIXTURE_MARK}：合规进度没有以 0 结束并生成 kol.csv，exit=${c.status}，stderr=${stderrTail(c.stderr)}`)
   }
+  renderControlOk = c.ok && c.status === 0
+})
+
+group('resume-progress-render-reject', ['resume-progress-render-control'], () => {
   // 判「溢出没被误报成 null」只看进度那几行「这里是」之后显示的值：found 的说明本身写着「或 null」，品牌输入那一行也提到 null
   const progressLines = (text: string) => text.split('\n').filter(line => !line.trim().startsWith('brand_calibration')).join('\n')
   let refused = 0
-  for (const [id, edits, over, fields, tokens] of c.ok && c.status === 0 ? rejectCases : []) {
+  for (const [id, edits, over, fields, tokens] of renderControlOk ? rejectCases : []) {
     const f = costFixture(`render-progress-bad-${id}`, knownCosts(1_000_000, []), over, [costPerson()])
     const text = fileText(f.task)
     if (!edits.every(([from]) => text.includes(from))) { failed++; console.error(`  ✗ render 坏进度测试输入${SELFCHECK_FIXTURE_MARK}：${id}`); continue }
@@ -4714,7 +4757,9 @@ group('resume-progress', [], () => {
     refused++
   }
   if (refused === rejectCases.length) criterion('D19.h', 'D19.i')
+})
 
+group('resume-progress-render-accept', [], () => {
   // D19.j 与 D19.g 的 render 一半：合规进度照常渲染。缺整张表的旧目录（D19.d）、小数与指数写成的整数（D19.b）都以 0 结束、
   // 生成交付物；写回 task.json 时那两个合法 token 逐字留下，meta.json 里 found 是按值的 3
   const acceptCases: [string, (text: string) => string | undefined, [string, string, string][]][] = [
@@ -4727,7 +4772,7 @@ group('resume-progress', [], () => {
       ? text.replace('"found":{"0":3}', '"found":{"0":3.0}').replace('"offsets":{"0":5}', '"offsets":{"0":5e0}') : undefined,
       [['found', '0', '3.0'], ['offsets', '0', '5e0']]],
   ]
-  let renderedGood = 0, renderKeptLegal = false
+  let renderedGood = 0
   for (const [id, edit, kept] of acceptCases) {
     const f = costFixture(`render-progress-good-${id}`, knownCosts(1_000_000, []), {}, [costPerson()])
     const text = edit(fileText(f.task))
@@ -4753,24 +4798,26 @@ group('resume-progress', [], () => {
     renderedGood++
   }
   if (renderedGood === acceptCases.length) criterion('D19.j')
-  if (writebackHeld && renderKeptLegal) criterion('D19.g')
+})
 
-  // D19.l：进度键写了不止一次（D19.k）时，collect 续跑（含 --budget 改额）与 render 分别照 D19.e、D19.h 以 2 拒绝。
-  // 期望只来自判据原文与写进夹具的字面值：表里重复的最后一处 3.000 合法（D19.b 允许小数写法），根上重复的最后一处是夹具本来的合法表；
-  // 前几处 1e400、7.25e1、"zz-mid" 读入后不留痕迹，stderr 里按先后找得到它们才是「不只显示最后一处」。
-  // 阳性对照是同一份夹具只留最后一处：collect 照常预留并发出请求（观测确实接上、拒绝只能是因为重复），render 照常以 0 生成 kol.csv
-  // [名, 夹具里的合法原文, 改成的重复写法, 只留最后一处的写法, 重复的字段, 按文件先后的每一处原文（对象不列）]
-  const dupCases: [string, string, string, string, string, string[]][] = [
-    ['found-table', '"found":{"0":3}', '"found":{"0":1e400,"0":3.000}', '"found":{"0":3.000}', 'found', ['1e400', '3.000']],
-    ['pages-root', '"pages":{"0":1}', '"pages":7.25e1,"pages":"zz-mid","pages":{"0":1}', '"pages":{"0":1}', 'pages', ['7.25e1', 'zz-mid']],
-  ]
-  // 夹具目录名里带着用例名，字段与原文只在去掉路径之后的 stderr 里按先后找
-  const dupListed = (stderr: string, f: ReturnType<typeof costFixture>, field: string, tokens: readonly string[]) => {
-    const message = stderr.replaceAll(f.task, '[任务文件]').replaceAll(f.cwd, '[目录]')
-    let at = 0
-    for (const token of tokens) { const i = message.indexOf(token, at); if (i < 0) return false; at = i + token.length }
-    return stderr.includes(f.task) && message.includes(field)
-  }
+// D19.l：进度键写了不止一次（D19.k）时，collect 续跑（含 --budget 改额）与 render 分别照 D19.e、D19.h 以 2 拒绝。
+// 期望只来自判据原文与写进夹具的字面值：表里重复的最后一处 3.000 合法（D19.b 允许小数写法），根上重复的最后一处是夹具本来的合法表；
+// 前几处 1e400、7.25e1、"zz-mid" 读入后不留痕迹，stderr 里按先后找得到它们才是「不只显示最后一处」。
+// 阳性对照是同一份夹具只留最后一处：collect 照常预留并发出请求（观测确实接上、拒绝只能是因为重复），render 照常以 0 生成 kol.csv
+// [名, 夹具里的合法原文, 改成的重复写法, 只留最后一处的写法, 重复的字段, 按文件先后的每一处原文（对象不列）]
+const dupCases: [string, string, string, string, string, string[]][] = [
+  ['found-table', '"found":{"0":3}', '"found":{"0":1e400,"0":3.000}', '"found":{"0":3.000}', 'found', ['1e400', '3.000']],
+  ['pages-root', '"pages":{"0":1}', '"pages":7.25e1,"pages":"zz-mid","pages":{"0":1}', '"pages":{"0":1}', 'pages', ['7.25e1', 'zz-mid']],
+]
+// 夹具目录名里带着用例名，字段与原文只在去掉路径之后的 stderr 里按先后找
+const dupListed = (stderr: string, f: ReturnType<typeof costFixture>, field: string, tokens: readonly string[]) => {
+  const message = stderr.replaceAll(f.task, '[任务文件]').replaceAll(f.cwd, '[目录]')
+  let at = 0
+  for (const token of tokens) { const i = message.indexOf(token, at); if (i < 0) return false; at = i + token.length }
+  return stderr.includes(f.task) && message.includes(field)
+}
+
+group('resume-progress-dup-collect', [], () => {
   // 起一次 collect --resume，盘上那一处换成 to；done 为空，进度合规时它一定会去搜，预留观测与上面 D19.e 一段同一种接法
   const dupCollect = (name: string, from: string, to: string, extra: string[], expect: { status: number; soft: number[] }) => {
     const f = costFixture(`dup-progress-${name}`, knownCosts(1_000_000, []), { done: [] })
@@ -4800,7 +4847,6 @@ group('resume-progress', [], () => {
     return { f, r, before, same: dirs() === beforeDirs, reserves: fetchAttempts(reserves).length, attempts: fetchAttempts(f.log).length }
   }
   const collectLeaked: string[] = [], collectHidden: string[] = []
-  let collectDup = 0
   for (const [id, from, dup, last, field, tokens] of dupCases) {
     const lastOnly = dupCollect(`${id}-control`, from, last, [], { status: 0, soft: [1, 2, 3] })
     if (!lastOnly) continue
@@ -4818,11 +4864,12 @@ group('resume-progress', [], () => {
   }
   if (collectDup > 0) named('重复进度键：collect 续跑与 --budget 改额见进度键写了不止一次，在预留与请求前退出2，task.json、任务目录与记忆原字节不变', !collectLeaked.length, collectLeaked.join('；'))
   if (collectDup > 0) named('重复进度键：collect 拒绝时 stderr 写出 task.json 路径、重复的字段，并按文件先后写出每一处原文，不只最后一处', !collectHidden.length, collectHidden.join('；'))
+})
 
+group('resume-progress-dup-render', ['resume-progress-render-control'], () => {
   // render：上面那条阳性对照（同样的哨兵与记忆、进度合规以 0 生成 kol.csv）成立才跑；每个用例另跑一份只留最后一处的对照
   const renderLeaked: string[] = [], renderHidden: string[] = []
-  let renderDup = 0
-  for (const [id, from, dup, last, field, tokens] of c.ok && c.status === 0 ? dupCases : []) {
+  for (const [id, from, dup, last, field, tokens] of renderControlOk ? dupCases : []) {
     const fixture = (name: string, to: string) => {
       const f = costFixture(`render-dup-progress-${name}`, knownCosts(1_000_000, []), {}, [costPerson()])
       const text = fileText(f.task)
@@ -4849,8 +4896,9 @@ group('resume-progress', [], () => {
   }
   if (renderDup > 0) named('重复进度键：render 见进度键写了不止一次，在任何写入前退出2，任务目录与记忆原字节不变，原本没有的交付物不被创建', !renderLeaked.length, renderLeaked.join('；'))
   if (renderDup > 0) named('重复进度键：render 拒绝时 stderr 写出 task.json 路径、重复的字段，并按文件先后写出每一处原文，不只最后一处', !renderHidden.length, renderHidden.join('；'))
-  if (collectDup === dupCases.length * 2 && renderDup === dupCases.length) criterion('D19.l')
+})
 
+group('resume-progress-dup-enrich', [], () => {
   // D19.m：enrich（普通与 --budget 改额）见进度键写了不止一次（D19.k）时，在改额、预留、请求与任何写入之前以 2 拒绝（ADR-141）。
   // 期望只来自判据原文与上面 dupCases 写进夹具的字面值：前几处 1e400、7.25e1、"zz-mid" 读入后不留痕迹，stderr 里按先后找得到它们
   // 才是「每一处的原文」。阳性对照是同一份夹具、同一种模式只留最后一处：enrich 照常预留、请求并写回 task.json（观测确实接上、
@@ -4936,35 +4984,39 @@ group('resume-progress', [], () => {
       `exit=${alone.r.status}，reserves=${alone.reserves}，attempts=${alone.attempts}，updated_at 刷新=${alone.refreshed}，写回后 found[0]=${saved}，stderr=${stderrTail(alone.r.stderr)}`)
   }
   if (enrichDupRan === dupCases.length * enrichModes.length && enrichMixedRan === enrichModes.length && alone) criterion('D19.m')
+})
 
-  // D19.n：`calibration version` 读入的 task.json 有 D19.k 的重复、而按 D20.q 要写盘时以 2 拒绝、不写盘；不合 D20.a 时两类问题都写出；
-  // 缺席（D20.m）与 version 已一致（D20.r）不写盘，有重复也照旧以 0 结束。期望只来自判据原文与夹具字面值。
-  // 要写盘的阳性对照：同一份夹具只留最后一处、version 是手写标签，照常以 0 写入（文件身份或修改时间确实变了）—— 「不写盘」可分辨。
-  // 已一致的版本按 D20.f 独立算：五组都是空数组的最小校准，除 version 外的内容按码点排好键、无空白，手写成下面这一串
-  const { createHash } = createRequire(import.meta.url)('node:crypto') as { createHash: (algorithm: string) =>
-    { update: (data: string, encoding: 'utf8') => { digest: (encoding: 'hex') => string } } }
-  const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex')
-  const calContent = { target_creator_types: [], tone_aesthetic: [], natural_scenarios: [], negative_signals: [], sources: [] }
-  const calCanonical = '{"natural_scenarios":[],"negative_signals":[],"sources":[],"target_creator_types":[],"tone_aesthetic":[]}'
-  const calSame = `sha256:${sha256(calCanonical)}`
+// D19.n：`calibration version` 读入的 task.json 有 D19.k 的重复、而按 D20.q 要写盘时以 2 拒绝、不写盘；不合 D20.a 时两类问题都写出；
+// 缺席（D20.m）与 version 已一致（D20.r）不写盘，有重复也照旧以 0 结束。期望只来自判据原文与夹具字面值。
+// 要写盘的阳性对照：同一份夹具只留最后一处、version 是手写标签，照常以 0 写入（文件身份或修改时间确实变了）—— 「不写盘」可分辨。
+// 已一致的版本按 D20.f 独立算：五组都是空数组的最小校准，除 version 外的内容按码点排好键、无空白，手写成下面这一串
+const { createHash } = createRequire(import.meta.url)('node:crypto') as { createHash: (algorithm: string) =>
+  { update: (data: string, encoding: 'utf8') => { digest: (encoding: 'hex') => string } } }
+const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex')
+const calContent = { target_creator_types: [], tone_aesthetic: [], natural_scenarios: [], negative_signals: [], sources: [] }
+const calCanonical = '{"natural_scenarios":[],"negative_signals":[],"sources":[],"target_creator_types":[],"tone_aesthetic":[]}'
+const calSame = `sha256:${sha256(calCanonical)}`
+// task.json 修改时间拨回过去：同字节就地重写也看得出（同 calibration-version-entry 组）
+const calStamp = (file: string) => { try { const s = statSync(file); return `${s.dev}:${s.ino}:${s.mtimeMs}` } catch { return 'missing' } }
+const calDup = (name: string, from: string, to: string, calibration: Record<string, unknown> | undefined, expect: { status: number; soft: number[] }) => {
+  const f = costFixture(`calver-dup-${name}`, knownCosts(1_000_000, []), calibration === undefined ? {} : { brand_calibration: calibration })
+  const text = fileText(f.task)
+  if (!text.includes(from) || (calibration === undefined && text.includes('"brand_calibration"'))) {
+    failed++; console.error(`  ✗ calibration version 重复进度键测试输入${SELFCHECK_FIXTURE_MARK}：${name} 的夹具里找不到 ${from}`); return undefined }
+  writeFileSync(f.task, text.replace(from, to))
+  utimesSync(f.task, new Date('2001-01-01'), new Date('2001-01-01'))
+  const before = fileText(f.task), stamp = calStamp(f.task)
+  const r = runBoth(`重复进度键 calibration version ${name}`, [S('calibration.ts'), 'version', '--dir', f.taskDir], f.cwd, expect,
+    costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+  if (!r.ok) return undefined
+  return { f, r, kept: fileText(f.task) === before && calStamp(f.task) === stamp, out: summaryOf(r.stdout) }
+}
+
+group('resume-progress-dup-calibration', [], () => {
+  // calDup 依赖的 calSame 由这条 oracle 证（手写规范化串与 SHA256 手推向量）；用到它的 d27-calibration 组另抄一份
   if (sha256('abc') !== 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
     || JSON.stringify(Object.fromEntries(Object.entries(calContent).sort(([a], [b]) => a < b ? -1 : 1))) !== calCanonical) {
     failed++; console.error(`  ✗ calibration version 重复进度键内容哈希 oracle${SELFCHECK_FIXTURE_MARK}：手写规范化串或 SHA256 与手推向量不符`); return
-  }
-  // task.json 修改时间拨回过去：同字节就地重写也看得出（同 calibration-version-entry 组）
-  const calStamp = (file: string) => { try { const s = statSync(file); return `${s.dev}:${s.ino}:${s.mtimeMs}` } catch { return 'missing' } }
-  const calDup = (name: string, from: string, to: string, calibration: Record<string, unknown> | undefined, expect: { status: number; soft: number[] }) => {
-    const f = costFixture(`calver-dup-${name}`, knownCosts(1_000_000, []), calibration === undefined ? {} : { brand_calibration: calibration })
-    const text = fileText(f.task)
-    if (!text.includes(from) || (calibration === undefined && text.includes('"brand_calibration"'))) {
-      failed++; console.error(`  ✗ calibration version 重复进度键测试输入${SELFCHECK_FIXTURE_MARK}：${name} 的夹具里找不到 ${from}`); return undefined }
-    writeFileSync(f.task, text.replace(from, to))
-    utimesSync(f.task, new Date('2001-01-01'), new Date('2001-01-01'))
-    const before = fileText(f.task), stamp = calStamp(f.task)
-    const r = runBoth(`重复进度键 calibration version ${name}`, [S('calibration.ts'), 'version', '--dir', f.taskDir], f.cwd, expect,
-      costEnv(f.log, { TIKHUB_API_KEY: undefined }))
-    if (!r.ok) return undefined
-    return { f, r, kept: fileText(f.task) === before && calStamp(f.task) === stamp, out: summaryOf(r.stdout) }
   }
   const calWrote: string[] = [], calHidden: string[] = [], calMixed: string[] = [], calAbsent: string[] = [], calUnchanged: string[] = []
   let calRan = 0
@@ -5002,35 +5054,38 @@ group('resume-progress', [], () => {
     named('重复进度键：calibration version 的 version 已一致时有重复也以0报 unchanged，不写盘，task.json 原字节、文件身份与修改时间不变', !calUnchanged.length, calUnchanged.join('；'))
   }
   if (calRan === dupCases.length) criterion('D19.n')
+})
 
-  // ---- D27.b、D27.c、D27.e 与 D27 × P3（ADR-142）：task.json 任一层写重复的键 ----
-  // 期望只来自 D27.a–c、D27.e、D27 × P3 原文与写进夹具的字面值，没有读 collect.ts、enrich.ts、render.ts、calibration.ts 与判据的函数体。
-  // 夹具是 costFixture 那一份合法任务，把某一处改写成写重复：前几处是夹具里独有的写法，最后一处就是原来那一处（found-deep 另给只留最后一处的写法）。
-  // 前几处读入后不留痕迹，stderr 里按先后找得到它们才是「每一处」；位置照 D27.a 写成根上的键名往下接 ["键"] 与 [下标]。
-  // 每种模式、每份只留最后一处的文本先跑一份阳性对照（文本相同的对照只跑一次）：collect、enrich 照常预留并请求，render 照常导出 kol.csv，
-  // calibration version 照常写入 —— 观测确实接上、拒绝只能是因为重复；对照不成立记夹具失败，不让一份废夹具冒充拒绝
-  // [名, 夹具里的合法原文, 改成的重复写法, 只留最后一处的写法, 位置, 按文件先后被丢掉的前几处原文]
-  type D27Case = [string, string, string, string, string, string[]]
-  const d27Cases: D27Case[] = [
-    ['tasks-root', '"tasks":[', '"tasks":"zq-first-list","tasks":[', '"tasks":[', 'tasks', ['zq-first-list']],
-    ['task-keyword', '"keyword":"local"', '"keyword":"zq\\u002dold","keyword":"local"', '"keyword":"local"', 'tasks[0]["keyword"]', ['zq\\u002dold']],
-    // D27 × P3：请求计数、根预算与费用账上限写重复
-    ['requests', '"requests":0', '"requests":7.5e1,"requests":"zz-mid","requests":0', '"requests":0', 'requests', ['7.5e1', 'zz-mid']],
-    ['budget-root', '"budget_usd":1,', '"budget_usd":9.5e1,"budget_usd":1,', '"budget_usd":1,', 'budget_usd', ['9.5e1']],
-    ['ledger-limit', '"limit_micro_usd":1000000', '"limit_micro_usd":9.5e2,"limit_micro_usd":1000000', '"limit_micro_usd":1000000',
-      'cost_ledger["limit_micro_usd"]', ['9.5e2']],
-  ]
-  const d27P3 = new Set(['requests', 'budget-root', 'ledger-limit'])
-  // 进度值里更深一层（不是 D19.k 那几处）。collect 与 render 按 D19.b 本来就拒绝对象形的进度值，只留最后一处也成立不了阳性对照，
-  // 所以只给不判进度值的 enrich（D19.m 末句）与 calibration version
-  const d27Deep: D27Case = ['found-deep', '"found":{"0":3}', '"found":{"0":{"zq":7.25e0,"zq":3}}', '"found":{"0":{"zq":3}}', 'found["0"]["zq"]', ['7.25e0']]
-  type D27Entry = 'collect' | 'enrich' | 'render'
-  let d27Made = 0
+// ---- D27.b、D27.c、D27.e 与 D27 × P3（ADR-142）：task.json 任一层写重复的键 ----
+// 期望只来自 D27.a–c、D27.e、D27 × P3 原文与写进夹具的字面值，没有读 collect.ts、enrich.ts、render.ts、calibration.ts 与判据的函数体。
+// 夹具是 costFixture 那一份合法任务，把某一处改写成写重复：前几处是夹具里独有的写法，最后一处就是原来那一处（found-deep 另给只留最后一处的写法）。
+// 前几处读入后不留痕迹，stderr 里按先后找得到它们才是「每一处」；位置照 D27.a 写成根上的键名往下接 ["键"] 与 [下标]。
+// 每种模式、每份只留最后一处的文本先跑一份阳性对照（文本相同的对照只跑一次）：collect、enrich 照常预留并请求，render 照常导出 kol.csv，
+// calibration version 照常写入 —— 观测确实接上、拒绝只能是因为重复；对照不成立记夹具失败，不让一份废夹具冒充拒绝
+// [名, 夹具里的合法原文, 改成的重复写法, 只留最后一处的写法, 位置, 按文件先后被丢掉的前几处原文]
+type D27Case = [string, string, string, string, string, string[]]
+const d27Cases: D27Case[] = [
+  ['tasks-root', '"tasks":[', '"tasks":"zq-first-list","tasks":[', '"tasks":[', 'tasks', ['zq-first-list']],
+  ['task-keyword', '"keyword":"local"', '"keyword":"zq\\u002dold","keyword":"local"', '"keyword":"local"', 'tasks[0]["keyword"]', ['zq\\u002dold']],
+  // D27 × P3：请求计数、根预算与费用账上限写重复
+  ['requests', '"requests":0', '"requests":7.5e1,"requests":"zz-mid","requests":0', '"requests":0', 'requests', ['7.5e1', 'zz-mid']],
+  ['budget-root', '"budget_usd":1,', '"budget_usd":9.5e1,"budget_usd":1,', '"budget_usd":1,', 'budget_usd', ['9.5e1']],
+  ['ledger-limit', '"limit_micro_usd":1000000', '"limit_micro_usd":9.5e2,"limit_micro_usd":1000000', '"limit_micro_usd":1000000',
+    'cost_ledger["limit_micro_usd"]', ['9.5e2']],
+]
+const d27P3 = new Set(['requests', 'budget-root', 'ledger-limit'])
+// 进度值里更深一层（不是 D19.k 那几处）。collect 与 render 按 D19.b 本来就拒绝对象形的进度值，只留最后一处也成立不了阳性对照，
+// 所以只给不判进度值的 enrich（D19.m 末句）与 calibration version
+const d27Deep: D27Case = ['found-deep', '"found":{"0":3}', '"found":{"0":{"zq":7.25e0,"zq":3}}', '"found":{"0":{"zq":3}}', 'found["0"]["zq"]', ['7.25e0']]
+type D27Entry = 'collect' | 'enrich' | 'render'
+// d27Run 起的夹具目录按组分开：每组拿自己的前缀与计数（ADR-144）。costFixture 撞名会静默复用目录，残留的 armed.txt 会让预留观测像是装上了
+const d27Runner = (prefix: string) => {
   // 起一次入口：collect 的 done 为空（进度合规时一定会去搜）；enrich 与 render 放一个待补的创作者，再放哨兵与记忆（同上面 render 一段的 seed）。
   // 预留观测与上面 D19.e 一段同一种接法；任务目录与记忆整棵比，原本没有的交付物另看有没有被创建
+  let d27Made = 0
   const d27Run = (entry: D27Entry, edits: [string, string][], extra: readonly string[], expect: { status: number; soft: number[] },
     over: Record<string, unknown> = {}) => {
-    const name = `d27-${entry}-${++d27Made}`
+    const name = `d27-${prefix}${entry}-${++d27Made}`
     const f = costFixture(name, knownCosts(1_000_000, []), { ...(entry === 'collect' ? { done: [] } : {}), ...over }, entry === 'collect' ? [] : [costPerson()])
     const text = fileText(f.task)
     if (!edits.every(([from]) => text.includes(from))) {
@@ -5062,16 +5117,21 @@ group('resume-progress', [], () => {
     return { f, r, before, after, same: dirs() === beforeDirs, reserves: fetchAttempts(reserves).length, attempts: fetchAttempts(f.log).length,
       refreshed: jsonFile(f.task)?.updated_at !== '2026-01-01T00:00:00.000Z', created: ['kol.csv', 'kol.xlsx'].filter(n => existsSync(join(f.taskDir, n))) }
   }
-  type D27Got = NonNullable<ReturnType<typeof d27Run>>
-  // 阳性对照照常进行：collect 预留并请求；enrich 预留、请求并写回 task.json；render 以 0 生成 kol.csv
-  const d27Normal = (entry: D27Entry, got: D27Got) => got.r.status === 0 && (entry === 'render' ? got.created.includes('kol.csv')
-    : got.reserves > 0 && got.attempts > 0 && (entry === 'collect' || (got.after !== got.before && got.refreshed)))
-  const d27Said = (got: D27Got) => `exit=${got.r.status}，fileSame=${got.after === got.before}，目录原样=${got.same}，reserves=${got.reserves}，`
-    + `attempts=${got.attempts}，新建=${JSON.stringify(got.created)}，stderr=${stderrTail(got.r.stderr)}`
-  const d27Modes: [string, D27Entry, string[]][] = [
-    ['collect --resume', 'collect', []], ['collect --resume --budget 2', 'collect', ['--budget', '2']],
-    ['enrich', 'enrich', []], ['enrich --budget 2', 'enrich', ['--budget', '2']], ['render', 'render', []],
-  ]
+  return d27Run
+}
+type D27Got = NonNullable<ReturnType<ReturnType<typeof d27Runner>>>
+// 阳性对照照常进行：collect 预留并请求；enrich 预留、请求并写回 task.json；render 以 0 生成 kol.csv
+const d27Normal = (entry: D27Entry, got: D27Got) => got.r.status === 0 && (entry === 'render' ? got.created.includes('kol.csv')
+  : got.reserves > 0 && got.attempts > 0 && (entry === 'collect' || (got.after !== got.before && got.refreshed)))
+const d27Said = (got: D27Got) => `exit=${got.r.status}，fileSame=${got.after === got.before}，目录原样=${got.same}，reserves=${got.reserves}，`
+  + `attempts=${got.attempts}，新建=${JSON.stringify(got.created)}，stderr=${stderrTail(got.r.stderr)}`
+const d27Modes: [string, D27Entry, string[]][] = [
+  ['collect --resume', 'collect', []], ['collect --resume --budget 2', 'collect', ['--budget', '2']],
+  ['enrich', 'enrich', []], ['enrich --budget 2', 'enrich', ['--budget', '2']], ['render', 'render', []],
+]
+
+group('resume-progress-d27-entries', [], () => {
+  const d27Run = d27Runner('')
   const d27Controls = new Map<string, boolean>()
   const d27Leaked: Record<D27Entry, string[]> = { collect: [], enrich: [], render: [] }
   const d27Hidden: Record<D27Entry, string[]> = { collect: [], enrich: [], render: [] }
@@ -5106,12 +5166,15 @@ group('resume-progress', [], () => {
   if (d27RanBy.render > 0) named('写重复的键：render 见 task.json 任一层写重复的键，在任何写入前退出2，任务目录与记忆原字节不变，原本没有的交付物不被创建', !d27Leaked.render.length, d27Leaked.render.join('；'))
   if (d27RanBy.render > 0) named('写重复的键：render 拒绝时 stderr 写出 task.json 路径与键的位置，并按文件先后写出每一处被丢掉的原文', !d27Hidden.render.length, d27Hidden.render.join('；'))
   if (d27P3Ran > 0) named('写重复的键：requests、cost_ledger、budget_usd 写重复时 collect 与 enrich（含改额）不按最后一处花钱 —— 零改额、零预留、零请求', !d27Spent.length, d27Spent.join('；'))
+  d27MainDone = d27Ran === d27Planned
+})
 
+group('resume-progress-d27-mixed', [], () => {
+  const d27Run = d27Runner('mixed-')
   // 「与同文件的任务列表问题一起」（D27.b、ADR-142 第一节第 3 条）：tasks 写了两次、最后那份任务列表不合规 —— 任务列表按最后那份判，
   // 两类问题在同一次拒绝里都写出，不让用户先照最后那份改完任务、再撞上写重复。退出 2 本来就由任务列表的问题满足，所以要的是两类都写出；
   // 任务问题按 D16 的写法认字段名与 JSON 原值
   const d27Mixed: string[] = []
-  let d27MixedRan = 0
   for (const [mode, entry] of [['collect --resume', 'collect'], ['enrich', 'enrich'], ['render', 'render']] as const) {
     const got = d27Run(entry, [['"tasks":[', '"tasks":"zq-first-list","tasks":[']], [], { status: 2, soft: [0, 1, 3] },
       { tasks: [{ keyword: 'local', dimension: 'Category', platform: 'TikTok' }] })
@@ -5124,12 +5187,14 @@ group('resume-progress', [], () => {
     d27MixedRan++
   }
   if (d27MixedRan > 0) named('写重复的键：tasks 写了两次且最后那份任务列表不合规时，collect、enrich 与 render 退出2，stderr 任务列表问题与 tasks 的每一处都写出', !d27Mixed.length, d27Mixed.join('；'))
+})
 
+group('resume-progress-d27-twice', [], () => {
+  const d27Run = d27Runner('twice-')
   // D19.k 那几处照 D19.l、D19.m 报，不重复报（D27.b 末句）：同一份里进度键 found 的 "0" 与 requests 都写了重复。
   // 三个入口两处都写出、各只列一遍 —— 去掉路径的 stderr 里 7.5e1 与 1e400 各恰好一次。collect 与 render 的进度那一道在任务列表那一道之后：
   // 任务列表有效时它照判，其余位置的重复不遮住它（复核发现 2）；坏进度值（D19.h、D19.i）同样不被遮住
   const d27Twice: string[] = []
-  let d27BothRan = 0
   for (const [mode, entry] of [['collect --resume', 'collect'], ['enrich', 'enrich'], ['render', 'render']] as const) {
     const got = d27Run(entry, [['"found":{"0":3}', '"found":{"0":1e400,"0":3.000}'], ['"requests":0', '"requests":7.5e1,"requests":0']], [], { status: 2, soft: [0, 1, 3] })
     if (!got) continue
@@ -5147,8 +5212,10 @@ group('resume-progress', [], () => {
       d27Twice.push(`${mode} 坏进度：-9.25e2 写出=${badMessage.includes('-9.25e2')}，${d27Said(bad)}`)
   }
   if (d27BothRan > 0) named('写重复的键：进度键或坏进度与别处同时出问题时，三个入口都写出每一处，每一处只报一遍、不因两条判据报两遍', !d27Twice.length, d27Twice.join('；'))
-  if (d27Ran === d27Planned && d27MixedRan === 3 && d27BothRan === 3) criterion('D27.b')
+})
 
+group('resume-progress-d27-same-names', [], () => {
+  const d27Run = d27Runner('same-')
   // D27.e：不多拒 —— 两个一模一样的任务（不同对象里的同名键、数组里相同的元素）、费用账两项各有同名键、根上一个装着相同元素的数组，
   // collect 续跑与改额照常预留并请求，enrich 与改额照常预留、请求并写回，render 照常导出，calibration version 照常写入
   const d27SameNames = {
@@ -5173,7 +5240,14 @@ group('resume-progress', [], () => {
   }
   if (d27NormalRan > 0) named('写重复的键不多拒：两个任务各有同名键、费用账两项各有同名键与数组里相同的元素不算重复，collect 续跑与改额、enrich 与改额、render、calibration version 照常进行', !d27Rejected.length, d27Rejected.join('；'))
   if (d27NormalRan === d27Modes.length + 1) criterion('D27.e')
+})
 
+group('resume-progress-d27-calibration', [], () => {
+  // calSame 的 oracle 照 dup-calibration 组再证一遍：--only 只点这一组时那一组不跑
+  if (sha256('abc') !== 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+    || JSON.stringify(Object.fromEntries(Object.entries(calContent).sort(([a], [b]) => a < b ? -1 : 1))) !== calCanonical) {
+    failed++; console.error(`  ✗ calibration version 重复进度键内容哈希 oracle${SELFCHECK_FIXTURE_MARK}：手写规范化串或 SHA256 与手推向量不符`); return
+  }
   // D27.c：calibration version 读入的 task.json 任一层写重复了键、而按 D20.q 要写盘时以 2 拒绝、不写盘，stdout 为空；brand_calibration 同时不合 D20.a
   // 时两类问题都写出；缺席（D20.m）与 version 已一致（D20.r）时不写盘，有重复也照旧以 0 结束。上面 D19.n 一段的 calDup、calContent、calSame 照用。
   // 每份只留最后一处的文本先跑两份对照：version 是手写标签时以 0 写入（文件确实变了），version 已一致时以 0 报 unchanged（oracle 与被测命令对得上）
@@ -5221,6 +5295,18 @@ group('resume-progress', [], () => {
     named('写重复的键：calibration version 的 version 已一致时任一层写重复了键也以0报 unchanged，不写盘，task.json 原字节、文件身份与修改时间不变', !d27CalUnchanged.length, d27CalUnchanged.join('；'))
   }
   if (d27CalRan === d27CalCases.length) criterion('D27.c')
+})
+
+// 旧组名：--only=resume-progress 照旧跑全部十五组；跨组的三条认领只在它们都跑完时在这里落下
+group('resume-progress', [
+  'resume-progress-collect-control', 'resume-progress-collect-bad', 'resume-progress-writeback', 'resume-progress-render-control',
+  'resume-progress-render-reject', 'resume-progress-render-accept', 'resume-progress-dup-collect', 'resume-progress-dup-render',
+  'resume-progress-dup-enrich', 'resume-progress-dup-calibration', 'resume-progress-d27-entries', 'resume-progress-d27-mixed',
+  'resume-progress-d27-twice', 'resume-progress-d27-same-names', 'resume-progress-d27-calibration',
+], () => {
+  if (writebackHeld && renderKeptLegal) criterion('D19.g')
+  if (collectDup === dupCases.length * 2 && renderDup === dupCases.length) criterion('D19.l')
+  if (d27MainDone && d27MixedRan === 3 && d27BothRan === 3) criterion('D27.b')
 })
 
 // ---- D15.j／D15.k／D6.w：IG 话题入口只由配置显式开启，校验在一切请求之前，probe 与 collect 同一处分派 ----
