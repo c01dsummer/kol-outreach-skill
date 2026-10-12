@@ -69,7 +69,7 @@ round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manua
 | `followers` | 跨平台合并后为两平台之和 |
 | `post_count` | |
 | `bio` | |
-| `email` | |
+| `email` | bio 里的全部邮箱，按出现先后用 `, ` 连起来，人来挑联系哪个；未查询显示「未查询」 |
 | `email_verified` | 有增强层时填，否则留空 |
 | `audience_geo_top` | 如 `US 62%`，无增强层留空 |
 | `metrics_account_followers` / `metrics_account_following` | 当前平台计算公开指标时使用的账号规模；不使用跨平台合计值 |

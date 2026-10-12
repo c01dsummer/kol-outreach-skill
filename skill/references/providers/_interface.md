@@ -48,7 +48,7 @@ interface Creator {
   }>
 
   // profile 补全或未来外部增强后填充
-  // undefined = 未查询，null = 查询过但没有
+  // undefined = 未查询，null = 查询过但没有；有几个邮箱就用 ', ' 连成一个值（D7.d）
   email?:               string | null
   email_verified?:      boolean
   audience_geo?:        Record<string, number>
