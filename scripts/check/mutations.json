@@ -11246,8 +11246,8 @@
       "req": "harness",
       "why": "超线配置里的变异编号不按编号排，按登记先后：同一份树两次报出来的顺序可能不同",
       "file": "scripts/check/launch-rule.ts",
-      "find": "    const routed = [...byConfig.get(key)!].sort((a, b) => byText(a.id, b.id))",
-      "replace": "    const routed = [...byConfig.get(key)!]",
+      "find": "[key, [...byConfig.get(key)!].sort((a, b) => byText(a.id, b.id))]",
+      "replace": "[key, [...byConfig.get(key)!]]",
       "by": "test",
       "kills": ["规则二：超线的配置只报一条，变异编号按编号排"]
     },
