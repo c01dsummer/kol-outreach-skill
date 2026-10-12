@@ -8303,15 +8303,15 @@ eq('启动数闸门：没有发现时只打一行几种配置有计数、都在�
   [...[OFF, ON, FOG].map(t => gate(calm, SRC, t)), gate(rec([], { tally: [], head: undefined, baselines: undefined, again: '坏' }), SRC, OFF)],
   [...Array(3).fill({ red: false, lines: ['✓ 启动数闸门：2 种配置有计数，都在线内'] }), { red: false, lines: ['✓ 启动数闸门：0 种配置有计数，都在线内'] }])
 // MIX 照 launchFindings 的先后（全跑最前，其余按配置键）：GK 两条超线、MK 缺基线、TK 乘积超线、UK 不确定，共 6 条。
-// n 是发现的条数，不是报告的行数；只有一条不确定时在 PR 上也红（第 3 小节）
+// n 是发现的条数，不是报告的行数；不在主干上与无从判断时有发现就红，不论哪一种：只有一条不确定、全跑或缺计数也红（第 3 小节）
 const MIX: LaunchFinding[] = [{ kind: 'full-run', id: 'F-1' }, over(GK, 'M-1'), over(GK, 'M-2'), { kind: 'missing', config: MK, ids: ['M-9'] },
   many(TK, 'N-1', 'N-2'), shaky(UK, '整跑 34 次对 35 次')]
-const R6 = launchReport(MIX), V6 = '✗ 启动数闸门：6 条发现，不设豁免（ADR-145）', ONE = [shaky(UK, '整跑 34 次对 35 次')]
+const R6 = launchReport(MIX), V6 = '✗ 启动数闸门：6 条发现，不设豁免（ADR-145）', SOLO = [[shaky(UK, '整跑 34 次对 35 次')], [MIX[0]], [MIX[3]]]
 eq('启动数闸门：有发现、不在主干上，报告行原样在前，最后一行几条发现、不设豁免，红',
-  [gate(rec(MIX), SRC, OFF), gate(rec(ONE), SRC, OFF)],
-  [{ red: true, lines: [...R6, V6] }, { red: true, lines: [...launchReport(ONE), '✗ 启动数闸门：1 条发现，不设豁免（ADR-145）'] }])
-eq('启动数闸门：有发现、无从判断在不在主干上，最后一行带着原因，按 PR 判红', gate(rec(MIX), SRC, FOG),
-  { red: true, lines: [...R6, '✗ 启动数闸门：6 条发现；无从判断 HEAD 在不在主干上（浅克隆，找不到主干的历史），按 PR 判红'] })
+  [MIX, ...SOLO].map(fs => gate(rec(fs), SRC, OFF)),
+  [{ red: true, lines: [...R6, V6] }, ...SOLO.map(fs => ({ red: true, lines: [...launchReport(fs), '✗ 启动数闸门：1 条发现，不设豁免（ADR-145）'] }))])
+eq('启动数闸门：有发现、无从判断在不在主干上，最后一行带着原因，按 PR 判红', [MIX, ...SOLO].map(fs => gate(rec(fs), SRC, FOG)),
+  [MIX, ...SOLO].map(fs => ({ red: true, lines: [...launchReport(fs), `✗ 启动数闸门：${fs.length} 条发现；无从判断 HEAD 在不在主干上（浅克隆，找不到主干的历史），按 PR 判红`] })))
 // 主干上没有缺基线时只报数、不红，判词换成第 4 小节那几行：拆组那行只在有一条不是不确定的发现时打，死亡条件那行只在有不确定时打。
 // 全跑在第九节就算超线（不是某种配置的计数缺了），主干上与超线一样只报数（第 3 小节末条）：SPLIT 带着 MIX 头一条全跑，也单放一次
 const MAIN = ['启动数闸门：HEAD 就在主干上，只报数不判红（ADR-145 第四节）',

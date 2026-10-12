@@ -12209,6 +12209,26 @@
       "kills": ["启动数闸门：在主干上有缺基线时也红，报告行与重跑那行照旧在前，最后一行说几种配置没有启动计数，主干上只报数那几行都不打"]
     },
     {
+      "id": "M-H55-v",
+      "req": "harness",
+      "why": "不在主干上、只有全跑变异那一条发现时不红：新加一条全跑变异，PR 照样绿",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (!trunk.onTrunk) return { red: true,",
+      "replace": "if (!trunk.onTrunk) return { red: findings.some(f => f.kind !== 'full-run'),",
+      "by": "test",
+      "kills": ["启动数闸门：有发现、不在主干上，报告行原样在前，最后一行几条发现、不设豁免，红"]
+    },
+    {
+      "id": "M-H55-w",
+      "req": "harness",
+      "why": "无从判断在不在主干上、只有缺计数的发现时不红",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if ('unknown' in trunk) return { red: true,",
+      "replace": "if ('unknown' in trunk) return { red: findings.some(f => f.kind !== 'missing'),",
+      "by": "test",
+      "kills": ["启动数闸门：有发现、无从判断在不在主干上，最后一行带着原因，按 PR 判红"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
