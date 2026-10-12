@@ -156,5 +156,6 @@ export const claimsReadFault = (err: unknown): ClaimsFault => {
 
 /** 变异一步写进成本报告与启动数文件的那份源码身份（ADR-145 第二十一节）；读不到文件时抛错 */
 export function mutationSourceIdentity(): string {
-  throw new Error('mutationSourceIdentity 还没实现')
+  const sha = (path: string): string => 'sha256:' + createHash('sha256').update(readFileSync(path)).digest('hex')
+  return JSON.stringify(['mutation-cost-source/v1', fingerprint(sourceFiles()), sha('scripts/check/mutations.json'), sha('package-lock.json')])
 }

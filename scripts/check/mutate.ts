@@ -33,9 +33,8 @@
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { availableParallelism } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { attributionFault } from './attribution-rule.js'
@@ -46,7 +45,7 @@ import {
   executionRoutes, labelFaults, labelsOf, mutationEventBase, resolveMutationBaseline, routeDelta, type RouteSnapshot,
   anchorMatches, baselineFault, stopsEarly, wiringFault,
 } from './mutate-rule.js'
-import { CLAIMS_PATH, fingerprint, sourceFiles } from './claims.js'
+import { CLAIMS_PATH, mutationSourceIdentity } from './claims.js'
 import {
   type Ran, type CostBaseline, type CostCombination, type CostIdentity, type CostMutation,
   BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, billLines, copyIntoWorker,
@@ -830,6 +829,10 @@ if (jobs === undefined) {
   console.error('  按机器核数跑请把它去掉，不要写一个读不出来的值。')
   process.exit(1)
 }
+// 启动数文件这一跑重写，开跑先删旧的：数没数成，检查链最后一步都读不到上一跑的（ADR-145 第二十一节第 2 小节）。
+// 删不掉（比如那是个目录）时这一跑也写不进去，闸门照样读不到对的
+const LAUNCHES_FILE = 'output/mutation-launches/launches.json'
+try { rmSync(LAUNCHES_FILE, { force: true }) } catch { /* 见上 */ }
 // 可信历史与实际路由的核对只由 coordinator 做；拒绝发生在基线或任何施变之前。
 const askGit = (...args: string[]): Promise<string | null> => new Promise(done => {
   execFile('git', args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 },
@@ -929,9 +932,7 @@ const identity: CostIdentity = {
   workers: jobs, state: 'incomplete', reason: '变异执行尚未完成',
 }
 try {
-  const sha = (path: string): string => 'sha256:' + createHash('sha256').update(readFileSync(path)).digest('hex')
-  identity.sourceIdentity = JSON.stringify(['mutation-cost-source/v1', fingerprint(sourceFiles()),
-    sha('scripts/check/mutations.json'), sha('package-lock.json')])
+  identity.sourceIdentity = mutationSourceIdentity()
 } catch (e) {
   identity.identityFault = `待验源码／目录／依赖锁身份未取得：${e instanceof Error ? e.message : String(e)}`
 }
@@ -941,7 +942,7 @@ for (const route of currentSnapshot().routes) {
   costMutations.push({ id: route.id, key: configurationKey(route), state: 'not-started', reason: '尚未派出变异，未启动验证者' })
 }
 /**
- * 全部正常基线都绿了以后：照第三片的判法判一遍，超线的配置在头一个基线目录里各再跑一次基线确认，
+ * 全部正常基线都绿了以后：照启动数闸门的判法判一遍，超线的配置在头一个基线目录里各再跑一次基线确认，
  * 交回要打的那几行，并把同样的东西写进 `output/mutation-launches/launches.json`（ADR-145 第十三节第 2 小节）。
  * 只报数：这里的任何结果都不改任何一条变异的结论，也不改退出码；出了错只打一行，变异照常跑。
  */
@@ -963,10 +964,10 @@ const countLaunches = async (configs: readonly { by: string; only: string[]; key
     const tally = launchTally(mutations, launchCounts, declared)
     const record = { schema: 'mutation-launches/v1', head: comparison.head, source: identity.sourceIdentity ?? null, tally, findings }
     const lines = [`  ${tallyLine(tally)}`]
-    if (findings.length) lines.push('  照第三片的判法会报下面这些（这一片只报数，不判红）：', ...launchReport(findings).map(l => `    ${l}`))
+    if (findings.length) lines.push('  检查链最后一步的启动数闸门会照下面这些判（变异一步只报数）：', ...launchReport(findings).map(l => `    ${l}`))
     try {
-      mkdirSync('output/mutation-launches', { recursive: true })
-      writeFileSync('output/mutation-launches/launches.json', JSON.stringify({ ...record, baselines: Object.fromEntries(launchCounts),
+      mkdirSync(dirname(LAUNCHES_FILE), { recursive: true })
+      writeFileSync(LAUNCHES_FILE, JSON.stringify({ ...record, baselines: Object.fromEntries(launchCounts),
         again: Object.fromEntries([...again].map(([key, b]) => [key, b ?? null])) }, null, 2) + '\n')
     } catch (e) {
       lines.push(`  启动数文件没写成（${e instanceof Error ? e.message : String(e)}）`)
@@ -1082,7 +1083,7 @@ for (const e of exemptions) {
   console.log(`  ⊘ ${e.req} ${exemptionLead(exemptionCovered(e.req, muts))}：${e.why.split('。')[0]}。`)
 }
 
-// 那个乘法：每个验证者被几条用 × 每条跑多久。只是参考数，不拿它判任何事（ADR-97）。
+// 那个乘法：每个验证者被几条用 × 每条跑多久。秒数只是参考数，不拿它判任何事（ADR-97）；启动数另由检查链最后一步判（ADR-145）。
 // 合计是逐条墙钟相加，不是串着跑要花多久的估计：同时跑几条时可能互相抢核（`BillRow.totalMs`）—— 表头印出这一跑是串着跑还是派了几个 worker
 const bill = billLines(verifierBill(timed))
 if (bill.length) {

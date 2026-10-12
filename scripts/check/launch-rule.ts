@@ -220,10 +220,43 @@ export function tallyLine(tally: readonly LaunchTally[]): string {
 export type LaunchTrunk = { readonly onTrunk: boolean } | { readonly unknown: string }
 export interface LaunchGate { readonly red: boolean; readonly lines: readonly string[] }
 
+const KINDS: readonly string[] = ['paid', 'product', 'full-run', 'missing', 'unsteady']
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** 第二十一节第 2 小节，按顺序核，交回第一条不过的原因；都过了是 undefined */
+function recordFault(record: unknown, source: string | undefined): string | undefined {
+  if (!isObject(record)) return '没有启动数文件，或读不出来、不是一个 JSON 对象'
+  if (record.schema !== 'mutation-launches/v1') return '启动数文件的 schema 不是 mutation-launches/v1'
+  if (typeof record.source !== 'string') return '启动数文件里没有源码身份（变异一步没取到）'
+  if (source === undefined) return '当前树的源码身份取不到'
+  if (record.source !== source) return '启动数文件是另一棵树上写的（源码身份对不上）'
+  if (!Array.isArray(record.tally) || !Array.isArray(record.findings)
+    || !record.findings.every(f => isObject(f) && KINDS.includes(f.kind as string)))
+    return '启动数文件的 tally 或 findings 不是数组，或有一条发现的种类认不得'
+  return undefined
+}
+
 /**
- * 检查链最后一步的判定（ADR-145 第二十一节）。record：launches.json 读出来的值（没有、读不出、不是 JSON 时是 undefined）；
- * source：当前树的源码身份（取不到时是 undefined）
+ * 检查链最后一步的判定（ADR-145 第二十一节）：先核数据，缺了、另一棵树上写的都红，主干上也红；
+ * 再看发现：没有就绿，有就在 PR 上红（「不确定」也红），在主干上只报数。不重判，读文件里变异一步判好的发现。
  */
-export function launchGate(_record: unknown, _source: string | undefined, _trunk: LaunchTrunk): LaunchGate {
-  throw new Error('launchGate 还没实现')
+export function launchGate(record: unknown, source: string | undefined, trunk: LaunchTrunk): LaunchGate {
+  const fault = recordFault(record, source)
+  if (fault !== undefined) return { red: true, lines: [`✗ 启动数闸门：无从判断 —— ${fault}`,
+    '  先跑 npm run mutate：它在全部正常基线都绿了以后写 output/mutation-launches/launches.json；数的那一段出错时不写，看它输出里「启动数没数成」那一行'] }
+  const { tally, findings, again } = record as { tally: unknown[]; findings: LaunchFinding[]; again?: unknown }
+  if (findings.length === 0) return { red: false, lines: [`✓ 启动数闸门：${tally.length} 种配置有计数，都在线内`] }
+  const lines = [...launchReport(findings)]
+  // 重跑那次没拿到计数的，超线照第一次报（settleLaunches）；原先没有一行说为什么
+  if (isObject(again)) for (const key of launchRecheck(findings))
+    if (again[key] === null) lines.push(`  ${key} 重跑那次没拿到计数，超线照第一次报（第五节末）`)
+  if ('unknown' in trunk) return { red: true,
+    lines: [...lines, `✗ 启动数闸门：${findings.length} 条发现；无从判断 HEAD 在不在主干上（${trunk.unknown}），按 PR 判红`] }
+  if (!trunk.onTrunk) return { red: true, lines: [...lines, `✗ 启动数闸门：${findings.length} 条发现，不设豁免（ADR-145）`] }
+  lines.push('启动数闸门：HEAD 就在主干上，只报数不判红（ADR-145 第四节）')
+  if (findings.some(f => f.kind !== 'unsteady'))
+    lines.push('  主干上有发现：按「主干红了」的优先级先开拆组的那一条，其余在途 PR 等它合了再把主干合进来')
+  if (findings.some(f => f.kind === 'unsteady'))
+    lines.push('  主干上报了启动数不确定：第六节的死亡条件响了，这道闸门退不退成只报数由需求所有者定')
+  return { red: false, lines }
 }

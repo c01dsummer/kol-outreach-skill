@@ -9070,9 +9070,10 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 上一版是扫源码猜哪些路径是工具，评审两轮各找到一批诱饵（注释里的、夹具串里的、
   // 串里装着调用形状的、以及普通的读文件）—— 收紧正则是军备竞赛，让清单成为行为才是根治。
   // 第四份是计数预加载：自检当工具起的 mutate，在正常基线那一跑经 NODE_OPTIONS 的 --import 把它加载进验证者（ADR-145 第十三节
-  // 第 1、2 小节）。期望值 = 原来那三份 ＋ 第 1 小节写明的路径，按字符串排（f < l < m < s）—— 手排的，不来自运行结果
+  // 第 1、2 小节）。第三片又给工具表加了启动数闸门的入口（第二十一节第 7 小节）。期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径
+  // ＋ launches.ts，按字符串排（f < launch- < launches < m < s）—— 手排的，不来自运行结果
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
-    'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
+    'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts', 'scripts/check/launches.ts',
     'scripts/check/mutate.ts', 'scripts/check/selfcheck.ts',
   ])
   // 预加载单独列，因为它既不是 import 也不是「起了谁」—— 两种扫法都收不到
@@ -9083,7 +9084,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 那条同一个道理）。路径照第十三节第 1 小节写成字面量：期望值从记录来，不从实现那边取
   ok('计数预加载那一份也在种子里 —— 是自检起的 mutate 给验证者预加载的，抽边与工具表都收不到',
     SELFCHECK_SEEDS.includes('scripts/check/launch-preload.ts'))
-  ok('三个工具一个不少', Object.values(SELFCHECK_TOOLS)
+  ok('工具表里的每一个都在种子里', Object.values(SELFCHECK_TOOLS)
     .every(f => SELFCHECK_SEEDS.includes(`scripts/${f}`)))
 
   // ---- 抽边：一个文件 import 了本仓库的哪些文件 ----
