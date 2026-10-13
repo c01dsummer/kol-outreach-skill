@@ -14,7 +14,7 @@
  *
  * 不设豁免。超线的改法只有三种，写在 `launchReport` 的末尾；调线要改这里的常量、写决策记录、由需求所有者批。
  */
-import { configurationKey } from './jobs-rule.js'
+import { type CostMutation, configurationKey } from './jobs-rule.js'
 import { launchDrift } from './launch-count.js'
 import { VERIFIERS, stopsEarly } from './mutate-rule.js'
 
@@ -214,6 +214,15 @@ export function tallyLine(tally: readonly LaunchTally[]): string {
   const running = product === undefined ? '不提前停的：没有'
     : `不提前停的启动×条数最多 ${product.launches * product.running}（${product.config}，${product.launches} × ${product.running}）`
   return `启动数（只报数）：${tally.length} 种配置有计数；${early}；${running}`
+}
+
+/**
+ * 第七节末第一行（ADR-145 第二十七节第 2 小节）：组内不起进程的配置，进程内耗时，以这一跑单条变异耗时的中位数为单位。
+ * `baselines` 是正常基线的计数，`mutations` 是成本观测里变异那一张；交回那一行，不带缩进。只报数
+ */
+export function inProcessLine(baselines: ReadonlyMap<string, BaselineLaunches>, mutations: readonly CostMutation[]): string {
+  void baselines; void mutations
+  throw new Error('ADR-145 第二十七节：inProcessLine 尚未实现')
 }
 
 /** HEAD 在不在主干上：resolveBaseline 答得出来时是 onTrunk；答不出来时是它给的原因 */
