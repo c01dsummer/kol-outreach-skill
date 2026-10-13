@@ -12419,6 +12419,226 @@
       "kills": ["进程内耗时：最多的取前五种，按数从大到小，并列按配置键"]
     },
     {
+      "id": "M-H57-a",
+      "req": "harness",
+      "why": "需求测试路由执行的组也当成自检变异落到的组",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "r.by === 'selfcheck' ? r.executes : []",
+      "replace": "r.executes",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：别的验证者的路由里出现同名的组不算落到"]
+    },
+    {
+      "id": "M-H57-b",
+      "req": "harness",
+      "why": "混合的族把落到的组也数进分不开的组数",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (off < f.groups.length) mixed += off",
+      "replace": "if (off < f.groups.length) mixed += f.groups.length",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：混合的族只数没落到的组数"]
+    },
+    {
+      "id": "M-H57-c",
+      "req": "harness",
+      "why": "混合或整族落到的族没拿到计数时也记进没拿到计数的族数",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (off < f.groups.length) mixed += off",
+      "replace": "if (off < f.groups.length) { mixed += off; if (f.launches === null) unknown++ }",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：整族没落到、没拿到计数的按族数记一段，混合的族没拿到计数不记", "有启动但没有变异的组：没有没拿到计数的整族时不打最后一段"]
+    },
+    {
+      "id": "M-H57-d",
+      "req": "harness",
+      "why": "起零次的整族也算进起过进程的族",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "else if (f.launches > 0)",
+      "replace": "else if (f.launches >= 0)",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：整族没落到又起过进程的族数、组数与次数之和，落到的、混合的与起 0 次的族都不算", "有启动但没有变异的组：没有起过进程的整族时不打最多的那一段，其余各段的 0 照打"]
+    },
+    {
+      "id": "M-H57-e",
+      "req": "harness",
+      "why": "多组的族名用逗号连",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "f.groups.join('+')",
+      "replace": "f.groups.join(',')",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：最多的按次数从大到小取前五族，并列按族名的字符串比较，多组的族名照文件先后用加号连"]
+    },
+    {
+      "id": "M-H57-f",
+      "req": "harness",
+      "why": "组数按族数算，多组的族只算一组",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "s + f.groups, 0)",
+      "replace": "s + 1, 0)",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：整族没落到又起过进程的族数、组数与次数之和，落到的、混合的与起 0 次的族都不算"]
+    },
+    {
+      "id": "M-H57-g",
+      "req": "harness",
+      "why": "次数相同的族照文件里的先后排",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "|| byText(a.name, b.name)",
+      "replace": "|| 0",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：最多的按次数从大到小取前五族，并列按族名的字符串比较，多组的族名照文件先后用加号连"]
+    },
+    {
+      "id": "M-H57-h",
+      "req": "harness",
+      "why": "最多的按次数从小到大排",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "b.launches - a.launches",
+      "replace": "a.launches - b.launches",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：最多的按次数从大到小取前五族，并列按族名的字符串比较，多组的族名照文件先后用加号连"]
+    },
+    {
+      "id": "M-H57-i",
+      "req": "harness",
+      "why": "最多的列前六族",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "idle.slice(0, 5)",
+      "replace": "idle.slice(0, 6)",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：最多的按次数从大到小取前五族，并列按族名的字符串比较，多组的族名照文件先后用加号连"]
+    },
+    {
+      "id": "M-H57-j",
+      "req": "harness",
+      "why": "没有起过进程的整族时也打最多的那一段",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "(idle.length > 0 ? ",
+      "replace": "(idle.length >= 0 ? ",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：没有起过进程的整族时不打最多的那一段，其余各段的 0 照打"]
+    },
+    {
+      "id": "M-H57-k",
+      "req": "harness",
+      "why": "没有没拿到计数的整族时也打最后一段",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "(unknown > 0 ? ",
+      "replace": "(unknown >= 0 ? ",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：没有没拿到计数的整族时不打最后一段"]
+    },
+    {
+      "id": "M-H57-l",
+      "req": "harness",
+      "why": "文件里的树身份与当前树不等时照样打带数的一行",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "source !== (file as { source: string }).source",
+      "replace": "false",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：当前树的身份取不到或与文件里的不等时打第二句", "有启动但没有变异的组：对不上树又没有路由时打第二句，先于第三句判"]
+    },
+    {
+      "id": "M-H57-m",
+      "req": "harness",
+      "why": "空的路由当成算不出路由",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (routes === undefined) return",
+      "replace": "if (routes === undefined || routes.length === 0) return",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：路由是 undefined 时打第三句，空的路由照常打带数的一行"]
+    },
+    {
+      "id": "M-H57-n",
+      "req": "harness",
+      "why": "不核按族计数文件的版本",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "file.schema !== SELFCHECK_LAUNCHES_SCHEMA || ",
+      "replace": "",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：schema 缺了或不是 selfcheck-launches/v1 时认不得文件", "有启动但没有变异的组：文件认不得又对不上树时打第一句，先于第二、三句判"]
+    },
+    {
+      "id": "M-H57-o",
+      "req": "harness",
+      "why": "不核文件里的树身份是不是字符串",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "typeof file.source !== 'string'",
+      "replace": "false",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：文件里的 source 缺了或不是字符串时认不得文件"]
+    },
+    {
+      "id": "M-H57-p",
+      "req": "harness",
+      "why": "族那一项是空值时不先挡下就往下读",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (!isObject(f) || !Array.isArray(f.groups)",
+      "replace": "if (!Array.isArray(f.groups)",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：families 不是数组或有一项不是对象时认不得文件"]
+    },
+    {
+      "id": "M-H57-q",
+      "req": "harness",
+      "why": "空的组清单也认得",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "f.groups.length === 0",
+      "replace": "false",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：groups 不是非空数组或有一个组名不是非空字符串时认不得文件"]
+    },
+    {
+      "id": "M-H57-r",
+      "req": "harness",
+      "why": "空字符串的组名也认得",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "typeof g === 'string' && g !== ''",
+      "replace": "typeof g === 'string'",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：groups 不是非空数组或有一个组名不是非空字符串时认不得文件"]
+    },
+    {
+      "id": "M-H57-s",
+      "req": "harness",
+      "why": "小数的启动数也认得",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "Number.isSafeInteger(f.launches) && (f.launches as number) >= 0",
+      "replace": "typeof f.launches === 'number' && (f.launches as number) >= 0",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：launches 不是 null 也不是非负整数时认不得文件"]
+    },
+    {
+      "id": "M-H57-t",
+      "req": "harness",
+      "why": "负的启动数也认得",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "Number.isSafeInteger(f.launches) && (f.launches as number) >= 0",
+      "replace": "Number.isSafeInteger(f.launches)",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：launches 不是 null 也不是非负整数时认不得文件"]
+    },
+    {
+      "id": "M-H57-u",
+      "req": "harness",
+      "why": "同一个组出现在两族里也认得",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (seen.has(g)) return undefined; ",
+      "replace": "",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：同一个组出现在两族里时认不得文件"]
+    },
+    {
+      "id": "M-H57-v",
+      "req": "harness",
+      "why": "不核族清单是不是数组",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "|| !Array.isArray(file.families))",
+      "replace": ")",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：families 不是数组或有一项不是对象时认不得文件"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
