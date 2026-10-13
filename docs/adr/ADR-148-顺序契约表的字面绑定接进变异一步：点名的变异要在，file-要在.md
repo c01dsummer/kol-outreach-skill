@@ -325,4 +325,4 @@ export function orderBindingFaults(doc: string | undefined, mutations: readonly 
     有启动但没有变异的组（自检，只报数）：整族没有变异落到、起过进程的 18 族、18 组共起 66 次，不含 git；…
     ✓ 启动数闸门：137 种配置有计数，都在线内
 
-比第十三节那一跑多一族、一组、3 次，正是 `order-binding-entry` 的三跑；配置数不变，新组不进任何配置。之后的提交改了自检两处（`4f4ce3b` 新组的路径写法，`f1cbf1a` `stop-if-seen` 的一道判断）与文档，那两组都在复核的子集里跑过、绿。
+比第十三节那一跑多一族、一组、3 次，正是 `order-binding-entry` 的三跑；配置数不变，新组不进任何配置。之后的提交改了自检两处（`4f4ce3b` 新组的路径写法，`f1cbf1a` `stop-if-seen` 的一道判断）与文档，那两组都在复核的子集里跑过、绿。PR 上 `de01bbc` 那一跑（run 38400069837）绿，最后两行同上，欠条台账 357 条（多的就是第十六节重挂的那一块）；job 用时与 CPU 型号记在 ADR-145 末尾。
