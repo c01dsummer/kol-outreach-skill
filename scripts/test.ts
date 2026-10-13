@@ -52,6 +52,7 @@ import {
   type Evidence, type Req, type TensionEvidence,
 } from './check/spec-rule.js'
 import { HARNESS, attributionFault, duplicateIds, orphanAttributions } from './check/attribution-rule.js'
+import { orderBindingFaults, type OrderFault, type OrderMutation } from './check/order-rule.js'
 import {
   CLAIMS_PATH, ENTRY_CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsReadFault,
   claimsWellFormed,
@@ -196,6 +197,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-worker-start', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
+  { id: 'h-order-rule', needs: [] },
   { id: 'h-group', needs: [] },
   { id: 'h-group-share', needs: [] },
   { id: 'h-group-share-real', needs: [] },
@@ -9435,6 +9437,162 @@ harness('覆盖记录：指纹保护的是整棵 scripts/ 树')
   eq('路径底下变成了目录，同样是读不了', claimsReadFault(errno('EISDIR')), 'unreadable')
 }
 
+})
+await group('h-order-rule', () => {
+harness('顺序契约表的字面绑定：点名的变异要在变异目录里，它的 file 要在这一行的位置栏里（ADR-148）')
+// 先于实现写成：期望值只从 ADR-148 第二到第四节推出，没读判定模块的函数体，也没把它的输出抄回来（写时它是抛错的桩）。
+// 整组只调纯函数 orderBindingFaults，0 次启动。经 bind 调它：抛错时返回一个哨兵，每条断言各自红、整组不崩。
+// eq、ok 不包 —— 变异点名用的清册只认直接传给它们的字面量首参（ADR-145 第 242 行）。
+// 字段的书写先后不是契约：bind 把每条问题的键按字母排好、undefined 记成 null；下面的期望也按字母序写键，
+// 多一个、少一个字段都对不上（第四节末：恰好带那几个字段）。
+const A = 'scripts/a.ts', B = 'scripts/b.ts'
+// 假的变异目录：没有 M-X1-d（区间缺号）；M-X2-a 有两条，第一条在 b.ts
+const CAT: readonly OrderMutation[] = [
+  { id: 'M-X1-a', file: A }, { id: 'M-X1-b', file: A }, { id: 'M-X1-c', file: A }, { id: 'M-X1-e', file: A },
+  { id: 'M-X1-z', file: A }, { id: 'M-X1-aa', file: A }, { id: 'M-DOC2-ab', file: B },
+  { id: 'M-X2-a', file: B }, { id: 'M-X2-a', file: A },
+]
+const bind = (text: string | undefined, cat: readonly OrderMutation[] = CAT): unknown => {
+  try {
+    return orderBindingFaults(text, cat).map(f => Object.fromEntries(Object.keys(f).sort().map(k => [k, (f as Record<string, unknown>)[k] ?? null])))
+  } catch (e) { return ['抛错', e instanceof Error ? e.message : String(e)] }
+}
+const HD: OrderFault = { kind: 'header' }
+const MK = (begins: number, ends: number): OrderFault => ({ begins, ends, kind: 'markers' })
+const STR = (line: number): OrderFault => ({ kind: 'stray', line })
+const SH = (line: number, cells: number, expected: number): OrderFault => ({ cells, expected, kind: 'shape', line })
+const BAD = (line: number, text: string): OrderFault => ({ kind: 'malformed', line, text })
+const EMP = (line: number): OrderFault => ({ kind: 'empty', line })
+const UNK = (line: number, id: string): OrderFault => ({ id, kind: 'unknown', line })
+const OFF = (line: number, id: string, file: string): OrderFault => ({ file, id, kind: 'off-site', line })
+// 夹具的行号按 \n 切、从 1 起：doc(…) 第 1 行是 BEGIN 标记，传进去的第 i 个（从 0 数）在第 i + 2 行，END 标记在最后；
+// tbl(…) = doc('', H, SEP, …)：第 2 行空行、第 3 行表头、第 4 行分隔行，传进去的第 i 个数据行在第 i + 5 行
+const doc = (...lines: string[]): string => ['<!-- BEGIN:ORDER（人维护） -->', ...lines, '<!-- END:ORDER -->'].join('\n')
+const H = '| 约束 | 位置 | 守它的变异 |', SEP = '| --- | :-: | ---: |'
+const tbl = (...rows: string[]): string => doc('', H, SEP, ...rows)
+const ROW_Q = '| 先读后写 | `scripts/a.ts` | M-X1-q |' // 往下看的话会报 M-X1-q 不在
+
+// ── 截表（第二节第 1 小节）：读不到、起止标记不对、表头不对，各自只报它一条，表里别的毛病不看
+eq('顺序绑定：文件读不到（入口交 undefined）只报一条读不到', [bind(undefined), bind(undefined, [])], [[{ kind: 'unreadable' }], [{ kind: 'unreadable' }]])
+// 缺 END；正文里多一个 BEGIN:ORDER（子串就算，不要求独占一行）；多一个 END；空文件读得到、两段字都是 0 次
+eq('顺序绑定：起止标记缺一个、多一个或都没有，只报一条并带两段字各出现几次', [
+  bind(['<!-- BEGIN:ORDER -->', '散行', H, SEP, ROW_Q].join('\n')),
+  bind(tbl(ROW_Q) + '\n正文里又提到 BEGIN:ORDER'),
+  bind(tbl(ROW_Q) + '\n<!-- END:ORDER -->'),
+  bind(''),
+], [[MK(1, 0)], [MK(2, 1)], [MK(1, 2)], [MK(0, 0)]])
+// 按字符偏移比先后：END 在前，不论分在两行还是同一行
+eq('顺序绑定：结束标记在开始标记之前，只报一条起止标记不对', [
+  bind(['<!-- END:ORDER -->', H, SEP, ROW_Q, '<!-- BEGIN:ORDER -->'].join('\n')),
+  bind(['<!-- END:ORDER --> <!-- BEGIN:ORDER -->', H, SEP, ROW_Q].join('\n')),
+], [[MK(1, 1)], [MK(1, 1)]])
+// 两段字在同一行（BEGIN 在前）：范围是空的，于是没有表格行；后面那张表在范围外
+eq('顺序绑定：范围里没有表格行只报一条表头不对，散行也不报', [
+  bind(doc('下表待补。', '', '  还没有表。')),
+  bind(['<!-- BEGIN:ORDER --> <!-- END:ORDER -->', H, SEP, ROW_Q].join('\n')),
+], [[HD], [HD]])
+eq('顺序绑定：表头紧接着的下一行不是分隔行，只报一条表头不对', [
+  bind(doc('散行', H, '', SEP, ROW_Q)),
+  bind(doc(H, '| --- | -x- | --- |', ROW_Q)),
+  bind(doc(H, ROW_Q, SEP)),
+], [[HD], [HD], [HD]])
+eq('顺序绑定：表头没有恰好一格整格是「位置」，只报一条表头不对', [
+  bind(doc('散行', '| 约束 | 地点 | 守它的变异 |', SEP, ROW_Q)),
+  bind(doc('| 位置 | 位置 | 守它的变异 |', SEP, ROW_Q)),
+  bind(doc('| 约束 | 位置（文件） | 守它的变异 |', SEP, ROW_Q)),
+], [[HD], [HD], [HD]])
+eq('顺序绑定：表头没有恰好一格整格是「守它的变异」，只报一条表头不对', [
+  bind(doc('散行', '| 约束 | 位置 | 变异 |', SEP, ROW_Q)),
+  bind(doc('| 守它的变异 | 位置 | 守它的变异 |', SEP, ROW_Q)),
+], [[HD], [HD]])
+
+// ── 全对时是空的：单号、多字母的号、– 与 … 两种区间（z 之后是 aa）、几个位置、括号里的位置、标签与散文、
+// 只有空白的行、缩进、行尾不带竖线；表外的行（含表外的表格行）不看。只有表头和分隔行的最小表（第五节）也是空的
+const CLEAN = '# 顺序契约\n| 表外 | 的表格行 |\n' + tbl(
+  '| 先读后写 | `scripts/a.ts` | M-X1-a |',
+  '| 改名 | `scripts/a.ts`（兼看 `scripts/b.ts`） | 主路径：M-X1-b、M-DOC2-ab；见 M-H47 |',
+  ' \t ',
+  '| 区间 | `scripts/a.ts` | M-X1-a–c，M-X1-z…aa；简写 M-X1-a、e |',
+  '  | 跨位 | `scripts/b.ts` `scripts/a.ts` | M-X2-a',
+) + '\n表外散行。'
+eq('顺序绑定：表与目录全对得上时是空的', [bind(CLEAN), bind(tbl())], [[], []])
+
+// ── 先后（第二节第 3 小节）。第 2 行散行（在表头之前）；第 5 行先点 M-X2-a（第一条在 b.ts，不在位置里）、
+// 后点 M-X1-q（不在），中间夹两个写错的；第 6 行散行；第 7 行空行；第 8 行没点名；第 9 行两格；第 10 行对得上。
+// 同一行先写错的（按词的先后），再逐个编号（按点名的先后 —— M-X2-a 在 M-X1-q 前，不按字面大小，也不按种类归堆）
+const MAIN = doc(
+  '前言：下表人维护。', H, SEP,
+  '| 拒在写前 | `scripts/a.ts` | M-X2-a；M-D6-C、M-X1-q m-d6-c |',
+  '见上一行。', '',
+  '| 只有散文 | `scripts/a.ts` | 由入口负测试守 |',
+  '| 格数 | M-X1-q |',
+  '| 先读后写 | `scripts/a.ts` | M-X1-a |',
+)
+const MAIN_WANT = [STR(2), BAD(5, 'M-D6-C'), BAD(5, 'm-d6-c'), OFF(5, 'M-X2-a', B), UNK(5, 'M-X1-q'), STR(6), EMP(8), SH(9, 2, 3)]
+eq('顺序绑定：问题按行号排，同一行里先写错的词、再按点名的先后逐个编号', bind(MAIN), MAIN_WANT)
+eq('顺序绑定：行末的回车（CRLF）先去掉，行号与问题和 LF 时一样', bind(MAIN.replaceAll('\n', '\r\n')), MAIN_WANT)
+
+// ── 散行：第 2 行在表头前，第 3 行只有空白，第 6 行缩进的列表项，第 8 行空行，第 9 行散行里的编号不核
+eq('顺序绑定：范围里不以竖线开头的非空白行各报一条散行带行号，表头之前的也算', bind(doc(
+  '表前的说明。', ' \t', H, SEP, '  - 缩进的列表项', '| 先读后写 | `scripts/a.ts` | M-X1-a |', '', '注：`M-X1-q` 在散行里不核。',
+)), [STR(2), STR(6), STR(9)])
+
+// ── 一行数据（第二节第 2 小节）。第 5 行四格、第 6 行两格（行尾不带竖线）：只报格数，里面的 M-X1-q、M-D6-C 不看；
+// 第 7 行 `|空||M-X1-a|` 是三格、中间的位置格是空的 → 没有位置；第 8 行最后一个竖线后只有空白，仍是三格、对得上
+eq('顺序绑定：格数与表头不同报一条带两边的格数，这一行别的不看', bind(tbl(
+  '| 多一格 | `scripts/a.ts` | M-X1-q | M-D6-C |',
+  '| 少一格 | M-X1-q',
+  '|空||M-X1-a|',
+  '| 尾随空白 | `scripts/a.ts` | M-X1-a |   ',
+)), [SH(5, 4, 3), SH(6, 2, 3), OFF(7, 'M-X1-a', A)])
+// 第 5 行两个位置、第二个在括号里；第 6 行反引号在「约束」格；第 7 行反引号里带空格，原样比；第 8 行没有反引号
+eq('顺序绑定：位置取那一格里每对反引号之间的原文，括号里的也算，别的格里的不算', bind(tbl(
+  '| 读 `scripts/b.ts` | `scripts/a.ts`（另见 `scripts/b.ts`） | M-X1-a、M-DOC2-ab |',
+  '| 读 `scripts/b.ts` | `scripts/a.ts` | M-DOC2-ab |',
+  '| 带空格 | ` scripts/a.ts` | M-X1-a |',
+  '| 无反引号 | scripts/a.ts | M-X1-a |',
+)), [OFF(6, 'M-DOC2-ab', B), OFF(7, 'M-X1-a', A), OFF(8, 'M-X1-a', A)])
+// 表头第 2 行、分隔行第 3 行、数据第 4、5 行；「守它的变异」排第一、「位置」排最后，「约束」格里的 b.ts 不算位置
+eq('顺序绑定：「位置」「守它的变异」两格排在哪都按表头找', bind(doc(
+  '| 守它的变异 | 约束 | 位置 |', '|---|---|---|',
+  '| M-X1-a | `scripts/b.ts` | `scripts/a.ts` |',
+  '| M-DOC2-ab | `scripts/b.ts` | `scripts/a.ts` |',
+)), [OFF(5, 'M-DOC2-ab', B)])
+// 每个分隔符后面接一个不在目录里的号：切对了是十六条「不在」；哪个没切开，粘在一起的词就成了写错的。「；；」切出的空词丢掉
+const SEPS = [...'、，；：。,;:（）()「」', ' ', '\t']
+const W = (i: number): string => 'M-W9-' + 'abcdefghijklmnop'[i]
+eq('顺序绑定：守它的变异按空白与「、，；：。,;:（）()「」」切词，标签与散文不碍事',
+  bind(tbl(`| 切词 | \`scripts/a.ts\` | 甲${SEPS.map((s, i) => s + W(i)).join('')}；；乙 |`)), SEPS.map((_, i) => UNK(5, W(i))))
+// 第 5 行只有写错的词与家族名 M-H47（散文）：先逐个报写错的，再报没点名；第 6 行只有散文；第 7 行简写里的 c 是散文
+eq('顺序绑定：像编号又不完全是的词各报一条写错的带原词，一个编号也没读出来再报没点名', bind(tbl(
+  '| 写错 | `scripts/a.ts` | M-D6-C、m-d6-c；M-H47-a2 M-H47 |',
+  '| 散文 | `scripts/a.ts` | 由真实入口负测试守（见 M-H47） |',
+  '| 简写 | `scripts/a.ts` | M-X1-a、c |',
+)), [BAD(5, 'M-D6-C'), BAD(5, 'm-d6-c'), BAD(5, 'M-H47-a2'), EMP(5), EMP(6)])
+// 第 5 行位置只有 b.ts：a、b、c、e 在 a.ts，d 缺号；第 6 行 y–ab 展开成 y、z、aa、ab，y 与 ab 缺号
+eq('顺序绑定：区间展开成两端之间的每一个编号，两端都算、按展开顺序，缺号报不在', bind(tbl(
+  '| 区间 | `scripts/b.ts` | M-X1-a…e |',
+  '| 跨位 | `scripts/a.ts` | M-X1-y–ab |',
+)), [OFF(5, 'M-X1-a', A), OFF(5, 'M-X1-b', A), OFF(5, 'M-X1-c', A), UNK(5, 'M-X1-d'), OFF(5, 'M-X1-e', A), UNK(6, 'M-X1-y'), UNK(6, 'M-X1-ab')])
+// 同一行的 M-X1-a 照常核、对得上；读出了编号就不报没点名
+eq('顺序绑定：区间倒着写、两端相等、终点写全、用半角连字符、单独的省略号或短横都是写错的', bind(tbl(
+  '| 写错的区间 | `scripts/a.ts` | M-H47-n…a、M-H47-a…a、M-X1-c–c、M-D26-a…M-D26-i、M-D26-a-i、…、– M-X1-a |',
+)), ['M-H47-n…a', 'M-H47-a…a', 'M-X1-c–c', 'M-D26-a…M-D26-i', 'M-D26-a-i', '…', '–'].map(t => BAD(5, t)))
+// 第 5 行 q 点了两次、a 单点一次又在区间 a…b 里出现一次；第 6 行再点 q 照样报
+eq('顺序绑定：同一行里重复点名的编号只判一次，别的行照样判', bind(tbl(
+  '| 重复 | `scripts/b.ts` | M-X1-q、M-X1-q；M-X1-a，M-X1-a…b |',
+  '| 又一行 | `scripts/b.ts` | M-X1-q |',
+)), [UNK(5, 'M-X1-q'), OFF(5, 'M-X1-a', A), OFF(5, 'M-X1-b', A), UNK(6, 'M-X1-q')])
+eq('顺序绑定：目录里同一编号有几条时以第一条的 file 为准', bind(tbl(
+  '| 先 | `scripts/a.ts` | M-X2-a |',
+  '| 后 | `scripts/b.ts` | M-X2-a |',
+)), [OFF(5, 'M-X2-a', B)])
+// 同一张表换成空目录，三个都不在
+const SITE = tbl('| 改名 | `scripts/a.ts` | M-DOC2-ab、M-X9-a、M-X1-a |')
+eq('顺序绑定：目录里没有的报不在，有而 file 不在位置里的报不在位置里并带那条变异的 file', [bind(SITE), bind(SITE, [])], [
+  [OFF(5, 'M-DOC2-ab', B), UNK(5, 'M-X9-a')],
+  [UNK(5, 'M-DOC2-ab'), UNK(5, 'M-X9-a'), UNK(5, 'M-X1-a')],
+])
 })
 await group('h-group', () => {
 harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 needs 一起跑')
