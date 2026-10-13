@@ -38,14 +38,16 @@ import { inflateRawSync } from 'node:zlib'
 import { isDeepStrictEqual } from 'node:util'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
 import {
-  ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, sourceFiles,
+  ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, mutationSourceIdentity, sourceFiles,
 } from './claims.js'
+import { countingEnv, parseLaunchLog } from './launch-count.js'
+import { SELFCHECK_LAUNCHES_FILE, SELFCHECK_LAUNCHES_SCHEMA } from './launch-rule.js'
 import { type Group, parseOnlyStrict, wanted } from './group-rule.js'
 import { type ShardRun, families, mergeShards, readShardReport, shardJobs } from './group-rule.js'
 import { type ProcessProbe, processEnded } from './jobs-rule.js'
 import { writeFileAtomic } from '../lib/atomic.js'
 import {
-  SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS,
+  LAUNCH_PRELOAD, SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_TOOLS,
   selfcheckSummary,
 } from './verifier-rule.js'
 
@@ -82,6 +84,9 @@ const shardChild = shardReportPath !== undefined && subset
 // 写回去等于拿残缺的记录盖掉完整的，而审计读的就是这份文件（它会报一批
 // 「没有认领」）。删了不写更糟：审计连文件都读不到。所以子集跑按变异跑那一侧走。
 if (!subset && claimsOwnedBy(mutating)) rmSync(ENTRY_CLAIMS_PATH, { force: true })
+// 按族的启动计数（ADR-145 第三十一节第 2 小节）：完整、非变异的跑先删旧的，拆进程跑、每一族都绿才写新的。
+// 删不掉不红、不停：这一份只报数，最后一步还要按树身份认
+if (!subset && !mutating) try { rmSync(SELFCHECK_LAUNCHES_FILE, { force: true }) } catch { /* 只报数 */ }
 const startHash = fingerprint(sourceFiles())
 
 /** 脚本用绝对路径 —— 下面几处会切到临时目录里跑，让产出落在那边 */
@@ -482,11 +487,15 @@ const runShards = async (jobs: number): Promise<void> => {
   const fams = families(REGISTERED)
   console.log(`[拆成 ${jobs} 个子进程跑 ${fams.length} 族，各族输出按登记顺序整段转出]\n`)
   const shardDir = mkdtempSync(join(tmp, 'shards-'))
-  const runs: ShardRun[] = [], logs: string[] = []
+  const runs: ShardRun[] = [], logs: string[] = [], launches: (number | null)[] = []
+  // 每族的子进程顺便带着计数预加载起（第三十一节第 2 小节）：不多跑；树身份在派工之前取，读不成的那一族记 null
+  const tree = (() => { try { return mutationSourceIdentity() } catch { return undefined } })()
+  const preload = pathToFileURL(resolve('scripts', LAUNCH_PRELOAD)).href, script = resolve('scripts/check/selfcheck.ts')
   let next = 0, printed = 0
   const one = (i: number) => new Promise<void>(done => {
     const report = join(shardDir, `${i}.json`), out = join(shardDir, `${i}.log`), fd = openSync(out, 'w')
-    const [exe, args] = tsxCommand([resolve('scripts/check/selfcheck.ts'), `--only=${fams[i].join(',')}`])
+    const count = join(shardDir, `${i}.launches`)
+    const [exe, args] = tsxCommand([script, `--only=${fams[i].join(',')}`])
     let settled = false
     const settle = (status: number | null, signal: string | null, error?: string) => {
       if (settled) return
@@ -495,6 +504,7 @@ const runShards = async (jobs: number): Promise<void> => {
       let text: string | undefined
       try { text = readFileSync(report, 'utf8') } catch { /* 没写出来：下面按没交回结果算 */ }
       runs[i] = { family: fams[i], status, signal, error, report: text === undefined ? undefined : readShardReport(text) }
+      try { launches[i] = parseLaunchLog(readFileSync(count, 'utf8'))?.total ?? null } catch { launches[i] = null }
       logs[i] = readFileSync(out, 'utf8')
       for (; printed < fams.length && runs[printed] !== undefined; printed++) process.stdout.write(logs[printed])
       done()
@@ -504,7 +514,8 @@ const runShards = async (jobs: number): Promise<void> => {
     // 「没起来」—— 混进「没交回结果」的话，人会去翻那份空的子进程输出
     try {
       const kid = spawn(exe, args, { stdio: ['ignore', fd, fd],
-        env: { ...process.env, SELFCHECK_SHARD_REPORT: report, NODE_COMPILE_CACHE: env.NODE_COMPILE_CACHE } })
+        env: countingEnv({ ...process.env, SELFCHECK_SHARD_REPORT: report, NODE_COMPILE_CACHE: env.NODE_COMPILE_CACHE },
+          { log: count, target: script, preload }) })
       kid.on('error', e => settle(null, null, e.message))
       kid.on('close', (status, signal) => settle(status, signal))
     } catch (e) { settle(null, null, e instanceof Error ? e.message : String(e)) }
@@ -515,6 +526,13 @@ const runShards = async (jobs: number): Promise<void> => {
   failed += merged.failed
   for (const c of merged.claimed) claimed.add(c)
   for (const c of merged.covered) covered.add(c)
+  // 合并结论零失败才写；写不成打一行、不计失败（只报数）
+  if (merged.failed === 0) try {
+    if (tree === undefined) throw new Error('取不到这棵树的源码身份')
+    mkdirSync(dirname(SELFCHECK_LAUNCHES_FILE), { recursive: true })
+    writeFileAtomic(SELFCHECK_LAUNCHES_FILE, JSON.stringify({ schema: SELFCHECK_LAUNCHES_SCHEMA, source: tree,
+      families: fams.map((groups, i) => ({ groups, launches: launches[i] })) }))
+  } catch (e) { console.log(`  · 按族的启动计数没写成（只报数）：${e instanceof Error ? e.message : String(e)}`) }
 }
 
 // ---- probe：双平台 + hashtag + 关键词搜索 ----
