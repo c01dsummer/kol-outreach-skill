@@ -6046,13 +6046,14 @@ group('roster', [], () => {
 // ---- 顺序契约表与变异目录对不上即以退出码 1 结束、一条变异也不施（ADR-148 第十四节第 3 条，接线证明）----
 group('order-binding-entry', [], () => {
   // 判定是纯函数，由需求测试 h-order-rule 断言、M-H58 守着；剩下的那一半是**入口真的读了表、调了判定、
-  // 开跑前就以 1 退出**。入口在验证基础设施闭包里，指着它的变异会被「自己验自己」拦下，所以这一半只有夹具、
-  // 没有负片（同上面几处 mutate 夹具）。期望全部从 ADR-148 第五节与第十四节第 1 条手推，不照入口的输出抄；
+  // 开跑前就以 1 退出**。指着入口的变异，由自检来验的被「自己验自己」拦下，由需求测试来验的抓不到
+  // （它只读 mutate.ts 的源码、不起它的入口；ADR-148 第一节），所以这一半只有夹具、没有负片。期望全部从 ADR-148 第五节与第十四节第 1 条手推，不照入口的输出抄；
   // 只认第十四节说自检认的那几样：头一行的条数，各处那一行里的行号、编号、file，不逐字比整句。
   // 玩具树要过得了前几道体检，红才只能是这一道给的：一条不带 by 的变异走缺省验证者，锚点在目标文件里恰好一处。
   const why = '那个值被改掉，测试必须失败', source = "export const v = 'keep'\n"
-  const seed = (name: string, table: boolean) => {
-    const dir = join(tmp, name), marker = join(tmp, `${name}.calls`), target = join(dir, 'scripts', 'check', 'a.ts')
+  // 两棵树的路径写成字面量：组间共享的扫描只认得出字面量路径（ADR-134 第二节）
+  const seed = (dir: string, marker: string, table: boolean) => {
+    const target = join(dir, 'scripts', 'check', 'a.ts')
     mkdirSync(join(dir, 'scripts', 'check'), { recursive: true })
     mkdirSync(join(dir, 'docs'), { recursive: true })
     writeFileSync(join(dir, 'docs', 'requirements.json'),
@@ -6083,7 +6084,7 @@ group('order-binding-entry', [], () => {
   const said = (r: { status: number | null; stdout: string; stderr: string }) =>
     `退出码 ${r.status}，输出末几行：${stderrTail(`${r.stdout}\n${r.stderr}`)}`
   // soft: [0]：「以 1 退出」本身就是判据点名的东西，退 0 时交给下面的具名断言判，不打进程记号（同 mutation-baseline）
-  const bad = seed('order-binding-table', true)
+  const bad = seed(join(tmp, 'order-binding-table'), join(tmp, 'order-binding-table.calls'), true)
   const full = runToolBoth('mutate 在顺序契约表对不上的玩具树上整跑', 'mutate', ['--jobs=1'], bad.dir, { status: 1, soft: [0] })
   if (full.ok) {
     named('顺序契约表对不上时整跑以 1 退出、头一行说 2 处，两处各带行号与编号，不在位置里的那处带 file',
@@ -6097,7 +6098,7 @@ group('order-binding-entry', [], () => {
   if (brief.ok) named('顺序契约表对不上时 --brief 以 1 退出、报同样两处，变异清单一行也没打',
     brief.status === 1 && twoPlaces(brief.stderr) && !brief.stdout.includes('M-X1-a') && !brief.stdout.includes(why), said(brief))
   // 读不到不能当成「没有表、没得核」放过去。入口把读不到交成 undefined 那一读，判定的断言够不到，只有这一跑守
-  const gone = seed('order-binding-missing', false)
+  const gone = seed(join(tmp, 'order-binding-missing'), join(tmp, 'order-binding-missing.calls'), false)
   const miss = runToolBoth('mutate 在没有 docs/ARCHITECTURE.md 的玩具树上整跑', 'mutate', ['--jobs=1'], gone.dir, { status: 1, soft: [0] })
   if (miss.ok) named('没有 docs/ARCHITECTURE.md 时整跑以 1 退出、头一行说 1 处、说读不到，验证者一次没跑',
     miss.status === 1 && head(miss.stderr).includes('顺序契约表有 1 处') && fileText(gone.marker) === ''
