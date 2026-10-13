@@ -38,6 +38,7 @@ import { dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { attributionFault } from './attribution-rule.js'
+import { orderBindingFaults, type OrderFault } from './order-rule.js'
 import { implementationLeak } from './why-rule.js'
 import {
   type LabelFault, type Verifier, type WiringFault,
@@ -280,6 +281,40 @@ if (misnamed.length) {
   for (const w of misnamed) console.error(`  ${w}`)
   console.error('\n  kills 要逐字抄验证者里那条夹具的名字。清册静态扫源码得出，只认字面量 ——'
                 + '拼出来的名字点不着，把那条夹具的名字写成字面量。')
+  process.exit(1)
+}
+
+// 顺序契约表上点名的变异对不对得上 —— 判据在 `order-rule.ts`（ADR-148），这里只读那份文档、
+// 按种类说人话、设退出码（变异目录用开头读进来的那一份）。**排在最后**：前几道判一条变异的证据算不算数、记在谁名下，
+// 这一道判一份文档对变异目录的说法，最细；排在重复编号之后，按编号查才不会查到同名的另一条。
+// 读不到交 `undefined`，由判定报成一处 —— 不当成「没有表、没得核」放过去。
+const ORDER_DOC = 'docs/ARCHITECTURE.md'
+const SAY_ORDER: { [K in OrderFault['kind']]: (f: Extract<OrderFault, { kind: K }>) => string } = {
+  unreadable: () => `${ORDER_DOC} 读不到`,
+  markers: f => `起止标记不对：BEGIN:ORDER 出现 ${f.begins} 次、END:ORDER 出现 ${f.ends} 次，`
+    + `要各恰好一次、开始在前 —— ${ORDER_DOC} 正文里别处不能照抄这两段字`,
+  header: () => '表头不对：范围里第一条表格行要恰好有一格「位置」、一格「守它的变异」，下一行紧接着是分隔行',
+  stray: () => '不是表格行：表的范围里只能有表格行与空行',
+  shape: f => `有 ${f.cells} 格，表头有 ${f.expected} 格`,
+  malformed: f => `「${f.text}」像变异编号又不是 —— 编号写成 M-H47-a，区间写成 M-H47-a…n`,
+  empty: () => '一条变异也没点名',
+  unknown: f => `点名的 ${f.id} 不在变异目录里`,
+  'off-site': f => `点名的 ${f.id} 改的是 ${f.file}，不在这一行的位置栏里`,
+}
+const orderFaults = orderBindingFaults((() => {
+  try { return readFileSync(ORDER_DOC, 'utf8') } catch { return undefined }
+})(), muts)
+// 攒起来一次同步写 fd 2（与下面 `--brief` 同一个理由）：一张表可能报几十处，紧跟着就是硬退出
+if (orderFaults.length) {
+  const out = [`✗ 变异集：顺序契约表有 ${orderFaults.length} 处与变异目录对不上 —— `
+               + `${ORDER_DOC} 里点名的变异要在目录里、改的文件要在那一行的位置栏里\n`]
+  for (const f of orderFaults) {
+    const say = (SAY_ORDER[f.kind] as (f: OrderFault) => string)(f)
+    out.push(`  ${'line' in f ? `第 ${f.line} 行  ` : ''}${say}`)
+  }
+  out.push('\n  改表或改变异，让两边对上。这里只核点名的变异在不在、file 在不在那一行的位置栏里；'
+           + '守不守那一行要人按施加之后的后果判（ADR-146 第一节）。')
+  writeFileSync(2, `${out.join('\n')}\n`)
   process.exit(1)
 }
 

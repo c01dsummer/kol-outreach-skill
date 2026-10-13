@@ -26,7 +26,7 @@
 | **作废一条需求** | `requirements.json` 的 `deprecated`（编号保留不复用）· 下游引用要清掉 · 相关测试与变异。**红线（P1–P5）不许作废** —— 那是产品定义变了，走变更评定 | 🔒 `spec` 查作废必须写理由、**红线作废当场拦下** |
 | **新增红线** | 需求登记表 · **测试** · **变异集** · `docs/CONVENTIONS.md` | 🔒 `audit` 强制红线有测试+变异 |
 | **改评分/分层规则** | `scripts/lib/score.ts` · `scripts/lib/pipeline.ts` · `skill/references/semantic-fit.md` · 测试 | 部分 |
-| **改管线步骤或其顺序** | `scripts/lib/pipeline.ts` · 测试 · **变异集**（顺序有语义，必须有变异守着）· `docs/ARCHITECTURE.md` 顺序契约表 | 🔒 `mutate`（顺序契约表靠人核，ADR-78） |
+| **改管线步骤或其顺序** | `scripts/lib/pipeline.ts` · 测试 · **变异集**（顺序有语义，必须有变异守着）· `docs/ARCHITECTURE.md` 顺序契约表 | 🔒 `mutate`（顺序契约表点名的变异在不在、`file` 在不在那一行的位置栏里由它开跑前核，守不守靠人核；ADR-148） |
 | **新增/改名/删除顶层目录或 `docs/` 下的子目录，或者换了运行产物的落点** | `docs/ARCHITECTURE.md`「新东西落在哪个目录」那张表 · `.gitignore`（不进仓库的） · `scripts/check/jobs-rule.ts` 的 `SKIP`（`.gitignore` 的手抄本） · `AGENTS.md`（影响路由时） | ✗ 靠执行（ADR-114） |
 | **新增/删除 `scripts/` 下的模块** | `docs/ARCHITECTURE.md` 锚点表 · `scripts/check/selfcheck.ts`（可执行文件） | 🔒 `audit`（锚点表靠人核，ADR-78） |
 | **改模块之间的依赖方向** | `docs/ARCHITECTURE.md`（含「一件新工作放哪边」那节，如果判据变了） | ✗ 靠执行（ADR-78） |
