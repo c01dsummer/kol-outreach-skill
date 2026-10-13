@@ -12689,6 +12689,416 @@
       "kills": ["有启动但没有变异的组：交进来的不是对象时认不得文件"]
     },
     {
+      "id": "M-H58-a",
+      "req": "harness",
+      "why": "顺序契约表读不到时当成全对得上",
+      "file": "scripts/check/order-rule.ts",
+      "find": "if (doc === undefined) return [{ kind: 'unreadable' }]",
+      "replace": "if (doc === undefined) return []",
+      "by": "test",
+      "kills": ["顺序绑定：文件读不到（入口交 undefined）只报一条读不到"]
+    },
+    {
+      "id": "M-H58-b",
+      "req": "harness",
+      "why": "开始或结束标记出现不止一次时照样截表往下核",
+      "file": "scripts/check/order-rule.ts",
+      "find": "if (begins !== 1 || ends !== 1 ||",
+      "replace": "if (begins < 1 || ends < 1 ||",
+      "by": "test",
+      "kills": ["顺序绑定：起止标记缺一个、多一个或都没有，只报一条并带两段字各出现几次"]
+    },
+    {
+      "id": "M-H58-c",
+      "req": "harness",
+      "why": "起止标记不对时报出的两段字出现次数不是实数",
+      "file": "scripts/check/order-rule.ts",
+      "find": "return [{ kind: 'markers', begins, ends }]",
+      "replace": "return [{ kind: 'markers', begins: 1, ends: 1 }]",
+      "by": "test",
+      "kills": ["顺序绑定：起止标记缺一个、多一个或都没有，只报一条并带两段字各出现几次"]
+    },
+    {
+      "id": "M-H58-d",
+      "req": "harness",
+      "why": "结束标记写在开始标记之前时不报起止标记不对",
+      "file": "scripts/check/order-rule.ts",
+      "find": "doc.indexOf(BEGIN) > doc.indexOf(END)",
+      "replace": "false",
+      "by": "test",
+      "kills": ["顺序绑定：结束标记在开始标记之前，只报一条起止标记不对"]
+    },
+    {
+      "id": "M-H58-e",
+      "req": "harness",
+      "why": "含结束标记的那一行也算进表的范围",
+      "file": "scripts/check/order-rule.ts",
+      "find": "for (let i = first; i < last; i++)",
+      "replace": "for (let i = first; i <= last; i++)",
+      "by": "test",
+      "kills": ["顺序绑定：表与目录全对得上时是空的"]
+    },
+    {
+      "id": "M-H58-f",
+      "req": "harness",
+      "why": "行号从开始标记那一行起数，不是全文的行号",
+      "file": "scripts/check/order-rule.ts",
+      "find": "scope.push({ line: i + 1, text: lines[i] })",
+      "replace": "scope.push({ line: i + 2 - first, text: lines[i] })",
+      "by": "test",
+      "kills": ["顺序绑定：行号是全文的行号，格数比的是表头的格数而不是分隔行的，行尾两个竖线只去掉一个"]
+    },
+    {
+      "id": "M-H58-g",
+      "req": "harness",
+      "why": "缩进了的表格行被当成散行",
+      "file": "scripts/check/order-rule.ts",
+      "find": "t.trimStart().startsWith('|')",
+      "replace": "t.startsWith('|')",
+      "by": "test",
+      "kills": ["顺序绑定：表与目录全对得上时是空的"]
+    },
+    {
+      "id": "M-H58-h",
+      "req": "harness",
+      "why": "只有空白的行也报成散行",
+      "file": "scripts/check/order-rule.ts",
+      "find": "|| text.trim() === '') return",
+      "replace": ") return",
+      "by": "test",
+      "kills": ["顺序绑定：表与目录全对得上时是空的", "顺序绑定：范围里不以竖线开头的非空白行各报一条散行带行号，表头之前的也算"]
+    },
+    {
+      "id": "M-H58-i",
+      "req": "harness",
+      "why": "表的范围里不是表格行的非空行不报",
+      "file": "scripts/check/order-rule.ts",
+      "find": "if (!isTable(text)) { faults.push({ kind: 'stray', line }); return }",
+      "replace": "if (!isTable(text)) return",
+      "by": "test",
+      "kills": ["顺序绑定：范围里不以竖线开头的非空白行各报一条散行带行号，表头之前的也算"]
+    },
+    {
+      "id": "M-H58-j",
+      "req": "harness",
+      "why": "表头之前的散行不报",
+      "file": "scripts/check/order-rule.ts",
+      "find": "if (i === head || i === head + 1 ||",
+      "replace": "if (i <= head + 1 ||",
+      "by": "test",
+      "kills": ["顺序绑定：范围里不以竖线开头的非空白行各报一条散行带行号，表头之前的也算"]
+    },
+    {
+      "id": "M-H58-k",
+      "req": "harness",
+      "why": "范围里第一条表格行不带位置时往下另找一条当表头",
+      "file": "scripts/check/order-rule.ts",
+      "find": "const head = scope.findIndex(l => isTable(l.text))",
+      "replace": "const head = scope.findIndex(l => isTable(l.text) && l.text.includes('位置'))",
+      "by": "test",
+      "kills": ["顺序绑定：表头是范围里的第一条表格行，「守它的变异」也要整格相等，否则只报一条表头不对"]
+    },
+    {
+      "id": "M-H58-l",
+      "req": "harness",
+      "why": "表头下面那行不以竖线开头也当成分隔行",
+      "file": "scripts/check/order-rule.ts",
+      "find": "head + 1 >= scope.length || !isTable(scope[head + 1].text)",
+      "replace": "head + 1 >= scope.length",
+      "by": "test",
+      "kills": ["顺序绑定：分隔格多一个冒号、是空的、只有冒号，或分隔行不以竖线开头，都只报一条表头不对"]
+    },
+    {
+      "id": "M-H58-m",
+      "req": "harness",
+      "why": "分隔格两头带好几个冒号也认",
+      "file": "scripts/check/order-rule.ts",
+      "find": "const SEPARATOR_CELL = /^:?-+:?$/",
+      "replace": "const SEPARATOR_CELL = /^:*-+:*$/",
+      "by": "test",
+      "kills": ["顺序绑定：分隔格多一个冒号、是空的、只有冒号，或分隔行不以竖线开头，都只报一条表头不对"]
+    },
+    {
+      "id": "M-H58-n",
+      "req": "harness",
+      "why": "分隔格是空的或只有冒号也认",
+      "file": "scripts/check/order-rule.ts",
+      "find": "const SEPARATOR_CELL = /^:?-+:?$/",
+      "replace": "const SEPARATOR_CELL = /^:?-*:?$/",
+      "by": "test",
+      "kills": ["顺序绑定：分隔格多一个冒号、是空的、只有冒号，或分隔行不以竖线开头，都只报一条表头不对"]
+    },
+    {
+      "id": "M-H58-o",
+      "req": "harness",
+      "why": "分隔行只要有一格像样就认",
+      "file": "scripts/check/order-rule.ts",
+      "find": "!separator.every(c => SEPARATOR_CELL.test(c))",
+      "replace": "!separator.some(c => SEPARATOR_CELL.test(c))",
+      "by": "test",
+      "kills": ["顺序绑定：表头紧接着的下一行不是分隔行，只报一条表头不对"]
+    },
+    {
+      "id": "M-H58-p",
+      "req": "harness",
+      "why": "表头里有两格都叫位置或都叫守它的变异时照样往下核",
+      "file": "scripts/check/order-rule.ts",
+      "find": "header.filter(c => c === name).length !== 1",
+      "replace": "header.filter(c => c === name).length < 1",
+      "by": "test",
+      "kills": ["顺序绑定：表头没有恰好一格整格是「位置」，只报一条表头不对", "顺序绑定：表头没有恰好一格整格是「守它的变异」，只报一条表头不对"]
+    },
+    {
+      "id": "M-H58-q",
+      "req": "harness",
+      "why": "表头的格只要含着位置或守它的变异这几个字就认",
+      "file": "scripts/check/order-rule.ts",
+      "find": "header.filter(c => c === name).length !== 1 ? -1 : header.indexOf(name)",
+      "replace": "header.filter(c => c.includes(name)).length !== 1 ? -1 : header.findIndex(c => c.includes(name))",
+      "by": "test",
+      "kills": ["顺序绑定：表头没有恰好一格整格是「位置」，只报一条表头不对", "顺序绑定：表头是范围里的第一条表格行，「守它的变异」也要整格相等，否则只报一条表头不对"]
+    },
+    {
+      "id": "M-H58-r",
+      "req": "harness",
+      "why": "行末带回车时多切出一格",
+      "file": "scripts/check/order-rule.ts",
+      "find": "const trimmed = rest.trimEnd()",
+      "replace": "const trimmed = rest.replace(/[ \\t]+$/, '')",
+      "by": "test",
+      "kills": ["顺序绑定：行末的回车（CRLF）先去掉，行号与问题和 LF 时一样"]
+    },
+    {
+      "id": "M-H58-s",
+      "req": "harness",
+      "why": "行尾连着几个竖线时全去掉",
+      "file": "scripts/check/order-rule.ts",
+      "find": "if (trimmed.endsWith('|')) rest = trimmed.slice(0, -1)",
+      "replace": "rest = trimmed.replace(/\\|+$/, '')",
+      "by": "test",
+      "kills": ["顺序绑定：行号是全文的行号，格数比的是表头的格数而不是分隔行的，行尾两个竖线只去掉一个", "顺序绑定：分隔格多一个冒号、是空的、只有冒号，或分隔行不以竖线开头，都只报一条表头不对"]
+    },
+    {
+      "id": "M-H58-t",
+      "req": "harness",
+      "why": "一行比表头多出几格时不报格数不对、照样往下核",
+      "file": "scripts/check/order-rule.ts",
+      "find": "if (cells.length !== header.length)",
+      "replace": "if (cells.length < header.length)",
+      "by": "test",
+      "kills": ["顺序绑定：格数与表头不同报一条带两边的格数，这一行别的不看"]
+    },
+    {
+      "id": "M-H58-u",
+      "req": "harness",
+      "why": "格数跟分隔行比，不跟表头比",
+      "file": "scripts/check/order-rule.ts",
+      "find": "if (cells.length !== header.length)",
+      "replace": "if (cells.length !== separator.length)",
+      "by": "test",
+      "kills": ["顺序绑定：行号是全文的行号，格数比的是表头的格数而不是分隔行的，行尾两个竖线只去掉一个"]
+    },
+    {
+      "id": "M-H58-v",
+      "req": "harness",
+      "why": "位置从整行的反引号里取，别的格里写的文件也算",
+      "file": "scripts/check/order-rule.ts",
+      "find": "cells[site].matchAll(",
+      "replace": "text.matchAll(",
+      "by": "test",
+      "kills": ["顺序绑定：位置取那一格里每对反引号之间的原文，括号里的也算，别的格里的不算", "顺序绑定：「位置」「守它的变异」两格排在哪都按表头找"]
+    },
+    {
+      "id": "M-H58-w",
+      "req": "harness",
+      "why": "位置去掉首尾空白再比",
+      "file": "scripts/check/order-rule.ts",
+      "find": ".map(m => m[1])",
+      "replace": ".map(m => m[1].trim())",
+      "by": "test",
+      "kills": ["顺序绑定：位置取那一格里每对反引号之间的原文，括号里的也算，别的格里的不算"]
+    },
+    {
+      "id": "M-H58-x",
+      "req": "harness",
+      "why": "两对反引号之间的文字也算成位置",
+      "file": "scripts/check/order-rule.ts",
+      "find": "/`([^`]*)`/g",
+      "replace": "/`([^`]*)(?=`)/g",
+      "by": "test",
+      "kills": ["顺序绑定：位置按反引号从左两两配对，落单的那个不算，两对之间的文字也不算"]
+    },
+    {
+      "id": "M-H58-y",
+      "req": "harness",
+      "why": "守它的变异那一格遇到括号或引号不切开",
+      "file": "scripts/check/order-rule.ts",
+      "find": "const SEPARATORS = /[\\s、，；：。,;:（）()「」]+/",
+      "replace": "const SEPARATORS = /[\\s、，；：。,;:]+/",
+      "by": "test",
+      "kills": ["顺序绑定：守它的变异按空白与「、，；：。,;:（）()「」」切词，标签与散文不碍事"]
+    },
+    {
+      "id": "M-H58-z",
+      "req": "harness",
+      "why": "家族编号是多位数的变异编号认不出来",
+      "file": "scripts/check/order-rule.ts",
+      "find": "const ID = /^M-[A-Z]+[0-9]+-[a-z]+$/",
+      "replace": "const ID = /^M-[A-Z]+[0-9]-[a-z]+$/",
+      "by": "test",
+      "kills": ["顺序绑定：多位数字的编号与区间照常认，区间起点可以多字母，跨过 z→aa、az→ba 按展开顺序逐个核"]
+    },
+    {
+      "id": "M-H58-aa",
+      "req": "harness",
+      "why": "家族字母写成小写的编号也当成编号",
+      "file": "scripts/check/order-rule.ts",
+      "find": "const ID = /^M-[A-Z]+[0-9]+-[a-z]+$/",
+      "replace": "const ID = /^M-[A-Za-z]+[0-9]+-[a-z]+$/",
+      "by": "test",
+      "kills": ["顺序绑定：大小写不合文法的与裹着反引号的编号是写错的，没有数字的 M-H-a 是散文"]
+    },
+    {
+      "id": "M-H58-ab",
+      "req": "harness",
+      "why": "起点是几个字母的区间认不出来",
+      "file": "scripts/check/order-rule.ts",
+      "find": "const RANGE = /^(M-[A-Z]+[0-9]+-)([a-z]+)[…–]([a-z]+)$/",
+      "replace": "const RANGE = /^(M-[A-Z]+[0-9]+-)([a-z])[…–]([a-z]+)$/",
+      "by": "test",
+      "kills": ["顺序绑定：多位数字的编号与区间照常认，区间起点可以多字母，跨过 z→aa、az→ba 按展开顺序逐个核"]
+    },
+    {
+      "id": "M-H58-ac",
+      "req": "harness",
+      "why": "两端相等的区间也当成区间",
+      "file": "scripts/check/order-rule.ts",
+      "find": "rank(range[3]) > rank(range[2])",
+      "replace": "rank(range[3]) >= rank(range[2])",
+      "by": "test",
+      "kills": ["顺序绑定：区间倒着写、两端相等、终点写全、用半角连字符、单独的省略号或短横都是写错的"]
+    },
+    {
+      "id": "M-H58-ad",
+      "req": "harness",
+      "why": "区间两端按字典序比先后，跨过 z 接到 aa 的区间被当成倒着写",
+      "file": "scripts/check/order-rule.ts",
+      "find": "rank(range[3]) > rank(range[2])",
+      "replace": "range[3] > range[2]",
+      "by": "test",
+      "kills": ["顺序绑定：区间展开成两端之间的每一个编号，两端都算、按展开顺序，缺号报不在", "顺序绑定：多位数字的编号与区间照常认，区间起点可以多字母，跨过 z→aa、az→ba 按展开顺序逐个核"]
+    },
+    {
+      "id": "M-H58-ae",
+      "req": "harness",
+      "why": "区间展开时漏掉终点",
+      "file": "scripts/check/order-rule.ts",
+      "find": "k <= rank(range[3])",
+      "replace": "k < rank(range[3])",
+      "by": "test",
+      "kills": ["顺序绑定：区间展开成两端之间的每一个编号，两端都算、按展开顺序，缺号报不在"]
+    },
+    {
+      "id": "M-H58-af",
+      "req": "harness",
+      "why": "区间跨过 z 时展开出来的编号写错",
+      "file": "scripts/check/order-rule.ts",
+      "find": "letters(Math.floor((n - 1) / 26))",
+      "replace": "letters(Math.floor(n / 26))",
+      "by": "test",
+      "kills": ["顺序绑定：多位数字的编号与区间照常认，区间起点可以多字母，跨过 z→aa、az→ba 按展开顺序逐个核"]
+    },
+    {
+      "id": "M-H58-ag",
+      "req": "harness",
+      "why": "单独一个省略号或短横不当成写错",
+      "file": "scripts/check/order-rule.ts",
+      "find": "const LOOKS_LIKE = /[Mm]-[A-Za-z]+[0-9]+-|[…–]/",
+      "replace": "const LOOKS_LIKE = /[Mm]-[A-Za-z]+[0-9]+-/",
+      "by": "test",
+      "kills": ["顺序绑定：区间倒着写、两端相等、终点写全、用半角连字符、单独的省略号或短横都是写错的"]
+    },
+    {
+      "id": "M-H58-ah",
+      "req": "harness",
+      "why": "小写 m 开头、长得像编号的词不当成写错",
+      "file": "scripts/check/order-rule.ts",
+      "find": "const LOOKS_LIKE = /[Mm]-[A-Za-z]+[0-9]+-|[…–]/",
+      "replace": "const LOOKS_LIKE = /M-[A-Za-z]+[0-9]+-|[…–]/",
+      "by": "test",
+      "kills": ["顺序绑定：像编号又不完全是的词各报一条写错的带原词，一个编号也没读出来再报没点名", "顺序绑定：大小写不合文法的与裹着反引号的编号是写错的，没有数字的 M-H-a 是散文"]
+    },
+    {
+      "id": "M-H58-ai",
+      "req": "harness",
+      "why": "长得像编号又不完全是的词当成散文放过",
+      "file": "scripts/check/order-rule.ts",
+      "find": "if (LOOKS_LIKE.test(word)) malformed.push(word)",
+      "replace": "if (LOOKS_LIKE.test(word)) continue",
+      "by": "test",
+      "kills": ["顺序绑定：像编号又不完全是的词各报一条写错的带原词，一个编号也没读出来再报没点名"]
+    },
+    {
+      "id": "M-H58-aj",
+      "req": "harness",
+      "why": "同一行里重复点名的编号报好几遍",
+      "file": "scripts/check/order-rule.ts",
+      "find": "[...new Set(ids)]",
+      "replace": "ids",
+      "by": "test",
+      "kills": ["顺序绑定：同一行里重复点名的编号只判一次，别的行照样判"]
+    },
+    {
+      "id": "M-H58-ak",
+      "req": "harness",
+      "why": "变异目录里同一编号有几条时以最后一条为准",
+      "file": "scripts/check/order-rule.ts",
+      "find": "if (!catalog.has(m.id)) catalog.set(m.id, m.file)",
+      "replace": "catalog.set(m.id, m.file)",
+      "by": "test",
+      "kills": ["顺序绑定：目录里同一编号有几条时以第一条的 file 为准"]
+    },
+    {
+      "id": "M-H58-al",
+      "req": "harness",
+      "why": "一行一个变异编号也没点时不报",
+      "file": "scripts/check/order-rule.ts",
+      "find": "if (distinct.length === 0) { faults.push({ kind: 'empty', line }); return }",
+      "replace": "if (distinct.length === 0) return",
+      "by": "test",
+      "kills": ["顺序绑定：像编号又不完全是的词各报一条写错的带原词，一个编号也没读出来再报没点名"]
+    },
+    {
+      "id": "M-H58-am",
+      "req": "harness",
+      "why": "一个编号也没读出来时，没点名报在这一行写错的词前面",
+      "file": "scripts/check/order-rule.ts",
+      "find": "if (distinct.length === 0) { faults.push({ kind: 'empty', line }); return }",
+      "replace": "if (distinct.length === 0) { faults.splice(faults.length - malformed.length, 0, { kind: 'empty', line }); return }",
+      "by": "test",
+      "kills": ["顺序绑定：像编号又不完全是的词各报一条写错的带原词，一个编号也没读出来再报没点名"]
+    },
+    {
+      "id": "M-H58-an",
+      "req": "harness",
+      "why": "点名的变异在目录里找不到时不报",
+      "file": "scripts/check/order-rule.ts",
+      "find": "if (file === undefined) faults.push({ kind: 'unknown', line, id })",
+      "replace": "if (file === undefined) continue",
+      "by": "test",
+      "kills": ["顺序绑定：目录里没有的报不在，有而 file 不在位置里的报不在位置里并带那条变异的 file"]
+    },
+    {
+      "id": "M-H58-ao",
+      "req": "harness",
+      "why": "变异的 file 不在这一行的位置栏里时不报",
+      "file": "scripts/check/order-rule.ts",
+      "find": "else if (!sites.includes(file))",
+      "replace": "else if (false)",
+      "by": "test",
+      "kills": ["顺序绑定：目录里没有的报不在，有而 file 不在位置里的报不在位置里并带那条变异的 file"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
