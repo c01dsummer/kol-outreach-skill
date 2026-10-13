@@ -6313,7 +6313,7 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
     foreign.status === 1 && rep.length > 0 && isDeepStrictEqual(gateOut(foreign), ['有启动但没有变异的组：自检的按族启动计数不是这棵树上数的（只报数）', ...prGate]),
     `退出码 ${foreign.status}；闸门打的：\n${foreign.stdout}stderr 末几行：${stderrTail(foreign.stderr)}`)
   rmSync(famAt, { force: true })   // 下面两条要的是玩具树上没有按族计数的文件
-  // 数据不过：只打这两行、红，第一条不过的就报（第 2 小节）
+  // 数据不过：第七节末第二行之后只打这两行、红，第一条不过的就报（第 2 小节；第三十一节第 3 小节）
   const cannot = (why: string) => [`✗ 启动数闸门：无从判断 —— ${why}`,
     '  先跑 npm run mutate：它在全部正常基线都绿了以后写 output/mutation-launches/launches.json；数的那一段出错时不写，看它输出里「启动数没数成」那一行']
   const toy = join(root, 'scripts', 'toy.ts'), orig = fileText(toy)

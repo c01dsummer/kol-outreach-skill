@@ -12639,6 +12639,56 @@
       "kills": ["有启动但没有变异的组：families 不是数组或有一项不是对象时认不得文件"]
     },
     {
+      "id": "M-H57-w",
+      "req": "harness",
+      "why": "起过进程的族数按文件里的全部族算",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "起过进程的 ${idle.length} 族",
+      "replace": "起过进程的 ${families.length} 族",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：整族没落到又起过进程的族数、组数与次数之和，落到的、混合的与起 0 次的族都不算"]
+    },
+    {
+      "id": "M-H57-x",
+      "req": "harness",
+      "why": "共起几次按组数相加",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "s + f.launches, 0)} 次",
+      "replace": "s + f.groups, 0)} 次",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：整族没落到又起过进程的族数、组数与次数之和，落到的、混合的与起 0 次的族都不算"]
+    },
+    {
+      "id": "M-H57-y",
+      "req": "harness",
+      "why": "整族没落到、没拿到计数的族不记数",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "else if (f.launches === null) unknown++",
+      "replace": "else if (f.launches === null) unknown += 0",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：整族没落到、没拿到计数的按族数记一段，混合的族没拿到计数不记"]
+    },
+    {
+      "id": "M-H57-z",
+      "req": "harness",
+      "why": "没拿到计数的族让整份文件认不得",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (f.launches !== null && !(",
+      "replace": "if (!(",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：带数的一行四段按先后以分号相隔"]
+    },
+    {
+      "id": "M-H57-aa",
+      "req": "harness",
+      "why": "交进来的不是对象也往下读",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (!isObject(file) || file.schema",
+      "replace": "if (file.schema",
+      "by": "test",
+      "kills": ["有启动但没有变异的组：交进来的不是对象时认不得文件"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",

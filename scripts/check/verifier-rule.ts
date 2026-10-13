@@ -90,10 +90,10 @@ export const SELFCHECK_TOOLS = {
 export const SELFCHECK_PRELOAD = 'check/fake-fetch.ts'
 
 /**
- * 变异一步给正常基线那一跑注入的计数预加载（ADR-145 第十三节）。
+ * 变异一步给正常基线那一跑注入的计数预加载（ADR-145 第十三节）；拆进程的自检整跑也给每族的子进程注入（第三十一节）。
  *
  * 自检起的 `mutate` 在玩具树上跑正常基线时也注入它，所以它同样是自检要用的东西；
- * `mutate.ts` 按这个路径找它，也是经 `--import` 加载、不是 `import`，两种扫法都收不到。
+ * `mutate.ts` 与 `selfcheck.ts` 按这个路径找它，也是经 `--import` 加载、不是 `import`，两种扫法都收不到。
  */
 export const LAUNCH_PRELOAD = 'check/launch-preload.ts'
 

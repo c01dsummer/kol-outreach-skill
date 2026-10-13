@@ -36,13 +36,15 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      # 只报数：这台 runner 的 CPU 型号与核数。同一份代码在不同 runner 上秒数差到 ×0.6–×1.6，
-      # 原先日志里看不出这一跑落在哪种机器上（ADR-145 第三十一节第 5 小节）。读不到也不让这一跑红
-      - run: lscpu
-        continue-on-error: true
       # 2026-09-04 起 `npm ci` 从两秒变成七分钟,同样 6 个包、
       # 同样命中缓存。--prefer-offline 有缓存就不回源问元数据,--no-audit 去掉装完
       # 之后那次审计请求
       - run: npm ci --prefer-offline --no-audit
       # 与本地 `npm run check` 是同一条链 —— 谁跑都一样红
       - run: npm run check
+      # 只报数：这台 runner 的 CPU 型号与核数。同一份代码在不同 runner 上秒数差到 ×0.6–×1.6，
+      # 原先日志里看不出这一跑落在哪种机器上（ADR-145 第三十一节第 5 小节）。排在最后、检查红了也照跑：
+      # 日志只取得到末尾几千行时也看得见它。读不到也不让这一跑红
+      - run: lscpu
+        if: always()
+        continue-on-error: true
