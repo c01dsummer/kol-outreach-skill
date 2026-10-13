@@ -221,8 +221,27 @@ export function tallyLine(tally: readonly LaunchTally[]): string {
  * `baselines` 是正常基线的计数，`mutations` 是成本观测里变异那一张；交回那一行，不带缩进。只报数
  */
 export function inProcessLine(baselines: ReadonlyMap<string, BaselineLaunches>, mutations: readonly CostMutation[]): string {
-  void baselines; void mutations
-  throw new Error('ADR-145 第二十七节：inProcessLine 尚未实现')
+  if (baselines.size === 0) return '进程内耗时：没有启动计数，分不出哪些配置组内不起进程（只报数）'
+  // 只认回报了、经过时间是有限非负实测值的；单位与合计都只用这几条
+  const timed = mutations.flatMap(m => m.state === 'reported' && m.elapsed.kind === 'measured'
+    && Number.isFinite(m.elapsed.ms) && m.elapsed.ms >= 0 ? [{ key: m.key, ms: m.elapsed.ms }] : [])
+  const sorted = timed.map(t => t.ms).sort((a, b) => a - b)
+  const mid = sorted.length >> 1
+  const unit = sorted.length === 0 ? 0 : sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+  if (unit === 0) return '进程内耗时：这一跑没有实测的变异耗时，无从归一（只报数）'
+  const rows = new Map<string, { ms: number; n: number }>()
+  for (const t of timed) {
+    if (baselines.get(t.key)?.total !== 0) continue
+    const row = rows.get(t.key) ?? { ms: 0, n: 0 }
+    rows.set(t.key, { ms: row.ms + t.ms, n: row.n + 1 })
+  }
+  if (rows.size === 0) return '进程内耗时：组内不起进程的配置没有实测的变异耗时（只报数）'
+  const one = (ms: number): string => (ms / unit).toFixed(1)
+  const all = [...rows].sort(([a, x], [b, y]) => y.ms - x.ms || byText(a, b))
+  const total = all.reduce((s, [, r]) => s + r.ms, 0), n = all.reduce((s, [, r]) => s + r.n, 0)
+  return `进程内耗时（组内不起进程的 ${rows.size} 种配置、${n} 条变异，只报数）：合计 ${one(total)} 个单位；`
+    + `单位是这一跑 ${sorted.length} 条实测变异单条耗时的中位数 ${(unit / 1000).toFixed(1)} 秒；`
+    + `最多的：${all.slice(0, 5).map(([key, r]) => `${key} ${one(r.ms)}`).join('、')}`
 }
 
 /** HEAD 在不在主干上：resolveBaseline 答得出来时是 onTrunk；答不出来时是它给的原因 */

@@ -60,7 +60,7 @@ import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
 import { countingEnv, parseLaunchLog } from './launch-count.js'
 import {
   type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchVerifier,
-  launchFindings, launchRecheck, launchReport, launchTally, settleLaunches, tallyLine,
+  inProcessLine, launchFindings, launchRecheck, launchReport, launchTally, settleLaunches, tallyLine,
 } from './launch-rule.js'
 import { LAUNCH_PRELOAD, infraClosure, selfVerifying } from './verifier-rule.js'
 
@@ -1096,6 +1096,8 @@ if (bill.length) {
   console.log(`\n  按验证者记账（${how}；逐条墙钟相加，不是串着跑要花多久的估计；单跑一次，不是区间）：`)
   for (const line of bill) console.log(line)
 }
+// 组内不起进程的配置，进程内耗时（ADR-145 第二十七节）：计数用每种配置第一次正常基线的；只报数，不改结论与退出码
+if (costEnabled) console.log(`\n  ${inProcessLine(launchCounts, costMutations)}`)
 
 if (survived.length || elsewhere.length || crashed.length || notApplied.length || silent.length) {
   console.error(`\n✗ 变异测试：${survived.length} 个存活，${elsewhere.length} 个红错了地方，`
