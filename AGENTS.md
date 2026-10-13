@@ -52,7 +52,7 @@
 | 写代码 | `process/3-BUILD.md` + **`docs/CONVENTIONS.md`** |
 | 写测试 | `process/4-VERIFY.md` —— **写测试前必读** |
 | 改模块边界、调用顺序或对外契约 | `process/5-DESIGN.md` + **`docs/ARCHITECTURE.md`** |
-| 改 Skill 的行为 | `skill/SKILL.md` + 对应的 `skill/references/*` |
+| 改 Skill 的行为 | `skill/SKILL.md` + 对应的 `skill/references/*` —— 指向 `skill/` 的软链见 `docs/ARCHITECTURE.md`「新东西落在哪个目录」 |
 | 要新建目录，或要存运行产物（接口响应原件、快照、日志） | `docs/ARCHITECTURE.md`「新东西落在哪个目录」 |
 | 改完了要同步 | `docs/SYNC.md` |
 | 开分支、切改动、回应评审、往主干合 | `process/6-INTEGRATE.md` |
