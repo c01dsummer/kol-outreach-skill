@@ -77,6 +77,7 @@ export interface Reaches {
 export const SELFCHECK_TOOLS = {
   mutate: 'check/mutate.ts',
   selfcheck: 'check/selfcheck.ts',
+  launches: 'check/launches.ts',
 } as const
 
 /**

@@ -747,7 +747,7 @@ export function configurationCostLines(summary: CostSummary): string[] {
   const times = (table: Record<string, CostTime>) => JSON.stringify(Object.fromEntries(Object.entries(table).map(([state, t]) => [state, {
     实测次数: t.samples, 经过毫秒之和: t.samples === 0 ? '无实测样本' : t.totalMs, 缺失身份: t.missing,
   }])))
-  const lines = ['配置成本观测（纯汇总；不决定检查通过）',
+  const lines = ['配置成本观测（纯汇总；秒数不决定检查通过，启动数另由检查链最后一步判）',
     `运行完整性：${summary.identity.state}；成本观测完整：${summary.complete ? '是' : '否'}`,
     `运行身份：${JSON.stringify(summary.identity)}`,
     '以下时间为逐次验证者经过时间之和；正常基线与变异分开。不是 job、CPU、串行估计或完整检查耗时。',

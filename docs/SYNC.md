@@ -40,8 +40,8 @@
 | **新增可执行文件** | 三选一：接进 `scripts/check/selfcheck.ts`、在 `npm run check` 里自成一步、或写进 `EXEMPT` 说明理由 | 🔒 `selfcheck` |
 | **新增一道闸门** | 判定逻辑（`scripts/check/` 下不带 shebang 的 `.ts`）· 测试 · **`scripts/check/mutations.json`**（闸门自己也是需求，它的测试同样要被证明过）· `process/` 里那条纪律 | 🔒 `audit`：scripts/check/ 下每个判定模块必须有变异指向它，否则硬失败；`mutate` 证明那个变异被抓到 |
 | **改变变异全量/选组路由、`full_run` 解释或验证者分组配置** | `process/4-VERIFY.md`「只跑验证者的一部分时」那一条 · `process/6-INTEGRATE.md`「改验证成本时」的运行证据 · 实际变异目录与组/依赖/顺序配置 · `docs/ARCHITECTURE.md` 的维护判据、具体字段、基线及执行边界 · CI 可信基线传入 · 对应 ADR | 🔒 `mutate` 核真实基线变化与解释形状；解释语义和可比证据靠评审 |
-| **改变变异配置使用、基线复用或经过时间报告** | `docs/ARCHITECTURE.md` 的计量语义（公开验收）、具体取数、输出协议和观察/汇总边界 · `process/6-INTEGRATE.md`「改验证成本时」的可比证据 · 对应 ADR 与完整变化清单 | ✗ 报告只提供原料，不新增性能闸门 |
-| **改变变异入口启动数的计数单位、计数预加载或启动数的输出** | `docs/ARCHITECTURE.md` 的 `launch-rule.ts`、`launch-count.ts`、`launch-preload.ts` 三行与「入口启动数」那一段 · ADR-145（计数单位、两条线、第十三节的日志形状与输出协议）· 读 `output/mutation-launches/launches.json` 的那一侧（今天只有自检组 `launch-count-entry`；第三片的判定接上后也算） | 部分：`h-launch-preload`、`h-launch-preload-edge` 与自检组 `launch-count-entry` 守行为；文档靠执行 |
+| **改变变异配置使用、基线复用或经过时间报告** | `docs/ARCHITECTURE.md` 的计量语义（公开验收）、具体取数、输出协议和观察/汇总边界 · `process/6-INTEGRATE.md`「改验证成本时」的可比证据 · 对应 ADR 与完整变化清单 | ✗ 报告只提供原料，不新增秒数闸门（入口启动数另由 ADR-145 的闸门判，见下一行） |
+| **改变变异入口启动数的计数单位、计数预加载、启动数的输出或判法** | `docs/ARCHITECTURE.md` 的 `launch-rule.ts`、`launch-count.ts`、`launch-preload.ts`、`launches.ts` 四行与「入口启动数」那一段 · ADR-145（计数单位、两条线、第十三节的日志形状与输出协议）· 读 `output/mutation-launches/launches.json` 的那一侧（检查链最后一步 `launches.ts` 与它的判定 `launchGate`，以及自检组 `launch-count-entry`） | 部分：`h-launch-preload`、`h-launch-preload-edge`、`h-launch-rule` 与自检组 `launch-count-entry` 守行为；文档靠执行 |
 | **改两层的判别规则** | `process/README.md`「为什么要分两层」（原则）· `process/AGENTS.md.tpl` · `AGENTS.md` · 本表「一条判别规则」· `REVIEW.md` 那句指针 | ✗ 靠执行（替代「读」的，不建检查；判据见 `process/README.md` 第二层） |
 | **重命名／删掉 `process/` 或 `docs/` 下被 `REVIEW.md` 指到的那几份** | `REVIEW.md` 的指针（三份转发不用动，它们只指 `REVIEW.md`） | ✗ 靠执行 |
 | **改流程阶段** | `skill/SKILL.md` · `docs/business-requirements.md` · 对应 reference | ✗ 靠执行 |

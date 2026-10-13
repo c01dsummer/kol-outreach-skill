@@ -255,7 +255,7 @@ const runTool = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string
  * 要读 stdout 与判成败,`run` 只给一股。
  */
 const runToolBoth = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string[] = [],
-  cwd = process.cwd(), expect?: { status: number }) =>
+  cwd = process.cwd(), expect?: { status: number; soft?: readonly number[] }) =>
   runBoth(label, [S(SELFCHECK_TOOLS[tool]), ...rest], cwd, expect, mutationFixtureEnv(tool, rest, cwd))
 
 console.log('\n[脚本自检] 假 fetch，无真实请求\n')
@@ -6087,6 +6087,9 @@ group('mutation-baseline', [], () => {
   }
 
   const bad = seed('mutation-baseline-reject', true)
+  // 上一跑留下的启动数文件：mutate 开跑先删（ADR-145 第二十一节第 2 小节）；这一跑基线不绿、不写新的，跑完就不该还在
+  const stale = join(bad.dir, 'output', 'mutation-launches', 'launches.json')
+  mkdirSync(dirname(stale), { recursive: true }); writeFileSync(stale, JSON.stringify({ schema: 'mutation-launches/v1', findings: [] }))
   const denied = runToolBoth('mutate 正常代码的子集已失败，不施加任何变异',
     'mutate', ['--jobs=1'], bad.dir, { status: 1 })
   if (denied.ok) {
@@ -6094,7 +6097,17 @@ group('mutation-baseline', [], () => {
       denied.stderr.includes('子集基线') && denied.stderr.includes('未施加任何变异')
         && fileText(bad.marker) === 'baseline\n' && fileText(bad.target) === bad.source,
       `输出=${denied.stderr}，调用=${JSON.stringify(fileText(bad.marker))}，目标=${JSON.stringify(fileText(bad.target))}`)
+    named('mutate 子集基线失败、没写启动数时，上一跑留下的启动数文件也已删掉', !existsSync(stale), `还在：${fileText(stale)}`)
   }
+  // 开跑删不掉旧的启动数文件（这里那个路径是个不空的目录）：以 1 退出、不往下跑，退出前打一行删不掉（第二十一节第 2 小节末）。
+  // 措辞没逐字定，只认一行同时说到「启动数文件」与「删不掉」；玩具树本来能正常跑完，验证者的调用记录是空的 = 正常基线与变异一条都没跑
+  const stuck = seed('mutation-baseline-stuck', false)
+  mkdirSync(join(stuck.dir, 'output', 'mutation-launches', 'launches.json', '占位'), { recursive: true })
+  const held = runToolBoth('变异一步在启动数文件的路径是个目录的玩具树上起跑', 'mutate', ['--jobs=1'], stuck.dir, { status: 1, soft: [0] })
+  if (held.ok) named('变异一步开跑删不掉旧的启动数文件时以 1 退出、说删不掉，正常基线与变异一条都没跑',
+    held.status === 1 && `${held.stdout}\n${held.stderr}`.split('\n').some(l => l.includes('启动数文件') && l.includes('删不掉'))
+      && fileText(stuck.marker) === '',
+    `退出码 ${held.status}，验证者调用=${JSON.stringify(fileText(stuck.marker))}，输出末几行：${stderrTail(`${held.stdout}\n${held.stderr}`)}`)
 })
 
 // ---- 变异入口的启动数：真起 mutate，核计数接上了、只报数不判红（ADR-145 第十三节第 4 小节第二条）----
@@ -6190,8 +6203,9 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
   // 第一行 drift 是上面手推的「整跑 51 次对 52 次」，缩进四格；第二行原文本身以四格起头，再缩进四格就是八格，紧跟在第一行后面。
   // 全跑那条排在它前面（第九节），它的原文这里不推，只要求不确定那条不是标题下的头一行，且从标题下一行直到机器段（第 3 条，标题后那行 MUTATION_LAUNCHES_JSON）之前每行都缩进四格
   const subset = lines.findIndex(l => l.includes('子集选跑 8 条、4 种配置；整跑 1 条'))
-  const title = lines.findIndex(l => l.trim() === '照第三片的判法会报下面这些（这一片只报数，不判红）：')
-  named('启动数入口：有发现时打一行「照第三片的判法会报下面这些」，在子集选跑那一行后面', subset >= 0 && title > subset,
+  // 标题的措辞照第二十一节第 4 小节末改过
+  const title = lines.findIndex(l => l.trim() === '检查链最后一步的启动数闸门会照下面这些判（变异一步只报数）：')
+  named('启动数入口：有发现时打一行「检查链最后一步的启动数闸门会照下面这些判」，在子集选跑那一行后面', subset >= 0 && title > subset,
     `子集选跑在第 ${subset} 行，标题在第 ${title} 行（-1 是没有）：\n${lines.slice(Math.max(subset, 0)).join('\n')}`)
   const shaky1 = `    ✗ ${DRIFT} 的启动数不确定：同一棵树上两次正常基线不一样（整跑 51 次对 52 次），不按超线报`
   const shaky2 = '        启动数不再是树的函数，判红就成了按运气红（第六节）：先查这种配置两次起的进程为什么不一样'
@@ -6221,6 +6235,41 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
   // 两次重跑都拿到了计数，没有 null。s-drift 重跑那次断言之后多起 1 次 → 52；s-over 每次一样 → 54
   named('启动数入口：计数文件的 again 只有重跑过的两种配置，各记重跑那次的整跑启动数',
     isDeepStrictEqual(totals(file.again), { [DRIFT]: 52, [OVER]: 54 }), `文件里的 again：${JSON.stringify(file.again)}`)
+  // 同一棵玩具树上接着起检查链最后一步的启动数闸门（第二十一节第 7 小节），期望逐字取自第 4 小节。
+  // 闸门打的报告行 = 上面标题下那几行去掉四格缩进（同一个 launchReport，第 3 小节「原样、不加缩进」）；
+  // again 两项都不是 null（上一条），不打「重跑那次没拿到计数」那种行。退出码就是判据，所以写 soft、由具名断言判
+  const rep = body.map(l => l.slice(4)), gateOut = (r: { stdout: string }) => r.stdout.split('\n').filter(l => l.trim() !== '')
+  const gitToy = (...a: string[]) => spawnSync('git', a, { cwd: root, encoding: 'utf8',
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } })
+  // 玩具没有 origin/main，主干就是 main（size-rule 的 TRUNK_CANDIDATES），HEAD 在它上面。四条发现里有一条缺计数（t-bypass 那种配置），
+  // 所以主干上也红：最后一行是第 4 小节主干上缺计数那句（n=4、m=1），主干上只报数那几行都不打（第 3 小节），整段输出逐行相等即含这一点
+  const onMain = runToolBoth('launches 在启动数玩具树的 main 上判', 'launches', [], root, { status: 1, soft: [0] })
+  if (onMain.ok) named('启动数入口：玩具在主干上、发现里有一条缺计数时闸门以 1 退出，报告行原样在前、最后一行是主干上缺计数那句',
+    onMain.status === 1 && rep.length > 0 && isDeepStrictEqual(gateOut(onMain),
+      [...rep, '✗ 启动数闸门：4 条发现，其中 1 种配置没有启动计数：HEAD 就在主干上也红，计数缺了不放行（ADR-145 第五节末）']),
+    `退出码 ${onMain.status}；变异一步标题下的报告行 ${rep.length} 行（0 是标题没找到）；闸门打的：\n${onMain.stdout}stderr 末几行：${stderrTail(onMain.stderr)}`)
+  // 切一个分支加一个空提交（提交身份用 mutationFixtureEnv 写进玩具仓库的那份）：内容不变、源码身份照旧对得上，HEAD 不在主干上
+  const co = gitToy('checkout', '--quiet', '-b', 'toy-pr'), pr = co.status === 0 ? gitToy('commit', '--quiet', '--allow-empty', '-m', 'toy pr') : co
+  if (pr.status !== 0) { failed++; console.error(`  ✗ 启动数入口玩具分支${SELFCHECK_FIXTURE_MARK}：${pr.stderr || pr.error}`); return }
+  const onPr = runToolBoth('launches 在启动数玩具树的分支上判', 'launches', [], root, { status: 1, soft: [0] })
+  if (onPr.ok) named('启动数入口：玩具切分支加一个空提交后闸门以 1 退出，报告行原样在前、最后一行是不设豁免那句',
+    onPr.status === 1 && rep.length > 0 && isDeepStrictEqual(gateOut(onPr), [...rep, '✗ 启动数闸门：4 条发现，不设豁免（ADR-145）']),
+    `退出码 ${onPr.status}；变异一步标题下的报告行 ${rep.length} 行；闸门打的：\n${onPr.stdout}stderr 末几行：${stderrTail(onPr.stderr)}`)
+  // 数据不过：只打这两行、红，第一条不过的就报（第 2 小节）
+  const cannot = (why: string) => [`✗ 启动数闸门：无从判断 —— ${why}`,
+    '  先跑 npm run mutate：它在全部正常基线都绿了以后写 output/mutation-launches/launches.json；数的那一段出错时不写，看它输出里「启动数没数成」那一行']
+  const toy = join(root, 'scripts', 'toy.ts'), orig = fileText(toy)
+  writeFileSync(toy, orig + '// 另一棵树\n')   // scripts/ 下的文件进源码指纹
+  const moved = runToolBoth('launches 在改过源码的启动数玩具树上判', 'launches', [], root, { status: 1, soft: [0] })
+  writeFileSync(toy, orig)
+  if (moved.ok) named('启动数入口：改了玩具的一个源码文件后闸门报另一棵树、以 1 退出',
+    moved.status === 1 && isDeepStrictEqual(gateOut(moved), cannot('启动数文件是另一棵树上写的（源码身份对不上）')),
+    `退出码 ${moved.status}；闸门打的：\n${moved.stdout}stderr 末几行：${stderrTail(moved.stderr)}`)
+  rmSync(join(root, 'output', 'mutation-launches', 'launches.json'), { force: true })
+  const gone = runToolBoth('launches 在删掉计数文件的启动数玩具树上判', 'launches', [], root, { status: 1, soft: [0] })
+  if (gone.ok) named('启动数入口：删掉计数文件后闸门报没有启动数文件、以 1 退出',
+    gone.status === 1 && isDeepStrictEqual(gateOut(gone), cannot('没有启动数文件，或读不出来、不是一个 JSON 对象')),
+    `退出码 ${gone.status}；闸门打的：\n${gone.stdout}stderr 末几行：${stderrTail(gone.stderr)}`)
 })
 
 // ---- 派工那条路：真起 worker，真在隔离目录里跑 ----

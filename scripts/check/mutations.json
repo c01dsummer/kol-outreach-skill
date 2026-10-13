@@ -11999,6 +11999,236 @@
       "kills": ["计数预加载：往 stderr 写一个 Buffer，那一行照样记下"]
     },
     {
+      "id": "M-H55-a",
+      "req": "harness",
+      "why": "读出来是个数组也当成一份启动数文件：数组不是一个 JSON 对象，该报没有启动数文件",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "typeof v === 'object' && v !== null && !Array.isArray(v)",
+      "replace": "typeof v === 'object' && v !== null",
+      "by": "test",
+      "kills": ["启动数闸门数据第 1 条：没有文件，或读出来是 null、数组、字符串、数，报没有启动数文件，主干上也红"]
+    },
+    {
+      "id": "M-H55-b",
+      "req": "harness",
+      "why": "不核 schema：别的格式的文件也当成启动数文件读",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "record.schema !== 'mutation-launches/v1'",
+      "replace": "record.schema === 'never'",
+      "by": "test",
+      "kills": ["启动数闸门数据第 2 条：schema 缺了或不是 mutation-launches/v1，报 schema 不对，主干上也红"]
+    },
+    {
+      "id": "M-H55-c",
+      "req": "harness",
+      "why": "文件里的源码身份是 null 时不报没有源码身份，报成另一棵树上写的",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "typeof record.source !== 'string'",
+      "replace": "record.source === undefined",
+      "by": "test",
+      "kills": ["启动数闸门数据第 3 条：文件里的源码身份是 null、缺了或不是字符串，报没有源码身份，主干上也红"]
+    },
+    {
+      "id": "M-H55-d",
+      "req": "harness",
+      "why": "当前树的源码身份取不到时不报取不到，报成另一棵树上写的",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (source === undefined) return '当前树的源码身份取不到'",
+      "replace": "if (false) return '当前树的源码身份取不到'",
+      "by": "test",
+      "kills": ["启动数闸门数据第 4 条：当前树的源码身份取不到，报取不到，主干上也红"]
+    },
+    {
+      "id": "M-H55-e",
+      "req": "harness",
+      "why": "源码身份只要文件里那份是当前树那份的前缀，就当成同一棵树",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "record.source !== source",
+      "replace": "!source.startsWith(record.source)",
+      "by": "test",
+      "kills": ["启动数闸门数据第 5 条：两边源码身份不同，哪边是另一边的前缀也算，报另一棵树上写的，主干上也红"]
+    },
+    {
+      "id": "M-H55-f",
+      "req": "harness",
+      "why": "发现的种类不核：认不得的种类也当成发现照报",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "\n    || !record.findings.every(f => isObject(f) && KINDS.includes(f.kind as string))",
+      "replace": "",
+      "by": "test",
+      "kills": ["启动数闸门数据第 6 条：tally 或 findings 不是数组，或有一条发现的种类认不得，主干上也红"]
+    },
+    {
+      "id": "M-H55-g",
+      "req": "harness",
+      "why": "不核 tally 是不是数组：形状不对的文件照样往下判",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "!Array.isArray(record.tally) || ",
+      "replace": "",
+      "by": "test",
+      "kills": ["启动数闸门数据第 6 条：tally 或 findings 不是数组，或有一条发现的种类认不得，主干上也红"]
+    },
+    {
+      "id": "M-H55-h",
+      "req": "harness",
+      "why": "数据没核过时在主干上不红：主干上量没量成也只当没事，删掉文件就关掉了主干上那一跑的闸门",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (fault !== undefined) return { red: true,",
+      "replace": "if (fault !== undefined) return { red: !('onTrunk' in trunk && trunk.onTrunk),",
+      "by": "test",
+      "kills": ["启动数闸门数据第 1 条：没有文件，或读出来是 null、数组、字符串、数，报没有启动数文件，主干上也红", "启动数闸门数据第 2 条：schema 缺了或不是 mutation-launches/v1，报 schema 不对，主干上也红", "启动数闸门数据第 3 条：文件里的源码身份是 null、缺了或不是字符串，报没有源码身份，主干上也红", "启动数闸门数据第 4 条：当前树的源码身份取不到，报取不到，主干上也红", "启动数闸门数据第 5 条：两边源码身份不同，哪边是另一边的前缀也算，报另一棵树上写的，主干上也红", "启动数闸门数据第 6 条：tally 或 findings 不是数组，或有一条发现的种类认不得，主干上也红"]
+    },
+    {
+      "id": "M-H55-i",
+      "req": "harness",
+      "why": "没有发现也判红",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (findings.length === 0) return { red: false,",
+      "replace": "if (findings.length === 0) return { red: true,",
+      "by": "test",
+      "kills": ["启动数闸门：没有发现时只打一行几种配置有计数、都在线内，在不在主干上都不红"]
+    },
+    {
+      "id": "M-H55-j",
+      "req": "harness",
+      "why": "没有发现那一行数的是发现的条数，不是有计数的配置种数",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "`✓ 启动数闸门：${tally.length} 种配置有计数，都在线内`",
+      "replace": "`✓ 启动数闸门：${findings.length} 种配置有计数，都在线内`",
+      "by": "test",
+      "kills": ["启动数闸门：没有发现时只打一行几种配置有计数、都在线内，在不在主干上都不红"]
+    },
+    {
+      "id": "M-H55-k",
+      "req": "harness",
+      "why": "重跑那一项缺了也当成重跑没拿到计数，多打一行",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (again[key] === null)",
+      "replace": "if (again[key] == null)",
+      "by": "test",
+      "kills": ["启动数闸门：again 不是对象，或那一项缺了、是计数、是 0、false 或字符串 null 时不打重跑那行"]
+    },
+    {
+      "id": "M-H55-l",
+      "req": "harness",
+      "why": "重跑没拿到计数那一行按文件里记着重跑的每种配置打，不只对这次重跑过的，也不按配置键排",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (isObject(again)) for (const key of launchRecheck(findings))",
+      "replace": "if (isObject(again)) for (const key of Object.keys(again))",
+      "by": "test",
+      "kills": ["启动数闸门：重跑那次没拿到计数的配置在报告行之后、判词之前各打一行，只对重跑过的配置打"]
+    },
+    {
+      "id": "M-H55-m",
+      "req": "harness",
+      "why": "无从判断在不在主干上时不红：不知道就放行",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if ('unknown' in trunk) return { red: true,",
+      "replace": "if ('unknown' in trunk) return { red: false,",
+      "by": "test",
+      "kills": ["启动数闸门：有发现、无从判断在不在主干上，最后一行带着原因，按 PR 判红"]
+    },
+    {
+      "id": "M-H55-n",
+      "req": "harness",
+      "why": "不在主干上有发现也不红：PR 上超线放行",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (!trunk.onTrunk) return { red: true,",
+      "replace": "if (!trunk.onTrunk) return { red: false,",
+      "by": "test",
+      "kills": ["启动数闸门：有发现、不在主干上，报告行原样在前，最后一行几条发现、不设豁免，红"]
+    },
+    {
+      "id": "M-H55-o",
+      "req": "harness",
+      "why": "在主干上有发现也红：主干自己那一跑跟着变红",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  return { red: false, lines }\n}",
+      "replace": "  return { red: true, lines }\n}",
+      "by": "test",
+      "kills": ["启动数闸门：在主干上只报数不红，有超线才打拆组那行，有不确定才打死亡条件那行"]
+    },
+    {
+      "id": "M-H55-p",
+      "req": "harness",
+      "why": "发现全是不确定时也叫人先开拆组的那一条",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (findings.some(f => f.kind !== 'unsteady'))",
+      "replace": "if (findings.length > 0)",
+      "by": "test",
+      "kills": ["启动数闸门：在主干上只报数不红，有超线才打拆组那行，有不确定才打死亡条件那行"]
+    },
+    {
+      "id": "M-H55-q",
+      "req": "harness",
+      "why": "主干上报了不确定也不提第六节的死亡条件",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (findings.some(f => f.kind === 'unsteady'))",
+      "replace": "if (false)",
+      "by": "test",
+      "kills": ["启动数闸门：在主干上只报数不红，有超线才打拆组那行，有不确定才打死亡条件那行"]
+    },
+    {
+      "id": "M-H55-r",
+      "req": "harness",
+      "why": "判词里的条数数的是有计数的配置种数，不是发现的条数",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "`✗ 启动数闸门：${findings.length} 条发现，不设豁免（ADR-145）`",
+      "replace": "`✗ 启动数闸门：${tally.length} 条发现，不设豁免（ADR-145）`",
+      "by": "test",
+      "kills": ["启动数闸门：有发现、不在主干上，报告行原样在前，最后一行几条发现、不设豁免，红"]
+    },
+    {
+      "id": "M-H55-s",
+      "req": "harness",
+      "why": "报告行多缩进两格，不是原样打在判词前面",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "const lines = [...launchReport(findings)]",
+      "replace": "const lines = launchReport(findings).map(l => `  ${l}`)",
+      "by": "test",
+      "kills": ["启动数闸门：有发现、不在主干上，报告行原样在前，最后一行几条发现、不设豁免，红", "启动数闸门：有发现、无从判断在不在主干上，最后一行带着原因，按 PR 判红", "启动数闸门：在主干上只报数不红，有超线才打拆组那行，有不确定才打死亡条件那行", "启动数闸门：重跑那次没拿到计数的配置在报告行之后、判词之前各打一行，只对重跑过的配置打"]
+    },
+    {
+      "id": "M-H55-t",
+      "req": "harness",
+      "why": "主干上缺计数也只报数：某种配置数不出来，主干那一跑照样绿",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (missing > 0) return { red: true, lines: [...lines,",
+      "replace": "if (missing < 0) return { red: true, lines: [...lines,",
+      "by": "test",
+      "kills": ["启动数闸门：在主干上有缺基线时也红，报告行与重跑那行照旧在前，最后一行说几种配置没有启动计数，主干上只报数那几行都不打"]
+    },
+    {
+      "id": "M-H55-u",
+      "req": "harness",
+      "why": "主干上缺计数那句报的配置种数是全部发现的条数，不是缺计数的那几种",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "其中 ${missing} 种配置没有启动计数",
+      "replace": "其中 ${findings.length} 种配置没有启动计数",
+      "by": "test",
+      "kills": ["启动数闸门：在主干上有缺基线时也红，报告行与重跑那行照旧在前，最后一行说几种配置没有启动计数，主干上只报数那几行都不打"]
+    },
+    {
+      "id": "M-H55-v",
+      "req": "harness",
+      "why": "不在主干上、只有全跑变异那一条发现时不红：新加一条全跑变异，PR 照样绿",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (!trunk.onTrunk) return { red: true,",
+      "replace": "if (!trunk.onTrunk) return { red: findings.some(f => f.kind !== 'full-run'),",
+      "by": "test",
+      "kills": ["启动数闸门：有发现、不在主干上，报告行原样在前，最后一行几条发现、不设豁免，红"]
+    },
+    {
+      "id": "M-H55-w",
+      "req": "harness",
+      "why": "无从判断在不在主干上、只有缺计数的发现时不红",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if ('unknown' in trunk) return { red: true,",
+      "replace": "if ('unknown' in trunk) return { red: findings.some(f => f.kind !== 'missing'),",
+      "by": "test",
+      "kills": ["启动数闸门：有发现、无从判断在不在主干上，最后一行带着原因，按 PR 判红"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
