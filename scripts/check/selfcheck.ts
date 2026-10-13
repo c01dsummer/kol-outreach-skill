@@ -6250,20 +6250,51 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
   const rep = body.map(l => l.slice(4)), gateOut = (r: { stdout: string }) => r.stdout.split('\n').filter(l => l.trim() !== '')
   const gitToy = (...a: string[]) => spawnSync('git', a, { cwd: root, encoding: 'utf8',
     env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } })
+  // 闸门那几行之前先打第七节末第二行、不缩进，读到什么都不改退出码（第三十一节第 3 小节）。下面四条读整段输出的断言跑时，
+  // 玩具树上没有按族计数的文件 → 第 4 小节第 1 句打在最前；数据不过时那两行跟在它后面（同小节「这一行之后只打这两行」）
+  const NO_IDLE = '有启动但没有变异的组：没有自检整跑的按族启动计数（只报数）', prGate = [...rep, '✗ 启动数闸门：4 条发现，不设豁免（ADR-145）']
   // 玩具没有 origin/main，主干就是 main（size-rule 的 TRUNK_CANDIDATES），HEAD 在它上面。四条发现里有一条缺计数（t-bypass 那种配置），
   // 所以主干上也红：最后一行是第 4 小节主干上缺计数那句（n=4、m=1），主干上只报数那几行都不打（第 3 小节），整段输出逐行相等即含这一点
   const onMain = runToolBoth('launches 在启动数玩具树的 main 上判', 'launches', [], root, { status: 1, soft: [0] })
-  if (onMain.ok) named('启动数入口：玩具在主干上、发现里有一条缺计数时闸门以 1 退出，报告行原样在前、最后一行是主干上缺计数那句',
+  if (onMain.ok) named('启动数入口：玩具在主干上、发现里有一条缺计数时闸门以 1 退出，先打没有按族计数那句、报告行原样跟着、最后一行是主干上缺计数那句',
     onMain.status === 1 && rep.length > 0 && isDeepStrictEqual(gateOut(onMain),
-      [...rep, '✗ 启动数闸门：4 条发现，其中 1 种配置没有启动计数：HEAD 就在主干上也红，计数缺了不放行（ADR-145 第五节末）']),
+      [NO_IDLE, ...rep, '✗ 启动数闸门：4 条发现，其中 1 种配置没有启动计数：HEAD 就在主干上也红，计数缺了不放行（ADR-145 第五节末）']),
     `退出码 ${onMain.status}；变异一步标题下的报告行 ${rep.length} 行（0 是标题没找到）；闸门打的：\n${onMain.stdout}stderr 末几行：${stderrTail(onMain.stderr)}`)
   // 切一个分支加一个空提交（提交身份用 mutationFixtureEnv 写进玩具仓库的那份）：内容不变、源码身份照旧对得上，HEAD 不在主干上
   const co = gitToy('checkout', '--quiet', '-b', 'toy-pr'), pr = co.status === 0 ? gitToy('commit', '--quiet', '--allow-empty', '-m', 'toy pr') : co
   if (pr.status !== 0) { failed++; console.error(`  ✗ 启动数入口玩具分支${SELFCHECK_FIXTURE_MARK}：${pr.stderr || pr.error}`); return }
   const onPr = runToolBoth('launches 在启动数玩具树的分支上判', 'launches', [], root, { status: 1, soft: [0] })
-  if (onPr.ok) named('启动数入口：玩具切分支加一个空提交后闸门以 1 退出，报告行原样在前、最后一行是不设豁免那句',
-    onPr.status === 1 && rep.length > 0 && isDeepStrictEqual(gateOut(onPr), [...rep, '✗ 启动数闸门：4 条发现，不设豁免（ADR-145）']),
+  if (onPr.ok) named('启动数入口：玩具切分支加一个空提交后闸门以 1 退出，先打没有按族计数那句、报告行原样跟着、最后一行是不设豁免那句',
+    onPr.status === 1 && rep.length > 0 && isDeepStrictEqual(gateOut(onPr), [NO_IDLE, ...prGate]),
     `退出码 ${onPr.status}；变异一步标题下的报告行 ${rep.length} 行；闸门打的：\n${onPr.stdout}stderr 末几行：${stderrTail(onPr.stderr)}`)
+  // 还在分支上、启动数文件还在：照第三十一节第 2 小节的路径与形状写一份按族计数，source 是上面成本报告的源码身份。落到的组只认
+  // by 为 selfcheck 的路由的 executes（第 4 小节）：玩具自检两条变异落到 s-over、s-drift；需求测试的路由（t-pass、t-bypass，
+  // 全跑那条是三个玩具需求测试组）不算，所以 t-pass、t-full 在这里都没落到；玩具里没有的组名（idle-*）照样认，第 4 小节只认形状。逐族手推：
+  // s-over 54 整族落到，不算；s-drift+t-pass 60 混合，没落到的 t-pass → K = 1；idle-c 0 不算、不列；idle-d null → J = 1；
+  // 整族没落到、起过进程的 idle-b+idle-a 12（族名照文件里的先后连）、t-full 7、idle-e 7 → N = 3，M = 2 + 1 + 1 = 4，X = 26；
+  // 最多的从大到小，两个 7 并列按族名、idle-e < t-full（文件里 t-full 在前，照文件先后就错）。这份文件不改后面的闸门行与退出码
+  const famAt = join(root, 'output', 'selfcheck-launches', 'families.json'), famFile = (src: unknown): boolean => {
+    try {
+      if (typeof src !== 'string') throw new Error(`成本报告里没有源码身份：${JSON.stringify(src)}`)
+      const fams = [['s-over', 54], ['idle-b', 'idle-a', 12], ['t-full', 7], ['idle-c', 0], ['s-drift', 't-pass', 60], ['idle-d', null], ['idle-e', 7]]
+      mkdirSync(dirname(famAt), { recursive: true })
+      writeFileSync(famAt, JSON.stringify({ schema: 'selfcheck-launches/v1', source: src,
+        families: fams.map(f => ({ groups: f.slice(0, -1), launches: f[f.length - 1] })) }))
+      return true
+    } catch (e) { failed++; console.error(`  ✗ 启动数入口按族计数夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`); return false }
+  }
+  const IDLE = '有启动但没有变异的组（自检，只报数）：整族没有变异落到、起过进程的 3 族、4 组共起 26 次，不含 git；最多的：idle-b+idle-a 12、idle-e 7、t-full 7；'
+    + '与有变异的组同族、按族分不开的 1 组不在其内；整族没有变异落到、没拿到计数的 1 族不在其内'
+  const counted = famFile(source) ? runToolBoth('launches 在写了按族计数的启动数玩具树分支上判', 'launches', [], root, { status: 1, soft: [0] }) : undefined
+  if (counted?.ok) named('启动数入口：玩具树上有这棵树的按族计数时闸门第一行是手推的带数那一行，后面的闸门行与退出码同没有这份文件时',
+    counted.status === 1 && rep.length > 0 && isDeepStrictEqual(gateOut(counted), [IDLE, ...prGate]),
+    `退出码 ${counted.status}；第一行应是：${IDLE}；闸门打的：\n${counted.stdout}stderr 末几行：${stderrTail(counted.stderr)}`)
+  // 只把 source 换成别的字符串，文件其余照旧认得 → 第 4 小节第 2 句
+  const foreign = famFile('别的树') ? runToolBoth('launches 在按族计数不是这棵树上数的启动数玩具树分支上判', 'launches', [], root, { status: 1, soft: [0] }) : undefined
+  if (foreign?.ok) named('启动数入口：按族计数的源码身份对不上这棵树时闸门第一行是不是这棵树上数的那句，后面的闸门行与退出码不变',
+    foreign.status === 1 && rep.length > 0 && isDeepStrictEqual(gateOut(foreign), ['有启动但没有变异的组：自检的按族启动计数不是这棵树上数的（只报数）', ...prGate]),
+    `退出码 ${foreign.status}；闸门打的：\n${foreign.stdout}stderr 末几行：${stderrTail(foreign.stderr)}`)
+  rmSync(famAt, { force: true })   // 下面两条要的是玩具树上没有按族计数的文件
   // 数据不过：只打这两行、红，第一条不过的就报（第 2 小节）
   const cannot = (why: string) => [`✗ 启动数闸门：无从判断 —— ${why}`,
     '  先跑 npm run mutate：它在全部正常基线都绿了以后写 output/mutation-launches/launches.json；数的那一段出错时不写，看它输出里「启动数没数成」那一行']
@@ -6271,13 +6302,13 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
   writeFileSync(toy, orig + '// 另一棵树\n')   // scripts/ 下的文件进源码指纹
   const moved = runToolBoth('launches 在改过源码的启动数玩具树上判', 'launches', [], root, { status: 1, soft: [0] })
   writeFileSync(toy, orig)
-  if (moved.ok) named('启动数入口：改了玩具的一个源码文件后闸门报另一棵树、以 1 退出',
-    moved.status === 1 && isDeepStrictEqual(gateOut(moved), cannot('启动数文件是另一棵树上写的（源码身份对不上）')),
+  if (moved.ok) named('启动数入口：改了玩具的一个源码文件后闸门先打没有按族计数那句，再报另一棵树、以 1 退出',
+    moved.status === 1 && isDeepStrictEqual(gateOut(moved), [NO_IDLE, ...cannot('启动数文件是另一棵树上写的（源码身份对不上）')]),
     `退出码 ${moved.status}；闸门打的：\n${moved.stdout}stderr 末几行：${stderrTail(moved.stderr)}`)
   rmSync(join(root, 'output', 'mutation-launches', 'launches.json'), { force: true })
   const gone = runToolBoth('launches 在删掉计数文件的启动数玩具树上判', 'launches', [], root, { status: 1, soft: [0] })
-  if (gone.ok) named('启动数入口：删掉计数文件后闸门报没有启动数文件、以 1 退出',
-    gone.status === 1 && isDeepStrictEqual(gateOut(gone), cannot('没有启动数文件，或读不出来、不是一个 JSON 对象')),
+  if (gone.ok) named('启动数入口：删掉计数文件后闸门先打没有按族计数那句，再报没有启动数文件、以 1 退出',
+    gone.status === 1 && isDeepStrictEqual(gateOut(gone), [NO_IDLE, ...cannot('没有启动数文件，或读不出来、不是一个 JSON 对象')]),
     `退出码 ${gone.status}；闸门打的：\n${gone.stdout}stderr 末几行：${stderrTail(gone.stderr)}`)
 })
 
