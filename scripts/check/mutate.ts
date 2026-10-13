@@ -67,10 +67,14 @@ import { LAUNCH_PRELOAD, infraClosure, selfVerifying } from './verifier-rule.js'
 // 观察不参与检查判定；普通收尾的人读行与机器段共用这一份原料。
 const costEnabled = !process.argv.includes('--brief') && !process.argv.includes('--worker')
 // 启动数文件这一跑重写，开跑先删旧的，排在变异集体检之前：这一跑在哪一步停下、数没数成，
-// 检查链最后一步都读不到上一跑的（ADR-145 第二十一节第 2 小节）。删不掉（比如那是个目录）时
-// 这一跑也写不进去，闸门照样读不到对的
+// 检查链最后一步都读不到上一跑的（ADR-145 第二十一节第 2 小节）。删不掉（比如那是个目录、没有权限）
+// 就以 1 退出、不往下跑，同变异集那几道体检：留着它，最后一步读到的就是上一跑的数
 const LAUNCHES_FILE = 'output/mutation-launches/launches.json'
-if (costEnabled) try { rmSync(LAUNCHES_FILE, { force: true }) } catch { /* 见上 */ }
+if (costEnabled) try { rmSync(LAUNCHES_FILE, { force: true }) } catch (e) {
+  console.error(`✗ 变异测试：上一跑留下的启动数文件删不掉（${e instanceof Error ? e.message : String(e)}）—— 留着它，检查链最后一步读到的是上一跑的数；未施加任何变异`)
+  console.error(`\n  先把 ${LAUNCHES_FILE} 挪走或删掉再跑。`)
+  process.exit(1)
+}
 let costContext: { identity: CostIdentity; combinations: CostCombination[] } | undefined
 const costBaselines: CostBaseline[] = []
 const costMutations: CostMutation[] = []
