@@ -14,7 +14,7 @@ import { configurationKey, costObservation, configurationCost, configurationCost
 import type { RunVerdict } from './check/mutate-rule.js'
 import { stopsEarly } from './check/mutate-rule.js'
 import {
-  LAUNCH_LIMIT, inProcessLine, launchFindings, launchGate, launchRecheck, launchReport, launchTally, paidLaunches, printLabel, settleLaunches, tallyLine,
+  LAUNCH_LIMIT, idleGroupsLine, inProcessLine, launchFindings, launchGate, launchRecheck, launchReport, launchTally, paidLaunches, printLabel, settleLaunches, tallyLine,
   type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchPrint, type LaunchTally, type LaunchTrunk, type LaunchVerifier,
 } from './check/launch-rule.js'
 import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog } from './check/launch-count.js'
@@ -8416,6 +8416,79 @@ eq('启动数闸门：在主干上有缺基线时也红，报告行与重跑那�
   // 有计数、有实测、单位 4000 不是 0：计数里只有起 3 次的 p；或整跑 0 次的 g 只落了不算的、h 什么也没落（a–f 这回没有计数）
   eq('进程内耗时：组内不起进程的配置一种也没有，或它们都没有实测的变异耗时时打第三句',
     [inProc(counts([[IK('p'), 3]]), CLEAN), inProc(counts([[IK('g'), 0], [IK('h'), 0], [IK('p'), 3]]), [...noise(IK('g')), ...CLEAN])], [NO_ZERO, NO_ZERO])
+}
+
+// ══ 第七节末第二行，有启动但没有变异的组（第三十一节第 3、4 小节）。同样先于实现写成：期望值只从第三十一节手推，没读实现（写时它是抛错的桩）。
+// 抛错时交回抛错原文，断言红而不崩，同上面的 gate；按段比的几条从整行里切出那一段，切不出就拿整行去比。schema 写字面量，不取常量
+{
+  const idle = (...a: Parameters<typeof idleGroupsLine>): string => { try { return idleGroupsLine(...a) } catch (e) { return `抛错：${String(e)}` } }
+  const fam = (launches: unknown, ...groups: unknown[]) => ({ groups, launches })
+  const file = (families: unknown, more: object = {}) => ({ schema: 'selfcheck-launches/v1', source: SRC, families, ...more })
+  const sc = (...executes: string[]) => ({ by: 'selfcheck', executes })
+  const LEAD = '有启动但没有变异的组（自检，只报数）：整族没有变异落到、起过进程的'
+  // 主样本，表序就是文件里的族序。r2、r3 分在两条自检路由里，并起来整族落到；ghost 落到了、文件里没有，不管
+  const FAMS = [fam(7, 'r1'), fam(8, 'g'), fam(5, 'e'), fam(9, 'r2', 'r3'), fam(12, 'k', 'd'), fam(5, 'c'), fam(0, 'z0'),
+    fam(20, 'm1', 'm2', 'm3'), fam(5, 'a'), fam(null, 'n1'), fam(null, 'n2', 'n3'), fam(5, 'B'), fam(null, 'm4', 'r4')]
+  const ROUTES = [sc('r1', 'r2', 'm1', 'ghost'), sc('r3', 'r4')], GOOD = file(FAMS)
+  const LINE = idle(GOOD, SRC, ROUTES), seg = (re: RegExp): string => re.exec(LINE)?.[0] ?? LINE
+  // 整族没落到、起过进程的：g 8、e 5、k+d 12、c 5、a 5、B 5 → 6 族、7 组（k+d 两组）、共 40 次。
+  //   起 0 次的 z0 算进来就成 7 族 8 组；混合的 m1+m2+m3 起 20 次，算进来是 7 族 60 次；只加前五族是 35
+  const P1 = `${LEAD} 6 族、7 组共起 40 次，不含 git`
+  // 12 k+d（照文件先后，不是 d+k）、8 g，再是四个 5：B 0x42 < a 0x61 < c < e，取 B a c，第六族 e 截掉。
+  //   并列照文件先后是 e c a、按 localeCompare 是 a B c，都不是
+  const P2 = '最多的：k+d 12、g 8、B 5、a 5、c 5'
+  // m1+m2+m3 里 m1 落到 → 2 组；m4+r4 里 r4 落到 → 1 组（它没拿到计数，也不记进 J）→ 3 组
+  const P3 = '与有变异的组同族、按族分不开的 3 组不在其内'
+  // n1、n2+n3 两族（按组数是 3；连上混合的 m4+r4 也是 3；只看第一条路由的话 m4+r4 整族没落到，也是 3）
+  const P4 = '整族没有变异落到、没拿到计数的 2 族不在其内'
+  eq('有启动但没有变异的组：整族没落到又起过进程的族数、组数与次数之和，落到的、混合的与起 0 次的族都不算', seg(/^[^；]*/), P1)
+  eq('有启动但没有变异的组：最多的按次数从大到小取前五族，并列按族名的字符串比较，多组的族名照文件先后用加号连', seg(/最多的：[^；]*/), P2)
+  eq('有启动但没有变异的组：混合的族只数没落到的组数', seg(/与有变异的组同族[^；]*/), P3)
+  eq('有启动但没有变异的组：整族没落到、没拿到计数的按族数记一段，混合的族没拿到计数不记', seg(/整族没有变异落到、没拿到计数的[^；]*/), P4)
+  eq('有启动但没有变异的组：带数的一行四段按先后以分号相隔', LINE, [P1, P2, P3, P4].join('；'))
+  // t1、t2 只在需求测试的路由里：t1 整族没落到、起 6 次，s1+t2 是混合的（t2 记进混合那段）。把它们当落到，就是 0 族、0 组、混合 0 组
+  eq('有启动但没有变异的组：别的验证者的路由里出现同名的组不算落到',
+    idle(file([fam(6, 't1'), fam(2, 's1', 't2')]), SRC, [{ by: 'test', executes: ['t1', 't2'] }, sc('s1')]),
+    `${LEAD} 1 族、1 组共起 6 次，不含 git；最多的：t1 6；与有变异的组同族、按族分不开的 1 组不在其内`)
+  // z0 起 0 次：不算、不列（列了就是「最多的：z0 0」）；m1+x 混合；n1 没拿到计数。族是空数组也认得，各段的 0 照打
+  eq('有启动但没有变异的组：没有起过进程的整族时不打最多的那一段，其余各段的 0 照打',
+    [idle(file([fam(0, 'z0'), fam(4, 'm1', 'x'), fam(null, 'n1')]), SRC, [sc('m1')]), idle(file([]), SRC, [sc('m1')])],
+    [`${LEAD} 0 族、0 组共起 0 次，不含 git；与有变异的组同族、按族分不开的 1 组不在其内；整族没有变异落到、没拿到计数的 1 族不在其内`,
+      `${LEAD} 0 族、0 组共起 0 次，不含 git；与有变异的组同族、按族分不开的 0 组不在其内`])
+  // r1 整族落到又没拿到计数：不记进 J；a+b 3、c 2 两族，不足五族有几族列几族
+  eq('有启动但没有变异的组：没有没拿到计数的整族时不打最后一段',
+    idle(file([fam(3, 'a', 'b'), fam(null, 'r1'), fam(2, 'c')]), SRC, [sc('r1')]),
+    `${LEAD} 2 族、3 组共起 5 次，不含 git；最多的：a+b 3、c 2；与有变异的组同族、按族分不开的 0 组不在其内`)
+  // 数不出来的三句，原文照第 4 小节，按那个先后判
+  const NO_FILE = '有启动但没有变异的组：没有自检整跑的按族启动计数（只报数）'
+  const NO_TREE = '有启动但没有变异的组：自检的按族启动计数不是这棵树上数的（只报数）'
+  const NO_ROUTE = '有启动但没有变异的组：算不出自检变异落到哪些组（只报数）'
+  eq('有启动但没有变异的组：没有按族计数文件时打第一句', idle(undefined, SRC, ROUTES), NO_FILE)
+  eq('有启动但没有变异的组：文件认不得又对不上树时打第一句，先于第二、三句判',
+    [idle(file(FAMS, { schema: 'selfcheck-launches/v2' }), SHORT, ROUTES), idle(undefined, undefined, undefined)], [NO_FILE, NO_FILE])
+  // 当前树的身份是文件里那个的前缀、文件里的是当前树的前缀，都是不等
+  eq('有启动但没有变异的组：当前树的身份取不到或与文件里的不等时打第二句',
+    [idle(GOOD, undefined, ROUTES), idle(GOOD, SHORT, ROUTES), idle(file(FAMS, { source: SHORT }), SRC, ROUTES)], [NO_TREE, NO_TREE, NO_TREE])
+  eq('有启动但没有变异的组：对不上树又没有路由时打第二句，先于第三句判', [idle(GOOD, SHORT, undefined), idle(GOOD, undefined, undefined)], [NO_TREE, NO_TREE])
+  // 路由是空数组不是 undefined：一组也没落到，a 整族起过 4 次
+  eq('有启动但没有变异的组：路由是 undefined 时打第三句，空的路由照常打带数的一行', [idle(GOOD, SRC, undefined), idle(file([fam(4, 'a')]), SRC, [])],
+    [NO_ROUTE, `${LEAD} 1 族、1 组共起 4 次，不含 git；最多的：a 4；与有变异的组同族、按族分不开的 0 组不在其内`])
+  // 认不得的形状（第 4 小节「认文件」），每个坏样本只比一份认得的多一处毛病；当前树的身份与路由都给对的，只能打第一句
+  // （文件里的 source 不是字符串的那几样要是放过去，比树身份就成了第二句）
+  const bad = (...fs: unknown[]) => fs.map(f => idle(f, SRC, ROUTES)), allFirst = (n: number) => Array(n).fill(NO_FILE)
+  const one = (defect: object) => file([fam(1, 'a'), { ...fam(2, 'b'), ...defect }])
+  eq('有启动但没有变异的组：交进来的不是对象时认不得文件', bad(null, JSON.stringify(GOOD), 3, [GOOD]), allFirst(4))
+  eq('有启动但没有变异的组：schema 缺了或不是 selfcheck-launches/v1 时认不得文件', bad(file(FAMS, { schema: undefined }),
+    file(FAMS, { schema: 'selfcheck-launches/v2' }), file(FAMS, { schema: 'mutation-launches/v1' }), file(FAMS, { schema: 'Selfcheck-Launches/v1' })), allFirst(4))
+  eq('有启动但没有变异的组：文件里的 source 缺了或不是字符串时认不得文件',
+    bad(file(FAMS, { source: undefined }), file(FAMS, { source: null }), file(FAMS, { source: 7 })), allFirst(3))
+  eq('有启动但没有变异的组：families 不是数组或有一项不是对象时认不得文件', bad(file(undefined), file({ length: 0 }), file('budget-gate'),
+    file([fam(1, 'a'), null]), file([fam(1, 'a'), 'b']), file([fam(1, 'a'), 5])), allFirst(6))
+  eq('有启动但没有变异的组：groups 不是非空数组或有一个组名不是非空字符串时认不得文件', bad(one({ groups: undefined }), one({ groups: 'b' }),
+    one({ groups: [] }), one({ groups: [''] }), one({ groups: ['b', 7] }), one({ groups: ['b', null] })), allFirst(6))
+  eq('有启动但没有变异的组：launches 不是 null 也不是非负整数时认不得文件',
+    bad(one({ launches: undefined }), one({ launches: -1 }), one({ launches: 1.5 }), one({ launches: '3' }), one({ launches: false })), allFirst(5))
+  eq('有启动但没有变异的组：同一个组出现在两族里时认不得文件', bad(file([fam(1, 'a'), fam(2, 'b', 'a')]), file([fam(null, 'r1'), fam(0, 'x'), fam(0, 'r1')])), allFirst(2))
 }
 })
 
