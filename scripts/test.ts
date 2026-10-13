@@ -2842,6 +2842,46 @@ suite('D7', '邮箱提取支持反爬写法且不误判')
   eq('@提及之后的真邮箱照样取到', extractEmail('follow @jane.doe or jane@example.com'), 'jane@example.com')
   eq('@ 两边都隔空格仍是邮箱', extractEmail('press @ example.com'), 'press@example.com')
   eq('@ 前面多一个空格的真邮箱与 @提及分不开，宁可漏取', extractEmail('sarah @gmail.com'), null)
+  criterion('D7.d')
+  // 期望取自 D7.d 原文：几个邮箱列几个，按出现先后，地址写成小写、同一地址只列一次，', ' 连接
+  eq('bio 里两个邮箱按出现先后都列出', extractEmail('a@one.com and b@two.com'), 'a@one.com, b@two.com')
+  eq('需求原例：业务邮箱与个人邮箱都列出，不替人挑',
+    extractEmail('biz: agency@mgmt.com / personal: jane@gmail.com'), 'agency@mgmt.com, jane@gmail.com')
+  eq('反爬写法与普通写法混排时按出现先后都列出',
+    extractEmail('sarahbiz (at) example (dot) com / backup: sarah@gmail.com'), 'sarahbiz@example.com, sarah@gmail.com')
+  eq('普通写法在前、反爬写法在后时顺序不变',
+    extractEmail('sarah@gmail.com or hi[at]brand[dot]co'), 'sarah@gmail.com, hi@brand.co')
+  eq('同一地址大小写不同只列一次',
+    extractEmail('Jane@Gmail.com, also jane@gmail.com'), 'jane@gmail.com')
+  eq('重复地址只列一次且不打乱其余邮箱的先后',
+    extractEmail('a@one.com b@two.com A@ONE.COM'), 'a@one.com, b@two.com')
+  eq('拼写写法在前、符号写法在后时也按出现先后',
+    extractEmail('press at example dot com or sarah@gmail.com'), 'press@example.com, sarah@gmail.com')
+  eq('只有一个邮箱时与原来一样', extractEmail('biz: sarah@example.com'), 'sarah@example.com')
+
+  // 跨平台同人合并：主记录是谁不由本条规定，按合并结果里的主记录推出期望顺序
+  const mergeEmails = (ea: string | null | undefined, eb: string | null | undefined) => {
+    const a = mk('tiktok', 'sam', { email: ea }), b = mk('instagram', 'sam', { email: eb })
+    linkCrossPlatform([a, b])
+    const main = mergeCrossPlatform([a, b]).find(c => c.merged_into === undefined)
+    return { platform: main?.platform, email: main?.email }
+  }
+  const both = mergeEmails('tt@example.com', 'ig@example.com')
+  eq('同人合并两边不同邮箱都留下，主记录的在前', both.email,
+    both.platform === 'tiktok' ? 'tt@example.com, ig@example.com' : 'ig@example.com, tt@example.com')
+  eq('同人合并后两边邮箱一个不少', both.email?.split(', ').sort(), ['ig@example.com', 'tt@example.com'])
+  const shared = mergeEmails('shared@example.com, tt@example.com', 'ig@example.com, shared@example.com')
+  eq('同人合并两边共有的地址只留一次', shared.email,
+    shared.platform === 'tiktok' ? 'shared@example.com, tt@example.com, ig@example.com'
+      : 'ig@example.com, shared@example.com, tt@example.com')
+  const multi = mergeEmails('a@example.com, b@example.com', 'c@example.com')
+  eq('同人合并时一边多个邮箱与另一边邮箱都留下，主记录的整组在前', multi.email,
+    multi.platform === 'tiktok' ? 'a@example.com, b@example.com, c@example.com'
+      : 'c@example.com, a@example.com, b@example.com')
+  eq('同人合并一边查过没有、一边未查询 → 仍为未查询', mergeEmails(null, undefined).email, undefined)
+  eq('同人合并一边未查询、一边查过没有 → 仍为未查询', mergeEmails(undefined, null).email, undefined)
+  eq('同人合并一边有邮箱、一边未查询 → 取有的那个', mergeEmails('tt@example.com', undefined).email, 'tt@example.com')
+  eq('同人合并一边查过没有、一边有邮箱 → 取有的那个', mergeEmails(null, 'ig@example.com').email, 'ig@example.com')
   ok('PR 信号 英文', PR_SIGNALS.test('DM for collabs'))
   ok('PR 信号 中文', PR_SIGNALS.test('商务合作请私信'))
   ok('PR 信号 无', !PR_SIGNALS.test('just vibes'))

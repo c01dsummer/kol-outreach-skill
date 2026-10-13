@@ -356,6 +356,89 @@
       "replace": "const AT_SYM = String.raw`(?:@|"
     },
     {
+      "id": "M-D7-d",
+      "req": "D7.d",
+      "why": "bio 里有几个邮箱只取第一个 —— 常常留下经纪公司那个，替人挑掉了其余的",
+      "by": "test",
+      "kills": [
+        "bio 里两个邮箱按出现先后都列出",
+        "需求原例：业务邮箱与个人邮箱都列出，不替人挑",
+        "反爬写法与普通写法混排时按出现先后都列出",
+        "普通写法在前、反爬写法在后时顺序不变",
+        "重复地址只列一次且不打乱其余邮箱的先后",
+        "拼写写法在前、符号写法在后时也按出现先后"
+      ],
+      "file": "scripts/lib/email.ts",
+      "find": "  return emails.length ? emails.join(EMAIL_SEP) : null",
+      "replace": "  return emails.length ? emails[0] : null"
+    },
+    {
+      "id": "M-D7-e",
+      "req": "D7.d",
+      "why": "不按在 bio 里出现的先后排，拼写写法的邮箱总排在符号写法后面",
+      "by": "test",
+      "kills": [
+        "拼写写法在前、符号写法在后时也按出现先后"
+      ],
+      "file": "scripts/lib/email.ts",
+      "find": "found.sort((a, b) => a.at - b.at).map(f => f.email)",
+      "replace": "found.map(f => f.email)"
+    },
+    {
+      "id": "M-D7-f",
+      "req": "D7.d",
+      "why": "同一地址写了两次就列两次",
+      "by": "test",
+      "kills": [
+        "同一地址大小写不同只列一次",
+        "重复地址只列一次且不打乱其余邮箱的先后"
+      ],
+      "file": "scripts/lib/email.ts",
+      "find": "  const emails = [...new Set(found.sort((a, b) => a.at - b.at).map(f => f.email))]",
+      "replace": "  const emails = found.sort((a, b) => a.at - b.at).map(f => f.email)"
+    },
+    {
+      "id": "M-D7-g",
+      "req": "D7.d",
+      "why": "跨平台同人合并时只留主记录的邮箱，另一个平台 bio 里的邮箱丢了",
+      "by": "test",
+      "kills": [
+        "同人合并两边不同邮箱都留下，主记录的在前",
+        "同人合并后两边邮箱一个不少",
+        "同人合并两边共有的地址只留一次",
+        "同人合并时一边多个邮箱与另一边邮箱都留下，主记录的整组在前"
+      ],
+      "file": "scripts/lib/identity.ts",
+      "find": "  if (a && b) return [...new Set([...a.split(EMAIL_SEP), ...b.split(EMAIL_SEP)])].join(EMAIL_SEP)\n",
+      "replace": ""
+    },
+    {
+      "id": "M-D7-h",
+      "req": "D7.d",
+      "why": "跨平台同人合并时两边都写了的地址列两次",
+      "by": "test",
+      "kills": [
+        "同人合并两边共有的地址只留一次"
+      ],
+      "file": "scripts/lib/identity.ts",
+      "find": "  if (a && b) return [...new Set([...a.split(EMAIL_SEP), ...b.split(EMAIL_SEP)])].join(EMAIL_SEP)",
+      "replace": "  if (a && b) return [...a.split(EMAIL_SEP), ...b.split(EMAIL_SEP)].join(EMAIL_SEP)"
+    },
+    {
+      "id": "M-D7-i",
+      "req": "D7.d",
+      "why": "跨平台同人合并时另一个平台的邮箱排到主记录前面",
+      "by": "test",
+      "kills": [
+        "同人合并两边不同邮箱都留下，主记录的在前",
+        "同人合并两边共有的地址只留一次",
+        "同人合并时一边多个邮箱与另一边邮箱都留下，主记录的整组在前"
+      ],
+      "file": "scripts/lib/identity.ts",
+      "find": "  if (a && b) return [...new Set([...a.split(EMAIL_SEP), ...b.split(EMAIL_SEP)])].join(EMAIL_SEP)",
+      "replace": "  if (a && b) return [...new Set([...b.split(EMAIL_SEP), ...a.split(EMAIL_SEP)])].join(EMAIL_SEP)"
+    },
+    {
       "id": "M-D5-a",
       "req": "D5",
       "why": "去掉 CSV 转义 —— 含换行的开发信会把表格撑烂",

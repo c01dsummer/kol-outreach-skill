@@ -329,6 +329,7 @@ export interface Creator {
   recent_posts?: RecentPost[]
 
   // 采集后填充
+  /** bio 里的全部邮箱，按出现先后用 ', ' 连成一个值（D7.d）；三态见 P1.a */
   email?: string | null
   email_verified?: boolean
   audience_geo?: Record<string, number>
