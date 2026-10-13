@@ -6198,6 +6198,15 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
   // 有计数的 3 种（t-bypass 缺计数，全跑没有基线）；会提前停的两条都付 51，并列取配置键在前的 s-drift；不提前停的只有 t-pass
   const tally = `启动数（只报数）：3 种配置有计数；会提前停的最多付 51 次（M-L-drift，${DRIFT}）；不提前停的启动×条数最多 100（${PASS}，20 × 5）`
   named('启动数入口：只报数那一行照格式打在 stdout 里', lines.some(l => l.trim() === tally), `应有一行：${tally}`)
+  // 进程内耗时那一行（第二十七节第 2 小节、第 4 小节第二条），三句「数不出来时」按先后手推：有计数的三种配置
+  // （下面 baselines 那条：t-pass 20、s-over 54、s-drift 51，git 不算）→ 第一句不成立；9 条都真起了验证者、以 0 退出报全部被抓到，
+  // 经过时间都是大于 0 的实测毫秒，单位（含全跑那条在内的中位数）不是 0 → 第二句不成立；三种整跑都大于 0 次，t-bypass 缺计数、
+  // 全跑没有基线都不算，组内不起进程的配置一种也没有 → 第三句。行首缩进不核，只认去掉行首空白后的全文；「结论之前」第 4 小节没要求，不核
+  const inProcAt = lines.flatMap((l, i) => l.trimStart().startsWith('进程内耗时') ? [i] : [])
+  const billAt = lines.findIndex(l => l.includes('按验证者记账')), IN_PROC = '进程内耗时：组内不起进程的配置没有实测的变异耗时（只报数）'
+  named('启动数入口：进程内耗时恰打一行、在按验证者记账那一行之后，组内没有不起进程的配置时是数不出来的第三句',
+    inProcAt.length === 1 && billAt >= 0 && inProcAt[0] > billAt && lines[inProcAt[0]].trimStart() === IN_PROC,
+    `应有恰一行：${IN_PROC}；含「按验证者记账」的在第 ${billAt} 行（-1 是没有），以进程内耗时开头的在第 ${JSON.stringify(inProcAt)} 行：\n${lines.slice(Math.max(billAt, 0)).join('\n')}`)
   // 人读的那几行（第十三节第 2 小节「输出」第 2 条）：有发现时一行标题，后面是 launchReport 的每一行、各缩进四格，都在「子集选跑」
   // 那一行后面。这一跑有四条发现（上面 expected），所以标题必须在。其中 s-drift 那条不确定，照第十三节第 3 小节末的原文报两行：
   // 第一行 drift 是上面手推的「整跑 51 次对 52 次」，缩进四格；第二行原文本身以四格起头，再缩进四格就是八格，紧跟在第一行后面。
