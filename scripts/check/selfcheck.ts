@@ -6099,6 +6099,15 @@ group('mutation-baseline', [], () => {
       `输出=${denied.stderr}，调用=${JSON.stringify(fileText(bad.marker))}，目标=${JSON.stringify(fileText(bad.target))}`)
     named('mutate 子集基线失败、没写启动数时，上一跑留下的启动数文件也已删掉', !existsSync(stale), `还在：${fileText(stale)}`)
   }
+  // 开跑删不掉旧的启动数文件（这里那个路径是个不空的目录）：以 1 退出、不往下跑，退出前打一行删不掉（第二十一节第 2 小节末）。
+  // 措辞没逐字定，只认一行同时说到「启动数文件」与「删不掉」；玩具树本来能正常跑完，验证者的调用记录是空的 = 正常基线与变异一条都没跑
+  const stuck = seed('mutation-baseline-stuck', false)
+  mkdirSync(join(stuck.dir, 'output', 'mutation-launches', 'launches.json', '占位'), { recursive: true })
+  const held = runToolBoth('变异一步在启动数文件的路径是个目录的玩具树上起跑', 'mutate', ['--jobs=1'], stuck.dir, { status: 1, soft: [0] })
+  if (held.ok) named('变异一步开跑删不掉旧的启动数文件时以 1 退出、说删不掉，正常基线与变异一条都没跑',
+    held.status === 1 && `${held.stdout}\n${held.stderr}`.split('\n').some(l => l.includes('启动数文件') && l.includes('删不掉'))
+      && fileText(stuck.marker) === '',
+    `退出码 ${held.status}，验证者调用=${JSON.stringify(fileText(stuck.marker))}，输出末几行：${stderrTail(`${held.stdout}\n${held.stderr}`)}`)
 })
 
 // ---- 变异入口的启动数：真起 mutate，核计数接上了、只报数不判红（ADR-145 第十三节第 4 小节第二条）----
