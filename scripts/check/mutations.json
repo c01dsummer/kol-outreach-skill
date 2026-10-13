@@ -12399,6 +12399,26 @@
       "kills": ["进程内耗时：只算整跑 0 次又有实测变异的配置，计数大于 0 的、没有计数的（全跑的也没有）都不算"]
     },
     {
+      "id": "M-H56-r",
+      "req": "harness",
+      "why": "合计改成每种取了一位小数再相加",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "合计 ${one(total)} 个单位",
+      "replace": "合计 ${all.reduce((s, [, r]) => s + Number(one(r.ms)), 0).toFixed(1)} 个单位",
+      "by": "test",
+      "kills": ["进程内耗时：合计与每种配置的数保留一位小数"]
+    },
+    {
+      "id": "M-H56-s",
+      "req": "harness",
+      "why": "最多的按打出来的一位小数排，打出来相同的当成并列",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "=> y.ms - x.ms ||",
+      "replace": "=> Number(one(y.ms)) - Number(one(x.ms)) ||",
+      "by": "test",
+      "kills": ["进程内耗时：最多的取前五种，按数从大到小，并列按配置键"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
