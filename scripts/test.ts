@@ -8361,6 +8361,8 @@ harness('入口启动的计数预加载：真起一个玩具验证者，看它�
 // 玩具按固定先后起进程、往两股打 ✓／✗ 行，经上面的 preloadRun 起三次：不计数、计数且原来没有 NODE_OPTIONS、计数且原来有一个不改输出的 NODE_OPTIONS。组内只这三次启动；
 // 显式调 process.exit 退出的那个小玩具与它的两条断言挪到了下一组 h-launch-preload-edge（ADR-145 第三节第 1 种改法：拆组）
 const dir = mkdtempSync(join(tmpdir(), 'kol-lp-'))
+// 验收用的故意超线（ADR-145 第二十一节第 8 小节第 1 条）：组内多起 3 次，6 × 20 = 120；下一个提交撤掉
+for (let i = 0; i < 3; i++) spawnSync('true')
 try {
   const toy = join(dir, 'toy.mjs'), kid = join(dir, 'kid.cjs'), NO = '--max-old-space-size=512'
   // 玩具自己与它的子进程各报一次看到的 [LAUNCH_COUNT, NODE_OPTIONS]
