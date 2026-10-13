@@ -6043,6 +6043,68 @@ group('roster', [], () => {
   }
 })
 
+// ---- 顺序契约表与变异目录对不上即以退出码 1 结束、一条变异也不施（ADR-148 第十四节第 3 条，接线证明）----
+group('order-binding-entry', [], () => {
+  // 判定是纯函数，由需求测试 h-order-rule 断言、M-H58 守着；剩下的那一半是**入口真的读了表、调了判定、
+  // 开跑前就以 1 退出**。入口在验证基础设施闭包里，指着它的变异会被「自己验自己」拦下，所以这一半只有夹具、
+  // 没有负片（同上面几处 mutate 夹具）。期望全部从 ADR-148 第五节与第十四节第 1 条手推，不照入口的输出抄；
+  // 只认第十四节说自检认的那几样：头一行的条数，各处那一行里的行号、编号、file，不逐字比整句。
+  // 玩具树要过得了前几道体检，红才只能是这一道给的：一条不带 by 的变异走缺省验证者，锚点在目标文件里恰好一处。
+  const why = '那个值被改掉，测试必须失败', source = "export const v = 'keep'\n"
+  const seed = (name: string, table: boolean) => {
+    const dir = join(tmp, name), marker = join(tmp, `${name}.calls`), target = join(dir, 'scripts', 'check', 'a.ts')
+    mkdirSync(join(dir, 'scripts', 'check'), { recursive: true })
+    mkdirSync(join(dir, 'docs'), { recursive: true })
+    writeFileSync(join(dir, 'docs', 'requirements.json'),
+      JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }))
+    // 行号按全文数（第二节）：1 标题、2 空行、3 开始标记、4 表头、5 分隔行、6 与 7 两行数据、8 结束标记。
+    // 前面垫两行，范围里的序号（1、2）就对不上全文行号，数错了起点的入口分得出来。第 6 行点名目录里没有的
+    // M-X1-b；第 7 行点名目录里那条，位置栏却只有 b.ts。编号要带数字：M-X-a 那种写法按第二节的文法只算散文
+    if (table) writeFileSync(join(dir, 'docs', 'ARCHITECTURE.md'), ['# 玩具架构', '', '<!-- BEGIN:ORDER -->',
+      '| 先后 | 位置 | 守它的变异 |', '|---|---|---|', '| 甲在乙前 | `scripts/check/a.ts` | M-X1-b |',
+      '| 乙在丙前 | `scripts/check/b.ts` | M-X1-a |', '<!-- END:ORDER -->', ''].join('\n'))
+    writeFileSync(target, source)
+    // marker 在被复制的目录之外，验证者每跑一次记一笔：拒了就该一笔也没有，连正常代码那一遍都不跑
+    writeFileSync(join(dir, 'scripts', 'test.ts'), ["import { appendFileSync, readFileSync } from 'node:fs'",
+      `appendFileSync(${JSON.stringify(marker)}, 'ran\\n')`,
+      "if (readFileSync('scripts/check/a.ts', 'utf8').includes('keep')) console.log('\\n全部通过（执行 1 条断言；覆盖 0 条需求）\\n')",
+      "else { console.log('\\n1 个失败\\n'); process.exitCode = 1 }", ''].join('\n'))
+    writeFileSync(join(dir, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+      { id: 'M-X1-a', req: 'X1.a', why, file: 'scripts/check/a.ts', find: 'keep', replace: 'gone' }] }))
+    return { dir, marker, target }
+  }
+  // 头一行是入口在 stderr 写的第一条非空行；本文件给每个子进程挂的假 fetch 预加载在入口代码跑之前就往 stderr
+  // 打一行「[fake-fetch] …」，那是夹具自己的，不算。带行号的各处以「第 <行号> 行」加空格开头（第十四节第 1 条）
+  const head = (stderr: string) => stderr.split('\n').find(l => l.trim() !== '' && !l.startsWith('[fake-fetch]')) ?? ''
+  const at = (stderr: string, n: number, ...bits: string[]) => stderr.split('\n')
+    .some(l => l.trimStart().startsWith(`第 ${n} 行 `) && bits.every(b => l.includes(b)))
+  const twoPlaces = (stderr: string) => head(stderr).includes('顺序契约表有 2 处')
+    && at(stderr, 6, 'M-X1-b') && at(stderr, 7, 'M-X1-a', 'scripts/check/a.ts')
+  const said = (r: { status: number | null; stdout: string; stderr: string }) =>
+    `退出码 ${r.status}，输出末几行：${stderrTail(`${r.stdout}\n${r.stderr}`)}`
+  // soft: [0]：「以 1 退出」本身就是判据点名的东西，退 0 时交给下面的具名断言判，不打进程记号（同 mutation-baseline）
+  const bad = seed('order-binding-table', true)
+  const full = runToolBoth('mutate 在顺序契约表对不上的玩具树上整跑', 'mutate', ['--jobs=1'], bad.dir, { status: 1, soft: [0] })
+  if (full.ok) {
+    named('顺序契约表对不上时整跑以 1 退出、头一行说 2 处，两处各带行号与编号，不在位置里的那处带 file',
+      full.status === 1 && twoPlaces(full.stderr), said(full))
+    named('顺序契约表对不上时整跑一条变异也没施：验证者一次没跑，目标文件逐字节不变',
+      fileText(bad.marker) === '' && fileText(bad.target) === source,
+      `验证者调用=${JSON.stringify(fileText(bad.marker))}，目标=${JSON.stringify(fileText(bad.target))}`)
+  }
+  // 这一道在 --brief 那一支之前，--brief 照样拒；清单每条都打编号与「违反了什么」，拒了就一条也不该出现
+  const brief = runToolBoth('mutate --brief 在顺序契约表对不上的玩具树上起跑', 'mutate', ['--brief'], bad.dir, { status: 1, soft: [0] })
+  if (brief.ok) named('顺序契约表对不上时 --brief 以 1 退出、报同样两处，变异清单一行也没打',
+    brief.status === 1 && twoPlaces(brief.stderr) && !brief.stdout.includes('M-X1-a') && !brief.stdout.includes(why), said(brief))
+  // 读不到不能当成「没有表、没得核」放过去。入口把读不到交成 undefined 那一读，判定的断言够不到，只有这一跑守
+  const gone = seed('order-binding-missing', false)
+  const miss = runToolBoth('mutate 在没有 docs/ARCHITECTURE.md 的玩具树上整跑', 'mutate', ['--jobs=1'], gone.dir, { status: 1, soft: [0] })
+  if (miss.ok) named('没有 docs/ARCHITECTURE.md 时整跑以 1 退出、头一行说 1 处、说读不到，验证者一次没跑',
+    miss.status === 1 && head(miss.stderr).includes('顺序契约表有 1 处') && fileText(gone.marker) === ''
+      && miss.stderr.split('\n').some(l => l.includes('ARCHITECTURE.md') && l.includes('读不到')),
+    `${said(miss)}，验证者调用=${JSON.stringify(fileText(gone.marker))}`)
+})
+
 // ---- 整跑那份报告里的豁免行，也要随负片改口（入口的第二处）----
 group('exempt-lead', [], () => {
   // 上面那条断言守的是 `--brief`；**同一句话在 mutate.ts 里有两处**，整跑那一处
