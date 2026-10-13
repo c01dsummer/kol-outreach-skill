@@ -25,7 +25,8 @@ export type OrderFault =
 const BEGIN = 'BEGIN:ORDER'
 const END = 'END:ORDER'
 const ID = /^M-[A-Z]+[0-9]+-[a-z]+$/
-const RANGE = /^(M-[A-Z]+[0-9]+-)([a-z]+)[…–]([a-z]+)$/
+// 区间两端至多两个字母（ADR-148 第二节）：展开至多 702 个；也让下面按数比大小的那一步不会超出浮点数的精度
+const RANGE = /^(M-[A-Z]+[0-9]+-)([a-z]{1,2})[…–]([a-z]{1,2})$/
 // 长得像编号、又不完全是：大小写不限的前缀片段，或者一个区间记号
 const LOOKS_LIKE = /[Mm]-[A-Za-z]+[0-9]+-|[…–]/
 const SEPARATORS = /[\s、，；：。,;:（）()「」]+/
