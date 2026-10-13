@@ -12,7 +12,7 @@
 | 一条测试算不算数（红→绿→变异；expected 不许来自运行结果） | `process/4-VERIFY.md` |
 | 需求与判据能不能这么改（编号不改含义、不回收复用） | `process/1-REQUIREMENTS.md` |
 | 这里哪些「通用最佳实践」是错的 | `docs/CONVENTIONS.md` |
-| 模块边界与契约 | `docs/ARCHITECTURE.md` —— **人维护、无机器核，当索引读别当证据读** |
+| 模块边界与契约 | `docs/ARCHITECTURE.md` —— **人维护；只有顺序契约表点名的变异有机器核（ADR-148），别的当索引读别当证据读** |
 | 某个决定为什么长这样 | `docs/adr/` 与它的 `README.md` 索引 |
 
 **三条这里特别在意的**：可算的数不许写进散文和注释，要么钉一棵不会再动的树、
