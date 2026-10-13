@@ -14,7 +14,7 @@ import { configurationKey, costObservation, configurationCost, configurationCost
 import type { RunVerdict } from './check/mutate-rule.js'
 import { stopsEarly } from './check/mutate-rule.js'
 import {
-  LAUNCH_LIMIT, launchFindings, launchGate, launchRecheck, launchReport, launchTally, paidLaunches, printLabel, settleLaunches, tallyLine,
+  LAUNCH_LIMIT, inProcessLine, launchFindings, launchGate, launchRecheck, launchReport, launchTally, paidLaunches, printLabel, settleLaunches, tallyLine,
   type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchPrint, type LaunchTally, type LaunchTrunk, type LaunchVerifier,
 } from './check/launch-rule.js'
 import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog } from './check/launch-count.js'
@@ -8339,6 +8339,74 @@ const LACKS: LaunchFinding[] = [MIX[3], { kind: 'missing', config: keyOf('test',
 eq('启动数闸门：在主干上有缺基线时也红，报告行与重跑那行照旧在前，最后一行说几种配置没有启动计数，主干上只报数那几行都不打',
   [gate(rec(MIX, { again: { [GK]: null } }), SRC, ON), gate(rec(LACKS), SRC, ON)],
   [{ red: true, lines: [...R6, NOTE(GK), LACK(6, 1)] }, { red: true, lines: [...launchReport(LACKS), LACK(2, 2)] }])
+
+// ══ 第七节末第一行，进程内耗时（第二十七节第 2、3 小节）。同样先于实现写成：期望值只从第二十七节手推，没读实现（写时它是抛错的桩）。
+// 抛错时交回抛错原文，断言红而不崩，同上面的 gate。按段比的几条从整行里切出那一段，切不出就拿整行去比，红时看得见整行
+{
+  const inProc = (bs: ReadonlyMap<string, BaselineLaunches>, ms: readonly CostMutation[]): string => {
+    try { return inProcessLine(bs, ms) } catch (e) { return `抛错：${String(e)}` }
+  }
+  const cut = (line: string, re: RegExp): string => re.exec(line)?.[0] ?? line
+  const IK = (g: string) => keyOf('test', [g]), WHOLE = configurationKey({ by: 'test', executes: [] })
+  const R = { status: 1, stopped: false, output: '', outcome: 'caught' } as const
+  const done = (id: string, key: string, ms: number): CostMutation => ({ id, key, state: 'reported', result: R, elapsed: { kind: 'measured', ms } })
+  // 不算的五种，落到同一种配置：incomplete（还带着 10 秒实测）、reported 却没量到、没起来、起不了、没回话
+  const noise = (key: string): CostMutation[] => [
+    { id: `${key}-i`, key, state: 'incomplete', elapsed: { kind: 'measured', ms: 10000 }, reason: '跑到一半' },
+    { id: `${key}-u`, key, state: 'reported', result: R, elapsed: { kind: 'unavailable', reason: '没量到' } },
+    ...(['not-started', 'start-failed', 'unknown'] as const).map(state => ({ id: `${key}-${state}`, key, state, reason: '没跑成' })),
+  ]
+  // 样本表：[配置键, 正常基线整跑几次（undefined 是没有计数）, 落到它的每条 reported 实测毫秒数…]。
+  // 主样本里 e 写在 b 前、d 写在 c 前、a 写在前头：表序与答案的先后都不同
+  type Table = [string, number | undefined, ...number[]][]
+  const counts = (t: Table) => new Map(t.flatMap(([k, total]) => total === undefined ? [] : [[k, base(total)] as const]))
+  const runs = (t: Table) => t.flatMap(([k, , ...ms]) => ms.map((x, i) => done(`${k}#${i}`, k, x)))
+  const TABLE: Table = [
+    [IK('e'), 0, 3200], [IK('d'), 0, 16000], [IK('a'), 0, 500], [IK('c'), 0, 4000, 13480], [IK('b'), 0, 3200], [IK('f'), 0, 2000],
+    [IK('p'), 3, 400, 19000], [IK('g'), 0], [IK('h'), 0], [IK('z'), undefined, 24000], [WHOLE, undefined, 30000],
+  ]
+  const MB = counts(TABLE), CLEAN = runs(TABLE), LINE = inProc(MB, [...noise(IK('d')), ...CLEAN, ...noise(IK('g'))])
+  // 推法。算在内的：整跑 0 次的 a–h 里，g 只落了不算的五种、h 什么也没落 → a–f 共 6 种，它们的实测变异 7 条（c 两条）；
+  //   p 起 3 次、z 与全跑的（["test",null]）没有计数，都不算 —— 但它们的实测变异照样进单位。
+  // 单位：全部实测 11 条排好 400 500 2000 3200 3200 [4000] 13480 16000 19000 24000 30000，正中第 6 条 4000 毫秒 → 4.0 秒。
+  //   只拿 a–f 那 7 条的中位数是 3200；连 incomplete 的两个 10000 一起是 10000；没量到的两条当 0 是 3200：都不是 4000。
+  // 每种：a 500/4000=0.125→0.1，b、e 3200/4000=0.8，c 17480/4000=4.37→4.4，d 16000/4000=4.0，f 2000/4000=0.5；
+  //   合计 42380/4000=10.595→10.6（截断是 10.5；先逐种舍入再相加也是 10.6）。
+  // 最多的：c 4.4、d 4.0、b 0.8、e 0.8（并列，键 b 在 e 前）、f 0.5；第六种 a 不列。p、z、全跑的要是算进来，会排在最前
+  const TOP = `最多的：${IK('c')} 4.4、${IK('d')} 4.0、${IK('b')} 0.8、${IK('e')} 0.8、${IK('f')} 0.5`
+  const MAIN = `进程内耗时（组内不起进程的 6 种配置、7 条变异，只报数）：合计 10.6 个单位；单位是这一跑 11 条实测变异单条耗时的中位数 4.0 秒；${TOP}`
+  eq('进程内耗时：只算整跑 0 次又有实测变异的配置，计数大于 0 的、没有计数的（全跑的也没有）都不算',
+    cut(LINE, /^进程内耗时（[^）]*）/), '进程内耗时（组内不起进程的 6 种配置、7 条变异，只报数）')
+  eq('进程内耗时：单位是这一跑全部实测变异单条耗时的中位数，奇数条取正中那条，不在算的配置里的变异也进单位',
+    cut(LINE, /单位是这一跑[^；]*/), '单位是这一跑 11 条实测变异单条耗时的中位数 4.0 秒')
+  // 去掉不算的那十条（d、g 各五种），整行一字不变，且就是上面手推的那一行
+  eq('进程内耗时：只认 reported 且实测的，incomplete、not-started、start-failed、unknown 与没量到的既不进单位也不进合计',
+    [LINE, inProc(MB, CLEAN)], [MAIN, MAIN])
+  eq('进程内耗时：合计与每种配置的数保留一位小数', [cut(LINE, /合计 [^；]*/), cut(LINE, /最多的：[^、]*、[^、]*/)],
+    ['合计 10.6 个单位', `最多的：${IK('c')} 4.4、${IK('d')} 4.0`])
+  eq('进程内耗时：最多的取前五种，按数从大到小，并列按配置键', cut(LINE, /最多的：.*/), TOP)
+  // 偶数条：m、n 整跑 0 次，m 落 1000、3000，n 落 6000；q 起 2 次落 9000（不算在内，但进单位）。排好 1000 [3000 6000] 9000，
+  // 单位取正中两条的平均 4500 → 4.5 秒（下中位 3000、上中位 6000、平均数 4750、不带 q 的中位数 3000 都不是）。
+  // m 4000/4500=0.89→0.9，n 6000/4500=1.33→1.3，合计 10000/4500=2.22→2.2；只有两种，有几种列几种
+  const EVEN: Table = [[IK('m'), 0, 1000, 3000], [IK('n'), 0, 6000], [IK('q'), 2, 9000]]
+  eq('进程内耗时：实测变异是偶数条时，单位取正中两条的平均；不足五种时有几种列几种', inProc(counts(EVEN), runs(EVEN)),
+    `进程内耗时（组内不起进程的 2 种配置、3 条变异，只报数）：合计 2.2 个单位；单位是这一跑 4 条实测变异单条耗时的中位数 4.5 秒；最多的：${IK('n')} 1.3、${IK('m')} 0.9`)
+  // 数不出来的三句，原文照第 2 小节，按那个先后判
+  const NO_COUNT = '进程内耗时：没有启动计数，分不出哪些配置组内不起进程（只报数）'
+  const NO_UNIT = '进程内耗时：这一跑没有实测的变异耗时，无从归一（只报数）'
+  const NO_ZERO = '进程内耗时：组内不起进程的配置没有实测的变异耗时（只报数）'
+  // 计数表是空的：有实测变异时第三句也成立，一条变异也没有时第二、三句都成立 —— 都报第一句
+  eq('进程内耗时：没有一种配置有计数时打第一句，先于另两句判', [inProc(new Map(), [...CLEAN, ...noise(IK('d'))]), inProc(new Map(), [])], [NO_COUNT, NO_COUNT])
+  // 有计数，这一跑只有不算的五种（第三句也成立：整跑 0 次的 g 没有实测），或一条变异也没有（计数里只有起进程的 p）
+  eq('进程内耗时：有计数而这一跑没有一条实测的变异耗时时打第二句，先于第三句判',
+    [inProc(MB, noise(IK('g'))), inProc(counts([[IK('p'), 3]]), [])], [NO_UNIT, NO_UNIT])
+  // 实测 0、5000、0 毫秒，中位数 0。整跑 0 次的 k 有两条实测，第三句不成立；不判这一句就成了除以 0
+  eq('进程内耗时：有实测变异而单位是 0 时也打第二句', inProc(counts([[IK('k'), 0]]),
+    [done('k-1', IK('k'), 0), done('k-2', IK('k'), 5000), done('z-1', IK('z'), 0)]), NO_UNIT)
+  // 有计数、有实测、单位 4000 不是 0：计数里只有起 3 次的 p；或整跑 0 次的 g 只落了不算的、h 什么也没落（a–f 这回没有计数）
+  eq('进程内耗时：组内不起进程的配置一种也没有，或它们都没有实测的变异耗时时打第三句',
+    [inProc(counts([[IK('p'), 3]]), CLEAN), inProc(counts([[IK('g'), 0], [IK('h'), 0], [IK('p'), 3]]), [...noise(IK('g')), ...CLEAN])], [NO_ZERO, NO_ZERO])
+}
 })
 
 // 计数预加载两组共用：经 tsxCommand 起玩具一次（tsx 壳 + 里面那个 node，与变异一步起验证者一样），给了 log 就计数；
