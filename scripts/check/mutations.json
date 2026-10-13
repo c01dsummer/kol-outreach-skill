@@ -13099,6 +13099,26 @@
       "kills": ["顺序绑定：目录里没有的报不在，有而 file 不在位置里的报不在位置里并带那条变异的 file"]
     },
     {
+      "id": "M-H58-ap",
+      "req": "harness",
+      "why": "紧挨着的两个反引号不算一对，往后错一个配对",
+      "file": "scripts/check/order-rule.ts",
+      "find": "/`([^`]*)`/g",
+      "replace": "/`([^`]+)`/g",
+      "by": "test",
+      "kills": ["顺序绑定：紧挨着的两个反引号也是一对，后面照常从左两两配对，夹在两对之间的空格不是位置"]
+    },
+    {
+      "id": "M-H58-aq",
+      "req": "harness",
+      "why": "表头是范围里的最后一行时当成后面跟着一条空的分隔行",
+      "file": "scripts/check/order-rule.ts",
+      "find": "? undefined : cellsOf(scope[head + 1].text)",
+      "replace": "? (head >= 0 && head + 1 >= scope.length ? [] : undefined) : cellsOf(scope[head + 1].text)",
+      "by": "test",
+      "kills": ["顺序绑定：表头是范围里的最后一行或后面只跟空行，没有分隔行，只报一条表头不对"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
