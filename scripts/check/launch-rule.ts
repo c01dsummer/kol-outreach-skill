@@ -244,6 +244,19 @@ export function inProcessLine(baselines: ReadonlyMap<string, BaselineLaunches>, 
     + `最多的：${all.slice(0, 5).map(([key, r]) => `${key} ${one(r.ms)}`).join('、')}`
 }
 
+/** 整跑自检按族数的启动计数（ADR-145 第三十一节第 2 小节）：自检写、检查链最后一步读 */
+export const SELFCHECK_LAUNCHES_FILE = 'output/selfcheck-launches/families.json'
+export const SELFCHECK_LAUNCHES_SCHEMA = 'selfcheck-launches/v1'
+
+/**
+ * 第七节末第二行（ADR-145 第三十一节第 4 小节）：有启动但没有变异的组。`file` 是读出来的按族计数，`source` 是当前树的身份，
+ * `routes` 是 `executionRoutes` 交回的全部路由；交回那一行，不带缩进。只报数
+ */
+export function idleGroupsLine(_file: unknown, _source: string | undefined,
+  _routes: readonly { readonly by: string; readonly executes: readonly string[] }[] | undefined): string {
+  throw new Error('idleGroupsLine 还没实现（ADR-145 第三十一节）')
+}
+
 /** HEAD 在不在主干上：resolveBaseline 答得出来时是 onTrunk；答不出来时是它给的原因 */
 export type LaunchTrunk = { readonly onTrunk: boolean } | { readonly unknown: string }
 export interface LaunchGate { readonly red: boolean; readonly lines: readonly string[] }
