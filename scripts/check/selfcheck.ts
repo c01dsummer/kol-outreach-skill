@@ -397,9 +397,16 @@ const costViewMatches = (v: any, expected: Record<string, unknown>): boolean => 
   && moneyFields.every(k => v[k] === null || typeof v[k] === 'number')
   && Object.entries(expected).every(([key, value]) => JSON.stringify(v[key]) === JSON.stringify(value))
 
+/**
+ * 变异一步开跑前那道顺序契约表体检要读的最小一份（ADR-148 第十四节第 2 条）：起止标记、表头、分隔行，
+ * 没有数据行，判定交回空。走得到那一道的玩具树都写它；专拦更早几道体检的那五棵故意不写。
+ */
+const ORDER_TABLE_STUB = '<!-- BEGIN:ORDER -->\n| 位置 | 守它的变异 |\n|---|---|\n<!-- END:ORDER -->\n'
+
 const bothTmp = join(tmp, 'exempt-lead')
 mkdirSync(join(bothTmp, 'scripts', 'check'), { recursive: true })
 mkdirSync(join(bothTmp, 'docs'), { recursive: true })
+writeFileSync(join(bothTmp, 'docs', 'ARCHITECTURE.md'), ORDER_TABLE_STUB, 'utf8')
 writeFileSync(join(bothTmp, 'docs', 'requirements.json'),
   JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }, { id: 'X1.b' }] }] }), 'utf8')
 // 语料自带的「被测对象」与「验证者」：变异把 keep 改成 gone，而这份测试见了 gone 就红
@@ -428,6 +435,7 @@ const seedJobs = (dir: string, muts: unknown[], mark: string) => {
   mkdirSync(join(dir, 'docs'), { recursive: true })
   writeFileSync(join(dir, 'docs', 'requirements.json'),
     JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+  writeFileSync(join(dir, 'docs', 'ARCHITECTURE.md'), ORDER_TABLE_STUB, 'utf8')
   writeFileSync(join(dir, 'scripts', 'check', 'a.ts'),
     "export const v = 'keep'\nexport const w = 'hold'\n", 'utf8')
   // 验证者每跑一遍就把自己那一刻的当前目录记一笔 —— 派工时它该在某个 worker 副本里
@@ -5969,6 +5977,7 @@ group('stop-if-seen', [], () => {
   mkdirSync(join(stopTmp, 'docs'), { recursive: true })
   writeFileSync(join(stopTmp, 'docs', 'requirements.json'),
     JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+  writeFileSync(join(stopTmp, 'docs', 'ARCHITECTURE.md'), ORDER_TABLE_STUB, 'utf8')
   writeFileSync(join(stopTmp, 'a.ts'), 'const x = 1\n', 'utf8')
   // 这个假验证者既要被清册扫得到（endPath 的字面量），又要真的打出那一行、然后赖着不走
   writeFileSync(join(stopTmp, 'scripts', 'check', 'selfcheck.ts'),
@@ -6061,6 +6070,7 @@ group('mutation-baseline', [], () => {
     mkdirSync(join(dir, 'docs'), { recursive: true })
     writeFileSync(join(dir, 'docs', 'requirements.json'),
       JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }))
+    writeFileSync(join(dir, 'docs', 'ARCHITECTURE.md'), ORDER_TABLE_STUB)
     const source = "export const a = 'keepA'\nexport const b = 'keepB'\n"
     const target = join(dir, 'scripts', 'check', 'a.ts')
     writeFileSync(target, source)
@@ -6171,7 +6181,7 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
   try {
     for (const d of ['scripts/check', 'docs']) mkdirSync(join(root, d), { recursive: true })
     // 玩具源码每条变异的锚点各一行；依赖锁随便写一份 —— 成本报告的源码身份含它的指纹，缺了就取不到
-    for (const [f, text] of [['docs/requirements.json', '{"requirements":[]}\n'], ['package-lock.json', '{}\n'],
+    for (const [f, text] of [['docs/requirements.json', '{"requirements":[]}\n'], ['docs/ARCHITECTURE.md', ORDER_TABLE_STUB], ['package-lock.json', '{}\n'],
       ['scripts/toy.ts', mutations.map(m => `export const ${m.find}\n`).join('')], ['scripts/test.ts', head + test],
       ['scripts/check/selfcheck.ts', head + self], ['scripts/check/mutations.json', JSON.stringify({ mutations, exemptions: [] })]])
       writeFileSync(join(root, f), text)
@@ -6514,6 +6524,7 @@ group('crashed', [], () => {
   mkdirSync(join(crashTmp, 'docs'), { recursive: true })
   writeFileSync(join(crashTmp, 'docs', 'requirements.json'),
     JSON.stringify({ requirements: [{ id: 'X2', accept: [{ id: 'X2.a' }] }] }), 'utf8')
+  writeFileSync(join(crashTmp, 'docs', 'ARCHITECTURE.md'), ORDER_TABLE_STUB, 'utf8')
   writeFileSync(join(crashTmp, 'scripts', 'check', 'a.ts'),
     "export const v = 'keep'\nexport const w = 'ok'\n", 'utf8')
   // 这份语料造**两种 crashed**，两支分开守（#105 第一、四轮评审各指出一支）：
@@ -7082,6 +7093,7 @@ console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执�
     entryWrite(entryJoin(cwd, 'scripts/test.ts'), entryVerifier);
     entryWrite(entryJoin(cwd, 'scripts/lib/fixture.ts'), 'keep\n');
     entryWrite(entryJoin(cwd, 'docs/requirements.json'), JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }));
+    entryWrite(entryJoin(cwd, 'docs/ARCHITECTURE.md'), ORDER_TABLE_STUB);
     if (!missingCatalog) entryCatalog(cwd, []);
     entryGit(cwd, 'init', '--quiet', '-b', 'main'); entryGit(cwd, 'config', 'user.name', 'Entry fixture'); entryGit(cwd, 'config', 'user.email', 'entry@example.invalid');
     const base = entryCommit(cwd, 'trusted baseline');
@@ -7187,6 +7199,8 @@ group('claims-restoration-entry', [], () => {
       cpSync(join(sourceRoot, entry), join(repo, entry), { recursive: true });
     symlinkSync(join(sourceRoot, 'node_modules'), join(repo, 'node_modules'), 'dir');
     writeFileSync(join(repo, 'docs/requirements.json'), JSON.stringify({ requirements: [] }) + '\n');
+    // 真的 docs/ 里那张表点名的变异，玩具目录里一条也没有：换成最小的那份（ADR-148 第十四节第 2 条）
+    writeFileSync(join(repo, 'docs/ARCHITECTURE.md'), ORDER_TABLE_STUB);
     execFileSync('git', ['init', '-q'], { cwd: repo, encoding: 'utf8', env: fixtureEnv() });
     const trace = join(home, 'trace.jsonl'), preload = join(home, 'preload.cjs');
     writeFileSync(trace, ''); writeFileSync(preload, '');
@@ -7710,6 +7724,7 @@ else console.log('全部通过（执行 '+count+' 条断言；覆盖 0 条需求
     fs.writeFileSync(path.join(root,'scripts/toy.ts'),toy);
     fs.writeFileSync(path.join(root,'scripts/check/mutations.json'),JSON.stringify(catalog,null,2)+'\n');
     fs.mkdirSync(path.join(root,'docs'),{recursive:true});fs.writeFileSync(path.join(root,'docs/requirements.json'),'{"requirements":[]}\n');
+    fs.writeFileSync(path.join(root,'docs/ARCHITECTURE.md'),ORDER_TABLE_STUB);
     fs.writeFileSync(path.join(root,'.gitignore'),'node_modules/\n.check-cache/\noutput/\n');
     fs.symlinkSync(path.join(source,'node_modules'),path.join(root,'node_modules'),'dir');
     const git=(args:string[])=>{const r=cp.spawnSync('git',args,{cwd:root,env:cleanEnv,encoding:'utf8'});if(r.status!==0||r.error)throw Error('（夹具）git: '+r.stderr);return r.stdout.trim();};
