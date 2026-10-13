@@ -5997,7 +5997,8 @@ group('stop-if-seen', [], () => {
   const stopOut = stopRun.ok ? stopRun.stdout : undefined
   if (stopOut === undefined) {
     // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
-  } else if (!stopOut.includes('M-X-i')) {
+  } else if (!/M-X-i\s+\[X1\]/.test(stopOut)) {
+    // 认的是结果那一行（编号后面跟着名下）：只认编号的话，启动数那段报告里「M-X-i 是全跑变异」那行会提前满足它（ADR-145 第 557 行）
     failed++; console.error('  ✗ mutate 没报出那条变异的结果')
   } else if (!/M-X-i\s+\[X1\] 被抓到/.test(stopOut)) {
     failed++
