@@ -12229,6 +12229,196 @@
       "kills": ["启动数闸门：有发现、无从判断在不在主干上，最后一行带着原因，按 PR 判红"]
     },
     {
+      "id": "M-H56-a",
+      "req": "harness",
+      "why": "没有一种配置有计数时不先说没有计数，照常往下算",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (baselines.size === 0) return '进程内耗时：没有启动计数",
+      "replace": "if (baselines.size < 0) return '进程内耗时：没有启动计数",
+      "by": "test",
+      "kills": ["进程内耗时：没有一种配置有计数时打第一句，先于另两句判"]
+    },
+    {
+      "id": "M-H56-b",
+      "req": "harness",
+      "why": "跑到一半的变异带着的实测耗时也进单位与合计",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "mutations.flatMap(m => m.state === 'reported' && m.elapsed.kind === 'measured'",
+      "replace": "mutations.flatMap(m => m.state !== 'not-started' && m.state !== 'start-failed' && m.state !== 'unknown' && m.elapsed.kind === 'measured'",
+      "by": "test",
+      "kills": ["进程内耗时：只认 reported 且实测的，incomplete、not-started、start-failed、unknown 与没量到的既不进单位也不进合计"]
+    },
+    {
+      "id": "M-H56-c",
+      "req": "harness",
+      "why": "回报了却没量到耗时的变异按 0 毫秒算进单位",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "? [{ key: m.key, ms: m.elapsed.ms }] : [])",
+      "replace": "? [{ key: m.key, ms: m.elapsed.ms }] : m.state === 'reported' ? [{ key: m.key, ms: 0 }] : [])",
+      "by": "test",
+      "kills": ["进程内耗时：只认 reported 且实测的，incomplete、not-started、start-failed、unknown 与没量到的既不进单位也不进合计"]
+    },
+    {
+      "id": "M-H56-d",
+      "req": "harness",
+      "why": "奇数条时单位取正中偏下的那一条",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "sorted.length % 2 === 1 ? sorted[mid]",
+      "replace": "sorted.length % 2 === 1 ? sorted[mid - 1]",
+      "by": "test",
+      "kills": ["进程内耗时：单位是这一跑全部实测变异单条耗时的中位数，奇数条取正中那条，不在算的配置里的变异也进单位"]
+    },
+    {
+      "id": "M-H56-e",
+      "req": "harness",
+      "why": "偶数条时单位取正中偏上的那一条，不取两条的平均",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "(sorted[mid - 1] + sorted[mid]) / 2",
+      "replace": "sorted[mid]",
+      "by": "test",
+      "kills": ["进程内耗时：实测变异是偶数条时，单位取正中两条的平均；不足五种时有几种列几种"]
+    },
+    {
+      "id": "M-H56-f",
+      "req": "harness",
+      "why": "单位是 0 而有实测变异时照常往下除",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (unit === 0) return",
+      "replace": "if (sorted.length === 0) return",
+      "by": "test",
+      "kills": ["进程内耗时：有实测变异而单位是 0 时也打第二句"]
+    },
+    {
+      "id": "M-H56-g",
+      "req": "harness",
+      "why": "没有实测、单位是 0 时也不说无从归一",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (unit === 0) return",
+      "replace": "if (unit < 0) return",
+      "by": "test",
+      "kills": ["进程内耗时：有计数而这一跑没有一条实测的变异耗时时打第二句，先于第三句判", "进程内耗时：有实测变异而单位是 0 时也打第二句"]
+    },
+    {
+      "id": "M-H56-h",
+      "req": "harness",
+      "why": "起进程的配置也算成组内不起进程",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (baselines.get(t.key)?.total !== 0) continue",
+      "replace": "if (baselines.get(t.key)?.total === undefined) continue",
+      "by": "test",
+      "kills": ["进程内耗时：只算整跑 0 次又有实测变异的配置，计数大于 0 的、没有计数的（全跑的也没有）都不算"]
+    },
+    {
+      "id": "M-H56-i",
+      "req": "harness",
+      "why": "没有计数的配置当成整跑 0 次算进来",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (baselines.get(t.key)?.total !== 0) continue",
+      "replace": "if ((baselines.get(t.key)?.total ?? 0) !== 0) continue",
+      "by": "test",
+      "kills": ["进程内耗时：只算整跑 0 次又有实测变异的配置，计数大于 0 的、没有计数的（全跑的也没有）都不算"]
+    },
+    {
+      "id": "M-H56-j",
+      "req": "harness",
+      "why": "算在内的配置一种也没有时照常打出 0 种配置那一行",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (rows.size === 0) return",
+      "replace": "if (rows.size < 0) return",
+      "by": "test",
+      "kills": ["进程内耗时：组内不起进程的配置一种也没有，或它们都没有实测的变异耗时时打第三句"]
+    },
+    {
+      "id": "M-H56-k",
+      "req": "harness",
+      "why": "数截断到一位小数，不四舍五入",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "(ms / unit).toFixed(1)",
+      "replace": "(Math.floor(ms / unit * 10) / 10).toFixed(1)",
+      "by": "test",
+      "kills": ["进程内耗时：合计与每种配置的数保留一位小数"]
+    },
+    {
+      "id": "M-H56-l",
+      "req": "harness",
+      "why": "最多的按数从小到大排",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "=> y.ms - x.ms ||",
+      "replace": "=> x.ms - y.ms ||",
+      "by": "test",
+      "kills": ["进程内耗时：最多的取前五种，按数从大到小，并列按配置键"]
+    },
+    {
+      "id": "M-H56-m",
+      "req": "harness",
+      "why": "并列时按配置键倒着排",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "|| byText(a, b))",
+      "replace": "|| byText(b, a))",
+      "by": "test",
+      "kills": ["进程内耗时：最多的取前五种，按数从大到小，并列按配置键"]
+    },
+    {
+      "id": "M-H56-n",
+      "req": "harness",
+      "why": "最多的列六种",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "all.slice(0, 5)",
+      "replace": "all.slice(0, 6)",
+      "by": "test",
+      "kills": ["进程内耗时：最多的取前五种，按数从大到小，并列按配置键"]
+    },
+    {
+      "id": "M-H56-o",
+      "req": "harness",
+      "why": "变异条数数成了配置种数",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "s + r.n, 0)",
+      "replace": "s + 1, 0)",
+      "by": "test",
+      "kills": ["进程内耗时：只算整跑 0 次又有实测变异的配置，计数大于 0 的、没有计数的（全跑的也没有）都不算"]
+    },
+    {
+      "id": "M-H56-p",
+      "req": "harness",
+      "why": "合计把不算在内的配置的耗时也加上",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "const total = all.reduce((s, [, r]) => s + r.ms, 0)",
+      "replace": "const total = timed.reduce((s, t) => s + t.ms, 0)",
+      "by": "test",
+      "kills": ["进程内耗时：合计与每种配置的数保留一位小数"]
+    },
+    {
+      "id": "M-H56-q",
+      "req": "harness",
+      "why": "配置种数数成了有计数的配置种数",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "（组内不起进程的 ${rows.size} 种配置",
+      "replace": "（组内不起进程的 ${baselines.size} 种配置",
+      "by": "test",
+      "kills": ["进程内耗时：只算整跑 0 次又有实测变异的配置，计数大于 0 的、没有计数的（全跑的也没有）都不算"]
+    },
+    {
+      "id": "M-H56-r",
+      "req": "harness",
+      "why": "合计改成每种取了一位小数再相加",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "合计 ${one(total)} 个单位",
+      "replace": "合计 ${all.reduce((s, [, r]) => s + Number(one(r.ms)), 0).toFixed(1)} 个单位",
+      "by": "test",
+      "kills": ["进程内耗时：合计与每种配置的数保留一位小数"]
+    },
+    {
+      "id": "M-H56-s",
+      "req": "harness",
+      "why": "最多的按打出来的一位小数排，打出来相同的当成并列",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "=> y.ms - x.ms ||",
+      "replace": "=> Number(one(y.ms)) - Number(one(x.ms)) ||",
+      "by": "test",
+      "kills": ["进程内耗时：最多的取前五种，按数从大到小，并列按配置键"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
