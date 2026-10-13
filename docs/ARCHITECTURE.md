@@ -50,6 +50,8 @@
 | `docs/` | 是 | 业务文档与决策记录（`adr/`）；逐个文件管什么见 `docs/SYNC.md` 的文档地图 |
 | `process/` | 是 | 跨项目通用的流程与纪律 |
 | `.github/` | 是 | CI，以及给评审器的转发（`copilot-instructions.md`） |
+| `.agents/` | 是 | 只装 `skills/kol-outreach`，一个指向 `skill/` 的软链，给 Codex 发现 Skill 用；不放别的内容 |
+| `.claude/` | 是 | 只装 `skills/kol-outreach`，一个指向 `skill/` 的软链，给 Claude Code 发现 Skill 用；不放别的内容 |
 | `output/` | 否 | 本机运行产物。现状：collect 建的采集任务目录 `output/<产品>-<时间戳>/`；变异一步写的 `output/mutation-launches/launches.json`（ADR-145，检查链最后一步读它判红；变异一步每跑先删再写）；整跑自检写的 `output/selfcheck-launches/families.json`（ADR-145 第三十一节，按族的启动数，最后一步读它只报数；完整整跑每跑先删，拆进程跑、每一族都绿才写）。本节另立的规矩：核实工具与调查的原始响应、诊断快照、价目快照也放这里，`output/<名字>/`，带清单与 SHA256 |
 | `memory/` | 否 | 跨任务记忆（`memory/creators.json`，已推荐过的人） |
 | `.check-cache/` | 否 | 检查链的缓存：编译缓存（`compile-cache`）、变异派工的 worker 目录（`mutate-jobs`）、测试与自检的覆盖记录 |
