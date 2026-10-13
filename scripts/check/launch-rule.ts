@@ -244,6 +244,53 @@ export function inProcessLine(baselines: ReadonlyMap<string, BaselineLaunches>, 
     + `最多的：${all.slice(0, 5).map(([key, r]) => `${key} ${one(r.ms)}`).join('、')}`
 }
 
+/** 整跑自检按族数的启动计数（ADR-145 第三十一节第 2 小节）：自检写、检查链最后一步读 */
+export const SELFCHECK_LAUNCHES_FILE = 'output/selfcheck-launches/families.json'
+export const SELFCHECK_LAUNCHES_SCHEMA = 'selfcheck-launches/v1'
+
+/**
+ * 第七节末第二行（ADR-145 第三十一节第 4 小节）：有启动但没有变异的组。`file` 是读出来的按族计数，`source` 是当前树的身份，
+ * `routes` 是 `executionRoutes` 交回的全部路由，只认自检的；交回那一行，不带缩进。只报数
+ */
+export function idleGroupsLine(file: unknown, source: string | undefined,
+  routes: readonly { readonly by: string; readonly executes: readonly string[] }[] | undefined): string {
+  const head = '有启动但没有变异的组'
+  const families = familyCounts(file)
+  if (families === undefined) return `${head}：没有自检整跑的按族启动计数（只报数）`
+  if (source === undefined || source !== (file as { source: string }).source) return `${head}：自检的按族启动计数不是这棵树上数的（只报数）`
+  if (routes === undefined) return `${head}：算不出自检变异落到哪些组（只报数）`
+  const routed = new Set(routes.flatMap(r => r.by === 'selfcheck' ? r.executes : []))
+  let mixed = 0, unknown = 0
+  const idle: { name: string; groups: number; launches: number }[] = []
+  for (const f of families) {
+    const off = f.groups.filter(g => !routed.has(g)).length
+    // 有一组落到：这一族的启动数分不到没落到的组头上，只数组数
+    if (off < f.groups.length) mixed += off
+    else if (f.launches === null) unknown++
+    else if (f.launches > 0) idle.push({ name: f.groups.join('+'), groups: f.groups.length, launches: f.launches })
+  }
+  idle.sort((a, b) => b.launches - a.launches || byText(a.name, b.name))
+  return `${head}（自检，只报数）：整族没有变异落到、起过进程的 ${idle.length} 族、`
+    + `${idle.reduce((s, f) => s + f.groups, 0)} 组共起 ${idle.reduce((s, f) => s + f.launches, 0)} 次，不含 git`
+    + (idle.length > 0 ? `；最多的：${idle.slice(0, 5).map(f => `${f.name} ${f.launches}`).join('、')}` : '')
+    + `；与有变异的组同族、按族分不开的 ${mixed} 组不在其内`
+    + (unknown > 0 ? `；整族没有变异落到、没拿到计数的 ${unknown} 族不在其内` : '')
+}
+
+/** 第三十一节第 4 小节「认文件」：认得交回那几族，认不得是 undefined */
+function familyCounts(file: unknown): { groups: readonly string[]; launches: number | null }[] | undefined {
+  if (!isObject(file) || file.schema !== SELFCHECK_LAUNCHES_SCHEMA || typeof file.source !== 'string'
+    || !Array.isArray(file.families)) return undefined
+  const seen = new Set<string>()
+  for (const f of file.families) {
+    if (!isObject(f) || !Array.isArray(f.groups) || f.groups.length === 0
+      || !f.groups.every(g => typeof g === 'string' && g !== '')) return undefined
+    if (f.launches !== null && !(Number.isSafeInteger(f.launches) && (f.launches as number) >= 0)) return undefined
+    for (const g of f.groups as string[]) { if (seen.has(g)) return undefined; seen.add(g) }
+  }
+  return file.families as { groups: string[]; launches: number | null }[]
+}
+
 /** HEAD 在不在主干上：resolveBaseline 答得出来时是 onTrunk；答不出来时是它给的原因 */
 export type LaunchTrunk = { readonly onTrunk: boolean } | { readonly unknown: string }
 export interface LaunchGate { readonly red: boolean; readonly lines: readonly string[] }
