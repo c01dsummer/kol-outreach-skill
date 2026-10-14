@@ -140,7 +140,7 @@ const countMeasurements = <T>(total: number, values: Array<Measurement<T> | unde
 
 const assessedAccounts = [...accountKeys].map(k => enrichment?.accounts[k])
 // P5.f：外部邮箱验证一家都没接。名单上带着的 email_verified（盘上原样带进来的，true、false 都一样）
-// 不是验证结果，不记 measured —— 记了，人人带着时那句「未做有效性验证」就不印了（ADR-149 更正块第 9 条）。
+// 不是验证结果，不记 measured —— 记了，人人带着时那句「未做有效性验证」就不印了（ADR-150）。
 // 接邮箱验证那一天，在这里改成数它写下的结果。
 const emailVerified = 0
 const audienceGeo = creators.filter(c => c.audience_geo !== undefined).length

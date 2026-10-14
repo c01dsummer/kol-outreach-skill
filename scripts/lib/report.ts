@@ -114,7 +114,7 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
  * 兼容旧消费者的布尔：公开帖子指标不能把「邮箱/受众增强」伪装成已完成。
  * `email_verified` 不看：外部邮箱验证一家都没接（`skill/references/providers/external-enrichment.md`），
  * 名单上带着的这个值（盘上名单原样带进来的，true、false 都一样）不是这次交付配了增强层的证据 ——
- * 拿「字段在不在」当「配没配」的替身，没配增强层也会报 true（P5.h，ADR-149 更正块第 9 条）。
+ * 拿「字段在不在」当「配没配」的替身，没配增强层也会报 true（P5.h，ADR-150）。
  * 接邮箱验证那一天，在这里按那一层配没配重判。
  * 这个**判定**放在这里而不是 render 里，是因为它能被测（CONVENTIONS 第 10 条）。
  *

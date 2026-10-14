@@ -2746,7 +2746,7 @@ suite('P5', '交付必须声明数据边界')
   eq('没跑过邮箱/地域增强 → enriched false',
     enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50 })]), false)
   // 名单带着 email_verified 不等于配了外部增强层：今天一家都没接，盘上名单原样带进来的值
-  // 不论 true 还是 false，enriched 都照样是 false（ADR-149 更正块第 9 条）。期望值取自 P5.h
+  // 不论 true 还是 false，enriched 都照样是 false（ADR-150）。期望值取自 P5.h
   // 原文，不取自运行结果；两种取值各一条，M-P5-y（字段在就算跑过）两条都点。
   eq('名单带着 email_verified 为 false、没配外部增强层 → enriched 仍为 false',
     enrichedFlag([mk('tiktok', 'a', { tier: 'A', score: 50, email_verified: false })]), false)
