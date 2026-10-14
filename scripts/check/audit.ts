@@ -18,7 +18,7 @@ import {
   fingerprint, sourceFiles,
   type Claims,
 } from './claims.js'
-import { entries as debtEntries, ledgerSummary, orphanIous } from './debt-rule.js'
+import { ADR_DIR, adrDocs, entries as debtEntries, ledgerReport, ledgerSummary, orphanIous } from './debt-rule.js'
 import { exemptionCovered, exemptionLead } from './mutate-rule.js'
 import {
   REDLINE_CAT, criteriaCell, mutationCell, requirementVerdict, tensionEvidence, tensionVerdict,
@@ -52,9 +52,9 @@ function walk(dir: string, ext = '.ts'): string[] {
  * `DECISIONS.md` 的时候不在语料里；拆进 `docs/adr/` 之后如果照单收下，一条
  * 只被某条记录顺口提过、根本没落到代码的需求，会从「· 未被引用」变成「✓」——
  * 和架构文档那条是同一个坑，而且会是这次搬家自己引入的。
+ *
+ * 目录常量在 `debt-rule.ts`：欠条台账从同一个目录读，只读入口 `ledger.ts` 也是。
  */
-const ADR_DIR = 'docs/adr/'
-
 const sources = [...walk('scripts'), ...walk('docs', '.md'), ...walk('skill', '.md')]
   .filter(f => !f.startsWith(ADR_DIR))
 const corpus = new Map<string, string>()
@@ -253,25 +253,22 @@ for (const r of reqs) {
  * 这一节**只抽取，不判断** —— 它不说哪条欠条已经还了，也不说这次改动踩到了谁。
  * 撤掉匹配那一半的理由在 ADR-86：读懂条件是会随模型变强的那一侧，正则不是。
  *
- * 决策记录不在 `sources` 里（上面 `ADR_DIR` 那段说了为什么），所以单独读一遍。
+ * 决策记录不在 `sources` 里（上面 `ADR_DIR` 那段说了为什么），所以单独读一遍 ——
+ * 读哪些、全表怎么打，与只读入口 `ledger.ts` 是同一份（`debt-rule.ts` 的 `adrDocs`、`ledgerReport`）。
  */
-const adrDocs = new Map(walk(ADR_DIR, '.md').map(f => [f, readFileSync(f, 'utf8')] as const))
-const debts = debtEntries(adrDocs)
+const adrs = adrDocs()
+const debts = debtEntries(adrs)
 /** 硬失败先判,再看要不要只打清单 —— 反过来的话 `--debts` 这条路把闸门跳过去了 */
-const orphans = orphanIous(adrDocs)
+const orphans = orphanIous(adrs)
 for (const o of orphans) {
   hard++
   gaps.push(`${o.file}:${o.line} 写了欠条却没写重启条件 —— ` +
             '没有重启条件的登记不是登记，是免责声明（process/6-INTEGRATE.md）')
 }
 if (process.argv.includes('--debts')) {
-  for (const e of debts) console.log(`${e.file}:${e.line}  [${e.notation}]  ${e.text}`)
-  for (const o of orphans) console.log(`${o.file}:${o.line}  [孤儿·没写重启条件]  ${o.text}`)
-  console.log(`\n  ${ledgerSummary(debts)}`)
-  if (orphans.length) {
-    console.error(`\n✗ 欠条台账：${orphans.length} 张欠条没写重启条件`)
-    process.exit(1)
-  }
+  const { out, err } = ledgerReport(debts, orphans)
+  for (const line of out) console.log(line)
+  if (err) { console.error(err); process.exit(1) }
   process.exit(0)
 }
 

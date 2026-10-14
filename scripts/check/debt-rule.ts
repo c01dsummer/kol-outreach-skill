@@ -8,9 +8,34 @@
  * 那个词出现 **0** 次。
  *
  * 扫的范围是**调用方交进来的那些文件**，判据里写的范围也只到这里为止。
- * 调用方今天交的是 `docs/adr/` 下的 `*.md`（`audit.ts` 第 6 节）。
+ * 两个调用方交的都是 `adrDocs` 读进来的那一批：`audit.ts` 第 6 节与只读入口 `ledger.ts`。
  */
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { quotedMask } from './quoted.js'
+
+/** 决策记录目录。`audit.ts` 还拿它把决策记录排出下游引用的语料（那一段写着为什么）。 */
+export const ADR_DIR = 'docs/adr/'
+
+/**
+ * 读进 `dir` 下的全部 `*.md`（含子目录），键是仓库根起算的路径。
+ *
+ * 审计与只读入口读的是**同一批**，所以读哪些文件也在这里、不在两个入口里：各走各的目录的话，
+ * 一边多收或少收一份，两份台账就对不上，而 ADR-151 第二节第 1 条问的正是两边逐条相同。
+ * 扫描范围被悄悄缩小和判定写错一样致命（`docs/CONVENTIONS.md` 第 10 条），所以它算判定。
+ */
+export function adrDocs(dir: string = ADR_DIR): Map<string, string> {
+  const out = new Map<string, string>()
+  const walk = (d: string): void => {
+    for (const e of readdirSync(d)) {
+      const p = join(d, e)
+      if (statSync(p).isDirectory()) walk(p)
+      else if (p.endsWith('.md')) out.set(p, readFileSync(p, 'utf8'))
+    }
+  }
+  walk(dir)
+  return out
+}
 
 export type Notation = '重启条件' | '重开讨论' | '死亡条件'
 
@@ -131,4 +156,21 @@ export function ledgerSummary(list: Entry[]): string {
   return `欠条台账 ${list.length} 条 · 重启条件 ${n('重启条件')} · ` +
          `重开讨论 ${n('重开讨论')} · 死亡条件 ${n('死亡条件')}` +
          ` —— 只抽取，不判已还、也不判这次改动踩到了谁`
+}
+
+/**
+ * 全表：每条一行、孤儿另标一行、空一行、末尾汇总；有孤儿时另交回打在 stderr 的那一句。
+ *
+ * 两个入口打的是这一份 —— `npm run audit -- --debts` 与只读入口 `npm run ledger`。
+ * 各写一份的话，改了一处忘了另一处，症状是「同一份台账，两个入口说两样」。
+ * 退出码跟着 `err` 走：有它就以 1 退出，孤儿是硬失败，只读入口也不放过。
+ */
+export function ledgerReport(list: Entry[], orphans: Entry[]): { out: string[]; err?: string } {
+  const out = [
+    ...list.map(e => `${e.file}:${e.line}  [${e.notation}]  ${e.text}`),
+    ...orphans.map(o => `${o.file}:${o.line}  [孤儿·没写重启条件]  ${o.text}`),
+    '',
+    `  ${ledgerSummary(list)}`,
+  ]
+  return orphans.length ? { out, err: `\n✗ 欠条台账：${orphans.length} 张欠条没写重启条件` } : { out }
 }
