@@ -20,9 +20,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
-# 只读:检查链不写任何东西
+# 只读:检查链不写任何东西。actions: read 是为检查之后那一步墙钟对比读主干的运行记录加的（ADR-151）；
+# 权限只能给到 job：同一个 job 里别的步骤也拿得到，仍只读
 permissions:
   contents: read
+  actions: read
 
 jobs:
   check:
@@ -42,6 +44,46 @@ jobs:
       - run: npm ci --prefer-offline --no-audit
       # 与本地 `npm run check` 是同一条链 —— 谁跑都一样红
       - run: npm run check
+      # 只报数：本跑墙钟与主干上 check 前 5 次 push 成功跑的中位比一比，打一行到 notice 与 step summary
+      # （ADR-151 P1）。不判快慢，「是劣化还是 runner 噪声、是哪条改动」由评审与合并者读
+      # （`process/6-INTEGRATE.md`「改验证成本时」）。
+      # 口径同提案 §2.3：一跑的时长 = run_started_at → updated_at。「前」= 创建时间早于本跑、
+      # 走到这一步时已经成功跑完的那几次 —— 那时还没跑完的主干跑取不到，事后复算会把它算进来。
+      # 重跑时「前」仍按第一次创建的时刻算，「本跑」量的是这一次重跑。
+      # 本跑这一侧只算到这一步为止，比那个口径少末尾的 lscpu 与 job 收尾（实测共约 4 秒）。
+      # 检查红了不跑（没写 if，前面一步红了就跳过）；取不到数就打「墙钟：无从比较（原因）」。
+      # 永不红：不在 `npm run check` 里，脚本每条路都以 0 退出，另有 continue-on-error 兜底。
+      # 撤除：「改验证成本时」那节「前后实跑」的义务被删时，同一条改动删掉这一步（ADR-151 第四节第 1 条）
+      - name: 墙钟对比（只报数）
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          out="$RUNNER_TEMP/wall.json"
+          # 没有令牌时匿名取：公开仓库照样取得到，只是配额小
+          auth=(); [ -n "$GH_TOKEN" ] && auth=(-H "Authorization: Bearer $GH_TOKEN")
+          api() { curl -sS --max-time 20 -o "$out" -w '%{http_code}' "${auth[@]}" \
+                    -H 'Accept: application/vnd.github+json' "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/$1"; }
+          why() { if [ "$2" = 28 ]; then echo 超时; elif [ "$1" = 000 ]; then echo 连不上; else echo "HTTP $1"; fi; }
+          say() { echo "::notice title=墙钟::$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          mmss() { printf '%d:%02d' $(( $1 / 60 )) $(( $1 % 60 )); }
+
+          code=$(api "actions/runs/$GITHUB_RUN_ID"); rc=$?
+          [ "$code" = 200 ] || say "墙钟：无从比较（取本跑的起跑时间：$(why "$code" "$rc")）"
+          created=$(jq -er .created_at "$out") && started=$(jq -er '.run_started_at | fromdate' "$out") \
+            || say "墙钟：无从比较（本跑的记录里没有创建或起跑时间）"
+          mine=$(( $(date -u +%s) - started ))
+
+          code=$(api "actions/workflows/check.yml/runs?branch=main&event=push&status=success&per_page=5&created=%3C$created"); rc=$?
+          [ "$code" = 200 ] || say "墙钟：无从比较（取主干前 5 次：$(why "$code" "$rc")）"
+          n=$(jq -er '.workflow_runs | length' "$out") || say "墙钟：无从比较（主干的运行记录读不出来）"
+          [ "$n" = 5 ] || say "墙钟：无从比较（本跑之前主干上只找到 $n 次成功跑）"
+          median=$(jq -er '[.workflow_runs[] | (.updated_at | fromdate) - (.run_started_at | fromdate)] | sort | .[2]' "$out") \
+            || say "墙钟：无从比较（主干的运行记录里缺起跑或结束时间）"
+          [ "$median" -gt 0 ] || say "墙钟：无从比较（主干前 5 次的中位是 $median 秒）"
+          say "本跑 $(mmss "$mine") · 主干前 5 次中位 $(mmss "$median") · ×$(awk -v a="$mine" -v b="$median" 'BEGIN { printf "%.2f", a / b }')"
       # 只报数：这台 runner 的 CPU 型号与核数。同一份代码在不同 runner 上秒数差到 ×0.6–×1.6，
       # 原先日志里看不出这一跑落在哪种机器上（ADR-145 第三十一节第 5 小节）。排在最后、检查红了也照跑：
       # 日志只取得到末尾几千行时也看得见它。读不到也不让这一跑红
