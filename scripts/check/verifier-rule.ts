@@ -78,7 +78,7 @@ export const SELFCHECK_TOOLS = {
   mutate: 'check/mutate.ts',
   selfcheck: 'check/selfcheck.ts',
   launches: 'check/launches.ts',
-  ledger: 'check/ledger.ts',
+  'adr-ledger': 'check/adr-ledger.ts',
 } as const
 
 /**

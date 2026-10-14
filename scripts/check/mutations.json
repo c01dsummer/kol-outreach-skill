@@ -5764,6 +5764,18 @@
       ]
     },
     {
+      "id": "M-H41-i",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "文件都找到了，内容却读成空串 —— 台账一条也抽不到，审计那道「写了欠条却没写重启条件」的硬失败也跟着静默变绿，两个入口都只剩一行「0 条」",
+      "find": "out.set(p, readFileSync(p, 'utf8'))",
+      "replace": "out.set(p, '')",
+      "by": "test",
+      "kills": [
+        "读进来的是文件原文"
+      ]
+    },
+    {
       "id": "M-H12-c",
       "req": "harness",
       "file": "scripts/check/quoted.ts",

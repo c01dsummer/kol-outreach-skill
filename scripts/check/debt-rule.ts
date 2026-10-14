@@ -8,7 +8,7 @@
  * 那个词出现 **0** 次。
  *
  * 扫的范围是**调用方交进来的那些文件**，判据里写的范围也只到这里为止。
- * 两个调用方交的都是 `adrDocs` 读进来的那一批：`audit.ts` 第 6 节与只读入口 `ledger.ts`。
+ * 两个调用方交的都是 `adrDocs` 读进来的那一批：`audit.ts` 第 6 节与只读入口 `adr-ledger.ts`。
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -18,7 +18,8 @@ import { quotedMask } from './quoted.js'
 export const ADR_DIR = 'docs/adr/'
 
 /**
- * 读进 `dir` 下的全部 `*.md`（含子目录），键是仓库根起算的路径。
+ * 读进 `dir` 下的全部 `*.md`（含子目录）。键是 `dir` 接上文件在它下面的相对路径 ——
+ * 不给 `dir`、在仓库根上跑时，就是全表每行开头那个 `docs/adr/…`。
  *
  * 审计与只读入口读的是**同一批**，所以读哪些文件也在这里、不在两个入口里：各走各的目录的话，
  * 一边多收或少收一份，两份台账就对不上，而 ADR-151 第二节第 1 条问的正是两边逐条相同。
@@ -161,7 +162,7 @@ export function ledgerSummary(list: Entry[]): string {
 /**
  * 全表：每条一行、孤儿另标一行、空一行、末尾汇总；有孤儿时另交回打在 stderr 的那一句。
  *
- * 两个入口打的是这一份 —— `npm run audit -- --debts` 与只读入口 `npm run ledger`。
+ * 两个入口打的是这一份 —— `npm run audit -- --debts` 与只读入口 `npm run adr-ledger`。
  * 各写一份的话，改了一处忘了另一处，症状是「同一份台账，两个入口说两样」。
  * 退出码跟着 `err` 走：有它就以 1 退出，孤儿是硬失败，只读入口也不放过。
  */

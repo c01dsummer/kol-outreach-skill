@@ -53,7 +53,7 @@ function walk(dir: string, ext = '.ts'): string[] {
  * 只被某条记录顺口提过、根本没落到代码的需求，会从「· 未被引用」变成「✓」——
  * 和架构文档那条是同一个坑，而且会是这次搬家自己引入的。
  *
- * 目录常量在 `debt-rule.ts`：欠条台账从同一个目录读，只读入口 `ledger.ts` 也是。
+ * 目录常量在 `debt-rule.ts`：欠条台账从同一个目录读，只读入口 `adr-ledger.ts` 也是。
  */
 const sources = [...walk('scripts'), ...walk('docs', '.md'), ...walk('skill', '.md')]
   .filter(f => !f.startsWith(ADR_DIR))
@@ -254,7 +254,7 @@ for (const r of reqs) {
  * 撤掉匹配那一半的理由在 ADR-86：读懂条件是会随模型变强的那一侧，正则不是。
  *
  * 决策记录不在 `sources` 里（上面 `ADR_DIR` 那段说了为什么），所以单独读一遍 ——
- * 读哪些、全表怎么打，与只读入口 `ledger.ts` 是同一份（`debt-rule.ts` 的 `adrDocs`、`ledgerReport`）。
+ * 读哪些、全表怎么打，与只读入口 `adr-ledger.ts` 是同一份（`debt-rule.ts` 的 `adrDocs`、`ledgerReport`）。
  */
 const adrs = adrDocs()
 const debts = debtEntries(adrs)
@@ -267,9 +267,12 @@ for (const o of orphans) {
 }
 if (process.argv.includes('--debts')) {
   const { out, err } = ledgerReport(debts, orphans)
-  for (const line of out) console.log(line)
-  if (err) { console.error(err); process.exit(1) }
-  process.exit(0)
+  // 等写完再退。全表一百多 KB，接在管道上时打完就硬退出，还在排队的那一截会被丢掉 ——
+  // 实测截到约 60 KB、汇总行没了、退出码照样是 0（独立复核，ADR-151 第六节）
+  const flushed = (s: NodeJS.WriteStream, text: string) => new Promise<void>(done => s.write(text, () => done()))
+  await flushed(process.stdout, out.map(line => `${line}\n`).join(''))
+  if (err) await flushed(process.stderr, `${err}\n`)
+  process.exit(err ? 1 : 0)
 }
 
 console.log('\n链路审计\n')
