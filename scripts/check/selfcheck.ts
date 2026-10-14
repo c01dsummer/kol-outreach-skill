@@ -2380,28 +2380,55 @@ group('render', ['collect', 'enrich'], () => {
       } else console.log('  ✓ HTML 双筛选结构齐全且未含 scrollIntoView')
     }
 
-    // 防回归，**不认领判据**：P5.h 只管 false 那一头（见 ADR-67 的就地更正）。真跑过
-    // 增强却报 false 眼下另有一条已知缺陷够得着 —— 合并与降权会把增强过的记录变换掉。
-    // 这里给的是 `email_verified: false`：查了、没查到邮箱，也算跑过（见 report.ts）。
+    // P5.h、P5.f 端到端，**不认领判据**（两条都由 test.ts 认领）：盘上名单人人带着
+    // email_verified，而这条自检的管线不配置任何外部增强层 —— enriched 照样是 false，
+    // 那句「未做有效性验证」照样要印，meta.json 也不能把它记作邮箱已验证（ADR-150）。
+    // 值写 false，换成 true 结论一样；它是什么意思不在这里定。**每个人都写上**：只写一个人时
+    // measured 本来就小于总数，那句声明照印，P5.f 那一半测不到。负片 M-P5-z 点后两条；
+    // 第一条的判定在 report.ts，由 test.ts 认领 P5.h 的那两条与 M-P5-y 守着。
     const cPath = join(tmp, dir, 'creators.json')
     const pristine = readFileSync(cPath, 'utf8')
     const patched = JSON.parse(pristine)
-    patched[0].email_verified = false
+    for (const c of patched) c.email_verified = false
     writeFileSync(cPath, JSON.stringify(patched, null, 2), 'utf8')
-    const reRendered = run('render 跑过邮箱增强时如实报 enriched',
+    const reRendered = run('render 名单人人带着 email_verified、没配外部增强层',
                            [S('render.ts'), '--dir', dir], tmp)
     // 读也放进判空里：没跑起来时读到的是上一次留下的产出物，拿它判会把功劳记错
     if (reRendered !== undefined) {
-      const enrichedMeta = JSON.parse(readFileSync(metaPath, 'utf8'))
-      if (enrichedMeta.enriched !== true) {
-        failed++; console.error('  ✗ meta.json 的 enriched 不实 —— 跑过邮箱增强却报 false')
-      } else console.log('  ✓ meta.json 的 enriched 如实（跑过邮箱增强时为 true）')
+      // 前提：交付名单不空、人人都还带着这个值。名单空了（总数为 0）或值在路上被丢掉，
+      // 下面三条照样全绿，却什么也没证明。三处读都兜住，不让自检崩：名单读不出来算前提没造出来，
+      // meta.json 与报告读不出来红在具名断言上
+      let delivered: any, rerenderedMeta: any, rerenderedHtml = ''
+      try { delivered = JSON.parse(readFileSync(cPath, 'utf8')) } catch {}
+      try { rerenderedMeta = JSON.parse(readFileSync(metaPath, 'utf8')) } catch {}
+      try { rerenderedHtml = readFileSync(html, 'utf8') } catch {}
+      const carried = Array.isArray(delivered) && delivered.length > 0 &&
+        delivered.every((c: any) => c.email_verified === false)
+      if (!carried) {
+        failed++
+        // 记号在这儿：前提没造出来是夹具废了，不是断言说了话 —— 照旧点着三条的名字红，
+        // M-P5-z 会拿这份空证据记成被抓到（process/4-VERIFY.md「夹具没造对也不算抓到」，
+        // 同 endPath 的先例）。所以单报这一行，三条不判
+        console.error(`  ✗ 名单人人带着 email_verified 的夹具${SELFCHECK_FIXTURE_MARK}：前提没造出来 —— `
+                      + '交付名单是空的、读不出来，或有人没带着 email_verified，依赖它的三条断言没判')
+      } else {
+        named('名单人人带着 email_verified、没配外部增强层 → meta.json 的 enriched 仍为 false',
+          rerenderedMeta?.enriched === false,
+          `enriched 实际为 ${JSON.stringify(rerenderedMeta?.enriched)} —— 没配增强层却声称跑过（P5.h）`)
+        named('名单人人带着 email_verified、没配外部增强层 → 报告照样声明邮箱未做有效性验证',
+          rerenderedHtml.includes('未做有效性验证'),
+          '报告里没有「未做有效性验证」—— 一个地址都没验证过，这句数据边界声明却不见了（P5.f）')
+        const verification = rerenderedMeta?.capabilities?.email_verification
+        named('名单人人带着 email_verified、没配外部增强层 → meta.json 不把它记作邮箱已验证',
+          verification?.measured === 0 && verification?.unqueried === verification?.total,
+          `email_verification 实际为 ${JSON.stringify(verification)} —— 没有验证层，measured 应为 0、全数记在 unqueried`)
+      }
     }
-    // 复位：后面几段接着用这个任务目录，交付物与产出物都要回到未增强的样子。
+    // 复位：后面几段接着用这个任务目录，交付物与产出物都要回到原先的样子。
     writeFileSync(cPath, pristine, 'utf8')
     // 这一处不判空：它后面没有派生断言，跑不起来时 runBoth 已经带记号报过一次，
     // 再加一道判空只会多一层缩进而不多守住任何东西。
-    run('render 复位（回到未增强的产出）', [S('render.ts'), '--dir', dir], tmp)
+    run('render 复位（名单回到原样）', [S('render.ts'), '--dir', dir], tmp)
   }
 })
 

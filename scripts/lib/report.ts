@@ -111,16 +111,20 @@ const renderAssessment = (a: AccountAssessmentSummary | undefined, label: string
  * meta.json 的 enriched：这次交付跑没跑过邮箱/地域增强。P5.h 只要求「未配置增强层时
  * 为 false」那一头 —— true 那一头有已知缺陷，见 ADR-67 的就地更正（#51）。
  *
- * 兼容旧消费者的布尔：公开帖子指标不能把「邮箱/受众增强」伪装成已完成 ——
- * `email_verified` 为 false 也算「跑过」（查了、没有邮箱），所以只看字段在不在。
+ * 兼容旧消费者的布尔：公开帖子指标不能把「邮箱/受众增强」伪装成已完成。
+ * `email_verified` 不看：外部邮箱验证一家都没接（`skill/references/providers/external-enrichment.md`），
+ * 名单上带着的这个值（盘上名单原样带进来的，true、false 都一样）不是这次交付配了增强层的证据 ——
+ * 拿「字段在不在」当「配没配」的替身，没配增强层也会报 true（P5.h，ADR-150）。
+ * 接邮箱验证那一天，在这里按那一层配没配重判。
  * 这个**判定**放在这里而不是 render 里，是因为它能被测（CONVENTIONS 第 10 条）。
  *
- * 负片分工：M-P5-j 守 P5.h（未增强却报 true）；M-P5-h（恒 false）守的是 test.ts
- * 里 true 那一头的**两条**单测断言，那两条不认领任何判据。selfcheck 里还有一条
- * true 断言，守的是 render.ts 的接线 —— 变异只跑 test.ts，够不着它，两层各管各的。
+ * 负片分工：M-P5-j 守 P5.h（未增强却报 true）；M-P5-y 守「名单带着 email_verified 也不算跑过」，
+ * 点的是 test.ts 里认领 P5.h 的那两条；M-P5-h（恒 false）守 test.ts 里 true 那一头剩下的
+ * 一条（地域），它不认领任何判据。selfcheck 另起真 render 端到端核「人人带着也仍为 false」，
+ * 这几条变异只跑 test.ts，够不着它。
  */
 export const enrichedFlag = (creators: Creator[]): boolean =>
-  creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)
+  creators.some(c => c.audience_geo !== undefined)
 
 /** D13.r / P5：金额文本原样展示；未知金额不能变成 $0 或 $null。 */
 const renderCost = (view: CostView): string => {
