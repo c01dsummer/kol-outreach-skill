@@ -114,8 +114,10 @@ export function entries(docs: Map<string, string>): Entry[] {
  * 被引表要把欠条块里的引用单列（ADR-151 第一节 P2），各定一份界的话，同一张欠条在两边可能不一样长。
  *
  * 块的下界是这样推的：块头带 `>` 的，连续到第一个非 `>` 行；不带的，到第一个
- * 空行。**这个定界是本模块定的，仓库里没有写着分隔符** —— 今天 88 个块的排版
- * 是齐的，排版一变这个判据就跟着错，那一刻它会偏向报错而不是放过。
+ * 空行。**这个定界是本模块定的，仓库里没有写着分隔符** —— ADR-86 逐块核过的那 88 个块
+ * 排版是齐的，排版一变这个判据就跟着错，而且不总是错在报错那一侧：两张欠条之间没隔开
+ * （带 `>` 的中间没有一行非 `>`、不带的缺一个空行）时，前一张并进后一张、借到后一张的条件，
+ * 孤儿闸门那边就是**放过**（ADR-151 第七节记着这张欠条）；被引表那边只是块里的引用挪进或挪出主计数。
  */
 export function iouBlocks(lines: string[], quoted: boolean[]): Array<{ start: number; end: number }> {
   const out: Array<{ start: number; end: number }> = []
@@ -134,8 +136,8 @@ export function iouBlocks(lines: string[], quoted: boolean[]): Array<{ start: nu
  * 写了欠条却没写重启条件的块 —— 硬失败。
  *
  * `docs/SYNC.md:56` 说 `docs/adr/` 里「带重启条件的欠条不算待办」，反过来就是：
- * 不带重启条件的那些是纯待办，而待办不该住在决策记录里。这条纪律今天是
- * 88 个块 88 个都执行住了的（ADR-86 逐块核过）—— **所以这道闸门今天是绿的，
+ * 不带重启条件的那些是纯待办，而待办不该住在决策记录里。这条纪律在 ADR-86
+ * 逐块核过时是 88 个块 88 个都执行住了的 —— **所以这道闸门落地时就是绿的，
  * 它拦的是往后的滑坡，不是现状。** 块怎么定界见 `iouBlocks`。
  */
 export function orphanIous(docs: Map<string, string>): Entry[] {

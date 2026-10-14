@@ -12,11 +12,14 @@
  * - **排自引**：记录提到自己的编号不算
  * - **过引文遮罩**：围栏代码块与 HTML 注释里的不算（`quoted.ts`）
  * - **欠条块里的单列**：块的定界与孤儿闸门是同一份（`debt-rule.ts` 的 `iouBlocks`）。
- *   主计数只数在块外引过它的记录；只在块里引过它的另成一栏，两栏加起来就是引过它的记录数
+ *   主计数只数在块外引过它的记录；只在块里引过它的另成一栏，两栏加起来就是引过它的记录数。
+ *   块头要以「⚠️ 欠条」开头 —— 「⚠️ 某日，那张又响了 … · 重启条件：…」那种重挂写法不算欠条块，
+ *   块里的引用进主计数（与孤儿闸门同一个定义；量出来的效果记在 ADR-151 第七节）
  * - **只认 `ADR-<编号>-<标题>.md` 这些文件**（`adr-rule.ts` 的 `FILE_RE`），引用方与被引方都是。
  *   索引 `README.md` 把每条都列一遍，算进来的话每条都白多一；引到目录里没有的编号，不进表
- * - **教训栏**：有一行以 `##`／`###` 加「教训」开头，或以 `- ` 加「教训」开头（中间可以有加粗记号）——
- *   提案 §1 表后那条 grep 的口径，同样过遮罩
+ * - **教训栏**：有一行以 `##`／`###` 加「教训」开头（节标题前可以带「四、」这样的序号），或以 `- `
+ *   加「教训」开头（中间可以有加粗记号），同样过遮罩。提案 §1 表后那条 grep 不认带序号的节标题，
+ *   而那是 ADR-145 以后的主流写法：照 grep 认的话 ADR-147、149、150 的「教训」一节都报成没有（独立复核指出）
  */
 import { basename } from 'node:path'
 import { FILE_RE } from './adr-rule.js'
@@ -24,7 +27,7 @@ import { iouBlocks } from './debt-rule.js'
 import { quotedMask } from './quoted.js'
 
 const REF = /ADR-(\d+)((?:\/\d+)*)/g
-const LESSON = /^#{2,3}\s*教训|^-\s*\*{0,2}教训/
+const LESSON = /^#{2,3}\s*(?:[一二三四五六七八九十百]+、\s*)?教训|^-\s*\*{0,2}教训/
 
 export interface CiteRow {
   file: string
@@ -82,12 +85,18 @@ export function citeTable(docs: Map<string, string>): CiteRow[] {
  * 审计默认输出末尾那一行，也是全表的末行。
  *
  * 「前十条里有教训栏的」是提案 §7 给 P2 的证据问题（「被引最多的 10 条里几条有教训栏？」），
- * 所以单报。末尾那句限定不是客套：去掉它，读的人会把排在前面当成「该搬进 `process/` 了」。
+ * 所以单报。第十名常切在并列里：那时说明并列了几条、按编号取了几条 —— 换一种同样说得通的取法，
+ * 这个数就会变（独立复核在当时的树上量过：3 会变成 2）。
+ * 末尾那句限定不是客套：去掉它，读的人会把排在前面当成「该搬进 `process/` 了」。
  */
 export function citeSummary(rows: CiteRow[]): string {
   const n = (keep: (r: CiteRow) => boolean) => rows.filter(keep).length
+  const top = rows.slice(0, 10)
+  const edge = top.length === 10 ? top[9].cited : undefined
+  const tied = n(r => r.cited === edge), kept = top.filter(r => r.cited === edge).length
+  const tie = tied > kept ? `（被引 ${edge} 次的 ${tied} 条并列，按编号取了其中 ${kept} 条）` : ''
   return `被引表 ${rows.length} 条记录 · 被引 3 次及以上 ${n(r => r.cited >= 3)} · 1–2 次 ${n(r => r.cited >= 1 && r.cited < 3)}` +
-         ` · 0 次 ${n(r => r.cited === 0)} · 有教训栏 ${n(r => r.lesson)} · 前十条里有教训栏 ${rows.slice(0, 10).filter(r => r.lesson).length}` +
+         ` · 0 次 ${n(r => r.cited === 0)} · 有教训栏 ${n(r => r.lesson)} · 前十条里有教训栏 ${top.filter(r => r.lesson).length}${tie}` +
          ' —— 只报数，不设阈值，也不判哪几条是同一类'
 }
 

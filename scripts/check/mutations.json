@@ -5878,7 +5878,7 @@
       "req": "harness",
       "file": "scripts/check/cite-rule.ts",
       "why": "正文里出现教训两个字就算有教训栏 —— 有没有那一栏是提案证据问题里的那个数，放宽之后前十条看起来都有",
-      "find": "const LESSON = /^#{2,3}\\s*教训|^-\\s*\\*{0,2}教训/",
+      "find": "const LESSON = /^#{2,3}\\s*(?:[一二三四五六七八九十百]+、\\s*)?教训|^-\\s*\\*{0,2}教训/",
       "replace": "const LESSON = /教训/",
       "by": "test",
       "kills": [
@@ -5902,7 +5902,7 @@
       "req": "harness",
       "file": "scripts/check/cite-rule.ts",
       "why": "前十条里有教训栏的数成了全表的数 —— 提案给这一片的证据问题问的是被引最多的十条，那个数就答非所问了",
-      "find": "rows.slice(0, 10).filter(r => r.lesson).length",
+      "find": "top.filter(r => r.lesson).length",
       "replace": "rows.filter(r => r.lesson).length",
       "by": "test",
       "kills": [
@@ -5920,6 +5920,67 @@
       "kills": [
         "汇总：几档被引、有教训栏的、前十条里有教训栏的",
         "全表：一条一行、空一行、末尾汇总"
+      ]
+    },
+    {
+      "id": "M-H59-m",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "同数时不再按编号排、跟着读进来的顺序走 —— 第十名常切在并列里，前十条换了谁、其中几条有教训栏，就看文件是怎么读进来的",
+      "find": "rows.sort((a, b) => b.cited - a.cited || a.no - b.no)",
+      "replace": "rows.sort((a, b) => b.cited - a.cited)",
+      "by": "test",
+      "kills": [
+        "按被引数降序，同数按编号升序"
+      ]
+    },
+    {
+      "id": "M-H59-n",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "欠条块只认块头那一行 —— 写在续行上的引用都进了主计数，而真仓库里只在欠条块里引的那一栏，非零的全出自续行",
+      "find": "for (let k = start; k < end; k++) inIou[k] = true",
+      "replace": "for (let k = start; k < start + 1; k++) inIou[k] = true",
+      "by": "test",
+      "kills": [
+        "欠条块的续行上引的也算在块里",
+        "不带 > 的散块，空行之前的续行也算在块里"
+      ]
+    },
+    {
+      "id": "M-H59-o",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "带序号的教训节标题不认了 —— 后来的记录大多写成第几节加教训，这些记录在表里都报成没有教训栏",
+      "find": "(?:[一二三四五六七八九十百]+、\\s*)?",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "教训栏：带序号的节标题也算"
+      ]
+    },
+    {
+      "id": "M-H59-p",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "第十名切在并列里也不说 —— 前十条里有教训栏的那个数要看并列的几条怎么取，读的人却以为它是定的",
+      "find": "const tie = tied > kept ?",
+      "replace": "const tie = tied < 0 ?",
+      "by": "test",
+      "kills": [
+        "汇总：几档被引、有教训栏的、前十条里有教训栏的"
+      ]
+    },
+    {
+      "id": "M-H59-q",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "第十名没有并列时也说按编号取了 —— 那句话本该只在取法会改变那个数的时候出现，处处都有就等于没说",
+      "find": "const tie = tied > kept ?",
+      "replace": "const tie = tied >= kept ?",
+      "by": "test",
+      "kills": [
+        "第十名没有并列时不说按编号取"
       ]
     },
     {
