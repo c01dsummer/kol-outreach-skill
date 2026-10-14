@@ -2939,13 +2939,13 @@
     {
       "id": "M-P5-h",
       "req": "P5",
-      "why": "把跑过的邮箱/地域增强一律报成没跑过 —— meta.json 的 enriched 恒为 false，交付声明与实际不符",
+      "why": "把跑过的地域增强一律报成没跑过 —— meta.json 的 enriched 恒为 false，交付声明与实际不符",
       "file": "scripts/lib/report.ts",
-      "find": "  creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)",
+      "find": "  creators.some(c => c.audience_geo !== undefined)",
       "replace": "  creators.some(() => false)",
       "by": "test",
       "kills": [
-        "邮箱增强跑过（查了没有邮箱）→ true"
+        "地域增强跑过 → true"
       ]
     },
     {
@@ -2965,7 +2965,7 @@
       "req": "P5.h",
       "why": "未配置增强层却把 meta.json 的 enriched 报成 true —— 交付声称跑过邮箱与受众增强，用户以为邮箱验证过、受众已确认",
       "file": "scripts/lib/report.ts",
-      "find": "  creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)",
+      "find": "  creators.some(c => c.audience_geo !== undefined)",
       "replace": "  creators.every(() => true)",
       "by": "test",
       "kills": [
@@ -2994,6 +2994,32 @@
       "by": "test",
       "kills": [
         "未增强时声明无法确认粉丝是否在目标市场"
+      ]
+    },
+    {
+      "id": "M-P5-y",
+      "req": "P5.h",
+      "why": "名单上带着 email_verified 就当成跑过邮箱增强 —— 今天一家外部增强都没接，盘上名单原样带进来的这个值（true 或 false 都一样）让 meta.json 的 enriched 报成 true，用户以为邮箱验证过",
+      "file": "scripts/lib/report.ts",
+      "find": "  creators.some(c => c.audience_geo !== undefined)",
+      "replace": "  creators.some(c => c.email_verified !== undefined || c.audience_geo !== undefined)",
+      "by": "test",
+      "kills": [
+        "名单带着 email_verified 为 false、没配外部增强层 → enriched 仍为 false",
+        "名单带着 email_verified 为 true、没配外部增强层 → enriched 仍为 false"
+      ]
+    },
+    {
+      "id": "M-P5-z",
+      "req": "P5.f",
+      "why": "把名单上带着 email_verified 的人记作邮箱已验证 —— 人人带着时 meta.json 的邮箱验证计数等于总数，报告不再声明邮箱未做有效性验证，而一个地址都没验证过",
+      "file": "scripts/render.ts",
+      "find": "const emailVerified = 0",
+      "replace": "const emailVerified = creators.filter(c => c.email_verified !== undefined).length",
+      "by": "selfcheck",
+      "kills": [
+        "名单人人带着 email_verified、没配外部增强层 → 报告照样声明邮箱未做有效性验证",
+        "名单人人带着 email_verified、没配外部增强层 → meta.json 不把它记作邮箱已验证"
       ]
     },
     {
