@@ -6433,7 +6433,7 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
     `退出码 ${gone.status}；闸门打的：\n${gone.stdout}stderr 末几行：${stderrTail(gone.stderr)}`)
 })
 
-// ---- 只读台账入口：新克隆上照样抽得出、孤儿照样红（ADR-151 第二节第 1 条）----
+// ---- 只读台账入口：新克隆上照样抽得出、孤儿照样红；`--cites` 只报数、不红（ADR-151 第二节第 1、2 条）----
 // 玩具树里只有 docs/adr/：没有覆盖记录、没有登记表，正是新克隆上的样子。不进任何变异的路由：
 // 入口在工具表里，指名自检来验、施在它身上的变异会被「自己验自己」那道体检拦下；需求测试今天不起这个入口，
 // 由它来验的够不着。读哪些、怎么打在 `debt-rule.ts`，由需求测试的变异守着；入口里只剩打印与退出码。
@@ -6459,6 +6459,18 @@ group('adr-ledger-entry', [], () => {
     lone.status === 1 && lone.stdout.includes('docs/adr/sub/ADR-2-孤儿.md:3  [孤儿·没写重启条件]  ⚠️ 欠条：缺 z，改天再说\n')
       && lone.stderr.includes('✗ 欠条台账：1 张欠条没写重启条件'),
     `退出码 ${lone.status}；输出：\n${lone.stdout}stderr 末几行：${stderrTail(lone.stderr)}`)
+  // 被引表那个模式（ADR-151 第二节第 2 条）只报数、恒以 0 退出：上面那张孤儿欠条还在树里，这里也不红。
+  // 第三份记录在正文里引 ADR-1、只在欠条块里引 ADR-2；期望照全表的格式手推（一条一行、空一行、汇总）
+  try { writeFileSync(join(adr, 'ADR-3-引用.md'), '# ADR-3 引用\n\n照 ADR-1 做。\n\n> ⚠️ 欠条：等 ADR-2 · 重启条件：下次\n') }
+  catch (e) { failed++; console.error(`  ✗ 台账入口被引夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`); return }
+  const cites = runToolBoth('adr-ledger --cites 在还留着孤儿欠条的玩具树上跑', 'adr-ledger', ['--cites'], root, { status: 0, soft: [1] })
+  if (cites.ok) named('台账入口：--cites 列出每条记录被几条别的记录引过，树里有孤儿欠条也以 0 退出，不留下任何文件',
+    cites.status === 0 && cites.stdout === 'docs/adr/ADR-1-玩具.md  被引 1 · 只在欠条块里引 0 · 无教训栏\n'
+      + 'docs/adr/sub/ADR-2-孤儿.md  被引 0 · 只在欠条块里引 1 · 无教训栏\n'
+      + 'docs/adr/ADR-3-引用.md  被引 0 · 只在欠条块里引 0 · 无教训栏\n\n'
+      + '  被引表 3 条记录 · 被引 3 次及以上 0 · 1–2 次 1 · 0 次 2 · 有教训栏 0 · 前十条里有教训栏 0 —— 只报数，不设阈值，也不判哪几条是同一类\n'
+      && readdirSync(root).join() === 'docs' && readdirSync(join(root, 'docs')).join() === 'adr',
+    `退出码 ${cites.status}；输出：\n${cites.stdout}stderr 末几行：${stderrTail(cites.stderr)}；玩具树根下：${readdirSync(root).join('、')}`)
 })
 
 // ---- 派工那条路：真起 worker，真在隔离目录里跑 ----

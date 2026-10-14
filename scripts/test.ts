@@ -19,6 +19,7 @@ import {
 } from './check/launch-rule.js'
 import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog } from './check/launch-count.js'
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
+import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { adrDocs, entries, ledgerReport, ledgerSummary, orphanIous } from './check/debt-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import {
@@ -10914,6 +10915,67 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
     [[join(adrTmp, 'ADR-1-a.md'), 'a'], [join(adrTmp, 'sub', 'ADR-2-b.md'), 'b']].sort())
   rmSync(adrTmp, { recursive: true, force: true })
   eq('不给目录时读的就是 docs/adr/ 下那一批', [...adrDocs().keys()].sort(), [...realAdr.keys()].sort())
+}
+
+harness('被引表：每条记录被几条别的记录引过、有没有教训栏')
+{
+  // ADR-151 第二节第 2 条问的就是「数得对不对」：按文件去重、排自引、过引文遮罩、欠条块里的单列。
+  // 期望一条条手推，一棵玩具树只钉一件事；整套口径另对着提案在 `3985048` 上算的那十条核过（ADR-151 第七节），这里不起 git
+  const tree = (files: Record<string, string>) =>
+    new Map(Object.entries(files).map(([f, text]) => [`docs/adr/${f}`, text] as const))
+  const cited = (files: Record<string, string>, no: number) => {
+    const r = citeTable(tree(files)).find(row => row.no === no)
+    return r && [r.cited, r.iouOnly]
+  }
+  const ONE = { 'ADR-1-甲.md': '# ADR-1 甲\n' }
+
+  eq('一行里的编号：斜杠接写的每个都算，ADR-145 不是 ADR-14', refs('照 ADR-16/17/23 与 ADR-145 第二节'), [16, 17, 23, 145])
+  eq('斜杠接写的那几条都算被引', cited({ ...ONE, 'ADR-2-乙.md': '# ADR-2 乙\n', 'ADR-3-丙.md': '见 ADR-2/1。\n' }, 1), [1, 0])
+  eq('编号按数比：ADR-01 与 ADR-1 是同一条',
+    cited({ 'ADR-01-甲.md': '# ADR-01 甲\n', 'ADR-2-乙.md': '见 ADR-1。\n', 'ADR-3-丙.md': '见 ADR-01。\n' }, 1), [2, 0])
+  eq('同一条记录引几次都只算一条', cited({ ...ONE, 'ADR-2-乙.md': '见 ADR-1。\n\n又见 ADR-1，再见 ADR-1。\n' }, 1), [1, 0])
+  eq('自引不算', cited({ 'ADR-1-甲.md': '# ADR-1 甲\n\n本条就是 ADR-1。\n' }, 1), [0, 0])
+  eq('围栏与注释里的引用不算', cited({ ...ONE, 'ADR-2-乙.md': '```\nADR-1\n```\n\n<!-- ADR-1 -->\n' }, 1), [0, 0])
+  // 欠条块里的单列，是需求所有者在提案 §7 第 5 项选的「排除」：一串欠条反复点同一条记录，不该把它顶到前列
+  eq('只在欠条块里引的不进主计数、另成一栏', cited({ ...ONE, 'ADR-2-乙.md': '> ⚠️ 欠条：等 ADR-1 · 重启条件：下次\n' }, 1), [0, 1])
+  eq('块外也引过的不再算进欠条那一栏',
+    cited({ ...ONE, 'ADR-2-乙.md': '照 ADR-1 做。\n\n> ⚠️ 欠条：等 ADR-1 · 重启条件：下次\n' }, 1), [1, 0])
+  eq('欠条块到块尾为止，块后的正文照常算',
+    cited({ ...ONE, 'ADR-2-乙.md': '> ⚠️ 欠条：等 x · 重启条件：下次\n\nADR-1 在块后。\n' }, 1), [1, 0])
+  // 索引把每条都列一遍：算它的话每条都白多一
+  eq('索引不算引用方', cited({ ...ONE, 'README.md': '- ADR-1\n' }, 1), [0, 0])
+  eq('表里只有记录文件：索引不进表，引到的空号也不进',
+    citeTable(tree({ ...ONE, 'README.md': '- ADR-9\n', 'ADR-2-乙.md': '见 ADR-9。\n' })).map(r => r.no), [1, 2])
+
+  // 教训栏照提案 §1 表后那条 grep 的口径：节标题或一栏的开头，不是正文里出现这两个字
+  const lesson = (text: string) => citeTable(tree({ 'ADR-1-甲.md': text }))[0].lesson
+  eq('教训栏：## 或 ### 开头的节', [lesson('## 教训\n'), lesson('### 教训与后续\n')], [true, true])
+  eq('教训栏：- 开头的一栏，可以加粗', [lesson('- 教训：x\n'), lesson('- **教训**：x\n')], [true, true])
+  eq('正文里提到教训两个字不算', lesson('这次的教训是 x\n'), false)
+  eq('围栏里的教训栏不算', lesson('```\n## 教训\n```\n'), false)
+
+  eq('按被引数降序，同数按编号升序', citeTable(tree({
+    'ADR-1-甲.md': '', 'ADR-2-乙.md': '见 ADR-3。\n', 'ADR-3-丙.md': '见 ADR-2。\n', 'ADR-4-丁.md': '见 ADR-3。\n',
+  })).map(r => `${r.no}:${r.cited}`), ['3:2', '2:1', '1:0', '4:0'])
+
+  // 「前十条里有教训栏的」是提案 §7 给 P2 的证据问题，所以单报；第十一条有教训栏，不算进去
+  const row = (no: number, n: number, withLesson = false): CiteRow =>
+    ({ file: `docs/adr/ADR-${no}-x.md`, no, cited: n, iouOnly: 0, lesson: withLesson })
+  eq('汇总：几档被引、有教训栏的、前十条里有教训栏的', citeSummary([
+    row(1, 5), row(2, 3, true), row(3, 2), row(4, 1, true), ...[5, 6, 7, 8, 9, 10].map(n => row(n, 0)), row(11, 0, true),
+  ]), '被引表 11 条记录 · 被引 3 次及以上 2 · 1–2 次 2 · 0 次 7 · 有教训栏 3 · 前十条里有教训栏 2 —— 只报数，不设阈值，也不判哪几条是同一类')
+  eq('全表：一条一行、空一行、末尾汇总', citeReport([
+    { file: 'docs/adr/ADR-2-乙.md', no: 2, cited: 3, iouOnly: 1, lesson: true },
+    { file: 'docs/adr/ADR-1-甲.md', no: 1, cited: 0, iouOnly: 0, lesson: false },
+  ]), [
+    'docs/adr/ADR-2-乙.md  被引 3 · 只在欠条块里引 1 · 有教训栏',
+    'docs/adr/ADR-1-甲.md  被引 0 · 只在欠条块里引 0 · 无教训栏',
+    '',
+    '  被引表 2 条记录 · 被引 3 次及以上 1 · 1–2 次 0 · 0 次 1 · 有教训栏 1 · 前十条里有教训栏 1 —— 只报数，不设阈值，也不判哪几条是同一类',
+  ])
+
+  eq('真仓库：每个记录文件一行，索引不在表里', citeTable(adrDocs()).map(r => r.file).sort(),
+    readdirSync('docs/adr').filter(f => FILE_RE.test(f)).map(f => `docs/adr/${f}`).sort())
 }
 
 })
