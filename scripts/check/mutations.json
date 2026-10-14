@@ -5683,8 +5683,8 @@
       "req": "harness",
       "file": "scripts/check/debt-rule.ts",
       "why": "块的下界不认了，一路扫到文件末尾 —— 前一个欠条块于是白蹭到后面某一块写的条件，两块粘成一块之后，没写条件的那一块看起来是写了的",
-      "find": "      while (end < lines.length &&\n             (quotedBlock ? lines[end].trimStart().startsWith('>') : lines[end].trim() !== '')) end++",
-      "replace": "      while (end < lines.length) end++",
+      "find": "    while (end < lines.length &&\n           (quotedBlock ? lines[end].trimStart().startsWith('>') : lines[end].trim() !== '')) end++",
+      "replace": "    while (end < lines.length) end++",
       "by": "test",
       "kills": [
         "相邻两块不许互相顶账"
@@ -5773,6 +5773,214 @@
       "by": "test",
       "kills": [
         "读进来的是文件原文"
+      ]
+    },
+    {
+      "id": "M-H59-a",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "斜杠接写的只认第一个 —— 一句话里接连点了八条记录，后七条一条也不算被引，其中一条于是在表里成了没人引过",
+      "find": "[m[1], ...m[2].split('/').slice(1)]",
+      "replace": "[m[1]]",
+      "by": "test",
+      "kills": [
+        "一行里的编号：斜杠接写的每个都算，ADR-145 不是 ADR-14",
+        "斜杠接写的那几条都算被引"
+      ]
+    },
+    {
+      "id": "M-H59-b",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "记录提到自己的编号也算一次被引 —— 每条记录都给自己记一票，提到自己越多的越往前排，前列于是混进了只是话多的那几条",
+      "find": "if (no !== self) add(",
+      "replace": "if (no !== -1) add(",
+      "by": "test",
+      "kills": [
+        "自引不算"
+      ]
+    },
+    {
+      "id": "M-H59-c",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "按行去重、不按文件 —— 一条记录在十行里提到另一条，就被算成十条记录引了它，被引数量的是谁写得啰嗦",
+      "find": "add(inIou[i] ? inside : outside, no, file)",
+      "replace": "add(inIou[i] ? inside : outside, no, `${file}:${i}`)",
+      "by": "test",
+      "kills": [
+        "同一条记录引几次都只算一条"
+      ]
+    },
+    {
+      "id": "M-H59-d",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "引文遮罩不过了 —— 围栏代码块与注释里演示用的编号也算被引，一段示例命令就能给某条记录白添一票",
+      "find": "      if (quoted[i]) return\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "围栏与注释里的引用不算",
+        "围栏里的教训栏不算"
+      ]
+    },
+    {
+      "id": "M-H59-e",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "欠条块里的引用也进了主计数 —— 需求所有者选的是排除、单列，一串欠条反复点同一条记录，会把它顶到前列",
+      "find": "add(inIou[i] ? inside : outside, no, file)",
+      "replace": "add(outside, no, file)",
+      "by": "test",
+      "kills": [
+        "只在欠条块里引的不进主计数、另成一栏"
+      ]
+    },
+    {
+      "id": "M-H59-f",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "欠条那一栏把正文里也引过的记录再数一遍 —— 两栏不再是分开的两拨，加起来比引过它的记录还多",
+      "find": "[...inside.get(no) ?? []].filter(f => !out.has(f)).length",
+      "replace": "inside.get(no)?.size ?? 0",
+      "by": "test",
+      "kills": [
+        "块外也引过的不再算进欠条那一栏"
+      ]
+    },
+    {
+      "id": "M-H59-g",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "欠条块不认下界、一直算到文件末尾 —— 块后面的正文里引的也被当成欠条里的，主计数少了一大截",
+      "find": "for (let k = start; k < end; k++) inIou[k] = true",
+      "replace": "for (let k = start; k < lines.length; k++) inIou[k] = true",
+      "by": "test",
+      "kills": [
+        "欠条块到块尾为止，块后的正文照常算"
+      ]
+    },
+    {
+      "id": "M-H59-h",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "索引也当成一条引用方 —— 它把每条记录都列一遍，于是每条都白多一，没人引过的记录看起来也被引过一次",
+      "find": "    if (self === undefined) continue\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "索引不算引用方"
+      ]
+    },
+    {
+      "id": "M-H59-i",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "正文里出现教训两个字就算有教训栏 —— 有没有那一栏是提案证据问题里的那个数，放宽之后前十条看起来都有",
+      "find": "const LESSON = /^#{2,3}\\s*(?:[一二三四五六七八九十百]+、\\s*)?教训|^-\\s*\\*{0,2}教训/",
+      "replace": "const LESSON = /教训/",
+      "by": "test",
+      "kills": [
+        "正文里提到教训两个字不算"
+      ]
+    },
+    {
+      "id": "M-H59-j",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "全表不按被引数排了、只按编号 —— 前十条成了编号最小的十条，与被引多少无关",
+      "find": "rows.sort((a, b) => b.cited - a.cited || a.no - b.no)",
+      "replace": "rows.sort((a, b) => a.no - b.no)",
+      "by": "test",
+      "kills": [
+        "按被引数降序，同数按编号升序"
+      ]
+    },
+    {
+      "id": "M-H59-k",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "前十条里有教训栏的数成了全表的数 —— 提案给这一片的证据问题问的是被引最多的十条，那个数就答非所问了",
+      "find": "top.filter(r => r.lesson).length",
+      "replace": "rows.filter(r => r.lesson).length",
+      "by": "test",
+      "kills": [
+        "汇总：几档被引、有教训栏的、前十条里有教训栏的"
+      ]
+    },
+    {
+      "id": "M-H59-l",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "汇总行末尾那句限定没了 —— 读的人会把排在前面当成该搬进通用层了，而这张表只是数出来的",
+      "find": "' —— 只报数，不设阈值，也不判哪几条是同一类'",
+      "replace": "''",
+      "by": "test",
+      "kills": [
+        "汇总：几档被引、有教训栏的、前十条里有教训栏的",
+        "全表：一条一行、空一行、末尾汇总"
+      ]
+    },
+    {
+      "id": "M-H59-m",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "同数时不再按编号排、跟着读进来的顺序走 —— 第十名常切在并列里，前十条换了谁、其中几条有教训栏，就看文件是怎么读进来的",
+      "find": "rows.sort((a, b) => b.cited - a.cited || a.no - b.no)",
+      "replace": "rows.sort((a, b) => b.cited - a.cited)",
+      "by": "test",
+      "kills": [
+        "按被引数降序，同数按编号升序"
+      ]
+    },
+    {
+      "id": "M-H59-n",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "欠条块只认块头那一行 —— 写在续行上的引用都进了主计数，而真仓库里只在欠条块里引的那一栏，非零的全出自续行",
+      "find": "for (let k = start; k < end; k++) inIou[k] = true",
+      "replace": "for (let k = start; k < start + 1; k++) inIou[k] = true",
+      "by": "test",
+      "kills": [
+        "欠条块的续行上引的也算在块里",
+        "不带 > 的散块，空行之前的续行也算在块里"
+      ]
+    },
+    {
+      "id": "M-H59-o",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "带序号的教训节标题不认了 —— 后来的记录大多写成第几节加教训，这些记录在表里都报成没有教训栏",
+      "find": "(?:[一二三四五六七八九十百]+、\\s*)?",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "教训栏：带序号的节标题也算"
+      ]
+    },
+    {
+      "id": "M-H59-p",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "第十名切在并列里也不说 —— 前十条里有教训栏的那个数要看并列的几条怎么取，读的人却以为它是定的",
+      "find": "const tie = tied > kept ?",
+      "replace": "const tie = tied < 0 ?",
+      "by": "test",
+      "kills": [
+        "汇总：几档被引、有教训栏的、前十条里有教训栏的"
+      ]
+    },
+    {
+      "id": "M-H59-q",
+      "req": "harness",
+      "file": "scripts/check/cite-rule.ts",
+      "why": "第十名没有并列时也说按编号取了 —— 那句话本该只在取法会改变那个数的时候出现，处处都有就等于没说",
+      "find": "const tie = tied > kept ?",
+      "replace": "const tie = tied >= kept ?",
+      "by": "test",
+      "kills": [
+        "第十名没有并列时不说按编号取"
       ]
     },
     {

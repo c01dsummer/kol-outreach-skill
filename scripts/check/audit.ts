@@ -18,6 +18,7 @@ import {
   fingerprint, sourceFiles,
   type Claims,
 } from './claims.js'
+import { citeSummary, citeTable } from './cite-rule.js'
 import { ADR_DIR, adrDocs, entries as debtEntries, ledgerReport, ledgerSummary, orphanIous } from './debt-rule.js'
 import { exemptionCovered, exemptionLead } from './mutate-rule.js'
 import {
@@ -328,6 +329,8 @@ const redlineCrit = reqs.filter(r => r.cat === REDLINE_CAT).flatMap(r => r.accep
 console.log(`  ${coverageSummary(allCrit, redlineCrit, testedCriteria, entryCriteria, exemptIds)}`)
 console.log(`  ${ledgerSummary(debts)}`)
 console.log('    认三种写法，别的形状不在账上 · 全表：`npm run audit -- --debts`')
+// 被引表只多这一行分布（ADR-151 第一节 P2、第三节第 1 条）；全表挂在只读入口上，新克隆上也跑得起来
+console.log(`  ${citeSummary(citeTable(adrs))} · 全表：\`npm run adr-ledger -- --cites\``)
 
 if (hard) { console.error(`\n✗ 审计：${hard} 项硬失败`); process.exit(1) }
 // 「有测试认领」→「有认领」：入口认领算数之后，未豁免的红线判据里可以有几条是
