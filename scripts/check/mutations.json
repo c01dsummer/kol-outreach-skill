@@ -5715,6 +5715,67 @@
       ]
     },
     {
+      "id": "M-H41-e",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "全表不再列孤儿那几行 —— 两个入口照样以 1 退出，可读台账的人看不到是哪一张没写重启条件，只剩一句「有几张」，去哪儿补要自己再翻",
+      "find": "    ...orphans.map(o => `${o.file}:${o.line}  [孤儿·没写重启条件]  ${o.text}`),\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "全表：条目一行、孤儿另标一行、空一行、末尾汇总"
+      ]
+    },
+    {
+      "id": "M-H41-f",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "有孤儿也不交回那一句 —— 两个入口的退出码跟着它走，于是写了欠条不写重启条件的台账照样以 0 结束，在只读入口上这道硬失败被绕了过去",
+      "find": "  return orphans.length ? { out, err: ",
+      "replace": "  return orphans.length < 0 ? { out, err: ",
+      "by": "test",
+      "kills": [
+        "有孤儿时交回打在 stderr 的那一句"
+      ]
+    },
+    {
+      "id": "M-H41-g",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "子目录不再往下读 —— 审计原先那个遍历是收子目录的，两个入口改用这一处之后，放进子目录的决策记录会从台账上悄悄消失，扫描范围缩小而没人看得见",
+      "find": "      if (statSync(p).isDirectory()) walk(p)\n",
+      "replace": "      if (statSync(p).isDirectory()) continue\n",
+      "by": "test",
+      "kills": [
+        "读进目录下全部 .md，子目录也收、别的不收，键带目录前缀"
+      ]
+    },
+    {
+      "id": "M-H41-h",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "键丢了目录前缀，只剩文件名 —— 全表每一行开头那个位置就指不回仓库里的文件，与审计原先打的 `docs/adr/…:行号` 也对不上了",
+      "find": "      else if (p.endsWith('.md')) out.set(p, readFileSync(p, 'utf8'))\n",
+      "replace": "      else if (p.endsWith('.md')) out.set(e, readFileSync(p, 'utf8'))\n",
+      "by": "test",
+      "kills": [
+        "读进目录下全部 .md，子目录也收、别的不收，键带目录前缀",
+        "不给目录时读的就是 docs/adr/ 下那一批"
+      ]
+    },
+    {
+      "id": "M-H41-i",
+      "req": "harness",
+      "file": "scripts/check/debt-rule.ts",
+      "why": "文件都找到了，内容却读成空串 —— 台账一条也抽不到，审计那道「写了欠条却没写重启条件」的硬失败也跟着静默变绿，两个入口都只剩一行「0 条」",
+      "find": "out.set(p, readFileSync(p, 'utf8'))",
+      "replace": "out.set(p, '')",
+      "by": "test",
+      "kills": [
+        "读进来的是文件原文"
+      ]
+    },
+    {
       "id": "M-H12-c",
       "req": "harness",
       "file": "scripts/check/quoted.ts",

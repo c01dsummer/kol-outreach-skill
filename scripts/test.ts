@@ -19,7 +19,7 @@ import {
 } from './check/launch-rule.js'
 import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog } from './check/launch-count.js'
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
-import { entries, ledgerSummary, orphanIous } from './check/debt-rule.js'
+import { adrDocs, entries, ledgerReport, ledgerSummary, orphanIous } from './check/debt-rule.js'
 import { implementationLeak } from './check/why-rule.js'
 import {
   JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
@@ -9235,11 +9235,12 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 上一版是扫源码猜哪些路径是工具，评审两轮各找到一批诱饵（注释里的、夹具串里的、
   // 串里装着调用形状的、以及普通的读文件）—— 收紧正则是军备竞赛，让清单成为行为才是根治。
   // 第四份是计数预加载：自检当工具起的 mutate，在正常基线那一跑经 NODE_OPTIONS 的 --import 把它加载进验证者（ADR-145 第十三节
-  // 第 1、2 小节）。第三片又给工具表加了启动数闸门的入口（第二十一节第 7 小节）。期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径
-  // ＋ launches.ts，按字符串排（f < launch- < launches < m < s）—— 手排的，不来自运行结果
+  // 第 1、2 小节）。第三片又给工具表加了启动数闸门的入口（第二十一节第 7 小节），ADR-151 第二节第 1 片加了只读台账入口。
+  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts，
+  // 按字符串排（a < f < launch- < launches < m < s）—— 手排的，不来自运行结果
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
-    'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts', 'scripts/check/launches.ts',
-    'scripts/check/mutate.ts', 'scripts/check/selfcheck.ts',
+    'scripts/check/adr-ledger.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
+    'scripts/check/launches.ts', 'scripts/check/mutate.ts', 'scripts/check/selfcheck.ts',
   ])
   // 预加载单独列，因为它既不是 import 也不是「起了谁」—— 两种扫法都收不到
   ok('预加载那一份在种子里', SELFCHECK_SEEDS.includes(`scripts/${SELFCHECK_PRELOAD}`))
@@ -10887,6 +10888,32 @@ harness('欠条台账：三套写法怎么认，以及写了欠条不写重启�
   const sum = ledgerSummary(entries(realAdr))
   ok('汇总要写明不判已还', sum.includes('不判已还'))
   ok('汇总要写明不判踩没踩到', sum.includes('不判这次改动踩到了谁'))
+
+  // 全表由 `audit -- --debts` 与只读入口 `npm run adr-ledger` 共用（ADR-151 第二节第 1 条）。期望照格式手推：
+  // 条目一条一行、孤儿另标一行、空一行、末尾汇总；孤儿是硬失败，只读入口也要以 1 退出，所以那一句跟着孤儿走
+  const debt = { file: 'docs/adr/X.md', line: 3, notation: '重启条件' as const, text: '⚠️ 欠条：缺 x · 重启条件：下次' }
+  const lone = { file: 'docs/adr/Y.md', line: 5, notation: '重启条件' as const, text: '⚠️ 欠条：缺 z' }
+  const full = ledgerReport([debt], [lone])
+  eq('全表：条目一行、孤儿另标一行、空一行、末尾汇总', full.out, [
+    'docs/adr/X.md:3  [重启条件]  ⚠️ 欠条：缺 x · 重启条件：下次',
+    'docs/adr/Y.md:5  [孤儿·没写重启条件]  ⚠️ 欠条：缺 z',
+    '',
+    '  欠条台账 1 条 · 重启条件 1 · 重开讨论 0 · 死亡条件 0 —— 只抽取，不判已还、也不判这次改动踩到了谁',
+  ])
+  eq('有孤儿时交回打在 stderr 的那一句', full.err, '\n✗ 欠条台账：1 张欠条没写重启条件')
+  eq('没有孤儿时不交回那一句', ledgerReport([debt], []).err, undefined)
+
+  // 读哪些文件也是判定：两个入口各走各的目录的话，一边多收或少收一份，两份台账就对不上
+  const adrTmp = mkdtempSync(join(tmpdir(), 'kol-adr-docs-'))
+  mkdirSync(join(adrTmp, 'sub'))
+  for (const [f, text] of [['ADR-1-a.md', 'a'], ['sub/ADR-2-b.md', 'b'], ['note.txt', 'c']]) writeFileSync(join(adrTmp, f), text)
+  eq('读进目录下全部 .md，子目录也收、别的不收，键带目录前缀', [...adrDocs(adrTmp).keys()].sort(),
+    [join(adrTmp, 'ADR-1-a.md'), join(adrTmp, 'sub', 'ADR-2-b.md')].sort())
+  // 只比键的话，内容读成空串也全绿 —— 那时审计的孤儿闸门与台账一起静默变成 0（独立复核指出）
+  eq('读进来的是文件原文', [...adrDocs(adrTmp).entries()].sort(),
+    [[join(adrTmp, 'ADR-1-a.md'), 'a'], [join(adrTmp, 'sub', 'ADR-2-b.md'), 'b']].sort())
+  rmSync(adrTmp, { recursive: true, force: true })
+  eq('不给目录时读的就是 docs/adr/ 下那一批', [...adrDocs().keys()].sort(), [...realAdr.keys()].sort())
 }
 
 })

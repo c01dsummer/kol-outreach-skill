@@ -6433,6 +6433,34 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
     `退出码 ${gone.status}；闸门打的：\n${gone.stdout}stderr 末几行：${stderrTail(gone.stderr)}`)
 })
 
+// ---- 只读台账入口：新克隆上照样抽得出、孤儿照样红（ADR-151 第二节第 1 条）----
+// 玩具树里只有 docs/adr/：没有覆盖记录、没有登记表，正是新克隆上的样子。不进任何变异的路由：
+// 入口在工具表里，指名自检来验、施在它身上的变异会被「自己验自己」那道体检拦下；需求测试今天不起这个入口，
+// 由它来验的够不着。读哪些、怎么打在 `debt-rule.ts`，由需求测试的变异守着；入口里只剩打印与退出码。
+// 期望照全表的格式手推（条目一行、空一行、汇总），没有照实现的输出抄。孤儿那一份放进子目录：
+// 入口要走与审计共用的那份读法（含子目录），只读顶层的话这一条会少报（独立复核指出）。
+group('adr-ledger-entry', [], () => {
+  const adr = join(tmp, 'adr-ledger-entry', 'docs', 'adr'), root = join(tmp, 'adr-ledger-entry')
+  try {
+    mkdirSync(adr, { recursive: true })
+    writeFileSync(join(adr, 'ADR-1-玩具.md'), '# ADR-1 玩具\n\n> ⚠️ 欠条：缺 x · 重启条件：下次碰 y 时\n')
+  } catch (e) { failed++; console.error(`  ✗ 台账入口夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`); return }
+  const clean = runToolBoth('adr-ledger 在只有决策记录的玩具树上跑', 'adr-ledger', [], root)
+  // 玩具树里跑完仍只有 docs/：入口说的「不写任何文件」，也就是不留下覆盖记录或产出目录
+  if (clean.ok) named('台账入口：没有覆盖记录与登记表时照样列出那一条欠条、末尾是汇总，以 0 退出，不留下任何文件',
+    clean.stdout === 'docs/adr/ADR-1-玩具.md:3  [重启条件]  ⚠️ 欠条：缺 x · 重启条件：下次碰 y 时\n\n'
+      + '  欠条台账 1 条 · 重启条件 1 · 重开讨论 0 · 死亡条件 0 —— 只抽取，不判已还、也不判这次改动踩到了谁\n'
+      && readdirSync(root).join() === 'docs' && readdirSync(join(root, 'docs')).join() === 'adr',
+    `输出：\n${clean.stdout}stderr 末几行：${stderrTail(clean.stderr)}；玩具树根下：${readdirSync(root).join('、')}`)
+  try { mkdirSync(join(adr, 'sub')); writeFileSync(join(adr, 'sub', 'ADR-2-孤儿.md'), '# ADR-2 孤儿\n\n> ⚠️ 欠条：缺 z，改天再说\n') }
+  catch (e) { failed++; console.error(`  ✗ 台账入口孤儿夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`); return }
+  const lone = runToolBoth('adr-ledger 在多一张孤儿欠条的玩具树上跑', 'adr-ledger', [], root, { status: 1, soft: [0] })
+  if (lone.ok) named('台账入口：子目录里有一张欠条没写重启条件时列出那一张、以 1 退出',
+    lone.status === 1 && lone.stdout.includes('docs/adr/sub/ADR-2-孤儿.md:3  [孤儿·没写重启条件]  ⚠️ 欠条：缺 z，改天再说\n')
+      && lone.stderr.includes('✗ 欠条台账：1 张欠条没写重启条件'),
+    `退出码 ${lone.status}；输出：\n${lone.stdout}stderr 末几行：${stderrTail(lone.stderr)}`)
+})
+
 // ---- 派工那条路：真起 worker，真在隔离目录里跑 ----
 group('jobs', [], () => {
   // **上面那些 mutate 夹具没有一处走到派工。** 那几道体检在派几个之前就退出了，`--brief`

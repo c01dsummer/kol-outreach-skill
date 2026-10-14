@@ -18,6 +18,7 @@
     "mutate": "tsx scripts/check/mutate.ts",
     "selfcheck": "tsx scripts/check/selfcheck.ts",
     "audit": "tsx scripts/check/audit.ts",
+    "adr-ledger": "tsx scripts/check/adr-ledger.ts",
     "launches": "tsx scripts/check/launches.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run size && npm run spec && npm run adr && npm run typecheck && npm test && npm run mutate && npm run selfcheck && npm run audit && npm run launches"
