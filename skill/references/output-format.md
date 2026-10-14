@@ -70,7 +70,7 @@ round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manua
 | `post_count` | |
 | `bio` | |
 | `email` | bio 里的全部邮箱，按出现先后用 `, ` 连起来，人来挑联系哪个；未查询显示「未查询」 |
-| `email_verified` | 有增强层时填，否则留空 |
+| `email_verified` | 邮箱有效性验证的结果：`true` 验证过、通过，`false` 验证过、没通过；没验证过（含没有地址可验）显示「未查询」。名单上已有的值照印，不证明这次交付配了验证层 |
 | `audience_geo_top` | 如 `US 62%`，无增强层留空 |
 | `metrics_account_followers` / `metrics_account_following` | 当前平台计算公开指标时使用的账号规模；不使用跨平台合计值 |
 | `engagement_rate_followers` | 主页近期作品的粉丝互动率；Instagram 新样本用窗口内全部返回作品；未查询/不可用显式显示 |

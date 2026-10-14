@@ -50,6 +50,10 @@ interface Creator {
   // profile 补全或未来外部增强后填充
   // undefined = 未查询，null = 查询过但没有；有几个邮箱就用 ', ' 连成一个值（D7.d）
   email?:               string | null
+  // 邮箱有效性验证的结果：undefined = 没验证过（含没有地址可验），true = 验证过、通过，
+  // false = 验证过、没通过；「查过，没有邮箱」不归它（bio 里没有是 email: null）
+  // 一个值里有几个地址时布尔说不清验的是哪一个：第一个要给它写值的适配器开工之前，先把它换成
+  // 下文「规则」里的三态 Measurement<T>，capabilities 的分母（今天是全部人数）一并改（ADR-149）
   email_verified?:      boolean
   audience_geo?:        Record<string, number>
   // fake_follower_score 仅为旧任务兼容字段；当前逻辑不读取

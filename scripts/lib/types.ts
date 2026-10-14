@@ -331,6 +331,20 @@ export interface Creator {
   // 采集后填充
   /** bio 里的全部邮箱，按出现先后用 ', ' 连成一个值（D7.d）；三态见 P1.a */
   email?: string | null
+  /**
+   * **邮箱有效性验证的结果**（ADR-149）：`undefined` 是没验证过（含没有地址可验），
+   * `true` 是验证过、通过，`false` 是验证过、没通过。
+   * 「查过，没有邮箱」不是这个字段 —— bio 里没有是 `email: null`（P1.a）。
+   *
+   * ⚠️ **照这个意思写，布尔这个形状装不下。** 一个 `email` 里可以有几个地址（D7.d），
+   * 一个布尔说不清验的是哪一个：第一条要给它写值的改动开工之前，先按 ADR-149
+   * 换成三态 `Measurement`（`kind='third_party'`）。`capabilities.email_verification`
+   * 的分母今天是全部人数，没有地址的人记作 `unqueried` —— 那是这个形状的限制，
+   * 不是判断（ADR-149 第三节第 2 小节第 5 条），换形状时一并改。
+   *
+   * 今天的代码不给它产值；盘上名单带着的原样带过去，交付表那一列照印。名单带着它
+   * 不等于这次交付配了验证层：`enriched` 不看它，邮箱验证的 measured 也不数它（ADR-150）。
+   */
   email_verified?: boolean
   audience_geo?: Record<string, number>
   /** @deprecated 没有可信供应商，保留只为兼容旧任务；分层逻辑明确忽略它。 */
