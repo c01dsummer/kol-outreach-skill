@@ -11,7 +11,7 @@
 > 凡是「今天主干上有什么」的说法与能重算的数，都按主干 `3985048`（2026-10-13，#315 合入后，139 条记录）重核过。
 > 初稿按 `f4b314e` 核；`f4b314e..3985048` 合了 #311–#315 —— ADR-145 第三片（启动数闸门接进检查链、PR 上判红）、
 > 第七节末两行只报数（#312、#313）、ADR-148 两片（顺序契约表的字面绑定接进变异一步）—— 本次逐处重核，改动处都注了依据。
-> self-evolution 分支 `origin/claude/ai-agent-self-evolution-methodology-umjgy1` tip `37e3c8d`（2026-09-18）。
+> self-evolution 分支 `origin/archive/self-evolution-2026-09-18` tip `37e3c8d`（2026-09-18；原名 `claude/ai-agent-self-evolution-methodology-umjgy1`，同一提交归档改名）。
 > 可算的数要么钉这几棵树、要么只写命令（ADR-82）；计时数来自 GitHub Actions 公开 API，只作参考、不判任何事（ADR-99）。
 > PR 号可在主干提交标题里的 `#NNN` 上核（`git log --first-parent --oneline 3985048`），本次修订没逐个核。
 >
@@ -187,7 +187,7 @@ ADR-97 §四的四条理由（秒数只在那台机器上成立；核不了的�
 
 ## 3. self-evolution 分支：有什么、为什么停、哪些还能用
 
-**事实（查过）：** 分支 `claude/ai-agent-self-evolution-methodology-umjgy1`，`proposals/self-evolution/` 七个文件约 2900 行，
+**事实（查过）：** 分支 `archive/self-evolution-2026-09-18`（原名 `claude/ai-agent-self-evolution-methodology-umjgy1`），`proposals/self-evolution/` 七个文件约 2900 行，
 首提 2026-09-06、最后一次 09-18（把证据基线从 `cc132a7` 迁到 `d7e20d7`），自述「提案，未采纳」「不替用户裁决」；
 通用层 40 条（`通-01…40`）、业务层 61 条、代码层 50 条、落地 13 步（H0–H12）、待裁决 55 条（J1–J55），**没有一条由需求所有者裁过**；
 **从未开过 PR**；主干此后 298 个提交，`proposals/` 不在主干上。
