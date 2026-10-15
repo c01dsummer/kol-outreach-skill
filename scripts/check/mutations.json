@@ -1922,6 +1922,56 @@
       "kills": ["子进程跑的组与派给它的那族对不上：点出多跑的那组"]
     },
     {
+      "id": "M-H42-ak",
+      "req": "harness",
+      "why": "只看族里第一组带不带窗口 —— 带窗口的组排在族里后头时，整族照旧进并行队列，抢核误红一点没少",
+      "file": "scripts/check/group-rule.ts",
+      "find": "(fam.some(id => solo.includes(id)) ? serial : parallel)",
+      "replace": "(solo.includes(fam[0]) ? serial : parallel)",
+      "by": "test",
+      "kills": ["带窗口的组不是族里第一组，整族照样挪"]
+    },
+    {
+      "id": "M-H42-al",
+      "req": "harness",
+      "why": "点了没登记的组不再当场抛 —— 名字写错，带窗口的那族悄悄回到并行，这一跑看着照旧",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  if (unknown.length) throw new Error(`单独串行跑的组没登记：${unknown.join('、')}`)",
+      "replace": "",
+      "by": "test",
+      "kills": ["点了没登记的组当场抛并点名"]
+    },
+    {
+      "id": "M-H42-am",
+      "req": "harness",
+      "why": "带窗口的族照旧进并行队列 —— 派工与拆进程之前的队列一模一样，那张欠条等于没还",
+      "file": "scripts/check/group-rule.ts",
+      "find": "(fam.some(id => solo.includes(id)) ? serial : parallel).push(i)",
+      "replace": "parallel.push(i)",
+      "by": "test",
+      "kills": ["带时间窗口的那族挪到最后单独跑，其余按登记顺序并行，每族恰好一次", "带窗口的组不是族里第一组，整族照样挪", "几族都带窗口：按登记顺序逐个跑，不按点名的先后"]
+    },
+    {
+      "id": "M-H42-an",
+      "req": "harness",
+      "why": "带窗口的几族倒着跑 —— 不按登记顺序，同一棵树两次派工的先后就不是确定的那一种",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  return { parallel, serial }",
+      "replace": "  return { parallel, serial: serial.reverse() }",
+      "by": "test",
+      "kills": ["几族都带窗口：按登记顺序逐个跑，不按点名的先后"]
+    },
+    {
+      "id": "M-H42-ao",
+      "req": "harness",
+      "why": "带窗口的族在并行队列里也排一份 —— 同一族先并行跑一遍、最后再单独跑一遍，抢核照旧，合并时还报派重",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  fams.forEach((fam, i) => (fam.some(id => solo.includes(id)) ? serial : parallel).push(i))",
+      "replace": "  fams.forEach((fam, i) => { parallel.push(i); if (fam.some(id => solo.includes(id))) serial.push(i) })",
+      "by": "test",
+      "kills": ["带时间窗口的那族挪到最后单独跑，其余按登记顺序并行，每族恰好一次", "几族都带窗口：按登记顺序逐个跑，不按点名的先后"]
+    },
+    {
       "id": "M-H42-u",
       "req": "harness",
       "why": "进程级问题只打印不计入失败数，这一跑照样以退出码零结束并写入口认领",
