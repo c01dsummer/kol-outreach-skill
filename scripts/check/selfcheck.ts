@@ -43,7 +43,7 @@ import {
 import { countingEnv, parseLaunchLog } from './launch-count.js'
 import { SELFCHECK_LAUNCHES_FILE, SELFCHECK_LAUNCHES_SCHEMA } from './launch-rule.js'
 import { type Group, parseOnlyStrict, wanted } from './group-rule.js'
-import { type ShardRun, families, mergeShards, readShardReport, shardJobs } from './group-rule.js'
+import { type ShardRun, families, mergeShards, readShardReport, shardJobs, shardOrder } from './group-rule.js'
 import { type ProcessProbe, processEnded } from './jobs-rule.js'
 import { writeFileAtomic } from '../lib/atomic.js'
 import {
@@ -491,10 +491,15 @@ const runGroups = (): Set<string> | undefined => {
  * 派工是队列：谁空了领下一族，不靠写死的耗时表（那种表会烂，ADR-77）。各族的输出
  * 先落盘，再按族的登记顺序整段转出，不交错。合并是判定，在 `group-rule.ts`。
  * 子进程的两股输出写进同一份日志、整段转到本进程的 stdout，红行也在 stdout；要分开看用 `SELFCHECK_JOBS=1`。
+ *
+ * 带时间窗口的组（`TIME_WINDOW_GROUPS`）所在的族不进队列：其余各族全部交回之后，再一族一族单独跑
+ * （ADR-132 第十节）。先后是判定（`shardOrder`）；这里只照它派工。名单不是耗时表：列的是判红取决于
+ * 子进程起停时刻的组，就是 ADR-132 第 288 行点名的那两组。
  */
+const TIME_WINDOW_GROUPS = ['mutation-cost-entry', 'claims-restoration-entry']
 const runShards = async (jobs: number): Promise<void> => {
-  const fams = families(REGISTERED)
-  console.log(`[拆成 ${jobs} 个子进程跑 ${fams.length} 族，各族输出按登记顺序整段转出]\n`)
+  const fams = families(REGISTERED), { parallel, serial } = shardOrder(fams, TIME_WINDOW_GROUPS)
+  console.log(`[拆成 ${jobs} 个子进程跑 ${fams.length} 族，带时间窗口的 ${serial.length} 族最后单独跑；各族输出按登记顺序整段转出]\n`)
   const shardDir = mkdtempSync(join(tmp, 'shards-'))
   const runs: ShardRun[] = [], logs: string[] = [], launches: (number | null)[] = []
   // 每族的子进程顺便带着计数预加载起（第三十一节第 2 小节）：不多跑；树身份在派工之前取，读不成的那一族记 null
@@ -529,7 +534,8 @@ const runShards = async (jobs: number): Promise<void> => {
       kid.on('close', (status, signal) => settle(status, signal))
     } catch (e) { settle(null, null, e instanceof Error ? e.message : String(e)) }
   })
-  await Promise.all(Array.from({ length: jobs }, async () => { while (next < fams.length) await one(next++) }))
+  await Promise.all(Array.from({ length: jobs }, async () => { while (next < parallel.length) await one(parallel[next++]) }))
+  for (const i of serial) await one(i)
   const merged = mergeShards(runs, REGISTERED.map(g => g.id))
   for (const p of merged.problems) console.error(`  ✗ 拆进程跑${SELFCHECK_PROCESS_MARK}：${p}`)
   failed += merged.failed
@@ -7648,7 +7654,18 @@ note({ kind: 'restore-actor-done', targetPid: coordinator.pid, verifierPid });
     const pids=[...new Set(events.flatMap(row=>[row.pid,row.childPid]).filter((pid):pid is number=>Number.isInteger(pid)&&pid!>0))];
     writeFileSync(join(home,id+'.resources.json'),JSON.stringify({pids,allEnded:pids.every(ended),
       observedCwds:[...new Set(events.filter(row=>row.kind==='owned-node').map(row=>row.cwd))]},null,2)+'\n');
-    if (result.error || pids.length===0 || !pids.every(ended) || events.some(row=>row.kind==='fixture-fault')) fault(id+' command/observer/PID qualification failed');
+    const living=pids.filter(pid=>!ended(pid));
+    if (result.error || pids.length===0 || living.length>0 || events.some(row=>row.kind==='fixture-fault')) {
+      // 哪一支没过、判成没结束的是哪几个进程及其 /proc/<pid>/stat 原文，都写进这一句：夹具目录收尾时删掉，CI 上留下的只有它
+      // （ADR-132 第十节；ADR-133 第 73 行那张欠条要的就是这份 stat）。stat 在判完之后读，恰好在这中间被收走的写「读不到」
+      const stat=(pid:number)=>{ try { return readFileSync('/proc/'+pid+'/stat','utf8').trim(); }
+        catch (error) { return '读不到（'+String((error as NodeJS.ErrnoException).code)+'）'; } };
+      fault(id+' command/observer/PID qualification failed：'+[
+        ...(result.error?['命令：'+result.error.message]:[]), ...(pids.length===0?['没观察到进程']:[]),
+        ...living.map(pid=>'没结束 '+pid+' '+stat(pid)),
+        ...events.filter(row=>row.kind==='fixture-fault').map(row=>'夹具记下 '+String(row.reason)),
+      ].join('；'));
+    }
     return {result,events};
   }
   try {

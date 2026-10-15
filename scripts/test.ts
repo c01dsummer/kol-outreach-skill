@@ -34,7 +34,7 @@ import {
   groupOfLabel, labelsOf, leadWired, processFailed, wiringFault,
   anchorMatches, baselineFault,
 } from './check/mutate-rule.js'
-import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, wanted } from './check/group-rule.js'
+import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { judgeShares, scanShares } from './check/share-rule.js'
 import {
   beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
@@ -9834,6 +9834,16 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
   eq('环境变量要一个：照旧单进程', shardJobs({ ...full, env: '1' }), 1)
   eq('环境变量读不出来：说不清要几个', shardJobs({ ...full, env: 'abc' }), undefined)
   eq('子集跑不看拆进程的环境变量', shardJobs({ ...full, subset: true, env: 'abc' }), 1)
+
+  // 带时间窗口的组所在的族最后单独跑（ADR-132 第十节）：其余各族照旧并行，这几族等它们全部交回、按登记顺序逐个跑
+  eq('带时间窗口的那族挪到最后单独跑，其余按登记顺序并行，每族恰好一次',
+    shardOrder([['a'], ['窗'], ['b']], ['窗']), { parallel: [0, 2], serial: [1] })
+  eq('带窗口的组不是族里第一组，整族照样挪',
+    shardOrder([['x'], ['甲', '窗']], ['窗']), { parallel: [0], serial: [1] })
+  eq('几族都带窗口：按登记顺序逐个跑，不按点名的先后',
+    shardOrder([['窗一'], ['x'], ['窗二']], ['窗二', '窗一']), { parallel: [1], serial: [0, 2] })
+  eq('没有带窗口的组：全部并行，与拆进程之前一样', shardOrder([['a'], ['b']], []), { parallel: [0, 1], serial: [] })
+  eq('点了没登记的组当场抛并点名', rejected(() => shardOrder([['a']], ['窗', 'a'])), '单独串行跑的组没登记：窗')
 
   const all = ['a', 'b', 'c', '独立']
   const fam = [['a', 'b', 'c'], ['独立']]
