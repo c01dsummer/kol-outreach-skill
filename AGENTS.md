@@ -67,6 +67,8 @@
 - **需求编号的唯一真相来源**：`docs/requirements.json`。
   `SPEC.md` 里的表格是它的渲染 —— 由 `npm run spec` 生成并校验，**不要手改**。
   `content_hash` 是派生字段，由 `npx tsx scripts/check/spec-sync.ts --write` 写、由 `npm run check` 校验
+- **启动数摘要** `scripts/check/launches.json` 也是派生的：改了变异、需求测试或自检的组以后，在跑过 `npm run mutate` 的树上
+  由 `npm run launches -- --write` 写回。检查链最后一步拿它与现算的比，第一阶段只报数不红（ADR-145 第三十五节），忘了写回不会有东西拦你
 - **架构文档**：`docs/ARCHITECTURE.md` —— 模块边界、**顺序契约**、Agent↔scripts 的缝隙契约。
   改这三样之前先读它；新增 `scripts/` 下的模块请在锚点表里登记 —— 那张表从 ADR-78 起
   没有机器核了，忘了登记不会有任何东西提醒你
