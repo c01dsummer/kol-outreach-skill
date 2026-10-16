@@ -1,6 +1,6 @@
 # 回访说明书
 
-> 回访例程照这一份做。例程本体在需求所有者的 claude.ai 账户里，它的 prompt 只有一句「克隆后读 `docs/REVISIT.md` 照做」——
+> 回访例程照这一份做。例程本体在需求所有者的 claude.ai 账户里，它的 prompt 只有一句「克隆 c01dsummer/kol-outreach-skill 后读 `docs/REVISIT.md` 照做。」——
 > 规则只在这里，不在 prompt 里，也不在 `.github/` 下（转发文件不装内容）。
 > 为什么有它、各条归哪一档：ADR-151。台账本身，以及每一块里定死不改的那两行：ADR-152。
 
