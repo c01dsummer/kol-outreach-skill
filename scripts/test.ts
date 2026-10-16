@@ -8653,6 +8653,42 @@ eq('启动数闸门：在主干上有缺基线时也红，报告行与重跑那�
       J({ configs: [{ config: '' }] }), J({ configs: [{ config: 7 }] }), J({ configs: [{ config: 'k' }, { config: 'k' }] }), J({ findings: {} }), J({ findings: undefined }),
       `﻿${CT}`, J({ configs: [['k']] })].map(diff),
     Array(16).fill('认不得树内的文件'))
+
+  // ── 嵌套极深（第三十八节「实现定了的」第 5 条留给第三片定；第三片定的是压成一行不递归，嵌套多深都照第 2 小节写出，派生与比对都不抛错、结论照常）。
+  // 深度 10 万层上下：DEEP 每层一个对象套一个数组，共 2 × 50000 层，键写成 z 在前、排好是 a 在前；ARR 是 10 万层纯数组。
+  // 期望一律用 repeat 拼，不用 JSON.stringify 算深值（它在约 10000 层起自己就栈溢出）；整段文本几百 KB，不同时只打第一处出入前后一小段
+  const LEVELS = 50_000
+  let deep: unknown = 0, deepArr: unknown = 0
+  for (let i = 0; i < LEVELS; i++) deep = { z: 1, a: [deep] }
+  for (let i = 0; i < 2 * LEVELS; i++) deepArr = [deepArr]
+  const DEEP = `${'{"a":['.repeat(LEVELS)}0${'],"z":1}'.repeat(LEVELS)}`, DEEP_RAW = `${'{"z":1,"a":['.repeat(LEVELS)}0${']}'.repeat(LEVELS)}`
+  const ARR = `${'['.repeat(2 * LEVELS)}0${']'.repeat(2 * LEVELS)}`
+  const same = (got: string, want: string): string => {
+    if (got === want) return '逐字相同'
+    let i = 0; while (i < got.length && i < want.length && got[i] === want[i]) i++
+    return `长 ${got.length} 对 ${want.length}，第 ${i} 个字符起不同：${JSON.stringify(got.slice(Math.max(0, i - 20), i + 60))} 对 ${JSON.stringify(want.slice(Math.max(0, i - 20), i + 60))}`
+  }
+  // 两条带嵌套极深的多余键的发现（种类认得，闸门那六条都过），夹一条平常的在后面：原顺序、每条的键按字母序、深处的键也排
+  const DEEPREC = rec([{ kind: 'full-run', id: 'F-9', deep }, { list: deepArr, kind: 'full-run', id: 'F-8' }, { kind: 'full-run', id: 'F-1' }],
+    { tally: [tal(keyOf('test', ['h']), 2, 1)] })
+  const DEEPREC_TEXT = ['{', '  "configs": [', String.raw`    {"config":"[\"test\",[\"h\"]]","launches":2,"maxPaid":null,"running":1,"stopping":0}`,
+    '  ],', '  "findings": [', `    {"deep":${DEEP},"id":"F-9","kind":"full-run"},`, `    {"id":"F-8","kind":"full-run","list":${ARR}},`, `    ${F1}`,
+    '  ],', '  "schema": "mutation-launch-summary/v1"', '}', ''].join('\n')
+  eq('启动数摘要的全文：一条发现带着嵌套十万层的多余键时派生不抛错，那条发现照第 2 小节压成一行写进全文，深处的键也按字母序',
+    [same(TEXT(DEEPREC), DEEPREC_TEXT), (S(DEEPREC, SRC) as { configs?: unknown }).configs], ['逐字相同', 1])
+  // 树内 A 那一行的 maxPaid：id 是十万层的值（是对象，只取 id、paid，与现算的不同）、本身是十万层的数组（不是对象，原样压成一行），都算 A 变了；
+  // 深值只落在 maxPaid 里不取的键上，五个键都与现算的相同，落在差在别处
+  eq('启动数摘要的差别：树内一行配置的 maxPaid 嵌套十万层时比对不抛错，那一种照常算变了，深值在不取的键上时照常是差在别处',
+    [diff(CT.replace(MP, `{"id":${DEEP_RAW},"paid":3}`)), diff(CT.replace(MP, ARR)), line(CT.replace(MP, `{"id":${DEEP_RAW},"paid":3}`), CMP, ON),
+      diff(CT.replace(MP, `{"id":"M-1","paid":3,"x":${DEEP_RAW}}`))],
+    [one('A'), one('A'), H5 + one('A') + T5, OTHER])
+  // CD 是现算里多一条深的发现（照第 2 小节写的，已排好）；树内那条把每一层的键都打乱（DEEP_RAW），压成一行后与它一样；最深处 0 换成 1 就不一样
+  const DF9 = `{"deep":${DEEP},"id":"F-9","kind":"full-run"}`, RF9 = (v: string) => `{"kind":"full-run","deep":${DEEP_RAW.replace('[0]', `[${v}]`)},"id":"F-9"}`
+  const CD = doc(ROWS, [F1, DF9]), CMPD: LaunchSummary = { text: CD, configs: 7 }, NO_CFG = '变了 0 种、多了 0 种、少了 0 种；findings 也不同'
+  eq('启动数摘要那一行：findings 里一条嵌套十万层时比对不抛错，照常打不同、已过期、相同或差在别处，深处不同的照常算 findings 也不同',
+    [line(doc(ROWS, [F1, RF9('0')]), CMP, OFF), line(CT, CMPD, ON), line(doc(ROWS, [F1, RF9('0')]), CMPD, OFF), line(CD, CMPD, FOG),
+      line(doc(ROWS, [F1, RF9('1')]), CMPD, OFF)],
+    [H4 + NO_CFG + T4, H5 + NO_CFG + T5, H4 + OTHER + T4, '启动数摘要（只报数）：树内 scripts/check/launches.json 与这一跑现算的相同，7 种配置', H4 + NO_CFG + T4])
 }
 })
 
