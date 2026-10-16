@@ -396,18 +396,18 @@ const pick = (o: Record<string, unknown>, keys: readonly string[]): Record<strin
 
 /** 第 4 小节「差别」认文件：认得交回按配置键的一行与 findings 各条，都已压成一行；认不得是 undefined */
 function summaryParts(text: string): { rows: Map<string, string>; findings: string[] } | undefined {
-  let file: unknown
-  try { file = JSON.parse(text) } catch { return undefined }
-  if (!isObject(file) || file.schema !== LAUNCH_SUMMARY_SCHEMA || !Array.isArray(file.configs) || !Array.isArray(file.findings)) return undefined
+  let parsed: unknown
+  try { parsed = JSON.parse(text) } catch { return undefined }
+  if (!isObject(parsed) || parsed.schema !== LAUNCH_SUMMARY_SCHEMA || !Array.isArray(parsed.configs) || !Array.isArray(parsed.findings)) return undefined
   const rows = new Map<string, string>()
-  for (const c of file.configs) {
+  for (const c of parsed.configs) {
     if (!isObject(c) || typeof c.config !== 'string' || c.config === '' || rows.has(c.config)) return undefined
     // 只取五个键，maxPaid 是对象时只取 id、paid；缺的不写。多出来的键不算「变了」，落进「差在别处」
     const row = pick(c, ['config', 'launches', 'maxPaid', 'running', 'stopping'])
     if (isObject(row.maxPaid)) row.maxPaid = pick(row.maxPaid, ['id', 'paid'])
     rows.set(c.config, compact(row))
   }
-  return { rows, findings: file.findings.map(compact) }
+  return { rows, findings: parsed.findings.map(compact) }
 }
 
 /** 第 4 小节「差别」：树内与现算的按配置键对上，数变了、多了、少了几种，前五种的键，findings 同不同 */
