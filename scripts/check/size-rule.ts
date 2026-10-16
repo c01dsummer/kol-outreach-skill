@@ -42,7 +42,7 @@ export const BUDGET: Record<Category, number> = {
 export interface FileDelta { path: string; added: number }
 
 export function categorize(path: string): Category {
-  if (path === 'scripts/test.ts' || path === 'scripts/check/mutations.json') return '测试'
+  if (path === 'scripts/test.ts' || path === 'scripts/check/mutations.json' || path === 'scripts/check/launches.json') return '测试'
   if (path.startsWith('scripts/') && path.endsWith('.ts')) return '源码'
   if (path.endsWith('.md')) return '文档'
   if (path.startsWith('docs/') && path.endsWith('.json')) return '文档'

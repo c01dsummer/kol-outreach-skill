@@ -346,12 +346,96 @@ export const LAUNCH_SUMMARY_SCHEMA = 'mutation-launch-summary/v1'
 /** 派生出来的全文与配置种数；派生不出来时是第一条不过的原因 */
 export type LaunchSummary = { readonly text: string; readonly configs: number } | { readonly fault: string }
 
-/** 第 2、3 小节：从变异一步那份启动数文件派生摘要的全文。record、source 同 launchGate */
-export function launchSummary(record: unknown, source: string | undefined): LaunchSummary {
-  throw new Error('launchSummary 还没写（ADR-145 第三十五节第 9 小节第 2 条：断言先写）')
+const count = (v: unknown): boolean => Number.isSafeInteger(v) && (v as number) >= 0
+/** 第三十五节第 3 小节：tally 的每一项认得。recordFault 只核它是不是数组 */
+function tallyFault(tally: readonly unknown[]): boolean {
+  const seen = new Set<string>()
+  for (const t of tally) {
+    if (!isObject(t) || typeof t.config !== 'string' || t.config === '' || seen.has(t.config)
+      || !count(t.launches) || !count(t.running) || !Array.isArray(t.paid)
+      || !t.paid.every(p => isObject(p) && typeof p.id === 'string' && p.id !== '' && count(p.paid))) return true
+    seen.add(t.config)
+  }
+  return false
 }
 
-/** 第 4 小节：最后一步多打的那一行，不带缩进。tree 是树内文件照 UTF-8 读出的全文，没有或读不出来时是 undefined。只报数 */
+/** 第 2 小节「压成一行」：对象的键按 JS `<` 排（不靠 JSON.stringify 的键序：整数样的键它会提到前面），不加空白 */
+function compact(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(compact).join(',')}]`
+  if (isObject(v)) return `{${Object.keys(v).sort(byText).map(k => `${JSON.stringify(k)}:${compact(v[k])}`).join(',')}}`
+  return JSON.stringify(v)
+}
+
+/** 第 2 小节：一种配置一行的五个键；maxPaid 并列取 id 小的 */
+function summaryRow(t: LaunchTally): Record<string, unknown> {
+  let max: { id: string; paid: number } | null = null
+  for (const p of t.paid) if (max === null || p.paid > max.paid || (p.paid === max.paid && byText(p.id, max.id) < 0)) max = p
+  return { config: t.config, launches: t.launches, maxPaid: max === null ? null : { id: max.id, paid: max.paid },
+    running: t.running, stopping: t.paid.length }
+}
+
+/** 第 2 小节「序列化」：顶层三个键各起一行，数组每项一行、四格缩进，空数组写在键那一行上，末尾一个换行 */
+function summaryText(configs: readonly string[], findings: readonly string[]): string {
+  const list = (key: string, items: readonly string[]): string => items.length === 0 ? `  ${JSON.stringify(key)}: [],`
+    : [`  ${JSON.stringify(key)}: [`, items.map(i => `    ${i}`).join(',\n'), '  ],'].join('\n')
+  return ['{', list('configs', configs), list('findings', findings), `  "schema": ${JSON.stringify(LAUNCH_SUMMARY_SCHEMA)}`, '}', ''].join('\n')
+}
+
+/** 第三十五节第 2、3 小节：从变异一步那份启动数文件派生摘要的全文。record、source 同 launchGate */
+export function launchSummary(record: unknown, source: string | undefined): LaunchSummary {
+  const fault = recordFault(record, source)
+  if (fault !== undefined) return { fault }
+  const { tally, findings } = record as { tally: unknown[]; findings: unknown[] }
+  if (tallyFault(tally)) return { fault: '启动数文件的 tally 里有一项认不得' }
+  const rows = (tally as LaunchTally[]).map(summaryRow).sort((a, b) => byText(a.config as string, b.config as string))
+  return { text: summaryText(rows.map(compact), findings.map(compact)), configs: rows.length }
+}
+
+const pick = (o: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> =>
+  Object.fromEntries(keys.filter(k => Object.prototype.hasOwnProperty.call(o, k)).map(k => [k, o[k]]))
+
+/** 第 4 小节「差别」认文件：认得交回按配置键的一行与 findings 各条，都已压成一行；认不得是 undefined */
+function summaryParts(text: string): { rows: Map<string, string>; findings: string[] } | undefined {
+  let file: unknown
+  try { file = JSON.parse(text) } catch { return undefined }
+  if (!isObject(file) || file.schema !== LAUNCH_SUMMARY_SCHEMA || !Array.isArray(file.configs) || !Array.isArray(file.findings)) return undefined
+  const rows = new Map<string, string>()
+  for (const c of file.configs) {
+    if (!isObject(c) || typeof c.config !== 'string' || c.config === '' || rows.has(c.config)) return undefined
+    // 只取五个键，maxPaid 是对象时只取 id、paid；缺的不写。多出来的键不算「变了」，落进「差在别处」
+    const row = pick(c, ['config', 'launches', 'maxPaid', 'running', 'stopping'])
+    if (isObject(row.maxPaid)) row.maxPaid = pick(row.maxPaid, ['id', 'paid'])
+    rows.set(c.config, compact(row))
+  }
+  return { rows, findings: file.findings.map(compact) }
+}
+
+/** 第 4 小节「差别」：树内与现算的按配置键对上，数变了、多了、少了几种，前五种的键，findings 同不同 */
+function summaryDiff(tree: string, text: string): string {
+  const mine = summaryParts(tree)
+  if (mine === undefined) return '认不得树内的文件'
+  const now = summaryParts(text)!
+  const changed = [...now.rows].filter(([k, row]) => mine.rows.has(k) && mine.rows.get(k) !== row).map(([k]) => k)
+  const added = [...now.rows.keys()].filter(k => !mine.rows.has(k))
+  const removed = [...mine.rows.keys()].filter(k => !now.rows.has(k))
+  const findings = mine.findings.length !== now.findings.length || mine.findings.some((f, i) => f !== now.findings[i])
+  const keys = [...changed, ...added, ...removed].sort(byText)
+  if (keys.length === 0 && !findings) return '配置与 findings 都一样，差在别处，不是 --write 写的'
+  return `变了 ${changed.length} 种、多了 ${added.length} 种、少了 ${removed.length} 种`
+    + (keys.length > 0 ? `：${keys.slice(0, 5).join('、')}${keys.length > 5 ? ` 等 ${keys.length} 种` : ''}` : '')
+    + (findings ? '；findings 也不同' : '')
+}
+
+/** 第三十五节第 4 小节：最后一步多打的那一行，不带缩进。tree 是树内文件照 UTF-8 读出的全文，没有或读不出来时是 undefined。只报数 */
 export function summaryLine(tree: string | undefined, computed: LaunchSummary, trunk: LaunchTrunk): string {
-  throw new Error('summaryLine 还没写（ADR-145 第三十五节第 9 小节第 2 条：断言先写）')
+  const head = '启动数摘要（只报数）：'
+  if ('fault' in computed) return `${head}这一跑现算不出来（${computed.fault}），不比`
+  if (tree === undefined) return `${head}树内没有 ${LAUNCH_SUMMARY_FILE}，不比`
+  // 逐字节比：序列化定死了，手改过排版的也算不同
+  if (tree === computed.text) return `${head}树内 ${LAUNCH_SUMMARY_FILE} 与这一跑现算的相同，${computed.configs} 种配置`
+  const diff = summaryDiff(tree, computed.text)
+  // 不知道在不在主干上就按 PR，同闸门
+  if ('onTrunk' in trunk && trunk.onTrunk) return `${head}树内 ${LAUNCH_SUMMARY_FILE} 已过期（${diff}），下一条 PR 须 npm run launches -- --write`
+  return `${head}树内 ${LAUNCH_SUMMARY_FILE} 与这一跑现算的不同（${diff}）；CI 上比的是与主干的合并提交，这条 PR 没改数时多半是主干已经过期：`
+    + '把主干合进来，在这棵树上跑过 npm run mutate 之后，跑 npm run launches -- --write 写回'
 }
