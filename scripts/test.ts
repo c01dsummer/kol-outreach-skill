@@ -194,6 +194,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-mutation-maintenance', needs: [] },
   { id: 'h-mutation-cost', needs: [] },
   { id: 'h-launch-rule', needs: [] },
+  { id: 'h-launch-summary-deep', needs: [] },
   { id: 'h-launch-preload', needs: [] },
   { id: 'h-launch-preload-edge', needs: [] },
   { id: 'h-worker-start', needs: [] },
@@ -8654,9 +8655,77 @@ eq('启动数闸门：在主干上有缺基线时也红，报告行与重跑那�
       `﻿${CT}`, J({ configs: [['k']] })].map(diff),
     Array(16).fill('认不得树内的文件'))
 
+  // ── 补的样本（第三十五节第 2 小节「排」「字母序」是 JS 字符串的 <、即 UTF-16 码元序，不是 localeCompare；第 4 小节「差别」；第三十八节「实现定了的」第 2 条）。
+  // 派生那一侧从 tally 照常的 rec 里切出 findings 那一段；比对那一侧树内那条换了写法（键打乱、加空白），压成一行后与现算的一样，所以落在差在别处。
+  // 键 "B" 与 "a"：B（0x42）< a（0x61）< id < kind，B 在前；localeCompare 会把 a 放在 B 前面
+  const BA = '{"B":1,"a":2,"id":"F-4","kind":"full-run"}'
+  eq('启动数摘要：一条发现的键按 JS 字符串的 < 排、大写在前，B 排在 a 前面（不是 localeCompare），派生与比对都照这个排',
+    [part(TEXT(rec([{ a: 2, kind: 'full-run', B: 1, id: 'F-4' }])), 'findings'),
+      line(doc(ROWS, [F1, '{"a":2,"kind":"full-run","B":1,"id":"F-4"}']), { text: doc(ROWS, [F1, BA]), configs: 7 }, OFF)],
+    [[BA], H4 + OTHER + T4])
+  // 值里的空数组、空对象照 JSON.stringify 写成 []、{}，不加空白；套在数组、对象里的也一样。键 e < id < kind < n < o
+  const EMP = '{"e":[],"id":"F-5","kind":"full-run","n":[{},[],{"m":[]}],"o":{}}'
+  eq('启动数摘要：发现的值里的空数组、空对象压成 [] 与 {}，套在数组、对象里的也一样，派生与比对都照这个写',
+    [part(TEXT(rec([{ kind: 'full-run', id: 'F-5', e: [], o: {}, n: [{}, [], { m: [] }] }])), 'findings'),
+      line(doc(ROWS, [F1, '{"o":{ },"n":[ {}, [ ], {"m":[ ]} ],"kind":"full-run","id":"F-5","e":[ ]}']), { text: doc(ROWS, [F1, EMP]), configs: 7 }, OFF)],
+    [[EMP], H4 + OTHER + T4])
+  // 树内 B 那一行的 maxPaid 写成 {}：是对象（第三十八节第 2 条只把数组除外），照第 4 小节只取 id、paid，两个都缺、缺的不写，压成 {}；
+  // 现算的 B 是 null，{} 与它不同 → B 变了。把 {} 当成 null、或当成认不得，都不对
+  eq('启动数摘要的差别：树内一行配置的 maxPaid 写成空对象时照对象取 id、paid，缺的不写、压成 {}，与现算的 null 不同，那一种算变了',
+    diff(CT.replace(row('B'), row('B').replace('"maxPaid":null', '"maxPaid":{}'))), one('B'))
+}
+})
+
+await group('h-launch-summary-deep', () => {
+harness('启动数摘要嵌套极深时：派生、比对与最后一步那一行都不抛错，结论照常（ADR-145 第三十五节第 2、4 小节，第四十一节「压成一行不递归」）')
+// 从 h-launch-rule 拆出来（ADR-145 第三节第 1 种改法：拆组；先例 h-launch-preload-edge）。h-launch-rule 是需求测试的选组、不提前停，
+// 落到它的约 180 条变异每条都付一遍整组；嵌套十万层的这三条让那一组单跑的 CPU 时间（user+sys，npx tsx 起的整棵进程）从约 2.2 秒涨到
+// 约 4.7 秒（2026-10-16 本机 4 核、负载 0.1–0.4，拆前拆后各量 4 次：拆前 4.5–5.0 秒，拆后 2.2–2.3 秒；这一组单跑 4.5–4.9 秒），
+// 变异一步每跑就多约 430 CPU 秒（留在那一组的 177 条 × 约 2.4 秒）。点名这三条的只有 M-H60-bl、bm 两条，挪过来以后只有这两条付它们。
+// 三条断言的标签与期望原样挪来，一字没改；下面的辅助定义从 h-launch-rule 照原文抄来，只抄这三条用得到的（rec 的 tally 照旧带三种配置，
+// 不为这三条删）。期望值的来历同 h-launch-rule 那一块：只从第三十五节、第二十一节第 2、4 小节与第四十一节手推，没读实现。整组只调纯函数，不起子进程。
+const base = (total: number, ...prints: LaunchPrint[]): BaselineLaunches => ({ total, prints })
+// 基线键与成本表同一个公式（第九节）：JSON 的 [验证者, 排序后的选组]；executes 不进键
+const keyOf = (by: LaunchVerifier, only: readonly string[]): string => configurationKey({ by, only: [...only], executes: [] })
+const tal = (config: string, launches: number, running: number, ...paid: [string, number][]): LaunchTally =>
+  ({ config, launches, paid: paid.map(([id, n]) => ({ id, paid: n })), running })
+const OFF: LaunchTrunk = { onTrunk: false }, ON: LaunchTrunk = { onTrunk: true }, FOG: LaunchTrunk = { unknown: '浅克隆，找不到主干的历史' }
+const SRC = '3f9a0c27'.repeat(8)
+const GK = keyOf('selfcheck', ['g']), TK = keyOf('test', ['g']), UK = keyOf('test', ['u'])
+// 形状照第十三节第 2 小节：tally 三行，baselines、again 以配置键为键
+const rec = (findings: unknown, more: object = {}): Record<string, unknown> => ({
+  schema: 'mutation-launches/v1', head: '064df53', source: SRC, tally: [tal(GK, 80, 0, ['M-1', 60], ['M-2', 60]), tal(TK, 51, 2), tal(UK, 34, 1)],
+  findings, baselines: { [GK]: base(80), [TK]: base(51), [UK]: base(34) }, again: {}, ...more,
+})
+// 抛错时交回抛错原文，断言红而不崩；全文与五句话逐字照第三十五节（同 h-launch-rule 那一块）
+{
+  const S = (record: unknown, source: string | undefined): unknown => {
+    try { const s = launchSummary(record, source); return 'fault' in s ? { fault: s.fault } : { text: s.text, configs: s.configs } } catch (e) { return { threw: String(e) } }
+  }
+  const line = (tree: string | undefined, computed: LaunchSummary, trunk: LaunchTrunk): string => {
+    try { return summaryLine(tree, computed, trunk) } catch (e) { return `抛错：${String(e)}` }
+  }
+  const TEXT = (r: unknown): string => { const s = S(r, SRC) as { text?: unknown }; return typeof s.text === 'string' ? s.text : JSON.stringify(s) }
+  // 现算的全文用一个独立的小写法照第 2 小节写；配置键取 ["test",[g]]。CT 有 A（maxPaid 是对象）B C D E a c 七种、两条发现
+  const arr = (k: string, xs: readonly string[]): string[] =>
+    xs.length === 0 ? [`  "${k}": [],`] : [`  "${k}": [`, ...xs.map((x, i) => `    ${x}${i < xs.length - 1 ? ',' : ''}`), '  ],']
+  const doc = (rows: readonly string[], finds: readonly string[]): string =>
+    ['{', ...arr('configs', rows), ...arr('findings', finds), '  "schema": "mutation-launch-summary/v1"', '}', ''].join('\n')
+  const KEY = (g: string) => keyOf('test', [g]), MP = '{"id":"M-1","paid":3}'
+  const row = (g: string, n = 1, mp = 'null') => `{"config":${JSON.stringify(KEY(g))},"launches":${n},"maxPaid":${mp},"running":1,"stopping":${mp === 'null' ? 0 : 1}}`
+  const F1 = '{"id":"F-1","kind":"full-run"}', F2 = `{"config":${JSON.stringify(GK)},"id":"M-1","kind":"paid","paid":60}`
+  const ROWS = [row('A', 1, MP), row('B'), row('C'), row('D'), row('E'), row('a'), row('c')], CT = doc(ROWS, [F1, F2])
+  const CMP: LaunchSummary = { text: CT, configs: 7 }
+  const H4 = '启动数摘要（只报数）：树内 scripts/check/launches.json 与这一跑现算的不同（'
+  const T4 = '）；CI 上比的是与主干的合并提交，这条 PR 没改数时多半是主干已经过期：把主干合进来，在这棵树上跑过 npm run mutate 之后，跑 npm run launches -- --write 写回'
+  const H5 = '启动数摘要（只报数）：树内 scripts/check/launches.json 已过期（', T5 = '），下一条 PR 须 npm run launches -- --write'
+  const diff = (tree: string): string => { const l = line(tree, CMP, OFF); return l.startsWith(H4) && l.endsWith(T4) ? l.slice(H4.length, l.length - T4.length) : l }
+  const one = (g: string) => `变了 1 种、多了 0 种、少了 0 种：${KEY(g)}`
+  const OTHER = '配置与 findings 都一样，差在别处，不是 --write 写的'
+
   // ── 嵌套极深（第三十八节「实现定了的」第 5 条留给第三片定；第三片定的是压成一行不递归，嵌套多深都照第 2 小节写出，派生与比对都不抛错、结论照常）。
   // 深度 10 万层上下：DEEP 每层一个对象套一个数组，共 2 × 50000 层，键写成 z 在前、排好是 a 在前；ARR 是 10 万层纯数组。
-  // 期望一律用 repeat 拼，不用 JSON.stringify 算深值（它在约 10000 层起自己就栈溢出）；整段文本几百 KB，不同时只打第一处出入前后一小段
+  // 期望一律用 repeat 拼，不用 JSON.stringify 算深值（它在本测试进程里约 4100 层起自己就栈溢出：2026-10-16 本机 Node 22.22.0 在 h-launch-rule 这一处量了三次，纯数组、纯对象 4096 层起抛，对象套数组 4095 层起抛）；整段文本几百 KB，不同时只打第一处出入前后一小段
   const LEVELS = 50_000
   let deep: unknown = 0, deepArr: unknown = 0
   for (let i = 0; i < LEVELS; i++) deep = { z: 1, a: [deep] }

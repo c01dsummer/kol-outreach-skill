@@ -6446,14 +6446,16 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
   const inTally: any[] = Array.isArray(file.tally) ? file.tally : [], dl = inTally.find((t: any) => t?.config === DRIFT)?.launches
   const block = (k: string, xs: readonly string[]) =>
     xs.length === 0 ? [`  "${k}": [],`] : [`  "${k}": [`, ...xs.map((x, i) => `    ${x}${i < xs.length - 1 ? ',' : ''}`), '  ],']
-  const WANT = (driftLaunches: unknown, overLaunches = 54) => ['{', ...block('configs', [
-    String.raw`{"config":"[\"selfcheck\",[\"s-drift\"]]","launches":${driftLaunches},"maxPaid":{"id":"M-L-drift","paid":51},"running":0,"stopping":1}`,
-    String.raw`{"config":"[\"selfcheck\",[\"s-over\"]]","launches":${overLaunches},"maxPaid":{"id":"M-L-over","paid":51},"running":0,"stopping":1}`,
-    String.raw`{"config":"[\"test\",[\"t-pass\"]]","launches":20,"maxPaid":null,"running":5,"stopping":0}`]), ...block('findings', [
-    '{"id":"M-L-full","kind":"full-run"}',
+  // finds 缺省是 mutate 写的那四条发现；启动数文件的 findings 换成空数组时传 []，照「空数组写在键那一行上」写成 `"findings": [],`
+  const FOUND = ['{"id":"M-L-full","kind":"full-run"}',
     String.raw`{"config":"[\"selfcheck\",[\"s-drift\"]]","drift":"整跑 51 次对 52 次","kind":"unsteady"}`,
     String.raw`{"config":"[\"selfcheck\",[\"s-over\"]]","id":"M-L-over","kind":"paid","paid":51}`,
-    String.raw`{"config":"[\"test\",[\"t-bypass\"]]","ids":["M-L-bypass"],"kind":"missing"}`]), '  "schema": "mutation-launch-summary/v1"', '}', ''].join('\n')
+    String.raw`{"config":"[\"test\",[\"t-bypass\"]]","ids":["M-L-bypass"],"kind":"missing"}`]
+  const WANT = (driftLaunches: unknown, overLaunches = 54, finds: readonly string[] = FOUND) => ['{', ...block('configs', [
+    String.raw`{"config":"[\"selfcheck\",[\"s-drift\"]]","launches":${driftLaunches},"maxPaid":{"id":"M-L-drift","paid":51},"running":0,"stopping":1}`,
+    String.raw`{"config":"[\"selfcheck\",[\"s-over\"]]","launches":${overLaunches},"maxPaid":{"id":"M-L-over","paid":51},"running":0,"stopping":1}`,
+    String.raw`{"config":"[\"test\",[\"t-pass\"]]","launches":20,"maxPaid":null,"running":5,"stopping":0}`]), ...block('findings', finds),
+    '  "schema": "mutation-launch-summary/v1"', '}', ''].join('\n')
   // 第 3 小节的三种结局，都打在 stdout、只这一行；带 --write 时不打第七节末第二行与第 4 小节那一行、不判闸门
   const WROTE = '启动数摘要已写回 scripts/check/launches.json：3 种配置', NOT_WRITTEN = (why: string) => `✗ 启动数摘要没写：${why}`
   const treeNow = () => !existsSync(treeAt) ? '：没有这个文件' : statSync(treeAt).isDirectory() ? '是一个目录' : `：\n${fileText(treeAt)}`
@@ -6481,6 +6483,37 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
     if (differ.ok) named('启动数入口：树内摘要改了一种配置的一个数、不在主干上时，那一行是不同与变了的那一种，闸门那几行与退出码照旧',
       differ.status === 1 && rep.length > 0 && isDeepStrictEqual(gateOut(differ), [NO_IDLE, DIFFER(ONE_OVER), ...prGate]),
       `退出码 ${differ.status}；闸门打的：\n${differ.stdout}stderr 末几行：${stderrTail(differ.stderr)}`)
+    // 参数里只有近似的：大小写不同、短写、带等号的值。第四十一节「--write 怎么认」只认一个正好是 --write 的参数、别的参数不认也不报错，
+    // 所以这三个都不算 --write：照常打那几行、判闸门，与上面不带参数那一跑逐行相同、以 1 退出，树内那份照旧是 BUMPED（写了就是 WANT(dl)）
+    const nearMiss = runToolBoth('launches 只带近似 --write 的参数在树内摘要改了一个数的启动数玩具树分支上判', 'launches', ['--WRITE', '-w', '--write=1'], root, { status: 1, soft: [0] })
+    if (nearMiss.ok) named('启动数入口：参数只有近似 --write 的（--WRITE、-w、--write=1）时不算 --write，照常打那一行与闸门那几行、以 1 退出，树内摘要不动',
+      nearMiss.status === 1 && rep.length > 0 && isDeepStrictEqual(gateOut(nearMiss), [NO_IDLE, DIFFER(ONE_OVER), ...prGate]) && fileText(treeAt) === BUMPED,
+      `退出码 ${nearMiss.status}；闸门打的：\n${nearMiss.stdout}树内的${treeNow()}\nstderr 末几行：${stderrTail(nearMiss.stderr)}`)
+    // 参数里有别的参数、也有一个正好是 --write：照写（第四十一节第 4 条），同只带 --write —— 以 0 退出、stdout 只有写回了 3 种配置那一行、
+    // 不判闸门（这棵树的闸门是红的），树内那份从 BUMPED 换成照第 2 小节手推的全文。跑完换回 BUMPED，后面的断言照旧
+    const extraArg = runToolBoth('launches --x --write 在树内摘要改了一个数的启动数玩具树分支上写', 'launches', ['--x', '--write'], root, { status: 0, soft: [1] })
+    if (extraArg.ok) named('启动数入口：参数里另有别的参数、也有一个正好是 --write 时照写，同只带 --write：以 0 退出、只打写回那一行，写出的逐字是手推的全文',
+      extraArg.status === 0 && isDeepStrictEqual(gateOut(extraArg), [WROTE]) && fileText(treeAt) === WANT(dl),
+      `退出码 ${extraArg.status}；stdout：\n${extraArg.stdout}写出的${treeNow()}\n应是：\n${WANT(dl)}stderr 末几行：${stderrTail(extraArg.stderr)}`)
+    writeFileSync(treeAt, BUMPED)
+    // 无从判断在不在主干上：第二十一节第 1 小节末，在不在主干上照 resolveBaseline 判，浅克隆是它答不上来的一种（cannot-answer，交它的原因）。
+    // 把玩具仓库就地变成浅克隆：往 .git 里写一份 shallow，记 HEAD^1（一个 --depth 2 的克隆就是这样，边界提交的父提交不在），先问 git 认不认、
+    // 认了才跑，跑完删掉，后面切主干照旧。第 4 小节第 4 句「不在主干上，或无从判断在不在主干上（同闸门，不知道就按 PR）」→ 那一行同上面不带参数那一跑；
+    // 闸门那几行照第二十一节第 4 小节：报告行原样，最后一行换成「n 条发现；无从判断 HEAD 在不在主干上（原因），按 PR 判红」，n 是 4，主干上那几行都不打。
+    // 原因是 resolveBaseline 给的那句，本组能读的那几节没写它的原文，只核它是括号里不空的一句
+    const shallowAt = join(root, '.git', 'shallow'), edge = gitToy('rev-parse', 'HEAD^1')
+    let shallowMade = edge.status === 0
+    if (shallowMade) { writeFileSync(shallowAt, edge.stdout); shallowMade = gitToy('rev-parse', '--is-shallow-repository').stdout.trim() === 'true' }
+    if (!shallowMade) { rmSync(shallowAt, { force: true }); failed++; console.error(`  ✗ 启动数摘要玩具浅克隆${SELFCHECK_FIXTURE_MARK}：${edge.stderr || edge.error || '写了 .git/shallow，git 仍不认是浅克隆'}`) }
+    else {
+      const fog = runToolBoth('launches 在浅克隆的启动数玩具树分支上判', 'launches', [], root, { status: 1, soft: [0] })
+      rmSync(shallowAt, { force: true })
+      const fogLines = fog.ok ? gateOut(fog) : [], fogLast = fogLines[fogLines.length - 1] ?? ''
+      const UNKNOWN = /^✗ 启动数闸门：4 条发现；无从判断 HEAD 在不在主干上（.+），按 PR 判红$/
+      if (fog.ok) named('启动数入口：无从判断在不在主干上（浅克隆）时那一行按不在主干上打不同，闸门报告行原样、最后一行是无从判断 HEAD 在不在主干上、按 PR 判红，以 1 退出',
+        fog.status === 1 && rep.length > 0 && UNKNOWN.test(fogLast) && isDeepStrictEqual(fogLines, [NO_IDLE, DIFFER(ONE_OVER), ...rep, fogLast]),
+        `退出码 ${fog.status}；最后一行应形如：✗ 启动数闸门：4 条发现；无从判断 HEAD 在不在主干上（原因），按 PR 判红；闸门打的：\n${fog.stdout}stderr 末几行：${stderrTail(fog.stderr)}`)
+    }
     // 切回玩具的 main（主干）再跑：第 5 句，闸门那几行是主干上缺计数那几行；跑完切回分支，后面的断言都在分支上
     const toMain = gitToy('checkout', '--quiet', 'main')
     if (toMain.status !== 0) { failed++; console.error(`  ✗ 启动数摘要玩具切回主干${SELFCHECK_FIXTURE_MARK}：${toMain.stderr || toMain.error}`) }
@@ -6500,6 +6533,63 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
     if (calm.ok) named('启动数入口：闸门绿时树内摘要与现算的不同照样以 0 退出，那一行的差别后面接 findings 也不同',
       calm.status === 0 && isDeepStrictEqual(gateOut(calm), [NO_IDLE, DIFFER(`${ONE_OVER}；findings 也不同`), CALM]),
       `退出码 ${calm.status}；闸门打的：\n${calm.stdout}stderr 末几行：${stderrTail(calm.stderr)}`)
+    // 闸门绿时（启动数文件的 findings 还是空的）这一行读到什么都不改退出码（第 4 小节），第 5 句、第 2 句、第 3 句与认不得、差在别处各走一次，都以 0 退出；
+    // 闸门没有发现时只打绿的那一行，在不在主干上都一样（第二十一节第 4 小节「没有发现」，主干上那几行只换有发现时的最后一行）。
+    // 先切回主干：树内还是 BUMPED → 第 5 句已过期，差别同上面 calm 那一跑；跑完切回分支
+    const calmMain = gitToy('checkout', '--quiet', 'main')
+    if (calmMain.status !== 0) { failed++; console.error(`  ✗ 启动数摘要玩具闸门绿时切回主干${SELFCHECK_FIXTURE_MARK}：${calmMain.stderr || calmMain.error}`) }
+    else {
+      const calmStale = runToolBoth('launches 在没有发现、树内启动数摘要过期的启动数玩具树 main 上判', 'launches', [], root, { status: 0, soft: [1] })
+      const calmBack = gitToy('checkout', '--quiet', 'toy-pr')
+      if (calmBack.status !== 0) { failed++; console.error(`  ✗ 启动数摘要玩具闸门绿时切回分支${SELFCHECK_FIXTURE_MARK}：${calmBack.stderr || calmBack.error}`); return false }
+      if (calmStale.ok) named('启动数入口：闸门绿、在主干上、树内摘要过期时那一行是已过期与差别，照样以 0 退出',
+        calmStale.status === 0 && isDeepStrictEqual(gateOut(calmStale), [NO_IDLE, STALE(`${ONE_OVER}；findings 也不同`), CALM]),
+        `退出码 ${calmStale.status}；闸门打的：\n${calmStale.stdout}stderr 末几行：${stderrTail(calmStale.stderr)}`)
+    }
+    // 闸门绿、树内已有一份旧的、数不同的摘要（BUMPED：s-over 55、findings 四条）时 --write：覆盖写。写出的全文照第 2 小节从玩具手推：
+    // configs 三行同上面 WANT（tally 没动，s-over 是 54），findings 空了写在键那一行上；那一行报的是 tally 的项数 3 种。再不带 --write 跑：
+    // 树内的与这一跑现算的逐字节相同 → 第 3 句、3 种配置，闸门绿、以 0 退出
+    const CALM_WANT = WANT(dl, 54, [])
+    const overwrite = runToolBoth('launches --write 在没有发现、树内已有旧摘要的启动数玩具树分支上覆盖写', 'launches', ['--write'], root, { status: 0, soft: [1] })
+    if (overwrite.ok) named('启动数入口：闸门绿、树内已有一份旧的数不同的摘要时 --write 覆盖写，以 0 退出、只打写回了 3 种配置那一行，写出的逐字是手推的全文',
+      overwrite.status === 0 && isDeepStrictEqual(gateOut(overwrite), [WROTE]) && fileText(treeAt) === CALM_WANT,
+      `退出码 ${overwrite.status}；stdout：\n${overwrite.stdout}写出的${treeNow()}\n应是：\n${CALM_WANT}stderr 末几行：${stderrTail(overwrite.stderr)}`)
+    const calmSame = runToolBoth('launches 在没有发现、刚覆盖写过摘要的启动数玩具树分支上判', 'launches', [], root, { status: 0, soft: [1] })
+    if (calmSame.ok) named('启动数入口：覆盖写之后不带 --write 再跑，那一行是树内摘要与现算的相同、3 种配置，闸门绿、以 0 退出',
+      calmSame.status === 0 && isDeepStrictEqual(gateOut(calmSame), [NO_IDLE, SAME, CALM]),
+      `退出码 ${calmSame.status}；树内的${treeNow()}\n闸门打的：\n${calmSame.stdout}stderr 末几行：${stderrTail(calmSame.stderr)}`)
+    // 入口自己怎么读树内文件：第 4 小节「照 readFileSync 的 'utf8' 读，BOM 不去」、逐字节与现算的 CALM_WANT 比，不解析成结构再比。下面五份各放一次、
+    // 各跑一次，都在分支上，都不是逐字节相同 → 第 4 句；差别照第 4 小节：带 BOM 的解析不成 JSON（第三十八节「实现定了的」第 1 条）、空文件读得出来
+    // （是空串，不是没有这个文件）也解析不成 JSON → 认不得树内的文件；CRLF、每行行首多一个空格、少了末尾换行都解析得成、认得，
+    // 按配置比三个数都是 0、findings 都是空的 → 差在别处
+    const UNREAD = DIFFER('认不得树内的文件'), ELSEWHERE = DIFFER('配置与 findings 都一样，差在别处，不是 --write 写的')
+    writeFileSync(treeAt, `\uFEFF${CALM_WANT}`)
+    const bom = runToolBoth('launches 在树内摘要开头带 BOM 的启动数玩具树分支上判', 'launches', [], root, { status: 0, soft: [1] })
+    if (bom.ok) named('启动数入口：树内摘要是开头带 BOM 的正确全文时 BOM 不去、不算相同，那一行是不同、认不得树内的文件，照样以 0 退出',
+      bom.status === 0 && isDeepStrictEqual(gateOut(bom), [NO_IDLE, UNREAD, CALM]), `退出码 ${bom.status}；闸门打的：\n${bom.stdout}stderr 末几行：${stderrTail(bom.stderr)}`)
+    writeFileSync(treeAt, CALM_WANT.replace(/\n/g, '\r\n'))
+    const crlf = runToolBoth('launches 在树内摘要换成 CRLF 的启动数玩具树分支上判', 'launches', [], root, { status: 0, soft: [1] })
+    if (crlf.ok) named('启动数入口：树内摘要是换成 CRLF 的正确全文时不算相同，那一行是不同、差在别处，照样以 0 退出',
+      crlf.status === 0 && isDeepStrictEqual(gateOut(crlf), [NO_IDLE, ELSEWHERE, CALM]), `退出码 ${crlf.status}；闸门打的：\n${crlf.stdout}stderr 末几行：${stderrTail(crlf.stderr)}`)
+    writeFileSync(treeAt, CALM_WANT.split('\n').map(l => l === '' ? l : ` ${l}`).join('\n'))
+    const indented = runToolBoth('launches 在树内摘要每行行首多一个空格的启动数玩具树分支上判', 'launches', [], root, { status: 0, soft: [1] })
+    if (indented.ok) named('启动数入口：树内摘要是每行行首多一个空格的正确全文时不算相同，那一行是不同、差在别处，照样以 0 退出',
+      indented.status === 0 && isDeepStrictEqual(gateOut(indented), [NO_IDLE, ELSEWHERE, CALM]), `退出码 ${indented.status}；闸门打的：\n${indented.stdout}stderr 末几行：${stderrTail(indented.stderr)}`)
+    writeFileSync(treeAt, CALM_WANT.slice(0, -1))
+    const noEol = runToolBoth('launches 在树内摘要少了末尾换行的启动数玩具树分支上判', 'launches', [], root, { status: 0, soft: [1] })
+    if (noEol.ok) named('启动数入口：树内摘要是少了末尾换行的正确全文时不算相同，那一行是不同、差在别处，照样以 0 退出',
+      noEol.status === 0 && isDeepStrictEqual(gateOut(noEol), [NO_IDLE, ELSEWHERE, CALM]), `退出码 ${noEol.status}；闸门打的：\n${noEol.stdout}stderr 末几行：${stderrTail(noEol.stderr)}`)
+    writeFileSync(treeAt, '')
+    const empty = runToolBoth('launches 在树内摘要是空文件的启动数玩具树分支上判', 'launches', [], root, { status: 0, soft: [1] })
+    if (empty.ok) named('启动数入口：树内摘要是空文件时读得出来、不算没有这个文件，那一行是不同、认不得树内的文件，照样以 0 退出',
+      empty.status === 0 && isDeepStrictEqual(gateOut(empty), [NO_IDLE, UNREAD, CALM]), `退出码 ${empty.status}；闸门打的：\n${empty.stdout}stderr 末几行：${stderrTail(empty.stderr)}`)
+    // 树内没有这个文件 → 第 2 句，闸门绿、以 0 退出
+    rmSync(treeAt, { force: true })
+    const calmNone = runToolBoth('launches 在没有发现、树内没有启动数摘要的启动数玩具树分支上判', 'launches', [], root, { status: 0, soft: [1] })
+    if (calmNone.ok) named('启动数入口：闸门绿、树内没有启动数摘要时那一行是树内没有、不比，照样以 0 退出',
+      calmNone.status === 0 && isDeepStrictEqual(gateOut(calmNone), [NO_IDLE, NO_TREE, CALM]),
+      `退出码 ${calmNone.status}；闸门打的：\n${calmNone.stdout}stderr 末几行：${stderrTail(calmNone.stderr)}`)
+    writeFileSync(treeAt, BUMPED)   // 下面 tally 认不得那两条要的是树内那份还是改过数的 BUMPED
     // tally 里 t-pass 那一项的 launches 换成 -1（第 3 小节「launches、running 是非负的安全整数」），别的照旧：闸门那六条都过（launchGate 只核
     // tally 是不是数组），第 3 小节核每一项那几条不过。--write 不写（树内那份还是上面改过数的 BUMPED）、以 1 退出、只打没写那一行；
     // 不带 --write 是第 1 句带这个原因，闸门不为这件事红：findings 还在时闸门那几行照旧，findings 空了时照样是绿的那一行、以 0 退出（第 4 小节第 1 句后半）
