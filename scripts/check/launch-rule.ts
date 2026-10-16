@@ -359,11 +359,26 @@ function tallyFault(tally: readonly unknown[]): boolean {
   return false
 }
 
-/** 第 2 小节「压成一行」：对象的键按 JS `<` 排（不靠 JSON.stringify 的键序：整数样的键它会提到前面），不加空白 */
+/**
+ * 第 2 小节「压成一行」：对象的键按 JS `<` 排（不靠 JSON.stringify 的键序：整数样的键它会提到前面），不加空白。
+ * 不递归：待写的值与原样照抄的那几段放在一个栈里，嵌套多深都照样写出，不抛栈溢出（第三十八节「实现定了的」第 5 条，第三片定）。
+ * 栈后进先出，所以一个数组或对象的各项反着压，先出栈的是第一项
+ */
 function compact(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(compact).join(',')}]`
-  if (isObject(v)) return `{${Object.keys(v).sort(byText).map(k => `${JSON.stringify(k)}:${compact(v[k])}`).join(',')}}`
-  return JSON.stringify(v)
+  const out: string[] = [], todo: ({ readonly put: string } | { readonly value: unknown })[] = [{ value: v }]
+  for (let step = todo.pop(); step !== undefined; step = todo.pop()) {
+    if ('put' in step) { out.push(step.put); continue }
+    const x = step.value
+    if (Array.isArray(x)) {
+      out.push('['); todo.push({ put: ']' })
+      for (let i = x.length - 1; i >= 0; i--) todo.push({ value: x[i] }, { put: i > 0 ? ',' : '' })
+    } else if (isObject(x)) {
+      out.push('{'); todo.push({ put: '}' })
+      const keys = Object.keys(x).sort(byText)
+      for (let k = keys.length - 1; k >= 0; k--) todo.push({ value: x[keys[k]] }, { put: `${k > 0 ? ',' : ''}${JSON.stringify(keys[k])}:` })
+    } else out.push(JSON.stringify(x))
+  }
+  return out.join('')
 }
 
 /** 第 2 小节：一种配置一行的五个键；maxPaid 并列取 id 小的 */
