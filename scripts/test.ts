@@ -14,8 +14,9 @@ import { configurationKey, costObservation, configurationCost, configurationCost
 import type { RunVerdict } from './check/mutate-rule.js'
 import { stopsEarly } from './check/mutate-rule.js'
 import {
-  LAUNCH_LIMIT, idleGroupsLine, inProcessLine, launchFindings, launchGate, launchRecheck, launchReport, launchTally, paidLaunches, printLabel, settleLaunches, tallyLine,
-  type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchPrint, type LaunchTally, type LaunchTrunk, type LaunchVerifier,
+  LAUNCH_LIMIT, LAUNCH_SUMMARY_FILE, LAUNCH_SUMMARY_SCHEMA, idleGroupsLine, inProcessLine, launchFindings, launchGate, launchRecheck, launchReport,
+  launchSummary, launchTally, paidLaunches, printLabel, settleLaunches, summaryLine, tallyLine,
+  type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchPrint, type LaunchSummary, type LaunchTally, type LaunchTrunk, type LaunchVerifier,
 } from './check/launch-rule.js'
 import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog } from './check/launch-count.js'
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
@@ -8498,6 +8499,161 @@ eq('启动数闸门：在主干上有缺基线时也红，报告行与重跑那�
     bad(one({ launches: undefined }), one({ launches: -1 }), one({ launches: 1.5 }), one({ launches: '3' }), one({ launches: false })), allFirst(5))
   eq('有启动但没有变异的组：同一个组出现在两族里时认不得文件', bad(file([fam(1, 'a'), fam(2, 'b', 'a')]), file([fam(null, 'r1'), fam(0, 'x'), fam(0, 'r1')])), allFirst(2))
 }
+
+// ══ 启动数摘要落进仓库（第三十五节第 2 到 4 小节）。同样先于实现写成：期望值只从第三十五节与第二十一节第 2、4 小节手推，没读实现（写时它们是抛错的桩）。
+// 抛错时交回抛错原文，断言红而不崩。全文与五句话逐字照第三十五节；按段比的几条从全文里切出那一段，切不出就拿全文去比
+{
+  const S = (record: unknown, source: string | undefined): unknown => {
+    try { const s = launchSummary(record, source); return 'fault' in s ? { fault: s.fault } : { text: s.text, configs: s.configs } } catch (e) { return { threw: String(e) } }
+  }
+  const line = (tree: string | undefined, computed: LaunchSummary, trunk: LaunchTrunk): string => {
+    try { return summaryLine(tree, computed, trunk) } catch (e) { return `抛错：${String(e)}` }
+  }
+  const TEXT = (r: unknown): string => { const s = S(r, SRC) as { text?: unknown }; return typeof s.text === 'string' ? s.text : JSON.stringify(s) }
+  // 某个数组的各项：键那一行之后、「  ],」之前，去掉四格缩进与行尾逗号
+  const part = (t: string, key: string): string[] => {
+    const ls = t.split('\n'), i = ls.indexOf(`  "${key}": [`), j = ls.indexOf('  ],', i)
+    return i < 0 || j < 0 ? [t] : ls.slice(i + 1, j).map(l => l.replace(/^ {4}|,$/g, ''))
+  }
+  const fields = (r: unknown, pick: (o: Record<string, unknown>) => unknown): unknown => canon(Object.fromEntries(part(TEXT(r), 'configs')
+    .map((l, i) => { try { const o = JSON.parse(l); return [o.config, pick(o)] } catch { return [`第 ${i} 项`, l] } })))
+
+  // ── 第 2 小节：派生与序列化。主样本 tally 的先后与配置键的先后不同（按 UTF-16 码元 Zed < alpha < zero；localeCompare 是 alpha 在前）。
+  // Zed：paid 里 P-1 重复两次（stopping 是 3，去重是 2），最多的是最后一条 P-2。alpha：五条并列 46，输入里第一条 M-c、最后一条 M-b、
+  // localeCompare 最小的 M-a、最大的 M-d 都不是，按码元最小的是 M-B（B 0x42）；比它们都小的 M-0 只付 3 次。zero：唯一一条付 0 次，maxPaid 是它、不是 null。
+  // findings 的先后不按种类、不按配置键，原样留着；第一条的 drift 带中文与空格
+  const ZED = keyOf('selfcheck', ['Zed']), ALPHA = keyOf('selfcheck', ['alpha']), ZERO = keyOf('selfcheck', ['zero']), ABC = keyOf('test', ['Abc'])
+  const MAIN = rec([shaky(UK, '整跑 34 次对 35 次'), over(GK, 'M-1'), { kind: 'full-run', id: 'F-1' }, many(TK, 'N-2', 'N-1')], {
+    tally: [tal(ABC, 10, 3), tal(ALPHA, 50, 0, ['M-c', 46], ['M-a', 46], ['M-B', 46], ['M-d', 46], ['M-b', 46], ['M-0', 3]),
+      tal(ZED, 7, 2, ['P-1', 3], ['P-1', 3], ['P-2', 5]), tal(ZERO, 0, 0, ['Z-1', 0])],
+  })
+  const MAIN_TEXT = ['{', '  "configs": [',
+    String.raw`    {"config":"[\"selfcheck\",[\"Zed\"]]","launches":7,"maxPaid":{"id":"P-2","paid":5},"running":2,"stopping":3},`,
+    String.raw`    {"config":"[\"selfcheck\",[\"alpha\"]]","launches":50,"maxPaid":{"id":"M-B","paid":46},"running":0,"stopping":6},`,
+    String.raw`    {"config":"[\"selfcheck\",[\"zero\"]]","launches":0,"maxPaid":{"id":"Z-1","paid":0},"running":0,"stopping":1},`,
+    String.raw`    {"config":"[\"test\",[\"Abc\"]]","launches":10,"maxPaid":null,"running":3,"stopping":0}`,
+    '  ],', '  "findings": [',
+    String.raw`    {"config":"[\"test\",[\"u\"]]","drift":"整跑 34 次对 35 次","kind":"unsteady"},`,
+    String.raw`    {"config":"[\"selfcheck\",[\"g\"]]","id":"M-1","kind":"paid","paid":60},`,
+    '    {"id":"F-1","kind":"full-run"},',
+    String.raw`    {"config":"[\"test\",[\"g\"]]","ids":["N-2","N-1"],"kind":"product","launches":51}`,
+    '  ],', '  "schema": "mutation-launch-summary/v1"', '}', ''].join('\n')
+  // 只有一项与空的数组；h 起 2^53 − 1 次，仍是安全整数
+  const ONE = rec([], { tally: [tal(keyOf('test', ['h']), 2 ** 53 - 1, 0)] }), EMPTY = rec([{ kind: 'full-run', id: 'F-1' }], { tally: [] })
+  const ONE_TEXT = ['{', '  "configs": [', String.raw`    {"config":"[\"test\",[\"h\"]]","launches":9007199254740991,"maxPaid":null,"running":0,"stopping":0}`,
+    '  ],', '  "findings": [],', '  "schema": "mutation-launch-summary/v1"', '}', ''].join('\n')
+  const EMPTY_TEXT = ['{', '  "configs": [],', '  "findings": [', '    {"id":"F-1","kind":"full-run"}', '  ],', '  "schema": "mutation-launch-summary/v1"', '}', ''].join('\n')
+  eq('启动数摘要的路径与 schema', [LAUNCH_SUMMARY_FILE, LAUNCH_SUMMARY_SCHEMA], ['scripts/check/launches.json', 'mutation-launch-summary/v1'])
+  eq('启动数摘要的全文：顶层 configs、findings、schema 各起一行、两格缩进，不空的数组每项压成一行、四格缩进、除最后一项外带逗号，末尾一个换行',
+    TEXT(MAIN), MAIN_TEXT)
+  eq('启动数摘要的全文：空数组写在键那一行上，只有一项的数组那一项不带逗号', [TEXT(ONE), TEXT(EMPTY)], [ONE_TEXT, EMPTY_TEXT])
+  eq('启动数摘要的配置种数是 tally 的项数', [MAIN, ONE, EMPTY].map(r => (S(r, SRC) as { configs?: unknown }).configs), [4, 1, 0])
+  eq('启动数摘要：一种配置一行，launches、running 照 tally 那一项，stopping 是 paid 有几项、不去重',
+    fields(MAIN, o => [o.launches, o.running, o.stopping]), canon({ [ZED]: [7, 2, 3], [ALPHA]: [50, 0, 6], [ZERO]: [0, 0, 1], [ABC]: [10, 3, 0] }))
+  // NOTE：会提前停的那一条带了多余的键 note，maxPaid 里仍只有 id、paid（第 2 小节 {"id":…,"paid":…}）
+  const NOTE = rec([], { tally: [{ config: GK, launches: 3, running: 0, paid: [{ id: 'M-1', paid: 2, note: '多余的键' }] }] })
+  eq('启动数摘要：maxPaid 是付得最多的一条，并列取 id 按字符串比较小的，付 0 次的也算，没有会提前停的是 null',
+    [fields(MAIN, o => o.maxPaid), fields(NOTE, o => o.maxPaid)],
+    [canon({ [ZED]: { id: 'P-2', paid: 5 }, [ALPHA]: { id: 'M-B', paid: 46 }, [ZERO]: { id: 'Z-1', paid: 0 }, [ABC]: null }), canon({ [GK]: { id: 'M-1', paid: 2 } })])
+  eq('启动数摘要：configs 按配置键的字符串比较排，不按 tally 的先后',
+    part(TEXT(MAIN), 'configs').map(l => { try { return JSON.parse(l).config } catch { return l } }), [ZED, ALPHA, ZERO, ABC])
+  // ODD：键按 JS 字符串的 < 排，"10" 在 "9" 前（JSON.stringify 会把整数样的键提前、按数值排）；嵌套的对象、数组里的对象也一样排
+  const ODD = rec([{ kind: 'full-run', id: 'F-2', 9: 'b', 10: 'a' }, { z: { b: 1, a: { d: 2, c: 3 } }, list: [{ y: 1, x: 2 }, { q: [{ s: 1, r: 2 }], p: 1 }], kind: 'full-run', id: 'F-3' }])
+  eq('启动数摘要：findings 原样、原顺序，每条的键按字母序压成一行，字符串照 JSON.stringify 转义、中文与空格照留',
+    [part(TEXT(MAIN), 'findings'), part(TEXT(ODD), 'findings')], [part(MAIN_TEXT, 'findings'),
+      ['{"10":"a","9":"b","id":"F-2","kind":"full-run"}', '{"id":"F-3","kind":"full-run","list":[{"x":2,"y":1},{"p":1,"q":[{"r":2,"s":1}]}],"z":{"a":{"c":3,"d":2},"b":1}}']])
+
+  // ── 第 3 小节：先照闸门那六条核（原因是第二十一节第 4 小节那张表的原文），再核 tally 的每一项。
+  // 第 3 到第 7 个样本（共 5 个）都另带一个认不得的 tally 项：报的仍须是那一条；tally 是像数组的对象时是第 6 条，不是「有一项认不得」
+  const R = (fault: string) => ({ fault }), BAD = { tally: [null] }, SIX = '启动数文件的 tally 或 findings 不是数组，或有一条发现的种类认不得'
+  eq('启动数摘要派生不出来：先照闸门那六条核，交回第一条不过的那一句原因，先于 tally 的每一项',
+    ([[undefined, SRC], [[rec([])], SRC], [rec([], { ...BAD, schema: 'mutation-launches/v2' }), SRC], [rec([], { ...BAD, source: null }), SRC],
+      [rec([], BAD), undefined], [rec([], BAD), SHORT], [rec([{ kind: 'Paid' }], BAD), SRC], [rec([], { tally: { length: 0 } }), SRC]] as [unknown, string | undefined][])
+      .map(([r, s]) => S(r, s)),
+    [R('没有启动数文件，或读不出来、不是一个 JSON 对象'), R('没有启动数文件，或读不出来、不是一个 JSON 对象'), R('启动数文件的 schema 不是 mutation-launches/v1'),
+      R('启动数文件里没有源码身份（变异一步没取到）'), R('当前树的源码身份取不到'), R('启动数文件是另一棵树上写的（源码身份对不上）'), R(SIX), R(SIX)])
+  // 每个坏样本只比好的那一项多一处毛病；坏的那项换了配置键，不和好的重（重了的是单列的那个样本）
+  const GOOD = tal(GK, 3, 0, ['M-1', 2]), item = (defect: object) => rec([], { tally: [GOOD, { ...GOOD, config: TK, ...defect }] })
+  const ITEMS = [rec([], { tally: [GOOD, null] }), rec([], { tally: [GOOD, '坏'] }), rec([], { tally: [GOOD, GOOD] }),
+    ...['', 7, undefined].map(config => item({ config })), ...[-1, 1.5, '3', 2 ** 53, undefined].map(launches => item({ launches })),
+    ...[-1, null, 1.5].map(running => item({ running })),
+    // 「是对象」不含数组：这一项是数组，四个键却都是好的；paid 的每一项都核：第一项好、第二项 id 是空串
+    rec([], { tally: [GOOD, Object.assign([], GOOD, { config: TK })] }), item({ paid: [{ id: 'M-2', paid: 1 }, { id: '', paid: 1 }] }), item({ paid: [{ id: 'M-2', paid: 1.5 }] }),
+    ...[{}, [null], ['M-2'], [{ id: '', paid: 1 }], [{ id: 7, paid: 1 }], [{ id: 'M-2', paid: -1 }], [{ id: 'M-2', paid: 2 ** 53 }], [{ id: 'M-2' }]].map(paid => item({ paid }))]
+  eq('启动数摘要派生不出来：tally 有一项认不得时交回认不得的那一句', ITEMS.map(r => S(r, SRC)), Array(ITEMS.length).fill(R('启动数文件的 tally 里有一项认不得')))
+
+  // ── 第 4 小节：最后一步多打的那一行。现算的全文用一个独立的小写法照第 2 小节写（与上面手抄的全文同一套规矩）；配置键取 ["test",[g]]。
+  // CT 有 A（maxPaid 是对象）B C D E a c 七种、两条发现
+  const arr = (k: string, xs: readonly string[]): string[] =>
+    xs.length === 0 ? [`  "${k}": [],`] : [`  "${k}": [`, ...xs.map((x, i) => `    ${x}${i < xs.length - 1 ? ',' : ''}`), '  ],']
+  const doc = (rows: readonly string[], finds: readonly string[]): string =>
+    ['{', ...arr('configs', rows), ...arr('findings', finds), '  "schema": "mutation-launch-summary/v1"', '}', ''].join('\n')
+  const KEY = (g: string) => keyOf('test', [g]), MP = '{"id":"M-1","paid":3}'
+  const row = (g: string, n = 1, mp = 'null') => `{"config":${JSON.stringify(KEY(g))},"launches":${n},"maxPaid":${mp},"running":1,"stopping":${mp === 'null' ? 0 : 1}}`
+  const F1 = '{"id":"F-1","kind":"full-run"}', F2 = `{"config":${JSON.stringify(GK)},"id":"M-1","kind":"paid","paid":60}`
+  const ROWS = [row('A', 1, MP), row('B'), row('C'), row('D'), row('E'), row('a'), row('c')], CT = doc(ROWS, [F1, F2])
+  const CMP: LaunchSummary = { text: CT, configs: 7 }
+  const H4 = '启动数摘要（只报数）：树内 scripts/check/launches.json 与这一跑现算的不同（'
+  const T4 = '）；CI 上比的是与主干的合并提交，这条 PR 没改数时多半是主干已经过期：把主干合进来，在这棵树上跑过 npm run mutate 之后，跑 npm run launches -- --write 写回'
+  const H5 = '启动数摘要（只报数）：树内 scripts/check/launches.json 已过期（', T5 = '），下一条 PR 须 npm run launches -- --write'
+  const FAULT = '启动数文件的 tally 里有一项认不得', NOID = '当前树的源码身份取不到'
+  eq('启动数摘要那一行：这一跑现算不出来时打现算不出来与原因、不比，先于树内有没有文件、在不在主干上判',
+    [line(undefined, R(FAULT), OFF), line(CT, R(FAULT), ON), line('{', R(NOID), FOG)],
+    [`启动数摘要（只报数）：这一跑现算不出来（${FAULT}），不比`, `启动数摘要（只报数）：这一跑现算不出来（${FAULT}），不比`, `启动数摘要（只报数）：这一跑现算不出来（${NOID}），不比`])
+  eq('启动数摘要那一行：树内没有这个文件时打没有、不比，在不在主干上都一样', [OFF, ON, FOG].map(t => line(undefined, CMP, t)),
+    Array(3).fill('启动数摘要（只报数）：树内没有 scripts/check/launches.json，不比'))
+  eq('启动数摘要那一行：与现算的逐字节相同时打相同与几种配置，在不在主干上都一样',
+    [...[OFF, ON, FOG].map(t => line(CT, CMP, t)), line(EMPTY_TEXT, { text: EMPTY_TEXT, configs: 0 }, ON)],
+    [...Array(3).fill('启动数摘要（只报数）：树内 scripts/check/launches.json 与这一跑现算的相同，7 种配置'), '启动数摘要（只报数）：树内 scripts/check/launches.json 与这一跑现算的相同，0 种配置'])
+  // T6 的项故意打乱先后：B、D、c 变了，C 只在现算里，Z、b 只在树内，共 6 种；三类合起来按配置键排是 B C D Z b c（大写在前），前五种之后接共几种
+  const T6 = doc([row('Z'), row('c', 5), row('A', 1, MP), row('B', 2), row('D', 3), row('a'), row('E'), row('b')], [F1, F2])
+  const D6 = `变了 3 种、多了 1 种、少了 2 种：${['B', 'C', 'D', 'Z', 'b'].map(KEY).join('、')} 等 6 种`
+  eq('启动数摘要那一行：不同、不在主干上或无从判断在不在主干上时打 PR 那一句，叫把主干合进来、跑过变异再写回', [line(T6, CMP, OFF), line(T6, CMP, FOG)], [H4 + D6 + T4, H4 + D6 + T4])
+  eq('启动数摘要那一行：不同、在主干上时打已过期，下一条 PR 写回', line(T6, CMP, ON), H5 + D6 + T5)
+  // BOM 不去：前面多一个 U+FEFF 就不是逐字节相同。这里只看打的是哪一句；差别是认不得树内的文件（带 BOM 的解析不成 JSON），见下面认不得那条
+  const which = (l: string) => l.startsWith(H4) && l.endsWith(T4) ? '不同' : l.startsWith(H5) && l.endsWith(T5) ? '已过期' : l
+  eq('启动数摘要那一行：树内文件的 BOM 不去，前面多一个 BOM 就不算相同', [which(line(`﻿${CT}`, CMP, OFF)), which(line(`﻿${CT}`, CMP, ON))], ['不同', '已过期'])
+
+  // ── 差别（第 4 小节）：从 PR 那一句里切出来，切不出就交回整句。T5 把 T6 的 c 改回去，正好五种，不接共几种；
+  // 树内两个数组都空的 J({})：七种都多了，findings 也不同（2 条对 0 条）—— 它也是下面认不得那条的底样本，认得
+  const diff = (tree: string): string => { const l = line(tree, CMP, OFF); return l.startsWith(H4) && l.endsWith(T4) ? l.slice(H4.length, l.length - T4.length) : l }
+  const J = (o: object) => JSON.stringify({ configs: [], findings: [], schema: 'mutation-launch-summary/v1', ...o })
+  eq('启动数摘要的差别：按配置键对上两边，几种变了、多了、少了，三类合起来按配置键排列前五种，多于五种再接共几种',
+    [diff(T6), diff(T6.replace(row('c', 5), row('c'))), diff(J({}))],
+    [D6, `变了 2 种、多了 1 种、少了 2 种：${['B', 'C', 'D', 'Z', 'b'].map(KEY).join('、')}`,
+      `变了 0 种、多了 7 种、少了 0 种：${['A', 'B', 'C', 'D', 'E'].map(KEY).join('、')} 等 7 种；findings 也不同`])
+  // 只取五个键，缺的不写：D 少了 stopping、A 的 maxPaid 少了 paid、E 的 launches 写成字符串，各算那一种变了；
+  // B 缺了 maxPaid（现算的是 null，缺了也不当 null）、A 的 maxPaid 写成一个数 3（不是对象就原样取，不是认不得）
+  const one = (g: string) => `变了 1 种、多了 0 种、少了 0 种：${KEY(g)}`
+  eq('启动数摘要的差别：树内那一项只比五个键，缺了键或值的写法不同都算变了',
+    [CT.replace(row('D'), row('D').replace(',"stopping":0', '')), CT.replace(MP, '{"id":"M-1"}'), CT.replace(row('E'), row('E').replace('"launches":1', '"launches":"1"')),
+      CT.replace(row('B'), row('B').replace('"maxPaid":null,', '')), CT.replace(MP, '3')].map(diff),
+    [one('D'), one('A'), one('E'), one('B'), one('A')])
+  const OTHER = '配置与 findings 都一样，差在别处，不是 --write 写的'
+  eq('启动数摘要的差别：配置与 findings 都一样时打差在别处，行尾、末尾换行、缩进、项里键的先后与项上、maxPaid 里、顶层多出来的键都落在这一句',
+    [CT.replace(/\n/g, '\r\n'), CT.slice(0, -1), `${JSON.stringify(JSON.parse(CT), null, 2)}\n`,
+      CT.replace(row('A', 1, MP), `{"stopping":1,"running":1,"maxPaid":{"paid":3,"id":"M-1"},"launches":1,"config":${JSON.stringify(KEY('A'))}}`),
+      CT.replace(row('B'), row('B').replace('}', ',"note":"手改过"}')), CT.replace(MP, '{"id":"M-1","paid":3,"by":"手改"}'),
+      CT.replace('  "schema"', '  "head": "fd922f6",\n  "schema"'),
+      // B 的 launches 写了两遍，照 JSON.parse 取后一个，与现算的相同
+      CT.replace(row('B'), row('B').replace('"launches":1', '"launches":5,"launches":1'))].map(diff),
+    Array(8).fill(OTHER))
+  // 换了先后、少了一条、条数一样第一条相同而第二条不同，都算 findings 不同；只是一条里键的先后不同，压成一行后一样，落在差在别处 ——
+  // 末一个样本另配一份现算：嵌套的对象、数组里的对象、"10" 与 "9" 的先后在树内都打乱了，压成一行后也一样
+  const NX = '{"10":0,"9":0,"id":"F-3","kind":"full-run","z":{"a":1,"b":[{"c":2,"d":1}]}}'
+  eq('启动数摘要的差别：findings 每条压成一行按原顺序逐条比，不同时最后接 findings 也不同',
+    [...[doc(ROWS, [F2, F1]), doc(ROWS, [F1]), doc([...ROWS.slice(0, 6), row('c', 5)], [F2, F1]), doc(ROWS, ['{"kind":"full-run","id":"F-1"}', F2]),
+      doc(ROWS, [F1, F2.replace(':60}', ':61}')])].map(diff),
+      line(doc(ROWS, [F1, '{"z":{"b":[{"d":1,"c":2}],"a":1},"kind":"full-run","9":0,"id":"F-3","10":0}']), { text: doc(ROWS, [F1, NX]), configs: 7 }, OFF)],
+    ['变了 0 种、多了 0 种、少了 0 种；findings 也不同', '变了 0 种、多了 0 种、少了 0 种；findings 也不同', `${one('c')}；findings 也不同`, OTHER,
+      '变了 0 种、多了 0 种、少了 0 种；findings 也不同', H4 + OTHER + T4])
+  // 认不得：不是 JSON（带 BOM 的也是）、不是对象，schema 不对或缺了，configs 不是数组、有一项不是对象（是数组也不算）、config 不是非空字符串或重了，findings 不是数组或缺了
+  eq('启动数摘要的差别：树内文件认不得时打认不得树内的文件',
+    ['{', '[]', 'null', '3', J({ schema: 'mutation-launches/v1' }), J({ schema: undefined }), J({ configs: {} }), J({ configs: [null] }), J({ configs: ['k'] }),
+      J({ configs: [{ config: '' }] }), J({ configs: [{ config: 7 }] }), J({ configs: [{ config: 'k' }, { config: 'k' }] }), J({ findings: {} }), J({ findings: undefined }),
+      `﻿${CT}`, J({ configs: [['k']] })].map(diff),
+    Array(16).fill('认不得树内的文件'))
+}
 })
 
 // 计数预加载两组共用：经 tsxCommand 起玩具一次（tsx 壳 + 里面那个 node，与变异一步起验证者一样），给了 log 就计数；
@@ -10396,6 +10552,10 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
   eq('检查脚本也算源码 —— 它一样会写错', categorize('scripts/check/size.ts'), '源码')
   eq('test.ts 算测试', categorize('scripts/test.ts'), '测试')
   eq('变异集算测试', categorize('scripts/check/mutations.json'), '测试')
+  // ADR-145 第三十五节第 8 小节：树内的启动数摘要与变异集同一个来源，归测试；只归这一份，output 下同名的那份、同目录别的 json、同名的 launches.ts 照旧
+  eq('启动数摘要算测试', categorize('scripts/check/launches.json'), '测试')
+  eq('只有树内那份启动数摘要归测试：output 下同名的那份、scripts/check 下别的 json 仍归其他',
+    [categorize('output/mutation-launches/launches.json'), categorize('scripts/check/families.json'), categorize('scripts/check/launches.ts')], ['其他', '其他', '源码'])
   eq('其余归其他', categorize('package.json'), '其他')
 
   // 四类分开算：合并成一个总数，源码的超标会被文档稀释掉
