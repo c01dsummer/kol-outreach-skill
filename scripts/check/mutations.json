@@ -13606,7 +13606,7 @@
     {
       "id": "M-H60-c",
       "req": "harness",
-      "why": "带小数、超出安全整数的启动数也认 —— 数不是整数时照样写进仓库，两台机器上写出来的可能不一样",
+      "why": "带小数、超出安全整数的启动数也认 —— 不是整数的数照样写进仓库",
       "file": "scripts/check/launch-rule.ts",
       "find": "Number.isSafeInteger(v) && (v as number) >= 0",
       "replace": "Number.isFinite(v) && (v as number) >= 0",
@@ -13746,7 +13746,7 @@
     {
       "id": "M-H60-q",
       "req": "harness",
-      "why": "会提前停的条数按编号去重 —— 与定的不去重不符，同一条变异在一种配置里出现两次时少数一条",
+      "why": "会提前停的条数按编号去重 —— 摘要里的条数不再是启动数文件那一项里会提前停的有几项，手改或写坏的文件里重复的一项被吞掉，数对不上",
       "file": "scripts/check/launch-rule.ts",
       "find": "stopping: t.paid.length }",
       "replace": "stopping: new Set(t.paid.map(p => p.id)).size }",
@@ -14072,6 +14072,146 @@
       "replace": "if (typeof c.config",
       "by": "test",
       "kills": ["启动数摘要的差别：树内文件认不得时打认不得树内的文件"]
+    },
+    {
+      "id": "M-H60-ax",
+      "req": "harness",
+      "why": "树内那一项缺的键补成 null —— 缺了付得最多那一条的一项，碰上现算那一项本来就是 null，就说一样",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "keys.filter(k => Object.prototype.hasOwnProperty.call(o, k)).map(k => [k, o[k]])",
+      "replace": "keys.map(k => [k, o[k] ?? null])",
+      "by": "test",
+      "kills": ["启动数摘要的差别：树内那一项只比五个键，缺了键或值的写法不同都算变了"]
+    },
+    {
+      "id": "M-H60-ay",
+      "req": "harness",
+      "why": "findings 只比第一条 —— 后面几条变了也说一样",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "mine.findings.some((f, i) => f !== now.findings[i])",
+      "replace": "mine.findings.slice(0, 1).some((f, i) => f !== now.findings[i])",
+      "by": "test",
+      "kills": ["启动数摘要的差别：findings 每条压成一行按原顺序逐条比，不同时最后接 findings 也不同"]
+    },
+    {
+      "id": "M-H60-az",
+      "req": "harness",
+      "why": "tally 那一项会提前停的只核第一条 —— 后面几条写坏了照样写进仓库",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "!t.paid.every(p =>",
+      "replace": "!t.paid.slice(0, 1).every(p =>",
+      "by": "test",
+      "kills": ["启动数摘要派生不出来：tally 有一项认不得时交回认不得的那一句"]
+    },
+    {
+      "id": "M-H60-ba",
+      "req": "harness",
+      "why": "tally 那一项不提前停的条数只核不是负数 —— 写成小数照样写进仓库",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "!count(t.launches) || !count(t.running)",
+      "replace": "!count(t.launches) || !(typeof t.running === 'number' && t.running >= 0)",
+      "by": "test",
+      "kills": ["启动数摘要派生不出来：tally 有一项认不得时交回认不得的那一句"]
+    },
+    {
+      "id": "M-H60-bb",
+      "req": "harness",
+      "why": "会提前停的一条付几次只核不是负数、不超上界 —— 写成小数照样写进仓库",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "p.id !== '' && count(p.paid)",
+      "replace": "p.id !== '' && typeof p.paid === 'number' && p.paid >= 0 && p.paid <= Number.MAX_SAFE_INTEGER",
+      "by": "test",
+      "kills": ["启动数摘要派生不出来：tally 有一项认不得时交回认不得的那一句"]
+    },
+    {
+      "id": "M-H60-bc",
+      "req": "harness",
+      "why": "认树内文件之前先去掉 BOM —— 带 BOM 的文件被当成认得的摘要去对差别，与定的 BOM 不去不符",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "try { parsed = JSON.parse(text) }",
+      "replace": "try { parsed = JSON.parse(text.replace(/^\\uFEFF/, '')) }",
+      "by": "test",
+      "kills": ["启动数摘要的差别：树内文件认不得时打认不得树内的文件"]
+    },
+    {
+      "id": "M-H60-bd",
+      "req": "harness",
+      "why": "付得最多的那一条整条照抄 —— 启动数文件里那一条多带的键也写进摘要",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "{ id: max.id, paid: max.paid }",
+      "replace": "max",
+      "by": "test",
+      "kills": ["启动数摘要：maxPaid 是付得最多的一条，并列取 id 按字符串比较小的，付 0 次的也算，没有会提前停的是 null"]
+    },
+    {
+      "id": "M-H60-be",
+      "req": "harness",
+      "why": "压成一行时只排最外一层的键，交给通用的写法 —— 整数样的键被提到前面、嵌套对象的键照来的先后，同样的发现换个写法就写出不同的一行",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (isObject(v)) return `{${Object.keys(v).sort(byText).map(k => `${JSON.stringify(k)}:${compact(v[k])}`).join(',')}}`",
+      "replace": "if (isObject(v)) return JSON.stringify(Object.fromEntries(Object.keys(v).sort(byText).map(k => [k, v[k]])))",
+      "by": "test",
+      "kills": ["启动数摘要：findings 原样、原顺序，每条的键按字母序压成一行，字符串照 JSON.stringify 转义、中文与空格照留", "启动数摘要的差别：findings 每条压成一行按原顺序逐条比，不同时最后接 findings 也不同"]
+    },
+    {
+      "id": "M-H60-bf",
+      "req": "harness",
+      "why": "压成一行时嵌套的对象不排键 —— 发现里嵌套的那一层照来的先后写",
+      "file": "scripts/check/launch-rule.ts",
+      "find": ":${compact(v[k])}",
+      "replace": ":${JSON.stringify(v[k])}",
+      "by": "test",
+      "kills": ["启动数摘要：findings 原样、原顺序，每条的键按字母序压成一行，字符串照 JSON.stringify 转义、中文与空格照留", "启动数摘要的差别：findings 每条压成一行按原顺序逐条比，不同时最后接 findings 也不同"]
+    },
+    {
+      "id": "M-H60-bg",
+      "req": "harness",
+      "why": "压成一行时数组不逐项排键 —— 数组里的对象照来的先后写",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  if (Array.isArray(v)) return `[${v.map(compact).join(',')}]`",
+      "replace": "",
+      "by": "test",
+      "kills": ["启动数摘要：findings 原样、原顺序，每条的键按字母序压成一行，字符串照 JSON.stringify 转义、中文与空格照留", "启动数摘要的差别：findings 每条压成一行按原顺序逐条比，不同时最后接 findings 也不同"]
+    },
+    {
+      "id": "M-H60-bh",
+      "req": "harness",
+      "why": "配置种数把发现也数进去 —— 「相同」那一句报的种数不是摘要里的行数",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "configs: rows.length }",
+      "replace": "configs: rows.length + findings.length }",
+      "by": "test",
+      "kills": ["启动数摘要的配置种数是 tally 的项数"]
+    },
+    {
+      "id": "M-H60-bi",
+      "req": "harness",
+      "why": "树内没有摘要时不说没有，当成认不得的文件去比 —— 玩具树上打的是不同、叫人写回，看不出只是没有这个文件",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (tree === undefined) return",
+      "replace": "if (tree === undefined && false) return",
+      "by": "test",
+      "kills": ["启动数摘要那一行：树内没有这个文件时打没有、不比，在不在主干上都一样"]
+    },
+    {
+      "id": "M-H60-bj",
+      "req": "harness",
+      "why": "主干上逐字节相同也打过期 —— 升红要数的「相同」那一句在主干上一次也打不出来",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (tree === computed.text) return",
+      "replace": "if (tree === computed.text && !('onTrunk' in trunk && trunk.onTrunk)) return",
+      "by": "test",
+      "kills": ["启动数摘要那一行：与现算的逐字节相同时打相同与几种配置，在不在主干上都一样"]
+    },
+    {
+      "id": "M-H60-bk",
+      "req": "harness",
+      "why": "凡以 scripts/check/launches 开头的都归测试 —— 入口脚本 launches.ts 也被挤进最紧的那一类",
+      "file": "scripts/check/size-rule.ts",
+      "find": "path === 'scripts/check/launches.json') return '测试'",
+      "replace": "path.startsWith('scripts/check/launches')) return '测试'",
+      "by": "test",
+      "kills": ["只有树内那份启动数摘要归测试：output 下同名的那份、scripts/check 下别的 json 仍归其他"]
     },
     {
       "id": "M-D20-a",

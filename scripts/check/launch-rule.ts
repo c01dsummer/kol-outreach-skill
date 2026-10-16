@@ -426,7 +426,10 @@ function summaryDiff(tree: string, text: string): string {
     + (findings ? '；findings 也不同' : '')
 }
 
-/** 第三十五节第 4 小节：最后一步多打的那一行，不带缩进。tree 是树内文件照 UTF-8 读出的全文，没有或读不出来时是 undefined。只报数 */
+/**
+ * 第三十五节第 4 小节：最后一步多打的那一行，不带缩进。tree 是树内文件照 UTF-8 读出的全文，没有或读不出来时是 undefined；
+ * computed 是 launchSummary 交回的（别处拼出来的全文不认，认树内文件时会抛错）。只报数
+ */
 export function summaryLine(tree: string | undefined, computed: LaunchSummary, trunk: LaunchTrunk): string {
   const head = '启动数摘要（只报数）：'
   if ('fault' in computed) return `${head}这一跑现算不出来（${computed.fault}），不比`
