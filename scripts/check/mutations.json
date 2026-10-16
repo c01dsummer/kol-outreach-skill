@@ -14234,6 +14234,36 @@
       "kills": ["启动数摘要的全文：一条发现带着嵌套十万层的多余键时派生不抛错，那条发现照第 2 小节压成一行写进全文，深处的键也按字母序", "启动数摘要的差别：树内一行配置的 maxPaid 嵌套十万层时比对不抛错，那一种照常算变了，深值在不取的键上时照常是差在别处", "启动数摘要那一行：findings 里一条嵌套十万层时比对不抛错，照常打不同、已过期、相同或差在别处，深处不同的照常算 findings 也不同"]
     },
     {
+      "id": "M-H60-bn",
+      "req": "harness",
+      "why": "压成一行时键改按区域设置的字典序排 —— 大小写混着的键换了先后，同一条发现在两种区域设置的机器上写得不一样，树内与现算的对不上",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "const keys = Object.keys(x).sort(byText)",
+      "replace": "const keys = Object.keys(x).sort((a, b) => a.localeCompare(b))",
+      "by": "test",
+      "kills": ["启动数摘要：一条发现的键按 JS 字符串的 < 排、大写在前，B 排在 a 前面（不是 localeCompare），派生与比对都照这个排"]
+    },
+    {
+      "id": "M-H60-bo",
+      "req": "harness",
+      "why": "压成一行时空数组写成 null —— 发现里一个空列表与这个值是 null 写得一样，两者变了比对也看不出来",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "out.push('['); todo.push({ put: ']' })",
+      "replace": "if (x.length === 0) { out.push('null'); continue } out.push('['); todo.push({ put: ']' })",
+      "by": "test",
+      "kills": ["启动数摘要：发现的值里的空数组、空对象压成 [] 与 {}，套在数组、对象里的也一样，派生与比对都照这个写"]
+    },
+    {
+      "id": "M-H60-bp",
+      "req": "harness",
+      "why": "压成一行时空对象写成 null —— 树内一行配置里最贵那一项写成 {} 与现算的 null 被当成相同，那一种配置变了却算没变",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "out.push('{'); todo.push({ put: '}' })",
+      "replace": "if (Object.keys(x).length === 0) { out.push('null'); continue } out.push('{'); todo.push({ put: '}' })",
+      "by": "test",
+      "kills": ["启动数摘要：发现的值里的空数组、空对象压成 [] 与 {}，套在数组、对象里的也一样，派生与比对都照这个写", "启动数摘要的差别：树内一行配置的 maxPaid 写成空对象时照对象取 id、paid，缺的不写、压成 {}，与现算的 null 不同，那一种算变了"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
