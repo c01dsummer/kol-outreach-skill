@@ -339,3 +339,19 @@ export function launchGate(record: unknown, source: string | undefined, trunk: L
     lines.push('  主干上报了启动数不确定：第六节的死亡条件响了，这道闸门退不退成只报数由需求所有者定')
   return { red: false, lines }
 }
+
+/** 树内的启动数摘要（ADR-145 第三十五节）：npm run launches -- --write 写，检查链最后一步拿它与现算的比 */
+export const LAUNCH_SUMMARY_FILE = 'scripts/check/launches.json'
+export const LAUNCH_SUMMARY_SCHEMA = 'mutation-launch-summary/v1'
+/** 派生出来的全文与配置种数；派生不出来时是第一条不过的原因 */
+export type LaunchSummary = { readonly text: string; readonly configs: number } | { readonly fault: string }
+
+/** 第 2、3 小节：从变异一步那份启动数文件派生摘要的全文。record、source 同 launchGate */
+export function launchSummary(record: unknown, source: string | undefined): LaunchSummary {
+  throw new Error('launchSummary 还没写（ADR-145 第三十五节第 9 小节第 2 条：断言先写）')
+}
+
+/** 第 4 小节：最后一步多打的那一行，不带缩进。tree 是树内文件照 UTF-8 读出的全文，没有或读不出来时是 undefined。只报数 */
+export function summaryLine(tree: string | undefined, computed: LaunchSummary, trunk: LaunchTrunk): string {
+  throw new Error('summaryLine 还没写（ADR-145 第三十五节第 9 小节第 2 条：断言先写）')
+}
