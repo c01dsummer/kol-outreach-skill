@@ -13708,8 +13708,8 @@
       "req": "harness",
       "why": "压成一行时键不排序，照来的先后写 —— 同样的发现换个写法就写出不同的一行，逐字节比会报不同",
       "file": "scripts/check/launch-rule.ts",
-      "find": "Object.keys(v).sort(byText).map(",
-      "replace": "Object.keys(v).map(",
+      "find": "const keys = Object.keys(x).sort(byText)",
+      "replace": "const keys = Object.keys(x)",
       "by": "test",
       "kills": ["启动数摘要：findings 原样、原顺序，每条的键按字母序压成一行，字符串照 JSON.stringify 转义、中文与空格照留", "启动数摘要的差别：findings 每条压成一行按原顺序逐条比，不同时最后接 findings 也不同"]
     },
@@ -13718,8 +13718,8 @@
       "req": "harness",
       "why": "压成一行的数组里加了空格 —— 与定死的序列化不符，--write 写的与别的写法逐字节对不上",
       "file": "scripts/check/launch-rule.ts",
-      "find": "return `[${v.map(compact).join(',')}]`",
-      "replace": "return `[${v.map(compact).join(', ')}]`",
+      "find": "{ put: i > 0 ? ',' : '' }",
+      "replace": "{ put: i > 0 ? ', ' : '' }",
       "by": "test",
       "kills": ["启动数摘要：findings 原样、原顺序，每条的键按字母序压成一行，字符串照 JSON.stringify 转义、中文与空格照留"]
     },
@@ -14148,8 +14148,8 @@
       "req": "harness",
       "why": "压成一行时只排最外一层的键，交给通用的写法 —— 整数样的键被提到前面、嵌套对象的键照来的先后，同样的发现换个写法就写出不同的一行",
       "file": "scripts/check/launch-rule.ts",
-      "find": "if (isObject(v)) return `{${Object.keys(v).sort(byText).map(k => `${JSON.stringify(k)}:${compact(v[k])}`).join(',')}}`",
-      "replace": "if (isObject(v)) return JSON.stringify(Object.fromEntries(Object.keys(v).sort(byText).map(k => [k, v[k]])))",
+      "find": "out.push('{'); todo.push({ put: '}' })",
+      "replace": "out.push(JSON.stringify(Object.fromEntries(Object.keys(x).sort(byText).map(k => [k, x[k]])))); continue",
       "by": "test",
       "kills": ["启动数摘要：findings 原样、原顺序，每条的键按字母序压成一行，字符串照 JSON.stringify 转义、中文与空格照留", "启动数摘要的差别：findings 每条压成一行按原顺序逐条比，不同时最后接 findings 也不同"]
     },
@@ -14158,8 +14158,8 @@
       "req": "harness",
       "why": "压成一行时嵌套的对象不排键 —— 发现里嵌套的那一层照来的先后写",
       "file": "scripts/check/launch-rule.ts",
-      "find": ":${compact(v[k])}",
-      "replace": ":${JSON.stringify(v[k])}",
+      "find": "{ value: x[keys[k]] }",
+      "replace": "{ put: JSON.stringify(x[keys[k]]) }",
       "by": "test",
       "kills": ["启动数摘要：findings 原样、原顺序，每条的键按字母序压成一行，字符串照 JSON.stringify 转义、中文与空格照留", "启动数摘要的差别：findings 每条压成一行按原顺序逐条比，不同时最后接 findings 也不同"]
     },
@@ -14168,8 +14168,8 @@
       "req": "harness",
       "why": "压成一行时数组不逐项排键 —— 数组里的对象照来的先后写",
       "file": "scripts/check/launch-rule.ts",
-      "find": "  if (Array.isArray(v)) return `[${v.map(compact).join(',')}]`",
-      "replace": "",
+      "find": "{ value: x[i] }",
+      "replace": "{ put: JSON.stringify(x[i]) }",
       "by": "test",
       "kills": ["启动数摘要：findings 原样、原顺序，每条的键按字母序压成一行，字符串照 JSON.stringify 转义、中文与空格照留", "启动数摘要的差别：findings 每条压成一行按原顺序逐条比，不同时最后接 findings 也不同"]
     },
@@ -14212,6 +14212,56 @@
       "replace": "path.startsWith('scripts/check/launches')) return '测试'",
       "by": "test",
       "kills": ["只有树内那份启动数摘要归测试：output 下同名的那份、scripts/check 下别的 json 仍归其他"]
+    },
+    {
+      "id": "M-H60-bl",
+      "req": "harness",
+      "why": "嵌套几万层的对象出现在发现或树内文件里时，压成一行抛栈溢出 —— 检查链最后一步崩掉，那一行与闸门那几行都打不出来，退出码不再由闸门定",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "{ value: x[keys[k]] }",
+      "replace": "{ put: compact(x[keys[k]]) }",
+      "by": "test",
+      "kills": ["启动数摘要的全文：一条发现带着嵌套十万层的多余键时派生不抛错，那条发现照第 2 小节压成一行写进全文，深处的键也按字母序", "启动数摘要的差别：树内一行配置的 maxPaid 嵌套十万层时比对不抛错，那一种照常算变了，深值在不取的键上时照常是差在别处", "启动数摘要那一行：findings 里一条嵌套十万层时比对不抛错，照常打不同、已过期、相同或差在别处，深处不同的照常算 findings 也不同"]
+    },
+    {
+      "id": "M-H60-bm",
+      "req": "harness",
+      "why": "嵌套几万层的数组出现在发现或树内文件里时，压成一行抛栈溢出 —— 检查链最后一步崩掉，那一行与闸门那几行都打不出来，退出码不再由闸门定",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "{ value: x[i] }",
+      "replace": "{ put: compact(x[i]) }",
+      "by": "test",
+      "kills": ["启动数摘要的全文：一条发现带着嵌套十万层的多余键时派生不抛错，那条发现照第 2 小节压成一行写进全文，深处的键也按字母序", "启动数摘要的差别：树内一行配置的 maxPaid 嵌套十万层时比对不抛错，那一种照常算变了，深值在不取的键上时照常是差在别处", "启动数摘要那一行：findings 里一条嵌套十万层时比对不抛错，照常打不同、已过期、相同或差在别处，深处不同的照常算 findings 也不同"]
+    },
+    {
+      "id": "M-H60-bn",
+      "req": "harness",
+      "why": "压成一行时键改按区域设置的字典序排 —— 大小写混着的键换了先后，同一条发现在两种区域设置的机器上写得不一样，树内与现算的对不上",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "const keys = Object.keys(x).sort(byText)",
+      "replace": "const keys = Object.keys(x).sort((a, b) => a.localeCompare(b))",
+      "by": "test",
+      "kills": ["启动数摘要：一条发现的键按 JS 字符串的 < 排、大写在前，B 排在 a 前面（不是 localeCompare），派生与比对都照这个排"]
+    },
+    {
+      "id": "M-H60-bo",
+      "req": "harness",
+      "why": "压成一行时空数组写成 null —— 发现里一个空列表与这个值是 null 写得一样，两者变了比对也看不出来",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "out.push('['); todo.push({ put: ']' })",
+      "replace": "if (x.length === 0) { out.push('null'); continue } out.push('['); todo.push({ put: ']' })",
+      "by": "test",
+      "kills": ["启动数摘要：发现的值里的空数组、空对象压成 [] 与 {}，套在数组、对象里的也一样，派生与比对都照这个写"]
+    },
+    {
+      "id": "M-H60-bp",
+      "req": "harness",
+      "why": "压成一行时空对象写成 null —— 树内一行配置里最贵那一项写成 {} 与现算的 null 被当成相同，那一种配置变了却算没变",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "out.push('{'); todo.push({ put: '}' })",
+      "replace": "if (Object.keys(x).length === 0) { out.push('null'); continue } out.push('{'); todo.push({ put: '}' })",
+      "by": "test",
+      "kills": ["启动数摘要：发现的值里的空数组、空对象压成 [] 与 {}，套在数组、对象里的也一样，派生与比对都照这个写", "启动数摘要的差别：树内一行配置的 maxPaid 写成空对象时照对象取 id、paid，缺的不写、压成 {}，与现算的 null 不同，那一种算变了"]
     },
     {
       "id": "M-D20-a",
