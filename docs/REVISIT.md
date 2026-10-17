@@ -229,7 +229,7 @@ awk -F'|' 'FILENAME == ARGV[1] { if ($0 != "") rec[++nr] = $0; next }
       split(rec[j], c, "|"); m = split(c[3], s, " "); all = 1; any = 0
       for (i = 1; i <= m; i++) if (s[i] in in_t) any = 1; else all = 0
       if (m && all) { same++; if (c[4] == "活着") live++; if (c[2] + 0 > maxN) maxN = c[2] + 0 }
-      else if (any) { match(c[1], /ADR-[0-9]+/); part = part " " substr(c[1], RSTART, RLENGTH) }
+      else if (any) { match(c[1], /ADR-[0-9]+/); part = part (part != "" ? "、" : "") substr(c[1], RSTART, RLENGTH) }
     }
     v = live ? "不过：同一类有活着的候选句记录" : (same && $3 + 0 <= maxN) ? "不过：同一类都驳回了，驳回以后没有新一例" : "过"
     print $1 "|" $2 "|" $3 "|" $4 "|" v "|" part }' "$tmp/候选句记录" "$tmp/触发" > "$tmp/两道门"
