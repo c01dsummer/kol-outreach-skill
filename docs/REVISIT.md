@@ -218,7 +218,7 @@ wc -l < "$tmp/触发"; wc -l < "$tmp/候选句记录"; grep -hE '^>.*欠条.{0,4
 awk -F'|' '$2 == "" { print "这一类没写出编号：" $1 }' "$tmp/候选句记录"
 awk -F'|' '{ if (split($4, u, " ") != $3) print "N 与括号里的编号数不等：" $1 " 第 " $2 " 行" }' "$tmp/触发"
 awk -F'|' '$3 == "活着" { print $1 }' "$tmp/候选句记录" | while IFS= read -r f; do
-  if grep -qE '^>.*驳回' "$f"; then echo "驳回块写法不对：$f"; fi
+  if grep -qE '^>.{0,8}⚠️.{0,8}驳回' "$f"; then echo "驳回块写法不对：$f"; fi
 done
 ```
 
