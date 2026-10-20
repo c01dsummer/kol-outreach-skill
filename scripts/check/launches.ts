@@ -3,7 +3,7 @@
  * 启动数闸门 —— 检查链的最后一步（ADR-145 第二十一节）。
  *
  * 不起验证者、不重跑任何东西：读变异一步写的 `output/mutation-launches/launches.json`，算当前树的源码身份，
- * 问 git 判 HEAD 在不在主干上，交给 `launch-rule.ts` 的 `launchGate`，照它交回的打、退出。
+ * 问 git 判 HEAD 在不在主干上，交给 `launch-rule.ts`，照它交回的打、退出：闸门的判法在 `launchGate`，摘要那一行的在 `summaryLine`。
  * 放在最后，是为了它红的时候变异、自检、审计的结果照常拿得到（`&&` 链会跳过红了之后的每一步）。
  *
  * 闸门的判法全在 `launchGate`：数据缺了或对不上一律红（主干上也红），有发现时 PR 上红、主干上只报数（缺计数的除外）。
