@@ -6,7 +6,7 @@
  * 问 git 判 HEAD 在不在主干上，交给 `launch-rule.ts` 的 `launchGate`，照它交回的打、退出。
  * 放在最后，是为了它红的时候变异、自检、审计的结果照常拿得到（`&&` 链会跳过红了之后的每一步）。
  *
- * 判法全在 `launchGate`：数据缺了或对不上一律红（主干上也红），有发现时 PR 上红、主干上只报数（缺计数的除外）。
+ * 闸门的判法全在 `launchGate`：数据缺了或对不上一律红（主干上也红），有发现时 PR 上红、主干上只报数（缺计数的除外）。
  * 这里没有一条路把「读不到」变成「没超」。
  *
  * 闸门那几行之前先打第七节末第二行（ADR-145 第三十一节第 3 小节）：读整跑自检写的按族计数，路由同变异一步从源码静态算，
@@ -41,7 +41,7 @@ const routes = (): Parameters<typeof idleGroupsLine>[2] => {
       file => existsSync(file) ? readFileSync(file, 'utf8') : undefined).routes
   } catch { return undefined }
 }
-// 没有这个文件、是个目录、读的时候出错，都交 undefined：第 4 小节第 2 句
+// 没有这个文件、是个目录、读的时候出错，都交 undefined：第三十五节第 4 小节第 2 句，PR 上是第四十四节的乙
 const inTree = (): string | undefined => { try { return readFileSync(LAUNCH_SUMMARY_FILE, 'utf8') } catch { return undefined } }
 // 写不进去时括号里是那个错误的 code，没有就是「未知」
 const code = (e: unknown): string => { const c = (e as { code?: unknown } | null)?.code; return typeof c === 'string' ? c : '未知' }

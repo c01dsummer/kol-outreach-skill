@@ -8626,7 +8626,7 @@ eq('启动数闸门：在主干上有缺基线时也红，报告行与重跑那�
   // 红不红（第四十四节第 2 小节那张表，一行一条）：每组依次是不在主干上、在主干上、无从判断（表里「PR 上」含无从判断）。
   // 不同那一行另带少了末尾换行（差在别处）与不是 JSON（认不得树内的文件）两种：差别里三个数都是 0 的也是不同
   const reds = (tree: string | undefined, computed: LaunchSummary) => [OFF, ON, FOG].map(t => red(tree, computed, t))
-  eq('启动数摘要那一行红不红：现算不出来、原因是闸门那六条之一时不红，树内没有文件、在不在主干上都一样', [reds(undefined, R(NOID)), reds(CT, R(SIX))], Array(2).fill([false, false, false]))
+  eq('启动数摘要那一行红不红：现算不出来、原因是闸门那六条之一时不红，树内有没有文件、在不在主干上都一样', [reds(undefined, R(NOID)), reds(CT, R(SIX))], Array(2).fill([false, false, false]))
   eq('启动数摘要那一行红不红：现算不出来、原因是 tally 有一项认不得时红，树内有没有文件、在不在主干上都一样', [reds(undefined, R(FAULT)), reds(CT, R(FAULT))], Array(2).fill([true, true, true]))
   eq('启动数摘要那一行红不红：树内没有这个文件时，不在主干上或无从判断时红，在主干上不红', reds(undefined, CMP), [true, false, true])
   eq('启动数摘要那一行红不红：与现算的逐字节相同时不红，在不在主干上都一样', reds(CT, CMP), [false, false, false])
@@ -8715,7 +8715,7 @@ const rec = (findings: unknown, more: object = {}): Record<string, unknown> => (
   schema: 'mutation-launches/v1', head: '064df53', source: SRC, tally: [tal(GK, 80, 0, ['M-1', 60], ['M-2', 60]), tal(TK, 51, 2), tal(UK, 34, 1)],
   findings, baselines: { [GK]: base(80), [TK]: base(51), [UK]: base(34) }, again: {}, ...more,
 })
-// 抛错时交回抛错原文，断言红而不崩；全文与五句话逐字照第三十五节（同 h-launch-rule 那一块）
+// 抛错时交回抛错原文，断言红而不崩；全文与不红的四句逐字照第三十五节，红的丙照第四十四节（同 h-launch-rule 那一块）
 {
   const S = (record: unknown, source: string | undefined): unknown => {
     try { const s = launchSummary(record, source); return 'fault' in s ? { fault: s.fault } : { text: s.text, configs: s.configs } } catch (e) { return { threw: String(e) } }

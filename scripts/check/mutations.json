@@ -13816,7 +13816,7 @@
     {
       "id": "M-H60-x",
       "req": "harness",
-      "why": "现算不出来时先看树内有没有文件 —— 玩具树上数据坏了打的是「树内没有」，看不出这一跑没量成",
+      "why": "现算不出来时先看树内有没有文件 —— 树内没有摘要时打的是没有那一句，看不出这一跑没量成；主干上 tally 有一项认不得、树内又没有摘要时这一行不红，那一跑就绿了",
       "file": "scripts/check/launch-rule.ts",
       "find": "if ('fault' in computed) return",
       "replace": "if ('fault' in computed && tree !== undefined) return",
@@ -13846,7 +13846,7 @@
     {
       "id": "M-H60-aa",
       "req": "harness",
-      "why": "在主干上也打 PR 那一句 —— 主干上的过期被说成这条 PR 没写回",
+      "why": "在主干上也打 PR 那一句、也红 —— 主干上的过期被说成这条 PR 没写回，一条没碰数的 PR 合进来主干就红，与主干上只报数不符",
       "file": "scripts/check/launch-rule.ts",
       "find": "if (onTrunk) return",
       "replace": "if (false) return",
@@ -14286,12 +14286,12 @@
     {
       "id": "M-H60-bs",
       "req": "harness",
-      "why": "闸门那六条之一时这一行也说红 —— 退出码照旧是 1，可同一件事闸门与这一行各红一次，第四十四节定的是这一行不另判",
+      "why": "闸门那六条之一时这一行也说红 —— 入口上看不出来（闸门已经为同一件事红、退出码照旧是 1，这一行的字也不变），守的只是第四十四节那张表里这一格写的不红",
       "file": "scripts/check/launch-rule.ts",
       "find": "{ red: false, line: `${head}这一跑现算不出来",
       "replace": "{ red: true, line: `${head}这一跑现算不出来",
       "by": "test",
-      "kills": ["启动数摘要那一行红不红：现算不出来、原因是闸门那六条之一时不红，树内没有文件、在不在主干上都一样"]
+      "kills": ["启动数摘要那一行红不红：现算不出来、原因是闸门那六条之一时不红，树内有没有文件、在不在主干上都一样"]
     },
     {
       "id": "M-H60-bt",
