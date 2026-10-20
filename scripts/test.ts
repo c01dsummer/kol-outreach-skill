@@ -8508,7 +8508,7 @@ eq('启动数闸门：在主干上有缺基线时也红，报告行与重跑那�
     try { const s = launchSummary(record, source); return 'fault' in s ? { fault: s.fault } : { text: s.text, configs: s.configs } } catch (e) { return { threw: String(e) } }
   }
   const line = (tree: string | undefined, computed: LaunchSummary, trunk: LaunchTrunk): string => {
-    try { return summaryLine(tree, computed, trunk) } catch (e) { return `抛错：${String(e)}` }
+    try { return summaryLine(tree, computed, trunk).line } catch (e) { return `抛错：${String(e)}` }
   }
   const TEXT = (r: unknown): string => { const s = S(r, SRC) as { text?: unknown }; return typeof s.text === 'string' ? s.text : JSON.stringify(s) }
   // 某个数组的各项：键那一行之后、「  ],」之前，去掉四格缩进与行尾逗号
@@ -8703,7 +8703,7 @@ const rec = (findings: unknown, more: object = {}): Record<string, unknown> => (
     try { const s = launchSummary(record, source); return 'fault' in s ? { fault: s.fault } : { text: s.text, configs: s.configs } } catch (e) { return { threw: String(e) } }
   }
   const line = (tree: string | undefined, computed: LaunchSummary, trunk: LaunchTrunk): string => {
-    try { return summaryLine(tree, computed, trunk) } catch (e) { return `抛错：${String(e)}` }
+    try { return summaryLine(tree, computed, trunk).line } catch (e) { return `抛错：${String(e)}` }
   }
   const TEXT = (r: unknown): string => { const s = S(r, SRC) as { text?: unknown }; return typeof s.text === 'string' ? s.text : JSON.stringify(s) }
   // 现算的全文用一个独立的小写法照第 2 小节写；配置键取 ["test",[g]]。CT 有 A（maxPaid 是对象）B C D E a c 七种、两条发现

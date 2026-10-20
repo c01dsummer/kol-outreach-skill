@@ -55,8 +55,9 @@ if (process.argv.slice(2).includes('--write')) {
   }
 } else {
   console.log(idleGroupsLine(json(SELFCHECK_LAUNCHES_FILE), tree, routes()))
-  console.log(summaryLine(inTree(), summary, trunk))
+  const sum = summaryLine(inTree(), summary, trunk)
+  console.log(sum.line)
   const gate = launchGate(record, tree, trunk)
   for (const line of gate.lines) console.log(line)
-  process.exitCode = gate.red ? 1 : 0
+  process.exitCode = gate.red || sum.red ? 1 : 0
 }
