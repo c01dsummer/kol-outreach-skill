@@ -13821,7 +13821,7 @@
       "find": "if ('fault' in computed) return",
       "replace": "if ('fault' in computed && tree !== undefined) return",
       "by": "test",
-      "kills": ["启动数摘要那一行：这一跑现算不出来时打现算不出来与原因、不比，先于树内有没有文件、在不在主干上判"]
+      "kills": ["启动数摘要那一行：这一跑现算不出来、原因是闸门那六条之一时打现算不出来与原因、不比，先于树内有没有文件、在不在主干上判", "启动数摘要那一行：这一跑现算不出来、原因是 tally 有一项认不得时打红的那一句（甲），先于树内有没有文件，在不在主干上都一样"]
     },
     {
       "id": "M-H60-y",
@@ -13836,19 +13836,19 @@
     {
       "id": "M-H60-z",
       "req": "harness",
-      "why": "不知道在不在主干上时按主干打 —— PR 上本该叫作者写回的那一句换成了「下一条 PR 再写」",
+      "why": "不知道在不在主干上时按主干打 —— PR 上本该红、叫作者写回的那一句换成了「下一条 PR 再写」，树内没有文件时也不红",
       "file": "scripts/check/launch-rule.ts",
-      "find": "if ('onTrunk' in trunk && trunk.onTrunk) return",
-      "replace": "if (!('onTrunk' in trunk) || trunk.onTrunk) return",
+      "find": "const onTrunk = 'onTrunk' in trunk && trunk.onTrunk",
+      "replace": "const onTrunk = !('onTrunk' in trunk) || trunk.onTrunk",
       "by": "test",
-      "kills": ["启动数摘要那一行：不同、不在主干上或无从判断在不在主干上时打 PR 那一句，叫把主干合进来、跑过变异再写回"]
+      "kills": ["启动数摘要那一行：不同、不在主干上或无从判断在不在主干上时打红的那一句（丙），叫把主干合进来、跑过变异再写回"]
     },
     {
       "id": "M-H60-aa",
       "req": "harness",
       "why": "在主干上也打 PR 那一句 —— 主干上的过期被说成这条 PR 没写回",
       "file": "scripts/check/launch-rule.ts",
-      "find": "if ('onTrunk' in trunk && trunk.onTrunk) return",
+      "find": "if (onTrunk) return",
       "replace": "if (false) return",
       "by": "test",
       "kills": ["启动数摘要那一行：不同、在主干上时打已过期，下一条 PR 写回"]
@@ -14191,7 +14191,7 @@
       "find": "if (tree === undefined) return",
       "replace": "if (tree === undefined && false) return",
       "by": "test",
-      "kills": ["启动数摘要那一行：树内没有这个文件时打没有、不比，在不在主干上都一样"]
+      "kills": ["启动数摘要那一行：树内没有这个文件时，在主干上打没有、不比，不在主干上或无从判断时打红的那一句（乙），叫跑过变异再写出来"]
     },
     {
       "id": "M-H60-bj",
@@ -14262,6 +14262,106 @@
       "replace": "if (Object.keys(x).length === 0) { out.push('null'); continue } out.push('{'); todo.push({ put: '}' })",
       "by": "test",
       "kills": ["启动数摘要：发现的值里的空数组、空对象压成 [] 与 {}，套在数组、对象里的也一样，派生与比对都照这个写", "启动数摘要的差别：树内一行配置的 maxPaid 写成空对象时照对象取 id、paid，缺的不写、压成 {}，与现算的 null 不同，那一种算变了"]
+    },
+    {
+      "id": "M-H60-bq",
+      "req": "harness",
+      "why": "tally 有一项认不得时这一行打红的那句却不红 —— 闸门不为这件事红，坏了一项的启动数文件照样绿着过",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "computed.fault === TALLY_FAULT ? { red: true",
+      "replace": "computed.fault === TALLY_FAULT ? { red: false",
+      "by": "test",
+      "kills": ["启动数摘要那一行红不红：现算不出来、原因是 tally 有一项认不得时红，树内有没有文件、在不在主干上都一样"]
+    },
+    {
+      "id": "M-H60-br",
+      "req": "harness",
+      "why": "tally 有一项认不得当成闸门那六条之一，打第 1 句、不红 —— 闸门不为这件事红，这一跑就绿了",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "computed.fault === TALLY_FAULT ?",
+      "replace": "false ?",
+      "by": "test",
+      "kills": ["启动数摘要那一行：这一跑现算不出来、原因是 tally 有一项认不得时打红的那一句（甲），先于树内有没有文件，在不在主干上都一样", "启动数摘要那一行红不红：现算不出来、原因是 tally 有一项认不得时红，树内有没有文件、在不在主干上都一样"]
+    },
+    {
+      "id": "M-H60-bs",
+      "req": "harness",
+      "why": "闸门那六条之一时这一行也说红 —— 退出码照旧是 1，可同一件事闸门与这一行各红一次，第四十四节定的是这一行不另判",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "{ red: false, line: `${head}这一跑现算不出来",
+      "replace": "{ red: true, line: `${head}这一跑现算不出来",
+      "by": "test",
+      "kills": ["启动数摘要那一行红不红：现算不出来、原因是闸门那六条之一时不红，树内没有文件、在不在主干上都一样"]
+    },
+    {
+      "id": "M-H60-bt",
+      "req": "harness",
+      "why": "PR 上树内没有摘要时打红的那句却不红 —— 删掉这个文件就关掉了这道比",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "{ red: true, line: `${red}树内没有",
+      "replace": "{ red: false, line: `${red}树内没有",
+      "by": "test",
+      "kills": ["启动数摘要那一行红不红：树内没有这个文件时，不在主干上或无从判断时红，在主干上不红"]
+    },
+    {
+      "id": "M-H60-bu",
+      "req": "harness",
+      "why": "主干上树内没有摘要也红 —— 主干上照旧只报数，第 2 句不红",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "{ red: false, line: `${head}树内没有",
+      "replace": "{ red: true, line: `${head}树内没有",
+      "by": "test",
+      "kills": ["启动数摘要那一行红不红：树内没有这个文件时，不在主干上或无从判断时红，在主干上不红"]
+    },
+    {
+      "id": "M-H60-bv",
+      "req": "harness",
+      "why": "PR 上树内没有摘要时照第一阶段打第 2 句、不红 —— 删掉这个文件就关掉了这道比",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (tree === undefined) return onTrunk ?",
+      "replace": "if (tree === undefined) return true ?",
+      "by": "test",
+      "kills": ["启动数摘要那一行：树内没有这个文件时，在主干上打没有、不比，不在主干上或无从判断时打红的那一句（乙），叫跑过变异再写出来", "启动数摘要那一行红不红：树内没有这个文件时，不在主干上或无从判断时红，在主干上不红"]
+    },
+    {
+      "id": "M-H60-bw",
+      "req": "harness",
+      "why": "逐字节相同也红 —— 写回了的树照样过不去",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "{ red: false, line: `${head}树内 ${LAUNCH_SUMMARY_FILE} 与这一跑现算的相同",
+      "replace": "{ red: true, line: `${head}树内 ${LAUNCH_SUMMARY_FILE} 与这一跑现算的相同",
+      "by": "test",
+      "kills": ["启动数摘要那一行红不红：与现算的逐字节相同时不红，在不在主干上都一样"]
+    },
+    {
+      "id": "M-H60-bx",
+      "req": "harness",
+      "why": "主干上过期也红 —— 主干上照旧只报数，第 5 句不红；一条没碰数的 PR 合进来，主干就红了",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "if (onTrunk) return { red: false",
+      "replace": "if (onTrunk) return { red: true",
+      "by": "test",
+      "kills": ["启动数摘要那一行红不红：不同时，不在主干上或无从判断时红，在主干上不红，差在别处与认不得树内的文件也一样"]
+    },
+    {
+      "id": "M-H60-by",
+      "req": "harness",
+      "why": "PR 上不同时打红的那句却不红 —— 忘了写回的 PR 照样绿",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "return { red: true, line: `${red}树内 ${LAUNCH_SUMMARY_FILE} 与这一跑现算的不同",
+      "replace": "return { red: false, line: `${red}树内 ${LAUNCH_SUMMARY_FILE} 与这一跑现算的不同",
+      "by": "test",
+      "kills": ["启动数摘要那一行红不红：不同时，不在主干上或无从判断时红，在主干上不红，差在别处与认不得树内的文件也一样"]
+    },
+    {
+      "id": "M-H60-bz",
+      "req": "harness",
+      "why": "红的三句照旧以「启动数摘要（只报数）：」起头 —— 退出码红了，那一行却说只报数",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "red = '✗ 启动数摘要：'",
+      "replace": "red = '启动数摘要（只报数）：'",
+      "by": "test",
+      "kills": ["启动数摘要那一行：这一跑现算不出来、原因是 tally 有一项认不得时打红的那一句（甲），先于树内有没有文件，在不在主干上都一样", "启动数摘要那一行：树内没有这个文件时，在主干上打没有、不比，不在主干上或无从判断时打红的那一句（乙），叫跑过变异再写出来", "启动数摘要那一行：不同、不在主干上或无从判断在不在主干上时打红的那一句（丙），叫把主干合进来、跑过变异再写回"]
     },
     {
       "id": "M-D20-a",
