@@ -13,7 +13,7 @@
  * 交给 `idleGroupsLine`。只报数，读到什么都不改退出码。
  *
  * 再打启动数摘要那一行（ADR-145 第三十五节第 4 小节）：树内的 `scripts/check/launches.json` 照 UTF-8 读，与 `launchSummary`
- * 照这一跑现算的一起交给 `summaryLine`。第一阶段只报数，读到什么都不改退出码。
+ * 照这一跑现算的一起交给 `summaryLine`。它说红就以 1 退出，闸门绿着也一样（第四十四节第 2 小节）；红不红全由它判。
  * 带 `--write` 时只做一件事（第 3 小节）：派生得出来就写这个文件；派生不出来或写不进去打一行 ✗、以 1 退出。不打别的行，不判闸门。
  */
 import { execFileSync } from 'node:child_process'
