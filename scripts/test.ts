@@ -8501,14 +8501,17 @@ eq('启动数闸门：在主干上有缺基线时也红，报告行与重跑那�
   eq('有启动但没有变异的组：同一个组出现在两族里时认不得文件', bad(file([fam(1, 'a'), fam(2, 'b', 'a')]), file([fam(null, 'r1'), fam(0, 'x'), fam(0, 'r1')])), allFirst(2))
 }
 
-// ══ 启动数摘要落进仓库（第三十五节第 2 到 4 小节）。同样先于实现写成：期望值只从第三十五节与第二十一节第 2、4 小节手推，没读实现（写时它们是抛错的桩）。
-// 抛错时交回抛错原文，断言红而不崩。全文与五句话逐字照第三十五节；按段比的几条从全文里切出那一段，切不出就拿全文去比
+// ══ 启动数摘要落进仓库（第三十五节第 2 到 4 小节）。同样先于实现写成：期望值只从第三十五节、第四十四节第 2 小节与第二十一节第 2、4 小节手推，没读实现（写时它们是抛错的桩；
+// 升红那几条写时 red 是恒为 false 的桩）。抛错时交回抛错原文，断言红而不崩。全文与不红的四句逐字照第三十五节，红的甲乙丙照第四十四节；按段比的几条从全文里切出那一段，切不出就拿全文去比
 {
   const S = (record: unknown, source: string | undefined): unknown => {
     try { const s = launchSummary(record, source); return 'fault' in s ? { fault: s.fault } : { text: s.text, configs: s.configs } } catch (e) { return { threw: String(e) } }
   }
   const line = (tree: string | undefined, computed: LaunchSummary, trunk: LaunchTrunk): string => {
-    try { return summaryLine(tree, computed, trunk) } catch (e) { return `抛错：${String(e)}` }
+    try { return summaryLine(tree, computed, trunk).line } catch (e) { return `抛错：${String(e)}` }
+  }
+  const red = (tree: string | undefined, computed: LaunchSummary, trunk: LaunchTrunk): unknown => {
+    try { return summaryLine(tree, computed, trunk).red } catch (e) { return `抛错：${String(e)}` }
   }
   const TEXT = (r: unknown): string => { const s = S(r, SRC) as { text?: unknown }; return typeof s.text === 'string' ? s.text : JSON.stringify(s) }
   // 某个数组的各项：键那一行之后、「  ],」之前，去掉四格缩进与行尾逗号
@@ -8594,26 +8597,41 @@ eq('启动数闸门：在主干上有缺基线时也红，报告行与重跑那�
   const F1 = '{"id":"F-1","kind":"full-run"}', F2 = `{"config":${JSON.stringify(GK)},"id":"M-1","kind":"paid","paid":60}`
   const ROWS = [row('A', 1, MP), row('B'), row('C'), row('D'), row('E'), row('a'), row('c')], CT = doc(ROWS, [F1, F2])
   const CMP: LaunchSummary = { text: CT, configs: 7 }
-  const H4 = '启动数摘要（只报数）：树内 scripts/check/launches.json 与这一跑现算的不同（'
+  // 不同、不在主干上或无从判断时打丙（第四十四节第 2 小节）：第 4 句换成 ✗ 起头、去掉「（只报数）」，后半句照旧
+  const H4 = '✗ 启动数摘要：树内 scripts/check/launches.json 与这一跑现算的不同（'
   const T4 = '）；CI 上比的是与主干的合并提交，这条 PR 没改数时多半是主干已经过期：把主干合进来，在这棵树上跑过 npm run mutate 之后，跑 npm run launches -- --write 写回'
   const H5 = '启动数摘要（只报数）：树内 scripts/check/launches.json 已过期（', T5 = '），下一条 PR 须 npm run launches -- --write'
-  const FAULT = '启动数文件的 tally 里有一项认不得', NOID = '当前树的源码身份取不到'
-  eq('启动数摘要那一行：这一跑现算不出来时打现算不出来与原因、不比，先于树内有没有文件、在不在主干上判',
-    [line(undefined, R(FAULT), OFF), line(CT, R(FAULT), ON), line('{', R(NOID), FOG)],
-    [`启动数摘要（只报数）：这一跑现算不出来（${FAULT}），不比`, `启动数摘要（只报数）：这一跑现算不出来（${FAULT}），不比`, `启动数摘要（只报数）：这一跑现算不出来（${NOID}），不比`])
-  eq('启动数摘要那一行：树内没有这个文件时打没有、不比，在不在主干上都一样', [OFF, ON, FOG].map(t => line(undefined, CMP, t)),
-    Array(3).fill('启动数摘要（只报数）：树内没有 scripts/check/launches.json，不比'))
+  // 现算不出来分两支（表里先后 1 的两行）：原因是闸门那六条之一时照旧打第 1 句（SIX 里也有 tally 字样，仍是六条之一），是 tally 有一项认不得时打甲；
+  // 两支都先于树内有没有文件判：没有文件的样本在 PR 上先判了没有，打的就是乙
+  const FAULT = '启动数文件的 tally 里有一项认不得', NOID = '当前树的源码身份取不到', NOT_NOW = (why: string) => `启动数摘要（只报数）：这一跑现算不出来（${why}），不比`
+  const JIA = `✗ 启动数摘要：这一跑现算不出来（${FAULT}）`, NO_TREE = '启动数摘要（只报数）：树内没有 scripts/check/launches.json，不比'
+  const YI = '✗ 启动数摘要：树内没有 scripts/check/launches.json；在这棵树上跑过 npm run mutate 之后，跑 npm run launches -- --write 写出来'
+  eq('启动数摘要那一行：这一跑现算不出来、原因是闸门那六条之一时打现算不出来与原因、不比，先于树内有没有文件、在不在主干上判',
+    [line(undefined, R(NOID), OFF), line(CT, R(SIX), ON), line('{', R(NOID), FOG)], [NOT_NOW(NOID), NOT_NOW(SIX), NOT_NOW(NOID)])
+  eq('启动数摘要那一行：这一跑现算不出来、原因是 tally 有一项认不得时打红的那一句（甲），先于树内有没有文件，在不在主干上都一样',
+    [line(undefined, R(FAULT), OFF), line(undefined, R(FAULT), ON), line(CT, R(FAULT), FOG)], Array(3).fill(JIA))
+  eq('启动数摘要那一行：树内没有这个文件时，在主干上打没有、不比，不在主干上或无从判断时打红的那一句（乙），叫跑过变异再写出来',
+    [OFF, ON, FOG].map(t => line(undefined, CMP, t)), [YI, NO_TREE, YI])
   eq('启动数摘要那一行：与现算的逐字节相同时打相同与几种配置，在不在主干上都一样',
     [...[OFF, ON, FOG].map(t => line(CT, CMP, t)), line(EMPTY_TEXT, { text: EMPTY_TEXT, configs: 0 }, ON)],
     [...Array(3).fill('启动数摘要（只报数）：树内 scripts/check/launches.json 与这一跑现算的相同，7 种配置'), '启动数摘要（只报数）：树内 scripts/check/launches.json 与这一跑现算的相同，0 种配置'])
   // T6 的项故意打乱先后：B、D、c 变了，C 只在现算里，Z、b 只在树内，共 6 种；三类合起来按配置键排是 B C D Z b c（大写在前），前五种之后接共几种
   const T6 = doc([row('Z'), row('c', 5), row('A', 1, MP), row('B', 2), row('D', 3), row('a'), row('E'), row('b')], [F1, F2])
   const D6 = `变了 3 种、多了 1 种、少了 2 种：${['B', 'C', 'D', 'Z', 'b'].map(KEY).join('、')} 等 6 种`
-  eq('启动数摘要那一行：不同、不在主干上或无从判断在不在主干上时打 PR 那一句，叫把主干合进来、跑过变异再写回', [line(T6, CMP, OFF), line(T6, CMP, FOG)], [H4 + D6 + T4, H4 + D6 + T4])
+  eq('启动数摘要那一行：不同、不在主干上或无从判断在不在主干上时打红的那一句（丙），叫把主干合进来、跑过变异再写回', [line(T6, CMP, OFF), line(T6, CMP, FOG)], [H4 + D6 + T4, H4 + D6 + T4])
   eq('启动数摘要那一行：不同、在主干上时打已过期，下一条 PR 写回', line(T6, CMP, ON), H5 + D6 + T5)
   // BOM 不去：前面多一个 U+FEFF 就不是逐字节相同。这里只看打的是哪一句；差别是认不得树内的文件（带 BOM 的解析不成 JSON），见下面认不得那条
   const which = (l: string) => l.startsWith(H4) && l.endsWith(T4) ? '不同' : l.startsWith(H5) && l.endsWith(T5) ? '已过期' : l
   eq('启动数摘要那一行：树内文件的 BOM 不去，前面多一个 BOM 就不算相同', [which(line(`﻿${CT}`, CMP, OFF)), which(line(`﻿${CT}`, CMP, ON))], ['不同', '已过期'])
+  // 红不红（第四十四节第 2 小节那张表，一行一条）：每组依次是不在主干上、在主干上、无从判断（表里「PR 上」含无从判断）。
+  // 不同那一行另带少了末尾换行（差在别处）与不是 JSON（认不得树内的文件）两种：差别里三个数都是 0 的也是不同
+  const reds = (tree: string | undefined, computed: LaunchSummary) => [OFF, ON, FOG].map(t => red(tree, computed, t))
+  eq('启动数摘要那一行红不红：现算不出来、原因是闸门那六条之一时不红，树内有没有文件、在不在主干上都一样', [reds(undefined, R(NOID)), reds(CT, R(SIX))], Array(2).fill([false, false, false]))
+  eq('启动数摘要那一行红不红：现算不出来、原因是 tally 有一项认不得时红，树内有没有文件、在不在主干上都一样', [reds(undefined, R(FAULT)), reds(CT, R(FAULT))], Array(2).fill([true, true, true]))
+  eq('启动数摘要那一行红不红：树内没有这个文件时，不在主干上或无从判断时红，在主干上不红', reds(undefined, CMP), [true, false, true])
+  eq('启动数摘要那一行红不红：与现算的逐字节相同时不红，在不在主干上都一样', reds(CT, CMP), [false, false, false])
+  eq('启动数摘要那一行红不红：不同时，不在主干上或无从判断时红，在主干上不红，差在别处与认不得树内的文件也一样',
+    [T6, CT.slice(0, -1), '{'].map(t => reds(t, CMP)), Array(3).fill([true, false, true]))
 
   // ── 差别（第 4 小节）：从 PR 那一句里切出来，切不出就交回整句。T5 把 T6 的 c 改回去，正好五种，不接共几种；
   // 树内两个数组都空的 J({})：七种都多了，findings 也不同（2 条对 0 条）—— 它也是下面认不得那条的底样本，认得
@@ -8697,13 +8715,13 @@ const rec = (findings: unknown, more: object = {}): Record<string, unknown> => (
   schema: 'mutation-launches/v1', head: '064df53', source: SRC, tally: [tal(GK, 80, 0, ['M-1', 60], ['M-2', 60]), tal(TK, 51, 2), tal(UK, 34, 1)],
   findings, baselines: { [GK]: base(80), [TK]: base(51), [UK]: base(34) }, again: {}, ...more,
 })
-// 抛错时交回抛错原文，断言红而不崩；全文与五句话逐字照第三十五节（同 h-launch-rule 那一块）
+// 抛错时交回抛错原文，断言红而不崩；全文与不红的四句逐字照第三十五节，红的丙照第四十四节（同 h-launch-rule 那一块）
 {
   const S = (record: unknown, source: string | undefined): unknown => {
     try { const s = launchSummary(record, source); return 'fault' in s ? { fault: s.fault } : { text: s.text, configs: s.configs } } catch (e) { return { threw: String(e) } }
   }
   const line = (tree: string | undefined, computed: LaunchSummary, trunk: LaunchTrunk): string => {
-    try { return summaryLine(tree, computed, trunk) } catch (e) { return `抛错：${String(e)}` }
+    try { return summaryLine(tree, computed, trunk).line } catch (e) { return `抛错：${String(e)}` }
   }
   const TEXT = (r: unknown): string => { const s = S(r, SRC) as { text?: unknown }; return typeof s.text === 'string' ? s.text : JSON.stringify(s) }
   // 现算的全文用一个独立的小写法照第 2 小节写；配置键取 ["test",[g]]。CT 有 A（maxPaid 是对象）B C D E a c 七种、两条发现
@@ -8716,7 +8734,7 @@ const rec = (findings: unknown, more: object = {}): Record<string, unknown> => (
   const F1 = '{"id":"F-1","kind":"full-run"}', F2 = `{"config":${JSON.stringify(GK)},"id":"M-1","kind":"paid","paid":60}`
   const ROWS = [row('A', 1, MP), row('B'), row('C'), row('D'), row('E'), row('a'), row('c')], CT = doc(ROWS, [F1, F2])
   const CMP: LaunchSummary = { text: CT, configs: 7 }
-  const H4 = '启动数摘要（只报数）：树内 scripts/check/launches.json 与这一跑现算的不同（'
+  const H4 = '✗ 启动数摘要：树内 scripts/check/launches.json 与这一跑现算的不同（'   // 丙（第四十四节第 2 小节），同 h-launch-rule 那一块
   const T4 = '）；CI 上比的是与主干的合并提交，这条 PR 没改数时多半是主干已经过期：把主干合进来，在这棵树上跑过 npm run mutate 之后，跑 npm run launches -- --write 写回'
   const H5 = '启动数摘要（只报数）：树内 scripts/check/launches.json 已过期（', T5 = '），下一条 PR 须 npm run launches -- --write'
   const diff = (tree: string): string => { const l = line(tree, CMP, OFF); return l.startsWith(H4) && l.endsWith(T4) ? l.slice(H4.length, l.length - T4.length) : l }

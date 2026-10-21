@@ -345,6 +345,8 @@ export const LAUNCH_SUMMARY_FILE = 'scripts/check/launches.json'
 export const LAUNCH_SUMMARY_SCHEMA = 'mutation-launch-summary/v1'
 /** 派生出来的全文与配置种数；派生不出来时是第一条不过的原因 */
 export type LaunchSummary = { readonly text: string; readonly configs: number } | { readonly fault: string }
+// tally 有一项认不得：闸门不为它红，所以摘要那一行为它红（第四十四节第 2 小节）
+const TALLY_FAULT = '启动数文件的 tally 里有一项认不得'
 
 const count = (v: unknown): boolean => Number.isSafeInteger(v) && (v as number) >= 0
 /** 第三十五节第 3 小节：tally 的每一项认得。recordFault 只核它是不是数组 */
@@ -401,7 +403,7 @@ export function launchSummary(record: unknown, source: string | undefined): Laun
   const fault = recordFault(record, source)
   if (fault !== undefined) return { fault }
   const { tally, findings } = record as { tally: unknown[]; findings: unknown[] }
-  if (tallyFault(tally)) return { fault: '启动数文件的 tally 里有一项认不得' }
+  if (tallyFault(tally)) return { fault: TALLY_FAULT }
   const rows = (tally as LaunchTally[]).map(summaryRow).sort((a, b) => byText(a.config as string, b.config as string))
   return { text: summaryText(rows.map(compact), findings.map(compact)), configs: rows.length }
 }
@@ -441,19 +443,28 @@ function summaryDiff(tree: string, text: string): string {
     + (findings ? '；findings 也不同' : '')
 }
 
+/** 第三十五节第 4 小节那一行与它红不红（第四十四节第 2 小节） */
+export interface SummaryLine { readonly red: boolean; readonly line: string }
+
 /**
- * 第三十五节第 4 小节：最后一步多打的那一行，不带缩进。tree 是树内文件照 UTF-8 读出的全文，没有或读不出来时是 undefined；
- * computed 是 launchSummary 交回的（别处拼出来的全文不认，认树内文件时会抛错）。只报数
+ * 第三十五节第 4 小节：最后一步多打的那一行，不带缩进，与它红不红（第四十四节第 2 小节）。tree 是树内文件照 UTF-8 读出的全文，
+ * 没有或读不出来时是 undefined；computed 是 launchSummary 交回的（别处拼出来的全文不认，认树内文件时会抛错）。
+ * PR 上不同、没有这个文件红，tally 有一项认不得在哪都红；别的不红，照旧只报数
  */
-export function summaryLine(tree: string | undefined, computed: LaunchSummary, trunk: LaunchTrunk): string {
-  const head = '启动数摘要（只报数）：'
-  if ('fault' in computed) return `${head}这一跑现算不出来（${computed.fault}），不比`
-  if (tree === undefined) return `${head}树内没有 ${LAUNCH_SUMMARY_FILE}，不比`
-  // 逐字节比：序列化定死了，手改过排版的也算不同
-  if (tree === computed.text) return `${head}树内 ${LAUNCH_SUMMARY_FILE} 与这一跑现算的相同，${computed.configs} 种配置`
-  const diff = summaryDiff(tree, computed.text)
+export function summaryLine(tree: string | undefined, computed: LaunchSummary, trunk: LaunchTrunk): SummaryLine {
+  const head = '启动数摘要（只报数）：', red = '✗ 启动数摘要：', write = '在这棵树上跑过 npm run mutate 之后，跑 npm run launches -- --write'
   // 不知道在不在主干上就按 PR，同闸门
-  if ('onTrunk' in trunk && trunk.onTrunk) return `${head}树内 ${LAUNCH_SUMMARY_FILE} 已过期（${diff}），下一条 PR 须 npm run launches -- --write`
-  return `${head}树内 ${LAUNCH_SUMMARY_FILE} 与这一跑现算的不同（${diff}）；CI 上比的是与主干的合并提交，这条 PR 没改数时多半是主干已经过期：`
-    + '把主干合进来，在这棵树上跑过 npm run mutate 之后，跑 npm run launches -- --write 写回'
+  const onTrunk = 'onTrunk' in trunk && trunk.onTrunk
+  // 六条之一时闸门那几行为同一件事红，这一行不另判；tally 有一项认不得时闸门不红，这一行在主干上也红
+  if ('fault' in computed) return computed.fault === TALLY_FAULT ? { red: true, line: `${red}这一跑现算不出来（${computed.fault}）` }
+    : { red: false, line: `${head}这一跑现算不出来（${computed.fault}），不比` }
+  // 没有或读不出来：PR 上按不同判，不然删掉文件就关掉了这道比
+  if (tree === undefined) return onTrunk ? { red: false, line: `${head}树内没有 ${LAUNCH_SUMMARY_FILE}，不比` }
+    : { red: true, line: `${red}树内没有 ${LAUNCH_SUMMARY_FILE}；${write} 写出来` }
+  // 逐字节比：序列化定死了，手改过排版的也算不同
+  if (tree === computed.text) return { red: false, line: `${head}树内 ${LAUNCH_SUMMARY_FILE} 与这一跑现算的相同，${computed.configs} 种配置` }
+  const diff = summaryDiff(tree, computed.text)
+  if (onTrunk) return { red: false, line: `${head}树内 ${LAUNCH_SUMMARY_FILE} 已过期（${diff}），下一条 PR 须 npm run launches -- --write` }
+  return { red: true, line: `${red}树内 ${LAUNCH_SUMMARY_FILE} 与这一跑现算的不同（${diff}）；CI 上比的是与主干的合并提交，这条 PR 没改数时多半是主干已经过期：`
+    + `把主干合进来，${write} 写回` }
 }
