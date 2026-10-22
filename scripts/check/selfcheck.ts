@@ -7649,9 +7649,15 @@ group('claims-restoration-entry', [], () => {
       nlink: String(value.nlink), mode: String(value.mode), uid: String(value.uid), gid: String(value.gid), size: String(value.size),
       mtimeNs: String(value.mtimeNs), ctimeNs: String(value.ctimeNs), birthtimeNs: String(value.birthtimeNs) };
   }
-  function trace(file: string): OwnedEvent[] {
-    try { return readFileSync(file, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)); }
-    catch { throw new Error('[fixture-error] owned claim restoration trace unavailable or malformed'); }
+  function trace(file: string): OwnedEvent[] { return lines(traceText(file)); }
+  function traceText(file: string): string {
+    try { return readFileSync(file, 'utf8'); } catch { return fault('owned claim restoration trace unavailable or malformed'); }
+  }
+  // 只认写完的整行：别的进程正往轨迹里追加时，读到的最后一截可能还没写完，那一截不算坏（ADR-155）；
+  // 进程都结束了它还在，才算坏，由 `call` 判
+  function lines(text: string): OwnedEvent[] {
+    try { return text.slice(0, text.lastIndexOf('\n') + 1).split('\n').filter(Boolean).map(line => JSON.parse(line)); }
+    catch { return fault('owned claim restoration trace unavailable or malformed'); }
   }
   function fault(reason: string): never { throw new Error('[fixture-error] ' + reason); }
   /** ADR123 / ARCHITECTURE raw-byte boundary fixture. Its prefilled
@@ -7821,7 +7827,9 @@ const fs = require('node:fs'), path = require('node:path');
 const owner = JSON.parse(fs.readFileSync(process.argv[2], 'utf8')), verifierPid = Number(process.argv[3]);
 const note = row => fs.appendFileSync(owner.trace, JSON.stringify({ pid: process.pid, ...row }) + '\n');
 function fault(reason) { note({ kind: 'fixture-fault', reason }); throw new Error('[fixture-error] ' + reason); }
-function rows() { try { return fs.readFileSync(owner.trace, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)); }
+// 只认写完的整行：别的进程正往里追加时，读到的最后一截可能还没写完（ADR-155）
+function rows() { try { const text = fs.readFileSync(owner.trace, 'utf8');
+  return text.slice(0, text.lastIndexOf('\n') + 1).split('\n').filter(Boolean).map(line => JSON.parse(line)); }
   catch { return fault('owned interruption trace malformed'); } }
 const gone = pid => { try { process.kill(pid, 0); return false; } catch (e) { return e.code === 'ESRCH'; } };
 if (process.platform === 'win32' || owner.kind !== 'claim-restore-cli-fixture/v1' || owner.ending !== 'interrupted'
@@ -7888,19 +7896,21 @@ note({ kind: 'restore-actor-done', targetPid: coordinator.pid, verifierPid });
     while (Date.now()-began<4500 && ![...new Set(events.flatMap(row=>[row.pid,row.childPid]).filter((pid):pid is number=>Number.isInteger(pid)&&pid!>0))].every(ended)) {
       Atomics.wait(pause,0,0,10); events=trace(f.trace);
     }
-    writeFileSync(join(home,id+'.trace.jsonl'),readFileSync(f.trace));
+    // 等完再读一遍，判与留档都用这一份：等的时候跳过的半截这时该写完了（ADR-155）
+    const raw=readFileSync(f.trace), text=raw.toString('utf8'); events=lines(text);
+    writeFileSync(join(home,id+'.trace.jsonl'),raw);
     const pids=[...new Set(events.flatMap(row=>[row.pid,row.childPid]).filter((pid):pid is number=>Number.isInteger(pid)&&pid!>0))];
     writeFileSync(join(home,id+'.resources.json'),JSON.stringify({pids,allEnded:pids.every(ended),
       observedCwds:[...new Set(events.filter(row=>row.kind==='owned-node').map(row=>row.cwd))]},null,2)+'\n');
-    const living=pids.filter(pid=>!ended(pid));
-    if (result.error || pids.length===0 || living.length>0 || events.some(row=>row.kind==='fixture-fault')) {
+    const living=pids.filter(pid=>!ended(pid)), torn=living.length===0 && !text.endsWith('\n') && text.length>0;
+    if (result.error || pids.length===0 || living.length>0 || torn || events.some(row=>row.kind==='fixture-fault')) {
       // 哪一支没过、判成没结束的是哪几个进程及其 /proc/<pid>/stat 原文，都写进这一句：夹具目录收尾时删掉，CI 上留下的只有它
       // （ADR-132 第十节；ADR-133 第 73 行那张欠条要的就是这份 stat）。stat 在判完之后读，恰好在这中间被收走的写「读不到」
       const stat=(pid:number)=>{ try { return readFileSync('/proc/'+pid+'/stat','utf8').trim(); }
         catch (error) { return '读不到（'+String((error as NodeJS.ErrnoException).code)+'）'; } };
       fault(id+' command/observer/PID qualification failed：'+[
         ...(result.error?['命令：'+result.error.message]:[]), ...(pids.length===0?['没观察到进程']:[]),
-        ...living.map(pid=>'没结束 '+pid+' '+stat(pid)),
+        ...living.map(pid=>'没结束 '+pid+' '+stat(pid)), ...(torn?['进程都已结束，轨迹末尾还有一截没写完']:[]),
         ...events.filter(row=>row.kind==='fixture-fault').map(row=>'夹具记下 '+String(row.reason)),
       ].join('；'));
     }
@@ -7991,7 +8001,10 @@ note({ kind: 'restore-actor-done', targetPid: coordinator.pid, verifierPid });
         for (const name of readdirSync(home)) {
           const file = join(home, name);
           if (name === 'trace.jsonl' || name.endsWith('.trace.jsonl')) {
-            for (const event of trace(file)) { remember(event.pid); remember(event.childPid); }
+            // 收尾时写的人该都结束了：末尾还有一截没写完就不跳过，照旧算坏、留下目录（ADR-155）
+            const text = traceText(file);
+            if (text.length > 0 && !text.endsWith('\n')) fault('owned claim restoration trace unavailable or malformed');
+            for (const event of lines(text)) { remember(event.pid); remember(event.childPid); }
           } else if (name.endsWith('.exit.json')) {
             const result = JSON.parse(readFileSync(file, 'utf8')) as { pid?: unknown };
             remember(result.pid);
