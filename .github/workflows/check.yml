@@ -51,10 +51,16 @@ jobs:
       # 走到这一步时已经成功跑完的那几次 —— 那时还没跑完的主干跑取不到，事后复算会把它算进来。
       # 重跑时「前」仍按第一次创建的时刻算，「本跑」量的是这一次重跑。
       # 本跑这一侧只算到这一步为止，比那个口径少末尾的 lscpu 与 job 收尾（实测共约 4 秒）。
-      # 每一行末尾带这台 runner 的 CPU 型号（`lscpu` 的 Model name）：同一份代码落在不同型号上秒数差得不小（见末尾 lscpu 那一步），
+      # 每一行后面带这台 runner 的 CPU 型号（`lscpu` 的 Model name）：同一份代码落在不同型号上秒数差得不小（见末尾 lscpu 那一步），
       # 有了它，倍数偏了先看是不是换了机器。只报型号，不按型号判；读不到写「CPU：读不到」。
-      # 「前 5 次」各落在什么型号上这里取不到（只在各跑的 job 日志里）。型号只留字母数字与 ( ) @ . , _ + / -，
-      # 截到 80 字：进 `::notice` 的除了数字与固定文案只有它，不让它带出 % 或 :: 这类会被当成命令的字符。
+      # 「前 5 次」各落在什么型号上这里取不到（只在各跑的 job 日志里）。型号只留 ASCII 字母数字、空格与 ( ) @ . , _ + / -，
+      # 截到 80 字：进 `::notice` 的除了数字与固定文案只有它。正文里的 :: 本就起不了新命令（runner 只认行首那组），
+      # %0A 一类会被换回换行；过滤是保险，也让正文整洁。tr 那个字符集里 - 必须在最后，往后再加字符就成了区间。
+      # 型号之后再带工作量：「变异 N 条（±d） · 每条 X 秒」。N = 本提交 scripts/check/mutations.json 里 mutations 的条数
+      # （变异一步打的「N 个变异全部被抓到」就是它）；±d 比的是对照提交：PR 上是合入目标的头，推 main 时是这次推送之前主干的头。
+      # X = 「本跑」秒数 ÷ N，两位小数 —— 整跑摊到每条变异上，不是一条变异实际花的秒数。
+      # 倍数偏了时三样一起读：型号换没换、N 涨没涨、X 涨没涨（X 也随机器快慢变），只报，不判是哪一样。条数读不到写「变异：读不到」，
+      # 对照提交取不到写「（对照读不到）」，本跑秒数没取到写「每条：读不到」。
       # 检查红了不跑（没写 if，前面一步红了就跳过）；取不到数就打「墙钟：无从比较（原因）」。
       # 永不红：不在 `npm run check` 里，脚本每条路都以 0 退出，另有 continue-on-error 兜底。
       # 撤除：「改验证成本时」那节「前后实跑」的义务被删时，同一条改动删掉这一步（ADR-151 第四节第 1 条）
@@ -63,6 +69,7 @@ jobs:
         timeout-minutes: 2
         env:
           GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set +e
           out="$RUNNER_TEMP/wall.json"
@@ -74,7 +81,18 @@ jobs:
           cpu=$(export LC_ALL=C; lscpu 2>/dev/null | sed -n 's/^[[:space:]]*Model name:[[:space:]]*//p' | head -n 1 \
                   | tr -cd '[:alnum:] ()@.,_+/-' | tr -s ' ' | cut -c 1-80 | sed 's/^ //; s/ $//')
           [ -n "$cpu" ] || cpu=读不到
-          say() { echo "::notice title=墙钟::$1 · CPU：$cpu"; echo "$1 · CPU：$cpu" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          count() { git show "$1:scripts/check/mutations.json" 2>/dev/null | jq -er '.mutations | arrays | length' 2>/dev/null; }
+          muts=$(count HEAD); muts0=; mine=
+          [[ $BASE_SHA =~ ^[0-9a-f]{40}$ ]] && muts0=$(count "$BASE_SHA")
+          work() {
+            [ -n "$muts" ] || { echo "变异：读不到"; return; }
+            local d=对照读不到 per=每条：读不到
+            [ -n "$muts0" ] && d=$(( muts - muts0 )) && { [ "$d" = 0 ] && d=±0 || d=$(printf '%+d' "$d"); }
+            [ -n "$mine" ] && [ "$muts" -gt 0 ] && per="每条 $(awk -v a="$mine" -v b="$muts" 'BEGIN { printf "%.2f", a / b }') 秒"
+            echo "变异 $muts 条（$d） · $per"
+          }
+          say() { local line="$1 · CPU：$cpu · $(work)"
+                  echo "::notice title=墙钟::$line"; echo "$line" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
           mmss() { printf '%d:%02d' $(( $1 / 60 )) $(( $1 % 60 )); }
 
           code=$(api "actions/runs/$GITHUB_RUN_ID"); rc=$?
