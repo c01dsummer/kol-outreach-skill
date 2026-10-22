@@ -320,28 +320,30 @@ console.log(JSON.stringify(skillFaults({ docs, commands, scriptFiles, links })))
 **读四样输入**，交给 `skillFaults`（第五节）：
 
 1. `docs`：`skill/` 下（含子目录）名字以 `.md` 结尾、不是目录的每个条目，路径写成 `skill/…`（分隔符 `/`）。只往真目录里走，不跟着软链进目录；名字以 `.md` 结尾的软链算一份文档，读正文时跟着它。`skill/` 或它下面任何一个目录列不出来（不在、不是目录、没权限）→ 整份是 `undefined`。一份照 UTF-8 读不出来 → 那份的 `text` 是 `undefined`。
-2. `commands`：`package.json` 照 UTF-8 读、照 JSON 解，`scripts` 是对象（不是 `null`、不是数组）时取它的键；读不出、不是 JSON、`scripts` 不是对象 → `undefined`。
+2. `commands`：`package.json` 照 UTF-8 读、照 JSON 解，`scripts` 是对象（不是 `null`、不是数组）时取它的键；读不出、不是 JSON、`scripts` 不是对象 → `undefined`。当前目录的 `package.json` 不是 JSON 时，Node 起入口之前就去读它，以 1 退出（`ERR_INVALID_PACKAGE_CONFIG`），入口一行也跑不到：照样是红，只是打的是 Node 自己的话；「不是 JSON」那一支在入口里只是防守，自检够不到它（Node 22.22.0、tsx 4.23.12 上试过，`npm run` 也解不了那份文件）。
 3. `scriptFiles`：`scripts/` 下（含子目录）不是目录的每个条目，路径写成 `scripts/…`；只往真目录里走。列不出来 → `undefined`。
 4. `links`：`git ls-files -s -z -- .claude/skills .agents/skills` 的每一条（`<mode> <blob> <stage>` 一个制表符再接路径）；mode 是 `120000` 的，`target` 是 `git cat-file blob <blob>` 的输出原样。git 起不来、哪一条以非 0 退出、或者有一条认不出这个形状 → 整份是 `undefined`。git 的调用钉上体量闸门那一组 `-c`（`size-rule.ts` 的 `GIT_CONFIG`）。
 
 **打什么、怎么退：**
 
 - `skillFaults` 返回空：标准输出一行 `✓ Skill 结构：五样都成立（文档 <n> 份 · 命令 <n> 个 · scripts/ 下文件 <n> 份 · 软链条目 <n> 个）`，四个数是上面四样输入的条数，以 0 退出。
-- 不空：标准错误第一行 `✗ Skill 结构：<N> 处问题`，`N` 是条数；下面按返回的先后每条一行：两个空格、位置、两个空格、哪一样、` · `、那条的 `fix`。位置是 `<file>:<line>`，没有行号的只写 `<file>`；哪一样写成「第 <item> 样」，第 0 类写成「读不到」。以 1 退出。
+- 不空：标准错误第一行 `✗ Skill 结构：<N> 处问题`，`N` 是条数；下面按返回的先后每条一行，此外不打别的：git 自己的标准错误收进管道、不透出，git 起不来那一支也只由判定报一行「读不到」。每条一行写成：两个空格、位置、两个空格、哪一样、` · `、那条的 `fix`。位置是 `<file>:<line>`，没有行号的只写 `<file>`；哪一样写成「第 <item> 样」，第 0 类写成「读不到」。以 1 退出。
 - 读不到的输入由判定报成第 0 类（第二节），所以「读不到」也以 1 退出，不当成 0 处。
 
 **放在链上哪**：紧跟 `npm run spec` 之后、`npm run adr` 之前。纯静态，几秒就完；放在前面，`skill/` 的问题不必等类型检查、测试和变异跑完才看见。
 
-**自检怎么起它**：自检起 `scripts/check/` 下的东西只能经工具表（`verifier-rule.ts` 的 `SELFCHECK_TOOLS`：起 `check/` 底下的算用工具，起别处的算跑被测对象），所以工具表加 `skill: 'check/skill.ts'`。隔离判据的闭包跟着多两个文件：`skill.ts` 与 `skill-rule.ts`（`skill.ts` 另引的 `size-rule.ts` 本来就在里面）。`skill-rule.ts` 上的 91 条变异都是 `by: test`，验证者是需求测试，不受这道判据管。需求测试里那条「种子 = …」的期望值跟着多一项。
+**自检怎么起它**：自检起 `scripts/check/` 下的东西只能经工具表（`verifier-rule.ts` 的 `SELFCHECK_TOOLS`：起 `check/` 底下的算用工具，起别处的算跑被测对象），所以工具表加 `skill: 'check/skill.ts'`。隔离判据的闭包跟着多两个文件：`skill.ts` 与 `skill-rule.ts`（`skill.ts` 另引的 `size-rule.ts` 本来就在里面）。`skill-rule.ts` 上的 91 条变异都是 `by: test`，验证者是需求测试，不受这道判据管。需求测试里那条「种子 = …」的期望值跟着多一项。`skill-rule.ts` 进闭包没有单独的断言：闭包是从种子顺着 import 递归收的（`verifier-rule.ts` 的 `infraClosure`），`skill.ts` 引了它就收进来；用 `infraClosure` 现算，主干 `4b36935` 上 25 份，实现那个提交（`ad99daf`）上 27 份，多的正是这两份。
 
 ### 自检组 `skill-entry`
 
-`needs: []`，在玩具树上起真入口，玩具树只写几个文件、`git init` 以后 `git add` 两个软链。期望从本节手推，不照入口的输出抄；只认本节说的那几样：退出码，第一行的开头与条数，每处问题那一行里的位置、「第几样」与点名的东西。`fix` 的措辞不比（第二节末）。
+`needs: []`，在玩具树上起真入口，玩具树只写几个文件、`git init` 以后 `git add` 两个软链。期望从本节手推，不照入口的输出抄；只认本节说的那几样：退出码，第一行的开头与条数，每处问题那一行里的位置、「第几样」与点名的东西。`fix` 的措辞不比（第二节末），几行的先后也不比（判定交回的先后归需求测试管）。
 
 1. 好树：五样都成立，以 0 退出，那一行 ✓ 的四个数对得上玩具树。
 2. 五样各一棵坏树，每棵只坏一处：以 1 退出，第一行说 1 处，那一行点了名。
 3. 一棵坏了几处的树：以 1 退出，第一行的条数对得上，每处各一行。
-4. 输入读不到：`package.json` 不是 JSON、玩具树不是 git 仓库，以 1 退出，各报一行「读不到」。
+4. 输入读不到：`package.json` 的 `scripts` 是数组、玩具树不是 git 仓库，两样放在同一棵树里，以 1 退出，第一行说 2 处，各报一行「读不到」。不写成「`package.json` 不是 JSON」：那样 Node 在入口之前就退出（上面输入第 2 条），那一跑的红与入口无关。
+
+一共起入口 8 次：好树、五棵坏树、坏了几处那棵、读不到那棵，一棵一次，只经工具表（`runToolBoth`，内部是 `tsx-cmd.ts` 的 `tsxCommand`）起。玩具树只写数据文件（文档、`package.json`、`scripts/` 下的占位），不对玩具树里的任何文件起 tsx。这两条照 CI 时长那条线需求所有者 2026-10-22 批的排法：新自检组每条付的启动数远低于 ADR-145 的 50，给以后可能落地的「预编 JS、启动不再走 tsx」留路。
 
 不配负片：指着 `skill.ts` 的变异由自检来验，会被「自己验自己」拦下（工具表里的文件都在闭包里）；由需求测试来验，又够不到入口。同 `order-binding-entry`（ADR-148 第十四节第 3 条）。
 
