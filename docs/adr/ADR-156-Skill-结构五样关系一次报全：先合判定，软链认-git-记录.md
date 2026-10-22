@@ -308,3 +308,50 @@ console.log(JSON.stringify(skillFaults({ docs, commands, scriptFiles, links })))
 6. **档：本改动 · 去向：`a6269d5`。** 组头 `const SF =(item` 少一个空格（复核原判驳回，顺手改了）。
 
 复核以后的改动只在第二节那半句、`h-skill-rule`、M-H61 与本记录里；`skill-rule.ts` 从 `00533c5` 起一个字没动，第十二节清点的结论不变（ADR-89 第 92 行同样只记核过：后加的 20 条也都落在新文件里）。这个上下文没提同类候选；PR 上评审器首轮提的同类候选在 PR 的讨论串里（ADR-151 第 643 行那个证据问题要的数，照 ADR-155 第 106 行先记在这里）。
+
+## 十四、第二片：接进检查链（2026-10-23）
+
+第一片（#360，`4b36935`）合入以后开，照第六节第 2 条。判定一个字不改；这一片加入口、接进 `npm run check`、加自检组、改副本。
+
+### 入口 `scripts/check/skill.ts`
+
+`npm run skill` 跑它（`tsx scripts/check/skill.ts`），不读参数。当前目录当仓库根。只读，不写任何文件、不发请求。
+
+**读四样输入**，交给 `skillFaults`（第五节）：
+
+1. `docs`：`skill/` 下（含子目录）名字以 `.md` 结尾、不是目录的每个条目，路径写成 `skill/…`（分隔符 `/`）。只往真目录里走，不跟着软链进目录；名字以 `.md` 结尾的软链算一份文档，读正文时跟着它。`skill/` 或它下面任何一个目录列不出来（不在、不是目录、没权限）→ 整份是 `undefined`。一份照 UTF-8 读不出来 → 那份的 `text` 是 `undefined`。
+2. `commands`：`package.json` 照 UTF-8 读、照 JSON 解，`scripts` 是对象（不是 `null`、不是数组）时取它的键；读不出、不是 JSON、`scripts` 不是对象 → `undefined`。
+3. `scriptFiles`：`scripts/` 下（含子目录）不是目录的每个条目，路径写成 `scripts/…`；只往真目录里走。列不出来 → `undefined`。
+4. `links`：`git ls-files -s -z -- .claude/skills .agents/skills` 的每一条（`<mode> <blob> <stage>` 一个制表符再接路径）；mode 是 `120000` 的，`target` 是 `git cat-file blob <blob>` 的输出原样。git 起不来、哪一条以非 0 退出、或者有一条认不出这个形状 → 整份是 `undefined`。git 的调用钉上体量闸门那一组 `-c`（`size-rule.ts` 的 `GIT_CONFIG`）。
+
+**打什么、怎么退：**
+
+- `skillFaults` 返回空：标准输出一行 `✓ Skill 结构：五样都成立（文档 <n> 份 · 命令 <n> 个 · scripts/ 下文件 <n> 份 · 软链条目 <n> 个）`，四个数是上面四样输入的条数，以 0 退出。
+- 不空：标准错误第一行 `✗ Skill 结构：<N> 处问题`，`N` 是条数；下面按返回的先后每条一行：两个空格、位置、两个空格、哪一样、` · `、那条的 `fix`。位置是 `<file>:<line>`，没有行号的只写 `<file>`；哪一样写成「第 <item> 样」，第 0 类写成「读不到」。以 1 退出。
+- 读不到的输入由判定报成第 0 类（第二节），所以「读不到」也以 1 退出，不当成 0 处。
+
+**放在链上哪**：紧跟 `npm run spec` 之后、`npm run adr` 之前。纯静态，几秒就完；放在前面，`skill/` 的问题不必等类型检查、测试和变异跑完才看见。
+
+**自检怎么起它**：自检起 `scripts/check/` 下的东西只能经工具表（`verifier-rule.ts` 的 `SELFCHECK_TOOLS`：起 `check/` 底下的算用工具，起别处的算跑被测对象），所以工具表加 `skill: 'check/skill.ts'`。隔离判据的闭包跟着多两个文件：`skill.ts` 与 `skill-rule.ts`（`skill.ts` 另引的 `size-rule.ts` 本来就在里面）。`skill-rule.ts` 上的 91 条变异都是 `by: test`，验证者是需求测试，不受这道判据管。需求测试里那条「种子 = …」的期望值跟着多一项。
+
+### 自检组 `skill-entry`
+
+`needs: []`，在玩具树上起真入口，玩具树只写几个文件、`git init` 以后 `git add` 两个软链。期望从本节手推，不照入口的输出抄；只认本节说的那几样：退出码，第一行的开头与条数，每处问题那一行里的位置、「第几样」与点名的东西。`fix` 的措辞不比（第二节末）。
+
+1. 好树：五样都成立，以 0 退出，那一行 ✓ 的四个数对得上玩具树。
+2. 五样各一棵坏树，每棵只坏一处：以 1 退出，第一行说 1 处，那一行点了名。
+3. 一棵坏了几处的树：以 1 退出，第一行的条数对得上，每处各一行。
+4. 输入读不到：`package.json` 不是 JSON、玩具树不是 git 仓库，以 1 退出，各报一行「读不到」。
+
+不配负片：指着 `skill.ts` 的变异由自检来验，会被「自己验自己」拦下（工具表里的文件都在闭包里）；由需求测试来验，又够不到入口。同 `order-binding-entry`（ADR-148 第十四节第 3 条）。
+
+### 副本
+
+- `AGENTS.md`「检查命令」那一行的链，加在「SPEC 一致性」之后。
+- `docs/ARCHITECTURE.md` 锚点表：加 `skill.ts` 一行；`skill-rule.ts` 那一行的「还没有入口调它」改掉。
+- `docs/SYNC.md` 触发表加一行：改 `skill/references/` 下的文件（新增、删除、改名），或改 `package.json` 的命令名、`skill/` 下文档里的 `npm run` 与 `scripts/….ts`，或改 SKILL.md 的 frontmatter、软链 → 要看 SKILL.md 的「参考文档」表与点名处 → 机器检查 🔒 `skill`。
+- 全仓搜描述检查链的句子（`SPEC 一致性`、`体量闸门 →`、`npm run spec &&`、`检查命令`）：`docs/adr/` 以外只有 `AGENTS.md` 那一行与 `package.json` 本身；`README.md` 第 237 行明说不抄、指 `package.json` 与 `AGENTS.md`。
+
+### 这道闸门守的是哪条纪律
+
+`docs/SYNC.md`「新增一道闸门」那一行要看「`process/` 里那条纪律」。这道闸门守的是本仓库 skill 的结构，守的是上面新加的那一行同步规则：改了这几样，要回头看 SKILL.md 的点名。`process/` 里对应的是 `process/2-CHANGE.md`「文档同步规则」开头那句「每次改完任一份文档,必须回头检查其余几份要不要跟着改」，以及「表本身要能被机器检查一部分」；没有专门讲 skill 结构的话，也不该有：skill 的结构是本仓库的事。

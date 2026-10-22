@@ -79,6 +79,7 @@ export const SELFCHECK_TOOLS = {
   selfcheck: 'check/selfcheck.ts',
   launches: 'check/launches.ts',
   'adr-ledger': 'check/adr-ledger.ts',
+  skill: 'check/skill.ts',
 } as const
 
 /**
