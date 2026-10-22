@@ -6142,6 +6142,198 @@ group('order-binding-entry', [], () => {
     `${said(miss)}，验证者调用=${JSON.stringify(fileText(gone.marker))}`)
 })
 
+// ---- Skill 结构五样：入口在玩具树上真的读了四样输入、照第十四节打出来并照它退出（ADR-156 第十四节，接线证明）----
+group('skill-entry', [], () => {
+  // 判定是纯函数，由需求测试 h-skill-rule 断言、M-H61 守着；剩下的那一半是**入口真的读了四样输入（skill/ 下的文档、
+  // package.json 的命令、scripts/ 的清单、git 索引里的软链）、调了判定、照第十四节打、照它退出**。不配负片，理由同
+  // order-binding-entry（ADR-156 第十四节末）：指着 skill.ts 的变异由自检来验会被「自己验自己」拦下，由需求测试来验又够不到入口。
+  // 期望全部从 ADR-156 第二节与第十四节手推，不照入口的输出抄；只认第十四节说自检认的那几样：退出码，第一行的开头与条数，
+  // 每处问题那一行里的位置、「第几样」与点名的东西。fix 的措辞不比（第二节末），只认它原样带着点名的东西（同一处契约）。
+  //
+  // 好树，行号照第二节「行」的数法（按 \n 切，第一段是第 1 行）：
+  //   skill/SKILL.md                         1 `---` · 2 `name: toy` · 3 description · 4 `---` · 5 标题 · 6 空行
+  //                                          · 7 点名两份 reference · 8 空行 · 9 一处 npm run collect、一处 scripts/collect.ts
+  //   skill/references/guide.md              3 一处 npm run check、一处 scripts/lib/a.ts
+  //   skill/references/providers/tikhub.md   子目录里的 reference，SKILL.md 第 7 行点了它
+  //   skill/references/notes.txt             名字不以 .md 结尾，不是文档（第十四节第 1 条）：里面那处 npm run 与 scripts/ 路径都不该核
+  //   package.json                           scripts 两个键 collect、check
+  //   scripts/collect.ts、scripts/lib/a.ts、scripts/lib/b.txt   一行占位文字，只当数据，从不对它们起 tsx。前两份要叫 .ts：
+  //                                          第 5 样只认以 .ts 结尾的路径（第二节），文档里点了它们。b.txt 不以 .ts 结尾也算一份
+  //                                          （第十四节第 3 条：不是目录的每个条目）；子目录里放两份，只列顶层的入口数不对（连目录算进去也只有 2）
+  //   .claude/skills/toy、.agents/skills/toy → ../../skill，git add 进索引；不提交，入口读的是索引（第四节、第十四节第 4 条）
+  // 于是 ✓ 那一行的四个数：文档 3（SKILL.md、guide.md、tikhub.md）、命令 2、scripts/ 下文件 3、软链条目 2。
+  // 坏树都从好树改一处（多处那棵改六处），改的是哪一行写在各自那一段。各棵树的路径写成字面量：组间共享的扫描
+  // 只认得出字面量路径（ADR-134 第二节）。
+  // 启动数：入口只经 runToolBoth 起，一棵树一次，共 8 次（好树、五样各一棵、坏了六处那棵、读不到那棵）。夹具里的
+  // git init / git add 是直接起的 git，启动数那一侧认得出 git、不计（launch-count.ts）；别的一律不起进程。
+  const skillMd = ['---', 'name: toy', 'description: 玩具 skill，只给自检用', '---', '# 玩具', '',
+    '先读 references/guide.md，平台细节见 references/providers/tikhub.md。', '',
+    '采集：`npm run collect`，脚本是 `scripts/collect.ts`。', '']
+  const guideMd = ['# 指南', '', '跑 `npm run check` 核一遍；工具在 scripts/lib/a.ts。', '']
+  const goodPackage = JSON.stringify({ name: 'toy', private: true,
+    scripts: { collect: 'tsx scripts/collect.ts', check: 'tsx scripts/lib/a.ts' } })
+  /** 把第 n 行（从 1 数）换成 text，别的行原样 */
+  const swap = (lines: readonly string[], n: number, text: string) => lines.map((l, i) => i === n - 1 ? text : l)
+  const broken = (what: string, e: unknown) => {
+    failed++; console.error(`  ✗ Skill 入口夹具${SELFCHECK_FIXTURE_MARK}：${what}：${e instanceof Error ? e.message : String(e)}`)
+  }
+  // 夹具的 git 不读用户与系统的配置（同 mutationFixtureEnv）；起不来或非 0 退出就是夹具没造对
+  const git = (cwd: string, ...args: string[]): boolean => {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env,
+      GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } })
+    if (r.status === 0) return true
+    broken(`${cwd} 里 git ${args.join(' ')}`, r.error ?? r.stderr)
+    return false
+  }
+  // agentsIndexed：.agents/skills/toy 进索引时指着它，进完再在工作区里改回 ../../skill（不再 git add）。
+  // claudeIndexed: false：.claude/skills/toy 在工作区里照建、指对了，只是不 git add。repo: false：不 git init
+  const seed = (dir: string, o: { skill?: readonly string[]; guide?: readonly string[]; pkg?: string; apify?: boolean;
+    agentsIndexed?: string; claudeIndexed?: boolean; repo?: boolean } = {}): boolean => {
+    const agents = join(dir, '.agents', 'skills', 'toy')
+    try {
+      mkdirSync(join(dir, 'skill', 'references', 'providers'), { recursive: true })
+      mkdirSync(join(dir, 'scripts', 'lib'), { recursive: true })
+      mkdirSync(join(dir, '.claude', 'skills'), { recursive: true })
+      mkdirSync(join(dir, '.agents', 'skills'), { recursive: true })
+      writeFileSync(join(dir, 'skill', 'SKILL.md'), (o.skill ?? skillMd).join('\n'))
+      writeFileSync(join(dir, 'skill', 'references', 'guide.md'), (o.guide ?? guideMd).join('\n'))
+      writeFileSync(join(dir, 'skill', 'references', 'providers', 'tikhub.md'), '# TikHub\n\n只读公开数据。\n')
+      writeFileSync(join(dir, 'skill', 'references', 'notes.txt'), '不是 .md，不算文档：npm run nope 与 scripts/nope.ts 都不该核。\n')
+      if (o.apify) writeFileSync(join(dir, 'skill', 'references', 'providers', 'apify.md'), '# Apify\n\n备用。\n')
+      writeFileSync(join(dir, 'package.json'), o.pkg ?? goodPackage)
+      for (const f of ['collect.ts', 'lib/a.ts', 'lib/b.txt']) writeFileSync(join(dir, 'scripts', f), '占位：只当数据，不会被执行\n')
+      symlinkSync('../../skill', join(dir, '.claude', 'skills', 'toy'))
+      symlinkSync(o.agentsIndexed ?? '../../skill', agents)
+    } catch (e) { broken(dir, e); return false }
+    if (o.repo === false) {
+      // 「不是 git 仓库」要真的不是：入口的 git 继承这一跑的环境变量，环境里指着一个仓库、或者从这里往上哪一层有 .git，
+      // 那一跑读到的是别人的索引。只看环境与文件系统，不为这一查另起进程
+      const outer = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'].filter(k => process.env[k] !== undefined)
+      for (let p = dir; outer.length === 0; p = dirname(p)) {
+        if (existsSync(join(p, '.git'))) outer.push(join(p, '.git'))
+        if (dirname(p) === p) break
+      }
+      if (outer.length === 0) return true
+      broken(`${dir} 不该在任何 git 仓库里`, `找到了 ${outer.join('、')}`)
+      return false
+    }
+    const links = [...(o.claudeIndexed === false ? [] : ['.claude/skills/toy']), '.agents/skills/toy']
+    if (!git(dir, 'init', '--quiet') || !git(dir, 'add', '--', ...links)) return false
+    if (o.agentsIndexed !== undefined) {
+      try { unlinkSync(agents); symlinkSync('../../skill', agents) } catch (e) { broken(agents, e); return false }
+    }
+    return true
+  }
+  type Ran = { status: number | null; stdout: string; stderr: string }
+  // 第一行是入口在 stderr 写的第一条非空行；本文件给每个子进程挂的假 fetch 预加载在入口代码跑之前就往 stderr
+  // 打一行「[fake-fetch] …」，那是夹具自己的，不算（同 order-binding-entry）
+  const head = (stderr: string) => stderr.split('\n').find(l => l.trim() !== '' && !l.startsWith('[fake-fetch]')) ?? ''
+  // 每处问题一行：两个空格、位置、两个空格、哪一样、` · `、fix（第十四节）。位置后面紧跟两个空格，所以 `skill/SKILL.md:3`
+  // 认不成 `skill/SKILL.md:30`，没有行号的 `skill/SKILL.md` 也认不成带行号的。点名的东西只在 ` · ` 后面那段（fix）里找：
+  // 位置里本来就可能带着它（`skill/references/x.md` 里有 `references/x.md`），在整行里找会白给
+  const faultLines = (stderr: string) => stderr.split('\n').filter(l => l.startsWith('  '))
+  const hits = (stderr: string, place: string, item: string, subject?: string) => faultLines(stderr).filter(l =>
+    l.startsWith(`  ${place}  ${item} · `) && (subject === undefined || l.slice(`  ${place}  ${item} · `.length).includes(subject))).length
+  // 以 1 退出、第一行的开头与条数对得上、下面恰好那么多行，每处各恰好一行
+  const each = (r: Ran, want: readonly (readonly [place: string, item: string, subject?: string])[]) =>
+    r.status === 1 && head(r.stderr).startsWith(`✗ Skill 结构：${want.length} 处问题`)
+      && faultLines(r.stderr).length === want.length && want.every(([p, i, s]) => hits(r.stderr, p, i, s) === 1)
+  const said = (r: Ran) => `退出码 ${r.status}；stdout：${JSON.stringify(r.stdout.split('\n').filter(Boolean).slice(0, 4))}`
+    + `；stderr 前几行：${JSON.stringify(r.stderr.split('\n').filter(Boolean).slice(0, 10))}`
+  // soft：「以 0 退出」「以 1 退出」本身就是判据点名的东西，退出码不对时交给下面的具名断言判，不打进程记号（同 order-binding-entry）
+
+  // 好树
+  const goodDir = join(tmp, 'skill-entry-good')
+  if (seed(goodDir)) {
+    const r = runToolBoth('skill 在五样都成立的玩具树上跑', 'skill', [], goodDir, { status: 0, soft: [1] })
+    if (r.ok) named('Skill 入口：五样都成立的玩具树上以 0 退出，✓ 那一行的四个数对得上玩具树（文档 3、命令 2、scripts/ 下文件 3、软链条目 2）',
+      r.status === 0 && r.stdout.split('\n').includes('✓ Skill 结构：五样都成立（文档 3 份 · 命令 2 个 · scripts/ 下文件 3 份 · 软链条目 2 个）'),
+      said(r))
+  }
+
+  // 第 1 样：SKILL.md 第 3 行 description 的值只有一对引号 → 「值是空白」，行号是键行，点名键名（第二节第 1 样第 6 条）。
+  // name 照旧是 toy，第 2 样照核、照样成立
+  const item1 = join(tmp, 'skill-entry-item1')
+  if (seed(item1, { skill: swap(skillMd, 3, 'description: ""') })) {
+    const r = runToolBoth('skill 在 description 只有一对引号的玩具树上跑', 'skill', [], item1, { status: 1, soft: [0] })
+    if (r.ok) named('Skill 入口：只坏第 1 样（description 只有一对引号）时以 1 退出、第一行说 1 处，那一行是 skill/SKILL.md:3、第 1 样、点名 description',
+      each(r, [['skill/SKILL.md:3', '第 1 样', 'description']]), said(r))
+  }
+
+  // 第 2 样：.agents/skills/toy 进索引时指着 ../../old-skill，之后工作区里改回 ../../skill、没再 git add。按索引判（第四节）
+  // 仍是「软链指错了」，没有行号，点名目标原文 ../../old-skill；照文件系统判的入口在这棵树上报不出来。
+  // 目标原文特意不是 ../../skill 的一截：第 2 样的 fix 本来就要原样带 ../../skill（第二节末），点名 ../skill 的话那一截白给
+  const item2 = join(tmp, 'skill-entry-item2')
+  if (seed(item2, { agentsIndexed: '../../old-skill' })) {
+    const r = runToolBoth('skill 在索引里软链指错了的玩具树上跑', 'skill', [], item2, { status: 1, soft: [0] })
+    if (r.ok) named('Skill 入口：只坏第 2 样（索引里的软链指着 ../../old-skill，工作区已改回）时以 1 退出、第一行说 1 处，那一行是 .agents/skills/toy、第 2 样、点名 ../../old-skill',
+      each(r, [['.agents/skills/toy', '第 2 样', '../../old-skill']]), said(r))
+  }
+
+  // 第 3 样：SKILL.md 第 8 行（原是空行）点名一份不在的 references/faq.md → 「点名了但文件不在」，行号是那一行（第二节第 3 样第 3 条）
+  const item3 = join(tmp, 'skill-entry-item3')
+  if (seed(item3, { skill: swap(skillMd, 8, '常见问题见 references/faq.md。') })) {
+    const r = runToolBoth('skill 在点名了不在的 reference 的玩具树上跑', 'skill', [], item3, { status: 1, soft: [0] })
+    if (r.ok) named('Skill 入口：只坏第 3 样（点名了不在的 references/faq.md）时以 1 退出、第一行说 1 处，那一行是 skill/SKILL.md:8、第 3 样、点名 references/faq.md',
+      each(r, [['skill/SKILL.md:8', '第 3 样', 'references/faq.md']]), said(r))
+  }
+
+  // 第 4 样：reference 第 3 行的命令名改成 package.json 里没有的 verify → 「没有这个命令」，文件是那份 reference（第二节第 4 样第 3 条）。
+  // 坏在 SKILL.md 以外：只把 SKILL.md 的正文交给判定的入口报不出来
+  const item4 = join(tmp, 'skill-entry-item4')
+  if (seed(item4, { guide: swap(guideMd, 3, '跑 `npm run verify` 核一遍；工具在 scripts/lib/a.ts。') })) {
+    const r = runToolBoth('skill 在 reference 里写了没有的命令的玩具树上跑', 'skill', [], item4, { status: 1, soft: [0] })
+    if (r.ok) named('Skill 入口：只坏第 4 样（reference 里写了没有的 npm run verify）时以 1 退出、第一行说 1 处，那一行是 skill/references/guide.md:3、第 4 样、点名 verify',
+      each(r, [['skill/references/guide.md:3', '第 4 样', 'verify']]), said(r))
+  }
+
+  // 第 5 样：SKILL.md 第 9 行的脚本路径改成不在的 scripts/gather.ts → 「脚本不在」，点名路径原文（第二节第 5 样第 2 条）
+  const item5 = join(tmp, 'skill-entry-item5')
+  if (seed(item5, { skill: swap(skillMd, 9, '采集：`npm run collect`，脚本是 `scripts/gather.ts`。') })) {
+    const r = runToolBoth('skill 在点名了不在的脚本的玩具树上跑', 'skill', [], item5, { status: 1, soft: [0] })
+    if (r.ok) named('Skill 入口：只坏第 5 样（点名了不在的 scripts/gather.ts）时以 1 退出、第一行说 1 处，那一行是 skill/SKILL.md:9、第 5 样、点名 scripts/gather.ts',
+      each(r, [['skill/SKILL.md:9', '第 5 样', 'scripts/gather.ts']]), said(r))
+  }
+
+  // 几处一起：五样各坏至少一处，第 4 样坏两处，共 6 处，彼此不让哪一样不核（第二节各样的「只在…时核」都还满足）。
+  //   SKILL.md 第 3 行键名拼错成 descripton → 「缺键」description，没有行号；name 照旧，第 2 样照核（第 1 样第 4 条）
+  //   .claude/skills/toy 工作区里有、指对了，只是没进索引 → 「没有软链」，没有行号、没有点名（第 2 样第 3 条）
+  //   多一份 skill/references/providers/apify.md、没人点它 → 「文件在但没点名」，点名 references/providers/apify.md（第 3 样第 4 条）
+  //   SKILL.md 第 8 行 npm run tidy、第 9 行 npm run gather → 两处「没有这个命令」（第 4 样第 3 条）
+  //   guide.md 第 3 行 scripts/lib/c.ts → 「脚本不在」（第 5 样第 2 条）
+  const many = join(tmp, 'skill-entry-many')
+  const manySkill = swap(swap(swap(skillMd, 3, 'descripton: 玩具 skill，只给自检用'), 8, '整理：`npm run tidy`。'),
+    9, '采集：`npm run gather`，脚本是 `scripts/collect.ts`。')
+  if (seed(many, { skill: manySkill, guide: swap(guideMd, 3, '跑 `npm run check` 核一遍；工具在 scripts/lib/c.ts。'),
+    apify: true, claudeIndexed: false })) {
+    const r = runToolBoth('skill 在坏了六处的玩具树上跑', 'skill', [], many, { status: 1, soft: [0] })
+    if (r.ok) named('Skill 入口：一棵树坏了六处时以 1 退出、第一行说 6 处，六处各恰好一行，各带位置、第几样与点名的东西',
+      each(r, [
+        ['skill/SKILL.md', '第 1 样', 'description'],
+        ['.claude/skills/toy', '第 2 样'],
+        ['skill/references/providers/apify.md', '第 3 样', 'references/providers/apify.md'],
+        ['skill/SKILL.md:8', '第 4 样', 'tidy'],
+        ['skill/SKILL.md:9', '第 4 样', 'gather'],
+        ['skill/references/guide.md:3', '第 5 样', 'scripts/lib/c.ts'],
+      ]), said(r))
+  }
+
+  // 读不到（第二节第 0 类）：两样输入在同一棵树里一起读不到，各报一条，第 0 类写成「读不到」，没有点名。
+  //   package.json 的 scripts 是数组 → 命令读不到（第十四节第 2 条：不是对象，不能拿数组的下标当命令名），
+  //     文件记 package.json，第 4 样不核（第 0 类第 3 条）
+  //   不 git init → git ls-files 以非 0 退出，软链整份读不到（第十四节第 4 条），文件记 `.claude/skills/、.agents/skills/`，
+  //     第 2 样不核（第 0 类第 5 条）
+  // 第 1、3、5 样照核、都成立（SKILL.md、reference、scripts/ 都与好树相同），所以恰好 2 处。
+  // 这里不写成「package.json 不是 JSON」：玩具树是入口的当前目录，tsx 起来时 Node 自己就去读当前目录的 package.json，
+  // 读到不是 JSON 的当场以 1 退出（ERR_INVALID_PACKAGE_CONFIG），入口一行也没跑，那一跑的红与入口无关
+  const unreadable = join(tmp, 'skill-entry-unreadable')
+  if (seed(unreadable, { pkg: JSON.stringify({ name: 'toy', private: true, scripts: ['collect', 'check'] }), repo: false })) {
+    const r = runToolBoth('skill 在 scripts 是数组、又不是 git 仓库的玩具树上跑', 'skill', [], unreadable, { status: 1, soft: [0] })
+    if (r.ok) named('Skill 入口：package.json 的命令与软链都读不到时以 1 退出、第一行说 2 处，package.json 与 .claude/skills/、.agents/skills/ 各一行读不到',
+      each(r, [['package.json', '读不到'], ['.claude/skills/、.agents/skills/', '读不到']]), said(r))
+  }
+})
+
 // ---- 整跑那份报告里的豁免行，也要随负片改口（入口的第二处）----
 group('exempt-lead', [], () => {
   // 上面那条断言守的是 `--brief`；**同一句话在 mutate.ts 里有两处**，整跑那一处
