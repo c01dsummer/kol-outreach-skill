@@ -14371,7 +14371,7 @@
       "find": "if (docs === undefined) add(0, 'unreadable', 'skill/'",
       "replace": "if (docs === null) add(0, 'unreadable', 'skill/'",
       "by": "test",
-      "kills": ["Skill 结构：文档清单读不到只报一条读不到（文件记 skill/），五样都不核", "Skill 结构：几份输入都读不到时第 0 类各报一条，按文件排"]
+      "kills": ["Skill 结构：文档清单读不到只报一条读不到（文件记 skill/），五样都不核", "Skill 结构：几份输入都读不到时第 0 类各报一条，按文件排", "Skill 结构：有一样没核时返回值里一定有一条问题"]
     },
     {
       "id": "M-H61-b",
@@ -14421,7 +14421,7 @@
       "find": "if (doc.text !== undefined) continue",
       "replace": "continue",
       "by": "test",
-      "kills": ["Skill 结构：SKILL.md 读不到时报一条读不到，第 1、2、3 样不核，别的文档的命令名照核", "Skill 结构：点了名的 reference 读不到时只报一条读不到，不算文件不在", "Skill 结构：没点名的 reference 读不到时，读不到与文件在但没点名各报一条"]
+      "kills": ["Skill 结构：SKILL.md 读不到时报一条读不到，第 1、2、3 样不核，别的文档的命令名照核", "Skill 结构：SKILL.md 读不到时返回值不空，且有一条 SKILL.md 读不到", "Skill 结构：点了名的 reference 读不到时只报一条读不到，不算文件不在", "Skill 结构：没点名的 reference 读不到时，读不到与文件在但没点名各报一条"]
     },
     {
       "id": "M-H61-g",
@@ -15072,6 +15072,156 @@
       "replace": "JSON.stringify([f.item, f.kind, f.file, f.line])",
       "by": "test",
       "kills": ["Skill 结构：同一行几个不在的命令名按命令名排，和写的先后无关"]
+    },
+    {
+      "id": "M-H61-bt",
+      "req": "harness",
+      "why": "文件在但 SKILL.md 没点名时不报",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "      add(3, 'unnamed-reference', doc.path,",
+      "replace": "      if (docs.length < 0) add(3, 'unnamed-reference', doc.path,",
+      "by": "test",
+      "kills": ["Skill 结构：reference 文件在但 SKILL.md 没点名时报一条，点名 references/<相对路径>", "Skill 结构：providers/ 子目录里的 reference 没点名也报，点名写法带子目录"]
+    },
+    {
+      "id": "M-H61-bu",
+      "req": "harness",
+      "why": "命令名不在 package.json 时不报",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (command === '' || known.has(command)) continue",
+      "replace": "if (command === '' || known.size >= 0) continue",
+      "by": "test",
+      "kills": ["Skill 结构：SKILL.md 里写的命令名不在 package.json 时报一条，带行号与命令名", "Skill 结构：代码围栏里的命令算数", "Skill 结构：frontmatter 里写的命令名也核", "Skill 结构：文档里的命令名不在 package.json、脚本路径不在 scripts/ 时各报一条"]
+    },
+    {
+      "id": "M-H61-bv",
+      "req": "harness",
+      "why": "package.json 里有的命令名也报不在",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (command === '' || known.has(command)) continue",
+      "replace": "if (command === '') continue",
+      "by": "test",
+      "kills": ["Skill 结构：命令名之后跟的参数不当命令名", "Skill 结构：五样都成立的好树没有一条问题"]
+    },
+    {
+      "id": "M-H61-bw",
+      "req": "harness",
+      "why": "脚本路径不在 scripts/ 时不报",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (!said.endsWith('.ts') || present.has(said)) continue",
+      "replace": "if (!said.endsWith('.ts') || present.size >= 0) continue",
+      "by": "test",
+      "kills": ["Skill 结构：npx tsx 后面、行首、代码围栏里的脚本路径照样核", "Skill 结构：文档里的命令名不在 package.json、脚本路径不在 scripts/ 时各报一条"]
+    },
+    {
+      "id": "M-H61-bx",
+      "req": "harness",
+      "why": "scripts/ 下在的脚本路径也报不在",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (!said.endsWith('.ts') || present.has(said)) continue",
+      "replace": "if (!said.endsWith('.ts')) continue",
+      "by": "test",
+      "kills": ["Skill 结构：五样都成立的好树没有一条问题"]
+    },
+    {
+      "id": "M-H61-by",
+      "req": "harness",
+      "why": "frontmatter 收尾之后的行也当键行",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "for (let i = 1; i < end; i++) if (pattern.test(lines[i]))",
+      "replace": "for (let i = 1; i < lines.length; i++) if (pattern.test(lines[i]))",
+      "by": "test",
+      "kills": ["Skill 结构：frontmatter 之外的 name: 行不算键写了不止一次", "Skill 结构：frontmatter 到第一个整行是 --- 的行为止，之后的 name 行不算键行"]
+    },
+    {
+      "id": "M-H61-bz",
+      "req": "harness",
+      "why": "第 1 行的 --- 自己就当成 frontmatter 的收尾",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "lines.findIndex((l, i) => i > 0 && isFence(l))",
+      "replace": "lines.findIndex((l, i) => i >= 0 && isFence(l))",
+      "by": "test",
+      "kills": ["Skill 结构：五样都成立的好树没有一条问题"]
+    },
+    {
+      "id": "M-H61-ca",
+      "req": "harness",
+      "why": "目录下名字不等于 name 的条目也拿来当期望的条目判",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const entry = links.find(e => e.path === path)",
+      "replace": "const entry = links.findLast(e => e.path.startsWith(`${dir}/`))",
+      "by": "test",
+      "kills": ["Skill 结构：软链名不等于 name 时报没有软链", "Skill 结构：目录下名字不等于 name 的别的条目不判"]
+    },
+    {
+      "id": "M-H61-cb",
+      "req": "harness",
+      "why": "怎么改只是一段空白",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "'skill/SKILL.md 第一行写 ---，接着写 name: 与 description: 两行，再写一行 --- 收尾；第 2 样要等 name 写好才核'",
+      "replace": "' '",
+      "by": "test",
+      "kills": ["Skill 结构：每条问题的怎么改去掉首尾空白后不是空串"]
+    },
+    {
+      "id": "M-H61-cc",
+      "req": "harness",
+      "why": "怎么改里不带写错的命令名",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "`package.json 的 scripts 里没有 ${command}：",
+      "replace": "`package.json 的 scripts 里没有这个命令：",
+      "by": "test",
+      "kills": ["Skill 结构：点名了东西的问题，怎么改里原样出现点名的东西"]
+    },
+    {
+      "id": "M-H61-cd",
+      "req": "harness",
+      "why": "没有软链的怎么改里不写 ../../skill",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "`建软链 ${path} 指向 ../../skill：ln -s ../../skill ${path}，再 git add`",
+      "replace": "`建软链 ${path}，再 git add`",
+      "by": "test",
+      "kills": ["Skill 结构：没有软链、不是软链、软链指错了三种问题的怎么改里原样出现 ../../skill"]
+    },
+    {
+      "id": "M-H61-ce",
+      "req": "harness",
+      "why": "命令名在半角冒号处断开",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "][^\\s`'\"()<>|&;,，。、；：（）「」]*)/g",
+      "replace": "][^\\s`'\"()<>|&;,，。、；：（）「」:]*)/g",
+      "by": "test",
+      "kills": ["Skill 结构：命令名里的半角冒号、中间的点、斜杠不断开"]
+    },
+    {
+      "id": "M-H61-cf",
+      "req": "harness",
+      "why": "npm 前一个字符是斜杠、括号、全角冒号或点时不当命令",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const COMMAND = /(?<![A-Za-z0-9_-])npm",
+      "replace": "const COMMAND = /(?<![A-Za-z0-9_./(：-])npm",
+      "by": "test",
+      "kills": ["Skill 结构：npm 前一个字符是斜杠、括号、全角冒号或点时照样是一处命令"]
+    },
+    {
+      "id": "M-H61-cg",
+      "req": "harness",
+      "why": "行首的点名不算",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const REFERENCE = /(?<![A-Za-z0-9_./-])references",
+      "replace": "const REFERENCE = /(?<=[^A-Za-z0-9_./-])references",
+      "by": "test",
+      "kills": ["Skill 结构：frontmatter 里、代码围栏里、行首的点名都算"]
+    },
+    {
+      "id": "M-H61-ch",
+      "req": "harness",
+      "why": "reference 里的点名也算数",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "skill.text.split('\\n').forEach((line, i) => {",
+      "replace": "docs.map(d => d.text ?? '').join('\\n').split('\\n').forEach((line, i) => {",
+      "by": "test",
+      "kills": ["Skill 结构：只有 SKILL.md 里的点名算数，reference 里的点名不算"]
     },
     {
       "id": "M-D20-a",
