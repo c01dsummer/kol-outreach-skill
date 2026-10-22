@@ -14891,7 +14891,7 @@
       "find": "run(?:[ \\t]+-[^\\s`]*)*[ \\t]+(",
       "replace": "run[ \\t]+(",
       "by": "test",
-      "kills": ["Skill 结构：npm run --silent x 与 npm run -s x 的写法，命令名取参数之后的那一串", "Skill 结构：npm、run、参数、命令名之间可以是几个空格或制表符"]
+      "kills": ["Skill 结构：npm run --silent x 与 npm run -s x 的写法，命令名取参数之后的那一串", "Skill 结构：参数到反引号为止，反引号括起的 npm run -s 后面的字不当命令名", "Skill 结构：npm、run、参数、命令名之间可以是几个空格或制表符", "Skill 结构：一处命令用掉的字符不再作下一处的开头，npm run npm run x 只有一处、命令名是 npm"]
     },
     {
       "id": "M-H61-bb",
@@ -14911,7 +14911,7 @@
       "find": "[ \\t]+([^\\s`'\"()<>|&;,，。、；：（）「」-][^\\s`",
       "replace": "[ \\t]+([^\\s`'\"()<>|&;,，。、；：（）「」][^\\s`",
       "by": "test",
-      "kills": ["Skill 结构：npm run 后面只有 - 打头的参数时不算命令"]
+      "kills": ["Skill 结构：npm run 后面只有 - 打头的参数时不算命令", "Skill 结构：参数到反引号为止，反引号括起的 npm run -s 后面的字不当命令名"]
     },
     {
       "id": "M-H61-bd",
@@ -15222,6 +15222,56 @@
       "replace": "docs.map(d => d.text ?? '').join('\\n').split('\\n').forEach((line, i) => {",
       "by": "test",
       "kills": ["Skill 结构：只有 SKILL.md 里的点名算数，reference 里的点名不算"]
+    },
+    {
+      "id": "M-H61-ci",
+      "req": "harness",
+      "why": "前一个字符是 . 的 references/ 也算点名",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const REFERENCE = /(?<![A-Za-z0-9_./-])references",
+      "replace": "const REFERENCE = /(?<![A-Za-z0-9_/-])references",
+      "by": "test",
+      "kills": ["Skill 结构：前一个字符是 / 或 . 的 references/ 不算点名"]
+    },
+    {
+      "id": "M-H61-cj",
+      "req": "harness",
+      "why": "npm run 后面的参数可以含反引号",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "(?:[ \\t]+-[^\\s`]*)*",
+      "replace": "(?:[ \\t]+-[^\\s]*)*",
+      "by": "test",
+      "kills": ["Skill 结构：参数到反引号为止，反引号括起的 npm run -s 后面的字不当命令名"]
+    },
+    {
+      "id": "M-H61-ck",
+      "req": "harness",
+      "why": "SKILL.md 读不到正文时当成空文档照核第 1 样",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "} else if (skill.text !== undefined) {\n    const lines = skill.text.split('\\n')",
+      "replace": "} else {\n    const lines = (skill.text ?? '').split('\\n')",
+      "by": "test",
+      "kills": ["Skill 结构：SKILL.md 读不到时报一条读不到，第 1、2、3 样不核，别的文档的命令名照核"]
+    },
+    {
+      "id": "M-H61-cl",
+      "req": "harness",
+      "why": "软链的输入读不到时当成一个条目也没有，照核第 2 样",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (name !== undefined && links !== undefined) {\n    for (const dir of LINK_DIRS) {",
+      "replace": "if (name !== undefined) {\n    const links = input.links ?? []\n    for (const dir of LINK_DIRS) {",
+      "by": "test",
+      "kills": ["Skill 结构：软链读不到时报一条读不到（文件记两个目录），第 2 样不核，别的样照报"]
+    },
+    {
+      "id": "M-H61-cm",
+      "req": "harness",
+      "why": "同一行重叠的写法里，后一处 npm 也当一处命令",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "for (const m of line.matchAll(COMMAND)) {",
+      "replace": "for (const m of line.matchAll(new RegExp(`(?=${COMMAND.source})`, 'g'))) {",
+      "by": "test",
+      "kills": ["Skill 结构：一处命令用掉的字符不再作下一处的开头，npm run npm run x 只有一处、命令名是 npm"]
     },
     {
       "id": "M-D20-a",
