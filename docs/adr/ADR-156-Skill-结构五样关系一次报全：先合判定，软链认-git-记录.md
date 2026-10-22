@@ -351,7 +351,7 @@ console.log(JSON.stringify(skillFaults({ docs, commands, scriptFiles, links })))
 
 - `AGENTS.md`「检查命令」那一行的链，加在「SPEC 一致性」之后。
 - `docs/ARCHITECTURE.md` 锚点表：加 `skill.ts` 一行；`skill-rule.ts` 那一行的「还没有入口调它」改掉。
-- `docs/SYNC.md` 触发表加两行。本片要的是这一行：改 `skill/references/` 下的文件（新增、删除、改名），或改 `package.json` 的命令名、`skill/` 下文档里的 `npm run` 与 `scripts/….ts`，或改 SKILL.md 的 frontmatter、软链 → 要看 SKILL.md 的「参考文档」表与点名处 → 机器检查 🔒 `skill`。另一行是顺手补的「改 `process/` 里任何一份」：ADR-154 第 251 行那张欠条的条件是「下一条改 `docs/SYNC.md` 触发表的 PR」，本片就是，照它补上，内容照 `process/2-CHANGE.md`「文档同步规则」那张表「改本目录里的任何一份」那一格。
+- `docs/SYNC.md` 触发表加两行。本片要的是这一行：改 `skill/references/` 下的文件（新增、删除、改名），或改 `package.json` 的命令名、`skill/` 下文档里的 `npm run` 与 `scripts/….ts`，或改 SKILL.md 的 frontmatter、软链 → 要看 SKILL.md 的「参考文档」表与点名处 → 机器检查 🔒 `skill`。另一行是顺手补的「改 `process/` 里任何一份」：ADR-154 第 251 行那张欠条的条件是「下一条改 `docs/SYNC.md` 触发表的 PR」，本片就是，照它补上：列本仓库要看的那几份（入口文件与 `process/AGENTS.md.tpl` 里指向 `process/` 章节的路由）；改的是一条纪律时另要的两样只指到 `process/2-CHANGE.md`「文档同步规则」那张表「改本目录里的任何一份」那一格，不抄过来（`AGENTS.md`「两层文档」：业务层引用通用层，不复述它）。
 - 全仓搜描述检查链的句子（`SPEC 一致性`、`体量闸门 →`、`npm run spec &&`、`检查命令`）：`docs/adr/` 以外描述本仓库这条链的只有 `AGENTS.md` 那一行与 `package.json` 本身（`process/6-INTEGRATE.md`、`process/AGENTS.md.tpl` 里命中的是通用的占位 `<检查命令>`，不是这条链）；`README.md` 第 237 行明说不抄、指 `package.json` 与 `AGENTS.md`。
 
 ### 这道闸门守的是哪条纪律
@@ -378,19 +378,19 @@ console.log(JSON.stringify(skillFaults({ docs, commands, scriptFiles, links })))
 
 每一行都指到文件与行，照着那句话改就能回到绿。改名那两次，旧名的每一处点名都单独报了一行，新名没人点也报了，一次看全。
 
-**变异与启动数。** `mutations.json` 没改，没有新变异。`e257fbb` 上以 nobody 跑 `npm run mutate`（`/var/tmp` 下新克隆的一份）：`✓ 变异测试：1594 个变异全部被抓到`，17 分 40 秒。 接着跑 `npm run launches -- --write`，写出的 `scripts/check/launches.json` 与树内的逐字节相同，仍是 139 种配置：新组没有变异路由到它，各配置的条数与启动数都没变。
+**变异与启动数。** `mutations.json` 没改，没有新变异。`e257fbb` 上以 nobody 跑 `npm run mutate`（`/var/tmp` 下新克隆的一份）：`✓ 变异测试：1594 个变异全部被抓到`（单跑一次，墙钟 17 分 40 秒，只作参考）。接着跑 `npm run launches -- --write`，写出的 `scripts/check/launches.json` 与树内的逐字节相同，仍是 139 种配置：新组没有变异路由到它，各配置的条数与启动数都没变。
 
 **闭包。** 用 `verifier-rule.ts` 的 `infraClosure` 现算：主干 `4b36935` 上 25 份，`ad99daf` 上 27 份，多的是 `skill.ts` 与 `skill-rule.ts`；两份上的变异（91 条）都是 `by: test`，没有哪条因此被「自己验自己」拦下。
 
 **前后成本**（`process/6-INTEGRATE.md`「改验证成本时」）：检查链多两样，别的步骤一字没动。一是新的一步 `npm run skill`，每跑一次完整检查起一次：`e257fbb` 上单跑 `npx tsx scripts/check/skill.ts` 3 次，CPU（user+sys）0.60–0.65 秒，墙钟 0.48–0.52 秒。二是自检多一组 `skill-entry`（8 次入口启动），每次整跑自检付一次：`selfcheck.ts --only=skill-entry` 3 次，CPU 5.14–5.28 秒，墙钟 3.96–4.14 秒。两样合计每跑约多 6 CPU 秒。变异一步：没有变异路由到新组，变异条数与配置都不变，多 0。需求测试只改了「种子 = …」那一条的期望，没加组、没加启动，不另量。本机 4 核、Node 22.22.0，量时负载 5–7（`ps` 里没有别的重活）；单次墙钟只作参考。CI 上整条链的那一行（「本跑 mm:ss · 主干前 5 次中位」），等这条 PR 首跑出来抄在这里。
 
-**更正：** 第十二节「往自检的 `REGISTERED` 加组」那一串里写的「ADR-136 第 83、129、171 行」，第 83 行不是欠条（那里讲的是校准版本），应为第 129、171 行。
+> ⚠️ 更正（2026-10-23）：第十二节「往自检的 `REGISTERED` 加组」那一串里写的「ADR-136 第 83、129、171 行」，第 83 行不是欠条（那里讲的是校准版本），应为第 129、171 行。
 
 ## 十六、第二片那条 PR 上响了的欠条（2026-10-23）
 
 清点办法同第十二节：三个互不相见、没参与本条的上下文，各自读 `fd43c2d` 上抽出的台账（423 条）与 `4b36935..fd43c2d` 的全部 diff，外加合入前还要加的三样（重写 `launches.json`、ADR-154 末尾的「已还」块、本条第十五到十七节），逐条回原文按字面过。三份另核了第十四节能核的数与行号；错的和说过头的见下面 ADR-145 第 428 行。第十二节预告「第二片会响的」那几张，下面逐张有着落。
 
-**响了、本条那条 PR 还上：** ADR-154 第 251 行（`docs/SYNC.md` 触发表没有「改 `process/` 里任何一份」那一行；条件后半「下一条改 `docs/SYNC.md` 触发表的 PR」）。三份都判响。本片改触发表，照条件顺手补上那一行（第十四节「副本」），在 ADR-154 末尾追加「已还」一块；那一块同时说明 ADR-154 第 253 行那块更正的末句「触发表还是没有那一行」从此不对了。
+**响了、本条那条 PR 还上：** ADR-154 第 251 行（`docs/SYNC.md` 触发表没有「改 `process/` 里任何一份」那一行；条件后半「下一条改 `docs/SYNC.md` 触发表的 PR」）。三份都判响。本片改触发表，照条件顺手补上那一行（第十四节「副本」），在 ADR-154 末尾追加了「已还」一块；那一块同时说明 ADR-154 第 253 行那块更正的末句「触发表还是没有那一行」从此不对了。
 
 **响了、重挂：** ADR-94 第 800 行（`F9 × F1` 的裁决没有测试认领；条件「下一条给 `skill/` 下的文档加断言、或者再动必问项那张表的改动」）。执行稿判这一片响了：入口读真树 `skill/` 下的文档、对它们下判断、会红，就是那张说的机械。三份清点都判字面沾边、实质不响：那张要的是读正文、认领 F1.a（必问项列了且只列三条）；本片核的是结构，自检组读的是玩具树，需求测试里仍没有一条读 `skill/` 下文件的断言。两种读法结果相同：本片不认领 F1.a（它断言的是 `product-intake.md` 的正文，第三节写明本条不查 reference 正文，证据不同；要认领另开 PR）。照执行稿重挂，把前一支收窄，免得以后每条只核结构的改动都让它响一次；后一支原样留着：
 
@@ -399,7 +399,7 @@ console.log(JSON.stringify(skillFaults({ docs, commands, scriptFiles, links })))
 **响了、没还、条件重新起算、照旧挂着**（三份都判响；照 ADR-151 第 99–102 行、ADR-148 第十六节的先例只记一句，不另写块）：
 
 - ADR-145 第 777 行（重挂的 ADR-70 第 790 行：下一条把别的检查脚本加进 `SELFCHECK_TOOLS`）：加了 `skill`，`audit` 没一起加，也没补输出级夹具。
-- ADR-139 第 130 行（ADR-97 第 192 行那一串：往入口脚本里加判定）：`skill.ts` 里「`scripts` 不是对象就交 `undefined`」「`git ls-files` 有一条认不出形状就整份 `undefined`」「mode 是 `120000` 才取目标」「只往真目录里走」这几处，只有自检够得到、没有变异。自检走到了前一处（`scripts` 是数组）与「不是 git 仓库」，认不出形状、mode 不是 `120000`、一份文档读不出这三支，端到端没人走。还法同那一串：挪进纯函数、由需求测试守。
+- ADR-139 第 130 行（ADR-97 第 192 行那一串：往入口脚本里加判定）：`skill.ts` 里「`scripts` 不是对象就交 `undefined`」「`git ls-files` 有一条认不出形状就整份 `undefined`」「mode 是 `120000` 才取目标」「只往真目录里走」这几处，只有自检够得到、没有变异。自检走到了前一处（`scripts` 是数组）与「不是 git 仓库」，认不出形状、mode 不是 `120000`、一份文档读不出、不跟着软链进目录（玩具树里没有指向目录的软链）这四支，端到端没人走。还法同那一串：挪进纯函数、由需求测试守。
 - ADR-144 第 173 行（ADR-99 第 327 行那一串：往 `REGISTERED` 加组）：新组 `skill-entry`，`needs` 为空、编号唯一；组图照旧没人整张校验。
 
 **响了、合入前已改、条件重新起算、不重挂：** ADR-145 第 428 行（再发现一处说假话的数，宽读）。清点指出四处，都改了：第十二节「ADR-136 第 83 行」（不是欠条，第十五节末已更正）；第十四节说触发表「加一行」，实为两行；「全仓搜……只有 `AGENTS.md` 那一行与 `package.json`」，`process/` 里另有两处通用占位命中；「一份照 UTF-8 读不出来」，`readFileSync` 遇到坏字节不抛，只有读文件出错才是 `undefined`。
