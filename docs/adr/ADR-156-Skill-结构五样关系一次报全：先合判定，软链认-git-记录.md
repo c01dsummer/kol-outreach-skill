@@ -382,7 +382,7 @@ console.log(JSON.stringify(skillFaults({ docs, commands, scriptFiles, links })))
 
 **闭包。** 用 `verifier-rule.ts` 的 `infraClosure` 现算：主干 `4b36935` 上 25 份，`ad99daf` 上 27 份，多的是 `skill.ts` 与 `skill-rule.ts`；两份上的变异（91 条）都是 `by: test`，没有哪条因此被「自己验自己」拦下。
 
-**前后成本**（`process/6-INTEGRATE.md`「改验证成本时」）：检查链多两样，别的步骤一字没动。一是新的一步 `npm run skill`，每跑一次完整检查起一次：`e257fbb` 上单跑 `npx tsx scripts/check/skill.ts` 3 次，CPU（user+sys）0.60–0.65 秒，墙钟 0.48–0.52 秒。二是自检多一组 `skill-entry`（8 次入口启动），每次整跑自检付一次：`selfcheck.ts --only=skill-entry` 3 次，CPU 5.14–5.28 秒，墙钟 3.96–4.14 秒。两样合计每跑约多 6 CPU 秒。变异一步：没有变异路由到新组，变异条数与配置都不变，多 0。需求测试只改了「种子 = …」那一条的期望，没加组、没加启动，不另量。本机 4 核、Node 22.22.0，量时负载 5–7（`ps` 里没有别的重活）；单次墙钟只作参考。CI 上整条链前后差多少，等这条 PR 的第一跑出来记在 PR 正文，不进本条。
+**前后成本**（`process/6-INTEGRATE.md`「改验证成本时」）：检查链多两样，别的步骤一字没动。一是新的一步 `npm run skill`，每跑一次完整检查起一次：`e257fbb` 上单跑 `npx tsx scripts/check/skill.ts` 3 次，CPU（user+sys）0.60–0.65 秒，墙钟 0.48–0.52 秒。二是自检多一组 `skill-entry`（8 次入口启动），每次整跑自检付一次：`selfcheck.ts --only=skill-entry` 3 次，CPU 5.14–5.28 秒，墙钟 3.96–4.14 秒。两样合计每跑约多 6 CPU 秒。变异一步：没有变异路由到新组，变异条数与配置都不变，多 0。需求测试只改了「种子 = …」那一条的期望，没加组、没加启动，不另量。本机 4 核、Node 22.22.0，量时负载 5–7（`ps` 里没有别的重活）；单次墙钟只作参考。CI 上整条链的那一行（「本跑 mm:ss · 主干前 5 次中位」），等这条 PR 首跑出来抄在这里。
 
 **更正：** 第十二节「往自检的 `REGISTERED` 加组」那一串里写的「ADR-136 第 83、129、171 行」，第 83 行不是欠条（那里讲的是校准版本），应为第 129、171 行。
 
