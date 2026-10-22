@@ -14364,6 +14364,716 @@
       "kills": ["启动数摘要那一行：这一跑现算不出来、原因是 tally 有一项认不得时打红的那一句（甲），先于树内有没有文件，在不在主干上都一样", "启动数摘要那一行：树内没有这个文件时，在主干上打没有、不比，不在主干上或无从判断时打红的那一句（乙），叫跑过变异再写出来", "启动数摘要那一行：不同、不在主干上或无从判断在不在主干上时打红的那一句（丙），叫把主干合进来、跑过变异再写回"]
     },
     {
+      "id": "M-H61-a",
+      "req": "harness",
+      "why": "skill/ 下的文件列不出时不报，五样都没核却不出声",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (docs === undefined) add(0, 'unreadable', 'skill/'",
+      "replace": "if (docs === null) add(0, 'unreadable', 'skill/'",
+      "by": "test",
+      "kills": ["Skill 结构：文档清单读不到只报一条读不到（文件记 skill/），五样都不核", "Skill 结构：几份输入都读不到时第 0 类各报一条，按文件排"]
+    },
+    {
+      "id": "M-H61-b",
+      "req": "harness",
+      "why": "package.json 的命令读不到时不报，第 4 样没核却不出声",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (commands === undefined) add(0,",
+      "replace": "if (commands === null) add(0,",
+      "by": "test",
+      "kills": ["Skill 结构：package.json 的命令读不到时报一条读不到（文件记 package.json），写错的命令名不报，不在的脚本照报", "Skill 结构：几份输入都读不到时第 0 类各报一条，按文件排"]
+    },
+    {
+      "id": "M-H61-c",
+      "req": "harness",
+      "why": "scripts/ 下的文件列不出时不报，第 5 样没核却不出声",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (scriptFiles === undefined) add(0,",
+      "replace": "if (scriptFiles === null) add(0,",
+      "by": "test",
+      "kills": ["Skill 结构：scripts/ 的清单读不到时报一条读不到（文件记 scripts/），不在的脚本不报，写错的命令名照报", "Skill 结构：几份输入都读不到时第 0 类各报一条，按文件排"]
+    },
+    {
+      "id": "M-H61-d",
+      "req": "harness",
+      "why": "软链的输入读不到时不报，第 2 样没核却不出声",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (links === undefined) add(0,",
+      "replace": "if (links === null) add(0,",
+      "by": "test",
+      "kills": ["Skill 结构：软链读不到时报一条读不到（文件记两个目录），第 2 样不核，别的样照报", "Skill 结构：几份输入都读不到时第 0 类各报一条，按文件排"]
+    },
+    {
+      "id": "M-H61-e",
+      "req": "harness",
+      "why": "skill/ 下的文件列不出时，别的读不到的输入也一起不报",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (docs === undefined) return settle(out)",
+      "replace": "if (docs === undefined) return []",
+      "by": "test",
+      "kills": ["Skill 结构：文档清单读不到只报一条读不到（文件记 skill/），五样都不核", "Skill 结构：几份输入都读不到时第 0 类各报一条，按文件排"]
+    },
+    {
+      "id": "M-H61-f",
+      "req": "harness",
+      "why": "读不到正文的文档不报，它那几样没核却不出声",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (doc.text !== undefined) continue",
+      "replace": "continue",
+      "by": "test",
+      "kills": ["Skill 结构：SKILL.md 读不到时报一条读不到，第 1、2、3 样不核，别的文档的命令名照核", "Skill 结构：点了名的 reference 读不到时只报一条读不到，不算文件不在", "Skill 结构：没点名的 reference 读不到时，读不到与文件在但没点名各报一条"]
+    },
+    {
+      "id": "M-H61-g",
+      "req": "harness",
+      "why": "package.json 的命令读不到时当成一个命令也没有，文档里的每个命令名都报不在",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const known = commands === undefined ? undefined : new Set(commands)",
+      "replace": "const known = new Set(commands ?? [])",
+      "by": "test",
+      "kills": ["Skill 结构：package.json 的命令读不到时报一条读不到（文件记 package.json），写错的命令名不报，不在的脚本照报"]
+    },
+    {
+      "id": "M-H61-h",
+      "req": "harness",
+      "why": "scripts/ 下的文件列不出时当成一个文件也没有，文档里的每个脚本路径都报不在",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const present = scriptFiles === undefined ? undefined : new Set(scriptFiles)",
+      "replace": "const present = new Set(scriptFiles ?? [])",
+      "by": "test",
+      "kills": ["Skill 结构：scripts/ 的清单读不到时报一条读不到（文件记 scripts/），不在的脚本不报，写错的命令名照报"]
+    },
+    {
+      "id": "M-H61-i",
+      "req": "harness",
+      "why": "SKILL.md 不在时不报",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "    add(1, 'no-skill-md',",
+      "replace": "    if (docs.length < 0) add(1, 'no-skill-md',",
+      "by": "test",
+      "kills": ["Skill 结构：清单里没有 SKILL.md 时报 SKILL.md 不在，第 2、3 样不核，别的文档的命令名照核"]
+    },
+    {
+      "id": "M-H61-j",
+      "req": "harness",
+      "why": "SKILL.md 没有 frontmatter 时不报",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "      add(1, 'no-frontmatter',",
+      "replace": "      if (end < -1) add(1, 'no-frontmatter',",
+      "by": "test",
+      "kills": ["Skill 结构：第 1 行不是 --- 时报没有 frontmatter，第 2 样不核，第 3、4 样照核", "Skill 结构：第 1 行下面找不到整行是 --- 的行时报没有 frontmatter", "Skill 结构：没有 frontmatter 时只报这一条，不找键行，缺键、键写了不止一次、值是空白都不报"]
+    },
+    {
+      "id": "M-H61-k",
+      "req": "harness",
+      "why": "第 1 行不是 --- 也往下找 frontmatter",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const end = isFence(lines[0]) ?",
+      "replace": "const end = true ?",
+      "by": "test",
+      "kills": ["Skill 结构：第 1 行不是 --- 时报没有 frontmatter，第 2 样不核，第 3、4 样照核", "Skill 结构：没有 frontmatter 时只报这一条，不找键行，缺键、键写了不止一次、值是空白都不报"]
+    },
+    {
+      "id": "M-H61-l",
+      "req": "harness",
+      "why": "frontmatter 收在最后一个 --- 上，正文里的 name 行也当键行",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "lines.findIndex((l, i) => i > 0 && isFence(l))",
+      "replace": "lines.findLastIndex((l, i) => i > 0 && isFence(l))",
+      "by": "test",
+      "kills": ["Skill 结构：frontmatter 到第一个整行是 --- 的行为止，之后的 name 行不算键行"]
+    },
+    {
+      "id": "M-H61-m",
+      "req": "harness",
+      "why": "行尾带空白（含回车）的 --- 不认作 frontmatter 的边",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const isFence = (line: string): boolean => line.trimEnd() === '---'",
+      "replace": "const isFence = (line: string): boolean => line === '---'",
+      "by": "test",
+      "kills": ["Skill 结构：行尾带回车（CRLF）的好树同样没有问题", "Skill 结构：判整行是 --- 前先去掉行尾空白（空格、制表符、全角空格）"]
+    },
+    {
+      "id": "M-H61-n",
+      "req": "harness",
+      "why": "冒号后面不接空白的 name:x 也当键行",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "`^${key}[ \\\\t]*:(?=\\\\s|$)`",
+      "replace": "`^${key}[ \\\\t]*:`",
+      "by": "test",
+      "kills": ["Skill 结构：name:x、缩进的、大小写不同的、名字多一个字母的、全角冒号的都不是键行，报缺键"]
+    },
+    {
+      "id": "M-H61-o",
+      "req": "harness",
+      "why": "缩进的行也当键行",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "`^${key}[ \\\\t]*:(?=\\\\s|$)`",
+      "replace": "`${key}[ \\\\t]*:(?=\\\\s|$)`",
+      "by": "test",
+      "kills": ["Skill 结构：name:x、缩进的、大小写不同的、名字多一个字母的、全角冒号的都不是键行，报缺键", "Skill 结构：块写法下面有内容不算空白，块里缩进的 name: 不是键行"]
+    },
+    {
+      "id": "M-H61-p",
+      "req": "harness",
+      "why": "键名与冒号之间有空格或制表符时认不出键行",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "`^${key}[ \\\\t]*:(?=\\\\s|$)`",
+      "replace": "`^${key}:(?=\\\\s|$)`",
+      "by": "test",
+      "kills": ["Skill 结构：键名与冒号之间有空格或制表符、冒号后紧跟制表符或全角空格，都是键行"]
+    },
+    {
+      "id": "M-H61-q",
+      "req": "harness",
+      "why": "缺键时不报",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (at.length === 0) add(1, 'missing-key'",
+      "replace": "if (at.length < 0) add(1, 'missing-key'",
+      "by": "test",
+      "kills": ["Skill 结构：frontmatter 里没有 name 或 description 的键行时报缺键，点名那个键、不带行号", "Skill 结构：name:x、缩进的、大小写不同的、名字多一个字母的、全角冒号的都不是键行，报缺键"]
+    },
+    {
+      "id": "M-H61-r",
+      "req": "harness",
+      "why": "同一个键写了两行时不报，第三行起才报",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "for (const i of at.slice(1)) add(1, 'duplicate-key'",
+      "replace": "for (const i of at.slice(2)) add(1, 'duplicate-key'",
+      "by": "test",
+      "kills": ["Skill 结构：同一个键写了两行时从第二行起报键写了不止一次，第 2 样不核", "Skill 结构：同一个键写了三行时第二行起每行各报一条"]
+    },
+    {
+      "id": "M-H61-s",
+      "req": "harness",
+      "why": "值是空白时不报",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (blank) add(1, 'blank-key'",
+      "replace": "if (blank && i < 0) add(1, 'blank-key'",
+      "by": "test",
+      "kills": ["Skill 结构：值什么也没有、只有空白、只有一对引号、只有注释都报值是空白，行号是键行", "Skill 结构：块写法 > 或 | 下面没有内容时报值是空白", "Skill 结构：name 的值是空白时报值是空白，第 2 样不核"]
+    },
+    {
+      "id": "M-H61-t",
+      "req": "harness",
+      "why": "name 写了几行时照样拿其中一行去找软链",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (key === 'name' && at.length === 1) name = only",
+      "replace": "if (key === 'name' && at.length >= 1) name = only",
+      "by": "test",
+      "kills": ["Skill 结构：同一个键写了两行时从第二行起报键写了不止一次，第 2 样不核", "Skill 结构：重复的键行也判值是否空白，同一行同一个键的两条按种类名排"]
+    },
+    {
+      "id": "M-H61-u",
+      "req": "harness",
+      "why": "name 的值是空白时照样拿它去找软链",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "          else only = value",
+      "replace": "          only = value",
+      "by": "test",
+      "kills": ["Skill 结构：name 的值是空白时报值是空白，第 2 样不核"]
+    },
+    {
+      "id": "M-H61-v",
+      "req": "harness",
+      "why": "| 或 > 打头、后面跟什么都算块写法",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const BLOCK = /^[|>][1-9+-]{0,2}$/",
+      "replace": "const BLOCK = /^[|>]/",
+      "by": "test",
+      "kills": ["Skill 结构：| 或 > 后面跟的不是零到两个 + - 1–9 时不是块写法，按普通值算非空"]
+    },
+    {
+      "id": "M-H61-w",
+      "req": "harness",
+      "why": "块标记后面只许跟一个字符",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const BLOCK = /^[|>][1-9+-]{0,2}$/",
+      "replace": "const BLOCK = /^[|>][1-9+-]{0,1}$/",
+      "by": "test",
+      "kills": ["Skill 结构：块写法 > 或 | 下面没有内容时报值是空白"]
+    },
+    {
+      "id": "M-H61-x",
+      "req": "harness",
+      "why": "块标记后面的数字可以是 0",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const BLOCK = /^[|>][1-9+-]{0,2}$/",
+      "replace": "const BLOCK = /^[|>][0-9+-]{0,2}$/",
+      "by": "test",
+      "kills": ["Skill 结构：| 或 > 后面跟的不是零到两个 + - 1–9 时不是块写法，按普通值算非空"]
+    },
+    {
+      "id": "M-H61-y",
+      "req": "harness",
+      "why": "块写法下面一直收到 frontmatter 结束，越过了顶格的下一个键",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "j < end && !/^\\S/.test(lines[j])",
+      "replace": "j < end",
+      "by": "test",
+      "kills": ["Skill 结构：块写法 > 或 | 下面没有内容时报值是空白", "Skill 结构：name 用块写法时第 2 样用连起来的值找软链"]
+    },
+    {
+      "id": "M-H61-z",
+      "req": "harness",
+      "why": "块写法下面只有空白行时不算空白",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "return { blank: kept.length === 0, value: kept.join(' ') }",
+      "replace": "return { blank: block.length === 0, value: kept.join(' ') }",
+      "by": "test",
+      "kills": ["Skill 结构：块写法 > 或 | 下面没有内容时报值是空白"]
+    },
+    {
+      "id": "M-H61-aa",
+      "req": "harness",
+      "why": "块写法的 name 几行连起来时不加空格",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "return { blank: kept.length === 0, value: kept.join(' ') }",
+      "replace": "return { blank: kept.length === 0, value: kept.join('') }",
+      "by": "test",
+      "kills": ["Skill 结构：name 用块写法时第 2 样用连起来的值找软链"]
+    },
+    {
+      "id": "M-H61-ab",
+      "req": "harness",
+      "why": "只有注释的值不算空白",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (value.startsWith('#')) value = ''",
+      "replace": "if (value === '#') value = ''",
+      "by": "test",
+      "kills": ["Skill 结构：值什么也没有、只有空白、只有一对引号、只有注释都报值是空白，行号是键行"]
+    },
+    {
+      "id": "M-H61-ac",
+      "req": "harness",
+      "why": "只有一个引号的值也当成一对引号去掉",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "value.length >= 2 &&",
+      "replace": "value.length >= 1 &&",
+      "by": "test",
+      "kills": ["Skill 结构：引号里有字、引号不成对、引号裹着 #、# 不在开头、~ 与 null 都不算空白"]
+    },
+    {
+      "id": "M-H61-ad",
+      "req": "harness",
+      "why": "两端引号不同的值也去掉引号",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "&& value.endsWith(value[0])) value",
+      "replace": ") value",
+      "by": "test",
+      "kills": ["Skill 结构：引号里有字、引号不成对、引号裹着 #、# 不在开头、~ 与 null 都不算空白"]
+    },
+    {
+      "id": "M-H61-ae",
+      "req": "harness",
+      "why": "单引号不当引号",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "(value[0] === '\"' || value[0] === \"'\")",
+      "replace": "value[0] === '\"'",
+      "by": "test",
+      "kills": ["Skill 结构：值什么也没有、只有空白、只有一对引号、只有注释都报值是空白，行号是键行", "Skill 结构：name 带引号时第 2 样用去掉引号与首尾空白后的值"]
+    },
+    {
+      "id": "M-H61-af",
+      "req": "harness",
+      "why": "引号里只有空白的值不算空白",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "value = value.slice(1, -1).trim()",
+      "replace": "value = value.slice(1, -1)",
+      "by": "test",
+      "kills": ["Skill 结构：值什么也没有、只有空白、只有一对引号、只有注释都报值是空白，行号是键行", "Skill 结构：name 带引号时第 2 样用去掉引号与首尾空白后的值"]
+    },
+    {
+      "id": "M-H61-ag",
+      "req": "harness",
+      "why": "值不去首尾空白就判",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const head = rest.trim()",
+      "replace": "const head = rest.trimEnd()",
+      "by": "test",
+      "kills": ["Skill 结构：值什么也没有、只有空白、只有一对引号、只有注释都报值是空白，行号是键行", "Skill 结构：键名与冒号之间有空格或制表符、冒号后紧跟制表符或全角空格，都是键行"]
+    },
+    {
+      "id": "M-H61-ah",
+      "req": "harness",
+      "why": "只核 .claude/skills，.agents/skills 不核",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const LINK_DIRS = ['.claude/skills', '.agents/skills'] as const",
+      "replace": "const LINK_DIRS = ['.claude/skills'] as const",
+      "by": "test",
+      "kills": ["Skill 结构：两个目录都没有这个名字的条目时各报一条没有软链", "Skill 结构：两个目录各核一次，各报各的"]
+    },
+    {
+      "id": "M-H61-ai",
+      "req": "harness",
+      "why": "没有 name 时照样去找软链",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (name !== undefined && links !== undefined) {",
+      "replace": "if (links !== undefined) {",
+      "by": "test",
+      "kills": ["Skill 结构：缺 name 时第 2 样不核，软链一个没有也不报", "Skill 结构：name 的值是空白时报值是空白，第 2 样不核", "Skill 结构：同一个键写了两行时从第二行起报键写了不止一次，第 2 样不核"]
+    },
+    {
+      "id": "M-H61-aj",
+      "req": "harness",
+      "why": "名字只以 name 开头的条目也当成期望的条目",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const entry = links.find(e => e.path === path)",
+      "replace": "const entry = links.find(e => e.path.startsWith(path))",
+      "by": "test",
+      "kills": ["Skill 结构：名字只是以 name 开头的条目不算期望的条目，报没有软链"]
+    },
+    {
+      "id": "M-H61-ak",
+      "req": "harness",
+      "why": "名字只以 name 开头的条目也当成那个目录",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "links.some(e => e.path.startsWith(`${path}/`))",
+      "replace": "links.some(e => e.path.startsWith(path))",
+      "by": "test",
+      "kills": ["Skill 结构：名字只是以 name 开头的条目不算期望的条目，报没有软链"]
+    },
+    {
+      "id": "M-H61-al",
+      "req": "harness",
+      "why": "期望的条目是个目录时报成没有软链",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (links.some(e => e.path.startsWith(`${path}/`))) add(2, 'not-link'",
+      "replace": "if (links.length < 0) add(2, 'not-link'",
+      "by": "test",
+      "kills": ["Skill 结构：期望的条目是一个目录（只有 <目录>/<name>/ 下的条目）时报不是软链"]
+    },
+    {
+      "id": "M-H61-am",
+      "req": "harness",
+      "why": "期望的条目是普通文件也当成软链",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "} else if (entry.mode !== '120000') {",
+      "replace": "} else if (entry.mode === '') {",
+      "by": "test",
+      "kills": ["Skill 结构：期望的条目是普通文件时报不是软链"]
+    },
+    {
+      "id": "M-H61-an",
+      "req": "harness",
+      "why": "软链指到别处也算对",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "} else if (entry.target !== LINK_TARGET) {",
+      "replace": "} else if (entry.target === undefined) {",
+      "by": "test",
+      "kills": ["Skill 结构：软链目标不恰好是 ../../skill 时报软链指错了并点名目标原文"]
+    },
+    {
+      "id": "M-H61-ao",
+      "req": "harness",
+      "why": "前一个字符是路径字符的 references/ 也算点名",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const REFERENCE = /(?<![A-Za-z0-9_./-])references\\/[A-Za-z0-9_./-]*/g",
+      "replace": "const REFERENCE = /references\\/[A-Za-z0-9_./-]*/g",
+      "by": "test",
+      "kills": ["Skill 结构：前一个字符是 / 或 . 的 references/ 不算点名", "Skill 结构：前一个字符是字母、数字、_ 或 - 的 references/ 不算点名"]
+    },
+    {
+      "id": "M-H61-ap",
+      "req": "harness",
+      "why": "前一个字符是 / 的 references/ 也算点名",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const REFERENCE = /(?<![A-Za-z0-9_./-])references\\/[A-Za-z0-9_./-]*/g",
+      "replace": "const REFERENCE = /(?<![A-Za-z0-9_.-])references\\/[A-Za-z0-9_./-]*/g",
+      "by": "test",
+      "kills": ["Skill 结构：前一个字符是 / 或 . 的 references/ 不算点名"]
+    },
+    {
+      "id": "M-H61-aq",
+      "req": "harness",
+      "why": "点名到子目录的斜杠就断开，providers/ 下的 reference 点不着",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const REFERENCE = /(?<![A-Za-z0-9_./-])references\\/[A-Za-z0-9_./-]*/g",
+      "replace": "const REFERENCE = /(?<![A-Za-z0-9_./-])references\\/[A-Za-z0-9_.-]*/g",
+      "by": "test",
+      "kills": ["Skill 结构：五样都成立的好树没有一条问题"]
+    },
+    {
+      "id": "M-H61-ar",
+      "req": "harness",
+      "why": "不以 .md 结尾的 references/ 写法也当点名",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (!said.endsWith('.md')) continue",
+      "replace": "if (said === '') continue",
+      "by": "test",
+      "kills": ["Skill 结构：不以 .md 结尾的 references/ 写法不是点名"]
+    },
+    {
+      "id": "M-H61-as",
+      "req": "harness",
+      "why": "点名了但文件不在时不报",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (!paths.has(`skill/${said}`)) add(3,",
+      "replace": "if (!paths.has(`skill/${said}`) && i < 0) add(3,",
+      "by": "test",
+      "kills": ["Skill 结构：SKILL.md 点名了但文件不在时报一条，带行号与点名原文", "Skill 结构：同一行两次点名同一份不在的文件只报一条，别的行照报"]
+    },
+    {
+      "id": "M-H61-at",
+      "req": "harness",
+      "why": "点了名的 reference 也报没点名",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "|| named.has(doc.path)) continue",
+      "replace": ") continue",
+      "by": "test",
+      "kills": ["Skill 结构：五样都成立的好树没有一条问题", "Skill 结构：点名末尾的句点去掉再判，以 .md 结尾就算点了名"]
+    },
+    {
+      "id": "M-H61-au",
+      "req": "harness",
+      "why": "references/ 以外的文档也当 reference 要求点名",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (!doc.path.startsWith(REFERENCES) || ",
+      "replace": "if (",
+      "by": "test",
+      "kills": ["Skill 结构：references/ 以外的文档不是 reference，没点名也不报"]
+    },
+    {
+      "id": "M-H61-av",
+      "req": "harness",
+      "why": "SKILL.md 不在或读不到时照样核 reference 点名，每一份都报没点名",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (skill?.text !== undefined) {\n    const named = new Set<string>()\n    skill.text.split('\\n')",
+      "replace": "{\n    const named = new Set<string>();\n    (skill?.text ?? '').split('\\n')",
+      "by": "test",
+      "kills": ["Skill 结构：清单里没有 SKILL.md 时报 SKILL.md 不在，第 2、3 样不核，别的文档的命令名照核", "Skill 结构：SKILL.md 读不到时报一条读不到，第 1、2、3 样不核，别的文档的命令名照核"]
+    },
+    {
+      "id": "M-H61-aw",
+      "req": "harness",
+      "why": "点名、命令名、脚本路径末尾的句点不去掉",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const withoutTrailingDots = (s: string): string => s.replace(/\\.+$/, '')",
+      "replace": "const withoutTrailingDots = (s: string): string => s",
+      "by": "test",
+      "kills": ["Skill 结构：点名末尾的句点去掉再判，以 .md 结尾就算点了名", "Skill 结构：点名了但文件不在时点名原文去掉了末尾的句点", "Skill 结构：点名末尾两个以上句点全部去掉再判，点名原文也不带", "Skill 结构：命令名末尾的句点去掉再比，去掉后是空串的不算命令", "Skill 结构：命令名末尾两个以上句点全部去掉再比，只剩句点的不算命令", "Skill 结构：脚本路径末尾的句点去掉再比", "Skill 结构：脚本路径末尾两个以上句点全部去掉再比"]
+    },
+    {
+      "id": "M-H61-ax",
+      "req": "harness",
+      "why": "点名、命令名、脚本路径末尾只去掉一个句点",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const withoutTrailingDots = (s: string): string => s.replace(/\\.+$/, '')",
+      "replace": "const withoutTrailingDots = (s: string): string => s.replace(/\\.$/, '')",
+      "by": "test",
+      "kills": ["Skill 结构：点名末尾两个以上句点全部去掉再判，点名原文也不带", "Skill 结构：命令名末尾两个以上句点全部去掉再比，只剩句点的不算命令", "Skill 结构：脚本路径末尾两个以上句点全部去掉再比"]
+    },
+    {
+      "id": "M-H61-ay",
+      "req": "harness",
+      "why": "前面紧挨字母、数字、_ 或 - 的 npm 也当命令",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const COMMAND = /(?<![A-Za-z0-9_-])npm",
+      "replace": "const COMMAND = /npm",
+      "by": "test",
+      "kills": ["Skill 结构：npm run 以外的写法与前面紧挨字母数字 _ - 的 npm 都不核命令名"]
+    },
+    {
+      "id": "M-H61-az",
+      "req": "harness",
+      "why": "前面紧挨 - 的 npm 也当命令",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const COMMAND = /(?<![A-Za-z0-9_-])npm",
+      "replace": "const COMMAND = /(?<![A-Za-z0-9_])npm",
+      "by": "test",
+      "kills": ["Skill 结构：npm run 以外的写法与前面紧挨字母数字 _ - 的 npm 都不核命令名"]
+    },
+    {
+      "id": "M-H61-ba",
+      "req": "harness",
+      "why": "npm run 后面带 --silent 一类参数时认不出命令名",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "run(?:[ \\t]+-[^\\s`]*)*[ \\t]+(",
+      "replace": "run[ \\t]+(",
+      "by": "test",
+      "kills": ["Skill 结构：npm run --silent x 与 npm run -s x 的写法，命令名取参数之后的那一串", "Skill 结构：npm、run、参数、命令名之间可以是几个空格或制表符"]
+    },
+    {
+      "id": "M-H61-bb",
+      "req": "harness",
+      "why": "npm、run、命令名之间只认一个空格",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "npm[ \\t]+run(?:[ \\t]+-[^\\s`]*)*[ \\t]+(",
+      "replace": "npm run(?:[ \\t]+-[^\\s`]*)* (",
+      "by": "test",
+      "kills": ["Skill 结构：npm、run、参数、命令名之间可以是几个空格或制表符"]
+    },
+    {
+      "id": "M-H61-bc",
+      "req": "harness",
+      "why": "- 打头的参数也当命令名",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "[ \\t]+([^\\s`'\"()<>|&;,，。、；：（）「」-][^\\s`",
+      "replace": "[ \\t]+([^\\s`'\"()<>|&;,，。、；：（）「」][^\\s`",
+      "by": "test",
+      "kills": ["Skill 结构：npm run 后面只有 - 打头的参数时不算命令"]
+    },
+    {
+      "id": "M-H61-bd",
+      "req": "harness",
+      "why": "命令名在全角标点处不断开",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "][^\\s`'\"()<>|&;,，。、；：（）「」]*)/g",
+      "replace": "][^\\s`'\"()<>|&;,]*)/g",
+      "by": "test",
+      "kills": ["Skill 结构：命令名在空白、反引号、引号、括号与那几个标点处断开", "Skill 结构：同一行几个不在的命令名按命令名排，和写的先后无关"]
+    },
+    {
+      "id": "M-H61-be",
+      "req": "harness",
+      "why": "命令名在反引号与括号处不断开",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "][^\\s`'\"()<>|&;,，。、；：（）「」]*)/g",
+      "replace": "][^\\s'\"<>|&;,，。、；：（）「」]*)/g",
+      "by": "test",
+      "kills": ["Skill 结构：命令名在空白、反引号、引号、括号与那几个标点处断开"]
+    },
+    {
+      "id": "M-H61-bf",
+      "req": "harness",
+      "why": "去掉末尾句点后是空串的也当一个命令名",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (command === '' || known.has(command)) continue",
+      "replace": "if (known.has(command)) continue",
+      "by": "test",
+      "kills": ["Skill 结构：命令名末尾的句点去掉再比，去掉后是空串的不算命令", "Skill 结构：命令名末尾两个以上句点全部去掉再比，只剩句点的不算命令"]
+    },
+    {
+      "id": "M-H61-bg",
+      "req": "harness",
+      "why": "只核 SKILL.md 里的命令名与脚本路径，reference 与别的文档不核",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "  for (const doc of docs) {\n    if (doc.text === undefined) continue",
+      "replace": "  for (const doc of docs) {\n    if (doc.text === undefined || doc.path !== SKILL_MD) continue",
+      "by": "test",
+      "kills": ["Skill 结构：skill/ 下 references/ 以外的文档里的命令名与脚本路径也核", "Skill 结构：providers/ 子目录里的 reference 也核命令名与脚本路径"]
+    },
+    {
+      "id": "M-H61-bh",
+      "req": "harness",
+      "why": "前一个字符是路径字符的 scripts/ 也当一处路径",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "const SCRIPT = /(?<![A-Za-z0-9_./-])scripts\\/",
+      "replace": "const SCRIPT = /scripts\\/",
+      "by": "test",
+      "kills": ["Skill 结构：前一个字符是斜杠、点、字母、数字、_ 或 - 的 scripts/ 不算一处路径"]
+    },
+    {
+      "id": "M-H61-bi",
+      "req": "harness",
+      "why": "不以 .ts 结尾的 scripts/ 写法也核",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "if (!said.endsWith('.ts') || present.has(said)) continue",
+      "replace": "if (present.has(said)) continue",
+      "by": "test",
+      "kills": ["Skill 结构：不以 .ts 结尾的 scripts/ 写法不核"]
+    },
+    {
+      "id": "M-H61-bj",
+      "req": "harness",
+      "why": "脚本路径到子目录的斜杠就断开",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "scripts\\/[A-Za-z0-9_./-]*/g",
+      "replace": "scripts\\/[A-Za-z0-9_.-]*/g",
+      "by": "test",
+      "kills": ["Skill 结构：providers/ 子目录里的 reference 也核命令名与脚本路径", "Skill 结构：文档里点名的脚本不在 scripts/ 清单里时报一条，带行号与路径原文", "Skill 结构：脚本路径到字母、数字、_、.、/、- 以外的字符为止"]
+    },
+    {
+      "id": "M-H61-bk",
+      "req": "harness",
+      "why": "问题不按哪一样从小到大排",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "a.item - b.item ||",
+      "replace": "b.item - a.item ||",
+      "by": "test",
+      "kills": ["Skill 结构：一棵树上五样各有问题时一次全报，每处只报一次，按哪一样、文件、行号、点名、种类排", "Skill 结构：问题的先后与输入里文档、命令、脚本、软链条目的先后无关"]
+    },
+    {
+      "id": "M-H61-bl",
+      "req": "harness",
+      "why": "同一样里不按文件排",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "|| byText(a.file, b.file) ||",
+      "replace": "|| byText(b.file, a.file) ||",
+      "by": "test",
+      "kills": ["Skill 结构：几份输入都读不到时第 0 类各报一条，按文件排", "Skill 结构：两个目录各核一次，各报各的"]
+    },
+    {
+      "id": "M-H61-bm",
+      "req": "harness",
+      "why": "同一份文件里不按行号排",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "|| byLine(a.line, b.line)",
+      "replace": "|| byLine(b.line, a.line)",
+      "by": "test",
+      "kills": ["Skill 结构：同一个键写了三行时第二行起每行各报一条", "Skill 结构：同一样同一份文件里没有行号的排在有行号的前面", "Skill 结构：同一行两次点名同一份不在的文件只报一条，别的行照报"]
+    },
+    {
+      "id": "M-H61-bn",
+      "req": "harness",
+      "why": "同一行里不按点名的东西排",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "|| byText(a.subject, b.subject) ||",
+      "replace": "|| byText(b.subject, a.subject) ||",
+      "by": "test",
+      "kills": ["Skill 结构：同一行几个不在的命令名按命令名排，和写的先后无关"]
+    },
+    {
+      "id": "M-H61-bo",
+      "req": "harness",
+      "why": "同一行同一个点名不按种类排",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "|| byText(a.kind, b.kind))",
+      "replace": "|| byText(b.kind, a.kind))",
+      "by": "test",
+      "kills": ["Skill 结构：重复的键行也判值是否空白，同一行同一个键的两条按种类名排"]
+    },
+    {
+      "id": "M-H61-bp",
+      "req": "harness",
+      "why": "没有行号的排在有行号的后面",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "a === b ? 0 : a === undefined ? -1 : b === undefined ? 1 : a - b",
+      "replace": "a === b ? 0 : a === undefined ? 1 : b === undefined ? -1 : a - b",
+      "by": "test",
+      "kills": ["Skill 结构：同一样同一份文件里没有行号的排在有行号的前面"]
+    },
+    {
+      "id": "M-H61-bq",
+      "req": "harness",
+      "why": "同一处问题报两遍",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "return sorted.filter((f, i) => i === 0 || key(f) !== key(sorted[i - 1]))",
+      "replace": "return sorted",
+      "by": "test",
+      "kills": ["Skill 结构：同一行两次点名同一份不在的文件只报一条，别的行照报", "Skill 结构：同一行写两次同一个不在的命令名只报一条", "Skill 结构：同一行两次写同一个不在的脚本只报一条"]
+    },
+    {
+      "id": "M-H61-br",
+      "req": "harness",
+      "why": "同一个点名在不同行上只报一处",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "JSON.stringify([f.item, f.kind, f.file, f.line, f.subject])",
+      "replace": "JSON.stringify([f.item, f.kind, f.file, f.subject])",
+      "by": "test",
+      "kills": ["Skill 结构：同一个键写了三行时第二行起每行各报一条", "Skill 结构：同一行两次点名同一份不在的文件只报一条，别的行照报"]
+    },
+    {
+      "id": "M-H61-bs",
+      "req": "harness",
+      "why": "同一行几个不同的点名只报一处",
+      "file": "scripts/check/skill-rule.ts",
+      "find": "JSON.stringify([f.item, f.kind, f.file, f.line, f.subject])",
+      "replace": "JSON.stringify([f.item, f.kind, f.file, f.line])",
+      "by": "test",
+      "kills": ["Skill 结构：同一行几个不在的命令名按命令名排，和写的先后无关"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
