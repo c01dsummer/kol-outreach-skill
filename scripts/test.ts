@@ -55,6 +55,7 @@ import {
 } from './check/spec-rule.js'
 import { HARNESS, attributionFault, duplicateIds, orphanAttributions } from './check/attribution-rule.js'
 import { orderBindingFaults, type OrderFault, type OrderMutation } from './check/order-rule.js'
+import { skillFaults, type IndexEntry, type SkillDoc, type SkillFault, type SkillFaultKind, type SkillInput } from './check/skill-rule.js'
 import {
   CLAIMS_PATH, ENTRY_CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsReadFault,
   claimsWellFormed,
@@ -201,6 +202,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
   { id: 'h-order-rule', needs: [] },
+  { id: 'h-skill-rule', needs: [] },
   { id: 'h-group', needs: [] },
   { id: 'h-group-share', needs: [] },
   { id: 'h-group-share-real', needs: [] },
@@ -9990,6 +9992,487 @@ eq('顺序绑定：分隔行与结束标记写在同一行，那一行不在范�
   bind(['<!-- BEGIN:ORDER -->', '| 位置 | 守它的变异 |', '|---|---| <!-- END:ORDER -->'].join('\n')),
   bind(['<!-- BEGIN:ORDER -->', '| 位置 | 守它的变异 |', '|---|---| END:ORDER'].join('\n')),
 ], [[HD], [HD]])
+})
+await group('h-skill-rule', () => {
+harness('Skill 结构五样关系：frontmatter、两个软链、reference 点名、npm 命令名、脚本路径，一次报全（ADR-156）')
+// 期望值只从 ADR-156 第二节（字面规则）与第五节（接口）手推；写时 skill-rule.ts 是抛错的桩，没有函数体可读，也没有输出可抄。
+// 整组只调纯函数 skillFaults，0 次启动、不读文件。经 guard 调它：抛错时返回哨兵 ['抛错', 消息]，每条断言各自红、整组不崩。
+// eq 不包 —— 变异点名用的清册只认直接传给它的字面量首参（ADR-145 第 242 行）。
+// faults 把每条问题去掉 fix（措辞不算契约，第二节末）、键按字母排、undefined（连同没写出来的 line、subject）记成 null；
+// 下面 SF(…) 写出的期望也按字母序排键，多一个字段就对不上。fix 的三条契约在组末另由三条断言专门验，经同一个 guard。
+const guard = (run: () => unknown): unknown => {
+  try { return run() } catch (e) { return ['抛错', e instanceof Error ? e.message : String(e)] }
+}
+const norm = (f: SkillFault): Record<string, unknown> => {
+  const rec = f as unknown as Record<string, unknown>
+  const keys = [...new Set([...Object.keys(rec), 'file', 'item', 'kind', 'line', 'subject'])].filter(k => k !== 'fix').sort()
+  return Object.fromEntries(keys.map(k => [k, rec[k] ?? null]))
+}
+const faults = (input: SkillInput): unknown => guard(() => skillFaults(input).map(norm))
+const SF = (item: number, kind: SkillFaultKind, file: string, line?: number, subject?: string) =>
+  ({ file, item, kind, line: line ?? null, subject: subject ?? null })
+
+const SK = 'skill/SKILL.md', WF = 'skill/references/workflow.md', TH = 'skill/references/providers/tikhub.md'
+const XR = 'skill/references/extra.md', NOTES = 'skill/notes.md'
+const CL = '.claude/skills/kol-outreach', AG = '.agents/skills/kol-outreach'
+const LINKS_FILE = '.claude/skills/、.agents/skills/'
+const UNREAD = (file: string) => SF(0, 'unreadable', file)
+const NO_SKILL = SF(1, 'no-skill-md', SK)
+const NO_FM = SF(1, 'no-frontmatter', SK)
+const MISS = (key: string) => SF(1, 'missing-key', SK, undefined, key)
+const DUP = (line: number, key: string) => SF(1, 'duplicate-key', SK, line, key)
+const BLANK = (line: number, key: string) => SF(1, 'blank-key', SK, line, key)
+const NO_LINK = (file: string) => SF(2, 'no-link', file)
+const NOT_LINK = (file: string) => SF(2, 'not-link', file)
+const WRONG = (file: string, target: string) => SF(2, 'wrong-target', file, undefined, target)
+const DANGLING = (line: number, named: string) => SF(3, 'dangling-reference', SK, line, named)
+const UNNAMED = (file: string, named: string) => SF(3, 'unnamed-reference', file, undefined, named)
+const UNKNOWN = (file: string, line: number, name: string) => SF(4, 'unknown-command', file, line, name)
+const MISSING = (file: string, line: number, path: string) => SF(5, 'missing-script', file, line, path)
+
+// ── 好树。SKILL.md：第 1–4 行 frontmatter（name 是 kol-outreach），第 5 行标题，第 6 行点名两份 reference（含 providers/ 子目录的一份），
+// 第 7 行一个命令名、一个脚本路径。workflow.md：第 2 行行内命令，第 3–6 行代码围栏（第 4 行 --silent、第 5 行 -s 与命令名之后的参数）。
+// tikhub.md：第 2 行子目录里的脚本。两个目录各一个 mode 120000、目标 ../../skill 的条目
+const NL = 'name: kol-outreach', DL = 'description: 从产品到可发信名单'
+const BODY = [
+  '# KOL 外联',
+  '先读 references/workflow.md，供应商见 references/providers/tikhub.md。',
+  '采集跑 `npm run collect`，脚本是 scripts/collect.ts。',
+]
+const SKILL_LINES = ['---', NL, DL, '---', ...BODY]
+const SKILL = SKILL_LINES.join('\n')
+const WF_TEXT = ['# 流程', '先 `npm run collect`，再出报告：', '```sh', 'npm run --silent report', 'npm run -s report -- --open', '```'].join('\n')
+const TH_TEXT = ['# TikHub', '调用封装在 scripts/providers/tikhub.ts。'].join('\n')
+const LINK = (path: string, target = '../../skill'): IndexEntry => ({ path, mode: '120000', target })
+const FILE = (path: string, mode = '100644'): IndexEntry => ({ path, mode, target: undefined })
+const GOOD_DOCS: readonly SkillDoc[] = [{ path: SK, text: SKILL }, { path: WF, text: WF_TEXT }, { path: TH, text: TH_TEXT }]
+const GOOD_LINKS: readonly IndexEntry[] = [LINK(CL), LINK(AG)]
+const GOOD: SkillInput = {
+  docs: GOOD_DOCS,
+  commands: ['collect', 'report'],
+  scriptFiles: ['scripts/collect.ts', 'scripts/providers/tikhub.ts'],
+  links: GOOD_LINKS,
+}
+const tree = (over: Partial<SkillInput>): SkillInput => ({ ...GOOD, ...over })
+// 换掉（或加上）路径为 path 的那份文档，别的照好树；over 再改别的输入
+const withDoc = (path: string, text: string | undefined, over: Partial<SkillInput> = {}): SkillInput =>
+  tree({ docs: [...GOOD_DOCS.filter(d => d.path !== path), { path, text }], ...over })
+// SKILL.md 换成：第 1 行 ---，传进去的第 i 个（从 0 数）在第 i + 2 行，再一行 ---，然后是 BODY（只有对得上的点名、命令、脚本）
+const fm = (...lines: string[]): SkillInput => withDoc(SK, ['---', ...lines, '---', ...BODY].join('\n'))
+// 好树的 SKILL.md 末尾追加几行：第一个在第 8 行
+const skillPlus = (...lines: string[]): SkillInput => withDoc(SK, [...SKILL_LINES, ...lines].join('\n'))
+// 好树的 SKILL.md 换掉第 n 行
+const skillLine = (n: number, text: string): SkillInput => withDoc(SK, SKILL_LINES.map((l, i) => (i === n - 1 ? text : l)).join('\n'))
+// 好树的 workflow.md 末尾追加几行：第一个在第 7 行
+const wfPlus = (...lines: string[]): SkillInput => withDoc(WF, [WF_TEXT, ...lines].join('\n'))
+
+eq('Skill 结构：五样都成立的好树没有一条问题', faults(GOOD), [])
+// 每份文档的每个换行换成 \r\n：判整行是 --- 前先去掉行尾空白（含 \r）；键行的值去首尾空白；命令名、点名、脚本路径都在 \r 前断开（\r 是空白，不在那几串字符里）
+eq('Skill 结构：行尾带回车（CRLF）的好树同样没有问题',
+  faults(tree({ docs: GOOD_DOCS.map(d => ({ path: d.path, text: d.text?.replaceAll('\n', '\r\n') })) })), [])
+
+// ── 第 0 类：输入读不到（第二节第 0 类，item 记 0）
+// 第 1 种：文档清单是 undefined → 一条，文件记 skill/；五样都不核 —— 软链一个都没有（第 2 样核的话是两条没有软链）也不报，SKILL.md 不在也不报
+eq('Skill 结构：文档清单读不到只报一条读不到（文件记 skill/），五样都不核', faults(tree({ docs: undefined, links: [] })), [UNREAD('skill/')])
+// 对照：清单列得出、只是里面没有 SKILL.md → 第 1 样报 SKILL.md 不在；第 2、3 样不核（软链为空不报、两份 reference 没人点名也不报）；
+// 第 4 样照核别的文档：workflow.md 第 7 行的 nope 不在命令里
+eq('Skill 结构：清单里没有 SKILL.md 时报 SKILL.md 不在，第 2、3 样不核，别的文档的命令名照核', faults(tree({
+  docs: [{ path: WF, text: WF_TEXT + '\nnpm run nope' }, { path: TH, text: TH_TEXT }], links: [],
+})), [NO_SKILL, UNKNOWN(WF, 7, 'nope')])
+// 第 2 种落在 SKILL.md：一条读不到，文件是 skill/SKILL.md；第 1、2、3 样都不核 —— 软链为空、extra.md 没人点名都不报；
+// 第 4 样照核别的文档：extra.md 第 1 行的 nope 不在命令里
+eq('Skill 结构：SKILL.md 读不到时报一条读不到，第 1、2、3 样不核，别的文档的命令名照核', faults(tree({
+  docs: [{ path: SK, text: undefined }, { path: WF, text: WF_TEXT }, { path: TH, text: TH_TEXT }, { path: XR, text: 'npm run nope' }], links: [],
+})), [UNREAD(SK), UNKNOWN(XR, 1, 'nope')])
+// 第 2 种落在一份点了名的 reference：一条读不到；它仍是一份输入文档，SKILL.md 第 6 行点它不算「点名了但文件不在」
+eq('Skill 结构：点了名的 reference 读不到时只报一条读不到，不算文件不在', faults(withDoc(TH, undefined)), [UNREAD(TH)])
+// 读不到正文的也算 reference（第 3 样第 1 小节）：extra.md 没人点名，读不到与没点名各一条，按哪一样排
+eq('Skill 结构：没点名的 reference 读不到时，读不到与文件在但没点名各报一条', faults(withDoc(XR, undefined)),
+  [UNREAD(XR), UNNAMED(XR, 'references/extra.md')])
+// 下面三种的底：workflow.md 第 7 行一个不在的命令名、一个不在的脚本
+const BAD45 = wfPlus('npm run nope 与 scripts/gone.ts')
+eq('Skill 结构：文档里的命令名不在 package.json、脚本路径不在 scripts/ 时各报一条', faults(BAD45),
+  [UNKNOWN(WF, 7, 'nope'), MISSING(WF, 7, 'scripts/gone.ts')])
+// 第 3 种：一条，文件记 package.json；第 4 样不核（nope 不报），第 5 样照核
+eq('Skill 结构：package.json 的命令读不到时报一条读不到（文件记 package.json），写错的命令名不报，不在的脚本照报',
+  faults({ ...BAD45, commands: undefined }), [UNREAD('package.json'), MISSING(WF, 7, 'scripts/gone.ts')])
+// 第 4 种：一条，文件记 scripts/；第 5 样不核（gone.ts 不报），第 4 样照核
+eq('Skill 结构：scripts/ 的清单读不到时报一条读不到（文件记 scripts/），不在的脚本不报，写错的命令名照报',
+  faults({ ...BAD45, scriptFiles: undefined }), [UNREAD('scripts/'), UNKNOWN(WF, 7, 'nope')])
+// 第 5 种：一条，文件记「.claude/skills/、.agents/skills/」；第 2 样不核，第 4、5 样照核
+eq('Skill 结构：软链读不到时报一条读不到（文件记两个目录），第 2 样不核，别的样照报',
+  faults({ ...BAD45, links: undefined }), [UNREAD(LINKS_FILE), UNKNOWN(WF, 7, 'nope'), MISSING(WF, 7, 'scripts/gone.ts')])
+// 四份输入都是 undefined：第 0 类各一条、互不牵连；同属第 0 类，按文件的字符串大小排 —— '.'(2E) < 'p'(70) < 'sc' < 'sk'
+eq('Skill 结构：几份输入都读不到时第 0 类各报一条，按文件排',
+  faults({ docs: undefined, commands: undefined, scriptFiles: undefined, links: undefined }),
+  [UNREAD(LINKS_FILE), UNREAD('package.json'), UNREAD('scripts/'), UNREAD('skill/')])
+
+// ── 第 1 样：SKILL.md 的 frontmatter
+// 末行 NOPE 点名不在的 gone.md、写了不在的命令 nope：用来看第 3、4 样在没有 frontmatter 时照核
+const NOPE = 'npm run nope，见 references/gone.md'
+// 第 1 行是空行（--- 挪到第 2 行）、第 1 行行首多一个空格（只去行尾空白，不去行首）：第 1 行不是 --- → 没有 frontmatter，第 1 样只报这一条
+// （第 1 样第 2 小节：不找键行，name、description 两行都在也不算，不报缺键）。第 2 样不核：软链为空也不报。第一份 NOPE 在第 9 行，第二份在第 8 行
+eq('Skill 结构：第 1 行不是 --- 时报没有 frontmatter，第 2 样不核，第 3、4 样照核', [
+  faults(withDoc(SK, ['', ...SKILL_LINES, NOPE].join('\n'), { links: [] })),
+  faults(withDoc(SK, [' ---', ...SKILL_LINES.slice(1), NOPE].join('\n'), { links: [] })),
+], [
+  [NO_FM, DANGLING(9, 'references/gone.md'), UNKNOWN(SK, 9, 'nope')],
+  [NO_FM, DANGLING(8, 'references/gone.md'), UNKNOWN(SK, 8, 'nope')],
+])
+// 第 1 行是 ---，下面再没有整行是 --- 的行（正文里没有；第二份第 4 行是四个 -，不是 ---）→ 没有 frontmatter，第 1 样只报这一条
+// （第 2、3 行的 name、description 不算键行，不报缺键）。第一份 NOPE 在第 7 行，第二份在第 8 行
+eq('Skill 结构：第 1 行下面找不到整行是 --- 的行时报没有 frontmatter', [
+  faults(withDoc(SK, ['---', NL, DL, ...BODY, NOPE].join('\n'), { links: [] })),
+  faults(withDoc(SK, ['---', NL, DL, '----', ...BODY, NOPE].join('\n'), { links: [] })),
+], [
+  [NO_FM, DANGLING(7, 'references/gone.md'), UNKNOWN(SK, 7, 'nope')],
+  [NO_FM, DANGLING(8, 'references/gone.md'), UNKNOWN(SK, 8, 'nope')],
+])
+// 没有 frontmatter 就不找键行（第 1 样第 2 小节）：下面两份若把第 1 行之后、或跳过空行后的那段当 frontmatter，
+// 会找出 name 值空白、description 值空白、name 写了两行、description 块写法下面没内容 —— 照规则一条都不报，只有没有 frontmatter。
+// 第一份没有收尾的 ---（第 2–5 行像键行，正文第 6–8 行）；第二份第 1 行是空行（第 3、4 行像键行，第 5 行 ---）。软链为空，第 2 样不核
+eq('Skill 结构：没有 frontmatter 时只报这一条，不找键行，缺键、键写了不止一次、值是空白都不报', [
+  faults(withDoc(SK, ['---', 'name:', 'description: ""', NL, 'description: |', ...BODY].join('\n'), { links: [] })),
+  faults(withDoc(SK, ['', '---', 'name:', NL, '---', ...BODY].join('\n'), { links: [] })),
+], [[NO_FM], [NO_FM]])
+// 第 1 行、第 4 行的 --- 后面带空格、制表符、全角空格：去掉行尾空白后整行是 ---，frontmatter 成立
+eq('Skill 结构：判整行是 --- 前先去掉行尾空白（空格、制表符、全角空格）', [
+  withDoc(SK, ['---  ', NL, DL, '---\t', ...BODY].join('\n')),
+  withDoc(SK, ['---　', NL, DL, '--- \t　', ...BODY].join('\n')),
+].map(faults), [[], []])
+// 第 1–3 行是 frontmatter（只有第 2 行 description），第 4 行的 name 在它之外 → 缺 name；name 没有值，第 2 样不核（软链为空不报）
+eq('Skill 结构：frontmatter 到第一个整行是 --- 的行为止，之后的 name 行不算键行',
+  faults(withDoc(SK, ['---', DL, '---', NL, '---', ...BODY].join('\n'), { links: [] })), [MISS('name')])
+// 缺 name、缺 description、两个都缺（frontmatter 是空的：第 1、2 行都是 ---）：缺键不带行号，同一行号（都没有）按键名排
+eq('Skill 结构：frontmatter 里没有 name 或 description 的键行时报缺键，点名那个键、不带行号',
+  [fm(DL), fm(NL), fm()].map(faults),
+  [[MISS('name')], [MISS('description')], [MISS('description'), MISS('name')]])
+// name 没有值 → 第 2 样不核：软链一个都没有也不报
+eq('Skill 结构：缺 name 时第 2 样不核，软链一个没有也不报', faults({ ...fm(DL), links: [] }), [MISS('name')])
+// 第 2 行依次是：冒号后紧跟字符、行首一个空格、行首一个制表符、首字母大写、名字多一个 s、全角冒号 —— 都不是 name 的键行 → 缺 name
+eq('Skill 结构：name:x、缩进的、大小写不同的、名字多一个字母的、全角冒号的都不是键行，报缺键', [
+  'name:kol-outreach', ' name: kol-outreach', '\tname: kol-outreach', 'Name: kol-outreach', 'names: kol-outreach', 'name：kol-outreach',
+].map(l => faults(fm(l, DL))), [[MISS('name')], [MISS('name')], [MISS('name')], [MISS('name')], [MISS('name')], [MISS('name')]])
+// 键名与冒号之间夹空格和制表符；冒号后紧跟制表符；冒号后紧跟全角空格（空白按 \s 认）—— 都是键行，值去首尾空白后是 kol-outreach，软链对得上
+eq('Skill 结构：键名与冒号之间有空格或制表符、冒号后紧跟制表符或全角空格，都是键行', [
+  'name \t: kol-outreach', 'name:\tkol-outreach', 'name:　kol-outreach',
+].map(l => faults(fm(l, DL))), [[], [], []])
+// description 键行在第 3 行，冒号后依次是：什么也没有、只有空格与制表符、只有全角空格、一对双引号、一对单引号、引号里只有空白、
+// 只有注释、空白后一个 #、什么也没有而下一行缩进有字（不是块写法，值只看冒号之后那段）—— 都是空白，行号是键行
+eq('Skill 结构：值什么也没有、只有空白、只有一对引号、只有注释都报值是空白，行号是键行', [
+  fm(NL, 'description:'), fm(NL, 'description: \t '), fm(NL, 'description:　'), fm(NL, 'description: ""'), fm(NL, "description: ''"),
+  fm(NL, 'description: " 　 "'), fm(NL, 'description: # 待补'), fm(NL, 'description:   #'), fm(NL, 'description:', '  下一行缩进的字'),
+].map(faults), [
+  [BLANK(3, 'description')], [BLANK(3, 'description')], [BLANK(3, 'description')], [BLANK(3, 'description')], [BLANK(3, 'description')],
+  [BLANK(3, 'description')], [BLANK(3, 'description')], [BLANK(3, 'description')], [BLANK(3, 'description')],
+])
+// 引号里有字、只有一个引号（不足两个字符）、两端引号不同、引号裹着 #（# 判在去引号之前）、# 不在开头、~ 与 null（第三节：按字面算非空）
+eq('Skill 结构：引号里有字、引号不成对、引号裹着 #、# 不在开头、~ 与 null 都不算空白', [
+  'description: " x "', 'description: "', 'description: "\'', "description: '#'", 'description: 见 # 号', 'description: ~', 'description: null',
+].map(l => faults(fm(NL, l))), [[], [], [], [], [], [], []])
+// 块写法（| 或 > 后跟零到两个 + - 1–9）：第一份下面紧接着 frontmatter 结束；第二份下面只有空格、空行、制表符、全角空格的行；
+// 第三份下面紧接着一行顶格的 name（不在值里）；第四、五份是 >+2 与前后带空白的 |9。值都是空白，行号是键行
+eq('Skill 结构：块写法 > 或 | 下面没有内容时报值是空白', [
+  fm(NL, 'description: >'),
+  fm(NL, 'description: |', '   ', '', '\t', '　'),
+  fm('description: |-', NL),
+  fm(NL, 'description: >+2'),
+  fm(NL, 'description:  |9  '),
+].map(faults), [[BLANK(3, 'description')], [BLANK(3, 'description')], [BLANK(2, 'description')], [BLANK(3, 'description')], [BLANK(3, 'description')]])
+// 第一份第 4 行缩进有字；第二份第 3 行空行、第 4 行制表符缩进有字、第 5 行缩进的 name:（缩进，不是键行，是值的一部分），第 6 行顶格的 name 结束块
+eq('Skill 结构：块写法下面有内容不算空白，块里缩进的 name: 不是键行', [
+  fm(NL, 'description: >', '  从产品到可发信名单'),
+  fm('description: |', '', '\t第二行起才有字', '  name: 缩进的不是键行', NL),
+].map(faults), [[], []])
+// | 后跟 0、> 后跟三个标记字符、| 后跟字母、> 后跟 >：都不是块写法，是普通的非空值，下面没有内容也不报
+eq('Skill 结构：| 或 > 后面跟的不是零到两个 + - 1–9 时不是块写法，按普通值算非空', [
+  'description: |0', 'description: >+-1', 'description: |x', 'description: >>',
+].map(l => faults(fm(NL, l))), [[], [], [], []])
+// name 的值是一对引号：值是空白，行号第 2 行；name 没有值，第 2 样不核（软链为空不报）
+eq('Skill 结构：name 的值是空白时报值是空白，第 2 样不核', faults({ ...fm('name: ""', DL), links: [] }), [BLANK(2, 'name')])
+// 第 2 行 name、第 4 行又一行 name（值相同也算）：第 4 行一条；name 两行键行 → 没有值，第 2 样不核（软链为空不报）
+eq('Skill 结构：同一个键写了两行时从第二行起报键写了不止一次，第 2 样不核', faults({ ...fm(NL, DL, NL), links: [] }), [DUP(4, 'name')])
+// description 在第 3、4、5 行：第 4、5 行各一条，按行号排
+eq('Skill 结构：同一个键写了三行时第二行起每行各报一条', faults(fm(NL, DL, DL, DL)), [DUP(4, 'description'), DUP(5, 'description')])
+// 第 8 行的 name: 在 frontmatter 收尾之后，不是键行
+eq('Skill 结构：frontmatter 之外的 name: 行不算键写了不止一次', faults(skillPlus('name: other')), [])
+// 第 3 行 description 值空白；第 4 行 description 又一行；第 5 行 name 又一行且值空白：每行键行都判值 →
+// 第 5 行两条，同一行、同一个键，按种类名 blank-key 在 duplicate-key 前。name 两行 → 第 2 样不核（软链为空不报）
+eq('Skill 结构：重复的键行也判值是否空白，同一行同一个键的两条按种类名排', faults({ ...fm(NL, 'description:', DL, 'name:'), links: [] }),
+  [BLANK(3, 'description'), DUP(4, 'description'), BLANK(5, 'name'), DUP(5, 'name')])
+// 缺 name（没有行号）排在第 2 行 description 的值空白之前：先比行号（没有的在前），不先比点名的东西（description 本在 name 前）
+eq('Skill 结构：同一样同一份文件里没有行号的排在有行号的前面', faults(fm('description:')), [MISS('name'), BLANK(2, 'description')])
+// name 用块写法：第 3 行「  kol 」、第 4 行空行、第 5 行「\toutreach」→ 逐行去首尾空白、丢空行、用一个半角空格连成「kol outreach」；
+// 好树的软链叫 kol-outreach → 两条没有软链（.agents 在 .claude 前）；软链改叫 kol outreach 就对得上。>- 下面一行 kol-outreach 就是它本身
+const NAME_BLOCK = fm('name: |', '  kol ', '', '\toutreach', DL)
+eq('Skill 结构：name 用块写法时第 2 样用连起来的值找软链', [
+  faults(NAME_BLOCK),
+  faults({ ...NAME_BLOCK, links: [LINK('.claude/skills/kol outreach'), LINK('.agents/skills/kol outreach')] }),
+  faults(fm('name: >-', '    kol-outreach', DL)),
+], [[NO_LINK('.agents/skills/kol outreach'), NO_LINK('.claude/skills/kol outreach')], [], []])
+// 去掉一对引号、再去首尾空白 → kol-outreach，软链对得上
+eq('Skill 结构：name 带引号时第 2 样用去掉引号与首尾空白后的值', [fm('name: " kol-outreach "', DL), fm("name: 'kol-outreach'", DL)].map(faults), [[], []])
+
+// ── 第 2 样：两个软链（name 是 kol-outreach，期望的条目是 .claude/skills/kol-outreach 与 .agents/skills/kol-outreach）
+// 文件是期望的条目路径、没有行号；同属第 2 样按文件排，.agents 在 .claude 前
+eq('Skill 结构：两个目录都没有这个名字的条目时各报一条没有软链', faults(tree({ links: [] })), [NO_LINK(AG), NO_LINK(CL)])
+// 条目叫 kol（不等于 name）：期望的条目照样没有；名字不等于 name 的条目本身不判
+eq('Skill 结构：软链名不等于 name 时报没有软链', faults(tree({ links: [LINK('.claude/skills/kol'), LINK('.agents/skills/kol')] })), [NO_LINK(AG), NO_LINK(CL)])
+// kol-outreach-old 只是以 name 开头，不以「kol-outreach/」开头 —— 不是那个条目，也不是那个目录
+eq('Skill 结构：名字只是以 name 开头的条目不算期望的条目，报没有软链', faults(tree({ links: [LINK(CL + '-old'), LINK(AG)] })), [NO_LINK(CL)])
+// 目标 ../skill、../../skill/、../../Skill 都不恰好是 ../../skill → 软链指错了，点名目标原文
+eq('Skill 结构：软链目标不恰好是 ../../skill 时报软链指错了并点名目标原文',
+  ['../skill', '../../skill/', '../../Skill'].map(t => faults(tree({ links: [LINK(CL, t), LINK(AG)] }))),
+  [[WRONG(CL, '../skill')], [WRONG(CL, '../../skill/')], [WRONG(CL, '../../Skill')]])
+// 恰好是那个路径、mode 是 100644（普通文件）或 100755（可执行文件）→ 不是软链
+eq('Skill 结构：期望的条目是普通文件时报不是软链', ['100644', '100755'].map(m => faults(tree({ links: [FILE(CL, m), LINK(AG)] }))),
+  [[NOT_LINK(CL)], [NOT_LINK(CL)]])
+// 没有 .agents/skills/kol-outreach 这一条，只有它下面的两个文件 → 那是一个目录 → 不是软链
+eq('Skill 结构：期望的条目是一个目录（只有 <目录>/<name>/ 下的条目）时报不是软链',
+  faults(tree({ links: [LINK(CL), FILE(AG + '/SKILL.md'), FILE(AG + '/references/workflow.md')] })), [NOT_LINK(AG)])
+// 两个目录下各多一条名字不同的坏条目（普通文件、指错的软链）：不判
+eq('Skill 结构：目录下名字不等于 name 的别的条目不判',
+  faults(tree({ links: [...GOOD_LINKS, FILE('.claude/skills/other'), LINK('.agents/skills/old', '../skill')] })), [])
+// 两个目录各核一次、各报各的：.claude 指错、.agents 没有
+eq('Skill 结构：两个目录各核一次，各报各的', faults(tree({ links: [LINK(CL, '../skill')] })), [NO_LINK(AG), WRONG(CL, '../skill')])
+
+// ── 第 3 样：reference 都点了名、点了名的都在
+// 第 8 行点名两份不在的（含子目录）：文件是 SKILL.md，行号第 8 行，点名原文；同一行按点名的东西排（g 在 p 前）
+eq('Skill 结构：SKILL.md 点名了但文件不在时报一条，带行号与点名原文',
+  faults(skillPlus('另见 references/gone.md 与 references/providers/gone.md')),
+  [DANGLING(8, 'references/gone.md'), DANGLING(8, 'references/providers/gone.md')])
+// 多一份 extra.md 没人点名 → 文件是那份 reference，没有行号，点名它该被点名的写法
+eq('Skill 结构：reference 文件在但 SKILL.md 没点名时报一条，点名 references/<相对路径>', faults(withDoc(XR, '# 附录')), [UNNAMED(XR, 'references/extra.md')])
+// 第 6 行只点名 workflow.md：providers/ 子目录里的 tikhub.md 没人点名，点名写法带子目录
+eq('Skill 结构：providers/ 子目录里的 reference 没点名也报，点名写法带子目录',
+  faults(skillLine(6, '先读 references/workflow.md。')), [UNNAMED(TH, 'references/providers/tikhub.md')])
+// 第 6 行两处点名都以半角句点结尾：去掉末尾的 . 后以 .md 结尾，都是点名
+eq('Skill 结构：点名末尾的句点去掉再判，以 .md 结尾就算点了名',
+  faults(skillLine(6, '先读 references/workflow.md. 供应商见 references/providers/tikhub.md.')), [])
+// 第 8 行不在的 gone.md 末尾带句点：点名原文不带它
+eq('Skill 结构：点名了但文件不在时点名原文去掉了末尾的句点', faults(skillPlus('另见 references/gone.md.')), [DANGLING(8, 'references/gone.md')])
+// 末尾的 . 一个或几个全部去掉（第 3 样第 2 小节）：第一份第 6 行两处点名各带两个、三个句点，去掉后以 .md 结尾，都点了名；
+// 第二份第 8 行不在的 gone.md 带两个句点，点名原文两个都不带。只去一个的话，第一份两份 reference 都没点名、第二份什么也不报
+eq('Skill 结构：点名末尾两个以上句点全部去掉再判，点名原文也不带', [
+  faults(skillLine(6, '先读 references/workflow.md.. 供应商见 references/providers/tikhub.md...')),
+  faults(skillPlus('另见 references/gone.md..')),
+], [[], [DANGLING(8, 'references/gone.md')]])
+// 第一份第 6 行 skill/references/、./references/：紧挨 references/ 的都是 /。第二份第 6 行 .references/、x.references/：紧挨的都是 . ——
+// 两份都不算点名 → 两份 reference 都没点名（按文件排：providers/ 的 p 在 workflow 的 w 前），也不报文件不在。
+// 第三份第 8 行 .references/gone.md、x.references/gone.md、..references/gone.md：紧挨的都是 .，不算点名，不在的 gone.md 不报
+eq('Skill 结构：前一个字符是 / 或 . 的 references/ 不算点名', [
+  faults(skillLine(6, '先读 skill/references/workflow.md，供应商见 ./references/providers/tikhub.md。')),
+  faults(skillLine(6, '先读 .references/workflow.md，供应商见 x.references/providers/tikhub.md。')),
+  faults(skillPlus('.references/gone.md x.references/gone.md ..references/gone.md')),
+], [
+  [UNNAMED(TH, 'references/providers/tikhub.md'), UNNAMED(WF, 'references/workflow.md')],
+  [UNNAMED(TH, 'references/providers/tikhub.md'), UNNAMED(WF, 'references/workflow.md')],
+  [],
+])
+// 第 8 行四处前一个字符是字母、数字、_、-：都不算点名，不在的 gone.md 不报
+eq('Skill 结构：前一个字符是字母、数字、_ 或 - 的 references/ 不算点名',
+  faults(skillPlus('xreferences/gone.md 9references/gone.md _references/gone.md -references/gone.md')), [])
+// 第 6 行删掉：workflow.md 改在 description（第 3 行，frontmatter）里点名，tikhub.md 在代码围栏里（第 6 行，行首）点名 —— 都算
+eq('Skill 结构：frontmatter 里、代码围栏里、行首的点名都算',
+  faults(withDoc(SK, ['---', NL, 'description: 先读 references/workflow.md', '---', '```', 'references/providers/tikhub.md', '```', BODY[2]].join('\n'))), [])
+// 第 8 行：目录写法、子目录写法、.txt、.mdx 都不以 .md 结尾 → 不是点名，不报文件不在
+eq('Skill 结构：不以 .md 结尾的 references/ 写法不是点名',
+  faults(skillPlus('目录 references/ 与 references/providers/，以及 references/notes.txt、references/x.mdx')), [])
+// extra.md 只在 workflow.md 第 7 行被点名（gone.md 也只在那里）：只有 SKILL.md 里的算 → extra.md 没点名，gone.md 不报
+eq('Skill 结构：只有 SKILL.md 里的点名算数，reference 里的点名不算', faults(tree({
+  docs: [{ path: SK, text: SKILL }, { path: WF, text: WF_TEXT + '\n见 references/extra.md 与 references/gone.md' }, { path: TH, text: TH_TEXT }, { path: XR, text: '# 附录' }],
+})), [UNNAMED(XR, 'references/extra.md')])
+// skill/notes.md 不在 skill/references/ 下，不是 reference，不要求点名
+eq('Skill 结构：references/ 以外的文档不是 reference，没点名也不报', faults(withDoc(NOTES, '# 备忘')), [])
+// 第 8 行同一份不在的点名两次 → 一条；第 9 行再点一次 → 行号不同，另一条
+eq('Skill 结构：同一行两次点名同一份不在的文件只报一条，别的行照报',
+  faults(skillPlus('references/gone.md 与 references/gone.md', '再提 references/gone.md')), [DANGLING(8, 'references/gone.md'), DANGLING(9, 'references/gone.md')])
+
+// ── 第 4 样：npm 命令名（package.json 的命令是 collect、report）
+eq('Skill 结构：SKILL.md 里写的命令名不在 package.json 时报一条，带行号与命令名', faults(skillPlus('然后 npm run nope')), [UNKNOWN(SK, 8, 'nope')])
+// 第 8、10 行是围栏，第 9 行在围栏里
+eq('Skill 结构：代码围栏里的命令算数', faults(skillPlus('```bash', 'npm run nope', '```')), [UNKNOWN(SK, 9, 'nope')])
+// 第 8–10 行：命令名前面有 --silent、-s、两个参数 → 命令名是参数之后的那一串
+eq('Skill 结构：npm run --silent x 与 npm run -s x 的写法，命令名取参数之后的那一串',
+  faults(skillPlus('npm run --silent nope1', 'npm run -s nope2', 'npm run --silent --if-present nope3')),
+  [UNKNOWN(SK, 8, 'nope1'), UNKNOWN(SK, 9, 'nope2'), UNKNOWN(SK, 10, 'nope3')])
+// 第 8 行 nope 后的 -- --open、第 9 行 collect 后的 --watch 不是命令名
+eq('Skill 结构：命令名之后跟的参数不当命令名', faults(skillPlus('npm run nope -- --open', 'npm run collect --watch')), [UNKNOWN(SK, 8, 'nope')])
+// 第 8 行起每行 npm run nope 后面紧跟一个断开的字符再跟 x：空格、制表符、全角空格、反引号、两种引号、括号、尖括号、| & ; , 与全角的，。、；：（）「」。
+// 命令名都是 nope，行号依次是 8、9、…
+const STOPS = [' ', '\t', '　', '`', "'", '"', '(', ')', '<', '>', '|', '&', ';', ',', '，', '。', '、', '；', '：', '（', '）', '「', '」']
+eq('Skill 结构：命令名在空白、反引号、引号、括号与那几个标点处断开',
+  faults(skillPlus(...STOPS.map(c => 'npm run nope' + c + 'x'))), STOPS.map((_, i) => UNKNOWN(SK, 8 + i, 'nope')))
+// 半角冒号、中间的点、斜杠都不在断开的字符里：命令名是整串
+eq('Skill 结构：命令名里的半角冒号、中间的点、斜杠不断开', faults(skillPlus('npm run nope:unit', 'npm run nope.v2', 'npm run nope/x')),
+  [UNKNOWN(SK, 8, 'nope:unit'), UNKNOWN(SK, 9, 'nope.v2'), UNKNOWN(SK, 10, 'nope/x')])
+// 第 8 行 nope. → nope；第 9 行 collect. → collect（在）；第 10 行单独一个 . 去掉后是空串，不算一处命令
+eq('Skill 结构：命令名末尾的句点去掉再比，去掉后是空串的不算命令',
+  faults(skillPlus('最后 npm run nope.', '或 npm run collect.', '别写 npm run .')), [UNKNOWN(SK, 8, 'nope')])
+// 末尾的 . 全部去掉（第 4 样第 2 小节）：第 8 行 nope.. → nope；第 9 行 collect... → collect（在）；第 10、11 行命令名只有 .. 与 ...，
+// 去掉后是空串，不算一处命令。只去一个的话报的是 nope.、collect..、. 与 .. 四条
+eq('Skill 结构：命令名末尾两个以上句点全部去掉再比，只剩句点的不算命令',
+  faults(skillPlus('最后 npm run nope..', '或 npm run collect...', '别写 npm run ..', '也别写 npm run ...')), [UNKNOWN(SK, 8, 'nope')])
+// npm run 后面只有 - 打头的串：命令名第一个字符不能是 -，不算一处命令
+eq('Skill 结构：npm run 后面只有 - 打头的参数时不算命令', faults(skillPlus('npm run --silent', '`npm run -s`')), [])
+// 参数是「一段空白 + - 打头、不含空白与反引号的串」（第 4 样第 1 小节）。第 8 行 `npm run -s` 也别写：参数 -s 到反引号为止，
+// 反引号不是空白，接不上「一段空白和命令名」；不带参数的话 -s 打头又当不了命令名 —— 这一行没有一处命令。第 9 行 --silent 同理。
+// 参数要是可以含反引号，-s` 与 --silent` 就成了参数，后面的「也别写」「再说」会被当成命令名报出来。
+// 第 10 行对照：-s 后面是空格、命令名 nope 到反引号断开 → 一条
+eq('Skill 结构：参数到反引号为止，反引号括起的 npm run -s 后面的字不当命令名',
+  faults(skillPlus('`npm run -s` 也别写', '`npm run --silent` 再说', '`npm run -s nope` 也别写')), [UNKNOWN(SK, 10, 'nope')])
+// npm test、npm start、npm run-script、npx tsx、大写 NPM、pnpm、前面紧挨 _ - 数字、npm 与 run 之间或 run 之后是全角空格（「一段空白」只认半角空格与制表符）、
+// npm run 与命令名分在两行（不跨行）—— 都不是一处命令（第三节）
+eq('Skill 结构：npm run 以外的写法与前面紧挨字母数字 _ - 的 npm 都不核命令名', faults(skillPlus(
+  'npm test', 'npm start', 'npm run-script nope', 'npx tsx nope', 'NPM run nope', 'pnpm run nope', 'x_npm run nope', 'a-npm run nope', '2npm run nope',
+  'npm　run nope', 'npm run　nope', 'npm run', 'nope',
+)), [])
+// npm 前一个字符是 /、(、全角冒号、. 都不在排除的字母、数字、_、- 里：照样是一处命令，第 8–11 行
+eq('Skill 结构：npm 前一个字符是斜杠、括号、全角冒号或点时照样是一处命令',
+  faults(skillPlus('./node_modules/.bin/npm run nope1', '(npm run nope2)', '跑：npm run nope3', 'x.npm run nope4')),
+  [UNKNOWN(SK, 8, 'nope1'), UNKNOWN(SK, 9, 'nope2'), UNKNOWN(SK, 10, 'nope3'), UNKNOWN(SK, 11, 'nope4')])
+// 一段空白是一个或几个半角空格或制表符
+eq('Skill 结构：npm、run、参数、命令名之间可以是几个空格或制表符', faults(skillPlus('npm  run\t\tnope1', 'npm\trun -s \t nope2')),
+  [UNKNOWN(SK, 8, 'nope1'), UNKNOWN(SK, 9, 'nope2')])
+// 第 8 行两次 npm run nope → 一条
+eq('Skill 结构：同一行写两次同一个不在的命令名只报一条', faults(skillPlus('npm run nope && npm run nope')), [UNKNOWN(SK, 8, 'nope')])
+// 第 8 行先写 zeta 后写 alpha：同一行按命令名的字符串大小排
+eq('Skill 结构：同一行几个不在的命令名按命令名排，和写的先后无关', faults(skillPlus('npm run zeta；npm run alpha')),
+  [UNKNOWN(SK, 8, 'alpha'), UNKNOWN(SK, 8, 'zeta')])
+// 一处命令从 npm 到命令名末尾用掉的字符，不再作下一处的开头（第 4 样第 1 小节末）。第 8 行 npm run npm run x：行首的 npm、空白、run、
+// 零个参数、空白，命令名是第二个 npm（到空格断开）；这一处用到第二个 npm 末尾，剩下「 run x」里没有 npm —— 只有一处，x 不是命令名。
+// 第 9 行 npm run --silent npm run y：参数 --silent 之后命令名是 npm，同理只有一处，y 不是命令名。
+// 第一份 package.json 的命令是 collect、report：npm 不在 → 第 8、9 行各一条，命令名 npm。第二份命令多一个 npm：两处都在，什么也不报。
+// 第二个 npm 要是还能作下一处的开头，两份都会多出 x、y 两条
+eq('Skill 结构：一处命令用掉的字符不再作下一处的开头，npm run npm run x 只有一处、命令名是 npm', [
+  faults(skillPlus('npm run npm run x', 'npm run --silent npm run y')),
+  faults({ ...skillPlus('npm run npm run x', 'npm run --silent npm run y'), commands: ['collect', 'report', 'npm'] }),
+], [[UNKNOWN(SK, 8, 'npm'), UNKNOWN(SK, 9, 'npm')], []])
+// description（第 3 行）里写的命令：每份文档逐行找，frontmatter 的行也是行
+eq('Skill 结构：frontmatter 里写的命令名也核', faults(fm(NL, 'description: 先跑 npm run nope')), [UNKNOWN(SK, 3, 'nope')])
+// skill/notes.md 不是 reference，但它是一份读得到正文的输入文档：第 2 行的命令名、第 3 行的脚本都核
+eq('Skill 结构：skill/ 下 references/ 以外的文档里的命令名与脚本路径也核', faults(withDoc(NOTES, '# 备忘\nnpm run nope\nscripts/gone.ts')),
+  [UNKNOWN(NOTES, 2, 'nope'), MISSING(NOTES, 3, 'scripts/gone.ts')])
+// providers/tikhub.md 第 2 行：子目录里的 reference 一样核（它仍被 SKILL.md 第 6 行点名）
+eq('Skill 结构：providers/ 子目录里的 reference 也核命令名与脚本路径', faults(withDoc(TH, '# TikHub\n见 scripts/providers/gone.ts，跑 npm run nope')),
+  [UNKNOWN(TH, 2, 'nope'), MISSING(TH, 2, 'scripts/providers/gone.ts')])
+
+// ── 第 5 样：脚本路径（scripts/ 的清单是 collect.ts 与 providers/tikhub.ts）
+// 第 8 行两处不在（含子目录）：同一行按路径排（g 在 p 前）
+eq('Skill 结构：文档里点名的脚本不在 scripts/ 清单里时报一条，带行号与路径原文', faults(skillPlus('见 scripts/gone.ts 与 scripts/providers/gone.ts')),
+  [MISSING(SK, 8, 'scripts/gone.ts'), MISSING(SK, 8, 'scripts/providers/gone.ts')])
+// 第 8 行 gone.ts. → scripts/gone.ts；第 9 行 collect.ts. → 在
+eq('Skill 结构：脚本路径末尾的句点去掉再比', faults(skillPlus('跑 scripts/gone.ts.', '跑 scripts/collect.ts.')), [MISSING(SK, 8, 'scripts/gone.ts')])
+// 末尾的 . 全部去掉（第 5 样第 1 小节）：第 8 行 gone.ts.. → scripts/gone.ts，路径原文不带句点；第 9 行 collect.ts... → 在。
+// 只去一个的话两处都不以 .ts 结尾，什么也不报
+eq('Skill 结构：脚本路径末尾两个以上句点全部去掉再比', faults(skillPlus('跑 scripts/gone.ts..', '跑 scripts/collect.ts...')),
+  [MISSING(SK, 8, 'scripts/gone.ts')])
+// 前一个字符是 /、.、字母、数字、_、- 的 scripts/ 都不算一处路径
+eq('Skill 结构：前一个字符是斜杠、点、字母、数字、_ 或 - 的 scripts/ 不算一处路径',
+  faults(skillPlus('./scripts/gone.ts src/scripts/gone.ts .scripts/gone.ts xscripts/gone.ts 9scripts/gone.ts _scripts/gone.ts -scripts/gone.ts')), [])
+// .js、.tsx、目录写法、.json、.ts.bak 都不以 .ts 结尾 → 不核
+eq('Skill 结构：不以 .ts 结尾的 scripts/ 写法不核', faults(skillPlus('scripts/gone.js、scripts/gone.tsx、scripts/lib/、scripts/gone.json、scripts/gone.ts.bak')), [])
+// 第 8 行 npx tsx 后（第三节：路径照样核）、第 9 行行首、第 11 行在代码围栏里（第 10、12 行是围栏）
+eq('Skill 结构：npx tsx 后面、行首、代码围栏里的脚本路径照样核',
+  faults(skillPlus('`npx tsx scripts/gone1.ts`', 'scripts/gone2.ts', '```', 'npx tsx scripts/gone3.ts --write', '```')),
+  [MISSING(SK, 8, 'scripts/gone1.ts'), MISSING(SK, 9, 'scripts/gone2.ts'), MISSING(SK, 11, 'scripts/gone3.ts')])
+// 第 8 行三处：gone.ts 在冒号处断开、my-tool_v2.ts 在全角括号处断开、a/b.d.ts 在引号处断开；同一行按路径排
+eq('Skill 结构：脚本路径到字母、数字、_、.、/、- 以外的字符为止',
+  faults(skillPlus('scripts/gone.ts:12（scripts/my-tool_v2.ts）"scripts/a/b.d.ts"')),
+  [MISSING(SK, 8, 'scripts/a/b.d.ts'), MISSING(SK, 8, 'scripts/gone.ts'), MISSING(SK, 8, 'scripts/my-tool_v2.ts')])
+eq('Skill 结构：同一行两次写同一个不在的脚本只报一条', faults(skillPlus('scripts/gone.ts 或 scripts/gone.ts')), [MISSING(SK, 8, 'scripts/gone.ts')])
+
+// ── 一棵玩具树上五样各有问题：一次全报、每处只报一次，按哪一样、文件、行号、点名、种类排
+// SKILL.md：第 3 行 description 空白、第 4 行又一行 description；第 7 行点名不在的 gone.md（workflow.md 在；tikhub.md 没点名）；
+// 第 8 行 nope 不在命令里、scripts/gone.ts 不在清单里。workflow.md 第 4 行（围栏里）两次 nope → 一条。
+// 软链：.claude 指到 ../skill-old，.agents 没有（.agents/skills/other 名字不同、不判）。
+// 第 3 样里 skill/SKILL.md 排在 skill/references/… 前（S 是 53，r 是 72）；第 4 样同理 SKILL.md 在 workflow.md 前
+const MANY_SKILL = [
+  '---', NL, 'description:', 'description: 重复', '---',
+  '# KOL 外联',
+  '先读 references/workflow.md 与 references/gone.md。',
+  '采集跑 `npm run collect` 或 `npm run nope`，脚本是 scripts/gone.ts。',
+].join('\n')
+const MANY_WF = ['# 流程', '先 `npm run collect`，再出报告：', '```sh', 'npm run --silent nope && npm run nope', 'npm run -s report -- --open', '```'].join('\n')
+const MANY: SkillInput = {
+  docs: [{ path: WF, text: MANY_WF }, { path: TH, text: TH_TEXT }, { path: SK, text: MANY_SKILL }],
+  commands: ['collect', 'report'],
+  scriptFiles: ['scripts/collect.ts', 'scripts/providers/tikhub.ts'],
+  links: [LINK(CL, '../skill-old'), FILE('.agents/skills/other')],
+}
+const MANY_WANT = [
+  BLANK(3, 'description'), DUP(4, 'description'),
+  NO_LINK(AG), WRONG(CL, '../skill-old'),
+  DANGLING(7, 'references/gone.md'), UNNAMED(TH, 'references/providers/tikhub.md'),
+  UNKNOWN(SK, 8, 'nope'), UNKNOWN(WF, 4, 'nope'),
+  MISSING(SK, 8, 'scripts/gone.ts'),
+]
+eq('Skill 结构：一棵树上五样各有问题时一次全报，每处只报一次，按哪一样、文件、行号、点名、种类排', faults(MANY), MANY_WANT)
+// 同一棵树，文档、命令、脚本清单、软链条目换个先后：结果一字不差
+eq('Skill 结构：问题的先后与输入里文档、命令、脚本、软链条目的先后无关', faults({
+  docs: [{ path: TH, text: TH_TEXT }, { path: SK, text: MANY_SKILL }, { path: WF, text: MANY_WF }],
+  commands: ['report', 'collect'],
+  scriptFiles: ['scripts/providers/tikhub.ts', 'scripts/collect.ts'],
+  links: [FILE('.agents/skills/other'), LINK(CL, '../skill-old')],
+}), MANY_WANT)
+// 先后里「点名的东西没有的在前」这一档没有断言：每一样、每一份文件、每个行号（含没有）上，现行规则不会同时出一条带点名、一条不带的
+// （第 0 类都不带；第 1 样不带的两种——SKILL.md 不在、没有 frontmatter——出现时缺键不报；第 2 样每个条目路径只出一条；第 3 样没有行号的只有没点名一种）
+
+// ── 有一样没核，返回值里就一定有一条问题（第二节第 0 类末）：下面每棵树都有至少一样没核 ——
+// 文档清单、SKILL.md 正文、一份 reference 正文、命令、脚本清单、软链读不到；没有 SKILL.md；没有 frontmatter 的两种；
+// 缺 name；name 写了两行；name 值空白（引号、块写法下面没内容）。软链能为空的都给空，免得第 2 样的问题替别的作证
+const DEGRADED: readonly SkillInput[] = [
+  tree({ docs: undefined, links: [] }),
+  withDoc(SK, undefined, { links: [] }),
+  withDoc(WF, undefined),
+  tree({ commands: undefined }),
+  tree({ scriptFiles: undefined }),
+  tree({ links: undefined }),
+  tree({ docs: [{ path: WF, text: WF_TEXT }], links: [] }),
+  withDoc(SK, ['', ...SKILL_LINES].join('\n'), { links: [] }),
+  withDoc(SK, ['---', NL, DL, ...BODY].join('\n'), { links: [] }),
+  { ...fm(DL), links: [] },
+  { ...fm(NL, DL, NL), links: [] },
+  { ...fm('name: ""', DL), links: [] },
+  { ...fm('name: |', DL), links: [] },
+]
+eq('Skill 结构：有一样没核时返回值里一定有一条问题', guard(() => DEGRADED.map(i => skillFaults(i).length > 0)), DEGRADED.map(() => true))
+eq('Skill 结构：SKILL.md 读不到时返回值不空，且有一条 SKILL.md 读不到', guard(() => {
+  const list = skillFaults(withDoc(SK, undefined, { links: [] }))
+  return [list.length > 0, list.some(f => f.item === 0 && f.kind === 'unreadable' && f.file === SK)]
+}), [true, true])
+
+// ── 怎么改的三条契约（第二节末）。FIX_INPUTS 合起来出全部 13 种问题：MANY 出八种，另几棵各补一种（缺键、SKILL.md 不在、
+// 没有 frontmatter、不是软链、读不到）。返回 { broken: 不守契约的那几条, kinds: 出现过的种类 } —— kinds 证明契约不是空着守住的
+const ALL_KINDS: SkillFaultKind[] = [
+  'blank-key', 'dangling-reference', 'duplicate-key', 'missing-key', 'missing-script', 'no-frontmatter', 'no-link',
+  'no-skill-md', 'not-link', 'unknown-command', 'unnamed-reference', 'unreadable', 'wrong-target',
+]
+const FIX_INPUTS: readonly SkillInput[] = [
+  MANY,
+  fm(DL),
+  tree({ docs: [] }),
+  withDoc(SK, ['', ...SKILL_LINES].join('\n')),
+  tree({ links: [LINK(CL), FILE(AG + '/SKILL.md')] }),
+  { docs: undefined, commands: undefined, scriptFiles: undefined, links: undefined },
+]
+const fixAudit = (inputs: readonly SkillInput[], keeps: (f: SkillFault) => boolean): unknown => guard(() => {
+  const all = inputs.flatMap(i => skillFaults(i))
+  return {
+    broken: all.filter(f => !keeps(f)).map(f => [f.kind, f.subject ?? null, f.fix ?? null]),
+    kinds: [...new Set(all.map(f => f.kind))].sort(),
+  }
+})
+eq('Skill 结构：每条问题的怎么改去掉首尾空白后不是空串',
+  fixAudit(FIX_INPUTS, f => typeof f.fix === 'string' && f.fix.trim() !== ''), { broken: [], kinds: ALL_KINDS })
+// MANY 里软链目标写成 ../skill-old，不是 ../../skill 的子串：写了 ../../skill 的怎么改不会顺带含着它
+eq('Skill 结构：点名了东西的问题，怎么改里原样出现点名的东西',
+  fixAudit(FIX_INPUTS, f => f.subject === undefined || (typeof f.fix === 'string' && f.fix.includes(f.subject))), { broken: [], kinds: ALL_KINDS })
+// 第一棵：.claude 指错（../skill-old）、.agents 没有；第二棵：.claude 是普通文件、.agents 是目录 —— 第 2 样三种都出现
+eq('Skill 结构：没有软链、不是软链、软链指错了三种问题的怎么改里原样出现 ../../skill',
+  fixAudit([tree({ links: [LINK(CL, '../skill-old')] }), tree({ links: [FILE(CL), FILE(AG + '/SKILL.md')] })],
+    f => f.item !== 2 || (typeof f.fix === 'string' && f.fix.includes('../../skill'))),
+  { broken: [], kinds: ['no-link', 'not-link', 'wrong-target'] })
 })
 await group('h-group', () => {
 harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 needs 一起跑')
