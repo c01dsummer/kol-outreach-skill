@@ -4,7 +4,7 @@
  * 五样：SKILL.md 的 frontmatter、两个软链、reference 都点了名且点了名的都在、
  * 文档里的 `npm run` 命令名、文档里的 `scripts/….ts` 路径。读不到的输入单报一类，
  * 有一样没核，返回值里就一定有一条问题。软链按 git 索引判，不按文件系统（ADR-156 第四节）。
- * 纯函数，不读文件、不起进程；还没有入口调它（ADR-156 第六节）。
+ * 纯函数，不读文件、不起进程；入口是 `skill.ts`（`npm run skill`，ADR-156 第十四节）。
  */
 
 /** skill/ 下一份 .md：路径相对仓库根；读不到正文时 text 为 undefined */

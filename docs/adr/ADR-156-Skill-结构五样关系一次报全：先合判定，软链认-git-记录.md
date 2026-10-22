@@ -319,7 +319,7 @@ console.log(JSON.stringify(skillFaults({ docs, commands, scriptFiles, links })))
 
 **读四样输入**，交给 `skillFaults`（第五节）：
 
-1. `docs`：`skill/` 下（含子目录）名字以 `.md` 结尾、不是目录的每个条目，路径写成 `skill/…`（分隔符 `/`）。只往真目录里走，不跟着软链进目录；名字以 `.md` 结尾的软链算一份文档，读正文时跟着它。`skill/` 或它下面任何一个目录列不出来（不在、不是目录、没权限）→ 整份是 `undefined`。一份照 UTF-8 读不出来 → 那份的 `text` 是 `undefined`。
+1. `docs`：`skill/` 下（含子目录）名字以 `.md` 结尾、不是目录的每个条目，路径写成 `skill/…`（分隔符 `/`）。只往真目录里走，不跟着软链进目录；名字以 `.md` 结尾的软链算一份文档，读正文时跟着它。`skill/` 或它下面任何一个目录列不出来（不在、不是目录、没权限）→ 整份是 `undefined`。一份读文件时出错 → 那份的 `text` 是 `undefined`（照 UTF-8 读，坏字节换成替换字符，不算读不出）。
 2. `commands`：`package.json` 照 UTF-8 读、照 JSON 解，`scripts` 是对象（不是 `null`、不是数组）时取它的键；读不出、不是 JSON、`scripts` 不是对象 → `undefined`。当前目录的 `package.json` 不是 JSON 时，Node 起入口之前就去读它，以 1 退出（`ERR_INVALID_PACKAGE_CONFIG`），入口一行也跑不到：照样是红，只是打的是 Node 自己的话；「不是 JSON」那一支在入口里只是防守，自检够不到它（Node 22.22.0、tsx 4.23.12 上试过，`npm run` 也解不了那份文件）。
 3. `scriptFiles`：`scripts/` 下（含子目录）不是目录的每个条目，路径写成 `scripts/…`；只往真目录里走。列不出来 → `undefined`。
 4. `links`：`git ls-files -s -z -- .claude/skills .agents/skills` 的每一条（`<mode> <blob> <stage>` 一个制表符再接路径）；mode 是 `120000` 的，`target` 是 `git cat-file blob <blob>` 的输出原样。git 起不来、哪一条以非 0 退出、或者有一条认不出这个形状 → 整份是 `undefined`。git 的调用钉上体量闸门那一组 `-c`（`size-rule.ts` 的 `GIT_CONFIG`）。
@@ -345,14 +345,14 @@ console.log(JSON.stringify(skillFaults({ docs, commands, scriptFiles, links })))
 
 一共起入口 8 次：好树、五棵坏树、坏了几处那棵、读不到那棵，一棵一次，只经工具表（`runToolBoth`，内部是 `tsx-cmd.ts` 的 `tsxCommand`）起。玩具树只写数据文件（文档、`package.json`、`scripts/` 下的占位），不对玩具树里的任何文件起 tsx。这两条照 CI 时长那条线需求所有者 2026-10-22 批的排法：新自检组每条付的启动数远低于 ADR-145 的 50，给以后可能落地的「预编 JS、启动不再走 tsx」留路。
 
-不配负片：指着 `skill.ts` 的变异由自检来验，会被「自己验自己」拦下（工具表里的文件都在闭包里）；由需求测试来验，又够不到入口。同 `order-binding-entry`（ADR-148 第十四节第 3 条）。
+不配负片：指着 `skill.ts` 的变异由自检来验，会被「自己验自己」拦下（工具表里的文件都在闭包里）；由需求测试来验不被拦，可今天的需求测试不起这个入口，要负片得另加一组起真 `skill.ts` 的需求测试，本条不加。同 `order-binding-entry`（ADR-148 第十四节第 3 条）。
 
 ### 副本
 
 - `AGENTS.md`「检查命令」那一行的链，加在「SPEC 一致性」之后。
 - `docs/ARCHITECTURE.md` 锚点表：加 `skill.ts` 一行；`skill-rule.ts` 那一行的「还没有入口调它」改掉。
-- `docs/SYNC.md` 触发表加一行：改 `skill/references/` 下的文件（新增、删除、改名），或改 `package.json` 的命令名、`skill/` 下文档里的 `npm run` 与 `scripts/….ts`，或改 SKILL.md 的 frontmatter、软链 → 要看 SKILL.md 的「参考文档」表与点名处 → 机器检查 🔒 `skill`。
-- 全仓搜描述检查链的句子（`SPEC 一致性`、`体量闸门 →`、`npm run spec &&`、`检查命令`）：`docs/adr/` 以外只有 `AGENTS.md` 那一行与 `package.json` 本身；`README.md` 第 237 行明说不抄、指 `package.json` 与 `AGENTS.md`。
+- `docs/SYNC.md` 触发表加两行。本片要的是这一行：改 `skill/references/` 下的文件（新增、删除、改名），或改 `package.json` 的命令名、`skill/` 下文档里的 `npm run` 与 `scripts/….ts`，或改 SKILL.md 的 frontmatter、软链 → 要看 SKILL.md 的「参考文档」表与点名处 → 机器检查 🔒 `skill`。另一行是顺手补的「改 `process/` 里任何一份」：ADR-154 第 251 行那张欠条的条件是「下一条改 `docs/SYNC.md` 触发表的 PR」，本片就是，照它补上，内容照 `process/2-CHANGE.md`「文档同步规则」那张表「改本目录里的任何一份」那一格。
+- 全仓搜描述检查链的句子（`SPEC 一致性`、`体量闸门 →`、`npm run spec &&`、`检查命令`）：`docs/adr/` 以外描述本仓库这条链的只有 `AGENTS.md` 那一行与 `package.json` 本身（`process/6-INTEGRATE.md`、`process/AGENTS.md.tpl` 里命中的是通用的占位 `<检查命令>`，不是这条链）；`README.md` 第 237 行明说不抄、指 `package.json` 与 `AGENTS.md`。
 
 ### 这道闸门守的是哪条纪律
 
