@@ -56,11 +56,12 @@ jobs:
       # 「前 5 次」各落在什么型号上这里取不到（只在各跑的 job 日志里）。型号只留 ASCII 字母数字、空格与 ( ) @ . , _ + / -，
       # 截到 80 字：进 `::notice` 的除了数字与固定文案只有它。正文里的 :: 本就起不了新命令（runner 只认行首那组），
       # %0A 一类会被换回换行；过滤是保险，也让正文整洁。tr 那个字符集里 - 必须在最后，往后再加字符就成了区间。
-      # 型号之后再带工作量：「变异 N 条（±d） · 每条 X 秒」。N = 本提交 scripts/check/mutations.json 里 mutations 的条数
-      # （变异一步打的「N 个变异全部被抓到」就是它）；±d 比的是对照提交：PR 上是合入目标的头，推 main 时是这次推送之前主干的头。
-      # X = 「本跑」秒数 ÷ N，两位小数 —— 整跑摊到每条变异上，不是一条变异实际花的秒数。
-      # 倍数偏了时三样一起读：型号换没换、N 涨没涨、X 涨没涨（X 也随机器快慢变），只报，不判是哪一样。条数读不到写「变异：读不到」，
-      # 对照提交取不到写「（对照读不到）」，本跑秒数没取到写「每条：读不到」。
+      # 型号之后再带工作量：「变异 N 条（±d） · 摊到每条 X 秒」。N = 本提交 scripts/check/mutations.json 里 mutations 的条数
+      # （变异一步打的「N 个变异全部被抓到」就是它）；±d 比的是对照提交：PR 上是 checkout 出来的合并提交的第一个父提交，
+      # 就是这次合并用的主干头；推 main 时是这次推送之前主干的头（github.event.before）。
+      # X = 「本跑」秒数 ÷ N，两位小数 —— 整跑（含变异以外各步）摊到每条变异上，不是一条变异实际花的秒数。
+      # 倍数偏了时三样一起读：型号换没换、N 涨没涨、X 涨没涨（X 也随机器快慢与变异以外各步变），只报，不判是哪一样。
+      # 条数读不到写「变异：读不到」，对照提交取不到写「（对照读不到）」，本跑秒数没取到或 N 为 0 写「摊到每条：读不到」。
       # 检查红了不跑（没写 if，前面一步红了就跳过）；取不到数就打「墙钟：无从比较（原因）」。
       # 永不红：不在 `npm run check` 里，脚本每条路都以 0 退出，另有 continue-on-error 兜底。
       # 撤除：「改验证成本时」那节「前后实跑」的义务被删时，同一条改动删掉这一步（ADR-151 第四节第 1 条）
@@ -69,7 +70,7 @@ jobs:
         timeout-minutes: 2
         env:
           GH_TOKEN: ${{ github.token }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event.before }}
         run: |
           set +e
           out="$RUNNER_TEMP/wall.json"
@@ -82,13 +83,14 @@ jobs:
                   | tr -cd '[:alnum:] ()@.,_+/-' | tr -s ' ' | cut -c 1-80 | sed 's/^ //; s/ $//')
           [ -n "$cpu" ] || cpu=读不到
           count() { git show "$1:scripts/check/mutations.json" 2>/dev/null | jq -er '.mutations | arrays | length' 2>/dev/null; }
-          muts=$(count HEAD); muts0=; mine=
-          [[ $BASE_SHA =~ ^[0-9a-f]{40}$ ]] && muts0=$(count "$BASE_SHA")
+          muts=$(count HEAD); muts0=; mine=; base=$BASE_SHA
+          [ "$GITHUB_EVENT_NAME" = pull_request ] && base=$(git rev-parse -q --verify 'HEAD^1' 2>/dev/null)
+          [[ $base =~ ^[0-9a-f]{40}$ ]] && muts0=$(count "$base")
           work() {
             [ -n "$muts" ] || { echo "变异：读不到"; return; }
-            local d=对照读不到 per=每条：读不到
+            local d=对照读不到 per=摊到每条：读不到
             [ -n "$muts0" ] && d=$(( muts - muts0 )) && { [ "$d" = 0 ] && d=±0 || d=$(printf '%+d' "$d"); }
-            [ -n "$mine" ] && [ "$muts" -gt 0 ] && per="每条 $(awk -v a="$mine" -v b="$muts" 'BEGIN { printf "%.2f", a / b }') 秒"
+            [ -n "$mine" ] && [ "$muts" -gt 0 ] && per="摊到每条 $(awk -v a="$mine" -v b="$muts" 'BEGIN { printf "%.2f", a / b }') 秒"
             echo "变异 $muts 条（$d） · $per"
           }
           say() { local line="$1 · CPU：$cpu · $(work)"
