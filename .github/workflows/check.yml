@@ -51,6 +51,10 @@ jobs:
       # 走到这一步时已经成功跑完的那几次 —— 那时还没跑完的主干跑取不到，事后复算会把它算进来。
       # 重跑时「前」仍按第一次创建的时刻算，「本跑」量的是这一次重跑。
       # 本跑这一侧只算到这一步为止，比那个口径少末尾的 lscpu 与 job 收尾（实测共约 4 秒）。
+      # 每一行末尾带这台 runner 的 CPU 型号（`lscpu` 的 Model name）：同一份代码落在不同型号上秒数差得不小（见末尾 lscpu 那一步），
+      # 有了它，倍数偏了先看是不是换了机器。只报型号，不按型号判；读不到写「CPU：读不到」。
+      # 「前 5 次」各落在什么型号上这里取不到（只在各跑的 job 日志里）。型号只留字母数字与 ( ) @ . , _ + / -，
+      # 截到 80 字：进 `::notice` 的除了数字与固定文案只有它，不让它带出 % 或 :: 这类会被当成命令的字符。
       # 检查红了不跑（没写 if，前面一步红了就跳过）；取不到数就打「墙钟：无从比较（原因）」。
       # 永不红：不在 `npm run check` 里，脚本每条路都以 0 退出，另有 continue-on-error 兜底。
       # 撤除：「改验证成本时」那节「前后实跑」的义务被删时，同一条改动删掉这一步（ADR-151 第四节第 1 条）
@@ -67,7 +71,10 @@ jobs:
           api() { curl -sS --max-time 20 -o "$out" -w '%{http_code}' "${auth[@]}" \
                     -H 'Accept: application/vnd.github+json' "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/$1"; }
           why() { if [ "$2" = 28 ]; then echo 超时; elif [ "$1" = 000 ]; then echo 连不上; else echo "HTTP $1"; fi; }
-          say() { echo "::notice title=墙钟::$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          cpu=$(export LC_ALL=C; lscpu 2>/dev/null | sed -n 's/^[[:space:]]*Model name:[[:space:]]*//p' | head -n 1 \
+                  | tr -cd '[:alnum:] ()@.,_+/-' | tr -s ' ' | cut -c 1-80 | sed 's/^ //; s/ $//')
+          [ -n "$cpu" ] || cpu=读不到
+          say() { echo "::notice title=墙钟::$1 · CPU：$cpu"; echo "$1 · CPU：$cpu" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
           mmss() { printf '%d:%02d' $(( $1 / 60 )) $(( $1 % 60 )); }
 
           code=$(api "actions/runs/$GITHUB_RUN_ID"); rc=$?
@@ -86,7 +93,8 @@ jobs:
           say "本跑 $(mmss "$mine") · 主干前 5 次中位 $(mmss "$median") · ×$(awk -v a="$mine" -v b="$median" 'BEGIN { printf "%.2f", a / b }')"
       # 只报数：这台 runner 的 CPU 型号与核数。同一份代码在不同 runner 上秒数差到 ×0.6–×1.6，
       # 原先日志里看不出这一跑落在哪种机器上（ADR-145 第三十一节第 5 小节）。排在最后、检查红了也照跑：
-      # 日志只取得到末尾几千行时也看得见它。读不到也不让这一跑红
+      # 日志只取得到末尾几千行时也看得见它。读不到也不让这一跑红。
+      # 检查绿时型号也在上面那行墙钟通知里；这一步照留：检查红了那一步不跑，核数等几栏也只在这里
       - run: lscpu
         if: always()
         continue-on-error: true
