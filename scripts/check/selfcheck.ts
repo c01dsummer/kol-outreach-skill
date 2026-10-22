@@ -8001,7 +8001,10 @@ note({ kind: 'restore-actor-done', targetPid: coordinator.pid, verifierPid });
         for (const name of readdirSync(home)) {
           const file = join(home, name);
           if (name === 'trace.jsonl' || name.endsWith('.trace.jsonl')) {
-            for (const event of trace(file)) { remember(event.pid); remember(event.childPid); }
+            // 收尾时写的人该都结束了：末尾还有一截没写完就不跳过，照旧算坏、留下目录（ADR-155）
+            const text = readFileSync(file, 'utf8');
+            if (text.length > 0 && !text.endsWith('\n')) fault('owned claim restoration trace unavailable or malformed');
+            for (const event of lines(text)) { remember(event.pid); remember(event.childPid); }
           } else if (name.endsWith('.exit.json')) {
             const result = JSON.parse(readFileSync(file, 'utf8')) as { pid?: unknown };
             remember(result.pid);
