@@ -7649,9 +7649,9 @@ group('claims-restoration-entry', [], () => {
       nlink: String(value.nlink), mode: String(value.mode), uid: String(value.uid), gid: String(value.gid), size: String(value.size),
       mtimeNs: String(value.mtimeNs), ctimeNs: String(value.ctimeNs), birthtimeNs: String(value.birthtimeNs) };
   }
-  function trace(file: string): OwnedEvent[] {
-    let text = ''; try { text = readFileSync(file, 'utf8'); } catch { fault('owned claim restoration trace unavailable or malformed'); }
-    return lines(text);
+  function trace(file: string): OwnedEvent[] { return lines(traceText(file)); }
+  function traceText(file: string): string {
+    try { return readFileSync(file, 'utf8'); } catch { return fault('owned claim restoration trace unavailable or malformed'); }
   }
   // 只认写完的整行：别的进程正往轨迹里追加时，读到的最后一截可能还没写完，那一截不算坏（ADR-155）；
   // 进程都结束了它还在，才算坏，由 `call` 判
@@ -8002,7 +8002,7 @@ note({ kind: 'restore-actor-done', targetPid: coordinator.pid, verifierPid });
           const file = join(home, name);
           if (name === 'trace.jsonl' || name.endsWith('.trace.jsonl')) {
             // 收尾时写的人该都结束了：末尾还有一截没写完就不跳过，照旧算坏、留下目录（ADR-155）
-            const text = readFileSync(file, 'utf8');
+            const text = traceText(file);
             if (text.length > 0 && !text.endsWith('\n')) fault('owned claim restoration trace unavailable or malformed');
             for (const event of lines(text)) { remember(event.pid); remember(event.childPid); }
           } else if (name.endsWith('.exit.json')) {
