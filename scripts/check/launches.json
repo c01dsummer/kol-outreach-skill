@@ -113,6 +113,7 @@
     {"config":"[\"test\",[\"h-restore-interrupt\"]]","launches":1,"maxPaid":null,"running":18,"stopping":0},
     {"config":"[\"test\",[\"h-selfcheck-selection-entry\"]]","launches":2,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"h-selfcheck-shard-entry\"]]","launches":2,"maxPaid":null,"running":5,"stopping":0},
+    {"config":"[\"test\",[\"h-skill-rule\"]]","launches":0,"maxPaid":null,"running":91,"stopping":0},
     {"config":"[\"test\",[\"h-spec\"]]","launches":0,"maxPaid":null,"running":70,"stopping":0},
     {"config":"[\"test\",[\"h-why\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"h-worker-start\"]]","launches":0,"maxPaid":null,"running":8,"stopping":0},
