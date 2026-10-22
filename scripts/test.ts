@@ -10009,7 +10009,7 @@ const norm = (f: SkillFault): Record<string, unknown> => {
   return Object.fromEntries(keys.map(k => [k, rec[k] ?? null]))
 }
 const faults = (input: SkillInput): unknown => guard(() => skillFaults(input).map(norm))
-const SF =(item: number, kind: SkillFaultKind, file: string, line?: number, subject?: string) =>
+const SF = (item: number, kind: SkillFaultKind, file: string, line?: number, subject?: string) =>
   ({ file, item, kind, line: line ?? null, subject: subject ?? null })
 
 const SK = 'skill/SKILL.md', WF = 'skill/references/workflow.md', TH = 'skill/references/providers/tikhub.md'
@@ -10257,10 +10257,18 @@ eq('Skill 结构：点名末尾两个以上句点全部去掉再判，点名原�
   faults(skillLine(6, '先读 references/workflow.md.. 供应商见 references/providers/tikhub.md...')),
   faults(skillPlus('另见 references/gone.md..')),
 ], [[], [DANGLING(8, 'references/gone.md')]])
-// 第 6 行两处前一个字符分别是 / 与 .：都不算点名 → 两份 reference 都没点名（按文件排：providers/ 的 p 在 workflow 的 w 前），也不报文件不在
-eq('Skill 结构：前一个字符是 / 或 . 的 references/ 不算点名',
+// 第一份第 6 行 skill/references/、./references/：紧挨 references/ 的都是 /。第二份第 6 行 .references/、x.references/：紧挨的都是 . ——
+// 两份都不算点名 → 两份 reference 都没点名（按文件排：providers/ 的 p 在 workflow 的 w 前），也不报文件不在。
+// 第三份第 8 行 .references/gone.md、x.references/gone.md、..references/gone.md：紧挨的都是 .，不算点名，不在的 gone.md 不报
+eq('Skill 结构：前一个字符是 / 或 . 的 references/ 不算点名', [
   faults(skillLine(6, '先读 skill/references/workflow.md，供应商见 ./references/providers/tikhub.md。')),
-  [UNNAMED(TH, 'references/providers/tikhub.md'), UNNAMED(WF, 'references/workflow.md')])
+  faults(skillLine(6, '先读 .references/workflow.md，供应商见 x.references/providers/tikhub.md。')),
+  faults(skillPlus('.references/gone.md x.references/gone.md ..references/gone.md')),
+], [
+  [UNNAMED(TH, 'references/providers/tikhub.md'), UNNAMED(WF, 'references/workflow.md')],
+  [UNNAMED(TH, 'references/providers/tikhub.md'), UNNAMED(WF, 'references/workflow.md')],
+  [],
+])
 // 第 8 行四处前一个字符是字母、数字、_、-：都不算点名，不在的 gone.md 不报
 eq('Skill 结构：前一个字符是字母、数字、_ 或 - 的 references/ 不算点名',
   faults(skillPlus('xreferences/gone.md 9references/gone.md _references/gone.md -references/gone.md')), [])
@@ -10307,6 +10315,12 @@ eq('Skill 结构：命令名末尾两个以上句点全部去掉再比，只剩�
   faults(skillPlus('最后 npm run nope..', '或 npm run collect...', '别写 npm run ..', '也别写 npm run ...')), [UNKNOWN(SK, 8, 'nope')])
 // npm run 后面只有 - 打头的串：命令名第一个字符不能是 -，不算一处命令
 eq('Skill 结构：npm run 后面只有 - 打头的参数时不算命令', faults(skillPlus('npm run --silent', '`npm run -s`')), [])
+// 参数是「一段空白 + - 打头、不含空白与反引号的串」（第 4 样第 1 小节）。第 8 行 `npm run -s` 也别写：参数 -s 到反引号为止，
+// 反引号不是空白，接不上「一段空白和命令名」；不带参数的话 -s 打头又当不了命令名 —— 这一行没有一处命令。第 9 行 --silent 同理。
+// 参数要是可以含反引号，-s` 与 --silent` 就成了参数，后面的「也别写」「再说」会被当成命令名报出来。
+// 第 10 行对照：-s 后面是空格、命令名 nope 到反引号断开 → 一条
+eq('Skill 结构：参数到反引号为止，反引号括起的 npm run -s 后面的字不当命令名',
+  faults(skillPlus('`npm run -s` 也别写', '`npm run --silent` 再说', '`npm run -s nope` 也别写')), [UNKNOWN(SK, 10, 'nope')])
 // npm test、npm start、npm run-script、npx tsx、大写 NPM、pnpm、前面紧挨 _ - 数字、npm 与 run 之间或 run 之后是全角空格（「一段空白」只认半角空格与制表符）、
 // npm run 与命令名分在两行（不跨行）—— 都不是一处命令（第三节）
 eq('Skill 结构：npm run 以外的写法与前面紧挨字母数字 _ - 的 npm 都不核命令名', faults(skillPlus(
@@ -10325,6 +10339,15 @@ eq('Skill 结构：同一行写两次同一个不在的命令名只报一条', f
 // 第 8 行先写 zeta 后写 alpha：同一行按命令名的字符串大小排
 eq('Skill 结构：同一行几个不在的命令名按命令名排，和写的先后无关', faults(skillPlus('npm run zeta；npm run alpha')),
   [UNKNOWN(SK, 8, 'alpha'), UNKNOWN(SK, 8, 'zeta')])
+// 一处命令从 npm 到命令名末尾用掉的字符，不再作下一处的开头（第 4 样第 1 小节末）。第 8 行 npm run npm run x：行首的 npm、空白、run、
+// 零个参数、空白，命令名是第二个 npm（到空格断开）；这一处用到第二个 npm 末尾，剩下「 run x」里没有 npm —— 只有一处，x 不是命令名。
+// 第 9 行 npm run --silent npm run y：参数 --silent 之后命令名是 npm，同理只有一处，y 不是命令名。
+// 第一份 package.json 的命令是 collect、report：npm 不在 → 第 8、9 行各一条，命令名 npm。第二份命令多一个 npm：两处都在，什么也不报。
+// 第二个 npm 要是还能作下一处的开头，两份都会多出 x、y 两条
+eq('Skill 结构：一处命令用掉的字符不再作下一处的开头，npm run npm run x 只有一处、命令名是 npm', [
+  faults(skillPlus('npm run npm run x', 'npm run --silent npm run y')),
+  faults({ ...skillPlus('npm run npm run x', 'npm run --silent npm run y'), commands: ['collect', 'report', 'npm'] }),
+], [[UNKNOWN(SK, 8, 'npm'), UNKNOWN(SK, 9, 'npm')], []])
 // description（第 3 行）里写的命令：每份文档逐行找，frontmatter 的行也是行
 eq('Skill 结构：frontmatter 里写的命令名也核', faults(fm(NL, 'description: 先跑 npm run nope')), [UNKNOWN(SK, 3, 'nope')])
 // skill/notes.md 不是 reference，但它是一份读得到正文的输入文档：第 2 行的命令名、第 3 行的脚本都核
