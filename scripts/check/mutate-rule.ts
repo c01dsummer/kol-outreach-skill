@@ -186,33 +186,39 @@ export function anchorMatches(content: string, find: string): number {
 }
 
 /**
- * 变异目录对着一棵树：每条变异的锚点在它的目标文件里还对不对得上。对不上的四种各有名字，
- * 全对得上交回空表（ADR-70 第 1394、2099 行那两张欠条；接进检查链开头是下一片，见 ADR-70 末尾「变异残留」一节）。
+ * 变异目录对着一棵树：每条变异的锚点在它的目标文件里还对不对得上。对不上的五种各有名字，
+ * 全对得上交回空表（ADR-70 第 1394、2099 行那两张欠条；接进检查链开头是后面一片，见 ADR-70 末尾「变异残留」一节）。
  *
  * 干净的树上，每条变异的 `find` 在目标文件里恰好一处（不唯一的由 `mutate.ts` 开跑前拦下）。
- * 一处变异没还原、躺在树里时（被打断、`--jobs=1` 正跑着就提交、撤探针时把别的改动一起按回去），
- * 那个文件是「`find` 换成了 `replace`」的样子 —— 目录自己就是那张对照表：
+ * 一处变异没还原、躺在树里时（被打断、`--jobs=1` 正跑着就提交），那个文件是「`find` 换成了 `replace`」的
+ * 样子 —— 目录自己就是那张对照表：
  *
  * | 名字 | 判据 | 多半是什么 |
  * |---|---|---|
  * | `unreadable` | 目标文件读不到 | 文件挪了、删了 |
- * | `ambiguous` | `find` 不止一处（照 `anchorMatches` 数） | 锚点不唯一 |
- * | `residue` | `replace` 不含 `find` 时，`find` 一处没有而 `replace` 在；含着时，`replace` 在 | 这条变异还在树里 |
- * | `stale` | `find` 一处没有，又不是上一行 | 锚点失效：代码改了目录没跟上，或者改动被按回去了 |
+ * | `residue` | `replace` 包着 `find` 的：整段 `replace` 在；别的：`find` 一处没有、`replace` 在，而 `replace` 不是空串、也不是 `find` 的一段 | 这条变异还在树里 |
+ * | `ambiguous` | `find` 不止一处（照 `anchorMatches` 数），又不是上一行 | 锚点不唯一；或者同一个文件里另一条没还原，连带的 |
+ * | `unclear` | `find` 一处没有、`replace` 在，而 `replace` 是空串或是 `find` 的一段 | 分不开：没还原是这样，锚点失效也常是这样 |
+ * | `stale` | `find` 一处没有，又不是上面两行 | 锚点失效：代码改了目录没跟上，或者改动被按回去了；也可能是同文件另一条没还原，连带的 |
  *
- * **`replace` 整段包着 `find` 的要单独判**：残留时 `find` 照样在，只数 `find` 的话这种残留一处也看不出来。
- * 干净的树上不会有整段的 `replace`：`find` 唯一、`replace` 又包着它，出现了就是那处 `find` 本来就被
- * 这样包着 —— 那条变异施加了也什么都没改，自己就会存活。`replace` 与 `find` 一字不差的，
- * 施加没施加分不出来，不判残留。
+ * **`unclear` 为什么单列**：`replace` 是空串（删一段）或是 `find` 的一段（`M-D6-d` 那样）时，干净的树上它本来就在，
+ * 「`replace` 在」什么也不说明。正常改代码改掉了 `find`、目录没跟上，树也是这个样子 —— 报成「没还原」的话，
+ * 人会去把 `find` 按回来，按回去的正是自己的改动（第 1402–1407 行那次判反就是这个形状）。所以报「分不开」，
+ * 让人先看 `git diff`。剩下一类判不出：`replace` 在同一个文件别处本来就有的，锚点失效时照样报成 `residue`
+ * —— 单看一棵树分不开，入口那句话要叫人先看 `git diff` 再动手。
  *
- * ⚠️ `replace` 是空串（删掉一段）时它处处都在，于是这一条锚点失效也报成 `residue`：两者分不开，
- * 报更要紧的那个，入口那句话要把另一种也说出来。
+ * **`replace` 整段包着 `find` 的要单独判**：残留时 `find` 照样在，只数 `find` 的话这种残留一处也看不出来，所以改问
+ * 整段 `replace` 在不在，而且先于「不唯一」问 —— 「扣两次钱」那种整段重复 `find` 的变异，没还原时 `find` 有两处，
+ * 先问不唯一就报成了锚点的毛病。这一问也有分不开的时候：干净的文件里本来就有整段 `replace` 的（比如 `find` 是
+ * `ok(x)`、`replace` 是 `!ok(x)`，文件里本来就写着 `!ok(x)`），干净的树也报 `residue`，而它施加了是有改动的
+ * （写成 `!!ok(x)`）。所以目录要守一条：包着 `find` 的变异，`replace` 不能在干净的文件里本来就有 —— 有的话把
+ * `find` 加长。`replace` 与 `find` 一字不差的，施加没施加分不出来，不判残留。
  *
  * 读文件由调用方给，判定不碰盘；读不到交 `undefined`，不当成空文件 —— 当空文件的话，
  * 指着它的每一条都成了锚点失效，真正的原因（文件不在）反倒淹在里面。
  */
 export type AnchorFault =
-  | { kind: 'unreadable' | 'residue' | 'stale'; id: string; file: string }
+  | { kind: 'unreadable' | 'residue' | 'unclear' | 'stale'; id: string; file: string }
   | { kind: 'ambiguous'; id: string; file: string; count: number }
 
 export function anchorFaults(muts: readonly { id: string; file: string; find: string; replace: string }[],
@@ -224,9 +230,11 @@ export function anchorFaults(muts: readonly { id: string; file: string; find: st
     const count = anchorMatches(content, m.find)
     const wraps = m.replace !== m.find && m.replace.includes(m.find)
     const applied = wraps ? content.includes(m.replace) : count === 0 && content.includes(m.replace)
-    if (count > 1) faults.push({ kind: 'ambiguous', id: m.id, file: m.file, count })
-    else if (applied) faults.push({ kind: 'residue', id: m.id, file: m.file })
-    else if (count === 0) faults.push({ kind: 'stale', id: m.id, file: m.file })
+    // 干净的树上 replace 本来就在：空串、或 find 的一段。这时「在」不说明它施加过
+    const givenAnyway = !wraps && m.find.includes(m.replace)
+    if (applied && !givenAnyway) faults.push({ kind: 'residue', id: m.id, file: m.file })
+    else if (count > 1) faults.push({ kind: 'ambiguous', id: m.id, file: m.file, count })
+    else if (count === 0) faults.push({ kind: applied ? 'unclear' : 'stale', id: m.id, file: m.file })
   }
   return faults
 }

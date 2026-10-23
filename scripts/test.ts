@@ -7193,7 +7193,7 @@ harness('变异的锚点在目标文件里数几处：按起点数，重叠也�
   eq('空锚点在每个起点都出现', anchorMatches('ab', ''), 3)
 }
 
-harness('变异目录对着树：锚点对不上的四种各有名字，没还原的变异认得出')
+harness('变异目录对着树：锚点对不上的五种各有名字，没还原的变异认得出')
 {
   // ADR-70 第 1394、2099 行：一处变异没还原、躺在树里时，那个文件是「find 换成了 replace」的样子。
   // 只断言判定；**不对真树断言**：需求测试自己就是验证者，变异跑它的时候树上正躺着那一条，
@@ -7217,10 +7217,25 @@ harness('变异目录对着树：锚点对不上的四种各有名字，没还�
     anchorFaults(wrap, files({ 'b.ts': 'if (!ok(x)) go()\n' })), [{ kind: 'residue', id: 'M-乙', file: 'b.ts' }])
   eq('replace 与 find 一字不差：施加没施加分不出，不判没还原',
     anchorFaults([{ id: 'M-丙', file: 'c.ts', find: 'k', replace: 'k' }], files({ 'c.ts': 'k\n' })), [])
-  // 删一段的：replace 是空串、处处都在，find 一不在就报没还原（锚点失效与它分不开，报更要紧的）
-  eq('删一段的没还原：find 不在就报',
-    anchorFaults([{ id: 'M-丁', file: 'd.ts', find: 'gate()\n', replace: '' }], files({ 'd.ts': 'other()\n' })),
-    [{ kind: 'residue', id: 'M-丁', file: 'd.ts' }])
+  // replace 在干净的树上本来就在的两类 —— 删一段的（空串）、replace 是 find 的一段的（M-D6-d 那样）：
+  // find 一不在，没还原与「改代码改掉了 find、目录没跟上」长得一样，只说分不开（第 1402–1407 行那次判反）
+  const cut = [{ id: 'M-丁', file: 'd.ts', find: 'gate()\n', replace: '' }]
+  eq('删一段的：干净的树不报', anchorFaults(cut, files({ 'd.ts': 'gate()\nother()\n' })), [])
+  eq('删一段的：find 不在只说分不开，不说没还原',
+    anchorFaults(cut, files({ 'd.ts': 'other()\n' })), [{ kind: 'unclear', id: 'M-丁', file: 'd.ts' }])
+  const part = [{ id: 'M-戊', file: 'e.ts', find: 'return ok || bio', replace: 'return ok' }]
+  eq('replace 是 find 的一段：干净的树不报', anchorFaults(part, files({ 'e.ts': 'return ok || bio\n' })), [])
+  eq('replace 是 find 的一段、find 不在：只说分不开',
+    anchorFaults(part, files({ 'e.ts': 'return ok\n' })), [{ kind: 'unclear', id: 'M-戊', file: 'e.ts' }])
+  eq('replace 是 find 的一段、两样都不在：锚点失效',
+    anchorFaults(part, files({ 'e.ts': 'return no\n' })), [{ kind: 'stale', id: 'M-戊', file: 'e.ts' }])
+  // replace 在同一个文件别处本来就有、find 也在：干净的树，不许因为 replace 在就报（只问 replace 在不在的那种判法）
+  eq('replace 在同一个文件别处本来就有：干净的树不报',
+    anchorFaults([{ id: 'M-己', file: 'f.ts', find: 'a = 1', replace: 'b = 2' }], files({ 'f.ts': 'a = 1\nb = 2\n' })), [])
+  // 整段重复 find 的（「扣两次钱」那种）：没还原时 find 有两处，先认没还原，不报成锚点的毛病
+  eq('整段重复 find 的没还原：认成没还原，不当不唯一',
+    anchorFaults([{ id: 'M-庚', file: 'g.ts', find: '  charge(u)\n', replace: '  charge(u)\n  charge(u)\n' }],
+      files({ 'g.ts': 'go()\n  charge(u)\n  charge(u)\n' })), [{ kind: 'residue', id: 'M-庚', file: 'g.ts' }])
 }
 
 harness('by 与 kills 同进同出：四种写错各有名字')
