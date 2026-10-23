@@ -11638,7 +11638,7 @@
       "req": "harness",
       "why": "登记先后连自己也写的组（惰性夹具）与 tmp 下的路径一起判：看不出谁靠谁的那几对也被报成顺序错",
       "file": "scripts/check/share-rule.ts",
-      "find": "      if (familyOf.get(w.id) === familyOf.get(r.id) && !state.startsWith(PATH) && !e.writes.has(state)\n",
+      "find": "      if (familyOf.get(w.id) === familyOf.get(r.id) && !e.writes.has(state) && !state.startsWith(PATH)\n",
       "replace": "      if (familyOf.get(w.id) === familyOf.get(r.id)\n",
       "by": "test",
       "kills": ["惰性夹具：总入口登记在最前也不报", "同族碰同一路径、登记在前的那组只读：不报"]

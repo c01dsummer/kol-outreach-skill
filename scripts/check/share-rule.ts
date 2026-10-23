@@ -267,7 +267,7 @@ export function judgeShares(groups: readonly Group[], effects: ReadonlyMap<strin
       if (familyOf.get(w.id) !== familyOf.get(r.id)) faults.push({ ...pair, kind: 'family' })
       else if (!state.startsWith(PATH) && !e.writes.has(state)
                && !wanted(groups, [r.id])!.has(w.id)) faults.push({ ...pair, kind: 'closure' })
-      if (familyOf.get(w.id) === familyOf.get(r.id) && !state.startsWith(PATH) && !e.writes.has(state)
+      if (familyOf.get(w.id) === familyOf.get(r.id) && !e.writes.has(state) && !state.startsWith(PATH)
           && registered.get(w.id)! > registered.get(r.id)!) faults.push({ ...pair, kind: 'order' })
     }
   }
