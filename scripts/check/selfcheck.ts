@@ -37,6 +37,7 @@ import { pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
 import { isDeepStrictEqual } from 'node:util'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
+import { asTsx, prebuiltCommand } from './prebuilt.js'
 import {
   ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, mutationSourceIdentity, sourceFiles,
 } from './claims.js'
@@ -96,8 +97,10 @@ const S = (f: string) => { covered.add(`scripts/${f}`); return resolve('scripts'
 const tmp = mkdtempSync(join(tmpdir(), 'kol-selfcheck-'))
 // **收尾那句 `rmSync(tmp)` 够不到顶层抛出去的那一路。** `--only` 点错组名会在
 // `runGroups` 里抛，那时目录已经建好、语料已经写盘，收尾一行都不跑，每敲错一次
-// 漏一个目录。照 `mutate.ts` 里 `restoreClaims` 的先例挂在 exit 上 —— 同样管不到
-// 信号杀进来的那一路，写在这儿是为了别把它当成已经保证了的事。
+// 漏一个目录。照 `mutate.ts` 里 `restoreClaims` 的先例挂在 exit 上 —— 信号杀进来的那一路它靠不住：
+// 裸 node 起时（变异的验证者、拆进程的子进程，ADR-158）三种打断都不跑它；经 tsx 起时 SIGINT／SIGTERM
+// 落在没卡在同步等里的真进程上才跑，而本文件几乎一直在同步等子进程（ADR-158 第四节那张表）。
+// 写在这儿是为了别把它当成已经保证了的事。
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
 const env = {
   ...process.env,
@@ -160,9 +163,13 @@ const named = (label: string, ok: boolean, why: string) => {
 
 const runBoth = (label: string, args: string[], cwd = process.cwd(),
   expect?: { status: number; soft?: readonly number[] }, extra: NodeJS.ProcessEnv = {}): { ok: boolean; stdout: string; stderr: string; status: number | null } => {
-  const [exe, argv] = tsxCommand(args)
   // extra 只给这一次 spawn：崩溃续跑那几条轨迹要给「杀掉那一跑」传旋钮、给续跑不传
-  const r = spawnSync(exe, argv, { env: { ...env, ...extra }, cwd, encoding: 'utf8' })
+  const kidEnv = { ...env, ...extra }
+  // 预编缓存里有整棵树现在这一版就裸 node 起，否则照旧 tsx（`prebuilt.ts`，ADR-158）；
+  // 退出码按 tsx 的壳会报的那样换算（夹具「被杀」那几条认的是 137）
+  const [exe, argv] = prebuiltCommand(args, cwd, kidEnv)
+  const spawned = spawnSync(exe, argv, { env: kidEnv, cwd, encoding: 'utf8' })
+  const r = { ...spawned, ...asTsx(argv, spawned.status, spawned.signal) }
   const stdout = r.stdout ?? ''   // P1 例外：拿不到就是空输出，不是「没查过」——这是子进程的两股流
   const stderr = r.stderr ?? ''   // P1 例外：同上
   const want = expect?.status ?? 0
@@ -507,31 +514,35 @@ const runShards = async (jobs: number): Promise<void> => {
   const preload = pathToFileURL(resolve('scripts', LAUNCH_PRELOAD)).href, script = resolve('scripts/check/selfcheck.ts')
   let next = 0, printed = 0
   const one = (i: number) => new Promise<void>(done => {
-    const report = join(shardDir, `${i}.json`), out = join(shardDir, `${i}.log`), fd = openSync(out, 'w')
+    const report = join(shardDir, `${i}.json`), out = join(shardDir, `${i}.log`)
     const count = join(shardDir, `${i}.launches`)
-    const [exe, args] = tsxCommand([script, `--only=${fams[i].join(',')}`])
-    let settled = false
+    const kidEnv = countingEnv({ ...process.env, SELFCHECK_SHARD_REPORT: report, NODE_COMPILE_CACHE: env.NODE_COMPILE_CACHE },
+      { log: count, target: script, preload })
+    let settled = false, fd: number | undefined
     const settle = (status: number | null, signal: string | null, error?: string) => {
       if (settled) return
       settled = true
-      closeSync(fd)
+      if (fd !== undefined) closeSync(fd)
       let text: string | undefined
       try { text = readFileSync(report, 'utf8') } catch { /* 没写出来：下面按没交回结果算 */ }
       runs[i] = { family: fams[i], status, signal, error, report: text === undefined ? undefined : readShardReport(text) }
       try { launches[i] = parseLaunchLog(readFileSync(count, 'utf8'))?.total ?? null } catch { launches[i] = null }
-      logs[i] = readFileSync(out, 'utf8')
+      // 日志打不开的那一族（下面）没有这份文件：读不到当空，不在这里再抛一次
+      try { logs[i] = readFileSync(out, 'utf8') } catch { logs[i] = '' }
       for (; printed < fams.length && runs[printed] !== undefined; printed++) process.stdout.write(logs[printed])
       done()
     }
     // 起不来时 Node 给原因有两条路（ADR-72）：有的 errno 同步抛，其余只发 `error` 事件（资源
     // 不够那一种也走事件；这里不接管道，不必另问 `noStdio`）。两条都把原因交给合并、报成
-    // 「没起来」—— 混进「没交回结果」的话，人会去翻那份空的子进程输出
+    // 「没起来」—— 混进「没交回结果」的话，人会去翻那份空的子进程输出。
+    // 打开这一族的日志也在这个 `try` 里：资源不够时它可能先于 `spawn` 撞上（ADR-72 在变异派工那一侧
+    // 量到过 `cpSync` 先撞 EMFILE），放在外面就是未捕获异常 —— 本进程当场退出，已起的几族没人收（ADR-132 第 324 行）
     try {
-      const kid = spawn(exe, args, { stdio: ['ignore', fd, fd],
-        env: countingEnv({ ...process.env, SELFCHECK_SHARD_REPORT: report, NODE_COMPILE_CACHE: env.NODE_COMPILE_CACHE },
-          { log: count, target: script, preload }) })
+      fd = openSync(out, 'w')
+      const [exe, args] = prebuiltCommand([script, `--only=${fams[i].join(',')}`], process.cwd(), kidEnv)
+      const kid = spawn(exe, args, { stdio: ['ignore', fd, fd], env: kidEnv })
       kid.on('error', e => settle(null, null, e.message))
-      kid.on('close', (status, signal) => settle(status, signal))
+      kid.on('close', (code, sig) => { const { status, signal } = asTsx(args, code, sig); settle(status, signal) })
     } catch (e) { settle(null, null, e instanceof Error ? e.message : String(e)) }
   })
   await Promise.all(Array.from({ length: jobs }, async () => { while (next < parallel.length) await one(parallel[next++]) }))
