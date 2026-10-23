@@ -6178,10 +6178,13 @@ group('skill-entry', [], () => {
   const broken = (what: string, e: unknown) => {
     failed++; console.error(`  ✗ Skill 入口夹具${SELFCHECK_FIXTURE_MARK}：${what}：${e instanceof Error ? e.message : String(e)}`)
   }
-  // 夹具的 git 不读用户与系统的配置（同 mutationFixtureEnv）；起不来或非 0 退出就是夹具没造对
+  // 夹具的 git 不读用户与系统的配置（同 mutationFixtureEnv），也不认继承来的仓库指向（同 mutation-maintenance-entry）：
+  // 环境里带着 GIT_DIR、GIT_INDEX_FILE 这几项时（比如从 git 钩子里起检查），不删的话 init 与 add 落到它们指的那个仓库，
+  // 把玩具软链暂存进别人的索引。起不来或非 0 退出就是夹具没造对
   const git = (cwd: string, ...args: string[]): boolean => {
-    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env,
-      GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } })
+    const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
+    for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete gitEnv[key]
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: gitEnv })
     if (r.status === 0) return true
     broken(`${cwd} 里 git ${args.join(' ')}`, r.error ?? r.stderr)
     return false
