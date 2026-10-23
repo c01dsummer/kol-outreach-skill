@@ -66,6 +66,7 @@ export const bringsTsxLoader = (nodeOptions: string | undefined): boolean => /[\
 export const bareLaunch = (at: { disabled: boolean; strips: boolean; script: string | undefined; nodeOptions: string | undefined;
   root: string | undefined; owner: string | undefined; complete: () => boolean }): boolean =>
   !at.disabled && at.strips && at.script !== undefined && at.script.endsWith('.ts') && !bringsTsxLoader(at.nodeOptions)
+    && !/(?:^|[\s"'])--no-experimental-strip-types(?:[\s"']|$)/.test(at.nodeOptions ?? '')
     && at.root !== undefined && at.owner !== undefined && at.complete()
 
 /** 钩子的地址（不带参数的那一截）：`isBare` 认参数表靠它 */
@@ -85,12 +86,18 @@ export const asTsx = (argv: readonly string[], status: number | null, signal: No
 const require = createRequire(import.meta.url)
 let esbuild: typeof Esbuild | undefined
 
-/** 每次读取缓存主人的编译配置，配置变动也须换身份。读不到时编译与身份都用缺省选项 */
+/** 每次读取配置并换身份；JSONC、继承或坏配置不判为等价，调用方保留 tsx。缓存本身可按缺省编，但不能据此裸起 */
 const settingsOf = (owner: string) => {
   let compilerOptions: Record<string, unknown> = {}
-  try { compilerOptions = JSON.parse(readFileSync(join(owner, 'tsconfig.json'), 'utf8')).compilerOptions ?? {} } catch { /* 用 esbuild 缺省 */ }
+  let compatible = false
+  try {
+    const config = JSON.parse(readFileSync(join(owner, 'tsconfig.json'), 'utf8'))
+    compilerOptions = config.compilerOptions ?? {}
+    compatible = typeof config === 'object' && config !== null && !Array.isArray(config) && !('extends' in config)
+      && typeof compilerOptions === 'object' && compilerOptions !== null && !Array.isArray(compilerOptions)
+  } catch (e) { compatible = (e as NodeJS.ErrnoException).code === 'ENOENT' }
   const version = (require('esbuild/package.json') as { version: string }).version
-  return { compilerOptions, id: identityOf({ esbuild: version, node: process.versions.node, compilerOptions }) }
+  return { compilerOptions, compatible, id: identityOf({ esbuild: version, node: process.versions.node, compilerOptions }) }
 }
 
 /** 编一个文件，选项照 tsx 给 esbuild 的那几项（esm、目标是当前 node、keepNames、minifyWhitespace）。编不出来就抛 */
@@ -171,6 +178,7 @@ const hookFor = (root: string, owner: string, id: string): string => {
  * 否则原样交给 tsx。`cwd` 是子进程的工作目录（相对路径按它找），`env` 是子进程拿到的环境。
  */
 export function prebuiltCommand(args: string[], cwd = process.cwd(), env: NodeJS.ProcessEnv = process.env): [string, string[]] {
+  if (env.TSX_TSCONFIG_PATH !== undefined) return tsxCommand(args)
   const script = args[0] === undefined ? undefined : resolve(cwd, args[0])
   const root = script === undefined ? undefined : scriptsRootOf(script)
   const owner = root === undefined ? undefined : ownerOf(root, existsSync)
@@ -179,7 +187,8 @@ export function prebuiltCommand(args: string[], cwd = process.cwd(), env: NodeJS
     complete: () => {
       // 钩子自身施变时不能兼任验证者的可信启动器；仍由 tsx 执行实际断言。
       if (readFileSync(HOOK, 'utf8') !== hookSource) return false
-      const { id } = settingsOf(owner!)
+      const { id, compatible } = settingsOf(owner!)
+      if (!compatible) return false
       const cache = join(owner!, PREBUILT_DIR)
       return complete(tsFiles(root!), f => entryPath(cache, keyNow(f, id)), existsSync)
     } })

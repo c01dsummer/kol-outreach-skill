@@ -18042,7 +18042,7 @@
       "find": "if (root !== null && cache !== null && id !== null) nodeModule.registerHooks(",
       "replace": "if (root === 'never') nodeModule.registerHooks(",
       "by": "test",
-      "kills": ["裸 node 装钩子跑缓存里的那一份：./x.js 认到 x.ts，import.meta.url 与 argv[1] 照旧是 .ts"]
+      "kills": ["缓存齐全时按内建能力选起法：./x.js 认到 x.ts，import.meta.url 与 argv[1] 照旧是 .ts"]
     },
     {
       "id": "M-H62-i",
@@ -18052,7 +18052,7 @@
       "find": "JSON.stringify([FORMAT, parts.esbuild, parts.node, parts.compilerOptions])",
       "replace": "JSON.stringify([FORMAT, parts.esbuild, parts.node])",
       "by": "test",
-      "kills": ["编译身份随 esbuild 版本、node 版本、compilerOptions 变", "编译配置改变：旧键不算齐，重新预编才恢复裸起"]
+      "kills": ["编译身份随 esbuild 版本、node 版本、compilerOptions 变", "编译配置改变：旧键不算齐，重编后按内建能力选起法"]
     },
     {
       "id": "M-H62-j",
@@ -18142,7 +18142,7 @@
       "find": "had.id === id && had.mtimeMs === st.mtimeMs && had.size === st.size",
       "replace": "had !== undefined",
       "by": "test",
-      "kills": ["改了没重编：照旧交给 tsx", "编译配置改变：旧键不算齐，重新预编才恢复裸起"]
+      "kills": ["改了没重编：照旧交给 tsx", "编译配置改变：旧键不算齐，重编后按内建能力选起法"]
     },
     {
       "id": "M-H62-s",
@@ -18172,7 +18172,7 @@
       "find": "try { writeEntry(path, compileTs(source, file, compilerOptions)) }",
       "replace": "try { void writeEntry }",
       "by": "test",
-      "kills": ["只把改过的那一个文件编进缓存，就又走裸 node、跑的是改过的那一版"]
+      "kills": ["只编改过的文件：缓存恢复齐全，按内建能力选起法并跑当前源码"]
     },
     {
       "id": "M-H62-v",
@@ -18235,6 +18235,36 @@
       "kills": [
         "目录别名起入口：仍加载同一棵树并保留模块地址语义"
       ]
+    },
+    {
+      "id": "M-H62-aa",
+      "req": "harness",
+      "why": "忽略子进程显式编译配置，会让字段赋值按另一种语义执行而仍成功退出",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "if (env.TSX_TSCONFIG_PATH !== undefined) return tsxCommand(args)",
+      "replace": "if (false) return tsxCommand(args)",
+      "by": "test",
+      "kills": ["子进程显式 TSX_TSCONFIG_PATH：回退 tsx 使用指定配置"]
+    },
+    {
+      "id": "M-H62-ab",
+      "req": "harness",
+      "why": "把不能完整理解的编译配置判成可预编，会忽略注释配置和继承配置中的有效语义",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "if (!compatible) return false",
+      "replace": "if (false) return false",
+      "by": "test",
+      "kills": ["JSONC 编译配置：回退 tsx 保留字段赋值语义", "继承编译配置：回退 tsx 使用完整有效配置"]
+    },
+    {
+      "id": "M-H62-ac",
+      "req": "harness",
+      "why": "只看父进程能力而忽略子进程禁用类型剥离，会把可运行的 tsx 入口变成钩子加载失败",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "/(?:^|[\\s\"'])--no-experimental-strip-types(?:[\\s\"']|$)/",
+      "replace": "/never-disables-strip/",
+      "by": "test",
+      "kills": ["仅子进程禁用内建类型剥离：普通及引号写法均成功回退 tsx"]
     }
   ],
   "exemptions": [
