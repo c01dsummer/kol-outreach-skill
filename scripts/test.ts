@@ -9058,10 +9058,12 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   // 改一边不改另一边的症状是「每一条都没回话」，而人会去翻变异集，不会去翻这个格式
   const ran = (outcome: Outcome, over: Partial<Ran> = {}): Ran =>
     ({ outcome, status: 1, stopped: false, output: '', ms: 0, ...over })
-  for (const o of ['caught', 'elsewhere', 'crashed', 'survived', 'not-applied'] as const) {
-    eq(`结论「${o}」写下去读回来还是它`, parseReport(reportLine('M-X-a', ran(o))),
-      { id: 'M-X-a', ...ran(o) })
-  }
+  // 五句逐字写开、不用循环拼标签：负片的 kills 要点名它们，变异那一步的清册只认字面量标签
+  eq('结论「caught」写下去读回来还是它', parseReport(reportLine('M-X-a', ran('caught'))), { id: 'M-X-a', ...ran('caught') })
+  eq('结论「elsewhere」写下去读回来还是它', parseReport(reportLine('M-X-a', ran('elsewhere'))), { id: 'M-X-a', ...ran('elsewhere') })
+  eq('结论「crashed」写下去读回来还是它', parseReport(reportLine('M-X-a', ran('crashed'))), { id: 'M-X-a', ...ran('crashed') })
+  eq('结论「survived」写下去读回来还是它', parseReport(reportLine('M-X-a', ran('survived'))), { id: 'M-X-a', ...ran('survived') })
+  eq('结论「not-applied」写下去读回来还是它', parseReport(reportLine('M-X-a', ran('not-applied'))), { id: 'M-X-a', ...ran('not-applied') })
   // 退出码那一栏要分得开「被信号杀掉」和「退出码 0」—— 压成一个值就是把三档压成两档
   eq('被信号杀掉那一次：退出码是 null，不是 0',
     parseReport(reportLine('M-X-a', ran('crashed', { status: null })))?.status, null)
@@ -9092,8 +9094,13 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   // 桩与「锚点失效没跑」写的都是 0，拿 0 当样本验不出「读回来的是写下去的那个」
   const good = { id: 'M-X-a', outcome: 'caught', status: 1, stopped: false, output: '', ms: 1234 }
   eq('好的那一行认得', parseReport(wire(good)), good)
-  eq('不是汇报行的：认不出', parseReport('  ✓ M-X-a  [X1] 被抓到'), undefined)
-  eq('记号后面不是合法 JSON：认不出', parseReport('⟦结论⟧ caught M-X-a'), undefined)
+  // 认的是记号，不是后面那段：第二个样本记号差一个字、后面是一份合法的汇报。只放闲话那一个的话，
+  // 拿掉认记号那一道它照样绿 —— 闲话本来就不是 JSON，被下一道拦住了。差一个字也就与记号等长，
+  // 不认记号时按记号的长度切下去正好切到 JSON 开头；记号哪天不含「结论」，换不掉，这条会红在样本上
+  eq('不是汇报行的：认不出',
+    [parseReport('  ✓ M-X-a  [X1] 被抓到'), parseReport(wire(good).replace('结论', '结果'))].map(r => r === undefined), [true, true])
+  // 走 `read`：「认不出」要交回 undefined，抛出去的话这一跑算崩，不算这条断言红
+  eq('记号后面不是合法 JSON：认不出', read('⟦结论⟧ caught M-X-a'), undefined)
   eq('记号后面是 null：认不出，不是抛出去', read('⟦结论⟧ null'), undefined)
   eq('结论那个词不认得：认不出，不猜', parseReport(wire({ ...good, outcome: 'ok' })), undefined)
   eq('没有编号：认不出', parseReport(wire({ ...good, id: '' })), undefined)

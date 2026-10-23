@@ -8555,6 +8555,116 @@
       ]
     },
     {
+      "id": "M-H36-af",
+      "req": "harness",
+      "why": "读回来的结论换成表里的下一个词 —— 每一行照样读得出来，结论却全对不上写下去的那个：被抓到的记成在别处红，存活的记成锚点失效没跑",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return { id, outcome: outcome as Outcome, status, stopped, output, ms,",
+      "replace": "  return { id, outcome: OUTCOMES[(OUTCOMES.indexOf(outcome) + 1) % OUTCOMES.length] as Outcome, status, stopped, output, ms,",
+      "by": "test",
+      "kills": ["结论「caught」写下去读回来还是它", "结论「elsewhere」写下去读回来还是它", "结论「crashed」写下去读回来还是它", "结论「survived」写下去读回来还是它", "结论「not-applied」写下去读回来还是它", "好的那一行认得"]
+    },
+    {
+      "id": "M-H36-ag",
+      "req": "harness",
+      "why": "被信号杀掉的那一次读回来记成退出码 0 —— 三档压成两档，报告里它看着像验证者正常跑完、一条都没红",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return { id, outcome: outcome as Outcome, status, stopped, output, ms,",
+      "replace": "  return { id, outcome: outcome as Outcome, status: status ?? 0, stopped, output, ms,",
+      "by": "test",
+      "kills": ["被信号杀掉那一次：退出码是 null，不是 0"]
+    },
+    {
+      "id": "M-H36-ah",
+      "req": "harness",
+      "why": "跑不起来那一档也不带现场回来 —— 报告里只剩一句跑不起来、没有为什么，分不出是真崩了还是这一次不巧",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "output: ran.outcome === 'crashed' ? ran.output : ''",
+      "replace": "output: ''",
+      "by": "test",
+      "kills": ["跑不起来那一档：现场带回来了"]
+    },
+    {
+      "id": "M-H36-ai",
+      "req": "harness",
+      "why": "为了让现场只占一行，把里面的换行换成空格 —— 一行是保住了，读回来的现场却不是验证者的原话，多行的报错挤成一团",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "ran.outcome === 'crashed' ? ran.output : ''",
+      "replace": "ran.outcome === 'crashed' ? ran.output.replace(/\\n/g, ' ') : ''",
+      "by": "test",
+      "kills": ["劈不开的那一行读回来还是原样"]
+    },
+    {
+      "id": "M-H36-aj",
+      "req": "harness",
+      "why": "汇报行写成带缩进的好几行 —— 派工那一侧按行读，每一条结论都被劈成好几截，头一截带着记号却读不出来，整跑收摊",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "ran.output : '' })}",
+      "replace": "ran.output : '' }, null, 1)}",
+      "by": "test",
+      "kills": ["多行的现场仍然只占一行"]
+    },
+    {
+      "id": "M-H36-ak",
+      "req": "harness",
+      "why": "没人指定并行度时少派一个、给自己留一个核 —— 说好的按机器核数派工，八核机器上只派出七个",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (asked === undefined) return Math.max(1, Math.min(cpus, total))",
+      "replace": "  if (asked === undefined) return Math.max(1, Math.min(cpus - 1, total))",
+      "by": "test",
+      "kills": ["都没写：按机器核数"]
+    },
+    {
+      "id": "M-H36-al",
+      "req": "harness",
+      "why": "没人指定并行度时至少派两个 —— 单核机器上也起两个人手抢一个核，都没写时串行那条路走不到",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (asked === undefined) return Math.max(1, Math.min(cpus, total))",
+      "replace": "  if (asked === undefined) return Math.max(2, Math.min(cpus, total))",
+      "by": "test",
+      "kills": ["单核机器：一个，也就是串行那条路"]
+    },
+    {
+      "id": "M-H36-am",
+      "req": "harness",
+      "why": "环境变量里写的并行度不再算数，命令行上不写就按机器核数 —— 写在环境里的数悄悄不生效，写错了也不再被拒",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  const asked = flag === undefined ? env : flag.slice('--jobs='.length)",
+      "replace": "  const asked = flag === undefined ? undefined : flag.slice('--jobs='.length)",
+      "by": "test",
+      "kills": ["环境变量说了算"]
+    },
+    {
+      "id": "M-H36-an",
+      "req": "harness",
+      "why": "读汇报行时不再先认记号，只看后面那段读不读得出 —— 验证者漏出来的一句话只要恰好像一份结论，就被当成那一条的结论收下",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (!line.startsWith(`${MARK} `)) return undefined\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["不是汇报行的：认不出"]
+    },
+    {
+      "id": "M-H36-ao",
+      "req": "harness",
+      "why": "带记号却读不出来的一行不再交回认不出，而是当场抛出去 —— 一行坏掉掀掉的是整跑那一大批，而且说不出是哪一行",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  try { raw = JSON.parse(line.slice(MARK.length + 1)) } catch { return undefined }",
+      "replace": "  raw = JSON.parse(line.slice(MARK.length + 1))",
+      "by": "test",
+      "kills": ["记号后面不是合法 JSON：认不出"]
+    },
+    {
+      "id": "M-H36-ap",
+      "req": "harness",
+      "why": "编号是空的一行也收下 —— 这条结论对不上派出去的任何一条，那一条照样缺结论，报告里却多出一条没有名字的",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (typeof id !== 'string' || id === '') return undefined",
+      "replace": "  if (typeof id !== 'string') return undefined",
+      "by": "test",
+      "kills": ["没有编号：认不出"]
+    },
+    {
       "id": "M-H46-g",
       "req": "harness",
       "file": "scripts/check/jobs-rule.ts",
