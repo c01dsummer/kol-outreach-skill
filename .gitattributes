@@ -1,1 +1,4 @@
+# 行尾规范：入库一律是 LF，检出也一律是 LF，不看平台、也不看 core.autocrlf（ADR-145 第四十七节）。
+# text=auto：git 判成二进制的文件原样不动，判成文本的才按 eol=lf 处理。
+* text=auto eol=lf
 scripts/check/launches.json text eol=lf
