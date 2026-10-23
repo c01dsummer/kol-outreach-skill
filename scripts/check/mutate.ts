@@ -64,6 +64,20 @@ import {
   inProcessLine, launchFindings, launchRecheck, launchReport, launchTally, settleLaunches, tallyLine,
 } from './launch-rule.js'
 import { LAUNCH_PRELOAD, infraClosure, selfVerifying } from './verifier-rule.js'
+import { writeAllSync } from './sync-write.js'
+
+/**
+ * 本文件**唯一**的硬退出（ADR-70 末尾「硬退出收口」一节）：退出前要说的话先同步写满 fd 2，再退出。
+ *
+ * 接管道时 `console.error` 是异步的，排在队里那句会被紧跟着的硬退出掐掉（ADR-72 第 431 行起那张表）；
+ * 光换成 `writeFileSync` 也不够，管道一满它写进去一截就抛（`sync-write.ts` 头注释那次实测）。所以退出前的话
+ * 全交给这里。需求测试对本文件跑 `exitFaults`：硬退出出了这个函数，或叫它之前同一段里先 `console.` 了一句，
+ * 都红。写不出去（读的那头关了、一直不读）也照样退出：这一步的承诺是退出码，那句话尽力写完。
+ */
+function exitWith(code: number, ...lines: string[]): never {
+  if (lines.length) writeAllSync(2, `${lines.join('\n')}\n`)
+  process.exit(code)
+}
 
 // 观察不参与检查判定；普通收尾的人读行与机器段共用这一份原料。
 const costEnabled = !process.argv.includes('--brief') && !process.argv.includes('--worker')
@@ -72,9 +86,8 @@ const costEnabled = !process.argv.includes('--brief') && !process.argv.includes(
 // 就以 1 退出、不往下跑，同变异集那几道体检：留着它，最后一步读到的就是上一跑的数
 const LAUNCHES_FILE = 'output/mutation-launches/launches.json'
 if (costEnabled) try { rmSync(LAUNCHES_FILE, { force: true }) } catch (e) {
-  console.error(`✗ 变异测试：上一跑留下的启动数文件删不掉（${e instanceof Error ? e.message : String(e)}）—— 留着它，检查链最后一步读到的是上一跑的数；未施加任何变异`)
-  console.error(`\n  先把 ${LAUNCHES_FILE} 挪走或删掉再跑。`)
-  process.exit(1)
+  exitWith(1, `✗ 变异测试：上一跑留下的启动数文件删不掉（${e instanceof Error ? e.message : String(e)}）—— 留着它，检查链最后一步读到的是上一跑的数；未施加任何变异`,
+    `\n  先把 ${LAUNCHES_FILE} 挪走或删掉再跑。`)
 }
 let costContext: { identity: CostIdentity; combinations: CostCombination[] } | undefined
 const costBaselines: CostBaseline[] = []
@@ -108,14 +121,15 @@ const publishCost = async (): Promise<void> => {
     })
   } catch (e) {
     // 缺段／截断不能作成本证据；观察输出故障不为旧检查另立通过闸门。
-    try { writeFileSync(2, `成本报告未能完整输出：${e instanceof Error ? e.message : String(e)}\n`) } catch { /* 输出不可用 */ }
+    writeAllSync(2, `成本报告未能完整输出：${e instanceof Error ? e.message : String(e)}\n`)   // 写不出去不抛
   }
 }
 const publishCostAtExit = (): void => {
   if (!costEnabled || costPublished) return
   costPublished = true
   // 早期拒绝与不能异步收尾的路径；写不成只表示没有可用成本段，不改原结论。
-  try { writeFileSync(1, costOutput()) } catch { /* 信号、崩溃或输出故障不保证有段 */ }
+  // 管道满了等着写完（`sync-write.ts`）；写不出去不抛
+  try { writeAllSync(1, costOutput()) } catch { /* 信号、崩溃或输出故障不保证有段 */ }
 }
 process.on('exit', publishCostAtExit)
 const observeHand = (id: string): void => {
@@ -155,16 +169,14 @@ const fault = attributionFault(muts, [
   ...exemptions.map(e => ({ id: `豁免 ${e.req}`, req: e.req })),
 ], known)
 if (fault?.kind === 'duplicate') {
-  console.error(`✗ 变异集：${fault.ids.length} 个编号重复 —— 多条顶着同一个名字，报告指不回表里哪一行\n`)
-  for (const d of fault.ids) console.error(`  ${d}  出现不止一次`)
-  console.error('\n  编号是报告里唯一能把一条变异指回表里那一行的东西。复制一条就改掉它的字母。')
-  process.exit(1)
+  exitWith(1, `✗ 变异集：${fault.ids.length} 个编号重复 —— 多条顶着同一个名字，报告指不回表里哪一行\n`,
+    ...fault.ids.map(d => `  ${d}  出现不止一次`),
+    '\n  编号是报告里唯一能把一条变异指回表里那一行的东西。复制一条就改掉它的字母。')
 }
 if (fault?.kind === 'orphan') {
-  console.error(`✗ 变异集：${fault.entries.length} 条记在不存在的需求名下 —— 它们对任何一条需求都不算数\n`)
-  for (const o of fault.entries) console.error(`  ${o.id}  记在 ${o.req} 名下，而登记表里没有这条`)
-  console.error('\n  守检查链本身的写 harness；守某条需求的写它真实的编号。')
-  process.exit(1)
+  exitWith(1, `✗ 变异集：${fault.entries.length} 条记在不存在的需求名下 —— 它们对任何一条需求都不算数\n`,
+    ...fault.entries.map(o => `  ${o.id}  记在 ${o.req} 名下，而登记表里没有这条`),
+    '\n  守检查链本身的写 harness；守某条需求的写它真实的编号。')
 }
 
 const dirty = muts.flatMap(m => {
@@ -172,10 +184,9 @@ const dirty = muts.flatMap(m => {
   return leak === undefined ? [] : [`${m.id}  夹带实现原文：${leak}`]
 })
 if (dirty.length) {
-  console.error(`✗ 变异集：${dirty.length} 条 why 夹带实现原文 —— --brief 会把它漏给写测试的上下文\n`)
-  for (const d of dirty) console.error(`  ${d}`)
-  console.error('\n  why 说「什么会变错、用户会看到什么」，不引代码。对外契约里的名字不算实现原文。')
-  process.exit(1)
+  exitWith(1, `✗ 变异集：${dirty.length} 条 why 夹带实现原文 —— --brief 会把它漏给写测试的上下文\n`,
+    ...dirty.map(d => `  ${d}`),
+    '\n  why 说「什么会变错、用户会看到什么」，不引代码。对外契约里的名字不算实现原文。')
 }
 
 // 锚点在目标文件里必须恰好出现一次 —— 出现两处以上时替换只改第一处，作者要验的那一处
@@ -187,10 +198,9 @@ const ambiguous = muts.flatMap(m => {
   return n > 1 ? [`${m.id}  锚点在 ${m.file} 里出现 ${n} 处`] : []
 })
 if (ambiguous.length) {
-  console.error(`✗ 变异集：${ambiguous.length} 条的锚点不唯一 —— 替换只改第一处，要验的那一处可能一个字没动\n`)
-  for (const a of ambiguous) console.error(`  ${a}`)
-  console.error('\n  把 find 加长到在目标文件里只出现一次（按起点数，重叠的也算两处）。')
-  process.exit(1)
+  exitWith(1, `✗ 变异集：${ambiguous.length} 条的锚点不唯一 —— 替换只改第一处，要验的那一处可能一个字没动\n`,
+    ...ambiguous.map(a => `  ${a}`),
+    '\n  把 find 加长到在目标文件里只出现一次（按起点数，重叠的也算两处）。')
 }
 
 // 四种写错都在开跑之前拦下 —— 判据在 `mutate-rule.ts` 的 `wiringFault`，这里只把它的
@@ -210,10 +220,9 @@ const miswired = muts.flatMap(m => {
   return fault === undefined ? [] : [`${m.id}  ${SAY[fault](m)}`]
 })
 if (miswired.length) {
-  console.error(`✗ 变异集：${miswired.length} 条的验证者接线不成立 —— 它们的绿或红都不算数\n`)
-  for (const w of miswired) console.error(`  ${w}`)
-  console.error('\n  by 只能写 mutate-rule.ts 认得的那几个；by 与 kills 同进同出，写一个就要写另一个。')
-  process.exit(1)
+  exitWith(1, `✗ 变异集：${miswired.length} 条的验证者接线不成立 —— 它们的绿或红都不算数\n`,
+    ...miswired.map(w => `  ${w}`),
+    '\n  by 只能写 mutate-rule.ts 认得的那几个；by 与 kills 同进同出，写一个就要写另一个。')
 }
 
 // 指名了验证者的变异，不许改**验证者自己要用的东西** —— 那是自己验自己，跑出来的
@@ -223,11 +232,9 @@ if (miswired.length) {
 const infra = infraClosure(f => existsSync(f) ? readFileSync(f, 'utf8') : undefined)
 const selfVerified = muts.filter(m => selfVerifying(m, infra))
 if (selfVerified.length) {
-  console.error(`✗ 变异集：${selfVerified.length} 条在自己验自己 —— 它们的绿或红都不算数\n`)
-  for (const m of selfVerified) console.error(`  ${m.id}  改的 ${m.file} 是 ${m.by} 自己要用的东西`)
-  console.error(`\n  验证基础设施闭包共 ${infra.length} 个文件。要么把变异挪到被测对象上，`
-                + '要么让缺省那个验证者来验它。')
-  process.exit(1)
+  exitWith(1, `✗ 变异集：${selfVerified.length} 条在自己验自己 —— 它们的绿或红都不算数\n`,
+    ...selfVerified.map(m => `  ${m.id}  改的 ${m.file} 是 ${m.by} 自己要用的东西`),
+    `\n  验证基础设施闭包共 ${infra.length} 个文件。要么把变异挪到被测对象上，要么让缺省那个验证者来验它。`)
 }
 
 // 点的那些夹具真的在，而且各自只有一条叫那个名字 —— 判据在 `mutate-rule.ts` 的
@@ -277,11 +284,10 @@ const misnamed = muts.flatMap(m => {
   return labelFaults(m.kills, inventoryOf(m.by)).map(f => `${m.id}  ${SAY_LABEL[f.fault](m, f.label)}`)
 })
 if (misnamed.length) {
-  console.error(`✗ 变异集：${misnamed.length} 条点的夹具立不住 —— 它们的绿或红都不算数\n`)
-  for (const w of misnamed) console.error(`  ${w}`)
-  console.error('\n  kills 要逐字抄验证者里那条夹具的名字。清册静态扫源码得出，只认字面量 ——'
-                + '拼出来的名字点不着，把那条夹具的名字写成字面量。')
-  process.exit(1)
+  exitWith(1, `✗ 变异集：${misnamed.length} 条点的夹具立不住 —— 它们的绿或红都不算数\n`,
+    ...misnamed.map(w => `  ${w}`),
+    '\n  kills 要逐字抄验证者里那条夹具的名字。清册静态扫源码得出，只认字面量 ——'
+      + '拼出来的名字点不着，把那条夹具的名字写成字面量。')
 }
 
 // 顺序契约表上点名的变异对不对得上 —— 判据在 `order-rule.ts`（ADR-148），这里只读那份文档、
@@ -314,8 +320,7 @@ if (orderFaults.length) {
   }
   out.push('\n  改表或改变异，让两边对上。这里只核点名的变异在不在、file 在不在那一行的位置栏里；'
            + '守不守那一行要人按施加之后的后果判（ADR-146 第一节）。')
-  writeFileSync(2, `${out.join('\n')}\n`)
-  process.exit(1)
+  exitWith(1, ...out)
 }
 
 if (process.argv.includes('--brief')) {
@@ -323,8 +328,9 @@ if (process.argv.includes('--brief')) {
   // 接管道时 `console.log` 是异步的 —— 排在队里还没写出去就被 `process.exit` 掐掉。
   // 照自检那条 spawn 路径实测 8 次：豁免行只活下来 2 次，末尾那句汇总只活 1 次，
   // 另外 6 次停在 139／140／221／233 行。而豁免行恰好在最末尾，正是要断言的那一段。
-  // 这就是 `mutate-rule.ts` 的 `exitRace` 记着的那个坑 —— 那道判据只查**验证者**，
+  // 这就是 `mutate-rule.ts` 的 `exitRace` 记着的那个坑 —— 那道判据当时只查**验证者**，
   // 查不到 `mutate.ts` 自己，于是同一个坑在检查链自己身上又踩了一次（#91 评审引出）。
+  // 现在本文件的硬退出收口在 `exitWith`，由 `exitFaults` 查（ADR-70 末尾「硬退出收口」一节）。
   const out = ['\n变异集 —— 每条变异「违反了什么」。不含实现原文，可以交给写测试的上下文。\n']
   for (const m of muts) out.push(`  ${m.id}  [${m.req}]  ${m.why}`)
   for (const e of exemptions) {
@@ -332,8 +338,8 @@ if (process.argv.includes('--brief')) {
     out.push(`  ⊘     [${e.req}]  ${lead}${e.scope === undefined ? '' : `（${e.scope}）`}：${e.why}`)
   }
   out.push(`\n共 ${muts.length} 个变异、${exemptions.length} 处显式豁免。`)
-  writeFileSync(1, `${out.join('\n')}\n`)
-  process.exit(0)
+  writeAllSync(1, `${out.join('\n')}\n`)
+  exitWith(0)
 }
 
 /**
@@ -475,9 +481,7 @@ const forgetVerifier = (): void => {
   // 出话这一步**必须兜住**：它抛出去就是从 `close` 监听器里抛，promise 不 resolve、
   // `runOne` 的 `finally` 走不到 —— 被改过的源码留在 worker 树里。和第五轮在 `hardStop`
   // 那头修的是同一类，我在同一条提交里又犯了一次（#116 第六轮评审指出）。
-  try {
-    writeFileSync(2, `\n⚠️ 验证者的号作废不掉(${why}) —— 这个 worker 停在这里，这一条没有结论\n`)
-  } catch { /* 说不出也要停 */ }
+  writeAllSync(2, `\n⚠️ 验证者的号作废不掉(${why}) —— 这个 worker 停在这里，这一条没有结论\n`)   // 写不出去不抛，说不出也要停
   // **停要走 `onInterrupt`，不能自己还原完就退。** 走信号那条路进来时手上正有一个
   // 活着的验证者（号文件里有号就是证据），而 `onInterrupt` 的顺序是定死的：先杀那一组、
   // 再还原、最后退。自己写「还原+退出」会把杀组那一步整个跳过 —— 恰好在最需要它的那一格
@@ -683,9 +687,9 @@ if (process.argv.includes('--worker')) {
   for await (const line of createInterface({ input: process.stdin })) {
     const m = byId.get(line.trim())
     if (m === undefined) break
-    writeFileSync(1, `${reportLine(m.id, await runOne(m))}\n`)
+    writeAllSync(1, `${reportLine(m.id, await runOne(m))}\n`)
   }
-  process.exit(0)
+  exitWith(0)
 }
 
 /**
@@ -765,7 +769,7 @@ const dispatch = async (jobs: number): Promise<void> => {
     for (const step of hardStopPlan(live, readBeacon, self)) {
       if (step.do === 'kid') { try { step.kid.kill('SIGKILL') } catch { /* 早没了 */ } }
       else if (step.do === 'group') { try { process.kill(step.shot, 'SIGKILL') } catch { /* 组散了 */ } }
-      else if (step.do === 'warn') { try { writeFileSync(2, step.text) } catch { /* 说不出也要收完 */ } }
+      else if (step.do === 'warn') writeAllSync(2, step.text)   // 写不出去不抛，说不出也要收完
       else break
     }
     // 收不动也要把话说完整。这一步的承诺是「杀干净、收目录、非零退出」，而递归删一棵树
@@ -775,14 +779,12 @@ const dispatch = async (jobs: number): Promise<void> => {
     try {
       rmSync(JOBS_DIR, { recursive: true, force: true })
     } catch (e) {
-      // **同步写 fd 2，不用 `console.error`。** 下一句就是硬退出，而输出接管道时
-      // `console.error` 是异步的 —— 排在队里还没写出去就被掐掉，那正是本文件 `--brief`
-      // 那一支早就改成同步写的理由。这一句的**全部用处**就是告诉人半成品留在哪，
-      // 被截掉就等于没有（#112 第二轮机器评审指出）
-      writeFileSync(2, `\n  ⚠️ 隔离目录没收干净（${e instanceof Error ? e.message : String(e)}）`
-                       + ` —— 半成品副本留在 ${JOBS_DIR}，下一跑开头会重建\n`)
+      // **走 `exitWith`，不用 `console.error`。** 这就是硬退出前那句话：这一句的**全部用处**就是告诉人
+      // 半成品留在哪，被截掉就等于没有（#112 第二轮机器评审指出）
+      exitWith(1, `\n  ⚠️ 隔离目录没收干净（${e instanceof Error ? e.message : String(e)}）`
+                  + ` —— 半成品副本留在 ${JOBS_DIR}，下一跑开头会重建`)
     }
-    process.exit(1)
+    exitWith(1)
   }
   for (const sig of INTERRUPTS) {
     process.on(sig, () => stopJobs([...live].map(s => s.kid), hardStop, GRACE_MS,
@@ -869,9 +871,8 @@ const dispatch = async (jobs: number): Promise<void> => {
 
 const jobs = jobsWanted(process.argv, process.env.MUTATE_JOBS, availableParallelism(), muts.length)
 if (jobs === undefined) {
-  console.error('✗ 变异测试：说不清要派几个 —— --jobs= 或 MUTATE_JOBS 要一个 1 以上的整数\n')
-  console.error('  按机器核数跑请把它去掉，不要写一个读不出来的值。')
-  process.exit(1)
+  exitWith(1, '✗ 变异测试：说不清要派几个 —— --jobs= 或 MUTATE_JOBS 要一个 1 以上的整数\n',
+    '  按机器核数跑请把它去掉，不要写一个读不出来的值。')
 }
 // 可信历史与实际路由的核对只由 coordinator 做；拒绝发生在基线或任何施变之前。
 const askGit = (...args: string[]): Promise<string | null> => new Promise(done => {
@@ -906,13 +907,11 @@ try {
     explicitBase = mutationEventBase(process.env.GITHUB_EVENT_NAME, JSON.parse(readFileSync(eventPath, 'utf8')))
   }
 } catch (e) {
-  console.error(`✗ 维护基线：无法读取 CI 事件：${e instanceof Error ? e.message : String(e)}；未施加任何变异`)
-  process.exit(1)
+  exitWith(1, `✗ 维护基线：无法读取 CI 事件：${e instanceof Error ? e.message : String(e)}；未施加任何变异`)
 }
 const comparison = await withGit(ask => resolveMutationBaseline(ask, explicitBase))
 if (comparison.kind === 'cannot-answer') {
-  console.error(`✗ 维护基线：${comparison.why}；未施加任何变异`)
-  process.exit(1)
+  exitWith(1, `✗ 维护基线：${comparison.why}；未施加任何变异`)
 }
 try {
   const catalog = await askGit('show', `${comparison.base}:scripts/check/mutations.json`)
@@ -947,13 +946,10 @@ try {
     console.log(`  ${by} 分组依赖/顺序变化：${JSON.stringify(previous.layouts[by])} → ${JSON.stringify(current.layouts[by])}`)
   }
   if (delta.faults.length) {
-    for (const fault of delta.faults) console.error(`✗ 维护比较：${fault}`)
-    console.error('✗ 维护比较未通过，未启动子集基线，未施加任何变异')
-    process.exit(1)
+    exitWith(1, ...delta.faults.map(fault => `✗ 维护比较：${fault}`), '✗ 维护比较未通过，未启动子集基线，未施加任何变异')
   }
 } catch (e) {
-  console.error(`✗ 维护比较：无法核实旧目录或实际分组：${e instanceof Error ? e.message : String(e)}；未施加任何变异`)
-  process.exit(1)
+  exitWith(1, `✗ 维护比较：无法核实旧目录或实际分组：${e instanceof Error ? e.message : String(e)}；未施加任何变异`)
 }
 // 在首次正常基线和施变之前冻结 live 源码、目录与锁的原字节身份；读取失败保留未知。
 const combinations = new Map<string, CostCombination>()
@@ -1060,7 +1056,7 @@ if (subsets.size) {
       if (kid.pid !== undefined) try { process.kill(-kid.pid, 'SIGKILL') } catch { /* 已结束 */ }
     }
     rmSync(JOBS_DIR, { recursive: true, force: true })
-    process.exit(1)
+    exitWith(1)
   }
   for (const sig of INTERRUPTS) process.on(sig, stopBaseline)
   rmSync(JOBS_DIR, { recursive: true, force: true })
@@ -1101,12 +1097,13 @@ if (subsets.size) {
     rmSync(JOBS_DIR, { recursive: true, force: true })
   }
   if (faults.length) {
-    for (const fault of faults) console.error(`\n✗ 子集基线：${fault}`)
-    console.error(`\n✗ 变异测试：${faults.length} 种子集未通过正常代码基线，未施加任何变异`)
+    // 先同步写出来再等成本段：顺序同原来（诊断在前），而且不在异步那条路上排队（ADR-70 末尾「硬退出收口」一节）
+    writeAllSync(2, `${[...faults.map(fault => `\n✗ 子集基线：${fault}`),
+      `\n✗ 变异测试：${faults.length} 种子集未通过正常代码基线，未施加任何变异`].join('\n')}\n`)
     identity.state = 'failed'
     identity.reason = '正常代码子集基线未全部通过；未施加任何变异'
     await publishCost()
-    process.exit(1)
+    exitWith(1)
   }
 } else launchOutput = await countLaunches([], '.', new Set())
 const selectedCount = [...subsets.values()].reduce((n, s) => n + s.count, 0)
@@ -1135,18 +1132,20 @@ if (bill.length) {
 if (costEnabled) console.log(`\n  ${inProcessLine(launchCounts, costMutations)}`)
 
 if (survived.length || elsewhere.length || crashed.length || notApplied.length || silent.length) {
-  console.error(`\n✗ 变异测试：${survived.length} 个存活，${elsewhere.length} 个红错了地方，`
+  // 先同步写出来再等成本段，同子集基线那一处
+  const verdict = [`\n✗ 变异测试：${survived.length} 个存活，${elsewhere.length} 个红错了地方，`
                 + `${crashed.length} 个跑不起来，${notApplied.length} 个锚点失效，`
-                + `${silent.length} 个没有结论`)
-  if (silent.length) console.error('  没有结论不是通过：那一条派出去了，而跑它的那一份没回话 —— 重跑，或者用 MUTATE_JOBS=1 串行跑一遍看它到底怎么了。')
-  if (survived.length) console.error('  存活意味着对应的测试证明不了任何事 —— 修测试，不要删变异。')
-  if (elsewhere.length) console.error('  红错了地方也不算抓到：点名的夹具里有没红的，它对那几条就什么也没证明。'
-                                      + '先核对名单里的名字是不是都指对了，再看没红的那条夹具在不在、这个变异该不该弄红它。')
-  if (crashed.length) console.error('  跑不起来不算抓到：崩溃不是断言的功劳。让那条测试作为断言失败，或者把变异改成一处语义改动而不是语法错误。')
+                + `${silent.length} 个没有结论`]
+  if (silent.length) verdict.push('  没有结论不是通过：那一条派出去了，而跑它的那一份没回话 —— 重跑，或者用 MUTATE_JOBS=1 串行跑一遍看它到底怎么了。')
+  if (survived.length) verdict.push('  存活意味着对应的测试证明不了任何事 —— 修测试，不要删变异。')
+  if (elsewhere.length) verdict.push('  红错了地方也不算抓到：点名的夹具里有没红的，它对那几条就什么也没证明。'
+                                     + '先核对名单里的名字是不是都指对了，再看没红的那条夹具在不在、这个变异该不该弄红它。')
+  if (crashed.length) verdict.push('  跑不起来不算抓到：崩溃不是断言的功劳。让那条测试作为断言失败，或者把变异改成一处语义改动而不是语法错误。')
+  writeAllSync(2, `${verdict.join('\n')}\n`)
   identity.state = silent.length ? 'incomplete' : 'failed'
   identity.reason = silent.length ? '部分变异未回报执行结论' : '有变异未满足既有被抓到资格'
   await publishCost()
-  process.exit(1)
+  exitWith(1)
 }
 console.log(`✓ 变异测试：${muts.length} 个变异全部被抓到`)
 identity.state = 'succeeded'
