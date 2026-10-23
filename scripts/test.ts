@@ -10539,7 +10539,8 @@ harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 n
   ok('选跑判定拒绝成环：没点到环上的组也拒绝',
     rejected(() => wanted([{ id: '甲', needs: ['乙'] }, { id: '乙', needs: ['甲'] }, { id: '旁', needs: [] }], ['旁']))
       .includes('甲 → 乙 → 甲'))
-  // 菱形不是环：顶经左右两条路都走到底，底被走到两次。把「走过的」当成「在走的」，这张图就被误拒
+  // 菱形不是环：顶经左右两条路都走到底，底被走到两次。把「走过的」当成「在走的」，这张图就被误拒。
+  // 期望按码点排序：右 U+53F3 < 左 U+5DE6 < 底 U+5E95 < 顶 U+9876
   const D = [{ id: '底', needs: [] }, { id: '左', needs: ['底'] }, { id: '右', needs: ['底'] }, { id: '顶', needs: ['左', '右'] }]
   eq('菱形依赖不是环：点顶，四组都跑', [...wanted(D, ['顶'])!].sort(), ['右', '左', '底', '顶'])
 
@@ -10717,13 +10718,14 @@ await group('h-group-share', () => {
 harness('自检组之间共享的运行态：needs 写全才不会在拆进程或选跑时读到初始值')
 {
   // expected 全部按 share-rule.ts 头上的判据手推：写方 ≠ 读方；不同族 → family；
-  // 同族、读方只读不写、闭包里没有写方 → closure；组里读合并量 → merged。
+  // 同族、读方只读不写、闭包里没有写方 → closure；同族、读方只读不写、登记在写方之前 → order；
+  // 组里读合并量 → merged。
   const said = (s: { faults: { kind: string; state: string; writer: string; reader: string }[] }) =>
     s.faults.map(f => `${f.kind} ${f.state}: ${f.writer} → ${f.reader}`).sort()
   const top = "const tmp = mkdtempSync('x')\nlet failed = 0\nconst claimed = new Set<string>()\nlet dir = ''\n"
   const scan = (...lines: string[]) => scanShares(top + lines.join('\n'))
 
-  // ── 判两种 ──
+  // ── family 与 closure ──
   const leak = scan("group('collect', [], () => { dir = 'out' })", "group('peek', [], () => { if (dir) {} })")
   eq('漏写 needs 的组跨族读写方的模块级变量：点出状态、写方、读方', said(leak), ['family dir: collect → peek'])
   const full = scan("group('collect', [], () => { dir = 'out' })", "group('peek', ['collect'], () => { if (dir) {} })")
@@ -10752,17 +10754,19 @@ harness('自检组之间共享的运行态：needs 写全才不会在拆进程�
   eq('读方登记在前、闭包里也没有写方：closure 与 order 各报一条', said(scan(
     "group('peek', [], () => { if (dir) {} })", "group('collect', [], () => { dir = 'out' })",
     "group('both', ['collect', 'peek'], () => {})")), ['closure dir: collect → peek', 'order dir: collect → peek'])
-  // needs 指向登记在后的组本身不是错：坏输入那几组拉着合法对照一起跑，却不读它写的东西（ADR-131 发现二）
+  // needs 指向登记在后的组本身不是错：坏输入那几组拉着合法对照一起跑，却不读它写的东西（ADR-131 发现二）。
+  // 被依赖的那组真写了一份状态，不读它的那组才算「不读」—— 它什么也不写的话这一条是空真
   eq('needs 指向登记在后的组、但不读它写的东西：不报', said(scan(
-    "group('bad', ['good'], () => {})", "group('good', [], () => {})")), [])
+    "group('bad', ['good'], () => {})", "group('good', [], () => { dir = 'out' })")), [])
   // 读方自己也写（惰性夹具）：谁先跑谁建，看不出谁靠谁，与 closure 同样不判
   eq('惰性夹具：总入口登记在最前也不报', said(scan(lazy,
     "group('all', ['a', 'b'], () => { fixture() })",
     "group('a', [], () => { fixture() })", "group('b', [], () => { fixture() })")), [])
-  // tmp 下的路径谁写谁读源码里看不出，提到就算又读又写，不判先后
-  eq('同族碰同一路径、登记在前的那组只读：不报', said(scan(
-    "group('b', ['a'], () => { readFileSync(join(tmp, 'x.json')) })",
-    "group('a', [], () => { writeFileSync(join(tmp, 'x.json'), '') })")), [])
+  // tmp 下的路径谁写谁读源码里看不出，提到就算又读又写，不判先后。两组提到的路径按前缀重叠、
+  // 却不是同一个串：同一个串的话读方「也写了它」，「读方不写」那一条就先把它挡下了，路径那一条没被问到
+  eq('同族碰 tmp 下重叠的路径、登记在前的那组提到目录：不报', said(scan(
+    "group('b', ['a'], () => { readdirSync(join(tmp, 'x')) })",
+    "group('a', [], () => { writeFileSync(join(tmp, 'x', 'y.json'), '') })")), [])
 
   // ── 什么算写 ──
   const written = (decl: string, body: string) => said(scan(decl,
@@ -10851,7 +10855,7 @@ harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
   const said = (s: { faults: { kind: string; state: string; writer: string; reader: string }[] }) =>
     s.faults.map(f => `${f.kind} ${f.state}: ${f.writer} → ${f.reader}`).sort()
   const real = rf('scripts/check/selfcheck.ts', 'utf8')
-  // 登记本身坏了时：重复 id 让 scanShares 抛 —— 接住，让它带着原文红在「每一组都扫得了」上，
+  // 登记本身坏了时：重复 id、needs 成环（含自指）让 scanShares 抛 —— 接住，让它带着原文红在「每一组都扫得了」上，
   // 不让整个 test.ts 进程崩掉、排在后面的组跑不了（ADR-134 第六节）；needs 指到不存在的组
   // 不抛，报成一条扫不了，红在同一条上（ADR-134 第八节）
   let thrown = ''
@@ -10873,7 +10877,8 @@ harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
   eq('真 selfcheck.ts 拿掉 enrich 的 needs：render 仍把它连在族里，只在选跑时读不到 dir',
     dropped('enrich'), ['closure dir: collect → enrich'])
   // 阳性对照（登记先后）：ADR-131 发现二复核者在副本里做过的那一挪 —— positive 挪到 reject 之后。
-  // reject 只读 positive 写的 reviewCliEntryPositive（ADR-131「切法与依赖边」），collect-exit 登记在两组之后、照旧在 positive 之后
+  // reject 只读 positive 写的 reviewCliEntryPositive（ADR-131「切法与依赖边」），collect-exit 登记在两组之后、照旧在 positive 之后。
+  // 两组都写的 reviewCliEntryCompleted 不在期望里：reject 自己也写它，读方也写的不判先后
   const moved = (id: string, after: string) => {
     const before = new Set(said(scanned))
     const rest = scanned.groups.filter(g => g.id !== id)

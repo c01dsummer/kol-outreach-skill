@@ -1672,7 +1672,7 @@
     {
       "id": "M-H42-f",
       "req": "harness",
-      "why": "选跑不再拦下需求测试组表里指向不存在的前置组：依赖闭包碰到那一组的选跑照样当场失败，报的却是一个读不到属性的类型错误，看不出是哪一组缺了哪个依赖；碰不到它的子集跑照常跑完、以退出码零结束，组表写错一声不吭；整跑时需求测试自己的组登记照样点名拦下",
+      "why": "选跑不再拦下需求测试组表里指向不存在的前置组：带 --only= 的每一跑都当场失败，点没点到那一组都一样（开跑前查整张图有没有环，走到那个不存在的组就读空了），报的却是一个读不到属性的类型错误，看不出是哪一组缺了哪个依赖；整跑时需求测试自己的组登记照样点名拦下",
       "file": "scripts/check/group-rule.ts",
       "find": "    if (!byId.has(need)) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)",
       "replace": "    if (false) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)",
@@ -1794,7 +1794,7 @@
     {
       "id": "M-H42-l",
       "req": "harness",
-      "why": "族划分不再在开跑前拦下指向不存在的前置组、说出是哪一组缺了哪个依赖；照样红，只是红得晚、红在别处：拆进程跑每一族的子进程都死在选跑上，汇总里一族一句没交回结果，不拆进程的整跑把各组全跑完，只红在起真自检入口点名跑一组的那条夹具上",
+      "why": "族划分不再在开跑前点名拦下指向不存在的前置组：自检照样在开跑前就失败（查整张图有没有环，走到那个不存在的组就读空了），报的却是一个读不到属性的类型错误，看不出是哪一组缺了哪个依赖",
       "file": "scripts/check/group-rule.ts",
       "find": "      if (j === undefined) throw new Error(`组 ${g.id} 缺少依赖组 ${need}`)",
       "replace": "      if (j === undefined) continue",
@@ -11636,12 +11636,12 @@
     {
       "id": "M-H51-am",
       "req": "harness",
-      "why": "登记先后连自己也写的组（惰性夹具）与 tmp 下的路径一起判：看不出谁靠谁的那几对也被报成顺序错",
+      "why": "登记先后连自己也写那份状态的组（惰性夹具）也判：谁先跑谁建、看不出谁靠谁的那几组被报成顺序错",
       "file": "scripts/check/share-rule.ts",
-      "find": "      if (familyOf.get(w.id) === familyOf.get(r.id) && !e.writes.has(state) && !state.startsWith(PATH)\n",
-      "replace": "      if (familyOf.get(w.id) === familyOf.get(r.id)\n",
+      "find": "&& !e.writes.has(state) && !state.startsWith(PATH)\n",
+      "replace": "&& !state.startsWith(PATH)\n",
       "by": "test",
-      "kills": ["惰性夹具：总入口登记在最前也不报", "同族碰同一路径、登记在前的那组只读：不报"]
+      "kills": ["惰性夹具：总入口登记在最前也不报"]
     },
     {
       "id": "M-H51-an",
@@ -11652,6 +11652,26 @@
       "replace": "registered.get(w.id)! < registered.get(r.id)!",
       "by": "test",
       "kills": ["needs 写全、读方却登记在写方之前：报 order", "needs 写全：同族、在闭包里，不报"]
+    },
+    {
+      "id": "M-H51-ao",
+      "req": "harness",
+      "why": "登记先后连 tmp 下的路径也判：路径谁写谁读源码里看不出，提到目录的那组被报成先读了写文件那组的东西",
+      "file": "scripts/check/share-rule.ts",
+      "find": " && !state.startsWith(PATH)\n          && registered",
+      "replace": "\n          && registered",
+      "by": "test",
+      "kills": ["同族碰 tmp 下重叠的路径、登记在前的那组提到目录：不报"]
+    },
+    {
+      "id": "M-H51-ap",
+      "req": "harness",
+      "why": "登记先后放宽成一概拦：读方根本不碰写方写的东西也报顺序错 —— 坏输入那几组拉着登记在后的合法对照一起跑、却不读它，被报成先读了初始值",
+      "file": "scripts/check/share-rule.ts",
+      "find": "      if (hit === undefined) continue",
+      "replace": "      if (hit === undefined) { if (familyOf.get(w.id) === familyOf.get(r.id) && registered.get(w.id)! > registered.get(r.id)!) faults.push({ state, writer: w.id, reader: r.id, kind: 'order' }); continue }",
+      "by": "test",
+      "kills": ["needs 指向登记在后的组、但不读它写的东西：不报"]
     },
     {
       "id": "M-H52-a",
