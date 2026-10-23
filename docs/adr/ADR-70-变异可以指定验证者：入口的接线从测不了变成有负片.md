@@ -2491,3 +2491,38 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 > ⚠️ 更正（2026-10-14，ADR-150）：第 398 行引的那条自检断言「meta.json 的 enriched 如实（跑过邮箱增强时为 true）」期望是错的：修复前（`375ee9a`）它给名单头一个人写上 `email_verified: false`、要 `enriched` 为 true，而那一跑没配任何外部增强层，P5.h 要的是 false。这条已删，换成三条具名断言（`enriched` 仍为 false、报告照样声明邮箱未做有效性验证、邮箱验证不记 measured）。它在这里作「自检断言在跑、却没有东西证明它不是空的」的例子，这一点照旧成立；它守的那件事本身是错的。
 
 > ⚠️ 欠条（重挂本记录第 2232 行 · 档：登记）：`6-INTEGRATE.md`「从第三轮起只登记」仍没说欠条 PR 自己收到评审该怎么办。那张的条件「下一次开欠条 PR 时」在 #341 的欠条 PR 开的时候响了，那条 PR 只追加欠条，没还；条件不带「重新起算」，响过就烧掉，在这里重挂 · 重启条件：下一条碰 `6-INTEGRATE.md`「从第三轮起只登记」那一节的 PR，或下一次开欠条 PR 时（重新起算）
+
+## 变异残留：对着目录查锚点（第一片：判定，2026-10-23）
+
+**为什么现在做。** 第 1394 行（变异跑到一半提交，把 `M-D6-d` 推上去）与第 2099 行（撤探针时 `git checkout --` 把真改动按回去，靠的是不在仓库里的数锚点脚本）两张欠条，条件「下一条碰 `mutate.ts` 或 `mutate-restore.ts` 的 PR」自 #105、#108 起就响过，此后碰这两个文件的 PR 十余条，一直没还。2026-10-23 欠条分派（需求所有者 02:54Z「有关联的欠条 dispatch 到相关 thread……无关联的单开」）把两张排进同一组。两张的修法是同一步，第 1396–1400 行早写明了：变异目录自己就是对照表，`npm run check` 开头逐条查锚点。
+
+**按「闸门自身走最后一块砖」（`process/6-INTEGRATE.md`）切成两片。** 本片只有判定、断言与负片，不接任何入口，检查链一步没多；第二片新建入口，接在 `npm run check` 的最前面，带自检夹具，并改 `AGENTS.md` 检查命令那一行与 `docs/ARCHITECTURE.md` 的锚点表、顺序契约表。第二片在本片合入后从主干开。**两张欠条本片都没还**，还在第二片。
+
+**判定。** `mutate-rule.ts` 的 `anchorFaults(目录, 读文件)`，逐条交回四种对不上的，全对得上交回空表：
+
+| 名字 | 判据 | 多半是什么 |
+|---|---|---|
+| `unreadable` | 目标文件读不到 | 文件挪了、删了 |
+| `ambiguous` | `find` 不止一处（照 `anchorMatches` 按起点数） | 锚点不唯一 |
+| `residue` | `replace` 不含 `find` 时，`find` 一处没有而 `replace` 在；含着时，`replace` 在 | 这条变异没还原，还在树里 |
+| `stale` | `find` 一处没有，又不是上一行 | 锚点失效：代码改了目录没跟上，或者改动被按回去了 |
+
+第 1396 行说那条判据「精确」，有两类不成立，本片照实处理：
+- **`replace` 整段包着 `find` 的**，主干 `902e63e` 上 1594 条里有 63 条：没还原时 `find` 照样在一处，只问「`find` 在不在」一条也看不出。这一类改问整段 `replace` 在不在。干净的树上不会有整段的 `replace`：`find` 唯一、`replace` 包着它，出现了就是那处 `find` 本来就被这样包着，那条变异施加了也什么都没改，自己会存活。`replace` 与 `find` 一字不差的，施加没施加分不出，不判残留。
+- **删一段的（`replace` 是空串）**，同一棵树上 77 条：空串处处都在，锚点失效也报成 `residue`。两者分不开，报更要紧的那个，第二片入口那句话把另一种也说出来。
+
+反方向那一类照第 1396 行的原判据就对：`replace` 是 `find` 的一段的有 114 条（`M-D6-d` 就是），干净的树上 `replace` 恒在，所以必须连「`find` 不在」一起问，第 1405–1407 行记过只问前一半判反过一次。三个数的算法：`git show 902e63e:scripts/check/mutations.json | node -e 'const m=JSON.parse(require("fs").readFileSync(0,"utf8")).mutations;console.log(m.length,m.filter(x=>x.replace!==x.find&&x.replace.includes(x.find)).length,m.filter(x=>x.replace==="").length,m.filter(x=>x.find!==x.replace&&x.find.includes(x.replace)&&x.replace!=="").length)'`，打出 `1594 63 77 114`。
+
+读文件由调用方给，判定不碰盘；读不到交 `undefined`，不当成空文件 —— 当空文件的话指着它的每一条都成了锚点失效，「文件不在」这件事反倒没人说。
+
+**不对真树断言。** 需求测试只断言判定，不拿真目录对真树断言。需求测试自己就是验证者：变异跑它的时候，树上正躺着那一条变异，对真树断言的话这一句每次都红，每一条不点名的变异都会被它「抓到」，功劳全记错。对真树查只能放在检查链里、验证者之外，也就是第二片那个入口。
+
+**怎么验的。**
+- 需求测试 `h-mutate` 加 9 条断言；变异 `M-H45-c…h` 6 条，都 `by: test`、点名断言，逐条施加到 `mutate-rule.ts` 上跑 `npx tsx scripts/test.ts --only=h-mutate`，点名的都红。断言与实现出自同一个上下文（ADR-04）。
+- 对真树：本片的头上目录 1600 条，`anchorFaults` 交回空表。
+- 逐条模拟没还原：把每一条变异单独施加到它的文件上（照 `mutate.ts` 第 599 行的施加法 `String.prototype.replace`），其余文件不动，对整份目录判一遍。1600 条里 1599 条判成 `residue`，1 条判成 `stale`，没有一条漏报。脚本在会话草稿目录里，没进仓库。
+- 判成 `stale` 的那一条是 `M-D13-r`，原因是另一件事，见下。
+
+**`M-D13-r`：施加到盘上的不是目录里登记的那段。** 它的 `replace` 里有一段 `` `$${esc(value)}` ``。`mutate.ts` 施加时用的是 `String.prototype.replace` 的字符串形式，那种形式把替换文本里的 `$$` 展开成一个 `$`（`$&`、`` $` ``、`$'` 也各有含义），盘上写出的是 `` `${esc(value)}` ``：这条变异除了登记的那处（未知金额显示成 `$0`），还顺带去掉了已知金额前面的 `$`。今天它照样被抓到，而且不只是被顺带那处抓到：按字面施加，跑 `selfcheck --only=cost-local`，点名那条断言在四个未知金额的场景上红（本会话实跑）。所以这条变异的结论今天没错，错的是「施加的就是登记的」这件事本身，全目录只有这一条的 `replace` 带这几种记号：`` git show 902e63e:scripts/check/mutations.json | node -e 'const m=JSON.parse(require("fs").readFileSync(0,"utf8")).mutations;console.log(m.filter(x=>/\$[$&`\x27]/.test(x.replace)).map(x=>x.id).join(","))' `` 打出 `M-D13-r`。按 `6-INTEGRATE.md` 五档，这是既有缺陷，另开 PR：
+
+> ⚠️ 欠条（档：既有缺陷）：`mutate.ts` 施加变异时把 `replace` 里的 `$$`、`$&`、`` $` ``、`$'` 当替换记号展开，盘上写出的与目录里登记的可以不是同一段；全目录今天只有 `M-D13-r` 一条撞上，它的结论没变 · 重启条件：本片已合入

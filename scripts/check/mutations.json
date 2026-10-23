@@ -5143,6 +5143,78 @@
       ]
     },
     {
+      "id": "M-H45-c",
+      "req": "harness",
+      "why": "替换文本整段包着锚点的那些变异，没还原时锚点照样在一处，于是一处正躺在树里的故意违例被判成干净 —— 提交前那一步把它放过去",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    const applied = wraps ? content.includes(m.replace) : count === 0 && content.includes(m.replace)",
+      "replace": "    const applied = count === 0 && content.includes(m.replace)",
+      "by": "test",
+      "kills": [
+        "replace 包着 find 的没还原也认得出"
+      ]
+    },
+    {
+      "id": "M-H45-d",
+      "req": "harness",
+      "why": "锚点失效被报成变异没还原 —— 人去树里找一处并不存在的残留，真正该改的变异目录没人动",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": ": count === 0 && content.includes(m.replace)",
+      "replace": ": count === 0",
+      "by": "test",
+      "kills": [
+        "find 不在、replace 也不在 → 锚点失效，不是没还原"
+      ]
+    },
+    {
+      "id": "M-H45-e",
+      "req": "harness",
+      "why": "没还原的变异不再单独认出来，只剩一句锚点失效 —— 人以为是变异目录过期了，那处故意的违例照样留在树里、跟着下一次提交进去",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    else if (applied) faults.push({ kind: 'residue', id: m.id, file: m.file })\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "find 不在而 replace 在 → 没还原的变异"
+      ]
+    },
+    {
+      "id": "M-H45-f",
+      "req": "harness",
+      "why": "目标文件读不到的变异被当成没毛病放过 —— 文件挪走或删掉之后，指着它的那些变异一句话都没有",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    if (content === undefined) { faults.push({ kind: 'unreadable', id: m.id, file: m.file }); continue }",
+      "replace": "    if (content === undefined) continue",
+      "by": "test",
+      "kills": [
+        "目标文件读不到单独报，不当没毛病"
+      ]
+    },
+    {
+      "id": "M-H45-g",
+      "req": "harness",
+      "why": "对着树查锚点时，出现两处的不再报不唯一 —— 替换只改第一处，作者要验的那一处可能一个字没动",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    if (count > 1) faults.push(",
+      "replace": "    if (count > 2) faults.push(",
+      "by": "test",
+      "kills": [
+        "find 两处 → 不唯一，带上处数"
+      ]
+    },
+    {
+      "id": "M-H45-h",
+      "req": "harness",
+      "why": "替换文本与锚点一字不差的变异，在干净的树上也被报成没还原 —— 提交前那一步对着一棵干净的树喊红",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    const wraps = m.replace !== m.find && m.replace.includes(m.find)",
+      "replace": "    const wraps = m.replace.includes(m.find)",
+      "by": "test",
+      "kills": [
+        "replace 与 find 一字不差：施加没施加分不出，不判没还原"
+      ]
+    },
+    {
       "id": "M-H36-a",
       "req": "harness",
       "why": "派工时给了零或者负数当并行度，不再说「说不清要派几个」，而是悄悄收口成 1 跑起来 —— 一个写错的配置被当成没写过，人以为自己在串行跑，实际不是",

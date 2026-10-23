@@ -185,6 +185,52 @@ export function anchorMatches(content: string, find: string): number {
   return n
 }
 
+/**
+ * 变异目录对着一棵树：每条变异的锚点在它的目标文件里还对不对得上。对不上的四种各有名字，
+ * 全对得上交回空表（ADR-70 第 1394、2099 行那两张欠条；接进检查链开头是下一片，见 ADR-70 末尾「变异残留」一节）。
+ *
+ * 干净的树上，每条变异的 `find` 在目标文件里恰好一处（不唯一的由 `mutate.ts` 开跑前拦下）。
+ * 一处变异没还原、躺在树里时（被打断、`--jobs=1` 正跑着就提交、撤探针时把别的改动一起按回去），
+ * 那个文件是「`find` 换成了 `replace`」的样子 —— 目录自己就是那张对照表：
+ *
+ * | 名字 | 判据 | 多半是什么 |
+ * |---|---|---|
+ * | `unreadable` | 目标文件读不到 | 文件挪了、删了 |
+ * | `ambiguous` | `find` 不止一处（照 `anchorMatches` 数） | 锚点不唯一 |
+ * | `residue` | `replace` 不含 `find` 时，`find` 一处没有而 `replace` 在；含着时，`replace` 在 | 这条变异还在树里 |
+ * | `stale` | `find` 一处没有，又不是上一行 | 锚点失效：代码改了目录没跟上，或者改动被按回去了 |
+ *
+ * **`replace` 整段包着 `find` 的要单独判**：残留时 `find` 照样在，只数 `find` 的话这种残留一处也看不出来。
+ * 干净的树上不会有整段的 `replace`：`find` 唯一、`replace` 又包着它，出现了就是那处 `find` 本来就被
+ * 这样包着 —— 那条变异施加了也什么都没改，自己就会存活。`replace` 与 `find` 一字不差的，
+ * 施加没施加分不出来，不判残留。
+ *
+ * ⚠️ `replace` 是空串（删掉一段）时它处处都在，于是这一条锚点失效也报成 `residue`：两者分不开，
+ * 报更要紧的那个，入口那句话要把另一种也说出来。
+ *
+ * 读文件由调用方给，判定不碰盘；读不到交 `undefined`，不当成空文件 —— 当空文件的话，
+ * 指着它的每一条都成了锚点失效，真正的原因（文件不在）反倒淹在里面。
+ */
+export type AnchorFault =
+  | { kind: 'unreadable' | 'residue' | 'stale'; id: string; file: string }
+  | { kind: 'ambiguous'; id: string; file: string; count: number }
+
+export function anchorFaults(muts: readonly { id: string; file: string; find: string; replace: string }[],
+  read: (file: string) => string | undefined): AnchorFault[] {
+  const faults: AnchorFault[] = []
+  for (const m of muts) {
+    const content = read(m.file)
+    if (content === undefined) { faults.push({ kind: 'unreadable', id: m.id, file: m.file }); continue }
+    const count = anchorMatches(content, m.find)
+    const wraps = m.replace !== m.find && m.replace.includes(m.find)
+    const applied = wraps ? content.includes(m.replace) : count === 0 && content.includes(m.replace)
+    if (count > 1) faults.push({ kind: 'ambiguous', id: m.id, file: m.file, count })
+    else if (applied) faults.push({ kind: 'residue', id: m.id, file: m.file })
+    else if (count === 0) faults.push({ kind: 'stale', id: m.id, file: m.file })
+  }
+  return faults
+}
+
 export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault | undefined {
   if (mut.by === undefined) return mut.kills === undefined ? undefined : 'kills-without-by'
   if (!Object.hasOwn(VERIFIERS, mut.by)) return 'unknown-verifier'
