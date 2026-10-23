@@ -518,7 +518,6 @@ const runShards = async (jobs: number): Promise<void> => {
     const count = join(shardDir, `${i}.launches`)
     const kidEnv = countingEnv({ ...process.env, SELFCHECK_SHARD_REPORT: report, NODE_COMPILE_CACHE: env.NODE_COMPILE_CACHE },
       { log: count, target: script, preload })
-    const [exe, args] = prebuiltCommand([script, `--only=${fams[i].join(',')}`], process.cwd(), kidEnv)
     let settled = false, fd: number | undefined
     const settle = (status: number | null, signal: string | null, error?: string) => {
       if (settled) return
@@ -540,6 +539,7 @@ const runShards = async (jobs: number): Promise<void> => {
     // 量到过 `cpSync` 先撞 EMFILE），放在外面就是未捕获异常 —— 本进程当场退出，已起的几族没人收（ADR-132 第 324 行）
     try {
       fd = openSync(out, 'w')
+      const [exe, args] = prebuiltCommand([script, `--only=${fams[i].join(',')}`], process.cwd(), kidEnv)
       const kid = spawn(exe, args, { stdio: ['ignore', fd, fd], env: kidEnv })
       kid.on('error', e => settle(null, null, e.message))
       kid.on('close', (code, sig) => { const { status, signal } = asTsx(args, code, sig); settle(status, signal) })

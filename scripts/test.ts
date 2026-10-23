@@ -8984,8 +8984,9 @@ harness('预编 JS：缓存按正文寻址，缺一份就照旧 tsx，钩子只�
   eq('整棵树每个 .ts 在缓存里都有现在这一版才算齐', [cacheComplete(['a', 'b'], f => `e-${f}`, e => e !== 'e-b'),
     cacheComplete(['a', 'b'], f => `e-${f}`, () => true)], [false, true])
   const tsxLoader = '--import file:///r/node_modules/tsx/dist/esm/index.mjs'
-  eq('NODE_OPTIONS 里带着 tsx 的加载器才算', [tsxLoader, '--import file:///r/scripts/check/fake-fetch.ts', undefined].map(bringsTsxLoader),
-    [true, false, false])
+  eq('NODE_OPTIONS 里带着 tsx 的加载器才算', [tsxLoader, '--import tsx', '--import=tsx/esm', '--import "tsx"',
+    '--import file:///r/scripts/check/fake-fetch.ts', '--import tsx-other', undefined].map(bringsTsxLoader),
+    [true, true, true, true, false, false, false])
   let asked = 0
   const at = { disabled: false, strips: true, script: '/r/scripts/test.ts', nodeOptions: undefined, root: '/r/scripts', owner: '/r',
     complete: () => { asked++; return true } }
@@ -9010,6 +9011,12 @@ harness('预编 JS：缓存按正文寻址，缺一份就照旧 tsx，钩子只�
     [resolveOf('./lib/b.js', 'file:///r/scripts/a.ts'), resolveOf('./lib/c.js', 'file:///r/scripts/a.ts'),
       resolveOf('./scripts/lib/b.js', 'file:///r/x.ts'), resolveOf('node:fs', 'file:///r/scripts/a.ts')],
     ['file:///r/scripts/lib/b.ts', 'next:./lib/c.js', 'next:./scripts/lib/b.js', 'next:node:fs'])
+  // ADR-158 第二节：父模块与目标都须在树内；这些越界目标的 .ts 确实存在。
+  disk['/r/outside.ts'] = disk['/r/scripts2/a.ts'] = 'outside'
+  eq('钩子解析：父模块或目标越出树（含同前缀的兄弟目录），即使 .ts 存在也交给下一个',
+    [resolveOf('../outside.js', 'file:///r/scripts/a.ts'), resolveOf('../scripts2/a.js', 'file:///r/scripts/a.ts'),
+      resolveOf('../scripts/a.js', 'file:///r/scripts2/b.ts')],
+    ['next:../outside.js', 'next:../scripts2/a.js', 'next:../scripts/a.js'])
   const loadOf = (url: string): unknown => {
     try { return hooks.load(url, { format: undefined, conditions: [], importAttributes: {} }, u => ({ format: 'next', source: u })) }
     catch (e) { return e instanceof Error ? e.message : String(e) }
@@ -9055,6 +9062,37 @@ harness('预编 JS 端到端：裸 node 跑缓存里的那一份，改过没重�
       [true, 0, '[22,true,true]'])
     eq('再预编整棵树：沿用现在这一版的，删掉不属于它的', prebuildTree(owner), { wrote: 0, kept: 2, removed: 1 })
     eq('KOL_PREBUILT=0 照旧交给 tsx', isBare(prebuiltCommand([main], owner, { ...env, KOL_PREBUILT: '0' })[1]), false)
+    // ADR-158 第二节：配置改变须换身份，源码未变也不能沿用上一份键。
+    writeFileSync(join(owner, 'tsconfig.json'), '{"compilerOptions":{"strict":true}}')
+    eq('编译配置改变：旧键不算齐，重新预编才恢复裸起',
+      [isBare(prebuiltCommand([main], owner, env)[1]), prebuildTree(owner), isBare(prebuiltCommand([main], owner, env)[1])],
+      [false, { wrote: 2, kept: 0, removed: 2 }, true])
+    const compat = join(owner, 'compat.ts'), legacy = join(owner, 'legacy-module.mjs')
+    const hookURL = new URL('./check/prebuilt-hook.ts', import.meta.url).href
+    writeFileSync(join(owner, 'package.json'), '{"type":"module"}')
+    writeFileSync(compat, `import { prebuiltCommand } from ${JSON.stringify(new URL('./check/prebuilt.ts', import.meta.url).href)}
+import ${JSON.stringify(hookURL)}
+import * as legacyModule from 'kol:legacy-node-module'
+const ready: string = typeof prebuiltCommand
+console.log(JSON.stringify([ready, 'registerHooks' in legacyModule]))
+`)
+    // 父预加载仍用当前 Node 的真实 API；只有被测钩子看到旧 Node 的导出形状。
+    writeFileSync(legacy, `import * as module from 'node:module'
+const names = Object.keys(module).filter(name => name !== 'default' && name !== 'registerHooks')
+const source = "import * as real from 'node:module'; const legacy = {...real.default}; delete legacy.registerHooks; export default legacy;\\n"
+  + names.map(name => 'export const ' + name + ' = real[' + JSON.stringify(name) + ']').join('\\n')
+module.registerHooks({
+  resolve(specifier, context, next) {
+    if (specifier !== 'kol:legacy-node-module'
+      && (specifier !== 'node:module' || context.parentURL?.split('?')[0] !== ${JSON.stringify(hookURL)})) return next(specifier, context)
+    return { url: 'data:text/javascript,' + encodeURIComponent(source), shortCircuit: true }
+  }
+})
+`)
+    const legacyEnv = { ...env, KOL_PREBUILT: '0', NODE_OPTIONS: '--import ' + JSON.stringify(pathToFileURL(legacy).href) }
+    const older = spawnSync(...prebuiltCommand([compat], owner, legacyEnv), { cwd: owner, env: legacyEnv, encoding: 'utf8', timeout: 30_000 })
+    eq('缺少同步注册 API 的 node：普通导入预编模块与 KOL_PREBUILT=0 的 tsx 入口仍可运行',
+      [older.status, older.stdout.trim(), older.status === 0 ? '' : older.stderr], [0, '["function",false]', ''])
   } finally { rmSync(owner, { recursive: true, force: true }) }
 }
 })

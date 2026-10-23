@@ -1,7 +1,7 @@
 /**
  * 起一个跑 `.ts` 的验证者或入口时，用裸 node 跑预编的 JS 还是照旧交给 tsx（ADR-158）—— 判定与缓存的读写。
  *
- * tsx 每起一个进程都要先起它的壳、再在里面装转换（本机一次约 0.35 秒 CPU，裸 node 约 0.05 秒），
+ * tsx 每起一个进程都要先起它的壳、再在里面装转换（成本实测见 ADR-158），
  * 检查链起几千次。这里把 `scripts/` 下的 `.ts` 预先用 esbuild 编好，**按正文存**进仓库根的
  * `.check-cache/prebuilt/`（键见 `prebuilt-hook.ts` 的 `keyOf`），起进程时装上那个钩子跑缓存里的那份。
  *
@@ -57,7 +57,7 @@ export const complete = (files: readonly string[], entryOf: (file: string) => st
   files.every(f => has(entryOf(f)))
 
 /** NODE_OPTIONS 里自己带着 tsx 的加载器：夹具要在入口之前装一份按 `.ts` 地址 import 产品模块的观察器，留给第二片 */
-export const bringsTsxLoader = (nodeOptions: string | undefined): boolean => /[\\/]node_modules[\\/]tsx[\\/]/.test(nodeOptions ?? '')
+export const bringsTsxLoader = (nodeOptions: string | undefined): boolean => /[\\/]node_modules[\\/]tsx[\\/]|(?:^|\s)--(?:import|loader|experimental-loader|require)(?:=|\s+)["']?tsx(?:[\\/]|["']?(?:\s|$))/.test(nodeOptions ?? '')
 
 /**
  * 这一次走不走裸 node。`strips` 是这个 node 自己能不能去掉类型：钩子是 `.ts`，靠的就是它（22.18 起默认开着；
@@ -70,6 +70,7 @@ export const bareLaunch = (at: { disabled: boolean; strips: boolean; script: str
 
 /** 钩子的地址（不带参数的那一截）：`isBare` 认参数表靠它 */
 const HOOK = new URL('./prebuilt-hook.ts', import.meta.url)
+const hookSource = readFileSync(HOOK, 'utf8')
 
 /** 这张参数表是不是 `prebuiltCommand` 交出来的裸 node 起法 */
 export const isBare = (argv: readonly string[]): boolean => argv[0] === '--import' && (argv[1]?.startsWith(`${HOOK.href}?`) ?? false)
@@ -84,17 +85,12 @@ export const asTsx = (argv: readonly string[], status: number | null, signal: No
 const require = createRequire(import.meta.url)
 let esbuild: typeof Esbuild | undefined
 
-/** 一棵树（按它的缓存主人）的 tsconfig compilerOptions 与编译身份。读不到 tsconfig 就当没有选项：编译与身份用的是同一份 */
-const owners = new Map<string, { compilerOptions: Record<string, unknown>; id: string }>()
+/** 每次读取缓存主人的编译配置，配置变动也须换身份。读不到时编译与身份都用缺省选项 */
 const settingsOf = (owner: string) => {
-  const had = owners.get(owner)
-  if (had !== undefined) return had
   let compilerOptions: Record<string, unknown> = {}
   try { compilerOptions = JSON.parse(readFileSync(join(owner, 'tsconfig.json'), 'utf8')).compilerOptions ?? {} } catch { /* 用 esbuild 缺省 */ }
   const version = (require('esbuild/package.json') as { version: string }).version
-  const made = { compilerOptions, id: identityOf({ esbuild: version, node: process.versions.node, compilerOptions }) }
-  owners.set(owner, made)
-  return made
+  return { compilerOptions, id: identityOf({ esbuild: version, node: process.versions.node, compilerOptions }) }
 }
 
 /** 编一个文件，选项照 tsx 给 esbuild 的那几项（esm、目标是当前 node、keepNames、minifyWhitespace）。编不出来就抛 */
@@ -119,13 +115,13 @@ const tsFiles = (dir: string): string[] => readdirSync(dir, { withFileTypes: tru
 })
 
 /** 一个文件现在这一版的键；没改过（修改时间与大小都没变）就不重读正文 */
-const seen = new Map<string, { mtimeMs: number; size: number; key: string }>()
+const seen = new Map<string, { id: string; mtimeMs: number; size: number; key: string }>()
 const keyNow = (file: string, id: string): string => {
   const st = statSync(file)
   const had = seen.get(file)
-  if (had !== undefined && had.mtimeMs === st.mtimeMs && had.size === st.size) return had.key
+  if (had !== undefined && had.id === id && had.mtimeMs === st.mtimeMs && had.size === st.size) return had.key
   const key = keyOf(id, file, readFileSync(file, 'utf8'))
-  seen.set(file, { mtimeMs: st.mtimeMs, size: st.size, key })
+  seen.set(file, { id, mtimeMs: st.mtimeMs, size: st.size, key })
   return key
 }
 
@@ -181,6 +177,8 @@ export function prebuiltCommand(args: string[], cwd = process.cwd(), env: NodeJS
   const bare = bareLaunch({ disabled: env.KOL_PREBUILT === '0', strips: Boolean(process.features.typescript), script,
     nodeOptions: env.NODE_OPTIONS, root, owner,
     complete: () => {
+      // 钩子自身施变时不能兼任验证者的可信启动器；仍由 tsx 执行实际断言。
+      if (readFileSync(HOOK, 'utf8') !== hookSource) return false
       const { id } = settingsOf(owner!)
       const cache = join(owner!, PREBUILT_DIR)
       return complete(tsFiles(root!), f => entryPath(cache, keyNow(f, id)), existsSync)

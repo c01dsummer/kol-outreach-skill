@@ -14,7 +14,8 @@
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { registerHooks, type LoadHookSync, type ResolveHookSync } from 'node:module'
+import * as nodeModule from 'node:module'
+import type { LoadHookSync, ResolveHookSync } from 'node:module'
 import { basename, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -39,7 +40,7 @@ export function prebuiltHooks(at: { root: string; cache: string; id: string }, d
     resolve(specifier, context, next) {
       if ((specifier.startsWith('./') || specifier.startsWith('../')) && specifier.endsWith('.js') && inside(context.parentURL)) {
         const ts = new URL(`${specifier.slice(0, -3)}.ts`, context.parentURL)
-        if (disk.exists(fileURLToPath(ts))) return { url: ts.href, shortCircuit: true }
+        if (inside(ts.href) && disk.exists(fileURLToPath(ts))) return { url: ts.href, shortCircuit: true }
       }
       return next(specifier, context)
     },
@@ -64,4 +65,4 @@ const disk: HookDisk = {
 // 作为 `--import` 装进来时地址上带着三样；被当成普通模块 import 时（`prebuilt.ts`、需求测试）不带，只交出上面那几样
 const given = new URL(import.meta.url).searchParams
 const root = given.get('root'), cache = given.get('cache'), id = given.get('id')
-if (root !== null && cache !== null && id !== null) registerHooks(prebuiltHooks({ root, cache, id }, disk))
+if (root !== null && cache !== null && id !== null) nodeModule.registerHooks(prebuiltHooks({ root, cache, id }, disk))
