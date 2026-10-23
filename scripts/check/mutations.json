@@ -18019,8 +18019,8 @@
       "req": "harness",
       "why": "「在树里」只比前缀、不带斜杠 —— 名字以那棵树开头的兄弟目录也被当成树里的",
       "file": "scripts/check/prebuilt-hook.ts",
-      "find": "const prefix = pathToFileURL(at.root).href + '/'",
-      "replace": "const prefix = pathToFileURL(at.root).href",
+      "find": "const prefix = normalize(pathToFileURL(at.root).href) + '/'",
+      "replace": "const prefix = normalize(pathToFileURL(at.root).href)",
       "by": "test",
       "kills": ["钩子加载：树里的 .ts 按现在的正文从缓存取；树外的（含同前缀的兄弟目录）、不是 .ts 的交给下一个"]
     },
@@ -18137,9 +18137,9 @@
     {
       "id": "M-H62-r",
       "req": "harness",
-      "why": "记住的键永不作废 —— 改了没重编的文件照样被当成齐，加载时当场报错",
+      "why": "源码或编译身份改变后仍沿用记住的旧键，误把旧缓存判成齐全",
       "file": "scripts/check/prebuilt.ts",
-      "find": "had.mtimeMs === st.mtimeMs && had.size === st.size",
+      "find": "had.id === id && had.mtimeMs === st.mtimeMs && had.size === st.size",
       "replace": "had !== undefined",
       "by": "test",
       "kills": ["改了没重编：照旧交给 tsx", "编译配置改变：旧键不算齐，重新预编才恢复裸起"]
@@ -18213,6 +18213,16 @@
       "replace": "import { registerHooks } from 'node:module'\nconst nodeModule = { registerHooks }",
       "by": "test",
       "kills": ["缺少同步注册 API 的 node：普通导入预编模块与 KOL_PREBUILT=0 的 tsx 入口仍可运行"]
+    },
+    {
+      "id": "M-H62-y",
+      "req": "harness",
+      "why": "目录的词法路径与真实路径指向同处时仍须加载同一棵脚本树",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": "const normalize = (url: string): string => disk.realpath === undefined ? url : pathToFileURL(disk.realpath(fileURLToPath(url))).href",
+      "replace": "const normalize = (url: string): string => url",
+      "by": "test",
+      "kills": ["目录别名起入口：仍加载同一棵树并保留模块地址语义"]
     }
   ],
   "exemptions": [

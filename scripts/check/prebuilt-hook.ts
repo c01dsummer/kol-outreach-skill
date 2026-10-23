@@ -13,7 +13,7 @@
  * 自己去掉类型（与 `launch-preload.ts` 同一处境）。键怎么算只此一份，`prebuilt.ts` 写缓存时也从这里拿。
  */
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import * as nodeModule from 'node:module'
 import type { LoadHookSync, ResolveHookSync } from 'node:module'
 import { basename, join } from 'node:path'
@@ -29,13 +29,15 @@ export const keyOf = (id: string, file: string, source: string): string =>
 /** 缓存里装这个键的那个文件 */
 export const entryPath = (cache: string, key: string): string => join(cache, `${key}.js`)
 
-/** 钩子读盘的两件事；测试换成一张表 */
-export interface HookDisk { exists(path: string): boolean; read(path: string): string | undefined }
+/** 钩子读取路径与源码的接口；测试可用虚拟盘 */
+export interface HookDisk { exists(path: string): boolean; read(path: string): string | undefined; realpath?(path: string): string }
 
 /** 给定那棵树、缓存目录与编译身份的两个钩子 */
 export function prebuiltHooks(at: { root: string; cache: string; id: string }, disk: HookDisk): { resolve: ResolveHookSync; load: LoadHookSync } {
-  const prefix = pathToFileURL(at.root).href + '/'
-  const inside = (url: string | undefined): url is string => url !== undefined && url.startsWith(prefix)
+  // 归属按真实位置判断；保留交给 Node 的原 URL，兼容目录别名与保留软链的起法。
+  const normalize = (url: string): string => disk.realpath === undefined ? url : pathToFileURL(disk.realpath(fileURLToPath(url))).href
+  const prefix = normalize(pathToFileURL(at.root).href) + '/'
+  const inside = (url: string | undefined): url is string => url !== undefined && url.startsWith('file:') && normalize(url).startsWith(prefix)
   return {
     resolve(specifier, context, next) {
       if ((specifier.startsWith('./') || specifier.startsWith('../')) && specifier.endsWith('.js') && inside(context.parentURL)) {
@@ -59,6 +61,7 @@ export function prebuiltHooks(at: { root: string; cache: string; id: string }, d
 
 const disk: HookDisk = {
   exists: existsSync,
+  realpath: path => { try { return realpathSync(path) } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return path; throw e } },
   read: path => { try { return readFileSync(path, 'utf8') } catch { return undefined } },
 }
 

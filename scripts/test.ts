@@ -9067,6 +9067,10 @@ harness('预编 JS 端到端：裸 node 跑缓存里的那一份，改过没重�
     eq('编译配置改变：旧键不算齐，重新预编才恢复裸起',
       [isBare(prebuiltCommand([main], owner, env)[1]), prebuildTree(owner), isBare(prebuiltCommand([main], owner, env)[1])],
       [false, { wrote: 2, kept: 0, removed: 2 }, true])
+    const alias = join(owner, 'alias')
+    symlinkSync(owner, alias, 'dir')
+    const linked = run(prebuiltCommand([join(alias, 'scripts', 'main.ts')], alias, env))
+    eq('目录别名起入口：仍加载同一棵树并保留模块地址语义', [linked.status, linked.stdout.trim()], [0, '[22,true,true]'])
     const compat = join(owner, 'compat.ts'), legacy = join(owner, 'legacy-module.mjs')
     const hookURL = new URL('./check/prebuilt-hook.ts', import.meta.url).href
     writeFileSync(join(owner, 'package.json'), '{"type":"module"}')
