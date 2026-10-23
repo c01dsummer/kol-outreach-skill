@@ -93,8 +93,9 @@ grep -rF "<一句旧理由>" output/$N/frozen/
 
 - **环境里不放任何出网凭据**（现在只有 `TIKHUB_API_KEY`）：从一个去掉它的 shell 起 Agent，
   比如在 worktree 根下 `env -u TIKHUB_API_KEY <Agent 的命令>`。
-- **worktree 根下不放 `.env`**：每条 npm 命令都带 `--env-file-if-exists=.env`；`.env` 不进仓库，新 worktree 本来没有，别复制。
+- **worktree 根下不放 `.env`**：`collect`、`enrich`、`render`、`calibration`、`feedback-template` 与两条 `probe` 命令都带 `--env-file-if-exists=.env`；`.env` 不进仓库，新 worktree 本来没有，别复制。
 - 这样任何请求企图都在发送前失败（`902e63e` 上 `scripts/providers/tikhub.ts` 第 163 行：没有 key 就抛错，不发请求）。render 本身不发请求。
+- **Agent 问要不要跑 Phase 05（查公开指标）时，答「不跑」**，每一跑答话一字不差。Phase 05 不在比对范围；没有 key 它也发不出请求，可跑没跑、怎么失败会变成几跑之间多出来的差别。
 - **跑完核一遍费用账没变**：每一跑的 `task.json` 里 `cost_ledger` 与冻结集里的逐字相同。
 
 ```bash
@@ -108,24 +109,27 @@ node -e 'const p=require("path"),r=f=>JSON.stringify(require(p.resolve(f)).cost_
 - **旧版**：改动前的主干提交（那条 PR 的 base：`git merge-base origin/main <PR 的 head>`）。**新版**：PR 的 head。
 - **每一跑一个 worktree**，各自只读自己的 `skill/`：`.claude/skills/kol-outreach`、`.agents/skills/kol-outreach`
   两条软链在 git 里，指向本 worktree 的 `skill/`（`docs/ARCHITECTURE.md`「新东西落在哪个目录」）。Agent 在 worktree 根下起。
-- 每个任务三跑：旧版两跑（e 用）、新版一跑。三跑用同一个 Agent、同一个模型版本；模型换了，差别里就混着模型那一份，只能判「混杂」（g）。
+- **每个任务四跑：旧版三跑、新版一跑。** 旧版前两跑量噪声（e），第三跑与新版配成新旧对（f）。新旧对不用噪声对里的那两跑：
+  判的人先看过噪声对，新旧对里要是又出现其中一跑，草稿逐字认得出，就知道另一边是新版，盲比就不盲了。
+- 四跑用同一个 Agent、同一个模型版本。模型版本不同，差别里就混着模型那一份：不下判词，照实写进 PR 正文（ADR-159 第四节）。
 
 ```bash
 git worktree add --detach ../reg-old1 <旧版提交>
 git worktree add --detach ../reg-old2 <旧版提交>
+git worktree add --detach ../reg-old3 <旧版提交>
 git worktree add --detach ../reg-new  <新版提交>
-for w in reg-old1 reg-old2 reg-new; do
+for w in reg-old1 reg-old2 reg-old3 reg-new; do
   (cd ../$w && npm ci)
   mkdir -p ../$w/output/<名字> && cp -a output/<名字>/frozen/. ../$w/output/<名字>/
 done
 ```
 
 - **冻结集拷到每个 worktree 的同一个相对路径 `output/<名字>/`。** 任务号取的是目录名；路径一样，产出里就不会因为目录名不同漏出是哪一跑。
-- **三跑的先后随机排。** 产出里有这一跑的时间（评审时间、`task.json` 的 `updated_at`），先后固定的话，时间就漏出哪份是新版。
-  `node -e 'console.log(["reg-old1","reg-old2","reg-new"].sort(()=>Math.random()-0.5).join(" "))'`
+- **四跑的先后随机排。** 产出里有这一跑的时间（评审时间、`task.json` 的 `updated_at`），先后固定的话，时间就漏出哪份是新版。
+  `node -e 'console.log(["reg-old1","reg-old2","reg-old3","reg-new"].sort(()=>Math.random()-0.5).join(" "))'`
 - **每一跑给 Agent 的话一字不差**，像用户真会说的话，不出现「评测」「打分」这类字眼。比如：
 
-  > `output/<名字>` 这批候选帮我重新筛一遍，A 级的写好开发信，出名单和报告。不用再采集。
+  > `output/<名字>` 这批候选帮我重新筛一遍，A 级的写好开发信，出名单和报告。不用再采集，也不用查公开指标。
 
 ---
 
@@ -141,15 +145,14 @@ done
 
 ## f　盲比
 
-**改名与密封**。三跑都跑完后，每个任务配两对：噪声对（`reg-old1`、`reg-old2`），新旧对（两跑旧版里随机挑一跑，配 `reg-new`）。
-每对只拷交付物，A、B 两边随机分；对应关系先写进密封文件，再判：
+**改名与密封**。四跑都跑完后，每个任务配两对：噪声对（`reg-old1`、`reg-old2`），新旧对（`reg-old3`、`reg-new`）。
+每对只拷交付物，A、B 两边随机分；对应关系先写进密封文件，再判。`<名字>-compare` 已经有了就换个名字，不覆盖（`sealed.txt` 是只读的，旧拷贝也会混进来）：
 
 ```bash
-C=output/<名字>-compare; mkdir -p $C
+C=output/<名字>-compare; mkdir $C
 node -e '
 const fs=require("fs"),c=process.argv[1],n=process.argv[2]
-const old=Math.random()<0.5?"reg-old1":"reg-old2"
-const pairs={noise:["reg-old1","reg-old2"],change:[old,"reg-new"]}
+const pairs={noise:["reg-old1","reg-old2"],change:["reg-old3","reg-new"]}
 const files=["agent-review.json","creators.json","kol.csv","kol.xlsx","report.html","meta.json"]
 const seal=[]
 for(const [name,two] of Object.entries(pairs)){
@@ -207,6 +210,6 @@ shasum -a 256 $C/sealed.txt
 
 ## i　成本
 
-- **模型调用**：每个任务三跑（旧版两跑、新版一跑），每跑一次 Agent 会话做完 Phase 04、06 与 render；合计「任务数 × 3」次会话。
+- **模型调用**：每个任务四跑（旧版三跑、新版一跑，见 d），每跑一次 Agent 会话做完 Phase 04、06 与 render；合计「任务数 × 4」次会话。
 - **API 费**：零。不发 TikHub 请求（c）。
 - 判的人的时间：每个任务读两对产出。还没跑过真的，花多久没量过。
