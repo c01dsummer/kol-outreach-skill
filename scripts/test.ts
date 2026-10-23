@@ -6987,7 +6987,6 @@ harness('判 crashed 时留下的现场：带记号的一条都不许丢')
   // 夹具记号与进程记号同权 —— 两支都是「不是断言的功劳」
   ok('夹具记号也算原因',
     crashEvidence(`  ✗ 某条${SELFCHECK_FIXTURE_MARK}：夹具废了`, SC, 1).lines.length === 1)
-  // 没有失败行就是没有 —— 兜底那句话由入口打，判定这边交空名单
   // ⚠️ 一条成形的失败行都没有 → 交回原始输出的末尾几行。真崩掉的那一次打的是**栈**，
   // 一行以「✗ 」开头的都没有 —— 只认成形的失败行的话，现场恰恰在最需要它的那一档
   // 是空的，而这段代码存在的唯一理由就是诊断那一次（M-H35-a，#105 第四轮评审指出）。
@@ -7535,8 +7534,10 @@ try {
   const ask = (...args: string[]) => maintenanceGit(repository, ...args);
   const comparison = resolveMutationBaseline(ask, base);
   eq('维护-显式基线取真实祖先与HEAD', JSON.stringify(comparison), JSON.stringify({ kind: 'compare', base, head }));
-  for (const invalid of ['', ' ', 'HEAD', base.slice(0, 12), '0'.repeat(40), 'z'.repeat(40)]) {
-    eq(`维护-显式基线拒绝非法SHA ${JSON.stringify(invalid)}`, resolveMutationBaseline(ask, invalid).kind, 'cannot-answer');
+  // 短 SHA 每跑不同，标签里写成固定的名字：同一配置两次正常基线的打印要逐字相同（ADR-145 第 1134 行那一类）
+  for (const [name, invalid] of [['""', ''], ['" "', ' '], ['"HEAD"', 'HEAD'], ['基线的12位短SHA', base.slice(0, 12)],
+    [JSON.stringify('0'.repeat(40)), '0'.repeat(40)], [JSON.stringify('z'.repeat(40)), 'z'.repeat(40)]]) {
+    eq(`维护-显式基线拒绝非法SHA ${name}`, resolveMutationBaseline(ask, invalid).kind, 'cannot-answer');
   }
   eq('维护-显式基线不能等于HEAD', resolveMutationBaseline(ask, head).kind, 'cannot-answer');
   eq('维护-显式基线提交缺失无从比较', resolveMutationBaseline(ask, 'f'.repeat(40)).kind, 'cannot-answer');

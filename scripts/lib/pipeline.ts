@@ -349,8 +349,8 @@ export function pendingKeywords(state: TaskState): string[] {
  *
  * **两条都不在 `mutations.json` 的 `exemptions` 里** —— D6.f 原先登记过，落地 4 撤了；
  * `P3.b` 从头到尾没登记过。D6.e 也不必：它说的是「那句话说什么」，在 `scripts/test.ts`
- * 里有认领；`M-D6-f`／`M-D6-g`／`M-D6-h` 的 `req` 写的是 `D6`，按「编号逐字相同」守的是
- * 需求级的 D6、不是判据 D6.e，但判据这一头有测试认领就不会被报成缺口（ADR-25）。
+ * 里有认领。#155 把它重编成 D6.q（D6.f 同时重编成 D6.r）；`M-D6-f`／`M-D6-g`／`M-D6-h`
+ * 的 `req` 今天都写 `D6.q`，按「编号逐字相同」守的就是这条判据（ADR-25 末尾）。
  */
 export function resumeCostLine(
   dir: string, state: TaskState, qualified: number, creators: Creator[],

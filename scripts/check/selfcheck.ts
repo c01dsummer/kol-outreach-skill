@@ -7737,10 +7737,11 @@ console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执�
       named('维护入口-事件拒绝零验证者执行 ' + kind, (entryRead(fixture.marker, 'utf8')) === ('sentinel\n'), '实际值必须与既定期望完全相同');
       named('维护入口-事件拒绝未施变 ' + kind, (entryRead(fixture.target, 'utf8')) === ('keep\n'), '实际值必须与既定期望完全相同');
     }
-    for (const base of [head, 'invalid-base']) {
+    // 标签写固定的名字，不拼玩具仓库这一跑的提交号：同一配置两次正常基线的打印要逐字相同（ADR-145 第 1134 行那张欠条）
+    for (const [name, base] of [['等于HEAD', head], ['invalid-base', 'invalid-base']]) {
       entryWrite(fixture.marker, 'sentinel\n');
-      entryRefusal('维护入口-显式基线拒绝 ' + base, entryRun(fixture.cwd, base));
-      named('维护入口-坏基线未新增验证者执行 ' + base, (entryRead(fixture.marker, 'utf8')) === ('sentinel\n'), '实际值必须与既定期望完全相同');
+      entryRefusal('维护入口-显式基线拒绝 ' + name, entryRun(fixture.cwd, base));
+      named('维护入口-坏基线未新增验证者执行 ' + name, (entryRead(fixture.marker, 'utf8')) === ('sentinel\n'), '实际值必须与既定期望完全相同');
     }
     const missing = entrySetup('missing-baseline-catalog', true);
     entryCatalog(missing.cwd, [{ ...entryMutation, full_run: entryReason }]); entryCommit(missing.cwd, 'current catalog exists');
