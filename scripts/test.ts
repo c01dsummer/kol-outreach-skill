@@ -74,6 +74,11 @@ import {
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { compileCacheDir, tsxCommand } from './check/tsx-cmd.js'
 import {
+  PREBUILT_DIR, asTsx, bareLaunch, bringsTsxLoader, complete as cacheComplete, identityOf, isBare, ownerOf, prebuildOne, prebuildTree,
+  prebuiltCommand, scriptsRootOf,
+} from './check/prebuilt.js'
+import { entryPath, keyOf, prebuiltHooks } from './check/prebuilt-hook.js'
+import {
   SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_SEEDS,
   SELFCHECK_TOOLS,
   closure, importsOf, infraClosure, selfVerifying, selfcheckSummary,
@@ -139,7 +144,7 @@ import {
 } from './lib/assessment.js'
 import {
   writeFileSync, unlinkSync, truncateSync, rmSync, mkdirSync, mkdtempSync, existsSync,
-  readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync,
+  readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync, cpSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
@@ -198,6 +203,8 @@ const GROUPS: readonly Group[] = [
   { id: 'h-launch-summary-deep', needs: [] },
   { id: 'h-launch-preload', needs: [] },
   { id: 'h-launch-preload-edge', needs: [] },
+  { id: 'h-prebuilt', needs: [] },
+  { id: 'h-prebuilt-entry', needs: [] },
   { id: 'h-worker-start', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
@@ -208,6 +215,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-group-share-real', needs: [] },
   { id: 'h-selfcheck-selection-entry', needs: [] },
   { id: 'h-selfcheck-shard-entry', needs: [] },
+  { id: 'h-selfcheck-shard-open', needs: [] },
   { id: 'h-check-rules', needs: [] },
   { id: 'p1-provider', needs: [] },
   { id: 'd6-provider', needs: [] },
@@ -8957,6 +8965,100 @@ try {
 } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
+await group('h-prebuilt', () => {
+harness('预编 JS：缓存按正文寻址，缺一份就照旧 tsx，钩子只换内容不换地址')
+{
+  // 期望值照 ADR-158 第二节的规定手写，不取自实现的运行结果；读盘换成一张表
+  const id = 'id-a', k = keyOf(id, '/r/scripts/a.ts', 'x')
+  eq('预编缓存的键：正文、编译身份、文件名任一样不同就是另一个键；目录不算',
+    [k === keyOf(id, '/r/scripts/a.ts', 'y'), k === keyOf('id-b', '/r/scripts/a.ts', 'x'), k === keyOf(id, '/r/scripts/b.ts', 'x'),
+      k === keyOf(id, '/r/.check-cache/mutate-jobs/w0/scripts/a.ts', 'x')], [false, false, false, true])
+  const base = { esbuild: '0.28.2', node: '22.22.0', compilerOptions: { strict: true } }
+  ok('编译身份随 esbuild 版本、node 版本、compilerOptions 变', [identityOf({ ...base, esbuild: '0.28.3' }),
+    identityOf({ ...base, node: '22.23.0' }), identityOf({ ...base, compilerOptions: {} })].every(x => x !== identityOf(base)))
+  const has = (p: string) => p === '/r/.check-cache/prebuilt'
+  eq('一个脚本的树与缓存主人：往上找最近的 scripts/，再从它的上一层往上找第一个带缓存的；worker 副本找到仓库根，临时目录里的找不到',
+    [scriptsRootOf('/r/scripts/check/x.ts'), scriptsRootOf('/r/lib/x.ts'), ownerOf('/r/scripts', has),
+      ownerOf('/r/.check-cache/mutate-jobs/w0/scripts', has), ownerOf('/t/toy/scripts', has)],
+    ['/r/scripts', null, '/r', '/r', null])
+  eq('整棵树每个 .ts 在缓存里都有现在这一版才算齐', [cacheComplete(['a', 'b'], f => `e-${f}`, e => e !== 'e-b'),
+    cacheComplete(['a', 'b'], f => `e-${f}`, () => true)], [false, true])
+  const tsxLoader = '--import file:///r/node_modules/tsx/dist/esm/index.mjs'
+  eq('NODE_OPTIONS 里带着 tsx 的加载器才算', [tsxLoader, '--import file:///r/scripts/check/fake-fetch.ts', undefined].map(bringsTsxLoader),
+    [true, false, false])
+  let asked = 0
+  const at = { disabled: false, strips: true, script: '/r/scripts/test.ts', nodeOptions: undefined, root: '/r/scripts', owner: '/r',
+    complete: () => { asked++; return true } }
+  eq('走不走裸 node：样样成立才走；关掉、node 自己去不掉类型、不是 .ts、带着 tsx 加载器、找不到树或缓存、缓存不齐，都照旧 tsx',
+    [bareLaunch(at), bareLaunch({ ...at, disabled: true }), bareLaunch({ ...at, strips: false }), bareLaunch({ ...at, script: '/r/scripts/x.mjs' }),
+      bareLaunch({ ...at, nodeOptions: tsxLoader }), bareLaunch({ ...at, root: undefined }), bareLaunch({ ...at, owner: undefined }),
+      bareLaunch({ ...at, complete: () => false })], [true, false, false, false, false, false, false, false])
+  eq('缓存齐不齐最后才问：前面几样不成立就不走一遍树', asked, 1)
+  const bare = ['--import', `${new URL('./check/prebuilt-hook.ts', import.meta.url).href}?root=r`, 'a.ts']
+  eq('裸 node 起的信号死亡按 tsx 的壳报的那样换成 128+N；tsx 起的、正常退出的原样交回',
+    [asTsx(bare, null, 'SIGTERM'), asTsx(bare, null, 'SIGKILL'), asTsx(['/r/node_modules/tsx/dist/cli.mjs', 'a.ts'], null, 'SIGKILL'),
+      asTsx(bare, 1, null)],
+    [{ status: 143, signal: null }, { status: 137, signal: null }, { status: null, signal: 'SIGKILL' }, { status: 1, signal: null }])
+
+  const cache = '/r/.check-cache/prebuilt'
+  const disk: Record<string, string> = { '/r/scripts/a.ts': 'A', '/r/scripts/lib/b.ts': 'B' }
+  disk[entryPath(cache, keyOf(id, '/r/scripts/a.ts', 'A'))] = 'compiled A'
+  const hooks = prebuiltHooks({ root: '/r/scripts', cache, id }, { exists: p => p in disk, read: p => disk[p] })
+  const resolveOf = (specifier: string, parentURL: string) =>
+    hooks.resolve(specifier, { parentURL, conditions: [], importAttributes: {} }, s => ({ url: `next:${s}` })).url
+  eq('钩子解析：树里写的 ./x.js 在 x.ts 在时认 x.ts；x.ts 不在、在树外、不是相对路径的交给下一个',
+    [resolveOf('./lib/b.js', 'file:///r/scripts/a.ts'), resolveOf('./lib/c.js', 'file:///r/scripts/a.ts'),
+      resolveOf('./scripts/lib/b.js', 'file:///r/x.ts'), resolveOf('node:fs', 'file:///r/scripts/a.ts')],
+    ['file:///r/scripts/lib/b.ts', 'next:./lib/c.js', 'next:./scripts/lib/b.js', 'next:node:fs'])
+  const loadOf = (url: string): unknown => {
+    try { return hooks.load(url, { format: undefined, conditions: [], importAttributes: {} }, u => ({ format: 'next', source: u })) }
+    catch (e) { return e instanceof Error ? e.message : String(e) }
+  }
+  eq('钩子加载：树里的 .ts 按现在的正文从缓存取；树外的（含同前缀的兄弟目录）、不是 .ts 的交给下一个',
+    [loadOf('file:///r/scripts/a.ts'), loadOf('file:///r/scripts2/a.ts'), loadOf('file:///r/scripts/x.json')],
+    [{ format: 'module', source: 'compiled A', shortCircuit: true }, { format: 'next', source: 'file:///r/scripts2/a.ts' },
+      { format: 'next', source: 'file:///r/scripts/x.json' }])
+  const miss = loadOf('file:///r/scripts/lib/b.ts')
+  ok('钩子加载：缓存里没有现在这一版就当场报错、点名那个文件，不拿别的顶上', typeof miss === 'string' && miss.includes('/r/scripts/lib/b.ts'))
+}
+})
+
+await group('h-prebuilt-entry', () => {
+harness('预编 JS 端到端：裸 node 跑缓存里的那一份，改过没重编的照旧 tsx，起进程之后才改的当场报错')
+{
+  const owner = mkdtempSync(join(tmpdir(), 'kol-prebuilt-'))
+  try {
+    const main = join(owner, 'scripts', 'main.ts'), value = join(owner, 'scripts', 'lib', 'value.ts')
+    mkdirSync(join(owner, 'scripts', 'lib'), { recursive: true })
+    mkdirSync(join(owner, PREBUILT_DIR), { recursive: true })
+    writeFileSync(main, "import { value } from './lib/value.js'\nconst n: number = value\n"
+      + "console.log(JSON.stringify([n, import.meta.url.endsWith('/scripts/main.ts'), process.argv[1]?.endsWith('/scripts/main.ts')]))\n")
+    writeFileSync(value, 'export const value: number = 1\n')
+    const env: NodeJS.ProcessEnv = { ...process.env }
+    delete env.KOL_PREBUILT
+    delete env.NODE_OPTIONS
+    eq('预编整棵树：两个 .ts 各写一份', prebuildTree(owner), { wrote: 2, kept: 0, removed: 0 })
+    const run = ([exe, argv]: [string, string[]]) => spawnSync(exe, argv, { cwd: owner, env, encoding: 'utf8', timeout: 30_000 })
+    const command = prebuiltCommand([main], owner, env)
+    const first = run(command)
+    eq('裸 node 装钩子跑缓存里的那一份：./x.js 认到 x.ts，import.meta.url 与 argv[1] 照旧是 .ts',
+      [command[0] === process.execPath && isBare(command[1]), first.status, first.stdout.trim()], [true, 0, '[1,true,true]'])
+    // 起进程之后才改：拿改之前算好的那张参数表再跑一次
+    writeFileSync(value, 'export const value: number = 22\n')
+    const stale = run(command)
+    ok('起进程之后才改的：钩子当场报错点名那个文件，不拿旧的顶上',
+      stale.status !== 0 && stale.stderr.includes(value) && !stale.stdout.includes('[1,'))
+    eq('改了没重编：照旧交给 tsx', isBare(prebuiltCommand([main], owner, env)[1]), false)
+    prebuildOne(value, 'export const value: number = 22\n')
+    const again = prebuiltCommand([main], owner, env), ran = run(again)
+    eq('只把改过的那一个文件编进缓存，就又走裸 node、跑的是改过的那一版', [isBare(again[1]), ran.status, ran.stdout.trim()],
+      [true, 0, '[22,true,true]'])
+    eq('再预编整棵树：沿用现在这一版的，删掉不属于它的', prebuildTree(owner), { wrote: 0, kept: 2, removed: 1 })
+    eq('KOL_PREBUILT=0 照旧交给 tsx', isBare(prebuiltCommand([main], owner, { ...env, KOL_PREBUILT: '0' })[1]), false)
+  } finally { rmSync(owner, { recursive: true, force: true }) }
+}
+})
+
 await group('h-worker-start', () => {
 harness('worker 启动观测协议：兼容旧回报并拒绝坏字段')
 
@@ -10856,7 +10958,7 @@ harness('真实自检入口的严格选择：非法参数不能被忽略后报�
       && /^(?:\s*\([^()\r\n]*\)|\s*（[^（）\r\n]*）)$/.test(found.slice(step.length)))
   })
   const run = (args: string[]) => {
-    const [exe, argv] = tsxCommand(['scripts/check/selfcheck.ts', ...args])
+    const [exe, argv] = prebuiltCommand(['scripts/check/selfcheck.ts', ...args])
     const r = spawnSync(exe, argv, { encoding: 'utf8', env, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 })
     const output = `${r.stdout}\n${r.stderr}`
     // 起不来、超时、被信号停下或内部崩溃都没有资格满足具名拒绝断言。
@@ -10921,7 +11023,7 @@ harness('拆进程跑的子进程：出处那句与末尾汇总只由父进程�
   const provenanceSkipped = (output: string) =>
     lines(output).some(line => line.includes('没验') && line.includes('每个可执行文件都有出处'))
   const run = (extra: NodeJS.ProcessEnv) => {
-    const [exe, argv] = tsxCommand(['scripts/check/selfcheck.ts', '--only=dup-ids'])
+    const [exe, argv] = prebuiltCommand(['scripts/check/selfcheck.ts', '--only=dup-ids'])
     const r = spawnSync(exe, argv, { encoding: 'utf8', env: { ...env, ...extra }, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 })
     const output = `${r.stdout}\n${r.stderr}`
     // 起不来、超时、被信号停下、内部崩溃、动了认领、留下临时夹具：都没有资格作证（与上一组同一道门）
@@ -10961,6 +11063,41 @@ harness('拆进程跑的子进程：出处那句与末尾汇总只由父进程�
 }
 
 })
+await group('h-selfcheck-shard-open', () => {
+harness('拆进程跑打不开某一族的日志：那一族报成没起来，照常合并出汇总')
+{
+  // 实现上下文所写，期望照 ADR-132 第 324 行那张欠条：打不开时走「没起来」那条路，不以未捕获异常退出。
+  // 要的是完整、非变异的整跑（只有它拆进程），而它会删认领与按族的启动计数 —— 所以在一份只有 scripts/ 的副本里跑；
+  // 注入让每一族的日志都打不开，于是一个子进程也不起，这一跑只花一次启动
+  const root = mkdtempSync(join(tmpdir(), 'kol-shard-open-'))
+  try {
+    const toy = join(root, 'toy'), tmp = join(root, 'tmp'), inject = join(root, 'emfile.cjs')
+    mkdirSync(tmp)
+    cpSync('scripts', join(toy, 'scripts'), { recursive: true })
+    cpSync('package.json', join(toy, 'package.json'))
+    symlinkSync(resolve('node_modules'), join(toy, 'node_modules'), 'dir')
+    writeFileSync(inject, [
+      "const fs = require('node:fs'), { syncBuiltinESMExports } = require('node:module'), open = fs.openSync",
+      'fs.openSync = function (p, ...rest) {',
+      "  if (typeof p === 'string' && /[\\\\/]shards-[^\\\\/]+[\\\\/]\\d+\\.log$/.test(p))",
+      "    throw Object.assign(new Error(`EMFILE: too many open files, open '${p}'`), { code: 'EMFILE', errno: -24, syscall: 'open', path: p })",
+      '  return open.call(this, p, ...rest)',
+      '}',
+      'syncBuiltinESMExports()',
+    ].join('\n'))
+    const env: NodeJS.ProcessEnv = { ...process.env, TMPDIR: tmp, TMP: tmp, TEMP: tmp, SELFCHECK_JOBS: '2', NODE_OPTIONS: `--require ${inject}` }
+    delete env.MUTATING
+    delete env.SELFCHECK_SHARD_REPORT
+    const r = spawnSync(...prebuiltCommand(['scripts/check/selfcheck.ts'], toy, env),
+      { cwd: toy, env, encoding: 'utf8', timeout: 60_000, maxBuffer: 16 * 1024 * 1024 })
+    const refused = (r.stderr ?? '').split('\n').filter(line => line.includes('的子进程没起来（EMFILE'))
+    ok('拆进程跑打不开某一族的日志：报成那一族没起来、带着原因，照常打出汇总并以 1 结束',
+      r.status === 1 && refused.length > 0 && /^✗ 脚本自检：\d+ 项失败$/m.test(r.stderr ?? ''))
+    ok('拆进程跑打不开日志时照常收尾：临时目录收干净', !readdirSync(tmp).some(name => name.startsWith('kol-selfcheck-')))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}
+})
+
 await group('h-check-rules', () => {
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
 {
@@ -15273,7 +15410,7 @@ await group('u10-report-entry', async () => {
     await fsBlind.writeFile(pathBlind.join(cwdBlind, 'memory', 'creators.json'), JSON.stringify({
       version: 1, updated_at: now, creators: { 'tiktok:seen_contacted': entry('seen_contacted', true, false), 'tiktok:seen_blocked': entry('seen_blocked', false, true) }
     }));
-    const [nodeBlind, argsBlind] = tsxCommand([filePathBlind(new URL('./render.ts', import.meta.url)), '--dir', taskDir]);
+    const [nodeBlind, argsBlind] = prebuiltCommand([filePathBlind(new URL('./render.ts', import.meta.url)), '--dir', taskDir]);
     const executed = spawnBlind(nodeBlind, argsBlind, { cwd: cwdBlind, encoding: 'utf8', timeout: 30000 });
     if (executed.error || executed.status !== 0) throw new Error('（进程）真实 render 未完成：' + String(executed.error || executed.stderr));
     const delivered = JSON.parse(await fsBlind.readFile(pathBlind.join(taskDir, 'creators.json'), 'utf8')) as Array<{ platform: string; handle: string; tier: string }>;
@@ -15501,7 +15638,7 @@ await group('u11-feedback-report-entry', async () => {
     firstDocument.rounds[0].candidates[0].source_tasks![0].keyword = 'mutated copy'
     ok('U11已校验反馈和冻结来源getter拥有独立副本', isDeepStrictEqual({ feedback: context.feedback, document: context.document }, getterExpected))
     const renderAbsolute = join(dirname(fileURLToPath(import.meta.url)), 'render.ts')
-    const run = spawnSync(...tsxCommand([renderAbsolute, '--dir', taskDir]), { cwd: isolated, env: { ...process.env, TIKHUB_API_KEY: '' }, encoding: 'utf8', timeout: 30000 })
+    const run = spawnSync(...prebuiltCommand([renderAbsolute, '--dir', taskDir], isolated), { cwd: isolated, env: { ...process.env, TIKHUB_API_KEY: '' }, encoding: 'utf8', timeout: 30000 })
     ok('U11真实render入口成功交付报告', run.status === 0 && existsSync(join(taskDir, 'meta.json')) && existsSync(join(taskDir, 'report.html')))
     const meta = existsSync(join(taskDir, 'meta.json')) ? JSON.parse(rf(join(taskDir, 'meta.json'), 'utf8')) : {}
     const expectedSummary = { rounds: [{ round_id: 'old<&>pool', candidates: 3, reviewed: 2, unreviewed: 1 }, { round_id: 'new-pool', candidates: 3, reviewed: 3, unreviewed: 0 }],
