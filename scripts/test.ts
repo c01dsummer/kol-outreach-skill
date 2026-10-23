@@ -56,6 +56,7 @@ import {
 import { HARNESS, attributionFault, duplicateIds, orphanAttributions } from './check/attribution-rule.js'
 import { orderBindingFaults, type OrderFault, type OrderMutation } from './check/order-rule.js'
 import { skillFaults, type IndexEntry, type SkillDoc, type SkillFault, type SkillFaultKind, type SkillInput } from './check/skill-rule.js'
+import { briefSheet, declarationFindings, insideRoot, requirementSheet } from './check/admission-rule.js'
 import {
   CLAIMS_PATH, ENTRY_CLAIMS_PATH, claimsFresh, claimsOwnedBy, claimsPublishable, claimsReadFault,
   claimsWellFormed,
@@ -203,6 +204,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-infra-rules', needs: [] },
   { id: 'h-order-rule', needs: [] },
   { id: 'h-skill-rule', needs: [] },
+  { id: 'h-admission', needs: [] },
   { id: 'h-group', needs: [] },
   { id: 'h-group-share', needs: [] },
   { id: 'h-group-share-real', needs: [] },
@@ -10474,6 +10476,453 @@ eq('Skill 结构：没有软链、不是软链、软链指错了三种问题的�
   fixAudit([tree({ links: [LINK(CL, '../skill-old')] }), tree({ links: [FILE(CL), FILE(AG + '/SKILL.md')] })],
     f => f.item !== 2 || (typeof f.fix === 'string' && f.fix.includes('../../skill'))),
   { broken: [], kinds: ['no-link', 'not-link', 'wrong-target'] })
+})
+await group('h-admission', () => {
+harness('准入读物包的四个纯判定：需求单、变异说明、签名扫描、包目录在不在仓库里（ADR-162）')
+// 期望值只从 ADR-162 第二到第五节手推（第二节的版式与认法、第三节的三种、第四节的判法、第五节的接口）；
+// 写时 admission-rule.ts 是抛错的桩，没有函数体可读，也没有输出可抄。整组只调第五节那四个纯函数，0 次启动、不读文件。
+// 经 guard 调：抛错时返回哨兵 ['抛错', 消息]，每条断言各自红、整组不崩（ADR-156 第七节的先例）。
+// eq 不包 —— 变异点名用的清册只认直接传给它的字面量首参（ADR-145 第 242 行）。
+// 两处期望不出自 ADR-162 本身，是它交给别处的：豁免行开头那三个字照「全部变异里有没有 req 与这条豁免一字不差的」推
+// （第二节第 4 份第 2 条交给 mutate-rule.ts 那一对函数）；夹带实现原文认出的那一段，只对代码运算符断言是哪一段，
+// 认出标识符的只断言交出了哪一条（认出哪一段是 why-rule.ts 的事）。
+const guard = (run: () => unknown): unknown => {
+  try { return run() } catch (e) { return ['抛错', e instanceof Error ? e.message : String(e)] }
+}
+
+// ── 第 1 份：需求单（第二节第 1 份）
+// 登记表的一条。cat、pri 需求单不写，随手填
+const R = (id: string, text: string, accept: readonly (readonly [string, string])[] = [], over: Partial<Req> = {}): Req =>
+  ({ id, cat: id.charAt(0), pri: 'P1', text, accept: accept.map(([cid, ctext]) => ({ id: cid, text: ctext })), ...over })
+const GONE: Partial<Req> = { deprecated: { since: '2026-01-01', why: '并入别的需求' } }
+// 出包交回整份正文；不出包交回 ['不出包', 理由]
+const sheet = (reqs: readonly Req[], id: string): unknown => guard(() => {
+  const r = requirementSheet(reqs, id)
+  return r.ok ? r.text : ['不出包', r.reason]
+})
+// 出包时正文里以 ### 起头的那些行，即「点到名的需求」下各条的标题
+const heads = (reqs: readonly Req[], id: string): unknown => guard(() => {
+  const r = requirementSheet(reqs, id)
+  return r.ok ? r.text.split('\n').filter(l => l.startsWith('### ')) : ['不出包', r.reason]
+})
+// 出包时正文里 from 那一行之后、to 那一行之前的非空行
+const between = (reqs: readonly Req[], id: string, from: string, to: string): unknown => guard(() => {
+  const r = requirementSheet(reqs, id)
+  if (!r.ok) return ['不出包', r.reason]
+  const ls = r.text.split('\n'), i = ls.indexOf(from), j = ls.indexOf(to)
+  return i < 0 || j < i ? ['找不到这一节', from, to] : ls.slice(i + 1, j).filter(l => l !== '')
+})
+const ONE_HOP = '只走一跳：下面这些是上面的原文里点到名的，它们自己点到的不再往下收。'
+
+// 三节都有内容的一份。P2 的来源：原文点到 P1（写成 P1.e）；P2.b 的原文点到 D3；交点收两条 ——
+// P2 自己声明的 P2 × U2（登记表第 2 条），与声明在对面的 D4 × P2（第 4 条），按登记表先后；D4 × P2 的裁决点到 F3；
+// 两条裁决与 D3 原文里的 P2 是它自己，去掉。点到名的按登记表先后：P1、D3、D4、U2、F3。
+// F1 只被 D4、U2 的原文点到 —— 只走一跳，不收。交点上的 adr 版式里没有，不写
+const REG_FULL: readonly Req[] = [
+  R('P1', '不知道的值写成不知道。', [['P1.a', '未查询与查过没有分开写。']]),
+  R('P2', '草稿里的占位符原样留着，口径同 P1.e。', [['P2.a', '渲染后占位符仍在。'], ['P2.b', '待填项逐条列出（D3 不管这件事）。']],
+    { tension: [{ with: 'U2', ruling: '撞上时以 P2 为准。' }] }),
+  R('D3', '只凭昵称不合并，见 P2。', [['D3.a', '昵称相同、其余不同的两人分开。']]),
+  R('D4', '跨任务去重，另见 F1。', [['D4.a', '已推荐过的不再出现。']],
+    { tension: [{ with: 'P2', ruling: '去重不改草稿，口径照 F3。', adr: 'ADR-15' }] }),
+  R('U2', '输出按层排序，依 F1。', [['U2.a', '层内按分数降序。']]),
+  R('F1', '一跳之外的需求。', [['F1.a', '只被 D4、U2 点名。']]),
+  R('F3', '只在裁决里被点名。', [['F3.a', '交点的裁决也是来源。']]),
+]
+// 点到名的几条之间空一行（版式只画了一条，几条之间照节与节之间的写法）
+eq('准入读物：需求单三节都有内容时逐字照第二节的版式（交点两个方向都收、点到名的按登记表先后、只走一跳）', sheet(REG_FULL, 'P2'), [
+  '# P2', '',
+  '草稿里的占位符原样留着，口径同 P1.e。', '',
+  '## 验收标准', '',
+  '- **P2.a** 渲染后占位符仍在。',
+  '- **P2.b** 待填项逐条列出（D3 不管这件事）。', '',
+  '## 交点', '',
+  '- **P2 × U2**：撞上时以 P2 为准。',
+  '- **D4 × P2**：去重不改草稿，口径照 F3。', '',
+  '## 点到名的需求', '',
+  ONE_HOP, '',
+  '### P1', '', '不知道的值写成不知道。', '', '- **P1.a** 未查询与查过没有分开写。', '',
+  '### D3', '', '只凭昵称不合并，见 P2。', '', '- **D3.a** 昵称相同、其余不同的两人分开。', '',
+  '### D4', '', '跨任务去重，另见 F1。', '', '- **D4.a** 已推荐过的不再出现。', '',
+  '### U2', '', '输出按层排序，依 F1。', '', '- **U2.a** 层内按分数降序。', '',
+  '### F3', '', '只在裁决里被点名。', '', '- **F3.a** 交点的裁决也是来源。',
+].join('\n') + '\n')
+eq('准入读物：点到名的需求收原文、判据、交点两边与裁决几处来源，一跳之外的 F1 不收',
+  heads(REG_FULL, 'P2'), ['### P1', '### D3', '### D4', '### U2', '### F3'])
+
+// 三节都没有：没有判据，没有一条交点碰它，原文里没有认得出的编号（ADR-15、Phase 01 不认）
+const REG_EMPTY: readonly Req[] = [
+  R('P1', '不知道的值写成不知道。', [['P1.a', '未查询与查过没有分开写。']]),
+  R('U9', '孤立的一条：ADR-15 与 Phase 01 都不是需求编号。'),
+]
+eq('准入读物：三节都没有内容时各只有一行「没有。」，点到名的那一节不写只走一跳那一句', sheet(REG_EMPTY, 'U9'), [
+  '# U9', '',
+  '孤立的一条：ADR-15 与 Phase 01 都不是需求编号。', '',
+  '## 验收标准', '',
+  '没有。', '',
+  '## 交点', '',
+  '没有。', '',
+  '## 点到名的需求', '',
+  '没有。',
+].join('\n') + '\n')
+
+// 点到名的一条已作废：标题后面写（已作废），原文与判据照常写；交点那一节没有
+const REG_DEP: readonly Req[] = [
+  R('S1', '旧口径。', [['S1.a', '旧判据。']], GONE),
+  R('U2', '新口径，取代 S1。', [['U2.a', '新判据。']]),
+]
+eq('准入读物：点到名的作废需求标题写（已作废），原文与判据照常写，交点一条没有时只有一行「没有。」', sheet(REG_DEP, 'U2'), [
+  '# U2', '',
+  '新口径，取代 S1。', '',
+  '## 验收标准', '',
+  '- **U2.a** 新判据。', '',
+  '## 交点', '',
+  '没有。', '',
+  '## 点到名的需求', '',
+  ONE_HOP, '',
+  '### S1（已作废）', '', '旧口径。', '', '- **S1.a** 旧判据。',
+].join('\n') + '\n')
+
+// 认法用的登记表：目标需求 U5 接在末尾，原文、判据、交点由各条断言给。S1 作废；U1 自己点到 D1、P1（一跳之外）
+const REG_CITE: readonly Req[] = [
+  R('P1', '甲。', [['P1.a', '甲判据。']]),
+  R('D1', '乙。', [['D1.a', '乙判据。']]),
+  R('D10', '丙。', [['D10.a', '丙判据。']]),
+  R('S1', '丁。', [['S1.a', '丁判据。']], GONE),
+  R('U1', '戊，见 D1。', [['U1.a', '戊判据，见 P1。']]),
+]
+const cite = (text: string, accept: readonly (readonly [string, string])[] = [], over: Partial<Req> = {}): readonly Req[] =>
+  [...REG_CITE, R('U5', text, accept, over)]
+
+eq('准入读物：没有判据时验收标准下只有一行「没有。」，点到名的那一节照常写', sheet([...REG_CITE, R('U7', '只点 P1。')], 'U7'), [
+  '# U7', '',
+  '只点 P1。', '',
+  '## 验收标准', '',
+  '没有。', '',
+  '## 交点', '',
+  '没有。', '',
+  '## 点到名的需求', '',
+  ONE_HOP, '',
+  '### P1', '', '甲。', '', '- **P1.a** 甲判据。',
+].join('\n') + '\n')
+// D1 被 U1 的原文点到 —— 那是 U1 点到的，不是 D1 点到的；编号要一字不差，D1 不是 D10
+eq('准入读物：被别的需求点名不算它点到的，D1 的需求单里没有 U1 也没有 D10', sheet(REG_CITE, 'D1'), [
+  '# D1', '',
+  '乙。', '',
+  '## 验收标准', '',
+  '- **D1.a** 乙判据。', '',
+  '## 交点', '',
+  '没有。', '',
+  '## 点到名的需求', '',
+  '没有。',
+].join('\n') + '\n')
+
+// 三种结局里不出包的两种，与判据编号当需求编号（第二节第 1 份第 1 条）
+eq('准入读物：登记表里没有的编号不出包，理由写明登记表里没有', sheet(REG_CITE, 'U8'), ['不出包', '需求登记表里没有 U8'])
+eq('准入读物：作废的需求不出包，理由写明已作废', sheet(REG_CITE, 'S1'), ['不出包', 'S1 已作废'])
+eq('准入读物：判据编号不是需求编号，P1.a 按没有处理', sheet(REG_CITE, 'P1.a'), ['不出包', '需求登记表里没有 P1.a'])
+eq('准入读物：编号区分大小写，p1 按没有处理', sheet(REG_CITE, 'p1'), ['不出包', '需求登记表里没有 p1'])
+
+eq('准入读物：判据照登记表里的先后，不重排',
+  between(cite('原文里没有编号。', [['U5.b', '乙。'], ['U5.a', '甲。']]), 'U5', '## 验收标准', '## 交点'),
+  ['- **U5.b** 乙。', '- **U5.a** 甲。'])
+
+// 交点：P4 自己一条都没声明，D1 × P4、D4 × P4 声明在对面（第二节第 3 条举的就是这个形状）；
+// D1 × U1 两边都不是 P4，不收，U1 也就不被点到
+const REG_T1: readonly Req[] = [
+  R('D1', '同名不合并。', [], { tension: [{ with: 'P4', ruling: '合并后照样挡。' }, { with: 'U1', ruling: '合并不改排序。' }] }),
+  R('P4', '已联系的人不进交付。'),
+  R('D4', '跨任务去重。', [], { tension: [{ with: 'P4', ruling: '去重照样挡。' }] }),
+  R('U1', '按层排序。'),
+]
+eq('准入读物：交点只声明在对面的也收，两边都不是这条的不收',
+  between(REG_T1, 'P4', '## 交点', '## 点到名的需求'), ['- **D1 × P4**：合并后照样挡。', '- **D4 × P4**：去重照样挡。'])
+eq('准入读物：交点对面那一边算点到名的需求，不相干交点的那一边不算', heads(REG_T1, 'P4'), ['### D1', '### D4'])
+// 交点的先后：按登记表逐条需求、每条按它 tension 里的先后 —— 不先列自己声明的。
+// 点到名的按登记表先后（D1、D4、U1、F2），不按在交点里出现的先后（D1、U1、F2、D4）
+const REG_T2: readonly Req[] = [
+  R('D1', '甲。', [], { tension: [{ with: 'P4', ruling: '甲裁决。' }] }),
+  R('P4', '乙。', [], { tension: [{ with: 'U1', ruling: '乙裁决。' }, { with: 'F2', ruling: '丙裁决。' }] }),
+  R('D4', '丁。', [], { tension: [{ with: 'P4', ruling: '丁裁决。' }] }),
+  R('U1', '戊。'),
+  R('F2', '己。'),
+]
+eq('准入读物：交点按登记表先后逐条需求、每条按它 tension 里的先后',
+  between(REG_T2, 'P4', '## 交点', '## 点到名的需求'),
+  ['- **D1 × P4**：甲裁决。', '- **P4 × U1**：乙裁决。', '- **P4 × F2**：丙裁决。', '- **D4 × P4**：丁裁决。'])
+eq('准入读物：点到名的按登记表先后排，不按在交点里出现的先后', heads(REG_T2, 'P4'), ['### D1', '### D4', '### U1', '### F2'])
+
+// 认法（第二节第 1 份第 4 条）：大写 P/S/D/F/U 紧跟一串数字；前面不是字母、数字、下划线或在开头；数字串连着读。
+// 编号两边只放空格、中文标点或行首行尾 —— 紧挨汉字的写法第二节没说汉字算不算「字母」，这里不碰
+eq('准入读物：编号在原文开头也认', heads(cite('P1 在句首。'), 'U5'), ['### P1'])
+eq('准入读物：编号前面紧贴字母不认（xP1、FP1）', heads(cite('紧贴字母：xP1、FP1。'), 'U5'), [])
+eq('准入读物：编号前面紧贴数字不认（9P1）', heads(cite('紧贴数字：9P1。'), 'U5'), [])
+eq('准入读物：编号前面紧贴下划线不认（_P1）', heads(cite('紧贴下划线：_P1。'), 'U5'), [])
+eq('准入读物：数字串连着读，D10 不认成 D1', heads(cite('只点 D10。'), 'U5'), ['### D10'])
+eq('准入读物：判据编号 P1.e 认成需求 P1', heads(cite('口径同 P1.e。'), 'U5'), ['### P1'])
+eq('准入读物：ADR-15 与 Phase 01 都不认', heads(cite('见 ADR-15 与 Phase 01。'), 'U5'), [])
+eq('准入读物：小写的 p1、d1 不认', heads(cite('小写：p1、d1。'), 'U5'), [])
+eq('准入读物：认出来但登记表里没有的不收（S9、F2）', heads(cite('登记表里没有：S9、F2。'), 'U5'), [])
+eq('准入读物：原文点到自己不收', heads(cite('自己：U5。'), 'U5'), [])
+eq('准入读物：同一条点到几次只出一次，按登记表先后排', heads(cite('U1、P1、U1、P1.a。'), 'U5'), ['### P1', '### U1'])
+eq('准入读物：点到作废的也收，标题写（已作废）', heads(cite('取代 S1。'), 'U5'), ['### S1（已作废）'])
+eq('准入读物：只走一跳，U1 自己点到的 D1、P1 不收', heads(cite('只点 U1。'), 'U5'), ['### U1'])
+eq('准入读物：只在判据原文里点到的也收', heads(cite('原文里没有编号。', [['U5.a', '判据里点到 D1。']]), 'U5'), ['### D1'])
+eq('准入读物：只在交点裁决里点到的也收（D10），连同交点那一边（U1）',
+  heads(cite('原文里没有编号。', [], { tension: [{ with: 'U1', ruling: '以 U5 为准，D10 照旧。' }] }), 'U5'), ['### D10', '### U1'])
+
+// ── 第 4 份：变异说明（第二节第 4 份）
+type AdmissionMutation = { id: string; req: string; why: string }
+type AdmissionExemption = { req: string; why: string; scope?: string }
+// 正文去掉末尾那一个换行再比：第二节给需求单写了「整份以一个换行结尾」，变异说明的版式没写，这里两种都认
+const brief = (id: string, ms: readonly AdmissionMutation[], es: readonly AdmissionExemption[]): unknown => guard(() => {
+  const t = briefSheet(id, ms, es).text
+  return t.endsWith('\n') ? t.slice(0, -1) : t
+})
+// 交出的夹带：[编号, 认出的那一段]
+const leaks = (id: string, ms: readonly AdmissionMutation[], es: readonly AdmissionExemption[]): unknown =>
+  guard(() => briefSheet(id, ms, es).leaks.map(l => [l.id, l.leak]))
+const leakIds = (id: string, ms: readonly AdmissionMutation[], es: readonly AdmissionExemption[]): unknown =>
+  guard(() => briefSheet(id, ms, es).leaks.map(l => l.id))
+// 归属：D1 收 D1 与 D1.c，不收 D10；P2 收 P2 与 P2.a，不收 P20、P2x（以 P2 起头、后面不是点）
+const MUTS: readonly AdmissionMutation[] = [
+  { id: 'M-D1-a', req: 'D1', why: '同名就合并，把两个人当成一个' },
+  { id: 'M-D10-a', req: 'D10', why: '十号需求名下的变异' },
+  { id: 'M-P2-a', req: 'P2.a', why: '占位符被静默抹掉' },
+  { id: 'M-D1-b', req: 'D1.c', why: '只看昵称就合并' },
+  { id: 'M-P20-a', req: 'P20', why: '二十号需求名下的变异' },
+  { id: 'M-P2-b', req: 'P2', why: '待填项不再列出' },
+  { id: 'M-P2x-a', req: 'P2x', why: '编号以 P2 起头、后面不是点' },
+]
+const EXEMPTS: readonly AdmissionExemption[] = [
+  { req: 'P2.b', why: '靠写草稿的人自觉', scope: '「是否编造」这一半' },
+  { req: 'D10', why: '十号需求的豁免' },
+  { req: 'D1', why: '没有代码路径可以认领' },
+  { req: 'P2.a', why: '另一半没有判定' },
+]
+// D1 的豁免：M-D1-a 的 req 正是 D1 → 名下有负片；没写 scope → 没有括号那一段
+eq('准入读物：变异说明 D1 收 D1 与 D1.c、不收 D10，变异在前、豁免在后，不写 scope 时没有括号', brief('D1', MUTS, EXEMPTS), [
+  '# 变异集 · D1', '',
+  'D1 与 D1.x 名下的变异「违反了什么」，与 `npm run mutate -- --brief` 同一栏；变异改哪个文件、改成什么不在这里。', '',
+  '  M-D1-a  [D1]  同名就合并，把两个人当成一个',
+  '  M-D1-b  [D1.c]  只看昵称就合并',
+  '  ⊘     [D1]  名下有负片：没有代码路径可以认领', '',
+  '共 2 个变异、1 处显式豁免。',
+].join('\n'))
+// P2.b 的豁免：没有一条变异的 req 是 P2.b → 名下无变异，带 scope；P2.a 的豁免：M-P2-a → 名下有负片。各按原数组的先后
+eq('准入读物：变异说明 P2 收 P2 与 P2.a、不收 P20 与 P2x，两种豁免行的写法', brief('P2', MUTS, EXEMPTS), [
+  '# 变异集 · P2', '',
+  'P2 与 P2.x 名下的变异「违反了什么」，与 `npm run mutate -- --brief` 同一栏；变异改哪个文件、改成什么不在这里。', '',
+  '  M-P2-a  [P2.a]  占位符被静默抹掉',
+  '  M-P2-b  [P2]  待填项不再列出',
+  '  ⊘     [P2.b]  名下无变异（「是否编造」这一半）：靠写草稿的人自觉',
+  '  ⊘     [P2.a]  名下有负片：另一半没有判定', '',
+  '共 2 个变异、2 处显式豁免。',
+].join('\n'))
+eq('准入读物：变异说明一条都没有时中间只有一行「没有。」，末行照写 0 与 0', brief('U9', MUTS, EXEMPTS), [
+  '# 变异集 · U9', '',
+  'U9 与 U9.x 名下的变异「违反了什么」，与 `npm run mutate -- --brief` 同一栏；变异改哪个文件、改成什么不在这里。', '',
+  '没有。', '',
+  '共 0 个变异、0 处显式豁免。',
+].join('\n'))
+eq('准入读物：变异说明只有豁免时中间只有豁免行，变异计 0', brief('S4', MUTS, [{ req: 'S4.a', why: '只能靠人', scope: '人工那一半' }]), [
+  '# 变异集 · S4', '',
+  'S4 与 S4.x 名下的变异「违反了什么」，与 `npm run mutate -- --brief` 同一栏；变异改哪个文件、改成什么不在这里。', '',
+  '  ⊘     [S4.a]  名下无变异（人工那一半）：只能靠人', '',
+  '共 0 个变异、1 处显式豁免。',
+].join('\n'))
+// 豁免记在 F5、变异只记在 F5.a：req 不是一字不差 → 名下无变异
+eq('准入读物：豁免名下有没有负片看 req 一字不差，F5.a 的变异不算 F5 名下的',
+  brief('F5', [{ id: 'M-F5-a', req: 'F5.a', why: '甲' }], [{ req: 'F5', why: '乙' }]), [
+    '# 变异集 · F5', '',
+    'F5 与 F5.x 名下的变异「违反了什么」，与 `npm run mutate -- --brief` 同一栏；变异改哪个文件、改成什么不在这里。', '',
+    '  M-F5-a  [F5.a]  甲',
+    '  ⊘     [F5]  名下无变异：乙', '',
+    '共 1 个变异、1 处显式豁免。',
+  ].join('\n'))
+
+// 夹带实现原文（第二节第 4 份第 3 条）。每次只放一条认得出的，交出来的先后第二节没说
+eq('准入读物：变异说明里干净的 why 不交夹带', leaks('P2', MUTS, EXEMPTS), [])
+eq('准入读物：变异的 why 夹带代码运算符，连同变异编号与认出的那一段交出来',
+  leaks('D1', [{ id: 'M-D1-a', req: 'D1', why: '只看昵称就合并' }, { id: 'M-D1-z', req: 'D1', why: '把 a ?? b 当成查过' }], []),
+  [['M-D1-z', '??']])
+eq('准入读物：豁免的 why 夹带代码运算符，编号写成 ⊘ [req]',
+  leaks('D1', MUTS, [{ req: 'D1.b', why: '判定写成 a === b 才放行' }]), [['⊘ [D1.b]', '===']])
+eq('准入读物：变异的 why 夹带内部函数名也交出来', leakIds('D1', [{ id: 'M-D1-y', req: 'D1', why: '降完立刻被 tierOf 覆盖' }], []), ['M-D1-y'])
+eq('准入读物：不归这条需求的变异与豁免夹带了也不交（D1 不收 D10）',
+  leaks('D1', [{ id: 'M-D10-z', req: 'D10', why: '把 a ?? b 当成查过' }], [{ req: 'D10', why: '判定写成 a === b 才放行' }]), [])
+
+// ── 第 2 份的扫描（第三节）。每一条是「第 <行> 行：<哪一种>」，行号取节点自己起头的那一行
+const scan = (text: string): unknown => guard(() => declarationFindings(text))
+// 一份干净的声明文件：第三节第二种名单上的语句各来一种，初始值都是名单上的字面量，函数、方法、构造器、取值器、存值器都只有签名
+const CLEAN_DTS = [
+  "import type { A } from './a.js'",
+  "import { b } from './b.js'",
+  "import fs = require('node:fs')",
+  "export * from './c.js'",
+  'export { b }',
+  '/** 文档注释：没查过是 null，查过没有是空串 */',
+  'export interface I { x: number; m(): void }',
+  'export type T = { a: string } | null',
+  'export declare class C {',
+  '  private constructor();',
+  '  static readonly k = 1;',
+  '  x: number;',
+  '  m(): void;',
+  '  get g(): number;',
+  '  set g(v: number);',
+  '}',
+  'export declare function f(a: number): string;',
+  'export declare function f(a: string): string;',
+  'export declare const n = 1, s = "s", t = `t`, big = 10n, yes = true, no = false, neg = -1, negBig = -1n;',
+  'declare let u: number;',
+  'export declare enum E { A = 0, B = "b", C = -2, D }',
+  'export declare namespace N {',
+  '  const k = 2;',
+  '  function h(): void;',
+  '  interface J { }',
+  '}',
+  "declare module 'm' {",
+  '  export const v: string;',
+  '}',
+  'export default C',
+].join('\n') + '\n'
+eq('准入读物：干净的声明文件扫出空单子', scan(CLEAN_DTS), [])
+eq('准入读物：导入赋值与 export = 是声明，不报', scan(`import x = require('x')
+export = x
+`), [])
+
+// 第一种：函数体
+eq('准入读物：只有签名的函数、构造器、方法、取值器、存值器不报函数体', scan(`export declare function f(): void
+export declare class C {
+  constructor(a: number)
+  m(): void
+  get g(): number
+  set g(v: number)
+}
+`), [])
+eq('准入读物：带函数体的函数声明报函数体', scan(`export function f(): number { return 1 }
+`), ['第 1 行：函数体'])
+eq('准入读物：带函数体的方法报函数体', scan(`export declare class C {
+  m(): void { }
+}
+`), ['第 2 行：函数体'])
+eq('准入读物：带函数体的构造器报函数体', scan(`export declare class C {
+  constructor() { }
+}
+`), ['第 2 行：函数体'])
+eq('准入读物：带函数体的取值器报函数体', scan(`export declare class C {
+  get g(): number { return 1 }
+}
+`), ['第 2 行：函数体'])
+eq('准入读物：带函数体的存值器报函数体', scan(`export declare class C {
+  set g(v: number) { }
+}
+`), ['第 2 行：函数体'])
+eq('准入读物：函数表达式报函数体', scan(`export = function () { return 1 }
+`), ['第 1 行：函数体'])
+eq('准入读物：箭头函数报函数体', scan(`export default () => { return 1 }
+`), ['第 1 行：函数体'])
+// 报了一处就不再往它里面找：里面套的函数、箭头函数，以及里面初始值不是字面量的变量、不是声明的语句，都不另报
+eq('准入读物：函数体里套的函数、箭头函数与别的东西不另报，一处函数体只报一条', scan(`export function outer(): void {
+  function inner(): void { }
+  const g = () => { return 1 }
+  const y = foo()
+  setup()
+}
+`), ['第 1 行：函数体'])
+eq('准入读物：方法体里套的函数表达式不另报', scan(`export declare class C {
+  m(): void {
+    const f = function () { }
+  }
+}
+`), ['第 2 行：函数体'])
+
+// 第二种：不是声明的语句 —— 文件顶层，以及 declare namespace／declare module 块里
+eq('准入读物：文件顶层的表达式语句与 if 语句报不是声明的语句', scan(`export declare const a: number
+setup()
+if (a) { }
+`), ['第 2 行：不是声明的语句', '第 3 行：不是声明的语句'])
+eq('准入读物：declare namespace 块里的表达式语句报不是声明的语句', scan(`export declare namespace N {
+  const k: number
+  k++
+}
+`), ['第 3 行：不是声明的语句'])
+eq('准入读物：declare module 块里的 for 语句报不是声明的语句', scan(`declare module 'm' {
+  export const v: string
+  for (;;) { }
+}
+`), ['第 3 行：不是声明的语句'])
+
+// 第三种：初始值不是字面量。名单：数字、字符串、没有插值的模板串、BigInt、true、false、负号加数字或 BigInt
+eq('准入读物：变量、类属性、枚举成员的初始值是名单上的字面量时不报', scan([
+  'export declare const n = 1, h = 0x10, s = "s", q = \'q\', t = `t`, big = 10n',
+  'export declare const yes = true, no = false, neg = -1, negBig = -1n, negF = -1.5',
+  'export declare class C { static readonly k = 1; x: number; y = "y" }',
+  'export declare enum E { A = 0, B = "b", C = -2, F }',
+  'declare let u: number',
+].join('\n') + '\n'), [])
+eq('准入读物：变量初始值是标识符报初始值不是字面量', scan('export declare const a = foo\n'), ['第 1 行：初始值不是字面量'])
+eq('准入读物：null 不在字面量名单上', scan('export declare const b = null\n'), ['第 1 行：初始值不是字面量'])
+eq('准入读物：带插值的模板串不在字面量名单上', scan('export declare const c = `x${a}y`\n'), ['第 1 行：初始值不是字面量'])
+eq('准入读物：正号加数字不在字面量名单上', scan('export declare const d = +1\n'), ['第 1 行：初始值不是字面量'])
+eq('准入读物：负号后面不是数字不在字面量名单上', scan('export declare const e = -x\n'), ['第 1 行：初始值不是字面量'])
+eq('准入读物：正则不在字面量名单上', scan('export declare const r = /re/\n'), ['第 1 行：初始值不是字面量'])
+eq('准入读物：类属性的初始值不是字面量也报', scan(`export declare class C {
+  x = bar
+}
+`), ['第 2 行：初始值不是字面量'])
+eq('准入读物：枚举成员的初始值不是字面量也报，是字面量的那一个不报', scan(`export declare enum E {
+  A = 1,
+  B = 1 << 2,
+}
+`), ['第 3 行：初始值不是字面量'])
+
+// 行号：节点自己起头的那一行，不算它前面的注释
+eq('准入读物：函数前面有行注释与多行文档注释时，行号取函数自己那一行', scan(`// 行注释
+/**
+ * 文档注释
+ */
+export function f(): number { return 1 }
+`), ['第 5 行：函数体'])
+eq('准入读物：变量前面有文档注释时，行号取变量自己那一行', scan(`/** 常量 */
+export declare const a = foo
+`), ['第 2 行：初始值不是字面量'])
+eq('准入读物：语句前面有行注释时，行号取语句自己那一行', scan(`// 起步
+setup()
+`), ['第 2 行：不是声明的语句'])
+// 先后：按在文件里的先后排，三种交错，不按种类归堆
+eq('准入读物：一份里几处问题按在文件里的先后排，不按种类归堆', scan(`import type { A } from './a.js'
+export declare const a = foo
+setup()
+export declare class C {
+  m(): void { }
+  x = bar
+}
+export declare enum E { A = 1, B = 2 << 1 }
+/** 说明 */
+export function f(): void { const y = g() }
+`), [
+  '第 2 行：初始值不是字面量',
+  '第 3 行：不是声明的语句',
+  '第 5 行：函数体',
+  '第 6 行：初始值不是字面量',
+  '第 8 行：初始值不是字面量',
+  '第 10 行：函数体',
+])
+
+// ── 墙：包目录在不在仓库里（第四节）。按 path.relative(root, dir) 手推，注释里写着推出来的那个结果
+const inside = (root: string, dir: string): unknown => guard(() => insideRoot(root, dir))
+eq('准入读物：包目录就是仓库根本身算在里面', inside('/a/repo', '/a/repo'), true) // ''
+eq('准入读物：包目录是仓库的子目录算在里面', inside('/a/repo', '/a/repo/pkg'), true) // 'pkg'
+eq('准入读物：包目录在仓库的深层子目录算在里面', inside('/a/repo', '/a/repo/x/y'), true) // 'x/y'
+eq('准入读物：包目录写成带结尾斜杠的仓库根也算在里面', inside('/a/repo', '/a/repo/'), true) // ''
+eq('准入读物：名字以 .. 开头的子目录算在里面', inside('/a/repo', '/a/repo/..cache'), true) // '..cache'
+eq('准入读物：兄弟目录不在里面', inside('/a/repo', '/a/other'), false) // '../other'
+eq('准入读物：名字以仓库目录名开头的兄弟不在里面', inside('/a/repo', '/a/repo-x'), false) // '../repo-x'
+eq('准入读物：上级目录不在里面', inside('/a/repo', '/a'), false) // '..'
+eq('准入读物：不相干的目录不在里面', inside('/a/repo', '/b/c'), false) // '../../b/c'
+eq('准入读物：仓库根是文件系统根时任何目录都在里面', inside('/', '/tmp/pkg'), true) // 'tmp/pkg'
 })
 await group('h-group', () => {
 harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 needs 一起跑')
