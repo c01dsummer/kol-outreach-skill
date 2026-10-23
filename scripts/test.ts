@@ -16380,7 +16380,8 @@ const d28Kit = (root: string) => {
   // 位置照 D27.a 的写法原文：根上的键照写，前后不能再接 [ ] " 或键名里能有的字。只核「含键名」的话，
   // 根上的 found 写成 ["found"] 或 found["0"] 也过（ADR-143 第 45 行那张欠条）
   const atSaid = (message: string, at: string) => {
-    const edge = /[\p{L}\p{N}_.\-["\]]/u
+    if (at === '') return false
+    const edge = /[\p{L}\p{N}_.\-["'`\]]/u
     for (let i = message.indexOf(at); i >= 0; i = message.indexOf(at, i + 1)) {
       if (!edge.test(message[i - 1] ?? '') && !edge.test(message[i + at.length] ?? '')) return true
     }

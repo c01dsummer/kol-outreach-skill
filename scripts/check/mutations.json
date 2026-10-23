@@ -10673,7 +10673,7 @@
     {
       "id": "M-D28-p",
       "req": "D28.a",
-      "why": "配置写重复的键时，根上的键在问题里也套成方括号加引号的写法 —— 与 task.json 同一种位置写法对不上，用户照着位置去配置里找的是另一种写法",
+      "why": "配置写重复的键时，根上写重复的那个键在问题里也套成方括号加引号的写法（往下的位置照旧） —— 与 task.json 同一种位置写法对不上，用户照着位置去配置里找的是另一种写法",
       "file": "scripts/lib/duplicate-keys.ts",
       "find": "i === 0 && plain.test(step) ? step",
       "replace": "i === 0 && plain.test(step) && path.length > 1 ? step",
