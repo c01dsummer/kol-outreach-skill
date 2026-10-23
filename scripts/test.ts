@@ -205,6 +205,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-launch-preload-edge', needs: [] },
   { id: 'h-prebuilt', needs: [] },
   { id: 'h-prebuilt-entry', needs: [] },
+  { id: 'h-prebuilt-options', needs: [] },
   { id: 'h-worker-start', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
@@ -9035,38 +9036,42 @@ harness('预编 JS 端到端：裸 node 跑缓存里的那一份，改过没重�
 {
   const owner = mkdtempSync(join(tmpdir(), 'kol-prebuilt-'))
   try {
+    const strips = Boolean(process.features.typescript) // ADR-158：不能内建剥离时应成功回退，不能要求裸起。
     const main = join(owner, 'scripts', 'main.ts'), value = join(owner, 'scripts', 'lib', 'value.ts')
     mkdirSync(join(owner, 'scripts', 'lib'), { recursive: true })
     mkdirSync(join(owner, PREBUILT_DIR), { recursive: true })
+    writeFileSync(join(owner, 'package.json'), '{"type":"module"}')
     writeFileSync(main, "import { value } from './lib/value.js'\nconst n: number = value\n"
       + "console.log(JSON.stringify([n, import.meta.url.endsWith('/scripts/main.ts'), process.argv[1]?.endsWith('/scripts/main.ts')]))\n")
     writeFileSync(value, 'export const value: number = 1\n')
     const env: NodeJS.ProcessEnv = { ...process.env }
     delete env.KOL_PREBUILT
     delete env.NODE_OPTIONS
+    delete env.TSX_TSCONFIG_PATH
     eq('预编整棵树：两个 .ts 各写一份', prebuildTree(owner), { wrote: 2, kept: 0, removed: 0 })
     const run = ([exe, argv]: [string, string[]]) => spawnSync(exe, argv, { cwd: owner, env, encoding: 'utf8', timeout: 30_000 })
     const command = prebuiltCommand([main], owner, env)
     const first = run(command)
-    eq('裸 node 装钩子跑缓存里的那一份：./x.js 认到 x.ts，import.meta.url 与 argv[1] 照旧是 .ts',
-      [command[0] === process.execPath && isBare(command[1]), first.status, first.stdout.trim()], [true, 0, '[1,true,true]'])
+    eq('缓存齐全时按内建能力选起法：./x.js 认到 x.ts，import.meta.url 与 argv[1] 照旧是 .ts',
+      [command[0] === process.execPath && isBare(command[1]), first.status, first.stdout.trim()], [strips, 0, '[1,true,true]'])
     // 起进程之后才改：拿改之前算好的那张参数表再跑一次
     writeFileSync(value, 'export const value: number = 22\n')
     const stale = run(command)
-    ok('起进程之后才改的：钩子当场报错点名那个文件，不拿旧的顶上',
-      stale.status !== 0 && stale.stderr.includes(value) && !stale.stdout.includes('[1,'))
+    ok('命令选定后源码变化：裸起报缺缓存，tsx 跑当前源码', strips
+      ? stale.status !== 0 && stale.stderr.includes(value) && !stale.stdout.includes('[1,')
+      : stale.status === 0 && stale.stdout.trim() === '[22,true,true]')
     eq('改了没重编：照旧交给 tsx', isBare(prebuiltCommand([main], owner, env)[1]), false)
     prebuildOne(value, 'export const value: number = 22\n')
     const again = prebuiltCommand([main], owner, env), ran = run(again)
-    eq('只把改过的那一个文件编进缓存，就又走裸 node、跑的是改过的那一版', [isBare(again[1]), ran.status, ran.stdout.trim()],
-      [true, 0, '[22,true,true]'])
+    eq('只编改过的文件：缓存恢复齐全，按内建能力选起法并跑当前源码', [isBare(again[1]), ran.status, ran.stdout.trim()],
+      [strips, 0, '[22,true,true]'])
     eq('再预编整棵树：沿用现在这一版的，删掉不属于它的', prebuildTree(owner), { wrote: 0, kept: 2, removed: 1 })
     eq('KOL_PREBUILT=0 照旧交给 tsx', isBare(prebuiltCommand([main], owner, { ...env, KOL_PREBUILT: '0' })[1]), false)
     // ADR-158 第二节：配置改变须换身份，源码未变也不能沿用上一份键。
     writeFileSync(join(owner, 'tsconfig.json'), '{"compilerOptions":{"strict":true}}')
-    eq('编译配置改变：旧键不算齐，重新预编才恢复裸起',
+    eq('编译配置改变：旧键不算齐，重编后按内建能力选起法',
       [isBare(prebuiltCommand([main], owner, env)[1]), prebuildTree(owner), isBare(prebuiltCommand([main], owner, env)[1])],
-      [false, { wrote: 2, kept: 0, removed: 2 }, true])
+      [false, { wrote: 2, kept: 0, removed: 2 }, strips])
     const alias = join(owner, 'alias'); symlinkSync(owner, alias, 'dir')
     writeFileSync(main, `import * as a from './lib/value.js'; import * as b from ${JSON.stringify(pathToFileURL(realpathSync(value)).href)}; console.log(a === b)\n`); prebuildTree(owner)
     const linked = ['', '--preserve-symlinks', '--preserve-symlinks-main', '--preserve-symlinks --preserve-symlinks-main'].map(flags => {
@@ -9075,7 +9080,6 @@ harness('预编 JS 端到端：裸 node 跑缓存里的那一份，改过没重�
     eq('目录别名起入口：仍加载同一棵树并保留模块地址语义', linked, [[0, 'true'], [0, 'true'], [0, 'true'], [0, 'false']])
     const compat = join(owner, 'compat.ts'), legacy = join(owner, 'legacy-module.mjs')
     const hookURL = new URL('./check/prebuilt-hook.ts', import.meta.url).href
-    writeFileSync(join(owner, 'package.json'), '{"type":"module"}')
     writeFileSync(compat, `import { prebuiltCommand } from ${JSON.stringify(new URL('./check/prebuilt.ts', import.meta.url).href)}
 import ${JSON.stringify(hookURL)}
 import * as legacyModule from 'kol:legacy-node-module'
@@ -9101,6 +9105,39 @@ module.registerHooks({
       [older.status, older.stdout.trim(), older.status === 0 ? '' : older.stderr], [0, '["function",false]', ''])
   } finally { rmSync(owner, { recursive: true, force: true }) }
 }
+})
+
+await group('h-prebuilt-options', () => {
+harness('预编选路：不能确认编译配置或子进程剥离能力时保留 tsx 语义')
+const owner = mkdtempSync(join(tmpdir(), 'kol-prebuilt-options-'))
+try {
+  mkdirSync(join(owner, 'scripts'), { recursive: true })
+  writeFileSync(join(owner, 'package.json'), '{"type":"module"}')
+  const main = join(owner, 'scripts', 'main.ts'), config = join(owner, 'tsconfig.json'), custom = join(owner, 'custom.json')
+  // useDefineForClassFields:false 应调用继承的 setter 一次；定义字段则不调用，期望从配置语义推导。
+  writeFileSync(main, 'let calls = 0; class Base {} Object.defineProperty(Base.prototype, "x", { set() { calls++ } }); class Child extends Base { x = 1 } new Child(); console.log(calls)')
+  const plain = '{"compilerOptions":{"useDefineForClassFields":false}}'
+  writeFileSync(custom, plain)
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  delete env.KOL_PREBUILT; delete env.NODE_OPTIONS; delete env.TSX_TSCONFIG_PATH
+  const run = (extra: NodeJS.ProcessEnv = {}) => {
+    const kidEnv = { ...env, ...extra }, command = prebuiltCommand([main], owner, kidEnv)
+    const r = spawnSync(...command, { cwd: owner, env: kidEnv, encoding: 'utf8', timeout: 30_000 })
+    return [isBare(command[1]), r.status, r.stdout.trim()]
+  }
+  writeFileSync(config, plain); prebuildTree(owner)
+  eq('普通 JSON 编译配置保留字段赋值语义并按内建能力选起法', run(), [Boolean(process.features.typescript), 0, '1'])
+  writeFileSync(config, '{}'); prebuildTree(owner)
+  eq('子进程显式 TSX_TSCONFIG_PATH：回退 tsx 使用指定配置', run({ TSX_TSCONFIG_PATH: custom }), [false, 0, '1'])
+  writeFileSync(config, '{\n// JSONC\n"compilerOptions":{"useDefineForClassFields":false}\n}'); prebuildTree(owner)
+  eq('JSONC 编译配置：回退 tsx 保留字段赋值语义', run(), [false, 0, '1'])
+  writeFileSync(config, '{"extends":"./custom.json"}'); prebuildTree(owner)
+  eq('继承编译配置：回退 tsx 使用完整有效配置', run(), [false, 0, '1'])
+  writeFileSync(config, plain); prebuildTree(owner)
+  eq('仅子进程禁用内建类型剥离：普通及引号写法均成功回退 tsx',
+    ['--no-experimental-strip-types', '"--no-experimental-strip-types"'].map(NODE_OPTIONS => run({ NODE_OPTIONS })),
+    [[false, 0, '1'], [false, 0, '1']])
+} finally { rmSync(owner, { recursive: true, force: true }) }
 })
 
 await group('h-worker-start', () => {
