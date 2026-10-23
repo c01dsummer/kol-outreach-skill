@@ -17,10 +17,13 @@
  *   都记到这一组头上。
  * - 名字按作用域认（编译器的符号表）：组里一个同名的局部变量不是那个顶层绑定。
  *
- * 判两种（写方 ≠ 读方）：
+ * 判三种（写方 ≠ 读方）：
  * - `family`：写方与读方不在同一族 —— **完整跑**拆进程时读方拿不到写方那一份。
  * - `closure`：同一族，读方只读不写、而它的 `needs` 闭包里没有写方 —— `--only` 点它时写方不跑。
  *   自己也写这份状态的组（惰性建夹具的那种）、碰同一路径的组，不在这一种里判：看不出谁靠谁。
+ * - `order`：同一族，读方只读不写、而它登记在写方之前 —— 族内与选跑都按登记顺序跑，读方跑的时候
+ *   写方还没跑（ADR-131 第 211 行）。不判的那两种同上。`needs` 指向登记在后的组本身不报：
+ *   拉着合法对照一起跑、却不读它写的东西的组今天就有（ADR-131 发现二）。与 `closure` 各判各的。
  *
  * 子进程交回、父进程合并的那几样（`MERGED`）各进程各写一份、由合并收回，写不算共享；
  * 组里**读**它们另判（`merged`）：拆进程后一组只看得见本进程那一份。
@@ -31,8 +34,8 @@
  * `S.get(k)!.add(…)` 都记成读）；对象方法、条件表达式里的函数体；`process.env`、`globalThis`、
  * import 进来的模块的状态；顶层收尾段读组写下的东西。**扫描绿只说明扫得见的共享都在 `needs` 里。**
  *
- * 报出来之后怎么回应：读方漏了写方，就把写方补进读方的 `needs`。两族各自建、各自用同一处
- * （`tmp` 下同名的落点、惰性夹具）也会报 —— 这是规则有意保守：改成各组各用各的路径或状态，
+ * 报出来之后怎么回应：读方漏了写方，就把写方补进读方的 `needs`；读方登记在写方之前，
+ * 就把读方挪到写方之后。两族各自建、各自用同一处（`tmp` 下同名的落点、惰性夹具）也会报 —— 这是规则有意保守：改成各组各用各的路径或状态，
  * **不要补一条假依赖**让两族并成一族，那只会静默降低拆进程的并行度。
  */
 import type * as Ts from 'typescript'
@@ -52,7 +55,7 @@ const MUTATORS = new Set(['add', 'set', 'delete', 'clear', 'push', 'pop', 'shift
   'splice', 'sort', 'reverse', 'fill', 'copyWithin'])
 
 export interface Share { state: string; writer: string; reader: string }
-export interface ShareFault extends Share { kind: 'family' | 'closure' | 'merged' }
+export interface ShareFault extends Share { kind: 'family' | 'closure' | 'order' | 'merged' }
 /** 一组（连同它提到的顶层函数）读了什么、写了什么 */
 export interface Effect { reads: ReadonlySet<string>; writes: ReadonlySet<string> }
 export interface ShareJudgement {
@@ -246,6 +249,7 @@ export function judgeShares(groups: readonly Group[], effects: ReadonlyMap<strin
   const PATH = `${root}/`
   const familyOf = new Map<string, number>()
   families(groups).forEach((f, i) => { for (const id of f) familyOf.set(id, i) })
+  const registered = new Map(groups.map((g, i) => [g.id, i]))
   const overlap = (a: string, b: string): boolean =>
     a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`)
   const pairs: Share[] = [], faults: ShareFault[] = []
@@ -263,6 +267,8 @@ export function judgeShares(groups: readonly Group[], effects: ReadonlyMap<strin
       if (familyOf.get(w.id) !== familyOf.get(r.id)) faults.push({ ...pair, kind: 'family' })
       else if (!state.startsWith(PATH) && !e.writes.has(state)
                && !wanted(groups, [r.id])!.has(w.id)) faults.push({ ...pair, kind: 'closure' })
+      if (familyOf.get(w.id) === familyOf.get(r.id) && !state.startsWith(PATH) && !e.writes.has(state)
+          && registered.get(w.id)! > registered.get(r.id)!) faults.push({ ...pair, kind: 'order' })
     }
   }
   for (const g of groups) for (const state of effects.get(g.id)!.reads) {

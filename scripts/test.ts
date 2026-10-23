@@ -10529,6 +10529,19 @@ harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 n
   ok('选跑判定拒绝重复登记 id',
     rejected(() => wanted([{ id: 'same', needs: [] }, { id: 'same', needs: [] }], ['same']))
       .includes('id 重复'))
+  // 自指与成环（ADR-99 第 327 行那一串）：闭包的记忆化把它们悄悄咽下，而按登记顺序跑时环上总有一组排在
+  // 它的前置组前头。要点出那一圈 —— 从登记里头一个走进环的组起、沿 needs 走回它；自指是只有一组的环
+  ok('选跑判定拒绝自指并点名那一组',
+    rejected(() => wanted([{ id: '自己', needs: ['自己'] }], ['自己'])).includes('自己 → 自己'))
+  ok('选跑判定拒绝成环并点出那一圈',
+    rejected(() => wanted([{ id: '甲', needs: ['乙'] }, { id: '乙', needs: ['甲'] }], ['甲']))
+      .includes('甲 → 乙 → 甲'))
+  ok('选跑判定拒绝成环：没点到环上的组也拒绝',
+    rejected(() => wanted([{ id: '甲', needs: ['乙'] }, { id: '乙', needs: ['甲'] }, { id: '旁', needs: [] }], ['旁']))
+      .includes('甲 → 乙 → 甲'))
+  // 菱形不是环：顶经左右两条路都走到底，底被走到两次。把「走过的」当成「在走的」，这张图就被误拒
+  const D = [{ id: '底', needs: [] }, { id: '左', needs: ['底'] }, { id: '右', needs: ['底'] }, { id: '顶', needs: ['左', '右'] }]
+  eq('菱形依赖不是环：点顶，四组都跑', [...wanted(D, ['顶'])!].sort(), ['右', '左', '底', '顶'])
 
   // 标签落在哪一组 —— 认的是 group(...) 这个代码结构，不认注释里的分节线
   const src = [
@@ -10586,6 +10599,16 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
     rejected(() => families([{ id: 'r', needs: ['missing'] }])).includes('组 r 缺少依赖组 missing'))
   ok('族划分拒绝重复登记 id',
     rejected(() => families([{ id: 's', needs: [] }, { id: 's', needs: [] }])).includes('id 重复'))
+  // 族划分是自检每一种跑法开跑前都过的那一处（整跑不经选跑），自指与成环要在这里也拦下
+  ok('族划分拒绝自指并点名那一组',
+    rejected(() => families([{ id: 'r', needs: [] }, { id: '自己', needs: ['r', '自己'] }])).includes('自己 → 自己'))
+  // 三组成环：登记 甲、乙、丙，甲 需要 丙、丙 需要 乙、乙 需要 甲；从甲走：甲 → 丙 → 乙 → 甲
+  ok('族划分拒绝成环并点出那一圈',
+    rejected(() => families([{ id: '甲', needs: ['丙'] }, { id: '乙', needs: ['甲'] }, { id: '丙', needs: ['乙'] }]))
+      .includes('甲 → 丙 → 乙 → 甲'))
+  eq('菱形依赖不是环：四组成一族',
+    families([{ id: '底', needs: [] }, { id: '左', needs: ['底'] }, { id: '右', needs: ['底'] }, { id: '顶', needs: ['左', '右'] }]),
+    [['底', '左', '右', '顶']])
 
   // 只有完整、非变异的那一跑才拆：变异那一步的验证者靠单进程输出判「见齐就停」
   const full = { subset: false, mutating: false, env: undefined, cpus: 4, families: 47 }
@@ -10720,6 +10743,27 @@ harness('自检组之间共享的运行态：needs 写全才不会在拆进程�
     "group('a', [], () => { fixture() })", "group('b', [], () => { fixture() })")),
     ['family fx: a → b', 'family fx: b → a'])
 
+  // ── 登记先后（ADR-131 第 211 行）──
+  // 同一族按登记顺序跑，选跑也照登记顺序：只读不写的读方登记在写方之前，它跑的时候写方还没跑，
+  // 读到的是初始值。needs 写全也救不了 —— 闭包只管跑不跑，不管谁先跑。
+  eq('needs 写全、读方却登记在写方之前：报 order', said(scan(
+    "group('peek', ['collect'], () => { if (dir) {} })", "group('collect', [], () => { dir = 'out' })")),
+    ['order dir: collect → peek'])
+  eq('读方登记在前、闭包里也没有写方：closure 与 order 各报一条', said(scan(
+    "group('peek', [], () => { if (dir) {} })", "group('collect', [], () => { dir = 'out' })",
+    "group('both', ['collect', 'peek'], () => {})")), ['closure dir: collect → peek', 'order dir: collect → peek'])
+  // needs 指向登记在后的组本身不是错：坏输入那几组拉着合法对照一起跑，却不读它写的东西（ADR-131 发现二）
+  eq('needs 指向登记在后的组、但不读它写的东西：不报', said(scan(
+    "group('bad', ['good'], () => {})", "group('good', [], () => {})")), [])
+  // 读方自己也写（惰性夹具）：谁先跑谁建，看不出谁靠谁，与 closure 同样不判
+  eq('惰性夹具：总入口登记在最前也不报', said(scan(lazy,
+    "group('all', ['a', 'b'], () => { fixture() })",
+    "group('a', [], () => { fixture() })", "group('b', [], () => { fixture() })")), [])
+  // tmp 下的路径谁写谁读源码里看不出，提到就算又读又写，不判先后
+  eq('同族碰同一路径、登记在前的那组只读：不报', said(scan(
+    "group('b', ['a'], () => { readFileSync(join(tmp, 'x.json')) })",
+    "group('a', [], () => { writeFileSync(join(tmp, 'x.json'), '') })")), [])
+
   // ── 什么算写 ──
   const written = (decl: string, body: string) => said(scan(decl,
     `group('w', [], () => { ${body} })`, "group('r', [], () => { void S })"))
@@ -10828,6 +10872,18 @@ harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
     ['family dir: collect → memory', 'family rendered: render → memory'])
   eq('真 selfcheck.ts 拿掉 enrich 的 needs：render 仍把它连在族里，只在选跑时读不到 dir',
     dropped('enrich'), ['closure dir: collect → enrich'])
+  // 阳性对照（登记先后）：ADR-131 发现二复核者在副本里做过的那一挪 —— positive 挪到 reject 之后。
+  // reject 只读 positive 写的 reviewCliEntryPositive（ADR-131「切法与依赖边」），collect-exit 登记在两组之后、照旧在 positive 之后
+  const moved = (id: string, after: string) => {
+    const before = new Set(said(scanned))
+    const rest = scanned.groups.filter(g => g.id !== id)
+    const at = rest.findIndex(g => g.id === after) + 1
+    const groups = [...rest.slice(0, at), scanned.groups.find(g => g.id === id)!, ...rest.slice(at)]
+    return said(judgeShares(groups, scanned.effects)).filter(f => !before.has(f))
+  }
+  eq('真 selfcheck.ts 把 review-cli-entry-positive 挪到 reject 之后：报 reject 先读了初始值',
+    moved('review-cli-entry-positive', 'review-cli-entry-reject'),
+    ['order reviewCliEntryPositive: review-cli-entry-positive → review-cli-entry-reject'])
 }
 })
 await group('h-selfcheck-selection-entry', () => {

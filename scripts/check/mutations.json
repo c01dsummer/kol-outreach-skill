@@ -1972,6 +1972,36 @@
       "kills": ["带时间窗口的那族挪到最后单独跑，其余按登记顺序并行，每族恰好一次", "几族都带窗口：按登记顺序逐个跑，不按点名的先后"]
     },
     {
+      "id": "M-H42-ap",
+      "req": "harness",
+      "why": "点名选跑时不再拦自指与成环：环上总有一组排在它的前置组前头，读到的是初始值，被它守着的那一节静默跳过",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  rejectLoops(groups, byId)\n",
+      "replace": "\n",
+      "by": "test",
+      "kills": ["选跑判定拒绝自指并点名那一组", "选跑判定拒绝成环并点出那一圈", "选跑判定拒绝成环：没点到环上的组也拒绝"]
+    },
+    {
+      "id": "M-H42-aq",
+      "req": "harness",
+      "why": "族划分不再拦自指与成环：自检整跑不经选跑，开跑前只有族划分这一处校验，坏图照跑",
+      "file": "scripts/check/group-rule.ts",
+      "find": "  rejectLoops(groups, new Map(groups.map(g => [g.id, g])))\n",
+      "replace": "\n",
+      "by": "test",
+      "kills": ["族划分拒绝自指并点名那一组", "族划分拒绝成环并点出那一圈"]
+    },
+    {
+      "id": "M-H42-ar",
+      "req": "harness",
+      "why": "走回正在走的那条路上不再当成环：自指与成环一律放过，选跑与族划分都照跑坏图",
+      "file": "scripts/check/group-rule.ts",
+      "find": "    if (at >= 0) throw new Error(`组的 needs 成环：${[...path.slice(at), id].join(' → ')}`)",
+      "replace": "    if (at >= 0) return",
+      "by": "test",
+      "kills": ["选跑判定拒绝自指并点名那一组", "选跑判定拒绝成环并点出那一圈", "选跑判定拒绝成环：没点到环上的组也拒绝", "族划分拒绝自指并点名那一组", "族划分拒绝成环并点出那一圈"]
+    },
+    {
       "id": "M-H42-u",
       "req": "harness",
       "why": "进程级问题只打印不计入失败数，这一跑照样以退出码零结束并写入口认领",
@@ -11592,6 +11622,36 @@
       "replace": "    return g",
       "by": "test",
       "kills": ["needs 指到形状扫不了的组：两处都报扫不了，不抛", "needs 里的组名写错：报扫不了，不抛"]
+    },
+    {
+      "id": "M-H51-al",
+      "req": "harness",
+      "why": "只读的读方登记在写方之前时不报：它按登记顺序先跑、读到初始值，红了也只按业务原因红，诊断不指向顺序",
+      "file": "scripts/check/share-rule.ts",
+      "find": "          && registered.get(w.id)! > registered.get(r.id)!) faults.push({ ...pair, kind: 'order' })",
+      "replace": "          && false) faults.push({ ...pair, kind: 'order' })",
+      "by": "test",
+      "kills": ["needs 写全、读方却登记在写方之前：报 order", "读方登记在前、闭包里也没有写方：closure 与 order 各报一条", "真 selfcheck.ts 把 review-cli-entry-positive 挪到 reject 之后：报 reject 先读了初始值"]
+    },
+    {
+      "id": "M-H51-am",
+      "req": "harness",
+      "why": "登记先后连自己也写的组（惰性夹具）与 tmp 下的路径一起判：看不出谁靠谁的那几对也被报成顺序错",
+      "file": "scripts/check/share-rule.ts",
+      "find": "      if (familyOf.get(w.id) === familyOf.get(r.id) && !state.startsWith(PATH) && !e.writes.has(state)\n",
+      "replace": "      if (familyOf.get(w.id) === familyOf.get(r.id)\n",
+      "by": "test",
+      "kills": ["惰性夹具：总入口登记在最前也不报", "同族碰同一路径、登记在前的那组只读：不报"]
+    },
+    {
+      "id": "M-H51-an",
+      "req": "harness",
+      "why": "登记先后判反了方向：写方登记在前的正常依赖被报成顺序错，读方登记在前的那种反而放过",
+      "file": "scripts/check/share-rule.ts",
+      "find": "registered.get(w.id)! > registered.get(r.id)!",
+      "replace": "registered.get(w.id)! < registered.get(r.id)!",
+      "by": "test",
+      "kills": ["needs 写全、读方却登记在写方之前：报 order", "needs 写全：同族、在闭包里，不报"]
     },
     {
       "id": "M-H52-a",
