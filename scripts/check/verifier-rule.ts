@@ -152,14 +152,15 @@ export const SELFCHECK_SEEDS: string[] = [...new Set([
  * 只认相对路径：`node:` 内建和第三方包不是本仓库的文件，改不动也变异不了。
  * 规格化成仓库根起算的 `.ts` 路径（源码里写的是 `.js`，那是 ESM 的规矩）。
  *
- * **判据故意写得宽**：认的是任何 `from '相对路径'`，不管它在代码里还是在注释里。
+ * **判据故意写得宽**：认的是任何 `from '相对路径'`，以及不带 `from` 的副作用 `import '相对路径'`
+ * （ESM 里合法的一句，只认 `from` 的话这条边收不到），不管它在代码里还是在注释里。
  * 理由是这条判据的两头不对称 —— 多收一个文件只是把闭包撑大、多拦下几条变异；
  * 少收一个就是**放行**一条自己验自己的变异。`closure` 头上写的是同一条道理。
  * 所以这里不玩「怎么把注释抠干净」那套军备竞赛（ADR-62 否掉过三条那样的判据）。
  */
 export function importsOf(path: string, source: string): Reaches {
   const dir = path.slice(0, path.lastIndexOf('/'))
-  const to = [...source.matchAll(/\bfrom\s*'(\.[^']+)'/g)].map(m => {
+  const to = [...source.matchAll(/\b(?:from|import)\s*'(\.[^']+)'/g)].map(m => {
     const parts = `${dir}/${m[1]}`.split('/')
     const out: string[] = []
     for (const seg of parts) {

@@ -4133,10 +4133,30 @@
       "req": "harness",
       "why": "第三方包和内建模块也当成本仓库的文件收进图里 —— 闭包里混进一堆改不动的名字，而判据本来只该管本仓库的文件",
       "file": "scripts/check/verifier-rule.ts",
-      "find": "/\\bfrom\\s*'(\\.[^']+)'/g",
-      "replace": "/\\bfrom\\s*'([^']+)'/g",
+      "find": "/\\b(?:from|import)\\s*'(\\.[^']+)'/g",
+      "replace": "/\\b(?:from|import)\\s*'([^']+)'/g",
       "by": "test",
       "kills": ["node 内建与第三方包不算边"]
+    },
+    {
+      "id": "M-H17-m",
+      "req": "harness",
+      "why": "抽边不认不带 from 的副作用 import —— 种子里一句这样加载的依赖落在验证基础设施闭包外，打在它身上、又指名了验证者的变异被放行，漏收正是这道闸门最不该错的那一头",
+      "file": "scripts/check/verifier-rule.ts",
+      "find": "(?:from|import)",
+      "replace": "(?:from)",
+      "by": "test",
+      "kills": ["不带 from 的副作用 import 也是一条边"]
+    },
+    {
+      "id": "M-H17-n",
+      "req": "harness",
+      "why": "种子里多出一句加载被测入口的引用 —— 被测入口被收进验证基础设施闭包，打在它上面、改跑自检的变异全被当成自己验自己拦下，这条记录的头号用例整个进不来",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "import { type Group, parseOnlyStrict, wanted } from './group-rule.js'",
+      "replace": "import '../collect.js'\nimport { type Group, parseOnlyStrict, wanted } from './group-rule.js'",
+      "by": "test",
+      "kills": ["被测入口一个都不在真闭包里"]
     },
     {
       "id": "M-H17-g",
@@ -4435,6 +4455,16 @@
         "红线整条豁免了变异 → 不进硬失败",
         "红线没变异又没豁免 → 硬失败"
       ]
+    },
+    {
+      "id": "M-H21-l",
+      "req": "harness",
+      "why": "判据级负片的计数改成全仓总数，不再只数这条需求自己的判据 —— 审计报告把别的需求的负片也印在这一条头上，一条判据级负片都没有的需求凭空多出一片证据",
+      "file": "scripts/check/spec-rule.ts",
+      "find": "const mutatedCrit = r.accept.filter(c => e.mutatedCriteria.has(c.id)).length",
+      "replace": "const mutatedCrit = e.mutatedCriteria.size",
+      "by": "test",
+      "kills": ["别的需求的判据级负片不算到这条头上"]
     },
     {
       "id": "M-H22-a",
@@ -10639,6 +10669,16 @@
       "kills": [
         "写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常以 0 结束并说明默认）"
       ]
+    },
+    {
+      "id": "M-D28-p",
+      "req": "D28.a",
+      "why": "配置写重复的键时，根上的键在问题里也套成方括号加引号的写法 —— 与 task.json 同一种位置写法对不上，用户照着位置去配置里找的是另一种写法",
+      "file": "scripts/lib/duplicate-keys.ts",
+      "find": "i === 0 && plain.test(step) ? step",
+      "replace": "i === 0 && plain.test(step) && path.length > 1 ? step",
+      "by": "test",
+      "kills": ["collect --config 拒绝时 stderr 写出配置文件路径、键的位置与出现次数，并按文件先后写出每一处被丢掉的原文"]
     },
     {
       "id": "M-D14-k",
@@ -17494,6 +17534,16 @@
       "kills": [
         "模板入口-零外部请求"
       ]
+    },
+    {
+      "id": "M-D26-r",
+      "req": "D26.n",
+      "why": "实际保存人工模板失败时吞掉错误、照常以 0 输出成功 JSON —— 首次创建的目标其实缺席、追加的新行其实没写上，用户照着成功结果去填一份不存在或没补齐的表",
+      "file": "scripts/lib/feedback-template-task.ts",
+      "find": "  if (plan.action !== 'unchanged') writeFileAtomic(file, plan.bytes)",
+      "replace": "  if (plan.action !== 'unchanged') try { writeFileAtomic(file, plan.bytes) } catch {}",
+      "by": "selfcheck",
+      "kills": ["模板入口-create保存失败", "模板入口-append保存失败"]
     },
     {
       "id": "M-U10-a",

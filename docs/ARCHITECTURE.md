@@ -402,7 +402,7 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | render 当前 Agent／人工投影与完整直接关系 → memory／同行与公开样本复核 → 唯一一次计分分层 → 评审排序及三个 formatter | `scripts/render.ts`、`scripts/lib/task-reviews.ts` | 人工采用可能绕过联系过滤，旧 fit 或旧品牌判断可能形成错误层级，三格式也可能交出不同的有效建议 | M-U9-o M-U9-s M-U9-t M-U9-u M-U9-v M-U9-aa M-D21-ai M-P4-o M-P4-r M-D8-p |
 | 模板参数与 task／品牌原值 → 已保存正本及冻结来源 → 完整旧名单／raw 直接关系 → 才读目标并计划写入 | `scripts/feedback-template.ts`、`scripts/lib/feedback-template-task.ts` | 坏输入在写入后才拒绝；缺席正本被迁移或冻结，坏 raw 被当成缺席，过滤后关系漏掉人工冲突 | M-D26-a–i、M-D27-r |
 | 显式追加先核完整人工 CSV → 再判新增账号／unchanged | `scripts/lib/feedback-template-task.ts`、`scripts/lib/manual-feedback-template.ts` | 无新增时放过坏人工表，或重复写入同账号；同字节重写改变文件身份与修改时间 | M-D26-g、M-D26-k、M-D26-m、M-D24-f |
-| 非 unchanged 计划实际保存成功；合法 unchanged 零写入确认 → 才输出成功 JSON | `scripts/lib/feedback-template-task.ts`、`scripts/feedback-template.ts` | 保存失败仍报成功，或失败覆盖旧作答、留下首次创建目标 | M-D26-m |
+| 非 unchanged 计划实际保存成功；合法 unchanged 零写入确认 → 才输出成功 JSON | `scripts/lib/feedback-template-task.ts`、`scripts/feedback-template.ts` | 保存失败仍报成功，或失败覆盖旧作答、留下首次创建目标 | M-D26-m、M-D26-r |
 <!-- END:ORDER -->
 
 ---
