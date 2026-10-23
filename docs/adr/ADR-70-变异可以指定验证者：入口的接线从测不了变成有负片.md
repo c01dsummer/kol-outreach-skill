@@ -2496,7 +2496,7 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 
 **为什么现在做。** 第 1394 行（变异跑到一半提交，把 `M-D6-d` 推上去）与第 2099 行（撤探针时 `git checkout --` 把真改动按回去，靠的是不在仓库里的数锚点脚本）两张欠条，条件「下一条碰 `mutate.ts` 或 `mutate-restore.ts` 的 PR」自 #105、#108 起就响过，此后碰这两个文件的 PR 十余条，一直没还。2026-10-23 欠条分派（需求所有者 02:54Z「有关联的欠条 dispatch 到相关 thread……无关联的单开」）把两张排进同一组。两张的修法是同一步，第 1396–1400 行早写明了：变异目录自己就是对照表，`npm run check` 开头逐条查锚点。
 
-**按「闸门自身走最后一块砖」（`process/6-INTEGRATE.md`）切成两片。** 本片只有判定、断言与负片，不接任何入口，检查链一步没多；第二片新建入口，接在 `npm run check` 的最前面，带自检夹具，并改 `AGENTS.md` 检查命令那一行与 `docs/ARCHITECTURE.md` 的锚点表、顺序契约表。第二片在本片合入后从主干开。**两张欠条本片都没还**，还在第二片。
+**按「闸门自身走最后一块砖」（`process/6-INTEGRATE.md`）切成两片。** 本片只有判定、断言与负片，不接任何入口，检查链一步没多；第二片新建入口，接在 `npm run check` 的最前面，带自检夹具，并改 `AGENTS.md` 检查命令那一行与 `docs/ARCHITECTURE.md` 的锚点表。第二片在本片合入后从主干开。**两张欠条本片都没还**，还在第二片。
 
 **判定。** `mutate-rule.ts` 的 `anchorFaults(目录, 读文件)`，逐条交回四种对不上的，全对得上交回空表：
 
@@ -2523,6 +2523,6 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 - 逐条模拟没还原：把每一条变异单独施加到它的文件上（照 `mutate.ts` 第 599 行的施加法 `String.prototype.replace`），其余文件不动，对整份目录判一遍。1600 条里 1599 条判成 `residue`，1 条判成 `stale`，没有一条漏报。脚本在会话草稿目录里，没进仓库。
 - 判成 `stale` 的那一条是 `M-D13-r`，原因是另一件事，见下。
 
-**`M-D13-r`：施加到盘上的不是目录里登记的那段。** 它的 `replace` 里有一段 `` `$${esc(value)}` ``。`mutate.ts` 施加时用的是 `String.prototype.replace` 的字符串形式，那种形式把替换文本里的 `$$` 展开成一个 `$`（`$&`、`` $` ``、`$'` 也各有含义），盘上写出的是 `` `${esc(value)}` ``：这条变异除了登记的那处（未知金额显示成 `$0`），还顺带去掉了已知金额前面的 `$`。今天它照样被抓到，而且不只是被顺带那处抓到：按字面施加，跑 `selfcheck --only=cost-local`，点名那条断言在四个未知金额的场景上红（本会话实跑）。所以这条变异的结论今天没错，错的是「施加的就是登记的」这件事本身，全目录只有这一条的 `replace` 带这几种记号：`` git show 902e63e:scripts/check/mutations.json | node -e 'const m=JSON.parse(require("fs").readFileSync(0,"utf8")).mutations;console.log(m.filter(x=>/\$[$&`\x27]/.test(x.replace)).map(x=>x.id).join(","))' `` 打出 `M-D13-r`。按 `6-INTEGRATE.md` 五档，这是既有缺陷，另开 PR：
+**`M-D13-r`：施加到盘上的不是目录里登记的那段。** 它的 `replace` 里有一段 `` `$${esc(value)}` ``。`mutate.ts` 施加时用的是 `String.prototype.replace` 的字符串形式，那种形式把替换文本里的 `$$` 展开成一个 `$`（`$&`、`` $` ``、`$'` 也各有含义），盘上写出的是 `` `${esc(value)}` ``：这条变异除了登记的那处（未知金额显示成 `$0`），还顺带去掉了已知金额前面的 `$`。今天它照样被抓到，而且不只是被顺带那处抓到：按字面施加，跑 `selfcheck --only=cost-local`，点名那条断言在四个未知金额的场景上红（本会话实跑）。所以这条变异的结论今天没错，错的是「施加的就是登记的」这件事本身，全目录只有这一条的 `replace` 带这几种记号：`` git show 902e63e:scripts/check/mutations.json | node -e 'const m=JSON.parse(require("fs").readFileSync(0,"utf8")).mutations;console.log(m.filter(x=>/\$[$&`\x27]/.test(x.replace)).map(x=>x.id).join(","))' `` 打出 `M-D13-r`。按 `6-INTEGRATE.md` 五档，这是既有缺陷，另开 PR，排在第二片之后（三条都改 `mutations.json` 与需求测试，碰同一批文件的 PR 一条一条来，`process/6-INTEGRATE.md`「一条长期分支」）：
 
-> ⚠️ 欠条（档：既有缺陷）：`mutate.ts` 施加变异时把 `replace` 里的 `$$`、`$&`、`` $` ``、`$'` 当替换记号展开，盘上写出的与目录里登记的可以不是同一段；全目录今天只有 `M-D13-r` 一条撞上，它的结论没变 · 重启条件：本片已合入
+> ⚠️ 欠条（档：既有缺陷）：`mutate.ts` 施加变异时把 `replace` 里的 `$$`、`$&`、`` $` ``、`$'` 当替换记号展开，盘上写出的与目录里登记的可以不是同一段；全目录今天只有 `M-D13-r` 一条撞上，它的结论没变 · 重启条件：本节第二片（入口）已合入
