@@ -206,6 +206,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-prebuilt', needs: [] },
   { id: 'h-prebuilt-entry', needs: [] },
   { id: 'h-prebuilt-options', needs: [] },
+  { id: 'h-prebuilt-observer', needs: [] },
   { id: 'h-worker-start', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
@@ -9137,6 +9138,88 @@ try {
   eq('仅子进程禁用内建类型剥离：普通及引号写法均成功回退 tsx',
     ['--no-experimental-strip-types', '"--no-experimental-strip-types"'].map(NODE_OPTIONS => run({ NODE_OPTIONS })),
     [[false, 0, '1'], [false, 0, '1']])
+} finally { rmSync(owner, { recursive: true, force: true }) }
+})
+
+await group('h-prebuilt-observer', async () => {
+harness('观察器加载契约：同环境同选路，.ts 观察器与 .js 入口共用模块实例')
+// ADR-158 第二片公开契约；先于实现独立编写，期望仅来自契约与下面的事件顺序。
+const exported: unknown = Reflect.get(await import('./check/prebuilt.js'), 'fixtureLoader')
+eq('观察器加载器公开契约：fixtureLoader 是函数', typeof exported, 'function')
+if (typeof exported !== 'function') return // 缺 API 是上面的具名断言红，不让 import 崩溃代替它。
+const fixtureLoader = exported as (script: string, env?: NodeJS.ProcessEnv) => string
+const owner = realpathSync(mkdtempSync(join(tmpdir(), 'kol-prebuilt-observer-')))
+try {
+  const scripts = join(owner, 'scripts'), cache = join(owner, PREBUILT_DIR)
+  mkdirSync(join(scripts, 'lib'), { recursive: true }); mkdirSync(cache, { recursive: true })
+  writeFileSync(join(owner, 'package.json'), '{"type":"module"}')
+  const main = join(scripts, 'main.ts'), value = join(scripts, 'lib', 'value.ts'), fake = join(scripts, 'fake-fetch.ts')
+  const observer = join(owner, 'observer.mjs'), config = join(owner, 'tsconfig.json'), custom = join(owner, 'custom.json')
+  const valueURL = pathToFileURL(value).href, observerURL = pathToFileURL(observer).href, fakeURL = pathToFileURL(fake).href
+  writeFileSync(value, "export const state = { wired: false, fake: false, events: [] as string[] }; export class Probe { hit() { state.events.push('unobserved') } }\n")
+  // 树外的 .mjs 由 Node 正常加载；用 .ts URL 改公开对象与原型，不能靠转译观察器本身。
+  writeFileSync(observer, `import { state, Probe } from ${JSON.stringify(valueURL)}; state.wired = true; Probe.prototype.hit = function () { state.events.push('method') }\n`)
+  writeFileSync(fake, `import { state } from ${JSON.stringify(valueURL)}; const active: boolean = true; state.fake = active; globalThis.fetch = async () => { state.events.push('fetch'); return new Response('fixture') }\n`)
+  writeFileSync(main, `import { state, Probe } from './lib/value.js'
+const answer: string = process.env.MODE === 'positive' ? (new Probe().hit(), await (await fetch('data:text/plain,unobserved')).text()) : 'quiet'
+console.log(JSON.stringify([state.wired, state.fake, state.events, answer, import.meta.url === ${JSON.stringify(pathToFileURL(main).href)}, process.argv[1] === ${JSON.stringify(main)}]))
+`)
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  delete env.KOL_PREBUILT; delete env.NODE_OPTIONS; delete env.TSX_TSCONFIG_PATH
+  const strips = Boolean(process.features.typescript), require = createRequire(import.meta.url)
+  const tsxURL = pathToFileURL(require.resolve('tsx/esm')).href
+  const pathOf = (url: string) => { try { return realpathSync(fileURLToPath(url)) } catch { return 'invalid file URL' } }
+  const tsxPaths = new Set(['tsx', 'tsx/esm'].map(specifier => realpathSync(require.resolve(specifier))))
+  const hookPath = pathOf(new URL('./check/prebuilt-hook.ts', import.meta.url).href)
+  const choose = (extra: NodeJS.ProcessEnv = {}) => {
+    const kidEnv = { ...env, ...extra }, loader = fixtureLoader(main, kidEnv)
+    const wired = { ...kidEnv, NODE_OPTIONS: [kidEnv.NODE_OPTIONS ?? '', ...[loader, observerURL, fakeURL].map(u => '--import ' + JSON.stringify(u))].join(' ') }
+    return { loader, wired, command: prebuiltCommand([main], owner, wired) }
+  }
+  const route = (extra: NodeJS.ProcessEnv = {}) => {
+    const chosen = choose(extra), path = pathOf(chosen.loader); return [tsxPaths.has(path) ? 'tsx' : path, isBare(chosen.command[1])]
+  }
+  const fallback = ['tsx', false]
+  prebuildTree(owner)
+  eq('观察器加载器：齐缓存按内建能力返回预编钩子或当前项目 tsx，入口同路', route(), [strips ? hookPath : 'tsx', strips])
+  eq('观察器加载器：省略环境参数等同显式 process.env', fixtureLoader(main), fixtureLoader(main, process.env))
+  const run = (mode: string, via: 'cli' | 'options', extra: NodeJS.ProcessEnv = {}) => {
+    const chosen = choose(extra)
+    const command: [string, string[]] = via === 'cli'
+      ? [process.execPath, ['--import', chosen.loader, '--import', observerURL, '--import', fakeURL, main]] : chosen.command
+    const kidEnv = { ...(via === 'cli' ? { ...env, ...extra } : chosen.wired), MODE: mode }
+    const r = spawnSync(...command, { cwd: owner, env: kidEnv, encoding: 'utf8', timeout: 30_000 })
+    return [r.status, r.stdout.trim(), r.status === 0 ? '' : r.stderr]
+  }
+  // 阳性事件手算为原型方法一次、fake fetch 一次；阴性仍核两个接线标记及入口确实执行。
+  const positive = [0, '[true,true,["method","fetch"],"fixture",true,true]', '']
+  const negative = [0, '[true,true,[],"quiet",true,true]', '']
+  eq('观察器 CLI 阳性：.ts URL 的对象和原型修改被相对 .js 入口看见，地址保持 .ts', run('positive', 'cli'), positive)
+  eq('观察器 CLI 阴性：同接线确实运行且零事件，地址保持 .ts', run('negative', 'cli'), negative)
+  eq('观察器 NODE_OPTIONS 阳性：加载器先于观察器及 fake-fetch，记录两类事件', run('positive', 'options'), positive)
+  eq('观察器 NODE_OPTIONS 阴性：同模块接线已证且确实零事件', run('negative', 'options'), negative)
+  eq('观察器回退阳性：KOL_PREBUILT=0 仍共用对象和原型并记录事件', run('positive', 'options', { KOL_PREBUILT: '0' }), positive)
+  eq('观察器回退阴性：tsx 同接线确实执行且零事件', run('negative', 'options', { KOL_PREBUILT: '0' }), negative)
+  eq('观察器加载器：KOL_PREBUILT=0 与入口一同保留 tsx', route({ KOL_PREBUILT: '0' }), fallback)
+  eq('观察器加载器：仅子进程禁剥离时普通及引号写法均保留 tsx',
+    ['--no-experimental-strip-types', '"--no-experimental-strip-types"'].map(NODE_OPTIONS => route({ NODE_OPTIONS })), [fallback, fallback])
+  eq('观察器加载器：原有绝对或包名 tsx 加载器均保留 tsx',
+    ['--import ' + JSON.stringify(tsxURL), '--import tsx', '--import=tsx/esm'].map(NODE_OPTIONS => route({ NODE_OPTIONS })), [fallback, fallback, fallback])
+  writeFileSync(custom, '{"compilerOptions":{"useDefineForClassFields":false}}')
+  eq('观察器加载器：显式 TSX_TSCONFIG_PATH 与入口一同保留 tsx', route({ TSX_TSCONFIG_PATH: custom }), fallback)
+  writeFileSync(config, '{\n// JSONC\n"compilerOptions":{}}'); prebuildTree(owner)
+  eq('观察器加载器：JSONC 配置与入口一同保留 tsx', route(), fallback)
+  writeFileSync(config, '{"extends":"./custom.json"}'); prebuildTree(owner)
+  eq('观察器加载器：继承配置与入口一同保留 tsx', route(), fallback)
+  writeFileSync(config, '{}'); prebuildTree(owner)
+  renameSync(cache, cache + '.saved')
+  eq('观察器加载器：无缓存目录时与入口一同保留 tsx', route(), fallback)
+  renameSync(cache + '.saved', cache)
+  unlinkSync(join(cache, readdirSync(cache).filter(f => f.endsWith('.js')).sort()[0]))
+  eq('观察器加载器：整树缺一份缓存时与入口一同保留 tsx', route(), fallback)
+  prebuildTree(owner)
+  writeFileSync(value, rf(value, 'utf8') + '\nexport const changed: number = 2\n')
+  eq('观察器加载器：源码改后未编时与入口一同保留 tsx', route(), fallback)
 } finally { rmSync(owner, { recursive: true, force: true }) }
 })
 
