@@ -16,11 +16,11 @@ import { exemptionCovered, exemptionLead } from './mutate-rule.js'
 const ts = createRequire(import.meta.url)('typescript') as typeof Ts
 
 /**
- * 原文里点到名的需求编号（ADR-162 第二节第 1 份第 4 条）。前后边界是为了不把 `ADR-15`、
- * `P10` 认成别的：前面贴着 ASCII 字母、数字或下划线的不算（汉字不算字母，`与P4冲突` 照认），
- * 数字串必须吃到底。`P1.e` 认成 `P1`。
+ * 原文里点到名的需求编号（ADR-162 第二节第 1 份第 4 条）。前面贴着 ASCII 字母、数字或下划线的不算，
+ * 所以 `ADR-15`、`Phase 01` 不认（汉字不算字母，`与P4冲突` 照认）。「数字串后面不是数字」不另写：
+ * `+` 是贪婪的，一次吃到底，`P10` 认成 `P10` 而不是 `P1`。`P1.e` 认成 `P1`。
  */
-const REQ_TOKEN = /(?<![A-Za-z0-9_])[PSDFU][0-9]+(?![0-9])/g
+const REQ_TOKEN = /(?<![A-Za-z0-9_])[PSDFU][0-9]+/g
 
 const criteriaLines = (r: Req): string[] =>
   r.accept.length === 0 ? ['没有。'] : r.accept.map(c => `- **${c.id}** ${c.text}`)
@@ -141,6 +141,6 @@ export function declarationFindings(text: string): string[] {
 /** ADR-162 第四节。两个参数都是绝对路径 */
 export function insideRoot(root: string, dir: string): boolean {
   const r = relative(root, dir)
-  // 名字以 `..` 开头的子目录（`..cache`）在里面：只认整段的 `..`
-  return r === '' || (r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r))
+  // 本身（`r` 是空串）也在里面。名字以 `..` 开头的子目录（`..cache`）在里面：只认整段的 `..`
+  return r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r)
 }

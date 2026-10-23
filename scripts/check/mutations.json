@@ -15274,6 +15274,556 @@
       "kills": ["Skill 结构：一处命令用掉的字符不再作下一处的开头，npm run npm run x 只有一处、命令名是 npm"]
     },
     {
+      "id": "M-H62-a",
+      "req": "harness",
+      "why": "登记表里没有的编号也出一份空的需求单 —— 写测试的上下文拿到一份什么都没有的包，以为那条需求本来就没有判据",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "if (target === undefined) return { ok: false, reason: `需求登记表里没有 ${id}` }",
+      "replace": "if (target === undefined) return { ok: true, text: '' }",
+      "by": "test",
+      "kills": ["准入读物：登记表里没有的编号不出包，理由写明登记表里没有", "准入读物：判据编号不是需求编号，P1.a 按没有处理", "准入读物：编号区分大小写，p1 按没有处理"]
+    },
+    {
+      "id": "M-H62-b",
+      "req": "harness",
+      "why": "已作废的需求照样出包 —— 写测试的上下文对着一条不再生效的需求写断言",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "  if (target.deprecated !== undefined) return { ok: false, reason: `${id} 已作废` }\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["准入读物：作废的需求不出包，理由写明已作废"]
+    },
+    {
+      "id": "M-H62-c",
+      "req": "harness",
+      "why": "只收这条需求自己声明的交点，声明在对面的漏掉 —— P4 的包里一条交点都没有，而 D1、D4 两边都声明了与它的交点",
+      "file": "scripts/check/admission-rule.ts",
+      "find": ".filter(t => r.id === id || t.with === id)",
+      "replace": ".filter(t => r.id === id)",
+      "by": "test",
+      "kills": ["准入读物：交点只声明在对面的也收，两边都不是这条的不收", "准入读物：交点按登记表先后逐条需求、每条按它 tension 里的先后", "准入读物：作废需求声明的交点照收"]
+    },
+    {
+      "id": "M-H62-d",
+      "req": "harness",
+      "why": "只收对面声明的交点，这条需求自己声明的漏掉",
+      "file": "scripts/check/admission-rule.ts",
+      "find": ".filter(t => r.id === id || t.with === id)",
+      "replace": ".filter(t => t.with === id)",
+      "by": "test",
+      "kills": ["准入读物：交点按登记表先后逐条需求、每条按它 tension 里的先后", "准入读物：点到名的按登记表先后排，不按在交点里出现的先后", "准入读物：只在交点裁决里点到的也收（D10），连同交点那一边（U1）"]
+    },
+    {
+      "id": "M-H62-e",
+      "req": "harness",
+      "why": "交点里点到的需求不收进「点到名的需求」 —— 交点另一边那条需求的原文不在包里",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "    ...tensions.flatMap(t => [t.from, t.with, t.ruling])]",
+      "replace": "  ]",
+      "by": "test",
+      "kills": ["准入读物：交点对面那一边算点到名的需求，不相干交点的那一边不算", "准入读物：点到名的按登记表先后排，不按在交点里出现的先后", "准入读物：作废需求声明的交点让它算点到名的，标题写（已作废）"]
+    },
+    {
+      "id": "M-H62-f",
+      "req": "harness",
+      "why": "只看需求原文找点到名的需求，判据原文里点到的漏掉",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "const sources = [target.text, ...target.accept.map(c => c.text),",
+      "replace": "const sources = [target.text,",
+      "by": "test",
+      "kills": ["准入读物：需求单三节都有内容时逐字照第二节的版式（交点两个方向都收、点到名的按登记表先后、只走一跳）", "准入读物：点到名的需求收原文、判据、交点两边与裁决几处来源，一跳之外的 F1 不收", "准入读物：只在判据原文里点到的也收"]
+    },
+    {
+      "id": "M-H62-g",
+      "req": "harness",
+      "why": "需求单把这条需求自己也列进「点到名的需求」",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "reqs.filter(r => r.id !== id && named.has(r.id))",
+      "replace": "reqs.filter(r => named.has(r.id))",
+      "by": "test",
+      "kills": ["准入读物：交点对面那一边算点到名的需求，不相干交点的那一边不算", "准入读物：点到名的按登记表先后排，不按在交点里出现的先后", "准入读物：原文点到自己不收"]
+    },
+    {
+      "id": "M-H62-h",
+      "req": "harness",
+      "why": "编号前面贴着字母也认 —— 决策记录的编号被认成一条数据需求，包里多出一条不相干的需求",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "/(?<![A-Za-z0-9_])[PSDFU][0-9]+/g",
+      "replace": "/[PSDFU][0-9]+/g",
+      "by": "test",
+      "kills": ["准入读物：编号前面紧贴字母不认（xP1、FP1）", "准入读物：编号前面紧贴数字不认（9P1）", "准入读物：编号前面紧贴下划线不认（_P1）"]
+    },
+    {
+      "id": "M-H62-i",
+      "req": "harness",
+      "why": "编号前面贴着汉字就不认 —— 中文原文里紧挨着写的那条需求漏进不了包",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "/(?<![A-Za-z0-9_])[PSDFU][0-9]+/g",
+      "replace": "/(?<![A-Za-z0-9_\\u4e00-\\u9fff])[PSDFU][0-9]+/g",
+      "by": "test",
+      "kills": ["准入读物：编号前面紧挨汉字照认（与P1冲突）"]
+    },
+    {
+      "id": "M-H62-j",
+      "req": "harness",
+      "why": "判据为空时那一节什么也不写 —— 读的人分不出「没有判据」与「包坏了」",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "r.accept.length === 0 ? ['没有。'] : ",
+      "replace": "",
+      "by": "test",
+      "kills": ["准入读物：三节都没有内容时各只有一行「没有。」，点到名的那一节不写只走一跳那一句", "准入读物：没有判据时验收标准下只有一行「没有。」，点到名的那一节照常写", "准入读物：点到名的那条没有判据时它那一块的判据列表只有一行「没有。」"]
+    },
+    {
+      "id": "M-H62-k",
+      "req": "harness",
+      "why": "没有交点时那一节什么也不写",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "...(tensions.length === 0 ? ['没有。'] : tensions.map(",
+      "replace": "...(tensions.map(",
+      "by": "test",
+      "kills": ["准入读物：点到名的作废需求标题写（已作废），原文与判据照常写，交点一条没有时只有一行「没有。」", "准入读物：没有判据时验收标准下只有一行「没有。」，点到名的那一节照常写", "准入读物：被别的需求点名不算它点到的，D1 的需求单里没有 U1 也没有 D10"]
+    },
+    {
+      "id": "M-H62-l",
+      "req": "harness",
+      "why": "没有点到名的需求时那一节什么也不写",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "  if (cited.length === 0) lines.push('没有。')\n  else {",
+      "replace": "  {",
+      "by": "test",
+      "kills": ["准入读物：三节都没有内容时各只有一行「没有。」，点到名的那一节不写只走一跳那一句", "准入读物：被别的需求点名不算它点到的，D1 的需求单里没有 U1 也没有 D10"]
+    },
+    {
+      "id": "M-H62-m",
+      "req": "harness",
+      "why": "作废的那条点到名的需求标题上不标已作废 —— 读的人当它仍然有效",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "`### ${r.id}${r.deprecated === undefined ? '' : '（已作废）'}`",
+      "replace": "`### ${r.id}`",
+      "by": "test",
+      "kills": ["准入读物：点到名的作废需求标题写（已作废），原文与判据照常写，交点一条没有时只有一行「没有。」", "准入读物：点到作废的也收，标题写（已作废）", "准入读物：作废需求声明的交点让它算点到名的，标题写（已作废）"]
+    },
+    {
+      "id": "M-H62-n",
+      "req": "harness",
+      "why": "需求单末尾不带换行",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "  return { ok: true, text: `${lines.join('\\n')}\\n` }",
+      "replace": "  return { ok: true, text: lines.join('\\n') }",
+      "by": "test",
+      "kills": ["准入读物：点到名的作废需求标题写（已作废），原文与判据照常写，交点一条没有时只有一行「没有。」", "准入读物：没有判据时验收标准下只有一行「没有。」，点到名的那一节照常写", "准入读物：被别的需求点名不算它点到的，D1 的需求单里没有 U1 也没有 D10"]
+    },
+    {
+      "id": "M-H62-o",
+      "req": "harness",
+      "why": "变异说明按编号前缀收 —— D1 的包把 D10 名下的变异也收进来",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "req.startsWith(`${id}.`)",
+      "replace": "req.startsWith(id)",
+      "by": "test",
+      "kills": ["准入读物：变异说明 D1 收 D1 与 D1.c、不收 D10，变异在前、豁免在后，不写 scope 时没有括号", "准入读物：变异说明 P2 收 P2 与 P2.a、不收 P20 与 P2x，两种豁免行的写法", "准入读物：不归这条需求的变异与豁免夹带了也不交（D1 不收 D10）"]
+    },
+    {
+      "id": "M-H62-p",
+      "req": "harness",
+      "why": "变异说明只收判据名下的，记在需求本身名下的漏掉",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "const owns = (req: string) => req === id || req.startsWith(`${id}.`)",
+      "replace": "const owns = (req: string) => req.startsWith(`${id}.`)",
+      "by": "test",
+      "kills": ["准入读物：变异说明 D1 收 D1 与 D1.c、不收 D10，变异在前、豁免在后，不写 scope 时没有括号", "准入读物：豁免名下有没有负片看 req 一字不差，F5.a 的变异不算 F5 名下的", "准入读物：变异的 why 夹带内部函数名也交出来"]
+    },
+    {
+      "id": "M-H62-q",
+      "req": "harness",
+      "why": "豁免的范围写成空串时括号整个不见 —— 与 mutate --brief 那一行对不上",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "${e.scope === undefined ? '' : `（${e.scope}）`}",
+      "replace": "${e.scope ? `（${e.scope}）` : ''}",
+      "by": "test",
+      "kills": ["准入读物：豁免的 scope 写成空串时照样有一对空括号"]
+    },
+    {
+      "id": "M-H62-r",
+      "req": "harness",
+      "why": "变异的说明夹带实现原文也照样出包",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "    const leak = implementationLeak(m.why)\n    if (leak !== undefined) leaks.push({ id: m.id, leak })\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["准入读物：变异的 why 夹带代码运算符，连同变异编号与认出的那一段交出来", "准入读物：变异的 why 夹带内部函数名也交出来", "准入读物：几条夹带一起交时先变异、后豁免，各按原数组的先后"]
+    },
+    {
+      "id": "M-H62-s",
+      "req": "harness",
+      "why": "豁免的说明夹带实现原文也照样出包",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "    const leak = implementationLeak(e.why)\n    if (leak !== undefined) leaks.push({ id: `⊘ [${e.req}]`, leak })\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["准入读物：豁免的 why 夹带代码运算符，编号写成 ⊘ [req]", "准入读物：几条夹带一起交时先变异、后豁免，各按原数组的先后"]
+    },
+    {
+      "id": "M-H62-t",
+      "req": "harness",
+      "why": "交出的夹带先豁免后变异，与说明里的先后反着",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "  for (const m of muts) {\n    const leak = implementationLeak(m.why)\n    if (leak !== undefined) leaks.push({ id: m.id, leak })\n  }\n  for (const e of exes) {\n    const leak = implementationLeak(e.why)\n    if (leak !== undefined) leaks.push({ id: `⊘ [${e.req}]`, leak })\n  }",
+      "replace": "  for (const e of exes) {\n    const leak = implementationLeak(e.why)\n    if (leak !== undefined) leaks.push({ id: `⊘ [${e.req}]`, leak })\n  }\n  for (const m of muts) {\n    const leak = implementationLeak(m.why)\n    if (leak !== undefined) leaks.push({ id: m.id, leak })\n  }",
+      "by": "test",
+      "kills": ["准入读物：几条夹带一起交时先变异、后豁免，各按原数组的先后"]
+    },
+    {
+      "id": "M-H62-u",
+      "req": "harness",
+      "why": "一条变异都没有时变异说明中间是空的 —— 读的人分不出「没有负片」与「包坏了」",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "...(body.length === 0 ? ['没有。'] : body)",
+      "replace": "...body",
+      "by": "test",
+      "kills": ["准入读物：变异说明一条都没有时中间只有一行「没有。」，末行照写 0 与 0", "准入读物：变异说明一条都没有时原样比，同样以一个换行结尾"]
+    },
+    {
+      "id": "M-H62-v",
+      "req": "harness",
+      "why": "变异说明末尾不带换行",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "  return { text: `${lines.join('\\n')}\\n`, leaks }",
+      "replace": "  return { text: lines.join('\\n'), leaks }",
+      "by": "test",
+      "kills": ["准入读物：变异说明原样比，整份以一个换行结尾（D1）", "准入读物：变异说明一条都没有时原样比，同样以一个换行结尾", "准入读物：豁免的 scope 写成空串时照样有一对空括号"]
+    },
+    {
+      "id": "M-H62-w",
+      "req": "harness",
+      "why": "签名里带着函数体也不报 —— 包里漏进实现，读它的上下文读到了函数体",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "      report(n, '函数体')\n      return",
+      "replace": "      return",
+      "by": "test",
+      "kills": ["准入读物：带函数体的函数声明报函数体", "准入读物：带函数体的方法报函数体", "准入读物：函数签名跨几行时，函数体的行号取函数自己起头那一行，不取函数体那个块", "准入读物：带函数体的存值器报函数体", "准入读物：报了不是声明的语句照样往语句里面找"]
+    },
+    {
+      "id": "M-H62-x",
+      "req": "harness",
+      "why": "报了一处函数体还往里找 —— 一段函数体报成好几处，读的人以为漏进了好几段",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "      report(n, '函数体')\n      return",
+      "replace": "      report(n, '函数体')",
+      "by": "test",
+      "kills": ["准入读物：函数体里套的函数、箭头函数与别的东西不另报，一处函数体只报一条", "准入读物：方法体里套的函数表达式不另报", "准入读物：一份里几处问题按在文件里的先后排，不按种类归堆"]
+    },
+    {
+      "id": "M-H62-y",
+      "req": "harness",
+      "why": "文件顶层不是声明的语句不报 —— 抄进包里的一行可执行代码没人看见",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "  statements(file.statements)\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["准入读物：文件顶层的表达式语句与 if 语句报不是声明的语句", "准入读物：语句前面有行注释时，行号取语句自己那一行", "准入读物：if 块不是命名空间块，块里的表达式语句不另报不是声明的语句", "准入读物：同一处起头的语句与箭头函数，不是声明的语句在前"]
+    },
+    {
+      "id": "M-H62-z",
+      "req": "harness",
+      "why": "命名空间块里不是声明的语句不报",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "    if (ts.isModuleBlock(n)) statements(n.statements)\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["准入读物：declare namespace 块里的表达式语句报不是声明的语句", "准入读物：declare module 块里的 for 语句报不是声明的语句", "准入读物：不带 declare 的命名空间块里也报不是声明的语句", "准入读物：套在命名空间里的命名空间块里也报不是声明的语句", "准入读物：declare global 块里也报不是声明的语句"]
+    },
+    {
+      "id": "M-H62-aa",
+      "req": "harness",
+      "why": "导入赋值被当成不是声明的语句 —— 一份正常的签名被拒，包出不来",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "ts.SyntaxKind.ImportDeclaration, ts.SyntaxKind.ImportEqualsDeclaration,",
+      "replace": "ts.SyntaxKind.ImportDeclaration,",
+      "by": "test",
+      "kills": ["准入读物：干净的声明文件扫出空单子", "准入读物：导入赋值与 export = 是声明，不报"]
+    },
+    {
+      "id": "M-H62-ab",
+      "req": "harness",
+      "why": "导出赋值被当成不是声明的语句",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "ts.SyntaxKind.ExportDeclaration, ts.SyntaxKind.ExportAssignment,",
+      "replace": "ts.SyntaxKind.ExportDeclaration,",
+      "by": "test",
+      "kills": ["准入读物：导入赋值与 export = 是声明，不报", "准入读物：函数表达式报函数体", "准入读物：箭头函数报函数体", "准入读物：表达式体的箭头函数也报函数体"]
+    },
+    {
+      "id": "M-H62-ac",
+      "req": "harness",
+      "why": "枚举与命名空间被当成不是声明的语句",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "ts.SyntaxKind.VariableStatement, ts.SyntaxKind.EnumDeclaration, ts.SyntaxKind.ModuleDeclaration,",
+      "replace": "ts.SyntaxKind.VariableStatement,",
+      "by": "test",
+      "kills": ["准入读物：declare namespace 块里的表达式语句报不是声明的语句", "准入读物：declare module 块里的 for 语句报不是声明的语句", "准入读物：变量、类属性、枚举成员的初始值是名单上的字面量时不报", "准入读物：带点的命名空间 A.B 块里也报不是声明的语句"]
+    },
+    {
+      "id": "M-H62-ad",
+      "req": "harness",
+      "why": "初始值不是字面量也不报 —— 一段算出来的值连同它的表达式进了包",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "      && n.initializer !== undefined && !literal(n.initializer)) report(n, '初始值不是字面量')",
+      "replace": "      && false) report(n, '初始值不是字面量')",
+      "by": "test",
+      "kills": ["准入读物：变量初始值是标识符报初始值不是字面量", "准入读物：null 不在字面量名单上", "准入读物：带插值的模板串不在字面量名单上", "准入读物：初始值是箭头函数时报两条，先初始值不是字面量、后函数体", "准入读物：正号加数字不在字面量名单上", "准入读物：变量前面有文档注释时，行号取变量自己那一行", "准入读物：初始值另起一行时，行号取变量自己那一行，不取初始值那一行"]
+    },
+    {
+      "id": "M-H62-ae",
+      "req": "harness",
+      "why": "枚举成员的初始值不查",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "(ts.isVariableDeclaration(n) || ts.isPropertyDeclaration(n) || ts.isEnumMember(n))",
+      "replace": "(ts.isVariableDeclaration(n) || ts.isPropertyDeclaration(n))",
+      "by": "test",
+      "kills": ["准入读物：枚举成员的初始值不是字面量也报，是字面量的那一个不报", "准入读物：一份里几处问题按在文件里的先后排，不按种类归堆"]
+    },
+    {
+      "id": "M-H62-af",
+      "req": "harness",
+      "why": "类属性的初始值不查",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "(ts.isVariableDeclaration(n) || ts.isPropertyDeclaration(n) || ts.isEnumMember(n))",
+      "replace": "(ts.isVariableDeclaration(n) || ts.isEnumMember(n))",
+      "by": "test",
+      "kills": ["准入读物：类属性的初始值不是字面量也报", "准入读物：一份里几处问题按在文件里的先后排，不按种类归堆"]
+    },
+    {
+      "id": "M-H62-ag",
+      "req": "harness",
+      "why": "带负号的数字被当成不是字面量 —— 一份正常的签名被拒",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "  || (ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.MinusToken",
+      "replace": "  || (false",
+      "by": "test",
+      "kills": ["准入读物：干净的声明文件扫出空单子", "准入读物：变量、类属性、枚举成员的初始值是名单上的字面量时不报"]
+    },
+    {
+      "id": "M-H62-ah",
+      "req": "harness",
+      "why": "负号后面是什么都当字面量 —— 负号接一个表达式也放行",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "    && (ts.isNumericLiteral(e.operand) || ts.isBigIntLiteral(e.operand)))",
+      "replace": "    )",
+      "by": "test",
+      "kills": ["准入读物：负号后面不是数字不在字面量名单上"]
+    },
+    {
+      "id": "M-H62-ai",
+      "req": "harness",
+      "why": "把任何字面量表达式都当成可放的初始值 —— 正则也放行",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "const literal = (e: Ts.Expression): boolean => LITERALS.has(e.kind)",
+      "replace": "const literal = (e: Ts.Expression): boolean => ts.isLiteralExpression(e) || LITERALS.has(e.kind)",
+      "by": "test",
+      "kills": ["准入读物：正则不在字面量名单上"]
+    },
+    {
+      "id": "M-H62-aj",
+      "req": "harness",
+      "why": "true 与 false 被当成不是字面量",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "ts.SyntaxKind.BigIntLiteral, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword,",
+      "replace": "ts.SyntaxKind.BigIntLiteral,",
+      "by": "test",
+      "kills": ["准入读物：干净的声明文件扫出空单子", "准入读物：变量、类属性、枚举成员的初始值是名单上的字面量时不报"]
+    },
+    {
+      "id": "M-H62-ak",
+      "req": "harness",
+      "why": "行号连前面的注释一起算 —— 报出来的行指着注释，读的人找不到那一处",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "found.push({ at: n.getStart(file), what })",
+      "replace": "found.push({ at: n.pos, what })",
+      "by": "test",
+      "kills": ["准入读物：带函数体的方法报函数体", "准入读物：带函数体的构造器报函数体", "准入读物：带函数体的取值器报函数体", "准入读物：函数前面有行注释与多行文档注释时，行号取函数自己那一行", "准入读物：一条变量语句跨两行时，行号取初始值不是字面量的那一个变量自己那一行"]
+    },
+    {
+      "id": "M-H62-al",
+      "req": "harness",
+      "why": "报出来的那几处不按在文件里的先后排",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "  return found.sort((a, b) => a.at - b.at)\n",
+      "replace": "  return found\n",
+      "by": "test",
+      "kills": ["准入读物：一份里几处问题按在文件里的先后排，不按种类归堆"]
+    },
+    {
+      "id": "M-H62-am",
+      "req": "harness",
+      "why": "仓库根目录本身不算在仓库里 —— 包可以直接写进仓库根",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "  return r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r)",
+      "replace": "  return r !== '' && r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r)",
+      "by": "test",
+      "kills": ["准入读物：包目录就是仓库根本身算在里面", "准入读物：包目录写成带结尾斜杠的仓库根也算在里面"]
+    },
+    {
+      "id": "M-H62-an",
+      "req": "harness",
+      "why": "仓库的上一级目录算在仓库里",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "r !== '..' && !r.startsWith(`..${sep}`)",
+      "replace": "!r.startsWith(`..${sep}`)",
+      "by": "test",
+      "kills": ["准入读物：上级目录不在里面"]
+    },
+    {
+      "id": "M-H62-ao",
+      "req": "harness",
+      "why": "名字以两个点开头的子目录被当成在仓库外 —— 包可以写进仓库里的这种目录",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "!r.startsWith(`..${sep}`)",
+      "replace": "!r.startsWith('..')",
+      "by": "test",
+      "kills": ["准入读物：名字以 .. 开头的子目录算在里面"]
+    },
+    {
+      "id": "M-H62-ap",
+      "req": "harness",
+      "why": "判据按编号重排，不照登记表的先后",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "r.accept.length === 0 ? ['没有。'] : r.accept.map(",
+      "replace": "r.accept.length === 0 ? ['没有。'] : [...r.accept].sort((a, b) => a.id < b.id ? -1 : 1).map(",
+      "by": "test",
+      "kills": ["准入读物：判据照登记表里的先后，不重排"]
+    },
+    {
+      "id": "M-H62-aq",
+      "req": "harness",
+      "why": "编号写在原文开头就不认",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "/(?<![A-Za-z0-9_])[PSDFU][0-9]+/g",
+      "replace": "/(?<=[^A-Za-z0-9_])[PSDFU][0-9]+/g",
+      "by": "test",
+      "kills": ["准入读物：交点对面那一边算点到名的需求，不相干交点的那一边不算", "准入读物：点到名的按登记表先后排，不按在交点里出现的先后", "准入读物：编号在原文开头也认"]
+    },
+    {
+      "id": "M-H62-ar",
+      "req": "harness",
+      "why": "编号只读一位数字 —— D10 被认成 D1，包里多出一条不相干的需求",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "/(?<![A-Za-z0-9_])[PSDFU][0-9]+/g",
+      "replace": "/(?<![A-Za-z0-9_])[PSDFU][0-9]/g",
+      "by": "test",
+      "kills": ["准入读物：数字串连着读，D10 不认成 D1", "准入读物：只在交点裁决里点到的也收（D10），连同交点那一边（U1）"]
+    },
+    {
+      "id": "M-H62-as",
+      "req": "harness",
+      "why": "判据编号的写法（P1.e）不认 —— 原文里点到的是判据时，那条需求漏进不了包",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "/(?<![A-Za-z0-9_])[PSDFU][0-9]+/g",
+      "replace": "/(?<![A-Za-z0-9_])[PSDFU][0-9]+(?![.0-9])/g",
+      "by": "test",
+      "kills": ["准入读物：需求单三节都有内容时逐字照第二节的版式（交点两个方向都收、点到名的按登记表先后、只走一跳）", "准入读物：点到名的需求收原文、判据、交点两边与裁决几处来源，一跳之外的 F1 不收", "准入读物：判据编号 P1.e 认成需求 P1"]
+    },
+    {
+      "id": "M-H62-at",
+      "req": "harness",
+      "why": "编号后面紧跟字母就不认",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "/(?<![A-Za-z0-9_])[PSDFU][0-9]+/g",
+      "replace": "/(?<![A-Za-z0-9_])[PSDFU][0-9]+(?![A-Za-z0-9])/g",
+      "by": "test",
+      "kills": ["准入读物：数字串后面接字母照认，P1a 认成 P1"]
+    },
+    {
+      "id": "M-H62-au",
+      "req": "harness",
+      "why": "认编号前先转成大写 —— 原文里小写的 p1 也被当成红线 P1",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "const named = new Set(sources.flatMap(s => s.match(REQ_TOKEN) ?? []))",
+      "replace": "const named = new Set(sources.flatMap(s => s.toUpperCase().match(REQ_TOKEN) ?? []))",
+      "by": "test",
+      "kills": ["准入读物：小写的 p1、d1 不认"]
+    },
+    {
+      "id": "M-H62-av",
+      "req": "harness",
+      "why": "点到名的需求再往下收一跳 —— 包里多出几条与这条需求不相干的需求",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "  const cited = reqs.filter(r => r.id !== id && named.has(r.id))",
+      "replace": "  const hop = reqs.filter(r => named.has(r.id)).flatMap(r => [r.text, ...r.accept.map(c => c.text)]).flatMap(s => s.match(REQ_TOKEN) ?? [])\n  const cited = reqs.filter(r => r.id !== id && (named.has(r.id) || hop.includes(r.id)))",
+      "by": "test",
+      "kills": ["准入读物：同一条点到几次只出一次，按登记表先后排", "准入读物：只走一跳，U1 自己点到的 D1、P1 不收", "准入读物：只在交点裁决里点到的也收（D10），连同交点那一边（U1）"]
+    },
+    {
+      "id": "M-H62-aw",
+      "req": "harness",
+      "why": "变异说明末行的变异数把豁免也算进去",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "`共 ${muts.length} 个变异、${exes.length} 处显式豁免。`",
+      "replace": "`共 ${body.length} 个变异、${exes.length} 处显式豁免。`",
+      "by": "test",
+      "kills": ["准入读物：变异说明 D1 收 D1 与 D1.c、不收 D10，变异在前、豁免在后，不写 scope 时没有括号", "准入读物：变异说明只有豁免时中间只有豁免行，变异计 0", "准入读物：豁免名下有没有负片看 req 一字不差，F5.a 的变异不算 F5 名下的"]
+    },
+    {
+      "id": "M-H62-ax",
+      "req": "harness",
+      "why": "说明里没有夹带也当成夹带交出来 —— 包永远出不来",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "    if (leak !== undefined) leaks.push({ id: m.id, leak })\n",
+      "replace": "    leaks.push({ id: m.id, leak: leak ?? '' })\n",
+      "by": "test",
+      "kills": ["准入读物：变异说明里干净的 why 不交夹带", "准入读物：变异的 why 夹带代码运算符，连同变异编号与认出的那一段交出来", "准入读物：豁免的 why 夹带代码运算符，编号写成 ⊘ [req]"]
+    },
+    {
+      "id": "M-H62-ay",
+      "req": "harness",
+      "why": "只有签名、没有函数体的也报成函数体 —— 一份正常的签名被拒，包出不来",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "if (ts.isFunctionLike(n) && (n as { body?: Ts.Node }).body !== undefined) {",
+      "replace": "if (ts.isFunctionLike(n)) {",
+      "by": "test",
+      "kills": ["准入读物：干净的声明文件扫出空单子", "准入读物：只有签名的函数、构造器、方法、取值器、存值器不报函数体"]
+    },
+    {
+      "id": "M-H62-az",
+      "req": "harness",
+      "why": "只认仓库根本身，仓库里的子目录算在外面 —— 包可以写进仓库的任何子目录",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "  return r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r)",
+      "replace": "  return r === ''",
+      "by": "test",
+      "kills": ["准入读物：包目录是仓库的子目录算在里面", "准入读物：包目录在仓库的深层子目录算在里面", "准入读物：名字以 .. 开头的子目录算在里面"]
+    },
+    {
+      "id": "M-H62-ba",
+      "req": "harness",
+      "why": "包目录往上走出仓库也算在里面 —— 仓库旁边的目录被拒，包出不来",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "  return r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r)",
+      "replace": "  return !isAbsolute(r)",
+      "by": "test",
+      "kills": ["准入读物：兄弟目录不在里面", "准入读物：名字以仓库目录名开头的兄弟不在里面", "准入读物：不相干的目录不在里面"]
+    },
+    {
+      "id": "M-H62-bb",
+      "req": "harness",
+      "why": "按路径字符串的前缀判在不在仓库里 —— 仓库根是文件系统根时，一个目录都认不出在里面",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "  const r = relative(root, dir)\n",
+      "replace": "  const r = dir === root || dir.startsWith(root + sep) ? '' : '..'\n",
+      "by": "test",
+      "kills": ["准入读物：仓库根是文件系统根时任何目录都在里面"]
+    },
+    {
+      "id": "M-H62-bc",
+      "req": "harness",
+      "why": "只认一层子目录 —— 仓库里深一层的目录算在外面",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "  return r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r)",
+      "replace": "  return r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r) && !r.includes(sep)",
+      "by": "test",
+      "kills": ["准入读物：包目录在仓库的深层子目录算在里面", "准入读物：仓库根是文件系统根时任何目录都在里面"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",
