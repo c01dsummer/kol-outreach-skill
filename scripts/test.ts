@@ -6834,7 +6834,7 @@ suite('D5', 'CSV 转义')
   eq('普通不加引号', esc('plain'), 'plain')
 }
 suite('D5', '名单 CSV 里可能被当成公式的文字格先加一个单引号（ADR-161）')
-criterion('D5.c', 'D5.d')
+criterion('D5.c', 'D5.d', 'D5.e', 'D5.f')
 tension('D5', 'P2'); tension('U9', 'D5')
 {
   const dir = mkdtempSync(join(tmpdir(), 'kol-d5-'))
@@ -6845,6 +6845,7 @@ tension('D5', 'P2'); tension('U9', 'D5')
     const s = rf(csvP, 'utf8')
     return s.slice(s.indexOf('\n') + 1)
   }
+  // 先于实现写成：期望只出自 D5.c–D5.f 与 ADR-161 第二节的原文，写完时对着还没改的 csv.ts 跑出 10 条红
   try {
     eq('D5.c 等号开头加单引号', line(['=1+1']), "'=1+1")
     eq('D5.c 加号开头加单引号', line(['+1 555']), "'+1 555")
@@ -6857,8 +6858,8 @@ tension('D5', 'P2'); tension('U9', 'D5')
     eq('D5.c 空格开头不加', line([' =x']), ' =x')
     eq('D5.c 一行里只加该加的格', line(['=x', 'plain', '@y']), "'=x,plain,'@y")
     eq('D5.d 数不加', line([-5, 0.5, -1e-7]), '-5,0.5,-1e-7')
-    eq('D5.d 纯数字的文字不加', line(['-0.5', '+3', '12']), '-0.5,+3,12')
-    eq('D5.c 人工反馈模板那条转义不加单引号', esc('=x'), '=x')
+    eq('D5.e 纯数字的文字不加', line(['-0.5', '+3', '12']), '-0.5,+3,12')
+    eq('D5.f 人工反馈模板那条转义不加单引号', esc('=x'), '=x')
     const draft = '@{creator_name} Hi, {brand} here about {product}'
     const kolLine = (() => {
       writeCsv(csvP, [...HEADERS], [toRow(mk('tiktok', 'd5-draft', { outreach_draft: draft }))])

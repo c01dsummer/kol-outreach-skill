@@ -208,7 +208,7 @@ render 导出同样要求 `task.json` 至少保留一项合规搜索任务。任
 output/{product}-{timestamp}/
 ├── report.html        单文件可读报告，支持分层切换和草稿复制
 ├── kol.xlsx           A/B/C 分 Sheet 的 Excel 名单
-├── kol.csv            适合脚本和其他工具读取的完整单表
+├── kol.csv            适合脚本和其他工具读取的完整单表（可能被当成公式的文字格多一个 '，逐字原值读 xlsx）
 ├── creators.json      最终筛选后的结构化名单与当前评审投影
 ├── creators.raw.json  原始采集累加器，断点续跑时只增不减
 ├── agent-review.json  Agent 判断、平台账号别名与冻结候选轮次的正本
