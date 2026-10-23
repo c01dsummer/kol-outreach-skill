@@ -33,3 +33,31 @@ export function implementationLeak(why: string): string | undefined {
   const camel = LOWER_CAMEL.exec(why)
   return camel ? camel[0] : undefined
 }
+
+/** `--brief` 打出去的一段里夹带的实现原文：是哪一侧、哪一条、哪一栏 */
+export type BriefLeak =
+  | { side: 'mutation'; id: string; leak: string }
+  | { side: 'exemption'; req: string; field: 'scope' | 'why'; leak: string }
+
+/**
+ * `mutate --brief` 会打出去的每一段散文，逐段过 `implementationLeak`（ADR-70 末尾「清单夹带」一节）。
+ *
+ * 打出去的是：每条变异的 `why`；每条豁免的 `scope`（写了才打）与 `why`。豁免的 `mitigation` 不打，所以不查 ——
+ * 查的范围跟着打的范围走，抬头那句「不含实现原文」说的就是这几段。两侧分开交回：变异的 `why` 归写变异的人改，
+ * 豁免的归登记豁免的人改，报的时候得说得出是哪一边。
+ */
+export function briefLeaks(mutations: readonly { id: string; why: string }[],
+  exemptions: readonly { req: string; scope?: string; why: string }[]): BriefLeak[] {
+  const out: BriefLeak[] = []
+  for (const m of mutations) {
+    const leak = implementationLeak(m.why)
+    if (leak !== undefined) out.push({ side: 'mutation', id: m.id, leak })
+  }
+  for (const e of exemptions) {
+    const inScope = e.scope === undefined ? undefined : implementationLeak(e.scope)
+    if (inScope !== undefined) out.push({ side: 'exemption', req: e.req, field: 'scope', leak: inScope })
+    const inWhy = implementationLeak(e.why)
+    if (inWhy !== undefined) out.push({ side: 'exemption', req: e.req, field: 'why', leak: inWhy })
+  }
+  return out
+}
