@@ -6,7 +6,7 @@
 - 冲击的需求：D5（新增判据 D5.c、D5.d，`text` 补半句）；U9（U9.e、U9.g 说 CSV 取投影原值，新增一处交点，声明在 U9）；与红线 P2 的交点声明在 D5
 - 结论：采纳。名单 CSV 里，以 `=`、`+`、`-`、`@`、制表符或回车开头的文字格，在格首加一个 `'` 再照 D5.b 转义；纯数字不加；人工反馈模板、XLSX、HTML 不变（第二节）
 - 理由：第一、二、四节
-- 连带改动：`docs/requirements.json` 的 D5、U9 与生成的 `docs/SPEC.md`；`scripts/lib/csv.ts`；`scripts/test.ts` 的 D5 一组；`scripts/check/mutations.json` 与 `scripts/check/launches.json`；`skill/references/output-format.md`「转义」一句；`docs/ARCHITECTURE.md` 锚点表 `csv.ts` 一行；ADR-130 末尾追加一块；本记录及生成的索引
+- 连带改动：`docs/requirements.json` 的 D5、U9 与生成的 `docs/SPEC.md`；`scripts/lib/csv.ts`；`scripts/test.ts` 的 D5 一组；`scripts/check/mutations.json` 与 `scripts/check/launches.json`；`skill/references/output-format.md`「转义」后加一段；`README.md` 交付说明里 CSV 那一行；`docs/ARCHITECTURE.md` 锚点表 `csv.ts` 一行；ADR-130 末尾追加一块；本记录及生成的索引
 
 本条引的行号，没注明哪棵树的都是 `902e63e` 上的。
 
@@ -23,7 +23,7 @@
 2. **哪些开头。** `=`、`+`、`-`、`@`、制表符、回车。需求所有者的决策卡上写的是前四个；后两个照第一节第 3 条的通行做法一起加，是实现者的决定，PR 正文列在「合入即认可」里。
 3. **只管文字。** 值是 JS 的数（`score`、粉丝数等）时不加：数不会被当成公式。写成文字的纯数字（可带一个正负号和一段小数，比如 `rows.ts` 第 143 行用 `toFixed(1)` 写出的 `days_since_last_post`）也不加：它在表格里本来就是数，加了 `'` 反而变成文字，排序、求和都会错（D5.d）。别的以 `-`、`+` 开头的文字（`-x`、`+1 555`）照加。
 4. **不管什么。** `esc` 本身不变：人工反馈模板（`scripts/lib/manual-feedback-template.ts` 第 33 行）直接调 `esc` 写 `round_id`、平台和账号，读回时（D23）要逐字认得出原值，加了 `'` 就对不上。那几格是本项目自己的标识，不是博主写的字。格首是空格、全角符号等别的写法，本条不管，也没有实测它们会不会被当成公式。
-5. **机器读 CSV 的人看到什么。** 这几格多一个 `'`，格内其余的字一个不改。要原值的，读 `kol.xlsx`，或在 CSV 里去掉「后一个字是上面六种之一」的那个格首 `'`。`skill/references/output-format.md`「转义」一句写明。
+5. **机器读 CSV 的人看到什么。** 这几格多一个 `'`，格内其余的字一个不改。要逐字原值的读 `kol.xlsx`。在 CSV 里去掉「后一个字是上面六种之一」的那个格首 `'` 多数时候也能还原，但原值本身就以 `'` 开头、后一个字又是这六种之一时分不出来（本条不给以 `'` 开头的原值再加一个），所以以 xlsx 为准。`skill/references/output-format.md`「转义」下一段写明。
 
 ## 三、交点
 

@@ -608,6 +608,66 @@
       "kills": ["含换行"]
     },
     {
+      "id": "M-D5-b",
+      "req": "D5.c",
+      "why": "名单 CSV 里以 = 开头的博主文字原样写出 —— 用表格软件打开时被当成公式算",
+      "file": "scripts/lib/csv.ts",
+      "find": "r.map(v => esc(defuseFormula(v)))",
+      "replace": "r.map(v => esc(v))",
+      "by": "test",
+      "kills": ["D5.c 等号开头加单引号"]
+    },
+    {
+      "id": "M-D5-c",
+      "req": "D5.c",
+      "why": "以 @ 开头的文字格不加单引号 —— 表格软件照样当成公式",
+      "file": "scripts/lib/csv.ts",
+      "find": "/^[=+\\-@\\t\\r]/",
+      "replace": "/^[=+\\-\\t\\r]/",
+      "by": "test",
+      "kills": ["D5.c @ 开头加单引号"]
+    },
+    {
+      "id": "M-D5-d",
+      "req": "D5.d",
+      "why": "写成文字的纯数字（如 -0.5）也加了单引号 —— 在表格里成了文字，排序求和都错",
+      "file": "scripts/lib/csv.ts",
+      "find": " && !/^[+-]?\\d+(\\.\\d+)?$/.test(v)",
+      "replace": "",
+      "by": "test",
+      "kills": ["D5.d 纯数字的文字不加"]
+    },
+    {
+      "id": "M-D5-e",
+      "req": "D5.c",
+      "why": "含逗号的公式格先转义再判断 —— 格首成了引号，单引号没加上，表格软件读出的仍以 = 开头",
+      "file": "scripts/lib/csv.ts",
+      "find": "esc(defuseFormula(v))",
+      "replace": "defuseFormula(esc(v))",
+      "by": "test",
+      "kills": ["D5.c 先加单引号再转义"]
+    },
+    {
+      "id": "M-D5-f",
+      "req": "D5.c",
+      "why": "人工反馈模板里的格子也加了单引号 —— 以 - 或 @ 开头的账号读回时对不上原值",
+      "file": "scripts/lib/csv.ts",
+      "find": "  const s = String(v ?? '')",
+      "replace": "  const s = String(defuseFormula(v) ?? '')",
+      "by": "test",
+      "kills": ["D5.c 人工反馈模板那条转义不加单引号"]
+    },
+    {
+      "id": "M-D5-g",
+      "req": "D5.d",
+      "why": "是数的格子按写出来的样子判断 —— 写成科学计数法的负数被加了单引号，成了文字",
+      "file": "scripts/lib/csv.ts",
+      "find": "typeof v === 'string' && ",
+      "replace": "",
+      "by": "test",
+      "kills": ["D5.d 数不加"]
+    },
+    {
       "id": "M-P1-d",
       "req": "P1.g",
       "why": "把粉丝数未知的人静默过滤掉 —— 真实创作者凭空消失且无人知晓",

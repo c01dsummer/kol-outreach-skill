@@ -445,20 +445,24 @@ const harness = (name: string) => { console.log(`\n[harness] ${name}`) }
  * 永远不会失败的检查，等于没测。
  */
 function xlsxSheetNames(path: string): string[] {
+  return [...xlsxPart(path, 'xl/workbook.xml').matchAll(/<sheet name="([^"]+)"/g)].map(m => m[1])
+}
+
+/** 从 xlsx 里真正解压出一个部件（如 `xl/workbook.xml`、`xl/worksheets/sheet1.xml`） */
+function xlsxPart(path: string, part: string): string {
   const buf = rf(path)
-  // 扫本地文件头，找到 xl/workbook.xml 那条，inflate 后取 <sheet name="...">
+  // 扫本地文件头，找到那一条，inflate
   for (let i = 0; i + 30 < buf.length; i++) {
     if (buf.readUInt32LE(i) !== 0x04034b50) continue
     const nameLen = buf.readUInt16LE(i + 26)
     const extraLen = buf.readUInt16LE(i + 28)
     const name = buf.subarray(i + 30, i + 30 + nameLen).toString('utf8')
-    if (name !== 'xl/workbook.xml') continue
+    if (name !== part) continue
     const start = i + 30 + nameLen + extraLen
     const compSize = buf.readUInt32LE(i + 18)
-    const xml = inflateRawSync(buf.subarray(start, start + compSize)).toString('utf8')
-    return [...xml.matchAll(/<sheet name="([^"]+)"/g)].map(m => m[1])
+    return inflateRawSync(buf.subarray(start, start + compSize)).toString('utf8')
   }
-  throw new Error('xlsx 里找不到 xl/workbook.xml')
+  throw new Error(`xlsx 里找不到 ${part}`)
 }
 
 const mk = (p: 'tiktok' | 'instagram', h: string, over: Partial<Creator> = {}): Creator => ({
@@ -6828,6 +6832,46 @@ suite('D5', 'CSV 转义')
   eq('含引号', esc('say "hi"'), '"say ""hi"""')
   eq('含换行', esc('l1\nl2'), '"l1\nl2"')
   eq('普通不加引号', esc('plain'), 'plain')
+}
+suite('D5', '名单 CSV 里可能被当成公式的文字格先加一个单引号（ADR-161）')
+criterion('D5.c', 'D5.d')
+tension('D5', 'P2'); tension('U9', 'D5')
+{
+  const dir = mkdtempSync(join(tmpdir(), 'kol-d5-'))
+  const csvP = join(dir, 'kol.csv'), xlsxP = join(dir, 'kol.xlsx')
+  // 走真的 writeCsv 写一行，取表头之后那一段 —— 验的是名单 CSV 的出口，不是某个内部函数
+  const line = (cells: unknown[]): string => {
+    writeCsv(csvP, cells.map((_, i) => `h${i}`), [cells])
+    const s = rf(csvP, 'utf8')
+    return s.slice(s.indexOf('\n') + 1)
+  }
+  try {
+    eq('D5.c 等号开头加单引号', line(['=1+1']), "'=1+1")
+    eq('D5.c 加号开头加单引号', line(['+1 555']), "'+1 555")
+    eq('D5.c 减号开头加单引号', line(['-x']), "'-x")
+    eq('D5.c @ 开头加单引号', line(['@alice']), "'@alice")
+    eq('D5.c 制表符开头加单引号', line(['\tx']), "'\tx")
+    eq('D5.c 回车开头加单引号后整格加引号', line(['\rx']), "\"'\rx\"")
+    eq('D5.c 先加单引号再转义', line(['=a,b']), "\"'=a,b\"")
+    eq('D5.c 格中间的等号不加', line(['a=b']), 'a=b')
+    eq('D5.c 空格开头不加', line([' =x']), ' =x')
+    eq('D5.c 一行里只加该加的格', line(['=x', 'plain', '@y']), "'=x,plain,'@y")
+    eq('D5.d 数不加', line([-5, 0.5, -1e-7]), '-5,0.5,-1e-7')
+    eq('D5.d 纯数字的文字不加', line(['-0.5', '+3', '12']), '-0.5,+3,12')
+    eq('D5.c 人工反馈模板那条转义不加单引号', esc('=x'), '=x')
+    const draft = '@{creator_name} Hi, {brand} here about {product}'
+    const kolLine = (() => {
+      writeCsv(csvP, [...HEADERS], [toRow(mk('tiktok', 'd5-draft', { outreach_draft: draft }))])
+      return rf(csvP, 'utf8')
+    })()
+    ok('D5/P2 开发信草稿只在格首加单引号，占位符原样', kolLine.includes(`"'${draft}"`))
+    const risk = '=HYPERLINK("http://x","y")'
+    const sheets = buildSheets([mk('tiktok', 'd5-review', { tier: 'A', mismatch_risk: risk })], { mode: 'review' })
+    writeCsv(csvP, sheets[0].headers, sheets[0].rows); writeXlsx(xlsxP, sheets)
+    ok('U9/D5 评审列在 CSV 里加单引号，其余原值', rf(csvP, 'utf8').includes(`"'=HYPERLINK(""http://x"",""y"")"`))
+    const sheetXml = xlsxPart(xlsxP, 'xl/worksheets/sheet1.xml')
+    ok('U9/D5 同一格在 XLSX 里仍是原值文字', sheetXml.includes(`<t xml:space="preserve">${risk}</t>`) && !sheetXml.includes('<f>'))
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 }
 
 })
