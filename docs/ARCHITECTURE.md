@@ -372,6 +372,7 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | 顺序契约 | 位置 | 错了会怎样 | 守它的变异 |
 |---|---|---|---|
 | 可信基线与两侧维护比较通过 → 实际选组正常基线全绿 → 施加变异 | `scripts/check/mutate.ts`、`scripts/check/mutate-rule.ts` | 读不到旧内容却作无变化放行，会绕过全量解释；跳过正常基线会把选组未执行或本来失败误归因给变异 | 规则基线/路由判定：M-H47-a…n；正常基线判失败那一步被拿掉：M-H20-n M-H20-o；实际入口顺序：独立真实入口负测试，不声称负片可修改受保护入口 |
+| 变异集开跑前的静态核对全过 → 才施加任何变异（锚点在目标文件里至多一处、验证者的名字认得……最后一道是本表点名的变异对得上，几道之间的先后见锚点表 `scripts/check/mutate.ts` 那一行） | `scripts/check/mutate.ts`、`scripts/check/mutate-rule.ts` | 出现两处的锚点被数成一处，替换静默改掉第一处，作者要验的那一处一个字没动；写错的验证者名漏过接线那一道，到建清册那一道才抛，报出来的是一个栈，指不回写错的那一行；先施后拒的话，退出跳过恢复那一步，目标文件留着一处故意的违例 | 锚点那一道被拿掉：M-H45-a；核对的判定：M-H45-b M-H14-w；入口里先施后拒没有负片（由自检来验的变异指着 `mutate.ts` 会被「自己验自己」拦下，由需求测试来验的不被拦，可今天的需求测试只在重号那一道走到拒、那棵玩具树里没有目标文件，其余几道拒的那一支走不到，ADR-148 第十四节），由自检 `anchors`、`order-binding-entry` 两组夹具核拒了之后目标文件一个字没动 |
 | 原样任务列表与 IG 路线一并校验 → 才读续跑进度、建目录、开账或改额 | `scripts/collect.ts`、`scripts/probe.ts` | 提前读坏列表会崩溃；先补平台或维度会把缺席当成合法配置；续跑先改额会在拒绝坏任务之前改写旧文件 | M-D16-x M-D16-y M-D16-ab M-D16-ac M-D16-ad M-D16-ae M-D16-af M-D16-ag M-D15-u M-D15-v M-D15-w M-D17-ac M-D17-ad M-D17-ae |
 | 续跑任务列表有效 → 校验原始进度 → 才读进度行、构造预算、改额、预留或请求 | `scripts/collect.ts`、`scripts/lib/resume-progress.ts`、`scripts/lib/cost-json.ts` | 坏索引与坏统计表会在付费或保存后才暴露；旧缺表若补成空表会把历史未知写成零；数字解析后舍入会放过原始坏值 | M-D19-c M-D19-e M-D19-h M-D19-ah M-D19-ap |
 | render 任务列表有效 → 按原文校验进度 → 才读名单、写任务、交付物或记忆 | `scripts/render.ts`、`scripts/lib/resume-progress.ts`、`scripts/lib/cost-json.ts` | 溢出的 `found` 会在报告里印成 Infinity、在 meta.json 里写成 null；先写再拒绝会让任务目录不再是原字节 | M-D19-m M-D19-n M-D19-ai |
@@ -388,6 +389,7 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | `finalize` 不得就地修改传入的累加器 | `scripts/lib/pipeline.ts` | 「累加器只增不减」退回成依赖调用方记得先落盘 —— ADR-08 那个数据丢失 bug 的形状 | M-D6-c |
 | 算分 → 基础分层（待重评先 B，其余按明确 fit）→ 地域降级 → 风险降级 → 公共默认排序；生产 render 再选择评审排序 | `scripts/lib/pipeline.ts`、`scripts/lib/score.ts` | 降级跑在 `tierOf` 之前会被重新计算的 tier 覆盖，地域不达标或高风险的人照样留在 A 级被直接发信；排序跑在降级之前，A 区里混着已经掉到 B 的人。基础 B 不保证最终仍为 B：地域或风险仍可降到 C，地域占比低于 15% 仍可剔除 | M-D21-w M-D21-x M-F5-a M-F8-a M-U1-b |
 | 记忆过滤只排除**别的任务**推荐过的人 | `scripts/lib/memory.ts` | render 写回记忆之后再 `--resume`，本任务已付费采集的人全被判成「已推荐过」，产出一份空名单 | M-D6-b |
+| collect 的几道闸（分页记录表整张缺失、跨运行页数已达上限、IG 抓过页却没有这一跑的续页令牌）→ 才轮到达标判断与搜索请求 | `scripts/collect.ts` | 闸写进达标判断里面，没达标那条路就走不到它，与拿掉一样：开跑时就已达上限的任务先多买一页才被拦下，上一版留下的目录更糟，每次续跑都重新给一份满配额；分页记录表缺失时每个关键词被记成查完了，后面那道令牌关口哪天挪走，就从第一页整批重买已经付过钱的那几页；抓过页却没令牌的 IG 任务被当成还能翻，页数记上一页而一条都没拿回 | M-F9-f M-D6-a M-D6-ay |
 | 补没抓过的第一页 → 才轮到达标判断停下 | `scripts/collect.ts`（「哪些还欠着第一页」的判定在 `scripts/lib/pipeline.ts`，两边共用） | 达标判断跑在每一次请求之前时，前面几个词各抓一页就填满目标，排在后面的关键词×平台一个请求都不发 —— 而报告里「查了没人」和「一次都没查」长得一模一样；反过来把它放宽成无视达标一直翻，多翻出来的页花的是用户没打算花的钱 | M-F9-a M-F9-d |
 | 「这个任务问过第一页了」这条记录，只在响应真的到手之后写 | `scripts/collect.ts` | 预算恰好在这个词上用尽时，断点里写着它问过、而它一条数据都没拿到：续跑不会再碰它，它的第一页就永远丢了，中止时那句话还把它从「还没问到的」里少报一个 | M-F9-b |
 | 保存任务预留 → 发请求；保存真实终态 → 读正文或重试 | `scripts/lib/budget.ts`、`scripts/providers/tikhub.ts` | 请求先发会留下费用丢失窗口；保存失败后继续读正文或请求，会把本地错误当成供应商重试条件 | M-D14-a M-D14-b M-D14-c M-D14-d M-D14-e M-P3-c M-D13-m |
@@ -400,8 +402,10 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | 三个入口读旧名单／采集原件、校验评审正本／冻结来源／人工表 → 才改额、预留、请求或覆盖名单 | `scripts/collect.ts`、`scripts/enrich.ts`、`scripts/render.ts`、`scripts/lib/task-reviews.ts`、`scripts/lib/pipeline.ts` | 坏输入会在花钱或覆盖后才拒绝；旧派生判断可能绕过正本继续进入请求、分层或交付 | M-U9-o M-U9-p M-U9-q M-U9-x M-U9-z M-D23-s M-D21-ai |
 | collect 保留实际采集与费用 → 冻结新池 → 以初始人工授权及过滤前完整直接关系重验投影 → 保存正本 → 覆盖配对名单 | `scripts/collect.ts`、`scripts/lib/pipeline.ts`、`scripts/lib/task-reviews.ts` | 本次新发现关系产生冲突时，先保存新池会在拒绝前改变冻结分母；只传幸存者会漏掉已过滤账号的冲突 | M-U9-o M-U9-r M-D23-t |
 | render 当前 Agent／人工投影与完整直接关系 → memory／同行与公开样本复核 → 唯一一次计分分层 → 评审排序及三个 formatter | `scripts/render.ts`、`scripts/lib/task-reviews.ts` | 人工采用可能绕过联系过滤，旧 fit 或旧品牌判断可能形成错误层级，三格式也可能交出不同的有效建议 | M-U9-o M-U9-s M-U9-t M-U9-u M-U9-v M-U9-aa M-D21-ai M-P4-o M-P4-r M-D8-p |
+| 评审正本的准备、迁移与冻结只在内存 → 显式保存才写 `agent-review.json` → 真实写成功才把变化记为已保存 | `scripts/lib/task-reviews.ts` | 缺席的正本在准备任务时就被创建，旧判断迁移与候选冻结没显式保存就落了盘；写入失败之前就把待保存的变化和更新时间记成已保存，失败后留不住待保存的变化，恢复路径后也没法重试 | M-D21-ae M-D21-ag |
 | 模板参数与 task／品牌原值 → 已保存正本及冻结来源 → 完整旧名单／raw 直接关系 → 才读目标并计划写入 | `scripts/feedback-template.ts`、`scripts/lib/feedback-template-task.ts` | 坏输入在写入后才拒绝；缺席正本被迁移或冻结，坏 raw 被当成缺席，过滤后关系漏掉人工冲突 | M-D26-a–i、M-D27-r |
 | 显式追加先核完整人工 CSV → 再判新增账号／unchanged | `scripts/lib/feedback-template-task.ts`、`scripts/lib/manual-feedback-template.ts` | 无新增时放过坏人工表，或重复写入同账号；同字节重写改变文件身份与修改时间 | M-D26-g、M-D26-k、M-D26-m、M-D24-f |
+| 人工反馈模板新增行的轮次原值能无损编码成 UTF-8 → 才拼出新增行的字节、计划写入 | `scripts/lib/manual-feedback-template.ts` | 带未配对代理项的轮次原值被替换编码写进新增行，原值没保留，也没有拒绝 | M-D24-n |
 | 非 unchanged 计划实际保存成功；合法 unchanged 零写入确认 → 才输出成功 JSON | `scripts/lib/feedback-template-task.ts`、`scripts/feedback-template.ts` | 保存失败仍报成功，或失败覆盖旧作答、留下首次创建目标 | M-D26-m |
 <!-- END:ORDER -->
 
