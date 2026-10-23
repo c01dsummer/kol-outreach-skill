@@ -34,7 +34,7 @@ export interface HookDisk { exists(path: string): boolean; read(path: string): s
 
 /** 给定那棵树、缓存目录与编译身份的两个钩子 */
 export function prebuiltHooks(at: { root: string; cache: string; id: string }, disk: HookDisk): { resolve: ResolveHookSync; load: LoadHookSync } {
-  // 归属按真实位置判断；保留交给 Node 的原 URL，兼容目录别名与保留软链的起法。
+  // 归属按真实位置判断；解析仍交 Node，按它的软链参数决定模块身份。
   const normalize = (url: string): string => disk.realpath === undefined ? url : pathToFileURL(disk.realpath(fileURLToPath(url))).href
   const prefix = normalize(pathToFileURL(at.root).href) + '/'
   const inside = (url: string | undefined): url is string => url !== undefined && url.startsWith('file:') && normalize(url).startsWith(prefix)
@@ -42,7 +42,7 @@ export function prebuiltHooks(at: { root: string; cache: string; id: string }, d
     resolve(specifier, context, next) {
       if ((specifier.startsWith('./') || specifier.startsWith('../')) && specifier.endsWith('.js') && inside(context.parentURL)) {
         const ts = new URL(`${specifier.slice(0, -3)}.ts`, context.parentURL)
-        if (inside(ts.href) && disk.exists(fileURLToPath(ts))) return { url: ts.href, shortCircuit: true }
+        if (inside(ts.href) && disk.exists(fileURLToPath(ts))) return next(ts.href, context)
       }
       return next(specifier, context)
     },

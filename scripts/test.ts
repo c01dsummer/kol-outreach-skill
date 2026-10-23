@@ -144,7 +144,7 @@ import {
 } from './lib/assessment.js'
 import {
   writeFileSync, unlinkSync, truncateSync, rmSync, mkdirSync, mkdtempSync, existsSync,
-  readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync, cpSync,
+  readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync, cpSync, realpathSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
@@ -9006,7 +9006,7 @@ harness('预编 JS：缓存按正文寻址，缺一份就照旧 tsx，钩子只�
   disk[entryPath(cache, keyOf(id, '/r/scripts/a.ts', 'A'))] = 'compiled A'
   const hooks = prebuiltHooks({ root: '/r/scripts', cache, id }, { exists: p => p in disk, read: p => disk[p] })
   const resolveOf = (specifier: string, parentURL: string) =>
-    hooks.resolve(specifier, { parentURL, conditions: [], importAttributes: {} }, s => ({ url: `next:${s}` })).url
+    hooks.resolve(specifier, { parentURL, conditions: [], importAttributes: {} }, s => ({ url: s.startsWith('file:') ? s : `next:${s}` })).url
   eq('钩子解析：树里写的 ./x.js 在 x.ts 在时认 x.ts；x.ts 不在、在树外、不是相对路径的交给下一个',
     [resolveOf('./lib/b.js', 'file:///r/scripts/a.ts'), resolveOf('./lib/c.js', 'file:///r/scripts/a.ts'),
       resolveOf('./scripts/lib/b.js', 'file:///r/x.ts'), resolveOf('node:fs', 'file:///r/scripts/a.ts')],
@@ -9067,10 +9067,12 @@ harness('预编 JS 端到端：裸 node 跑缓存里的那一份，改过没重�
     eq('编译配置改变：旧键不算齐，重新预编才恢复裸起',
       [isBare(prebuiltCommand([main], owner, env)[1]), prebuildTree(owner), isBare(prebuiltCommand([main], owner, env)[1])],
       [false, { wrote: 2, kept: 0, removed: 2 }, true])
-    const alias = join(owner, 'alias')
-    symlinkSync(owner, alias, 'dir')
-    const linked = run(prebuiltCommand([join(alias, 'scripts', 'main.ts')], alias, env))
-    eq('目录别名起入口：仍加载同一棵树并保留模块地址语义', [linked.status, linked.stdout.trim()], [0, '[22,true,true]'])
+    const alias = join(owner, 'alias'); symlinkSync(owner, alias, 'dir')
+    writeFileSync(main, `import * as a from './lib/value.js'; import * as b from ${JSON.stringify(pathToFileURL(realpathSync(value)).href)}; console.log(a === b)\n`); prebuildTree(owner)
+    const linked = ['', '--preserve-symlinks', '--preserve-symlinks-main', '--preserve-symlinks --preserve-symlinks-main'].map(flags => {
+      const options = { ...env, NODE_OPTIONS: flags }, child = spawnSync(...prebuiltCommand([join(alias, 'scripts', 'main.ts')], alias, options), { cwd: owner, env: options, encoding: 'utf8', timeout: 30_000 }); return [child.status, child.stdout.trim()]
+    })
+    eq('目录别名起入口：仍加载同一棵树并保留模块地址语义', linked, [[0, 'true'], [0, 'true'], [0, 'true'], [0, 'false']])
     const compat = join(owner, 'compat.ts'), legacy = join(owner, 'legacy-module.mjs')
     const hookURL = new URL('./check/prebuilt-hook.ts', import.meta.url).href
     writeFileSync(join(owner, 'package.json'), '{"type":"module"}')

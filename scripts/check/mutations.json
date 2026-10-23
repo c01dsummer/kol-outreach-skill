@@ -17989,8 +17989,8 @@
       "req": "harness",
       "why": "`./x.js` 不问 `x.ts` 在不在就改成 `x.ts` —— 真有 `.js` 的那个引用被认到不存在的文件",
       "file": "scripts/check/prebuilt-hook.ts",
-      "find": "if (inside(ts.href) && disk.exists(fileURLToPath(ts))) return { url: ts.href, shortCircuit: true }",
-      "replace": "if (inside(ts.href)) return { url: ts.href, shortCircuit: true }",
+      "find": "if (inside(ts.href) && disk.exists(fileURLToPath(ts))) return next(ts.href, context)",
+      "replace": "if (inside(ts.href)) return next(ts.href, context)",
       "by": "test",
       "kills": ["钩子解析：树里写的 ./x.js 在 x.ts 在时认 x.ts；x.ts 不在、在树外、不是相对路径的交给下一个"]
     },
@@ -18223,6 +18223,18 @@
       "replace": "const normalize = (url: string): string => url",
       "by": "test",
       "kills": ["目录别名起入口：仍加载同一棵树并保留模块地址语义"]
+    },
+    {
+      "id": "M-H62-z",
+      "req": "harness",
+      "why": "相对依赖的 .ts 地址若直接短路返回，保留软链入口时会与绝对物理地址拆成两个模块实例",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": "return next(ts.href, context)",
+      "replace": "return { url: ts.href, shortCircuit: true }",
+      "by": "test",
+      "kills": [
+        "目录别名起入口：仍加载同一棵树并保留模块地址语义"
+      ]
     }
   ],
   "exemptions": [
