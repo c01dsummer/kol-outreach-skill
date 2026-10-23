@@ -1689,9 +1689,11 @@ group('cost-durable', [], () => {
     const f = fixture('kill-barrier', entry)
     const controller = join(f.cwd, 'kill-at-fetch.mjs')
     // 控制器是同步自检的一个子进程；被测入口是其直接IPC子进程，没有tsx壳的信号换算。
+    const childOptions = '--import ' + JSON.stringify(fixtureLoader(S(`${entry}.ts`), env)) + ' '
     writeFileSync(controller, [
       `import { spawn } from 'node:child_process';`,
-      `const child = spawn(process.execPath, ['--import', ${JSON.stringify(fixtureLoader(S(`${entry}.ts`), env))}, ...${JSON.stringify(args(entry, f))}], {cwd:${JSON.stringify(f.cwd)}, env:process.env, stdio:['ignore','pipe','pipe','ipc']});`,
+      `const childEnv = { ...process.env, NODE_OPTIONS: ${JSON.stringify(childOptions)} + (process.env.NODE_OPTIONS ?? '') };`,
+      `const child = spawn(process.execPath, ${JSON.stringify(args(entry, f))}, {cwd:${JSON.stringify(f.cwd)}, env:childEnv, stdio:['ignore','pipe','pipe','ipc']});`,
       `let stdout='', stderr='', barrier=false;`,
       `child.stdout.on('data', x => stdout += x); child.stderr.on('data', x => stderr += x);`,
       `const timer = setTimeout(() => { child.kill('SIGKILL'); }, 15000);`,
@@ -7354,8 +7356,10 @@ group('ig-search-plays', [], () => {
 group('ig-homepage-mixed', [], () => {
   // 本组直接用 Node 的 --import：自检在受限环境也不依赖 tsx CLI 的 IPC socket。
   const runIg = (label: string, args: string[], cwd = tmp, extra: NodeJS.ProcessEnv = {}) => {
-    const r = spawnSync(process.execPath, ['--import', fixtureLoader(args[0], { ...env, ...extra }), ...args],
-      { cwd, env: { ...env, ...extra }, encoding: 'utf8', timeout: 20_000 })
+    const kidEnv = { ...env, ...extra }
+    kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(args[0], kidEnv))} ${kidEnv.NODE_OPTIONS ?? ''}`
+    const r = spawnSync(process.execPath, args,
+      { cwd, env: kidEnv, encoding: 'utf8', timeout: 20_000 })
     const ok = !r.error && r.status === 0
     if (!ok) { failed++; console.error(`  ✗ ${label}${SELFCHECK_PROCESS_MARK}：${
       r.error?.message ?? `退出码 ${r.status}`}\n${(r.stderr ?? '').split('\n').slice(-12).join('\n')}`) }
