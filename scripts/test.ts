@@ -75,7 +75,7 @@ import { endsOpen, quotedMask } from './check/quoted.js'
 import { compileCacheDir, tsxCommand } from './check/tsx-cmd.js'
 import {
   PREBUILT_DIR, asTsx, bareLaunch, bringsTsxLoader, complete as cacheComplete, identityOf, isBare, ownerOf, prebuildOne, prebuildTree,
-  prebuiltCommand, scriptsRootOf,
+  fixtureLoader, prebuiltCommand, scriptsRootOf,
 } from './check/prebuilt.js'
 import { entryPath, keyOf, prebuiltHooks } from './check/prebuilt-hook.js'
 import {
@@ -6263,7 +6263,6 @@ suite('D27', 'task.json 写重复的费用字段：collect 续跑与 enrich 改�
   // 阳性对照：同一份只留最后一处的任务、同一种接线，照常预留并请求（collect 去搜那个没完成的任务，enrich 去补那个创作者）
   const p3Root = mkdtempSync(join(tmpdir(), 'kol-d27-p3-'))
   try {
-    const tsxLoader = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
     const fakeFetch = pathToFileURL(join(process.cwd(), 'scripts', 'check', 'fake-fetch.ts')).href
     const budgetModule = pathToFileURL(join(process.cwd(), 'scripts', 'lib', 'budget.ts')).href
     const person = { platform: 'tiktok', handle: 'cost_person', nickname: 'cost_person', followers: 10000, post_count: 50, bio: null,
@@ -6285,10 +6284,11 @@ suite('D27', 'task.json 写重复的费用字段：collect 续跑与 enrich 改�
       ].join('\n'))
       const argv = entry === 'collect' ? [join(process.cwd(), 'scripts', 'collect.ts'), '--resume', taskDir, '--budget', '2']
         : [join(process.cwd(), 'scripts', 'enrich.ts'), '--dir', taskDir, '--budget', '2']
-      const [exe, args] = tsxCommand(argv)
-      const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d27', FAKE_FETCH_LEDGER: ledger,
-        FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(),
-        NODE_OPTIONS: `--import ${JSON.stringify(tsxLoader)} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}` } })
+      const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d27', FAKE_FETCH_LEDGER: ledger,
+        FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
+      kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv))} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}`
+      const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
+      const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv })
       const lines = (path: string) => existsSync(path) ? rf(path, 'utf8').split('\n').filter(Boolean).length : 0
       return { status: r.status, armed: lines(armed) > 0, kept: rf(file, 'utf8') === text, reserves: lines(reserves), attempts: lines(ledger),
         stderr: (r.stderr ?? '').split('\n').filter(Boolean).slice(-2).join(' | ') }
@@ -12958,7 +12958,6 @@ suite('D13', '已有数据可离线输出，未知费用不得换来新增付费
   const cwd = mkdtempSync(join(tmpdir(), 'kol-cost-cross-')), dir = join(cwd, 'task'), taskFile = join(dir, 'task.json')
   const log = join(cwd, 'attempts.tsv'), scripts = new URL('./', import.meta.url)
   const preload = new URL('./check/fake-fetch.ts', import.meta.url).href
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
   mkdirSync(dir); mkdirSync(join(cwd, 'memory'))
   const writeLegacy = (paid = false) => {
     writeFileSync(taskFile, JSON.stringify({ product: 'legacy-cross', market: 'US', target_count: 9999,
@@ -12968,11 +12967,12 @@ suite('D13', '已有数据可离线输出，未知费用不得换来新增付费
       created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' }))
     for (const file of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, file), '[]')
   }
-  const run = (file: string, args: string[], key = '') => spawnSync(process.execPath,
-    ['--import', tsx, '--import', preload, fileURLToPath(new URL(file, scripts)), ...args], {
-      cwd, encoding: 'utf8', timeout: 20000, env: { ...process.env, NODE_OPTIONS: '',
-        TIKHUB_API_KEY: key, FAKE_FETCH_LEDGER: log, FAKE_FETCH_NO_429: '1' },
-    })
+  const run = (file: string, args: string[], key = '') => {
+    const entry = fileURLToPath(new URL(file, scripts))
+    const kidEnv = { ...process.env, NODE_OPTIONS: '', TIKHUB_API_KEY: key, FAKE_FETCH_LEDGER: log, FAKE_FETCH_NO_429: '1' }
+    return spawnSync(process.execPath, ['--import', fixtureLoader(entry, kidEnv), '--import', preload, entry, ...args],
+      { cwd, encoding: 'utf8', timeout: 20000, env: kidEnv })
+  }
   const noFetch = () => !existsSync(log) || rf(log, 'utf8').trim() === ''
   try {
     await costSucceeds('旧账本地处理交点完整执行', () => {
@@ -16615,7 +16615,6 @@ const DUPS: Dup[] = [
   { name: 'found', text: cfg({ found: '"found":7.25e0,"f\\u006fund":"zq-mid-two","found":{"0":3}' }), at: 'found', tokens: ['7.25e0', 'zq-mid-two'], times: 3 },
 ]
 const d28Kit = (root: string) => {
-  const tsxLoader = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
   const fakeFetch = pathToFileURL(join(process.cwd(), 'scripts', 'check', 'fake-fetch.ts')).href
   const budgetModule = pathToFileURL(join(process.cwd(), 'scripts', 'lib', 'budget.ts')).href
   const tree = (dir: string) => JSON.stringify(readdirSync(dir, { recursive: true }).map(String).sort()
@@ -16638,11 +16637,13 @@ const d28Kit = (root: string) => {
       `Budget.prototype.reserve = function(...args) { appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n'); return Reflect.apply(original, this, args); };`,
       `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
     ].join('\n'))
-    const [exe, args] = tsxCommand([join(process.cwd(), 'scripts', mode === 'probe' ? 'probe.ts' : 'collect.ts'), '--config', file,
-      ...mode === 'collect --budget 2' ? ['--budget', '2'] : []])
-    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d28', FAKE_FETCH_LEDGER: ledger,
-      FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(),
-      NODE_OPTIONS: `--import ${JSON.stringify(tsxLoader)} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}` } })
+    const argv = [join(process.cwd(), 'scripts', mode === 'probe' ? 'probe.ts' : 'collect.ts'), '--config', file,
+      ...mode === 'collect --budget 2' ? ['--budget', '2'] : []]
+    const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d28', FAKE_FETCH_LEDGER: ledger,
+      FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
+    kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv))} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}`
+    const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
+    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv })
     const lines = (path: string) => existsSync(path) ? rf(path, 'utf8').split('\n').filter(Boolean).length : 0
     // 路径先移走：它不能替问题提供位置、原文或次数
     const stderr = r.stderr ?? '', message = stderr.replaceAll(file, '[配置]').replaceAll(root, '[目录]')
