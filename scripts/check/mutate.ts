@@ -44,7 +44,7 @@ import {
   type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
   executionRoutes, labelFaults, labelsOf, mutationEventBase, resolveMutationBaseline, routeDelta, type RouteSnapshot,
-  anchorMatches, baselineFault, stopsEarly, wiringFault,
+  anchorMatches, applyMutation, baselineFault, stopsEarly, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH, mutationSourceIdentity } from './claims.js'
 import {
@@ -596,7 +596,7 @@ const runOne = async (m: Mut): Promise<Ran> => {
     // 写盘也在这一段里面：写盘是先截断再写的，写到一半抛出去（盘满、IO 错）留下的是
     // 半份源文件，而那时 `finally` 要是够不着，被截断的那份就留在工作区里，
     // 记着的现场谁也不去取（评审指出）
-    writeFileSync(m.file, orig.replace(m.find, m.replace), 'utf8')
+    writeFileSync(m.file, applyMutation(orig, m.find, m.replace), 'utf8')
     // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null);
     // 点了名的还要再看一层:红的是不是 kills 说的那一条
     const verifier = VERIFIERS[m.by ?? 'test']

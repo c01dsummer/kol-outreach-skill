@@ -33,7 +33,7 @@ import {
   labelFault, notAssertion,
   labelFaults,
   groupOfLabel, labelsOf, leadWired, processFailed, wiringFault,
-  anchorFaults, anchorMatches, baselineFault,
+  anchorFaults, anchorMatches, applyMutation, baselineFault,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { judgeShares, scanShares } from './check/share-rule.js'
@@ -7221,6 +7221,13 @@ harness('变异目录对着树：锚点对不上的四种各有名字，没还�
   eq('删一段的没还原：find 不在就报',
     anchorFaults([{ id: 'M-丁', file: 'd.ts', find: 'gate()\n', replace: '' }], files({ 'd.ts': 'other()\n' })),
     [{ kind: 'residue', id: 'M-丁', file: 'd.ts' }])
+}
+
+harness('施加变异照字面：盘上写的就是目录里登记的那一段')
+{
+  // 替换文本里的四种 $ 记号各照原样落盘，一个也不展开（展开的话 $$ 折成一个 $，$& 换成 find 本身）
+  eq('$$、$&、$`、$\' 照原样写出', applyMutation('a X b', 'X', "$$ $& $` $'"), "a $$ $& $` $' b")
+  eq('只换第一处', applyMutation('X X', 'X', 'Y'), 'Y X')
 }
 
 harness('by 与 kills 同进同出：四种写错各有名字')

@@ -6097,6 +6097,39 @@ group('stop-if-seen', [], () => {
   } else console.log('  ✓ 见齐就停：验证者没结束，那条变异照样判「被抓到」')
 })
 
+// ---- 施加变异照字面：入口真的用 applyMutation 落盘（ADR-70 末尾「施加照字面」一节，接线证明）----
+group('literal-apply', [], () => {
+  // 判定是纯函数 applyMutation，由需求测试 h-mutate 断言、M-H45-i/j 守着；剩下的那一半是**入口施加时真的走它**。
+  // mutate.ts 在自检的工具表里，不配负片（指着它的变异由自检来验会被「自己验自己」拦下）。
+  // 玩具树里只有一条变异，替换文本是两个美元记号；假验证者见文件里有两个就红。照字面施加 → 红 → 被抓到、以 0 结束；
+  // 照记号展开的话盘上只剩一个 → 验证者绿 → 存活、以 1 结束，这里就红了。
+  const litTmp = join(tmp, 'literal-apply')
+  mkdirSync(join(litTmp, 'scripts', 'check'), { recursive: true })
+  mkdirSync(join(litTmp, 'docs'), { recursive: true })
+  writeFileSync(join(litTmp, 'docs', 'requirements.json'),
+    JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+  writeFileSync(join(litTmp, 'docs', 'ARCHITECTURE.md'), ORDER_TABLE_STUB, 'utf8')
+  const litSource = "const s = 'P'\n"
+  writeFileSync(join(litTmp, 'a.ts'), litSource, 'utf8')
+  writeFileSync(join(litTmp, 'scripts', 'check', 'selfcheck.ts'),
+    ["import { readFileSync } from 'node:fs'",
+     'const endPath = (label: string, _rest: unknown[]): void => {',
+     '  console.error(`  ✗ ${label}`)',
+     '  process.exitCode = 1',
+     '}',
+     "if (readFileSync('a.ts', 'utf8').includes('$$')) endPath('甲', [])",
+     ''].join('\n'), 'utf8')
+  writeFileSync(join(litTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+    { id: 'M-X-j', req: 'X1', why: '把那个字面量换成两个美元记号', file: 'a.ts', find: "'P'", replace: "'$$'",
+      by: 'selfcheck', kills: ['甲'] },
+  ] }), 'utf8')
+  const lit = runToolBoth('mutate 照字面施加替换文本（两个美元记号不折成一个）', 'mutate', [], litTmp, { status: 0 })
+  if (lit.ok) named('mutate 照字面施加的那条判被抓到', /M-X-j\s+\[X1\] 被抓到/.test(lit.stdout), lit.stdout)
+  named('mutate 照字面施加之后目标文件还原',
+    readFileSync(join(litTmp, 'a.ts'), 'utf8') === litSource,
+    `a.ts 变成了 ${JSON.stringify(readFileSync(join(litTmp, 'a.ts'), 'utf8'))}`)
+})
+
 // ---- 点的夹具立不住即以退出码 1 结束（清册的入口那一半）----
 group('roster', [], () => {
   // 判据在 mutate-rule.ts（扫源码建清册、裁定点得着点不着），由 scripts/test.ts 断言、

@@ -5215,6 +5215,30 @@
       ]
     },
     {
+      "id": "M-H45-i",
+      "req": "harness",
+      "why": "施加变异时替换文本里的美元记号被当成替换记号展开，盘上写出的不是目录里登记的那一段 —— 一条变异顺带多改一处，被抓到也说不清是哪一处的功劳",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "(find, () => replace)",
+      "replace": "(find, replace)",
+      "by": "test",
+      "kills": [
+        "$$、$&、$`、$' 照原样写出"
+      ]
+    },
+    {
+      "id": "M-H45-j",
+      "req": "harness",
+      "why": "施加变异时锚点出现几处就换几处 —— 开跑前那道体检一旦漏过一处不唯一，一条变异同时改了好几处，作者要验的那一处分不出来",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "source.replace(find, () =>",
+      "replace": "source.replaceAll(find, () =>",
+      "by": "test",
+      "kills": [
+        "只换第一处"
+      ]
+    },
+    {
       "id": "M-H36-a",
       "req": "harness",
       "why": "派工时给了零或者负数当并行度，不再说「说不清要派几个」，而是悄悄收口成 1 跑起来 —— 一个写错的配置被当成没写过，人以为自己在串行跑，实际不是",

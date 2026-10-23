@@ -231,6 +231,17 @@ export function anchorFaults(muts: readonly { id: string; file: string; find: st
   return faults
 }
 
+/**
+ * 把一条变异施加到源码上：`find` 的第一处换成 `replace`，**照字面**（ADR-70 末尾「施加照字面」一节）。
+ *
+ * `String.prototype.replace` 的字符串形式把替换文本里的 `$$`、`$&`、`` $` ``、`$'` 当记号展开，盘上写出的
+ * 就不是目录里登记的那一段 —— `M-D13-r` 登记的是两个 `$`，施加时只剩一个，顺带多改了一处。交一个函数进去，
+ * 它的返回值原样落盘。只换第一处：锚点要恰好一处，由开跑前那道体检拦，这里不另判。
+ */
+export function applyMutation(source: string, find: string, replace: string): string {
+  return source.replace(find, () => replace)
+}
+
 export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault | undefined {
   if (mut.by === undefined) return mut.kills === undefined ? undefined : 'kills-without-by'
   if (!Object.hasOwn(VERIFIERS, mut.by)) return 'unknown-verifier'
