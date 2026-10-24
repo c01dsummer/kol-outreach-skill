@@ -511,8 +511,8 @@
       "req": "U9.a",
       "why": "卡片上不留分层标记，报告里的 tab 切换失效 —— 每个 tab 显示的内容完全一样",
       "file": "scripts/lib/report.ts",
-      "find": "<div class=\"card ${c.tier}\" data-tier=\"${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>",
-      "replace": "<div class=\"card ${c.tier}\"${c.tier === def ? '' : ' style=\"display:none\"'}>",
+      "find": "<div class=\"card ${escRaw(c.tier)}\" data-tier=\"${escRaw(c.tier)}\"${c.tier === def ? '' : ' style=\"display:none\"'}>",
+      "replace": "<div class=\"card ${escRaw(c.tier)}\"${c.tier === def ? '' : ' style=\"display:none\"'}>",
       "by": "test",
       "kills": [
         "点击 B、A、C 后只显示所选分层卡片"
@@ -16987,8 +16987,8 @@
       "id": "M-P1-ad", "req": "P1",
       "why": "旧 HTML 缺席分数未显示未知状态，运营无法辨认该账号尚未算分",
       "file": "scripts/lib/report.ts",
-      "find": "    <span class=\"sc\">${c.score === undefined ? '未知' : c.score}</span>",
-      "replace": "    <span class=\"sc\">${c.score}</span>",
+      "find": "    <span class=\"sc\">${c.score === undefined ? '未知' : escRaw(c.score)}</span>",
+      "replace": "    <span class=\"sc\">${escRaw(c.score)}</span>",
       "by": "test", "kills": ["legacy-html-missing-score"]
     },
     {
@@ -17512,8 +17512,8 @@
       "req": "U10.b",
       "why": "初始报告把 C 层交付候选藏起，全部名单只在脚本运行后才可能恢复",
       "file": "scripts/lib/report.ts",
-      "find": "${dual ? `<div class=\"card ${c.tier}\" data-tier=\"${c.tier}\"",
-      "replace": "${dual ? `<div class=\"card ${c.tier}\" style=\"display:${c.tier === 'C' ? 'none' : ''}\" data-tier=\"${c.tier}\"",
+      "find": "${dual ? `<div class=\"card ${escRaw(c.tier)}\" data-tier=\"${escRaw(c.tier)}\"",
+      "replace": "${dual ? `<div class=\"card ${escRaw(c.tier)}\" style=\"display:${c.tier === 'C' ? 'none' : ''}\" data-tier=\"${escRaw(c.tier)}\"",
       "by": "test",
       "kills": [
         "双筛选初始 HTML 已完整可见且顺序正确"
@@ -17962,6 +17962,127 @@
       "by": "test",
       "kills": [
         "U11关键词公共HTML每行原身份含平台维度不丢不串"
+      ]
+    },
+    {
+      "id": "M-U12-a",
+      "req": "U12.a",
+      "why": "报告里平台标签的样式类直接写入名单上的平台取值，名单被写坏时取值能改写报告的标记",
+      "file": "scripts/lib/report.ts",
+      "find": "<span class=\"pf ${escRaw(c.platform)}\">",
+      "replace": "<span class=\"pf ${c.platform}\">",
+      "by": "test",
+      "kills": [
+        "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
+      ]
+    },
+    {
+      "id": "M-U12-b",
+      "req": "U12.a",
+      "why": "粉丝数取值不是数字时原样写进报告正文，能改写报告的标记",
+      "file": "scripts/lib/report.ts",
+      "find": "<span>${esc(fmt(c.followers))} 粉丝</span>",
+      "replace": "<span>${fmt(c.followers)} 粉丝</span>",
+      "by": "test",
+      "kills": [
+        "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
+      ]
+    },
+    {
+      "id": "M-U12-c",
+      "req": "U12.a",
+      "why": "副标题里的平台列表直接写入交付 meta 的取值，能改写报告的标记",
+      "file": "scripts/lib/report.ts",
+      "find": "${esc((meta.platforms ?? []).join(' + '))}",
+      "replace": "${(meta.platforms ?? []).join(' + ')}",
+      "by": "test",
+      "kills": [
+        "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
+      ]
+    },
+    {
+      "id": "M-U12-d",
+      "req": "U12.b",
+      "why": "账号被转义两次，报告上显示的是字符实体的原文，不是账号本身",
+      "file": "scripts/lib/report.ts",
+      "find": "@${esc(c.handle)}</a>",
+      "replace": "@${esc(esc(c.handle))}</a>",
+      "by": "test",
+      "kills": [
+        "U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次及以上的写法",
+        "U12自由文本换成金丝雀后两种视图都以转义一次的原文出现"
+      ]
+    },
+    {
+      "id": "M-U12-e",
+      "req": "U12.a",
+      "why": "原先直接写进报告的那些取值里有大于号时，报告里出现的是大于号的原字符，没有转义",
+      "file": "scripts/lib/report.ts",
+      "find": "const escRaw = (v: unknown) => esc(String(v))",
+      "replace": "const escRaw = (v: unknown) => esc(String(v)).replaceAll('&gt;', '>')",
+      "by": "test",
+      "kills": [
+        "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
+      ]
+    },
+    {
+      "id": "M-U12-f",
+      "req": "U12.a",
+      "why": "播粉比不可用时的原因原样写进报告正文，增强结果被写坏时能改写报告的标记",
+      "file": "scripts/lib/report.ts",
+      "find": "<span>播粉比 <b>${esc(metricText(m?.view_rate, pct))}</b></span>",
+      "replace": "<span>播粉比 <b>${metricText(m?.view_rate, pct)}</b></span>",
+      "by": "test",
+      "kills": [
+        "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
+      ]
+    },
+    {
+      "id": "M-U12-g",
+      "req": "U12.a",
+      "why": "受众风险已测时的等级以大写原样写进报告正文，增强结果被写坏时能改写报告的标记",
+      "file": "scripts/lib/report.ts",
+      "find": "${esc(riskLevel)}</b></span>",
+      "replace": "${risk?.status === 'measured' ? riskLevel : esc(riskLevel)}</b></span>",
+      "by": "test",
+      "kills": [
+        "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
+      ]
+    },
+    {
+      "id": "M-U12-h",
+      "req": "U12.b",
+      "why": "契合理由被转义两次，报告上显示的是字符实体的原文，不是理由本身",
+      "file": "scripts/lib/report.ts",
+      "find": "${esc(c.fit)} ${esc(c.fit_reason)}</div>",
+      "replace": "${esc(c.fit)} ${esc(esc(c.fit_reason))}</div>",
+      "by": "test",
+      "kills": [
+        "U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次及以上的写法"
+      ]
+    },
+    {
+      "id": "M-U12-i",
+      "req": "U12.b",
+      "why": "邮箱被转义三次，报告上显示的是字符实体的原文，不是邮箱本身",
+      "file": "scripts/lib/report.ts",
+      "find": "<span class=\"em\">${esc(c.email)}</span>",
+      "replace": "<span class=\"em\">${esc(esc(esc(c.email)))}</span>",
+      "by": "test",
+      "kills": [
+        "U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次及以上的写法"
+      ]
+    },
+    {
+      "id": "M-U12-j",
+      "req": "U12.c",
+      "why": "昵称只显示前八个字，报告上的昵称不是名单上的原文",
+      "file": "scripts/lib/report.ts",
+      "find": "<div class=\"nm\">${esc(c.nickname)}</div>",
+      "replace": "<div class=\"nm\">${esc(String(c.nickname ?? '').slice(0, 8))}</div>",
+      "by": "test",
+      "kills": [
+        "U12自由文本换成金丝雀后两种视图都以转义一次的原文出现"
       ]
     },
     {
