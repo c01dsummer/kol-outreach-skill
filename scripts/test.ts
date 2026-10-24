@@ -219,6 +219,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-prebuilt-entry', needs: [] },
   { id: 'h-prebuilt-options', needs: [] },
   { id: 'h-prebuilt-observer', needs: [] },
+  { id: 'h-prebuilt-observer-child-cwd', needs: [] },
   { id: 'h-prebuilt-cwd-config', needs: [] },
   { id: 'h-prebuilt-scope', needs: [] },
   { id: 'h-worker-start', needs: [] },
@@ -6302,7 +6303,7 @@ suite('D27', 'task.json 写重复的费用字段：collect 续跑与 enrich 改�
         : [join(process.cwd(), 'scripts', 'enrich.ts'), '--dir', taskDir, '--budget', '2']
       const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d27', FAKE_FETCH_LEDGER: ledger,
         FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
-      kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv))} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}`
+      kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv, cwd))} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}`
       const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
       const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv })
       const lines = (path: string) => existsSync(path) ? rf(path, 'utf8').split('\n').filter(Boolean).length : 0
@@ -9163,7 +9164,7 @@ harness('观察器加载契约：同环境同选路，.ts 观察器与 .js 入�
 const exported: unknown = Reflect.get(await import('./check/prebuilt.js'), 'fixtureLoader')
 eq('观察器加载器公开契约：fixtureLoader 是函数', typeof exported, 'function')
 if (typeof exported !== 'function') return // 缺 API 是上面的具名断言红，不让 import 崩溃代替它。
-const fixtureLoader = exported as (script: string, env?: NodeJS.ProcessEnv) => string
+const fixtureLoader = exported as (script: string, env?: NodeJS.ProcessEnv, cwd?: string) => string
 const owner = realpathSync(mkdtempSync(join(tmpdir(), 'kol-prebuilt-observer-')))
 const savedCwd = process.cwd()
 try {
@@ -9190,7 +9191,7 @@ console.log(JSON.stringify([state.wired, state.fake, state.events, answer, impor
   const tsxPaths = new Set(['tsx', 'tsx/esm'].map(specifier => realpathSync(require.resolve(specifier))))
   const hookPath = pathOf(new URL('./check/prebuilt-hook.ts', import.meta.url).href)
   const choose = (extra: NodeJS.ProcessEnv = {}) => {
-    const kidEnv = { ...env, ...extra }, loader = fixtureLoader(main, kidEnv)
+    const kidEnv = { ...env, ...extra }, loader = fixtureLoader(main, kidEnv, owner)
     const wired = { ...kidEnv, NODE_OPTIONS: [kidEnv.NODE_OPTIONS ?? '', ...[loader, observerURL, fakeURL].map(u => '--import ' + JSON.stringify(u))].join(' ') }
     return { loader, wired, command: prebuiltCommand([main], owner, wired) }
   }
@@ -9239,6 +9240,329 @@ console.log(JSON.stringify([state.wired, state.fake, state.events, answer, impor
   writeFileSync(value, rf(value, 'utf8') + '\nexport const changed: number = 2\n')
   eq('观察器加载器：源码改后未编时与入口一同保留 tsx', route(), fallback)
 } finally { process.chdir(savedCwd); rmSync(owner, { recursive: true, force: true }) }
+})
+
+await group('h-prebuilt-observer-child-cwd', async () => {
+harness('观察器真实子cwd：独立公开契约v4，先验接线与双向字段语义')
+// v4字段oracle/标签保留；v5仅补独立冻结的主线程观测资格，worker诊断另域保留。
+const reportEq = eq;
+const { spawnSync } = await import('node:child_process');
+const { createHash, randomUUID } = await import('node:crypto');
+const { mkdirSync, writeFileSync, readFileSync, symlinkSync, existsSync, rmSync, mkdtempSync, realpathSync } = await import('node:fs');
+const path = await import('node:path');
+const { tmpdir } = await import('node:os');
+const { pathToFileURL } = await import('node:url');
+const bus = `
+type ThreadIdentity = { pid: number; isMainThread: boolean; threadId: number };
+const workersModule: string = 'node:worker_threads';
+const { isMainThread, threadId } = await import(workersModule);
+const runtime = (globalThis as unknown as { process: { pid: number } }).process;
+export const busThread: ThreadIdentity = Object.freeze({ pid: runtime.pid, isMainThread, threadId });
+
+export type Observation = { kind: string; value?: number; wired?: boolean; setterCount?: number; own?: boolean; sourceSha?: string; eventThread?: ThreadIdentity };
+const listeners: Array<(event: Observation) => void> = [];
+export function observe(listener: (event: Observation) => void): void { listeners.push(listener); }
+export function isWired(): boolean { return listeners.length === 1; }
+export function publish(event: Observation): void { for (const listener of listeners) listener({ ...event, eventThread: busThread }); }
+`;
+
+const observer = `
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { isMainThread, threadId } from 'node:worker_threads';
+const observerThread = Object.freeze({ pid: process.pid, isMainThread, threadId });
+const sourceSha = createHash('sha256').update(readFileSync(process.env.OBSERVER_SOURCE_PATH, 'utf8')).digest('hex');
+const nonce = process.env.OBSERVER_NONCE;
+if (isMainThread) {
+  const { observe } = await import('./bus.ts');
+  observe((event) => console.log(JSON.stringify({ channel: 'observer-child-cwd-v1', nonce, observerSha: sourceSha, ...event, observerThread })));
+  console.log(JSON.stringify({ channel: 'observer-child-cwd-v1', nonce, observerSha: sourceSha, kind: 'observer-ready', observerThread }));
+} else {
+  console.log(JSON.stringify({ channel: 'observer-child-cwd-worker-v1', nonce, observerSha: sourceSha, kind: 'worker-preload', observerThread, eventThread: observerThread }));
+}
+`;
+
+const entry = `
+import { isWired, publish } from './bus.ts';
+const runtime = (globalThis as unknown as { process: { env: Record<string, string | undefined>; cwd(): string } }).process;
+const fsModule: string = 'node:fs';
+const cryptoModule: string = 'node:crypto';
+const fs = await import(fsModule);
+const crypto = await import(cryptoModule);
+const sourceSha = crypto.createHash('sha256').update(fs.readFileSync(runtime.env.ENTRY_SOURCE_PATH, 'utf8')).digest('hex');
+publish({ kind: 'target-wired', wired: isWired(), sourceSha });
+let setterCount = 0;
+const stored = new WeakMap<object, number>();
+class Base {}
+Object.defineProperty(Base.prototype, 'signal', {
+  configurable: true,
+  get(this: object): number | undefined { return stored.get(this); },
+  set(this: object, value: number): void { setterCount += 1; stored.set(this, value); publish({ kind: 'setter', value }); }
+});
+class Derived extends Base { signal = 41; }
+let subject: { signal: number };
+if (runtime.env.OBSERVER_ACTION === 'positive') {
+  subject = Object.create(Base.prototype) as { signal: number };
+  subject.signal = 41;
+} else {
+  subject = new Derived();
+}
+publish({ kind: 'result', wired: isWired(), setterCount, own: Object.hasOwn(subject, 'signal'), value: subject.signal, sourceSha });
+`;
+
+
+const scopeProbe = `
+import { isMainThread, threadId } from 'node:worker_threads';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+const scopeSha = createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex');
+console.log(JSON.stringify({ channel: 'observer-child-cwd-scope-v1', kind: 'scope', nonce: process.env.OBSERVER_NONCE, scopeSha, identity: { pid: process.pid, isMainThread, threadId }, runtime: { node: process.version, platform: process.platform, arch: process.arch } }));
+`;
+const qualificationSource = `export function qualify(records, expected) {
+  const mainChannel = 'observer-child-cwd-v1';
+  const workerChannel = 'observer-child-cwd-worker-v1';
+  const scopeChannel = 'observer-child-cwd-scope-v1';
+  const main = records.filter(record => record.channel === mainChannel);
+  const workers = records.filter(record => record.channel === workerChannel);
+  const scopes = records.filter(record => record.channel === scopeChannel);
+  const problems = [];
+  const mainScopes = scopes.filter(record => record.identity?.isMainThread === true && record.identity?.pid === expected.pid);
+  if (mainScopes.length !== 1 || !Number.isInteger(mainScopes[0]?.identity?.threadId)) problems.push('independent-main-scope');
+  const mainThreadId = mainScopes[0]?.identity?.threadId;
+  const exactThread = (thread, isMain, id) => thread && thread.pid === expected.pid && thread.isMainThread === isMain && thread.threadId === id;
+  const mainThread = thread => exactThread(thread, true, mainThreadId);
+  for (const record of records) {
+    if (![mainChannel, workerChannel, scopeChannel].includes(record.channel)) problems.push('unknown-channel');
+    if (record.nonce !== expected.nonce) problems.push('record-nonce');
+    if (record.channel !== scopeChannel && record.observerSha !== expected.observerSha) problems.push('record-provenance');
+  }
+  for (const record of scopes) {
+    if (record.kind !== 'scope' || record.scopeSha !== expected.scopeSha || record.identity?.pid !== expected.pid || typeof record.identity?.isMainThread !== 'boolean' || !Number.isInteger(record.identity?.threadId)) problems.push('scope-provenance');
+  }
+  for (const record of main) {
+    if (!mainThread(record.observerThread)) problems.push('main-observer-thread');
+    if (!['observer-ready', 'target-wired', 'setter', 'result'].includes(record.kind)) problems.push('unknown-main-kind');
+    if (record.kind !== 'observer-ready' && !mainThread(record.eventThread)) problems.push('main-event-thread');
+  }
+  for (const record of workers) {
+    const thread = record.observerThread;
+    if (record.kind !== 'worker-preload' || !thread || thread.pid !== expected.pid || thread.isMainThread !== false || !Number.isInteger(thread.threadId) || thread.threadId === mainThreadId) problems.push('worker-diagnostic-identity');
+    if (!record.eventThread || record.eventThread.pid !== thread?.pid || record.eventThread.isMainThread !== false || record.eventThread.threadId !== thread?.threadId) problems.push('worker-bus-thread');
+  }
+  const ready = main.filter(record => record.kind === 'observer-ready');
+  const wired = main.filter(record => record.kind === 'target-wired');
+  const result = main.filter(record => record.kind === 'result');
+  if (ready.length !== 1) problems.push('main-ready-count');
+  if (wired.length !== 1 || wired[0]?.wired !== true || wired[0]?.sourceSha !== expected.entrySha) problems.push('main-target-wired');
+  if (result.length !== 1 || result[0]?.wired !== true || result[0]?.sourceSha !== expected.entrySha) problems.push('main-result');
+  if (main[0]?.kind !== 'observer-ready' || main[1]?.kind !== 'target-wired' || main.at(-1)?.kind !== 'result') problems.push('main-event-order');
+  return { valid: problems.length === 0, problems: [...new Set(problems)], main, workers, scopes, mainThreadId, ready, wired, result };
+}
+`;
+
+const ARTIFACTS = realpathSync(mkdtempSync(path.join(tmpdir(), 'observer-child-cwd-')));
+const qualificationPath = path.join(ARTIFACTS, 'qualification.mjs');
+writeFileSync(qualificationPath, qualificationSource);
+const { qualify } = await import(pathToFileURL(qualificationPath).href);
+const savedF1Cwd = process.cwd();
+try {
+const NODE = process.execPath;
+const DEPENDENCIES = path.resolve('node_modules');
+const TARGET = path.resolve('scripts/check/prebuilt.ts');
+const mode = process.features.typescript ? 'normal' : 'nostrip';
+const workRoot = path.join(ARTIFACTS, `work-${mode}-${randomUUID()}`);
+mkdirSync(workRoot, { recursive: true });
+const parentHookMappings: Array<{ from: string; to: string }> = [];
+const api = { fixtureLoader: cxFixtureLoader, prebuiltCommand: cxPrebuiltCommand, prebuildTree: cxPrebuildTree, isBare: cxIsBare };
+
+type Outcome = { label: string; ok: boolean; expected: unknown; actual: unknown; category: 'semantic' | 'control' | 'fixture-invalid' };
+const outcomes: Outcome[] = [];
+const childLogs: unknown[] = [];
+const fixtureRecords: unknown[] = [];
+function sha(text: string): string { return createHash('sha256').update(text).digest('hex'); }
+function assert(label: string, actual: unknown, expected: unknown, category: Outcome['category'] = 'control'): void {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected);
+  const result = { label: `${mode}.${label}`, ok, expected, actual, category };
+  outcomes.push(result);
+  // Literal dispatch keeps the frozen runtime labels indexable by the mutation router.
+  switch (result.label) {
+    case 'normal.cross-define-to-assign.target.setter-count': eq('normal.cross-define-to-assign.target.setter-count', actual, expected); break;
+    case 'normal.cross-define-to-assign.target.setter-events': eq('normal.cross-define-to-assign.target.setter-events', actual, expected); break;
+    case 'normal.cross-define-to-assign.target.own-field': eq('normal.cross-define-to-assign.target.own-field', actual, expected); break;
+    case 'normal.cross-assign-to-define.target.setter-count': eq('normal.cross-assign-to-define.target.setter-count', actual, expected); break;
+    case 'normal.cross-assign-to-define.target.setter-events': eq('normal.cross-assign-to-define.target.setter-events', actual, expected); break;
+    case 'normal.cross-assign-to-define.target.own-field': eq('normal.cross-assign-to-define.target.own-field', actual, expected); break;
+    case 'normal.legacy-calltime-define.bare-loader-command-parity': eq('normal.legacy-calltime-define.bare-loader-command-parity', actual, expected); break;
+    case 'normal.legacy-calltime-assign.bare-loader-command-parity': eq('normal.legacy-calltime-assign.bare-loader-command-parity', actual, expected); break;
+    default: reportEq(result.label + (category === 'fixture-invalid' ? SELFCHECK_FIXTURE_MARK : ''), actual, expected);
+  }
+}
+function invalid(label: string, detail: unknown): void {
+  assert(label, detail, 'valid fixture', 'fixture-invalid');
+}
+function cleanEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.TSX_TSCONFIG_PATH;
+  delete env.KOL_PREBUILT;
+  delete env.NODE_OPTIONS;
+  delete env.NODE_V8_COVERAGE;
+  if (mode === 'nostrip') env.NODE_OPTIONS = '--no-experimental-strip-types';
+  env.TSX_DISABLE_CACHE = '1';
+  env.NODE_NO_WARNINGS = '1';
+  return env;
+}
+function config(define: boolean, include: string): string {
+  return JSON.stringify({ compilerOptions: { useDefineForClassFields: define }, include: [include] }, null, 2) + '\n';
+}
+function createTree(id: string, ownerDefine: boolean, childDefine: boolean) {
+  const root = path.join(workRoot, id);
+  const owner = path.join(root, 'owner');
+  const child = path.join(root, 'child');
+  const scripts = path.join(owner, 'scripts');
+  mkdirSync(scripts, { recursive: true });
+  mkdirSync(child, { recursive: true });
+  writeFileSync(path.join(owner, 'package.json'), '{"type":"module"}\n');
+  writeFileSync(path.join(owner, 'tsconfig.json'), config(ownerDefine, 'scripts/**/*.ts'));
+  writeFileSync(path.join(child, 'tsconfig.json'), config(childDefine, '../owner/scripts/**/*.ts'));
+  symlinkSync(DEPENDENCIES, path.join(owner, 'node_modules'), 'dir');
+  writeFileSync(path.join(scripts, 'bus.ts'), bus);
+  writeFileSync(path.join(scripts, 'observer.mjs'), observer);
+  writeFileSync(path.join(scripts, 'scope.mjs'), scopeProbe);
+  writeFileSync(path.join(scripts, 'entry.ts'), entry);
+  const target = path.join(scripts, 'entry.ts');
+  const observerPath = path.join(scripts, 'observer.mjs');
+  const scopePath = path.join(scripts, 'scope.mjs');
+  const cache = api.prebuildTree(owner);
+  fixtureRecords.push({ id, owner, child, target, observerPath, cache, entrySha: sha(entry), observerSha: sha(observer), configOwnerSha: sha(config(ownerDefine, 'scripts/**/*.ts')), configChildSha: sha(config(childDefine, '../owner/scripts/**/*.ts')) });
+  for (const [name, directory] of [['owner', owner], ['child', child]] as const) {
+    const tsc = path.join(DEPENDENCIES, 'typescript/bin/tsc');
+    const verificationOptions = ['--noEmit', '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--allowImportingTsExtensions', '--strict', '--lib', 'ES2022,DOM', '--skipLibCheck'];
+    const check = spawnSync(NODE, [tsc, ...verificationOptions, '--project', path.join(directory, 'tsconfig.json'), '--noEmit', '--pretty', 'false'], { cwd: directory, env: cleanEnv(), encoding: 'utf8', timeout: 15000 });
+    childLogs.push({ id: `${id}.tsc.${name}`, command: [NODE, tsc], cwd: directory, status: check.status, stdout: check.stdout, stderr: check.stderr });
+    if (check.error || check.status !== 0) invalid(`${id}.tsc.${name}`, { status: check.status, error: check.error?.message, stdout: check.stdout, stderr: check.stderr });
+    else assert(`${id}.tsc.${name}`, check.status, 0);
+    const list = spawnSync(NODE, [tsc, ...verificationOptions, '--project', path.join(directory, 'tsconfig.json'), '--listFilesOnly', '--pretty', 'false'], { cwd: directory, env: cleanEnv(), encoding: 'utf8', timeout: 15000 });
+    childLogs.push({ id: `${id}.coverage.${name}`, cwd: directory, status: list.status, stdout: list.stdout, stderr: list.stderr });
+    const covered = list.status === 0 && list.stdout.split(/\r?\n/).includes(target);
+    if (!covered) invalid(`${id}.config-covers-entry.${name}`, { status: list.status, target, stdout: list.stdout, stderr: list.stderr });
+    else assert(`${id}.config-covers-entry.${name}`, covered, true);
+  }
+  return { id, root, owner, child, target, observerPath, scopePath };
+}
+const defineToAssign = createTree('define-to-assign', true, false);
+const assignToDefine = createTree('assign-to-define', false, true);
+
+type Case = { id: string; tree: typeof defineToAssign; childCwd: string; omitCwd?: boolean; wiring: 'cli' | 'node-options'; setterCount: number; own: boolean; expectOptimized?: boolean };
+const cases: Case[] = [
+  { id: 'cross-define-to-assign', tree: defineToAssign, childCwd: defineToAssign.child, wiring: 'cli', setterCount: 1, own: false },
+  { id: 'cross-assign-to-define', tree: assignToDefine, childCwd: assignToDefine.child, wiring: 'node-options', setterCount: 0, own: true },
+  { id: 'same-directory-define', tree: defineToAssign, childCwd: defineToAssign.owner, wiring: 'cli', setterCount: 0, own: true, expectOptimized: true },
+  { id: 'same-directory-assign', tree: assignToDefine, childCwd: assignToDefine.owner, wiring: 'node-options', setterCount: 1, own: false },
+  { id: 'legacy-calltime-define', tree: defineToAssign, childCwd: defineToAssign.owner, omitCwd: true, wiring: 'cli', setterCount: 0, own: true, expectOptimized: true },
+  { id: 'legacy-calltime-assign', tree: assignToDefine, childCwd: assignToDefine.owner, omitCwd: true, wiring: 'node-options', setterCount: 1, own: false }
+];
+
+function runObserved(test: Case, action: 'target' | 'positive', loader: string, env: NodeJS.ProcessEnv, prefix = test.id) {
+  const nonce = randomUUID();
+  const childEnv: NodeJS.ProcessEnv = { ...env, OBSERVER_NONCE: nonce, OBSERVER_ACTION: action, OBSERVER_SOURCE_PATH: test.tree.observerPath, ENTRY_SOURCE_PATH: test.tree.target };
+  const args: string[] = [];
+  if (test.wiring === 'cli') args.push('--import', pathToFileURL(test.tree.scopePath).href, '--import', loader, '--import', pathToFileURL(test.tree.observerPath).href);
+  else childEnv.NODE_OPTIONS = `${childEnv.NODE_OPTIONS || ''} --import=${JSON.stringify(pathToFileURL(test.tree.scopePath).href)} --import=${JSON.stringify(loader)} --import=${JSON.stringify(pathToFileURL(test.tree.observerPath).href)}`.trim();
+  args.push(test.tree.target);
+  const result = spawnSync(NODE, args, { cwd: test.childCwd, env: childEnv, encoding: 'utf8', timeout: 15000 });
+  childLogs.push({ id: `${prefix}.${action}`, loader, command: [NODE, ...args], cwd: test.childCwd, parentCwd: process.cwd(), nodeOptions: childEnv.NODE_OPTIONS || '', status: result.status, signal: result.signal, error: result.error?.message, stdout: result.stdout, stderr: result.stderr });
+  if (result.error || result.status !== 0) { invalid(`${prefix}.${action}.execution`, { status: result.status, error: result.error?.message, stderr: result.stderr }); return; }
+  const records: Record<string, any>[] = [];
+  try {
+    for (const line of result.stdout.split(/\r?\n/).filter(Boolean)) {
+      const parsed = JSON.parse(line);
+      records.push(parsed);
+    }
+  } catch (error) { invalid(`${prefix}.${action}.record-format`, String(error)); return; }
+  const qualification = qualify(records, { pid: result.pid, nonce, observerSha: sha(observer), scopeSha: sha(scopeProbe), entrySha: sha(entry) });
+  childLogs.push({ id: `${prefix}.${action}.qualification`, pid: result.pid, qualification });
+  console.log('F1_THREAD_SCOPE ' + JSON.stringify({ mode, case: prefix, action, pid: result.pid, valid: qualification.valid, problems: qualification.problems, mainThreadId: qualification.mainThreadId, main: qualification.main.map((record: Record<string, any>) => ({ kind: record.kind, observerThread: record.observerThread, eventThread: record.eventThread })), workers: qualification.workers, scopes: qualification.scopes }));
+  if (!qualification.valid) { invalid(`${prefix}.${action}.observer-wired`, { problems: qualification.problems, records }); return; }
+  const mainRecords: Record<string, any>[] = qualification.main;
+  const ready: Record<string, any>[] = qualification.ready;
+  const wired: Record<string, any>[] = qualification.wired;
+  const summary: Record<string, any>[] = qualification.result;
+  assert(`${prefix}.${action}.observer-wired`, { ready: ready.length, wired: wired.length, result: summary.length, wiredFlag: wired[0].wired, sourceSha: wired[0].sourceSha, observerSha: ready[0].observerSha }, { ready: 1, wired: 1, result: 1, wiredFlag: true, sourceSha: sha(entry), observerSha: sha(observer) });
+  assert(`${prefix}.${action}.child-strip-mode`, (childEnv.NODE_OPTIONS || '').includes('--no-experimental-strip-types'), mode === 'nostrip');
+  const expectedCount = action === 'positive' ? 1 : test.setterCount;
+  const expectedOwn = action === 'positive' ? false : test.own;
+  assert(`${prefix}.${action}.setter-count`, summary[0].setterCount, expectedCount, action === 'positive' ? 'control' : 'semantic');
+  assert(`${prefix}.${action}.setter-events`, mainRecords.filter(record => record.kind === 'setter').length, expectedCount, action === 'positive' ? 'control' : 'semantic');
+  assert(`${prefix}.${action}.own-field`, summary[0].own, expectedOwn, action === 'positive' ? 'control' : 'semantic');
+  assert(`${prefix}.${action}.field-value`, summary[0].value, 41, action === 'positive' ? 'control' : 'semantic');
+}
+
+const originalCwd = process.cwd();
+for (const test of cases) {
+  process.chdir(test.tree.owner);
+  const env = cleanEnv();
+  const loader = test.omitCwd ? api.fixtureLoader(test.tree.target, env) : api.fixtureLoader(test.tree.target, env, test.childCwd);
+  const reference = api.prebuiltCommand([test.tree.target], test.childCwd, env);
+  fixtureRecords.push({ id: test.id, loader, reference, parentCwd: process.cwd(), childCwd: test.childCwd, omitCwd: !!test.omitCwd, wiring: test.wiring });
+  assert(`${test.id}.real-cwd-shape`, process.cwd() === test.childCwd, !test.id.startsWith('cross-'));
+  const commandIsBare = api.isBare(reference[1]);
+  if (test.expectOptimized || mode === 'nostrip') assert(`${test.id}.command-expected-route`, commandIsBare, mode === 'normal');
+  const commandLoaders = reference[1].flatMap((arg, index, args) => arg === '--import' ? [args[index + 1]] : arg.startsWith('--import=') ? [arg.slice('--import='.length)] : []);
+  // Public relational contract only: the fallback's behavior is checked by actual execution below.
+  assert(`${test.id}.bare-loader-command-parity`, !commandIsBare || commandLoaders.includes(loader), true, 'semantic');
+  runObserved(test, 'positive', loader, env);
+  runObserved(test, 'target', loader, env);
+}
+process.chdir(originalCwd);
+
+// Independent controls: the exact same source path under both ordinary JSON configs.
+const directTsxLoader = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href;
+for (const [id, tree, childCwd, setterCount, own] of [
+  ['direct-tsx-owner-define', defineToAssign, defineToAssign.owner, 0, true],
+  ['direct-tsx-child-assign', defineToAssign, defineToAssign.child, 1, false],
+  ['direct-tsx-owner-assign', assignToDefine, assignToDefine.owner, 1, false],
+  ['direct-tsx-child-define', assignToDefine, assignToDefine.child, 0, true]
+] as const) {
+  const direct: Case = { id, tree, childCwd, wiring: 'cli', setterCount, own };
+  runObserved(direct, 'positive', directTsxLoader, cleanEnv());
+  runObserved(direct, 'target', directTsxLoader, cleanEnv());
+}
+
+const counts = new Map<string, number>();
+for (const result of outcomes) counts.set(result.label, (counts.get(result.label) || 0) + 1);
+const expectedLabels = (() => {
+const cases = ['cross-define-to-assign', 'cross-assign-to-define', 'same-directory-define', 'same-directory-assign', 'legacy-calltime-define', 'legacy-calltime-assign'];
+const direct = ['direct-tsx-owner-define', 'direct-tsx-child-assign', 'direct-tsx-owner-assign', 'direct-tsx-child-define'];
+const facets = ['observer-wired', 'child-strip-mode', 'setter-count', 'setter-events', 'own-field', 'field-value'];
+const frozenLabels: Record<string, string[]> = {};
+for (const mode of ['normal', 'nostrip']) {
+  const labels: string[] = [];
+  for (const tree of ['define-to-assign', 'assign-to-define']) for (const owner of ['owner', 'child']) {
+    labels.push(`${mode}.${tree}.tsc.${owner}`, `${mode}.${tree}.config-covers-entry.${owner}`);
+  }
+  for (const test of cases) {
+    labels.push(`${mode}.${test}.real-cwd-shape`, `${mode}.${test}.bare-loader-command-parity`);
+    if (mode === 'nostrip' || ['same-directory-define', 'legacy-calltime-define'].includes(test)) labels.push(`${mode}.${test}.command-expected-route`);
+  }
+  for (const test of [...cases, ...direct]) for (const action of ['positive', 'target']) for (const facet of facets) labels.push(`${mode}.${test}.${action}.${facet}`);
+  frozenLabels[mode] = labels.sort();
+}
+return frozenLabels[mode];
+})();
+assert('label-identity', { unique: [...counts.values()].every(count => count === 1), labels: [...counts.keys()].sort() }, { unique: true, labels: expectedLabels });
+counts.set(`${mode}.label-identity`, 1);
+const summary = { mode, target: TARGET, workRoot, parentExecArgv: process.execArgv, parentNodeOptions: process.env.NODE_OPTIONS || '', parentHookMappings, assertionCount: outcomes.length, pass: outcomes.filter(value => value.ok).length, fail: outcomes.filter(value => !value.ok && value.category !== 'fixture-invalid').length, fixtureInvalid: outcomes.filter(value => !value.ok && value.category === 'fixture-invalid').length, labels: Object.fromEntries(counts), outcomes };
+writeFileSync(path.join(ARTIFACTS, `${mode}.child-processes.json`), JSON.stringify(childLogs, null, 2) + '\n');
+writeFileSync(path.join(ARTIFACTS, `${mode}.fixture-records.json`), JSON.stringify(fixtureRecords, null, 2) + '\n');
+writeFileSync(path.join(ARTIFACTS, `${mode}.summary.json`), JSON.stringify(summary, null, 2) + '\n');
+
+
+} catch (error) {
+  reportEq('观察器真实子cwd夹具'+SELFCHECK_FIXTURE_MARK, String(error), 'valid fixture');
+} finally {
+  process.chdir(savedF1Cwd);
+  rmSync(ARTIFACTS, { recursive: true, force: true });
+}
 })
 
 await group('h-prebuilt-cwd-config', () => {
@@ -13307,7 +13631,7 @@ suite('D13', '已有数据可离线输出，未知费用不得换来新增付费
   const run = (file: string, args: string[], key = '') => {
     const entry = fileURLToPath(new URL(file, scripts))
     const kidEnv = { ...process.env, NODE_OPTIONS: '', TIKHUB_API_KEY: key, FAKE_FETCH_LEDGER: log, FAKE_FETCH_NO_429: '1' }
-    return spawnSync(process.execPath, ['--import', fixtureLoader(entry, kidEnv), '--import', preload, entry, ...args],
+    return spawnSync(process.execPath, ['--import', fixtureLoader(entry, kidEnv, cwd), '--import', preload, entry, ...args],
       { cwd, encoding: 'utf8', timeout: 20000, env: kidEnv })
   }
   const noFetch = () => !existsSync(log) || rf(log, 'utf8').trim() === ''
@@ -17099,7 +17423,7 @@ const d28Kit = (root: string) => {
       ...mode === 'collect --budget 2' ? ['--budget', '2'] : []]
     const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d28', FAKE_FETCH_LEDGER: ledger,
       FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
-    kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv))} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}`
+    kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv, cwd))} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}`
     const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
     const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv })
     const lines = (path: string) => existsSync(path) ? rf(path, 'utf8').split('\n').filter(Boolean).length : 0
