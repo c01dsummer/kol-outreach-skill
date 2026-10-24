@@ -1395,7 +1395,28 @@ interface FrozenCase { label: string; group: WallclockGroup }
 interface FrozenRow { label: string; group: WallclockGroup; status: 'PASS' | 'FAIL'; errors: string[]; fixture_valid: true }
 const object = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
+// These are host capabilities used by the frozen runner, not expected workflow output.
+function calibrateWallclockTools(): void {
+  const env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', LC_ALL: 'C', LANG: 'C', TZ: 'UTC' }
+  const probes = [
+    ['jq', ['-cne', '[([0,0] | arrays | length), ("1970-01-01T00:00:00Z" | fromdate), ([7,3,5] | sort | .[1])]'], '', '[2,0,5]\n'],
+    ['awk', ['-v', 'a=5', '-v', 'b=2', 'BEGIN { printf "%.2f", a / b }'], '', '2.50'],
+    ['sed', ['-n', 's/^[[:space:]]*Model name://p'], '  Model name:  Probe CPU\n', '  Probe CPU\n'],
+    ['head', ['-n', '1'], 'first\nsecond\n', 'first\n'],
+    ['tr', ['-cd', '[:alnum:] ()@.,_+/-'], '\tProbe CPU!\n', 'Probe CPU'],
+    ['tr', ['-s', ' '], 'Probe   CPU\n', 'Probe CPU\n'],
+    ['cut', ['-c', '1-3'], 'abcdef\n', 'abc\n'],
+  ] as const
+  for (const [tool, args, input, expected] of probes) {
+    const child = spawnSync(tool, [...args], { input, encoding: 'utf8', env, timeout: 5_000, maxBuffer: 64 * 1024 })
+    if (child.error || child.signal || child.status !== 0 || child.stdout !== expected || child.stderr !== '') {
+      throw new Error(`wallclock fixture-invalid: ${tool} calibration failed: ${String(child.error ?? child.signal ?? child.status)}; stdout=${JSON.stringify(child.stdout)}; stderr=${JSON.stringify(child.stderr)}`)
+    }
+  }
+}
+
 export function runWallclockContract(group: WallclockGroup): ReadonlyMap<string, readonly string[]> {
+  calibrateWallclockTools()
   const source = extractWallclockRun(readFileSync(resolve('.github/workflows/check.yml')))
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'kol-wallclock-contract-')))
   try {
