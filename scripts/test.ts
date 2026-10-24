@@ -1,4 +1,16 @@
 #!/usr/bin/env tsx
+import { mkdtempSync as cxMkdtempSync, mkdirSync as cxMkdirSync, writeFileSync as cxWriteFileSync, rmSync as cxRmSync } from 'node:fs';
+import { join as cxJoin, dirname as cxDirname, relative as cxRelative, isAbsolute as cxIsAbsolute } from 'node:path';
+import { tmpdir as cxTmpdir } from 'node:os';
+import { createHash as cxCreateHash } from 'node:crypto';
+import { pathToFileURL as cxPathToFileURL } from 'node:url';
+import { spawnSync as cxSpawnSync } from 'node:child_process';
+import { prebuildTree as cxPrebuildTree, fixtureLoader as cxFixtureLoader, prebuiltCommand as cxPrebuiltCommand, isBare as cxIsBare } from './check/prebuilt.js';
+import { mkdtempSync as scMkdtempSync, realpathSync as scRealpathSync, mkdirSync as scMkdirSync, writeFileSync as scWriteFileSync, existsSync as scExistsSync, rmSync as scRmSync } from 'node:fs';
+import { join as scJoin, dirname as scDirname } from 'node:path';
+import { tmpdir as scTmpdir } from 'node:os';
+import { createHash as scCreateHash } from 'node:crypto';
+import { prebuildTree as scPrebuildTree, prebuiltCommand as scPrebuiltCommand, isBare as scIsBare } from './check/prebuilt.js';
 import { effectivePriority, projectManualFeedback } from './lib/effective-priority.js'
 import { prepareTaskReviews } from './lib/task-reviews.js'
 /**
@@ -207,6 +219,8 @@ const GROUPS: readonly Group[] = [
   { id: 'h-prebuilt-entry', needs: [] },
   { id: 'h-prebuilt-options', needs: [] },
   { id: 'h-prebuilt-observer', needs: [] },
+  { id: 'h-prebuilt-cwd-config', needs: [] },
+  { id: 'h-prebuilt-scope', needs: [] },
   { id: 'h-worker-start', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
@@ -9151,7 +9165,9 @@ eq('观察器加载器公开契约：fixtureLoader 是函数', typeof exported, 
 if (typeof exported !== 'function') return // 缺 API 是上面的具名断言红，不让 import 崩溃代替它。
 const fixtureLoader = exported as (script: string, env?: NodeJS.ProcessEnv) => string
 const owner = realpathSync(mkdtempSync(join(tmpdir(), 'kol-prebuilt-observer-')))
+const savedCwd = process.cwd()
 try {
+  process.chdir(owner) // fixtureLoader 的默认 cwd 必须就是随后子进程的 cwd。
   const scripts = join(owner, 'scripts'), cache = join(owner, PREBUILT_DIR)
   mkdirSync(join(scripts, 'lib'), { recursive: true }); mkdirSync(cache, { recursive: true })
   writeFileSync(join(owner, 'package.json'), '{"type":"module"}')
@@ -9222,8 +9238,178 @@ console.log(JSON.stringify([state.wired, state.fake, state.events, answer, impor
   prebuildTree(owner)
   writeFileSync(value, rf(value, 'utf8') + '\nexport const changed: number = 2\n')
   eq('观察器加载器：源码改后未编时与入口一同保留 tsx', route(), fallback)
-} finally { rmSync(owner, { recursive: true, force: true }) }
+} finally { process.chdir(savedCwd); rmSync(owner, { recursive: true, force: true }) }
 })
+
+await group('h-prebuilt-cwd-config', () => {
+  harness('跨 cwd 编译配置归属：冻结公开契约的双向语义与加载器接线')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'cxv4-'));
+  const savedCwd = process.cwd();
+  try {
+    const childEnv = {} as NodeJS.ProcessEnv;
+    for (const key of ['PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'TZ', 'SystemRoot']) {
+      if (process.env[key] !== undefined) childEnv[key] = process.env[key];
+    }
+    childEnv.PATH = `${cxDirname(process.execPath)}:${childEnv.PATH ?? ''}`;
+    const nodeTypeScriptCapability = (process.features as { typescript?: boolean | string }).typescript;
+    const canStripTypes = Boolean(nodeTypeScriptCapability);
+    if (!canStripTypes) childEnv.NODE_OPTIONS = '--no-experimental-strip-types';
+    console.log('PUBLIC_NODE_CAPABILITY ' + JSON.stringify({ typescript: nodeTypeScriptCapability, expectedBare: canStripTypes }));
+    const stateText = `export const state = { setterEvents: 0, last: -1, attached: '' };\n`;
+    const mainBody = `import { state } from './state.ts';\nclass Parent {}\nObject.defineProperty(Parent.prototype, 'payload', {\n  configurable: true,\n  get() { return state.last; },\n  set(value: number) { state.setterEvents += 1; state.last = value; }\n});\nclass Sample extends Parent { payload: number = 41; }\nconst instance = new Sample();\n`;
+    const sourceFingerprint = cxCreateHash('sha256').update(stateText + '\0' + mainBody).digest('hex');
+    const makeOwner = (name: string, useDefineForClassFields: boolean, outerUseDefineForClassFields: boolean) => {
+      const cwd = cxJoin(root, name);
+      const owner = cxJoin(cwd, 'owner');
+      cxMkdirSync(cxJoin(owner, 'scripts'), { recursive: true });
+      cxWriteFileSync(cxJoin(owner, 'package.json'), JSON.stringify({ type: 'module' }));
+      cxWriteFileSync(cxJoin(cwd, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', useDefineForClassFields: outerUseDefineForClassFields } }));
+      cxWriteFileSync(cxJoin(owner, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', useDefineForClassFields } }));
+      cxWriteFileSync(cxJoin(owner, 'scripts', 'state.ts'), stateText);
+      cxWriteFileSync(cxJoin(owner, 'scripts', 'main.ts'), mainBody + `process.stdout.write(JSON.stringify({ completed: 'entry-finished', source: ${JSON.stringify(sourceFingerprint)}, typescript: process.features.typescript, observer: state.attached, setterEvents: state.setterEvents, own: Object.hasOwn(instance, 'payload'), value: instance.payload }) + '\\n');\n`);
+      const observer = cxJoin(owner, 'observer.mjs');
+      cxWriteFileSync(observer, `import { state } from ${JSON.stringify(cxPathToFileURL(cxJoin(owner, 'scripts', 'state.ts')).href)};\nstate.attached = ${JSON.stringify(sourceFingerprint)};\n`);
+      return { owner, cwd, entry: cxJoin(owner, 'scripts', 'main.ts'), observer };
+    };
+    const defineOwner = makeOwner('owner-define', true, false);
+    const assignOwner = makeOwner('owner-assign', false, true);
+    // Both candidate configs omit files/include/exclude. Their default **/*
+    // domains include these .ts descendants; this gate checks our own layout.
+    const domains = [defineOwner, assignOwner].map(fixture => ({
+      entry: fixture.entry,
+      candidateConfigs: [fixture.owner, fixture.cwd].map(configRoot => ({
+        config: cxJoin(configRoot, 'tsconfig.json'),
+        relativeEntry: cxRelative(configRoot, fixture.entry),
+        include: '**/*'
+      }))
+    }));
+    for (const domain of domains) {
+      if (domain.candidateConfigs.some(config => config.relativeEntry.startsWith('..') || cxIsAbsolute(config.relativeEntry) || !config.relativeEntry.endsWith('.ts'))) {
+        throw new Error('[fixture-invalid] entry is outside a candidate default configuration domain');
+      }
+    }
+    console.log('CROSS_CWD_DOMAINS ' + JSON.stringify(domains));
+    cxPrebuildTree(defineOwner.owner);
+    cxPrebuildTree(assignOwner.owner);
+    const loadFor = (entry: string, cwd: string, env: NodeJS.ProcessEnv) => {
+      process.chdir(cwd);
+      try { return cxFixtureLoader(entry, env); }
+      finally { process.chdir(savedCwd); }
+    };
+    const execute = (name: string, fixture: typeof defineOwner, cwd: string, env: NodeJS.ProcessEnv, observed = false) => {
+      const loader = observed ? loadFor(fixture.entry, cwd, env) : undefined;
+      const [command, argv] = cxPrebuiltCommand([fixture.entry], cwd, env);
+      const actualEnv = observed
+        ? { ...env, NODE_OPTIONS: `${env.NODE_OPTIONS ? env.NODE_OPTIONS + ' ' : ''}--import=${loader} --import=${cxPathToFileURL(fixture.observer).href}` }
+        : env;
+      const result = cxSpawnSync(command, argv, { cwd, env: actualEnv, encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024 });
+      let parsed: any;
+      try { parsed = JSON.parse(result.stdout.trim()); } catch { parsed = undefined; }
+      console.log('CROSS_CWD_SAMPLE ' + JSON.stringify({ name, cwd, command, argv, loader, status: result.status, signal: result.signal, error: result.error?.message, stdout: result.stdout, stderr: result.stderr }));
+      if (result.status !== 0 || result.signal !== null || result.error || !parsed || parsed.completed !== 'entry-finished' || parsed.source !== sourceFingerprint || parsed.value !== 41 || parsed.typescript !== nodeTypeScriptCapability) {
+        throw new Error(`[fixture-invalid] ${name}: child did not complete the source-fingerprinted fixture`);
+      }
+      return { parsed, bare: cxIsBare(argv), shared: parsed.observer === sourceFingerprint };
+    };
+
+    // Both observation configurations establish one real assign initializer
+    // before any zero count is accepted. Failed calibration invalidates the run.
+    const plainAssign = execute('plain-assign-control', assignOwner, assignOwner.owner, childEnv);
+    if (plainAssign.parsed.setterEvents !== 1 || plainAssign.parsed.own !== false) {
+      throw new Error('[fixture-invalid] plain assign-positive calibration was not established');
+    }
+    eq('cxv4 plain assign control setter count', plainAssign.parsed.setterEvents, 1);
+    eq('cxv4 plain assign control own property', plainAssign.parsed.own, false);
+    const observedAssign = execute('observed-assign-control', assignOwner, assignOwner.owner, childEnv, true);
+    if (!observedAssign.shared || observedAssign.parsed.setterEvents !== 1 || observedAssign.parsed.own !== false) {
+      throw new Error('[fixture-invalid] observed assign-positive calibration was not established');
+    }
+    ok('cxv4 observed assign control shares observer instance', observedAssign.shared);
+    eq('cxv4 observed assign control setter count', observedAssign.parsed.setterEvents, 1);
+    eq('cxv4 observed assign control own property', observedAssign.parsed.own, false);
+
+    const sameDefine = execute('same-directory-define', defineOwner, defineOwner.owner, childEnv, true);
+    eq('cxv4 same directory cache follows Node strip capability', sameDefine.bare, canStripTypes);
+    ok('cxv4 same directory define shares observer instance', sameDefine.shared);
+    eq('cxv4 same directory define setter count', sameDefine.parsed.setterEvents, 0);
+    eq('cxv4 same directory define own property', sameDefine.parsed.own, true);
+
+    // CLI default config belongs to cwd, so owner=true cannot replace cwd=false.
+    const crossAssign = execute('owner-define-cwd-assign', defineOwner, defineOwner.cwd, childEnv);
+    eq('cxv4 owner define cwd assign setter count', crossAssign.parsed.setterEvents, 1);
+    eq('cxv4 owner define cwd assign own property', crossAssign.parsed.own, false);
+
+    // Reverse direction guards against a one-sided compatibility decision.
+    const crossDefine = execute('owner-assign-cwd-define', assignOwner, assignOwner.cwd, childEnv);
+    eq('cxv4 owner assign cwd define setter count', crossDefine.parsed.setterEvents, 0);
+    eq('cxv4 owner assign cwd define own property', crossDefine.parsed.own, true);
+
+    // This case asserts only the project's conservative explicit-env fallback.
+    // It makes no new claim about absolute env-path field semantics.
+    const explicitEnv = { ...childEnv, TSX_TSCONFIG_PATH: cxJoin(defineOwner.owner, 'tsconfig.json') };
+    const explicit = execute('explicit-child-env', defineOwner, defineOwner.owner, explicitEnv, true);
+    eq('cxv4 explicit child config keeps fallback', explicit.bare, false);
+    ok('cxv4 explicit child config shares observer instance', explicit.shared);
+  } finally {
+    process.chdir(savedCwd);
+    cxRmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+await group('h-prebuilt-scope', () => {
+  harness('预编配置覆盖资格：普通 include 阳性与无法确认的文件范围')
+  const root = scRealpathSync(scMkdtempSync(scJoin(scTmpdir(), 'scv5-')));
+  try {
+    const capability = (process.features as { typescript?: boolean | string }).typescript;
+    const canStripTypes = Boolean(capability);
+    const env = {} as NodeJS.ProcessEnv;
+    for (const key of ['PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'TZ', 'SystemRoot']) {
+      if (process.env[key] !== undefined) env[key] = process.env[key];
+    }
+    env.PATH = `${scDirname(process.execPath)}:${env.PATH ?? ''}`;
+    if (!canStripTypes) env.NODE_OPTIONS = '--no-experimental-strip-types';
+    console.log('PUBLIC_NODE_CAPABILITY ' + JSON.stringify({ typescript: capability, expectedEligible: canStripTypes }));
+    const scriptText = 'export const value: number = 41;\n';
+    const sourceFingerprint = scCreateHash('sha256').update(scriptText).digest('hex');
+    const route = (name: string, rootFields: Record<string, unknown>) => {
+      const owner = scJoin(root, name);
+      scMkdirSync(scJoin(owner, 'scripts'), { recursive: true });
+      scMkdirSync(scJoin(owner, 'other'), { recursive: true });
+      scMkdirSync(scJoin(owner, 'referenced'), { recursive: true });
+      scWriteFileSync(scJoin(owner, 'package.json'), JSON.stringify({ type: 'module' }));
+      const config = { compilerOptions: { target: 'ES2022', useDefineForClassFields: true }, ...rootFields };
+      scWriteFileSync(scJoin(owner, 'tsconfig.json'), JSON.stringify(config));
+      const entry = scJoin(owner, 'scripts', 'main.ts');
+      scWriteFileSync(entry, scriptText);
+      scWriteFileSync(scJoin(owner, 'other', 'selected.ts'), 'export const selected: number = 7;\n');
+      scWriteFileSync(scJoin(owner, 'referenced', 'index.ts'), 'export const referenced: number = 9;\n');
+      scWriteFileSync(scJoin(owner, 'referenced', 'tsconfig.json'), JSON.stringify({ compilerOptions: { composite: true, declaration: true }, files: ['index.ts'] }));
+      const build = scPrebuildTree(owner);
+      if (build.wrote + build.kept < 1 || !scExistsSync(scJoin(owner, '.check-cache', 'prebuilt'))) {
+        throw new Error(`[fixture-invalid] ${name}: complete scripts cache was not established`);
+      }
+      const [command, argv] = scPrebuiltCommand([entry], owner, env);
+      const bare = scIsBare(argv);
+      console.log('SCOPE_ADMISSION_CASE ' + JSON.stringify({ name, owner, cwd: owner, config, sourceFingerprint, build, command, argv, bare }));
+      return bare;
+    };
+
+    const ordinary = route('ordinary-scripts-include', { include: ['scripts/**/*.ts'] });
+    eq('scv5 ordinary scripts include follows Node capability', ordinary, canStripTypes);
+    const outsideFiles = route('files-outside-scripts', { files: ['other/selected.ts'] });
+    eq('scv5 files outside scripts retains tsx', outsideFiles, false);
+    const otherTree = route('include-other-tree', { include: ['other/**/*.ts'] });
+    eq('scv5 include other tree retains tsx', otherTree, false);
+    const excluded = route('exclude-scripts', { include: ['scripts/**/*.ts'], exclude: ['scripts'] });
+    eq('scv5 excluded scripts retains tsx', excluded, false);
+    const referenced = route('referenced-project', { include: ['scripts/**/*.ts'], references: [{ path: './referenced' }] });
+    eq('scv5 referenced project retains tsx', referenced, false);
+  } finally {
+    scRmSync(root, { recursive: true, force: true });
+  }
+});
+
 
 await group('h-worker-start', () => {
 harness('worker 启动观测协议：兼容旧回报并拒绝坏字段')
