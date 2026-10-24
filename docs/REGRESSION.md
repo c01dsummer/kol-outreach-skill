@@ -147,7 +147,7 @@ FREEZE
 - **跑完核一遍费用账没变**：每一跑的 `task.json` 里 `cost_ledger` 与冻结集里的内容及原始数字记号相同；缺席不等于零。先确认该跑的 render 成功；被输入校验拒绝的，不算完成一跑，也不继续下判词。
 
 ```bash
-node - output/<名字>/frozen/task.json ../reg-old1/output/<名字>/task.json <<'NODE'
+node - "output/<名字>/frozen/task.json" "../reg-old1/output/<名字>/task.json" <<'NODE'
 const fs=require('fs'),assert=require('assert/strict')
 class NumberToken {
   constructor(raw) {
