@@ -63,7 +63,7 @@ Phase 04、06 与 render 读的输入冻结；要重新产出的不冻结；会�
 
 选入的原任务须保留实际搜索配置与已保存的评审正本。当前 render 先校验 `task.json`：它须是可读 JSON 对象，`tasks` 须是非空数组，各项的 keyword、dimension、platform 满足原规则；重复键、品牌输入、进度、正本与冻结来源也照生产校验。下面任一次 render 被拒绝，就停止这个任务的冻结或比对，保留诊断；不能跳过校验，也不能补空列表、猜任务、删坏字段或编造轮次让它通过。由需求所有者按原搜索配置或备份恢复有据的输入后重新冻结；无法恢复就换他指定的另一个任务。原件不因这套流程被修写。
 
-冻结名字必须全新。冻结根目录用不带 `-p` 的 `mkdir` 一次创建；路径已存在（包括已有目录或链接）就失败并停止这一整段，不覆盖、不复用，也不删除旧证据来腾名字。失败后新建的目录同样保留，重试换一个新名字。
+冻结名字必须全新。冻结名和原任务名都只用一个非空目录名，不能是 `.`、`..`，也不能含 `/` 或 `\`；避免把冻结目录建进原任务树。冻结根目录用不带 `-p` 的 `mkdir` 一次创建；路径已存在（包括已有目录或链接）就失败并停止这一整段，不覆盖、不复用，也不删除旧证据来腾名字。失败后新建的目录同样保留，重试换一个新名字。
 
 原任务树只接受普通文件和目录；复制前检查整棵树，遇到符号链接（包括目录链接、断链）或其他文件类型就停止。不能让冻结副本里的链接继续指向原件，再沿链接清空或改写原件。
 
@@ -72,12 +72,18 @@ Phase 04、06 与 render 读的输入冻结；要重新产出的不冻结；会�
 ```bash
 bash <<'FREEZE'
 set -euo pipefail
-N='<名字>'; T='output/<原任务>'
+N='<名字>'; O='<原任务>'
+T="output/$O"
 F="output/$N"
 # 复制之前拒绝链接与特殊文件，不跟随它们进入原件
-node --input-type=module - "$T" <<'TREE'
+node --input-type=module - "$T" "$N" "$O" <<'TREE'
 import { lstatSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+for (const name of process.argv.slice(3)) {
+  if (!name || name === '.' || name === '..' || name.includes('/') || name.includes('\\')) {
+    throw Error('冻结名和原任务名必须是非空单目录名，停止冻结')
+  }
+}
 function plainTree(file) {
   const stat = lstatSync(file)
   if (!stat.isFile() && !stat.isDirectory()) throw Error(`任务输入只接受普通文件和目录，停止冻结：${file}`)
