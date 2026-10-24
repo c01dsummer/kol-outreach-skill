@@ -11122,7 +11122,7 @@ const repo = (name: string) => {
   git(dir, ['add', '.']); git(dir, ['commit', '-qm', 'decoy sentinel'])
   return dir
 }
-// 全目录字节与路径审计包含 config/index/refs/logs/objects；不依赖 HEAD 有没有变。
+// 全仓库字节与路径审计包含工作区文件及 .git 的 config/index/refs/logs/objects；不依赖 HEAD 有没有变。
 const snapshot = (dir: string): Map<string, string> => {
   const result = new Map<string, string>()
   const walk = (prefix: string) => {
@@ -11156,11 +11156,11 @@ const entry = (name: string, extra: NodeJS.ProcessEnv) => {
   return completed
 }
 try {
-  const unguarded = repo('unguarded-decoy'), before = snapshot(join(unguarded, '.git'))
+  const unguarded = repo('unguarded-decoy'), before = snapshot(unguarded)
   const completed = entry('unguarded-run', { GIT_DIR: join(unguarded, '.git') })
   ok('Git 隔离无探针对照：真实 dup-ids 入口执行完成', completed)
   if (!completed) return
-  eq('Git 隔离真实副作用：继承 GIT_DIR 不改诱饵任何 Git 文件', changes(before, snapshot(join(unguarded, '.git'))), [])
+  eq('Git 隔离真实副作用：继承 GIT_DIR 不改诱饵任何 Git 文件', changes(before, snapshot(unguarded)), [])
 
   const decoy = repo('six-decoy'), control = repo('observer-control'), log = join(owner, 'audit.jsonl')
   const sentinels = { GIT_DIR: join(decoy, '.git'), GIT_WORK_TREE: decoy,
