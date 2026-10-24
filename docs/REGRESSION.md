@@ -45,7 +45,7 @@ Phase 04、06 与 render 读的输入冻结；要重新产出的不冻结；会�
 | `creators.json` | 清空 `reviews` 后离线 render 一次，冻结重建出来的那份 | 原件里带着旧判断的投影（`fit_reason`、草稿等）；不重建，Phase 04 读名单时就读到了旧结论 |
 | `kol.csv`、`kol.xlsx`、`report.html`、`meta.json` | 不冻结 | 交付物，每一跑由 render 重新产出 |
 | `enrichment.json` | 不进冻结集 | Phase 05 不在比对范围；它只给旧判断为 ✅、⚠️ 的候选取过数，留着就等于告诉重跑的一方旧版判了谁 |
-| `manual-feedback.csv` | 不进冻结集，只留在原件里 | 人工作答；重跑的一方读到就不盲了。判的人从原件读 |
+| `manual-feedback.csv` | 不进冻结集，只留在原件里 | 人工作答；重跑的一方读到就不盲了。判的人只读 f 单独拷出的原件副本 |
 
 两个坑（ADR-159 第五节的演练里都踩出来过）：
 
@@ -186,6 +186,7 @@ COST
 - **每个任务四跑：旧版三跑、新版一跑。** 旧版前两跑量噪声（e），第三跑与新版配成新旧对（f）。新旧对不用噪声对里的那两跑：
   判的人先看过噪声对，新旧对里要是又出现其中一跑，草稿逐字认得出，就知道另一边是新版，盲比就不盲了。
 - 四跑用同一个 Agent、同一个模型版本。模型版本不同，差别里就混着模型那一份：不下判词，照实写进 PR 正文（ADR-159 第四节）。
+- **共用判据先定。** 第 f 节的形状和占位符参照默认取上述固定旧版提交；在四跑、量噪声之前记录这一共同提交及两份参照内容的 SHA256。若本次就是要改这两项承诺，先由需求所有者指定同一份共同参照及适用范围，固定提交和内容后才跑；未定就停，不给 A、B 各用自己的版本，也不随主干移动或看过结果后换标准。
 
 ```bash
 bash <<'RUNS'
@@ -231,12 +232,34 @@ RUNS
 bash <<'COMPARE'
 set -euo pipefail
 C='output/<名字>-compare'
+R='<共同参照提交的完整40位SHA>'
 mkdir "$C"
 node -e '
 const fs=require("fs"),c=process.argv[1],n=process.argv[2]
+const r=process.argv[3],crypto=require("crypto"),cp=require("child_process")
+if(!/^[0-9a-f]{40}$/.test(r)||cp.execFileSync("git",["cat-file","-t",r],{encoding:"utf8"}).trim()!=="commit") throw Error("共同参照须为事前固定的提交")
+const members=[],absent=[]
+for(const dir of ["inputs","references","feedback"]) fs.mkdirSync(`${c}/common/${dir}`,{recursive:true})
+function copyPlain(from,name,optional=false){
+  let stat
+  try{stat=fs.lstatSync(from)}catch(error){if(optional&&error.code==="ENOENT"){absent.push(name);return}throw error}
+  if(!stat.isFile()) throw Error(`只读资料不是普通文件：${from}`)
+  fs.copyFileSync(from,`${c}/common/${name}`,fs.constants.COPYFILE_EXCL)
+  fs.chmodSync(`${c}/common/${name}`,0o400);members.push(name)
+}
+for(const dir of ["frozen","source"]) if(!fs.lstatSync(`output/${n}/${dir}`).isDirectory()) throw Error("冻结目录缺席或不是目录")
+for(const file of ["task.json","creators.raw.json","agent-review.json","creators.json"]) copyPlain(`output/${n}/frozen/${file}`,`inputs/${file}`,file==="creators.raw.json")
+copyPlain(`output/${n}/source/manual-feedback.csv`,"feedback/manual-feedback.csv",true)
+for(const file of ["output-format.md","outreach-draft.md"]){
+  fs.writeFileSync(`${c}/common/references/${file}`,cp.execFileSync("git",["show",`${r}:skill/references/${file}`]),{flag:"wx",mode:0o400})
+  members.push(`references/${file}`)
+}
+fs.writeFileSync(`${c}/common/ABSENT.txt`,absent.sort().join("\n")+"\n",{flag:"wx",mode:0o400});members.push("ABSENT.txt")
+const hash=file=>crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")
+fs.writeFileSync(`${c}/common/MANIFEST.sha256`,members.sort().map(name=>`${hash(`${c}/common/${name}`)}  ${name}`).join("\n")+"\n",{flag:"wx",mode:0o400})
 const pairs={noise:["reg-old1","reg-old2"],change:["reg-old3","reg-new"]}
 const files=["agent-review.json","creators.json","kol.csv","kol.xlsx","report.html","meta.json"]
-const seal=[]
+const seal=[`reference=${r}`,`common_manifest_sha256=${hash(`${c}/common/MANIFEST.sha256`)}`]
 for(const [name,two] of Object.entries(pairs)){
   if(Math.random()<0.5) two.reverse()
   ;["A","B"].forEach((side,i)=>{
@@ -246,13 +269,14 @@ for(const [name,two] of Object.entries(pairs)){
   seal.push(`${name} A=${two[0]} B=${two[1]}`)
 }
 fs.writeFileSync(`${c}/sealed.txt`,seal.join("\n")+"\n",{mode:0o400})
-' "$C" '<名字>'
+' "$C" '<名字>' "$R"
 shasum -a 256 "$C/sealed.txt"
 COMPARE
 ```
 
 - 判之前，把 `sealed.txt` 的 SHA256 写进那条 PR 正文；判完、判词写下以后才打开它。打开时再算一次，对得上才算数。
-- 改名和密封由跑的一方做，判词仍由需求所有者写。四跑执行与密封由另一方负责（可由 Agent 承担）；判方不参与四跑执行，不接触带版本或跑次标签的执行顺序、执行日志和目录对应关系，也不看 worktree 与 `sealed.txt`。判方只按下述次序读取两对交付物；已知这些对应关系时，这组四跑不具备盲判资格，保留事实、不下盲判词，是否重新安排全新四跑仍由需求所有者逐次决定。不得靠改写产出时间或删除冻结轮次时间把已知标签说成重新盲了。
+- 改名和密封由跑的一方做，判词仍由需求所有者写。四跑执行与密封由另一方负责（可由 Agent 承担）；判方不参与四跑执行，不接触带版本或跑次标签的执行顺序、执行日志和目录对应关系，也不看 worktree、`source/` 整树与 `sealed.txt`。判方只读共用只读资料，并按下述次序读取两对交付物；已知这些对应关系时，这组四跑不具备盲判资格，保留事实、不下盲判词，是否重新安排全新四跑仍由需求所有者逐次决定。不得靠改写产出时间或删除冻结轮次时间把已知标签说成重新盲了。
+- `common/inputs/` 逐字来自 b 完成时给四跑的同一份冻结输入；合法缺席的 `creators.raw.json` 保持缺席，不造文件。`common/references/` 是 d 事前固定的同一份参照，第 2、6 步都按它；`common/feedback/` 只给判方原人工反馈，原缺席仍缺席，不给四跑 Agent。共有资料不归 A/B，目录、文件名和说明不带版本、跑次或映射；来源提交只留密封记录。判前核公开清单及已记录的参照内容 hash，判后再核密封中的清单 hash；资料缺失（已明确的合法缺席除外）、不可读、清单或内容变动均保留诊断、不下判词，不去 worktree 补看。只读文件权限是防误写措施，不冒称隔离同一账号的保密屏障。
 - **判的人一次看一对。** 先噪声对（e），再新旧对。
 
 **核对顺序**。借 harness2 盲选的六步，有两处按本仓库改了（第 3 步、第 6 步对占位符的态度）：
