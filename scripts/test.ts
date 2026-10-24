@@ -243,6 +243,7 @@ const GROUPS: readonly Group[] = [
   { id: 'u11-feedback-report-entry', needs: [] },
   { id: 'u11-keyword-attribution', needs: [] },
   { id: 'u11-keyword-report-entry', needs: [] },
+  { id: 'u12-report-escape', needs: [] },
   { id: 'd20-content-version', needs: [] },
   { id: 'd28-control', needs: [] },
   { id: 'd28-collect', needs: ['d28-control'] },
@@ -16290,6 +16291,127 @@ await group('u11-keyword-report-entry', async () => {
     eq('U11关键词真实入口保持raw人工与Agent原件字节', [read('creators.raw.json'), read('manual-feedback.csv'), read('agent-review.json')], [raw, manual, originalAgent])
     criterion('U11.m')
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+await group('u12-report-escape', () => {
+suite('U12', '报告里取自名单与 meta 的值只当内容展示，改写不了报告的标记')
+{
+  // 期望只来自 U12 三条判据：金丝雀里的 " ' < > & 原样出现就是没转义，转义两次的写法出现就是转义了两次或更多次
+  // （查的几段不带金丝雀的前导字符，转义三次也认得出）；转义一次与两次的写法按 HTML 五个字符实体手写，
+  // 不借被测的转义函数。报告会把有的取值改成大写再显示，
+  // 所以比对前先转小写。夹具当作盘上读进来的 JSON（反序列化进来的就是外部输入），
+  // 每个取值（字符串、数、布尔、null）逐个换成金丝雀，字符串另试末尾追加；渲染被拒不算漏。
+  const canary = `x"y'z<q-u12>&w`, escapedOnce = 'x&quot;y&#39;z&lt;q-u12&gt;&amp;w'
+  const has = (html: string, parts: string[]) => { const low = html.toLowerCase(); return parts.some(s => low.includes(s)) }
+  const leaked = (html: string) => has(html, ['x"y', "y'z", '<q-u12', 'q-u12>', '&w'])
+  const doubled = (html: string) => has(html, ['amp;quot;y', 'amp;#39;z', 'amp;lt;q-u12', 'q-u12&amp;', 'amp;amp;w'])
+  const src = { kind: 'public_api', provider: 'tikhub', endpoint: '/api/v1/instagram/v2/fetch_user_posts' }
+  const at = '2026-10-01T00:00:00.000Z'
+  const got = (value: unknown) => ({ status: 'measured', value, source: src, observed_at: at, sample_size: 6, basis: 'median' })
+  const gone = (reason: string, size?: number) => ({ status: 'unavailable', reason, source: src, observed_at: at, ...(size === undefined ? {} : { sample_size: size }) })
+  const metrics = (activity: unknown, risk: unknown) => ({
+    median_views: got(4200), median_engagements: got(300), engagement_rate_followers: got(0.031), engagement_rate_views: got(0.07),
+    view_rate: got(0.35), following_ratio: got(0.02), reach_consistency: got(0.6), median_post_gap_days: got(2.5),
+    latest_post_at: got('2026-09-29T00:00:00.000Z'), days_since_last_post: got(1.5), activity_status: activity, audience_quality_risk: risk,
+  })
+  // 每项指标都不可用：显示的是不可用的原因，原因的取值也要换成金丝雀扫一遍
+  const metricsGone = (activity: unknown, risk: unknown) => ({
+    ...Object.fromEntries(['median_views', 'median_engagements', 'engagement_rate_followers', 'engagement_rate_views', 'view_rate',
+      'following_ratio', 'reach_consistency', 'median_post_gap_days', 'latest_post_at', 'days_since_last_post'].map(k => [k, gone('insufficient_posts')])),
+    activity_status: activity, audience_quality_risk: risk,
+  })
+  const quote = got({ amount: 300, currency: 'USD', platform: 'instagram', format: 'instagram_reel', quantity: 1, source: 'creator_quote', observed_at: at })
+  const agent = { eligibility: '合格', adoption_priority: '备选', fit: '⚠️', fit_reason: '内容相近', observed_content: '开箱测评',
+    work_evidence: '三条充电宝开箱', natural_integration: '口播自然', mismatch_risk: '报价未核', review_status: '待重评' }
+  const answers = (account_key: string) => ({ account_key, round_id: 'round-001', manual_eligible: 'yes', manual_adopted: 'no',
+    manual_content_fit: 'high', manual_engagement: 'medium', manual_comment_authenticity: 'unknown', manual_reject_reason: '互动弱；其他', manual_note: '见评论区' })
+  const fixture = {
+    creators: [
+      { platform: 'instagram', handle: 'ana.cam', nickname: 'Ana', followers: 125000, post_count: 340, bio: '旅行与相机', bio_links: [], verified: false,
+        profile_url: 'https://www.instagram.com/ana.cam', email: 'ana@example.com', tier: 'A', score: 82, cross_platform: true, linked_handle: 'tiktok:anacam',
+        is_private: false, tier_adjustments: [{ kind: 'audience_quality_risk', from: 'A', to: 'B', reason: '受众风险高' }],
+        discovery_sources: [{ platform: 'instagram', handle: 'ana.cam', keyword: 'travel charger', dimension: 'scene', endpoint: '/api/v1/instagram/v2/search_reels' }],
+        account_assessment: { platform: 'instagram', handle: 'ana.cam', followers: 125000, following: 410, sample: { ...got(12), media_scope: 'provider_returned_first12' },
+          metrics: metrics(got('active'), got({ level: 'high', peer_size: 9, flags: [{ metric: 'view_rate', direction: 'low', value: 0.01, threshold: 0.05, peer_size: 9 }] })),
+          collaboration_quote: quote, quote_efficiency: { implied_ecpm: got(71.4), implied_ecpe: got(0.95) } },
+        // 关联账号没有样本：活跃与风险是盘上存着的那一份
+        linked_account_assessment: { platform: 'tiktok', handle: 'anacam', followers: 54000, following: 80, metrics: metrics(got('dormant'), got({ level: 'low', peer_size: 9, flags: [] })) },
+        previously_recommended: 'task-20260901', outreach_draft: 'Hi Ana, 想请你试试我们的旅行充电宝', ...agent, review_status: '已评',
+        effective_priority: '优先联系', effective_priority_account_key: 'instagram:ana.cam', manual_eligible: 'yes', manual_adopted: 'yes',
+        manual_content_fit: 'high', manual_engagement: 'high', manual_comment_authenticity: 'medium', manual_reject_reason: '其他', manual_note: '  ',
+        manual_round_id: 'round-001', manual_reviewed: true, linked_agent_review: { account_key: 'tiktok:anacam', ...agent },
+        manual_feedback_accounts: [answers('instagram:ana.cam'), answers('tiktok:anacam'), answers('instagram:ana.other')] },
+      { platform: 'tiktok', handle: 'bo_tech', nickname: 'Bo', followers: 980, post_count: 12, bio: null, bio_links: [], verified: false,
+        profile_url: 'https://www.tiktok.com/@bo_tech', email: null, tier: 'B', score: 40, is_private: true, fit: '⚠️', fit_reason: '偏题', discovery_sources: [],
+        account_assessment: { platform: 'tiktok', handle: 'bo_tech', followers: 980, following: 1200, sample: gone('insufficient_posts', 3),
+          metrics: metricsGone(gone('insufficient_posts'), gone('insufficient_peer_group')), collaboration_quote: quote,
+          quote_efficiency: { implied_ecpm: gone('unsupported_content'), implied_ecpe: gone('insufficient_posts', 2) } },
+        effective_priority: '暂不采用' },
+      { platform: 'tiktok', handle: 'cy', nickname: 'Cy', followers: 0, post_count: 1, bio_links: [], verified: false,
+        profile_url: 'https://www.tiktok.com/@cy', tier: 'C', score: 0, account_assessment: { platform: 'tiktok', handle: 'cy', collaboration_quote: gone('account_unavailable') } },
+    ],
+    meta: {
+      product: '旅行充电宝', market: 'US', platforms: ['tiktok', 'instagram'],
+      keywords: [
+        { task_index: 0, keyword: 'travel charger', platform: 'instagram', dimension: 'scene', status: 'queried', found: 12, shortlisted: 2, fit_pass: 1, manual_reviewed: 1 },
+        { task_index: 1, keyword: 'power bank', platform: 'tiktok', dimension: 'category', status: 'unqueried' },
+        { task_index: 2, keyword: 'gan', platform: 'tiktok', dimension: 'category', status: 'unknown', shortlisted: null, fit_pass: null, manual_reviewed: null },
+      ],
+      feedback_summary: { rounds: [{ round_id: 'round-001', candidates: 3, reviewed: 2, unreviewed: 1 }],
+        eligible: { yes: 2, no: 0, unknown: 1, unreviewed: 0, denominator: 2, rate: 1 }, adopted: { yes: 0, no: 2, unknown: 0, unreviewed: 1, denominator: 2, rate: 0 },
+        reject_reasons: [{ reason: '互动弱', count: 2 }], disagreements: ['instagram:ana.cam'] },
+      review_rounds: [{ round_id: 'round-001', created_at: at, source: 'task.json', candidates: [
+        { account_key: 'instagram:ana.cam', source_tasks: [{ task_index: 0, keyword: 'travel charger', dimension: 'scene', platform: 'instagram' }] },
+        { account_key: 'tiktok:bo_tech', source_tasks: null }] }],
+      total: 3, tiers: { A: 1, B: 1, C: 1 }, email_count: 1, cross_platform_count: 1, high_risk_count: 1,
+      requests: 9, cost_estimate_usd: '0.012', budget_usd: '2', cost_status: 'known', cost_scope: 'task', cost_http_200_usd: '0.012',
+      cost_unknown_result_usd: '0', cost_pending_usd: '0', cost_basis: '按固定公开基础价估算', cost_price_versions: [TEST_PRICE_VERSION],
+      cost_problems: [{ path: 'cost_ledger.entries[0]', reason: '单价版本未知' }], enriched: false,
+      memory_status: 'unknown', memory_written: false, memory_write_error: '磁盘已满',
+      capabilities: { email_verification: { total: 3, measured: 0, unavailable: 0, unqueried: 3 }, audience_geo: { total: 3, measured: 0, unavailable: 0, unqueried: 3 },
+        public_post_sample: { total: 4, measured: 1, unavailable: 1, unqueried: 2 }, audience_quality_risk: { total: 4, measured: 2, unavailable: 1, unqueried: 1 },
+        creator_activity: { total: 4, measured: 2, unavailable: 1, unqueried: 1 }, collaboration_quote: { total: 4, measured: 2, unavailable: 1, unqueried: 1 } },
+    },
+  }
+  type Path = (string | number)[]
+  const leaves: Path[] = []
+  const walk = (value: unknown, path: Path): void => {
+    if (value === null || typeof value !== 'object') { leaves.push(path); return }
+    for (const [k, v] of Object.entries(value)) walk(v, [...path, Array.isArray(value) ? Number(k) : k])
+  }
+  walk(fixture, [])
+  const valueAt = (path: Path) => path.reduce<any>((o, k) => o[k], fixture)
+  const put = (path: Path, value: unknown) => {
+    const doc = structuredClone(fixture) as any
+    path.slice(0, -1).reduce((o, k) => o[k], doc)[path.at(-1)!] = value
+    return doc
+  }
+  const views: [string, Parameters<typeof renderHtml>[2]][] = [['公共单层', {}], ['生产双筛选', { mode: 'review', filters: 'dual' }]]
+  const render = (doc: any, options: Parameters<typeof renderHtml>[2]) => {
+    try { return renderHtml(doc.creators, doc.meta, options) } catch { return undefined }
+  }
+  ok('U12夹具两种视图都照常渲染且不含金丝雀的原字符', views.every(([, o]) => { const html = render(fixture, o); return html !== undefined && !leaked(html) && !doubled(html) }))
+  const leaks = new Set<string>(), twice = new Set<string>()
+  for (const path of leaves) {
+    const old = valueAt(path)
+    for (const doc of [put(path, canary), ...(typeof old === 'string' ? [put(path, old + canary)] : [])]) {
+      for (const [name, options] of views) {
+        const html = render(doc, options)
+        if (html !== undefined && leaked(html)) leaks.add(`${name} ${path.join('.')}`)
+        if (html !== undefined && doubled(html)) twice.add(`${name} ${path.join('.')}`)
+      }
+    }
+  }
+  eq('U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图', [...leaks], [])
+  criterion('U12.a')
+  eq('U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次及以上的写法', [...twice], [])
+  criterion('U12.b')
+  const freeText: Path[] = [['creators', 0, 'handle'], ['creators', 0, 'nickname'], ['creators', 0, 'bio'],
+    ['creators', 0, 'outreach_draft'], ['meta', 'product'], ['meta', 'keywords', 0, 'keyword']]
+  const mangled = freeText.flatMap(path => views.filter(([, o]) => !render(put(path, canary), o)?.includes(escapedOnce)).map(([name]) => `${name} ${path.join('.')}`))
+  eq('U12自由文本换成金丝雀后两种视图都以转义一次的原文出现', mangled, [])
+  criterion('U12.c')
+}
 })
 
 await group('d20-content-version', () => {
