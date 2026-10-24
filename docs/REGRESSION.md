@@ -150,7 +150,11 @@ FREEZE
 - **跑完核一遍费用账没变**：每一跑的 `task.json` 里 `cost_ledger` 与冻结集里的内容及原始数字记号相同；缺席不等于零。先确认该跑的 render 成功；被输入校验拒绝的，不算完成一跑，也不继续下判词。
 
 ```bash
-node - "output/<名字>/frozen/task.json" "../reg-old1-<名字>/output/<名字>/task.json" <<'NODE'
+bash <<'COST'
+set -euo pipefail
+N='<名字>'
+for run in reg-old1 reg-old2 reg-old3 reg-new; do
+node - "output/$N/frozen/task.json" "../$run-$N/output/$N/task.json" <<'NODE'
 const fs=require('fs'),assert=require('assert/strict')
 class NumberToken {
   constructor(raw) {
@@ -168,13 +172,15 @@ else {
   console.log('费用账内容及数字原文未变')
 }
 NODE
+done
+COST
 ```
 
 ---
 
 ## d　新旧两版
 
-- **旧版**：改动前的主干提交（那条 PR 的 base：`git merge-base origin/main <PR 的 head>`）。**新版**：PR 的 head。
+- **旧版**：开 PR 时的改动前主干基准。开 PR 时，在 head 后来合入新主干之前，用 `git merge-base origin/main '<开 PR 时的 head 提交>'` 一次取得 SHA，并把它记在 PR 正文里；之后的每一跑都检出这个固定 SHA，不随 `origin/main` 前移或 head 同步主干而重算。**新版**：本次比较开始时记录的 PR head SHA。四跑都用这两个固定提交。
 - **每一跑一个 worktree**，各自只读自己的 `skill/`：`.claude/skills/kol-outreach`、`.agents/skills/kol-outreach`
   两条软链在 git 里，指向本 worktree 的 `skill/`（`docs/ARCHITECTURE.md`「新东西落在哪个目录」）。Agent 在 worktree 根下起。
 - **每个任务四跑：旧版三跑、新版一跑。** 旧版前两跑量噪声（e），第三跑与新版配成新旧对（f）。新旧对不用噪声对里的那两跑：
