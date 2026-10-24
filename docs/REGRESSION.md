@@ -63,28 +63,54 @@ Phase 04、06 与 render 读的输入冻结；要重新产出的不冻结；会�
 
 选入的原任务须保留实际搜索配置与已保存的评审正本。当前 render 先校验 `task.json`：它须是可读 JSON 对象，`tasks` 须是非空数组，各项的 keyword、dimension、platform 满足原规则；重复键、品牌输入、进度、正本与冻结来源也照生产校验。下面任一次 render 被拒绝，就停止这个任务的冻结或比对，保留诊断；不能跳过校验，也不能补空列表、猜任务、删坏字段或编造轮次让它通过。由需求所有者按原搜索配置或备份恢复有据的输入后重新冻结；无法恢复就换他指定的另一个任务。原件不因这套流程被修写。
 
+冻结名字必须全新。冻结根目录用不带 `-p` 的 `mkdir` 一次创建；路径已存在（包括已有目录或链接）就失败并停止这一整段，不覆盖、不复用，也不删除旧证据来腾名字。失败后新建的目录同样保留，重试换一个新名字。
+
+原件按字节复制后，在清空 `reviews` 或作任何 JSON 改写之前，先对这份尚未改写的原正本调用现有 `readAgentReviewDocument`。严格读取拒绝时保留其诊断并停止；正本缺席同样停止，不把 reader 返回的缺席空文档当成已保存原件。不能先用普通 `JSON.parse`/`JSON.stringify` 洗过，再拿洗后的结果验证。以下整段在独立子 shell 中执行，任一失败就停止，不继续后文。
+
 ```bash
-N=<名字>; T=output/<原任务>
-# 1. 原件：整份字节拷贝。以后原任务目录再怎么变，这份不动；判的时候从这里读人工作答
-mkdir -p output/$N/source output/$N/frozen
-cp -a "$T"/. output/$N/source/
-# 2. 冻结集：从原件拷，去掉不冻结的，清空旧判断
-cp -a output/$N/source/. output/$N/frozen/
-rm -f output/$N/frozen/{kol.csv,kol.xlsx,report.html,meta.json,enrichment.json,manual-feedback.csv}
-node -e 'const fs=require("fs"),f=process.argv[1],d=JSON.parse(fs.readFileSync(f,"utf8"));d.reviews={};fs.writeFileSync(f,JSON.stringify(d,null,2)+"\n")' output/$N/frozen/agent-review.json
+(
+set -eu
+N='<名字>'; T='output/<原任务>'
+F="output/$N"
+# 1. 原件：原子创建全新冻结根；已存在就停止，不复用
+mkdir "$F"
+mkdir "$F/source" "$F/frozen"
+cp -a "$T"/. "$F/source/"
+# 2. 任何 JSON 改写前，用现有严格 reader 核原件，拒绝即停
+node --import tsx --input-type=module - "$F/source" <<'NODE'
+import { readAgentReviewDocument } from './scripts/lib/review.ts'
+try {
+  const read=readAgentReviewDocument(process.argv[2])
+  if(read.status!=='present') throw Error(`${process.argv[2]}/agent-review.json 缺席，停止冻结`)
+} catch(error) {
+  console.error(error instanceof Error?`${error.name}: ${error.message}`:String(error))
+  process.exitCode=1
+}
+NODE
+# 只有严格 reader 接受未改写的原件后，才生成并改写冻结副本
+cp -a "$F/source"/. "$F/frozen/"
+rm -f "$F/frozen"/{kol.csv,kol.xlsx,report.html,meta.json,enrichment.json,manual-feedback.csv}
+node -e 'const fs=require("fs"),f=process.argv[1],d=JSON.parse(fs.readFileSync(f,"utf8"));d.reviews={};fs.writeFileSync(f,JSON.stringify(d,null,2)+"\n")' "$F/frozen/agent-review.json"
 # 3. 在一个临时 worktree 里离线 render 一次，重建名单投影（不在自己这份目录里跑，见上面第 2 个坑）
-git worktree add --detach ../reg-prep <旧版提交>
-(cd ../reg-prep && npm ci)
-mkdir -p ../reg-prep/output/$N && cp -a output/$N/frozen/. ../reg-prep/output/$N/
-(cd ../reg-prep && env -u TIKHUB_API_KEY npm run render -- --dir output/$N)
-cp ../reg-prep/output/$N/{task.json,creators.json,agent-review.json} output/$N/frozen/
+git worktree add --detach "../reg-prep" '<旧版提交>'
+(cd "../reg-prep" && npm ci)
+mkdir -p "../reg-prep/output/$N" && cp -a "$F/frozen"/. "../reg-prep/output/$N/"
+(cd "../reg-prep" && env -u TIKHUB_API_KEY npm run render -- --dir "output/$N")
+cp "../reg-prep/output/$N/task.json" "../reg-prep/output/$N/creators.json" "../reg-prep/output/$N/agent-review.json" "$F/frozen/"
 # 4. 核：从原件的 agent-review.json 里挑三五句旧理由、旧草稿的开头，冻结集里一处都不该有
-grep -rF "<一句旧理由>" output/$N/frozen/
+if grep -rF -- "<一句旧理由>" "$F/frozen/"; then
+  echo "冻结集仍带旧判断，停止" >&2
+  exit 1
+else
+  status=$?
+  [ "$status" -eq 1 ] || exit "$status"
+fi
 # 5. 清单
-(cd output/$N && find source frozen -type f | sort | xargs shasum -a 256) > output/$N/MANIFEST.sha256
+(cd "$F" && find source frozen -type f | sort | xargs shasum -a 256) > "$F/MANIFEST.sha256"
+)
 ```
 
-第 4 步搜到了就停：说明还有地方带着旧判断，先找出是哪份文件、补进上面那张表，再冻。
+第 4 步搜到了就停：说明还有地方带着旧判断，先找出是哪份文件、补进上面那张表，换全新名字再冻。
 `<旧版提交>` 见 d。第 3 步 render 会改 `task.json` 里的 `memory_status` 与 `updated_at`，不动费用账。
 
 ---
