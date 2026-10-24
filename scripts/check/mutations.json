@@ -18530,6 +18530,36 @@
       "kills": [
         "Git 建历史隔离：不继承 GIT_COMMON_DIR"
       ]
+    },
+    {
+      "id": "M-H62-aj",
+      "req": "harness",
+      "why": "观察器按父目录而不是真实子进程目录选编译配置，会把双向字段初始化语义跑反",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "const [, argv] = prebuiltCommand([script], cwd, env)",
+      "replace": "const [, argv] = prebuiltCommand([script], process.cwd(), env)",
+      "by": "test",
+      "kills": [
+        "normal.cross-define-to-assign.target.setter-count",
+        "normal.cross-define-to-assign.target.setter-events",
+        "normal.cross-define-to-assign.target.own-field",
+        "normal.cross-assign-to-define.target.setter-count",
+        "normal.cross-assign-to-define.target.setter-events",
+        "normal.cross-assign-to-define.target.own-field"
+      ]
+    },
+    {
+      "id": "M-H62-ak",
+      "req": "harness",
+      "why": "省略子目录参数的旧调用仍按调用时目录选同一加载器，不能改成脚本目录而丢掉原有兼容起法",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "export function fixtureLoader(script: string, env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {",
+      "replace": "export function fixtureLoader(script: string, env: NodeJS.ProcessEnv = process.env, cwd = dirname(script)): string {",
+      "by": "test",
+      "kills": [
+        "normal.legacy-calltime-define.bare-loader-command-parity",
+        "normal.legacy-calltime-assign.bare-loader-command-parity"
+      ]
     }
   ],
   "exemptions": [
