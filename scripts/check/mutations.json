@@ -18488,6 +18488,90 @@
       "kills": [
         "Git 建历史隔离：不继承 GIT_COMMON_DIR"
       ]
+    },
+    {
+      "id": "M-P1-ae",
+      "req": "P1.b",
+      "why": "把未提供的公开指标已测账号数显示成0，未知与确实为零混淆",
+      "file": "scripts/lib/report.ts",
+      "find": "meta.capabilities?.public_post_sample?.measured ?? '未知'",
+      "replace": "meta.capabilities?.public_post_sample?.measured ?? 0",
+      "by": "test",
+      "kills": [
+        "report-stats:public_single:capabilities_absent",
+        "report-stats:public_single:capabilities_undefined",
+        "report-stats:public_single:capabilities_null",
+        "report-stats:public_single:public_sample_absent",
+        "report-stats:public_single:public_sample_undefined",
+        "report-stats:public_single:public_sample_null",
+        "report-stats:public_single:measured_absent",
+        "report-stats:public_single:measured_undefined",
+        "report-stats:public_single:measured_null",
+        "report-stats:public_single:both_absent",
+        "report-stats:public_single:measured_absent_risk_zero",
+        "report-stats:review_dual:capabilities_absent",
+        "report-stats:review_dual:capabilities_undefined",
+        "report-stats:review_dual:capabilities_null",
+        "report-stats:review_dual:public_sample_absent",
+        "report-stats:review_dual:public_sample_undefined",
+        "report-stats:review_dual:public_sample_null",
+        "report-stats:review_dual:measured_absent",
+        "report-stats:review_dual:measured_undefined",
+        "report-stats:review_dual:measured_null",
+        "report-stats:review_dual:both_absent",
+        "report-stats:review_dual:measured_absent_risk_zero"
+      ]
+    },
+    {
+      "id": "M-P1-af",
+      "req": "P1.b",
+      "why": "把未提供的高风险复核人数显示成0，未知与确实为零混淆",
+      "file": "scripts/lib/report.ts",
+      "find": "meta.high_risk_count ?? '未知'",
+      "replace": "meta.high_risk_count ?? 0",
+      "by": "test",
+      "kills": [
+        "report-stats:public_single:high_risk_absent",
+        "report-stats:public_single:high_risk_undefined",
+        "report-stats:public_single:high_risk_null",
+        "report-stats:public_single:both_absent",
+        "report-stats:public_single:measured_zero_risk_absent",
+        "report-stats:review_dual:high_risk_absent",
+        "report-stats:review_dual:high_risk_undefined",
+        "report-stats:review_dual:high_risk_null",
+        "report-stats:review_dual:both_absent",
+        "report-stats:review_dual:measured_zero_risk_absent"
+      ]
+    },
+    {
+      "id": "M-P1-ag",
+      "req": "P1.b",
+      "why": "把确实为零的公开指标已测账号数显示成未知",
+      "file": "scripts/lib/report.ts",
+      "find": "meta.capabilities?.public_post_sample?.measured ?? '未知'",
+      "replace": "meta.capabilities?.public_post_sample?.measured || '未知'",
+      "by": "test",
+      "kills": [
+        "report-stats:public_single:both_true_zero",
+        "report-stats:public_single:measured_zero_risk_absent",
+        "report-stats:review_dual:both_true_zero",
+        "report-stats:review_dual:measured_zero_risk_absent"
+      ]
+    },
+    {
+      "id": "M-P1-ah",
+      "req": "P1.b",
+      "why": "把确实为零的高风险复核人数显示成未知",
+      "file": "scripts/lib/report.ts",
+      "find": "meta.high_risk_count ?? '未知'",
+      "replace": "meta.high_risk_count || '未知'",
+      "by": "test",
+      "kills": [
+        "report-stats:public_single:both_true_zero",
+        "report-stats:public_single:measured_absent_risk_zero",
+        "report-stats:review_dual:both_true_zero",
+        "report-stats:review_dual:measured_absent_risk_zero"
+      ]
     }
   ],
   "exemptions": [
