@@ -160,14 +160,18 @@ NODE
 - 四跑用同一个 Agent、同一个模型版本。模型版本不同，差别里就混着模型那一份：不下判词，照实写进 PR 正文（ADR-159 第四节）。
 
 ```bash
-git worktree add --detach ../reg-old1 <旧版提交>
-git worktree add --detach ../reg-old2 <旧版提交>
-git worktree add --detach ../reg-old3 <旧版提交>
-git worktree add --detach ../reg-new  <新版提交>
+bash <<'RUNS'
+set -euo pipefail
+git worktree add --detach ../reg-old1 '<旧版提交>'
+git worktree add --detach ../reg-old2 '<旧版提交>'
+git worktree add --detach ../reg-old3 '<旧版提交>'
+git worktree add --detach ../reg-new  '<新版提交>'
 for w in reg-old1 reg-old2 reg-old3 reg-new; do
-  (cd ../$w && npm ci)
-  mkdir -p ../$w/output/<名字> && cp -a output/<名字>/frozen/. ../$w/output/<名字>/
+  (cd "../$w"; npm ci)
+  mkdir -p "../$w/output/<名字>"
+  cp -a "output/<名字>/frozen/." "../$w/output/<名字>/"
 done
+RUNS
 ```
 
 - **冻结集拷到每个 worktree 的同一个相对路径 `output/<名字>/`。** 任务号取的是目录名；路径一样，产出里就不会因为目录名不同漏出是哪一跑。
