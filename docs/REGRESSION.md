@@ -65,11 +65,11 @@ Phase 04、06 与 render 读的输入冻结；要重新产出的不冻结；会�
 
 冻结名字必须全新。冻结根目录用不带 `-p` 的 `mkdir` 一次创建；路径已存在（包括已有目录或链接）就失败并停止这一整段，不覆盖、不复用，也不删除旧证据来腾名字。失败后新建的目录同样保留，重试换一个新名字。
 
-原件按字节复制后，在清空 `reviews` 或作任何 JSON 改写之前，先对这份尚未改写的原正本调用现有 `readAgentReviewDocument`。严格读取拒绝时保留其诊断并停止；正本缺席同样停止，不把 reader 返回的缺席空文档当成已保存原件。不能先用普通 `JSON.parse`/`JSON.stringify` 洗过，再拿洗后的结果验证。以下整段在独立子 shell 中执行，任一失败就停止，不继续后文。
+原件按字节复制后，在清空 `reviews` 或作任何 JSON 改写之前，先对这份尚未改写的原正本调用现有 `readAgentReviewDocument`。严格读取拒绝时保留其诊断并停止；正本缺席同样停止，不把 reader 返回的缺席空文档当成已保存原件。不能先用普通 `JSON.parse`/`JSON.stringify` 洗过，再拿洗后的结果验证。以下整段在独立 Bash 子 shell 中执行，任一失败就停止，不继续后文。
 
 ```bash
-(
-set -eu
+bash <<'FREEZE'
+set -euo pipefail
 N='<名字>'; T='output/<原任务>'
 F="output/$N"
 # 1. 原件：原子创建全新冻结根；已存在就停止，不复用
@@ -94,7 +94,8 @@ node -e 'const fs=require("fs"),f=process.argv[1],d=JSON.parse(fs.readFileSync(f
 # 3. 在一个临时 worktree 里离线 render 一次，重建名单投影（不在自己这份目录里跑，见上面第 2 个坑）
 git worktree add --detach "../reg-prep" '<旧版提交>'
 (cd "../reg-prep" && npm ci)
-mkdir -p "../reg-prep/output/$N" && cp -a "$F/frozen"/. "../reg-prep/output/$N/"
+mkdir -p "../reg-prep/output/$N"
+cp -a "$F/frozen"/. "../reg-prep/output/$N/"
 (cd "../reg-prep" && env -u TIKHUB_API_KEY npm run render -- --dir "output/$N")
 cp "../reg-prep/output/$N/task.json" "../reg-prep/output/$N/creators.json" "../reg-prep/output/$N/agent-review.json" "$F/frozen/"
 # 4. 核：从原件的 agent-review.json 里挑三五句旧理由、旧草稿的开头，冻结集里一处都不该有
@@ -107,7 +108,7 @@ else
 fi
 # 5. 清单
 (cd "$F" && find source frozen -type f | sort | xargs shasum -a 256) > "$F/MANIFEST.sha256"
-)
+FREEZE
 ```
 
 第 4 步搜到了就停：说明还有地方带着旧判断，先找出是哪份文件、补进上面那张表，换全新名字再冻。
