@@ -61,7 +61,7 @@ Phase 04、06 与 render 读的输入冻结；要重新产出的不冻结；会�
 
 在需求所有者自己那份工作目录的根下（`output/` 不进仓库）。`<名字>` 是这个冻结集的名字，`<原任务>` 是原任务目录名：
 
-名字和旧理由作为数据输入一次。人工先单独运行下一条命令，在它等待输入时提供一整行合法 JSON；换行写成 JSON 的 `\n` 转义。Agent 可通过执行器的环境对象提供同名变量。后续各段直接读取这份数据，`<名字>`、`<原任务>` 只用于说明路径。
+名字作为长期数据输入一次。人工先单独运行下一条命令，在它等待输入时提供一整行合法 JSON；换行写成 JSON 的 `\n` 转义。Agent 可通过执行器的环境对象提供同名变量。后续各段直接读取这份数据，`<名字>`、`<原任务>` 只用于说明路径。
 
 ```bash
 IFS= read -r REGRESSION_NAMES_JSON
@@ -70,13 +70,24 @@ IFS= read -r REGRESSION_NAMES_JSON
 等待输入时的数据示例：
 
 ```json
-{"freeze":"回归样本 A","source":"原任务 B","oldReason":"第一段旧理由\n第二段旧理由\n第三段旧理由"}
+{"freeze":"回归样本 A","source":"原任务 B"}
 ```
 
-输入完成后导出，再执行各段。固定外层先解析、校验数据，再把名字和理由作为参数交给 Bash；坏 JSON、缺值或非法单目录名在任何写入前停止。中文、空格、引号和合法换行名字保留。挑出的旧理由用 JSON 的 `\n` 分隔，由 grep 逐行按原文检查，也经参数传递。
+输入完成后导出，再执行各段。长期 JSON 只含 `freeze` 与 `source` 两个名字，不含旧判断。固定外层先解析、校验，再把名字作为参数交给 Bash；坏 JSON、缺值、多余字段或非法单目录名在任何写入前停止。中文、空格、引号和合法换行名字保留。
 
 ```bash
 export REGRESSION_NAMES_JSON
+```
+
+旧理由只供本节临时核查。在协调终端先移除同名旧变量，再单独读取一行 JSON 字符串，不长期导出；执行器仅为下面这一条冻结调用设置临时环境对象。用 `\n` 分隔挑出的几段旧理由，grep逐行按原文检查。
+
+```bash
+unset REGRESSION_OLD_REASON_JSON
+IFS= read -r REGRESSION_OLD_REASON_JSON
+```
+
+```json
+"第一段旧理由\n第二段旧理由\n第三段旧理由"
 ```
 
 
@@ -89,13 +100,16 @@ export REGRESSION_NAMES_JSON
 原件按字节复制后，在清空 `reviews` 或作任何 JSON 改写之前，先对这份尚未改写的原正本调用现有 `readAgentReviewDocument`。严格读取拒绝时保留其诊断并停止；正本缺席同样停止，不把 reader 返回的缺席空文档当成已保存原件。不能先用普通 `JSON.parse`/`JSON.stringify` 洗过，再拿洗后的结果验证。以下整段在独立 Bash 子 shell 中执行，任一失败就停止，不继续后文。
 
 ```bash
-node -e '
+REGRESSION_OLD_REASON_JSON="$REGRESSION_OLD_REASON_JSON" node -e '
 const fs=require("fs"),cp=require("child_process")
 const p=JSON.parse(process.env.REGRESSION_NAMES_JSON??"null")
 if(!p||typeof p!=="object"||Array.isArray(p)) throw Error("缺少名字JSON对象")
+if(JSON.stringify(Object.keys(p).sort())!==JSON.stringify(["freeze","source"])) throw Error("长期名字JSON只允许freeze和source")
 for(const key of ["freeze","source"]){const n=p[key];if(typeof n!=="string"||!n||n==="."||n===".."||n.includes("/")||n.includes("\\")||n.includes("\0")) throw Error("名字必须是非空单目录名")}
-if(typeof p.oldReason!=="string"||!p.oldReason||p.oldReason.includes("\0")) throw Error("缺少可传递的旧理由原文")
-const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source,p.oldReason],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"]})
+const reason=JSON.parse(process.env.REGRESSION_OLD_REASON_JSON??"null")
+if(typeof reason!=="string"||!reason||reason.includes("\0")) throw Error("缺少可传递的临时旧理由原文")
+const childEnv={...process.env};delete childEnv.REGRESSION_OLD_REASON_JSON
+const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source,reason],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"],env:childEnv})
 if(run.error) throw run.error
 if(run.signal||!Number.isInteger(run.status)) throw Error("命令未正常结束："+run.signal)
 process.exitCode=run.status
@@ -160,6 +174,12 @@ fi
 FREEZE
 ```
 
+冻结段结束后在协调终端单独清除临时旧理由。冻结失败仍保留失败状态并停止；这一步清理不表示冻结成功。Agent执行器也不向后续调用或宿主全局环境保留旧理由。
+
+```bash
+unset REGRESSION_OLD_REASON_JSON
+```
+
 第 4 步搜到了就停：说明还有地方带着旧判断，先找出是哪份文件、补进上面那张表，换全新名字再冻。
 `<旧版提交>` 见 d。第 3 步 render 会改 `task.json` 里的 `memory_status` 与 `updated_at`，不动费用账。
 
@@ -183,9 +203,10 @@ node -e '
 const fs=require("fs"),cp=require("child_process")
 const p=JSON.parse(process.env.REGRESSION_NAMES_JSON??"null")
 if(!p||typeof p!=="object"||Array.isArray(p)) throw Error("缺少名字JSON对象")
+if(JSON.stringify(Object.keys(p).sort())!==JSON.stringify(["freeze","source"])) throw Error("长期名字JSON只允许freeze和source")
 for(const key of ["freeze","source"]){const n=p[key];if(typeof n!=="string"||!n||n==="."||n===".."||n.includes("/")||n.includes("\\")||n.includes("\0")) throw Error("名字必须是非空单目录名")}
-if(typeof p.oldReason!=="string"||!p.oldReason||p.oldReason.includes("\0")) throw Error("缺少可传递的旧理由原文")
-const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source,p.oldReason],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"]})
+const childEnv={...process.env};delete childEnv.REGRESSION_OLD_REASON_JSON
+const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"],env:childEnv})
 if(run.error) throw run.error
 if(run.signal||!Number.isInteger(run.status)) throw Error("命令未正常结束："+run.signal)
 process.exitCode=run.status
@@ -225,6 +246,7 @@ COST
 - **每个任务四跑：旧版三跑、新版一跑。** 旧版前两跑量噪声（e），第三跑与新版配成新旧对（f）。新旧对不用噪声对里的那两跑：
   判的人先看过噪声对，新旧对里要是又出现其中一跑，草稿逐字认得出，就知道另一边是新版，盲比就不盲了。
 - 四跑用同一个 Agent、同一个模型版本。模型版本不同，差别里就混着模型那一份：不下判词，照实写进 PR 正文（ADR-159 第四节）。
+- **四跑不用冻结协调上下文。** 启动每个新会话时，宿主明确排除 `REGRESSION_NAMES_JSON`、`REGRESSION_OLD_REASON_JSON` 及旧理由数据，只给本 worktree、冻结任务路径和相同用户指令；命令行宿主须在启动层清这些环境变量，图形宿主也要确认新会话没有继承。协调终端先清旧理由，不能只在 Node/Bash 子进程内 unset 后就当父环境已清。无法确认隔离时，不开始四跑。
 - **共用判据先定。** 第 f 节的形状和占位符参照默认取上述固定旧版提交；在四跑、量噪声之前记录这一共同提交及两份参照内容的 SHA256。若本次就是要改这两项承诺，先由需求所有者指定同一份共同参照及适用范围，固定提交和内容后才跑；未定就停，不给 A、B 各用自己的版本，也不随主干移动或看过结果后换标准。
 
 ```bash
@@ -232,9 +254,10 @@ node -e '
 const fs=require("fs"),cp=require("child_process")
 const p=JSON.parse(process.env.REGRESSION_NAMES_JSON??"null")
 if(!p||typeof p!=="object"||Array.isArray(p)) throw Error("缺少名字JSON对象")
+if(JSON.stringify(Object.keys(p).sort())!==JSON.stringify(["freeze","source"])) throw Error("长期名字JSON只允许freeze和source")
 for(const key of ["freeze","source"]){const n=p[key];if(typeof n!=="string"||!n||n==="."||n===".."||n.includes("/")||n.includes("\\")||n.includes("\0")) throw Error("名字必须是非空单目录名")}
-if(typeof p.oldReason!=="string"||!p.oldReason||p.oldReason.includes("\0")) throw Error("缺少可传递的旧理由原文")
-const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source,p.oldReason],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"]})
+const childEnv={...process.env};delete childEnv.REGRESSION_OLD_REASON_JSON
+const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"],env:childEnv})
 if(run.error) throw run.error
 if(run.signal||!Number.isInteger(run.status)) throw Error("命令未正常结束："+run.signal)
 process.exitCode=run.status
@@ -282,9 +305,10 @@ node -e '
 const fs=require("fs"),cp=require("child_process")
 const p=JSON.parse(process.env.REGRESSION_NAMES_JSON??"null")
 if(!p||typeof p!=="object"||Array.isArray(p)) throw Error("缺少名字JSON对象")
+if(JSON.stringify(Object.keys(p).sort())!==JSON.stringify(["freeze","source"])) throw Error("长期名字JSON只允许freeze和source")
 for(const key of ["freeze","source"]){const n=p[key];if(typeof n!=="string"||!n||n==="."||n===".."||n.includes("/")||n.includes("\\")||n.includes("\0")) throw Error("名字必须是非空单目录名")}
-if(typeof p.oldReason!=="string"||!p.oldReason||p.oldReason.includes("\0")) throw Error("缺少可传递的旧理由原文")
-const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source,p.oldReason],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"]})
+const childEnv={...process.env};delete childEnv.REGRESSION_OLD_REASON_JSON
+const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"],env:childEnv})
 if(run.error) throw run.error
 if(run.signal||!Number.isInteger(run.status)) throw Error("命令未正常结束："+run.signal)
 process.exitCode=run.status
@@ -376,9 +400,10 @@ node -e '
 const fs=require("fs"),cp=require("child_process")
 const p=JSON.parse(process.env.REGRESSION_NAMES_JSON??"null")
 if(!p||typeof p!=="object"||Array.isArray(p)) throw Error("缺少名字JSON对象")
+if(JSON.stringify(Object.keys(p).sort())!==JSON.stringify(["freeze","source"])) throw Error("长期名字JSON只允许freeze和source")
 for(const key of ["freeze","source"]){const n=p[key];if(typeof n!=="string"||!n||n==="."||n===".."||n.includes("/")||n.includes("\\")||n.includes("\0")) throw Error("名字必须是非空单目录名")}
-if(typeof p.oldReason!=="string"||!p.oldReason||p.oldReason.includes("\0")) throw Error("缺少可传递的旧理由原文")
-const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source,p.oldReason],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"]})
+const childEnv={...process.env};delete childEnv.REGRESSION_OLD_REASON_JSON
+const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"],env:childEnv})
 if(run.error) throw run.error
 if(run.signal||!Number.isInteger(run.status)) throw Error("命令未正常结束："+run.signal)
 process.exitCode=run.status
@@ -396,9 +421,10 @@ node -e '
 const fs=require("fs"),cp=require("child_process")
 const p=JSON.parse(process.env.REGRESSION_NAMES_JSON??"null")
 if(!p||typeof p!=="object"||Array.isArray(p)) throw Error("缺少名字JSON对象")
+if(JSON.stringify(Object.keys(p).sort())!==JSON.stringify(["freeze","source"])) throw Error("长期名字JSON只允许freeze和source")
 for(const key of ["freeze","source"]){const n=p[key];if(typeof n!=="string"||!n||n==="."||n===".."||n.includes("/")||n.includes("\\")||n.includes("\0")) throw Error("名字必须是非空单目录名")}
-if(typeof p.oldReason!=="string"||!p.oldReason||p.oldReason.includes("\0")) throw Error("缺少可传递的旧理由原文")
-const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source,p.oldReason],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"]})
+const childEnv={...process.env};delete childEnv.REGRESSION_OLD_REASON_JSON
+const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"],env:childEnv})
 if(run.error) throw run.error
 if(run.signal||!Number.isInteger(run.status)) throw Error("命令未正常结束："+run.signal)
 process.exitCode=run.status
