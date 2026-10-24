@@ -18009,7 +18009,56 @@
       "replace": "@${esc(esc(c.handle))}</a>",
       "by": "test",
       "kills": [
+        "U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次的写法",
         "U12自由文本换成金丝雀后两种视图都以转义一次的原文出现"
+      ]
+    },
+    {
+      "id": "M-U12-e",
+      "req": "U12.a",
+      "why": "原先直接写进报告的那些取值里，只有大于号原样写出，取值仍能闭合报告的标记",
+      "file": "scripts/lib/report.ts",
+      "find": "const escRaw = (v: unknown) => esc(String(v))",
+      "replace": "const escRaw = (v: unknown) => esc(String(v)).replaceAll('&gt;', '>')",
+      "by": "test",
+      "kills": [
+        "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
+      ]
+    },
+    {
+      "id": "M-U12-f",
+      "req": "U12.a",
+      "why": "播粉比不可用时的原因原样写进报告正文，增强结果被写坏时能改写报告的标记",
+      "file": "scripts/lib/report.ts",
+      "find": "<span>播粉比 <b>${esc(metricText(m?.view_rate, pct))}</b></span>",
+      "replace": "<span>播粉比 <b>${metricText(m?.view_rate, pct)}</b></span>",
+      "by": "test",
+      "kills": [
+        "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
+      ]
+    },
+    {
+      "id": "M-U12-g",
+      "req": "U12.a",
+      "why": "受众风险已测时的等级以大写原样写进报告正文，增强结果被写坏时能改写报告的标记",
+      "file": "scripts/lib/report.ts",
+      "find": "${esc(riskLevel)}</b></span>",
+      "replace": "${risk?.status === 'measured' ? riskLevel : esc(riskLevel)}</b></span>",
+      "by": "test",
+      "kills": [
+        "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
+      ]
+    },
+    {
+      "id": "M-U12-h",
+      "req": "U12.b",
+      "why": "契合理由被转义两次，报告上显示的是字符实体的原文，不是理由本身",
+      "file": "scripts/lib/report.ts",
+      "find": "${esc(c.fit)} ${esc(c.fit_reason)}</div>",
+      "replace": "${esc(c.fit)} ${esc(esc(c.fit_reason))}</div>",
+      "by": "test",
+      "kills": [
+        "U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次的写法"
       ]
     },
     {

@@ -16146,11 +16146,14 @@ await group('u11-keyword-report-entry', async () => {
 await group('u12-report-escape', () => {
 suite('U12', '报告里取自名单与 meta 的值只当内容展示，改写不了报告的标记')
 {
-  // 期望只来自 U12 两条判据：金丝雀里的 " ' < & 原样出现就是没转义；转义一次的写法按 HTML 五个
-  // 字符实体手写，不借被测的转义函数。夹具当作盘上读进来的 JSON（反序列化进来的就是外部输入），
+  // 期望只来自 U12 两条判据：金丝雀里的 " ' < > & 原样出现就是没转义，转义两次的写法出现就是转义两次；
+  // 转义一次与两次的写法按 HTML 五个字符实体手写，不借被测的转义函数。报告会把有的取值改成大写再显示，
+  // 所以比对前先转小写。夹具当作盘上读进来的 JSON（反序列化进来的就是外部输入），
   // 每个取值（字符串、数、布尔、null）逐个换成金丝雀，字符串另试末尾追加；渲染被拒不算漏。
   const canary = `x"y'z<q-u12>&w`, escapedOnce = 'x&quot;y&#39;z&lt;q-u12&gt;&amp;w'
-  const leaked = (html: string) => ['x"y', "y'z", '<q-u12', '&w'].some(s => html.includes(s))
+  const has = (html: string, parts: string[]) => { const low = html.toLowerCase(); return parts.some(s => low.includes(s)) }
+  const leaked = (html: string) => has(html, ['x"y', "y'z", '<q-u12', 'q-u12>', '&w'])
+  const doubled = (html: string) => has(html, ['x&amp;quot;y', 'y&amp;#39;z', '&amp;lt;q-u12', 'q-u12&amp;gt;', '&amp;amp;w'])
   const src = { kind: 'public_api', provider: 'tikhub', endpoint: '/api/v1/instagram/v2/fetch_user_posts' }
   const at = '2026-10-01T00:00:00.000Z'
   const got = (value: unknown) => ({ status: 'measured', value, source: src, observed_at: at, sample_size: 6, basis: 'median' })
@@ -16159,6 +16162,12 @@ suite('U12', '报告里取自名单与 meta 的值只当内容展示，改写不
     median_views: got(4200), median_engagements: got(300), engagement_rate_followers: got(0.031), engagement_rate_views: got(0.07),
     view_rate: got(0.35), following_ratio: got(0.02), reach_consistency: got(0.6), median_post_gap_days: got(2.5),
     latest_post_at: got('2026-09-29T00:00:00.000Z'), days_since_last_post: got(1.5), activity_status: activity, audience_quality_risk: risk,
+  })
+  // 每项指标都不可用：显示的是不可用的原因，原因的取值也要换成金丝雀扫一遍
+  const metricsGone = (activity: unknown, risk: unknown) => ({
+    ...Object.fromEntries(['median_views', 'median_engagements', 'engagement_rate_followers', 'engagement_rate_views', 'view_rate',
+      'following_ratio', 'reach_consistency', 'median_post_gap_days', 'latest_post_at', 'days_since_last_post'].map(k => [k, gone('insufficient_posts')])),
+    activity_status: activity, audience_quality_risk: risk,
   })
   const quote = got({ amount: 300, currency: 'USD', platform: 'instagram', format: 'instagram_reel', quantity: 1, source: 'creator_quote', observed_at: at })
   const agent = { eligibility: '合格', adoption_priority: '备选', fit: '⚠️', fit_reason: '内容相近', observed_content: '开箱测评',
@@ -16184,10 +16193,10 @@ suite('U12', '报告里取自名单与 meta 的值只当内容展示，改写不
       { platform: 'tiktok', handle: 'bo_tech', nickname: 'Bo', followers: 980, post_count: 12, bio: null, bio_links: [], verified: false,
         profile_url: 'https://www.tiktok.com/@bo_tech', email: null, tier: 'B', score: 40, is_private: true, fit: '⚠️', fit_reason: '偏题', discovery_sources: [],
         account_assessment: { platform: 'tiktok', handle: 'bo_tech', followers: 980, following: 1200, sample: gone('insufficient_posts', 3),
-          metrics: metrics(gone('insufficient_posts'), gone('insufficient_peer_group')), collaboration_quote: quote,
+          metrics: metricsGone(gone('insufficient_posts'), gone('insufficient_peer_group')), collaboration_quote: quote,
           quote_efficiency: { implied_ecpm: gone('unsupported_content'), implied_ecpe: gone('insufficient_posts', 2) } },
         effective_priority: '暂不采用' },
-      { platform: 'tiktok', handle: 'cy', nickname: 'Cy', followers: 0, post_count: 1, bio: '', bio_links: [], verified: false,
+      { platform: 'tiktok', handle: 'cy', nickname: 'Cy', followers: 0, post_count: 1, bio_links: [], verified: false,
         profile_url: 'https://www.tiktok.com/@cy', tier: 'C', score: 0, account_assessment: { platform: 'tiktok', handle: 'cy', collaboration_quote: gone('account_unavailable') } },
     ],
     meta: {
@@ -16230,19 +16239,21 @@ suite('U12', '报告里取自名单与 meta 的值只当内容展示，改写不
   const render = (doc: any, options: Parameters<typeof renderHtml>[2]) => {
     try { return renderHtml(doc.creators, doc.meta, options) } catch { return undefined }
   }
-  ok('U12夹具两种视图都照常渲染且不含金丝雀的原字符', views.every(([, o]) => { const html = render(fixture, o); return html !== undefined && !leaked(html) }))
-  const leaks = new Set<string>()
+  ok('U12夹具两种视图都照常渲染且不含金丝雀的原字符', views.every(([, o]) => { const html = render(fixture, o); return html !== undefined && !leaked(html) && !doubled(html) }))
+  const leaks = new Set<string>(), twice = new Set<string>()
   for (const path of leaves) {
     const old = valueAt(path)
     for (const doc of [put(path, canary), ...(typeof old === 'string' ? [put(path, old + canary)] : [])]) {
       for (const [name, options] of views) {
         const html = render(doc, options)
         if (html !== undefined && leaked(html)) leaks.add(`${name} ${path.join('.')}`)
+        if (html !== undefined && doubled(html)) twice.add(`${name} ${path.join('.')}`)
       }
     }
   }
   eq('U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图', [...leaks], [])
   criterion('U12.a')
+  eq('U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次的写法', [...twice], [])
   const freeText: Path[] = [['creators', 0, 'handle'], ['creators', 0, 'nickname'], ['creators', 0, 'bio'],
     ['creators', 0, 'outreach_draft'], ['meta', 'product'], ['meta', 'keywords', 0, 'keyword']]
   const mangled = freeText.flatMap(path => views.filter(([, o]) => !render(put(path, canary), o)?.includes(escapedOnce)).map(([name]) => `${name} ${path.join('.')}`))
