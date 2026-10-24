@@ -18402,8 +18402,8 @@
       "req": "harness",
       "why": "观察器的加载选择必须使用传入的子进程环境，不能丢掉主动关闭、禁剥离或显式配置",
       "file": "scripts/check/prebuilt.ts",
-      "find": "const [, argv] = prebuiltCommand([script], process.cwd(), env)",
-      "replace": "const [, argv] = prebuiltCommand([script], process.cwd(), {})",
+      "find": "const [, argv] = prebuiltCommand([script], cwd, env)",
+      "replace": "const [, argv] = prebuiltCommand([script], cwd, {})",
       "by": "test",
       "kills": ["观察器加载器：KOL_PREBUILT=0 与入口一同保留 tsx", "观察器加载器：仅子进程禁剥离时普通及引号写法均保留 tsx", "观察器加载器：显式 TSX_TSCONFIG_PATH 与入口一同保留 tsx"]
     },
@@ -18532,6 +18532,36 @@
       ]
     },
     {
+      "id": "M-H62-aj",
+      "req": "harness",
+      "why": "观察器按父目录而不是真实子进程目录选编译配置，会把双向字段初始化语义跑反",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "const [, argv] = prebuiltCommand([script], cwd, env)",
+      "replace": "const [, argv] = prebuiltCommand([script], process.cwd(), env)",
+      "by": "test",
+      "kills": [
+        "normal.cross-define-to-assign.target.setter-count",
+        "normal.cross-define-to-assign.target.setter-events",
+        "normal.cross-define-to-assign.target.own-field",
+        "normal.cross-assign-to-define.target.setter-count",
+        "normal.cross-assign-to-define.target.setter-events",
+        "normal.cross-assign-to-define.target.own-field"
+      ]
+    },
+    {
+      "id": "M-H62-ak",
+      "req": "harness",
+      "why": "省略子目录参数的旧调用仍按调用时目录选同一加载器，不能改成脚本目录而丢掉原有兼容起法",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "export function fixtureLoader(script: string, env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {",
+      "replace": "export function fixtureLoader(script: string, env: NodeJS.ProcessEnv = process.env, cwd = dirname(script)): string {",
+      "by": "test",
+      "kills": [
+        "normal.legacy-calltime-define.bare-loader-command-parity",
+        "normal.legacy-calltime-assign.bare-loader-command-parity"
+      ]
+    },
+    {
       "id": "M-D2-a",
       "req": "D2",
       "by": "test",
@@ -18543,7 +18573,7 @@
       "replace": "bio_links: link ? link : [],",
       "why": "TikTok公开profile把单个外链原样返回为字符串，适配结果不再是string数组"
     },
-{
+    {
       "id": "M-D2-b",
       "req": "D2",
       "by": "test",
@@ -18555,7 +18585,7 @@
       "replace": "if (url) links.push(l)",
       "why": "Instagram公开profile把原始外链对象放入结果，地址数组不再由原始URL字符串组成"
     },
-{
+    {
       "id": "M-D8-s",
       "req": "D8",
       "by": "test",
@@ -18567,7 +18597,7 @@
       "replace": "export function loadEnrichment(dir: string): EnrichmentState | undefined {\n  const p = join(dir, ENRICHMENT)\n  if (!existsSync(p)) return undefined\n  const state = JSON.parse(readFileSync(p, 'utf8'))\n  for (const key of Object.keys(state.accounts)) state.accounts[key].sample ??= { status: 'unavailable' }\n  return state\n}",
       "why": "真实加载enrichment时把未查询的缺席sample补成不可用，磁盘与返回不再保留未查询状态"
     },
-{
+    {
       "id": "M-D8-t",
       "req": "D8",
       "by": "test",
