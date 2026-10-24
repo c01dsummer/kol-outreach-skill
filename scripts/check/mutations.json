@@ -18402,8 +18402,8 @@
       "req": "harness",
       "why": "观察器的加载选择必须使用传入的子进程环境，不能丢掉主动关闭、禁剥离或显式配置",
       "file": "scripts/check/prebuilt.ts",
-      "find": "const [, argv] = prebuiltCommand([script], process.cwd(), env)",
-      "replace": "const [, argv] = prebuiltCommand([script], process.cwd(), {})",
+      "find": "const [, argv] = prebuiltCommand([script], cwd, env)",
+      "replace": "const [, argv] = prebuiltCommand([script], cwd, {})",
       "by": "test",
       "kills": ["观察器加载器：KOL_PREBUILT=0 与入口一同保留 tsx", "观察器加载器：仅子进程禁剥离时普通及引号写法均保留 tsx", "观察器加载器：显式 TSX_TSCONFIG_PATH 与入口一同保留 tsx"]
     },
