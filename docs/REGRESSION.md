@@ -195,7 +195,10 @@ done
 每对只拷交付物，A、B 两边随机分；对应关系先写进密封文件，再判。`<名字>-compare` 已经有了就换个名字，不覆盖（`sealed.txt` 是只读的，旧拷贝也会混进来）：
 
 ```bash
-C=output/<名字>-compare; mkdir $C
+bash <<'COMPARE'
+set -euo pipefail
+C='output/<名字>-compare'
+mkdir "$C"
 node -e '
 const fs=require("fs"),c=process.argv[1],n=process.argv[2]
 const pairs={noise:["reg-old1","reg-old2"],change:["reg-old3","reg-new"]}
@@ -210,8 +213,9 @@ for(const [name,two] of Object.entries(pairs)){
   seal.push(`${name} A=${two[0]} B=${two[1]}`)
 }
 fs.writeFileSync(`${c}/sealed.txt`,seal.join("\n")+"\n",{mode:0o400})
-' $C <名字>
-shasum -a 256 $C/sealed.txt
+' "$C" '<名字>'
+shasum -a 256 "$C/sealed.txt"
+COMPARE
 ```
 
 - 判之前，把 `sealed.txt` 的 SHA256 写进那条 PR 正文；判完、判词写下以后才打开它。打开时再算一次，对得上才算数。
