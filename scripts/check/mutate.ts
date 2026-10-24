@@ -58,6 +58,7 @@ import {
   INTERRUPTS, beginMutation, claimsRestoreAction, onInterrupt, restoreMutation, stopJobs, trackTest,
 } from './mutate-restore.js'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
+import { asTsx, prebuildOne, prebuiltCommand } from './prebuilt.js'
 import { countingEnv, parseLaunchLog } from './launch-count.js'
 import {
   type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchVerifier,
@@ -375,7 +376,8 @@ const restoreClaims = () => {
 process.on('exit', restoreClaims)
 process.off('exit', publishCostAtExit)
 process.on('exit', publishCostAtExit)
-// 但**信号杀进来时 exit 处理也不跑** —— Ctrl-C、被杀掉、CI 超时、终端关掉，
+// 但**没人接管信号时 exit 处理靠不住** —— 裸 node 起时三种打断都不跑它；经 tsx 起时只有 SIGINT／SIGTERM
+// 落在没卡在同步等里、也没摘过处理的真进程上才跑（ADR-158 第四节那张表）。Ctrl-C、被杀掉、CI 超时、终端关掉之后
 // 留下的是一份被改写的源文件加一份对不上的覆盖记录，而没有任何东西说过它们在那儿。
 // 下面记现场那一步顺手把这几个信号接管了（`mutate-restore.ts`），
 // 让「被打断」和「跑完」走同一条还原路径 —— 这里不再单写一行，是为了没有一行可忘。
@@ -504,10 +506,12 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     // 照样跑到底（ADR-74 第一节那张表；按这里的起法又实跑过几轮，见 ADR-70 末尾）。
     // 见齐就停发的是 SIGTERM，要这一组另有理由，见下面 `stopIfSeen`。负 pid 是进程组语义，
     // POSIX 上才成立（见 `tsx-cmd.ts`）
-    const [exe, argv] = tsxCommand(
-      only === undefined ? [verifier.script] : [verifier.script, `--only=${only.join(',')}`])
-    const kid = spawn(exe, argv,
-      { cwd, stdio: 'pipe', detached: true, env: verifierEnv(verifier, cwd, countLog) })
+    // 预编缓存里有整棵树现在这一版就裸 node 起，否则照旧 tsx（`prebuilt.ts`，ADR-158）。裸 node 没有壳：
+    // 下面说的「壳会转发」「壳隔几十毫秒改发 SIGKILL」那几句只在退回 tsx 时成立，整组照杀，结果一样
+    const env = verifierEnv(verifier, cwd, countLog)
+    const [exe, argv] = prebuiltCommand(
+      only === undefined ? [verifier.script] : [verifier.script, `--only=${only.join(',')}`], cwd, env)
+    const kid = spawn(exe, argv, { cwd, stdio: 'pipe', detached: true, env })
     let started = false
     let began: number | undefined
     kid.on('spawn', () => { started = true; began = performance.now(); observeSpawn?.() })
@@ -551,9 +555,11 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     // 压根没起来（命令不在、权限不足）也要留下话：那时两股都是空的，
     // 判定只会说「跑不起来」，而人得知道是没起来还是跑崩了
     kid.on('error', e => { err += `\n${e}` })
-    kid.on('close', status => {
+    kid.on('close', (code, signal) => {
       const ms = began === undefined ? 0 : Math.round(performance.now() - began)
       forgetVerifier()
+      // 裸 node 起的按 tsx 的壳会报的那样换算信号死亡（`asTsx`）：判定与成本账看到的退出码不随起法变
+      const { status } = asTsx(argv, code, signal)
       resolve({ status, output: `${out}\n${err}`, atStop, started, ms })
     })
     // **留号在装完那两个监听器之后。** 放在 `trackTest` 紧后面的话,这一句一抛就落在
@@ -596,7 +602,10 @@ const runOne = async (m: Mut): Promise<Ran> => {
     // 写盘也在这一段里面：写盘是先截断再写的，写到一半抛出去（盘满、IO 错）留下的是
     // 半份源文件，而那时 `finally` 要是够不着，被截断的那份就留在工作区里，
     // 记着的现场谁也不去取（评审指出）
-    writeFileSync(m.file, orig.replace(m.find, m.replace), 'utf8')
+    const mutated = orig.replace(m.find, m.replace)
+    writeFileSync(m.file, mutated, 'utf8')
+    // 被改的这一个文件编进预编缓存（按正文存，不必还原）；编不出来就不写，验证者退回 tsx（ADR-158）
+    prebuildOne(m.file, mutated)
     // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null);
     // 点了名的还要再看一层:红的是不是 kills 说的那一条
     const verifier = VERIFIERS[m.by ?? 'test']

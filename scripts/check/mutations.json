@@ -17963,6 +17963,338 @@
       "kills": [
         "U11关键词公共HTML每行原身份含平台维度不丢不串"
       ]
+    },
+    {
+      "id": "M-H62-a",
+      "req": "harness",
+      "why": "缓存的键不看正文 —— 改过的文件认到改之前编的那一份，跑的不是盘上的源码",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": ".update(basename(file)).update('\\0').update(source).digest('hex')",
+      "replace": ".update(basename(file)).digest('hex')",
+      "by": "test",
+      "kills": ["预编缓存的键：正文、编译身份、文件名任一样不同就是另一个键；目录不算"]
+    },
+    {
+      "id": "M-H62-b",
+      "req": "harness",
+      "why": "缓存的键带上整条路径 —— 变异 worker 副本里没改的文件在缓存里都找不到，整跑退回 tsx",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": ".update(basename(file))",
+      "replace": ".update(file)",
+      "by": "test",
+      "kills": ["预编缓存的键：正文、编译身份、文件名任一样不同就是另一个键；目录不算"]
+    },
+    {
+      "id": "M-H62-c",
+      "req": "harness",
+      "why": "`./x.js` 不问 `x.ts` 在不在就改成 `x.ts` —— 真有 `.js` 的那个引用被认到不存在的文件",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": "if (inside(ts.href) && disk.exists(fileURLToPath(ts))) return next(ts.href, context)",
+      "replace": "if (inside(ts.href)) return next(ts.href, context)",
+      "by": "test",
+      "kills": ["钩子解析：树里写的 ./x.js 在 x.ts 在时认 x.ts；x.ts 不在、在树外、不是相对路径的交给下一个"]
+    },
+    {
+      "id": "M-H62-d",
+      "req": "harness",
+      "why": "树外的模块写的 `./x.js` 也被改成 `x.ts` —— 钩子碰了不归它管的代码",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": "specifier.endsWith('.js') && inside(context.parentURL)",
+      "replace": "specifier.endsWith('.js') && context.parentURL !== undefined",
+      "by": "test",
+      "kills": ["钩子解析：树里写的 ./x.js 在 x.ts 在时认 x.ts；x.ts 不在、在树外、不是相对路径的交给下一个"]
+    },
+    {
+      "id": "M-H62-e",
+      "req": "harness",
+      "why": "缓存里没有现在这一版时退给下一个加载器 —— 不报错，换成 Node 自己去掉类型来跑，跑的东西与 tsx 不同也没人知道",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": "if (code === undefined) throw new Error(",
+      "replace": "if (code === undefined) return next(url, context)\n      if (code === undefined) throw new Error(",
+      "by": "test",
+      "kills": ["钩子加载：缓存里没有现在这一版就当场报错、点名那个文件，不拿别的顶上"]
+    },
+    {
+      "id": "M-H62-f",
+      "req": "harness",
+      "why": "「在树里」只比前缀、不带斜杠 —— 名字以那棵树开头的兄弟目录也被当成树里的",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": "const prefix = normalize(pathToFileURL(at.root).href) + '/'",
+      "replace": "const prefix = normalize(pathToFileURL(at.root).href)",
+      "by": "test",
+      "kills": ["钩子加载：树里的 .ts 按现在的正文从缓存取；树外的（含同前缀的兄弟目录）、不是 .ts 的交给下一个"]
+    },
+    {
+      "id": "M-H62-g",
+      "req": "harness",
+      "why": "树里不是 `.ts` 的文件也去缓存里找 —— 读 JSON 之类的地方当场报错",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": "if (!inside(url) || !new URL(url).pathname.endsWith('.ts')) return next(url, context)",
+      "replace": "if (!inside(url)) return next(url, context)",
+      "by": "test",
+      "kills": ["钩子加载：树里的 .ts 按现在的正文从缓存取；树外的（含同前缀的兄弟目录）、不是 .ts 的交给下一个"]
+    },
+    {
+      "id": "M-H62-h",
+      "req": "harness",
+      "why": "作为 `--import` 装进来时不注册钩子 —— 裸 node 直接去跑 `.ts`，`./x.js` 那种引用一个都解析不了",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": "if (root !== null && cache !== null && id !== null) nodeModule.registerHooks(",
+      "replace": "if (root === 'never') nodeModule.registerHooks(",
+      "by": "test",
+      "kills": ["缓存齐全时按内建能力选起法：./x.js 认到 x.ts，import.meta.url 与 argv[1] 照旧是 .ts"]
+    },
+    {
+      "id": "M-H62-i",
+      "req": "harness",
+      "why": "编译身份不含 tsconfig 里的编译选项 —— 改了编译选项，旧缓存照样被当成现在这一版",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "JSON.stringify([FORMAT, parts.esbuild, parts.node, parts.compilerOptions])",
+      "replace": "JSON.stringify([FORMAT, parts.esbuild, parts.node])",
+      "by": "test",
+      "kills": ["编译身份随 esbuild 版本、node 版本、compilerOptions 变", "编译配置改变：旧键不算齐，重编后按内建能力选起法"]
+    },
+    {
+      "id": "M-H62-j",
+      "req": "harness",
+      "why": "缓存主人不问有没有缓存目录就认上一层 —— 临时目录里的玩具树也去读一份不存在的缓存",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "if (exists(join(dir, PREBUILT_DIR))) return dir",
+      "replace": "return dir",
+      "by": "test",
+      "kills": ["一个脚本的树与缓存主人：往上找最近的 scripts/，再从它的上一层往上找第一个带缓存的；worker 副本找到仓库根，临时目录里的找不到"]
+    },
+    {
+      "id": "M-H62-k",
+      "req": "harness",
+      "why": "缓存有一份就算齐 —— 缺着的那几个文件在加载时当场报错，而不是退回 tsx",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "files.every(f => has(entryOf(f)))",
+      "replace": "files.some(f => has(entryOf(f)))",
+      "by": "test",
+      "kills": ["整棵树每个 .ts 在缓存里都有现在这一版才算齐"]
+    },
+    {
+      "id": "M-H62-l",
+      "req": "harness",
+      "why": "认不出 NODE_OPTIONS 里的 tsx 加载器 —— 带着它的夹具被裸 node 起，按 `.ts` 地址 import 的产品模块拆成两份",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "/[\\\\/]node_modules[\\\\/]tsx[\\\\/]|(?:^|\\s)--(?:import|loader|experimental-loader|require)(?:=|\\s+)[\"']?tsx(?:[\\\\/]|[\"']?(?:\\s|$))/",
+      "replace": "/never-tsx/",
+      "by": "test",
+      "kills": ["NODE_OPTIONS 里带着 tsx 的加载器才算"]
+    },
+    {
+      "id": "M-H62-m",
+      "req": "harness",
+      "why": "`KOL_PREBUILT=0` 不管用 —— 要看 tsx 原样的栈时关不掉",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "!at.disabled && at.strips",
+      "replace": "at.strips",
+      "by": "test",
+      "kills": ["走不走裸 node：样样成立才走；关掉、node 自己去不掉类型、不是 .ts、带着 tsx 加载器、找不到树或缓存、缓存不齐，都照旧 tsx", "KOL_PREBUILT=0 照旧交给 tsx"]
+    },
+    {
+      "id": "M-H62-n",
+      "req": "harness",
+      "why": "缓存不齐也走裸 node —— 改了没重编的文件在加载时当场报错",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "&& at.owner !== undefined && at.complete()",
+      "replace": "&& at.owner !== undefined",
+      "by": "test",
+      "kills": ["走不走裸 node：样样成立才走；关掉、node 自己去不掉类型、不是 .ts、带着 tsx 加载器、找不到树或缓存、缓存不齐，都照旧 tsx", "改了没重编：照旧交给 tsx"]
+    },
+    {
+      "id": "M-H62-o",
+      "req": "harness",
+      "why": "带着 tsx 加载器的也走裸 node",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "at.script.endsWith('.ts') && !bringsTsxLoader(at.nodeOptions)",
+      "replace": "at.script.endsWith('.ts')",
+      "by": "test",
+      "kills": ["走不走裸 node：样样成立才走；关掉、node 自己去不掉类型、不是 .ts、带着 tsx 加载器、找不到树或缓存、缓存不齐，都照旧 tsx"]
+    },
+    {
+      "id": "M-H62-p",
+      "req": "harness",
+      "why": "裸 node 起的信号死亡换算少了 128 —— 夹具认的 137 对不上",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "{ status: 128 + constants.signals[signal], signal: null }",
+      "replace": "{ status: constants.signals[signal], signal: null }",
+      "by": "test",
+      "kills": ["裸 node 起的信号死亡按 tsx 的壳报的那样换成 128+N；tsx 起的、正常退出的原样交回"]
+    },
+    {
+      "id": "M-H62-q",
+      "req": "harness",
+      "why": "tsx 起的也换算 —— 壳自己挨的信号被报成里面那个进程的退出码",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "isBare(argv) && status === null && signal !== null",
+      "replace": "status === null && signal !== null",
+      "by": "test",
+      "kills": ["裸 node 起的信号死亡按 tsx 的壳报的那样换成 128+N；tsx 起的、正常退出的原样交回"]
+    },
+    {
+      "id": "M-H62-r",
+      "req": "harness",
+      "why": "源码或编译身份改变后仍沿用记住的旧键，误把旧缓存判成齐全",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "had.id === id && had.mtimeMs === st.mtimeMs && had.size === st.size",
+      "replace": "had !== undefined",
+      "by": "test",
+      "kills": ["改了没重编：照旧交给 tsx", "编译配置改变：旧键不算齐，重编后按内建能力选起法"]
+    },
+    {
+      "id": "M-H62-s",
+      "req": "harness",
+      "why": "预编整棵树不删旧的 —— 缓存只涨不落",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "for (const name of readdirSync(cache)) if (!want.has(name))",
+      "replace": "for (const name of readdirSync(cache)) if (want.size < 0)",
+      "by": "test",
+      "kills": ["再预编整棵树：沿用现在这一版的，删掉不属于它的"]
+    },
+    {
+      "id": "M-H62-t",
+      "req": "harness",
+      "why": "预编整棵树每份都重写 —— 沿用的那一份被换掉，别的进程可能正读着",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "if (existsSync(path)) { kept++; continue }",
+      "replace": "if (existsSync(path) && want.size < 0) { kept++; continue }",
+      "by": "test",
+      "kills": ["再预编整棵树：沿用现在这一版的，删掉不属于它的"]
+    },
+    {
+      "id": "M-H62-u",
+      "req": "harness",
+      "why": "变异落盘后不把被改的文件编进缓存 —— 每条变异的验证者都退回 tsx",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "try { writeEntry(path, compileTs(source, file, compilerOptions)) }",
+      "replace": "try { void writeEntry }",
+      "by": "test",
+      "kills": ["只编改过的文件：缓存恢复齐全，按内建能力选起法并跑当前源码"]
+    },
+    {
+      "id": "M-H62-v",
+      "req": "harness",
+      "why": "这个 node 自己去不掉类型也走裸 node —— 老一些的 node 上每个验证者都起不来",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "!at.disabled && at.strips && at.script",
+      "replace": "!at.disabled && at.script",
+      "by": "test",
+      "kills": ["走不走裸 node：样样成立才走；关掉、node 自己去不掉类型、不是 .ts、带着 tsx 加载器、找不到树或缓存、缓存不齐，都照旧 tsx"]
+    },
+    {
+      "id": "M-H63-a",
+      "req": "harness",
+      "why": "拆进程跑打开某一族的日志放回 `try` 外面 —— 打不开时本进程以未捕获异常退出，已起的几族没人收",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "    try {\n      fd = openSync(out, 'w')\n",
+      "replace": "    fd = openSync(out, 'w')\n    try {\n",
+      "by": "test",
+      "kills": ["拆进程跑打不开某一族的日志：报成那一族没起来、带着原因，照常打出汇总并以 1 结束"]
+    },
+    {
+      "id": "M-H62-w",
+      "req": "harness",
+      "why": "树内模块的相对引用不得改写树外目标，即使对应文件存在",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": "inside(ts.href) && disk.exists(fileURLToPath(ts))",
+      "replace": "disk.exists(fileURLToPath(ts))",
+      "by": "test",
+      "kills": ["钩子解析：父模块或目标越出树（含同前缀的兄弟目录），即使 .ts 存在也交给下一个"]
+    },
+    {
+      "id": "M-H62-x",
+      "req": "harness",
+      "why": "运行时缺少可选的同步注册能力时，普通导入与关闭预编后的原起法仍须可用",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": "import * as nodeModule from 'node:module'",
+      "replace": "import { registerHooks } from 'node:module'\nconst nodeModule = { registerHooks }",
+      "by": "test",
+      "kills": ["缺少同步注册 API 的 node：普通导入预编模块与 KOL_PREBUILT=0 的 tsx 入口仍可运行"]
+    },
+    {
+      "id": "M-H62-y",
+      "req": "harness",
+      "why": "目录的词法路径与真实路径指向同处时仍须加载同一棵脚本树",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": "const normalize = (url: string): string => disk.realpath === undefined ? url : pathToFileURL(disk.realpath(fileURLToPath(url))).href",
+      "replace": "const normalize = (url: string): string => url",
+      "by": "test",
+      "kills": ["目录别名起入口：仍加载同一棵树并保留模块地址语义"]
+    },
+    {
+      "id": "M-H62-z",
+      "req": "harness",
+      "why": "相对依赖的 .ts 地址若直接短路返回，保留软链入口时会与绝对物理地址拆成两个模块实例",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": "return next(ts.href, context)",
+      "replace": "return { url: ts.href, shortCircuit: true }",
+      "by": "test",
+      "kills": [
+        "目录别名起入口：仍加载同一棵树并保留模块地址语义"
+      ]
+    },
+    {
+      "id": "M-H62-aa",
+      "req": "harness",
+      "why": "忽略子进程显式编译配置，会让字段赋值按另一种语义执行而仍成功退出",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "if (env.TSX_TSCONFIG_PATH !== undefined) return tsxCommand(args)",
+      "replace": "if (false) return tsxCommand(args)",
+      "by": "test",
+      "kills": ["子进程显式 TSX_TSCONFIG_PATH：回退 tsx 使用指定配置"]
+    },
+    {
+      "id": "M-H62-ab",
+      "req": "harness",
+      "why": "把不能完整理解的编译配置判成可预编，会忽略注释配置和继承配置中的有效语义",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "if (!compatible) return false",
+      "replace": "if (false) return false",
+      "by": "test",
+      "kills": ["JSONC 编译配置：回退 tsx 保留字段赋值语义", "继承编译配置：回退 tsx 使用完整有效配置"]
+    },
+    {
+      "id": "M-H62-ac",
+      "req": "harness",
+      "why": "只看父进程能力而忽略子进程禁用类型剥离，会把可运行的 tsx 入口变成钩子加载失败",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "/(?:^|[\\s\"'])--no-experimental-strip-types(?:[\\s\"']|$)/",
+      "replace": "/never-disables-strip/",
+      "by": "test",
+      "kills": ["仅子进程禁用内建类型剥离：普通及引号写法均成功回退 tsx"]
+    },
+    {
+      "id": "M-H62-ad",
+      "req": "harness",
+      "why": "齐缓存且运行环境兼容时，观察器应使用与入口一致的预编加载，不能始终留在旧起法",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "return isBare(argv) ? argv[1]! : pathToFileURL(require.resolve('tsx')).href",
+      "replace": "return pathToFileURL(require.resolve('tsx')).href",
+      "by": "test",
+      "kills": ["观察器加载器：齐缓存按内建能力返回预编钩子或当前项目 tsx，入口同路"]
+    },
+    {
+      "id": "M-H62-ae",
+      "req": "harness",
+      "why": "观察器的加载选择必须使用传入的子进程环境，不能丢掉主动关闭、禁剥离或显式配置",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "const [, argv] = prebuiltCommand([script], process.cwd(), env)",
+      "replace": "const [, argv] = prebuiltCommand([script], process.cwd(), {})",
+      "by": "test",
+      "kills": ["观察器加载器：KOL_PREBUILT=0 与入口一同保留 tsx", "观察器加载器：仅子进程禁剥离时普通及引号写法均保留 tsx", "观察器加载器：显式 TSX_TSCONFIG_PATH 与入口一同保留 tsx"]
+    },
+    {
+      "id": "M-H62-af",
+      "req": "harness",
+      "why": "预编观察器的加载地址必须是可用模块 URL，错误的参数项不能替观察器已接线作证",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "isBare(argv) ? argv[1]! :",
+      "replace": "isBare(argv) ? argv[0] :",
+      "by": "test",
+      "kills": ["观察器加载器：齐缓存按内建能力返回预编钩子或当前项目 tsx，入口同路", "观察器 CLI 阳性：.ts URL 的对象和原型修改被相对 .js 入口看见，地址保持 .ts"]
     }
   ],
   "exemptions": [

@@ -37,6 +37,7 @@ import { pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
 import { isDeepStrictEqual } from 'node:util'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
+import { asTsx, fixtureLoader, prebuiltCommand } from './prebuilt.js'
 import {
   ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, mutationSourceIdentity, sourceFiles,
 } from './claims.js'
@@ -96,8 +97,10 @@ const S = (f: string) => { covered.add(`scripts/${f}`); return resolve('scripts'
 const tmp = mkdtempSync(join(tmpdir(), 'kol-selfcheck-'))
 // **收尾那句 `rmSync(tmp)` 够不到顶层抛出去的那一路。** `--only` 点错组名会在
 // `runGroups` 里抛，那时目录已经建好、语料已经写盘，收尾一行都不跑，每敲错一次
-// 漏一个目录。照 `mutate.ts` 里 `restoreClaims` 的先例挂在 exit 上 —— 同样管不到
-// 信号杀进来的那一路，写在这儿是为了别把它当成已经保证了的事。
+// 漏一个目录。照 `mutate.ts` 里 `restoreClaims` 的先例挂在 exit 上 —— 信号杀进来的那一路它靠不住：
+// 裸 node 起时（变异的验证者、拆进程的子进程，ADR-158）三种打断都不跑它；经 tsx 起时 SIGINT／SIGTERM
+// 落在没卡在同步等里的真进程上才跑，而本文件几乎一直在同步等子进程（ADR-158 第四节那张表）。
+// 写在这儿是为了别把它当成已经保证了的事。
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
 const env = {
   ...process.env,
@@ -160,9 +163,13 @@ const named = (label: string, ok: boolean, why: string) => {
 
 const runBoth = (label: string, args: string[], cwd = process.cwd(),
   expect?: { status: number; soft?: readonly number[] }, extra: NodeJS.ProcessEnv = {}): { ok: boolean; stdout: string; stderr: string; status: number | null } => {
-  const [exe, argv] = tsxCommand(args)
   // extra 只给这一次 spawn：崩溃续跑那几条轨迹要给「杀掉那一跑」传旋钮、给续跑不传
-  const r = spawnSync(exe, argv, { env: { ...env, ...extra }, cwd, encoding: 'utf8' })
+  const kidEnv = { ...env, ...extra }
+  // 预编缓存里有整棵树现在这一版就裸 node 起，否则照旧 tsx（`prebuilt.ts`，ADR-158）；
+  // 退出码按 tsx 的壳会报的那样换算（夹具「被杀」那几条认的是 137）
+  const [exe, argv] = prebuiltCommand(args, cwd, kidEnv)
+  const spawned = spawnSync(exe, argv, { env: kidEnv, cwd, encoding: 'utf8' })
+  const r = { ...spawned, ...asTsx(argv, spawned.status, spawned.signal) }
   const stdout = r.stdout ?? ''   // P1 例外：拿不到就是空输出，不是「没查过」——这是子进程的两股流
   const stderr = r.stderr ?? ''   // P1 例外：同上
   const want = expect?.status ?? 0
@@ -507,31 +514,35 @@ const runShards = async (jobs: number): Promise<void> => {
   const preload = pathToFileURL(resolve('scripts', LAUNCH_PRELOAD)).href, script = resolve('scripts/check/selfcheck.ts')
   let next = 0, printed = 0
   const one = (i: number) => new Promise<void>(done => {
-    const report = join(shardDir, `${i}.json`), out = join(shardDir, `${i}.log`), fd = openSync(out, 'w')
+    const report = join(shardDir, `${i}.json`), out = join(shardDir, `${i}.log`)
     const count = join(shardDir, `${i}.launches`)
-    const [exe, args] = tsxCommand([script, `--only=${fams[i].join(',')}`])
-    let settled = false
+    const kidEnv = countingEnv({ ...process.env, SELFCHECK_SHARD_REPORT: report, NODE_COMPILE_CACHE: env.NODE_COMPILE_CACHE },
+      { log: count, target: script, preload })
+    let settled = false, fd: number | undefined
     const settle = (status: number | null, signal: string | null, error?: string) => {
       if (settled) return
       settled = true
-      closeSync(fd)
+      if (fd !== undefined) closeSync(fd)
       let text: string | undefined
       try { text = readFileSync(report, 'utf8') } catch { /* 没写出来：下面按没交回结果算 */ }
       runs[i] = { family: fams[i], status, signal, error, report: text === undefined ? undefined : readShardReport(text) }
       try { launches[i] = parseLaunchLog(readFileSync(count, 'utf8'))?.total ?? null } catch { launches[i] = null }
-      logs[i] = readFileSync(out, 'utf8')
+      // 日志打不开的那一族（下面）没有这份文件：读不到当空，不在这里再抛一次
+      try { logs[i] = readFileSync(out, 'utf8') } catch { logs[i] = '' }
       for (; printed < fams.length && runs[printed] !== undefined; printed++) process.stdout.write(logs[printed])
       done()
     }
     // 起不来时 Node 给原因有两条路（ADR-72）：有的 errno 同步抛，其余只发 `error` 事件（资源
     // 不够那一种也走事件；这里不接管道，不必另问 `noStdio`）。两条都把原因交给合并、报成
-    // 「没起来」—— 混进「没交回结果」的话，人会去翻那份空的子进程输出
+    // 「没起来」—— 混进「没交回结果」的话，人会去翻那份空的子进程输出。
+    // 打开这一族的日志也在这个 `try` 里：资源不够时它可能先于 `spawn` 撞上（ADR-72 在变异派工那一侧
+    // 量到过 `cpSync` 先撞 EMFILE），放在外面就是未捕获异常 —— 本进程当场退出，已起的几族没人收（ADR-132 第 324 行）
     try {
-      const kid = spawn(exe, args, { stdio: ['ignore', fd, fd],
-        env: countingEnv({ ...process.env, SELFCHECK_SHARD_REPORT: report, NODE_COMPILE_CACHE: env.NODE_COMPILE_CACHE },
-          { log: count, target: script, preload }) })
+      fd = openSync(out, 'w')
+      const [exe, args] = prebuiltCommand([script, `--only=${fams[i].join(',')}`], process.cwd(), kidEnv)
+      const kid = spawn(exe, args, { stdio: ['ignore', fd, fd], env: kidEnv })
       kid.on('error', e => settle(null, null, e.message))
-      kid.on('close', (status, signal) => settle(status, signal))
+      kid.on('close', (code, sig) => { const { status, signal } = asTsx(args, code, sig); settle(status, signal) })
     } catch (e) { settle(null, null, e instanceof Error ? e.message : String(e)) }
   })
   await Promise.all(Array.from({ length: jobs }, async () => { while (next < parallel.length) await one(parallel[next++]) }))
@@ -1678,9 +1689,11 @@ group('cost-durable', [], () => {
     const f = fixture('kill-barrier', entry)
     const controller = join(f.cwd, 'kill-at-fetch.mjs')
     // 控制器是同步自检的一个子进程；被测入口是其直接IPC子进程，没有tsx壳的信号换算。
+    const childOptions = '--import ' + JSON.stringify(fixtureLoader(S(`${entry}.ts`), env)) + ' '
     writeFileSync(controller, [
       `import { spawn } from 'node:child_process';`,
-      `const child = spawn(process.execPath, ['--import', ${JSON.stringify(pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href)}, ...${JSON.stringify(args(entry, f))}], {cwd:${JSON.stringify(f.cwd)}, env:process.env, stdio:['ignore','pipe','pipe','ipc']});`,
+      `const childEnv = { ...process.env, NODE_OPTIONS: ${JSON.stringify(childOptions)} + (process.env.NODE_OPTIONS ?? '') };`,
+      `const child = spawn(process.execPath, ${JSON.stringify(args(entry, f))}, {cwd:${JSON.stringify(f.cwd)}, env:childEnv, stdio:['ignore','pipe','pipe','ipc']});`,
       `let stdout='', stderr='', barrier=false;`,
       `child.stdout.on('data', x => stdout += x); child.stderr.on('data', x => stderr += x);`,
       `const timer = setTimeout(() => { child.kill('SIGKILL'); }, 15000);`,
@@ -1832,8 +1845,8 @@ group('cost-save-errors', [], () => {
   criterion('D6.t')
 
   // 公共方法级注入纯费用错误，避免用普通 fetch 错误冒充内部费用错误。
-  // --import tsx 在夹具前加载；不读或改写 Budget/CostError 的函数体。
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  // 与入口一致的加载器在夹具前加载；不读或改写 Budget/CostError 的函数体。
+  const fixtureImport = fixtureLoader(S('collect.ts'), env)
   const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
   const costModule = pathToFileURL(resolve('scripts/lib/cost-ledger.ts')).href
   for (const entry of ['collect', 'enrich', 'probe']) for (const method of ['reserve', 'settle']) {
@@ -1862,7 +1875,7 @@ group('cost-save-errors', [], () => {
       : [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir]
     const result = runBoth(`${entry} 运行中 ${method} 费用错误`, args, f.cwd,
       { status: 1, soft: [0, 2, 3] }, costEnv(f.log, {
-        NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+        NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
       }))
     if (result.ok) {
       if (!fileText(mark).includes('armed')) {
@@ -3805,7 +3818,7 @@ const configEntryFixture = () => {
   const badTasks = [good,
     { keyword: '', dimension: 'Scene', platform: 'instagram', ig_route: 'Hashtag' }, good,
     { keyword: 'config-entry-route', dimension: 'category', platform: 'tiktok', ig_route: 'hashtag' }]
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const fixtureImport = fixtureLoader(S('collect.ts'), env)
   const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
   const make = (mode: Mode, c: Case, positive = false) => {
     const cwd = join(base, `${mode}-${c.id}`), taskDir = join(cwd, 'task')
@@ -3845,7 +3858,7 @@ const configEntryFixture = () => {
       `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
     ].join('\n'))
     const observation = costEnv(log, { FAKE_FETCH_COST_EVENTS: events,
-      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}` })
+      NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}` })
     const args = resume ? [S('collect.ts'), '--resume', taskDir,
       ...(mode === 'resume-budget' ? ['--budget', positive ? '2' : '0.02'] : [])]
       : [S(mode === 'probe' ? 'probe.ts' : 'collect.ts'), '--config', file]
@@ -4058,7 +4071,7 @@ group('brand-calibration-entry', [], () => {
   const bad = { ...brand, version: ' ', tone_aesthetic: [7],
     sources: [{ source: ' ', kind: 'unknown_fact', detail: 4 }] }
   const tasks = [{ keyword: 'brand input fixture', dimension: 'category', platform: 'tiktok' }]
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const fixtureImport = fixtureLoader(S('collect.ts'), env)
   const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
   const preload = join(base, 'observe-reserve.mjs')
   writeFileSync(preload, [
@@ -4073,7 +4086,7 @@ group('brand-calibration-entry', [], () => {
   ].join('\n'))
   const observed = (f: { log: string; reserves: string; armed: string }) => costEnv(f.log, {
     BRAND_RESERVE_LOG: f.reserves, BRAND_ARMED_LOG: f.armed,
-    NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+    NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
   })
   const logs = (cwd: string) => {
     const log = join(cwd, 'attempts.tsv'), reserves = join(cwd, 'reserves.txt'), armed = join(cwd, 'armed.txt')
@@ -4280,7 +4293,7 @@ const createTaskListFixture = () => {
   process.on('exit', () => rmSync(base, { recursive: true, force: true }))
   // 零 fetch 不能证明此前没有进程内预留。只包裹公共 reserve 方法记录调用，原样委托，
   // 不读其函数体、不改变返回/抛错；合法入口也用同一观测作对照，防止挂错模块空报绿。
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const fixtureImport = fixtureLoader(S('collect.ts'), env)
   const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
   type Problem = { task?: number; field?: string; value?: unknown }
   type Scenario = { id: string; tasks?: unknown; problems: Problem[]; good?: number[]; routes?: number[] }
@@ -4364,7 +4377,7 @@ const createTaskListFixture = () => {
       `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
     ].join('\n'))
     const observation = costEnv(log, { FAKE_FETCH_COST_EVENTS: events,
-      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
     })
     const args = resume ? [S('collect.ts'), '--resume', taskDir,
       ...(mode === 'resume-budget' ? ['--budget', '0.02'] : [])]
@@ -4561,7 +4574,7 @@ group('task-list', ['task-list-collect-invalid', 'task-list-probe-invalid', 'tas
 // 其余由旧组名读（needs 边都在）
 let writebackHeld = false, renderKeptLegal = false, renderControlOk = false
 let collectDup = 0, renderDup = 0, d27MainDone = false, d27MixedRan = 0, d27BothRan = 0
-const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+const fixtureImport = fixtureLoader(S('collect.ts'), env)
 const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
 
 group('resume-progress-collect-control', [], () => {
@@ -4582,7 +4595,7 @@ group('resume-progress-collect-control', [], () => {
   ].join('\n'))
   const r = runBoth('恢复进度阳性对照：进度合规的 collect 续跑照常预留并请求', [S('collect.ts'), '--resume', f.taskDir], f.cwd,
     { status: 0, soft: [1, 2, 3] }, costEnv(f.log, {
-      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
     }))
   if (r.ok && (r.status !== 0 || !fetchAttempts(armed).includes('armed') || fetchAttempts(reserves).length === 0 || fetchAttempts(f.log).length === 0)) {
     failed++; console.error(`  ✗ 恢复进度阳性对照${SELFCHECK_FIXTURE_MARK}：进度合规的 collect 续跑没有照常预留并请求，exit=${r.status}，`
@@ -4641,7 +4654,7 @@ group('resume-progress-collect-bad', ['resume-progress-collect-control'], () => 
     const r = runBoth(`恢复坏进度 ${id}/${change}`, [S('collect.ts'), '--resume', f.taskDir,
       ...(change ? ['--budget', '2'] : [])], f.cwd,
       { status: 2, soft: [0, 1, 3] }, costEnv(f.log, {
-        NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+        NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
       }))
     if (!r.ok || !fetchAttempts(armed).includes('armed')) {
       failed++
@@ -4901,7 +4914,7 @@ group('resume-progress-dup-collect', [], () => {
       `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
     ].join('\n'))
     const r = runBoth(`重复进度键 collect ${name}`, [S('collect.ts'), '--resume', f.taskDir, ...extra], f.cwd, expect, costEnv(f.log, {
-      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
     }))
     if (!r.ok) return undefined
     if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ 重复进度键预留观测${SELFCHECK_FIXTURE_MARK}：预算预留观测未安装，${name}`); return undefined }
@@ -4988,7 +5001,7 @@ group('resume-progress-dup-enrich', [], () => {
       `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
     ].join('\n'))
     const r = runBoth(`重复进度键 enrich ${name}`, [S('enrich.ts'), '--dir', f.taskDir, ...extra], f.cwd, expect, costEnv(f.log, {
-      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
     }))
     if (!r.ok) return undefined
     if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ enrich 重复进度键预留观测${SELFCHECK_FIXTURE_MARK}：预算预留观测未安装，${name}`); return undefined }
@@ -5189,7 +5202,7 @@ const d27Runner = (prefix: string) => {
     const args = entry === 'collect' ? [S('collect.ts'), '--resume', f.taskDir] : [S(entry === 'enrich' ? 'enrich.ts' : 'render.ts'), '--dir', f.taskDir]
     const r = runBoth(`写重复的键 ${name}`, [...args, ...extra], f.cwd, expect, costEnv(f.log, {
       ...(entry === 'render' ? { TIKHUB_API_KEY: undefined } : {}),
-      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
     }))
     if (!r.ok) return undefined
     if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ 写重复的键预留观测${SELFCHECK_FIXTURE_MARK}：预算预留观测未安装，${name}`); return undefined }
@@ -7341,11 +7354,12 @@ group('ig-search-plays', [], () => {
 
 // ADR-102 §9：从公开入口跑适配器、缓存命中和直接交付；全程假网络。
 group('ig-homepage-mixed', [], () => {
-  // 本组直接用 Node 的 --import tsx：自检在受限环境也不依赖 tsx CLI 的 IPC socket。
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  // 本组直接用 Node 的 --import：自检在受限环境也不依赖 tsx CLI 的 IPC socket。
   const runIg = (label: string, args: string[], cwd = tmp, extra: NodeJS.ProcessEnv = {}) => {
-    const r = spawnSync(process.execPath, ['--import', tsx, ...args],
-      { cwd, env: { ...env, ...extra }, encoding: 'utf8', timeout: 20_000 })
+    const kidEnv = { ...env, ...extra }
+    kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(args[0], kidEnv))} ${kidEnv.NODE_OPTIONS ?? ''}`
+    const r = spawnSync(process.execPath, args,
+      { cwd, env: kidEnv, encoding: 'utf8', timeout: 20_000 })
     const ok = !r.error && r.status === 0
     if (!ok) { failed++; console.error(`  ✗ ${label}${SELFCHECK_PROCESS_MARK}：${
       r.error?.message ?? `退出码 ${r.status}`}\n${(r.stderr ?? '').split('\n').slice(-12).join('\n')}`) }
@@ -8486,7 +8500,7 @@ const reviewCliEntryFixture = () => {
   }
   const sameStamp = (path: string, before: ReturnType<typeof stamp>) => before !== undefined && isDeepStrictEqual(stamp(path), before)
   const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const fixtureImport = fixtureLoader(S('collect.ts'), env)
   const preload = join(base, 'observe-reserve.mjs')
   writeFileSync(preload, ["import { appendFileSync } from 'node:fs';",
     `import { Budget } from ${JSON.stringify(budgetModule)};`, 'const original = Budget.prototype.reserve;',
@@ -8495,7 +8509,7 @@ const reviewCliEntryFixture = () => {
     "appendFileSync(process.env.REVIEW_ARMED_LOG, 'armed\\n');"].join('\n'))
   const observed = (f: ReturnType<typeof fixture>) => costEnv(f.log, {
     REVIEW_RESERVE_LOG: f.reserves, REVIEW_ARMED_LOG: f.armed,
-    NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+    NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
   })
   const noPaid = (f: ReturnType<typeof fixture>) => fileText(f.armed).includes('armed') &&
     fetchAttempts(f.log).length === 0 && fileText(f.reserves) === ''
@@ -9297,7 +9311,7 @@ group('brand-content-version-entry', [], () => {
   const recomputed = versionOf(stale)
   const hex = good.version.slice('sha256:'.length)
   const tasks = [{ keyword: 'brand version fixture', dimension: 'category', platform: 'tiktok' }]
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const fixtureImport = fixtureLoader(S('collect.ts'), env)
   const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
   const preload = join(base, 'observe-reserve.mjs')
   writeFileSync(preload, [
@@ -9312,7 +9326,7 @@ group('brand-content-version-entry', [], () => {
   ].join('\n'))
   const observed = (f: { log: string; reserves: string; armed: string }) => costEnv(f.log, {
     BRAND_VERSION_RESERVE_LOG: f.reserves, BRAND_VERSION_ARMED_LOG: f.armed,
-    NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+    NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
   })
   const logs = (cwd: string) => {
     const log = join(cwd, 'attempts.tsv'), reserves = join(cwd, 'reserves.txt'), armed = join(cwd, 'armed.txt')
