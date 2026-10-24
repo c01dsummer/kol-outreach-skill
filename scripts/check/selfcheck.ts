@@ -230,9 +230,11 @@ const run = (label: string, args: string[], cwd = process.cwd(),
 // 既有变异执行夹具也提供真实历史：未改的旧全量项按生产规则兼容，不能绕过维护比较。
 const mutationFixtureEnv = (tool: keyof typeof SELFCHECK_TOOLS, rest: readonly string[], cwd: string): NodeJS.ProcessEnv => {
   if (tool !== 'mutate' || rest.includes('--brief') || cwd === process.cwd()) return {}
+  const fixtureGitEnv: NodeJS.ProcessEnv = { ...process.env,
+    GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
+  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]
   const git = (...args: string[]): string => {
-    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env,
-      GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } })
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: fixtureGitEnv })
     if (r.status !== 0) {
       console.error(`  ✗ 变异历史夹具${SELFCHECK_FIXTURE_MARK}：${r.stderr || r.error}`)
       throw new Error('无法建立变异夹具的真实历史')

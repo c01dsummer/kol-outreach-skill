@@ -18416,6 +18416,78 @@
       "replace": "isBare(argv) ? argv[0] :",
       "by": "test",
       "kills": ["观察器加载器：齐缓存按内建能力返回预编钩子或当前项目 tsx，入口同路", "观察器 CLI 阳性：.ts URL 的对象和原型修改被相对 .js 入口看见，地址保持 .ts"]
+    },
+    {
+      "id": "M-H64-a",
+      "req": "harness",
+      "why": "建立临时变异历史时继承 GIT_DIR，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "replace": "  for (const key of ['GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "by": "test",
+      "kills": [
+        "Git 建历史隔离：不继承 GIT_DIR"
+      ]
+    },
+    {
+      "id": "M-H64-b",
+      "req": "harness",
+      "why": "建立临时变异历史时继承 GIT_WORK_TREE，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "replace": "  for (const key of ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "by": "test",
+      "kills": [
+        "Git 建历史隔离：不继承 GIT_WORK_TREE"
+      ]
+    },
+    {
+      "id": "M-H64-c",
+      "req": "harness",
+      "why": "建立临时变异历史时继承 GIT_INDEX_FILE，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "replace": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "by": "test",
+      "kills": [
+        "Git 建历史隔离：不继承 GIT_INDEX_FILE"
+      ]
+    },
+    {
+      "id": "M-H64-d",
+      "req": "harness",
+      "why": "建立临时变异历史时继承 GIT_OBJECT_DIRECTORY，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "replace": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "by": "test",
+      "kills": [
+        "Git 建历史隔离：不继承 GIT_OBJECT_DIRECTORY"
+      ]
+    },
+    {
+      "id": "M-H64-e",
+      "req": "harness",
+      "why": "建立临时变异历史时继承 GIT_ALTERNATE_OBJECT_DIRECTORIES，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "replace": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "by": "test",
+      "kills": [
+        "Git 建历史隔离：不继承 GIT_ALTERNATE_OBJECT_DIRECTORIES"
+      ]
+    },
+    {
+      "id": "M-H64-f",
+      "req": "harness",
+      "why": "建立临时变异历史时继承 GIT_COMMON_DIR，调用可写到夹具以外的 Git 位置",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]",
+      "replace": "  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete fixtureGitEnv[key]",
+      "by": "test",
+      "kills": [
+        "Git 建历史隔离：不继承 GIT_COMMON_DIR"
+      ]
     }
   ],
   "exemptions": [

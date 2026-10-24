@@ -215,6 +215,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-group', needs: [] },
   { id: 'h-group-share', needs: [] },
   { id: 'h-group-share-real', needs: [] },
+  { id: 'h-mutation-fixture-git-env', needs: [] },
   { id: 'h-selfcheck-selection-entry', needs: [] },
   { id: 'h-selfcheck-shard-entry', needs: [] },
   { id: 'h-selfcheck-shard-open', needs: [] },
@@ -11097,6 +11098,155 @@ harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
     dropped('enrich'), ['closure dir: collect → enrich'])
 }
 })
+await group('h-mutation-fixture-git-env', () => {
+harness('变异夹具建历史不继承六项 Git 仓库指向')
+// 独立依据：ADR-120「入口夹具的 Git 环境隔离」及第 98 行、ADR-156 第十八节。
+// 不读 mutationFixtureEnv 实现。GIT_DIR 单独一轮查真实副作用；六项同传一轮查 Git 原始环境，
+// 后者的审计探针仅在自建临时目录中保护转交，不能称为六次无探针副作用演练。
+const keys = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR'] as const
+const owner = realpathSync(mkdtempSync(join(tmpdir(), 'kol-fixture-git-env-')))
+const clean: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
+for (const key of keys) delete clean[key]
+delete clean.NODE_OPTIONS
+delete clean.MUTATING // 两轮都跑普通真实子集，不借施变运行跳过夹具准备或认领约束。
+const git = (cwd: string, args: string[], input?: string) => {
+  const r = spawnSync('git', args, { cwd, env: clean, input, encoding: 'utf8' })
+  if (r.error || r.signal || r.status !== 0) throw new Error(`Git 隔离测试未造好夹具：${r.error?.message ?? r.stderr}`)
+  return r.stdout.trim()
+}
+const repo = (name: string) => {
+  const dir = join(owner, name); mkdirSync(dir)
+  git(dir, ['init', '-q']); git(dir, ['config', 'user.name', 'Decoy Owner'])
+  git(dir, ['config', 'user.email', 'decoy@example.invalid'])
+  // 提交可启动后台维护；快照前让自有仓库静止，保留所有 Git 文件的字节审计。
+  git(dir, ['config', 'gc.auto', '0']); git(dir, ['config', 'maintenance.auto', 'false'])
+  writeFileSync(join(dir, 'sentinel.txt'), 'independent decoy content\n')
+  git(dir, ['add', '.']); git(dir, ['commit', '-qm', 'decoy sentinel'])
+  return dir
+}
+// 全仓库字节与路径审计包含工作区文件及 .git 的 config/index/refs/logs/objects；不依赖 HEAD 有没有变。
+const snapshot = (dir: string): Map<string, string> => {
+  const result = new Map<string, string>()
+  const walk = (prefix: string) => {
+    for (const name of readdirSync(join(dir, prefix)).sort()) {
+      const rel = join(prefix, name), path = join(dir, rel), st = lstatSync(path)
+      if (st.isDirectory()) walk(rel)
+      else if (st.isFile()) result.set(rel, createHash('sha256').update(rf(path)).digest('hex'))
+      else throw new Error(`Git 隔离测试不能审计非常规文件：${rel}`)
+    }
+  }
+  walk(''); return result
+}
+const changes = (before: Map<string, string>, after: Map<string, string>) =>
+  [...new Set([...before.keys(), ...after.keys()])].filter(path => before.get(path) !== after.get(path)).sort()
+const done = '✓ 脚本自检（只跑 1 组）：点名的那几组都跑完了，一条断言都没红'
+const step = '✓ mutate 遇到重复编号即以退出码 1 结束'
+const entry = (name: string, extra: NodeJS.ProcessEnv) => {
+  const root = join(owner, name); mkdirSync(root)
+  const env = { ...clean, ...extra, TMPDIR: root, TMP: root, TEMP: root }
+  const r = spawnSync(...prebuiltCommand(['scripts/check/selfcheck.ts', '--only=dup-ids'], process.cwd(), env),
+    { env, encoding: 'utf8', timeout: 45_000, maxBuffer: 4 * 1024 * 1024 })
+  const output = `${r.stdout}\n${r.stderr}`, lines = output.split(/\r?\n/).map(line => line.trim())
+  if (r.error || r.signal || r.status === null || output.includes(SELFCHECK_PROCESS_MARK)
+    || output.includes(SELFCHECK_FIXTURE_MARK)
+    || /\b(?:SyntaxError|TypeError|ReferenceError|TransformError|ERR_[A-Z_]+)\b|Cannot find (?:module|package)/.test(output)) {
+    throw new Error(`Git 隔离测试未取得有效入口证据：${r.error?.message ?? r.signal ?? r.status}\n${output}`)
+  }
+  const completed = r.status === 0 && lines.includes(done)
+    && lines.some(line => line === step || line.startsWith(step + '（') || line.startsWith(step + ' ('))
+  if (!completed) console.log(`     selfcheck=${JSON.stringify(output)}`)
+  return completed
+}
+try {
+  const unguarded = repo('unguarded-decoy'), before = snapshot(unguarded)
+  const completed = entry('unguarded-run', { GIT_DIR: join(unguarded, '.git') })
+  ok('Git 隔离无探针对照：真实 dup-ids 入口执行完成', completed)
+  if (!completed) return
+  eq('Git 隔离真实副作用：继承 GIT_DIR 不改诱饵任何 Git 文件', changes(before, snapshot(unguarded)), [])
+
+  const decoy = repo('six-decoy'), control = repo('observer-control'), log = join(owner, 'audit.jsonl')
+  const sentinels = { GIT_DIR: join(decoy, '.git'), GIT_WORK_TREE: decoy,
+    GIT_INDEX_FILE: join(decoy, '.git', 'index'), GIT_OBJECT_DIRECTORY: join(decoy, '.git', 'objects'),
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: join(owner, 'alternate-objects'), GIT_COMMON_DIR: join(decoy, '.git') }
+  mkdirSync(sentinels.GIT_ALTERNATE_OBJECT_DIRECTORIES)
+  const preload = join(owner, 'audit.cjs')
+  writeFileSync(preload, `const cp = require('node:child_process'), fs = require('node:fs'), path = require('node:path');
+const keys = ${JSON.stringify(keys)}, owner = ${JSON.stringify(owner)}, log = ${JSON.stringify(log)};
+const entry = process.argv.some(arg => /[/\\\\]selfcheck\\.(?:ts|js)$/.test(arg)); let serial = 0;
+const put = row => fs.appendFileSync(log, JSON.stringify({ pid: process.pid, entry, source: ${JSON.stringify(startHash)}, stage: process.env.KOL_GIT_AUDIT_STAGE, ...row }) + '\\n');
+put({ kind: 'ready' });
+for (const api of ['spawnSync', 'execFileSync']) {
+  const original = cp[api];
+  cp[api] = function(file, args, options) {
+    if (typeof file !== 'string' || !/(^|[/\\\\])git(?:\\.exe)?$/.test(file) || !Array.isArray(args)) return original.apply(this, arguments);
+    const opts = options || {}, cwd = path.resolve(String(opts.cwd || process.cwd()));
+    if (!cwd.startsWith(owner + path.sep)) return original.apply(this, arguments);
+    const raw = opts.env || process.env, fields = Object.fromEntries(keys.filter(key => raw[key] !== undefined).map(key => [key, raw[key]]));
+    const id = ++serial; put({ kind: 'before', id, api, args, cwd, fields });
+    const env = { ...raw };
+    // 只保护本测试自建路径；先记录原 env，再真实执行 Git，不伪造 Git 的返回值。
+    for (const key of keys) if (env[key] !== undefined) {
+      if (!String(env[key]).startsWith(owner + path.sep)) throw new Error('审计探针拒绝保护测试所有权之外的 Git 目标');
+      delete env[key];
+    }
+    try { const result = original.call(this, file, args, { ...opts, env });
+      put({ kind: 'after', id, status: api === 'spawnSync' ? result.status : 0 }); return result;
+    } catch (error) { put({ kind: 'after', id, status: error.status ?? null }); throw error; }
+  };
+}
+require('node:module').syncBuiltinESMExports();\n`)
+  type Event = { kind: string; entry: boolean; source: string; stage: string; pid: number; id: number;
+    api: string; args: string[]; cwd: string; fields: Record<string, string>; status: number | null }
+  const events = (): Event[] => rf(log, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const observerEnv = { ...clean, ...sentinels, NODE_OPTIONS: '--require ' + JSON.stringify(preload) }
+  const content = 'object observation without moving HEAD\n'
+  const oid = createHash('sha1').update(`blob ${Buffer.byteLength(content)}\0${content}`).digest('hex')
+  const prior = snapshot(join(control, '.git'))
+  const positive = spawnSync(process.execPath, ['-e', `const cp = require('node:child_process');
+const r = cp.spawnSync('git', ['hash-object', '-w', '--stdin'], { input: ${JSON.stringify(content)}, encoding: 'utf8' });
+if (r.status !== 0 || r.stdout.trim() !== ${JSON.stringify(oid)}) throw new Error('positive object write failed');
+cp.execFileSync('git', ['update-index', '--add', '--cacheinfo', '100644', ${JSON.stringify(oid)}, 'probe-only.txt']);
+console.log('positive complete');`], { cwd: control, env: { ...observerEnv, KOL_GIT_AUDIT_STAGE: 'positive' }, encoding: 'utf8', timeout: 10_000 })
+  if (positive.error || positive.status !== 0 || positive.stdout.trim() !== 'positive complete') {
+    throw new Error(`Git 环境审计阳性控制未执行完成：${positive.error?.message ?? positive.stderr}`)
+  }
+  const positiveEvents = events().filter(event => event.stage === 'positive'), positiveCalls = positiveEvents.filter(event => event.kind === 'before')
+  const positiveObserved = ['spawnSync', 'execFileSync'].every(api => positiveCalls.some(event => event.api === api
+      && keys.every(key => event.fields[key] === sentinels[key])
+      && positiveEvents.some(end => end.kind === 'after' && end.pid === event.pid && end.id === event.id && end.status === 0)))
+  ok('Git 环境审计阳性：两种同步 API 都观察到原始六项污染并完成真实 Git', positiveObserved)
+  if (!positiveObserved) return
+  const delta = changes(prior, snapshot(join(control, '.git')))
+  const filesystemObserved = !delta.includes('HEAD') && delta.includes('index')
+    && delta.includes(join('objects', oid.slice(0, 2), oid.slice(2)))
+  ok('Git 文件审计阳性：HEAD 未变仍看见索引和对象写入', filesystemObserved)
+  if (!filesystemObserved) return
+
+  const observed = entry('audited-run', { ...observerEnv, KOL_GIT_AUDIT_STAGE: 'target' })
+  ok('Git 六项审计接线：真实 dup-ids 入口执行完成', observed)
+  if (!observed) return
+  const targetEvents = events().filter(event => event.stage === 'target' && event.entry && event.source === startHash)
+  const history = targetEvents.filter(event => event.kind === 'before')
+  const historyCompleted = history.length > 0 && ['fixture baseline', 'fixture head'].every(message =>
+    history.some(event => event.args.includes('commit') && event.args.includes(message)
+      && targetEvents.some(end => end.kind === 'after' && end.pid === event.pid && end.id === event.id && end.status === 0)))
+  ok('Git 六项审计接线：非空真实调用且 baseline 与 head 提交完成', historyCompleted)
+  if (!historyCompleted) return
+  const leaked = (key: string) => history.filter(event => event.fields[key] !== undefined)
+    .map(event => [event.api, event.args, event.fields[key]])
+  eq('Git 建历史隔离：不继承 GIT_DIR', leaked('GIT_DIR'), [])
+  eq('Git 建历史隔离：不继承 GIT_WORK_TREE', leaked('GIT_WORK_TREE'), [])
+  eq('Git 建历史隔离：不继承 GIT_INDEX_FILE', leaked('GIT_INDEX_FILE'), [])
+  eq('Git 建历史隔离：不继承 GIT_OBJECT_DIRECTORY', leaked('GIT_OBJECT_DIRECTORY'), [])
+  eq('Git 建历史隔离：不继承 GIT_ALTERNATE_OBJECT_DIRECTORIES', leaked('GIT_ALTERNATE_OBJECT_DIRECTORIES'), [])
+  eq('Git 建历史隔离：不继承 GIT_COMMON_DIR', leaked('GIT_COMMON_DIR'), [])
+} finally {
+  rmSync(owner, { recursive: true, force: true })
+  if (existsSync(owner)) throw new Error('Git 隔离测试未回收独占临时根')
+}
+})
+
 await group('h-selfcheck-selection-entry', () => {
 harness('真实自检入口的严格选择：非法参数不能被忽略后报成功')
 {
