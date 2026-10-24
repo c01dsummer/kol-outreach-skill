@@ -219,8 +219,8 @@ export function prebuiltCommand(args: string[], cwd = process.cwd(), env: NodeJS
   return bare ? [process.execPath, ['--import', hookFor(root!, owner!, settingsOf(owner!).id), ...args]] : tsxCommand(args)
 }
 
-/** 入口前的观察器及 fake-fetch 与入口共用同一加载器；script 定位入口所在树，env 是添加这些预加载前的子进程环境 */
-export function fixtureLoader(script: string, env: NodeJS.ProcessEnv = process.env): string {
-  const [, argv] = prebuiltCommand([script], process.cwd(), env)
+/** 入口前的观察器及 fake-fetch 与入口共用同一加载器；script 定位入口所在树，env 是添加预加载前的子环境，cwd 是实际子工作目录（省略保留调用时目录） */
+export function fixtureLoader(script: string, env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
+  const [, argv] = prebuiltCommand([script], cwd, env)
   return isBare(argv) ? argv[1]! : pathToFileURL(require.resolve('tsx')).href
 }
