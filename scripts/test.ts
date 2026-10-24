@@ -74,6 +74,11 @@ import {
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { compileCacheDir, tsxCommand } from './check/tsx-cmd.js'
 import {
+  PREBUILT_DIR, asTsx, bareLaunch, bringsTsxLoader, complete as cacheComplete, identityOf, isBare, ownerOf, prebuildOne, prebuildTree,
+  fixtureLoader, prebuiltCommand, scriptsRootOf,
+} from './check/prebuilt.js'
+import { entryPath, keyOf, prebuiltHooks } from './check/prebuilt-hook.js'
+import {
   SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_SEEDS,
   SELFCHECK_TOOLS,
   closure, importsOf, infraClosure, selfVerifying, selfcheckSummary,
@@ -139,7 +144,7 @@ import {
 } from './lib/assessment.js'
 import {
   writeFileSync, unlinkSync, truncateSync, rmSync, mkdirSync, mkdtempSync, existsSync,
-  readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync,
+  readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync, cpSync, realpathSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
@@ -198,6 +203,10 @@ const GROUPS: readonly Group[] = [
   { id: 'h-launch-summary-deep', needs: [] },
   { id: 'h-launch-preload', needs: [] },
   { id: 'h-launch-preload-edge', needs: [] },
+  { id: 'h-prebuilt', needs: [] },
+  { id: 'h-prebuilt-entry', needs: [] },
+  { id: 'h-prebuilt-options', needs: [] },
+  { id: 'h-prebuilt-observer', needs: [] },
   { id: 'h-worker-start', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
@@ -206,8 +215,10 @@ const GROUPS: readonly Group[] = [
   { id: 'h-group', needs: [] },
   { id: 'h-group-share', needs: [] },
   { id: 'h-group-share-real', needs: [] },
+  { id: 'h-mutation-fixture-git-env', needs: [] },
   { id: 'h-selfcheck-selection-entry', needs: [] },
   { id: 'h-selfcheck-shard-entry', needs: [] },
+  { id: 'h-selfcheck-shard-open', needs: [] },
   { id: 'h-check-rules', needs: [] },
   { id: 'p1-provider', needs: [] },
   { id: 'd6-provider', needs: [] },
@@ -6253,7 +6264,6 @@ suite('D27', 'task.json 写重复的费用字段：collect 续跑与 enrich 改�
   // 阳性对照：同一份只留最后一处的任务、同一种接线，照常预留并请求（collect 去搜那个没完成的任务，enrich 去补那个创作者）
   const p3Root = mkdtempSync(join(tmpdir(), 'kol-d27-p3-'))
   try {
-    const tsxLoader = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
     const fakeFetch = pathToFileURL(join(process.cwd(), 'scripts', 'check', 'fake-fetch.ts')).href
     const budgetModule = pathToFileURL(join(process.cwd(), 'scripts', 'lib', 'budget.ts')).href
     const person = { platform: 'tiktok', handle: 'cost_person', nickname: 'cost_person', followers: 10000, post_count: 50, bio: null,
@@ -6275,10 +6285,11 @@ suite('D27', 'task.json 写重复的费用字段：collect 续跑与 enrich 改�
       ].join('\n'))
       const argv = entry === 'collect' ? [join(process.cwd(), 'scripts', 'collect.ts'), '--resume', taskDir, '--budget', '2']
         : [join(process.cwd(), 'scripts', 'enrich.ts'), '--dir', taskDir, '--budget', '2']
-      const [exe, args] = tsxCommand(argv)
-      const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d27', FAKE_FETCH_LEDGER: ledger,
-        FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(),
-        NODE_OPTIONS: `--import ${JSON.stringify(tsxLoader)} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}` } })
+      const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d27', FAKE_FETCH_LEDGER: ledger,
+        FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
+      kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv))} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}`
+      const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
+      const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv })
       const lines = (path: string) => existsSync(path) ? rf(path, 'utf8').split('\n').filter(Boolean).length : 0
       return { status: r.status, armed: lines(armed) > 0, kept: rf(file, 'utf8') === text, reserves: lines(reserves), attempts: lines(ledger),
         stderr: (r.stderr ?? '').split('\n').filter(Boolean).slice(-2).join(' | ') }
@@ -8957,6 +8968,262 @@ try {
 } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
+await group('h-prebuilt', () => {
+harness('预编 JS：缓存按正文寻址，缺一份就照旧 tsx，钩子只换内容不换地址')
+{
+  // 期望值照 ADR-158 第二节的规定手写，不取自实现的运行结果；读盘换成一张表
+  const id = 'id-a', k = keyOf(id, '/r/scripts/a.ts', 'x')
+  eq('预编缓存的键：正文、编译身份、文件名任一样不同就是另一个键；目录不算',
+    [k === keyOf(id, '/r/scripts/a.ts', 'y'), k === keyOf('id-b', '/r/scripts/a.ts', 'x'), k === keyOf(id, '/r/scripts/b.ts', 'x'),
+      k === keyOf(id, '/r/.check-cache/mutate-jobs/w0/scripts/a.ts', 'x')], [false, false, false, true])
+  const base = { esbuild: '0.28.2', node: '22.22.0', compilerOptions: { strict: true } }
+  ok('编译身份随 esbuild 版本、node 版本、compilerOptions 变', [identityOf({ ...base, esbuild: '0.28.3' }),
+    identityOf({ ...base, node: '22.23.0' }), identityOf({ ...base, compilerOptions: {} })].every(x => x !== identityOf(base)))
+  const has = (p: string) => p === '/r/.check-cache/prebuilt'
+  eq('一个脚本的树与缓存主人：往上找最近的 scripts/，再从它的上一层往上找第一个带缓存的；worker 副本找到仓库根，临时目录里的找不到',
+    [scriptsRootOf('/r/scripts/check/x.ts'), scriptsRootOf('/r/lib/x.ts'), ownerOf('/r/scripts', has),
+      ownerOf('/r/.check-cache/mutate-jobs/w0/scripts', has), ownerOf('/t/toy/scripts', has)],
+    ['/r/scripts', null, '/r', '/r', null])
+  eq('整棵树每个 .ts 在缓存里都有现在这一版才算齐', [cacheComplete(['a', 'b'], f => `e-${f}`, e => e !== 'e-b'),
+    cacheComplete(['a', 'b'], f => `e-${f}`, () => true)], [false, true])
+  const tsxLoader = '--import file:///r/node_modules/tsx/dist/esm/index.mjs'
+  eq('NODE_OPTIONS 里带着 tsx 的加载器才算', [tsxLoader, '--import tsx', '--import=tsx/esm', '--import "tsx"',
+    '--import file:///r/scripts/check/fake-fetch.ts', '--import tsx-other', undefined].map(bringsTsxLoader),
+    [true, true, true, true, false, false, false])
+  let asked = 0
+  const at = { disabled: false, strips: true, script: '/r/scripts/test.ts', nodeOptions: undefined, root: '/r/scripts', owner: '/r',
+    complete: () => { asked++; return true } }
+  eq('走不走裸 node：样样成立才走；关掉、node 自己去不掉类型、不是 .ts、带着 tsx 加载器、找不到树或缓存、缓存不齐，都照旧 tsx',
+    [bareLaunch(at), bareLaunch({ ...at, disabled: true }), bareLaunch({ ...at, strips: false }), bareLaunch({ ...at, script: '/r/scripts/x.mjs' }),
+      bareLaunch({ ...at, nodeOptions: tsxLoader }), bareLaunch({ ...at, root: undefined }), bareLaunch({ ...at, owner: undefined }),
+      bareLaunch({ ...at, complete: () => false })], [true, false, false, false, false, false, false, false])
+  eq('缓存齐不齐最后才问：前面几样不成立就不走一遍树', asked, 1)
+  const bare = ['--import', `${new URL('./check/prebuilt-hook.ts', import.meta.url).href}?root=r`, 'a.ts']
+  eq('裸 node 起的信号死亡按 tsx 的壳报的那样换成 128+N；tsx 起的、正常退出的原样交回',
+    [asTsx(bare, null, 'SIGTERM'), asTsx(bare, null, 'SIGKILL'), asTsx(['/r/node_modules/tsx/dist/cli.mjs', 'a.ts'], null, 'SIGKILL'),
+      asTsx(bare, 1, null)],
+    [{ status: 143, signal: null }, { status: 137, signal: null }, { status: null, signal: 'SIGKILL' }, { status: 1, signal: null }])
+
+  const cache = '/r/.check-cache/prebuilt'
+  const disk: Record<string, string> = { '/r/scripts/a.ts': 'A', '/r/scripts/lib/b.ts': 'B' }
+  disk[entryPath(cache, keyOf(id, '/r/scripts/a.ts', 'A'))] = 'compiled A'
+  const hooks = prebuiltHooks({ root: '/r/scripts', cache, id }, { exists: p => p in disk, read: p => disk[p] })
+  const resolveOf = (specifier: string, parentURL: string) =>
+    hooks.resolve(specifier, { parentURL, conditions: [], importAttributes: {} }, s => ({ url: s.startsWith('file:') ? s : `next:${s}` })).url
+  eq('钩子解析：树里写的 ./x.js 在 x.ts 在时认 x.ts；x.ts 不在、在树外、不是相对路径的交给下一个',
+    [resolveOf('./lib/b.js', 'file:///r/scripts/a.ts'), resolveOf('./lib/c.js', 'file:///r/scripts/a.ts'),
+      resolveOf('./scripts/lib/b.js', 'file:///r/x.ts'), resolveOf('node:fs', 'file:///r/scripts/a.ts')],
+    ['file:///r/scripts/lib/b.ts', 'next:./lib/c.js', 'next:./scripts/lib/b.js', 'next:node:fs'])
+  // ADR-158 第二节：父模块与目标都须在树内；这些越界目标的 .ts 确实存在。
+  disk['/r/outside.ts'] = disk['/r/scripts2/a.ts'] = 'outside'
+  eq('钩子解析：父模块或目标越出树（含同前缀的兄弟目录），即使 .ts 存在也交给下一个',
+    [resolveOf('../outside.js', 'file:///r/scripts/a.ts'), resolveOf('../scripts2/a.js', 'file:///r/scripts/a.ts'),
+      resolveOf('../scripts/a.js', 'file:///r/scripts2/b.ts')],
+    ['next:../outside.js', 'next:../scripts2/a.js', 'next:../scripts/a.js'])
+  const loadOf = (url: string): unknown => {
+    try { return hooks.load(url, { format: undefined, conditions: [], importAttributes: {} }, u => ({ format: 'next', source: u })) }
+    catch (e) { return e instanceof Error ? e.message : String(e) }
+  }
+  eq('钩子加载：树里的 .ts 按现在的正文从缓存取；树外的（含同前缀的兄弟目录）、不是 .ts 的交给下一个',
+    [loadOf('file:///r/scripts/a.ts'), loadOf('file:///r/scripts2/a.ts'), loadOf('file:///r/scripts/x.json')],
+    [{ format: 'module', source: 'compiled A', shortCircuit: true }, { format: 'next', source: 'file:///r/scripts2/a.ts' },
+      { format: 'next', source: 'file:///r/scripts/x.json' }])
+  const miss = loadOf('file:///r/scripts/lib/b.ts')
+  ok('钩子加载：缓存里没有现在这一版就当场报错、点名那个文件，不拿别的顶上', typeof miss === 'string' && miss.includes('/r/scripts/lib/b.ts'))
+}
+})
+
+await group('h-prebuilt-entry', () => {
+harness('预编 JS 端到端：裸 node 跑缓存里的那一份，改过没重编的照旧 tsx，起进程之后才改的当场报错')
+{
+  const owner = mkdtempSync(join(tmpdir(), 'kol-prebuilt-'))
+  try {
+    const strips = Boolean(process.features.typescript) // ADR-158：不能内建剥离时应成功回退，不能要求裸起。
+    const main = join(owner, 'scripts', 'main.ts'), value = join(owner, 'scripts', 'lib', 'value.ts')
+    mkdirSync(join(owner, 'scripts', 'lib'), { recursive: true })
+    mkdirSync(join(owner, PREBUILT_DIR), { recursive: true })
+    writeFileSync(join(owner, 'package.json'), '{"type":"module"}')
+    writeFileSync(main, "import { value } from './lib/value.js'\nconst n: number = value\n"
+      + "console.log(JSON.stringify([n, import.meta.url.endsWith('/scripts/main.ts'), process.argv[1]?.endsWith('/scripts/main.ts')]))\n")
+    writeFileSync(value, 'export const value: number = 1\n')
+    const env: NodeJS.ProcessEnv = { ...process.env }
+    delete env.KOL_PREBUILT
+    delete env.NODE_OPTIONS
+    delete env.TSX_TSCONFIG_PATH
+    eq('预编整棵树：两个 .ts 各写一份', prebuildTree(owner), { wrote: 2, kept: 0, removed: 0 })
+    const run = ([exe, argv]: [string, string[]]) => spawnSync(exe, argv, { cwd: owner, env, encoding: 'utf8', timeout: 30_000 })
+    const command = prebuiltCommand([main], owner, env)
+    const first = run(command)
+    eq('缓存齐全时按内建能力选起法：./x.js 认到 x.ts，import.meta.url 与 argv[1] 照旧是 .ts',
+      [command[0] === process.execPath && isBare(command[1]), first.status, first.stdout.trim()], [strips, 0, '[1,true,true]'])
+    // 起进程之后才改：拿改之前算好的那张参数表再跑一次
+    writeFileSync(value, 'export const value: number = 22\n')
+    const stale = run(command)
+    ok('命令选定后源码变化：裸起报缺缓存，tsx 跑当前源码', strips
+      ? stale.status !== 0 && stale.stderr.includes(value) && !stale.stdout.includes('[1,')
+      : stale.status === 0 && stale.stdout.trim() === '[22,true,true]')
+    eq('改了没重编：照旧交给 tsx', isBare(prebuiltCommand([main], owner, env)[1]), false)
+    prebuildOne(value, 'export const value: number = 22\n')
+    const again = prebuiltCommand([main], owner, env), ran = run(again)
+    eq('只编改过的文件：缓存恢复齐全，按内建能力选起法并跑当前源码', [isBare(again[1]), ran.status, ran.stdout.trim()],
+      [strips, 0, '[22,true,true]'])
+    eq('再预编整棵树：沿用现在这一版的，删掉不属于它的', prebuildTree(owner), { wrote: 0, kept: 2, removed: 1 })
+    eq('KOL_PREBUILT=0 照旧交给 tsx', isBare(prebuiltCommand([main], owner, { ...env, KOL_PREBUILT: '0' })[1]), false)
+    // ADR-158 第二节：配置改变须换身份，源码未变也不能沿用上一份键。
+    writeFileSync(join(owner, 'tsconfig.json'), '{"compilerOptions":{"strict":true}}')
+    eq('编译配置改变：旧键不算齐，重编后按内建能力选起法',
+      [isBare(prebuiltCommand([main], owner, env)[1]), prebuildTree(owner), isBare(prebuiltCommand([main], owner, env)[1])],
+      [false, { wrote: 2, kept: 0, removed: 2 }, strips])
+    const alias = join(owner, 'alias'); symlinkSync(owner, alias, 'dir')
+    writeFileSync(main, `import * as a from './lib/value.js'; import * as b from ${JSON.stringify(pathToFileURL(realpathSync(value)).href)}; console.log(a === b)\n`); prebuildTree(owner)
+    const linked = ['', '--preserve-symlinks', '--preserve-symlinks-main', '--preserve-symlinks --preserve-symlinks-main'].map(flags => {
+      const options = { ...env, NODE_OPTIONS: flags }, child = spawnSync(...prebuiltCommand([join(alias, 'scripts', 'main.ts')], alias, options), { cwd: owner, env: options, encoding: 'utf8', timeout: 30_000 }); return [child.status, child.stdout.trim()]
+    })
+    eq('目录别名起入口：仍加载同一棵树并保留模块地址语义', linked, [[0, 'true'], [0, 'true'], [0, 'true'], [0, 'false']])
+    const compat = join(owner, 'compat.ts'), legacy = join(owner, 'legacy-module.mjs')
+    const hookURL = new URL('./check/prebuilt-hook.ts', import.meta.url).href
+    writeFileSync(compat, `import { prebuiltCommand } from ${JSON.stringify(new URL('./check/prebuilt.ts', import.meta.url).href)}
+import ${JSON.stringify(hookURL)}
+import * as legacyModule from 'kol:legacy-node-module'
+const ready: string = typeof prebuiltCommand
+console.log(JSON.stringify([ready, 'registerHooks' in legacyModule]))
+`)
+    // 父预加载仍用当前 Node 的真实 API；只有被测钩子看到旧 Node 的导出形状。
+    writeFileSync(legacy, `import * as module from 'node:module'
+const names = Object.keys(module).filter(name => name !== 'default' && name !== 'registerHooks')
+const source = "import * as real from 'node:module'; const legacy = {...real.default}; delete legacy.registerHooks; export default legacy;\\n"
+  + names.map(name => 'export const ' + name + ' = real[' + JSON.stringify(name) + ']').join('\\n')
+module.registerHooks({
+  resolve(specifier, context, next) {
+    if (specifier !== 'kol:legacy-node-module'
+      && (specifier !== 'node:module' || context.parentURL?.split('?')[0] !== ${JSON.stringify(hookURL)})) return next(specifier, context)
+    return { url: 'data:text/javascript,' + encodeURIComponent(source), shortCircuit: true }
+  }
+})
+`)
+    const legacyEnv = { ...env, KOL_PREBUILT: '0', NODE_OPTIONS: '--import ' + JSON.stringify(pathToFileURL(legacy).href) }
+    const older = spawnSync(...prebuiltCommand([compat], owner, legacyEnv), { cwd: owner, env: legacyEnv, encoding: 'utf8', timeout: 30_000 })
+    eq('缺少同步注册 API 的 node：普通导入预编模块与 KOL_PREBUILT=0 的 tsx 入口仍可运行',
+      [older.status, older.stdout.trim(), older.status === 0 ? '' : older.stderr], [0, '["function",false]', ''])
+  } finally { rmSync(owner, { recursive: true, force: true }) }
+}
+})
+
+await group('h-prebuilt-options', () => {
+harness('预编选路：不能确认编译配置或子进程剥离能力时保留 tsx 语义')
+const owner = mkdtempSync(join(tmpdir(), 'kol-prebuilt-options-'))
+try {
+  mkdirSync(join(owner, 'scripts'), { recursive: true })
+  writeFileSync(join(owner, 'package.json'), '{"type":"module"}')
+  const main = join(owner, 'scripts', 'main.ts'), config = join(owner, 'tsconfig.json'), custom = join(owner, 'custom.json')
+  // useDefineForClassFields:false 应调用继承的 setter 一次；定义字段则不调用，期望从配置语义推导。
+  writeFileSync(main, 'let calls = 0; class Base {} Object.defineProperty(Base.prototype, "x", { set() { calls++ } }); class Child extends Base { x = 1 } new Child(); console.log(calls)')
+  const plain = '{"compilerOptions":{"useDefineForClassFields":false}}'
+  writeFileSync(custom, plain)
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  delete env.KOL_PREBUILT; delete env.NODE_OPTIONS; delete env.TSX_TSCONFIG_PATH
+  const run = (extra: NodeJS.ProcessEnv = {}) => {
+    const kidEnv = { ...env, ...extra }, command = prebuiltCommand([main], owner, kidEnv)
+    const r = spawnSync(...command, { cwd: owner, env: kidEnv, encoding: 'utf8', timeout: 30_000 })
+    return [isBare(command[1]), r.status, r.stdout.trim()]
+  }
+  writeFileSync(config, plain); prebuildTree(owner)
+  eq('普通 JSON 编译配置保留字段赋值语义并按内建能力选起法', run(), [Boolean(process.features.typescript), 0, '1'])
+  writeFileSync(config, '{}'); prebuildTree(owner)
+  eq('子进程显式 TSX_TSCONFIG_PATH：回退 tsx 使用指定配置', run({ TSX_TSCONFIG_PATH: custom }), [false, 0, '1'])
+  writeFileSync(config, '{\n// JSONC\n"compilerOptions":{"useDefineForClassFields":false}\n}'); prebuildTree(owner)
+  eq('JSONC 编译配置：回退 tsx 保留字段赋值语义', run(), [false, 0, '1'])
+  writeFileSync(config, '{"extends":"./custom.json"}'); prebuildTree(owner)
+  eq('继承编译配置：回退 tsx 使用完整有效配置', run(), [false, 0, '1'])
+  writeFileSync(config, plain); prebuildTree(owner)
+  eq('仅子进程禁用内建类型剥离：普通及引号写法均成功回退 tsx',
+    ['--no-experimental-strip-types', '"--no-experimental-strip-types"'].map(NODE_OPTIONS => run({ NODE_OPTIONS })),
+    [[false, 0, '1'], [false, 0, '1']])
+} finally { rmSync(owner, { recursive: true, force: true }) }
+})
+
+await group('h-prebuilt-observer', async () => {
+harness('观察器加载契约：同环境同选路，.ts 观察器与 .js 入口共用模块实例')
+// ADR-158 第二片公开契约；先于实现独立编写，期望仅来自契约与下面的事件顺序。
+const exported: unknown = Reflect.get(await import('./check/prebuilt.js'), 'fixtureLoader')
+eq('观察器加载器公开契约：fixtureLoader 是函数', typeof exported, 'function')
+if (typeof exported !== 'function') return // 缺 API 是上面的具名断言红，不让 import 崩溃代替它。
+const fixtureLoader = exported as (script: string, env?: NodeJS.ProcessEnv) => string
+const owner = realpathSync(mkdtempSync(join(tmpdir(), 'kol-prebuilt-observer-')))
+try {
+  const scripts = join(owner, 'scripts'), cache = join(owner, PREBUILT_DIR)
+  mkdirSync(join(scripts, 'lib'), { recursive: true }); mkdirSync(cache, { recursive: true })
+  writeFileSync(join(owner, 'package.json'), '{"type":"module"}')
+  const main = join(scripts, 'main.ts'), value = join(scripts, 'lib', 'value.ts'), fake = join(scripts, 'fake-fetch.ts')
+  const observer = join(owner, 'observer.mjs'), config = join(owner, 'tsconfig.json'), custom = join(owner, 'custom.json')
+  const valueURL = pathToFileURL(value).href, observerURL = pathToFileURL(observer).href, fakeURL = pathToFileURL(fake).href
+  writeFileSync(value, "export const state = { wired: false, fake: false, events: [] as string[] }; export class Probe { hit() { state.events.push('unobserved') } }\n")
+  // 树外的 .mjs 由 Node 正常加载；用 .ts URL 改公开对象与原型，不能靠转译观察器本身。
+  writeFileSync(observer, `import { state, Probe } from ${JSON.stringify(valueURL)}; state.wired = true; Probe.prototype.hit = function () { state.events.push('method') }\n`)
+  writeFileSync(fake, `import { state } from ${JSON.stringify(valueURL)}; const active: boolean = true; state.fake = active; globalThis.fetch = async () => { state.events.push('fetch'); return new Response('fixture') }\n`)
+  writeFileSync(main, `import { state, Probe } from './lib/value.js'
+const answer: string = process.env.MODE === 'positive' ? (new Probe().hit(), await (await fetch('data:text/plain,unobserved')).text()) : 'quiet'
+console.log(JSON.stringify([state.wired, state.fake, state.events, answer, import.meta.url === ${JSON.stringify(pathToFileURL(main).href)}, process.argv[1] === ${JSON.stringify(main)}]))
+`)
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  delete env.KOL_PREBUILT; delete env.NODE_OPTIONS; delete env.TSX_TSCONFIG_PATH
+  const strips = Boolean(process.features.typescript), require = createRequire(import.meta.url)
+  const tsxURL = pathToFileURL(require.resolve('tsx/esm')).href
+  const pathOf = (url: string) => { try { return realpathSync(fileURLToPath(url)) } catch { return 'invalid file URL' } }
+  const tsxPaths = new Set(['tsx', 'tsx/esm'].map(specifier => realpathSync(require.resolve(specifier))))
+  const hookPath = pathOf(new URL('./check/prebuilt-hook.ts', import.meta.url).href)
+  const choose = (extra: NodeJS.ProcessEnv = {}) => {
+    const kidEnv = { ...env, ...extra }, loader = fixtureLoader(main, kidEnv)
+    const wired = { ...kidEnv, NODE_OPTIONS: [kidEnv.NODE_OPTIONS ?? '', ...[loader, observerURL, fakeURL].map(u => '--import ' + JSON.stringify(u))].join(' ') }
+    return { loader, wired, command: prebuiltCommand([main], owner, wired) }
+  }
+  const route = (extra: NodeJS.ProcessEnv = {}) => {
+    const chosen = choose(extra), path = pathOf(chosen.loader); return [tsxPaths.has(path) ? 'tsx' : path, isBare(chosen.command[1])]
+  }
+  const fallback = ['tsx', false]
+  prebuildTree(owner)
+  eq('观察器加载器：齐缓存按内建能力返回预编钩子或当前项目 tsx，入口同路', route(), [strips ? hookPath : 'tsx', strips])
+  eq('观察器加载器：省略环境参数等同显式 process.env', fixtureLoader(main), fixtureLoader(main, process.env))
+  const run = (mode: string, via: 'cli' | 'options', extra: NodeJS.ProcessEnv = {}) => {
+    const chosen = choose(extra)
+    const command: [string, string[]] = via === 'cli'
+      ? [process.execPath, ['--import', chosen.loader, '--import', observerURL, '--import', fakeURL, main]] : chosen.command
+    const kidEnv = { ...(via === 'cli' ? { ...env, ...extra } : chosen.wired), MODE: mode }
+    const r = spawnSync(...command, { cwd: owner, env: kidEnv, encoding: 'utf8', timeout: 30_000 })
+    return [r.status, r.stdout.trim(), r.status === 0 ? '' : r.stderr]
+  }
+  // 阳性事件手算为原型方法一次、fake fetch 一次；阴性仍核两个接线标记及入口确实执行。
+  const positive = [0, '[true,true,["method","fetch"],"fixture",true,true]', '']
+  const negative = [0, '[true,true,[],"quiet",true,true]', '']
+  eq('观察器 CLI 阳性：.ts URL 的对象和原型修改被相对 .js 入口看见，地址保持 .ts', run('positive', 'cli'), positive)
+  eq('观察器 CLI 阴性：同接线确实运行且零事件，地址保持 .ts', run('negative', 'cli'), negative)
+  eq('观察器 NODE_OPTIONS 阳性：加载器先于观察器及 fake-fetch，记录两类事件', run('positive', 'options'), positive)
+  eq('观察器 NODE_OPTIONS 阴性：同模块接线已证且确实零事件', run('negative', 'options'), negative)
+  eq('观察器回退阳性：KOL_PREBUILT=0 仍共用对象和原型并记录事件', run('positive', 'options', { KOL_PREBUILT: '0' }), positive)
+  eq('观察器回退阴性：tsx 同接线确实执行且零事件', run('negative', 'options', { KOL_PREBUILT: '0' }), negative)
+  eq('观察器加载器：KOL_PREBUILT=0 与入口一同保留 tsx', route({ KOL_PREBUILT: '0' }), fallback)
+  eq('观察器加载器：仅子进程禁剥离时普通及引号写法均保留 tsx',
+    ['--no-experimental-strip-types', '"--no-experimental-strip-types"'].map(NODE_OPTIONS => route({ NODE_OPTIONS })), [fallback, fallback])
+  eq('观察器加载器：原有绝对或包名 tsx 加载器均保留 tsx',
+    ['--import ' + JSON.stringify(tsxURL), '--import tsx', '--import=tsx/esm'].map(NODE_OPTIONS => route({ NODE_OPTIONS })), [fallback, fallback, fallback])
+  writeFileSync(custom, '{"compilerOptions":{"useDefineForClassFields":false}}')
+  eq('观察器加载器：显式 TSX_TSCONFIG_PATH 与入口一同保留 tsx', route({ TSX_TSCONFIG_PATH: custom }), fallback)
+  writeFileSync(config, '{\n// JSONC\n"compilerOptions":{}}'); prebuildTree(owner)
+  eq('观察器加载器：JSONC 配置与入口一同保留 tsx', route(), fallback)
+  writeFileSync(config, '{"extends":"./custom.json"}'); prebuildTree(owner)
+  eq('观察器加载器：继承配置与入口一同保留 tsx', route(), fallback)
+  writeFileSync(config, '{}'); prebuildTree(owner)
+  renameSync(cache, cache + '.saved')
+  eq('观察器加载器：无缓存目录时与入口一同保留 tsx', route(), fallback)
+  renameSync(cache + '.saved', cache)
+  unlinkSync(join(cache, readdirSync(cache).filter(f => f.endsWith('.js')).sort()[0]))
+  eq('观察器加载器：整树缺一份缓存时与入口一同保留 tsx', route(), fallback)
+  prebuildTree(owner)
+  writeFileSync(value, rf(value, 'utf8') + '\nexport const changed: number = 2\n')
+  eq('观察器加载器：源码改后未编时与入口一同保留 tsx', route(), fallback)
+} finally { rmSync(owner, { recursive: true, force: true }) }
+})
+
 await group('h-worker-start', () => {
 harness('worker 启动观测协议：兼容旧回报并拒绝坏字段')
 
@@ -10830,6 +11097,155 @@ harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
     dropped('enrich'), ['closure dir: collect → enrich'])
 }
 })
+await group('h-mutation-fixture-git-env', () => {
+harness('变异夹具建历史不继承六项 Git 仓库指向')
+// 独立依据：ADR-120「入口夹具的 Git 环境隔离」及第 98 行、ADR-156 第十八节。
+// 不读 mutationFixtureEnv 实现。GIT_DIR 单独一轮查真实副作用；六项同传一轮查 Git 原始环境，
+// 后者的审计探针仅在自建临时目录中保护转交，不能称为六次无探针副作用演练。
+const keys = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR'] as const
+const owner = realpathSync(mkdtempSync(join(tmpdir(), 'kol-fixture-git-env-')))
+const clean: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
+for (const key of keys) delete clean[key]
+delete clean.NODE_OPTIONS
+delete clean.MUTATING // 两轮都跑普通真实子集，不借施变运行跳过夹具准备或认领约束。
+const git = (cwd: string, args: string[], input?: string) => {
+  const r = spawnSync('git', args, { cwd, env: clean, input, encoding: 'utf8' })
+  if (r.error || r.signal || r.status !== 0) throw new Error(`Git 隔离测试未造好夹具：${r.error?.message ?? r.stderr}`)
+  return r.stdout.trim()
+}
+const repo = (name: string) => {
+  const dir = join(owner, name); mkdirSync(dir)
+  git(dir, ['init', '-q']); git(dir, ['config', 'user.name', 'Decoy Owner'])
+  git(dir, ['config', 'user.email', 'decoy@example.invalid'])
+  // 提交可启动后台维护；快照前让自有仓库静止，保留所有 Git 文件的字节审计。
+  git(dir, ['config', 'gc.auto', '0']); git(dir, ['config', 'maintenance.auto', 'false'])
+  writeFileSync(join(dir, 'sentinel.txt'), 'independent decoy content\n')
+  git(dir, ['add', '.']); git(dir, ['commit', '-qm', 'decoy sentinel'])
+  return dir
+}
+// 全仓库字节与路径审计包含工作区文件及 .git 的 config/index/refs/logs/objects；不依赖 HEAD 有没有变。
+const snapshot = (dir: string): Map<string, string> => {
+  const result = new Map<string, string>()
+  const walk = (prefix: string) => {
+    for (const name of readdirSync(join(dir, prefix)).sort()) {
+      const rel = join(prefix, name), path = join(dir, rel), st = lstatSync(path)
+      if (st.isDirectory()) walk(rel)
+      else if (st.isFile()) result.set(rel, createHash('sha256').update(rf(path)).digest('hex'))
+      else throw new Error(`Git 隔离测试不能审计非常规文件：${rel}`)
+    }
+  }
+  walk(''); return result
+}
+const changes = (before: Map<string, string>, after: Map<string, string>) =>
+  [...new Set([...before.keys(), ...after.keys()])].filter(path => before.get(path) !== after.get(path)).sort()
+const done = '✓ 脚本自检（只跑 1 组）：点名的那几组都跑完了，一条断言都没红'
+const step = '✓ mutate 遇到重复编号即以退出码 1 结束'
+const entry = (name: string, extra: NodeJS.ProcessEnv) => {
+  const root = join(owner, name); mkdirSync(root)
+  const env = { ...clean, ...extra, TMPDIR: root, TMP: root, TEMP: root }
+  const r = spawnSync(...prebuiltCommand(['scripts/check/selfcheck.ts', '--only=dup-ids'], process.cwd(), env),
+    { env, encoding: 'utf8', timeout: 45_000, maxBuffer: 4 * 1024 * 1024 })
+  const output = `${r.stdout}\n${r.stderr}`, lines = output.split(/\r?\n/).map(line => line.trim())
+  if (r.error || r.signal || r.status === null || output.includes(SELFCHECK_PROCESS_MARK)
+    || output.includes(SELFCHECK_FIXTURE_MARK)
+    || /\b(?:SyntaxError|TypeError|ReferenceError|TransformError|ERR_[A-Z_]+)\b|Cannot find (?:module|package)/.test(output)) {
+    throw new Error(`Git 隔离测试未取得有效入口证据：${r.error?.message ?? r.signal ?? r.status}\n${output}`)
+  }
+  const completed = r.status === 0 && lines.includes(done)
+    && lines.some(line => line === step || line.startsWith(step + '（') || line.startsWith(step + ' ('))
+  if (!completed) console.log(`     selfcheck=${JSON.stringify(output)}`)
+  return completed
+}
+try {
+  const unguarded = repo('unguarded-decoy'), before = snapshot(unguarded)
+  const completed = entry('unguarded-run', { GIT_DIR: join(unguarded, '.git') })
+  ok('Git 隔离无探针对照：真实 dup-ids 入口执行完成', completed)
+  if (!completed) return
+  eq('Git 隔离真实副作用：继承 GIT_DIR 不改诱饵任何 Git 文件', changes(before, snapshot(unguarded)), [])
+
+  const decoy = repo('six-decoy'), control = repo('observer-control'), log = join(owner, 'audit.jsonl')
+  const sentinels = { GIT_DIR: join(decoy, '.git'), GIT_WORK_TREE: decoy,
+    GIT_INDEX_FILE: join(decoy, '.git', 'index'), GIT_OBJECT_DIRECTORY: join(decoy, '.git', 'objects'),
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: join(owner, 'alternate-objects'), GIT_COMMON_DIR: join(decoy, '.git') }
+  mkdirSync(sentinels.GIT_ALTERNATE_OBJECT_DIRECTORIES)
+  const preload = join(owner, 'audit.cjs')
+  writeFileSync(preload, `const cp = require('node:child_process'), fs = require('node:fs'), path = require('node:path');
+const keys = ${JSON.stringify(keys)}, owner = ${JSON.stringify(owner)}, log = ${JSON.stringify(log)};
+const entry = process.argv.some(arg => /[/\\\\]selfcheck\\.(?:ts|js)$/.test(arg)); let serial = 0;
+const put = row => fs.appendFileSync(log, JSON.stringify({ pid: process.pid, entry, source: ${JSON.stringify(startHash)}, stage: process.env.KOL_GIT_AUDIT_STAGE, ...row }) + '\\n');
+put({ kind: 'ready' });
+for (const api of ['spawnSync', 'execFileSync']) {
+  const original = cp[api];
+  cp[api] = function(file, args, options) {
+    if (typeof file !== 'string' || !/(^|[/\\\\])git(?:\\.exe)?$/.test(file) || !Array.isArray(args)) return original.apply(this, arguments);
+    const opts = options || {}, cwd = path.resolve(String(opts.cwd || process.cwd()));
+    if (!cwd.startsWith(owner + path.sep)) return original.apply(this, arguments);
+    const raw = opts.env || process.env, fields = Object.fromEntries(keys.filter(key => raw[key] !== undefined).map(key => [key, raw[key]]));
+    const id = ++serial; put({ kind: 'before', id, api, args, cwd, fields });
+    const env = { ...raw };
+    // 只保护本测试自建路径；先记录原 env，再真实执行 Git，不伪造 Git 的返回值。
+    for (const key of keys) if (env[key] !== undefined) {
+      if (!String(env[key]).startsWith(owner + path.sep)) throw new Error('审计探针拒绝保护测试所有权之外的 Git 目标');
+      delete env[key];
+    }
+    try { const result = original.call(this, file, args, { ...opts, env });
+      put({ kind: 'after', id, status: api === 'spawnSync' ? result.status : 0 }); return result;
+    } catch (error) { put({ kind: 'after', id, status: error.status ?? null }); throw error; }
+  };
+}
+require('node:module').syncBuiltinESMExports();\n`)
+  type Event = { kind: string; entry: boolean; source: string; stage: string; pid: number; id: number;
+    api: string; args: string[]; cwd: string; fields: Record<string, string>; status: number | null }
+  const events = (): Event[] => rf(log, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const observerEnv = { ...clean, ...sentinels, NODE_OPTIONS: '--require ' + JSON.stringify(preload) }
+  const content = 'object observation without moving HEAD\n'
+  const oid = createHash('sha1').update(`blob ${Buffer.byteLength(content)}\0${content}`).digest('hex')
+  const prior = snapshot(join(control, '.git'))
+  const positive = spawnSync(process.execPath, ['-e', `const cp = require('node:child_process');
+const r = cp.spawnSync('git', ['hash-object', '-w', '--stdin'], { input: ${JSON.stringify(content)}, encoding: 'utf8' });
+if (r.status !== 0 || r.stdout.trim() !== ${JSON.stringify(oid)}) throw new Error('positive object write failed');
+cp.execFileSync('git', ['update-index', '--add', '--cacheinfo', '100644', ${JSON.stringify(oid)}, 'probe-only.txt']);
+console.log('positive complete');`], { cwd: control, env: { ...observerEnv, KOL_GIT_AUDIT_STAGE: 'positive' }, encoding: 'utf8', timeout: 10_000 })
+  if (positive.error || positive.status !== 0 || positive.stdout.trim() !== 'positive complete') {
+    throw new Error(`Git 环境审计阳性控制未执行完成：${positive.error?.message ?? positive.stderr}`)
+  }
+  const positiveEvents = events().filter(event => event.stage === 'positive'), positiveCalls = positiveEvents.filter(event => event.kind === 'before')
+  const positiveObserved = ['spawnSync', 'execFileSync'].every(api => positiveCalls.some(event => event.api === api
+      && keys.every(key => event.fields[key] === sentinels[key])
+      && positiveEvents.some(end => end.kind === 'after' && end.pid === event.pid && end.id === event.id && end.status === 0)))
+  ok('Git 环境审计阳性：两种同步 API 都观察到原始六项污染并完成真实 Git', positiveObserved)
+  if (!positiveObserved) return
+  const delta = changes(prior, snapshot(join(control, '.git')))
+  const filesystemObserved = !delta.includes('HEAD') && delta.includes('index')
+    && delta.includes(join('objects', oid.slice(0, 2), oid.slice(2)))
+  ok('Git 文件审计阳性：HEAD 未变仍看见索引和对象写入', filesystemObserved)
+  if (!filesystemObserved) return
+
+  const observed = entry('audited-run', { ...observerEnv, KOL_GIT_AUDIT_STAGE: 'target' })
+  ok('Git 六项审计接线：真实 dup-ids 入口执行完成', observed)
+  if (!observed) return
+  const targetEvents = events().filter(event => event.stage === 'target' && event.entry && event.source === startHash)
+  const history = targetEvents.filter(event => event.kind === 'before')
+  const historyCompleted = history.length > 0 && ['fixture baseline', 'fixture head'].every(message =>
+    history.some(event => event.args.includes('commit') && event.args.includes(message)
+      && targetEvents.some(end => end.kind === 'after' && end.pid === event.pid && end.id === event.id && end.status === 0)))
+  ok('Git 六项审计接线：非空真实调用且 baseline 与 head 提交完成', historyCompleted)
+  if (!historyCompleted) return
+  const leaked = (key: string) => history.filter(event => event.fields[key] !== undefined)
+    .map(event => [event.api, event.args, event.fields[key]])
+  eq('Git 建历史隔离：不继承 GIT_DIR', leaked('GIT_DIR'), [])
+  eq('Git 建历史隔离：不继承 GIT_WORK_TREE', leaked('GIT_WORK_TREE'), [])
+  eq('Git 建历史隔离：不继承 GIT_INDEX_FILE', leaked('GIT_INDEX_FILE'), [])
+  eq('Git 建历史隔离：不继承 GIT_OBJECT_DIRECTORY', leaked('GIT_OBJECT_DIRECTORY'), [])
+  eq('Git 建历史隔离：不继承 GIT_ALTERNATE_OBJECT_DIRECTORIES', leaked('GIT_ALTERNATE_OBJECT_DIRECTORIES'), [])
+  eq('Git 建历史隔离：不继承 GIT_COMMON_DIR', leaked('GIT_COMMON_DIR'), [])
+} finally {
+  rmSync(owner, { recursive: true, force: true })
+  if (existsSync(owner)) throw new Error('Git 隔离测试未回收独占临时根')
+}
+})
+
 await group('h-selfcheck-selection-entry', () => {
 harness('真实自检入口的严格选择：非法参数不能被忽略后报成功')
 {
@@ -10856,7 +11272,7 @@ harness('真实自检入口的严格选择：非法参数不能被忽略后报�
       && /^(?:\s*\([^()\r\n]*\)|\s*（[^（）\r\n]*）)$/.test(found.slice(step.length)))
   })
   const run = (args: string[]) => {
-    const [exe, argv] = tsxCommand(['scripts/check/selfcheck.ts', ...args])
+    const [exe, argv] = prebuiltCommand(['scripts/check/selfcheck.ts', ...args])
     const r = spawnSync(exe, argv, { encoding: 'utf8', env, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 })
     const output = `${r.stdout}\n${r.stderr}`
     // 起不来、超时、被信号停下或内部崩溃都没有资格满足具名拒绝断言。
@@ -10921,7 +11337,7 @@ harness('拆进程跑的子进程：出处那句与末尾汇总只由父进程�
   const provenanceSkipped = (output: string) =>
     lines(output).some(line => line.includes('没验') && line.includes('每个可执行文件都有出处'))
   const run = (extra: NodeJS.ProcessEnv) => {
-    const [exe, argv] = tsxCommand(['scripts/check/selfcheck.ts', '--only=dup-ids'])
+    const [exe, argv] = prebuiltCommand(['scripts/check/selfcheck.ts', '--only=dup-ids'])
     const r = spawnSync(exe, argv, { encoding: 'utf8', env: { ...env, ...extra }, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 })
     const output = `${r.stdout}\n${r.stderr}`
     // 起不来、超时、被信号停下、内部崩溃、动了认领、留下临时夹具：都没有资格作证（与上一组同一道门）
@@ -10961,6 +11377,41 @@ harness('拆进程跑的子进程：出处那句与末尾汇总只由父进程�
 }
 
 })
+await group('h-selfcheck-shard-open', () => {
+harness('拆进程跑打不开某一族的日志：那一族报成没起来，照常合并出汇总')
+{
+  // 实现上下文所写，期望照 ADR-132 第 324 行那张欠条：打不开时走「没起来」那条路，不以未捕获异常退出。
+  // 要的是完整、非变异的整跑（只有它拆进程），而它会删认领与按族的启动计数 —— 所以在一份只有 scripts/ 的副本里跑；
+  // 注入让每一族的日志都打不开，于是一个子进程也不起，这一跑只花一次启动
+  const root = mkdtempSync(join(tmpdir(), 'kol-shard-open-'))
+  try {
+    const toy = join(root, 'toy'), tmp = join(root, 'tmp'), inject = join(root, 'emfile.cjs')
+    mkdirSync(tmp)
+    cpSync('scripts', join(toy, 'scripts'), { recursive: true })
+    cpSync('package.json', join(toy, 'package.json'))
+    symlinkSync(resolve('node_modules'), join(toy, 'node_modules'), 'dir')
+    writeFileSync(inject, [
+      "const fs = require('node:fs'), { syncBuiltinESMExports } = require('node:module'), open = fs.openSync",
+      'fs.openSync = function (p, ...rest) {',
+      "  if (typeof p === 'string' && /[\\\\/]shards-[^\\\\/]+[\\\\/]\\d+\\.log$/.test(p))",
+      "    throw Object.assign(new Error(`EMFILE: too many open files, open '${p}'`), { code: 'EMFILE', errno: -24, syscall: 'open', path: p })",
+      '  return open.call(this, p, ...rest)',
+      '}',
+      'syncBuiltinESMExports()',
+    ].join('\n'))
+    const env: NodeJS.ProcessEnv = { ...process.env, TMPDIR: tmp, TMP: tmp, TEMP: tmp, SELFCHECK_JOBS: '2', NODE_OPTIONS: `--require ${inject}` }
+    delete env.MUTATING
+    delete env.SELFCHECK_SHARD_REPORT
+    const r = spawnSync(...prebuiltCommand(['scripts/check/selfcheck.ts'], toy, env),
+      { cwd: toy, env, encoding: 'utf8', timeout: 60_000, maxBuffer: 16 * 1024 * 1024 })
+    const refused = (r.stderr ?? '').split('\n').filter(line => line.includes('的子进程没起来（EMFILE'))
+    ok('拆进程跑打不开某一族的日志：报成那一族没起来、带着原因，照常打出汇总并以 1 结束',
+      r.status === 1 && refused.length > 0 && /^✗ 脚本自检：\d+ 项失败$/m.test(r.stderr ?? ''))
+    ok('拆进程跑打不开日志时照常收尾：临时目录收干净', !readdirSync(tmp).some(name => name.startsWith('kol-selfcheck-')))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}
+})
+
 await group('h-check-rules', () => {
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
 {
@@ -12657,7 +13108,6 @@ suite('D13', '已有数据可离线输出，未知费用不得换来新增付费
   const cwd = mkdtempSync(join(tmpdir(), 'kol-cost-cross-')), dir = join(cwd, 'task'), taskFile = join(dir, 'task.json')
   const log = join(cwd, 'attempts.tsv'), scripts = new URL('./', import.meta.url)
   const preload = new URL('./check/fake-fetch.ts', import.meta.url).href
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
   mkdirSync(dir); mkdirSync(join(cwd, 'memory'))
   const writeLegacy = (paid = false) => {
     writeFileSync(taskFile, JSON.stringify({ product: 'legacy-cross', market: 'US', target_count: 9999,
@@ -12667,11 +13117,12 @@ suite('D13', '已有数据可离线输出，未知费用不得换来新增付费
       created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' }))
     for (const file of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, file), '[]')
   }
-  const run = (file: string, args: string[], key = '') => spawnSync(process.execPath,
-    ['--import', tsx, '--import', preload, fileURLToPath(new URL(file, scripts)), ...args], {
-      cwd, encoding: 'utf8', timeout: 20000, env: { ...process.env, NODE_OPTIONS: '',
-        TIKHUB_API_KEY: key, FAKE_FETCH_LEDGER: log, FAKE_FETCH_NO_429: '1' },
-    })
+  const run = (file: string, args: string[], key = '') => {
+    const entry = fileURLToPath(new URL(file, scripts))
+    const kidEnv = { ...process.env, NODE_OPTIONS: '', TIKHUB_API_KEY: key, FAKE_FETCH_LEDGER: log, FAKE_FETCH_NO_429: '1' }
+    return spawnSync(process.execPath, ['--import', fixtureLoader(entry, kidEnv), '--import', preload, entry, ...args],
+      { cwd, encoding: 'utf8', timeout: 20000, env: kidEnv })
+  }
   const noFetch = () => !existsSync(log) || rf(log, 'utf8').trim() === ''
   try {
     await costSucceeds('旧账本地处理交点完整执行', () => {
@@ -15273,7 +15724,7 @@ await group('u10-report-entry', async () => {
     await fsBlind.writeFile(pathBlind.join(cwdBlind, 'memory', 'creators.json'), JSON.stringify({
       version: 1, updated_at: now, creators: { 'tiktok:seen_contacted': entry('seen_contacted', true, false), 'tiktok:seen_blocked': entry('seen_blocked', false, true) }
     }));
-    const [nodeBlind, argsBlind] = tsxCommand([filePathBlind(new URL('./render.ts', import.meta.url)), '--dir', taskDir]);
+    const [nodeBlind, argsBlind] = prebuiltCommand([filePathBlind(new URL('./render.ts', import.meta.url)), '--dir', taskDir]);
     const executed = spawnBlind(nodeBlind, argsBlind, { cwd: cwdBlind, encoding: 'utf8', timeout: 30000 });
     if (executed.error || executed.status !== 0) throw new Error('（进程）真实 render 未完成：' + String(executed.error || executed.stderr));
     const delivered = JSON.parse(await fsBlind.readFile(pathBlind.join(taskDir, 'creators.json'), 'utf8')) as Array<{ platform: string; handle: string; tier: string }>;
@@ -15501,7 +15952,7 @@ await group('u11-feedback-report-entry', async () => {
     firstDocument.rounds[0].candidates[0].source_tasks![0].keyword = 'mutated copy'
     ok('U11已校验反馈和冻结来源getter拥有独立副本', isDeepStrictEqual({ feedback: context.feedback, document: context.document }, getterExpected))
     const renderAbsolute = join(dirname(fileURLToPath(import.meta.url)), 'render.ts')
-    const run = spawnSync(...tsxCommand([renderAbsolute, '--dir', taskDir]), { cwd: isolated, env: { ...process.env, TIKHUB_API_KEY: '' }, encoding: 'utf8', timeout: 30000 })
+    const run = spawnSync(...prebuiltCommand([renderAbsolute, '--dir', taskDir], isolated), { cwd: isolated, env: { ...process.env, TIKHUB_API_KEY: '' }, encoding: 'utf8', timeout: 30000 })
     ok('U11真实render入口成功交付报告', run.status === 0 && existsSync(join(taskDir, 'meta.json')) && existsSync(join(taskDir, 'report.html')))
     const meta = existsSync(join(taskDir, 'meta.json')) ? JSON.parse(rf(join(taskDir, 'meta.json'), 'utf8')) : {}
     const expectedSummary = { rounds: [{ round_id: 'old<&>pool', candidates: 3, reviewed: 2, unreviewed: 1 }, { round_id: 'new-pool', candidates: 3, reviewed: 3, unreviewed: 0 }],
@@ -16314,7 +16765,6 @@ const DUPS: Dup[] = [
   { name: 'found', text: cfg({ found: '"found":7.25e0,"f\\u006fund":"zq-mid-two","found":{"0":3}' }), at: 'found', tokens: ['7.25e0', 'zq-mid-two'], times: 3 },
 ]
 const d28Kit = (root: string) => {
-  const tsxLoader = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
   const fakeFetch = pathToFileURL(join(process.cwd(), 'scripts', 'check', 'fake-fetch.ts')).href
   const budgetModule = pathToFileURL(join(process.cwd(), 'scripts', 'lib', 'budget.ts')).href
   const tree = (dir: string) => JSON.stringify(readdirSync(dir, { recursive: true }).map(String).sort()
@@ -16337,11 +16787,13 @@ const d28Kit = (root: string) => {
       `Budget.prototype.reserve = function(...args) { appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n'); return Reflect.apply(original, this, args); };`,
       `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
     ].join('\n'))
-    const [exe, args] = tsxCommand([join(process.cwd(), 'scripts', mode === 'probe' ? 'probe.ts' : 'collect.ts'), '--config', file,
-      ...mode === 'collect --budget 2' ? ['--budget', '2'] : []])
-    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d28', FAKE_FETCH_LEDGER: ledger,
-      FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(),
-      NODE_OPTIONS: `--import ${JSON.stringify(tsxLoader)} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}` } })
+    const argv = [join(process.cwd(), 'scripts', mode === 'probe' ? 'probe.ts' : 'collect.ts'), '--config', file,
+      ...mode === 'collect --budget 2' ? ['--budget', '2'] : []]
+    const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d28', FAKE_FETCH_LEDGER: ledger,
+      FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
+    kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv))} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}`
+    const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
+    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv })
     const lines = (path: string) => existsSync(path) ? rf(path, 'utf8').split('\n').filter(Boolean).length : 0
     // 路径先移走：它不能替问题提供位置、原文或次数
     const stderr = r.stderr ?? '', message = stderr.replaceAll(file, '[配置]').replaceAll(root, '[目录]')
