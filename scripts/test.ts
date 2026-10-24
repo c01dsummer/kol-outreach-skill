@@ -11105,7 +11105,7 @@ harness('变异夹具建历史不继承六项 Git 仓库指向')
 const keys = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
   'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR'] as const
 const owner = realpathSync(mkdtempSync(join(tmpdir(), 'kol-fixture-git-env-')))
-const clean: NodeJS.ProcessEnv = { ...process.env }
+const clean: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
 for (const key of keys) delete clean[key]
 delete clean.NODE_OPTIONS
 delete clean.MUTATING // 两轮都跑普通真实子集，不借施变运行跳过夹具准备或认领约束。
