@@ -9244,7 +9244,7 @@ console.log(JSON.stringify([state.wired, state.fake, state.events, answer, impor
 
 await group('h-prebuilt-observer-child-cwd', async () => {
 harness('观察器真实子cwd：独立公开契约v4，先验接线与双向字段语义')
-// v4冻结主体与字段expected保留；只把独立runner换为仓库harness与临时根。
+// v4字段oracle/标签保留；v5仅补独立冻结的主线程观测资格，worker诊断另域保留。
 const reportEq = eq;
 const { spawnSync } = await import('node:child_process');
 const { createHash, randomUUID } = await import('node:crypto');
@@ -9253,24 +9253,33 @@ const path = await import('node:path');
 const { tmpdir } = await import('node:os');
 const { pathToFileURL } = await import('node:url');
 const bus = `
-export type Observation = { kind: string; value?: number; wired?: boolean; setterCount?: number; own?: boolean; sourceSha?: string };
+type ThreadIdentity = { pid: number; isMainThread: boolean; threadId: number };
+const workersModule: string = 'node:worker_threads';
+const { isMainThread, threadId } = await import(workersModule);
+const runtime = (globalThis as unknown as { process: { pid: number } }).process;
+export const busThread: ThreadIdentity = Object.freeze({ pid: runtime.pid, isMainThread, threadId });
+
+export type Observation = { kind: string; value?: number; wired?: boolean; setterCount?: number; own?: boolean; sourceSha?: string; eventThread?: ThreadIdentity };
 const listeners: Array<(event: Observation) => void> = [];
 export function observe(listener: (event: Observation) => void): void { listeners.push(listener); }
 export function isWired(): boolean { return listeners.length === 1; }
-export function publish(event: Observation): void { for (const listener of listeners) listener(event); }
+export function publish(event: Observation): void { for (const listener of listeners) listener({ ...event, eventThread: busThread }); }
 `;
 
 const observer = `
-import { observe } from './bus.ts';
-const runtime = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process;
-const fsModule: string = 'node:fs';
-const cryptoModule: string = 'node:crypto';
-const fs = await import(fsModule);
-const crypto = await import(cryptoModule);
-const sourceSha = crypto.createHash('sha256').update(fs.readFileSync(runtime.env.OBSERVER_SOURCE_PATH, 'utf8')).digest('hex');
-const nonce = runtime.env.OBSERVER_NONCE;
-observe((event) => console.log(JSON.stringify({ channel: 'observer-child-cwd-v1', nonce, observerSha: sourceSha, ...event })));
-console.log(JSON.stringify({ channel: 'observer-child-cwd-v1', nonce, observerSha: sourceSha, kind: 'observer-ready' }));
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { isMainThread, threadId } from 'node:worker_threads';
+const observerThread = Object.freeze({ pid: process.pid, isMainThread, threadId });
+const sourceSha = createHash('sha256').update(readFileSync(process.env.OBSERVER_SOURCE_PATH, 'utf8')).digest('hex');
+const nonce = process.env.OBSERVER_NONCE;
+if (isMainThread) {
+  const { observe } = await import('./bus.ts');
+  observe((event) => console.log(JSON.stringify({ channel: 'observer-child-cwd-v1', nonce, observerSha: sourceSha, ...event, observerThread })));
+  console.log(JSON.stringify({ channel: 'observer-child-cwd-v1', nonce, observerSha: sourceSha, kind: 'observer-ready', observerThread }));
+} else {
+  console.log(JSON.stringify({ channel: 'observer-child-cwd-worker-v1', nonce, observerSha: sourceSha, kind: 'worker-preload', observerThread, eventThread: observerThread }));
+}
 `;
 
 const entry = `
@@ -9302,7 +9311,59 @@ publish({ kind: 'result', wired: isWired(), setterCount, own: Object.hasOwn(subj
 `;
 
 
+const scopeProbe = `
+import { isMainThread, threadId } from 'node:worker_threads';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+const scopeSha = createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex');
+console.log(JSON.stringify({ channel: 'observer-child-cwd-scope-v1', kind: 'scope', nonce: process.env.OBSERVER_NONCE, scopeSha, identity: { pid: process.pid, isMainThread, threadId }, runtime: { node: process.version, platform: process.platform, arch: process.arch } }));
+`;
+const qualificationSource = `export function qualify(records, expected) {
+  const mainChannel = 'observer-child-cwd-v1';
+  const workerChannel = 'observer-child-cwd-worker-v1';
+  const scopeChannel = 'observer-child-cwd-scope-v1';
+  const main = records.filter(record => record.channel === mainChannel);
+  const workers = records.filter(record => record.channel === workerChannel);
+  const scopes = records.filter(record => record.channel === scopeChannel);
+  const problems = [];
+  const mainScopes = scopes.filter(record => record.identity?.isMainThread === true && record.identity?.pid === expected.pid);
+  if (mainScopes.length !== 1 || !Number.isInteger(mainScopes[0]?.identity?.threadId)) problems.push('independent-main-scope');
+  const mainThreadId = mainScopes[0]?.identity?.threadId;
+  const exactThread = (thread, isMain, id) => thread && thread.pid === expected.pid && thread.isMainThread === isMain && thread.threadId === id;
+  const mainThread = thread => exactThread(thread, true, mainThreadId);
+  for (const record of records) {
+    if (![mainChannel, workerChannel, scopeChannel].includes(record.channel)) problems.push('unknown-channel');
+    if (record.nonce !== expected.nonce) problems.push('record-nonce');
+    if (record.channel !== scopeChannel && record.observerSha !== expected.observerSha) problems.push('record-provenance');
+  }
+  for (const record of scopes) {
+    if (record.kind !== 'scope' || record.scopeSha !== expected.scopeSha || record.identity?.pid !== expected.pid || typeof record.identity?.isMainThread !== 'boolean' || !Number.isInteger(record.identity?.threadId)) problems.push('scope-provenance');
+  }
+  for (const record of main) {
+    if (!mainThread(record.observerThread)) problems.push('main-observer-thread');
+    if (!['observer-ready', 'target-wired', 'setter', 'result'].includes(record.kind)) problems.push('unknown-main-kind');
+    if (record.kind !== 'observer-ready' && !mainThread(record.eventThread)) problems.push('main-event-thread');
+  }
+  for (const record of workers) {
+    const thread = record.observerThread;
+    if (record.kind !== 'worker-preload' || !thread || thread.pid !== expected.pid || thread.isMainThread !== false || !Number.isInteger(thread.threadId) || thread.threadId === mainThreadId) problems.push('worker-diagnostic-identity');
+    if (!record.eventThread || record.eventThread.pid !== thread?.pid || record.eventThread.isMainThread !== false || record.eventThread.threadId !== thread?.threadId) problems.push('worker-bus-thread');
+  }
+  const ready = main.filter(record => record.kind === 'observer-ready');
+  const wired = main.filter(record => record.kind === 'target-wired');
+  const result = main.filter(record => record.kind === 'result');
+  if (ready.length !== 1) problems.push('main-ready-count');
+  if (wired.length !== 1 || wired[0]?.wired !== true || wired[0]?.sourceSha !== expected.entrySha) problems.push('main-target-wired');
+  if (result.length !== 1 || result[0]?.wired !== true || result[0]?.sourceSha !== expected.entrySha) problems.push('main-result');
+  if (main[0]?.kind !== 'observer-ready' || main[1]?.kind !== 'target-wired' || main.at(-1)?.kind !== 'result') problems.push('main-event-order');
+  return { valid: problems.length === 0, problems: [...new Set(problems)], main, workers, scopes, mainThreadId, ready, wired, result };
+}
+`;
+
 const ARTIFACTS = realpathSync(mkdtempSync(path.join(tmpdir(), 'observer-child-cwd-')));
+const qualificationPath = path.join(ARTIFACTS, 'qualification.mjs');
+writeFileSync(qualificationPath, qualificationSource);
+const { qualify } = await import(pathToFileURL(qualificationPath).href);
 const savedF1Cwd = process.cwd();
 try {
 const NODE = process.execPath;
@@ -9365,10 +9426,12 @@ function createTree(id: string, ownerDefine: boolean, childDefine: boolean) {
   writeFileSync(path.join(child, 'tsconfig.json'), config(childDefine, '../owner/scripts/**/*.ts'));
   symlinkSync(DEPENDENCIES, path.join(owner, 'node_modules'), 'dir');
   writeFileSync(path.join(scripts, 'bus.ts'), bus);
-  writeFileSync(path.join(scripts, 'observer.ts'), observer);
+  writeFileSync(path.join(scripts, 'observer.mjs'), observer);
+  writeFileSync(path.join(scripts, 'scope.mjs'), scopeProbe);
   writeFileSync(path.join(scripts, 'entry.ts'), entry);
   const target = path.join(scripts, 'entry.ts');
-  const observerPath = path.join(scripts, 'observer.ts');
+  const observerPath = path.join(scripts, 'observer.mjs');
+  const scopePath = path.join(scripts, 'scope.mjs');
   const cache = api.prebuildTree(owner);
   fixtureRecords.push({ id, owner, child, target, observerPath, cache, entrySha: sha(entry), observerSha: sha(observer), configOwnerSha: sha(config(ownerDefine, 'scripts/**/*.ts')), configChildSha: sha(config(childDefine, '../owner/scripts/**/*.ts')) });
   for (const [name, directory] of [['owner', owner], ['child', child]] as const) {
@@ -9384,7 +9447,7 @@ function createTree(id: string, ownerDefine: boolean, childDefine: boolean) {
     if (!covered) invalid(`${id}.config-covers-entry.${name}`, { status: list.status, target, stdout: list.stdout, stderr: list.stderr });
     else assert(`${id}.config-covers-entry.${name}`, covered, true);
   }
-  return { id, root, owner, child, target, observerPath };
+  return { id, root, owner, child, target, observerPath, scopePath };
 }
 const defineToAssign = createTree('define-to-assign', true, false);
 const assignToDefine = createTree('assign-to-define', false, true);
@@ -9403,8 +9466,8 @@ function runObserved(test: Case, action: 'target' | 'positive', loader: string, 
   const nonce = randomUUID();
   const childEnv: NodeJS.ProcessEnv = { ...env, OBSERVER_NONCE: nonce, OBSERVER_ACTION: action, OBSERVER_SOURCE_PATH: test.tree.observerPath, ENTRY_SOURCE_PATH: test.tree.target };
   const args: string[] = [];
-  if (test.wiring === 'cli') args.push('--import', loader, '--import', pathToFileURL(test.tree.observerPath).href);
-  else childEnv.NODE_OPTIONS = `${childEnv.NODE_OPTIONS || ''} --import=${JSON.stringify(loader)} --import=${JSON.stringify(pathToFileURL(test.tree.observerPath).href)}`.trim();
+  if (test.wiring === 'cli') args.push('--import', pathToFileURL(test.tree.scopePath).href, '--import', loader, '--import', pathToFileURL(test.tree.observerPath).href);
+  else childEnv.NODE_OPTIONS = `${childEnv.NODE_OPTIONS || ''} --import=${JSON.stringify(pathToFileURL(test.tree.scopePath).href)} --import=${JSON.stringify(loader)} --import=${JSON.stringify(pathToFileURL(test.tree.observerPath).href)}`.trim();
   args.push(test.tree.target);
   const result = spawnSync(NODE, args, { cwd: test.childCwd, env: childEnv, encoding: 'utf8', timeout: 15000 });
   childLogs.push({ id: `${prefix}.${action}`, loader, command: [NODE, ...args], cwd: test.childCwd, parentCwd: process.cwd(), nodeOptions: childEnv.NODE_OPTIONS || '', status: result.status, signal: result.signal, error: result.error?.message, stdout: result.stdout, stderr: result.stderr });
@@ -9413,20 +9476,23 @@ function runObserved(test: Case, action: 'target' | 'positive', loader: string, 
   try {
     for (const line of result.stdout.split(/\r?\n/).filter(Boolean)) {
       const parsed = JSON.parse(line);
-      if (parsed.channel === 'observer-child-cwd-v1' && parsed.nonce === nonce) records.push(parsed);
+      records.push(parsed);
     }
   } catch (error) { invalid(`${prefix}.${action}.record-format`, String(error)); return; }
-  const ready = records.filter(record => record.kind === 'observer-ready');
-  const wired = records.filter(record => record.kind === 'target-wired');
-  const summary = records.filter(record => record.kind === 'result');
-  const wiringValid = ready.length === 1 && wired.length === 1 && summary.length === 1 && wired[0].wired === true && summary[0].wired === true && records.every(record => record.observerSha === sha(observer)) && wired[0].sourceSha === sha(entry) && summary[0].sourceSha === sha(entry);
-  if (!wiringValid) { invalid(`${prefix}.${action}.observer-wired`, records); return; }
+  const qualification = qualify(records, { pid: result.pid, nonce, observerSha: sha(observer), scopeSha: sha(scopeProbe), entrySha: sha(entry) });
+  childLogs.push({ id: `${prefix}.${action}.qualification`, pid: result.pid, qualification });
+  console.log('F1_THREAD_SCOPE ' + JSON.stringify({ mode, case: prefix, action, pid: result.pid, valid: qualification.valid, problems: qualification.problems, mainThreadId: qualification.mainThreadId, main: qualification.main.map((record: Record<string, any>) => ({ kind: record.kind, observerThread: record.observerThread, eventThread: record.eventThread })), workers: qualification.workers, scopes: qualification.scopes }));
+  if (!qualification.valid) { invalid(`${prefix}.${action}.observer-wired`, { problems: qualification.problems, records }); return; }
+  const mainRecords: Record<string, any>[] = qualification.main;
+  const ready: Record<string, any>[] = qualification.ready;
+  const wired: Record<string, any>[] = qualification.wired;
+  const summary: Record<string, any>[] = qualification.result;
   assert(`${prefix}.${action}.observer-wired`, { ready: ready.length, wired: wired.length, result: summary.length, wiredFlag: wired[0].wired, sourceSha: wired[0].sourceSha, observerSha: ready[0].observerSha }, { ready: 1, wired: 1, result: 1, wiredFlag: true, sourceSha: sha(entry), observerSha: sha(observer) });
   assert(`${prefix}.${action}.child-strip-mode`, (childEnv.NODE_OPTIONS || '').includes('--no-experimental-strip-types'), mode === 'nostrip');
   const expectedCount = action === 'positive' ? 1 : test.setterCount;
   const expectedOwn = action === 'positive' ? false : test.own;
   assert(`${prefix}.${action}.setter-count`, summary[0].setterCount, expectedCount, action === 'positive' ? 'control' : 'semantic');
-  assert(`${prefix}.${action}.setter-events`, records.filter(record => record.kind === 'setter').length, expectedCount, action === 'positive' ? 'control' : 'semantic');
+  assert(`${prefix}.${action}.setter-events`, mainRecords.filter(record => record.kind === 'setter').length, expectedCount, action === 'positive' ? 'control' : 'semantic');
   assert(`${prefix}.${action}.own-field`, summary[0].own, expectedOwn, action === 'positive' ? 'control' : 'semantic');
   assert(`${prefix}.${action}.field-value`, summary[0].value, 41, action === 'positive' ? 'control' : 'semantic');
 }
