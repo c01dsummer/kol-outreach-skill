@@ -18009,14 +18009,14 @@
       "replace": "@${esc(esc(c.handle))}</a>",
       "by": "test",
       "kills": [
-        "U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次的写法",
+        "U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次及以上的写法",
         "U12自由文本换成金丝雀后两种视图都以转义一次的原文出现"
       ]
     },
     {
       "id": "M-U12-e",
       "req": "U12.a",
-      "why": "原先直接写进报告的那些取值里，只有大于号原样写出，取值仍能闭合报告的标记",
+      "why": "原先直接写进报告的那些取值里有大于号时，报告里出现的是大于号的原字符，没有转义",
       "file": "scripts/lib/report.ts",
       "find": "const escRaw = (v: unknown) => esc(String(v))",
       "replace": "const escRaw = (v: unknown) => esc(String(v)).replaceAll('&gt;', '>')",
@@ -18058,7 +18058,31 @@
       "replace": "${esc(c.fit)} ${esc(esc(c.fit_reason))}</div>",
       "by": "test",
       "kills": [
-        "U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次的写法"
+        "U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次及以上的写法"
+      ]
+    },
+    {
+      "id": "M-U12-i",
+      "req": "U12.b",
+      "why": "邮箱被转义三次，报告上显示的是字符实体的原文，不是邮箱本身",
+      "file": "scripts/lib/report.ts",
+      "find": "<span class=\"em\">${esc(c.email)}</span>",
+      "replace": "<span class=\"em\">${esc(esc(esc(c.email)))}</span>",
+      "by": "test",
+      "kills": [
+        "U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次及以上的写法"
+      ]
+    },
+    {
+      "id": "M-U12-j",
+      "req": "U12.c",
+      "why": "昵称只显示前八个字，报告上的昵称不是名单上的原文",
+      "file": "scripts/lib/report.ts",
+      "find": "<div class=\"nm\">${esc(c.nickname)}</div>",
+      "replace": "<div class=\"nm\">${esc(String(c.nickname ?? '').slice(0, 8))}</div>",
+      "by": "test",
+      "kills": [
+        "U12自由文本换成金丝雀后两种视图都以转义一次的原文出现"
       ]
     },
     {

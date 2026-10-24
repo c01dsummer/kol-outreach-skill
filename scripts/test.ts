@@ -16146,14 +16146,15 @@ await group('u11-keyword-report-entry', async () => {
 await group('u12-report-escape', () => {
 suite('U12', '报告里取自名单与 meta 的值只当内容展示，改写不了报告的标记')
 {
-  // 期望只来自 U12 两条判据：金丝雀里的 " ' < > & 原样出现就是没转义，转义两次的写法出现就是转义两次；
-  // 转义一次与两次的写法按 HTML 五个字符实体手写，不借被测的转义函数。报告会把有的取值改成大写再显示，
+  // 期望只来自 U12 三条判据：金丝雀里的 " ' < > & 原样出现就是没转义，转义两次的写法出现就是转义了两次或更多次
+  // （查的几段不带金丝雀的前导字符，转义三次也认得出）；转义一次与两次的写法按 HTML 五个字符实体手写，
+  // 不借被测的转义函数。报告会把有的取值改成大写再显示，
   // 所以比对前先转小写。夹具当作盘上读进来的 JSON（反序列化进来的就是外部输入），
   // 每个取值（字符串、数、布尔、null）逐个换成金丝雀，字符串另试末尾追加；渲染被拒不算漏。
   const canary = `x"y'z<q-u12>&w`, escapedOnce = 'x&quot;y&#39;z&lt;q-u12&gt;&amp;w'
   const has = (html: string, parts: string[]) => { const low = html.toLowerCase(); return parts.some(s => low.includes(s)) }
   const leaked = (html: string) => has(html, ['x"y', "y'z", '<q-u12', 'q-u12>', '&w'])
-  const doubled = (html: string) => has(html, ['x&amp;quot;y', 'y&amp;#39;z', '&amp;lt;q-u12', 'q-u12&amp;gt;', '&amp;amp;w'])
+  const doubled = (html: string) => has(html, ['amp;quot;y', 'amp;#39;z', 'amp;lt;q-u12', 'q-u12&amp;', 'amp;amp;w'])
   const src = { kind: 'public_api', provider: 'tikhub', endpoint: '/api/v1/instagram/v2/fetch_user_posts' }
   const at = '2026-10-01T00:00:00.000Z'
   const got = (value: unknown) => ({ status: 'measured', value, source: src, observed_at: at, sample_size: 6, basis: 'median' })
@@ -16253,12 +16254,13 @@ suite('U12', '报告里取自名单与 meta 的值只当内容展示，改写不
   }
   eq('U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图', [...leaks], [])
   criterion('U12.a')
-  eq('U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次的写法', [...twice], [])
+  eq('U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次及以上的写法', [...twice], [])
+  criterion('U12.b')
   const freeText: Path[] = [['creators', 0, 'handle'], ['creators', 0, 'nickname'], ['creators', 0, 'bio'],
     ['creators', 0, 'outreach_draft'], ['meta', 'product'], ['meta', 'keywords', 0, 'keyword']]
   const mangled = freeText.flatMap(path => views.filter(([, o]) => !render(put(path, canary), o)?.includes(escapedOnce)).map(([name]) => `${name} ${path.join('.')}`))
   eq('U12自由文本换成金丝雀后两种视图都以转义一次的原文出现', mangled, [])
-  criterion('U12.b')
+  criterion('U12.c')
 }
 })
 
