@@ -11,6 +11,7 @@ import { join as scJoin, dirname as scDirname } from 'node:path';
 import { tmpdir as scTmpdir } from 'node:os';
 import { createHash as scCreateHash } from 'node:crypto';
 import { prebuildTree as scPrebuildTree, prebuiltCommand as scPrebuiltCommand, isBare as scIsBare } from './check/prebuilt.js';
+import { runActualPathContracts } from './actual-path-contract-test.js'
 import { effectivePriority, projectManualFeedback } from './lib/effective-priority.js'
 import { prepareTaskReviews } from './lib/task-reviews.js'
 /**
@@ -201,6 +202,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd27-p3-entry', needs: ['d19-resume'] },
   { id: 'p1-followers-sort', needs: [] },
   { id: 'd5-csv', needs: [] },
+  { id: 'd2-d8-actual-paths', needs: [] },
   { id: 'f6-veto', needs: [] },
   { id: 'f7-budget-notices', needs: [] },
   { id: 'f8-risk', needs: [] },
@@ -2971,8 +2973,6 @@ suite('D8', '公开指标使用独立近期样本并保留三态与溯源')
     'insufficient_posts')
   eq('不可用仍保留真实有效样本数', partialMetrics.median_engagements.sample_size, 5)
 
-  const notQueried: AccountAssessment = { platform: 'tiktok', handle: 'not-queried' }
-  ok('未查询时 sample 字段不存在', !('sample' in notQueried))
   const privateSample = unavailable<NormalizedPublicPost[]>(
     'private_account', PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z')
   eq('查询过但私密与未查询可区分', privateSample.status, 'unavailable')
@@ -6376,16 +6376,20 @@ suite('D5', 'CSV 转义')
 }
 
 })
-if (fullRun) {
-suite('D2', 'bio_links 归一化为数组')
-{
-  const c = mk('tiktok', 'a', { bio_links: ['https://x.com'] })
-  ok('恒为数组', Array.isArray(c.bio_links))
-}
+await group('d2-d8-actual-paths', () => {
+  const results = runActualPathContracts()
+  suite('D2', '公开profile实际适配的bio_links为string数组')
+  eq('D2.a::tiktok-single-link-through-public-profile', results.get('D2.a::tiktok-single-link-through-public-profile'), [])
+  eq('D2.a::instagram-array-through-public-profile', results.get('D2.a::instagram-array-through-public-profile'), [])
+  criterion('D2.a')
+  suite('D8', '真实save/load保留未查询与已查询不可用')
+  eq('D8.c::save-load-preserves-unqueried-sample-absence', results.get('D8.c::save-load-preserves-unqueried-sample-absence'), [])
+  eq('D8.c::save-load-preserves-queried-unavailable', results.get('D8.c::save-load-preserves-queried-unavailable'), [])
+  criterion('D8.c')
+})
 
 // ─────────────────────────── 流程 ───────────────────────────
 
-}
 await group('f6-veto', () => {
 suite('F6', '语义判断否定有一票否决权')
 {
