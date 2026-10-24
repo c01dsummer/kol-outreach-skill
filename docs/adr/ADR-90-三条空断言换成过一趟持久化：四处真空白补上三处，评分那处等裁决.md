@@ -106,3 +106,43 @@ undefined／null／有内容的字符串，两个平台的补全映射都返回 
   ⚠️ 欠条：**没有普查别的需求名下有没有同一类「断自己放进去的值」的断言。**
   重启条件：下一次有隔离上下文重写测试时，或者下一条要动 `scripts/test.ts` 里
   别的红线 suite 的改动。
+
+
+## 八、固定源码的断言普查（2026-10-24）
+
+> ⚠️ 已还：ADR-90 第 107 行 · 还在 #380
+
+这次还的是第七节最后一张要求的普查，范围为固定主干 `d8b60e4836e9dfe6b62bcb49098c4a79aa1fc55f` 的 `scripts/test.ts`，文件 SHA256 为 `27ca4150a888b769d2d630eca5017c21845cc93fe15811e9a6b0709dda08fc08`。此前交接的半成品扫描桶未经逐条读源，未用于本次分类；本轮另一份未完成扫描也保留为中断尝试，没有结论资格。
+
+**怎么数、怎么读。** TypeScript 5.9.3 的 AST 只枚举 `ok`/`eq` 与传递调用它们的具名本地 helper；按符号身份闭包找调用点、保留原文与行号，不自动判语义。三段各逐条读固定源、追声明/实参/就地改写/持久化/真实入口及必要实现，分别交付 1052、1052、1050 行，合并后逐字段对上原枚举的 ordinal、起止行、callee、label、direct 与完整表达式，无重叠或漏号，未决 0。
+
+| 分类 | 静态调用点 | 判法 |
+|---|---:|---|
+| A 真命中 | 2 | 只断测试自构造值、没经目标实现或入口，标签或 suite 却在验需求，任实现如何都绿 |
+| B 夹具与资格自检 | 45 | 只核准备、独立 oracle、观察器或执行资格，没有冒充目标需求验收 |
+| C 读下来不是该类 | 3107 | 被断值、错误、副作用或原件保持存在实现、持久化或真实入口路径 |
+| 合计 | 3154 | 2945 个直接 `ok`/`eq`，209 个本地 helper 调用 |
+
+分母是静态调用点，含 helper 内结构行和 helper 调用点，不能当执行次数、具名结果数或独立缺陷数。第二道源码网另列 throw 资格守卫、故障注入、重抛及子脚本中的 `node:assert`，没有挤入这个分母；具名闭包与命名网不保证穷尽任意动态生成的断言，也不把本文件说成全仓所有测试。C 只排除本次定义的空断言，不证明 expected 正确、测试足够强、入口接线正确或变异覆盖完整。
+
+**两处 A 与原文。**
+
+- `scripts/test.ts:2961`，ordinal 448，D8 suite：`ok('未查询时 sample 字段不存在', !('sample' in notQueried))`。`notQueried` 只来自第2960行对象字面量，没有实现参与。
+- `scripts/test.ts:6369`，ordinal 999，D2 suite：`ok('恒为数组', Array.isArray(c.bio_links))`。前一行把数组传给第411行纯展开的 `mk`，被断值未经过归一化或持久化。
+
+这两处要换的是实际测试路径（第一节），只改断言写法不能还。本 PR 未改 `scripts/test.ts`、实现或判据；“普查已还”不表示“两处测试已修”或 ADR-04 的隔离规格重写已完成。两处未还缺口分别登记；合入后的具体代码顺序在本 PR 正文列明，不以将来再改测试或再出错来延后既有缺陷的重启。
+
+> ⚠️ 欠条：固定 d8 的 `scripts/test.ts:2961`（D8，ordinal 448）仍只检查第2960行自构造对象，未经过目标实现或入口 · 重启条件：#380 实际合入
+
+> ⚠️ 欠条：固定 d8 的 `scripts/test.ts:6369`（D2，ordinal 999）仍只检查第6368行经纯展开 `mk` 得到的数组，未经过目标实现或持久化路径 · 重启条件：#380 实际合入
+
+**B/C 的两种读法保留。** 第二段4条保留 B/C 两种读法：一条经公共 `configurationKey` 造路由键，其余涉及基础启动或真实 Git；第三段有真实 git、文件/HTTP 观察器和组完成资格；按准备目的主判 B，若把这些基础路径或执行祖先也算目标实现，可宽读 C。各条完整理由与另一读法保留在分段表，不强行统一；两种读法均不改变这两处 A。实际调用生产 validator 或 renderer 的“夹具有效”阳性仍是 C，不能只按标签判 B。
+
+**原件与复现。** 交接包的 `assertion-survey-artifacts` 保存枚举器、五例机械校准、枚举3154行和汇总脚本；三个 `assertion-survey-part-*-artifacts` 保存每行原文、来源路径、判断理由、非标边界及源指纹；`d8-aggregate` 保存合并 JSON/JSONL/TSV、两处 A 和完整性核对。给这些目录保留同级布局，并将固定 d8 源码放在同级 `assertion-survey` 后，可重建机械产物：
+
+```sh
+node "$census_root/assertion-survey-artifacts/enumerate-assertions.mjs" "$census_root/assertion-survey" "$census_root/assertion-survey-artifacts/reproduced-enumeration"
+python3 "$census_root/assertion-survey-artifacts/aggregate-survey.py" "$census_root"
+```
+
+`census_root` 指向交接证据目录；固定源按其 lock 安装依赖。枚举器 SHA256 为 `54ec74923604ab3d0e5d2b76c2be4c82cfefe47c70bd101a18f811f32005433f`，汇总脚本为 `48d59db3a58cc8a3468ca9aa92b11e569fc0c6e4b571fb23c7da876e4e774ba0`，原枚举行表为 `b704aeeb5fbf6a60293e5192b3dc6b11e125e373ff2a9625001794f84f5efa44`。机械重建只核身份、覆盖及已写判断的序列化；A/B/C 仍须读源，不能靠重跑脚本重新获得语义普查资格。本轮作者普查未执行产品测试、完整 check 或 mutate，后续候选检查与独立复核按实际树另记。

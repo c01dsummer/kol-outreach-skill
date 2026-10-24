@@ -18,7 +18,7 @@
  * 玩具树在临时目录里，找不到，照旧 tsx —— 与原型量数时同一个范围（ADR-158 第一节）。
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { constants } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -91,14 +91,36 @@ let esbuild: typeof Esbuild | undefined
 const settingsOf = (owner: string) => {
   let compilerOptions: Record<string, unknown> = {}
   let compatible = false
+  let coversScripts = false
   try {
     const config = JSON.parse(readFileSync(join(owner, 'tsconfig.json'), 'utf8'))
     compilerOptions = config.compilerOptions ?? {}
     compatible = typeof config === 'object' && config !== null && !Array.isArray(config) && !('extends' in config)
       && typeof compilerOptions === 'object' && compilerOptions !== null && !Array.isArray(compilerOptions)
-  } catch (e) { compatible = (e as NodeJS.ErrnoException).code === 'ENOENT' }
+    coversScripts = compatible && !('files' in config) && !('exclude' in config) && !('references' in config)
+      && (config.include === undefined || (Array.isArray(config.include) && config.include.length === 1 && config.include[0] === 'scripts/**/*.ts'))
+  } catch (e) { compatible = coversScripts = (e as NodeJS.ErrnoException).code === 'ENOENT' }
   const version = (require('esbuild/package.json') as { version: string }).version
-  return { compilerOptions, compatible, id: identityOf({ esbuild: version, node: process.versions.node, compilerOptions }) }
+  return { compilerOptions, compatible, coversScripts, id: identityOf({ esbuild: version, node: process.versions.node, compilerOptions }) }
+}
+
+/** 只确认入口项目根本层的覆盖范围；跨目录、复杂范围或父层配置交给 tsx */
+const settingsAtCwd = (cwd: string, root: string): ReturnType<typeof settingsOf> | undefined => {
+  try {
+    const here = realpathSync(cwd)
+    if (here !== realpathSync(dirname(root))) return undefined
+    for (let dir = here; ; dir = dirname(dir)) {
+      try {
+        statSync(join(dir, 'tsconfig.json'))
+        if (dir !== here) return undefined
+        const settings = settingsOf(here)
+        return settings.coversScripts ? settings : undefined
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') return undefined
+      }
+      if (dirname(dir) === dir) return settingsOf(here)
+    }
+  } catch { return undefined }
 }
 
 /** 编一个文件，选项照 tsx 给 esbuild 的那几项（esm、目标是当前 node、keepNames、minifyWhitespace）。编不出来就抛 */
@@ -189,7 +211,8 @@ export function prebuiltCommand(args: string[], cwd = process.cwd(), env: NodeJS
       // 钩子自身施变时不能兼任验证者的可信启动器；仍由 tsx 执行实际断言。
       if (readFileSync(HOOK, 'utf8') !== hookSource) return false
       const { id, compatible } = settingsOf(owner!)
-      if (!compatible) return false
+      const current = settingsAtCwd(cwd, root!)
+      if (!compatible || current?.compatible !== true || current.id !== id) return false
       const cache = join(owner!, PREBUILT_DIR)
       return complete(tsFiles(root!), f => entryPath(cache, keyNow(f, id)), existsSync)
     } })
