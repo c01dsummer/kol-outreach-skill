@@ -61,6 +61,25 @@ Phase 04、06 与 render 读的输入冻结；要重新产出的不冻结；会�
 
 在需求所有者自己那份工作目录的根下（`output/` 不进仓库）。`<名字>` 是这个冻结集的名字，`<原任务>` 是原任务目录名：
 
+名字和旧理由作为数据输入一次。人工先单独运行下一条命令，在它等待输入时提供一整行合法 JSON；换行写成 JSON 的 `\n` 转义。Agent 可通过执行器的环境对象提供同名变量。后续各段直接读取这份数据，`<名字>`、`<原任务>` 只用于说明路径。
+
+```bash
+IFS= read -r REGRESSION_NAMES_JSON
+```
+
+等待输入时的数据示例：
+
+```json
+{"freeze":"回归样本 A","source":"原任务 B","oldReason":"第一段旧理由\n第二段旧理由\n第三段旧理由"}
+```
+
+输入完成后导出，再执行各段。固定外层先解析、校验数据，再把名字和理由作为参数交给 Bash；坏 JSON、缺值或非法单目录名在任何写入前停止。中文、空格、引号和合法换行名字保留。挑出的旧理由用 JSON 的 `\n` 分隔，由 grep 逐行按原文检查，也经参数传递。
+
+```bash
+export REGRESSION_NAMES_JSON
+```
+
+
 选入的原任务须保留实际搜索配置与已保存的评审正本。当前 render 先校验 `task.json`：它须是可读 JSON 对象，`tasks` 须是非空数组，各项的 keyword、dimension、platform 满足原规则；重复键、品牌输入、进度、正本与冻结来源也照生产校验。下面任一次 render 被拒绝，就停止这个任务的冻结或比对，保留诊断；不能跳过校验，也不能补空列表、猜任务、删坏字段或编造轮次让它通过。由需求所有者按原搜索配置或备份恢复有据的输入后重新冻结；无法恢复就换他指定的另一个任务。原件不因这套流程被修写。
 
 冻结名字必须全新。冻结名和原任务名都只用一个非空目录名，不能是 `.`、`..`，也不能含 `/` 或 `\`；避免把冻结目录建进原任务树。冻结根目录用不带 `-p` 的 `mkdir` 一次创建；路径已存在（包括已有目录或链接）就失败并停止这一整段，不覆盖、不复用，也不删除旧证据来腾名字。失败后新建的目录同样保留，重试换一个新名字。
@@ -70,9 +89,19 @@ Phase 04、06 与 render 读的输入冻结；要重新产出的不冻结；会�
 原件按字节复制后，在清空 `reviews` 或作任何 JSON 改写之前，先对这份尚未改写的原正本调用现有 `readAgentReviewDocument`。严格读取拒绝时保留其诊断并停止；正本缺席同样停止，不把 reader 返回的缺席空文档当成已保存原件。不能先用普通 `JSON.parse`/`JSON.stringify` 洗过，再拿洗后的结果验证。以下整段在独立 Bash 子 shell 中执行，任一失败就停止，不继续后文。
 
 ```bash
-bash <<'FREEZE'
+node -e '
+const fs=require("fs"),cp=require("child_process")
+const p=JSON.parse(process.env.REGRESSION_NAMES_JSON??"null")
+if(!p||typeof p!=="object"||Array.isArray(p)) throw Error("缺少名字JSON对象")
+for(const key of ["freeze","source"]){const n=p[key];if(typeof n!=="string"||!n||n==="."||n===".."||n.includes("/")||n.includes("\\")||n.includes("\0")) throw Error("名字必须是非空单目录名")}
+if(typeof p.oldReason!=="string"||!p.oldReason||p.oldReason.includes("\0")) throw Error("缺少可传递的旧理由原文")
+const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source,p.oldReason],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"]})
+if(run.error) throw run.error
+if(run.signal||!Number.isInteger(run.status)) throw Error("命令未正常结束："+run.signal)
+process.exitCode=run.status
+' <<'FREEZE'
 set -euo pipefail
-N='<名字>'; O='<原任务>'
+N="$1"; O="$2"; G="$3"
 T="output/$O"
 F="output/$N"
 # 复制之前拒绝链接与特殊文件，不跟随它们进入原件
@@ -119,7 +148,7 @@ cp -a "$F/frozen"/. "$P/output/$N/"
 (cd "$P" && env -u TIKHUB_API_KEY npm run render -- --dir "output/$N")
 cp "$P/output/$N/task.json" "$P/output/$N/creators.json" "$P/output/$N/agent-review.json" "$F/frozen/"
 # 4. 核：从原件的 agent-review.json 里挑三五句旧理由、旧草稿的开头，冻结集里一处都不该有
-if grep -rF -- "<一句旧理由>" "$F/frozen/"; then
+if grep -rF -- "$G" "$F/frozen/"; then
   echo "冻结集仍带旧判断，停止" >&2
   exit 1
 else
@@ -150,9 +179,19 @@ FREEZE
 - **跑完核一遍费用账没变**：每一跑的 `task.json` 里 `cost_ledger` 与冻结集里的内容及原始数字记号相同；缺席不等于零。先确认该跑的 render 成功；被输入校验拒绝的，不算完成一跑，也不继续下判词。
 
 ```bash
-bash <<'COST'
+node -e '
+const fs=require("fs"),cp=require("child_process")
+const p=JSON.parse(process.env.REGRESSION_NAMES_JSON??"null")
+if(!p||typeof p!=="object"||Array.isArray(p)) throw Error("缺少名字JSON对象")
+for(const key of ["freeze","source"]){const n=p[key];if(typeof n!=="string"||!n||n==="."||n===".."||n.includes("/")||n.includes("\\")||n.includes("\0")) throw Error("名字必须是非空单目录名")}
+if(typeof p.oldReason!=="string"||!p.oldReason||p.oldReason.includes("\0")) throw Error("缺少可传递的旧理由原文")
+const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source,p.oldReason],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"]})
+if(run.error) throw run.error
+if(run.signal||!Number.isInteger(run.status)) throw Error("命令未正常结束："+run.signal)
+process.exitCode=run.status
+' <<'COST'
 set -euo pipefail
-N='<名字>'
+N="$1"
 for run in reg-old1 reg-old2 reg-old3 reg-new; do
 node - "output/$N/frozen/task.json" "../$run-$N/output/$N/task.json" <<'NODE'
 const fs=require('fs'),assert=require('assert/strict')
@@ -189,9 +228,19 @@ COST
 - **共用判据先定。** 第 f 节的形状和占位符参照默认取上述固定旧版提交；在四跑、量噪声之前记录这一共同提交及两份参照内容的 SHA256。若本次就是要改这两项承诺，先由需求所有者指定同一份共同参照及适用范围，固定提交和内容后才跑；未定就停，不给 A、B 各用自己的版本，也不随主干移动或看过结果后换标准。
 
 ```bash
-bash <<'RUNS'
+node -e '
+const fs=require("fs"),cp=require("child_process")
+const p=JSON.parse(process.env.REGRESSION_NAMES_JSON??"null")
+if(!p||typeof p!=="object"||Array.isArray(p)) throw Error("缺少名字JSON对象")
+for(const key of ["freeze","source"]){const n=p[key];if(typeof n!=="string"||!n||n==="."||n===".."||n.includes("/")||n.includes("\\")||n.includes("\0")) throw Error("名字必须是非空单目录名")}
+if(typeof p.oldReason!=="string"||!p.oldReason||p.oldReason.includes("\0")) throw Error("缺少可传递的旧理由原文")
+const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source,p.oldReason],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"]})
+if(run.error) throw run.error
+if(run.signal||!Number.isInteger(run.status)) throw Error("命令未正常结束："+run.signal)
+process.exitCode=run.status
+' <<'RUNS'
 set -euo pipefail
-N='<名字>'
+N="$1"
 git worktree add --detach "../reg-old1-$N" '<旧版提交>'
 git worktree add --detach "../reg-old2-$N" '<旧版提交>'
 git worktree add --detach "../reg-old3-$N" '<旧版提交>'
@@ -226,12 +275,22 @@ RUNS
 ## f　盲比
 
 **改名与密封**。四跑都跑完后，每个任务配两对：噪声对（`reg-old1`、`reg-old2`），新旧对（`reg-old3`、`reg-new`）。
-每对只拷交付物，A、B 两边随机分；对应关系先写进密封文件，再判。`<名字>-compare` 已经有了就换个名字，不覆盖（`sealed.txt` 是只读的，旧拷贝也会混进来）：
+每对只拷交付物，A、B 两边随机分；对应关系与24份复制交付物的对/侧/文件名及字节哈希一起写进密封文件，再判。`<名字>-compare` 已经有了就换个名字，不覆盖（`sealed.txt` 是只读的，旧拷贝也会混进来）：
 
 ```bash
-bash <<'COMPARE'
+node -e '
+const fs=require("fs"),cp=require("child_process")
+const p=JSON.parse(process.env.REGRESSION_NAMES_JSON??"null")
+if(!p||typeof p!=="object"||Array.isArray(p)) throw Error("缺少名字JSON对象")
+for(const key of ["freeze","source"]){const n=p[key];if(typeof n!=="string"||!n||n==="."||n===".."||n.includes("/")||n.includes("\\")||n.includes("\0")) throw Error("名字必须是非空单目录名")}
+if(typeof p.oldReason!=="string"||!p.oldReason||p.oldReason.includes("\0")) throw Error("缺少可传递的旧理由原文")
+const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source,p.oldReason],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"]})
+if(run.error) throw run.error
+if(run.signal||!Number.isInteger(run.status)) throw Error("命令未正常结束："+run.signal)
+process.exitCode=run.status
+' <<'COMPARE'
 set -euo pipefail
-C='output/<名字>-compare'
+N="$1"; C="output/$N-compare"
 R='<共同参照提交的完整40位SHA>'
 mkdir "$C"
 node -e '
@@ -264,12 +323,16 @@ for(const [name,two] of Object.entries(pairs)){
   if(Math.random()<0.5) two.reverse()
   ;["A","B"].forEach((side,i)=>{
     fs.mkdirSync(`${c}/${name}/${side}`,{recursive:true})
-    for(const f of files) fs.copyFileSync(`../${two[i]}-${n}/output/${n}/${f}`,`${c}/${name}/${side}/${f}`)
+    for(const f of files){
+      const to=c+"/"+name+"/"+side+"/"+f
+      fs.copyFileSync("../"+two[i]+"-"+n+"/output/"+n+"/"+f,to)
+      seal.push("delivery "+name+"/"+side+"/"+f+" "+hash(to))
+    }
   })
   seal.push(`${name} A=${two[0]} B=${two[1]}`)
 }
 fs.writeFileSync(`${c}/sealed.txt`,seal.join("\n")+"\n",{mode:0o400})
-' "$C" '<名字>' "$R"
+' "$C" "$N" "$R"
 shasum -a 256 "$C/sealed.txt"
 COMPARE
 ```
@@ -305,6 +368,69 @@ COMPARE
 | **混杂** | 一次改了几处，分不出差别出自哪一处 |
 
 判词连同理由（哪一步、哪个账号、哪句话）写进那条改 `skill/` 的 PR 正文，不另建台账。
+
+判词写下后先单独重算 `sealed.txt` 的 SHA256，与判前 PR 中的值核对；相同后才允许读取密封记录并逐文件复核。下面两段分开执行，先核密封 SHA，再揭封复核。任一成员缺失、多出、不是普通文件、字节或清单不符，都保留原件和原判词，注明本轮失格，不作为有效回归结论。
+
+```bash
+node -e '
+const fs=require("fs"),cp=require("child_process")
+const p=JSON.parse(process.env.REGRESSION_NAMES_JSON??"null")
+if(!p||typeof p!=="object"||Array.isArray(p)) throw Error("缺少名字JSON对象")
+for(const key of ["freeze","source"]){const n=p[key];if(typeof n!=="string"||!n||n==="."||n===".."||n.includes("/")||n.includes("\\")||n.includes("\0")) throw Error("名字必须是非空单目录名")}
+if(typeof p.oldReason!=="string"||!p.oldReason||p.oldReason.includes("\0")) throw Error("缺少可传递的旧理由原文")
+const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source,p.oldReason],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"]})
+if(run.error) throw run.error
+if(run.signal||!Number.isInteger(run.status)) throw Error("命令未正常结束："+run.signal)
+process.exitCode=run.status
+' <<'SEAL_HASH'
+set -euo pipefail
+N="$1"; C="output/$N-compare"
+shasum -a 256 "$C/sealed.txt"
+SEAL_HASH
+```
+
+人工核对与判前 PR 中的 SHA256 相同后，再单独执行下一段；不符即停止。
+
+```bash
+node -e '
+const fs=require("fs"),cp=require("child_process")
+const p=JSON.parse(process.env.REGRESSION_NAMES_JSON??"null")
+if(!p||typeof p!=="object"||Array.isArray(p)) throw Error("缺少名字JSON对象")
+for(const key of ["freeze","source"]){const n=p[key];if(typeof n!=="string"||!n||n==="."||n===".."||n.includes("/")||n.includes("\\")||n.includes("\0")) throw Error("名字必须是非空单目录名")}
+if(typeof p.oldReason!=="string"||!p.oldReason||p.oldReason.includes("\0")) throw Error("缺少可传递的旧理由原文")
+const run=cp.spawnSync("bash",["-s","--",p.freeze,p.source,p.oldReason],{input:fs.readFileSync(0),stdio:["pipe","inherit","inherit"]})
+if(run.error) throw run.error
+if(run.signal||!Number.isInteger(run.status)) throw Error("命令未正常结束："+run.signal)
+process.exitCode=run.status
+' <<'VERIFY'
+set -euo pipefail
+N="$1"; C="output/$N-compare"
+node -e '
+const fs=require("fs"),crypto=require("crypto"),c=process.argv[1]
+const hash=file=>crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")
+const lines=fs.readFileSync(c+"/sealed.txt","utf8").trimEnd().split("\n")
+const files=["agent-review.json","creators.json","kol.csv","kol.xlsx","report.html","meta.json"].sort()
+const expected=[],seen=new Map()
+for(const pair of ["noise","change"]) for(const side of ["A","B"]){
+  const dir=c+"/"+pair+"/"+side
+  if(!fs.lstatSync(dir).isDirectory()) throw Error("交付物目录失效")
+  if(JSON.stringify(fs.readdirSync(dir).sort())!==JSON.stringify(files)) throw Error("交付物成员缺失或多出")
+  for(const file of files) expected.push(pair+"/"+side+"/"+file)
+}
+for(const line of lines.filter(x=>x.startsWith("delivery "))){
+  const m=/^delivery (\S+) ([0-9a-f]{64})$/.exec(line)
+  if(!m||seen.has(m[1])||!expected.includes(m[1])) throw Error("密封成员失效或重复")
+  seen.set(m[1],m[2])
+}
+if(seen.size!==expected.length) throw Error("密封没有绑定完整24份交付物")
+for(const name of expected){const file=c+"/"+name;if(!fs.lstatSync(file).isFile()||hash(file)!==seen.get(name)) throw Error("交付物字节失效："+name)}
+const manifests=lines.filter(x=>x.startsWith("common_manifest_sha256="))
+if(manifests.length!==1||manifests[0]!=="common_manifest_sha256="+hash(c+"/common/MANIFEST.sha256")) throw Error("共用清单失效")
+console.log("24份交付物身份、字节与共用清单绑定一致")
+' "$C"
+(cd "$C/common"; shasum -a 256 -c MANIFEST.sha256)
+VERIFY
+```
 
 ---
 
