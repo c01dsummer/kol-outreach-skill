@@ -257,6 +257,7 @@ const GROUPS: readonly Group[] = [
   { id: 'u11-feedback-report-entry', needs: [] },
   { id: 'u11-keyword-attribution', needs: [] },
   { id: 'u11-keyword-report-entry', needs: [] },
+  { id: 'u12-product-name-complete', needs: [] },
   { id: 'u12-report-escape', needs: [] },
   { id: 'd20-content-version', needs: [] },
   { id: 'd28-control', needs: [] },
@@ -16477,6 +16478,236 @@ await group('u11-keyword-report-entry', async () => {
     eq('U11关键词真实入口保持raw人工与Agent原件字节', [read('creators.raw.json'), read('manual-feedback.csv'), read('agent-review.json')], [raw, manual, originalAgent])
     criterion('U11.m')
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+// Product-name expected values were frozen in a separate admitted context.
+// This narrow group claims U12.c only, not dynamic escaping provenance.
+await group('u12-product-name-complete', () => {
+  suite('U12', '网页标题与正文标题分别保留完整产品名')
+  type PositionVerdict = { kind: 'pass' | 'assertion-failed' | 'fixture-error'; details: string[] }
+  type U12COnlyPositionVerdict = PositionVerdict & { verifierId: string; scope: string }
+  type ExpectedCase = { escapedOnce: string }
+  type PositionInspection = { status: 'found'; nodes: { sourceId: string; rawTextFragments: string[] }[] }
+    | { status: 'missing' | 'uninspectable'; reason: string }
+  const identity = { verifierId: 'product-name-u12c-only', scope: 'U12.c-only' }
+  const escapes: Record<string, string> = {
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  };
+  const names: Record<string, string> = {
+    amp: '&', AMP: '&', lt: '<', LT: '<', gt: '>', GT: '>',
+    quot: '"', QUOT: '"', apos: "'",
+  };
+  const codepoints: Record<number, string> = { 38: '&', 60: '<', 62: '>', 34: '"', 39: "'" };
+
+  /** Normalize equivalent spellings one layer within this source text token.
+   * A bare ampersand cannot join another fragment to fabricate an entity.
+   * This does not inspect the provenance or escaping of additional copies.
+   */
+  function canonicalizeFiveReferences(text: string): string {
+    return text.replace(/&(?:amp;?|AMP;?|lt;?|LT;?|gt;?|GT;?|quot;?|QUOT;?|apos;|#\d+;?|#[xX][\da-fA-F]+;?)|&/g, token => {
+      if (token === '&') return '\0';
+      const body = token.slice(1).replace(/;$/, '');
+      const char = body[0] === '#'
+        ? codepoints[body[1]?.toLowerCase() === 'x' ? Number.parseInt(body.slice(2), 16) : Number(body.slice(1))]
+        : names[body];
+      return char === undefined ? token : escapes[char];
+    });
+  }
+
+  function verdict(kind: PositionVerdict['kind'], ...details: string[]): U12COnlyPositionVerdict {
+    return { ...identity, kind, details };
+  }
+
+  /** Only complete-value presence is measured. No extra-copy/provenance test. */
+  function evaluateU12COnlyProductPosition(
+    expected: Pick<ExpectedCase, 'escapedOnce'>,
+    inspection: PositionInspection,
+  ): U12COnlyPositionVerdict {
+    if (!inspection || typeof inspection !== 'object') return verdict('fixture-error', 'no structured observation');
+    if ((inspection.status === 'missing' || inspection.status === 'uninspectable') &&
+        (typeof inspection.reason !== 'string' || !inspection.reason)) {
+      return verdict('fixture-error', 'missing/uninspectable observation needs an explicit reason');
+    }
+    if (inspection.status === 'uninspectable') return verdict('fixture-error', `position not measured: ${inspection.reason}`);
+    if (inspection.status === 'missing') return verdict('assertion-failed', `required position missing: ${inspection.reason}`);
+    if (inspection.status !== 'found' || !Array.isArray(inspection.nodes) || !inspection.nodes.length) {
+      return verdict('fixture-error', 'found must contain an observed position');
+    }
+    const seen = new Set<string>();
+    for (const node of inspection.nodes) {
+      if (!node || typeof node.sourceId !== 'string' || !node.sourceId || seen.has(node.sourceId) ||
+          !Array.isArray(node.rawTextFragments) || !node.rawTextFragments.every((text: unknown) => typeof text === 'string')) {
+        return verdict('fixture-error', 'invalid or duplicated source observation');
+      }
+      seen.add(node.sourceId);
+    }
+    const details: string[] = [];
+    for (const node of inspection.nodes) {
+      const actual = node.rawTextFragments.map(canonicalizeFiveReferences).join('');
+      if (!actual.includes(expected.escapedOnce)) details.push(`${node.sourceId}: complete required product value missing`);
+    }
+    return { ...identity, kind: details.length ? 'assertion-failed' : 'pass', details };
+  }
+
+  // Finite source reader for this renderer's canonical document structure.
+  // Preserve text fragments; do not normalize whitespace/Unicode or read script,
+  // style, template, comments, attributes, or the other requested position.
+  const inspect = (html: string, position: 'title' | 'h1'): PositionInspection => {
+    const lower = html.toLowerCase(), stack: string[] = []
+    const nodes: { sourceId: string; rawTextFragments: string[]; depth: number; end: number }[] = []
+    const active: typeof nodes = [], errors: string[] = []
+    const excluded = () => stack.some(tag => /^(script|style|template)$/.test(tag))
+    const voidTags = new Set('area base br col embed hr img input link meta param source track wbr'.split(' '))
+    let at = 0
+    while (at < html.length) {
+      const raw = stack.at(-1)
+      if (raw === 'script' || raw === 'style') {
+        const close = lower.indexOf('</' + raw, at)
+        if (close < 0) { errors.push('unclosed raw-text element'); break }
+        at = close
+      }
+      if (html.startsWith('<!--', at)) {
+        const close = html.indexOf('-->', at + 4)
+        if (close < 0) { errors.push('unclosed comment'); break }
+        at = close + 3; continue
+      }
+      const tag = /^<(\/?)([a-z][\w:-]*)(?=[\s/>])/i.exec(html.slice(at))
+      if (html[at] === '<' && (tag || html.startsWith('<!', at))) {
+        let end = at + 1, quote = ''
+        for (; end < html.length; end++) {
+          const ch = html[end]
+          if (quote) { if (ch === quote) quote = '' }
+          else if (ch === '"' || ch === "'") quote = ch
+          else if (ch === '>') break
+        }
+        if (end === html.length) { errors.push('unclosed tag'); break }
+        if (tag) {
+          const name = tag[2].toLowerCase()
+          if (tag[1]) {
+            if (!voidTags.has(name)) {
+              if (stack.at(-1) !== name) { errors.push('mismatched closing tag'); break }
+              for (let n = active.length - 1; n >= 0; n--) {
+                if (active[n].depth === stack.length - 1) active.splice(n, 1)
+              }
+              stack.pop()
+            }
+          } else {
+            const eligible = name === position && stack.includes(position === 'title' ? 'head' : 'body')
+            if (eligible && !excluded()) {
+              const node = { sourceId: String(at), rawTextFragments: [] as string[], depth: stack.length, end: -1 }
+              nodes.push(node); active.push(node)
+            }
+            const selfClosing = /\/\s*>$/.test(html.slice(at, end + 1))
+            if (!voidTags.has(name) && !selfClosing) stack.push(name)
+            else if (eligible && !excluded()) active.pop()
+          }
+        }
+        at = end + 1; continue
+      }
+      const next = html.indexOf('<', at + 1), end = next < 0 ? html.length : next
+      if (!excluded()) for (const node of active) {
+        const text = html.slice(at, end)
+        if (node.end === at && node.rawTextFragments.length) node.rawTextFragments[node.rawTextFragments.length - 1] += text
+        else node.rawTextFragments.push(text)
+        node.end = end
+      }
+      at = end
+    }
+    if (errors.length || stack.length) return { status: 'uninspectable', reason: errors.join('; ') || 'unclosed structure' }
+    return nodes.length ? { status: 'found', nodes: nodes.map(({ sourceId, rawTextFragments }) => ({ sourceId, rawTextFragments })) }
+      : { status: 'missing', reason: 'required position absent in document scope' }
+  }
+  const measured = (html: string, position: 'title' | 'h1', value: string) =>
+    evaluateU12COnlyProductPosition({ escapedOnce: value }, inspect(html, position)).kind
+  const control = '<html><head><title>HEAD_REQUIRED</title></head><body><h1>BODY_REQUIRED</h1></body></html>'
+  eq('产品名位置读取正控分别读取head标题和body标题',
+    [measured(control, 'title', 'HEAD_REQUIRED'), measured(control, 'h1', 'BODY_REQUIRED')], ['pass', 'pass'])
+  eq('产品名位置读取不能借另一位置的完整值满足',
+    [measured(control, 'title', 'BODY_REQUIRED'), measured(control, 'h1', 'HEAD_REQUIRED')], ['assertion-failed', 'assertion-failed'])
+  const traps = '<html><head><title>WRONG</title></head><body data-note="<title>REQUIRED</title><h1>REQUIRED</h1>">' +
+    '<!--<title>REQUIRED</title><h1>REQUIRED</h1>--><script>"<title>REQUIRED</title><h1>REQUIRED</h1>"</script>' +
+    '<style>.x{content:"<h1>REQUIRED</h1>"}</style><template><h1>REQUIRED</h1></template><h1>WRONG</h1></body></html>'
+  eq('产品名位置读取排除注释属性脚本样式和模板诱饵',
+    [measured(traps, 'title', 'REQUIRED'), measured(traps, 'h1', 'REQUIRED')], ['assertion-failed', 'assertion-failed'])
+  eq('产品名位置读取不把跨标记碎片拼成字符实体',
+    measured('<html><head><title>A&<b></b>amp;</title></head><body></body></html>', 'title', 'A&amp;'), 'assertion-failed')
+  eq('产品名位置读取区分位置缺失和无法观察',
+    [measured('<html><head></head><body></body></html>', 'title', 'REQUIRED'),
+      measured('<html><head><title>REQUIRED', 'title', 'REQUIRED')], ['assertion-failed', 'fixture-error'])
+  const fixture: any = {
+    "product": "CONTRACT_OWNS_THIS_PRODUCT",
+    "market": "US",
+    "platforms": ["tiktok","instagram"],
+    "keywords": [{"task_index": 0,"keyword": "power bank review","platform": "tiktok","dimension": "category","status": "queried","found": 12,"shortlisted": 3,"fit_pass": 3,"manual_reviewed": 0},{"task_index": 1,"keyword": "smoothie","platform": "instagram","dimension": "scene","status": "queried","found": 8,"shortlisted": 2,"fit_pass": 1,"manual_reviewed": 0}],
+    "feedback_summary": {"rounds": [{"round_id": "round-001","candidates": 5,"reviewed": 0,"unreviewed": 5}],"eligible": {"yes": 0,"no": 0,"unknown": 0,"unreviewed": 5,"denominator": 0,"rate": null},"adopted": {"yes": 0,"no": 0,"unknown": 0,"unreviewed": 5,"denominator": 0,"rate": null},"reject_reasons": [],"disagreements": []},
+    "review_rounds": [{"round_id": "round-001","created_at": "2026-10-24T02:56:32.514Z","source": "task.json","candidates": [{"account_key": "tiktok:techwithsarah","source_tasks": [{"task_index": 0,"keyword": "power bank review","dimension": "category","platform": "tiktok"}]},{"account_key": "instagram:techwithsarah","source_tasks": [{"task_index": 1,"keyword": "smoothie","dimension": "scene","platform": "instagram"}]},{"account_key": "tiktok:powerbankdeals","source_tasks": [{"task_index": 0,"keyword": "power bank review","dimension": "category","platform": "tiktok"}]},{"account_key": "tiktok:mysteryuser","source_tasks": [{"task_index": 0,"keyword": "power bank review","dimension": "category","platform": "tiktok"}]},{"account_key": "instagram:privateaccount","source_tasks": [{"task_index": 1,"keyword": "smoothie","dimension": "scene","platform": "instagram"}]}]}],
+    "total": 4,
+    "tiers": {"A": 4,"B": 0,"C": 0},
+    "email_count": 4,
+    "cross_platform_count": 1,
+    "high_risk_count": 0,
+    "requests": 18,
+    "cost_estimate_usd": 0.024,
+    "budget_usd": 1,
+    "cost_status": "known",
+    "cost_scope": "task",
+    "cost_http_200_usd": 0.024,
+    "cost_unknown_result_usd": 0,
+    "cost_pending_usd": 0,
+    "cost_basis": "按固定公开基础价、不计优惠的估算；不是实际账单，也不保证供应商未来价格上限。",
+    "cost_price_versions": ["tikhub-public-20260720-5d52fe8fb109"],
+    "cost_problems": [],
+    "enriched": false,
+    "memory_status": "ok",
+    "memory_written": true,
+    "capabilities": {"email_verification": {"total": 4,"measured": 0,"unavailable": 0,"unqueried": 4},"audience_geo": {"total": 4,"measured": 0,"unavailable": 0,"unqueried": 4},"public_post_sample": {"total": 5,"measured": 5,"unavailable": 0,"unqueried": 0},"audience_quality_risk": {"total": 5,"measured": 0,"unavailable": 5,"unqueried": 0},"creator_activity": {"total": 5,"measured": 5,"unavailable": 0,"unqueried": 0},"collaboration_quote": {"total": 5,"measured": 0,"unavailable": 0,"unqueried": 5}},
+  }
+  const cases = [
+    {"id": "long-tail","product": "LONG_BEGIN|0001-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0002-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0003-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0004-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0005-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0006-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0007-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0008-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0009-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0010-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0011-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0012-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0013-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0014-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0015-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0016-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0017-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0018-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0019-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0020-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0021-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0022-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0023-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0024-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|TAIL_SENTINEL_7B6E9D4C_DO_NOT_TRUNCATE","escapedOnce": "LONG_BEGIN|0001-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0002-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0003-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0004-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0005-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0006-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0007-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0008-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0009-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0010-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0011-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0012-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0013-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0014-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0015-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0016-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0017-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0018-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0019-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0020-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0021-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0022-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0023-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0024-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|TAIL_SENTINEL_7B6E9D4C_DO_NOT_TRUNCATE","checks": [{"view": "default","position": "title","label": "U12.product.long-tail.default.title"},{"view": "default","position": "h1","label": "U12.product.long-tail.default.h1"},{"view": "review-dual","position": "title","label": "U12.product.long-tail.review-dual.title"},{"view": "review-dual","position": "h1","label": "U12.product.long-tail.review-dual.h1"}]},
+    {"id": "unicode","product": "UNICODE_BEGIN|产品名：星河充电宝・Café・Café・株式会社・مرحبا・🚀🧪・𠮷|UNICODE_END_90A2","escapedOnce": "UNICODE_BEGIN|产品名：星河充电宝・Café・Café・株式会社・مرحبا・🚀🧪・𠮷|UNICODE_END_90A2","checks": [{"view": "default","position": "title","label": "U12.product.unicode.default.title"},{"view": "default","position": "h1","label": "U12.product.unicode.default.h1"},{"view": "review-dual","position": "title","label": "U12.product.unicode.review-dual.title"},{"view": "review-dual","position": "h1","label": "U12.product.unicode.review-dual.h1"}]},
+    {"id": "five-characters","product": "FIVE_BEGIN|&<>\"'|& then < then > then \" then '|FIVE_END_48C7","escapedOnce": "FIVE_BEGIN|&amp;&lt;&gt;&quot;&#39;|&amp; then &lt; then &gt; then &quot; then &#39;|FIVE_END_48C7","checks": [{"view": "default","position": "title","label": "U12.product.five-characters.default.title"},{"view": "default","position": "h1","label": "U12.product.five-characters.default.h1"},{"view": "review-dual","position": "title","label": "U12.product.five-characters.review-dual.title"},{"view": "review-dual","position": "h1","label": "U12.product.five-characters.review-dual.h1"}]},
+    {"id": "entity-literals","product": "ENTITY_BEGIN|&amp;|&lt;|&gt;|&quot;|&#39;|&#x27;|&apos;|&unknown;|&AMP;|ENTITY_END_C41D","escapedOnce": "ENTITY_BEGIN|&amp;amp;|&amp;lt;|&amp;gt;|&amp;quot;|&amp;#39;|&amp;#x27;|&amp;apos;|&amp;unknown;|&amp;AMP;|ENTITY_END_C41D","checks": [{"view": "default","position": "title","label": "U12.product.entity-literals.default.title"},{"view": "default","position": "h1","label": "U12.product.entity-literals.default.h1"},{"view": "review-dual","position": "title","label": "U12.product.entity-literals.review-dual.title"},{"view": "review-dual","position": "h1","label": "U12.product.entity-literals.review-dual.h1"}]},
+  ]
+  const assertions: Record<string, (pass: boolean) => void> = {
+    "U12.product.long-tail.default.title": pass => ok("U12.product.long-tail.default.title", pass),
+    "U12.product.long-tail.default.h1": pass => ok("U12.product.long-tail.default.h1", pass),
+    "U12.product.long-tail.review-dual.title": pass => ok("U12.product.long-tail.review-dual.title", pass),
+    "U12.product.long-tail.review-dual.h1": pass => ok("U12.product.long-tail.review-dual.h1", pass),
+    "U12.product.unicode.default.title": pass => ok("U12.product.unicode.default.title", pass),
+    "U12.product.unicode.default.h1": pass => ok("U12.product.unicode.default.h1", pass),
+    "U12.product.unicode.review-dual.title": pass => ok("U12.product.unicode.review-dual.title", pass),
+    "U12.product.unicode.review-dual.h1": pass => ok("U12.product.unicode.review-dual.h1", pass),
+    "U12.product.five-characters.default.title": pass => ok("U12.product.five-characters.default.title", pass),
+    "U12.product.five-characters.default.h1": pass => ok("U12.product.five-characters.default.h1", pass),
+    "U12.product.five-characters.review-dual.title": pass => ok("U12.product.five-characters.review-dual.title", pass),
+    "U12.product.five-characters.review-dual.h1": pass => ok("U12.product.five-characters.review-dual.h1", pass),
+    "U12.product.entity-literals.default.title": pass => ok("U12.product.entity-literals.default.title", pass),
+    "U12.product.entity-literals.default.h1": pass => ok("U12.product.entity-literals.default.h1", pass),
+    "U12.product.entity-literals.review-dual.title": pass => ok("U12.product.entity-literals.review-dual.title", pass),
+    "U12.product.entity-literals.review-dual.h1": pass => ok("U12.product.entity-literals.review-dual.h1", pass),
+  }
+
+  const views: [string, Parameters<typeof renderHtml>[2]][] = [
+    ['default', {}], ['review-dual', { mode: 'review', filters: 'dual' }],
+  ]
+  const labels = new Set<string>()
+  for (const item of cases) for (const [view, options] of views) {
+    const meta = structuredClone(fixture); meta.product = item.product
+    let html: string
+    try { html = renderHtml([], meta, { ...options }) }
+    catch (error) { ok(SELFCHECK_FIXTURE_MARK + ' product-name render-error ' + item.id + ':' + view + ' ' + String(error), false); continue }
+    for (const check of item.checks.filter(check => check.view === view)) {
+      if (labels.has(check.label)) throw new Error(SELFCHECK_FIXTURE_MARK + ' duplicate product-name contract label')
+      labels.add(check.label)
+      const result = evaluateU12COnlyProductPosition(item, inspect(html, check.position as 'title' | 'h1'))
+      if (result.kind === 'fixture-error') {
+        ok(SELFCHECK_FIXTURE_MARK + ' ' + check.label + ':fixture-error ' + result.details.join('; '), false); continue
+      }
+      assertions[check.label](result.kind === 'pass')
+    }
+  }
+  eq('产品名逐位置独立契约每个标签恰执行一次', labels.size, 16)
+  criterion('U12.c')
 })
 
 await group('u12-report-escape', () => {
