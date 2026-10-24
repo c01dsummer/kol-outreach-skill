@@ -11118,6 +11118,8 @@ const repo = (name: string) => {
   const dir = join(owner, name); mkdirSync(dir)
   git(dir, ['init', '-q']); git(dir, ['config', 'user.name', 'Decoy Owner'])
   git(dir, ['config', 'user.email', 'decoy@example.invalid'])
+  // 提交可启动后台维护；快照前让自有仓库静止，保留所有 Git 文件的字节审计。
+  git(dir, ['config', 'gc.auto', '0']); git(dir, ['config', 'maintenance.auto', 'false'])
   writeFileSync(join(dir, 'sentinel.txt'), 'independent decoy content\n')
   git(dir, ['add', '.']); git(dir, ['commit', '-qm', 'decoy sentinel'])
   return dir
