@@ -22,10 +22,12 @@
     "adr-ledger": "tsx scripts/check/adr-ledger.ts",
     "launches": "tsx scripts/check/launches.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run size && npm run spec && npm run skill && npm run adr && npm run typecheck && npm test && npm run mutate && npm run selfcheck && npm run audit && npm run launches"
+    "compile": "tsx scripts/check/compile.ts",
+    "check": "npm run size && npm run spec && npm run skill && npm run adr && npm run typecheck && npm run compile && npm test && npm run mutate && npm run selfcheck && npm run audit && npm run launches"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "esbuild": "^0.28.2",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }
