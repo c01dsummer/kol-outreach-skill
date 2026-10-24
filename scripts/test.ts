@@ -9516,6 +9516,7 @@ for (const test of cases) {
 process.chdir(originalCwd);
 
 // Independent controls: the exact same source path under both ordinary JSON configs.
+const directTsxLoader = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href;
 for (const [id, tree, childCwd, setterCount, own] of [
   ['direct-tsx-owner-define', defineToAssign, defineToAssign.owner, 0, true],
   ['direct-tsx-child-assign', defineToAssign, defineToAssign.child, 1, false],
@@ -9523,8 +9524,8 @@ for (const [id, tree, childCwd, setterCount, own] of [
   ['direct-tsx-child-define', assignToDefine, assignToDefine.child, 0, true]
 ] as const) {
   const direct: Case = { id, tree, childCwd, wiring: 'cli', setterCount, own };
-  runObserved(direct, 'positive', pathToFileURL(path.join(DEPENDENCIES, 'tsx/dist/loader.mjs')).href, cleanEnv());
-  runObserved(direct, 'target', pathToFileURL(path.join(DEPENDENCIES, 'tsx/dist/loader.mjs')).href, cleanEnv());
+  runObserved(direct, 'positive', directTsxLoader, cleanEnv());
+  runObserved(direct, 'target', directTsxLoader, cleanEnv());
 }
 
 const counts = new Map<string, number>();
