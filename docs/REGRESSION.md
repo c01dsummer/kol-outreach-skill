@@ -111,12 +111,13 @@ cp -a "$F/source"/. "$F/frozen/"
 rm -f "$F/frozen"/{kol.csv,kol.xlsx,report.html,meta.json,enrichment.json,manual-feedback.csv}
 node -e 'const fs=require("fs"),f=process.argv[1],d=JSON.parse(fs.readFileSync(f,"utf8"));d.reviews={};fs.writeFileSync(f,JSON.stringify(d,null,2)+"\n")' "$F/frozen/agent-review.json"
 # 3. 在一个临时 worktree 里离线 render 一次，重建名单投影（不在自己这份目录里跑，见上面第 2 个坑）
-git worktree add --detach "../reg-prep" '<旧版提交>'
-(cd "../reg-prep" && npm ci)
-mkdir -p "../reg-prep/output/$N"
-cp -a "$F/frozen"/. "../reg-prep/output/$N/"
-(cd "../reg-prep" && env -u TIKHUB_API_KEY npm run render -- --dir "output/$N")
-cp "../reg-prep/output/$N/task.json" "../reg-prep/output/$N/creators.json" "../reg-prep/output/$N/agent-review.json" "$F/frozen/"
+P="../reg-prep-$N"
+git worktree add --detach "$P" '<旧版提交>'
+(cd "$P" && npm ci)
+mkdir -p "$P/output/$N"
+cp -a "$F/frozen"/. "$P/output/$N/"
+(cd "$P" && env -u TIKHUB_API_KEY npm run render -- --dir "output/$N")
+cp "$P/output/$N/task.json" "$P/output/$N/creators.json" "$P/output/$N/agent-review.json" "$F/frozen/"
 # 4. 核：从原件的 agent-review.json 里挑三五句旧理由、旧草稿的开头，冻结集里一处都不该有
 if grep -rF -- "<一句旧理由>" "$F/frozen/"; then
   echo "冻结集仍带旧判断，停止" >&2
@@ -126,12 +127,14 @@ else
   [ "$status" -eq 1 ] || exit "$status"
 fi
 # 5. 清单
-(cd "$F" && find source frozen -type f | sort | xargs shasum -a 256) > "$F/MANIFEST.sha256"
+(cd "$F" && find source frozen -type f -exec shasum -a 256 {} + | LC_ALL=C sort) > "$F/MANIFEST.sha256"
 FREEZE
 ```
 
 第 4 步搜到了就停：说明还有地方带着旧判断，先找出是哪份文件、补进上面那张表，换全新名字再冻。
 `<旧版提交>` 见 d。第 3 步 render 会改 `task.json` 里的 `memory_status` 与 `updated_at`，不动费用账。
+
+五个 worktree 的名字都带本任务的冻结名；每个任务换全新的冻结名，连续处理任务时就不会复用已登记的路径。已有 worktree 或失败留下的目录同样保留，失败即停，重试换全新冻结名。下文的 `reg-old1`、`reg-old2`、`reg-old3`、`reg-new` 是跑次代号，实际目录各带 `-<名字>` 后缀。
 
 ---
 
@@ -147,7 +150,7 @@ FREEZE
 - **跑完核一遍费用账没变**：每一跑的 `task.json` 里 `cost_ledger` 与冻结集里的内容及原始数字记号相同；缺席不等于零。先确认该跑的 render 成功；被输入校验拒绝的，不算完成一跑，也不继续下判词。
 
 ```bash
-node - "output/<名字>/frozen/task.json" "../reg-old1/output/<名字>/task.json" <<'NODE'
+node - "output/<名字>/frozen/task.json" "../reg-old1-<名字>/output/<名字>/task.json" <<'NODE'
 const fs=require('fs'),assert=require('assert/strict')
 class NumberToken {
   constructor(raw) {
@@ -181,14 +184,15 @@ NODE
 ```bash
 bash <<'RUNS'
 set -euo pipefail
-git worktree add --detach ../reg-old1 '<旧版提交>'
-git worktree add --detach ../reg-old2 '<旧版提交>'
-git worktree add --detach ../reg-old3 '<旧版提交>'
-git worktree add --detach ../reg-new  '<新版提交>'
+N='<名字>'
+git worktree add --detach "../reg-old1-$N" '<旧版提交>'
+git worktree add --detach "../reg-old2-$N" '<旧版提交>'
+git worktree add --detach "../reg-old3-$N" '<旧版提交>'
+git worktree add --detach "../reg-new-$N"  '<新版提交>'
 for w in reg-old1 reg-old2 reg-old3 reg-new; do
-  (cd "../$w"; npm ci)
-  mkdir -p "../$w/output/<名字>"
-  cp -a "output/<名字>/frozen/." "../$w/output/<名字>/"
+  (cd "../$w-$N"; npm ci)
+  mkdir -p "../$w-$N/output/$N"
+  cp -a "output/$N/frozen/." "../$w-$N/output/$N/"
 done
 RUNS
 ```
@@ -231,7 +235,7 @@ for(const [name,two] of Object.entries(pairs)){
   if(Math.random()<0.5) two.reverse()
   ;["A","B"].forEach((side,i)=>{
     fs.mkdirSync(`${c}/${name}/${side}`,{recursive:true})
-    for(const f of files) fs.copyFileSync(`../${two[i]}/output/${n}/${f}`,`${c}/${name}/${side}/${f}`)
+    for(const f of files) fs.copyFileSync(`../${two[i]}-${n}/output/${n}/${f}`,`${c}/${name}/${side}/${f}`)
   })
   seal.push(`${name} A=${two[0]} B=${two[1]}`)
 }
