@@ -65,6 +65,8 @@ Phase 04、06 与 render 读的输入冻结；要重新产出的不冻结；会�
 
 冻结名字必须全新。冻结根目录用不带 `-p` 的 `mkdir` 一次创建；路径已存在（包括已有目录或链接）就失败并停止这一整段，不覆盖、不复用，也不删除旧证据来腾名字。失败后新建的目录同样保留，重试换一个新名字。
 
+原任务树只接受普通文件和目录；复制前检查整棵树，遇到符号链接（包括目录链接、断链）或其他文件类型就停止。不能让冻结副本里的链接继续指向原件，再沿链接清空或改写原件。
+
 原件按字节复制后，在清空 `reviews` 或作任何 JSON 改写之前，先对这份尚未改写的原正本调用现有 `readAgentReviewDocument`。严格读取拒绝时保留其诊断并停止；正本缺席同样停止，不把 reader 返回的缺席空文档当成已保存原件。不能先用普通 `JSON.parse`/`JSON.stringify` 洗过，再拿洗后的结果验证。以下整段在独立 Bash 子 shell 中执行，任一失败就停止，不继续后文。
 
 ```bash
@@ -72,6 +74,17 @@ bash <<'FREEZE'
 set -euo pipefail
 N='<名字>'; T='output/<原任务>'
 F="output/$N"
+# 复制之前拒绝链接与特殊文件，不跟随它们进入原件
+node --input-type=module - "$T" <<'TREE'
+import { lstatSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+function plainTree(file) {
+  const stat = lstatSync(file)
+  if (!stat.isFile() && !stat.isDirectory()) throw Error(`任务输入只接受普通文件和目录，停止冻结：${file}`)
+  if (stat.isDirectory()) for (const name of readdirSync(file)) plainTree(join(file, name))
+}
+plainTree(process.argv[2])
+TREE
 # 1. 原件：原子创建全新冻结根；已存在就停止，不复用
 mkdir "$F"
 mkdir "$F/source" "$F/frozen"
