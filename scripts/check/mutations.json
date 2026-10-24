@@ -18251,7 +18251,7 @@
       "req": "harness",
       "why": "把不能完整理解的编译配置判成可预编，会忽略注释配置和继承配置中的有效语义",
       "file": "scripts/check/prebuilt.ts",
-      "find": "if (!compatible) return false",
+      "find": "if (!compatible || current?.compatible !== true || current.id !== id) return false",
       "replace": "if (false) return false",
       "by": "test",
       "kills": ["JSONC 编译配置：回退 tsx 保留字段赋值语义", "继承编译配置：回退 tsx 使用完整有效配置"]
@@ -18295,6 +18295,33 @@
       "replace": "isBare(argv) ? argv[0] :",
       "by": "test",
       "kills": ["观察器加载器：齐缓存按内建能力返回预编钩子或当前项目 tsx，入口同路", "观察器 CLI 阳性：.ts URL 的对象和原型修改被相对 .js 入口看见，地址保持 .ts"]
+    },
+    {
+      "id": "M-H62-ag",
+      "req": "harness",
+      "why": "跨目录启动仍沿用缓存目录配置，会把两种相反字段初始化语义都跑反",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "if (!compatible || current?.compatible !== true || current.id !== id) return false",
+      "replace": "if (!compatible) return false",
+      "by": "test",
+      "kills": [
+        "cxv4 owner define cwd assign setter count",
+        "cxv4 owner define cwd assign own property",
+        "cxv4 owner assign cwd define setter count",
+        "cxv4 owner assign cwd define own property"
+      ]
+    },
+    {
+      "id": "M-H62-ah",
+      "req": "harness",
+      "why": "可确认同目录且缓存完整时仍须保留内建能力支持的预编起法，不能一律退回",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "const current = settingsAtCwd(cwd, root!)",
+      "replace": "const current = undefined as ReturnType<typeof settingsOf> | undefined",
+      "by": "test",
+      "kills": [
+        "cxv4 same directory cache follows Node strip capability"
+      ]
     },
     {
       "id": "M-H64-a",
