@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, s
 import { createRequire } from 'node:module'
 import { constants } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type * as Esbuild from 'esbuild'
 import { entryPath, keyOf } from './prebuilt-hook.js'
 import { tsxCommand } from './tsx-cmd.js'
@@ -56,7 +57,7 @@ export function ownerOf(root: string, exists: (path: string) => boolean): string
 export const complete = (files: readonly string[], entryOf: (file: string) => string, has: (entry: string) => boolean): boolean =>
   files.every(f => has(entryOf(f)))
 
-/** NODE_OPTIONS 里自己带着 tsx 的加载器：夹具要在入口之前装一份按 `.ts` 地址 import 产品模块的观察器，留给第二片 */
+/** NODE_OPTIONS 显式带着 tsx 的加载器时保留它；仓库夹具用 fixtureLoader 选与入口一致的加载器 */
 export const bringsTsxLoader = (nodeOptions: string | undefined): boolean => /[\\/]node_modules[\\/]tsx[\\/]|(?:^|\s)--(?:import|loader|experimental-loader|require)(?:=|\s+)["']?tsx(?:[\\/]|["']?(?:\s|$))/.test(nodeOptions ?? '')
 
 /**
@@ -193,4 +194,10 @@ export function prebuiltCommand(args: string[], cwd = process.cwd(), env: NodeJS
       return complete(tsFiles(root!), f => entryPath(cache, keyNow(f, id)), existsSync)
     } })
   return bare ? [process.execPath, ['--import', hookFor(root!, owner!, settingsOf(owner!).id), ...args]] : tsxCommand(args)
+}
+
+/** 入口前的观察器及 fake-fetch 与入口共用同一加载器；script 定位入口所在树，env 是添加这些预加载前的子进程环境 */
+export function fixtureLoader(script: string, env: NodeJS.ProcessEnv = process.env): string {
+  const [, argv] = prebuiltCommand([script], process.cwd(), env)
+  return isBare(argv) ? argv[1]! : pathToFileURL(require.resolve('tsx')).href
 }

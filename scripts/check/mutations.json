@@ -18265,6 +18265,36 @@
       "replace": "/never-disables-strip/",
       "by": "test",
       "kills": ["仅子进程禁用内建类型剥离：普通及引号写法均成功回退 tsx"]
+    },
+    {
+      "id": "M-H62-ad",
+      "req": "harness",
+      "why": "齐缓存且运行环境兼容时，观察器应使用与入口一致的预编加载，不能始终留在旧起法",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "return isBare(argv) ? argv[1]! : pathToFileURL(require.resolve('tsx')).href",
+      "replace": "return pathToFileURL(require.resolve('tsx')).href",
+      "by": "test",
+      "kills": ["观察器加载器：齐缓存按内建能力返回预编钩子或当前项目 tsx，入口同路"]
+    },
+    {
+      "id": "M-H62-ae",
+      "req": "harness",
+      "why": "观察器的加载选择必须使用传入的子进程环境，不能丢掉主动关闭、禁剥离或显式配置",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "const [, argv] = prebuiltCommand([script], process.cwd(), env)",
+      "replace": "const [, argv] = prebuiltCommand([script], process.cwd(), {})",
+      "by": "test",
+      "kills": ["观察器加载器：KOL_PREBUILT=0 与入口一同保留 tsx", "观察器加载器：仅子进程禁剥离时普通及引号写法均保留 tsx", "观察器加载器：显式 TSX_TSCONFIG_PATH 与入口一同保留 tsx"]
+    },
+    {
+      "id": "M-H62-af",
+      "req": "harness",
+      "why": "预编观察器的加载地址必须是可用模块 URL，错误的参数项不能替观察器已接线作证",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "isBare(argv) ? argv[1]! :",
+      "replace": "isBare(argv) ? argv[0] :",
+      "by": "test",
+      "kills": ["观察器加载器：齐缓存按内建能力返回预编钩子或当前项目 tsx，入口同路", "观察器 CLI 阳性：.ts URL 的对象和原型修改被相对 .js 入口看见，地址保持 .ts"]
     }
   ],
   "exemptions": [
