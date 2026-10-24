@@ -18560,6 +18560,84 @@
         "normal.legacy-calltime-define.bare-loader-command-parity",
         "normal.legacy-calltime-assign.bare-loader-command-parity"
       ]
+    },
+    {
+      "id": "M-H65-a",
+      "file": ".github/workflows/check.yml",
+      "req": "harness",
+      "by": "test",
+      "find": "runs?branch=main&event=push&status=success&per_page=5&created=%3C$created",
+      "replace": "runs?branch=feature&event=push&status=success&per_page=5&created=%3C$created",
+      "why": "历史成功记录不限定主干，其他分支的运行进入对照，中位与公开通知失真",
+      "kills": [
+        "wall.core.pr_first_parent"
+      ]
+    },
+    {
+      "id": "M-H65-b",
+      "file": ".github/workflows/check.yml",
+      "req": "harness",
+      "by": "test",
+      "find": "| tr -s ' ' | cut -c 1-80 | sed 's/^ //; s/ $//'",
+      "replace": "| tr -s ' ' | sed 's/^ //; s/ $//' | cut -c 1-80",
+      "why": "CPU型号先去首尾空格再截断，使边界位置多留字符，公开型号不符合规定顺序",
+      "kills": [
+        "wall.cpu.truncate_before_trim"
+      ]
+    },
+    {
+      "id": "M-H65-c",
+      "file": ".github/workflows/check.yml",
+      "req": "harness",
+      "by": "test",
+      "find": "base=$(git rev-parse -q --verify 'HEAD^1' 2>/dev/null)",
+      "replace": "base=$(git rev-parse -q --verify 'HEAD^2' 2>/dev/null)",
+      "why": "PR变异数差额用第二父提交而不是实际主干第一父提交，差额不再表示本PR带入的工作量",
+      "kills": [
+        "wall.core.pr_first_parent"
+      ]
+    },
+    {
+      "id": "M-H65-d",
+      "req": "harness",
+      "by": "test",
+      "kills": [
+        "D01_default_membership"
+      ],
+      "file": "scripts/check/claims.ts",
+      "find": "...(dir === SOURCE_DIR ? workflowSources() : [])",
+      "replace": "...([] as [string, string][])",
+      "why": "默认来源清单漏掉实际存在的检查工作流，旧覆盖记录和启动数身份会替改过的YAML继续作证"
+    },
+{
+      "id": "M-H65-e",
+      "req": "harness",
+      "by": "test",
+      "kills": [
+        "W01_workflow_fingerprint_changes",
+        "E01_present_unreadable_default_throws"
+      ],
+      "file": "scripts/check/claims.ts",
+      "find": "[[CHECK_WORKFLOW, readFileSync(CHECK_WORKFLOW, 'utf8')] as [string, string]]",
+      "replace": "[[CHECK_WORKFLOW, ''] as [string, string]]",
+      "why": "工作流只记路径而不读取真实正文，正文变化不使身份过期，已有文件读失败也被静默藏掉"
+    },
+    {
+      "id": "M-H65-f",
+      "req": "harness",
+      "by": "test",
+      "kills": [
+        "W_D01_default_propagates_EACCES",
+        "W_D02_explicit_scripts_propagates_EACCES",
+        "W_D03_mutation_identity_propagates_EACCES",
+        "H_D01_default_propagates_EACCES",
+        "H_D02_explicit_scripts_propagates_EACCES",
+        "H_D03_mutation_identity_propagates_EACCES"
+      ],
+      "file": "scripts/check/claims.ts",
+      "find": "if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []",
+      "replace": "if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as NodeJS.ErrnoException).code === 'EACCES') return []",
+      "why": "工作流父路径拒绝遍历时把真实读取失败当成文件缺席，项目来源身份静默失去实际存在的YAML"
     }
   ],
   "exemptions": [
