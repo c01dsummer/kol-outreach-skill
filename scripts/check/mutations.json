@@ -18324,6 +18324,21 @@
       ]
     },
     {
+      "id": "M-H62-ai",
+      "req": "harness",
+      "why": "无法确认配置覆盖脚本时仍走预编，会把排除或另选文件以及引用项目的配置错误判成可用",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "return settings.coversScripts ? settings : undefined",
+      "replace": "return settings",
+      "by": "test",
+      "kills": [
+        "scv5 files outside scripts retains tsx",
+        "scv5 include other tree retains tsx",
+        "scv5 excluded scripts retains tsx",
+        "scv5 referenced project retains tsx"
+      ]
+    },
+    {
       "id": "M-H64-a",
       "req": "harness",
       "why": "建立临时变异历史时继承 GIT_DIR，调用可写到夹具以外的 Git 位置",

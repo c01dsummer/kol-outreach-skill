@@ -6,6 +6,11 @@ import { createHash as cxCreateHash } from 'node:crypto';
 import { pathToFileURL as cxPathToFileURL } from 'node:url';
 import { spawnSync as cxSpawnSync } from 'node:child_process';
 import { prebuildTree as cxPrebuildTree, fixtureLoader as cxFixtureLoader, prebuiltCommand as cxPrebuiltCommand, isBare as cxIsBare } from './check/prebuilt.js';
+import { mkdtempSync as scMkdtempSync, realpathSync as scRealpathSync, mkdirSync as scMkdirSync, writeFileSync as scWriteFileSync, existsSync as scExistsSync, rmSync as scRmSync } from 'node:fs';
+import { join as scJoin, dirname as scDirname } from 'node:path';
+import { tmpdir as scTmpdir } from 'node:os';
+import { createHash as scCreateHash } from 'node:crypto';
+import { prebuildTree as scPrebuildTree, prebuiltCommand as scPrebuiltCommand, isBare as scIsBare } from './check/prebuilt.js';
 import { effectivePriority, projectManualFeedback } from './lib/effective-priority.js'
 import { prepareTaskReviews } from './lib/task-reviews.js'
 /**
@@ -215,6 +220,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-prebuilt-options', needs: [] },
   { id: 'h-prebuilt-observer', needs: [] },
   { id: 'h-prebuilt-cwd-config', needs: [] },
+  { id: 'h-prebuilt-scope', needs: [] },
   { id: 'h-worker-start', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
@@ -9346,6 +9352,60 @@ await group('h-prebuilt-cwd-config', () => {
   } finally {
     process.chdir(savedCwd);
     cxRmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+await group('h-prebuilt-scope', () => {
+  harness('预编配置覆盖资格：普通 include 阳性与无法确认的文件范围')
+  const root = scRealpathSync(scMkdtempSync(scJoin(scTmpdir(), 'scv5-')));
+  try {
+    const capability = (process.features as { typescript?: boolean | string }).typescript;
+    const canStripTypes = Boolean(capability);
+    const env = {} as NodeJS.ProcessEnv;
+    for (const key of ['PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'TZ', 'SystemRoot']) {
+      if (process.env[key] !== undefined) env[key] = process.env[key];
+    }
+    env.PATH = `${scDirname(process.execPath)}:${env.PATH ?? ''}`;
+    if (!canStripTypes) env.NODE_OPTIONS = '--no-experimental-strip-types';
+    console.log('PUBLIC_NODE_CAPABILITY ' + JSON.stringify({ typescript: capability, expectedEligible: canStripTypes }));
+    const scriptText = 'export const value: number = 41;\n';
+    const sourceFingerprint = scCreateHash('sha256').update(scriptText).digest('hex');
+    const route = (name: string, rootFields: Record<string, unknown>) => {
+      const owner = scJoin(root, name);
+      scMkdirSync(scJoin(owner, 'scripts'), { recursive: true });
+      scMkdirSync(scJoin(owner, 'other'), { recursive: true });
+      scMkdirSync(scJoin(owner, 'referenced'), { recursive: true });
+      scWriteFileSync(scJoin(owner, 'package.json'), JSON.stringify({ type: 'module' }));
+      const config = { compilerOptions: { target: 'ES2022', useDefineForClassFields: true }, ...rootFields };
+      scWriteFileSync(scJoin(owner, 'tsconfig.json'), JSON.stringify(config));
+      const entry = scJoin(owner, 'scripts', 'main.ts');
+      scWriteFileSync(entry, scriptText);
+      scWriteFileSync(scJoin(owner, 'other', 'selected.ts'), 'export const selected: number = 7;\n');
+      scWriteFileSync(scJoin(owner, 'referenced', 'index.ts'), 'export const referenced: number = 9;\n');
+      scWriteFileSync(scJoin(owner, 'referenced', 'tsconfig.json'), JSON.stringify({ compilerOptions: { composite: true, declaration: true }, files: ['index.ts'] }));
+      const build = scPrebuildTree(owner);
+      if (build.wrote + build.kept < 1 || !scExistsSync(scJoin(owner, '.check-cache', 'prebuilt'))) {
+        throw new Error(`[fixture-invalid] ${name}: complete scripts cache was not established`);
+      }
+      const [command, argv] = scPrebuiltCommand([entry], owner, env);
+      const bare = scIsBare(argv);
+      console.log('SCOPE_ADMISSION_CASE ' + JSON.stringify({ name, owner, cwd: owner, config, sourceFingerprint, build, command, argv, bare }));
+      return bare;
+    };
+
+    const ordinary = route('ordinary-scripts-include', { include: ['scripts/**/*.ts'] });
+    eq('scv5 ordinary scripts include follows Node capability', ordinary, canStripTypes);
+    const outsideFiles = route('files-outside-scripts', { files: ['other/selected.ts'] });
+    eq('scv5 files outside scripts retains tsx', outsideFiles, false);
+    const otherTree = route('include-other-tree', { include: ['other/**/*.ts'] });
+    eq('scv5 include other tree retains tsx', otherTree, false);
+    const excluded = route('exclude-scripts', { include: ['scripts/**/*.ts'], exclude: ['scripts'] });
+    eq('scv5 excluded scripts retains tsx', excluded, false);
+    const referenced = route('referenced-project', { include: ['scripts/**/*.ts'], references: [{ path: './referenced' }] });
+    eq('scv5 referenced project retains tsx', referenced, false);
+  } finally {
+    scRmSync(root, { recursive: true, force: true });
   }
 });
 
