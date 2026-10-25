@@ -18866,6 +18866,18 @@
       "kills": [
         "异常保留原栈且普通预载正常收尾"
       ]
+    },
+    {
+      "id": "M-H62-at",
+      "req": "harness",
+      "why": "用户明确清空信号处理后，不得重新装回默认处理，改变真实入口退出钩子的公开行为",
+      "file": "scripts/check/prebuilt-signals.ts",
+      "find": "install('SIGINT')",
+      "replace": "const resetTermRemoval = process.removeAllListeners\nprocess.removeAllListeners = function(this: NodeJS.Process, ...args: Parameters<typeof resetTermRemoval>) {\n  const result = Reflect.apply(resetTermRemoval, this, args)\n  if (this === process && (args.length === 0 || args[0] === 'SIGTERM')) install('SIGTERM')\n  return result\n}\ninstall('SIGINT')",
+      "by": "test",
+      "kills": [
+        "INT和TERM进程组与同步自身信号生命周期"
+      ]
     }
   ],
   "exemptions": [
