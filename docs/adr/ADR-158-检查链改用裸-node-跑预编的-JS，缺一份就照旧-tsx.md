@@ -504,3 +504,17 @@ Astra独立静态核四条0阻塞；隔离副本正常参考全绿，四条各�
 | H04 已经偿还的独立自检共用编译缓存 | U471 ADR-97:189 |
 | H05 已经改条件的test子集迁移 | U477 ADR-99:226 |
 | H06 已经补证的旧自检选择入口第三拍 | U489 ADR-99:547 |
+
+## 二十六、整链净收益未成立与受控观察器的下一设计（2026-10-25，实现前）
+
+固定642696a在同一Apple M1 Max/10CPU/64GiB、Node22.22.0、变异4worker下按主干/候选/主干/候选完成四次真实完整check，均退0、报告有效，wall依次745.880257041、756.876166125、742.359082417、752.651565042秒。主干均值744.119669729、候选754.7638655835，候选慢10.6441958545秒（1.430441%）；CPU均值少3.527475%。主干1662/156、候选1670/157的实际工作量不同，这组回答包含必要新测试后的净成本，不作同工作量因果归因。独立Astra逐核四份完整原件及48个同组样本均合格；同组约17%的局部收益未转成整链wall收益，不写CI恢复完成。四次原件、TOTAL、仅各自.check-cache的LEFT及原源码快照完整保留，没有第五次重复检查。
+
+下一候选只选已有brand-content-version-entry中15次预算观察器接线；原26次runBoth、29条named及业务输入、期望、循环和mandatory mutate brief不变。新增公开供给 `brandObserverEnv(script,cwd,baseEnv,observerFile): ProcessEnv`，script为本次真实入口，baseEnv为本次自有loader/observer槽前的完整环境，返回新对象且不改baseEnv。原runBoth再用实际完整args/cwd/该环境调用真实prebuiltCommand并spawn其返回tuple，不把构造时的入口探测冒充执行记录。
+
+准入只认原真实八行模板（LF join、无末尾换行）、由本次入口同树推导的Budget URL，及精确fake-fetch import和固定源SHA256 `f890ca79e639983c70c91bdaa009236980a4f5c8e424fd3b58bc347e9c085226`（19850字节）。不以known标志、自报hash、扩展名或未知模板授予资格。未知额外direct或mjs间接TS、原显式loader/配置、禁用和未知源码/缓存保留原完整组合与顺序；旧fixtureLoader及其四项形状、直接Node/IPC/worker与未选观察器不迁移。
+
+完整N环境可作固定一次真实factory受控探测，非N则只重组一次原环境并核旧选择，无循环。成功探测是受控选择界线；之后至最终factory/启动间的确定性失效，由N环境自身携带的真实启动保护在fake-fetch/observer/受保护TS及其副作用之前拒绝，连最终命令回CLI也有效，不能仅放N父进程主体。绑定已选observer/fake-fetch字节、启动模块、profile/config与必要缓存；组合失效给CHECK_PREBUILT_OBSERVER_INVALIDATED，新配置仍给原CHECK_PREBUILT_CONFIG_INVALIDATED及真实cwd/发现路径。有限探针不等于全树原子快照。
+
+独立作者在实现前冻结23例/171固定标签、20运行成员，原manifest SHA256为 `c531c2c7eb48c5193d8c93b07b939c22bf9aa027699d0d4ddd169a696545e01e`。第一轮两例外部TS公共参考因夹具未声明模块类型而无资格，整批INVALID/0保留；v5.1只给测试拥有的external树补type:module，原TS、labels与数值expected不改，manifest为 `dfd0c39ead81e8338393f60a34d6110974c57f6505f6b05d29f9dc232b33b5a7`。v5.1先取得17/17有效公共参考，再在实际旧642取得6项可执行断言中5绿及唯一V5.API.BRAND_OBSERVER_ENV具名红；依赖新API的案例明确BLOCKED，不算171已跑或通过。原四形状与真实direct IPC阳性通过，原v4冻结及预期未改。Astra对已选公开模型设计阻塞0，只是准许冻测，不是实现或运行资格。
+
+本节先记设计和已取得的前置事实，随后才实现。新171全部运行、原164/323回归、必要负片、实际brand同口径成本、完整本地/Linux与最终评审各自再取得；不借旧候选原件给后继新源码授资格。新增判定/绑定字段与共享运行路径仍纳入上一节宽条件及去向，不销全库字段消费或任何宽余额，也不新增交接清单单元。

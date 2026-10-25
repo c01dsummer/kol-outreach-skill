@@ -632,3 +632,11 @@ JSON 摘要、CSV/XLSX 与 HTML 都带出范围状态，使历史视频窗口与
 N命令入口由薄Node父进程起缓存child，显式子侧信号预加载保住INT/TERM退出钩子，父侧只管理实际进程和流关闭，不替child造观察事件。`prebuiltCommand`原参数、真实cwd和最终env不变；N不合格、复杂/未知配置、缺缓存或可信启动模块被改动时仍原公共tsx。加载前N前提失效必须明确拒绝，不能静默用旧语义；不承诺文件系统原子快照。
 
 `fixtureLoader`在N域仍交回原公开tsx loader，因此先加N观察器loader的最终命令仍回CLI，原directNode/IPC不迁移。owner的同实例接线不变。这里先记模块/调用边界和验收约束；候选只做过有限外部原型及局部同机测量，生产接线、红绿负片、完整检查和Linux验证未完成，不预写恢复成功。
+
+## 受控 brand 观察器的下一恢复候选（2026-10-25，实现前）
+
+前一固定642候选的本机四次完整检查均有效通过，但候选平均反慢1.430441%，未达到整链恢复目标。此处只设计既有CI恢复中的一个有限下一候选，不增加交接工作单元。
+
+新增 `brandObserverEnv(script,cwd,baseEnv,observerFile)`，仅给 `brand-content-version-entry` 已有预算观察器构造完整环境，再由原 `runBoth` 用实际完整参数、cwd和同一环境调用真实factory。已知域绑定原八行模板、实际入口同树Budget URL、精确fake-fetch基载及固定源身份，不由调用者自报信任。旧 `fixtureLoader`、直接Node/IPC/worker及未选观察器保留原起法。
+
+受控N探测未成立时固定一次重组原完整组合；成立后，返回环境须携带在最终factory回CLI时仍先于fake-fetch/observer/受保护TS生效的启动保护，绑定所选源码、profile/config及必要缓存。未知输入在构造前回退，选后失效明确拒绝；不承诺文件系统原子快照。独立有限测试先冻并取得公开参考及旧候选具名红；本块不宣布新实现、性能或Linux通过。
