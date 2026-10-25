@@ -79,7 +79,7 @@ jobs:
           api() { curl -sS --max-time 20 -o "$out" -w '%{http_code}' "${auth[@]}" \
                     -H 'Accept: application/vnd.github+json' "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/$1"; }
           why() { if [ "$2" = 28 ]; then echo 超时; elif [ "$1" = 000 ]; then echo 连不上; else echo "HTTP $1"; fi; }
-          cpu=$(export LC_ALL=C; lscpu 2>/dev/null | sed -n 's/^[[:space:]]*Model name:[[:space:]]*//p' | head -n 1 \
+          cpu=$(export LC_ALL=C; lscpu 2>/dev/null | sed -n 's/^[[:space:]]*Model name://p' | head -n 1 \
                   | tr -cd '[:alnum:] ()@.,_+/-' | tr -s ' ' | cut -c 1-80 | sed 's/^ //; s/ $//')
           [ -n "$cpu" ] || cpu=读不到
           count() { git show "$1:scripts/check/mutations.json" 2>/dev/null | jq -er '.mutations | arrays | length' 2>/dev/null; }
