@@ -177,6 +177,7 @@
 | `scripts/test.ts` | 检查 | — | 需求测试的实现；`--only=组名[,组名]` 只运行已登记分组及其依赖，非法选择直接失败。只有不选组的完整运行能清理、写入单元测试认领。**覆盖了哪些编号以 `npm run audit` 为准**，不在这里复述 |
 | `scripts/ci-wallclock-contract-test.ts` | 测试夹具 | — | 需求测试的墙钟 core/cpu/unavailable 三组共用适配器：每组从当前进程工作树的 `.github/workflows/check.yml` 提取唯一墙钟 run，在私有临时根运行逐字保留的 Node 冻结矩阵。完整合法报告才交给 `test.ts` 的字面具名断言；坏夹具、缺报告或验证者异常直接失败，不归功给语义断言。无历史 run 副本作为生产来源；`claims.ts` 的共同清单纳入这一个 YAML 的真实正文，旧认领、变异与启动数来源随其变化而失效，不递归扩大 `.github` |
 | `scripts/ci-wallclock-identity-test.ts` | 测试夹具 | — | 墙钟来源身份的独立冻结合同适配：私有子进程从绝对路径导入当前worker的claims模块，在复制的玩具目录调用公共身份接口；父路径拒读自成最窄组，原样执行冻结mjs runner/helper并校准真实遍历拒绝与恢复。冻结案例与oracle原封，补充runner仅把历史归档连续性改为当前解包输入清单核验；读权限资格不可用、坏报告或验证器异常抛错，不记具名抓获 |
+| `scripts/actual-path-contract-test.ts` | 测试夹具 | D2 D8 | 两处旧空断言的实际路径适配：私有子进程先接假fetch与网络阻断，再调用当前工作树公开profile及真实save/loadEnrichment；四份独立冻结输入逐字内嵌，完整合法的四标签结果才交给需求测试断言。子进程隔离全局补丁，finally清理专用目录；只补两契约，不声称全SPEC隔离重写 |
 
 <!-- END:ANCHORS -->
 
