@@ -18221,7 +18221,7 @@
       "why": "缓存不齐也走裸 node —— 改了没重编的文件在加载时当场报错",
       "file": "scripts/check/prebuilt.ts",
       "find": "&& at.owner !== undefined && at.complete()",
-      "replace": "&& at.owner !== undefined",
+      "replace": "&& at.owner !== undefined && (at.complete(), true)",
       "by": "test",
       "kills": ["走不走裸 node：样样成立才走；关掉、node 自己去不掉类型、不是 .ts、带着 tsx 加载器、找不到树或缓存、缓存不齐，都照旧 tsx", "改了没重编：照旧交给 tsx"]
     },
@@ -18290,7 +18290,7 @@
       "req": "harness",
       "why": "变异落盘后不把被改的文件编进缓存 —— 每条变异的验证者都退回 tsx",
       "file": "scripts/check/prebuilt.ts",
-      "find": "try { writeEntry(path, compileTs(source, file, compilerOptions)) }",
+      "find": "try { writeEntry(path, maps ? compileMapped(source, file) : compileTs(source, file, compilerOptions)) }",
       "replace": "try { void writeEntry }",
       "by": "test",
       "kills": ["只编改过的文件：缓存恢复齐全，按内建能力选起法并跑当前源码"]
@@ -18372,8 +18372,8 @@
       "req": "harness",
       "why": "把不能完整理解的编译配置判成可预编，会忽略注释配置和继承配置中的有效语义",
       "file": "scripts/check/prebuilt.ts",
-      "find": "if (!compatible || current?.compatible !== true || current.id !== id) return false",
-      "replace": "if (false) return false",
+      "find": "if (!compatible) return false\n      if (current?.compatible === true && current.id === id)",
+      "replace": "if (true)",
       "by": "test",
       "kills": ["JSONC 编译配置：回退 tsx 保留字段赋值语义", "继承编译配置：回退 tsx 使用完整有效配置"]
     },
@@ -18422,8 +18422,8 @@
       "req": "harness",
       "why": "跨目录启动仍沿用缓存目录配置，会把两种相反字段初始化语义都跑反",
       "file": "scripts/check/prebuilt.ts",
-      "find": "if (!compatible || current?.compatible !== true || current.id !== id) return false",
-      "replace": "if (!compatible) return false",
+      "find": "if (current?.compatible === true && current.id === id)",
+      "replace": "if (compatible)",
       "by": "test",
       "kills": [
         "cxv4 owner define cwd assign setter count",
