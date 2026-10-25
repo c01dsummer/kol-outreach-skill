@@ -18770,6 +18770,102 @@
       "find": "writeFileAtomic(join(dir, ENRICHMENT), JSON.stringify(state, null, 2))",
       "replace": "writeFileAtomic(join(dir, ENRICHMENT), JSON.stringify(state, (key, value) => key === 'sample' && value?.status === 'unavailable' ? undefined : value, 2))",
       "why": "保存enrichment时删除查询后不可用的样本，已查询状态及其来源时间原因在真实盘文件中消失"
+    },
+    {
+      "id": "M-H62-al",
+      "req": "harness",
+      "why": "无配置子目录必须按公开默认编译语义执行，不能借用缓存所属目录的字段初始化配置",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "selected = { id: noConfigProfile().id, noConfig: true }",
+      "replace": "selected = { id, noConfig: true }",
+      "by": "test",
+      "kills": [
+        "无配置入口参数与默认语义"
+      ]
+    },
+    {
+      "id": "M-H62-am",
+      "req": "harness",
+      "why": "完整缓存与确认无配置的子目录必须使用获准的新缓存入口，不能始终退回公开加载器",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "selected = { id: noConfigProfile().id, noConfig: true }",
+      "replace": "return false",
+      "by": "test",
+      "kills": [
+        "预编两种格式与独立无配置身份"
+      ]
+    },
+    {
+      "id": "M-H62-an",
+      "req": "harness",
+      "why": "无配置入口选定后新增配置必须在加载时明确拒绝，不能继续执行过时的编译结果",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": "if (at.noConfig) assertNoConfig(process.cwd())",
+      "replace": "if (at.noConfig) {}",
+      "by": "test",
+      "kills": [
+        "已选入口拒绝源码缓存与配置失效"
+      ]
+    },
+    {
+      "id": "M-H62-ao",
+      "req": "harness",
+      "why": "单源更新必须同时更新所属目录与无配置域的两份独立缓存，并清除过时正文",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "for (const { compilerOptions, id, maps } of profilesOf(owner)) {",
+      "replace": "for (const { compilerOptions, id, maps } of profilesOf(owner)) {\n    if (maps) continue",
+      "by": "test",
+      "kills": [
+        "单源更新清理与坏编译拒绝旧缓存"
+      ]
+    },
+    {
+      "id": "M-H62-ap",
+      "req": "harness",
+      "why": "所属配置不能确认覆盖脚本时须保留公开加载器，不能把缓存完整误当配置适用",
+      "file": "scripts/check/prebuilt.ts",
+      "find": " || !settings.coversScripts",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "无配置准入边界保留公开加载器回退"
+      ]
+    },
+    {
+      "id": "M-H62-aq",
+      "req": "harness",
+      "why": "普通预加载留下活句柄时仍须在真实子进程结束后正常收尾，不能让父进程一直存活",
+      "file": "scripts/check/prebuilt-parent.ts",
+      "find": "process.exit(spawnError ? 1 : code !== null ? code : signal !== null ? 128 + constants.signals[interrupted ?? signal] : 1)",
+      "replace": "process.exitCode = spawnError ? 1 : code !== null ? code : signal !== null ? 128 + constants.signals[interrupted ?? signal] : 1",
+      "by": "test",
+      "kills": [
+        "异常保留原栈且普通预载正常收尾"
+      ]
+    },
+    {
+      "id": "M-H62-ar",
+      "req": "harness",
+      "why": "进程组终止时真实入口必须执行原有退出钩子，不能只靠系统默认终止取得相同退出码",
+      "file": "scripts/check/prebuilt-signals.ts",
+      "find": "['SIGINT', 'SIGTERM'] as const",
+      "replace": "['SIGINT'] as const",
+      "by": "test",
+      "kills": [
+        "INT和TERM进程组与同步自身信号生命周期"
+      ]
+    },
+    {
+      "id": "M-H62-as",
+      "req": "harness",
+      "why": "缓存入口抛错须保留原始TypeScript地址和行号，不能把生成代码的位置当原始错误堆栈",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "sourcemap: 'inline'",
+      "replace": "sourcemap: false",
+      "by": "test",
+      "kills": [
+        "异常保留原栈且普通预载正常收尾"
+      ]
     }
   ],
   "exemptions": [

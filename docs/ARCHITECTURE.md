@@ -180,6 +180,8 @@
 | `scripts/ci-wallclock-contract-test.ts` | 测试夹具 | — | 需求测试的墙钟 core/cpu/unavailable 三组共用适配器：每组从当前进程工作树的 `.github/workflows/check.yml` 提取唯一墙钟 run，在私有临时根运行逐字保留的 Node 冻结矩阵。完整合法报告才交给 `test.ts` 的字面具名断言；坏夹具、缺报告或验证者异常直接失败，不归功给语义断言。无历史 run 副本作为生产来源；`claims.ts` 的共同清单纳入这一个 YAML 的真实正文，旧认领、变异与启动数来源随其变化而失效，不递归扩大 `.github` |
 | `scripts/ci-wallclock-identity-test.ts` | 测试夹具 | — | 墙钟来源身份的独立冻结合同适配：私有子进程从绝对路径导入当前worker的claims模块，在复制的玩具目录调用公共身份接口；父路径拒读自成最窄组，原样执行冻结mjs runner/helper并校准真实遍历拒绝与恢复。冻结案例与oracle原封，补充runner仅把历史归档连续性改为当前解包输入清单核验；读权限资格不可用、坏报告或验证器异常抛错，不记具名抓获 |
 | `scripts/actual-path-contract-test.ts` | 测试夹具 | D2 D8 | 两处旧空断言的实际路径适配：私有子进程先接假fetch与网络阻断，再调用当前工作树公开profile及真实save/loadEnrichment；四份独立冻结输入逐字内嵌，完整合法的四标签结果才交给需求测试断言。子进程隔离全局补丁，finally清理专用目录；只补两契约，不声称全SPEC隔离重写 |
+| `scripts/prebuilt-no-config-contract-test.ts` | 测试夹具 | — | 无配置缓存入口的有限合同适配器：只在选中组时加载，在独立临时根执行冻结producer及进程行为案例，经实际最终env调用当前工作树factory；完整164个正常标签汇入八条字面断言，坏绑定、缺标签或坏报告不记语义抓获。Node精确身份及能力由独立工具校准；不把固定Mac原件当Linux资格 |
+| `scripts/prebuilt-no-config-contract-data.ts` | 测试夹具 | — | 上述适配器的冻结运行成员、逐件原始哈希与八桶标签表；仅作可逆路径绑定及明示的运行子集清单。新无配置入口对照公开CLI，旧空配置owner对照固定已发布旧API，历史红记录与生产缓存格式分开；不是通用打包器 |
 
 <!-- END:ANCHORS -->
 
