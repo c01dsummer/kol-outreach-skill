@@ -17143,7 +17143,7 @@ await group('p1-report-stat-counts', () => {
           (!/[<>"']/.test(raw) && !/&(?!#\d+;|#x[\da-f]+;|[a-z][\w]+;)/i.test(raw)))))
   }
   eq('报告两项统计的独立契约每个标签只执行一次', labels.size, 38)
-  criterion('P1.b', 'U12.a', 'U12.b')
+  criterion('U12.a', 'U12.b')
 })
 
 await group('u12-report-escape', () => {
