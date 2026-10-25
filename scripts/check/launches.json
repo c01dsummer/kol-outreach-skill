@@ -150,6 +150,7 @@
     {"config":"[\"test\",[\"u11-feedback-summary\"]]","launches":0,"maxPaid":null,"running":9,"stopping":0},
     {"config":"[\"test\",[\"u11-keyword-attribution\"]]","launches":0,"maxPaid":null,"running":11,"stopping":0},
     {"config":"[\"test\",[\"u11-keyword-report-entry\"]]","launches":1,"maxPaid":null,"running":3,"stopping":0},
+    {"config":"[\"test\",[\"u12-product-name-complete\"]]","launches":0,"maxPaid":null,"running":4,"stopping":0},
     {"config":"[\"test\",[\"u12-report-escape\"]]","launches":0,"maxPaid":null,"running":10,"stopping":0},
     {"config":"[\"test\",[\"u3-keywords\"]]","launches":0,"maxPaid":null,"running":20,"stopping":0},
     {"config":"[\"test\",[\"u6-report\"]]","launches":0,"maxPaid":null,"running":2,"stopping":0},
