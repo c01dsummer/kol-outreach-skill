@@ -260,6 +260,7 @@ const GROUPS: readonly Group[] = [
   { id: 'u11-feedback-report-entry', needs: [] },
   { id: 'u11-keyword-attribution', needs: [] },
   { id: 'u11-keyword-report-entry', needs: [] },
+  { id: 'p1-report-stat-counts', needs: [] },
   { id: 'u12-report-escape', needs: [] },
   { id: 'd20-content-version', needs: [] },
   { id: 'd28-control', needs: [] },
@@ -16808,6 +16809,341 @@ await group('u11-keyword-report-entry', async () => {
     eq('U11关键词真实入口保持raw人工与Agent原件字节', [read('creators.raw.json'), read('manual-feedback.csv'), read('agent-review.json')], [raw, manual, originalAgent])
     criterion('U11.m')
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+// P1 independent expected and scenarios were frozen before the production repair.
+// The admitted contract read requirements/public docs only; this context integrated it
+// with the existing HTML decoder. Frozen source and red/green records are preserved.
+await group('p1-report-stat-counts', () => {
+  suite('P1', '报告统计缺失与确实为零分开显示，取值仍只转义一次')
+  tension('U12', 'P1')
+  const fixture: any = {
+    "product": "selfcheck",
+    "market": "US",
+    "platforms": [
+      "tiktok",
+      "instagram"
+    ],
+    "keywords": [
+      {
+        "task_index": 0,
+        "keyword": "power bank review",
+        "platform": "tiktok",
+        "dimension": "category",
+        "status": "queried",
+        "found": 12,
+        "shortlisted": 3,
+        "fit_pass": 3,
+        "manual_reviewed": 0
+      },
+      {
+        "task_index": 1,
+        "keyword": "smoothie",
+        "platform": "instagram",
+        "dimension": "scene",
+        "status": "queried",
+        "found": 8,
+        "shortlisted": 2,
+        "fit_pass": 1,
+        "manual_reviewed": 0
+      }
+    ],
+    "feedback_summary": {
+      "rounds": [
+        {
+          "round_id": "round-001",
+          "candidates": 5,
+          "reviewed": 0,
+          "unreviewed": 5
+        }
+      ],
+      "eligible": {
+        "yes": 0,
+        "no": 0,
+        "unknown": 0,
+        "unreviewed": 5,
+        "denominator": 0,
+        "rate": null
+      },
+      "adopted": {
+        "yes": 0,
+        "no": 0,
+        "unknown": 0,
+        "unreviewed": 5,
+        "denominator": 0,
+        "rate": null
+      },
+      "reject_reasons": [],
+      "disagreements": []
+    },
+    "review_rounds": [
+      {
+        "round_id": "round-001",
+        "created_at": "2026-10-24T02:56:32.514Z",
+        "source": "task.json",
+        "candidates": [
+          {
+            "account_key": "tiktok:techwithsarah",
+            "source_tasks": [
+              {
+                "task_index": 0,
+                "keyword": "power bank review",
+                "dimension": "category",
+                "platform": "tiktok"
+              }
+            ]
+          },
+          {
+            "account_key": "instagram:techwithsarah",
+            "source_tasks": [
+              {
+                "task_index": 1,
+                "keyword": "smoothie",
+                "dimension": "scene",
+                "platform": "instagram"
+              }
+            ]
+          },
+          {
+            "account_key": "tiktok:powerbankdeals",
+            "source_tasks": [
+              {
+                "task_index": 0,
+                "keyword": "power bank review",
+                "dimension": "category",
+                "platform": "tiktok"
+              }
+            ]
+          },
+          {
+            "account_key": "tiktok:mysteryuser",
+            "source_tasks": [
+              {
+                "task_index": 0,
+                "keyword": "power bank review",
+                "dimension": "category",
+                "platform": "tiktok"
+              }
+            ]
+          },
+          {
+            "account_key": "instagram:privateaccount",
+            "source_tasks": [
+              {
+                "task_index": 1,
+                "keyword": "smoothie",
+                "dimension": "scene",
+                "platform": "instagram"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "total": 4,
+    "tiers": {
+      "A": 4,
+      "B": 0,
+      "C": 0
+    },
+    "email_count": 4,
+    "cross_platform_count": 1,
+    "high_risk_count": 0,
+    "requests": 18,
+    "cost_estimate_usd": 0.024,
+    "budget_usd": 1,
+    "cost_status": "known",
+    "cost_scope": "task",
+    "cost_http_200_usd": 0.024,
+    "cost_unknown_result_usd": 0,
+    "cost_pending_usd": 0,
+    "cost_basis": "按固定公开基础价、不计优惠的估算；不是实际账单，也不保证供应商未来价格上限。",
+    "cost_price_versions": [
+      "tikhub-public-20260720-5d52fe8fb109"
+    ],
+    "cost_problems": [],
+    "enriched": false,
+    "memory_status": "ok",
+    "memory_written": true,
+    "capabilities": {
+      "email_verification": {
+        "total": 4,
+        "measured": 0,
+        "unavailable": 0,
+        "unqueried": 4
+      },
+      "audience_geo": {
+        "total": 4,
+        "measured": 0,
+        "unavailable": 0,
+        "unqueried": 4
+      },
+      "public_post_sample": {
+        "total": 5,
+        "measured": 5,
+        "unavailable": 0,
+        "unqueried": 0
+      },
+      "audience_quality_risk": {
+        "total": 5,
+        "measured": 0,
+        "unavailable": 5,
+        "unqueried": 0
+      },
+      "creator_activity": {
+        "total": 5,
+        "measured": 5,
+        "unavailable": 0,
+        "unqueried": 0
+      },
+      "collaboration_quote": {
+        "total": 5,
+        "measured": 0,
+        "unavailable": 0,
+        "unqueried": 5
+      }
+    }
+  }
+  type ExpectedCount = { kind: string, text?: string, allowed?: string[] }
+  type CountCase = { id: string, patches: Array<{ path: string[], operation: string, value?: unknown }>, expected: Record<string, ExpectedCount> }
+  const cases: CountCase[] = [
+    { id: "capabilities_absent",
+      patches: [{"path": ["capabilities"], "operation": "delete"}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "capabilities_undefined",
+      patches: [{"path": ["capabilities"], "operation": "undefined"}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "capabilities_null",
+      patches: [{"path": ["capabilities"], "operation": "set", "value": null}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "public_sample_absent",
+      patches: [{"path": ["capabilities", "public_post_sample"], "operation": "delete"}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "public_sample_undefined",
+      patches: [{"path": ["capabilities", "public_post_sample"], "operation": "undefined"}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "public_sample_null",
+      patches: [{"path": ["capabilities", "public_post_sample"], "operation": "set", "value": null}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "measured_absent",
+      patches: [{"path": ["capabilities", "public_post_sample", "measured"], "operation": "delete"}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "measured_undefined",
+      patches: [{"path": ["capabilities", "public_post_sample", "measured"], "operation": "undefined"}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "measured_null",
+      patches: [{"path": ["capabilities", "public_post_sample", "measured"], "operation": "set", "value": null}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "high_risk_absent",
+      patches: [{"path": ["high_risk_count"], "operation": "delete"}],
+      expected: {"公开指标已测账号": {"kind": "value", "text": "3"}, "高风险复核": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}} },
+    { id: "high_risk_undefined",
+      patches: [{"path": ["high_risk_count"], "operation": "undefined"}],
+      expected: {"公开指标已测账号": {"kind": "value", "text": "3"}, "高风险复核": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}} },
+    { id: "high_risk_null",
+      patches: [{"path": ["high_risk_count"], "operation": "set", "value": null}],
+      expected: {"公开指标已测账号": {"kind": "value", "text": "3"}, "高风险复核": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}} },
+    { id: "both_absent",
+      patches: [{"path": ["capabilities"], "operation": "delete"}, {"path": ["high_risk_count"], "operation": "delete"}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}} },
+    { id: "both_true_zero",
+      patches: [{"path": ["capabilities", "public_post_sample", "measured"], "operation": "set", "value": 0}, {"path": ["high_risk_count"], "operation": "set", "value": 0}],
+      expected: {"公开指标已测账号": {"kind": "value", "text": "0"}, "高风险复核": {"kind": "value", "text": "0"}} },
+    { id: "measured_zero_risk_absent",
+      patches: [{"path": ["capabilities", "public_post_sample", "measured"], "operation": "set", "value": 0}, {"path": ["high_risk_count"], "operation": "delete"}],
+      expected: {"公开指标已测账号": {"kind": "value", "text": "0"}, "高风险复核": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}} },
+    { id: "measured_absent_risk_zero",
+      patches: [{"path": ["capabilities", "public_post_sample", "measured"], "operation": "delete"}, {"path": ["high_risk_count"], "operation": "set", "value": 0}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "0"}} },
+    { id: "positive_counts",
+      patches: [],
+      expected: {"公开指标已测账号": {"kind": "value", "text": "3"}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "measured_escape_once",
+      patches: [{"path": ["capabilities", "public_post_sample", "measured"], "operation": "set", "value": "MEASURED-&<>\"'"}],
+      expected: {"公开指标已测账号": {"kind": "escaped", "text": "MEASURED-&<>\"'"}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "high_risk_escape_once",
+      patches: [{"path": ["high_risk_count"], "operation": "set", "value": "HIGH-RISK-&<>\"'"}],
+      expected: {"公开指标已测账号": {"kind": "value", "text": "3"}, "高风险复核": {"kind": "escaped", "text": "HIGH-RISK-&<>\"'"}} },
+  ]
+  const views = [['public_single', {}], ['review_dual', { mode: 'review', filters: 'dual' }]] as const
+  const assertions: Record<string, (pass: boolean) => void> = {
+    'report-stats:public_single:capabilities_absent': pass => ok('report-stats:public_single:capabilities_absent', pass),
+    'report-stats:public_single:capabilities_undefined': pass => ok('report-stats:public_single:capabilities_undefined', pass),
+    'report-stats:public_single:capabilities_null': pass => ok('report-stats:public_single:capabilities_null', pass),
+    'report-stats:public_single:public_sample_absent': pass => ok('report-stats:public_single:public_sample_absent', pass),
+    'report-stats:public_single:public_sample_undefined': pass => ok('report-stats:public_single:public_sample_undefined', pass),
+    'report-stats:public_single:public_sample_null': pass => ok('report-stats:public_single:public_sample_null', pass),
+    'report-stats:public_single:measured_absent': pass => ok('report-stats:public_single:measured_absent', pass),
+    'report-stats:public_single:measured_undefined': pass => ok('report-stats:public_single:measured_undefined', pass),
+    'report-stats:public_single:measured_null': pass => ok('report-stats:public_single:measured_null', pass),
+    'report-stats:public_single:high_risk_absent': pass => ok('report-stats:public_single:high_risk_absent', pass),
+    'report-stats:public_single:high_risk_undefined': pass => ok('report-stats:public_single:high_risk_undefined', pass),
+    'report-stats:public_single:high_risk_null': pass => ok('report-stats:public_single:high_risk_null', pass),
+    'report-stats:public_single:both_absent': pass => ok('report-stats:public_single:both_absent', pass),
+    'report-stats:public_single:both_true_zero': pass => ok('report-stats:public_single:both_true_zero', pass),
+    'report-stats:public_single:measured_zero_risk_absent': pass => ok('report-stats:public_single:measured_zero_risk_absent', pass),
+    'report-stats:public_single:measured_absent_risk_zero': pass => ok('report-stats:public_single:measured_absent_risk_zero', pass),
+    'report-stats:public_single:positive_counts': pass => ok('report-stats:public_single:positive_counts', pass),
+    'report-stats:public_single:measured_escape_once': pass => ok('report-stats:public_single:measured_escape_once', pass),
+    'report-stats:public_single:high_risk_escape_once': pass => ok('report-stats:public_single:high_risk_escape_once', pass),
+    'report-stats:review_dual:capabilities_absent': pass => ok('report-stats:review_dual:capabilities_absent', pass),
+    'report-stats:review_dual:capabilities_undefined': pass => ok('report-stats:review_dual:capabilities_undefined', pass),
+    'report-stats:review_dual:capabilities_null': pass => ok('report-stats:review_dual:capabilities_null', pass),
+    'report-stats:review_dual:public_sample_absent': pass => ok('report-stats:review_dual:public_sample_absent', pass),
+    'report-stats:review_dual:public_sample_undefined': pass => ok('report-stats:review_dual:public_sample_undefined', pass),
+    'report-stats:review_dual:public_sample_null': pass => ok('report-stats:review_dual:public_sample_null', pass),
+    'report-stats:review_dual:measured_absent': pass => ok('report-stats:review_dual:measured_absent', pass),
+    'report-stats:review_dual:measured_undefined': pass => ok('report-stats:review_dual:measured_undefined', pass),
+    'report-stats:review_dual:measured_null': pass => ok('report-stats:review_dual:measured_null', pass),
+    'report-stats:review_dual:high_risk_absent': pass => ok('report-stats:review_dual:high_risk_absent', pass),
+    'report-stats:review_dual:high_risk_undefined': pass => ok('report-stats:review_dual:high_risk_undefined', pass),
+    'report-stats:review_dual:high_risk_null': pass => ok('report-stats:review_dual:high_risk_null', pass),
+    'report-stats:review_dual:both_absent': pass => ok('report-stats:review_dual:both_absent', pass),
+    'report-stats:review_dual:both_true_zero': pass => ok('report-stats:review_dual:both_true_zero', pass),
+    'report-stats:review_dual:measured_zero_risk_absent': pass => ok('report-stats:review_dual:measured_zero_risk_absent', pass),
+    'report-stats:review_dual:measured_absent_risk_zero': pass => ok('report-stats:review_dual:measured_absent_risk_zero', pass),
+    'report-stats:review_dual:positive_counts': pass => ok('report-stats:review_dual:positive_counts', pass),
+    'report-stats:review_dual:measured_escape_once': pass => ok('report-stats:review_dual:measured_escape_once', pass),
+    'report-stats:review_dual:high_risk_escape_once': pass => ok('report-stats:review_dual:high_risk_escape_once', pass),
+  }
+  const labels = new Set<string>()
+  for (const [view, options] of views) for (const c of cases) {
+    const label = `report-stats:${view}:${c.id}`
+    if (labels.has(label)) throw new Error(`${SELFCHECK_FIXTURE_MARK} duplicate contract label ${label}`)
+    labels.add(label)
+    const meta = structuredClone(fixture)
+    meta.capabilities.public_post_sample.measured = 3
+    meta.high_risk_count = 2
+    for (const patch of c.patches) {
+      let parent = meta
+      for (const key of patch.path.slice(0, -1)) parent = parent[key]
+      const key = patch.path[patch.path.length - 1]
+      if (patch.operation === 'delete') delete parent[key]
+      else parent[key] = patch.operation === 'undefined' ? undefined : patch.value
+    }
+    let html: string
+    try { html = renderHtml([], meta, options) }
+    catch (error) { ok(`${SELFCHECK_FIXTURE_MARK} ${label}:render-error ${String(error)}`, false); continue }
+    // Adapter locates the value adjacent to its human label. It never reads a
+    // different statistic or substitutes an expected value for a missing one.
+    const cards = [...html.matchAll(/<div class="stat"><div class="v"[^>]*>([\s\S]*?)<\/div><div class="l">([\s\S]*?)<\/div>/g)]
+    const observations = Object.entries(c.expected).map(([name, expected]) => {
+      const matching = cards.filter(match => u11Decode(match[2]) === name)
+      if (matching.length !== 1) return { valid: false, expected, raw: '', text: '' }
+      const raw = matching[0][1]
+      const text = u11Text(u11ReadHtml(`<div>${raw}</div>`, false))
+      return { valid: true, expected, raw, text }
+    })
+    if (observations.some(value => !value.valid)) {
+      ok(`${SELFCHECK_FIXTURE_MARK} ${label}:fixture-error cannot locate statistic`, false); continue
+    }
+    assertions[label](observations.every(({ expected, raw, text }) => expected.kind === 'unknown'
+      ? expected.allowed!.includes(text)
+      : text === expected.text && (expected.kind !== 'escaped' ||
+          (!/[<>"']/.test(raw) && !/&(?!#\d+;|#x[\da-f]+;|[a-z][\w]+;)/i.test(raw)))))
+  }
+  eq('报告两项统计的独立契约每个标签只执行一次', labels.size, 38)
+  criterion('U12.a', 'U12.b')
 })
 
 await group('u12-report-escape', () => {
