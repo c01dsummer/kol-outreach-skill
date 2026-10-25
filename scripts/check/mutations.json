@@ -18722,6 +18722,54 @@
         "report-stats:review_dual:both_true_zero",
         "report-stats:review_dual:measured_absent_risk_zero"
       ]
+    },
+    {
+      "id": "M-D2-a",
+      "req": "D2",
+      "by": "test",
+      "kills": [
+        "D2.a::tiktok-single-link-through-public-profile"
+      ],
+      "file": "scripts/providers/tikhub.ts",
+      "find": "bio_links: link ? [link] : [],",
+      "replace": "bio_links: link ? link : [],",
+      "why": "TikTok公开profile把单个外链原样返回为字符串，适配结果不再是string数组"
+    },
+    {
+      "id": "M-D2-b",
+      "req": "D2",
+      "by": "test",
+      "kills": [
+        "D2.a::instagram-array-through-public-profile"
+      ],
+      "file": "scripts/providers/tikhub.ts",
+      "find": "if (url) links.push(url)",
+      "replace": "if (url) links.push(l)",
+      "why": "Instagram公开profile把原始外链对象放入结果，地址数组不再由原始URL字符串组成"
+    },
+    {
+      "id": "M-D8-s",
+      "req": "D8",
+      "by": "test",
+      "kills": [
+        "D8.c::save-load-preserves-unqueried-sample-absence"
+      ],
+      "file": "scripts/lib/task.ts",
+      "find": "export function loadEnrichment(dir: string): EnrichmentState | undefined {\n  const p = join(dir, ENRICHMENT)\n  if (!existsSync(p)) return undefined\n  return JSON.parse(readFileSync(p, 'utf8'))\n}",
+      "replace": "export function loadEnrichment(dir: string): EnrichmentState | undefined {\n  const p = join(dir, ENRICHMENT)\n  if (!existsSync(p)) return undefined\n  const state = JSON.parse(readFileSync(p, 'utf8'))\n  for (const key of Object.keys(state.accounts)) state.accounts[key].sample ??= { status: 'unavailable' }\n  return state\n}",
+      "why": "真实加载enrichment时把未查询的缺席sample补成不可用，磁盘与返回不再保留未查询状态"
+    },
+    {
+      "id": "M-D8-t",
+      "req": "D8",
+      "by": "test",
+      "kills": [
+        "D8.c::save-load-preserves-queried-unavailable"
+      ],
+      "file": "scripts/lib/task.ts",
+      "find": "writeFileAtomic(join(dir, ENRICHMENT), JSON.stringify(state, null, 2))",
+      "replace": "writeFileAtomic(join(dir, ENRICHMENT), JSON.stringify(state, (key, value) => key === 'sample' && value?.status === 'unavailable' ? undefined : value, 2))",
+      "why": "保存enrichment时删除查询后不可用的样本，已查询状态及其来源时间原因在真实盘文件中消失"
     }
   ],
   "exemptions": [
