@@ -546,3 +546,18 @@ c9b0117c07fad03d95fc6c4e468e78a0c9f94b48完成第二十六节所选实现。独�
 | ADR-70:171 | 原条件已在第828行换到813，第869及2529行明确#94已还；不复活旧run诊断债。原报告误读原件保留，协调出处另记。 |
 
 本段只追加实际结果与当前去向，不改运行源码。接下来提交验证草稿取得实际Linux CI；草稿不记作恢复交付，Linux及其完整原件审查另取。本地未改善的负结果不会因发布草稿被改成成功，固定交接范围不增项，22项收尾与五参数不含。
+
+
+## 二十八、Linux同步信号红件与独立参照资格修正（2026-10-26，接线实现前）
+
+验证Draft #390的实际Linux CI2003/run40207003923/job121209986562，checkout为aa5c3b488e5b60f2ce11daba5a015a4f79dd4530（7d与cc57的合成树）、Node22.23.3/Linuxx64，在普通合同测试处失败。同步self-TERM的公开R为status143/signalnull、entry hooks=[]，C为status0/signalnull、hooks=[code0]；RAW和HOOKS真实不等，不能靠改期望消去。旧KNOWN_CLI_ZERO也把已冻Darwin0要求无条件用于新环境，是另一层参照资格缺口。完整decoded原件508751B、SHA256 330f1f915bb149b975fbfb6e8d9dcaa66f4c6fc8c4ad39940c3b542499c9c015保留；此链未跑完，不是性能样本。平台与Node补丁同时变化，不能据一个样本断言单项因果。
+
+独立作者未读C实现，先冻sync v4.3，独立静态审查再指出R-before源码连续性须先于C、stdout必要包完整校验、继承NODE_OPTIONS不能原文公开及私环境只临时留存四处窄缺口；另冻v4.3.1修正，原21及更早63成员不动。新21列明成员的manifest SHA256为3547b3c29ea76c03a4030101ab318d6fbdd7818e0cbf4769ca61a8471bd2bbff；嵌入另带manifest收据，实物22，不把22说成21。独立静态准入与同槽接线补丁审查阻塞0。
+
+公开要求仍是同一实际entry/args/cwd/final env的CLI raw与真实entry hooks严格一致；Darwin原零约束保留，Linux不把CI单样本143粘成期望。精确Node二进制/版本/平台/arch、公开tsx/fixture/observer和祖先无配置均先校准；正常控制、五次独立同步R、正常控制全部完整且向量一致才开C，随后R-before/C/R-after的来源/源码/接线连续性必须成立。R未资格时C不运行、检查失败，不能报告跳过成功或抹掉已知RAW/HOOKS红。
+
+本机唯一授权的Darwin22.22.0/arm64 R-only窗口已取得七个真实R均raw0/null、hooks=[code0]及12个资格标签通过，完整公开packet与盘上七record/qualification/report相同、输入前后稳定且无活动残留。其identity为cd9a3d96dfd0f53268745b05917962b1eb7a4b46763f4e2675bc6b2dba143a9d，核验收据SHA256 84535cb0bce8ec9176e20f251d2d94073e6917fdc35babfcf3f56502a6af2266。这是R7/C0/Linux0的有限资格，不是生产修复或Linux证据。
+
+接下来只机械替换现有sync外层槽，不新增外层工具进程：旧76成员及portable范围不改，新包另存packet/sync43；原descriptor的provider/来源/缓存绑定完整沿用，最终真实factory取C，禁止手写Ctuple。原八宏和八fault的要求与断言不弱化；旧其余157正常标签保留，sync由旧7改为Linux9/Darwin10，合计166/167，资格11/12单列，不谎称旧164身份未变。完整公开tape先透传，再在报告/状态判断及finally前做必需包闭合校验；FAIL/INVALID原件照样保留。
+
+现有CI不上传artifact，private effective-env仅runner本地0600临时诊断，可在清理时删除，不承诺持久归档；持久审查证据是stdout中经SHA/块序/完整性校验的全部公开行为、受控值与环境hash，不能靠编码秘密环境替代留存，也不改.github。生产四模块和Linux信号修法尚未改；旧Linux红件及本地wall未达标事实不因本次参照工具修正而改写。
