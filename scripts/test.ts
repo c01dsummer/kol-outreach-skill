@@ -279,6 +279,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-ci-wallclock-identity', needs: [] },
   { id: 'h-ci-wallclock-identity-parent-read', needs: [] },
   { id: 'h-prebuilt-no-config-contract', needs: [] },
+  { id: 'h-prebuilt-owner-descendant-contract', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -18044,6 +18045,12 @@ await group('h-prebuilt-no-config-contract', async () => {
   eq("INT和TERM进程组与同步自身信号生命周期", results.has("INT和TERM进程组与同步自身信号生命周期")
     ? [...results.get("INT和TERM进程组与同步自身信号生命周期")!, ...clearedTerm] : undefined, [])
   eq("异常保留原栈且普通预载正常收尾", results.get("异常保留原栈且普通预载正常收尾"), [])
+})
+
+await group('h-prebuilt-owner-descendant-contract', async () => {
+  harness('同项目后代配置归属的独立公开合同')
+  const { runOwnerDescendantContracts } = await import('./prebuilt-owner-descendant-contract-test.js')
+  eq('同配置后代缓存与中间配置回退保持公开语义', await runOwnerDescendantContracts(), [])
 })
 
 if (seenGroups.size !== GROUPS.length) {
