@@ -613,6 +613,6 @@ c9已有三份完整PR清点不变；此后修复另取三份逐489原身份的�
 | ADR-89:92 | 新M-H62-at实际具名红及全量抓获已核，不声称23个子标签各有独立负片或全库全行为覆盖。 |
 | ADR-94:1279 | 被否证guard提案与正式记录的宽窄读并留；候选未实施且最终限定语已改，不付全库反例验证余额。 |
 
-固定a8b23b97132e1232755feac56a1b55bf61499268、UID501/Node22.22.0/Darwin arm64、4 worker的实际compile及全量mutate均退0，292个跟踪对象与HEAD前后稳定。1671唯一配置/观测变异逐项等当前catalog且全caught，157配置正常基线成功，成本报告complete、issues为空，无缺失/未启动。447565B完整stdout的SHA256为8b29ff4dc7e19ed6a38c9a0319bcac7e649091c907aa8a5960bd9b5fcd968938；607.42977秒仅本次功能检查耗时，不是完整CI或性能收益。随后只在这棵通过树上实际launches --write，157配置仅本组从launches5/running8变为6/9，读回闸门退0。v3负片仍透传完整controller结果且原宏具名红，未因包装吞掉故障。
+固定a8b23b97132e1232755feac56a1b55bf61499268、UID501/Node22.22.0/Darwin arm64、4 worker的实际compile及全量mutate均退0，292个跟踪对象与HEAD前后稳定。定义及观测的变异ID均为1671个，逐项等当前catalog且全caught，157配置正常基线成功，成本报告complete、issues为空，无缺失/未启动。447565B完整stdout的SHA256为8b29ff4dc7e19ed6a38c9a0319bcac7e649091c907aa8a5960bd9b5fcd968938；607.42977秒仅本次功能检查耗时，不是完整CI或性能收益。随后只在这棵通过树上实际launches --write，157配置仅本组从launches5/running8变为6/9，读回闸门退0。v3负片仍透传完整controller结果且原宏具名红，未因包装吞掉故障。
 
 最终完整check与最终Linux尚待，现有CI2005成功只绑定6f；Darwin167+23不能借作Linux166+23资格。原本地完整四跑慢1.43644%保留，CI2005的19:20/历史中位23:32因硬件不同只作观察，不据此写稳定恢复。未改.github、依赖、Node或并发设置；固定工程45/已交付2/剩43，389已由Eric合入，CI恢复仍为原工作线。
