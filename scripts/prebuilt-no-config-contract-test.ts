@@ -10,6 +10,7 @@ import { SELFCHECK_FIXTURE_MARK } from './check/verifier-rule.js'
 import {
   COMBINED_FREEZE_SHA256, CONTRACT_BUCKETS, FROZEN_CONTRACT_FILES, ORIGINAL_FIXTURE_ROOT,
   ORIGINAL_FREEZES, ORIGINAL_PACKET_ROOT, PORTABLE_GUARD_SCOPES,
+  SYNC43_FREEZE_SHA256, SYNC43_FILES, SYNC43_NORMAL_LABELS,
 } from './prebuilt-no-config-contract-data.js'
 
 type ObjectValue = Record<string, unknown>
@@ -26,7 +27,7 @@ const readObject = (file: string): ObjectValue => {
 const SELECTED = ['N.SIGTERM.GROUP', 'N.SIGINT.GROUP', 'N.THROW'] as const
 
 /** Loaded only by its selected test.ts group; callers must not import this module eagerly. */
-export function runPrebuiltNoConfigContracts(): ReadonlyMap<string, readonly string[]> {
+export async function runPrebuiltNoConfigContracts(): Promise<ReadonlyMap<string, readonly string[]>> {
   const target = realpathSync(resolve('.'))
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'kol-prebuilt-no-config-')))
   try {
@@ -34,21 +35,29 @@ export function runPrebuiltNoConfigContracts(): ReadonlyMap<string, readonly str
     if (/[\\'"\r\n]/.test(root)) invalid('temporary path cannot be represented by the frozen prefix overlay')
     const ownerByLabel = new Map<string, string>()
     const diagnostics = new Map<string, string[]>()
+    const syncLabels = process.platform === 'linux' ? SYNC43_NORMAL_LABELS.linux
+      : process.platform === 'darwin' ? SYNC43_NORMAL_LABELS.darwin : invalid('sync43 platform is outside the frozen scope')
     for (const bucket of CONTRACT_BUCKETS) {
       if (diagnostics.has(bucket.name) || !bucket.labels.length) invalid('invalid static bucket table')
       diagnostics.set(bucket.name, [])
-      for (const label of bucket.labels) {
+      const normalLabels = bucket.labels.some(label => label.startsWith('N.SYNC_SELF_TERM.'))
+        ? [...bucket.labels.filter(label => !label.startsWith('N.SYNC_SELF_TERM.')), ...syncLabels] : bucket.labels
+      for (const label of normalLabels) {
         if (ownerByLabel.has(label)) invalid(`duplicate frozen label: ${label}`)
         ownerByLabel.set(label, bucket.name)
       }
     }
-    if (diagnostics.size !== 8 || ownerByLabel.size !== 164) invalid('static normal contract must contain 8 buckets / 164 unique labels')
+    const normalCount = 164 - 7 + syncLabels.length
+    if (diagnostics.size !== 8 || ownerByLabel.size !== normalCount
+      || normalCount !== (process.platform === 'linux' ? 166 : 167)) invalid('normal contract must contain 8 buckets / platform-specific 166 or 167 unique labels')
 
     const bindings = {
       packet: [ORIGINAL_PACKET_ROOT, join(root, 'packet')],
       original: [ORIGINAL_FIXTURE_ROOT, join(root, 'original')],
     } as const
-    const boundFiles = FROZEN_CONTRACT_FILES.map(file => {
+    // Old76 members and old scoped manifests remain unchanged. New tool has its
+    // own exact closure outside every lifecycle319 portable guard prefix.
+    const boundFiles = [...FROZEN_CONTRACT_FILES, ...SYNC43_FILES].map(file => {
       if (hash(file.body) !== file.sha256) invalid(`original frozen bytes changed: ${file.name}`)
       let body = file.body
       for (const key of file.rootBindings) {
@@ -86,12 +95,13 @@ export function runPrebuiltNoConfigContracts(): ReadonlyMap<string, readonly str
       portableGuards.push({ path, sha256: hash(body) })
     }
     const verifyInputs = (): void => {
-      for (const file of [...boundFiles.filter(file => !file.name.endsWith('/freeze-manifest.json')), ...portableGuards]) {
+      for (const file of [...boundFiles.filter(file => !portableGuards.some(guard => guard.path === file.path)), ...portableGuards]) {
         if (hash(readFileSync(file.path)) !== file.sha256) invalid(`portable input changed: ${file.path}`)
       }
     }
     writeFileSync(join(root, 'portable-bindings.json'), JSON.stringify({
       combinedFreezeSha256: COMBINED_FREEZE_SHA256, originalFreezes: ORIGINAL_FREEZES, bindings,
+      sync43FreezeSha256: SYNC43_FREEZE_SHA256, normalCount,
       members: boundFiles.map(file => ({ ...file, executedSha256: portableGuards.find(guard => guard.path === file.path)?.sha256 ?? file.sha256 })),
       scope: 'runtime subset only; no original full-manifest qualification or N.CACHE consumption claim',
     }, null, 2) + '\n')
@@ -192,7 +202,7 @@ export function runPrebuiltNoConfigContracts(): ReadonlyMap<string, readonly str
     for (const value of main.cases) {
       if (!object(value) || !SELECTED.includes(value.id as typeof SELECTED[number]) || !['PASS', 'FAIL'].includes(value.status as string)) invalid('lifecycle case unavailable')
       const id = value.id as string
-      // ENTRY_READY is a frozen alternate diagnostic, not a 165th normal expected label.
+      // ENTRY_READY is a frozen alternate diagnostic outside the normal label set.
       if (Array.isArray(value.assertions) && value.assertions.length === 1 && object(value.assertions[0]) && value.assertions[0].label === `${id}.ENTRY_READY`) {
         if (value.status !== 'FAIL' || value.assertions[0].status !== 'FAIL' || value.semanticAssertions !== 1 || id === 'N.THROW') invalid('invalid candidate-ready diagnostic')
         diagnostics.get(ownerByLabel.get(`${id}.RAW`)!)!.push(`${id}.ENTRY_READY: ${JSON.stringify(value.assertions[0].actual)}`)
@@ -200,7 +210,40 @@ export function runPrebuiltNoConfigContracts(): ReadonlyMap<string, readonly str
       lifecycleCount += value.semanticAssertions as number
     }
     if (main.semanticAssertions !== lifecycleCount) invalid('lifecycle assertion total mismatch')
-    consume(execute('packet/lifecycle319/sync/run.mjs', lifecycleRuntimePath)!, labels.filter(label => label.startsWith('N.SYNC_SELF_TERM.')), 'sync7')
+    // Same one outer sync tool slot. The descriptor's actual provider/bindings/
+    // source hashes/payloads survive the spread; no C tuple is supplied here.
+    const syncExpected = readObject(join(root, 'packet/lifecycle319/sync/expected.json'))
+    if (typeof syncExpected.entry !== 'string' || typeof syncExpected.cwd !== 'string') invalid('mapped old sync entry/cwd absent')
+    const syncRuntime = { ...readObject(lifecycleRuntimePath), entry: syncExpected.entry, cwd: syncExpected.cwd,
+      referenceOnly: false, outputRoot: join(root, 'sync43-local-runs') }
+    const syncRuntimePath = join(root, 'sync43-runtime.json')
+    writeFileSync(syncRuntimePath, JSON.stringify(syncRuntime, null, 2) + '\n')
+    const evidence: {
+      forwardEvidence(stdout: string, emit: (line: string) => void): number
+      parseSummary(stdout: string): ObjectValue
+      validateEvidenceClosure(stdout: string): { summary: ObjectValue; report: ObjectValue; reportSha256: string }
+    } = await import(pathToFileURL(join(root, 'packet/sync43/src/evidence.mjs')).href)
+    verifyInputs()
+    const syncChild = spawnSync(process.execPath,
+      ['--import', publicLoader, join(root, 'packet/sync43/src/run.mjs'), syncRuntimePath], {
+        cwd: target, env: toolEnv, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: 180_000,
+      })
+    if (syncChild.stderr) process.stderr.write(syncChild.stderr)
+    // Before parsing, throwing, validating status, or finally cleanup. Frozen
+    // forwarding also emits partial red originals before rejecting their closure.
+    try { evidence.forwardEvidence(syncChild.stdout ?? '', line => console.log(line)) }
+    catch (error) { invalid(`sync43 evidence closure unavailable: ${String(error)}; toolError=${String(syncChild.error ?? syncChild.signal ?? syncChild.status)}`) }
+    verifyInputs()
+    const syncSummary = evidence.parseSummary(syncChild.stdout ?? '')
+    if (syncChild.error || syncChild.signal || typeof syncSummary.report !== 'string') invalid('sync43 tool/summary unavailable; raw tape retained above')
+    // Accept only the frozen decoder's public report, never a different local
+    // report.json after successful forwarding. Its path is packet-bound by .1.
+    const validated = evidence.validateEvidenceClosure(syncChild.stdout ?? '')
+    if (JSON.stringify(syncSummary) !== JSON.stringify(validated.summary)) invalid('sync43 validated summary mismatch')
+    const syncReport = validated.report
+    if (!['PASS', 'FAIL'].includes(syncReport.status as string) || syncReport.infrastructureError || syncReport.reason
+      || syncChild.status !== (syncReport.status === 'PASS' ? 0 : 1)) invalid('sync43 INVALID/qualification failure or report/exit mismatch; tape retained')
+    consume(syncReport, syncLabels, 'sync43-normal-pair')
     consume(execute('packet/lifecycle319/preload/run.mjs', lifecycleRuntimePath)!, labels.filter(label => label.startsWith('V4.PRELOAD.')), 'preload4')
     verifyInputs()
     return diagnostics

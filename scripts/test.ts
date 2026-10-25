@@ -18032,7 +18032,7 @@ await group('h-prebuilt-no-config-contract', async () => {
   const { runPrebuiltNoConfigContracts }: {
     runPrebuiltNoConfigContracts: typeof RunPrebuiltNoConfigContracts
   } = await import('./prebuilt-no-config-contract-test.js')
-  const results = runPrebuiltNoConfigContracts()
+  const results = await runPrebuiltNoConfigContracts()
   eq("预编两种格式与独立无配置身份", results.get("预编两种格式与独立无配置身份"), [])
   eq("无配置入口参数与默认语义", results.get("无配置入口参数与默认语义"), [])
   eq("无配置准入边界保留公开加载器回退", results.get("无配置准入边界保留公开加载器回退"), [])
