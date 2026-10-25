@@ -9441,6 +9441,7 @@ function createTree(id: string, ownerDefine: boolean, childDefine: boolean) {
   mkdirSync(child, { recursive: true });
   writeFileSync(path.join(owner, 'package.json'), '{"type":"module"}\n');
   writeFileSync(path.join(owner, 'tsconfig.json'), config(ownerDefine, 'scripts/**/*.ts'));
+  writeFileSync(path.join(scripts, 'tsconfig.json'), config(!ownerDefine, '**/*.ts'));
   writeFileSync(path.join(child, 'tsconfig.json'), config(childDefine, '../owner/scripts/**/*.ts'));
   symlinkSync(DEPENDENCIES, path.join(owner, 'node_modules'), 'dir');
   writeFileSync(path.join(scripts, 'bus.ts'), bus);
