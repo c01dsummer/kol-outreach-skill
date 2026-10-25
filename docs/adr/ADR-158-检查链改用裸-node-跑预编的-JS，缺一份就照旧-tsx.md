@@ -616,3 +616,10 @@ c9已有三份完整PR清点不变；此后修复另取三份逐489原身份的�
 固定a8b23b97132e1232755feac56a1b55bf61499268、UID501/Node22.22.0/Darwin arm64、4 worker的实际compile及全量mutate均退0，292个跟踪对象与HEAD前后稳定。定义及观测的变异ID均为1671个，逐项等当前catalog且全caught，157配置正常基线成功，成本报告complete、issues为空，无缺失/未启动。447565B完整stdout的SHA256为8b29ff4dc7e19ed6a38c9a0319bcac7e649091c907aa8a5960bd9b5fcd968938；607.42977秒仅本次功能检查耗时，不是完整CI或性能收益。随后只在这棵通过树上实际launches --write，157配置仅本组从launches5/running8变为6/9，读回闸门退0。v3负片仍透传完整controller结果且原宏具名红，未因包装吞掉故障。
 
 最终完整check与最终Linux尚待，现有CI2005成功只绑定6f；Darwin167+23不能借作Linux166+23资格。原本地完整四跑慢1.43644%保留，CI2005的19:20/历史中位23:32因硬件不同只作观察，不据此写稳定恢复。未改.github、依赖、Node或并发设置；固定工程45/已交付2/剩43，389已由Eric合入，CI恢复仍为原工作线。
+
+
+## 三十一、具名清空的 Linux 公开行为（2026-10-26，实现前）
+
+1d3ad4d的实际Linux CI2007/run40223598807/job121260216353只剩CLEAR_TERM_V2.REMOVE_TERM.HOOKS红：R与C均raw143/null，但R真实hook为143、C为空。KEEP及无参REMOVE_ALL均全通过，controller和原同步合同没有失败。这是将Darwin22.22的具名清空R无钩子事实外推Linux22.23.3的修补错误；旧Mac原件不授Linux行为资格，不能改动态R期望去保这项错误。
+
+下一修正只收窄Linux默认处理的抑制：实例代理仅记this为process的无参清空；具名清空后仍以同运行时公共CLI为准，若已有用户TERM handler则不追加默认处理。无参清空仍不补默认处理，Darwin路径保持。测试输入、23标签、严格raw/hooks比较与信号派发均不改。M-H62-at的why改成清空结果及真实退出行为与同运行时公开命令一致，find/replace/kills不变；不宣称它在两个平台都使每个HOOKS子标签红。先记该三行修正，再实际验证，不新增优化方向或框架。
