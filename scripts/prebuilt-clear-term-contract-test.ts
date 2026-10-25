@@ -60,7 +60,46 @@ function rows(file: string): Row[] {
 }
 
 /** C uses only real prebuildTree + final-env prebuiltCommand. No fixture entry is imported into the host. */
+/** Fixed single host launch; timing-dependent ps observations stay in the uninstrumented controller. */
 export async function runPrebuiltClearTermContracts(): Promise<readonly string[]> {
+  const env = { ...process.env }
+  delete env.NODE_OPTIONS
+  const marker = 'CLEAR_TERM_CONTROLLER_JSON '
+  const program = `const m = await import(${JSON.stringify(import.meta.url)}); const failures = await m.runPrebuiltClearTermCases(); console.log(${JSON.stringify(marker)} + JSON.stringify({version:'clear-term-controller-v1', failures}));`
+  const tool = spawnSync(process.execPath, ['--import', createRequire(import.meta.url).resolve('tsx'), '--input-type=module', '--eval', program], {
+    cwd: process.cwd(), env, encoding: 'utf8', timeout: 60_000, maxBuffer: 8 * 1024 * 1024,
+  })
+  // Preserve complete red/invalid evidence before any parsing or status decision.
+  if (tool.stdout) process.stdout.write(tool.stdout)
+  if (tool.stderr) process.stderr.write(tool.stderr)
+  if (tool.error || tool.status !== 0 || tool.signal !== null) invalid(`controller did not complete: ${JSON.stringify({ status: tool.status, signal: tool.signal, error: tool.error?.message })}`)
+  if (!tool.stdout.endsWith('\n')) invalid('controller output is incomplete')
+  const lines = tool.stdout.split('\n').filter(Boolean)
+  const endings = lines.filter(line => line.startsWith(marker))
+  const records = lines.filter(line => line.startsWith('CLEAR_TERM_CONTRACT_JSON ')).map(line => JSON.parse(line.slice('CLEAR_TERM_CONTRACT_JSON '.length)) as Row)
+  if (endings.length !== 1 || records.length !== MODES.length || lines.at(-1) !== endings[0]) invalid('controller result/case closure is incomplete')
+  const result: unknown = JSON.parse(endings[0].slice(marker.length))
+  if (typeof result !== 'object' || result === null || Array.isArray(result)) invalid('controller result is not an object')
+  const value = result as Row
+  if (value.version !== 'clear-term-controller-v1' || !Array.isArray(value.failures) || !value.failures.every(x => typeof x === 'string')) invalid('controller result fields are invalid')
+  const failures: string[] = []
+  for (let i = 0; i < MODES.length; i++) {
+    const mode = MODES[i], receipt = records[i]
+    if (receipt.version !== 'clear-term-public-v2' || receipt.mode !== mode || !Array.isArray(receipt.assertions)) invalid('controller case identity is invalid')
+    const assertions = receipt.assertions as Row[]
+    const names = ['SUPPLY', 'FACTORY', 'ENTRY_ONCE', ...(mode === 'KEEP' ? [] : ['CLEARED']), 'RAW', 'HOOKS', 'CLOSE', 'IDENTITY']
+    const supplyFailure = assertions.length === 1 && assertions[0].label === `CLEAR_TERM_V2.${mode}.SUPPLY` && assertions[0].status === 'FAIL'
+    if (!supplyFailure && !same(assertions.map(a => a.label), names.map(name => `CLEAR_TERM_V2.${mode}.${name}`))) invalid('controller semantic label closure is invalid')
+    for (const assertion of assertions) {
+      if (assertion.status !== 'PASS' && assertion.status !== 'FAIL') invalid('controller assertion status is invalid')
+      if (assertion.status === 'FAIL') failures.push(`${assertion.label}: ${JSON.stringify({ expected: assertion.expected, actual: assertion.actual })}`)
+    }
+  }
+  if (!same(failures, value.failures)) invalid('controller failure result disagrees with public case receipts')
+  return failures
+}
+
+export async function runPrebuiltClearTermCases(): Promise<readonly string[]> {
   const target = realpathSync(resolve('.')), root = realpathSync(mkdtempSync('/tmp/kol-clear-term-'))
   const failures: string[] = [], req = createRequire(join(target, 'package.json')), cli = req.resolve('tsx/cli')
   const provider = ['prebuilt.ts', 'prebuilt-hook.ts', 'prebuilt-parent.ts', 'prebuilt-signals.ts'].map(file => join(target, 'scripts/check', file))
