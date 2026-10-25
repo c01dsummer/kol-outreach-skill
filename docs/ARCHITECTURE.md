@@ -182,6 +182,7 @@
 | `scripts/actual-path-contract-test.ts` | 测试夹具 | D2 D8 | 两处旧空断言的实际路径适配：私有子进程先接假fetch与网络阻断，再调用当前工作树公开profile及真实save/loadEnrichment；四份独立冻结输入逐字内嵌，完整合法的四标签结果才交给需求测试断言。子进程隔离全局补丁，finally清理专用目录；只补两契约，不声称全SPEC隔离重写 |
 | `scripts/prebuilt-no-config-contract-test.ts` | 测试夹具 | — | 无配置缓存入口的有限合同适配器：只在选中组时加载，在独立临时根执行冻结producer及进程行为案例，经实际最终env调用当前工作树factory；旧164合同原件保留；同步self-TERM先用公开CLI的控制/五次同步/控制取得当前精确环境资格，再以R-before/C/R-after严格比较。新版正常Linux166、Darwin167标签汇入原八条字面断言，资格11/12另列；异步适配器由现有async组选中后await。坏绑定、缺标签、R失格或公开证据不全不记语义抓获，不以跳过测试换绿；不把Mac原件当Linux资格 |
 | `scripts/prebuilt-no-config-contract-data.ts` | 测试夹具 | — | 上述适配器的冻结运行成员、逐件原始哈希与八桶标签表；仅作可逆路径绑定及明示的运行子集清单。新无配置入口对照公开CLI，旧空配置owner对照固定已发布旧API，历史红记录与生产缓存格式分开；不是通用打包器 |
+| `scripts/prebuilt-clear-term-contract-test.ts` | 测试夹具 | — | 独立冻结的三对TERM清空行为：先实际公共CLI，再真实预编及N factory，比较raw和入口真实exit hook code；清空后才装观察器，KEEP为阳性控制。23个窄标签独立计数，只汇入原生命周期宏，不冒称属于旧167；只向已核隔离entry PID发信号，正常close/源身份及残留均核（ADR-158第二十九节） |
 
 <!-- END:ANCHORS -->
 
