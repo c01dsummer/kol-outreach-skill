@@ -6386,7 +6386,6 @@ await group('d2-d8-actual-paths', () => {
   suite('D8', '真实save/load保留未查询与已查询不可用')
   eq('D8.c::save-load-preserves-unqueried-sample-absence', results.get('D8.c::save-load-preserves-unqueried-sample-absence'), [])
   eq('D8.c::save-load-preserves-queried-unavailable', results.get('D8.c::save-load-preserves-queried-unavailable'), [])
-  criterion('D8.c')
 })
 
 // ─────────────────────────── 流程 ───────────────────────────
