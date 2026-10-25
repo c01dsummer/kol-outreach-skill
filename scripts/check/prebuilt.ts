@@ -18,13 +18,13 @@
  * 玩具树在临时目录里，找不到，照旧 tsx —— 与原型量数时同一个范围（ADR-158 第一节）。
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { constants } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import type * as Esbuild from 'esbuild'
-import { assertNoConfig, entryPath, keyOf } from './prebuilt-hook.js'
+import { assertNoConfig, entryPath, keyOf, observerLaunchIdentity, observerOwnerIdentity, observerSnapshot } from './prebuilt-hook.js'
 import { tsxCommand } from './tsx-cmd.js'
 
 /** 仓库根底下放预编 JS 的目录 */
@@ -257,7 +257,16 @@ export function prebuiltCommand(args: string[], cwd = process.cwd(), env: NodeJS
       return complete(tsFiles(root!), f => entryPath(cache, keyNow(f, selected!.id)), existsSync)
     } })
   if (!bare || selected === undefined) return tsxCommand(args)
-  const hook = hookFor(root!, owner!, selected.id, selected.noConfig)
+  let hook = hookFor(root!, owner!, selected.id, selected.noConfig)
+  // 受控环境已有带启动保护的同一个 N hook；child 再 import 同 URL，避免装第二个无绑定钩子。
+  const imported = env.NODE_OPTIONS?.match(/^--enable-source-maps --import ("(?:\\.|[^"\\])*") /)?.[1]
+  if (selected.noConfig && imported !== undefined) {
+    try {
+      const supplied = new URL(JSON.parse(imported) as string), expected = new URL(hook)
+      if (supplied.origin === expected.origin && supplied.pathname === expected.pathname && supplied.searchParams.has('observed')
+        && ['root', 'cache', 'id', 'noConfig'].every(key => supplied.searchParams.get(key) === expected.searchParams.get(key))) hook = supplied.href
+    } catch { /* 未知格式沿用原命令，受控环境自己的启动保护仍须拒绝失效。 */ }
+  }
   return selected.noConfig
     ? [process.execPath, [fileURLToPath(PARENT), '--hook', hook, '--', ...args]]
     : [process.execPath, ['--import', hook, ...args]]
@@ -267,4 +276,43 @@ export function prebuiltCommand(args: string[], cwd = process.cwd(), env: NodeJS
 export function fixtureLoader(script: string, env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
   const [, argv] = prebuiltCommand([script], cwd, env)
   return isBare(argv) ? argv[1]! : pathToFileURL(require.resolve('tsx')).href
+}
+
+/** 只供既有 brand 内容版本观察器使用；未知组合保留原完整公共起法（ADR-158 第二十六节）。 */
+export function brandObserverEnv(script: string, cwd: string, baseEnv: NodeJS.ProcessEnv, observerFile: string): NodeJS.ProcessEnv {
+  const observer = pathToFileURL(resolve(observerFile)).href
+  const original = (): NodeJS.ProcessEnv => {
+    const env = { ...baseEnv, NODE_OPTIONS: `--import ${JSON.stringify(fixtureLoader(script, baseEnv, cwd))} ${baseEnv.NODE_OPTIONS} --import ${JSON.stringify(observer)}` }
+    prebuiltCommand([script], cwd, env)
+    return env
+  }
+  try {
+    const root = scriptsRootOf(script)
+    if (root === undefined) return original()
+    const fetchFile = join(root, 'check/fake-fetch.ts'), fetch = pathToFileURL(fetchFile).href
+    const template = [
+      `import { appendFileSync } from 'node:fs';`,
+      `import { Budget } from ${JSON.stringify(pathToFileURL(join(root, 'lib/budget.ts')).href)};`,
+      `const original = Budget.prototype.reserve;`,
+      `Budget.prototype.reserve = function(...args) {`,
+      `  appendFileSync(process.env.BRAND_VERSION_RESERVE_LOG, 'reserve\\n');`,
+      `  return Reflect.apply(original, this, args);`,
+      `};`,
+      `appendFileSync(process.env.BRAND_VERSION_ARMED_LOG, 'armed\\n');`,
+    ].join('\n')
+    if (baseEnv.NODE_OPTIONS !== `--import ${JSON.stringify(fetch)}` || lstatSync(observerFile).isSymbolicLink()
+      || readFileSync(observerFile, 'utf8') !== template
+      || createHash('sha256').update(readFileSync(fetchFile)).digest('hex') !== 'f890ca79e639983c70c91bdaa009236980a4f5c8e424fd3b58bc347e9c085226') return original()
+    const [, preliminary] = prebuiltCommand([script], cwd, baseEnv)
+    if (preliminary[0] !== fileURLToPath(PARENT) || preliminary[1] !== '--hook' || preliminary[2] === undefined) return original()
+    const hook = new URL(preliminary[2]), cache = hook.searchParams.get('cache'), id = hook.searchParams.get('id')
+    if (hook.searchParams.get('noConfig') !== '1' || cache === null || id === null) return original()
+    const snapshot = observerSnapshot(root, cache, id)
+    if (!snapshot.complete) return original()
+    hook.searchParams.set('observed', JSON.stringify({ file: resolve(observerFile), hash: createHash('sha256').update(template).digest('hex'),
+      launch: observerLaunchIdentity(), owner: observerOwnerIdentity(cache), script: resolve(script), tree: snapshot.identity }))
+    const env = { ...baseEnv, NODE_OPTIONS: `--enable-source-maps --import ${JSON.stringify(hook.href)} ${baseEnv.NODE_OPTIONS} --import ${JSON.stringify(observer)}` }
+    const [, selected] = prebuiltCommand([script], cwd, env)
+    return selected[0] === fileURLToPath(PARENT) && selected[1] === '--hook' && selected[2] === hook.href ? env : original()
+  } catch { return original() }
 }

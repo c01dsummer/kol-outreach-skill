@@ -37,7 +37,7 @@ import { pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
 import { isDeepStrictEqual } from 'node:util'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
-import { asTsx, fixtureLoader, prebuiltCommand } from './prebuilt.js'
+import { asTsx, brandObserverEnv, fixtureLoader, prebuiltCommand } from './prebuilt.js'
 import {
   ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, mutationSourceIdentity, sourceFiles,
 } from './claims.js'
@@ -9313,7 +9313,6 @@ group('brand-content-version-entry', [], () => {
   const recomputed = versionOf(stale)
   const hex = good.version.slice('sha256:'.length)
   const tasks = [{ keyword: 'brand version fixture', dimension: 'category', platform: 'tiktok' }]
-  const fixtureImport = (cwd: string) => fixtureLoader(S('collect.ts'), env, cwd)
   const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
   const preload = join(base, 'observe-reserve.mjs')
   writeFileSync(preload, [
@@ -9326,10 +9325,10 @@ group('brand-content-version-entry', [], () => {
     `};`,
     `appendFileSync(process.env.BRAND_VERSION_ARMED_LOG, 'armed\\n');`,
   ].join('\n'))
-  const observed = (f: { cwd: string; log: string; reserves: string; armed: string }) => costEnv(f.log, {
-    BRAND_VERSION_RESERVE_LOG: f.reserves, BRAND_VERSION_ARMED_LOG: f.armed,
-    NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport(f.cwd))} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
-  })
+  const observed = (f: { cwd: string; log: string; reserves: string; armed: string }, script: string) =>
+    brandObserverEnv(script, f.cwd, { ...env, ...costEnv(f.log, {
+      BRAND_VERSION_RESERVE_LOG: f.reserves, BRAND_VERSION_ARMED_LOG: f.armed,
+    }) }, preload)
   const logs = (cwd: string) => {
     const log = join(cwd, 'attempts.tsv'), reserves = join(cwd, 'reserves.txt'), armed = join(cwd, 'armed.txt')
     writeFileSync(reserves, '')
@@ -9376,7 +9375,7 @@ group('brand-content-version-entry', [], () => {
   // D20.h：版本与内容一致时照常运行。collect 新建同时是下面零预留、零请求断言的阳性对照
   const fresh = newInput('match-new', good)
   const freshRun = runBoth('内容哈希版本一致新建', [S('collect.ts'), '--config', fresh.file], fresh.cwd,
-    { status: 0, soft: [1, 2, 3] }, observed(fresh))
+    { status: 0, soft: [1, 2, 3] }, observed(fresh, S('collect.ts')))
   if (freshRun.ok && ready(fresh, freshRun.stderr)) {
     const dir = onlyDir(fresh.cwd, 'brandversion')
     const state = dir ? jsonFile(join(fresh.cwd, dir, 'task.json')) : undefined
@@ -9388,7 +9387,7 @@ group('brand-content-version-entry', [], () => {
   }
   const matchEnrich = taskInput('match-enrich', good, true)
   const matchEnrichRun = runBoth('内容哈希版本一致 enrich', [S('enrich.ts'), '--dir', matchEnrich.taskDir],
-    matchEnrich.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchEnrich))
+    matchEnrich.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchEnrich, S('enrich.ts')))
   if (matchEnrichRun.ok && ready(matchEnrich, matchEnrichRun.stderr)) {
     named('内容哈希版本一致：enrich 确实预留和请求，不因版本拒绝，不改写校准',
       matchEnrichRun.status === 0 && fetchAttempts(matchEnrich.reserves).length > 0
@@ -9402,7 +9401,7 @@ group('brand-content-version-entry', [], () => {
   const matchEnrichBudget = taskInput('match-enrich-budget', good, true)
   const matchEnrichBudgetRun = runBoth('内容哈希版本一致 enrich 改额',
     [S('enrich.ts'), '--dir', matchEnrichBudget.taskDir, '--budget', '2'],
-    matchEnrichBudget.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchEnrichBudget))
+    matchEnrichBudget.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchEnrichBudget, S('enrich.ts')))
   if (matchEnrichBudgetRun.ok && ready(matchEnrichBudget, matchEnrichBudgetRun.stderr)) {
     named('内容哈希版本一致：enrich 改额确实预留和请求，不因版本拒绝，不改写校准',
       matchEnrichBudgetRun.status === 0 && fetchAttempts(matchEnrichBudget.reserves).length > 0
@@ -9414,7 +9413,7 @@ group('brand-content-version-entry', [], () => {
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const f = taskInput(mode === '普通' ? 'match-resume' : 'match-resume-budget', good)
     const r = runBoth(`内容哈希版本一致${mode}续跑`, [S('collect.ts'), '--resume', f.taskDir, ...extra],
-      f.cwd, { status: 0, soft: [1, 2, 3] }, observed(f))
+      f.cwd, { status: 0, soft: [1, 2, 3] }, observed(f, S('collect.ts')))
     if (!r.ok || !ready(f, r.stderr)) continue
     const ok = r.status === 0 && fetchAttempts(f.reserves).length > 0 && fetchAttempts(f.log).length > 0
       && !namesVersion(r.stderr) && keptCalibration(f, good)
@@ -9425,7 +9424,7 @@ group('brand-content-version-entry', [], () => {
   }
   const matchRender = taskInput('match-render', good, true)
   const matchRenderRun = runBoth('内容哈希版本一致 render', [S('render.ts'), '--dir', matchRender.taskDir],
-    matchRender.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchRender))
+    matchRender.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchRender, S('render.ts')))
   if (matchRenderRun.ok && ready(matchRender, matchRenderRun.stderr)) {
     named('内容哈希版本一致：render 照常交付名单并写记忆，不改写校准',
       matchRenderRun.status === 0 && delivered(matchRender) && keptCalibration(matchRender, good)
@@ -9438,7 +9437,7 @@ group('brand-content-version-entry', [], () => {
   // D20.g：版本与内容不一致时，三个入口在预留、请求和写入前以 2 拒绝
   const staleNew = newInput('stale-new', stale)
   const staleNewRun = runBoth('内容哈希版本不一致新建', [S('collect.ts'), '--config', staleNew.file], staleNew.cwd,
-    { status: 2, soft: [0, 1, 3] }, observed(staleNew))
+    { status: 2, soft: [0, 1, 3] }, observed(staleNew, S('collect.ts')))
   if (staleNewRun.ok && ready(staleNew, staleNewRun.stderr)) {
     // 照常运行的新建会在 output/ 下建 brandversion-* 任务目录；拒绝时一个都不能有
     const output = join(staleNew.cwd, 'output')
@@ -9456,7 +9455,7 @@ group('brand-content-version-entry', [], () => {
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const f = taskInput(mode === '普通' ? 'stale-resume' : 'stale-resume-budget', stale), before = original(f)
     const r = runBoth(`内容哈希版本不一致${mode}续跑`, [S('collect.ts'), '--resume', f.taskDir, ...extra],
-      f.cwd, { status: 2, soft: [0, 1, 3] }, observed(f))
+      f.cwd, { status: 2, soft: [0, 1, 3] }, observed(f, S('collect.ts')))
     if (!r.ok || !ready(f, r.stderr)) continue
     const stopped = r.status === 2 && noReserveOrFetch(f) && unchanged(f, before)
     const detail = `${mode}：退出=${r.status}，${events(f)}，三文件原字节=${unchanged(f, before)}`
@@ -9474,7 +9473,7 @@ group('brand-content-version-entry', [], () => {
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const f = taskInput(mode === '普通' ? 'stale-enrich' : 'stale-enrich-budget', stale, true), before = original(f)
     const r = runBoth(`内容哈希版本不一致 enrich ${mode}`, [S('enrich.ts'), '--dir', f.taskDir, ...extra],
-      f.cwd, { status: 2, soft: [0, 1, 3] }, observed(f))
+      f.cwd, { status: 2, soft: [0, 1, 3] }, observed(f, S('enrich.ts')))
     if (!r.ok || !ready(f, r.stderr)) continue
     const stopped = r.status === 2 && noReserveOrFetch(f) && unchanged(f, before)
       && deliveries(f).every(path => !existsSync(path))
@@ -9492,7 +9491,7 @@ group('brand-content-version-entry', [], () => {
   }
   const staleRender = taskInput('stale-render', stale, true), staleRenderBefore = original(staleRender)
   const staleRenderRun = runBoth('内容哈希版本不一致 render', [S('render.ts'), '--dir', staleRender.taskDir],
-    staleRender.cwd, { status: 2, soft: [0, 1, 3] }, observed(staleRender))
+    staleRender.cwd, { status: 2, soft: [0, 1, 3] }, observed(staleRender, S('render.ts')))
   if (staleRenderRun.ok && ready(staleRender, staleRenderRun.stderr)) {
     named('内容哈希版本不一致：render 在预留、请求和交付写入前退出2，不写记忆',
       staleRenderRun.status === 2 && noReserveOrFetch(staleRender) && unchanged(staleRender, staleRenderBefore)
@@ -9525,7 +9524,7 @@ group('brand-content-version-entry', [], () => {
   }
   const dual = dualInput('stale-render-dual'), dualBefore = original(dual)
   const dualRun = runBoth('内容哈希版本不一致且任务列表非法 render', [S('render.ts'), '--dir', dual.taskDir],
-    dual.cwd, { status: 2, soft: [0, 1, 3] }, observed(dual))
+    dual.cwd, { status: 2, soft: [0, 1, 3] }, observed(dual, S('render.ts')))
   if (dualRun.ok && ready(dual, dualRun.stderr)) {
     const taskProblems = taskProblemsReported(dualRun.stderr)
     named('内容哈希版本不一致且任务列表也坏：render 两类问题都报且给出复算值，零预留零请求，文件原字节不变',
@@ -9538,7 +9537,7 @@ group('brand-content-version-entry', [], () => {
   }
   const dualEnrich = dualInput('stale-enrich-dual'), dualEnrichBefore = original(dualEnrich)
   const dualEnrichRun = runBoth('内容哈希版本不一致且任务列表非法 enrich', [S('enrich.ts'), '--dir', dualEnrich.taskDir],
-    dualEnrich.cwd, { status: 2, soft: [0, 1, 3] }, observed(dualEnrich))
+    dualEnrich.cwd, { status: 2, soft: [0, 1, 3] }, observed(dualEnrich, S('enrich.ts')))
   if (dualEnrichRun.ok && ready(dualEnrich, dualEnrichRun.stderr)) {
     const taskProblems = taskProblemsReported(dualEnrichRun.stderr)
     named('内容哈希版本不一致且任务列表也坏：enrich 两类问题都报且给出复算值，零预留零请求，文件原字节不变',
@@ -9556,7 +9555,7 @@ group('brand-content-version-entry', [], () => {
   const brokenRecomputed = versionOf(broken)
   const structureFirst = taskInput('stale-render-structure', broken, true), structureBefore = original(structureFirst)
   const structureRun = runBoth('内容哈希版本不一致且结构非法 render', [S('render.ts'), '--dir', structureFirst.taskDir],
-    structureFirst.cwd, { status: 2, soft: [0, 1, 3] }, observed(structureFirst))
+    structureFirst.cwd, { status: 2, soft: [0, 1, 3] }, observed(structureFirst, S('render.ts')))
   if (structureRun.ok && ready(structureFirst, structureRun.stderr)) {
     named('内容哈希版本不一致而结构不合 D20.a：render 只报结构问题，不另算哈希，零预留零请求',
       structureRun.status === 2
