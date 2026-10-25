@@ -21,7 +21,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { constants } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import type * as Esbuild from 'esbuild'
 import { assertNoConfig, entryPath, keyOf, observerLaunchIdentity, observerOwnerIdentity, observerSnapshot } from './prebuilt-hook.js'
@@ -119,11 +119,22 @@ const noConfigProfile = () => ({
 })
 const profilesOf = (owner: string) => [{ ...settingsOf(owner), maps: false }, noConfigProfile()]
 
-/** 只确认入口项目根本层的覆盖范围；跨目录、复杂范围或父层配置交给 tsx */
+/** 原根逻辑保留；真实后代仅在最近配置仍为项目根普通文件时沿用同一编译配置。 */
 const settingsAtCwd = (cwd: string, root: string): ReturnType<typeof settingsOf> | undefined => {
   try {
     const here = realpathSync(cwd)
-    if (here !== realpathSync(dirname(root))) return undefined
+    const project = realpathSync(dirname(root))
+    if (here !== project) {
+      const inside = relative(project, here)
+      if (inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside)) return undefined
+      for (let dir = here; dir !== project; dir = dirname(dir)) {
+        try { lstatSync(join(dir, 'tsconfig.json')); return undefined }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return undefined }
+      }
+      if (!lstatSync(join(project, 'tsconfig.json')).isFile()) return undefined
+      const inherited = settingsOf(project)
+      return inherited.coversScripts ? inherited : undefined
+    }
     for (let dir = here; ; dir = dirname(dir)) {
       try {
         statSync(join(dir, 'tsconfig.json'))
