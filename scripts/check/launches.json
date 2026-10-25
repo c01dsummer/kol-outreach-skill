@@ -111,6 +111,7 @@
     {"config":"[\"test\",[\"h-launch-preload-edge\"]]","launches":1,"maxPaid":null,"running":6,"stopping":0},
     {"config":"[\"test\",[\"h-launch-rule\"]]","launches":0,"maxPaid":null,"running":191,"stopping":0},
     {"config":"[\"test\",[\"h-launch-summary-deep\"]]","launches":0,"maxPaid":null,"running":2,"stopping":0},
+    {"config":"[\"test\",[\"h-lazy-typescript-contract\"]]","launches":1,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"h-mutate\"]]","launches":0,"maxPaid":null,"running":64,"stopping":0},
     {"config":"[\"test\",[\"h-mutation-cost\"]]","launches":0,"maxPaid":null,"running":23,"stopping":0},
     {"config":"[\"test\",[\"h-mutation-fixture-git-env\"]]","launches":3,"maxPaid":null,"running":6,"stopping":0},

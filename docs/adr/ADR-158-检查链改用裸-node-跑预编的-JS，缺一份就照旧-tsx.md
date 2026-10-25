@@ -659,3 +659,5 @@ c9已有三份完整PR清点不变；此后修复另取三份逐489原身份的�
 实际M-H67-a/b只恢复两模块的提前加载，各自使原宏具名失败，分别且仅mutate.no-typescript-before-ast、share.no-typescript-before-ast红；每次13标签齐，fixtureErrors为空、stderr0，受试源前后稳定。临时反例准备先因本机Python旧extractall参数、后因过严拒绝树内合法技能相对链接各失格一次，均未执行DUT；原件保留，按归一后的树内归属核验再解包实际执行，不算产品失败。旧1673目录对象保持不改，新增两条。
 
 同Node/安装、实际owner预编缓存验证者，先各R/C预热，再RC/CR交替：三纯判定组各8对子，AST控制h-mutate四对子，共56计时样本均0、stderr空，每对子stdout相同，前后source/HEAD稳定。p1-missing-values、h-launch-rule、h-mutation-cost的wall比中位分别0.948679529、0.987403912、0.702967502，CPU比分别0.813776549、0.865527216、0.768257778；AST控制wall1.002363805、CPU0.982466467。仅这些实际组选组微测，不外推完整检查/Linux恢复；下一步全量变异、实际派生与整链，发布等#390实际合入后接主干复核。
+
+固定2962109、UID501/Node22.22.0/Darwin arm64/4worker实际compile及全量mutate均退0。1675唯一catalog/configured/observed/caught逐项一致，159正常配置各成功一次，complete/issues[]，其它verdict0，旧1673对象/顺序及豁免逐字不变；295追踪输入与HEAD稳定。完整stdout 451355B/SHA256 78de64f39c9d55c572dcf1b7e7cde054dbfc89fe086f724c584bc377d3e42bce，stderr0，588.657869秒仅这次功能运行。随后同树实际launches写回及读回均0：仅新增h-lazy-typescript-contract一行launches1/running2/stopping0/maxPaid null，其余158行逐字不变。完整check、最新主干重核与未来Linux尚待，不从单次mutatewall认领整体性能恢复。
