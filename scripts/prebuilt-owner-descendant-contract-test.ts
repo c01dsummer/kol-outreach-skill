@@ -35,7 +35,7 @@ type Receipt = { result: { schema: string; repository: string; publicCli: string
 
 /** Runs the unchanged frozen 15-case public contract once, outside the host's preload/counting environment. */
 export function runOwnerDescendantContracts(): readonly string[] {
-  const root = realpathSync(process.cwd()), home = mkdtempSync(join(tmpdir(), 'owner-descendant-contract-'))
+  const root = realpathSync(process.cwd()), home = realpathSync(mkdtempSync(join(tmpdir(), 'owner-descendant-contract-')))
   try {
     const expectedHashes = Object.fromEntries(OWNER_DESCENDANT_CONTRACT_FILES.map(file => [file.name, file.sha256]))
     for (const file of OWNER_DESCENDANT_CONTRACT_FILES) {
