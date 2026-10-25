@@ -11,9 +11,9 @@ if (process.platform === 'linux') {
   if (!entry) throw new Error('prebuilt child requires an entry')
   const own = Object.getOwnPropertyDescriptor(process, 'removeAllListeners')
   const original = process.removeAllListeners
-  let explicitTermClear = false
+  let allSignalsCleared = false
   const replacement = function(this: NodeJS.Process, ...args: Parameters<typeof original>) {
-    if (this === process && (args.length === 0 || args[0] === 'SIGTERM')) explicitTermClear = true
+    if (this === process && args.length === 0) allSignalsCleared = true
     return Reflect.apply(original, this, args)
   }
   process.removeAllListeners = replacement
@@ -26,7 +26,7 @@ if (process.platform === 'linux') {
       } else Object.defineProperty(process, 'removeAllListeners', own)
     }
   }
-  if (!explicitTermClear && process.listenerCount('SIGTERM') === 0) install('SIGTERM')
+  if (!allSignalsCleared && process.listenerCount('SIGTERM') === 0) install('SIGTERM')
 } else {
   install('SIGTERM')
 }

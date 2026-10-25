@@ -18870,7 +18870,7 @@
     {
       "id": "M-H62-at",
       "req": "harness",
-      "why": "用户明确清空信号处理后，不得重新装回默认处理，改变真实入口退出钩子的公开行为",
+      "why": "用户清空信号处理后，清空结果及真实入口退出行为必须与同运行时公开命令一致",
       "file": "scripts/check/prebuilt-signals.ts",
       "find": "install('SIGINT')",
       "replace": "const resetTermRemoval = process.removeAllListeners\nprocess.removeAllListeners = function(this: NodeJS.Process, ...args: Parameters<typeof resetTermRemoval>) {\n  const result = Reflect.apply(resetTermRemoval, this, args)\n  if (this === process && (args.length === 0 || args[0] === 'SIGTERM')) install('SIGTERM')\n  return result\n}\ninstall('SIGINT')",
