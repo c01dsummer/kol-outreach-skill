@@ -435,8 +435,8 @@ ${renderCost(meta)}
   <div class="stat"><div class="v" style="color:#94a3b8">${escRaw(meta.tiers.C)}</div><div class="l">C 级</div></div>
   <div class="stat"><div class="v">${escRaw(meta.email_count)}</div><div class="l">有邮箱</div></div>
   <div class="stat"><div class="v" style="color:#a78bfa">${escRaw(meta.cross_platform_count)}</div><div class="l">跨平台</div></div>
-  <div class="stat"><div class="v">${escRaw(meta.capabilities?.public_post_sample.measured ?? 0)}</div><div class="l">公开指标已测账号</div></div>
-  <div class="stat"><div class="v" style="color:#ef4444">${escRaw(meta.high_risk_count ?? 0)}</div><div class="l">高风险复核</div></div>
+  <div class="stat"><div class="v">${escRaw(meta.capabilities?.public_post_sample?.measured ?? '未知')}</div><div class="l">公开指标已测账号</div></div>
+  <div class="stat"><div class="v" style="color:#ef4444">${escRaw(meta.high_risk_count ?? '未知')}</div><div class="l">高风险复核</div></div>
 </div>
 
 ${notes.length ? `<div class="notes">${notes.map(n => `<div>⚠️ ${esc(n)}</div>`).join('')}</div>` : ''}
