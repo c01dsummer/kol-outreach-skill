@@ -110,10 +110,12 @@ export function prebuiltHooks(at: { root: string; cache: string; id: string; noC
       if (at.noConfig) assertNoConfig(process.cwd())
       const file = fileURLToPath(url)
       const source = disk.read(file)
+      if (source === undefined && at.observed) throw observerInvalid(`selected source unavailable: ${file}`)
       if (source === undefined) throw new Error(`预编钩子读不到 ${file}`)
       const key = keyOf(at.id, file, source)
       if (at.observed && at.observed.keys.get(disk.realpath?.(file) ?? file) !== key) throw observerInvalid(`selected source changed: ${file}`)
       const code = disk.read(entryPath(at.cache, key))
+      if (code === undefined && at.observed) throw observerInvalid(`selected cache unavailable: ${file}`)
       if (code === undefined) throw new Error(`预编缓存里没有 ${file} 现在这一版（键 ${key}）：起进程之后它改过，或者缓存被删了`)
       return { format: 'module', source: code, shortCircuit: true }
     },
