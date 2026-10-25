@@ -13,7 +13,8 @@ if (split !== 2 || meta[0] !== '--hook' || !meta[1] || meta.length <= 3) {
 }
 const hook = meta[1], args = meta.slice(split + 1)
 const signals = fileURLToPath(new URL('./prebuilt-signals.ts', import.meta.url))
-const child = spawn(process.execPath, ['--enable-source-maps', '--import', signals, '--import', hook, ...args], {
+const preloads = process.platform === 'linux' ? [hook, signals] : [signals, hook]
+const child = spawn(process.execPath, ['--enable-source-maps', '--import', preloads[0], '--import', preloads[1], ...args], {
   stdio: 'inherit', env: process.env, cwd: process.cwd(),
 })
 let interrupted: NodeJS.Signals | undefined

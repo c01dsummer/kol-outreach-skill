@@ -574,3 +574,5 @@ f78ed283的CI2004/run40213997555/job121231067838已在Linux22.23.3/x64取得11�
 M-H62-ar原先删除TERM处理器的负片在该Linux候选上会成为空改，改为颠倒平台选择，使Linux错误安装、Darwin错误跳过；原点名宏与覆盖范围不变。原why无条件宣称TERM必有退出钩子，与已资格公开Linux同步R不符，改为公开契约中的raw及真实钩子向量必须一致，不写死0或143。此为负片跟随实现保持同一错误语义，不改正常断言或冻结输入。先记录本设计，随后改源码并实际验证；不扩交接任务清单或.github权限。
 
 该无条件跳过候选在实现前被独立复核否证：原GROUP wait入口没有自有TERM handler，去掉默认处理会丢失原已通过的真实退出钩子。因此未实施，也不把已知回归交给CI重新发现。下一窄候选仍保留N父子及缓存：仅Linux先装缓存hook，再由现有signals预加载实际import原entry URL，INT预先保留；入口求值期间TERM保持native，求值完成后且入口没有自有TERM listener时才补原默认处理。Node后续main载入复用同一URL，不改argv/cwd/entryURL；Darwin起法不变。显式用户handler不能被抢先process.exit覆盖。用户只移除全部TERM处理而不新增listener的边界仍需公共R证据，不能据有限合同直接扩成全部API行为等价。该候选须过原同步、GROUP、异常栈和用户接管合同；若任一红则仍未修好。M-H62-ar改为颠倒实际平台分支，why/kills按上一段公开要求，不删负片。
+
+此bootstrap候选本机实际类型检查、原严格正常合同167标签/八宏均退0，stdout635196B、stderr0，291个跟踪对象执行前后逐字稳定。仅Darwin22.22.0/arm64子集，不算Linux或全量变异。候选尚有显式清空TERM后不加handler的已知未闭合兼容项，先推既有Draft取得Linux严格否证，不申Ready、不认领完整修复，也不开始性能评价。

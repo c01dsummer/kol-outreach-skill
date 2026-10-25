@@ -18846,10 +18846,10 @@
     {
       "id": "M-H62-ar",
       "req": "harness",
-      "why": "进程组终止时真实入口必须执行原有退出钩子，不能只靠系统默认终止取得相同退出码",
+      "why": "同步自身信号与进程组终止时，退出码和真实入口退出钩子必须与同运行时公开命令一致",
       "file": "scripts/check/prebuilt-signals.ts",
-      "find": "['SIGINT', 'SIGTERM'] as const",
-      "replace": "['SIGINT'] as const",
+      "find": "process.platform === 'linux'",
+      "replace": "process.platform !== 'linux'",
       "by": "test",
       "kills": [
         "INT和TERM进程组与同步自身信号生命周期"
