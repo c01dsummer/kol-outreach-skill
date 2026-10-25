@@ -153,6 +153,8 @@
 | `scripts/check/tsx-cmd.ts` | 检查 | — | 起一个跑 `.ts` 的子进程用**哪条命令**，全仓只此一份：当前这个 node 加 `tsx/cli` 那个公开导出，不经 `npx`、不经 shell、也不指 `node_modules/.bin`。自检、需求测试、变异三处的**等法**各不相同（同步等两股 / 同步等一股 / 异步等还要自成一组），而「起哪个可执行文件、前面垫哪些参数」是**同一个决定** —— 三处原先各写各的、而且各错各的，只修其中一处就是又一次「只修实例」（ADR-69 第一块欠条，它自己写明修法是三处一起改） |
 | `scripts/check/prebuilt.ts` | 检查 | — | 起一个跑 `.ts` 的验证者或入口时，用裸 node 跑预编的 JS 还是照旧交给 tsx（ADR-158）。`prebuiltCommand` 与 `tsxCommand` 同形，交回「可执行文件、参数」；变异、自检、需求测试起子进程走它，起 `npm run` 各步与变异 worker 的照旧 tsx。观察器预加载用 `fixtureLoader(script, env, cwd)` 按同一子进程环境及真实子 cwd 选同一个钩子或 tsx；新增第三参数省略时仍按调用时 cwd，原两参数调用兼容；起子进程的调用方传与 spawn 相同的 cwd（ADR-158 第十八节），排在观察器与 fake-fetch 之前，保证 `.ts` 观察器和相对 `.js` 入口共用模块实例；直接 Node/IPC 夹具保持原进程关系（ADR-158 第十三节）。缓存按正文寻址，放在仓库根的 `.check-cache/prebuilt/`，键是编译身份、文件名、正文三样的 sha256；整棵树每个 `.ts` 都有现在这一版才裸起，缺一份就照旧 tsx；子进程禁用内建类型剥离、显式 `TSX_TSCONFIG_PATH`，或配置不是无继承的普通 JSON 时也保留 tsx。裸起还限子进程 cwd 与入口 scripts 树的项目根为同一实际目录，且本层普通 JSON 配置覆盖 scripts、编译选项与缓存身份一致；跨目录、复杂文件范围或父层配置归属无法确认时保留 tsx，避免改变编译语义。**不在 `.ts` 旁边放 `.js`**：复制 `scripts/` 的玩具树会把旧的一起带走。裸起的信号死亡按 tsx 的壳报的那样换成 128+N（`asTsx`）。`compile.ts` 预编整棵树，`mutate.ts` 每条变异落盘后只编被改的那一个 |
 | `scripts/check/prebuilt-hook.ts` | 检查 | — | 预编 JS 的模块钩子，裸 node 经 `--import` 装上（ADR-158）：解析出来的仍是 `.ts` 的地址，加载时按这份 `.ts` 现在的正文找缓存里那一份，找不到当场报错、点名那个文件，不拿旧的顶上；`./x.js` 在 `x.ts` 在时认 `x.ts`，那棵树以外的不碰。只 import `node:` 内建，靠 Node 自己去掉类型；缓存的键怎么算只此一份 |
+| `scripts/check/prebuilt-parent.ts` | 检查 | — | 无配置 cwd 的缓存入口父进程；只用 Node 公开 API 维持子进程及 INT/TERM 收尾，等待真实 child close，保留原 CLI 的 raw、退出钩子和参数语义；原直接 Node/IPC 不迁移（ADR-158 恢复候选合同） |
+| `scripts/check/prebuilt-signals.ts` | 检查 | — | 新缓存 child 的显式 INT/TERM 预加载，入口真实退出钩子在 child 中执行；不在父侧补造钩子，用户移除信号处理的公开行为须保留（ADR-158 恢复候选合同） |
 | `scripts/check/compile.ts` | 检查 | — | 预编的入口（`npm run compile`，检查链里紧跟 `npm run typecheck`，ADR-158）：把整棵 `scripts/` 编进缓存，缺的编上、不属于现在这一版的删掉，打一行写了几份、沿用几份、删了几份 |
 | `scripts/check/verifier-rule.ts` | 检查 | — | 一条变异改的是不是**验证者自己要用的东西**（`by` 指名了验证者时才管）。验证者够得到一个文件有三条路：`import`、当工具起、以及靠 `--import` 预加载 —— 只扫第一条会少收一大截，而偏小的那一头是放行。划开「工具」与「被测对象」的判据是：起 `scripts/check/` 底下的算工具，起别处的算被测对象 —— 后者正是本条记录的头号用例（自检真跑被变异的入口），收进闭包就把它自己挡在门外了。**抽边故意写得宽**（注释里提到的路径也收）：两头不对称，多收只是把闭包撑大、多拦几条，少收就是放行一条自己验自己的变异。自检那句失败汇总的文案也收在这里 —— 自检打、判定认，只此一份 |
 | `scripts/check/why-rule.ts` | 检查 | — | 变异集 why 的判定：夹带实现原文当场拦下，让 `--brief` 名副其实 |
@@ -618,3 +620,12 @@ JSON 摘要、CSV/XLSX 与 HTML 都带出范围状态，使历史视频窗口与
 
 
 关键词归因（U11.c/k–m）沿既有 `pipeline.keywordRows` 边界：两参公共调用保持兼容；生产 render 提供 `{document,feedback}` 已校验上下文，语义通过读取对应平台原 fit，人工已审读取全部冻结来源与自身原人工行。当前入围来源的全表未知、冻结人工来源的同平台未知分别判断，不互相覆盖，未查询行不带人工测量数。`keywords[].manual_reviewed` 交给 HTML 只做格式化，缺席/未知/真零分开；不改变协调器顺序、feedback_summary 或完整 review_rounds，不增加写入权限。
+
+
+## CI 耗时恢复的候选边界（2026-10-25，实现前）
+
+保持第十五、十八节配置正确性修补。原owner裸起与直接Node/IPC仍按旧边界；新增的仅是实际child cwd到根每级tsconfig均证实缺席的N域，不能借owner编译选项。N单独使用{}及带相对inline源映射的缓存格式，编译身份与owner格式分开，源地址仍是原.ts；同名同文的不同目录副本复用payload时，源映射须按实际加载地址定位。每个TS有owner和N两份payload，预编统计如实数payload，不把源文件数冒充缓存份数。
+
+N命令入口由薄Node父进程起缓存child，显式子侧信号预加载保住INT/TERM退出钩子，父侧只管理实际进程和流关闭，不替child造观察事件。`prebuiltCommand`原参数、真实cwd和最终env不变；N不合格、复杂/未知配置、缺缓存或可信启动模块被改动时仍原公共tsx。加载前N前提失效必须明确拒绝，不能静默用旧语义；不承诺文件系统原子快照。
+
+`fixtureLoader`在N域仍交回原公开tsx loader，因此先加N观察器loader的最终命令仍回CLI，原directNode/IPC不迁移。owner的同实例接线不变。这里先记模块/调用边界和验收约束；候选只做过有限外部原型及局部同机测量，生产接线、红绿负片、完整检查和Linux验证未完成，不预写恢复成功。
