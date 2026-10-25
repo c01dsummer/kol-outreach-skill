@@ -120,7 +120,7 @@
     {"config":"[\"test\",[\"h-prebuilt\"]]","launches":0,"maxPaid":null,"running":15,"stopping":0},
     {"config":"[\"test\",[\"h-prebuilt-cwd-config\"]]","launches":6,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"h-prebuilt-entry\"]]","launches":8,"maxPaid":null,"running":8,"stopping":0},
-    {"config":"[\"test\",[\"h-prebuilt-no-config-contract\"]]","launches":5,"maxPaid":null,"running":8,"stopping":0},
+    {"config":"[\"test\",[\"h-prebuilt-no-config-contract\"]]","launches":6,"maxPaid":null,"running":9,"stopping":0},
     {"config":"[\"test\",[\"h-prebuilt-observer\"]]","launches":6,"maxPaid":null,"running":3,"stopping":0},
     {"config":"[\"test\",[\"h-prebuilt-observer-child-cwd\"]]","launches":28,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"h-prebuilt-options\"]]","launches":6,"maxPaid":null,"running":3,"stopping":0},
