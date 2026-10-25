@@ -11,6 +11,8 @@ import { join as scJoin, dirname as scDirname } from 'node:path';
 import { tmpdir as scTmpdir } from 'node:os';
 import { createHash as scCreateHash } from 'node:crypto';
 import { prebuildTree as scPrebuildTree, prebuiltCommand as scPrebuiltCommand, isBare as scIsBare } from './check/prebuilt.js';
+import { runWallclockContract } from './ci-wallclock-contract-test.js'
+import { runWallclockIdentityContracts } from './ci-wallclock-identity-test.js'
 import { effectivePriority, projectManualFeedback } from './lib/effective-priority.js'
 import { prepareTaskReviews } from './lib/task-reviews.js'
 /**
@@ -268,6 +270,11 @@ const GROUPS: readonly Group[] = [
   { id: 'd28-defaults', needs: ['d28-control'] },
   { id: 'd28-no-overreject', needs: [] },
   { id: 'd28-config-duplicates', needs: ['d28-control', 'd28-collect', 'd28-probe', 'd28-mixed', 'd28-defaults', 'd28-no-overreject'] },
+  { id: 'h-ci-wallclock-core', needs: [] },
+  { id: 'h-ci-wallclock-cpu', needs: [] },
+  { id: 'h-ci-wallclock-unavailable', needs: [] },
+  { id: 'h-ci-wallclock-identity', needs: [] },
+  { id: 'h-ci-wallclock-identity-parent-read', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -17799,6 +17806,111 @@ suite('D28', 'collect --config 与 probe 读的配置写重复的键：在建目
   tension('D28', 'P3')
   criterion('D28.d')
 }
+})
+
+
+await group('h-ci-wallclock-core', () => {
+  harness('CI墙钟公开合同：core')
+  const results = runWallclockContract('core')
+  eq('wall.core.pr_first_parent', results.get('wall.core.pr_first_parent'), [])
+  eq('wall.core.push_before', results.get('wall.core.push_before'), [])
+  eq('wall.core.long_minutes', results.get('wall.core.long_minutes'), [])
+  eq('wall.core.head_zero', results.get('wall.core.head_zero'), [])
+  eq('wall.core.head_nonarray', results.get('wall.core.head_nonarray'), [])
+  eq('wall.core.head_missing', results.get('wall.core.head_missing'), [])
+  eq('wall.core.array_length_only', results.get('wall.core.array_length_only'), [])
+  eq('wall.core.base_uppercase', results.get('wall.core.base_uppercase'), [])
+  eq('wall.core.base_zero', results.get('wall.core.base_zero'), [])
+  eq('wall.core.base_missing', results.get('wall.core.base_missing'), [])
+  eq('wall.core.base_nonarray', results.get('wall.core.base_nonarray'), [])
+  eq('wall.core.delta_negative', results.get('wall.core.delta_negative'), [])
+  eq('wall.core.delta_zero', results.get('wall.core.delta_zero'), [])
+})
+
+await group('h-ci-wallclock-cpu', () => {
+  harness('CI墙钟公开合同：cpu')
+  const results = runWallclockContract('cpu')
+  eq('wall.cpu.first_model', results.get('wall.cpu.first_model'), [])
+  eq('wall.cpu.allowed_and_injection', results.get('wall.cpu.allowed_and_injection'), [])
+  eq('wall.cpu.whitespace', results.get('wall.cpu.whitespace'), [])
+  eq('wall.cpu.truncate_before_trim', results.get('wall.cpu.truncate_before_trim'), [])
+  eq('wall.cpu.bios_only', results.get('wall.cpu.bios_only'), [])
+  eq('wall.cpu.filtered_empty', results.get('wall.cpu.filtered_empty'), [])
+})
+
+await group('h-ci-wallclock-unavailable', () => {
+  harness('CI墙钟公开合同：unavailable')
+  const results = runWallclockContract('unavailable')
+  eq('wall.unavailable.current403', results.get('wall.unavailable.current403'), [])
+  eq('wall.unavailable.current500', results.get('wall.unavailable.current500'), [])
+  eq('wall.unavailable.connect', results.get('wall.unavailable.connect'), [])
+  eq('wall.unavailable.timeout', results.get('wall.unavailable.timeout'), [])
+  eq('wall.unavailable.history403', results.get('wall.unavailable.history403'), [])
+  eq('wall.unavailable.history500', results.get('wall.unavailable.history500'), [])
+  eq('wall.unavailable.history_four', results.get('wall.unavailable.history_four'), [])
+  eq('wall.unavailable.history_missing_updated', results.get('wall.unavailable.history_missing_updated'), [])
+  eq('wall.unavailable.current_missing_started', results.get('wall.unavailable.current_missing_started'), [])
+  eq('wall.unavailable.median_zero', results.get('wall.unavailable.median_zero'), [])
+})
+
+await group('h-ci-wallclock-identity', () => {
+  harness('CI墙钟来源身份公共合同')
+  const results = runWallclockIdentityContracts()
+  eq('Q01_fixture_bytes_and_layout', results.get('Q01_fixture_bytes_and_layout'), [])
+  eq('P01_same_fingerprint_fresh', results.get('P01_same_fingerprint_fresh'), [])
+  eq('P02_same_mutation_identity', results.get('P02_same_mutation_identity'), [])
+  eq('D01_default_membership', results.get('D01_default_membership'), [])
+  eq('D02_explicit_scripts_membership', results.get('D02_explicit_scripts_membership'), [])
+  eq('D03_explicit_scripts_fingerprint', results.get('D03_explicit_scripts_fingerprint'), [])
+  eq('C01_custom_membership', results.get('C01_custom_membership'), [])
+  eq('C02_custom_workflow_independent', results.get('C02_custom_workflow_independent'), [])
+  eq('C03_custom_non_ts_independent', results.get('C03_custom_non_ts_independent'), [])
+  eq('W01_workflow_fingerprint_changes', results.get('W01_workflow_fingerprint_changes'), [])
+  eq('W02_workflow_mutation_identity_changes', results.get('W02_workflow_mutation_identity_changes'), [])
+  eq('W03_old_claims_rejected', results.get('W03_old_claims_rejected'), [])
+  eq('W04_current_claims_fresh', results.get('W04_current_claims_fresh'), [])
+  eq('W05_old_cost_launches_identity_unequal', results.get('W05_old_cost_launches_identity_unequal'), [])
+  eq('G01_other_github_fingerprint_stable', results.get('G01_other_github_fingerprint_stable'), [])
+  eq('G02_other_github_mutation_identity_stable', results.get('G02_other_github_mutation_identity_stable'), [])
+  eq('S01_script_fingerprint_changes', results.get('S01_script_fingerprint_changes'), [])
+  eq('S02_script_mutation_identity_changes', results.get('S02_script_mutation_identity_changes'), [])
+  eq('S03_old_script_claims_rejected', results.get('S03_old_script_claims_rejected'), [])
+  eq('A01_absent_default_TS_only', results.get('A01_absent_default_TS_only'), [])
+  eq('A02_absent_explicit_scripts_equivalent', results.get('A02_absent_explicit_scripts_equivalent'), [])
+  eq('A03_absent_custom_TS_only', results.get('A03_absent_custom_TS_only'), [])
+  eq('P01_present_claims_same_hash_fresh', results.get('P01_present_claims_same_hash_fresh'), [])
+  eq('P02_present_mutation_stable', results.get('P02_present_mutation_stable'), [])
+  eq('R01_deletion_fingerprint_changes', results.get('R01_deletion_fingerprint_changes'), [])
+  eq('R02_deletion_old_claims_rejected', results.get('R02_deletion_old_claims_rejected'), [])
+  eq('R03_deletion_old_mutation_identity_unequal', results.get('R03_deletion_old_mutation_identity_unequal'), [])
+  eq('P03_absent_claims_same_hash_fresh', results.get('P03_absent_claims_same_hash_fresh'), [])
+  eq('E01_present_unreadable_default_throws', results.get('E01_present_unreadable_default_throws'), [])
+  eq('E02_present_unreadable_mutation_throws', results.get('E02_present_unreadable_mutation_throws'), [])
+  eq('P04_readable_default_completes', results.get('P04_readable_default_completes'), [])
+  eq('P05_readable_mutation_completes', results.get('P05_readable_mutation_completes'), [])
+})
+
+await group('h-ci-wallclock-identity-parent-read', () => {
+  harness('CI来源身份父路径拒读公共合同')
+  const results = runWallclockIdentityContracts('parent-read')
+  eq('Q01_nonroot_independent_parent_read_calibration', results.get('Q01_nonroot_independent_parent_read_calibration'), [])
+  eq('A01_genuine_absence_default_TS_only', results.get('A01_genuine_absence_default_TS_only'), [])
+  eq('A02_genuine_absence_explicit_scripts_equivalent', results.get('A02_genuine_absence_explicit_scripts_equivalent'), [])
+  eq('A03_genuine_absence_mutation_identity_stable', results.get('A03_genuine_absence_mutation_identity_stable'), [])
+  eq('A04_genuine_absence_current_claims_fresh', results.get('A04_genuine_absence_current_claims_fresh'), [])
+  eq('A05_genuine_absence_custom_TS_only', results.get('A05_genuine_absence_custom_TS_only'), [])
+  eq('W_B01_readable_before_positives', results.get('W_B01_readable_before_positives'), [])
+  eq('W_D01_default_propagates_EACCES', results.get('W_D01_default_propagates_EACCES'), [])
+  eq('W_D02_explicit_scripts_propagates_EACCES', results.get('W_D02_explicit_scripts_propagates_EACCES'), [])
+  eq('W_D03_mutation_identity_propagates_EACCES', results.get('W_D03_mutation_identity_propagates_EACCES'), [])
+  eq('W_D04_custom_scope_unaffected', results.get('W_D04_custom_scope_unaffected'), [])
+  eq('W_R01_restored_public_positives', results.get('W_R01_restored_public_positives'), [])
+  eq('H_B01_readable_before_positives', results.get('H_B01_readable_before_positives'), [])
+  eq('H_D01_default_propagates_EACCES', results.get('H_D01_default_propagates_EACCES'), [])
+  eq('H_D02_explicit_scripts_propagates_EACCES', results.get('H_D02_explicit_scripts_propagates_EACCES'), [])
+  eq('H_D03_mutation_identity_propagates_EACCES', results.get('H_D03_mutation_identity_propagates_EACCES'), [])
+  eq('H_D04_custom_scope_unaffected', results.get('H_D04_custom_scope_unaffected'), [])
+  eq('H_R01_restored_public_positives', results.get('H_R01_restored_public_positives'), [])
 })
 
 if (seenGroups.size !== GROUPS.length) {

@@ -175,6 +175,8 @@
 | `scripts/check/cite-rule.ts` | 检查 | — | 被引表的**判定**（ADR-151 第一节 P2）：每条决策记录被几条**别的**记录引过、有没有「教训」栏。按文件去重、排自引、先过 `quoted.ts` 的引文遮罩，只在 ⚠️ 欠条块里引到的单列一栏（块的定界借 `debt-rule.ts` 的 `iouBlocks`）；斜杠接写的 `ADR-16/17` 每个编号各算一次，索引不算引用方。**只报数，不设阈值、不判**：前列哪几条是同一类是读，交给写新记录的人与评审。全表挂在 `npm run adr-ledger -- --cites`，审计默认输出末尾那一行分布也出自这里 |
 | `scripts/check/adr-ledger.ts` | 检查 | — | 决策记录的只读台账入口（`npm run adr-ledger`）：只读 `docs/adr/`，不读覆盖记录、不读登记表、不写文件，所以新克隆上也跑得起来 —— `audit -- --debts` 在处理参数之前先读两份覆盖记录，没跑过需求测试与自检的检出里以 1 退出（ADR-151 第三节第 1 条）。全表与 `--debts` 出自同一个 `ledgerReport`，孤儿欠条照样以 1 退出。`--cites` 换成被引表（`cite-rule.ts`），那个模式只报数、恒以 0 退出（ADR-151 第四节第 1 条）。不在检查链里；在工具表里，由自检组 `adr-ledger-entry` 在只有决策记录的玩具树上起真入口验证 |
 | `scripts/test.ts` | 检查 | — | 需求测试的实现；`--only=组名[,组名]` 只运行已登记分组及其依赖，非法选择直接失败。只有不选组的完整运行能清理、写入单元测试认领。**覆盖了哪些编号以 `npm run audit` 为准**，不在这里复述 |
+| `scripts/ci-wallclock-contract-test.ts` | 测试夹具 | — | 需求测试的墙钟 core/cpu/unavailable 三组共用适配器：每组从当前进程工作树的 `.github/workflows/check.yml` 提取唯一墙钟 run，在私有临时根运行逐字保留的 Node 冻结矩阵。完整合法报告才交给 `test.ts` 的字面具名断言；坏夹具、缺报告或验证者异常直接失败，不归功给语义断言。无历史 run 副本作为生产来源；`claims.ts` 的共同清单纳入这一个 YAML 的真实正文，旧认领、变异与启动数来源随其变化而失效，不递归扩大 `.github` |
+| `scripts/ci-wallclock-identity-test.ts` | 测试夹具 | — | 墙钟来源身份的独立冻结合同适配：私有子进程从绝对路径导入当前worker的claims模块，在复制的玩具目录调用公共身份接口；父路径拒读自成最窄组，原样执行冻结mjs runner/helper并校准真实遍历拒绝与恢复。冻结案例与oracle原封，补充runner仅把历史归档连续性改为当前解包输入清单核验；读权限资格不可用、坏报告或验证器异常抛错，不记具名抓获 |
 
 <!-- END:ANCHORS -->
 
