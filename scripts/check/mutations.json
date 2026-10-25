@@ -18902,6 +18902,30 @@
       "kills": [
         "同配置后代缓存与中间配置回退保持公开语义"
       ]
+    },
+    {
+      "id": "M-H67-a",
+      "req": "harness",
+      "why": "纯变异判定尚未扫描语法树就初始化TypeScript，给不需要编译器的验证者增加无关启动开销",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "const typescript = (): typeof Ts => compiler ??= createRequire(import.meta.url)('typescript') as typeof Ts",
+      "replace": "const typescript = (): typeof Ts => compiler ??= createRequire(import.meta.url)('typescript') as typeof Ts\ntypescript()",
+      "by": "test",
+      "kills": [
+        "纯判定不预载TypeScript且AST调用保持同步"
+      ]
+    },
+    {
+      "id": "M-H67-b",
+      "req": "harness",
+      "why": "纯共享关系判定尚未扫描语法树就初始化TypeScript，不能保留每个纯判定进程都付出的加载成本",
+      "file": "scripts/check/share-rule.ts",
+      "find": "import { createRequire } from 'node:module'",
+      "replace": "import { createRequire } from 'node:module'\nvoid createRequire(import.meta.url)('typescript')",
+      "by": "test",
+      "kills": [
+        "纯判定不预载TypeScript且AST调用保持同步"
+      ]
     }
   ],
   "exemptions": [

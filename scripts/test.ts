@@ -280,6 +280,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-ci-wallclock-identity-parent-read', needs: [] },
   { id: 'h-prebuilt-no-config-contract', needs: [] },
   { id: 'h-prebuilt-owner-descendant-contract', needs: [] },
+  { id: 'h-lazy-typescript-contract', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -18052,6 +18053,12 @@ await group('h-prebuilt-owner-descendant-contract', async () => {
   harness('同项目后代配置归属的独立公开合同')
   const { runOwnerDescendantContracts } = await import('./prebuilt-owner-descendant-contract-test.js')
   eq('同配置后代缓存与中间配置回退保持公开语义', await runOwnerDescendantContracts(), [])
+})
+
+await group('h-lazy-typescript-contract', async () => {
+  harness('纯判定按需初始化TypeScript编译器')
+  const { runLazyTypescriptContracts } = await import('./lazy-typescript-contract-test.js')
+  eq('纯判定不预载TypeScript且AST调用保持同步', runLazyTypescriptContracts(), [])
 })
 
 if (seenGroups.size !== GROUPS.length) {

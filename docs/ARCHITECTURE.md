@@ -185,6 +185,7 @@
 | `scripts/prebuilt-clear-term-contract-test.ts` | 测试夹具 | — | 独立冻结的三对TERM清空行为：先实际公共CLI，再真实预编及N factory，比较raw和入口真实exit hook code；清空后才装观察器，KEEP为阳性控制。23个窄标签独立计数，只汇入原生命周期宏，不冒称属于旧167。宿主固定一次起独立Node控制器并清除其计数预载，内部仍同cwd/原factory；完整stdout先透传再核结果/三回执/标签闭合，ps轮询不污染宿主计数。只向已核隔离entry PID发信号，正常close/源身份及残留均核（ADR-158第二十九节） |
 | `scripts/prebuilt-owner-descendant-contract-test.ts` | 测试夹具 | — | 同配置后代的独立15例/60标签：当前公共API与实际CLI同args/cwd/env，先取得手推字段语义及原始退出参照资格，再核owner缓存路由与中间配置回退；固定一次控制器、全量公开回执先透传，源身份及唯一末行/标签/汇总严格闭合，R或夹具失格不算产品抓获（ADR-158第三十二节） |
 | `scripts/prebuilt-owner-descendant-contract-data.ts` | 测试夹具 | — | 上项两份冻结原件manifest/portable及原SHA；原15case、60断言和预期逐字保存，不另造C tuple；并非通用打包框架 |
+| `scripts/lazy-typescript-contract-test.ts` | 测试夹具 | — | 延迟编译器初始化的独立101行冻结合同及有界薄包装：三个新Node进程经公开CJS cache阳性取得资格，确认两模块导入/纯判定不初始化npm TypeScript、AST实际调用同步使用同一库；13标签、原始回执/源码身份及汇总闭合，失格带记号拒绝（ADR-158第三十三节） |
 
 <!-- END:ANCHORS -->
 
