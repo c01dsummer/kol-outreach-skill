@@ -146,3 +146,22 @@ python3 "$census_root/assertion-survey-artifacts/aggregate-survey.py" "$census_r
 ```
 
 `census_root` 指向交接证据目录；固定源按其 lock 安装依赖。枚举器 SHA256 为 `54ec74923604ab3d0e5d2b76c2be4c82cfefe47c70bd101a18f811f32005433f`，汇总脚本为 `48d59db3a58cc8a3468ca9aa92b11e569fc0c6e4b571fb23c7da876e4e774ba0`，原枚举行表为 `b704aeeb5fbf6a60293e5192b3dc6b11e125e373ff2a9625001794f84f5efa44`。机械重建只核身份、覆盖及已写判断的序列化；A/B/C 仍须读源，不能靠重跑脚本重新获得语义普查资格。本轮作者普查未执行产品测试、完整 check 或 mutate，后续候选检查与独立复核按实际树另记。
+
+
+## 九、两处自构造断言改走实际路径（2026-10-25）
+
+本块承接第八节第135、137行两张固定d8的A类缺口；原文和原行号不改。候选从实际主干 `5b0f10af6b86f43425181bbf25c92f81b7feea9b` 追加合并，两处旧断言改为通过真实实现路径取被断值。下面的运行固定于 `2c279e71a2f3e17f53428bac36683ac91c6751b8`，不是此前522或c4的准备日志。
+
+- D2用独立冻结的公开提供方输入，经过假fetch接线和请求资格核验后调用真实公开profile；TikTok单值原地址变为单元素字符串数组，Instagram两条原地址变为保持次序的字符串数组，逐元素类型与值都检查，不再把预造数组送入纯展开helper后查类型。
+- D8将两个冻结账号状态送入真实saveEnrichment，读取实际enrichment.json原件，再用真实loadEnrichment读同一专用目录；未查询账号仍缺sample，已查询不可用账号保留unavailable、原因、来源、时间、显式sample_size为0，且没有value。构造输入仍有，但被断值已过实际盘文件往返。
+- 四份runner/cases/expected/plan按原独立冻结字节内嵌并逐项校验。每次在私有子进程先接假fetch与网络阻断再导入目标；两个公开profile各有实际假fetch阳性，未知请求留下持续有效的夹具失格记录。坏报告、失格、崩溃、标签/状态/退出码不一致不归功给具名断言。
+
+**认领范围。** D2.a正好点名两种公开提供方形状，新组保留该判据认领。D8两例只证明这两个持久化状态，没有覆盖measured或交付路径，所以不认领完整D8.c；标签中的D8.c只是具名用例的需求出处，不调用criterion。统计主干撤去的P1.b全称认领同样保留撤去。需求、SPEC和豁免不因这次补路径而改，D8.c其余部分和ADR-04隔离规格重写的旧缺口均不在本块销账。
+
+**本轮实跑。** UID501、Node v22.22.0、macOS。新窄组4条与旧d8-public76条各自正常绿，合跑80条全绿、标签唯一；每条命令启动前即时捕获test.ts、新helper、目录、判方、目标模块、锁与精确YAML的实际哈希，结束再核，不把pre-edit快照充作启动身份。
+
+四条新增生产源码负片M-D2-a/b、M-D8-s/t逐一只让各自具名断言失败，其余三条绿，并由本轮当前judge判caught。官方worker另按精确七ID执行上述四条及旧M-D8-a/b/c，均caught/status1/started true/stopped false；旧三条官方回执output为空，不声称它们有完整逐断言stdout。坏Authorization观察器真实到达假fetch却失格，原始result为valid=false、0具名断言，当前judge判crashed，不能记caught。冻结baseline与四个边界阴性也另有顺序运行原件；这些边界控制不是生产源码变异。
+
+完整mutate在同一固定源码上实际退出0，1662个定义ID与唯一caught集合相同，156种配置报告完整、无issues；含精确workflow正文的共同source identity独立重算相等。保留真实主干H65六条、统计四条及本片四条对象，不用旧目录覆盖它们。launches随后只由该树的真实运行派生，不手填启动数。
+
+**原件与未扩大主张。** 交接证据 `twoa-final-main-5b-integration-artifacts/` 保存逐命令argv/UID/Node/源码前后快照、完整stdout/stderr、BOM与LF信息、具名失败及官方回执、冻结观察原件和派生核对。80正常原始stdout SHA256为 `151113937e051647d2cda9ad642ac4311a7068815a2c9a07b95e1aed321148de`；完整mutate原始stdout SHA256为 `50e366a576259db158b505c3a059b51ec1d3c4fdc81697416e6d96fc9ba67913`。本块只写已完成的上述事实；最终候选完整检查、独立清点/复核与Linux验收由相应固定源原件另记，不由这些文字或macOS运行推出。两张A在候选取得实际路径补证；未实际合入前不把主干台账记为已还，真实PR号及合入还款标记由后续实际事件追加。
