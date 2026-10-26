@@ -29,7 +29,8 @@ import { type GitAsk, resolveBaseline } from './size-rule.js'
 import { type Group, wanted } from './group-rule.js'
 import { SELFCHECK_FIXTURE_MARK, SELFCHECK_PROCESS_MARK } from './verifier-rule.js'
 
-const ts = createRequire(import.meta.url)('typescript') as typeof Ts
+let compiler: typeof Ts | undefined
+const typescript = (): typeof Ts => compiler ??= createRequire(import.meta.url)('typescript') as typeof Ts
 
 /** 一个验证者:跑哪个脚本,失败汇总长什么样,进程级失败带什么记号,哪些调用给夹具起名。 */
 export interface Verifier {
@@ -254,6 +255,7 @@ export function exitRace(source: string): string | undefined {
  * 这里只记第一处，免得两处各自报一遍同一件事（ADR-25：一个判断只放一处）。
  */
 export function groupOfLabel(source: string, declares: readonly string[]): Map<string, string> {
+  const ts = typescript()
   const out = new Map<string, string>()
   const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
   // **用 Set 查，不要照抄 `labelsOf` 里那句 includes。** 照抄的话同一串字面量在这个
@@ -278,6 +280,7 @@ export function groupOfLabel(source: string, declares: readonly string[]): Map<s
 }
 
 export function labelsOf(source: string, declares: readonly string[]): Map<string, number> {
+  const ts = typescript()
   const seen = new Map<string, number>()
   const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
   const literal = (node: Ts.Node | undefined): string | undefined =>
@@ -356,6 +359,7 @@ export const exemptionLead = (covered: boolean): string =>
  * `StringLiteral` 节点的值,结构上就不是调用。
  */
 export function leadWired(source: string): boolean {
+  const ts = typescript()
   const tree = ts.createSourceFile('entry.ts', source, ts.ScriptTarget.Latest, true)
   /** 调的是不是光秃秃这个名字 —— `别的对象.exemptionLead(…)` 不是那个函数 */
   const callTo = (node: Ts.Node | undefined, name: string): node is Ts.CallExpression =>
@@ -588,6 +592,7 @@ export interface RouteSnapshot {
 
 /** 只接受现有两种字面登记；合法无分组验证者仍可全跑，读不懂不能变成空布局。 */
 function routeLayout(source: string): Group[] {
+  const ts = typescript()
   const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
   if ((tree as Ts.SourceFile & { parseDiagnostics: readonly Ts.Diagnostic[] }).parseDiagnostics.length) {
     throw new Error('验证者源码无法解析')
