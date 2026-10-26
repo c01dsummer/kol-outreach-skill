@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import type { runPrebuiltNoConfigContracts as RunPrebuiltNoConfigContracts } from './prebuilt-no-config-contract-test.js'
 import { mkdtempSync as cxMkdtempSync, mkdirSync as cxMkdirSync, writeFileSync as cxWriteFileSync, rmSync as cxRmSync } from 'node:fs';
 import { join as cxJoin, dirname as cxDirname, relative as cxRelative, isAbsolute as cxIsAbsolute } from 'node:path';
 import { tmpdir as cxTmpdir } from 'node:os';
@@ -277,6 +278,8 @@ const GROUPS: readonly Group[] = [
   { id: 'h-ci-wallclock-unavailable', needs: [] },
   { id: 'h-ci-wallclock-identity', needs: [] },
   { id: 'h-ci-wallclock-identity-parent-read', needs: [] },
+  { id: 'h-prebuilt-no-config-contract', needs: [] },
+  { id: 'h-prebuilt-owner-descendant-contract', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -9077,7 +9080,8 @@ harness('预编 JS 端到端：裸 node 跑缓存里的那一份，改过没重�
     delete env.KOL_PREBUILT
     delete env.NODE_OPTIONS
     delete env.TSX_TSCONFIG_PATH
-    eq('预编整棵树：两个 .ts 各写一份', prebuildTree(owner), { wrote: 2, kept: 0, removed: 0 })
+    // owner 与 N 的格式独立；两个源码各有两份 payload（ADR-158 第二十二节）。
+    eq('预编整棵树：两个 .ts 的两种格式各写一份', prebuildTree(owner), { wrote: 4, kept: 0, removed: 0 })
     const run = ([exe, argv]: [string, string[]]) => spawnSync(exe, argv, { cwd: owner, env, encoding: 'utf8', timeout: 30_000 })
     const command = prebuiltCommand([main], owner, env)
     const first = run(command)
@@ -9094,13 +9098,14 @@ harness('预编 JS 端到端：裸 node 跑缓存里的那一份，改过没重�
     const again = prebuiltCommand([main], owner, env), ran = run(again)
     eq('只编改过的文件：缓存恢复齐全，按内建能力选起法并跑当前源码', [isBare(again[1]), ran.status, ran.stdout.trim()],
       [strips, 0, '[22,true,true]'])
-    eq('再预编整棵树：沿用现在这一版的，删掉不属于它的', prebuildTree(owner), { wrote: 0, kept: 2, removed: 1 })
+    eq('再预编整棵树：沿用现在这一版的，删掉不属于它的', prebuildTree(owner), { wrote: 0, kept: 4, removed: 2 })
     eq('KOL_PREBUILT=0 照旧交给 tsx', isBare(prebuiltCommand([main], owner, { ...env, KOL_PREBUILT: '0' })[1]), false)
     // ADR-158 第二节：配置改变须换身份，源码未变也不能沿用上一份键。
     writeFileSync(join(owner, 'tsconfig.json'), '{"compilerOptions":{"strict":true}}')
     eq('编译配置改变：旧键不算齐，重编后按内建能力选起法',
       [isBare(prebuiltCommand([main], owner, env)[1]), prebuildTree(owner), isBare(prebuiltCommand([main], owner, env)[1])],
-      [false, { wrote: 2, kept: 0, removed: 2 }, strips])
+      // 只换 owner 的两个键；N 的 {} 格式身份不随 owner strict 选项变化。
+      [false, { wrote: 2, kept: 2, removed: 2 }, strips])
     const alias = join(owner, 'alias'); symlinkSync(owner, alias, 'dir')
     writeFileSync(main, `import * as a from './lib/value.js'; import * as b from ${JSON.stringify(pathToFileURL(realpathSync(value)).href)}; console.log(a === b)\n`); prebuildTree(owner)
     const linked = ['', '--preserve-symlinks', '--preserve-symlinks-main', '--preserve-symlinks --preserve-symlinks-main'].map(flags => {
@@ -9245,7 +9250,9 @@ console.log(JSON.stringify([state.wired, state.fake, state.events, answer, impor
   renameSync(cache, cache + '.saved')
   eq('观察器加载器：无缓存目录时与入口一同保留 tsx', route(), fallback)
   renameSync(cache + '.saved', cache)
-  unlinkSync(join(cache, readdirSync(cache).filter(f => f.endsWith('.js')).sort()[0]))
+  // 用公开缓存身份选中 owner 的一份；另一种格式的缺席不影响此 owner 观察器。
+  const ownerId = identityOf({ esbuild: require('esbuild/package.json').version, node: process.versions.node, compilerOptions: {} })
+  unlinkSync(join(cache, keyOf(ownerId, value, rf(value, 'utf8')) + '.js'))
   eq('观察器加载器：整树缺一份缓存时与入口一同保留 tsx', route(), fallback)
   prebuildTree(owner)
   writeFileSync(value, rf(value, 'utf8') + '\nexport const changed: number = 2\n')
@@ -9434,6 +9441,7 @@ function createTree(id: string, ownerDefine: boolean, childDefine: boolean) {
   mkdirSync(child, { recursive: true });
   writeFileSync(path.join(owner, 'package.json'), '{"type":"module"}\n');
   writeFileSync(path.join(owner, 'tsconfig.json'), config(ownerDefine, 'scripts/**/*.ts'));
+  writeFileSync(path.join(scripts, 'tsconfig.json'), config(!ownerDefine, '**/*.ts'));
   writeFileSync(path.join(child, 'tsconfig.json'), config(childDefine, '../owner/scripts/**/*.ts'));
   symlinkSync(DEPENDENCIES, path.join(owner, 'node_modules'), 'dir');
   writeFileSync(path.join(scripts, 'bus.ts'), bus);
@@ -18019,6 +18027,31 @@ await group('h-ci-wallclock-identity-parent-read', () => {
   eq('H_D03_mutation_identity_propagates_EACCES', results.get('H_D03_mutation_identity_propagates_EACCES'), [])
   eq('H_D04_custom_scope_unaffected', results.get('H_D04_custom_scope_unaffected'), [])
   eq('H_R01_restored_public_positives', results.get('H_R01_restored_public_positives'), [])
+})
+
+await group('h-prebuilt-no-config-contract', async () => {
+  harness('无配置入口的独立冻结公开合同')
+  const { runPrebuiltNoConfigContracts }: {
+    runPrebuiltNoConfigContracts: typeof RunPrebuiltNoConfigContracts
+  } = await import('./prebuilt-no-config-contract-test.js')
+  const results = await runPrebuiltNoConfigContracts()
+  const { runPrebuiltClearTermContracts } = await import('./prebuilt-clear-term-contract-test.js')
+  const clearedTerm = await runPrebuiltClearTermContracts()
+  eq("预编两种格式与独立无配置身份", results.get("预编两种格式与独立无配置身份"), [])
+  eq("无配置入口参数与默认语义", results.get("无配置入口参数与默认语义"), [])
+  eq("无配置准入边界保留公开加载器回退", results.get("无配置准入边界保留公开加载器回退"), [])
+  eq("观察器加载器与直接IPC及工作线程行为不变", results.get("观察器加载器与直接IPC及工作线程行为不变"), [])
+  eq("已选入口拒绝源码缓存与配置失效", results.get("已选入口拒绝源码缓存与配置失效"), [])
+  eq("单源更新清理与坏编译拒绝旧缓存", results.get("单源更新清理与坏编译拒绝旧缓存"), [])
+  eq("INT和TERM进程组与同步自身信号生命周期", results.has("INT和TERM进程组与同步自身信号生命周期")
+    ? [...results.get("INT和TERM进程组与同步自身信号生命周期")!, ...clearedTerm] : undefined, [])
+  eq("异常保留原栈且普通预载正常收尾", results.get("异常保留原栈且普通预载正常收尾"), [])
+})
+
+await group('h-prebuilt-owner-descendant-contract', async () => {
+  harness('同项目后代配置归属的独立公开合同')
+  const { runOwnerDescendantContracts } = await import('./prebuilt-owner-descendant-contract-test.js')
+  eq('同配置后代缓存与中间配置回退保持公开语义', await runOwnerDescendantContracts(), [])
 })
 
 if (seenGroups.size !== GROUPS.length) {

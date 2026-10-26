@@ -1,5 +1,5 @@
 /**
- * 起一个跑 `.ts` 的验证者或入口时，用裸 node 跑预编的 JS 还是照旧交给 tsx（ADR-158）—— 判定与缓存的读写。
+ * 起一个跑 `.ts` 的验证者或入口时，在原 owner 裸起、无配置缓存父壳与原 tsx 之间选路（ADR-158）。
  *
  * tsx 每起一个进程都要先起它的壳、再在里面装转换（成本实测见 ADR-158），
  * 检查链起几千次。这里把 `scripts/` 下的 `.ts` 预先用 esbuild 编好，**按正文存**进仓库根的
@@ -18,13 +18,13 @@
  * 玩具树在临时目录里，找不到，照旧 tsx —— 与原型量数时同一个范围（ADR-158 第一节）。
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { constants } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type * as Esbuild from 'esbuild'
-import { entryPath, keyOf } from './prebuilt-hook.js'
+import { assertNoConfig, entryPath, keyOf, observerLaunchIdentity, observerOwnerIdentity, observerSnapshot } from './prebuilt-hook.js'
 import { tsxCommand } from './tsx-cmd.js'
 
 /** 仓库根底下放预编 JS 的目录 */
@@ -73,6 +73,10 @@ export const bareLaunch = (at: { disabled: boolean; strips: boolean; script: str
 /** 钩子的地址（不带参数的那一截）：`isBare` 认参数表靠它 */
 const HOOK = new URL('./prebuilt-hook.ts', import.meta.url)
 const hookSource = readFileSync(HOOK, 'utf8')
+const PARENT = new URL('./prebuilt-parent.ts', import.meta.url)
+const SIGNALS = new URL('./prebuilt-signals.ts', import.meta.url)
+const sourceOf = (url: URL): string | undefined => { try { return readFileSync(url, 'utf8') } catch { return undefined } }
+const parentSource = sourceOf(PARENT), signalSource = sourceOf(SIGNALS)
 
 /** 这张参数表是不是 `prebuiltCommand` 交出来的裸 node 起法 */
 export const isBare = (argv: readonly string[]): boolean => argv[0] === '--import' && (argv[1]?.startsWith(`${HOOK.href}?`) ?? false)
@@ -104,11 +108,33 @@ const settingsOf = (owner: string) => {
   return { compilerOptions, compatible, coversScripts, id: identityOf({ esbuild: version, node: process.versions.node, compilerOptions }) }
 }
 
-/** 只确认入口项目根本层的覆盖范围；跨目录、复杂范围或父层配置交给 tsx */
+/** N 的映射格式与 owner 旧格式独立；相同 compilerOptions 也不共用 payload。 */
+const NO_CONFIG_FORMAT = 'kol-prebuilt/no-config-inline-map/v1'
+const noConfigProfile = () => ({
+  compilerOptions: {},
+  id: createHash('sha256').update(JSON.stringify([
+    NO_CONFIG_FORMAT, (require('esbuild/package.json') as { version: string }).version, process.versions.node, {},
+  ])).digest('hex').slice(0, 16),
+  maps: true,
+})
+const profilesOf = (owner: string) => [{ ...settingsOf(owner), maps: false }, noConfigProfile()]
+
+/** 原根逻辑保留；真实后代仅在最近配置仍为项目根普通文件时沿用同一编译配置。 */
 const settingsAtCwd = (cwd: string, root: string): ReturnType<typeof settingsOf> | undefined => {
   try {
     const here = realpathSync(cwd)
-    if (here !== realpathSync(dirname(root))) return undefined
+    const project = realpathSync(dirname(root))
+    if (here !== project) {
+      const inside = relative(project, here)
+      if (inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside)) return undefined
+      for (let dir = here; dir !== project; dir = dirname(dir)) {
+        try { lstatSync(join(dir, 'tsconfig.json')); return undefined }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return undefined }
+      }
+      if (!lstatSync(join(project, 'tsconfig.json')).isFile()) return undefined
+      const inherited = settingsOf(project)
+      return inherited.coversScripts ? inherited : undefined
+    }
     for (let dir = here; ; dir = dirname(dir)) {
       try {
         statSync(join(dir, 'tsconfig.json'))
@@ -129,6 +155,15 @@ export function compileTs(source: string, file: string, compilerOptions: Record<
   return esbuild.transformSync(source, {
     loader: 'ts', format: 'esm', target: `node${process.versions.node}`, keepNames: true, minifyWhitespace: true,
     sourcefile: basename(file), tsconfigRaw: { compilerOptions },
+  }).code
+}
+
+/** 源地址留相对 basename，映射随原 .ts URL 走，不绑定某一个 worker 副本的目录。 */
+const compileMapped = (source: string, file: string): string => {
+  esbuild ??= require('esbuild') as typeof Esbuild
+  return esbuild.transformSync(source, {
+    loader: 'ts', format: 'esm', target: `node${process.versions.node}`, keepNames: true, minifyWhitespace: true,
+    sourcefile: basename(file), tsconfigRaw: { compilerOptions: {} }, sourcemap: 'inline', sourcesContent: true,
   }).code
 }
 
@@ -155,20 +190,22 @@ const keyNow = (file: string, id: string): string => {
   return key
 }
 
-/** 预编整棵树（`compile.ts` 调）：缺的编上，不属于这棵树现在这一版的删掉 */
+/** 预编整棵树的 owner 与 N 两种格式（`compile.ts` 调）：统计 payload，缺的编上，旧的删掉。 */
 export function prebuildTree(owner: string): { wrote: number; kept: number; removed: number } {
   const cache = join(owner, PREBUILT_DIR)
   mkdirSync(cache, { recursive: true })
-  const { compilerOptions, id } = settingsOf(owner)
+  const profiles = profilesOf(owner)
   const want = new Set<string>()
   let wrote = 0, kept = 0, removed = 0
   for (const file of tsFiles(join(owner, 'scripts'))) {
     const source = readFileSync(file, 'utf8')
-    const path = entryPath(cache, keyOf(id, file, source))
-    want.add(basename(path))
-    if (existsSync(path)) { kept++; continue }
-    writeEntry(path, compileTs(source, file, compilerOptions))
-    wrote++
+    for (const { compilerOptions, id, maps } of profiles) {
+      const path = entryPath(cache, keyOf(id, file, source))
+      want.add(basename(path))
+      if (existsSync(path)) { kept++; continue }
+      writeEntry(path, maps ? compileMapped(source, file) : compileTs(source, file, compilerOptions))
+      wrote++
+    }
   }
   for (const name of readdirSync(cache)) if (!want.has(name)) { rmSync(join(cache, name), { force: true }); removed++ }
   return { wrote, kept, removed }
@@ -182,45 +219,111 @@ export function prebuildOne(file: string, source: string): void {
   const root = scriptsRootOf(file)
   const owner = root === undefined ? undefined : ownerOf(root, existsSync)
   if (owner === undefined) return
-  const { compilerOptions, id } = settingsOf(owner)
-  const path = entryPath(join(owner, PREBUILT_DIR), keyOf(id, resolve(file), source))
-  try { writeEntry(path, compileTs(source, file, compilerOptions)) } catch { rmSync(`${path}.${process.pid}.tmp`, { force: true }) }
+  for (const { compilerOptions, id, maps } of profilesOf(owner)) {
+    const path = entryPath(join(owner, PREBUILT_DIR), keyOf(id, resolve(file), source))
+    try { writeEntry(path, maps ? compileMapped(source, file) : compileTs(source, file, compilerOptions)) }
+    catch { rmSync(`${path}.${process.pid}.tmp`, { force: true }) }
+  }
 }
 
 /** 钩子的地址，带上那棵树、缓存目录与编译身份 */
-const hookFor = (root: string, owner: string, id: string): string => {
+const hookFor = (root: string, owner: string, id: string, noConfig = false): string => {
   const url = new URL(HOOK)
   url.searchParams.set('root', root)
   url.searchParams.set('cache', join(owner, PREBUILT_DIR))
   url.searchParams.set('id', id)
+  if (noConfig) url.searchParams.set('noConfig', '1')
   return url.href
 }
 
 /**
- * 和 `tsxCommand` 同一个形状：走得了裸 node 就 `node --import <钩子> <原参数>`（命令行上照旧写 `.ts`），
- * 否则原样交给 tsx。`cwd` 是子进程的工作目录（相对路径按它找），`env` 是子进程拿到的环境。
+ * 和 `tsxCommand` 同形：原 owner 仍裸起；N 由薄父壳起缓存 child；不合格原样交给 tsx。
+ * 命令行仍写 `.ts`。`cwd` 是实际子工作目录，相对路径按它找；`env` 是最终子环境。
  */
 export function prebuiltCommand(args: string[], cwd = process.cwd(), env: NodeJS.ProcessEnv = process.env): [string, string[]] {
   if (env.TSX_TSCONFIG_PATH !== undefined) return tsxCommand(args)
   const script = args[0] === undefined ? undefined : resolve(cwd, args[0])
   const root = script === undefined ? undefined : scriptsRootOf(script)
   const owner = root === undefined ? undefined : ownerOf(root, existsSync)
+  let selected: { id: string; noConfig: boolean } | undefined
   const bare = bareLaunch({ disabled: env.KOL_PREBUILT === '0', strips: Boolean(process.features.typescript), script,
     nodeOptions: env.NODE_OPTIONS, root, owner,
     complete: () => {
       // 钩子自身施变时不能兼任验证者的可信启动器；仍由 tsx 执行实际断言。
-      if (readFileSync(HOOK, 'utf8') !== hookSource) return false
-      const { id, compatible } = settingsOf(owner!)
+      if (sourceOf(HOOK) !== hookSource) return false
+      const settings = settingsOf(owner!)
+      const { id, compatible } = settings
       const current = settingsAtCwd(cwd, root!)
-      if (!compatible || current?.compatible !== true || current.id !== id) return false
+      if (!compatible) return false
+      if (current?.compatible === true && current.id === id) selected = { id, noConfig: false }
+      else {
+        // 新父壳只在已核 Unix 信号环境启用；其它平台沿用原 CLI。
+        if (!['darwin', 'linux'].includes(process.platform) || !settings.coversScripts
+          || parentSource === undefined || signalSource === undefined
+          || sourceOf(PARENT) !== parentSource || sourceOf(SIGNALS) !== signalSource) return false
+        try { assertNoConfig(cwd) } catch { return false }
+        selected = { id: noConfigProfile().id, noConfig: true }
+      }
       const cache = join(owner!, PREBUILT_DIR)
-      return complete(tsFiles(root!), f => entryPath(cache, keyNow(f, id)), existsSync)
+      return complete(tsFiles(root!), f => entryPath(cache, keyNow(f, selected!.id)), existsSync)
     } })
-  return bare ? [process.execPath, ['--import', hookFor(root!, owner!, settingsOf(owner!).id), ...args]] : tsxCommand(args)
+  if (!bare || selected === undefined) return tsxCommand(args)
+  let hook = hookFor(root!, owner!, selected.id, selected.noConfig)
+  // 受控环境已有带启动保护的同一个 N hook；child 再 import 同 URL，避免装第二个无绑定钩子。
+  const imported = env.NODE_OPTIONS?.match(/^--enable-source-maps --import ("(?:\\.|[^"\\])*") /)?.[1]
+  if (selected.noConfig && imported !== undefined) {
+    try {
+      const supplied = new URL(JSON.parse(imported) as string), expected = new URL(hook)
+      if (supplied.origin === expected.origin && supplied.pathname === expected.pathname && supplied.searchParams.has('observed')
+        && ['root', 'cache', 'id', 'noConfig'].every(key => supplied.searchParams.get(key) === expected.searchParams.get(key))) hook = supplied.href
+    } catch { /* 未知格式沿用原命令，受控环境自己的启动保护仍须拒绝失效。 */ }
+  }
+  return selected.noConfig
+    ? [process.execPath, [fileURLToPath(PARENT), '--hook', hook, '--', ...args]]
+    : [process.execPath, ['--import', hook, ...args]]
 }
 
 /** 入口前的观察器及 fake-fetch 与入口共用同一加载器；script 定位入口所在树，env 是添加预加载前的子环境，cwd 是实际子工作目录（省略保留调用时目录） */
 export function fixtureLoader(script: string, env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
   const [, argv] = prebuiltCommand([script], cwd, env)
   return isBare(argv) ? argv[1]! : pathToFileURL(require.resolve('tsx')).href
+}
+
+/** 只供既有 brand 内容版本观察器使用；未知组合保留原完整公共起法（ADR-158 第二十六节）。 */
+export function brandObserverEnv(script: string, cwd: string, baseEnv: NodeJS.ProcessEnv, observerFile: string): NodeJS.ProcessEnv {
+  const observer = pathToFileURL(resolve(observerFile)).href
+  const original = (): NodeJS.ProcessEnv => {
+    const env = { ...baseEnv, NODE_OPTIONS: `--import ${JSON.stringify(fixtureLoader(script, baseEnv, cwd))} ${baseEnv.NODE_OPTIONS} --import ${JSON.stringify(observer)}` }
+    prebuiltCommand([script], cwd, env)
+    return env
+  }
+  try {
+    const root = scriptsRootOf(script)
+    if (root === undefined) return original()
+    const fetchFile = join(root, 'check/fake-fetch.ts'), fetch = pathToFileURL(fetchFile).href
+    const template = [
+      `import { appendFileSync } from 'node:fs';`,
+      `import { Budget } from ${JSON.stringify(pathToFileURL(join(root, 'lib/budget.ts')).href)};`,
+      `const original = Budget.prototype.reserve;`,
+      `Budget.prototype.reserve = function(...args) {`,
+      `  appendFileSync(process.env.BRAND_VERSION_RESERVE_LOG, 'reserve\\n');`,
+      `  return Reflect.apply(original, this, args);`,
+      `};`,
+      `appendFileSync(process.env.BRAND_VERSION_ARMED_LOG, 'armed\\n');`,
+    ].join('\n')
+    if (baseEnv.NODE_OPTIONS !== `--import ${JSON.stringify(fetch)}` || lstatSync(observerFile).isSymbolicLink()
+      || readFileSync(observerFile, 'utf8') !== template
+      || createHash('sha256').update(readFileSync(fetchFile)).digest('hex') !== 'f890ca79e639983c70c91bdaa009236980a4f5c8e424fd3b58bc347e9c085226') return original()
+    const [, preliminary] = prebuiltCommand([script], cwd, baseEnv)
+    if (preliminary[0] !== fileURLToPath(PARENT) || preliminary[1] !== '--hook' || preliminary[2] === undefined) return original()
+    const hook = new URL(preliminary[2]), cache = hook.searchParams.get('cache'), id = hook.searchParams.get('id')
+    if (hook.searchParams.get('noConfig') !== '1' || cache === null || id === null) return original()
+    const snapshot = observerSnapshot(root, cache, id)
+    if (!snapshot.complete) return original()
+    hook.searchParams.set('observed', JSON.stringify({ file: resolve(observerFile), hash: createHash('sha256').update(template).digest('hex'),
+      launch: observerLaunchIdentity(), owner: observerOwnerIdentity(cache), script: resolve(script), tree: snapshot.identity }))
+    const env = { ...baseEnv, NODE_OPTIONS: `--enable-source-maps --import ${JSON.stringify(hook.href)} ${baseEnv.NODE_OPTIONS} --import ${JSON.stringify(observer)}` }
+    const [, selected] = prebuiltCommand([script], cwd, env)
+    return selected[0] === fileURLToPath(PARENT) && selected[1] === '--hook' && selected[2] === hook.href ? env : original()
+  } catch { return original() }
 }
