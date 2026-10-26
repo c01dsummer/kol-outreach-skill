@@ -30,7 +30,7 @@ function sourceManifest(root: string): SourceEntry[] {
         const link = readlinkSync(entry)
         // Production copying can make these two documentation links absolute.
         // Preserve their opaque link bytes; neither snapshot nor DUT traverses them.
-        const documentationLink = next === join('.agents', 'skills', 'kol-outreach') || next === join('.claude', 'skills', 'kol-outreach')
+        const documentationLink = isAbsolute(link) && (next === join('.agents', 'skills', 'kol-outreach') || next === join('.claude', 'skills', 'kol-outreach'))
         if (!documentationLink) {
           const resolved = realpathSync(entry)
           if (isAbsolute(link) || !inside(resolved, root)) invalid('source symlink escapes the isolated snapshot: ' + next)
