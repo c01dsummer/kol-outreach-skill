@@ -644,3 +644,20 @@ c9已有三份完整PR清点不变；此后修复另取三份逐489原身份的�
 本扩展另作三份同489原身份窄增量，固定33f→3d72七文件，按响/字面响实质未响/近/待/不响分别7/21/110/7/344、3/9/37/17/423、0/11/10/8/460。原身份与raw不漂移，新增正式条件0；之后一行F1输入各补窄便条，原分类不改。旧分类散文意外接触继续披露，不冒称零历史盲审。事后响/待并集27个原身份仅作协调，非第四次独立扫描或27新任务。原字段119/221/324及新测试receipt消费宽窄边界保留；createdAt/runtime/runDir等诊断并非宿主逐字段断言，局部60标签不销全库余额。
 
 配置归属218/257有旧阶段限定，按宽窄读保留原余额与实际合入前提；222（ADR158:349）已有413明记已还#382，不复活。306/330的旧ADR70原块亦已有既定收束，不能因同词/方法续触重开。113/217是业务JSON根键诊断位置，未改d28断言，不与cwd项目根混账。ak旧输入辨识力消失按258保留宽读候选/窄读输入失差，归类及累计未知，不把两标签自动算两例或满七次。既有原记录和未定参数不降门槛，固定45不扩工程；局部36.68%仍不替原整链负结果或新Linux资格。
+
+
+## 三十三 · 纯判定不提前初始化TypeScript编译器（独立后续候选，实施前）
+
+#390的1d6已取得同头Mac完整0及Linux CI2009 success/18:02；Linux CPU9V74与上一轮7763不同，局部三组36.68%不等于稳定整链恢复。本后续仍属原CI耗时恢复单元，不加进冻结的#390，不扩45项，发布等前条实际合入。
+
+静态调用路径显示test.ts选组前已导入mutate-rule及share-rule，两模块均顶层require npm TypeScript；纯函数配置也被迫初始化编译器。仅移动取得时机：mutate-rule由私有同步缓存getter供groupOfLabel/labelsOf/leadWired/routeLayout在扫描入口使用；share-rule仅scanShares内取得。解析依旧认原模块import.meta，保持公开签名、同步返回、同库身份、AST参数和异常传播，不做异步接口、Proxy或新解析框架。Native stripping/amaro不是这个npm编译器。
+
+独立先冻结3固定child/13标签，以公开require.cache主入口loaded及同exports观测真实初始化；阳性真实require/createSourceFile先资格，后分开两个DUT。未改1d6上仅预定两过早加载标签红，pure及AST手推结果、同库和同步检查通过。先前public hook未观测到真实CJS加载的失格原件保留；只替换观测通路，不改13预期、不修改cache、不用私有loader。当前仅设计与具名红，候选正常/原AST套件/负片/整链及性能尚待，不据静态推算可省wall。
+
+4c6a2bb仅7增3删移动编译器取得时机，独立Astra核原AST函数体与参数逐字不变，未改公开签名或解析位置。独立v2在旧1d6仅两预定eager标签红，候选13/13；原七个相关组选组共554断言退0。永久单文件薄包装嵌原101行及SHA逐字，固定一次外部控制器执行原三个新Node子进程、13标签；完整stdout先透传，结果、源身份、库身份、子进程及汇总严格闭合，失格带记号拒绝。b38aad0的实际typecheck/正常新组均0。
+
+实际M-H67-a/b只恢复两模块的提前加载，各自使原宏具名失败，分别且仅mutate.no-typescript-before-ast、share.no-typescript-before-ast红；每次13标签齐，fixtureErrors为空、stderr0，受试源前后稳定。临时反例准备先因本机Python旧extractall参数、后因过严拒绝树内合法技能相对链接各失格一次，均未执行DUT；原件保留，按归一后的树内归属核验再解包实际执行，不算产品失败。旧1673目录对象保持不改，新增两条。
+
+同Node/安装、实际owner预编缓存验证者，先各R/C预热，再RC/CR交替：三纯判定组各8对子，AST控制h-mutate四对子，共56计时样本均0、stderr空，每对子stdout相同，前后source/HEAD稳定。p1-missing-values、h-launch-rule、h-mutation-cost的wall比中位分别0.948679529、0.987403912、0.702967502，CPU比分别0.813776549、0.865527216、0.768257778；AST控制wall1.002363805、CPU0.982466467。仅这些实际组选组微测，不外推完整检查/Linux恢复；下一步全量变异、实际派生与整链，发布等#390实际合入后接主干复核。
+
+固定2962109、UID501/Node22.22.0/Darwin arm64/4worker实际compile及全量mutate均退0。1675唯一catalog/configured/observed/caught逐项一致，159正常配置各成功一次，complete/issues[]，其它verdict0，旧1673对象/顺序及豁免逐字不变；295追踪输入与HEAD稳定。完整stdout 451355B/SHA256 78de64f39c9d55c572dcf1b7e7cde054dbfc89fe086f724c584bc377d3e42bce，stderr0，588.657869秒仅这次功能运行。随后同树实际launches写回及读回均0：仅新增h-lazy-typescript-contract一行launches1/running2/stopping0/maxPaid null，其余158行逐字不变。完整check、最新主干重核与未来Linux尚待，不从单次mutatewall认领整体性能恢复。
