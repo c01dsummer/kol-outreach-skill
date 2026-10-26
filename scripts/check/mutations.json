@@ -18297,7 +18297,7 @@
       "why": "缓存不齐也走裸 node —— 改了没重编的文件在加载时当场报错",
       "file": "scripts/check/prebuilt.ts",
       "find": "&& at.owner !== undefined && at.complete()",
-      "replace": "&& at.owner !== undefined",
+      "replace": "&& at.owner !== undefined && (at.complete(), true)",
       "by": "test",
       "kills": ["走不走裸 node：样样成立才走；关掉、node 自己去不掉类型、不是 .ts、带着 tsx 加载器、找不到树或缓存、缓存不齐，都照旧 tsx", "改了没重编：照旧交给 tsx"]
     },
@@ -18366,7 +18366,7 @@
       "req": "harness",
       "why": "变异落盘后不把被改的文件编进缓存 —— 每条变异的验证者都退回 tsx",
       "file": "scripts/check/prebuilt.ts",
-      "find": "try { writeEntry(path, compileTs(source, file, compilerOptions)) }",
+      "find": "try { writeEntry(path, maps ? compileMapped(source, file) : compileTs(source, file, compilerOptions)) }",
       "replace": "try { void writeEntry }",
       "by": "test",
       "kills": ["只编改过的文件：缓存恢复齐全，按内建能力选起法并跑当前源码"]
@@ -18448,8 +18448,8 @@
       "req": "harness",
       "why": "把不能完整理解的编译配置判成可预编，会忽略注释配置和继承配置中的有效语义",
       "file": "scripts/check/prebuilt.ts",
-      "find": "if (!compatible || current?.compatible !== true || current.id !== id) return false",
-      "replace": "if (false) return false",
+      "find": "if (!compatible) return false\n      if (current?.compatible === true && current.id === id)",
+      "replace": "if (true)",
       "by": "test",
       "kills": ["JSONC 编译配置：回退 tsx 保留字段赋值语义", "继承编译配置：回退 tsx 使用完整有效配置"]
     },
@@ -18498,8 +18498,8 @@
       "req": "harness",
       "why": "跨目录启动仍沿用缓存目录配置，会把两种相反字段初始化语义都跑反",
       "file": "scripts/check/prebuilt.ts",
-      "find": "if (!compatible || current?.compatible !== true || current.id !== id) return false",
-      "replace": "if (!compatible) return false",
+      "find": "if (current?.compatible === true && current.id === id)",
+      "replace": "if (compatible)",
       "by": "test",
       "kills": [
         "cxv4 owner define cwd assign setter count",
@@ -18846,6 +18846,138 @@
       "find": "writeFileAtomic(join(dir, ENRICHMENT), JSON.stringify(state, null, 2))",
       "replace": "writeFileAtomic(join(dir, ENRICHMENT), JSON.stringify(state, (key, value) => key === 'sample' && value?.status === 'unavailable' ? undefined : value, 2))",
       "why": "保存enrichment时删除查询后不可用的样本，已查询状态及其来源时间原因在真实盘文件中消失"
+    },
+    {
+      "id": "M-H62-al",
+      "req": "harness",
+      "why": "无配置子目录必须按公开默认编译语义执行，不能借用缓存所属目录的字段初始化配置",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "selected = { id: noConfigProfile().id, noConfig: true }",
+      "replace": "selected = { id, noConfig: true }",
+      "by": "test",
+      "kills": [
+        "无配置入口参数与默认语义"
+      ]
+    },
+    {
+      "id": "M-H62-am",
+      "req": "harness",
+      "why": "完整缓存与确认无配置的子目录必须使用获准的新缓存入口，不能始终退回公开加载器",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "selected = { id: noConfigProfile().id, noConfig: true }",
+      "replace": "return false",
+      "by": "test",
+      "kills": [
+        "预编两种格式与独立无配置身份"
+      ]
+    },
+    {
+      "id": "M-H62-an",
+      "req": "harness",
+      "why": "无配置入口选定后新增配置必须在加载时明确拒绝，不能继续执行过时的编译结果",
+      "file": "scripts/check/prebuilt-hook.ts",
+      "find": "if (at.noConfig) assertNoConfig(process.cwd())",
+      "replace": "if (at.noConfig) {}",
+      "by": "test",
+      "kills": [
+        "已选入口拒绝源码缓存与配置失效"
+      ]
+    },
+    {
+      "id": "M-H62-ao",
+      "req": "harness",
+      "why": "单源更新必须同时更新所属目录与无配置域的两份独立缓存，并清除过时正文",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "for (const { compilerOptions, id, maps } of profilesOf(owner)) {",
+      "replace": "for (const { compilerOptions, id, maps } of profilesOf(owner)) {\n    if (maps) continue",
+      "by": "test",
+      "kills": [
+        "单源更新清理与坏编译拒绝旧缓存"
+      ]
+    },
+    {
+      "id": "M-H62-ap",
+      "req": "harness",
+      "why": "所属配置不能确认覆盖脚本时须保留公开加载器，不能把缓存完整误当配置适用",
+      "file": "scripts/check/prebuilt.ts",
+      "find": " || !settings.coversScripts",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "无配置准入边界保留公开加载器回退"
+      ]
+    },
+    {
+      "id": "M-H62-aq",
+      "req": "harness",
+      "why": "普通预加载留下活句柄时仍须在真实子进程结束后正常收尾，不能让父进程一直存活",
+      "file": "scripts/check/prebuilt-parent.ts",
+      "find": "process.exit(spawnError ? 1 : code !== null ? code : signal !== null ? 128 + constants.signals[interrupted ?? signal] : 1)",
+      "replace": "process.exitCode = spawnError ? 1 : code !== null ? code : signal !== null ? 128 + constants.signals[interrupted ?? signal] : 1",
+      "by": "test",
+      "kills": [
+        "异常保留原栈且普通预载正常收尾"
+      ]
+    },
+    {
+      "id": "M-H62-ar",
+      "req": "harness",
+      "why": "同步自身信号与进程组终止时，退出码和真实入口退出钩子必须与同运行时公开命令一致",
+      "file": "scripts/check/prebuilt-signals.ts",
+      "find": "process.platform === 'linux'",
+      "replace": "process.platform !== 'linux'",
+      "by": "test",
+      "kills": [
+        "INT和TERM进程组与同步自身信号生命周期"
+      ]
+    },
+    {
+      "id": "M-H62-as",
+      "req": "harness",
+      "why": "缓存入口抛错须保留原始TypeScript地址和行号，不能把生成代码的位置当原始错误堆栈",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "sourcemap: 'inline'",
+      "replace": "sourcemap: false",
+      "by": "test",
+      "kills": [
+        "异常保留原栈且普通预载正常收尾"
+      ]
+    },
+    {
+      "id": "M-H62-at",
+      "req": "harness",
+      "why": "用户清空信号处理后，清空结果及真实入口退出行为必须与同运行时公开命令一致",
+      "file": "scripts/check/prebuilt-signals.ts",
+      "find": "install('SIGINT')",
+      "replace": "const resetTermRemoval = process.removeAllListeners\nprocess.removeAllListeners = function(this: NodeJS.Process, ...args: Parameters<typeof resetTermRemoval>) {\n  const result = Reflect.apply(resetTermRemoval, this, args)\n  if (this === process && (args.length === 0 || args[0] === 'SIGTERM')) install('SIGTERM')\n  return result\n}\ninstall('SIGINT')",
+      "by": "test",
+      "kills": [
+        "INT和TERM进程组与同步自身信号生命周期"
+      ]
+    },
+    {
+      "id": "M-H62-au",
+      "req": "harness",
+      "why": "最近配置仍为原项目时，真实后代目录应沿用已确认的编译缓存，不得全部退回公开加载器",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "return inherited.coversScripts ? inherited : undefined",
+      "replace": "return undefined",
+      "by": "test",
+      "kills": [
+        "同配置后代缓存与中间配置回退保持公开语义"
+      ]
+    },
+    {
+      "id": "M-H62-av",
+      "req": "harness",
+      "why": "项目后代有更近配置时不能借用外层编译选项，须交回公开加载器保持字段编译语义",
+      "file": "scripts/check/prebuilt.ts",
+      "find": "try { lstatSync(join(dir, 'tsconfig.json')); return undefined }",
+      "replace": "try { lstatSync(join(dir, 'tsconfig.json')) }",
+      "by": "test",
+      "kills": [
+        "同配置后代缓存与中间配置回退保持公开语义"
+      ]
     }
   ],
   "exemptions": [

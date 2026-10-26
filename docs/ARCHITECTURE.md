@@ -151,8 +151,10 @@
 | `scripts/check/jobs-rule.ts` | 检查 | — | 变异跑的**派工**判定：派几个、一条结论怎么写成一行又怎么读回来、以及派出去却没回话的怎么算。并行的单位是**目录**不是进程 —— 一条变异是真的改写一份源文件，两条同时改同一棵树，验证者跑的就是「两处叠在一起」那棵树，而报告仍按条归因，每一条的绿或红都不算数。派法是**一条一派**不是先切好再发：指名了验证者的那几条跑的是另一个验证者，代价与缺省那个不可比（原型上量过，静态切成 6 份时两份比另外四份多跑 32 秒），而要靠静态切法摊平就得先知道每条要跑多久 —— 那个数如今每跑一次都量，可拿上一跑的数去切下一跑仍是猜，猜一个写进代码就是把「不知道」伪装成「知道」。**每条跑多久也随结论带回来**（`Ran.ms`，逐字段验），收尾按验证者记账、打出「每给它加一秒整跑要乘以多少条」那个乘法 —— 只是参考数，不判任何事（ADR-99 第十四节）。**派出去却没有结论回来的算硬失败**：worker 崩了、被杀了、汇报行被截断，在输出上长得都一样，而把「没查过」当成「跑过了、没事」正是 `process/README.md` 总纲里那个头号事故。**起 worker 那两步的判定也在这里**（原先内联在入口，#110 挪出来）：一是**哪些文件进得了 worker 那份副本** —— `CONVENTIONS.md` 第 10 条把「跳过哪些目录、哪些文件算数」明写在判定那一层，因为它决定 worker 看得见什么，而错一格的后果不是跑得慢，是一份装着密钥的 `.env.local` 被复制进每个隔离目录（那两张表是 `.gitignore` 的手抄本，手抄本会漂，实测漂过一次，所以 `.env` 那一族按前缀认）；二是**`spawn` 交回来的对象起没起来** —— 起进程时资源不够时 Node 在装管道之前就返回，`stdin` 压根不存在，不先问这一句的话紧跟着那句同步的装监听器会先抛「读不到 undefined 上的属性」，闸门照样非零退出、目录照样收干净，错的是那句话把人指向派工代码，而该做的是调高允许打开的文件数。入口那一半（问得够不够早、硬来之后收没收干净）变异够不到，由自检那条压低 fd 的夹具守着。**自检夹具判「观察到的进程还会不会再执行」的 `processEnded` 也住这里**（ADR-133）：0 号信号得到 `ESRCH`，或 `/proc/<pid>/stat` 写着 `Z` 且线程数为 1，才算结束，读不到、认不出一律不算；放这里是因为它与 `ownGroup` 读同一种正文、用同一种切法，而自检在验证基础设施闭包里，判定只有住在规则模块里才有变异守着。**接线已就位**：`mutation-cost-entry` 夹具的外层、driver、收尾三处都先读 `/proc/<pid>/stat`、后发 0 号信号，判在这条判定；接线落在 `selfcheck.ts` 里，属验证基础设施闭包，没有变异守着，改回只发信号或对调先后只有实跑看得见（ADR-133 第五节） |
 | `scripts/check/mutate-restore.ts` | 检查 | — | 变异跑到一半被打断时，把动过的那份源文件还回去：信号杀进来时 `finally` 不跑，挂在退出上的清理也靠不住（裸 node 起时都不跑，经 tsx 起时只有 `SIGINT`／`SIGTERM` 落在没卡住的真进程上才跑，ADR-158 第四节），留在工作区里的是一处**故意违反某条需求的改动**，而下一次检查报的是「锚点失效」，指着变异集说话。挡不住硬杀与断电，差额明写在模块头上 |
 | `scripts/check/tsx-cmd.ts` | 检查 | — | 起一个跑 `.ts` 的子进程用**哪条命令**，全仓只此一份：当前这个 node 加 `tsx/cli` 那个公开导出，不经 `npx`、不经 shell、也不指 `node_modules/.bin`。自检、需求测试、变异三处的**等法**各不相同（同步等两股 / 同步等一股 / 异步等还要自成一组），而「起哪个可执行文件、前面垫哪些参数」是**同一个决定** —— 三处原先各写各的、而且各错各的，只修其中一处就是又一次「只修实例」（ADR-69 第一块欠条，它自己写明修法是三处一起改） |
-| `scripts/check/prebuilt.ts` | 检查 | — | 起一个跑 `.ts` 的验证者或入口时，用裸 node 跑预编的 JS 还是照旧交给 tsx（ADR-158）。`prebuiltCommand` 与 `tsxCommand` 同形，交回「可执行文件、参数」；变异、自检、需求测试起子进程走它，起 `npm run` 各步与变异 worker 的照旧 tsx。观察器预加载用 `fixtureLoader(script, env, cwd)` 按同一子进程环境及真实子 cwd 选同一个钩子或 tsx；新增第三参数省略时仍按调用时 cwd，原两参数调用兼容；起子进程的调用方传与 spawn 相同的 cwd（ADR-158 第十八节），排在观察器与 fake-fetch 之前，保证 `.ts` 观察器和相对 `.js` 入口共用模块实例；直接 Node/IPC 夹具保持原进程关系（ADR-158 第十三节）。缓存按正文寻址，放在仓库根的 `.check-cache/prebuilt/`，键是编译身份、文件名、正文三样的 sha256；整棵树每个 `.ts` 都有现在这一版才裸起，缺一份就照旧 tsx；子进程禁用内建类型剥离、显式 `TSX_TSCONFIG_PATH`，或配置不是无继承的普通 JSON 时也保留 tsx。裸起还限子进程 cwd 与入口 scripts 树的项目根为同一实际目录，且本层普通 JSON 配置覆盖 scripts、编译选项与缓存身份一致；跨目录、复杂文件范围或父层配置归属无法确认时保留 tsx，避免改变编译语义。**不在 `.ts` 旁边放 `.js`**：复制 `scripts/` 的玩具树会把旧的一起带走。裸起的信号死亡按 tsx 的壳报的那样换成 128+N（`asTsx`）。`compile.ts` 预编整棵树，`mutate.ts` 每条变异落盘后只编被改的那一个 |
+| `scripts/check/prebuilt.ts` | 检查 | — | 起一个跑 `.ts` 的验证者或入口时，用裸 node 跑预编的 JS 还是照旧交给 tsx（ADR-158）。`prebuiltCommand` 与 `tsxCommand` 同形，交回「可执行文件、参数」；变异、自检、需求测试起子进程走它，起 `npm run` 各步与变异 worker 的照旧 tsx。观察器预加载用 `fixtureLoader(script, env, cwd)` 按同一子进程环境及真实子 cwd 选同一个钩子或 tsx；新增第三参数省略时仍按调用时 cwd，原两参数调用兼容；起子进程的调用方传与 spawn 相同的 cwd（ADR-158 第十八节），排在观察器与 fake-fetch 之前，保证 `.ts` 观察器和相对 `.js` 入口共用模块实例；直接 Node/IPC 夹具保持原进程关系（ADR-158 第十三节）。缓存按正文寻址，放在仓库根的 `.check-cache/prebuilt/`，键是编译身份、文件名、正文三样的 sha256；整棵树每个 `.ts` 都有现在这一版才裸起，缺一份就照旧 tsx；子进程禁用内建类型剥离、显式 `TSX_TSCONFIG_PATH`，或配置不是无继承的普通 JSON 时也保留 tsx。owner 裸起保留 cwd 等于入口 scripts 项目根的原分支；真实后代 cwd 仅在逐级确认没有中间配置、最近配置恰为项目根的普通文件且覆盖 scripts、编译选项与缓存身份一致时沿用该配置。项目根与缓存 owner 分开判断，worker 可共用祖先缓存；外部 cwd、中间配置或软链配置、未知读取、复杂范围及其它父层归属仍保留 tsx。此域沿原 owner 裸起/asTsx，不借用 N 父壳的严格生命周期保证。**不在 `.ts` 旁边放 `.js`**：复制 `scripts/` 的玩具树会把旧的一起带走。裸起的信号死亡按 tsx 的壳报的那样换成 128+N（`asTsx`）。`compile.ts` 预编整棵树，`mutate.ts` 每条变异落盘后只编被改的那一个 |
 | `scripts/check/prebuilt-hook.ts` | 检查 | — | 预编 JS 的模块钩子，裸 node 经 `--import` 装上（ADR-158）：解析出来的仍是 `.ts` 的地址，加载时按这份 `.ts` 现在的正文找缓存里那一份，找不到当场报错、点名那个文件，不拿旧的顶上；`./x.js` 在 `x.ts` 在时认 `x.ts`，那棵树以外的不碰。只 import `node:` 内建，靠 Node 自己去掉类型；缓存的键怎么算只此一份 |
+| `scripts/check/prebuilt-parent.ts` | 检查 | — | 无配置 cwd 的缓存入口父进程；只用 Node 公开 API 维持子进程及 INT/TERM 收尾，等待真实 child close，保留原 CLI 的 raw、退出钩子和参数语义；原直接 Node/IPC 不迁移（ADR-158 恢复候选合同） |
+| `scripts/check/prebuilt-signals.ts` | 检查 | — | 新缓存 child 的信号预加载；raw 与真实入口退出钩子必须匹配同运行时公共 CLI，不在父侧补造。Linux 由缓存hook实际求值原entry后再补TERM默认处理，实例代理只记无参清空并在其后不补默认处理；具名清空遵同环境公共CLI，已有用户handler不抢。不动EventEmitter原型、保留用户新赋方法。同步、GROUP及清空合同均须通过，最终Linux待取（ADR-158第三十一节） |
 | `scripts/check/compile.ts` | 检查 | — | 预编的入口（`npm run compile`，检查链里紧跟 `npm run typecheck`，ADR-158）：把整棵 `scripts/` 编进缓存，缺的编上、不属于现在这一版的删掉，打一行写了几份、沿用几份、删了几份 |
 | `scripts/check/verifier-rule.ts` | 检查 | — | 一条变异改的是不是**验证者自己要用的东西**（`by` 指名了验证者时才管）。验证者够得到一个文件有三条路：`import`、当工具起、以及靠 `--import` 预加载 —— 只扫第一条会少收一大截，而偏小的那一头是放行。划开「工具」与「被测对象」的判据是：起 `scripts/check/` 底下的算工具，起别处的算被测对象 —— 后者正是本条记录的头号用例（自检真跑被变异的入口），收进闭包就把它自己挡在门外了。**抽边故意写得宽**（注释里提到的路径也收）：两头不对称，多收只是把闭包撑大、多拦几条，少收就是放行一条自己验自己的变异。自检那句失败汇总的文案也收在这里 —— 自检打、判定认，只此一份 |
 | `scripts/check/why-rule.ts` | 检查 | — | 变异集 why 的判定：夹带实现原文当场拦下，让 `--brief` 名副其实 |
@@ -178,6 +180,11 @@
 | `scripts/ci-wallclock-contract-test.ts` | 测试夹具 | — | 需求测试的墙钟 core/cpu/unavailable 三组共用适配器：每组从当前进程工作树的 `.github/workflows/check.yml` 提取唯一墙钟 run，在私有临时根运行逐字保留的 Node 冻结矩阵。完整合法报告才交给 `test.ts` 的字面具名断言；坏夹具、缺报告或验证者异常直接失败，不归功给语义断言。无历史 run 副本作为生产来源；`claims.ts` 的共同清单纳入这一个 YAML 的真实正文，旧认领、变异与启动数来源随其变化而失效，不递归扩大 `.github` |
 | `scripts/ci-wallclock-identity-test.ts` | 测试夹具 | — | 墙钟来源身份的独立冻结合同适配：私有子进程从绝对路径导入当前worker的claims模块，在复制的玩具目录调用公共身份接口；父路径拒读自成最窄组，原样执行冻结mjs runner/helper并校准真实遍历拒绝与恢复。冻结案例与oracle原封，补充runner仅把历史归档连续性改为当前解包输入清单核验；读权限资格不可用、坏报告或验证器异常抛错，不记具名抓获 |
 | `scripts/actual-path-contract-test.ts` | 测试夹具 | D2 D8 | 两处旧空断言的实际路径适配：私有子进程先接假fetch与网络阻断，再调用当前工作树公开profile及真实save/loadEnrichment；四份独立冻结输入逐字内嵌，完整合法的四标签结果才交给需求测试断言。子进程隔离全局补丁，finally清理专用目录；只补两契约，不声称全SPEC隔离重写 |
+| `scripts/prebuilt-no-config-contract-test.ts` | 测试夹具 | — | 无配置缓存入口的有限合同适配器：只在选中组时加载，在独立临时根执行冻结producer及进程行为案例，经实际最终env调用当前工作树factory；旧164合同原件保留；同步self-TERM先用公开CLI的控制/五次同步/控制取得当前精确环境资格，再以R-before/C/R-after严格比较。新版正常Linux166、Darwin167标签汇入原八条字面断言，资格11/12另列；异步适配器由现有async组选中后await。坏绑定、缺标签、R失格或公开证据不全不记语义抓获，不以跳过测试换绿；不把Mac原件当Linux资格 |
+| `scripts/prebuilt-no-config-contract-data.ts` | 测试夹具 | — | 上述适配器的冻结运行成员、逐件原始哈希与八桶标签表；仅作可逆路径绑定及明示的运行子集清单。新无配置入口对照公开CLI，旧空配置owner对照固定已发布旧API，历史红记录与生产缓存格式分开；不是通用打包器 |
+| `scripts/prebuilt-clear-term-contract-test.ts` | 测试夹具 | — | 独立冻结的三对TERM清空行为：先实际公共CLI，再真实预编及N factory，比较raw和入口真实exit hook code；清空后才装观察器，KEEP为阳性控制。23个窄标签独立计数，只汇入原生命周期宏，不冒称属于旧167。宿主固定一次起独立Node控制器并清除其计数预载，内部仍同cwd/原factory；完整stdout先透传再核结果/三回执/标签闭合，ps轮询不污染宿主计数。只向已核隔离entry PID发信号，正常close/源身份及残留均核（ADR-158第二十九节） |
+| `scripts/prebuilt-owner-descendant-contract-test.ts` | 测试夹具 | — | 同配置后代的独立15例/60标签：当前公共API与实际CLI同args/cwd/env，先取得手推字段语义及原始退出参照资格，再核owner缓存路由与中间配置回退；固定一次控制器、全量公开回执先透传，源身份及唯一末行/标签/汇总严格闭合，R或夹具失格不算产品抓获（ADR-158第三十二节） |
+| `scripts/prebuilt-owner-descendant-contract-data.ts` | 测试夹具 | — | 上项两份冻结原件manifest/portable及原SHA；原15case、60断言和预期逐字保存，不另造C tuple；并非通用打包框架 |
 
 <!-- END:ANCHORS -->
 
@@ -619,3 +626,20 @@ JSON 摘要、CSV/XLSX 与 HTML 都带出范围状态，使历史视频窗口与
 
 
 关键词归因（U11.c/k–m）沿既有 `pipeline.keywordRows` 边界：两参公共调用保持兼容；生产 render 提供 `{document,feedback}` 已校验上下文，语义通过读取对应平台原 fit，人工已审读取全部冻结来源与自身原人工行。当前入围来源的全表未知、冻结人工来源的同平台未知分别判断，不互相覆盖，未查询行不带人工测量数。`keywords[].manual_reviewed` 交给 HTML 只做格式化，缺席/未知/真零分开；不改变协调器顺序、feedback_summary 或完整 review_rounds，不增加写入权限。
+
+
+## CI 耗时恢复的候选边界（2026-10-25，实现前）
+
+保持第十五、十八节配置正确性修补。原owner裸起与直接Node/IPC仍按旧边界；新增的仅是实际child cwd到根每级tsconfig均证实缺席的N域，不能借owner编译选项。N单独使用{}及带相对inline源映射的缓存格式，编译身份与owner格式分开，源地址仍是原.ts；同名同文的不同目录副本复用payload时，源映射须按实际加载地址定位。每个TS有owner和N两份payload，预编统计如实数payload，不把源文件数冒充缓存份数。
+
+N命令入口由薄Node父进程起缓存child，显式子侧信号预加载保住INT/TERM退出钩子，父侧只管理实际进程和流关闭，不替child造观察事件。`prebuiltCommand`原参数、真实cwd和最终env不变；N不合格、复杂/未知配置、缺缓存或可信启动模块被改动时仍原公共tsx。加载前N前提失效必须明确拒绝，不能静默用旧语义；不承诺文件系统原子快照。
+
+`fixtureLoader`在N域仍交回原公开tsx loader，因此先加N观察器loader的最终命令仍回CLI，原directNode/IPC不迁移。owner的同实例接线不变。这里先记模块/调用边界和验收约束；候选只做过有限外部原型及局部同机测量，生产接线、红绿负片、完整检查和Linux验证未完成，不预写恢复成功。
+
+## 受控 brand 观察器的下一恢复候选（2026-10-25，实现前）
+
+前一固定642候选的本机四次完整检查均有效通过，但候选平均反慢1.430441%，未达到整链恢复目标。此处只设计既有CI恢复中的一个有限下一候选，不增加交接工作单元。
+
+新增 `brandObserverEnv(script,cwd,baseEnv,observerFile)`，仅给 `brand-content-version-entry` 已有预算观察器构造完整环境，再由原 `runBoth` 用实际完整参数、cwd和同一环境调用真实factory。已知域绑定原八行模板、实际入口同树Budget URL、精确fake-fetch基载及固定源身份，不由调用者自报信任。旧 `fixtureLoader`、直接Node/IPC/worker及未选观察器保留原起法。
+
+受控N探测未成立时固定一次重组原完整组合；成立后，返回环境须携带在最终factory回CLI时仍先于fake-fetch/observer/受保护TS生效的启动保护，绑定所选源码、profile/config及必要缓存。未知输入在构造前回退，选后失效明确拒绝；不承诺文件系统原子快照。独立有限测试先冻并取得公开参考及旧候选具名红；本块不宣布新实现、性能或Linux通过。
