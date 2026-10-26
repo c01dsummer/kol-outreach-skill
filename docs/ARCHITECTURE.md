@@ -186,6 +186,8 @@
 | `scripts/prebuilt-owner-descendant-contract-test.ts` | 测试夹具 | — | 同配置后代的独立15例/60标签：当前公共API与实际CLI同args/cwd/env，先取得手推字段语义及原始退出参照资格，再核owner缓存路由与中间配置回退；固定一次控制器、全量公开回执先透传，源身份及唯一末行/标签/汇总严格闭合，R或夹具失格不算产品抓获（ADR-158第三十二节） |
 | `scripts/prebuilt-owner-descendant-contract-data.ts` | 测试夹具 | — | 上项两份冻结原件manifest/portable及原SHA；原15case、60断言和预期逐字保存，不另造C tuple；并非通用打包框架 |
 | `scripts/lazy-typescript-contract-test.ts` | 测试夹具 | — | 延迟编译器初始化的独立101行冻结合同及有界薄包装：三个新Node进程经公开CJS cache阳性取得资格，确认两模块导入/纯判定不初始化npm TypeScript、AST实际调用同步使用同一库；13标签、原始回执/源码身份及汇总闭合，失格带记号拒绝（ADR-158第三十三节） |
+| `scripts/worker-output-contract-test.ts` | 测试夹具 | — | worker正常收尾写回的独立合同适配：快照当前cwd的真实源码，包含无.git的施变目录；私有Git提交只标识该份样本，不借主干代替被测字节。固定一次控制器执行原正常基线、正常worker与真实满管道worker，保持原断言；完整回执、源码及依赖身份闭合，夹具失格抛记号而非计作抓获（ADR-158第三十四节） |
+| `scripts/worker-output-contract-data.ts` | 测试夹具 | — | 上项冻结driver和pipe wrapper的逐字原件与SHA；仅绑定样本路径、私有样本提交及实际Node版本/二进制身份，逆向还原全文件须逐字相同。运行环境须实际执行取得资格，旧Mac结果不授Linux资格；不是新通用框架 |
 
 <!-- END:ANCHORS -->
 

@@ -661,3 +661,16 @@ c9已有三份完整PR清点不变；此后修复另取三份逐489原身份的�
 同Node/安装、实际owner预编缓存验证者，先各R/C预热，再RC/CR交替：三纯判定组各8对子，AST控制h-mutate四对子，共56计时样本均0、stderr空，每对子stdout相同，前后source/HEAD稳定。p1-missing-values、h-launch-rule、h-mutation-cost的wall比中位分别0.948679529、0.987403912、0.702967502，CPU比分别0.813776549、0.865527216、0.768257778；AST控制wall1.002363805、CPU0.982466467。仅这些实际组选组微测，不外推完整检查/Linux恢复；下一步全量变异、实际派生与整链，发布等#390实际合入后接主干复核。
 
 固定2962109、UID501/Node22.22.0/Darwin arm64/4worker实际compile及全量mutate均退0。1675唯一catalog/configured/observed/caught逐项一致，159正常配置各成功一次，complete/issues[]，其它verdict0，旧1673对象/顺序及豁免逐字不变；295追踪输入与HEAD稳定。完整stdout 451355B/SHA256 78de64f39c9d55c572dcf1b7e7cde054dbfc89fe086f724c584bc377d3e42bce，stderr0，588.657869秒仅这次功能运行。随后同树实际launches写回及读回均0：仅新增h-lazy-typescript-contract一行launches1/running2/stopping0/maxPaid null，其余158行逐字不变。完整check、最新主干重核与未来Linux尚待，不从单次mutatewall认领整体性能恢复。
+
+
+## 三十四 · worker正常收尾在写回结论后退出（2026-10-27）
+
+#392的原26b8第二次Mac完整检查保留了真实worker在同步写stdout时的EAGAIN；同一跑另有未回话ID，栈未带ID，不能据此认领唯一因果。另两次Mac/Linux信号工具INVALID仍未查明，不以本片解释或销去。
+
+本片只让worker逐条等待stdout写回回调，再接下一条或正常退出；暂时背压保留待写结果，写回错误继续向外失败。原stdin格式、结论字段、恢复源码和取消处理不变。正常EOF的证明不外推信号、硬杀或完整协调者收尾。未改并发、Node选择、依赖或.github，仍属原CI恢复工作，不增加固定任务单元。
+
+独立上下文先冻结真实公开tsx worker的v2：正常基线与正常单ID先过，再由独立wrapper将真实stdout管道填至一字节也EAGAIN；源码实际施变并恢复后保持停读1秒，恢复消费并收完整EOF。旧实现压力路径退出1、EAGAIN且0字节结论；c3候选交回唯一完整113字节结论、退出0，两侧295个源对象恢复。原八项行为判定未改，独立Astra源码及原件0阻塞/0非阻塞；此资格只及实际Darwin22.22，未授完整检查、Linux或性能改善。
+
+永久组h-worker-output-contract固定宿主一次控制器，内部只有原正常基线一次及两个单ID worker；不把该成本乘到旧生命周期组。两个独立模块逐字保存原driver/wrapper，三输入只绑定当前cwd样本、私有样本提交和当前Node版本/二进制哈希；逆向全文件相等后才执行。原八项判定、wrapper与压力时序保持；数据源是当前worker中可见的源码，包括没有.git的真实施变目录，私有提交不冒称作者HEAD或主干。源码、锁、依赖和Node前后身份另核，夹具/资格异常带失格记号，不记作具名抓获。
+
+首次永久载体在48cf工作区正常1断言绿；无.git隔离副本只恢复旧同步写回后，同一宏具名红、压力路径夹具合格、EAGAIN/0结论，源已恢复。M-H68-a把该退化写入正式by:test负片；正式变异及完整检查仍待执行。中断后的恢复从实际main7fbb重新提交同一四行写回行为，本地说明文字重建，原c3和48cf的历史提交/实跑资格保留各自身份，不冒称恢复的新提交等于旧提交。

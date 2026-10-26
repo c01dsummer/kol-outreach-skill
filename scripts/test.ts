@@ -282,6 +282,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-prebuilt-no-config-contract', needs: [] },
   { id: 'h-prebuilt-owner-descendant-contract', needs: [] },
   { id: 'h-lazy-typescript-contract', needs: [] },
+  { id: 'h-worker-output-contract', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -18290,6 +18291,12 @@ await group('h-lazy-typescript-contract', async () => {
   harness('纯判定按需初始化TypeScript编译器')
   const { runLazyTypescriptContracts } = await import('./lazy-typescript-contract-test.js')
   eq('纯判定不预载TypeScript且AST调用保持同步', runLazyTypescriptContracts(), [])
+})
+
+await group('h-worker-output-contract', async () => {
+  harness('worker在stdout短暂背压解除后完整交回唯一结论')
+  const { runWorkerOutputContract } = await import('./worker-output-contract-test.js')
+  eq('真实worker在stdout背压解除后完整唯一回报且恢复源码', runWorkerOutputContract(), true)
 })
 
 if (seenGroups.size !== GROUPS.length) {

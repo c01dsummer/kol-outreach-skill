@@ -19002,6 +19002,18 @@
       "kills": [
         "纯判定不预载TypeScript且AST调用保持同步"
       ]
+    },
+    {
+      "id": "M-H68-a",
+      "req": "harness",
+      "why": "消费者暂时停止读取stdout后，worker未能在恢复读取时完整交回唯一结论，正常收尾丢失已执行的变异回报",
+      "file": "scripts/check/mutate.ts",
+      "find": "    const report = `${reportLine(m.id, await runOne(m))}\\n`\n    await new Promise<void>((done, reject) => {\n      process.stdout.write(report, error => error ? reject(error) : done())\n    })",
+      "replace": "    writeFileSync(1, `${reportLine(m.id, await runOne(m))}\\n`)",
+      "by": "test",
+      "kills": [
+        "真实worker在stdout背压解除后完整唯一回报且恢复源码"
+      ]
     }
   ],
   "exemptions": [
