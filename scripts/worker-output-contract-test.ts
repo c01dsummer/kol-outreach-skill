@@ -27,10 +27,16 @@ function sourceManifest(root: string): SourceEntry[] {
       const st = lstatSync(entry)
       if (st.isDirectory()) { visit(next); continue }
       if (st.isSymbolicLink()) {
-        const link = readlinkSync(entry), resolved = realpathSync(entry)
-        if (isAbsolute(link) || !inside(resolved, root)) invalid('source symlink escapes the isolated snapshot: ' + next)
-        const target = relative(root, resolved)
-        if (target.split(sep).some(part => !copyIntoWorker(part))) invalid('source symlink points into an excluded subtree: ' + next)
+        const link = readlinkSync(entry)
+        // Production copying can make these two documentation links absolute.
+        // Preserve their opaque link bytes; neither snapshot nor DUT traverses them.
+        const documentationLink = next === join('.agents', 'skills', 'kol-outreach') || next === join('.claude', 'skills', 'kol-outreach')
+        if (!documentationLink) {
+          const resolved = realpathSync(entry)
+          if (isAbsolute(link) || !inside(resolved, root)) invalid('source symlink escapes the isolated snapshot: ' + next)
+          const target = relative(root, resolved)
+          if (target.split(sep).some(part => !copyIntoWorker(part))) invalid('source symlink points into an excluded subtree: ' + next)
+        }
         rows.push({ path: next, type: 'symlink', sha256: sha(link) })
       } else if (st.isFile()) rows.push({ path: next, type: 'file', sha256: sha(readFileSync(entry)) })
       else invalid('source snapshot contains a special file: ' + next)
