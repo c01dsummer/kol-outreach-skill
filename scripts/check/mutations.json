@@ -18086,6 +18086,82 @@
       ]
     },
     {
+      "id": "M-U12-k",
+      "req": "U12.c",
+      "why": "网页标题中的产品名被截短，另一个位置仍完整不能替它通过验收",
+      "file": "scripts/lib/report.ts",
+      "find": "<title>KOL 建联名单 · ${esc(meta.product)}</title>",
+      "replace": "<title>KOL 建联名单 · ${esc(String(meta.product).slice(0, 8))}</title>",
+      "by": "test",
+      "kills": [
+        "U12.product.long-tail.default.title",
+        "U12.product.long-tail.review-dual.title",
+        "U12.product.unicode.default.title",
+        "U12.product.unicode.review-dual.title",
+        "U12.product.five-characters.default.title",
+        "U12.product.five-characters.review-dual.title",
+        "U12.product.entity-literals.default.title",
+        "U12.product.entity-literals.review-dual.title"
+      ]
+    },
+    {
+      "id": "M-U12-l",
+      "req": "U12.c",
+      "why": "正文标题中的产品名被截短，另一个位置仍完整不能替它通过验收",
+      "file": "scripts/lib/report.ts",
+      "find": "<h1>KOL 建联名单 · ${esc(meta.product)}</h1>",
+      "replace": "<h1>KOL 建联名单 · ${esc(String(meta.product).slice(0, 8))}</h1>",
+      "by": "test",
+      "kills": [
+        "U12.product.long-tail.default.h1",
+        "U12.product.long-tail.review-dual.h1",
+        "U12.product.unicode.default.h1",
+        "U12.product.unicode.review-dual.h1",
+        "U12.product.five-characters.default.h1",
+        "U12.product.five-characters.review-dual.h1",
+        "U12.product.entity-literals.default.h1",
+        "U12.product.entity-literals.review-dual.h1"
+      ]
+    },
+    {
+      "id": "M-U12-m",
+      "req": "U12.c",
+      "why": "网页标题中的产品名被删掉，另一个位置仍完整不能替它通过验收",
+      "file": "scripts/lib/report.ts",
+      "find": "<title>KOL 建联名单 · ${esc(meta.product)}</title>",
+      "replace": "<title>KOL 建联名单 · </title>",
+      "by": "test",
+      "kills": [
+        "U12.product.long-tail.default.title",
+        "U12.product.long-tail.review-dual.title",
+        "U12.product.unicode.default.title",
+        "U12.product.unicode.review-dual.title",
+        "U12.product.five-characters.default.title",
+        "U12.product.five-characters.review-dual.title",
+        "U12.product.entity-literals.default.title",
+        "U12.product.entity-literals.review-dual.title"
+      ]
+    },
+    {
+      "id": "M-U12-n",
+      "req": "U12.c",
+      "why": "正文标题中的产品名被删掉，另一个位置仍完整不能替它通过验收",
+      "file": "scripts/lib/report.ts",
+      "find": "<h1>KOL 建联名单 · ${esc(meta.product)}</h1>",
+      "replace": "<h1>KOL 建联名单 · </h1>",
+      "by": "test",
+      "kills": [
+        "U12.product.long-tail.default.h1",
+        "U12.product.long-tail.review-dual.h1",
+        "U12.product.unicode.default.h1",
+        "U12.product.unicode.review-dual.h1",
+        "U12.product.five-characters.default.h1",
+        "U12.product.five-characters.review-dual.h1",
+        "U12.product.entity-literals.default.h1",
+        "U12.product.entity-literals.review-dual.h1"
+      ]
+    },
+    {
       "id": "M-H62-a",
       "req": "harness",
       "why": "缓存的键不看正文 —— 改过的文件认到改之前编的那一份，跑的不是盘上的源码",
