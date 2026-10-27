@@ -25,6 +25,9 @@
  *
  * 死亡条件记在 ADR-85:一身三半,三半的答案不一样,所以没有整道的那一份。
  */
+import * as asHashtagCliFs from 'node:fs';
+import * as asHashtagCliPath from 'node:path';
+import * as asHashtagCliUrl from 'node:url';
 import {
   chmodSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, lstatSync, symlinkSync, utimesSync, realpathSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync, openSync,
 } from 'node:fs'
@@ -5406,6 +5409,206 @@ group('resume-progress', [
 })
 
 // ---- D15.j／D15.k／D6.w：IG 话题入口只由配置显式开启，校验在一切请求之前，probe 与 collect 同一处分派 ----
+// Add imports.ts.txt's unique aliases. Public helpers are supplied by selfcheck.
+// Five finite B pairs only: one legal false, then the frozen bad string 'false'.
+type AsHashtagCliMode = 'new' | 'new-budget' | 'resume' | 'resume-budget' | 'probe';
+function asHashtagCliPair(mode: AsHashtagCliMode): { reject: boolean; diagnostic: boolean; why: string } | null {
+  let base = '';
+  let result: { reject: boolean; diagnostic: boolean; why: string } | null = null;
+  const fixtureFailure = (why: unknown) => {
+    failed++;
+    console.error(`${SELFCHECK_FIXTURE_MARK} as_hashtag ${mode}: ${why instanceof Error ? why.message : String(why)}`);
+  };
+  const requireFixture = (ok: unknown, why: string): void => { if (!ok) throw new Error(why); };
+  try {
+    const output = asHashtagCliPath.resolve('output');
+    asHashtagCliFs.mkdirSync(output, { recursive: true });
+    base = asHashtagCliFs.mkdtempSync(asHashtagCliPath.join(output, 'selfcheck-as-hashtag-'));
+    const P = (...parts: string[]) => asHashtagCliPath.join(base, ...parts);
+    const cwd = P('cwd'), log = P('attempts.tsv'), events = P('cost-events.jsonl');
+    const reserves = P('reserves.txt'), armed = P('armed.txt'), preload = P('observe-reserve.mjs');
+    const resume = mode.startsWith('resume'), probe = mode === 'probe';
+    const script = S(probe ? 'probe.ts' : 'collect.ts');
+    const input = asHashtagCliPath.join(cwd, resume ? 'task/task.json' : 'config.json');
+    const write = (path: string, value: unknown) => asHashtagCliFs.writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+    const reset = (value: boolean | string) => {
+      asHashtagCliFs.rmSync(cwd, { recursive: true, force: true });
+      asHashtagCliFs.mkdirSync(asHashtagCliPath.join(cwd, 'memory'), { recursive: true });
+      write(asHashtagCliPath.join(cwd, 'memory/creators.json'), { version: 1, updated_at: '2026-01-01T00:00:00.000Z', creators: {} });
+      const tasks = [{ keyword: 'local', dimension: 'category', platform: 'tiktok', as_hashtag: value }];
+      const common = { product: 'admission-local', market: 'US', target_count: 9999, budget_usd: 1, tasks };
+      if (resume) {
+        asHashtagCliFs.mkdirSync(asHashtagCliPath.join(cwd, 'task'));
+        write(input, { ...common, done: [], offsets: {}, pages: {}, answered: {}, found: {},
+          created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', requests: 0,
+          cost_ledger: { schema: 1, currency: 'USD', unit: 'micro_usd', scope: 'task', limit_micro_usd: 1000000, next_attempt_id: 1, entries: [] } });
+        write(asHashtagCliPath.join(cwd, 'task/creators.json'), []);
+        write(asHashtagCliPath.join(cwd, 'task/creators.raw.json'), []);
+      } else write(input, probe ? { market: 'US', budget_usd: 1, tasks } : common);
+      for (const file of [log, events, reserves, armed]) asHashtagCliFs.writeFileSync(file, '');
+    };
+    // The provided existing wrapper, with only its three JSON literal slots filled.
+    asHashtagCliFs.writeFileSync(preload, `import { appendFileSync } from 'node:fs';
+import { Budget } from ${JSON.stringify(asHashtagCliUrl.pathToFileURL(S('lib/budget.ts')).href)};
+const original = Budget.prototype.reserve;
+Budget.prototype.reserve = function(...args) {
+  appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n');
+  return Reflect.apply(original, this, args);
+};
+appendFileSync(${JSON.stringify(armed)}, 'armed\\n');\n`);
+    reset(false);
+    const initialExtra = costEnv(log, { TIKHUB_API_KEY: 'admission-dummy', FAKE_FETCH_NO_429: '1', FAKE_FETCH_COST_EVENTS: events });
+    const loader = fixtureLoader(script, { ...env, ...initialExtra }, cwd);
+    const urls = [loader, asHashtagCliUrl.pathToFileURL(S('check/fake-fetch.ts')).href, asHashtagCliUrl.pathToFileURL(preload).href];
+    requireFixture(urls.every(url => typeof url === 'string' && !/[\s"'\\]/.test(url)), 'invalid existing preload URL');
+    const extra = { ...initialExtra, NODE_OPTIONS: urls.map(url => `--import=${url}`).join(' ') };
+    const kidEnv = { ...env, ...extra };
+    const args = [script, resume ? '--resume' : '--config', resume ? asHashtagCliPath.join(cwd, 'task') : input,
+      ...(mode.endsWith('-budget') ? ['--budget', '2'] : [])];
+    // Exact code byte identity is stronger than a digest. JSON inputs are excluded.
+    // Never print this identity: it is used only to compare the same fixed point.
+    const codeIdentity = () => {
+      const command = prebuiltCommand(args, cwd, kidEnv);
+      const candidates = [script, S('lib/budget.ts'), S('check/prebuilt.ts'), S('check/fake-fetch.ts'), preload, loader, ...command[1]];
+      const code: [string, string][] = [];
+      for (let path of candidates) {
+        try {
+          if (path.startsWith('--import=')) path = path.slice('--import='.length);
+          if (path.startsWith('file:')) path = asHashtagCliUrl.fileURLToPath(path);
+          if (asHashtagCliPath.isAbsolute(path) && /\.(?:[cm]?[jt]s|[jt]sx)$/.test(path) && asHashtagCliFs.statSync(path).isFile()) {
+            code.push([path, asHashtagCliFs.readFileSync(path).toString('base64')]);
+          }
+        } catch { /* An argument need not be an independently addressable code file. */ }
+      }
+      requireFixture(code.some(([path]) => path === script) && code.some(([path]) => path === preload), 'missing entry/observer code identity');
+      return JSON.stringify({ command, loader, cwd, kidEnv, code });
+    };
+    const observe = () => {
+      const read = (file: string) => { requireFixture(asHashtagCliFs.existsSync(file), `missing observation file ${file}`); return asHashtagCliFs.readFileSync(file, 'utf8'); };
+      const armedText = read(armed), reserveText = read(reserves), attemptText = read(log), eventText = read(events);
+      requireFixture(/^(?:armed\n)+$/.test(armedText), 'need one or more valid armed lines');
+      requireFixture(/^(?:reserve\n)*$/.test(reserveText), 'invalid reserve text records');
+      requireFixture(!attemptText || attemptText.endsWith('\n'), 'incomplete fake HTTP text');
+      const attempts = attemptText.split('\n').filter(Boolean);
+      requireFixture(attempts.every(line => /^[^\t\n]+\t\/[^\n]*$/.test(line)), 'invalid fake HTTP text record');
+      requireFixture(!eventText || eventText.endsWith('\n'), 'incomplete fake-fetch JSONL');
+      const parsed = eventText.split('\n').filter(Boolean).map(line => JSON.parse(line) as { kind?: string });
+      requireFixture(parsed.every(event => ['fetch', 'http', 'no-http-status', 'body'].includes(event.kind ?? '')), 'invalid fake-fetch event');
+      return { reserve: reserveText.split('\n').filter(Boolean).length, attempts: attempts.length,
+        fetch: parsed.filter(event => event.kind === 'fetch').length, http: parsed.filter(event => event.kind === 'http').length,
+        noStatus: parsed.filter(event => event.kind === 'no-http-status').length };
+    };
+    const tree = () => {
+      const dirs: string[] = [], tasks: string[] = [];
+      const walk = (path: string, prefix: string) => {
+        for (const item of asHashtagCliFs.readdirSync(path, { withFileTypes: true })) {
+          const rel = prefix ? `${prefix}/${item.name}` : item.name;
+          if (item.isDirectory()) { dirs.push(rel); walk(asHashtagCliPath.join(path, item.name), rel); }
+          else if (item.isFile() && item.name === 'task.json') tasks.push(prefix || '.');
+        }
+      };
+      walk(cwd, '');
+      return { dirs, tasks };
+    };
+    const newTasks = (before: ReturnType<typeof tree>, after: ReturnType<typeof tree>, parents: string[]) =>
+      [...new Set([...after.tasks.filter(path => !before.tasks.includes(path)), ...after.dirs.filter(path =>
+        !before.dirs.includes(path) && parents.some(parent => path.startsWith(`${parent}/`) && !path.slice(parent.length + 1).includes('/')))])];
+    const identity = codeIdentity(), legalBefore = tree();
+    const legal = runBoth(`as_hashtag fixture legal ${mode}`, args, cwd, probe ? { status: 0 } : { status: 0, soft: [3] }, extra);
+    requireFixture(legal.ok && (probe ? legal.status === 0 : [0, 3].includes(legal.status ?? -1)), 'legal CLI did not finish by an admissible exit');
+    requireFixture(codeIdentity() === identity, 'legal actual factory/loader/code point changed');
+    const positive = observe(), created = newTasks(legalBefore, tree(), ['output']);
+    requireFixture(positive.reserve > 0 && positive.attempts > 0 && positive.fetch > 0 && positive.http > 0, 'legal actual CLI did not touch reserve and fake HTTP');
+    requireFixture(!mode.startsWith('new') || created.length > 0, 'legal new collect did not create an observable task directory');
+    const parents = [...new Set(created.map(path => asHashtagCliPath.dirname(path).split(asHashtagCliPath.sep).join('/')))];
+    if (!parents.length) parents.push('output');
+    reset('false');
+    requireFixture(codeIdentity() === identity, 'bad input changed code/loader/argv/env point');
+    const badBefore = tree();
+    const bad = runBoth(`as_hashtag fixture bad-string ${mode}`, args, cwd, { status: 2, soft: [0, 1, 3] }, extra);
+    requireFixture(bad.ok, 'bad fixture failed to start or terminated by signal');
+    requireFixture(codeIdentity() === identity, 'bad actual factory/loader/code point changed');
+    const negative = observe(), after = tree();
+    const persisted = JSON.parse(asHashtagCliFs.readFileSync(input, 'utf8')) as { tasks?: unknown };
+    requireFixture(Array.isArray(persisted.tasks) && persisted.tasks.length === 1 && persisted.tasks[0] &&
+      typeof persisted.tasks[0] === 'object' && !Array.isArray(persisted.tasks[0]), 'review-required: input task shape changed');
+    const raw = (persisted.tasks as Record<string, unknown>[])[0];
+    // Same finite v3 JSON token reader, specialized only to the frozen string.
+    const diagnostic = (() => {
+      if (!bad.stderr.includes('as_hashtag')) return false;
+      const lines = bad.stderr.split(/\r?\n/).filter(line => line.includes('as_hashtag'));
+      if (lines.length !== 1) return null;
+      const number = String.raw`(\d+|[一二三四五六七八九十]+)`;
+      const patterns = [new RegExp(String.raw`第\s*${number}\s*(?:个|项|号)?\s*任务`, 'gu'),
+        new RegExp(String.raw`(?:任务|tasks?)\s*(?:编号|序号|#|第)?\s*[:：]?\s*\[?\s*${number}\s*\]?`, 'giu'),
+        new RegExp(String.raw`\[\s*${number}\s*\]\s*[.:：-]?\s*(?=as_hashtag)`, 'gu'), new RegExp(String.raw`#\s*${number}\s*[.:：-]?\s*(?=as_hashtag)`, 'gu')];
+      const chinese: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+      const mentions = patterns.flatMap(pattern => Array.from(lines[0].matchAll(pattern), match => ({
+        n: /^\d+$/.test(match[1]) ? Number(match[1]) : chinese[match[1]], start: match.index!, end: match.index! + match[0].length })));
+      if (!mentions.length || mentions.some(item => item.n !== 1)) return null;
+      const text = lines[0].split('').map((char, index) => mentions.some(item => index >= item.start && index < item.end) ? ' ' : char).join('');
+      for (let start = 0; start < text.length; start++) {
+        if (!/[\[\{"\-0-9ntf]/.test(text[start])) continue;
+        let longest: { value: unknown; end: number } | undefined;
+        for (let end = start + 1; end <= text.length; end++) {
+          try {
+            const value: unknown = JSON.parse(text.slice(start, end));
+            if (typeof value === 'number' || value === null || typeof value === 'boolean') {
+              const adjacent = /[A-Za-z0-9_.+\-]/;
+              if ((start && adjacent.test(text[start - 1])) || (end < text.length && adjacent.test(text[end]))) continue;
+            }
+            longest = { value, end };
+          } catch { /* Prose or incomplete JSON. */ }
+        }
+        if (longest) { if (longest.value === 'false') return true; start = longest.end - 1; }
+      }
+      return null;
+    })();
+    requireFixture(diagnostic !== null, 'review-required: diagnostic presentation not recognized; no sentence requirement');
+    const badDirs = newTasks(badBefore, after, parents);
+    const rawPreserved = Object.hasOwn(raw, 'as_hashtag') && raw.as_hashtag === 'false';
+    result = { reject: bad.status === 2 && negative.reserve === 0 && negative.attempts === 0 && negative.fetch === 0 &&
+      negative.http === 0 && negative.noStatus === 0 && badDirs.length === 0 && rawPreserved, diagnostic: diagnostic === true,
+      why: `status=${bad.status}; reserve=${negative.reserve}; HTTP=${negative.attempts}; fetch=${negative.fetch}; newDirs=${badDirs.length}; rawPreserved=${rawPreserved}; diagnostic=${diagnostic}; legal reserve=${positive.reserve}/HTTP=${positive.attempts}; stderr=${JSON.stringify(bad.stderr.slice(0, 300))}` };
+  } catch (error) { fixtureFailure(error); }
+  finally {
+    if (base) try { asHashtagCliFs.rmSync(base, { recursive: true, force: true }); }
+    catch (error) { fixtureFailure(error); result = null; }
+  }
+  return result;
+}
+
+group('d15-as-hashtag-new', [], () => {
+  const r = asHashtagCliPair('new'); if (!r) return;
+  named('as-hashtag-cli.new.reject', r.reject, r.why);
+  named('as-hashtag-cli.new.diagnostic', r.diagnostic, r.why);
+  criterion('D15.n');
+});
+group('d15-as-hashtag-new-budget', [], () => {
+  const r = asHashtagCliPair('new-budget'); if (!r) return;
+  named('as-hashtag-cli.new-budget.reject', r.reject, r.why);
+  named('as-hashtag-cli.new-budget.diagnostic', r.diagnostic, r.why);
+  criterion('D15.n');
+});
+group('d15-as-hashtag-resume', [], () => {
+  const r = asHashtagCliPair('resume'); if (!r) return;
+  named('as-hashtag-cli.resume.reject', r.reject, r.why);
+  named('as-hashtag-cli.resume.diagnostic', r.diagnostic, r.why);
+  criterion('D15.n');
+});
+group('d15-as-hashtag-resume-budget', [], () => {
+  const r = asHashtagCliPair('resume-budget'); if (!r) return;
+  named('as-hashtag-cli.resume-budget.reject', r.reject, r.why);
+  named('as-hashtag-cli.resume-budget.diagnostic', r.diagnostic, r.why);
+  criterion('D15.n');
+});
+group('d15-as-hashtag-probe', [], () => {
+  const r = asHashtagCliPair('probe'); if (!r) return;
+  named('as-hashtag-cli.probe.reject', r.reject, r.why);
+  named('as-hashtag-cli.probe.diagnostic', r.diagnostic, r.why);
+  criterion('D15.n');
+});
+
 group('hashtag-route', [], () => {
   // **只能端到端跑**：「退出码 2、零请求、不建目录」「续跑也校验」「probe 与 collect 走同一条路线」
   // 「拿回首页即进 done」都在入口那一层，缺省那个验证者（scripts/test.ts）只够得到

@@ -8756,6 +8756,32 @@
       "replace": "    out.push(`任务 ${taskOrdinal(i)} 的 as_hashtag 只能是 true、false 或不写，这里是 ${String(flag)}`)"
     },
     {
+      "id": "M-D15-ak",
+      "req": "D15.n",
+      "by": "selfcheck",
+      "kills": [
+        "as-hashtag-cli.new.reject",
+        "as-hashtag-cli.new.diagnostic"
+      ],
+      "why": "collect 不查 as_hashtag —— 新建与续跑都带着不是布尔的 as_hashtag 开抓、花钱，写进 task.json 时还按真假改写成布尔",
+      "file": "scripts/collect.ts",
+      "find": "const badRoutes = [...igRouteProblems(state.tasks), ...asHashtagProblems(state.tasks)]",
+      "replace": "const badRoutes = igRouteProblems(state.tasks)"
+    },
+    {
+      "id": "M-D15-al",
+      "req": "D15.n",
+      "by": "selfcheck",
+      "kills": [
+        "as-hashtag-cli.probe.reject",
+        "as-hashtag-cli.probe.diagnostic"
+      ],
+      "why": "probe 不查 as_hashtag —— 带着不是布尔的 as_hashtag 付费试探，读到的怪值原样出现在试探结果里",
+      "file": "scripts/probe.ts",
+      "find": "    const badRoutes = [...igRouteProblems(cfg.tasks), ...asHashtagProblems(cfg.tasks)]",
+      "replace": "    const badRoutes = igRouteProblems(cfg.tasks)"
+    },
+    {
       "id": "M-H9-l",
       "req": "harness",
       "file": "scripts/check/size-rule.ts",
