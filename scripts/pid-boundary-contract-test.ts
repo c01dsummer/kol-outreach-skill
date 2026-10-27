@@ -544,7 +544,7 @@ export function runPidBoundaryContract(writeAtomic: WriteAtomic): PidBoundaryRep
           writeAtomic(target, spec.label.endsWith("restored") ? Buffer.from(newPayload) : newPayload);
         } catch (error) { callbackError = error; }
         phase = "control";
-        if (report.fixture.status === "INVALID") throw new Error("fixture guard was triggered during callback");
+        if ((report.fixture.status as ContractStatus) === "INVALID") throw new Error("fixture guard was triggered during callback");
         const targetEvents = report.trace.slice(traceStart).filter((entry) => entry.phase === "target");
         result.observation.targetFsEvents = targetEvents.filter((entry) => entry.path !== undefined && entry.path !== PROC).length;
         result.observation.targetProcReads = targetEvents.filter((entry) => entry.op === "proc-read").length;
