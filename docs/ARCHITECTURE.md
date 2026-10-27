@@ -189,6 +189,8 @@
 | `scripts/worker-output-contract-test.ts` | 测试夹具 | — | worker正常收尾写回的独立合同适配：快照当前cwd的真实源码，包含无.git的施变目录；私有Git提交只标识该份样本，不借主干代替被测字节。固定一次控制器执行原正常基线、正常worker与真实满管道worker，保持原断言；完整回执、源码及依赖身份闭合，夹具失格抛记号而非计作抓获（ADR-158第三十四节） |
 | `scripts/worker-output-contract-data.ts` | 测试夹具 | — | 上项冻结driver和pipe wrapper的逐字原件与SHA；仅绑定样本路径、私有样本提交及实际Node版本/二进制身份，逆向还原全文件须逐字相同。运行环境须实际执行取得资格，旧Mac结果不授Linux资格；不是新通用框架 |
 
+| `scripts/worker-output-cleanup-test.ts` | 测试夹具 | — | 独立失败清理回归：私有副本触发基线失格，核外层失格、本次快照清理及旁置目录保留；接收真实 cwd 字节，观察或接线不合格时抛夹具失格，不覆盖中断路径。 |
+
 <!-- END:ANCHORS -->
 
 `config-input.ts` 与任务列表、路线判定并列，只消费调用方传入的原始字段，不依赖读盘、费用账或供应商。

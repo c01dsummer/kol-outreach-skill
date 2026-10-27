@@ -283,6 +283,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-prebuilt-owner-descendant-contract', needs: [] },
   { id: 'h-lazy-typescript-contract', needs: [] },
   { id: 'h-worker-output-contract', needs: [] },
+  { id: 'h-worker-output-cleanup', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -18297,6 +18298,16 @@ await group('h-worker-output-contract', async () => {
   harness('worker在stdout短暂背压解除后完整交回唯一结论')
   const { runWorkerOutputContract } = await import('./worker-output-contract-test.js')
   eq('真实worker在stdout背压解除后完整唯一回报且恢复源码', runWorkerOutputContract(), true)
+})
+
+await group('h-worker-output-cleanup', async () => {
+  harness('worker夹具失格时清理自身临时快照')
+  const { runRealCleanupRegression } = await import('./worker-output-cleanup-test.js')
+  const result = await runRealCleanupRegression()
+  if (!('checks' in result) || !result.checks) throw new Error(`${SELFCHECK_FIXTURE_MARK} worker cleanup regression: ${result.reason}`)
+  eq('outer runner reports fixture invalid', result.checks.fixtureInvalid, true)
+  eq('owned snapshot removed after failed baseline', result.checks.snapshotRemoved, true)
+  eq('foreign directory preserved', result.checks.foreignPreserved, true)
 })
 
 if (seenGroups.size !== GROUPS.length) {
