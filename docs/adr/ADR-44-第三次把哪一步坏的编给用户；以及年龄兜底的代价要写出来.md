@@ -104,3 +104,6 @@ macOS 走 sysctl、Windows 没有，而且文件可能是别的主机或改过 s
 Linux v6.6 文档明示该上界及以上不会分配（[pid_max](https://www.kernel.org/doc/html/v6.6/admin-guide/sysctl/kernel.html#pid-max)）；4194304 是项目保留硬界，不说成所有 Linux 的当前值。Apple [XNU 11215.1.10](https://github.com/apple-oss-distributions/xnu/blob/8d741a5de7ff4191bf97d57b9f54c2f6d4a15585/bsd/kern/kern_fork.c#L960)与 [12377.121.6](https://github.com/apple-oss-distributions/xnu/blob/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/kern_fork.c#L954)普通分配路径均在达到 99999 时回绕。项目延续 Darwin 兜底，但尚未验证本机较新 XNU 13432.1.9 的端点，不能宣称全版本或真机上界已证。
 
 独立上下文只用先行合同、需求、平台主源与公开 `writeFileAtomic` 签名编写测试，先冻结、看未修树的合格语义红，再实现；不借旧作者的16条／9红7控制／238绿／10负片／启动54当当前实测。新增断言用最窄组；四处旧越界死号夹具只在保留原断言含义的前提下换成上界内合格号，实际启动摘要须真实 mutate 后派生。原实现、清点和整链均待执行，此设计不表示欠条已还。
+
+
+> ⚠️ 欠条（档：登记；来源：2026-10-23原交接A的BSD续挂提案；适用轮次：本轮原余额承接，不是新评审付款）：FreeBSD、OpenBSD仍沿用项目通用兜底4194304，尚未取得并采用各自运行时PID上界；名字落在本机实际上界与该兜底之间的文件仍可能被误作残留。本轮不声称4194304是BSD真实上界，不消除Windows及历史／跨主机来源边界 · 重启条件：下一条改 `scripts/lib/atomic.ts` 本机PID上界段的改动，或有人在BSD上运行本仓库
