@@ -19,7 +19,7 @@ export async function runRealCleanupRegression(source = process.cwd()) {
     writeFileSync(sentinel, 'independent foreign sentinel\n');
     // Keep current working bytes including uncommitted mutations; skip dependencies,
     // repository metadata and generated output. Do not modify the input tree.
-    const excluded = new Set(['.git', 'node_modules', '.check-cache', 'output', 'memory']);
+    const excluded = new Set(['.git', 'node_modules', '.check-cache', 'output', 'memory', 'evidence', 'dist', 'build', 'coverage']);
     cpSync(sourceRoot, specimen, { recursive: true, dereference: false, verbatimSymlinks: true,
       filter: path => {
         const rel = relative(sourceRoot, path);
@@ -27,6 +27,11 @@ export async function runRealCleanupRegression(source = process.cwd()) {
       },
     });
     const coreSha = createHash('sha256').update(readFileSync(join(sourceRoot, 'scripts/check/mutate.ts'))).digest('hex');
+    // The mutation may be in the carrier itself; never substitute committed bytes.
+    const carrierPath = join('scripts', 'worker-output-contract-test.ts');
+    const carrierSha = createHash('sha256').update(readFileSync(join(sourceRoot, carrierPath))).digest('hex');
+    if (createHash('sha256').update(readFileSync(join(specimen, carrierPath))).digest('hex') !== carrierSha)
+      throw new Error('copied carrier bytes differ from current working input');
     const dependencies = realpathSync(join(sourceRoot, 'node_modules'));
     symlinkSync(dependencies, join(specimen, 'node_modules'), 'dir');
     const marker = join(runtime, 'baseline-observed.json');
@@ -35,7 +40,17 @@ export async function runRealCleanupRegression(source = process.cwd()) {
     const anchor = "await group('h-lazy-typescript-contract', async () => {";
     if (original.split(anchor).length !== 2) throw new Error('unique baseline test group hook not found');
     // The fixture edits only the private copy of the baseline test, never production source.
-    const injection = `\n  eq('independent fixture controlled baseline failure', false, true)\n  ;(await import('node:fs')).writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ cwd: process.cwd(), exists: (await import('node:fs')).existsSync(process.cwd()) }))\n`;
+    const injection = `
+  const independentFixtureFs = await import('node:fs')
+  const independentFixtureLog = console.log
+  const independentFixtureLines: string[] = []
+  let independentFixtureUnexpectedError = false
+  process.on('uncaughtExceptionMonitor', () => { independentFixtureUnexpectedError = true })
+  console.log = (...args: unknown[]) => { independentFixtureLines.push(args.map(String).join(' ')); independentFixtureLog(...args) }
+  process.on('exit', () => independentFixtureFs.writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ cwd: process.cwd(), exists: independentFixtureFs.existsSync(process.cwd()), evidencePresent: independentFixtureFs.existsSync('evidence'), envPresent: independentFixtureFs.existsSync('.env'), unexpectedError: independentFixtureUnexpectedError, exitCode: process.exitCode, lines: independentFixtureLines })))
+  eq('independent fixture controlled baseline failure', false, true)
+`;
+
     writeFileSync(target, original.replace(anchor, anchor + injection));
     const entry = join(home, 'entry.mjs');
     const moduleUrl = pathToFileURL(join(specimen, 'scripts', 'worker-output-contract-test.ts')).href;
@@ -54,13 +69,20 @@ export async function runRealCleanupRegression(source = process.cwd()) {
     const identity = receipt.originalResult?.identity;
     if (!observed.exists || identity?.normal !== observed.cwd || dirname(observed.cwd) !== identity.tempRoot || dirname(identity.tempRoot) !== runtime)
       throw new Error('observed snapshot does not match receipt and private runtime');
+    if (observed.evidencePresent !== false || observed.envPresent !== false) throw new Error('excluded sensitive input reached the baseline snapshot');
+    if (!Array.isArray(observed.lines) || !observed.lines.every((line: unknown) => typeof line === 'string') || observed.exitCode !== 1 || observed.unexpectedError !== false) throw new Error('baseline did not end normally with failure code');
+    const failures = observed.lines.filter((line: string) => /^  ✗ /m.test(line));
+    const targeted = '  ✗ independent fixture controlled baseline failure\n     got=false\n     want=true';
+    if (failures.length !== 1 || failures[0] !== targeted || !observed.lines.includes('\n1 个失败\n') ||
+        !observed.lines.some((line: string) => /^✓ 已完成子集 h-lazy-typescript-contract；没有认领全量审计$/.test(line)))
+      throw new Error('controlled assertion failure or normal failure summary not observed exactly');
     if (receipt.originalResult?.baselineQualified !== false) throw new Error('controlled baseline not independently qualified as failed');
     const checks = {
       fixtureInvalid: receipt.outcome === 'fixture-unqualified' && child.status === 2 && /REGRESSION_ERROR .*（夹具）/.test(child.stdout),
       snapshotRemoved: !existsSync(identity.tempRoot),
       foreignPreserved: existsSync(sentinel) && readFileSync(sentinel, 'utf8') === 'independent foreign sentinel\n',
     };
-    return { status: Object.values(checks).every(Boolean) ? 'pass' : 'fail', checks };
+    return { status: Object.values(checks).every(Boolean) ? 'pass' : 'fail', checks, baselineEvidence: observed };
   } catch (error) {
     return { status: 'invalid', reason: error instanceof Error ? error.message : String(error) };
   } finally {
