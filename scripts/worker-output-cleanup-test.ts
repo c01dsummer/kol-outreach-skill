@@ -19,7 +19,7 @@ export async function runRealCleanupRegression(source = process.cwd()) {
     writeFileSync(sentinel, 'independent foreign sentinel\n');
     // Keep current working bytes including uncommitted mutations; skip dependencies,
     // repository metadata and generated output. Do not modify the input tree.
-    const excluded = new Set(['.git', 'node_modules', '.check-cache', 'output', 'memory', 'dist', 'build', 'coverage']);
+    const excluded = new Set(['.git', 'node_modules', '.check-cache', 'output', 'memory']);
     cpSync(sourceRoot, specimen, { recursive: true, dereference: false, verbatimSymlinks: true,
       filter: path => {
         const rel = relative(sourceRoot, path);
