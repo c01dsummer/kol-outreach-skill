@@ -233,7 +233,7 @@ async function childReturnsFirst(code) {
     await until(() => !exists(worker), 'direct child has stopped');
     await until(() => !exists(grandchild), 'guardian stops descendant after direct child returns', 7000);
     const done = await until(() => run.events.find(x => x.type === 'complete'), 'guardian completes after direct child returns');
-    if (code !== 0) assert.ok(done.signal || done.code !== 0, 'failed child must not look successful');
+    assert.ok(done.signal || done.code !== 0, 'live descendant must not look successful');
     console.log('PASS direct child exit ' + code + ' with live descendant');
   } finally {
     killChildHandle(run.owner);
