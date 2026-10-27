@@ -7907,8 +7907,8 @@
       ],
       "why": "collect 不校验路线 —— 配置写错的任务照常建目录、开预算、发请求，运营以为开了话题搜索，钱花在别的路线上",
       "file": "scripts/collect.ts",
-      "find": "const badRoutes = igRouteProblems(state.tasks)",
-      "replace": "const badRoutes: string[] = []"
+      "find": "const badRoutes = [...igRouteProblems(state.tasks), ...asHashtagProblems(state.tasks)]",
+      "replace": "const badRoutes = asHashtagProblems(state.tasks)"
     },
     {
       "id": "M-D15-v",
@@ -7920,8 +7920,8 @@
       ],
       "why": "probe 不校验路线 —— 试探时照走 Reels 并付费，试探结论说的不是配置里写的那条路",
       "file": "scripts/probe.ts",
-      "find": "    const badRoutes = igRouteProblems(cfg.tasks)",
-      "replace": "    const badRoutes: string[] = []"
+      "find": "    const badRoutes = [...igRouteProblems(cfg.tasks), ...asHashtagProblems(cfg.tasks)]",
+      "replace": "    const badRoutes = asHashtagProblems(cfg.tasks)"
     },
     {
       "id": "M-D6-bf",
@@ -7945,8 +7945,8 @@
       ],
       "why": "续跑改额那条路径漏了路线校验 —— 新上限先落了盘，配置写错的任务照常开抓；只带 --resume 的夹具走不到这条路径，看不见",
       "file": "scripts/collect.ts",
-      "find": "const badRoutes = igRouteProblems(state.tasks)",
-      "replace": "const badRoutes = resume && replacementLimit !== undefined ? [] : igRouteProblems(state.tasks)"
+      "find": "const badRoutes = [...igRouteProblems(state.tasks), ...asHashtagProblems(state.tasks)]",
+      "replace": "const badRoutes = [...(resume && replacementLimit !== undefined ? [] : igRouteProblems(state.tasks)), ...asHashtagProblems(state.tasks)]"
     },
     {
       "id": "M-D16-a",
