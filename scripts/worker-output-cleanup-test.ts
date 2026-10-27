@@ -56,7 +56,7 @@ export async function runRealCleanupRegression(source = process.cwd()) {
     const moduleUrl = pathToFileURL(join(specimen, 'scripts', 'worker-output-contract-test.ts')).href;
     writeFileSync(entry, `import { runWorkerOutputContract } from ${JSON.stringify(moduleUrl)};\ntry { console.log('REGRESSION_RETURN ' + JSON.stringify(runWorkerOutputContract())); } catch (error) { console.log('REGRESSION_ERROR ' + (error instanceof Error ? error.message : String(error))); process.exitCode = 2; }\n`);
     const child = spawnSync(process.execPath, ['--import', join(specimen, 'node_modules/tsx/dist/loader.mjs'), entry], {
-      cwd: specimen, env: { ...process.env, TMPDIR: runtime }, encoding: 'utf8', timeout: 360000, maxBuffer: 8 * 1024 * 1024,
+      cwd: specimen, env: { ...process.env, TMPDIR: runtime, TEMP: runtime, TMP: runtime }, encoding: 'utf8', timeout: 360000, maxBuffer: 8 * 1024 * 1024,
     });
     if (child.error || child.signal) throw new Error('actual entry did not complete: ' + (child.error?.message ?? child.signal));
     const records = child.stdout.split('\n').filter(x => x.startsWith('WORKER_OUTPUT_CONTRACT_JSON '));
