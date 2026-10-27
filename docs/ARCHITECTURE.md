@@ -455,6 +455,7 @@ Agent 是编排者，它读 stdout 做决策。
 `pending_keywords`、续跑判定用的关键词列表、probe 进度和 collect 完成/达上限提示共用任务标签，
 包含原序号、维度、平台、原词；续跑成本提示仍只使用列表长度报告数量。HTML 使用行的下标；旧行缺失或非法下标显示「无从确认」。
 `as_hashtag` 保留为配置元数据，当前不切换 TikHub 搜索端点，不能作已执行路径声明。
+`as_hashtag` 出现时须为布尔；collect 新建／续跑（含改预算）与 probe 的共同前置校验在任何任务目录写入、费用预留或请求前拒绝非布尔原值，退出 2 并报告原任务序号、字段与 JSON 原值（D15.n）；与列表／路线问题一起报告，不用元数据改选路径。
 IG 路线只由任务的 `ig_route` 决定：缺席走 Reels；`"hashtag"` 走话题搜索，在 `TikHub.search()` 最前面分派，probe 与 collect 共用。
 probe 的成功与普通错误行照配置带出 `ig_route`：写了才有这个键，不补成 Reels，也不由 `as_hashtag` 推断（D15.l、D15.m）。
 `ig_route` 不合规时 collect（新建与续跑）与 probe 在建目录、预留与请求之前以退出码 2 结束（D15.j）。
