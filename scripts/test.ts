@@ -185,6 +185,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p2-placeholders', needs: [] },
   { id: 'd6-pipeline', needs: [] },
   { id: 'd4-memory', needs: [] },
+  { id: 'd4-pid-boundary', needs: [] },
   { id: 'f5-geo', needs: [] },
   { id: 'u3-keywords', needs: [] },
   { id: 'u8-labels', needs: [] },
@@ -1814,7 +1815,25 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   //        一份完整的临时文件留在盘上。任何 write-then-rename 都躲不掉这一格，
   //        能做的是下次写回时把它清掉 —— 但只清死掉的进程留下的（ADR-30）。
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
-  const deadPid = 999999          // 不存在的进程
+  // 上界内的 ESRCH 空号才是这四处旧断言的合格夹具；不借用生产上界函数。
+  let kernelPidText: string | undefined
+  try { if (process.platform === 'linux') kernelPidText = rf('/proc/sys/kernel/pid_max', 'utf8').trim() }
+  catch { throw new Error(`${notAssertion} PID夹具读不到Linux当前上界`) }
+  const fixtureCeiling = kernelPidText === undefined
+    ? (process.platform === 'darwin' ? 99999 : 4194304)
+    : (/^[1-9][0-9]*$/.test(kernelPidText) ? Math.min(Number(kernelPidText), 4194304) : NaN)
+  if (!Number.isSafeInteger(fixtureCeiling) || fixtureCeiling <= 2) throw new Error(`${notAssertion} PID夹具上界无效`)
+  const deadBelow = (upper: number): number => {
+    for (let pid = upper - 1; pid > 0 && pid >= upper - 128; pid--) {
+      try { process.kill(pid, 0) } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code === 'ESRCH') return pid
+        if (code !== 'EPERM') throw new Error(`${notAssertion} PID夹具探活失败：${code}`)
+      }
+    }
+    throw new Error(`${notAssertion} PID夹具未在有界范围内找到空号`)
+  }
+  const deadPid = deadBelow(fixtureCeiling), deadPid2 = deadBelow(deadPid)
   const orphan = `${tmp}.${deadPid}.tmp`
   writeFileSync(orphan, '上一次被硬杀时留下的', 'utf8')
   recordRecommendations([mk('tiktok', 'erin')], 'p')
@@ -1858,7 +1877,7 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
 
   // 清不掉的残留不让写回失败：占着临时名的是个目录时删不掉，写回照常
   {
-    const stuck = `${tmp}.999998.tmp`
+    const stuck = `${tmp}.${deadPid2}.tmp`
     rmSync(stuck, { recursive: true, force: true })
     mkdirSync(stuck, { recursive: true })
     const r = writeOf(() => recordRecommendations([mk('tiktok', 'erin')], 'p'))
@@ -1878,7 +1897,7 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     writeFileSync(real, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
     symlinkSync(real, link)
     useMemoryFile(link)
-    const orphan2 = `${real}.999999.tmp`     // 死掉的进程留下的
+    const orphan2 = `${real}.${deadPid}.tmp`     // 死掉的进程留下的
     writeFileSync(orphan2, '{}', 'utf8')
     recordRecommendations([mk('tiktok', 'zed')], 'p')
     eq('终点旁边的孤儿也被清掉了', existsSync(orphan2), false)
@@ -1891,7 +1910,7 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     const d3 = join(tmpdir(), `kol-d4-sweep-${process.pid}`)
     rmSync(d3, { recursive: true, force: true })
     mkdirSync(d3, { recursive: true })
-    const orphan3 = join(d3, 'task.json.999999.tmp')
+    const orphan3 = join(d3, `task.json.${deadPid}.tmp`)
     writeFileSync(orphan3, '{}', 'utf8')
     saveTask(d3, readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
       target_count: 1, done: [], requests: 0, budget_usd: 1 })))
@@ -2283,6 +2302,36 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
 }
 
 })
+await group('d4-pid-boundary', async () => {
+  suite('D4', '残留识别采用本机PID不包含上界')
+  // 事前独立v3合同及19具名预期先冻；通过公开入口，不读内部上界函数。
+  const { runPidBoundaryContract } = await import('./pid-boundary-contract-test.js')
+  const report = runPidBoundaryContract(writeFileAtomic)
+  if (report.fixture.status !== 'VALID' || !report.fixture.restorationChecked) {
+    throw new Error(`${notAssertion} PID合同夹具失格：${report.fixture.issues.join('; ')}`)
+  }
+  const results = new Map(report.assertionResults.map(row => [row.label, row.status]))
+  eq('pid.linux.dynamic.initial-exclusive-boundary', results.get('pid.linux.dynamic.initial-exclusive-boundary'), 'PASS')
+  eq('pid.linux.dynamic.lowered-and-whitespace', results.get('pid.linux.dynamic.lowered-and-whitespace'), 'PASS')
+  eq('pid.linux.dynamic.restored', results.get('pid.linux.dynamic.restored'), 'PASS')
+  eq('pid.linux.fallback.blank', results.get('pid.linux.fallback.blank'), 'PASS')
+  eq('pid.linux.fallback.zero', results.get('pid.linux.fallback.zero'), 'PASS')
+  eq('pid.linux.fallback.negative', results.get('pid.linux.fallback.negative'), 'PASS')
+  eq('pid.linux.fallback.leading-zero', results.get('pid.linux.fallback.leading-zero'), 'PASS')
+  eq('pid.linux.fallback.exponent', results.get('pid.linux.fallback.exponent'), 'PASS')
+  eq('pid.linux.fallback.plus', results.get('pid.linux.fallback.plus'), 'PASS')
+  eq('pid.linux.fallback.junk', results.get('pid.linux.fallback.junk'), 'PASS')
+  eq('pid.linux.fallback.fraction', results.get('pid.linux.fallback.fraction'), 'PASS')
+  eq('pid.linux.fallback.non-ascii', results.get('pid.linux.fallback.non-ascii'), 'PASS')
+  eq('pid.linux.fallback.read-denied', results.get('pid.linux.fallback.read-denied'), 'PASS')
+  eq('pid.linux.cap.just-over-cap', results.get('pid.linux.cap.just-over-cap'), 'PASS')
+  eq('pid.linux.cap.huge-digits', results.get('pid.linux.cap.huge-digits'), 'PASS')
+  eq('pid.darwin.same-named-proc-ignored', results.get('pid.darwin.same-named-proc-ignored'), 'PASS')
+  eq('pid.other-platform.same-named-proc-ignored', results.get('pid.other-platform.same-named-proc-ignored'), 'PASS')
+  eq('pid.name.noncanonical-neighbors-preserved', results.get('pid.name.noncanonical-neighbors-preserved'), 'PASS')
+  eq('pid.lifecycle.age-and-soft-cleanup', results.get('pid.lifecycle.age-and-soft-cleanup'), 'PASS')
+})
+
 await group('f5-geo', () => {
 suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时不中断')
 {
