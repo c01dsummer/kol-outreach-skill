@@ -32,7 +32,7 @@ import {
   persistListAndStatus, saveCostCheckpoint,
 } from './lib/task.js'
 import { creatorKey, textProblem } from './lib/types.js'
-import { igRouteProblems } from './lib/ig-route.js'
+import { asHashtagProblems, igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { configFieldProblems } from './lib/config-input.js'
 import { brandCalibrationProblems, calibrationVersionProblems } from './lib/brand-calibration.js'
@@ -82,7 +82,7 @@ try {
   }
 } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
 
-// D17.h/i、D16.j/k、D15.j：原字段、任务与路线一起查；先于缺省、进度、改额或任何副作用。
+// D17.h/i、D16.j/k、D15.j/n：原字段、任务、路线与 as_hashtag 一起查；先于缺省、进度、改额或任何副作用。
 const badFields = configFieldProblems(state, resume ? 'resume' : 'new')
 const badTasks = taskListProblems(state.tasks)
 // D27.b：续跑读的 task.json 写重复的键先写出 —— tasks 写重复时任务列表按最后那份判，两类一起报；
@@ -90,7 +90,7 @@ const badTasks = taskListProblems(state.tasks)
 // D28.b：新建读的配置同样先写出，配置不续跑，根上的进度键照别的键报；与原字段、任务、路线、品牌问题同一道退出
 const badDuplicates = duplicateKeyProblems(sourceDuplicates(state), !!resume)
 if (badDuplicates.length) console.error(`${productFrom} 里写重复的键：\n  ${badDuplicates.join('\n  ')}`)
-const badRoutes = igRouteProblems(state.tasks)
+const badRoutes = [...igRouteProblems(state.tasks), ...asHashtagProblems(state.tasks)]
 const badCalibration = brandCalibrationProblems(state)
 badCalibration.push(...calibrationVersionProblems(state))
 const taskProblems = [...badFields, ...badTasks, ...badRoutes, ...badCalibration]
