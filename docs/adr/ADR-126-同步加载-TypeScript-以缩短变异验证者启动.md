@@ -46,3 +46,5 @@ PR 226 已合入；本实现从包含它的 main 独立开出，PR 前在最新 
 这三个 ID 的 worker 中位数减少 0.924 秒、约 33.1%。CPU 是命令及其等待的子进程合计，
 不是 CI job 的 CPU。局部对照没有运行完整目录、coordinator 或 GitHub runner，
 不得把此数外推为完整 `npm run check` 的收益；完整 CI 仍须在 PR 上验收。
+
+> ⚠️ 欠条：本条原验收要求 TypeScript 缺失在验证者启动时失败；#391 将取得时机移到首次同步 AST 调用，ADR-158 与架构说明的“异常传播保留”尚未明确区分传播方式与抛出时机，也未明确承接本条固定版本验收的边界；本块仅登记，未补齐该文档承接 · 来源：[#391 第4轮 Astra 独立复核 N1 的替身评论](https://github.com/c01dsummer/kol-outreach-skill/pull/391#issuecomment-6416072799) · 档：本改动（第4轮，不阻塞） · 重启条件：下一条触及 `mutate-rule.ts`／`share-rule.ts` 的 TypeScript 取得时机或异常契约的改动，或同缺口再被点名。
