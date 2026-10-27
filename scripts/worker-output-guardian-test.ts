@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -118,6 +119,23 @@ const { spawn, spawnSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
+// The runner itself is detached from its caller. Never outlive that caller.
+const runnerParent = Number(process.env.KOL_TEST_RUNNER_PARENT_PID);
+const ownershipToken = process.env.KOL_TEST_RUNNER_TOKEN;
+delete process.env.KOL_TEST_RUNNER_PARENT_PID;
+delete process.env.KOL_TEST_RUNNER_TOKEN;
+function leaveAfterParentDies() {
+  try {
+    const dir = fs.realpathSync(__dirname);
+    if (path.dirname(dir) === fs.realpathSync(os.tmpdir()) && path.basename(dir).startsWith('guardian-regression-') &&
+      typeof ownershipToken === 'string' && fs.readFileSync(path.join(dir, '.owner-token'), 'utf8') === ownershipToken) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  } catch { /* failure is not reported as successful cleanup */ }
+  process.exit(125);
+}
+if (!Number.isSafeInteger(runnerParent) || runnerParent <= 1 || process.ppid !== runnerParent) leaveAfterParentDies();
+setInterval(() => { if (process.ppid !== runnerParent) leaveAfterParentDies(); }, 50).unref();
 const guardian = process.argv[2];
 if (!guardian || !path.isAbsolute(guardian)) throw Error('usage: node test-guardian.cjs /absolute/path/to/guardian.cjs [--negative]');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -321,11 +339,14 @@ export async function runWorkerOutputGuardianRegression(guardianSource: string) 
     for (const [name, source] of FIXTURES) writeFileSync(join(home, name), source)
     const guard = join(home, 'guardian.cjs')
     writeFileSync(guard, guardianSource)
+    const token = randomUUID()
+    writeFileSync(join(home, '.owner-token'), token)
     const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string; timedOut: boolean }>((resolve, reject) => {
       // Fixture owners and sentinels observe the runner parent, so a runner timeout
       // does not require signalling an unowned or potentially reused numeric PID.
       const child = spawn(process.execPath, [join(home, 'test-guardian.cjs'), guard], {
         cwd: home, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, KOL_TEST_RUNNER_PARENT_PID: String(process.pid), KOL_TEST_RUNNER_TOKEN: token },
       })
       let stdout = '', stderr = '', timedOut = false
       child.stdout.setEncoding('utf8'); child.stdout.on('data', chunk => { stdout += chunk })
