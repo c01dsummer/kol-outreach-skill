@@ -180,7 +180,7 @@ npm run --silent feedback-template -- --dir output/xxx --append
 
 各脚本将结构化结果写入 `stdout`、进度或诊断写入 `stderr`；机械消费使用 `npm run --silent` 去掉 npm 自身 banner。每次请求按固定端点价检查剩余额度；`--budget 3` 是总上限 $3。collect/enrich 额度不足且保存成功才退出 `3`；初始费用/输入问题退出 `2`，运行或保存失败退出 `1`。旧费用未知仍可导出及做零请求本地处理，不能靠增加上限补造历史账。费用契约见 [ADR-108](docs/adr/ADR-108-生产请求与输出统一使用逐端点费用账.md)。
 
-probe 与 collect 要求 `tasks` 至少包含一个任务，每项明确写出非空白 `keyword`、四维之一的 `dimension` 和 `tiktok`/`instagram` 的 `platform`。坏任务与 IG 路线问题会带文件路径一起报告，退出 `2`，不请求或写任务文件；旧任务续跑（含 `--budget`）同样整表检查，不补默认字段、不跳过坏项（D16）。
+probe 与 collect 要求 `tasks` 至少包含一个任务，每项明确写出非空白 `keyword`、四维之一的 `dimension` 和 `tiktok`/`instagram` 的 `platform`。坏任务与 IG 路线问题会带文件路径一起报告，退出 `2`，不请求或写任务文件；`as_hashtag` 只能缺席或为布尔，非布尔同样前置拒绝并报告原任务序号、字段与 JSON 原值（D15.n）；旧任务续跑（含 `--budget`）同样整表检查，不补默认字段、不跳过坏项（D16）。
 
 `market` 须为非空白字符串，collect 的 `target_count` 须为有限数；合规原值保留，不另加国家或人数范围限制。新 collect / probe 仅在市场缺席时用 US，并在 stderr 说明默认；新 collect 仅在人数缺席时用 50，probe 不校验人数。显式 null 不算缺席，旧任务缺任一字段直接拒绝。字段问题按输入路径与任务、路线问题一起报告（collect 的 CLI 预算及新建预算须合规），退出 `2`，不建任务目录、不写任务、不预留、不请求；改额续跑也保留原 task.json（D17）。配置文件里同一个对象把同一个键写了不止一次（`budget_usd` 写了两个数、某个任务里 `keyword` 写了两次）时读入只留最后一处，collect --config 与 probe 把它与上面这些问题一起报告，按先后列出每一处原文，同样退出 `2`、不开账不请求（D28）。
 
