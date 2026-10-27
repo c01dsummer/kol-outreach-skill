@@ -646,3 +646,8 @@ N命令入口由薄Node父进程起缓存child，显式子侧信号预加载保�
 新增 `brandObserverEnv(script,cwd,baseEnv,observerFile)`，仅给 `brand-content-version-entry` 已有预算观察器构造完整环境，再由原 `runBoth` 用实际完整参数、cwd和同一环境调用真实factory。已知域绑定原八行模板、实际入口同树Budget URL、精确fake-fetch基载及固定源身份，不由调用者自报信任。旧 `fixtureLoader`、直接Node/IPC/worker及未选观察器保留原起法。
 
 受控N探测未成立时固定一次重组原完整组合；成立后，返回环境须携带在最终factory回CLI时仍先于fake-fetch/observer/受保护TS生效的启动保护，绑定所选源码、profile/config及必要缓存。未知输入在构造前回退，选后失效明确拒绝；不承诺文件系统原子快照。独立有限测试先冻并取得公开参考及旧候选具名红；本块不宣布新实现、性能或Linux通过。
+
+
+## worker 夹具已完成但失格时的清理边界（设计）
+
+独立 worker driver 已返回但基线或其余资格不成立时，外层仍须报告夹具失格，不能冒充业务测试成功。确认 driver 输入身份、源码与依赖清单、绑定文件及临时根归属后，先登记该次私有根，随后无论资格通过与否都走原清理路径；只清本次根，不动旁置目录。完整绿与可控失格两种情形分别验证，不能用已完成的失格场景推断被强制中断的进程或临时根已经清理。
