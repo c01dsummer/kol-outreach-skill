@@ -5417,7 +5417,7 @@ function asHashtagCliPair(mode: AsHashtagCliMode): { reject: boolean; diagnostic
   let result: { reject: boolean; diagnostic: boolean; why: string } | null = null;
   const fixtureFailure = (why: unknown) => {
     failed++;
-    console.error(`${SELFCHECK_FIXTURE_MARK} as_hashtag ${mode}: ${why instanceof Error ? why.message : String(why)}`);
+    console.error(`  ✗ ${SELFCHECK_FIXTURE_MARK} as_hashtag ${mode}: ${why instanceof Error ? why.message : String(why)}`);
   };
   const requireFixture = (ok: unknown, why: string): void => { if (!ok) throw new Error(why); };
   try {
