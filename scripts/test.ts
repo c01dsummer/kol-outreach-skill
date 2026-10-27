@@ -1818,20 +1818,20 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   // 上界内的 ESRCH 空号才是这四处旧断言的合格夹具；不借用生产上界函数。
   let kernelPidText: string | undefined
   try { if (process.platform === 'linux') kernelPidText = rf('/proc/sys/kernel/pid_max', 'utf8').trim() }
-  catch { throw new Error(`${notAssertion} PID夹具读不到Linux当前上界`) }
+  catch { throw new Error(`PID夹具读不到Linux当前上界`) }
   const fixtureCeiling = kernelPidText === undefined
     ? (process.platform === 'darwin' ? 99999 : 4194304)
     : (/^[1-9][0-9]*$/.test(kernelPidText) ? Math.min(Number(kernelPidText), 4194304) : NaN)
-  if (!Number.isSafeInteger(fixtureCeiling) || fixtureCeiling <= 2) throw new Error(`${notAssertion} PID夹具上界无效`)
+  if (!Number.isSafeInteger(fixtureCeiling) || fixtureCeiling <= 2) throw new Error(`PID夹具上界无效`)
   const deadBelow = (upper: number): number => {
     for (let pid = upper - 1; pid > 0 && pid >= upper - 128; pid--) {
       try { process.kill(pid, 0) } catch (error) {
         const code = (error as NodeJS.ErrnoException).code
         if (code === 'ESRCH') return pid
-        if (code !== 'EPERM') throw new Error(`${notAssertion} PID夹具探活失败：${code}`)
+        if (code !== 'EPERM') throw new Error(`PID夹具探活失败：${code}`)
       }
     }
-    throw new Error(`${notAssertion} PID夹具未在有界范围内找到空号`)
+    throw new Error(`PID夹具未在有界范围内找到空号`)
   }
   const deadPid = deadBelow(fixtureCeiling), deadPid2 = deadBelow(deadPid)
   const orphan = `${tmp}.${deadPid}.tmp`
@@ -2308,7 +2308,7 @@ await group('d4-pid-boundary', async () => {
   const { runPidBoundaryContract } = await import('./pid-boundary-contract-test.js')
   const report = runPidBoundaryContract(writeFileAtomic)
   if (report.fixture.status !== 'VALID' || !report.fixture.restorationChecked) {
-    throw new Error(`${notAssertion} PID合同夹具失格：${report.fixture.issues.join('; ')}`)
+    throw new Error(`PID合同夹具失格：${report.fixture.issues.join('; ')}`)
   }
   const results = new Map(report.assertionResults.map(row => [row.label, row.status]))
   eq('pid.linux.dynamic.initial-exclusive-boundary', results.get('pid.linux.dynamic.initial-exclusive-boundary'), 'PASS')
