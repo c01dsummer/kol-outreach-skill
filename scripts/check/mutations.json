@@ -10609,8 +10609,8 @@
       "req": "D28.b",
       "why": "collect --config 见写重复的键就先退出，同一份配置里的字段与任务问题这一轮不报，用户改完一轮再撞下一轮",
       "file": "scripts/collect.ts",
-      "find": "const badRoutes = igRouteProblems(state.tasks)",
-      "replace": "if (!resume && badDuplicates.length) process.exit(2)\nconst badRoutes = igRouteProblems(state.tasks)",
+      "find": "const badRoutes = [...igRouteProblems(state.tasks), ...asHashtagProblems(state.tasks)]",
+      "replace": "if (!resume && badDuplicates.length) process.exit(2)\nconst badRoutes = [...igRouteProblems(state.tasks), ...asHashtagProblems(state.tasks)]",
       "by": "test",
       "kills": [
         "写重复的键与同一份配置里的任务列表、市场、路线或品牌问题一起：那一类问题不被写重复遮住，stderr 照写出字段与原值"
