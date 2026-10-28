@@ -47,6 +47,7 @@
 
 | 你要做的事 | 读 |
 |---|---|
+| 接手任务、查看当前进度与依赖 | [Linear 项目](https://linear.app/c01dsummer/project/kol-outreach-skill-84d60f579773/issues)；采用决定、职责边界与迁移口径见 [ADR-181](docs/adr/ADR-181-Linear-作为长期任务入口，需求与欠条依据仍在仓库.md) |
 | 写/改需求 | `process/1-REQUIREMENTS.md` |
 | 想改需求、撞见两条需求打架、或想说"这个太麻烦" | `process/2-CHANGE.md` |
 | 写代码 | `process/3-BUILD.md` + **`docs/CONVENTIONS.md`** |

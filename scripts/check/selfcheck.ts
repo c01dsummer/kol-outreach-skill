@@ -5179,7 +5179,7 @@ type D27Entry = 'collect' | 'enrich' | 'render'
 // d27Run 起的夹具目录按组分开：每组拿自己的前缀与计数（ADR-144）。costFixture 撞名会静默复用目录，残留的 armed.txt 会让预留观测像是装上了
 const d27Runner = (prefix: string) => {
   // 起一次入口：collect 的 done 为空（进度合规时一定会去搜）；enrich 与 render 放一个待补的创作者，再放哨兵与记忆（同上面 render 一段的 seed）。
-  // 预留观测与上面 D19.e 一段同一种接法；任务目录与记忆整棵比，原本没有的交付物另看有没有被创建
+  // 预留仍包装同树 Budget.reserve，完整环境交给既有受控观察器接线；任务与记忆整棵比，原本没有的交付物另看有没有被创建
   let d27Made = 0
   const d27Run = (entry: D27Entry, edits: [string, string][], extra: readonly string[], expect: { status: number; soft: number[] },
     over: Record<string, unknown> = {}) => {
@@ -5199,16 +5199,17 @@ const d27Runner = (prefix: string) => {
       `import { Budget } from ${JSON.stringify(budgetModule)};`,
       `const original = Budget.prototype.reserve;`,
       `Budget.prototype.reserve = function(...args) {`,
-      `  appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n');`,
+      `  appendFileSync(process.env.BRAND_VERSION_RESERVE_LOG, 'reserve\\n');`,
       `  return Reflect.apply(original, this, args);`,
       `};`,
-      `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
+      `appendFileSync(process.env.BRAND_VERSION_ARMED_LOG, 'armed\\n');`,
     ].join('\n'))
     const args = entry === 'collect' ? [S('collect.ts'), '--resume', f.taskDir] : [S(entry === 'enrich' ? 'enrich.ts' : 'render.ts'), '--dir', f.taskDir]
-    const r = runBoth(`写重复的键 ${name}`, [...args, ...extra], f.cwd, expect, costEnv(f.log, {
+    const observerEnv = brandObserverEnv(args[0]!, f.cwd, { ...env, ...costEnv(f.log, {
       ...(entry === 'render' ? { TIKHUB_API_KEY: undefined } : {}),
-      NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport(f.cwd))} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
-    }))
+      BRAND_VERSION_RESERVE_LOG: reserves, BRAND_VERSION_ARMED_LOG: armed,
+    }) }, preload)
+    const r = runBoth(`写重复的键 ${name}`, [...args, ...extra], f.cwd, expect, observerEnv)
     if (!r.ok) return undefined
     if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ 写重复的键预留观测${SELFCHECK_FIXTURE_MARK}：预算预留观测未安装，${name}`); return undefined }
     const after = fileText(f.task)

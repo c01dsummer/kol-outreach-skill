@@ -27,7 +27,8 @@ const readObject = (file: string): ObjectValue => {
 const SELECTED = ['N.SIGTERM.GROUP', 'N.SIGINT.GROUP', 'N.THROW'] as const
 
 /** Loaded only by its selected test.ts group; callers must not import this module eagerly. */
-export async function runPrebuiltNoConfigContracts(): Promise<ReadonlyMap<string, readonly string[]>> {
+export async function runPrebuiltNoConfigContracts(phase: 'all' | 'producer' | 'lifecycle' = 'all'): Promise<ReadonlyMap<string, readonly string[]>> {
+  if (!['all', 'producer', 'lifecycle'].includes(phase)) invalid('unknown contract phase')
   const target = realpathSync(resolve('.'))
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'kol-prebuilt-no-config-')))
   try {
@@ -50,6 +51,9 @@ export async function runPrebuiltNoConfigContracts(): Promise<ReadonlyMap<string
     const normalCount = 164 - 7 + syncLabels.length
     if (diagnostics.size !== 8 || ownerByLabel.size !== normalCount
       || normalCount !== (process.platform === 'linux' ? 166 : 167)) invalid('normal contract must contain 8 buckets / platform-specific 166 or 167 unique labels')
+    const selected = new Set((phase === 'producer' ? CONTRACT_BUCKETS.slice(0, 6)
+      : phase === 'lifecycle' ? CONTRACT_BUCKETS.slice(6) : CONTRACT_BUCKETS).map(bucket => bucket.name))
+    const result = (): ReadonlyMap<string, readonly string[]> => new Map([...diagnostics].filter(([name]) => selected.has(name)))
 
     const bindings = {
       packet: [ORIGINAL_PACKET_ROOT, join(root, 'packet')],
@@ -192,8 +196,11 @@ export async function runPrebuiltNoConfigContracts(): Promise<ReadonlyMap<string
       if ((report.status === 'PASS') !== (failures === 0)) invalid(`assertion/status mismatch: ${context}`)
     }
     const labels = [...ownerByLabel.keys()]
-    const producer = execute('packet/producer/src/run.mjs', runtimePath)!
-    consume(producer, labels.filter(label => label.startsWith('V4.') && !label.startsWith('V4.PRELOAD.')), 'producer117')
+    if (phase !== 'lifecycle') {
+      const producer = execute('packet/producer/src/run.mjs', runtimePath)!
+      consume(producer, labels.filter(label => label.startsWith('V4.') && !label.startsWith('V4.PRELOAD.')), 'producer117')
+    }
+    if (phase === 'producer') { verifyInputs(); return result() }
     execute('packet/descriptor/prepare.mjs', runtimePath)
     const main = execute('packet/lifecycle319/src/run.mjs', lifecycleRuntimePath, SELECTED)!
     if (!Array.isArray(main.cases) || !sameMembers(main.cases.map(value => object(value) ? String(value.id) : ''), SELECTED)) invalid('selected lifecycle cases missing/duplicated')
@@ -246,7 +253,7 @@ export async function runPrebuiltNoConfigContracts(): Promise<ReadonlyMap<string
     consume(syncReport, syncLabels, 'sync43-normal-pair')
     consume(execute('packet/lifecycle319/preload/run.mjs', lifecycleRuntimePath)!, labels.filter(label => label.startsWith('V4.PRELOAD.')), 'preload4')
     verifyInputs()
-    return diagnostics
+    return phase === 'all' ? diagnostics : result()
   } catch (error) {
     if (String(error).includes(SELFCHECK_FIXTURE_MARK)) throw error
     return invalid(`unavailable verifier or portable binding: ${String(error)}`)

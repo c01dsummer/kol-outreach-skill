@@ -187,6 +187,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p2-placeholders', needs: [] },
   { id: 'd6-pipeline', needs: [] },
   { id: 'd4-memory', needs: [] },
+  { id: 'd4-pid-boundary', needs: [] },
   { id: 'f5-geo', needs: [] },
   { id: 'u3-keywords', needs: [] },
   { id: 'u8-labels', needs: [] },
@@ -283,8 +284,12 @@ const GROUPS: readonly Group[] = [
   { id: 'h-ci-wallclock-identity', needs: [] },
   { id: 'h-ci-wallclock-identity-parent-read', needs: [] },
   { id: 'h-prebuilt-no-config-contract', needs: [] },
+  { id: 'h-prebuilt-no-config-lifecycle-contract', needs: [] },
   { id: 'h-prebuilt-owner-descendant-contract', needs: [] },
   { id: 'h-lazy-typescript-contract', needs: [] },
+  { id: 'h-worker-output-contract', needs: [] },
+  { id: 'h-worker-output-guardian', needs: [] },
+  { id: 'h-worker-output-cleanup', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -1817,7 +1822,25 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   //        一份完整的临时文件留在盘上。任何 write-then-rename 都躲不掉这一格，
   //        能做的是下次写回时把它清掉 —— 但只清死掉的进程留下的（ADR-30）。
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
-  const deadPid = 999999          // 不存在的进程
+  // 上界内的 ESRCH 空号才是这四处旧断言的合格夹具；不借用生产上界函数。
+  let kernelPidText: string | undefined
+  try { if (process.platform === 'linux') kernelPidText = rf('/proc/sys/kernel/pid_max', 'utf8').trim() }
+  catch { throw new Error(`PID夹具读不到Linux当前上界`) }
+  const fixtureCeiling = kernelPidText === undefined
+    ? (process.platform === 'darwin' ? 99999 : 4194304)
+    : (/^[1-9][0-9]*$/.test(kernelPidText) ? Math.min(Number(kernelPidText), 4194304) : NaN)
+  if (!Number.isSafeInteger(fixtureCeiling) || fixtureCeiling <= 2) throw new Error(`PID夹具上界无效`)
+  const deadBelow = (upper: number): number => {
+    for (let pid = upper - 1; pid > 0 && pid >= upper - 128; pid--) {
+      try { process.kill(pid, 0) } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code === 'ESRCH') return pid
+        if (code !== 'EPERM') throw new Error(`PID夹具探活失败：${code}`)
+      }
+    }
+    throw new Error(`PID夹具未在有界范围内找到空号`)
+  }
+  const deadPid = deadBelow(fixtureCeiling), deadPid2 = deadBelow(deadPid)
   const orphan = `${tmp}.${deadPid}.tmp`
   writeFileSync(orphan, '上一次被硬杀时留下的', 'utf8')
   recordRecommendations([mk('tiktok', 'erin')], 'p')
@@ -1861,7 +1884,7 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
 
   // 清不掉的残留不让写回失败：占着临时名的是个目录时删不掉，写回照常
   {
-    const stuck = `${tmp}.999998.tmp`
+    const stuck = `${tmp}.${deadPid2}.tmp`
     rmSync(stuck, { recursive: true, force: true })
     mkdirSync(stuck, { recursive: true })
     const r = writeOf(() => recordRecommendations([mk('tiktok', 'erin')], 'p'))
@@ -1881,7 +1904,7 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     writeFileSync(real, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
     symlinkSync(real, link)
     useMemoryFile(link)
-    const orphan2 = `${real}.999999.tmp`     // 死掉的进程留下的
+    const orphan2 = `${real}.${deadPid}.tmp`     // 死掉的进程留下的
     writeFileSync(orphan2, '{}', 'utf8')
     recordRecommendations([mk('tiktok', 'zed')], 'p')
     eq('终点旁边的孤儿也被清掉了', existsSync(orphan2), false)
@@ -1894,7 +1917,7 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     const d3 = join(tmpdir(), `kol-d4-sweep-${process.pid}`)
     rmSync(d3, { recursive: true, force: true })
     mkdirSync(d3, { recursive: true })
-    const orphan3 = join(d3, 'task.json.999999.tmp')
+    const orphan3 = join(d3, `task.json.${deadPid}.tmp`)
     writeFileSync(orphan3, '{}', 'utf8')
     saveTask(d3, readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
       target_count: 1, done: [], requests: 0, budget_usd: 1 })))
@@ -2286,6 +2309,36 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
 }
 
 })
+await group('d4-pid-boundary', async () => {
+  suite('D4', '残留识别采用本机PID不包含上界')
+  // 事前独立v3合同及19具名预期先冻；通过公开入口，不读内部上界函数。
+  const { runPidBoundaryContract } = await import('./pid-boundary-contract-test.js')
+  const report = runPidBoundaryContract(writeFileAtomic)
+  if (report.fixture.status !== 'VALID' || !report.fixture.restorationChecked) {
+    throw new Error(`PID合同夹具失格：${report.fixture.issues.join('; ')}`)
+  }
+  const results = new Map(report.assertionResults.map(row => [row.label, row.status]))
+  eq('pid.linux.dynamic.initial-exclusive-boundary', results.get('pid.linux.dynamic.initial-exclusive-boundary'), 'PASS')
+  eq('pid.linux.dynamic.lowered-and-whitespace', results.get('pid.linux.dynamic.lowered-and-whitespace'), 'PASS')
+  eq('pid.linux.dynamic.restored', results.get('pid.linux.dynamic.restored'), 'PASS')
+  eq('pid.linux.fallback.blank', results.get('pid.linux.fallback.blank'), 'PASS')
+  eq('pid.linux.fallback.zero', results.get('pid.linux.fallback.zero'), 'PASS')
+  eq('pid.linux.fallback.negative', results.get('pid.linux.fallback.negative'), 'PASS')
+  eq('pid.linux.fallback.leading-zero', results.get('pid.linux.fallback.leading-zero'), 'PASS')
+  eq('pid.linux.fallback.exponent', results.get('pid.linux.fallback.exponent'), 'PASS')
+  eq('pid.linux.fallback.plus', results.get('pid.linux.fallback.plus'), 'PASS')
+  eq('pid.linux.fallback.junk', results.get('pid.linux.fallback.junk'), 'PASS')
+  eq('pid.linux.fallback.fraction', results.get('pid.linux.fallback.fraction'), 'PASS')
+  eq('pid.linux.fallback.non-ascii', results.get('pid.linux.fallback.non-ascii'), 'PASS')
+  eq('pid.linux.fallback.read-denied', results.get('pid.linux.fallback.read-denied'), 'PASS')
+  eq('pid.linux.cap.just-over-cap', results.get('pid.linux.cap.just-over-cap'), 'PASS')
+  eq('pid.linux.cap.huge-digits', results.get('pid.linux.cap.huge-digits'), 'PASS')
+  eq('pid.darwin.same-named-proc-ignored', results.get('pid.darwin.same-named-proc-ignored'), 'PASS')
+  eq('pid.other-platform.same-named-proc-ignored', results.get('pid.other-platform.same-named-proc-ignored'), 'PASS')
+  eq('pid.name.noncanonical-neighbors-preserved', results.get('pid.name.noncanonical-neighbors-preserved'), 'PASS')
+  eq('pid.lifecycle.age-and-soft-cleanup', results.get('pid.lifecycle.age-and-soft-cleanup'), 'PASS')
+})
+
 await group('f5-geo', () => {
 suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时不中断')
 {
@@ -18459,19 +18512,27 @@ await group('h-ci-wallclock-identity-parent-read', () => {
 })
 
 await group('h-prebuilt-no-config-contract', async () => {
-  harness('无配置入口的独立冻结公开合同')
+  harness('无配置入口producer的独立冻结公开合同')
   const { runPrebuiltNoConfigContracts }: {
     runPrebuiltNoConfigContracts: typeof RunPrebuiltNoConfigContracts
   } = await import('./prebuilt-no-config-contract-test.js')
-  const results = await runPrebuiltNoConfigContracts()
-  const { runPrebuiltClearTermContracts } = await import('./prebuilt-clear-term-contract-test.js')
-  const clearedTerm = await runPrebuiltClearTermContracts()
+  const results = await runPrebuiltNoConfigContracts('producer')
   eq("预编两种格式与独立无配置身份", results.get("预编两种格式与独立无配置身份"), [])
   eq("无配置入口参数与默认语义", results.get("无配置入口参数与默认语义"), [])
   eq("无配置准入边界保留公开加载器回退", results.get("无配置准入边界保留公开加载器回退"), [])
   eq("观察器加载器与直接IPC及工作线程行为不变", results.get("观察器加载器与直接IPC及工作线程行为不变"), [])
   eq("已选入口拒绝源码缓存与配置失效", results.get("已选入口拒绝源码缓存与配置失效"), [])
   eq("单源更新清理与坏编译拒绝旧缓存", results.get("单源更新清理与坏编译拒绝旧缓存"), [])
+})
+
+await group('h-prebuilt-no-config-lifecycle-contract', async () => {
+  harness('无配置入口生命周期的独立冻结公开合同')
+  const { runPrebuiltNoConfigContracts }: {
+    runPrebuiltNoConfigContracts: typeof RunPrebuiltNoConfigContracts
+  } = await import('./prebuilt-no-config-contract-test.js')
+  const results = await runPrebuiltNoConfigContracts('lifecycle')
+  const { runPrebuiltClearTermContracts } = await import('./prebuilt-clear-term-contract-test.js')
+  const clearedTerm = await runPrebuiltClearTermContracts()
   eq("INT和TERM进程组与同步自身信号生命周期", results.has("INT和TERM进程组与同步自身信号生命周期")
     ? [...results.get("INT和TERM进程组与同步自身信号生命周期")!, ...clearedTerm] : undefined, [])
   eq("异常保留原栈且普通预载正常收尾", results.get("异常保留原栈且普通预载正常收尾"), [])
@@ -18487,6 +18548,42 @@ await group('h-lazy-typescript-contract', async () => {
   harness('纯判定按需初始化TypeScript编译器')
   const { runLazyTypescriptContracts } = await import('./lazy-typescript-contract-test.js')
   eq('纯判定不预载TypeScript且AST调用保持同步', runLazyTypescriptContracts(), [])
+})
+
+await group('h-worker-output-contract', async () => {
+  harness('worker在stdout短暂背压解除后完整交回唯一结论')
+  const { runWorkerOutputContract } = await import('./worker-output-contract-test.js')
+  eq('真实worker在stdout背压解除后完整唯一回报且恢复源码', runWorkerOutputContract(), true)
+})
+
+await group('h-worker-output-guardian', async () => {
+  harness('worker测试驱动中断时守护其子进程')
+  const { WORKER_OUTPUT_GUARDIAN } = await import('./worker-output-guardian-data.js')
+  const { runWorkerOutputGuardianRegression } = await import('./worker-output-guardian-test.js')
+  const result = await runWorkerOutputGuardianRegression(WORKER_OUTPUT_GUARDIAN)
+  if (result.status === 'invalid') throw new Error(`${SELFCHECK_FIXTURE_MARK} worker guardian regression: ${result.reason}`)
+  eq('worker guardian startup-group', result.checks['startup-group'], true)
+  eq('worker guardian startup-child', result.checks['startup-child'], true)
+  eq('worker guardian normal-group', result.checks['normal-group'], true)
+  eq('worker guardian normal-child', result.checks['normal-child'], true)
+  eq('worker guardian parent-term-group-isolation', result.checks['parent-term-group-isolation'], true)
+  eq('worker guardian parent-kill-group-ignore-term', result.checks['parent-kill-group-ignore-term'], true)
+  eq('worker guardian parent-term-child', result.checks['parent-term-child'], true)
+  eq('worker guardian parent-kill-child-ignore-term', result.checks['parent-kill-child-ignore-term'], true)
+  eq('worker guardian direct-child-term-group', result.checks['direct-child-term-group'], true)
+  eq('worker guardian direct-child-kill-group', result.checks['direct-child-kill-group'], true)
+  eq('worker guardian direct-child-zero-group', result.checks['direct-child-zero-group'], true)
+  eq('worker guardian direct-child-nonzero-group', result.checks['direct-child-nonzero-group'], true)
+})
+
+await group('h-worker-output-cleanup', async () => {
+  harness('worker夹具失格时清理自身临时快照')
+  const { runRealCleanupRegression } = await import('./worker-output-cleanup-test.js')
+  const result = await runRealCleanupRegression()
+  if (!('checks' in result) || !result.checks) throw new Error(`${SELFCHECK_FIXTURE_MARK} worker cleanup regression: ${result.reason}`)
+  eq('outer runner reports fixture invalid', result.checks.fixtureInvalid, true)
+  eq('owned snapshot removed after failed baseline', result.checks.snapshotRemoved, true)
+  eq('foreign directory preserved', result.checks.foreignPreserved, true)
 })
 
 if (seenGroups.size !== GROUPS.length) {

@@ -289,7 +289,7 @@ export function fixtureLoader(script: string, env: NodeJS.ProcessEnv = process.e
   return isBare(argv) ? argv[1]! : pathToFileURL(require.resolve('tsx')).href
 }
 
-/** 只供既有 brand 内容版本观察器使用；未知组合保留原完整公共起法（ADR-158 第二十六节）。 */
+/** 供既有 brand 内容版本与 D27 预算观察器使用；未知组合保留原完整公共起法（ADR-158 第二十六节及 D27 接线设计）。 */
 export function brandObserverEnv(script: string, cwd: string, baseEnv: NodeJS.ProcessEnv, observerFile: string): NodeJS.ProcessEnv {
   const observer = pathToFileURL(resolve(observerFile)).href
   const original = (): NodeJS.ProcessEnv => {
