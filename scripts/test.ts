@@ -280,6 +280,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-ci-wallclock-identity', needs: [] },
   { id: 'h-ci-wallclock-identity-parent-read', needs: [] },
   { id: 'h-prebuilt-no-config-contract', needs: [] },
+  { id: 'h-prebuilt-no-config-lifecycle-contract', needs: [] },
   { id: 'h-prebuilt-owner-descendant-contract', needs: [] },
   { id: 'h-lazy-typescript-contract', needs: [] },
   { id: 'h-worker-output-contract', needs: [] },
@@ -18265,19 +18266,27 @@ await group('h-ci-wallclock-identity-parent-read', () => {
 })
 
 await group('h-prebuilt-no-config-contract', async () => {
-  harness('无配置入口的独立冻结公开合同')
+  harness('无配置入口producer的独立冻结公开合同')
   const { runPrebuiltNoConfigContracts }: {
     runPrebuiltNoConfigContracts: typeof RunPrebuiltNoConfigContracts
   } = await import('./prebuilt-no-config-contract-test.js')
-  const results = await runPrebuiltNoConfigContracts()
-  const { runPrebuiltClearTermContracts } = await import('./prebuilt-clear-term-contract-test.js')
-  const clearedTerm = await runPrebuiltClearTermContracts()
+  const results = await runPrebuiltNoConfigContracts('producer')
   eq("预编两种格式与独立无配置身份", results.get("预编两种格式与独立无配置身份"), [])
   eq("无配置入口参数与默认语义", results.get("无配置入口参数与默认语义"), [])
   eq("无配置准入边界保留公开加载器回退", results.get("无配置准入边界保留公开加载器回退"), [])
   eq("观察器加载器与直接IPC及工作线程行为不变", results.get("观察器加载器与直接IPC及工作线程行为不变"), [])
   eq("已选入口拒绝源码缓存与配置失效", results.get("已选入口拒绝源码缓存与配置失效"), [])
   eq("单源更新清理与坏编译拒绝旧缓存", results.get("单源更新清理与坏编译拒绝旧缓存"), [])
+})
+
+await group('h-prebuilt-no-config-lifecycle-contract', async () => {
+  harness('无配置入口生命周期的独立冻结公开合同')
+  const { runPrebuiltNoConfigContracts }: {
+    runPrebuiltNoConfigContracts: typeof RunPrebuiltNoConfigContracts
+  } = await import('./prebuilt-no-config-contract-test.js')
+  const results = await runPrebuiltNoConfigContracts('lifecycle')
+  const { runPrebuiltClearTermContracts } = await import('./prebuilt-clear-term-contract-test.js')
+  const clearedTerm = await runPrebuiltClearTermContracts()
   eq("INT和TERM进程组与同步自身信号生命周期", results.has("INT和TERM进程组与同步自身信号生命周期")
     ? [...results.get("INT和TERM进程组与同步自身信号生命周期")!, ...clearedTerm] : undefined, [])
   eq("异常保留原栈且普通预载正常收尾", results.get("异常保留原栈且普通预载正常收尾"), [])
