@@ -1,4 +1,6 @@
 #!/usr/bin/env tsx
+import asHashtagPermanentAssert from 'node:assert/strict';
+import { isDeepStrictEqual as asHashtagPermanentDeepEqual } from 'node:util';
 import type { runPrebuiltNoConfigContracts as RunPrebuiltNoConfigContracts } from './prebuilt-no-config-contract-test.js'
 import { mkdtempSync as cxMkdtempSync, mkdirSync as cxMkdirSync, writeFileSync as cxWriteFileSync, rmSync as cxRmSync } from 'node:fs';
 import { join as cxJoin, dirname as cxDirname, relative as cxRelative, isAbsolute as cxIsAbsolute } from 'node:path';
@@ -102,7 +104,7 @@ import {
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { formatDiscoverySources, mergeDiscoverySources } from './lib/discovery.js'
-import { hashtagKeyword, igRouteProblems } from './lib/ig-route.js'
+import { asHashtagProblems, hashtagKeyword, igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { duplicateProgressProblems, resumeProgressProblems } from './lib/resume-progress.js'
 import { duplicateKeyProblems } from './lib/duplicate-keys.js'
@@ -199,6 +201,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd11-posts', needs: [] },
   { id: 'd15-discovery-sources', needs: [] },
   { id: 'd15-hashtag-parser', needs: [] },
+  { id: 'd15-as-hashtag', needs: [] },
   { id: 'd15-hashtag', needs: [] },
   { id: 'd16-tasks', needs: [] },
   { id: 'd17-config', needs: [] },
@@ -4705,6 +4708,200 @@ suite('D15', 'IG 话题页解析：只解析、不分派（ADR-112 第四节第 
 // 独立上下文先于实现写成：期望只出自 ADR-112 第二、五节，D15.j、D15.k、D6.w、D11.b 原文，
 // 以及 ig-route.ts 与 TikHub.search 的说明；没有读 search() 与 ig-route.ts 的函数体。
 })
+// Add the two unique alias imports from imports.ts.txt to the import section.
+// The coordinator imports the public asHashtagProblems by that name.
+// No production helpers, fixture files, CLI startup or external oracle are used.
+await group('d15-as-hashtag', () => {
+  suite('D15', 'as_hashtag 原值校验：独立冻结的14个JSON用例')
+  type Problem = { ordinal: number; field: 'as_hashtag'; raw: unknown };
+  type Case = { id: string; tasks: Record<string, unknown>[]; expected: Problem[] };
+  type Mention = { ordinal: number | undefined; start: number; end: number };
+
+  // Literal data abbreviations only: each object is a frozen v3 task input.
+  // They do not supply defaults to the production validator.
+  const tt = { keyword: 'local', dimension: 'category', platform: 'tiktok' };
+  const ig = { keyword: '#local', dimension: 'scene', platform: 'instagram' };
+  const route = { keyword: '#local', dimension: 'category', platform: 'instagram', ig_route: 'hashtag' };
+  const cases: Case[] = [
+    {
+      id: 'pure.legal-metadata',
+      tasks: [
+        { ...tt }, { ...tt, as_hashtag: false }, { ...tt, as_hashtag: true },
+        { ...ig }, { ...ig, as_hashtag: false }, { ...ig, as_hashtag: true },
+      ],
+      expected: [],
+    },
+    {
+      id: 'pure.legal-explicit-route',
+      tasks: [{ ...route }, { ...route, as_hashtag: false }, { ...route, as_hashtag: true }],
+      expected: [],
+    },
+    { id: 'pure.null', tasks: [{ ...tt, as_hashtag: null }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: null }] },
+    { id: 'pure.string-false', tasks: [{ ...tt, as_hashtag: 'false' }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: 'false' }] },
+    { id: 'pure.string-true', tasks: [{ ...tt, as_hashtag: 'true' }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: 'true' }] },
+    { id: 'pure.string-empty', tasks: [{ ...tt, as_hashtag: '' }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: '' }] },
+    { id: 'pure.number-zero', tasks: [{ ...tt, as_hashtag: 0 }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: 0 }] },
+    { id: 'pure.number-one', tasks: [{ ...tt, as_hashtag: 1 }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: 1 }] },
+    { id: 'pure.number-fraction', tasks: [{ ...tt, as_hashtag: -1.5 }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: -1.5 }] },
+    { id: 'pure.array-empty', tasks: [{ ...tt, as_hashtag: [] }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: [] }] },
+    { id: 'pure.array-values', tasks: [{ ...tt, as_hashtag: [true, false] }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: [true, false] }] },
+    { id: 'pure.object-empty', tasks: [{ ...tt, as_hashtag: {} }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: {} }] },
+    {
+      id: 'pure.object-values',
+      tasks: [{ ...tt, as_hashtag: { enabled: true, note: '雪"\\\n' } }],
+      expected: [{ ordinal: 1, field: 'as_hashtag', raw: { enabled: true, note: '雪"\\\n' } }],
+    },
+    {
+      id: 'pure.mixed-original-ordinals',
+      tasks: [
+        { ...tt },
+        { ...tt, as_hashtag: true },
+        { ...tt, as_hashtag: 'false' },
+        { ...ig, as_hashtag: false },
+        { ...ig, as_hashtag: null },
+        { ...tt },
+        { ...ig, as_hashtag: true },
+        { ...ig, as_hashtag: { enabled: true } },
+      ],
+      expected: [
+        { ordinal: 3, field: 'as_hashtag', raw: 'false' },
+        { ordinal: 5, field: 'as_hashtag', raw: null },
+        { ordinal: 8, field: 'as_hashtag', raw: { enabled: true } },
+      ],
+    },
+  ];
+
+  // Same finite information reader as frozen v3; sentence/order are not fixed.
+  class DiagnosticReviewRequired extends Error {}
+
+  function ordinalMentions(text: string): Mention[] {
+    const number = String.raw`(\d+|[一二三四五六七八九十]+)`;
+    const patterns = [
+      new RegExp(String.raw`第\s*${number}\s*(?:个|项|号)?\s*任务`, 'gu'),
+      new RegExp(String.raw`(?:任务|tasks?)\s*(?:编号|序号|#|第)?\s*[:：]?\s*\[?\s*${number}\s*\]?`, 'giu'),
+      new RegExp(String.raw`\[\s*${number}\s*\]\s*[.:：-]?\s*(?=as_hashtag)`, 'gu'),
+      new RegExp(String.raw`#\s*${number}\s*[.:：-]?\s*(?=as_hashtag)`, 'gu'),
+    ];
+    const chinese: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+    return patterns.flatMap(pattern => Array.from(text.matchAll(pattern), match => ({
+      ordinal: /^\d+$/.test(match[1]) ? Number(match[1]) : chinese[match[1]],
+      start: match.index!,
+      end: match.index! + match[0].length,
+    })));
+  }
+
+  function withoutOrdinals(text: string, mentions: Mention[]): string {
+    return text.split('').map((character, index) =>
+      mentions.some(span => index >= span.start && index < span.end) ? ' ' : character
+    ).join('');
+  }
+
+  function containsJsonValue(text: string, wanted: unknown): boolean {
+    // Parse whole JSON tokens; "0" cannot count as numeric 0.
+    for (let start = 0; start < text.length; start += 1) {
+      if (!/[\[\{"\-0-9ntf]/.test(text[start])) continue;
+      let longest: { value: unknown; end: number } | undefined;
+      for (let end = start + 1; end <= text.length; end += 1) {
+        try {
+          const value: unknown = JSON.parse(text.slice(start, end));
+          if (typeof value === 'number' || value === null || typeof value === 'boolean') {
+            const adjacent = /[A-Za-z0-9_.+\-]/;
+            if ((start && adjacent.test(text[start - 1])) ||
+                (end < text.length && adjacent.test(text[end]))) continue;
+          }
+          longest = { value, end };
+        } catch { /* Prose or an incomplete JSON value. */ }
+      }
+      if (longest) {
+        if (asHashtagPermanentDeepEqual(longest.value, wanted)) return true;
+        start = longest.end - 1;
+      }
+    }
+    return false;
+  }
+
+  function assertInformation(actual: string[], wanted: Problem[]): void {
+    asHashtagPermanentAssert.equal(actual.length, wanted.length, 'one problem per invalid task');
+    const details = actual.map(message => {
+      asHashtagPermanentAssert.ok(message.includes('as_hashtag'), 'problem identifies as_hashtag');
+      const mentions = ordinalMentions(message);
+      return { mentions, masked: withoutOrdinals(message, mentions) };
+    });
+    if (details.some(detail => detail.mentions.length === 0)) {
+      throw new DiagnosticReviewRequired('unrecognized ordinal presentation; inspect diagnostic information manually');
+    }
+    const edges = wanted.map(item => details.flatMap((detail, index) =>
+      detail.mentions.some(mention => mention.ordinal === item.ordinal) &&
+      containsJsonValue(detail.masked, item.raw) ? [index] : []
+    ));
+    function matches(position: number, used: Set<number>): boolean {
+      if (position === edges.length) return true;
+      return edges[position].some(index => !used.has(index) &&
+        matches(position + 1, new Set([...used, index])));
+    }
+    asHashtagPermanentAssert.ok(matches(0, new Set()), 'original ordinal/field/JSON value match one-to-one; order is free');
+  }
+
+  const failures = {
+    shape: [] as string[],
+    input: [] as string[],
+    count: [] as string[],
+    diagnostic: [] as string[],
+  };
+  const reason = (error: unknown): string =>
+    `${error instanceof DiagnosticReviewRequired ? '[review-required] ' : ''}${error instanceof Error ? error.message : String(error)}`;
+
+  // Four decisions for every original case = 56 decisions, with no early exit.
+  // Catch each decision independently so one failure cannot hide another kind.
+  for (const item of cases) {
+    const input = structuredClone(item.tasks);
+    const before = structuredClone(input);
+    const originalJson = JSON.stringify(input);
+    let actual: unknown;
+    let thrown: unknown;
+    try { actual = asHashtagProblems(input); } catch (error) { thrown = error; }
+
+    try {
+      asHashtagPermanentAssert.equal(thrown, undefined, 'JSON-domain call must not throw');
+      asHashtagPermanentAssert.ok(Array.isArray(actual), 'return is an array');
+      asHashtagPermanentAssert.ok(Array.from(actual).every(problem => typeof problem === 'string'), 'every result item is a string');
+    } catch (error) {
+      failures.shape.push(`${item.id}: ${reason(error)}`);
+    }
+
+    try {
+      asHashtagPermanentAssert.deepEqual(input, before, 'input and own-field absence stay unchanged');
+      asHashtagPermanentAssert.equal(JSON.stringify(input), originalJson, 'input serialization stays unchanged');
+    } catch (error) {
+      failures.input.push(`${item.id}: ${reason(error)}`);
+    }
+
+    try {
+      asHashtagPermanentAssert.ok(Array.isArray(actual), 'usable result required');
+      asHashtagPermanentAssert.equal(actual.length, item.expected.length, 'exact problem count');
+    } catch (error) {
+      failures.count.push(`${item.id}: ${reason(error)}`);
+    }
+
+    try {
+      asHashtagPermanentAssert.ok(Array.isArray(actual) && Array.from(actual).every(value => typeof value === 'string'), 'usable string[] required');
+      assertInformation(actual as string[], item.expected);
+    } catch (error) {
+      // Unknown presentation never aggregates to true. Its red requires review,
+      // not a new sentence requirement or an automatic claim of product defect.
+      failures.diagnostic.push(`${item.id}: ${reason(error)}`);
+    }
+  }
+
+  // Fixed literal labels for existing group routing and formal mutation kills.
+  // Every unpassed case remains in its category's actual array, making it red.
+  eq('as-hashtag-pure.shape', failures.shape, []);
+  eq('as-hashtag-pure.input', failures.input, []);
+  eq('as-hashtag-pure.count', failures.count, []);
+  eq('as-hashtag-pure.diagnostic', failures.diagnostic, []);
+  criterion('D15.n');
+});
+
 await group('d15-hashtag', async () => {
 suite('D15', 'IG 话题入口：配置校验与分派（ADR-112 第四节第 3 步）')
 {

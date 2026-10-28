@@ -8003,8 +8003,8 @@
       ],
       "why": "collect 不校验路线 —— 配置写错的任务照常建目录、开预算、发请求，运营以为开了话题搜索，钱花在别的路线上",
       "file": "scripts/collect.ts",
-      "find": "const badRoutes = igRouteProblems(state.tasks)",
-      "replace": "const badRoutes: string[] = []"
+      "find": "const badRoutes = [...igRouteProblems(state.tasks), ...asHashtagProblems(state.tasks)]",
+      "replace": "const badRoutes = asHashtagProblems(state.tasks)"
     },
     {
       "id": "M-D15-v",
@@ -8016,8 +8016,8 @@
       ],
       "why": "probe 不校验路线 —— 试探时照走 Reels 并付费，试探结论说的不是配置里写的那条路",
       "file": "scripts/probe.ts",
-      "find": "    const badRoutes = igRouteProblems(cfg.tasks)",
-      "replace": "    const badRoutes: string[] = []"
+      "find": "    const badRoutes = [...igRouteProblems(cfg.tasks), ...asHashtagProblems(cfg.tasks)]",
+      "replace": "    const badRoutes = asHashtagProblems(cfg.tasks)"
     },
     {
       "id": "M-D6-bf",
@@ -8041,8 +8041,8 @@
       ],
       "why": "续跑改额那条路径漏了路线校验 —— 新上限先落了盘，配置写错的任务照常开抓；只带 --resume 的夹具走不到这条路径，看不见",
       "file": "scripts/collect.ts",
-      "find": "const badRoutes = igRouteProblems(state.tasks)",
-      "replace": "const badRoutes = resume && replacementLimit !== undefined ? [] : igRouteProblems(state.tasks)"
+      "find": "const badRoutes = [...igRouteProblems(state.tasks), ...asHashtagProblems(state.tasks)]",
+      "replace": "const badRoutes = [...(resume && replacementLimit !== undefined ? [] : igRouteProblems(state.tasks)), ...asHashtagProblems(state.tasks)]"
     },
     {
       "id": "M-D16-a",
@@ -8787,6 +8787,95 @@
       "file": "scripts/probe.ts",
       "find": "        ...routeOf(t),\n        found: found.length,",
       "replace": "        ...routeOf(t.as_hashtag && t.keyword.startsWith('#') ? { ...t, ig_route: 'hashtag' } : t),\n        found: found.length,"
+    },
+    {
+      "id": "M-D15-af",
+      "req": "D15.n",
+      "by": "test",
+      "kills": [
+        "as-hashtag-pure.count",
+        "as-hashtag-pure.diagnostic"
+      ],
+      "why": "as_hashtag 不是布尔时照收 —— 写成字符串、数字、null 的任务照跑，probe 把读到的怪值原样带进试探结果，采集按真假把它悄悄改写成布尔",
+      "file": "scripts/lib/ig-route.ts",
+      "find": "    out.push(`任务 ${taskOrdinal(i)} 的 as_hashtag 只能是 true、false 或不写，这里是 ${JSON.stringify(flag)}`)",
+      "replace": "    /* mutated */"
+    },
+    {
+      "id": "M-D15-ag",
+      "req": "D15.n",
+      "by": "test",
+      "kills": [
+        "as-hashtag-pure.count",
+        "as-hashtag-pure.diagnostic"
+      ],
+      "why": "把 null 当成没写 —— 配置里明写了 null 的任务被当作合规放行，读到的值被悄悄换成缺席",
+      "file": "scripts/lib/ig-route.ts",
+      "find": "    if (flag === undefined || typeof flag === 'boolean') continue",
+      "replace": "    if (flag == null || typeof flag === 'boolean') continue"
+    },
+    {
+      "id": "M-D15-ah",
+      "req": "D15.n",
+      "by": "test",
+      "kills": [
+        "as-hashtag-pure.count",
+        "as-hashtag-pure.diagnostic"
+      ],
+      "why": "把字符串 \"true\"、\"false\" 当成布尔放行 —— 配置里的字符串被替人改写成真假，D16 不改写成合规写法那条口径被绕过",
+      "file": "scripts/lib/ig-route.ts",
+      "find": "    if (flag === undefined || typeof flag === 'boolean') continue",
+      "replace": "    if (flag === undefined || typeof flag === 'boolean' || flag === 'true' || flag === 'false') continue"
+    },
+    {
+      "id": "M-D15-ai",
+      "req": "D15.n",
+      "by": "test",
+      "kills": [
+        "as-hashtag-pure.diagnostic"
+      ],
+      "why": "任务序号从 0 数 —— 报错指着的是前一个任务，与任务标签对不上",
+      "file": "scripts/lib/ig-route.ts",
+      "find": "    out.push(`任务 ${taskOrdinal(i)} 的 as_hashtag 只能是 true、false 或不写，这里是 ${JSON.stringify(flag)}`)",
+      "replace": "    out.push(`任务 ${i} 的 as_hashtag 只能是 true、false 或不写，这里是 ${JSON.stringify(flag)}`)"
+    },
+    {
+      "id": "M-D15-aj",
+      "req": "D15.n",
+      "by": "test",
+      "kills": [
+        "as-hashtag-pure.diagnostic"
+      ],
+      "why": "读到的值不按 JSON 写法写出 —— 字符串 \"true\" 与布尔 true 在报错里长得一样，用户看不出错在哪",
+      "file": "scripts/lib/ig-route.ts",
+      "find": "    out.push(`任务 ${taskOrdinal(i)} 的 as_hashtag 只能是 true、false 或不写，这里是 ${JSON.stringify(flag)}`)",
+      "replace": "    out.push(`任务 ${taskOrdinal(i)} 的 as_hashtag 只能是 true、false 或不写，这里是 ${String(flag)}`)"
+    },
+    {
+      "id": "M-D15-ak",
+      "req": "D15.n",
+      "by": "selfcheck",
+      "kills": [
+        "as-hashtag-cli.new.reject",
+        "as-hashtag-cli.new.diagnostic"
+      ],
+      "why": "collect 不查 as_hashtag —— 新建与续跑都带着不是布尔的 as_hashtag 开抓、花钱，写进 task.json 时还按真假改写成布尔",
+      "file": "scripts/collect.ts",
+      "find": "const badRoutes = [...igRouteProblems(state.tasks), ...asHashtagProblems(state.tasks)]",
+      "replace": "const badRoutes = igRouteProblems(state.tasks)"
+    },
+    {
+      "id": "M-D15-al",
+      "req": "D15.n",
+      "by": "selfcheck",
+      "kills": [
+        "as-hashtag-cli.probe.reject",
+        "as-hashtag-cli.probe.diagnostic"
+      ],
+      "why": "probe 不查 as_hashtag —— 带着不是布尔的 as_hashtag 付费试探，读到的怪值原样出现在试探结果里",
+      "file": "scripts/probe.ts",
+      "find": "    const badRoutes = [...igRouteProblems(cfg.tasks), ...asHashtagProblems(cfg.tasks)]",
+      "replace": "    const badRoutes = igRouteProblems(cfg.tasks)"
     },
     {
       "id": "M-H9-l",
@@ -10616,8 +10705,8 @@
       "req": "D28.b",
       "why": "collect --config 见写重复的键就先退出，同一份配置里的字段与任务问题这一轮不报，用户改完一轮再撞下一轮",
       "file": "scripts/collect.ts",
-      "find": "const badRoutes = igRouteProblems(state.tasks)",
-      "replace": "if (!resume && badDuplicates.length) process.exit(2)\nconst badRoutes = igRouteProblems(state.tasks)",
+      "find": "const badRoutes = [...igRouteProblems(state.tasks), ...asHashtagProblems(state.tasks)]",
+      "replace": "if (!resume && badDuplicates.length) process.exit(2)\nconst badRoutes = [...igRouteProblems(state.tasks), ...asHashtagProblems(state.tasks)]",
       "by": "test",
       "kills": [
         "写重复的键与同一份配置里的任务列表、市场、路线或品牌问题一起：那一类问题不被写重复遮住，stderr 照写出字段与原值"

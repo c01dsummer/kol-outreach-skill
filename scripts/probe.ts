@@ -21,7 +21,7 @@ import { readCostDocument, readCostLimit, sourceDuplicates, stringifyCostJson, t
 import { extractEmail } from './lib/email.js'
 import type { SearchTask } from './lib/types.js'
 import { taskLabel } from './lib/task-label.js'
-import { igRouteProblems } from './lib/ig-route.js'
+import { asHashtagProblems, igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { configFieldProblems } from './lib/config-input.js'
 import { duplicateKeyProblems } from './lib/duplicate-keys.js'
@@ -54,10 +54,10 @@ async function main() {
   let budget: Budget
   try {
     cfg = readCostDocument<ProbeConfig>(readFileSync(cfgPath, 'utf8'))
-    // D17.j/k、D16.l/m、D15.j：原市场、任务与路线一起查，在开预算、发请求之前停下。
+    // D17.j/k、D16.l/m、D15.j/n：原市场、任务、路线与 as_hashtag 一起查，在开预算、发请求之前停下。
     const badFields = configFieldProblems(cfg, 'probe')
     const badTasks = taskListProblems(cfg.tasks)
-    const badRoutes = igRouteProblems(cfg.tasks)
+    const badRoutes = [...igRouteProblems(cfg.tasks), ...asHashtagProblems(cfg.tasks)]
     // D28.c：配置里任一层写重复的键与原市场、任务、路线问题同一道报；配置不续跑，根上的进度键照别的键报（不跳过 D19.k 那几处）
     const taskProblems = [...duplicateKeyProblems(sourceDuplicates(cfg)), ...badFields, ...badTasks, ...badRoutes]
     if (taskProblems.length) throw new Error(`任务配置不合规：${taskProblems.join('；')}`)
