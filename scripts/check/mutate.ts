@@ -671,8 +671,8 @@ const record = (m: Mut, ran: Ran): void => {
  * **只往 stdout 写结论那一种行**，人看的报告由派工那一侧打 —— 两边都打的话，
  * 同一条变异在同一份输出里出现两次，而两次的措辞将来一定会岔开。
  *
- * 写用的是同步那一路（和 `--brief` 同一个理由）：紧接着可能就没有事件循环再跑了，
- * 排在队里没写出去的那一行会被当成「这一条没回话」，而那是硬失败。
+ * 每条结论等待 stdout 的写回回调再接下一条或正常退出；暂时背压交给流等待，
+ * 写回失败向外传播，不能把排队未交回的结论当成正常完成。
  */
 if (process.argv.includes('--worker')) {
   // coordinator 已核可信历史；worker 在施变前冻结同一正常源码路由，不读取被排除的 .git。
@@ -692,7 +692,10 @@ if (process.argv.includes('--worker')) {
   for await (const line of createInterface({ input: process.stdin })) {
     const m = byId.get(line.trim())
     if (m === undefined) break
-    writeFileSync(1, `${reportLine(m.id, await runOne(m))}\n`)
+    const report = `${reportLine(m.id, await runOne(m))}\n`
+    await new Promise<void>((done, reject) => {
+      process.stdout.write(report, error => error ? reject(error) : done())
+    })
   }
   process.exit(0)
 }

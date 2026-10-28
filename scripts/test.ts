@@ -281,8 +281,12 @@ const GROUPS: readonly Group[] = [
   { id: 'h-ci-wallclock-identity', needs: [] },
   { id: 'h-ci-wallclock-identity-parent-read', needs: [] },
   { id: 'h-prebuilt-no-config-contract', needs: [] },
+  { id: 'h-prebuilt-no-config-lifecycle-contract', needs: [] },
   { id: 'h-prebuilt-owner-descendant-contract', needs: [] },
   { id: 'h-lazy-typescript-contract', needs: [] },
+  { id: 'h-worker-output-contract', needs: [] },
+  { id: 'h-worker-output-guardian', needs: [] },
+  { id: 'h-worker-output-cleanup', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -18311,19 +18315,27 @@ await group('h-ci-wallclock-identity-parent-read', () => {
 })
 
 await group('h-prebuilt-no-config-contract', async () => {
-  harness('无配置入口的独立冻结公开合同')
+  harness('无配置入口producer的独立冻结公开合同')
   const { runPrebuiltNoConfigContracts }: {
     runPrebuiltNoConfigContracts: typeof RunPrebuiltNoConfigContracts
   } = await import('./prebuilt-no-config-contract-test.js')
-  const results = await runPrebuiltNoConfigContracts()
-  const { runPrebuiltClearTermContracts } = await import('./prebuilt-clear-term-contract-test.js')
-  const clearedTerm = await runPrebuiltClearTermContracts()
+  const results = await runPrebuiltNoConfigContracts('producer')
   eq("预编两种格式与独立无配置身份", results.get("预编两种格式与独立无配置身份"), [])
   eq("无配置入口参数与默认语义", results.get("无配置入口参数与默认语义"), [])
   eq("无配置准入边界保留公开加载器回退", results.get("无配置准入边界保留公开加载器回退"), [])
   eq("观察器加载器与直接IPC及工作线程行为不变", results.get("观察器加载器与直接IPC及工作线程行为不变"), [])
   eq("已选入口拒绝源码缓存与配置失效", results.get("已选入口拒绝源码缓存与配置失效"), [])
   eq("单源更新清理与坏编译拒绝旧缓存", results.get("单源更新清理与坏编译拒绝旧缓存"), [])
+})
+
+await group('h-prebuilt-no-config-lifecycle-contract', async () => {
+  harness('无配置入口生命周期的独立冻结公开合同')
+  const { runPrebuiltNoConfigContracts }: {
+    runPrebuiltNoConfigContracts: typeof RunPrebuiltNoConfigContracts
+  } = await import('./prebuilt-no-config-contract-test.js')
+  const results = await runPrebuiltNoConfigContracts('lifecycle')
+  const { runPrebuiltClearTermContracts } = await import('./prebuilt-clear-term-contract-test.js')
+  const clearedTerm = await runPrebuiltClearTermContracts()
   eq("INT和TERM进程组与同步自身信号生命周期", results.has("INT和TERM进程组与同步自身信号生命周期")
     ? [...results.get("INT和TERM进程组与同步自身信号生命周期")!, ...clearedTerm] : undefined, [])
   eq("异常保留原栈且普通预载正常收尾", results.get("异常保留原栈且普通预载正常收尾"), [])
@@ -18339,6 +18351,42 @@ await group('h-lazy-typescript-contract', async () => {
   harness('纯判定按需初始化TypeScript编译器')
   const { runLazyTypescriptContracts } = await import('./lazy-typescript-contract-test.js')
   eq('纯判定不预载TypeScript且AST调用保持同步', runLazyTypescriptContracts(), [])
+})
+
+await group('h-worker-output-contract', async () => {
+  harness('worker在stdout短暂背压解除后完整交回唯一结论')
+  const { runWorkerOutputContract } = await import('./worker-output-contract-test.js')
+  eq('真实worker在stdout背压解除后完整唯一回报且恢复源码', runWorkerOutputContract(), true)
+})
+
+await group('h-worker-output-guardian', async () => {
+  harness('worker测试驱动中断时守护其子进程')
+  const { WORKER_OUTPUT_GUARDIAN } = await import('./worker-output-guardian-data.js')
+  const { runWorkerOutputGuardianRegression } = await import('./worker-output-guardian-test.js')
+  const result = await runWorkerOutputGuardianRegression(WORKER_OUTPUT_GUARDIAN)
+  if (result.status === 'invalid') throw new Error(`${SELFCHECK_FIXTURE_MARK} worker guardian regression: ${result.reason}`)
+  eq('worker guardian startup-group', result.checks['startup-group'], true)
+  eq('worker guardian startup-child', result.checks['startup-child'], true)
+  eq('worker guardian normal-group', result.checks['normal-group'], true)
+  eq('worker guardian normal-child', result.checks['normal-child'], true)
+  eq('worker guardian parent-term-group-isolation', result.checks['parent-term-group-isolation'], true)
+  eq('worker guardian parent-kill-group-ignore-term', result.checks['parent-kill-group-ignore-term'], true)
+  eq('worker guardian parent-term-child', result.checks['parent-term-child'], true)
+  eq('worker guardian parent-kill-child-ignore-term', result.checks['parent-kill-child-ignore-term'], true)
+  eq('worker guardian direct-child-term-group', result.checks['direct-child-term-group'], true)
+  eq('worker guardian direct-child-kill-group', result.checks['direct-child-kill-group'], true)
+  eq('worker guardian direct-child-zero-group', result.checks['direct-child-zero-group'], true)
+  eq('worker guardian direct-child-nonzero-group', result.checks['direct-child-nonzero-group'], true)
+})
+
+await group('h-worker-output-cleanup', async () => {
+  harness('worker夹具失格时清理自身临时快照')
+  const { runRealCleanupRegression } = await import('./worker-output-cleanup-test.js')
+  const result = await runRealCleanupRegression()
+  if (!('checks' in result) || !result.checks) throw new Error(`${SELFCHECK_FIXTURE_MARK} worker cleanup regression: ${result.reason}`)
+  eq('outer runner reports fixture invalid', result.checks.fixtureInvalid, true)
+  eq('owned snapshot removed after failed baseline', result.checks.snapshotRemoved, true)
+  eq('foreign directory preserved', result.checks.foreignPreserved, true)
 })
 
 if (seenGroups.size !== GROUPS.length) {

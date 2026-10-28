@@ -19098,6 +19098,43 @@
       "kills": [
         "纯判定不预载TypeScript且AST调用保持同步"
       ]
+    },
+    {
+      "id": "M-H68-a",
+      "req": "harness",
+      "why": "消费者暂时停止读取stdout后，worker未能在恢复读取时完整交回唯一结论，正常收尾丢失已执行的变异回报",
+      "file": "scripts/check/mutate.ts",
+      "find": "    const report = `${reportLine(m.id, await runOne(m))}\\n`\n    await new Promise<void>((done, reject) => {\n      process.stdout.write(report, error => error ? reject(error) : done())\n    })",
+      "replace": "    writeFileSync(1, `${reportLine(m.id, await runOne(m))}\\n`)",
+      "by": "test",
+      "kills": [
+        "真实worker在stdout背压解除后完整唯一回报且恢复源码"
+      ]
+    },
+    {
+      "id": "M-H68-b",
+      "req": "harness",
+      "why": "已完成但基线失格的测试留下本次临时快照，没有完成清理",
+      "file": "scripts/worker-output-contract-test.ts",
+      "find": "ownedCompletedDriverTemp = completedTemp;\\n  if (!['green','red'].includes(result.outcome) || result.baselineQualified !== true || result.positive?.passed !== true || result.adverse?.fixtureQualified !== true) invalid('original driver fixture did not qualify');\\n  if (raw.status !== (result.outcome === 'green' ? 0 : 1)) invalid('original driver exit and outcome differ');\\n  const expectedDriverOut = JSON.stringify({ outcome: result.outcome, positive: true, adverseQualified: true,\\n    adverseAssertions: result.adverse.assertion, tempRoot: result.identity.tempRoot }) + '\\\\n';\\n  if (raw.stdout !== expectedDriverOut || raw.stderr !== '') invalid('raw controller-to-driver result differs');\\n  const baseline = json('baseline.result.json');\\n  const normalOut = read('normal.dut-stdout.bin'), adverseOut = read('backpressure.dut-stdout.bin');\\n  report.publicRaw = { baseline,\\n    baselineCompleteSummary: read('baseline.stdout.bin').toString().split('\\\\n').filter(line => /全部通过（执行|已完成子集/.test(line)),\\n    normal: { events: events('normal'), stdout: normalOut.toString(), stdoutBytes: normalOut.length, stdoutBase64: normalOut.toString('base64'), stdoutSha256: sha(normalOut), stderr: read('normal.stderr.bin').toString(), result: json('normal.result.json') },\\n    backpressure: { events: events('backpressure'), stdout: adverseOut.toString(), stdoutBytes: adverseOut.length, stdoutBase64: adverseOut.toString('base64'), stdoutSha256: sha(adverseOut), stderr: read('backpressure.stderr.bin').toString(), result: json('backpressure.result.json'),\\n      padding: { bytes: result.adverse.prefixBytes, recoveredIntact: result.adverse.prefixValid, fullStreamSha256: result.adverse.stdoutSha256 } } };\\n  report.outcome = result.outcome;\\n  // This authorizes only this actually completed runtime/dependency execution.\\n  // It grants no profile from the earlier Darwin evidence or platform name.\\n  report.runtimeProfile = { identity: report.runtime, dependenciesManifestSha256: context.dependenciesManifestSha256,\\n    actualExecutionCompleted: true, fixtureQualified: true, behaviorPassed: result.outcome === 'green' };\\n  process.exitCode = result.outcome === 'green' ? 0 : 1;\\n} catch (e) {\\n  report.fixtureErrors.push(e instanceof Error ? e.message : String(e));\\n  report.outcome = 'fixture-unqualified';\\n  process.exitCode = 2;\\n} finally {\\n  if (ownedCompletedDriverTemp) {\\n    try { fs.rmSync(ownedCompletedDriverTemp, { recursive: true, force: true }); report.completedDriverTempRemoved = true; }\\n    catch (e) { report.fixtureErrors.push('completed private driver temporary cleanup failed: ' + e.message); report.outcome = 'fixture-unqualified'; process.exitCode = 2; }\\n  }\\n  fs.writeFileSync(path.join(home, 'controller-result.json'), JSON.stringify(report, null, 2) + '\\\\n');\\n  process.stdout.write(mark + JSON.stringify(report) + '\\\\n');\\n}\\n\"\nconst CONTROLLER_SHA256 = \"69bbf34b4e4896b31f5358e994c0d2af1fd82bd77d57981b2012730e4c1f594a",
+      "replace": "/* temporary cleanup deliberately omitted */\\n  if (!['green','red'].includes(result.outcome) || result.baselineQualified !== true || result.positive?.passed !== true || result.adverse?.fixtureQualified !== true) invalid('original driver fixture did not qualify');\\n  if (raw.status !== (result.outcome === 'green' ? 0 : 1)) invalid('original driver exit and outcome differ');\\n  const expectedDriverOut = JSON.stringify({ outcome: result.outcome, positive: true, adverseQualified: true,\\n    adverseAssertions: result.adverse.assertion, tempRoot: result.identity.tempRoot }) + '\\\\n';\\n  if (raw.stdout !== expectedDriverOut || raw.stderr !== '') invalid('raw controller-to-driver result differs');\\n  const baseline = json('baseline.result.json');\\n  const normalOut = read('normal.dut-stdout.bin'), adverseOut = read('backpressure.dut-stdout.bin');\\n  report.publicRaw = { baseline,\\n    baselineCompleteSummary: read('baseline.stdout.bin').toString().split('\\\\n').filter(line => /全部通过（执行|已完成子集/.test(line)),\\n    normal: { events: events('normal'), stdout: normalOut.toString(), stdoutBytes: normalOut.length, stdoutBase64: normalOut.toString('base64'), stdoutSha256: sha(normalOut), stderr: read('normal.stderr.bin').toString(), result: json('normal.result.json') },\\n    backpressure: { events: events('backpressure'), stdout: adverseOut.toString(), stdoutBytes: adverseOut.length, stdoutBase64: adverseOut.toString('base64'), stdoutSha256: sha(adverseOut), stderr: read('backpressure.stderr.bin').toString(), result: json('backpressure.result.json'),\\n      padding: { bytes: result.adverse.prefixBytes, recoveredIntact: result.adverse.prefixValid, fullStreamSha256: result.adverse.stdoutSha256 } } };\\n  report.outcome = result.outcome;\\n  // This authorizes only this actually completed runtime/dependency execution.\\n  // It grants no profile from the earlier Darwin evidence or platform name.\\n  report.runtimeProfile = { identity: report.runtime, dependenciesManifestSha256: context.dependenciesManifestSha256,\\n    actualExecutionCompleted: true, fixtureQualified: true, behaviorPassed: result.outcome === 'green' };\\n  process.exitCode = result.outcome === 'green' ? 0 : 1;\\n} catch (e) {\\n  report.fixtureErrors.push(e instanceof Error ? e.message : String(e));\\n  report.outcome = 'fixture-unqualified';\\n  process.exitCode = 2;\\n} finally {\\n  if (ownedCompletedDriverTemp) {\\n    try { fs.rmSync(ownedCompletedDriverTemp, { recursive: true, force: true }); report.completedDriverTempRemoved = true; }\\n    catch (e) { report.fixtureErrors.push('completed private driver temporary cleanup failed: ' + e.message); report.outcome = 'fixture-unqualified'; process.exitCode = 2; }\\n  }\\n  fs.writeFileSync(path.join(home, 'controller-result.json'), JSON.stringify(report, null, 2) + '\\\\n');\\n  process.stdout.write(mark + JSON.stringify(report) + '\\\\n');\\n}\\n\"\nconst CONTROLLER_SHA256 = \"0d854b360318e44de77eaa53b21c375a57bf8f03de3a4de577ee4ff5740e8cd0",
+      "by": "test",
+      "kills": [
+        "owned snapshot removed after failed baseline"
+      ]
+    },
+    {
+      "id": "M-H69-a",
+      "req": "harness",
+      "why": "受守护进程退出后，组内仍运行的后代未被及时收口",
+      "file": "scripts/worker-output-guardian-data.ts",
+      "find": "if (signal || hasLiveGroupMembers() !== false) stop('child-ended-with-live-group');",
+      "replace": "if (false) stop('child-ended-with-live-group');",
+      "by": "test",
+      "kills": [
+        "worker guardian direct-child-term-group",
+        "worker guardian direct-child-kill-group"
+      ]
     }
   ],
   "exemptions": [
