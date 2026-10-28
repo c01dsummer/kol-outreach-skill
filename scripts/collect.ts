@@ -537,6 +537,8 @@ async function main() {
   // （D6.f）而不是四条 —— `1-REQUIREMENTS.md` 的拆分判据问的是「会不会被不同的代码
   // 路径独立满足、或者独立弄坏」。记忆读不出来那条在上面的 catch 里，它自己 exit 2，
   // 到不了这里，所以那条仍是独立的 D6.e。
+  // `M-D6-bi`～`M-D6-bl` 给这一行加个条件、只让一种收尾闭嘴 —— 那是今天不存在的分叉，
+  // 证的是四条夹具各自看得住自己那条路：哪天有人把这一行拆进分支，坏一条就红一条。
   console.error(`\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)
 
   if (stopped === 'budget') {
