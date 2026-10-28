@@ -42,7 +42,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
 import { asTsx, brandObserverEnv, fixtureLoader, prebuiltCommand } from './prebuilt.js'
 import {
-  ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, mutationSourceIdentity, sourceFiles,
+  CLAIMS_PATH, ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, mutationSourceIdentity, sourceFiles,
 } from './claims.js'
 import { countingEnv, parseLaunchLog } from './launch-count.js'
 import { SELFCHECK_LAUNCHES_FILE, SELFCHECK_LAUNCHES_SCHEMA } from './launch-rule.js'
@@ -6574,6 +6574,198 @@ group('exempt-lead', [], () => {
     console.error('  ✗ 整跑那份报告里，名下没有变异的那条没这么说')
   }
 })
+
+group('audit-entry', [], () => {
+  let ownedToyRoot: string | undefined;
+  let fixtureReported = false;
+  let runnerReportedFailure = false;
+  let observedA: string | undefined;
+  let observedB: string | undefined;
+  const fixtureFailure = (why: string): void => {
+    if (fixtureReported || runnerReportedFailure) return;
+    fixtureReported = true;
+    failed++;
+    console.error(`✗ audit-entry ${SELFCHECK_FIXTURE_MARK}: ${why.replace(/[\r\n]+/g, ' ')}`);
+  };
+  const sourceText = "/** Ordinary synthetic references: X1, X1.a, X1.b. */\nexport const toyReferences = ['X1', 'X1.a', 'X1.b'] as const;\n";
+  const requirements = {
+    "requirements": [
+      {
+        "id": "X1",
+        "cat": "X",
+        "pri": "P2",
+        "text": "Synthetic ordinary report classification example.",
+        "accept": [
+          {
+            "id": "X1.a",
+            "text": "Synthetic criterion with a declared negative case."
+          },
+          {
+            "id": "X1.b",
+            "text": "Synthetic criterion without a declared negative case."
+          }
+        ]
+      }
+    ]
+  };
+  const mutationData = {
+    "mutations": [
+      {
+        "id": "toy-negative-alpha",
+        "req": "X1.a",
+        "why": "Synthetic data relationship for criterion A."
+      }
+    ],
+    "exemptions": [
+      {
+        "req": "X1.a",
+        "why": "TOY_EXEMPT_ALPHA_7c6f: synthetic justification A."
+      },
+      {
+        "req": "X1.b",
+        "why": "TOY_EXEMPT_BETA_2d91: synthetic justification B."
+      }
+    ]
+  };
+  const definitions = [
+    {
+      "id": "audit-exempt-X1.a-has-named-negative",
+      "criterion": "X1.a",
+      "why": "TOY_EXEMPT_ALPHA_7c6f: synthetic justification A.",
+      "expected": "has-negative",
+      "basis": "contract.md paragraph 2; public-protocol.md mutations/exemptions paragraph: only X1.a has a related mutation."
+    },
+    {
+      "id": "audit-exempt-X1.b-has-no-mutation",
+      "criterion": "X1.b",
+      "why": "TOY_EXEMPT_BETA_2d91: synthetic justification B.",
+      "expected": "no-mutation",
+      "basis": "contract.md paragraph 2; public-protocol.md mutations/exemptions paragraph: X1.b has no related mutation."
+    }
+  ];
+
+  function interpretReport(stdout: string, definitions: readonly { criterion: string; why: string }[]) {
+    const plain = stdout.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\r\n/g, '\n');
+    const lines = plain.split('\n');
+    const units = [...lines, ...plain.split(/\n[ \t]*\n/)];
+    const ids = definitions.map((definition) => definition.criterion);
+    const idPattern = (id: string) => new RegExp(`(?<![A-Za-z0-9_.])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9_.])`);
+    const idsIn = (unit: string) => ids.filter((id) => idPattern(id).test(unit));
+    const hasClassification = (unit: string) => unit.includes('名下有负片') || unit.includes('名下无变异');
+    const indent = (line: string) => line.match(/^[ \t]*/)![0].length;
+    const records: { criterion: string; why: string; actual: string; evidence: string }[] = [];
+    for (const id of ids) {
+      if (lines.filter((line) => idPattern(id).test(line) && hasClassification(line)).length > 1) {
+        return { qualified: false, reason: `Duplicate or ambiguous classification records for ${id}`, records };
+      }
+    }
+    // Additional interpretation eligibility only: a unique ID/classification
+    // header can own its immediately following, more-indented reason lines.
+    // Stop at a blank, another target ID, another classification, or a peer
+    // record indentation. This is not a required product two-line layout.
+    for (let index = 0; index < lines.length; index++) {
+      const header = lines[index];
+      if (idsIn(header).length !== 1 || !hasClassification(header)) continue;
+      const owned = [header];
+      for (let next = index + 1; next < lines.length; next++) {
+        const line = lines[next];
+        if (!line.trim() || indent(line) <= indent(header) || idsIn(line).length || hasClassification(line)) break;
+        owned.push(line);
+      }
+      if (owned.length > 1) units.push(owned.join('\n'));
+    }
+    for (const definition of definitions) {
+      const reasonOccurrences = plain.split(definition.why).length - 1;
+      if (reasonOccurrences !== 1) return { qualified: false, reason: `Cannot uniquely locate exemption reason for ${definition.criterion}`, records };
+      const candidates = units.filter((unit) => unit.includes(definition.why)
+        && idPattern(definition.criterion).test(unit)
+        && definitions.filter((other) => unit.includes(other.why)).length === 1
+        && ids.filter((id) => idPattern(id).test(unit)).length === 1);
+      // The smallest independently associated line/paragraph is sufficient. An
+      // unfamiliar arrangement is manual review, never a semantic failure.
+      candidates.sort((a, b) => a.length - b.length);
+      if (!candidates.length) return { qualified: false, reason: `ID/reason association needs manual reading for ${definition.criterion}`, records };
+      const unit = candidates[0];
+      const classes = [
+        ...(unit.includes('名下有负片') ? ['has-negative'] : []),
+        ...(unit.includes('名下无变异') ? ['no-mutation'] : []),
+      ];
+      if (classes.length !== 1) return { qualified: false, reason: `Classification wording needs manual reading for ${definition.criterion}`, records };
+      records.push({ criterion: definition.criterion, why: definition.why, actual: classes[0], evidence: unit });
+    }
+    return { qualified: true, records };
+  }
+
+  try {
+    ownedToyRoot = mkdtempSync(join(tmpdir(), 'selfcheck-audit-entry-'));
+    if (CLAIMS_PATH !== '.check-cache/test-claims.json' || ENTRY_CLAIMS_PATH !== '.check-cache/selfcheck-claims.json') {
+      fixtureFailure('Admitted Claims paths differ from the frozen toy paths');
+      return;
+    }
+    for (const directory of ['scripts', 'scripts/check', 'docs', 'docs/adr', 'skill', '.check-cache']) {
+      mkdirSync(join(ownedToyRoot, directory), { recursive: true });
+    }
+    const sourceHash = fingerprint([['scripts/toy-reference.ts', sourceText]]);
+    if (typeof sourceHash !== 'string' || sourceHash.length === 0) {
+      fixtureFailure('Public fingerprint did not return a nonempty source identity');
+      return;
+    }
+    const encode = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
+    const unitClaims = { source_hash: sourceHash, covered: ['X1'], criteria: ['X1.a', 'X1.b'], tensions: [] };
+    const entryClaims = { source_hash: sourceHash, covered: [], criteria: [], tensions: [] };
+    // These are synthetic toy inputs, never evidence of real product tests.
+    const files: readonly (readonly [string, string])[] = [
+      ['package.json', '{"private":true,"type":"module"}\n'],
+      ['scripts/toy-reference.ts', sourceText],
+      ['docs/requirements.json', encode(requirements)],
+      ['scripts/check/mutations.json', encode(mutationData)],
+      [CLAIMS_PATH, encode(unitClaims)],
+      [ENTRY_CLAIMS_PATH, encode(entryClaims)],
+    ];
+    for (const [relative, body] of files) {
+      const filename = join(ownedToyRoot, relative);
+      mkdirSync(dirname(filename), { recursive: true });
+      writeFileSync(filename, body);
+    }
+    if (files.some(([relative, body]) => readFileSync(join(ownedToyRoot!, relative), 'utf8') !== body)) {
+      fixtureFailure('Owned toy bytes do not match the frozen input');
+      return;
+    }
+    const run = runToolBoth('audit-entry ordinary audit CLI', 'audit', [], ownedToyRoot, { status: 0 });
+    if (!run.ok) {
+      runnerReportedFailure = true;
+      return; // The existing runner already diagnosed and counted this failure.
+    }
+    if (files.some(([relative, body]) => readFileSync(join(ownedToyRoot!, relative), 'utf8') !== body)) {
+      fixtureFailure('Owned source, data or synthetic Claims changed during audit');
+      return;
+    }
+    const interpretation = interpretReport(run.stdout, definitions);
+    if (!interpretation.qualified) {
+      fixtureFailure(interpretation.reason ?? 'Report association needs manual reading');
+      return;
+    }
+    observedA = interpretation.records.find((record) => record.criterion === 'X1.a')?.actual;
+    observedB = interpretation.records.find((record) => record.criterion === 'X1.b')?.actual;
+    if (!observedA || !observedB) {
+      fixtureFailure('Qualified interpretation did not contain both owned records');
+      return;
+    }
+  } catch (error) {
+    fixtureFailure(error instanceof Error ? error.message : String(error));
+    return;
+  } finally {
+    if (ownedToyRoot !== undefined) {
+      try { rmSync(ownedToyRoot, { recursive: true, force: true }); }
+      catch (error) { fixtureFailure(error instanceof Error ? error.message : String(error)); }
+    }
+  }
+  if (fixtureReported || runnerReportedFailure) return;
+  named('audit-exempt-X1.a-has-named-negative', observedA === 'has-negative',
+    'X1.a and its frozen explicit exemption reason must report 名下有负片');
+  named('audit-exempt-X1.b-has-no-mutation', observedB === 'no-mutation',
+    'X1.b and its frozen explicit exemption reason must report 名下无变异');
+});
 
 // ---- 子集基线：先验正常代码，同一配置只验一次，未通过就不能施加变异 ----
 group('mutation-baseline', [], () => {

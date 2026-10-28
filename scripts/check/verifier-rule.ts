@@ -80,6 +80,7 @@ export const SELFCHECK_TOOLS = {
   launches: 'check/launches.ts',
   'adr-ledger': 'check/adr-ledger.ts',
   skill: 'check/skill.ts',
+  audit: 'check/audit.ts',
 } as const
 
 /**

@@ -7533,10 +7533,9 @@ harness('豁免那一行开头说的话，要跟变异集对得上')
   eq('名下有变异时这么说', exemptionLead(true), '名下有负片')
   eq('没有时这么说', exemptionLead(false), '名下无变异')
 
-  // 同一句话有三处入口在印。mutate 那两处各有自检夹具真跑一遍断言输出；audit 那一处
-  // 没有 —— 给它造夹具要把 audit 加进自检的工具表，而那张表同时是隔离判据的种子来源，
-  // 闭包会跟着撑大，为一行报告不值。退而求其次扫源码问「还在调吗」，
-  // 它挡得住「换回写死的字面量」这个坏法，但证不了印出来的话对（差额记在 ADR-70）
+  // 同一句话有三处入口在印。mutate 两处与 audit 现各有输出级夹具；audit-entry 经工具表
+  // 起普通报告。这里继续保留较弱的源码接线判定：它问「还在调吗」，挡得住写死字面量，
+  // 但证不了印出来的话对，也不能据此绕过工具表扩大后的基础设施闭包（ADR-70）。
   eq('调了判定就算接着', leadWired('exemptionLead(exemptionCovered(x, y))'), true)
 
   const nestedSource = `
@@ -7557,7 +7556,7 @@ entry();
     leadWired("const s = 'exemptionLead(exemptionCovered(x, y))'"), false)
   eq('别的对象上的同名方法不算', leadWired('other.exemptionLead(exemptionCovered(x, y))'), false)
   // 两个文件、三处调用：手搭的数据证不了真文件里还在调。判定按文件问，mutate 里那两处
-  // 断了哪一处它分不出 —— 那两处各有夹具兜着，这里真正独自扛的是 audit 那一处
+  // 断了哪一处它分不出；各入口的实际报告另由输出级夹具核，这里只保留调用存在的弱层
   for (const f of ['scripts/check/mutate.ts', 'scripts/check/audit.ts']) {
     ok(`${f} 里还有从判定取的豁免行`, leadWired(rf(f, 'utf8')))
   }
@@ -10568,10 +10567,10 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 第四份是计数预加载：自检当工具起的 mutate，在正常基线那一跑经 NODE_OPTIONS 的 --import 把它加载进验证者（ADR-145 第十三节
   // 第 1、2 小节）。第三片又给工具表加了启动数闸门的入口（第二十一节第 7 小节），ADR-151 第二节第 1 片加了只读台账入口，
   // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）。
-  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts，
-  // 按字符串排（a < f < launch- < launches < m < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
+  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70），
+  // 按字符串排（adr < audit < f < launch- < launches < m < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
-    'scripts/check/adr-ledger.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
+    'scripts/check/adr-ledger.ts', 'scripts/check/audit.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
     'scripts/check/launches.ts', 'scripts/check/mutate.ts', 'scripts/check/selfcheck.ts', 'scripts/check/skill.ts',
   ])
   // 预加载单独列，因为它既不是 import 也不是「起了谁」—— 两种扫法都收不到
