@@ -282,6 +282,9 @@ const GROUPS: readonly Group[] = [
   { id: 'h-prebuilt-no-config-contract', needs: [] },
   { id: 'h-prebuilt-owner-descendant-contract', needs: [] },
   { id: 'h-lazy-typescript-contract', needs: [] },
+  { id: 'h-worker-output-contract', needs: [] },
+  { id: 'h-worker-output-guardian', needs: [] },
+  { id: 'h-worker-output-cleanup', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -18290,6 +18293,42 @@ await group('h-lazy-typescript-contract', async () => {
   harness('纯判定按需初始化TypeScript编译器')
   const { runLazyTypescriptContracts } = await import('./lazy-typescript-contract-test.js')
   eq('纯判定不预载TypeScript且AST调用保持同步', runLazyTypescriptContracts(), [])
+})
+
+await group('h-worker-output-contract', async () => {
+  harness('worker在stdout短暂背压解除后完整交回唯一结论')
+  const { runWorkerOutputContract } = await import('./worker-output-contract-test.js')
+  eq('真实worker在stdout背压解除后完整唯一回报且恢复源码', runWorkerOutputContract(), true)
+})
+
+await group('h-worker-output-guardian', async () => {
+  harness('worker测试驱动中断时守护其子进程')
+  const { WORKER_OUTPUT_GUARDIAN } = await import('./worker-output-guardian-data.js')
+  const { runWorkerOutputGuardianRegression } = await import('./worker-output-guardian-test.js')
+  const result = await runWorkerOutputGuardianRegression(WORKER_OUTPUT_GUARDIAN)
+  if (result.status === 'invalid') throw new Error(`${SELFCHECK_FIXTURE_MARK} worker guardian regression: ${result.reason}`)
+  eq('worker guardian startup-group', result.checks['startup-group'], true)
+  eq('worker guardian startup-child', result.checks['startup-child'], true)
+  eq('worker guardian normal-group', result.checks['normal-group'], true)
+  eq('worker guardian normal-child', result.checks['normal-child'], true)
+  eq('worker guardian parent-term-group-isolation', result.checks['parent-term-group-isolation'], true)
+  eq('worker guardian parent-kill-group-ignore-term', result.checks['parent-kill-group-ignore-term'], true)
+  eq('worker guardian parent-term-child', result.checks['parent-term-child'], true)
+  eq('worker guardian parent-kill-child-ignore-term', result.checks['parent-kill-child-ignore-term'], true)
+  eq('worker guardian direct-child-term-group', result.checks['direct-child-term-group'], true)
+  eq('worker guardian direct-child-kill-group', result.checks['direct-child-kill-group'], true)
+  eq('worker guardian direct-child-zero-group', result.checks['direct-child-zero-group'], true)
+  eq('worker guardian direct-child-nonzero-group', result.checks['direct-child-nonzero-group'], true)
+})
+
+await group('h-worker-output-cleanup', async () => {
+  harness('worker夹具失格时清理自身临时快照')
+  const { runRealCleanupRegression } = await import('./worker-output-cleanup-test.js')
+  const result = await runRealCleanupRegression()
+  if (!('checks' in result) || !result.checks) throw new Error(`${SELFCHECK_FIXTURE_MARK} worker cleanup regression: ${result.reason}`)
+  eq('outer runner reports fixture invalid', result.checks.fixtureInvalid, true)
+  eq('owned snapshot removed after failed baseline', result.checks.snapshotRemoved, true)
+  eq('foreign directory preserved', result.checks.foreignPreserved, true)
 })
 
 if (seenGroups.size !== GROUPS.length) {
