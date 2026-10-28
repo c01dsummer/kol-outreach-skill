@@ -258,6 +258,94 @@
       ]
     },
     {
+      "id": "M-D4-al",
+      "req": "D4",
+      "why": "把不包含上界误当包含，删除恰等于当前Linux上界的邻文件",
+      "file": "scripts/lib/atomic.ts",
+      "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid >= ceiling || String(pid) !== spelled) continue",
+      "replace": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > ceiling || String(pid) !== spelled) continue",
+      "by": "test",
+      "kills": [
+        "pid.linux.dynamic.initial-exclusive-boundary"
+      ]
+    },
+    {
+      "id": "M-D4-am",
+      "req": "D4",
+      "why": "清扫忽略当前本机上界而沿用通用硬界，调低配置后的界外邻文件被删除",
+      "file": "scripts/lib/atomic.ts",
+      "find": "  const ceiling = pidCeiling()",
+      "replace": "  const ceiling = PID_MAX_LIMIT",
+      "by": "test",
+      "kills": [
+        "pid.linux.dynamic.initial-exclusive-boundary",
+        "pid.darwin.same-named-proc-ignored"
+      ]
+    },
+    {
+      "id": "M-D4-an",
+      "req": "D4",
+      "why": "正规但过大的来源未收至项目硬界，使硬界端点的邻文件获得删除资格",
+      "file": "scripts/lib/atomic.ts",
+      "find": "Math.min(Number(text), PID_MAX_LIMIT)",
+      "replace": "Number(text)",
+      "by": "test",
+      "kills": [
+        "pid.linux.cap.just-over-cap",
+        "pid.linux.cap.huge-digits"
+      ]
+    },
+    {
+      "id": "M-D4-ao",
+      "req": "D4",
+      "why": "Darwin沿用通用硬界，删除项目本机兜底上界及以上的邻文件",
+      "file": "scripts/lib/atomic.ts",
+      "find": "  return process.platform === 'darwin' ? 99999 : PID_MAX_LIMIT",
+      "replace": "  return PID_MAX_LIMIT",
+      "by": "test",
+      "kills": [
+        "pid.darwin.same-named-proc-ignored"
+      ]
+    },
+    {
+      "id": "M-D4-ap",
+      "req": "D4",
+      "why": "把前导零或指数等非法来源当成当前上界，漏掉按兜底应清理的范围内残留",
+      "file": "scripts/lib/atomic.ts",
+      "find": "      if (/^[1-9][0-9]*$/.test(text)) return Math.min(Number(text), PID_MAX_LIMIT)",
+      "replace": "      if (Number(text) > 0) return Math.min(Number(text), PID_MAX_LIMIT)",
+      "by": "test",
+      "kills": [
+        "pid.linux.fallback.leading-zero",
+        "pid.linux.fallback.exponent"
+      ]
+    },
+    {
+      "id": "M-D4-aq",
+      "req": "D4",
+      "why": "读取运行时上界失败就让本次写回失败，违背清理不能阻止写回的约定",
+      "file": "scripts/lib/atomic.ts",
+      "find": "    } catch { /* 来源读不到时沿用原方案兜底，不因此阻止写回 */ }",
+      "replace": "    } catch (error) { throw error }",
+      "by": "test",
+      "kills": [
+        "pid.linux.fallback.read-denied"
+      ]
+    },
+    {
+      "id": "M-D4-ar",
+      "req": "D4",
+      "why": "非Linux虽然保留平台兜底，仍多读一次Linux来源正文，破坏已声明的平台读取边界",
+      "file": "scripts/lib/atomic.ts",
+      "find": "  return process.platform === 'darwin' ? 99999 : PID_MAX_LIMIT",
+      "replace": "  if (process.platform !== 'linux') readFileSync('/proc/sys/kernel/pid_max', 'utf8')\n  return process.platform === 'darwin' ? 99999 : PID_MAX_LIMIT",
+      "by": "test",
+      "kills": [
+        "pid.darwin.same-named-proc-ignored",
+        "pid.other-platform.same-named-proc-ignored"
+      ]
+    },
+    {
       "id": "M-D4-aj",
       "req": "D4",
       "why": "损坏的关联身份仍被当成可用记忆，导致去重结论不可信",
@@ -3257,40 +3345,48 @@
       "req": "D4",
       "why": "把「process.pid 写得出来的名字」放宽成「Number() 吞得下」—— `x.1e3.tmp`、`x.007.tmp`、超出范围的数字串这些别人的文件被当成残留删掉",
       "file": "scripts/lib/atomic.ts",
-      "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue",
+      "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid >= ceiling || String(pid) !== spelled) continue",
       "replace": "    if (!Number.isInteger(pid) || pid <= 0) continue",
       "by": "test",
-      "kills": ["D4.k 写回保留不能由进程号生成的数字邻文件"]
+      "kills": [
+        "D4.k 写回保留不能由进程号生成的数字邻文件"
+      ]
     },
     {
       "id": "M-D4-ab",
       "req": "D4",
       "why": "不再要求数字串能原样往返 —— `1e3`、`007` 转成数字后是合法 pid，于是被当成残留删掉",
       "file": "scripts/lib/atomic.ts",
-      "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue",
-      "replace": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX) continue",
+      "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid >= ceiling || String(pid) !== spelled) continue",
+      "replace": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid >= ceiling) continue",
       "by": "test",
-      "kills": ["D4.k 写回保留不能原样往返的进程号文本"]
+      "kills": [
+        "D4.k 写回保留不能原样往返的进程号文本"
+      ]
     },
     {
       "id": "M-D4-ac",
       "req": "D4",
       "why": "不管超没超出 pid 的范围 —— 超出 int32 的名字让 process.kill 抛参数错、被当成死进程的残留删掉，而没有哪个进程写得出这种名字",
       "file": "scripts/lib/atomic.ts",
-      "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue",
+      "find": "    if (!Number.isSafeInteger(pid) || pid <= 0 || pid >= ceiling || String(pid) !== spelled) continue",
       "replace": "    if (!Number.isSafeInteger(pid) || pid <= 0 || String(pid) !== spelled) continue",
       "by": "test",
-      "kills": ["D4.k 写回保留超过 int32 范围的数字邻文件"]
+      "kills": [
+        "D4.k 写回保留超过 int32 范围的数字邻文件"
+      ]
     },
     {
       "id": "M-D4-ad",
       "req": "D4",
-      "why": "把 pid 上限放宽到 process.kill 收得下的 int32 —— 系统根本发不出的 pid（如 2147483647）被当成死进程的残留删掉，而没有哪个进程写得出这种名字",
+      "why": "来源读失败时把项目兜底上界放宽到int32，让4194304及其上的邻文件被当作残留清掉；不因读不到运行时来源就扩大删除范围",
       "file": "scripts/lib/atomic.ts",
-      "find": "const PID_MAX = 4 * 1024 * 1024",
-      "replace": "const PID_MAX = 0x7fffffff",
+      "find": "const PID_MAX_LIMIT = 4 * 1024 * 1024",
+      "replace": "const PID_MAX_LIMIT = 0x7fffffff",
       "by": "test",
-      "kills": ["D4.k 写回保留超过已声明 PID 上限的数字邻文件"]
+      "kills": [
+        "pid.linux.fallback.read-denied"
+      ]
     },
     {
       "id": "M-D4-ae",
