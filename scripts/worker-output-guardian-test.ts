@@ -4,6 +4,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+// Synthetic workers exit on their own this long after they start; the runner relies on it too.
+const SELF_EXIT_MS = 12000
+
 // Independent process fixtures: no production implementation or repository files are copied.
 const FIXTURES: ReadonlyArray<readonly [string, string]> = [
   ["fixture-worker.cjs", `'use strict';
@@ -11,7 +14,7 @@ const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const mode = process.argv[2];
 // Safety bound applies only to synthetic processes created by this test.
-if (mode !== 'quick') setTimeout(() => process.exit(124), 12000);
+if (mode !== 'quick') setTimeout(() => process.exit(124), ${SELF_EXIT_MS});
 if (Object.hasOwn(process.env, 'KOL_GUARDIAN_PARENT_PID') || Object.hasOwn(process.env, 'KOL_GUARD_FORWARD_FD3')) { process.stderr.write('guard parent identity leaked into worker environment\\n'); process.exit(91); }
 if (mode === 'race') {
   fs.writeFileSync(process.argv[3], JSON.stringify({ pid: process.pid }));
@@ -143,10 +146,14 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // never as stopped, and the caller may look again before its own deadline. A deadline
 // reached while the last look still observed nothing fails with that original error text,
 // so the receipt is fixture-invalid. After one such loss later timeouts fail at once, as before.
-let inspectionLost = false;
+let inspectionLost = false, unobservedInCheck = false;
 function look(test) {
   try { return { result: test() }; }
-  catch (error) { if (inspectionLost || error.inspectionTimedOut !== true) throw error; return { unobserved: error }; }
+  catch (error) {
+    if (inspectionLost || error.inspectionTimedOut !== true) throw error;
+    unobservedInCheck = true;
+    return { unobserved: error };
+  }
 }
 function unobservedAt(error, label) {
   inspectionLost = true;
@@ -324,6 +331,19 @@ async function startupRace(mode) {
   }
 }
 
+const INVALID_FAILURE = /owned fixtures stop without PID signals|cannot inspect owned process state/;
+const SELF_EXIT_MS = ${SELF_EXIT_MS};
+// Looking again pushes every later look of a check later. Once a check observed nothing, only
+// a pass before any synthetic worker could exit on its own (SELF_EXIT_MS after the check
+// started) still says something about the guardian: a later pass may be that exit, and a red
+// may be the stall itself. Both become fixture-invalid; a check that saw everything is unchanged.
+function afterUnobserved(failure, started) {
+  if (!unobservedInCheck || (failure && INVALID_FAILURE.test(failure.message || ''))) return failure;
+  if (failure) return Error('cannot inspect owned process state: this check observed nothing at least once, so its red may be the stall: ' + (failure.message || failure));
+  const elapsed = Date.now() - started;
+  if (elapsed < SELF_EXIT_MS) return null;
+  return Error('cannot inspect owned process state: this check observed nothing at least once and passed only ' + elapsed + ' ms after it started, when synthetic workers may already have exited on their own');
+}
 (async () => {
   const tests = [
     ['startup-group', () => startupRace('group')],
@@ -342,12 +362,15 @@ async function startupRace(mode) {
   const checks = {};
   let fixtureInvalid = false;
   for (const [name, run] of tests) {
-    try { await run(); checks[name] = true; }
-    catch (error) {
-      checks[name] = false;
-      if (/owned fixtures stop without PID signals|cannot inspect owned process state/.test(error.message || '')) fixtureInvalid = true;
-      console.error('FAIL ' + name + ': ' + (error.stack || error));
-    }
+    const started = Date.now();
+    unobservedInCheck = false;
+    let failure = null;
+    try { await run(); } catch (error) { failure = error; }
+    failure = afterUnobserved(failure, started);
+    checks[name] = !failure;
+    if (!failure) continue;
+    if (INVALID_FAILURE.test(failure.message || '')) fixtureInvalid = true;
+    console.error('FAIL ' + name + ': ' + (failure.stack || failure));
   }
   console.log('GUARDIAN_REGRESSION_JSON ' + JSON.stringify({ checks, fixtureInvalid, zombieObserved: zombiesSeen.size > 0 }));
   if (Object.values(checks).some(value => !value)) process.exitCode = 1;
