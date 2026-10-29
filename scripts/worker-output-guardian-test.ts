@@ -338,10 +338,11 @@ const SELF_EXIT_MS = ${SELF_EXIT_MS};
 // a pass before any synthetic worker could exit on its own (SELF_EXIT_MS after the check
 // started) still says something about the guardian: a later pass may be that exit, and a red
 // may be the stall itself. Both become fixture-invalid; a check that saw everything is unchanged.
+// Timed on the monotonic clock the workers' setTimeout runs on: a wall-clock step cannot shorten it.
 function afterUnobserved(failure, started) {
   if (!unobservedInCheck || (failure && INVALID_FAILURE.test(failure.message || ''))) return failure;
   if (failure) return Error('cannot inspect owned process state: this check observed nothing at least once, so its red may be the stall: ' + (failure.message || failure));
-  const elapsed = Date.now() - started;
+  const elapsed = Math.floor(performance.now() - started);
   if (elapsed < SELF_EXIT_MS) return null;
   return Error('cannot inspect owned process state: this check observed nothing at least once and passed only ' + elapsed + ' ms after it started, when synthetic workers may already have exited on their own');
 }
@@ -363,7 +364,7 @@ function afterUnobserved(failure, started) {
   const checks = {};
   let fixtureInvalid = false;
   for (const [name, run] of tests) {
-    const started = Date.now();
+    const started = performance.now();
     unobservedInCheck = false;
     let failure = null;
     try { await run(); } catch (error) { failure = error; }
