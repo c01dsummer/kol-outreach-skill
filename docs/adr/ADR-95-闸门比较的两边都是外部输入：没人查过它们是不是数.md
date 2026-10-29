@@ -57,7 +57,7 @@
 
 ## 还第 43 行：`budget-gate` 六条夹具写成具名断言，各有负片（KOL-21，2026-10-30）
 
-> ⚠️ 已还：ADR-95 第 43 行 · 还在 KOL-21 的 PR #待补（代码一步是提交 `14cda65`）：自检 `budget-gate` 组里的六条端到端夹具都写成具名断言，每条都有一条指名自检验的负片指着（`M-D13-w`～`M-D13-aa`），三条入口各先跑一次请求观察器阳性对照
+> ⚠️ 已还：ADR-95 第 43 行 · 还在 KOL-21 的 PR #411（代码一步是提交 `14cda65`）：自检 `budget-gate` 组里的六条端到端夹具都写成具名断言，每条都有一条指名自检验的负片指着（`M-D13-w`～`M-D13-aa`），三条入口各先跑一次请求观察器阳性对照
 
 **从哪棵树起。** 交接包里这一片的补丁基于 `902e63e`，不整份套用：`budget-gate` 一组先按 KOL-20 的候选头 `7f1c160` 上的现状重写、变异按当时的目录重新编号，做成提交 `2fb63c8`，推到了远端分支、没开 PR；KOL-20 由 #406、#408、#409、#410 合入之后，改基到主干 `ab48003`（#410 合入后），`cherry-pick` 没有冲突，代码一步是提交 `14cda65`。`7f1c160` 与 `ab48003` 之间，这一片改的四个文件只差 `selfcheck.ts` 里 `audit-entry` 一组与 `mutations.json` 里 `M-H68-b` 一条的 `find`／`replace`，`collect.ts`、`probe.ts`、`enrich.ts`、`lib/pipeline.ts` 一字未变（`git diff --stat 7f1c160 ab48003 -- scripts/check/selfcheck.ts scripts/check/mutations.json scripts/collect.ts scripts/probe.ts scripts/enrich.ts scripts/lib/pipeline.ts`），所以改基前后 `budget-gate` 这一组与它起的几个入口字节相同。本节的行号与提交，不另注的都按 `ab48003`（改前）与 `14cda65`（改后）。另两张同一片还的欠条记在 ADR-70 与 ADR-92 末尾；欠条台账清点只记在 ADR-70 那一节。
 
