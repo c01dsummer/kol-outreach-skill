@@ -175,6 +175,7 @@ async function assertAlive(test, message) {
     if (!seen.unobserved) return assert.ok(seen.result, message);
     if (Date.now() >= deadline) throw unobservedAt(seen.unobserved, message);
     await sleep(20);
+    if (Date.now() >= deadline) throw unobservedAt(seen.unobserved, message);
   }
 }
 const zombiesSeen = new Set();
