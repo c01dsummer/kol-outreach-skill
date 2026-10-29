@@ -42,7 +42,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
 import { asTsx, brandObserverEnv, fixtureLoader, prebuiltCommand } from './prebuilt.js'
 import {
-  ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, mutationSourceIdentity, sourceFiles,
+  CLAIMS_PATH, ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, mutationSourceIdentity, sourceFiles,
 } from './claims.js'
 import { countingEnv, parseLaunchLog } from './launch-count.js'
 import { SELFCHECK_LAUNCHES_FILE, SELFCHECK_LAUNCHES_SCHEMA } from './launch-rule.js'
@@ -6574,6 +6574,204 @@ group('exempt-lead', [], () => {
     console.error('  ✗ 整跑那份报告里，名下没有变异的那条没这么说')
   }
 })
+
+group('audit-entry', [], () => {
+  let ownedToyRoot: string | undefined;
+  let fixtureReported = false;
+  let runnerReportedFailure = false;
+  let observedA: string | undefined;
+  let observedB: string | undefined;
+  // 夹具没造对只报一次、只计一次失败。`raw` 是要交给人读的那份原始报告（报告认不出那一支给）：
+  // 逐行加前缀再打，免得报告里自己的 `✗ …` 行顶格打出来，被 `killsMatched` 与汇总正则当成自检的话
+  const fixtureFailure = (why: string, raw?: { stdout: string; stderr: string }): void => {
+    if (fixtureReported || runnerReportedFailure) return;
+    fixtureReported = true;
+    failed++;
+    console.error(`  ✗ audit-entry${SELFCHECK_FIXTURE_MARK}：${why.replace(/[\r\n]+/g, ' ')}`);
+    if (raw === undefined) return;
+    const dump = (stream: string, text: string): void => {
+      console.error(`    ┌ 普通审计的原始 ${stream}${text ? '' : '（空）'}`);
+      if (text) console.error(text.replace(/\n$/, '').split('\n').map((line) => `    │ ${line}`).join('\n'));
+    };
+    dump('stdout', raw.stdout);
+    if (raw.stderr) dump('stderr', raw.stderr);
+  };
+  const sourceText = "/** Ordinary synthetic references: X1, X1.a, X1.b. */\nexport const toyReferences = ['X1', 'X1.a', 'X1.b'] as const;\n";
+  const requirements = {
+    "requirements": [
+      {
+        "id": "X1",
+        "cat": "X",
+        "pri": "P2",
+        "text": "Synthetic ordinary report classification example.",
+        "accept": [
+          {
+            "id": "X1.a",
+            "text": "Synthetic criterion with a declared negative case."
+          },
+          {
+            "id": "X1.b",
+            "text": "Synthetic criterion without a declared negative case."
+          }
+        ]
+      }
+    ]
+  };
+  const mutationData = {
+    "mutations": [
+      {
+        "id": "toy-negative-alpha",
+        "req": "X1.a",
+        "why": "Synthetic data relationship for criterion A."
+      }
+    ],
+    "exemptions": [
+      {
+        "req": "X1.a",
+        "why": "TOY_EXEMPT_ALPHA_7c6f: synthetic justification A."
+      },
+      {
+        "req": "X1.b",
+        "why": "TOY_EXEMPT_BETA_2d91: synthetic justification B."
+      }
+    ]
+  };
+  // 解释器只按编号与理由记号认豁免行。两条预期是照上面自造的资料关系手推的，不取自审计的运行结果：
+  // `mutationData` 只有一条变异、记在 X1.a 名下，所以 X1.a 那条豁免该说「名下有负片」；X1.b 名下
+  // 一条也没有，该说「名下无变异」。预期只写在文末两条 `named` 里 —— 标签是字面量，清册才看得见。
+  // 推导与三种弄坏法的实测见 ADR-70 末尾「还第 790 行」那一节。
+  const definitions = [
+    {
+      "criterion": "X1.a",
+      "why": "TOY_EXEMPT_ALPHA_7c6f: synthetic justification A."
+    },
+    {
+      "criterion": "X1.b",
+      "why": "TOY_EXEMPT_BETA_2d91: synthetic justification B."
+    }
+  ];
+
+  function interpretReport(stdout: string, definitions: readonly { criterion: string; why: string }[]) {
+    const plain = stdout.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\r\n/g, '\n');
+    const lines = plain.split('\n');
+    const units = [...lines, ...plain.split(/\n[ \t]*\n/)];
+    const ids = definitions.map((definition) => definition.criterion);
+    const idPattern = (id: string) => new RegExp(`(?<![A-Za-z0-9_.])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9_.])`);
+    const idsIn = (unit: string) => ids.filter((id) => idPattern(id).test(unit));
+    const hasClassification = (unit: string) => unit.includes('名下有负片') || unit.includes('名下无变异');
+    const indent = (line: string) => line.match(/^[ \t]*/)![0].length;
+    const records: { criterion: string; why: string; actual: string; evidence: string }[] = [];
+    for (const id of ids) {
+      if (lines.filter((line) => idPattern(id).test(line) && hasClassification(line)).length > 1) {
+        return { qualified: false, reason: `${id} 带分类的行不止一处`, records };
+      }
+    }
+    // 只是多认得一种排法，不是要求报告这么排：带且只带一个编号、又带分类的那一行，可以领下面紧跟着、
+    // 缩进更深的理由行；碰到空行、别的编号、别的分类或同级缩进就停。
+    for (let index = 0; index < lines.length; index++) {
+      const header = lines[index];
+      if (idsIn(header).length !== 1 || !hasClassification(header)) continue;
+      const owned = [header];
+      for (let next = index + 1; next < lines.length; next++) {
+        const line = lines[next];
+        if (!line.trim() || indent(line) <= indent(header) || idsIn(line).length || hasClassification(line)) break;
+        owned.push(line);
+      }
+      if (owned.length > 1) units.push(owned.join('\n'));
+    }
+    for (const definition of definitions) {
+      const reasonOccurrences = plain.split(definition.why).length - 1;
+      if (reasonOccurrences !== 1) return { qualified: false, reason: `${definition.criterion} 的豁免理由在报告里不是恰好出现一次`, records };
+      const candidates = units.filter((unit) => unit.includes(definition.why)
+        && idPattern(definition.criterion).test(unit)
+        && definitions.filter((other) => unit.includes(other.why)).length === 1
+        && ids.filter((id) => idPattern(id).test(unit)).length === 1);
+      // 取能独立对上的最小那一行或一段就够了。认不得的排法交人工读，从不算语义红。
+      candidates.sort((a, b) => a.length - b.length);
+      if (!candidates.length) return { qualified: false, reason: `${definition.criterion} 的编号与理由对不上同一行或同一段`, records };
+      const unit = candidates[0];
+      const classes = [
+        ...(unit.includes('名下有负片') ? ['has-negative'] : []),
+        ...(unit.includes('名下无变异') ? ['no-mutation'] : []),
+      ];
+      if (classes.length !== 1) return { qualified: false, reason: `${definition.criterion} 那一处两种说法不是恰好有一种`, records };
+      records.push({ criterion: definition.criterion, why: definition.why, actual: classes[0], evidence: unit });
+    }
+    return { qualified: true, records };
+  }
+
+  try {
+    ownedToyRoot = mkdtempSync(join(tmpdir(), 'selfcheck-audit-entry-'));
+    if (CLAIMS_PATH !== '.check-cache/test-claims.json' || ENTRY_CLAIMS_PATH !== '.check-cache/selfcheck-claims.json') {
+      fixtureFailure('两份覆盖记录的路径常量与本组写死的不一样');
+      return;
+    }
+    for (const directory of ['scripts', 'scripts/check', 'docs', 'docs/adr', 'skill', '.check-cache']) {
+      mkdirSync(join(ownedToyRoot, directory), { recursive: true });
+    }
+    const sourceHash = fingerprint([['scripts/toy-reference.ts', sourceText]]);
+    if (typeof sourceHash !== 'string' || sourceHash.length === 0) {
+      fixtureFailure('fingerprint 没交回非空的源码指纹');
+      return;
+    }
+    const encode = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
+    const unitClaims = { source_hash: sourceHash, covered: ['X1'], criteria: ['X1.a', 'X1.b'], tensions: [] };
+    const entryClaims = { source_hash: sourceHash, covered: [], criteria: [], tensions: [] };
+    // 都是自造的玩具输入，不是真实产品测试的覆盖证据。
+    const files: readonly (readonly [string, string])[] = [
+      ['package.json', '{"private":true,"type":"module"}\n'],
+      ['scripts/toy-reference.ts', sourceText],
+      ['docs/requirements.json', encode(requirements)],
+      ['scripts/check/mutations.json', encode(mutationData)],
+      [CLAIMS_PATH, encode(unitClaims)],
+      [ENTRY_CLAIMS_PATH, encode(entryClaims)],
+    ];
+    for (const [relative, body] of files) {
+      const filename = join(ownedToyRoot, relative);
+      mkdirSync(dirname(filename), { recursive: true });
+      writeFileSync(filename, body);
+    }
+    if (files.some(([relative, body]) => readFileSync(join(ownedToyRoot!, relative), 'utf8') !== body)) {
+      fixtureFailure('玩具树里读回的字节与写下去的不一样');
+      return;
+    }
+    const run = runToolBoth('audit-entry 起普通审计', 'audit', [], ownedToyRoot, { status: 0 });
+    if (!run.ok) {
+      runnerReportedFailure = true;
+      return; // runBoth 已经带进程记号报过、计过一次
+    }
+    if (files.some(([relative, body]) => readFileSync(join(ownedToyRoot!, relative), 'utf8') !== body)) {
+      fixtureFailure('审计跑完，玩具树里的源码、资料或覆盖记录变了');
+      return;
+    }
+    const interpretation = interpretReport(run.stdout, definitions);
+    if (!interpretation.qualified) {
+      // 认不出不算语义红，也不算抓到：原始报告连同 stderr 交出来待人工读，玩具树随后照常删掉
+      fixtureFailure(`${interpretation.reason ?? '报告里的豁免行认不出'}，原始报告附在下面，待人工读`,
+        { stdout: run.stdout, stderr: run.stderr });
+      return;
+    }
+    observedA = interpretation.records.find((record) => record.criterion === 'X1.a')?.actual;
+    observedB = interpretation.records.find((record) => record.criterion === 'X1.b')?.actual;
+    if (!observedA || !observedB) {
+      fixtureFailure('解释合格了，却没交回 X1.a、X1.b 两条记录');
+      return;
+    }
+  } catch (error) {
+    fixtureFailure(error instanceof Error ? error.message : String(error));
+    return;
+  } finally {
+    if (ownedToyRoot !== undefined) {
+      try { rmSync(ownedToyRoot, { recursive: true, force: true }); }
+      catch (error) { fixtureFailure(error instanceof Error ? error.message : String(error)); }
+    }
+  }
+  if (fixtureReported || runnerReportedFailure) return;
+  named('audit-exempt-X1.a-has-named-negative', observedA === 'has-negative',
+    'X1.a 那条豁免（理由带 TOY_EXEMPT_ALPHA_7c6f）该说「名下有负片」');
+  named('audit-exempt-X1.b-has-no-mutation', observedB === 'no-mutation',
+    'X1.b 那条豁免（理由带 TOY_EXEMPT_BETA_2d91）该说「名下无变异」');
+});
 
 // ---- 子集基线：先验正常代码，同一配置只验一次，未通过就不能施加变异 ----
 group('mutation-baseline', [], () => {
