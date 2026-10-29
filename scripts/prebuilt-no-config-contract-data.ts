@@ -40,7 +40,7 @@ export const ORIGINAL_FREEZES = [
   },
   {
     "path": "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/freeze-manifest.json",
-    "sha256": "8e75b818b0baf50e4ddddffefe23ec57393ea133f1cc0fd908b27415e6cc2055",
+    "sha256": "86d767248a197b76d95054e6f70ab66b5d9412845d7248953a846ceaac6134a4",
     "portableMeaning": "explicit runtime subset; not original full old26/superset qualification",
     "omitted": []
   },
@@ -52,7 +52,7 @@ export const ORIGINAL_FREEZES = [
   },
   {
     "path": "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/freeze-manifest.json",
-    "sha256": "66ace09e7f3b77144382c0acea666871d9d15373be09e399dc5b8366c8742c6a",
+    "sha256": "3dcc4694d1d47b762aefb003aade396d4c115161a3bd49166c274175b3b1ebbc",
     "portableMeaning": "explicit runtime subset; not original full old26/superset qualification",
     "omitted": []
   },
@@ -435,7 +435,7 @@ if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.ur
   "portableRootMapping": "a separate mechanical packaging overlay may replace only documented runtime path prefixes/fields, preserving all TS/numerical expected/labels; record original and actual executed SHA and root mapping diff; never call original complete manifest passed if member scope is reduced"
 }
 ` },
-  { name: "packet/descriptor/prepare.mjs", sha256: "b421c038bba2f05bb208c476250ea72eef13a40971ddc89955e755720bfcfd00", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/descriptor/prepare.mjs", rootBindings: ["packet", "original"], body: `import {bindNode22} from '../binding/node-binding.mjs';
+  { name: "packet/descriptor/prepare.mjs", sha256: "51f6596616d1d775c4e3d8289982fce0286b3e2508a39216c7f3d4388bbb7c92", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/descriptor/prepare.mjs", rootBindings: ["packet", "original"], body: `import {bindNode22} from '../binding/node-binding.mjs';
 // Prepare via real public APIs, never by reconstructing C metadata.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -453,7 +453,7 @@ const bindingFiles=config.bindingFiles||Object.fromEntries(['prebuilt.ts','prebu
 const digest=p=>{try{return{state:'FILE',sha256:crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex')}}catch(e){if(e.code==='ENOENT')return{state:'MISSING'};throw e}};
 const bind=()=>Object.fromEntries(Object.entries(bindingFiles).map(([k,p])=>[k,{path:p,...digest(p)}]));
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
-const expectedToyHashes={"/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-false/scripts/entry.ts":"8fad32508329d70c7e47ba21b08bc022ca11e007f6f452fd47eedf6605ac5661","/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-false/scripts/state.ts":"4fb0716aab273efe16486f9b2e5435010b9a3b210dddf621f00a429aac116c6f","/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-true/scripts/entry.ts":"8fad32508329d70c7e47ba21b08bc022ca11e007f6f452fd47eedf6605ac5661","/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-true/scripts/state.ts":"4fb0716aab273efe16486f9b2e5435010b9a3b210dddf621f00a429aac116c6f","/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/supplement-sync-self/fixtures/owner/scripts/main-alpha.ts":"dadbba6cd1edb4a0c1a13dd3061d90788b91932948b5db9e0ca191c2493c8cc7","/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/supplement-sync-self/fixtures/owner/scripts/state-beta.ts":"aa7b08f3a8f77b5dc032d8daa1326a27cd323979cca07359858132863171c588"};
+const expectedToyHashes={"/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-false/scripts/entry.ts":"b87b5e9383e5640ceaeb3d01d6883b416a888c4599df775730a5f727461ff9b0","/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-false/scripts/state.ts":"4fb0716aab273efe16486f9b2e5435010b9a3b210dddf621f00a429aac116c6f","/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-true/scripts/entry.ts":"b87b5e9383e5640ceaeb3d01d6883b416a888c4599df775730a5f727461ff9b0","/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-true/scripts/state.ts":"4fb0716aab273efe16486f9b2e5435010b9a3b210dddf621f00a429aac116c6f","/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/supplement-sync-self/fixtures/owner/scripts/main-alpha.ts":"dadbba6cd1edb4a0c1a13dd3061d90788b91932948b5db9e0ca191c2493c8cc7","/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/supplement-sync-self/fixtures/owner/scripts/state-beta.ts":"aa7b08f3a8f77b5dc032d8daa1326a27cd323979cca07359858132863171c588"};
 const toySources=()=>Object.fromEntries(Object.keys(expectedToyHashes).map(file=>[file,digest(file)]));
 for(const [file,sha]of Object.entries(expectedToyHashes))if(digest(file).sha256!==sha)throw new Error('frozen lifecycle toy SHA mismatch: '+file);
 const before=bind(),sourceAtImport=toySources(),api=await import(config.apiModuleURL),calls=[];
@@ -1752,7 +1752,7 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
   "onlySemanticChange": "Remove N.SIGHUP.PARENT.NO_ORPHANS; retain RAW/CALLER/real entry hooks/LIFECYCLE residual-role equality; all timing/input/other expected unchanged"
 }
 ` },
-  { name: "packet/lifecycle319/freeze-manifest.json", sha256: "8e75b818b0baf50e4ddddffefe23ec57393ea133f1cc0fd908b27415e6cc2055", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/freeze-manifest.json", rootBindings: [], body: `{
+  { name: "packet/lifecycle319/freeze-manifest.json", sha256: "86d767248a197b76d95054e6f70ab66b5d9412845d7248953a846ceaac6134a4", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/freeze-manifest.json", rootBindings: [], body: `{
   "version": "Node22-v4.2-runtime-members-only",
   "frozenAtUtc": "2026-10-25T09:06:48.669517+00:00",
   "scope": "runtime members only; old full-guard/provenance artifacts not claimed",
@@ -1789,7 +1789,7 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
     },
     {
       "path": "preload/spec.json",
-      "sha256": "604baa588ea7b89f26bf20c42e27a92d2c0c1976d0803bc5bead6c931a6ac18e",
+      "sha256": "47499fce00e8990a40e00d239d07077c16c273ae60da106d02af20900aa257af",
       "bytes": 2509
     },
     {
@@ -1827,12 +1827,26 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
       "sha256": "474c874be95192e403bf037d253b22ac2c61f159444096ffd444a53d4b76ec8f",
       "bytes": 12022
     }
-  ]
+  ],
+  "refreeze": {
+    "id": "KOL-20-ready-point-r1",
+    "authority": "requirement owner t55s521 (private card, 2026-10-29 20:11 Asia/Shanghai): authorized independent refreeze of the lifecycle reference ready point and the clear-term inline ENTRY ready point, repaying ADR-70 line 2739",
+    "frozenAtUtc": "2026-10-29T12:52:32.188Z",
+    "changed": [
+      {
+        "path": "preload/spec.json",
+        "previousSha256": "604baa588ea7b89f26bf20c42e27a92d2c0c1976d0803bc5bead6c931a6ac18e",
+        "sha256": "47499fce00e8990a40e00d239d07077c16c273ae60da106d02af20900aa257af",
+        "previousBytes": 2509,
+        "bytes": 2509
+      }
+    ]
+  }
 }
 ` },
   { name: "packet/lifecycle319/preload/README.md", sha256: "099fb7a365dd7407d77ebd32df8b128a7f59786afc8c9d1352f14f8e6ee5ebf4", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/README.md", rootBindings: [], body: `Actual public factory provider for ordinary4. Original frozen semantic expected/TS/cases unchanged; v3.2 atomic go retained. C tuple is selected only after final child env is assembled. N observer uses actual fixtureLoader output supplied by real preparation, so explicit public tsx in final NODE_OPTIONS correctly returns CLI. Trusted module/cache and toy SHA are recorded before/after actual C execution.
 ` },
-  { name: "packet/lifecycle319/preload/freeze-manifest.json", sha256: "66ace09e7f3b77144382c0acea666871d9d15373be09e399dc5b8366c8742c6a", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/freeze-manifest.json", rootBindings: [], body: `{
+  { name: "packet/lifecycle319/preload/freeze-manifest.json", sha256: "3dcc4694d1d47b762aefb003aade396d4c115161a3bd49166c274175b3b1ebbc", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/freeze-manifest.json", rootBindings: [], body: `{
   "version": "Node22-v4.2-runtime-members-only",
   "frozenAtUtc": "2026-10-25T09:06:48.668551+00:00",
   "scope": "runtime members only; old full-guard/provenance artifacts not claimed",
@@ -1854,10 +1868,24 @@ console.log(JSON.stringify({runtime:dest,preparedOwners:owners.length,witnessPat
     },
     {
       "path": "spec.json",
-      "sha256": "604baa588ea7b89f26bf20c42e27a92d2c0c1976d0803bc5bead6c931a6ac18e",
+      "sha256": "47499fce00e8990a40e00d239d07077c16c273ae60da106d02af20900aa257af",
       "bytes": 2509
     }
-  ]
+  ],
+  "refreeze": {
+    "id": "KOL-20-ready-point-r1",
+    "authority": "requirement owner t55s521 (private card, 2026-10-29 20:11 Asia/Shanghai): authorized independent refreeze of the lifecycle reference ready point and the clear-term inline ENTRY ready point, repaying ADR-70 line 2739",
+    "frozenAtUtc": "2026-10-29T12:52:32.188Z",
+    "changed": [
+      {
+        "path": "spec.json",
+        "previousSha256": "604baa588ea7b89f26bf20c42e27a92d2c0c1976d0803bc5bead6c931a6ac18e",
+        "sha256": "47499fce00e8990a40e00d239d07077c16c273ae60da106d02af20900aa257af",
+        "previousBytes": 2509,
+        "bytes": 2509
+      }
+    ]
+  }
 }
 ` },
   { name: "packet/lifecycle319/preload/ordinary-preload.mjs", sha256: "56620e06760cd26db5d95ae84800cdacc3377e07a25a6fb43770a86eb7912e22", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/ordinary-preload.mjs", rootBindings: [], body: `import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -1970,7 +1998,7 @@ try{
 }catch(e){report.reason=e.message;report.status='INVALID';report.semanticAssertions=0;report.assertions=[];}
 fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2)+'\\n');console.log(JSON.stringify({status:report.status,semanticAssertions:report.semanticAssertions,report:path.join(out,'report.json'),reason:report.reason}));process.exitCode=report.status==='PASS'?0:report.status==='INVALID'?2:1;
 ` },
-  { name: "packet/lifecycle319/preload/spec.json", sha256: "604baa588ea7b89f26bf20c42e27a92d2c0c1976d0803bc5bead6c931a6ac18e", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/spec.json", rootBindings: ["original"], body: `{
+  { name: "packet/lifecycle319/preload/spec.json", sha256: "47499fce00e8990a40e00d239d07077c16c273ae60da106d02af20900aa257af", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/lifecycle319/preload/spec.json", rootBindings: ["original"], body: `{
   "case": "V4.ORDINARY_PRELOAD_PARENT_KEEPALIVE",
   "entry": "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-false/scripts/entry.ts",
   "entryArgs": [
@@ -1987,9 +2015,9 @@ fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2)+'\\n
   "cwd": "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/no-config/leaf",
   "envToken": "contract-v3-env-token-671",
   "sourceHashes": {
-    "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-false/scripts/entry.ts": "8fad32508329d70c7e47ba21b08bc022ca11e007f6f452fd47eedf6605ac5661",
+    "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-false/scripts/entry.ts": "b87b5e9383e5640ceaeb3d01d6883b416a888c4599df775730a5f727461ff9b0",
     "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-false/scripts/state.ts": "4fb0716aab273efe16486f9b2e5435010b9a3b210dddf621f00a429aac116c6f",
-    "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-true/scripts/entry.ts": "8fad32508329d70c7e47ba21b08bc022ca11e007f6f452fd47eedf6605ac5661",
+    "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-true/scripts/entry.ts": "b87b5e9383e5640ceaeb3d01d6883b416a888c4599df775730a5f727461ff9b0",
     "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-true/scripts/state.ts": "4fb0716aab273efe16486f9b2e5435010b9a3b210dddf621f00a429aac116c6f",
     "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/supplement-sync-self/fixtures/owner/scripts/main-alpha.ts": "dadbba6cd1edb4a0c1a13dd3061d90788b91932948b5db9e0ca191c2493c8cc7",
     "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/supplement-sync-self/fixtures/owner/scripts/state-beta.ts": "aa7b08f3a8f77b5dc032d8daa1326a27cd323979cca07359858132863171c588"
@@ -2568,7 +2596,7 @@ try{
 fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2)+'\\n');
 console.log(JSON.stringify({status:report.status,semanticAssertions:report.semanticAssertions,report:path.join(out,'report.json'),infrastructureError:report.infrastructureError}));process.exitCode=report.status==='PASS'?0:report.status==='INVALID'?2:report.status==='NOT_RUN'?3:1;
 ` },
-  { name: "packet/patch-inventory.json", sha256: "d93030bd64af33b4d1875cd791da4e336c55c325e9a0e6f17eb84cd82c52faf0", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/patch-inventory.json", rootBindings: [], body: `[
+  { name: "packet/patch-inventory.json", sha256: "2543f427d704d551de4fd4880bd0538271923f745df7a1db2e17d626b8482f6c", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/patch-inventory.json", rootBindings: [], body: `[
   {
     "entry": "lifecycle319/src/run.mjs",
     "sourceOriginalSha256": "33e1eab32217eb1b4a28d4bea5325973cb060a87c5bb6b8f44378651d657c036",
@@ -2608,12 +2636,18 @@ console.log(JSON.stringify({status:report.status,semanticAssertions:report.seman
   {
     "entry": "descriptor/prepare.mjs",
     "sourceOriginalSha256": "b39c2e86e30b9eaea14cf7afe47fd2bca9fe99fcef65aa0d9d444dbe8f1fa96b",
-    "executedOverlaySha256": "b421c038bba2f05bb208c476250ea72eef13a40971ddc89955e755720bfcfd00",
+    "executedOverlaySha256": "51f6596616d1d775c4e3d8289982fce0286b3e2508a39216c7f3d4388bbb7c92",
     "originalSource": "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/descriptor-v4.1/prepare.mjs",
     "allowedExecutableChanges": [
       "same Node binding preflight",
       "emit validated runtime.nodeVersion/platform/arch/receipt; no semantic expected or cache/source change"
-    ]
+    ],
+    "refreeze": {
+      "id": "KOL-20-ready-point-r1",
+      "authority": "requirement owner t55s521 (private card, 2026-10-29 20:11 Asia/Shanghai): authorized independent refreeze of the lifecycle reference ready point and the clear-term inline ENTRY ready point, repaying ADR-70 line 2739",
+      "previousExecutedOverlaySha256": "b421c038bba2f05bb208c476250ea72eef13a40971ddc89955e755720bfcfd00",
+      "onlyChange": "expectedToyHashes digest values of the two original entry.ts keys 8fad32508329d70c7e47ba21b08bc022ca11e007f6f452fd47eedf6605ac5661 -> b87b5e9383e5640ceaeb3d01d6883b416a888c4599df775730a5f727461ff9b0; not a Node-binding overlay change"
+    }
   },
   {
     "entry": "producer/src/run.mjs",
@@ -2639,7 +2673,7 @@ console.log(JSON.stringify({status:report.status,semanticAssertions:report.seman
   }
 ]
 ` },
-  { name: "packet/portable-root-binding.json", sha256: "4d4e896b638a19bcf57c16365d70321da1bcdbbedcb309efbd7f16b1dc6fcfdc", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/portable-root-binding.json", rootBindings: [], body: `{
+  { name: "packet/portable-root-binding.json", sha256: "cd65d2a55da572a3dfd834ddec70dc9e50270d9e7349ca5f7f77e7abaa2d3781", source: "/private/tmp/kc-20261024/ci-runtime-recovery-producer-v4-tests-artifacts/ci-node22-portability-v4.2-runtime/portable-root-binding.json", rootBindings: [], body: `{
   "authority": "root-approved packaging as a separate explicit tool/root binding overlay",
   "allowedRootOnlyFields": [
     "lifecycle main frozenCheck originalRoot literal",
@@ -2651,7 +2685,7 @@ console.log(JSON.stringify({status:report.status,semanticAssertions:report.seman
     "descriptor expectedToyHashes path keys only; digest values unchanged"
   ],
   "neverReplace": [
-    "all6 original lifecycle TS bodies and all producer TS bodies",
+    "all6 original lifecycle TS bodies and all producer TS bodies (refrozen version KOL-20-ready-point-r1, the only authorized replacement: requirement owner t55s521, 2026-10-29 20:11 Asia/Shanghai, ADR-70:2739 — original/fixtures/owner-false/scripts/entry.ts and original/fixtures/owner-true/scripts/entry.ts are now sha256 b87b5e9383e5640ceaeb3d01d6883b416a888c4599df775730a5f727461ff9b0 (was 8fad32508329d70c7e47ba21b08bc022ca11e007f6f452fd47eedf6605ac5661, ready point only); the other four lifecycle TS bodies keep their original bytes; root binding must never replace any of these six bodies or any producer TS body)",
     "legacy3 API bytes/Git blobs",
     "numerical expected",
     "labels",
@@ -3879,7 +3913,7 @@ if (isMainThread) {
 ` },
   { name: "original/fixtures/owner-false/package.json", sha256: "89c47db7851f89caec72da4f215ebc21cf1e294aeef3b45d2583562d846ab035", source: "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-false/package.json", rootBindings: [], body: `{"type":"module","private":true}
 ` },
-  { name: "original/fixtures/owner-false/scripts/entry.ts", sha256: "8fad32508329d70c7e47ba21b08bc022ca11e007f6f452fd47eedf6605ac5661", source: "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-false/scripts/entry.ts", rootBindings: [], body: `import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+  { name: "original/fixtures/owner-false/scripts/entry.ts", sha256: "b87b5e9383e5640ceaeb3d01d6883b416a888c4599df775730a5f727461ff9b0", source: "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-false/scripts/entry.ts", rootBindings: [], body: `import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { isMainThread, threadId } from 'node:worker_threads';
 import { box, defaultSetterCalls } from './state.ts';
@@ -3912,7 +3946,8 @@ if (mode === 'normal' || mode === 'nonzero' || mode === 'observer' || mode === '
     process.on('SIGTERM', () => { count++; log({ kind: 'user-signal', signal: 'SIGTERM', count }); if (mode === 'handler' || count === 2) process.exit(mode === 'handler' ? 41 : 42); });
   }
   const ready = { ...common, token: process.env.CONTRACT_READY_TOKEN, mode, entryURL: import.meta.url, helperPid: helper?.pid ?? null };
-  const publishReady = () => { writeFileSync(process.env.CONTRACT_READY_FILE!, JSON.stringify(ready) + '\\n'); console.log('@@ENTRY_READY@@' + JSON.stringify(ready)); };
+  // Ready means steady state: published from a check-phase callback (after evaluation and a completed event-loop poll phase) and renamed into place complete.
+  const publishReady = () => setImmediate(() => { const temp = process.env.CONTRACT_READY_FILE! + '.tmp-' + process.pid; writeFileSync(temp, JSON.stringify(ready) + '\\n'); renameSync(temp, process.env.CONTRACT_READY_FILE!); console.log('@@ENTRY_READY@@' + JSON.stringify(ready)); });
   if (mode === 'descendant') {
     const readyTimer = setInterval(() => { if (existsSync(process.env.CONTRACT_HELPER_FILE!)) { clearInterval(readyTimer); publishReady(); } }, 2);
   } else publishReady();
@@ -3944,7 +3979,7 @@ if (process.env.CONTRACT_STATE_LOG) appendFileSync(process.env.CONTRACT_STATE_LO
 ` },
   { name: "original/fixtures/owner-true/package.json", sha256: "89c47db7851f89caec72da4f215ebc21cf1e294aeef3b45d2583562d846ab035", source: "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-true/package.json", rootBindings: [], body: `{"type":"module","private":true}
 ` },
-  { name: "original/fixtures/owner-true/scripts/entry.ts", sha256: "8fad32508329d70c7e47ba21b08bc022ca11e007f6f452fd47eedf6605ac5661", source: "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-true/scripts/entry.ts", rootBindings: [], body: `import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+  { name: "original/fixtures/owner-true/scripts/entry.ts", sha256: "b87b5e9383e5640ceaeb3d01d6883b416a888c4599df775730a5f727461ff9b0", source: "/private/tmp/kc-20261024/ci-parent-runner-contract-v3-artifacts/fixtures/owner-true/scripts/entry.ts", rootBindings: [], body: `import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { isMainThread, threadId } from 'node:worker_threads';
 import { box, defaultSetterCalls } from './state.ts';
@@ -3977,7 +4012,8 @@ if (mode === 'normal' || mode === 'nonzero' || mode === 'observer' || mode === '
     process.on('SIGTERM', () => { count++; log({ kind: 'user-signal', signal: 'SIGTERM', count }); if (mode === 'handler' || count === 2) process.exit(mode === 'handler' ? 41 : 42); });
   }
   const ready = { ...common, token: process.env.CONTRACT_READY_TOKEN, mode, entryURL: import.meta.url, helperPid: helper?.pid ?? null };
-  const publishReady = () => { writeFileSync(process.env.CONTRACT_READY_FILE!, JSON.stringify(ready) + '\\n'); console.log('@@ENTRY_READY@@' + JSON.stringify(ready)); };
+  // Ready means steady state: published from a check-phase callback (after evaluation and a completed event-loop poll phase) and renamed into place complete.
+  const publishReady = () => setImmediate(() => { const temp = process.env.CONTRACT_READY_FILE! + '.tmp-' + process.pid; writeFileSync(temp, JSON.stringify(ready) + '\\n'); renameSync(temp, process.env.CONTRACT_READY_FILE!); console.log('@@ENTRY_READY@@' + JSON.stringify(ready)); });
   if (mode === 'descendant') {
     const readyTimer = setInterval(() => { if (existsSync(process.env.CONTRACT_HELPER_FILE!)) { clearInterval(readyTimer); publishReady(); } }, 2);
   } else publishReady();
