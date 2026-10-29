@@ -29,8 +29,11 @@ process.on('exit', code => log({ kind: 'exit', code, termListeners: process.list
 log({ kind: 'eval' })
 setInterval(() => {}, 1000)
 const ready = { ...common, kind: 'ready', before, after, armed: true }
-log(ready)
-writeFileSync(process.env.CLEAR_TERM_READY!, JSON.stringify(ready) + '\n')
+// Ready means steady state: published from a check-phase callback (after evaluation and a completed event-loop poll phase).
+setImmediate(() => {
+  log(ready)
+  writeFileSync(process.env.CLEAR_TERM_READY!, JSON.stringify(ready) + '\n')
+})
 `
 const hash = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex')
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b)
