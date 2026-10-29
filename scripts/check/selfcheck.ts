@@ -837,7 +837,9 @@ group('budget-gate', [], () => {
   // 合法的，账本里要真记下请求。probe 只把上限换成 0.5；enrich 只把次数换成 0；collect 用合法账目续跑、
   // `--budget 3` —— 与坏次数、`--budget 3.0.0` 两条同走续跑，「上限不是数字」那条走新建，那一条与对照差的
   // 不只是那个值。对照没成立是夹具失格（带夹具记号），那条入口的几条具名断言都不判（零请求是每条的一拍，
-  // 这一拍没有依据就整条不判）。对照各在自己的目录里跑，不碰 `tmp` 下的记忆与产出。
+  // 这一拍没有依据就整条不判）。probe 那份与两条 probe 夹具一样以 `process.cwd()` 起；collect、enrich 两份共用
+  // 一个当前目录 `observerCwd`（`tmp/budget-gate-observer`），任务数据各在它底下一个子目录。三份的配置或任务目录、
+  // 账本都是 `tmp` 下各自的一份，不碰 `tmp` 下共用的记忆与产出（记忆按当前目录找；probe.ts 不写盘）。
   const observerCwd = join(tmp, 'budget-gate-observer')
   mkdirSync(observerCwd, { recursive: true })
   const observed = (label: string, args: string[], cwd: string, log: string): boolean => {
@@ -2498,7 +2500,10 @@ group('render', ['collect', 'enrich'], () => {
 
 // ---- 名单排序的 P1.h 端到端跑一遍：交付的 CSV 与 xlsx 里真是这个顺序（ADR-92 第 101 行那张欠条）----
 // 规则本身由 scripts/test.ts 在单元层断言、M-P1-m／M-P1-n 守着；那两条跑的是缺省那个验证者，
-// render 写交付物时用的是不是这个比较器、排完有没有被别的步骤打乱，它们够不到。负片是 M-P1-ai。
+// render 写交付物时用的是不是这个比较器、排完有没有被别的步骤打乱，它们够不到。本组读交付的文件核顺序，
+// 只看文件里最后是什么顺序，不分是哪一处排的。负片 M-P1-ai 把几处排序共用的比较器 byFollowers 改成恒返回 0，
+// 几处一起失守，证的是下面两条产物断言能红；它不单独证明 render 里每一处排序调用都接着 —— 只拿掉 render.ts
+// 里紧跟 `rankCreators` 的那一处 `sortForReviewOutput` 照绿（`rankCreators` 已经排过），见 ADR-92 末尾。
 // 三个人同平台、都是 ✅ 但没有邮箱（都落 B 层）、都没有有效建议，粉丝数分别是 0、未查询、100：
 // 100 和 0 都在计分区间外，其余字段一样，于是同分，先后只剩 P1.h 那一档在定。
 // 期望照 P1.h 原文写死：已查到且不是 0 → 未查询 → 确实是 0。同一组人按 ADR-92 第三节正序、逆序各写进名单一次，
@@ -2800,8 +2805,8 @@ group('memory', ['collect', 'render'], () => {
     // kills 只点名对应的那一条夹具 —— 四条各自能红、只红在自己身上（还 ADR-70 第 1087 行
     // 那张欠条）。
     // ⚠️ 这条缺口原先在 mutations.json 的 exemptions 里按 P3.b 的先例登记着，
-    // **落地 4 已经撤掉那条豁免** —— 那条判据（原 D6.f，#155 起改号 D6.r）现在靠 M-D6-j、M-D6-bi…bl
-    // 与那条硬失败顶着。
+    // **落地 4 已经撤掉那条豁免** —— 那条判据（D6.f 已退役，#155 起由 D6.r 接替，见 ADR-108 那张
+    // 退役表）现在靠 M-D6-j、M-D6-bi…bl 与那条硬失败顶着。
     //
     // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
     // 「达标提前停下」和「关键词跑完」都是退出码 0、都说「不花钱」，一条夹具会让另一条
