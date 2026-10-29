@@ -4,6 +4,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+// Synthetic workers exit on their own this long after they start; the runner relies on it too.
+const SELF_EXIT_MS = 12000
+
 // Independent process fixtures: no production implementation or repository files are copied.
 const FIXTURES: ReadonlyArray<readonly [string, string]> = [
   ["fixture-worker.cjs", `'use strict';
@@ -11,7 +14,7 @@ const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const mode = process.argv[2];
 // Safety bound applies only to synthetic processes created by this test.
-if (mode !== 'quick') setTimeout(() => process.exit(124), 12000);
+if (mode !== 'quick') setTimeout(() => process.exit(124), ${SELF_EXIT_MS});
 if (Object.hasOwn(process.env, 'KOL_GUARDIAN_PARENT_PID') || Object.hasOwn(process.env, 'KOL_GUARD_FORWARD_FD3')) { process.stderr.write('guard parent identity leaked into worker environment\\n'); process.exit(91); }
 if (mode === 'race') {
   fs.writeFileSync(process.argv[3], JSON.stringify({ pid: process.pid }));
@@ -139,15 +142,51 @@ setInterval(() => { if (process.ppid !== runnerParent) leaveAfterParentDies(); }
 const guardian = process.argv[2];
 if (!guardian || !path.isAbsolute(guardian)) throw Error('usage: node test-guardian.cjs /absolute/path/to/guardian.cjs [--negative]');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+// A ps call that ran out of time observed nothing: one look reports that as unobserved,
+// never as stopped, and the caller may look again before its own deadline. A deadline
+// reached while the last look still observed nothing fails with that original error text,
+// so the receipt is fixture-invalid. After one such loss later timeouts fail at once, as before.
+let inspectionLost = false, unobservedInCheck = false;
+function look(test) {
+  try { return { result: test() }; }
+  catch (error) {
+    if (inspectionLost || error.inspectionTimedOut !== true) throw error;
+    unobservedInCheck = true;
+    return { unobserved: error };
+  }
+}
+function unobservedAt(error, label) {
+  inspectionLost = true;
+  return Error(error.message + ' (nothing observed before deadline: ' + label + ')');
+}
 async function until(test, label, ms = 5000) {
   const deadline = Date.now() + ms;
-  while (Date.now() < deadline) { const result = test(); if (result) return result; await sleep(20); }
+  let seen;
+  while (Date.now() < deadline) { seen = look(test); if (seen.result) return seen.result; await sleep(20); }
+  if (seen && seen.unobserved) throw unobservedAt(seen.unobserved, label);
   throw Error('timeout: ' + label);
+}
+// Only a liveness assertion may look again later: alive then implies alive before.
+// An assertion that a process has already stopped stays one look; it could stop meanwhile.
+async function assertAlive(test, message) {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    const seen = look(test);
+    if (!seen.unobserved) return assert.ok(seen.result, message);
+    if (Date.now() >= deadline) throw unobservedAt(seen.unobserved, message);
+    await sleep(20);
+    if (Date.now() >= deadline) throw unobservedAt(seen.unobserved, message);
+  }
 }
 const zombiesSeen = new Set();
 function exists(pid) {
   const result = spawnSync('/bin/ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8', timeout: 2000 });
-  if (result.error) throw Error('cannot inspect owned process state: ' + result.error.message);
+  if (result.error) {
+    const error = Error('cannot inspect owned process state: ' + result.error.message);
+    // Only a timed-out ps may be looked at again; any other failure stays final.
+    error.inspectionTimedOut = result.error.code === 'ETIMEDOUT';
+    throw error;
+  }
   const stat = result.stdout.trim();
   if (result.status !== 0 && result.status !== 1) throw Error('cannot inspect owned process state: ps exit ' + result.status);
   if (!stat) return false;
@@ -203,13 +242,13 @@ async function interrupted(mode, signal, ignore, isolation) {
     guard = remember((await until(() => run.events.find(x => x.type === 'guardian'), 'guardian spawned')).pid);
     worker = remember((await until(() => run.events.find(x => x.type === 'child-control' && x.value.role === 'worker'), 'worker handshake')).value.pid);
     if (mode === 'group') grandchild = remember((await until(() => run.events.find(x => x.type === 'child-control' && x.value.role === 'grandchild'), 'grandchild handshake')).value.pid);
-    assert.ok(exists(guard) && exists(worker) && (!grandchild || exists(grandchild)), 'test processes are alive before owner dies');
-    if (sentinel) assert.ok(exists(sentinel.pid));
+    await assertAlive(() => exists(guard) && exists(worker) && (!grandchild || exists(grandchild)), 'test processes are alive before owner dies');
+    if (sentinel) await assertAlive(() => exists(sentinel.pid), 'unrelated test-owned process group is alive before owner dies');
     killChildHandle(run.owner, signal);
     await until(() => run.owner.exitCode !== null || run.owner.signalCode !== null, 'owner terminated');
     await until(() => !exists(worker) && (!grandchild || !exists(grandchild)), mode + ' descendants stop after parent ' + signal, 7000);
     await until(() => !exists(guard), mode + ' guardian exits after parent ' + signal, 3000);
-    if (sentinel) assert.ok(exists(sentinel.pid), 'unrelated test-owned process group must remain alive');
+    if (sentinel) await assertAlive(() => exists(sentinel.pid), 'unrelated test-owned process group must remain alive');
     console.log('PASS interrupt ' + mode + ' ' + signal + (ignore ? ' (worker refuses SIGTERM)' : '') + (sentinel ? ' with group isolation' : ''));
   } finally {
     killChildHandle(run.owner);
@@ -264,7 +303,7 @@ async function startupRace(mode) {
   let guard, worker;
   try {
     guard = remember((await until(() => run.events.find(x => x.type === 'guardian'), 'race shim spawned')).pid);
-    assert.ok(exists(guard), 'delayed guardian process exists before owner death');
+    await assertAlive(() => exists(guard), 'delayed guardian process exists before owner death');
     killChildHandle(run.owner, 'SIGKILL');
     await until(() => run.owner.exitCode !== null || run.owner.signalCode !== null, 'race owner death');
     const report = path.join(dir, 'shim.log');
@@ -279,7 +318,7 @@ async function startupRace(mode) {
     const marker = path.join(dir, 'worker.json');
     if (fs.existsSync(marker)) {
       worker = remember(JSON.parse(fs.readFileSync(marker, 'utf8')).pid);
-      assert.ok(!exists(worker), 'a worker started after parent death must not survive');
+      assert.ok(!exists(worker), 'a worker started after parent death must not survive'); // one look only, see assertAlive
     }
     console.log('PASS startup race ' + mode + ': stale expected parent rejected, no surviving worker');
   } finally {
@@ -293,6 +332,20 @@ async function startupRace(mode) {
   }
 }
 
+const INVALID_FAILURE = /owned fixtures stop without PID signals|cannot inspect owned process state/;
+const SELF_EXIT_MS = ${SELF_EXIT_MS};
+// Looking again pushes every later look of a check later. Once a check observed nothing, only
+// a pass before any synthetic worker could exit on its own (SELF_EXIT_MS after the check
+// started) still says something about the guardian: a later pass may be that exit, and a red
+// may be the stall itself. Both become fixture-invalid; a check that saw everything is unchanged.
+// Timed on the monotonic clock the workers' setTimeout runs on: a wall-clock step cannot shorten it.
+function afterUnobserved(failure, started) {
+  if (!unobservedInCheck || (failure && INVALID_FAILURE.test(failure.message || ''))) return failure;
+  if (failure) return Error('cannot inspect owned process state: this check observed nothing at least once, so its red may be the stall: ' + (failure.message || failure));
+  const elapsed = Math.floor(performance.now() - started);
+  if (elapsed < SELF_EXIT_MS) return null;
+  return Error('cannot inspect owned process state: this check observed nothing at least once and passed only ' + elapsed + ' ms after it started, when synthetic workers may already have exited on their own');
+}
 (async () => {
   const tests = [
     ['startup-group', () => startupRace('group')],
@@ -311,12 +364,15 @@ async function startupRace(mode) {
   const checks = {};
   let fixtureInvalid = false;
   for (const [name, run] of tests) {
-    try { await run(); checks[name] = true; }
-    catch (error) {
-      checks[name] = false;
-      if (/owned fixtures stop without PID signals|cannot inspect owned process state/.test(error.message || '')) fixtureInvalid = true;
-      console.error('FAIL ' + name + ': ' + (error.stack || error));
-    }
+    const started = performance.now();
+    unobservedInCheck = false;
+    let failure = null;
+    try { await run(); } catch (error) { failure = error; }
+    failure = afterUnobserved(failure, started);
+    checks[name] = !failure;
+    if (!failure) continue;
+    if (INVALID_FAILURE.test(failure.message || '')) fixtureInvalid = true;
+    console.error('FAIL ' + name + ': ' + (failure.stack || failure));
   }
   console.log('GUARDIAN_REGRESSION_JSON ' + JSON.stringify({ checks, fixtureInvalid, zombieObserved: zombiesSeen.size > 0 }));
   if (Object.values(checks).some(value => !value)) process.exitCode = 1;
