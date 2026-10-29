@@ -2923,3 +2923,131 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 **本次回访记录。** 已读 ADR-152 最新一块 `2026-10-28 · 本跑 810031b`，两条候选（ADR-99 第 462 行、ADR-167 第 159 行）本次未参考。
 
 **没做的。** 没推送；三条讨论串的回复与 PR 正文末尾索引的增补只起了草，没有发、没有 resolve、没改 PR 正文。没在 CI、macOS 或 root 下跑。上面那段核验之外，两处修补没有在真运行器里经过注入。两处修补与本块没有经独立复核。核验与计时的脚本在会话的草稿目录里，没进仓库。
+
+## 还第 2739 行：生命周期参照与 clear-term 入口的 ready 改到求值后第一轮事件循环，由独立作者重冻（KOL-20，2026-10-29）
+
+> ⚠️ 已还：ADR-70 第 2739 行 · 档已由需求所有者改判「既有缺陷」（丸子，私聊卡片 `t50s470`，2026-10-29 14:38），冻结参照那一半由同一人在私聊卡片 `t55s521`（2026-10-29 20:11）授权重冻、交独立作者；还在 KOL-20 的重冻嵌回 PR #待补（代码一步是提交 `6922f2a`）：生命周期冻结入口与 clear-term 内联入口的 ready 改在求值结束后第一轮事件循环的 check 阶段发布（冻结入口另改成先写临时文件再 rename），重冻 id `KOL-20-ready-point-r1`；8 份独立克隆同时各跑这一组，改后 120 跑 0 红，同一时段与它逐轮交替的改前 120 跑 9 红，次数见下
+
+**档与出处。** 第 2739 行登记时的档是「登记」。丸子 2026-10-29 14:38 在私聊卡片 `t50s470` 把它与第 2741 行一起改判「既有缺陷」（原话见本条第 2764 行）；第 2741 行由 #409 还上，本行按串行排在它之后。KOL-20 写方接手本行时，先照重启条件的前一半在仓库外把两跑的退出钩子记录留了下来，定到两半：冻结的生命周期参照（`N.SIGTERM.GROUP`／`N.SIGINT.GROUP` 的就绪点在冻结入口里，冻结包 `packet/portable-root-binding.json` 的 `neverReplace` 写着入口正文永不替换）与不冻结的 clear-term 合同；改冻结字节要需求所有者定、要没读过被测实现的作者，写方停下请示，本行没动。丸子 2026-10-29 20:11 在私聊卡片 `t55s521` 裁决：冻结的一半（`packet/lifecycle319` 与 `original/fixtures/owner-*` 的入口）授权重冻，含改 `neverReplace` 那条声明；不冻结的 clear-term 一半也交给同一个独立作者；两半都由独立作者做，不直接用写方的候选补丁。两条裁决的痕迹在卡片上，不在 GitHub。本节是整合：把独立作者的字节嵌回仓库、核对、验证、记账，嵌回的字节一个没改。
+
+**从哪棵树起。** 主干 `f6a5b09`（#409 合入后；写本节前 `git fetch` 核过 `origin/main` 仍是它），分支 `claude/kol-20-lifecycle-baseline-flake`，没有叠父。两个提交：`6922f2a` 只有嵌回的字节（数据文件与 clear-term 合同两份文件，＋63／−24）；本节所在的提交只有文字（本节、ADR-158 末尾一块、`docs/ARCHITECTURE.md` 锚点表两行）。本节的数，不另注的都按本机 Linux x64、8 核、Node v22.23.3、tsx 4.23.12、umask 022；验证都在 `git clone` 出来的独立克隆里，各自 `npm ci`，工作区一次没施过变。
+
+**独立作者是怎么隔开的、能证到哪。** 独立作者是一个全新的上下文（运行 `20261029T201621-f1c0936f`），跑在 OS 沙箱（bwrap）里：整个 `/workspace` 被遮住，只挂进隔离目录 `/workspace/kol20-refreeze-iso/`，仓库克隆、gh 凭据与 `/tmp` 也遮住。它拿到的是：冻结包 76 件原字节（从 `f6a5b09` 的数据文件逐件导出）、clear-term 合同与无配置适配器两份 TS、ADR-70／ADR-158 与 `process/4-VERIFY.md` 的摘录、一份只写参照一侧现象的症状说明、公开的 tsx 4.23.12；被测实现（`scripts/check/prebuilt*.ts`）不在里面。网络没有隔离，工具调用记录没有保存 —— 所以「没读过被测实现」只能以它的产出目录与 OS 屏蔽为证，不能以调用记录为证。整合时核过：它拿到的 76 件与 `f6a5b09` 数据文件里嵌着的逐字节相同，两份 TS 与仓库里同名文件逐字节相同。它的实测都在 Node v24.22.1 上（Node 22 被它那边的权限拦了），Node 22.23.3 上的数由本节复跑，见下。
+
+**根因（参照 R 一侧，独立作者的证据；整合时读过它的探针脚本与原始结果）。**
+
+- 公开 tsx 4.23.12 在 Node ≥22.22.3（及 ≥24.11.1）上走同步的 `module.registerHooks`（`dist/register-*.mjs` 的特性表 `[[22,22,3],[24,11,1],…]`），入口的解析、转译、求值都在同一个同步栈里完成，事件循环一次不转。
+- 子进程预加载 `dist/preflight.cjs` 给 `SIGINT`／`SIGTERM` 装的隐藏处理器（先给父进程发一条 IPC，没有用户监听器时 `process.exit(128+n)`，退出钩子因此跑）要等连上父进程 IPC 管道才装，那个 connect 回调最早在求值结束后第一轮事件循环的 poll 阶段执行。
+- 两份入口都在求值中途同步写 ready，所以「ready 已可见」到「R 的转发已装上」之间总有一段窗口（独立作者在 8 路并发下插桩 400 跑：写 ready 那一刻 400 次都还没装上，装上比 ready 晚中位 1.48、最多 9.24 毫秒）。信号落进窗口，入口按默认处置被杀，一条退出钩子不留；tsx 父进程把子进程的信号死亡映射成 `exit(128+n)`，raw 照样是 `{status:143}`／`{status:130}`，与健康的一跑一模一样，只有 `HOOKS`、`BOUNDARY_HOOKS` 不同 —— 正是第 2613、2739 行与写方复现的那几跑的形状。
+- 冻结入口用 `writeFileSync` 写 ready（建文件、写内容两步），冻结运行器 `existsSync` 为真就读，读到空文件时抛「ready file multiplicity invalid」，该案 INVALID，运行器以 2 退出，适配器报「tool did not produce semantic PASS/FAIL」—— 写方见到的那一跑 INVALID 对得上这一种（它的原因当时没留下，见下面登记的第 3029 行），独立作者与本节的复跑都直接见到了这一种。
+- 为什么单跑全绿、负载下才红：冻结运行器从看到 ready 到发信号，中间有最长 5 毫秒的轮询加一两次 `spawnSync('/bin/ps')`，平时比窗口慢；负载下入口写完 ready 就被调度出去，运行器反倒先发了信号。独立作者的「快速反应器」（ready 一出现就 `kill(-pgid)`，不跑 `ps`）把运行器的慢去掉：v24.22.1 上旧入口 150/150 无钩子，新入口 0/150；本节在 Node 22.23.3 上旧入口 149/150、新入口 0/150（见下）—— 窗口一直在，只是被运行器的慢盖住。
+
+**改了什么（`6922f2a`；独立作者的字节，嵌回时一字未改）。**
+
+1. 两份冻结入口 `original/fixtures/owner-false|owner-true/scripts/entry.ts`（彼此逐字节相同，与原来一样）：`publishReady` 改在 `setImmediate`（check 阶段）回调里执行，先写 `<ready>.tmp-<pid>` 再 `renameSync` 就位，import 加 `renameSync`。check 阶段按 libuv 的阶段顺序一定在同一轮 poll 之后，所以 ready 只在求值结束、第一轮 poll（R 的 IPC connect 回调在这里）处理完之后才出现；rename 让运行器只看得到写完整的文件。指纹、结果与日志记录、各模式、退出钩子与其余字节不变。
+2. 跟着换摘要的五件：`packet/descriptor/prepare.mjs` 的 `expectedToyHashes`、`packet/lifecycle319/preload/spec.json` 的 `sourceHashes` 里两份入口的摘要值；两份 scoped `freeze-manifest.json`（`lifecycle319`、`lifecycle319/preload`）里 `preload/spec.json` 那一项的摘要，各追加一段 `refreeze` 出处；`packet/patch-inventory.json` 里 `descriptor/prepare.mjs` 那一项的 `executedOverlaySha256`，追加一段 `refreeze`。
+3. `packet/portable-root-binding.json` 的 `neverReplace` 里「all6 original lifecycle TS bodies and all producer TS bodies」那一条改写成：记明本次经 `t55s521` 授权的重冻 `KOL-20-ready-point-r1` 与两份入口的新旧摘要，「永不替换」留给重冻后的六份 TS 正文。
+4. `scripts/prebuilt-clear-term-contract-test.ts` 整份换成独立作者的版本：内联 `ENTRY` 的 `log(ready)` 与写 `CLEAR_TERM_READY` 一起移进同一个 `setImmediate` 回调。不加 rename：控制器本来就只认以换行结尾的 ready，没有撕裂读。
+5. 整合方做的只有机械替换：数据文件 `FROZEN_CONTRACT_FILES` 里上面 8 件的 `body` 与 `sha256` 两个字段（`name`、`source`、`rootBindings` 不动），以及 `ORIGINAL_FREEZES` 里 `lifecycle319`、`lifecycle319/preload` 两份 scoped manifest 的出处摘要（`8e75b818…`→`86d76724…`、`66ace09e…`→`3dcc4694…`，等于重冻后那两件成员的摘要，照独立作者报告第 7.2 节的建议）。
+
+冻结运行器 `lifecycle319/src/run.mjs`（`de1a73c9…`）、`sync`／`preload` 两个工具、`expected.json`、标签、case ID、信号关系、R 资格条件与 INVALID／FAIL／ENTRY_READY 的路由都没动。
+
+| 成员 | 旧 SHA256 | 新 SHA256 | 字节 旧→新 |
+|---|---|---|---|
+| `original/fixtures/owner-false/scripts/entry.ts` | `8fad32508329d70c7e47ba21b08bc022ca11e007f6f452fd47eedf6605ac5661` | `b87b5e9383e5640ceaeb3d01d6883b416a888c4599df775730a5f727461ff9b0` | 3467→3753 |
+| `original/fixtures/owner-true/scripts/entry.ts` | 同上 | 同上 | 3467→3753 |
+| `packet/descriptor/prepare.mjs` | `b421c038bba2f05bb208c476250ea72eef13a40971ddc89955e755720bfcfd00` | `51f6596616d1d775c4e3d8289982fce0286b3e2508a39216c7f3d4388bbb7c92` | 9197→9197 |
+| `packet/lifecycle319/preload/spec.json` | `604baa588ea7b89f26bf20c42e27a92d2c0c1976d0803bc5bead6c931a6ac18e` | `47499fce00e8990a40e00d239d07077c16c273ae60da106d02af20900aa257af` | 2509→2509 |
+| `packet/lifecycle319/preload/freeze-manifest.json` | `66ace09e7f3b77144382c0acea666871d9d15373be09e399dc5b8366c8742c6a` | `3dcc4694d1d47b762aefb003aade396d4c115161a3bd49166c274175b3b1ebbc` | 790→1430 |
+| `packet/lifecycle319/freeze-manifest.json` | `8e75b818b0baf50e4ddddffefe23ec57393ea133f1cc0fd908b27415e6cc2055` | `86d767248a197b76d95054e6f70ab66b5d9412845d7248953a846ceaac6134a4` | 2309→2957 |
+| `packet/patch-inventory.json` | `d93030bd64af33b4d1875cd791da4e336c55c325e9a0e6f17eb84cd82c52faf0` | `2543f427d704d551de4fd4880bd0538271923f745df7a1db2e17d626b8482f6c` | 3830→4493 |
+| `packet/portable-root-binding.json` | `4d4e896b638a19bcf57c16365d70321da1bcdbbedcb309efbd7f16b1dc6fcfdc` | `cd65d2a55da572a3dfd834ddec70dc9e50270d9e7349ca5f7f77e7abaa2d3781` | 1784→2343 |
+| `scripts/prebuilt-clear-term-contract-test.ts`（不在冻结包里） | `451a7b08f012a601dcc4bd279bc3d9308410b2bcd62d38f89779f956e23d15ee` | `5de6ded9e3d526262a4099a1a800ef6e1ddf89404500b80760a64e71b1c07c90` | 18257→18410 |
+
+**嵌回怎么核的。** 仓库外一段脚本按模板字面量的写法嵌回（只转义 `\`、反引号、`${` 与回车；改前先把数据文件里嵌着的旧正文按字面量规则还原出来，与导出的旧字节逐字节相同才替换，每处替换都要恰好命中一次）。嵌回后用 tsx 导入数据文件、逐件重算：76 件冻结成员与 22 件 sync43 成员的 `sha256` 字段全部等于正文的摘要；与 `f6a5b09` 比，只有上面 8 件变了，8 件都与独立作者产出的文件逐字节相同，其余 68 件与 22 件逐字节不变；clear-term 合同与独立作者的产出逐字节相同。整合方没有手改任何一处正文。
+
+**为什么不会把「不知道」压成「否」，也不放宽合同。**（独立作者报告第 3.2 节，整合时逐条对过冻结字节）
+
+- 就绪定义成入口自己公开可观察的稳态：求值已结束、事件循环已转完一轮 poll。没有 sleep、重试或「多等几毫秒」；负载只能让一切变慢，改不了同一进程里的阶段先后。
+- 不改成「等 R 的处理器装上了再发」：那等于把 tsx 的实现细节写进前提，一个合法地不再武装 TERM 的实现（比如 REMOVE_TERM 之后不重装）会永远等不到就绪，FAIL 就被改成 ENTRY_READY 或 INVALID。新入口不论谁装了什么处理器都照发 ready。
+- 撕裂读在入口一侧修（rename）；运行器「ready 文件一出现就必须恰好一条记录，否则 INVALID」原样保留 —— 改成读到 0 条就再等，等于放宽 INVALID 的条件。
+- R 失格的条件一条没动（生命周期的 `referenceInvalid`、clear-term 的 R 资格谓词、sync 的资格），R 与 C 跑同一份入口字节，「C 与 R 一致」的含义不变；R 以后真不留钩子，照样是 FAIL，KEEP 时照样 INVALID。去掉的只是 R 在启动窗口里的不确定。
+- 合同从没要求在启动窗口里发信号：冻结 `expected.json` 的 `ENTRY_READY` 写的是「candidate reaches same ready/interaction point as qualified public reference」，旧入口那个交互点上 R 自己都不确定；`outputUpdatePolicy` 允许资格之后的夹具修正保留冻结版本并写明工具错误。
+- 观察点往后挪了一轮，带来的唯一变化：C 若在求值结束到第一轮 check 阶段之间才装处理器，旧入口偶尔看得出（R 在同一处也不确定），新入口看不出。这与 R 的稳态一致，不是放宽「C 与 R 一致」；守这一组的四条变异照样红在点名的断言上，见下「施变」。
+- 不受影响的两种：`N.SYNC_SELF_TERM`（`main-alpha.ts` 在同步求值里自发 TERM，在 registerHooks 路径上确定地得到 `raw 143/null、hooks []`，与 ADR-158 第 553 行的 Linux 记录一致，没改）；`CLEAR_TERM.REMOVE_ALL`（无参 `removeAllListeners()` 连 Node 内部用来武装信号的 `newListener` 一起摘了，之后装的处理器武装不了 OS 信号，与时序无关）。
+
+**看过、没改的。**
+
+- `COMBINED_FREEZE_SHA256`（`f2d67ff0…c445`，＝`ORIGINAL_FREEZES` 第一项，顶层 v4.2 packet 的 `freeze-manifest.json`）与 `ORIGINAL_FREEZES` 里原 fixture 根 manifest 那一项（`c6045e89…7f49`，列着两份入口）。两份清单的原文不在仓库、也不在独立作者的目录里，算不出新值；适配器只把它们写进临时根里的 `portable-bindings.json` 与生成清单的 `originalManifestSha256`，随后整棵删掉，冻结的三个运行器只核生成清单的 `files`，没有谁读这两样（全仓搜 `combinedFreeze`、`originalManifestSha256`、`portable-bindings`，只有适配器写的那两处）。改它们不改任何结论，也没有可信的新值，所以不改；重冻之后它们仍指重冻前的清单，登记见下。
+- sync43 的 22 件不改。旧摘要在 sync43 里只出现在 `packet/sync43/source-preservation.json` 的 `oldV42Files`（`descriptor/prepare.mjs`、顶层与两份 scoped manifest、`preload/spec.json`、`patch-inventory.json`、`portable-root-binding.json` 七处）—— 那是冻结 sync43 时对旧 v4.2 根的历史记录，运行期没有代码读它：sync43 运行期只核自己 `freeze-manifest.json` 列的 21 件（`qualify.mjs` 的 `assertFrozen`）、`inputs/` 里 `main-alpha.ts` 那五件（`frozenSource`）与 C 的源码摘要（`producerSourceHashes`，由 `prepare.mjs` 当场算）。两份入口的摘要与正文在 sync43 里一处也没有；sync43 跑的 `main-alpha.ts` 没改，manifest `3547b3c2…` 不动。
+- clear-term v3 manifest（`018f13f2…`，ADR-158 第 594 行）在仓库里没有落点：manifest 文件从没进过仓库，只在那一行记着，独立作者的目录里也没有；helper 整份的新摘要记在 ADR-158 末尾，manifest 没有重算。
+- `packet/README.md`、`packet/contract.json` 里「TS bytes／TSBodiesChanged false」说的是 v4.2 Node 绑定叠加层自己，对那一层仍成立，也不引任何被改成员的摘要。入口里的 `fingerprint` 常量与 `spec.json` 的 `entryFingerprint`（`0520bc40…`）不是文件内容的摘要，属于 `neverReplace` 的「source fingerprint values」。独立作者没改这几处，整合也没改。
+- 嵌回之后全仓还留着旧摘要的地方，逐处都是出处或历史：两份 scoped manifest 与 `patch-inventory.json` 的 `refreeze` 记录、`portable-root-binding.json` 的 `neverReplace` 那一条（独立作者的新字节，记着改前的值）；sync43 的 `source-preservation.json`（见上）；ADR-158 第 594 行。
+
+**参照 R 的资格在 Node 22.23.3 上复跑。** 独立作者的数都在 Node v24.22.1 上。整合时把它的 `work/` 连同依赖的 `frozen/`、`out/`、`clear-term/`、`rt/` 原样复制到仓库外的草稿目录（不写回隔离目录），用 Node 22.23.3 跑它报告第 8 节的四条 R 资格命令与快速反应器。驱动自己把 umask 设成 022，只起公开 R、不起 C，按冻结运行器与 clear-term 控制器的 R 一侧逐步复刻；K 个驱动进程同时跑，模拟「K 份克隆同时各跑这一组」，每个驱动每轮新旧两版交替先后，两版处在同一负载下。失败 = 偏离该形状的众数结果（无钩子或 INVALID）：
+
+| 组 | 并发 | 墙钟 | 1 分钟负载峰值（8 核） | 旧入口 | 新入口 |
+|---|---|---|---|---|---|
+| A：组仿真（GROUP TERM／INT、THROW、clear-term 三模式、sync 自身 TERM），每形状每版 240 次 | 8 | 146.4 秒 | 14.82 | `CLEAR_TERM.KEEP` 20/240（全是「KEEP 时 R 没有钩子」失格）；`REMOVE_TERM` 13/240（无钩子）；`N.SIGTERM.GROUP` 6/240（4 次无钩子、2 次「ready file multiplicity invalid」）；`N.SIGINT.GROUP` 4/240（无钩子）；`N.THROW`、`REMOVE_ALL`、`N.SYNC_SELF_TERM` 0/240 | 每形状 0/240 |
+| B：只跑 GROUP TERM／INT，每形状每版 800 次 | 8 | 132.0 秒 | 16.33 | `N.SIGTERM.GROUP` 12/800（10 次无钩子、2 次撕裂读 INVALID）；`N.SIGINT.GROUP` 9/800（无钩子） | 0/800、0/800 |
+| D：生命周期其余 18 个形状，每形状每版 80 次 | 8 | 231.1 秒 | 15.02 | `N.SELF_TERM` 5/80（raw 143，GO 落早、事件循环多活了一轮）；`N.SIGTERM.ENTRY`、`N.SIGINT.ENTRY` 各 1/80（无钩子）；其余 15 个 0/80 | 每形状 0/80，稳态结果与旧入口的众数逐项相同 |
+| E：组仿真加压，每形状每版 240 次 | 16 | 164.8 秒 | 35.75 | `KEEP` 32/240；`REMOVE_TERM` 31/240；`N.SIGTERM.GROUP` 17/240；`N.SIGINT.GROUP` 12/240；其余 0 | 每形状 0/240 |
+| 快速反应器（串行，ready 一出现就 `kill(-pgid)`） | 1 | — | — | TERM 100/100 无钩子；INT 49/50 无钩子 | TERM 0/100、INT 0/50 |
+
+8 路合计（A＋B）：`N.SIGTERM.GROUP` 旧 18/1040（1.73%，其中 INVALID 4）、新 0/1040；`N.SIGINT.GROUP` 旧 13/1040（1.25%）、新 0/1040。新入口四组共 6400 次 R 运行，每个形状只有一种结果、没有 INVALID，ready 临时文件一个也没留下。同样的命令在独立作者的 v24.22.1 上，旧入口 8 路合计 `N.SIGTERM.GROUP` 1/1440、`N.SIGINT.GROUP` 3/1440、KEEP 4/240、REMOVE_TERM 4/240 —— Node 22.23.3 上旧入口红得更勤，新入口两边都是 0。
+
+**这一组在 8 份独立克隆的并发负载下。** 两组克隆：`6922f2a` 8 份、`f6a5b09` 8 份，各自 `git clone` 再 `npm ci`。每一批让同一组的 8 份同时各跑一次 `tsx scripts/test.ts --only=h-prebuilt-no-config-lifecycle-contract`（不加别的负载，与写方改前复现同一负载形状），一轮里两组各一批、先后逐轮对调，共 15 轮；Node 22.23.3，umask 022，两组共用一个放在会话草稿目录里的 `TMPDIR`（为了跑完能核有没有遗留）：
+
+| 代码 | 跑数 | 非零退出 | 红在哪 | 每跑墙钟 最小／中位／最大 |
+|---|---|---|---|---|
+| `6922f2a`（改后） | 120 | 0 | — | 13.47／14.46／18.78 秒 |
+| `f6a5b09`（改前，同一时段逐轮交替） | 120 | 9 | 5 跑 clear-term「public R/positive observer not qualified: KEEP」失格（带夹具记号，控制器未完成、测试进程在异常上退出）；3 跑 `CLEAR_TERM_V2.REMOVE_TERM.HOOKS`（R `[]`、C `[{code:143}]`）；1 跑 `N.SIGTERM.GROUP.HOOKS`＋`BOUNDARY_HOOKS`（R `[]`、C 两条 143） | 10.90／14.22／18.60 秒 |
+
+改前红的都是第 2739 行与写方复现过的那几种形状，改后一种也没有。9 次红若与代码无关，全落在改前那一组的机会是 (120/240)×(119/239)×…×(112/232) ≈ 0.0017（单侧 Fisher 精确检验）。整跑 449.2 秒，子进程用户＋系统 CPU 3152.5 秒；每批 8 跑的子进程 CPU 改后 98.2／103.8／127.3 秒、改前 91.3／102.2／121.3 秒（最小／中位／最大；改后第一批 127.3 秒是共用 `TMPDIR` 里 tsx 缓存冷的那一批），两组每跑墙钟与每批 CPU 的中位数都相差不到 2%，在同一时段批与批之间的波动之内；新入口多等的那一轮事件循环在这一组的耗时里分辨不出来（单机、单一时段的数，只作参考）。跑完 `TMPDIR` 里只剩 tsx 自己的缓存目录，没有遗留 `kol-prebuilt-no-config-*`、`kol-clear-term-*`，失格的那几跑也没有。写方此前在同一负载形状下（默认 `/tmp`）改前 80 跑 3 红，候选（只修 clear-term）80 跑 3 红、全在冻结那一半。
+
+**施变。** `mutations.json` 里点着这一组两条断言的变异是四条：`M-H62-aq`、`M-H62-as`（「异常保留原栈且普通预载正常收尾」）与 `M-H62-ar`、`M-H62-at`（「INT和TERM进程组与同步自身信号生命周期」），都施在 `scripts/check/` 的预编实现上。变异命令 `npm run mutate` 没有按编号选的开关，所以先在克隆里手工各施一次、只跑这一组（`MUTATING=1`，写方的施变脚本：`find` 必须恰好命中一次，跑完 `git checkout` 还原并逐字节核），施变前同一份克隆不施变先跑一次这一组；改前克隆上同法各施一次作对照；正式路由下的全量结果见下面完整检查。
+
+施变前不施变各跑一次这一组：改后克隆 11.6 秒、改前克隆 12.3 秒，两条断言都绿。
+
+| 变异 | 点名的断言 | 改后（`6922f2a`） | 改前（`f6a5b09`） |
+|---|---|---|---|
+| `M-H62-aq`（`prebuilt-parent.ts` 正常结束改成只设 `exitCode`） | 异常保留原栈且普通预载正常收尾 | 红在点名那条，15.6 秒 | 红在点名那条，16.4 秒 |
+| `M-H62-ar`（`prebuilt-signals.ts` 平台分支颠倒） | INT和TERM进程组与同步自身信号生命周期 | 红在点名那条，红的标签 `CLEAR_TERM_V2.REMOVE_TERM.HOOKS`、`N.SYNC_SELF_TERM.RAW`、`N.SYNC_SELF_TERM.HOOKS`，11.2 秒 | 同左三个标签，11.0 秒 |
+| `M-H62-as`（`prebuilt.ts` 关掉 inline sourcemap） | 异常保留原栈且普通预载正常收尾 | 红在点名那条，标签 `N.THROW.THROW`，11.7 秒 | 同左，12.2 秒 |
+| `M-H62-at`（清空 TERM 后又装回默认处理） | INT和TERM进程组与同步自身信号生命周期 | 红在点名那条，标签 `CLEAR_TERM_V2.REMOVE_TERM.CLEARED`、`CLEAR_TERM_V2.REMOVE_ALL.CLEARED`；头一次 70.1 秒，同法再施两次（两份克隆）11.0、12.2 秒，标签相同 | 同左两个标签，10.5 秒；再施一次 11.2 秒 |
+
+八次都没有失格记号，施变的文件都由 `git checkout` 还原、逐字节核过。红的标签与写方在改前克隆上记的逐条相同（写方报告第四节）。`M-H62-at` 头一次的 70.1 秒那一跑里机器几乎闲着（那一批 8 跑墙钟 159 秒、子进程 CPU 168 秒，多出的约 60 秒不是在算），与本条第 2741 行记过的整机卡顿同一个样子，没有再追。
+
+**完整检查（`6922f2a`）。** 一份干净克隆里（`git clone` 分支后 `npm ci`，`origin/main` 是 `f6a5b09`，Node 22.23.3，由 Node 的 `process.umask` 设成 022 再起 `npm`）跑完整 `npm run check` 一次：十一步全过、退 0，墙钟约 560 秒（单次，只作参考），子进程的用户＋系统 CPU 约 2332 秒。`size`（相对 `f6a5b09`）：源码 59/350（另折掉 4 行只改行内空白的），测试、文档、其他都是 0；`spec`、`skill`、`adr`、`typecheck`、`compile` 都过；`npm test` 全部通过（覆盖 46 条需求）；变异一步维护比较 `f6a5b09..6922f2a` 路由／正文 0 条、执行配置 0 条、验证者布局 0 份，168 种配置的正常基线全部成功 —— `h-prebuilt-no-config-lifecycle-contract` 那一种在 8 个 worker 同跑时照常绿，正是第 2739 行当初红的位置 —— 1696 条变异全部被抓到（验证者是自检的 256 条、需求测试的 1440 条），`M-H62-aq`、`M-H62-ar`、`M-H62-as`、`M-H62-at` 都在内；完整自检 18 个可执行文件都有出处；审计全过（台账 507 条，跑的是本节之前的文字）；启动数闸门：树内摘要与现算的相同，168 种配置都在线内 —— 所以 `scripts/check/launches.json` 不改（没加变异，组的启动数也没变）。整跑没有一处夹具失格记号，跑完克隆的树是干净的。本节所在的提交只有文字；它上面另起一份干净克隆再跑一次完整检查，结果写在 PR 正文，不再为它追加提交 —— 为记一个数换 head 没有必要。
+
+**要登记的缺口。** 写方报告第六节建议登记的四条，按重冻之后的现状逐条重核：第 1、4 条照旧成立，原样登记（措辞按当前行号与运行器的实际输出改准）；第 2 条只剩一半 —— 生命周期入口已改成原子 rename，preload 的 ready 仍是非原子写 —— 按剩下那一半登记；第 3 条（ADR-158 第四节那张表的 tsx 行缺一个前提）本 PR 已在 ADR-158 末尾追加更正块补上，不登记。另登记两条：独立作者报告第 3.3 节的 tsx 转发期限，与整合时看到的组合冻结摘要仍指重冻前。
+
+> ⚠️ 欠条：`h-prebuilt-no-config-lifecycle-contract` 的 clear-term 控制器以失格结束时，它已交回的回执会丢：宿主 `runPrebuiltClearTermContracts` 先 `process.stdout.write(tool.stdout)` 再抛失格（`scripts/prebuilt-clear-term-contract-test.ts` 第 75–76 行），`scripts/test.ts` 的 `group` 只 `await run()`、不接异常，进程在异常上退出，管道里还没写出去的那段（回执在内）就没了 —— KOL-20 写方在仓库外把 KEEP 的 R 资格强制判失格，控制器自己交回 7619 字节、1 份回执，日志里 0 份；负载下那一次真失格的日志 226 KB，正常跑 648 KB；本节负载对照里改前那 5 跑 KEEP 失格，日志里的回执分别是 0、0、0、0、1 份（正常跑 3 份），日志 73–669 KB（正常约 712 KB），形状一致，控制器那一侧实际交回了多少本节没有另记。第 75 行那句注释「Preserve complete red/invalid evidence」在这一支不成立，第 2739 行重启条件要的「两跑的退出钩子记录」在失格时留不下。本节重冻只改了内联入口的就绪点，宿主与 `group` 没动 · 来源：KOL-20 写方排查（2026-10-29，仓库外，写方报告第六节第 1 条）· 档：登记（排查时撞见的，不是评审发现；合并者若判为既有缺陷，按那一档改去向） · 重启条件：这一组再以失格结束一次，或下一条改 `runPrebuiltClearTermContracts`、`scripts/test.ts` 的 `group` 或这一组接线的 PR，先到为准
+
+> ⚠️ 欠条：冻结 preload 工具读 ready 文件仍只查「在不在」：`packet/lifecycle319/preload/ordinary-preload.mjs` 用 `writeFileSync` 写 preload 的 ready（建文件、写内容是两步），`preload/run.mjs` 在 `existsSync` 为真后马上 `rows(readyFile)[0].pid`，读到空文件时在 `.pid` 上抛 TypeError、读到半行时 `JSON.parse` 抛错，都记 R 失格，整组带记号失败。本节重冻把生命周期入口的 ready 改成先写临时文件再 rename，`lifecycle319/src/run.mjs` 那一路的「ready file multiplicity invalid」由此去掉；preload 这一路不在授权范围、两份文件都在冻结包里，没改。写方在插桩克隆里见过一次（`Cannot read properties of undefined (reading 'pid')`，那一跑 R 的环境里有写方的计时预加载），未插桩的跑里没见过 · 来源：KOL-20 写方排查（写方报告第六节第 2 条）与独立作者报告第六节（2026-10-29）· 档：登记 · 重启条件：这一组再以 preload 的 R 失格（上面那两种错误之一）结束一次，或冻结包下一次版本变更，先到为准
+
+> ⚠️ 欠条：冻结生命周期运行器某一案判 INVALID 时，适配器只交出它 stdout 里的「INVALID <案> assertions=0」与汇总行（汇总行的 `infrastructureError` 只记整跑级的错，案级的 `reason` 不在里面），失格原因只写在临时根里的 `report.json`，`finally` 删整棵根，日志里看不到是 R 哪一步失格（KOL-20 改前负载跑 `before-load8b/r1-c7` 一例，仓库外）。本节去掉了已知的两种原因（R 的启动窗口、ready 撕裂读），别的原因再来时照样看不到 · 来源：KOL-20 写方排查（写方报告第六节第 4 条，2026-10-29）· 档：登记 · 重启条件：这一组再以冻结运行器 INVALID 失格一次，或下一条改 `scripts/prebuilt-no-config-contract-test.ts` 的 `execute` 的 PR，先到为准
+
+> ⚠️ 欠条：公开 tsx 4.23.12 的父进程转发 `SIGINT`／`SIGTERM` 有两段 30 毫秒期限（`dist/cli.mjs` 里的 `waitForSignalFromChild`／`relaySignalToChild`，整合时在安装的 4.23.12 上读过：先等子进程回话 30 毫秒，没回话就把信号转给子进程，再等 30 毫秒仍没回话就 `SIGKILL` 子进程）。整机卡顿让入口挨信号后约 60 毫秒里轮不上时，参照 R 仍会丢退出钩子（raw 照旧 130／143），这一组照样红在 `HOOKS`／`BOUNDARY_HOOKS` 或 KEEP 失格。这与本节修掉的启动窗口无关，重冻不处理；独立作者与本节的负载实测里都没见到 · 来源：独立作者报告第 3.3 节（2026-10-29）· 档：登记（重冻时看到的，不是评审发现） · 重启条件：这一组在本节之后再红在「R 无钩子、raw 与稳态相同」（先照本节的读法确认 ready 时转发已装上，不是本节修掉的那一种），或下一条升级 tsx 的改动，先到为准
+
+> ⚠️ 欠条：`scripts/prebuilt-no-config-contract-data.ts` 的 `COMBINED_FREEZE_SHA256`（＝`ORIGINAL_FREEZES` 第一项 `f2d67ff0…c445`，顶层 v4.2 packet 的 `freeze-manifest.json`）与 `ORIGINAL_FREEZES` 里原 fixture 根 manifest 那一项（`c6045e89…7f49`，它列着两份入口）在本节重冻之后仍指重冻前的清单：两份清单的原文不在仓库、也不在独立作者的目录里，算不出新值。运行期没有谁读它们（适配器只把它们写进临时根里的 `portable-bindings.json` 与生成清单的 `originalManifestSha256`，随后整棵删掉），不影响任何结论；但把它们当成「当前嵌着的冻结包」的身份会认错 · 来源：本节整合时（2026-10-29）· 档：登记（本节自己看到的，不是评审发现） · 重启条件：冻结包下一次版本变更（由持有原清单的一方重算，或改成只记成员摘要），或有代码开始读 `combinedFreezeSha256`／`originalManifestSha256`，先到为准
+
+**欠条台账清点。** 改前（`f6a5b09`）`npm run -s adr-ledger` 抽出 507 条（重启条件 468、重开讨论 13、死亡条件 26），没有孤儿，与写方在同一棵树上记的相同。按 `prebuilt-no-config`、`prebuilt-clear-term`、`clear-term`、`CLEAR_TERM`、`h-prebuilt`、`lifecycle319`、`sync43`、`冻结包`、`neverReplace`、`就绪`、`ready`、`第四节那张表`、`tsx`、`信号`、`退出钩子`、`冻结`、`独立作者`、`参照`、`ADR-158`、`定期清点` 搜了全表的条件行，逐条读了命中的那些。条件的宽读窄读照原样并列，不替需求所有者定。
+
+- **已还**：本条第 2739 行，见本节开头。它的重启条件后半（「下一条改 `scripts/prebuilt-no-config-contract-test.ts`、`scripts/prebuilt-no-config-contract-data.ts` 或这一组断言的 PR」）由本 PR 响；前半（再见一次时先单跑、留下两跑的退出钩子记录）写方在仓库外做过。
+- **队里的下一条**：本条第 2917 行（扩范围，把 `afterUnobserved` 抽到 `scripts/lib`）—— #409 第二轮把它排在第 2739 行之后（本条第 2885 行）。本 PR 不碰，合入后开。
+- **不响**：
+  - ADR-132 第 344 行（信号下退出钩子的四处笼统说法；条件：碰那四处所在的段落、有新代码在 `process.on('exit')` 里放信号下必须完成的清理、或升级 tsx）：ADR-158 第 68 行记它已还；本节没碰那四处、没加退出清理、没升级 tsx。ADR-158 末尾追加的更正说的是第四节那张表的前提，不是那四处。宽读把「参照入口挨信号的时序变了」算进去 —— 入口的退出钩子一个字节没改，只是 ready 晚一轮，两读都不响。
+  - ADR-70 第 2699 行（升级 tsx 或检查链所用 Node 主版本）：都没升。
+  - ADR-158 第 72 行（见齐就停的验证者留下的临时目录）、第 705 行（KOL-101，`h-worker-output-contract` 夹具的临时目录）：本节没改变异停验证者那一刀、自检临时目录的归属，也没碰那组夹具。新入口的 ready 临时文件 rename 之后不留，冻结运行器的临时根照旧由适配器的 `finally` 整棵删。
+  - ADR-132 第 288、320、322、342 行，ADR-155 第 113 行（自检夹具的时间窗口、判活、拆进程）：这一组是需求测试组，不是自检；本节没改任何时间窗口。
+  - ADR-74 第 127 行（`hardStop`／`stopJobs`），本条第 2822、2824、2826、2828、2919 行（guardian 夹具与源码）：没碰。
+  - ADR-89 第 92 行（下一条要往 `mutations.json` 加变异的改动）：没加变异。
+  - ADR-145 第 1239 行（启动数闸门的死亡条件）：本节的启动数见上面完整检查，没有出现那两种情形。
+- **ADR-99 第 541 行**（开 PR 前按实际文件清单核在途的 PR，同文件等前一条合入）：本会话跑不了 `gh`；派发时由 KOL 开发助手核对为空。只查了本地克隆 `git fetch` 之后的远端分支：`origin/main` 仍是 `f6a5b09`；58 个未并入主干的远端分支里 35 个碰过本节五个文件之一，最近的提交都不晚于 2026-10-28 14:52（北京时间），早于 #409；碰两份脚本的只有 `origin/codex/ci-runtime-recovery-20261025`（`1d6f2e8`，2026-10-26）。推送前要由有权限者按当时的主干与在途 PR 文件清单重核，写本节时这一步不算做过。
+
+改后（本节所在的提交）`npm run -s adr-ledger` 抽出 512 条（重启条件 473、重开讨论 13、死亡条件 26），没有孤儿；比改前多的只有本节那五张新欠条（第 3025、3027、3029、3031、3033 行），本节开头那一行「已还」与 ADR-158 末尾那块更正都不带重启条件、不进台账；其余抽出的 507 行与改前逐行相同 —— 本节只追加在文件末尾，前面的行号一个没动。
+
+**本次回访记录。** 已读 ADR-152 最新一块 `2026-10-28 · 本跑 810031b`，两条候选（ADR-99 第 462 行、ADR-167 第 159 行）本次未参考。
+
+**没做的。** 没推送、没开 PR，PR 号留在本节开头那一处锚点（「PR #待补」）。在途 PR 只看了本地远端分支（见上 ADR-99 第 541 行那一条），`gh` 在本会话跑不了。没在 CI、macOS 或 root 下跑：Darwin 上 Node ≥22.22.3 应当走同一条 registerHooks 路径，<22.22.3（如 ADR-158 第二十九节的 22.22.0）走 off-thread 路径、处理器在求值前就装上，新就绪点在那里无害 —— 都是推断，没有实测；Node 22.23.3 与 v24.22.1 以外的版本没跑。独立作者没有跑适配器与冻结运行器本体（要 C 与仓库数据文件），它的数只复刻了 R 一侧；跑真运行器的是本节在克隆里跑的这一组、施变与完整检查。`N.SELF_TERM` 不在适配器选中的三案里，新入口 80 次全是一种结果，样本不够说它已经确定。重冻之后合并之前，独立作者建议再有一次与它无关的复核（它的报告第 7.6 节）；本节是整合方，读过写方的排查，不是那一次复核，本 PR 合并前还没有做。嵌回、核对、汇总、负载与施变的脚本在会话的草稿目录里，没进仓库。
