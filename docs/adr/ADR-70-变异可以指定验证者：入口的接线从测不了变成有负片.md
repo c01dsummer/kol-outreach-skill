@@ -3201,3 +3201,334 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 **欠条台账。** 本节不新增台账条目：「⚠️ 更正」不是欠条块头，本节也没有台账抽取的三种写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD` 核过）。`npm run -s adr-ledger`（Node v22.23.3）改前（`8f330d1`）516 条（重启条件 477、重开讨论 13、死亡条件 26），改后（本节所在的提交）同样 516 条，无孤儿，两份清单逐行相同 —— 本节只追加在文件末尾，前面的行号一个没动。
 
 **没核的。** 12:55、12:56 两条原话经 KOL 开发助手转达，原消息本会话没见到，原消息 id 没取到。评审与讨论串读的是派发方取下的本地副本，本会话没在 GitHub 上核。#411 会 squash 合入，是照 `ab48003:process/6-INTEGRATE.md` 第 125 行与主干第一父链的样子说的，仓库的合并设置没看。主干：本会话（作者）只看了本地的 `origin/main`，没有 `git fetch`；外层（KOL 开发助手）已 `git fetch`，核过远端 `main` 仍为 `ab48003`（2026-10-30 13:00 前后 CST）。
+
+## 还第 3185 行：第 3124、3137 行各是哪一个提交那时的状态（KOL-21，2026-10-30）
+
+> ⚠️ 已还：ADR-70 第 3185 行 · 还在 KOL-21 观察器那条 PR（分支 `claude/kol-21-observer-netcut`，PR #待补；本块单独一个提交，只有这一块文字）：第 3124 行记的是 `4890bab` 那时的状态 —— 没推送、没开 PR，PR 号留作「PR #待补」；第 3137 行记的是 `ab97e26` 那时的状态 —— PR 号是 #411，已推送、已开 PR，三行「已还」的 PR 号由 `f420ec3` 填上。两行原文不改
+
+**条件响在这里。** 第 3185 行的条件头一项是「#411 合入后，下一条往 ADR-70 追加内容的改动」。#411 已 squash 合入主干（`a44d489`）；观察器那一片（分支 `claude/kol-21-observer-netcut`）从 `a44d489` 开，本块是它头一个往本条追加内容的提交，也就是那「下一条」。
+
+**两个时点怎么核的。** 三个提交本地对象库里都有，只在远端跟踪分支 `origin/claude/kol-21-selfcheck-wiring-v2` 上（`git branch --all --contains` 逐个核过），不在主干的历史里。`4890bab`（`4890bab5087eeffc0e4009eaf973e3b57de80bd5`，作者时间 2026-10-29 00:00:45 +0800）往本条追加的那一节里就有第 3124 行那一段原文；`ab97e26`（`ab97e26c90fd1ba05a6e6bee5209fab82f2306e3`，2026-10-30 09:45:30 +0800）追加的是第 3126 行起那一节，第 3137 行那一段在里面；`f420ec3`（`f420ec32b9815dd56d86df8a82d788f4f7fa16ff`，2026-10-30 03:59:54 +0800）改了三份记录各一行，是本条、ADR-92、ADR-95 末尾那三行「已还」的 PR 号。先后是 `4890bab` → `f420ec3` → `ab97e26`：第 3124 行写下时 PR 还没开，第 3137 行写下时 PR 号已经填好。
+
+**欠条台账。** 本块不新增台账条目：「⚠️ 已还」不是欠条块头，本块也没有台账抽取的三种写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD` 核过）。第 3185 行原文不改，它连同自己的条件照旧被抽出 —— 台账只抽取、不判已还。`npm run -s adr-ledger`（Node v22.23.3）改前（`a44d489`）抽出 516 条（重启条件 477、重开讨论 13、死亡条件 26），没有孤儿；改后（本块所在的提交）同样 516 条（重启条件 477、重开讨论 13、死亡条件 26），没有孤儿，两份清单逐行相同 —— 本块只追加在文件末尾，前面的行号一个没动。
+
+**本次回访记录。** 已读 ADR-152 最新一块 `2026-10-28 · 本跑 810031b`，两条候选（ADR-99 第 462 行、ADR-167 第 159 行）本次未参考。
+
+**没核的。** 本块所在的提交只改本条这一个文件，没推送、没开 PR，PR 号留在上面那一行「已还」里（「PR #待补」）。三个提交的先后按本地对象库里的作者时间与内容核，没在 GitHub 上核 PR 的时间线。主干只看了本地的 `origin/main`（`a44d489`），没有 `git fetch`。
+
+## KOL-21 零请求观察器与外层断网（分支 O，2026-10-30）
+
+**这一节是什么。** KOL-21 独立测试包计划 v4（本机 `/workspace/kol21-rebase-work/testpack/plan-v2.md`，SHA256 `e56b91a16c04af592d7dea6dad0d2c196d7a15354f674e1755aafb2a9357002a`，不进仓库）A5 那一片：照 2026-10-27 观察器协议草案（本机 `/workspace/kol-handoff-unpack/codex-light/codex-运行记录/合入后欠条与配置归属-2026-10-24/wiring-observer-admission-20261027/report.md`，SHA256 `47251674d7995ba6778b9deec5ae108b9c4a1d681905916ea07f2c8c69b930b9`）第 11–18 行的八条拟议 v1，做出零请求观察器与外层断网，四个入口各配阳性与零记录两条资格对照，冻结认证命令。写方是观察器提供者（全新的 Claude 上下文，不是测试作者，也不是整合方），分支 `claude/kol-21-observer-netcut`，从 `a44d489` 开。下面两小节：「对作者公开的协议」可以整段摘给测试作者；「设施与认证记录」不给作者。认证还没做。
+
+### 对作者公开的协议（v1）
+
+这一小节是交去认证的版本。整合方认证后在本节之后追加认证记录；认证时协议若有改动，以追加的那一块为准。
+
+1. **它回答什么。** 一次运行里，真实入口进程有没有经 `fetch` 发请求、发了哪些、每一次拿到的是脚本里预定的哪一个响应。请求不出本机：观察器按响应脚本作答，不回落到真网络；入口进程还跑在外层断网的沙箱里（断网不靠换掉 `fetch`），`fetch` 以外的网络接口在沙箱里连不上，在入口进程里一用就判观察器故障。
+2. **怎么起入口。** 先认证一次断网，再逐次运行：
+   - `certifyIsolation({ evidenceDir })` 交回 `certified: true` 与一份认证（`isolation`），或 `certified: false` 与原因。认证不成立就**不能起任何入口**：手上没有认证可传；传一个别处造的对象，`runObserved` 判隔离故障、不起入口。
+   - `runObserved({ isolation, entry, args, cwd, script, evidenceDir, apiKey, timeoutMs })`，后两项可省：
+     - `entry`：`probe`、`collect`、`enrich`、`render` 四个真实入口之一；或 `control`，观察器自带的对照夹具，参数 `['fetch', <URL>]`，按脚本发一次请求、把状态与正文打到 stdout，只用作 render 的阳性（第 6 条）。
+     - `args`：入口的公开命令行参数，参数数组，不经 shell；路径写绝对路径。
+     - `cwd`：入口的当前目录，绝对路径、要存在。入口读写的文件（配置、任务目录、记忆、产出）都放在它底下 —— 沙箱里看得见、写得了的只有 `cwd` 与证据目录。`cwd` 与证据目录不能是仓库根、根目录或凭据目录的上一级，也不能落在仓库里只读照搬的那几处，否则判夹具失格。
+     - `script`：响应脚本（第 3 条）。`evidenceDir`：这一跑的证据目录，绝对路径、还不存在、上一级已存在。
+     - `apiKey`：缺省 `'placeholder'`，入口拿到一个占位串（不是任何真密钥）；`'absent'` 时入口环境里连这个变量也没有。`timeoutMs`：缺省 120000，超时判信号故障。
+   - 入口进程的环境从空表起，只有 `PATH`、`HOME`、`TMPDIR`、`LANG`、`TZ`（`UTC`）、`TSX_TSCONFIG_PATH`、`PWD` 与上面那个 key；调用方的环境一个都不传，不读 `.env`。`HOME`、`TMPDIR` 是沙箱私有的空目录；gh 的配置目录与仓库根的 `.env`、`.env.local` 在沙箱里是空的。
+   - 每一跑有一个随机的运行 id（`run`），事件每行都带它。证据目录里留下：`script.json`（脚本原字节）、`argv.json`（参数表与环境，key 只写一句占位说明）、`events.jsonl`、`stdout.txt`、`stderr.txt`、`result.json`（判的结果）。
+3. **响应脚本格式 `kol-observer-script/v1`**（JSON）：
+
+   ```json
+   { "schema": "kol-observer-script/v1",
+     "rules": [
+       { "method": "GET", "endpoint": "/<路径>", "query": { "<键>": "<值>" },
+         "responses": [
+           { "status": 200, "headers": { "content-type": "application/json" }, "body": "<正文原文>" },
+           { "status": 402, "body": "<正文原文>" },
+           { "status": 200, "body_base64": "<原字节的 base64>" },
+           { "status": 200, "body": "<正文原文>", "body_read": "fail" },
+           { "connect": "fail" } ] } ] }
+   ```
+
+   - 命中：方法相同（`method` 缺省 `GET`，写大写）、请求 URL 的路径恰好等于 `endpoint`（不带查询）、`query` 里每个键在请求的查询里都有且值相等（请求可以多带别的键）；不比 origin。
+   - 同一条规则第 n 次命中答它的第 n 个响应，按顺序；一次运行里可以表示多次请求。`status` 是 200–599 的整数，可以是 402 等非 200；`body` 是正文的 UTF-8 原文，`body_base64` 是正文原字节，二选一，都不写是空正文；204、205、304 不带正文；`body_read: "fail"` 时响应头照常到、读正文时失败；`{ "connect": "fail" }` 是没有 HTTP 状态的连接失败（`fetch` 抛 `TypeError`）。
+   - 不合格的脚本不起入口、判夹具失格：多出的键、方法不是大写、`endpoint` 不以 `/` 开头或带查询、`responses` 为空、状态码越界、正文写法冲突；两条规则能命中同一个请求（方法与 `endpoint` 相同、查询条件不互斥）也算不合格，所以运行时不会有歧义。
+   - 运行时没有一条规则命中（`unmatched`），或命中的那条已经用完（`exhausted`）：观察器记下这次请求、不答、叫停入口（退出码 97），判观察器故障。没有默认响应，也不走真网络。只断言零请求的那一跑，脚本可以一条规则也不写（`"rules": []`）。
+4. **事件与 armed**（`events.jsonl`，每行一个 JSON 对象，都带 `kind`、`run`、`pid`）：
+   - `armed`：第一行，入口进程自己写。`ppid`、`entry`（入口文件的真实路径）、`script_sha256`、`preload_sha256`（观察器预加载那份文件的 SHA256）、`exec_argv`（加载顺序）、`node`、`env_names`（入口进程环境变量的**名字**）、`api_key`（`placeholder`／`absent`／`other`）、`net`（入口进程看得见的网卡名）。
+   - `request`：每个请求在答之前写。`seq`（从 1 起）、`method`、`origin`、`endpoint`（URL 路径）、`query_keys`（查询的键名，不记值）、`rule` 与 `index`（命中的第几条规则、第几个响应；没答时为 `null`）、`outcome`（`{status}`、`{connect:"fail"}` 或 `{refused:"unmatched"|"exhausted"}`）。
+   - `body`：入口读了某一次响应的正文（`seq`、`read` 是读法、`ok` 是读成没有）。
+   - `fault`：观察器在入口进程里看到的设施问题（`reason`），如入口换掉了 `fetch`、绕过 `fetch` 连网。
+   - `close`：最后一行，入口进程退出时写。`requests`（请求数）、`code`（退出码）。
+   - 事件里不记请求头、查询的值与完整 URL。
+5. **结果怎么判。** `runObserved` 交回 `ObservedRun`：
+   - `outcome.kind === 'observed'`：观察成立 —— armed 打头，属于本次运行、由起的那个入口进程写，装的是这一份脚本与观察器、加载顺序对，入口进程只看得见 `lo`、环境只有白名单；请求序号连续，记下的结局与脚本那个位置写的一致；close 收尾、数目对得上。这时 `requests` 就是这一跑经 `fetch` 发出的全部请求；退出码、stdout、写出的文件由作者自己的断言判。
+   - `outcome.kind === 'facility'`：设施故障，`cause` 五种 —— `launch`（进程起不来）、`loader`（入口进程没写 armed：加载器或观察器没装上）、`observer`（观察器接上了，但事件写不进、不完整或对不上；或者脚本外的请求、入口换掉 `fetch`、绕过 `fetch` 连网，观察器叫停了入口）、`isolation`（没有断网认证、沙箱没起来，或入口进程看得见 `lo` 以外的网卡、环境不是白名单）、`signal`（被信号打死或超时）。**设施故障既不是语义红，也不是零请求通过**；这一跑的退出码与输出不能拿来判任何需求。
+   - `outcome.kind === 'fixture'`：夹具失格，调用方给的东西不对（脚本不合格、入口认不得、`cwd` 或证据目录不合规），入口没起。
+   - `attributable`：armed 核过了，请求事件归得到这一跑。观察器因脚本外的请求叫停入口时，`outcome` 是设施故障，`attributable` 却为真、`requests` 里有那一次 —— 入口确实发了。
+   - **语义红**：观察成立，而作者从需求推出的预期（退出码、输出、文件、请求序列）不成立；或零请求断言判红（下一条）。
+6. **零请求断言：`zeroVerdict(target, positive)`，四项同时满足才判通过**：
+   1. 目标入口进程自己写了 armed，且这一跑观察成立；
+   2. 同一事件源的阳性对照：同一份断网认证下、同一个入口的一跑（render 按契约不发请求，用对照夹具 `control`），至少观察到一次脚本里预定的请求，事件、响应与运行身份都对得上（阳性那一跑本身观察成立），两跑装的是同一份观察器；
+   3. 事件通道完整：目标那一跑 close 收尾、数目对得上（含在观察成立里）；
+   4. 外层断网认证：两跑用的是 `certifyIsolation` 交出的同一份认证，入口进程里只看得见 `lo`。
+
+   结论四档：`pass`（零请求通过）；`red`（归得到这一跑的请求至少一次，脚本外被拒答的也算 —— 语义红）；`facility`（目标或阳性是设施故障）；`fixture`（目标或阳性夹具失格、没有阳性、阳性不在同一份认证下或不是同一个入口、阳性一次请求也没看到、两跑装的观察器不是同一份）。只有 `pass` 算零请求断言通过；空事件文件、没有事件文件、加载失败都到不了 `pass`。同一认证、同一入口的阳性可以给多条零请求断言共用（`process/4-VERIFY.md`「推论」第三条），每条零请求断言自己那一跑都要单独起、单独有 armed。
+7. **作者用得到的导出**（签名行原样摘自 `scripts/check/observer-run.ts` 与 `scripts/check/observer-rule.ts`；`RunOptions` 原文分行带注释，这里并成一行；`runObserved` 只摘到返回类型）：
+
+   ```ts
+   export function certifyIsolation(o: { evidenceDir: string; bwrap?: string }): Certification
+   export type Certification = { certified: true; isolation: Isolation; problems: string[]; evidenceDir: string }
+     | { certified: false; problems: string[]; evidenceDir: string }
+   export interface Isolation { readonly id: string; readonly bwrap: string; readonly layout: Layout }
+   export const runObserved = (o: RunOptions): ObservedRun
+   export interface RunOptions { isolation: Isolation; entry: ObserverEntry | 'control'; args: readonly string[]; cwd: string; script: ResponseScript; evidenceDir: string; apiKey?: ApiKey; timeoutMs?: number }
+   export interface ObservedRun extends Observation { run: string; evidenceDir: string; status: number | null; signal: string | null; stdout: string; stderr: string }
+   export interface Observation extends Judged { entry: ObserverEntry | 'control'; isolation: string }
+   export interface Judged { outcome: Outcome; attributable: boolean; armed?: Armed; requests: RequestEvent[] }
+   export type FacilityCause = 'launch' | 'loader' | 'observer' | 'isolation' | 'signal'
+   export type Outcome =
+     | { kind: 'observed' }
+     | { kind: 'facility'; cause: FacilityCause; reason: string }
+     | { kind: 'fixture'; reason: string }
+   export function zeroVerdict(target: Observation, positive: Observation | undefined): Zero
+   export type Zero = { verdict: 'pass' } | { verdict: 'red'; requests: number }
+     | { verdict: 'facility'; reason: string } | { verdict: 'fixture'; reason: string }
+   export const SCRIPT_SCHEMA = 'kol-observer-script/v1'
+   export type ScriptResponse =
+     | { status: number; headers?: Record<string, string>; body?: string; body_base64?: string; body_read?: 'fail' }
+     | { connect: 'fail' }
+   export interface ScriptRule { method?: string; endpoint: string; query?: Record<string, string>; responses: ScriptResponse[] }
+   export interface ResponseScript { schema: typeof SCRIPT_SCHEMA; rules: ScriptRule[] }
+   export function scriptProblems(value: unknown): string[]
+   export const ENTRIES = ['probe', 'collect', 'enrich', 'render'] as const
+   export type ObserverEntry = typeof ENTRIES[number]
+   export const FIXTURE_POSITIVE: readonly ObserverEntry[] = ['render']
+   export const OBSERVER_EXIT = 97
+   export const API_KEY_PLACEHOLDER = 'kol-observer-placeholder-not-a-key'
+   export type ApiKey = 'placeholder' | 'absent'
+   export const ALLOWED_ENV = ['HOME', 'LANG', 'PATH', 'PWD', 'TIKHUB_API_KEY', 'TMPDIR', 'TSX_TSCONFIG_PATH', 'TZ'] as const
+   export interface Armed { kind: 'armed'; run: string; pid: number; ppid: number; entry: string; script_sha256: string;
+     preload_sha256: string; exec_argv: string[]; node: string; env_names: string[]; api_key: ApiKey | 'other'; net: string[] }
+   export type Refusal = 'unmatched' | 'exhausted' | 'ambiguous'
+   export type RequestOutcome = { status: number } | { connect: 'fail' } | { refused: Refusal }
+   export interface RequestEvent { kind: 'request'; run: string; pid: number; seq: number; method: string; origin: string;
+     endpoint: string; query_keys: string[]; rule: number | null; index: number | null; outcome: RequestOutcome }
+   export interface BodyEvent { kind: 'body'; run: string; pid: number; seq: number; read: string; ok: boolean }
+   export interface FaultEvent { kind: 'fault'; run: string; pid: number; reason: string }
+   export interface CloseEvent { kind: 'close'; run: string; pid: number; requests: number; code: number | null }
+   export function readEvents(text: string): { events: ObserverEvent[]; problems: string[] }
+   ```
+
+   `bwrap` 那个参数只给检查链自己的测试换一个假的进来，作者不传；`Layout` 是认证里的沙箱布局，作者不用读它。`Refusal` 里的 `ambiguous` 在运行时到不了（第 3 条）。
+8. **限制。** 只观察 `fetch`。要 Linux、bwrap、能建网络命名空间；起不来就认证不成立，那台机器上的零请求断言只能是设施故障。Node 22，tsx 照锁文件。每一跑都在一个新的沙箱里；入口起的子进程不带观察器，但照样在断网里。
+
+### 设施与认证记录（不给作者）
+
+**认证执行者、冻结命令与证据。** 认证由整合方 KOL 开发助手执行（计划 §6-4；需求所有者丸子 2026-10-30 20:51 CST 裁决，经 KOL 开发助手转达，原消息本会话没见到）。冻结命令文件是 `scripts/check/observer-cert.sh`，SHA256 `ef2c0f7eb992ef9b28285a631aeb1e8705febdc9c104125f051f782dd103ad73`（随提交 `f969309` 入树）。整合方在 PR head 的干净克隆根目录、Node 22 下照原样跑两条：`npm ci --prefer-offline --no-audit`，然后 `sh scripts/check/observer-cert.sh`；后者只执行一行 `node_modules/.bin/tsx scripts/check/observer-cert.ts --out output/kol21-observer-cert`。证据在 `output/kol21-observer-cert/`（`output/` 不进仓库；目录已存在就停下、不覆盖）：`summary.json` 最后写，记被测提交的 40 位、工作区干不干净、Node 版本与 node 二进制 SHA256、tsx 版本与加载器、bwrap 路径与布局身份、设施各文件的 SHA256、目录里每份证据的 SHA256（它自己与 `console.txt` 除外）与 15 项各自的结论；`console.txt` 是 stdout 的副本；`isolation/` 是断网认证（受控目标、两边的探针输出、沙箱布局、结论）；`<入口>-positive/`、`<入口>-zero/`、`fault-<种类>/` 各一步，`work/` 是输入，`run/` 是那一跑的证据。认证成立 = 15 项都成立，且被测树是 git 检出、工作区干净、Node 22，以 0 退出。**PR head 提交、证据的 SHA256、认证结果都还没有**：待整合方在 PR head 干净克隆执行后在本节后追加；认证之后 PR 又追加了提交的，照计划 A5-4 在合入前的最终 head 上重跑，以那一次为准。
+
+**设施各文件**（本节所在提交的树）：
+
+| 文件 | SHA256 |
+|---|---|
+| `scripts/check/observer-rule.ts` | `df7b6b09f8eb151db468eb0ab82ebdb924e3c507ccb4963cc25daaff31360c98` |
+| `scripts/check/observer-preload.ts` | `abc542d0d050756234a45a5ee74ef9e6401bcb6d18fb7624895e30d1df260bce` |
+| `scripts/check/observer-run.ts` | `062032b4c2f56abf3fc87304f9823a2d9a2c4bd953529b7edbe2a4b0996964f4` |
+| `scripts/check/observer-cert.ts` | `b5058c79751b87ca1627722b1e6c0c15bca88e29f0fe9ba9b207cc52080253b9` |
+| `scripts/check/observer-cert.sh` | `ef2c0f7eb992ef9b28285a631aeb1e8705febdc9c104125f051f782dd103ad73` |
+
+同一片里另改了：`scripts/check/selfcheck.ts`（新组 `observer-cert-entry`）、`scripts/check/verifier-rule.ts`（`SELFCHECK_TOOLS` 加 `observer-cert` 一项）、`scripts/test.ts`（三组 `h-observer-rule`、`h-observer-preload`、`h-observer-run`，以及种子那条测试的期望）、`scripts/check/mutations.json`（`M-H70-a`～`w` 二十三条）、`scripts/check/launches.json`、`docs/ARCHITECTURE.md`（锚点表五行）。草案第 33–39 行列的通用设施，在 `a44d489` 上只有 `scripts/check/prebuilt.ts` 变了（`14609ca1fe46d0d809234e94b065949496adc98816d3148b3f2e0ba256e67bdc`），其余与草案记的 SHA256 相同；`fake-fetch.ts` 与 `launch-preload.ts` 没改，也没用它们 —— 观察器不经 fake-fetch，`prebuilt.ts` 的预编缓存与裸起也不用，入口一律由 tsx 加载器起。中断的上一次提供者 run（`20261030T223346-66a031b6`）留下的两份草稿（`observer-preload.ts` `04a69178baf756fec32dad432fec83c5c88dbb2d3a372764a822770dd9b52a8f`、`observer-rule.ts` `730539c4103bad1f253eb923dfe63f1d776ebc30fc0879f32a83bc109d666e3c`）读过、取了空根布局与 armed 里带网卡和环境变量名这两个做法，代码逐处重写并核过，没有原样采用。
+
+**草案八条各落在哪。**
+1. 隔离与身份：每一跑一个新证据目录、随机运行 id；入口进程的环境从空表起（`observerEnv`），key 是设施自己的占位串，不复制、不读 `.env`、output、memory；记 node 真实路径、版本与 SHA256，tsx 版本与加载器地址，观察器预加载的 SHA256，bwrap 路径、版本与 SHA256，布局身份，完整 argv，环境名单与 cwd，脚本 SHA256（`argv.json`、armed、`summary.json`）。
+2. 真实入口：`spawnSync(<bwrap>, [<布局参数>, '--', <node 真实路径>, '--import', <tsx 包的 loader.mjs>, '--import', <observer-preload.ts>, scripts/<入口>.ts, …公开参数])`，参数数组，不经 shell，也不经 npm 脚本：npm 脚本带 `--env-file-if-exists=.env`，而且 tsx 命令行起的是壳加子进程两层，预加载在壳里也跑；这里只有入口一个 node 进程，`argv[1]` 就是入口，armed 由它自己写，`ppid` 等于 bwrap 的进程号（判定核这一项）。`TSX_TSCONFIG_PATH` 指仓库根的 `tsconfig.json`：npm 脚本从仓库根起，tsx 读的是那一份。与 npm 起法的差别只按 tsx 4.23.12 的公开用法推断，没有逐项核：不读 `.env`、没有 tsx 命令行那一层（预检与信号转发）、当前目录不同。
+3. 观察器接口：预加载只在主线程启用（tsx 冷缓存时在 worker 线程里起 esbuild，那里什么都不装），启用前删掉观察配置那个环境变量，`argv[1]` 不是配置里的入口就叫停；只 import `node:` 内建与 `observer-rule.ts`，不 import 任何业务模块。`fetch` 换成按脚本应答的那一份，装成不可重配的取值器，入口赋值即叫停；`net.Socket` 的连接、`dgram` 发包、`dns.lookup` 在入口进程里换成记一条故障再叫停。
+4. 响应脚本：见协议第 3 条；歧义在校验时拦下（`scriptProblems`），运行时 `answer` 只会命中一条或拒答。
+5. 事件与故障，fail-closed：事件文件排他新建（已存在就叫停）、每行同步写；写不进就叫停（退出码 97）、那一次请求不答；close 写在退出钩子里，信号打死时没有 close，判信号或观察器故障；判定另核运行 id、进程号、序号、结局与脚本逐条对得上。
+6. 外层断网：bwrap `--unshare-net`（本机 bubblewrap 0.12.0），空根布局：只读照搬 `/usr` 与 `/bin`、`/sbin`、`/lib`、`/lib32`、`/lib64`、`/libx32` 里存在的那些（软链照原样建）、node 的安装目录、仓库的 `scripts`、`node_modules`、`package.json`、`tsconfig.json`；`/tmp` 是空 tmpfs；gh 配置目录（宿主 HOME 下那一处，加上宿主环境指过的 `XDG_CONFIG_HOME/gh` 与 `GH_CONFIG_DIR`）盖成空 tmpfs；仓库根 `.env`、`.env.local` 用空文件盖住；仓库根本身、`.git`、output、memory 都不在沙箱里。可写的只有 cwd 与证据目录，绑在最后，所以另核它们不盖住上面那些（`rwProblems`）。受控拒绝探针：认证时在宿主 127.0.0.1 的随机端口起受控目标（收到一行令牌就记下、回 ack），同一个探针脚本先在沙箱外连它（要 acked，目标记下了外侧令牌），再在与入口同一套布局的沙箱里连它（要 `ECONNREFUSED`／`ENETUNREACH`／`EHOSTUNREACH`，目标没收到内侧令牌）；沙箱里另报网卡（只许 `lo`）、环境变量名（只许白名单）与盖住那几处的类型与条目数（只看类型与条目数，不读内容；沙箱外不看这几处）。认证不了就停；`runObserved` 只认 `certifyIsolation` 交出的那几个对象（模块里的 WeakSet），没有共享网络或「只靠换 fetch」的退路。每一跑另从 armed 再核一遍网卡与环境。
+7. 阳性与零记录资格：见下表。
+8. 证据与分类：见协议第 5 条；五种设施故障、夹具失格与观察成立由 `judgeRun` 分开，零请求四档由 `zeroVerdict` 判。
+
+**资格对照**（`observer-cert.ts` 里写死的输入与预期；它们来自本节作者读入口实现与公开响应形状的推导，不是测试作者的独立推导，只用来认证观察器，不给作者）：
+
+| 入口 | 阳性 | 零记录 |
+|---|---|---|
+| probe | 两个任务落在同一个 TikTok 搜索端点，脚本先给 200 空列表、再给 402：两次请求、结局依次 200 与 402，以 0 退出，stdout 两条结果，第一条 0 人、第二条带错误 | 空任务列表：以 2 退出，零请求 |
+| collect | 新建一个 TikTok 任务，搜索端点 200 空列表：一次请求，以 0 退出，`stopped` 为 `done` | 空任务列表：以 2 退出，零请求 |
+| enrich | 已有任务里一个判了 ✅ 的候选，主页作品端点 200 空列表：一次请求，以 0 退出，`newly_queried` 为 1 | `--dir` 指一个不存在的目录：以 2 退出，零请求 |
+| render | 对照夹具：一次请求，200 `ok`，stdout 原样打回 | 合法的任务目录：以 0 退出，零请求，交付了 `kol.csv` |
+
+每条零记录另判 `zeroVerdict(零记录, 阳性)` 为 `pass`。设施故障对照六条，都用对照夹具或伪造的认证，每条另核零请求判不到 `pass`：脚本外的请求（观察器故障、退出码 97、请求仍归得到这一跑）、事件中途写不进（夹具关掉观察器的事件文件后再请求：观察器故障、退出码 97、stderr 有「事件写不进去」）、事件文件建不出来（证据目录里先放一个同名文件：观察器故障、退出码 97、没有 armed）、被信号打死（请求之后自杀：信号故障）、没装上观察器（只装 tsx 加载器：没有 armed，加载故障）、不是 `certifyIsolation` 交出的认证（隔离故障，证据目录不建）。
+
+**开发时自测（非认证）。** 本机 Linux 6.12 x86_64、8 核、uid 1000、Node v22.23.3、bubblewrap 0.12.0。在本分支还没提交的工作区上跑过 `npx tsx scripts/check/observer-cert.ts --out output/kol21-observer-dev/certdry1`（不是认证命令，也不是那个证据目录）：断网认证成立，四个入口的阳性、零记录与六条设施故障对照 15 项都成立；整体结论「不成立」，唯一的原因是工作区不干净 —— 被测树那一项本来就该这样判。这一跑不是认证，结果不进认证记录。提交之后在干净的 `c8e4bbf` 上（umask 设成 022 再起，理由同第 3059 行）又跑一次，`--out output/kol21-observer-dev/certdry2`：15 项都成立、被测树那一项也成立，以 0 退出 —— 同样只是开发自测，那份汇总不算证据。同一棵树上分开跑过：`npm test` 全部通过（覆盖 46 条需求，新三组 44 条断言），完整 `npm run selfcheck` 以 0 退出（拆成 8 个子进程跑 61 族，19 个可执行文件都有出处，本文件从头跑到尾 14 个、检查链里各自成一步 5 个；新组里那一跑打的是「本机起得来 bwrap 断网」），`npm run audit` 以 0 退出（检查链的判定模块 30 个、都有变异守着，含本片新的三个），`npm run launches` 以 0 退出；`spec`、`skill`、`adr`、`typecheck`、`compile` 都退 0。完整的 `npm run check` 一条命令连跑，在本节所在的提交上做，结果写在 PR 正文，不为它追加提交。
+
+**接线与检查链。**
+- 需求测试三组：`h-observer-rule`（判定，纯函数，33 条断言，不起进程）、`h-observer-preload`（真起五次玩具入口，不进沙箱，只验预加载记什么、怎么叫停；玩具只请求 `.invalid` 域名下的脚本地址，绕过 `fetch` 那一例连本机 127.0.0.1 的 9 号端口，被预加载当场拦下）、`h-observer-run`（伪造认证、坏输入判夹具失格或隔离故障，都在建证据目录之前；bwrap 读不出时认证不成立）。期望值照协议与测试里手写的事实推，没拿观察器的输出回填。
+- 变异 `M-H70-a`～`w` 二十三条，`req` 都是 `harness`、都由需求测试验：十六条在 `observer-rule.ts`、五条在 `observer-preload.ts`、两条在 `observer-run.ts`，各点名该红的具名断言。提交前在本机逐条施上、只跑对应那一组、核点名的都红了再写回原字节（SHA256 核过）：头一版 `M-H70-c` 存活 —— 它拿掉的是 armed 那一行的运行 id 比对，而下面逐行再核了一遍运行 id，两处说的是一件事，拿掉一处等价；把 armed 那一处删掉、变异改指逐行那一处后，二十三条都红。全量 `npm run mutate`（`npm run compile` 之后、umask 022；树就是随后提交成 `f969309` 的那一份，当时还没提交，所以 HEAD 还是 `2a7755b`）：维护比较 `a44d489..2a7755b` 路由／正文 0 条、执行配置 23 条（就是这 23 条新变异）、验证者布局 2 份；173 种配置的正常基线都成功，1729 条变异全部被抓到（由自检验的 266 条、需求测试的 1463 条），退出 0。头一次全量没设 umask（会话的 umask 是 077），跑到一半出现既有的 `M-D4-w`（新文件留在临时文件那一档最严的权限）存活 —— umask 077 下新文件本来就是那个权限，分不出来，与第 3059 行记的是同一件事；那一跑停掉、改设 umask 022 重跑，就是上面这一次。
+- 自检新组 `observer-cert-entry`（`needs` 为空，登记在最后一组之后）：在临时目录里真起一遍认证入口，验接线 —— 汇总与退出码对得上、列出的证据都在、SHA256 对得上；另起一个最小的 bwrap 断网问本机起不起得来，起得来就要求认证成立、15 项都成立，起不来就要求认证不成立、一个入口也不起、以 1 退出。两种都判，不跳过；这一跑不是认证。
+- `SELFCHECK_TOOLS` 加了 `observer-cert`，自检起它只能走工具表；验证基础设施闭包因此多了 `observer-cert.ts`、`observer-run.ts`、`observer-rule.ts`、`observer-preload.ts` 四个文件（最后一个不是 import 进来的，靠 `observer-run.ts` 里一句注释的 from 收进来 —— 抽边认注释，`verifier-rule.ts`）。四个文件都是新的，二十三条变异都是 `by: test`，不受「自己验自己」管，没有哪条既有变异因此被拦。
+- `h-infra-rules` 里「种子 = …」那条的期望跟着多了 `scripts/check/observer-cert.ts`。这不是改测试让它变绿：工具表就是行为，往表里加工具本来就要改这条期望，加 `launches`、`adr-ledger`、`skill`、`audit` 时都这样改过（那条测试的注释记着）；新期望照字符串手排，注释同改。
+- `docs/ARCHITECTURE.md` 锚点表加了五行；`:443` 那一类入口说明没碰。`scripts/check/launches.json` 在跑过 `npm run mutate` 的树上由 `npm run launches -- --write` 写回，单独成提交 `c8e4bbf`：多出 `["test",["h-observer-preload"]]`（启动 5、5 条）、`["test",["h-observer-rule"]]`（0、16 条）、`["test",["h-observer-run"]]`（0、2 条）三行，其余不变，共 173 种配置（改前 170）。不带 `--write` 跑闸门：树内摘要与现算的相同，173 种配置都在线内；会提前停的最多付 46 次（`M-D26-m`，与改前同），不提前停的启动×条数最多 64（`h-prebuilt-entry`），本片三组最多的是 `h-observer-preload` 的 25。
+- `observer-cert.sh` 不在检查链里：自检只认带 shebang 的 `.ts` 为可执行文件，它是给整合方照跑的命令文件，跑它会写 `output/kol21-observer-cert/`，检查链不该写那里。它只执行一行，那一行起的 `observer-cert.ts` 在自检里有出处。
+
+**四片。** 照 `process/6-INTEGRATE.md` 第 62–65 行，KOL-21 独立测试包共四片：O（本片，观察器与外层断网，`claude/kol-21-observer-netcut`）、D（正本文档，`claude/kol-21-canonical-docs`）、T（独立测试包，`claude/kol-21-independent-testpack`，O、D 都合入之后从当时的主干开）、R（`claude/kol-21-u9p1-independent-claim`）。O 与 D 不碰同一批文件、各自从主干开，可以并行。R 照 §6-5 需求所有者丸子 2026-10-30 21:48 CST 的裁决（经 KOL 开发助手转达）：在 T squash 合入后从新主干开，只补 U9×P1 的独立认领，只用测试包里已冻结的用例、不改断言，记录追加在 ADR-92 末尾，Codex 审、丸子合。
+
+**欠条台账清点（定向，不是全量）。** 拿改动碰到的东西（自检组与 `REGISTERED`、`SELFCHECK_TOOLS` 与闭包、`mutations.json`、`launches.json`、锚点表、`test.ts` 的组、观察器、fake-fetch、断网）当关键词，在台账 516 条里搜过一遍、逐条读了原文；没有像前几节那样三路独立清点。
+- 已还：本条第 3185 行（上一节）。
+- 响了，只记核过：ADR-89 第 92 行（加变异时看一眼盖的是不是没人盖过的地方）—— 二十三条的 `find` 全落在本片新建的三个文件上，主干上这三个文件不存在。
+- 响了，条件自带「重新起算」，只记一笔：ADR-144 第 173 行、ADR-136 第 129、171 行与 ADR-99 第 327 行那一串（往 `REGISTERED` 里加组）—— 新组 `observer-cert-entry` id 唯一、`needs` 为空，自引用、环与前向依赖都碰不上，没有组依赖它；重复 id 与缺依赖照旧由 `group-rule.ts` 当场抛。整张组图仍没有机器校验，余额照旧。ADR-132 第 310 行（往 `selfcheck.ts` 新增组）：新组不读别组的运行态，`h-group-share-real` 的扫描照绿（完整 `npm test` 里跑过）。
+- 宽读响、窄读不响，不重挂、交需求所有者：ADR-134 第 96、142、158 行（自检组用到扫描看不见的通道）—— 宽读：新组起的认证入口继承自检进程的环境（第二节点名的 `process.env` 那一条通道）；窄读：新组只用一个字面量路径 `join(tmp, 'observer-cert')`，只有这一组用，不与别组共享任何东西。ADR-97 第 192 行与 ADR-139 第 126、128、130 行那一串（入口脚本里的判定只有自检够得到）—— 宽读：认证入口里每一项「成立」的判法（`CONTROLS`、`FAULTS` 里的预期）只有自检那一组与整合方的认证跑得到，没有变异；窄读：业务入口一行没改，判定都在有变异守着的 `observer-rule.ts` 里。该不该重挂，照本条第 3104 行的先例留给需求所有者；本片不往 ADR-134 追加任何东西（追加会碰上它第 177 行那张）。
+- 字面沾边、那张早已还，不计：本条第 790 行与 ADR-145 第 777 行（往 `SELFCHECK_TOOLS` 加检查脚本，#406 已还）；本条第 171、813 行（`run`／`runBoth` 的调用点，新调用点先判 `ok`）；ADR-12 第 7 行（锚点表说明列，需求所有者 2026-10-08 收尾，ADR-12 第 109 行）；ADR-155 第 115 行（自检夹具引用判定模块：新组没 import 判定模块，只经工具表起认证入口）。
+- 不响：ADR-134 第 177 行（没碰 `budget-gate`、`render-order`，没往 ADR-134 追加）；ADR-145 第 1239 行（启动数闸门的死亡条件，见上面启动数）；改 `runShards`、自检收尾两段、`mergeShards`、`fake-fetch.ts`、`prebuilt.ts` 的那些（都没碰）；其余各条没逐条读。
+
+本节新登两张：
+
+> ⚠️ 欠条：`observer-run.ts` 里起进程的那一半 —— 认证时起受控目标与两个探针、起入口时拼沙箱参数与环境、收证据 —— 没有变异守着：需求测试起不了 bwrap（也不该依赖它），指名自检的变异施在它上面会被自己验自己拦下（它在自检的闭包里）。把那几处改坏，在起得来 bwrap 的机器上由认证入口与自检组 `observer-cert-entry` 当场判出来（armed 里的网卡与环境、断网里那一跑、每一项的预期都会对不上），起不来的机器上只剩「拒绝」那一半有人看 · 来源：本节（2026-10-30）· 档：登记（本节自己看到的，不是评审发现） · 重启条件：下一条改 `observer-run.ts` 里 `certifyIsolation` 或起入口那几行的 PR，或 CI 上确认起不来 bwrap 时，先到为准
+
+> ⚠️ 欠条：CI（`ubuntu-latest`）上有没有 bwrap、能不能建网络命名空间，本节没核。起不来时自检组 `observer-cert-entry` 只验到「认证不成立、一个入口也不起」那一半，T 的零请求断言在 CI 上也只能判设施故障 · 来源：本节（2026-10-30）· 档：登记（本节自己看到的，不是评审发现） · 重启条件：本节所在 PR 头一次在 CI 上跑完自检时，读 `observer-cert-entry` 那一行打的「本机起得来／起不来 bwrap 断网」
+
+`npm run -s adr-ledger`（Node v22.23.3）改前（`2a7755b`，上一节所在的提交）516 条（重启条件 477、重开讨论 13、死亡条件 26），改后（本节所在的提交）518 条（重启条件 479、重开讨论 13、死亡条件 26），两边都没有孤儿；多出的只有上面这两张（第 3385、3387 行），其余 516 行与改前逐行相同 —— 本节只追加在文件末尾。本节其余各行都不进台账：写到「重启条件」的地方后面都不接冒号，以「⚠️ 欠条」打头的只有这两行（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD` 核过）。
+
+**体量。** 对 `origin/main`（`a44d489`），代码与启动数两个提交之后（`c8e4bbf`）量的：源码 835／350，超线，提交 `f969309` 的最后一段写了 `size-ok: 源码 …`（理由：观察器与外层断网是计划第五节 O 那一片的一个证据问题，判定、入口进程里的预加载、运行器与认证入口要一起认证才成立，拆开的前几片既起不了入口也认证不了；新增全在 `scripts/check/` 下五个新文件，既有模块只多一个自检组与工具表一行）；测试 435／450、文档 19／600、其他 18／200，在线内。本节所在的提交只加文档。
+
+**本次回访记录。** 已读 ADR-152 最新一块 `2026-10-28 · 本跑 810031b`，两条候选（ADR-99 第 462 行、ADR-167 第 159 行）本次未参考。
+
+**没核的。**
+- CI（GitHub `ubuntu-latest`）上起不起得来 bwrap 断网、有没有装 bwrap，没核（上面第二张欠条）。
+- 与 npm 脚本起法的等价性只按 tsx 公开用法推断（见上第 2 条）；macOS、root、别的 Node 或 tsx 版本都没跑。
+- 认证没做；PR head、证据 SHA256、认证结果见上「待整合方……追加」。
+- 本 run 的 run id 没取到；计划与草案只读本机副本，没核它们与派发方手上那份是不是同一份（只记了 SHA256）。§6-4、§6-5 两次裁决都经转达，原消息没见到。
+- 在途 PR 没核（本会话跑不了 `gh`）；主干只看了本地 `origin/main`（`a44d489`），没有 `git fetch`。
+- 台账清点是定向的，没有全量逐条判；本节除自己的开发自测外未经独立复核。
+- 开发自测用的几段脚本在本机 `output/kol21-observer-dev/`（不进仓库），收尾时删掉。
+
+## 更正／修复轮 1：Codex 复审 FAIL 的两项阻塞（KOL-21，2026-10-31）
+
+**这一块是什么。** 上一节（第 3219 行起）所在的 PR #413（draft，head `c3b5186`）由整合方在干净克隆里跑过冻结认证，`certified 15/15`；随后 Codex 复审（run `20261031T002218-c6f641b3`）判 FAIL：两项阻塞、三项非阻塞（复审正文是派发方给的本机副本，本块没在 GitHub 上核）。本块记各项怎么处理的、对作者公开的协议改了哪几条、设施的新指纹。写方是观察器提供者一系的修复执行者（与上一节同一写方家族，不是测试作者，也不是审方）。上一节与它之前的行一个字不动；两处说法不一致时，以本块为准。`c3b5186` 上那一次认证只替那棵树作证，新 head 上的认证待整合方重跑（见下「认证」）。
+
+### 对作者公开的协议（v1，修复轮 1 修订）
+
+这一小节可以整段摘给测试作者，与上一节「对作者公开的协议（v1）」合起来读：下面列出的条目整条替换那里的同号条目，第 3 条只加一点、第 4 条只换 `fault` 那一点、第 7 条只换 `Zero` 那两行签名，其余条目照旧。
+
+1. **它回答什么。** 一次运行里，真实入口进程有没有经 `fetch` 发请求、发了哪些、每一次拿到的是脚本里预定的哪一个响应。请求不出本机：观察器按响应脚本作答，不回落到真网络；入口进程还跑在外层断网的沙箱里（断网不靠换掉 `fetch`）。在观察下，入口只许在自己的主线程里经 `fetch` 发请求：用 `fetch` 以外的网络接口（`net` 连接、`dgram`、`dns` 的查询与解析；`http`、`https`、`tls`、`http2` 也走这里）、起线程、起子进程或换掉进程映像，都判观察器故障 —— 在连接、起线程、起进程的那一刻就记下，入口吞掉失败、照常以 0 收尾也一样。
+3. （加一点）**零请求那一跑的脚本。** 只断言零请求的那一跑，脚本可以一条规则也不写；这时入口要是发了请求，那是脚本外的请求，判观察器故障（设施故障），不是语义红（第 5、6 条）。想让「不该发的请求」判成语义红，就在那一跑的脚本里写上入口按公开需求可能去的端点与响应，让那一跑能完整跑完、请求被记下。两种写法判出来都不是零请求通过，只是档不同。
+4. （替换 `fault` 那一点）`fault`：观察器在入口进程里看到的设施问题（`reason`），如入口换掉了 `fetch`、用了 `fetch` 以外的网络接口、起了线程或子进程。一条 `fault` 可能由入口进程里别的线程写（同一个 `pid`、同一个 `run`），可能排在 `close` 之后；不论在哪一行、入口以什么退出码收尾，有 `fault` 就判观察器故障。
+5. **结果怎么判。** `runObserved` 交回 `ObservedRun`：
+   - `outcome.kind === 'observed'`：观察成立 —— armed 打头，属于本次运行、由起的那个入口进程写，装的是这一份脚本与观察器、加载顺序对，入口进程只看得见 `lo`、环境只有白名单；请求序号连续，记下的结局与脚本那个位置写的一致；没有 `fault`；close 收尾、数目对得上。这时 `requests` 就是这一跑经 `fetch` 发出的全部请求；退出码、stdout、写出的文件由作者自己的断言判。
+   - `outcome.kind === 'facility'`：设施故障，`cause` 五种 —— `launch`（进程起不来）、`loader`（入口进程没写 armed：加载器或观察器没装上）、`observer`（观察器接上了，但事件写不进、不完整或对不上；或者脚本外的请求、入口换掉 `fetch`、用了 `fetch` 以外的网络接口、起了线程或子进程，观察器记了故障）、`isolation`（没有断网认证、沙箱没起来，或入口进程看得见 `lo` 以外的网卡、环境不是白名单）、`signal`（被信号打死或超时）。**设施故障既不是语义红，也不是零请求通过**；这一跑的退出码、输出与记下的请求都不能拿来判任何需求。
+   - `outcome.kind === 'fixture'`：夹具失格，调用方给的东西不对（脚本不合格、入口认不得、`cwd` 或证据目录不合规），入口没起。
+   - `attributable`：armed 核过了，请求事件归得到这一跑。观察器因脚本外的请求叫停入口、或请求之后入口被信号打死时，`outcome` 是设施故障，`attributable` 仍为真、`requests` 里有那一次 —— 入口确实发了；但那一跑本身不成立，零请求断言判设施故障，不判红（第 6 条）。
+   - **语义红**：观察成立，而作者从需求推出的预期（退出码、输出、文件、请求序列）不成立；或零请求断言判红（第 6 条）。设施故障那一跑判不出语义红。
+6. **零请求断言：`zeroVerdict(target, positive)`，四项同时满足才判通过**（四项照旧）：
+   1. 目标入口进程自己写了 armed，且这一跑观察成立；
+   2. 同一事件源的阳性对照：同一份断网认证下、同一个入口的一跑（render 按契约不发请求，用对照夹具 `control`），至少观察到一次脚本里预定的请求，事件、响应与运行身份都对得上（阳性那一跑本身观察成立），两跑装的是同一份观察器；
+   3. 事件通道完整：目标那一跑 close 收尾、数目对得上（含在观察成立里）；
+   4. 外层断网认证：两跑用的是 `certifyIsolation` 交出的同一份认证，入口进程里只看得见 `lo`。
+
+   结论按这个先后判，先判资格、后看请求：① 目标那一跑是设施故障 → `facility`（`side: 'target'`，`cause` 是那一跑的因）；② 目标那一跑夹具失格 → `fixture`；③ 没有阳性 → `fixture`；④ 阳性那一跑是设施故障 → `facility`（`side: 'positive'`）；⑤ 阳性夹具失格、不在同一份认证下、不是同一个入口、一次请求也没看到、两跑装的观察器不是同一份 → `fixture`；⑥ 资格都在了，目标那一跑观察到请求 → `red`（语义红，`requests` 是次数）；⑦ 否则 `pass`。只有 `pass` 算零请求断言通过；`facility`、`fixture` 既不算通过，也不算红。空事件文件、没有事件文件、加载失败都到不了 `pass`。同一认证、同一入口的阳性可以给多条零请求断言共用（`process/4-VERIFY.md`「推论」第三条），每条零请求断言自己那一跑都要单独起、单独有 armed。
+7. （替换 `Zero` 那两行签名）
+
+   ```ts
+   export type Zero = { verdict: 'pass' } | { verdict: 'red'; requests: number }
+     | { verdict: 'facility'; side: 'target' | 'positive'; cause: FacilityCause; reason: string } | { verdict: 'fixture'; reason: string }
+   ```
+8. **限制。** 只观察入口主线程里的 `fetch`；入口在观察下不能起线程或子进程（第 1 条）。要 Linux、bwrap、能建网络命名空间；起不来就认证不成立，那台机器上的零请求断言只能是设施故障，不算通过。Node 22，tsx 照锁文件；加载器自己转译用的线程不算入口起的。每一跑都在一个新的沙箱里。
+
+### 设施与认证记录（修复轮 1，不给作者）
+
+**阻塞 1：设施故障被当成语义红。**
+
+> ⚠️ 更正（本条第 3267、3275 行与第 3294–3295 行的签名 · 档：本改动 · 去向：`2d30f6d`，原句不改）：`zeroVerdict` 原先先看「归得到这一跑的请求」、后看设施故障，于是脚本外的请求（观察器叫停入口）与请求之后被信号打死的那一跑都判成了 `red`；第 3275 行把「脚本外被拒答的也算」写成语义红，第 3267 行也是照这个先后说的。这违反草案第 8 条（设施故障不得算作语义红）。复审举的现成证据是 `c3b5186` 那次认证 `console.txt` 第 10、13 行：两条设施故障对照 `outcome` 是设施故障、零请求却判 `red`，而认证只要求「不为 pass」。改为先判目标那一跑与同一认证下那条阳性的设施故障、夹具失格，资格都在了才看请求（协议第 6 条的七步）；设施故障那一档多带 `side` 与 `cause`。`attributable` 与 `requests` 的意思不变。
+
+修法与守法：`observer-rule.ts` 的 `zeroVerdict` 换了先后，`Zero` 的设施故障那一档加了两个字段。`observer-cert.ts` 的设施故障对照逐条断言预定的那一因，并断言零请求判成「目标那一跑、同一因」的设施故障（`side: 'target'`），伪造认证那一条也照此核，不再只要求「不判通过」；`unmatched`、`kill` 两条另核那一次请求确实记下了（`attributable`、一次请求）—— 正是原先判成 `red` 的那两种。需求测试 `h-observer-rule` 换上三条断言：观察成立、阳性合格时判红；目标那一跑设施故障时判设施故障并带哪一跑、哪一因，记下的请求不判红；阳性设施故障、没有阳性或不在同一份认证下时不判红；删掉被它们盖住的两条（原先「观察器叫停的那一次也算红」那条，与「阳性自己是设施故障」那条）。变异：`M-H70-g` 原来守的正是旧先后（复审点名），改成守新先后 —— 把判红挪回最前，由「目标那一跑是设施故障……」那条断言杀；另加 `M-H70-x`（阳性核之前就判红）、`M-H70-y`（永不判红）。
+
+**阻塞 2：看不见的线程、子进程里的请求，与吞掉的直连。**
+
+> ⚠️ 更正（本条第 3227、3323、3344 行 · 档：本改动 · 去向：`2d30f6d`，原句不改）：上一节说预加载只在主线程启用、入口起的子进程「不带观察器，但照样在断网里」（第 3323、3344 行），又说 `fetch` 以外的网络接口「在入口进程里一用就判观察器故障」（第 3227 行）。复审用 Node 22 的内存事件通道复核出：入口起一个 Worker，线程里连本机、处理掉失败，主线程照样写全 `armed → close(0)`，判观察成立、零请求。外层断网挡住了连接，却不会让这次尝试成为设施故障；子进程同理。改为 fail-closed：入口在观察下起观察器看不到的执行上下文，一律判观察器故障（协议第 1、5、8 条）。另：第 3344 行括号里的理由「tsx 冷缓存时在 worker 线程里起 esbuild，那里什么都不装」不对 —— 开发时看到 esbuild 起服务线程时把 `execArgv` 设为空，预加载在那里根本不加载，谈不上「装不装」。
+
+修法选的是复审给的两条路里的「明确拒绝」，不去观察那些上下文：
+- 预加载在主线程里换掉 `worker_threads` 的 `Worker` 构造：入口起任何线程都先记一条 `fault`、以 97 叫停。只放过加载器自己的 esbuild 服务线程：文件是 tsx 用的那份 esbuild 的 `lib/main.js`、`execArgv` 为空（不加载预加载、不跑入口代码），两样都对上才放。开发时（非认证）在本机 Node 22.23.3、tsx 4.23.12 上看过：冷、热缓存下 tsx 都在主线程里起这一个线程，预加载只在主线程与继承加载参数的入口线程里加载，`eval` 线程与 `execArgv` 为空的线程都不加载；主线程里 tsx 与 esbuild 不起子进程。
+- `child_process` 起进程的七个函数（`spawn`、`spawnSync`、`exec`、`execSync`、`execFile`、`execFileSync`、`fork`）、`ChildProcess.prototype.spawn` 与 `process.execve`：一调就记 `fault`、叫停。四个入口与它们 import 的模块都不起线程、子进程，也不直接用 `net`、`http` 一类模块（开发时 grep 过 `scripts/` 下检查链以外的源码，命中的都是测试夹具；非认证）。
+- 绕过构造那一道的线程：armed 之后主线程用 `setEnvironmentData` 把运行 id 与事件文件的描述符交给之后起的线程；一个拿着这份交接、又加载了预加载的线程（继承加载参数的线程都会加载），写一条 `fault`（同一个 `pid`）、结束自己，主线程照常收尾、close 写全，判定照样因为那条 `fault` 判观察器故障。主线程装好之前就有的线程没有交接，什么也不装。
+- 绕过 `fetch` 的网络：原来拦 `net.Socket` 的连接、`dgram` 发包、`dns.lookup`；另拦 `dgram` 的 `connect` 与 `dns` 的全部查询与解析（`lookupService`、`reverse`、`resolve*`；模块级、`dns.promises` 与两种 `Resolver` 的原型）。拦在连接之前：故障先记下、入口当场叫停，吞不吞失败都一样。
+
+对照、测试与变异：冻结认证多四条设施故障对照（对照夹具加四种模式，证据目录里多一份线程文件 `control-thread.mjs`：直连本机 127.0.0.1 的 9 号端口、吞掉失败）：`fault-worker`（起不带预加载的线程：观察器故障、退出码 97）、`fault-unguarded`（绕过构造那一道起线程：线程一加载预加载就记故障、结束，入口照常以 0 收尾、close 写全，仍判观察器故障 —— 就是复审复核出的那条路）、`fault-child`（起子进程：观察器故障、97）、`fault-swallow`（主线程直连、吞掉失败：观察器故障、97）。认证项从 15 变 19（断网 1、阳性与零记录 8、设施故障 10），步骤目录从 14 变 18；自检组 `observer-cert-entry` 的期望照改。需求测试新组 `h-observer-contexts`，真起五个玩具入口、不进沙箱：不带预加载的 Worker、绕过构造的线程、`execFile`、`Resolver.resolve4`、`http.get`，连的都是本机 127.0.0.1 的 9 号端口，DNS 服务器也指到那里，施了变也不出本机。变异 `M-H70-z`（Worker 构造不拦）、`M-H70-aa`（放过加载器线程只看加载参数为空、不看文件）、`M-H70-ab`（绕过构造的线程什么也不做）、`M-H70-ac`（子进程不拦）、`M-H70-ad`（DNS 解析不拦），都由 `h-observer-contexts` 验。
+
+**非阻塞 3：输入原件与加载器指纹。** 档：本改动 · 去向：`2d30f6d`。认证每一步改为：输入原件写进 `<步>/input/`（不绑进沙箱，运行后不变），同样一份写进 `<步>/work/` 当入口的当前目录，`<步>/state.json` 记 `work/` 运行前、运行后每个文件的 SHA256；复审举的 `enrich-positive/work/task/task.json` 运行后已变，现在 `input/task/task.json` 是运行前的原件，`state.json` 两侧的 SHA256 不同。`summary.json` 的 `identity.tsx` 加了 `loader_sha256`（加载器那个文件的字节）与 `dist_sha256`（tsx 的 `dist/` 目录：每个文件的相对路径与 SHA256 按路径排成表，整张表再取一次 SHA256；加载器 import 的分块都在里面）。
+
+**非阻塞 4：CI 绿不等于 CI 能认证。** 档：登记 · 去向：第 3387 行那张欠条已登记，本块不改 CI。复审的话照录：起不来 bwrap 的机器上，自检组 `observer-cert-entry` 验的是「认证明确不成立、一个入口也不起」，那是拒绝、不是降级；冻结认证命令在那里会失败；之后依赖零请求认证的测试不能把这一支算成通过（协议第 8 条）。PR #413 的 GitHub Actions 那一行打的是「起得来」还是「起不来」，本块没读（下「没核的」）。
+
+**非阻塞 5：umask 077 下 `M-D4-w` 存活。** 档：既有缺陷（不是本 PR 引入：`M-D4-w`、`atomic.ts` 与对应断言在 `a44d489` 与本 PR 各提交之间没有变）· 去向：照派发只在这里如实记，本块不改 CI、不另开、不登欠条；另不另开由合并者与需求所有者定，本块不代定。本 PR 历次与本块的全链检查都在 Node 22、umask 022 下跑；umask 077 下新文件的缺省权限与临时文件那一档同为 0600，这条负片分不出来（第 3366 行；ADR-158 第 841 行，那里另记 #399 的 CI 上这一条被抓到）。`.github/workflows/check.yml` 没有显式设 umask，CI runner 的缺省 umask 本块没核。PR 正文里要写明的那一句（全链用 Node 22、umask 022，077 下的已知存活）由整合方写，本块不碰 GitHub。
+
+**冻结命令。** 文件路径不变：`scripts/check/observer-cert.sh`。新 SHA256 `9cd7574b08ccab30cf8bb3f29ba754d63e76064f44dc18af2aca2a5e3a90c9ec`（随 `2d30f6d` 入树），替换第 3327、3337 行的 `ef2c0f7eb992ef9b28285a631aeb1e8705febdc9c104125f051f782dd103ad73`。为什么变：只改了注释 —— 头一行指向本块，证据布局那几行加了 `input/`、`state.json` 与 tsx 的两个指纹，设施故障的种类加了四种，末行加了一句「设施故障对照里的直连在连接之前就被拦下」；`set -eu`、`cd` 与执行的那一行 `node_modules/.bin/tsx scripts/check/observer-cert.ts --out output/kol21-observer-cert` 一个字节没变（`git diff c3b5186 2d30f6d` 核过）。整合方照跑的仍是这两条：`npm ci --prefer-offline --no-audit`，然后 `sh scripts/check/observer-cert.sh`。证据仍落在 `output/kol21-observer-cert/`，布局见上「非阻塞 3」；认证成立 = 19 项都成立，且被测树是 git 检出、工作区干净、Node 22，以 0 退出。
+
+**设施各文件**（`2d30f6d` 的树；本块所在提交与它之间的提交没改这几个文件）：
+
+| 文件 | SHA256 |
+|---|---|
+| `scripts/check/observer-rule.ts` | `cc15df821f66d6256b36e69a74caadfccca01945bf4240535dfd4229903720cc` |
+| `scripts/check/observer-preload.ts` | `ed2fb7234a94da1af91b81088559828b11f31556d21fd571b33cc21e24c5da82` |
+| `scripts/check/observer-run.ts` | `a4fe0275fcf2122ce01edc6619924041ec2f19caa72dbbaeaf5f9d91e76ada31` |
+| `scripts/check/observer-cert.ts` | `90f28c6671680e9f1cb7b577722d96ac557a7a6776157f072b82abfb76c3f9ca` |
+| `scripts/check/observer-cert.sh` | `9cd7574b08ccab30cf8bb3f29ba754d63e76064f44dc18af2aca2a5e3a90c9ec` |
+
+`package-lock.json` 没变（`6fc97367b7c757beca5c6d3dc3e3af77880f6c4954599178900fab3d0e6b0543`，汇总里照记）。
+
+**认证。** 认证执行者照旧是整合方 KOL 开发助手（计划 §6-4）。本块没做认证，也没往 `output/kol21-observer-cert/` 写东西；新 head 的 40 位提交、证据的 SHA256、认证结果都还没有：待整合方在新 head 的干净克隆里照上面两条命令执行后，在本块之后追加。`c3b5186` 上的 `certified 15/15` 不替新 head 作证。
+
+**开发时自测（非认证）。** 本机 Linux 6.12 x86_64、8 核、uid 1000、Node v22.23.3、tsx 4.23.12、bubblewrap 0.12.0；会话 umask 是 077，下面注明 022 的那几跑由 Node 的 `process.umask` 设成 022 再起命令。在还没提交的工作区上跑过 `npx tsx scripts/check/observer-cert.ts --out output/kol21-fix1-dev/certdry1`（不是认证命令，也不是那个证据目录）：断网认证成立，19 项都成立；整体「不成立」，唯一的原因是工作区不干净。提交之后在干净的 `3ad7f20` 上（umask 022）又跑一次，`--out output/kol21-fix1-dev/certdry2`：19 项都成立、被测树那一项也成立，以 0 退出，约 5 秒。两跑都只是开发自测，那两份汇总不是证据、不进认证记录。设施故障十条判出的因：`unmatched`、`close-channel`、`channel-taken`、`worker`、`unguarded`、`child`、`swallow` 是 `observer`，`kill` 是 `signal`，`no-preload` 是 `loader`，伪造认证是 `isolation`；零请求都判成目标那一跑、同一因的设施故障，一条也没判红（`c3b5186` 上 `unmatched`、`kill` 两条判的是 `red`）。`unguarded` 那一跑入口以 0 退出、close 写全，判观察器故障。四个真实入口的阳性与零记录照旧成立 —— 新加的线程、子进程守卫没有拦到 tsx 与 esbuild 自己。全量 `npm run mutate`（`2d30f6d` 的树，umask 022）：维护比较 `a44d489..2d30f6d` 路由／正文 0 条、执行配置 30 条（就是这三十条观察器变异）、验证者布局 2 份；1736 条变异全部被抓到（自检验 266 条、需求测试验 1470 条），退出 0，约 458 秒。完整 `npm run check` 在本块所在的提交上跑，结果交整合方，不为它追加提交。
+
+**接线与检查链。**
+- 需求测试：`h-observer-rule` 34 条断言（原 33 条，换上三条、删掉两条），`h-observer-preload` 7 条照旧，`h-observer-run` 4 条照旧，新组 `h-observer-contexts` 5 条（自成一组、`needs` 为空，登记在 `GROUPS` 最后）；四组合计 50 条。
+- 变异：`M-H70-a`～`ad` 共三十条（原二十三条，`M-H70-g` 改写，新增 `x`、`y`、`z`、`aa`、`ab`、`ac`、`ad` 七条），`req` 都是 `harness`、都由需求测试验：十八条在 `observer-rule.ts`、十条在 `observer-preload.ts`、两条在 `observer-run.ts`。提交前在本机逐条施上、只跑对应那一组（先在没施变的树上把四组跑绿）、核点名的断言都红了再写回原字节（SHA256 核过）：三十条都红。`M-H70-aa` 的 `why` 头一版带了一个参数名，`mutate --brief` 的实现原文检查拦下，改成需求语言。
+- 自检组 `observer-cert-entry`：期望项数 15 改 19、对照目录 14 改 18，具名断言里「六条设施故障对照」改「十条」；没有别的变异点名这条断言。
+- `docs/ARCHITECTURE.md` 锚点表改了 `observer-rule.ts`、`observer-preload.ts` 两行的说明，入口说明没碰。
+- `scripts/check/launches.json` 在跑过 `npm run mutate` 的树上（`2d30f6d`，umask 022）由 `npm run launches -- --write` 写回，单独成提交 `3ad7f20`：多出 `["test",["h-observer-contexts"]]`（启动 5、5 条）一行，`["test",["h-observer-rule"]]` 的条数 16 改 18，其余不变，共 174 种配置（改前 173）。不带 `--write` 跑闸门：树内摘要与现算的相同，174 种配置都在线内；观察器各组的启动×条数最多是 `h-observer-preload` 与 `h-observer-contexts` 的 25（线是 100）。新用例自成一组，就是为了不把五次真起的启动乘到 `h-observer-preload` 的五条变异上（`process/4-VERIFY.md`「新用例默认自成一组」）。
+
+**欠条台账清点（定向，不是全量）。** 拿本块碰到的东西（零请求判定、预加载、线程与子进程、DNS、`observer-run.ts` 起入口那一段、`test.ts` 的组、变异、`launches.json`、umask）当关键词，在台账 518 条里搜过一遍、逐条读了原文：
+- 响了，只记核过：ADR-89 第 92 行（加变异时看一眼盖的是不是没人盖过的地方）—— 七条新变异与改写的 `M-H70-g` 的锚点都在本 PR 新建的三个文件里，主干上这三个文件不存在。
+- 本 PR 自己登的两张：第 3385 行（`observer-run.ts` 起进程那一半没有变异守着），条件是「下一条改 `observer-run.ts` 里 `certifyIsolation` 或起入口那几行的 PR」—— 本块在同一条 PR（#413）里，不算「下一条」；本块在起入口那一段只多写一份对照夹具的线程文件、改了夹具正文与 `facilityIdentity`，改坏的话由认证入口与自检组判出（本机起得来 bwrap，开发自测见上）。第 3387 行（CI 上起不起得来 bwrap），条件是「本节所在 PR 头一次在 CI 上跑完自检时」读那一行 —— PR #413 已由整合方推成 draft，CI 跑没跑、打的什么本块读不到，可能已经响了，留给整合方读后在本块后追加。
+- 宽读响、窄读不响，照上一节交需求所有者：ADR-97 第 192 行与 ADR-139 第 126、128、130 行那一串（入口脚本里的判定只有自检够得到）—— 宽读：认证入口里设施故障对照的预期从五条变成九条，判法（`FAULTS`、`facilityAs`）照旧只有自检组与整合方的认证跑得到，没有变异；窄读：零请求与故障的判定都在有变异守着的 `observer-rule.ts` 与 `observer-preload.ts` 里。
+- 字面沾边、不响：ADR-132 第 310 行（往 `selfcheck.ts` 新增组）—— 本块没加自检组，只改了一组的期望；ADR-133 第 77 行（被测入口经 shell 或非 node 进程起 node 子进程）说的是成本入口夹具，与这里的子进程无关；ADR-158 第 349 行（`fixtureLoader` 的 cwd）没碰；ADR-145 第 1239 行（启动数闸门的死亡条件）见上启动数。其余各条没逐条读。
+
+本块新登一张：
+
+> ⚠️ 欠条：观察器拦得住入口照常写法起的线程与子进程，拦不住刻意绕开的 —— 取到 `Worker` 原来的类、又让那个线程不加载预加载（`execArgv` 为空或 `eval`），那个线程里的请求与吞掉的连接失败观察器看不到；原生扩展与 Node 的内部绑定同理。外层断网照样挡着这些连接，只是不成为故障。四个入口今天都不起线程、子进程，也不加载原生扩展（开发时 grep 过，非认证） · 来源：本块（2026-10-31）· 档：登记（本块自己看到的，不是评审发现） · 重启条件：哪个入口或它 import 的模块开始起线程、子进程或加载原生扩展时，或下一条改 `observer-preload.ts` 里线程、子进程那几道的 PR，先到为准
+
+`npm run -s adr-ledger`（Node v22.23.3）改前（`3ad7f20`，本块之前的提交；与本轮开工时的 `c3b5186` 逐字节相同 —— `2d30f6d`、`3ad7f20` 没碰 `docs/adr/`）518 条（重启条件 479、重开讨论 13、死亡条件 26），改后（本块所在的提交）519 条（重启条件 480、重开讨论 13、死亡条件 26），两边都没有孤儿；多出的只有上面那一张（第 3495 行），其余 518 行与改前逐行相同 —— 本块只追加在文件末尾。本块其余各行都不进台账：写到条件的地方都没有用台账抽取的写法，以「⚠️ 欠条」打头的只有上面那一行，「⚠️ 更正」不是欠条块头（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD` 核过）。
+
+**体量。** 对 `origin/main`（`a44d489`），`2d30f6d` 之后量的：源码 938／350（`f969309` 的 `size-ok: 源码` 照旧盖着），测试 551／450，超线，`2d30f6d` 的最后一段写了 `size-ok: 测试 …`（理由：两项阻塞各要负片，零请求的先后改了要新断言与三条变异，看不到的执行上下文要五个真起的玩具入口与五条变异，修复与它的负片不能拆开）；文档 204／600、其他 20／200，在线内。本块所在的提交只加文档。
+
+**本次回访记录。** 已读 ADR-152 最新一块 `2026-10-28 · 本跑 810031b`（与上一节读的是同一块），两条候选（ADR-99 第 462 行、ADR-167 第 159 行）本次未参考。
+
+**没核的。**
+- 认证没做；新 head、证据 SHA256、认证结果见上「认证」。
+- 复审正文只读了派发方给的本机副本（`o-review-1-output.md`），没在 GitHub 上核；复审用的内存事件通道复核本块没重跑，只按复审的描述在本机用玩具入口与对照夹具复现了那条路（`h-observer-contexts`、`fault-unguarded`）。
+- PR #413 的 CI 跑没跑、`observer-cert-entry` 那一行打的什么、CI runner 的缺省 umask，都没核（本会话不访问 GitHub）。
+- 放过 esbuild 服务线程的那两样（文件、加载参数为空）只在本机 Node 22.23.3、tsx 4.23.12、esbuild 0.28.2 上看过；别的 Node、tsx 版本，tsx 换用别的转译路径时，会不会起别的线程或子进程，没核 —— 起了就判观察器故障（fail-closed），阳性对照会先红。
+- 上一张欠条说的刻意绕开的路，没有对照、也没有变异。
+- 本 run 的 run id 没取到；台账清点是定向的，没有全量逐条判；本块除自己的开发自测外未经独立复核。
+- 开发自测用的脚本与输出都在本机 `output/kol21-fix1-dev/`（不进仓库），收尾时删掉。
+
+## 整合方追加：观察器认证记录、CI 读数与一张欠条（KOL-21，2026-10-31）
+
+**这一块是什么。** 第 3327 行与第 3476 行留给整合方追加的那一块。写的人是整合方 KOL 开发助手，不是观察器提供者，也不是测试作者或审方。上面各节一个字不动，只在文件末尾追加。
+
+**认证结果：`963299c` 上 `certified 19/19`。** 被测提交是 `963299cde6acbc1b7d97ac1ad00db50c9c106803`（PR #413 修复轮 1 之后的 head）。认证在它的全新干净克隆里跑（本机 `/workspace/kol21-observer-cert-clone-963299c-r2`），照第 3462 行原样跑两条：`npm ci --prefer-offline --no-audit` 以 0 退出，`sh scripts/check/observer-cert.sh` 以 0 退出。跑前核过冻结命令文件 SHA256 是 `9cd7574b08ccab30cf8bb3f29ba754d63e76064f44dc18af2aca2a5e3a90c9ec`，与第 3462 行一致。跑的环境：Node v22.23.3（node 二进制 SHA256 `fde6a4bf8d0562f7751d1a2d6cb9b417c4cfe107bbcb0aa3e9a24e125e348f48`）、tsx 4.23.12（`loader_sha256` `49fb4673…10c2`、`dist_sha256` `5af56f52…dd52`）、bwrap `/usr/bin/bwrap`（布局 `988c15cb…988f`）、umask 022；跑前、跑后 `git status --porcelain` 都为空。`summary.json` 写的是：`result` `certified`；`provenance` 的 head 是上面那 40 位、`clean` 为真、`problems` 为空；`isolation.certified` 为真；19 项（断网 1、阳性 4、零记录 4、设施故障 10）全部 `ok`，`exit` 0。`summary.json` 的 SHA256 是 `e1b35af6f332ad0a8858e02b14972840e5c89ace2b1e5c2b1a5427f0fa806af2`，`console.txt` 是 `39ca7c38745753ddf3ad86cea4e7c17382cbd844079e40bab43070bb9f9accfd`。整合方另把 `summary.json` 列着的 195 份证据、6 份设施文件的 SHA256 与 node 二进制、tsx 加载器两项指纹逐一重算，全部对得上；设施各文件的 SHA256 与第 3462 行之后那张表一致。整合方自己的记录放在证据目录下的 `integrator/`（`npm-ci.log` `cb8e5d39…566e`、`observer-cert.sh.stdout-stderr.log` 与 `console.txt` 同字节、`pre.txt` `b383fffe…d1c2`）。`output/` 不进仓库，证据只在本机。
+
+`c3b5186` 上那一次（`certified 15/15`，`summary.json` `951296fa…7c7`）只替那棵树作证，被 `963299c` 这一次取代。同一个 head 上更早起的一次认证跑到一半，会话就断了，没写出汇总，作废不用（克隆留在本机，没删）。
+
+**最终 head 与本块的先后。** 本块所在的提交换了 head。第 3327 行说认证之后 PR 又追加提交的，要在合入前的最终 head 上重跑、以那一次为准，所以整合方会在本块所在提交的干净克隆里再跑一遍冻结认证。本块所在的提交只追加本文件；与 `963299c` 比，`docs/adr/` 以外一个字节没变，设施、入口、冻结命令都与 `963299c` 相同。最终 head 那一次的结果写在 PR #413 的正文里，不再追加进本文件：再追加又会换 head，这件事就永远做不完。
+
+**CI 读数：起不来 bwrap 断网。** 第 3385 行与第 3387 行那两张欠条要读的那一行，整合方读到了。PR #413 头一次在 CI 上跑完自检，是 GitHub Actions run `41089190437`：被测提交 `c3b5186`，镜像 `ubuntu-24.04`，`npm run check` 通过。它的完整日志里（从这次 run 的 logs 包里取出），自检组 `observer-cert-entry` 打的是「本机起不来 bwrap 断网；认证入口这一跑在临时目录里，不是认证」，下面两条具名断言通过。也就是说，CI 上这一组验到的只是「认证不成立、一个入口也不起」那一半，CI 绿不能替认证作证；PR #413 上的认证只有整合方在本机跑的那几次。第 3385 行写的「或 CI 上确认起不来 bwrap 时」与第 3387 行的重启条件都已经满足。CI 起不来 bwrap 的缺口还在，没有还上：要让 CI 能认证，还是继续只在本机认证，由需求所有者定，本块不代定，也不改 CI。同一份日志里 `M-D4-w` 被抓到了。这说明 CI 上新文件的缺省权限与临时文件那一档不同，只是推断出来的，CI runner 的 umask 本块没有直接读到。
+
+**`M-D4-w` 登记。** 第 3460 行记的非阻塞 5，原先只如实记、没有登记，现在按 `process/6-INTEGRATE.md`「登记怎么做」登成下面这张欠条。档照复审原样，是既有缺陷；重启条件照那里的说法，是「本 PR 已合入」。登记搭在本块这次本来就要 push 的提交里，没有为登记单独 push。
+
+> ⚠️ 欠条：检查链没有固定 umask。在 umask 077 的机器上跑 `npm run mutate`，新文件的缺省权限就与 `scripts/lib/atomic.ts` 里临时文件那一档同为 0600，`M-D4-w`（新文件停在临时文件那一档的权限）的负片「新文件按 umask 默认，不是临时文件那档最严的」分不出改前改后，这条变异存活，整跑以 1 退出，于是 `npm run check` 在那种机器上无故红（ADR-158 第 841 行、本条第 3460 行；本 PR 各次全链检查都在 umask 022 下跑，CI 上这一条被抓到）。只会红、不会假绿。`a44d489` 上原样就有，不是本 PR 引入的 · 来源：PR #413 第一轮 Codex 复审（run `20261031T002218-c6f641b3`，锚 `c3b5186`）非阻塞第 5 条 · 档：既有缺陷 · 重启条件：本欠条所在 PR（#413）已合入
+
+**欠条台账。** `npm run -s adr-ledger`（Node v22.23.3）在本块之前的提交（`963299c`）上是 519 条（重启条件 480、重开讨论 13、死亡条件 26）。本块只多上面那一张。本块其余各行写到条件的地方都没有用台账抽取的写法，以「⚠️ 欠条」打头的只有那一行。改后的数写在本块所在提交的提交信息里。
+
+**没核的。**
+- CI runner 的 umask 没有直接读到，只从 `M-D4-w` 在 CI 上被抓到推出来。
+- run `41089190437` 之后各次 CI 打的那一行，本块写的时候还没读。
+- 最终 head 上那一次认证在本块之后才跑，结果见 PR #413 正文。
+- 本块由 Codex 复审核对，复审之前没有别的独立复核。
