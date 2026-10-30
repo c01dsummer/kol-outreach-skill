@@ -101,6 +101,10 @@ import {
   SELFCHECK_TOOLS,
   closure, importsOf, infraClosure, selfVerifying, selfcheckSummary,
 } from './check/verifier-rule.js'
+import {
+  API_KEY_PLACEHOLDER, SCRIPT_SCHEMA, answer, ghDirs, judgeRun as judgeObservation, layoutId, netcutProblems, observerEnv, readEvents, rwProblems, sandboxArgs, scriptProblems,
+  zeroVerdict, type Armed, type Judged, type Layout, type NetcutFacts, type Observation, type ProbeReport, type RequestEvent, type ResponseScript, type RunFacts,
+} from './check/observer-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { formatDiscoverySources, mergeDiscoverySources } from './lib/discovery.js'
@@ -290,6 +294,9 @@ const GROUPS: readonly Group[] = [
   { id: 'h-worker-output-contract', needs: [] },
   { id: 'h-worker-output-guardian', needs: [] },
   { id: 'h-worker-output-cleanup', needs: [] },
+  { id: 'h-observer-rule', needs: [] },
+  { id: 'h-observer-preload', needs: [] },
+  { id: 'h-observer-run', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -10566,12 +10573,12 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 串里装着调用形状的、以及普通的读文件）—— 收紧正则是军备竞赛，让清单成为行为才是根治。
   // 第四份是计数预加载：自检当工具起的 mutate，在正常基线那一跑经 NODE_OPTIONS 的 --import 把它加载进验证者（ADR-145 第十三节
   // 第 1、2 小节）。第三片又给工具表加了启动数闸门的入口（第二十一节第 7 小节），ADR-151 第二节第 1 片加了只读台账入口，
-  // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）。
-  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70），
-  // 按字符串排（adr < audit < f < launch- < launches < m < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
+  // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）；KOL-21 加了零请求观察器的认证入口（自检组 observer-cert-entry 起它）。
+  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70 末尾 KOL-21 观察器一节），
+  // 按字符串排（adr < audit < f < launch- < launches < m < o < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
     'scripts/check/adr-ledger.ts', 'scripts/check/audit.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
-    'scripts/check/launches.ts', 'scripts/check/mutate.ts', 'scripts/check/selfcheck.ts', 'scripts/check/skill.ts',
+    'scripts/check/launches.ts', 'scripts/check/mutate.ts', 'scripts/check/observer-cert.ts', 'scripts/check/selfcheck.ts', 'scripts/check/skill.ts',
   ])
   // 预加载单独列，因为它既不是 import 也不是「起了谁」—— 两种扫法都收不到
   ok('预加载那一份在种子里', SELFCHECK_SEEDS.includes(`scripts/${SELFCHECK_PRELOAD}`))
@@ -18586,6 +18593,197 @@ await group('h-worker-output-cleanup', async () => {
   eq('outer runner reports fixture invalid', result.checks.fixtureInvalid, true)
   eq('owned snapshot removed after failed baseline', result.checks.snapshotRemoved, true)
   eq('foreign directory preserved', result.checks.foreignPreserved, true)
+})
+
+// ---- 零请求观察器（KOL-21，ADR-70 末尾「KOL-21 零请求观察器与外层断网」一节）：判定、预加载、运行器各一组 ----
+// 期望值照那一节「对作者公开的协议」与下面手写的事实推，没有拿观察器跑出来的东西回填
+await group('h-observer-rule', () => {
+  harness('零请求观察器的判定：响应脚本、事件读回、一次观察归哪一档、零请求四档、断网认证、白名单环境与沙箱参数')
+  const sc = (rules: unknown[]) => ({ schema: SCRIPT_SCHEMA, rules })
+  const SC = sc([{ endpoint: '/a', query: { k: '1' }, responses: [{ status: 200, body: 'x' }, { status: 402 }] },
+    { method: 'POST', endpoint: '/a', responses: [{ connect: 'fail' }] }]) as ResponseScript
+  eq('观察器脚本：合格的脚本没有问题，查询条件互斥的两条同端点规则也不算歧义', [scriptProblems(SC),
+    scriptProblems(sc([{ endpoint: '/a', query: { k: '1' }, responses: [{ status: 200 }] }, { endpoint: '/a', query: { k: '2' }, responses: [{ status: 200 }] }]))], [[], []])
+  ok('观察器脚本：两条规则能命中同一个请求时拦下',
+    scriptProblems(sc([{ endpoint: '/a', query: { k: '1' }, responses: [{ status: 200 }] }, { endpoint: '/a', responses: [{ status: 200 }] }])).some(p => p.includes('能命中同一个请求')))
+  eq('观察器脚本：schema、方法、端点、空响应、状态码范围、不带正文的状态、正文二选一、多出的键各报一处',
+    [{ schema: 'x', rules: [] }, sc([{ method: 'get', endpoint: '/a', responses: [{ status: 200 }] }]), sc([{ endpoint: '/a?q=1', responses: [{ status: 200 }] }]),
+      sc([{ endpoint: '/a', responses: [] }]), sc([{ endpoint: '/a', responses: [{ status: 199 }] }]), sc([{ endpoint: '/a', responses: [{ status: 204, body: '' }] }]),
+      sc([{ endpoint: '/a', responses: [{ status: 200, body: 'a', body_base64: 'YQ==' }] }]), sc([{ endpoint: '/a', responses: [{ status: 200 }], extra: 1 }])]
+      .map(v => scriptProblems(v).length), [1, 1, 1, 1, 1, 1, 1, 1])
+  const U = 'https://h.invalid/a?k=1&s=2'
+  eq('观察器脚本：同一条规则依次给出响应，用完了拒答，方法、端点或查询条件不符的不答',
+    [answer(SC, [], 'GET', U), answer(SC, [1], 'get', U), answer(SC, [2], 'GET', U), answer(SC, [], 'GET', 'https://h.invalid/a?k=2'),
+      answer(SC, [], 'GET', 'https://h.invalid/b?k=1'), answer(SC, [], 'POST', 'https://h.invalid/a'), answer(SC, [], 'PUT', 'https://h.invalid/a')],
+    [{ rule: 0, index: 0, response: { status: 200, body: 'x' } }, { rule: 0, index: 1, response: { status: 402 } }, { refused: 'exhausted', rule: 0 },
+      { refused: 'unmatched', rule: null }, { refused: 'unmatched', rule: null }, { rule: 1, index: 0, response: { connect: 'fail' } }, { refused: 'unmatched', rule: null }])
+  eq('观察器事件：空文件、最后一行没写完、不是 JSON、认不得的种类都报，不当成没有',
+    [readEvents('').problems, readEvents('{"kind":"close","run":"r","pid":1,"requests":0}').problems, readEvents('x\n').problems, readEvents('{"kind":"zzz","run":"r","pid":1}\n').problems],
+    [['事件文件是空的'], ['事件文件最后一行没写完'], ['第 1 行不是 JSON'], ['第 1 行认不得']])
+
+  const RUN = 'a'.repeat(32), T = '/repo/scripts/probe.ts', ARGV = ['--import', 'file:///t', '--import', 'file:///o']
+  const armed = { kind: 'armed', run: RUN, pid: 11, ppid: 10, entry: T, script_sha256: 'S1', preload_sha256: 'P1', exec_argv: ARGV, node: 'v22.0.0',
+    env_names: ['HOME', 'PATH', 'TIKHUB_API_KEY'], api_key: 'placeholder', net: ['lo'] } as Armed
+  const rq = (seq: number, index: number | null, outcome: object, rule: number | null = 0) =>
+    ({ kind: 'request', run: RUN, pid: 11, seq, method: 'GET', origin: 'https://h.invalid', endpoint: '/a', query_keys: ['k'], rule, index, outcome }) as RequestEvent
+  const cl = (requests: number, code = 0) => ({ kind: 'close', run: RUN, pid: 11, requests, code })
+  const text = (...es: object[]) => es.map(e => `${JSON.stringify(e)}\n`).join('')
+  const facts = (over: Partial<RunFacts> = {}): RunFacts => ({ run: RUN, target: T, script: SC, scriptSha: 'S1', preloadSha: 'P1', execArgv: ARGV, apiKey: 'placeholder',
+    launcher: 10, status: 0, signal: null, timedOut: false, stderr: '', events: text(armed, rq(1, 0, { status: 200 }), rq(2, 1, { status: 402 }), cl(2)), ...over })
+  const kindOf = (j: Judged) => j.outcome.kind === 'facility' ? `facility:${j.outcome.cause}` : j.outcome.kind
+  const good = judgeObservation(facts()), otherRun = judgeObservation(facts({ run: 'b'.repeat(32) }))
+  eq('观察器判定：armed 打头、请求序号连续且结局与脚本对得上、close 收尾 —— 观察成立，两次请求归得到这次运行', [kindOf(good), good.attributable, good.requests.length], ['observed', true, 2])
+  eq('观察器判定：armed 的运行 id 对不上本次运行判观察器故障，请求不算这次的', [kindOf(otherRun), otherRun.attributable], ['facility:observer', false])
+  eq('观察器判定：armed 不是起的那个进程的子进程、目标入口不对、脚本或预加载或加载顺序不是这一份，都判观察器故障',
+    [facts({ launcher: 99 }), facts({ target: '/repo/scripts/collect.ts' }), facts({ preloadSha: 'P2' }), facts({ execArgv: ARGV.slice(0, 2) }), facts({ scriptSha: 'S2' })]
+      .map(f => kindOf(judgeObservation(f))), Array(5).fill('facility:observer'))
+  eq('观察器判定：入口进程看得见 lo 以外的网卡判隔离故障', kindOf(judgeObservation(facts({ events: text({ ...armed, net: ['eth0', 'lo'] }, cl(0)) }))), 'facility:isolation')
+  eq('观察器判定：入口进程的环境多了白名单外的变量、或 key 不是占位串，判隔离故障',
+    [text({ ...armed, env_names: ['GH_TOKEN', 'HOME', 'PATH'] }, cl(0)), text({ ...armed, api_key: 'other' }, cl(0))].map(events => kindOf(judgeObservation(facts({ events })))),
+    ['facility:isolation', 'facility:isolation'])
+  eq('观察器判定：请求序号不连续、或记下的结局与脚本那个位置写的不同，判观察器故障',
+    [text(armed, rq(2, 0, { status: 200 }), cl(1)), text(armed, rq(1, 0, { status: 500 }), cl(1)), text(armed, rq(1, 0, { connect: 'fail' }), cl(1))]
+      .map(events => kindOf(judgeObservation(facts({ events })))), Array(3).fill('facility:observer'))
+  const refused = judgeObservation(facts({ status: 97, stderr: '[kol-observer] 脚本外的请求（unmatched）：GET /b\n', events: text(armed, rq(1, null, { refused: 'unmatched' }, null), cl(1, 97)) }))
+  eq('观察器判定：脚本外的请求判观察器故障，那次请求照样归得到这次运行', [kindOf(refused), refused.attributable, refused.requests.length], ['facility:observer', true, 1])
+  eq('观察器判定：事件没写 close 判观察器故障', kindOf(judgeObservation(facts({ events: text(armed, rq(1, 0, { status: 200 })) }))), 'facility:observer')
+  eq('观察器判定：被信号打死、超时、起不来各归各的设施故障',
+    [facts({ signal: 'SIGKILL', status: 137, events: text(armed) }), facts({ timedOut: true }), facts({ error: 'spawn ENOENT', events: undefined })].map(f => kindOf(judgeObservation(f))),
+    ['facility:signal', 'facility:signal', 'facility:launch'])
+  eq('观察器判定：没有事件文件时，沙箱没起来、观察器自己叫停、什么都没说分别判隔离、观察器、加载故障',
+    ["bwrap: Can't mount tmpfs on /newroot/tmp\n", '[kol-observer] 事件文件建不出来：EEXIST\n', ''].map(stderr => kindOf(judgeObservation(facts({ events: undefined, status: 1, stderr })))),
+    ['facility:isolation', 'facility:observer', 'facility:loader'])
+  eq('观察器判定：事件完整而入口以观察器的退出码收尾、或事件里有故障，判观察器故障',
+    [facts({ status: 97 }), facts({ events: text(armed, { kind: 'fault', run: RUN, pid: 11, reason: '入口换掉了 fetch' }, cl(0, 97)) })].map(f => kindOf(judgeObservation(f))),
+    ['facility:observer', 'facility:observer'])
+
+  const ob = (over: Partial<Observation> = {}): Observation => ({ outcome: { kind: 'observed' }, attributable: true, armed, requests: [], entry: 'probe', isolation: 'I1', ...over })
+  const hit = [rq(1, 0, { status: 200 })], pos = ob({ requests: hit })
+  eq('观察器零请求：入口自己的 armed、同一认证下同一入口的阳性看见了请求、观察成立 —— 判通过', zeroVerdict(ob(), pos), { verdict: 'pass' })
+  eq('观察器零请求：归得到本次运行的请求判红，观察器叫停的那一次也算',
+    [zeroVerdict(ob({ requests: hit }), pos), zeroVerdict(ob({ outcome: { kind: 'facility', cause: 'observer', reason: 'x' }, requests: hit }), undefined)],
+    [{ verdict: 'red', requests: 1 }, { verdict: 'red', requests: 1 }])
+  eq('观察器零请求：观察不成立判设施故障或夹具失格，不判通过也不判红',
+    [ob({ outcome: { kind: 'facility', cause: 'loader', reason: 'x' }, attributable: false }), ob({ outcome: { kind: 'fixture', reason: 'x' }, attributable: false })]
+      .map(t => zeroVerdict(t, pos).verdict), ['facility', 'fixture'])
+  eq('观察器零请求：没有阳性、阳性不在同一份断网认证下、阳性装的不是同一份预加载，判夹具失格',
+    [zeroVerdict(ob(), undefined), zeroVerdict(ob(), ob({ requests: hit, isolation: 'I2' })), zeroVerdict(ob(), ob({ requests: hit, armed: { ...armed, preload_sha256: 'P2' } }))]
+      .map(z => z.verdict), ['fixture', 'fixture', 'fixture'])
+  eq('观察器零请求：阳性一次请求也没观察到不判通过', zeroVerdict(ob(), ob()).verdict, 'fixture')
+  eq('观察器零请求：阳性是别的入口不算；对照夹具只给按契约不发请求的 render 当阳性',
+    [zeroVerdict(ob(), ob({ requests: hit, entry: 'collect' })), zeroVerdict(ob(), ob({ requests: hit, entry: 'control' })),
+      zeroVerdict(ob({ entry: 'render' }), ob({ requests: hit, entry: 'control' }))].map(z => z.verdict), ['fixture', 'fixture', 'pass'])
+  eq('观察器零请求：阳性自己是设施故障时判设施故障', zeroVerdict(ob(), ob({ outcome: { kind: 'facility', cause: 'signal', reason: 'x' } })).verdict, 'facility')
+
+  const inside: ProbeReport = { result: 'error', code: 'ECONNREFUSED', interfaces: ['lo'], env: ['HOME', 'PATH', 'PWD'], masks: { '/h/.config/gh': { dir: 0 }, '/r/.env': { file: 0 } } }
+  const nf = (over: Partial<NetcutFacts> = {}, inner: Partial<ProbeReport> = {}): NetcutFacts => ({ outside: { result: 'acked', interfaces: ['eth0', 'lo'], env: [], masks: {} },
+    inside: { ...inside, ...inner }, seen: ['o1'], tokens: { outside: 'o1', inside: 'i1' }, masks: { dirs: ['/h/.config/gh'], files: ['/r/.env'] }, ...over })
+  eq('观察器断网认证：断网外连上受控目标、断网里被拒，网卡只有 lo，盖住的路径为空，环境只有白名单 —— 认证成立', netcutProblems(nf()), [])
+  ok('观察器断网认证：断网里连上了受控目标不认证', netcutProblems(nf({}, { result: 'acked' })).some(p => p.includes('断网不成立')))
+  ok('观察器断网认证：受控目标那一侧收到了断网里的令牌，探针自己说被拒也不认证', netcutProblems(nf({ seen: ['o1', 'i1'] })).some(p => p.includes('断网不成立')))
+  ok('观察器断网认证：断网外连不上受控目标、或受控目标没收到断网外的令牌，探针无效、不认证',
+    [nf({ outside: { result: 'error', code: 'ECONNREFUSED', interfaces: [], env: [], masks: {} } }), nf({ seen: [] })].every(f => netcutProblems(f).some(p => p.includes('探针无效'))))
+  eq('观察器断网认证：断网里超时没被拒、看得见别的网卡、盖住的路径不空或不在、环境多了凭据变量、探针没跑起来，各报一处',
+    [nf({}, { result: 'timeout', code: undefined }), nf({}, { interfaces: ['eth0', 'lo'] }), nf({}, { masks: { '/h/.config/gh': { dir: 1 }, '/r/.env': { file: 0 } } }),
+      nf({}, { masks: { '/h/.config/gh': { dir: 0 }, '/r/.env': { absent: 'ENOENT' } } }), nf({}, { env: ['GITHUB_TOKEN', 'HOME'] }), nf({ inside: undefined, insideError: 'x' })]
+      .map(f => netcutProblems(f).length), [1, 1, 1, 1, 1, 1])
+
+  const envOf = (apiKey: 'placeholder' | 'absent') => observerEnv({ nodeBin: '/n/bin', home: '/tmp', tmp: '/tmp', tsconfig: '/r/tsconfig.json', apiKey })
+  eq('观察器环境：从空表起只给 PATH、HOME、TMPDIR、LANG、TZ、TSX_TSCONFIG_PATH 与占位 key；不给 key 时连这个名字也没有', [envOf('placeholder'), Object.keys(envOf('absent'))],
+    [{ PATH: '/n/bin:/usr/bin:/bin', HOME: '/tmp', TMPDIR: '/tmp', LANG: 'C.UTF-8', TZ: 'UTC', TSX_TSCONFIG_PATH: '/r/tsconfig.json', TIKHUB_API_KEY: API_KEY_PLACEHOLDER },
+      ['PATH', 'HOME', 'TMPDIR', 'LANG', 'TZ', 'TSX_TSCONFIG_PATH']])
+  const L: Layout = { system: [{ path: '/usr', kind: 'dir' }, { path: '/bin', kind: 'symlink', target: 'usr/bin' }, { path: '/lib32', kind: 'absent' }], node: '/opt/node',
+    repoRoot: '/r', repo: [{ path: 'scripts', kind: 'dir' }, { path: 'node_modules', kind: 'symlink', target: '/elsewhere' }, { path: 'tsconfig.json', kind: 'absent' }], ghDirs: ['/h/.config/gh'] }
+  eq('观察器沙箱参数：先断网，根是空的，只读照搬系统目录、node、仓库里那几样，/tmp 是空 tmpfs，gh 配置目录空 tmpfs，仓库根 .env 与 .env.local 盖成空文件，可写目录绑在最后',
+    sandboxArgs(L, { empty: '/e/empty', rw: ['/w', '/e'], chdir: '/w' }),
+    ['--unshare-net', '--die-with-parent', '--new-session', '--ro-bind', '/usr', '/usr', '--symlink', 'usr/bin', '/bin', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
+      '--ro-bind', '/opt/node', '/opt/node', '--ro-bind', '/r/scripts', '/r/scripts', '--ro-bind', '/r/node_modules', '/r/node_modules', '--tmpfs', '/h/.config/gh',
+      '--ro-bind', '/e/empty', '/r/.env', '--ro-bind', '/e/empty', '/r/.env.local', '--bind', '/w', '/w', '--bind', '/e', '/e', '--chdir', '/w'])
+  eq('观察器可写目录：盖住仓库根、根目录、gh 配置目录的上一级，落在仓库里只读的那几样、.git 或系统目录里，各报一处；/tmp 底下与仓库的 output 底下不报',
+    ['/r', '/', '/h', '/r/scripts/x', '/r/.git/hooks', '/usr/lib', '/tmp/w', '/r/output/x'].map(d => rwProblems(L, [d]).length), [1, 1, 1, 1, 1, 1, 0, 0])
+  eq('观察器 gh 配置目录：宿主 HOME 下那一处，加上环境里指过的 XDG_CONFIG_HOME/gh 与 GH_CONFIG_DIR；相对路径不认，重复只留一个',
+    [ghDirs('/h', {}), ghDirs('/h', { XDG_CONFIG_HOME: '/x', GH_CONFIG_DIR: '/g' }), ghDirs('/h', { XDG_CONFIG_HOME: '/h/.config', GH_CONFIG_DIR: 'rel' })],
+    [['/h/.config/gh'], ['/h/.config/gh', '/x/gh', '/g'], ['/h/.config/gh']])
+  const bw = { path: '/usr/bin/bwrap', sha256: 'B1', version: 'bubblewrap 0.12.0' }
+  eq('观察器布局身份：同一布局同一 bwrap 得同一个，换了 bwrap 或布局就不同',
+    [layoutId(L, bw) === layoutId(L, bw), layoutId(L, bw) === layoutId(L, { ...bw, sha256: 'B2' }), layoutId(L, bw) === layoutId({ ...L, node: '/n2' }, bw)], [true, false, false])
+})
+
+await group('h-observer-preload', () => {
+  harness('零请求观察器装在入口进程里的那一半：真起五次玩具入口（不进沙箱，只验预加载自己记什么、怎么叫停）')
+  const dir = mkdtempSync(join(tmpdir(), 'kol-obs-'))
+  try {
+    const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href, preload = pathToFileURL(resolve('scripts/check/observer-preload.ts')).href
+    const script = JSON.stringify({ schema: SCRIPT_SCHEMA, rules: [
+      { endpoint: '/a', query: { x: '1' }, responses: [{ status: 200, body: 'first' }, { status: 402, body: 'pay' }] }, { endpoint: '/c', responses: [{ connect: 'fail' }] },
+      { method: 'POST', endpoint: '/b', responses: [{ status: 200, body: '{', body_read: 'fail' }] }, { endpoint: '/d', responses: [{ status: 200, body_base64: 'AAEC' }] }] })
+    const scriptFile = join(dir, 'script.json')
+    writeFileSync(scriptFile, script)
+    const toy = (name: string, body: string) => {
+      const file = join(dir, `${name}.mjs`), events = join(dir, `${name}.events`)
+      writeFileSync(file, body)
+      const r = spawnSync(process.execPath, ['--import', tsx, '--import', preload, file], { encoding: 'utf8', timeout: 60_000,
+        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', KOL_OBSERVER: JSON.stringify({ run: `run-${name}`, events, script: scriptFile, target: file }) } })
+      const text = existsSync(events) ? rf(events, 'utf8') : ''
+      return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', text, events: readEvents(text).events, file: realpathSync(file) }
+    }
+    const shape = (es: ReturnType<typeof readEvents>['events']) => es.map(e => e.kind === 'request' ? `request ${e.seq} ${JSON.stringify(e.outcome)}`
+      : e.kind === 'body' ? `body ${e.seq} ${e.read} ${e.ok}` : e.kind === 'fault' ? `fault ${e.reason}` : e.kind === 'close' ? `close ${e.requests} ${e.code}` : e.kind)
+    const a = toy('a', [
+      `const out = [process.env.KOL_OBSERVER ?? null]`,
+      `const r1 = await fetch('https://h.invalid/a?x=1&secret=s3cr3t'); out.push([r1.status, await r1.text()])`,
+      `const r2 = await fetch(new URL('https://h.invalid/a?x=1')); out.push([r2.status, await r2.text()])`,
+      `try { await fetch('https://h.invalid/c') } catch (e) { out.push([e.name, e.message]) }`,
+      `const r4 = await fetch('https://h.invalid/b', { method: 'POST' }); try { await r4.json() } catch (e) { out.push(['body', e.name]) }`,
+      `const r5 = await fetch('https://h.invalid/d'); out.push([r5.status, Buffer.from(await r5.arrayBuffer()).toString('hex')])`,
+      `console.log(JSON.stringify(out))`].join('\n'))
+    const armedA = a.events[0]
+    eq('观察器预加载：armed 记本次运行、入口、脚本与本文件、加载顺序与环境变量名，观察配置在入口里看不见',
+      armedA?.kind === 'armed' ? [armedA.run, armedA.entry, armedA.script_sha256, armedA.preload_sha256, armedA.exec_argv, armedA.env_names, JSON.parse(a.stdout)[0]] : armedA,
+      ['run-a', a.file, createHash('sha256').update(script).digest('hex'), createHash('sha256').update(rf('scripts/check/observer-preload.ts')).digest('hex'),
+        ['--import', tsx, '--import', preload], ['PATH'], null])
+    eq('观察器预加载：同一次运行里按脚本依次答多次请求（200、402、连接失败、正文读取失败、base64 正文），每次答之前先记一行，正文读没读也记，退出时写 close',
+      [a.status, JSON.parse(a.stdout).slice(1), shape(a.events)],
+      [0, [[200, 'first'], [402, 'pay'], ['TypeError', 'fetch failed'], ['body', 'TypeError'], [200, '000102']],
+        ['armed', 'request 1 {"status":200}', 'body 1 text true', 'request 2 {"status":402}', 'body 2 text true', 'request 3 {"connect":"fail"}',
+          'request 4 {"status":200}', 'body 4 json false', 'request 5 {"status":200}', 'body 5 arrayBuffer true', 'close 5 0']])
+    const firstReq = a.events.find(e => e.kind === 'request')
+    eq('观察器预加载：事件里不记查询的值与完整地址，只记 origin、路径与查询的键名',
+      [firstReq?.kind === 'request' ? [firstReq.origin, firstReq.endpoint, firstReq.query_keys] : firstReq, a.text.includes('s3cr3t'), a.text.includes('?')],
+      [['https://h.invalid', '/a', ['secret', 'x']], false, false])
+    const b = toy('b', [`import fs from 'node:fs'`,
+      `for (const n of fs.readdirSync('/proc/self/fd')) { try { if (fs.readlinkSync('/proc/self/fd/' + n).endsWith('b.events')) fs.closeSync(Number(n)) } catch {} }`,
+      `const r = await fetch('https://h.invalid/a?x=1'); console.log('answered', r.status)`].join('\n'))
+    eq('观察器预加载：事件中途写不进，入口以观察器的退出码失败，那次请求不答出去', [b.status, b.stdout, b.stderr.includes('[kol-observer] 事件写不进去'), shape(b.events)],
+      [97, '', true, ['armed']])
+    const c = toy('c', `const r = await fetch('https://h.invalid/zzz'); console.log('answered', r.status)`)
+    eq('观察器预加载：脚本外的请求记下拒答、叫停入口，退出时仍写 close', [c.status, c.stdout, shape(c.events)], [97, '', ['armed', 'request 1 {"refused":"unmatched"}', 'close 1 97']])
+    const d = toy('d', [`import net from 'node:net'`,
+      `const s = net.connect(9, '127.0.0.1'); s.on('error', e => console.log('error', e.code)); s.on('connect', () => { console.log('connected'); s.destroy() })`].join('\n'))
+    eq('观察器预加载：绕过 fetch 直接连网记一条故障、叫停入口', [d.status, d.stdout, shape(d.events)], [97, '', ['armed', 'fault 绕过 fetch 用了 net.Socket.connect', 'close 0 97']])
+    const e = toy('e', `globalThis.fetch = async () => new Response('fake'); console.log('replaced')`)
+    eq('观察器预加载：入口换掉 fetch 记一条故障、叫停入口', [e.status, e.stdout, shape(e.events)], [97, '', ['armed', 'fault 入口换掉了 fetch', 'close 0 97']])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+await group('h-observer-run', async () => {
+  harness('零请求观察器的运行器：没经认证就不起入口，调用方给的东西不对判夹具失格，都在建证据目录之前')
+  const { certifyIsolation, runObserved } = await import('./check/observer-run.js')
+  const dir = mkdtempSync(join(tmpdir(), 'kol-obr-'))
+  try {
+    const repo = realpathSync('.')
+    // 伪造的认证：字段齐全，只是不是 certifyIsolation 交出来的那个对象；bwrap 指一个不存在的文件，万一被当真去起也起不来
+    const forged = { id: 'forged', bwrap: join(dir, 'no-such-bwrap'), layout: { system: [], node: dirname(dirname(realpathSync(process.execPath))), repoRoot: repo, repo: [], ghDirs: [] } }
+    const go = (over: object) => runObserved({ isolation: forged, entry: 'render', args: [], cwd: dir, script: { schema: SCRIPT_SCHEMA, rules: [] }, evidenceDir: join(dir, 'ev'), ...over })
+    const r = go({})
+    eq('观察器运行器：不是认证入口交出的那一份断网认证就不起入口，判隔离故障，证据目录不建', [r.outcome.kind === 'facility' ? r.outcome.cause : r.outcome.kind, existsSync(join(dir, 'ev'))],
+      ['isolation', false])
+    eq('观察器运行器：当前目录盖住仓库根时判夹具失格、不起入口', [go({ cwd: repo }).outcome.kind, existsSync(join(dir, 'ev'))], ['fixture', false])
+    eq('观察器运行器：响应脚本不合格、入口认不得、证据目录已存在，各判夹具失格',
+      [go({ script: { schema: 'x', rules: [] } }), go({ entry: 'zzz' }), go({ evidenceDir: dir })].map(x => x.outcome.kind), ['fixture', 'fixture', 'fixture'])
+    const cert = certifyIsolation({ evidenceDir: join(dir, 'iso'), bwrap: join(dir, 'no-such-bwrap') })
+    eq('观察器运行器：bwrap 读不出时认证不成立，交回原因，不起任何探针', [cert.certified, cert.problems.length, existsSync(join(dir, 'iso', 'probe.mjs'))], [false, 1, false])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
 if (seenGroups.size !== GROUPS.length) {

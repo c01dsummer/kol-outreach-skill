@@ -81,6 +81,7 @@ export const SELFCHECK_TOOLS = {
   'adr-ledger': 'check/adr-ledger.ts',
   skill: 'check/skill.ts',
   audit: 'check/audit.ts',
+  'observer-cert': 'check/observer-cert.ts',
 } as const
 
 /**

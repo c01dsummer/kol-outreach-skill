@@ -10466,6 +10466,37 @@ group('calibration-version-entry', [], () => {
   criterion('D20.u')
 })
 
+// ---- 零请求观察器的认证入口（KOL-21，ADR-70 末尾「KOL-21 零请求观察器与外层断网」一节）----
+// 在临时目录里真起一遍认证入口，验的是接线：跑得完，汇总与退出码对得上，列出的证据都在、SHA256 对得上。这一跑**不是认证**。
+// 断网起不起得来随机器：另起一个最小的 bwrap 断网问一句，起得来就要认证成立、逐项成立；起不来就要认证不成立、
+// 一个入口也不起、以 1 退出 —— 两种都判，不跳过。期望的项数照认证入口的设计手数：断网 1、四个入口各两条、设施故障 6
+group('observer-cert-entry', [], () => {
+  const out = join(tmp, 'observer-cert')
+  const r = runToolBoth('observer-cert 在临时目录里跑一遍（接线，不是认证）', 'observer-cert', ['--out', out], process.cwd(), { status: 0, soft: [1] })
+  if (!r.ok) return
+  const summary = jsonFile(join(out, 'summary.json'))
+  if (summary?.schema !== 'kol21-observer-cert/v1' || !Array.isArray(summary.items) || !Array.isArray(summary.evidence)) {
+    failed++; console.error(`  ✗ observer-cert 汇总${SELFCHECK_FIXTURE_MARK}：summary.json 读不出或形状不对；${stderrTail(r.stderr)}`); return
+  }
+  const netns = spawnSync('bwrap', ['--unshare-net', '--ro-bind', '/', '/', 'true'], { stdio: 'ignore', env: { PATH: '/usr/bin:/bin:/usr/local/bin' } }).status === 0
+  const items: { id: string; ok: boolean }[] = summary.items
+  const ran = readdirSync(out).filter(n => /-(positive|zero)$|^fault-/.test(n))
+  console.log(`  · 本机${netns ? '起得来' : '起不来'} bwrap 断网；认证入口这一跑在临时目录里，不是认证`)
+  named('观察器认证入口：断网认证的结论与本机起不起得来 bwrap 断网一致，成立时四个入口的阳性、零记录与六条设施故障对照逐项成立，不成立时一个入口也不起',
+    netns ? summary.isolation?.certified === true && items.length === 15 && items.every(i => i.ok) && ran.length === 14
+      : summary.isolation?.certified === false && items.length === 1 && ran.length === 0 && r.status === 1,
+    `bwrap 断网${netns ? '起得来' : '起不来'}，认证=${summary.isolation?.certified}，不成立的项：${items.filter(i => !i.ok).map(i => i.id).join('；') || '无'}，起过的对照目录 ${ran.length} 个`)
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' })
+  // 按字节算（证据里有 xlsx 这样的二进制文件）；不动本文件的 import 那几行
+  const bytes = createRequire(import.meta.url)('node:crypto') as typeof import('node:crypto')
+  const digest = (f: string) => bytes.createHash('sha256').update(readFileSync(f)).digest('hex')
+  named('观察器认证入口：退出码与汇总的结论一致，汇总记着被测提交，列出的每份证据都在、SHA256 对得上',
+    (summary.result === 'certified') === (r.status === 0) && summary.exit === r.status
+      && summary.provenance?.head === (head.status === 0 ? head.stdout.trim() : '') && summary.evidence.length > 0
+      && summary.evidence.every((e: { path: string; sha256: string }) => existsSync(join(out, e.path)) && digest(join(out, e.path)) === e.sha256),
+    `result=${summary.result}，退出码 ${r.status}，汇总里的提交 ${summary.provenance?.head}，证据 ${summary.evidence.length} 份`)
+})
+
 // 拆不拆、拆几个是判定（`shardJobs`）：只有完整、非变异的整跑才拆；`SELFCHECK_JOBS=1` 照旧单进程。
 const shardCount = shardJobs({ subset, mutating, env: process.env.SELFCHECK_JOBS,
   cpus: availableParallelism(), families: families(REGISTERED).length })
