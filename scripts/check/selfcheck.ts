@@ -822,66 +822,108 @@ group('ig-paging-probe', [], () => {
 group('budget-gate', [], () => {
   // 闸门是一句「已花 + 本次开销 > 上限」的比较。两边有一个不是数，这句话恒为假 ——
   // 闸门不是宽了一点，是整条不存在，而且百分比同时恒为 0，连提醒都不出现。
-  // 判定在 lib/budget.ts（有变异守着），但**接线在每条入口各一份**，而缺省那个
-  // 验证者够不到入口，所以只能由这里真跑一遍。
-  // ⚠️ 这几条还没配 `by: "selfcheck"` 的负片 —— 跑是真跑了，但没有第三拍。
-  {
-    const badProbe = join(tmp, 'probe-badbudget.json')
-    writeFileSync(badProbe, JSON.stringify({
-      market: 'US', budget_usd: 'abc',
-      tasks: [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }],
-    }))
-    run('probe 上限不是数字 → 停下问人', [S('probe.ts'), '--config', badProbe],
-        process.cwd(), { status: 2 })
+  // 判定在 lib/cost-json.ts 与 lib/cost-ledger.ts（有变异守着），但**接线在每条入口各一份**，
+  // 而缺省那个验证者够不到入口，所以只能由这里真跑一遍。
+  // 下面六条都是具名断言，各有 `by: "selfcheck"` 的负片指着（ADR-95 第 43 行那张欠条）：上限那三条是
+  // M-D13-w／x（入口把写了却不是数的上限当成没写），`--budget` 那条是 M-D13-y（读不懂就当没给），
+  // 坏次数那两条是 M-D13-z／aa（入口把坏账当成运行中的内部错误，退出码 2 变 1）。「停下问人」按三样
+  // 一起判：退出码 2、stderr 点出了是哪个值、假 fetch 一个请求都没收到。退出码 0、1、3 交给具名断言判，
+  // 被信号打死照旧带进程记号。坏次数原先是一个名字在循环里断两次，红了分不出是哪条入口，现在两条入口
+  // 各一个名字、各一份坏账目录。
+  //
+  // **「一个请求都没收到」先要证明观察器记得到。** 假 fetch 在每次响应前往 FAKE_FETCH_LEDGER 追加一行；
+  // 落点没接上、或者这条入口根本没装上它，读回来同样是 0 行 —— 那种 0 什么也没证明。所以三条入口各先跑
+  // 一次阳性对照：起进程与观察的接线和下面的断言相同（`runBoth`、`costEnv` 交落点、读回同一个落点），输入换成
+  // 合法的，账本里要真记下请求。probe 只把上限换成 0.5；enrich 只把次数换成 0；collect 用合法账目续跑、
+  // `--budget 3` —— 与坏次数、`--budget 3.0.0` 两条同走续跑，「上限不是数字」那条走新建，那一条与对照差的
+  // 不只是那个值。对照没成立是夹具失格（带夹具记号），那条入口的几条具名断言都不判（零请求是每条的一拍，
+  // 这一拍没有依据就整条不判）。probe 那份与两条 probe 夹具一样以 `process.cwd()` 起；collect、enrich 两份共用
+  // 一个当前目录 `observerCwd`（`tmp/budget-gate-observer`），任务数据各在它底下一个子目录。三份的配置或任务目录、
+  // 账本都是 `tmp` 下各自的一份，不碰 `tmp` 下共用的记忆与产出（记忆按当前目录找；probe.ts 不写盘）。
+  const observerCwd = join(tmp, 'budget-gate-observer')
+  mkdirSync(observerCwd, { recursive: true })
+  const observed = (label: string, args: string[], cwd: string, log: string): boolean => {
+    const r = runBoth(label, args, cwd, undefined, costEnv(log))
+    if (!r.ok) return false
+    const attempts = fetchAttempts(log).length
+    if (attempts > 0) { console.log(`    观察器记下 ${attempts} 次请求`); return true }
+    failed++
+    console.error(`  ✗ ${label}${SELFCHECK_FIXTURE_MARK}：合法输入照常跑完，账本里却一次请求也没记下 —— `
+                  + '观察器没接上，这条入口的几条具名断言都要零请求，没有依据，都不判')
+    return false
+  }
+  const budgetStop = (label: string, args: string[], cwd: string, log: string) => {
+    const r = runBoth(label, args, cwd, { status: 2, soft: [0, 1, 3] }, costEnv(log))
+    return r.ok ? { ...r, attempts: fetchAttempts(log).length } : undefined
+  }
+  type Stopped = NonNullable<ReturnType<typeof budgetStop>>
+  const refused = (r: Stopped, said: RegExp) => r.status === 2 && said.test(r.stderr) && r.attempts === 0
+  const stopDetail = (r: Stopped) =>
+    `退出码 ${r.status}、发出的请求 ${r.attempts} 次，stderr 末几行 ${stderrTail(r.stderr)}`
+  const tasks = [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }]
+  const probeConfig = (name: string, budget: unknown) => {
+    const f = join(tmp, name)
+    writeFileSync(f, JSON.stringify({ market: 'US', budget_usd: budget, tasks }))
+    return f
+  }
+  // 盘上那个「已经花了多少次」同样是外部输入：null 会让整本账退回零
+  const stateOf = (requests: unknown) => JSON.stringify({
+    product: 'badledger', market: 'US', target_count: 1, budget_usd: 1, tasks,
+    done: [], offsets: {}, ...knownCosts(1_000_000, []), requests, created_at: '', updated_at: '',
+  })
+  const paidCreator = [{ platform: 'tiktok', handle: 'costgate', nickname: 'Cost gate',
+    followers: 10000, post_count: 50, bio: null, bio_links: ['https://example.com'],
+    verified: false, profile_url: '', source_keyword: 'k', source_dimension: 'category', fit: '✅' }]
+  const ledgerDir = (at: string, requests: unknown) => {
+    mkdirSync(at, { recursive: true })
+    writeFileSync(join(at, 'task.json'), stateOf(requests))
+    writeFileSync(join(at, 'creators.json'), JSON.stringify(paidCreator))
+    writeFileSync(join(at, 'creators.raw.json'), JSON.stringify(paidCreator))
+  }
+
+  if (observed('probe 合法上限照常试探（请求观察器阳性对照）',
+      [S('probe.ts'), '--config', probeConfig('probe-okbudget.json', 0.5)], process.cwd(), join(tmp, 'probe-okbudget.tsv'))) {
+    const probeBad = budgetStop('probe 上限写成 "abc"', [S('probe.ts'), '--config', probeConfig('probe-badbudget.json', 'abc')],
+                                process.cwd(), join(tmp, 'probe-badbudget.tsv'))
+    if (probeBad) named('probe 上限不是数字 → 停下问人', refused(probeBad, /budget_usd/), stopDetail(probeBad))
     // 写了个 null 不等于没写：默认值只给 undefined，null 要被拦下
-    const nullProbe = join(tmp, 'probe-nullbudget.json')
-    writeFileSync(nullProbe, JSON.stringify({
-      market: 'US', budget_usd: null,
-      tasks: [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }],
-    }))
-    run('probe 上限是 null → 也停下问人', [S('probe.ts'), '--config', nullProbe],
-        process.cwd(), { status: 2 })
+    const probeNull = budgetStop('probe 上限写成 null', [S('probe.ts'), '--config', probeConfig('probe-nullbudget.json', null)],
+                                 process.cwd(), join(tmp, 'probe-nullbudget.tsv'))
+    if (probeNull) named('probe 上限是 null → 也停下问人', refused(probeNull, /budget_usd/), stopDetail(probeNull))
+  }
 
+  ledgerDir(join(observerCwd, 'collect-ok'), 0)
+  if (observed('collect 合法账目、合法 --budget 照常续跑（请求观察器阳性对照）',
+      [S('collect.ts'), '--resume', 'collect-ok', '--budget', '3'], observerCwd, join(observerCwd, 'collect-ok.tsv'))) {
     const badCfg = join(tmp, 'collect-badbudget.json')
-    writeFileSync(badCfg, JSON.stringify({
-      product: 'badbudget', market: 'US', target_count: 1, budget_usd: 'abc',
-      tasks: [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }],
-    }))
-    run('collect 上限不是数字 → 停下问人', [S('collect.ts'), '--config', badCfg], tmp,
-        { status: 2 })
+    writeFileSync(badCfg, JSON.stringify({ product: 'badbudget', market: 'US', target_count: 1, budget_usd: 'abc', tasks }))
+    const collectBad = budgetStop('collect 上限写成 "abc"', [S('collect.ts'), '--config', badCfg], tmp,
+                                  join(tmp, 'collect-badbudget.tsv'))
+    if (collectBad) named('collect 上限不是数字 → 停下问人', refused(collectBad, /budget_usd/), stopDetail(collectBad))
 
-    // 盘上那个「已经花了多少次」同样是外部输入：null 会让整本账退回零
-    const stateOf = (requests: unknown) => JSON.stringify({
-      product: 'badledger', market: 'US', target_count: 1, budget_usd: 1,
-      tasks: [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }],
-      done: [], offsets: {}, ...knownCosts(1_000_000, []), requests, created_at: '', updated_at: '',
-    })
-    mkdirSync(join(tmp, 'badledger'), { recursive: true })
-    writeFileSync(join(tmp, 'badledger', 'task.json'), stateOf(null))
-    const paidCreator = [{ platform: 'tiktok', handle: 'costgate', nickname: 'Cost gate',
-      followers: 10000, post_count: 50, bio: null, bio_links: ['https://example.com'],
-      verified: false, profile_url: '', source_keyword: 'k', source_dimension: 'category', fit: '✅' }]
-    writeFileSync(join(tmp, 'badledger', 'creators.json'), JSON.stringify(paidCreator))
-    writeFileSync(join(tmp, 'badledger', 'creators.raw.json'), JSON.stringify(paidCreator))
-    for (const entry of ['collect', 'enrich']) {
-      const log = join(tmp, `badledger-${entry}.tsv`)
-      const result = runBoth(`${entry} 已知空账却将次数写成 null`,
-        [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', 'badledger'], tmp,
-        { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_LEDGER: log })
-      if (result.ok) named('坏次数必须指明费用问题并在实际付费前拒绝',
-        result.status === 2 && /requests|次数/.test(result.stderr) && fetchAttempts(log).length === 0,
-        `${entry}: status=${result.status}, attempts=${fetchAttempts(log).length}, ${result.stderr}`)
-    }
+    ledgerDir(join(tmp, 'badledger-collect'), null)
+    const collectLedger = budgetStop('collect 已知空账却将次数写成 null',
+      [S('collect.ts'), '--resume', 'badledger-collect'], tmp, join(tmp, 'badledger-collect.tsv'))
+    if (collectLedger) named('collect 坏次数必须指明费用问题并在实际付费前拒绝',
+      refused(collectLedger, /requests|次数/), stopDetail(collectLedger))
 
     mkdirSync(join(tmp, 'okledger'), { recursive: true })
     writeFileSync(join(tmp, 'okledger', 'task.json'), stateOf(0))
     // 报的必须是**用户打的那个东西**：`3.0.0` 解析成 NaN，照解析结果印是「null」
-    const badArg = run('collect 设置的总预算不是数字 → 停下问人',
-        [S('collect.ts'), '--resume', 'okledger', '--budget', '3.0.0'], tmp, { status: 2 })
-    if (badArg !== undefined && !badArg.includes('3.0.0')) {
-      failed++
-      console.error('  ✗ 报错里没有出现用户打的那个值，他不知道是哪一处写错了')
-    } else if (badArg !== undefined) console.log('  ✓ 报错指名用户打的那个值')
+    const badArg = budgetStop('collect --budget 写成 3.0.0',
+      [S('collect.ts'), '--resume', 'okledger', '--budget', '3.0.0'], tmp, join(tmp, 'okledger-budget.tsv'))
+    if (badArg) named('collect 设置的总预算不是数字 → 停下问人，报错指名用户打的那个值',
+      refused(badArg, /3\.0\.0/), stopDetail(badArg))
+  }
+
+  ledgerDir(join(observerCwd, 'enrich-ok'), 0)
+  if (observed('enrich 合法账目照常补全（请求观察器阳性对照）',
+      [S('enrich.ts'), '--dir', 'enrich-ok'], observerCwd, join(observerCwd, 'enrich-ok.tsv'))) {
+    ledgerDir(join(tmp, 'badledger-enrich'), null)
+    const enrichLedger = budgetStop('enrich 已知空账却将次数写成 null',
+      [S('enrich.ts'), '--dir', 'badledger-enrich'], tmp, join(tmp, 'badledger-enrich.tsv'))
+    if (enrichLedger) named('enrich 坏次数必须指明费用问题并在实际付费前拒绝',
+      refused(enrichLedger, /requests|次数/), stopDetail(enrichLedger))
   }
 })
 
@@ -2456,6 +2498,143 @@ group('render', ['collect', 'enrich'], () => {
   }
 })
 
+// ---- 名单排序的 P1.h 端到端跑一遍：交付的 CSV 与 xlsx 里真是这个顺序（ADR-92 第 101 行那张欠条）----
+// 规则本身由 scripts/test.ts 在单元层断言、M-P1-m／M-P1-n 守着；那两条跑的是缺省那个验证者，
+// render 写交付物时用的是不是这个比较器、排完有没有被别的步骤打乱，它们够不到。本组读交付的文件核顺序，
+// 只看文件里最后是什么顺序，不分是哪一处排的。负片 M-P1-ai 把几处排序共用的比较器 byFollowers 改成恒返回 0，
+// 几处一起失守，证的是下面两条产物断言能红；它不单独证明 render 里每一处排序调用都接着 —— 只拿掉 render.ts
+// 里紧跟 `rankCreators` 的那一处 `sortForReviewOutput` 照绿（`rankCreators` 已经排过），见 ADR-92 末尾。
+// 三个人同平台、都是 ✅ 但没有邮箱（都落 B 层）、都没有有效建议，粉丝数分别是 0、未查询、100：
+// 100 和 0 都在计分区间外，其余字段一样，于是同分，先后只剩 P1.h 那一档在定。
+// 期望照 P1.h 原文写死：已查到且不是 0 → 未查询 → 确实是 0。同一组人按 ADR-92 第三节正序、逆序各写进名单一次，
+// 两次都要求这个结论：只交逆序的话，一个只把名单倒过来的实现照样绿；只交正序的话，比较器不排粉丝数时
+// 排序稳定、原样留着输入顺序，照样绿。账号名故意取成期望顺序既不是字母序也不是字母倒序 —— 哪一步按账号名
+// 重排，这组照样红。交付物里三个人不同层、不同分、缺人或多人，先后就轮不到 P1.h 来定 —— 那是夹具没造对，
+// 带夹具记号报，不算排序红了；文件读不出来、解不开同样。
+// 两样文件各读各的，都不调用生产的排序与格式化：CSV 按引号规则逐字符解（字段里的逗号、引号、换行都认）；
+// xlsx 只解 ZIP 的中央目录、workbook.xml 与它的关系表找到 B 层那张表，再按单元格引用读表头与各行
+// （共享字符串、内联字符串都认）。xlsx 单独断一条：它由 buildSheets 按层分表、表内再排一遍，和 CSV 不是同一句排序。
+group('render-order', [], () => {
+  const known = costPerson('tiktok', 'order_c_known', { followers: 100 })
+  const unqueried = costPerson('tiktok', 'order_a_unqueried', { followers: undefined })
+  const zero = costPerson('tiktok', 'order_b_zero', { followers: 0 })
+  const want = ['order_c_known', 'order_a_unqueried', 'order_b_zero']
+
+  const csvTable = (text: string): string[][] => {
+    const rows: string[][] = []
+    let row: string[] = [], cell = '', quoted = false
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i]
+      if (quoted) {
+        if (c !== '"') cell += c
+        else if (text[i + 1] === '"') { cell += '"'; i++ }
+        else quoted = false
+      } else if (c === '"') quoted = true
+      else if (c === ',') { row.push(cell); cell = '' }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++
+        row.push(cell); rows.push(row); row = []; cell = ''
+      } else cell += c
+    }
+    if (quoted) throw new Error('有一个引号没闭合')
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row) }
+    return rows
+  }
+  const decode = (s: string) => s.replace(/&#(x[0-9a-f]+|\d+);|&(amp|lt|gt|quot|apos);/gi, (_, n: string | undefined, e: string) =>
+    n ? String.fromCodePoint(n[0].toLowerCase() === 'x' ? parseInt(n.slice(1), 16) : Number(n))
+      : ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" } as Record<string, string>)[e.toLowerCase()])
+  const attr = (tag: string, name: string) => tag.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1]
+  const unzip = (b: Buffer): Map<string, string> => {
+    let end = b.length - 22
+    while (end >= 0 && b.readUInt32LE(end) !== 0x06054b50) end--
+    if (end < 0) throw new Error('找不到 ZIP 的目录结束记录')
+    const out = new Map<string, string>()
+    let at = b.readUInt32LE(end + 16)
+    for (let n = b.readUInt16LE(end + 10); n > 0; n--) {
+      if (b.readUInt32LE(at) !== 0x02014b50) throw new Error('ZIP 中央目录项不对')
+      const method = b.readUInt16LE(at + 10), size = b.readUInt32LE(at + 20), nameLen = b.readUInt16LE(at + 28)
+      const local = b.readUInt32LE(at + 42), name = b.subarray(at + 46, at + 46 + nameLen).toString('utf8')
+      if (b.readUInt32LE(local) !== 0x04034b50) throw new Error('ZIP 本地项不对')
+      if (method !== 0 && method !== 8) throw new Error(`不认得的压缩方法 ${method}`)
+      const start = local + 30 + b.readUInt16LE(local + 26) + b.readUInt16LE(local + 28), data = b.subarray(start, start + size)
+      out.set(name, (method === 8 ? inflateRawSync(data) : data).toString('utf8'))
+      at += 46 + nameLen + b.readUInt16LE(at + 30) + b.readUInt16LE(at + 32)
+    }
+    return out
+  }
+  // B 层那张表的各行（第一行是表头），一格一个字符串，按单元格引用的列号落位
+  const xlsxTierB = (b: Buffer): string[][] => {
+    const files = unzip(b)
+    const texts = (xml: string) => [...xml.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m => decode(m[1])).join('')
+    const shared = [...(files.get('xl/sharedStrings.xml') ?? '').matchAll(/<si(?:\s[^>]*)?>([\s\S]*?)<\/si>/g)].map(m => texts(m[1]))
+    const targets = new Map([...(files.get('xl/_rels/workbook.xml.rels') ?? '').matchAll(/<Relationship\b[^>]*>/g)]
+      .map(m => [attr(m[0], 'Id'), attr(m[0], 'Target')]))
+    const sheets = [...(files.get('xl/workbook.xml') ?? '').matchAll(/<sheet\b[^>]*>/g)]
+      .map(m => ({ name: decode(attr(m[0], 'name') ?? ''), target: targets.get(attr(m[0], 'r:id')) }))
+      .filter(s => s.name.startsWith('B级'))
+    if (sheets.length !== 1 || sheets[0].target === undefined) throw new Error(`名字以「B级」开头、指得到表的有 ${sheets.length} 张`)
+    const target = sheets[0].target.startsWith('/') ? sheets[0].target.slice(1) : `xl/${sheets[0].target}`
+    const xml = files.get(target)
+    if (xml === undefined) throw new Error(`关系表指的 ${target} 不在包里`)
+    return [...xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)].map(row => {
+      const cells: string[] = []
+      for (const c of row[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+        const ref = attr(c[1], 'r')?.match(/^([A-Z]+)\d+$/)?.[1]
+        if (ref === undefined) throw new Error('有一格没写单元格引用')
+        const col = [...ref].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1
+        const body = c[2] ?? '', type = attr(c[1], 't'), v = body.match(/<v>([\s\S]*?)<\/v>/)?.[1]
+        cells[col] = type === 's' ? shared[Number(v)] ?? '' : type === 'inlineStr' ? texts(body) : decode(v ?? '')
+      }
+      return Array.from(cells, x => x ?? '')
+    })
+  }
+  // 一份交付物读出来的表 → 三个人的先后；读不出来、或三个人没落在同一层同一分，交回为什么不算数
+  const orderIn = (file: string, read: () => string[][]): { order: string[] } | { unfit: string } => {
+    let table: string[][]
+    try { table = read() } catch (e) { return { unfit: `${file} 读不出来：${e instanceof Error ? e.message : String(e)}` } }
+    const [head = [], ...body] = table
+    const col = (name: string) => head.indexOf(name)
+    if (col('handle') < 0 || col('tier') < 0 || col('score') < 0) return { unfit: `${file} 的表头里找不到 handle／tier／score：${JSON.stringify(head)}` }
+    const order = body.map(row => row[col('handle')])
+    const tierScore = new Set(body.map(row => `${row[col('tier')]}/${row[col('score')]}`))
+    if (body.length !== want.length || JSON.stringify([...order].sort()) !== JSON.stringify([...want].sort()))
+      return { unfit: `${file} 里的人不是夹具写进去的那三个：${JSON.stringify(order)}` }
+    if (tierScore.size !== 1 || ![...tierScore][0].startsWith('B/'))
+      return { unfit: `${file} 里三个人没落在同一层（B）同一分：${JSON.stringify([...tierScore])}` }
+    return { order }
+  }
+  const noBom = (s: string) => s.charCodeAt(0) === 0xfeff ? s.slice(1) : s
+  type Got = ReturnType<typeof orderIn>
+  const runs: { input: string; csv: Got; xlsx: Got }[] = []
+  for (const [input, slug, people] of [['逆序', 'reversed', [zero, unqueried, known]], ['正序', 'forward', [known, unqueried, zero]]] as const) {
+    const f = costFixture(`render-order-${slug}`, knownCosts(1000, []), { budget_usd: 0.001 }, [...people])
+    const r = runBoth(`render 只差粉丝数三档的三个人（${input}写进名单）`, [S('render.ts'), '--dir', f.taskDir], f.cwd,
+      undefined, costEnv(f.log))
+    if (!r.ok) return
+    runs.push({ input,
+      csv: orderIn('kol.csv', () => csvTable(noBom(readFileSync(join(f.taskDir, 'kol.csv'), 'utf8')))),
+      xlsx: orderIn('kol.xlsx', () => xlsxTierB(readFileSync(join(f.taskDir, 'kol.xlsx')))) })
+  }
+  for (const run of runs) for (const got of [run.csv, run.xlsx]) if ('unfit' in got) {
+    failed++
+    console.error(`  ✗ 名单排序夹具${SELFCHECK_FIXTURE_MARK}：${run.input}写进名单的那一份，${got.unfit} —— 先后轮不到 P1.h 来定，夹具没造对`)
+  }
+  // 两份都过了夹具那一关才判；两份读回的都得是 P1.h 那个顺序
+  const verdict = (pick: (run: typeof runs[number]) => Got) => {
+    const got = runs.map(run => ({ input: run.input, got: pick(run) }))
+    if (!got.every(g => 'order' in g.got)) return undefined
+    const orders = got.map(g => ({ input: g.input, order: (g.got as { order: string[] }).order }))
+    return { pass: orders.every(o => JSON.stringify(o.order) === JSON.stringify(want)),
+      said: orders.map(o => `${o.input}写进名单时读回 ${JSON.stringify(o.order)}`).join('；') }
+  }
+  const csv = verdict(run => run.csv), xlsx = verdict(run => run.xlsx)
+  if (csv) named('render 交付的 CSV 里，同层同分的人按粉丝数三档排：已查到且不是 0 → 未查询 → 确实是 0',
+    csv.pass, `CSV：${csv.said}`)
+  if (xlsx) named('render 交付的 xlsx 里，B 层那张表上同层同分的人也按粉丝数三档排',
+    xlsx.pass, `xlsx 那张表：${xlsx.said}`)
+  if (csv && xlsx) criterion('P1.h')
+})
+
 // ---- 回归：collect → render → --resume 之后，已采集的人必须还在 ----
 group('regress', ['collect', 'render'], () => {
   // 早先 creators.json 一个文件身兼两职：既是 --resume 的输入，又是过滤后的交付物。
@@ -2621,11 +2800,13 @@ group('memory', ['collect', 'render'], () => {
     // 缺省那个验证者（scripts/test.ts）够不到入口脚本，所以这一段只能这样真跑。
     // **现在有一条负片指着它**：M-D6-j 删掉那行共用的接线、改跑自检来验，kills 点名下面
     // 四条夹具**全部** —— 一条没红就判「红错了地方」（5c 第二片把 kills 收成一组之前只点得着
-    // 第一条，剩下三条删光它照样绿）。⚠️ 它证明的是四条都还活着、都靠那一行，不是
-    // 「四条路能各自坏掉」—— 后者要四条各自的变异（ADR-70 记着这条欠条）。
+    // 第一条，剩下三条删光它照样绿）。它证明的是四条都还活着、都靠那一行。
+    // 「四条路能各自坏掉」那半由 M-D6-bi…bl 证：每条让那一行只对一种 `stopped` 闭嘴，
+    // kills 只点名对应的那一条夹具 —— 四条各自能红、只红在自己身上（还 ADR-70 第 1087 行
+    // 那张欠条）。
     // ⚠️ 这条缺口原先在 mutations.json 的 exemptions 里按 P3.b 的先例登记着，
-    // **落地 4 已经撤掉那条豁免** —— D6.f 现在靠 M-D6-j 与那条硬失败顶着；
-    // 「四条路能各自坏掉」那半仍然欠着，记在 ADR-70，不在豁免表里。
+    // **落地 4 已经撤掉那条豁免** —— 那条判据（D6.f 已退役，#155 起由 D6.r 接替，见 ADR-108 那张
+    // 退役表）现在靠 M-D6-j、M-D6-bi…bl 与那条硬失败顶着。
     //
     // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
     // 「达标提前停下」和「关键词跑完」都是退出码 0、都说「不花钱」，一条夹具会让另一条

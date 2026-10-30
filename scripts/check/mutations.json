@@ -4584,6 +4584,54 @@
       ]
     },
     {
+      "id": "M-D6-bi",
+      "req": "D6.r",
+      "why": "四种收尾里只有「关键词跑完」那一种不再说续跑要不要花钱，另外三种照说：用户正常收工时拿不到判断值不值得续跑的依据，而只看另三种收尾的人会以为四种都说了",
+      "file": "scripts/collect.ts",
+      "find": "  console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
+      "replace": "  if (stopped !== 'done') console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
+      "by": "selfcheck",
+      "kills": [
+        "collect 关键词跑完（退出码 0）也说续跑代价"
+      ]
+    },
+    {
+      "id": "M-D6-bj",
+      "req": "D6.r",
+      "why": "四种收尾里只有「达标提前停下」那一种不再说续跑要不要花钱，另外三种照说：达标停下时关键词其实可能没跑完，用户最想知道的正是续跑还要不要再花钱，这一句没了",
+      "file": "scripts/collect.ts",
+      "find": "  console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
+      "replace": "  if (stopped !== 'target') console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
+      "by": "selfcheck",
+      "kills": [
+        "collect 达标提前停下（退出码 0）也说续跑代价"
+      ]
+    },
+    {
+      "id": "M-D6-bk",
+      "req": "D6.r",
+      "why": "四种收尾里只有「预算用尽」那一种不再说续跑要不要花钱、还剩多少没抓，另外三种照说：恰好是用户要决定追加多少额度的那一刻，手里没有还剩多少活的依据",
+      "file": "scripts/collect.ts",
+      "find": "  console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
+      "replace": "  if (stopped !== 'budget') console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
+      "by": "selfcheck",
+      "kills": [
+        "collect 预算用尽（退出码 3）也说续跑代价"
+      ]
+    },
+    {
+      "id": "M-D6-bl",
+      "req": "D6.r",
+      "why": "四种收尾里只有「出错中止」那一种不再说续跑要不要花钱、还剩多少没抓，另外三种照说：出错之后用户判断值不值得修好再续，靠的就是这一句",
+      "file": "scripts/collect.ts",
+      "find": "  console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
+      "replace": "  if (stopped !== 'error') console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
+      "by": "selfcheck",
+      "kills": [
+        "collect 出错中止（退出码 1）也说续跑代价"
+      ]
+    },
+    {
       "id": "M-H23-a",
       "req": "harness",
       "why": "豁免那一行永远说「无变异」：一条判据明明已经有负片指着它，报告还印着它是没人守的缺口 —— 同一份报告里两句话打架，而这正是本次改动要治的",
@@ -6227,6 +6275,19 @@
       ]
     },
     {
+      "id": "M-P1-ai",
+      "req": "P1.h",
+      "why": "同层同分的人在交付的名单里不再按粉丝数分三档：查到了数的、还没去查的、查过确实是 0 的，谁在前取决于他们碰巧的输入顺序 —— 一个查过、确实是 0 的人可以排在真查到了数的人前面，而运营拿到的 CSV 和 xlsx 看上去照样是排好的",
+      "file": "scripts/lib/rows.ts",
+      "find": "  const byFollowers = (a: Creator, b: Creator): number =>\n    followerRank(a) - followerRank(b)",
+      "replace": "  const byFollowers = (_a: Creator, _b: Creator): number => 0",
+      "by": "selfcheck",
+      "kills": [
+        "render 交付的 CSV 里，同层同分的人按粉丝数三档排：已查到且不是 0 → 未查询 → 确实是 0",
+        "render 交付的 xlsx 里，B 层那张表上同层同分的人也按粉丝数三档排"
+      ]
+    },
+    {
       "id": "M-P3-d",
       "req": "P3",
       "why": "非法预算不再被拒绝，而是被改成最大安全金额，未经确认也能获得付费额度",
@@ -7416,6 +7477,67 @@
       "by": "test",
       "kills": [
         "费用账里读不出精确值的数字整份写回后仍是原数字"
+      ]
+    },
+    {
+      "id": "M-D13-w",
+      "req": "D13.a",
+      "why": "collect 新建任务时，配置里写了 budget_usd、却不是数（写成字符串或 null）的，被当成没写、套上缺席默认的 $2 照常开跑：用户写下的上限谁也没核过，这一跑花的是一笔他没确认过的钱",
+      "file": "scripts/collect.ts",
+      "find": "    if (Object.hasOwn(state, 'budget_usd')) freshLimit = readCostLimit(state)",
+      "replace": "    if (typeof state.budget_usd === 'number') freshLimit = readCostLimit(state)",
+      "by": "selfcheck",
+      "kills": [
+        "collect 上限不是数字 → 停下问人"
+      ]
+    },
+    {
+      "id": "M-D13-x",
+      "req": "D13.a",
+      "why": "probe 的配置里写了 budget_usd、却不是数（写成字符串或 null）的，被当成没写、套上缺席默认的 $0.5 照常试探：写了个 null 不等于没写，这一跑却照样发出付费请求",
+      "file": "scripts/probe.ts",
+      "find": "    const absent = cfg.budget_usd === undefined",
+      "replace": "    const absent = typeof cfg.budget_usd !== 'number'",
+      "by": "selfcheck",
+      "kills": [
+        "probe 上限不是数字 → 停下问人",
+        "probe 上限是 null → 也停下问人"
+      ]
+    },
+    {
+      "id": "M-D13-y",
+      "req": "D13.b",
+      "why": "collect 续跑时 --budget 给了一个读不懂的金额（比如 3.0.0），不报错、当成没给，按原来的额度接着发请求：用户以为改了额度，实际没改，也不知道是哪一处写错了",
+      "file": "scripts/collect.ts",
+      "find": "    catch (e) { throw new Error(`--budget ${newBudgetArg}：${String(e)}`) }",
+      "replace": "    catch { /* 读不懂就当没给 */ }",
+      "by": "selfcheck",
+      "kills": [
+        "collect 设置的总预算不是数字 → 停下问人，报错指名用户打的那个值"
+      ]
+    },
+    {
+      "id": "M-D13-z",
+      "req": "D13.s",
+      "why": "collect 续跑时盘上的已花次数是坏的（写成 null），它照样在付费前拦下，却把这当成运行中的内部错误、退出码 1：该停下问人修文件的事，看起来像程序自己坏了，用户不知道要去改的是自己那份任务文件",
+      "file": "scripts/collect.ts",
+      "find": "      errorExit = e instanceof BudgetInputError ? 2 : 1",
+      "replace": "      errorExit = 1",
+      "by": "selfcheck",
+      "kills": [
+        "collect 坏次数必须指明费用问题并在实际付费前拒绝"
+      ]
+    },
+    {
+      "id": "M-D13-aa",
+      "req": "D13.s",
+      "why": "enrich 遇到盘上坏掉的已花次数（写成 null），照样在付费前拦下，却把这当成运行中的内部错误、退出码 1：该停下问人修文件的事，看起来像程序自己坏了，用户不知道要去改的是自己那份任务文件",
+      "file": "scripts/enrich.ts",
+      "find": "      errorExit = e instanceof BudgetInputError ? 2 : 1",
+      "replace": "      errorExit = 1",
+      "by": "selfcheck",
+      "kills": [
+        "enrich 坏次数必须指明费用问题并在实际付费前拒绝"
       ]
     },
     {
