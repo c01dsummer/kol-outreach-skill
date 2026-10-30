@@ -3532,3 +3532,7 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 - run `41089190437` 之后各次 CI 打的那一行，本块写的时候还没读。
 - 最终 head 上那一次认证在本块之后才跑，结果见 PR #413 正文。
 - 本块由 Codex 复审核对，复审之前没有别的独立复核。
+
+> ⚠️ 欠条：`observer-cert-entry` 判「本机起不起得来 bwrap 断网」的探针只用 `--unshare-net --ro-bind / /`，认证在断网里用的是 `sandboxArgs` 全套（`--dev /dev --proc /proc --tmpfs /tmp`、`--new-session` 等），允许用户命名空间却不让挂 proc 的机器上会探针起得来、认证不成立而假红；查找 bwrap 那半条不成立（同样三处、同样顺序） · 来源：PR #413 CodeRabbit 评审 `5716926340` 讨论串 [r4427165566](https://github.com/c01dsummer/kol-outreach-skill/pull/413#discussion_r4427165566)（`scripts/check/selfcheck.ts:10482`，锚 `9b137e4`），处置回复 [r4427207012](https://github.com/c01dsummer/kol-outreach-skill/pull/413#discussion_r4427207012) · 档：本改动(第 3 轮,不阻塞) · 重启条件：下次有改动碰到 `selfcheck.ts` 的 `observer-cert-entry` 组或 `observer-rule.ts` 的 `sandboxArgs`，或有一台机器上探针与认证结论对不上
+
+> ⚠️ 欠条：`h-observer-preload` 两处 `JSON.parse(a.stdout)` 在 `eq` 实参里，玩具入口没印出合法 JSON 时整组崩而不是断言红（`scripts/test.ts:2519` 的规矩），要改成解析失败给明示的失败值 · 来源：PR #413 CodeRabbit 评审 `5716926340` 讨论串 [r4427165606](https://github.com/c01dsummer/kol-outreach-skill/pull/413#discussion_r4427165606)（`scripts/test.ts:18749/18753`，锚 `9b137e4`），处置回复 [r4427207355](https://github.com/c01dsummer/kol-outreach-skill/pull/413#discussion_r4427207355) · 档：本改动(第 3 轮,不阻塞) · 重启条件：下次有改动碰到 `scripts/test.ts` 的 `h-observer-preload` 组，或有变异以这一组为验证者被判 `crashed`
