@@ -297,6 +297,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-observer-rule', needs: [] },
   { id: 'h-observer-preload', needs: [] },
   { id: 'h-observer-run', needs: [] },
+  { id: 'h-observer-contexts', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -18660,9 +18661,16 @@ await group('h-observer-rule', () => {
   const ob = (over: Partial<Observation> = {}): Observation => ({ outcome: { kind: 'observed' }, attributable: true, armed, requests: [], entry: 'probe', isolation: 'I1', ...over })
   const hit = [rq(1, 0, { status: 200 })], pos = ob({ requests: hit })
   eq('观察器零请求：入口自己的 armed、同一认证下同一入口的阳性看见了请求、观察成立 —— 判通过', zeroVerdict(ob(), pos), { verdict: 'pass' })
-  eq('观察器零请求：归得到本次运行的请求判红，观察器叫停的那一次也算',
-    [zeroVerdict(ob({ requests: hit }), pos), zeroVerdict(ob({ outcome: { kind: 'facility', cause: 'observer', reason: 'x' }, requests: hit }), undefined)],
-    [{ verdict: 'red', requests: 1 }, { verdict: 'red', requests: 1 }])
+  eq('观察器零请求：观察成立、阳性合格时，归得到本次运行的请求判红', zeroVerdict(ob({ requests: hit }), pos), { verdict: 'red', requests: 1 })
+  // 设施故障先于语义红（ADR-70 末尾「修复轮 1」）：那一跑记下的请求照样归得到它，但那一跑本身不成立
+  eq('观察器零请求：目标那一跑是设施故障时判设施故障，带上哪一跑、哪一因；观察器叫停的脚本外请求、请求之后被信号打死，记下的请求都不判红',
+    [zeroVerdict(ob({ outcome: { kind: 'facility', cause: 'observer', reason: 'x' }, requests: hit }), pos), zeroVerdict(ob({ outcome: { kind: 'facility', cause: 'signal', reason: 'y' }, requests: hit }), pos)],
+    [{ verdict: 'facility', side: 'target', cause: 'observer', reason: '目标：x' }, { verdict: 'facility', side: 'target', cause: 'signal', reason: '目标：y' }])
+  eq('观察器零请求：阳性是设施故障、没有阳性或阳性不在同一份认证下时，目标观察到的请求也不判红',
+    [zeroVerdict(ob({ requests: hit }), ob({ outcome: { kind: 'facility', cause: 'signal', reason: 'z' } })), zeroVerdict(ob({ requests: hit }), undefined),
+      zeroVerdict(ob({ requests: hit }), ob({ requests: hit, isolation: 'I2' }))],
+    [{ verdict: 'facility', side: 'positive', cause: 'signal', reason: '阳性：z' }, { verdict: 'fixture', reason: '没有阳性对照' },
+      { verdict: 'fixture', reason: '阳性与目标不在同一份断网认证下' }])
   eq('观察器零请求：观察不成立判设施故障或夹具失格，不判通过也不判红',
     [ob({ outcome: { kind: 'facility', cause: 'loader', reason: 'x' }, attributable: false }), ob({ outcome: { kind: 'fixture', reason: 'x' }, attributable: false })]
       .map(t => zeroVerdict(t, pos).verdict), ['facility', 'fixture'])
@@ -18673,7 +18681,6 @@ await group('h-observer-rule', () => {
   eq('观察器零请求：阳性是别的入口不算；对照夹具只给按契约不发请求的 render 当阳性',
     [zeroVerdict(ob(), ob({ requests: hit, entry: 'collect' })), zeroVerdict(ob(), ob({ requests: hit, entry: 'control' })),
       zeroVerdict(ob({ entry: 'render' }), ob({ requests: hit, entry: 'control' }))].map(z => z.verdict), ['fixture', 'fixture', 'pass'])
-  eq('观察器零请求：阳性自己是设施故障时判设施故障', zeroVerdict(ob(), ob({ outcome: { kind: 'facility', cause: 'signal', reason: 'x' } })).verdict, 'facility')
 
   const inside: ProbeReport = { result: 'error', code: 'ECONNREFUSED', interfaces: ['lo'], env: ['HOME', 'PATH', 'PWD'], masks: { '/h/.config/gh': { dir: 0 }, '/r/.env': { file: 0 } } }
   const nf = (over: Partial<NetcutFacts> = {}, inner: Partial<ProbeReport> = {}): NetcutFacts => ({ outside: { result: 'acked', interfaces: ['eth0', 'lo'], env: [], masks: {} },
@@ -18783,6 +18790,45 @@ await group('h-observer-run', async () => {
       [go({ script: { schema: 'x', rules: [] } }), go({ entry: 'zzz' }), go({ evidenceDir: dir })].map(x => x.outcome.kind), ['fixture', 'fixture', 'fixture'])
     const cert = certifyIsolation({ evidenceDir: join(dir, 'iso'), bwrap: join(dir, 'no-such-bwrap') })
     eq('观察器运行器：bwrap 读不出时认证不成立，交回原因，不起任何探针', [cert.certified, cert.problems.length, existsSync(join(dir, 'iso', 'probe.mjs'))], [false, 1, false])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+// ADR-70 末尾「修复轮 1」：观察器看不到的执行上下文与吞掉的直连。连的都是本机 127.0.0.1 的 9 号端口（没人听），DNS 指到同一处
+await group('h-observer-contexts', () => {
+  harness('零请求观察器看不到的路：入口起线程、子进程，绕过 fetch 查 DNS、经 http 直连，失败都吞掉也判观察器故障（真起五次玩具入口，不进沙箱）')
+  const dir = mkdtempSync(join(tmpdir(), 'kol-obc-'))
+  try {
+    const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href, preload = pathToFileURL(resolve('scripts/check/observer-preload.ts')).href
+    const scriptFile = join(dir, 'script.json')
+    writeFileSync(scriptFile, JSON.stringify({ schema: SCRIPT_SCHEMA, rules: [] }))
+    writeFileSync(join(dir, 'thread.mjs'), `import net from 'node:net'\nnet.connect(9, '127.0.0.1').on('error', () => {})\n`)
+    const toy = (name: string, body: string) => {
+      const file = join(dir, `${name}.mjs`), events = join(dir, `${name}.events`)
+      writeFileSync(file, body)
+      const r = spawnSync(process.execPath, ['--import', tsx, '--import', preload, file], { encoding: 'utf8', timeout: 60_000,
+        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', KOL_OBSERVER: JSON.stringify({ run: `run-${name}`, events, script: scriptFile, target: file }) } })
+      const es = readEvents(existsSync(events) ? rf(events, 'utf8') : '').events
+      return [r.status, r.stdout ?? '', es.map(e => e.kind === 'fault' ? `fault ${e.reason}` : e.kind === 'close' ? `close ${e.requests} ${e.code}` : e.kind)]
+    }
+    const settle = `await new Promise(r => setTimeout(r, 300)); console.log('swallowed')`
+    eq('观察器线程：入口起不带预加载的 Worker、线程里直连吞掉失败，观察器在构造时记故障、叫停入口',
+      toy('worker', [`import { Worker } from 'node:worker_threads'`,
+        `try { await new Promise(r => new Worker(new URL('./thread.mjs', import.meta.url), { execArgv: [] }).on('exit', r)) } catch {}`, settle].join('\n')),
+      [97, '', ['armed', 'fault 入口起了观察器看不到的 Worker 线程', 'close 0 97']])
+    eq('观察器线程：绕过构造那一道起的线程一加载预加载就记故障、结束；入口照常以 0 收尾、close 写全，事件里照样有那条故障',
+      toy('unguarded', [`import { Worker } from 'node:worker_threads'`,
+        `const code = await new Promise(r => new (Object.getPrototypeOf(Worker))(new URL('./thread.mjs', import.meta.url)).on('exit', r)); console.log('thread exit', code)`].join('\n')),
+      [0, 'thread exit 97\n', ['armed', 'fault 观察器之外的线程：入口绕过 Worker 那一道起了线程', 'close 0 0']])
+    eq('观察器子进程：入口起子进程、吞掉失败，观察器记故障、叫停入口',
+      toy('child', [`import { execFile } from 'node:child_process'`, `try { execFile(process.execPath, ['--version'], () => {}) } catch {}`, settle].join('\n')),
+      [97, '', ['armed', 'fault 入口起了观察器看不到的 child_process.execFile', 'close 0 97']])
+    eq('观察器 DNS：入口绕过 fetch 自己解析域名、吞掉失败，观察器在查询之前记故障、叫停入口',
+      toy('dns', [`import dns from 'node:dns'`, `const r = new dns.promises.Resolver({ timeout: 200, tries: 1 }); r.setServers(['127.0.0.1:9'])`,
+        `try { await r.resolve4('observer.invalid') } catch {}`, settle].join('\n')),
+      [97, '', ['armed', 'fault 绕过 fetch 用了 dns.promises.Resolver.resolve4', 'close 0 97']])
+    eq('观察器 http：入口经 node:http 直连、吞掉连接失败，走到 net 的连接那一步就记故障、叫停入口',
+      toy('http', [`import http from 'node:http'`, `http.get('http://127.0.0.1:9/').on('error', () => {})`, settle].join('\n')),
+      [97, '', ['armed', 'fault 绕过 fetch 用了 net.Socket.connect', 'close 0 97']])
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 

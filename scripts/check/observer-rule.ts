@@ -220,25 +220,27 @@ export function judgeRun(f: RunFacts): Judged {
 /** 零请求断言用得上的那几样：一次观察的结果，加它在哪次断网认证下、由哪个入口跑的 */
 export interface Observation extends Judged { entry: ObserverEntry | 'control'; isolation: string }
 export type Zero = { verdict: 'pass' } | { verdict: 'red'; requests: number }
-  | { verdict: 'facility'; reason: string } | { verdict: 'fixture'; reason: string }
+  | { verdict: 'facility'; side: 'target' | 'positive'; cause: FacilityCause; reason: string } | { verdict: 'fixture'; reason: string }
 
 /**
- * 零请求断言的四档（ADR-70 那一节「对作者公开的协议」第 5 条）。归得到这次运行的请求一次也算红（拒答的也算：入口确实发了）；
- * 判通过要四样都在：目标入口进程自己的 armed、同一认证下同一入口（按契约不发请求的入口可用对照夹具）观察到请求的阳性、
- * 事件通道完整（观察成立）、外层断网认证（两次运行都在同一份认证下，armed 里只有 lo）。
+ * 零请求断言的四档（ADR-70 那一节「对作者公开的协议」第 6 条，「修复轮 1」那一块改了先后）。先判资格：目标那一跑与同一认证下
+ * 那条阳性，哪一跑是设施故障就判设施故障（带上是哪一跑、哪一因），夹具失格、没有阳性或阳性不合格判夹具失格；资格都在了才看请求 ——
+ * 观察成立的目标那一跑有请求判红，没有才判通过。设施故障那一跑记下的请求（观察器叫停的脚本外请求、请求之后被信号打死）不判红：
+ * 那一跑本身不成立（草案第 8 条，`process/4-VERIFY.md`「推论」第三条）。判通过要四样都在：目标入口进程自己的 armed、
+ * 同一认证下同一入口（按契约不发请求的入口可用对照夹具）观察到请求的阳性、事件通道完整（观察成立）、外层断网认证。
  */
 export function zeroVerdict(target: Observation, positive: Observation | undefined): Zero {
-  if (target.attributable && target.requests.length > 0) return { verdict: 'red', requests: target.requests.length }
-  if (target.outcome.kind !== 'observed') return target.outcome.kind === 'fixture'
-    ? { verdict: 'fixture', reason: target.outcome.reason } : { verdict: 'facility', reason: `目标：${target.outcome.reason}` }
+  if (target.outcome.kind === 'facility') return { verdict: 'facility', side: 'target', cause: target.outcome.cause, reason: `目标：${target.outcome.reason}` }
+  if (target.outcome.kind === 'fixture') return { verdict: 'fixture', reason: `目标：${target.outcome.reason}` }
   if (positive === undefined) return { verdict: 'fixture', reason: '没有阳性对照' }
-  if (positive.outcome.kind === 'facility') return { verdict: 'facility', reason: `阳性：${positive.outcome.reason}` }
+  if (positive.outcome.kind === 'facility') return { verdict: 'facility', side: 'positive', cause: positive.outcome.cause, reason: `阳性：${positive.outcome.reason}` }
   if (positive.outcome.kind === 'fixture') return { verdict: 'fixture', reason: `阳性：${positive.outcome.reason}` }
   if (positive.isolation !== target.isolation) return { verdict: 'fixture', reason: '阳性与目标不在同一份断网认证下' }
   if (positive.entry !== target.entry && !(positive.entry === 'control' && target.entry !== 'control' && FIXTURE_POSITIVE.includes(target.entry)))
     return { verdict: 'fixture', reason: `阳性跑的是 ${positive.entry}，不是 ${target.entry}` }
   if (positive.requests.length === 0) return { verdict: 'fixture', reason: '阳性一次请求也没观察到' }
   if (positive.armed?.preload_sha256 !== target.armed?.preload_sha256) return { verdict: 'fixture', reason: '阳性与目标装的不是同一份预加载' }
+  if (target.requests.length > 0) return { verdict: 'red', requests: target.requests.length }
   return { verdict: 'pass' }
 }
 

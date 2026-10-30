@@ -19410,12 +19410,12 @@
     {
       "id": "M-H70-g",
       "req": "harness",
-      "why": "观察器叫停的那次请求不算红：入口确实发了请求，零请求断言却只报设施故障",
+      "why": "设施故障那一跑记下的请求先判红：观察器叫停的脚本外请求、请求之后被信号打死，都被当成语义红，设施故障冒充了需求不成立",
       "file": "scripts/check/observer-rule.ts",
-      "find": "if (target.attributable && target.requests.length > 0) return { verdict: 'red'",
-      "replace": "if (target.outcome.kind === 'observed' && target.requests.length > 0) return { verdict: 'red'",
+      "find": "  if (target.outcome.kind === 'facility') return { verdict: 'facility', side: 'target'",
+      "replace": "  if (target.requests.length > 0) return { verdict: 'red', requests: target.requests.length }\n  if (target.outcome.kind === 'facility') return { verdict: 'facility', side: 'target'",
       "by": "test",
-      "kills": ["观察器零请求：归得到本次运行的请求判红，观察器叫停的那一次也算"]
+      "kills": ["观察器零请求：目标那一跑是设施故障时判设施故障，带上哪一跑、哪一因；观察器叫停的脚本外请求、请求之后被信号打死，记下的请求都不判红"]
     },
     {
       "id": "M-H70-h",
@@ -19576,6 +19576,76 @@
       "replace": "if (false) return refuse(o, 'fixture', unsafe.join('；'))",
       "by": "test",
       "kills": ["观察器运行器：当前目录盖住仓库根时判夹具失格、不起入口"]
+    },
+    {
+      "id": "M-H70-x",
+      "req": "harness",
+      "why": "阳性还没核就先判红：阳性设施故障、没有阳性或不在同一份认证下时，零请求断言照样给出语义红",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "  if (positive === undefined) return { verdict: 'fixture', reason: '没有阳性对照' }",
+      "replace": "  if (target.requests.length > 0) return { verdict: 'red', requests: target.requests.length }\n  if (positive === undefined) return { verdict: 'fixture', reason: '没有阳性对照' }",
+      "by": "test",
+      "kills": ["观察器零请求：阳性是设施故障、没有阳性或阳性不在同一份认证下时，目标观察到的请求也不判红"]
+    },
+    {
+      "id": "M-H70-y",
+      "req": "harness",
+      "why": "零请求断言永远不判红：观察成立、阳性合格的那一跑有请求也判通过",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "  if (target.requests.length > 0) return { verdict: 'red', requests: target.requests.length }\n  return { verdict: 'pass' }",
+      "replace": "  return { verdict: 'pass' }",
+      "by": "test",
+      "kills": ["观察器零请求：观察成立、阳性合格时，归得到本次运行的请求判红"]
+    },
+    {
+      "id": "M-H70-z",
+      "req": "harness",
+      "why": "入口起 Worker 线程不拦：不带预加载的线程里发的请求、吞掉的连接失败观察器都看不到，主线程照常收尾就成了零请求通过",
+      "file": "scripts/check/observer-preload.ts",
+      "find": "if (!loaderThread(file, options)) refuse('Worker 线程')()",
+      "replace": "if (false) refuse('Worker 线程')()",
+      "by": "test",
+      "kills": ["观察器线程：入口起不带预加载的 Worker、线程里直连吞掉失败，观察器在构造时记故障、叫停入口"]
+    },
+    {
+      "id": "M-H70-aa",
+      "req": "harness",
+      "why": "放过加载器线程只看它不带加载参数、不看是不是加载器自己的那个文件：入口起一个不带预加载的线程就混过去",
+      "file": "scripts/check/observer-preload.ts",
+      "find": "return realpathSync(file instanceof URL ? fileURLToPath(file) : String(file)) === esbuild && Array.isArray",
+      "replace": "return Array.isArray",
+      "by": "test",
+      "kills": ["观察器线程：入口起不带预加载的 Worker、线程里直连吞掉失败，观察器在构造时记故障、叫停入口"]
+    },
+    {
+      "id": "M-H70-ab",
+      "req": "harness",
+      "why": "绕过构造那一道起的线程加载了预加载也什么都不做：那里的请求与吞掉的连接失败没有记录，主线程写全 close 就判零请求通过",
+      "file": "scripts/check/observer-preload.ts",
+      "find": "  if (handoff !== undefined) {",
+      "replace": "  if (false) {",
+      "by": "test",
+      "kills": ["观察器线程：绕过构造那一道起的线程一加载预加载就记故障、结束；入口照常以 0 收尾、close 写全，事件里照样有那条故障"]
+    },
+    {
+      "id": "M-H70-ac",
+      "req": "harness",
+      "why": "入口起子进程不拦：子进程里的请求与吞掉的连接失败观察器看不到",
+      "file": "scripts/check/observer-preload.ts",
+      "find": "    (childProcess as unknown as Record<string, unknown>)[k] = refuse(`child_process.${k}`)\n  Object.assign(childProcess.ChildProcess.prototype, { spawn: refuse('ChildProcess.spawn') })\n",
+      "replace": "    void k\n",
+      "by": "test",
+      "kills": ["观察器子进程：入口起子进程、吞掉失败，观察器记故障、叫停入口"]
+    },
+    {
+      "id": "M-H70-ad",
+      "req": "harness",
+      "why": "绕过 fetch 的 DNS 解析不拦：入口自己查域名、吞掉失败，观察器一条也不记",
+      "file": "scripts/check/observer-preload.ts",
+      "find": "for (const k of Object.getOwnPropertyNames(api)) if (QUERY.test(k))",
+      "replace": "for (const k of Object.getOwnPropertyNames(api)) if (false)",
+      "by": "test",
+      "kills": ["观察器 DNS：入口绕过 fetch 自己解析域名、吞掉失败，观察器在查询之前记故障、叫停入口"]
     }
   ],
   "exemptions": [

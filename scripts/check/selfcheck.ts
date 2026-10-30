@@ -10469,7 +10469,8 @@ group('calibration-version-entry', [], () => {
 // ---- 零请求观察器的认证入口（KOL-21，ADR-70 末尾「KOL-21 零请求观察器与外层断网」一节）----
 // 在临时目录里真起一遍认证入口，验的是接线：跑得完，汇总与退出码对得上，列出的证据都在、SHA256 对得上。这一跑**不是认证**。
 // 断网起不起得来随机器：另起一个最小的 bwrap 断网问一句，起得来就要认证成立、逐项成立；起不来就要认证不成立、
-// 一个入口也不起、以 1 退出 —— 两种都判，不跳过。期望的项数照认证入口的设计手数：断网 1、四个入口各两条、设施故障 6
+// 一个入口也不起、以 1 退出 —— 两种都判，不跳过。期望的项数照认证入口的设计手数：断网 1、四个入口各两条、设施故障 10
+// （ADR-70 末尾「修复轮 1」从 6 加到 10：入口起线程、绕过 Worker 那一道起线程、起子进程、直连并吞掉失败）
 group('observer-cert-entry', [], () => {
   const out = join(tmp, 'observer-cert')
   const r = runToolBoth('observer-cert 在临时目录里跑一遍（接线，不是认证）', 'observer-cert', ['--out', out], process.cwd(), { status: 0, soft: [1] })
@@ -10482,8 +10483,8 @@ group('observer-cert-entry', [], () => {
   const items: { id: string; ok: boolean }[] = summary.items
   const ran = readdirSync(out).filter(n => /-(positive|zero)$|^fault-/.test(n))
   console.log(`  · 本机${netns ? '起得来' : '起不来'} bwrap 断网；认证入口这一跑在临时目录里，不是认证`)
-  named('观察器认证入口：断网认证的结论与本机起不起得来 bwrap 断网一致，成立时四个入口的阳性、零记录与六条设施故障对照逐项成立，不成立时一个入口也不起',
-    netns ? summary.isolation?.certified === true && items.length === 15 && items.every(i => i.ok) && ran.length === 14
+  named('观察器认证入口：断网认证的结论与本机起不起得来 bwrap 断网一致，成立时四个入口的阳性、零记录与十条设施故障对照逐项成立，不成立时一个入口也不起',
+    netns ? summary.isolation?.certified === true && items.length === 19 && items.every(i => i.ok) && ran.length === 18
       : summary.isolation?.certified === false && items.length === 1 && ran.length === 0 && r.status === 1,
     `bwrap 断网${netns ? '起得来' : '起不来'}，认证=${summary.isolation?.certified}，不成立的项：${items.filter(i => !i.ok).map(i => i.id).join('；') || '无'}，起过的对照目录 ${ran.length} 个`)
   const head = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' })

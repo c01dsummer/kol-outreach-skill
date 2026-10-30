@@ -9,10 +9,10 @@
  */
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { constants, homedir } from 'node:os'
-import { basename, dirname, isAbsolute, join } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   ENTRIES, MASKED_FILES, REPO_PATHS, SYSTEM_PATHS, ghDirs, judgeRun, layoutId, netcutProblems, observerEnv, rwProblems, scriptProblems, sandboxArgs,
@@ -128,7 +128,7 @@ export function certifyIsolation(o: { evidenceDir: string; bwrap?: string }): Ce
 export interface ObservedRun extends Observation { run: string; evidenceDir: string; status: number | null; signal: string | null; stdout: string; stderr: string }
 export interface RunOptions {
   isolation: Isolation
-  /** 四个真实入口之一；`control` 是观察器自带的对照夹具（参数 `[模式, URL]`，模式 `fetch`／`close-channel`／`kill`） */
+  /** 四个真实入口之一；`control` 是观察器自带的对照夹具（参数 `[模式, URL]`，作者只用 `fetch`；别的模式是设施故障对照，见 `runFaultControl`） */
   entry: ObserverEntry | 'control'
   args: readonly string[]
   /** 入口的当前目录，绝对路径；入口读写的东西都放在它底下 —— 沙箱里可写、看得见的只有它与证据目录 */
@@ -140,14 +140,34 @@ export interface RunOptions {
   timeoutMs?: number
 }
 
-// 对照夹具：按模式发一次请求、打出状态与正文；close-channel 先关掉观察器的事件文件（注入「写不进」），kill 在请求之后自杀
+// 对照夹具：按模式发一次请求、打出状态与正文；close-channel 先关掉观察器的事件文件（注入「写不进」），kill 在请求之后自杀。
+// 另四种走观察器看不到的路，失败一律吞掉、照常以 0 收尾：worker 起一个不带预加载的线程、unguarded 绕过 Worker 那一道起线程
+// （两种线程都跑 control-thread.mjs：直连本机 9 号端口、吞掉失败），child 起子进程，swallow 在主线程直连、吞掉失败
 const CONTROL = `import fs from 'node:fs'
+import net from 'node:net'
+import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { Worker } from 'node:worker_threads'
 const [mode, url] = process.argv.slice(2)
 if (mode === 'close-channel') for (const n of fs.readdirSync('/proc/self/fd')) {
   try { if (fs.readlinkSync('/proc/self/fd/' + n).endsWith('/events.jsonl')) fs.closeSync(Number(n)) } catch {} }
-const res = await fetch(url), body = await res.text()
-process.stdout.write(JSON.stringify({ status: res.status, body }) + '\\n')
-if (mode === 'kill') process.kill(process.pid, 'SIGKILL')
+if (['fetch', 'close-channel', 'kill'].includes(mode)) {
+  const res = await fetch(url), body = await res.text()
+  process.stdout.write(JSON.stringify({ status: res.status, body }) + '\\n')
+  if (mode === 'kill') process.kill(process.pid, 'SIGKILL')
+} else {
+  const thread = new URL('./control-thread.mjs', import.meta.url)
+  try {
+    if (mode === 'worker') await new Promise(done => new Worker(thread, { execArgv: [] }).on('error', done).on('exit', done))
+    if (mode === 'unguarded') await new Promise(done => new (Object.getPrototypeOf(Worker))(thread).on('error', done).on('exit', done))
+    if (mode === 'child') execFileSync(process.execPath, [fileURLToPath(thread)])
+    if (mode === 'swallow') await new Promise(done => net.connect(9, '127.0.0.1').on('error', done).on('connect', done))
+  } catch {}
+  process.stdout.write(JSON.stringify({ mode, swallowed: true }) + '\\n')
+}
+`
+const CONTROL_THREAD = `import net from 'node:net'
+net.connect(9, '127.0.0.1').on('error', () => {})
 `
 
 const refuse = (o: RunOptions, kind: 'facility' | 'fixture', reason: string): ObservedRun => ({
@@ -174,7 +194,7 @@ function launch(o: RunOptions, knob?: 'channel-taken' | 'no-preload'): ObservedR
   const scriptFile = join(dir, 'script.json'), events = join(dir, 'events.jsonl'), empty = join(dir, 'empty')
   const scriptText = JSON.stringify(o.script)
   writeFileSync(scriptFile, scriptText); writeFileSync(empty, '')
-  if (o.entry === 'control') writeFileSync(join(dir, 'control.mjs'), CONTROL)
+  if (o.entry === 'control') { writeFileSync(join(dir, 'control.mjs'), CONTROL); writeFileSync(join(dir, 'control-thread.mjs'), CONTROL_THREAD) }
   if (knob === 'channel-taken') writeFileSync(events, '')
   const target = o.entry === 'control' ? join(dir, 'control.mjs') : join(REPO, 'scripts', `${o.entry}.ts`)
   const execArgv = knob === 'no-preload' ? EXEC_ARGV.slice(0, 2) : EXEC_ARGV
@@ -201,13 +221,14 @@ export const runObserved = (o: RunOptions): ObservedRun => launch(o)
 
 /**
  * 认证用的设施故障对照（`observer-cert.ts`），都用对照夹具：脚本外的请求、事件中途写不进、事件文件建不出来、
- * 被信号打死、没装上观察器。每一种都要判成设施故障，不算零请求通过，也不算语义红。
+ * 被信号打死、没装上观察器；入口起线程、绕过 Worker 那一道起线程、起子进程、直连并吞掉失败。每一种都要判成设施故障
+ * （哪一因由认证逐条核），不算零请求通过，也不算语义红。
  */
-export type FaultControl = 'unmatched' | 'close-channel' | 'channel-taken' | 'kill' | 'no-preload'
+export type FaultControl = 'unmatched' | 'close-channel' | 'channel-taken' | 'kill' | 'no-preload' | 'worker' | 'unguarded' | 'child' | 'swallow'
 export function runFaultControl(o: { isolation: Isolation; cwd: string; evidenceDir: string; fault: FaultControl }): ObservedRun {
   const script: ResponseScript = { schema: 'kol-observer-script/v1', rules: [{ endpoint: '/observer-control', responses: [{ status: 200, body: 'ok' }] }] }
   const url = `https://observer-control.invalid/observer-control${o.fault === 'unmatched' ? '-unscripted' : ''}`
-  const mode = o.fault === 'close-channel' || o.fault === 'kill' ? o.fault : 'fetch'
+  const mode = o.fault === 'unmatched' || o.fault === 'channel-taken' || o.fault === 'no-preload' ? 'fetch' : o.fault
   return launch({ isolation: o.isolation, entry: 'control', args: [mode, url], cwd: o.cwd, script, evidenceDir: o.evidenceDir },
     o.fault === 'channel-taken' || o.fault === 'no-preload' ? o.fault : undefined)
 }
@@ -216,6 +237,16 @@ export function runFaultControl(o: { isolation: Isolation; cwd: string; evidence
 export const facilityFiles = (): { path: string; sha256: string }[] =>
   ['scripts/check/observer-rule.ts', 'scripts/check/observer-preload.ts', 'scripts/check/observer-run.ts', 'scripts/check/observer-cert.ts',
     'scripts/check/observer-cert.sh', 'package-lock.json'].map(p => ({ path: p, sha256: existsSync(join(REPO, p)) ? sha(readFileSync(join(REPO, p))) : '（不存在）' }))
-export const facilityIdentity = () => ({ repo: REPO, node: { path: NODE, version: process.version, sha256: sha(readFileSync(NODE)) },
-  tsx: { loader: TSX, version: (JSON.parse(readFileSync(join(dirname(fileURLToPath(TSX)), '..', 'package.json'), 'utf8')) as { version: string }).version },
-  execArgv: EXEC_ARGV })
+/** 一个目录下每个文件的相对路径与 SHA256（按路径排），整张表再取一次 SHA256 */
+const treeSha = (root: string): string => {
+  const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)])
+  return sha(JSON.stringify(walk(root).sort().map(f => [relative(root, f), sha(readFileSync(f))])))
+}
+/** 被测设施的身份：node 二进制，tsx 的版本、加载器那个文件的字节与它整个 dist 目录（加载器 import 的分块都在里面），加载顺序 */
+export const facilityIdentity = () => {
+  const loader = fileURLToPath(TSX), pkg = join(dirname(loader), '..')
+  return { repo: REPO, node: { path: NODE, version: process.version, sha256: sha(readFileSync(NODE)) },
+    tsx: { loader: TSX, version: (JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8')) as { version: string }).version,
+      loader_sha256: sha(readFileSync(loader)), dist_sha256: treeSha(dirname(loader)) },
+    execArgv: EXEC_ARGV }
+}

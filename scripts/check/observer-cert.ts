@@ -5,17 +5,18 @@
  *
  *   tsx scripts/check/observer-cert.ts --out <证据目录>
  *
- * 依次做：外层断网认证（受控拒绝探针）→ 四个入口各一条阳性、一条零记录资格对照 → 六条设施故障对照 → 汇总。
- * 断网认证不了就停在那一步、不起任何入口。证据全部写进 `--out`（必须还不存在）：每一步一个子目录，装着脚本、参数表、
- * 事件文件、两股输出与退出码；`summary.json` 最后写，记被测提交、设施各文件与每份证据的 SHA256、每一项的结论。
- * 全部成立才以 0 退出，否则 1；用法错 2。不访问外网，expected 全写在下面，不拿目标输出补。
+ * 依次做：外层断网认证（受控拒绝探针）→ 四个入口各一条阳性、一条零记录资格对照 → 十条设施故障对照 → 汇总。
+ * 断网认证不了就停在那一步、不起任何入口。证据全部写进 `--out`（必须还不存在）：每一步一个子目录，`input/` 是输入原件
+ * （不进沙箱、运行后不变），`work/` 是同样的一份、当入口的当前目录，`state.json` 记 `work/` 运行前后每个文件的 SHA256，
+ * `run/` 装着脚本、参数表、事件文件、两股输出与退出码；`summary.json` 最后写，记被测提交、设施各文件与每份证据的 SHA256、
+ * 每一项的结论。全部成立才以 0 退出，否则 1；用法错 2。不访问外网，expected 全写在下面，不拿目标输出补。
  */
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { certifyIsolation, facilityFiles, facilityIdentity, runFaultControl, runObserved, type FaultControl, type Isolation, type ObservedRun } from './observer-run.js'
-import { SCRIPT_SCHEMA, zeroVerdict, type ObserverEntry, type ResponseScript, type ScriptResponse } from './observer-rule.js'
+import { SCRIPT_SCHEMA, zeroVerdict, type FacilityCause, type ObserverEntry, type ResponseScript, type ScriptResponse } from './observer-rule.js'
 
 const at = process.argv.indexOf('--out'), given = process.argv[at + 1]
 if (at < 0 || !given || given.startsWith('--') || process.argv.length !== 4 || existsSync(resolve(given))) {
@@ -46,11 +47,22 @@ const script = (rules: ResponseScript['rules']): ResponseScript => ({ schema: SC
 const SEARCH = '/api/v1/tiktok/app/v3/fetch_video_search_result', POSTS = '/api/v1/tiktok/app/v3/fetch_user_post_videos_v3'
 const tasks = [{ keyword: 'observer-cert', dimension: 'category', platform: 'tiktok' }]
 const parsed = (s: string): any => { try { return JSON.parse(s) } catch { return undefined } }
-const work = (name: string, files: Record<string, unknown> = {}) => {
+const sha = (f: string) => createHash('sha256').update(readFileSync(f)).digest('hex')
+const files = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? files(join(d, e.name)) : [join(d, e.name)])
+const snapshot = (d: string) => files(d).sort().map(f => ({ path: relative(d, f), sha256: sha(f) }))
+/**
+ * 一步：输入原件写进 `<步>/input/`，同样一份写进 `<步>/work/` 当入口的当前目录（沙箱里看得见、写得了的只有它与证据目录，
+ * `input/` 不在里面）；`work/` 运行前后各记一次（`<步>/state.json`）
+ */
+const step = (name: string, inputs: Record<string, unknown>, go: (cwd: string) => ObservedRun): ObservedRun => {
   const cwd = join(out, name, 'work')
-  for (const [f, v] of Object.entries(files)) { mkdirSync(join(cwd, f, '..'), { recursive: true }); writeFileSync(join(cwd, f), typeof v === 'string' ? v : JSON.stringify(v)) }
-  mkdirSync(cwd, { recursive: true })
-  return cwd
+  for (const root of [join(out, name, 'input'), cwd]) {
+    for (const [f, v] of Object.entries(inputs)) { mkdirSync(join(root, f, '..'), { recursive: true }); writeFileSync(join(root, f), typeof v === 'string' ? v : JSON.stringify(v)) }
+    mkdirSync(root, { recursive: true })
+  }
+  const before = snapshot(cwd), r = go(cwd)
+  writeFileSync(join(out, name, 'state.json'), `${JSON.stringify({ before, after: snapshot(cwd) }, null, 2)}\n`)
+  return r
 }
 const taskDir = () => {
   const person = [{ platform: 'tiktok', handle: 'observer_cert', nickname: 'Observer cert', followers: 10000, post_count: 50, bio: null,
@@ -97,21 +109,36 @@ const CONTROLS: Record<ObserverEntry, { positive: Control & { entry?: 'control' 
 }
 
 const runControl = (isolation: Isolation, entry: ObserverEntry, side: 'positive' | 'zero') => {
-  const c = CONTROLS[entry][side], cwd = work(`${entry}-${side}`, c.files)
-  const r = runObserved({ isolation, entry: side === 'positive' && 'entry' in c && c.entry === 'control' ? 'control' : entry, args: c.args(cwd), cwd,
-    script: c.script, evidenceDir: join(out, `${entry}-${side}`, 'run') })
+  const c = CONTROLS[entry][side]
+  const r = step(`${entry}-${side}`, c.files ?? {}, cwd => runObserved({ isolation, entry: side === 'positive' && 'entry' in c && c.entry === 'control' ? 'control' : entry,
+    args: c.args(cwd), cwd, script: c.script, evidenceDir: join(out, `${entry}-${side}`, 'run') }))
   const ok = r.outcome.kind === 'observed' && r.status === c.exit && JSON.stringify(outcomes(r)) === JSON.stringify(c.requests)
     && (c.stdout === undefined || c.stdout(parsed(r.stdout)))
   return { r, ok }
 }
 
-const FAULTS: [FaultControl, string, (r: ObservedRun) => boolean][] = [
-  ['unmatched', '脚本外的请求：观察器叫停入口，判观察器故障', r => r.outcome.kind === 'facility' && r.outcome.cause === 'observer' && r.status === 97 && r.attributable],
-  ['close-channel', '事件中途写不进：入口以观察器的退出码失败，判观察器故障', r => r.outcome.kind === 'facility' && r.outcome.cause === 'observer' && r.status === 97 && /事件写不进去/.test(r.stderr)],
-  ['channel-taken', '事件文件建不出来：入口一行不跑，判观察器故障', r => r.outcome.kind === 'facility' && r.outcome.cause === 'observer' && r.status === 97 && r.armed === undefined],
-  ['kill', '入口被信号打死：判信号故障', r => r.outcome.kind === 'facility' && r.outcome.cause === 'signal'],
-  ['no-preload', '没装上观察器：没有 armed，判加载故障', r => r.outcome.kind === 'facility' && r.outcome.cause === 'loader' && r.armed === undefined],
+/**
+ * 设施故障对照：每一条要判成设施故障、是预定的那一因，零请求断言要判成那一跑的同一因的设施故障 —— 不是「不判通过」就算数
+ * （ADR-70 末尾「修复轮 1」）。kill、unmatched 那一跑记下了请求，照样不判红；unguarded 那一跑入口照常以 0 收尾、close 写全，照样不判通过
+ */
+const reason = (r: ObservedRun) => r.outcome.kind === 'observed' ? '' : r.outcome.reason
+const FAULTS: [FaultControl, FacilityCause, string, (r: ObservedRun) => boolean][] = [
+  ['unmatched', 'observer', '脚本外的请求：观察器叫停入口，判观察器故障，那次请求归得到这一跑也不判红', r => r.status === 97 && r.attributable && r.requests.length === 1],
+  ['close-channel', 'observer', '事件中途写不进：入口以观察器的退出码失败，判观察器故障', r => r.status === 97 && /事件写不进去/.test(r.stderr)],
+  ['channel-taken', 'observer', '事件文件建不出来：入口一行不跑，判观察器故障', r => r.status === 97 && r.armed === undefined],
+  ['kill', 'signal', '请求之后被信号打死：判信号故障，记下的那次请求不判红', r => r.signal === 'SIGKILL' && r.attributable && r.requests.length === 1],
+  ['no-preload', 'loader', '没装上观察器：没有 armed，判加载故障', r => r.armed === undefined],
+  ['worker', 'observer', '入口起不带预加载的 Worker 线程、线程里直连吞掉失败：观察器在构造时记故障、叫停入口，判观察器故障',
+    r => r.status === 97 && /观察器看不到的 Worker 线程/.test(reason(r))],
+  ['unguarded', 'observer', '绕过 Worker 那一道起的线程：线程一加载预加载就记故障、结束；入口照常以 0 收尾、close 写全，照样判观察器故障',
+    r => r.status === 0 && r.armed !== undefined && /观察器之外的线程/.test(reason(r))],
+  ['child', 'observer', '入口起子进程：观察器记故障、叫停入口，判观察器故障', r => r.status === 97 && /观察器看不到的 child_process\.execFileSync/.test(reason(r))],
+  ['swallow', 'observer', '入口绕过 fetch 直连、吞掉连接失败：观察器在连接之前记故障、叫停入口，判观察器故障', r => r.status === 97 && /绕过 fetch 用了 net\.Socket\.connect/.test(reason(r))],
 ]
+const facilityAs = (r: ObservedRun, cause: FacilityCause, positive: ObservedRun | undefined) => {
+  const verdict = zeroVerdict(r, positive)
+  return { verdict, ok: r.outcome.kind === 'facility' && r.outcome.cause === cause && verdict.verdict === 'facility' && verdict.side === 'target' && verdict.cause === cause }
+}
 
 if (cert.certified) {
   let positive: ObservedRun | undefined
@@ -122,18 +149,17 @@ if (cert.certified) {
     item(`${entry} 零记录：入口自己的 armed、同一认证下的阳性、事件通道完整，判零请求通过`, 'zero', z.ok && verdict.verdict === 'pass', { ...brief(z.r), verdict })
     if (entry === 'render') positive = p.r
   }
-  for (const [fault, id, want] of FAULTS) {
-    const r = runFaultControl({ isolation: cert.isolation, cwd: work(`fault-${fault}`), evidenceDir: join(out, `fault-${fault}`, 'run'), fault })
-    const verdict = zeroVerdict(r, positive)
-    item(id, 'fault', want(r) && verdict.verdict !== 'pass', { ...brief(r), verdict })
+  for (const [fault, cause, id, want] of FAULTS) {
+    const r = step(`fault-${fault}`, {}, cwd => runFaultControl({ isolation: cert.isolation, cwd, evidenceDir: join(out, `fault-${fault}`, 'run'), fault }))
+    const { verdict, ok } = facilityAs(r, cause, positive)
+    item(id, 'fault', ok && want(r), { ...brief(r), verdict })
   }
   const forged = { ...cert.isolation }, dir = join(out, 'fault-forged', 'run')
-  const r = runObserved({ isolation: forged, entry: 'render', args: [], cwd: work('fault-forged'), script: script([]), evidenceDir: dir })
-  item('不是 certifyIsolation 交出的认证：不起入口，判隔离故障', 'fault', r.outcome.kind === 'facility' && r.outcome.cause === 'isolation' && !existsSync(dir), brief(r))
+  const r = step('fault-forged', {}, cwd => runObserved({ isolation: forged, entry: 'render', args: [], cwd, script: script([]), evidenceDir: dir }))
+  const { verdict, ok } = facilityAs(r, 'isolation', positive)
+  item('不是 certifyIsolation 交出的认证：不起入口，判隔离故障', 'fault', ok && !existsSync(dir), { ...brief(r), verdict })
 }
 
-const sha = (f: string) => createHash('sha256').update(readFileSync(f)).digest('hex')
-const files = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? files(join(d, e.name)) : [join(d, e.name)])
 const certified = cert.certified && items.every(i => i.ok) && provenance.problems.length === 0
 const evidence = files(out).filter(f => !['summary.json', 'console.txt'].includes(relative(out, f))).sort()
   .map(f => ({ path: relative(out, f), sha256: sha(f) }))
