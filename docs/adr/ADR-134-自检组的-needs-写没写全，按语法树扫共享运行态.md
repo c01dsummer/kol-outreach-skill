@@ -160,3 +160,18 @@ KOL-21 的 #411 改了自检 `budget-gate` 一组的组体、新开了 `render-o
 > ⚠️ 已重挂：ADR-134 第 96 行 · 在 #411（KOL-21）上按宽读与第 140 行的窄读响了、没还，需求所有者定承接重挂；现行的是本条第 158 行
 
 > ⚠️ 已重挂：ADR-134 第 142 行 · 在 #411（KOL-21）上按宽读与第 140 行的窄读响了、没还，需求所有者定承接重挂；现行的是本条第 158 行
+
+## 2026-10-30 · KOL-21（#411）CodeRabbit 第 3 轮评审登记：第 154 行把两组的通道写混了
+
+**来源。** PR #411（KOL-21）上 CodeRabbit 的评审 5707307231，锚在 `ab97e26`，讨论串 4419808789（https://github.com/c01dsummer/kol-outreach-skill/pull/411#discussion_r4419808789，标 Minor）指本条第 154 行。同一说法先写在 ADR-70 第 3104 行（`4890bab`），由本节这张欠条一并覆盖，ADR-70 不另登。同一评审另一条，讨论串 4419808797（https://github.com/c01dsummer/kol-outreach-skill/pull/411#discussion_r4419808797），说的是 ADR-70 第 3124、3137 行的另一件事，登在 ADR-70「CodeRabbit 第 3 轮评审登记（KOL-21，2026-10-30）」一节（第 3175 行起）；两条的轮次、搭车与台账的前后数记在那一节。
+
+**事实。** 第 154 行说两组「都以 `tmp` 或 `tmp` 下的目录为当前目录起子进程、按相对路径续跑，用 `join(tmp, name)` 与 `costFixture` 拼出非字面量路径」。按 `ab97e26` 的 `scripts/check/selfcheck.ts`，两组各是各的：
+
+- `budget-gate`（第 822–928 行）按相对路径续跑或读任务目录：`collect.ts --resume` 后跟 `collect-ok`、`badledger-collect`、`okledger`，`enrich.ts --dir` 后跟 `enrich-ok`、`badledger-enrich`，当前目录是 `observerCwd`（`tmp/budget-gate-observer`）或 `tmp`（第 895–924 行）。组体直接用 `join(tmp, …)` 拼配置与任务目录，`probeConfig` 的文件名是变量（第 864–867 行）；这一组不用 `costFixture`。probe 三步以 `process.cwd()` 起，不在 `tmp` 下（第 885、887、891 行）。
+- `render-order`（第 2517–2636 行）不续跑，组体里没有直接的 `join(tmp, …)`，经 `costFixture` 间接用到：`costFixture`（第 385–399 行）在第 387 行用 `join(tmp, …)` 拼出 `f.cwd`（目录名 `cost-${name}` 是模板串），建出 `f.cwd`、`f.cwd` 下的 `memory` 与任务目录 `f.taskDir`，把绝对的 `f.taskDir` 交给 `render.ts --dir`，当前目录是 `f.cwd`（第 2610–2612 行）。`render.ts` 按当前目录找记忆（`scripts/lib/memory.ts` 第 8 行的 `memory/creators.json`；`render.ts` 第 83 行读、第 153 行写回），所以它在 `f.cwd` 下按相对路径读写记忆，只是不经参数。
+
+两组仍都用到第二节列的看不见的通道（拿 `tmp` 下的目录当当前目录、按相对路径读写，拼出来的路径，`process.env`），第 154 行「都是第二节列的看不见的通道」、响没响的判断与第 158 行那张欠条的承接都不受影响；不准的是哪组用哪种，以及「都以 `tmp` 或 `tmp` 下的目录为当前目录」没提 probe 那三步。
+
+**轮次与裁决。** 第 3 轮：Codex 开 PR 前的两次复审锚在 `4890bab`、`9bfa574`，是第 1、2 轮；`f420ec3` 上只有一次没有意见的 Codex 安全评审，不算一轮；这次在 `ab97e26` 上（算上 `f420ec3` 就是第 4 轮，处理一样，取小的那个数的理由见 ADR-70 那一节）。指向本 PR 自己写的内容，档是本改动；不碰代码与检查链，不改响没响的结论，作者判不阻塞，照 `process/6-INTEGRATE.md`「从第三轮起只登记,阻塞项除外」不修、登记。需求所有者兼合并者丸子 2026-10-30 10:36 CST 原话：「照规矩登记这两条，不修，a8098e6 不推」（经 KOL 开发助手转达，渠道与原消息 id 未取到）；`a8098e6` 是就地改第 154 行与 ADR-70 第 3104、3137 行的一版修法，照裁决不推。第 154 行与 ADR-70 第 3104 行原文不改。
+
+> ⚠️ 欠条：本记录第 154 行与 ADR-70 第 3104 行把 `budget-gate`、`render-order` 两组的通道并成一句，读成两组都按相对路径续跑、都用 `join(tmp, name)` 与 `costFixture` 拼路径、都以 `tmp` 或 `tmp` 下的目录为当前目录起子进程；实际 `budget-gate` 组体直接用 `join(tmp, …)` 和相对的 `--resume`／`--dir`、不用 `costFixture`，它的 probe 三步以 `process.cwd()` 起；`render-order` 不续跑，经 `costFixture` 间接用到 `join(tmp, …)`，把绝对的 `f.taskDir` 交给 `render.ts --dir`，在 `f.cwd` 下按相对路径读写记忆（行号见本节「事实」一段）。两组都用到第二节的看不见的通道这一结论不变；两处原文不改，缺一块分组写准的更正 · 来源：PR #411 上 CodeRabbit 评审 5707307231（锚 `ab97e26`）讨论串 4419808789，指本记录第 154 行 · 档：本改动(第 3 轮,不阻塞) · 重启条件：#411 合入后，下一条往 ADR-134 追加内容、或改 `scripts/check/selfcheck.ts` 里 `budget-gate`／`render-order` 两组的改动，或同一说法再被点名，或定期清点
