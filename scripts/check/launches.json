@@ -36,6 +36,7 @@
     {"config":"[\"selfcheck\",[\"memory\"]]","launches":23,"maxPaid":{"id":"M-D6-bl","paid":18},"running":0,"stopping":5},
     {"config":"[\"selfcheck\",[\"p5i-platform\"]]","launches":3,"maxPaid":{"id":"M-P5-o","paid":2},"running":0,"stopping":1},
     {"config":"[\"selfcheck\",[\"probe\"]]","launches":6,"maxPaid":{"id":"M-P1-z","paid":3},"running":0,"stopping":5},
+    {"config":"[\"selfcheck\",[\"profile-402-stop\"]]","launches":8,"maxPaid":{"id":"M-D6-bm","paid":5},"running":0,"stopping":1},
     {"config":"[\"selfcheck\",[\"render\"]]","launches":11,"maxPaid":{"id":"M-P5-z","paid":9},"running":0,"stopping":2},
     {"config":"[\"selfcheck\",[\"render-input-read\"]]","launches":17,"maxPaid":{"id":"M-D16-an","paid":16},"running":0,"stopping":5},
     {"config":"[\"selfcheck\",[\"render-input-tasks\"]]","launches":29,"maxPaid":{"id":"M-D16-ah","paid":28},"running":0,"stopping":6},
