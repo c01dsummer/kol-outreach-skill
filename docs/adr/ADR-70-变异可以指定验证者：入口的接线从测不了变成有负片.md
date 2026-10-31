@@ -3525,6 +3525,32 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 
 > ⚠️ 欠条：检查链没有固定 umask。在 umask 077 的机器上跑 `npm run mutate`，新文件的缺省权限就与 `scripts/lib/atomic.ts` 里临时文件那一档同为 0600，`M-D4-w`（新文件停在临时文件那一档的权限）的负片「新文件按 umask 默认，不是临时文件那档最严的」分不出改前改后，这条变异存活，整跑以 1 退出，于是 `npm run check` 在那种机器上无故红（ADR-158 第 841 行、本条第 3460 行；本 PR 各次全链检查都在 umask 022 下跑，CI 上这一条被抓到）。只会红、不会假绿。`a44d489` 上原样就有，不是本 PR 引入的 · 来源：PR #413 第一轮 Codex 复审（run `20261031T002218-c6f641b3`，锚 `c3b5186`）非阻塞第 5 条 · 档：既有缺陷 · 重启条件：本欠条所在 PR（#413）已合入
 
+> ⚠️ 已还：ADR-70 第 3526 行 · 还在 #416（代码一步是提交 `79bbefb`）：`scripts/test.ts` 七之五那条断言不再照会话的 umask 算期望值 —— 写新文件之前把 umask 设成 022、在 `finally` 里还原，期望字面量 0644；0644 不等于临时文件那一档的 0600，所以 `M-D4-w` 在 umask 077 与 022 下都红在「新文件按 umask 默认，不是临时文件那档最严的」上。断言名、`scripts/check/mutations.json`、`scripts/lib/atomic.ts`、`scripts/check/launches.json` 都没动
+>
+> 原欠条写的条件（#413 已合入）已响：#413 于 2026-10-31 squash 合入为 `5657d1d`。需求所有者丸子 2026-10-31 定了三件：13:09 CST 单开一条小 PR，与 KOL-105 并行、先于 KOL-105 合入；14:00 CST 选这个修法（测试自设 umask，不在检查链上固定）；14:02 CST 定这一块放在那张欠条正下方（依据 `process/6-INTEGRATE.md` 第 267 行「还上时在下面再追加一块」）。以上经 KOL 开发助手转达，原话本块没见到。
+>
+> 还的是那张欠条说的后果：umask 077 下 `M-D4-w` 存活、`npm run check` 无故红。不还的是它开头那句 —— 整条检查链仍没有固定 umask，`scripts/check/mutate.ts`、`package.json`、CI 都没动，这是有意的（即上面 14:00 那一件）。
+>
+> 怎么验的：Linux 容器，Node v22.23.3，umask 由子 shell 先 `umask 077`／`umask 022` 设好再起命令。作者 run（`20261031T142732-d2d93bb8`）自己没能跑测试（沙箱拒绝），本块的数都是 KOL 开发助手在沙箱外跑的。只跑 `d4-memory` 一组的退出码如下；施变在副本里照 `scripts/check/mutations.json` 里 `M-D4-w` 的 find／replace 替换，施变后 `scripts/lib/atomic.ts` 的 SHA256 是 `a4e40ce5…`：
+>
+> | 树 | umask 077 | umask 022 |
+> |---|---|---|
+> | 主干 `31909c9` | 退 0 | 退 0 |
+> | 主干 + `M-D4-w` | 退 0（分不出，存活） | 退 1 |
+> | `79bbefb` | 退 0 | 退 0 |
+> | `79bbefb` + `M-D4-w` | 退 1 | 退 1 |
+>
+> 改后施变的两格都只红这一条断言。完整 `npm run check`：主干 `31909c9` 在 077 下退 1，停在 mutate「1 个存活，0 个跑不起来」，存活的是 `M-D4-w`；在 022 下退 0。`79bbefb` 在 077 下十一步全过、退 0：维护比较 `31909c9..79bbefb` 0 条路由／正文变化，「1736 个变异全部被抓到」，launches 摘要「树内 scripts/check/launches.json 与这一跑现算的相同，174 种配置」。`79bbefb` 在 022 下的完整检查：同样十一步全过、退 0（「1736 个变异全部被抓到」，launches 摘要同上）。
+>
+> 台账：`npm run -s adr-ledger` 改前（`31909c9`）525 条（重启条件 486、重开讨论 13、死亡条件 26）。本块不新增条目：「⚠️ 已还」不是欠条块头，本块写到条件的地方也没用台账抽取的写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD` 核过）；第 3526 行原文不动，连同它的条件照旧被抽出 —— 台账只抽取、不判已还。本块插在文件中间，本条原第 3527 行起的行号整体下移 26 行（一个空行加本块 25 行），原第 3536、3538 行那两张欠条（PR #413 CodeRabbit 两条）随之移到第 3562、3564 行；仓库里别处没有按行号引用本条原第 3527 行起内容的（已搜）。
+>
+> 没核的：
+>
+> - 单点 022 证的是「等于 0644」，不是「跟着 umask 走」：把新文件写死成 0644 的实现过得了这条断言；目录里没有这样一条变异，本 PR 不加。
+> - CI runner 的 umask 仍没直接读到（本条原第 3531 行，现第 3557 行）；改后这条断言不再依赖它。
+> - 只在 umask 022 与 077 下跑过，别的 umask、root、Windows 没跑。
+> - 观察（不登欠条）：修法设计预演时，077 下第一次全量 mutate 里 `h-prebuilt-no-config-contract` 组的 `M-H62-al`／`am`／`ap` 偶发「跑不起来」，重跑全抓到；本 PR 的这几次完整检查里没再出现。原因没查。
+
 **欠条台账。** `npm run -s adr-ledger`（Node v22.23.3）在本块之前的提交（`963299c`）上是 519 条（重启条件 480、重开讨论 13、死亡条件 26）。本块只多上面那一张。本块其余各行写到条件的地方都没有用台账抽取的写法，以「⚠️ 欠条」打头的只有那一行。改后的数写在本块所在提交的提交信息里。
 
 **没核的。**
@@ -3536,3 +3562,14 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 > ⚠️ 欠条：`observer-cert-entry` 判「本机起不起得来 bwrap 断网」的探针只用 `--unshare-net --ro-bind / /`，认证在断网里用的是 `sandboxArgs` 全套（`--dev /dev --proc /proc --tmpfs /tmp`、`--new-session` 等），允许用户命名空间却不让挂 proc 的机器上会探针起得来、认证不成立而假红；查找 bwrap 那半条不成立（同样三处、同样顺序） · 来源：PR #413 CodeRabbit 评审 `5716926340` 讨论串 [r4427165566](https://github.com/c01dsummer/kol-outreach-skill/pull/413#discussion_r4427165566)（`scripts/check/selfcheck.ts:10482`，锚 `9b137e4`），处置回复 [r4427207012](https://github.com/c01dsummer/kol-outreach-skill/pull/413#discussion_r4427207012) · 档：本改动(第 3 轮,不阻塞) · 重启条件：下次有改动碰到 `selfcheck.ts` 的 `observer-cert-entry` 组或 `observer-rule.ts` 的 `sandboxArgs`，或有一台机器上探针与认证结论对不上
 
 > ⚠️ 欠条：`h-observer-preload` 两处 `JSON.parse(a.stdout)` 在 `eq` 实参里，玩具入口没印出合法 JSON 时异常冲出 `group()`（`scripts/test.ts:311` 不接异常），整个需求测试崩而不是断言红（`scripts/test.ts:2519` 的规矩），要改成解析失败给明示的失败值 · 来源：PR #413 CodeRabbit 评审 `5716926340` 讨论串 [r4427165606](https://github.com/c01dsummer/kol-outreach-skill/pull/413#discussion_r4427165606)（`scripts/test.ts:18749/18753`，锚 `9b137e4`），处置回复 [r4427207355](https://github.com/c01dsummer/kol-outreach-skill/pull/413#discussion_r4427207355) · 档：本改动(第 3 轮,不阻塞) · 重启条件：下次有改动碰到 `scripts/test.ts` 的 `h-observer-preload` 组，或有变异以这一组为验证者被判 `crashed`
+
+> ⚠️ 更正：ADR-70 第 3549 行 · 改在 #416 的追加提交（本块所在的提交）：第 3528 行「⚠️ 已还」块「没核的」第一条说，单点 022 证的是「等于 0644」、不是「跟着 umask 走」，把新文件写死成 0644 的实现过得了七之五那条断言 —— 这一句自本提交起不再成立。`scripts/test.ts` 七之五在原有那条断言后面加了一条「新文件跟着 umask 走：umask 002 下是 0664，不是写死的 0644」（第 1812 行）：写新文件之前把 umask 设成 002、在 `finally` 里还原，期望字面量 0664，由 0666 & ~002 = 0664 手算（002 只去掉其他人的写位）。0664、0644 与临时文件那一档的 0600 两两不等，所以写死 0644 的实现、停在临时文件那一档的实现，都红在这一条上。原有那条断言（umask 022、期望 0644）连同断言名、文件名一个字没改；第 3528–3552 行原文不动。
+>
+> 来源：PR #416 CodeRabbit 评审 `5722018397`（`scripts/test.ts:1798–1800`，锚 `f6897ec`，第 1 轮，Trivial／nitpick），建议再取 umask 002、断言 0664，以验证权限确实按当时的 umask 算 · 档：本改动 · 去向：本块所在的提交。需求所有者丸子 2026-10-31 17:37 CST 定修在本 PR，经 KOL 开发助手转达，原话本块没见到。
+>
+> 仍没覆盖的：
+>
+> - 第 3549 行后半句仍成立：变异目录 `scripts/check/mutations.json` 里没有「新文件写死成 0644」这一条。本提交只加用例，`scripts/check/mutations.json`、`scripts/lib/atomic.ts`、`scripts/check/launches.json`、`package.json` 都没动；这个形状只由 KOL 开发助手在沙箱外手工施变实测、不提交，结果见 PR #416 正文。
+> - 两条断言只取了 umask 002 与 022 两个点，都由测试自己设、写完还原，会话 umask 是 077 时也还是这两个点；别的 umask 值没有断言。root、Windows 上没跑。
+>
+> 本块不是欠条块，写的时候也避开了台账抽取的几种写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD`）。
