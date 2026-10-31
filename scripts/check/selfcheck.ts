@@ -3254,6 +3254,7 @@ group('profile-402-stop', [], () => {
   //    路径核对结果」记的搜索阶段实测汇总 `error` 也正是这一句。同组最后一条对照把搜索阶段再验一遍。
   //  · 待补 profile 几人：D6.p（简介没查过、或查过但没有外链的仍待补）手数；四种收尾同一续跑口径（D6.q／D6.r）。
   //  · 断点的净次数：D6.s，只数 HTTP 200（这里没有无 HTTP 状态的），402／404 已撤销、不计。
+  //  · `profile_failed`：需求方 2026-10-31 13:00 CST 裁决（派发方转达，D6.z）—— 402 那人不计入、算待补，只数 402 之前非 402 的失败。
   //
   // 夹具：关键词带 `profile-halt` 时假 fetch 回三个人（profhalt_a／b／c，粉丝 82000／90000／95000，都在闸门之内、
   // 都没带简介），`FAKE_FETCH_HALT_*` 让这三人发到某个 profile 端点的第 n 次请求起都回 402 或 404（fake-fetch.ts
@@ -3264,7 +3265,7 @@ group('profile-402-stop', [], () => {
   // 402 那一行也要记下了，才去判「402 之后再无记录」。对照不成立是夹具失格（带夹具记号），这一跑的具名断言都不判。
   // IG「不降级 V2」另配一份阳性对照：同一种接线下 V3 回 404 时账本要真记下 V2 那一行。
   //
-  // 判据认领留空：卡片要改的 D6.x 还不在主干上（在 KOL-21 正本一片 D 那条 PR 里），不往不存在的编号名下记。
+  // 认领 D6.z（组末尾）。D6.x 退役、整条映射由 D6.y 接替，D6.y 留给 KOL-21 独立测试包，这里不认（ADR-183 末尾）。
   const root = join(tmp, 'profile-402-stop')
   const HALT = ['profhalt_a', 'profhalt_b', 'profhalt_c']
   const MSG_402 = 'TikHub 余额不足，请充值后重试'
@@ -3273,13 +3274,14 @@ group('profile-402-stop', [], () => {
   type Halt = { name: string; cwd: string; status: number | null; stdout: string; stderr: string; sum: any; lines: string[] }
   /** 起一次 collect（新建任务、预算 $1），交回两股输出、汇总（读不成 JSON 是 undefined）与这一跑的账本 */
   const collectHalt = (name: string, label: string, task: Record<string, unknown>, target: number,
-    fault: { path: string; status: 402 | 404; from: number } | undefined, want: number): Halt | undefined => {
+    fault: { path: string; status: 402 | 404; from: number; before?: 404 } | undefined, want: number): Halt | undefined => {
     const cwd = join(root, name)
     mkdirSync(join(cwd, 'memory'), { recursive: true })
     const cfg = join(cwd, 'config.json'), log = join(cwd, 'attempts.tsv')
     writeFileSync(cfg, JSON.stringify({ product: name, market: 'US', target_count: target, budget_usd: 1, tasks: [task] }))
     const knobs = fault === undefined ? {} : { FAKE_FETCH_HALT_PATH: fault.path,
-      FAKE_FETCH_HALT_STATUS: String(fault.status), FAKE_FETCH_HALT_FROM: String(fault.from) }
+      FAKE_FETCH_HALT_STATUS: String(fault.status), FAKE_FETCH_HALT_FROM: String(fault.from),
+      ...(fault.before === undefined ? {} : { FAKE_FETCH_HALT_BEFORE: String(fault.before) }) }
     // 退出码本身就是下面具名断言点名的东西：别的正常退出码交给它们判，被信号打死照旧带进程记号
     const r = runBoth(label, [S('collect.ts'), '--config', cfg], cwd,
       { status: want, soft: [0, 1, 2, 3].filter(s => s !== want) }, costEnv(log, knobs))
@@ -3288,13 +3290,13 @@ group('profile-402-stop', [], () => {
     try { sum = JSON.parse(r.stdout) } catch { sum = undefined }
     return { name, cwd, status: r.status, stdout: r.stdout, stderr: r.stderr, sum, lines: fetchAttempts(log) }
   }
-  /** 账本里第一次拒收那一行的下标。它之前要有搜索、且全是 200；不成立报夹具失格、交回 undefined */
-  const refusedAt = (h: Halt, path: string, status: number): number | undefined => {
+  /** 账本里第一次拒收那一行的下标。它之前要有搜索、除 `early` 那几行外全是 200；不成立报夹具失格、交回 undefined */
+  const refusedAt = (h: Halt, path: string, status: number, early: string[] = []): number | undefined => {
     const at = h.lines.indexOf(`${status}\t${path}`)
     const before = at > 0 ? h.lines.slice(0, at) : []
-    if (before.some(isSearch) && before.every(l => l.startsWith('200\t'))) return at
+    if (before.some(isSearch) && JSON.stringify(before.filter(l => !l.startsWith('200\t'))) === JSON.stringify(early)) return at
     failed++
-    console.error(`  ✗ ${h.name} 夹具${SELFCHECK_FIXTURE_MARK}：账本里要先记下搜索、再记下 ${status} ${path}，`
+    console.error(`  ✗ ${h.name} 夹具${SELFCHECK_FIXTURE_MARK}：账本里要先记下搜索${early.length ? `与 ${JSON.stringify(early)}` : ''}、再记下 ${status} ${path}，`
       + `实际 ${JSON.stringify(h.lines)} —— 观察器没接上、或这一跑没走到 profile 补全，这一跑的具名断言都不判`)
     return undefined
   }
@@ -3319,6 +3321,9 @@ group('profile-402-stop', [], () => {
       stopsWith402(first), how(first))
     named('collect 在 profile 补全阶段遇 TikHub 402 之后不再发任何请求：其余待补的人一个都不请求（TikTok）',
       first.lines.length === firstAt + 1, after(first, firstAt))
+    // 402 那人不计入 profile_failed（需求方 2026-10-31 裁决）；402 之前没有别的单人失败 → 0
+    named('collect 在 profile 补全第一次请求就遇 TikHub 402（TikTok）：汇总的 profile_failed 为 0，402 那人不计入补全失败',
+      first.sum?.profile_failed === 0, how(first))
     // 三人都没带简介 → 三人待补（D6.p）；第一次 profile 请求就 402、之后不再请求 → 一个也没补成，仍是三人
     named('profile 补全遇 402 收尾时，续跑提示把 402 那人与之后没请求的人都算作待补 profile',
       pending(first, 3), `应说还有 3 个人的 profile、且不说续跑不产生新的请求；stderr 末几行 ${stderrTail(first.stderr)}`)
@@ -3338,6 +3343,8 @@ group('profile-402-stop', [], () => {
       stopsWith402(mid), how(mid))
     named('collect 在 profile 补全中途遇 TikHub 402 之后不再请求下一个人',
       mid.lines.length === midAt + 1, after(mid, midAt))
+    named('collect 在 profile 补全中途遇 TikHub 402（TikTok）：汇总的 profile_failed 为 0，402 之前补成的不算失败，402 那人也不计入',
+      mid.sum?.profile_failed === 0, how(mid))
     // 第一个被请求的人拿回了资料：简介是假 fetch 回的 signature、外链里有 bioLink（tikhub.md「补全：用户 Profile」），
     // 于是不再待补（D6.p）；402 那人与没被请求的那人简介仍是「没查过」（键缺席 = undefined，P1.a 的三态）→ 两人待补
     const people = outFile(mid, 'creators.raw.json')
@@ -3368,6 +3375,8 @@ group('profile-402-stop', [], () => {
       stopsWith402(tgt), how(tgt))
     named('collect 达标之后补 profile 遇 TikHub 402 之后不再发任何请求',
       tgt.lines.length === tgtAt + 1, after(tgt, tgtAt))
+    named('collect 达标之后补 profile 遇 TikHub 402：汇总的 profile_failed 为 0，402 那人不计入补全失败',
+      tgt.sum?.profile_failed === 0, how(tgt))
   }
 
   // ④ V2 降级的观察器阳性对照：V3 回 404（不是 402）时照旧降级去请求 V2（卡片「代码位置」：只有 402 原样重抛、
@@ -3397,6 +3406,8 @@ group('profile-402-stop', [], () => {
       stopsWith402(ig), how(ig))
     named('collect 在 IG profile V3 遇 TikHub 402 之后不再发任何请求：同一人不降级 V2，其余待补的人也不请求',
       ig.lines.length === igAt + 1, after(ig, igAt))
+    named('collect 在 IG profile V3 遇 TikHub 402：汇总的 profile_failed 为 0，402 那人不计入补全失败',
+      ig.sum?.profile_failed === 0, how(ig))
     if (v2Seen) {
       named('collect 在 IG profile V3 遇 TikHub 402 时，同一人不降级去请求 V2',
         !ig.lines.some(l => l.endsWith(`\t${IG_PROFILE_V2}`)), `账本 ${JSON.stringify(ig.lines)}`)
@@ -3422,6 +3433,25 @@ group('profile-402-stop', [], () => {
     named('collect 在搜索阶段遇 TikHub 402 照旧：stopped 为 error、error 为余额不足的提示，退出码 1',
       stopsWith402(search), how(search))
   }
+
+  // ⑧ 402 之前已有一次非 402 的单人失败：第一次 profile 请求回 404、第二次起 402。手数（2026-10-31 裁决：profile_failed
+  // 只数 402 之前非 402 的失败）：404 那人计 1，402 那人不计，第三个人不再请求 → 1；三人简介都没查成 → 三人待补（D6.p）。
+  // 账本里 404、402 两行都要真记下（`refusedAt` 的 early），才判 402 之后再无记录。
+  const mix = collectHalt('tt-404-402', 'collect TikTok profile 第一次请求回 404、第二次起回 402', TT, 9999,
+    { path: TT_PROFILE, status: 402, from: 2, before: 404 }, 1)
+  const mixAt = mix === undefined ? undefined : refusedAt(mix, TT_PROFILE, 402, [`404\t${TT_PROFILE}`])
+  if (mix !== undefined && mixAt !== undefined) {
+    named('collect 在 profile 补全先遇一次 404、再遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 1',
+      stopsWith402(mix), how(mix))
+    named('collect 在 profile 补全先遇 404、再遇 TikHub 402 之后不再请求下一个人', mix.lines.length === mixAt + 1, after(mix, mixAt))
+    named('collect 在 profile 补全先遇 404、再遇 TikHub 402：汇总的 profile_failed 为 1，只数 402 之前那次 404，不含 402 那人',
+      mix.sum?.profile_failed === 1, how(mix))
+    named('profile 补全先 404 后 402 收尾时，续跑提示把 404 那人、402 那人与之后没请求的人都算作待补 profile',
+      pending(mix, 3), `应说还有 3 个人的 profile、且不说续跑不产生新的请求；stderr 末几行 ${stderrTail(mix.stderr)}`)
+  }
+  // ①–⑧ 合起来是 D6.z 的每一半：停与提示、零请求（含 IG 不降级）、profile_failed 只数 402 之前非 402 的失败、
+  // 待补与续跑提示、402 之前补成的落盘、非 402 不停（④⑥）、达标与否都一样（①③）。负片 M-D6-bm、M-D6-bn
+  criterion('D6.z')
 })
 
 // ---- D6.j：上一版留下的目录，两张表缺着就一直缺着 ----

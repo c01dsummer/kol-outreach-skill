@@ -159,6 +159,8 @@ const instagramUserPosts = {
  * 拒收走环境变量（profile 请求里没有关键词，同上面 `FAKE_FETCH_FAULT` 的理由）：`FAKE_FETCH_HALT_PATH` 是 pathname，
  * `FAKE_FETCH_HALT_STATUS` 是 402 或 404，`FAKE_FETCH_HALT_FROM` 是 n —— 这三个人发到那个 pathname 的第 n 次起
  * **每一次**都回那个状态码，之前的照常回资料。没设 `FAKE_FETCH_HALT_PATH` 就一次都不拒。只认这三个人，别的夹具碰不到这一支。
+ * 另设 `FAKE_FETCH_HALT_BEFORE=404` 时，第 n 次之前发到那个 pathname 的每一次改回 404、不回资料 —— 「402 之前已有非 402 的
+ * 单人失败」那一跑用（只认 404，且要与 `FAKE_FETCH_HALT_STATUS=402`、不小于 2 的 `FAKE_FETCH_HALT_FROM` 同设）。
  * 端点与字段都是现有的（形状同上面的 `tiktokProfile`／`igProfile`），只多了一份罐头 —— 不是改数据源端点/字段。
  */
 const HALT_PEOPLE = [
@@ -173,6 +175,12 @@ const haltFrom = Number(process.env.FAKE_FETCH_HALT_FROM)
 if (haltPath !== undefined && (![402, 404].includes(haltStatus) || !Number.isInteger(haltFrom) || haltFrom < 1)) {
   throw new Error(`fake fetch: FAKE_FETCH_HALT_STATUS 只认 402/404、FAKE_FETCH_HALT_FROM 要是正整数，实际 `
     + `${process.env.FAKE_FETCH_HALT_STATUS}／${process.env.FAKE_FETCH_HALT_FROM}`)
+}
+const haltBefore = process.env.FAKE_FETCH_HALT_BEFORE
+if (haltBefore !== undefined && (haltBefore !== '404' || haltPath === undefined || haltStatus !== 402 || haltFrom < 2)) {
+  throw new Error(`fake fetch: FAKE_FETCH_HALT_BEFORE 只认 404，且要与 FAKE_FETCH_HALT_PATH、FAKE_FETCH_HALT_STATUS=402、`
+    + `不小于 2 的 FAKE_FETCH_HALT_FROM 同设，实际 ${haltBefore}／${haltPath}／${process.env.FAKE_FETCH_HALT_STATUS}／`
+    + `${process.env.FAKE_FETCH_HALT_FROM}`)
 }
 /** 每个 pathname 上这三个人已经发过几次 profile 请求 */
 const haltSeen = new Map<string, number>()
@@ -297,6 +305,10 @@ const fakeFetch = async (input: RequestInfo | URL) => {
     if (path === haltPath && nth >= haltFrom) {
       record(haltStatus, url)
       return new Response(`fake profile ${haltStatus}`, { status: haltStatus })
+    }
+    if (path === haltPath && haltBefore !== undefined) {
+      record(404, url)
+      return new Response('fake profile 404', { status: 404 })
     }
     record(200, url)
     return new Response(JSON.stringify(haltBody), { status: 200, headers: { 'content-type': 'application/json' } })
