@@ -427,7 +427,7 @@ async function enrichProfiles() {
       // 402（余额不足）例外：那不是这一个人的失败，换下一个人照样 402，而
       // skill/references/providers/tikhub.md「错误处理」402 那一行说的是「**停止**，
       // 告诉用户去充值，不要重试」。所以原样抛出，与搜索阶段的 402 同一种收尾，
-      // 之后一个请求也不再发；这个人与没轮到的人仍算待补（KOL-105）。
+      // 之后一个请求也不再发；这个人不计进 profileFailed，与没轮到的人一样仍算待补（D6.z，KOL-105）。
       if (e instanceof CostError || e instanceof BudgetInputError) throw e
       if (e instanceof TikHubError && e.status === 402) throw e
       profileFailed++
