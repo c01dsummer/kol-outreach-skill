@@ -1789,12 +1789,15 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   //        临时文件按最严建是为了盖住那段窗口，不是替产品决定新文件该多严；
   //        少了还原那一步，每个新建的 task.json / 名单 / 增强结果都变成
   //        只有属主可读，而这是一句注释说了、代码没做的事（ADR-42 追记）。
+  //        umask 由这里定成 022、写完就还原：照会话的 umask 算期望值的话，
+  //        077 下 0666 & ~077 正好是临时文件那一档 0600，停在那一档也照样绿
+  //        （ADR-70 第 3526 行）。同 ADR-42 的 0640 一样，挑一个不等于那一档的值。
   {
     const fresh = join(tmpdir(), `kol-d4-fresh-${process.pid}.json`)
     rmSync(fresh, { force: true })
-    const before = process.umask()
-    writeFileAtomic(fresh, '{}')
-    eq('新文件按 umask 默认，不是临时文件那档最严的', modeOf(fresh), 0o666 & ~before)
+    const before = process.umask(0o022)
+    try { writeFileAtomic(fresh, '{}') } finally { process.umask(before) }
+    eq('新文件按 umask 默认，不是临时文件那档最严的', modeOf(fresh), 0o644)
     rmSync(fresh, { force: true })
   }
 
