@@ -424,7 +424,12 @@ async function enrichProfiles() {
       // 单个失败不该拖垮整轮（一个 404 就挂掉 50 人的采集是不可接受的）。
       // 但**不静默吞掉** —— 计数上报，且该创作者的 bio/email 保持 undefined，
       // 即「未查询」，不会被下游读成「没有邮箱」。
+      // 402（余额不足）例外：那不是这一个人的失败，换下一个人照样 402，而
+      // skill/references/providers/tikhub.md「错误处理」402 那一行说的是「**停止**，
+      // 告诉用户去充值，不要重试」。所以原样抛出，与搜索阶段的 402 同一种收尾，
+      // 之后一个请求也不再发；这个人不计进 profileFailed，与没轮到的人一样仍算待补（D6.z，KOL-105）。
       if (e instanceof CostError || e instanceof BudgetInputError) throw e
+      if (e instanceof TikHubError && e.status === 402) throw e
       profileFailed++
     }
     if (++done % 10 === 0) console.error(`  ${done}/${list.length}`)

@@ -4632,6 +4632,48 @@
       ]
     },
     {
+      "id": "M-D6-bm",
+      "req": "D6.z",
+      "why": "profile 补全阶段遇 TikHub 402 只记作那一个人补全失败、接着为其余待补的人照发请求：stdout 汇总的 stopped 仍是 done 或 target、没有 error、退出码 0 —— 余额不足没有停下，也没有告诉用户去充值；402 那人与之后照发又撞 402 的人还都记进汇总的 profile_failed",
+      "file": "scripts/collect.ts",
+      "find": "      if (e instanceof TikHubError && e.status === 402) throw e\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "collect 在 profile 补全阶段遇 TikHub 402（TikTok）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 1",
+        "collect 在 profile 补全阶段遇 TikHub 402 之后不再发任何请求：其余待补的人一个都不请求（TikTok）",
+        "collect 在 profile 补全中途遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 1",
+        "collect 在 profile 补全中途遇 TikHub 402 之后不再请求下一个人",
+        "collect 达标之后补 profile 遇 TikHub 402：stopped 为 error（不是 target）、error 为余额不足的提示，退出码 1",
+        "collect 达标之后补 profile 遇 TikHub 402 之后不再发任何请求",
+        "collect 在 profile 补全阶段遇 TikHub 402（IG，V3 回 402）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 1",
+        "collect 在 IG profile V3 遇 TikHub 402 之后不再发任何请求：同一人不降级 V2，其余待补的人也不请求",
+        "collect 在 profile 补全第一次请求就遇 TikHub 402（TikTok）：汇总的 profile_failed 为 0，402 那人不计入补全失败",
+        "collect 在 profile 补全中途遇 TikHub 402（TikTok）：汇总的 profile_failed 为 0，402 之前补成的不算失败，402 那人也不计入",
+        "collect 达标之后补 profile 遇 TikHub 402：汇总的 profile_failed 为 0，402 那人不计入补全失败",
+        "collect 在 IG profile V3 遇 TikHub 402：汇总的 profile_failed 为 0，402 那人不计入补全失败",
+        "collect 在 profile 补全先遇一次 404、再遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 1",
+        "collect 在 profile 补全先遇 404、再遇 TikHub 402 之后不再请求下一个人",
+        "collect 在 profile 补全先遇 404、再遇 TikHub 402：汇总的 profile_failed 为 1，只数 402 之前那次 404，不含 402 那人"
+      ]
+    },
+    {
+      "id": "M-D6-bn",
+      "req": "D6.z",
+      "why": "profile 补全阶段遇 TikHub 402 时照样停下、以 error 退 1、之后不再请求，却把 402 那个人也记进汇总的 profile_failed：用户读到的补全失败人数多出一人，像是那人的资料查不到，其实是余额不足、那人从没查成，充值后续跑会照常再补",
+      "file": "scripts/collect.ts",
+      "find": "      if (e instanceof TikHubError && e.status === 402) throw e\n",
+      "replace": "      if (e instanceof TikHubError && e.status === 402) { profileFailed++; throw e }\n",
+      "by": "selfcheck",
+      "kills": [
+        "collect 在 profile 补全第一次请求就遇 TikHub 402（TikTok）：汇总的 profile_failed 为 0，402 那人不计入补全失败",
+        "collect 在 profile 补全中途遇 TikHub 402（TikTok）：汇总的 profile_failed 为 0，402 之前补成的不算失败，402 那人也不计入",
+        "collect 达标之后补 profile 遇 TikHub 402：汇总的 profile_failed 为 0，402 那人不计入补全失败",
+        "collect 在 IG profile V3 遇 TikHub 402：汇总的 profile_failed 为 0，402 那人不计入补全失败",
+        "collect 在 profile 补全先遇 404、再遇 TikHub 402：汇总的 profile_failed 为 1，只数 402 之前那次 404，不含 402 那人"
+      ]
+    },
+    {
       "id": "M-H23-a",
       "req": "harness",
       "why": "豁免那一行永远说「无变异」：一条判据明明已经有负片指着它，报告还印着它是没人守的缺口 —— 同一份报告里两句话打架，而这正是本次改动要治的",
