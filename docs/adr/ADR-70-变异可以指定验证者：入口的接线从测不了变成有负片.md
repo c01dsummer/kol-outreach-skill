@@ -3562,3 +3562,14 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 > ⚠️ 欠条：`observer-cert-entry` 判「本机起不起得来 bwrap 断网」的探针只用 `--unshare-net --ro-bind / /`，认证在断网里用的是 `sandboxArgs` 全套（`--dev /dev --proc /proc --tmpfs /tmp`、`--new-session` 等），允许用户命名空间却不让挂 proc 的机器上会探针起得来、认证不成立而假红；查找 bwrap 那半条不成立（同样三处、同样顺序） · 来源：PR #413 CodeRabbit 评审 `5716926340` 讨论串 [r4427165566](https://github.com/c01dsummer/kol-outreach-skill/pull/413#discussion_r4427165566)（`scripts/check/selfcheck.ts:10482`，锚 `9b137e4`），处置回复 [r4427207012](https://github.com/c01dsummer/kol-outreach-skill/pull/413#discussion_r4427207012) · 档：本改动(第 3 轮,不阻塞) · 重启条件：下次有改动碰到 `selfcheck.ts` 的 `observer-cert-entry` 组或 `observer-rule.ts` 的 `sandboxArgs`，或有一台机器上探针与认证结论对不上
 
 > ⚠️ 欠条：`h-observer-preload` 两处 `JSON.parse(a.stdout)` 在 `eq` 实参里，玩具入口没印出合法 JSON 时异常冲出 `group()`（`scripts/test.ts:311` 不接异常），整个需求测试崩而不是断言红（`scripts/test.ts:2519` 的规矩），要改成解析失败给明示的失败值 · 来源：PR #413 CodeRabbit 评审 `5716926340` 讨论串 [r4427165606](https://github.com/c01dsummer/kol-outreach-skill/pull/413#discussion_r4427165606)（`scripts/test.ts:18749/18753`，锚 `9b137e4`），处置回复 [r4427207355](https://github.com/c01dsummer/kol-outreach-skill/pull/413#discussion_r4427207355) · 档：本改动(第 3 轮,不阻塞) · 重启条件：下次有改动碰到 `scripts/test.ts` 的 `h-observer-preload` 组，或有变异以这一组为验证者被判 `crashed`
+
+> ⚠️ 更正：ADR-70 第 3549 行 · 改在 #416 的追加提交（本块所在的提交）：第 3528 行「⚠️ 已还」块「没核的」第一条说，单点 022 证的是「等于 0644」、不是「跟着 umask 走」，把新文件写死成 0644 的实现过得了七之五那条断言 —— 这一句自本提交起不再成立。`scripts/test.ts` 七之五在原有那条断言后面加了一条「新文件跟着 umask 走：umask 002 下是 0664，不是写死的 0644」（第 1812 行）：写新文件之前把 umask 设成 002、在 `finally` 里还原，期望字面量 0664，由 0666 & ~002 = 0664 手算（002 只去掉其他人的写位）。0664、0644 与临时文件那一档的 0600 两两不等，所以写死 0644 的实现、停在临时文件那一档的实现，都红在这一条上。原有那条断言（umask 022、期望 0644）连同断言名、文件名一个字没改；第 3528–3552 行原文不动。
+>
+> 来源：PR #416 CodeRabbit 评审 `5722018397`（`scripts/test.ts:1798–1800`，锚 `f6897ec`，第 1 轮，Trivial／nitpick），建议再取 umask 002、断言 0664，以验证权限确实按当时的 umask 算 · 档：本改动 · 去向：本块所在的提交。需求所有者丸子 2026-10-31 17:37 CST 定修在本 PR，经 KOL 开发助手转达，原话本块没见到。
+>
+> 仍没覆盖的：
+>
+> - 第 3549 行后半句仍成立：变异目录 `scripts/check/mutations.json` 里没有「新文件写死成 0644」这一条。本提交只加用例，`scripts/check/mutations.json`、`scripts/lib/atomic.ts`、`scripts/check/launches.json`、`package.json` 都没动；这个形状只由 KOL 开发助手在沙箱外手工施变实测、不提交，结果见 PR #416 正文。
+> - 两条断言只取了 umask 002 与 022 两个点，都由测试自己设、写完还原，会话 umask 是 077 时也还是这两个点；别的 umask 值没有断言。root、Windows 上没跑。
+>
+> 本块不是欠条块，写的时候也避开了台账抽取的几种写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD`）。
