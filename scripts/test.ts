@@ -13985,6 +13985,8 @@ try {
   type Event = { kind: 'armed' | 'stderr' | 'http', pid: number, seq: number, text?: string, stderr?: string }
   const observer = join(root, 'observe-order.mjs'), control = join(root, 'positive.mjs')
   const fakeFetch = new URL('./check/fake-fetch.ts', import.meta.url).href
+  // fake-fetch 先于观察器加载；只准许这条已知横幅在观察范围外，不放行任意前缀。
+  const fakeFetchBanner = '[fake-fetch] 已接管 fetch —— 本次运行不发出任何真实请求\n'
   const collect = fileURLToPath(new URL('./collect.ts', import.meta.url))
   writeFileSync(observer, [
     `import { appendFileSync } from 'node:fs';`,
@@ -14017,9 +14019,10 @@ try {
     const http = events.filter(event => event.kind === 'http')
     const connected = events[0]?.kind === 'armed' && events.every((event, i) => event.pid === events[0].pid && event.seq === i)
     const stderrWrites = events.filter(event => event.kind === 'stderr')
-    const captured = typeof result.stderr === 'string' && result.stderr.length > 0 && stderrWrites.length > 0
+    const observedStderr = stderrWrites.map(event => event.text).join('')
+    const captured = typeof result.stderr === 'string' && observedStderr.length > 0 && stderrWrites.length > 0
       && stderrWrites.every(event => typeof event.text === 'string')
-      && stderrWrites.map(event => event.text).join('') === result.stderr
+      && fakeFetchBanner + observedStderr === result.stderr
     return { ...result, events, http, attempts, connected, stderrWrites, captured }
   }
   const positive = run(control, [], root)
@@ -14027,7 +14030,7 @@ try {
   eq('观察失格：预算告知顺序观察夹具有效：相同接线实际看见两次 HTTP 与对应假 fetch 记录',
     [positive.status, positive.connected, positive.http.length, positive.attempts.length], [0, true, 2, 2])
   eq('观察失格：阳性对照两次 stderr 写入与父进程捕获文本逐字一致',
-    [positive.stderrWrites.length, positive.stderr, positive.captured], [2, beforeHttp + afterHttp, true])
+    [positive.stderrWrites.length, positive.stderr, positive.captured], [2, fakeFetchBanner + beforeHttp + afterHttp, true])
   eq('观察失格：预算告知顺序观察夹具有效：首笔 HTTP 看不见之后才写出的 stderr，第二笔才看得见',
     positive.http.map(event => event.stderr), [beforeHttp, beforeHttp + afterHttp])
   if (positive.error || !positive.captured || positive.status !== 0 || !positive.connected || positive.http.length !== 2 || positive.attempts.length !== 2
