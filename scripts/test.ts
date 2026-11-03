@@ -252,6 +252,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd6-provider', needs: [] },
   { id: 'd12-ledger', needs: [] },
   { id: 'p3-budget-token', needs: [] },
+  { id: 'd13-default-budget-entry', needs: [] },
   { id: 'd14-cost-persistence', needs: [] },
   { id: 'p4-render-recheck', needs: [] },
   { id: 'd21-review-document', needs: [] },
@@ -13975,6 +13976,201 @@ suite('D13', '已有数据可离线输出，未知费用不得换来新增付费
 
 // ADR-109：仅由公开保存回调与真实临时文件观察，未读取生产函数体。
 }
+await group('d13-default-budget-entry', () => {
+suite('D13', '新建任务缺预算时，先告知默认 $2 总预算，再发出实际 HTTP')
+// 独立测试：期待值只取 D13.v/w、D13 × P3 裁决及公开 CLI/任务文件契约。
+// 不读生产函数体；预加载只拦截 stderr.write 与 globalThis.fetch，不接生产内部对象。
+const root = mkdtempSync(join(tmpdir(), 'kol-d13-default-'))
+try {
+  type Event = { kind: 'armed' | 'stderr' | 'http', pid: number, seq: number, text?: string, stderr?: string }
+  const observer = join(root, 'observe-order.mjs'), control = join(root, 'positive.mjs')
+  const fakeFetch = new URL('./check/fake-fetch.ts', import.meta.url).href
+  // fake-fetch 先于观察器加载；只准许这条已知横幅在观察范围外，不放行任意前缀。
+  const fakeFetchBanner = '[fake-fetch] 已接管 fetch —— 本次运行不发出任何真实请求\n'
+  const collect = fileURLToPath(new URL('./collect.ts', import.meta.url))
+  writeFileSync(observer, [
+    `import { appendFileSync } from 'node:fs';`,
+    `let stderr = '', seq = 0;`,
+    `const record = event => appendFileSync(process.env.D13_ORDER_EVENTS, JSON.stringify({ ...event, pid: process.pid, seq: seq++ }) + '\\n');`,
+    `const write = process.stderr.write;`,
+    `process.stderr.write = function(chunk, ...args) {`,
+    `  const result = Reflect.apply(write, this, [chunk, ...args]);`,
+    `  const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString(typeof args[0] === 'string' ? args[0] : 'utf8');`,
+    `  stderr += text; record({ kind: 'stderr', text }); return result;`,
+    `};`,
+    `const fake = globalThis.fetch;`,
+    `globalThis.fetch = function(...args) { record({ kind: 'http', stderr }); return Reflect.apply(fake, this, args); };`,
+    `record({ kind: 'armed' });`,
+  ].join('\n'))
+  const beforeHttp = '对照：首笔 HTTP 前已写出的进度\n', afterHttp = '对照：首笔 HTTP 后才写出的进度\n'
+  const url = `https://api.tikhub.io${TEST_TT}?keyword=force-discovery-zero`
+  writeFileSync(control, `process.stderr.write(${JSON.stringify(beforeHttp)}); await fetch(${JSON.stringify(url)});\n`
+    + `process.stderr.write(${JSON.stringify(afterHttp)}); await fetch(${JSON.stringify(url)});\n`)
+  let runNumber = 0
+  const run = (entry: string, args: string[], cwd: string) => {
+    const eventsFile = join(root, `events-${++runNumber}.ndjson`), attemptsFile = join(root, `attempts-${runNumber}.tsv`)
+    const kidEnv: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: '', TIKHUB_API_KEY: 'fake-key-for-d13-default' }
+    for (const key of Object.keys(kidEnv)) if (key.startsWith('FAKE_FETCH_')) delete kidEnv[key]
+    Object.assign(kidEnv, { D13_ORDER_EVENTS: eventsFile, FAKE_FETCH_LEDGER: attemptsFile, FAKE_FETCH_NO_429: '1' })
+    const result = spawnSync(process.execPath, ['--import', fixtureLoader(entry, kidEnv, cwd), '--import', fakeFetch,
+      '--import', pathToFileURL(observer).href, entry, ...args], { cwd, env: kidEnv, encoding: 'utf8', timeout: 30_000 })
+    const events: Event[] = existsSync(eventsFile) ? rf(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : []
+    const attempts = existsSync(attemptsFile) ? rf(attemptsFile, 'utf8').split('\n').filter(Boolean) : []
+    const http = events.filter(event => event.kind === 'http')
+    const connected = events[0]?.kind === 'armed' && events.every((event, i) => event.pid === events[0].pid && event.seq === i)
+    const stderrWrites = events.filter(event => event.kind === 'stderr')
+    const observedStderr = stderrWrites.map(event => event.text).join('')
+    const captured = typeof result.stderr === 'string' && observedStderr.length > 0 && stderrWrites.length > 0
+      && stderrWrites.every(event => typeof event.text === 'string')
+      && fakeFetchBanner + observedStderr === result.stderr
+    return { ...result, events, http, attempts, connected, stderrWrites, captured }
+  }
+  const positive = run(control, [], root)
+  eq('观察失格：阳性对照子进程 spawnSync 没有返回 error', positive.error, undefined)
+  eq('观察失格：预算告知顺序观察夹具有效：相同接线实际看见两次 HTTP 与对应假 fetch 记录',
+    [positive.status, positive.connected, positive.http.length, positive.attempts.length], [0, true, 2, 2])
+  eq('观察失格：阳性对照两次 stderr 写入与父进程捕获文本逐字一致',
+    [positive.stderrWrites.length, positive.stderr, positive.captured], [2, fakeFetchBanner + beforeHttp + afterHttp, true])
+  eq('观察失格：预算告知顺序观察夹具有效：首笔 HTTP 看不见之后才写出的 stderr，第二笔才看得见',
+    positive.http.map(event => event.stderr), [beforeHttp, beforeHttp + afterHttp])
+  if (positive.error || !positive.captured || positive.status !== 0 || !positive.connected || positive.http.length !== 2 || positive.attempts.length !== 2
+    || positive.http[0].stderr !== beforeHttp || positive.http[1].stderr !== beforeHttp + afterHttp) return
+
+  // 相同接线复用上述阳性对照；每次真实 collect 仍独立检查启动与 stderr 捕获资格。
+  // 资格不成立时只报观察失格，不把空捕获当成「产品没有打印默认说明」。
+  const observeCollect = (result: ReturnType<typeof run>) => {
+    eq('观察失格：collect 子进程 spawnSync 没有返回 error', result.error, undefined)
+    const finished = result.status !== null && result.signal === null
+    ok('观察失格：collect 已结束且 stderr 写入非空、捕获文本与观察器逐字一致', finished && result.captured)
+    const observed = result.error === undefined && finished && result.captured
+    if (!observed) console.log(`     collect 观察失格：${JSON.stringify({
+      error: result.error && { message: result.error.message, code: (result.error as NodeJS.ErrnoException).code },
+      status: result.status, signal: result.signal, stderrWrites: result.stderrWrites.length, stderr: result.stderr,
+    })}`)
+    return observed
+  }
+
+  // 不固定整句或语序，分别识别「缺预算」「默认 $2」「本任务总预算」三项信息。
+  const disclosure = (text: string) => {
+    const compact = text.replace(/\s+/g, '')
+    const absent = '(?:(?:未|没有|尚未)(?:提供|指定|设置|给出)|缺少|缺失|缺席)'
+    const two = '(?:\\$2(?:\\.0+)?(?![\\d.])|(?<![\\d.])2(?:\\.0+)?(?:美元|USD))'
+    return {
+      missing: new RegExp(`${absent}[^。；]*预算|预算[^。；]*${absent}`).test(compact),
+      defaultTwo: new RegExp(`(?:默认|缺省)[^。；]*${two}|${two}[^。；]*(?:默认|缺省)`).test(compact),
+      taskTotal: /任务[^。；]*(?:总预算|预算总上限|总上限)|(?:总预算|预算总上限|总上限)[^。；]*任务/.test(compact),
+    }
+  }
+  const base = { product: 'd13-default', market: 'US', target_count: 1,
+    tasks: [{ keyword: 'local', dimension: 'category', platform: 'tiktok' }] }
+  const taskFiles = (cwd: string) => {
+    const output = join(cwd, 'output')
+    return existsSync(output) ? readdirSync(output).map(name => join(output, name, 'task.json')).filter(file => existsSync(file)) : []
+  }
+  const newTask = (name: string, config: object) => {
+    const cwd = join(root, name), file = join(cwd, 'config.json')
+    mkdirSync(cwd)
+    const text = JSON.stringify(config, null, 2) + '\n'
+    writeFileSync(file, text)
+    const result = run(collect, ['--config', file], cwd), observed = observeCollect(result), files = taskFiles(cwd)
+    const task = files.length === 1 ? JSON.parse(rf(files[0], 'utf8')) : undefined
+    return { ...result, observed, cwd, file, text, files, task }
+  }
+  // 根预算缺席，嵌套同名字段不能替代它（D13.a/v）；目标目录由本次入口新建。
+  const fresh = newTask('缺预算新建', { ...base, notes: { budget_usd: 0.005 } })
+  ok('观察失格：缺预算新建：collect 入口已接入同一 stderr/HTTP 顺序观察器', fresh.connected)
+  if (!fresh.observed || !fresh.connected) return
+  eq('缺预算新建任务按默认总预算继续采集，以退出码 0 结束', fresh.status, 0)
+  ok('缺预算新建任务确实发出了实际 HTTP，逐笔对应假 fetch 记录', fresh.http.length > 0 && fresh.http.length === fresh.attempts.length)
+  const atFirstHttp = disclosure(fresh.http[0]?.stderr ?? '')
+  ok('首笔 HTTP 发出时已告知未提供预算', atFirstHttp.missing)
+  ok('首笔 HTTP 发出时已告知本次采用默认 $2', atFirstHttp.defaultTwo)
+  ok('首笔 HTTP 发出时已告知该额度是本任务总预算', atFirstHttp.taskTotal)
+  if (!atFirstHttp.missing || !atFirstHttp.defaultTwo || !atFirstHttp.taskTotal)
+    console.log(`     首笔 HTTP 时已写出的 stderr=${JSON.stringify(fresh.http[0]?.stderr)}`)
+  eq('缺预算新建任务在唯一 task.json 根写入美元 JSON 数值 2',
+    [fresh.files.length, typeof fresh.task?.budget_usd, fresh.task?.budget_usd], [1, 'number', 2])
+  eq('默认 $2 确认后费用账仍以 2000000 微美元为本任务总上限', fresh.task?.cost_ledger?.limit_micro_usd, 2_000_000)
+  eq('默认 $2 只写入新任务，不回写 --config 所指配置原字节', rf(fresh.file, 'utf8'), fresh.text)
+  tension('D13', 'P3')
+
+  {
+    const explicit = newTask('合规根预算0', { ...base, budget_usd: 0 })
+    ok('观察失格：合规根预算0：collect 入口已接入同一 stderr/HTTP 顺序观察器', explicit.connected)
+    if (explicit.observed && explicit.connected) {
+      eq('根上合规预算 0 美元仍按原预算结束，不能改用默认额度', explicit.status, 3)
+      eq('根上已给合规预算 0 美元时 stderr 不误称采用默认 $2', disclosure(explicit.stderr).defaultTwo, false)
+      eq('根上合规预算 0 美元不被默认 $2 覆盖', explicit.task?.budget_usd, 0)
+    }
+  }
+  {
+    const explicit = newTask('合规根预算0.005', { ...base, budget_usd: 0.005 })
+    ok('观察失格：合规根预算0.005：collect 入口已接入同一 stderr/HTTP 顺序观察器', explicit.connected)
+    if (explicit.observed && explicit.connected) {
+      eq('根上合规预算 0.005 美元仍按原预算结束，不能改用默认额度', explicit.status, 0)
+      eq('根上已给合规预算 0.005 美元时 stderr 不误称采用默认 $2', disclosure(explicit.stderr).defaultTwo, false)
+      eq('根上合规预算 0.005 美元不被默认 $2 覆盖', explicit.task?.budget_usd, 0.005)
+    }
+  }
+  {
+    const explicit = newTask('合规根预算2', { ...base, budget_usd: 2 })
+    ok('观察失格：合规根预算2：collect 入口已接入同一 stderr/HTTP 顺序观察器', explicit.connected)
+    if (explicit.observed && explicit.connected) {
+      eq('根上合规预算 2 美元仍按原预算结束，不能改用默认额度', explicit.status, 0)
+      eq('根上已给合规预算 2 美元时 stderr 不误称采用默认 $2', disclosure(explicit.stderr).defaultTwo, false)
+      eq('根上合规预算 2 美元不被默认 $2 覆盖', explicit.task?.budget_usd, 2)
+    }
+  }
+  // w 不约束前置拒绝时提示有无，也不新增 u 的 --budget 要求。
+  {
+    const invalid = newTask('显式非法预算null', { ...base, budget_usd: null })
+    ok('观察失格：显式非法预算null：collect 入口已接入同一 stderr/HTTP 顺序观察器', invalid.connected)
+    if (invalid.observed && invalid.connected) {
+      eq('根预算显式为 null 不算缺席，以退出码 2 拒绝', invalid.status, 2)
+      eq('根预算显式为 null 不得靠默认 $2 建 task.json 或发 HTTP',
+        [invalid.files.length, invalid.http.length, invalid.attempts.length], [0, 0, 0])
+    }
+  }
+  {
+    const invalid = newTask('显式非法预算"2"', { ...base, budget_usd: '2' })
+    ok('观察失格：显式非法预算"2"：collect 入口已接入同一 stderr/HTTP 顺序观察器', invalid.connected)
+    if (invalid.observed && invalid.connected) {
+      eq('根预算显式为 "2" 不算缺席，以退出码 2 拒绝', invalid.status, 2)
+      eq('根预算显式为 "2" 不得靠默认 $2 建 task.json 或发 HTTP',
+        [invalid.files.length, invalid.http.length, invalid.attempts.length], [0, 0, 0])
+    }
+  }
+  const { product: omittedProduct, ...withoutProduct } = base
+  const noProduct = newTask('只缺product', withoutProduct)
+  ok('观察失格：只缺product：collect 入口已接入同一 stderr/HTTP 顺序观察器', noProduct.connected)
+  if (noProduct.observed && noProduct.connected) {
+    eq('任务列表合规但只缺 product 时，以退出码 2 拒绝', noProduct.status, 2)
+    eq('只缺 product 时不建任务目录、不写 task.json、不发 HTTP',
+      [existsSync(join(noProduct.cwd, 'output')), noProduct.files.length, noProduct.http.length, noProduct.attempts.length], [false, 0, 0, 0])
+  }
+
+  if (fresh.task !== undefined) {
+    const file = fresh.files[0], dir = dirname(file), saved = { ...fresh.task, done: [0] }
+    delete saved.budget_usd
+    writeFileSync(file, JSON.stringify(saved))
+    for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), '[]')
+    const resumed = run(collect, ['--resume', dir], fresh.cwd)
+    const resumedObserved = observeCollect(resumed)
+    ok('观察失格：缺根预算旧任务的续跑入口也已接入同一观察器', resumed.connected)
+    if (resumedObserved && resumed.connected) {
+      eq('缺根预算旧任务的零请求续跑仍可本地完成', resumed.status, 0)
+      eq('续跑缺根预算不借新建默认确认新增 HTTP 或宣称采用默认 $2',
+        [resumed.http.length, resumed.attempts.length, disclosure(resumed.stderr).defaultTwo], [0, 0, false])
+      const after = JSON.parse(rf(file, 'utf8'))
+      eq('续跑缺根预算不借新建默认值补写 budget_usd', Object.hasOwn(after, 'budget_usd'), false)
+      eq('续跑缺根预算仍保留原费用账', after.cost_ledger, saved.cost_ledger)
+    }
+  }
+  criterion('D13.w')
+  // v 还缺字段/列表、已有目标、评审正本/人工表等前置拒绝；不认领 D13.v 或 D13.u。
+} finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 await group('d14-cost-persistence', async () => {
 suite('D14', '费用保存回调先于返回，保存失败后本实例停止一切费用变更')
 {

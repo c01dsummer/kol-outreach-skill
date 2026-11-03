@@ -19688,6 +19688,75 @@
       "replace": "for (const k of Object.getOwnPropertyNames(api)) if (false)",
       "by": "test",
       "kills": ["观察器 DNS：入口绕过 fetch 自己解析域名、吞掉失败，观察器在查询之前记故障、叫停入口"]
+    },
+    {
+      "id": "M-D13-ab",
+      "req": "D13.w",
+      "why": "新建任务缺预算且未给 --budget 时不再说明未提供预算、本次采用默认 $2 作为本任务总预算。",
+      "file": "scripts/collect.ts",
+      "find": "      if (replacementLimit === undefined) console.error('未提供预算，默认采用任务总预算 $2。')",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "首笔 HTTP 发出时已告知未提供预算",
+        "首笔 HTTP 发出时已告知本次采用默认 $2",
+        "首笔 HTTP 发出时已告知该额度是本任务总预算"
+      ]
+    },
+    {
+      "id": "M-D13-ac",
+      "req": "D13.w",
+      "why": "违反 D13 与 P3 的交点裁决：默认 $2 总预算的说明延后到采集结束退出时，最终 stderr 仍有说明，但首笔实际 HTTP 已在预算确认前发出。",
+      "file": "scripts/collect.ts",
+      "find": "      if (replacementLimit === undefined) console.error('未提供预算，默认采用任务总预算 $2。')",
+      "replace": "      if (replacementLimit === undefined) process.on('exit', () => console.error('未提供预算，默认采用任务总预算 $2。'))",
+      "by": "test",
+      "kills": [
+        "首笔 HTTP 发出时已告知未提供预算",
+        "首笔 HTTP 发出时已告知本次采用默认 $2",
+        "首笔 HTTP 发出时已告知该额度是本任务总预算"
+      ]
+    },
+    {
+      "id": "M-D13-ad",
+      "req": "D13.v",
+      "why": "新建任务缺预算且未给 --budget 时虽告知默认 $2，task.json 根 budget_usd 和费用账总上限却写成 $3，扩大了本任务获确认的总额度。",
+      "file": "scripts/collect.ts",
+      "find": "      freshLimit = parseUsdMicros('2')",
+      "replace": "      freshLimit = parseUsdMicros('3')",
+      "by": "test",
+      "kills": [
+        "缺预算新建任务在唯一 task.json 根写入美元 JSON 数值 2",
+        "默认 $2 确认后费用账仍以 2000000 微美元为本任务总上限"
+      ]
+    },
+    {
+      "id": "M-D13-ae",
+      "req": "D13.a",
+      "why": "配置根上已给合规 budget_usd 却被默认 $2 覆盖，零美元与小额授权被擅自扩大。",
+      "file": "scripts/collect.ts",
+      "find": "    if (Object.hasOwn(state, 'budget_usd')) freshLimit = readCostLimit(state)",
+      "replace": "    if (Object.hasOwn(state, 'budget_usd')) { readCostLimit(state); freshLimit = parseUsdMicros('2') }",
+      "by": "test",
+      "kills": [
+        "根上合规预算 0 美元仍按原预算结束，不能改用默认额度",
+        "根上合规预算 0 美元不被默认 $2 覆盖",
+        "根上合规预算 0.005 美元不被默认 $2 覆盖"
+      ]
+    },
+    {
+      "id": "M-D13-af",
+      "req": "D13.w",
+      "why": "配置根上已有合规 budget_usd，stderr 仍误称未提供预算、本次采用默认 $2 总预算。",
+      "file": "scripts/collect.ts",
+      "find": "    if (Object.hasOwn(state, 'budget_usd')) freshLimit = readCostLimit(state)",
+      "replace": "    if (Object.hasOwn(state, 'budget_usd')) { freshLimit = readCostLimit(state); if (replacementLimit === undefined) console.error('未提供预算，默认采用任务总预算 $2。') }",
+      "by": "test",
+      "kills": [
+        "根上已给合规预算 0 美元时 stderr 不误称采用默认 $2",
+        "根上已给合规预算 0.005 美元时 stderr 不误称采用默认 $2",
+        "根上已给合规预算 2 美元时 stderr 不误称采用默认 $2"
+      ]
     }
   ],
   "exemptions": [
