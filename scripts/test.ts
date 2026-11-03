@@ -14054,7 +14054,7 @@ try {
   const disclosure = (text: string) => {
     const compact = text.replace(/\s+/g, '')
     const absent = '(?:(?:未|没有|尚未)(?:提供|指定|设置|给出)|缺少|缺失|缺席)'
-    const two = '(?:\\$2(?:\\.0+)?(?![\\d.])|2(?:\\.0+)?(?:美元|USD))'
+    const two = '(?:\\$2(?:\\.0+)?(?![\\d.])|(?<![\\d.])2(?:\\.0+)?(?:美元|USD))'
     return {
       missing: new RegExp(`${absent}[^。；]*预算|预算[^。；]*${absent}`).test(compact),
       defaultTwo: new RegExp(`(?:默认|缺省)[^。；]*${two}|${two}[^。；]*(?:默认|缺省)`).test(compact),
