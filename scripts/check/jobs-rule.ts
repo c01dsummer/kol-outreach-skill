@@ -283,7 +283,9 @@ export function noStdio(kid: { stdin?: unknown }): boolean {
  *
  * 这条判定在别处已经有一份（`mutate-restore.ts` 停测试那一步的 `pid === undefined`
  * 就返回），而硬来那一步漏了 —— 同一个坑的第二处。抽在这里是为了第三处不要再漏，
- * 也为了它能被变异守住：留在入口里的话，指着入口的变异会被「自己验自己」拦下。
+ * 也为了它能被变异守住：`mutate.ts` 在自检的验证基础设施闭包里，指着它、显式写了
+ * `by` 且不是 `test` 的变异会被「自己验自己」拦下；不写 `by` 或写 `by: test` 不被拦，
+ * 但当前需求测试没走到硬来时跳过未启动对象的那段接线，留在入口里就只有自检夹具守这一半。
  */
 export function neverStarted(kid: { pid?: number }): boolean {
   return kid.pid === undefined
