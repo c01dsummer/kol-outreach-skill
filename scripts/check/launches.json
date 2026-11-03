@@ -64,6 +64,7 @@
     {"config":"[\"selfcheck\",[\"task-list-probe-invalid\"]]","launches":18,"maxPaid":{"id":"M-D16-aa","paid":12},"running":0,"stopping":4},
     {"config":"[\"test\",[\"d11-posts\"]]","launches":0,"maxPaid":null,"running":14,"stopping":0},
     {"config":"[\"test\",[\"d12-ledger\"]]","launches":0,"maxPaid":null,"running":21,"stopping":0},
+    {"config":"[\"test\",[\"d13-default-budget-entry\"]]","launches":9,"maxPaid":null,"running":5,"stopping":0},
     {"config":"[\"test\",[\"d14-cost-persistence\"]]","launches":0,"maxPaid":null,"running":4,"stopping":0},
     {"config":"[\"test\",[\"d15-as-hashtag\"]]","launches":0,"maxPaid":null,"running":5,"stopping":0},
     {"config":"[\"test\",[\"d15-discovery-sources\"]]","launches":0,"maxPaid":null,"running":6,"stopping":0},
