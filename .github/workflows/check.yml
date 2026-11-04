@@ -38,6 +38,18 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      # 装 bubblewrap：观察器的外层断网要 bwrap（`--unshare-net`），这个镜像里没有 —— run 41838288608 在
+      # ubuntu-24.04 上三处（/usr/bin、/bin、/usr/local/bin）都找不到，KOL-21 独立测试包那一组一个入口也起不来，
+      # 自检组 observer-cert-entry 也只验得到「认证不成立」那一半。需求所有者定的就是「CI 装 bubblewrap」
+      # （ADR-70 末尾「CI 装 bubblewrap」一节）：只装这一个包，不动用户命名空间、AppArmor 这类设置。
+      # 后两行打出装在哪、什么版本，读 CI 日志用；断网起不起得来这一步不判，看检查里那几组自己打的。
+      # 包从网上装：源连不上或装不上，这一跑就红在这一步（排在 npm ci 前面，后面的不白跑）
+      - name: 装 bubblewrap（外层断网要它）
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bubblewrap
+          command -v bwrap
+          bwrap --version
       # 2026-09-04 起 `npm ci` 从两秒变成七分钟,同样 6 个包、
       # 同样命中缓存。--prefer-offline 有缓存就不回源问元数据,--no-audit 去掉装完
       # 之后那次审计请求

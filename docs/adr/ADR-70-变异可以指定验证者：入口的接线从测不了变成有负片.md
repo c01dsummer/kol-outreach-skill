@@ -3637,3 +3637,42 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 - 仓库根下没有 `node_modules`、tsx 却能从仓库外的上级目录解析到时，运行器在导入那一刻就抛（取 `node_modules` 真实目录那一步），不是起入口后判加载故障。本仓库的检查链、认证与 worker 目录都有 `node_modules`，没碰到。
 - 照搬的另三样（`scripts`、`package.json`、`tsconfig.json`）本身是软链时会怎样，没核；本仓库与 worker 目录里它们都是真实文件。pnpm 那种包在 `node_modules` 下另一层、再用相对软链指过去的布局，按道理换算后仍在沙箱里，没跑过。
 - 本块除自己的开发自测外未经独立复核；开工检查第五节 A 第 2 条要求这类修法交 Codex 审。
+
+## CI 装 bubblewrap：需求所有者定的，只装包，认证照旧由整合方做（KOL-21，2026-11-05）
+
+**这一块是什么。** 写方是 KOL-21 的代码作者，在 T 那一片的 PR #425 上从 `3a437ae` 只追加提交（提交与推送由派工方做）。依据是开工检查第三节 B（本机 `/workspace/kol21-d3fix/pf/preflight-KOL-21-20261105.md` 第 154–195 行，不进仓库）。档是本改动：`process/6-INTEGRATE.md` 第 182 行，修法「改一处工作流」照样是本改动，本 PR 让一个老错「从无害变有害的,也算」—— 主干上 CI 没有 bwrap 是无害的（`observer-cert-entry` 起得来、起不来两种都判，第 3522 行记 run `41089190437` 通过），#425 接上独立测试包之后 CI 因此红（见下「上一次 CI」）。开工检查把它算作阻塞项（`process/6-INTEGRATE.md` 第 210–219 行），只做最小修补：装一个包。上面各节一个字不动，只在文件末尾追加。
+
+**裁定。** 第 3522 行当时写的是「要让 CI 能认证，还是继续只在本机认证，由需求所有者定，本块不代定，也不改 CI」，第 3627 行与 ADR-152 `2026-11-02#2`、`#3` 也停在这里。需求所有者丸子 2026-11-05 07:06 CST 答卡 t279s2318（卡题「T 合入前的三件事」），这一问的原话是「CI 缺 bwrap 怎么办？ CI 装 bubblewrap」。经 KOL 开发助手转达，原消息本节没见到，读的是派工方的转录（本机 `/workspace/kol21-d2/maruko-confirmation-t279s2318.md`，SHA256 `9d13b50cb416ba744079c9a8b52903bc792a56d118c2ada0bc836c10defb6bf7`，不进仓库）。这是卡片答复，不是 GitHub 上的批准痕迹；拍板的痕迹在丸子合入 #425 时才有（`process/2-CHANGE.md` 第 164–165 行）。本节只做这句话说的事。
+
+**上一次 CI。** #425 head `3a437ae` 的 run `41838288608`（job `126602843570`，2026-11-04 21:27 CST 起跑，被测的是合并提交 `629e9e6`，镜像 `ubuntu-24.04` `20261025.353.1`，Node 22.23.4）结论 failure。日志读的是派工方给的副本（本机 `/workspace/kol21-d3fix/ci-job-126602843570.log`，SHA256 `95c130e91680cef5fd2fe4442068fc666bbe8546369ac894aba477e6e72cf860`，不进仓库）：`npm run check` 停在变异一步 —— 子集基线 `selfcheck --only=kol21-independent` 以 1 退出，下面逐条列了 17 行失败：G4-01 那一行是「找不到 bwrap（/usr/bin/bwrap、/bin/bwrap、/usr/local/bin/bwrap）：外层断网起不来」，其余是由它派生的设施故障（「Z1：断网认证不成立，未起任何入口」）与夹具失格（资格阳性 G2-00、G3-02 判 facility），以及 D6.y、D13.v、D13.u 三条「没有一例判红、设施故障或夹具失格」不成立；汇总两行是「✗ 脚本自检：98 项失败」与「✗ 变异测试：1 种子集未通过正常代码基线，未施加任何变异」。变异一步红了，`&&` 链后面的完整自检、审计、启动数三步都没跑，所以这一跑没有打出 `observer-cert-entry` 那一行（日志里搜不到「bwrap 断网」）。本机同一 head、有 bwrap 时，同一个子集只有 G6-01～03 三项失败，原因是 Q3 的 `effective_priority ["待核实","待核实"]`，不是设施（派工方给的 `selfcheck-3a437ae.log`，SHA256 `427efac037991ef43ccf08ef17da2e8b67a7d034867ee2a4817b283b20111580`，不进仓库）。
+
+**改了什么。** 只改 `.github/workflows/check.yml`：在 `actions/setup-node` 之后、`npm ci` 之前加一步「装 bubblewrap（外层断网要它）」，四行命令：`sudo apt-get update -q`、`sudo apt-get install -y -q --no-install-recommends bubblewrap`、`command -v bwrap`、`bwrap --version`。后两行只把装在哪、什么版本打进日志，读 CI 用；这一步不判断网起不起得来。注释照文件现有写法写了为什么、引本节。排在 `npm ci` 前面：装不上就红在这一步，后面的不白跑。别的步骤一个字节没动。「墙钟对比（只报数）」那一步原样：`scripts/ci-wallclock-contract-test.ts` 第 16–37 行按步骤名找唯一的那一步、要它里面唯一的 `run: |`；`scripts/check/mutations.json` 里 `M-H65-a`、`b`、`c` 的 find 串也都在那一步里。改后核过：那个步骤名与三条 find 串在文件里各只出现一次，新加的 `run: |` 在那一步的范围之外。
+
+**不改什么。**
+- 认证执行者照第 3327 行：整合方 KOL 开发助手在 PR head 的全新干净克隆里照冻结命令跑；认证之后 PR 又追加了提交的，照旧在最终 head 上重跑（第 3520、3615 行）。CI 装了 bwrap 也不是认证。
+- 自检组 `observer-cert-entry` 在 CI 上那一跑照第 3367 行「这一跑不是认证」；KOL-21 独立测试包那一组在 CI 上自己做的断网认证也一样。CI 绿、或 CI 上起得来断网，都不替认证作证（第 3522 行同一句）。
+- 不改用户命名空间、AppArmor、sysctl 这类改变安全模型的设置：裁定原话只有「CI 装 bubblewrap」。装上之后 CI 仍起不来断网，或探针与认证对不上，就停下报告、等新的裁定，不在本 PR 里扩。
+- 代码、测试、变异、冻结测试包一个字节没动；G6-01～03 照旧夹具失格（同一张卡「G6 算产品违规，测试保持红」）。`AGENTS.md` 第 89–90 行（CI 在推 `main` 与每个 PR 上跑同一条链）仍对，不改；`docs/ARCHITECTURE.md`、ADR-152（人判栏由人填）、ADR-97 都不改。
+- `scripts/check/launches.json` 本次不重写。`AGENTS.md` 第 71–72 行列的三样（`scripts/` 下的 `.ts`、`scripts/check/mutations.json`、`package-lock.json`）本次都没碰。`check.yml` 在源指纹里（`scripts/check/claims.ts` 第 67–92 行的 `sourceFiles`，第 170–173 行的 `mutationSourceIdentity` 用它），改了它，变异一步写的启动数文件要在这棵树上重新跑出来（CI 每跑都重算）；树内那份摘要只记各配置的启动数与 findings，不记源指纹（`scripts/check/launch-rule.ts` 的 `summaryText`）。`3a437ae` 之后欠着的那次重写照旧欠着（#425 描述「整跑未施变、launches.json 未重写」，转引开工检查第 120 行）：G6 修好之前 mutate 的子集基线红、写不回，等 merge 主干之后与 GAP-24c 一起做（开工检查第三节 B 第 3 条）。
+
+**欠条。** 推送之后新 head 的 CI 读数还没有，三张都写「待 CI 读数核」，本节不记已还。
+- 第 3385 行（`observer-run.ts` 起进程那一半没有变异守着，起不来 bwrap 的机器上只剩「拒绝」那一半有人看）：「CI 上确认起不来 bwrap」那一条第 3522 行记已满足，改 `observer-run.ts` 里 `certifyIsolation` 或起入口那几行的那一条第 3627 行记已响；本节没碰 `observer-run.ts`。装包只动得到它后半句「起不来的机器上只剩「拒绝」那一半有人看」—— CI 起得来以后，CI 上「拒绝」以外那一半也有人看（`observer-cert-entry` 跑认证入口、T 那一组真起入口）；前半句「没有变异守着」不因装包改变，余额照旧。待 CI 读数核。
+- 第 3387 行（CI 上有没有 bwrap、能不能建网络命名空间）：它要读的那一行第 3522 行读过（run `41089190437`，「起不来」）。装上之后「有没有」由新加那一步的 `command -v bwrap`、`bwrap --version` 打出；「能不能建」要读 `observer-cert-entry` 那一行打的「本机起得来／起不来 bwrap 断网」。照开工检查第三节 B 第 176 行，只有 CI 日志打出「起得来」、认证也成立，才另写「⚠️ 已还」。待 CI 读数核。
+- 第 3562 行（`observer-cert-entry` 的探针只用 `--unshare-net --ro-bind / /`，认证用 `sandboxArgs` 全套，允许用户命名空间却不让挂 proc 的机器上会探针起得来、认证不成立而假红；查找 bwrap 那半条不成立）：本节没碰 `selfcheck.ts` 的 `observer-cert-entry` 组，也没碰 `observer-rule.ts` 的 `sandboxArgs`；剩下「有一台机器上探针与认证结论对不上」那一样要在 CI 日志上核 —— CI 正是一台新装 bwrap、可能限制用户命名空间的机器。待 CI 读数核。
+
+**CI 读数在哪一步读得到（推断，没在 CI 上核）。** G6 修好之前，新 head 上 `kol21-independent` 的子集基线照旧红（本机同一子集 3 项失败），变异一步仍以 1 退出，照上一次的停法，`observer-cert-entry` 那一行、审计与启动数两步在 CI 上都还打不出来：第 3387、3562 行要读的那一行，要等 G6 修补合入、#425 merge 主干之后的那一跑。在那之前，新 head 的 CI 上读得到的是：新加那一步装上没有、打的路径与版本；变异一步里 `kol21-independent` 子集基线列的失败项，与 run `41838288608` 比 —— 只剩 G6-01～03、原因是 Q3，可以读成 CI 上那一组的断网认证成立、入口起得来；仍有「断网认证不成立」或别的设施原因，就照上面「不改什么」第三条停下报告。墙钟那一步检查红了不跑，装包的耗时这一跑也看不到；能比的时候照 `process/6-INTEGRATE.md` 第 319–326 行，旧的那一跑是失败，只能写「无从比较」。读数写进 PR 正文或 E1 那一节（先例第 3520 行），不为记读数单独换 head。
+
+**本次回访记录。** 已读 ADR-152 最新一块 `2026-11-02 · 本跑 a718951`：`#2`（第 3385 行）、`#3`（第 3387 行）就是上面「欠条」前两条，处理见那里；需求所有者的答复在本节「裁定」，那两行的人判栏仍由人填，本节不改 ADR-152。`#1`（ADR-134 第 158 行）本节未参考。先例是第 3631 行。
+
+**推送前本机核对（本节写完的工作区，Node v24.22.1）。** `npm run -s adr` 通过（157 条，编号 1–184，索引一致）。完整 `npm test` 没跑完：崩在 `h-prebuilt-no-config-contract`，那一组的冻结合同以 `NODE_MAJOR_UNSUPPORTED` 拒跑（只认 Node 22），`h-prebuilt-no-config-lifecycle-contract` 单跑也一样；崩之前有 5 条红 —— `d19-resume` 一条（深层嵌套那一例「Maximum call stack size exceeded」）、`h-launch-preload` 四条（Node 24 的 `[DEP0190] DeprecationWarning` 混进玩具的 stderr），都是 Node 版本带来的，这两组不读 `check.yml` 与本文件。与本改动相关的单跑都过了：`h-ci-wallclock-core`、`-cpu`、`-unavailable`、`-identity`、`-identity-parent-read` 五组 79 条断言全过，三组墙钟合同打的 `run=f25157f1…` 与 run `41838288608` 日志里那三行相同（墙钟那一步的正文逐字节没变，整份 `check.yml` 的 SHA256 由 `6c1003a1…` 变成 `5e555f80…`）；崩点之后没跑到的九组（`h-prebuilt-owner-descendant-contract` 到 `h-observer-contexts`）单跑 71 条全过。Node 22 上的完整 `npm test` 留给派工方推送前跑。
+
+**台账。** `npm run -s adr-ledger`（Node v24.22.1，见下「没核的」）改前（`3a437ae`）544 条（重启条件 505、重开讨论 13、死亡条件 26），以 0 退出、没有孤儿；改后（本节写完的工作区）同样 544 条、三类数目不变，本节的行一条也没被抽出。本节不新登欠条，写到条件的地方都没用台账抽取的写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD`）。
+
+**没核的。**
+- 新 head 的 CI 还没跑：装不装得上、装上的版本、CI 上起不起得来断网，都没核；三张欠条都待 CI 读数。
+- `ubuntu-latest`（run `41838288608` 落在 `ubuntu-24.04` 镜像 `20261025.353.1`）可能限制非特权用户命名空间（比如 AppArmor 那一层），装上 bwrap 也可能起不来断网；没核。起不来就停下报告，不改设置。
+- 包从网上装，CI 多了一种因外部原因红的可能（apt 源连不上、包索引变了）；装包要多少秒没量；CI 装上的 bubblewrap 与本机 0.12.0 是不是同一个版本没核（那一步会打出来）。
+- run `41838288608` 的 98 项失败：本节只读了日志里逐条列出的 17 行与两行汇总，98 项逐项的核对证据在派工方处，本节没核。
+- 「新 head 上 `observer-cert-entry` 在 G6 修好之前打不出来」是照本机日志与上一次 CI 的停法推的，没在 CI 上核。
+- 本节的本机核对在 Node v24.22.1 上跑：本会话的权限取不到别的 node，Node 22 上没跑。
+- 本节除自己核对外未经独立复核。
