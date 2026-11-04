@@ -3583,3 +3583,57 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 > ⚠️ 更正：ADR-70 第 3566 行 · 改在本 PR（本块所在的提交）：第 3566 行说第 3549 行那句「自本提交起不再成立」，措辞不准。第 3549 行说的「这条断言」是七之五原有那条（`scripts/test.ts` 第 1803 行，umask 022、期望 0644）：写死 0644 的实现照旧过得了它，这一点 `69ec7ea` 之后仍成立。`69ec7ea` 之后不再成立的是「七之五放行写死 0644」—— 七之五整体（第 1803 行 022 那条与第 1812 行 002 那条一起）拒绝写死 0644，补上这个洞的是第 1812 行那条（umask 002、期望 0664）。PR #416 正文记的手工施变（`scripts/lib/atomic.ts` 第 80 行写死 `mode ?? 0o644`，umask 077、022 各跑一次）就是这样：022 那条绿、002 那条红；复审 d1ac6dfa 在内存文件系统上复现的结果相同。第 3566 行原文不动，本 PR 只在文件末尾追加 · 来源：PR #416 第 2 轮 Codex 复审（run `20261031T181530-d1ac6dfa`，锚 `69ec7ea`）非阻塞第 2 条，即第 3581 行那张欠条 · 档：本改动(第 2 轮,不阻塞) · 去向：本块所在的提交。需求所有者丸子 2026-11-01 12:48 CST 定在本欠条 PR 里追加欠条、更正、已还三行，经 KOL 开发助手转达，原话本块没见到。
 
 > ⚠️ 已还：ADR-70 第 3581 行 · 还在本 PR（本块所在的提交）：第 3583 行那块「⚠️ 更正」把第 3566 行那句改准 —— 七之五整体（022、002 两条一起）拒绝写死 0644，原有 022 那条（`scripts/test.ts` 第 1803 行）单独仍放行，补洞的是 002 那条（第 1812 行）。第 3566 行原文不动；第 3581 行那张欠条原文不动，照旧被台账抽出（台账只抽取、不判已还）。登记与更正放在同一条欠条 PR 里，依据 `process/6-INTEGRATE.md` 第 256 行（欠条 PR 只追加 `⚠️` 块）与第 204–205 行（块合进主干就改不了，修就是在下一条欠条 PR 里再追加一块说这一块哪里不对）；谁在什么时候定的见第 3583 行。本行与第 3583 行都不是欠条块，写的时候避开了台账抽取的几种写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD`）。
+
+## 观察器修补：仓库的 node_modules 是软链时入口加载不到 tsx（KOL-21，2026-11-04）
+
+**这一块是什么。** 写方是观察器提供者一系的新上下文（计划 `plan-v2.md` 第 490 行那一种：不是测试作者，也不是整合方、审方），在 T 那一片的 PR #425 上从 `fb41a8a` 只追加提交。缺陷由整合方的 D2 比对找到（本机 `/workspace/kol21-d2/D2-report.md` 第 46–94 行，不进仓库）：`scripts/check/mutate.ts` 第 811、1082 行总是把 worker 目录与基线目录的 `node_modules` 建成指向仓库 `node_modules` 的软链；#425 新加的三条 `by: "selfcheck"` 变异让 `npm run mutate` 在这种目录里跑 `kol21-independent` 组，那一组起的每一跑入口都判加载故障，子集基线红、一条变异也没施（D2 在 `fb41a8a` 干净克隆里的完整检查日志 `check-clean.log` 第 5838 行）。档照开工检查（本机 `/workspace/kol21-d3fix/pf/preflight-KOL-21.md` 第四节动作 1）：本改动 —— 老错由本 PR 从不可达变成可达（`process/6-INTEGRATE.md` 第 182、188 行），所以修在本 PR；它让检查链变红，也是阻塞项，只做最小修补。修补放在 T 上、由提供者写、由整合方在新 head 认证，是计划 §6-4（第 3327 行）那套认证安排在 T 上的类推，不是新口径。上面各节一个字不动，只在文件末尾追加。
+
+**缺陷。** `observer-run.ts` 把 tsx 加载器的地址取成 `require.resolve` 交回的真实路径（解开了软链）。沙箱只在仓库根下照搬 `node_modules` 这一项：bwrap 照搬时跟着源端的软链走，目标的内容出现在仓库根下那条路上，目标自己那条真实路径在空根沙箱里不存在。入口进程加载 `--import` 第一项时以 `ERR_MODULE_NOT_FOUND` 退 1，预加载没跑、没写 armed，判加载故障。判定是 fail-closed 的，没有一跑因此判成通过或语义红；错在运行器给的地址没跟上布局 —— 布局本来就是这么设计的（需求测试 `h-observer-rule` 的布局把 `node_modules` 写成指向别处的软链，期望的就是只照搬仓库根下那一项）。第 3343 行写的 `--import <tsx 包的 loader.mjs>`、第 3434 行的「限制」都没说到这个前提；认证是在 `npm ci` 出真实目录的干净克隆里做的，碰不到这条路。
+
+**修法：加载器地址换回仓库根下的 `node_modules`，沙箱布局不动。**
+- `observer-rule.ts` 新导出纯函数 `sandboxModulePath(仓库根, node_modules 的真实目录, 解析出的路径)`：落在 `node_modules` 真实目录里的，换成仓库根下 `node_modules` 的那条路；落在外面的照原样交回 —— 沙箱里加载不到，照旧判加载故障，不为它多绑宿主上的别处。`observer-run.ts` 起入口用的加载器地址经它换算，别的行没改。
+- 没选「软链类的仓库路径另外只读绑定它的真实目标」：那样沙箱里多出一处宿主路径，还得另核目标会不会落在仓库根（或它的上级）、`.git`、output、memory、gh 配置目录上，布局里也要多记一份真实路径。换地址的做法里 `sandboxArgs` 一个字节没改，沙箱看得见的东西与修补前完全相同（第 3347 行那份清单照旧）；`node_modules` 本来就是真实目录时换算前后地址相同，干净克隆里起入口的参数与修补前逐项相同。
+- 已有的导出类型与签名都没改（第 3276–3324 行那份摘录、冻结测试包的 `contract.ts` 都不受影响），只多一个导出。
+
+**测试与变异。**
+- `h-observer-rule` 加两条断言：解开软链的路径落在 `node_modules` 真实目录里就换回仓库根下那条路，`node_modules` 本来就在仓库根下时不变；落在外面的照原样，名字开头相同的别处目录也算外面。
+- `h-observer-run` 加一条：测试照 worker 目录的建法自己另搭一棵树（只复制运行器与判定两个文件，`node_modules` 建成指向本仓库 `node_modules` 的软链），起一个带 tsx 加载器的 node 进程从那棵树导入运行器、打出加载顺序，断言加载器地址落在那棵树根下的 `node_modules` 里，并先核那个 `node_modules` 确实是软链；读不出加载顺序时给一个明示的失败值，不让异常冲出组。不进沙箱、不要 bwrap，也不靠本仓库自己的 `node_modules` 是不是软链（`process/4-VERIFY.md`「未执行的路径」第 1 条）。头一版在测试进程里直接导入那棵树的运行器：经 tsx 跑时过，`npm run compile` 之后变异跑在预编的 JS 上，仓库外那份 `.ts` 里的 `./observer-rule.js` 解析不到，整组崩、子集基线红（开发时的完整检查里撞上的），所以改成另起进程，这一组因此多一次启动。
+- 变异 `M-H70-ae`（地址照真实路径给、不换算）、`M-H70-af`（只看开头字符、不看目录边界）由 `h-observer-rule` 验；`M-H70-ag`（运行器不经换算，就是修补前那一行）由 `h-observer-run` 验。`req` 都是 `harness`，`by` 都是 `test`；`M-H70-a`～`ad` 照旧，观察器变异共三十三条。
+
+**设施各文件**（本块所在提交的树；只有前两个变了，其余与第 3464–3474 行相同）：
+
+| 文件 | SHA256 |
+|---|---|
+| `scripts/check/observer-rule.ts` | `e1a8eb3aa19d16cd01e4997ac07995098ff33ec060293eddc932c33d7046d3a2` |
+| `scripts/check/observer-run.ts` | `681df5f8b90ce2d6f4a461bfc546a6574d19a766819cb6048c5d8454cea1307a` |
+| `scripts/check/observer-preload.ts` | `ed2fb7234a94da1af91b81088559828b11f31556d21fd571b33cc21e24c5da82`（不变） |
+| `scripts/check/observer-cert.ts` | `90f28c6671680e9f1cb7b577722d96ac557a7a6776157f072b82abfb76c3f9ca`（不变） |
+| `scripts/check/observer-cert.sh` | `9cd7574b08ccab30cf8bb3f29ba754d63e76064f44dc18af2aca2a5e3a90c9ec`（不变） |
+
+`package-lock.json` 没变（`6fc97367b7c757beca5c6d3dc3e3af77880f6c4954599178900fab3d0e6b0543`）。
+
+**冻结命令与认证。** `observer-cert.sh`、`observer-cert.ts` 都没改，冻结命令照第 3462 行。本块没做认证，也没往 `output/kol21-observer-cert/` 写东西。认证执行者照旧是整合方（计划 §6-4），在新 head 的全新干净克隆里照第 3462 行原样跑两条；`963299c` 上的 `certified 19/19`（第 3516 行）不替新 head 作证。干净克隆里 `npm ci` 出的是真实目录，认证证明不了软链这条路修好了，那一半看下面的开发自测与 `npm run mutate` 的 `kol21-independent` 子集基线。
+
+**开发时自测（非认证）。** 本机 Linux 6.12、Node v22.23.4、bubblewrap（`/usr/bin/bwrap`），本机起得来断网；会话 umask 077，下面的 `npm run mutate` 与 `observer-cert.ts` 由 node 先把 umask 设成 022 再起。
+- 在仓库外另搭一棵树（复制 `scripts`、`package.json`、`tsconfig.json`，`node_modules` 照 `mutate.ts` 第 811 行建成指向本仓库 `node_modules` 的绝对软链），照 D2 复现 A 那一段认证断网、用对照夹具 `control` 起一跑。修补前那棵树：认证成立，`control` 判 `facility`／`loader`、以 1 退出、没有事件文件，stderr 是加载器真实路径的 `ERR_MODULE_NOT_FOUND`；修补后那棵树：`observed`、以 0 退出、第一条事件是 armed。两跑的 bwrap 参数在 `--` 之前 55 项逐项相同，只差 `--` 之后那一项加载器地址。
+- 修补后另搭一棵同样的软链树，在里面跑 `observer-cert.ts`（不是认证命令，`--out` 指仓库外的本机目录）：断网认证成立，四个入口的阳性、零记录与十条设施故障对照 19 项都成立；整体不成立，唯一的原因是那棵树不是 git 检出（被测树那一项本来就该这样判）。
+- 本仓库（`node_modules` 是真实目录）里 `facilityIdentity()` 的加载顺序与修补前的算法结果相同。
+- 三条新变异在副本里逐条施上、只跑对应那一组，点名的断言都红，不施变的副本都绿。
+- 先 `npm run compile`、再全量 `npm run mutate`（与检查链同一先后，需求测试跑在预编的 JS 上；代码、测试与变异已是本块所记的样子），以 0 退出、约 359 秒：维护比较 `251d2d6..fb41a8a` 路由／正文 0 条、执行配置 6 条（本块三条新变异，加 #425 原有的 `M-D6-bo`、`M-D13-ag`、`M-D13-ah`）、验证者布局 1 份；`selfcheck --only=kol21-independent` 子集基线成功 —— 修补前 D2 那次完整检查就红在这一步；`h-observer-rule`、`h-observer-run` 子集基线成功；1749 条变异全部被抓到（自检验 271 条、需求测试验 1478 条），三条新变异都是「被抓到」。
+- `scripts/check/launches.json` 在跑过上面那次 `npm run mutate` 的树上由 `npm run launches -- --write` 写回：多出 `["selfcheck",["kol21-independent"]]`（启动 2、3 条；#425 自 D1 起欠着的就是这一行），`["test",["h-observer-rule"]]` 的条数 18 改 20，`["test",["h-observer-run"]]` 的启动 0 改 1、条数 2 改 3，其余不变，共 177 种配置。
+- 完整 `npm run check` 在本块写完之后的工作区上跑，结果交整合方，不为它追加提交。
+
+**欠条。**
+- 第 3385 行（`observer-run.ts` 起进程那一半没有变异守着）：条件之一是「下一条改 `observer-run.ts` 里 `certifyIsolation` 或起入口那几行的 PR」。本块改了起入口用的加载器地址那一行，算响。改的这一行有 `M-H70-ag` 守着（`h-observer-run`，不要 bwrap）；那一半的其余各处照旧没有变异守着，余额不变。另一条条件第 3522 行记已满足、缺口没还：要让 CI 能认证还是继续只在本机认证，仍由需求所有者定（ADR-152 `2026-11-02#2`、`#3` 两行人判栏空），本块不代定，也不改 CI。
+- 第 3562 行（`observer-cert-entry` 的 bwrap 探针与认证所用参数不一致）：条件里的三样本块都没碰上 —— `selfcheck.ts` 的 `observer-cert-entry` 组没改；`observer-rule.ts` 的 `sandboxArgs` 函数体逐字节没变（新函数插在它前面，它的行号下移 11 行），上面开发自测里修补前后的沙箱参数逐项相同；本机探针起得来、认证成立，两边结论对得上。所以这一张没响，原样留着。
+- ADR-134 第 177 行：没碰 `budget-gate`、`render-order`，不响。
+
+**本次回访记录。** 已读 ADR-152 最新一块 `2026-11-02 · 本跑 a718951`：`#2` 就是第 3385 行，处理见上；`#1`（ADR-134 第 158 行）、`#3`（第 3387 行）本块未参考。
+
+**台账。** `npm run -s adr-ledger`（Node v22.23.4）改前（`fb41a8a`）544 条（重启条件 505、重开讨论 13、死亡条件 26），改后（本块写完的工作区）同样 544 条、三类数目不变，本块的行一条也没被抽出。本块不新登欠条，写到条件的地方都没用台账抽取的写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD`）。
+
+**没核的。**
+- CI（`ubuntu-24.04`）上照旧起不来 bwrap（第 3522 行）。三条新断言与三条变异都不要 bwrap，在 CI 上照样跑；修补对起入口本身的效果只在起得来 bwrap 的机器上看得到。
+- 仓库根下没有 `node_modules`、tsx 却能从仓库外的上级目录解析到时，运行器在导入那一刻就抛（取 `node_modules` 真实目录那一步），不是起入口后判加载故障。本仓库的检查链、认证与 worker 目录都有 `node_modules`，没碰到。
+- 照搬的另三样（`scripts`、`package.json`、`tsconfig.json`）本身是软链时会怎样，没核；本仓库与 worker 目录里它们都是真实文件。pnpm 那种包在 `node_modules` 下另一层、再用相对软链指过去的布局，按道理换算后仍在沙箱里，没跑过。
+- 本块除自己的开发自测外未经独立复核；开工检查第五节 A 第 2 条要求这类修法交 Codex 审。

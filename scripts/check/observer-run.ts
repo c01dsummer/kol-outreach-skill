@@ -16,14 +16,15 @@ import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   ENTRIES, MASKED_FILES, REPO_PATHS, SYSTEM_PATHS, ghDirs, judgeRun, layoutId, netcutProblems, observerEnv, rwProblems, scriptProblems, sandboxArgs,
-  type ApiKey, type Layout, type Observation, type ObserverEntry, type PathFact, type ProbeReport, type ResponseScript,
+  sandboxModulePath, type ApiKey, type Layout, type Observation, type ObserverEntry, type PathFact, type ProbeReport, type ResponseScript,
 } from './observer-rule.js'
 
 const REPO = realpathSync(fileURLToPath(new URL('../../', import.meta.url)))
 // 预加载不是 import 进来的，是经 --import 装进入口进程的；验证基础设施闭包按源码里的 from 抽边（注释里的也算，
 // `verifier-rule.ts`），这一句把它算进闭包：from './observer-preload.js'
 const PRELOAD = fileURLToPath(new URL('./observer-preload.ts', import.meta.url))
-const TSX = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+// 加载器的地址走仓库根下的 node_modules：它是软链时，解开的真实路径不在沙箱里（`sandboxModulePath`）
+const TSX = pathToFileURL(sandboxModulePath(REPO, realpathSync(join(REPO, 'node_modules')), createRequire(import.meta.url).resolve('tsx'))).href
 const NODE = realpathSync(process.execPath)
 const EXEC_ARGV = ['--import', TSX, '--import', pathToFileURL(PRELOAD).href]
 const sha = (b: Buffer | string) => createHash('sha256').update(b).digest('hex')

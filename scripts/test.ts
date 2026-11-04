@@ -102,8 +102,8 @@ import {
   closure, importsOf, infraClosure, selfVerifying, selfcheckSummary,
 } from './check/verifier-rule.js'
 import {
-  API_KEY_PLACEHOLDER, SCRIPT_SCHEMA, answer, ghDirs, judgeRun as judgeObservation, layoutId, netcutProblems, observerEnv, readEvents, rwProblems, sandboxArgs, scriptProblems,
-  zeroVerdict, type Armed, type Judged, type Layout, type NetcutFacts, type Observation, type ProbeReport, type RequestEvent, type ResponseScript, type RunFacts,
+  API_KEY_PLACEHOLDER, SCRIPT_SCHEMA, answer, ghDirs, judgeRun as judgeObservation, layoutId, netcutProblems, observerEnv, readEvents, rwProblems, sandboxArgs, sandboxModulePath,
+  scriptProblems, zeroVerdict, type Armed, type Judged, type Layout, type NetcutFacts, type Observation, type ProbeReport, type RequestEvent, type ResponseScript, type RunFacts,
 } from './check/observer-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
@@ -18917,6 +18917,13 @@ await group('h-observer-rule', () => {
     ['--unshare-net', '--die-with-parent', '--new-session', '--ro-bind', '/usr', '/usr', '--symlink', 'usr/bin', '/bin', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
       '--ro-bind', '/opt/node', '/opt/node', '--ro-bind', '/r/scripts', '/r/scripts', '--ro-bind', '/r/node_modules', '/r/node_modules', '--tmpfs', '/h/.config/gh',
       '--ro-bind', '/e/empty', '/r/.env', '--ro-bind', '/e/empty', '/r/.env.local', '--bind', '/w', '/w', '--bind', '/e', '/e', '--chdir', '/w'])
+  // 上面那份布局里 node_modules 是指向 /elsewhere 的软链，沙箱照搬的是 /r/node_modules：加载器的地址要落在那底下
+  eq('观察器加载器地址：解开软链的真实路径落在 node_modules 的真实目录里，换回仓库根下 node_modules 那条路（沙箱照搬的那一处）；node_modules 本来就在仓库根下时不变',
+    [sandboxModulePath('/r', '/elsewhere', '/elsewhere/tsx/dist/loader.mjs'), sandboxModulePath('/r', '/r/node_modules', '/r/node_modules/tsx/dist/loader.mjs')],
+    ['/r/node_modules/tsx/dist/loader.mjs', '/r/node_modules/tsx/dist/loader.mjs'])
+  eq('观察器加载器地址：落在 node_modules 真实目录外面的照原样交回（只是名字开头相同的也算外面），不换成仓库里的别的文件',
+    [sandboxModulePath('/r', '/elsewhere', '/elsewhere2/tsx/dist/loader.mjs'), sandboxModulePath('/r', '/elsewhere', '/opt/tsx/dist/loader.mjs')],
+    ['/elsewhere2/tsx/dist/loader.mjs', '/opt/tsx/dist/loader.mjs'])
   eq('观察器可写目录：盖住仓库根、根目录、gh 配置目录的上一级，落在仓库里只读的那几样、.git 或系统目录里，各报一处；/tmp 底下与仓库的 output 底下不报',
     ['/r', '/', '/h', '/r/scripts/x', '/r/.git/hooks', '/usr/lib', '/tmp/w', '/r/output/x'].map(d => rwProblems(L, [d]).length), [1, 1, 1, 1, 1, 1, 0, 0])
   eq('观察器 gh 配置目录：宿主 HOME 下那一处，加上环境里指过的 XDG_CONFIG_HOME/gh 与 GH_CONFIG_DIR；相对路径不认，重复只留一个',
@@ -19001,6 +19008,23 @@ await group('h-observer-run', async () => {
       [go({ script: { schema: 'x', rules: [] } }), go({ entry: 'zzz' }), go({ evidenceDir: dir })].map(x => x.outcome.kind), ['fixture', 'fixture', 'fixture'])
     const cert = certifyIsolation({ evidenceDir: join(dir, 'iso'), bwrap: join(dir, 'no-such-bwrap') })
     eq('观察器运行器：bwrap 读不出时认证不成立，交回原因，不起任何探针', [cert.certified, cert.problems.length, existsSync(join(dir, 'iso', 'probe.mjs'))], [false, 1, false])
+    // node_modules 是指向别处的软链（worktree、变异的 worker 目录都这样建）：照这个建法另搭一棵只有运行器与判定的树，不靠本仓库
+    // 自己的 node_modules 是不是软链。沙箱照搬的是树根下的 node_modules，软链的目标不在沙箱里
+    const linked = join(dir, 'linked')
+    mkdirSync(join(linked, 'scripts', 'check'), { recursive: true })
+    for (const f of ['observer-run.ts', 'observer-rule.ts']) cpSync(join(repo, 'scripts', 'check', f), join(linked, 'scripts', 'check', f))
+    writeFileSync(join(linked, 'package.json'), '{ "type": "module" }\n')
+    symlinkSync(realpathSync('node_modules'), join(linked, 'node_modules'))
+    // 另起一个带 tsx 加载器的进程导入那棵树里的运行器：本进程可能跑在预编的 JS 上（`npm run compile` 之后的变异），仓库外的 .ts 它认不全
+    const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+    const got = spawnSync(process.execPath, ['--import', tsx, '--input-type=module', '-e',
+      `const m = await import(${JSON.stringify(pathToFileURL(join(linked, 'scripts', 'check', 'observer-run.ts')).href)}); console.log(JSON.stringify(m.facilityIdentity().execArgv))`],
+      { encoding: 'utf8', timeout: 60_000 })
+    const modules = join(realpathSync(linked), 'node_modules')
+    let loader: string
+    try { loader = String(JSON.parse(got.stdout)[1]) } catch { loader = `读不出加载顺序（退出码 ${got.status}）：${(got.stderr ?? '').slice(0, 300)}` }
+    eq('观察器运行器：node_modules 是指向别处的软链时，加载器地址落在仓库根下的 node_modules 里（沙箱照搬的那一处），不是软链目标的真实路径',
+      [realpathSync(modules) !== modules, loader.startsWith(`${pathToFileURL(modules).href}/`) ? '落在仓库根下的 node_modules 里' : loader], [true, '落在仓库根下的 node_modules 里'])
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 

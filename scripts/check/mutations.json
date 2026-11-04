@@ -19690,6 +19690,36 @@
       "kills": ["观察器 DNS：入口绕过 fetch 自己解析域名、吞掉失败，观察器在查询之前记故障、叫停入口"]
     },
     {
+      "id": "M-H70-ae",
+      "req": "harness",
+      "why": "加载器地址照解开软链的真实路径给：仓库的 node_modules 是指向别处的软链时，那个位置不在沙箱里，入口加载不到加载器，每一跑都判加载故障",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "return resolved.startsWith(base) ? posix.join(repoRoot, 'node_modules', resolved.slice(base.length)) : resolved",
+      "replace": "return resolved",
+      "by": "test",
+      "kills": ["观察器加载器地址：解开软链的真实路径落在 node_modules 的真实目录里，换回仓库根下 node_modules 那条路（沙箱照搬的那一处）；node_modules 本来就在仓库根下时不变"]
+    },
+    {
+      "id": "M-H70-af",
+      "req": "harness",
+      "why": "只看路径开头的字符相同就当成落在 node_modules 里：名字开头相同的别处目录被换成仓库里另一条路，加载的不是解析出来的那个文件",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "const base = `${modulesReal}/`",
+      "replace": "const base = modulesReal",
+      "by": "test",
+      "kills": ["观察器加载器地址：落在 node_modules 真实目录外面的照原样交回（只是名字开头相同的也算外面），不换成仓库里的别的文件"]
+    },
+    {
+      "id": "M-H70-ag",
+      "req": "harness",
+      "why": "运行器起入口时不经换算、直接用解开软链的加载器真实路径：仓库的 node_modules 是软链时入口在沙箱里加载不到加载器，每一跑都判加载故障",
+      "file": "scripts/check/observer-run.ts",
+      "find": "const TSX = pathToFileURL(sandboxModulePath(REPO, realpathSync(join(REPO, 'node_modules')), createRequire(import.meta.url).resolve('tsx'))).href",
+      "replace": "const TSX = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href",
+      "by": "test",
+      "kills": ["观察器运行器：node_modules 是指向别处的软链时，加载器地址落在仓库根下的 node_modules 里（沙箱照搬的那一处），不是软链目标的真实路径"]
+    },
+    {
       "id": "M-D13-ab",
       "req": "D13.w",
       "why": "新建任务缺预算且未给 --budget 时不再说明未提供预算、本次采用默认 $2 作为本任务总预算。",
