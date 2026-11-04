@@ -11,9 +11,14 @@
  *   `zeroVerdict`、`readEvents`（ADR-70 末尾那一节，`Zero` 是修复轮 1 修订后带 side/cause 的那一版）。前三个原样传入；
  *   `readEvents` 交回的事件逐条浅拷贝一份，只为过类型（接口类型的事件不能直接当 `Record` 用），字段一个不增不减。
  * - `sortForOutput`：`scripts/lib/rows.ts` 的导出函数，同一个数组原样传进去（G5-03 要看调用后输入有没有被改）。
- * - `conditions`、`reviews`：一条都不登记、一条复核都不给。GAP 与 E 前提的补齐要需求方的答案，语义复核要独立复核方
- *   对着本跑的文本写；依赖它们的断言照冻结单落在 not-judged、review-pending，不算过、也不算红。
- * - `e2`、`e3`、`creatorCheck`：E-2、E-3 契约与公开的夹具资格检查都还没公开，不传。
+ * - `conditions`：只登冻结单 B 节把「建议问谁」写成整合方、整合方又答得出出处的三条（冻结单 :1586、:1592），每条 `ref` 写着出处：
+ *   GAP-18（补法是下面的 `creatorCheck`）；GAP-24a、GAP-24b 是读实现得出的事实，只作资格前提（夹具有没有区分力），
+ *   不当任何断言的期望。GAP-24c 要正本或对外文档直接给出「原文件不被改动」，没找到，不登；GAP-09、GAP-20 登了也不判，不登；
+ *   其余（GAP-07①④、GAP-10、GAP-39、GAP-40 与 E-1、E-2、E-3）本片不登。没登的，依赖它的断言照冻结单落在 not-judged。
+ * - `reviews`：一条复核都不给。语义复核要独立复核方对着本跑的文本写（GAP-25 也只是复核记录的键，不是前提登记），
+ *   依赖它的断言落在 review-pending。not-judged、review-pending 都不算过、也不算红。
+ * - `creatorCheck`：只照公开的 `Creator` 类型声明核 G5、G6 的夹具记录是不是合法 `Creator`（冻结单 :1586 的「公开的夹具资格检查」）。
+ * - `e2`、`e3`：E-2、E-3 契约还没由实现方公开、经需求方逐字确认（冻结单 :1797），不传。
  *
  * 判定一律在冻结套件里：这里不读、不改、不合并任何一条结论。pass、red、fixture、facility、review-pending、not-judged、
  * not-covered 原样留在报告里，由读报告的一侧（自检组 `kol21-independent`）分开报。
@@ -27,11 +32,11 @@
 import { existsSync, readdirSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { CASES, runSuite } from './kol21-independent/suite.ts'
-import type { ObserverFacility, SortForOutput } from './kol21-independent/lib/contract.ts'
+import type { ConditionId, ObserverFacility, Resolution, SortForOutput } from './kol21-independent/lib/contract.ts'
 import { certifyIsolation, facilityFiles, runObserved } from './check/observer-run.js'
 import { readEvents, zeroVerdict } from './check/observer-rule.js'
 import { sortForOutput } from './lib/rows.js'
-import type { Creator } from './lib/types.js'
+import type { AdoptionPriority, Creator, Dimension, Eligibility, Fit, Platform, RecentPost, ReviewStatus, Tier } from './lib/types.js'
 
 const USAGE = '用法: tsx scripts/kol21-independent-wiring.ts --work <已存在的空目录> --report <报告文件> [--only <用例号,…>]'
 const args = process.argv.slice(2)
@@ -58,15 +63,100 @@ const facility: ObserverFacility = {
   readEvents: text => { const r = readEvents(text); return { events: r.events.map(e => ({ ...e })), problems: r.problems } },
 }
 // 冻结包里没有 Creator 的完整声明（GAP-18），G5 按导出签名把冻结单的候选原文当参数传进来；这里只在类型上认作
-// `Creator[]`，运行时就是那个数组本身。G5 在 GAP-18 登记补齐之前不调它（冻结单 G5 各例的闸门）。
+// `Creator[]`，运行时就是那个数组本身。G5 先过 GAP-18 的登记与下面的 `creatorCheck`（冻结单 G5 各例的闸门）才调它。
 //
 // R 片（`claude/kol-21-u9p1-independent-claim`，ADR-183 第 96 行）要补的 U9×P1 独立认领，用的就是从这里接进去的 G5
 // 排序函数层与 G6 名单层（真实 render 入口）那几例：只用冻结了的用例，不改断言、不改冻结字节。交点的认领只写在需求测试里
 // （自检的入口认领记录不收交点），本片不认领 U9×P1。
 const sort: SortForOutput = creators => sortForOutput(creators as Creator[])
 
+// 公开的夹具资格检查（GAP-18）：只照 `scripts/lib/types.ts` @251d2d6 的类型声明 —— `Creator` 在 :270-408，它用到的
+// `Platform`、`Dimension`、`Tier`、`Fit`、`ReviewStatus`、`Eligibility`、`AdoptionPriority`、`RecentPost` 在 :8-9、:72-80、:112-123 ——
+// 核一条记录是不是合法 `Creator`。只读声明，不读任何函数体，也不看排序怎么写。报三种问题：声明里没有的键（冻结单 :1424
+// 第 (2) 件：层级、分数若不叫 `tier`、`score`）、缺的必填字段（第 (1) 件）、值的类型不符；声明是这里没展开的类型的字段
+// （G5、G6 的夹具都不带）在场也报「判不了」，不放过。下面两张表的键、必填与否、每个键能写的类型都由 typecheck 对着声明核：
+// 声明一改，这里先编译不过，不会悄悄跟丢。
+interface Kinds {
+  str: string; num: number; bool: boolean; 'str|null': string | null; 'str[]': string[]; 'num[]': number[]; geo: Record<string, number>
+  platform: Platform; dimension: Dimension; tier: Tier; fit: Fit; review: ReviewStatus; eligibility: Eligibility; priority: AdoptionPriority
+  posts: RecentPost[]
+}
+type KindOf<V> = { [k in keyof Kinds]: [Kinds[k]] extends [V] ? [V] extends [Kinds[k]] ? k : never : never }[keyof Kinds]
+type Must<T> = { [K in keyof T]-?: {} extends Pick<T, K> ? never : K }[keyof T]
+type Table<T> = { [K in keyof T]-?: K extends Must<T> ? KindOf<T[K]> : `${KindOf<Exclude<T[K], undefined>> | 'opaque'}?` }
+const CREATOR: Table<Creator> = {
+  platform: 'platform', handle: 'str', user_id: 'str?', nickname: 'str', followers: 'num?', following: 'num?', post_count: 'num?',
+  bio: 'str|null?', bio_links: 'str[]', verified: 'bool', is_private: 'bool?', avatar: 'str?', profile_url: 'str',
+  source_keyword: 'str', source_dimension: 'dimension', source_tasks: 'num[]?', discovery_sources: 'opaque?', recent_posts: 'posts?',
+  email: 'str|null?', email_verified: 'bool?', audience_geo: 'geo?', fake_follower_score: 'num?',
+  cross_platform: 'bool?', linked_handle: 'str?', merged_into: 'str?',
+  score: 'num?', fit: 'fit?', fit_reason: 'str?', tier: 'tier?', outreach_draft: 'str?', eligibility: 'eligibility?',
+  adoption_priority: 'priority?', observed_content: 'str?', work_evidence: 'str?', natural_integration: 'str?', mismatch_risk: 'str?',
+  brand_calibration_version: 'str?', review_status: 'review?', linked_agent_review: 'opaque?',
+  manual_eligible: 'opaque?', manual_adopted: 'opaque?', manual_content_fit: 'opaque?', manual_engagement: 'opaque?',
+  manual_comment_authenticity: 'opaque?', manual_reject_reason: 'str?', manual_note: 'str?', manual_reviewed: 'bool?',
+  manual_round_id: 'str?', manual_feedback_accounts: 'opaque?', effective_priority: 'priority?', effective_priority_account_key: 'str?',
+  account_assessment: 'opaque?', linked_account_assessment: 'opaque?', tier_adjustments: 'opaque?', previously_recommended: 'str?',
+}
+const POST: Table<RecentPost> = {
+  id: 'str?', desc: 'str', plays: 'num?', likes: 'num?', comments: 'num?', shares: 'num?', published_at: 'str?', is_pinned: 'bool?',
+}
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+const among = <T extends string>(set: Record<T, true>) => (v: unknown) => typeof v === 'string' && Object.hasOwn(set, v)
+const IS: { [k in keyof Kinds]: (v: unknown) => boolean } = {
+  str: v => typeof v === 'string', num: v => typeof v === 'number', bool: v => typeof v === 'boolean',
+  'str|null': v => v === null || typeof v === 'string',
+  'str[]': v => Array.isArray(v) && v.every(x => typeof x === 'string'),
+  'num[]': v => Array.isArray(v) && v.every(x => typeof x === 'number'),
+  geo: v => isObj(v) && Object.values(v).every(x => typeof x === 'number'),
+  platform: among<Platform>({ tiktok: true, instagram: true }),
+  dimension: among<Dimension>({ category: true, scene: true, competitor: true, audience: true }),
+  tier: among<Tier>({ A: true, B: true, C: true }),
+  fit: among<Fit>({ '✅': true, '⚠️': true, '❌': true }),
+  review: among<ReviewStatus>({ 未评: true, 已评: true, 待重评: true }),
+  eligibility: among<Eligibility>({ 合格: true, 不合格: true, 待核实: true }),
+  priority: among<AdoptionPriority>({ 优先联系: true, 备选: true, 待核实: true, 暂不采用: true }),
+  posts: v => Array.isArray(v), // 元素另照 POST 表逐条核
+}
+function shape(table: Record<string, string>, v: unknown, at: string): string[] {
+  if (!isObj(v)) return [`${at} 不是对象`]
+  const probs = Object.keys(v).filter(k => !Object.hasOwn(table, k)).map(k => `${at}.${k} 不是声明里的字段`)
+  for (const [k, spec] of Object.entries(table)) {
+    const kind = spec.replace(/\?$/, '')
+    if (!Object.hasOwn(v, k)) { if (kind === spec) probs.push(`${at} 缺必填字段 ${k}`); continue }
+    if (kind === 'opaque') probs.push(`${at}.${k}：声明里的类型这里没展开，判不了合不合法`)
+    else if (!IS[kind as keyof Kinds](v[k])) probs.push(`${at}.${k} = ${JSON.stringify(v[k])} 不是声明的类型（${kind}）`)
+    else if (kind === 'posts') (v[k] as unknown[]).forEach((p, i) => probs.push(...shape(POST, p, `${at}.${k}[${i}]`)))
+  }
+  return probs
+}
+const creatorCheck = (c: unknown): string[] => shape(CREATOR, c, isObj(c) && typeof c.handle === 'string' ? c.handle : '（没有 handle 的记录）')
+
+// 前提登记：只这三条，理由在文件头。answer 只填冻结套件闸门认的那两种之一（INTEGRATION.md 前提登记表）。
+const MAIN = '@251d2d6'
+const conditions: Partial<Record<ConditionId, Resolution>> = {
+  'GAP-18': {
+    resolved: true,
+    ref: `scripts/lib/types.ts:270-408 ${MAIN}（公开的 Creator 类型声明；所用类型在 :8-9、:72-80、:112-123）；补法是公开的夹具资格检查，即本文件的 creatorCheck，只依据声明，不读函数体`,
+  },
+  'GAP-24a': {
+    resolved: true, answer: 'reads-memory',
+    ref: `实现事实，只作资格前提：collect 续跑名单为空也走到读记忆 —— scripts/collect.ts:440-472 main() 在 run()、enrichProfiles() 之后` +
+      `无条件 persist() 再调 finalize；scripts/lib/pipeline.ts:101-115 finalize 无条件调 filterByMemory；scripts/lib/memory.ts:392-401 ` +
+      `filterByMemory 先 readMemory()（:259-291，读 cwd 下 :8 的 memory/creators.json），不看名单空不空，读不出且没给 --ignore-memory ` +
+      `就抛 MemoryUnreadable；scripts/collect.ts:473-501 接住后退 2。${MAIN}`,
+  },
+  'GAP-24b': {
+    resolved: true, answer: 'not-read',
+    ref: `实现事实，只作资格前提：预留保存失败之后 collect 不读记忆 —— scripts/providers/tikhub.ts:167 每次 fetch 之前 budget.reserve；` +
+      `scripts/lib/budget.ts:80-93 reserve 落盘失败即抛 CostError('persistence-failed')；scripts/collect.ts:444-449 main() 的 catch 对它` +
+      `只尽力 persist() 一次再原样抛出，走不到 :469-472 的 finalize（collect 读记忆只有这一处：scripts/lib/pipeline.ts:115 → ` +
+      `scripts/lib/memory.ts:397），由 :557-560 退 1。${MAIN}`,
+  },
+}
+
 try {
-  const r = runSuite({ workRoot: work, facility, sortForOutput: sort, conditions: {}, reviews: [], only, reportPath: report })
+  const r = runSuite({ workRoot: work, facility, sortForOutput: sort, creatorCheck, conditions, reviews: [], only, reportPath: report })
   console.log(JSON.stringify({ cases: r.cases.length, runs: r.runs.length, verdicts: r.verdicts, items: r.items, facility: facilityFiles() }))
 } catch (e) {
   console.error(`冻结套件跑到一半抛出：${e instanceof Error ? e.stack ?? e.message : String(e)}`)
