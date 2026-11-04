@@ -19757,6 +19757,42 @@
         "根上已给合规预算 0.005 美元时 stderr 不误称采用默认 $2",
         "根上已给合规预算 2 美元时 stderr 不误称采用默认 $2"
       ]
+    },
+    {
+      "id": "M-D6-bo",
+      "req": "D6.y",
+      "why": "collect 以 --config 新建任务、配置根上的 budget_usd 不合规（null、字符串、超出精度）时，这类开跑前就查出的预算配置问题以退出码 1 结束，不是约定的 2：退出码说成了运行中出错，用户分不出该改配置还是该重试。",
+      "file": "scripts/collect.ts",
+      "find": "    if (replacementLimit !== undefined) freshLimit = replacementLimit\n  } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }",
+      "replace": "    if (replacementLimit !== undefined) freshLimit = replacementLimit\n  } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1) }",
+      "by": "selfcheck",
+      "kills": [
+        "KOL-21 独立测试包 D6.y：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格"
+      ]
+    },
+    {
+      "id": "M-D13-ag",
+      "req": "D13.u",
+      "why": "collect 以 --config 新建任务、配置根上没有 budget_usd 而给了合规 --budget 时，建出的 task.json 根 budget_usd 与 cost_ledger.limit_micro_usd 都没取 --budget 给的金额，照默认 $2 写下：用户明说的本任务总预算被换成了另一个数。",
+      "file": "scripts/collect.ts",
+      "find": "    if (replacementLimit !== undefined) freshLimit = replacementLimit\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "KOL-21 独立测试包 D13.u：新建给了合规 --budget 时根 budget_usd 与费用账上限都取该金额（G1-02U），不判红、不是设施故障或夹具失格"
+      ]
+    },
+    {
+      "id": "M-D13-ah",
+      "req": "D13.v",
+      "why": "collect 以 --config 新建任务、配置根上没有 budget_usd 且没给 --budget 时，stderr 照旧说采用默认 $2，建出的 task.json 根 budget_usd 与 cost_ledger.limit_micro_usd 却是 $1：落盘的本任务总预算与告知用户的不一致。",
+      "file": "scripts/collect.ts",
+      "find": "      freshLimit = parseUsdMicros('2')",
+      "replace": "      freshLimit = parseUsdMicros('1')",
+      "by": "selfcheck",
+      "kills": [
+        "KOL-21 独立测试包 D13.v：新建缺预算按 $2 落盘、不合规预算与其余前置检查拒绝、续跑不借默认、不回写配置所涉各例，没有一例判红、设施故障或夹具失格"
+      ]
     }
   ],
   "exemptions": [
