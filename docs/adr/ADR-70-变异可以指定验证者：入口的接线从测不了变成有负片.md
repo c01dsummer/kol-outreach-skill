@@ -3676,3 +3676,12 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 - 「新 head 上 `observer-cert-entry` 在 G6 修好之前打不出来」是照本机日志与上一次 CI 的停法推的，没在 CI 上核。
 - 本节的本机核对在 Node v24.22.1 上跑：本会话的权限取不到别的 node，Node 22 上没跑。
 - 本节除自己核对外未经独立复核。
+
+**补记：CI 加 sysctl 关掉用户命名空间限制，试一次（2026-11-05）。** 只追加在本节末尾，上面各段原文不动。上面「不改什么」第三条「不改用户命名空间、AppArmor、sysctl 这类改变安全模型的设置」自本补记起有一样不再成立：`kernel.apparmor_restrict_unprivileged_userns` 这一个 sysctl。那一条其余的话照旧：AppArmor 配置文件不动；关了之后仍起不来，就停下报告，不在本 PR 里扩。
+- 裁定：需求所有者答卡 t282s2335，原话「CI 加 sysctl 关掉用户命名空间限制试一次」。原话是派工方在派工单里转述的；转录（本机 `/workspace/kol21-d2/maruko-confirmation-t282s2335.md`，不进仓库）本补记的会话读不到（权限拒绝），原文、答卡时刻与 SHA256 都没核。和 t279s2318 一样是卡片答复，不是 GitHub 上的批准痕迹（`process/2-CHANGE.md` 第 164–165 行）。
+- 原因：装上 bubblewrap 之后的 run `41937484646`（job `126949514987`），G4-01 报 `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`：bwrap 找到了，在新建的网络命名空间里给回环配地址被拒，正是上面「没核的」第二条说的那种可能。这一行也是派工方转述的；日志副本（本机 `/workspace/kol21-d3fix/s1/ci-job-126949514987.log`，不进仓库）与派工方的 `step1-results.md` 本补记的会话都读不到，这一跑的 head、镜像与别的失败项都没读。「限制来自 `kernel.apparmor_restrict_unprivileged_userns`」是推断，由新加那一步第一行打出的值核。
+- 改了什么：只改 `.github/workflows/check.yml`。「装 bubblewrap（外层断网要它）」之后、`npm ci` 之前加一步「关掉用户命名空间限制（bwrap 断网要它）」，三行：`sysctl kernel.apparmor_restrict_unprivileged_userns` 打出改前的值，`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`，再打一次改后的值；这个键不存在时红在这一步。上一步注释里「只装这一个包，不动用户命名空间、AppArmor 这类设置」改成「这一步只装这一个包」，并写明那条限制由下一步关、AppArmor 的配置文件两步都不动。别的步骤一个字节没动：「墙钟对比（只报数）」那一步的步骤名与 `M-H65-a`、`b`、`c` 的 find 串仍各只出现一次，新加的 `run: |` 在那一步的范围之外。不加 `--privileged`，不改别的 sysctl，不碰 AppArmor 配置文件。代码、测试、变异、冻结测试包一个字节没动，G6-01～03 照旧红；`scripts/check/launches.json` 照上面同一条理由不重写。
+- 只做这一项：「试一次」就是这一步。关了之后 CI 仍起不来断网，或起得来而探针与认证结论对不上，照上面「不改什么」第三条停下报告、等新的裁定。
+- 欠条：第 3385、3387、3562 行三张照旧待 CI 读数核，本补记不记已还。要读什么、在哪一步读得到，照上面「欠条」「CI 读数在哪一步读得到」两段，多一样：新加那一步前后打出的两个值。回访记录同上面「本次回访记录」，ADR-152 不改。
+- 推送前本机核对（本补记写完的工作区，Node v22.23.4）：完整 `npm test` 以 0 退出（「全部通过（覆盖 46 条需求）」），是在加本补记之前、`check.yml` 已改好的工作区上跑的；加完本补记以后，读真仓库决策记录的 `h-check-rules` 单跑过、`npm run -s adr` 过、`npm run -s adr-ledger` 照旧 544 条（重启条件 505、重开讨论 13、死亡条件 26）、没有孤儿，本补记的行一条也没被抽出。三组墙钟合同打的 `run=f25157f1…` 与上面记的相同，整份 `check.yml` 的 SHA256 由 `5e555f80…` 变成 `0006beda…`。
+- 没核的：新 head 的 CI 还没跑，关了之后断网起不起得来、认证成不成立都没核；「改的只是这一跑的 runner、不留到下一跑」是照 GitHub 托管 runner 一跑一台的通常做法说的，没在本仓库的 CI 上核。本补记除自己核对外未经独立复核。
