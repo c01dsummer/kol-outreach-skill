@@ -85,12 +85,12 @@ function g6(c: Ctx, id: string): void {
   if (!hs.includes(U)) return c.fixture('Q2', `交付名单缺 ${U}；另报「可能违反 P1.g：粉丝数未查询的人应放行」（P1.g；semantic-fit.md:48）`)
   if (t.rows.length !== 2 || !deepEqual([...hs].sort(), [K, U].sort())) return c.fixture('Q2', `kol.csv 数据行 ${t.rows.length}，handle ${JSON.stringify(hs)}`)
   c.pass('Q2', `kol.csv 2 行，handle = {${U}, ${K}}`)
-  // Q3：两行 tier 都为 B、score 相同、effective_priority 都为空白
+  // Q3：两行 tier 都为 B、score 相同、effective_priority 都为待核实（:1528；同 tier 写法逐字比较，不 trim）
   const rowOf = (h: string) => t.rows[hs.indexOf(h)]
   const [rk, ru] = [rowOf(K), rowOf(U)]
-  const q3 = rk[it] === 'B' && ru[it] === 'B' && rk[is] === ru[is] && (rk[ie] ?? '').trim() === '' && (ru[ie] ?? '').trim() === ''
+  const q3 = rk[it] === 'B' && ru[it] === 'B' && rk[is] === ru[is] && rk[ie] === '待核实' && ru[ie] === '待核实'
   if (!q3) return c.fixture('Q3', `tier ${rk[it]}/${ru[it]} score ${rk[is]}/${ru[is]} effective_priority ${JSON.stringify([rk[ie], ru[ie]])}`)
-  c.pass('Q3', '两行 tier B、score 相同、effective_priority 空白（D21.d、D21.p；output-format.md:150）')
+  c.pass('Q3', '两行 tier B、score 相同、effective_priority 待核实（D21.d、D21.p；D25.a、D25.b、D25×P1（req:1857）、U9.h、U9.j、output-format.md:140、:150）')
   // Q4：两行 score 都为 20（同分手算 :1508-1520）
   if (!(rk[is] === '20' && ru[is] === '20')) return c.fixture('Q4', `score ${rk[is]}/${ru[is]}；另把「CSV 分数与公开加分规则手算不符」报给需求方`)
   c.pass('Q4', '两行 score 都为 20（semantic-fit.md:21-28 手算）')
