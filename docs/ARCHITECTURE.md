@@ -199,7 +199,7 @@
 | `scripts/check/observer-cert.ts` | 检查 | — | 观察器的认证入口：断网认证 → 四个入口各一条阳性、一条零记录 → 设施故障对照 → `summary.json`（被测提交、设施与每份证据的 SHA256、逐项结论），全部成立才以 0 退出。冻结命令是下一行；自检组 `observer-cert-entry` 在临时目录里起它验接线，那一跑不是认证 |
 | `scripts/check/observer-cert.sh` | 检查 | — | 冻结的认证命令（`sh scripts/check/observer-cert.sh`），整合方在 PR head 的干净克隆里照跑，证据写 `output/kol21-observer-cert/`；不在检查链里（自检只认带 shebang 的 `.ts`），本文件的 SHA256 记在 ADR-70 末尾 |
 | `scripts/kol21-independent/` | 检查 | D6 D13 D16 D17 D19 D28 P1 P3 U9 | KOL-21 独立测试包的冻结原字节（ADR-183 第 95 行 T 那一片）：独立上下文只照冻结规格单写成，不 import 任何产品实现、观察器源码、writer/reader 或比较器；106 例，每例的结论分 pass、red、fixture、facility、review-pending、not-judged、not-covered，后三种不算过也不算红。**一个字节都不改**：改了就不再是冻结的那一份；接入面只认目录里 `INTEGRATION.md` 写的那几样，由下一行接 |
-| `scripts/kol21-independent-wiring.ts` | 检查 | D6 D13 | 冻结套件的接线：观察器的四个公开调用面与 `rows.ts` 的排序函数原样接进去，登记 GAP-18、GAP-24a、GAP-24b 三条前提（GAP-18 的补法即公开夹具资格检查 `creatorCheck` 一并接上；GAP-24a、GAP-24b 只作资格前提；GAP-24c 未登），未登记任何 E 前提、不给任何语义复核，跑一遍、原样写出冻结套件自己的报告，不判、不改、不合并任何结论。自检组 `kol21-independent` 把它当被测对象起（不进自检的工具表：那张表是验证基础设施闭包的种子，进了会把 `rows.ts` 一路拉进闭包），照报告分开报七种结论；具名断言只给 D6.y、D13.v、D13.u 各一条，所涉各例全数判过才认领。交点 U9×P1 不在这里认领 |
+| `scripts/kol21-independent-wiring.ts` | 检查 | D6 D13 | 冻结套件的接线：观察器的四个公开调用面与 `rows.ts` 的排序函数接进去（`readEvents` 交回的事件逐条浅拷贝一份，只为过类型、字段一个不增不减，其余原样传入），登记 GAP-18、GAP-24a、GAP-24b 三条前提（GAP-18 的补法即公开夹具资格检查 `creatorCheck` 一并接上；GAP-24a、GAP-24b 只作资格前提；GAP-24c 未登），未登记任何 E 前提、不给任何语义复核，跑一遍、原样写出冻结套件自己的报告，不判、不改、不合并任何结论。自检组 `kol21-independent` 把它当被测对象起（不进自检的工具表：那张表是验证基础设施闭包的种子，进了会把 `rows.ts` 一路拉进闭包），照报告分开报七种结论；具名断言只给 D6.y、D13.v、D13.u 各一条，所涉各例都判 pass、且每例里的每一项也都是 pass 才认领（例判 pass 但还带 not-judged 项的，不认领）。交点 U9×P1 不在这里认领 |
 
 <!-- END:ANCHORS -->
 
