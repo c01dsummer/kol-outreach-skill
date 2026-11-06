@@ -3710,3 +3710,50 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 > 本次回访记录：已读 ADR-152 最新一块 `2026-11-02 · 本跑 a718951`，`#2`、`#3`（第 3385、3387 行）上面只记本块没读它们要读的那一行、不还，`#1` 未参考；ADR-152 不改。本块不是欠条块，写的时候避开了台账抽取的几种写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD`）。
 
 > ⚠️ 欠条：自检组 `observer-cert-entry`（本条第 3367 行）在 PR #426 作者的本机上红，#426 作者记为环境红 —— 那台机器上 Node v22 跑 `npm run check` 以 1 退出，唯一的红项是这一组；在干净的主干 `251d2d6`（#426 的开出点）上单跑这一项同样红，所以不是 #426 引入的，#426 只改文档、修不了，没在 #426 修。红在哪一条具名断言、那台机器打的是「本机起得来」还是「起不来」bwrap 断网、为什么红，#426 正文都没写；它提到的本机日志 `main-baseline-observer-cert.log` 在仓库外，本块没读。与第 3385、3387、3562 行三张欠条是不是同一缺口也没核，本块不还、不改那三张 · 来源：PR #426 描述末尾「已发现但不在本 PR 修的」第 2 条（作者自记，不是评审发现；没有讨论串、没有替身评论）；去向由需求所有者丸子 2026-11-05 在 t295s2502 定：不进 #426 的欠条 PR #427，交给 #425／ADR-70；档由丸子在 t300s2566 定为登记。两张都是卡片答复，经 KOL 开发助手转达，原话本块没见到，不是仓库里的拍板痕迹（`process/2-CHANGE.md` 第 164–165 行） · 档：登记（#426 作者自己看到的，不是评审发现） · 重启条件：下次有改动碰到 `scripts/check/selfcheck.ts` 的 `observer-cert-entry` 组、认证入口 `scripts/check/observer-cert.ts`、`scripts/check/observer-run.ts` 的 `certifyIsolation` 或 `scripts/check/observer-rule.ts` 的 `sandboxArgs`，或同一缺口再被点名（又有一台机器或一条 PR 报 `observer-cert-entry` 本机红），先到为准
+
+## G3-09 冻结件换入：新增 task.json 个数分三种情形判 U=0（KOL-21，2026-11-06）
+
+**这一块是什么。** 本块是 PR #425 换入 G3-09 冻结件的决策记录。分支 `claude/kol-21-independent-testpack`，底 `8a980bb4bebc918534284033feda6a7fb6bb4e69`，追加普通提交（本块所在的提交；提交与推送由派工方做）。依据：`process/4-VERIFY.md` 第 321 行，确实需要改测试的，必须写进决策记录说明理由；ADR-183 第 95 行，T 由整合方嵌回原字节，记录追加在 ADR-70 末尾。口径照第 3689–3710 行那块（第 3700 行「本块同时是 `146c3f6` 换入冻结件的决策记录」）。上面各节一个字不动，只在文件末尾追加。
+
+**换了什么。** 换入两件，每件只改一个 hunk：
+- `scripts/kol21-independent/cases/g3.ts`：SHA256 `a64d2e939b3d688ff2ee9f55e13f193e47f9fb8e78b34c1cfe8f5417bb175b9c` 换成 `12edd0a828521654e0eca11d092efa6f62a808881985a7d378e4d5f63541d832`。只改 G3-09 的 judge，原第 317–318 行换成新第 317–322 行。新增个数取运行前后快照里新出现的、名为 `task.json` 的文件个数（口径同 TREE-NOTASK），个数本身不判。新增 0 个：原来记 `c.pass`，改记 `c.nj`（「若已建」前提不成立，没有判定对象）。恰好 1 个：照旧判 U=0。2 个以上：逐个用 `J.taskAfter` 读、逐个判 U=0。
+- `scripts/kol21-independent/INTEGRATION.md`：SHA256 `093a3f8bf1237713177f3ac93638a6d3af50a1166c2f03dd8549d31a91dbeae8` 换成 `dd79249f1e28c5c6fefec459a81f757649a11c15e9b8156d0dec4d3c6f87e970`。只改第 3 行的冻结单哈希：旧 `579a4af936f26157cf823f2f3ecde8565cb4d6e48c17311a35ec1d307dea921a`，新 `cabd676f583337487f63f7e8bf4a1cbaad05f2f848f8824db29c4fe7a05e0405`。
+
+权威清单是本机 `/workspace/kol-outreach-skill/output/kol21-indep/C2-freeze-g3/freeze-tests.sha256`（40 行，自身 SHA256 `2d883defb7ff6ef8186e88a686fd51b7a70b223dac1953af04a3177d9996e71d`，不进仓库）。这个目录正式取代 `C2-freeze-g6q3/`，作为 D1、E1、R 的引用对象；旧目录保留、不改。
+
+清单里其余各件：
+- `scripts/kol21-independent/` 下另 13 件与冻结清单逐字节相同，没动：`cases/` 下的 `common.ts`、`g1.ts`、`g2.ts`、`g4.ts`、`g56.ts`，`fixtures.ts`，`lib/` 下的 `contract.ts`、`fsnap.ts`、`json.ts`、`judge.ts`、`table.ts`，`runs.ts`，`suite.ts`。
+- 另 25 件不进仓库：`out/author-log.md`、`out/selfcheck/` 下 8 件、`out/tools/` 下 16 件。它们不是测试本体，是运行产物与作者侧材料。照 `docs/ARCHITECTURE.md` 第 68–69 行，运行产物放 `output/`、不进仓库，要引用时写本机路径与 SHA256。
+- 接线源文件 `scripts/kol21-independent-wiring.ts`、`scripts/check/selfcheck.ts` 没动；`scripts/check/mutations.json`、`docs/ARCHITECTURE.md` 没动。
+
+**为什么改测试。**
+- 来源：PR #425 CodeRabbit 评审 `5794181227` 讨论串 [r4487771790](https://github.com/c01dsummer/kol-outreach-skill/pull/425#discussion_r4487771790)（`scripts/kol21-independent/cases/g3.ts` 约第 318 行，锚 `e284492`，R1）。
+- 问题：旧判法拿 `!t.rel` 当「未新建」。`J.newTask` 只在新增恰好 1 个时给 `rel`（`scripts/kol21-independent/lib/judge.ts` 第 437 行），所以 `!t.rel` 说的是「新增个数不是恰好 1」，不是「没新建」。新建了 2 个以上 `task.json` 时，旧判法照样记「未新建、本项成立」，一个 `U = 0` 也没判就放过了。
+- 改的是判法的分支，要判的照旧是 U=0，只是 2 个以上时不再漏判；不是为了让测试变绿去改期望。
+- 改法走冻结件路线：B2 改冻结单 → B3r8 → 丸子确认 → C1g3 → RV → C2-g3 → 本换入。T 这一侧只换入、不改冻结字节。冻结单由 F=`579a4af9…921a` 换成 S=`cabd676f…0405`。
+
+**链与出处。**
+- B3r8：GLM 三段 PASS。verdict 本机 `/workspace/kol21-t-v4/b3r8-glm/B3r8-glm-verdict.md`，SHA256 `8bddc0a249af29393ef3f88a19a566b54031a3e95e9b2abbf799aeeb31aefdaf`，不进仓库。
+- C1g3：作者 run `20261106T163651-468e41ef`，以 0 退出、check OK。
+- RV：审方 run `20261106T173047-eeae5b44`，verdict 本机 `/workspace/kol21-t-v4/rv-g3/RV-C1g3-verdict.md`，SHA256 `7b65e4d1be0986248087fda15872cd52c47b5f01e5425d4d32809ad3253c6c2a`，不进仓库。结论 PASS：阻塞、重要、次要各 0，提示 2。RV 审的是 cell 副本，不算 #425 的 PR 评审轮次，算冻结件的独立复核。
+- C2-g3：仓外冻结记录 `/workspace/kol-outreach-skill/output/kol21-indep/C2-freeze-g3/C2-freeze-record.md`，派工方给的 SHA256 开头是 `9646c3a3`，全值以当时的文件为准；冻结经过见该文件。
+- 卡片答复：
+  - t300s2566：g3 走冻结件，F3 登记。
+  - t300s2586：先修 G3-09，不等 KOL-106。
+  - t302s2623：确认冻结新单 `cabd676f583337487f63f7e8bf4a1cbaad05f2f848f8824db29c4fe7a05e0405`（1931 行），认可新增 0 个、恰好 1 个、2 个以上三种情形。
+
+这几张卡都是卡片答复，经 KOL 开发助手转达，原话本块没见到；不是仓库里的拍板痕迹，拍板痕迹要等丸子合入 #425 时才有（`process/2-CHANGE.md` 第 164–165 行），这里照写。
+
+**前提不变。** 换入不改 106 例、G3 27 例、用例编号与接线前提。`g3.ts` 文件头第 1–2 行没动；G3-11、G3-11B、G3-11N 的 `.map` 没动。数以本提交之后那一跑 `npm run selfcheck -- --only=kol21-independent` 与完整检查为准，本块不预写读数。
+
+**仍没核的。**
+- F-1（RV 提示）：恰好 1 个、2 个以上两支，作者没实跑，也没过 tsc。本换入那一跑的 `npm run typecheck` 盖「没有 tsc」那一半；运行时那一半没执行。去向：D1 之后的整合阶段，由派工方安排变异或 STUB 补跑；补跑要改测试字节的，另走 C1→C2、另建冻结目录。哈希对得上不等于运行时验过。这一条不构成回退的理由。
+- 新增 0 个那一支由记 pass 改成记 not-judged。G3-09 在 `scripts/check/selfcheck.ts` 第 10777 行 D6.y 所涉用例里；照第 10784 行，每例判 pass、且每一项都是 pass 才认领。这一跑若走 0 个那一支，D6.y 这一跑认领不下；第 10785 行那条具名断言放行 not-judged，不因此红。本提交之后那一跑 G3-09 走哪一支，本块没看到读数。
+- KOL-106 仍 Waiting for decision；`g3.ts` 第 2 行「每条都同时断 stopped 与退出码」没动。若定成一对一，相应测试另走 C1→C2。
+- Codex Security 的评论只覆盖旧 head `e284492`。本换入推送不触发新的 Security Review；本块没评论 `@codex security review`。
+- 本块写方的会话读不到仓外各件（权限拒绝）：冻结清单、B3r8 与 RV 的 verdict、C2 冻结记录，内容与 SHA256 都是派工方给的，本块没核。本块核过的：两件换入件在工作树上的 SHA256 与上面一致；`git diff` 在这两件上各只有上面说的那一个 hunk；`scripts/kol21-independent/` 下另 13 件相对 `8a980bb` 没改。
+- 本块写的时候没跑 npm（`typecheck`、`selfcheck`、`adr`、`adr-ledger` 都没跑），读数以派工方那一跑为准。本块除自己核对外未经独立复核。
+
+**本次回访记录。** 已读 ADR-152 最新一块 `2026-11-02 · 本跑 a718951`。`#2`、`#3`（第 3385、3387 行）本块不还、不改；`#1` 未参考；ADR-152 不改。本块不是欠条块，写的时候避开了台账抽取的几种写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD`）。
+
+**搭载。** 本提交另在 ADR-82 末尾空一行后搭了 r4488412813 的欠条（finding-r3，`docs/ARCHITECTURE.md` 第 202 行的可算数量词，第 3 轮到达、不阻塞，登记），新块在 ADR-82 第 112 行。依据 `process/6-INTEGRATE.md` 第 253–254 行：本来就要 push 的，欠条可以搭在那次提交里。

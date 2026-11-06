@@ -314,8 +314,12 @@ export const G3: CaseDef[] = [
       J.kIs(c, K, 'requests', 0, 'D13.o')
       J.kExact(c, K, 'cost_unknown_result_usd', '0', 'D13.o「请求发出前的本地失败不得伪造无 HTTP 状态的留存」')
       const t = newTaskDir(r)
-      if (!t.rel) c.pass('新 task.json（若已建）LC：U = 0', '未新建 task.json：「若已建」前提不成立，本项按原文成立', 'D13.o')
-      else onNode(c, t.node, t.problem, [['新 task.json（若已建）LC：U = 0', lcIs(null, 0), 'D13.o']])
+      // 「若已建」按新增个数分三种情形（:1186）：新增个数＝运行后 <RUN>/cwd 下任何位置新出现的、名为 task.json 的文件个数（口径同 TREE-NOTASK，即 fsnap.ts newFilesNamed；数文件不数目录），个数本身不判；2 个以上逐个读（J.taskAfter 按该相对路径读运行后文件）、逐个判。
+      const news = [...r.after!.files.keys()].filter((f) => !r.before.files.has(f) && f.split('/').pop() === 'task.json')
+      const L = '新 task.json（若已建）LC：U = 0'
+      if (news.length === 0) c.nj(L, '新增 task.json 0 个＝未新建：「若已建」前提不成立，本项没有判定对象、不适用——不记红，也不记作「U = 0 已核」（:1186；不是附条件子断言，用例仍可执行）', 'D13.o')
+      else if (news.length === 1) onNode(c, t.node, t.problem, [[L, lcIs(null, 0), 'D13.o']])
+      else for (const f of news) { const a = J.taskAfter({ ...r, def: { ...r.def, taskRel: f } }); onNode(c, a.node, a.problem, [[`${L} [${f}]`, lcIs(null, 0), 'D13.o']]) }
       // Σ.error 的内容不断（正本只对 402 规定了提示语义）
     },
   },
