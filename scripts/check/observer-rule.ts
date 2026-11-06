@@ -295,6 +295,17 @@ export function ghDirs(home: string, env: { GH_CONFIG_DIR?: string; XDG_CONFIG_H
 }
 
 /**
+ * 宿主上解析出的模块文件（tsx 加载器）在沙箱里的地址。`require.resolve` 交回的是解开软链的真实路径；仓库的 `node_modules`
+ * 是指向别处的软链时（worktree、变异的 worker 目录都这样建），那个真实位置不在沙箱里 —— 沙箱只在仓库根下照搬 `node_modules`
+ * 这一项（`sandboxArgs`），不另绑软链的目标。所以落在 `node_modules` 真实目录里的，换回仓库根下 `node_modules` 那条路；
+ * 落在外面的照原样交回：沙箱里加载不到、判加载故障，不为它多绑宿主上的别处
+ */
+export function sandboxModulePath(repoRoot: string, modulesReal: string, resolved: string): string {
+  const base = `${modulesReal}/`
+  return resolved.startsWith(base) ? posix.join(repoRoot, 'node_modules', resolved.slice(base.length)) : resolved
+}
+
+/**
  * bwrap 的参数（不经 shell，命令由调用方接在 `--` 后面）。根是空的：只照搬系统目录、node 与仓库里的 scripts、node_modules、
  * 两份配置，仓库根本身、`.git`、output、memory 都不在里面；gh 配置目录用空 tmpfs 盖住，`.env`、`.env.local` 用空文件盖住。
  * 可写的只有 `rw` 那几个目录；`--tmpfs /tmp` 排在仓库与它们前面，落在 /tmp 底下的也照样挂得上。

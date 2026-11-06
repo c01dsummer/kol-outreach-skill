@@ -3583,3 +3583,177 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 > ⚠️ 更正：ADR-70 第 3566 行 · 改在本 PR（本块所在的提交）：第 3566 行说第 3549 行那句「自本提交起不再成立」，措辞不准。第 3549 行说的「这条断言」是七之五原有那条（`scripts/test.ts` 第 1803 行，umask 022、期望 0644）：写死 0644 的实现照旧过得了它，这一点 `69ec7ea` 之后仍成立。`69ec7ea` 之后不再成立的是「七之五放行写死 0644」—— 七之五整体（第 1803 行 022 那条与第 1812 行 002 那条一起）拒绝写死 0644，补上这个洞的是第 1812 行那条（umask 002、期望 0664）。PR #416 正文记的手工施变（`scripts/lib/atomic.ts` 第 80 行写死 `mode ?? 0o644`，umask 077、022 各跑一次）就是这样：022 那条绿、002 那条红；复审 d1ac6dfa 在内存文件系统上复现的结果相同。第 3566 行原文不动，本 PR 只在文件末尾追加 · 来源：PR #416 第 2 轮 Codex 复审（run `20261031T181530-d1ac6dfa`，锚 `69ec7ea`）非阻塞第 2 条，即第 3581 行那张欠条 · 档：本改动(第 2 轮,不阻塞) · 去向：本块所在的提交。需求所有者丸子 2026-11-01 12:48 CST 定在本欠条 PR 里追加欠条、更正、已还三行，经 KOL 开发助手转达，原话本块没见到。
 
 > ⚠️ 已还：ADR-70 第 3581 行 · 还在本 PR（本块所在的提交）：第 3583 行那块「⚠️ 更正」把第 3566 行那句改准 —— 七之五整体（022、002 两条一起）拒绝写死 0644，原有 022 那条（`scripts/test.ts` 第 1803 行）单独仍放行，补洞的是 002 那条（第 1812 行）。第 3566 行原文不动；第 3581 行那张欠条原文不动，照旧被台账抽出（台账只抽取、不判已还）。登记与更正放在同一条欠条 PR 里，依据 `process/6-INTEGRATE.md` 第 256 行（欠条 PR 只追加 `⚠️` 块）与第 204–205 行（块合进主干就改不了，修就是在下一条欠条 PR 里再追加一块说这一块哪里不对）；谁在什么时候定的见第 3583 行。本行与第 3583 行都不是欠条块，写的时候避开了台账抽取的几种写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD`）。
+
+## 观察器修补：仓库的 node_modules 是软链时入口加载不到 tsx（KOL-21，2026-11-04）
+
+**这一块是什么。** 写方是观察器提供者一系的新上下文（计划 `plan-v2.md` 第 490 行那一种：不是测试作者，也不是整合方、审方），在 T 那一片的 PR #425 上从 `fb41a8a` 只追加提交。缺陷由整合方的 D2 比对找到（本机 `/workspace/kol21-d2/D2-report.md` 第 46–94 行，不进仓库）：`scripts/check/mutate.ts` 第 811、1082 行总是把 worker 目录与基线目录的 `node_modules` 建成指向仓库 `node_modules` 的软链；#425 新加的三条 `by: "selfcheck"` 变异让 `npm run mutate` 在这种目录里跑 `kol21-independent` 组，那一组起的每一跑入口都判加载故障，子集基线红、一条变异也没施（D2 在 `fb41a8a` 干净克隆里的完整检查日志 `check-clean.log` 第 5838 行）。档照开工检查（本机 `/workspace/kol21-d3fix/pf/preflight-KOL-21.md` 第四节动作 1）：本改动 —— 老错由本 PR 从不可达变成可达（`process/6-INTEGRATE.md` 第 182、188 行），所以修在本 PR；它让检查链变红，也是阻塞项，只做最小修补。修补放在 T 上、由提供者写、由整合方在新 head 认证，是计划 §6-4（第 3327 行）那套认证安排在 T 上的类推，不是新口径。上面各节一个字不动，只在文件末尾追加。
+
+**缺陷。** `observer-run.ts` 把 tsx 加载器的地址取成 `require.resolve` 交回的真实路径（解开了软链）。沙箱只在仓库根下照搬 `node_modules` 这一项：bwrap 照搬时跟着源端的软链走，目标的内容出现在仓库根下那条路上，目标自己那条真实路径在空根沙箱里不存在。入口进程加载 `--import` 第一项时以 `ERR_MODULE_NOT_FOUND` 退 1，预加载没跑、没写 armed，判加载故障。判定是 fail-closed 的，没有一跑因此判成通过或语义红；错在运行器给的地址没跟上布局 —— 布局本来就是这么设计的（需求测试 `h-observer-rule` 的布局把 `node_modules` 写成指向别处的软链，期望的就是只照搬仓库根下那一项）。第 3343 行写的 `--import <tsx 包的 loader.mjs>`、第 3434 行的「限制」都没说到这个前提；认证是在 `npm ci` 出真实目录的干净克隆里做的，碰不到这条路。
+
+**修法：加载器地址换回仓库根下的 `node_modules`，沙箱布局不动。**
+- `observer-rule.ts` 新导出纯函数 `sandboxModulePath(仓库根, node_modules 的真实目录, 解析出的路径)`：落在 `node_modules` 真实目录里的，换成仓库根下 `node_modules` 的那条路；落在外面的照原样交回 —— 沙箱里加载不到，照旧判加载故障，不为它多绑宿主上的别处。`observer-run.ts` 起入口用的加载器地址经它换算，别的行没改。
+- 没选「软链类的仓库路径另外只读绑定它的真实目标」：那样沙箱里多出一处宿主路径，还得另核目标会不会落在仓库根（或它的上级）、`.git`、output、memory、gh 配置目录上，布局里也要多记一份真实路径。换地址的做法里 `sandboxArgs` 一个字节没改，沙箱看得见的东西与修补前完全相同（第 3347 行那份清单照旧）；`node_modules` 本来就是真实目录时换算前后地址相同，干净克隆里起入口的参数与修补前逐项相同。
+- 已有的导出类型与签名都没改（第 3276–3324 行那份摘录、冻结测试包的 `contract.ts` 都不受影响），只多一个导出。
+
+**测试与变异。**
+- `h-observer-rule` 加两条断言：解开软链的路径落在 `node_modules` 真实目录里就换回仓库根下那条路，`node_modules` 本来就在仓库根下时不变；落在外面的照原样，名字开头相同的别处目录也算外面。
+- `h-observer-run` 加一条：测试照 worker 目录的建法自己另搭一棵树（只复制运行器与判定两个文件，`node_modules` 建成指向本仓库 `node_modules` 的软链），起一个带 tsx 加载器的 node 进程从那棵树导入运行器、打出加载顺序，断言加载器地址落在那棵树根下的 `node_modules` 里，并先核那个 `node_modules` 确实是软链；读不出加载顺序时给一个明示的失败值，不让异常冲出组。不进沙箱、不要 bwrap，也不靠本仓库自己的 `node_modules` 是不是软链（`process/4-VERIFY.md`「未执行的路径」第 1 条）。头一版在测试进程里直接导入那棵树的运行器：经 tsx 跑时过，`npm run compile` 之后变异跑在预编的 JS 上，仓库外那份 `.ts` 里的 `./observer-rule.js` 解析不到，整组崩、子集基线红（开发时的完整检查里撞上的），所以改成另起进程，这一组因此多一次启动。
+- 变异 `M-H70-ae`（地址照真实路径给、不换算）、`M-H70-af`（只看开头字符、不看目录边界）由 `h-observer-rule` 验；`M-H70-ag`（运行器不经换算，就是修补前那一行）由 `h-observer-run` 验。`req` 都是 `harness`，`by` 都是 `test`；`M-H70-a`～`ad` 照旧，观察器变异共三十三条。
+
+**设施各文件**（本块所在提交的树；只有前两个变了，其余与第 3464–3474 行相同）：
+
+| 文件 | SHA256 |
+|---|---|
+| `scripts/check/observer-rule.ts` | `e1a8eb3aa19d16cd01e4997ac07995098ff33ec060293eddc932c33d7046d3a2` |
+| `scripts/check/observer-run.ts` | `681df5f8b90ce2d6f4a461bfc546a6574d19a766819cb6048c5d8454cea1307a` |
+| `scripts/check/observer-preload.ts` | `ed2fb7234a94da1af91b81088559828b11f31556d21fd571b33cc21e24c5da82`（不变） |
+| `scripts/check/observer-cert.ts` | `90f28c6671680e9f1cb7b577722d96ac557a7a6776157f072b82abfb76c3f9ca`（不变） |
+| `scripts/check/observer-cert.sh` | `9cd7574b08ccab30cf8bb3f29ba754d63e76064f44dc18af2aca2a5e3a90c9ec`（不变） |
+
+`package-lock.json` 没变（`6fc97367b7c757beca5c6d3dc3e3af77880f6c4954599178900fab3d0e6b0543`）。
+
+**冻结命令与认证。** `observer-cert.sh`、`observer-cert.ts` 都没改，冻结命令照第 3462 行。本块没做认证，也没往 `output/kol21-observer-cert/` 写东西。认证执行者照旧是整合方（计划 §6-4），在新 head 的全新干净克隆里照第 3462 行原样跑两条；`963299c` 上的 `certified 19/19`（第 3516 行）不替新 head 作证。干净克隆里 `npm ci` 出的是真实目录，认证证明不了软链这条路修好了，那一半看下面的开发自测与 `npm run mutate` 的 `kol21-independent` 子集基线。
+
+**开发时自测（非认证）。** 本机 Linux 6.12、Node v22.23.4、bubblewrap（`/usr/bin/bwrap`），本机起得来断网；会话 umask 077，下面的 `npm run mutate` 与 `observer-cert.ts` 由 node 先把 umask 设成 022 再起。
+- 在仓库外另搭一棵树（复制 `scripts`、`package.json`、`tsconfig.json`，`node_modules` 照 `mutate.ts` 第 811 行建成指向本仓库 `node_modules` 的绝对软链），照 D2 复现 A 那一段认证断网、用对照夹具 `control` 起一跑。修补前那棵树：认证成立，`control` 判 `facility`／`loader`、以 1 退出、没有事件文件，stderr 是加载器真实路径的 `ERR_MODULE_NOT_FOUND`；修补后那棵树：`observed`、以 0 退出、第一条事件是 armed。两跑的 bwrap 参数在 `--` 之前 55 项逐项相同，只差 `--` 之后那一项加载器地址。
+- 修补后另搭一棵同样的软链树，在里面跑 `observer-cert.ts`（不是认证命令，`--out` 指仓库外的本机目录）：断网认证成立，四个入口的阳性、零记录与十条设施故障对照 19 项都成立；整体不成立，唯一的原因是那棵树不是 git 检出（被测树那一项本来就该这样判）。
+- 本仓库（`node_modules` 是真实目录）里 `facilityIdentity()` 的加载顺序与修补前的算法结果相同。
+- 三条新变异在副本里逐条施上、只跑对应那一组，点名的断言都红，不施变的副本都绿。
+- 先 `npm run compile`、再全量 `npm run mutate`（与检查链同一先后，需求测试跑在预编的 JS 上；代码、测试与变异已是本块所记的样子），以 0 退出、约 359 秒：维护比较 `251d2d6..fb41a8a` 路由／正文 0 条、执行配置 6 条（本块三条新变异，加 #425 原有的 `M-D6-bo`、`M-D13-ag`、`M-D13-ah`）、验证者布局 1 份；`selfcheck --only=kol21-independent` 子集基线成功 —— 修补前 D2 那次完整检查就红在这一步；`h-observer-rule`、`h-observer-run` 子集基线成功；1749 条变异全部被抓到（自检验 271 条、需求测试验 1478 条），三条新变异都是「被抓到」。
+- `scripts/check/launches.json` 在跑过上面那次 `npm run mutate` 的树上由 `npm run launches -- --write` 写回：多出 `["selfcheck",["kol21-independent"]]`（启动 2、3 条；#425 自 D1 起欠着的就是这一行），`["test",["h-observer-rule"]]` 的条数 18 改 20，`["test",["h-observer-run"]]` 的启动 0 改 1、条数 2 改 3，其余不变，共 177 种配置。
+- 完整 `npm run check` 在本块写完之后的工作区上跑，结果交整合方，不为它追加提交。
+
+**欠条。**
+- 第 3385 行（`observer-run.ts` 起进程那一半没有变异守着）：条件之一是「下一条改 `observer-run.ts` 里 `certifyIsolation` 或起入口那几行的 PR」。本块改了起入口用的加载器地址那一行，算响。改的这一行有 `M-H70-ag` 守着（`h-observer-run`，不要 bwrap）；那一半的其余各处照旧没有变异守着，余额不变。另一条条件第 3522 行记已满足、缺口没还：要让 CI 能认证还是继续只在本机认证，仍由需求所有者定（ADR-152 `2026-11-02#2`、`#3` 两行人判栏空），本块不代定，也不改 CI。
+- 第 3562 行（`observer-cert-entry` 的 bwrap 探针与认证所用参数不一致）：条件里的三样本块都没碰上 —— `selfcheck.ts` 的 `observer-cert-entry` 组没改；`observer-rule.ts` 的 `sandboxArgs` 函数体逐字节没变（新函数插在它前面，它的行号下移 11 行），上面开发自测里修补前后的沙箱参数逐项相同；本机探针起得来、认证成立，两边结论对得上。所以这一张没响，原样留着。
+- ADR-134 第 177 行：没碰 `budget-gate`、`render-order`，不响。
+
+**本次回访记录。** 已读 ADR-152 最新一块 `2026-11-02 · 本跑 a718951`：`#2` 就是第 3385 行，处理见上；`#1`（ADR-134 第 158 行）、`#3`（第 3387 行）本块未参考。
+
+**台账。** `npm run -s adr-ledger`（Node v22.23.4）改前（`fb41a8a`）544 条（重启条件 505、重开讨论 13、死亡条件 26），改后（本块写完的工作区）同样 544 条、三类数目不变，本块的行一条也没被抽出。本块不新登欠条，写到条件的地方都没用台账抽取的写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD`）。
+
+**没核的。**
+- CI（`ubuntu-24.04`）上照旧起不来 bwrap（第 3522 行）。三条新断言与三条变异都不要 bwrap，在 CI 上照样跑；修补对起入口本身的效果只在起得来 bwrap 的机器上看得到。
+- 仓库根下没有 `node_modules`、tsx 却能从仓库外的上级目录解析到时，运行器在导入那一刻就抛（取 `node_modules` 真实目录那一步），不是起入口后判加载故障。本仓库的检查链、认证与 worker 目录都有 `node_modules`，没碰到。
+- 照搬的另三样（`scripts`、`package.json`、`tsconfig.json`）本身是软链时会怎样，没核；本仓库与 worker 目录里它们都是真实文件。pnpm 那种包在 `node_modules` 下另一层、再用相对软链指过去的布局，按道理换算后仍在沙箱里，没跑过。
+- 本块除自己的开发自测外未经独立复核；开工检查第五节 A 第 2 条要求这类修法交 Codex 审。
+
+## CI 装 bubblewrap：需求所有者定的，只装包，认证照旧由整合方做（KOL-21，2026-11-05）
+
+**这一块是什么。** 写方是 KOL-21 的代码作者，在 T 那一片的 PR #425 上从 `3a437ae` 只追加提交（提交与推送由派工方做）。依据是开工检查第三节 B（本机 `/workspace/kol21-d3fix/pf/preflight-KOL-21-20261105.md` 第 154–195 行，不进仓库）。档是本改动：`process/6-INTEGRATE.md` 第 182 行，修法「改一处工作流」照样是本改动，本 PR 让一个老错「从无害变有害的,也算」—— 主干上 CI 没有 bwrap 是无害的（`observer-cert-entry` 起得来、起不来两种都判，第 3522 行记 run `41089190437` 通过），#425 接上独立测试包之后 CI 因此红（见下「上一次 CI」）。开工检查把它算作阻塞项（`process/6-INTEGRATE.md` 第 210–219 行），只做最小修补：装一个包。上面各节一个字不动，只在文件末尾追加。
+
+**裁定。** 第 3522 行当时写的是「要让 CI 能认证，还是继续只在本机认证，由需求所有者定，本块不代定，也不改 CI」，第 3627 行与 ADR-152 `2026-11-02#2`、`#3` 也停在这里。需求所有者丸子 2026-11-05 07:06 CST 答卡 t279s2318（卡题「T 合入前的三件事」），这一问的原话是「CI 缺 bwrap 怎么办？ CI 装 bubblewrap」。经 KOL 开发助手转达，原消息本节没见到，读的是派工方的转录（本机 `/workspace/kol21-d2/maruko-confirmation-t279s2318.md`，SHA256 `9d13b50cb416ba744079c9a8b52903bc792a56d118c2ada0bc836c10defb6bf7`，不进仓库）。这是卡片答复，不是 GitHub 上的批准痕迹；拍板的痕迹在丸子合入 #425 时才有（`process/2-CHANGE.md` 第 164–165 行）。本节只做这句话说的事。
+
+**上一次 CI。** #425 head `3a437ae` 的 run `41838288608`（job `126602843570`，2026-11-04 21:27 CST 起跑，被测的是合并提交 `629e9e6`，镜像 `ubuntu-24.04` `20261025.353.1`，Node 22.23.4）结论 failure。日志读的是派工方给的副本（本机 `/workspace/kol21-d3fix/ci-job-126602843570.log`，SHA256 `95c130e91680cef5fd2fe4442068fc666bbe8546369ac894aba477e6e72cf860`，不进仓库）：`npm run check` 停在变异一步 —— 子集基线 `selfcheck --only=kol21-independent` 以 1 退出，下面逐条列了 17 行失败：G4-01 那一行是「找不到 bwrap（/usr/bin/bwrap、/bin/bwrap、/usr/local/bin/bwrap）：外层断网起不来」，其余是由它派生的设施故障（「Z1：断网认证不成立，未起任何入口」）与夹具失格（资格阳性 G2-00、G3-02 判 facility），以及 D6.y、D13.v、D13.u 三条「没有一例判红、设施故障或夹具失格」不成立；汇总两行是「✗ 脚本自检：98 项失败」与「✗ 变异测试：1 种子集未通过正常代码基线，未施加任何变异」。变异一步红了，`&&` 链后面的完整自检、审计、启动数三步都没跑，所以这一跑没有打出 `observer-cert-entry` 那一行（日志里搜不到「bwrap 断网」）。本机同一 head、有 bwrap 时，同一个子集只有 G6-01～03 三项失败，原因是 Q3 的 `effective_priority ["待核实","待核实"]`，不是设施（派工方给的 `selfcheck-3a437ae.log`，SHA256 `427efac037991ef43ccf08ef17da2e8b67a7d034867ee2a4817b283b20111580`，不进仓库）。
+
+**改了什么。** 只改 `.github/workflows/check.yml`：在 `actions/setup-node` 之后、`npm ci` 之前加一步「装 bubblewrap（外层断网要它）」，四行命令：`sudo apt-get update -q`、`sudo apt-get install -y -q --no-install-recommends bubblewrap`、`command -v bwrap`、`bwrap --version`。后两行只把装在哪、什么版本打进日志，读 CI 用；这一步不判断网起不起得来。注释照文件现有写法写了为什么、引本节。排在 `npm ci` 前面：装不上就红在这一步，后面的不白跑。别的步骤一个字节没动。「墙钟对比（只报数）」那一步原样：`scripts/ci-wallclock-contract-test.ts` 第 16–37 行按步骤名找唯一的那一步、要它里面唯一的 `run: |`；`scripts/check/mutations.json` 里 `M-H65-a`、`b`、`c` 的 find 串也都在那一步里。改后核过：那个步骤名与三条 find 串在文件里各只出现一次，新加的 `run: |` 在那一步的范围之外。
+
+**不改什么。**
+- 认证执行者照第 3327 行：整合方 KOL 开发助手在 PR head 的全新干净克隆里照冻结命令跑；认证之后 PR 又追加了提交的，照旧在最终 head 上重跑（第 3520、3615 行）。CI 装了 bwrap 也不是认证。
+- 自检组 `observer-cert-entry` 在 CI 上那一跑照第 3367 行「这一跑不是认证」；KOL-21 独立测试包那一组在 CI 上自己做的断网认证也一样。CI 绿、或 CI 上起得来断网，都不替认证作证（第 3522 行同一句）。
+- 不改用户命名空间、AppArmor、sysctl 这类改变安全模型的设置：裁定原话只有「CI 装 bubblewrap」。装上之后 CI 仍起不来断网，或探针与认证对不上，就停下报告、等新的裁定，不在本 PR 里扩。
+- 代码、测试、变异、冻结测试包一个字节没动；G6-01～03 照旧夹具失格（同一张卡「G6 算产品违规，测试保持红」）。`AGENTS.md` 第 89–90 行（CI 在推 `main` 与每个 PR 上跑同一条链）仍对，不改；`docs/ARCHITECTURE.md`、ADR-152（人判栏由人填）、ADR-97 都不改。
+- `scripts/check/launches.json` 本次不重写。`AGENTS.md` 第 71–72 行列的三样（`scripts/` 下的 `.ts`、`scripts/check/mutations.json`、`package-lock.json`）本次都没碰。`check.yml` 在源指纹里（`scripts/check/claims.ts` 第 67–92 行的 `sourceFiles`，第 170–173 行的 `mutationSourceIdentity` 用它），改了它，变异一步写的启动数文件要在这棵树上重新跑出来（CI 每跑都重算）；树内那份摘要只记各配置的启动数与 findings，不记源指纹（`scripts/check/launch-rule.ts` 的 `summaryText`）。`3a437ae` 之后欠着的那次重写照旧欠着（#425 描述「整跑未施变、launches.json 未重写」，转引开工检查第 120 行）：G6 修好之前 mutate 的子集基线红、写不回，等 merge 主干之后与 GAP-24c 一起做（开工检查第三节 B 第 3 条）。
+
+**欠条。** 推送之后新 head 的 CI 读数还没有，三张都写「待 CI 读数核」，本节不记已还。
+- 第 3385 行（`observer-run.ts` 起进程那一半没有变异守着，起不来 bwrap 的机器上只剩「拒绝」那一半有人看）：「CI 上确认起不来 bwrap」那一条第 3522 行记已满足，改 `observer-run.ts` 里 `certifyIsolation` 或起入口那几行的那一条第 3627 行记已响；本节没碰 `observer-run.ts`。装包只动得到它后半句「起不来的机器上只剩「拒绝」那一半有人看」—— CI 起得来以后，CI 上「拒绝」以外那一半也有人看（`observer-cert-entry` 跑认证入口、T 那一组真起入口）；前半句「没有变异守着」不因装包改变，余额照旧。待 CI 读数核。
+- 第 3387 行（CI 上有没有 bwrap、能不能建网络命名空间）：它要读的那一行第 3522 行读过（run `41089190437`，「起不来」）。装上之后「有没有」由新加那一步的 `command -v bwrap`、`bwrap --version` 打出；「能不能建」要读 `observer-cert-entry` 那一行打的「本机起得来／起不来 bwrap 断网」。照开工检查第三节 B 第 176 行，只有 CI 日志打出「起得来」、认证也成立，才另写「⚠️ 已还」。待 CI 读数核。
+- 第 3562 行（`observer-cert-entry` 的探针只用 `--unshare-net --ro-bind / /`，认证用 `sandboxArgs` 全套，允许用户命名空间却不让挂 proc 的机器上会探针起得来、认证不成立而假红；查找 bwrap 那半条不成立）：本节没碰 `selfcheck.ts` 的 `observer-cert-entry` 组，也没碰 `observer-rule.ts` 的 `sandboxArgs`；剩下「有一台机器上探针与认证结论对不上」那一样要在 CI 日志上核 —— CI 正是一台新装 bwrap、可能限制用户命名空间的机器。待 CI 读数核。
+
+**CI 读数在哪一步读得到（推断，没在 CI 上核）。** G6 修好之前，新 head 上 `kol21-independent` 的子集基线照旧红（本机同一子集 3 项失败），变异一步仍以 1 退出，照上一次的停法，`observer-cert-entry` 那一行、审计与启动数两步在 CI 上都还打不出来：第 3387、3562 行要读的那一行，要等 G6 修补合入、#425 merge 主干之后的那一跑。在那之前，新 head 的 CI 上读得到的是：新加那一步装上没有、打的路径与版本；变异一步里 `kol21-independent` 子集基线列的失败项，与 run `41838288608` 比 —— 只剩 G6-01～03、原因是 Q3，可以读成 CI 上那一组的断网认证成立、入口起得来；仍有「断网认证不成立」或别的设施原因，就照上面「不改什么」第三条停下报告。墙钟那一步检查红了不跑，装包的耗时这一跑也看不到；能比的时候照 `process/6-INTEGRATE.md` 第 319–326 行，旧的那一跑是失败，只能写「无从比较」。读数写进 PR 正文或 E1 那一节（先例第 3520 行），不为记读数单独换 head。
+
+**本次回访记录。** 已读 ADR-152 最新一块 `2026-11-02 · 本跑 a718951`：`#2`（第 3385 行）、`#3`（第 3387 行）就是上面「欠条」前两条，处理见那里；需求所有者的答复在本节「裁定」，那两行的人判栏仍由人填，本节不改 ADR-152。`#1`（ADR-134 第 158 行）本节未参考。先例是第 3631 行。
+
+**推送前本机核对（本节写完的工作区，Node v24.22.1）。** `npm run -s adr` 通过（157 条，编号 1–184，索引一致）。完整 `npm test` 没跑完：崩在 `h-prebuilt-no-config-contract`，那一组的冻结合同以 `NODE_MAJOR_UNSUPPORTED` 拒跑（只认 Node 22），`h-prebuilt-no-config-lifecycle-contract` 单跑也一样；崩之前有 5 条红 —— `d19-resume` 一条（深层嵌套那一例「Maximum call stack size exceeded」）、`h-launch-preload` 四条（Node 24 的 `[DEP0190] DeprecationWarning` 混进玩具的 stderr），都是 Node 版本带来的，这两组不读 `check.yml` 与本文件。与本改动相关的单跑都过了：`h-ci-wallclock-core`、`-cpu`、`-unavailable`、`-identity`、`-identity-parent-read` 五组 79 条断言全过，三组墙钟合同打的 `run=f25157f1…` 与 run `41838288608` 日志里那三行相同（墙钟那一步的正文逐字节没变，整份 `check.yml` 的 SHA256 由 `6c1003a1…` 变成 `5e555f80…`）；崩点之后没跑到的九组（`h-prebuilt-owner-descendant-contract` 到 `h-observer-contexts`）单跑 71 条全过。Node 22 上的完整 `npm test` 留给派工方推送前跑。
+
+**台账。** `npm run -s adr-ledger`（Node v24.22.1，见下「没核的」）改前（`3a437ae`）544 条（重启条件 505、重开讨论 13、死亡条件 26），以 0 退出、没有孤儿；改后（本节写完的工作区）同样 544 条、三类数目不变，本节的行一条也没被抽出。本节不新登欠条，写到条件的地方都没用台账抽取的写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD`）。
+
+**没核的。**
+- 新 head 的 CI 还没跑：装不装得上、装上的版本、CI 上起不起得来断网，都没核；三张欠条都待 CI 读数。
+- `ubuntu-latest`（run `41838288608` 落在 `ubuntu-24.04` 镜像 `20261025.353.1`）可能限制非特权用户命名空间（比如 AppArmor 那一层），装上 bwrap 也可能起不来断网；没核。起不来就停下报告，不改设置。
+- 包从网上装，CI 多了一种因外部原因红的可能（apt 源连不上、包索引变了）；装包要多少秒没量；CI 装上的 bubblewrap 与本机 0.12.0 是不是同一个版本没核（那一步会打出来）。
+- run `41838288608` 的 98 项失败：本节只读了日志里逐条列出的 17 行与两行汇总，98 项逐项的核对证据在派工方处，本节没核。
+- 「新 head 上 `observer-cert-entry` 在 G6 修好之前打不出来」是照本机日志与上一次 CI 的停法推的，没在 CI 上核。
+- 本节的本机核对在 Node v24.22.1 上跑：本会话的权限取不到别的 node，Node 22 上没跑。
+- 本节除自己核对外未经独立复核。
+
+**补记：CI 加 sysctl 关掉用户命名空间限制，试一次（2026-11-05）。** 只追加在本节末尾，上面各段原文不动。上面「不改什么」第三条「不改用户命名空间、AppArmor、sysctl 这类改变安全模型的设置」自本补记起有一样不再成立：`kernel.apparmor_restrict_unprivileged_userns` 这一个 sysctl。那一条其余的话照旧：AppArmor 配置文件不动；关了之后仍起不来，就停下报告，不在本 PR 里扩。
+- 裁定：需求所有者答卡 t282s2335，原话「CI 加 sysctl 关掉用户命名空间限制试一次」。原话是派工方在派工单里转述的；转录（本机 `/workspace/kol21-d2/maruko-confirmation-t282s2335.md`，不进仓库）本补记的会话读不到（权限拒绝），原文、答卡时刻与 SHA256 都没核。和 t279s2318 一样是卡片答复，不是 GitHub 上的批准痕迹（`process/2-CHANGE.md` 第 164–165 行）。
+- 原因：装上 bubblewrap 之后的 run `41937484646`（job `126949514987`），G4-01 报 `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`：bwrap 找到了，在新建的网络命名空间里给回环配地址被拒，正是上面「没核的」第二条说的那种可能。这一行也是派工方转述的；日志副本（本机 `/workspace/kol21-d3fix/s1/ci-job-126949514987.log`，不进仓库）与派工方的 `step1-results.md` 本补记的会话都读不到，这一跑的 head、镜像与别的失败项都没读。「限制来自 `kernel.apparmor_restrict_unprivileged_userns`」是推断，由新加那一步第一行打出的值核。
+- 改了什么：只改 `.github/workflows/check.yml`。「装 bubblewrap（外层断网要它）」之后、`npm ci` 之前加一步「关掉用户命名空间限制（bwrap 断网要它）」，三行：`sysctl kernel.apparmor_restrict_unprivileged_userns` 打出改前的值，`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`，再打一次改后的值；这个键不存在时红在这一步。上一步注释里「只装这一个包，不动用户命名空间、AppArmor 这类设置」改成「这一步只装这一个包」，并写明那条限制由下一步关、AppArmor 的配置文件两步都不动。别的步骤一个字节没动：「墙钟对比（只报数）」那一步的步骤名与 `M-H65-a`、`b`、`c` 的 find 串仍各只出现一次，新加的 `run: |` 在那一步的范围之外。不加 `--privileged`，不改别的 sysctl，不碰 AppArmor 配置文件。代码、测试、变异、冻结测试包一个字节没动，G6-01～03 照旧红；`scripts/check/launches.json` 照上面同一条理由不重写。
+- 只做这一项：「试一次」就是这一步。关了之后 CI 仍起不来断网，或起得来而探针与认证结论对不上，照上面「不改什么」第三条停下报告、等新的裁定。
+- 欠条：第 3385、3387、3562 行三张照旧待 CI 读数核，本补记不记已还。要读什么、在哪一步读得到，照上面「欠条」「CI 读数在哪一步读得到」两段，多一样：新加那一步前后打出的两个值。回访记录同上面「本次回访记录」，ADR-152 不改。
+- 推送前本机核对（本补记写完的工作区，Node v22.23.4）：完整 `npm test` 以 0 退出（「全部通过（覆盖 46 条需求）」），是在加本补记之前、`check.yml` 已改好的工作区上跑的；加完本补记以后，读真仓库决策记录的 `h-check-rules` 单跑过、`npm run -s adr` 过、`npm run -s adr-ledger` 照旧 544 条（重启条件 505、重开讨论 13、死亡条件 26）、没有孤儿，本补记的行一条也没被抽出。三组墙钟合同打的 `run=f25157f1…` 与上面记的相同，整份 `check.yml` 的 SHA256 由 `5e555f80…` 变成 `0006beda…`。
+- 没核的：新 head 的 CI 还没跑，关了之后断网起不起得来、认证成不成立都没核；「改的只是这一跑的 runner、不留到下一跑」是照 GitHub 托管 runner 一跑一台的通常做法说的，没在本仓库的 CI 上核。本补记除自己核对外未经独立复核。
+
+> ⚠️ 更正：ADR-70 第 3655、3656、3663、3676 行 · 改在 PR #425 的追加提交（本块所在的提交）：「CI 装 bubblewrap」一节第 3655 行写「G6-01～03 照旧夹具失格（同一张卡「G6 算产品违规，测试保持红」）」，同一节由此推出 Q3 要挡住 CI、直到产品修好：第 3656 行「G6 修好之前 mutate 的子集基线红、写不回」，第 3663 行「要等 G6 修补合入、#425 merge 主干之后的那一跑」，第 3676 行「新 head 上 `observer-cert-entry` 在 G6 修好之前打不出来」。这个预测自 `146c3f6` 起不再成立：G6 后来重裁为不算产品违规，没有产品修补可等；Q3 是在冻结测试那一侧改的 —— 换入的新冻结件让 Q3 接受当时判失格的那两个值（两行 `effective_priority` 都是「待核实」），G6 不再因 Q3 夹具失格。第 3655 行前半句「代码、测试、变异、冻结测试包一个字节没动」说的是 `64cd9de` 那一提交，当时成立，不在更正之列。
+>
+> 后来发生的事与出处：
+>
+> - t289u：需求所有者丸子 2026-11-05 13:56 CST 答卡 t289u（卡 t287s2391），原话「维持」，派工方释义为维持正本、G6 不算产品违规、不开产品修复 PR（#425 正文「待需求所有者裁定／未决复核」一节 G6 条）。
+> - t290s2403、t293s2443：丸子答卡 t290s2403 批准 B 路 —— 准入包补 D25.b、D25×P1、U9.h 后退回 B2，把 Q3 改为两行 `effective_priority` 都为「待核实」，expected 不变，经 B3 确认、C1 改 `g56.ts`、C2 重冻后在 #425 追加提交换入；又答卡 t293s2443 确认冻结单 `579a4af9…921a`（#425 正文 G6 条与「D1-g6q3 换入」一节）。
+> - `146c3f6`：换入 C2-freeze-g6q3 冻结的 `scripts/kol21-independent/cases/g56.ts`（只动第 88、91、93 行）与 `scripts/kol21-independent/INTEGRATION.md`（只动第 3 行的冻结单哈希，`9180216…70ba` 换成 `579a4af9…921a`）；接线 `scripts/kol21-independent-wiring.ts` 与 `scripts/check/selfcheck.ts` 没动，expected 与 106 例用例集不变（`146c3f6` 提交说明）。换入后本机 `selfcheck --only=kol21-independent` 以 0 退出，G6-01～03 三例判 pass（#425 正文「D1-g6q3 换入」一节）。
+> - `e284492`：`146c3f6` 合进主干 `ad7591a` 的同步合并提交，即 PR #425 的 head；它上面 `check.yml` 的 run `42075978617`（pull_request）结论 success。
+>
+> 这几张卡都是私聊里的卡片答复，经 KOL 开发助手转达，原话本块没见到；不是仓库里的拍板痕迹，拍板痕迹要等丸子合入 #425 时才有（`process/2-CHANGE.md` 第 164–165 行），这里照写。原裁定 t279s2318「G6 算产品违规，测试保持红」留作历史：第 3655 行等原文一个字不动，本 PR 只在文件末尾追加。
+>
+> 本块同时是 `146c3f6` 换入冻结件的决策记录。#425 正文「D1-g6q3 换入」一节写过「没写 ADR-70 决策记录新节」，`process/4-VERIFY.md` 第 321 行要求确实需要改测试的写进决策记录说明理由。换入了什么见上面第三条。理由：冻结单 Q3 要两行都空白，与正本冲突 —— D25.b 让未评候选的有效建议显示待核实（`docs/requirements.json` 第 1833 行），U9.h 规定三格式原样展示已投影的 `effective_priority`、不由导出重新计算（同文件第 2540 行）。改的是资格判法 Q3，expected 一个字没动，不是为了让测试变绿去改期望；改法走冻结件路线（退回 B2、C2 重冻），T 这一侧只换入、不改冻结字节。
+>
+> 来源：PR #425 CodeRabbit 评审 `5794181227` 讨论串 [r4487771771](https://github.com/c01dsummer/kol-outreach-skill/pull/425#discussion_r4487771771)（ADR-70 第 3655 行，锚 `e284492`，Minor） · 档：本改动（派工方开工检查判第 1 轮） · 去向：本块所在的提交。丸子答卡 t299s2553「#425 先改 3 条，再合入」，经 KOL 开发助手转达，原话本块没见到。
+>
+> 仍没核的：
+>
+> - run `42075978617` 只读了结论（派工方取的 run 列表），日志没读：CI 上 G6-01～03 判什么、mutate 子集基线、`observer-cert-entry` 那一行打了什么，都没核。第 3385、3387、3562 行三张欠条要读的那一行本块没读，照旧待 CI 读数核，本块不还。
+> - G6-01～03 判 pass 只见于 `146c3f6` 上本机那一跑（#425 正文），逐项明细那一跑没留下；最终 head 上要重跑，本块不替它作证。
+> - 第 3683 行「G6-01～03 照旧红」说的是 `19b6af4` 那时的状态，当时成立，不在本块更正之列。
+>
+> 本次回访记录：已读 ADR-152 最新一块 `2026-11-02 · 本跑 a718951`，`#2`、`#3`（第 3385、3387 行）上面只记本块没读它们要读的那一行、不还，`#1` 未参考；ADR-152 不改。本块不是欠条块，写的时候避开了台账抽取的几种写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD`）。
+
+> ⚠️ 欠条：自检组 `observer-cert-entry`（本条第 3367 行）在 PR #426 作者的本机上红，#426 作者记为环境红 —— 那台机器上 Node v22 跑 `npm run check` 以 1 退出，唯一的红项是这一组；在干净的主干 `251d2d6`（#426 的开出点）上单跑这一项同样红，所以不是 #426 引入的，#426 只改文档、修不了，没在 #426 修。红在哪一条具名断言、那台机器打的是「本机起得来」还是「起不来」bwrap 断网、为什么红，#426 正文都没写；它提到的本机日志 `main-baseline-observer-cert.log` 在仓库外，本块没读。与第 3385、3387、3562 行三张欠条是不是同一缺口也没核，本块不还、不改那三张 · 来源：PR #426 描述末尾「已发现但不在本 PR 修的」第 2 条（作者自记，不是评审发现；没有讨论串、没有替身评论）；去向由需求所有者丸子 2026-11-05 在 t295s2502 定：不进 #426 的欠条 PR #427，交给 #425／ADR-70；档由丸子在 t300s2566 定为登记。两张都是卡片答复，经 KOL 开发助手转达，原话本块没见到，不是仓库里的拍板痕迹（`process/2-CHANGE.md` 第 164–165 行） · 档：登记（#426 作者自己看到的，不是评审发现） · 重启条件：下次有改动碰到 `scripts/check/selfcheck.ts` 的 `observer-cert-entry` 组、认证入口 `scripts/check/observer-cert.ts`、`scripts/check/observer-run.ts` 的 `certifyIsolation` 或 `scripts/check/observer-rule.ts` 的 `sandboxArgs`，或同一缺口再被点名（又有一台机器或一条 PR 报 `observer-cert-entry` 本机红），先到为准
+
+## G3-09 冻结件换入：新增 task.json 个数分三种情形判 U=0（KOL-21，2026-11-06）
+
+**这一块是什么。** 本块是 PR #425 换入 G3-09 冻结件的决策记录。分支 `claude/kol-21-independent-testpack`，底 `8a980bb4bebc918534284033feda6a7fb6bb4e69`，追加普通提交（本块所在的提交；提交与推送由派工方做）。依据：`process/4-VERIFY.md` 第 321 行，确实需要改测试的，必须写进决策记录说明理由；ADR-183 第 95 行，T 由整合方嵌回原字节，记录追加在 ADR-70 末尾。口径照第 3689–3710 行那块（第 3700 行「本块同时是 `146c3f6` 换入冻结件的决策记录」）。上面各节一个字不动，只在文件末尾追加。
+
+**换了什么。** 换入两件，每件只改一个 hunk：
+- `scripts/kol21-independent/cases/g3.ts`：SHA256 `a64d2e939b3d688ff2ee9f55e13f193e47f9fb8e78b34c1cfe8f5417bb175b9c` 换成 `12edd0a828521654e0eca11d092efa6f62a808881985a7d378e4d5f63541d832`。只改 G3-09 的 judge，原第 317–318 行换成新第 317–322 行。新增个数取运行前后快照里新出现的、名为 `task.json` 的文件个数（口径同 TREE-NOTASK），个数本身不判。新增 0 个：原来记 `c.pass`，改记 `c.nj`（「若已建」前提不成立，没有判定对象）。恰好 1 个：照旧判 U=0。2 个以上：逐个用 `J.taskAfter` 读、逐个判 U=0。
+- `scripts/kol21-independent/INTEGRATION.md`：SHA256 `093a3f8bf1237713177f3ac93638a6d3af50a1166c2f03dd8549d31a91dbeae8` 换成 `dd79249f1e28c5c6fefec459a81f757649a11c15e9b8156d0dec4d3c6f87e970`。只改第 3 行的冻结单哈希：旧 `579a4af936f26157cf823f2f3ecde8565cb4d6e48c17311a35ec1d307dea921a`，新 `cabd676f583337487f63f7e8bf4a1cbaad05f2f848f8824db29c4fe7a05e0405`。
+
+权威清单是本机 `/workspace/kol-outreach-skill/output/kol21-indep/C2-freeze-g3/freeze-tests.sha256`（40 行，自身 SHA256 `2d883defb7ff6ef8186e88a686fd51b7a70b223dac1953af04a3177d9996e71d`，不进仓库）。这个目录正式取代 `C2-freeze-g6q3/`，作为 D1、E1、R 的引用对象；旧目录保留、不改。
+
+清单里其余各件：
+- `scripts/kol21-independent/` 下另 13 件与冻结清单逐字节相同，没动：`cases/` 下的 `common.ts`、`g1.ts`、`g2.ts`、`g4.ts`、`g56.ts`，`fixtures.ts`，`lib/` 下的 `contract.ts`、`fsnap.ts`、`json.ts`、`judge.ts`、`table.ts`，`runs.ts`，`suite.ts`。
+- 另 25 件不进仓库：`out/author-log.md`、`out/selfcheck/` 下 8 件、`out/tools/` 下 16 件。它们不是测试本体，是运行产物与作者侧材料。照 `docs/ARCHITECTURE.md` 第 68–69 行，运行产物放 `output/`、不进仓库，要引用时写本机路径与 SHA256。
+- 接线源文件 `scripts/kol21-independent-wiring.ts`、`scripts/check/selfcheck.ts` 没动；`scripts/check/mutations.json`、`docs/ARCHITECTURE.md` 没动。
+
+**为什么改测试。**
+- 来源：PR #425 CodeRabbit 评审 `5794181227` 讨论串 [r4487771790](https://github.com/c01dsummer/kol-outreach-skill/pull/425#discussion_r4487771790)（`scripts/kol21-independent/cases/g3.ts` 约第 318 行，锚 `e284492`，R1）。
+- 问题：旧判法拿 `!t.rel` 当「未新建」。`J.newTask` 只在新增恰好 1 个时给 `rel`（`scripts/kol21-independent/lib/judge.ts` 第 437 行），所以 `!t.rel` 说的是「新增个数不是恰好 1」，不是「没新建」。新建了 2 个以上 `task.json` 时，旧判法照样记「未新建、本项成立」，一个 `U = 0` 也没判就放过了。
+- 改的是判法的分支，要判的照旧是 U=0，只是 2 个以上时不再漏判；不是为了让测试变绿去改期望。
+- 改法走冻结件路线：B2 改冻结单 → B3r8 → 丸子确认 → C1g3 → RV → C2-g3 → 本换入。T 这一侧只换入、不改冻结字节。冻结单由 F=`579a4af9…921a` 换成 S=`cabd676f…0405`。
+
+**链与出处。**
+- B3r8：GLM 三段 PASS。verdict 本机 `/workspace/kol21-t-v4/b3r8-glm/B3r8-glm-verdict.md`，SHA256 `8bddc0a249af29393ef3f88a19a566b54031a3e95e9b2abbf799aeeb31aefdaf`，不进仓库。
+- C1g3：作者 run `20261106T163651-468e41ef`，以 0 退出、check OK。
+- RV：审方 run `20261106T173047-eeae5b44`，verdict 本机 `/workspace/kol21-t-v4/rv-g3/RV-C1g3-verdict.md`，SHA256 `7b65e4d1be0986248087fda15872cd52c47b5f01e5425d4d32809ad3253c6c2a`，不进仓库。结论 PASS：阻塞、重要、次要各 0，提示 2。RV 审的是 cell 副本，不算 #425 的 PR 评审轮次，算冻结件的独立复核。
+- C2-g3：仓外冻结记录 `/workspace/kol-outreach-skill/output/kol21-indep/C2-freeze-g3/C2-freeze-record.md`，派工方给的 SHA256 开头是 `9646c3a3`，全值以当时的文件为准；冻结经过见该文件。
+- 卡片答复：
+  - t300s2566：g3 走冻结件，F3 登记。
+  - t300s2586：先修 G3-09，不等 KOL-106。
+  - t302s2623：确认冻结新单 `cabd676f583337487f63f7e8bf4a1cbaad05f2f848f8824db29c4fe7a05e0405`（1931 行），认可新增 0 个、恰好 1 个、2 个以上三种情形。
+
+这几张卡都是卡片答复，经 KOL 开发助手转达，原话本块没见到；不是仓库里的拍板痕迹，拍板痕迹要等丸子合入 #425 时才有（`process/2-CHANGE.md` 第 164–165 行），这里照写。
+
+**前提不变。** 换入不改 106 例、G3 27 例、用例编号与接线前提。`g3.ts` 文件头第 1–2 行没动；G3-11、G3-11B、G3-11N 的 `.map` 没动。数以本提交之后那一跑 `npm run selfcheck -- --only=kol21-independent` 与完整检查为准，本块不预写读数。
+
+**仍没核的。**
+- F-1（RV 提示）：恰好 1 个、2 个以上两支，作者没实跑，也没过 tsc。本换入那一跑的 `npm run typecheck` 盖「没有 tsc」那一半；运行时那一半没执行。去向：D1 之后的整合阶段，由派工方安排变异或 STUB 补跑；补跑要改测试字节的，另走 C1→C2、另建冻结目录。哈希对得上不等于运行时验过。这一条不构成回退的理由。
+- 新增 0 个那一支由记 pass 改成记 not-judged。G3-09 在 `scripts/check/selfcheck.ts` 第 10777 行 D6.y 所涉用例里；照第 10784 行，每例判 pass、且每一项都是 pass 才认领。这一跑若走 0 个那一支，D6.y 这一跑认领不下；第 10785 行那条具名断言放行 not-judged，不因此红。本提交之后那一跑 G3-09 走哪一支，本块没看到读数。
+- KOL-106 仍 Waiting for decision；`g3.ts` 第 2 行「每条都同时断 stopped 与退出码」没动。若定成一对一，相应测试另走 C1→C2。
+- Codex Security 的评论只覆盖旧 head `e284492`。本换入推送不触发新的 Security Review；本块没评论 `@codex security review`。
+- 本块写方的会话读不到仓外各件（权限拒绝）：冻结清单、B3r8 与 RV 的 verdict、C2 冻结记录，内容与 SHA256 都是派工方给的，本块没核。本块核过的：两件换入件在工作树上的 SHA256 与上面一致；`git diff` 在这两件上各只有上面说的那一个 hunk；`scripts/kol21-independent/` 下另 13 件相对 `8a980bb` 没改。
+- 本块写的时候没跑 npm（`typecheck`、`selfcheck`、`adr`、`adr-ledger` 都没跑），读数以派工方那一跑为准。本块除自己核对外未经独立复核。
+
+**本次回访记录。** 已读 ADR-152 最新一块 `2026-11-02 · 本跑 a718951`。`#2`、`#3`（第 3385、3387 行）本块不还、不改；`#1` 未参考；ADR-152 不改。本块不是欠条块，写的时候避开了台账抽取的几种写法（对照 `scripts/check/debt-rule.ts` 的 `CONDITION`、`DEATH_LEAD`、两个节标题与 `IOU_HEAD`）。
+
+**搭载。** 本提交另在 ADR-82 末尾空一行后搭了 r4488412813 的欠条（finding-r3，`docs/ARCHITECTURE.md` 第 202 行的可算数量词，第 3 轮到达、不阻塞，登记），新块在 ADR-82 第 112 行。依据 `process/6-INTEGRATE.md` 第 253–254 行：本来就要 push 的，欠条可以搭在那次提交里。

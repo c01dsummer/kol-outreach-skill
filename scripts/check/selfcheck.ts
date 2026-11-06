@@ -10719,6 +10719,83 @@ group('observer-cert-entry', [], () => {
     `result=${summary.result}，退出码 ${r.status}，汇总里的提交 ${summary.provenance?.head}，证据 ${summary.evidence.length} 份`)
 })
 
+// ---- KOL-21 独立测试包（ADR-183 第 95 行 T 那一片）：冻结的用例经接线跑真实入口与观察器 ----
+// 用例在 `scripts/kol21-independent/`：独立上下文只照冻结规格单写成、不 import 任何实现，整合方嵌回原字节。接线在
+// `scripts/kol21-independent-wiring.ts`（当被测对象起，不进工具表，理由在它的文件头）。这一组起它一次、读回冻结套件自己写的
+// 报告，**不重判任何一条**，每例照报告里的结论分开报：
+//   pass → ✓；red → 不带记号的 ✗（断言红了）；fixture、facility → 带夹具记号的 ✗（这一例什么也没测到，与本文件别处
+//   「阳性对照没成立是夹具失格」同一种处理，见了整次判跑不起来）；review-pending、not-judged、not-covered → 一行「·」写明是哪一种，
+//   不算过、也不计失败（`process/4-VERIFY.md`「推论」：没测量与测量结果是零是两个值）。哪一例整例未判红、里面却有断言不成立
+//   （资格待定或 GAP-25 待定时冻结套件把红压成待定），那一行另说出有几项，不藏。
+// 整套是一组：冻结套件的依赖跨它自己的分组连成一片（G2-00、G1-02、G3-02 当基线，三个阳性每跑都起），拆开的话每组都得重跑这几跑。
+// 本文件直接起的只有接线那一个进程（ADR-145 的计数单位只数这一层），接线在沙箱里起的八十几跑入口不进那个数 —— 一条指着这里的
+// 变异实际要花整套一跑的时间，照实写在这里。
+// 具名断言只给交给本片认领的三条判据各一条（D6.y：ADR-183 第 95、196 行；D13.v、D13.u：ADR-184 第 193、272 行），各断言
+// 「所涉各例没有一例判红、设施故障或夹具失格」；所涉各例按冻结用例（连同它调到的公共判据）在依据里引了哪条判据来列，冻结单的
+// 认领对照没有交到本片手上。认领另要那几例全部 pass、而且没有一项不判 —— 附条件子断言、复核没做、GAP 或 E 前提没补齐的，
+// 一条都认不下来。交点 U9×P1 不在这里认领（接线模块头写着 R 片要补在哪），自检的入口认领记录本来也不收交点。
+group('kol21-independent', [], () => {
+  const root = join(tmp, 'kol21-independent'), work = join(root, 'work'), report = join(root, 'report.json')
+  mkdirSync(work, { recursive: true })
+  const r = runBoth('KOL-21 独立测试包经接线跑真实入口与观察器', [S('kol21-independent-wiring.ts'), '--work', work, '--report', report], root, { status: 0 })
+  if (!r.ok) return
+  type Kol21Item = { label: string; status: string; detail?: string }
+  type Kol21Case = { id: string; verdict: string; items: Kol21Item[]; notes: string[] }
+  const rep = jsonFile(report)
+  const cases: Kol21Case[] = Array.isArray(rep?.cases) ? rep.cases : []
+  const byId = new Map(cases.map(c => [c?.id, c]))
+  // 冻结单的用例数照各组文件头：G1 35、G2 30、G3 27、G4 8、G5 3、G6 3
+  if (cases.length !== 106 || byId.size !== 106
+    || cases.some(c => typeof c?.id !== 'string' || typeof c.verdict !== 'string' || !Array.isArray(c.items) || !Array.isArray(c.notes))) {
+    failed++
+    console.error(`  ✗ KOL-21 独立测试包的报告${SELFCHECK_FIXTURE_MARK}：${report} 读不出、形状不对或不是冻结单的 106 例（读到 ${cases.length} 例）；${stderrTail(r.stderr)}`)
+    return
+  }
+  const tally = new Map<string, number>()
+  for (const c of cases) {
+    tally.set(c.verdict, (tally.get(c.verdict) ?? 0) + 1)
+    const own = c.items.filter(i => i.status === c.verdict).slice(0, 3).map(i => `${i.label}：${i.detail ?? ''}`).join('；') || c.notes.join('；')
+    if (c.verdict === 'pass') console.log(`  ✓ 独立用例 ${c.id}`)
+    else if (c.verdict === 'red') { failed++; console.error(`  ✗ 独立用例 ${c.id}（判红）：${own}`) }
+    else if (c.verdict === 'fixture' || c.verdict === 'facility') {
+      failed++
+      console.error(`  ✗ 独立用例 ${c.id}${SELFCHECK_FIXTURE_MARK}：${c.verdict === 'fixture' ? '夹具失格' : '设施故障'}，这一例什么也没测到 —— ${own}`)
+    } else if (c.verdict === 'review-pending' || c.verdict === 'not-judged' || c.verdict === 'not-covered') {
+      const count = (s: string) => c.items.filter(i => i.status === s).length
+      const kinds: [string, number][] = [['复核或资格待定', count('review-pending')], ['不判', count('not-judged')], ['断言不成立、整例红暂不定', count('red')]]
+      const parts = kinds.filter(([, n]) => n > 0).map(([what, n]) => `${what} ${n} 项`)
+      console.log(`  · 独立用例 ${c.id} 未决（${c.verdict}），不算过也不算红：${parts.length ? parts.join('、') : c.notes.join('；').slice(0, 160)}`)
+    } else { failed++; console.error(`  ✗ 独立用例 ${c.id}${SELFCHECK_FIXTURE_MARK}：报告里的结论 ${JSON.stringify(c.verdict)} 认不得`) }
+  }
+  console.log(`  · 独立测试包 106 例：${['pass', 'red', 'fixture', 'facility', 'review-pending', 'not-judged', 'not-covered']
+    .map(v => `${v} ${tally.get(v) ?? 0}`).join(' · ')}（未决三种不算过；冻结单状态对账在报告的 frozen 里）`)
+  for (const q of Array.isArray(rep.questions) ? rep.questions : []) console.log(`  · 冻结套件报给需求方的疑问：${q}`)
+
+  // 各判据所涉的用例：冻结用例在依据里引了这条判据的那几例（D13.u 只有 G1-02U）
+  const D6Y = ['G1-02', 'G1-02B', 'G1-02C', 'G1-02P', 'G1-02U', 'G1-02W', 'G1-02X', 'G1-03C', 'G1-04', 'G1-06', 'G1-08', 'G1-10', 'G1-12',
+    'G1-14', 'G1-16', 'G1-18', 'G1-20', 'G1-21', 'G1-22', 'G1-23', 'G2-00', 'G2-01', 'G2-13', 'G2-13Z', 'G2-14', 'G2-15', 'G2-15C', 'G2-16',
+    'G2-16P', 'G2-23a', 'G2-23b', 'G3-01', 'G3-02', 'G3-03', 'G3-04', 'G3-04R', 'G3-05', 'G3-06', 'G3-07', 'G3-07T', 'G3-08', 'G3-09',
+    'G3-10', 'G3-11', 'G3-11B', 'G3-11N', 'G3-13', 'G3-14a', 'G3-14b', 'G3-14c', 'G3-14d', 'G3-14e', 'G3-14f', 'G3-15']
+  const D13V = ['G1-02', 'G1-02A', 'G1-02B', 'G1-02C', 'G1-02P', 'G2-13Z', 'G2-24', 'G3-11', 'G3-11B', 'G3-11N', 'G3-13']
+  const D13U = ['G1-02U']
+  // 报告里找不到的用例号读作 undefined：不算干净、也认领不下，不让这里抛
+  const clean = (ids: readonly string[]) => ids.every(id => ['pass', 'review-pending', 'not-judged'].includes(byId.get(id)?.verdict ?? '缺'))
+  const dirty = (ids: readonly string[]) => ids.filter(id => !clean([id])).map(id => `${id}=${byId.get(id)?.verdict ?? '缺'}`).join(' ')
+  const settled = (ids: readonly string[]) => ids.every(id => byId.get(id)?.verdict === 'pass' && byId.get(id)!.items.every(i => i.status === 'pass'))
+  named('KOL-21 独立测试包 D6.y：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格',
+    clean(D6Y), `不成立的：${dirty(D6Y)}`)
+  named('KOL-21 独立测试包 D13.v：新建缺预算按 $2 落盘、不合规预算与其余前置检查拒绝、续跑不借默认、不回写配置所涉各例，没有一例判红、设施故障或夹具失格',
+    clean(D13V), `不成立的：${dirty(D13V)}`)
+  named('KOL-21 独立测试包 D13.u：新建给了合规 --budget 时根 budget_usd 与费用账上限都取该金额（G1-02U），不判红、不是设施故障或夹具失格',
+    clean(D13U), `不成立的：${dirty(D13U)}`)
+  if (settled(D6Y)) criterion('D6.y')
+  if (settled(D13V)) criterion('D13.v')
+  if (settled(D13U)) criterion('D13.u')
+  const unsettled = ([['D6.y', D6Y], ['D13.v', D13V], ['D13.u', D13U]] as const).filter(([, ids]) => !settled(ids))
+    .map(([id, ids]) => `${id}（${ids.filter(c => !settled([c])).length}/${ids.length} 例没有全数判过）`)
+  if (unsettled.length) console.log(`  · 这一跑认领不下：${unsettled.join('、')} —— 没认领的照旧是缺口，不在这里补`)
+})
+
 // 拆不拆、拆几个是判定（`shardJobs`）：只有完整、非变异的整跑才拆；`SELFCHECK_JOBS=1` 照旧单进程。
 const shardCount = shardJobs({ subset, mutating, env: process.env.SELFCHECK_JOBS,
   cpus: availableParallelism(), families: families(REGISTERED).length })
