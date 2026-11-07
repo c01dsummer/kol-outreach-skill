@@ -356,3 +356,62 @@ Instagram 的「portable charger」这次一次都没查到 —— 预算停在�
 套用上面那句去说 `unknown`，等于替它编了一个诊断（「读不出来、你让我跳过了」），
 而 `unknown` 有两个来源、事后分不出是哪一个。措辞的规矩在
 [`memory.md`](memory.md) 里，**以那份为准** —— 这里只是把它排进输出顺序。
+
+### 测试观察用的 stderr 行与保存失败注入（契约 kol-obs/v1）
+
+这一节只给自动化测试用，平时用不到。两样东西默认都关着：不设环境变量 `KOL_OBS_EVENTS`、当前目录里也没有 `.kol-save-fault.json` 时，collect、probe、enrich 的行为、输出和落盘，与没有这一节时完全相同。
+
+**行的格式。** 每条记录占 stderr 的一整行：行首固定是 `KOL-OBS` 加一个空格，后面是一个单行 JSON 对象，以换行结束。每个对象都有 `kind`（记录种类）和 `contract`（固定为 `"kol-obs/v1"`）。这些行只写 stderr，从不写 stdout，也不为它们写任何文件。入口给人看的提示从不以 `KOL-OBS ` 开头；把 stderr 里以它开头的整行连同行尾换行去掉，剩下的就是平时那份 stderr。
+
+**一、预留事件。** 只在环境变量 `KOL_OBS_EVENTS` 的值恰为 `1` 时打开，别的值或没设都算关。测试观察器每一跑都设它，平时使用不用设。打开时，collect、probe、enrich 写两种行。
+
+就绪行：入口一启动、读取任何输入（命令行参数、配置、`task.json`）之前写一行，每一跑恰好一行。`entry` 取 `collect`、`probe` 或 `enrich`。
+
+```
+KOL-OBS {"kind":"ready","contract":"kol-obs/v1","entry":"collect"}
+```
+
+预留行：每一次预算预留尝试写一行，成没成都写。
+
+```
+KOL-OBS {"kind":"reserve","contract":"kol-obs/v1","entry":"collect","scope":"task","endpoint":"/api/v1/tiktok/app/v3/fetch_video_search_result","unit_micro_usd":1000,"result":"reserved","attempt_id":3}
+```
+
+- `scope`：`task` 是写进 `task.json` 的任务账（collect、enrich）；`process` 是只在本进程里的账（probe）。
+- `endpoint`：这次请求的 URL 路径，不含主机和查询串。
+- `unit_micro_usd`：这一路的单价，单位是百万分之一美元。
+- `result`：`reserved` 是预留成功，`rejected` 是被拒。
+- `attempt_id`：只在 `scope` 为 `task` 且 `result` 为 `reserved` 时有，是这次尝试在任务账里的序号。
+- `reason`：只在 `rejected` 时有，取五个之一。`budget`：已知额度不够付这一次。`ledger-unavailable`：费用账缺席、损坏或版本认不得。`pending`：账上有没结的预留。`root-conflict`：根预算与账上的上限冲突。`save-failed`：这次预留没能存进任务账，或本跑早先已有一次保存失败。
+
+`reserved` 行在这次预留已经存好（任务账）之后、真正发出这次 HTTP 请求之前写出。每一次真实的 HTTP 尝试（包括重试和换路）恰好对应一条 `reserved` 行，没有发出去的尝试没有 `reserved` 行。`rejected` 行在被拒的那一刻写出，这次请求不发。probe 打开时同样只写 stderr，不因此落盘。
+
+**二、让某一次保存故意失败。** 只对 collect 生效。当前目录下有 `.kol-save-fault.json` 时，collect 启动时读它一次，只读，不改也不删。
+
+```
+{"schema":"kol-save-fault/v1","point":"SP-R","occurrence":1}
+```
+
+`point` 是保存点，取五个之一：
+
+- `SP-R`：每次真实 HTTP 尝试之前，把这次预留写进 `task.json` 的那次保存。
+- `SP-200`：收到 HTTP 200 之后，把费用终态写进 `task.json` 的那次保存。
+- `SP-N200`：收到非 200 的 HTTP 状态之后，把撤销终态写进 `task.json` 的那次保存。
+- `SP-NS`：没拿到 HTTP 状态（例如连不上）之后，把保守留存的终态写进 `task.json` 的那次保存。
+- `SP-BUD`：已知额度不足、停下时的断点保存；注入时作者文件和 `task.json` 都不写。
+
+`occurrence` 是正整数 k。本跑里这个保存点第 k 次出现时，那一次保存不写盘，collect 照真实的保存失败收尾，和磁盘写失败走同一条路：stderr 报保存失败，原因写明是 `.kol-save-fault.json` 注入的。同一跑里这个保存点的其余各次和别的保存点都照常写。注入不改变请求的端点、价目、调度和重试次数。
+
+生效的那一刻，stderr 写一行命中记录，一跑最多一行。`attempt_id` 和 `endpoint` 只在 `SP-R`、`SP-200`、`SP-N200`、`SP-NS` 时有。
+
+```
+KOL-OBS {"kind":"save-fault","contract":"kol-obs/v1","entry":"collect","point":"SP-R","occurrence":1,"attempt_id":3,"endpoint":"/api/v1/tiktok/app/v3/fetch_video_search_result","not_written":true}
+```
+
+退出时如果注入一直没生效，stderr 写一行未命中记录。`seen` 是本跑里这个保存点实际出现的次数。`why` 是 `not-reached`（没到第 k 次）或 `invalid-file`（文件不是合格的 JSON、`schema` 不对、`point` 不在上面五个里，或 `occurrence` 不是正整数）；文件不合格时不注入、其余照常，读不出的字段写 `null`。
+
+```
+KOL-OBS {"kind":"save-fault-miss","contract":"kol-obs/v1","entry":"collect","point":"SP-R","occurrence":1,"seen":0,"why":"not-reached"}
+```
+
+命中和未命中记录不看 `KOL_OBS_EVENTS`，有这个文件就写。平时使用不需要、也不应该放这个文件。
