@@ -1987,6 +1987,12 @@ group('kol-obs-events', [], () => {
       obsKind(r.stderr, 'ready').length === 1 && obsKind(r.stderr, 'ready')[0].entry === entry
         && obsKind(r.stderr, 'ready')[0].contract === 'kol-obs/v1' && !r.stdout.includes(OBS), `${entry}: ${obsSaid(r)}`)
   }
+  // 「读取任何输入（命令行参数、…）之前」—— 一个参数都不给，入口连 argv 都接受不了（用法错误，照 D26.a 的先例以 2 拒绝）
+  for (const entry of ['collect', 'probe', 'enrich']) {
+    const r = runBoth(`${entry} 不带任何参数`, [S(`${entry}.ts`)], tmp, { status: 2, soft: [0, 1, 3] }, costEnv(join(tmp, `obs-argv-${entry}.tsv`), OBS_ON))
+    if (r.ok) named('连命令行参数都接受不了时也已写出恰好一条 ready 行，entry 是本入口',
+      obsKind(r.stderr, 'ready').length === 1 && obsKind(r.stderr, 'ready')[0].entry === entry && !r.stdout.includes(OBS), `${entry}: ${obsSaid(r)}`)
+  }
   // 付费跑：「每一次真实的 HTTP 尝试（包括重试和换路）恰好对应一条 reserved 行」「scope：task 是写进 task.json 的任务账（collect、enrich）；
   // process 是只在本进程里的账（probe）」「attempt_id：只在 scope 为 task 且 result 为 reserved 时有」「reason：只在 rejected 时有」。
   // 单价只对搜索那一路钉死：原文例子与 tikhub.md 都是 $0.001 ＝ 1000；attempt_id ＝ 夹具 next_attempt_id ＝ 0 次 + 1 ＝ 1。
@@ -2011,6 +2017,13 @@ group('kol-obs-events', [], () => {
       ok.length >= 1 && ok.every(o => scope === 'task' ? Number.isInteger(o.attempt_id) : !('attempt_id' in o)) && (scope !== 'task' || ok[0].attempt_id === 1),
       `${entry}: ${obsSaid(r, log)}`)
   }
+  // 「`reserved` 行在这次预留已经存好（任务账）之后、真正发出这次 HTTP 请求之前写出」—— 假 fetch 在第 1 个 200 响应交还之前把进程 SIGKILL
+  // （crash-resume 的手法，退出码 137），所以 stderr 里收到的每一行都写于响应被处理之前；只比行数的断言挡不住「响应处理完才写」
+  const killed = obsFixture('kill-first')
+  const kr = obsResume('collect 第一次响应交还前被杀', killed, { ...OBS_ON, FAKE_FETCH_KILL_AFTER_OK: '1' }, { status: 137 })
+  if (kr.ok) named('第一次请求的响应还没交还就被杀时，那条 reserved 行已经在 stderr 上：恰好一条、端点是搜索路径、attempt_id 1',
+    fetchAttempts(killed.log).length === 1 && reserves(kr.stderr, 'reserved').length === 1 && reserves(kr.stderr, 'reserved')[0].endpoint === TT_SEARCH
+      && reserves(kr.stderr, 'reserved')[0].attempt_id === 1 && obsKind(kr.stderr, 'ready').length === 1, obsSaid(kr, killed.log))
   // 「包括重试」：第一次 429、若既有策略重试则下一次 200 —— 不另定重试策略，只要 reserved 行数等于账本行数
   const retry = obsFixture('retry')
   const rr = obsResume('collect 搜索先吃 429', retry, { ...OBS_ON, FAKE_FETCH_FAULT_PATH: TT_SEARCH, FAKE_FETCH_FAULT: 'bad-body-429' }, { status: 3, soft: [0, 1, 2] })
@@ -2112,15 +2125,23 @@ group('kol-obs-save-fault', [], () => {
       && mr.status === missCtl.status && mr.stdout === missCtl.stdout,
     `stdout 与对照相同=${mr.stdout === missCtl.stdout}; ${obsSaid(mr, miss.log)}\n    对照 ${obsSaid(missCtl)}`)
   // invalid-file＝「文件不是合格的 JSON、schema 不对、point 不在上面五个里，或 occurrence 不是正整数」：「文件不合格时不注入、其余照常，读不出的字段写 null」
-  const invalid: [string, unknown][] = [['not-json', '{nope'], ['schema', { ...FAULT_OK, schema: 'kol-save-fault/v0' }], ['point', { ...FAULT_OK, point: 'SP-X' }],
-    ['occ-0', { ...FAULT_OK, occurrence: 0 }], ['occ-1.5', { ...FAULT_OK, occurrence: 1.5 }], ['occ-str', { ...FAULT_OK, occurrence: '1' }]]
-  for (const [tag, body] of invalid) {
+  // 「读不出的字段写 null」按字段的契约类型读：point 读得出＝五个名字之一，occurrence 读得出＝正整数 k，否则 null；
+  // 「seen 是本跑里这个保存点实际出现的次数」—— point 读得出（SP-R）时「其余照常」跑完一次搜索 → 1；point 读不出时没有保存点可数，原文没定，不判。
+  // 每项：[tag, 文件内容, 期望 point, 期望 occurrence]
+  const invalid: [string, unknown, string | null, number | null][] = [['not-json', '{nope', null, null], ['schema', { ...FAULT_OK, schema: 'kol-save-fault/v0' }, 'SP-R', 1],
+    ['point', { ...FAULT_OK, point: 'SP-X' }, null, 1], ['occ-0', { ...FAULT_OK, occurrence: 0 }, 'SP-R', null],
+    ['occ-1.5', { ...FAULT_OK, occurrence: 1.5 }, 'SP-R', null], ['occ-str', { ...FAULT_OK, occurrence: '1' }, 'SP-R', null]]
+  for (const [tag, body, point, occurrence] of invalid) {
     const f = obsFixture(`invalid-${tag}`); obsFault(f.cwd, body)
     const r = obsResume(`collect 不合格的控制文件 ${tag}`, f)
-    if (r.ok && missCtl.ok) named('不合格的控制文件：恰好一条 why 为 invalid-file 的未命中行、没有命中行，照常请求、退出码与没有文件时相同；读不出的字段是 null',
-      misses(r.stderr).length === 1 && misses(r.stderr)[0].why === 'invalid-file' && misses(r.stderr)[0].entry === 'collect' && hits(r.stderr).length === 0
-        && fetchAttempts(f.log).length === 1 && r.status === missCtl.status
-        && (tag !== 'not-json' || (misses(r.stderr)[0].point === null && misses(r.stderr)[0].occurrence === null)), `${tag}: ${obsSaid(r, f.log)}`)
+    if (!r.ok || !missCtl.ok) continue
+    const m = misses(r.stderr)
+    named('不合格的控制文件：恰好一条 why 为 invalid-file 的未命中行、没有命中行，照常请求、退出码与没有文件时相同',
+      m.length === 1 && m[0].why === 'invalid-file' && m[0].entry === 'collect' && hits(r.stderr).length === 0
+        && fetchAttempts(f.log).length === 1 && r.status === missCtl.status, `${tag}: ${obsSaid(r, f.log)}`)
+    named('不合格的控制文件的未命中行：读得出的字段照原样、读不出的字段是 null，point 读得出时 seen 是这一跑实际的次数',
+      m.length === 1 && m[0].point === point && m[0].occurrence === occurrence && (point === null || m[0].seen === 1),
+      `${tag}: 期望 point=${JSON.stringify(point)} occurrence=${JSON.stringify(occurrence)}；${obsSaid(r, f.log)}`)
   }
   // 「只对 collect 生效」：probe 与 enrich 的当前目录里放着合格的控制文件，不写 save-fault 行，退出码与没有文件时相同
   const ign = join(tmp, 'obs-ignore-probe'); mkdirSync(ign, { recursive: true })
