@@ -346,6 +346,77 @@
       ]
     },
     {
+      "id": "M-D4-as",
+      "req": "D4",
+      "why": "显式 --ignore-memory、记忆首次读不出时，写回不管同一次运行首次读不出的原因，只凭写回前自己再读一次的结果：再读得出就写回，改写了用户要手修的原文件（D4.t）；再读也读不出时报的是第二次的原因，不是首次那一次",
+      "file": "scripts/lib/memory.ts",
+      "find": "export function recordRecommendations(",
+      "replace": "export function recordRecommendations(creators: Creator[], product: string, task?: string): WriteBackResult {\n  return recordRecommendationsOwnReadOnly(creators, product, task)\n}\nfunction recordRecommendationsOwnReadOnly(",
+      "by": "test",
+      "kills": [
+        "D4.t 库：首次读不出、第二次读得出时报未写回，原因原样是首次那一句",
+        "D4.t 库：首次读不出、第二次读得出时记忆文件一个字节没动",
+        "D4.t 库：首次读不出、第二次读得出时没有一次写入落到记忆目录",
+        "D4.t 库：两次都读不出时报的是首次那一句，不是第二次的"
+      ]
+    },
+    {
+      "id": "M-D4-at",
+      "req": "D4",
+      "why": "render 加 --ignore-memory、记忆首次读不出时，入口不把这一次首次读不出的原因交给写回：写回前再读得出就改写 memory/creators.json（D4.t），memory_written 报 true；再读也读不出时 memory_write_error 报的是第二次的原因",
+      "file": "scripts/render.ts",
+      "find": "import { filterByMemory, MemoryUnreadable, recordRecommendations } from './lib/memory.js'",
+      "replace": "import { filterByMemory, MemoryUnreadable, recordRecommendations as recordWithFirstFailure } from './lib/memory.js'\nconst recordRecommendations = (creators: Parameters<typeof recordWithFirstFailure>[0], product: string, task?: string) =>\n  recordWithFirstFailure(creators, product, task)",
+      "by": "selfcheck",
+      "kills": [
+        "D4.t 入口：首次读不出、第二次读得出时，记忆文件停在修好的那一份，记忆目录里没有一次写入",
+        "D4.t 入口：首次读不出、第二次读得出时，交付声明未去重、未写回，原因原样是首次那一次",
+        "D4.t 入口：两次都读不出时，未写回的原因报首次那一次、不报第二次的"
+      ]
+    },
+    {
+      "id": "M-D4-au",
+      "req": "D4",
+      "why": "显式 --ignore-memory、记忆首次读不出时，写回按交进来的首次原因的内容判它带没带：那一句是空的就当没带，写回前自己再读一次，再读得出就改写用户要手修的原文件（D4.t）——「带了」与「没带」被压成按有没有内容判的两档",
+      "file": "scripts/lib/memory.ts",
+      "find": "  if (opts?.prior_unreadable !== undefined) return { written: false, reason: opts.prior_unreadable }",
+      "replace": "  if (opts?.prior_unreadable) return { written: false, reason: opts.prior_unreadable }",
+      "by": "test",
+      "kills": [
+        "D4.t 库：带进来的首次原因是空串也算带了 —— 不写回，written 为 false",
+        "D4.t 库：带进来的首次原因是空串时 reason 原样是空串（严格相等）",
+        "D4.t 库：带进来的首次原因是空串时记忆文件一个字节没动",
+        "D4.t 库：带进来的首次原因是空串时没有一次写入落到记忆目录、没留下别的文件"
+      ]
+    },
+    {
+      "id": "M-D4-av",
+      "req": "D4",
+      "why": "显式 --ignore-memory、记忆首次读不出时，过滤不把这一次读不出的原因原文带出来：交付带不出原样的真实原因（D4.d），写回拿不到首次那一句，写回前再读得出就改写用户要手修的原文件（D4.t）",
+      "file": "scripts/lib/memory.ts",
+      "find": "      unreadable_detail: r.detail,",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "D4.t 库：首次读不出（解析失败）、显式跳过时 unreadable_detail 是非空字符串",
+        "D4.t 库：unreadable_detail 原样包含对同一份字节 JSON.parse 抛出的那条错误信息（D4.d 报错原样带出真实原因）",
+        "D4.t 库：把 filterByMemory 真返回的首次原因交给写回，不写回、reason 与它严格相等",
+        "D4.t 库：交的是真返回的首次原因时没有一次写入落到记忆目录"
+      ]
+    },
+    {
+      "id": "M-D4-aw",
+      "req": "D4",
+      "why": "render 加 --ignore-memory、记忆读得出时，入口照样交一句首次读不出的原因给写回：这一批推荐没记进跨任务记忆（D4），交付报未写回，原因是一句并没有发生的读不出（D4.n 要的是失败原因原文）—— 只有首次读不出那一次才该带着首次原因不写回（D4.t）",
+      "file": "scripts/render.ts",
+      "find": "const options = firstUnreadable === undefined ? undefined : { prior_unreadable: firstUnreadable }",
+      "replace": "const options = { prior_unreadable: firstUnreadable ?? '记忆读不出来（这一次并没有发生）' }",
+      "by": "selfcheck",
+      "kills": [
+        "D4.t 入口对照：记忆读得出时 --ignore-memory 照常写回这一批，已联系的标记原样保留"
+      ]
+    },
+    {
       "id": "M-D4-aj",
       "req": "D4",
       "why": "损坏的关联身份仍被当成可用记忆，导致去重结论不可信",

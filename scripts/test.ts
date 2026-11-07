@@ -191,6 +191,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p2-placeholders', needs: [] },
   { id: 'd6-pipeline', needs: [] },
   { id: 'd4-memory', needs: [] },
+  { id: 'd4t-ignore-memory', needs: [] },
   { id: 'd4-pid-boundary', needs: [] },
   { id: 'f5-geo', needs: [] },
   { id: 'u3-keywords', needs: [] },
@@ -2332,6 +2333,167 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
   useMemoryFile('memory/creators.json')
 }
 
+})
+// D4.t 那一次（显式 --ignore-memory）：首次读记忆读不出、写回前再读却读得出 —— ADR-185 第 173 行那张欠条。
+// 期望只出自 D4.t（结束后记忆文件逐字节不变）、D4.n（交付物带出失败原因原文）、D4.d（报错原样带出真实原因）、
+// ADR-185 第 173 行的还法（首次不可读的状态贯穿到写回，跳过写回并报告未写回）与已批准的最小接口
+// （写回的第四个参数带上同一次运行首次读不出的原因）。独立测试上下文写的：没读 memory.ts 的函数体，
+// expected 没有一条取自运行结果 ——「首次那一句」是这里写定、自己传进去的。入口那一半在自检 memory-d4t-ignore 组。
+await group('d4t-ignore-memory', async () => {
+suite('D4', 'D4.t：显式跳过时首次读不出，写回前再读得出也不写回，原因报首次那一次')
+{
+  const fsLive = createRequire(import.meta.url)('node:fs') as typeof import('node:fs')
+  const { sep } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'kol-d4t-'))
+  const file = join(dir, 'creators.json')
+  const FIRST = 'first failure detail'
+  const held = { platform: 'tiktok', handle: 'd4t_held', nickname: 'd4t_held', followers: 50000, first_seen: '2026-01-01',
+    recommendations: [], contacted: true, replied: false, blocked: false, note: 'operator marked' }
+  const valid = JSON.stringify({ version: 1, updated_at: '2026-01-01', creators: { 'tiktok:d4t_held': held } }, null, 2) + '\n'
+  const truncated = valid.slice(0, Math.floor(valid.length * 0.6))   // 解析失败（D4.d 第二类）
+  const wrongShape = '{"version":1,"creators":[]}'                    // 结构不对（D4.d 第三类，ADR-19 那一种手滑）
+  const batch = [mk('tiktok', 'd4t_fresh')]
+  // 万一抛了也变成一个能断言的值 —— 崩溃不是断言的功劳（同上一组的 writeOf）
+  type Attempt = { written?: boolean; reason?: string; threw?: string }
+  const attempt = (f: () => ReturnType<typeof recordRecommendations>): Attempt => {
+    try { return f() } catch (e) { return { threw: (e as Error).name } }
+  }
+  const reasonOf = (r: Attempt) => r.threw !== undefined ? `抛了：${r.threw}` : r.written === false ? r.reason : '（写回了）'
+
+  // 写入观察器：只在 watched(…) 那一小段里记，只记落在本组临时目录里的写类调用（改名、整写、追加、复制、
+  // 截断、删除、以写方式打开）。「没有写入」那几条靠它；阳性对照在第四段 —— 记忆读得出时照常写回，
+  // 同一接线必须记到（process/4-VERIFY.md「观察器的零记录不能单独证明没有事件」）
+  const events: string[] = []
+  let armed = false
+  const WATCHED = ['writeFileSync', 'appendFileSync', 'renameSync', 'copyFileSync', 'cpSync', 'linkSync', 'symlinkSync',
+    'truncateSync', 'unlinkSync', 'rmSync', 'rmdirSync', 'openSync'] as const
+  const live = fsLive as unknown as Record<string, (...args: unknown[]) => unknown>
+  const originals = new Map(WATCHED.map(name => [name, live[name]] as const))
+  const toPath = (p: unknown): string | undefined =>
+    typeof p === 'number' ? undefined : p instanceof URL ? fileURLToPath(p) : resolve(String(p))
+  const opensForWrite = (flags: unknown): boolean => typeof flags === 'number'
+    ? (flags & (fsLive.constants.O_WRONLY | fsLive.constants.O_RDWR | fsLive.constants.O_CREAT
+      | fsLive.constants.O_TRUNC | fsLive.constants.O_APPEND)) !== 0
+    : typeof flags === 'string' && /[wa+]/.test(flags)
+  const record = (name: string, args: unknown[]) => {
+    if (!armed || (name === 'openSync' && !opensForWrite(args[1]))) return
+    const targets = name === 'renameSync' ? [args[0], args[1]]
+      : ['copyFileSync', 'cpSync', 'linkSync', 'symlinkSync'].includes(name) ? [args[1]] : [args[0]]
+    for (const t of targets) {
+      const p = toPath(t)
+      if (p !== undefined && (p === dir || p.startsWith(dir + sep))) events.push(`${name} ${p}`)
+    }
+  }
+  for (const name of WATCHED) {
+    const original = originals.get(name)!
+    live[name] = function (this: unknown, ...args: unknown[]) { record(name, args); return original.apply(this, args) }
+  }
+  syncBuiltinESMExports()
+  const watched = <T>(f: () => T): T => { events.length = 0; armed = true; try { return f() } finally { armed = false } }
+
+  try {
+    useMemoryFile(file)
+
+    // 一、首次读不出（截断的 JSON），之后文件被修好 —— 写回前再读就读得出了。
+    //     这一路原先第二次读成功就照常写回；还法要的是首次读不出的原因贯穿到写回：不写，报首次那一句
+    writeFileSync(file, truncated, 'utf8')
+    const first = filterByMemory(batch, 'p', 'task-d4t', { ignoreUnreadable: true })
+    eq('D4.t 库：首次读不出时显式跳过照常出名单', [first.memory_status, first.kept.length], ['unreadable_ignored', 1])
+    writeFileSync(file, valid, 'utf8')
+    const repaired = rf(file)
+    const fixed = watched(() => attempt(() => recordRecommendations(first.kept, 'p', 'task-d4t', { prior_unreadable: FIRST })))
+    eq('D4.t 库：首次读不出、第二次读得出时报未写回，原因原样是首次那一句', reasonOf(fixed), FIRST)
+    ok('D4.t 库：首次读不出、第二次读得出时记忆文件一个字节没动', rf(file).equals(repaired))
+    eq('D4.t 库：首次读不出、第二次读得出时没有一次写入落到记忆目录', [...events], [])
+
+    // 二、两次都读不出：首次截断，第二次是另一种坏法（结构不对）。报的仍是首次那一句 —— 跳过写回的原因就是它
+    writeFileSync(file, truncated, 'utf8')
+    const again = filterByMemory(batch, 'p', 'task-d4t', { ignoreUnreadable: true })
+    writeFileSync(file, wrongShape, 'utf8')
+    const stillBroken = rf(file)
+    const both = watched(() => attempt(() => recordRecommendations(again.kept, 'p', 'task-d4t', { prior_unreadable: FIRST })))
+    eq('D4.t 库：两次都读不出时报的是首次那一句，不是第二次的', reasonOf(both), FIRST)
+    ok('D4.t 库：两次都读不出时记忆文件逐字节不变，没被挪走、另存或留下临时文件',
+      rf(file).equals(stillBroken) && JSON.stringify(readdirSync(dir)) === JSON.stringify(['creators.json']) && events.length === 0)
+
+    // 三、不带首次原因 = 旧行为：这一次调用自己读、自己报。文件仍是结构不对的那一份，所以不写、原因是它自己读出的
+    const own = watched(() => attempt(() => recordRecommendations(again.kept, 'p', 'task-d4t')))
+    ok('D4.t 库：不带首次原因时照旧报这一次自己读出的原因、不写回',
+      own.threw === undefined && own.written === false && typeof own.reason === 'string' && own.reason.trim() !== ''
+        && own.reason !== FIRST && rf(file).equals(stillBroken) && events.length === 0)
+
+    // 四、对照：记忆读得出时照常写回 —— 不留这一条，「一律不写回」的实现也能让上面全绿。
+    //     前两次调用带过首次原因，这一次不带：带过的那一句不得留到下一次调用（不跨调用记着）
+    writeFileSync(file, valid, 'utf8')
+    const healthy = rf(file)
+    const normal = filterByMemory([...batch, mk('tiktok', 'd4t_held')], 'p', 'task-d4t')
+    eq('D4.t 库对照：记忆读得出时已联系的人挡在名单外', [normal.memory_status, normal.kept.map(c => c.handle)], ['ok', ['d4t_fresh']])
+    const wrote = watched(() => attempt(() => recordRecommendations(normal.kept, 'p', 'task-d4t')))
+    eq('D4.t 库对照：前面带过首次原因，这一次读得出照常写回', [wrote.written, wrote.threw], [true, undefined])
+    const saved = (() => { try { return JSON.parse(rf(file, 'utf8')) } catch { return undefined } })()
+    ok('D4.t 库对照：新推荐记进记忆，已联系的标记原样保留',
+      !rf(file).equals(healthy)
+        && saved?.creators?.['tiktok:d4t_fresh']?.recommendations?.some((r: { product?: unknown }) => r?.product === 'p') === true
+        && saved?.creators?.['tiktok:d4t_held']?.contacted === true)
+    ok('D4.t 库对照：同一观察接线记到了落在记忆文件上的写入（上面零写入的阳性对照）', events.some(e => e.endsWith(` ${file}`)))
+
+    // 五、「只认带没带，不按内容另判」（ADR-185 第 177 行）：带进来的首次原因是空串也算带了。
+    //     这里文件是读得出的那一份 —— 要是实现按内容判（空串当没带）、自己再读一次，就会照常写回，文件就变了
+    writeFileSync(file, valid, 'utf8')
+    const beforeEmpty = rf(file)
+    const empty = watched(() => attempt(() => recordRecommendations(batch, 'p', 'task-d4t', { prior_unreadable: '' })))
+    eq('D4.t 库：带进来的首次原因是空串也算带了 —— 不写回，written 为 false', [empty.threw, empty.written], [undefined, false])
+    ok('D4.t 库：带进来的首次原因是空串时 reason 原样是空串（严格相等）', empty.reason === '')
+    ok('D4.t 库：带进来的首次原因是空串时记忆文件一个字节没动', rf(file).equals(beforeEmpty))
+    ok('D4.t 库：带进来的首次原因是空串时没有一次写入落到记忆目录、没留下别的文件',
+      events.length === 0 && JSON.stringify(readdirSync(dir)) === JSON.stringify(['creators.json']))
+
+    // 六、贯穿的前半：首次读不出时 filterByMemory 带出的原因是什么。
+    //     D4.d「报错原样带出真实原因」—— 解析失败的真实原因就是对同一份字节 JSON.parse 抛出的那句；
+    //     独立 oracle 自己 parse 一遍，用「包含」不用整句相等（需求没说没有前缀）
+    writeFileSync(file, truncated, 'utf8')
+    const sameBytes = rf(file)
+    let want: string | undefined
+    try { JSON.parse(sameBytes.toString('utf8')) } catch (e) { want = (e as Error).message }
+    const broken = filterByMemory(batch, 'p', 'task-d4t', { ignoreUnreadable: true })
+    eq('D4.t 库：首次读不出（解析失败）、显式跳过时 memory_status 是 unreadable_ignored', broken.memory_status, 'unreadable_ignored')
+    ok('D4.t 库：首次读不出（解析失败）、显式跳过时 unreadable_detail 是非空字符串',
+      typeof broken.unreadable_detail === 'string' && broken.unreadable_detail.length > 0)
+    ok('D4.t 库：unreadable_detail 原样包含对同一份字节 JSON.parse 抛出的那条错误信息（D4.d 报错原样带出真实原因）',
+      typeof want === 'string' && want.length > 0
+        && typeof broken.unreadable_detail === 'string' && broken.unreadable_detail.includes(want))
+
+    // 七、记忆读得出时没有这一句：unreadable_detail 为 undefined —— 显式跳过与不跳过都一样
+    writeFileSync(file, valid, 'utf8')
+    const fineIgnoring = filterByMemory(batch, 'p', 'task-d4t', { ignoreUnreadable: true })
+    const finePlain = filterByMemory(batch, 'p', 'task-d4t')
+    ok('D4.t 库：记忆读得出时 unreadable_detail 为 undefined（显式跳过）',
+      fineIgnoring.memory_status === 'ok' && fineIgnoring.unreadable_detail === undefined)
+    ok('D4.t 库：记忆读得出时 unreadable_detail 为 undefined（不跳过）',
+      finePlain.memory_status === 'ok' && finePlain.unreadable_detail === undefined)
+
+    // 八、贯穿：把 filterByMemory 真返回的那一句（不是测试写定的常量）交给写回。
+    //     中间把文件修好，写回前再读就读得出 —— 仍不写、reason 与交进去的那一句严格相等
+    writeFileSync(file, truncated, 'utf8')
+    const chain = filterByMemory(batch, 'p', 'task-d4t', { ignoreUnreadable: true })
+    const detail = chain.unreadable_detail
+    writeFileSync(file, valid, 'utf8')
+    const repairedAgain = rf(file)
+    const carried: Attempt = typeof detail === 'string'
+      ? watched(() => attempt(() => recordRecommendations(chain.kept, 'p', 'task-d4t', { prior_unreadable: detail })))
+      : { threw: '（filterByMemory 没给 unreadable_detail）' }
+    ok('D4.t 库：把 filterByMemory 真返回的首次原因交给写回，不写回、reason 与它严格相等',
+      typeof detail === 'string' && detail.length > 0 && carried.threw === undefined && carried.written === false && carried.reason === detail)
+    ok('D4.t 库：交的是真返回的首次原因时记忆文件逐字节不变', rf(file).equals(repairedAgain))
+    eq('D4.t 库：交的是真返回的首次原因时没有一次写入落到记忆目录',
+      typeof detail === 'string' ? [...events] : ['（filterByMemory 没给 unreadable_detail，没跑写回）'], [])
+  } finally {
+    for (const name of WATCHED) live[name] = originals.get(name)!
+    syncBuiltinESMExports()
+    useMemoryFile('memory/creators.json')
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
 })
 await group('d4-pid-boundary', async () => {
   suite('D4', '残留识别采用本机PID不包含上界')
