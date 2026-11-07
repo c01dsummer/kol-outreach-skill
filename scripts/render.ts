@@ -79,11 +79,13 @@ try {
 // The last delivery may predate a manual contacted/blocked edit. Recheck both
 // account identities before changing any task output or recommendation memory.
 let memoryStatus
+let firstUnreadable: string | undefined
 try {
   const current = filterByMemory(creators, state.product, taskId(dir),
     { ignoreUnreadable: ignoreMemory, knownRelations: relations })
   creators = current.kept
   memoryStatus = current.memory_status
+  firstUnreadable = current.unreadable_detail
 } catch (e) {
   if (e instanceof MemoryUnreadable) {
     console.error(`${e.message}\n修复记忆后重跑；只有明确接受不去重风险时才加 --ignore-memory。`)
@@ -150,7 +152,10 @@ const audienceGeo = creators.filter(c => c.audience_geo !== undefined).length
 // 记忆读不出来时不写回（绝不拿一份「谁都没联系过」去盖掉它，ADR-15），
 // 损失的是下一轮的「已推荐过」去重，属于覆盖；写回则会毁掉 contacted 与
 // blocked，属于可信。覆盖能补，可信补不回来。
-const writeBack = recordRecommendations(creators, state.product, taskId(dir))
+// 读不读得出以上面那一次为准：这里只把它原样交下去，写不写由 recordRecommendations 判（D4.t）。
+// 首次读得出时不带第四参 —— 第四参只有「带着首次那一句」一种形状。
+const options = firstUnreadable === undefined ? undefined : { prior_unreadable: firstUnreadable }
+const writeBack = recordRecommendations(creators, state.product, taskId(dir), options)
 if (!writeBack.written) {
   // 原因有两类：读不出来（去修 JSON）和写不进去（去看权限/磁盘）。
   // **不要替用户断定是哪一类** —— 让他拿着真实原因去修对的地方（ADR-20）。
