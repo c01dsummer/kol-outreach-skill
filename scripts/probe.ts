@@ -25,6 +25,10 @@ import { asHashtagProblems, igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { configFieldProblems } from './lib/config-input.js'
 import { duplicateKeyProblems } from './lib/duplicate-keys.js'
+import { obsReady } from './lib/obs.js'
+
+// kol-obs/v1（`skill/references/output-format.md`）：就绪行在读任何输入之前，平时关着
+obsReady('probe')
 
 const cfgIndex = process.argv.indexOf('--config')
 const cfgPath = process.argv[cfgIndex + 1]

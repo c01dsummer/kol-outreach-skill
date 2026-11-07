@@ -52,6 +52,10 @@ import type {
   Platform,
   TaskState,
 } from './lib/types.js'
+import { obsReady } from './lib/obs.js'
+
+// kol-obs/v1（`skill/references/output-format.md`）：就绪行在读任何输入之前，平时关着
+obsReady('enrich')
 
 const argv = process.argv
 const arg = (name: string) => {
