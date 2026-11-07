@@ -19894,6 +19894,370 @@
       "kills": [
         "KOL-21 独立测试包 D13.v：新建缺预算按 $2 落盘、不合规预算与其余前置检查拒绝、续跑不借默认、不回写配置所涉各例，没有一例判红、设施故障或夹具失格"
       ]
+    },
+    {
+      "id": "M-H186-a",
+      "req": "harness",
+      "why": "环境变量 KOL_OBS_EVENTS 设成 1 以外的值（比如 0 或 true）也打开了预留事件：平时那份 stderr 多出 KOL-OBS 行",
+      "file": "scripts/lib/obs.ts",
+      "find": "if (env.KOL_OBS_EVENTS !== '1') return",
+      "replace": "if (!env.KOL_OBS_EVENTS) return",
+      "by": "selfcheck",
+      "kills": [
+        "KOL_OBS_EVENTS 不是恰为 1 时，stderr 与 stdout 都没有 KOL-OBS 行"
+      ]
+    },
+    {
+      "id": "M-H186-b",
+      "req": "harness",
+      "why": "入口一启动不写就绪行：测试观察器等不到 ready，读不出这一跑从哪一刻开始",
+      "file": "scripts/lib/obs.ts",
+      "find": "  write({ kind: 'ready', entry })\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "读不到输入也先写恰好一条 ready 行：entry 是本入口、contract 是 kol-obs/v1，stdout 没有",
+        "每条 KOL-OBS 行都是带 kind 与 contract 的单行 JSON，ready 恰好一条且在任何 reserve 之前，stdout 一条都没有"
+      ]
+    },
+    {
+      "id": "M-H186-c",
+      "req": "harness",
+      "why": "KOL-OBS 行写到了 stdout 而不是 stderr：stdout 那份汇总 JSON 里混进不属于它的行",
+      "file": "scripts/lib/obs.ts",
+      "find": "writeSync(2, ",
+      "replace": "writeSync(1, ",
+      "by": "selfcheck",
+      "kills": [
+        "读不到输入也先写恰好一条 ready 行：entry 是本入口、contract 是 kol-obs/v1，stdout 没有",
+        "每条 KOL-OBS 行都是带 kind 与 contract 的单行 JSON，ready 恰好一条且在任何 reserve 之前，stdout 一条都没有"
+      ]
+    },
+    {
+      "id": "M-H186-d",
+      "req": "harness",
+      "why": "没设 KOL_OBS_EVENTS 也写预留行：平时使用的 stderr 多出 KOL-OBS 行，和没有这份契约时不一样",
+      "file": "scripts/lib/obs.ts",
+      "find": "  if (events === undefined) return\n  const scope",
+      "replace": "  const scope",
+      "by": "selfcheck",
+      "kills": [
+        "没设 KOL_OBS_EVENTS 的对照跑没有任何 KOL-OBS 行",
+        "没设 KOL_OBS_EVENTS 时命中行照写，而 ready 与 reserve 行一条也没有"
+      ]
+    },
+    {
+      "id": "M-H186-e",
+      "req": "harness",
+      "why": "预留还没存进 task.json 就先写 reserved 行：保存随后失败、请求没发出去，观察器照样数到一次真实尝试",
+      "file": "scripts/lib/budget.ts",
+      "find": "      this.checkpoint({ point: 'SP-R', attempt_id, endpoint })\n    } catch (error) {\n      if (unit !== undefined) obsReserve(endpoint, unit, { result: 'rejected', reason: rejectReason(error) })\n      throw error\n    }\n    if (unit !== undefined) obsReserve(endpoint, unit, { result: 'reserved', attempt_id })\n",
+      "replace": "      if (unit !== undefined) obsReserve(endpoint, unit, { result: 'reserved', attempt_id })\n      this.checkpoint({ point: 'SP-R', attempt_id, endpoint })\n    } catch (error) {\n      if (unit !== undefined) obsReserve(endpoint, unit, { result: 'rejected', reason: rejectReason(error) })\n      throw error\n    }\n",
+      "by": "selfcheck",
+      "kills": [
+        "预留存不进任务账时写 reason 为 save-failed 的 rejected 行，没有 reserved 行，请求不发，退出 1",
+        "SP-R 注入在开关打开时同时留下 reason 为 save-failed 的 rejected 行，没有 reserved 行，命中行仍恰好一条"
+      ]
+    },
+    {
+      "id": "M-H186-f",
+      "req": "harness",
+      "why": "预留成功、请求照发，却不写 reserved 行：真实 HTTP 尝试（包括重试）数不出来",
+      "file": "scripts/lib/budget.ts",
+      "find": "    if (unit !== undefined) obsReserve(endpoint, unit, { result: 'reserved', attempt_id })\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "reserved 行与账本里的真实 HTTP 尝试一一对应：endpoint 是请求路径、unit_micro_usd 是这一路单价、scope 按入口分、没有 reason",
+        "429 那次与重试各算一次真实尝试：reserved 行数等于账本行数，端点逐条对应"
+      ]
+    },
+    {
+      "id": "M-H186-g",
+      "req": "harness",
+      "why": "预留被拒时不写 rejected 行：请求没发，观察器却看不出它被拒了、为什么被拒",
+      "file": "scripts/lib/budget.ts",
+      "find": "      if (unit !== undefined) obsReserve(endpoint, unit, { result: 'rejected', reason: rejectReason(error) })\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "被拒的预留写 rejected 行：reason 是对应的那一个、没有 attempt_id、没有 reserved 行，请求一次都没发",
+        "预留存不进任务账时写 reason 为 save-failed 的 rejected 行，没有 reserved 行，请求不发，退出 1",
+        "SP-R 注入在开关打开时同时留下 reason 为 save-failed 的 rejected 行，没有 reserved 行，命中行仍恰好一条"
+      ]
+    },
+    {
+      "id": "M-H186-h",
+      "req": "harness",
+      "why": "根预算与账上上限冲突报成 ledger-unavailable、账本身认不得报成 root-conflict：两种被拒原因互换",
+      "file": "scripts/lib/budget.ts",
+      "find": "refused(rootConflict() ? 'root-conflict' : 'ledger-unavailable',",
+      "replace": "refused(rootConflict() ? 'ledger-unavailable' : 'root-conflict',",
+      "by": "selfcheck",
+      "kills": [
+        "被拒的预留写 rejected 行：reason 是对应的那一个、没有 attempt_id、没有 reserved 行，请求一次都没发"
+      ]
+    },
+    {
+      "id": "M-H186-i",
+      "req": "harness",
+      "why": "账上有没结的预留时被拒，原因报成 ledger-unavailable 而不是 pending",
+      "file": "scripts/lib/budget.ts",
+      "find": "throw refused('pending', ",
+      "replace": "throw refused('ledger-unavailable', ",
+      "by": "selfcheck",
+      "kills": [
+        "被拒的预留写 rejected 行：reason 是对应的那一个、没有 attempt_id、没有 reserved 行，请求一次都没发"
+      ]
+    },
+    {
+      "id": "M-H186-j",
+      "req": "harness",
+      "why": "已知额度不够付这一次时被拒，原因不报 budget",
+      "file": "scripts/lib/budget.ts",
+      "find": "  if (error instanceof CostError && error.code === 'budget-exceeded') return 'budget'\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "被拒的预留写 rejected 行：reason 是对应的那一个、没有 attempt_id、没有 reserved 行，请求一次都没发"
+      ]
+    },
+    {
+      "id": "M-H186-k",
+      "req": "harness",
+      "why": "这次预留没能存进任务账时被拒，原因不报 save-failed",
+      "file": "scripts/lib/budget.ts",
+      "find": "  if (error instanceof CostError && error.code === 'persistence-failed') return 'save-failed'\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "预留存不进任务账时写 reason 为 save-failed 的 rejected 行，没有 reserved 行，请求不发，退出 1",
+        "SP-R 注入在开关打开时同时留下 reason 为 save-failed 的 rejected 行，没有 reserved 行，命中行仍恰好一条"
+      ]
+    },
+    {
+      "id": "M-H186-l",
+      "req": "harness",
+      "why": "probe 的预留行 scope 也写 task：只在本进程里的账被说成写进 task.json 的任务账",
+      "file": "scripts/lib/obs.ts",
+      "find": "const scope = events === 'probe' ? 'process' : 'task'",
+      "replace": "const scope = 'task'",
+      "by": "selfcheck",
+      "kills": [
+        "reserved 行与账本里的真实 HTTP 尝试一一对应：endpoint 是请求路径、unit_micro_usd 是这一路单价、scope 按入口分、没有 reason",
+        "attempt_id 只在 scope 为 task 的 reserved 行上有，首次是任务账里的序号 1；process 账没有"
+      ]
+    },
+    {
+      "id": "M-H186-m",
+      "req": "harness",
+      "why": "scope 为 process 的 reserved 行也带 attempt_id：probe 没有任务账，序号无从对照",
+      "file": "scripts/lib/obs.ts",
+      "find": "scope === 'task' ? { attempt_id: r.attempt_id } : {}",
+      "replace": "{ attempt_id: r.attempt_id }",
+      "by": "selfcheck",
+      "kills": [
+        "attempt_id 只在 scope 为 task 的 reserved 行上有，首次是任务账里的序号 1；process 账没有"
+      ]
+    },
+    {
+      "id": "M-H186-n",
+      "req": "harness",
+      "why": "reserved 行与命中行的 attempt_id 不是这次尝试在任务账里的序号，而是下一个",
+      "file": "scripts/lib/budget.ts",
+      "find": "attempt_id = engine.snapshot().cost_ledger.pending!.attempt_id",
+      "replace": "attempt_id = engine.snapshot().cost_ledger.pending!.attempt_id + 1",
+      "by": "selfcheck",
+      "kills": [
+        "attempt_id 只在 scope 为 task 的 reserved 行上有，首次是任务账里的序号 1；process 账没有",
+        "SP-R 命中：退出 1、stdout 没有汇总 JSON、零请求；恰好一条命中行指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中行"
+      ]
+    },
+    {
+      "id": "M-H186-o",
+      "req": "harness",
+      "why": "预留行的 unit_micro_usd 不是这一路的单价：TikTok 搜索写成 2000 而不是 1000",
+      "file": "scripts/lib/budget.ts",
+      "find": "try { return quoteTikHub(endpoint).unit_micro_usd }",
+      "replace": "try { return quoteTikHub(endpoint).unit_micro_usd * 2 }",
+      "by": "selfcheck",
+      "kills": [
+        "reserved 行与账本里的真实 HTTP 尝试一一对应：endpoint 是请求路径、unit_micro_usd 是这一路单价、scope 按入口分、没有 reason"
+      ]
+    },
+    {
+      "id": "M-H186-p",
+      "req": "harness",
+      "why": ".kol-save-fault.json 的 occurrence 不起作用：选中保存点第一次出现就失败，不等第 k 次",
+      "file": "scripts/lib/obs.ts",
+      "find": " || seen !== file.occurrence) return",
+      "replace": ") return",
+      "by": "selfcheck",
+      "kills": [
+        "没到第 k 次：恰好一条未命中行，why 是 not-reached、seen 等于实际次数 1；退出码与 stdout 和没有文件时相同，没有命中行"
+      ]
+    },
+    {
+      "id": "M-H186-q",
+      "req": "harness",
+      "why": ".kol-save-fault.json 的 schema 不是 kol-save-fault/v1 也照样注入，而不是按文件不合格处理",
+      "file": "scripts/lib/obs.ts",
+      "find": "valid: o.schema === SAVE_FAULT_SCHEMA && point",
+      "replace": "valid: point",
+      "by": "selfcheck",
+      "kills": [
+        "不合格的控制文件：恰好一条 why 为 invalid-file 的未命中行、没有命中行，照常请求、退出码与没有文件时相同；读不出的字段是 null"
+      ]
+    },
+    {
+      "id": "M-H186-r",
+      "req": "harness",
+      "why": ".kol-save-fault.json 的 occurrence 是 0 或小数也当合格：不写 invalid-file，改报 not-reached",
+      "file": "scripts/lib/obs.ts",
+      "find": "Number.isSafeInteger(o.occurrence) && o.occurrence > 0",
+      "replace": "true",
+      "by": "selfcheck",
+      "kills": [
+        "不合格的控制文件：恰好一条 why 为 invalid-file 的未命中行、没有命中行，照常请求、退出码与没有文件时相同；读不出的字段是 null"
+      ]
+    },
+    {
+      "id": "M-H186-s",
+      "req": "harness",
+      "why": "注入一直没生效时退出不写未命中行：测试分不出是没到第 k 次、文件不合格，还是根本没读文件",
+      "file": "scripts/lib/obs.ts",
+      "find": "if (hit) return",
+      "replace": "return",
+      "by": "selfcheck",
+      "kills": [
+        "没到第 k 次：恰好一条未命中行，why 是 not-reached、seen 等于实际次数 1；退出码与 stdout 和没有文件时相同，没有命中行",
+        "不合格的控制文件：恰好一条 why 为 invalid-file 的未命中行、没有命中行，照常请求、退出码与没有文件时相同；读不出的字段是 null"
+      ]
+    },
+    {
+      "id": "M-H186-t",
+      "req": "harness",
+      "why": "控制文件不合格时未命中行的 why 写成 not-reached 而不是 invalid-file",
+      "file": "scripts/lib/obs.ts",
+      "find": "why: file.valid ? 'not-reached' : 'invalid-file'",
+      "replace": "why: 'not-reached'",
+      "by": "selfcheck",
+      "kills": [
+        "不合格的控制文件：恰好一条 why 为 invalid-file 的未命中行、没有命中行，照常请求、退出码与没有文件时相同；读不出的字段是 null"
+      ]
+    },
+    {
+      "id": "M-H186-u",
+      "req": "harness",
+      "why": "未命中行的 seen 写成要求的第 k 次，而不是这个保存点本跑实际出现的次数",
+      "file": "scripts/lib/obs.ts",
+      "find": "seen: file.point === null ? null : seen",
+      "replace": "seen: file.point === null ? null : file.occurrence",
+      "by": "selfcheck",
+      "kills": [
+        "没到第 k 次：恰好一条未命中行，why 是 not-reached、seen 等于实际次数 1；退出码与 stdout 和没有文件时相同，没有命中行"
+      ]
+    },
+    {
+      "id": "M-H186-v",
+      "req": "harness",
+      "why": "没设 KOL_OBS_EVENTS 时保存失败注入不生效：契约说命中与未命中不看这个开关，有文件就写",
+      "file": "scripts/lib/obs.ts",
+      "find": "if (point !== file.point) return",
+      "replace": "if (point !== file.point || events === undefined) return",
+      "by": "selfcheck",
+      "kills": [
+        "没设 KOL_OBS_EVENTS 时命中行照写，而 ready 与 reserve 行一条也没有",
+        "SP-R 命中：退出 1、stdout 没有汇总 JSON、零请求；恰好一条命中行指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中行"
+      ]
+    },
+    {
+      "id": "M-H186-w",
+      "req": "harness",
+      "why": "已知额度不足、停下时的断点保存不算 SP-BUD：选 SP-BUD 的注入从不生效，collect 照旧以 3 收尾",
+      "file": "scripts/collect.ts",
+      "find": "persist(stopped === 'budget' ? 'SP-BUD' : undefined)",
+      "replace": "persist()",
+      "by": "selfcheck",
+      "kills": [
+        "SP-BUD 命中：对照跑以 3 收尾，注入跑以 1 收尾、stdout 没有汇总 JSON、零请求，stderr 不说已保存",
+        "SP-BUD 的命中行没有 attempt_id 与 endpoint，作者文件和 task.json 一字没写"
+      ]
+    },
+    {
+      "id": "M-H186-x",
+      "req": "harness",
+      "why": "收到非 200 状态之后的那次保存被当成 SP-200：选 SP-N200 的注入从不生效",
+      "file": "scripts/lib/budget.ts",
+      "find": "outcome.status === 200 ? 'SP-200' : 'SP-N200'",
+      "replace": "outcome.status === 200 ? 'SP-200' : 'SP-200'",
+      "by": "selfcheck",
+      "kills": [
+        "终态保存点在恰好一次请求之后命中：退出 1、无汇总 JSON，命中行指着那个保存点、occurrence 1、attempt_id 1、搜索端点、not_written"
+      ]
+    },
+    {
+      "id": "M-H186-y",
+      "req": "harness",
+      "why": "没拿到 HTTP 状态之后的那次保存被当成 SP-N200：选 SP-NS 的注入从不生效",
+      "file": "scripts/lib/budget.ts",
+      "find": "outcome.kind === 'no_http_status' ? 'SP-NS'",
+      "replace": "outcome.kind === 'no_http_status' ? 'SP-N200'",
+      "by": "selfcheck",
+      "kills": [
+        "终态保存点在恰好一次请求之后命中：退出 1、无汇总 JSON，命中行指着那个保存点、occurrence 1、attempt_id 1、搜索端点、not_written"
+      ]
+    },
+    {
+      "id": "M-H186-z",
+      "req": "harness",
+      "why": "SP-R、SP-200、SP-N200、SP-NS 的命中行不带 attempt_id 与 endpoint：分不出注入落在哪一次尝试上",
+      "file": "scripts/lib/obs.ts",
+      "find": "...(attempt ? { attempt_id: attempt.attempt_id, endpoint: attempt.endpoint } : {}), ",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "SP-R 命中：退出 1、stdout 没有汇总 JSON、零请求；恰好一条命中行指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中行",
+        "终态保存点在恰好一次请求之后命中：退出 1、无汇总 JSON，命中行指着那个保存点、occurrence 1、attempt_id 1、搜索端点、not_written"
+      ]
+    },
+    {
+      "id": "M-H186-aa",
+      "req": "harness",
+      "why": "注入的保存失败在 stderr 里不说是 .kol-save-fault.json 注入的：读的人以为磁盘真的写坏了",
+      "file": "scripts/lib/obs.ts",
+      "find": "throw new Error(`${SAVE_FAULT_FILE} 注入的保存失败",
+      "replace": "throw new Error(`注入的保存失败",
+      "by": "selfcheck",
+      "kills": [
+        "命中时 stderr 报保存失败并点名 .kol-save-fault.json，控制文件一字不改"
+      ]
+    },
+    {
+      "id": "M-H186-ab",
+      "req": "harness",
+      "why": "probe 一启动不写就绪行",
+      "file": "scripts/probe.ts",
+      "find": "obsReady('probe')\n",
+      "replace": "\n",
+      "by": "selfcheck",
+      "kills": [
+        "读不到输入也先写恰好一条 ready 行：entry 是本入口、contract 是 kol-obs/v1，stdout 没有",
+        "每条 KOL-OBS 行都是带 kind 与 contract 的单行 JSON，ready 恰好一条且在任何 reserve 之前，stdout 一条都没有"
+      ]
+    },
+    {
+      "id": "M-H186-ac",
+      "req": "harness",
+      "why": "enrich 一启动不写就绪行，预留行也随之全无",
+      "file": "scripts/enrich.ts",
+      "find": "obsReady('enrich')\n",
+      "replace": "\n",
+      "by": "selfcheck",
+      "kills": [
+        "每条 KOL-OBS 行都是带 kind 与 contract 的单行 JSON，ready 恰好一条且在任何 reserve 之前，stdout 一条都没有",
+        "reserved 行与账本里的真实 HTTP 尝试一一对应：endpoint 是请求路径、unit_micro_usd 是这一路单价、scope 按入口分、没有 reason"
+      ]
     }
   ],
   "exemptions": [
