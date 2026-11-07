@@ -2436,6 +2436,57 @@ suite('D4', 'D4.t：显式跳过时首次读不出，写回前再读得出也不
         && saved?.creators?.['tiktok:d4t_fresh']?.recommendations?.some((r: { product?: unknown }) => r?.product === 'p') === true
         && saved?.creators?.['tiktok:d4t_held']?.contacted === true)
     ok('D4.t 库对照：同一观察接线记到了落在记忆文件上的写入（上面零写入的阳性对照）', events.some(e => e.endsWith(` ${file}`)))
+
+    // 五、「只认带没带，不按内容另判」（ADR-185 第 177 行）：带进来的首次原因是空串也算带了。
+    //     这里文件是读得出的那一份 —— 要是实现按内容判（空串当没带）、自己再读一次，就会照常写回，文件就变了
+    writeFileSync(file, valid, 'utf8')
+    const beforeEmpty = rf(file)
+    const empty = watched(() => attempt(() => recordRecommendations(batch, 'p', 'task-d4t', { prior_unreadable: '' })))
+    eq('D4.t 库：带进来的首次原因是空串也算带了 —— 不写回，written 为 false', [empty.threw, empty.written], [undefined, false])
+    ok('D4.t 库：带进来的首次原因是空串时 reason 原样是空串（严格相等）', empty.reason === '')
+    ok('D4.t 库：带进来的首次原因是空串时记忆文件一个字节没动', rf(file).equals(beforeEmpty))
+    ok('D4.t 库：带进来的首次原因是空串时没有一次写入落到记忆目录、没留下别的文件',
+      events.length === 0 && JSON.stringify(readdirSync(dir)) === JSON.stringify(['creators.json']))
+
+    // 六、贯穿的前半：首次读不出时 filterByMemory 带出的原因是什么。
+    //     D4.d「报错原样带出真实原因」—— 解析失败的真实原因就是对同一份字节 JSON.parse 抛出的那句；
+    //     独立 oracle 自己 parse 一遍，用「包含」不用整句相等（需求没说没有前缀）
+    writeFileSync(file, truncated, 'utf8')
+    const sameBytes = rf(file)
+    let want: string | undefined
+    try { JSON.parse(sameBytes.toString('utf8')) } catch (e) { want = (e as Error).message }
+    const broken = filterByMemory(batch, 'p', 'task-d4t', { ignoreUnreadable: true })
+    eq('D4.t 库：首次读不出（解析失败）、显式跳过时 memory_status 是 unreadable_ignored', broken.memory_status, 'unreadable_ignored')
+    ok('D4.t 库：首次读不出（解析失败）、显式跳过时 unreadable_detail 是非空字符串',
+      typeof broken.unreadable_detail === 'string' && broken.unreadable_detail.length > 0)
+    ok('D4.t 库：unreadable_detail 原样包含对同一份字节 JSON.parse 抛出的那条错误信息（D4.d 报错原样带出真实原因）',
+      typeof want === 'string' && want.length > 0
+        && typeof broken.unreadable_detail === 'string' && broken.unreadable_detail.includes(want))
+
+    // 七、记忆读得出时没有这一句：unreadable_detail 为 undefined —— 显式跳过与不跳过都一样
+    writeFileSync(file, valid, 'utf8')
+    const fineIgnoring = filterByMemory(batch, 'p', 'task-d4t', { ignoreUnreadable: true })
+    const finePlain = filterByMemory(batch, 'p', 'task-d4t')
+    ok('D4.t 库：记忆读得出时 unreadable_detail 为 undefined（显式跳过）',
+      fineIgnoring.memory_status === 'ok' && fineIgnoring.unreadable_detail === undefined)
+    ok('D4.t 库：记忆读得出时 unreadable_detail 为 undefined（不跳过）',
+      finePlain.memory_status === 'ok' && finePlain.unreadable_detail === undefined)
+
+    // 八、贯穿：把 filterByMemory 真返回的那一句（不是测试写定的常量）交给写回。
+    //     中间把文件修好，写回前再读就读得出 —— 仍不写、reason 与交进去的那一句严格相等
+    writeFileSync(file, truncated, 'utf8')
+    const chain = filterByMemory(batch, 'p', 'task-d4t', { ignoreUnreadable: true })
+    const detail = chain.unreadable_detail
+    writeFileSync(file, valid, 'utf8')
+    const repairedAgain = rf(file)
+    const carried: Attempt = typeof detail === 'string'
+      ? watched(() => attempt(() => recordRecommendations(chain.kept, 'p', 'task-d4t', { prior_unreadable: detail })))
+      : { threw: '（filterByMemory 没给 unreadable_detail）' }
+    ok('D4.t 库：把 filterByMemory 真返回的首次原因交给写回，不写回、reason 与它严格相等',
+      typeof detail === 'string' && detail.length > 0 && carried.threw === undefined && carried.written === false && carried.reason === detail)
+    ok('D4.t 库：交的是真返回的首次原因时记忆文件逐字节不变', rf(file).equals(repairedAgain))
+    eq('D4.t 库：交的是真返回的首次原因时没有一次写入落到记忆目录',
+      typeof detail === 'string' ? [...events] : ['（filterByMemory 没给 unreadable_detail，没跑写回）'], [])
   } finally {
     for (const name of WATCHED) live[name] = originals.get(name)!
     syncBuiltinESMExports()
