@@ -2934,6 +2934,180 @@ group('memory', ['collect', 'render'], () => {
   }
 })
 
+// ---- D4.t 那一次（render --ignore-memory）首次读不出、写回前再读得出：ADR-185 第 173 行 ----
+// 入口接线要真起入口才证得了（process/4-VERIFY.md「入口的实际接线，不能靠内部判定单测证明」）。期望只出自 D4.t、D4.n、
+// D4.d、D4.f 原文与 ADR-185 第 173 行的还法；独立测试上下文写的，没读 memory.ts、render.ts 的函数体，也没照实现的输出抄。
+// 自成一组、不依赖别组：每一跑都在本组自建的临时目录里起，入口以那里为当前目录、按相对路径读写那里的
+// memory/creators.json —— 碰不到仓库里的记忆、样本或夹具，也不请求真实 TikHub（假 fetch 账本必须是空的）。
+// 预加载让「这一次运行第一次读记忆文件」失败（读不到，D4.d 第一类；ADR-185 第 173 行举的就是暂时性 I/O 错误），
+// 失败原文是这里写定的一串标记，于是「报的是首次那一次」可以按 D4.d「报错原样带出真实原因」、D4.n「交付物带出失败
+// 原因原文」直接断言。同一份预加载还记下落在记忆目录里的写类调用：零写入那几条靠它，阳性对照是第一跑。
+// 不认领 D4.t：它还管 collect --ignore-memory 与 D4.d 的另两类，这里只验 render 这一路（认领仍走 ADR-185 第 169 行）。
+group('memory-d4t-ignore', [], () => {
+  const FIRST = 'D4T-FIRST-READ-FAILED-7c41', SECOND = 'D4T-SECOND-READ-FAILED-2e9b'
+  const held = { platform: 'tiktok', handle: 'd4t_held', nickname: 'd4t_held', followers: 12000, first_seen: '2026-01-01',
+    recommendations: [], contacted: true, replied: false, blocked: false, note: 'operator marked' }
+  const VALID = JSON.stringify({ version: 1, updated_at: '2026-01-01', creators: { 'tiktok:d4t_held': held } }, null, 2) + '\n'
+  const BROKEN = VALID.slice(0, Math.floor(VALID.length * 0.6))
+  const realMemory = resolve('memory', 'creators.json')
+  const realBefore = existsSync(realMemory) ? readFileSync(realMemory) : undefined
+  // observe 只记不扰；restore 首次读失败、紧接着把文件修好；both 每一次读都失败（首次与之后各一串标记）
+  const hookSource = (memory: string, log: string, plan: 'observe' | 'restore' | 'both') => String.raw`import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import { dirname, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const MEMORY = ${JSON.stringify(memory)}, LOG = ${JSON.stringify(log)}, PLAN = ${JSON.stringify(plan)};
+const REPAIR = ${JSON.stringify(VALID)}, FIRST = ${JSON.stringify(FIRST)}, SECOND = ${JSON.stringify(SECOND)};
+const DIR = dirname(MEMORY), orig = {};
+for (const k of ['readFileSync', 'writeFileSync', 'appendFileSync', 'renameSync', 'copyFileSync', 'cpSync', 'linkSync', 'symlinkSync', 'truncateSync', 'unlinkSync', 'rmSync', 'rmdirSync', 'openSync']) orig[k] = fs[k];
+let quiet = false, reads = 0;
+const note = (line) => { const was = quiet; quiet = true; try { orig.appendFileSync(LOG, line + '\n'); } finally { quiet = was; } };
+const toPath = (p) => typeof p === 'number' ? undefined : p instanceof URL ? fileURLToPath(p) : resolve(String(p));
+const inDir = (p) => { const q = toPath(p); return q !== undefined && (q === DIR || q.startsWith(DIR + sep)); };
+const writes = (f) => typeof f === 'number' ? (f & (fs.constants.O_WRONLY | fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_APPEND)) !== 0 : typeof f === 'string' && /[wa+]/.test(f);
+const record = (name, targets) => { if (quiet) return; for (const t of targets) if (inDir(t)) note('write\t' + name + '\t' + toPath(t)); };
+const fail = (message) => Object.assign(new Error(message), { code: 'EIO' });
+fs.readFileSync = function (p, ...rest) {
+  if (quiet || toPath(p) !== MEMORY) return orig.readFileSync.call(this, p, ...rest);
+  reads += 1;
+  if (PLAN === 'restore' && reads === 1) {
+    orig.readFileSync.call(this, p, ...rest);
+    quiet = true; try { orig.writeFileSync(MEMORY, REPAIR); } finally { quiet = false; }
+    note('read\t1\tfirst-failed\trestored');
+    throw fail(FIRST);
+  }
+  if (PLAN === 'both') { note('read\t' + reads + '\t' + (reads === 1 ? 'first-failed' : 'later-failed')); throw fail(reads === 1 ? FIRST : SECOND); }
+  note('read\t' + reads + '\tpassed');
+  return orig.readFileSync.call(this, p, ...rest);
+};
+for (const [name, pick] of [['writeFileSync', (a) => [a[0]]], ['appendFileSync', (a) => [a[0]]], ['renameSync', (a) => [a[0], a[1]]], ['copyFileSync', (a) => [a[1]]], ['cpSync', (a) => [a[1]]], ['linkSync', (a) => [a[1]]], ['symlinkSync', (a) => [a[1]]], ['truncateSync', (a) => [a[0]]], ['unlinkSync', (a) => [a[0]]], ['rmSync', (a) => [a[0]]], ['rmdirSync', (a) => [a[0]]]]) {
+  fs[name] = function (...args) { record(name, pick(args)); return orig[name].apply(this, args); };
+}
+fs.openSync = function (p, flags, ...rest) { if (writes(flags)) record('openSync', [p]); return orig.openSync.call(this, p, flags, ...rest); };
+syncBuiltinESMExports();
+note('armed\t' + process.pid);
+`
+  const MANUAL_HEADER = 'round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note'
+  // 夹具形状照 render-raw-memory 组那份（任务、名单、采集原件、Agent 正本、空人工表），只是各建一份在自己的目录里
+  const setup = (name: string, plan: 'observe' | 'restore' | 'both', start: string) => {
+    const handle = `d4t_${name}`, account = `tiktok:${handle}`, product = `d4t-${name}`
+    const f = costFixture(product, knownCosts(1000000, []), { memory_status: 'ok' },
+      [costPerson('tiktok', handle, { bio_links: [], followers: 12000 })])
+    writeFileSync(join(f.taskDir, 'agent-review.json'), JSON.stringify({ version: 1, updated_at: '2026-01-01', reviews: { [account]: {
+      account_keys: [account], eligibility: '合格', adoption_priority: '优先联系', observed_content: `observed ${account}`,
+      work_evidence: `work ${account}`, natural_integration: `integration ${account}`, mismatch_risk: `risk ${account}`, fit: '✅' } },
+    rounds: [{ round_id: 'r1', created_at: '2026-01-01', source: 'task.json',
+      candidates: [{ account_key: account, source_tasks: null }] }] }, null, 2) + '\n')
+    writeFileSync(join(f.taskDir, 'manual-feedback.csv'), MANUAL_HEADER + '\n')
+    const cwd = realpathSync(f.cwd), memory = join(cwd, 'memory', 'creators.json')
+    const hook = join(cwd, 'd4t-hook.mjs'), hookLog = join(cwd, 'd4t-hook.log')
+    writeFileSync(memory, start)
+    writeFileSync(hook, hookSource(memory, hookLog, plan))
+    return { ...f, cwd, handle, account, product, memory, hook, hookLog, start: readFileSync(memory) }
+  }
+  type Case = ReturnType<typeof setup>
+  const launch = (label: string, s: Case) => runBoth(label, [S('render.ts'), '--dir', s.taskDir, '--ignore-memory'], s.cwd,
+    { status: 0 }, costEnv(s.log, { NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(s.hook).href)}` }))
+  const hookLines = (s: Case) => fileText(s.hookLog).split('\n').filter(Boolean)
+  const writesOf = (s: Case) => hookLines(s).filter(l => l.startsWith('write\t'))
+  const outcome = (s: Case) => ({
+    meta: jsonFile(join(s.taskDir, 'meta.json')), task: jsonFile(join(s.taskDir, 'task.json')),
+    list: jsonFile(join(s.taskDir, 'creators.json')), html: fileText(join(s.taskDir, 'report.html')),
+    after: existsSync(s.memory) ? readFileSync(s.memory) : undefined, entries: readdirSync(dirname(s.memory)),
+  })
+  // 夹具前提，任一不成立都与 D4.t 无关：预加载没装上、该失败的那一次读没发生、入口发了请求（费用账）、这一跑没写出
+  // 交付、交付名单里没有夹具那个人（数据缺失）。带记号报、跳过断言 —— 这些失败不让 D4.t 的断言替它作证，也不被它盖住
+  const fixtureFault = (s: Case, o: ReturnType<typeof outcome>, read: string): string | undefined => {
+    const lines = hookLines(s)
+    if (!lines.some(l => l.startsWith('armed\t'))) return '预加载没装上'
+    if (!lines.includes(read)) return `预加载没记到「${read}」：${JSON.stringify(lines)}`
+    if (fetchAttempts(s.log).length !== 0) return `render 发了请求：${JSON.stringify(fetchAttempts(s.log))}`
+    if (o.meta === null || typeof o.meta !== 'object') return '这一跑没写出可读的 meta.json'
+    if (!Array.isArray(o.list) || !o.list.some((p: any) => p?.handle === s.handle)) return `交付名单里没有夹具那个人：${JSON.stringify(o.list)}`
+    return undefined
+  }
+  const diag = (s: Case, o: ReturnType<typeof outcome>, stderr: string) =>
+    `meta=${JSON.stringify(o.meta)}，记忆=${JSON.stringify(o.after?.toString('utf8'))}，记忆目录=${JSON.stringify(o.entries)}，`
+    + `写入=${JSON.stringify(writesOf(s))}，stderr=${stderrTail(stderr)}`
+
+  // 一、对照，也是写入观察器的阳性对照：记忆读得出时 --ignore-memory 照常写回。
+  //     不留它，「--ignore-memory 一律不写回」的实现也能让后两跑全绿
+  let observerProven = false
+  const normal = setup('normal', 'observe', VALID)
+  const n = launch('render --ignore-memory 记忆读得出（对照）', normal)
+  if (n.ok) {
+    const o = outcome(normal), fault = fixtureFault(normal, o, 'read\t1\tpassed')
+    if (fault !== undefined) { failed++; console.error(`  ✗ D4.t 入口对照夹具${SELFCHECK_FIXTURE_MARK}：${fault}`) }
+    else {
+      const changed = o.after !== undefined && !o.after.equals(normal.start)
+      const mem = (() => { try { return JSON.parse(o.after?.toString('utf8') ?? '') } catch { return undefined } })()
+      named('D4.t 入口对照：记忆读得出时 --ignore-memory 照常写回这一批，已联系的标记原样保留',
+        o.meta.memory_status === 'ok' && o.meta.memory_written === true && !('memory_write_error' in o.meta) && changed
+          && mem?.creators?.[normal.account]?.recommendations?.some((r: any) => r?.product === normal.product) === true
+          && mem?.creators?.['tiktok:d4t_held']?.contacted === true,
+        diag(normal, o, n.stderr))
+      // 文件真被改写了，同一接线就必须记到一次落在它上面的写入；记不到是观察器没接上，后两跑的「没有写入」
+      // 什么也证明不了 —— 那是夹具没造对，不是 D4.t 红了（4-VERIFY「观察器的零记录不能单独证明没有事件」）
+      if (changed) {
+        observerProven = writesOf(normal).some(l => l.endsWith(`\t${normal.memory}`))
+        if (!observerProven) {
+          failed++
+          console.error(`  ✗ D4.t 写入观察器阳性对照${SELFCHECK_FIXTURE_MARK}：记忆文件被改写了，同一接线却没记到落在它上面的写入：`
+            + JSON.stringify(writesOf(normal)))
+        }
+      } else console.log('  · D4.t 写入观察器阳性对照没成立（对照这一跑本身没写回，见上一条）：后两跑的「没有写入」只按字节与目录判')
+    }
+  }
+
+  // 二、首次读不出、写回前再读得出（ADR-185 第 173 行那一路）。夹具在首次读之后修好文件，扮演的是另一个写入方
+  //     （ADR-185「排除范围」第 3 条：并发写入方不归 D4.t 判），所以这一跑比的是修好之后那一份：这一次运行自己
+  //     一个字节都没写。与运行开始前逐字节比的是第三跑
+  const restore = setup('restore', 'restore', BROKEN)
+  const r = launch('render --ignore-memory 首次读不出、第二次读得出', restore)
+  if (r.ok) {
+    const o = outcome(restore), fault = fixtureFault(restore, o, 'read\t1\tfirst-failed\trestored')
+    if (fault !== undefined) { failed++; console.error(`  ✗ D4.t 入口首次读不出夹具${SELFCHECK_FIXTURE_MARK}：${fault}`) }
+    else {
+      named('D4.t 入口：首次读不出、第二次读得出时，记忆文件停在修好的那一份，记忆目录里没有一次写入',
+        o.after !== undefined && o.after.equals(Buffer.from(VALID)) && isDeepStrictEqual(o.entries, ['creators.json'])
+          && (!observerProven || writesOf(restore).length === 0),
+        diag(restore, o, r.stderr))
+      named('D4.t 入口：首次读不出、第二次读得出时，交付声明未去重、未写回，原因原样是首次那一次',
+        o.meta.memory_status === 'unreadable_ignored' && o.task?.memory_status === 'unreadable_ignored'
+          && o.meta.memory_written === false && typeof o.meta.memory_write_error === 'string'
+          && o.meta.memory_write_error.includes(FIRST) && o.html.includes(FIRST),
+        diag(restore, o, r.stderr))
+    }
+  }
+
+  // 三、两次都读不出：D4.t 原文那一种 —— 结束后与运行开始前逐字节相同；未写回的原因报首次那一次，不报第二次的
+  const both = setup('both', 'both', BROKEN)
+  const b = launch('render --ignore-memory 两次都读不出', both)
+  if (b.ok) {
+    const o = outcome(both), fault = fixtureFault(both, o, 'read\t1\tfirst-failed')
+    if (fault !== undefined) { failed++; console.error(`  ✗ D4.t 入口两次读不出夹具${SELFCHECK_FIXTURE_MARK}：${fault}`) }
+    else {
+      named('D4.t 入口：两次都读不出时，记忆文件与运行开始前逐字节相同，记忆目录里没有一次写入',
+        o.after !== undefined && o.after.equals(both.start) && isDeepStrictEqual(o.entries, ['creators.json'])
+          && (!observerProven || writesOf(both).length === 0),
+        diag(both, o, b.stderr))
+      named('D4.t 入口：两次都读不出时，未写回的原因报首次那一次、不报第二次的',
+        o.meta.memory_status === 'unreadable_ignored' && o.task?.memory_status === 'unreadable_ignored'
+          && o.meta.memory_written === false && typeof o.meta.memory_write_error === 'string'
+          && o.meta.memory_write_error.includes(FIRST) && !o.meta.memory_write_error.includes(SECOND)
+          && o.html.includes(FIRST) && !o.html.includes(SECOND),
+        diag(both, o, b.stderr))
+    }
+  }
+
+  // 隔离：这一组前后，仓库里的 memory/creators.json 在不在、字节都不变
+  const realAfter = existsSync(realMemory) ? readFileSync(realMemory) : undefined
+  if (realBefore === undefined ? realAfter !== undefined : realAfter === undefined || !realBefore.equals(realAfter)) {
+    failed++
+    console.error(`  ✗ D4.t 入口夹具隔离${SELFCHECK_FIXTURE_MARK}：仓库里的 memory/creators.json 在这一组前后不一样 —— 入口没在临时目录里读写记忆`)
+  }
+})
+
 // ---- F9：达标判断不得让任何一个关键词×平台连第一页都没抓到 ----
 group('f9', [], () => {
   // 达标判断原先跑在**每一次**搜索之前、第一轮也不例外：前面几个词各抓一页就填满目标时，
