@@ -1,7 +1,7 @@
 /**
  * 零请求观察器的判定（KOL-21，ADR-70 末尾「KOL-21 零请求观察器与外层断网」一节）：响应脚本的格式与应答、
  * 事件文件读回、一次观察归到哪一档、零请求断言的四档结论、外层断网探针的认证、入口进程只拿的白名单环境、
- * 沙箱布局与它的参数。
+ * 沙箱布局与它的参数；另有测试观察的记录文件（契约 kol-test-observer/v1）读回（ADR-186 末尾「第二片」）。
  *
  * **纯函数**：不起进程、不读写文件。起进程与落盘在 `observer-run.ts`，入口进程里装钩子、写事件的那一半在
  * `observer-preload.ts`。判据一律偏向「我不知道」：读不全、对不上、缺一项，都不判零请求通过（`process/README.md`
@@ -100,9 +100,11 @@ export function answer(script: ResponseScript, used: readonly number[], method: 
 
 /**
  * 入口进程里只该有的环境变量名（值由运行器定，见 `observerEnv`）；观察配置那一个由预加载删掉、不在里面。
- * `PWD` 不是运行器给的：bwrap 的 `--chdir` 自己设它，值就是那个当前目录
+ * `PWD` 不是运行器给的：bwrap 的 `--chdir` 自己设它，值就是那个当前目录。`KOL_TEST_OBSERVER_EVENTS` 是测试观察的记录文件
+ * （契约 kol-test-observer/v1），起入口时每一跑都设，值是那一跑证据目录里的 `CONTRACT_RECORDS`。断网认证的探针也照这张核
+ * （`netcutProblems`）：探针那一跑不给这个变量，有了也不算多
  */
-export const ALLOWED_ENV = ['HOME', 'LANG', 'PATH', 'PWD', 'TIKHUB_API_KEY', 'TMPDIR', 'TSX_TSCONFIG_PATH', 'TZ'] as const
+export const ALLOWED_ENV = ['HOME', 'KOL_TEST_OBSERVER_EVENTS', 'LANG', 'PATH', 'PWD', 'TIKHUB_API_KEY', 'TMPDIR', 'TSX_TSCONFIG_PATH', 'TZ'] as const
 /** 入口要有 key 才走到请求那一步；给的是这个占位串，不是任何真密钥 */
 export const API_KEY_PLACEHOLDER = 'kol-test-observer-placeholder-not-a-key'
 export type ApiKey = 'placeholder' | 'absent'
@@ -273,10 +275,118 @@ export function netcutProblems(f: NetcutFacts): string[] {
   return out
 }
 
-/** 入口进程的环境：从空表起，只放这几样（等于 env -i 加最小集），继承来的一个都不带 */
-export function observerEnv(o: { nodeBin: string; home: string; tmp: string; tsconfig: string; apiKey: ApiKey }): Record<string, string> {
+/**
+ * 入口进程的环境：从空表起，只放这几样（等于 env -i 加最小集），继承来的一个都不带。`records` 是测试观察的记录文件：
+ * 起入口时每一跑都给；断网认证的探针不是入口，不给
+ */
+export function observerEnv(o: { nodeBin: string; home: string; tmp: string; tsconfig: string; apiKey: ApiKey; records?: string }): Record<string, string> {
   return { PATH: `${o.nodeBin}:/usr/bin:/bin`, HOME: o.home, TMPDIR: o.tmp, LANG: 'C.UTF-8', TZ: 'UTC', TSX_TSCONFIG_PATH: o.tsconfig,
-    ...(o.apiKey === 'placeholder' ? { TIKHUB_API_KEY: API_KEY_PLACEHOLDER } : {}) }
+    ...(o.apiKey === 'placeholder' ? { TIKHUB_API_KEY: API_KEY_PLACEHOLDER } : {}), ...(o.records === undefined ? {} : { KOL_TEST_OBSERVER_EVENTS: o.records }) }
+}
+
+// ── 测试观察的记录文件（契约 kol-test-observer/v1）────────────────────
+
+/** 起入口时，每一跑证据目录里的这个文件经 `KOL_TEST_OBSERVER_EVENTS` 交给入口；接线的 E-2、E-3 适配器从这里读 */
+export const CONTRACT_RECORDS = 'contract-records.jsonl'
+export const RECORD_CONTRACT = 'kol-test-observer/v1'
+const SAVE_POINTS: readonly unknown[] = ['SP-R', 'SP-200', 'SP-N200', 'SP-NS', 'SP-BUD']
+const REASONS: readonly unknown[] = ['budget', 'ledger-unavailable', 'pending', 'root-conflict', 'save-failed']
+export type ContractRecord =
+  | { kind: 'ready'; contract: string; entry: string }
+  | { kind: 'reserve'; contract: string; entry: string; scope: 'task' | 'process'; endpoint: string; unit_micro_usd: number
+      result: 'reserved' | 'rejected'; attempt_id?: number; reason?: string }
+  | { kind: 'save-fault'; contract: string; entry: string; point: string; occurrence: number; attempt_id?: number; endpoint?: string; not_written: true }
+  | { kind: 'save-fault-miss'; contract: string; entry: string; point: string | null; occurrence: number | null; seen: number | null
+      why: 'not-reached' | 'invalid-file' }
+const posInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0
+const natInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
+const urlPath = (v: unknown): boolean => typeof v === 'string' && v.startsWith('/') && !/[?#]/.test(v)
+
+/** 一条记录的字段合不合原文（`skill/references/output-format.md` 末节）：键不多不少，每个键的取值照原文 */
+function recordProblems(r: Record<string, unknown>, at: string): string[] {
+  const out: string[] = []
+  const keys = (need: readonly string[], may: readonly string[] = []) => {
+    out.push(...Object.keys(r).filter(k => !need.includes(k) && !may.includes(k)).map(k => `${at} 多出的键 ${k}`))
+    out.push(...need.filter(k => !Object.hasOwn(r, k)).map(k => `${at} 缺 ${k}`))
+  }
+  if (r.kind === 'ready') keys(['kind', 'contract', 'entry'])
+  else if (r.kind === 'reserve') {
+    keys(['kind', 'contract', 'entry', 'scope', 'endpoint', 'unit_micro_usd', 'result'], ['attempt_id', 'reason'])
+    if (!urlPath(r.endpoint)) out.push(`${at}.endpoint 不是不带查询的 URL 路径`)
+    if (!natInt(r.unit_micro_usd)) out.push(`${at}.unit_micro_usd 不是非负整数`)
+    // scope、result 认不得时，尝试序号与原因该不该有说不清，只报认不得的那一处
+    if (r.scope !== 'task' && r.scope !== 'process') out.push(`${at}.scope 不是 task 或 process`)
+    else if (r.result !== 'reserved' && r.result !== 'rejected') out.push(`${at}.result 不是 reserved 或 rejected`)
+    else {
+      if (r.scope === 'task' && r.result === 'reserved' ? !posInt(r.attempt_id) : Object.hasOwn(r, 'attempt_id'))
+        out.push(`${at}.attempt_id 只在任务账的成功预留上有，是正整数`)
+      if (r.result === 'rejected' ? !REASONS.includes(r.reason) : Object.hasOwn(r, 'reason'))
+        out.push(`${at}.reason 只在被拒时有，取 ${REASONS.join('、')} 之一`)
+    }
+  } else if (r.kind === 'save-fault') {
+    keys(['kind', 'contract', 'entry', 'point', 'occurrence', 'not_written'], ['attempt_id', 'endpoint'])
+    if (!SAVE_POINTS.includes(r.point)) out.push(`${at}.point 不在 ${SAVE_POINTS.join('、')} 里`)
+    else if (r.point === 'SP-BUD' ? Object.hasOwn(r, 'attempt_id') || Object.hasOwn(r, 'endpoint') : !posInt(r.attempt_id) || !urlPath(r.endpoint))
+      out.push(`${at} 的 attempt_id 与 endpoint 只在 SP-BUD 以外的保存点上有（正整数与 URL 路径）`)
+    if (!posInt(r.occurrence)) out.push(`${at}.occurrence 不是正整数`)
+    if (r.not_written !== true) out.push(`${at}.not_written 不是 true`)
+  } else if (r.kind === 'save-fault-miss') {
+    keys(['kind', 'contract', 'entry', 'point', 'occurrence', 'seen', 'why'])
+    if (r.why === 'not-reached') {
+      // 文件合格：保存点与次数都读得出；没到第 k 次，seen 小于 k
+      if (!SAVE_POINTS.includes(r.point) || !posInt(r.occurrence) || !natInt(r.seen) || r.seen >= r.occurrence)
+        out.push(`${at} 说没到第 k 次：保存点与次数要写出，seen 是小于次数的非负整数`)
+    } else if (r.why === 'invalid-file') {
+      // 文件不合格：读不出的字段写 null；没有保存点时数不出它出现了几次
+      if (!(r.point === null || SAVE_POINTS.includes(r.point)) || !(r.occurrence === null || posInt(r.occurrence))
+        || !(r.seen === null ? r.point === null : natInt(r.seen)))
+        out.push(`${at} 说文件不合格：保存点、次数照原样或写 null，seen 在有保存点时是非负整数`)
+    } else out.push(`${at}.why 不是 not-reached 或 invalid-file`)
+  } else out.push(`${at} 认不得的种类`)
+  return out
+}
+
+/**
+ * 读回一跑的记录文件（起的入口是 `entry`）。每行一个对象、最后一行要写完；每条的 `contract`、`entry` 与字段照原文，
+ * 就绪恰好一条、打头，保存失败注入的记录只有 collect 写、一跑最多一条（命中与未命中不并存）。哪一处不合都报，
+ * 读的一侧见了问题就当没有记录，不挑能读的那几行用
+ */
+export function readContractRecords(text: string, entry: string): { records: ContractRecord[]; problems: string[] } {
+  if (text === '') return { records: [], problems: ['记录文件是空的'] }
+  if (!text.endsWith('\n')) return { records: [], problems: ['记录文件最后一行没写完'] }
+  const problems: string[] = [], records: ContractRecord[] = []
+  text.split('\n').slice(0, -1).forEach((line, i) => {
+    const at = `第 ${i + 1} 行`
+    let r: unknown
+    try { r = JSON.parse(line) } catch { problems.push(`${at}不是 JSON`); return }
+    if (!isObj(r)) { problems.push(`${at}不是对象`); return }
+    const own = recordProblems(r, at)
+    if (own.length === 0 && r.contract !== RECORD_CONTRACT) own.push(`${at}.contract 不是 ${RECORD_CONTRACT}`)
+    if (own.length === 0 && r.entry !== entry) own.push(`${at}.entry 不是起的入口 ${entry}`)
+    if (own.length === 0 && (r.kind === 'save-fault' || r.kind === 'save-fault-miss') && entry !== 'collect') own.push(`${at}：保存失败注入只对 collect 生效`)
+    if (own.length === 0 && r.kind === 'reserve' && r.scope !== (entry === 'probe' ? 'process' : 'task')) own.push(`${at}.scope 与入口对不上：collect、enrich 是 task，probe 是 process`)
+    problems.push(...own)
+    records.push(r as unknown as ContractRecord)
+  })
+  if (records[0]?.kind !== 'ready' || records.filter(r => r.kind === 'ready').length !== 1) problems.push('就绪记录不是恰好一条、打头')
+  if (records.filter(r => r.kind === 'save-fault' || r.kind === 'save-fault-miss').length > 1) problems.push('保存失败注入的记录一跑多于一条')
+  return { records, problems }
+}
+
+/**
+ * 认证对照用（`observer-cert.ts`）：一跑的记录合契约，预留记录条条成功、条数等于观察器记下的请求数 —— 原文第一节说每一次真实的
+ * HTTP 尝试恰好对应一条 `reserved`，对照夹具又都是不该被拒的输入。`text` 是记录文件的内容，文件不在给 `undefined`。
+ * 交回不成立的地方，空表就是成立
+ */
+export function recordsAgainstRequests(text: string | undefined, entry: string, requests: number): string[] {
+  if (text === undefined) return ['记录文件不在']
+  const { records, problems } = readContractRecords(text, entry)
+  if (problems.length) return problems
+  const reserve = records.flatMap(r => r.kind === 'reserve' ? [r.result] : [])
+  const out: string[] = []
+  if (reserve.some(x => x !== 'reserved')) out.push('有被拒的预留记录')
+  if (reserve.length !== requests) out.push(`预留记录 ${reserve.length} 条，观察器记下的请求 ${requests} 次`)
+  return out
 }
 
 // ── 沙箱布局 ──────────────────────────────────────────────────────────

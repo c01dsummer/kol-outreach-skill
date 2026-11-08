@@ -20743,6 +20743,390 @@
         "产品名含 /、\\ 或 NUL 时 collect --config（含 --budget 2）以 2 退出：零预留、零请求，不建任务目录（工作目录与它的上一级都原样），配置文件原字节",
         "产品名含 /、\\ 或 NUL 被拒时 stderr 写出配置文件路径、product 与按 JSON 写法的原值"
       ]
+    },
+    {
+      "id": "M-H186-ca",
+      "req": "harness",
+      "why": "入口进程的环境里有测试观察记录文件那个变量就判隔离故障：观察器自己每一跑都设它，起的每一跑都判不了",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "'HOME', 'KOL_TEST_OBSERVER_EVENTS', 'LANG'",
+      "replace": "'HOME', 'LANG'",
+      "by": "test",
+      "kills": [
+        "观察器判定：入口进程的环境里有记录文件那个变量（观察器每一跑都设）不算白名单外，观察照样成立"
+      ]
+    },
+    {
+      "id": "M-H186-cb",
+      "req": "harness",
+      "why": "起入口时不把测试观察记录文件交给入口：入口一条记录都不写，接上的保存失败注入与零预留什么也读不到",
+      "file": "scripts/check/observer-rule.ts",
+      "find": ", ...(o.records === undefined ? {} : { KOL_TEST_OBSERVER_EVENTS: o.records }) }",
+      "replace": " }",
+      "by": "test",
+      "kills": [
+        "观察器环境：给了记录文件的路径时多给 KOL_TEST_OBSERVER_EVENTS，值就是那条路径，别的不变；不给就没有这个名字"
+      ]
+    },
+    {
+      "id": "M-H186-cc",
+      "req": "harness",
+      "why": "测试观察记录文件最后一行没以换行结束（入口写到半截就断了）也不报，没写完的那一行悄悄丢掉",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "  if (!text.endsWith('\\n')) return { records: [], problems: ['记录文件最后一行没写完'] }\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "测试观察记录：空文件、最后一行没写完、不是 JSON、不是对象，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cd",
+      "req": "harness",
+      "why": "记录写的契约名不是 kol-test-observer/v1 也照收",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "if (own.length === 0 && r.contract !== RECORD_CONTRACT) own.push(",
+      "replace": "if (false && r.contract !== RECORD_CONTRACT) own.push(",
+      "by": "test",
+      "kills": [
+        "测试观察记录：contract 不是 kol-test-observer/v1、认不得的种类、多出原文没有的键，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-ce",
+      "req": "harness",
+      "why": "记录说的入口与观察器起的那个入口对不上也照收",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "if (own.length === 0 && r.entry !== entry) own.push(",
+      "replace": "if (false && r.entry !== entry) own.push(",
+      "by": "test",
+      "kills": [
+        "测试观察记录：就绪不打头、有两条、一条也没有，哪一条的 entry 不是起的那个入口，或 collect 以外的入口写了保存失败注入的记录，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cf",
+      "req": "harness",
+      "why": "collect 以外的入口写了保存失败注入的记录也照收（原文说注入只对 collect 生效）",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "&& entry !== 'collect') own.push(",
+      "replace": "&& false) own.push(",
+      "by": "test",
+      "kills": [
+        "测试观察记录：就绪不打头、有两条、一条也没有，哪一条的 entry 不是起的那个入口，或 collect 以外的入口写了保存失败注入的记录，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cg",
+      "req": "harness",
+      "why": "就绪记录不在第一条也照收：入口先写了预留、后说就绪，读的一侧看不出来",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "if (records[0]?.kind !== 'ready' || records.filter(",
+      "replace": "if (records.filter(",
+      "by": "test",
+      "kills": [
+        "测试观察记录：就绪不打头、有两条、一条也没有，哪一条的 entry 不是起的那个入口，或 collect 以外的入口写了保存失败注入的记录，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-ch",
+      "req": "harness",
+      "why": "一跑写了两条命中、或命中之后又写未命中，也照收（原文说一跑最多一条）",
+      "file": "scripts/check/observer-rule.ts",
+      "find": ".length > 1) problems.push('保存失败注入的记录一跑多于一条')",
+      "replace": ".length > 2) problems.push('保存失败注入的记录一跑多于一条')",
+      "by": "test",
+      "kills": [
+        "测试观察记录：命中一跑最多一条，命中了就不该再有未命中，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-ci",
+      "req": "harness",
+      "why": "记录里多出原文没有的键也照收",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "    out.push(...Object.keys(r).filter(k => !need.includes(k) && !may.includes(k)).map(k => `${at} 多出的键 ${k}`))\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "测试观察记录：contract 不是 kol-test-observer/v1、认不得的种类、多出原文没有的键，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cj",
+      "req": "harness",
+      "why": "进程账或被拒的预留记录带了尝试序号也照收（原文说只在任务账的成功预留上有）",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "? !posInt(r.attempt_id) : Object.hasOwn(r, 'attempt_id'))",
+      "replace": "? !posInt(r.attempt_id) : false)",
+      "by": "test",
+      "kills": [
+        "测试观察记录：尝试序号只在任务账的成功预留上有 —— 任务账成功预留缺它、进程账或被拒的带它、它不是正整数，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-ck",
+      "req": "harness",
+      "why": "被拒的预留记录写的原因不在原文那五个里也照收",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "? !REASONS.includes(r.reason) : Object.hasOwn(r, 'reason'))",
+      "replace": "? r.reason === undefined : Object.hasOwn(r, 'reason'))",
+      "by": "test",
+      "kills": [
+        "测试观察记录：原因只在被拒时有、取原文那五个之一 —— 被拒缺原因、原因认不得、成功预留带原因，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cl",
+      "req": "harness",
+      "why": "SP-BUD 的命中记录带了尝试序号与端点也照收（原文说那两样只在别的保存点上有）",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "r.point === 'SP-BUD' ? Object.hasOwn(r, 'attempt_id') || Object.hasOwn(r, 'endpoint') : ",
+      "replace": "r.point === 'SP-BUD' ? false : ",
+      "by": "test",
+      "kills": [
+        "测试观察记录：命中的保存点不在那五个里、第几次不是正整数、not_written 不是 true、SP-BUD 带了尝试序号或端点、别的保存点缺了它们，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cm",
+      "req": "harness",
+      "why": "未命中记录说没到第 k 次，记的出现次数却已经到了 k，也照收",
+      "file": "scripts/check/observer-rule.ts",
+      "find": " || !natInt(r.seen) || r.seen >= r.occurrence)",
+      "replace": " || !natInt(r.seen))",
+      "by": "test",
+      "kills": [
+        "测试观察记录：未命中的原因不是 not-reached 或 invalid-file、seen 不是非负整数、没到第 k 次却把保存点或次数写成 null、说没到第 k 次而 seen 已经到了，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cn",
+      "req": "harness",
+      "why": "未命中记录说文件不合格，保存点读得出、出现次数却写成 null，也照收",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "\n        || !(r.seen === null ? r.point === null : natInt(r.seen)))",
+      "replace": ")",
+      "by": "test",
+      "kills": [
+        "测试观察记录：说文件不合格的未命中，有保存点时 seen 要是非负整数，保存点写了就得在那五个里，次数写了就得是正整数，不合各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-co",
+      "req": "harness",
+      "why": "独立测试包 G3-09 运行后新增两个以上 task.json 时，每一项都读第一个：别的那几个里有无结果留存也报不出",
+      "file": "scripts/kol21-independent/cases/g3.ts",
+      "find": "taskRel: f } }); onNode(c, a.node, a.problem, [[`${L} [${f}]`",
+      "replace": "taskRel: news[0] } }); onNode(c, a.node, a.problem, [[`${L} [${f}]`",
+      "by": "test",
+      "kills": [
+        "KOL-21 独立测试包 G3-09：新增两个 task.json，各判一项，带着路径；有一笔无结果留存的判红，没有的判过"
+      ]
+    },
+    {
+      "id": "M-H186-cp",
+      "req": "harness",
+      "why": "预留记录的 result 不是 reserved 或 rejected 也照收",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "    else if (r.result !== 'reserved' && r.result !== 'rejected') out.push(",
+      "replace": "    else if (false) out.push(",
+      "by": "test",
+      "kills": [
+        "测试观察记录：预留的 scope、端点、单价、result 不合原文，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cq",
+      "req": "harness",
+      "why": "记录里的端点不是 URL 路径、或带着查询串也照收（原文说不含主机和查询串）",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "const urlPath = (v: unknown): boolean => typeof v === 'string' && v.startsWith('/') && !/[?#]/.test(v)",
+      "replace": "const urlPath = (v: unknown): boolean => typeof v === 'string'",
+      "by": "test",
+      "kills": [
+        "测试观察记录：预留的 scope、端点、单价、result 不合原文，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cr",
+      "req": "harness",
+      "why": "预留记录的单价是负数或带小数也照收（单位是百万分之一美元）",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "    if (!natInt(r.unit_micro_usd)) out.push(",
+      "replace": "    if (typeof r.unit_micro_usd !== 'number') out.push(",
+      "by": "test",
+      "kills": [
+        "测试观察记录：预留的 scope、端点、单价、result 不合原文，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cs",
+      "req": "harness",
+      "why": "命中记录的保存点不在原文那五个里也照收",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "    if (!SAVE_POINTS.includes(r.point)) out.push(",
+      "replace": "    if (false) out.push(",
+      "by": "test",
+      "kills": [
+        "测试观察记录：命中的保存点不在那五个里、第几次不是正整数、not_written 不是 true、SP-BUD 带了尝试序号或端点、别的保存点缺了它们，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-ct",
+      "req": "harness",
+      "why": "命中记录的第几次不是正整数也照收",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "    if (!posInt(r.occurrence)) out.push(",
+      "replace": "    if (false) out.push(",
+      "by": "test",
+      "kills": [
+        "测试观察记录：命中的保存点不在那五个里、第几次不是正整数、not_written 不是 true、SP-BUD 带了尝试序号或端点、别的保存点缺了它们，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cu",
+      "req": "harness",
+      "why": "命中记录没说那一次保存没写盘也照收",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "    if (r.not_written !== true) out.push(",
+      "replace": "    if (false) out.push(",
+      "by": "test",
+      "kills": [
+        "测试观察记录：命中的保存点不在那五个里、第几次不是正整数、not_written 不是 true、SP-BUD 带了尝试序号或端点、别的保存点缺了它们，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cv",
+      "req": "harness",
+      "why": "SP-BUD 以外保存点的命中记录缺了尝试序号或端点也照收：读的一侧对不上是哪一次尝试",
+      "file": "scripts/check/observer-rule.ts",
+      "find": ": !posInt(r.attempt_id) || !urlPath(r.endpoint))",
+      "replace": ": false)",
+      "by": "test",
+      "kills": [
+        "测试观察记录：命中的保存点不在那五个里、第几次不是正整数、not_written 不是 true、SP-BUD 带了尝试序号或端点、别的保存点缺了它们，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cw",
+      "req": "harness",
+      "why": "未命中记录说文件不合格，写出来的保存点不在五个里、或次数不是正整数，也照收",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "      if (!(r.point === null || SAVE_POINTS.includes(r.point)) || !(r.occurrence === null || posInt(r.occurrence))",
+      "replace": "      if (false",
+      "by": "test",
+      "kills": [
+        "测试观察记录：说文件不合格的未命中，有保存点时 seen 要是非负整数，保存点写了就得在那五个里，次数写了就得是正整数，不合各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cx",
+      "req": "harness",
+      "why": "记录文件里有一行不是 JSON，悄悄跳过、别的照用",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "    try { r = JSON.parse(line) } catch { problems.push(`${at}不是 JSON`); return }",
+      "replace": "    try { r = JSON.parse(line) } catch { return }",
+      "by": "test",
+      "kills": [
+        "测试观察记录：空文件、最后一行没写完、不是 JSON、不是对象，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cy",
+      "req": "harness",
+      "why": "记录文件里有一行是 JSON 却不是对象，悄悄跳过、别的照用",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "    if (!isObj(r)) { problems.push(`${at}不是对象`); return }",
+      "replace": "    if (!isObj(r)) return",
+      "by": "test",
+      "kills": [
+        "测试观察记录：空文件、最后一行没写完、不是 JSON、不是对象，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-cz",
+      "req": "harness",
+      "why": "记录的种类认不得也照收",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "  } else out.push(`${at} 认不得的种类`)",
+      "replace": "  }",
+      "by": "test",
+      "kills": [
+        "测试观察记录：contract 不是 kol-test-observer/v1、认不得的种类、多出原文没有的键，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-da",
+      "req": "harness",
+      "why": "未命中记录的原因不是原文那两种也照收",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "    } else out.push(`${at}.why 不是 not-reached 或 invalid-file`)",
+      "replace": "    }",
+      "by": "test",
+      "kills": [
+        "测试观察记录：未命中的原因不是 not-reached 或 invalid-file、seen 不是非负整数、没到第 k 次却把保存点或次数写成 null、说没到第 k 次而 seen 已经到了，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-db",
+      "req": "harness",
+      "why": "一跑写了两条就绪记录也照收（原文说每一跑恰好一条）",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "if (records[0]?.kind !== 'ready' || records.filter(r => r.kind === 'ready').length !== 1)",
+      "replace": "if (records[0]?.kind !== 'ready')",
+      "by": "test",
+      "kills": [
+        "测试观察记录：就绪不打头、有两条、一条也没有，哪一条的 entry 不是起的那个入口，或 collect 以外的入口写了保存失败注入的记录，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-dc",
+      "req": "harness",
+      "why": "预留记录的账与入口对不上也照收：probe 说记进了任务账、collect 说只记在进程里",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "    if (own.length === 0 && r.kind === 'reserve' && r.scope !== (entry === 'probe' ? 'process' : 'task')) own.push(",
+      "replace": "    if (false) own.push(",
+      "by": "test",
+      "kills": [
+        "测试观察记录：预留记录的 scope 与入口对不上 —— probe 记成任务账、collect 记成进程账，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-dd",
+      "req": "harness",
+      "why": "认证对照里预留记录条数与观察器记下的请求数对不上也算成立：有请求没有预留记录、或有预留记录没发请求，都看不出来",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "  if (reserve.length !== requests) out.push(",
+      "replace": "  if (false) out.push(",
+      "by": "test",
+      "kills": [
+        "测试观察记录对照请求数：合契约、预留条条成功、条数等于请求数才没有问题；文件不在、不合契约、有被拒的、条数对不上，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-de",
+      "req": "harness",
+      "why": "认证对照里有被拒的预留记录也算成立：不该被拒的对照输入被拒了看不出来",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "  if (reserve.some(x => x !== 'reserved')) out.push('有被拒的预留记录')",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "测试观察记录对照请求数：合契约、预留条条成功、条数等于请求数才没有问题；文件不在、不合契约、有被拒的、条数对不上，各报一处"
+      ]
+    },
+    {
+      "id": "M-H186-df",
+      "req": "harness",
+      "why": "认证对照里入口一条测试观察记录都没写（记录文件不在）也算成立",
+      "file": "scripts/check/observer-rule.ts",
+      "find": "  if (text === undefined) return ['记录文件不在']",
+      "replace": "  if (text === undefined) return []",
+      "by": "test",
+      "kills": [
+        "测试观察记录对照请求数：合契约、预留条条成功、条数等于请求数才没有问题；文件不在、不合契约、有被拒的、条数对不上，各报一处"
+      ]
     }
   ],
   "exemptions": [

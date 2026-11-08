@@ -7,21 +7,30 @@
  *
  * 冻结目录一个字节都不改（嵌入提交按 freeze-tests.sha256 核等）。这里只做冻结包 `INTEGRATION.md` 写明留给整合方的几样：
  *
- * - `facility`：观察器的四个公开调用面，`observer-run.ts` 的 `certifyIsolation`、`runObserved` 与 `observer-rule.ts` 的
- *   `zeroVerdict`、`readEvents`（ADR-70 末尾那一节，`Zero` 是修复轮 1 修订后带 side/cause 的那一版）。前三个原样传入；
- *   `readEvents` 交回的事件逐条浅拷贝一份，只为过类型（接口类型的事件不能直接当 `Record` 用），字段一个不增不减。
+ * - `facility`：观察器的公开调用面，`observer-run.ts` 的 `certifyIsolation`、`runObserved` 与 `observer-rule.ts` 的
+ *   `zeroVerdict`、`readEvents`（ADR-70 末尾那一节，`Zero` 是修复轮 1 修订后带 side/cause 的那一版）。`readEvents` 交回的
+ *   事件逐条浅拷贝一份，只为过类型（接口类型的事件不能直接当 `Record` 用），字段一个不增不减；其余原样传入。
  * - `sortForOutput`：`scripts/lib/rows.ts` 的导出函数，同一个数组原样传进去（G5-03 要看调用后输入有没有被改）。
- * - `conditions`：只登冻结单 B 节把「建议问谁」写成整合方、整合方又答得出出处的三条（冻结单 :1586、:1592），每条 `ref` 写着出处：
+ * - `conditions`：每条 `ref` 写着出处。登的是冻结单 B 节把「建议问谁」写成整合方、整合方又答得出出处的（冻结单 :1586、:1592）：
  *   GAP-18（补法是下面的 `creatorCheck`）；GAP-24a、GAP-24b 是读实现得出的事实，只作资格前提（夹具有没有区分力），
- *   不当任何断言的期望。GAP-24c 要正本或对外文档直接给出「原文件不被改动」，没找到，不登；GAP-09、GAP-20 登了也不判，不登；
- *   其余（GAP-07①④、GAP-10、GAP-39、GAP-40 与 E-1、E-2、E-3）本片不登。没登的，依赖它的断言照冻结单落在 not-judged。
+ *   不当任何断言的期望。GAP-24c 要正本或对外文档直接给出「原文件不被改动」，没找到，不登；GAP-09、GAP-20 登了也不判，不登。
+ *   再加 E-2、E-3：实现方把契约 kol-test-observer/v1 公开在 `skill/references/output-format.md` 末节，需求方逐字确认过
+ *   （冻结单 :1797），`ref` 指那一节与 ADR-186、ADR-187。其余（GAP-07①④、GAP-10、GAP-39、GAP-40 与 E-1）不登。
+ *   没登的，依赖它的断言照冻结单落在 not-judged。
  * - `reviews`：一条复核都不给。语义复核要独立复核方对着本跑的文本写（GAP-25 也只是复核记录的键，不是前提登记），
  *   依赖它的断言落在 review-pending。not-judged、review-pending 都不算过、也不算红。
  * - `creatorCheck`：只照公开的 `Creator` 类型声明核 G5、G6 的夹具记录是不是合法 `Creator`（冻结单 :1586 的「公开的夹具资格检查」）。
- * - `e2`、`e3`：E-2、E-3 契约还没由实现方公开、经需求方逐字确认（冻结单 :1797），不传。
+ * - `e2`、`e3`：都从观察器每一跑交给入口的测试观察记录文件读（证据目录里的 `CONTRACT_RECORDS`；`observer-run.ts` 起入口时经
+ *   `KOL_TEST_OBSERVER_EVENTS` 给），由 `observer-rule.ts` 的 `readContractRecords` 照原文逐行核。`e2.arm` 在当前目录写控制文件，
+ *   选〈保存点，第 k 次〉；`e2.hits` 交回命中与未命中记录：命中记录去掉 `kind`、`contract`，`not_written` 改叫 `notWritten`；
+ *   未命中记录只交保存点、次数与入口，标上 `miss`、`notWritten` 记 false（冻结类型里没有 `seen`、`why` 的位置）。
+ *   `e3` 走记录文件那一路（`channel: 'events'`，不剥 stderr）：就绪看那一条就绪记录，预留事件是预留记录去掉 `kind`、`contract`。
+ *   G1-02D 只认 stderr 那一路，照冻结套件落在 not-judged。记录文件不在、或哪一处不合契约，整份当没有记录 —— 命中记录交空、
+ *   就绪交 false，冻结套件照它的规则判夹具失格；不合在哪写进 stdout 汇总的 `records`，不挑能读的那几行用。
+ *   控制文件名与它的 `schema` 照原文抄在这里，不从产品代码 import：被测的正是产品照不照原文做。
  *
- * 判定一律在冻结套件里：这里不读、不改、不合并任何一条结论。pass、red、fixture、facility、review-pending、not-judged、
- * not-covered 原样留在报告里，由读报告的一侧（自检组 `kol21-independent`）分开报。
+ * 判定一律在冻结套件里：这里不读、不改、不合并任何一条结论。冻结套件的每一种结论原样留在报告里，由读报告的一侧
+ * （自检组 `kol21-independent`）分开报。
  * 退出码：报告写成就是 0，不论里面的结论是什么；用法错 2；跑到一半抛出 1。
  *
  * 它不是 `scripts/check/` 下的工具，自检把它当被测对象起（`verifier-rule.ts`「它挡不住什么」第一条说的正是这种写法：
@@ -29,12 +38,14 @@
  * 种子：本文件 import 的 `scripts/lib/rows.ts` 及其依赖会跟着进闭包，现有指着它们的 `by: "selfcheck"` 负片会被当成自己验自己拦下。
  * 所以指着本文件或冻结目录的变异不该写 `by: "selfcheck"` —— 那是拿被改坏的验证接线给自己判分，判据拦不住，靠写的人不写。
  */
-import { existsSync, readdirSync } from 'node:fs'
-import { isAbsolute } from 'node:path'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { isAbsolute, join } from 'node:path'
 import { CASES, runSuite } from './kol21-independent/suite.ts'
-import type { ConditionId, ObserverFacility, Resolution, SortForOutput } from './kol21-independent/lib/contract.ts'
+import type {
+  ConditionId, E2Adapter, E2HitRecord, E3Adapter, ObservedRun, ObserverFacility, Resolution, SavePoint, SortForOutput,
+} from './kol21-independent/lib/contract.ts'
 import { certifyIsolation, facilityFiles, runObserved } from './check/observer-run.js'
-import { readEvents, zeroVerdict } from './check/observer-rule.js'
+import { CONTRACT_RECORDS, readContractRecords, readEvents, zeroVerdict, type ContractRecord } from './check/observer-rule.js'
 import { sortForOutput } from './lib/rows.js'
 import type { AdoptionPriority, Creator, Dimension, Eligibility, Fit, Platform, RecentPost, ReviewStatus, Tier } from './lib/types.js'
 
@@ -132,8 +143,40 @@ function shape(table: Record<string, string>, v: unknown, at: string): string[] 
 }
 const creatorCheck = (c: unknown): string[] => shape(CREATOR, c, isObj(c) && typeof c.handle === 'string' ? c.handle : '（没有 handle 的记录）')
 
-// 前提登记：只这三条，理由在文件头。answer 只填冻结套件闸门认的那两种之一（INTEGRATION.md 前提登记表）。
+// 测试观察记录（契约 kol-test-observer/v1，`skill/references/output-format.md` 末节）。同一跑的记录只读、只核一次
+const records = new Map<string, ContractRecord[] | undefined>()
+const recordProblems: { evidenceDir: string; problems: string[] }[] = []
+function recordsOf(run: ObservedRun): ContractRecord[] | undefined {
+  if (records.has(run.evidenceDir)) return records.get(run.evidenceDir)
+  const file = join(run.evidenceDir, CONTRACT_RECORDS)
+  const got = existsSync(file) ? readContractRecords(readFileSync(file, 'utf8'), run.entry) : { records: [], problems: ['记录文件不在'] }
+  if (got.problems.length) recordProblems.push({ evidenceDir: run.evidenceDir, problems: got.problems })
+  records.set(run.evidenceDir, got.problems.length ? undefined : got.records)
+  return records.get(run.evidenceDir)
+}
+// 原文第二节的控制文件：放在入口的当前目录，collect 启动时读一次
+const SAVE_FAULT_FILE = '.kol-save-fault.json', SAVE_FAULT_SCHEMA = 'kol-save-fault/v1'
+const e2: E2Adapter = {
+  arm: (point, k) => ({ files: { [SAVE_FAULT_FILE]: `${JSON.stringify({ schema: SAVE_FAULT_SCHEMA, point, occurrence: k })}\n` } }),
+  // 记录已照原文核过：命中记录的保存点在五个里；未命中记录文件不合格时保存点、次数是 null，冻结类型写不出 null，只在类型上照认
+  hits: run => (recordsOf(run) ?? []).flatMap((r): E2HitRecord[] =>
+    r.kind === 'save-fault' ? [{ point: r.point as SavePoint, occurrence: r.occurrence, entry: r.entry,
+      ...(r.attempt_id === undefined ? {} : { attempt_id: r.attempt_id }), ...(r.endpoint === undefined ? {} : { endpoint: r.endpoint }), notWritten: r.not_written }]
+    : r.kind === 'save-fault-miss' ? [{ point: r.point as SavePoint, occurrence: r.occurrence as number, entry: r.entry, notWritten: false, miss: true }]
+    : []),
+}
+const e3: E3Adapter = {
+  channel: 'events',
+  ready: run => recordsOf(run)?.[0]?.kind === 'ready',
+  events: run => (recordsOf(run) ?? []).flatMap(r => r.kind === 'reserve' ? [{ entry: r.entry, scope: r.scope, endpoint: r.endpoint,
+    unit_micro_usd: r.unit_micro_usd, result: r.result, ...(r.attempt_id === undefined ? {} : { attempt_id: r.attempt_id }),
+    ...(r.reason === undefined ? {} : { reason: r.reason }) }] : []),
+}
+
+// 前提登记：理由在文件头。answer 只填冻结套件闸门认的那两种之一（INTEGRATION.md 前提登记表）；E-2、E-3 任意答案都放行，不填。
 const MAIN = '@251d2d6'
+// E-2、E-3 的出处：原文进主干的那一次合入（#434）；需求方逐字确认的时刻与原文字节的 SHA256 记在 ADR-187 开头
+const CONTRACT = 'skill/references/output-format.md 末节「测试观察用的记录文件与保存失败注入（契约 kol-test-observer/v1）」@b3535ee'
 const conditions: Partial<Record<ConditionId, Resolution>> = {
   'GAP-18': {
     resolved: true,
@@ -153,11 +196,21 @@ const conditions: Partial<Record<ConditionId, Resolution>> = {
       `只尽力 persist() 一次再原样抛出，走不到 :469-472 的 finalize（collect 读记忆只有这一处：scripts/lib/pipeline.ts:115 → ` +
       `scripts/lib/memory.ts:397），由 :557-560 退 1。${MAIN}`,
   },
+  'E-2': {
+    resolved: true,
+    ref: `${CONTRACT} 第二节（控制文件 .kol-save-fault.json 选〈保存点，第 k 次〉、命中与未命中记录）；实现方公开、需求方逐字确认：` +
+      `ADR-186（第一版）、ADR-187（改写进记录文件，第 4 版原文需求方 2026-11-08 确认）；适配器在本文件 e2`,
+  },
+  'E-3': {
+    resolved: true,
+    ref: `${CONTRACT} 第一节（就绪记录、预留记录，写进 KOL_TEST_OBSERVER_EVENTS 指的文件）；实现方公开、需求方逐字确认：` +
+      `ADR-186（第一版）、ADR-187（改写进记录文件，第 4 版原文需求方 2026-11-08 确认）；适配器在本文件 e3，走记录文件那一路`,
+  },
 }
 
 try {
-  const r = runSuite({ workRoot: work, facility, sortForOutput: sort, creatorCheck, conditions, reviews: [], only, reportPath: report })
-  console.log(JSON.stringify({ cases: r.cases.length, runs: r.runs.length, verdicts: r.verdicts, items: r.items, facility: facilityFiles() }))
+  const r = runSuite({ workRoot: work, facility, sortForOutput: sort, creatorCheck, conditions, reviews: [], e2, e3, only, reportPath: report })
+  console.log(JSON.stringify({ cases: r.cases.length, runs: r.runs.length, verdicts: r.verdicts, items: r.items, records: recordProblems, facility: facilityFiles() }))
 } catch (e) {
   console.error(`冻结套件跑到一半抛出：${e instanceof Error ? e.stack ?? e.message : String(e)}`)
   process.exitCode = 1

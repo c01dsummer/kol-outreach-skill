@@ -303,6 +303,8 @@ const GROUPS: readonly Group[] = [
   { id: 'h-observer-preload', needs: [] },
   { id: 'h-observer-run', needs: [] },
   { id: 'h-observer-contexts', needs: [] },
+  { id: 'h-observer-records', needs: [] },
+  { id: 'h-kol21-g309-many', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -19084,6 +19086,9 @@ await group('h-observer-rule', () => {
   eq('观察器判定：入口进程的环境多了白名单外的变量、或 key 不是占位串，判隔离故障',
     [text({ ...armed, env_names: ['GH_TOKEN', 'HOME', 'PATH'] }, cl(0)), text({ ...armed, api_key: 'other' }, cl(0))].map(events => kindOf(judgeObservation(facts({ events })))),
     ['facility:isolation', 'facility:isolation'])
+  eq('观察器判定：入口进程的环境里有记录文件那个变量（观察器每一跑都设）不算白名单外，观察照样成立',
+    kindOf(judgeObservation(facts({ events: text({ ...armed, env_names: ['HOME', 'KOL_TEST_OBSERVER_EVENTS', 'PATH', 'TIKHUB_API_KEY'] }, rq(1, 0, { status: 200 }), rq(2, 1, { status: 402 }), cl(2)) }))),
+    'observed')
   eq('观察器判定：请求序号不连续、或记下的结局与脚本那个位置写的不同，判观察器故障',
     [text(armed, rq(2, 0, { status: 200 }), cl(1)), text(armed, rq(1, 0, { status: 500 }), cl(1)), text(armed, rq(1, 0, { connect: 'fail' }), cl(1))]
       .map(events => kindOf(judgeObservation(facts({ events })))), Array(3).fill('facility:observer'))
@@ -19141,6 +19146,12 @@ await group('h-observer-rule', () => {
   eq('观察器环境：从空表起只给 PATH、HOME、TMPDIR、LANG、TZ、TSX_TSCONFIG_PATH 与占位 key；不给 key 时连这个名字也没有', [envOf('placeholder'), Object.keys(envOf('absent'))],
     [{ PATH: '/n/bin:/usr/bin:/bin', HOME: '/tmp', TMPDIR: '/tmp', LANG: 'C.UTF-8', TZ: 'UTC', TSX_TSCONFIG_PATH: '/r/tsconfig.json', TIKHUB_API_KEY: API_KEY_PLACEHOLDER },
       ['PATH', 'HOME', 'TMPDIR', 'LANG', 'TZ', 'TSX_TSCONFIG_PATH']])
+  // 测试观察的记录文件（契约 kol-test-observer/v1）：观察器每一跑都设，值是那一跑证据目录里的一个文件；断网认证的探针不设
+  eq('观察器环境：给了记录文件的路径时多给 KOL_TEST_OBSERVER_EVENTS，值就是那条路径，别的不变；不给就没有这个名字',
+    [observerEnv({ nodeBin: '/n/bin', home: '/tmp', tmp: '/tmp', tsconfig: '/r/tsconfig.json', apiKey: 'absent', records: '/e/contract-records.jsonl' }),
+      Object.keys(envOf('placeholder')).includes('KOL_TEST_OBSERVER_EVENTS')],
+    [{ PATH: '/n/bin:/usr/bin:/bin', HOME: '/tmp', TMPDIR: '/tmp', LANG: 'C.UTF-8', TZ: 'UTC', TSX_TSCONFIG_PATH: '/r/tsconfig.json', KOL_TEST_OBSERVER_EVENTS: '/e/contract-records.jsonl' },
+      false])
   const L: Layout = { system: [{ path: '/usr', kind: 'dir' }, { path: '/bin', kind: 'symlink', target: 'usr/bin' }, { path: '/lib32', kind: 'absent' }], node: '/opt/node',
     repoRoot: '/r', repo: [{ path: 'scripts', kind: 'dir' }, { path: 'node_modules', kind: 'symlink', target: '/elsewhere' }, { path: 'tsconfig.json', kind: 'absent' }], ghDirs: ['/h/.config/gh'] }
   eq('观察器沙箱参数：先断网，根是空的，只读照搬系统目录、node、仓库里那几样，/tmp 是空 tmpfs，gh 配置目录空 tmpfs，仓库根 .env 与 .env.local 盖成空文件，可写目录绑在最后',
@@ -19298,6 +19309,100 @@ await group('h-observer-contexts', () => {
       toy('http', [`import http from 'node:http'`, `http.get('http://127.0.0.1:9/').on('error', () => {})`, settle].join('\n')),
       [97, '', ['armed', 'fault 绕过 fetch 用了 net.Socket.connect', 'close 0 97']])
   } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+// 测试观察的记录文件（契约 kol-test-observer/v1，`skill/references/output-format.md` 末节）读回来：观察器每一跑给入口一个记录文件，
+// 接线的 E-2、E-3 适配器从这里读。期望只来自原文那一节与下面写进夹具的字面值。读的一侧一律偏向「我不知道」：哪一行不合原文，
+// 整份交回问题，适配器就当没有记录（E-2 命中、E-3 就绪都不成立，冻结套件判夹具失格），不挑能读的那几行用
+await group('h-observer-records', async () => {
+  harness('测试观察的记录文件：合原文的读得出，哪一行不合原文都交回问题')
+  // 动态导入：这两个名字还没写出来时只红这一组，不连累别的组
+  const rule: Record<string, unknown> = await import('./check/observer-rule.js')
+  const read = rule.readContractRecords as (text: string, entry: string) => { records: { kind: string }[]; problems: string[] }
+  const C = { contract: 'kol-test-observer/v1' }
+  const T1 = '/api/v1/tiktok/app/v3/fetch_video_search_result'
+  const ready = (entry = 'collect') => ({ kind: 'ready', ...C, entry })
+  const reserved = (attempt_id = 3) => ({ kind: 'reserve', ...C, entry: 'collect', scope: 'task', endpoint: T1, unit_micro_usd: 1000, result: 'reserved', attempt_id })
+  const rejected = (reason = 'budget') => ({ kind: 'reserve', ...C, entry: 'collect', scope: 'task', endpoint: T1, unit_micro_usd: 1000, result: 'rejected', reason })
+  const hit = (point = 'SP-R', more: object = { attempt_id: 3, endpoint: T1 }) => ({ kind: 'save-fault', ...C, entry: 'collect', point, occurrence: 1, ...more, not_written: true })
+  const miss = (more: object = {}) => ({ kind: 'save-fault-miss', ...C, entry: 'collect', point: 'SP-R', occurrence: 1, seen: 0, why: 'not-reached', ...more })
+  const lines = (...rs: object[]) => rs.map(r => `${JSON.stringify(r)}\n`).join('')
+  const n = (text: string, entry = 'collect') => read(text, entry).problems.length
+  const good = read(lines(ready(), reserved(3), rejected('save-failed'), hit()), 'collect')
+  eq('测试观察记录：就绪打头、预留（成与不成）、命中各一条，合原文的整份读得出、没有问题，种类照原样',
+    [good.problems, good.records.map(r => r.kind)], [[], ['ready', 'reserve', 'reserve', 'save-fault']])
+  eq('测试观察记录：probe 的进程账预留、SP-BUD 的命中（不带尝试序号与端点）、文件不合格时读不出的字段写 null 的未命中，都合原文',
+    [n(lines(ready('probe'), { kind: 'reserve', ...C, entry: 'probe', scope: 'process', endpoint: T1, unit_micro_usd: 1000, result: 'reserved' }), 'probe'),
+      n(lines(ready(), hit('SP-BUD', {}))), n(lines(ready(), miss({ point: null, occurrence: null, seen: null, why: 'invalid-file' })))], [0, 0, 0])
+  eq('测试观察记录：空文件、最后一行没写完、不是 JSON、不是对象，各报一处',
+    [n(''), n(`${JSON.stringify(ready())}\n${JSON.stringify(reserved())}`), n(`${JSON.stringify(ready())}\nx\n`), n(`${JSON.stringify(ready())}\n[]\n`)], [1, 1, 1, 1])
+  eq('测试观察记录：contract 不是 kol-test-observer/v1、认不得的种类、多出原文没有的键，各报一处',
+    [n(lines(ready(), { ...reserved(), contract: 'kol-test-observer/v2' })), n(lines(ready(), { kind: 'zzz', ...C, entry: 'collect' })),
+      n(lines(ready(), { ...reserved(), extra: 1 }))], [1, 1, 1])
+  eq('测试观察记录：就绪不打头、有两条、一条也没有，哪一条的 entry 不是起的那个入口，或 collect 以外的入口写了保存失败注入的记录，各报一处',
+    [n(lines(reserved(), ready())), n(lines(ready(), ready())), n(lines(reserved())), n(lines(ready('probe'))), n(lines(ready(), { ...reserved(), entry: 'enrich' })),
+      n(lines(ready('probe'), { ...miss(), entry: 'probe' }), 'probe')],
+    [1, 1, 1, 1, 1, 1])
+  // scope、result 认不得的那两例不带尝试序号：带着的话，尝试序号那一道也会报，数不出 scope、result 自己那一道报没报
+  const bare = (({ attempt_id, ...r }) => r)(reserved())
+  eq('测试观察记录：预留的 scope、端点、单价、result 不合原文，各报一处',
+    [n(lines(ready(), { ...bare, scope: 'job' })), ...[{ endpoint: 'api/x' }, { endpoint: `${T1}?q=1` }, { unit_micro_usd: -1 }, { unit_micro_usd: 1.5 }]
+      .map(over => n(lines(ready(), { ...reserved(), ...over }))), n(lines(ready(), { ...bare, result: 'ok' }))], [1, 1, 1, 1, 1, 1])
+  eq('测试观察记录：预留记录的 scope 与入口对不上 —— probe 记成任务账、collect 记成进程账，各报一处',
+    [n(lines(ready('probe'), { ...reserved(), entry: 'probe' }), 'probe'), n(lines(ready(), { ...bare, scope: 'process' }))], [1, 1])
+  eq('测试观察记录：尝试序号只在任务账的成功预留上有 —— 任务账成功预留缺它、进程账或被拒的带它、它不是正整数，各报一处',
+    [n(lines(ready(), (({ attempt_id, ...r }) => r)(reserved()))), n(lines(ready(), { ...reserved(), scope: 'process' })),
+      n(lines(ready(), { ...rejected(), attempt_id: 3 })), n(lines(ready(), reserved(0)))], [1, 1, 1, 1])
+  eq('测试观察记录：原因只在被拒时有、取原文那五个之一 —— 被拒缺原因、原因认不得、成功预留带原因，各报一处',
+    [n(lines(ready(), (({ reason, ...r }) => r)(rejected()))), n(lines(ready(), rejected('quota'))), n(lines(ready(), { ...reserved(), reason: 'budget' }))], [1, 1, 1])
+  eq('测试观察记录：五种原因都认得',
+    ['budget', 'ledger-unavailable', 'pending', 'root-conflict', 'save-failed'].map(r => n(lines(ready(), rejected(r)))), [0, 0, 0, 0, 0])
+  eq('测试观察记录：命中的保存点不在那五个里、第几次不是正整数、not_written 不是 true、SP-BUD 带了尝试序号或端点、别的保存点缺了它们，各报一处',
+    [n(lines(ready(), hit('SP-X'))), n(lines(ready(), { ...hit(), occurrence: 0 })), n(lines(ready(), { ...hit(), not_written: false })),
+      n(lines(ready(), hit('SP-BUD'))), n(lines(ready(), hit('SP-200', {})))], [1, 1, 1, 1, 1])
+  eq('测试观察记录：未命中的原因不是 not-reached 或 invalid-file、seen 不是非负整数、没到第 k 次却把保存点或次数写成 null、说没到第 k 次而 seen 已经到了，各报一处',
+    [n(lines(ready(), miss({ why: 'other' }))), n(lines(ready(), miss({ seen: -1 }))), n(lines(ready(), miss({ point: null }))), n(lines(ready(), miss({ occurrence: null }))),
+      n(lines(ready(), miss({ seen: 1 })))], [1, 1, 1, 1, 1])
+  eq('测试观察记录：说文件不合格的未命中，有保存点时 seen 要是非负整数，保存点写了就得在那五个里，次数写了就得是正整数，不合各报一处',
+    [n(lines(ready(), miss({ why: 'invalid-file', occurrence: null, seen: null }))), n(lines(ready(), miss({ why: 'invalid-file', point: 'SP-X', occurrence: null }))),
+      n(lines(ready(), miss({ why: 'invalid-file', occurrence: 0 })))], [1, 1, 1])
+  eq('测试观察记录：命中一跑最多一条，命中了就不该再有未命中，各报一处',
+    [n(lines(ready(), hit(), hit())), n(lines(ready(), hit(), miss()))], [1, 1])
+  const against = rule.recordsAgainstRequests as (text: string | undefined, entry: string, requests: number) => string[]
+  const ag = (text: string | undefined, requests: number) => against(text, 'collect', requests).length
+  eq('测试观察记录对照请求数：合契约、预留条条成功、条数等于请求数才没有问题；文件不在、不合契约、有被拒的、条数对不上，各报一处',
+    [ag(lines(ready(), reserved(1), reserved(2)), 2), ag(lines(ready()), 0), ag(undefined, 0), ag(lines(reserved()), 1),
+      ag(lines(ready(), reserved(1)), 2), ag(lines(ready(), reserved(1), rejected()), 2)], [0, 0, 1, 1, 1, 1])
+})
+
+// KOL-21 独立测试包 G3-09 新增两个以上 task.json 那一支的回归测试（ADR-70 第 3765 行那张欠条要的，放在冻结包之外）：
+// 真实入口这一跑只新建一个，那一支跑不到；这里照冻结用例自己的判法，造一跑「新增两个、其中一个有无结果留存」交给它判
+await group('h-kol21-g309-many', async () => {
+  harness('KOL-21 独立测试包 G3-09：运行后新增两个以上 task.json 时逐个判，有无结果留存的那一个判红、另一个判过')
+  const { G3 } = await import('./kol21-independent/cases/g3.ts')
+  const { Ctx } = await import('./kol21-independent/lib/judge.ts')
+  const { snap } = await import('./kol21-independent/lib/fsnap.ts')
+  const { RUNS } = await import('./kol21-independent/runs.ts')
+  const root = scMkdtempSync(scJoin(scTmpdir(), 'kol21-g309-')), cwd = scJoin(root, 'cwd')
+  try {
+    scMkdirSync(cwd)
+    const before = snap(cwd)
+    const ledger = (unknown: number) => JSON.stringify({ cost_ledger: { entries: [{ http_200_count: 0, unknown_result_count: unknown, unit_micro_usd: 1000 }] } })
+    for (const [dir, unknown] of [['kept-1', 0], ['left-2', 1]] as const) {
+      scMkdirSync(scJoin(cwd, 'output', dir), { recursive: true })
+      scWriteFileSync(scJoin(cwd, 'output', dir, 'task.json'), ledger(unknown))
+    }
+    const def = RUNS.find(r => r.id === 'G3-09')!
+    const obs = { outcome: { kind: 'observed' as const }, attributable: true, requests: [], entry: 'collect' as const, isolation: '', run: '', evidenceDir: '',
+      status: 2, signal: null, stdout: '', stderr: '' }
+    const runs = new Map([['G3-09', { def, script: undefined as never, runDir: root, cwd, evidenceDir: '', before, after: snap(cwd), obs, J: [], stderrText: '' }]])
+    const c = new Ctx('G3-09', { certified: false, certNote: '', runs, reviews: new Map(), conditions: {}, questions: [],
+      result: () => { throw new Error('G3-09 不该去读别的用例的结论') } })
+    G3.find(x => x.id === 'G3-09')!.judge!(c)
+    const lc = c.items.filter(i => i.label.startsWith('新 task.json（若已建）LC：U = 0')).map(i => [i.label, i.status]).sort()
+    eq('KOL-21 独立测试包 G3-09：新增两个 task.json，各判一项，带着路径；有一笔无结果留存的判红，没有的判过',
+      lc, [['新 task.json（若已建）LC：U = 0 [output/kept-1/task.json]', 'pass'], ['新 task.json（若已建）LC：U = 0 [output/left-2/task.json]', 'red']])
+  } finally { scRmSync(root, { recursive: true, force: true }) }
 })
 
 if (seenGroups.size !== GROUPS.length) {
