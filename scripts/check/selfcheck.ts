@@ -1945,12 +1945,14 @@ group('cost-save-errors', [], () => {
 // 契约没有登记编号，所以这两组不 criterion()。夹具形状沿用 cost-* 几组：空账、上限 1000 微美元＝一次 TikTok 搜索（$0.001），
 // 搜完一页再买不起下一次 → 今天以 3 收尾（SKILL.md 收尾表）；手算的数都写在断言旁边。
 const TOBS_VAR = 'KOL_TEST_OBSERVER_EVENTS', TOBS_CONTRACT = 'kol-test-observer/v1'
-const tobsDir = join(tmp, 'test-observer-records')
-let tobsRuns = 0
-// 开着开关：每一跑一个还不存在的记录文件（「不存在就新建」），放在夹具的当前目录之外，上一跑的记录碰不到这一跑
-const TOBS_ON = (): NodeJS.ProcessEnv => {
-  mkdirSync(tobsDir, { recursive: true })
-  return { [TOBS_VAR]: join(tobsDir, `run-${++tobsRuns}.jsonl`) }
+// 开着开关：每一跑一个还不存在的记录文件（「不存在就新建」），放在夹具的当前目录之外，上一跑的记录碰不到这一跑。
+// 目录与计数两组各在自己的组里建一份：完整自检拆进程时两组可能不在同一个进程里，共用一处会撞名（share-rule.ts 头上那段）
+const tobsSwitch = (dir: string) => {
+  let runs = 0
+  return (): NodeJS.ProcessEnv => {
+    mkdirSync(dir, { recursive: true })
+    return { [TOBS_VAR]: join(dir, `run-${++runs}.jsonl`) }
+  }
 }
 // 「每条记录占一整行，是一个单行 JSON 对象，以换行结束」：读不成对象的行、最后没有换行的那一截，都换成 kind 不对的记录留着，
 // 判 kind／contract 的断言因此红；文件不在（关着，或入口一条都没写）就是没有记录
@@ -1967,6 +1969,9 @@ const recordsOf = (extra: NodeJS.ProcessEnv): any[] => {
 const ofKind = (records: any[], kind: string) => records.filter(o => o?.kind === kind)
 const reserves = (records: any[], result: string) => ofKind(records, 'reserve').filter(o => o.result === result)
 type TobsRun = { ok: boolean; stdout: string; stderr: string; status: number | null; records: any[] }
+// 循环里每一例先把判定（成没成、为什么）收进表里，循环之后一例一个字面量标签地报（`process/4-VERIFY.md`「核对标签的运行身份」）：
+// 变异红在哪一例，看得出是哪个入口、哪个原因；没跑成的那一例表里没有，照旧不报
+type Verdict = readonly [boolean, string]
 // 跑一次入口，连同这一跑记录文件里的记录（没开开关的是 []）
 const tobsRun = (label: string, args: string[], cwd: string, expect: { status: number; soft?: readonly number[] },
   log: string, extra: NodeJS.ProcessEnv = {}): TobsRun => ({ ...runBoth(label, args, cwd, expect, costEnv(log, extra)), records: recordsOf(extra) })
@@ -2002,6 +2007,7 @@ const namesUnder = (root: string): string[] => {
 }
 
 group('test-observer-events', [], () => {
+  const TOBS_ON = tobsSwitch(join(tmp, 'test-observer-events-records'))
   // 「没设这个变量、或者值为空时，collect、probe、enrich 的行为、输出和落盘，与没有这一节时完全相同」—— 同一目录、同一夹具跑两次，
   // 一次没设、一次设成空串（没设的那一跑另在下面「对照跑」里与开着开关的比）
   const mkEmpty = () => obsFixture('empty'), e1 = mkEmpty()
@@ -2011,19 +2017,24 @@ group('test-observer-events', [], () => {
     empty.stdout === unset.stdout && entryStderr(empty.stderr) === entryStderr(unset.stderr) && empty.status === unset.status
       && JSON.stringify(namesUnder(e2.cwd)) === JSON.stringify(unsetNames), `空串: ${obsSaid(empty)}\n    没设: ${obsSaid(unset)}`)
   // 「入口一启动、读取任何输入（命令行参数、配置、task.json）之前写一条，每一跑恰好一条」—— 配置路径不存在、以 2 结束时也要有
+  const readyOf: Record<string, Verdict> = {}
   for (const entry of ['collect', 'probe']) {
     const r = tobsRun(`${entry} 配置不存在时的就绪记录`, [S(`${entry}.ts`), '--config', join(tmp, 'obs-no-such-config.json')], tmp,
       { status: 2, soft: [0, 1, 3] }, join(tmp, `obs-ready-${entry}.tsv`), TOBS_ON())
-    if (r.ok) named('读不到输入也先写恰好一条 ready 记录：entry 是本入口、contract 是 kol-test-observer/v1',
-      ofKind(r.records, 'ready').length === 1 && ofKind(r.records, 'ready')[0].entry === entry
-        && ofKind(r.records, 'ready')[0].contract === TOBS_CONTRACT, `${entry}: ${obsSaid(r)}`)
+    if (r.ok) readyOf[entry] = [ofKind(r.records, 'ready').length === 1 && ofKind(r.records, 'ready')[0].entry === entry
+        && ofKind(r.records, 'ready')[0].contract === TOBS_CONTRACT, `${entry}: ${obsSaid(r)}`]
   }
+  if (readyOf.collect) named('collect 读不到输入也先写恰好一条 ready 记录：entry 是 collect、contract 是 kol-test-observer/v1', ...readyOf.collect)
+  if (readyOf.probe) named('probe 读不到输入也先写恰好一条 ready 记录：entry 是 probe、contract 是 kol-test-observer/v1', ...readyOf.probe)
   // 「读取任何输入（命令行参数、…）之前」—— 一个参数都不给，入口连 argv 都接受不了（用法错误，照 D26.a 的先例以 2 拒绝）
+  const argvOf: Record<string, Verdict> = {}
   for (const entry of ['collect', 'probe', 'enrich']) {
     const r = tobsRun(`${entry} 不带任何参数`, [S(`${entry}.ts`)], tmp, { status: 2, soft: [0, 1, 3] }, join(tmp, `obs-argv-${entry}.tsv`), TOBS_ON())
-    if (r.ok) named('连命令行参数都接受不了时也已写出恰好一条 ready 记录，entry 是本入口',
-      ofKind(r.records, 'ready').length === 1 && ofKind(r.records, 'ready')[0].entry === entry, `${entry}: ${obsSaid(r)}`)
+    if (r.ok) argvOf[entry] = [ofKind(r.records, 'ready').length === 1 && ofKind(r.records, 'ready')[0].entry === entry, `${entry}: ${obsSaid(r)}`]
   }
+  if (argvOf.collect) named('collect 连命令行参数都接受不了时也已写出恰好一条 ready 记录，entry 是 collect', ...argvOf.collect)
+  if (argvOf.probe) named('probe 连命令行参数都接受不了时也已写出恰好一条 ready 记录，entry 是 probe', ...argvOf.probe)
+  if (argvOf.enrich) named('enrich 连命令行参数都接受不了时也已写出恰好一条 ready 记录，entry 是 enrich', ...argvOf.enrich)
   // 付费跑：「每一次真实的 HTTP 尝试（包括重试和换路）恰好对应一条 reserved 记录」「scope：task 是写进 task.json 的任务账（collect、enrich）；
   // process 是只在本进程里的账（probe）」「attempt_id：只在 scope 为 task 且 result 为 reserved 时有」「reason：只在 rejected 时有」。
   // 单价只对搜索那一路钉死：原文例子与 tikhub.md 都是 $0.001 ＝ 1000；attempt_id ＝ 夹具 next_attempt_id ＝ 0 次 + 1 ＝ 1。
@@ -2032,22 +2043,29 @@ group('test-observer-events', [], () => {
   writeFileSync(probeCfg, JSON.stringify({ market: 'US', budget_usd: 0.001, tasks: [{ keyword: 'obs', dimension: 'category', platform: 'tiktok' }] }))
   const paid = [['collect', ['--resume', pc.taskDir], pc.cwd, pc.log, 'task'], ['enrich', ['--dir', pe.taskDir], pe.cwd, pe.log, 'task'],
     ['probe', ['--config', probeCfg], tmp, probeLog, 'process']] as const
+  const shapeOf: Record<string, Verdict> = {}, pairOf: Record<string, Verdict> = {}, idOf: Record<string, Verdict> = {}
   for (const [entry, args, cwd, log, scope] of paid) {
     const r = tobsRun(`${entry} 开着开关的付费跑`, [S(`${entry}.ts`), ...args], cwd, { status: 0, soft: [1, 2, 3] }, log, TOBS_ON())
     if (!r.ok) continue
     const attempts = fetchAttempts(log), ok = reserves(r.records, 'reserved'), ready = ofKind(r.records, 'ready')
     if (attempts.length === 0) { failed++; console.error(`  ✗ ${entry} 付费跑${SELFCHECK_FIXTURE_MARK}：假 fetch 一次请求都没记下`); continue }
-    named('每条记录都是带 kind 与 contract 的单行 JSON 对象、以换行结束，ready 恰好一条且是第一条',
-      r.records.every(o => typeof o.kind === 'string' && o.contract === TOBS_CONTRACT) && ready.length === 1
-        && ready[0].entry === entry && r.records[0].kind === 'ready', `${entry}: ${obsSaid(r, log)}`)
-    named('reserved 记录与账本里的真实 HTTP 尝试一一对应：endpoint 是请求路径、unit_micro_usd 是这一路单价、scope 按入口分、没有 reason',
-      ok.length === attempts.length && ok.every((o, i) => o.entry === entry && o.scope === scope && o.endpoint === attempts[i].split('\t')[1]
+    shapeOf[entry] = [r.records.every(o => typeof o.kind === 'string' && o.contract === TOBS_CONTRACT) && ready.length === 1
+        && ready[0].entry === entry && r.records[0].kind === 'ready', `${entry}: ${obsSaid(r, log)}`]
+    pairOf[entry] = [ok.length === attempts.length && ok.every((o, i) => o.entry === entry && o.scope === scope && o.endpoint === attempts[i].split('\t')[1]
         && Number.isInteger(o.unit_micro_usd) && o.unit_micro_usd > 0 && (o.endpoint !== TT_SEARCH || o.unit_micro_usd === 1000) && !('reason' in o)),
-      `${entry}: ${obsSaid(r, log)}`)
-    named('attempt_id 只在 scope 为 task 的 reserved 记录上有，首次是任务账里的序号 1；process 账没有',
-      ok.length >= 1 && ok.every(o => scope === 'task' ? Number.isInteger(o.attempt_id) : !('attempt_id' in o)) && (scope !== 'task' || ok[0].attempt_id === 1),
-      `${entry}: ${obsSaid(r, log)}`)
+      `${entry}: ${obsSaid(r, log)}`]
+    idOf[entry] = [ok.length >= 1 && ok.every(o => scope === 'task' ? Number.isInteger(o.attempt_id) : !('attempt_id' in o)) && (scope !== 'task' || ok[0].attempt_id === 1),
+      `${entry}: ${obsSaid(r, log)}`]
   }
+  if (shapeOf.collect) named('collect 每条记录都是带 kind 与 contract 的单行 JSON 对象、以换行结束，ready 恰好一条且是第一条', ...shapeOf.collect)
+  if (shapeOf.enrich) named('enrich 每条记录都是带 kind 与 contract 的单行 JSON 对象、以换行结束，ready 恰好一条且是第一条', ...shapeOf.enrich)
+  if (shapeOf.probe) named('probe 每条记录都是带 kind 与 contract 的单行 JSON 对象、以换行结束，ready 恰好一条且是第一条', ...shapeOf.probe)
+  if (pairOf.collect) named('collect 的 reserved 记录与账本里的真实 HTTP 尝试一一对应：endpoint 是请求路径、unit_micro_usd 是这一路单价、scope 是 task、没有 reason', ...pairOf.collect)
+  if (pairOf.enrich) named('enrich 的 reserved 记录与账本里的真实 HTTP 尝试一一对应：endpoint 是请求路径、unit_micro_usd 是这一路单价、scope 是 task、没有 reason', ...pairOf.enrich)
+  if (pairOf.probe) named('probe 的 reserved 记录与账本里的真实 HTTP 尝试一一对应：endpoint 是请求路径、unit_micro_usd 是这一路单价、scope 是 process、没有 reason', ...pairOf.probe)
+  if (idOf.collect) named('collect 的 reserved 记录都有 attempt_id，首次是任务账里的序号 1', ...idOf.collect)
+  if (idOf.enrich) named('enrich 的 reserved 记录都有 attempt_id，首次是任务账里的序号 1', ...idOf.enrich)
+  if (idOf.probe) named('probe 的 reserved 记录没有 attempt_id（process 账）', ...idOf.probe)
   // 「`reserved` 记录在这次预留已经存好（任务账）之后、真正发出这次 HTTP 请求之前写出」—— 假 fetch 在第 1 个 200 响应交还之前把进程 SIGKILL
   // （crash-resume 的手法，退出码 137），所以文件里收到的每一条都写于响应被处理之前；只比条数的断言挡不住「响应处理完才写」
   const killed = obsFixture('kill-first')
@@ -2070,13 +2088,17 @@ group('test-observer-events', [], () => {
     ['ledger-unavailable', { requests: 0, cost_ledger: { version: 'unusable' } }, {}, 2],
     ['root-conflict', knownCosts(1000, []), { budget_usd: 0.002 }, 2],
   ]
+  const rejectOf: Record<string, Verdict> = {}
   for (const [reason, costs, over, today] of rejects) {
     const f = obsFixture(`reject-${reason}`, costs, over)
     const r = obsResume(`collect 预留被拒 ${reason}`, f, TOBS_ON(), { status: today, soft: [0, 1, 2, 3].filter(n => n !== today) })
-    if (r.ok) named('被拒的预留写 rejected 记录：reason 是对应的那一个、没有 attempt_id、没有 reserved 记录，请求一次都没发',
-      reserves(r.records, 'rejected').length >= 1 && ofKind(r.records, 'reserve').every(o => o.result === 'rejected' && o.reason === reason
-        && o.entry === 'collect' && o.scope === 'task' && !('attempt_id' in o)) && fetchAttempts(f.log).length === 0, `${reason}: ${obsSaid(r, f.log)}`)
+    if (r.ok) rejectOf[reason] = [reserves(r.records, 'rejected').length >= 1 && ofKind(r.records, 'reserve').every(o => o.result === 'rejected' && o.reason === reason
+        && o.entry === 'collect' && o.scope === 'task' && !('attempt_id' in o)) && fetchAttempts(f.log).length === 0, `${reason}: ${obsSaid(r, f.log)}`]
   }
+  if (rejectOf.budget) named('额度不够时被拒的预留写 rejected 记录：reason 是 budget、没有 attempt_id、没有 reserved 记录，请求一次都没发', ...rejectOf.budget)
+  if (rejectOf.pending) named('账上有没结的预留时被拒的预留写 rejected 记录：reason 是 pending、没有 attempt_id、没有 reserved 记录，请求一次都没发', ...rejectOf.pending)
+  if (rejectOf['ledger-unavailable']) named('费用账认不得时被拒的预留写 rejected 记录：reason 是 ledger-unavailable、没有 attempt_id、没有 reserved 记录，请求一次都没发', ...rejectOf['ledger-unavailable'])
+  if (rejectOf['root-conflict']) named('根预算与账上的上限冲突时被拒的预留写 rejected 记录：reason 是 root-conflict、没有 attempt_id、没有 reserved 记录，请求一次都没发', ...rejectOf['root-conflict'])
   // save-failed＝「这次预留没能存进任务账」：同 cost-save-errors，只拦 task.json 最终改名写入的目标
   const sf = obsFixture('reject-save-failed'), preload = join(sf.cwd, 'deny-task-save.mjs'), mark = join(sf.cwd, 'mark.txt')
   writeFileSync(preload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = function(src, dest) { if (String(dest) === ${JSON.stringify(sf.task)}) { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('test task save denied'), { code: 'EIO' }); } return original(src, dest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
@@ -2106,13 +2128,16 @@ group('test-observer-events', [], () => {
   const uc = obsFixture('unopenable-collect'), ue = obsFixture('unopenable-enrich', knownCosts(1000, []), {}, [costPerson()])
   const unopenable = [['collect', ['--resume', uc.taskDir], uc.cwd, uc.log, uc.taskDir], ['enrich', ['--dir', ue.taskDir], ue.cwd, ue.log, ue.taskDir],
     ['probe', ['--config', probeCfg], tmp, join(tmp, 'obs-unopenable-probe.tsv'), undefined]] as const
+  const unopenOf: Record<string, Verdict> = {}
   for (const [entry, args, cwd, log, dir] of unopenable) {
     const before = dir ? ['task.json', 'creators.json', 'creators.raw.json'].map(n => fileText(join(dir, n))) : []
     const r = tobsRun(`${entry} 记录文件打不开`, [S(`${entry}.ts`), ...args], cwd, { status: 1, soft: [0, 2, 3] }, log, { [TOBS_VAR]: unopen })
-    if (r.ok) named('记录文件启动时就打不开：以 1 退出、stderr 说出是哪个文件，一次请求都不发、任务目录一字不改，记录文件也没建出来',
-      r.status === 1 && r.stderr.includes(unopen) && fetchAttempts(log).length === 0 && !existsSync(unopen)
-        && (!dir || ['task.json', 'creators.json', 'creators.raw.json'].every((n, i) => fileText(join(dir, n)) === before[i])), `${entry}: ${obsSaid(r, log)}`)
+    if (r.ok) unopenOf[entry] = [r.status === 1 && r.stderr.includes(unopen) && fetchAttempts(log).length === 0 && !existsSync(unopen)
+        && (!dir || ['task.json', 'creators.json', 'creators.raw.json'].every((n, i) => fileText(join(dir, n)) === before[i])), `${entry}: ${obsSaid(r, log)}`]
   }
+  if (unopenOf.collect) named('collect 的记录文件启动时就打不开：以 1 退出、stderr 说出是哪个文件，一次请求都不发、任务目录一字不改，记录文件也没建出来', ...unopenOf.collect)
+  if (unopenOf.enrich) named('enrich 的记录文件启动时就打不开：以 1 退出、stderr 说出是哪个文件，一次请求都不发、任务目录一字不改，记录文件也没建出来', ...unopenOf.enrich)
+  if (unopenOf.probe) named('probe 的记录文件启动时就打不开：以 1 退出、stderr 说出是哪个文件，一次请求都不发，记录文件也没建出来', ...unopenOf.probe)
   // 「中途写不进去的，那一次请求不发」—— 预加载换掉 fs.writeSync：就绪记录照写，写 reserve 记录的那一次回 EIO（手法同上面 save-failed 那一例）
   const mid = obsFixture('write-fails'), midPreload = join(mid.cwd, 'deny-record.mjs'), midMark = join(mid.cwd, 'deny-record.txt')
   writeFileSync(midPreload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.writeSync; fs.writeSync = function(fd, data, ...rest) { const bytes = typeof data === 'string' ? Buffer.from(data) : Buffer.from(data.buffer, data.byteOffset, data.byteLength); if (fd > 2 && bytes.includes('"kind":"reserve"')) { fs.appendFileSync(${JSON.stringify(midMark)}, 'injected\\n'); throw Object.assign(new Error('EIO: i/o error, write'), { code: 'EIO', errno: -5, syscall: 'write' }); } return original.call(this, fd, data, ...rest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(midMark)}, 'armed\\n');`)
@@ -2125,6 +2150,7 @@ group('test-observer-events', [], () => {
 })
 
 group('test-observer-save-fault', [], () => {
+  const TOBS_ON = tobsSwitch(join(tmp, 'test-observer-save-fault-records'))
   const hits = (records: any[]) => ofKind(records, 'save-fault'), misses = (records: any[]) => ofKind(records, 'save-fault-miss')
   const noSummary = (stdout: string) => Object.keys(summaryOf(stdout)).length === 0   // 收尾表：保存失败 → stdout 无汇总 JSON、退出 1
   // SP-R 第 1 次＝「每次真实 HTTP 尝试之前，把这次预留写进 task.json 的那次保存」—— 一个请求都发不出去；attempt_id ＝ next_attempt_id ＝ 1
@@ -2154,14 +2180,17 @@ group('test-observer-save-fault', [], () => {
     `stderr 相同=${entryStderr(ro.stderr) === entryStderr(offCtl.stderr)}, stdout 相同=${ro.stdout === offCtl.stdout}; ${obsSaid(ro, offFault.log)}\n    对照 ${obsSaid(offCtl)}`)
   // SP-200／SP-N200／SP-NS＝「收到 HTTP 200 之后」「收到非 200 的 HTTP 状态之后」「没拿到 HTTP 状态（例如连不上）之后」的那次保存：
   // 各在恰好一次请求之后命中（假 fetch 的 500 与断连都只打一次），「注入不改变请求的端点、价目、调度和重试次数」
+  const finalOf: Record<string, Verdict> = {}
   for (const [point, kind, status] of [['SP-200', undefined, '200'], ['SP-N200', 'bad-body-500', '500'], ['SP-NS', 'no-http-status', 'NO_HTTP_STATUS']] as const) {
     const f = obsFixture(`sp-${point}`); obsFault(f.cwd, { ...FAULT_OK, point })
     const r = obsResume(`collect 注入 ${point} 第 1 次`, f, { ...TOBS_ON(), ...(kind ? { FAKE_FETCH_FAULT_PATH: TT_SEARCH, FAKE_FETCH_FAULT: kind } : {}) }, { status: 1, soft: [0, 2, 3] })
-    if (r.ok) named('终态保存点在恰好一次请求之后命中：退出 1、无汇总 JSON，命中记录指着那个保存点、occurrence 1、attempt_id 1、搜索端点、not_written',
-      r.status === 1 && noSummary(r.stdout) && JSON.stringify(fetchAttempts(f.log)) === JSON.stringify([`${status}\t${TT_SEARCH}`])
+    if (r.ok) finalOf[point] = [r.status === 1 && noSummary(r.stdout) && JSON.stringify(fetchAttempts(f.log)) === JSON.stringify([`${status}\t${TT_SEARCH}`])
         && hits(r.records).length === 1 && hits(r.records)[0].point === point && hits(r.records)[0].occurrence === 1 && hits(r.records)[0].attempt_id === 1
-        && hits(r.records)[0].endpoint === TT_SEARCH && hits(r.records)[0].not_written === true && misses(r.records).length === 0, `${point}: ${obsSaid(r, f.log)}`)
+        && hits(r.records)[0].endpoint === TT_SEARCH && hits(r.records)[0].not_written === true && misses(r.records).length === 0, `${point}: ${obsSaid(r, f.log)}`]
   }
+  if (finalOf['SP-200']) named('SP-200 在恰好一次 200 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-200、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-200'])
+  if (finalOf['SP-N200']) named('SP-N200 在恰好一次 500 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-N200'])
+  if (finalOf['SP-NS']) named('SP-NS 在恰好一次没拿到状态之后命中：退出 1、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-NS'])
   // SP-BUD＝「已知额度不足、停下时的断点保存；注入时作者文件和 task.json 都不写」—— 已用 1000/1000 的续跑，没有文件时今天以 3 收尾
   const mkBud = () => obsFixture('spbud', knownCosts(1000, [costEntry(TT_PROFILE, 1000, 1)]), {}, [costPerson()])
   const budCtl = obsResume('collect 额度不足的对照跑', mkBud(), TOBS_ON(), { status: 3, soft: [0, 1, 2] })
@@ -2185,6 +2214,16 @@ group('test-observer-save-fault', [], () => {
       && misses(mr.records)[0].seen === 1 && fetchAttempts(miss.log).length === 1 && hits(mr.records).length === 0
       && mr.status === missCtl.status && mr.stdout === missCtl.stdout,
     `stdout 与对照相同=${mr.stdout === missCtl.stdout}; ${obsSaid(mr, miss.log)}\n    对照 ${obsSaid(missCtl)}`)
+  // 「这个文件打不开或写不进去时，入口在 stderr 说明原因，以 1 退出」也管退出时那一条：同上 SP-R 第 5 次，预加载只让写未命中记录的那一次回 EIO
+  // （手法同 test-observer-events 里「中途写不进去」那一例）；没有这一处故障时这一跑以对照跑的退出码收尾
+  const exitW = obsAgain(mkMiss); obsFault(exitW.cwd, { ...FAULT_OK, occurrence: 5 })
+  const exitPreload = join(exitW.cwd, 'deny-miss.mjs'), exitMark = join(exitW.cwd, 'deny-miss.txt'), exitOn = TOBS_ON()
+  writeFileSync(exitPreload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.writeSync; fs.writeSync = function(fd, data, ...rest) { const bytes = typeof data === 'string' ? Buffer.from(data) : Buffer.from(data.buffer, data.byteOffset, data.byteLength); if (fd > 2 && bytes.includes('"kind":"save-fault-miss"')) { fs.appendFileSync(${JSON.stringify(exitMark)}, 'injected\\n'); throw Object.assign(new Error('EIO: i/o error, write'), { code: 'EIO', errno: -5, syscall: 'write' }); } return original.call(this, fd, data, ...rest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(exitMark)}, 'armed\\n');`)
+  const er = obsResume('collect 退出时未命中记录写不进去', exitW, { ...exitOn, NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(exitPreload).href)}` }, { status: 1, soft: [0, 2, 3] })
+  if (er.ok && !fileText(exitMark).includes('armed')) { failed++; console.error(`  ✗ 未命中记录写不进的注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${er.stderr}`) }
+  else if (er.ok && missCtl.ok) named('退出时未命中记录写不进去：以 1 退出（没有这处故障时是对照跑的退出码）、stderr 说出是哪个文件，记录文件里没有未命中记录',
+    fileText(exitMark).includes('injected') && er.status === 1 && missCtl.status !== 1 && er.stderr.includes(String(exitOn[TOBS_VAR]))
+      && misses(er.records).length === 0 && ofKind(er.records, 'ready').length === 1, obsSaid(er, exitW.log))
   // invalid-file＝「文件不是合格的 JSON、schema 不对、point 不在上面五个里，或 occurrence 不是正整数」：「文件不合格时不注入、其余照常，读不出的字段写 null」
   // 「读不出的字段写 null」按字段的契约类型读：point 读得出＝五个名字之一，occurrence 读得出＝正整数 k，否则 null；
   // 「seen 是本跑里这个保存点实际出现的次数」—— point 读得出（SP-R）时「其余照常」跑完一次搜索 → 1；point 读不出时没有保存点可数，原文没定，不判。
@@ -2192,32 +2231,47 @@ group('test-observer-save-fault', [], () => {
   const invalid: [string, unknown, string | null, number | null][] = [['not-json', '{nope', null, null], ['schema', { ...FAULT_OK, schema: 'kol-save-fault/v0' }, 'SP-R', 1],
     ['point', { ...FAULT_OK, point: 'SP-X' }, null, 1], ['occ-0', { ...FAULT_OK, occurrence: 0 }, 'SP-R', null],
     ['occ-1.5', { ...FAULT_OK, occurrence: 1.5 }, 'SP-R', null], ['occ-str', { ...FAULT_OK, occurrence: '1' }, 'SP-R', null]]
+  const invalidOf: Record<string, Verdict> = {}, fieldsOf: Record<string, Verdict> = {}
   for (const [tag, body, point, occurrence] of invalid) {
     const f = obsFixture(`invalid-${tag}`); obsFault(f.cwd, body)
     const r = obsResume(`collect 不合格的控制文件 ${tag}`, f, TOBS_ON())
     if (!r.ok || !missCtl.ok) continue
     const m = misses(r.records)
-    named('不合格的控制文件：恰好一条 why 为 invalid-file 的未命中记录、没有命中记录，照常请求、退出码与没有文件时相同',
-      m.length === 1 && m[0].why === 'invalid-file' && m[0].entry === 'collect' && hits(r.records).length === 0
-        && fetchAttempts(f.log).length === 1 && r.status === missCtl.status, `${tag}: ${obsSaid(r, f.log)}`)
-    named('不合格的控制文件的未命中记录：读得出的字段照原样、读不出的字段是 null，point 读得出时 seen 是这一跑实际的次数',
-      m.length === 1 && m[0].point === point && m[0].occurrence === occurrence && (point === null || m[0].seen === 1),
-      `${tag}: 期望 point=${JSON.stringify(point)} occurrence=${JSON.stringify(occurrence)}；${obsSaid(r, f.log)}`)
+    invalidOf[tag] = [m.length === 1 && m[0].why === 'invalid-file' && m[0].entry === 'collect' && hits(r.records).length === 0
+        && fetchAttempts(f.log).length === 1 && r.status === missCtl.status, `${tag}: ${obsSaid(r, f.log)}`]
+    fieldsOf[tag] = [m.length === 1 && m[0].point === point && m[0].occurrence === occurrence && (point === null || m[0].seen === 1),
+      `${tag}: 期望 point=${JSON.stringify(point)} occurrence=${JSON.stringify(occurrence)}；${obsSaid(r, f.log)}`]
   }
+  // 「恰好一条 why 为 invalid-file 的未命中记录、没有命中记录，照常请求、退出码与没有文件时相同」
+  if (invalidOf['not-json']) named('控制文件不是 JSON：恰好一条 invalid-file 未命中记录、没有命中记录，照常请求、退出码与没有文件时相同', ...invalidOf['not-json'])
+  if (invalidOf.schema) named('控制文件 schema 不对：恰好一条 invalid-file 未命中记录、没有命中记录，照常请求、退出码与没有文件时相同', ...invalidOf.schema)
+  if (invalidOf.point) named('控制文件 point 不在五个里：恰好一条 invalid-file 未命中记录、没有命中记录，照常请求、退出码与没有文件时相同', ...invalidOf.point)
+  if (invalidOf['occ-0']) named('控制文件 occurrence 为 0：恰好一条 invalid-file 未命中记录、没有命中记录，照常请求、退出码与没有文件时相同', ...invalidOf['occ-0'])
+  if (invalidOf['occ-1.5']) named('控制文件 occurrence 为 1.5：恰好一条 invalid-file 未命中记录、没有命中记录，照常请求、退出码与没有文件时相同', ...invalidOf['occ-1.5'])
+  if (invalidOf['occ-str']) named('控制文件 occurrence 是字符串：恰好一条 invalid-file 未命中记录、没有命中记录，照常请求、退出码与没有文件时相同', ...invalidOf['occ-str'])
+  // 「读得出的字段照原样、读不出的字段是 null，point 读得出时 seen 是这一跑实际的次数」
+  if (fieldsOf['not-json']) named('控制文件不是 JSON 时未命中记录的 point、occurrence 都是 null', ...fieldsOf['not-json'])
+  if (fieldsOf.schema) named('控制文件 schema 不对时未命中记录照原样写 point SP-R、occurrence 1，seen 是实际次数 1', ...fieldsOf.schema)
+  if (fieldsOf.point) named('控制文件 point 不在五个里时未命中记录的 point 是 null、occurrence 照原样是 1', ...fieldsOf.point)
+  if (fieldsOf['occ-0']) named('控制文件 occurrence 为 0 时未命中记录的 occurrence 是 null、point 照原样，seen 是实际次数 1', ...fieldsOf['occ-0'])
+  if (fieldsOf['occ-1.5']) named('控制文件 occurrence 为 1.5 时未命中记录的 occurrence 是 null、point 照原样，seen 是实际次数 1', ...fieldsOf['occ-1.5'])
+  if (fieldsOf['occ-str']) named('控制文件 occurrence 是字符串时未命中记录的 occurrence 是 null、point 照原样，seen 是实际次数 1', ...fieldsOf['occ-str'])
   // 「只对 collect 生效」：probe 与 enrich 开着开关、当前目录里放着合格的控制文件，不写 save-fault 记录，退出码与没有文件时相同
   const ign = join(tmp, 'obs-ignore-probe'); mkdirSync(ign, { recursive: true })
   const ignCfg = join(ign, 'probe.json'), ignLog = join(ign, 'attempts.tsv')
   writeFileSync(ignCfg, JSON.stringify({ market: 'US', budget_usd: 0.001, tasks: [{ keyword: 'obs-ignore', dimension: 'category', platform: 'tiktok' }] }))
   const mkEnrich = () => obsFixture('ignore-enrich', knownCosts(1000, []), {}, [costPerson()]), en = mkEnrich()
+  const ignoreOf: Record<string, Verdict> = {}
   for (const [entry, args, cwd, log, again] of [['probe', ['--config', ignCfg], ign, ignLog, () => rmSync(ignLog, { force: true })],
     ['enrich', ['--dir', en.taskDir], en.cwd, en.log, () => obsAgain(mkEnrich)]] as const) {
     const without = tobsRun(`${entry} 没有控制文件`, [S(`${entry}.ts`), ...args], cwd, { status: 0, soft: [1, 2, 3] }, log, TOBS_ON())
     again(); obsFault(cwd, FAULT_OK)
     const withFile = tobsRun(`${entry} 当前目录有控制文件`, [S(`${entry}.ts`), ...args], cwd, { status: 0, soft: [1, 2, 3] }, log, TOBS_ON())
-    if (without.ok && withFile.ok) named('probe 与 enrich 无视 .kol-save-fault.json：没有 save-fault／save-fault-miss 记录，照常请求，退出码不变',
-      hits(withFile.records).length === 0 && misses(withFile.records).length === 0 && withFile.status === without.status && fetchAttempts(log).length >= 1,
-      `${entry}: ${obsSaid(withFile, log)}`)
+    if (without.ok && withFile.ok) ignoreOf[entry] = [hits(withFile.records).length === 0 && misses(withFile.records).length === 0
+      && withFile.status === without.status && fetchAttempts(log).length >= 1, `${entry}: ${obsSaid(withFile, log)}`]
   }
+  if (ignoreOf.probe) named('probe 无视 .kol-save-fault.json：没有 save-fault／save-fault-miss 记录，照常请求，退出码不变', ...ignoreOf.probe)
+  if (ignoreOf.enrich) named('enrich 无视 .kol-save-fault.json：没有 save-fault／save-fault-miss 记录，照常请求，退出码不变', ...ignoreOf.enrich)
 })
 
 // ---- 崩溃续跑 A / B：业务保存窗口仍要验证，费用窗口由D14持久预留封住 ----
