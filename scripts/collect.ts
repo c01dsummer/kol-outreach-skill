@@ -29,7 +29,7 @@ import { passesFollowerGate } from './lib/score.js'
 import { taskLabel } from './lib/task-label.js'
 import {
   taskDir, taskFile, taskId, loadTask, saveTask, loadReviewCreatorInputs, saveRawCreators,
-  persistListAndStatus, saveCostCheckpoint,
+  persistListAndStatus, saveCostCheckpoint, productDirProblem,
 } from './lib/task.js'
 import { creatorKey, textProblem } from './lib/types.js'
 import { asHashtagProblems, igRouteProblems } from './lib/ig-route.js'
@@ -132,6 +132,12 @@ const badProduct = textProblem(state.product)
 if (badProduct) {
   console.error(`${productFrom} 里的 product ${badProduct} —— 它要用作任务目录名，` +
                 `也要记进跨任务记忆的「为哪个产品推荐过」。先给它一个名字再跑。`)
+  process.exit(2)
+}
+// D29.a：新建任务的目录由产品名拼成（taskDir），先于建目录、开账与请求；续跑的目录由 --resume 给出，不按产品名判（D29.c）
+const badDirName = resume ? undefined : productDirProblem(state.product)
+if (badDirName) {
+  console.error(`${productFrom} 里的 product ${JSON.stringify(state.product)} ${badDirName}。换一个不含它们的名字再跑。`)
   process.exit(2)
 }
 
