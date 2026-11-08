@@ -6,7 +6,7 @@
 - 冲击的需求：无（登记表不动，理由同 ADR-186 第三节）
 - 结论：**采纳**。人批痕迹：需求所有者合入本条那条 PR
 - 理由：拒不拒、原文怎么写，需求所有者在卡上定了（上一栏）。剩下的是查哪几样、在哪儿查（第一、二节），以及为什么契约名不换（第三节）
-- 连带改动：`scripts/lib/obs.ts`（`obsNameProblem`）· `scripts/probe.ts`、`scripts/collect.ts`、`scripts/enrich.ts`（各自调它）· `skill/references/output-format.md`（末节两处，逐字）· `README.md`（指过去的那段补一句）· `docs/ARCHITECTURE.md`（`obs.ts` 那一行）· `scripts/check/selfcheck.ts`（新组 `kol-obs-names`）· `scripts/check/mutations.json`（`M-H186-al` 到 `M-H186-be`）· `scripts/check/launches.json`
+- 连带改动：`scripts/lib/obs.ts`（`obsNameProblem`）· `scripts/probe.ts`、`scripts/collect.ts`、`scripts/enrich.ts`（各自调它）· `skill/references/output-format.md`（末节两处，逐字）· `README.md`（指过去的那段补一句）· `docs/ARCHITECTURE.md`（`obs.ts` 那一行）· `scripts/check/selfcheck.ts`（新组 `kol-obs-names`）· `scripts/check/mutations.json`（`M-H186-al` 到 `M-H186-bi`）· `scripts/check/launches.json`
 - 同类：ADR-71、ADR-77、ADR-180（至少第 4 次；查的范围：grep、ADR-182 所列来源，树 1788e18）
 
 ## 一、哪几处会把用户给的名字放在行首
@@ -41,7 +41,7 @@ ADR-186 第一节第二段说，改名字时 `kol-obs/v1` 跟着换版本。这�
 ## 四、怎么验
 
 - 自检新组 `kol-obs-names`（`scripts/check/selfcheck.ts`），期望全出自原文第二处那三句，第一版写于实现之前、在没改的入口上先看它红。独立复核之后改成一例一个标签（`process/4-VERIFY.md`「核对标签的运行身份」），每一跑从模板拷一份自己的目录（共用一个目录时，前一例在没改的代码上留下的任务目录让后一例也过了），另加三例：换行之后那一行整理才以它开头、跨着换行整理才以它开头、当前目录放着控制文件。本条那条 PR 上这一版的组放到 `1788e18` 的入口上跑，十九例「不接受」全红（`✗ 脚本自检：19 项失败`），两例对照照常绿；实现之后全绿。每一例都指着读得出、本来跑得起来的输入，所以不查名字时入口会照常读配置、开任务、发请求。判的是：以 2 退出；stderr 里说出是哪一个名字；没有一行给人看的提示以 `KOL-OBS` 开头；假 fetch 一次请求都没记下；当前目录整棵树跑前跑后逐字相同。每个来源各有一例开着开关再跑，判就绪行仍是第一条记录、恰好一条；控制文件那一例开关关着，只判检查照样生效。对照两例：小写 `kol-obs` 开头的配置路径、中间才有 `KOL-OBS` 的产品名，照常付费跑。
-- 变异 `M-H186-al` 到 `M-H186-bh`，逐条手跑都被抓到，每条的 `kills` 点名它该弄红的那几例：名字检查本身（整理路径的两种、拆换行、要不要空格、大小写、只认开头、只在开着时查、放着控制文件时不查、拒绝那句写不写名字和怎么写）；每一处检查删掉；probe、enrich 的 `--dir` 与 collect 的产品名那几处以 1 退出；probe 的就绪行挪到检查之后。collect 的 `--resume`、`--config` 与 enrich 的产品名是抛进入口原有的 `catch`、由它以 2 退出，那一句不是本条写的，没给它们配退出码的变异；「检查挪到第一次写盘之后」试过 collect 的产品名那一处：挪到 `reviews.save` 之后，这几例照样全绿 —— 那之前这几份夹具上什么都没写，这条变异等于没变，没留；enrich 的产品名不带 `--budget` 时要等请求之后才写，同样看不出。记在 `harness` 名下，理由同 ADR-186 第三节第三段。
+- 变异 `M-H186-al` 到 `M-H186-bi`，逐条手跑都被抓到，每条的 `kills` 正是手跑时红了的那几例：名字检查本身（整理路径的两种、拆换行、要不要空格、大小写、只认开头、只在开着时查、放着控制文件时不查、拒绝那句写不写名字和怎么写）；每一处检查删掉；probe、enrich 的 `--dir` 与 collect 的产品名那几处以 1 退出；probe 的就绪行挪到检查之后；collect 的产品名检查挪到第一次写盘（D13.j 那次 `saveTask`）之后 —— 这一条只由「当前目录跑前跑后逐字相同」抓到。collect 的 `--resume`、`--config` 与 enrich 的产品名是抛进入口原有的 `catch`、由它以 2 退出，那一句不是本条写的，没给它们配退出码的变异；enrich 的产品名没有「挪到写盘之后」的变异：不带 `--budget` 时它要等请求之后才写，挪过去先被「一次请求不发」抓到。记在 `harness` 名下，理由同 ADR-186 第三节第三段。
 - 完整检查以 nobody 身份在干净克隆里跑，结果写在 PR 正文。
 
 ## 五、留下的

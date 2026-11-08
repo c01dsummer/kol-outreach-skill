@@ -20436,10 +20436,24 @@
       "by": "selfcheck",
       "kills": [
         "名字不接受：probe 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：probe 的 --config 去掉 ./ 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 经 sub/.. 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 以 KOL-OBS 开头、后面不是空格",
+        "名字不接受：probe 的 --config 换行之后那一行以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 换行之后那一行整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 跨着换行整理成规范路径才以 KOL-OBS 开头",
         "名字不接受：collect 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 的 --config 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：collect 的 --config 以 KOL-OBS 开头，当前目录放着控制文件时也一样",
         "名字不接受：collect 的 --resume 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 的 --resume 整理成规范路径才以 KOL-OBS 开头",
         "名字不接受：collect 新任务的产品名以 KOL-OBS 开头（关着、开着开关各跑一次）",
-        "名字不接受：enrich 的 --dir 原样以 KOL-OBS 开头（关着、开着开关各跑一次）"
+        "名字不接受：collect 新任务的产品名本身不以它开头、拼出来的任务目录以它开头",
+        "名字不接受：collect 新任务的产品名换行之后那一行以 KOL-OBS 开头",
+        "名字不接受：collect 续跑任务里的产品名以 KOL-OBS 开头",
+        "名字不接受：enrich 的 --dir 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：enrich 的 --dir 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：enrich 任务里的产品名以 KOL-OBS 开头"
       ]
     },
     {
@@ -20452,10 +20466,22 @@
       "by": "selfcheck",
       "kills": [
         "名字不接受：probe 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：probe 的 --config 去掉 ./ 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 经 sub/.. 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 以 KOL-OBS 开头、后面不是空格",
+        "名字不接受：probe 的 --config 换行之后那一行以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 换行之后那一行整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 跨着换行整理成规范路径才以 KOL-OBS 开头",
         "名字不接受：collect 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 的 --config 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：collect 的 --config 以 KOL-OBS 开头，当前目录放着控制文件时也一样",
         "名字不接受：collect 的 --resume 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 的 --resume 整理成规范路径才以 KOL-OBS 开头",
         "名字不接受：collect 新任务的产品名以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 新任务的产品名换行之后那一行以 KOL-OBS 开头",
+        "名字不接受：collect 续跑任务里的产品名以 KOL-OBS 开头",
         "名字不接受：enrich 的 --dir 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：enrich 的 --dir 整理成规范路径才以 KOL-OBS 开头",
         "名字不接受：enrich 任务里的产品名以 KOL-OBS 开头"
       ]
     },
@@ -20671,6 +20697,20 @@
       "by": "selfcheck",
       "kills": [
         "名字不接受：collect 的 --config 以 KOL-OBS 开头，当前目录放着控制文件时也一样"
+      ]
+    },
+    {
+      "id": "M-H186-bi",
+      "req": "harness",
+      "why": "collect 的产品名检查挪到第一次写盘（D13.j 那次 saveTask）之后：被拒之前新任务的 task.json 已经写下了",
+      "file": "scripts/collect.ts",
+      "find": "// kol-obs/v1 名字检查：产品名本身，新任务还有用它拼出来的任务目录（`../` 会把 output/ 整理掉）；先于建目录与任何写入\nconst productNameProblem = obsNameProblem('产品名', state.product, false)\n  ?? (resume ? undefined : obsNameProblem(`产品名 ${JSON.stringify(state.product)} 拼出来的任务目录`, taskDir(state.product)))\nif (productNameProblem) {\n  console.error(productNameProblem)\n  process.exit(2)\n}\n\n// D17.l–o：通过原值校验后，仅新输入缺席的字段采用既有缺省；续跑不补原意图。\nif (!resume) {\n  const cfg = state\n  if (!Object.hasOwn(cfg, 'market')) console.error('未提供 market，本次采用默认市场 US。')\n  state = {\n    product: cfg.product, market: Object.hasOwn(cfg, 'market') ? cfg.market : 'US',\n    target_count: Object.hasOwn(cfg, 'target_count') ? cfg.target_count : 50,\n    ...(Object.hasOwn(cfg, 'brand_calibration') ? { brand_calibration: cfg.brand_calibration } : {}),\n    tasks: cfg.tasks, done: [], offsets: {}, answered: {}, found: {}, pages: {},\n    created_at: new Date().toISOString(), updated_at: '',\n  }\n}\n\nconst dir = resume ?? taskDir(state.product)\nif (!resume && existsSync(taskFile(dir))) {\n  console.error(`${taskFile(dir)} 已存在；请用 --resume 继续原任务，不能重新开账。`)\n  process.exit(2)\n}\n// 判断与旧候选池先保全；坏原件或人工表在改额、预留及请求前拒绝。\nlet inputs: ReturnType<typeof loadReviewCreatorInputs>\nlet reviews: TaskReviews\ntry {\n  inputs = loadReviewCreatorInputs(dir)\n  reviews = prepareTaskReviews(dir, state, inputs.previous, new Date().toISOString(),\n    reviewRelations(inputs.previous, inputs.raw))\n} catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }\ntry { reviews.save(new Date().toISOString()) }\ncatch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1) }\nlet budget: Budget\ntry {\n  if (resume) console.error(`续跑 ${resume} —— 已完成 ${state.done.length}/${state.tasks.length} 个关键词`)\n  const notify = (pct: number, view: ReturnType<Budget['view']>) => {\n    console.error(`\\n💰 已用 ${(pct * 100).toFixed(0)}% —— 估算占用 $${view.cost_estimate_usd} / $${view.budget_usd}\\n`)\n  }\n  // 选中的保存点在这里失败，与磁盘写失败同一条路：`Budget` 把它记成 persistence-failed、锁住本运行（kol-obs/v1）\n  const persistCost: PersistCost = (snapshot, save) => { saveFault?.at(save.point, save); saveCostCheckpoint(dir, snapshot) }\n  budget = resume ? new Budget(state, notify, persistCost) : startBudget(state, freshLimit!, 'task', notify, persistCost)\n  if (resume && replacementLimit !== undefined) budget.setLimit(replacementLimit)\n} catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }\n// D13.j：改额先保存根上限及 ledger，一旦保存失败不能发下一请求。\nif (!resume || replacementLimit !== undefined) {\n  try { saveTask(dir, state) }\n  catch (e) { console.error(`保存费用失败：${String(e)}`); process.exit(1) }\n}\n",
+      "replace": "\n// D17.l–o：通过原值校验后，仅新输入缺席的字段采用既有缺省；续跑不补原意图。\nif (!resume) {\n  const cfg = state\n  if (!Object.hasOwn(cfg, 'market')) console.error('未提供 market，本次采用默认市场 US。')\n  state = {\n    product: cfg.product, market: Object.hasOwn(cfg, 'market') ? cfg.market : 'US',\n    target_count: Object.hasOwn(cfg, 'target_count') ? cfg.target_count : 50,\n    ...(Object.hasOwn(cfg, 'brand_calibration') ? { brand_calibration: cfg.brand_calibration } : {}),\n    tasks: cfg.tasks, done: [], offsets: {}, answered: {}, found: {}, pages: {},\n    created_at: new Date().toISOString(), updated_at: '',\n  }\n}\n\nconst dir = resume ?? taskDir(state.product)\nif (!resume && existsSync(taskFile(dir))) {\n  console.error(`${taskFile(dir)} 已存在；请用 --resume 继续原任务，不能重新开账。`)\n  process.exit(2)\n}\n// 判断与旧候选池先保全；坏原件或人工表在改额、预留及请求前拒绝。\nlet inputs: ReturnType<typeof loadReviewCreatorInputs>\nlet reviews: TaskReviews\ntry {\n  inputs = loadReviewCreatorInputs(dir)\n  reviews = prepareTaskReviews(dir, state, inputs.previous, new Date().toISOString(),\n    reviewRelations(inputs.previous, inputs.raw))\n} catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }\ntry { reviews.save(new Date().toISOString()) }\ncatch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1) }\nlet budget: Budget\ntry {\n  if (resume) console.error(`续跑 ${resume} —— 已完成 ${state.done.length}/${state.tasks.length} 个关键词`)\n  const notify = (pct: number, view: ReturnType<Budget['view']>) => {\n    console.error(`\\n💰 已用 ${(pct * 100).toFixed(0)}% —— 估算占用 $${view.cost_estimate_usd} / $${view.budget_usd}\\n`)\n  }\n  // 选中的保存点在这里失败，与磁盘写失败同一条路：`Budget` 把它记成 persistence-failed、锁住本运行（kol-obs/v1）\n  const persistCost: PersistCost = (snapshot, save) => { saveFault?.at(save.point, save); saveCostCheckpoint(dir, snapshot) }\n  budget = resume ? new Budget(state, notify, persistCost) : startBudget(state, freshLimit!, 'task', notify, persistCost)\n  if (resume && replacementLimit !== undefined) budget.setLimit(replacementLimit)\n} catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }\n// D13.j：改额先保存根上限及 ledger，一旦保存失败不能发下一请求。\nif (!resume || replacementLimit !== undefined) {\n  try { saveTask(dir, state) }\n  catch (e) { console.error(`保存费用失败：${String(e)}`); process.exit(1) }\n}\n// kol-obs/v1 名字检查：产品名本身，新任务还有用它拼出来的任务目录（`../` 会把 output/ 整理掉）；先于建目录与任何写入\nconst productNameProblem = obsNameProblem('产品名', state.product, false)\n  ?? (resume ? undefined : obsNameProblem(`产品名 ${JSON.stringify(state.product)} 拼出来的任务目录`, taskDir(state.product)))\nif (productNameProblem) {\n  console.error(productNameProblem)\n  process.exit(2)\n}\n",
+      "by": "selfcheck",
+      "kills": [
+        "名字不接受：collect 新任务的产品名以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 新任务的产品名本身不以它开头、拼出来的任务目录以它开头",
+        "名字不接受：collect 新任务的产品名换行之后那一行以 KOL-OBS 开头"
       ]
     }
   ],
