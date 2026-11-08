@@ -359,9 +359,9 @@ Instagram 的「portable charger」这次一次都没查到 —— 预算停在�
 
 ### 测试观察用的 stderr 行与保存失败注入（契约 kol-obs/v1）
 
-这一节只给自动化测试用，平时用不到。两样东西默认都关着：不设环境变量 `KOL_OBS_EVENTS`、当前目录里也没有 `.kol-save-fault.json` 时，collect、probe、enrich 的行为、输出和落盘，与没有这一节时完全相同。
+这一节只给自动化测试用，平时用不到。两样东西默认都关着：不设环境变量 `KOL_OBS_EVENTS`、当前目录里也没有 `.kol-save-fault.json` 时，collect、probe、enrich 的行为、输出和落盘，与没有这一节时完全相同，只有下面「行的格式」末尾那条名字检查除外。
 
-**行的格式。** 每条记录占 stderr 的一整行：行首固定是 `KOL-OBS` 加一个空格，后面是一个单行 JSON 对象，以换行结束。每个对象都有 `kind`（记录种类）和 `contract`（固定为 `"kol-obs/v1"`）。这些行只写 stderr，从不写 stdout，也不为它们写任何文件。入口给人看的提示从不以 `KOL-OBS ` 开头；把 stderr 里以它开头的整行连同行尾换行去掉，剩下的就是平时那份 stderr。
+**行的格式。** 每条记录占 stderr 的一整行：行首固定是 `KOL-OBS` 加一个空格，后面是一个单行 JSON 对象，以换行结束。每个对象都有 `kind`（记录种类）和 `contract`（固定为 `"kol-obs/v1"`）。这些行只写 stderr，从不写 stdout，也不为它们写任何文件。入口给人看的提示从不以 `KOL-OBS ` 开头；把 stderr 里以它开头的整行连同行尾换行去掉，剩下的就是平时那份 stderr。为此，三个入口不接受以 `KOL-OBS` 开头的名字：probe 和 collect 的 `--config`、collect 的 `--resume`、enrich 的 `--dir`，原样或整理成规范路径之后以它开头的，都不接受；任务里的产品名本身，或用它拼出来的任务目录以它开头的，也不接受（名字里有换行的，其中每一行都算）。碰到这样的名字，入口在 stderr 说明是哪一个名字不行，以 2 退出，不写任何文件。这条检查不论上面两样开没开都生效。
 
 **一、预留事件。** 只在环境变量 `KOL_OBS_EVENTS` 的值恰为 `1` 时打开，别的值或没设都算关。测试观察器每一跑都设它，平时使用不用设。打开时，collect、probe、enrich 写两种行。
 
