@@ -20363,11 +20363,17 @@
       "req": "harness",
       "why": "名字检查不把路径整理成规范形式：./KOL-OBS x、sub/../KOL-OBS x 被放过去，读不到时那句提示照样以 KOL-OBS 开头",
       "file": "scripts/lib/obs.ts",
-      "find": "(path ? [name, normalize(name)] : [name])",
-      "replace": "[name]",
+      "find": "(path ? [name, normalize(name)] : [name]).flatMap(form => form.split('\\n'))\n  const forms = path ? lines.flatMap(line => [line, normalize(line)]) : lines",
+      "replace": "[name].flatMap(form => form.split('\\n'))\n  const forms = lines",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：probe 的 --config 去掉 ./ 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 经 sub/.. 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 换行之后那一行整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 跨着换行整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：collect 的 --config 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：collect 的 --resume 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：enrich 的 --dir 整理成规范路径才以 KOL-OBS 开头"
       ]
     },
     {
@@ -20379,7 +20385,9 @@
       "replace": "flatMap(form => [form])",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：probe 的 --config 换行之后那一行以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 换行之后那一行整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：collect 新任务的产品名换行之后那一行以 KOL-OBS 开头"
       ]
     },
     {
@@ -20391,7 +20399,7 @@
       "replace": "line.startsWith('KOL-OBS ')",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：probe 的 --config 以 KOL-OBS 开头、后面不是空格"
       ]
     },
     {
@@ -20403,7 +20411,7 @@
       "replace": "line.toUpperCase().startsWith('KOL-OBS')",
       "by": "selfcheck",
       "kills": [
-        "不以大写 KOL-OBS 开头的名字照常接受：没有以 2 拒绝，发了请求"
+        "名字照常接受：probe 的 --config 以小写 kol-obs 开头，照常付费跑"
       ]
     },
     {
@@ -20415,7 +20423,7 @@
       "replace": "line.includes('KOL-OBS')",
       "by": "selfcheck",
       "kills": [
-        "不以大写 KOL-OBS 开头的名字照常接受：没有以 2 拒绝，发了请求"
+        "名字照常接受：collect 的产品名中间才有 KOL-OBS，照常付费跑"
       ]
     },
     {
@@ -20427,7 +20435,11 @@
       "replace": "export function obsNameProblem(what: string, name: string, path = true): string | undefined {\n  if (process.env.KOL_OBS_EVENTS !== '1') return undefined\n",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：probe 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 的 --resume 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 新任务的产品名以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：enrich 的 --dir 原样以 KOL-OBS 开头（关着、开着开关各跑一次）"
       ]
     },
     {
@@ -20439,7 +20451,12 @@
       "replace": "`${what}以 KOL-OBS 开头",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：probe 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 的 --resume 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 新任务的产品名以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：enrich 的 --dir 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：enrich 任务里的产品名以 KOL-OBS 开头"
       ]
     },
     {
@@ -20451,7 +20468,8 @@
       "replace": "`${what} ${name} 以 KOL-OBS 开头",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：probe 的 --config 换行之后那一行以 KOL-OBS 开头",
+        "名字不接受：collect 新任务的产品名换行之后那一行以 KOL-OBS 开头"
       ]
     },
     {
@@ -20463,7 +20481,13 @@
       "replace": "",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：probe 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：probe 的 --config 去掉 ./ 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 经 sub/.. 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 以 KOL-OBS 开头、后面不是空格",
+        "名字不接受：probe 的 --config 换行之后那一行以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 换行之后那一行整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 跨着换行整理成规范路径才以 KOL-OBS 开头"
       ]
     },
     {
@@ -20475,7 +20499,13 @@
       "replace": "  console.error(cfgNameProblem)\n  process.exit(1)",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：probe 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：probe 的 --config 去掉 ./ 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 经 sub/.. 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 以 KOL-OBS 开头、后面不是空格",
+        "名字不接受：probe 的 --config 换行之后那一行以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 换行之后那一行整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：probe 的 --config 跨着换行整理成规范路径才以 KOL-OBS 开头"
       ]
     },
     {
@@ -20487,7 +20517,7 @@
       "replace": "const cfgIndex = process.argv.indexOf('--config')\nconst cfgPath = process.argv[cfgIndex + 1]\nif (cfgIndex < 0 || !cfgPath || cfgPath.startsWith('--')) {\n  console.error('用法: tsx scripts/probe.ts --config probe.json')\n  process.exit(2)\n}\n// kol-obs/v1 名字检查：读配置之前；读不到配置时那句提示以这个路径开头\nconst cfgNameProblem = obsNameProblem('配置文件路径', cfgPath)\nif (cfgNameProblem) {\n  console.error(cfgNameProblem)\n  process.exit(2)\n}\nobsReady('probe')\n",
       "by": "selfcheck",
       "kills": [
-        "开着开关时名字检查照样生效，就绪行仍是第一条记录、恰好一条"
+        "名字不接受：probe 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）"
       ]
     },
     {
@@ -20499,7 +20529,8 @@
       "replace": "",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：collect 的 --resume 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 的 --resume 整理成规范路径才以 KOL-OBS 开头"
       ]
     },
     {
@@ -20511,7 +20542,9 @@
       "replace": "",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：collect 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 的 --config 整理成规范路径才以 KOL-OBS 开头",
+        "名字不接受：collect 的 --config 以 KOL-OBS 开头，当前目录放着控制文件时也一样"
       ]
     },
     {
@@ -20523,7 +20556,8 @@
       "replace": "const productNameProblem = undefined\n  ?? (resume",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：collect 新任务的产品名以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 续跑任务里的产品名以 KOL-OBS 开头"
       ]
     },
     {
@@ -20535,7 +20569,7 @@
       "replace": "",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：collect 新任务的产品名本身不以它开头、拼出来的任务目录以它开头"
       ]
     },
     {
@@ -20547,7 +20581,7 @@
       "replace": ", state.product))",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：collect 新任务的产品名本身不以它开头、拼出来的任务目录以它开头"
       ]
     },
     {
@@ -20559,7 +20593,10 @@
       "replace": "  console.error(productNameProblem)\n  process.exit(1)",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：collect 新任务的产品名以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：collect 新任务的产品名本身不以它开头、拼出来的任务目录以它开头",
+        "名字不接受：collect 新任务的产品名换行之后那一行以 KOL-OBS 开头",
+        "名字不接受：collect 续跑任务里的产品名以 KOL-OBS 开头"
       ]
     },
     {
@@ -20571,7 +20608,8 @@
       "replace": "",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：enrich 的 --dir 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：enrich 的 --dir 整理成规范路径才以 KOL-OBS 开头"
       ]
     },
     {
@@ -20583,7 +20621,8 @@
       "replace": "  console.error(dirNameProblem)\n  process.exit(1)",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：enrich 的 --dir 原样以 KOL-OBS 开头（关着、开着开关各跑一次）",
+        "名字不接受：enrich 的 --dir 整理成规范路径才以 KOL-OBS 开头"
       ]
     },
     {
@@ -20595,7 +20634,43 @@
       "replace": "",
       "by": "selfcheck",
       "kills": [
-        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+        "名字不接受：enrich 任务里的产品名以 KOL-OBS 开头"
+      ]
+    },
+    {
+      "id": "M-H186-bf",
+      "req": "harness",
+      "why": "名字检查拆开换行之后不再逐行整理：a\\n./KOL-OBS b 被放过去",
+      "file": "scripts/lib/obs.ts",
+      "find": "const forms = path ? lines.flatMap(line => [line, normalize(line)]) : lines",
+      "replace": "const forms = lines",
+      "by": "selfcheck",
+      "kills": [
+        "名字不接受：probe 的 --config 换行之后那一行整理成规范路径才以 KOL-OBS 开头"
+      ]
+    },
+    {
+      "id": "M-H186-bg",
+      "req": "harness",
+      "why": "名字检查只逐行整理、不整理整段名字：a\\n/../KOL-OBS b 被放过去，读文件时它就是 KOL-OBS b",
+      "file": "scripts/lib/obs.ts",
+      "find": "(path ? [name, normalize(name)] : [name]).flatMap",
+      "replace": "[name].flatMap",
+      "by": "selfcheck",
+      "kills": [
+        "名字不接受：probe 的 --config 跨着换行整理成规范路径才以 KOL-OBS 开头"
+      ]
+    },
+    {
+      "id": "M-H186-bh",
+      "req": "harness",
+      "why": "当前目录放着控制文件时不查名字",
+      "file": "scripts/lib/obs.ts",
+      "find": "export function obsNameProblem(what: string, name: string, path = true): string | undefined {\n",
+      "replace": "export function obsNameProblem(what: string, name: string, path = true): string | undefined {\n  try { readFileSync('.kol-save-fault.json'); return undefined } catch { /* 没有控制文件 */ }\n",
+      "by": "selfcheck",
+      "kills": [
+        "名字不接受：collect 的 --config 以 KOL-OBS 开头，当前目录放着控制文件时也一样"
       ]
     }
   ],

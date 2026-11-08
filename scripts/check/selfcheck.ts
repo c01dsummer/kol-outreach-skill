@@ -2204,6 +2204,7 @@ group('kol-obs-names', [], () => {
   writeFileSync(join(template, 'kol-obs probe.json'), probeBody)
   writeFileSync(join(template, 'a\nKOL-OBS b.json'), probeBody)   // 名字里夹换行的那两例也读得到
   mkdirSync(join(template, 'a\n.'))
+  mkdirSync(join(template, 'a\n'))   // a\n/../ 那一例：整段名字整理之后才以 KOL-OBS 开头，按行拆开整理都不是
   writeFileSync(join(template, 'a\n.', 'KOL-OBS b.json'), probeBody)
   writeFileSync(join(template, 'KOL-OBS task.json'), taskBody('names-ok'))
   writeFileSync(join(template, 'product-plain.json'), taskBody('KOL-OBS p'))
@@ -2247,6 +2248,8 @@ group('kol-obs-names', [], () => {
       (ok, why) => named('名字不接受：probe 的 --config 换行之后那一行以 KOL-OBS 开头', ok, why)],
     ['probe', ['--config', 'a\n./KOL-OBS b.json'], 'a\n./KOL-OBS b.json', {},
       (ok, why) => named('名字不接受：probe 的 --config 换行之后那一行整理成规范路径才以 KOL-OBS 开头', ok, why)],
+    ['probe', ['--config', 'a\n/../KOL-OBS probe.json'], 'a\n/../KOL-OBS probe.json', {},
+      (ok, why) => named('名字不接受：probe 的 --config 跨着换行整理成规范路径才以 KOL-OBS 开头', ok, why)],
     ['collect', ['--config', 'KOL-OBS task.json'], 'KOL-OBS task.json', { on: true },
       (ok, why) => named('名字不接受：collect 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）', ok, why)],
     ['collect', ['--config', './KOL-OBS task.json'], './KOL-OBS task.json', {},
