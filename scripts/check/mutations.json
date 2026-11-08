@@ -20630,6 +20630,119 @@
         "probe 每条记录都是带 kind 与 contract 的单行 JSON 对象、以换行结束，ready 恰好一条且是第一条",
         "只能追加、读不出的记录文件原来不存在时照常跑：第一条是 ready，后面有 reserved 记录"
       ]
+    },
+    {
+      "id": "M-D29-a",
+      "req": "D29.a",
+      "why": "新建任务不看产品名里的分隔符与 NUL：../x 之类的产品名照样开账、请求，任务目录落到 output/ 以外",
+      "file": "scripts/collect.ts",
+      "find": "const badDirName = resume ? undefined : productDirProblem(state.product)\n",
+      "replace": "const badDirName = undefined as string | undefined\n",
+      "by": "test",
+      "kills": [
+        "产品名含 /、\\ 或 NUL 时 collect --config（含 --budget 2）以 2 退出：零预留、零请求，不建任务目录（工作目录与它的上一级都原样），配置文件原字节",
+        "产品名含 /、\\ 或 NUL 被拒时 stderr 写出配置文件路径、product 与按 JSON 写法的原值"
+      ]
+    },
+    {
+      "id": "M-D29-b",
+      "req": "D29.c",
+      "why": "续跑也按产品名判：以前建出来、产品名里有分隔符的任务从此续不上",
+      "file": "scripts/collect.ts",
+      "find": "resume ? undefined : productDirProblem(state.product)",
+      "replace": "productDirProblem(state.product)",
+      "by": "test",
+      "kills": [
+        "续跑不按产品名判：task.json 里的 product 换成含 / 与 \\ 的之后，collect --resume 的退出码、预留与请求次数与没换的那一份（照常以 0 结束）相同，不以 2 拒绝"
+      ]
+    },
+    {
+      "id": "M-D29-c",
+      "req": "D29.a",
+      "why": "产品名里的 / 不拦：../x 拼出的任务目录落到 output/ 的上一级乃至工作目录之外",
+      "file": "scripts/lib/task.ts",
+      "find": "[['/', '/'], ",
+      "replace": "[",
+      "by": "test",
+      "kills": [
+        "产品名含 /、\\ 或 NUL 时 collect --config（含 --budget 2）以 2 退出：零预留、零请求，不建任务目录（工作目录与它的上一级都原样），配置文件原字节",
+        "产品名含 /、\\ 或 NUL 被拒时 stderr 写出配置文件路径、product 与按 JSON 写法的原值"
+      ]
+    },
+    {
+      "id": "M-D29-d",
+      "req": "D29.a",
+      "why": "产品名里的反斜杠不拦：在 Windows 上它是分隔符，目录落到 output/ 以外；别的系统上建出名字里带反斜杠的目录",
+      "file": "scripts/lib/task.ts",
+      "find": "['\\\\', '\\\\'], ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "产品名含 /、\\ 或 NUL 时 collect --config（含 --budget 2）以 2 退出：零预留、零请求，不建任务目录（工作目录与它的上一级都原样），配置文件原字节",
+        "产品名含 /、\\ 或 NUL 被拒时 stderr 写出配置文件路径、product 与按 JSON 写法的原值"
+      ]
+    },
+    {
+      "id": "M-D29-e",
+      "req": "D29.a",
+      "why": "产品名里的 NUL 不拦：要到建目录那一步才出错，stderr 只有内部异常，不说是哪个字段",
+      "file": "scripts/lib/task.ts",
+      "find": "['\\u0000', 'NUL（U+0000）']",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "产品名含 /、\\ 或 NUL 被拒时 stderr 写出配置文件路径、product 与按 JSON 写法的原值"
+      ]
+    },
+    {
+      "id": "M-D29-f",
+      "req": "D29.b",
+      "why": "产品名里有点就拒：.. 与 . 这类拼在时间戳前面、落不出 output/ 的产品名也被拦下",
+      "file": "scripts/lib/task.ts",
+      "find": "['\\u0000', 'NUL（U+0000）']]",
+      "replace": "['\\u0000', 'NUL（U+0000）'], ['.', '.']]",
+      "by": "test",
+      "kills": [
+        "产品名不含 /、\\ 与 NUL 时（..、.、含空格与大写）collect --config 照常以 0 结束、预留并请求，任务目录建在 output/ 底下、名字以产品名加短横线开头，上一级不多东西"
+      ]
+    },
+    {
+      "id": "M-D29-g",
+      "req": "D29.a",
+      "why": "拒绝时不写出产品名的原值：用户看不出是哪几个字符，NUL 更看不见",
+      "file": "scripts/collect.ts",
+      "find": "里的 product ${JSON.stringify(state.product)} ${badDirName}",
+      "replace": "里的 product ${badDirName}",
+      "by": "test",
+      "kills": [
+        "产品名含 /、\\ 或 NUL 被拒时 stderr 写出配置文件路径、product 与按 JSON 写法的原值"
+      ]
+    },
+    {
+      "id": "M-D29-h",
+      "req": "D29.a",
+      "why": "产品名问题以 1 退出：与配置里别的输入问题的退出码不一致，调用方会当成运行中出错",
+      "file": "scripts/collect.ts",
+      "find": "${badDirName}。换一个不含它们的名字再跑。`)\n  process.exit(2)",
+      "replace": "${badDirName}。换一个不含它们的名字再跑。`)\n  process.exit(1)",
+      "by": "test",
+      "kills": [
+        "产品名含 /、\\ 或 NUL 时 collect --config（含 --budget 2）以 2 退出：零预留、零请求，不建任务目录（工作目录与它的上一级都原样），配置文件原字节",
+        "产品名含 /、\\ 或 NUL 被拒时 stderr 写出配置文件路径、product 与按 JSON 写法的原值"
+      ]
+    },
+    {
+      "id": "M-D29-i",
+      "req": "D29.a",
+      "why": "拒绝坏产品名之前先按它建了任务目录、写了任务文件：上一级开头的名字已经在输出目录以外留下了目录，拒绝也收不回来",
+      "file": "scripts/collect.ts",
+      "find": "if (badDirName) {\n  console.error(",
+      "replace": "if (badDirName) {\n  saveTask(taskDir(state.product), state)\n  console.error(",
+      "by": "test",
+      "kills": [
+        "产品名含 /、\\ 或 NUL 时 collect --config（含 --budget 2）以 2 退出：零预留、零请求，不建任务目录（工作目录与它的上一级都原样），配置文件原字节",
+        "产品名含 /、\\ 或 NUL 被拒时 stderr 写出配置文件路径、product 与按 JSON 写法的原值"
+      ]
     }
   ],
   "exemptions": [

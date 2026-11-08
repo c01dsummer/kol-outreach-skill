@@ -284,6 +284,9 @@ const GROUPS: readonly Group[] = [
   { id: 'd28-defaults', needs: ['d28-control'] },
   { id: 'd28-no-overreject', needs: [] },
   { id: 'd28-config-duplicates', needs: ['d28-control', 'd28-collect', 'd28-probe', 'd28-mixed', 'd28-defaults', 'd28-no-overreject'] },
+  { id: 'd29-reject', needs: [] },
+  { id: 'd29-no-overreject', needs: [] },
+  { id: 'd29-resume', needs: [] },
   { id: 'h-ci-wallclock-core', needs: [] },
   { id: 'h-ci-wallclock-cpu', needs: [] },
   { id: 'h-ci-wallclock-unavailable', needs: [] },
@@ -18623,7 +18626,8 @@ const d28Kit = (root: string) => {
   const MODES = ['collect', 'collect --budget 2', 'probe'] as const
   type Mode = typeof MODES[number]
   let made = 0
-  const runConfig = (mode: Mode, text: string, dup?: Dup) => {
+  // entryArgs 给出时入口照它跑（D29.c 的续跑：`--resume <目录>`），配置文件照旧写进新的工作目录、不被读
+  const runConfig = (mode: Mode, text: string, dup?: Dup, entryArgs?: readonly string[]) => {
     const run = join(root, `run-${++made}`), cwd = join(run, 'cwd'), obs = join(run, 'obs'), file = join(cwd, 'config.json')
     mkdirSync(join(cwd, 'memory'), { recursive: true }); mkdirSync(obs)
     writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: '2026-01-01T00:00:00.000Z', creators: {} }, null, 2) + '\n')
@@ -18638,7 +18642,7 @@ const d28Kit = (root: string) => {
       `Budget.prototype.reserve = function(...args) { appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n'); return Reflect.apply(original, this, args); };`,
       `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
     ].join('\n'))
-    const argv = [join(process.cwd(), 'scripts', mode === 'probe' ? 'probe.ts' : 'collect.ts'), '--config', file,
+    const argv = [join(process.cwd(), 'scripts', mode === 'probe' ? 'probe.ts' : 'collect.ts'), ...entryArgs ?? ['--config', file],
       ...mode === 'collect --budget 2' ? ['--budget', '2'] : []]
     const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d28', FAKE_FETCH_LEDGER: ledger,
       FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
@@ -18648,7 +18652,7 @@ const d28Kit = (root: string) => {
     const lines = (path: string) => existsSync(path) ? rf(path, 'utf8').split('\n').filter(Boolean).length : 0
     // 路径先移走：它不能替问题提供位置、原文或次数
     const stderr = r.stderr ?? '', message = stderr.replaceAll(file, '[配置]').replaceAll(root, '[目录]')
-    return { ...dup, mode, status: r.status, armed: lines(armed) > 0, reserves: lines(reserves), attempts: lines(ledger), kept: rf(file, 'utf8') === text,
+    return { ...dup, mode, cwd, status: r.status, armed: lines(armed) > 0, reserves: lines(reserves), attempts: lines(ledger), kept: rf(file, 'utf8') === text,
       same: tree(cwd) === before, made: existsSync(join(cwd, 'output')), stdout: r.stdout ?? '', pathSaid: stderr.includes(file), message, tail: message.split('\n').filter(Boolean).slice(-3).join(' | ') }
   }
   type Got = ReturnType<typeof runConfig>
@@ -18789,6 +18793,71 @@ suite('D28', 'collect --config 与 probe 读的配置写重复的键：在建目
 }
 })
 
+
+// D29（ADR-188）：collect --config 新建任务时，任务目录由产品名拼成、建在 output/ 底下。期望只来自 D29.a–c 原文与下面写进夹具的字面值；
+// 入口接线借 D28 那一套（fake-fetch 记请求、预加载记预留、armed 证明装上了；工作目录整棵比），另外比工作目录的上一级 ——
+// `../../` 开头的产品名，目录落在工作目录之外
+// 三组按变异点名的用例拆开（ADR-131）：拒绝那一组起入口的次数最多，点名它的变异也最多，合在一组时启动乘条数超线（ADR-145）
+const d29Named = (product: string) => cfg().replace('"product":"d28dup"', `"product":${JSON.stringify(product)}`)
+// 工作目录的上一级在入口跑之前只有 cwd 与 obs 两项（d28Kit 造的）；多出来的就是落到工作目录之外的任务目录
+const d29Outside = (g: { cwd: string }) => readdirSync(dirname(g.cwd)).sort().join(',') !== 'cwd,obs'
+await group('d29-reject', () => {
+suite('D29', '产品名拼任务目录：含 /、\\ 或 NUL 时 collect --config 以 2 拒绝')
+{
+d28Run(({ runConfig, brief, held }) => {
+  // D29.a：三种字符各一例，/ 的两例一个落在工作目录里（output/ 的上一级）、一个落到工作目录之外；\ 与 NUL 在 Linux 上本来建得出目录
+  const BAD = ['../d29-up', '../../d29-far', 'd29\\back', 'd29\u0000nul', 'd29/sub']
+  const bad = (['collect', 'collect --budget 2'] as const).flatMap(mode => BAD.map(product => ({ product, g: runConfig(mode, d29Named(product)) })))
+  eq('产品名含 /、\\ 或 NUL 时 collect --config（含 --budget 2）以 2 退出：零预留、零请求，不建任务目录（工作目录与它的上一级都原样），配置文件原字节',
+    bad.filter(({ g }) => !held(g) || d29Outside(g)).map(({ product, g }) => `${JSON.stringify(product)} ${brief(g)} 上一级多出=${d29Outside(g)}`), [])
+  eq('产品名含 /、\\ 或 NUL 被拒时 stderr 写出配置文件路径、product 与按 JSON 写法的原值',
+    bad.filter(({ product, g }) => !(g.status === 2 && g.pathSaid && g.message.includes('product') && g.message.includes(JSON.stringify(product))))
+      .map(({ product, g }) => `${JSON.stringify(product)} ${brief(g)}`), [])
+  criterion('D29.a')
+})
+}
+})
+await group('d29-no-overreject', () => {
+suite('D29', '产品名拼任务目录：不含 /、\\ 与 NUL 的产品名照常新建')
+{
+d28Run(({ runConfig, brief }) => {
+  // D29.b 不多拒：只由点组成、含空格与大写的产品名照常新建，任务目录在 output/ 底下、名字以「产品名-」开头，工作目录里别处与上一级都不多东西
+  const GOOD = ['..', '.', 'D29 Two Words']
+  const good = GOOD.map(product => ({ product, g: runConfig('collect', d29Named(product)) }))
+  const under = (product: string, g: { cwd: string }) => {
+    const top = readdirSync(g.cwd).sort().join(','), kids = existsSync(join(g.cwd, 'output')) ? readdirSync(join(g.cwd, 'output')) : []
+    return top === 'config.json,memory,output' && kids.length === 1 && kids[0].startsWith(`${product}-`) && statSync(join(g.cwd, 'output', kids[0])).isDirectory()
+  }
+  eq('产品名不含 /、\\ 与 NUL 时（..、.、含空格与大写）collect --config 照常以 0 结束、预留并请求，任务目录建在 output/ 底下、名字以产品名加短横线开头，上一级不多东西',
+    good.filter(({ product, g }) => !(g.status === 0 && g.armed && g.reserves > 0 && g.attempts > 0 && under(product, g) && !d29Outside(g)))
+      .map(({ product, g }) => `${JSON.stringify(product)} ${brief(g)} output=${existsSync(join(g.cwd, 'output')) ? readdirSync(join(g.cwd, 'output')).join('|') : '-'}`), [])
+  criterion('D29.b')
+})
+}
+})
+await group('d29-resume', () => {
+suite('D29', '产品名拼任务目录：续跑不按产品名判')
+{
+d28Run(({ runConfig, brief }) => {
+  // D29.c：同一份配置新建两次，其中一份把 task.json 里的 product 原文换成含 / 与 \ 的；两份各续跑一次（新的工作目录，--resume 给绝对路径），结果相同
+  const made = [0, 1].map(() => runConfig('collect', d29Named('d29resume')))
+  const dirs = made.map(g => existsSync(join(g.cwd, 'output')) ? readdirSync(join(g.cwd, 'output')).map(n => join(g.cwd, 'output', n)) : [])
+  if (made.some(g => g.status !== 0) || dirs.some(d => d.length !== 1)) eq('产品名续跑夹具有效：两份新建都以 0 结束、各建了一个任务目录', made.map(brief), [])
+  else {
+    const edited = join(dirs[1][0], 'task.json'), text = rf(edited, 'utf8')
+    writeFileSync(edited, text.replace('"product": "d29resume"', '"product": "d29/re\\\\sume"').replace('"product":"d29resume"', '"product":"d29/re\\\\sume"'))
+    const changed = rf(edited, 'utf8') !== text
+    const resumed = dirs.map(d => runConfig('collect', cfg(), undefined, ['--resume', d[0]]))
+    // 没换的那一份要照常以 0 结束、装上了记账：两份都因无关原因失败时，三项相等也说明不了什么
+    eq('续跑不按产品名判：task.json 里的 product 换成含 / 与 \\ 的之后，collect --resume 的退出码、预留与请求次数与没换的那一份（照常以 0 结束）相同，不以 2 拒绝',
+      [changed, resumed[0].status === 0 && resumed[0].armed, resumed[1].status === 2, [resumed[1].status, resumed[1].reserves, resumed[1].attempts]],
+      [true, true, false, [resumed[0].status, resumed[0].reserves, resumed[0].attempts]])
+    if (!changed || resumed.some(g => g.status !== 0)) console.log(`     ${resumed.map(brief).join('\n     ')}`)
+  }
+  criterion('D29.c')
+})
+}
+})
 
 await group('h-ci-wallclock-core', () => {
   harness('CI墙钟公开合同：core')

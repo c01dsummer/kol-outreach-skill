@@ -6,6 +6,17 @@ import { readCostDocument, stringifyCostJson } from './cost-json.js'
 import type { CostSnapshot } from './cost-ledger.js'
 import { ReviewInputError } from './review.js'
 
+/**
+ * D29.a：新任务的目录由产品名拼成、建在 `output/` 底下（下面的 `taskDir`）。这三种字符拼不成一层目录名：
+ * `/` 在哪儿都是路径分隔符（`../x` 会落到 `output/` 以外），`\` 在 Windows 上是，NUL 放不进文件名。
+ * 只由点组成的产品名不算 —— 时间戳接在它后面，`..-<时间戳>` 不是上一级（D29.b）
+ */
+const DIR_BREAKERS: readonly (readonly [string, string])[] = [['/', '/'], ['\\', '\\'], ['\u0000', 'NUL（U+0000）']]
+export const productDirProblem = (product: string): string | undefined => {
+  const found = DIR_BREAKERS.filter(([c]) => product.includes(c)).map(([, name]) => name)
+  return found.length ? `含 ${found.join('、')} —— 它要拼成 output/ 底下的一层任务目录名，这几个字符会让目录落到别处或建不出来` : undefined
+}
+
 export function taskDir(product: string, timestamp?: string): string {
   const ts = timestamp ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
   return join('output', `${product}-${ts}`)
