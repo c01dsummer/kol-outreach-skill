@@ -20357,6 +20357,246 @@
       "kills": [
         "stderr 写回 EAGAIN、只写进一截时等着整行写完：stdout、stderr、退出码与顺顺当当的那一跑逐字相同"
       ]
+    },
+    {
+      "id": "M-H186-al",
+      "req": "harness",
+      "why": "名字检查不把路径整理成规范形式：./KOL-OBS x、sub/../KOL-OBS x 被放过去，读不到时那句提示照样以 KOL-OBS 开头",
+      "file": "scripts/lib/obs.ts",
+      "find": "(path ? [name, normalize(name)] : [name])",
+      "replace": "[name]",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-am",
+      "req": "harness",
+      "why": "名字检查不拆换行：a\\nKOL-OBS b 被放过去，提示的第二行以 KOL-OBS 开头",
+      "file": "scripts/lib/obs.ts",
+      "find": "flatMap(form => form.split('\\n'))",
+      "replace": "flatMap(form => [form])",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-an",
+      "req": "harness",
+      "why": "名字检查只认后面带空格的 KOL-OBS ：KOL-OBS.json 这种被放过去",
+      "file": "scripts/lib/obs.ts",
+      "find": "line.startsWith('KOL-OBS')",
+      "replace": "line.startsWith('KOL-OBS ')",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-ao",
+      "req": "harness",
+      "why": "名字检查不分大小写：小写 kol-obs 开头的名字也被拒，原文只说大写那个前缀",
+      "file": "scripts/lib/obs.ts",
+      "find": "line.startsWith('KOL-OBS')",
+      "replace": "line.toUpperCase().startsWith('KOL-OBS')",
+      "by": "selfcheck",
+      "kills": [
+        "不以大写 KOL-OBS 开头的名字照常接受：没有以 2 拒绝，发了请求"
+      ]
+    },
+    {
+      "id": "M-H186-ap",
+      "req": "harness",
+      "why": "名字检查认名字里任何位置的 KOL-OBS：中间才有它的产品名也被拒，原文只说开头",
+      "file": "scripts/lib/obs.ts",
+      "find": "line.startsWith('KOL-OBS')",
+      "replace": "line.includes('KOL-OBS')",
+      "by": "selfcheck",
+      "kills": [
+        "不以大写 KOL-OBS 开头的名字照常接受：没有以 2 拒绝，发了请求"
+      ]
+    },
+    {
+      "id": "M-H186-aq",
+      "req": "harness",
+      "why": "名字检查只在开关开着时生效：平时以 KOL-OBS 开头的名字照常读、照常发请求",
+      "file": "scripts/lib/obs.ts",
+      "find": "export function obsNameProblem(what: string, name: string, path = true): string | undefined {\n",
+      "replace": "export function obsNameProblem(what: string, name: string, path = true): string | undefined {\n  if (process.env.KOL_OBS_EVENTS !== '1') return undefined\n",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-ar",
+      "req": "harness",
+      "why": "拒绝那一句不说是哪一个名字",
+      "file": "scripts/lib/obs.ts",
+      "find": "`${what} ${JSON.stringify(name)} 以 KOL-OBS 开头",
+      "replace": "`${what}以 KOL-OBS 开头",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-as",
+      "req": "harness",
+      "why": "拒绝那一句把名字原样写出来：带换行的名字让下一行以 KOL-OBS 开头",
+      "file": "scripts/lib/obs.ts",
+      "find": "`${what} ${JSON.stringify(name)} 以 KOL-OBS 开头",
+      "replace": "`${what} ${name} 以 KOL-OBS 开头",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-at",
+      "req": "harness",
+      "why": "probe 不查配置文件路径：读不到配置时那句提示以 KOL-OBS 开头，读得到就照常付费跑",
+      "file": "scripts/probe.ts",
+      "find": "// kol-obs/v1 名字检查：读配置之前；读不到配置时那句提示以这个路径开头\nconst cfgNameProblem = obsNameProblem('配置文件路径', cfgPath)\nif (cfgNameProblem) {\n  console.error(cfgNameProblem)\n  process.exit(2)\n}\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-au",
+      "req": "harness",
+      "why": "probe 拒绝名字时以 1 退出",
+      "file": "scripts/probe.ts",
+      "find": "  console.error(cfgNameProblem)\n  process.exit(2)",
+      "replace": "  console.error(cfgNameProblem)\n  process.exit(1)",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-av",
+      "req": "harness",
+      "why": "probe 的就绪行写在名字检查之后：名字被拒的那一跑开着开关也没有 ready 行",
+      "file": "scripts/probe.ts",
+      "find": "obsReady('probe')\n\nconst cfgIndex = process.argv.indexOf('--config')\nconst cfgPath = process.argv[cfgIndex + 1]\nif (cfgIndex < 0 || !cfgPath || cfgPath.startsWith('--')) {\n  console.error('用法: tsx scripts/probe.ts --config probe.json')\n  process.exit(2)\n}\n// kol-obs/v1 名字检查：读配置之前；读不到配置时那句提示以这个路径开头\nconst cfgNameProblem = obsNameProblem('配置文件路径', cfgPath)\nif (cfgNameProblem) {\n  console.error(cfgNameProblem)\n  process.exit(2)\n}\n",
+      "replace": "const cfgIndex = process.argv.indexOf('--config')\nconst cfgPath = process.argv[cfgIndex + 1]\nif (cfgIndex < 0 || !cfgPath || cfgPath.startsWith('--')) {\n  console.error('用法: tsx scripts/probe.ts --config probe.json')\n  process.exit(2)\n}\n// kol-obs/v1 名字检查：读配置之前；读不到配置时那句提示以这个路径开头\nconst cfgNameProblem = obsNameProblem('配置文件路径', cfgPath)\nif (cfgNameProblem) {\n  console.error(cfgNameProblem)\n  process.exit(2)\n}\nobsReady('probe')\n",
+      "by": "selfcheck",
+      "kills": [
+        "开着开关时名字检查照样生效，就绪行仍是第一条记录、恰好一条"
+      ]
+    },
+    {
+      "id": "M-H186-aw",
+      "req": "harness",
+      "why": "collect 不查续跑目录",
+      "file": "scripts/collect.ts",
+      "find": "    const resumeNameProblem = obsNameProblem('续跑目录', resume)\n    if (resumeNameProblem) throw new Error(resumeNameProblem)\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-ax",
+      "req": "harness",
+      "why": "collect 不查 --config 的配置文件路径",
+      "file": "scripts/collect.ts",
+      "find": "    const cfgNameProblem = obsNameProblem('配置文件路径', cfgPath)\n    if (cfgNameProblem) throw new Error(cfgNameProblem)\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-ay",
+      "req": "harness",
+      "why": "collect 不查产品名本身、只查拼出来的任务目录：output/ 挡在前面，KOL-OBS p 被放过去，续跑时也不查",
+      "file": "scripts/collect.ts",
+      "find": "const productNameProblem = obsNameProblem('产品名', state.product, false)\n  ?? (resume",
+      "replace": "const productNameProblem = undefined\n  ?? (resume",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-az",
+      "req": "harness",
+      "why": "collect 不查产品名拼出来的任务目录：../KOL-OBS p 把 output/ 整理掉，任务目录以 KOL-OBS 开头",
+      "file": "scripts/collect.ts",
+      "find": "\n  ?? (resume ? undefined : obsNameProblem(`产品名 ${JSON.stringify(state.product)} 拼出来的任务目录`, taskDir(state.product)))",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-ba",
+      "req": "harness",
+      "why": "collect 查任务目录时拿产品名本身去整理：../KOL-OBS p 整理之后还是 ../ 开头，被放过去",
+      "file": "scripts/collect.ts",
+      "find": ", taskDir(state.product)))",
+      "replace": ", state.product))",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-bb",
+      "req": "harness",
+      "why": "collect 拒绝产品名时以 1 退出",
+      "file": "scripts/collect.ts",
+      "find": "  console.error(productNameProblem)\n  process.exit(2)",
+      "replace": "  console.error(productNameProblem)\n  process.exit(1)",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-bc",
+      "req": "harness",
+      "why": "enrich 不查 --dir 的任务目录",
+      "file": "scripts/enrich.ts",
+      "find": "// kol-obs/v1 名字检查：先于用法检查与读任何文件；不合规那句提示以这个目录拼出的 task.json 开头\nconst dirNameProblem = dir === undefined ? undefined : obsNameProblem('任务目录', dir)\nif (dirNameProblem) {\n  console.error(dirNameProblem)\n  process.exit(2)\n}\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-bd",
+      "req": "harness",
+      "why": "enrich 拒绝任务目录时以 1 退出",
+      "file": "scripts/enrich.ts",
+      "find": "  console.error(dirNameProblem)\n  process.exit(2)",
+      "replace": "  console.error(dirNameProblem)\n  process.exit(1)",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
+    },
+    {
+      "id": "M-H186-be",
+      "req": "harness",
+      "why": "enrich 不查任务里的产品名",
+      "file": "scripts/enrich.ts",
+      "find": "  if (productNameProblem) throw new Error(productNameProblem)\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写"
+      ]
     }
   ],
   "exemptions": [
