@@ -7,7 +7,8 @@
  *
  * 记录写进那个变量指的文件，**同步写、整条写完才回**：入口在出错时会立刻 `process.exit`，排着队没写出去的会丢；预留记录因此在
  * 那次请求发出之前已经整条进了文件，记录之间的次序就是调用的次序。stdout、stderr 一个字节都不因此多写。
- * 文件打不开、写不进时在 stderr 说一句、以 1 退出：启动时打不开的什么输入都没读；中途写不进的就停在那一句，还没发出的请求都不再发
+ * 文件打不开、写不进时在 stderr 说一句、以 1 退出：启动时打不开的什么输入都没读（已有内容、最后一个字节又读不出的也算在这里：
+ * 确认不了最后一行有没有换行，就不写）；中途写不进的就停在那一句，还没发出的请求都不再发
  * （写的是预留记录时，那一次请求也就没发；`SP-200`、`SP-N200`、`SP-NS` 的命中记录在那次请求之后才写，那时它已经发出去了）。
  */
 import { closeSync, fstatSync, openSync, readFileSync, readSync, writeSync } from 'node:fs'
@@ -44,17 +45,20 @@ const writeLine = (line: Buffer): void => {
 const write = (record: Record<string, unknown>): void =>
   writeLine(Buffer.from(`${JSON.stringify({ kind: record.kind, contract: TEST_OBSERVER_CONTRACT, ...record })}\n`))
 
-/** 已存在的记录文件最后一行没有以换行结束（例如上一个写它的人断在半行）。读不出最后一个字节就当以换行结束 */
-const endsMidLine = (path: string): boolean => {
-  let fd: number | undefined
+/**
+ * 已存在的记录文件最后一行没有以换行结束（例如上一个写它的人断在半行）。大小看追加打开的那个 `fd`：空的用不着读。
+ * 不空、最后一个字节又读不出（只能追加、不能读）时确认不了，照启动时就打不开 `giveUp`，一个字节都不写
+ */
+const endsMidLine = (path: string, fd: number): boolean => {
+  let rd: number | undefined
   try {
-    fd = openSync(path, 'r')
     const { size } = fstatSync(fd)
     if (size === 0) return false
+    rd = openSync(path, 'r')
     const last = Buffer.alloc(1)
-    readSync(fd, last, 0, 1, size - 1)
+    readSync(rd, last, 0, 1, size - 1)
     return last[0] !== 0x0a
-  } catch { return false } finally { if (fd !== undefined) closeSync(fd) }
+  } catch (error) { return giveUp(path, error) } finally { if (rd !== undefined) closeSync(rd) }
 }
 
 /** 打开记录文件、写就绪记录。入口的第一句：在读命令行参数、配置、`task.json` 之前 */
@@ -65,7 +69,7 @@ export function obsReady(entry: ObsEntry, env: NodeJS.ProcessEnv = process.env):
   try { fd = openSync(path, 'a') } catch (error) { return giveUp(path, error) }
   out = { path, fd, entry }
   // 「每条记录占一整行」：接着写的文件最后一行没有换行时先补一个，就绪记录才不会接在那半行后面
-  if (endsMidLine(path)) writeLine(Buffer.from('\n'))
+  if (endsMidLine(path, fd)) writeLine(Buffer.from('\n'))
   write({ kind: 'ready', entry })
 }
 

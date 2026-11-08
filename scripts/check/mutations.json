@@ -20584,11 +20584,12 @@
       "req": "harness",
       "why": "接着写的记录文件最后一行没有换行时不补：这一跑的就绪记录接在那半行后面、两条挤在一行，原文说每条记录占一整行",
       "file": "scripts/lib/obs.ts",
-      "find": "  if (endsMidLine(path)) writeLine(Buffer.from('\\n'))\n",
+      "find": "  if (endsMidLine(path, fd)) writeLine(Buffer.from('\\n'))\n",
       "replace": "",
       "by": "selfcheck",
       "kills": [
-        "记录文件已存在、最后一行没有以换行结束时：原有内容一字不动，这一跑的记录各占一整行、第一条是 ready"
+        "记录文件已存在、最后一行没有以换行结束时：原有内容一字不动，这一跑的记录各占一整行、第一条是 ready",
+        "记录文件已存在、最后一行没有以换行结束、又读不出时：以 1 退出、stderr 说出是哪个文件，一次请求都不发，记录文件一字不动"
       ]
     },
     {
@@ -20601,6 +20602,33 @@
       "by": "selfcheck",
       "kills": [
         "记录文件已存在时接着往后写：原有的那一条一字不动，后面是这一跑的记录、第一条是 ready"
+      ]
+    },
+    {
+      "id": "M-H187-k",
+      "req": "harness",
+      "why": "接着写的记录文件不空、最后一个字节又读不出时当它以换行结束：断在半行的只能追加的文件里，这一跑的就绪记录接在那半行后面",
+      "file": "scripts/lib/obs.ts",
+      "find": "  } catch (error) { return giveUp(path, error) } finally { if (rd !== undefined) closeSync(rd) }\n",
+      "replace": "  } catch { return false } finally { if (rd !== undefined) closeSync(rd) }\n",
+      "by": "selfcheck",
+      "kills": [
+        "记录文件已存在、最后一行没有以换行结束、又读不出时：以 1 退出、stderr 说出是哪个文件，一次请求都不发，记录文件一字不动"
+      ]
+    },
+    {
+      "id": "M-H187-l",
+      "req": "harness",
+      "why": "记录文件是空的也去读最后一个字节：读不到也当没以换行结束，新文件第一行成了空行；只能追加、读不出的新文件本来用不着读，却以 1 退出、一条记录都不写",
+      "file": "scripts/lib/obs.ts",
+      "find": "    if (size === 0) return false\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "collect 每条记录都是带 kind 与 contract 的单行 JSON 对象、以换行结束，ready 恰好一条且是第一条",
+        "enrich 每条记录都是带 kind 与 contract 的单行 JSON 对象、以换行结束，ready 恰好一条且是第一条",
+        "probe 每条记录都是带 kind 与 contract 的单行 JSON 对象、以换行结束，ready 恰好一条且是第一条",
+        "只能追加、读不出的记录文件原来不存在时照常跑：第一条是 ready，后面有 reserved 记录"
       ]
     }
   ],
