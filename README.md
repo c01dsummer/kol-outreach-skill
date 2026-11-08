@@ -180,7 +180,7 @@ npm run --silent feedback-template -- --dir output/xxx --append
 
 各脚本将结构化结果写入 `stdout`、进度或诊断写入 `stderr`；机械消费使用 `npm run --silent` 去掉 npm 自身 banner。每次请求按固定端点价检查剩余额度；`--budget 3` 是总上限 $3。collect/enrich 额度不足且保存成功才退出 `3`；初始费用/输入问题退出 `2`，运行或保存失败退出 `1`。旧费用未知仍可导出及做零请求本地处理，不能靠增加上限补造历史账。费用契约见 [ADR-108](docs/adr/ADR-108-生产请求与输出统一使用逐端点费用账.md)。
 
-自动化测试另有一套观察用的开关（契约 kol-test-observer/v1）：设了 `KOL_TEST_OBSERVER_EVENTS`（值是一个文件路径），collect、probe、enrich 会把观察用的记录写进那个文件，`stdout` 和 `stderr` 都不因此多写；这时当前目录里放了 `.kol-save-fault.json`，collect 会让某一次保存故意失败，并在那个文件里写一条命中或未命中记录。平时不用设、也不应该放这个文件；格式与规则见[输出说明](skill/references/output-format.md#测试观察用的记录文件与保存失败注入契约-kol-test-observerv1)。
+自动化测试另有一套观察用的开关（契约 kol-test-observer/v1）：设了 `KOL_TEST_OBSERVER_EVENTS`（值是一个文件路径），collect、probe、enrich 会把观察用的记录写进那个文件，`stdout` 和 `stderr` 都不因此多写；这时当前目录里放了 `.kol-save-fault.json`，collect 会照它指定的保存点和次数，试着让那一次保存故意失败：注入了就在那个文件里写一条命中记录；到退出都没注入（没走到那一次，或控制文件不合格）就写一条未命中记录。平时不用设、也不应该放这个文件；格式与规则见[输出说明](skill/references/output-format.md#测试观察用的记录文件与保存失败注入契约-kol-test-observerv1)。
 
 probe 与 collect 要求 `tasks` 至少包含一个任务，每项明确写出非空白 `keyword`、四维之一的 `dimension` 和 `tiktok`/`instagram` 的 `platform`。坏任务与 IG 路线问题会带文件路径一起报告，退出 `2`，不请求或写任务文件；`as_hashtag` 只能缺席或为布尔，非布尔同样前置拒绝并报告原任务序号、字段与 JSON 原值（D15.n）；旧任务续跑（含 `--budget`）同样整表检查，不补默认字段、不跳过坏项（D16）。
 
