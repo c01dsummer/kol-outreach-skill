@@ -2129,6 +2129,26 @@ group('test-observer-events', [], () => {
   if (hp.ok) named('记录文件已存在、最后一行没有以换行结束时：原有内容一字不动，这一跑的记录各占一整行、第一条是 ready',
     fileText(String(half[TOBS_VAR])).startsWith(halfText) && hp.records[0]?.kind === 'before' && hp.records[1]?.kind === 'ready'
       && hp.records.slice(1).every(o => o?.contract === TOBS_CONTRACT) && reserves(hp.records, 'reserved').length >= 1, obsSaid(hp))
+  // 同上，但这个文件只能追加、读不出（例如只给了写权限）：最后一行有没有换行确认不了，就照「启动时就打不开」以 1 退出、什么都不写。
+  // 预加载换掉 fs.openSync：除了只追加的那种打开，打开这个记录文件都回 EACCES（以 root 跑也一样读不出）；手法同下面「中途写不进去」那一例
+  const denyRead = (cwd: string, path: string) => {
+    const preload = join(cwd, 'deny-read.mjs'), mark = join(cwd, 'deny-read.txt')
+    writeFileSync(preload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.openSync; fs.openSync = function(p, flags, ...rest) { if (String(p) === ${JSON.stringify(path)} && flags !== 'a') { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('EACCES: permission denied, open ' + JSON.stringify(String(p))), { code: 'EACCES', errno: -13, syscall: 'open' }); } return original.call(this, p, flags, ...rest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
+    return { mark, NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}` }
+  }
+  const wo = TOBS_ON(), woPath = String(wo[TOBS_VAR]), woF = obsFixture('append-unreadable'), woDeny = denyRead(woF.cwd, woPath)
+  writeFileSync(woPath, halfText)
+  const wr = obsResume('collect 记录文件已存在、最后一行没有换行、又读不出', woF, { ...wo, NODE_OPTIONS: woDeny.NODE_OPTIONS }, { status: 1, soft: [0, 2, 3] })
+  if (wr.ok && !fileText(woDeny.mark).includes('armed')) { failed++; console.error(`  ✗ 记录文件读不出的注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${wr.stderr}`) }
+  else if (wr.ok) named('记录文件已存在、最后一行没有以换行结束、又读不出时：以 1 退出、stderr 说出是哪个文件，一次请求都不发，记录文件一字不动',
+    fileText(woDeny.mark).includes('injected') && wr.status === 1 && wr.stderr.includes(woPath) && fetchAttempts(woF.log).length === 0
+      && fileText(woPath) === halfText, obsSaid(wr, woF.log))
+  // 对照：同样读不出，但文件还不存在（入口新建、是空的），用不着看最后一行，照常跑
+  const wn = TOBS_ON(), wnF = obsFixture('fresh-unreadable'), wnDeny = denyRead(wnF.cwd, String(wn[TOBS_VAR]))
+  const nr = obsResume('collect 记录文件还不存在、新建之后读不出', wnF, { ...wn, NODE_OPTIONS: wnDeny.NODE_OPTIONS })
+  if (nr.ok && !fileText(wnDeny.mark).includes('armed')) { failed++; console.error(`  ✗ 记录文件读不出的注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${nr.stderr}`) }
+  else if (nr.ok) named('只能追加、读不出的记录文件原来不存在时照常跑：第一条是 ready，后面有 reserved 记录',
+    nr.records[0]?.kind === 'ready' && nr.records.every(o => o?.contract === TOBS_CONTRACT) && reserves(nr.records, 'reserved').length >= 1, obsSaid(nr, wnF.log))
   // 「这个文件打不开或写不进去时，入口在 stderr 说明原因，以 1 退出：启动时就打不开的，什么输入都不读」—— 路径的上一级目录不存在。
   // 三个入口都指着读得出、本来会付费跑的输入：读了的话会发请求；任务目录一字不改
   const unopen = join(tmp, 'test-observer-no-such-dir', 'records.jsonl')
