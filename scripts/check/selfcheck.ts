@@ -11269,6 +11269,9 @@ group('observer-cert-entry', [], () => {
 // 「所涉各例没有一例判红、设施故障或夹具失格」；所涉各例按冻结用例（连同它调到的公共判据）在依据里引了哪条判据来列，冻结单的
 // 认领对照没有交到本片手上。认领另要那几例全部 pass、而且没有一项不判 —— 附条件子断言、复核没做、GAP 或 E 前提没补齐的，
 // 一条都认不下来。交点 U9×P1 不在这里认领（接线模块头写着 R 片要补在哪），自检的入口认领记录本来也不收交点。
+// 唯一的例外是 G3-14c（ADR-186 末尾「第二片」，需求所有者选的处置）：接上 E-2 之后，GAP-24b 登为保存失败后不读记忆，冻结套件照冻结单
+// 判它夹具失格。只有「G3-14c 前提」那一项失格、「E-2 命中」那一项判过、别的项没有红与设施故障时，读作预期结果：一行「·」写明，
+// 不计失败，D6.y 那条具名断言也不因它不成立；它不是 pass，照旧认领不下。别的样子的失格照常算失败。
 group('kol21-independent', [], () => {
   const root = join(tmp, 'kol21-independent'), work = join(root, 'work'), report = join(root, 'report.json')
   mkdirSync(work, { recursive: true })
@@ -11279,6 +11282,9 @@ group('kol21-independent', [], () => {
   const rep = jsonFile(report)
   const cases: Kol21Case[] = Array.isArray(rep?.cases) ? rep.cases : []
   const byId = new Map(cases.map(c => [c?.id, c]))
+  const expectedFixture = (c: Kol21Case | undefined) => c?.id === 'G3-14c' && c.verdict === 'fixture'
+    && c.items.filter(i => i.status === 'fixture').map(i => i.label).join('、') === 'G3-14c 前提'
+    && c.items.some(i => i.label === 'E-2 命中' && i.status === 'pass') && !c.items.some(i => i.status === 'red' || i.status === 'facility')
   // 冻结单的用例数照各组文件头：G1 35、G2 30、G3 27、G4 8、G5 3、G6 3
   if (cases.length !== 106 || byId.size !== 106
     || cases.some(c => typeof c?.id !== 'string' || typeof c.verdict !== 'string' || !Array.isArray(c.items) || !Array.isArray(c.notes))) {
@@ -11292,6 +11298,7 @@ group('kol21-independent', [], () => {
     const own = c.items.filter(i => i.status === c.verdict).slice(0, 3).map(i => `${i.label}：${i.detail ?? ''}`).join('；') || c.notes.join('；')
     if (c.verdict === 'pass') console.log(`  ✓ 独立用例 ${c.id}`)
     else if (c.verdict === 'red') { failed++; console.error(`  ✗ 独立用例 ${c.id}（判红）：${own}`) }
+    else if (expectedFixture(c)) console.log(`  · 独立用例 ${c.id} 夹具失格是预期结果（ADR-186 末尾「第二片」），不算过也不算红：${own}`)
     else if (c.verdict === 'fixture' || c.verdict === 'facility') {
       failed++
       console.error(`  ✗ 独立用例 ${c.id}${SELFCHECK_FIXTURE_MARK}：${c.verdict === 'fixture' ? '夹具失格' : '设施故障'}，这一例什么也没测到 —— ${own}`)
@@ -11314,7 +11321,7 @@ group('kol21-independent', [], () => {
   const D13V = ['G1-02', 'G1-02A', 'G1-02B', 'G1-02C', 'G1-02P', 'G2-13Z', 'G2-24', 'G3-11', 'G3-11B', 'G3-11N', 'G3-13']
   const D13U = ['G1-02U']
   // 报告里找不到的用例号读作 undefined：不算干净、也认领不下，不让这里抛
-  const clean = (ids: readonly string[]) => ids.every(id => ['pass', 'review-pending', 'not-judged'].includes(byId.get(id)?.verdict ?? '缺'))
+  const clean = (ids: readonly string[]) => ids.every(id => ['pass', 'review-pending', 'not-judged'].includes(byId.get(id)?.verdict ?? '缺') || expectedFixture(byId.get(id)))
   const dirty = (ids: readonly string[]) => ids.filter(id => !clean([id])).map(id => `${id}=${byId.get(id)?.verdict ?? '缺'}`).join(' ')
   const settled = (ids: readonly string[]) => ids.every(id => byId.get(id)?.verdict === 'pass' && byId.get(id)!.items.every(i => i.status === 'pass'))
   named('KOL-21 独立测试包 D6.y：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格',

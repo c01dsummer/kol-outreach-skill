@@ -304,6 +304,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-observer-run', needs: [] },
   { id: 'h-observer-contexts', needs: [] },
   { id: 'h-observer-records', needs: [] },
+  { id: 'h-kol21-g309-many', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -19334,7 +19335,7 @@ await group('h-observer-records', async () => {
     [n(lines(ready('probe'), { kind: 'reserve', ...C, entry: 'probe', scope: 'process', endpoint: T1, unit_micro_usd: 1000, result: 'reserved' }), 'probe'),
       n(lines(ready(), hit('SP-BUD', {}))), n(lines(ready(), miss({ point: null, occurrence: null, seen: null, why: 'invalid-file' })))], [0, 0, 0])
   eq('测试观察记录：空文件、最后一行没写完、不是 JSON、不是对象，各报一处',
-    [n(''), n(JSON.stringify(ready())), n(`${JSON.stringify(ready())}\nx\n`), n(`${JSON.stringify(ready())}\n[]\n`)], [1, 1, 1, 1])
+    [n(''), n(`${JSON.stringify(ready())}\n${JSON.stringify(reserved())}`), n(`${JSON.stringify(ready())}\nx\n`), n(`${JSON.stringify(ready())}\n[]\n`)], [1, 1, 1, 1])
   eq('测试观察记录：contract 不是 kol-test-observer/v1、认不得的种类、多出原文没有的键，各报一处',
     [n(lines(ready(), { ...reserved(), contract: 'kol-test-observer/v2' })), n(lines(ready(), { kind: 'zzz', ...C, entry: 'collect' })),
       n(lines(ready(), { ...reserved(), extra: 1 }))], [1, 1, 1])
@@ -19358,9 +19359,42 @@ await group('h-observer-records', async () => {
   eq('测试观察记录：未命中的原因不是 not-reached 或 invalid-file、seen 不是非负整数、没到第 k 次却把保存点或次数写成 null、说没到第 k 次而 seen 已经到了，各报一处',
     [n(lines(ready(), miss({ why: 'other' }))), n(lines(ready(), miss({ seen: -1 }))), n(lines(ready(), miss({ point: null }))), n(lines(ready(), miss({ occurrence: null }))),
       n(lines(ready(), miss({ seen: 1 })))], [1, 1, 1, 1, 1])
+  eq('测试观察记录：说文件不合格的未命中，有保存点时 seen 要是非负整数，保存点写了就得在那五个里，次数写了就得是正整数，不合各报一处',
+    [n(lines(ready(), miss({ why: 'invalid-file', occurrence: null, seen: null }))), n(lines(ready(), miss({ why: 'invalid-file', point: 'SP-X', occurrence: null }))),
+      n(lines(ready(), miss({ why: 'invalid-file', occurrence: 0 })))], [1, 1, 1])
   eq('测试观察记录：命中一跑最多一条，命中了就不该再有未命中，各报一处',
     [n(lines(ready(), hit(), hit())), n(lines(ready(), hit(), miss()))], [1, 1])
   eq('测试观察记录：记录文件的名字是观察器写进证据目录的那一个', rule.CONTRACT_RECORDS, 'contract-records.jsonl')
+})
+
+// KOL-21 独立测试包 G3-09 新增两个以上 task.json 那一支的回归测试（ADR-70 第 3765 行那张欠条要的，放在冻结包之外）：
+// 真实入口这一跑只新建一个，那一支跑不到；这里照冻结用例自己的判法，造一跑「新增两个、其中一个有无结果留存」交给它判
+await group('h-kol21-g309-many', async () => {
+  harness('KOL-21 独立测试包 G3-09：运行后新增两个以上 task.json 时逐个判，有无结果留存的那一个判红、另一个判过')
+  const { G3 } = await import('./kol21-independent/cases/g3.ts')
+  const { Ctx } = await import('./kol21-independent/lib/judge.ts')
+  const { snap } = await import('./kol21-independent/lib/fsnap.ts')
+  const { RUNS } = await import('./kol21-independent/runs.ts')
+  const root = scMkdtempSync(scJoin(scTmpdir(), 'kol21-g309-')), cwd = scJoin(root, 'cwd')
+  try {
+    scMkdirSync(cwd)
+    const before = snap(cwd)
+    const ledger = (unknown: number) => JSON.stringify({ cost_ledger: { entries: [{ http_200_count: 0, unknown_result_count: unknown, unit_micro_usd: 1000 }] } })
+    for (const [dir, unknown] of [['kept-1', 0], ['left-2', 1]] as const) {
+      scMkdirSync(scJoin(cwd, 'output', dir), { recursive: true })
+      scWriteFileSync(scJoin(cwd, 'output', dir, 'task.json'), ledger(unknown))
+    }
+    const def = RUNS.find(r => r.id === 'G3-09')!
+    const obs = { outcome: { kind: 'observed' as const }, attributable: true, requests: [], entry: 'collect' as const, isolation: '', run: '', evidenceDir: '',
+      status: 2, signal: null, stdout: '', stderr: '' }
+    const runs = new Map([['G3-09', { def, script: undefined as never, runDir: root, cwd, evidenceDir: '', before, after: snap(cwd), obs, J: [], stderrText: '' }]])
+    const c = new Ctx('G3-09', { certified: false, certNote: '', runs, reviews: new Map(), conditions: {}, questions: [],
+      result: () => { throw new Error('G3-09 不该去读别的用例的结论') } })
+    G3.find(x => x.id === 'G3-09')!.judge!(c)
+    const lc = c.items.filter(i => i.label.startsWith('新 task.json（若已建）LC：U = 0')).map(i => [i.label, i.status]).sort()
+    eq('KOL-21 独立测试包 G3-09：新增两个 task.json，各判一项，带着路径；有一笔无结果留存的判红，没有的判过',
+      lc, [['新 task.json（若已建）LC：U = 0 [output/kept-1/task.json]', 'pass'], ['新 task.json（若已建）LC：U = 0 [output/left-2/task.json]', 'red']])
+  } finally { scRmSync(root, { recursive: true, force: true }) }
 })
 
 if (seenGroups.size !== GROUPS.length) {
