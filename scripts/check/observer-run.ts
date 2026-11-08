@@ -6,6 +6,7 @@
  * gh 配置目录与仓库根的 `.env`、`.env.local` 盖住。断网用 bwrap `--unshare-net`，不靠换掉 fetch；认证不了就不起入口，
  * 不降级成「只靠换 fetch」或共享网络（`runObserved` 只认 `certifyIsolation` 交出的那一份认证）。
  * 每次运行一个新的证据目录：脚本原字节、参数表、事件文件、两股输出与退出码都落在那里，判的结果也写进去。
+ * 入口按 kol-test-observer/v1 写的测试观察记录也落在这个目录（`CONTRACT_RECORDS`），环境变量每一跑都给（ADR-186 末尾「第二片」）。
  */
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
@@ -15,7 +16,7 @@ import { constants, homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
-  ENTRIES, MASKED_FILES, REPO_PATHS, SYSTEM_PATHS, ghDirs, judgeRun, layoutId, netcutProblems, observerEnv, rwProblems, scriptProblems, sandboxArgs,
+  CONTRACT_RECORDS, ENTRIES, MASKED_FILES, REPO_PATHS, SYSTEM_PATHS, ghDirs, judgeRun, layoutId, netcutProblems, observerEnv, rwProblems, scriptProblems, sandboxArgs,
   sandboxModulePath, type ApiKey, type Layout, type Observation, type ObserverEntry, type PathFact, type ProbeReport, type ResponseScript,
 } from './observer-rule.js'
 
@@ -199,8 +200,8 @@ function launch(o: RunOptions, knob?: 'channel-taken' | 'no-preload'): ObservedR
   if (knob === 'channel-taken') writeFileSync(events, '')
   const target = o.entry === 'control' ? join(dir, 'control.mjs') : join(REPO, 'scripts', `${o.entry}.ts`)
   const execArgv = knob === 'no-preload' ? EXEC_ARGV.slice(0, 2) : EXEC_ARGV
-  const env: Record<string, string> = { ...observerEnv({ nodeBin: dirname(NODE), home: '/tmp', tmp: '/tmp', tsconfig: join(REPO, 'tsconfig.json'), apiKey }),
-    KOL_TEST_OBSERVER: JSON.stringify({ run, events, script: scriptFile, target }) }
+  const env: Record<string, string> = { ...observerEnv({ nodeBin: dirname(NODE), home: '/tmp', tmp: '/tmp', tsconfig: join(REPO, 'tsconfig.json'), apiKey,
+    records: join(dir, CONTRACT_RECORDS) }), KOL_TEST_OBSERVER: JSON.stringify({ run, events, script: scriptFile, target }) }
   const argv = [...sandboxArgs(o.isolation.layout, { empty, rw, chdir: rw[0] }), '--', NODE, ...execArgv, target, ...o.args]
   const r = spawnSync(o.isolation.bwrap, argv, { env, cwd: o.cwd, encoding: 'utf8', timeout: o.timeoutMs ?? 120_000, killSignal: 'SIGKILL', maxBuffer: 1 << 26 })
   const stdout = r.stdout ?? '', stderr = r.stderr ?? '', signal = r.signal ?? signalOf(r.status)
