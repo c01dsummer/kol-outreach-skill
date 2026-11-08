@@ -40,6 +40,11 @@ import { resumeProgressProblems } from './lib/resume-progress.js'
 import { prepareTaskReviews, type TaskReviews } from './lib/task-reviews.js'
 import { ReviewInputError } from './lib/review.js'
 import type { Creator, TaskState } from './lib/types.js'
+import { loadSaveFault, obsReady } from './lib/obs.js'
+
+// kol-obs/v1（`skill/references/output-format.md`）：就绪行在读任何输入之前；注入文件启动时读一次。两样平时都关着
+obsReady('collect')
+const saveFault = loadSaveFault('collect')
 
 /**
  * 记忆读不出来时仍然产出名单。**必须由用户显式打出来** —— 它不让重复打扰的风险
@@ -164,7 +169,8 @@ try {
   const notify = (pct: number, view: ReturnType<Budget['view']>) => {
     console.error(`\n💰 已用 ${(pct * 100).toFixed(0)}% —— 估算占用 $${view.cost_estimate_usd} / $${view.budget_usd}\n`)
   }
-  const persistCost: PersistCost = snapshot => saveCostCheckpoint(dir, snapshot)
+  // 选中的保存点在这里失败，与磁盘写失败同一条路：`Budget` 把它记成 persistence-failed、锁住本运行（kol-obs/v1）
+  const persistCost: PersistCost = (snapshot, save) => { saveFault?.at(save.point, save); saveCostCheckpoint(dir, snapshot) }
   budget = resume ? new Budget(state, notify, persistCost) : startBudget(state, freshLimit!, 'task', notify, persistCost)
   if (resume && replacementLimit !== undefined) budget.setLimit(replacementLimit)
 } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
@@ -198,7 +204,9 @@ function qualified(): number {
   return [...creators.values()].filter(passesFollowerGate).length
 }
 
-function persist() {
+/** `point` 只在已知额度不足、停下时那一次给（kol-obs/v1 的 SP-BUD）：注入时作者文件和 task.json 都不写 */
+function persist(point?: 'SP-BUD') {
+  if (point) saveFault?.at(point)
   // D6.t：先存作者，再推进分页进度。反过来的话，两次写之间被打断或累加器写失败时，
   // 盘上的进度已经前进而这一页的作者没存下，续跑就跳过了它（ADR-113）。
   // 累加器只增不减 —— 过滤在 main() 末尾只作用于交付物
@@ -457,7 +465,7 @@ async function main() {
     }
   }
 
-  persist()
+  persist(stopped === 'budget' ? 'SP-BUD' : undefined)
 
   // 同人合并 → 粉丝闸门 → 记忆过滤。管线在 lib/pipeline.ts —— 这四步的**顺序**
   // 有语义，有语义就该能被测，所以它不留在入口脚本里。
