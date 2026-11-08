@@ -27,7 +27,7 @@ import { configFieldProblems } from './lib/config-input.js'
 import { duplicateKeyProblems } from './lib/duplicate-keys.js'
 import { obsReady } from './lib/obs.js'
 
-// kol-obs/v1（`skill/references/output-format.md`）：就绪行在读任何输入之前，平时关着
+// kol-test-observer/v1（`skill/references/output-format.md`）：就绪记录在读任何输入之前，平时关着
 obsReady('probe')
 
 const cfgIndex = process.argv.indexOf('--config')

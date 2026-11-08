@@ -21,7 +21,7 @@ export type CostView = {
   cost_problems: CostProblem[]
 }
 export type NotifyCost = (threshold: 0.5 | 0.8, view: CostView) => void
-/** 这一次费用保存是哪个保存点、对着哪一次尝试（kol-obs/v1 的保存点名；collect 据此注入，见 `obs.ts`） */
+/** 这一次费用保存是哪个保存点、对着哪一次尝试（kol-test-observer/v1 的保存点名；collect 据此注入，见 `obs.ts`） */
 export type CostSave = Attempt & { point: 'SP-R' | 'SP-200' | 'SP-N200' | 'SP-NS' }
 export type PersistCost = (snapshot: CostSnapshot, save: CostSave) => void
 export class BudgetInputError extends Error {
@@ -53,7 +53,7 @@ export function costView(state: CostState): CostView {
     cost_price_versions: [...new Set([...ledger.entries, ...(ledger.pending ? [ledger.pending] : [])].map(e => e.price_version))] }
 }
 
-/** 预留被拒时属于 kol-obs/v1 的哪一种原因：抛出点当场标上，`reserve` 写预留行时取 */
+/** 预留被拒时属于 kol-test-observer/v1 的哪一种原因：抛出点当场标上，`reserve` 写预留记录时取 */
 const REJECTED = new WeakMap<object, RejectReason>()
 const refused = <E extends Error>(reason: RejectReason, error: E): E => { REJECTED.set(error, reason); return error }
 function rejectReason(error: unknown): RejectReason {
@@ -107,7 +107,7 @@ export class Budget {
   }
 
   /**
-   * 每一次尝试都留一行预留记录（kol-obs/v1，开着事件时）：成了的在预留存好之后、返回去发请求之前写，
+   * 每一次尝试都留一条预留记录（kol-test-observer/v1，开着记录文件时）：成了的在预留存好之后、返回去发请求之前写，
    * 被拒的在拒的那一刻写。价目外的端点算不出单价，不写行 —— 那是调用方的缺陷，`quoteTikHub` 照样会抛（ADR-186）
    */
   reserve(endpoint: string): AttemptReceipt {

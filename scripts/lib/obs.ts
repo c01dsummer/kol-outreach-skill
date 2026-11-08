@@ -1,19 +1,19 @@
 /**
- * 契约 kol-obs/v1：测试观察用的 stderr 行与保存失败注入。公开说明在 `skill/references/output-format.md`
- * 「测试观察用的 stderr 行与保存失败注入」一节，那是需求方逐字确认过的原文（ADR-186）；这里只照它做，不另立口径。
+ * 契约 kol-test-observer/v1：测试观察用的记录文件与保存失败注入。公开说明在 `skill/references/output-format.md`
+ * 「测试观察用的记录文件与保存失败注入」一节，那是需求方逐字确认过的原文（ADR-187）；这里只照它做，不另立口径。
  *
- * 两样默认都关着：`KOL_OBS_EVENTS` 不是恰为 `1`、当前目录里也没有 `.kol-save-fault.json` 时，这里一个字节都不写，
- * 除了看一眼那个文件在不在，什么也不做。
+ * 整个由 `KOL_TEST_OBSERVER_EVENTS` 打开：没设或值为空时，这里一个字节都不写、一个文件都不读，当前目录放着
+ * `.kol-save-fault.json` 也不看。
  *
- * 行只写 fd 2，**同步写、整行写完才回**：入口在出错时会立刻 `process.exit`，排着队没写出去的会丢；预留行因此在那次请求发出之前
- * 已经整行进了 fd 2，KOL-OBS 行之间的次序就是调用的次序。与 `console.error` 的行之间只在 stderr 没塞满时如此 —— 塞满时那些行
- * 排在 Node 自己的队列里晚一步出去，契约也没许诺它们之间的次序。
+ * 记录写进那个变量指的文件，**同步写、整条写完才回**：入口在出错时会立刻 `process.exit`，排着队没写出去的会丢；预留记录因此在
+ * 那次请求发出之前已经整条进了文件，记录之间的次序就是调用的次序。stdout、stderr 一个字节都不因此多写。
+ * 文件打不开、写不进时在 stderr 说一句、以 1 退出：启动时打不开的什么输入都没读；中途写不进的就停在那一句，那一次请求不发。
  */
-import { readFileSync, writeSync } from 'node:fs'
+import { openSync, readFileSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
 
-export const OBS_CONTRACT = 'kol-obs/v1'
-export const OBS_PREFIX = 'KOL-OBS '
+export const TEST_OBSERVER_CONTRACT = 'kol-test-observer/v1'
+export const TEST_OBSERVER_ENV = 'KOL_TEST_OBSERVER_EVENTS'
 export const SAVE_FAULT_FILE = '.kol-save-fault.json'
 export const SAVE_FAULT_SCHEMA = 'kol-save-fault/v1'
 export const SAVE_POINTS = ['SP-R', 'SP-200', 'SP-N200', 'SP-NS', 'SP-BUD'] as const
@@ -24,42 +24,45 @@ export type RejectReason = 'budget' | 'ledger-unavailable' | 'pending' | 'root-c
 export type Attempt = { attempt_id: number; endpoint: string }
 export type ReserveResult = { result: 'reserved'; attempt_id: number } | { result: 'rejected'; reason: RejectReason }
 
-/**
- * fd 2 是管道时，进程里一碰 `process.stderr` Node 就把它设成不阻塞；读的一方慢了、管道满着，写就回 EAGAIN 或只写进一截。
- * 这时歇一毫秒接着写剩下的：抛出去的话，预留已经存好、请求却不发了（#431 评审指出）。
- */
-const pause = new Int32Array(new SharedArrayBuffer(4))
-const write = (record: Record<string, unknown>): void => {
-  const line = Buffer.from(`${OBS_PREFIX}${JSON.stringify({ kind: record.kind, contract: OBS_CONTRACT, ...record })}\n`)
-  for (let done = 0; done < line.length;) {
-    try { done += writeSync(2, line, done) }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EAGAIN') throw error; Atomics.wait(pause, 0, 0, 1) }
-  }
+/** 开着时是记录文件（路径与 fd）和本跑的入口名；关着是 undefined，下面几处据此什么都不写、不读 */
+let out: { path: string; fd: number; entry: ObsEntry } | undefined
+
+/** 记录文件打不开或写不进：stderr 说是哪个文件、为什么，以 1 退出（在 `exit` 事件里调也一样以 1 退出） */
+const giveUp = (path: string, error: unknown): never => {
+  console.error(`${TEST_OBSERVER_ENV} 指的记录文件 ${JSON.stringify(path)} 写不进去：${String(error)}`)
+  process.exit(1)
 }
 
-/** 事件开着时是本跑的入口名；关着是 undefined，`obsReserve` 据此什么都不写 */
-let events: ObsEntry | undefined
+const write = (record: Record<string, unknown>): void => {
+  if (out === undefined) return
+  const line = Buffer.from(`${JSON.stringify({ kind: record.kind, contract: TEST_OBSERVER_CONTRACT, ...record })}\n`)
+  try { for (let done = 0; done < line.length;) done += writeSync(out.fd, line, done) }
+  catch (error) { giveUp(out.path, error) }
+}
 
-/** 就绪行。入口的第一句：在读命令行参数、配置、`task.json` 之前 */
+/** 打开记录文件、写就绪记录。入口的第一句：在读命令行参数、配置、`task.json` 之前 */
 export function obsReady(entry: ObsEntry, env: NodeJS.ProcessEnv = process.env): void {
-  if (env.KOL_OBS_EVENTS !== '1') return
-  events = entry
+  const path = env[TEST_OBSERVER_ENV]
+  if (!path) return
+  let fd: number
+  try { fd = openSync(path, 'a') } catch (error) { return giveUp(path, error) }
+  out = { path, fd, entry }
   write({ kind: 'ready', entry })
 }
 
 /**
- * 预留行，每一次预留尝试一行。`scope` 看入口：collect、enrich 的账写进 `task.json`，probe 的只在本进程里；
+ * 预留记录，每一次预留尝试一条。`scope` 看入口：collect、enrich 的账写进 `task.json`，probe 的只在本进程里；
  * `attempt_id` 只在任务账上预留成功时带。
  */
 export function obsReserve(endpoint: string, unit: number, r: ReserveResult): void {
-  if (events === undefined) return
-  const scope = events === 'probe' ? 'process' : 'task'
-  write({ kind: 'reserve', entry: events, scope, endpoint, unit_micro_usd: unit, result: r.result,
+  if (out === undefined) return
+  const scope = out.entry === 'probe' ? 'process' : 'task'
+  write({ kind: 'reserve', entry: out.entry, scope, endpoint, unit_micro_usd: unit, result: r.result,
     ...(r.result === 'rejected' ? { reason: r.reason } : scope === 'task' ? { attempt_id: r.attempt_id } : {}) })
 }
 
 export interface SaveFault {
-  /** 到了一个保存点。是选中的那个点、又正好是第 k 次，就写命中行并抛出 —— 那一次保存不写盘 */
+  /** 到了一个保存点。是选中的那个点、又正好是第 k 次，就写命中记录并抛出 —— 那一次保存不写盘 */
   at(point: SavePoint, attempt?: Attempt): void
 }
 
@@ -76,10 +79,11 @@ function parseFault(text: string | undefined): FaultFile {
 }
 
 /**
- * 启动时读一次当前目录下的 `.kol-save-fault.json`，只读，不改不删。没有这个文件返回 undefined，本跑不写任何注入行。
- * 有文件就挂上退出时的未命中记录：注入一直没生效（没到第 k 次，或文件不合格）就在退出时写一行。
+ * 开着时，启动时读一次当前目录下的 `.kol-save-fault.json`，只读，不改不删。关着、或没有这个文件，返回 undefined，本跑不注入、
+ * 不写注入的记录。有文件就挂上退出时的未命中记录：注入一直没生效（没到第 k 次，或文件不合格）就在退出时写一条。
  */
 export function loadSaveFault(entry: 'collect', cwd = process.cwd()): SaveFault | undefined {
+  if (out === undefined) return undefined
   let text: string | undefined
   try { text = readFileSync(join(cwd, SAVE_FAULT_FILE), 'utf8') }
   catch (error) {
