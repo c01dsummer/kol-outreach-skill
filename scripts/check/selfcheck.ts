@@ -2174,7 +2174,9 @@ group('kol-obs-save-fault', [], () => {
 // enrich 的 `--dir`，原样或整理成规范路径之后以它开头的，都不接受；任务里的产品名本身，或用它拼出来的任务目录以它开头的，也不接受
 // （名字里有换行的，其中每一行都算）。碰到这样的名字，入口在 stderr 说明是哪一个名字不行，以 2 退出，不写任何文件。
 // 这条检查不论上面两样开没开都生效。」写于实现之前，对着没改的入口先看它红。
-// 「不写任何文件」：跑之前、跑之后把当前目录整棵树（文件名与内容）各记一遍，逐字相同；假 fetch 一次请求都没记下。
+// 「不接受」在每一例里判同样五件：以 2 退出；stderr 说出这个名字；没有一行给人看的提示以 KOL-OBS 开头；假 fetch 一次请求都没记下；
+// 当前目录整棵树（文件名与内容）跑前跑后逐字相同。开着开关再跑的那几例，另判就绪行仍是第一条记录、恰好一条。
+// 一例一个标签（`process/4-VERIFY.md`「核对标签的运行身份」）：变异红在哪一例，看得出是哪一处检查没起作用。
 const obsTree = (root: string): string => {
   const out: [string, string][] = []
   const walk = (dir: string) => { for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -2183,69 +2185,107 @@ const obsTree = (root: string): string => {
   } }
   walk(root); return JSON.stringify(out.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0))
 }
-// 「入口给人看的提示从不以 KOL-OBS 开头」：开着时以 `KOL-OBS ` 开头、是合格记录的行除外，别的行一行都不许以 KOL-OBS 开头
+// 「入口给人看的提示从不以 KOL-OBS 开头」：以 `KOL-OBS ` 开头、是合格记录的行除外，别的行一行都不许以 KOL-OBS 开头
 const humanKolObs = (stderr: string) => stderr.split('\n').filter(l => l.startsWith('KOL-OBS')
   && !(l.startsWith(OBS) && obsLines(l).every(o => o?.contract === 'kol-obs/v1' && typeof o?.kind === 'string')))
 // 「说明是哪一个名字不行」：原样或加了引号写出来都算（带换行的名字原样写出来，会让下一行以 KOL-OBS 开头，上面那条就红）
 const namesIt = (stderr: string, name: string) => stripObs(stderr).includes(name) || stripObs(stderr).includes(JSON.stringify(name))
 
 group('kol-obs-names', [], () => {
-  const base = join(tmp, 'obs-names')
-  mkdirSync(join(base, 'memory'), { recursive: true })
-  mkdirSync(join(base, 'sub'), { recursive: true })   // sub/../ 那一例读得到文件：不查名字的话 probe 会照常付费跑
+  const root = join(tmp, 'obs-names'), template = join(root, 'template'), logs = join(root, 'logs')
+  mkdirSync(join(template, 'memory'), { recursive: true })
+  mkdirSync(join(template, 'sub'), { recursive: true })   // sub/../ 那一例读得到文件：不查名字的话 probe 会照常付费跑
+  mkdirSync(logs, { recursive: true })
   const tasks = [{ keyword: 'obs', dimension: 'category', platform: 'tiktok' }]
   const probeBody = JSON.stringify({ market: 'US', budget_usd: 0.001, tasks })
   const taskBody = (product: string) => JSON.stringify({ product, market: 'US', target_count: 1, budget_usd: 0.001, tasks })
   // 被拒的那几个名字都指着读得出、本来跑得起来的输入：没有这条检查，入口会照常读配置、开任务、发请求
-  writeFileSync(join(base, 'KOL-OBS probe.json'), probeBody)
-  writeFileSync(join(base, 'KOL-OBS task.json'), taskBody('names-ok'))
-  writeFileSync(join(base, 'product-plain.json'), taskBody('KOL-OBS p'))
-  writeFileSync(join(base, 'product-up.json'), taskBody('../KOL-OBS p'))
-  writeFileSync(join(base, 'product-newline.json'), taskBody('p\nKOL-OBS q'))
-  cpSync(obsFixture('names-run', knownCosts(1000, []), {}, [costPerson()]).taskDir, join(base, 'KOL-OBS run'), { recursive: true })
-  cpSync(obsFixture('names-run-product', knownCosts(1000, []), { product: 'KOL-OBS p' }).taskDir, join(base, 'run-product'), { recursive: true })
-  // [说明, 入口, 参数, 不接受的那个名字, 开着开关再跑一次]：开着那一跑每个来源各一例，「不论两样开没开」由关着的每一例与它们一起判
-  const cases: [string, string, string[], string, boolean][] = [
-    ['probe --config 原样以 KOL-OBS 开头', 'probe', ['--config', 'KOL-OBS probe.json'], 'KOL-OBS probe.json', true],
-    ['probe --config 整理成规范路径后以它开头（./）', 'probe', ['--config', './KOL-OBS probe.json'], './KOL-OBS probe.json', false],
-    ['probe --config 整理成规范路径后以它开头（sub/..）', 'probe', ['--config', 'sub/../KOL-OBS probe.json'], 'sub/../KOL-OBS probe.json', false],
-    ['probe --config 以 KOL-OBS 开头、后面没有空格', 'probe', ['--config', 'KOL-OBS.json'], 'KOL-OBS.json', false],
-    ['probe --config 换行之后那一行以它开头', 'probe', ['--config', 'a\nKOL-OBS b.json'], 'a\nKOL-OBS b.json', false],
-    ['collect --config 原样以 KOL-OBS 开头', 'collect', ['--config', 'KOL-OBS task.json'], 'KOL-OBS task.json', true],
-    ['collect --config 整理成规范路径后以它开头', 'collect', ['--config', './KOL-OBS task.json'], './KOL-OBS task.json', false],
-    ['collect --resume 原样以 KOL-OBS 开头', 'collect', ['--resume', 'KOL-OBS run'], 'KOL-OBS run', true],
-    ['collect --resume 整理成规范路径后以它开头', 'collect', ['--resume', './KOL-OBS run'], './KOL-OBS run', false],
-    ['collect 新任务的产品名以 KOL-OBS 开头', 'collect', ['--config', 'product-plain.json'], 'KOL-OBS p', true],
-    ['collect 产品名拼出来的任务目录以它开头', 'collect', ['--config', 'product-up.json'], '../KOL-OBS p', false],
-    ['collect 产品名换行之后那一行以它开头', 'collect', ['--config', 'product-newline.json'], 'p\nKOL-OBS q', false],
-    ['collect 续跑任务里的产品名以它开头', 'collect', ['--resume', 'run-product'], 'KOL-OBS p', false],
-    ['enrich --dir 原样以 KOL-OBS 开头', 'enrich', ['--dir', 'KOL-OBS run'], 'KOL-OBS run', true],
-    ['enrich --dir 整理成规范路径后以它开头', 'enrich', ['--dir', './KOL-OBS run'], './KOL-OBS run', false],
-    ['enrich 任务里的产品名以它开头', 'enrich', ['--dir', 'run-product'], 'KOL-OBS p', false],
+  writeFileSync(join(template, 'KOL-OBS probe.json'), probeBody)
+  writeFileSync(join(template, 'kol-obs probe.json'), probeBody)
+  writeFileSync(join(template, 'a\nKOL-OBS b.json'), probeBody)   // 名字里夹换行的那两例也读得到
+  mkdirSync(join(template, 'a\n.'))
+  writeFileSync(join(template, 'a\n.', 'KOL-OBS b.json'), probeBody)
+  writeFileSync(join(template, 'KOL-OBS task.json'), taskBody('names-ok'))
+  writeFileSync(join(template, 'product-plain.json'), taskBody('KOL-OBS p'))
+  writeFileSync(join(template, 'product-up.json'), taskBody('../KOL-OBS p'))
+  writeFileSync(join(template, 'product-newline.json'), taskBody('p\nKOL-OBS q'))
+  writeFileSync(join(template, 'product-middle.json'), taskBody('names-KOL-OBS'))
+  cpSync(obsFixture('names-run', knownCosts(1000, []), {}, [costPerson()]).taskDir, join(template, 'KOL-OBS run'), { recursive: true })
+  cpSync(obsFixture('names-run-product', knownCosts(1000, []), { product: 'KOL-OBS p' }).taskDir, join(template, 'run-product'), { recursive: true })
+  // 每一跑在自己那份拷贝里：一跑（施变时）留下的任务目录、请求账，碰不到下一跑的判定
+  let runs = 0
+  const fresh = () => { const cwd = join(root, `run-${++runs}`); cpSync(template, cwd, { recursive: true }); return cwd }
+  const rejected = (entry: string, args: string[], name: string, opts: { on?: boolean; fault?: boolean } = {}) => {
+    const why: string[] = []
+    let ok = true
+    for (const on of opts.on ? [false, true] : [false]) {
+      const cwd = fresh(), log = join(logs, `run-${runs}.tsv`)
+      if (opts.fault) obsFault(cwd, FAULT_OK)
+      const before = obsTree(cwd)
+      const r = runBoth(`${entry} ${JSON.stringify(args)}${on ? '（开着开关）' : ''}`, [S(`${entry}.ts`), ...args], cwd,
+        { status: 2, soft: [0, 1, 3] }, costEnv(log, on ? OBS_ON : {}))
+      if (!r.ok) return undefined
+      const same = obsTree(cwd) === before
+      const ready = !on || (obsLines(r.stderr)[0]?.kind === 'ready' && obsKind(r.stderr, 'ready').length === 1 && obsKind(r.stderr, 'ready')[0].entry === entry)
+      const pass = r.status === 2 && humanKolObs(r.stderr).length === 0 && namesIt(r.stderr, name) && fetchAttempts(log).length === 0 && same && ready
+      ok &&= pass
+      if (!pass) why.push(`${on ? '开着' : '关着'}: 以 KOL-OBS 开头的提示 ${JSON.stringify(humanKolObs(r.stderr))}, 说出名字=${namesIt(r.stderr, name)}, `
+        + `当前目录没变=${same}, 就绪行=${ready}; ${obsSaid(r, log)}`)
+    }
+    return { ok, why: why.join(' | ') }
+  }
+  const cases: [string, string[], string, { on?: boolean; fault?: boolean }, (ok: boolean, why: string) => void][] = [
+    ['probe', ['--config', 'KOL-OBS probe.json'], 'KOL-OBS probe.json', { on: true },
+      (ok, why) => named('名字不接受：probe 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）', ok, why)],
+    ['probe', ['--config', './KOL-OBS probe.json'], './KOL-OBS probe.json', {},
+      (ok, why) => named('名字不接受：probe 的 --config 去掉 ./ 整理成规范路径才以 KOL-OBS 开头', ok, why)],
+    ['probe', ['--config', 'sub/../KOL-OBS probe.json'], 'sub/../KOL-OBS probe.json', {},
+      (ok, why) => named('名字不接受：probe 的 --config 经 sub/.. 整理成规范路径才以 KOL-OBS 开头', ok, why)],
+    ['probe', ['--config', 'KOL-OBS.json'], 'KOL-OBS.json', {},
+      (ok, why) => named('名字不接受：probe 的 --config 以 KOL-OBS 开头、后面不是空格', ok, why)],
+    ['probe', ['--config', 'a\nKOL-OBS b.json'], 'a\nKOL-OBS b.json', {},
+      (ok, why) => named('名字不接受：probe 的 --config 换行之后那一行以 KOL-OBS 开头', ok, why)],
+    ['probe', ['--config', 'a\n./KOL-OBS b.json'], 'a\n./KOL-OBS b.json', {},
+      (ok, why) => named('名字不接受：probe 的 --config 换行之后那一行整理成规范路径才以 KOL-OBS 开头', ok, why)],
+    ['collect', ['--config', 'KOL-OBS task.json'], 'KOL-OBS task.json', { on: true },
+      (ok, why) => named('名字不接受：collect 的 --config 原样以 KOL-OBS 开头（关着、开着开关各跑一次）', ok, why)],
+    ['collect', ['--config', './KOL-OBS task.json'], './KOL-OBS task.json', {},
+      (ok, why) => named('名字不接受：collect 的 --config 整理成规范路径才以 KOL-OBS 开头', ok, why)],
+    ['collect', ['--config', 'KOL-OBS task.json'], 'KOL-OBS task.json', { fault: true },
+      (ok, why) => named('名字不接受：collect 的 --config 以 KOL-OBS 开头，当前目录放着控制文件时也一样', ok, why)],
+    ['collect', ['--resume', 'KOL-OBS run'], 'KOL-OBS run', { on: true },
+      (ok, why) => named('名字不接受：collect 的 --resume 原样以 KOL-OBS 开头（关着、开着开关各跑一次）', ok, why)],
+    ['collect', ['--resume', './KOL-OBS run'], './KOL-OBS run', {},
+      (ok, why) => named('名字不接受：collect 的 --resume 整理成规范路径才以 KOL-OBS 开头', ok, why)],
+    ['collect', ['--config', 'product-plain.json'], 'KOL-OBS p', { on: true },
+      (ok, why) => named('名字不接受：collect 新任务的产品名以 KOL-OBS 开头（关着、开着开关各跑一次）', ok, why)],
+    ['collect', ['--config', 'product-up.json'], '../KOL-OBS p', {},
+      (ok, why) => named('名字不接受：collect 新任务的产品名本身不以它开头、拼出来的任务目录以它开头', ok, why)],
+    ['collect', ['--config', 'product-newline.json'], 'p\nKOL-OBS q', {},
+      (ok, why) => named('名字不接受：collect 新任务的产品名换行之后那一行以 KOL-OBS 开头', ok, why)],
+    ['collect', ['--resume', 'run-product'], 'KOL-OBS p', {},
+      (ok, why) => named('名字不接受：collect 续跑任务里的产品名以 KOL-OBS 开头', ok, why)],
+    ['enrich', ['--dir', 'KOL-OBS run'], 'KOL-OBS run', { on: true },
+      (ok, why) => named('名字不接受：enrich 的 --dir 原样以 KOL-OBS 开头（关着、开着开关各跑一次）', ok, why)],
+    ['enrich', ['--dir', './KOL-OBS run'], './KOL-OBS run', {},
+      (ok, why) => named('名字不接受：enrich 的 --dir 整理成规范路径才以 KOL-OBS 开头', ok, why)],
+    ['enrich', ['--dir', 'run-product'], 'KOL-OBS p', {},
+      (ok, why) => named('名字不接受：enrich 任务里的产品名以 KOL-OBS 开头', ok, why)],
   ]
-  for (const [what, entry, args, name, alsoOn] of cases) for (const on of alsoOn ? [false, true] : [false]) {
-    const log = join(tmp, `obs-names-${entry}.tsv`), before = obsTree(base)
-    rmSync(log, { force: true })
-    const r = runBoth(`${what}${on ? '（开着开关）' : ''}`, [S(`${entry}.ts`), ...args], base, { status: 2, soft: [0, 1, 3] }, costEnv(log, on ? OBS_ON : {}))
-    if (!r.ok) continue
-    named('以 KOL-OBS 开头的名字不接受：以 2 退出、说出是哪一个名字，stderr 里没有一行给人看的提示以 KOL-OBS 开头，一次请求不发、一个文件不写',
-      r.status === 2 && humanKolObs(r.stderr).length === 0 && namesIt(r.stderr, name) && fetchAttempts(log).length === 0 && obsTree(base) === before,
-      `${what}${on ? '（开着）' : ''}: 以 KOL-OBS 开头的提示 ${JSON.stringify(humanKolObs(r.stderr))}, 说出名字=${namesIt(r.stderr, name)}, `
-        + `当前目录没变=${obsTree(base) === before}; ${obsSaid(r, log)}`)
-    if (on) named('开着开关时名字检查照样生效，就绪行仍是第一条记录、恰好一条',
-      obsLines(r.stderr)[0]?.kind === 'ready' && obsKind(r.stderr, 'ready').length === 1 && obsKind(r.stderr, 'ready')[0].entry === entry, `${what}: ${obsSaid(r, log)}`)
+  for (const [entry, args, name, opts, judge] of cases) {
+    const j = rejected(entry, args, name, opts)
+    if (j) judge(j.ok, j.why)
   }
   // 对照：只认大写、只认开头 —— 小写 kol-obs 开头的配置路径、中间才有 KOL-OBS 的产品名照常付费跑（收尾码照 SKILL.md 收尾表：probe 0，collect 上限只够一次搜索 3）
-  writeFileSync(join(base, 'kol-obs probe.json'), probeBody)
-  writeFileSync(join(base, 'product-middle.json'), taskBody('names-KOL-OBS'))
-  for (const [what, entry, args, today] of [['probe --config 以小写 kol-obs 开头', 'probe', ['--config', 'kol-obs probe.json'], 0],
-    ['collect 产品名中间才有 KOL-OBS', 'collect', ['--config', 'product-middle.json'], 3]] as const) {
-    const log = join(tmp, `obs-names-ok-${entry}.tsv`)
-    rmSync(log, { force: true })
-    const r = runBoth(what, [S(`${entry}.ts`), ...args], base, { status: today, soft: [0, 1, 2, 3].filter(n => n !== today) }, costEnv(log))
-    if (r.ok) named('不以大写 KOL-OBS 开头的名字照常接受：没有以 2 拒绝，发了请求',
-      r.status !== 2 && fetchAttempts(log).length >= 1, `${what}: ${obsSaid(r, log)}`)
+  const accepted = (entry: string, args: string[], today: number) => {
+    const cwd = fresh(), log = join(logs, `run-${runs}.tsv`)
+    const r = runBoth(`${entry} ${JSON.stringify(args)}`, [S(`${entry}.ts`), ...args], cwd, { status: today, soft: [0, 1, 2, 3].filter(n => n !== today) }, costEnv(log))
+    return r.ok ? { ok: r.status !== 2 && fetchAttempts(log).length >= 1, why: obsSaid(r, log) } : undefined
   }
+  const lower = accepted('probe', ['--config', 'kol-obs probe.json'], 0)
+  if (lower) named('名字照常接受：probe 的 --config 以小写 kol-obs 开头，照常付费跑', lower.ok, lower.why)
+  const middle = accepted('collect', ['--config', 'product-middle.json'], 3)
+  if (middle) named('名字照常接受：collect 的产品名中间才有 KOL-OBS，照常付费跑', middle.ok, middle.why)
 })
 
 // ---- 崩溃续跑 A / B：业务保存窗口仍要验证，费用窗口由D14持久预留封住 ----
