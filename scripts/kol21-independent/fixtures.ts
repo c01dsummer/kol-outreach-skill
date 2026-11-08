@@ -69,7 +69,7 @@ function build(id: string, special: Array<[string, ScriptRule]>, trapExcept: str
   for (const [n, r] of special) { names.push(n); rules.push(r) }
   for (const t of TN) if (!trapExcept.includes(t)) { names.push(t); rules.push(trap(t)) }
   const uses200 = rules.some((r) => r.responses.some((x) => 'status' in x && x.status === 200))
-  return { id, script: { schema: 'kol-observer-script/v1', rules }, names, uses200 }
+  return { id, script: { schema: 'kol-test-observer-script/v1', rules }, names, uses200 }
 }
 const rule = (endpoint: string, responses: ScriptResponse[], query?: Record<string, string>): ScriptRule =>
   query ? { method: 'GET', endpoint, query, responses } : { method: 'GET', endpoint, responses }
@@ -135,7 +135,7 @@ export const S: Record<string, () => NamedScript> = {
   // :199 render 阳性对照专用
   'S-CONTROL': () => ({
     id: 'S-CONTROL',
-    script: { schema: 'kol-observer-script/v1', rules: [{ method: 'GET', endpoint: '/kol21/control', responses: [{ status: 200, headers: { 'content-type': 'text/plain' }, body: 'kol21-control-ok' }] }] },
+    script: { schema: 'kol-test-observer-script/v1', rules: [{ method: 'GET', endpoint: '/kol21/control', responses: [{ status: 200, headers: { 'content-type': 'text/plain' }, body: 'kol21-control-ok' }] }] },
     names: ['C0'],
     uses200: false,
   }),

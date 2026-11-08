@@ -19018,14 +19018,14 @@ await group('h-observer-rule', () => {
   eq('观察器判定：请求序号不连续、或记下的结局与脚本那个位置写的不同，判观察器故障',
     [text(armed, rq(2, 0, { status: 200 }), cl(1)), text(armed, rq(1, 0, { status: 500 }), cl(1)), text(armed, rq(1, 0, { connect: 'fail' }), cl(1))]
       .map(events => kindOf(judgeObservation(facts({ events })))), Array(3).fill('facility:observer'))
-  const refused = judgeObservation(facts({ status: 97, stderr: '[kol-observer] 脚本外的请求（unmatched）：GET /b\n', events: text(armed, rq(1, null, { refused: 'unmatched' }, null), cl(1, 97)) }))
+  const refused = judgeObservation(facts({ status: 97, stderr: '[kol-test-observer] 脚本外的请求（unmatched）：GET /b\n', events: text(armed, rq(1, null, { refused: 'unmatched' }, null), cl(1, 97)) }))
   eq('观察器判定：脚本外的请求判观察器故障，那次请求照样归得到这次运行', [kindOf(refused), refused.attributable, refused.requests.length], ['facility:observer', true, 1])
   eq('观察器判定：事件没写 close 判观察器故障', kindOf(judgeObservation(facts({ events: text(armed, rq(1, 0, { status: 200 })) }))), 'facility:observer')
   eq('观察器判定：被信号打死、超时、起不来各归各的设施故障',
     [facts({ signal: 'SIGKILL', status: 137, events: text(armed) }), facts({ timedOut: true }), facts({ error: 'spawn ENOENT', events: undefined })].map(f => kindOf(judgeObservation(f))),
     ['facility:signal', 'facility:signal', 'facility:launch'])
   eq('观察器判定：没有事件文件时，沙箱没起来、观察器自己叫停、什么都没说分别判隔离、观察器、加载故障',
-    ["bwrap: Can't mount tmpfs on /newroot/tmp\n", '[kol-observer] 事件文件建不出来：EEXIST\n', ''].map(stderr => kindOf(judgeObservation(facts({ events: undefined, status: 1, stderr })))),
+    ["bwrap: Can't mount tmpfs on /newroot/tmp\n", '[kol-test-observer] 事件文件建不出来：EEXIST\n', ''].map(stderr => kindOf(judgeObservation(facts({ events: undefined, status: 1, stderr })))),
     ['facility:isolation', 'facility:observer', 'facility:loader'])
   eq('观察器判定：事件完整而入口以观察器的退出码收尾、或事件里有故障，判观察器故障',
     [facts({ status: 97 }), facts({ events: text(armed, { kind: 'fault', run: RUN, pid: 11, reason: '入口换掉了 fetch' }, cl(0, 97)) })].map(f => kindOf(judgeObservation(f))),
@@ -19098,7 +19098,7 @@ await group('h-observer-rule', () => {
 
 await group('h-observer-preload', () => {
   harness('零请求观察器装在入口进程里的那一半：真起五次玩具入口（不进沙箱，只验预加载自己记什么、怎么叫停）')
-  const dir = mkdtempSync(join(tmpdir(), 'kol-obs-'))
+  const dir = mkdtempSync(join(tmpdir(), 'kol-test-observer-'))
   try {
     const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href, preload = pathToFileURL(resolve('scripts/check/observer-preload.ts')).href
     const script = JSON.stringify({ schema: SCRIPT_SCHEMA, rules: [
@@ -19110,27 +19110,29 @@ await group('h-observer-preload', () => {
       const file = join(dir, `${name}.mjs`), events = join(dir, `${name}.events`)
       writeFileSync(file, body)
       const r = spawnSync(process.execPath, ['--import', tsx, '--import', preload, file], { encoding: 'utf8', timeout: 60_000,
-        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', KOL_OBSERVER: JSON.stringify({ run: `run-${name}`, events, script: scriptFile, target: file }) } })
+        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', KOL_TEST_OBSERVER: JSON.stringify({ run: `run-${name}`, events, script: scriptFile, target: file }) } })
       const text = existsSync(events) ? rf(events, 'utf8') : ''
       return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', text, events: readEvents(text).events, file: realpathSync(file) }
     }
     const shape = (es: ReturnType<typeof readEvents>['events']) => es.map(e => e.kind === 'request' ? `request ${e.seq} ${JSON.stringify(e.outcome)}`
       : e.kind === 'body' ? `body ${e.seq} ${e.read} ${e.ok}` : e.kind === 'fault' ? `fault ${e.reason}` : e.kind === 'close' ? `close ${e.requests} ${e.code}` : e.kind)
     const a = toy('a', [
-      `const out = [process.env.KOL_OBSERVER ?? null]`,
+      `const out = [process.env.KOL_TEST_OBSERVER ?? null]`,
       `const r1 = await fetch('https://h.invalid/a?x=1&secret=s3cr3t'); out.push([r1.status, await r1.text()])`,
       `const r2 = await fetch(new URL('https://h.invalid/a?x=1')); out.push([r2.status, await r2.text()])`,
       `try { await fetch('https://h.invalid/c') } catch (e) { out.push([e.name, e.message]) }`,
       `const r4 = await fetch('https://h.invalid/b', { method: 'POST' }); try { await r4.json() } catch (e) { out.push(['body', e.name]) }`,
       `const r5 = await fetch('https://h.invalid/d'); out.push([r5.status, Buffer.from(await r5.arrayBuffer()).toString('hex')])`,
       `console.log(JSON.stringify(out))`].join('\n'))
+    // 玩具入口没印出合法 JSON 时给一个明示的失败值，让下面两条断言红，而不是异常冲出 group()（ADR-70 第 3564 行）
+    const outA: unknown = (() => { try { return JSON.parse(a.stdout) } catch { return { notJson: a.stdout } } })()
     const armedA = a.events[0]
     eq('观察器预加载：armed 记本次运行、入口、脚本与本文件、加载顺序与环境变量名，观察配置在入口里看不见',
-      armedA?.kind === 'armed' ? [armedA.run, armedA.entry, armedA.script_sha256, armedA.preload_sha256, armedA.exec_argv, armedA.env_names, JSON.parse(a.stdout)[0]] : armedA,
+      armedA?.kind === 'armed' ? [armedA.run, armedA.entry, armedA.script_sha256, armedA.preload_sha256, armedA.exec_argv, armedA.env_names, Array.isArray(outA) ? outA[0] : outA] : armedA,
       ['run-a', a.file, createHash('sha256').update(script).digest('hex'), createHash('sha256').update(rf('scripts/check/observer-preload.ts')).digest('hex'),
         ['--import', tsx, '--import', preload], ['PATH'], null])
     eq('观察器预加载：同一次运行里按脚本依次答多次请求（200、402、连接失败、正文读取失败、base64 正文），每次答之前先记一行，正文读没读也记，退出时写 close',
-      [a.status, JSON.parse(a.stdout).slice(1), shape(a.events)],
+      [a.status, Array.isArray(outA) ? outA.slice(1) : outA, shape(a.events)],
       [0, [[200, 'first'], [402, 'pay'], ['TypeError', 'fetch failed'], ['body', 'TypeError'], [200, '000102']],
         ['armed', 'request 1 {"status":200}', 'body 1 text true', 'request 2 {"status":402}', 'body 2 text true', 'request 3 {"connect":"fail"}',
           'request 4 {"status":200}', 'body 4 json false', 'request 5 {"status":200}', 'body 5 arrayBuffer true', 'close 5 0']])
@@ -19141,7 +19143,7 @@ await group('h-observer-preload', () => {
     const b = toy('b', [`import fs from 'node:fs'`,
       `for (const n of fs.readdirSync('/proc/self/fd')) { try { if (fs.readlinkSync('/proc/self/fd/' + n).endsWith('b.events')) fs.closeSync(Number(n)) } catch {} }`,
       `const r = await fetch('https://h.invalid/a?x=1'); console.log('answered', r.status)`].join('\n'))
-    eq('观察器预加载：事件中途写不进，入口以观察器的退出码失败，那次请求不答出去', [b.status, b.stdout, b.stderr.includes('[kol-observer] 事件写不进去'), shape(b.events)],
+    eq('观察器预加载：事件中途写不进，入口以观察器的退出码失败，那次请求不答出去', [b.status, b.stdout, b.stderr.includes('[kol-test-observer] 事件写不进去'), shape(b.events)],
       [97, '', true, ['armed']])
     const c = toy('c', `const r = await fetch('https://h.invalid/zzz'); console.log('answered', r.status)`)
     eq('观察器预加载：脚本外的请求记下拒答、叫停入口，退出时仍写 close', [c.status, c.stdout, shape(c.events)], [97, '', ['armed', 'request 1 {"refused":"unmatched"}', 'close 1 97']])
@@ -19203,7 +19205,7 @@ await group('h-observer-contexts', () => {
       const file = join(dir, `${name}.mjs`), events = join(dir, `${name}.events`)
       writeFileSync(file, body)
       const r = spawnSync(process.execPath, ['--import', tsx, '--import', preload, file], { encoding: 'utf8', timeout: 60_000,
-        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', KOL_OBSERVER: JSON.stringify({ run: `run-${name}`, events, script: scriptFile, target: file }) } })
+        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', KOL_TEST_OBSERVER: JSON.stringify({ run: `run-${name}`, events, script: scriptFile, target: file }) } })
       const es = readEvents(existsSync(events) ? rf(events, 'utf8') : '').events
       return [r.status, r.stdout ?? '', es.map(e => e.kind === 'fault' ? `fault ${e.reason}` : e.kind === 'close' ? `close ${e.requests} ${e.code}` : e.kind)]
     }

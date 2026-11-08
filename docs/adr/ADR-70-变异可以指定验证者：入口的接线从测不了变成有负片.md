@@ -3235,10 +3235,10 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
      - `apiKey`：缺省 `'placeholder'`，入口拿到一个占位串（不是任何真密钥）；`'absent'` 时入口环境里连这个变量也没有。`timeoutMs`：缺省 120000，超时判信号故障。
    - 入口进程的环境从空表起，只有 `PATH`、`HOME`、`TMPDIR`、`LANG`、`TZ`（`UTC`）、`TSX_TSCONFIG_PATH`、`PWD` 与上面那个 key；调用方的环境一个都不传，不读 `.env`。`HOME`、`TMPDIR` 是沙箱私有的空目录；gh 的配置目录与仓库根的 `.env`、`.env.local` 在沙箱里是空的。
    - 每一跑有一个随机的运行 id（`run`），事件每行都带它。证据目录里留下：`script.json`（脚本原字节）、`argv.json`（参数表与环境，key 只写一句占位说明）、`events.jsonl`、`stdout.txt`、`stderr.txt`、`result.json`（判的结果）。
-3. **响应脚本格式 `kol-observer-script/v1`**（JSON）：
+3. **响应脚本格式 `kol-test-observer-script/v1`**（JSON）：
 
    ```json
-   { "schema": "kol-observer-script/v1",
+   { "schema": "kol-test-observer-script/v1",
      "rules": [
        { "method": "GET", "endpoint": "/<路径>", "query": { "<键>": "<值>" },
          "responses": [
@@ -3293,7 +3293,7 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
    export function zeroVerdict(target: Observation, positive: Observation | undefined): Zero
    export type Zero = { verdict: 'pass' } | { verdict: 'red'; requests: number }
      | { verdict: 'facility'; reason: string } | { verdict: 'fixture'; reason: string }
-   export const SCRIPT_SCHEMA = 'kol-observer-script/v1'
+   export const SCRIPT_SCHEMA = 'kol-test-observer-script/v1'
    export type ScriptResponse =
      | { status: number; headers?: Record<string, string>; body?: string; body_base64?: string; body_read?: 'fail' }
      | { connect: 'fail' }
@@ -3304,7 +3304,7 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
    export type ObserverEntry = typeof ENTRIES[number]
    export const FIXTURE_POSITIVE: readonly ObserverEntry[] = ['render']
    export const OBSERVER_EXIT = 97
-   export const API_KEY_PLACEHOLDER = 'kol-observer-placeholder-not-a-key'
+   export const API_KEY_PLACEHOLDER = 'kol-test-observer-placeholder-not-a-key'
    export type ApiKey = 'placeholder' | 'absent'
    export const ALLOWED_ENV = ['HOME', 'LANG', 'PATH', 'PWD', 'TIKHUB_API_KEY', 'TMPDIR', 'TSX_TSCONFIG_PATH', 'TZ'] as const
    export interface Armed { kind: 'armed'; run: string; pid: number; ppid: number; entry: string; script_sha256: string;
@@ -3770,4 +3770,8 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 
 > ⚠️ 欠条：变异 `M-H62-ao`（`scripts/check/mutations.json` 第 19307 行起，验证者是需求测试组 `h-prebuilt-no-config-contract`，`scripts/test.ts` 第 18897 行起）在完整 mutate 里偶发「跑不起来」，原因没查清。现场：#429 开 PR 前，原环境追加还上块之后的第一次完整 `npm run check`（2026-11-07 11:20–11:28 北京时间，Node v22.23.3，8 个 worker）红在 mutate，冻结工具回 `INVALID`、`public reference invalid at true.OWNER`，是夹具失格，不是断言红；那一跑的现场被适配器的 `finally` 删掉了，三种不合格形态分不开（原环境证据目录里的 `final-check-after-ADR-once/REPORT.md`，不在仓库里，本块写方没读到原件，照 #429 正文转述）。之后原环境 13:02 那次完整检查、这个环境 2026-11-08 北京时间那次完整 mutate（Node v22.23.4，4 个 worker）里它都「被抓到」，只说明那几跑跑通了，不是修复。同组 `M-H62-al`、`M-H62-am`、`M-H62-ap` 以前也偶发过（本条第 3552 行，当时记为观察、不登欠条），所以这一张把它们一起算上 · 来源：PR #429 正文「残余与未查清」第 1 条（作者自记，不是评审发现；没有讨论串、没有替身评论）；登不登由需求所有者丸子 2026-11-07 在 claude.ai 项目线程的决策卡上选了「记」，卡片答复不是仓库里的拍板痕迹（`process/2-CHANGE.md` 第 164–165 行） · 档：登记（#429 作者自己看到的，不是评审发现） · 重启条件：下次任何一跑完整 mutate 里 `h-prebuilt-no-config-contract` 组的变异（`M-H62-ao`、`M-H62-al`、`M-H62-am`、`M-H62-ap`）再跑不起来，或有改动碰到 `scripts/check/prebuilt.ts` 第 222 行那个 `profilesOf(owner)` 循环，先到为准；响了那一跑的临时根保不住：适配器 `scripts/prebuilt-no-config-contract-test.ts` 第 260–261 行的 `finally` 不论成败都删掉整棵临时根，没有留现场的开关（同一个缺口在生命周期那一组上已登在本条第 3029 行），能留下的只有检查日志里打出的那几行。所以响了先把那一跑的整份检查日志存下来，再照检查链的次序先 `npm run compile`、再跑一次完整 mutate 复现（mutate 没有只跑一条变异的开关；`npm test -- --only=h-prebuilt-no-config-contract` 只跑正常代码、不带变异，复现不了这一种；mutate 自己只把被施变的那一个文件编进预编缓存，缓存里缺哪一份现行源码，整棵树就退回 tsx 起验证者，跑的不是原来那条起法）；要看临时根里的东西，就在 `npm run compile` 之前于本机临时去掉那一行删除、不提交，复跑后到 `os.tmpdir()` 下名字以 `kol-prebuilt-no-config-` 开头的目录里找现场，再查原因
 
-> ⚠️ 已还：ADR-70 第 3769 行 · 还在 ADR-186 那条 PR（KOL-21 E-2/E-3 契约第一片，分支 `claude/project-thread-sfktqb`）：E-2、E-3 的契约由实现方公开在 `skill/references/output-format.md` 末节「测试观察用的 stderr 行与保存失败注入（契约 kol-obs/v1）」，那段原文需求所有者丸子 2026-11-07 20:50:05Z 在项目线程决策卡上「确认这一版」（卡片答复，不是仓库里的拍板痕迹，`process/2-CHANGE.md` 第 164–165 行；原文字节的 SHA256 记在 ADR-186「触发它的事实」），并在 collect、probe、enrich 上做出来。接观察器与独立测试包是下一片，各改什么、哪一条合入之后开，写在 ADR-186 第五节；`mutations.json`、`launches.json` 与 #425 同一批文件的串行条件，按 #425 已合入、本片单开一条满足
+> ⚠️ 已还：ADR-70 第 3769 行 · 还在 ADR-186 那条 PR（KOL-21 E-2/E-3 契约第一片，分支 `claude/project-thread-sfktqb`）：E-2、E-3 的契约由实现方公开在 `skill/references/output-format.md` 末节「测试观察用的 stderr 行与保存失败注入」（契约第一版；2026-11-08 由 ADR-187 整节换成记录文件，契约改名），那段原文需求所有者丸子 2026-11-07 20:50:05Z 在项目线程决策卡上「确认这一版」（卡片答复，不是仓库里的拍板痕迹，`process/2-CHANGE.md` 第 164–165 行；原文字节的 SHA256 记在 ADR-186「触发它的事实」），并在 collect、probe、enrich 上做出来。接观察器与独立测试包是下一片，各改什么、哪一条合入之后开，写在 ADR-186 第五节；`mutations.json`、`launches.json` 与 #425 同一批文件的串行条件，按 #425 已合入、本片单开一条满足
+
+2026-11-08 改字：需求所有者要仓库里彻底没有那个旧的行前缀词，也让观察器改名。第 3773 行引的那一节标题、第 3238、3241、3296、3307 行观察器的响应脚本格式名与占位密钥串，都在原处换了，原有各行没挪位。为什么破例改旧记录、改了哪几处，见 ADR-187 第四、五节；原字在 git 历史里（主干 `54bd645` 及之前）。
+
+> ⚠️ 已还：ADR-70 第 3564 行 · 还在 ADR-187 那条 PR：`h-observer-preload` 两处 `JSON.parse(a.stdout)` 挪出 `eq` 的实参，先解析一次，解析失败给明示的失败值；让玩具入口改印不是 JSON 的东西，改之前整个需求测试以 SyntaxError 崩，改之后那两条断言红、别的照跑（ADR-187 第七节）

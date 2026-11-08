@@ -10,11 +10,11 @@
 import { createHash } from 'node:crypto'
 import { posix } from 'node:path'
 
-export const SCRIPT_SCHEMA = 'kol-observer-script/v1'
+export const SCRIPT_SCHEMA = 'kol-test-observer-script/v1'
 /** 观察器自己叫停入口时的退出码：脚本外的请求、事件写不进、钩子被换或绕过 */
 export const OBSERVER_EXIT = 97
 /** 观察器叫停时打到 stderr 的那一行的开头 */
-export const OBSERVER_MARK = '[kol-observer]'
+export const OBSERVER_MARK = '[kol-test-observer]'
 export const ENTRIES = ['probe', 'collect', 'enrich', 'render'] as const
 export type ObserverEntry = typeof ENTRIES[number]
 /** 按契约不发请求的入口：阳性对照可以用观察器自带的对照夹具（同一拦截点），入口自己的 armed 仍逐次核 */
@@ -104,7 +104,7 @@ export function answer(script: ResponseScript, used: readonly number[], method: 
  */
 export const ALLOWED_ENV = ['HOME', 'LANG', 'PATH', 'PWD', 'TIKHUB_API_KEY', 'TMPDIR', 'TSX_TSCONFIG_PATH', 'TZ'] as const
 /** 入口要有 key 才走到请求那一步；给的是这个占位串，不是任何真密钥 */
-export const API_KEY_PLACEHOLDER = 'kol-observer-placeholder-not-a-key'
+export const API_KEY_PLACEHOLDER = 'kol-test-observer-placeholder-not-a-key'
 export type ApiKey = 'placeholder' | 'absent'
 
 export interface Armed { kind: 'armed'; run: string; pid: number; ppid: number; entry: string; script_sha256: string;

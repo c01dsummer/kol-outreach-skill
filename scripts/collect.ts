@@ -42,7 +42,7 @@ import { ReviewInputError } from './lib/review.js'
 import type { Creator, TaskState } from './lib/types.js'
 import { loadSaveFault, obsReady } from './lib/obs.js'
 
-// kol-obs/v1（`skill/references/output-format.md`）：就绪行在读任何输入之前；注入文件启动时读一次。两样平时都关着
+// kol-test-observer/v1（`skill/references/output-format.md`）：就绪记录在读任何输入之前；控制文件启动时读一次。两样都只在设了记录文件时才有，平时关着
 obsReady('collect')
 const saveFault = loadSaveFault('collect')
 
@@ -169,7 +169,7 @@ try {
   const notify = (pct: number, view: ReturnType<Budget['view']>) => {
     console.error(`\n💰 已用 ${(pct * 100).toFixed(0)}% —— 估算占用 $${view.cost_estimate_usd} / $${view.budget_usd}\n`)
   }
-  // 选中的保存点在这里失败，与磁盘写失败同一条路：`Budget` 把它记成 persistence-failed、锁住本运行（kol-obs/v1）
+  // 选中的保存点在这里失败，与磁盘写失败同一条路：`Budget` 把它记成 persistence-failed、锁住本运行（kol-test-observer/v1）
   const persistCost: PersistCost = (snapshot, save) => { saveFault?.at(save.point, save); saveCostCheckpoint(dir, snapshot) }
   budget = resume ? new Budget(state, notify, persistCost) : startBudget(state, freshLimit!, 'task', notify, persistCost)
   if (resume && replacementLimit !== undefined) budget.setLimit(replacementLimit)
@@ -204,7 +204,7 @@ function qualified(): number {
   return [...creators.values()].filter(passesFollowerGate).length
 }
 
-/** `point` 只在已知额度不足、停下时那一次给（kol-obs/v1 的 SP-BUD）：注入时作者文件和 task.json 都不写 */
+/** `point` 只在已知额度不足、停下时那一次给（kol-test-observer/v1 的 SP-BUD）：注入时作者文件和 task.json 都不写 */
 function persist(point?: 'SP-BUD') {
   if (point) saveFault?.at(point)
   // D6.t：先存作者，再推进分页进度。反过来的话，两次写之间被打断或累加器写失败时，
