@@ -36,7 +36,7 @@ export type ScriptResponse =
   | { status: number; headers?: Record<string, string>; body?: string; body_base64?: string; body_read?: 'fail' }
   | { connect: 'fail' }
 export interface ScriptRule { method?: string; endpoint: string; query?: Record<string, string>; responses: ScriptResponse[] }
-export interface ResponseScript { schema: 'kol-observer-script/v1'; rules: ScriptRule[] }
+export interface ResponseScript { schema: 'kol-test-observer-script/v1'; rules: ScriptRule[] }
 export interface RunOptions {
   isolation: Isolation; entry: ObserverEntry | 'control'; args: readonly string[]; cwd: string
   script: ResponseScript; evidenceDir: string; apiKey?: ApiKey; timeoutMs?: number

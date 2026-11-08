@@ -35,10 +35,10 @@ import {
 // 加载这一刻的写函数：入口后来换掉 fs 的，事件照样写得进
 const { openSync, writeSync, readFileSync, realpathSync } = fs
 const { getEnvironmentData, isMainThread, setEnvironmentData, threadId } = workerThreads
-const raw = process.env.KOL_OBSERVER
-delete process.env.KOL_OBSERVER
+const raw = process.env.KOL_TEST_OBSERVER
+delete process.env.KOL_TEST_OBSERVER
 /** 主线程交给后起线程的那一份（运行 id、事件文件的描述符）用的键 */
-const HANDOFF = 'kol-observer'
+const HANDOFF = 'kol-test-observer'
 
 let fd: number | undefined
 let run = ''

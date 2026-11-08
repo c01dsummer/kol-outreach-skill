@@ -3235,10 +3235,10 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
      - `apiKey`：缺省 `'placeholder'`，入口拿到一个占位串（不是任何真密钥）；`'absent'` 时入口环境里连这个变量也没有。`timeoutMs`：缺省 120000，超时判信号故障。
    - 入口进程的环境从空表起，只有 `PATH`、`HOME`、`TMPDIR`、`LANG`、`TZ`（`UTC`）、`TSX_TSCONFIG_PATH`、`PWD` 与上面那个 key；调用方的环境一个都不传，不读 `.env`。`HOME`、`TMPDIR` 是沙箱私有的空目录；gh 的配置目录与仓库根的 `.env`、`.env.local` 在沙箱里是空的。
    - 每一跑有一个随机的运行 id（`run`），事件每行都带它。证据目录里留下：`script.json`（脚本原字节）、`argv.json`（参数表与环境，key 只写一句占位说明）、`events.jsonl`、`stdout.txt`、`stderr.txt`、`result.json`（判的结果）。
-3. **响应脚本格式 `kol-observer-script/v1`**（JSON）：
+3. **响应脚本格式 `kol-test-observer-script/v1`**（JSON）：
 
    ```json
-   { "schema": "kol-observer-script/v1",
+   { "schema": "kol-test-observer-script/v1",
      "rules": [
        { "method": "GET", "endpoint": "/<路径>", "query": { "<键>": "<值>" },
          "responses": [
@@ -3293,7 +3293,7 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
    export function zeroVerdict(target: Observation, positive: Observation | undefined): Zero
    export type Zero = { verdict: 'pass' } | { verdict: 'red'; requests: number }
      | { verdict: 'facility'; reason: string } | { verdict: 'fixture'; reason: string }
-   export const SCRIPT_SCHEMA = 'kol-observer-script/v1'
+   export const SCRIPT_SCHEMA = 'kol-test-observer-script/v1'
    export type ScriptResponse =
      | { status: number; headers?: Record<string, string>; body?: string; body_base64?: string; body_read?: 'fail' }
      | { connect: 'fail' }
@@ -3304,7 +3304,7 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
    export type ObserverEntry = typeof ENTRIES[number]
    export const FIXTURE_POSITIVE: readonly ObserverEntry[] = ['render']
    export const OBSERVER_EXIT = 97
-   export const API_KEY_PLACEHOLDER = 'kol-observer-placeholder-not-a-key'
+   export const API_KEY_PLACEHOLDER = 'kol-test-observer-placeholder-not-a-key'
    export type ApiKey = 'placeholder' | 'absent'
    export const ALLOWED_ENV = ['HOME', 'LANG', 'PATH', 'PWD', 'TIKHUB_API_KEY', 'TMPDIR', 'TSX_TSCONFIG_PATH', 'TZ'] as const
    export interface Armed { kind: 'armed'; run: string; pid: number; ppid: number; entry: string; script_sha256: string;

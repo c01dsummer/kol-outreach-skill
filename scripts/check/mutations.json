@@ -19665,7 +19665,7 @@
       "req": "harness",
       "why": "观察配置留在入口进程的环境里：入口与它起的进程看得见观察器的配置",
       "file": "scripts/check/observer-preload.ts",
-      "find": "delete process.env.KOL_OBSERVER\n",
+      "find": "delete process.env.KOL_TEST_OBSERVER\n",
       "replace": "",
       "by": "test",
       "kills": ["观察器预加载：armed 记本次运行、入口、脚本与本文件、加载顺序与环境变量名，观察配置在入口里看不见"]

@@ -200,7 +200,7 @@ function launch(o: RunOptions, knob?: 'channel-taken' | 'no-preload'): ObservedR
   const target = o.entry === 'control' ? join(dir, 'control.mjs') : join(REPO, 'scripts', `${o.entry}.ts`)
   const execArgv = knob === 'no-preload' ? EXEC_ARGV.slice(0, 2) : EXEC_ARGV
   const env: Record<string, string> = { ...observerEnv({ nodeBin: dirname(NODE), home: '/tmp', tmp: '/tmp', tsconfig: join(REPO, 'tsconfig.json'), apiKey }),
-    KOL_OBSERVER: JSON.stringify({ run, events, script: scriptFile, target }) }
+    KOL_TEST_OBSERVER: JSON.stringify({ run, events, script: scriptFile, target }) }
   const argv = [...sandboxArgs(o.isolation.layout, { empty, rw, chdir: rw[0] }), '--', NODE, ...execArgv, target, ...o.args]
   const r = spawnSync(o.isolation.bwrap, argv, { env, cwd: o.cwd, encoding: 'utf8', timeout: o.timeoutMs ?? 120_000, killSignal: 'SIGKILL', maxBuffer: 1 << 26 })
   const stdout = r.stdout ?? '', stderr = r.stderr ?? '', signal = r.signal ?? signalOf(r.status)
@@ -227,7 +227,7 @@ export const runObserved = (o: RunOptions): ObservedRun => launch(o)
  */
 export type FaultControl = 'unmatched' | 'close-channel' | 'channel-taken' | 'kill' | 'no-preload' | 'worker' | 'unguarded' | 'child' | 'swallow'
 export function runFaultControl(o: { isolation: Isolation; cwd: string; evidenceDir: string; fault: FaultControl }): ObservedRun {
-  const script: ResponseScript = { schema: 'kol-observer-script/v1', rules: [{ endpoint: '/observer-control', responses: [{ status: 200, body: 'ok' }] }] }
+  const script: ResponseScript = { schema: 'kol-test-observer-script/v1', rules: [{ endpoint: '/observer-control', responses: [{ status: 200, body: 'ok' }] }] }
   const url = `https://observer-control.invalid/observer-control${o.fault === 'unmatched' ? '-unscripted' : ''}`
   const mode = o.fault === 'unmatched' || o.fault === 'channel-taken' || o.fault === 'no-preload' ? 'fetch' : o.fault
   return launch({ isolation: o.isolation, entry: 'control', args: [mode, url], cwd: o.cwd, script, evidenceDir: o.evidenceDir },
