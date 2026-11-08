@@ -20578,6 +20578,30 @@
         "collect 读不到输入也先写恰好一条 ready 记录：entry 是 collect、contract 是 kol-test-observer/v1",
         "collect 连命令行参数都接受不了时也已写出恰好一条 ready 记录，entry 是 collect"
       ]
+    },
+    {
+      "id": "M-H187-i",
+      "req": "harness",
+      "why": "接着写的记录文件最后一行没有换行时不补：这一跑的就绪记录接在那半行后面、两条挤在一行，原文说每条记录占一整行",
+      "file": "scripts/lib/obs.ts",
+      "find": "  if (endsMidLine(path)) writeLine(Buffer.from('\\n'))\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "记录文件已存在、最后一行没有以换行结束时：原有内容一字不动，这一跑的记录各占一整行、第一条是 ready"
+      ]
+    },
+    {
+      "id": "M-H187-j",
+      "req": "harness",
+      "why": "接着写的记录文件不管最后一行有没有换行都先补一个：本来以换行结束的文件里多出一个空行，原有那一条后面接的不再是这一跑的记录",
+      "file": "scripts/lib/obs.ts",
+      "find": "    return last[0] !== 0x0a\n",
+      "replace": "    return true\n",
+      "by": "selfcheck",
+      "kills": [
+        "记录文件已存在时接着往后写：原有的那一条一字不动，后面是这一跑的记录、第一条是 ready"
+      ]
     }
   ],
   "exemptions": [

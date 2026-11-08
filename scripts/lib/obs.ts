@@ -8,9 +8,9 @@
  * 记录写进那个变量指的文件，**同步写、整条写完才回**：入口在出错时会立刻 `process.exit`，排着队没写出去的会丢；预留记录因此在
  * 那次请求发出之前已经整条进了文件，记录之间的次序就是调用的次序。stdout、stderr 一个字节都不因此多写。
  * 文件打不开、写不进时在 stderr 说一句、以 1 退出：启动时打不开的什么输入都没读；中途写不进的就停在那一句，还没发出的请求都不再发
- * （写的是预留记录时，那一次请求也就没发；命中记录、未命中记录在请求之后才写，那时请求已经发出去了）。
+ * （写的是预留记录时，那一次请求也就没发；`SP-200`、`SP-N200`、`SP-NS` 的命中记录在那次请求之后才写，那时它已经发出去了）。
  */
-import { openSync, readFileSync, writeSync } from 'node:fs'
+import { closeSync, fstatSync, openSync, readFileSync, readSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
 
 export const TEST_OBSERVER_CONTRACT = 'kol-test-observer/v1'
@@ -34,11 +34,27 @@ const giveUp = (path: string, error: unknown): never => {
   process.exit(1)
 }
 
-const write = (record: Record<string, unknown>): void => {
+/** 一段字节整段写进记录文件，写完才回；写不进就 `giveUp` */
+const writeLine = (line: Buffer): void => {
   if (out === undefined) return
-  const line = Buffer.from(`${JSON.stringify({ kind: record.kind, contract: TEST_OBSERVER_CONTRACT, ...record })}\n`)
   try { for (let done = 0; done < line.length;) done += writeSync(out.fd, line, done) }
   catch (error) { giveUp(out.path, error) }
+}
+
+const write = (record: Record<string, unknown>): void =>
+  writeLine(Buffer.from(`${JSON.stringify({ kind: record.kind, contract: TEST_OBSERVER_CONTRACT, ...record })}\n`))
+
+/** 已存在的记录文件最后一行没有以换行结束（例如上一个写它的人断在半行）。读不出最后一个字节就当以换行结束 */
+const endsMidLine = (path: string): boolean => {
+  let fd: number | undefined
+  try {
+    fd = openSync(path, 'r')
+    const { size } = fstatSync(fd)
+    if (size === 0) return false
+    const last = Buffer.alloc(1)
+    readSync(fd, last, 0, 1, size - 1)
+    return last[0] !== 0x0a
+  } catch { return false } finally { if (fd !== undefined) closeSync(fd) }
 }
 
 /** 打开记录文件、写就绪记录。入口的第一句：在读命令行参数、配置、`task.json` 之前 */
@@ -48,6 +64,8 @@ export function obsReady(entry: ObsEntry, env: NodeJS.ProcessEnv = process.env):
   let fd: number
   try { fd = openSync(path, 'a') } catch (error) { return giveUp(path, error) }
   out = { path, fd, entry }
+  // 「每条记录占一整行」：接着写的文件最后一行没有换行时先补一个，就绪记录才不会接在那半行后面
+  if (endsMidLine(path)) writeLine(Buffer.from('\n'))
   write({ kind: 'ready', entry })
 }
 
