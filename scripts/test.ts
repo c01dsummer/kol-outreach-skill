@@ -303,6 +303,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-observer-preload', needs: [] },
   { id: 'h-observer-run', needs: [] },
   { id: 'h-observer-contexts', needs: [] },
+  { id: 'h-observer-records', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -19084,6 +19085,9 @@ await group('h-observer-rule', () => {
   eq('观察器判定：入口进程的环境多了白名单外的变量、或 key 不是占位串，判隔离故障',
     [text({ ...armed, env_names: ['GH_TOKEN', 'HOME', 'PATH'] }, cl(0)), text({ ...armed, api_key: 'other' }, cl(0))].map(events => kindOf(judgeObservation(facts({ events })))),
     ['facility:isolation', 'facility:isolation'])
+  eq('观察器判定：入口进程的环境里有记录文件那个变量（观察器每一跑都设）不算白名单外，观察照样成立',
+    kindOf(judgeObservation(facts({ events: text({ ...armed, env_names: ['HOME', 'KOL_TEST_OBSERVER_EVENTS', 'PATH', 'TIKHUB_API_KEY'] }, rq(1, 0, { status: 200 }), rq(2, 1, { status: 402 }), cl(2)) }))),
+    'observed')
   eq('观察器判定：请求序号不连续、或记下的结局与脚本那个位置写的不同，判观察器故障',
     [text(armed, rq(2, 0, { status: 200 }), cl(1)), text(armed, rq(1, 0, { status: 500 }), cl(1)), text(armed, rq(1, 0, { connect: 'fail' }), cl(1))]
       .map(events => kindOf(judgeObservation(facts({ events })))), Array(3).fill('facility:observer'))
@@ -19141,6 +19145,12 @@ await group('h-observer-rule', () => {
   eq('观察器环境：从空表起只给 PATH、HOME、TMPDIR、LANG、TZ、TSX_TSCONFIG_PATH 与占位 key；不给 key 时连这个名字也没有', [envOf('placeholder'), Object.keys(envOf('absent'))],
     [{ PATH: '/n/bin:/usr/bin:/bin', HOME: '/tmp', TMPDIR: '/tmp', LANG: 'C.UTF-8', TZ: 'UTC', TSX_TSCONFIG_PATH: '/r/tsconfig.json', TIKHUB_API_KEY: API_KEY_PLACEHOLDER },
       ['PATH', 'HOME', 'TMPDIR', 'LANG', 'TZ', 'TSX_TSCONFIG_PATH']])
+  // 测试观察的记录文件（契约 kol-test-observer/v1）：观察器每一跑都设，值是那一跑证据目录里的一个文件；断网认证的探针不设
+  eq('观察器环境：给了记录文件的路径时多给 KOL_TEST_OBSERVER_EVENTS，值就是那条路径，别的不变；不给就没有这个名字',
+    [observerEnv({ nodeBin: '/n/bin', home: '/tmp', tmp: '/tmp', tsconfig: '/r/tsconfig.json', apiKey: 'absent', records: '/e/contract-records.jsonl' }),
+      Object.keys(envOf('placeholder')).includes('KOL_TEST_OBSERVER_EVENTS')],
+    [{ PATH: '/n/bin:/usr/bin:/bin', HOME: '/tmp', TMPDIR: '/tmp', LANG: 'C.UTF-8', TZ: 'UTC', TSX_TSCONFIG_PATH: '/r/tsconfig.json', KOL_TEST_OBSERVER_EVENTS: '/e/contract-records.jsonl' },
+      false])
   const L: Layout = { system: [{ path: '/usr', kind: 'dir' }, { path: '/bin', kind: 'symlink', target: 'usr/bin' }, { path: '/lib32', kind: 'absent' }], node: '/opt/node',
     repoRoot: '/r', repo: [{ path: 'scripts', kind: 'dir' }, { path: 'node_modules', kind: 'symlink', target: '/elsewhere' }, { path: 'tsconfig.json', kind: 'absent' }], ghDirs: ['/h/.config/gh'] }
   eq('观察器沙箱参数：先断网，根是空的，只读照搬系统目录、node、仓库里那几样，/tmp 是空 tmpfs，gh 配置目录空 tmpfs，仓库根 .env 与 .env.local 盖成空文件，可写目录绑在最后',
@@ -19298,6 +19308,59 @@ await group('h-observer-contexts', () => {
       toy('http', [`import http from 'node:http'`, `http.get('http://127.0.0.1:9/').on('error', () => {})`, settle].join('\n')),
       [97, '', ['armed', 'fault 绕过 fetch 用了 net.Socket.connect', 'close 0 97']])
   } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+// 测试观察的记录文件（契约 kol-test-observer/v1，`skill/references/output-format.md` 末节）读回来：观察器每一跑给入口一个记录文件，
+// 接线的 E-2、E-3 两个适配器从这里读。期望只来自原文那一节与下面写进夹具的字面值。读的一侧一律偏向「我不知道」：哪一行不合原文，
+// 整份交回问题，适配器就当没有记录（E-2 命中、E-3 就绪都不成立，冻结套件判夹具失格），不挑能读的那几行用
+await group('h-observer-records', async () => {
+  harness('测试观察的记录文件：合原文的读得出，哪一行不合原文都交回问题')
+  // 动态导入：这两个名字还没写出来时只红这一组，不连累别的组
+  const rule: Record<string, unknown> = await import('./check/observer-rule.js')
+  const read = rule.readContractRecords as (text: string, entry: string) => { records: { kind: string }[]; problems: string[] }
+  const C = { contract: 'kol-test-observer/v1' }
+  const T1 = '/api/v1/tiktok/app/v3/fetch_video_search_result'
+  const ready = (entry = 'collect') => ({ kind: 'ready', ...C, entry })
+  const reserved = (attempt_id = 3) => ({ kind: 'reserve', ...C, entry: 'collect', scope: 'task', endpoint: T1, unit_micro_usd: 1000, result: 'reserved', attempt_id })
+  const rejected = (reason = 'budget') => ({ kind: 'reserve', ...C, entry: 'collect', scope: 'task', endpoint: T1, unit_micro_usd: 1000, result: 'rejected', reason })
+  const hit = (point = 'SP-R', more: object = { attempt_id: 3, endpoint: T1 }) => ({ kind: 'save-fault', ...C, entry: 'collect', point, occurrence: 1, ...more, not_written: true })
+  const miss = (more: object = {}) => ({ kind: 'save-fault-miss', ...C, entry: 'collect', point: 'SP-R', occurrence: 1, seen: 0, why: 'not-reached', ...more })
+  const lines = (...rs: object[]) => rs.map(r => `${JSON.stringify(r)}\n`).join('')
+  const n = (text: string, entry = 'collect') => read(text, entry).problems.length
+  const good = read(lines(ready(), reserved(3), rejected('save-failed'), hit()), 'collect')
+  eq('测试观察记录：就绪打头、预留（成与不成）、命中各一条，合原文的整份读得出、没有问题，种类照原样',
+    [good.problems, good.records.map(r => r.kind)], [[], ['ready', 'reserve', 'reserve', 'save-fault']])
+  eq('测试观察记录：probe 的进程账预留、SP-BUD 的命中（不带尝试序号与端点）、文件不合格时读不出的字段写 null 的未命中，都合原文',
+    [n(lines(ready('probe'), { kind: 'reserve', ...C, entry: 'probe', scope: 'process', endpoint: T1, unit_micro_usd: 1000, result: 'reserved' }), 'probe'),
+      n(lines(ready(), hit('SP-BUD', {}))), n(lines(ready(), miss({ point: null, occurrence: null, seen: null, why: 'invalid-file' })))], [0, 0, 0])
+  eq('测试观察记录：空文件、最后一行没写完、不是 JSON、不是对象，各报一处',
+    [n(''), n(JSON.stringify(ready())), n(`${JSON.stringify(ready())}\nx\n`), n(`${JSON.stringify(ready())}\n[]\n`)], [1, 1, 1, 1])
+  eq('测试观察记录：contract 不是 kol-test-observer/v1、认不得的种类、多出原文没有的键，各报一处',
+    [n(lines(ready(), { ...reserved(), contract: 'kol-test-observer/v2' })), n(lines(ready(), { kind: 'zzz', ...C, entry: 'collect' })),
+      n(lines(ready(), { ...reserved(), extra: 1 }))], [1, 1, 1])
+  eq('测试观察记录：就绪不打头、有两条、一条也没有，哪一条的 entry 不是起的那个入口，或 collect 以外的入口写了保存失败注入的记录，各报一处',
+    [n(lines(reserved(), ready())), n(lines(ready(), ready())), n(lines(reserved())), n(lines(ready('probe'))), n(lines(ready(), { ...reserved(), entry: 'enrich' })),
+      n(lines(ready('probe'), { ...miss(), entry: 'probe' }), 'probe')],
+    [1, 1, 1, 1, 1, 1])
+  eq('测试观察记录：预留的 scope、端点、单价、result 不合原文，各报一处',
+    [{ scope: 'job' }, { endpoint: 'api/x' }, { endpoint: `${T1}?q=1` }, { unit_micro_usd: -1 }, { unit_micro_usd: 1.5 }, { result: 'ok' }]
+      .map(over => n(lines(ready(), { ...reserved(), ...over }))), [1, 1, 1, 1, 1, 1])
+  eq('测试观察记录：尝试序号只在任务账的成功预留上有 —— 任务账成功预留缺它、进程账或被拒的带它、它不是正整数，各报一处',
+    [n(lines(ready(), (({ attempt_id, ...r }) => r)(reserved()))), n(lines(ready(), { ...reserved(), scope: 'process' })),
+      n(lines(ready(), { ...rejected(), attempt_id: 3 })), n(lines(ready(), reserved(0)))], [1, 1, 1, 1])
+  eq('测试观察记录：原因只在被拒时有、取原文那五个之一 —— 被拒缺原因、原因认不得、成功预留带原因，各报一处',
+    [n(lines(ready(), (({ reason, ...r }) => r)(rejected()))), n(lines(ready(), rejected('quota'))), n(lines(ready(), { ...reserved(), reason: 'budget' }))], [1, 1, 1])
+  eq('测试观察记录：五种原因都认得',
+    ['budget', 'ledger-unavailable', 'pending', 'root-conflict', 'save-failed'].map(r => n(lines(ready(), rejected(r)))), [0, 0, 0, 0, 0])
+  eq('测试观察记录：命中的保存点不在那五个里、第几次不是正整数、not_written 不是 true、SP-BUD 带了尝试序号或端点、别的保存点缺了它们，各报一处',
+    [n(lines(ready(), hit('SP-X'))), n(lines(ready(), { ...hit(), occurrence: 0 })), n(lines(ready(), { ...hit(), not_written: false })),
+      n(lines(ready(), hit('SP-BUD'))), n(lines(ready(), hit('SP-200', {})))], [1, 1, 1, 1, 1])
+  eq('测试观察记录：未命中的原因不是 not-reached 或 invalid-file、seen 不是非负整数、没到第 k 次却把保存点或次数写成 null、说没到第 k 次而 seen 已经到了，各报一处',
+    [n(lines(ready(), miss({ why: 'other' }))), n(lines(ready(), miss({ seen: -1 }))), n(lines(ready(), miss({ point: null }))), n(lines(ready(), miss({ occurrence: null }))),
+      n(lines(ready(), miss({ seen: 1 })))], [1, 1, 1, 1, 1])
+  eq('测试观察记录：命中一跑最多一条，命中了就不该再有未命中，各报一处',
+    [n(lines(ready(), hit(), hit())), n(lines(ready(), hit(), miss()))], [1, 1])
+  eq('测试观察记录：记录文件的名字是观察器写进证据目录的那一个', rule.CONTRACT_RECORDS, 'contract-records.jsonl')
 })
 
 if (seenGroups.size !== GROUPS.length) {
