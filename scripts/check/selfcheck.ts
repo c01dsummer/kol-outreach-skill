@@ -2138,7 +2138,7 @@ group('test-observer-events', [], () => {
   if (unopenOf.collect) named('collect 的记录文件启动时就打不开：以 1 退出、stderr 说出是哪个文件，一次请求都不发、任务目录一字不改，记录文件也没建出来', ...unopenOf.collect)
   if (unopenOf.enrich) named('enrich 的记录文件启动时就打不开：以 1 退出、stderr 说出是哪个文件，一次请求都不发、任务目录一字不改，记录文件也没建出来', ...unopenOf.enrich)
   if (unopenOf.probe) named('probe 的记录文件启动时就打不开：以 1 退出、stderr 说出是哪个文件，一次请求都不发，记录文件也没建出来', ...unopenOf.probe)
-  // 「中途写不进去的，那一次请求不发」—— 预加载换掉 fs.writeSync：就绪记录照写，写 reserve 记录的那一次回 EIO（手法同上面 save-failed 那一例）
+  // 「中途写不进去的，就停在那里，还没发出的请求都不再发」（写的是预留记录：那一次请求也没发）—— 预加载换掉 fs.writeSync：就绪记录照写，写 reserve 记录的那一次回 EIO（手法同上面 save-failed 那一例）
   const mid = obsFixture('write-fails'), midPreload = join(mid.cwd, 'deny-record.mjs'), midMark = join(mid.cwd, 'deny-record.txt')
   writeFileSync(midPreload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.writeSync; fs.writeSync = function(fd, data, ...rest) { const bytes = typeof data === 'string' ? Buffer.from(data) : Buffer.from(data.buffer, data.byteOffset, data.byteLength); if (fd > 2 && bytes.includes('"kind":"reserve"')) { fs.appendFileSync(${JSON.stringify(midMark)}, 'injected\\n'); throw Object.assign(new Error('EIO: i/o error, write'), { code: 'EIO', errno: -5, syscall: 'write' }); } return original.call(this, fd, data, ...rest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(midMark)}, 'armed\\n');`)
   const midOn = TOBS_ON()
