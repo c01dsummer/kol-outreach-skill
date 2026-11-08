@@ -26,12 +26,13 @@ export type ReserveResult = { result: 'reserved'; attempt_id: number } | { resul
 
 /**
  * 名字检查（原文「行的格式」末尾）：入口有几句给人看的提示以用户给的路径或产品名开头，名字以 `KOL-OBS` 开头时提示也就以它开头了，
- * 所以原样或整理成规范路径之后以它开头的一律不接受，名字里有换行的每一行都算；不看两样开没开。`path` 为假时只看原样（产品名）。
+ * 所以原样或整理成规范路径之后以它开头的一律不接受；名字里有换行的每一行都算，每一行也原样、整理之后各看一遍；不看两样开没开。`path` 为假时只看原样（产品名）。
  * 有毛病时返回给人看的那一句：以固定的字开头，名字加引号写在句中 —— 原样写出带换行的名字，下一行就以它开头了。
  */
 export function obsNameProblem(what: string, name: string, path = true): string | undefined {
   const lines = (path ? [name, normalize(name)] : [name]).flatMap(form => form.split('\n'))
-  if (!lines.some(line => line.startsWith('KOL-OBS'))) return undefined
+  const forms = path ? lines.flatMap(line => [line, normalize(line)]) : lines
+  if (!forms.some(line => line.startsWith('KOL-OBS'))) return undefined
   return `${what} ${JSON.stringify(name)} 以 KOL-OBS 开头，不能用：这个开头留给测试观察的记录行（契约 ${OBS_CONTRACT}）。换个名字再跑。`
 }
 
