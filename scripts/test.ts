@@ -19124,13 +19124,15 @@ await group('h-observer-preload', () => {
       `const r4 = await fetch('https://h.invalid/b', { method: 'POST' }); try { await r4.json() } catch (e) { out.push(['body', e.name]) }`,
       `const r5 = await fetch('https://h.invalid/d'); out.push([r5.status, Buffer.from(await r5.arrayBuffer()).toString('hex')])`,
       `console.log(JSON.stringify(out))`].join('\n'))
+    // 玩具入口没印出合法 JSON 时给一个明示的失败值，让下面两条断言红，而不是异常冲出 group()（ADR-70 第 3564 行）
+    const outA: unknown = (() => { try { return JSON.parse(a.stdout) } catch { return { notJson: a.stdout } } })()
     const armedA = a.events[0]
     eq('观察器预加载：armed 记本次运行、入口、脚本与本文件、加载顺序与环境变量名，观察配置在入口里看不见',
-      armedA?.kind === 'armed' ? [armedA.run, armedA.entry, armedA.script_sha256, armedA.preload_sha256, armedA.exec_argv, armedA.env_names, JSON.parse(a.stdout)[0]] : armedA,
+      armedA?.kind === 'armed' ? [armedA.run, armedA.entry, armedA.script_sha256, armedA.preload_sha256, armedA.exec_argv, armedA.env_names, Array.isArray(outA) ? outA[0] : outA] : armedA,
       ['run-a', a.file, createHash('sha256').update(script).digest('hex'), createHash('sha256').update(rf('scripts/check/observer-preload.ts')).digest('hex'),
         ['--import', tsx, '--import', preload], ['PATH'], null])
     eq('观察器预加载：同一次运行里按脚本依次答多次请求（200、402、连接失败、正文读取失败、base64 正文），每次答之前先记一行，正文读没读也记，退出时写 close',
-      [a.status, JSON.parse(a.stdout).slice(1), shape(a.events)],
+      [a.status, Array.isArray(outA) ? outA.slice(1) : outA, shape(a.events)],
       [0, [[200, 'first'], [402, 'pay'], ['TypeError', 'fetch failed'], ['body', 'TypeError'], [200, '000102']],
         ['armed', 'request 1 {"status":200}', 'body 1 text true', 'request 2 {"status":402}', 'body 2 text true', 'request 3 {"connect":"fail"}',
           'request 4 {"status":200}', 'body 4 json false', 'request 5 {"status":200}', 'body 5 arrayBuffer true', 'close 5 0']])
