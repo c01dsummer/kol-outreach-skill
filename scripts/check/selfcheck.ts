@@ -2064,6 +2064,16 @@ group('kol-obs-events', [], () => {
       obsLines(on.stderr).length >= 2 && stripObs(on.stderr) === off.stderr && on.stdout === off.stdout && on.status === off.status,
       `去掉后 stderr 相同=${stripObs(on.stderr) === off.stderr}, stdout 相同=${on.stdout === off.stdout}; on: ${obsSaid(on)}\n    off stderr 末几行 ${stderrTail(off.stderr)}`)
   }
+  // 读 stderr 的一方慢了一拍：fd 2 是不阻塞的管道又正好满着时，写会回 EAGAIN，或者只写进去一截（#431 评审指出：预留存好之后这一行抛出去，
+  // 请求就不发了）。手法同上面 save-failed 那一例：预加载换掉 fs.writeSync，每条 KOL-OBS 行头一次写回 EAGAIN、第二次只写进 10 个字节。
+  // 「每一跑恰好一行」「每一次真实的 HTTP 尝试恰好对应一条 reserved 行」不因此打折 —— 同一目录再跑一次，三样都与上面开着开关那一跑逐字相同
+  const again = obsAgain(mkStrip), slow = join(again.cwd, 'obs-slow-stderr.mjs'), slowMark = join(again.cwd, 'obs-slow-stderr.txt')
+  writeFileSync(slow, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.writeSync; let n = 0; fs.writeSync = function(fd, data, ...rest) { const bytes = typeof data === 'string' ? Buffer.from(data) : Buffer.from(data.buffer, data.byteOffset, data.byteLength); if (fd !== 2 || !bytes.includes('KOL-OBS ')) return original.call(this, fd, data, ...rest); const phase = n++ % 3; if (phase === 0) { fs.appendFileSync(${JSON.stringify(slowMark)}, 'eagain\\n'); throw Object.assign(new Error('EAGAIN: resource temporarily unavailable, write'), { code: 'EAGAIN', errno: -11, syscall: 'write' }); } if (phase === 2) return original.call(this, fd, data, ...rest); fs.appendFileSync(${JSON.stringify(slowMark)}, 'partial\\n'); const from = typeof data === 'string' || typeof rest[0] !== 'number' ? 0 : rest[0]; return original.call(this, fd, bytes, from, Math.min(10, bytes.length - from)); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(slowMark)}, 'armed\\n');`)
+  const sl = obsResume('collect 开着开关、stderr 写得不顺的同一跑', again, { ...OBS_ON, NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(slow).href)}` })
+  if (sl.ok && !fileText(slowMark).includes('armed')) { failed++; console.error(`  ✗ stderr 写不顺的注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${sl.stderr}`) }
+  else if (sl.ok && on.ok) named('stderr 写回 EAGAIN、只写进一截时等着整行写完：stdout、stderr、退出码与顺顺当当的那一跑逐字相同',
+    /eagain[^]*partial/.test(fileText(slowMark)) && sl.stderr === on.stderr && sl.stdout === on.stdout && sl.status === on.status,
+    `注入记下 ${JSON.stringify(fileText(slowMark))}, stderr 相同=${sl.stderr === on.stderr}, stdout 相同=${sl.stdout === on.stdout}; ${obsSaid(sl)}`)
 })
 
 group('kol-obs-save-fault', [], () => {

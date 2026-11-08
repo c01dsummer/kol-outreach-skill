@@ -5,8 +5,9 @@
  * 两样默认都关着：`KOL_OBS_EVENTS` 不是恰为 `1`、当前目录里也没有 `.kol-save-fault.json` 时，这里一个字节都不写，
  * 除了看一眼那个文件在不在，什么也不做。
  *
- * 行只写 fd 2，**同步写**：入口在出错时会立刻 `process.exit`，排着队没写出去的会丢；与 `console.error`
- * 同一个 fd，次序就是调用的次序（预留行要排在那次请求之前，读的人靠的就是这个次序）。
+ * 行只写 fd 2，**同步写、整行写完才回**：入口在出错时会立刻 `process.exit`，排着队没写出去的会丢；预留行因此在那次请求发出之前
+ * 已经整行进了 fd 2，KOL-OBS 行之间的次序就是调用的次序。与 `console.error` 的行之间只在 stderr 没塞满时如此 —— 塞满时那些行
+ * 排在 Node 自己的队列里晚一步出去，契约也没许诺它们之间的次序。
  */
 import { readFileSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
@@ -23,8 +24,17 @@ export type RejectReason = 'budget' | 'ledger-unavailable' | 'pending' | 'root-c
 export type Attempt = { attempt_id: number; endpoint: string }
 export type ReserveResult = { result: 'reserved'; attempt_id: number } | { result: 'rejected'; reason: RejectReason }
 
+/**
+ * fd 2 是管道时，进程里一碰 `process.stderr` Node 就把它设成不阻塞；读的一方慢了、管道满着，写就回 EAGAIN 或只写进一截。
+ * 这时歇一毫秒接着写剩下的：抛出去的话，预留已经存好、请求却不发了（#431 评审指出）。
+ */
+const pause = new Int32Array(new SharedArrayBuffer(4))
 const write = (record: Record<string, unknown>): void => {
-  writeSync(2, `${OBS_PREFIX}${JSON.stringify({ kind: record.kind, contract: OBS_CONTRACT, ...record })}\n`)
+  const line = Buffer.from(`${OBS_PREFIX}${JSON.stringify({ kind: record.kind, contract: OBS_CONTRACT, ...record })}\n`)
+  for (let done = 0; done < line.length;) {
+    try { done += writeSync(2, line, done) }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EAGAIN') throw error; Atomics.wait(pause, 0, 0, 1) }
+  }
 }
 
 /** 事件开着时是本跑的入口名；关着是 undefined，`obsReserve` 据此什么都不写 */

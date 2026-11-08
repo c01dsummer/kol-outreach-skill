@@ -20333,6 +20333,30 @@
       "kills": [
         "连命令行参数都接受不了时也已写出恰好一条 ready 行，entry 是本入口"
       ]
+    },
+    {
+      "id": "M-H186-aj",
+      "req": "harness",
+      "why": "写回 EAGAIN 时不再等，照样抛出去：stderr 满着时就绪行那一句就让入口崩掉，预留存好之后那一句让请求不发",
+      "file": "scripts/lib/obs.ts",
+      "find": "catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EAGAIN') throw error; Atomics.wait(pause, 0, 0, 1) }",
+      "replace": "catch (error) { throw error }",
+      "by": "selfcheck",
+      "kills": [
+        "stderr 写回 EAGAIN、只写进一截时等着整行写完：stdout、stderr、退出码与顺顺当当的那一跑逐字相同"
+      ]
+    },
+    {
+      "id": "M-H186-ak",
+      "req": "harness",
+      "why": "只写进一截也当整行写完：那一行断在半截，与下一行粘成一行",
+      "file": "scripts/lib/obs.ts",
+      "find": "try { done += writeSync(2, line, done) }",
+      "replace": "try { writeSync(2, line, done); done = line.length }",
+      "by": "selfcheck",
+      "kills": [
+        "stderr 写回 EAGAIN、只写进一截时等着整行写完：stdout、stderr、退出码与顺顺当当的那一跑逐字相同"
+      ]
     }
   ],
   "exemptions": [
