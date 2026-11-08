@@ -11265,7 +11265,7 @@ group('observer-cert-entry', [], () => {
 // 整套是一组：冻结套件的依赖跨它自己的分组连成一片（G2-00、G1-02、G3-02 当基线，三个阳性每跑都起），拆开的话每组都得重跑这几跑。
 // 本文件直接起的只有接线那一个进程（ADR-145 的计数单位只数这一层），接线在沙箱里起的八十几跑入口不进那个数 —— 一条指着这里的
 // 变异实际要花整套一跑的时间，照实写在这里。
-// 具名断言只给交给本片认领的三条判据各一条（D6.y：ADR-183 第 95、196 行；D13.v、D13.u：ADR-184 第 193、272 行），各断言
+// 具名断言只给交给本片认领的判据，每条一句（D6.y：ADR-183 第 95、196 行；D13.v、D13.u：ADR-184 第 193、272 行），各断言
 // 「所涉各例没有一例判红、设施故障或夹具失格」；所涉各例按冻结用例（连同它调到的公共判据）在依据里引了哪条判据来列，冻结单的
 // 认领对照没有交到本片手上。认领另要那几例全部 pass、而且没有一项不判 —— 附条件子断言、复核没做、GAP 或 E 前提没补齐的，
 // 一条都认不下来。交点 U9×P1 不在这里认领（接线模块头写着 R 片要补在哪），自检的入口认领记录本来也不收交点。
@@ -11309,7 +11309,7 @@ group('kol21-independent', [], () => {
       console.log(`  · 独立用例 ${c.id} 未决（${c.verdict}），不算过也不算红：${parts.length ? parts.join('、') : c.notes.join('；').slice(0, 160)}`)
     } else { failed++; console.error(`  ✗ 独立用例 ${c.id}${SELFCHECK_FIXTURE_MARK}：报告里的结论 ${JSON.stringify(c.verdict)} 认不得`) }
   }
-  console.log(`  · 独立测试包 106 例：${['pass', 'red', 'fixture', 'facility', 'review-pending', 'not-judged', 'not-covered']
+  console.log(`  · 独立测试包 ${cases.length} 例：${['pass', 'red', 'fixture', 'facility', 'review-pending', 'not-judged', 'not-covered']
     .map(v => `${v} ${tally.get(v) ?? 0}`).join(' · ')}（未决三种不算过；冻结单状态对账在报告的 frozen 里）`)
   for (const q of Array.isArray(rep.questions) ? rep.questions : []) console.log(`  · 冻结套件报给需求方的疑问：${q}`)
 

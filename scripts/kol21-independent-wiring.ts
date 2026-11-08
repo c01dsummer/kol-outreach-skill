@@ -8,21 +8,22 @@
  * 冻结目录一个字节都不改（嵌入提交按 freeze-tests.sha256 核等）。这里只做冻结包 `INTEGRATION.md` 写明留给整合方的几样：
  *
  * - `facility`：观察器的公开调用面，`observer-run.ts` 的 `certifyIsolation`、`runObserved` 与 `observer-rule.ts` 的
- *   `zeroVerdict`、`readEvents`（ADR-70 末尾那一节，`Zero` 是修复轮 1 修订后带 side/cause 的那一版）。前三个原样传入；
- *   `readEvents` 交回的事件逐条浅拷贝一份，只为过类型（接口类型的事件不能直接当 `Record` 用），字段一个不增不减。
+ *   `zeroVerdict`、`readEvents`（ADR-70 末尾那一节，`Zero` 是修复轮 1 修订后带 side/cause 的那一版）。`readEvents` 交回的
+ *   事件逐条浅拷贝一份，只为过类型（接口类型的事件不能直接当 `Record` 用），字段一个不增不减；其余原样传入。
  * - `sortForOutput`：`scripts/lib/rows.ts` 的导出函数，同一个数组原样传进去（G5-03 要看调用后输入有没有被改）。
- * - `conditions`：登两类，每条 `ref` 写着出处。一类是冻结单 B 节把「建议问谁」写成整合方、整合方又答得出出处的（冻结单 :1586、:1592）：
+ * - `conditions`：每条 `ref` 写着出处。登的是冻结单 B 节把「建议问谁」写成整合方、整合方又答得出出处的（冻结单 :1586、:1592）：
  *   GAP-18（补法是下面的 `creatorCheck`）；GAP-24a、GAP-24b 是读实现得出的事实，只作资格前提（夹具有没有区分力），
  *   不当任何断言的期望。GAP-24c 要正本或对外文档直接给出「原文件不被改动」，没找到，不登；GAP-09、GAP-20 登了也不判，不登。
- *   另一类是 E-2、E-3：实现方把契约 kol-test-observer/v1 公开在 `skill/references/output-format.md` 末节，需求方逐字确认过
- *   （冻结单 :1797；ADR-186、ADR-187），`ref` 指那一节与两条决策记录。其余（GAP-07①④、GAP-10、GAP-39、GAP-40 与 E-1）不登。
+ *   再加 E-2、E-3：实现方把契约 kol-test-observer/v1 公开在 `skill/references/output-format.md` 末节，需求方逐字确认过
+ *   （冻结单 :1797），`ref` 指那一节与 ADR-186、ADR-187。其余（GAP-07①④、GAP-10、GAP-39、GAP-40 与 E-1）不登。
  *   没登的，依赖它的断言照冻结单落在 not-judged。
  * - `reviews`：一条复核都不给。语义复核要独立复核方对着本跑的文本写（GAP-25 也只是复核记录的键，不是前提登记），
  *   依赖它的断言落在 review-pending。not-judged、review-pending 都不算过、也不算红。
  * - `creatorCheck`：只照公开的 `Creator` 类型声明核 G5、G6 的夹具记录是不是合法 `Creator`（冻结单 :1586 的「公开的夹具资格检查」）。
  * - `e2`、`e3`：都从观察器每一跑交给入口的测试观察记录文件读（证据目录里的 `CONTRACT_RECORDS`；`observer-run.ts` 起入口时经
  *   `KOL_TEST_OBSERVER_EVENTS` 给），由 `observer-rule.ts` 的 `readContractRecords` 照原文逐行核。`e2.arm` 在当前目录写控制文件，
- *   选〈保存点，第 k 次〉；`e2.hits` 交回命中与未命中记录，`not_written` 改叫 `notWritten`、未命中标上 `miss`，别的字段原样。
+ *   选〈保存点，第 k 次〉；`e2.hits` 交回命中与未命中记录：命中记录去掉 `kind`、`contract`，`not_written` 改叫 `notWritten`；
+ *   未命中记录只交保存点、次数与入口，标上 `miss`、`notWritten` 记 false（冻结类型里没有 `seen`、`why` 的位置）。
  *   `e3` 走记录文件那一路（`channel: 'events'`，不剥 stderr）：就绪看那一条就绪记录，预留事件是预留记录去掉 `kind`、`contract`。
  *   G1-02D 只认 stderr 那一路，照冻结套件落在 not-judged。记录文件不在、或哪一处不合契约，整份当没有记录 —— 命中记录交空、
  *   就绪交 false，冻结套件照它的规则判夹具失格；不合在哪写进 stdout 汇总的 `records`，不挑能读的那几行用。
