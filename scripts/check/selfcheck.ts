@@ -2093,6 +2093,13 @@ group('test-observer-events', [], () => {
     on.records.length >= 2 && entryStderr(on.stderr) === entryStderr(off.stderr) && on.stdout === off.stdout && on.status === off.status
       && JSON.stringify(namesUnder(s2.cwd)) === JSON.stringify(offNames),
     `stderr 相同=${entryStderr(on.stderr) === entryStderr(off.stderr)}, stdout 相同=${on.stdout === off.stdout}; on: ${obsSaid(on)}\n    off stderr 末几行 ${stderrTail(off.stderr)}`)
+  // 「不存在就新建，已存在就接着往后写，不清空」—— 记录文件里先放一条别的记录，跑完它还在第一行，后面接这一跑的
+  const pre = TOBS_ON(), preText = '{"kind":"before","contract":"earlier"}\n'
+  writeFileSync(String(pre[TOBS_VAR]), preText)
+  const ap = obsResume('collect 记录文件已存在', obsFixture('append'), pre)
+  if (ap.ok) named('记录文件已存在时接着往后写：原有的那一条一字不动，后面是这一跑的记录、第一条是 ready',
+    fileText(String(pre[TOBS_VAR])).startsWith(preText) && ap.records[0]?.kind === 'before' && ap.records[1]?.kind === 'ready'
+      && reserves(ap.records, 'reserved').length >= 1, obsSaid(ap))
   // 「这个文件打不开或写不进去时，入口在 stderr 说明原因，以 1 退出：启动时就打不开的，什么输入都不读」—— 路径的上一级目录不存在。
   // 三个入口都指着读得出、本来会付费跑的输入：读了的话会发请求；任务目录一字不改
   const unopen = join(tmp, 'test-observer-no-such-dir', 'records.jsonl')
