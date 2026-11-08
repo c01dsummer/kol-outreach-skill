@@ -25,7 +25,7 @@ import { asHashtagProblems, igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { configFieldProblems } from './lib/config-input.js'
 import { duplicateKeyProblems } from './lib/duplicate-keys.js'
-import { obsReady } from './lib/obs.js'
+import { obsNameProblem, obsReady } from './lib/obs.js'
 
 // kol-obs/v1（`skill/references/output-format.md`）：就绪行在读任何输入之前，平时关着
 obsReady('probe')
@@ -34,6 +34,12 @@ const cfgIndex = process.argv.indexOf('--config')
 const cfgPath = process.argv[cfgIndex + 1]
 if (cfgIndex < 0 || !cfgPath || cfgPath.startsWith('--')) {
   console.error('用法: tsx scripts/probe.ts --config probe.json')
+  process.exit(2)
+}
+// kol-obs/v1 名字检查：读配置之前；读不到配置时那句提示以这个路径开头
+const cfgNameProblem = obsNameProblem('配置文件路径', cfgPath)
+if (cfgNameProblem) {
+  console.error(cfgNameProblem)
   process.exit(2)
 }
 type ProbeConfig = CostState & { market?: string; tasks: SearchTask[] }

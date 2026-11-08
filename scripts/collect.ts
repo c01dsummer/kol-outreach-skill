@@ -40,7 +40,7 @@ import { resumeProgressProblems } from './lib/resume-progress.js'
 import { prepareTaskReviews, type TaskReviews } from './lib/task-reviews.js'
 import { ReviewInputError } from './lib/review.js'
 import type { Creator, TaskState } from './lib/types.js'
-import { loadSaveFault, obsReady } from './lib/obs.js'
+import { loadSaveFault, obsNameProblem, obsReady } from './lib/obs.js'
 
 // kol-obs/v1（`skill/references/output-format.md`）：就绪行在读任何输入之前；注入文件启动时读一次。两样平时都关着
 obsReady('collect')
@@ -74,6 +74,9 @@ try {
     catch (e) { throw new Error(`--budget ${newBudgetArg}：${String(e)}`) }
   }
   if (resume) {
+    // kol-obs/v1 名字检查：先于读任何文件；后面几句提示以这个目录拼出的 task.json 开头
+    const resumeNameProblem = obsNameProblem('续跑目录', resume)
+    if (resumeNameProblem) throw new Error(resumeNameProblem)
     const taskPath = taskFile(resume)
     if (!existsSync(taskPath)) throw new Error(`找不到 ${taskPath}`)
     state = loadTask(resume)
@@ -81,6 +84,8 @@ try {
   } else {
     const cfgPath = arg('--config')
     if (!cfgPath) throw new Error('用法: npm run collect -- --config task.json | --resume <dir> [--budget N] [--ignore-memory]')
+    const cfgNameProblem = obsNameProblem('配置文件路径', cfgPath)
+    if (cfgNameProblem) throw new Error(cfgNameProblem)
     const cfg = readCostDocument<TaskState>(readFileSync(cfgPath, 'utf8'))
     state = cfg
     productFrom = cfgPath
@@ -132,6 +137,13 @@ const badProduct = textProblem(state.product)
 if (badProduct) {
   console.error(`${productFrom} 里的 product ${badProduct} —— 它要用作任务目录名，` +
                 `也要记进跨任务记忆的「为哪个产品推荐过」。先给它一个名字再跑。`)
+  process.exit(2)
+}
+// kol-obs/v1 名字检查：产品名本身，新任务还有用它拼出来的任务目录（`../` 会把 output/ 整理掉）；先于建目录与任何写入
+const productNameProblem = obsNameProblem('产品名', state.product, false)
+  ?? (resume ? undefined : obsNameProblem(`产品名 ${JSON.stringify(state.product)} 拼出来的任务目录`, taskDir(state.product)))
+if (productNameProblem) {
+  console.error(productNameProblem)
   process.exit(2)
 }
 
