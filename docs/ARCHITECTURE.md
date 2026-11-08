@@ -128,7 +128,7 @@
 | `scripts/lib/cost-ledger.ts` | 逻辑 | D12 D13 P1 P3 P5 | 精确金额、费用账校验与预留结算；只接收固定价目，不依赖文件或网络；总上限修改不重算历史项 |
 | `scripts/providers/tikhub-pricing.ts` | 适配 | D12 P5 | 固定公开价目的版本与完整端点报价，供费用账核对历史依据；不远程查价、不推断账户账单 |
 | `scripts/lib/budget.ts` | 逻辑 | D13 D14 P3 F7 | 连接价目与费用账，延迟检查付费资格；同一 state 同步账目/次数，由任务入口注入费用保存回调（回调同时得知是哪个保存点、哪一次尝试），预留和终态保存失败锁定该实例；process 预算不落盘；每次预留尝试经 `obs.ts` 报一行（kol-obs/v1，平时关着） |
-| `scripts/lib/obs.ts` | 逻辑 | — | 契约 kol-obs/v1（`output-format.md` 末节，需求方逐字确认，ADR-186）：`KOL_OBS_EVENTS` 恰为 `1` 时同步写就绪行与每次预留尝试的预留行；collect 启动时只读一次 `.kol-save-fault.json`，选中保存点的第 k 次抛出、与磁盘写失败同一条路，并写命中行，没生效就在退出时写未命中行。都只写 stderr、带 `KOL-OBS ` 前缀；两样都关着时什么也不写。入口第一句调它，保存点由 `budget.ts` 的保存回调与 collect 收尾那次断点保存报给它。另有名字检查 `obsNameProblem`（ADR-187）：以 `KOL-OBS` 开头的路径、目录、产品名不接受，原样、整理成规范路径之后、按换行拆开的每一行都查，不看两样开没开；probe、collect、enrich 读配置或任务目录之前查路径，读出产品名之后、任何写入之前查产品名 |
+| `scripts/lib/obs.ts` | 逻辑 | — | 契约 kol-obs/v1（`output-format.md` 末节，需求方逐字确认，ADR-186）：`KOL_OBS_EVENTS` 恰为 `1` 时同步写就绪行与每次预留尝试的预留行；collect 启动时只读一次 `.kol-save-fault.json`，选中保存点的第 k 次抛出、与磁盘写失败同一条路，并写命中行，没生效就在退出时写未命中行。都只写 stderr、带 `KOL-OBS ` 前缀；两样都关着时什么也不写。入口第一句调它，保存点由 `budget.ts` 的保存回调与 collect 收尾那次断点保存报给它 |
 | `scripts/lib/cost-json.ts` | 逻辑 | D13 D14 P3、D19 P1 | 根预算、次数与费用账原数值的精确边界；非法费用数字保持不可用并保留原件；向恢复进度校验提供原始 JSON 数字 token，读入时留住源文本、判重复时才扫出每一层对象里的重复键及每一处原文（D19.k 只取根与根下一层）；整份写回时，读入根上没被改动的非费用数字按原文写出，费用三棵子树只走 D13 的专用路径；任务文件、meta 与 stdout 共用，HTML 只读金额文本 |
 | `scripts/lib/email.ts` | 逻辑 | D7 | 反爬写法的邮箱提取；宁可返回 null 也不误判正常语句；几个邮箱列几个，按出现先后用 `, ` 连成一个值 |
 | `scripts/lib/assessment.ts` | 逻辑 | D8 D9 D10 F8 U7 | 公开样本范围归一化 → 指标 / 风险 / 活跃度 / 报价效率，每项带测量状态与溯源；新抓与缓存重算在这里共用窗口与媒体范围契约，入口脚本只负责调用与落盘 |

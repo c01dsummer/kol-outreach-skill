@@ -52,7 +52,7 @@ import type {
   Platform,
   TaskState,
 } from './lib/types.js'
-import { obsNameProblem, obsReady } from './lib/obs.js'
+import { obsReady } from './lib/obs.js'
 
 // kol-obs/v1（`skill/references/output-format.md`）：就绪行在读任何输入之前，平时关着
 obsReady('enrich')
@@ -64,12 +64,6 @@ const arg = (name: string) => {
 }
 
 const dir = arg('--dir')
-// kol-obs/v1 名字检查：先于用法检查与读任何文件；不合规那句提示以这个目录拼出的 task.json 开头
-const dirNameProblem = dir === undefined ? undefined : obsNameProblem('任务目录', dir)
-if (dirNameProblem) {
-  console.error(dirNameProblem)
-  process.exit(2)
-}
 if (!dir || !existsSync(taskFile(dir))) {
   console.error('用法: tsx scripts/enrich.ts --dir <output/xxx> [--budget N] [--refresh]')
   process.exit(2)
@@ -82,8 +76,6 @@ let budget: Budget
 const newBudget = arg('--budget')
 try {
   task = loadTask(dir)
-  const productNameProblem = typeof task.product === 'string' ? obsNameProblem('产品名', task.product, false) : undefined
-  if (productNameProblem) throw new Error(productNameProblem)
   const calibrationProblems = brandCalibrationProblems(task)
   calibrationProblems.push(...calibrationVersionProblems(task))
   const taskProblems = taskListProblems(task.tasks)
