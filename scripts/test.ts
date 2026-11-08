@@ -19312,7 +19312,7 @@ await group('h-observer-contexts', () => {
 })
 
 // 测试观察的记录文件（契约 kol-test-observer/v1，`skill/references/output-format.md` 末节）读回来：观察器每一跑给入口一个记录文件，
-// 接线的 E-2、E-3 两个适配器从这里读。期望只来自原文那一节与下面写进夹具的字面值。读的一侧一律偏向「我不知道」：哪一行不合原文，
+// 接线的 E-2、E-3 适配器从这里读。期望只来自原文那一节与下面写进夹具的字面值。读的一侧一律偏向「我不知道」：哪一行不合原文，
 // 整份交回问题，适配器就当没有记录（E-2 命中、E-3 就绪都不成立，冻结套件判夹具失格），不挑能读的那几行用
 await group('h-observer-records', async () => {
   harness('测试观察的记录文件：合原文的读得出，哪一行不合原文都交回问题')
@@ -19343,9 +19343,13 @@ await group('h-observer-records', async () => {
     [n(lines(reserved(), ready())), n(lines(ready(), ready())), n(lines(reserved())), n(lines(ready('probe'))), n(lines(ready(), { ...reserved(), entry: 'enrich' })),
       n(lines(ready('probe'), { ...miss(), entry: 'probe' }), 'probe')],
     [1, 1, 1, 1, 1, 1])
+  // scope、result 认不得的那两例不带尝试序号：带着的话，尝试序号那一道也会报，数不出 scope、result 自己那一道报没报
+  const bare = (({ attempt_id, ...r }) => r)(reserved())
   eq('测试观察记录：预留的 scope、端点、单价、result 不合原文，各报一处',
-    [{ scope: 'job' }, { endpoint: 'api/x' }, { endpoint: `${T1}?q=1` }, { unit_micro_usd: -1 }, { unit_micro_usd: 1.5 }, { result: 'ok' }]
-      .map(over => n(lines(ready(), { ...reserved(), ...over }))), [1, 1, 1, 1, 1, 1])
+    [n(lines(ready(), { ...bare, scope: 'job' })), ...[{ endpoint: 'api/x' }, { endpoint: `${T1}?q=1` }, { unit_micro_usd: -1 }, { unit_micro_usd: 1.5 }]
+      .map(over => n(lines(ready(), { ...reserved(), ...over }))), n(lines(ready(), { ...bare, result: 'ok' }))], [1, 1, 1, 1, 1, 1])
+  eq('测试观察记录：预留记录的 scope 与入口对不上 —— probe 记成任务账、collect 记成进程账，各报一处',
+    [n(lines(ready('probe'), { ...reserved(), entry: 'probe' }), 'probe'), n(lines(ready(), { ...bare, scope: 'process' }))], [1, 1])
   eq('测试观察记录：尝试序号只在任务账的成功预留上有 —— 任务账成功预留缺它、进程账或被拒的带它、它不是正整数，各报一处',
     [n(lines(ready(), (({ attempt_id, ...r }) => r)(reserved()))), n(lines(ready(), { ...reserved(), scope: 'process' })),
       n(lines(ready(), { ...rejected(), attempt_id: 3 })), n(lines(ready(), reserved(0)))], [1, 1, 1, 1])
@@ -19364,7 +19368,11 @@ await group('h-observer-records', async () => {
       n(lines(ready(), miss({ why: 'invalid-file', occurrence: 0 })))], [1, 1, 1])
   eq('测试观察记录：命中一跑最多一条，命中了就不该再有未命中，各报一处',
     [n(lines(ready(), hit(), hit())), n(lines(ready(), hit(), miss()))], [1, 1])
-  eq('测试观察记录：记录文件的名字是观察器写进证据目录的那一个', rule.CONTRACT_RECORDS, 'contract-records.jsonl')
+  const against = rule.recordsAgainstRequests as (text: string | undefined, entry: string, requests: number) => string[]
+  const ag = (text: string | undefined, requests: number) => against(text, 'collect', requests).length
+  eq('测试观察记录对照请求数：合契约、预留条条成功、条数等于请求数才没有问题；文件不在、不合契约、有被拒的、条数对不上，各报一处',
+    [ag(lines(ready(), reserved(1), reserved(2)), 2), ag(lines(ready()), 0), ag(undefined, 0), ag(lines(reserved()), 1),
+      ag(lines(ready(), reserved(1)), 2), ag(lines(ready(), reserved(1), rejected()), 2)], [0, 0, 1, 1, 1, 1])
 })
 
 // KOL-21 独立测试包 G3-09 新增两个以上 task.json 那一支的回归测试（ADR-70 第 3765 行那张欠条要的，放在冻结包之外）：

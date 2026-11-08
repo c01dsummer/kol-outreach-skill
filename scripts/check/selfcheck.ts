@@ -11277,6 +11277,12 @@ group('kol21-independent', [], () => {
   mkdirSync(work, { recursive: true })
   const r = runBoth('KOL-21 独立测试包经接线跑真实入口与观察器', [S('kol21-independent-wiring.ts'), '--work', work, '--report', report], root, { status: 0 })
   if (!r.ok) return
+  // 接线读到不合契约的测试观察记录时，冻结套件那几例只报得出「命中记录 []」「就绪标记缺席」；不合在哪只写在接线 stdout 的汇总里，照抄出来。
+  // 只是让人看得见原因：那几例的夹具失格照常算失败
+  let wired: { records?: unknown } | undefined
+  try { wired = JSON.parse(r.stdout.trim().split('\n').at(-1) ?? '') } catch { wired = undefined }
+  for (const p of Array.isArray(wired?.records) ? wired.records as { evidenceDir?: unknown; problems?: unknown }[] : [])
+    console.log(`  · 接线读到不合契约的测试观察记录（${String(p?.evidenceDir)}）：${Array.isArray(p?.problems) ? p.problems.join('；') : String(p?.problems)}`)
   type Kol21Item = { label: string; status: string; detail?: string }
   type Kol21Case = { id: string; verdict: string; items: Kol21Item[]; notes: string[] }
   const rep = jsonFile(report)

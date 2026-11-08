@@ -101,7 +101,8 @@ export function answer(script: ResponseScript, used: readonly number[], method: 
 /**
  * 入口进程里只该有的环境变量名（值由运行器定，见 `observerEnv`）；观察配置那一个由预加载删掉、不在里面。
  * `PWD` 不是运行器给的：bwrap 的 `--chdir` 自己设它，值就是那个当前目录。`KOL_TEST_OBSERVER_EVENTS` 是测试观察的记录文件
- * （契约 kol-test-observer/v1），起入口时每一跑都设，值是那一跑证据目录里的 `CONTRACT_RECORDS`
+ * （契约 kol-test-observer/v1），起入口时每一跑都设，值是那一跑证据目录里的 `CONTRACT_RECORDS`。断网认证的探针也照这张核
+ * （`netcutProblems`）：探针那一跑不给这个变量，有了也不算多
  */
 export const ALLOWED_ENV = ['HOME', 'KOL_TEST_OBSERVER_EVENTS', 'LANG', 'PATH', 'PWD', 'TIKHUB_API_KEY', 'TMPDIR', 'TSX_TSCONFIG_PATH', 'TZ'] as const
 /** 入口要有 key 才走到请求那一步；给的是这个占位串，不是任何真密钥 */
@@ -363,12 +364,29 @@ export function readContractRecords(text: string, entry: string): { records: Con
     if (own.length === 0 && r.contract !== RECORD_CONTRACT) own.push(`${at}.contract 不是 ${RECORD_CONTRACT}`)
     if (own.length === 0 && r.entry !== entry) own.push(`${at}.entry 不是起的入口 ${entry}`)
     if (own.length === 0 && (r.kind === 'save-fault' || r.kind === 'save-fault-miss') && entry !== 'collect') own.push(`${at}：保存失败注入只对 collect 生效`)
+    if (own.length === 0 && r.kind === 'reserve' && r.scope !== (entry === 'probe' ? 'process' : 'task')) own.push(`${at}.scope 与入口对不上：collect、enrich 是 task，probe 是 process`)
     problems.push(...own)
     records.push(r as unknown as ContractRecord)
   })
   if (records[0]?.kind !== 'ready' || records.filter(r => r.kind === 'ready').length !== 1) problems.push('就绪记录不是恰好一条、打头')
   if (records.filter(r => r.kind === 'save-fault' || r.kind === 'save-fault-miss').length > 1) problems.push('保存失败注入的记录一跑多于一条')
   return { records, problems }
+}
+
+/**
+ * 认证对照用（`observer-cert.ts`）：一跑的记录合契约，预留记录条条成功、条数等于观察器记下的请求数 —— 原文第一节说每一次真实的
+ * HTTP 尝试恰好对应一条 `reserved`，对照夹具又都是不该被拒的输入。`text` 是记录文件的内容，文件不在给 `undefined`。
+ * 交回不成立的地方，空表就是成立
+ */
+export function recordsAgainstRequests(text: string | undefined, entry: string, requests: number): string[] {
+  if (text === undefined) return ['记录文件不在']
+  const { records, problems } = readContractRecords(text, entry)
+  if (problems.length) return problems
+  const reserve = records.flatMap(r => r.kind === 'reserve' ? [r.result] : [])
+  const out: string[] = []
+  if (reserve.some(x => x !== 'reserved')) out.push('有被拒的预留记录')
+  if (reserve.length !== requests) out.push(`预留记录 ${reserve.length} 条，观察器记下的请求 ${requests} 次`)
+  return out
 }
 
 // ── 沙箱布局 ──────────────────────────────────────────────────────────

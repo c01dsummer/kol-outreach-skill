@@ -5,7 +5,7 @@
  *
  *   tsx scripts/check/observer-cert.ts --out <证据目录>
  *
- * 依次做：外层断网认证（受控拒绝探针）→ 四个入口各一条阳性、一条零记录资格对照 → 十条设施故障对照 → 汇总。
+ * 依次做：外层断网认证（受控拒绝探针）→ 每个入口各一条阳性、一条零记录资格对照 → 设施故障对照 → 汇总。
  * 断网认证不了就停在那一步、不起任何入口。证据全部写进 `--out`（必须还不存在）：每一步一个子目录，`input/` 是输入原件
  * （不进沙箱、运行后不变），`work/` 是同样的一份、当入口的当前目录，`state.json` 记 `work/` 运行前后每个文件的 SHA256，
  * `run/` 装着脚本、参数表、事件文件、入口写的测试观察记录、两股输出与退出码；`summary.json` 最后写，记被测提交、设施各文件与每份证据的 SHA256、
@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { certifyIsolation, facilityFiles, facilityIdentity, runFaultControl, runObserved, type FaultControl, type Isolation, type ObservedRun } from './observer-run.js'
-import { CONTRACT_RECORDS, SCRIPT_SCHEMA, readContractRecords, zeroVerdict, type FacilityCause, type ObserverEntry, type ResponseScript, type ScriptResponse } from './observer-rule.js'
+import { CONTRACT_RECORDS, SCRIPT_SCHEMA, recordsAgainstRequests, zeroVerdict, type FacilityCause, type ObserverEntry, type ResponseScript, type ScriptResponse } from './observer-rule.js'
 
 const at = process.argv.indexOf('--out'), given = process.argv[at + 1]
 if (at < 0 || !given || given.startsWith('--') || process.argv.length !== 4 || existsSync(resolve(given))) {
@@ -79,8 +79,8 @@ const brief = (r: ObservedRun) => ({ outcome: r.outcome, status: r.status, signa
  * 每个入口两条资格对照。阳性：已知会发请求的合法输入，脚本给的响应要原样回到入口的输出里（事件、响应与运行身份对得上）；
  * render 按契约不发请求，阳性用对照夹具（同一启动形状、同一预加载、同一认证），它自己的 armed 在零记录那一跑里核。
  * 零记录：已知不发请求的路径；零请求断言要四样都在（`zeroVerdict`）。
- * probe、collect、enrich 两条对照都另核入口按 kol-test-observer/v1 写的记录（ADR-186 末尾「第二片」）：合契约，预留记录条条成功、
- * 条数等于观察器记下的请求数 —— 阳性每次请求恰一条，零记录只有就绪那一条。render 与对照夹具不写记录，不核。
+ * probe、collect、enrich 的阳性与零记录对照都另核入口按 kol-test-observer/v1 写的记录（ADR-186 末尾「第二片」，`recordsAgainstRequests`）：
+ * 合契约，预留记录条条成功、条数等于观察器记下的请求数 —— 阳性每次请求恰一条，零记录只有就绪那一条。render 与对照夹具不写记录，不核。
  */
 interface Control { args: (cwd: string) => string[]; files?: Record<string, unknown>; script: ResponseScript; exit: number;
   requests: unknown[]; stdout?: (v: any) => boolean }
@@ -117,15 +117,13 @@ const runControl = (isolation: Isolation, entry: ObserverEntry, side: 'positive'
   const rec = entry === 'render' ? undefined : records(r, entry)
   const ok = r.outcome.kind === 'observed' && r.status === c.exit && JSON.stringify(outcomes(r)) === JSON.stringify(c.requests)
     && (c.stdout === undefined || c.stdout(parsed(r.stdout)))
-    && (rec === undefined || (rec.problems.length === 0 && rec.reserve.length === r.requests.length && rec.reserve.every(x => x === 'reserved')))
+    && (rec === undefined || rec.length === 0)
   return { r, ok, rec }
 }
-/** 这一跑的测试观察记录：不合契约的地方，与预留记录按先后排的结果 */
-const records = (r: ObservedRun, entry: ObserverEntry): { problems: string[]; reserve: string[] } => {
+/** 这一跑的测试观察记录对照观察器记下的请求，交回不成立的地方 */
+const records = (r: ObservedRun, entry: ObserverEntry): string[] => {
   const f = join(r.evidenceDir, CONTRACT_RECORDS)
-  if (!existsSync(f)) return { problems: ['记录文件不在'], reserve: [] }
-  const got = readContractRecords(readFileSync(f, 'utf8'), entry)
-  return { problems: got.problems, reserve: got.records.flatMap(x => x.kind === 'reserve' ? [x.result] : []) }
+  return recordsAgainstRequests(existsSync(f) ? readFileSync(f, 'utf8') : undefined, entry, r.requests.length)
 }
 
 /**
