@@ -18831,9 +18831,10 @@ d28Run(({ runConfig, brief, held }) => {
     writeFileSync(edited, text.replace('"product": "d29resume"', '"product": "d29/re\\\\sume"').replace('"product":"d29resume"', '"product":"d29/re\\\\sume"'))
     const changed = rf(edited, 'utf8') !== text
     const resumed = dirs.map(d => runConfig('collect', cfg(), undefined, ['--resume', d[0]]))
-    eq('续跑不按产品名判：task.json 里的 product 换成含 / 与 \\ 的之后，collect --resume 的退出码、预留与请求次数与没换的那一份相同，不以 2 拒绝',
-      [changed, resumed[1].status === 2, [resumed[1].status, resumed[1].reserves, resumed[1].attempts]],
-      [true, false, [resumed[0].status, resumed[0].reserves, resumed[0].attempts]])
+    // 没换的那一份要照常以 0 结束、装上了记账：两份都因无关原因失败时，三项相等也说明不了什么
+    eq('续跑不按产品名判：task.json 里的 product 换成含 / 与 \\ 的之后，collect --resume 的退出码、预留与请求次数与没换的那一份（照常以 0 结束）相同，不以 2 拒绝',
+      [changed, resumed[0].status === 0 && resumed[0].armed, resumed[1].status === 2, [resumed[1].status, resumed[1].reserves, resumed[1].attempts]],
+      [true, true, false, [resumed[0].status, resumed[0].reserves, resumed[0].attempts]])
     if (!changed || resumed.some(g => g.status !== 0)) console.log(`     ${resumed.map(brief).join('\n     ')}`)
   }
   criterion('D29.c')

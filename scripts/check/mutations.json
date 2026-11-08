@@ -20653,7 +20653,7 @@
       "replace": "productDirProblem(state.product)",
       "by": "test",
       "kills": [
-        "续跑不按产品名判：task.json 里的 product 换成含 / 与 \\ 的之后，collect --resume 的退出码、预留与请求次数与没换的那一份相同，不以 2 拒绝"
+        "续跑不按产品名判：task.json 里的 product 换成含 / 与 \\ 的之后，collect --resume 的退出码、预留与请求次数与没换的那一份（照常以 0 结束）相同，不以 2 拒绝"
       ]
     },
     {
@@ -20725,6 +20725,19 @@
       "file": "scripts/collect.ts",
       "find": "${badDirName}。换一个不含它们的名字再跑。`)\n  process.exit(2)",
       "replace": "${badDirName}。换一个不含它们的名字再跑。`)\n  process.exit(1)",
+      "by": "test",
+      "kills": [
+        "产品名含 /、\\ 或 NUL 时 collect --config（含 --budget 2）以 2 退出：零预留、零请求，不建任务目录（工作目录与它的上一级都原样），配置文件原字节",
+        "产品名含 /、\\ 或 NUL 被拒时 stderr 写出配置文件路径、product 与按 JSON 写法的原值"
+      ]
+    },
+    {
+      "id": "M-D29-i",
+      "req": "D29.a",
+      "why": "拒绝坏产品名之前先按它建了任务目录、写了任务文件：上一级开头的名字已经在输出目录以外留下了目录，拒绝也收不回来",
+      "file": "scripts/collect.ts",
+      "find": "if (badDirName) {\n  console.error(",
+      "replace": "if (badDirName) {\n  saveTask(taskDir(state.product), state)\n  console.error(",
       "by": "test",
       "kills": [
         "产品名含 /、\\ 或 NUL 时 collect --config（含 --budget 2）以 2 退出：零预留、零请求，不建任务目录（工作目录与它的上一级都原样），配置文件原字节",
