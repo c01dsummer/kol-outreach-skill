@@ -6859,6 +6859,7 @@ tension('D5', 'P2'); tension('U9', 'D5')
     eq('D5.c 一行里只加该加的格', line(['=x', 'plain', '@y']), "'=x,plain,'@y")
     eq('D5.d 数不加', line([-5, 0.5, -1e-7]), '-5,0.5,-1e-7')
     eq('D5.e 纯数字的文字不加', line(['-0.5', '+3', '12']), '-0.5,+3,12')
+    eq('D5.e 带指数的文字不算纯数字照加', line(['-1e-7']), "'-1e-7")
     eq('D5.f 人工反馈模板那条转义不加单引号', esc('=x'), '=x')
     const draft = '@{creator_name} Hi, {brand} here about {product}'
     const kolLine = (() => {
