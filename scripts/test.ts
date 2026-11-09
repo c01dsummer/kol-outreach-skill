@@ -16172,7 +16172,7 @@ await group('u9-review-output', () => {
   }
   eq('U13.c HTML有草稿的卡片单列主题且原文读回', subjectCases.filter(([, draft]) => draft !== undefined && draft.trim() !== '').map(([h]) => [h, subjectLine(subjectNodes, cardOf(subjectNodes, h))]),
     subjectCases.filter(([, draft]) => draft !== undefined && draft.trim() !== '').map(([h, , subject]) => [h, `主题：${subject}`]))
-  eq('U13.c HTML没有草稿的卡片不出主题行', subjectLine(subjectNodes, cardOf(subjectNodes, 's-absent')), undefined)
+  eq('U13.c HTML没有草稿或草稿只有空白的卡片不出主题行', ['s-absent', 's-blank'].map(h => [cardOf(subjectNodes, h) !== undefined, subjectLine(subjectNodes, cardOf(subjectNodes, h))]), [[true, undefined], [true, undefined]])
   ok('U13.c HTML主题在输出处转义而非注入标签', !subjectNodes.some(n => n.tag === 'b') && subjectPage.includes('&lt;b&gt;&amp;amp;&lt;/b&gt;'))
   const legacySubject = html(subjectFixtures, { ...meta, total: subjectFixtures.length, tiers: { A: 0, B: subjectFixtures.length, C: 0 } })
   ok('U13.c 旧HTML不出现主题行', !htmlRead(legacySubject).some(n => n.a['data-draft-subject'] !== undefined))

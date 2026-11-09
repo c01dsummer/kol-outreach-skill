@@ -18461,8 +18461,8 @@
       "req": "U13.c",
       "why": "新 HTML 草稿块里的主题不经转义直接写进报告，主题里的尖括号成了标记",
       "file": "scripts/lib/report.ts",
-      "find": "主题：${esc(draftSubject(c.outreach_draft) ?? '')}",
-      "replace": "主题：${draftSubject(c.outreach_draft) ?? ''}",
+      "find": "主题：${esc(subject)}",
+      "replace": "主题：${subject}",
       "by": "test",
       "kills": [
         "U13.c HTML主题在输出处转义而非注入标签"
