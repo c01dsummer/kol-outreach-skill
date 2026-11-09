@@ -9806,7 +9806,7 @@ const reviewCliEntryFixture = () => {
     'metrics_account_followers,metrics_account_following,engagement_rate_followers,engagement_rate_views,median_views,median_engagements,view_rate,following_ratio,reach_consistency,median_post_gap_days,latest_post_at,days_since_last_post,activity_status,audience_quality_risk,audience_quality_reasons,tier_adjustments,collaboration_quote,implied_ecpm,implied_ecpe,metrics_observed_at,' +
     'cross_platform,linked_handle,profile_url,source_keyword,source_dimension,best_post_desc,outreach_draft,previously_recommended,discovery_sources,metrics_sample_scope').split(',')
   const addedHeaders = ('effective_priority,effective_priority_account_key,eligibility,adoption_priority,observed_content,work_evidence,natural_integration,mismatch_risk,brand_calibration_version,review_status,' +
-    'manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note,manual_reviewed,manual_round_id,linked_agent_review,manual_feedback_accounts').split(',')
+    'manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note,manual_reviewed,manual_round_id,linked_agent_review,manual_feedback_accounts,outreach_subject').split(',')
   const calibration = (version = 'v1') => ({ version, target_creator_types: [], tone_aesthetic: [],
     natural_scenarios: [], negative_signals: [], sources: [] })
   const person = (handle: string, over: Record<string, unknown> = {}) => costPerson('tiktok', handle,
@@ -10161,7 +10161,7 @@ named('CLI render 阳性合法关联字段按账号契约规范化', rr.ok && by
   named('CLI 实际XLSX仅三层表且与CSV原值一致', rr.ok && book?.length === 3 && book.every((s, i) => s.name.startsWith(`${'ABC'[i]}级`) &&
     isDeepStrictEqual(s.rows[0], headers) && isDeepStrictEqual(s.rows.slice(1), csv?.slice(1).filter(r => r[0] === 'ABC'[i]))) &&
     isDeepStrictEqual(csv?.[0], headers) && Array.isArray(csv) && csv.every(r => r.length === headers.length) &&
-    fileText(join(rendered.taskDir, 'kol.csv')).charCodeAt(0) === 0xfeff, '完整旧前缀、新21列、层内排序或独立读回内容不一致')
+    fileText(join(rendered.taskDir, 'kol.csv')).charCodeAt(0) === 0xfeff, '完整旧前缀、新22列（U9 的 21 列与主题列）、层内排序或独立读回内容不一致')
   const field = (kind: string, key: string, name: string) => scopes.find(s => s.kind === kind && s.key === key)?.fields[name]
   named('CLI 三格式主关联评审与空白unknown保持各自身份', rr.ok && csvBy.main?.review_status === '未评' &&
     csvBy.main?.work_evidence === '' && csvBy.main?.manual_eligible === '' && csvBy.main?.manual_reviewed === 'false' &&
