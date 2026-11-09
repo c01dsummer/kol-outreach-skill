@@ -3,7 +3,7 @@ import type {
 } from './types.js'
 import { taskOrdinal } from './task-label.js'
 import { formatDiscoverySources } from './discovery.js'
-import { sampleScopeText, sortForReviewOutput, type ReviewOutputOptions } from './rows.js'
+import { draftSubject, sampleScopeText, sortForReviewOutput, type ReviewOutputOptions } from './rows.js'
 import { normalizedAccountKey } from './review.js'
 import type { CostView } from './budget.js'
 import type { FeedbackSummary } from './manual-feedback-summary.js'
@@ -283,6 +283,7 @@ ${dual ? `<div class="card ${escRaw(c.tier)}" data-tier="${escRaw(c.tier)}"${c.e
     c.linked_handle.startsWith('tiktok:') ? 'TikTok（关联）' : 'Instagram（关联）') : ''}
   ${c.previously_recommended ? `<div class="prev">曾推荐：${esc(c.previously_recommended)}</div>` : ''}
   ${c.outreach_draft ? `<details class="dr"><summary>开发信草稿</summary>
+    ${options.mode === 'review' ? `<div class="bio" data-draft-subject="outreach_subject">主题：${esc(draftSubject(c.outreach_draft) ?? '')}</div>` : ''}
     <pre>${esc(c.outreach_draft)}</pre>
     <button onclick="cp(this)">复制</button></details>` : ''}
 </div>`

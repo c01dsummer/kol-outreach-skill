@@ -25,7 +25,26 @@ const REVIEW_FIELDS = [
   'manual_reject_reason', 'manual_note', 'manual_reviewed', 'manual_round_id',
   'linked_agent_review', 'manual_feedback_accounts',
 ] as const
-export const REVIEW_HEADERS = [...HEADERS, ...REVIEW_FIELDS]
+/** U13：主题列只在评审表里，追加在 U9 那 21 列之后；默认模式的旧表头不动（U9.a）。 */
+export const REVIEW_HEADERS = [...HEADERS, ...REVIEW_FIELDS, 'outreach_subject']
+
+/** U13：拆不出主题时写的字面；和没有草稿时的空白不是一个意思（P1）。 */
+export const NO_SUBJECT = '拆不出主题'
+
+/**
+ * U13：从草稿第一个非空行拆主题。那一行是 `Subject: …`（不分大小写，冒号半角全角都认）
+ * 才拆，冒号后面去掉首尾空白就是主题，里面的 {…} 原样留着（P2.b）。
+ * 没有草稿或草稿全是空白 → undefined（由调用方写成空白）；有草稿但第一个非空行不是
+ * `Subject:`、或冒号后面是空的 → NO_SUBJECT。草稿本身一个字节都不改。
+ */
+export function draftSubject(draft: string | undefined): string | undefined {
+  if (draft === undefined) return undefined
+  const first = draft.split(/\r\n|\r|\n/).find(line => line.trim() !== '')
+  if (first === undefined) return undefined
+  const m = /^\s*subject\s*[:：](.*)$/i.exec(first)
+  const subject = m?.[1].trim()
+  return subject ? subject : NO_SUBJECT
+}
 export interface ReviewOutputOptions { mode?: 'review' }
 
 /**
@@ -163,7 +182,7 @@ export function toReviewRow(c: Creator): unknown[] {
     if (value === undefined) return field === 'review_status' ? '未评' : ''
     return field === 'linked_agent_review' || field === 'manual_feedback_accounts'
       ? JSON.stringify(value) : value
-  })]
+  }), draftSubject(c.outreach_draft) ?? '']
 }
 
 /** U1：tier 升序，同层 score 降序 */
