@@ -1,6 +1,6 @@
 # 输出格式
 
-> 相关需求：**U9.a** 公共格式默认兼容 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U10** HTML 默认全量与双筛选（原 U6 由 U9.a 兼容） · **U7** 公开指标与报价 · **U8** 任务展示身份 · **U9** 显式评审三格式输出 · **U11** 人工审核汇总 · **D5** BOM 与转义 · **D8–D10** 指标口径 · **D21/D23/D25** 平台独立评审及人工投影 · **D24/D26** 人工模板及真实本地入口 · **P5** 数据边界声明
+> 相关需求：**U9.a** 公共格式默认兼容 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U10** HTML 默认全量与双筛选（原 U6 由 U9.a 兼容） · **U7** 公开指标与报价 · **U8** 任务展示身份 · **U9** 显式评审三格式输出 · **U11** 人工审核汇总 · **U12** 报告取值在输出处转义 · **D5** BOM 与转义 · **D8–D10** 指标口径 · **D21/D23/D25** 平台独立评审及人工投影 · **D24/D26** 人工模板及真实本地入口 · **P5** 数据边界声明
 
 Phase 06 用。
 
@@ -26,7 +26,7 @@ output/{product}-{YYYYMMDDHHmm}/
 但 CSV 是通用交换格式，脚本、导入工具、其他系统都读它。**两个文件各司其职，不能只留一个** ——
 只留 xlsx 会让机器消费变麻烦，只留 CSV 就没法分层切换。
 
-`{product}` 用短横线小写，如 `anker-powerbank`。
+`{product}` 用短横线小写，如 `anker-powerbank`。它不能含 `/`、`\` 或 NUL：任务目录由它拼成，含这几个字符时 collect 新建任务以 2 拒绝、不建目录（D29）。
 
 ## 人工反馈模板（D23、D24、D26）
 
@@ -69,8 +69,8 @@ round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manua
 | `followers` | 跨平台合并后为两平台之和 |
 | `post_count` | |
 | `bio` | |
-| `email` | |
-| `email_verified` | 有增强层时填，否则留空 |
+| `email` | bio 里的全部邮箱，按出现先后用 `, ` 连起来，人来挑联系哪个；未查询显示「未查询」 |
+| `email_verified` | 邮箱有效性验证的结果：`true` 验证过、通过，`false` 验证过、没通过；没验证过（含没有地址可验）显示「未查询」。名单上已有的值照印，不证明这次交付配了验证层 |
 | `audience_geo_top` | 如 `US 62%`，无增强层留空 |
 | `metrics_account_followers` / `metrics_account_following` | 当前平台计算公开指标时使用的账号规模；不使用跨平台合计值 |
 | `engagement_rate_followers` | 主页近期作品的粉丝互动率；Instagram 新样本用窗口内全部返回作品；未查询/不可用显式显示 |
@@ -234,6 +234,7 @@ renderHtml(creators, meta, { mode: 'review', filters: 'dual' })
 需要包含：
 
 - 顶部统计：总人数、A/B/C 分布、有邮箱比例、跨平台人数；费用显示预算占用估算、总上限与分项（按固定公开基础价估算，不是实际账单），费用不可用时说明原因
+  公开指标已测账号数与高风险人数未提供或为 null 时明确标示未知状态，真实零显示 `0`；两种 HTML 视图一致，动态值仍在输出处转义一次（P1、U12）。
 - 关键词表现：**关键词×平台一行，任务里的每一个都在表上**，包括 0 命中的和一次都没查过的（U3.b）。
   每行先列任务序号（原 task_index 加一）；缺失或非法下标显示「无从确认」，不按显示位置猜补。
   序号不是查询或命中数；as_hashtag 不渲染成实际路径声明（U8）。
@@ -355,3 +356,62 @@ Instagram 的「portable charger」这次一次都没查到 —— 预算停在�
 套用上面那句去说 `unknown`，等于替它编了一个诊断（「读不出来、你让我跳过了」），
 而 `unknown` 有两个来源、事后分不出是哪一个。措辞的规矩在
 [`memory.md`](memory.md) 里，**以那份为准** —— 这里只是把它排进输出顺序。
+
+### 测试观察用的记录文件与保存失败注入（契约 kol-test-observer/v1）
+
+这一节只给自动化测试用，平时用不到。它整个由环境变量 `KOL_TEST_OBSERVER_EVENTS` 打开：没设这个变量、或者值为空时，collect、probe、enrich 的行为、输出和落盘，与没有这一节时完全相同，当前目录里放着 `.kol-save-fault.json` 也一样。
+
+**记录文件。** `KOL_TEST_OBSERVER_EVENTS` 的值是一个文件的路径。测试观察器每一跑都设它，平时使用不用设。设了时，入口一启动就打开这个文件：不存在就新建，已存在就接着往后写，不清空。每条记录占一整行，是一个单行 JSON 对象，以换行结束；每个对象都有 `kind`（记录种类）和 `contract`（固定为 `"kol-test-observer/v1"`）。记录只写进这个文件：stdout 和 stderr 一行都不因此多写，除了这个文件也不因此写任何别的文件。这个文件打不开或写不进去时，入口在 stderr 说明原因，以 1 退出：启动时就打不开的，什么输入都不读；中途写不进去的，就停在那里，还没发出的请求都不再发。
+
+**一、预留事件。** 设了 `KOL_TEST_OBSERVER_EVENTS` 时，collect、probe、enrich 写两种记录。
+
+就绪记录：入口一启动、读取任何输入（命令行参数、配置、`task.json`）之前写一条，每一跑恰好一条。`entry` 取 `collect`、`probe` 或 `enrich`。
+
+```
+{"kind":"ready","contract":"kol-test-observer/v1","entry":"collect"}
+```
+
+预留记录：每一次预算预留尝试写一条，成没成都写。
+
+```
+{"kind":"reserve","contract":"kol-test-observer/v1","entry":"collect","scope":"task","endpoint":"/api/v1/tiktok/app/v3/fetch_video_search_result","unit_micro_usd":1000,"result":"reserved","attempt_id":3}
+```
+
+- `scope`：`task` 是写进 `task.json` 的任务账（collect、enrich）；`process` 是只在本进程里的账（probe）。
+- `endpoint`：这次请求的 URL 路径，不含主机和查询串。
+- `unit_micro_usd`：这一路的单价，单位是百万分之一美元。
+- `result`：`reserved` 是预留成功，`rejected` 是被拒。
+- `attempt_id`：只在 `scope` 为 `task` 且 `result` 为 `reserved` 时有，是这次尝试在任务账里的序号。
+- `reason`：只在 `rejected` 时有，取五个之一。`budget`：已知额度不够付这一次。`ledger-unavailable`：费用账缺席、损坏或版本认不得。`pending`：账上有没结的预留。`root-conflict`：根预算与账上的上限冲突。`save-failed`：这次预留没能存进任务账，或本跑早先已有一次保存失败。
+
+`reserved` 记录在这次预留已经存好（任务账）之后、真正发出这次 HTTP 请求之前写出。每一次真实的 HTTP 尝试（包括重试和换路）恰好对应一条 `reserved` 记录，没有发出去的尝试没有 `reserved` 记录。`rejected` 记录在被拒的那一刻写出，这次请求不发。
+
+**二、让某一次保存故意失败。** 只对 collect 生效，也只在设了 `KOL_TEST_OBSERVER_EVENTS` 时生效。这时当前目录下有 `.kol-save-fault.json` 的话，collect 启动时读它一次，只读，不改也不删。
+
+```
+{"schema":"kol-save-fault/v1","point":"SP-R","occurrence":1}
+```
+
+`point` 是保存点，取五个之一：
+
+- `SP-R`：每次真实 HTTP 尝试之前，把这次预留写进 `task.json` 的那次保存。
+- `SP-200`：收到 HTTP 200 之后，把费用终态写进 `task.json` 的那次保存。
+- `SP-N200`：收到非 200 的 HTTP 状态之后，把撤销终态写进 `task.json` 的那次保存。
+- `SP-NS`：没拿到 HTTP 状态（例如连不上）之后，把保守留存的终态写进 `task.json` 的那次保存。
+- `SP-BUD`：已知额度不足、停下时的断点保存；注入时作者文件和 `task.json` 都不写。
+
+`occurrence` 是正整数 k。本跑里这个保存点第 k 次出现时，那一次保存不写盘，collect 照真实的保存失败收尾，和磁盘写失败走同一条路：stderr 报保存失败，原因写明是 `.kol-save-fault.json` 注入的。同一跑里这个保存点的其余各次和别的保存点都照常写。注入不改变请求的端点、价目、调度和重试次数。
+
+生效的那一刻，记录文件里写一条命中记录，一跑最多一条。`attempt_id` 和 `endpoint` 只在 `SP-R`、`SP-200`、`SP-N200`、`SP-NS` 时有。
+
+```
+{"kind":"save-fault","contract":"kol-test-observer/v1","entry":"collect","point":"SP-R","occurrence":1,"attempt_id":3,"endpoint":"/api/v1/tiktok/app/v3/fetch_video_search_result","not_written":true}
+```
+
+退出时如果注入一直没生效，记录文件里写一条未命中记录。`seen` 是本跑里这个保存点实际出现的次数。`why` 是 `not-reached`（没到第 k 次）或 `invalid-file`（文件不是合格的 JSON、`schema` 不对、`point` 不在上面五个里，或 `occurrence` 不是正整数）；文件不合格时不注入、其余照常，读不出的字段写 `null`。
+
+```
+{"kind":"save-fault-miss","contract":"kol-test-observer/v1","entry":"collect","point":"SP-R","occurrence":1,"seen":0,"why":"not-reached"}
+```
+
+平时使用不需要、也不应该放这个文件。

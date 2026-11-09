@@ -39,8 +39,6 @@ import type * as Ts from 'typescript'
 import { createRequire } from 'node:module'
 import { type Group, type ShardReport, families, wanted } from './group-rule.js'
 
-const ts = createRequire(import.meta.url)('typescript') as typeof Ts
-
 /**
  * 子进程交回、父进程合并的那几样。类型钉在 `ShardReport` 的字段上：想把别的名字塞进来让这道
  * 检查闭嘴，得先让子进程把它交回、让父进程合并它。
@@ -68,6 +66,7 @@ export interface ShareScan extends ShareJudgement {
 }
 
 export function scanShares(source: string, root = 'tmp', merged: readonly string[] = MERGED): ShareScan {
+  const ts = createRequire(import.meta.url)('typescript') as typeof Ts
   const name = 'selfcheck.ts'
   const file = ts.createSourceFile(name, source, ts.ScriptTarget.Latest, true)
   const host: Ts.CompilerHost = {

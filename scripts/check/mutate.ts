@@ -31,14 +31,14 @@
  *
  * 这条防线的强度取决于 `why` 怎么写 —— 引了实现原文的 why，`--brief` 照样把它漏出去。
  */
-import { cpSync, existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { availableParallelism } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { attributionFault } from './attribution-rule.js'
+import { orderBindingFaults, type OrderFault } from './order-rule.js'
 import { implementationLeak } from './why-rule.js'
 import {
   type LabelFault, type Verifier, type WiringFault,
@@ -46,7 +46,7 @@ import {
   executionRoutes, labelFaults, labelsOf, mutationEventBase, resolveMutationBaseline, routeDelta, type RouteSnapshot,
   anchorMatches, baselineFault, stopsEarly, wiringFault,
 } from './mutate-rule.js'
-import { CLAIMS_PATH, fingerprint, sourceFiles } from './claims.js'
+import { CLAIMS_PATH, mutationSourceIdentity } from './claims.js'
 import {
   type Ran, type CostBaseline, type CostCombination, type CostIdentity, type CostMutation,
   BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, billLines, copyIntoWorker,
@@ -58,10 +58,25 @@ import {
   INTERRUPTS, beginMutation, claimsRestoreAction, onInterrupt, restoreMutation, stopJobs, trackTest,
 } from './mutate-restore.js'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
-import { infraClosure, selfVerifying } from './verifier-rule.js'
+import { asTsx, prebuildOne, prebuiltCommand } from './prebuilt.js'
+import { countingEnv, parseLaunchLog } from './launch-count.js'
+import {
+  type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchVerifier,
+  inProcessLine, launchFindings, launchRecheck, launchReport, launchTally, settleLaunches, tallyLine,
+} from './launch-rule.js'
+import { LAUNCH_PRELOAD, infraClosure, selfVerifying } from './verifier-rule.js'
 
 // 观察不参与检查判定；普通收尾的人读行与机器段共用这一份原料。
 const costEnabled = !process.argv.includes('--brief') && !process.argv.includes('--worker')
+// 启动数文件这一跑重写，开跑先删旧的，排在变异集体检之前：这一跑在哪一步停下、数没数成，
+// 检查链最后一步都读不到上一跑的（ADR-145 第二十一节第 2 小节）。删不掉（比如那是个目录、没有权限）
+// 就以 1 退出、不往下跑，同变异集那几道体检：留着它，最后一步读到的就是上一跑的数
+const LAUNCHES_FILE = 'output/mutation-launches/launches.json'
+if (costEnabled) try { rmSync(LAUNCHES_FILE, { force: true }) } catch (e) {
+  console.error(`✗ 变异测试：上一跑留下的启动数文件删不掉（${e instanceof Error ? e.message : String(e)}）—— 留着它，检查链最后一步读到的是上一跑的数；未施加任何变异`)
+  console.error(`\n  先把 ${LAUNCHES_FILE} 挪走或删掉再跑。`)
+  process.exit(1)
+}
 let costContext: { identity: CostIdentity; combinations: CostCombination[] } | undefined
 const costBaselines: CostBaseline[] = []
 const costMutations: CostMutation[] = []
@@ -270,6 +285,40 @@ if (misnamed.length) {
   process.exit(1)
 }
 
+// 顺序契约表上点名的变异对不对得上 —— 判据在 `order-rule.ts`（ADR-148），这里只读那份文档、
+// 按种类说人话、设退出码（变异目录用开头读进来的那一份）。**排在最后**：前几道判一条变异的证据算不算数、记在谁名下，
+// 这一道判一份文档对变异目录的说法，最细；排在重复编号之后，按编号查才不会查到同名的另一条。
+// 读不到交 `undefined`，由判定报成一处 —— 不当成「没有表、没得核」放过去。
+const ORDER_DOC = 'docs/ARCHITECTURE.md'
+const SAY_ORDER: { [K in OrderFault['kind']]: (f: Extract<OrderFault, { kind: K }>) => string } = {
+  unreadable: () => `${ORDER_DOC} 读不到`,
+  markers: f => `起止标记不对：BEGIN:ORDER 出现 ${f.begins} 次、END:ORDER 出现 ${f.ends} 次，`
+    + `要各恰好一次、开始在前 —— ${ORDER_DOC} 正文里别处不能照抄这两段字`,
+  header: () => '表头不对：范围里第一条表格行要恰好有一格「位置」、一格「守它的变异」，下一行紧接着是分隔行',
+  stray: () => '不是表格行：表的范围里只能有表格行与空行',
+  shape: f => `有 ${f.cells} 格，表头有 ${f.expected} 格`,
+  malformed: f => `「${f.text}」像变异编号又不是 —— 编号写成 M-H47-a，区间写成 M-H47-a…n`,
+  empty: () => '一条变异也没点名',
+  unknown: f => `点名的 ${f.id} 不在变异目录里`,
+  'off-site': f => `点名的 ${f.id} 改的是 ${f.file}，不在这一行的位置栏里`,
+}
+const orderFaults = orderBindingFaults((() => {
+  try { return readFileSync(ORDER_DOC, 'utf8') } catch { return undefined }
+})(), muts)
+// 攒起来一次同步写 fd 2（与下面 `--brief` 同一个理由）：一张表可能报几十处，紧跟着就是硬退出
+if (orderFaults.length) {
+  const out = [`✗ 变异集：顺序契约表有 ${orderFaults.length} 处与变异目录对不上 —— `
+               + `${ORDER_DOC} 里点名的变异要在目录里、改的文件要在那一行的位置栏里\n`]
+  for (const f of orderFaults) {
+    const say = (SAY_ORDER[f.kind] as (f: OrderFault) => string)(f)
+    out.push(`  ${'line' in f ? `第 ${f.line} 行  ` : ''}${say}`)
+  }
+  out.push('\n  改表或改变异，让两边对上。这里只核点名的变异在不在、file 在不在那一行的位置栏里；'
+           + '守不守那一行要人按施加之后的后果判（ADR-146 第一节）。')
+  writeFileSync(2, `${out.join('\n')}\n`)
+  process.exit(1)
+}
+
 if (process.argv.includes('--brief')) {
   // **攒起来一次同步写，不是逐行 console.log。** 下面那句硬退出紧跟在打印之后，而 stdout
   // 接管道时 `console.log` 是异步的 —— 排在队里还没写出去就被 `process.exit` 掐掉。
@@ -327,7 +376,8 @@ const restoreClaims = () => {
 process.on('exit', restoreClaims)
 process.off('exit', publishCostAtExit)
 process.on('exit', publishCostAtExit)
-// 但**信号杀进来时 exit 处理也不跑** —— Ctrl-C、被杀掉、CI 超时、终端关掉，
+// 但**没人接管信号时 exit 处理靠不住** —— 裸 node 起时三种打断都不跑它；经 tsx 起时只有 SIGINT／SIGTERM
+// 落在没卡在同步等里、也没摘过处理的真进程上才跑（ADR-158 第四节那张表）。Ctrl-C、被杀掉、CI 超时、终端关掉之后
 // 留下的是一份被改写的源文件加一份对不上的覆盖记录，而没有任何东西说过它们在那儿。
 // 下面记现场那一步顺手把这几个信号接管了（`mutate-restore.ts`），
 // 让「被打断」和「跑完」走同一条还原路径 —— 这里不再单写一行，是为了没有一行可忘。
@@ -438,8 +488,15 @@ const forgetVerifier = (): void => {
   onInterrupt()
 }
 
+// 正常基线那一跑注入的计数预加载（ADR-145 第十三节）；按本文件的位置找，玩具树里起的 mutate 也找得到
+const launchPreload = new URL(`../${LAUNCH_PRELOAD}`, import.meta.url).href
+const verifierEnv = (verifier: Verifier, cwd: string | undefined, countLog: string | undefined): NodeJS.ProcessEnv => {
+  const env = { ...process.env, MUTATING: '1', NODE_COMPILE_CACHE }
+  return countLog === undefined ? env
+    : countingEnv(env, { log: countLog, target: resolve(cwd ?? '.', verifier.script), preload: launchPreload })
+}
 const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly string[], cwd?: string,
-  baselineLive?: Set<ChildProcess>, observeSpawn?: () => void):
+  baselineLive?: Set<ChildProcess>, observeSpawn?: () => void, countLog?: string):
   Promise<{ status: number | null; output: string; atStop?: string; started: boolean; ms: number }> =>
   new Promise(resolve => {
     // 带标记跑：变异跑的是被改过的源码，那一次执行留下的覆盖记录不作数，
@@ -449,10 +506,12 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     // 照样跑到底（ADR-74 第一节那张表；按这里的起法又实跑过几轮，见 ADR-70 末尾）。
     // 见齐就停发的是 SIGTERM，要这一组另有理由，见下面 `stopIfSeen`。负 pid 是进程组语义，
     // POSIX 上才成立（见 `tsx-cmd.ts`）
-    const [exe, argv] = tsxCommand(
-      only === undefined ? [verifier.script] : [verifier.script, `--only=${only.join(',')}`])
-    const kid = spawn(exe, argv,
-      { cwd, stdio: 'pipe', detached: true, env: { ...process.env, MUTATING: '1', NODE_COMPILE_CACHE } })
+    // 预编缓存里有整棵树现在这一版就裸 node 起，否则照旧 tsx（`prebuilt.ts`，ADR-158）。裸 node 没有壳：
+    // 下面说的「壳会转发」「壳隔几十毫秒改发 SIGKILL」那几句只在退回 tsx 时成立，整组照杀，结果一样
+    const env = verifierEnv(verifier, cwd, countLog)
+    const [exe, argv] = prebuiltCommand(
+      only === undefined ? [verifier.script] : [verifier.script, `--only=${only.join(',')}`], cwd, env)
+    const kid = spawn(exe, argv, { cwd, stdio: 'pipe', detached: true, env })
     let started = false
     let began: number | undefined
     kid.on('spawn', () => { started = true; began = performance.now(); observeSpawn?.() })
@@ -496,9 +555,11 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     // 压根没起来（命令不在、权限不足）也要留下话：那时两股都是空的，
     // 判定只会说「跑不起来」，而人得知道是没起来还是跑崩了
     kid.on('error', e => { err += `\n${e}` })
-    kid.on('close', status => {
+    kid.on('close', (code, signal) => {
       const ms = began === undefined ? 0 : Math.round(performance.now() - began)
       forgetVerifier()
+      // 裸 node 起的按 tsx 的壳会报的那样换算信号死亡（`asTsx`）：判定与成本账看到的退出码不随起法变
+      const { status } = asTsx(argv, code, signal)
       resolve({ status, output: `${out}\n${err}`, atStop, started, ms })
     })
     // **留号在装完那两个监听器之后。** 放在 `trackTest` 紧后面的话,这一句一抛就落在
@@ -541,7 +602,10 @@ const runOne = async (m: Mut): Promise<Ran> => {
     // 写盘也在这一段里面：写盘是先截断再写的，写到一半抛出去（盘满、IO 错）留下的是
     // 半份源文件，而那时 `finally` 要是够不着，被截断的那份就留在工作区里，
     // 记着的现场谁也不去取（评审指出）
-    writeFileSync(m.file, orig.replace(m.find, m.replace), 'utf8')
+    const mutated = orig.replace(m.find, m.replace)
+    writeFileSync(m.file, mutated, 'utf8')
+    // 被改的这一个文件编进预编缓存（按正文存，不必还原）；编不出来就不写，验证者退回 tsx（ADR-158）
+    prebuildOne(m.file, mutated)
     // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null);
     // 点了名的还要再看一层:红的是不是 kills 说的那一条
     const verifier = VERIFIERS[m.by ?? 'test']
@@ -607,8 +671,8 @@ const record = (m: Mut, ran: Ran): void => {
  * **只往 stdout 写结论那一种行**，人看的报告由派工那一侧打 —— 两边都打的话，
  * 同一条变异在同一份输出里出现两次，而两次的措辞将来一定会岔开。
  *
- * 写用的是同步那一路（和 `--brief` 同一个理由）：紧接着可能就没有事件循环再跑了，
- * 排在队里没写出去的那一行会被当成「这一条没回话」，而那是硬失败。
+ * 每条结论等待 stdout 的写回回调再接下一条或正常退出；暂时背压交给流等待，
+ * 写回失败向外传播，不能把排队未交回的结论当成正常完成。
  */
 if (process.argv.includes('--worker')) {
   // coordinator 已核可信历史；worker 在施变前冻结同一正常源码路由，不读取被排除的 .git。
@@ -628,7 +692,10 @@ if (process.argv.includes('--worker')) {
   for await (const line of createInterface({ input: process.stdin })) {
     const m = byId.get(line.trim())
     if (m === undefined) break
-    writeFileSync(1, `${reportLine(m.id, await runOne(m))}\n`)
+    const report = `${reportLine(m.id, await runOne(m))}\n`
+    await new Promise<void>((done, reject) => {
+      process.stdout.write(report, error => error ? reject(error) : done())
+    })
   }
   process.exit(0)
 }
@@ -917,9 +984,7 @@ const identity: CostIdentity = {
   workers: jobs, state: 'incomplete', reason: '变异执行尚未完成',
 }
 try {
-  const sha = (path: string): string => 'sha256:' + createHash('sha256').update(readFileSync(path)).digest('hex')
-  identity.sourceIdentity = JSON.stringify(['mutation-cost-source/v1', fingerprint(sourceFiles()),
-    sha('scripts/check/mutations.json'), sha('package-lock.json')])
+  identity.sourceIdentity = mutationSourceIdentity()
 } catch (e) {
   identity.identityFault = `待验源码／目录／依赖锁身份未取得：${e instanceof Error ? e.message : String(e)}`
 }
@@ -928,9 +993,53 @@ for (const route of currentSnapshot().routes) {
   costMutationIndex.set(route.id, costMutations.length)
   costMutations.push({ id: route.id, key: configurationKey(route), state: 'not-started', reason: '尚未派出变异，未启动验证者' })
 }
-// 同一组选跑配置只做一次正常代码基线。用与变异 worker 相同的复制规则建隔离目录，
+/**
+ * 全部正常基线都绿了以后：照启动数闸门的判法判一遍，超线的配置在头一个基线目录里各再跑一次基线确认，
+ * 交回要打的那几行，并把同样的东西写进 `output/mutation-launches/launches.json`（ADR-145 第十三节第 2 小节）。
+ * 只报数：这里的任何结果都不改任何一条变异的结论，也不改退出码；出了错只打一行，变异照常跑。
+ */
+const countLaunches = async (configs: readonly { by: string; only: string[]; key: string; id: string }[], dir: string,
+  live: Set<ChildProcess>): Promise<string[]> => {
+  try {
+    const mutations: LaunchMutation[] = muts.map(m =>
+      ({ id: m.id, by: (m.by ?? 'test') as LaunchVerifier, only: onlyFor(m), kills: m.kills ?? [] }))
+    const declared = { selfcheck: [...inventoryOf('selfcheck').keys()], test: [...inventoryOf('test').keys()] }
+    const again = new Map<string, BaselineLaunches | undefined>()
+    let findings: LaunchFinding[] = launchFindings(mutations, launchCounts, declared)
+    for (const key of launchRecheck(findings)) {
+      const config = configs.find(c => c.key === key)!
+      const verifier = VERIFIERS[config.by]
+      const ran = await runTest(verifier, undefined, config.only, dir, live, undefined, launchLog(`${config.id}-again`))
+      again.set(key, baselineFault(ran.status, ran.output, verifier) === undefined ? launchRead(launchLog(`${config.id}-again`)) : undefined)
+    }
+    findings = settleLaunches(findings, launchCounts, again)
+    const tally = launchTally(mutations, launchCounts, declared)
+    const record = { schema: 'mutation-launches/v1', head: comparison.head, source: identity.sourceIdentity ?? null, tally, findings }
+    const lines = [`  ${tallyLine(tally)}`]
+    if (findings.length) lines.push('  检查链最后一步的启动数闸门会照下面这些判（变异一步只报数）：', ...launchReport(findings).map(l => `    ${l}`))
+    try {
+      mkdirSync(dirname(LAUNCHES_FILE), { recursive: true })
+      writeFileSync(LAUNCHES_FILE, JSON.stringify({ ...record, baselines: Object.fromEntries(launchCounts),
+        again: Object.fromEntries([...again].map(([key, b]) => [key, b ?? null])) }, null, 2) + '\n')
+    } catch (e) {
+      lines.push(`  启动数文件没写成（${e instanceof Error ? e.message : String(e)}）`)
+    }
+    return [...lines, 'MUTATION_LAUNCHES_JSON ' + JSON.stringify(record)]
+  } catch (e) {
+    return [`  启动数没数成（${e instanceof Error ? e.message : String(e)}）；只报数，变异照常跑`]
+  }
+}
+// 同一组选跑配置只做一次正常代码基线（启动数超线的配置另在 countLaunches 里为计数重跑一次，不进成本报告）。用与变异 worker 相同的复制规则建隔离目录，
 // 在任何一条变异落盘之前跑完；子集及其 needs 由验证者本身解析并执行。
 const subsets = new Map<string, { by: string; only: string[]; count: number }>()
+// 启动数（ADR-145 第二片）：只报数，不改任何结论、不改退出码。计数只在正常基线那一跑里数
+const launchCounts = new Map<string, BaselineLaunches>()
+const launchLog = (name: string): string => resolve(JOBS_DIR, `${name}.launches.jsonl`)
+// 读不出来（没有权限、是个目录）与没有这份日志一样算缺计数：数的那一段从不让变异一步失败
+const launchRead = (log: string): BaselineLaunches | undefined => {
+  try { return parseLaunchLog(existsSync(log) ? readFileSync(log, 'utf8') : '') } catch { return undefined }
+}
+let launchOutput: string[] = []
 let fullWithoutKills = 0
 let fullUngrouped = 0
 for (const m of muts) {
@@ -979,8 +1088,10 @@ if (subsets.size) {
         const ran = await runTest(verifier, undefined, config.only, dir, baselineLive, () => {
           costBaselines[config.index] = { id: config.id, key: config.key, state: 'incomplete',
             elapsed: { kind: 'unavailable', reason: '正常基线已实际启动，尚未取得退出计时' }, reason: '正常基线尚未退出' }
-        })
+        }, launchLog(config.id))
         const fault = baselineFault(ran.status, ran.output, verifier)
+        const counted = fault === undefined ? launchRead(launchLog(config.id)) : undefined
+        if (counted !== undefined) launchCounts.set(config.key, counted)
         const baseline = { id: config.id, key: config.key }
         if (!ran.started) costBaselines[config.index] = { ...baseline, state: 'start-failed', reason: '验证者没有实际 spawn 启动' }
         else if (fault === undefined) {
@@ -996,6 +1107,7 @@ if (subsets.size) {
         console.log(`  ✓ 子集基线 ${config.by} --only=${config.only.join(',')}（供 ${config.count} 条变异使用）`)
       }
     }))
+    if (faults.length === 0) launchOutput = await countLaunches(configs, dirs[0], baselineLive)
   } finally {
     for (const sig of INTERRUPTS) process.off(sig, stopBaseline)
     rmSync(JOBS_DIR, { recursive: true, force: true })
@@ -1008,10 +1120,11 @@ if (subsets.size) {
     await publishCost()
     process.exit(1)
   }
-}
+} else launchOutput = await countLaunches([], '.', new Set())
 const selectedCount = [...subsets.values()].reduce((n, s) => n + s.count, 0)
 console.log(`  子集选跑 ${selectedCount} 条、${subsets.size} 种配置；整跑 ${fullWithoutKills + fullUngrouped} 条`
   + `（${fullWithoutKills} 条未点名断言，${fullUngrouped} 条断言尚未归组）`)
+for (const line of launchOutput) console.log(line)
 // 只有一条路走串行：清单只剩一条、机器只有一个核、或者人明确要求。那条路逐字保持原样，
 // 派工那一侧一个进程都不起 —— 自检里那几份最小语料走的正是它
 if (jobs === 1) for (const m of muts) { observeHand(m.id); record(m, await runOne(m)) }
@@ -1022,7 +1135,7 @@ for (const e of exemptions) {
   console.log(`  ⊘ ${e.req} ${exemptionLead(exemptionCovered(e.req, muts))}：${e.why.split('。')[0]}。`)
 }
 
-// 那个乘法：每个验证者被几条用 × 每条跑多久。只是参考数，不拿它判任何事（ADR-97）。
+// 那个乘法：每个验证者被几条用 × 每条跑多久。秒数只是参考数，不拿它判任何事（ADR-97）；启动数另由检查链最后一步判（ADR-145）。
 // 合计是逐条墙钟相加，不是串着跑要花多久的估计：同时跑几条时可能互相抢核（`BillRow.totalMs`）—— 表头印出这一跑是串着跑还是派了几个 worker
 const bill = billLines(verifierBill(timed))
 if (bill.length) {
@@ -1030,6 +1143,8 @@ if (bill.length) {
   console.log(`\n  按验证者记账（${how}；逐条墙钟相加，不是串着跑要花多久的估计；单跑一次，不是区间）：`)
   for (const line of bill) console.log(line)
 }
+// 组内不起进程的配置，进程内耗时（ADR-145 第二十七节）：计数用每种配置第一次正常基线的；只报数，不改结论与退出码
+if (costEnabled) console.log(`\n  ${inProcessLine(launchCounts, costMutations)}`)
 
 if (survived.length || elsewhere.length || crashed.length || notApplied.length || silent.length) {
   console.error(`\n✗ 变异测试：${survived.length} 个存活，${elsewhere.length} 个红错了地方，`

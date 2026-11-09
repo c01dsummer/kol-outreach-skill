@@ -1,6 +1,7 @@
 import type { Creator, Platform } from './types.js'
 import { mergeRecentPosts } from './posts.js'
 import { mergeDiscoverySources } from './discovery.js'
+import { EMAIL_SEP } from './email.js'
 
 const IG_RE = /instagram\.com\/([A-Za-z0-9._]+)/i
 const TT_RE = /tiktok\.com\/@([A-Za-z0-9._]+)/i
@@ -77,6 +78,8 @@ function mergeEmail(
   a: string | null | undefined,
   b: string | null | undefined,
 ): string | null | undefined {
+  // D7.d：两边都有就都留下，主记录的在前、去掉重复
+  if (a && b) return [...new Set([...a.split(EMAIL_SEP), ...b.split(EMAIL_SEP)])].join(EMAIL_SEP)
   if (a) return a
   if (b) return b
   if (a === undefined || b === undefined) return undefined

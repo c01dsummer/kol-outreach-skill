@@ -4,20 +4,16 @@
  *
  * 检查:  tsx scripts/check/adr-sync.ts
  * 回写:  tsx scripts/check/adr-sync.ts --write
- * 迁移:  tsx scripts/check/adr-sync.ts --split   ← 把还装在 DECISIONS.md 里的记录拆成文件
- *
- * `--split` 是给在途分支用的:它们各自往 `DECISIONS.md` 里写了上千行,
- * 跑一次就地拆开,不必手工搬。**幂等**:没有可拆的就什么都不做。
  *
  * ⚠️ 证不了记录写得对。它保证的是编号唯一、文件名与正文一致、索引不漂移。
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
-  type Adr, FILE_RE, HEAD_RE, checkAll, fileNameOf, markerFault,
+  type Adr, FILE_RE, HEAD_RE, checkAll, markerFault,
   renderIndex,
 } from './adr-rule.js'
-import { endsOpen, quotedMask } from './quoted.js'
+import { quotedMask } from './quoted.js'
 
 const DIR = 'docs/adr'
 const INDEX = join(DIR, 'README.md')
@@ -31,124 +27,6 @@ const END = '<!-- END:GENERATED -->'
  * `docs/adr/`,也不在索引里,而检查是绿的。
  */
 const RECORD_HEADING = /^#{1,2}\s+ADR-(\d+)\s+(.+?)\s*$/
-
-// ── 迁移 ────────────────────────────────────────────────────────
-if (process.argv.includes('--split')) {
-  const src = existsSync(LEGACY) ? readFileSync(LEGACY, 'utf8') : ''
-  /**
-   * 分节只认**引文之外**的 `## ADR-NN`(围栏块、HTML 注释都算引文)。
-   *
-   * 一条记录的正文里完全可能有围栏示例写着 `## ADR-59 …`(这个仓库的记录就爱举例)。
-   * 不看围栏地切下去,会把原记录拦腰截断、再写出一个假记录 —— 迁移动的是决策历史
-   * 本身,这种错不可逆。
-   */
-  const lines = src.split('\n')
-  const mask = quotedMask(src)
-  const starts = lines.map((l, i) => (!mask[i] && RECORD_HEADING.test(l) ? i : -1)).filter(i => i >= 0)
-  const body = starts.map((start, k) =>
-    lines.slice(start, starts[k + 1] ?? lines.length).join('\n'))
-
-  /**
-   * 兜底:切出来的每一段都必须是**自足**的 —— 没有没关上的围栏、注释或 HTML 块。
-   *
-   * 一刀切在引文中间,那一段必然带着一个没关上的构造。这条判断与引文的形态无关,
-   * 所以哪怕遮罩漏了某种写法(它只是近似,不是完整的 Markdown 解析器),
-   * 结果也是**拒绝写**,而不是写出一份被截断的记录。
-   */
-  const broken = body.filter(sec => endsOpen(sec))
-  if (broken.length) {
-    console.error(`✗ 决策记录：${broken.length} 段切出来是残的（有没关上的围栏/注释/HTML 块）\n`)
-    for (const b of broken) console.error(`  · ${b.split('\n')[0]}`)
-    console.error('\n  多半是某个 `## ADR-` 出现在引文里、被当成了分节。')
-    console.error('  一个字都没写 —— `DECISIONS.md` 原样未动,先看那几段。')
-    process.exit(1)
-  }
-  if (!body.length) { console.log('✓ 决策记录：没有可拆的整册内容'); process.exit(0) }
-  mkdirSync(DIR, { recursive: true })
-  /**
-   * **既有文件内容不同时拒绝覆盖。**
-   *
-   * 这个迁移器是给还装着整册的在途分支用的，而那些分支迟早要先合一次主干 ——
-   * 于是盘上会同时有主干带来的 `docs/adr/ADR-NN-….md` 和分支自己那份整册里的
-   * 同号记录。无条件写下去，就是用分支上那份（可能是旧的）静默盖掉主干的裁决，
-   * 而后面的撞号与文件名检查只看得到一个文件，一路全绿 ——
-   * **恰好把这次拆分本来要暴露的并发加记录变成了数据丢失。**
-   *
-   * 内容一致时照写不误，`--split` 的幂等不受影响。
-   */
-  const clashes: string[] = []
-  const unreadable: string[] = []
-  const written: string[] = []
-  for (const sec of body) {
-    const m = RECORD_HEADING.exec(sec.split('\n')[0])!
-    const [num, title] = [Number(m[1]), m[2].trim()]
-    const text = sec.split('\n').slice(1).join('\n').replace(/\n+---\s*$/, '').trim()
-    /**
-     * **写之前先拿读路径的判据问一次:这个名字它认不认。**
-     *
-     * 一个整由待剔字符组成的标题(`[]()`)过完 `slugify` 是空串,拼出来是
-     * `ADR-15-.md` —— `FILE_RE` 要求标题段非空,读路径当场判「文件名不合格式」。
-     * 于是 `--split` 报成功、退 0,下一条 `npm run adr` 却红,而红的是这次拆分
-     * 刚写出来的文件。
-     *
-     * 不给兜底名(`无题` 一类):那是替人编一个标题,而**编号会被下游引用**,
-     * 编错了比报错贵。这里说清楚是哪一条、为什么,让人自己改标题。
-     *
-     * 判据直接取读路径的 `FILE_RE`,不另写一条「标题不能为空」——
-     * 两条判据早晚会漂移,而**写方与读方共用同一条,就漂不了**。
-     */
-    if (!FILE_RE.test(fileNameOf(num, title))) {
-      unreadable.push(`ADR-${m[1]} 的标题「${title}」剔完不合法字符只剩空串，`
-        + `拼出来的 ${fileNameOf(num, title)} 读路径不认`)
-      continue
-    }
-    const file = join(DIR, fileNameOf(num, title))
-    const content = `# ADR-${m[1]} ${title}\n\n${text}\n`
-    if (existsSync(file) && readFileSync(file, 'utf8') !== content) {
-      clashes.push(`ADR-${m[1]} 已存在于 ${file}，内容与整册里的这一条不同`)
-      continue
-    }
-    writeFileSync(file, content, 'utf8')
-    written.push(file)
-  }
-  /**
-   * 写完回头问一次目录:**盘上的名字必须和算出来的名字逐字相同**。
-   *
-   * `fileNameOf` 算出来的名字要过一趟文件系统的编解码,而那一趟不保证原样返回 ——
-   * 半个代理对会被换成 `�`,某些文件系统还会顺手把名字归一化。任何一种情况下,
-   * 后面 `npm run adr` 读目录读到的都是另一个名字,于是它判**这次拆分刚写出来的
-   * 文件**「文件名与正文不符」,而那时候报错的位置离出错的位置隔着一整条命令。
-   *
-   * 与其枚举「哪些名字过不了这一趟」,不如写完直接问一次 —— 这道兜底与成因无关,
-   * 今天挡的是代理对,明天 slugify 放宽了、或者换个文件系统,挡的还是它。
-   */
-  const onDisk = new Set(readdirSync(DIR))
-  const mangled = written.filter(f => !onDisk.has(basename(f)))
-  if (mangled.length) {
-    console.error(`✗ 决策记录：${mangled.length} 条写出来的文件名被文件系统改写了\n`)
-    for (const f of mangled) console.error(`  · 想写 ${basename(f)}`)
-    console.error('\n  文件已经在盘上，但名字不是这个 —— `npm run adr` 会判它文件名与正文不符。')
-    console.error('  多半是标题里有半个代理对一类的东西：换个写法，或先手工把这几个文件删掉重来。')
-    process.exit(1)
-  }
-  if (unreadable.length) {
-    console.error(`✗ 决策记录：${unreadable.length} 条的标题拼不出合法文件名`
-      + `（其余 ${written.length} 条已写出）\n`)
-    for (const u of unreadable) console.error(`  · ${u}`)
-    console.error('\n  给这几条换个标题：至少留一个不会被剔掉的字符。')
-    console.error('  会被剔掉的是文件系统与 Markdown 链接语法里会坏事的那些，见 `slugify`。')
-    process.exit(1)
-  }
-  if (clashes.length) {
-    console.error(`✗ 决策记录：${clashes.length} 条拒绝覆盖（其余 ${written.length} 条已写出）\n`)
-    for (const c of clashes) console.error(`  · ${c}`)
-    console.error('\n  两份内容都要保留：给其中一条换一个没用过的编号，或把两条合成一条。')
-    console.error('  **不要删掉任何一条** —— 编号不可回收，撞号本身就是这次拆分要暴露的东西。')
-    process.exit(1)
-  }
-  console.log(`✓ 决策记录：${written.length} 条已拆成文件，preamble 与转发页需手工确认`)
-  process.exit(0)
-}
 
 // ── 读 ──────────────────────────────────────────────────────────
 if (!existsSync(DIR)) { console.error(`✗ 决策记录：缺少 ${DIR}/`); process.exit(1) }
@@ -174,7 +52,7 @@ if (existsSync(LEGACY)) {
   const found = src.split('\n').some((l, i) => !mask[i] && RECORD_HEADING.test(l))
   if (found) {
     errors.push(`${LEGACY} 里又出现了记录标题(\`# ADR-\` 或 \`## ADR-\`)`
-      + ` —— 记录写进 ${DIR}/，跑 \`npm run adr -- --split\``)
+      + ` —— 记录写进 ${DIR}/，一条一个文件`)
   }
 }
 

@@ -26,7 +26,7 @@
 | **作废一条需求** | `requirements.json` 的 `deprecated`（编号保留不复用）· 下游引用要清掉 · 相关测试与变异。**红线（P1–P5）不许作废** —— 那是产品定义变了，走变更评定 | 🔒 `spec` 查作废必须写理由、**红线作废当场拦下** |
 | **新增红线** | 需求登记表 · **测试** · **变异集** · `docs/CONVENTIONS.md` | 🔒 `audit` 强制红线有测试+变异 |
 | **改评分/分层规则** | `scripts/lib/score.ts` · `scripts/lib/pipeline.ts` · `skill/references/semantic-fit.md` · 测试 | 部分 |
-| **改管线步骤或其顺序** | `scripts/lib/pipeline.ts` · 测试 · **变异集**（顺序有语义，必须有变异守着）· `docs/ARCHITECTURE.md` 顺序契约表 | 🔒 `mutate`（顺序契约表靠人核，ADR-78） |
+| **改管线步骤或其顺序** | `scripts/lib/pipeline.ts` · 测试 · **变异集**（顺序有语义，必须有变异守着）· `docs/ARCHITECTURE.md` 顺序契约表 | 🔒 `mutate`（顺序契约表点名的变异在不在、`file` 在不在那一行的位置栏里由它开跑前核，守不守靠人核；ADR-148） |
 | **新增/改名/删除顶层目录或 `docs/` 下的子目录，或者换了运行产物的落点** | `docs/ARCHITECTURE.md`「新东西落在哪个目录」那张表 · `.gitignore`（不进仓库的） · `scripts/check/jobs-rule.ts` 的 `SKIP`（`.gitignore` 的手抄本） · `AGENTS.md`（影响路由时） | ✗ 靠执行（ADR-114） |
 | **新增/删除 `scripts/` 下的模块** | `docs/ARCHITECTURE.md` 锚点表 · `scripts/check/selfcheck.ts`（可执行文件） | 🔒 `audit`（锚点表靠人核，ADR-78） |
 | **改模块之间的依赖方向** | `docs/ARCHITECTURE.md`（含「一件新工作放哪边」那节，如果判据变了） | ✗ 靠执行（ADR-78） |
@@ -39,15 +39,18 @@
 | **改 CSV 列或报告结构** | `scripts/lib/rows.ts` · `scripts/lib/xlsx.ts` · `scripts/lib/report.ts` · `skill/references/output-format.md` · 测试 · 变异 | 部分 |
 | **新增可执行文件** | 三选一：接进 `scripts/check/selfcheck.ts`、在 `npm run check` 里自成一步、或写进 `EXEMPT` 说明理由 | 🔒 `selfcheck` |
 | **新增一道闸门** | 判定逻辑（`scripts/check/` 下不带 shebang 的 `.ts`）· 测试 · **`scripts/check/mutations.json`**（闸门自己也是需求，它的测试同样要被证明过）· `process/` 里那条纪律 | 🔒 `audit`：scripts/check/ 下每个判定模块必须有变异指向它，否则硬失败；`mutate` 证明那个变异被抓到 |
-| **改变变异全量/选组路由、`full_run` 解释或验证者分组配置** | `process/4-VERIFY.md`「只跑验证者的一部分时」那一条 · `process/6-INTEGRATE.md`「改验证成本时」的运行证据 · 实际变异目录与组/依赖/顺序配置 · `docs/ARCHITECTURE.md` 的维护判据、具体字段、基线及执行边界 · CI 可信基线传入 · 对应 ADR | 🔒 `mutate` 核真实基线变化与解释形状；解释语义和可比证据靠评审 |
-| **改变变异配置使用、基线复用或经过时间报告** | `docs/ARCHITECTURE.md` 的计量语义（公开验收）、具体取数、输出协议和观察/汇总边界 · `process/6-INTEGRATE.md`「改验证成本时」的可比证据 · 对应 ADR 与完整变化清单 | ✗ 报告只提供原料，不新增性能闸门 |
+| **改变变异全量/选组路由、`full_run` 解释或验证者分组配置** | `process/4-VERIFY.md`「只跑验证者的一部分时」那一条 · `process/6-INTEGRATE.md`「改验证成本时」的运行证据 · 实际变异目录与组/依赖/顺序配置 · `docs/ARCHITECTURE.md` 的维护判据、具体字段、基线及执行边界 · CI 可信基线传入 · 对应 ADR · `scripts/check/launches.json`（配置的集合变了：跑过 `npm run mutate` 后 `npm run launches -- --write` 写回，ADR-145 第三十五节） | 🔒 `mutate` 核真实基线变化与解释形状；解释语义和可比证据靠评审 |
+| **改变变异配置使用、基线复用或经过时间报告** | `docs/ARCHITECTURE.md` 的计量语义（公开验收）、具体取数、输出协议和观察/汇总边界 · `process/6-INTEGRATE.md`「改验证成本时」的可比证据 · 对应 ADR 与完整变化清单 | ✗ 报告只提供原料，不新增秒数闸门（入口启动数另由 ADR-145 的闸门判，见下一行） |
+| **改变变异入口启动数的计数单位、计数预加载、启动数的输出或判法** | `docs/ARCHITECTURE.md` 的 `launch-rule.ts`、`launch-count.ts`、`launch-preload.ts`、`launches.ts` 四行与「入口启动数」那一段 · ADR-145（计数单位、两条线、第十三节的日志形状与输出协议）· 读 `output/mutation-launches/launches.json` 的那一侧（检查链最后一步 `launches.ts` 与它的判定 `launchGate`，以及自检组 `launch-count-entry`）· `scripts/check/launches.json`（它是启动数的产出：跑过 `npm run mutate` 后 `npm run launches -- --write` 写回，ADR-145 第三十五节） | 部分：`h-launch-preload`、`h-launch-preload-edge`、`h-launch-rule` 与自检组 `launch-count-entry` 守行为；文档靠执行 |
 | **改两层的判别规则** | `process/README.md`「为什么要分两层」（原则）· `process/AGENTS.md.tpl` · `AGENTS.md` · 本表「一条判别规则」· `REVIEW.md` 那句指针 | ✗ 靠执行（替代「读」的，不建检查；判据见 `process/README.md` 第二层） |
 | **重命名／删掉 `process/` 或 `docs/` 下被 `REVIEW.md` 指到的那几份** | `REVIEW.md` 的指针（三份转发不用动，它们只指 `REVIEW.md`） | ✗ 靠执行 |
+| **改 `process/` 里任何一份** | 各工具的入口文件（`AGENTS.md`、`CLAUDE.md`）与 `process/AGENTS.md.tpl` 里指向 `process/` 章节的路由 · 改的是一条纪律（加、改、删）时另要的两样，见 `process/2-CHANGE.md`「文档同步规则」那张表的「改本目录里的任何一份」 | ✗ 靠执行 |
 | **改流程阶段** | `skill/SKILL.md` · `docs/business-requirements.md` · 对应 reference | ✗ 靠执行 |
+| **改 `skill/references/` 下的文件（新增、删除、改名）、`package.json` 的命令名、`skill/` 下文档里写的 `npm run …` 或 `scripts/….ts`、SKILL.md 的 frontmatter 或指向 `skill/` 的两个软链** | `skill/SKILL.md` 的「参考文档」表与点名处 · `skill/` 下写着那个命令名或脚本路径的每份文档 · `.claude/skills/`、`.agents/skills/` 下名字等于 `name`、指向 `../../skill` 的软链（`docs/ARCHITECTURE.md`「新东西落在哪个目录」） | 🔒 `skill`：五样关系（ADR-156）；「参考文档」表的说明列与 reference 正文靠人读 |
 | **查到新事实 / 旧结论被推翻** | `docs/data-source-strategy.md` **必须改** · `docs/SPEC.md`「尚未确定的」一节（手写，状态与证据边界常在这里） · `docs/adr/`：新裁决另开一条（多属事实证伪），陈述过旧结论的记录各在末尾追加 `⚠️` 更正 | 🔒 `adr` 验编号与索引 |
 | **改预算/成本逻辑** | `scripts/lib/cost-ledger.ts` · `cost-json.ts` · `budget.ts` · `task.ts` 费用检查点 · 价目与所有付费/费用出口 · `skill/SKILL.md` 成本闸门与相关 references · `docs/CONVENTIONS.md` 第 7 条 · `docs/ARCHITECTURE.md` · ADR-108/109 对外契约 | 部分 |
 | **改对外能力、范围、当前状态或交付物** | 对应正本 · `README.md`（只做摘要，不定义新事实） | ✗ 靠执行 |
-| **评审中不修在本 PR 的一条发现（含驳回）** | 回复第一行的档与去向 · 线程 resolve · PR 描述末尾的索引 · 合入后的**欠条 PR** 往 `docs/adr/` 追加 `⚠️ 欠条`（写重启条件；驳回只做前三项，不进欠条）—— 本表唯一允许延后到下一条 PR 的一行：为登记再 push 会再起一轮评审，见 `6-INTEGRATE.md` | 🔒 `audit`：欠条块里没写重启条件当场红（ADR-86）；**写了的那些机器不读** —— 读懂条件是会随模型变强的那一侧，台账只抽取不匹配 |
+| **评审中不修在本 PR 的一条发现（含驳回）** | 回复第一行的档与去向 · 线程 resolve · PR 描述末尾的索引 · 合入后的**欠条 PR** 往 `docs/adr/` 追加 `⚠️ 欠条`（写重启条件；驳回只做前三项，不进欠条；晚到的同类候选怎么写欠条，见 `docs/adr/README.md`「同类」）—— 本表唯一允许延后到下一条 PR 的一行：为登记再 push 会再起一轮评审，见 `6-INTEGRATE.md` | 🔒 `audit`：欠条块里没写重启条件当场红（ADR-86）；**写了的那些机器不读** —— 读懂条件是会随模型变强的那一侧，台账只抽取不匹配 |
 
 ---
 
@@ -66,6 +69,8 @@
 | `docs/business-requirements.md` | 背景、痛点排序、成功指标、论证过程 | 编号定义（那在 json） |
 | `docs/data-source-strategy.md` | 各家 API 调研与选型结论 | 需求 |
 | `docs/adr/` | ADR，一条一个文件，追加不删改；欠条与就地更正以 `⚠️` 块追加 | 计划、待办（带重启条件的欠条不算：它写的是缺什么、什么条件下重启） |
+| `docs/REGRESSION.md` | 改了 `skill/` 的判断类文字以后，在几个冻结的真实任务上比新旧两版、看产出有没有变差的手工流程（ADR-159） | 每次跑的结果（在那条改 `skill/` 的 PR 正文里）；真实任务数据 |
+| `docs/REVISIT.md` | 回访例程照做的全部规则（例程往 ADR-152 追加台账；「候选句」两道门都过了、起草了的，另开一条候选句记录） | 例程以外的规则；每周的结果（在 ADR-152 与例程开的候选句记录里） |
 | `DECISIONS.md` | **只做转发**，指向 `docs/adr/` | 任何记录本身 |
 | `README.md` | 给新接手者看的下游概览 | 只在 README 出现、无法追溯到正本的需求或事实 |
 | `AGENTS.md` / `CLAUDE.md` | **只做路由**，指向上面这些 | 任何具体规则 |

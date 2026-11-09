@@ -47,15 +47,17 @@
 
 | 你要做的事 | 读 |
 |---|---|
+| 接手任务、查看当前进度与依赖 | [Linear 项目](https://linear.app/c01dsummer/project/kol-outreach-skill-84d60f579773/issues)；采用决定、职责边界与迁移口径见 [ADR-181](docs/adr/ADR-181-Linear-作为长期任务入口，需求与欠条依据仍在仓库.md) |
 | 写/改需求 | `process/1-REQUIREMENTS.md` |
 | 想改需求、撞见两条需求打架、或想说"这个太麻烦" | `process/2-CHANGE.md` |
 | 写代码 | `process/3-BUILD.md` + **`docs/CONVENTIONS.md`** |
 | 写测试 | `process/4-VERIFY.md` —— **写测试前必读** |
 | 改模块边界、调用顺序或对外契约 | `process/5-DESIGN.md` + **`docs/ARCHITECTURE.md`** |
-| 改 Skill 的行为 | `skill/SKILL.md` + 对应的 `skill/references/*` |
+| 改 Skill 的行为 | `skill/SKILL.md` + 对应的 `skill/references/*` —— 指向 `skill/` 的软链见 `docs/ARCHITECTURE.md`「新东西落在哪个目录」；判断类文字的产出回归见 `docs/REGRESSION.md` |
 | 要新建目录，或要存运行产物（接口响应原件、快照、日志） | `docs/ARCHITECTURE.md`「新东西落在哪个目录」 |
 | 改完了要同步 | `docs/SYNC.md` |
 | 开分支、切改动、回应评审、往主干合 | `process/6-INTEGRATE.md` |
+| 接手检查链或欠条相关的改动 | 先读回访台账（ADR-152）的最新一块；开欠条 PR 时正文怎么引它，见 `docs/adr/README.md` 前言 |
 | **评审别人的改动**（人或机器评审器） | `REVIEW.md` —— 它也只做转发 |
 
 ---
@@ -66,22 +68,24 @@
 - **需求编号的唯一真相来源**：`docs/requirements.json`。
   `SPEC.md` 里的表格是它的渲染 —— 由 `npm run spec` 生成并校验，**不要手改**。
   `content_hash` 是派生字段，由 `npx tsx scripts/check/spec-sync.ts --write` 写、由 `npm run check` 校验
+- **启动数摘要** `scripts/check/launches.json` 也是派生的：改了 `scripts/` 下的 `.ts`、`scripts/check/mutations.json` 或 `package-lock.json` 以后，
+  在跑过 `npm run mutate` 的树上由 `npm run launches -- --write` 写回。检查链最后一步拿它与现算的比：PR 上不同或没有这个文件就红，主干上只报数；变异一步那份启动数文件的 `tally` 有一项认不得时两边都红（ADR-145 第三十五节、第四十四节）
 - **架构文档**：`docs/ARCHITECTURE.md` —— 模块边界、**顺序契约**、Agent↔scripts 的缝隙契约。
   改这三样之前先读它；新增 `scripts/` 下的模块请在锚点表里登记 —— 那张表从 ADR-78 起
   没有机器核了，忘了登记不会有任何东西提醒你
 - **决策记录**:`docs/adr/`,**一条一个文件**,编号 `ADR-NN`(数据需求用 `D` 前缀,两套不撞号)。
-  `DECISIONS.md` 只做转发;还装着整册的分支跑 `npm run adr -- --split` 就地拆开
+  `DECISIONS.md` 只做转发
 - **体量豁免**：超线时用提交信息里的 `size-ok:` 具名豁免 ——
   语法与判定规则见 `process/6-INTEGRATE.md`
-- **评审发现的去向**：每条发现在回复的**第一行**写档与去向 ——
-  五档是 本改动 / 扩范围 / 既有缺陷 / 登记 / 驳回。**从第三轮起,本改动档里不阻塞的只登记、不修**;
-  「禁止顺手重构」同样管评审回应。分档判据、欠条写法与合并者怎么核,见 `process/6-INTEGRATE.md`
+- **评审发现的去向**：见 `process/6-INTEGRATE.md`「五档路由」「从第三轮起只登记,阻塞项除外」(含欠条 PR 的例外)、
+  「合并者核对去向」与「登记怎么做：欠条 PR」
 - **检查命令**：`npm run check`
-  = **体量闸门** → SPEC 一致性 → **决策记录** → 类型检查 → 需求测试 → 变异测试 → 脚本自检 → 链路审计
+  = **体量闸门** → SPEC 一致性 → Skill 结构 → **决策记录** → 类型检查 → 需求测试 → 变异测试 → 脚本自检 → 链路审计 → **启动数闸门**
 - **审计命令**：`npm run audit`
 - **变异清单**：`npm run mutate -- --brief` —— 只列每条变异「违反了什么」，不含实现原文。
   给**写测试的那个上下文**用，见 `process/4-VERIFY.md` 的「给测试上下文一张准入读物清单」
 - **文档同步表**：`docs/SYNC.md`
+- **打 tag**：`.github/workflows/release.yml`，手动触发，在 `main` 的头上打 `X.Y.Z` 轻量 tag
 - **CI**：`.github/workflows/check.yml`，推 `main` 与每个 pull request 上跑同一条链 ——
   既不在 `main`、也没开 PR 的分支不跑（ADR-97）
 

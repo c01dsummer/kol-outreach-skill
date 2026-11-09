@@ -8,9 +8,36 @@
  * 那个词出现 **0** 次。
  *
  * 扫的范围是**调用方交进来的那些文件**，判据里写的范围也只到这里为止。
- * 调用方今天交的是 `docs/adr/` 下的 `*.md`（`audit.ts` 第 6 节）。
+ * 两个调用方交的都是 `adrDocs` 读进来的那一批：`audit.ts` 第 6 节与只读入口 `adr-ledger.ts`。
+ * 欠条块的定界（`iouBlocks`）还另有一个用处：被引表（`cite-rule.ts`）拿它把块里的引用单列。
  */
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { quotedMask } from './quoted.js'
+
+/** 决策记录目录。`audit.ts` 还拿它把决策记录排出下游引用的语料（那一段写着为什么）。 */
+export const ADR_DIR = 'docs/adr/'
+
+/**
+ * 读进 `dir` 下的全部 `*.md`（含子目录）。键是 `dir` 接上文件在它下面的相对路径 ——
+ * 不给 `dir`、在仓库根上跑时，就是全表每行开头那个 `docs/adr/…`。
+ *
+ * 审计与只读入口读的是**同一批**，所以读哪些文件也在这里、不在两个入口里：各走各的目录的话，
+ * 一边多收或少收一份，两份台账就对不上，而 ADR-151 第二节第 1 条问的正是两边逐条相同。
+ * 扫描范围被悄悄缩小和判定写错一样致命（`docs/CONVENTIONS.md` 第 10 条），所以它算判定。
+ */
+export function adrDocs(dir: string = ADR_DIR): Map<string, string> {
+  const out = new Map<string, string>()
+  const walk = (d: string): void => {
+    for (const e of readdirSync(d)) {
+      const p = join(d, e)
+      if (statSync(p).isDirectory()) walk(p)
+      else if (p.endsWith('.md')) out.set(p, readFileSync(p, 'utf8'))
+    }
+  }
+  walk(dir)
+  return out
+}
 
 export type Notation = '重启条件' | '重开讨论' | '死亡条件'
 
@@ -83,37 +110,51 @@ export function entries(docs: Map<string, string>): Entry[] {
 }
 
 /**
+ * 欠条块：块头那一行，与它的下界（不含）。孤儿闸门与被引表（`cite-rule.ts`）用的是这一份定界 ——
+ * 被引表要把欠条块里的引用单列（ADR-151 第一节 P2），各定一份界的话，同一张欠条在两边可能不一样长。
+ *
+ * 块的下界是这样推的：块头带 `>` 的，连续到第一个非 `>` 行；不带的，到第一个
+ * 空行。**这个定界是本模块定的，仓库里没有写着分隔符** —— ADR-86 逐块核过的那 88 个块
+ * 排版是齐的，排版一变这个判据就跟着错，而且不总是错在报错那一侧：两张欠条之间没隔开
+ * （带 `>` 的中间没有一行非 `>`、不带的缺一个空行）时，前一张并进后一张、借到后一张的条件，
+ * 孤儿闸门那边就是**放过**（ADR-151 第七节记着这张欠条）；被引表那边只是块里的引用挪进或挪出主计数。
+ */
+export function iouBlocks(lines: string[], quoted: boolean[]): Array<{ start: number; end: number }> {
+  const out: Array<{ start: number; end: number }> = []
+  lines.forEach((line, i) => {
+    if (quoted[i] || !IOU_HEAD.test(line)) return
+    const quotedBlock = line.trimStart().startsWith('>')
+    let end = i + 1
+    while (end < lines.length &&
+           (quotedBlock ? lines[end].trimStart().startsWith('>') : lines[end].trim() !== '')) end++
+    out.push({ start: i, end })
+  })
+  return out
+}
+
+/**
  * 写了欠条却没写重启条件的块 —— 硬失败。
  *
  * `docs/SYNC.md:56` 说 `docs/adr/` 里「带重启条件的欠条不算待办」，反过来就是：
- * 不带重启条件的那些是纯待办，而待办不该住在决策记录里。这条纪律今天是
- * 88 个块 88 个都执行住了的（ADR-86 逐块核过）—— **所以这道闸门今天是绿的，
- * 它拦的是往后的滑坡，不是现状。**
- *
- * 块的下界是这样推的：块头带 `>` 的，连续到第一个非 `>` 行；不带的，到第一个
- * 空行。**这个定界是本模块定的，仓库里没有写着分隔符** —— 今天 88 个块的排版
- * 是齐的，排版一变这个判据就跟着错，那一刻它会偏向报错而不是放过。
+ * 不带重启条件的那些是纯待办，而待办不该住在决策记录里。这条纪律在 ADR-86
+ * 逐块核过时是 88 个块 88 个都执行住了的 —— **所以这道闸门落地时就是绿的，
+ * 它拦的是往后的滑坡，不是现状。** 块怎么定界见 `iouBlocks`。
  */
 export function orphanIous(docs: Map<string, string>): Entry[] {
   const out: Entry[] = []
   for (const [file, text] of docs) {
     const lines = text.split('\n')
     const quoted = quotedMask(text)
-    lines.forEach((line, i) => {
-      if (quoted[i] || !IOU_HEAD.test(line)) return
-      const quotedBlock = line.trimStart().startsWith('>')
-      let end = i + 1
-      while (end < lines.length &&
-             (quotedBlock ? lines[end].trimStart().startsWith('>') : lines[end].trim() !== '')) end++
+    for (const { start: i, end } of iouBlocks(lines, quoted)) {
       // 块内也要过遮罩:一段演示「欠条该怎么写」的围栏例子里有那四个字加冒号,
       // 不过滤的话它替这个块交了差 —— 而漏报正是这道闸门放行的意思。
       // 头一版只够到**裸**围栏 —— 遮罩不认嵌在引用块里的围栏,而欠条块恰恰都是
       // 引用块,等于这道闸门留着一条绕过去的路。洞在 `quoted.ts`,已在那边补上
       const body = lines.slice(i, end).filter((_, k) => !quoted[i + k]).join('\n')
       if (!CONDITION.test(body)) {
-        out.push({ file, line: i + 1, notation: '重启条件', text: plain(line) })
+        out.push({ file, line: i + 1, notation: '重启条件', text: plain(lines[i]) })
       }
-    })
+    }
   }
   return out
 }
@@ -131,4 +172,21 @@ export function ledgerSummary(list: Entry[]): string {
   return `欠条台账 ${list.length} 条 · 重启条件 ${n('重启条件')} · ` +
          `重开讨论 ${n('重开讨论')} · 死亡条件 ${n('死亡条件')}` +
          ` —— 只抽取，不判已还、也不判这次改动踩到了谁`
+}
+
+/**
+ * 全表：每条一行、孤儿另标一行、空一行、末尾汇总；有孤儿时另交回打在 stderr 的那一句。
+ *
+ * 两个入口打的是这一份 —— `npm run audit -- --debts` 与只读入口 `npm run adr-ledger`。
+ * 各写一份的话，改了一处忘了另一处，症状是「同一份台账，两个入口说两样」。
+ * 退出码跟着 `err` 走：有它就以 1 退出，孤儿是硬失败，只读入口也不放过。
+ */
+export function ledgerReport(list: Entry[], orphans: Entry[]): { out: string[]; err?: string } {
+  const out = [
+    ...list.map(e => `${e.file}:${e.line}  [${e.notation}]  ${e.text}`),
+    ...orphans.map(o => `${o.file}:${o.line}  [孤儿·没写重启条件]  ${o.text}`),
+    '',
+    `  ${ledgerSummary(list)}`,
+  ]
+  return orphans.length ? { out, err: `\n✗ 欠条台账：${orphans.length} 张欠条没写重启条件` } : { out }
 }

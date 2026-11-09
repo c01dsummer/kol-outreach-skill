@@ -1,0 +1,44 @@
+name: release
+
+# 手动触发：在 main 的头上打一个 `X.Y.Z` 轻量 tag，与 3.0.0、4.0.0 同一个形状。
+#
+# 为什么有这一份：只放行自己那条分支的执行环境（比如云端会话）推不了 tag，
+# 但能经 GitHub 触发 workflow —— 由这一跑用本仓库自己的令牌建 tag。
+# 人在网页 Actions 页点「Run workflow」走的也是这条路；本地 `git tag` 后推照样可以。
+#
+# - 只认 main：主干必须永远可发布（`process/6-INTEGRATE.md`），tag 只打在它上面。
+#   打在哪个提交 = 触发那一刻 main 的头；要打更早的提交，走本地 `git tag`
+# - 不核主干的 check 绿没绿 —— 触发之前由触发的那一方看
+# - tag 已存在时 GitHub 拒绝建 ref，这一跑红，已有的 tag 不动
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'tag 名：X.Y.Z，不带 v（例：5.0.0）'
+        required: true
+        type: string
+
+# 只为建 tag 这一个写操作；不检出代码
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 打 tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # 输入只经环境变量进脚本，不拼进 run —— 拼进去就是脚本注入
+          TAG: ${{ inputs.tag }}
+        # 不对的输入一律红，不用 if 跳过：跳过的一跑是灰的，看着像成了
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::只在 main 上打 tag，这一跑在 $GITHUB_REF 上"; exit 1
+          fi
+          if ! [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag 名要是 X.Y.Z、不带 v"; exit 1
+          fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA" > /dev/null
+          echo "已打 $TAG → $GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"

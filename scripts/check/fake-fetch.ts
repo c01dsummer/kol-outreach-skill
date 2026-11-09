@@ -149,6 +149,78 @@ const instagramUserPosts = {
   } },
 }
 
+/**
+ * KOL-105：profile 补全阶段的供应商拒收。关键词里带 `profile-halt` 时，TikTok 视频搜索与 IG Reels 搜索
+ * 各回同样三个人，粉丝都在闸门之内、都没带简介（搜索那一侧给不出简介，三人都待补 profile，D6.p）；
+ * 这三个人的 profile（TikTok、IG V3、IG V2）照请求里的账号名回一份写了简介与外链的资料。
+ * 关键词带 `profile-halt-more` 时 TikTok 搜索声明还有下一页 —— 第一页就够目标人数时，达标那条收尾只有这样才走得到。
+ * IG 那一页不带续页令牌，一页就记进 done（D6.u）。
+ *
+ * 拒收走环境变量（profile 请求里没有关键词，同上面 `FAKE_FETCH_FAULT` 的理由）：`FAKE_FETCH_HALT_PATH` 是 pathname，
+ * `FAKE_FETCH_HALT_STATUS` 是 402 或 404，`FAKE_FETCH_HALT_FROM` 是 n —— 这三个人发到那个 pathname 的第 n 次起
+ * **每一次**都回那个状态码，之前的照常回资料。没设 `FAKE_FETCH_HALT_PATH` 就一次都不拒。只认这三个人，别的夹具碰不到这一支。
+ * 另设 `FAKE_FETCH_HALT_BEFORE=404` 时，第 n 次之前发到那个 pathname 的每一次改回 404、不回资料 —— 「402 之前已有非 402 的
+ * 单人失败」那一跑用（只认 404，且要与 `FAKE_FETCH_HALT_STATUS=402`、不小于 2 的 `FAKE_FETCH_HALT_FROM` 同设）。
+ * 端点与字段都是现有的（形状同上面的 `tiktokProfile`／`igProfile`），只多了一份罐头 —— 不是改数据源端点/字段。
+ */
+const HALT_PEOPLE = [
+  { handle: 'profhalt_a', followers: 82_000 },
+  { handle: 'profhalt_b', followers: 90_000 },
+  { handle: 'profhalt_c', followers: 95_000 },
+] as const
+const haltPath = process.env.FAKE_FETCH_HALT_PATH
+const haltStatus = Number(process.env.FAKE_FETCH_HALT_STATUS)
+const haltFrom = Number(process.env.FAKE_FETCH_HALT_FROM)
+// 写错了当场起不来，不让一条拒收静默不发生
+if (haltPath !== undefined && (![402, 404].includes(haltStatus) || !Number.isInteger(haltFrom) || haltFrom < 1)) {
+  throw new Error(`fake fetch: FAKE_FETCH_HALT_STATUS 只认 402/404、FAKE_FETCH_HALT_FROM 要是正整数，实际 `
+    + `${process.env.FAKE_FETCH_HALT_STATUS}／${process.env.FAKE_FETCH_HALT_FROM}`)
+}
+const haltBefore = process.env.FAKE_FETCH_HALT_BEFORE
+if (haltBefore !== undefined && (haltBefore !== '404' || haltPath === undefined || haltStatus !== 402 || haltFrom < 2)) {
+  throw new Error(`fake fetch: FAKE_FETCH_HALT_BEFORE 只认 404，且要与 FAKE_FETCH_HALT_PATH、FAKE_FETCH_HALT_STATUS=402、`
+    + `不小于 2 的 FAKE_FETCH_HALT_FROM 同设，实际 ${haltBefore}／${haltPath}／${process.env.FAKE_FETCH_HALT_STATUS}／`
+    + `${process.env.FAKE_FETCH_HALT_FROM}`)
+}
+/** 每个 pathname 上这三个人已经发过几次 profile 请求 */
+const haltSeen = new Map<string, number>()
+
+const haltSearch = (url: string): unknown => {
+  if (url.includes('fetch_video_search_result')) return { data: {
+    aweme_list: [], has_more: url.includes('profile-halt-more') ? 1 : 0, cursor: HALT_PEOPLE.length,
+    search_item_list: HALT_PEOPLE.map(p => ({ aweme_info: {
+      aweme_id: `halt-${p.handle}`, desc: `${p.handle} video`, statistics: { play_count: 1000, digg_count: 10 },
+      author: { unique_id: p.handle, nickname: p.handle, follower_count: p.followers, aweme_count: 0 } } })),
+  } }
+  if (url.includes('instagram/v2/search_reels')) return { data: { data: { count: HALT_PEOPLE.length,
+    items: HALT_PEOPLE.map((p, i) => ({
+      id: `halt-reel-${i}`, caption: { text: `${p.handle} reel` }, play_count: 1000, like_count: 10,
+      user: { id: `9100${i}`, username: p.handle, full_name: p.handle, is_verified: false, is_private: false } })),
+  } } }
+  return undefined
+}
+
+/** 三个人之一的 profile 请求 → 照账号名回的资料；不是这三个人 → undefined，走原来的分支 */
+const haltProfile = (url: string): unknown => {
+  const { pathname, searchParams } = new URL(url)
+  const tiktok = pathname.includes('tiktok/web/fetch_user_profile')
+  if (!tiktok && !pathname.includes('fetch_user_info_by_username')) return undefined
+  const p = HALT_PEOPLE.find(x => x.handle === searchParams.get(tiktok ? 'uniqueId' : 'username'))
+  if (p === undefined) return undefined
+  const bio = `bio of ${p.handle}: ${p.handle}@example.com`, link = `https://example.com/${p.handle}`
+  if (tiktok) return { data: { userInfo: {
+    user: { uniqueId: p.handle, nickname: p.handle, signature: bio, followerCount: p.followers,
+            verified: false, bioLink: { link }, avatarMedium: '' },
+    stats: { followerCount: p.followers, videoCount: 50 } } } }
+  return { data: {
+    pk: `9100${p.handle}`, id: `9100${p.handle}`, username: p.handle, full_name: p.handle, biography: bio,
+    bio_links: [{ url: link, lynx_url: 'https://l.instagram.com/?u=x', title: 'site' }], external_url: link,
+    // V2 没有 follower_count，V3 才有（tikhub.md「补全：用户 Profile」）
+    ...(pathname.endsWith('_v2') ? {} : { follower_count: p.followers }),
+    following_count: 100, media_count: null, is_verified: false, is_private: false, profile_pic_url: '',
+  } }
+}
+
 function pick(url: string): unknown {
   if (url.includes('fetch_user_post_videos_v3')) return tiktokUserPosts
   if (url.includes('instagram/v2/fetch_user_posts')) return instagramUserPosts
@@ -217,6 +289,29 @@ const fakeFetch = async (input: RequestInfo | URL) => {
   if (url.includes('force-402')) {
     record(402, url)
     return new Response('payment required', { status: 402 })
+  }
+  // KOL-105 那三个人（见 `HALT_PEOPLE` 上面那段）：搜索按关键词认，profile 按账号名认
+  const haltFound = url.includes('profile-halt') ? haltSearch(url) : undefined
+  if (haltFound !== undefined) {
+    record(200, url)
+    return new Response(JSON.stringify(haltFound), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  const haltBody = haltProfile(url)
+  if (haltBody !== undefined) {
+    const path = new URL(url).pathname
+    const before = haltSeen.get(path)
+    const nth = before === undefined ? 1 : before + 1
+    haltSeen.set(path, nth)
+    if (path === haltPath && nth >= haltFrom) {
+      record(haltStatus, url)
+      return new Response(`fake profile ${haltStatus}`, { status: haltStatus })
+    }
+    if (path === haltPath && haltBefore !== undefined) {
+      record(404, url)
+      return new Response('fake profile 404', { status: 404 })
+    }
+    record(200, url)
+    return new Response(JSON.stringify(haltBody), { status: 200, headers: { 'content-type': 'application/json' } })
   }
   // 关键词里带 `force-schema` → **200、计过费，但结构认不出**。
   // 这是「请求发出去了、钱扣了，在记下来之前抛了」那条路唯一的入口（D6.i）。

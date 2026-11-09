@@ -77,6 +77,11 @@ export interface Reaches {
 export const SELFCHECK_TOOLS = {
   mutate: 'check/mutate.ts',
   selfcheck: 'check/selfcheck.ts',
+  launches: 'check/launches.ts',
+  'adr-ledger': 'check/adr-ledger.ts',
+  skill: 'check/skill.ts',
+  audit: 'check/audit.ts',
+  'observer-cert': 'check/observer-cert.ts',
 } as const
 
 /**
@@ -87,6 +92,14 @@ export const SELFCHECK_TOOLS = {
  * 单独列出来，因为只扫 `import` 和只扫「起了谁」都收不到它。
  */
 export const SELFCHECK_PRELOAD = 'check/fake-fetch.ts'
+
+/**
+ * 变异一步给正常基线那一跑注入的计数预加载（ADR-145 第十三节）；拆进程的自检整跑也给每族的子进程注入（第三十一节）。
+ *
+ * 自检起的 `mutate` 在玩具树上跑正常基线时也注入它，所以它同样是自检要用的东西；
+ * `mutate.ts` 与 `selfcheck.ts` 按这个路径找它，也是经 `--import` 加载、不是 `import`，两种扫法都收不到。
+ */
+export const LAUNCH_PRELOAD = 'check/launch-preload.ts'
 
 /**
  * 自检给**进程级**失败打的记号 —— 自检打，判定认，只此一份。
@@ -127,11 +140,12 @@ export const SELFCHECK_FIXTURE_MARK = '（夹具）'
  */
 export const selfcheckSummary = (failed: number) => `✗ 脚本自检：${failed} 项失败`
 
-/** 自检这个验证者的闭包种子：它自己 ＋ 它当工具起的 ＋ 它预加载的。 */
+/** 自检这个验证者的闭包种子：它自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 `mutate` 给验证者预加载的。 */
 export const SELFCHECK_SEEDS: string[] = [...new Set([
   'scripts/check/selfcheck.ts',
   ...Object.values(SELFCHECK_TOOLS).map(f => `scripts/${f}`),
   `scripts/${SELFCHECK_PRELOAD}`,
+  `scripts/${LAUNCH_PRELOAD}`,
 ])].sort()
 
 /**

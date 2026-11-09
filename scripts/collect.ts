@@ -29,10 +29,10 @@ import { passesFollowerGate } from './lib/score.js'
 import { taskLabel } from './lib/task-label.js'
 import {
   taskDir, taskFile, taskId, loadTask, saveTask, loadReviewCreatorInputs, saveRawCreators,
-  persistListAndStatus, saveCostCheckpoint,
+  persistListAndStatus, saveCostCheckpoint, productDirProblem,
 } from './lib/task.js'
 import { creatorKey, textProblem } from './lib/types.js'
-import { igRouteProblems } from './lib/ig-route.js'
+import { asHashtagProblems, igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { configFieldProblems } from './lib/config-input.js'
 import { brandCalibrationProblems, calibrationVersionProblems } from './lib/brand-calibration.js'
@@ -40,6 +40,11 @@ import { resumeProgressProblems } from './lib/resume-progress.js'
 import { prepareTaskReviews, type TaskReviews } from './lib/task-reviews.js'
 import { ReviewInputError } from './lib/review.js'
 import type { Creator, TaskState } from './lib/types.js'
+import { loadSaveFault, obsReady } from './lib/obs.js'
+
+// kol-test-observer/v1（`skill/references/output-format.md`）：就绪记录在读任何输入之前；控制文件启动时读一次。两样都只在设了记录文件时才有，平时关着
+obsReady('collect')
+const saveFault = loadSaveFault('collect')
 
 /**
  * 记忆读不出来时仍然产出名单。**必须由用户显式打出来** —— 它不让重复打扰的风险
@@ -82,7 +87,7 @@ try {
   }
 } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
 
-// D17.h/i、D16.j/k、D15.j：原字段、任务与路线一起查；先于缺省、进度、改额或任何副作用。
+// D17.h/i、D16.j/k、D15.j/n：原字段、任务、路线与 as_hashtag 一起查；先于缺省、进度、改额或任何副作用。
 const badFields = configFieldProblems(state, resume ? 'resume' : 'new')
 const badTasks = taskListProblems(state.tasks)
 // D27.b：续跑读的 task.json 写重复的键先写出 —— tasks 写重复时任务列表按最后那份判，两类一起报；
@@ -90,7 +95,7 @@ const badTasks = taskListProblems(state.tasks)
 // D28.b：新建读的配置同样先写出，配置不续跑，根上的进度键照别的键报；与原字段、任务、路线、品牌问题同一道退出
 const badDuplicates = duplicateKeyProblems(sourceDuplicates(state), !!resume)
 if (badDuplicates.length) console.error(`${productFrom} 里写重复的键：\n  ${badDuplicates.join('\n  ')}`)
-const badRoutes = igRouteProblems(state.tasks)
+const badRoutes = [...igRouteProblems(state.tasks), ...asHashtagProblems(state.tasks)]
 const badCalibration = brandCalibrationProblems(state)
 badCalibration.push(...calibrationVersionProblems(state))
 const taskProblems = [...badFields, ...badTasks, ...badRoutes, ...badCalibration]
@@ -129,6 +134,12 @@ if (badProduct) {
                 `也要记进跨任务记忆的「为哪个产品推荐过」。先给它一个名字再跑。`)
   process.exit(2)
 }
+// D29.a：新建任务的目录由产品名拼成（taskDir），先于建目录、开账与请求；续跑的目录由 --resume 给出，不按产品名判（D29.c）
+const badDirName = resume ? undefined : productDirProblem(state.product)
+if (badDirName) {
+  console.error(`${productFrom} 里的 product ${JSON.stringify(state.product)} ${badDirName}。换一个不含它们的名字再跑。`)
+  process.exit(2)
+}
 
 // D17.l–o：通过原值校验后，仅新输入缺席的字段采用既有缺省；续跑不补原意图。
 if (!resume) {
@@ -164,7 +175,8 @@ try {
   const notify = (pct: number, view: ReturnType<Budget['view']>) => {
     console.error(`\n💰 已用 ${(pct * 100).toFixed(0)}% —— 估算占用 $${view.cost_estimate_usd} / $${view.budget_usd}\n`)
   }
-  const persistCost: PersistCost = snapshot => saveCostCheckpoint(dir, snapshot)
+  // 选中的保存点在这里失败，与磁盘写失败同一条路：`Budget` 把它记成 persistence-failed、锁住本运行（kol-test-observer/v1）
+  const persistCost: PersistCost = (snapshot, save) => { saveFault?.at(save.point, save); saveCostCheckpoint(dir, snapshot) }
   budget = resume ? new Budget(state, notify, persistCost) : startBudget(state, freshLimit!, 'task', notify, persistCost)
   if (resume && replacementLimit !== undefined) budget.setLimit(replacementLimit)
 } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
@@ -198,7 +210,9 @@ function qualified(): number {
   return [...creators.values()].filter(passesFollowerGate).length
 }
 
-function persist() {
+/** `point` 只在已知额度不足、停下时那一次给（kol-test-observer/v1 的 SP-BUD）：注入时作者文件和 task.json 都不写 */
+function persist(point?: 'SP-BUD') {
+  if (point) saveFault?.at(point)
   // D6.t：先存作者，再推进分页进度。反过来的话，两次写之间被打断或累加器写失败时，
   // 盘上的进度已经前进而这一页的作者没存下，续跑就跳过了它（ADR-113）。
   // 累加器只增不减 —— 过滤在 main() 末尾只作用于交付物
@@ -424,7 +438,12 @@ async function enrichProfiles() {
       // 单个失败不该拖垮整轮（一个 404 就挂掉 50 人的采集是不可接受的）。
       // 但**不静默吞掉** —— 计数上报，且该创作者的 bio/email 保持 undefined，
       // 即「未查询」，不会被下游读成「没有邮箱」。
+      // 402（余额不足）例外：那不是这一个人的失败，换下一个人照样 402，而
+      // skill/references/providers/tikhub.md「错误处理」402 那一行说的是「**停止**，
+      // 告诉用户去充值，不要重试」。所以原样抛出，与搜索阶段的 402 同一种收尾，
+      // 之后一个请求也不再发；这个人不计进 profileFailed，与没轮到的人一样仍算待补（D6.z，KOL-105）。
       if (e instanceof CostError || e instanceof BudgetInputError) throw e
+      if (e instanceof TikHubError && e.status === 402) throw e
       profileFailed++
     }
     if (++done % 10 === 0) console.error(`  ${done}/${list.length}`)
@@ -452,7 +471,7 @@ async function main() {
     }
   }
 
-  persist()
+  persist(stopped === 'budget' ? 'SP-BUD' : undefined)
 
   // 同人合并 → 粉丝闸门 → 记忆过滤。管线在 lib/pipeline.ts —— 这四步的**顺序**
   // 有语义，有语义就该能被测，所以它不留在入口脚本里。
@@ -537,6 +556,8 @@ async function main() {
   // （D6.f）而不是四条 —— `1-REQUIREMENTS.md` 的拆分判据问的是「会不会被不同的代码
   // 路径独立满足、或者独立弄坏」。记忆读不出来那条在上面的 catch 里，它自己 exit 2，
   // 到不了这里，所以那条仍是独立的 D6.e。
+  // `M-D6-bi`～`M-D6-bl` 给这一行加个条件、只让一种收尾闭嘴 —— 那是今天不存在的分叉，
+  // 证的是四条夹具各自看得住自己那条路：哪天有人把这一行拆进分支，坏一条就红一条。
   console.error(`\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)
 
   if (stopped === 'budget') {

@@ -127,6 +127,25 @@ export function shardJobs(o: {
   return jobsWanted([], o.env, o.cpus, o.families)
 }
 
+/**
+ * 拆进程跑时各族的先后（ADR-132 第 288 行那张欠条，第十节）。`solo` 是那张欠条说的带时间窗口的组：
+ * 判红取决于子进程在某个时刻起没起、停没停（有的等几秒，有的在被测入口 close 那一刻就判，见 ADR-133），
+ * 几个子进程一起抢核时可能误红。它们所在的族不进并行的队列 —— 其余各族照旧谁空了领下一族，
+ * 全部交回之后，这几族再按登记顺序一族一族单独跑。窗口一个字不改。
+ *
+ * 交回族的下标：`parallel` 按登记顺序进队列，`serial` 等 `parallel` 全部跑完才逐个跑；两段合起来每族恰好一次。
+ * 一族里只要有一组在 `solo` 里，整族就挪 —— 族内的组必须同进程、按登记顺序跑（`families`）。
+ * `solo` 里点了没登记的组当场抛：名字写错就悄悄回到并行，这一跑看着照旧，那张欠条却等于没还。
+ */
+export function shardOrder(fams: readonly (readonly string[])[], solo: readonly string[]): { parallel: number[]; serial: number[] } {
+  const known = new Set(fams.flat())
+  const unknown = solo.filter(id => !known.has(id))
+  if (unknown.length) throw new Error(`单独串行跑的组没登记：${unknown.join('、')}`)
+  const parallel: number[] = [], serial: number[] = []
+  fams.forEach((fam, i) => (fam.some(id => solo.includes(id)) ? serial : parallel).push(i))
+  return { parallel, serial }
+}
+
 /** 子进程跑完交回给父进程的那一份：它跑了哪几组、红了几处、认领了什么、执行过哪些脚本 */
 export interface ShardReport { groups: string[]; failed: number; claimed: string[]; covered: string[] }
 /**
