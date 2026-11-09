@@ -16169,7 +16169,7 @@ await group('u9-review-output', () => {
   eq('U9.a 默认HTML独立确认仍用调用方原顺序', oldNodes.filter(n => n.tag === 'a' && fixtures.some(c => c.profile_url === n.a.href)).map(n => fixtures.find(c => c.profile_url === n.a.href)?.handle), ['zeros', 'missing', 'main'])
 
   // U13 独立契约：主题列的三态与拆法只按判据写预期，不读 rows.ts / report.ts 的实现。
-  criterion('U13.a', 'U13.b', 'U13.c'); tension('U13', 'P1'); tension('U13', 'P2')
+  criterion('U13.a', 'U13.b', 'U13.c'); tension('U13', 'P1'); tension('U13', 'P2'); tension('U13', 'D5')
   const subjectCases: Array<[string, string | undefined, string]> = [
     ['s-plain', 'Subject: Your {product} smoothie series\n\nHi {name},\nI loved it.', 'Your {product} smoothie series'],
     ['s-lead', '\n   \r\n  subject：  Hi, "{brand}" <b>&amp;</b>  \r\nbody line', 'Hi, "{brand}" <b>&amp;</b>'],
@@ -16180,6 +16180,7 @@ await group('u9-review-output', () => {
     ['s-prefix', 'Re Subject: not first\nbody', '拆不出主题'],
     ['s-blank', ' \n\t\n', ''],
     ['s-absent', undefined, ''],
+    ['s-formula', 'Subject: =1+1 {brand}\nbody', '=1+1 {brand}'],
   ]
   const subjectFixtures = subjectCases.map(([handle, draft], i) => mk(i % 2 ? 'instagram' : 'tiktok', handle, {
     tier: 'B', score: 10 + i, outreach_draft: draft, profile_url: `https://example.com/${handle}`,
@@ -16188,6 +16189,9 @@ await group('u9-review-output', () => {
   const subjectBefore = copy(subjectFixtures)
   const expectSubject = new Map(subjectCases.map(([h, , subject]) => [h, subject]))
   const expectDraft = new Map(subjectCases.map(([h, draft]) => [h, draft ?? '']))
+  // D5.c 优先（U13 与 D5 的交点）：CSV 里以 = + - @、制表符或回车开头的主题格与草稿格在格首多一个 '，XLSX 照旧原值。
+  const csvSubject = new Map([...expectSubject, ['s-formula', "'=1+1 {brand}"]])
+  const csvDraft = new Map([...expectDraft, ['s-cr', "'\rSUBJECT:x{y}\rbody"]])
   let subjectCsv: string[][] = [], subjectBook: ReturnType<typeof xlsxRead> = [], subjectPage = '', subjectError: string | undefined
   try {
     writeCsv(join(dir, 'subject.csv'), headers, subjectFixtures.map(c => api.toReviewRow(c)))
@@ -16202,11 +16206,11 @@ await group('u9-review-output', () => {
   if (subjectError !== undefined) return
   const subjectIndex = headers.indexOf('outreach_subject'), draftIndex = oldHeaders.indexOf('outreach_draft')
   eq('U13.a 主题列是评审表末列', [subjectIndex, subjectCsv[0][subjectIndex], subjectBook[1].rows[0][subjectIndex]], [headers.length - 1, 'outreach_subject', 'outreach_subject'])
-  eq('U13.a CSV真实读回主题三态与拆法', subjectCsv.slice(1).map(r => [r[5], r[subjectIndex]]), subjectCases.map(([h, , subject]) => [h, subject]))
+  eq('U13.a CSV真实读回主题三态与拆法', subjectCsv.slice(1).map(r => [r[5], r[subjectIndex]]), subjectCases.map(([h]) => [h, csvSubject.get(h)]))
   eq('U13.a XLSX真实读回主题与CSV一致', bounded(subjectBook[1].rows.slice(1).flatMap(r => r[subjectIndex] === expectSubject.get(r[5]) ? [] : [r[5]])), noFaults)
   eq('U13.a XLSX读回全部主题夹具都在B层', subjectBook[1].rows.length - 1, subjectCases.length)
-  eq('U13.b 草稿那一格逐字不变且主题行仍在草稿里', bounded([
-    ...subjectCsv.slice(1).flatMap(r => r[draftIndex] === expectDraft.get(r[5]) ? [] : [`csv/${r[5]}`]),
+  eq('U13.b 草稿那一格逐字不变（CSV按D5.c只在格首加单引号）且主题行仍在草稿里', bounded([
+    ...subjectCsv.slice(1).flatMap(r => r[draftIndex] === csvDraft.get(r[5]) ? [] : [`csv/${r[5]}`]),
     ...subjectBook[1].rows.slice(1).flatMap(r => r[draftIndex] === expectDraft.get(r[5]) ? [] : [`xlsx/${r[5]}`]),
   ]), noFaults)
   ok('U13.b 导出不改输入草稿', isDeepStrictEqual(subjectFixtures, subjectBefore))
