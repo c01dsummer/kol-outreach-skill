@@ -16129,6 +16129,7 @@ await group('u9-review-output', () => {
     ['s-plain', 'Subject: Your {product} smoothie series\n\nHi {name},\nI loved it.', 'Your {product} smoothie series'],
     ['s-lead', '\n   \r\n  subject：  Hi, "{brand}" <b>&amp;</b>  \r\nbody line', 'Hi, "{brand}" <b>&amp;</b>'],
     ['s-cr', '\rSUBJECT:x{y}\rbody', 'x{y}'],
+    ['s-ls', 'Subject: Hello {name}\u2028Body line\u2029more', 'Hello {name}'],
     ['s-none', 'Hi {brand}, no subject here\nSubject: too late', '拆不出主题'],
     ['s-empty', 'Subject:   \nbody', '拆不出主题'],
     ['s-prefix', 'Re Subject: not first\nbody', '拆不出主题'],
@@ -16158,7 +16159,7 @@ await group('u9-review-output', () => {
   eq('U13.a 主题列是评审表末列', [subjectIndex, subjectCsv[0][subjectIndex], subjectBook[1].rows[0][subjectIndex]], [headers.length - 1, 'outreach_subject', 'outreach_subject'])
   eq('U13.a CSV真实读回主题三态与拆法', subjectCsv.slice(1).map(r => [r[5], r[subjectIndex]]), subjectCases.map(([h, , subject]) => [h, subject]))
   eq('U13.a XLSX真实读回主题与CSV一致', bounded(subjectBook[1].rows.slice(1).flatMap(r => r[subjectIndex] === expectSubject.get(r[5]) ? [] : [r[5]])), noFaults)
-  eq('U13.a XLSX读回八个主题夹具全在B层', subjectBook[1].rows.length - 1, subjectCases.length)
+  eq('U13.a XLSX读回全部主题夹具都在B层', subjectBook[1].rows.length - 1, subjectCases.length)
   eq('U13.b 草稿那一格逐字不变且主题行仍在草稿里', bounded([
     ...subjectCsv.slice(1).flatMap(r => r[draftIndex] === expectDraft.get(r[5]) ? [] : [`csv/${r[5]}`]),
     ...subjectBook[1].rows.slice(1).flatMap(r => r[draftIndex] === expectDraft.get(r[5]) ? [] : [`xlsx/${r[5]}`]),

@@ -39,7 +39,7 @@ export const NO_SUBJECT = '拆不出主题'
  */
 export function draftSubject(draft: string | undefined): string | undefined {
   if (draft === undefined) return undefined
-  const first = draft.split(/\r\n|\r|\n/).find(line => line.trim() !== '')
+  const first = draft.split(/\r\n|\r|\n|\u2028|\u2029/).find(line => line.trim() !== '')
   if (first === undefined) return undefined
   const m = /^\s*subject\s*[:：](.*)$/i.exec(first)
   const subject = m?.[1].trim()
