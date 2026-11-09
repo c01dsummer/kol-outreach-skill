@@ -16177,6 +16177,10 @@ await group('u9-review-output', () => {
   ok('U13.c HTML主题在输出处转义而非注入标签', !subjectNodes.some(n => n.tag === 'b') && subjectPage.includes('&lt;b&gt;&amp;amp;&lt;/b&gt;'))
   const legacySubject = html(subjectFixtures, { ...meta, total: subjectFixtures.length, tiers: { A: 0, B: subjectFixtures.length, C: 0 } })
   ok('U13.c 旧HTML不出现主题行', !htmlRead(legacySubject).some(n => n.a['data-draft-subject'] !== undefined))
+  const dualSubjectPage = (html as unknown as (cs: Creator[], meta: any, options?: { mode?: 'review'; filters?: 'dual' }) => string)(subjectFixtures, { ...meta, total: subjectFixtures.length, tiers: { A: 0, B: subjectFixtures.length, C: 0 } }, { mode: 'review', filters: 'dual' })
+  const dualSubjectNodes = htmlRead(dualSubjectPage)
+  eq('U13.c 生产用的双筛选HTML同样单列主题且没草稿不出', subjectCases.map(([h]) => [h, subjectLine(dualSubjectNodes, cardOf(dualSubjectNodes, h))]),
+    subjectCases.map(([h, draft, subject]) => [h, draft !== undefined && draft.trim() !== '' ? `主题：${subject}` : undefined]))
   ok('U13.c 旧表头不出现主题列', api.buildSheets(subjectFixtures).every(s => !s.headers.includes('outreach_subject')))
 
 })
