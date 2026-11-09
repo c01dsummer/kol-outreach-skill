@@ -1,6 +1,6 @@
 {
   "$comment": "编号的唯一真相来源。docs/SPEC.md 是它的渲染，两者不一致以本文件为准。content_hash 是派生字段，由 spec-sync --write 写，不要手改 —— 改了需求不回写，npm run check 当场变红。字段含义见 process/1-REQUIREMENTS.md。",
-  "content_hash": "c611b231efbb",
+  "content_hash": "c19c203719bf",
   "categories": {
     "P": "红线 —— 不参与任何取舍",
     "S": "范围 —— 明确不做什么",
@@ -2543,10 +2543,6 @@
           "text": "新 XLSX 保留 U5 的且仅三层工作表及空表，各表内先按有效建议顺序，再按旧 score 与同分规则；缺席建议的排序位置同 U9.b，不增加全部表或跨层移动候选。"
         },
         {
-          "id": "U9.d",
-          "text": "新 CSV/XLSX 表头保留完整旧表头及列序作为前缀，依次追加 effective_priority、effective_priority_account_key、eligibility、adoption_priority、observed_content、work_evidence、natural_integration、mismatch_risk、brand_calibration_version、review_status、manual_eligible、manual_adopted、manual_content_fit、manual_engagement、manual_comment_authenticity、manual_reject_reason、manual_note、manual_reviewed、manual_round_id、linked_agent_review、manual_feedback_accounts；两格式各行列数及对应字段一致，旧列值仍遵守原口径。"
-        },
-        {
           "id": "U9.e",
           "text": "新 CSV/XLSX 的主平台 Agent 新判断、四项证据及校准版本取当前投影原值，缺席为空白；review_status 缺席显示未评。HTML 主平台独立展示原判断、四项证据及已评/未评/待重评状态，缺席证据或判断标未填写；待重评的原采用建议标历史建议（待重评，仅展示），不冒充当前建议。"
         },
@@ -2569,10 +2565,15 @@
         {
           "id": "U9.j",
           "text": "collect、enrich、render 的真实生产交付统一消费已校验的 D21/D23/D25 评审与人工投影，并启用新三格式输出；重复运行不丢已保存判断，不能有一个入口仍交出旧派生判断的混合状态。"
+        },
+        {
+          "id": "U9.k",
+          "text": "新 CSV/XLSX 表头保留完整旧表头及列序作为前缀，依次追加 effective_priority、effective_priority_account_key、eligibility、adoption_priority、observed_content、work_evidence、natural_integration、mismatch_risk、brand_calibration_version、review_status、manual_eligible、manual_adopted、manual_content_fit、manual_engagement、manual_comment_authenticity、manual_reject_reason、manual_note、manual_reviewed、manual_round_id、linked_agent_review、manual_feedback_accounts、outreach_subject；两格式各行列数及对应字段一致，旧列值仍遵守原口径。接替退役的 U9.d（原文与退役理由在 ADR-190 末尾）：末尾多了 outreach_subject 一列，它的取值见 U13。"
         }
       ],
       "adr": [
-        "ADR-130"
+        "ADR-130",
+        "ADR-190"
       ],
       "tension": [
         {
@@ -2767,6 +2768,41 @@
           "with": "P1",
           "ruling": "P1 优先：转义不授权填充缺失数据。报告统计中的公开指标已测账号数与高风险人数缺席或为 null 时显式显示未知，确实为 0 时保留 0；有值时仍只转义一次。",
           "adr": "ADR-180"
+        }
+      ]
+    },
+    {
+      "id": "U13",
+      "cat": "U",
+      "pri": "P1",
+      "text": "新评审表和新评审 HTML 把开发信草稿的主题单独列出来：拆法固定，拆不出时明说，草稿那一格原样不动。",
+      "accept": [
+        {
+          "id": "U13.a",
+          "text": "新 CSV/XLSX 的 outreach_subject 取自 outreach_draft 的第一个非空行：那一行以 `Subject` 加冒号开头（不分大小写，冒号半角、全角都算）、冒号后面去掉首尾空白还有字时，取那段字；草稿缺席或只有空白时为空白；有草稿但拆不出时为字面「拆不出主题」。三种情形在 CSV 与 XLSX 里各读回一致。"
+        },
+        {
+          "id": "U13.b",
+          "text": "主题里的 {…} 占位符原样保留，不删除、替换或补全；outreach_draft 那一格逐字不变，主题行照旧留在草稿里。"
+        },
+        {
+          "id": "U13.c",
+          "text": "新 HTML 在有草稿的卡片的草稿块里单列一行「主题：」，取值同 U13.a，在输出处转义一次；未选择新模式的旧 HTML 与旧表头不出现主题。"
+        }
+      ],
+      "adr": [
+        "ADR-190"
+      ],
+      "tension": [
+        {
+          "with": "P1",
+          "ruling": "P1 优先：「没有草稿」写空白，「有草稿、拆不出主题」写字面「拆不出主题」，两种含义不共用一个空白；拆不出时不从别的行猜一个主题。",
+          "adr": "ADR-190"
+        },
+        {
+          "with": "P2",
+          "ruling": "P2 优先：主题只从草稿原文拆，不补写产品事实；主题里的占位符原样保留（P2.b）。",
+          "adr": "ADR-190"
         }
       ]
     }

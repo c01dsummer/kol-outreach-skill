@@ -3,7 +3,7 @@ import type {
 } from './types.js'
 import { taskOrdinal } from './task-label.js'
 import { formatDiscoverySources } from './discovery.js'
-import { sampleScopeText, sortForReviewOutput, type ReviewOutputOptions } from './rows.js'
+import { draftSubject, sampleScopeText, sortForReviewOutput, type ReviewOutputOptions } from './rows.js'
 import { normalizedAccountKey } from './review.js'
 import type { CostView } from './budget.js'
 import type { FeedbackSummary } from './manual-feedback-summary.js'
@@ -256,6 +256,12 @@ export function renderHtml(creators: Creator[], meta: any, options: HtmlOutputOp
   const def: 'A' | 'B' | 'C' =
     (['A', 'B', 'C'] as const).find(t => (meta.tiers?.[t] ?? 0) > 0) ?? 'A'
 
+  // U13.c：只在评审模式、草稿拆得出三态里「有草稿」那两档时出这一行；默认模式一个字节都不加（U9.a）。
+  const subjectLine = (c: Creator) => {
+    const subject = options.mode === 'review' ? draftSubject(c.outreach_draft) : undefined
+    return subject === undefined ? '' : `
+    <div class="bio" data-draft-subject="outreach_subject">主题：${esc(subject)}</div>`
+  }
   const card = (c: Creator) => `
 ${dual ? `<div class="card ${escRaw(c.tier)}" data-tier="${escRaw(c.tier)}"${c.effective_priority === undefined ? '' : ` data-priority="${esc(c.effective_priority)}"`}>`
   : `<div class="card ${escRaw(c.tier)}" data-tier="${escRaw(c.tier)}"${c.tier === def ? '' : ' style="display:none"'}>`}
@@ -282,7 +288,7 @@ ${dual ? `<div class="card ${escRaw(c.tier)}" data-tier="${escRaw(c.tier)}"${c.e
   ${c.linked_handle ? renderAssessment(c.linked_account_assessment,
     c.linked_handle.startsWith('tiktok:') ? 'TikTok（关联）' : 'Instagram（关联）') : ''}
   ${c.previously_recommended ? `<div class="prev">曾推荐：${esc(c.previously_recommended)}</div>` : ''}
-  ${c.outreach_draft ? `<details class="dr"><summary>开发信草稿</summary>
+  ${c.outreach_draft ? `<details class="dr"><summary>开发信草稿</summary>${subjectLine(c)}
     <pre>${esc(c.outreach_draft)}</pre>
     <button onclick="cp(this)">复制</button></details>` : ''}
 </div>`

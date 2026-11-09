@@ -15816,11 +15816,11 @@ suite('D21', '未取得当前主号判断时保留待核实分层')
 // U9 independent contract tests: no renderer/row/projection bodies or old test bodies were read.
 await group('u9-review-output', () => {
   suite('U9', '独立评审导出契约：排序、三格式读回及逐账号缺值')
-  criterion('U9.a', 'U9.b', 'U9.c', 'U9.d', 'U9.e', 'U9.f', 'U9.g', 'U9.h', 'U9.i', 'D21.r')
+  criterion('U9.a', 'U9.b', 'U9.c', 'U9.e', 'U9.f', 'U9.g', 'U9.h', 'U9.i', 'U9.k', 'D21.r')
   tension('U9', 'P1'); tension('U9', 'P2'); tension('U9', 'P5'); tension('D21', 'P1')
   const oldHeaders = 'tier,score,fit,fit_reason,platform,handle,nickname,followers,post_count,bio,email,email_verified,audience_geo_top,metrics_account_followers,metrics_account_following,engagement_rate_followers,engagement_rate_views,median_views,median_engagements,view_rate,following_ratio,reach_consistency,median_post_gap_days,latest_post_at,days_since_last_post,activity_status,audience_quality_risk,audience_quality_reasons,tier_adjustments,collaboration_quote,implied_ecpm,implied_ecpe,metrics_observed_at,cross_platform,linked_handle,profile_url,source_keyword,source_dimension,best_post_desc,outreach_draft,previously_recommended,discovery_sources,metrics_sample_scope'.split(',')
   const additions = 'effective_priority,effective_priority_account_key,eligibility,adoption_priority,observed_content,work_evidence,natural_integration,mismatch_risk,brand_calibration_version,review_status,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note,manual_reviewed,manual_round_id,linked_agent_review,manual_feedback_accounts'.split(',')
-  const headers = [...oldHeaders, ...additions]
+  const headers = [...oldHeaders, ...additions, 'outreach_subject']
   type ReviewSheet = { name: string; headers: string[]; rows: unknown[][] }
   const api = reviewRowsApi as unknown as {
     REVIEW_HEADERS: string[]; toReviewRow(c: Creator): unknown[]; sortForReviewOutput(cs: Creator[]): Creator[]
@@ -15828,11 +15828,11 @@ await group('u9-review-output', () => {
   }
   const html = renderHtml as unknown as (cs: Creator[], meta: any, options?: { mode?: 'review' }) => string
   const firstSheets = api.buildSheets([mk('tiktok', 'business-red', { tier: 'A' })], { mode: 'review' })
-  eq('U9.a 评审模式在旧表头后原序追加21个字段', firstSheets[0].headers, headers)
+  eq('U9.a 评审模式在旧表头后原序追加21个字段及主题列', firstSheets[0].headers, headers)
   const available = typeof api.toReviewRow === 'function' && typeof api.sortForReviewOutput === 'function'
   ok('U9.a 新导出公开入口可调用', available)
   if (!available) return
-  eq('U9.d 新公共表头符合契约原序64列', api.REVIEW_HEADERS, headers)
+  eq('U9.k 新公共表头符合契约原序65列', api.REVIEW_HEADERS, headers)
   eq('U9.a 省略模式仍保留旧公共表头', api.buildSheets([]).map(s => s.headers), [oldHeaders, oldHeaders, oldHeaders])
   const bounded = (xs: string[]) => ({ count: xs.length, examples: xs.slice(0, 3) })
   const noFaults = { count: 0, examples: [] }
@@ -15940,7 +15940,7 @@ await group('u9-review-output', () => {
       valueCases.push({ ...candidate, review_status, manual_reviewed, manual_adopted })
   for (const [i, c] of valueCases.entries()) {
     const r = api.toReviewRow(c)
-    if (r.length !== 64 || !isDeepStrictEqual(strings(r.slice(43)), extras(c))) scalarFaults.push(`case ${i}`)
+    if (r.length !== 65 || !isDeepStrictEqual(strings(r.slice(43, 64)), extras(c))) scalarFaults.push(`case ${i}`)
   }
   eq('U9.e/g/h 51组新列原值缺席布尔unknown与JSON状态不压平', bounded(scalarFaults), noFaults)
   const oldState: Record<string, string[]> = { main: ['0', '未查询', ''], missing: ['未查询', '0', '未查询'], zeros: ['0', '0', ''] }
@@ -16002,7 +16002,7 @@ await group('u9-review-output', () => {
           values[col - 1] = ca.t === 'inlineStr' ? [...body.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(t => decode(t[1])).join('')
             : ca.t === 's' ? shared[Number(v)] : ca.t === 'b' ? v === '1' ? 'true' : 'false' : v === undefined ? '' : decode(v)
         }
-        return Array.from({ length: 64 }, (_, i) => values[i] === undefined ? '' : values[i])
+        return Array.from({ length: 65 }, (_, i) => values[i] === undefined ? '' : values[i])
       })
       return { name: a.name, rows }
     })
@@ -16051,19 +16051,19 @@ await group('u9-review-output', () => {
   }
   ok('U9.i 三格式真实夹具成功构建且可独立读回', readbackError === undefined)
   if (readbackError !== undefined) return
-  eq('U9.d CSV真实读回表头精确64列', csvRows[0], headers)
+  eq('U9.k CSV真实读回表头精确65列', csvRows[0], headers)
   eq('U9.b CSV真实读回采用独立预期顺序', csvRows.slice(1).map(r => r[5]), ['main', 'zeros', 'missing'])
-  eq('U9.d/e/f/g/h/i CSV原列及全部新列按原值读回', bounded(csvRows.slice(1).flatMap(r => {
-    const c = fixtures.find(x => x.handle === r[5]); return c && r.length === 64 && isDeepStrictEqual(r.slice(43), extras(c))
+  eq('U9.e/f/g/h/i/k CSV原列及全部新列按原值读回', bounded(csvRows.slice(1).flatMap(r => {
+    const c = fixtures.find(x => x.handle === r[5]); return c && r.length === 65 && isDeepStrictEqual(r.slice(43, 64), extras(c))
       && isDeepStrictEqual([r[1], r[7], r[10]], oldState[c.handle]) && r[39] === (c.outreach_draft === undefined ? '' : c.outreach_draft) ? [] : [r[5]]
   })), noFaults)
   eq('U9.c XLSX真实工作簿只有三层且保留A级空表', workbook.map(s => [s.name.slice(0, 2), s.rows.length - 1]), [['A级', 0], ['B级', 1], ['C级', 2]])
   ok('U9.c 空工作表名称明确显示0', /\(0\)/.test(workbook[0].name))
-  eq('U9.c/d/e/f/g/h/i XLSX表头行序原值及JSON全部独立读回', bounded(workbook.flatMap((s, i) => {
+  eq('U9.c/e/f/g/h/i/k XLSX表头行序原值及JSON全部独立读回', bounded(workbook.flatMap((s, i) => {
     const errors: string[] = [], tier = ['A', 'B', 'C'][i]
     if (!isDeepStrictEqual(s.rows[0], headers)) errors.push(`${tier} headers`)
     if (!isDeepStrictEqual(s.rows.slice(1).map(r => r[5]), order(fixtures.filter(c => c.tier === tier), true))) errors.push(`${tier} order`)
-    for (const r of s.rows.slice(1)) { const c = fixtures.find(x => x.handle === r[5]); if (!c || !isDeepStrictEqual(r.slice(43), extras(c)) || !isDeepStrictEqual([r[1], r[7], r[10]], oldState[c.handle]) || r[39] !== (c.outreach_draft === undefined ? '' : c.outreach_draft)) errors.push(`${tier}/${r[5]} values`) }
+    for (const r of s.rows.slice(1)) { const c = fixtures.find(x => x.handle === r[5]); if (!c || !isDeepStrictEqual(r.slice(43, 64), extras(c)) || !isDeepStrictEqual([r[1], r[7], r[10]], oldState[c.handle]) || r[39] !== (c.outreach_draft === undefined ? '' : c.outreach_draft)) errors.push(`${tier}/${r[5]} values`) }
     return errors
   })), noFaults)
   eq('U9.b HTML实际主页链接顺序遵守有效建议', nodes.filter(n => n.tag === 'a' && fixtures.some(c => c.profile_url === n.a.href)).map(n => fixtures.find(c => c.profile_url === n.a.href)?.handle), ['main', 'zeros', 'missing'])
@@ -16122,6 +16122,66 @@ await group('u9-review-output', () => {
   const oldNodes = htmlRead(legacyBefore)
   ok('U9.a 默认HTML独立确认没有新判断区块且保留旧理由', !oldNodes.some(n => ['agent', 'manual', 'effective'].includes(n.a['data-review-kind'])) && oldNodes[0].text.includes(mainReview.fit_reason!))
   eq('U9.a 默认HTML独立确认仍用调用方原顺序', oldNodes.filter(n => n.tag === 'a' && fixtures.some(c => c.profile_url === n.a.href)).map(n => fixtures.find(c => c.profile_url === n.a.href)?.handle), ['zeros', 'missing', 'main'])
+
+  // U13 独立契约：主题列的三态与拆法只按判据写预期，不读 rows.ts / report.ts 的实现。
+  criterion('U13.a', 'U13.b', 'U13.c'); tension('U13', 'P1'); tension('U13', 'P2')
+  const subjectCases: Array<[string, string | undefined, string]> = [
+    ['s-plain', 'Subject: Your {product} smoothie series\n\nHi {name},\nI loved it.', 'Your {product} smoothie series'],
+    ['s-lead', '\n   \r\n  subject：  Hi, "{brand}" <b>&amp;</b>  \r\nbody line', 'Hi, "{brand}" <b>&amp;</b>'],
+    ['s-cr', '\rSUBJECT:x{y}\rbody', 'x{y}'],
+    ['s-ls', 'Subject: Hello {name}\u2028Body line\u2029more', 'Hello {name}'],
+    ['s-none', 'Hi {brand}, no subject here\nSubject: too late', '拆不出主题'],
+    ['s-empty', 'Subject:   \nbody', '拆不出主题'],
+    ['s-prefix', 'Re Subject: not first\nbody', '拆不出主题'],
+    ['s-blank', ' \n\t\n', ''],
+    ['s-absent', undefined, ''],
+  ]
+  const subjectFixtures = subjectCases.map(([handle, draft], i) => mk(i % 2 ? 'instagram' : 'tiktok', handle, {
+    tier: 'B', score: 10 + i, outreach_draft: draft, profile_url: `https://example.com/${handle}`,
+  }))
+  for (const c of subjectFixtures) if (c.outreach_draft === undefined) delete c.outreach_draft
+  const subjectBefore = copy(subjectFixtures)
+  const expectSubject = new Map(subjectCases.map(([h, , subject]) => [h, subject]))
+  const expectDraft = new Map(subjectCases.map(([h, draft]) => [h, draft ?? '']))
+  let subjectCsv: string[][] = [], subjectBook: ReturnType<typeof xlsxRead> = [], subjectPage = '', subjectError: string | undefined
+  try {
+    writeCsv(join(dir, 'subject.csv'), headers, subjectFixtures.map(c => api.toReviewRow(c)))
+    writeXlsx(join(dir, 'subject.xlsx'), api.buildSheets(subjectFixtures, { mode: 'review' }))
+    subjectCsv = csvRead(rf(join(dir, 'subject.csv'), 'utf8')); subjectBook = xlsxRead(rf(join(dir, 'subject.xlsx')))
+    subjectPage = html(subjectFixtures, { ...meta, total: subjectFixtures.length, tiers: { A: 0, B: subjectFixtures.length, C: 0 } }, { mode: 'review' })
+  } catch (e) {
+    subjectError = String(e)
+    console.log(`${SELFCHECK_FIXTURE_MARK} U13主题列夹具无法构建或读回：${subjectError}`)
+  }
+  ok('U13.a 主题列三格式夹具成功构建且可独立读回', subjectError === undefined)
+  if (subjectError !== undefined) return
+  const subjectIndex = headers.indexOf('outreach_subject'), draftIndex = oldHeaders.indexOf('outreach_draft')
+  eq('U13.a 主题列是评审表末列', [subjectIndex, subjectCsv[0][subjectIndex], subjectBook[1].rows[0][subjectIndex]], [headers.length - 1, 'outreach_subject', 'outreach_subject'])
+  eq('U13.a CSV真实读回主题三态与拆法', subjectCsv.slice(1).map(r => [r[5], r[subjectIndex]]), subjectCases.map(([h, , subject]) => [h, subject]))
+  eq('U13.a XLSX真实读回主题与CSV一致', bounded(subjectBook[1].rows.slice(1).flatMap(r => r[subjectIndex] === expectSubject.get(r[5]) ? [] : [r[5]])), noFaults)
+  eq('U13.a XLSX读回全部主题夹具都在B层', subjectBook[1].rows.length - 1, subjectCases.length)
+  eq('U13.b 草稿那一格逐字不变且主题行仍在草稿里', bounded([
+    ...subjectCsv.slice(1).flatMap(r => r[draftIndex] === expectDraft.get(r[5]) ? [] : [`csv/${r[5]}`]),
+    ...subjectBook[1].rows.slice(1).flatMap(r => r[draftIndex] === expectDraft.get(r[5]) ? [] : [`xlsx/${r[5]}`]),
+  ]), noFaults)
+  ok('U13.b 导出不改输入草稿', isDeepStrictEqual(subjectFixtures, subjectBefore))
+  const subjectNodes = htmlRead(subjectPage)
+  const cardOf = (ns: HtmlNode[], handle: string) => ns.find(n => classHas(n, 'card') && ns.some(a => a.tag === 'a' && a.a.href === `https://example.com/${handle}` && (() => { let p = a.parent; while (p && p !== n) p = p.parent; return p === n })()))
+  const subjectLine = (ns: HtmlNode[], card: HtmlNode | undefined) => {
+    const hits = ns.filter(n => n.a['data-draft-subject'] !== undefined && (() => { let p = n.parent; while (p && p !== card) p = p.parent; return p === card && card !== undefined })())
+    return hits.length === 1 ? hits[0].text : hits.length === 0 ? undefined : '重复'
+  }
+  eq('U13.c HTML有草稿的卡片单列主题且原文读回', subjectCases.filter(([, draft]) => draft !== undefined && draft.trim() !== '').map(([h]) => [h, subjectLine(subjectNodes, cardOf(subjectNodes, h))]),
+    subjectCases.filter(([, draft]) => draft !== undefined && draft.trim() !== '').map(([h, , subject]) => [h, `主题：${subject}`]))
+  eq('U13.c HTML没有草稿或草稿只有空白的卡片不出主题行', ['s-absent', 's-blank'].map(h => [cardOf(subjectNodes, h) !== undefined, subjectLine(subjectNodes, cardOf(subjectNodes, h))]), [[true, undefined], [true, undefined]])
+  ok('U13.c HTML主题在输出处转义而非注入标签', !subjectNodes.some(n => n.tag === 'b') && subjectPage.includes('&lt;b&gt;&amp;amp;&lt;/b&gt;'))
+  const legacySubject = html(subjectFixtures, { ...meta, total: subjectFixtures.length, tiers: { A: 0, B: subjectFixtures.length, C: 0 } })
+  ok('U13.c 旧HTML不出现主题行', !htmlRead(legacySubject).some(n => n.a['data-draft-subject'] !== undefined))
+  const dualSubjectPage = (html as unknown as (cs: Creator[], meta: any, options?: { mode?: 'review'; filters?: 'dual' }) => string)(subjectFixtures, { ...meta, total: subjectFixtures.length, tiers: { A: 0, B: subjectFixtures.length, C: 0 } }, { mode: 'review', filters: 'dual' })
+  const dualSubjectNodes = htmlRead(dualSubjectPage)
+  eq('U13.c 生产用的双筛选HTML同样单列主题且没草稿不出', subjectCases.map(([h]) => [h, subjectLine(dualSubjectNodes, cardOf(dualSubjectNodes, h))]),
+    subjectCases.map(([h, draft, subject]) => [h, draft !== undefined && draft.trim() !== '' ? `主题：${subject}` : undefined]))
+  ok('U13.c 旧表头不出现主题列', api.buildSheets(subjectFixtures).every(s => !s.headers.includes('outreach_subject')))
 
 })
 await group('p1-legacy-score-output', () => {

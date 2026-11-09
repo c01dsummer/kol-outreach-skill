@@ -17284,12 +17284,12 @@
       "by": "test", "kills": ["U9.b 180组冲突键按优先级层级分数粉丝三态稳定排列"]
     },
     {
-      "id": "M-U9-c", "req": "U9.d",
+      "id": "M-U9-c", "req": "U9.k",
       "why": "评审表头把新增列移到旧列之前，破坏既有消费者依赖的完整旧前缀",
       "file": "scripts/lib/rows.ts",
-      "find": "export const REVIEW_HEADERS = [...HEADERS, ...REVIEW_FIELDS]",
-      "replace": "export const REVIEW_HEADERS = [...REVIEW_FIELDS, ...HEADERS]",
-      "by": "test", "kills": ["U9.d 新公共表头符合契约原序64列"]
+      "find": "export const REVIEW_HEADERS = [...HEADERS, ...REVIEW_FIELDS, 'outreach_subject']",
+      "replace": "export const REVIEW_HEADERS = [...REVIEW_FIELDS, ...HEADERS, 'outreach_subject']",
+      "by": "test", "kills": ["U9.k 新公共表头符合契约原序65列"]
     },
     {
       "id": "M-U9-d", "req": "U9.c",
@@ -17297,10 +17297,10 @@
       "file": "scripts/lib/rows.ts",
       "find": "    if (options.mode === 'review') {",
       "replace": "    if (false) {",
-      "by": "test", "kills": ["U9.c/d/e/f/g/h/i XLSX表头行序原值及JSON全部独立读回"]
+      "by": "test", "kills": ["U9.c/e/f/g/h/i/k XLSX表头行序原值及JSON全部独立读回"]
     },
     {
-      "id": "M-U9-e", "req": "U9.d",
+      "id": "M-U9-e", "req": "U9.k",
       "why": "评审行将旧单元格次序反转，原草稿占位符和旧字段不再出现在约定列",
       "file": "scripts/lib/rows.ts",
       "find": "  return [...row, ...REVIEW_FIELDS.map(field => {",
@@ -18418,6 +18418,54 @@
       "by": "test",
       "kills": [
         "U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图"
+      ]
+    },
+    {
+      "id": "M-U13-a",
+      "req": "U13.a",
+      "why": "有草稿却拆不出主题时，outreach_subject 写成空白，和「没有草稿」共用一个空白",
+      "file": "scripts/lib/rows.ts",
+      "find": "  return subject ? subject : NO_SUBJECT",
+      "replace": "  return subject ? subject : ''",
+      "by": "test",
+      "kills": [
+        "U13.a CSV真实读回主题三态与拆法"
+      ]
+    },
+    {
+      "id": "M-U13-b",
+      "req": "U13.a",
+      "why": "主题不只看草稿第一个非空行，后面哪一行以 Subject 开头就拿哪一行充当主题",
+      "file": "scripts/lib/rows.ts",
+      "find": "  const first = draft.split(/\\r\\n|\\r|\\n|\\u2028|\\u2029/).find(line => line.trim() !== '')",
+      "replace": "  const first = draft.split(/\\r\\n|\\r|\\n|\\u2028|\\u2029/).find(line => /^\\s*subject/i.test(line)) ?? draft.split(/\\r\\n|\\r|\\n|\\u2028|\\u2029/).find(line => line.trim() !== '')",
+      "by": "test",
+      "kills": [
+        "U13.a CSV真实读回主题三态与拆法"
+      ]
+    },
+    {
+      "id": "M-U13-c",
+      "req": "U13.b",
+      "why": "outreach_subject 里的 {…} 占位符被删掉，运营看不出主题里还有待填项",
+      "file": "scripts/lib/rows.ts",
+      "find": "  const subject = m?.[1].trim()",
+      "replace": "  const subject = m?.[1].replace(/\\{[^}]*\\}/g, '').trim()",
+      "by": "test",
+      "kills": [
+        "U13.a CSV真实读回主题三态与拆法"
+      ]
+    },
+    {
+      "id": "M-U13-d",
+      "req": "U13.c",
+      "why": "新 HTML 草稿块里的主题不经转义直接写进报告，主题里的尖括号成了标记",
+      "file": "scripts/lib/report.ts",
+      "find": "主题：${esc(subject)}",
+      "replace": "主题：${subject}",
+      "by": "test",
+      "kills": [
+        "U13.c HTML主题在输出处转义而非注入标签"
       ]
     },
     {
