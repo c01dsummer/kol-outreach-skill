@@ -16207,7 +16207,7 @@ await group('u9-review-output', () => {
   const subjectIndex = headers.indexOf('outreach_subject'), draftIndex = oldHeaders.indexOf('outreach_draft')
   eq('U13.a 主题列是评审表末列', [subjectIndex, subjectCsv[0][subjectIndex], subjectBook[1].rows[0][subjectIndex]], [headers.length - 1, 'outreach_subject', 'outreach_subject'])
   eq('U13.a CSV真实读回主题三态与拆法', subjectCsv.slice(1).map(r => [r[5], r[subjectIndex]]), subjectCases.map(([h]) => [h, csvSubject.get(h)]))
-  eq('U13.a XLSX真实读回主题与CSV一致', bounded(subjectBook[1].rows.slice(1).flatMap(r => r[subjectIndex] === expectSubject.get(r[5]) ? [] : [r[5]])), noFaults)
+  eq('U13.a XLSX真实读回主题为原值', bounded(subjectBook[1].rows.slice(1).flatMap(r => r[subjectIndex] === expectSubject.get(r[5]) ? [] : [r[5]])), noFaults)
   eq('U13.a XLSX读回全部主题夹具都在B层', subjectBook[1].rows.length - 1, subjectCases.length)
   eq('U13.b 草稿那一格逐字不变（CSV按D5.c只在格首加单引号）且主题行仍在草稿里', bounded([
     ...subjectCsv.slice(1).flatMap(r => r[draftIndex] === csvDraft.get(r[5]) ? [] : [`csv/${r[5]}`]),
