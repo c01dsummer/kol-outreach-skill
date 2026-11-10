@@ -264,6 +264,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd25-effective-priority', needs: [] },
   { id: 'd21-tier-guards', needs: [] },
   { id: 'u9-review-output', needs: [] },
+  { id: 'u9-p1-independent-claim', needs: [] },
   { id: 'p1-legacy-score-output', needs: [] },
   { id: 'd21-task-reviews', needs: [] },
   { id: 'feedback-template-crossings', needs: [] },
@@ -16238,6 +16239,38 @@ await group('u9-review-output', () => {
     subjectCases.map(([h, draft, subject]) => [h, draft !== undefined && draft.trim() !== '' ? `主题：${subject}` : undefined]))
   ok('U13.c 旧表头不出现主题列', api.buildSheets(subjectFixtures).every(s => !s.headers.includes('outreach_subject')))
 
+})
+
+// KOL-21 R 片：U9 × P1 交点的独立认领（ADR-183 第 96 行；记录在 ADR-92 末尾）。上面那一组的认领与实现出自同一个上下文；
+// 这一组只用独立测试包里冻结了的粉丝三档用例 —— 排序函数层 G5-01…03、名单层 G6-01…03（真实 render 入口）—— 经接线
+// （`scripts/kol21-independent-wiring.ts`）跑一遍，冻结用例自己判，这里只读回结论，不改断言、不改冻结字节。
+// 判过的意思是那一例的结论是 pass、而且每一项都是 pass：附条件、待复核、不判、失格的都认不下。
+// 认领写在断言后面：哪一例没判过，这一跑就红，认领不写盘。
+await group('u9-p1-independent-claim', () => {
+  suite('U9', 'U9 × P1 独立认领：冻结的粉丝三档用例经接线跑真实排序函数与 render 入口')
+  const sortLayer = ['G5-01', 'G5-02', 'G5-03'], listLayer = ['G6-01', 'G6-02', 'G6-03']
+  const root = scMkdtempSync(scJoin(scTmpdir(), 'kol21-u9p1-')), work = scJoin(root, 'work'), report = scJoin(root, 'report.json')
+  try {
+    scMkdirSync(work)
+    const [exe, argv] = scPrebuiltCommand([scJoin(process.cwd(), 'scripts', 'kol21-independent-wiring.ts'),
+      '--work', work, '--report', report, '--only', [...sortLayer, ...listLayer].join(',')])
+    const r = cxSpawnSync(exe, argv, { encoding: 'utf8' })
+    eq('U9×P1 独立认领：接线以 0 收尾、写出报告', [r.status, scExistsSync(report)], [0, true])
+    if (r.status !== 0) console.log(`     stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+    type Item = { label: string; status: string }
+    let cases: { id: string; verdict: string; items: Item[] }[] = []
+    try { cases = JSON.parse(rf(report, 'utf8')).cases } catch { cases = [] }
+    // 每例交回 [用例号, 结论, 有没有判过任何一项, 没判过的那几项]；读不出报告时整组照「缺」红
+    const settled = (ids: string[]) => ids.map(id => {
+      const c = Array.isArray(cases) ? cases.find(x => x?.id === id) : undefined
+      const items = Array.isArray(c?.items) ? c.items : []
+      return [id, c?.verdict ?? '缺', items.length > 0, items.filter(i => i?.status !== 'pass').map(i => `${i?.label}：${i?.status}`)]
+    })
+    const want = (ids: string[]) => ids.map(id => [id, 'pass', true, []])
+    eq('U9×P1 独立认领：排序函数层三例（冻结用例 G5-01、G5-02、G5-03）判过，每一项都判过', settled(sortLayer), want(sortLayer))
+    eq('U9×P1 独立认领：名单层三例（冻结用例 G6-01、G6-02、G6-03，真实 render 入口）判过，每一项都判过', settled(listLayer), want(listLayer))
+  } finally { scRmSync(root, { recursive: true, force: true }) }
+  tension('U9', 'P1')
 })
 await group('p1-legacy-score-output', () => {
   // Independent contract test: /private/tmp/kol-legacy-score-contract.md and P1.e.

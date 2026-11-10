@@ -76,9 +76,9 @@ const facility: ObserverFacility = {
 // 冻结包里没有 Creator 的完整声明（GAP-18），G5 按导出签名把冻结单的候选原文当参数传进来；这里只在类型上认作
 // `Creator[]`，运行时就是那个数组本身。G5 先过 GAP-18 的登记与下面的 `creatorCheck`（冻结单 G5 各例的闸门）才调它。
 //
-// R 片（`claude/kol-21-u9p1-independent-claim`，ADR-183 第 96 行）要补的 U9×P1 独立认领，用的就是从这里接进去的 G5
-// 排序函数层与 G6 名单层（真实 render 入口）那几例：只用冻结了的用例，不改断言、不改冻结字节。交点的认领只写在需求测试里
-// （自检的入口认领记录不收交点），本片不认领 U9×P1。
+// U9×P1 的独立认领（R 片，ADR-183 第 96 行；记录在 ADR-92 末尾）用的就是从这里接进去的 G5 排序函数层与 G6 名单层（真实
+// render 入口）那六例：需求测试 `u9-p1-independent-claim` 起本文件、用 `--only` 只点这六例，六例都判 pass、每一项也都是 pass
+// 才认领。只用冻结了的用例，不改断言、不改冻结字节；交点的认领只写在需求测试里（自检的入口认领记录不收交点）。
 const sort: SortForOutput = creators => sortForOutput(creators as Creator[])
 
 // 公开的夹具资格检查（GAP-18）：只照 `scripts/lib/types.ts` @251d2d6 的类型声明 —— `Creator` 在 :270-408，它用到的
