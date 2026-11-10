@@ -143,9 +143,10 @@ async function main() {
 
   // stdout 出 JSON 给 Agent 读，进度信息走 stderr
   console.log(stringifyCostJson({ market, stopped, results }, budget.view()))
-  // 中途停下也照出部分结果，但退出码要让调用方分得清是跑完了、该续额度还是该去充值（ADR-193）
-  if (stopped === 'budget') process.exit(EXIT.budget)
-  if (stopped === 'provider_402') process.exit(EXIT.provider402)
+  // 中途停下也照出部分结果，但退出码要让调用方分得清是跑完了、该续额度还是该去充值（ADR-193）。
+  // 用 exitCode 自然退出，不调 process.exit：stdout 是管道时，结果 JSON 超过一个管道缓冲会被 exit 截断
+  if (stopped === 'budget') process.exitCode = EXIT.budget
+  if (stopped === 'provider_402') process.exitCode = EXIT.provider402
 }
 
 // F3.c／F3.e：输入问题（BudgetInputError，退出码 2）只写问题本身 —— 内部异常的类名与堆栈对运营没有用，类名还会把

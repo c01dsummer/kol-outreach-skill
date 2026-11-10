@@ -1390,7 +1390,7 @@ group('cost-http', [], () => {
         cost_http_200_usd: 0.001, cost_unknown_result_usd: 0, cost_pending_usd: 0 }),
     `attempts=${JSON.stringify(fetchAttempts(profile.log))}, summary=${profileRun.stdout}`)
 
-  // probe 普通错误仍输出部分结果；费用不足也保留既有成功结果且退出0。
+  // probe 普通错误仍输出部分结果；费用不足也保留既有成功结果，退出 3、stopped 为 budget（ADR-193）。
   const probeCwd = join(tmp, 'cost-probe')
   mkdirSync(probeCwd, { recursive: true })
   const probeCfg = join(probeCwd, 'config.json'), probeLog = join(probeCwd, 'attempts.tsv')
@@ -3811,7 +3811,7 @@ group('d6il-402', [], () => {
   }
 })
 
-// ---- KOL-105：profile 补全阶段遇 TikHub 402 立即停，以 stopped=error、退出码 1 收尾 ----
+// ---- KOL-105：profile 补全阶段遇 TikHub 402 立即停，以 stopped=error 收尾（退出码原为 1，ADR-193 起为 5） ----
 group('profile-402-stop', [], () => {
   // 改前（主干 0917a2f 实测，与卡片「复现步骤与实测结果」一致）：profile 端点回 402 时只计作那个人补全失败，
   // 接着为其余待补的人照发请求，收尾仍是 done／target、退 0。先于修补写成，看过它对着未修的代码红。
@@ -4021,7 +4021,7 @@ group('profile-402-stop', [], () => {
       pending(mix, 3), `应说还有 3 个人的 profile、且不说续跑不产生新的请求；stderr 末几行 ${stderrTail(mix.stderr)}`)
     // KOL-108 第 1 条：补全循环被 402 打断时，「N 人补全失败」那一行也照打，与汇总的 profile_failed 对得上
     named('collect 在 profile 补全先遇 404、再遇 TikHub 402：stderr 照打「1 人补全失败」那一行，与汇总的 profile_failed 对得上',
-      /1 人补全失败/.test(mix.stderr), `stderr 末几行 ${stderrTail(mix.stderr)}`)
+      /1 人补全失败/.test(mix.stderr) && mix.sum?.profile_failed === 1, `stderr 末几行 ${stderrTail(mix.stderr)}`)
   }
   // ①–⑧ 合起来是 D6.ab 的每一半：停与提示、零请求（含 IG 不降级）、profile_failed 只数 402 之前非 402 的失败、
   // 待补与续跑提示、402 之前补成的落盘、非 402 不停（④⑥）、达标与否都一样（①③）。负片 M-D6-bm、M-D6-bn

@@ -21703,7 +21703,7 @@
     },
     {
       "id": "M-D14-o",
-      "req": "D14.m",
+      "req": "D14.n",
       "why": "enrich 的保存失败落到 main().catch 时按其他运行错误退 1：调用方读不出「没存上」",
       "file": "scripts/enrich.ts",
       "find": "  process.exit(isSaveFailure(e) || (e instanceof CostError && e.code === 'persistence-failed') ? EXIT.save : EXIT.runtime)",
@@ -21718,7 +21718,7 @@
       "req": "F3.f",
       "why": "probe 遇供应商 402 中途停下，照出部分结果却以 0 退出：调用方当成全部任务跑完了",
       "file": "scripts/probe.ts",
-      "find": "  if (stopped === 'provider_402') process.exit(EXIT.provider402)\n",
+      "find": "  if (stopped === 'provider_402') process.exitCode = EXIT.provider402",
       "replace": "",
       "by": "selfcheck",
       "kills": [
@@ -21730,7 +21730,7 @@
       "req": "F3.f",
       "why": "probe 预算不足中途停下，照出部分结果却以 0 退出：调用方当成全部任务跑完了，不会请用户确认新上限",
       "file": "scripts/probe.ts",
-      "find": "  if (stopped === 'budget') process.exit(EXIT.budget)\n",
+      "find": "  if (stopped === 'budget') process.exitCode = EXIT.budget\n",
       "replace": "",
       "by": "selfcheck",
       "kills": [
