@@ -16561,6 +16561,9 @@ await group('d21-task-reviews', () => {
     ok('任务评审：旧判断 handle 为空时拒绝', blankHandle.rejected)
     ok('任务评审：旧判断 handle 为空时指出正本、第几条、平台、原值与原因', blankHandle.located && blankHandle.text.includes('" "') && blankHandle.text.includes('handle 不能为空'))
     ok('任务评审：旧判断 handle 为空时不落盘', blankHandle.kept)
+    // 只带一个空值的旧字段也算「带着」：按真假判会跳过它，投影随后照样把这个字段清掉。
+    ok('任务评审：旧判断只有 fit_reason 为 null 时也拒绝', unkeyed('null-reason', { platform: 'tiktok', handle: 'bad-null', fit_reason: null }).rejected)
+    ok('任务评审：旧判断只有 outreach_draft 为空串时也拒绝', unkeyed('empty-draft', { platform: 'tiktok', handle: 'bad-empty', outreach_draft: '' }).rejected)
     const twoBad = String(caught(() => prepareTaskReviews(directory('unkeyed-legacy-two'), state,
       [mk('tiktok', 'fine'), { platform: 'tiktok', handle: 'bad-one', fit: '✅' } as unknown as Creator, { platform: 'youtube', handle: 'two', outreach_draft: 'x' } as unknown as Creator], t0, [])))
     ok('任务评审：两条旧判断都规范化不了时一次报完', twoBad.includes('第 2 条') && twoBad.includes('"bad-one"') && twoBad.includes('第 3 条') && twoBad.includes('"two"'))

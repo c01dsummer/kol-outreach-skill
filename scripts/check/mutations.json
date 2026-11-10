@@ -17584,6 +17584,14 @@
       "by": "test", "kills": ["任务评审：两条旧判断都规范化不了时一次报完"]
     },
     {
+      "id": "M-D21-aq", "req": "D21.s",
+      "why": "按真假判「带着」旧字段：值为 null 或空串的那条被跳过，投影随后照样清掉它",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "const carried = legacyFields.filter(field => creator[field] !== undefined)",
+      "replace": "const carried = legacyFields.filter(field => Boolean(creator[field]))",
+      "by": "test", "kills": ["任务评审：旧判断只有 fit_reason 为 null 时也拒绝", "任务评审：旧判断只有 outreach_draft 为空串时也拒绝"]
+    },
+    {
       "id": "M-D25-s", "req": "D25.b",
       "why": "人工展示回退先读取旧名单，再重建当前 Agent 判断，当前已评的明确采用建议未用于有效展示",
       "file": "scripts/lib/task-reviews.ts",
