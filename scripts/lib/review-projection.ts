@@ -48,7 +48,7 @@ export function migrateLegacyAgentReviews(
     // D21.s：跳过会让投影清掉这几个字段、再写回 creators.json，判断就没了。
     try { key = normalizedAccountKey(creator.platform, creator.handle) }
     catch (error) {
-      unkeyed.push(`旧名单第 ${index + 1} 条（platform ${JSON.stringify(creator.platform)}，handle ${JSON.stringify(creator.handle)}）带 ${carried.join('、')}，账号规范化不了，无法迁入：${error instanceof Error ? error.message : String(error)}；改正这条的 platform、handle，或删掉这几个字段后再跑`)
+      unkeyed.push(`creators.json 第 ${index + 1} 条（platform ${JSON.stringify(creator.platform)}，handle ${JSON.stringify(creator.handle)}）带 ${carried.join('、')}，账号规范化不了，无法迁入：${error instanceof Error ? error.message : String(error)}；改正这条的 platform、handle，或删掉这几个字段后再跑`)
       return
     }
     const review = document.reviews[key] ?? { account_keys: [key] }

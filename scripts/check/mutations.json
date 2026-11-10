@@ -17553,10 +17553,10 @@
     },
     {
       "id": "M-D21-am", "req": "D21.s",
-      "why": "拒绝时不说是旧名单第几条，用户在几百条记录里找不到要改的那条",
+      "why": "拒绝时不说是 creators.json 第几条，用户在几百条记录里找不到要改的那条",
       "file": "scripts/lib/review-projection.ts",
-      "find": "旧名单第 ${index + 1} 条（",
-      "replace": "旧名单里有一条（",
+      "find": "creators.json 第 ${index + 1} 条（",
+      "replace": "creators.json 里有一条（",
       "by": "test", "kills": ["任务评审：旧判断 handle 含无效字符时指出正本、第几条、平台、原值与原因", "任务评审：旧判断平台不认时指出正本、第几条、平台、原值与原因", "任务评审：旧判断 handle 为空时指出正本、第几条、平台、原值与原因"]
     },
     {
@@ -17566,6 +17566,22 @@
       "find": "error.problems.map(problem => `${file} 缺席，${problem}`)",
       "replace": "error.problems.map(problem => problem)",
       "by": "test", "kills": ["任务评审：旧判断 handle 含无效字符时指出正本、第几条、平台、原值与原因", "任务评审：旧判断平台不认时指出正本、第几条、平台、原值与原因", "任务评审：旧判断 handle 为空时指出正本、第几条、平台、原值与原因"]
+    },
+    {
+      "id": "M-D21-ao", "req": "D21.s",
+      "why": "正本缺席、旧判断迁移之前就先写出一份正本：之后再因账号规范化不了而拒绝，盘上已经多了文件",
+      "file": "scripts/lib/task-reviews.ts",
+      "find": "  try { migrated = migrateLegacyAgentReviews(original, previousCreators) }",
+      "replace": "  writeAgentReviewDocument(dir, { ...original.document, updated_at: createdAt })\n  try { migrated = migrateLegacyAgentReviews(original, previousCreators) }",
+      "by": "test", "kills": ["任务评审：旧判断 handle 含无效字符时不落盘", "任务评审：旧判断平台不认时不落盘", "任务评审：旧判断 handle 为空时不落盘"]
+    },
+    {
+      "id": "M-D21-ap", "req": "D21.s",
+      "why": "碰到第一条规范化不了的旧判断就拒绝，后面几条要用户改一条跑一次才报出来",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "      return\n    }\n    const review = document.reviews[key] ?? { account_keys: [key] }",
+      "replace": "      throw new ReviewInputError(unkeyed)\n    }\n    const review = document.reviews[key] ?? { account_keys: [key] }",
+      "by": "test", "kills": ["任务评审：两条旧判断都规范化不了时一次报完"]
     },
     {
       "id": "M-D25-s", "req": "D25.b",

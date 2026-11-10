@@ -16561,6 +16561,9 @@ await group('d21-task-reviews', () => {
     ok('任务评审：旧判断 handle 为空时拒绝', blankHandle.rejected)
     ok('任务评审：旧判断 handle 为空时指出正本、第几条、平台、原值与原因', blankHandle.located && blankHandle.text.includes('" "') && blankHandle.text.includes('handle 不能为空'))
     ok('任务评审：旧判断 handle 为空时不落盘', blankHandle.kept)
+    const twoBad = String(caught(() => prepareTaskReviews(directory('unkeyed-legacy-two'), state,
+      [mk('tiktok', 'fine'), { platform: 'tiktok', handle: 'bad-one', fit: '✅' } as unknown as Creator, { platform: 'youtube', handle: 'two', outreach_draft: 'x' } as unknown as Creator], t0, [])))
+    ok('任务评审：两条旧判断都规范化不了时一次报完', twoBad.includes('第 2 条') && twoBad.includes('"bad-one"') && twoBad.includes('第 3 条') && twoBad.includes('"two"'))
     // 不多拒：没有旧判断字段、已是新评审或已评过的记录本来就不迁，账号坏了也照常放行；正本在场时不迁移，也不查。
     const passes = (label: string, creator: Record<string, unknown>, document?: unknown) =>
       !(caught(() => prepareTaskReviews(directory(`unkeyed-pass-${label}`, document), state, [creator as unknown as Creator], t0, [])) instanceof Error)
