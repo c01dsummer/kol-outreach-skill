@@ -843,8 +843,9 @@ group('budget-gate', [], () => {
   // 账本都是 `tmp` 下各自的一份，不碰 `tmp` 下共用的记忆与产出（记忆按当前目录找；probe.ts 不写盘）。
   const observerCwd = join(tmp, 'budget-gate-observer')
   mkdirSync(observerCwd, { recursive: true })
-  const observed = (label: string, args: string[], cwd: string, log: string): boolean => {
-    const r = runBoth(label, args, cwd, undefined, costEnv(log))
+  // collect 那一跑达标收尾，退 4（ADR-193）；其余入口跑完退 0
+  const observed = (label: string, args: string[], cwd: string, log: string, status = 0): boolean => {
+    const r = runBoth(label, args, cwd, { status }, costEnv(log))
     if (!r.ok) return false
     const attempts = fetchAttempts(log).length
     if (attempts > 0) { console.log(`    观察器记下 ${attempts} 次请求`); return true }
@@ -895,7 +896,7 @@ group('budget-gate', [], () => {
 
   ledgerDir(join(observerCwd, 'collect-ok'), 0)
   if (observed('collect 合法账目、合法 --budget 照常续跑（请求观察器阳性对照）',
-      [S('collect.ts'), '--resume', 'collect-ok', '--budget', '3'], observerCwd, join(observerCwd, 'collect-ok.tsv'))) {
+      [S('collect.ts'), '--resume', 'collect-ok', '--budget', '3'], observerCwd, join(observerCwd, 'collect-ok.tsv'), 4)) {
     const badCfg = join(tmp, 'collect-badbudget.json')
     writeFileSync(badCfg, JSON.stringify({ product: 'badbudget', market: 'US', target_count: 1, budget_usd: 'abc', tasks }))
     const collectBad = budgetStop('collect 上限写成 "abc"', [S('collect.ts'), '--config', badCfg], tmp,
@@ -987,7 +988,7 @@ group('cost-input', [], () => {
     // 嵌套坏值放在根之后；有效根值不能被同名嵌套字段污染。
     writeFileSync(cfg, `{"product":"precise","market":"US","target_count":1,"budget_usd":${token},"nested":{"budget_usd":${preciseBad}},"tasks":[{"keyword":"k","dimension":"category","platform":"tiktok"}]}`)
     const result = runBoth(`collect 精确保存 ${token}`, [S('collect.ts'), '--config', cfg], cwd,
-      undefined, costEnv(log))
+      { status: 4 }, costEnv(log))
     if (!result.ok) continue
     const taskDir = onlyDir(cwd, 'precise')
     if (!taskDir) { named('精确金额的新任务必须留下断点目录', false, '没有唯一的 precise 目录'); continue }
@@ -1011,7 +1012,7 @@ group('cost-input', [], () => {
     writeFileSync(cfg, JSON.stringify({ product: 'default', market: 'US', target_count: 1,
       tasks: [{ keyword: 'default', dimension: 'category', platform: 'tiktok' }] }))
     const result = runBoth(`${entry} 缺席预算声明默认与范围`, [S(`${entry}.ts`), '--config', cfg],
-      cwd, undefined, costEnv(log))
+      cwd, { status: entry === 'collect' ? 4 : 0 }, costEnv(log))
     if (result.ok) named('只有新输入预算缺席才使用有范围说明的默认值',
       costViewMatches(summaryOf(result.stdout), { budget_usd: entry === 'collect' ? 2 : 0.5,
         cost_scope: entry === 'collect' ? 'task' : 'process', cost_status: 'known' })
@@ -1398,9 +1399,9 @@ group('cost-http', [], () => {
     { keyword: 'second', dimension: 'scene', platform: 'instagram' },
   ] }))
   const probe = runBoth('probe 余额不够下一次仍输出部分结果', [S('probe.ts'), '--config', probeCfg], probeCwd,
-    { status: 0, soft: [1, 2, 3] }, costEnv(probeLog))
-  if (probe.ok) named('probe 预算不足退出0且保留一次 IG 成果，不把三分之二说成100%',
-    probe.status === 0 && JSON.stringify(fetchAttempts(probeLog)) === JSON.stringify([`200\t${IG_REELS}`])
+    { status: 3, soft: [0, 1, 2, 5] }, costEnv(probeLog))
+  if (probe.ok) named('probe 预算不足退出3、stopped 为 budget，且保留一次 IG 成果，不把三分之二说成100%',
+    probe.status === 3 && summaryOf(probe.stdout).stopped === 'budget' && JSON.stringify(fetchAttempts(probeLog)) === JSON.stringify([`200\t${IG_REELS}`])
       && costViewMatches(summaryOf(probe.stdout), { cost_status: 'known', cost_scope: 'process',
         requests: 1, budget_usd: 0.003, cost_estimate_usd: 0.002, cost_http_200_usd: 0.002,
         cost_unknown_result_usd: 0, cost_pending_usd: 0 })
@@ -1471,7 +1472,7 @@ group('discovery', [], () => {
     summaryOf(empty.stdout).results?.[0]?.sample?.length === 0
       && Boolean(summaryOf(empty.stdout).results?.[1]?.error)
       && !empty.stdout.includes('discovery_sources'), empty.stdout)
-  const collected = runBoth('发现来源 collect 保存', [S('collect.ts'), '--resume', f.taskDir], f.cwd, undefined, costEnv(f.log))
+  const collected = runBoth('发现来源 collect 保存', [S('collect.ts'), '--resume', f.taskDir], f.cwd, { status: 4 }, costEnv(f.log))
   if (collected.ok) {
     const raw = jsonFile(join(f.taskDir, 'creators.raw.json')), delivery = jsonFile(join(f.taskDir, 'creators.json'))
     named('三路来源进入raw，空Reels后的账号只有users来源',
@@ -1484,7 +1485,7 @@ group('discovery', [], () => {
       && equal(delivery.find((c: any) => c.handle === 'wanderwithmei')?.discovery_sources, [source(2, 'wanderwithmei')]),
       JSON.stringify(delivery))
     const resumed = runBoth('发现来源 collect 零请求恢复', [S('collect.ts'), '--resume', f.taskDir], f.cwd,
-      undefined, costEnv(f.log))
+      { status: 4 }, costEnv(f.log))
     if (resumed.ok) named('来源保存恢复不丢记录且不改变请求次数和费用',
       equal(jsonFile(join(f.taskDir, 'creators.raw.json')), raw)
         && equal(jsonFile(join(f.taskDir, 'creators.json')), delivery)
@@ -1684,10 +1685,10 @@ group('cost-durable', [], () => {
       const endpoint = entry === 'collect' ? (profile ? IG_PROFILE : IG_REELS) : TT_POSTS
       const unit = entry === 'collect' && !profile ? 2000 : 1000
       const beforePeople = fileText(join(f.taskDir, 'creators.json'))
-      // 收尾若错误进入记忆读取，会遇到坏JSON；D14.h要求原费用运行错误仍是退出1。
+      // 收尾若错误进入记忆读取，会遇到坏JSON；D14.h要求原费用运行错误仍是退出6（ADR-193）。
       if (mode === 'once') writeFileSync(join(f.cwd, 'memory', 'creators.json'), '{broken-memory')
       const result = runBoth(`持久费用保存故障 ${route}/${outcome}/${mode}`, args(entry, f), f.cwd,
-        { status: 1, soft: [0, 2, 3] }, observeEnv(f, {
+        { status: 6, soft: [0, 1, 2, 3, 7] }, observeEnv(f, {
           NODE_OPTIONS: failSave(f, outcome === 'reserve' ? 'reserve' : 'terminal', mode),
           ...(outcome === 'non200' || outcome === 'nostatus' ? {
             FAKE_FETCH_FAULT_PATH: endpoint,
@@ -1704,11 +1705,11 @@ group('cost-durable', [], () => {
       const injected = marks.filter(e => e.kind === 'injected'), count = seen.filter(e => e.kind === 'fetch').length
       const why = `${route}/${outcome}/${mode}: exit=${result.status}, fetch=${count}, injected=${injected.length}, disk=${JSON.stringify(after)}, stderr=${result.stderr}`
       if (outcome === 'reserve') {
-        named('预留保存失败退出1且零请求，不伪造无HTTP状态留存',
-          injected.length > 0 && result.status === 1 && count === 0 && after?.requests === 2
+        named('预留保存失败退出6且零请求，不伪造无HTTP状态留存',
+          injected.length > 0 && result.status === 6 && count === 0 && after?.requests === 2
             && unknown(after) === 1 && retained(after) === 2, why)
       } else {
-        const stopped = injected.length > 0 && result.status === 1 && count === 1
+        const stopped = injected.length > 0 && result.status === 6 && count === 1
           && !seen.some(e => e.kind === 'body')
         if (outcome === 'http200') named('HTTP200终态保存失败停止正文及后续请求，不走兜底', stopped, why)
         if (outcome === 'non200') named('非200终态保存失败停止正文及重试，不走兜底', stopped, why)
@@ -1725,13 +1726,29 @@ group('cost-durable', [], () => {
           injected.length > 0 && (mode === 'persistent' ? stablePending
             : terminal && marks.some(e => e.kind === 'saved')), why)
       }
-      named('费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出1',
-        injected.length > 0 && result.status === 1 && result.stdout.trim() === ''
+      named('费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出6',
+        injected.length > 0 && result.status === 6 && result.stdout.trim() === ''
           && !/断点已保存|已保存.*(?:续跑|继续)|追加预算|续跑不产生|续跑会继续/.test(result.stderr)
           && result.stderr.includes('test durable cost save denied')
           && fileText(join(f.taskDir, 'creators.json')) === beforePeople, why)
     }
-  criterion('D14.b', 'D14.c', 'D14.d', 'D14.e', 'D14.h')
+  criterion('D14.i', 'D14.j', 'D14.k', 'D14.l', 'D14.m')
+
+  {
+    // ADR-193：enrich 遇供应商余额不足（HTTP 402）照出汇总 JSON、stopped 为 error，退出码 5（以前与其他运行错误同为 1）。
+    // fake-fetch 见 URL 里带 force-402 就回 402；TikTok 近期作品请求的 unique_id 就是账号名，所以只有这个人那一次被拒
+    const f = costFixture('enrich-402', knownCosts(1_000_000, []), {},
+      [costPerson('tiktok', 'force-402-enrich'), costPerson('tiktok', 'enrich_after_402')])
+    const r = runBoth('enrich 遇 TikHub 402', [S('enrich.ts'), '--dir', f.taskDir], f.cwd,
+      { status: 5, soft: [0, 1, 2, 3, 4, 6, 7] }, costEnv(f.log))
+    if (r.ok) {
+      const lines = fetchAttempts(f.log), at = lines.findIndex(l => l.startsWith('402\t'))
+      named('enrich 遇 TikHub 402：照出汇总 JSON，stopped 为 error，退出码 5，402 之后不再请求',
+        r.status === 5 && summaryOf(r.stdout).stopped === 'error' && at >= 0 && at === lines.length - 1,
+        `退出码 ${r.status}，stopped=${JSON.stringify(summaryOf(r.stdout).stopped)}，账本 ${JSON.stringify(lines)}，stderr=${stderrTail(r.stderr)}`)
+      criterion('D14.n')
+    }
+  }
 
   for (const entry of ['collect', 'enrich']) {
     const f = fixture('kill-barrier', entry)
@@ -1840,7 +1857,7 @@ group('cost-save-errors', [], () => {
     const result = runBoth(`${entry} 保存失败 ${scenario}`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir,
         ...(scenario === 'change' ? ['--budget', '0.003'] : [])], f.cwd,
-      { status: 1, soft: [0, 2, 3] }, costEnv(f.log, {
+      { status: 6, soft: [0, 1, 2, 3, 7] }, costEnv(f.log, {
         NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
       }))
     if (!result.ok) continue
@@ -1851,7 +1868,7 @@ group('cost-save-errors', [], () => {
     }
     const attempts = fetchAttempts(f.log)
     named('费用保存故障确实发生，失败不得退3、宣称已保存或继续请求',
-      fileText(mark).includes('injected') && result.status === 1 && !result.stderr.includes('已保存')
+      fileText(mark).includes('injected') && result.status === 6 && !result.stderr.includes('已保存')
         && attempts.length === (scenario === 'after-http' ? 1 : 0)
         && (scenario !== 'after-http' || attempts[0] === `200\t${entry === 'collect' ? TT_SEARCH : TT_POSTS}`)
         && (scenario === 'after-http' ? jsonFile(f.task)?.cost_ledger?.pending?.endpoint === (entry === 'collect' ? TT_SEARCH : TT_POSTS)
@@ -1870,7 +1887,7 @@ group('cost-save-errors', [], () => {
     const preload = join(f.cwd, 'fail-raw-save.mjs'), mark = join(f.cwd, 'raw-fault.txt')
     writeFileSync(preload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = function(src, dest) { if (String(dest) === ${JSON.stringify(raw)}) { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('test raw save denied'), { code: 'EIO' }); } return original(src, dest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
     const result = runBoth('collect 作者累加器写失败', [S('collect.ts'), '--resume', f.taskDir], f.cwd,
-      { status: 1, soft: [0, 2, 3] }, costEnv(f.log, {
+      { status: 6, soft: [0, 1, 2, 3, 7] }, costEnv(f.log, {
         NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
       }))
     if (result.ok) {
@@ -1881,7 +1898,7 @@ group('cost-save-errors', [], () => {
         const disk = jsonFile(f.task)
         const attempts = fetchAttempts(f.log)
         named('作者累加器写失败时，盘上这一页的分页进度不前进',
-          fileText(mark).includes('injected') && result.status === 1
+          fileText(mark).includes('injected') && result.status === 6
             && attempts.length === 1 && attempts[0] === `200\t${TT_SEARCH}`
             && disk?.offsets !== undefined && !Object.hasOwn(disk.offsets, '0')
             && disk?.pages !== undefined && !Object.hasOwn(disk.pages, '0')
@@ -2103,10 +2120,10 @@ group('test-observer-events', [], () => {
   // save-failed＝「这次预留没能存进任务账」：同 cost-save-errors，只拦 task.json 最终改名写入的目标
   const sf = obsFixture('reject-save-failed'), preload = join(sf.cwd, 'deny-task-save.mjs'), mark = join(sf.cwd, 'mark.txt')
   writeFileSync(preload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = function(src, dest) { if (String(dest) === ${JSON.stringify(sf.task)}) { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('test task save denied'), { code: 'EIO' }); } return original(src, dest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
-  const sr = obsResume('collect 预留存不进任务账', sf, { ...TOBS_ON(), NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}` }, { status: 1, soft: [0, 2, 3] })
+  const sr = obsResume('collect 预留存不进任务账', sf, { ...TOBS_ON(), NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}` }, { status: 6, soft: [0, 1, 2, 3, 7] })
   if (sr.ok && !fileText(mark).includes('armed')) { failed++; console.error(`  ✗ 预留保存故障注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${sr.stderr}`) }
-  else if (sr.ok) named('预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 1',
-    fileText(mark).includes('injected') && sr.status === 1 && fetchAttempts(sf.log).length === 0 && reserves(sr.records, 'reserved').length === 0
+  else if (sr.ok) named('预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 6',
+    fileText(mark).includes('injected') && sr.status === 6 && fetchAttempts(sf.log).length === 0 && reserves(sr.records, 'reserved').length === 0
       && reserves(sr.records, 'rejected').some(o => o.reason === 'save-failed' && !('attempt_id' in o)), obsSaid(sr, sf.log))
   // 「记录只写进这个文件：stdout 和 stderr 一行都不因此多写，除了这个文件也不因此写任何别的文件」—— 同一目录、同一夹具跑两次
   const mkSame = () => obsFixture('same'), s1 = mkSame()
@@ -2180,14 +2197,14 @@ group('test-observer-events', [], () => {
 group('test-observer-save-fault', [], () => {
   const TOBS_ON = tobsSwitch(join(tmp, 'test-observer-save-fault-records'))
   const hits = (records: any[]) => ofKind(records, 'save-fault'), misses = (records: any[]) => ofKind(records, 'save-fault-miss')
-  const noSummary = (stdout: string) => Object.keys(summaryOf(stdout)).length === 0   // 收尾表：保存失败 → stdout 无汇总 JSON、退出 1
+  const noSummary = (stdout: string) => Object.keys(summaryOf(stdout)).length === 0   // 收尾表：保存失败 → stdout 无汇总 JSON、退出 6（ADR-193）
   // SP-R 第 1 次＝「每次真实 HTTP 尝试之前，把这次预留写进 task.json 的那次保存」—— 一个请求都发不出去；attempt_id ＝ next_attempt_id ＝ 1
   const mkR = () => obsFixture('spr'), spr = mkR(), ctl = obsFault(spr.cwd, FAULT_OK), bytes = fileText(ctl)
-  const r1 = obsResume('collect 注入 SP-R 第 1 次', spr, TOBS_ON(), { status: 1, soft: [0, 2, 3] })
+  const r1 = obsResume('collect 注入 SP-R 第 1 次', spr, TOBS_ON(), { status: 6, soft: [0, 1, 2, 3, 7] })
   if (r1.ok) {
     const h = hits(r1.records)
-    named('SP-R 命中：退出 1、stdout 没有汇总 JSON、零请求；恰好一条命中记录指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中记录',
-      r1.status === 1 && noSummary(r1.stdout) && fetchAttempts(spr.log).length === 0 && h.length === 1 && h[0].entry === 'collect'
+    named('SP-R 命中：退出 6、stdout 没有汇总 JSON、零请求；恰好一条命中记录指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中记录',
+      r1.status === 6 && noSummary(r1.stdout) && fetchAttempts(spr.log).length === 0 && h.length === 1 && h[0].entry === 'collect'
         && h[0].contract === TOBS_CONTRACT && h[0].point === 'SP-R' && h[0].occurrence === 1 && h[0].attempt_id === 1
         && h[0].endpoint === TT_SEARCH && h[0].not_written === true && misses(r1.records).length === 0, obsSaid(r1, spr.log))
     // 「stderr 报保存失败，原因写明是 .kol-save-fault.json 注入的」「只读，不改也不删」
@@ -2211,23 +2228,23 @@ group('test-observer-save-fault', [], () => {
   const finalOf: Record<string, Verdict> = {}
   for (const [point, kind, status] of [['SP-200', undefined, '200'], ['SP-N200', 'bad-body-500', '500'], ['SP-NS', 'no-http-status', 'NO_HTTP_STATUS']] as const) {
     const f = obsFixture(`sp-${point}`); obsFault(f.cwd, { ...FAULT_OK, point })
-    const r = obsResume(`collect 注入 ${point} 第 1 次`, f, { ...TOBS_ON(), ...(kind ? { FAKE_FETCH_FAULT_PATH: TT_SEARCH, FAKE_FETCH_FAULT: kind } : {}) }, { status: 1, soft: [0, 2, 3] })
-    if (r.ok) finalOf[point] = [r.status === 1 && noSummary(r.stdout) && JSON.stringify(fetchAttempts(f.log)) === JSON.stringify([`${status}\t${TT_SEARCH}`])
+    const r = obsResume(`collect 注入 ${point} 第 1 次`, f, { ...TOBS_ON(), ...(kind ? { FAKE_FETCH_FAULT_PATH: TT_SEARCH, FAKE_FETCH_FAULT: kind } : {}) }, { status: 6, soft: [0, 1, 2, 3, 7] })
+    if (r.ok) finalOf[point] = [r.status === 6 && noSummary(r.stdout) && JSON.stringify(fetchAttempts(f.log)) === JSON.stringify([`${status}\t${TT_SEARCH}`])
         && hits(r.records).length === 1 && hits(r.records)[0].point === point && hits(r.records)[0].occurrence === 1 && hits(r.records)[0].attempt_id === 1
         && hits(r.records)[0].endpoint === TT_SEARCH && hits(r.records)[0].not_written === true && misses(r.records).length === 0, `${point}: ${obsSaid(r, f.log)}`]
   }
-  if (finalOf['SP-200']) named('SP-200 在恰好一次 200 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-200、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-200'])
-  if (finalOf['SP-N200']) named('SP-N200 在恰好一次 500 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-N200'])
-  if (finalOf['SP-NS']) named('SP-NS 在恰好一次没拿到状态之后命中：退出 1、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-NS'])
+  if (finalOf['SP-200']) named('SP-200 在恰好一次 200 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-200、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-200'])
+  if (finalOf['SP-N200']) named('SP-N200 在恰好一次 500 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-N200'])
+  if (finalOf['SP-NS']) named('SP-NS 在恰好一次没拿到状态之后命中：退出 6、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-NS'])
   // SP-BUD＝「已知额度不足、停下时的断点保存；注入时作者文件和 task.json 都不写」—— 已用 1000/1000 的续跑，没有文件时今天以 3 收尾
   const mkBud = () => obsFixture('spbud', knownCosts(1000, [costEntry(TT_PROFILE, 1000, 1)]), {}, [costPerson()])
   const budCtl = obsResume('collect 额度不足的对照跑', mkBud(), TOBS_ON(), { status: 3, soft: [0, 1, 2] })
   const bud = obsAgain(mkBud); obsFault(bud.cwd, { ...FAULT_OK, point: 'SP-BUD' })
   const budFiles = ['task.json', 'creators.json', 'creators.raw.json'].map(n => join(bud.taskDir, n)), budBefore = budFiles.map(fileText)
-  const br = obsResume('collect 注入 SP-BUD 第 1 次', bud, TOBS_ON(), { status: 1, soft: [0, 2, 3] })
+  const br = obsResume('collect 注入 SP-BUD 第 1 次', bud, TOBS_ON(), { status: 6, soft: [0, 1, 2, 3, 7] })
   if (budCtl.ok && br.ok) {
-    named('SP-BUD 命中：对照跑以 3 收尾，注入跑以 1 收尾、stdout 没有汇总 JSON、零请求，stderr 不说已保存',
-      budCtl.status === 3 && br.status === 1 && noSummary(br.stdout) && fetchAttempts(bud.log).length === 0 && !/已保存/.test(br.stderr), obsSaid(br, bud.log))
+    named('SP-BUD 命中：对照跑以 3 收尾，注入跑以 6 收尾、stdout 没有汇总 JSON、零请求，stderr 不说已保存',
+      budCtl.status === 3 && br.status === 6 && noSummary(br.stdout) && fetchAttempts(bud.log).length === 0 && !/已保存/.test(br.stderr), obsSaid(br, bud.log))
     named('SP-BUD 的命中记录没有 attempt_id 与 endpoint，作者文件和 task.json 一字没写',
       hits(br.records).length === 1 && hits(br.records)[0].point === 'SP-BUD' && hits(br.records)[0].occurrence === 1 && hits(br.records)[0].not_written === true
         && !('attempt_id' in hits(br.records)[0]) && !('endpoint' in hits(br.records)[0]) && budFiles.every((p, i) => fileText(p) === budBefore[i]), obsSaid(br))
@@ -3044,7 +3061,7 @@ group('memory', ['collect', 'render'], () => {
 
     const stderr = run('collect 记忆读不出来时不产出名单',
                        [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp,
-                       { status: 2, stream: 'stderr' })
+                       { status: 7, stream: 'stderr' })
     // 整段一起守住 —— 下面四条断言全都依赖这一次中止。逐条判空的写法里第三条
     // 会判出**假绿**：`stderr` 为空时两个布尔都是 false，`budgetGone !== cmdHasBudget`
     // 不成立，于是它在进程失败之后打了一个 ✓（#94 评审指出）
@@ -3090,7 +3107,7 @@ group('memory', ['collect', 'render'], () => {
       })),
     }))
     const zeroErr = run('collect 收尾：没活了就说续跑不产生新请求',
-                        [S('collect.ts'), '--config', zeroCfg], tmp, { status: 2, stream: 'stderr' })
+                        [S('collect.ts'), '--config', zeroCfg], tmp, { status: 7, stream: 'stderr' })
     if (zeroErr === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
     } else if (!zeroErr.includes('续跑不产生新的请求')) {
@@ -3109,7 +3126,7 @@ group('memory', ['collect', 'render'], () => {
       })),
     }))
     const leftErr = run('collect 收尾：还有活就说续跑要继续花钱',
-                        [S('collect.ts'), '--config', leftCfg], tmp, { status: 2, stream: 'stderr' })
+                        [S('collect.ts'), '--config', leftCfg], tmp, { status: 7, stream: 'stderr' })
     if (leftErr === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
     } else if (!leftErr.includes('续跑会继续发请求、继续花钱')) {
@@ -3140,7 +3157,7 @@ group('memory', ['collect', 'render'], () => {
       tasks: [{ keyword: 'ok0', dimension: 'category', platform: 'tiktok' }],
     }))
     const onlyErr = run('collect 收尾：只剩 profile 也要说续跑要花钱',
-                        [S('collect.ts'), '--config', onlyCfg], tmp, { status: 2, stream: 'stderr' })
+                        [S('collect.ts'), '--config', onlyCfg], tmp, { status: 7, stream: 'stderr' })
     if (onlyErr === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
     } else if (!/还有 \d+ 个人的 profile/.test(onlyErr)) {
@@ -3171,7 +3188,7 @@ group('memory', ['collect', 'render'], () => {
     // 退役表）现在靠 M-D6-j、M-D6-bi…bl 与那条硬失败顶着。
     //
     // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
-    // 「达标提前停下」和「关键词跑完」都是退出码 0、都说「不花钱」，一条夹具会让另一条
+    // 「达标提前停下」和「关键词跑完」都说「不花钱」（ADR-193 之前还同为退出码 0），一条夹具会让另一条
     // 看起来也测过了，而它们是 `stopped` 的两个不同取值（评审指出）。
     const paths = join(tmp, 'paths')
     mkdirSync(join(paths, 'memory'), { recursive: true })
@@ -3215,21 +3232,21 @@ group('memory', ['collect', 'render'], () => {
     endPath('collect 关键词跑完（退出码 0）也说续跑代价',
             pathCfg('pdone', { target_count: 9999 }), 0, 'done', FREE, COST)
 
-    // 达标提前停下：和上面同为退出码 0、同说「不花钱」，但 stopped 不同 ——
+    // 达标提前停下：和上面同说「不花钱」，但 stopped 不同、退出码是 4（ADR-193）——
     // 这个夹具里补全没把人筛下去，收尾时 qualified 仍够目标，且三个关键词都问过了
     // 第一页，所以那句话说不花钱（D6.g 按调用那一刻的 qualified 算）。
     // 筛掉之后结论会反过来 —— ADR-94 第十三节。
-    endPath('collect 达标提前停下（退出码 0）也说续跑代价',
-            pathCfg('ptarget', { target_count: 1 }), 0, 'target', FREE, COST)
+    endPath('collect 达标提前停下（退出码 4）也说续跑代价',
+            pathCfg('ptarget', { target_count: 1 }), 4, 'target', FREE, COST)
 
     // 预算用尽：退出码 3，带着断点目录走 stdout，那句话在 stderr
     endPath('collect 预算用尽（退出码 3）也说续跑代价',
             pathCfg('pbudget', { budget_usd: 0.002 }), 3, 'budget', COST, FREE)
 
-    // 出错中止：退出码 1。402 是对面拒收（余额不足），和预算用尽不是一回事 ——
+    // 出错中止：402 是对面拒收（余额不足），和预算用尽不是一回事，退出码 5（ADR-193）——
     // 关键词里带 force-402 让罐头 fetch 抛它，这是走到这条路径的唯一办法。
-    endPath('collect 出错中止（退出码 1）也说续跑代价',
-            pathCfg('perror', {}, 'force-402-k'), 1, 'error', COST, FREE)
+    endPath('collect 出错中止（402，退出码 5）也说续跑代价',
+            pathCfg('perror', {}, 'force-402-k'), 5, 'error', COST, FREE)
 
     // 四条收尾各跑过一次，每次都验了退出码、`stopped` 取值、那句话说什么 ——
     // D6.f 逐字要求的正是这四条路都说清续跑要不要花钱（落地 3 第一片）
@@ -3251,9 +3268,9 @@ group('memory', ['collect', 'render'], () => {
     const deliveryFiles = ['task.json', 'creators.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
     const beforeRender = deliveryFiles.map(name => fileText(join(tmp, dir, name)))
     const refusedRender = runBoth('render 坏记忆默认拒绝交付',
-      [S('render.ts'), '--dir', dir], tmp, { status: 2, soft: [0] })
+      [S('render.ts'), '--dir', dir], tmp, { status: 7, soft: [0, 1, 2] })
     named('render 坏记忆默认拒绝且不改旧交付或记忆',
-      refusedRender.status === 2 && deliveryFiles.every((name, i) =>
+      refusedRender.status === 7 && deliveryFiles.every((name, i) =>
         fileText(join(tmp, dir, name)) === beforeRender[i]) && fileText(memFile) === broken,
       `退出=${refusedRender.status}，stderr=${stderrTail(refusedRender.stderr)}`)
 
@@ -3508,9 +3525,9 @@ group('f9', [], () => {
     JSON.parse(readFileSync(join(firstPage, dir, 'task.json'), 'utf8')).offsets ?? {}).length
 
   const ascRun = runBoth('collect 第一页保证：正序跑一遍',
-                         [S('collect.ts'), '--config', f9Cfg('asc', [0, 1, 2, 3, 4, 5])], firstPage)
+                         [S('collect.ts'), '--config', f9Cfg('asc', [0, 1, 2, 3, 4, 5])], firstPage, { status: 4 })
   const descRun = runBoth('collect 第一页保证：同一批任务倒序再跑一遍',
-                          [S('collect.ts'), '--config', f9Cfg('desc', [5, 4, 3, 2, 1, 0])], firstPage)
+                          [S('collect.ts'), '--config', f9Cfg('desc', [5, 4, 3, 2, 1, 0])], firstPage, { status: 4 })
   if (ascRun.ok && descRun.ok) {
     const asc = summaryOf(ascRun.stdout)
     const desc = summaryOf(descRun.stdout)
@@ -3539,7 +3556,7 @@ group('f9', [], () => {
       // 不是它的第三拍 —— 别把它读成「这段接线有人守着」。
       const again = run('collect 第一页保证：每个任务都问过之后再续跑一次',
                         [S('collect.ts'), '--resume', asc.dir, '--budget', '2'], firstPage,
-                        { status: 0, stream: 'stdout' })
+                        { status: 4, stream: 'stdout' })
       if (again !== undefined) {
         const after = summaryOf(again).requests
         named('第一页之后照旧按达标停下 —— 已经问过的不再多翻一页',
@@ -3756,9 +3773,9 @@ group('d6il-402', [], () => {
     product: 'refunded', market: 'US', target_count: 9999, budget_usd: 1,
     tasks: [{ keyword: 'force-402-kw', dimension: 'category', platform: 'tiktok' }],
   }))
-  // 402 是对面拒收：不重试、直接抛穿搜索循环 → stopped='error'、退出码 1
+  // 402 是对面拒收：不重试、直接抛穿搜索循环 → stopped='error'、退出码 5（ADR-193）
   const refRun = runBoth('collect 供应商拒收（402）：以出错收尾',
-                         [S('collect.ts'), '--config', refCfg], refunded, { status: 1 })
+                         [S('collect.ts'), '--config', refCfg], refunded, { status: 5 })
   if (refRun.ok) {
     let rstate: any
     try {
@@ -3820,7 +3837,7 @@ group('profile-402-stop', [], () => {
       ...(fault.before === undefined ? {} : { FAKE_FETCH_HALT_BEFORE: String(fault.before) }) }
     // 退出码本身就是下面具名断言点名的东西：别的正常退出码交给它们判，被信号打死照旧带进程记号
     const r = runBoth(label, [S('collect.ts'), '--config', cfg], cwd,
-      { status: want, soft: [0, 1, 2, 3].filter(s => s !== want) }, costEnv(log, knobs))
+      { status: want, soft: [0, 1, 2, 3, 4, 5, 6, 7].filter(s => s !== want) }, costEnv(log, knobs))
     if (!r.ok) return undefined
     let sum: any
     try { sum = JSON.parse(r.stdout) } catch { sum = undefined }
@@ -3836,7 +3853,7 @@ group('profile-402-stop', [], () => {
       + `实际 ${JSON.stringify(h.lines)} —— 观察器没接上、或这一跑没走到 profile 补全，这一跑的具名断言都不判`)
     return undefined
   }
-  const stopsWith402 = (h: Halt) => h.status === 1 && h.sum !== undefined
+  const stopsWith402 = (h: Halt) => h.status === 5 && h.sum !== undefined
     && h.sum.stopped === 'error' && h.sum.error === MSG_402
   const how = (h: Halt) => `退出码 ${h.status}、汇总 ${h.sum === undefined ? '读不成 JSON' : `stopped=${JSON.stringify(h.sum.stopped)}`
     + `、error=${JSON.stringify(h.sum.error)}、profile_failed=${JSON.stringify(h.sum.profile_failed)}`}，账本 ${JSON.stringify(h.lines)}`
@@ -3850,10 +3867,10 @@ group('profile-402-stop', [], () => {
   // ① TikTok，关键词跑完之后补 profile，第一个人就 402 —— 卡片复现那一跑的形状（改前 done、退 0）。
   // target_count 9999：三个人凑不够，收尾不会是达标。
   const first = collectHalt('tt-first', 'collect TikTok profile 第一次请求起就回 402', TT, 9999,
-    { path: TT_PROFILE, status: 402, from: 1 }, 1)
+    { path: TT_PROFILE, status: 402, from: 1 }, 5)
   const firstAt = first === undefined ? undefined : refusedAt(first, TT_PROFILE, 402)
   if (first !== undefined && firstAt !== undefined) {
-    named('collect 在 profile 补全阶段遇 TikHub 402（TikTok）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 1',
+    named('collect 在 profile 补全阶段遇 TikHub 402（TikTok）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 5',
       stopsWith402(first), how(first))
     named('collect 在 profile 补全阶段遇 TikHub 402 之后不再发任何请求：其余待补的人一个都不请求（TikTok）',
       first.lines.length === firstAt + 1, after(first, firstAt))
@@ -3872,10 +3889,10 @@ group('profile-402-stop', [], () => {
 
   // ② TikTok，第一次 profile 请求照常回资料、第二次起 402：402 之前补好的那人要落盘，第三个人不再请求。
   const mid = collectHalt('tt-mid', 'collect TikTok profile 第二次请求起回 402', TT, 9999,
-    { path: TT_PROFILE, status: 402, from: 2 }, 1)
+    { path: TT_PROFILE, status: 402, from: 2 }, 5)
   const midAt = mid === undefined ? undefined : refusedAt(mid, TT_PROFILE, 402)
   if (mid !== undefined && midAt !== undefined) {
-    named('collect 在 profile 补全中途遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 1',
+    named('collect 在 profile 补全中途遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 5',
       stopsWith402(mid), how(mid))
     named('collect 在 profile 补全中途遇 TikHub 402 之后不再请求下一个人',
       mid.lines.length === midAt + 1, after(mid, midAt))
@@ -3898,7 +3915,7 @@ group('profile-402-stop', [], () => {
   // `profile-halt-more` 让搜索声明还有下一页，而预算 $1 够翻满 4 页上限（skill/SKILL.md「单关键词页数上限 4 页」），
   // 于是账本里只有一次搜索 = 走到了达标。不是一次就是夹具没造对。
   const tgt = collectHalt('tt-target', 'collect 达标之后补 TikTok profile 第一次请求起就回 402',
-    { ...TT, keyword: 'profile-halt-more' }, 1, { path: TT_PROFILE, status: 402, from: 1 }, 1)
+    { ...TT, keyword: 'profile-halt-more' }, 1, { path: TT_PROFILE, status: 402, from: 1 }, 5)
   let tgtAt = tgt === undefined ? undefined : refusedAt(tgt, TT_PROFILE, 402)
   if (tgt !== undefined && tgtAt !== undefined && tgt.lines.slice(0, tgtAt).filter(isSearch).length !== 1) {
     failed++
@@ -3907,7 +3924,7 @@ group('profile-402-stop', [], () => {
     tgtAt = undefined
   }
   if (tgt !== undefined && tgtAt !== undefined) {
-    named('collect 达标之后补 profile 遇 TikHub 402：stopped 为 error（不是 target）、error 为余额不足的提示，退出码 1',
+    named('collect 达标之后补 profile 遇 TikHub 402：stopped 为 error（不是 target）、error 为余额不足的提示，退出码 5',
       stopsWith402(tgt), how(tgt))
     named('collect 达标之后补 profile 遇 TikHub 402 之后不再发任何请求',
       tgt.lines.length === tgtAt + 1, after(tgt, tgtAt))
@@ -3935,10 +3952,10 @@ group('profile-402-stop', [], () => {
 
   // ⑤ IG，profile V3 第一个人就 402（卡片未核实项 2；改前实测：不降级 V2，但接着请求了下一个人，done、退 0）
   const ig = collectHalt('ig-first', 'collect IG profile V3 第一次请求起就回 402', IG, 9999,
-    { path: IG_PROFILE, status: 402, from: 1 }, 1)
+    { path: IG_PROFILE, status: 402, from: 1 }, 5)
   const igAt = ig === undefined ? undefined : refusedAt(ig, IG_PROFILE, 402)
   if (ig !== undefined && igAt !== undefined) {
-    named('collect 在 profile 补全阶段遇 TikHub 402（IG，V3 回 402）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 1',
+    named('collect 在 profile 补全阶段遇 TikHub 402（IG，V3 回 402）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 5',
       stopsWith402(ig), how(ig))
     named('collect 在 IG profile V3 遇 TikHub 402 之后不再发任何请求：同一人不降级 V2，其余待补的人也不请求',
       ig.lines.length === igAt + 1, after(ig, igAt))
@@ -3964,9 +3981,9 @@ group('profile-402-stop', [], () => {
 
   // ⑦ 对照：搜索阶段的 402 本来就是这种收尾（卡片「其余 402 路径核对结果」第一条，实测）—— profile 阶段修好后与它一致
   const search = collectHalt('search-402', 'collect 搜索阶段就回 402',
-    { keyword: 'force-402-searchstage', dimension: 'category', platform: 'tiktok' }, 9999, undefined, 1)
+    { keyword: 'force-402-searchstage', dimension: 'category', platform: 'tiktok' }, 9999, undefined, 5)
   if (search !== undefined) {
-    named('collect 在搜索阶段遇 TikHub 402 照旧：stopped 为 error、error 为余额不足的提示，退出码 1',
+    named('collect 在搜索阶段遇 TikHub 402 照旧：stopped 为 error、error 为余额不足的提示，退出码 5',
       stopsWith402(search), how(search))
   }
 
@@ -3974,16 +3991,19 @@ group('profile-402-stop', [], () => {
   // 只数 402 之前非 402 的失败）：404 那人计 1，402 那人不计，第三个人不再请求 → 1；三人简介都没查成 → 三人待补（D6.p）。
   // 账本里 404、402 两行都要真记下（`refusedAt` 的 early），才判 402 之后再无记录。
   const mix = collectHalt('tt-404-402', 'collect TikTok profile 第一次请求回 404、第二次起回 402', TT, 9999,
-    { path: TT_PROFILE, status: 402, from: 2, before: 404 }, 1)
+    { path: TT_PROFILE, status: 402, from: 2, before: 404 }, 5)
   const mixAt = mix === undefined ? undefined : refusedAt(mix, TT_PROFILE, 402, [`404\t${TT_PROFILE}`])
   if (mix !== undefined && mixAt !== undefined) {
-    named('collect 在 profile 补全先遇一次 404、再遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 1',
+    named('collect 在 profile 补全先遇一次 404、再遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 5',
       stopsWith402(mix), how(mix))
     named('collect 在 profile 补全先遇 404、再遇 TikHub 402 之后不再请求下一个人', mix.lines.length === mixAt + 1, after(mix, mixAt))
     named('collect 在 profile 补全先遇 404、再遇 TikHub 402：汇总的 profile_failed 为 1，只数 402 之前那次 404，不含 402 那人',
       mix.sum?.profile_failed === 1, how(mix))
     named('profile 补全先 404 后 402 收尾时，续跑提示把 404 那人、402 那人与之后没请求的人都算作待补 profile',
       pending(mix, 3), `应说还有 3 个人的 profile、且不说续跑不产生新的请求；stderr 末几行 ${stderrTail(mix.stderr)}`)
+    // KOL-108 第 1 条：补全循环被 402 打断时，「N 人补全失败」那一行也照打，与汇总的 profile_failed 对得上
+    named('collect 在 profile 补全先遇 404、再遇 TikHub 402：stderr 照打「1 人补全失败」那一行，与汇总的 profile_failed 对得上',
+      /1 人补全失败/.test(mix.stderr), `stderr 末几行 ${stderrTail(mix.stderr)}`)
   }
   // ①–⑧ 合起来是 D6.z 的每一半：停与提示、零请求（含 IG 不降级）、profile_failed 只数 402 之前非 402 的失败、
   // 待补与续跑提示、402 之前补成的落盘、非 402 不停（④⑥）、达标与否都一样（①③）。负片 M-D6-bm、M-D6-bn
@@ -4922,12 +4942,14 @@ group('config-entry-valid', [], () => {
   for (const { mode, c } of positives) {
     const f = make(mode, c, true)
     if (!inputReady(f, c)) continue
-    const r = runBoth(`市场人数 ${mode}：${c.id}`, f.args, f.cwd, { status: 0, soft: [1, 2, 3] }, f.observation)
-    if (!r.ok || !ready(f.armed, r.stderr)) continue
-    const searches = fetchAttempts(f.events).map(summaryOf).filter(e => e.kind === 'fetch' && e.endpoint === TT_SEARCH)
     const market = c.missing?.includes('market') ? 'US' : c.values?.market ?? 'US'
     const target = c.missing?.includes('target_count') ? 50 : c.values?.target_count ?? 1
-    const searched = r.status === 0 && tasks.every(task => searches.some(e => e.query?.keyword === task.keyword))
+    // collect 首页就够数（目标不到 50）时以达标收尾，退出码 4；缺省 50 跑完关键词才停，退出码 0（ADR-193）
+    const want = mode !== 'probe' && typeof target === 'number' && target < 50 ? 4 : 0
+    const r = runBoth(`市场人数 ${mode}：${c.id}`, f.args, f.cwd, { status: want, soft: [0, 1, 2, 3, 4].filter(s => s !== want) }, f.observation)
+    if (!r.ok || !ready(f.armed, r.stderr)) continue
+    const searches = fetchAttempts(f.events).map(summaryOf).filter(e => e.kind === 'fetch' && e.endpoint === TT_SEARCH)
+    const searched = r.status === want && tasks.every(task => searches.some(e => e.query?.keyword === task.keyword))
     const detail = `${mode}/${c.id}：退出=${r.status}，搜索=${JSON.stringify(searches)}，stderr=${stderrTail(r.stderr)}`
     named('市场人数：合法入口证明预算观察器确实记录 reserve 调用',
       searched && fetchAttempts(f.reserves).includes('reserve'), detail)
@@ -4937,9 +4959,9 @@ group('config-entry-valid', [], () => {
       /默认|缺省|default/i.test(line) && /\bUS\b/.test(line) && /market|市场/i.test(line)
         && !/(?:未|不)(?:采用|使用|用)(?:默认|缺省)|(?:不是|并非)(?:默认|缺省)|not (using|the) default/i.test(line))
     if (c.missing?.includes('market')) named('市场人数：缺市场使用 US 时 stderr 明说市场未提供并采用默认',
-      r.status === 0 && defaultNotices.some(line => /未(?:提供|指定|填写|设置|给出)|没(?:有)?(?:提供|指定|填写|设置)|缺(?:席|失|少)|不存在|不在配置|absent|missing|omitted|not (provided|specified)/i.test(line)), detail)
+      r.status === want && defaultNotices.some(line => /未(?:提供|指定|填写|设置|给出)|没(?:有)?(?:提供|指定|填写|设置)|缺(?:席|失|少)|不存在|不在配置|absent|missing|omitted|not (provided|specified)/i.test(line)), detail)
     else if (mode === 'new' || mode === 'probe') named('市场人数：显式合法市场不冒称采用默认US',
-      r.status === 0 && defaultNotices.length === 0, detail)
+      r.status === want && defaultNotices.length === 0, detail)
     if (mode === 'probe') {
       const rows = summaryOf(r.stdout).results
       named('市场人数：probe 完全忽略 target_count，仍逐项搜索且输入原样',
@@ -4960,13 +4982,14 @@ group('config-entry-valid', [], () => {
   for (const target of [1, 50]) {
     const f = make('new', { id: `target-depth-${target}`, missing: target === 50 ? ['target_count'] : [],
       values: { target_count: 1, tasks: [{ keyword: 'force-paged-config-target', dimension: 'category', platform: 'instagram' }] } }, true)
-    const r = runBoth(`市场人数：实际目标 ${target}`, f.args, f.cwd, { status: 0, soft: [1, 2, 3] }, f.observation)
+    const want = target === 1 ? 4 : 0
+    const r = runBoth(`市场人数：实际目标 ${target}`, f.args, f.cwd, { status: want, soft: [0, 1, 2, 3, 4].filter(s => s !== want) }, f.observation)
     if (!r.ok || !ready(f.armed, r.stderr)) continue
     const queries = fetchAttempts(f.events).map(summaryOf).filter(e => e.kind === 'fetch' && e.endpoint === IG_REELS)
     const tokens = queries.map(e => e.query?.pagination_token ?? null)
     const expected = target === 1 ? [null] : [null, 'page-2', 'page-3']
     const dir = onlyDir(f.cwd, 'configentry'), state = dir ? jsonFile(join(f.cwd, dir, 'task.json')) : undefined
-    named('市场人数：缺省50实际继续翻页，显式1在首页后停', r.status === 0
+    named('市场人数：缺省50实际继续翻页，显式1在首页后停', r.status === want
       && state?.target_count === target && JSON.stringify(tokens) === JSON.stringify(expected)
       && fetchAttempts(f.reserves).includes('reserve'),
       `目标=${target}，盘上=${state?.target_count}，实际令牌=${JSON.stringify(tokens)}，stderr=${stderrTail(r.stderr)}`)
@@ -5067,12 +5090,12 @@ group('brand-calibration-entry', [], () => {
 
   const fresh = newInput('valid-new', brand)
   const freshRun = runBoth('品牌校准合法新建', [S('collect.ts'), '--config', fresh.file], fresh.cwd,
-    { status: 0, soft: [1, 2, 3] }, observed(fresh))
+    { status: 4, soft: [0, 1, 2, 3] }, observed(fresh))
   if (freshRun.ok && ready(fresh, freshRun.stderr)) {
     const dir = onlyDir(fresh.cwd, 'brandcalibration')
     const state = dir ? jsonFile(join(fresh.cwd, dir, 'task.json')) : undefined
     named('品牌校准：合法新建确实预留和请求，task.json 原样保存校准',
-      freshRun.status === 0 && fetchAttempts(fresh.reserves).length > 0
+      freshRun.status === 4 && fetchAttempts(fresh.reserves).length > 0
         && fetchAttempts(fresh.log).length > 0 && isDeepStrictEqual(state?.brand_calibration, brand),
       `退出=${freshRun.status}，目录=${dir}，预留=${fetchAttempts(fresh.reserves).length}，`
         + `请求=${fetchAttempts(fresh.log).length}，盘上=${JSON.stringify(state?.brand_calibration)}`)
@@ -5080,22 +5103,22 @@ group('brand-calibration-entry', [], () => {
   }
   const absent = newInput('absent-new', undefined, false)
   const absentRun = runBoth('品牌校准缺席新建', [S('collect.ts'), '--config', absent.file], absent.cwd,
-    { status: 0, soft: [1, 2, 3] }, observed(absent))
+    { status: 4, soft: [0, 1, 2, 3] }, observed(absent))
   if (absentRun.ok && ready(absent, absentRun.stderr)) {
     const dir = onlyDir(absent.cwd, 'brandcalibration')
     const state = dir ? jsonFile(join(absent.cwd, dir, 'task.json')) : undefined
     named('品牌校准：缺席新建后 task.json 仍无该字段',
-      absentRun.status === 0 && state !== undefined && !Object.hasOwn(state, 'brand_calibration'),
+      absentRun.status === 4 && state !== undefined && !Object.hasOwn(state, 'brand_calibration'),
       `退出=${absentRun.status}，目录=${dir}，盘上字段=${JSON.stringify(state?.brand_calibration)}`)
     saved++
   }
   const resume = taskInput('brand-valid-resume', brand)
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const result = runBoth(`品牌校准合法${mode}续跑`, [S('collect.ts'), '--resume', resume.taskDir, ...extra],
-      resume.cwd, { status: 0, soft: [1, 2, 3] }, observed(resume))
+      resume.cwd, { status: 4, soft: [0, 1, 2, 3] }, observed(resume))
     if (!result.ok || !ready(resume, result.stderr)) continue
     const state = jsonFile(resume.task)
-    const kept = result.status === 0 && isDeepStrictEqual(state?.brand_calibration, brand)
+    const kept = result.status === 4 && isDeepStrictEqual(state?.brand_calibration, brand)
     const detail = `${mode}：退出=${result.status}，盘上=${JSON.stringify(state?.brand_calibration)}`
     if (mode === '普通') named('品牌校准：普通续跑原样保留品牌输入', kept, detail)
     else named('品牌校准：改额续跑原样保留品牌输入', kept, detail)
@@ -5469,15 +5492,17 @@ group('task-list-good', [], () => {
     if (mode === 'resume' || mode === 'resume-budget') Object.assign(config, knownCosts(1_000_000, []))
     writeFileSync(f.file, JSON.stringify(config))
     const args = mode === 'resume-budget' ? [...f.args.slice(0, -1), '2'] : f.args
+    // collect 首页就够数，以达标收尾（退出码 4，ADR-193）；probe 跑完为 0
+    const want = mode === 'probe' ? 0 : 4
     const r = runBoth(`任务列表 ${mode}：合法非空列表`, args, f.cwd,
-      { status: 0, soft: [1, 2, 3] }, f.observation)
+      { status: want, soft: [0, 1, 2, 3, 4].filter(s => s !== want) }, f.observation)
     if (!r.ok || !observerReady(f.armed, r.stderr)) continue
     const requests = fetchAttempts(f.log)
-    const searched = r.status === 0 && [TT_SEARCH, IG_REELS, '/api/v1/instagram/v2/fetch_hashtag_posts']
+    const searched = r.status === want && [TT_SEARCH, IG_REELS, '/api/v1/instagram/v2/fetch_hashtag_posts']
       .every(endpoint => requests.includes(`200\t${endpoint}`))
     const detail = `${mode}，退出码 ${r.status}、请求 ${JSON.stringify(requests)}，stderr=${stderrTail(r.stderr)}`
     named('任务列表：合法入口的预算预留观测确实记录调用',
-      r.status === 0 && fetchAttempts(f.reserves).includes('reserve'), detail)
+      r.status === want && fetchAttempts(f.reserves).includes('reserve'), detail)
     if (mode === 'probe') {
       const rows = summaryOf(r.stdout).results
       named('任务列表：probe 合法非空列表照常搜索，重复任务及原关键词保留',
@@ -6813,6 +6838,9 @@ group('hashtag-route', [], () => {
         { keyword: '#htroute-both', dimension: 'scene', platform: 'instagram', as_hashtag: true },
       ])], cwd, { status: 0 }, htEnv(ledger))
     if (r.ok) {
+      // ADR-193：全部任务跑完时 stopped 为 done、退出码 0
+      named('probe 全部任务跑完：stdout 顶层 stopped 为 done，退出码 0',
+        r.status === 0 && summaryOf(r.stdout).stopped === 'done', `退出码 ${r.status}，stopped=${JSON.stringify(summaryOf(r.stdout).stopped)}`)
       const at = rowsByIndex(r.stdout)
       const success = (i: number): boolean => at(i) !== undefined && !at(i)?.error
       named('IG 话题入口：probe 成功结果带出任务配置里写的 ig_route，写了 hashtag 的 IG 任务那一行原样是 hashtag',
@@ -6847,9 +6875,14 @@ group('hashtag-route', [], () => {
         // 垫的成功任务故意不写 ig_route（走 Reels），和出错的那个相反
         { keyword: 'htroute-err-ok', dimension: 'scene', platform: 'instagram' },
         { keyword: '#force-402-htroute', dimension: 'audience', platform: 'instagram', ig_route: 'hashtag' },
-      ])], cwd, { status: 0 }, htEnv(ledger))
+      ])], cwd, { status: 5, soft: [0, 1, 3] }, htEnv(ledger))
     if (r.ok) {
       const row = rowsByIndex(r.stdout)(1)
+      // ADR-193：402 中途停下照出部分结果，stopped 写明是供应商余额不足，退出码 5（不是跑完的 0）
+      named('probe 遇 TikHub 402：stdout 照出部分结果，顶层 stopped 为 provider_402，退出码 5',
+        r.status === 5 && summaryOf(r.stdout).stopped === 'provider_402' && rowsByIndex(r.stdout)(0) !== undefined
+          && !rowsByIndex(r.stdout)(0)?.error,
+        `退出码 ${r.status}，stopped=${JSON.stringify(summaryOf(r.stdout).stopped)}，task_index 0 那一行 ${showRow(rowsByIndex(r.stdout)(0))}`)
       const refused = fetchAttempts(ledger).includes(`402\t${HT}`)
       named('IG 话题入口：probe 错误结果同样带出任务配置里写的 ig_route，话题页请求失败的那一行原样是 hashtag',
         refused && row !== undefined && Boolean(row?.error) && row?.ig_route === 'hashtag',
@@ -6866,7 +6899,7 @@ group('hashtag-route', [], () => {
         // 垫的成功任务故意写了 hashtag（走话题页），和出错的那个相反
         { keyword: '#htroute-err-plain-ok', dimension: 'category', platform: 'instagram', ig_route: 'hashtag' },
         { keyword: '#force-402-htroute-plain', dimension: 'competitor', platform: 'instagram', as_hashtag: true },
-      ])], cwd, { status: 0 }, htEnv(ledger))
+      ])], cwd, { status: 5, soft: [0, 1, 3] }, htEnv(ledger))
     if (r.ok) {
       const row = rowsByIndex(r.stdout)(1)
       const refused = fetchAttempts(ledger).includes(`402\t${IG_REELS}`)
@@ -6884,7 +6917,7 @@ group('hashtag-route', [], () => {
       [S('probe.ts'), '--config', cfgOf(cwd, 'htrouteerrtt', [
         { keyword: '#htroute-err-tt-ok', dimension: 'category', platform: 'instagram', ig_route: 'hashtag' },
         { keyword: 'force-402-htroute-tt', dimension: 'scene', platform: 'tiktok' },
-      ])], cwd, { status: 0 }, htEnv(ledger))
+      ])], cwd, { status: 5, soft: [0, 1, 3] }, htEnv(ledger))
     if (r.ok) {
       const row = rowsByIndex(r.stdout)(1)
       const refused = fetchAttempts(ledger).includes(`402\t${TT_SEARCH}`)
@@ -9865,7 +9898,7 @@ group('review-cli-entry-positive', [], () => {
   const { agentName, person, review, document, put, fixture, observed, entry } = reviewCliEntryFixture()
   // Shared positive controls prove both interception points before any zero-event claim.
   const paidCollect = fixture('paid-collect', [], { target_count: 0, done: [], offsets: {}, pages: {}, answered: {}, found: {} })
-  const pc = runBoth('评审入口 collect 阳性请求', entry('collect', paidCollect), paidCollect.cwd, undefined, observed(paidCollect))
+  const pc = runBoth('评审入口 collect 阳性请求', entry('collect', paidCollect), paidCollect.cwd, { status: 4 }, observed(paidCollect))
   const paidEnrich = fixture('paid-enrich', [person('paid')])
   put(paidEnrich, agentName, document({ 'tiktok:paid': review('tiktok:paid') }, ['tiktok:paid']))
   const pe = runBoth('评审入口 enrich 阳性请求', entry('enrich', paidEnrich), paidEnrich.cwd, undefined, observed(paidEnrich))
@@ -10024,9 +10057,9 @@ group('review-cli-entry-collect-exit', ['review-cli-entry-positive'], () => {
   const saveBefore = snapshot(save)
   chmodSync(join(save.taskDir, agentName), 0o444)
   let sf: ReturnType<typeof runBoth>
-  try { sf = runBoth('评审正本真实只读保存失败', entry('collect', save), save.cwd, { status: 1, soft: [0, 2, 3] }, observed(save)) }
+  try { sf = runBoth('评审正本真实只读保存失败', entry('collect', save), save.cwd, { status: 6, soft: [0, 1, 2, 3, 4, 7] }, observed(save)) }
   finally { chmodSync(join(save.taskDir, agentName), 0o644) }
-  named('CLI 正本保存失败退出1且不提前覆盖名单', sf!.ok && sf!.status === 1 && sf!.stderr.includes(agentName) &&
+  named('CLI 正本保存失败退出6且不提前覆盖名单', sf!.ok && sf!.status === 6 && sf!.stderr.includes(agentName) &&
     !/断点.*已保存|已保存.*断点|预算不足/.test(sf!.stderr) && unchanged(saveBefore) && positive && noPaid(save), '保存失败伪装输入、预算或成功')
   const stop = fixture('budget-stop', [], { budget_usd: 0, ...knownCosts(0, []), done: [], offsets: {}, answered: {}, found: {}, pages: {} })
   const bs = runBoth('评审入口预算不足断点', entry('collect', stop), stop.cwd, { status: 3, soft: [0, 1, 2] }, observed(stop))
@@ -10348,7 +10381,7 @@ group('render-raw-memory', [], () => {
   named('raw 关联仅本任务推荐可重导出且保留别产品阳性', identities(exported(resume.taskDir), ['tiktok:same_task', 'tiktok:other_product']), '仅同产品别任务推荐须排除，不能把推荐状态升级成已联系')
   const broken = '{"creators":', ignored = make('raw-memory-ignored', [person('tiktok', 'ignore_positive')], [person('tiktok', 'ignore_positive', { linked_handle: 'instagram:ignore_marker' }), person('instagram', 'ignore_marker')], broken)
   const before = readFileSync(join(ignored.taskDir, 'creators.json'), 'utf8')
-  runBoth('raw 坏记忆默认拒绝实际 render', [S('render.ts'), '--dir', ignored.taskDir], ignored.cwd, { status: 2 })
+  runBoth('raw 坏记忆默认拒绝实际 render', [S('render.ts'), '--dir', ignored.taskDir], ignored.cwd, { status: 7 })
   named('raw 当前记忆读不出默认不产出名单', readFileSync(join(ignored.taskDir, 'creators.json'), 'utf8') === before
     && ['kol.csv', 'kol.xlsx', 'meta.json', 'report.html'].every(n => !existsSync(join(ignored.taskDir, n))) && preserved(ignored), '坏记忆须拒绝且不覆盖原名单或输入正本')
   runBoth('raw 显式忽略坏记忆实际 render', [S('render.ts'), '--dir', ignored.taskDir, '--ignore-memory'], ignored.cwd)
@@ -10715,12 +10748,12 @@ group('brand-content-version-entry', [], () => {
   // D20.h：版本与内容一致时照常运行。collect 新建同时是下面零预留、零请求断言的阳性对照
   const fresh = newInput('match-new', good)
   const freshRun = runBoth('内容哈希版本一致新建', [S('collect.ts'), '--config', fresh.file], fresh.cwd,
-    { status: 0, soft: [1, 2, 3] }, observed(fresh, S('collect.ts')))
+    { status: 4, soft: [0, 1, 2, 3] }, observed(fresh, S('collect.ts')))
   if (freshRun.ok && ready(fresh, freshRun.stderr)) {
     const dir = onlyDir(fresh.cwd, 'brandversion')
     const state = dir ? jsonFile(join(fresh.cwd, dir, 'task.json')) : undefined
     named('内容哈希版本一致：collect 新建确实预留和请求，task.json 原样保存校准',
-      freshRun.status === 0 && fetchAttempts(fresh.reserves).length > 0 && fetchAttempts(fresh.log).length > 0
+      freshRun.status === 4 && fetchAttempts(fresh.reserves).length > 0 && fetchAttempts(fresh.log).length > 0
         && isDeepStrictEqual(state?.brand_calibration, good),
       `退出=${freshRun.status}，目录=${dir}，${events(fresh)}，stderr=${stderrTail(freshRun.stderr)}`)
     passed++
@@ -10753,9 +10786,9 @@ group('brand-content-version-entry', [], () => {
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const f = taskInput(mode === '普通' ? 'match-resume' : 'match-resume-budget', good)
     const r = runBoth(`内容哈希版本一致${mode}续跑`, [S('collect.ts'), '--resume', f.taskDir, ...extra],
-      f.cwd, { status: 0, soft: [1, 2, 3] }, observed(f, S('collect.ts')))
+      f.cwd, { status: 4, soft: [0, 1, 2, 3] }, observed(f, S('collect.ts')))
     if (!r.ok || !ready(f, r.stderr)) continue
-    const ok = r.status === 0 && fetchAttempts(f.reserves).length > 0 && fetchAttempts(f.log).length > 0
+    const ok = r.status === 4 && fetchAttempts(f.reserves).length > 0 && fetchAttempts(f.log).length > 0
       && !namesVersion(r.stderr) && keptCalibration(f, good)
     const detail = `${mode}：退出=${r.status}，${events(f)}，stderr=${stderrTail(r.stderr)}`
     if (mode === '普通') named('内容哈希版本一致：collect 普通续跑确实预留和请求，不因版本拒绝，不改写校准', ok, detail)
@@ -10922,13 +10955,13 @@ group('brand-content-version-entry', [], () => {
     const id = loose.findIndex(([k]) => k === kind)
     const resume = taskInput(`loose-${id}-resume`, value)
     const resumeRun = runBoth(`非哈希版本${kind}续跑`, [S('collect.ts'), '--resume', resume.taskDir], resume.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(resume.log))
+      { status: 4, soft: [0, 1, 2, 3] }, costEnv(resume.log))
     if (!resumeRun.ok) continue
     const render = taskInput(`loose-${id}-render`, value, true)
     const renderRun = runBoth(`非哈希版本${kind} render`, [S('render.ts'), '--dir', render.taskDir], render.cwd,
       { status: 0, soft: [1, 2, 3] }, costEnv(render.log))
     if (!renderRun.ok) continue
-    const ok = resumeRun.status === 0 && keptCalibration(resume, value)
+    const ok = resumeRun.status === 4 && keptCalibration(resume, value)
       && renderRun.status === 0 && delivered(render) && keptCalibration(render, value)
     const detail = `${version}：续跑退出=${resumeRun.status}，render 退出=${renderRun.status}，`
       + `续跑 stderr=${stderrTail(resumeRun.stderr)}，render stderr=${stderrTail(renderRun.stderr)}`

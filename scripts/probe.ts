@@ -12,6 +12,13 @@
  *   { "market": "US", "budget_usd": 0.5,
  *     "tasks": [{ "keyword": "power bank review", "dimension": "category",
  *                 "platform": "tiktok" }, ...] }
+ *
+ * 退出码（ADR-193，与 collect、enrich、render 共用一套数）：
+ *   0  全部任务跑完（单个任务的普通错误记在那一行、接着跑）
+ *   3  余额不足以支付下一请求，中途停下；stdout 照出部分结果
+ *   5  供应商返回 402（余额不足），中途停下；stdout 照出部分结果，402 那一行带 error
+ *   2  输入问题；1  其余意外异常
+ * stdout 的 JSON 顶层 `stopped` 写明怎么停的：done、budget 或 provider_402。
  */
 import { readFileSync } from 'node:fs'
 import { TikHub, TikHubError } from './providers/tikhub.js'
@@ -26,6 +33,7 @@ import { taskListProblems } from './lib/search-tasks.js'
 import { configFieldProblems } from './lib/config-input.js'
 import { duplicateKeyProblems } from './lib/duplicate-keys.js'
 import { obsReady } from './lib/obs.js'
+import { EXIT } from './lib/exit-codes.js'
 
 // kol-test-observer/v1（`skill/references/output-format.md`）：就绪记录在读任何输入之前，平时关着
 obsReady('probe')
@@ -79,6 +87,7 @@ async function main() {
   const market = Object.hasOwn(cfg, 'market') ? cfg.market! : 'US'
   if (!Object.hasOwn(cfg, 'market')) console.error('未提供 market，本次采用默认市场 US。')
   const results: any[] = []
+  let stopped: 'done' | 'budget' | 'provider_402' = 'done'
 
   for (const [i, t] of cfg.tasks.entries()) {
     const label = taskLabel(t, i)
@@ -121,18 +130,22 @@ async function main() {
     } catch (e) {
       if (e instanceof CostError && e.code === 'budget-exceeded') {
         console.error(`\n余额不足以支付下一请求（${budget.summary()}），试探未跑完。`)
+        stopped = 'budget'
         break
       }
       if (e instanceof CostError || e instanceof BudgetInputError) throw e
       const msg = e instanceof TikHubError ? e.message : String(e)
       results.push({ task_index: i, keyword: t.keyword, dimension: t.dimension, platform: t.platform, ...routeOf(t), error: msg })   // D15.m
       console.error(`  ✗ ${label} → ${msg}`)
-      if (e instanceof TikHubError && e.status === 402) break
+      if (e instanceof TikHubError && e.status === 402) { stopped = 'provider_402'; break }
     }
   }
 
   // stdout 出 JSON 给 Agent 读，进度信息走 stderr
-  console.log(stringifyCostJson({ market, results }, budget.view()))
+  console.log(stringifyCostJson({ market, stopped, results }, budget.view()))
+  // 中途停下也照出部分结果，但退出码要让调用方分得清是跑完了、该续额度还是该去充值（ADR-193）
+  if (stopped === 'budget') process.exit(EXIT.budget)
+  if (stopped === 'provider_402') process.exit(EXIT.provider402)
 }
 
 // F3.c／F3.e：输入问题（BudgetInputError，退出码 2）只写问题本身 —— 内部异常的类名与堆栈对运营没有用，类名还会把

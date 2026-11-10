@@ -6,10 +6,11 @@
  *   首次:  tsx scripts/collect.ts --config task.json
  *   续跑:  tsx scripts/collect.ts --resume output/anker-powerbank-202608251430 [--budget 3]
  *
- * 预算不足以支付下一请求时保存断点并以退出码 3 结束。
+ * 退出码见 lib/exit-codes.ts（ADR-193）：关键词跑完 0、达标 4、预算不足以支付下一请求时保存断点并以 3 结束、
+ * 供应商余额不足（402）5、保存失败 6、记忆读不出 7、输入问题 2、其他运行错误 1。
  * 续跑跳过已完成的关键词，并从有效逐端点费用账继续估算占用。
  *
- * 记忆文件读不出来时**不产出名单**（退出码 2，采集结果完好，已抓到的不重抓）。
+ * 记忆文件读不出来时**不产出名单**（退出码 7，采集结果完好，已抓到的不重抓）。
  * 修好后续跑要不要花钱，取决于剩余关键词与待补 profile 是否都为零 ——
  * **不要无条件说「续跑零花费」**，stderr 会按实际剩余量算给用户看（ADR-15 · ADR-25）。
  * `--ignore-memory` 是显式逃生口，见 ADR-15。
@@ -34,6 +35,7 @@ import {
 import { creatorKey, textProblem } from './lib/types.js'
 import { asHashtagProblems, igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
+import { EXIT, isSaveFailure, saving } from './lib/exit-codes.js'
 import { configFieldProblems } from './lib/config-input.js'
 import { brandCalibrationProblems, calibrationVersionProblems } from './lib/brand-calibration.js'
 import { resumeProgressProblems } from './lib/resume-progress.js'
@@ -170,7 +172,7 @@ try {
     reviewRelations(inputs.previous, inputs.raw))
 } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
 try { reviews.save(new Date().toISOString()) }
-catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1) }
+catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(EXIT.save) }
 let budget: Budget
 try {
   if (resume) console.error(`续跑 ${resume} —— 已完成 ${state.done.length}/${state.tasks.length} 个关键词`)
@@ -185,7 +187,7 @@ try {
 // D13.j：改额先保存根上限及 ledger，一旦保存失败不能发下一请求。
 if (!resume || replacementLimit !== undefined) {
   try { saveTask(dir, state) }
-  catch (e) { console.error(`保存费用失败：${String(e)}`); process.exit(1) }
+  catch (e) { console.error(`保存费用失败：${String(e)}`); process.exit(EXIT.save) }
 }
 const api = new TikHub(process.env.TIKHUB_API_KEY, budget)
 
@@ -200,7 +202,7 @@ for (const c of rawSeed) creators.set(creatorKey(c), c)
 
 let stopped: 'budget' | 'target' | 'done' | 'error' = 'done'
 let errorMsg = ''
-let errorExit = 1
+let errorExit: number = EXIT.runtime
 
 /**
  * 达标判断必须数**能进名单的人**，不是采到的总数。
@@ -214,6 +216,10 @@ function qualified(): number {
 
 /** `point` 只在已知额度不足、停下时那一次给（kol-test-observer/v1 的 SP-BUD）：注入时作者文件和 task.json 都不写 */
 function persist(point?: 'SP-BUD') {
+  // 这里抛的都算保存失败（含注入的那一次），收尾以 EXIT.save 退出（ADR-193）
+  saving(() => persistNow(point))
+}
+function persistNow(point?: 'SP-BUD') {
   if (point) saveFault?.at(point)
   // D6.t：先存作者，再推进分页进度。反过来的话，两次写之间被打断或累加器写失败时，
   // 盘上的进度已经前进而这一页的作者没存下，续跑就跳过了它（ADR-113）。
@@ -426,6 +432,9 @@ async function enrichProfiles() {
   const list = [...creators.values()].filter(needsProfile)
   console.error(`\n补全 profile：${list.length} 人`)
   let done = 0
+  // 「N 人补全失败」那一行放在 finally 里：循环因 402、费用错误或预算参数错误提前抛出时也照打，
+  // 与汇总里的 `profile_failed` 对得上（KOL-108 第 1 件，ADR-193）
+  try {
   for (const c of list) {
     try {
       const p = await api.profile(c.handle, c.platform)
@@ -450,7 +459,9 @@ async function enrichProfiles() {
     }
     if (++done % 10 === 0) console.error(`  ${done}/${list.length}`)
   }
-  if (profileFailed) console.error(`  ⚠️ ${profileFailed} 人补全失败，其 bio/email 保持「未查询」`)
+  } finally {
+    if (profileFailed) console.error(`  ⚠️ ${profileFailed} 人补全失败，其 bio/email 保持「未查询」`)
+  }
 }
 
 async function main() {
@@ -458,7 +469,8 @@ async function main() {
     await run()
     await enrichProfiles()
   } catch (e) {
-    if (e instanceof CostError && e.code === 'persistence-failed') {
+    // 保存失败（费用检查点或断点）不出汇总：试着把业务状态再存一次，然后照原样抛出，以 EXIT.save 退出
+    if ((e instanceof CostError && e.code === 'persistence-failed') || isSaveFailure(e)) {
       try { persist() }
       catch (cleanupError) { console.error(`收尾保存也失败：${String(cleanupError)}`) }
       throw e
@@ -466,10 +478,10 @@ async function main() {
     if (e instanceof CostError && e.code === 'budget-exceeded') {
       stopped = 'budget'
     } else if (e instanceof TikHubError && e.status === 402) {
-      stopped = 'error'; errorMsg = e.message
+      stopped = 'error'; errorMsg = e.message; errorExit = EXIT.provider402
     } else {
       stopped = 'error'; errorMsg = String(e)
-      errorExit = e instanceof BudgetInputError ? 2 : 1
+      errorExit = e instanceof BudgetInputError ? EXIT.input : EXIT.runtime
     }
   }
 
@@ -514,7 +526,7 @@ async function main() {
                   (stopped === 'budget' ? ' --budget <新额度>' : ''))
     // 逃生口要打出来，但只打出来 —— 走不走它是用户的取舍，不是这里替他选（ADR-15）
     console.error(`   或明知重复打扰的风险仍要出名单: 上面那条命令加 --ignore-memory`)
-    process.exit(2)
+    process.exit(EXIT.memory)
   }
 
   // 交付物与它的去重状态一起落盘 —— **哪个先写都不安全**，判定在 lib/task.ts
@@ -522,8 +534,8 @@ async function main() {
   reviews.freezeCandidates(fin.kept, new Date().toISOString())
   // 新关系可能揭示人工冲突；重验原授权成功之前不保存新轮次。
   fin.kept = reviews.project(fin.kept, fin.full_relations, state.brand_calibration?.version)
-  reviews.save(new Date().toISOString())
-  persistListAndStatus(dir, state, fin.kept, fin.memory_status)
+  saving(() => reviews.save(new Date().toISOString()))
+  saving(() => persistListAndStatus(dir, state, fin.kept, fin.memory_status))
 
   const summary = {
     dir, stopped,
@@ -565,12 +577,16 @@ async function main() {
   if (stopped === 'budget') {
     console.error(`\n⛔ 余额不足以支付下一请求 ${budget.summary()} —— 断点已保存。`)
     console.error(`   指定新总预算续跑: npm run collect -- --resume ${dir} --budget <新额度>`)
-    process.exit(3)              // 3 = 预算用尽，可续跑
+    process.exit(EXIT.budget)    // 预算用尽，可续跑
   }
   if (stopped === 'error') process.exit(errorExit)
+  if (stopped === 'target') process.exit(EXIT.target)
 }
 
+// 走到这里的都没有汇总 JSON：收尾时评审文件有问题 2、保存失败 6、其余 1（ADR-193；KOL-108 第 2 件）
 main().catch(e => {
   console.error(e instanceof Error ? e.message : String(e))
-  process.exit(e instanceof ReviewInputError ? 2 : 1)
+  process.exit(e instanceof ReviewInputError ? EXIT.input
+    : isSaveFailure(e) || (e instanceof CostError && e.code === 'persistence-failed') ? EXIT.save
+    : EXIT.runtime)
 })
