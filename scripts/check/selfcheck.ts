@@ -377,6 +377,7 @@ const rootToken = (text: string, key: string, path: readonly (string | number)[]
     return holder !== null && typeof holder === 'object' ? tokens.get(holder)?.get(key) : undefined
   } catch { return undefined }
 }
+// 账号带连字符的夹具传 fit: undefined：正本缺席时带旧判断而账号规范化不了会以 2 拒绝（D21.s），这些夹具原本就不靠 fit。
 const costPerson = (platform = 'tiktok', handle = 'cost_person', over: Record<string, unknown> = {}) => ({
   platform, handle, nickname: handle, followers: 10000, post_count: 50, bio: null,
   bio_links: ['https://example.com'], verified: false, profile_url: '', source_keyword: 'local',
@@ -1377,7 +1378,7 @@ group('cost-http', [], () => {
 
   // IG profile 无关键词；第一次500退款后 v2 正常返回，只保留 v2 的 0.001。
   const profile = costFixture('profile-fallback', knownCosts(1000, []), { budget_usd: 0.001 },
-    [costPerson('instagram', 'profile-fallback', { bio: undefined, bio_links: [] })])
+    [costPerson('instagram', 'profile-fallback', { bio: undefined, bio_links: [], fit: undefined })])
   const profileRun = runBoth('collect IG profile 一次故障后换 v2',
     [S('collect.ts'), '--resume', profile.taskDir], profile.cwd, undefined, costEnv(profile.log, {
       FAKE_FETCH_FAULT_PATH: IG_PROFILE, FAKE_FETCH_FAULT: 'bad-body-500',
@@ -1492,7 +1493,7 @@ group('discovery', [], () => {
   }
   const profile = costFixture('discovery-profile', knownCosts(2000, []), { budget_usd: 0.002 }, [
     costPerson('tiktok', 'techwithsarah', { bio: undefined, bio_links: [], discovery_sources: [source(0, 'techwithsarah')] }),
-    costPerson('tiktok', 'legacy-source', { bio: undefined, bio_links: [] }),
+    costPerson('tiktok', 'legacy-source', { bio: undefined, bio_links: [], fit: undefined }),
   ])
   const profiles = runBoth('发现来源 profile 仅补资料', [S('collect.ts'), '--resume', profile.taskDir], profile.cwd,
     undefined, costEnv(profile.log))
@@ -1510,8 +1511,8 @@ group('discovery', [], () => {
   const routes = ['TikTok 视频搜索', 'Instagram Reels 搜索', 'Instagram 账号名搜索']
   const text = shown.map((s, i) => `${routes[i]} · ${s.platform}:@${s.handle} · ${s.keyword} · ${s.dimension}`).join('；')
   const display = costFixture('discovery-display', knownCosts(1000, []), { budget_usd: 0.001 }, [
-    costPerson('tiktok', 'display-known', { discovery_sources: shown }),
-    costPerson('tiktok', 'display-missing'), costPerson('instagram', 'display-empty', { discovery_sources: [] }),
+    costPerson('tiktok', 'display-known', { discovery_sources: shown, fit: undefined }),
+    costPerson('tiktok', 'display-missing', { fit: undefined }), costPerson('instagram', 'display-empty', { discovery_sources: [], fit: undefined }),
   ])
   const rendered = runBoth('发现来源 真实交付文件', [S('render.ts'), '--dir', display.taskDir], display.cwd,
     undefined, costEnv(display.log))
@@ -1610,7 +1611,7 @@ group('cost-durable', [], () => {
     ] } : profile ? { done: [0] } : {})
     if (profile) for (const file of ['creators.json', 'creators.raw.json'])
       writeFileSync(join(f.taskDir, file), JSON.stringify([
-        costPerson('instagram', 'durable-profile', { bio: undefined, bio_links: [] }),
+        costPerson('instagram', 'durable-profile', { bio: undefined, bio_links: [], fit: undefined }),
       ]))
     const result = runBoth(`持久费用逐次顺序 ${scenario}`, args(entry, f), f.cwd,
       { status: entry === 'enrich' || profile ? 0 : 3, soft: [0, 1, 2, 3] }, observeEnv(f, fallback ? {} : {
@@ -1679,7 +1680,7 @@ group('cost-durable', [], () => {
       ] } : {})
       if (profile) for (const file of ['creators.json', 'creators.raw.json'])
         writeFileSync(join(f.taskDir, file), JSON.stringify(['a', 'b'].map(h =>
-          costPerson('instagram', `durable-profile-${h}`, { bio: undefined, bio_links: [] }))))
+          costPerson('instagram', `durable-profile-${h}`, { bio: undefined, bio_links: [], fit: undefined }))))
       const endpoint = entry === 'collect' ? (profile ? IG_PROFILE : IG_REELS) : TT_POSTS
       const unit = entry === 'collect' && !profile ? 2000 : 1000
       const beforePeople = fileText(join(f.taskDir, 'creators.json'))
