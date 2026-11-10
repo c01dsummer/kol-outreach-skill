@@ -235,7 +235,7 @@ stderr 还会给出另一条路：加 `--ignore-memory` 强出名单。**不要�
 | `references/providers/external-enrichment.md` | 第三方增强供应商准入；当前无接入 |
 | `references/semantic-fit.md` | 语义契合判断标准、评分细则、A/B/C 分层 |
 | `references/public-metrics.md` | 公开指标、受众质量风险与合作报价口径 |
-| `references/outreach-draft.md` | 英文开发信写法与模板 |
+| `references/outreach-draft.md` | 英文开发信写法与模板；放进用户自己邮箱的草稿箱（只存不发） |
 | `references/memory.md` | 记忆文件结构、跨平台同人识别 |
 | `references/output-format.md` | CSV 列定义、HTML 报告 |
 
@@ -243,7 +243,7 @@ stderr 还会给出另一条路：加 `--ignore-memory` 强出名单。**不要�
 
 | 不做 | 原因 |
 |------|------|
-| **实际发送邮件**（S1） | 送达率、SPF/DKIM、退信处理是另一个量级的复杂度，且必须用用户自己的邮箱服务。产出草稿，发信交给用户现有工具 |
+| **实际发送邮件**（S1） | 送达率、SPF/DKIM、退信处理是另一个量级的复杂度，且必须用用户自己的邮箱服务。产出草稿，发信交给用户现有工具；用户自己接了邮箱工具时也只往草稿箱存，发不发由人点 |
 | 多语言开发信（S2） | 首版仅英语 |
 | 主动索要效果回填（S3） | 用户回填成功率太低。`contacted` 由用户手动标记 |
 | 中国大陆平台（S4） | 本 Skill 定位出海 |
