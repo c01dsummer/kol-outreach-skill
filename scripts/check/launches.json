@@ -104,6 +104,7 @@
     {"config":"[\"test\",[\"d30-reject\"]]","launches":10,"maxPaid":null,"running":3,"stopping":0},
     {"config":"[\"test\",[\"d30-render\"]]","launches":1,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"d30-resume\"]]","launches":10,"maxPaid":null,"running":1,"stopping":0},
+    {"config":"[\"test\",[\"d30-set\"]]","launches":7,"maxPaid":null,"running":3,"stopping":0},
     {"config":"[\"test\",[\"d4-memory\"]]","launches":1,"maxPaid":null,"running":47,"stopping":0},
     {"config":"[\"test\",[\"d4-pid-boundary\"]]","launches":0,"maxPaid":null,"running":8,"stopping":0},
     {"config":"[\"test\",[\"d4t-ignore-memory\"]]","launches":0,"maxPaid":null,"running":3,"stopping":0},
