@@ -139,7 +139,7 @@ npm run enrich -- --dir output/{task}
 - 成本与召回统计
 - 按冻结平台账号统计的人工审核覆盖、明确结论分母、拒绝原因与分歧
 
-开发信只写英语，见 `references/outreach-draft.md`。输出格式见 `references/output-format.md`。
+开发信只写英语，见 `references/outreach-draft.md`。输出格式见 `references/output-format.md`。用户自己接了邮箱工具、并在本次对话里明说要放时，可以把审好的草稿存进他邮箱的草稿箱，只存不发，见 `references/outreach-draft.md`「放进用户自己的邮箱」。
 
 collect、enrich、render 统一消费已校验的 Agent 正本和已有人工表；collect 续跑保全判断并冻结新增候选，enrich 只写公开指标与任务状态，render 负责生成三个交付格式。CSV/HTML 先按有效采用建议，再按分层与原分数排序；XLSX 保留三层表并在各表内先排采用建议。生产 HTML 按 U10 默认显示全部交付候选，按有效采用建议与原 A/B/C 层级取交集；缺席建议单列「未提供」，不借其他判断补成待核实。空集保留控件与选择，切换保留阅读位置、平台专属标签和数据边界。全部只指联系过滤后的名单，不能从 raw 或冻结池补回账号。人工采用不解除 memory 的联系或屏蔽过滤，也不改变基础分层。
 
@@ -235,7 +235,7 @@ stderr 还会给出另一条路：加 `--ignore-memory` 强出名单。**不要�
 | `references/providers/external-enrichment.md` | 第三方增强供应商准入；当前无接入 |
 | `references/semantic-fit.md` | 语义契合判断标准、评分细则、A/B/C 分层 |
 | `references/public-metrics.md` | 公开指标、受众质量风险与合作报价口径 |
-| `references/outreach-draft.md` | 英文开发信写法与模板 |
+| `references/outreach-draft.md` | 英文开发信写法与模板；放进用户自己邮箱的草稿箱（只存不发） |
 | `references/memory.md` | 记忆文件结构、跨平台同人识别 |
 | `references/output-format.md` | CSV 列定义、HTML 报告 |
 
@@ -243,7 +243,7 @@ stderr 还会给出另一条路：加 `--ignore-memory` 强出名单。**不要�
 
 | 不做 | 原因 |
 |------|------|
-| **实际发送邮件**（S1） | 送达率、SPF/DKIM、退信处理是另一个量级的复杂度，且必须用用户自己的邮箱服务。产出草稿，发信交给用户现有工具 |
+| **实际发送邮件**（S1） | 送达率、SPF/DKIM、退信处理是另一个量级的复杂度，且必须用用户自己的邮箱服务。产出草稿，发信交给用户现有工具；用户自己接了邮箱工具时也只往草稿箱存，发不发由人点 |
 | 多语言开发信（S2） | 首版仅英语 |
 | 主动索要效果回填（S3） | 用户回填成功率太低。`contacted` 由用户手动标记 |
 | 中国大陆平台（S4） | 本 Skill 定位出海 |
