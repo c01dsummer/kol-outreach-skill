@@ -16539,6 +16539,43 @@ await group('d21-task-reviews', () => {
     ok('任务评审：旧判断非法不能迁移后保存', legacyError instanceof ReviewInputError)
     eq('任务评审：旧判断拒绝不创建正本', disk(badLegacyDir), badLegacyBefore)
 
+    suite('D21', '正本缺席时旧判断的账号规范化不了就拒绝，不跳过后清掉草稿')
+    // 平台不认、handle 为空、handle 含无效字符：三种都规范化不了，旧草稿原先被跳过、投影随后清掉（ADR-191）。
+    const unkeyed = (label: string, creator: Record<string, unknown>) => {
+      const dir = directory(`unkeyed-legacy-${label}`)
+      const before = disk(dir)
+      const error = caught(() => prepareTaskReviews(dir, state, [mk('tiktok', 'fine'), creator as unknown as Creator], t0, []))
+      const text = String(error)
+      const located = text.includes(join(dir, 'agent-review.json')) && text.includes('第 2 条') && text.includes(String(creator.platform))
+      return { rejected: error instanceof ReviewInputError, located, text, kept: JSON.stringify(disk(dir)) === JSON.stringify(before) }
+    }
+    const badChars = unkeyed('chars', { platform: 'tiktok', handle: 'bad-name', fit: '✅', outreach_draft: 'hi {name}' })
+    ok('任务评审：旧判断 handle 含无效字符时拒绝', badChars.rejected)
+    ok('任务评审：旧判断 handle 含无效字符时指出正本、第几条、平台、原值与原因', badChars.located && badChars.text.includes('"bad-name"') && badChars.text.includes('含无效字符'))
+    ok('任务评审：旧判断 handle 含无效字符时不落盘', badChars.kept)
+    const badPlatform = unkeyed('platform', { platform: 'youtube', handle: 'tube', outreach_draft: 'hi' })
+    ok('任务评审：旧判断平台不认时拒绝', badPlatform.rejected)
+    ok('任务评审：旧判断平台不认时指出正本、第几条、平台、原值与原因', badPlatform.located && badPlatform.text.includes('"tube"') && badPlatform.text.includes('收到 youtube'))
+    ok('任务评审：旧判断平台不认时不落盘', badPlatform.kept)
+    const blankHandle = unkeyed('blank', { platform: 'instagram', handle: ' ', fit_reason: 'old reason' })
+    ok('任务评审：旧判断 handle 为空时拒绝', blankHandle.rejected)
+    ok('任务评审：旧判断 handle 为空时指出正本、第几条、平台、原值与原因', blankHandle.located && blankHandle.text.includes('" "') && blankHandle.text.includes('handle 不能为空'))
+    ok('任务评审：旧判断 handle 为空时不落盘', blankHandle.kept)
+    // 只带一个空值的旧字段也算「带着」：按真假判会跳过它，投影随后照样把这个字段清掉。
+    ok('任务评审：旧判断只有 fit_reason 为 null 时也拒绝', unkeyed('null-reason', { platform: 'tiktok', handle: 'bad-null', fit_reason: null }).rejected)
+    ok('任务评审：旧判断只有 outreach_draft 为空串时也拒绝', unkeyed('empty-draft', { platform: 'tiktok', handle: 'bad-empty', outreach_draft: '' }).rejected)
+    const twoBad = String(caught(() => prepareTaskReviews(directory('unkeyed-legacy-two'), state,
+      [mk('tiktok', 'fine'), { platform: 'tiktok', handle: 'bad-one', fit: '✅' } as unknown as Creator, { platform: 'youtube', handle: 'two', outreach_draft: 'x' } as unknown as Creator], t0, [])))
+    ok('任务评审：两条旧判断都规范化不了时一次报完', twoBad.includes('第 2 条') && twoBad.includes('"bad-one"') && twoBad.includes('第 3 条') && twoBad.includes('"two"'))
+    // 不多拒：没有旧判断字段、已是新评审或已评过的记录本来就不迁，账号坏了也照常放行；正本在场时不迁移，也不查。
+    const passes = (label: string, creator: Record<string, unknown>, document?: unknown) =>
+      !(caught(() => prepareTaskReviews(directory(`unkeyed-pass-${label}`, document), state, [creator as unknown as Creator], t0, [])) instanceof Error)
+    ok('任务评审：没有旧判断字段的坏账号照常准备', passes('plain', { platform: 'tiktok', handle: 'bad-name' }))
+    ok('任务评审：带新评审字段的坏账号照常准备', passes('new-fields', { platform: 'tiktok', handle: 'bad-name', eligibility: '合格', outreach_draft: 'x' }))
+    ok('任务评审：review_status 已评的坏账号照常准备', passes('reviewed', { platform: 'tiktok', handle: 'bad-name', review_status: '已评', outreach_draft: 'x' }))
+    ok('任务评审：正本在场时坏账号的旧判断照常准备', passes('present', { platform: 'tiktok', handle: 'bad-name', outreach_draft: 'x' }, saved()))
+    criterion('D21.s')
+
     suite('D23', '任务人工授权以准备开始时已保存候选为界')
     // Generated tokens are adversarial input, never an expected ID or an authorization oracle.
     const tokenDir = directory('authorization-token', saved())

@@ -84,7 +84,7 @@
     {"config":"[\"test\",[\"d20-content-version\"]]","launches":0,"maxPaid":null,"running":22,"stopping":0},
     {"config":"[\"test\",[\"d21-agent-projection\"]]","launches":0,"maxPaid":null,"running":12,"stopping":0},
     {"config":"[\"test\",[\"d21-review-document\"]]","launches":0,"maxPaid":null,"running":9,"stopping":0},
-    {"config":"[\"test\",[\"d21-task-reviews\"]]","launches":0,"maxPaid":null,"running":6,"stopping":0},
+    {"config":"[\"test\",[\"d21-task-reviews\"]]","launches":0,"maxPaid":null,"running":13,"stopping":0},
     {"config":"[\"test\",[\"d21-tier-guards\"]]","launches":0,"maxPaid":null,"running":9,"stopping":0},
     {"config":"[\"test\",[\"d22-review-rounds\"]]","launches":0,"maxPaid":null,"running":16,"stopping":0},
     {"config":"[\"test\",[\"d23-manual-feedback\"]]","launches":0,"maxPaid":null,"running":18,"stopping":0},
