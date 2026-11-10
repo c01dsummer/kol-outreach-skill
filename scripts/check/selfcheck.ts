@@ -11222,6 +11222,67 @@ group('calibration-version-entry', [], () => {
   criterion('D20.u')
 })
 
+// D30.h：`sender` 的真入口契约（参数、stdout、保存失败）。期望只出自 D30.h 原文与本组手写的夹具；D30.g 的写进与拒绝由 scripts/test.ts 的 d30-set 组判。
+group('sender-entry', [], () => {
+  const entry = S('sender.ts')
+  // 前缀与夹具名里不含「用法」、sender_name、replaced：下面按这些词认输出，路径不能替它们作证
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'kol-sndr-')))
+  process.on('exit', () => rmSync(base, { recursive: true, force: true }))
+  const TEXT = '{"product":"sndr","market":"US","budget_usd":2.50,"done":[0],"sender_name":5,"updated_at":"2026-01-01T00:00:00Z"}\n'
+  let n = 0
+  const fixture = (text: string | undefined) => {
+    const dir = join(base, `t${n++}`), file = join(dir, 'task.json')
+    mkdirSync(dir)
+    if (text !== undefined) writeFileSync(file, text)
+    return { dir, file }
+  }
+  const bytes = (file: string) => existsSync(file) ? readFileSync(file, 'utf8') : undefined
+  // 用法错误：每种各起一个带 task.json 的目录；越过参数判定的变异会把姓名写进去，原字节就不在了
+  const USAGE: [string, (d: string) => string[]][] = [
+    ['一个参数都没有', () => []], ['缺 --name', d => ['--dir', d]], ['缺 --dir', () => ['--name', 'Eric']],
+    ['--dir 写了两次', d => ['--dir', d, '--dir', d, '--name', 'Eric']], ['--name 写了两次', d => ['--dir', d, '--name', 'Eric', '--name', 'Eve']],
+    ['未知参数', d => ['--dir', d, '--name', 'Eric', '--force']], ['多余的位置参数', d => ['--dir', d, '--name', 'Eric', 'extra']],
+    ['--name=值 的写法', d => ['--dir', d, '--name=Eric']], ['--name 的值以 -- 开头', d => ['--dir', d, '--name', '--Eric']],
+    ['--dir 的值只有空白', () => ['--dir', ' ', '--name', 'Eric']], ['--name 缺值', d => ['--dir', d, '--name']]]
+  const usage = USAGE.map(([what, argv]) => {
+    const f = fixture(TEXT)
+    const r = runBoth(`sender 用法错误：${what}`, [entry, ...argv(f.dir)], base, { status: 2, soft: [0, 1] })
+    return { what, ok: r.ok, pass: r.status === 2 && r.stdout === '' && r.stderr.includes('用法') && bytes(f.file) === TEXT }
+  })
+  // 用法错误时目录里本没有 task.json 的，跑完仍没有
+  const empty = fixture(undefined)
+  const emptyRun = runBoth('sender 用法错误：缺 --name，目录里没有 task.json', [entry, '--dir', empty.dir], base, { status: 2, soft: [0, 1] })
+  if (usage.every(u => u.ok) && emptyRun.ok) {
+    named('sender 缺参、重复、未知或多余参数、值缺失或以 -- 开头、--dir 只有空白时以 2 拒绝并给出用法，stdout 为空，task.json 原字节、没有的不创建',
+      usage.every(u => u.pass) && emptyRun.status === 2 && emptyRun.stderr.includes('用法') && !existsSync(empty.file),
+      `不合的：${usage.filter(u => !u.pass).map(u => u.what).join('、') || '无'}；空目录 退出=${emptyRun.status}，task.json ${existsSync(empty.file) ? '被创建' : '没有'}`)
+  }
+  // 写进：旧值是 5 时 replaced 照印 5；没有旧值时不带 replaced
+  const had = fixture(TEXT), none = fixture(TEXT.replace(',"sender_name":5', ''))
+  const hadRun = runBoth('sender 写进：已有旧值', [entry, '--dir', had.dir, '--name', 'Eric'], base, { status: 0, soft: [1, 2] })
+  const noneRun = runBoth('sender 写进：没有旧值', [entry, '--dir', none.dir, '--name', 'Eve'], base, { status: 0, soft: [1, 2] })
+  const line = (s: string): unknown => { const ls = s.split('\n').filter(Boolean); try { return ls.length === 1 ? JSON.parse(ls[0]) : undefined } catch { return undefined } }
+  if (hadRun.ok && noneRun.ok) {
+    named('sender 写进时 stdout 是一行 JSON：task 为 task.json 路径、sender_name 为写进的值，已有旧值时另带 replaced 为旧值',
+      hadRun.status === 0 && noneRun.status === 0
+        && isDeepStrictEqual(line(hadRun.stdout), { task: had.file, sender_name: 'Eric', replaced: 5 })
+        && isDeepStrictEqual(line(noneRun.stdout), { task: none.file, sender_name: 'Eve' }),
+      `已有=${JSON.stringify(hadRun.stdout)}，没有=${JSON.stringify(noneRun.stdout)}`)
+  }
+  // 以 2 拒绝（姓名只有空白）时 stdout 为空
+  const blank = fixture(TEXT)
+  const blankRun = runBoth('sender 姓名只有空白', [entry, '--dir', blank.dir, '--name', '  '], base, { status: 2, soft: [0, 1] })
+  if (blankRun.ok) named('sender 以 2 拒绝姓名时 stdout 为空', blankRun.status === 2 && blankRun.stdout === '' && bytes(blank.file) === TEXT,
+    `退出=${blankRun.status}，stdout=${JSON.stringify(blankRun.stdout)}`)
+  // 保存失败：task.json 只读（root 跑也拒，见 lib/atomic.ts 的权限位那一问）
+  const ro = fixture(TEXT)
+  chmodSync(ro.file, 0o444)
+  const roRun = runBoth('sender 保存失败：task.json 只读', [entry, '--dir', ro.dir, '--name', 'Eric'], base, { status: 1, soft: [0, 2] })
+  if (roRun.ok) named('sender task.json 存在但保存失败时以 1 结束，task.json 原字节，stderr 写出 task.json 路径',
+    roRun.status === 1 && bytes(ro.file) === TEXT && roRun.stderr.includes(ro.file), `退出=${roRun.status}，stderr=${stderrTail(roRun.stderr)}`)
+  criterion('D30.h')
+})
+
 // ---- 零请求观察器的认证入口（KOL-21，ADR-70 末尾「KOL-21 零请求观察器与外层断网」一节）----
 // 在临时目录里真起一遍认证入口，验的是接线：跑得完，汇总与退出码对得上，列出的证据都在、SHA256 对得上。这一跑**不是认证**。
 // 断网起不起得来随机器：另起一个最小的 bwrap 断网问一句，起得来就要认证成立、逐项成立；起不来就要认证不成立、

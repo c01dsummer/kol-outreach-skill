@@ -29,7 +29,7 @@ for (let i = 0; i < args.length; i++) {
     if (dir !== undefined || value === undefined || !value.trim() || value.startsWith('--')) usage()
     dir = resolve(value); i++
   } else if (arg === '--name') {
-    // 姓名本身可能以 -- 开头以外的任何字符开头；空白与空串留给下面 D30 那一道报，好让报错写出字段与原值
+    // 姓名以 -- 开头当作漏写了值、只印用法（D30.h）；空串与只有空白不在这里拦，留给下面 D30.g 那一道报，好让报错写出字段与原值
     if (name !== undefined || value === undefined || value.startsWith('--')) usage()
     name = value; i++
   } else usage()
@@ -47,7 +47,7 @@ if (bad !== undefined) {
 const file = taskFile(taskDir)
 let state: TaskState
 try {
-  // 根不是对象、费用数字写不成精确值，都在这里拒（readCostDocument 只交回对象）
+  // 坏 JSON、根不是对象都在这里拒（readCostDocument 只交回对象，并记下各数字的原文供写回）
   state = readCostDocument<TaskState>(readFileSync(file, 'utf8'))
 } catch (e) {
   // 目录里没有 task.json 也走这里：发件人姓名只补进已经建好的任务，新建任务时写进 collect 的配置根上
@@ -65,7 +65,7 @@ const before = Object.hasOwn(state, 'sender_name') ? state.sender_name : undefin
 state.sender_name = sender
 try { saveTask(taskDir, state) }
 catch (e) {
-  console.error(`${file} 保存失败：${String(e)}`)
+  console.error(`${file} 保存失败：${e instanceof Error ? e.message : String(e)}；没有改动。`)
   process.exit(1)
 }
 console.log(JSON.stringify({ task: file, sender_name: sender, ...(before === undefined ? {} : { replaced: before }) }))
