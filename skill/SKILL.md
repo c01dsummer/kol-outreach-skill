@@ -139,7 +139,7 @@ npm run enrich -- --dir output/{task}
 - 成本与召回统计
 - 按冻结平台账号统计的人工审核覆盖、明确结论分母、拒绝原因与分歧
 
-开发信只写英语，见 `references/outreach-draft.md`。输出格式见 `references/output-format.md`。
+开发信只写英语，见 `references/outreach-draft.md`。输出格式见 `references/output-format.md`。用户自己接了邮箱工具、并在本次对话里明说要放时，可以把审好的草稿存进他邮箱的草稿箱，只存不发，见 `references/outreach-draft.md`「放进用户自己的邮箱」。
 
 collect、enrich、render 统一消费已校验的 Agent 正本和已有人工表；collect 续跑保全判断并冻结新增候选，enrich 只写公开指标与任务状态，render 负责生成三个交付格式。CSV/HTML 先按有效采用建议，再按分层与原分数排序；XLSX 保留三层表并在各表内先排采用建议。生产 HTML 按 U10 默认显示全部交付候选，按有效采用建议与原 A/B/C 层级取交集；缺席建议单列「未提供」，不借其他判断补成待核实。空集保留控件与选择，切换保留阅读位置、平台专属标签和数据边界。全部只指联系过滤后的名单，不能从 raw 或冻结池补回账号。人工采用不解除 memory 的联系或屏蔽过滤，也不改变基础分层。
 
