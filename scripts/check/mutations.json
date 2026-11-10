@@ -5460,6 +5460,213 @@
       ]
     },
     {
+      "id": "M-H45-c",
+      "req": "harness",
+      "why": "替换文本整段包着锚点的那些变异，没还原时锚点照样在一处，于是一处正躺在树里的故意违例被判成干净 —— 对着树查残留的时候把它放过去",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    const applied = wraps ? content.includes(m.replace) : count === 0 && content.includes(m.replace)",
+      "replace": "    const applied = count === 0 && content.includes(m.replace)",
+      "by": "test",
+      "kills": [
+        "replace 包着 find 的没还原也认得出"
+      ]
+    },
+    {
+      "id": "M-H45-d",
+      "req": "harness",
+      "why": "锚点失效被报成变异没还原 —— 人去树里找一处并不存在的残留，真正该改的变异目录没人动",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": ": count === 0 && content.includes(m.replace)",
+      "replace": ": count === 0",
+      "by": "test",
+      "kills": [
+        "find 不在、replace 也不在 → 锚点失效，不是没还原"
+      ]
+    },
+    {
+      "id": "M-H45-e",
+      "req": "harness",
+      "why": "没还原的变异不再单独认出来，只剩一句锚点失效 —— 人以为是变异目录过期了，那处故意的违例照样留在树里、跟着下一次提交进去",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    if (applied && !givenAnyway) faults.push({ kind: 'residue', id: m.id, file: m.file })\n    else if (count > 1)",
+      "replace": "    if (count > 1)",
+      "by": "test",
+      "kills": [
+        "find 不在而 replace 在 → 没还原的变异"
+      ]
+    },
+    {
+      "id": "M-H45-f",
+      "req": "harness",
+      "why": "目标文件读不到的变异被当成没毛病放过 —— 文件挪走或删掉之后，指着它的那些变异一句话都没有",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    if (content === undefined) { faults.push({ kind: 'unreadable', id: m.id, file: m.file }); continue }",
+      "replace": "    if (content === undefined) continue",
+      "by": "test",
+      "kills": [
+        "目标文件读不到单独报，不当没毛病"
+      ]
+    },
+    {
+      "id": "M-H45-g",
+      "req": "harness",
+      "why": "对着树查锚点时，出现两处的不再报不唯一 —— 替换只改第一处，作者要验的那一处可能一个字没动",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "else if (count > 1) faults.push(",
+      "replace": "else if (count > 2) faults.push(",
+      "by": "test",
+      "kills": [
+        "find 两处 → 不唯一，带上处数"
+      ]
+    },
+    {
+      "id": "M-H45-h",
+      "req": "harness",
+      "why": "替换文本与锚点一字不差的变异，在干净的树上也被报成没还原 —— 对着一棵干净的树喊红",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    const wraps = m.replace !== m.find && m.replace.includes(m.find)",
+      "replace": "    const wraps = m.replace.includes(m.find)",
+      "by": "test",
+      "kills": [
+        "replace 与 find 一字不差：施加没施加分不出，不判没还原"
+      ]
+    },
+    {
+      "id": "M-H45-k",
+      "req": "harness",
+      "why": "删一段的、或替换文本是锚点一段的变异，锚点一失效就被报成没还原 —— 正常改代码改掉了锚点、目录没跟上，人照「撤掉没还原的变异」去把锚点按回来，按回去的正是自己的改动",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    if (applied && !givenAnyway) faults.push(",
+      "replace": "    if (applied) faults.push(",
+      "by": "test",
+      "kills": [
+        "删一段的：find 不在只说分不开，不说没还原",
+        "replace 是 find 的一段、find 不在：只说分不开"
+      ]
+    },
+    {
+      "id": "M-H45-l",
+      "req": "harness",
+      "why": "只问替换文本在不在、不问锚点还在不在：替换文本在同一个文件别处本来就有的变异，在干净的树上被报成没还原",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": ": count === 0 && content.includes(m.replace)\n",
+      "replace": ": content.includes(m.replace)\n",
+      "by": "test",
+      "kills": [
+        "replace 在同一个文件别处本来就有：干净的树不报"
+      ]
+    },
+    {
+      "id": "M-H45-m",
+      "req": "harness",
+      "why": "没还原与锚点失效分不开的那些，一律报成锚点失效 —— 一处真没还原的变异被说成目录过期，人去改目录，那处故意的违例留在树里",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "kind: applied ? 'unclear' : 'stale'",
+      "replace": "kind: 'stale'",
+      "by": "test",
+      "kills": [
+        "删一段的：find 不在只说分不开，不说没还原",
+        "replace 是 find 的一段、find 不在：只说分不开"
+      ]
+    },
+    {
+      "id": "M-H45-n",
+      "req": "harness",
+      "why": "先问锚点唯不唯一、再问是不是没还原：整段重复锚点的变异没还原时被报成锚点不唯一，人去改变异目录，那处故意的违例留在树里",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    if (applied && !givenAnyway) faults.push({ kind: 'residue', id: m.id, file: m.file })\n    else if (count > 1) faults.push({ kind: 'ambiguous', id: m.id, file: m.file, count })\n",
+      "replace": "    if (count > 1) faults.push({ kind: 'ambiguous', id: m.id, file: m.file, count })\n    else if (applied && !givenAnyway) faults.push({ kind: 'residue', id: m.id, file: m.file })\n",
+      "by": "test",
+      "kills": [
+        "整段重复 find 的没还原：认成没还原，不当不唯一"
+      ]
+    },
+    {
+      "id": "M-H45-o",
+      "req": "harness",
+      "why": "读不到一条就整个收工：后面的变异一条也不判，残留躺在别的文件里没人报",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "faults.push({ kind: 'unreadable', id: m.id, file: m.file }); continue }",
+      "replace": "faults.push({ kind: 'unreadable', id: m.id, file: m.file }); return faults }",
+      "by": "test",
+      "kills": [
+        "整份目录：每条各读各的文件、各报各的，读不到一条照样往下判"
+      ]
+    },
+    {
+      "id": "M-H45-p",
+      "req": "harness",
+      "why": "只判目录里的第一条：入口对整份目录查，其余的残留一条也看不见",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  for (const m of muts) {\n    const content = read(m.file)\n",
+      "replace": "  for (const m of muts.slice(0, 1)) {\n    const content = read(m.file)\n",
+      "by": "test",
+      "kills": [
+        "整份目录：每条各读各的文件、各报各的，读不到一条照样往下判"
+      ]
+    },
+    {
+      "id": "M-H45-q",
+      "req": "harness",
+      "why": "每条都读第一条的那个文件：别的文件里的残留看不见，报出来的文件也指错",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    const content = read(m.file)\n    if (content === undefined)",
+      "replace": "    const content = read(muts[0]!.file)\n    if (content === undefined)",
+      "by": "test",
+      "kills": [
+        "整份目录：每条各读各的文件、各报各的，读不到一条照样往下判"
+      ]
+    },
+    {
+      "id": "M-H45-r",
+      "req": "harness",
+      "why": "读得到的空文件当成读不到：「文件不在」的报告里混进了锚点失效",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    if (content === undefined) { faults.push({ kind: 'unreadable'",
+      "replace": "    if (!content) { faults.push({ kind: 'unreadable'",
+      "by": "test",
+      "kills": [
+        "空文件读得到：锚点失效，不报读不到"
+      ]
+    },
+    {
+      "id": "M-H45-s",
+      "req": "harness",
+      "why": "替换文本包着锚点的变异，锚点失效时一声不吭：目录与树对不上却被当成干净",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    else if (count === 0) faults.push({ kind: applied ? 'unclear' : 'stale'",
+      "replace": "    else if (count === 0 && !wraps) faults.push({ kind: applied ? 'unclear' : 'stale'",
+      "by": "test",
+      "kills": [
+        "replace 包着 find、两样都不在：锚点失效，不当干净"
+      ]
+    },
+    {
+      "id": "M-H45-t",
+      "req": "harness",
+      "why": "锚点两处而替换文本也在时报成没还原：人去把锚点按回来，可那是锚点不唯一",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "const applied = wraps ? content.includes(m.replace) : count === 0 &&",
+      "replace": "const applied = wraps ? content.includes(m.replace) : count !== 1 &&",
+      "by": "test",
+      "kills": [
+        "find 两处、replace 也在：报不唯一，不报没还原"
+      ]
+    },
+    {
+      "id": "M-H45-u",
+      "req": "harness",
+      "why": "回到首轮的判法、只问替换文本在不在：删一段的、替换文本是锚点一段的，在干净的树上被报成没还原",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    const applied = wraps ? content.includes(m.replace) : count === 0 && content.includes(m.replace)\n    // 干净的树上 replace 本来就在：空串、或 find 的一段。这时「在」不说明它施加过\n    const givenAnyway = !wraps && m.find.includes(m.replace)\n",
+      "replace": "    const applied = content.includes(m.replace)\n    const givenAnyway = false\n",
+      "by": "test",
+      "kills": [
+        "删一段的：干净的树不报",
+        "replace 是 find 的一段：干净的树不报"
+      ]
+    },
+    {
       "id": "M-H36-a",
       "req": "harness",
       "why": "派工时给了零或者负数当并行度，不再说「说不清要派几个」，而是悄悄收口成 1 跑起来 —— 一个写错的配置被当成没写过，人以为自己在串行跑，实际不是",

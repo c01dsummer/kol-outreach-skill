@@ -3775,3 +3775,73 @@ for m in json.load(open("scripts/check/mutations.json"))["mutations"]:
 2026-11-08 改字：需求所有者要仓库里彻底没有那个旧的行前缀词，也让观察器改名。第 3773 行引的那一节标题、第 3238、3241、3296、3307 行观察器的响应脚本格式名与占位密钥串，都在原处换了，原有各行没挪位。为什么破例改旧记录、改了哪几处，见 ADR-187 第四、五节；原字在 git 历史里（主干 `54bd645` 及之前）。
 
 > ⚠️ 已还：ADR-70 第 3564 行 · 还在 ADR-187 那条 PR：`h-observer-preload` 两处 `JSON.parse(a.stdout)` 挪出 `eq` 的实参，先解析一次，解析失败给明示的失败值；让玩具入口改印不是 JSON 的东西，改之前整个需求测试以 SyntaxError 崩，改之后那两条断言红、别的照跑（ADR-187 第七节）
+
+## 变异残留：对着目录查锚点（第一片：判定，2026-11-10）
+
+**为什么现在做。** 第 1394 行（变异跑到一半提交，把 `M-D6-d` 推上去）与第 2099 行（撤探针时 `git checkout --` 把真改动按回去，靠的是不在仓库里的数锚点脚本）两张欠条，条件「下一条碰 `mutate.ts` 或 `mutate-restore.ts` 的 PR」自 #105、#108 起就响过，此后碰这两个文件的 PR 二十余条，一直没还（`git log --first-parent --oneline 3fc8b80..4520bcd -- scripts/check/mutate.ts scripts/check/mutate-restore.ts | wc -l` 打出 `24`）。2026-10-23 欠条分派（需求所有者 02:54Z「有关联的欠条 dispatch 到相关 thread……无关联的单开」）把两张排进同一组；2026-11-10 需求所有者「按你之前的建议排活」，从主干 `4520bcd` 重新接上（两句引语都是会话里的话，不是仓库里的拍板痕迹）。两张的修法是同一步，第 1396–1400 行早写明了：变异目录自己就是对照表，`npm run check` 开头逐条查锚点。
+
+**按「闸门自身走最后一块砖」（`process/6-INTEGRATE.md`）切成两片。** 本片只有判定、断言与负片，不接任何入口，检查链一步没多；第二片新建入口，接在 `npm run check` 的最前面，带自检夹具，并改 `AGENTS.md` 检查命令那一行与 `docs/ARCHITECTURE.md` 的锚点表。**两张欠条本片都没还**，还在第二片；第 1396–1400 行括注里那句保留照旧成立：入口拦不住「变异正在跑而我恰好提交」那个窗口本身，那要靠一把锁，第二片也不做。两片中间夹一条「施加照字面」（见下面那张新欠条）：先接入口的话，`M-D13-r` 没还原时会被报成锚点失效。第二片入口不进顺序契约表：那张表每一行要点名守它的变异。第二片要做到的、本片已经替它定下的三件：对 `unclear` 说「分不开，先 `git diff` 看那个文件」，对 `residue` 也叫人先看 `git diff` 再动手（理由见下面第三类），对同一文件里连带的报告说「先撤那一处，再看」；另外它一接上，下面那条「包着 `find` 的 `replace` 不许在干净文件里本来就有」的目录规矩就有了守的人。入口排在 `mutate.ts` 拦重复编号之前，入口自己要先拦重复编号或说明白（ADR-34 第 5 行），这条在第二片判。
+
+**判定。** `mutate-rule.ts` 的 `anchorFaults(目录, 读文件)`，逐条交回五种对不上的，全对得上交回空表。判的先后就是下表的顺序：
+
+| 名字 | 判据 | 多半是什么 |
+|---|---|---|
+| `unreadable` | 目标文件读不到 | 文件挪了、删了 |
+| `residue` | `replace` 整段包着 `find` 的：整段 `replace` 在。别的：`find` 一处没有、`replace` 在，而 `replace` 不是空串、也不是 `find` 的一段 | 这条变异没还原，还在树里；也可能是同文件另一条没还原，连带的 |
+| `ambiguous` | `find` 不止一处（照 `anchorMatches` 按起点数），又不是上一行 | 锚点不唯一；或者同一个文件里另一条没还原，连带的 |
+| `unclear` | `find` 一处没有、`replace` 在，而 `replace` 是空串或是 `find` 的一段 | 分不开：没还原是这样，锚点失效也常是这样 |
+| `stale` | `find` 一处没有，又不是上面几行 | 锚点失效：代码改了目录没跟上，或者改动被按回去了；也可能是同文件另一条没还原，连带的 |
+
+第 1396 行说那条判据「精确」，有三类不成立，本片照实处理（数都在主干 `4520bcd` 上数，那棵树的目录 1892 条）：
+- **`replace` 整段包着 `find` 的，77 条。** 没还原时 `find` 照样在一处，只问「`find` 在不在」一条也看不出。这一类改问整段 `replace` 在不在，而且**先于「不唯一」问**：「扣两次钱」那种整段重复 `find` 的变异，没还原时 `find` 有两处，先问不唯一就报成了锚点的毛病。这一问也有**分不开**的时候：干净的文件里本来就有整段 `replace` 的（`find` 是 `ok(x)`、`replace` 是 `!ok(x)`、文件本来就写着 `if (!ok(x))`），干净的树也报 `residue`，而它施加了是有改动的（写成 `!!ok(x)`）。所以目录从此守一条规矩：**包着 `find` 的变异，`replace` 不能在干净的文件里本来就有**，有的话把 `find` 加长。今天目录里没有这样的（`anchorFaults` 对真树交回空表，就说明了这件事）；入口接上之后，违反它的会让干净的树变红，当场看得见。`replace` 与 `find` 一字不差的，施加没施加分不出，不判残留。
+- **`replace` 在干净的树上本来就在的，244 条**：删一段的（`replace` 是空串）104 条，`replace` 是 `find` 的一段的 140 条（`M-D6-d` 就是）。这两类「`replace` 在」什么也不说明 —— 正常改代码改掉了 `find`、目录没跟上，树也是这个样子。报成「没还原」的话，人会去把 `find` 按回来，按回去的正是自己的改动：第 1402–1407 行那次判反就是这个形状（当时只问了「`replace` 在不在」）。复审在真树上实做过一遍：把 `pipeline.ts` 里 `!c.bio_links?.length` 改名为 `!c.links?.length`，只问「`find` 不在、`replace` 在」的判法报 `M-D6-d` 没还原。所以这两类单列一种 `unclear`，入口要说「分不开，先 `git diff` 看那个文件」。
+- **`replace` 在同一个文件别处本来就有的，43 条。** 锚点失效时照样报成 `residue`。单看一棵树分不开，判定里不再细分；入口那句话对 `residue` 也要叫人先看 `git diff` 再动手。
+
+三类的数的算法（不经本片的判定，只读目录与文件）：
+
+```sh
+git show 4520bcd:scripts/check/mutations.json | node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(0,"utf8")).mutations;const rd=f=>{try{return fs.readFileSync(f,"utf8")}catch{return ""}};const nc=m.filter(x=>!(x.replace!==x.find&&x.replace.includes(x.find)));console.log(m.length,m.length-nc.length,nc.filter(x=>x.replace==="").length,nc.filter(x=>x.replace!==""&&x.find.includes(x.replace)).length,nc.filter(x=>x.replace!==""&&!x.find.includes(x.replace)&&rd(x.file).includes(x.replace)).length)'
+```
+
+在 `4520bcd` 的工作树里打出 `1892 77 104 140 43`。
+
+读文件由调用方给，判定不碰盘；读不到交 `undefined`，不当成空文件 —— 当空文件的话指着它的每一条都成了锚点失效，「文件不在」这件事反倒没人说。
+
+**不对真树断言。** 需求测试只断言判定，不拿真目录对真树断言。需求测试自己就是验证者：变异跑它的时候，树上正躺着那一条变异，对真树断言的话这一句每次都红，每一条不点名的变异都会被它「抓到」，功劳全记错。对真树查只能放在检查链里、验证者之外，也就是第二片那个入口。
+
+**怎么验的。**
+- 需求测试 `h-mutate` 加 19 条断言。其中三条专钉「只问 `replace` 在不在」那种判反（`replace` 是 `find` 的一段，干净的树不报；删一段的，干净的树不报；`replace` 在同文件别处本来就有，干净的树不报），`M-H45-u`（换回首轮那种判法）让前两条红，`M-H45-l` 让第三条红；一条拿三条变异、三个文件、第一条读不到喂进去，钉「对着整份目录逐条判」，`M-H45-o`、`p`、`q`（读不到就收工、只判第一条、总读第一条的文件）各让它红。变异 `M-H45-c`…`h`、`M-H45-k`…`u` 共 17 条，都 `by: test`、点名断言，逐条照字面施加到 `mutate-rule.ts` 上跑 `npx tsx scripts/test.ts --only=h-mutate`，点名的都红，跑完从备份写回原字节（没用 `git checkout`）。断言与实现出自同一个上下文（ADR-04）。
+- 对真树：本片头上的目录 1909 条（主干 1892 条加本片 17 条），`anchorFaults` 交回空表：`npx tsx -e 'import{readFileSync as r}from"node:fs";import{anchorFaults as a}from"./scripts/check/mutate-rule.ts";const m=JSON.parse(r("scripts/check/mutations.json","utf8")).mutations;console.log(m.length,JSON.stringify(a(m,f=>{try{return r(f,"utf8")}catch{return undefined}})))'` 打出 `1909 []`。
+- 逐条模拟没还原：把每一条变异**照字面**单独施加到它的文件上（`find` 第一处换成 `replace`，不经 `String.prototype.replace`，理由见下），其余文件不动，对整份目录判一遍。1909 条里 1664 条判成 `residue`、245 条判成 `unclear`，**没有一条漏报**，也没有一条判成 `stale` 或 `ambiguous`。命令（在本片头上的树上跑），打出 `1909 {"residue":1664,"unclear":245} 685 {"stale":967,"unclear":73,"ambiguous":20,"residue":43}`，最后两段是下一条的数：
+
+```sh
+npx tsx -e 'import{readFileSync as r}from"node:fs";import{anchorFaults as a}from"./scripts/check/mutate-rule.ts";const m=JSON.parse(r("scripts/check/mutations.json","utf8")).mutations;const c={};const rd=f=>{try{return c[f]??=r(f,"utf8")}catch{return undefined}};const t={},o={};let x=0;for(const q of m){const s=rd(q.file);if(s===undefined)continue;const i=s.indexOf(q.find);const v=s.slice(0,i)+q.replace+s.slice(i+q.find.length);const own=a(m,f=>f===q.file?v:rd(f));const k=own.find(o=>o.id===q.id)?.kind??"漏报";t[k]=(t[k]??0)+1;const rest=own.filter(f=>f.id!==q.id);if(rest.length)x++;for(const f of rest)o[f.kind]=(o[f.kind]??0)+1}console.log(m.length,JSON.stringify(t),x,JSON.stringify(o))'
+```
+
+- **一处没还原常连带同文件别的锚点**：上面 1909 次模拟里有 685 次，除了它自己还报了别的条（连带的报告合计 `stale` 967、`unclear` 73、`ambiguous` 20、`residue` 43）。连带成 `residue` 的是危险方向，上表那一行因此写了「也可能是连带的」。判定逐条照实报，不替人猜哪条是源头；第二片入口要对同一文件里的连带报告说「先撤那一处，再看」。
+
+**`M-D13-r`：施加到盘上的不是目录里登记的那段。** 它的 `replace` 里有一段 `` `$${esc(value)}` ``。`mutate.ts` 施加时用的是 `String.prototype.replace` 的字符串形式（`4520bcd` 上第 605 行 `orig.replace(m.find, m.replace)`），那种形式把替换文本里的 `$$` 展开成一个 `$`（`$&`、`` $` ``、`$'` 也各有含义），盘上写出的是 `` `${esc(value)}` ``：这条变异除了登记的那处（未知金额显示成 `$0`），还顺带去掉了已知金额前面的 `$`。照 `mutate.ts` 的施加法模拟，这一条判成 `stale`（盘上那段不是登记的 `replace`）。它的结论今天没错：在本片头上照字面施加（`find` 第一处换成登记的 `replace`，同上面模拟的写法），跑 `npx tsx scripts/check/selfcheck.ts --only=cost-local`，点名那条断言在 `unknown-positive`、`unknown-invalid-count`、`invalid-price`、`unknown-version` 四个场景上红，`✗ 脚本自检：4 项失败`（2026-10-23 在 `902e63e` 上也是这四处）。错的是「施加的就是登记的」这件事本身。全目录只有这一条的 `replace` 带这几种记号，下面这条命令打出 `M-D13-r`：
+
+```sh
+git show 4520bcd:scripts/check/mutations.json | node -e 'const m=JSON.parse(require("fs").readFileSync(0,"utf8")).mutations;console.log(m.filter(x=>/\$[$&`\x27]/.test(x.replace)).map(x=>x.id).join(","))'
+```
+
+按 `6-INTEGRATE.md` 五档，这是既有缺陷，本片合入后最先做，排在第二片前面（三条都改 `mutations.json` 与需求测试，碰同一批文件的 PR 一条一条来，`process/6-INTEGRATE.md`「一条长期分支」）：
+
+检查对 `M-D13-r` 报「抓到」，抓到的确实是登记的那处（上面那次照字面施加），所以作者判它不让检查说假话、不走「主干红了」；合并者若认为「施加的不是登记的那段」本身就是说假话，改走主干红了。
+
+> ⚠️ 欠条：`mutate.ts` 施加变异时把 `replace` 里的 `$$`、`$&`、`` $` ``、`$'` 当替换记号展开，盘上写出的与目录里登记的可以不是同一段；全目录今天只有 `M-D13-r` 一条撞上，它的结论没变 · 来源：本片 2026-10-23 逐条模拟时作者自己查出 · 档：既有缺陷 · 重启条件：本片已合入
+
+**已知边界，本片不做。** 各挂一张登记，条件都落在第二片：
+- `.gitattributes` 已是 `* text=auto eol=lf`（ADR-145 第四十七节），新检出都是 LF；规则生效前就检出成 CRLF 的旧工作区里，`find` 跨行的那些条（`4520bcd` 上 279 条：`git show 4520bcd:scripts/check/mutations.json | node -e 'console.log(JSON.parse(require("fs").readFileSync(0,"utf8")).mutations.filter(x=>x.find.includes("\n")).length)'`）一条也对不上，`mutate.ts` 开跑前的锚点检查今天也一样。
+- 没还原的变异可能在边上重新拼出自己的 `find`：`find` 是 `(a)`、`replace` 是 `a`、文件里是 `((a))`，施加后成了 `(a)`，`find` 照样一处，一处也不报。同一类还有：不包着的变异 `find` 本来就有两处时，施加第一处后剩一处，判成干净（目录先坏了才会这样，`mutate.ts` 开跑前拦）；`find` 是空串、`replace` 非空的，被当成「包着」。今天目录里三种都没有（上面那条模拟命令「漏报」为零；`find` 为空串的 0 条）。
+- 目录里 `M-D12-d` 与 `M-D13-e` 两条的 `file`、`find`、`replace` 相同（`req`、`why`、`by`、`kills` 不同；既有），一条没还原时另一条也报 `residue`，连带的那 43 次里有它们。
+
+> ⚠️ 欠条：变异残留的入口（第二片）对旧的 CRLF 工作区、重新拼出 `find` 的几种形状、两条同锚点的变异都没有专门的说法 · 来源：本片 2026-10-23 独立复审第 8、9 条与 2026-11-10 独立复审可选第 2 条 · 档：登记 · 重启条件：下一条碰 `anchorFaults` 或新建变异残留入口的改动
+
+**欠条清点（2026-11-10，三份独立清点，台账 585 条）。** 三份结论一致的：
+- 响了、每条这种 PR 都要做的一步，只记核过、不重挂：ADR-89 第 92 行（17 条新变异的 `find` 全落在新函数 `anchorFaults` 里，主干上一处也没有）；ADR-99 第 541 行（开 PR 前按文件清单核在途 PR，时刻与结果写在 PR 正文）。
+- 响了、带「重新起算」、只记核过：ADR-158 第 330 行（承 ADR-70 第 2050 行、ADR-145 第 420 行）—— `AnchorFault` 的 `kind`、`id`、`file`、`count` 都被整对象比较的断言碰到，仍是人核，余额照旧。
+- 响了、带「重新起算」、合入前已改、不重挂：ADR-145 第 428 行（再发现说假话的数）—— 清点查出两处：`docs/ARCHITECTURE.md` 那一句写「四种」、漏了 `unclear`；上面 CRLF 那条命令读的是 `4520bcd`，初稿却写了本片头上的数。两处都已改。ADR-94 第 1279 行（记录里同时写着机制和与它矛盾的结论）宽读响：10-23 初稿「干净的树上不会有整段的 `replace`」被复审推翻，已改。
+- 拿不准、照旧挂着：ADR-81 第 98 行（本片没照第 1396–1400 行那一条判据做，改成五种 —— 那是欠条括注里的改法设想，算不算「已定的评定结论」由需求所有者说）；ADR-126 第 50 行（锚点表那一格在「异常传播保留」之后接了新句，`anchorFaults` 不用语法树，取得时机没动）；ADR-180 第 78 行（没读出「断言名字说的和验到的不是一回事」的形状，不计数）。ADR-76 第 102 行：分支前三个提交写于 10-23，11-10 才改基，中间在等预编译第一片与那次交接暂停，不是这一片自己卡住。
+- 第二片会响、开工时要判的：ADR-34 第 5 行、ADR-87 第 98 行、ADR-139 第 130 行、ADR-155 第 115 行、ADR-144 第 173 行；施加照字面那条要改 `mutate.ts`，第 2099 行会在它上面再响一次。

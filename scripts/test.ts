@@ -51,7 +51,7 @@ import {
   labelFault, notAssertion,
   labelFaults,
   groupOfLabel, labelsOf, leadWired, processFailed, wiringFault,
-  anchorMatches, baselineFault,
+  anchorFaults, anchorMatches, baselineFault,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { judgeShares, scanShares } from './check/share-rule.js'
@@ -7726,6 +7726,69 @@ harness('变异的锚点在目标文件里数几处：按起点数，重叠也�
   eq('跨行锚点出现两次', anchorMatches('if (x)\n  go()\nmid\nif (x)\n  go()\n', 'if (x)\n  go()'), 2)
   // 空锚点在每个位置都「出现」：长度为 2 的文件有 0、1、2 三个起点
   eq('空锚点在每个起点都出现', anchorMatches('ab', ''), 3)
+}
+
+harness('变异目录对着树：锚点对不上的五种各有名字，没还原的变异认得出')
+{
+  // ADR-70 第 1394、2099 行：一处变异没还原、躺在树里时，那个文件是「find 换成了 replace」的样子。
+  // 只断言判定；**不对真树断言**：需求测试自己就是验证者，变异跑它的时候树上正躺着那一条，
+  // 对真树断言的话每条不点名的变异都会被这一句抓到，功劳全记错（ADR-70 末尾「变异残留」一节）
+  const files = (tree: Record<string, string>) => (file: string): string | undefined => tree[file]
+  const one = [{ id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' }]
+  eq('干净的树：一条也不报', anchorFaults(one, files({ 'a.ts': 'return x\n' })), [])
+  eq('find 不在而 replace 在 → 没还原的变异',
+    anchorFaults(one, files({ 'a.ts': 'return y\n' })), [{ kind: 'residue', id: 'M-甲', file: 'a.ts' }])
+  eq('find 不在、replace 也不在 → 锚点失效，不是没还原',
+    anchorFaults(one, files({ 'a.ts': 'return z\n' })), [{ kind: 'stale', id: 'M-甲', file: 'a.ts' }])
+  eq('find 两处 → 不唯一，带上处数',
+    anchorFaults(one, files({ 'a.ts': 'return x\nreturn x\n' })), [{ kind: 'ambiguous', id: 'M-甲', file: 'a.ts', count: 2 }])
+  // 读不到不当成空文件：当空文件的话它只是又一条「锚点失效」，文件不在这件事就没人说了
+  eq('目标文件读不到单独报，不当没毛病',
+    anchorFaults(one, files({})), [{ kind: 'unreadable', id: 'M-甲', file: 'a.ts' }])
+  // replace 整段包着 find：残留时 find 照样在一处，只数 find 的话看不出来
+  const wrap = [{ id: 'M-乙', file: 'b.ts', find: 'ok(x)', replace: '!ok(x)' }]
+  eq('replace 包着 find：干净的树不报', anchorFaults(wrap, files({ 'b.ts': 'if (ok(x)) go()\n' })), [])
+  eq('replace 包着 find 的没还原也认得出',
+    anchorFaults(wrap, files({ 'b.ts': 'if (!ok(x)) go()\n' })), [{ kind: 'residue', id: 'M-乙', file: 'b.ts' }])
+  eq('replace 与 find 一字不差：施加没施加分不出，不判没还原',
+    anchorFaults([{ id: 'M-丙', file: 'c.ts', find: 'k', replace: 'k' }], files({ 'c.ts': 'k\n' })), [])
+  // replace 在干净的树上本来就在的两类 —— 删一段的（空串）、replace 是 find 的一段的（M-D6-d 那样）：
+  // find 一不在，没还原与「改代码改掉了 find、目录没跟上」长得一样，只说分不开（第 1402–1407 行那次判反）
+  const cut = [{ id: 'M-丁', file: 'd.ts', find: 'gate()\n', replace: '' }]
+  eq('删一段的：干净的树不报', anchorFaults(cut, files({ 'd.ts': 'gate()\nother()\n' })), [])
+  eq('删一段的：find 不在只说分不开，不说没还原',
+    anchorFaults(cut, files({ 'd.ts': 'other()\n' })), [{ kind: 'unclear', id: 'M-丁', file: 'd.ts' }])
+  const part = [{ id: 'M-戊', file: 'e.ts', find: 'return ok || bio', replace: 'return ok' }]
+  eq('replace 是 find 的一段：干净的树不报', anchorFaults(part, files({ 'e.ts': 'return ok || bio\n' })), [])
+  eq('replace 是 find 的一段、find 不在：只说分不开',
+    anchorFaults(part, files({ 'e.ts': 'return ok\n' })), [{ kind: 'unclear', id: 'M-戊', file: 'e.ts' }])
+  eq('replace 是 find 的一段、两样都不在：锚点失效',
+    anchorFaults(part, files({ 'e.ts': 'return no\n' })), [{ kind: 'stale', id: 'M-戊', file: 'e.ts' }])
+  // replace 在同一个文件别处本来就有、find 也在：干净的树，不许因为 replace 在就报（只问 replace 在不在的那种判法）
+  eq('replace 在同一个文件别处本来就有：干净的树不报',
+    anchorFaults([{ id: 'M-己', file: 'f.ts', find: 'a = 1', replace: 'b = 2' }], files({ 'f.ts': 'a = 1\nb = 2\n' })), [])
+  // 整段重复 find 的（「扣两次钱」那种）：没还原时 find 有两处，先认没还原，不报成锚点的毛病
+  eq('整段重复 find 的没还原：认成没还原，不当不唯一',
+    anchorFaults([{ id: 'M-庚', file: 'g.ts', find: '  charge(u)\n', replace: '  charge(u)\n  charge(u)\n' }],
+      files({ 'g.ts': 'go()\n  charge(u)\n  charge(u)\n' })), [{ kind: 'residue', id: 'M-庚', file: 'g.ts' }])
+  // 入口拿它对整份目录、多个文件判：每一条各读各的文件、各报各的编号，读不到一条不收工，报出一条不停
+  eq('整份目录：每条各读各的文件、各报各的，读不到一条照样往下判',
+    anchorFaults([
+      { id: 'M-辛', file: 'gone.ts', find: 'a', replace: 'b' },
+      { id: 'M-壬', file: 'h.ts', find: 'return x', replace: 'return y' },
+      { id: 'M-癸', file: 'i.ts', find: 'return x', replace: 'return y' },
+    ], files({ 'h.ts': 'return y\n', 'i.ts': 'return y\n' })),
+    [{ kind: 'unreadable', id: 'M-辛', file: 'gone.ts' }, { kind: 'residue', id: 'M-壬', file: 'h.ts' },
+      { kind: 'residue', id: 'M-癸', file: 'i.ts' }])
+  // 读得到的空文件不是读不到：它只是锚点失效
+  eq('空文件读得到：锚点失效，不报读不到',
+    anchorFaults(one, files({ 'a.ts': '' })), [{ kind: 'stale', id: 'M-甲', file: 'a.ts' }])
+  eq('replace 包着 find、两样都不在：锚点失效，不当干净',
+    anchorFaults(wrap, files({ 'b.ts': 'if (no(x)) go()\n' })), [{ kind: 'stale', id: 'M-乙', file: 'b.ts' }])
+  // 不包着的：find 两处而 replace 也在，是锚点不唯一，不是没还原（还原的那一处找不到唯一的位置）
+  eq('find 两处、replace 也在：报不唯一，不报没还原',
+    anchorFaults(one, files({ 'a.ts': 'return x\nreturn x\nreturn y\n' })),
+    [{ kind: 'ambiguous', id: 'M-甲', file: 'a.ts', count: 2 }])
 }
 
 harness('by 与 kills 同进同出：四种写错各有名字')
