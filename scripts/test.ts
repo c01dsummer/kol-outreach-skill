@@ -174,7 +174,7 @@ import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, DiscoverySource, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
-import { loadRawCreators, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
+import { loadRawCreators, loadReviewCreatorInputs, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 
 let fail = 0
@@ -16575,6 +16575,58 @@ await group('d21-task-reviews', () => {
     ok('任务评审：review_status 已评的坏账号照常准备', passes('reviewed', { platform: 'tiktok', handle: 'bad-name', review_status: '已评', outreach_draft: 'x' }))
     ok('任务评审：正本在场时坏账号的旧判断照常准备', passes('present', { platform: 'tiktok', handle: 'bad-name', outreach_draft: 'x' }, saved()))
     criterion('D21.s')
+
+    suite('D21', '名单里手改坏的记录在读入时就指出文件、第几条与哪个字段')
+    // 形状清单来自对 render 的逐字段试探：只收会让后面崩掉或报看不懂错误的那几种（ADR-192）。
+    const fine = (handle: string, extra: Record<string, unknown> = {}) =>
+      ({ platform: 'tiktok', handle, nickname: handle, bio_links: [], ...extra })
+    const shaped = (label: string, previous: unknown[], raw?: unknown[]) => {
+      const dir = join(root, `shape-${label}`)
+      mkdirSync(dir)
+      writeFileSync(join(dir, 'creators.json'), JSON.stringify(previous))
+      if (raw !== undefined) writeFileSync(join(dir, 'creators.raw.json'), JSON.stringify(raw))
+      const before = disk(dir)
+      const error = caught(() => loadReviewCreatorInputs(dir))
+      return { dir, error, text: String(error), same: isDeepStrictEqual(disk(dir), before) }
+    }
+    const refuses = (label: string, record: unknown, field: string, value: string) => {
+      const got = shaped(label, [fine('first'), record])
+      ok(`手改坏的记录：${label}以输入错误拒绝`, got.error instanceof ReviewInputError)
+      ok(`手改坏的记录：${label}指出文件、第几条、字段与原值`, [join(got.dir, 'creators.json'), '第 2 条', field, value].every(part => got.text.includes(part)))
+      ok(`手改坏的记录：${label}拒绝不动盘上文件`, got.same)
+    }
+    refuses('条目是字符串', 'oops', '不是一条记录', '"oops"')
+    refuses('条目是 null', null, '不是一条记录', 'null')
+    refuses('条目是数组', [], '不是一条记录', '[]')
+    refuses('handle 是数字', fine('x', { handle: 123 }), 'handle', '123')
+    refuses('handle 缺席', (({ handle: _, ...rest }) => rest)(fine('x')), 'handle', '缺席')
+    refuses('platform 是数字', fine('x', { platform: 7 }), 'platform', '7')
+    refuses('bio_links 缺席', (({ bio_links: _, ...rest }) => rest)(fine('x')), 'bio_links', '缺席')
+    refuses('bio_links 是对象', fine('x', { bio_links: {} }), 'bio_links', '{}')
+    refuses('bio_links 里有数字', fine('x', { bio_links: ['https://a.example', 5] }), 'bio_links', '[\"https://a.example\",5]')
+    refuses('recent_posts 是字符串', fine('x', { recent_posts: 'x' }), 'recent_posts', '"x"')
+    refuses('recent_posts 里有 null', fine('x', { recent_posts: [null] }), 'recent_posts', '[null]')
+    const named = shaped('named', [fine('first'), fine('alpha', { bio_links: 'https://a.example' })])
+    ok('手改坏的记录：读得到时带出平台与账号', named.text.includes('tiktok') && named.text.includes('alpha'))
+    const many = shaped('many', [fine('a', { handle: 1 }), fine('b'), 'oops'], [fine('c'), fine('d', { recent_posts: 'x' })])
+    eq('手改坏的记录：两个文件里的每一处都报出', [
+      many.error instanceof ReviewInputError ? many.error.problems.length : -1,
+      many.text.includes(`${join(many.dir, 'creators.json')} 第 1 条`), many.text.includes(`${join(many.dir, 'creators.json')} 第 3 条`),
+      many.text.includes(`${join(many.dir, 'creators.raw.json')} 第 2 条`)], [3, true, true, true])
+    const rawOnly = shaped('raw-only', [fine('a')], [fine('a'), fine('b', { platform: null })])
+    ok('手改坏的记录：只坏在累加器里也拒绝并指出累加器', rawOnly.error instanceof ReviewInputError && rawOnly.text.includes(`${join(rawOnly.dir, 'creators.raw.json')} 第 2 条`) && !rawOnly.text.includes(`${join(rawOnly.dir, 'creators.json')} 第`))
+    const long = shaped('long', [fine('a', { bio_links: { note: 'x'.repeat(500) } })])
+    ok('手改坏的记录：原值太长时截短', long.error instanceof ReviewInputError && long.text.length < 400)
+    // 不多拒：形状对的记录原样读入；其余字段的类型、陌生平台名不在本条检查之内。
+    const passing = [
+      fine('a'), fine('b', { recent_posts: null }), fine('c', { recent_posts: [] }),
+      fine('d', { recent_posts: [{ id: '1', plays: 5 }], bio_links: ['https://a.example'] }),
+      fine('e', { platform: 'youtube' }), fine('f', { followers: 'many', nickname: 5, source_tasks: 'x' }),
+    ]
+    const passed = shaped('passing', passing)
+    ok('手改坏的记录：形状对的记录照常读入', passed.error === undefined)
+    eq('手改坏的记录：读入的内容与盘上一致', passed.error === undefined ? loadReviewCreatorInputs(passed.dir).previous : undefined, passing)
+    criterion('D21.t')
 
     suite('D23', '任务人工授权以准备开始时已保存候选为界')
     // Generated tokens are adversarial input, never an expected ID or an authorization oracle.

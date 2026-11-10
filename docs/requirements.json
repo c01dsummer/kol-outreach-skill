@@ -1677,11 +1677,16 @@
         {
           "id": "D21.s",
           "text": "agent-review.json 缺席时，按 D21.j 本该迁入的旧创作者记录（带 fit、fit_reason 或 outreach_draft，没有新评审字段，review_status 缺席或为未评）若平台账号规范化不了，就在写任何文件之前拒绝，并逐条指出正本文件路径、该记录在 creators.json 里是第几条、平台与账号原值和原因（有几条报几条）；不得跳过它后让投影把这些字段清掉、再写回 creators.json。"
+        },
+        {
+          "id": "D21.t",
+          "text": "creators.json 或 creators.raw.json 里有记录形状不对时（条目不是对象；platform 或 handle 不是字符串；bio_links 缺席或不是字符串数组；recent_posts 出现且不为 null 却不是对象数组），collect、enrich、render 与人工反馈模板在写任何文件、任何预留与请求之前以退出码 2 拒绝，逐条指出文件路径、该记录是第几条、平台与账号（读得到时）、哪个字段、读到的值（按 JSON 写法）和应是什么，有几处报几处；不得让它在后面的处理里以看不懂的报错崩掉。其余字段的类型不在本条检查之内。"
         }
       ],
       "adr": [
         "ADR-130",
-        "ADR-191"
+        "ADR-191",
+        "ADR-192"
       ],
       "tension": [
         {
