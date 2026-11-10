@@ -5040,7 +5040,7 @@ group('brand-calibration-entry', [], () => {
   const taskInput = (id: string, value: unknown, withPerson = false) => {
     const f = costFixture(id, knownCosts(1_000_000, []), { target_count: 0, done: [],
       offsets: {}, pages: {}, answered: {}, found: {}, brand_calibration: value },
-    withPerson ? [costPerson('tiktok', `${id}-creator`)] : [])
+    withPerson ? [costPerson('tiktok', `${id}-creator`, { fit: undefined })] : [])
     return { ...f, ...logs(f.cwd) }
   }
   const original = (f: ReturnType<typeof taskInput>) => [f.task,
