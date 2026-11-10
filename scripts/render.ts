@@ -128,7 +128,7 @@ writeCsv(csvPath, [...REVIEW_HEADERS], creators.map(toReviewRow))
 
 // ---------- XLSX（分 sheet，供人快速切换）----------
 // CSV 规范里没有「工作表」这个概念，多 sheet 只能走 xlsx。两个文件各司其职：
-// CSV 给机器读，xlsx 给人看。
+// CSV 给机器读，xlsx 给人看。CSV 里可能被当成公式的文字格多一个 '（D5.c），要逐字原值的读 xlsx。
 const xlsxPath = join(dir, 'kol.xlsx')
 writeXlsx(xlsxPath, buildSheets(creators, { mode: 'review' }) as Sheet[])
 

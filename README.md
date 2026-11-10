@@ -208,7 +208,7 @@ render 导出同样要求 `task.json` 至少保留一项合规搜索任务。任
 output/{product}-{timestamp}/
 ├── report.html        单文件可读报告，支持分层切换和草稿复制
 ├── kol.xlsx           A/B/C 分 Sheet 的 Excel 名单
-├── kol.csv            适合脚本和其他工具读取的完整单表
+├── kol.csv            适合脚本和其他工具读取的完整单表（可能被当成公式的文字格多一个 '，逐字原值读 xlsx）
 ├── creators.json      最终筛选后的结构化名单与当前评审投影
 ├── creators.raw.json  原始采集累加器，断点续跑时只增不减
 ├── agent-review.json  Agent 判断、平台账号别名与冻结候选轮次的正本
@@ -221,7 +221,7 @@ output/{product}-{timestamp}/
 其中：
 
 - HTML 报告完全内联，不依赖外部样式或脚本
-- CSV 使用 UTF-8 BOM 并正确处理逗号、引号和换行
+- CSV 使用 UTF-8 BOM 并正确处理逗号、引号和换行；可能被表格软件当成公式的文字格前加一个 `'`
 - XLSX 始终包含 A/B/C 三个 Sheet，包括空分层
 - A 级候选附带可复制的英文开发信草稿
 - 公开指标按平台显示；跨平台创作者不会把两边粉丝和播放量混算

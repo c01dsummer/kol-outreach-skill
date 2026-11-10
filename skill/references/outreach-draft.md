@@ -109,4 +109,4 @@ Yu
 
 每个 A 级候选一封，写进任务目录 `agent-review.json` 里该平台账号评审的 `outreach_draft`。render 从这份正本投影到 CSV 的 `outreach_draft` 列，并在 HTML 报告里以可复制的块呈现。不要直接改 CSV 或 `creators.json` —— 它们每次导出都从正本重建，写在那里的草稿会被覆盖；人工反馈也不改草稿原文。
 
-CSV 里换行要正确转义（字段用引号包裹，内部换行保留），确保 Excel/Numbers 打开时格式不乱。
+CSV 里换行要正确转义（字段用引号包裹，内部换行保留），确保 Excel/Numbers 打开时格式不乱；以 `=`、`+`、`-`、`@`、制表符或回车开头的草稿，CSV 里那一格的格首会多一个 `'`（D5.c），XLSX 里是原值。

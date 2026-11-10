@@ -103,7 +103,7 @@
     {"config":"[\"test\",[\"d4-memory\"]]","launches":1,"maxPaid":null,"running":47,"stopping":0},
     {"config":"[\"test\",[\"d4-pid-boundary\"]]","launches":0,"maxPaid":null,"running":8,"stopping":0},
     {"config":"[\"test\",[\"d4t-ignore-memory\"]]","launches":0,"maxPaid":null,"running":3,"stopping":0},
-    {"config":"[\"test\",[\"d5-csv\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
+    {"config":"[\"test\",[\"d5-csv\"]]","launches":0,"maxPaid":null,"running":7,"stopping":0},
     {"config":"[\"test\",[\"d6-pipeline\"]]","launches":0,"maxPaid":null,"running":27,"stopping":0},
     {"config":"[\"test\",[\"d6-provider\"]]","launches":0,"maxPaid":null,"running":11,"stopping":0},
     {"config":"[\"test\",[\"d7-email\"]]","launches":0,"maxPaid":null,"running":9,"stopping":0},

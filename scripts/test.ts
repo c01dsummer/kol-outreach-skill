@@ -445,20 +445,24 @@ const harness = (name: string) => { console.log(`\n[harness] ${name}`) }
  * 永远不会失败的检查，等于没测。
  */
 function xlsxSheetNames(path: string): string[] {
+  return [...xlsxPart(path, 'xl/workbook.xml').matchAll(/<sheet name="([^"]+)"/g)].map(m => m[1])
+}
+
+/** 从 xlsx 里真正解压出一个部件（如 `xl/workbook.xml`、`xl/worksheets/sheet1.xml`） */
+function xlsxPart(path: string, part: string): string {
   const buf = rf(path)
-  // 扫本地文件头，找到 xl/workbook.xml 那条，inflate 后取 <sheet name="...">
+  // 扫本地文件头，找到那一条，inflate
   for (let i = 0; i + 30 < buf.length; i++) {
     if (buf.readUInt32LE(i) !== 0x04034b50) continue
     const nameLen = buf.readUInt16LE(i + 26)
     const extraLen = buf.readUInt16LE(i + 28)
     const name = buf.subarray(i + 30, i + 30 + nameLen).toString('utf8')
-    if (name !== 'xl/workbook.xml') continue
+    if (name !== part) continue
     const start = i + 30 + nameLen + extraLen
     const compSize = buf.readUInt32LE(i + 18)
-    const xml = inflateRawSync(buf.subarray(start, start + compSize)).toString('utf8')
-    return [...xml.matchAll(/<sheet name="([^"]+)"/g)].map(m => m[1])
+    return inflateRawSync(buf.subarray(start, start + compSize)).toString('utf8')
   }
-  throw new Error('xlsx 里找不到 xl/workbook.xml')
+  throw new Error(`xlsx 里找不到 ${part}`)
 }
 
 const mk = (p: 'tiktok' | 'instagram', h: string, over: Partial<Creator> = {}): Creator => ({
@@ -6828,6 +6832,48 @@ suite('D5', 'CSV 转义')
   eq('含引号', esc('say "hi"'), '"say ""hi"""')
   eq('含换行', esc('l1\nl2'), '"l1\nl2"')
   eq('普通不加引号', esc('plain'), 'plain')
+}
+suite('D5', '名单 CSV 里可能被当成公式的文字格先加一个单引号（ADR-161）')
+criterion('D5.c', 'D5.d', 'D5.e', 'D5.f')
+tension('D5', 'P2'); tension('U9', 'D5')
+{
+  const dir = mkdtempSync(join(tmpdir(), 'kol-d5-'))
+  const csvP = join(dir, 'kol.csv'), xlsxP = join(dir, 'kol.xlsx')
+  // 走真的 writeCsv 写一行，取表头之后那一段 —— 验的是名单 CSV 的出口，不是某个内部函数
+  const line = (cells: unknown[]): string => {
+    writeCsv(csvP, cells.map((_, i) => `h${i}`), [cells])
+    const s = rf(csvP, 'utf8')
+    return s.slice(s.indexOf('\n') + 1)
+  }
+  // 先于实现写成：期望只出自 D5.c–D5.f 与 ADR-161 第二节的原文，写完时对着还没改的 csv.ts 跑出 10 条红
+  try {
+    eq('D5.c 等号开头加单引号', line(['=1+1']), "'=1+1")
+    eq('D5.c 加号开头加单引号', line(['+1 555']), "'+1 555")
+    eq('D5.c 减号开头加单引号', line(['-x']), "'-x")
+    eq('D5.c @ 开头加单引号', line(['@alice']), "'@alice")
+    eq('D5.c 制表符开头加单引号', line(['\tx']), "'\tx")
+    eq('D5.c 回车开头加单引号后整格加引号', line(['\rx']), "\"'\rx\"")
+    eq('D5.c 先加单引号再转义', line(['=a,b']), "\"'=a,b\"")
+    eq('D5.c 格中间的等号不加', line(['a=b']), 'a=b')
+    eq('D5.c 空格开头不加', line([' =x']), ' =x')
+    eq('D5.c 一行里只加该加的格', line(['=x', 'plain', '@y']), "'=x,plain,'@y")
+    eq('D5.d 数不加', line([-5, 0.5, -1e-7]), '-5,0.5,-1e-7')
+    eq('D5.e 纯数字的文字不加', line(['-0.5', '+3', '12']), '-0.5,+3,12')
+    eq('D5.e 带指数的文字不算纯数字照加', line(['-1e-7']), "'-1e-7")
+    eq('D5.f 人工反馈模板那条转义不加单引号', esc('=x'), '=x')
+    const draft = '@{creator_name} Hi, {brand} here about {product}'
+    const kolLine = (() => {
+      writeCsv(csvP, [...HEADERS], [toRow(mk('tiktok', 'd5-draft', { outreach_draft: draft }))])
+      return rf(csvP, 'utf8')
+    })()
+    ok('D5/P2 开发信草稿只在格首加单引号，占位符原样', kolLine.includes(`"'${draft}"`))
+    const risk = '=HYPERLINK("http://x","y")'
+    const sheets = buildSheets([mk('tiktok', 'd5-review', { tier: 'A', mismatch_risk: risk })], { mode: 'review' })
+    writeCsv(csvP, sheets[0].headers, sheets[0].rows); writeXlsx(xlsxP, sheets)
+    ok('U9/D5 评审列在 CSV 里加单引号，其余原值', rf(csvP, 'utf8').includes(`"'=HYPERLINK(""http://x"",""y"")"`))
+    const sheetXml = xlsxPart(xlsxP, 'xl/worksheets/sheet1.xml')
+    ok('U9/D5 同一格在 XLSX 里仍是原值文字', sheetXml.includes(`<t xml:space="preserve">${risk}</t>`) && !sheetXml.includes('<f>'))
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 }
 
 })
@@ -16124,7 +16170,7 @@ await group('u9-review-output', () => {
   eq('U9.a 默认HTML独立确认仍用调用方原顺序', oldNodes.filter(n => n.tag === 'a' && fixtures.some(c => c.profile_url === n.a.href)).map(n => fixtures.find(c => c.profile_url === n.a.href)?.handle), ['zeros', 'missing', 'main'])
 
   // U13 独立契约：主题列的三态与拆法只按判据写预期，不读 rows.ts / report.ts 的实现。
-  criterion('U13.a', 'U13.b', 'U13.c'); tension('U13', 'P1'); tension('U13', 'P2')
+  criterion('U13.a', 'U13.b', 'U13.c'); tension('U13', 'P1'); tension('U13', 'P2'); tension('U13', 'D5')
   const subjectCases: Array<[string, string | undefined, string]> = [
     ['s-plain', 'Subject: Your {product} smoothie series\n\nHi {name},\nI loved it.', 'Your {product} smoothie series'],
     ['s-lead', '\n   \r\n  subject：  Hi, "{brand}" <b>&amp;</b>  \r\nbody line', 'Hi, "{brand}" <b>&amp;</b>'],
@@ -16135,6 +16181,7 @@ await group('u9-review-output', () => {
     ['s-prefix', 'Re Subject: not first\nbody', '拆不出主题'],
     ['s-blank', ' \n\t\n', ''],
     ['s-absent', undefined, ''],
+    ['s-formula', 'Subject: =1+1 {brand}\nbody', '=1+1 {brand}'],
   ]
   const subjectFixtures = subjectCases.map(([handle, draft], i) => mk(i % 2 ? 'instagram' : 'tiktok', handle, {
     tier: 'B', score: 10 + i, outreach_draft: draft, profile_url: `https://example.com/${handle}`,
@@ -16143,6 +16190,9 @@ await group('u9-review-output', () => {
   const subjectBefore = copy(subjectFixtures)
   const expectSubject = new Map(subjectCases.map(([h, , subject]) => [h, subject]))
   const expectDraft = new Map(subjectCases.map(([h, draft]) => [h, draft ?? '']))
+  // D5.c 优先（U13 与 D5 的交点）：CSV 里以 = + - @、制表符或回车开头的主题格与草稿格在格首多一个 '，XLSX 照旧原值。
+  const csvSubject = new Map([...expectSubject, ['s-formula', "'=1+1 {brand}"]])
+  const csvDraft = new Map([...expectDraft, ['s-cr', "'\rSUBJECT:x{y}\rbody"]])
   let subjectCsv: string[][] = [], subjectBook: ReturnType<typeof xlsxRead> = [], subjectPage = '', subjectError: string | undefined
   try {
     writeCsv(join(dir, 'subject.csv'), headers, subjectFixtures.map(c => api.toReviewRow(c)))
@@ -16157,11 +16207,11 @@ await group('u9-review-output', () => {
   if (subjectError !== undefined) return
   const subjectIndex = headers.indexOf('outreach_subject'), draftIndex = oldHeaders.indexOf('outreach_draft')
   eq('U13.a 主题列是评审表末列', [subjectIndex, subjectCsv[0][subjectIndex], subjectBook[1].rows[0][subjectIndex]], [headers.length - 1, 'outreach_subject', 'outreach_subject'])
-  eq('U13.a CSV真实读回主题三态与拆法', subjectCsv.slice(1).map(r => [r[5], r[subjectIndex]]), subjectCases.map(([h, , subject]) => [h, subject]))
-  eq('U13.a XLSX真实读回主题与CSV一致', bounded(subjectBook[1].rows.slice(1).flatMap(r => r[subjectIndex] === expectSubject.get(r[5]) ? [] : [r[5]])), noFaults)
+  eq('U13.a CSV真实读回主题三态与拆法', subjectCsv.slice(1).map(r => [r[5], r[subjectIndex]]), subjectCases.map(([h]) => [h, csvSubject.get(h)]))
+  eq('U13.a XLSX真实读回主题为原值', bounded(subjectBook[1].rows.slice(1).flatMap(r => r[subjectIndex] === expectSubject.get(r[5]) ? [] : [r[5]])), noFaults)
   eq('U13.a XLSX读回全部主题夹具都在B层', subjectBook[1].rows.length - 1, subjectCases.length)
-  eq('U13.b 草稿那一格逐字不变且主题行仍在草稿里', bounded([
-    ...subjectCsv.slice(1).flatMap(r => r[draftIndex] === expectDraft.get(r[5]) ? [] : [`csv/${r[5]}`]),
+  eq('U13.b 草稿那一格逐字不变（CSV按D5.c只在格首加单引号）且主题行仍在草稿里', bounded([
+    ...subjectCsv.slice(1).flatMap(r => r[draftIndex] === csvDraft.get(r[5]) ? [] : [`csv/${r[5]}`]),
     ...subjectBook[1].rows.slice(1).flatMap(r => r[draftIndex] === expectDraft.get(r[5]) ? [] : [`xlsx/${r[5]}`]),
   ]), noFaults)
   ok('U13.b 导出不改输入草稿', isDeepStrictEqual(subjectFixtures, subjectBefore))
