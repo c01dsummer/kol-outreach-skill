@@ -1685,7 +1685,7 @@ group('cost-durable', [], () => {
       const endpoint = entry === 'collect' ? (profile ? IG_PROFILE : IG_REELS) : TT_POSTS
       const unit = entry === 'collect' && !profile ? 2000 : 1000
       const beforePeople = fileText(join(f.taskDir, 'creators.json'))
-      // 收尾若错误进入记忆读取，会遇到坏JSON；D14.h要求原费用运行错误仍是退出6（ADR-193）。
+      // 收尾若错误进入记忆读取，会遇到坏JSON；D14.m要求原费用运行错误仍是退出6（ADR-193）。
       if (mode === 'once') writeFileSync(join(f.cwd, 'memory', 'creators.json'), '{broken-memory')
       const result = runBoth(`持久费用保存故障 ${route}/${outcome}/${mode}`, args(entry, f), f.cwd,
         { status: 6, soft: [0, 1, 2, 3, 7] }, observeEnv(f, {
@@ -3059,9 +3059,13 @@ group('memory', ['collect', 'render'], () => {
     const deliverable = join(tmp, dir, 'creators.json')
     const beforeList = readFileSync(deliverable, 'utf8')
 
-    const stderr = run('collect 记忆读不出来时不产出名单',
+    // ADR-193：读不出记忆单独退 7，不与输入问题的 2 混在一起；别的退出码交给下面这条具名断言判
+    const memRun = runBoth('collect 记忆读不出来时不产出名单',
                        [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp,
-                       { status: 7, stream: 'stderr' })
+                       { status: 7, soft: [0, 1, 2, 3, 4, 5, 6] })
+    if (memRun.ok) named('collect 记忆读不出来以退出码 7 结束（不是输入问题的 2），stdout 不出汇总',
+      memRun.status === 7 && memRun.stdout.trim() === '', `退出=${memRun.status}，stdout=${memRun.stdout.slice(0, 200)}`)
+    const stderr = memRun.ok && memRun.status === 7 ? memRun.stderr : undefined
     // 整段一起守住 —— 下面四条断言全都依赖这一次中止。逐条判空的写法里第三条
     // 会判出**假绿**：`stderr` 为空时两个布尔都是 false，`budgetGone !== cmdHasBudget`
     // 不成立，于是它在进程失败之后打了一个 ✓（#94 评审指出）
@@ -3286,6 +3290,20 @@ group('memory', ['collect', 'render'], () => {
           && taskAfter?.memory_status === 'unreadable_ignored'
           && htmlAfter.includes('未做「已联系 / 已推荐」去重'),
         `meta=${JSON.stringify(metaAfter)}，task=${JSON.stringify(taskAfter)}`)
+    }
+
+    // ADR-193：交付物写不进去以保存失败（6）结束，不说成成功或输入问题。kol.csv 那个位置换成目录，写它必然失败；跑完原样换回
+    const csvAt = join(tmp, dir, 'kol.csv'), csvText = fileText(csvAt)
+    rmSync(csvAt, { force: true }); mkdirSync(join(csvAt, 'held'), { recursive: true })
+    let unsaved: ReturnType<typeof runBoth>
+    try { unsaved = runBoth('render 交付物写不进去', [S('render.ts'), '--dir', dir, '--ignore-memory'], tmp, { status: 6, soft: [0, 1, 2, 7] }) }
+    finally { rmSync(csvAt, { recursive: true, force: true }); writeFileSync(csvAt, csvText) }
+    if (unsaved.ok) {
+      named('render 交付物写不进去以退出码 6 结束，stdout 不出交付 JSON',
+        unsaved.status === 6 && unsaved.stdout.trim() === '' && unsaved.stderr.includes('kol.csv'),
+        `退出=${unsaved.status}，stdout=${unsaved.stdout.slice(0, 200)}，stderr=${stderrTail(unsaved.stderr)}`)
+      // D4.u 的三半：读不出记忆退 7（上面那条）、交付物保存失败退 6（这条）、写回失败照常退 0（上面「显式忽略坏记忆」那跑）
+      criterion('D4.u')
     }
 
     // 旧任务目录：task.json 里根本没有这个字段。**不能读成「去重跑过了」** ——
@@ -3807,7 +3825,7 @@ group('profile-402-stop', [], () => {
   //    路径核对结果」记的搜索阶段实测汇总 `error` 也正是这一句。同组最后一条对照把搜索阶段再验一遍。
   //  · 待补 profile 几人：D6.p（简介没查过、或查过但没有外链的仍待补）手数；四种收尾同一续跑口径（D6.q／D6.r）。
   //  · 断点的净次数：D6.s，只数 HTTP 200（这里没有无 HTTP 状态的），402／404 已撤销、不计。
-  //  · `profile_failed`：需求方 2026-10-31 13:00 CST 裁决（派发方转达，D6.z）—— 402 那人不计入、算待补，只数 402 之前非 402 的失败。
+  //  · `profile_failed`：需求方 2026-10-31 13:00 CST 裁决（派发方转达，D6.z，今 D6.ab）—— 402 那人不计入、算待补，只数 402 之前非 402 的失败。
   //
   // 夹具：关键词带 `profile-halt` 时假 fetch 回三个人（profhalt_a／b／c，粉丝 82000／90000／95000，都在闸门之内、
   // 都没带简介），`FAKE_FETCH_HALT_*` 让这三人发到某个 profile 端点的第 n 次请求起都回 402 或 404（fake-fetch.ts
@@ -3818,7 +3836,7 @@ group('profile-402-stop', [], () => {
   // 402 那一行也要记下了，才去判「402 之后再无记录」。对照不成立是夹具失格（带夹具记号），这一跑的具名断言都不判。
   // IG「不降级 V2」另配一份阳性对照：同一种接线下 V3 回 404 时账本要真记下 V2 那一行。
   //
-  // 认领 D6.z（组末尾）。D6.x 退役、整条映射由 D6.y 接替，D6.y 留给 KOL-21 独立测试包，这里不认（ADR-183 末尾）。
+  // 认领 D6.ab（组末尾；ADR-193 接替 D6.z，补上「N 人补全失败」那一行）。整条映射由 D6.aa（接替 D6.y、D6.x）管，留给 KOL-21 独立测试包，这里不认（ADR-183 末尾、ADR-193）。
   const root = join(tmp, 'profile-402-stop')
   const HALT = ['profhalt_a', 'profhalt_b', 'profhalt_c']
   const MSG_402 = 'TikHub 余额不足，请充值后重试'
@@ -4005,9 +4023,9 @@ group('profile-402-stop', [], () => {
     named('collect 在 profile 补全先遇 404、再遇 TikHub 402：stderr 照打「1 人补全失败」那一行，与汇总的 profile_failed 对得上',
       /1 人补全失败/.test(mix.stderr), `stderr 末几行 ${stderrTail(mix.stderr)}`)
   }
-  // ①–⑧ 合起来是 D6.z 的每一半：停与提示、零请求（含 IG 不降级）、profile_failed 只数 402 之前非 402 的失败、
+  // ①–⑧ 合起来是 D6.ab 的每一半：停与提示、零请求（含 IG 不降级）、profile_failed 只数 402 之前非 402 的失败、
   // 待补与续跑提示、402 之前补成的落盘、非 402 不停（④⑥）、达标与否都一样（①③）。负片 M-D6-bm、M-D6-bn
-  criterion('D6.z')
+  criterion('D6.ab')
 })
 
 // ---- D6.j：上一版留下的目录，两张表缺着就一直缺着 ----
@@ -6879,6 +6897,7 @@ group('hashtag-route', [], () => {
     if (r.ok) {
       const row = rowsByIndex(r.stdout)(1)
       // ADR-193：402 中途停下照出部分结果，stopped 写明是供应商余额不足，退出码 5（不是跑完的 0）
+      criterion('F3.f')
       named('probe 遇 TikHub 402：stdout 照出部分结果，顶层 stopped 为 provider_402，退出码 5',
         r.status === 5 && summaryOf(r.stdout).stopped === 'provider_402' && rowsByIndex(r.stdout)(0) !== undefined
           && !rowsByIndex(r.stdout)(0)?.error,
@@ -11360,13 +11379,13 @@ group('observer-cert-entry', [], () => {
 // 整套是一组：冻结套件的依赖跨它自己的分组连成一片（G2-00、G1-02、G3-02 当基线，三个阳性每跑都起），拆开的话每组都得重跑这几跑。
 // 本文件直接起的只有接线那一个进程（ADR-145 的计数单位只数这一层），接线在沙箱里起的八十几跑入口不进那个数 —— 一条指着这里的
 // 变异实际要花整套一跑的时间，照实写在这里。
-// 具名断言只给交给本片认领的判据，每条一句（D6.y：ADR-183 第 95、196 行；D13.v、D13.u：ADR-184 第 193、272 行），各断言
+// 具名断言只给交给本片认领的判据，每条一句（D6.aa 接替 D6.y：ADR-183 第 95、196 行、ADR-193；D13.v、D13.u：ADR-184 第 193、272 行），各断言
 // 「所涉各例没有一例判红、设施故障或夹具失格」；所涉各例按冻结用例（连同它调到的公共判据）在依据里引了哪条判据来列，冻结单的
 // 认领对照没有交到本片手上。认领另要那几例全部 pass、而且没有一项不判 —— 附条件子断言、复核没做、GAP 或 E 前提没补齐的，
 // 一条都认不下来。交点 U9×P1 不在这里认领（接线模块头写着 R 片要补在哪），自检的入口认领记录本来也不收交点。
 // 唯一的例外是 G3-14c（ADR-186 末尾「第二片」，需求所有者选的处置）：接上 E-2 之后，GAP-24b 登为保存失败后不读记忆，冻结套件照冻结单
 // 判它夹具失格。只有「G3-14c 前提」那一项失格、「E-2 命中」那一项判过、别的项没有红与设施故障时，读作预期结果：一行「·」写明，
-// 不计失败，D6.y 那条具名断言也不因它不成立；它不是 pass，照旧认领不下。别的样子的失格照常算失败。
+// 不计失败，D6.aa 那条具名断言也不因它不成立；它不是 pass，照旧认领不下。别的样子的失格照常算失败。
 group('kol21-independent', [], () => {
   const root = join(tmp, 'kol21-independent'), work = join(root, 'work'), report = join(root, 'report.json')
   mkdirSync(work, { recursive: true })
@@ -11425,16 +11444,16 @@ group('kol21-independent', [], () => {
   const clean = (ids: readonly string[]) => ids.every(id => ['pass', 'review-pending', 'not-judged'].includes(byId.get(id)?.verdict ?? '缺') || expectedFixture(byId.get(id)))
   const dirty = (ids: readonly string[]) => ids.filter(id => !clean([id])).map(id => `${id}=${byId.get(id)?.verdict ?? '缺'}`).join(' ')
   const settled = (ids: readonly string[]) => ids.every(id => byId.get(id)?.verdict === 'pass' && byId.get(id)!.items.every(i => i.status === 'pass'))
-  named('KOL-21 独立测试包 D6.y：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格',
+  named('KOL-21 独立测试包 D6.aa：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格',
     clean(D6Y), `不成立的：${dirty(D6Y)}`)
   named('KOL-21 独立测试包 D13.v：新建缺预算按 $2 落盘、不合规预算与其余前置检查拒绝、续跑不借默认、不回写配置所涉各例，没有一例判红、设施故障或夹具失格',
     clean(D13V), `不成立的：${dirty(D13V)}`)
   named('KOL-21 独立测试包 D13.u：新建给了合规 --budget 时根 budget_usd 与费用账上限都取该金额（G1-02U），不判红、不是设施故障或夹具失格',
     clean(D13U), `不成立的：${dirty(D13U)}`)
-  if (settled(D6Y)) criterion('D6.y')
+  if (settled(D6Y)) criterion('D6.aa')
   if (settled(D13V)) criterion('D13.v')
   if (settled(D13U)) criterion('D13.u')
-  const unsettled = ([['D6.y', D6Y], ['D13.v', D13V], ['D13.u', D13U]] as const).filter(([, ids]) => !settled(ids))
+  const unsettled = ([['D6.aa', D6Y], ['D13.v', D13V], ['D13.u', D13U]] as const).filter(([, ids]) => !settled(ids))
     .map(([id, ids]) => `${id}（${ids.filter(c => !settled([c])).length}/${ids.length} 例没有全数判过）`)
   if (unsettled.length) console.log(`  · 这一跑认领不下：${unsettled.join('、')} —— 没认领的照旧是缺口，不在这里补`)
 })
