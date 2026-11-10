@@ -16585,16 +16585,15 @@ await group('d21-task-reviews', () => {
       mkdirSync(dir)
       writeFileSync(join(dir, 'creators.json'), JSON.stringify(previous))
       if (raw !== undefined) writeFileSync(join(dir, 'creators.raw.json'), JSON.stringify(raw))
-      const before = disk(dir)
       const error = caught(() => loadReviewCreatorInputs(dir))
-      return { dir, error, text: String(error), same: isDeepStrictEqual(disk(dir), before) }
+      return { dir, error, text: String(error) }
     }
     const refuses = (label: string, record: unknown, field: string, value: string) => {
       const got = shaped(label, [fine('first'), record])
-      return got.error instanceof ReviewInputError && got.same &&
+      return got.error instanceof ReviewInputError &&
         [join(got.dir, 'creators.json'), '第 2 条', field, value].every(part => got.text.includes(part))
     }
-    // 每条都要：以输入错误拒绝、指出文件、第几条、字段与原值，且不动盘上文件。
+    // 每条都要：以输入错误拒绝、指出文件、第几条、字段与原值。读入本来不写盘；入口在写入之前拒绝，由 ADR-192 第三节的入口实跑核。
     ok('手改坏的记录：条目是字符串时拒绝并指出', refuses('string', 'oops', '不是一条记录', '"oops"'))
     ok('手改坏的记录：条目是 null 时拒绝并指出', refuses('null', null, '不是一条记录', 'null'))
     ok('手改坏的记录：条目是数组时拒绝并指出', refuses('array', [], '不是一条记录', '[]'))
@@ -16606,6 +16605,11 @@ await group('d21-task-reviews', () => {
     ok('手改坏的记录：bio_links 里有数字时拒绝并指出', refuses('links-number', fine('x', { bio_links: ['https://a.example', 5] }), 'bio_links 是 ["https://a.example",5]', '第 2 条'))
     ok('手改坏的记录：recent_posts 是字符串时拒绝并指出', refuses('posts-string', fine('x', { recent_posts: 'x' }), 'recent_posts 是 "x"', '第 2 条'))
     ok('手改坏的记录：recent_posts 里有 null 时拒绝并指出', refuses('posts-null-item', fine('x', { recent_posts: [null] }), 'recent_posts 是 [null]', '第 2 条'))
+    ok('手改坏的记录：bio_links 为 null 时拒绝并指出', refuses('links-null', fine('x', { bio_links: null }), 'bio_links 是 null', '应是字符串数组'))
+    ok('手改坏的记录：recent_posts 是对象时拒绝并指出', refuses('posts-object', fine('x', { recent_posts: {} }), 'recent_posts 是 {}', '应是作品对象的数组'))
+    ok('手改坏的记录：discovery_sources 是字符串时拒绝并指出', refuses('sources-string', fine('x', { discovery_sources: 'x' }), 'discovery_sources 是 "x"', '应是来源对象的数组'))
+    ok('手改坏的记录：discovery_sources 里有 null 时拒绝并指出', refuses('sources-null-item', fine('x', { discovery_sources: [null] }), 'discovery_sources 是 [null]', '第 2 条'))
+    ok('手改坏的记录：说出 handle 应是字符串', refuses('handle-expected', fine('x', { handle: 123 }), 'handle 是 123', '应是字符串'))
     const named = shaped('named', [fine('first'), fine('alpha', { bio_links: 'https://a.example' })])
     ok('手改坏的记录：读得到时带出平台与账号', named.text.includes('tiktok') && named.text.includes('alpha'))
     const many = shaped('many', [fine('a', { handle: 1 }), fine('b'), 'oops'], [fine('c'), fine('d', { recent_posts: 'x' })])
@@ -16617,11 +16621,18 @@ await group('d21-task-reviews', () => {
     ok('手改坏的记录：只坏在累加器里也拒绝并指出累加器', rawOnly.error instanceof ReviewInputError && rawOnly.text.includes(`${join(rawOnly.dir, 'creators.raw.json')} 第 2 条`) && !rawOnly.text.includes(`${join(rawOnly.dir, 'creators.json')} 第`))
     const long = shaped('long', [fine('a', { bio_links: { note: 'x'.repeat(500) } })])
     ok('手改坏的记录：原值太长时截短', long.error instanceof ReviewInputError && long.text.length < 400)
+    const deepDir = join(root, 'shape-deep'), depth = 100000
+    mkdirSync(deepDir)
+    // 嵌套深到 JSON.stringify 栈溢出：报错仍要是一行输入错误，不是「Maximum call stack size exceeded」
+    writeFileSync(join(deepDir, 'creators.json'), `[{"platform":"tiktok","handle":"deep","bio_links":${'['.repeat(depth)}${']'.repeat(depth)}}]`)
+    const deep = caught(() => loadReviewCreatorInputs(deepDir))
+    ok('手改坏的记录：嵌套深到印不出原值时仍指出是哪条哪个字段', deep instanceof ReviewInputError && String(deep).includes('第 1 条') && String(deep).includes('bio_links') && String(deep).includes('印不出'))
     // 不多拒：形状对的记录原样读入；其余字段的类型、陌生平台名不在本条检查之内。
     const passing = [
       fine('a'), fine('b', { recent_posts: null }), fine('c', { recent_posts: [] }),
       fine('d', { recent_posts: [{ id: '1', plays: 5 }], bio_links: ['https://a.example'] }),
       fine('e', { platform: 'youtube' }), fine('f', { followers: 'many', nickname: 5, source_tasks: 'x' }),
+      fine('g', { discovery_sources: null }), fine('h', { discovery_sources: [{ endpoint: 'x' }] }),
     ]
     const passed = shaped('passing', passing)
     ok('手改坏的记录：形状对的记录照常读入', passed.error === undefined)

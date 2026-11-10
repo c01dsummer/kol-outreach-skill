@@ -17675,7 +17675,7 @@
       "id": "M-D21-bb", "req": "D21.t",
       "why": "读得到也不带平台与账号",
       "file": "scripts/lib/task.ts",
-      "find": "    ? `（platform ${creator.platform}，handle ${creator.handle}）` : ''",
+      "find": "    ? `（platform ${shown(creator.platform)}，handle ${shown(creator.handle)}）` : ''",
       "replace": "    ? '' : ''",
       "by": "test", "kills": ["手改坏的记录：读得到时带出平台与账号"]
     },
@@ -17710,6 +17710,38 @@
       "find": "const problems = creators.flatMap((creator, index) => recordShapeProblems(file, index, creator))",
       "replace": "const problems = file.endsWith(RAW) ? [] : creators.flatMap((creator, index) => recordShapeProblems(file, index, creator))",
       "by": "test", "kills": ["手改坏的记录：只坏在累加器里也拒绝并指出累加器"]
+    },
+    {
+      "id": "M-D21-bg", "req": "D21.t",
+      "why": "原值不接栈溢出：嵌套太深的字段让报错变成「Maximum call stack size exceeded」，不说是哪条",
+      "file": "scripts/lib/task.ts",
+      "find": "try { text = JSON.stringify(value) } catch { return '一个嵌套太深、印不出来的值' }",
+      "replace": "text = JSON.stringify(value)",
+      "by": "test", "kills": ["手改坏的记录：嵌套深到印不出原值时仍指出是哪条哪个字段"]
+    },
+    {
+      "id": "M-D21-bh", "req": "D21.t",
+      "why": "不查 discovery_sources：写成字符串或混进 null 时，render 在写回正本与名单之后才崩",
+      "file": "scripts/lib/task.ts",
+      "find": "  if (sources !== undefined && sources !== null && (!Array.isArray(sources) || !sources.every(isRecord)))",
+      "replace": "  if (false)",
+      "by": "test", "kills": ["手改坏的记录：discovery_sources 是字符串时拒绝并指出", "手改坏的记录：discovery_sources 里有 null 时拒绝并指出"]
+    },
+    {
+      "id": "M-D21-bi", "req": "D21.t",
+      "why": "discovery_sources 为 null 也拒绝：来源未知的写法被多拒",
+      "file": "scripts/lib/task.ts",
+      "find": "  if (sources !== undefined && sources !== null && (",
+      "replace": "  if (sources !== undefined && (",
+      "by": "test", "kills": ["手改坏的记录：形状对的记录照常读入"]
+    },
+    {
+      "id": "M-D21-bj", "req": "D21.t",
+      "why": "不说应是什么：用户知道哪里坏了，不知道改成什么",
+      "file": "scripts/lib/task.ts",
+      "find": "，应是${expected}；改正这条后再跑",
+      "replace": "；改正这条后再跑",
+      "by": "test", "kills": ["手改坏的记录：说出 handle 应是字符串", "手改坏的记录：bio_links 为 null 时拒绝并指出"]
     },
     {
       "id": "M-D25-s", "req": "D25.b",

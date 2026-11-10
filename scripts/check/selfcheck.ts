@@ -10386,7 +10386,7 @@ group('feedback-template', [], () => {
   const fixture = (name: string, review: unknown = document) => {
     const dir = join(base, name); mkdirSync(join(dir, 'memory'), { recursive: true });
     json(dir, 'task.json', { tasks: [{ keyword: 'saved', dimension: 'category', platform: 'tiktok' }], cost_ledger: { version: 'unusable' }, budget_usd: 'unusable', requests: null });
-    json(dir, 'agent-review.json', review); json(dir, 'creators.json', [{ platform: 'tiktok', handle: 'outside', fit: '❌' }]);
+    json(dir, 'agent-review.json', review); json(dir, 'creators.json', [{ platform: 'tiktok', handle: 'outside', bio_links: [], fit: '❌' }]);
     for (const name of names.slice(4)) writeFileSync(join(dir, name), Buffer.from('untouched:' + name + '\n'));
     return realpathSync(dir);
   };
@@ -10468,7 +10468,7 @@ fs.writeFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json','controll
   const badTask = fixture('task'); json(badTask, 'task.json', { tasks: null, brand_calibration: { version: 'v1', target_creator_types: [], tone_aesthetic: [], natural_scenarios: [], negative_signals: [], sources: [{ source: 'source', kind: 'invented', detail: 'detail' }] } });
   const t = invoke('模板坏任务运行', badTask, ['--dir', badTask], 2); if (!t.ok) return;
   named('模板入口-任务品牌同时拒绝', inputError(t, badTask, 'task.json', ['tasks', 'brand_calibration']) && !existsSync(join(badTask, 'manual-feedback.csv')), 'D26.b: tasks和品牌问题同时报告'); criterion('D26.b');
-  const absent = fixture('absent'); unlinkSync(join(absent, 'agent-review.json')); json(absent, 'creators.json', [{ platform: 'tiktok', handle: 'legacy', fit: '✅', fit_reason: 'saved', outreach_draft: 'saved' }]);
+  const absent = fixture('absent'); unlinkSync(join(absent, 'agent-review.json')); json(absent, 'creators.json', [{ platform: 'tiktok', handle: 'legacy', bio_links: [], fit: '✅', fit_reason: 'saved', outreach_draft: 'saved' }]);
   const r0 = invoke('模板正本缺席运行', absent, ['--dir', absent], 2); if (!r0.ok) return;
   named('模板入口-正本缺席拒绝', inputError(r0, absent, 'agent-review.json') && /collect|render|生产|保存|轮次/.test(r0.stderr) && !existsSync(join(absent, 'agent-review.json')) && !existsSync(join(absent, 'manual-feedback.csv')), 'D26.c: 不迁移legacy、不冻结、不创建正本');
   const corrupt = fixture('corrupt', {}), r1 = invoke('模板坏正本运行', corrupt, ['--dir', corrupt], 2); if (!r1.ok) return;
@@ -10496,16 +10496,16 @@ fs.writeFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json','controll
   named('模板入口-append先完整校验', inputError(v, invalid, 'manual-feedback.csv') && line(v.stderr, 2) && equal(read(join(invalid, 'manual-feedback.csv')), invalidCsv), 'D26.k: 全池覆盖也拒绝非法旧枚举，定位第2物理行'); criterion('D26.k');
   const paired = { version: 1, updated_at: 'saved', reviews: {}, rounds: [{ round_id: 'pair', created_at: 'saved', source: 'task.json', candidates: [{ account_key: 'tiktok:alpha', source_tasks: null }, { account_key: 'instagram:beta', source_tasks: null }] }] };
   const conflictCsv = Buffer.from(header + '\n' + 'pair,tiktok,alpha,yes,yes,,,,,\n' + 'pair,instagram,beta,yes,no,,,,,\n');
-  const rawPair = fixture('raw-pair', paired); json(rawPair, 'creators.json', []); json(rawPair, 'creators.raw.json', [{ platform: 'tiktok', handle: 'alpha', linked_handle: 'instagram:beta', fit: '❌', tier: 'C' }]); writeFileSync(join(rawPair, 'manual-feedback.csv'), conflictCsv);
+  const rawPair = fixture('raw-pair', paired); json(rawPair, 'creators.json', []); json(rawPair, 'creators.raw.json', [{ platform: 'tiktok', handle: 'alpha', bio_links: [], linked_handle: 'instagram:beta', fit: '❌', tier: 'C' }]); writeFileSync(join(rawPair, 'manual-feedback.csv'), conflictCsv);
   const j0 = invoke('模板完整raw关系运行', rawPair, ['--dir', rawPair, '--append'], 2); if (!j0.ok) return;
   named('模板入口-完整raw直接关系', inputError(j0, rawPair, 'manual-feedback.csv', ['tiktok:alpha', 'instagram:beta']) && line(j0.stderr, 2) && line(j0.stderr, 3) && equal(read(join(rawPair, 'manual-feedback.csv')), conflictCsv), 'D26.g/k: 仅raw单向关联也拒绝跨平台yes/no冲突');
-  const oldPair = fixture('old-pair', paired); json(oldPair, 'creators.json', [{ platform: 'tiktok', handle: 'alpha', linked_handle: 'instagram:beta' }]); writeFileSync(join(oldPair, 'manual-feedback.csv'), conflictCsv);
+  const oldPair = fixture('old-pair', paired); json(oldPair, 'creators.json', [{ platform: 'tiktok', handle: 'alpha', bio_links: [], linked_handle: 'instagram:beta' }]); writeFileSync(join(oldPair, 'manual-feedback.csv'), conflictCsv);
   const j1 = invoke('模板旧名单关系运行', oldPair, ['--dir', oldPair, '--append'], 2); if (!j1.ok) return;
   named('模板入口-raw真缺席关系回退', inputError(j1, oldPair, 'manual-feedback.csv', ['tiktok:alpha', 'instagram:beta']) && equal(read(join(oldPair, 'manual-feedback.csv')), conflictCsv), 'D26.f/g: 真缺席仍校验完整旧名单直接关系'); criterion('D26.g');
   json(oldPair, 'creators.raw.json', []); const j1present = invoke('模板现存raw联合旧名单运行', oldPair, ['--dir', oldPair, '--append'], 2); if (!j1present.ok) return;
   named('模板入口-完整旧名单与现存raw联合关系', inputError(j1present, oldPair, 'manual-feedback.csv', ['tiktok:alpha', 'instagram:beta']) && line(j1present.stderr, 2) && line(j1present.stderr, 3) && equal(read(join(oldPair, 'manual-feedback.csv')), conflictCsv), 'D26.g/k: raw已存在但为空也不能丢旧名单合法直接关系');
   const direct = fixture('direct-only', { version: 1, updated_at: 'saved', reviews: { 'tiktok:alpha': { account_keys: ['tiktok:alpha', 'tiktok:gamma'], fit: '✅' } }, rounds: [{ round_id: 'direct', created_at: 'saved', source: 'task.json', candidates: ['tiktok:alpha', 'instagram:alpha', 'instagram:beta', 'tiktok:gamma'].map(account_key => ({ account_key, source_tasks: null })) }] });
-  json(direct, 'creators.raw.json', [{ platform: 'tiktok', handle: 'alpha', linked_handle: 'instagram:beta' }, { platform: 'instagram', handle: 'beta', linked_handle: 'tiktok:gamma' }]);
+  json(direct, 'creators.raw.json', [{ platform: 'tiktok', handle: 'alpha', bio_links: [], linked_handle: 'instagram:beta' }, { platform: 'instagram', handle: 'beta', bio_links: [], linked_handle: 'tiktok:gamma' }]);
   const directCsv = Buffer.from(header + '\n' + 'direct,tiktok,alpha,yes,yes,,,,,\n' + 'direct,instagram,alpha,yes,no,,,,,\n' + 'direct,instagram,beta,yes,unknown,,,,,\n' + 'direct,tiktok,gamma,yes,no,,,,,\n'); writeFileSync(join(direct, 'manual-feedback.csv'), directCsv);
   const j2 = invoke('模板不补造关系运行', direct, ['--dir', direct, '--append']); if (!j2.ok) return;
   named('模板入口-不补造关联', !!protocol(j2, direct, 'unchanged', 0) && equal(read(join(direct, 'manual-feedback.csv')), directCsv), 'D26.g: 同名异平台/Agent别名/传递链均不制造人工采用冲突');

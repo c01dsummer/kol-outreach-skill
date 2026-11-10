@@ -77,9 +77,10 @@ function readOptionalReviewCreators(file: string): Creator[] | undefined {
   return creators as Creator[]
 }
 
-/** 原值按 JSON 写法给出，过长截短。 */
+/** 原值按 JSON 写法给出，过长截短；嵌套深到印不出时照直说（ADR-136 那类栈溢出）。 */
 const shown = (value: unknown): string => {
-  const text = JSON.stringify(value)
+  let text: string
+  try { text = JSON.stringify(value) } catch { return '一个嵌套太深、印不出来的值' }
   return text.length > 80 ? `${text.slice(0, 77)}…` : text
 }
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -94,7 +95,7 @@ function recordShapeProblems(file: string, index: number, creator: unknown): str
   const at = `${file} 第 ${index + 1} 条`
   if (!isRecord(creator)) return [`${at}不是一条记录（读到 ${shown(creator)}），应是一个对象；改正或删掉这条后再跑`]
   const who = typeof creator.platform === 'string' && typeof creator.handle === 'string'
-    ? `（platform ${creator.platform}，handle ${creator.handle}）` : ''
+    ? `（platform ${shown(creator.platform)}，handle ${shown(creator.handle)}）` : ''
   const wrong = (field: string, expected: string) => {
     const value = creator[field]
     return `${at}${who}的 ${field} ${value === undefined ? '缺席' : `是 ${shown(value)}`}，应是${expected}；改正这条后再跑`
@@ -106,6 +107,9 @@ function recordShapeProblems(file: string, index: number, creator: unknown): str
   const posts = creator.recent_posts
   if (posts !== undefined && posts !== null && (!Array.isArray(posts) || !posts.every(isRecord)))
     problems.push(wrong('recent_posts', '作品对象的数组（未查询时删掉这个字段）'))
+  const sources = creator.discovery_sources
+  if (sources !== undefined && sources !== null && (!Array.isArray(sources) || !sources.every(isRecord)))
+    problems.push(wrong('discovery_sources', '来源对象的数组（来源未知时删掉这个字段）'))
   return problems
 }
 
