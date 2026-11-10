@@ -1,6 +1,6 @@
 import type { Creator } from './types.js'
 import type { ReviewStatus } from './types.js'
-import { normalizedAccountKey, type AgentReview, type AgentReviewDocument, type AgentReviewRead } from './review.js'
+import { normalizedAccountKey, ReviewInputError, type AgentReview, type AgentReviewDocument, type AgentReviewRead } from './review.js'
 
 const legacyFields = ['fit', 'fit_reason', 'outreach_draft'] as const
 const newJudgmentFields = [
@@ -38,11 +38,19 @@ export function migrateLegacyAgentReviews(
 ): AgentReviewDocument {
   const document = structuredClone(read.document)
   if (read.status === 'present') return document
-  for (const creator of legacyCreators) {
-    const key = primaryAccount(creator)
-    if (!key || (creator.review_status !== undefined && creator.review_status !== '未评')) continue
-    if (newJudgmentFields.some(field => creator[field] !== undefined)) continue
-    if (legacyFields.every(field => creator[field] === undefined)) continue
+  const unkeyed: string[] = []
+  legacyCreators.forEach((creator, index) => {
+    if (creator.review_status !== undefined && creator.review_status !== '未评') return
+    if (newJudgmentFields.some(field => creator[field] !== undefined)) return
+    const carried = legacyFields.filter(field => creator[field] !== undefined)
+    if (!carried.length) return
+    let key: string
+    // D21.s：跳过会让投影清掉这几个字段、再写回 creators.json，判断就没了。
+    try { key = normalizedAccountKey(creator.platform, creator.handle) }
+    catch (error) {
+      unkeyed.push(`旧名单第 ${index + 1} 条（platform ${JSON.stringify(creator.platform)}，handle ${JSON.stringify(creator.handle)}）带 ${carried.join('、')}，账号规范化不了，无法迁入：${error instanceof Error ? error.message : String(error)}；改正这条的 platform、handle，或删掉这几个字段后再跑`)
+      return
+    }
     const review = document.reviews[key] ?? { account_keys: [key] }
     for (const field of legacyFields) {
       const value = creator[field]
@@ -51,7 +59,8 @@ export function migrateLegacyAgentReviews(
       }
     }
     document.reviews[key] = review
-  }
+  })
+  if (unkeyed.length) throw new ReviewInputError(unkeyed)
   return document
 }
 

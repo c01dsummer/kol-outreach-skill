@@ -16421,8 +16421,8 @@
       "req": "D21.j",
       "why": "评审正本缺席时跳过旧 Agent 判断迁入，已有的兼容判断与草稿消失",
       "file": "scripts/lib/review-projection.ts",
-      "find": "  for (const creator of legacyCreators) {",
-      "replace": "  for (const creator of legacyCreators.slice(0, 0)) {",
+      "find": "  legacyCreators.forEach((creator, index) => {",
+      "replace": "  legacyCreators.slice(0, 0).forEach((creator, index) => {",
       "by": "test",
       "kills": ["D21 旧字段按规范化平台账号迁入"]
     },
@@ -16451,8 +16451,8 @@
       "req": "D21.l",
       "why": "已删除的新评审从旧名单的残留判断中复活",
       "file": "scripts/lib/review-projection.ts",
-      "find": "    if (!key || (creator.review_status !== undefined && creator.review_status !== '未评')) continue\n    if (newJudgmentFields.some(field => creator[field] !== undefined)) continue",
-      "replace": "    if (!key) continue",
+      "find": "    if (creator.review_status !== undefined && creator.review_status !== '未评') return\n    if (newJudgmentFields.some(field => creator[field] !== undefined)) return",
+      "replace": "",
       "by": "test",
       "kills": ["D21 缺席正本不把上次新评审投影复活成旧评审"]
     },
@@ -17491,8 +17491,8 @@
       "id": "M-D21-ae", "req": "D21.e",
       "why": "缺席正本在任务准备时被创建，旧判断迁移与候选冻结尚未显式保存即落盘",
       "file": "scripts/lib/task-reviews.ts",
-      "find": "  let pending = freeze(migrateLegacyAgentReviews(original, previousCreators), previousCreators, [], createdAt)",
-      "replace": "  let pending = freeze(migrateLegacyAgentReviews(original, previousCreators), previousCreators, [], createdAt)\n  writeAgentReviewDocument(dir, { ...pending, updated_at: createdAt })",
+      "find": "  let pending = freeze(migrated, previousCreators, [], createdAt)",
+      "replace": "  let pending = freeze(migrated, previousCreators, [], createdAt)\n  writeAgentReviewDocument(dir, { ...pending, updated_at: createdAt })",
       "by": "test", "kills": ["任务评审：缺席空正本仅准备不落盘", "任务评审：迁移与冻结均不写文件"]
     },
     {
@@ -17515,16 +17515,16 @@
       "id": "M-D21-ah", "req": "D21.b",
       "why": "续跑读入已有 agent-review.json 时丢掉其中已保存的 Agent 评审，按累加器重建名单并保存后，已有判断从正本消失",
       "file": "scripts/lib/task-reviews.ts",
-      "find": "  let pending = freeze(migrateLegacyAgentReviews(original, previousCreators), previousCreators, [], createdAt)",
-      "replace": "  let pending = freeze(migrateLegacyAgentReviews({ ...original, document: { ...original.document, reviews: {} } }, previousCreators), previousCreators, [], createdAt)",
+      "find": "  try { migrated = migrateLegacyAgentReviews(original, previousCreators) }",
+      "replace": "  try { migrated = migrateLegacyAgentReviews({ ...original, document: { ...original.document, reviews: {} } }, previousCreators) }",
       "by": "selfcheck", "kills": ["CLI 正本无变化重复运行不改字节时间"]
     },
     {
       "id": "M-D21-aj", "req": "D21.b",
       "why": "续跑在正本缺席时不再从重建前的原名单保全旧兼容判断，fit、理由与草稿随累加器重建一起丢失",
       "file": "scripts/lib/task-reviews.ts",
-      "find": "  let pending = freeze(migrateLegacyAgentReviews(original, previousCreators), previousCreators, [], createdAt)",
-      "replace": "  let pending = freeze(migrateLegacyAgentReviews(original, []), previousCreators, [], createdAt)",
+      "find": "  try { migrated = migrateLegacyAgentReviews(original, previousCreators) }",
+      "replace": "  try { migrated = migrateLegacyAgentReviews(original, []) }",
       "by": "selfcheck", "kills": ["CLI collect 旧兼容判断入正本且旧池新候选分轮", "CLI 缺raw旧目录只清seed派生字段且保全旧判断"]
     },
     {
@@ -17534,6 +17534,38 @@
       "find": "  creators = reviews.project(mergeCrossPlatform(creators), relations, state.brand_calibration?.version)",
       "replace": "  creators = mergeCrossPlatform(creators)",
       "by": "selfcheck", "kills": ["CLI render 待重评基础B仍经过地域排除", "CLI 三格式转义占位符历史建议及数据边界保留"]
+    },
+    {
+      "id": "M-D21-ak", "req": "D21.s",
+      "why": "正本缺席时规范化不了的旧判断被记下却不拒绝，迁移照旧跳过它，投影随后清掉 fit、理由与草稿再写回 creators.json",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "  if (unkeyed.length) throw new ReviewInputError(unkeyed)\n",
+      "replace": "",
+      "by": "test", "kills": ["任务评审：旧判断 handle 含无效字符时拒绝", "任务评审：旧判断平台不认时拒绝", "任务评审：旧判断 handle 为空时拒绝"]
+    },
+    {
+      "id": "M-D21-al", "req": "D21.s",
+      "why": "没有旧判断字段的记录也去规范化账号，采集原件里账号坏了、本来不用迁的记录让整个任务准备被拒",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "    if (!carried.length) return\n",
+      "replace": "",
+      "by": "test", "kills": ["任务评审：没有旧判断字段的坏账号照常准备"]
+    },
+    {
+      "id": "M-D21-am", "req": "D21.s",
+      "why": "拒绝时不说是旧名单第几条，用户在几百条记录里找不到要改的那条",
+      "file": "scripts/lib/review-projection.ts",
+      "find": "旧名单第 ${index + 1} 条（",
+      "replace": "旧名单里有一条（",
+      "by": "test", "kills": ["任务评审：旧判断 handle 含无效字符时指出正本、第几条、平台、原值与原因", "任务评审：旧判断平台不认时指出正本、第几条、平台、原值与原因", "任务评审：旧判断 handle 为空时指出正本、第几条、平台、原值与原因"]
+    },
+    {
+      "id": "M-D21-an", "req": "D21.s",
+      "why": "拒绝时不写出是哪个任务目录的正本缺席，几个任务一起跑时分不清是哪个",
+      "file": "scripts/lib/task-reviews.ts",
+      "find": "error.problems.map(problem => `${file} 缺席，${problem}`)",
+      "replace": "error.problems.map(problem => problem)",
+      "by": "test", "kills": ["任务评审：旧判断 handle 含无效字符时指出正本、第几条、平台、原值与原因", "任务评审：旧判断平台不认时指出正本、第几条、平台、原值与原因", "任务评审：旧判断 handle 为空时指出正本、第几条、平台、原值与原因"]
     },
     {
       "id": "M-D25-s", "req": "D25.b",

@@ -16541,30 +16541,33 @@ await group('d21-task-reviews', () => {
 
     suite('D21', '正本缺席时旧判断的账号规范化不了就拒绝，不跳过后清掉草稿')
     // 平台不认、handle 为空、handle 含无效字符：三种都规范化不了，旧草稿原先被跳过、投影随后清掉（ADR-191）。
-    for (const [label, creator, needle] of [
-      ['handle 含无效字符', { platform: 'tiktok', handle: 'bad-name', fit: '✅', outreach_draft: 'hi {name}' }, '"bad-name"'],
-      ['平台不认', { platform: 'youtube', handle: 'tube', outreach_draft: 'hi' }, 'youtube'],
-      ['handle 为空', { platform: 'instagram', handle: ' ', fit_reason: 'old reason' }, 'handle 不能为空'],
-    ] as const) {
+    const unkeyed = (label: string, creator: Record<string, unknown>) => {
       const dir = directory(`unkeyed-legacy-${label}`)
       const before = disk(dir)
       const error = caught(() => prepareTaskReviews(dir, state, [mk('tiktok', 'fine'), creator as unknown as Creator], t0, []))
-      ok(`任务评审：旧判断${label}时拒绝`, error instanceof ReviewInputError)
       const text = String(error)
-      ok(`任务评审：旧判断${label}时指出正本、第几条、平台、原值与原因`,
-        text.includes(join(dir, 'agent-review.json')) && text.includes('第 2 条') && text.includes(String(creator.platform)) && text.includes(needle))
-      eq(`任务评审：旧判断${label}时不落盘`, disk(dir), before)
+      const located = text.includes(join(dir, 'agent-review.json')) && text.includes('第 2 条') && text.includes(String(creator.platform))
+      return { rejected: error instanceof ReviewInputError, located, text, kept: JSON.stringify(disk(dir)) === JSON.stringify(before) }
     }
+    const badChars = unkeyed('chars', { platform: 'tiktok', handle: 'bad-name', fit: '✅', outreach_draft: 'hi {name}' })
+    ok('任务评审：旧判断 handle 含无效字符时拒绝', badChars.rejected)
+    ok('任务评审：旧判断 handle 含无效字符时指出正本、第几条、平台、原值与原因', badChars.located && badChars.text.includes('"bad-name"') && badChars.text.includes('含无效字符'))
+    ok('任务评审：旧判断 handle 含无效字符时不落盘', badChars.kept)
+    const badPlatform = unkeyed('platform', { platform: 'youtube', handle: 'tube', outreach_draft: 'hi' })
+    ok('任务评审：旧判断平台不认时拒绝', badPlatform.rejected)
+    ok('任务评审：旧判断平台不认时指出正本、第几条、平台、原值与原因', badPlatform.located && badPlatform.text.includes('"tube"') && badPlatform.text.includes('收到 youtube'))
+    ok('任务评审：旧判断平台不认时不落盘', badPlatform.kept)
+    const blankHandle = unkeyed('blank', { platform: 'instagram', handle: ' ', fit_reason: 'old reason' })
+    ok('任务评审：旧判断 handle 为空时拒绝', blankHandle.rejected)
+    ok('任务评审：旧判断 handle 为空时指出正本、第几条、平台、原值与原因', blankHandle.located && blankHandle.text.includes('" "') && blankHandle.text.includes('handle 不能为空'))
+    ok('任务评审：旧判断 handle 为空时不落盘', blankHandle.kept)
     // 不多拒：没有旧判断字段、已是新评审或已评过的记录本来就不迁，账号坏了也照常放行；正本在场时不迁移，也不查。
-    for (const [label, creator, document] of [
-      ['没有旧判断字段', { platform: 'tiktok', handle: 'bad-name' }, undefined],
-      ['带新评审字段', { platform: 'tiktok', handle: 'bad-name', eligibility: '合格', outreach_draft: 'x' }, undefined],
-      ['review_status 已评', { platform: 'tiktok', handle: 'bad-name', review_status: '已评', outreach_draft: 'x' }, undefined],
-      ['正本在场', { platform: 'tiktok', handle: 'bad-name', outreach_draft: 'x' }, saved()],
-    ] as const) {
-      const dir = directory(`unkeyed-pass-${label}`, document)
-      ok(`任务评审：${label}的坏账号照常准备`, !(caught(() => prepareTaskReviews(dir, state, [creator as unknown as Creator], t0, [])) instanceof Error))
-    }
+    const passes = (label: string, creator: Record<string, unknown>, document?: unknown) =>
+      !(caught(() => prepareTaskReviews(directory(`unkeyed-pass-${label}`, document), state, [creator as unknown as Creator], t0, [])) instanceof Error)
+    ok('任务评审：没有旧判断字段的坏账号照常准备', passes('plain', { platform: 'tiktok', handle: 'bad-name' }))
+    ok('任务评审：带新评审字段的坏账号照常准备', passes('new-fields', { platform: 'tiktok', handle: 'bad-name', eligibility: '合格', outreach_draft: 'x' }))
+    ok('任务评审：review_status 已评的坏账号照常准备', passes('reviewed', { platform: 'tiktok', handle: 'bad-name', review_status: '已评', outreach_draft: 'x' }))
+    ok('任务评审：正本在场时坏账号的旧判断照常准备', passes('present', { platform: 'tiktok', handle: 'bad-name', outreach_draft: 'x' }, saved()))
     criterion('D21.s')
 
     suite('D23', '任务人工授权以准备开始时已保存候选为界')
