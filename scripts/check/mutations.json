@@ -20952,6 +20952,90 @@
       ]
     },
     {
+      "id": "M-D30-i",
+      "req": "D30.g",
+      "why": "写入前不查姓名，空串与只有空白也写进 task.json",
+      "file": "scripts/sender.ts",
+      "find": "if (bad !== undefined) {\n",
+      "replace": "if (bad !== undefined && false) {\n",
+      "by": "test",
+      "kills": [
+        "D30.g 姓名不是非空白字符串、task.json 不存在、根不是对象或写有重复的键时，sender 命令以 2 拒绝，task.json 原字节（没有的仍没有），stderr 写出 task.json 路径"
+      ]
+    },
+    {
+      "id": "M-D30-j",
+      "req": "D30.g",
+      "why": "写入前不查写重复的键，整份写回只留最后一处",
+      "file": "scripts/sender.ts",
+      "find": "if (duplicates.length) {\n",
+      "replace": "if (duplicates.length && false) {\n",
+      "by": "test",
+      "kills": [
+        "D30.g 姓名不是非空白字符串、task.json 不存在、根不是对象或写有重复的键时，sender 命令以 2 拒绝，task.json 原字节（没有的仍没有），stderr 写出 task.json 路径"
+      ]
+    },
+    {
+      "id": "M-D30-k",
+      "req": "D30.g",
+      "why": "整份写回改成只留几个已知字段，其余键丢掉",
+      "file": "scripts/sender.ts",
+      "find": "try { saveTask(taskDir, state) }",
+      "replace": "try { saveTask(taskDir, { product: state.product, market: state.market, sender_name: sender } as TaskState) }",
+      "by": "test",
+      "kills": [
+        "D30.g sender 命令把非空白字符串原值逐字写进 task.json 根上的 sender_name（已有就换掉），以 0 结束，其余键除 updated_at 外读回不变，数字照原文"
+      ]
+    },
+    {
+      "id": "M-D30-l",
+      "req": "D30.g",
+      "why": "写进去之前去掉首尾空白",
+      "file": "scripts/sender.ts",
+      "find": "state.sender_name = sender\n",
+      "replace": "state.sender_name = sender.trim()\n",
+      "by": "test",
+      "kills": [
+        "D30.g sender 命令把非空白字符串原值逐字写进 task.json 根上的 sender_name（已有就换掉），以 0 结束，其余键除 updated_at 外读回不变，数字照原文"
+      ]
+    },
+    {
+      "id": "M-D30-m",
+      "req": "D30.h",
+      "why": "姓名以 -- 开头不再当成漏写的值",
+      "file": "scripts/sender.ts",
+      "find": "if (name !== undefined || value === undefined || value.startsWith('--')) usage()",
+      "replace": "if (name !== undefined || value === undefined) usage()",
+      "by": "selfcheck",
+      "kills": [
+        "sender 缺参、重复、未知或多余参数、值缺失或以 -- 开头、--dir 只有空白时以 2 拒绝并给出用法，stdout 为空，task.json 原字节、没有的不创建"
+      ]
+    },
+    {
+      "id": "M-D30-n",
+      "req": "D30.h",
+      "why": "stdout 不再带 replaced 旧值",
+      "file": "scripts/sender.ts",
+      "find": "...(before === undefined ? {} : { replaced: before })",
+      "replace": "...{}",
+      "by": "selfcheck",
+      "kills": [
+        "sender 写进时 stdout 是一行 JSON：task 为 task.json 路径、sender_name 为写进的值，已有旧值时另带 replaced 为旧值"
+      ]
+    },
+    {
+      "id": "M-D30-o",
+      "req": "D30.h",
+      "why": "保存失败以 2 结束，与拒绝输入分不开",
+      "file": "scripts/sender.ts",
+      "find": "  process.exit(1)",
+      "replace": "  process.exit(2)",
+      "by": "selfcheck",
+      "kills": [
+        "sender task.json 存在但保存失败时以 1 结束，task.json 原字节，stderr 写出 task.json 路径"
+      ]
+    },
+    {
       "id": "M-H186-ca",
       "req": "harness",
       "why": "入口进程的环境里有测试观察记录文件那个变量就判隔离故障：观察器自己每一跑都设它，起的每一跑都判不了",

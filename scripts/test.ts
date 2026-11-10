@@ -291,6 +291,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd30-reject', needs: [] },
   { id: 'd30-resume', needs: [] },
   { id: 'd30-render', needs: [] },
+  { id: 'd30-set', needs: [] },
   { id: 'h-ci-wallclock-core', needs: [] },
   { id: 'h-ci-wallclock-cpu', needs: [] },
   { id: 'h-ci-wallclock-unavailable', needs: [] },
@@ -19088,6 +19089,53 @@ suite('D30', '发件人姓名：render 不拿它填草稿里的 {name}')
       [0, ...outs.map(({ name }) => [name, true, true, false])])
     if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
     criterion('D30.e'); tension('D30', 'P2')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}
+})
+
+await group('d30-set', () => {
+suite('D30', '发件人姓名：任务建好后用 sender 命令补进 task.json')
+{
+  // D30.g（ADR-190 第 5 片）：手写一份任务（预算、计数、进度表，几个数字故意不写成最短形式），真起 scripts/sender.ts。期望只来自 D30.g 原文与下面写进夹具的字面值。
+  // 合规的三种（首尾空白与大小写、中文与重音、旧值不是字符串）原值逐字写进、已有就换掉；其余键除 updated_at 外读回不变，数字原文还在。
+  // 被拒的七种（空串、只有空白、目录里没有 task.json、根是数组、根是 null、坏 JSON、写重复的键）以 2 退出，task.json 原字节（没有的仍没有），stderr 写出路径
+  const root = mkdtempSync(join(tmpdir(), 'kol-d30-set-'))
+  try {
+    const BASE = '{"product":"d30set","market":"US","target_count":5,"budget_usd":2.50,"requests":3,"cost_ledger":{"http_200":2},"rate":7.0,"limit":1E2,' +
+      '"tasks":[{"keyword":"portable","dimension":"category","platform":"tiktok"}],"done":[0],"found":{"0":7},"note":12345678901234567890,' +
+      '"created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"'
+    const run = (dir: string, name: string) => {
+      const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./sender.ts', import.meta.url)), '--dir', dir, '--name', name])
+      return spawnSync(exe, args, { cwd: root, encoding: 'utf8', timeout: 30000 })
+    }
+    let n = 0
+    const task = (text: string | undefined) => {
+      const dir = join(root, `t${n++}`); mkdirSync(dir)
+      if (text !== undefined) writeFileSync(join(dir, 'task.json'), text)
+      return { dir, file: join(dir, 'task.json') }
+    }
+    const others = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'sender_name' && k !== 'updated_at'))
+    const GOOD: [string | undefined, string][] = [[undefined, ' Eric WANG '], ['" Eric "', 'Zoë 王'], ['5', 'Eric']]
+    const TOKENS = ['12345678901234567890', '2.50', '7.0', '1E2']
+    const good = GOOD.map(([had, name]) => {
+      const text = `${BASE}${had === undefined ? '' : `,"sender_name":${had}`}}`, t = task(text), r = run(t.dir, name)
+      const after = existsSync(t.file) ? JSON.parse(rf(t.file, 'utf8')) as Record<string, unknown> : {}
+      return [r.status, after.sender_name === name, isDeepStrictEqual(others(after), others(JSON.parse(text))), existsSync(t.file) && TOKENS.every(x => rf(t.file, 'utf8').includes(x))]
+    })
+    eq('D30.g sender 命令把非空白字符串原值逐字写进 task.json 根上的 sender_name（已有就换掉），以 0 结束，其余键除 updated_at 外读回不变，数字照原文',
+      good, GOOD.map(() => [0, true, true, true]))
+    const BAD: [string, string | undefined, string][] = [
+      ['空串', `${BASE}}`, ''], ['只有空白', `${BASE}}`, ' \t '], ['没有 task.json', undefined, 'Eric'],
+      ['根是数组', '[{"product":"d30set"}]', 'Eric'], ['根是 null', 'null', 'Eric'], ['坏 JSON', '{"product":', 'Eric'],
+      ['写重复的键', `{"market":"GB",${BASE.slice(1)}}`, 'Eric']]
+    const bad = BAD.map(([what, text, name]) => {
+      const t = task(text), r = run(t.dir, name)
+      const kept = text === undefined ? !existsSync(t.file) : existsSync(t.file) && rf(t.file, 'utf8') === text
+      return [what, r.status, kept, (r.stderr ?? '').includes(t.file)]
+    })
+    eq('D30.g 姓名不是非空白字符串、task.json 不存在、根不是对象或写有重复的键时，sender 命令以 2 拒绝，task.json 原字节（没有的仍没有），stderr 写出 task.json 路径',
+      bad, BAD.map(([what]) => [what, 2, true, true]))
+    criterion('D30.g')
   } finally { rmSync(root, { recursive: true, force: true }) }
 }
 })

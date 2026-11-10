@@ -101,6 +101,7 @@ scripts/
 ├── render.ts                    计分、分层和交付物生成
 ├── feedback-template.ts         已保存冻结池的人工复评模板创建／追加
 ├── calibration.ts               任务品牌校准的内容哈希版本（calibration version）
+├── sender.ts                    任务建好后补发件人姓名（sender_name）
 ├── lib/                         预算、邮箱、身份、记忆、CSV/XLSX 等
 ├── providers/                   数据源实现
 └── check/                       纪律检查、变异测试、自检和审计
@@ -176,6 +177,9 @@ npm run --silent feedback-template -- --dir output/xxx
 
 # 保留已有人工作答，只追加冻结池中缺席的平台账号
 npm run --silent feedback-template -- --dir output/xxx --append
+
+# 任务建好后才给的发件人姓名，补进 task.json（不请求 API）
+npm run --silent sender -- --dir output/xxx --name "Eric"
 ```
 
 各脚本将结构化结果写入 `stdout`、进度或诊断写入 `stderr`；机械消费使用 `npm run --silent` 去掉 npm 自身 banner。每次请求按固定端点价检查剩余额度；`--budget 3` 是总上限 $3。collect/enrich 额度不足且保存成功才退出 `3`；初始费用/输入问题退出 `2`，运行或保存失败退出 `1`。旧费用未知仍可导出及做零请求本地处理，不能靠增加上限补造历史账。费用契约见 [ADR-108](docs/adr/ADR-108-生产请求与输出统一使用逐端点费用账.md)。
@@ -184,7 +188,7 @@ npm run --silent feedback-template -- --dir output/xxx --append
 
 probe 与 collect 要求 `tasks` 至少包含一个任务，每项明确写出非空白 `keyword`、四维之一的 `dimension` 和 `tiktok`/`instagram` 的 `platform`。坏任务与 IG 路线问题会带文件路径一起报告，退出 `2`，不请求或写任务文件；`as_hashtag` 只能缺席或为布尔，非布尔同样前置拒绝并报告原任务序号、字段与 JSON 原值（D15.n）；旧任务续跑（含 `--budget`）同样整表检查，不补默认字段、不跳过坏项（D16）。
 
-`market` 须为非空白字符串，collect 的 `target_count` 须为有限数；合规原值保留，不另加国家或人数范围限制。新 collect / probe 仅在市场缺席时用 US，并在 stderr 说明默认；新 collect 仅在人数缺席时用 50，probe 不校验人数。显式 null 不算缺席，旧任务缺任一字段直接拒绝。字段问题按输入路径与任务、路线问题一起报告（collect 的 CLI 预算及新建预算须合规），退出 `2`，不建任务目录、不写任务、不预留、不请求；改额续跑也保留原 task.json（D17）。配置文件里同一个对象把同一个键写了不止一次（`budget_usd` 写了两个数、某个任务里 `keyword` 写了两次）时读入只留最后一处，collect --config 与 probe 把它与上面这些问题一起报告，按先后列出每一处原文，同样退出 `2`、不开账不请求（D28）。配置根上可选的 `sender_name`（发件人姓名，给 Agent 写开发信署名用）出现时须为非空白字符串，collect 新建时原值存进 `task.json`、续跑原样保留，缺席不补；不合规同样退出 `2`、不开账不请求（D30）。
+`market` 须为非空白字符串，collect 的 `target_count` 须为有限数；合规原值保留，不另加国家或人数范围限制。新 collect / probe 仅在市场缺席时用 US，并在 stderr 说明默认；新 collect 仅在人数缺席时用 50，probe 不校验人数。显式 null 不算缺席，旧任务缺任一字段直接拒绝。字段问题按输入路径与任务、路线问题一起报告（collect 的 CLI 预算及新建预算须合规），退出 `2`，不建任务目录、不写任务、不预留、不请求；改额续跑也保留原 task.json（D17）。配置文件里同一个对象把同一个键写了不止一次（`budget_usd` 写了两个数、某个任务里 `keyword` 写了两次）时读入只留最后一处，collect --config 与 probe 把它与上面这些问题一起报告，按先后列出每一处原文，同样退出 `2`、不开账不请求（D28）。配置根上可选的 `sender_name`（发件人姓名，给 Agent 写开发信署名用）出现时须为非空白字符串，collect 新建时原值存进 `task.json`、续跑原样保留，缺席不补；任务建好后才给的用 `npm run sender -- --dir <dir> --name <姓名>` 补进，只换这一个键（保存时 `updated_at` 照例刷新；不要与同一任务的 collect、enrich、render、`calibration version` 或另一条 sender 同时运行，后写的会盖掉先写的，D30.g、D30.h）；不合规同样退出 `2`、不开账不请求（D30）。
 
 collect 续跑还会先检查 `task.json` 的已完成索引和分页统计；损坏时指出文件及字段，退出 `2`，不改写原文件或发请求。旧目录缺少整张统计表可继续，缺失仍保留为历史未知（D19）。同一个进度键（已完成索引或某张统计表里的同一项）在文件里写了不止一次也算损坏，stderr 按先后列出每一处原文（数字与字符串照原文，对象与数组只标出 `{…}`、`[…]`，那几处要到 `task.json` 里看；D19.k–l）；enrich 与要写盘的 `calibration version` 遇到同样的重复也退出 `2`、不写回（D19.m–n）。进度以外的位置写重复也一样：`task.json` 任一层同一个对象里同一个键写了不止一次（`tasks` 写了两遍、`requests` 写了两个数、某个任务里 `keyword` 写了两次），collect 续跑、enrich、render 与 `feedback-template` 都在任何写入与请求之前退出 `2`，要写盘的 `calibration version` 同样退出 `2`，按先后列出每一处原文（D27）。render 导出前也检查已完成索引和分页统计（与上面 collect 续跑同一判据，含进度键写重复），损坏时同样退出 `2`，不写名单、交付物与跨任务记忆，报告里不会出现由坏统计印出的 `Infinity`（D19.h–j）。
 
