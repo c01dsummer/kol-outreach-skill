@@ -149,6 +149,8 @@ if (!resume) {
     product: cfg.product, market: Object.hasOwn(cfg, 'market') ? cfg.market : 'US',
     target_count: Object.hasOwn(cfg, 'target_count') ? cfg.target_count : 50,
     ...(Object.hasOwn(cfg, 'brand_calibration') ? { brand_calibration: cfg.brand_calibration } : {}),
+    // D30.a：发件人姓名原值透传；缺席就不写这个键（P1：不补默认）
+    ...(Object.hasOwn(cfg, 'sender_name') ? { sender_name: cfg.sender_name } : {}),
     tasks: cfg.tasks, done: [], offsets: {}, answered: {}, found: {}, pages: {},
     created_at: new Date().toISOString(), updated_at: '',
   }

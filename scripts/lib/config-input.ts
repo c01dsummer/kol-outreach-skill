@@ -14,15 +14,16 @@ const seen = (value: unknown): string => {
 }
 
 /**
- * 原始配置的市场与目标人数问题（D17，ADR-116）；合规时返回空数组。
- * 只认自有字段：存在的 market 必须是非空白字符串；collect 的 target_count 必须是有限数。
+ * 原始配置的市场、目标人数与发件人姓名问题（D17，ADR-116；D30，ADR-190）；合规时返回空数组。
+ * 只认自有字段：存在的 market 必须是非空白字符串；collect 的 target_count 必须是有限数；
+ * collect（new 与 resume）的 sender_name 可以缺席，出现就必须是非空白字符串，probe 不看它（D30.f）。
  * new 允许二者缺席，resume 二者必填；probe 允许 market 缺席且不检查 target_count。
  * 每个问题写明字段与原值，缺席、显式 undefined、null 和非有限数可区分。
  * 不修改输入、不套默认、不转换类型；市场原空白/大小写、人数 0/负数/小数均不另加限制。
  * 根对象由读取边界负责，本函数不定义根数组/null 的配置语义。
  */
 export function configFieldProblems(
-  raw: Readonly<{ market?: unknown; target_count?: unknown }>,
+  raw: Readonly<{ market?: unknown; target_count?: unknown; sender_name?: unknown }>,
   role: ConfigInputRole,
 ): string[] {
   const out: string[] = []
@@ -39,6 +40,10 @@ export function configFieldProblems(
       const expected = field === 'market' ? '非空白字符串' : '有限数值'
       out.push(`${field} 必须是${expected}，这里是 ${seen(value)}`)
     }
+  }
+  // D30.b/c：发件人姓名可以缺席；出现就必须是非空白字符串，新建与续跑同一道（probe 不读它）
+  if (role !== 'probe' && Object.hasOwn(raw, 'sender_name') && textProblem(raw.sender_name) !== undefined) {
+    out.push(`sender_name 必须是非空白字符串（不写就是没有发件人姓名），这里是 ${seen(raw.sender_name)}`)
   }
   return out
 }
