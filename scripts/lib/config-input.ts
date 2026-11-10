@@ -14,8 +14,9 @@ const seen = (value: unknown): string => {
 }
 
 /**
- * 原始配置的市场与目标人数问题（D17，ADR-116）；合规时返回空数组。
- * 只认自有字段：存在的 market 必须是非空白字符串；collect 的 target_count 必须是有限数。
+ * 原始配置的市场、目标人数与发件人姓名问题（D17，ADR-116；D30，ADR-190）；合规时返回空数组。
+ * 只认自有字段：存在的 market 必须是非空白字符串；collect 的 target_count 必须是有限数；
+ * collect（new 与 resume）的 sender_name 可以缺席，出现就必须是非空白字符串，probe 不看它（D30.f）。
  * new 允许二者缺席，resume 二者必填；probe 允许 market 缺席且不检查 target_count。
  * 每个问题写明字段与原值，缺席、显式 undefined、null 和非有限数可区分。
  * 不修改输入、不套默认、不转换类型；市场原空白/大小写、人数 0/负数/小数均不另加限制。

@@ -290,6 +290,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd30-new', needs: [] },
   { id: 'd30-reject', needs: [] },
   { id: 'd30-resume', needs: [] },
+  { id: 'd30-render', needs: [] },
   { id: 'h-ci-wallclock-core', needs: [] },
   { id: 'h-ci-wallclock-cpu', needs: [] },
   { id: 'h-ci-wallclock-unavailable', needs: [] },
@@ -19002,12 +19003,12 @@ d28Run(({ runConfig, brief }) => {
   eq('D30.d 带合规 sender_name 的 collect --config 与去掉它的同一份配置退出码、预留与请求相同，都照常以 0 结束',
     [...good.map(({ g }) => g), bare].map(g => [g.status, g.armed, g.reserves > 0, g.attempts > 0]),
     [...good.map(() => [0, true, true, true]), [0, true, true, true]])
-  criterion('D30.a', 'D30.d'); tension('D30', 'P1'); tension('D30', 'P2')
+  criterion('D30.a', 'D30.d'); tension('D30', 'P1')
 })
 }
 })
 await group('d30-reject', () => {
-suite('D30', '发件人姓名：不是非空白字符串时 collect --config 以 2 拒绝')
+suite('D30', '发件人姓名：不是非空白字符串时 collect --config 以 2 拒绝；probe 不看它')
 {
 d28Run(({ runConfig, brief, held }) => {
   // D30.b：null、数、数组、空串、只有空白（含制表符）五种，collect 与 collect --budget 2 各跑一遍
@@ -19019,31 +19020,75 @@ d28Run(({ runConfig, brief, held }) => {
     bad.filter(({ g }) => !(g.status === 2 && g.pathSaid && g.message.includes('sender_name'))).map(({ sender, g }) => `${sender} ${brief(g)}`), [])
   criterion('D30.b')
 })
+// D30.f：probe 角色不看 sender_name —— 缺席、合规与上面五种坏值，配置字段问题都与不带它的同一份配置相同（不起进程）
+const base = { market: 'US', target_count: 50 }
+const probeSays = (raw: Record<string, unknown>) => { try { return JSON.stringify(configFieldProblems(raw, 'probe')) } catch (e) { return `抛出 ${String(e)}` } }
+const probeValues: unknown[] = [null, 42, ['Eric'], '', ' \t ', ' Eric ']
+eq('D30.f probe 角色无论 sender_name 缺席或取何值，都不因它返回问题',
+  probeValues.map(v => probeSays({ ...base, sender_name: v })), probeValues.map(() => probeSays(base)))
+criterion('D30.f')
 }
 })
 await group('d30-resume', () => {
 suite('D30', '发件人姓名：续跑原样留着，坏值同样拒绝')
 {
 d28Run(({ runConfig, brief }) => {
-  // D30.c：一份带 sender_name、一份不带，各新建一次再各续跑一次（--resume 给绝对路径，配置文件不被读）；
-  // 再把带的那份 task.json 里的值换成只有空白，续跑以 2 拒绝、零预留零请求、task.json 原字节
+  // D30.c：一份带 sender_name、一份不带，各新建一次，再各用 collect 与 collect --budget 2 续跑（--resume 给绝对路径，配置文件不被读）；
+  // 再把带的那份 task.json 里的值换成只有空白、再换成数，续跑以 2 拒绝、零预留零请求、task.json 原字节
   const made = [d30Cfg('" Eric "'), d30Cfg()].map(text => runConfig('collect', text))
   const tasks = made.map(d30Task)
   if (made.some(g => g.status !== 0) || tasks.some(t => t === undefined)) eq('D30.c 续跑夹具有效：两份新建都以 0 结束、各建了一个任务目录', made.map(brief), [])
   else {
-    const resumed = tasks.map(t => runConfig('collect', cfg(), undefined, ['--resume', t!.dir]))
-    eq('D30.c collect --resume 原样保留 sender_name：有则逐字不变，缺则仍缺，都照常以 0 结束',
-      resumed.map((g, i) => [g.status, d30Has({ ...tasks[i]!, json: JSON.parse(rf(tasks[i]!.file, 'utf8')) })]), [[0, '" Eric "'], [0, '缺席']])
+    const now = (i: number) => { try { return d30Has({ ...tasks[i]!, json: JSON.parse(rf(tasks[i]!.file, 'utf8')) }) } catch (e) { return `读不了 ${String(e)}` } }
+    const kept = (['collect', 'collect --budget 2'] as const).flatMap(mode => tasks.map((t, i) => {
+      const g = runConfig(mode, cfg(), undefined, ['--resume', t!.dir])
+      return [mode, g.status, g.armed, now(i)]
+    }))
+    eq('D30.c collect --resume（含 --budget 2）原样保留 sender_name：有则逐字不变，缺则仍缺，都照常以 0 结束、装上了观测',
+      kept, (['collect', 'collect --budget 2'] as const).flatMap(mode => [[mode, 0, true, '" Eric "'], [mode, 0, true, '缺席']]))
     const file = tasks[0]!.file, text = rf(file, 'utf8')
-    writeFileSync(file, text.replace('"sender_name": " Eric "', '"sender_name": "  "').replace('"sender_name":" Eric "', '"sender_name":"  "'))
-    const blanked = rf(file, 'utf8')
-    const again = (['collect', 'collect --budget 2'] as const).map(mode => runConfig(mode, cfg(), undefined, ['--resume', tasks[0]!.dir]))
-    eq('D30.c task.json 里 sender_name 只有空白时 collect --resume（含 --budget 2）以 2 拒绝：零预留、零请求，task.json 原字节',
-      [blanked !== text, ...again.map(g => [g.status, g.armed, g.reserves, g.attempts, rf(file, 'utf8') === blanked])],
-      [true, ...again.map(() => [2, true, 0, 0, true])])
+    const rejects = ['"  "', '42'].flatMap(bad => {
+      writeFileSync(file, text.replace('"sender_name": " Eric "', `"sender_name": ${bad}`).replace('"sender_name":" Eric "', `"sender_name":${bad}`))
+      const changed = rf(file, 'utf8')
+      return (['collect', 'collect --budget 2'] as const).map(mode => {
+        const g = runConfig(mode, cfg(), undefined, ['--resume', tasks[0]!.dir])
+        return [bad, mode, changed !== text, g.status, g.armed, g.reserves, g.attempts, rf(file, 'utf8') === changed]
+      })
+    })
+    eq('D30.c task.json 里 sender_name 只有空白或不是字符串时 collect --resume（含 --budget 2）以 2 拒绝：零预留、零请求，task.json 原字节',
+      rejects, ['"  "', '42'].flatMap(bad => (['collect', 'collect --budget 2'] as const).map(mode => [bad, mode, true, 2, true, 0, 0, true])))
   }
   criterion('D30.c')
 })
+}
+})
+await group('d30-render', () => {
+suite('D30', '发件人姓名：render 不拿它填草稿里的 {name}')
+{
+  // D30.e 与 D30 × P2：task.json 根上带 sender_name、名单里一条草稿含两处 {name}，真起 render，
+  // 交出的 kol.csv、report.html、creators.json 里 {name} 照旧在、sender_name 的值不出现。名字用纯 ASCII，HTML 转义躲不过去
+  const root = mkdtempSync(join(tmpdir(), 'kol-d30-render-'))
+  try {
+    const dir = join(root, 'task'), cwd = join(root, 'cwd'), now = '2026-10-01T00:00:00Z', SENDER = 'Zed Quillsender'
+    mkdirSync(dir); mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const DRAFT = "Hi Ana,\n\nI'm {name} from {brand}.\n\nBest,\n{name}"
+    const creator = { platform: 'tiktok', handle: 'd30_render', nickname: 'd30_render', followers: 80000, bio: 'Creator profile', bio_links: [], verified: false,
+      profile_url: 'https://www.tiktok.com/@d30_render', source_keyword: 'portable', source_dimension: 'category', source_tasks: [0],
+      fit: '✅', fit_reason: '夹具里的内容判断', outreach_draft: DRAFT, email: 'd30@example.test' }
+    writeFileSync(join(dir, 'task.json'), JSON.stringify({ product: 'd30render', market: 'US', target_count: 1, sender_name: SENDER,
+      tasks: [{ keyword: 'portable', dimension: 'category', platform: 'tiktok' }], done: [0], created_at: now, updated_at: now }))
+    for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), JSON.stringify([creator]))
+    writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: now, creators: {} }))
+    const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
+    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', timeout: 30000 })
+    const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : ''
+    const outs = ['kol.csv', 'report.html', 'creators.json'].map(name => ({ name, text: read(name) }))
+    eq('D30.e render 照常以 0 结束，交出的 kol.csv、report.html、creators.json 里 {name} 逐字仍在（每份至少两处）、草稿里的 {brand} 也在，sender_name 的值一处也没有',
+      [r.status, ...outs.map(({ name, text }) => [name, text.split('{name}').length - 1 >= 2, text.includes('{brand}'), text.includes(SENDER)])],
+      [0, ...outs.map(({ name }) => [name, true, true, false])])
+    if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+    criterion('D30.e'); tension('D30', 'P2')
+  } finally { rmSync(root, { recursive: true, force: true }) }
 }
 })
 

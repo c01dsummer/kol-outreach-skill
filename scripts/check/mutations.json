@@ -20911,7 +20911,7 @@
       "replace": "  if (role === 'new' && Object.hasOwn(raw, 'sender_name') && textProblem(raw.sender_name) !== undefined) {\n",
       "by": "test",
       "kills": [
-        "D30.c task.json 里 sender_name 只有空白时 collect --resume（含 --budget 2）以 2 拒绝：零预留、零请求，task.json 原字节"
+        "D30.c task.json 里 sender_name 只有空白或不是字符串时 collect --resume（含 --budget 2）以 2 拒绝：零预留、零请求，task.json 原字节"
       ]
     },
     {
@@ -20925,6 +20925,30 @@
       "kills": [
         "D30.a 配置带合规 sender_name 时新建任务的 task.json 根上原值逐字不变（不去空白、不改大小写），不带时根上没有这个键",
         "D30.d 带合规 sender_name 的 collect --config 与去掉它的同一份配置退出码、预留与请求相同，都照常以 0 结束"
+      ]
+    },
+    {
+      "id": "M-D30-g",
+      "req": "D30.e",
+      "why": "导出时脚本拿任务里的发件人姓名替换草稿里的署名占位符",
+      "file": "scripts/render.ts",
+      "find": "creators = sortForReviewOutput(creators)\n",
+      "replace": "creators = sortForReviewOutput(creators)\nfor (const c of creators) if (c.outreach_draft && state.sender_name) c.outreach_draft = c.outreach_draft.replaceAll('{name}', state.sender_name)\n",
+      "by": "test",
+      "kills": [
+        "D30.e render 照常以 0 结束，交出的 kol.csv、report.html、creators.json 里 {name} 逐字仍在（每份至少两处）、草稿里的 {brand} 也在，sender_name 的值一处也没有"
+      ]
+    },
+    {
+      "id": "M-D30-h",
+      "req": "D30.f",
+      "why": "探测也查发件人姓名，配置里写了坏值就报问题",
+      "file": "scripts/lib/config-input.ts",
+      "find": "  if (role !== 'probe' && Object.hasOwn(raw, 'sender_name') && textProblem(raw.sender_name) !== undefined) {\n",
+      "replace": "  if (Object.hasOwn(raw, 'sender_name') && textProblem(raw.sender_name) !== undefined) {\n",
+      "by": "test",
+      "kills": [
+        "D30.f probe 角色无论 sender_name 缺席或取何值，都不因它返回问题"
       ]
     },
     {
