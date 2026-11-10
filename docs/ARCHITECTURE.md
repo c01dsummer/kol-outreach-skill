@@ -108,6 +108,7 @@
 | `scripts/lib/manual-feedback.ts` | 逻辑 | D23 P1 | 人工 CSV 原文的严格解析、物理行号诊断、冻结账号与轮次匹配，以及已有显式异平台关联的冲突核验；不写文件，不改 Agent 判断，也不生成有效建议或统计 |
 | `scripts/lib/manual-feedback-summary.ts` | 机械 | U11 | 只读冻结平台账号池与原平台人工行，计算明确分母、覆盖、账号原因与原 Agent 分歧；不消费当前交付名单或有效建议，不取得写入与判断权限 |
 | `scripts/lib/manual-feedback-template.ts` | 逻辑 | D24 P1 | 以确认缺席或既有 Buffer 生成模板字节计划；默认拒绝既有内容，显式追加先核完整人工表，只补冻结池缺席账号并保留原字节前缀；不读写文件 |
+| `scripts/sender.ts` | 入口 | D30 P1 | 任务建好后补发件人姓名：先按 D30 同一道校验姓名，再读既有 `task.json`（读不成对象、任一层写重复的键都拒绝），只改根上 `sender_name` 整份写回；不开账、不请求、不读写记忆 |
 | `scripts/feedback-template.ts` | 入口 | D26 P1 P3 | 只接受必填 --dir 与显式 --append，调用模板协调边界，诊断进 stderr；实际保存或合法无变化后才输出机械 JSON |
 | `scripts/lib/feedback-template-task.ts` | 逻辑 | D26 D24 D27 P1 P3 | 只读准备已保存任务、冻结正本及完整名单关系，先拒绝坏输入（含 task.json 里写重复的键，D27.d）再生成字节计划；仅保存人工目标，保存失败保原件，无变化不写，不迁移或冻结 |
 | `scripts/calibration.ts` | 入口 | D20 P1 P3 | 只接受子命令 version 与必填一次 --dir，调用校准版本协调边界，诊断进 stderr；实际保存或合法无变化、缺席后才输出机械 JSON |
@@ -208,7 +209,7 @@
 读取边界负责根形状；纯判定负责字段问题，collect 与 probe 负责按角色传入原值、聚合问题及控制默认值和副作用顺序（D17、ADR-116）。
 任务级 `brand_calibration` 由外部项目输入拥有（任务建好后 version 由命令改写，见下），collect 只负责校验并原样带入新建任务，续跑保留盘上原值；
 enrich 和 render 只读校验。来源性质的结构校验不授予脚本核实产品事实的能力（D20、ADR-130）。
-任务级 `sender_name`（发件人姓名）同样归用户输入：collect 新建时校验后原样带入、缺席不写，续跑保留盘上原值并照同一道校验；
+任务级 `sender_name`（发件人姓名）同样归用户输入：collect 新建时校验后原样带入、缺席不写，续跑保留盘上原值并照同一道校验；任务建好后才给的由 `sender` 照同一道校验后补进，只换这一个键（D30.g）；
 probe 不读它；enrich、render 与 `calibration version` 不读不查，整份写回时照原样留着；读它的只有写草稿的 Agent，脚本不拿它填任何占位符（D30、ADR-190）。
 version 是 `sha256:` 内容哈希时，三个入口在结构校验那一处另按内容复算，对不上与结构问题进同一份清单、同样退出 2；
 手写的版本只校验结构，人工反馈模板命令不复算（D20.g–D20.j、ADR-136）。
@@ -439,6 +440,7 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | 显式追加先核完整人工 CSV → 再判新增账号／unchanged | `scripts/lib/feedback-template-task.ts`、`scripts/lib/manual-feedback-template.ts` | 无新增时放过坏人工表，或重复写入同账号；同字节重写改变文件身份与修改时间 | M-D26-g、M-D26-k、M-D26-m、M-D24-f |
 | 人工反馈模板新增行的轮次原值能无损编码成 UTF-8 → 才拼出新增行的字节、计划写入 | `scripts/lib/manual-feedback-template.ts` | 带未配对代理项的轮次原值被替换编码写进新增行，原值没保留，也没有拒绝 | M-D24-n |
 | 非 unchanged 计划实际保存成功；合法 unchanged 零写入确认 → 才输出成功 JSON | `scripts/lib/feedback-template-task.ts`、`scripts/feedback-template.ts` | 保存失败仍报成功，或失败覆盖旧作答、留下首次创建目标 | M-D26-m |
+| 补发件人姓名：姓名过 D30 那一道 → 既有 `task.json` 读成对象、任一层没有写重复的键 → 才只换根上 `sender_name` 整份写回 | `scripts/sender.ts` | 空串或只有空白的姓名写进任务；写重复的键被整份写回悄悄只留最后一处；姓名被修剪后才写 | M-D30-i、M-D30-j、M-D30-l |
 <!-- END:ORDER -->
 
 ---
@@ -455,6 +457,7 @@ Agent 是编排者，它读 stdout 做决策。
 | `enrich` | `--dir <dir>`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv`） | `enrichment.json` `task.json` | 0 · 1 · 2 · **3** |
 | `render` | `--dir <dir>` `[--ignore-memory]`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv` · `enrichment.json` · 当前 `memory/creators.json`） | 内容变化时 `agent-review.json` · `task.json` 的去重状态 · `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` · **`memory/creators.json`** | 0 · 1 · 2 |
 | `calibration version` | 子命令 `version` 与必填一次 `--dir <dir>`；既有 `task.json` 的 `brand_calibration` | 仅 `task.json` 的 `brand_calibration.version`（与 `updated_at`）；缺席、结构不合、已一致与保存失败不写 | 0 · 1 · 2 |
+| `sender` | 必填一次 `--dir <dir>` 与 `--name <姓名>`；既有 `task.json` | 仅 `task.json` 根上的 `sender_name`（与 `updated_at`）；姓名不合规、读不成对象或写重复的键时不写 | 0 · 1 · 2 |
 | `feedback-template` | 必填一次 `--dir <dir>`、可选一次 `--append`；既有 `task.json`、已保存 `agent-review.json`、完整 `creators.json`、存在时的 `creators.raw.json` 及人工目标 | 仅 `manual-feedback.csv` 的创建或显式追加；unchanged 不写 | 0 · 1 · 2 |
 
 **stdout 是结构化 JSON，stderr 是进度。** 这个分工是硬约束 —— Agent 解析 stdout，
