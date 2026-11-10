@@ -286,7 +286,8 @@ const fakeFetch = async (input: RequestInfo | URL) => {
   // 闸门（退出码 3），402 是对面拒收（退出码 1），而且 402 不重试、直接抛穿搜索循环。
   // 用关键词触发不用环境变量：夹具本来就要写配置，触发条件跟着配置走，读的人在
   // 同一个地方看得到（D6.f 的出错那一条）。
-  if (url.includes('force-402')) {
+  // 账号名里不许有短横线（迁移评审时规范化不了），近期作品请求按账号名拒收时写 force_402（ADR-193 enrich 遇 402 那一跑）
+  if (url.includes('force-402') || url.includes('force_402')) {
     record(402, url)
     return new Response('payment required', { status: 402 })
   }

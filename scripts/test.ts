@@ -18977,8 +18977,8 @@ d28Run(({ MODES, runConfig, brief, inOrder, held, listed, leaks }) => {
   const BARE: Dup = { name: 'no-defaults', at: 'found', tokens: ['7.25e0'], text: bareText('"found":7.25e0,"found":{"0":3}') }
   const bare = (['collect', 'probe'] as const).flatMap(mode => [runConfig(mode, bareText(CFG.found)), runConfig(mode, BARE.text, BARE)])
   const defaulted = (g: D28Got) => /默认|缺省|default/i.test(g.message)
-  eq('写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常以 0 结束并说明默认）',
-    bare.filter(g => g.name === undefined ? !(g.status === 0 && defaulted(g)) : !(held(g) && listed(g)) || defaulted(g)).map(brief), [])
+  eq('写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常收尾 —— collect 达标 4、probe 0 —— 并说明默认）',
+    bare.filter(g => g.name === undefined ? !(g.status === (g.mode === 'probe' ? 0 : 4) && defaulted(g)) : !(held(g) && listed(g)) || defaulted(g)).map(brief), [])
   d28Done.add('d28-defaults')
 })
 }

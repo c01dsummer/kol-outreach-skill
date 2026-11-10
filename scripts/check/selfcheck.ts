@@ -596,8 +596,9 @@ group('probe', [], () => {
       { keyword: 'force-402-selfcare', dimension: 'competitor', platform: 'tiktok' },
     ],
   }))
+  // 末尾那个任务回 402：probe 照出部分结果、以 5 收尾（ADR-193）
   const identityRun = runBoth('probe 同词与失败任务身份', [S('probe.ts'), '--config', identityCfg],
-    tmp, undefined, { FAKE_FETCH_NO_429: '1' })
+    tmp, { status: 5 }, { FAKE_FETCH_NO_429: '1' })
   if (identityRun.ok) {
     const results = summaryOf(identityRun.stdout).results
     const rows: any[] = Array.isArray(results) ? results : []
@@ -1466,7 +1467,7 @@ group('discovery', [], () => {
     { keyword: 'force-discovery-zero', dimension: 'category', platform: 'instagram' },
     { keyword: 'force-402-source', dimension: 'scene', platform: 'tiktok' },
   ] }))
-  const empty = runBoth('发现来源 空结果及错误', [S('probe.ts'), '--config', emptyCfg], f.cwd, undefined,
+  const empty = runBoth('发现来源 空结果及错误', [S('probe.ts'), '--config', emptyCfg], f.cwd, { status: 5 },
     costEnv(join(f.cwd, 'empty.tsv')))
   if (empty.ok) named('零账号与请求错误不制造账号发现来源',
     summaryOf(empty.stdout).results?.[0]?.sample?.length === 0
@@ -1736,9 +1737,9 @@ group('cost-durable', [], () => {
 
   {
     // ADR-193：enrich 遇供应商余额不足（HTTP 402）照出汇总 JSON、stopped 为 error，退出码 5（以前与其他运行错误同为 1）。
-    // fake-fetch 见 URL 里带 force-402 就回 402；TikTok 近期作品请求的 unique_id 就是账号名，所以只有这个人那一次被拒
+    // fake-fetch 见 URL 里带 force_402 就回 402；TikTok 近期作品请求的 unique_id 就是账号名，所以只有这个人那一次被拒
     const f = costFixture('enrich-402', knownCosts(1_000_000, []), {},
-      [costPerson('tiktok', 'force-402-enrich'), costPerson('tiktok', 'enrich_after_402')])
+      [costPerson('tiktok', 'force_402_enrich'), costPerson('tiktok', 'enrich_after_402')])
     const r = runBoth('enrich 遇 TikHub 402', [S('enrich.ts'), '--dir', f.taskDir], f.cwd,
       { status: 5, soft: [0, 1, 2, 3, 4, 6, 7] }, costEnv(f.log))
     if (r.ok) {
@@ -3093,7 +3094,7 @@ group('memory', ['collect', 'render'], () => {
       } else console.log('  ✓ 中止未触碰交付物')
     }
 
-    // ---- 收尾那句话：两种剩余工作量各真跑一遍（D6.e 的入口那一半）----
+    // ---- 收尾那句话：两种剩余工作量各真跑一遍（D6.e 的入口那一半，今 D6.q）----
     // 说哪一句、两个剩余量怎么数，都由 scripts/test.ts 断言；这里验的是**入口真的
     // 调了它**。上面那条老断言用的是「两句里出现一句」的或，两支对调它照样绿 ——
     // 而这一段的接线至今没有变异守着：变异缺省跑的是 scripts/test.ts，够不到入口脚本
@@ -3176,7 +3177,7 @@ group('memory', ['collect', 'render'], () => {
                     + ` —— 夹具没造对${SELFCHECK_FIXTURE_MARK}`)
     } else console.log('  ✓ 收尾：只剩 profile 没补时也说要花钱，并点名了是 profile')
 
-    // ---- 产出了名单的四种收尾都说续跑代价（D6.f 的入口那一半）----
+    // ---- 产出了名单的四种收尾都说续跑代价（D6.f 的入口那一半，今 D6.r）----
     // 这四条路径原先一个字都不说，用户手里没有判断「值不值得续跑」的依据（ADR-25 的欠条）。
     // 四条共用分支之前的同一句话，所以是一条判据；也正因为共用，**一条把话写死就会被
     // 别的抓住** —— 前两条要的是「不花钱」，后两条要的是「花钱 + 还剩多少」。
