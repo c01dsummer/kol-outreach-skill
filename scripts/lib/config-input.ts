@@ -22,7 +22,7 @@ const seen = (value: unknown): string => {
  * 根对象由读取边界负责，本函数不定义根数组/null 的配置语义。
  */
 export function configFieldProblems(
-  raw: Readonly<{ market?: unknown; target_count?: unknown }>,
+  raw: Readonly<{ market?: unknown; target_count?: unknown; sender_name?: unknown }>,
   role: ConfigInputRole,
 ): string[] {
   const out: string[] = []
@@ -39,6 +39,10 @@ export function configFieldProblems(
       const expected = field === 'market' ? '非空白字符串' : '有限数值'
       out.push(`${field} 必须是${expected}，这里是 ${seen(value)}`)
     }
+  }
+  // D30.b/c：发件人姓名可以缺席；出现就必须是非空白字符串，新建与续跑同一道（probe 不读它）
+  if (role !== 'probe' && Object.hasOwn(raw, 'sender_name') && textProblem(raw.sender_name) !== undefined) {
+    out.push(`sender_name 必须是非空白字符串（不写就是没有发件人姓名），这里是 ${seen(raw.sender_name)}`)
   }
   return out
 }

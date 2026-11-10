@@ -287,6 +287,9 @@ const GROUPS: readonly Group[] = [
   { id: 'd29-reject', needs: [] },
   { id: 'd29-no-overreject', needs: [] },
   { id: 'd29-resume', needs: [] },
+  { id: 'd30-new', needs: [] },
+  { id: 'd30-reject', needs: [] },
+  { id: 'd30-resume', needs: [] },
   { id: 'h-ci-wallclock-core', needs: [] },
   { id: 'h-ci-wallclock-cpu', needs: [] },
   { id: 'h-ci-wallclock-unavailable', needs: [] },
@@ -18967,6 +18970,79 @@ d28Run(({ runConfig, brief }) => {
     if (!changed || resumed.some(g => g.status !== 0)) console.log(`     ${resumed.map(brief).join('\n     ')}`)
   }
   criterion('D29.c')
+})
+}
+})
+
+// D30（ADR-190 第 3 片）：任务可带一个可选的发件人姓名 sender_name。期望只来自 D30.a–d 原文、D30 × P1 与 D30 × P2 的裁决和下面写进夹具的字面值；
+// 入口接线借 D28 那一套（fake-fetch 记请求、预加载记预留、armed 证明装上了；工作目录整棵比）。
+// 三组按变异点名的用例拆开（ADR-131）：新建与不多拒一组、拒绝一组、续跑一组
+const d30Cfg = (sender?: string) => cfg().replace('"product":"d28dup"', `"product":"d30sender"${sender === undefined ? '' : `,"sender_name":${sender}`}`)
+// 新建的任务目录只有一个；读它根上的 task.json 原文与解析结果
+const d30Task = (g: { cwd: string }) => {
+  const out = join(g.cwd, 'output'), kids = existsSync(out) ? readdirSync(out) : []
+  if (kids.length !== 1) return undefined
+  const file = join(out, kids[0], 'task.json')
+  return existsSync(file) ? { dir: join(out, kids[0]), file, json: JSON.parse(rf(file, 'utf8')) as Record<string, unknown> } : undefined
+}
+const d30Has = (t: ReturnType<typeof d30Task>) => t === undefined ? '没有任务' : Object.hasOwn(t.json, 'sender_name') ? JSON.stringify(t.json.sender_name) : '缺席'
+await group('d30-new', () => {
+suite('D30', '发件人姓名：collect --config 新建时原样存，缺席不补')
+{
+d28Run(({ runConfig, brief }) => {
+  // D30.a：带首尾空白与大小写、带中文与重音的两种原值逐字存进 task.json；不带时 task.json 根上没有这个键
+  const GOOD = [' Eric WANG ', 'Zoë 王']
+  const good = GOOD.map(name => ({ name, g: runConfig('collect', d30Cfg(JSON.stringify(name))) }))
+  const bare = runConfig('collect', d30Cfg())
+  eq('D30.a 配置带合规 sender_name 时新建任务的 task.json 根上原值逐字不变（不去空白、不改大小写），不带时根上没有这个键',
+    [...good.map(({ name, g }) => [g.status, d30Has(d30Task(g)) === JSON.stringify(name)]), [bare.status, d30Has(d30Task(bare))]],
+    [...GOOD.map(() => [0, true]), [0, '缺席']])
+  if (good.some(({ g }) => g.status !== 0) || bare.status !== 0) console.log(`     ${[...good.map(({ g }) => g), bare].map(brief).join('\n     ')}`)
+  // D30.d 不多拒：带合规 sender_name 与去掉它的同一份配置，退出码、是否预留、是否请求相同（且都照常以 0 结束、装上了观测）
+  eq('D30.d 带合规 sender_name 的 collect --config 与去掉它的同一份配置退出码、预留与请求相同，都照常以 0 结束',
+    [...good.map(({ g }) => g), bare].map(g => [g.status, g.armed, g.reserves > 0, g.attempts > 0]),
+    [...good.map(() => [0, true, true, true]), [0, true, true, true]])
+  criterion('D30.a', 'D30.d'); tension('D30', 'P1'); tension('D30', 'P2')
+})
+}
+})
+await group('d30-reject', () => {
+suite('D30', '发件人姓名：不是非空白字符串时 collect --config 以 2 拒绝')
+{
+d28Run(({ runConfig, brief, held }) => {
+  // D30.b：null、数、数组、空串、只有空白（含制表符）五种，collect 与 collect --budget 2 各跑一遍
+  const BAD = ['null', '42', '["Eric"]', '""', '" \\t "']
+  const bad = (['collect', 'collect --budget 2'] as const).flatMap(mode => BAD.map(sender => ({ sender, g: runConfig(mode, d30Cfg(sender)) })))
+  eq('D30.b sender_name 不是非空白字符串时 collect --config（含 --budget 2）以 2 退出：零预留、零请求、不建任务目录，配置文件原字节',
+    bad.filter(({ g }) => !held(g)).map(({ sender, g }) => `${sender} ${brief(g)}`), [])
+  eq('D30.b sender_name 被拒时 stderr 写出配置文件路径与 sender_name',
+    bad.filter(({ g }) => !(g.status === 2 && g.pathSaid && g.message.includes('sender_name'))).map(({ sender, g }) => `${sender} ${brief(g)}`), [])
+  criterion('D30.b')
+})
+}
+})
+await group('d30-resume', () => {
+suite('D30', '发件人姓名：续跑原样留着，坏值同样拒绝')
+{
+d28Run(({ runConfig, brief }) => {
+  // D30.c：一份带 sender_name、一份不带，各新建一次再各续跑一次（--resume 给绝对路径，配置文件不被读）；
+  // 再把带的那份 task.json 里的值换成只有空白，续跑以 2 拒绝、零预留零请求、task.json 原字节
+  const made = [d30Cfg('" Eric "'), d30Cfg()].map(text => runConfig('collect', text))
+  const tasks = made.map(d30Task)
+  if (made.some(g => g.status !== 0) || tasks.some(t => t === undefined)) eq('D30.c 续跑夹具有效：两份新建都以 0 结束、各建了一个任务目录', made.map(brief), [])
+  else {
+    const resumed = tasks.map(t => runConfig('collect', cfg(), undefined, ['--resume', t!.dir]))
+    eq('D30.c collect --resume 原样保留 sender_name：有则逐字不变，缺则仍缺，都照常以 0 结束',
+      resumed.map((g, i) => [g.status, d30Has({ ...tasks[i]!, json: JSON.parse(rf(tasks[i]!.file, 'utf8')) })]), [[0, '" Eric "'], [0, '缺席']])
+    const file = tasks[0]!.file, text = rf(file, 'utf8')
+    writeFileSync(file, text.replace('"sender_name": " Eric "', '"sender_name": "  "').replace('"sender_name":" Eric "', '"sender_name":"  "'))
+    const blanked = rf(file, 'utf8')
+    const again = (['collect', 'collect --budget 2'] as const).map(mode => runConfig(mode, cfg(), undefined, ['--resume', tasks[0]!.dir]))
+    eq('D30.c task.json 里 sender_name 只有空白时 collect --resume（含 --budget 2）以 2 拒绝：零预留、零请求，task.json 原字节',
+      [blanked !== text, ...again.map(g => [g.status, g.armed, g.reserves, g.attempts, rf(file, 'utf8') === blanked])],
+      [true, ...again.map(() => [2, true, 0, 0, true])])
+  }
+  criterion('D30.c')
 })
 }
 })

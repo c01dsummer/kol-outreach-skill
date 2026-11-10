@@ -1,6 +1,6 @@
 {
   "$comment": "编号的唯一真相来源。docs/SPEC.md 是它的渲染，两者不一致以本文件为准。content_hash 是派生字段，由 spec-sync --write 写，不要手改 —— 改了需求不回写，npm run check 当场变红。字段含义见 process/1-REQUIREMENTS.md。",
-  "content_hash": "a979ce4de448",
+  "content_hash": "a1d58eca1890",
   "categories": {
     "P": "红线 —— 不参与任何取舍",
     "S": "范围 —— 明确不做什么",
@@ -2089,6 +2089,45 @@
       ],
       "adr": [
         "ADR-188"
+      ]
+    },
+    {
+      "id": "D30",
+      "cat": "D",
+      "pri": "P1",
+      "text": "任务可以带一个可选的发件人姓名 sender_name，给 Agent 写开发信时署名用：collect 新建时原样存进 task.json、续跑时原样留着；缺席就是用户没给，不补默认值；脚本不拿它填草稿或任何交付物。",
+      "accept": [
+        {
+          "id": "D30.a",
+          "text": "collect --config 读的配置根上有 sender_name 且是非空白字符串时，新建任务的 task.json 根上写进同一个键、原值逐字不变（不去首尾空白、不改大小写）；配置根上没有 sender_name 时，task.json 根上也没有这个键，不写空串、null 或任何默认值。"
+        },
+        {
+          "id": "D30.b",
+          "text": "collect --config（含 --budget）读的配置根上 sender_name 出现、却不是非空白字符串（不是字符串，或是空串、只有空白）时，以退出码 2 拒绝：不建任务目录、不开账、零预留、零请求，配置文件保持原字节；stderr 写出配置文件路径与 sender_name。"
+        },
+        {
+          "id": "D30.c",
+          "text": "collect --resume（含 --budget）原样保留 task.json 根上的 sender_name：有则续跑后逐字不变，缺则续跑后仍缺；task.json 里 sender_name 出现却不是非空白字符串时，同样以退出码 2 拒绝，零预留、零请求，task.json 保持原字节。"
+        },
+        {
+          "id": "D30.d",
+          "text": "不多拒：配置根上带合规 sender_name 的 collect --config，退出码、是否预留与请求，与同一份配置去掉 sender_name 时相同。"
+        }
+      ],
+      "adr": [
+        "ADR-190"
+      ],
+      "tension": [
+        {
+          "with": "P1",
+          "ruling": "P1 优先：sender_name 缺席就是用户没给，collect 不写空串、null 或默认值，也不从品牌、产品或别处推一个；只有空白的 sender_name 当成不合规拒绝，不当成「没给」。",
+          "adr": "ADR-190"
+        },
+        {
+          "with": "P2",
+          "ruling": "P2 优先：脚本不拿 sender_name 填草稿里的 {name} 或任何占位符，草稿与交付物里的占位符原样保留；署名由 Agent 写草稿时照 skill/references/outreach-draft.md 用它。",
+          "adr": "ADR-190"
+        }
       ]
     },
     {

@@ -426,6 +426,8 @@ export interface TaskState {
   market: string          // ISO 3166-1 alpha-2，如 US
   target_count: number
   brand_calibration?: BrandCalibration
+  /** D30：可选的发件人姓名，给 Agent 写开发信署名用；collect 原样存、原样留，缺席不补，脚本不拿它填任何输出。 */
+  sender_name?: string
   /** D13：旧输入可能缺失或不可解释；须经费用边界核验，不能直接计算。 */
   budget_usd?: unknown
   cost_ledger?: unknown
