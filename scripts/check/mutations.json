@@ -17592,6 +17592,126 @@
       "by": "test", "kills": ["任务评审：旧判断只有 fit_reason 为 null 时也拒绝", "任务评审：旧判断只有 outreach_draft 为空串时也拒绝"]
     },
     {
+      "id": "M-D21-ar", "req": "D21.t",
+      "why": "条目不是对象也放行，后面同人识别以看不懂的话崩掉",
+      "file": "scripts/lib/task.ts",
+      "find": "  if (!isRecord(creator)) return [`${at}不是一条记录（读到 ${shown(creator)}），应是一个对象；改正或删掉这条后再跑`]",
+      "replace": "  if (!isRecord(creator)) return []",
+      "by": "test", "kills": ["手改坏的记录：条目是字符串时拒绝并指出", "手改坏的记录：条目是 null 时拒绝并指出", "手改坏的记录：条目是数组时拒绝并指出"]
+    },
+    {
+      "id": "M-D21-as", "req": "D21.t",
+      "why": "不查 handle",
+      "file": "scripts/lib/task.ts",
+      "find": "for (const field of ['platform', 'handle']) if",
+      "replace": "for (const field of ['platform']) if",
+      "by": "test", "kills": ["手改坏的记录：handle 是数字时拒绝并指出", "手改坏的记录：handle 缺席时拒绝并指出"]
+    },
+    {
+      "id": "M-D21-at", "req": "D21.t",
+      "why": "不查 platform",
+      "file": "scripts/lib/task.ts",
+      "find": "for (const field of ['platform', 'handle']) if",
+      "replace": "for (const field of ['handle']) if",
+      "by": "test", "kills": ["手改坏的记录：platform 是数字时拒绝并指出", "手改坏的记录：只坏在累加器里也拒绝并指出累加器"]
+    },
+    {
+      "id": "M-D21-au", "req": "D21.t",
+      "why": "bio_links 只查是不是数组，里面混进数字照样放行",
+      "file": "scripts/lib/task.ts",
+      "find": "if (!Array.isArray(links) || !links.every(link => typeof link === 'string'))",
+      "replace": "if (!Array.isArray(links))",
+      "by": "test", "kills": ["手改坏的记录：bio_links 里有数字时拒绝并指出"]
+    },
+    {
+      "id": "M-D21-av", "req": "D21.t",
+      "why": "bio_links 缺席也放行",
+      "file": "scripts/lib/task.ts",
+      "find": "if (!Array.isArray(links) || !links.every(link => typeof link === 'string'))",
+      "replace": "if (links !== undefined && (!Array.isArray(links) || !links.every(link => typeof link === 'string')))",
+      "by": "test", "kills": ["手改坏的记录：bio_links 缺席时拒绝并指出"]
+    },
+    {
+      "id": "M-D21-aw", "req": "D21.t",
+      "why": "recent_posts 只查是不是数组，里面的 null 照样放行",
+      "file": "scripts/lib/task.ts",
+      "find": "(!Array.isArray(posts) || !posts.every(isRecord))",
+      "replace": "!Array.isArray(posts)",
+      "by": "test", "kills": ["手改坏的记录：recent_posts 里有 null 时拒绝并指出"]
+    },
+    {
+      "id": "M-D21-ax", "req": "D21.t",
+      "why": "recent_posts 为 null 也拒绝：未查询的老写法被多拒",
+      "file": "scripts/lib/task.ts",
+      "find": "if (posts !== undefined && posts !== null && (",
+      "replace": "if (posts !== undefined && (",
+      "by": "test", "kills": ["手改坏的记录：形状对的记录照常读入"]
+    },
+    {
+      "id": "M-D21-ay", "req": "D21.t",
+      "why": "多查一个字段的类型：本条之外的字段写歪也被拒",
+      "file": "scripts/lib/task.ts",
+      "find": "for (const field of ['platform', 'handle']) if",
+      "replace": "for (const field of ['platform', 'handle', 'nickname']) if",
+      "by": "test", "kills": ["手改坏的记录：形状对的记录照常读入"]
+    },
+    {
+      "id": "M-D21-az", "req": "D21.t",
+      "why": "不说第几条",
+      "file": "scripts/lib/task.ts",
+      "find": "const at = `${file} 第 ${index + 1} 条`",
+      "replace": "const at = `${file} 里有一条`",
+      "by": "test", "kills": ["手改坏的记录：条目是字符串时拒绝并指出", "手改坏的记录：handle 是数字时拒绝并指出"]
+    },
+    {
+      "id": "M-D21-ba", "req": "D21.t",
+      "why": "不写读到的原值",
+      "file": "scripts/lib/task.ts",
+      "find": "`是 ${shown(value)}`",
+      "replace": "'不对'",
+      "by": "test", "kills": ["手改坏的记录：handle 是数字时拒绝并指出", "手改坏的记录：bio_links 是对象时拒绝并指出"]
+    },
+    {
+      "id": "M-D21-bb", "req": "D21.t",
+      "why": "读得到也不带平台与账号",
+      "file": "scripts/lib/task.ts",
+      "find": "    ? `（platform ${creator.platform}，handle ${creator.handle}）` : ''",
+      "replace": "    ? '' : ''",
+      "by": "test", "kills": ["手改坏的记录：读得到时带出平台与账号"]
+    },
+    {
+      "id": "M-D21-bc", "req": "D21.t",
+      "why": "原值不截短，整段对象印进报错",
+      "file": "scripts/lib/task.ts",
+      "find": "return text.length > 80 ?",
+      "replace": "return text.length > 8000 ?",
+      "by": "test", "kills": ["手改坏的记录：原值太长时截短"]
+    },
+    {
+      "id": "M-D21-bd", "req": "D21.t",
+      "why": "碰到第一条坏记录就停，后面几条要改一次跑一次才报出来",
+      "file": "scripts/lib/task.ts",
+      "find": "const problems = creators.flatMap((creator, index) => recordShapeProblems(file, index, creator))",
+      "replace": "const problems = creators.flatMap((creator, index) => recordShapeProblems(file, index, creator)).slice(0, 1)",
+      "by": "test", "kills": ["手改坏的记录：两个文件里的每一处都报出"]
+    },
+    {
+      "id": "M-D21-be", "req": "D21.t",
+      "why": "一个文件坏了就停，另一个文件里的坏记录要下一次才报出来",
+      "file": "scripts/lib/task.ts",
+      "find": "catch (error) { if (!(error instanceof ReviewInputError)) throw error; problems.push(...error.problems) }",
+      "replace": "catch (error) { throw error }",
+      "by": "test", "kills": ["手改坏的记录：两个文件里的每一处都报出"]
+    },
+    {
+      "id": "M-D21-bf", "req": "D21.t",
+      "why": "只查 creators.json，累加器里的坏记录留到后面崩掉",
+      "file": "scripts/lib/task.ts",
+      "find": "const problems = creators.flatMap((creator, index) => recordShapeProblems(file, index, creator))",
+      "replace": "const problems = file.endsWith(RAW) ? [] : creators.flatMap((creator, index) => recordShapeProblems(file, index, creator))",
+      "by": "test", "kills": ["手改坏的记录：只坏在累加器里也拒绝并指出累加器"]
+    },
+    {
       "id": "M-D25-s", "req": "D25.b",
       "why": "人工展示回退先读取旧名单，再重建当前 Agent 判断，当前已评的明确采用建议未用于有效展示",
       "file": "scripts/lib/task-reviews.ts",

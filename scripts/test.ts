@@ -16591,21 +16591,21 @@ await group('d21-task-reviews', () => {
     }
     const refuses = (label: string, record: unknown, field: string, value: string) => {
       const got = shaped(label, [fine('first'), record])
-      ok(`手改坏的记录：${label}以输入错误拒绝`, got.error instanceof ReviewInputError)
-      ok(`手改坏的记录：${label}指出文件、第几条、字段与原值`, [join(got.dir, 'creators.json'), '第 2 条', field, value].every(part => got.text.includes(part)))
-      ok(`手改坏的记录：${label}拒绝不动盘上文件`, got.same)
+      return got.error instanceof ReviewInputError && got.same &&
+        [join(got.dir, 'creators.json'), '第 2 条', field, value].every(part => got.text.includes(part))
     }
-    refuses('条目是字符串', 'oops', '不是一条记录', '"oops"')
-    refuses('条目是 null', null, '不是一条记录', 'null')
-    refuses('条目是数组', [], '不是一条记录', '[]')
-    refuses('handle 是数字', fine('x', { handle: 123 }), 'handle', '123')
-    refuses('handle 缺席', (({ handle: _, ...rest }) => rest)(fine('x')), 'handle', '缺席')
-    refuses('platform 是数字', fine('x', { platform: 7 }), 'platform', '7')
-    refuses('bio_links 缺席', (({ bio_links: _, ...rest }) => rest)(fine('x')), 'bio_links', '缺席')
-    refuses('bio_links 是对象', fine('x', { bio_links: {} }), 'bio_links', '{}')
-    refuses('bio_links 里有数字', fine('x', { bio_links: ['https://a.example', 5] }), 'bio_links', '[\"https://a.example\",5]')
-    refuses('recent_posts 是字符串', fine('x', { recent_posts: 'x' }), 'recent_posts', '"x"')
-    refuses('recent_posts 里有 null', fine('x', { recent_posts: [null] }), 'recent_posts', '[null]')
+    // 每条都要：以输入错误拒绝、指出文件、第几条、字段与原值，且不动盘上文件。
+    ok('手改坏的记录：条目是字符串时拒绝并指出', refuses('string', 'oops', '不是一条记录', '"oops"'))
+    ok('手改坏的记录：条目是 null 时拒绝并指出', refuses('null', null, '不是一条记录', 'null'))
+    ok('手改坏的记录：条目是数组时拒绝并指出', refuses('array', [], '不是一条记录', '[]'))
+    ok('手改坏的记录：handle 是数字时拒绝并指出', refuses('handle-number', fine('x', { handle: 123 }), 'handle 是 123', '第 2 条'))
+    ok('手改坏的记录：handle 缺席时拒绝并指出', refuses('handle-absent', (({ handle: _, ...rest }) => rest)(fine('x')), 'handle 缺席', '第 2 条'))
+    ok('手改坏的记录：platform 是数字时拒绝并指出', refuses('platform-number', fine('x', { platform: 7 }), 'platform 是 7', '第 2 条'))
+    ok('手改坏的记录：bio_links 缺席时拒绝并指出', refuses('links-absent', (({ bio_links: _, ...rest }) => rest)(fine('x')), 'bio_links 缺席', '第 2 条'))
+    ok('手改坏的记录：bio_links 是对象时拒绝并指出', refuses('links-object', fine('x', { bio_links: {} }), 'bio_links 是 {}', '第 2 条'))
+    ok('手改坏的记录：bio_links 里有数字时拒绝并指出', refuses('links-number', fine('x', { bio_links: ['https://a.example', 5] }), 'bio_links 是 ["https://a.example",5]', '第 2 条'))
+    ok('手改坏的记录：recent_posts 是字符串时拒绝并指出', refuses('posts-string', fine('x', { recent_posts: 'x' }), 'recent_posts 是 "x"', '第 2 条'))
+    ok('手改坏的记录：recent_posts 里有 null 时拒绝并指出', refuses('posts-null-item', fine('x', { recent_posts: [null] }), 'recent_posts 是 [null]', '第 2 条'))
     const named = shaped('named', [fine('first'), fine('alpha', { bio_links: 'https://a.example' })])
     ok('手改坏的记录：读得到时带出平台与账号', named.text.includes('tiktok') && named.text.includes('alpha'))
     const many = shaped('many', [fine('a', { handle: 1 }), fine('b'), 'oops'], [fine('c'), fine('d', { recent_posts: 'x' })])
@@ -16726,7 +16726,7 @@ await group('feedback-template-crossings', async () => {
     account_keys: ['tiktok:alpha'], eligibility: '合格', adoption_priority: '优先联系', observed_content: '已读内容',
     work_evidence: '取得作品', natural_integration: '真实场景', mismatch_risk: '未核问题', fit: '✅' } }, rounds: [
     { round_id: 'saved-round', created_at: 'saved', source: 'task.json', candidates: [{ account_key: 'tiktok:alpha', source_tasks: [{ task_index: 0, keyword: 'saved', dimension: 'category', platform: 'tiktok' }] }] } ] }) + '\n';
-  const creators = JSON.stringify([{ platform: 'tiktok', handle: 'alpha', manual_adopted: 'yes', manual_note: 'derived' }]) + '\n';
+  const creators = JSON.stringify([{ platform: 'tiktok', handle: 'alpha', bio_links: [], manual_adopted: 'yes', manual_note: 'derived' }]) + '\n';
   const expected = '\ufeffround_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note\nsaved-round,tiktok,alpha,,,,,,,\n';
   fs.writeFileSync(path.join(dir, 'task.json'), task); fs.writeFileSync(path.join(dir, 'agent-review.json'), agent); fs.writeFileSync(path.join(dir, 'creators.json'), creators);
   let requests = 0;

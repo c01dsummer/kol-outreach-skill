@@ -67,19 +67,61 @@ function readOptionalReviewCreators(file: string): Creator[] | undefined {
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return undefined
     throw new ReviewInputError([`${file} 无法检查：${String(error)}`])
   }
+  let creators: unknown
   try {
-    const creators: unknown = JSON.parse(readFileSync(file, 'utf8'))
+    creators = JSON.parse(readFileSync(file, 'utf8'))
     if (!Array.isArray(creators)) throw new Error('名单必须是数组')
-    return creators as Creator[]
   } catch (error) { throw new ReviewInputError([`${file} 无法读入名单：${String(error)}`]) }
+  const problems = creators.flatMap((creator, index) => recordShapeProblems(file, index, creator))
+  if (problems.length) throw new ReviewInputError(problems)
+  return creators as Creator[]
+}
+
+/** 原值按 JSON 写法给出，过长截短。 */
+const shown = (value: unknown): string => {
+  const text = JSON.stringify(value)
+  return text.length > 80 ? `${text.slice(0, 77)}…` : text
+}
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * D21.t：名单被手改坏时，在读入处就指出是哪个文件、第几条、哪个字段 ——
+ * 不然它要到后面的同人识别、打分里才以 `toLowerCase is not a function` 一类的话崩掉。
+ * 只查会崩或会错的这几种（逐字段试探 render 得出，ADR-192）；其余字段的类型不在此查。
+ */
+function recordShapeProblems(file: string, index: number, creator: unknown): string[] {
+  const at = `${file} 第 ${index + 1} 条`
+  if (!isRecord(creator)) return [`${at}不是一条记录（读到 ${shown(creator)}），应是一个对象；改正或删掉这条后再跑`]
+  const who = typeof creator.platform === 'string' && typeof creator.handle === 'string'
+    ? `（platform ${creator.platform}，handle ${creator.handle}）` : ''
+  const wrong = (field: string, expected: string) => {
+    const value = creator[field]
+    return `${at}${who}的 ${field} ${value === undefined ? '缺席' : `是 ${shown(value)}`}，应是${expected}；改正这条后再跑`
+  }
+  const problems: string[] = []
+  for (const field of ['platform', 'handle']) if (typeof creator[field] !== 'string') problems.push(wrong(field, '字符串'))
+  const links = creator.bio_links
+  if (!Array.isArray(links) || !links.every(link => typeof link === 'string')) problems.push(wrong('bio_links', '字符串数组（没有外链时写 []）'))
+  const posts = creator.recent_posts
+  if (posts !== undefined && posts !== null && (!Array.isArray(posts) || !posts.every(isRecord)))
+    problems.push(wrong('recent_posts', '作品对象的数组（未查询时删掉这个字段）'))
+  return problems
 }
 
 /** D21/D23：只读原名单与累加器；只有确认路径缺席才采用旧名单 clone。 */
 export function loadReviewCreatorInputs(dir: string): {
   previous: Creator[]; raw: Creator[]; rawPresent: boolean
 } {
-  const previous = readOptionalReviewCreators(join(dir, 'creators.json')) ?? []
-  const raw = readOptionalReviewCreators(join(dir, RAW))
+  // 两个文件各自读完再一起报，用户改一次就能把两处都改对
+  const problems: string[] = []
+  const read = (file: string): Creator[] | undefined => {
+    try { return readOptionalReviewCreators(file) }
+    catch (error) { if (!(error instanceof ReviewInputError)) throw error; problems.push(...error.problems) }
+  }
+  const before = read(join(dir, 'creators.json')), raw = read(join(dir, RAW))
+  if (problems.length) throw new ReviewInputError(problems)
+  const previous = before ?? []
   return { previous, raw: raw ?? structuredClone(previous), rawPresent: raw !== undefined }
 }
 
