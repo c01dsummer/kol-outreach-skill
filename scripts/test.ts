@@ -16254,7 +16254,7 @@ await group('u9-p1-independent-claim', () => {
     scMkdirSync(work)
     const [exe, argv] = scPrebuiltCommand([scJoin(process.cwd(), 'scripts', 'kol21-independent-wiring.ts'),
       '--work', work, '--report', report, '--only', [...sortLayer, ...listLayer].join(',')])
-    const r = cxSpawnSync(exe, argv, { encoding: 'utf8' })
+    const r = cxSpawnSync(exe, argv, { encoding: 'utf8', timeout: 120000 })
     eq('U9×P1 独立认领：接线以 0 收尾、写出报告', [r.status, scExistsSync(report)], [0, true])
     if (r.status !== 0) console.log(`     stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
     type Item = { label: string; status: string }
@@ -16267,8 +16267,8 @@ await group('u9-p1-independent-claim', () => {
       return [id, c?.verdict ?? '缺', items.length > 0, items.filter(i => i?.status !== 'pass').map(i => `${i?.label}：${i?.status}`)]
     })
     const want = (ids: string[]) => ids.map(id => [id, 'pass', true, []])
-    eq('U9×P1 独立认领：排序函数层三例（冻结用例 G5-01、G5-02、G5-03）判过，每一项都判过', settled(sortLayer), want(sortLayer))
-    eq('U9×P1 独立认领：名单层三例（冻结用例 G6-01、G6-02、G6-03，真实 render 入口）判过，每一项都判过', settled(listLayer), want(listLayer))
+    eq('U9×P1 独立认领：排序函数层（冻结用例 G5-01、G5-02、G5-03）各例判过，每一项都判过', settled(sortLayer), want(sortLayer))
+    eq('U9×P1 独立认领：名单层（冻结用例 G6-01、G6-02、G6-03，真实 render 入口）各例判过，每一项都判过', settled(listLayer), want(listLayer))
   } finally { scRmSync(root, { recursive: true, force: true }) }
   tension('U9', 'P1')
 })

@@ -30,7 +30,7 @@
  *   控制文件名与它的 `schema` 照原文抄在这里，不从产品代码 import：被测的正是产品照不照原文做。
  *
  * 判定一律在冻结套件里：这里不读、不改、不合并任何一条结论。冻结套件的每一种结论原样留在报告里，由读报告的一侧
- * （自检组 `kol21-independent`）分开报。
+ * （自检组 `kol21-independent`；只点 G5、G6 那几例时是需求测试 `u9-p1-independent-claim`）分开报。
  * 退出码：报告写成就是 0，不论里面的结论是什么；用法错 2；跑到一半抛出 1。
  *
  * 它不是 `scripts/check/` 下的工具，自检把它当被测对象起（`verifier-rule.ts`「它挡不住什么」第一条说的正是这种写法：
@@ -77,8 +77,8 @@ const facility: ObserverFacility = {
 // `Creator[]`，运行时就是那个数组本身。G5 先过 GAP-18 的登记与下面的 `creatorCheck`（冻结单 G5 各例的闸门）才调它。
 //
 // U9×P1 的独立认领（R 片，ADR-183 第 96 行；记录在 ADR-92 末尾）用的就是从这里接进去的 G5 排序函数层与 G6 名单层（真实
-// render 入口）那六例：需求测试 `u9-p1-independent-claim` 起本文件、用 `--only` 只点这六例，六例都判 pass、每一项也都是 pass
-// 才认领。只用冻结了的用例，不改断言、不改冻结字节；交点的认领只写在需求测试里（自检的入口认领记录不收交点）。
+// render 入口）G5-01…03、G6-01…03：需求测试 `u9-p1-independent-claim` 起本文件、用 `--only` 只点这几例，各例都判 pass、
+// 每一项也都是 pass 才认领。只用冻结了的用例，不改断言、不改冻结字节；交点的认领只写在需求测试里（自检的入口认领记录不收交点）。
 const sort: SortForOutput = creators => sortForOutput(creators as Creator[])
 
 // 公开的夹具资格检查（GAP-18）：只照 `scripts/lib/types.ts` @251d2d6 的类型声明 —— `Creator` 在 :270-408，它用到的
