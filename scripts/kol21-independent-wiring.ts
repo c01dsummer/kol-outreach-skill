@@ -12,9 +12,10 @@
  *   事件逐条浅拷贝一份，只为过类型（接口类型的事件不能直接当 `Record` 用），字段一个不增不减；其余原样传入。
  * - `sortForOutput`：`scripts/lib/rows.ts` 的导出函数，同一个数组原样传进去（G5-03 要看调用后输入有没有被改）。
  * - `conditions`：每条 `ref` 写着出处。登的是冻结单 B 节把「建议问谁」写成整合方、整合方又答得出出处的（冻结单 :1586、:1592）：
- *   GAP-18（补法是下面的 `creatorCheck`）；GAP-24a、GAP-24b 是读实现得出的事实，只作资格前提（夹具有没有区分力），
- *   不当任何断言的期望。GAP-24c 要正本或对外文档直接给出「原文件不被改动」：正本的 D4.s 直接写了（ADR-185），照它登，
- *   G3-15 的字节比因此判得到（D4.s 由需求测试 `d4s-independent-claim` 经本文件认领）；GAP-09、GAP-20 登了也不判，不登。
+ *   GAP-18（补法是下面的 `creatorCheck`；G5、G6 各例与 G3-19N 靠它判得到）；GAP-24a、GAP-24b 是读实现得出的事实，
+ *   只作资格前提（夹具有没有区分力），不当任何断言的期望。GAP-24c 要正本或对外文档直接给出「原文件不被改动」：
+ *   正本的 D4.s 直接写了（ADR-185），照它登，G3-15 的字节比因此判得到（D4.s 由需求测试 `d4s-independent-claim` 经本文件认领）；
+ *   GAP-09、GAP-20 登了也不判，不登。D4.t 那两例（G3-19、G3-19N）不挂 GAP-24c，由需求测试 `d4t-independent-claim` 经本文件认领。
  *   再加 E-2、E-3：实现方把契约 kol-test-observer/v1 公开在 `skill/references/output-format.md` 末节，需求方逐字确认过
  *   （冻结单 :1797），`ref` 指那一节与 ADR-186、ADR-187。其余（GAP-07①④、GAP-10、GAP-39、GAP-40 与 E-1）不登。
  *   没登的，依赖它的断言照冻结单落在 not-judged。
@@ -32,7 +33,7 @@
  *
  * 判定一律在冻结套件里：这里不读、不改、不合并任何一条结论。冻结套件的每一种结论原样留在报告里，由读报告的一侧
  * （自检组 `kol21-independent`；只点 G5、G6 那几例时是需求测试 `u9-p1-independent-claim`，只点 G3-15 时是需求测试
- * `d4s-independent-claim`）分开报。
+ * `d4s-independent-claim`，只点 G3-19、G3-19N 时是需求测试 `d4t-independent-claim`）分开报。
  * 退出码：报告写成就是 0，不论里面的结论是什么；用法错 2；跑到一半抛出 1。
  *
  * 它不是 `scripts/check/` 下的工具，自检把它当被测对象起（`verifier-rule.ts`「它挡不住什么」第一条说的正是这种写法：
