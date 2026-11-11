@@ -7143,7 +7143,7 @@ group('anchor-residue-entry', [], () => {
   // 入口这一半不配负片，是选择：指名自检来验的变异会被「自己验自己」拦下；by: test 不被拦，但需求测试不起这个入口，
   // 要负片得另加一组起真 anchors.ts 的需求测试。这里用自检组证接线。期望从 anchorFaults 头上那张表手推，不照入口的输出抄：
   // 只认退出码、汇总那一行的条数、每条那一行开头的编号与文件和那一种的头几个字。
-  // 五棵树，路径写成字面量（组间共享的扫描只认字面量路径，ADR-134 第二节）；入口每棵起一次，共 5 次，别的不起进程。
+  // 每棵树路径写成字面量（组间共享的扫描只认字面量路径，ADR-134 第二节）；入口每棵起一次，别的不起进程。
   const toy = (dir: string, files: Record<string, string>, catalog?: unknown) => {
     mkdirSync(join(dir, 'scripts', 'check'), { recursive: true })
     for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text, 'utf8')
@@ -7153,7 +7153,7 @@ group('anchor-residue-entry', [], () => {
   // 坏树：没还原一条（a.ts 里是施加之后的样子）、锚点失效两条（一条和没还原的同在 a.ts，被它连带）、不唯一一条、
   // 目标文件不在一条、分不开一条（删一段的，u.ts 里那段没了），外加干净的一条不该报
   const dirtyTmp = join(tmp, 'anchor-residue')
-  toy(dirtyTmp, { 'a.ts': 'return y\n', 'b.ts': 'keep()\n', 'c.ts': 'k = 1\nk = 1\n', 'e.ts': 'ok()\n', 'u.ts': 'z\n' }, { mutations: [
+  toy(dirtyTmp, { 'a.ts': 'return y\n', 'b.ts': 'keep()\n', 'c.ts': 'k = 1\nk = 1\nk = 1\n', 'e.ts': 'ok()\n', 'u.ts': 'z\n' }, { mutations: [
     { id: 'M-X-a', req: 'X1', why: '没还原', file: 'a.ts', find: 'return x', replace: 'return y' },
     { id: 'M-X-f', req: 'X1', why: '被没还原的连带', file: 'a.ts', find: 'x;', replace: 'z;' },
     { id: 'M-X-b', req: 'X1', why: '锚点失效', file: 'b.ts', find: 'gone()', replace: 'went()' },
@@ -7170,10 +7170,12 @@ group('anchor-residue-entry', [], () => {
     named('anchors 那一行汇总说出对不上的条数', lines.includes('✗ 变异锚点：6 条变异对不上目标文件'), dirty.stderr)
     named('anchors 逐条点名五种对不上的：没还原、锚点失效、不唯一带处数、读不到、分不开',
       said('M-X-a', 'a.ts', '像是没还原') && said('M-X-b', 'b.ts', '锚点失效') && said('M-X-c', 'c.ts', '锚点不止一处')
-        && lines.some(l => l.trimStart().startsWith('M-X-c  ') && l.includes('（2 处）'))
+        && lines.some(l => l.trimStart().startsWith('M-X-c  ') && l.includes('（3 处）'))
         && said('M-X-d', 'missing.ts', '目标文件读不到') && said('M-X-u', 'u.ts', '分不开'), dirty.stderr)
     // 没还原与分不开的都要叫人先看 git diff 再动手（第一片定下的说法）
-    named('anchors 有没还原或分不开的时叫人先看 git diff', dirty.stderr.includes('先用 git diff 看那个文件再动手'), dirty.stderr)
+    named('anchors 有没还原或分不开的时叫人先看 git diff、只撤那一处',
+      dirty.stderr.includes('先用 git diff 看那个文件再动手') && dirty.stderr.includes('只撤那一处'), dirty.stderr)
+    named('anchors 有不是被连带的锚点失效时叫人改目录', dirty.stderr.includes('改那条变异的 file 与 find'), dirty.stderr)
     // 连带的那条要叫人先撤没还原的，别去改它的 find；不在同一个文件里的那条不这么说
     const knocked = (id: string) => lines.some(l => l.trimStart().startsWith(`${id}  `) && l.includes('先撤那一处'))
     named('anchors 和没还原的同在一个文件的那条说先撤没还原的', said('M-X-f', 'a.ts', '锚点失效') && knocked('M-X-f'), dirty.stderr)
@@ -7190,11 +7192,17 @@ group('anchor-residue-entry', [], () => {
   toy(noCatalogTmp, { 'e.ts': 'ok()\n' })
   const noCatalog = runToolBoth('anchors 读不到变异目录即以退出码 1 结束', 'anchors', [], noCatalogTmp, { status: 1 })
   if (noCatalog.ok) named('anchors 读不到变异目录时说读不到', noCatalog.stderr.includes('读不到'), noCatalog.stderr)
-  // 目录读得到、里面没有一组变异（键写岔了）：同样不当成「零条、全对得上」
+  // 目录读得到、里面是空的一组：同样不当成「零条、全对得上」（键写岔、条目缺字段由需求测试断言判定）
   const noListTmp = join(tmp, 'anchor-no-list')
-  toy(noListTmp, { 'e.ts': 'ok()\n' }, { mutation: [fine] })
+  toy(noListTmp, { 'e.ts': 'ok()\n' }, { mutations: [] })
   const noList = runToolBoth('anchors 目录里读不出一组变异即以退出码 1 结束', 'anchors', [], noListTmp, { status: 1 })
   if (noList.ok) named('anchors 目录里读不出一组变异时说读不出', noList.stderr.includes('读不出一组变异'), noList.stderr)
+  // 只有锚点失效的：不叫人看 git diff（判定说不附那一句，入口照着不打）
+  const staleTmp = join(tmp, 'anchor-stale-only')
+  toy(staleTmp, { 'b.ts': 'keep()\n' }, { mutations: [{ id: 'M-X-b', req: 'X1', why: '锚点失效', file: 'b.ts', find: 'gone()', replace: 'went()' }] })
+  const stale = runToolBoth('anchors 只有锚点失效时以退出码 1 结束', 'anchors', [], staleTmp, { status: 1 })
+  if (stale.ok) named('anchors 只有锚点失效时只叫人改目录、不叫人看 git diff',
+    stale.stderr.includes('改那条变异的 file 与 find') && !stale.stderr.includes('git diff'), stale.stderr)
   // 编号重复：先报这一种，锚点不往下查（干净的那条复制了一份，锚点本身对得上）
   const dupTmp = join(tmp, 'anchor-dup')
   toy(dupTmp, { 'e.ts': 'ok()\n' }, { mutations: [fine, fine] })

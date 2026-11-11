@@ -189,9 +189,9 @@ export function anchorMatches(content: string, find: string): number {
 
 /**
  * 变异目录对着一棵树：每条变异的锚点在它的目标文件里还对不对得上。对不上的五种各有名字，
- * 全对得上交回空表（ADR-70 第 1394、2099 行那两张欠条；接进检查链开头是后面一片，见 ADR-70 末尾「变异残留」一节）。
+ * 全对得上交回空表（ADR-70 第 1394、2099 行那两张欠条；检查链第一步经下面的 `anchorVerdict` 用它，见 ADR-70「变异残留」两节）。
  *
- * 干净的树上，每条变异的 `find` 在目标文件里恰好一处（不唯一的由 `mutate.ts` 开跑前拦下）。
+ * 干净的树上，每条变异的 `find` 在目标文件里恰好一处（不唯一的由检查链第一步与 `mutate.ts` 开跑前那道体检拦下）。
  * 一处变异没还原、躺在树里时（被打断、`--jobs=1` 正跑着就提交），那个文件是「`find` 换成了 `replace`」的
  * 样子 —— 目录自己就是那张对照表。前提是施加照字面，已满足：`mutate.ts` 经下面的 `applyMutation` 施加，
  * 替换文本里的 `$$` 等记号不展开，盘上就是登记的那段（ADR-70「施加照字面」一节）：
@@ -242,34 +242,53 @@ export function anchorFaults(muts: readonly { id: string; file: string; find: st
   return faults
 }
 
-/** 变异锚点那一步对一棵树的结论：编号重复时只报这一种；否则逐条报对不上的，`knockOn` 标出多半是被连带的 */
+/**
+ * 变异锚点那一步对一棵树的结论：编号重复时只报这一种；否则逐条报对不上的，`knockOn` 标出多半是被连带的，
+ * `advice` 说该附哪两句话（先看差异 / 改目录），入口照着打，不自己判
+ */
 export type AnchorVerdict =
   | { kind: 'duplicate'; ids: string[] }
-  | { kind: 'faults'; faults: (AnchorFault & { knockOn: boolean })[] }
+  | { kind: 'faults'; faults: (AnchorFault & { knockOn: boolean })[]; advice: { diff: boolean; catalog: boolean } }
+
+/** 变异目录读出来的东西是不是一组变异：是数组、非空、每条的 `id`、`file`、`find`、`replace` 都是字符串。不是交回 `undefined` */
+export function anchorCatalog(json: unknown): { id: string; file: string; find: string; replace: string }[] | undefined {
+  const muts = typeof json === 'object' && json !== null ? (json as { mutations?: unknown }).mutations : undefined
+  if (!Array.isArray(muts) || muts.length === 0) return undefined
+  const ok = muts.every(m => typeof m === 'object' && m !== null
+    && ['id', 'file', 'find', 'replace'].every(k => typeof (m as Record<string, unknown>)[k] === 'string'))
+  return ok ? muts : undefined
+}
 
 /**
- * 检查链第一步（`anchors.ts`）的判定：先问编号唯一，再按 `anchorFaults` 逐条判，再标连带（ADR-70 末尾「变异残留」第二片）。
+ * 检查链第一步（`anchors.ts`）的判定：先问编号唯一，再按 `anchorFaults` 逐条判，再标连带、定附哪两句话
+ * （ADR-70 末尾「变异残留」第二片）。
  *
  * **先问编号**：报告按编号指回目录里那一行，两条重名时指不回（ADR-34）。这一步排在 `mutate.ts` 那道重复编号检查之前，
  * 所以自己先问，用的是同一个 `duplicateIds`。先后有语义，所以在这里，不在入口（`docs/CONVENTIONS.md` 第 10 条）。
  *
  * **连带**：一处变异没还原，常把同一个文件里别的锚点一起弄坏 —— 它改掉的那段要是别的变异的 `find`，那一条就跟着
- * 失效或不唯一（第一片在真树上逐条模拟，1924 次里 690 次有连带）。照「改那条变异的 `find`」去改，就把好好的目录改坏了。
- * 所以：同一个文件里另有一条判成 `residue` 或 `unclear`（`unclear` 也可能是没还原），这一条又不是 `residue` 自己，
- * 标成 `knockOn`，入口对它说「先撤那一处，再看」。不替人猜哪条是源头 —— 只说同文件里有一处可能没还原的。
+ * 失效或不唯一（ADR-70 第一片那一节的逐条模拟）。照「改那条变异的 `find`」去改，就把好好的目录改坏了。所以：一条判成
+ * `stale` 或 `ambiguous` 的，同一个文件里又有一条判成 `residue` 或 `unclear`（分不开的也可能是没还原），标成 `knockOn`，
+ * 入口对它说「先撤那一处，再看」。`residue`、`unclear` 自己不标 —— 它们本身就是要先看的那一处，标了就成了互相指。
+ * 不替人猜哪条是源头。
+ *
+ * **附哪两句话**：有 `residue` 或 `unclear` 的，附「先看差异再动手」；有不是被连带的 `stale`、`ambiguous`、
+ * `unreadable` 的，附「改目录」。被连带的那几条不附「改目录」—— 先撤那一处，它们多半自己就好了。
  */
 export function anchorVerdict(muts: readonly { id: string; file: string; find: string; replace: string }[],
   read: (file: string) => string | undefined): AnchorVerdict {
   const ids = duplicateIds([...muts])
   if (ids.length) return { kind: 'duplicate', ids }
-  const faults = anchorFaults(muts, read)
-  const sources = faults.filter(f => f.kind === 'residue' || f.kind === 'unclear')
+  const found = anchorFaults(muts, read)
+  const sources = found.filter(f => f.kind === 'residue' || f.kind === 'unclear')
+  const faults = found.map(f => ({
+    ...f,
+    knockOn: (f.kind === 'stale' || f.kind === 'ambiguous') && sources.some(s => s.file === f.file),
+  }))
   return {
     kind: 'faults',
-    faults: faults.map(f => ({
-      ...f,
-      knockOn: f.kind !== 'residue' && sources.some(s => s.file === f.file && s.id !== f.id),
-    })),
+    faults,
+    advice: { diff: sources.length > 0, catalog: faults.some(f => !f.knockOn && f.kind !== 'residue' && f.kind !== 'unclear') },
   }
 }
 

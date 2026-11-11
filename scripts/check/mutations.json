@@ -5671,8 +5671,8 @@
       "req": "harness",
       "why": "变异锚点那一步不先问编号唯一：两条重名时照样往下查锚点，报告指不回目录里那一行",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  if (ids.length) return { kind: 'duplicate', ids }\n  const faults = anchorFaults(muts, read)",
-      "replace": "  const faults = anchorFaults(muts, read)",
+      "find": "  if (ids.length) return { kind: 'duplicate', ids }\n  const found = anchorFaults(muts, read)",
+      "replace": "  const found = anchorFaults(muts, read)",
       "by": "test",
       "kills": [
         "编号重复先报，锚点不往下查"
@@ -5683,23 +5683,23 @@
       "req": "harness",
       "why": "连带不看是不是同一个文件：别的文件里的锚点失效也叫人先撤没还原的那一处",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "sources.some(s => s.file === f.file && s.id !== f.id)",
-      "replace": "sources.some(s => s.id !== f.id)",
+      "find": "sources.some(s => s.file === f.file)",
+      "replace": "sources.length > 0",
       "by": "test",
       "kills": [
-        "同文件里另有一条没还原的：锚点失效的那条标连带，没还原的自己不标，别的文件里的不标"
+        "同文件里另有一条没还原的：锚点失效的那条标连带，没还原的自己不标，别的文件里的不标；两句话都附"
       ]
     },
     {
       "id": "M-H45-x",
       "req": "harness",
-      "why": "没还原的那条自己也标成连带：同文件两条都没还原时，叫人先撤别的，而它自己就是要撤的",
+      "why": "分不开的也标成连带：同一个文件里两条分不开的互相指着对方叫人先撤",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "knockOn: f.kind !== 'residue' && sources.some(",
-      "replace": "knockOn: sources.some(",
+      "find": "knockOn: (f.kind === 'stale' || f.kind === 'ambiguous') && ",
+      "replace": "knockOn: f.kind !== 'residue' && ",
       "by": "test",
       "kills": [
-        "同文件两条都没还原：都不标连带"
+        "同文件两条都分不开：都不标连带"
       ]
     },
     {
@@ -5707,23 +5707,107 @@
       "req": "harness",
       "why": "连带只认没还原的、不认分不开的：分不开的也可能是没还原，同文件里被它连带的那条叫人去改锚点",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "const sources = faults.filter(f => f.kind === 'residue' || f.kind === 'unclear')",
-      "replace": "const sources = faults.filter(f => f.kind === 'residue')",
+      "find": "const sources = found.filter(f => f.kind === 'residue' || f.kind === 'unclear')",
+      "replace": "const sources = found.filter(f => f.kind === 'residue')",
       "by": "test",
       "kills": [
-        "同文件里另有一条分不开的：别的那条也标连带"
+        "同文件里另有一条分不开的：锚点失效的那条也标连带，只附先看差异"
       ]
     },
     {
       "id": "M-H45-z",
       "req": "harness",
-      "why": "连带不排除自己：一条分不开的把自己也标成被连带",
+      "why": "只有分不开的时候不叫人先看差异：删一段的那条锚点失效还是没还原，人得不到分辨的办法",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "s.file === f.file && s.id !== f.id)",
-      "replace": "s.file === f.file)",
+      "find": "advice: { diff: sources.length > 0,",
+      "replace": "advice: { diff: found.some(f => f.kind === 'residue'),",
       "by": "test",
       "kills": [
-        "同文件里另有一条分不开的：别的那条也标连带"
+        "同文件两条都分不开：都不标连带"
+      ]
+    },
+    {
+      "id": "M-H45-aa",
+      "req": "harness",
+      "why": "被连带的锚点失效也附「改目录」：人照着去改好好的锚点，而该做的是先撤那一处",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "catalog: faults.some(f => !f.knockOn && f.kind",
+      "replace": "catalog: faults.some(f => f.kind",
+      "by": "test",
+      "kills": [
+        "同文件里另有一条分不开的：锚点失效的那条也标连带，只附先看差异"
+      ]
+    },
+    {
+      "id": "M-H45-ab",
+      "req": "harness",
+      "why": "空的变异目录算一组：零条、全对得上，检查链第一步对着没有东西的目录报绿",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "if (!Array.isArray(muts) || muts.length === 0) return undefined",
+      "replace": "if (!Array.isArray(muts)) return undefined",
+      "by": "test",
+      "kills": [
+        "变异目录：空的一组不算一组变异"
+      ]
+    },
+    {
+      "id": "M-H45-ac",
+      "req": "harness",
+      "why": "变异目录里缺字段的条目照收：入口拿着缺了锚点的条目往下判，或者当场抛栈",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return ok ? muts : undefined\n",
+      "replace": "  return ok || muts.length > 0 ? muts : undefined\n",
+      "by": "test",
+      "kills": [
+        "变异目录：哪一条缺了 id、file、find、replace 里的一样，或不是字符串，整份不算"
+      ]
+    },
+    {
+      "id": "M-H45-ad",
+      "req": "harness",
+      "why": "不唯一的也当成可能没还原的源头：同文件里锚点失效的那条被叫去先撤一处并没有躺在树上的变异",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "const sources = found.filter(f => f.kind === 'residue' || f.kind === 'unclear')",
+      "replace": "const sources = found.filter(f => f.kind !== 'stale')",
+      "by": "test",
+      "kills": [
+        "同文件里只有不唯一的与锚点失效的：谁也不标连带，只附改目录"
+      ]
+    },
+    {
+      "id": "M-H45-ae",
+      "req": "harness",
+      "why": "只有锚点失效的才标连带：被没还原的那处连带成不唯一的，叫人去加长一条好好的锚点",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "knockOn: (f.kind === 'stale' || f.kind === 'ambiguous') && ",
+      "replace": "knockOn: f.kind === 'stale' && ",
+      "by": "test",
+      "kills": [
+        "同文件里另有一条没还原的：不唯一的那条也标连带"
+      ]
+    },
+    {
+      "id": "M-H45-af",
+      "req": "harness",
+      "why": "编号重复只报第一个：别的重名编号要改一次、跑一次、再报一次才露出来",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "return { kind: 'duplicate', ids }",
+      "replace": "return { kind: 'duplicate', ids: ids.slice(0, 1) }",
+      "by": "test",
+      "kills": [
+        "编号重复：每个重了的编号都报，各报一次"
+      ]
+    },
+    {
+      "id": "M-H45-ag",
+      "req": "harness",
+      "why": "连带只看排在它前面的：被连带的那条排在没还原的前面时，叫人去改一条好好的锚点",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "sources.some(s => s.file === f.file)",
+      "replace": "sources.some(s => s.file === f.file && found.indexOf(s) < found.indexOf(f))",
+      "by": "test",
+      "kills": [
+        "被连带的那条排在没还原的前面：照样标连带"
       ]
     },
     {
