@@ -193,6 +193,7 @@
     {"config":"[\"test\",[\"u3-keywords\"]]","launches":0,"maxPaid":null,"running":20,"stopping":0},
     {"config":"[\"test\",[\"u6-report\"]]","launches":0,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"u8-labels\"]]","launches":0,"maxPaid":null,"running":7,"stopping":0},
+    {"config":"[\"test\",[\"u9-p1-independent-claim\"]]","launches":1,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"u9-review-output\"]]","launches":0,"maxPaid":null,"running":20,"stopping":0}
   ],
   "findings": [],
