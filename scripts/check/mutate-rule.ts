@@ -192,9 +192,8 @@ export function anchorMatches(content: string, find: string): number {
  *
  * 干净的树上，每条变异的 `find` 在目标文件里恰好一处（不唯一的由 `mutate.ts` 开跑前拦下）。
  * 一处变异没还原、躺在树里时（被打断、`--jobs=1` 正跑着就提交），那个文件是「`find` 换成了 `replace`」的
- * 样子 —— 目录自己就是那张对照表。前提是施加照字面：今天 `mutate.ts` 用字符串形式的 `replace` 施加，
- * 替换文本里的 `$$` 会被展开，`M-D13-r` 没还原时盘上不是登记的那段、会判成 `stale`。施加照字面那一片要排在
- * 接入口之前（ADR-70 末尾「变异残留」一节那张既有缺陷欠条；同一件事在那一节与 `docs/ARCHITECTURE.md` 没有别的副本）：
+ * 样子 —— 目录自己就是那张对照表。前提是施加照字面，已满足：`mutate.ts` 经下面的 `applyMutation` 施加，
+ * 替换文本里的 `$$` 等记号不展开，盘上就是登记的那段（ADR-70「施加照字面」一节）：
  *
  * | 名字 | 判据 | 多半是什么 |
  * |---|---|---|
@@ -240,6 +239,17 @@ export function anchorFaults(muts: readonly { id: string; file: string; find: st
     else if (count === 0) faults.push({ kind: applied ? 'unclear' : 'stale', id: m.id, file: m.file })
   }
   return faults
+}
+
+/**
+ * 把一条变异施加到源码上：`find` 的第一处换成 `replace`，**照字面**（ADR-70 末尾「施加照字面」一节）。
+ *
+ * `String.prototype.replace` 的字符串形式把替换文本里的 `$$`、`$&`、`` $` ``、`$'` 当记号展开，盘上写出的
+ * 就不是目录里登记的那一段 —— `M-D13-r` 登记的是两个 `$`，施加时只剩一个，顺带多改了一处。交一个函数进去，
+ * 它的返回值原样落盘。只换第一处：锚点要恰好一处，由开跑前那道体检拦，这里不另判。
+ */
+export function applyMutation(source: string, find: string, replace: string): string {
+  return source.replace(find, () => replace)
 }
 
 export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault | undefined {

@@ -51,7 +51,7 @@ import {
   labelFault, notAssertion,
   labelFaults,
   groupOfLabel, labelsOf, leadWired, processFailed, wiringFault,
-  anchorFaults, anchorMatches, baselineFault,
+  anchorFaults, anchorMatches, applyMutation, baselineFault,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { judgeShares, scanShares } from './check/share-rule.js'
@@ -7822,6 +7822,14 @@ harness('变异目录对着树：锚点对不上的五种各有名字，没还�
   eq('find 两处、replace 也在：报不唯一，不报没还原',
     anchorFaults(one, files({ 'a.ts': 'return x\nreturn x\nreturn y\n' })),
     [{ kind: 'ambiguous', id: 'M-甲', file: 'a.ts', count: 2 }])
+}
+
+harness('施加变异照字面：盘上写的就是目录里登记的那一段')
+{
+  // 替换文本里的四种 $ 记号各照原样落盘，一个也不展开（展开的话 $$ 折成一个 $，$& 换成 find 本身）
+  // find 带括号：把 find 当正则的坏实现只换掉 X、留下括号，这条也红
+  eq('$$、$&、$`、$\' 照原样写出', applyMutation('a (X) b', '(X)', "$$ $& $` $'"), "a $$ $& $` $' b")
+  eq('只换第一处', applyMutation('X X', 'X', 'Y'), 'Y X')
 }
 
 harness('by 与 kills 同进同出：四种写错各有名字')
