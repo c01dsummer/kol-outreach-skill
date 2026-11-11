@@ -28,6 +28,7 @@ import { createRequire } from 'node:module'
 import { type GitAsk, resolveBaseline } from './size-rule.js'
 import { type Group, wanted } from './group-rule.js'
 import { SELFCHECK_FIXTURE_MARK, SELFCHECK_PROCESS_MARK } from './verifier-rule.js'
+import { duplicateIds } from './attribution-rule.js'
 
 let compiler: typeof Ts | undefined
 const typescript = (): typeof Ts => compiler ??= createRequire(import.meta.url)('typescript') as typeof Ts
@@ -239,6 +240,37 @@ export function anchorFaults(muts: readonly { id: string; file: string; find: st
     else if (count === 0) faults.push({ kind: applied ? 'unclear' : 'stale', id: m.id, file: m.file })
   }
   return faults
+}
+
+/** 变异锚点那一步对一棵树的结论：编号重复时只报这一种；否则逐条报对不上的，`knockOn` 标出多半是被连带的 */
+export type AnchorVerdict =
+  | { kind: 'duplicate'; ids: string[] }
+  | { kind: 'faults'; faults: (AnchorFault & { knockOn: boolean })[] }
+
+/**
+ * 检查链第一步（`anchors.ts`）的判定：先问编号唯一，再按 `anchorFaults` 逐条判，再标连带（ADR-70 末尾「变异残留」第二片）。
+ *
+ * **先问编号**：报告按编号指回目录里那一行，两条重名时指不回（ADR-34）。这一步排在 `mutate.ts` 那道重复编号检查之前，
+ * 所以自己先问，用的是同一个 `duplicateIds`。先后有语义，所以在这里，不在入口（`docs/CONVENTIONS.md` 第 10 条）。
+ *
+ * **连带**：一处变异没还原，常把同一个文件里别的锚点一起弄坏 —— 它改掉的那段要是别的变异的 `find`，那一条就跟着
+ * 失效或不唯一（第一片在真树上逐条模拟，1924 次里 690 次有连带）。照「改那条变异的 `find`」去改，就把好好的目录改坏了。
+ * 所以：同一个文件里另有一条判成 `residue` 或 `unclear`（`unclear` 也可能是没还原），这一条又不是 `residue` 自己，
+ * 标成 `knockOn`，入口对它说「先撤那一处，再看」。不替人猜哪条是源头 —— 只说同文件里有一处可能没还原的。
+ */
+export function anchorVerdict(muts: readonly { id: string; file: string; find: string; replace: string }[],
+  read: (file: string) => string | undefined): AnchorVerdict {
+  const ids = duplicateIds([...muts])
+  if (ids.length) return { kind: 'duplicate', ids }
+  const faults = anchorFaults(muts, read)
+  const sources = faults.filter(f => f.kind === 'residue' || f.kind === 'unclear')
+  return {
+    kind: 'faults',
+    faults: faults.map(f => ({
+      ...f,
+      knockOn: f.kind !== 'residue' && sources.some(s => s.file === f.file && s.id !== f.id),
+    })),
+  }
 }
 
 /**

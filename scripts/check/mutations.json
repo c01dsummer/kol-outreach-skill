@@ -5667,6 +5667,66 @@
       ]
     },
     {
+      "id": "M-H45-v",
+      "req": "harness",
+      "why": "变异锚点那一步不先问编号唯一：两条重名时照样往下查锚点，报告指不回目录里那一行",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (ids.length) return { kind: 'duplicate', ids }\n  const faults = anchorFaults(muts, read)",
+      "replace": "  const faults = anchorFaults(muts, read)",
+      "by": "test",
+      "kills": [
+        "编号重复先报，锚点不往下查"
+      ]
+    },
+    {
+      "id": "M-H45-w",
+      "req": "harness",
+      "why": "连带不看是不是同一个文件：别的文件里的锚点失效也叫人先撤没还原的那一处",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "sources.some(s => s.file === f.file && s.id !== f.id)",
+      "replace": "sources.some(s => s.id !== f.id)",
+      "by": "test",
+      "kills": [
+        "同文件里另有一条没还原的：锚点失效的那条标连带，没还原的自己不标，别的文件里的不标"
+      ]
+    },
+    {
+      "id": "M-H45-x",
+      "req": "harness",
+      "why": "没还原的那条自己也标成连带：同文件两条都没还原时，叫人先撤别的，而它自己就是要撤的",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "knockOn: f.kind !== 'residue' && sources.some(",
+      "replace": "knockOn: sources.some(",
+      "by": "test",
+      "kills": [
+        "同文件两条都没还原：都不标连带"
+      ]
+    },
+    {
+      "id": "M-H45-y",
+      "req": "harness",
+      "why": "连带只认没还原的、不认分不开的：分不开的也可能是没还原，同文件里被它连带的那条叫人去改锚点",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "const sources = faults.filter(f => f.kind === 'residue' || f.kind === 'unclear')",
+      "replace": "const sources = faults.filter(f => f.kind === 'residue')",
+      "by": "test",
+      "kills": [
+        "同文件里另有一条分不开的：别的那条也标连带"
+      ]
+    },
+    {
+      "id": "M-H45-z",
+      "req": "harness",
+      "why": "连带不排除自己：一条分不开的把自己也标成被连带",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "s.file === f.file && s.id !== f.id)",
+      "replace": "s.file === f.file)",
+      "by": "test",
+      "kills": [
+        "同文件里另有一条分不开的：别的那条也标连带"
+      ]
+    },
+    {
       "id": "M-H45-i",
       "req": "harness",
       "why": "施加变异时替换文本里的美元记号被当成替换记号展开，盘上写出的不是目录里登记的那一段 —— 一条变异顺带多改一处，被抓到也说不清是哪一处的功劳",

@@ -51,7 +51,7 @@ import {
   labelFault, notAssertion,
   labelFaults,
   groupOfLabel, labelsOf, leadWired, processFailed, wiringFault,
-  anchorFaults, anchorMatches, applyMutation, baselineFault,
+  anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { judgeShares, scanShares } from './check/share-rule.js'
@@ -7886,6 +7886,47 @@ harness('施加变异照字面：盘上写的就是目录里登记的那一段')
   eq('只换第一处', applyMutation('X X', 'X', 'Y'), 'Y X')
 }
 
+harness('变异锚点那一步：编号重复先报，连带的标出来')
+{
+  const tree = (t: Record<string, string>) => (file: string): string | undefined => t[file]
+  // 重名的两条锚点都对得上，旁边还有一条锚点失效的：只报重名，不往下查
+  eq('编号重复先报，锚点不往下查', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' },
+    { id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' },
+    { id: 'M-乙', file: 'b.ts', find: 'gone', replace: 'went' },
+  ], tree({ 'a.ts': 'ok\n', 'b.ts': 'keep\n' })), { kind: 'duplicate', ids: ['M-甲'] })
+  // a.ts 里 M-甲 没还原（return y），它连带 M-乙 的锚点失效；b.ts 里 M-丙 锚点失效，不连带
+  const knock = anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' },
+    { id: 'M-乙', file: 'a.ts', find: 'x;', replace: 'z;' },
+    { id: 'M-丙', file: 'b.ts', find: 'gone', replace: 'went' },
+  ], tree({ 'a.ts': 'return y\n', 'b.ts': 'keep\n' }))
+  eq('同文件里另有一条没还原的：锚点失效的那条标连带，没还原的自己不标，别的文件里的不标', knock, { kind: 'faults', faults: [
+    { kind: 'residue', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'stale', id: 'M-乙', file: 'a.ts', knockOn: true },
+    { kind: 'stale', id: 'M-丙', file: 'b.ts', knockOn: false },
+  ] })
+  // 分不开的也可能是没还原：同文件里的别的那条照样标连带
+  eq('同文件里另有一条分不开的：别的那条也标连带', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'del()\n', replace: '' },
+    { id: 'M-乙', file: 'a.ts', find: 'gone', replace: 'went' },
+  ], tree({ 'a.ts': 'z\n' })), { kind: 'faults', faults: [
+    { kind: 'unclear', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'stale', id: 'M-乙', file: 'a.ts', knockOn: true },
+  ] })
+  // 同一个文件里两条都没还原：两条都是源头，都不标连带（标了就叫人先撤别的，而它自己就是要撤的）
+  eq('同文件两条都没还原：都不标连带', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' },
+    { id: 'M-乙', file: 'a.ts', find: 'k = 1', replace: 'k = 2' },
+  ], tree({ 'a.ts': 'return y\nk = 2\n' })), { kind: 'faults', faults: [
+    { kind: 'residue', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'residue', id: 'M-乙', file: 'a.ts', knockOn: false },
+  ] })
+  // 全对得上：空表
+  eq('全对得上：没有一条', anchorVerdict([{ id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' }], tree({ 'a.ts': 'ok\n' })),
+    { kind: 'faults', faults: [] })
+}
+
 harness('by 与 kills 同进同出：四种写错各有名字')
 {
   // 不写这一对的那些逐字保持原样；写全了的也成立
@@ -10967,10 +11008,10 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 第四份是计数预加载：自检当工具起的 mutate，在正常基线那一跑经 NODE_OPTIONS 的 --import 把它加载进验证者（ADR-145 第十三节
   // 第 1、2 小节）。第三片又给工具表加了启动数闸门的入口（第二十一节第 7 小节），ADR-151 第二节第 1 片加了只读台账入口，
   // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）；KOL-21 加了零请求观察器的认证入口（自检组 observer-cert-entry 起它）。
-  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70 末尾 KOL-21 观察器一节），
-  // 按字符串排（adr < audit < f < launch- < launches < m < o < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
+  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70 末尾 KOL-21 观察器一节）＋ anchors.ts（ADR-70 末尾「变异残留」第二片，自检组 anchor-residue-entry 起它），
+  // 按字符串排（adr < anchors < audit < f < launch- < launches < m < o < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
-    'scripts/check/adr-ledger.ts', 'scripts/check/audit.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
+    'scripts/check/adr-ledger.ts', 'scripts/check/anchors.ts', 'scripts/check/audit.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
     'scripts/check/launches.ts', 'scripts/check/mutate.ts', 'scripts/check/observer-cert.ts', 'scripts/check/selfcheck.ts', 'scripts/check/skill.ts',
   ])
   // 预加载单独列，因为它既不是 import 也不是「起了谁」—— 两种扫法都收不到

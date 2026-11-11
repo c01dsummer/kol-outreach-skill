@@ -7136,6 +7136,72 @@ group('anchors', [], () => {
     `a.ts 变成了 ${JSON.stringify(readFileSync(join(anchorTmp, 'a.ts'), 'utf8'))}`)
 })
 
+// ---- 变异锚点对着树：入口真的读了目录与目标文件、逐条点名并照判定退出（ADR-70 末尾「变异残留」第二片，接线证明）----
+group('anchor-residue-entry', [], () => {
+  // 判定是纯函数 anchorVerdict（编号重复先报、anchorFaults 的五种、连带），由需求测试 h-mutate 断言、M-H45-* 守着；
+  // 剩下的那一半是**入口真的读了变异目录与每条的目标文件、调了判定、逐条点名、照它退出**。
+  // 入口这一半不配负片，是选择：指名自检来验的变异会被「自己验自己」拦下；by: test 不被拦，但需求测试不起这个入口，
+  // 要负片得另加一组起真 anchors.ts 的需求测试。这里用自检组证接线。期望从 anchorFaults 头上那张表手推，不照入口的输出抄：
+  // 只认退出码、汇总那一行的条数、每条那一行开头的编号与文件和那一种的头几个字。
+  // 五棵树，路径写成字面量（组间共享的扫描只认字面量路径，ADR-134 第二节）；入口每棵起一次，共 5 次，别的不起进程。
+  const toy = (dir: string, files: Record<string, string>, catalog?: unknown) => {
+    mkdirSync(join(dir, 'scripts', 'check'), { recursive: true })
+    for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text, 'utf8')
+    if (catalog !== undefined) writeFileSync(join(dir, 'scripts', 'check', 'mutations.json'), JSON.stringify(catalog), 'utf8')
+  }
+  const fine = { id: 'M-X-e', req: 'X1', why: '干净的一条', file: 'e.ts', find: 'ok()', replace: 'no()' }
+  // 坏树：没还原一条（a.ts 里是施加之后的样子）、锚点失效两条（一条和没还原的同在 a.ts，被它连带）、不唯一一条、
+  // 目标文件不在一条、分不开一条（删一段的，u.ts 里那段没了），外加干净的一条不该报
+  const dirtyTmp = join(tmp, 'anchor-residue')
+  toy(dirtyTmp, { 'a.ts': 'return y\n', 'b.ts': 'keep()\n', 'c.ts': 'k = 1\nk = 1\n', 'e.ts': 'ok()\n', 'u.ts': 'z\n' }, { mutations: [
+    { id: 'M-X-a', req: 'X1', why: '没还原', file: 'a.ts', find: 'return x', replace: 'return y' },
+    { id: 'M-X-f', req: 'X1', why: '被没还原的连带', file: 'a.ts', find: 'x;', replace: 'z;' },
+    { id: 'M-X-b', req: 'X1', why: '锚点失效', file: 'b.ts', find: 'gone()', replace: 'went()' },
+    { id: 'M-X-c', req: 'X1', why: '不唯一', file: 'c.ts', find: 'k = 1', replace: 'k = 2' },
+    { id: 'M-X-d', req: 'X1', why: '目标文件不在', file: 'missing.ts', find: 'x', replace: 'y' },
+    { id: 'M-X-u', req: 'X1', why: '删一段的，分不开', file: 'u.ts', find: 'del()\n', replace: '' },
+    fine,
+  ] })
+  const dirty = runToolBoth('anchors 遇到对不上的变异即以退出码 1 结束', 'anchors', [], dirtyTmp, { status: 1 })
+  if (dirty.ok) {
+    const lines = dirty.stderr.split('\n')
+    const said = (id: string, file: string, head: string) => lines.some(l => l.trimStart().startsWith(`${id}  ${file}：${head}`))
+    // 自检给子进程预加载的假 fetch 会先往 stderr 打一行，所以认的是那一整行在不在，不认它是不是第一行
+    named('anchors 那一行汇总说出对不上的条数', lines.includes('✗ 变异锚点：6 条变异对不上目标文件'), dirty.stderr)
+    named('anchors 逐条点名五种对不上的：没还原、锚点失效、不唯一带处数、读不到、分不开',
+      said('M-X-a', 'a.ts', '像是没还原') && said('M-X-b', 'b.ts', '锚点失效') && said('M-X-c', 'c.ts', '锚点不止一处')
+        && lines.some(l => l.trimStart().startsWith('M-X-c  ') && l.includes('（2 处）'))
+        && said('M-X-d', 'missing.ts', '目标文件读不到') && said('M-X-u', 'u.ts', '分不开'), dirty.stderr)
+    // 没还原与分不开的都要叫人先看 git diff 再动手（第一片定下的说法）
+    named('anchors 有没还原或分不开的时叫人先看 git diff', dirty.stderr.includes('先用 git diff 看那个文件再动手'), dirty.stderr)
+    // 连带的那条要叫人先撤没还原的，别去改它的 find；不在同一个文件里的那条不这么说
+    const knocked = (id: string) => lines.some(l => l.trimStart().startsWith(`${id}  `) && l.includes('先撤那一处'))
+    named('anchors 和没还原的同在一个文件的那条说先撤没还原的', said('M-X-f', 'a.ts', '锚点失效') && knocked('M-X-f'), dirty.stderr)
+    named('anchors 别的文件里的锚点失效不说先撤', !knocked('M-X-b') && !knocked('M-X-c'), dirty.stderr)
+    named('anchors 不点名对得上的那条', !dirty.stderr.includes('M-X-e') && !dirty.stdout.includes('M-X-e'), dirty.stderr)
+  }
+  // 好树：只有干净的那一条，以 0 退出，✓ 那一行带条数
+  const cleanTmp = join(tmp, 'anchor-clean')
+  toy(cleanTmp, { 'e.ts': 'ok()\n' }, { mutations: [fine] })
+  const clean = runToolBoth('anchors 全对得上即以退出码 0 结束', 'anchors', [], cleanTmp)
+  if (clean.ok) named('anchors 全对得上时说出条数', clean.stdout.trim().startsWith('✓ 变异锚点：1 条变异'), clean.stdout)
+  // 读不到目录：不当成「没有变异、全对得上」
+  const noCatalogTmp = join(tmp, 'anchor-no-catalog')
+  toy(noCatalogTmp, { 'e.ts': 'ok()\n' })
+  const noCatalog = runToolBoth('anchors 读不到变异目录即以退出码 1 结束', 'anchors', [], noCatalogTmp, { status: 1 })
+  if (noCatalog.ok) named('anchors 读不到变异目录时说读不到', noCatalog.stderr.includes('读不到'), noCatalog.stderr)
+  // 目录读得到、里面没有一组变异（键写岔了）：同样不当成「零条、全对得上」
+  const noListTmp = join(tmp, 'anchor-no-list')
+  toy(noListTmp, { 'e.ts': 'ok()\n' }, { mutation: [fine] })
+  const noList = runToolBoth('anchors 目录里读不出一组变异即以退出码 1 结束', 'anchors', [], noListTmp, { status: 1 })
+  if (noList.ok) named('anchors 目录里读不出一组变异时说读不出', noList.stderr.includes('读不出一组变异'), noList.stderr)
+  // 编号重复：先报这一种，锚点不往下查（干净的那条复制了一份，锚点本身对得上）
+  const dupTmp = join(tmp, 'anchor-dup')
+  toy(dupTmp, { 'e.ts': 'ok()\n' }, { mutations: [fine, fine] })
+  const dup = runToolBoth('anchors 变异编号重复即以退出码 1 结束', 'anchors', [], dupTmp, { status: 1 })
+  if (dup.ok) named('anchors 编号重复时点名那个编号', dup.stderr.includes('1 个编号重复') && dup.stderr.includes('M-X-e  出现不止一次'), dup.stderr)
+})
+
 // ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----
 group('wiring', [], () => {
   // 判据是 mutate-rule.ts 的 wiringFault，由 scripts/test.ts 断言、M-H14-t/u/v/w 四条负片
