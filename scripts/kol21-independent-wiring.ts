@@ -13,7 +13,8 @@
  * - `sortForOutput`：`scripts/lib/rows.ts` 的导出函数，同一个数组原样传进去（G5-03 要看调用后输入有没有被改）。
  * - `conditions`：每条 `ref` 写着出处。登的是冻结单 B 节把「建议问谁」写成整合方、整合方又答得出出处的（冻结单 :1586、:1592）：
  *   GAP-18（补法是下面的 `creatorCheck`）；GAP-24a、GAP-24b 是读实现得出的事实，只作资格前提（夹具有没有区分力），
- *   不当任何断言的期望。GAP-24c 要正本或对外文档直接给出「原文件不被改动」，没找到，不登；GAP-09、GAP-20 登了也不判，不登。
+ *   不当任何断言的期望。GAP-24c 要正本或对外文档直接给出「原文件不被改动」：正本的 D4.s 直接写了（ADR-185），照它登，
+ *   G3-15 的字节比因此判得到（D4.s 由需求测试 `d4s-independent-claim` 经本文件认领）；GAP-09、GAP-20 登了也不判，不登。
  *   再加 E-2、E-3：实现方把契约 kol-test-observer/v1 公开在 `skill/references/output-format.md` 末节，需求方逐字确认过
  *   （冻结单 :1797），`ref` 指那一节与 ADR-186、ADR-187。其余（GAP-07①④、GAP-10、GAP-39、GAP-40 与 E-1）不登。
  *   没登的，依赖它的断言照冻结单落在 not-judged。
@@ -195,6 +196,12 @@ const conditions: Partial<Record<ConditionId, Resolution>> = {
       `scripts/lib/budget.ts:80-93 reserve 落盘失败即抛 CostError('persistence-failed')；scripts/collect.ts:444-449 main() 的 catch 对它` +
       `只尽力 persist() 一次再原样抛出，走不到 :469-472 的 finalize（collect 读记忆只有这一处：scripts/lib/pipeline.ts:115 → ` +
       `scripts/lib/memory.ts:397），由 :557-560 退 1。${MAIN}`,
+  },
+  'GAP-24c': {
+    resolved: true, answer: 'unchanged',
+    ref: `正本 docs/requirements.json 的 D4.s：记忆读不出来（D4.d）、没给 --ignore-memory、按 D4.e 不出名单的那一次运行，结束后盘上的 ` +
+      `memory/creators.json 与运行开始前逐字节相同（collect 中止就是这一次，ADR-185「拆开后各管什么」第 1 条）；给了 --ignore-memory 的` +
+      `那一次归 D4.t，同样逐字节不变。两条原文进主干的那一次合入：#426 @52ac2d1（ADR-185）`,
   },
   'E-2': {
     resolved: true,

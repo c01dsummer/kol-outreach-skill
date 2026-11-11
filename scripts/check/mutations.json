@@ -21651,6 +21651,18 @@
         "U9×P1 独立认领：排序函数层（冻结用例 G5-01、G5-02、G5-03）各例判过，每一项都判过",
         "U9×P1 独立认领：名单层（冻结用例 G6-01、G6-02、G6-03，真实 render 入口）各例判过，每一项都判过"
       ]
+    },
+    {
+      "id": "M-D4-ax",
+      "req": "D4.s",
+      "why": "记忆文件读不出来、用户又没说跳过时，入口在拒绝出名单之前先拿一份空记录把原文件盖掉：那份坏了但还能人工修好的联系记录就此没了，谁联系过、谁拉黑过再也找不回来，而入口照旧报的是「读不出来」",
+      "file": "scripts/lib/memory.ts",
+      "find": "    if (!opts.ignoreUnreadable) throw new MemoryUnreadable(FILE, r.detail)",
+      "replace": "    if (!opts.ignoreUnreadable) { writeFileAtomic(FILE, '{}'); throw new MemoryUnreadable(FILE, r.detail) }",
+      "by": "test",
+      "kills": [
+        "D4.s 独立认领：冻结用例 G3-15 的 BYTES(memory/creators.json) 判过，这一例没有一项判红、设施故障或夹具失格"
+      ]
     }
   ],
   "exemptions": [
