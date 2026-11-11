@@ -191,7 +191,7 @@ npm run enrich -- --dir output/{task} --budget <新总上限>
 | 0 | 该干的都干完了：collect 关键词跑完、enrich 与 probe 跑完、render 成功 | 读 stdout |
 | 1 | 其他运行中错误或意外崩溃 | 读 stderr 转述；有汇总 JSON 时断点已保存，可以续跑 |
 | 2 | 输入问题（开跑前查出的；跑到一半才查出的缺 key、费用账问题；collect 收尾时评审文件有问题） | 把 stderr 说的具体哪里不对报给用户 |
-| 3 | 预算不足以支付下一请求：collect、enrich 断点已保存；probe 已出部分结果 | 请用户确认新总上限后续跑，或用已有数据收尾 |
+| 3 | 预算不足以支付下一请求：collect、enrich 断点已保存；probe 已出部分结果 | collect、enrich：请用户确认新总上限后续跑，或用已有数据收尾。probe 没有断点：用已出的部分结果，或说清重跑会从第一个任务起、已花过的请求会再花一遍，由用户定 |
 | 4 | collect 达标停下 | 读 stdout，照常转述 `pending_keywords` |
 | 5 | 供应商返回 402（余额不足） | 告诉用户去充值，不要原样重试 |
 | 6 | 保存失败（断点、费用、名单、交付物或评审正本） | 不得说已保存或已交付 |
@@ -227,7 +227,7 @@ collect 续跑遇到损坏的 `done` 或分页统计时，会在改额、预留�
 `collect.ts` 或 `render.ts` 以**退出码 7** 结束时，表示 `memory/creators.json` 读不出来 ——
 **停下来。不要重跑，不要拿旧名单往下走，也不要自己找路绕过它。**
 采集结果和已花的预算都完好，把 stderr 的原话报给用户（它会说是哪个人的哪个字段不对），
-让用户修好文件后按 stderr 给出的那条命令 `--resume`（预算用尽时那条命令会带上 `--budget`）。
+让用户修好文件后：collect 按 stderr 给出的那条命令 `--resume`（预算用尽时那条命令会带上 `--budget`）；render 的 stderr 不带续跑命令，修好后重跑同一条 render 命令。
 
 stderr 还会给出另一条路：加 `--ignore-memory` 强出名单。**不要自己加。** 强出名单是用户的取舍，
 不是你的 —— 他明确要求时才加，并按 `references/memory.md` 把代价说清。

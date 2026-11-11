@@ -581,7 +581,8 @@ async function main() {
     process.exit(EXIT.budget)    // 预算用尽，可续跑
   }
   if (stopped === 'error') process.exit(errorExit)
-  if (stopped === 'target') process.exit(EXIT.target)
+  // 达标用 exitCode 自然退出：上面的汇总 JSON 走的是 stdout，管道下 process.exit 可能截断它（budget、error 两支见 ADR-193 第六节那张欠条）
+  if (stopped === 'target') process.exitCode = EXIT.target
 }
 
 // 走到这里的都没有汇总 JSON：收尾时评审文件有问题 2、保存失败 6、其余 1（ADR-193；KOL-108 第 2 件）

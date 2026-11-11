@@ -91,6 +91,7 @@
    **照 stderr 说的转述**：剩余关键词和待补 profile 都为零才是零请求；有待查项但费用不可用时，还需报告阻止原因，不承诺加钱即可恢复。
    修好之后按 stderr 给的那条命令续跑（预算用尽时它会带上 `--budget`）：
    `npm run collect -- --resume output/{task}`
+   render 以 7 结束时没有这条命令：修好后重跑同一条 `npm run render -- --dir output/{task}`
 3. 如果实在修不了、又必须现在拿到名单：加 `--ignore-memory`。
    但要**说清代价** —— 这一批不会做已联系去重，名单里可能有他打扰过、
    甚至已经拉黑的人，发信前得自己核对

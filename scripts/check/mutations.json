@@ -21632,7 +21632,7 @@
       "req": "D6.aa",
       "why": "collect 达标停下时不按 ADR-193 退 4，落回 0：调用方只看退出码又分不出「达标停下」与「关键词跑完」，要不要转述 pending_keywords 无从判断",
       "file": "scripts/collect.ts",
-      "find": "  if (stopped === 'target') process.exit(EXIT.target)\n",
+      "find": "  if (stopped === 'target') process.exitCode = EXIT.target\n",
       "replace": "",
       "by": "selfcheck",
       "kills": [
