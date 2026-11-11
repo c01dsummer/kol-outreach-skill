@@ -2572,9 +2572,11 @@ await group('d4t-independent-claim', () => {
       return [st(l => l.startsWith('退出码 = ')), st(l => l.startsWith('MEM-READ(')), st(l => l === 'BYTES(memory/creators.json)'),
         items.filter(i => ['red', 'facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)]
     }
-    for (const id of ['G3-19', 'G3-19N'])
-      eq(`D4.t 独立认领：冻结用例 ${id} 的退出码、MEM-READ 与 BYTES(memory/creators.json) 三项都判过，这一例没有一项判红、设施故障或夹具失格`,
-        read(id), [['pass'], ['pass'], ['pass'], []])
+    // 两条名字写成字面量：负片的 kills 按名字点它们，变异清册只认字面量
+    eq('D4.t 独立认领：冻结用例 G3-19 的退出码、MEM-READ 与 BYTES(memory/creators.json) 三项都判过，这一例没有一项判红、设施故障或夹具失格',
+      read('G3-19'), [['pass'], ['pass'], ['pass'], []])
+    eq('D4.t 独立认领：冻结用例 G3-19N 的退出码、MEM-READ 与 BYTES(memory/creators.json) 三项都判过，这一例没有一项判红、设施故障或夹具失格',
+      read('G3-19N'), [['pass'], ['pass'], ['pass'], []])
   } finally { scRmSync(root, { recursive: true, force: true }) }
   criterion('D4.t')
 })
