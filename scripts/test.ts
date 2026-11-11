@@ -14331,7 +14331,7 @@ try {
   const fresh = newTask('缺预算新建', { ...base, notes: { budget_usd: 0.005 } })
   ok('观察失格：缺预算新建：collect 入口已接入同一 stderr/HTTP 顺序观察器', fresh.connected)
   if (!fresh.observed || !fresh.connected) return
-  eq('缺预算新建任务按默认总预算继续采集，以退出码 0 结束', fresh.status, 0)
+  eq('缺预算新建任务按默认总预算继续采集，达标以退出码 4 结束', fresh.status, 4)
   ok('缺预算新建任务确实发出了实际 HTTP，逐笔对应假 fetch 记录', fresh.http.length > 0 && fresh.http.length === fresh.attempts.length)
   const atFirstHttp = disclosure(fresh.http[0]?.stderr ?? '')
   ok('首笔 HTTP 发出时已告知未提供预算', atFirstHttp.missing)
@@ -14358,7 +14358,7 @@ try {
     const explicit = newTask('合规根预算0.005', { ...base, budget_usd: 0.005 })
     ok('观察失格：合规根预算0.005：collect 入口已接入同一 stderr/HTTP 顺序观察器', explicit.connected)
     if (explicit.observed && explicit.connected) {
-      eq('根上合规预算 0.005 美元仍按原预算结束，不能改用默认额度', explicit.status, 0)
+      eq('根上合规预算 0.005 美元仍按原预算结束，不能改用默认额度', explicit.status, 4)
       eq('根上已给合规预算 0.005 美元时 stderr 不误称采用默认 $2', disclosure(explicit.stderr).defaultTwo, false)
       eq('根上合规预算 0.005 美元不被默认 $2 覆盖', explicit.task?.budget_usd, 0.005)
     }
@@ -14367,7 +14367,7 @@ try {
     const explicit = newTask('合规根预算2', { ...base, budget_usd: 2 })
     ok('观察失格：合规根预算2：collect 入口已接入同一 stderr/HTTP 顺序观察器', explicit.connected)
     if (explicit.observed && explicit.connected) {
-      eq('根上合规预算 2 美元仍按原预算结束，不能改用默认额度', explicit.status, 0)
+      eq('根上合规预算 2 美元仍按原预算结束，不能改用默认额度', explicit.status, 4)
       eq('根上已给合规预算 2 美元时 stderr 不误称采用默认 $2', disclosure(explicit.stderr).defaultTwo, false)
       eq('根上合规预算 2 美元不被默认 $2 覆盖', explicit.task?.budget_usd, 2)
     }
