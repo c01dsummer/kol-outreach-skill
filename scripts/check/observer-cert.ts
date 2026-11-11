@@ -88,7 +88,7 @@ const CONTROLS: Record<ObserverEntry, { positive: Control & { entry?: 'control' 
   probe: {
     positive: { files: { 'probe.json': { market: 'US', budget_usd: 0.5, tasks: [...tasks, ...tasks] } }, args: cwd => ['--config', join(cwd, 'probe.json')],
       script: script([{ endpoint: SEARCH, responses: [json200({ data: { search_item_list: [] } }), { status: 402, body: 'payment required' }] }]),
-      exit: 0, requests: [{ status: 200 }, { status: 402 }], stdout: v => v?.results?.length === 2 && v.results[0].found === 0 && typeof v.results[1].error === 'string' },
+      exit: 5, requests: [{ status: 200 }, { status: 402 }], stdout: v => v?.stopped === 'provider_402' && v.results?.length === 2 && v.results[0].found === 0 && typeof v.results[1].error === 'string' },
     zero: { files: { 'probe.json': { market: 'US', budget_usd: 0.5, tasks: [] } }, args: cwd => ['--config', join(cwd, 'probe.json')], script: script([]), exit: 2, requests: [] },
   },
   collect: {
