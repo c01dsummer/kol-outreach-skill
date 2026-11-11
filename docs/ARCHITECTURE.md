@@ -128,6 +128,7 @@
 | `scripts/lib/atomic.ts` | 逻辑 | D4 | **唯一一份**整体替换写入：临时文件按最严权限建、目标原有的权限位带过去、失败清半成品、写之前清掉已死进程留下的残留（活着的与刚写下的不动，清不掉不算失败）、目标只读时不替换（改名会绕过文件自己的权限）、目标是软链时写它指向的那份；改名前刷文件、改名后与新建目录逐层尽力刷目录 —— 尽力而为，不作保证（ADR-50）。记忆、任务目录的状态文件、人工模板目标、四个交付物、以及两份覆盖记录（`test.ts` 的单元认领、`selfcheck.ts` 的入口认领）都经它落盘 —— 各写一份时同一个权限位的 bug 修好一次又原样重现 |
 | `scripts/lib/cost-ledger.ts` | 逻辑 | D12 D13 P1 P3 P5 | 精确金额、费用账校验与预留结算；只接收固定价目，不依赖文件或网络；总上限修改不重算历史项 |
 | `scripts/providers/tikhub-pricing.ts` | 适配 | D12 P5 | 固定公开价目的版本与完整端点报价，供费用账核对历史依据；不远程查价、不推断账户账单 |
+| `scripts/lib/exit-codes.ts` | 逻辑 | D6 D14 D4 F3 | 四个入口共用的退出码名字（ADR-193），每个数对着调用方该做的一件事；`saving` 给一段保存抛的错误打不可枚举的记号、原样抛出，入口凭 `isSaveFailure` 分到保存失败 |
 | `scripts/lib/budget.ts` | 逻辑 | D13 D14 P3 F7 | 连接价目与费用账，延迟检查付费资格；同一 state 同步账目/次数，由任务入口注入费用保存回调（回调同时得知是哪个保存点、哪一次尝试），预留和终态保存失败锁定该实例；process 预算不落盘；每次预留尝试经 `obs.ts` 报一条记录（kol-test-observer/v1，平时关着） |
 | `scripts/lib/obs.ts` | 逻辑 | — | 契约 kol-test-observer/v1（`output-format.md` 末节，需求方逐字确认，ADR-186、ADR-187）：设了 `KOL_TEST_OBSERVER_EVENTS` 时以追加方式打开它指的文件（最后一行没有换行就先补一个），同步写就绪记录与每次预留尝试的预留记录；这时 collect 启动时只读一次 `.kol-save-fault.json`，选中保存点的第 k 次抛出、与磁盘写失败同一条路，并写命中记录，没生效就在退出时写未命中记录。记录只写进那个文件、不带前缀，stdout 与 stderr 不因此多写；文件打不开、写不进时以 1 退出；没设时什么也不读、不写。入口第一句调它，保存点由 `budget.ts` 的保存回调与 collect 收尾那次断点保存报给它 |
 | `scripts/lib/cost-json.ts` | 逻辑 | D13 D14 P3、D19 P1 | 根预算、次数与费用账原数值的精确边界；非法费用数字保持不可用并保留原件；向恢复进度校验提供原始 JSON 数字 token，读入时留住源文本、判重复时才扫出每一层对象里的重复键及每一处原文（D19.k 只取根与根下一层）；整份写回时，读入根上没被改动的非费用数字按原文写出，费用三棵子树只走 D13 的专用路径；任务文件、meta 与 stdout 共用，HTML 只读金额文本 |
@@ -201,7 +202,7 @@
 | `scripts/check/observer-cert.ts` | 检查 | — | 观察器的认证入口：断网认证 → 每个入口各一条阳性、一条零记录（probe、collect、enrich 另核测试观察记录：合契约，预留条条成功、条数等于请求数）→ 设施故障对照 → `summary.json`（被测提交、设施与每份证据的 SHA256、逐项结论），全部成立才以 0 退出。冻结命令是下一行；自检组 `observer-cert-entry` 在临时目录里起它验接线，那一跑不是认证 |
 | `scripts/check/observer-cert.sh` | 检查 | — | 冻结的认证命令（`sh scripts/check/observer-cert.sh`），整合方在 PR head 的干净克隆里照跑，证据写 `output/kol21-observer-cert/`；不在检查链里（自检只认带 shebang 的 `.ts`），本文件的 SHA256 记在 ADR-70 末尾 |
 | `scripts/kol21-independent/` | 检查 | D6 D13 D16 D17 D19 D28 P1 P3 U9 | KOL-21 独立测试包的冻结原字节（ADR-183 第 95 行 T 那一片）：独立上下文只照冻结规格单写成，不 import 任何产品实现、观察器源码、writer/reader 或比较器；106 例，每例的结论分 pass、red、fixture、facility、review-pending、not-judged、not-covered，后三种不算过也不算红。**一个字节都不改**：改了就不再是冻结的那一份；接入面只认目录里 `INTEGRATION.md` 写的那几样，由下一行接 |
-| `scripts/kol21-independent-wiring.ts` | 检查 | D4 D6 D13 U9 P1 | 冻结套件的接线：观察器的公开调用面与 `rows.ts` 的排序函数接进去（`readEvents` 交回的事件逐条浅拷贝一份，只为过类型、字段一个不增不减，其余原样传入）；`e2`、`e3` 适配器从观察器每一跑给的测试观察记录文件读（`e2` 在当前目录写保存失败注入的控制文件，`e3` 走记录文件那一路；记录不合契约整份当没有）。登记的前提：GAP-18（补法即公开夹具资格检查 `creatorCheck` 一并接上）、GAP-24a、GAP-24b（只作资格前提）、GAP-24c（`ref` 指正本 D4.s，ADR-185）与 E-2、E-3（`ref` 指 `output-format.md` 末节与 ADR-186、ADR-187）；E-1 未登。不给任何语义复核，跑一遍、原样写出冻结套件自己的报告，不判、不改、不合并任何结论。自检组 `kol21-independent` 把它当被测对象起（不进自检的工具表：那张表是验证基础设施闭包的种子，进了会把 `rows.ts` 一路拉进闭包），照报告逐种结论分开报；具名断言只给 D6.y、D13.v、D13.u，所涉各例都判 pass、且每例里的每一项也都是 pass 才认领（例判 pass 但还带 not-judged 项的，不认领）。G3-14c 只有「G3-14c 前提」那一项失格、「E-2 命中」判过、没有一项判红或设施故障时读作预期结果（GAP-24b 登为不读记忆，ADR-186 末尾），不算失败，也认领不下。交点 U9×P1 不在自检认领：需求测试 `u9-p1-independent-claim` 起它、只点 G5 排序函数层与 G6 名单层（G5-01…03、G6-01…03），各例都判 pass、每一项也都是 pass 才认领（R 片，ADR-92 末尾）。D4.s 也不在自检认领：需求测试 `d4s-independent-claim` 起它、只点 G3-15，退出码那一项与字节比 `BYTES(memory/creators.json)` 都判 pass、这一例没有一项判红、设施故障或夹具失格，几样都成立才认领（ADR-185 末尾） |
+| `scripts/kol21-independent-wiring.ts` | 检查 | D4 D6 D13 U9 P1 | 冻结套件的接线：观察器的公开调用面与 `rows.ts` 的排序函数接进去（`readEvents` 交回的事件逐条浅拷贝一份，只为过类型、字段一个不增不减，其余原样传入）；`e2`、`e3` 适配器从观察器每一跑给的测试观察记录文件读（`e2` 在当前目录写保存失败注入的控制文件，`e3` 走记录文件那一路；记录不合契约整份当没有）。登记的前提：GAP-18（补法即公开夹具资格检查 `creatorCheck` 一并接上）、GAP-24a、GAP-24b（只作资格前提）、GAP-24c（`ref` 指正本 D4.s，ADR-185）与 E-2、E-3（`ref` 指 `output-format.md` 末节与 ADR-186、ADR-187）；E-1 未登。不给任何语义复核，跑一遍、原样写出冻结套件自己的报告，不判、不改、不合并任何结论。自检组 `kol21-independent` 把它当被测对象起（不进自检的工具表：那张表是验证基础设施闭包的种子，进了会把 `rows.ts` 一路拉进闭包），照报告逐种结论分开报；具名断言只给 D6.aa（接替 D6.y，ADR-193）、D13.v、D13.u，所涉各例都判 pass、且每例里的每一项也都是 pass 才认领（例判 pass 但还带 not-judged 项的，不认领）。G3-14c 只有「G3-14c 前提」那一项失格、「E-2 命中」判过、没有一项判红或设施故障时读作预期结果（GAP-24b 登为不读记忆，ADR-186 末尾），不算失败，也认领不下。交点 U9×P1 不在自检认领：需求测试 `u9-p1-independent-claim` 起它、只点 G5 排序函数层与 G6 名单层（G5-01…03、G6-01…03），各例都判 pass、每一项也都是 pass 才认领（R 片，ADR-92 末尾）。D4.s 也不在自检认领：需求测试 `d4s-independent-claim` 起它、只点 G3-15，退出码那一项与字节比 `BYTES(memory/creators.json)` 都判 pass、这一例没有一项判红、设施故障或夹具失格，几样都成立才认领（ADR-185 末尾） |
 
 <!-- END:ANCHORS -->
 
@@ -452,10 +453,10 @@ Agent 是编排者，它读 stdout 做决策。
 
 | 入口 | 读 | 写 | 退出码 |
 |---|---|---|---|
-| `probe` | `--config probe.json` | **不落盘** | 0 · 1 · 2 |
-| `collect` | `--config task.json` 或 `--resume <dir>` `[--ignore-memory]`；旧名单、采集原件、评审正本及已有人工表 | `task.json` `creators.raw.json` `creators.json` · 内容变化时 `agent-review.json` | 0 · 1 · 2 · **3** |
-| `enrich` | `--dir <dir>`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv`） | `enrichment.json` `task.json` | 0 · 1 · 2 · **3** |
-| `render` | `--dir <dir>` `[--ignore-memory]`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv` · `enrichment.json` · 当前 `memory/creators.json`） | 内容变化时 `agent-review.json` · `task.json` 的去重状态 · `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` · **`memory/creators.json`** | 0 · 1 · 2 |
+| `probe` | `--config probe.json` | **不落盘** | 0 · 1 · 2 · **3** · **5** |
+| `collect` | `--config task.json` 或 `--resume <dir>` `[--ignore-memory]`；旧名单、采集原件、评审正本及已有人工表 | `task.json` `creators.raw.json` `creators.json` · 内容变化时 `agent-review.json` | 0 · 1 · 2 · **3** · **4** · **5** · **6** · **7** |
+| `enrich` | `--dir <dir>`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv`） | `enrichment.json` `task.json` | 0 · 1 · 2 · **3** · **5** · **6** |
+| `render` | `--dir <dir>` `[--ignore-memory]`（`task.json` `creators.json` `creators.raw.json` `agent-review.json` · 已有 `manual-feedback.csv` · `enrichment.json` · 当前 `memory/creators.json`） | 内容变化时 `agent-review.json` · `task.json` 的去重状态 · `creators.json` `kol.csv` `kol.xlsx` `meta.json` `report.html` · **`memory/creators.json`** | 0 · 1 · 2 · **6** · **7** |
 | `calibration version` | 子命令 `version` 与必填一次 `--dir <dir>`；既有 `task.json` 的 `brand_calibration` | 仅 `task.json` 的 `brand_calibration.version`（与 `updated_at`）；缺席、结构不合、已一致与保存失败不写 | 0 · 1 · 2 |
 | `sender` | 必填一次 `--dir <dir>` 与 `--name <姓名>`；既有 `task.json` | 仅 `task.json` 根上的 `sender_name`（与 `updated_at`）；姓名不合规、读不成对象或写重复的键时不写 | 0 · 1 · 2 |
 | `feedback-template` | 必填一次 `--dir <dir>`、可选一次 `--append`；既有 `task.json`、已保存 `agent-review.json`、完整 `creators.json`、存在时的 `creators.raw.json` 及人工目标 | 仅 `manual-feedback.csv` 的创建或显式追加；unchanged 不写 | 0 · 1 · 2 |
@@ -518,19 +519,23 @@ enrich 与 render 同样使用 `taskListProblems` 校验原样任务列表；与
 合规后仅为新 collect / probe 缺席的 market 采用 US，并在 stderr 说明默认；仅为新 collect 缺席的 target_count 采用 50。
 显式 null 不是缺席，旧任务不套这些缺省；人数为 0 仍受 F9 第一页保证及其预算边界约束。
 
-退出码按可行动的原因区分：
+退出码按可行动的原因区分，collect、enrich、probe、render 共用这一套（ADR-193，名字在 `scripts/lib/exit-codes.ts`）：
 
 | | 含义 | Agent 该做什么 |
 |---|---|---|
-| `0` | 正常；probe 预算不足也保留部分输出 | 读 stdout 与停止提示 |
-| `2` | 输入/初始费用状态、实际请求缺 key，或记忆读不出来 | 报具体原因，不能仅建议加钱 |
-| `3` | collect/enrich 已知额度不足且断点保存成功 | 用户确认新总上限后续跑，或用已有数据收尾 |
-| `1` | 运行中费用内部错误、保存失败或其他失败 | 读 stderr；不得声称断点已保存 |
+| `0` | 该干的都干完了：collect 关键词跑完、enrich 与 probe 跑完、render 成功 | 读 stdout 与停止提示 |
+| `2` | 输入/初始费用状态、实际请求缺 key，或 collect 收尾时评审文件有问题 | 报具体原因，不能仅建议加钱 |
+| `3` | collect/enrich 已知额度不足且断点保存成功；probe 额度不足中途停下、已出部分结果 | 用户确认新总上限后续跑，或用已有数据收尾 |
+| `4` | collect 达标停下 | 读 stdout，照常转述 `pending_keywords` |
+| `5` | 供应商返回 402（余额不足） | 告诉用户去充值，不要原样重试 |
+| `6` | 保存失败：断点、费用、名单、交付物或评审正本 | 不得声称已保存或已交付 |
+| `7` | 跨任务记忆读不出来（没加 `--ignore-memory`） | 停下，请用户修那个文件 |
+| `1` | 其他运行中错误或意外崩溃（含运行中费用内部错误） | 读 stderr |
 
 恢复 pending 拒绝付费/改额为 2，运行中意外 pending/receipt 错为 1。直接分页探针非 200 仍中止，不输出成功结果 JSON。
 零请求 collect、缓存/私密 enrich 与 render 不要求 key 或可付费账；坏的整份 JSON 仍无法读取。
 
-collect/enrich 的任务费用先保存预留才发请求，结算保存成功后才读正文或进入下一尝试（D14、ADR-109）。费用检查点只更新盘上 task 的账目与次数，不能提前保存内存业务进度或去重声明。检查点失败锁定本运行并退出 1；尽力保存成功也不产出常规成功提示或被记忆错误改成 2。process 探针不接此回调。强杀后 pending 仍占额度；终态已存但业务响应未存时仍可能重查，不承诺断电或多个写者安全。
+collect/enrich 的任务费用先保存预留才发请求，结算保存成功后才读正文或进入下一尝试（D14、ADR-109）。费用检查点只更新盘上 task 的账目与次数，不能提前保存内存业务进度或去重声明。检查点失败锁定本运行并退出 6；尽力保存成功也不产出常规成功提示或被记忆错误改成 7（ADR-193）。process 探针不接此回调。强杀后 pending 仍占额度；终态已存但业务响应未存时仍可能重查，不承诺断电或多个写者安全。
 
 续跑提示分别计算待查关键词与待补 profile；两者皆零才声明无新请求。有待查项但费用不可用时同时报告阻止原因，不能承诺续跑即花钱（D6.q/r）。记忆读不出来仍按 P4 停止产出，只有用户显式 `--ignore-memory` 才跳过，并保留未去重声明。
 

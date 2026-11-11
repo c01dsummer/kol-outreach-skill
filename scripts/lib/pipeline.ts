@@ -331,9 +331,9 @@ export function pendingKeywords(state: TaskState): string[] {
  *
  * **`collect.ts` 里有两处调它**，对应两条判据：
  *
- * - `catch (MemoryUnreadable)` 里那一处，退出码 2、不产出名单 —— **D6.e**
+ * - `catch (MemoryUnreadable)` 里那一处，退出码 7（ADR-193 之前是 2）、不产出名单 —— **D6.e**（今 D6.q）
  * - 产出了名单的四种收尾共用的那一处（在 `stopped` 分支之前）：关键词跑完、
- *   达标提前停下、预算用尽、出错中止 —— **D6.f**
+ *   达标提前停下、预算用尽、出错中止 —— **D6.f**（今 D6.r）
  *
  * 分成两条判据是因为两处**能各自坏掉**；四种收尾共用一处，所以它们合起来才是一条。
  *

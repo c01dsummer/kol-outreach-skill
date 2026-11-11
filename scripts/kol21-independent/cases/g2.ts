@@ -38,7 +38,7 @@ function flagIf16P(c: Ctx): void {
 }
 /** G2-00 / G2-01 共用（G2-01「同 G2-00」，只换根预算与上限）。PK-HAS(kol21 g2 pay) 为附条件子断言（GAP-07④）。 */
 function payPositive(c: Ctx, r: RunRec, budget: string, limit: number): void {
-  J.exitIs(c, r, 1, 'D6.y（402 → error、退 1）')
+  J.exitIs(c, r, 5, 'ADR-193（KOL-106 方案乙）（402 → error、退 5）；旧值 1 见 D6.y')
   J.summary(c, r, 'error')
   J.err402(c, r)
   J.pk(c, r, 'kol21 g2 pay', 'HAS', c.cond('GAP-07④', 'present') ? undefined

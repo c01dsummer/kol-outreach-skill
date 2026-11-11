@@ -596,8 +596,9 @@ group('probe', [], () => {
       { keyword: 'force-402-selfcare', dimension: 'competitor', platform: 'tiktok' },
     ],
   }))
+  // 末尾那个任务回 402：probe 照出部分结果、以 5 收尾（ADR-193）
   const identityRun = runBoth('probe 同词与失败任务身份', [S('probe.ts'), '--config', identityCfg],
-    tmp, undefined, { FAKE_FETCH_NO_429: '1' })
+    tmp, { status: 5 }, { FAKE_FETCH_NO_429: '1' })
   if (identityRun.ok) {
     const results = summaryOf(identityRun.stdout).results
     const rows: any[] = Array.isArray(results) ? results : []
@@ -670,7 +671,7 @@ group('probe', [], () => {
   writeFileSync(brokenCfg, '{"market": "US", "budget_usd": 0.5, "tasks": [')
   for (const [what, cfg] of [['文件不存在', join(unreadableDir, 'missing.json')], ['不是合法 JSON', brokenCfg]] as const) {
     const r = runBoth(`probe 配置读不出：${what}`, [S('probe.ts'), '--config', cfg], unreadableDir,
-      { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_NO_429: '1' })
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, { FAKE_FETCH_NO_429: '1' })
     if (!r.ok) continue
     const leak = probeInputLeak(r.stderr)
     // 「问题本身」：写着配置路径的那一行，去掉路径之后还得剩下字母或数字 —— 只剩一个冒号不算写了问题。
@@ -843,8 +844,9 @@ group('budget-gate', [], () => {
   // 账本都是 `tmp` 下各自的一份，不碰 `tmp` 下共用的记忆与产出（记忆按当前目录找；probe.ts 不写盘）。
   const observerCwd = join(tmp, 'budget-gate-observer')
   mkdirSync(observerCwd, { recursive: true })
-  const observed = (label: string, args: string[], cwd: string, log: string): boolean => {
-    const r = runBoth(label, args, cwd, undefined, costEnv(log))
+  // collect 那一跑达标收尾，退 4（ADR-193）；其余入口跑完退 0
+  const observed = (label: string, args: string[], cwd: string, log: string, status = 0): boolean => {
+    const r = runBoth(label, args, cwd, { status }, costEnv(log))
     if (!r.ok) return false
     const attempts = fetchAttempts(log).length
     if (attempts > 0) { console.log(`    观察器记下 ${attempts} 次请求`); return true }
@@ -854,7 +856,7 @@ group('budget-gate', [], () => {
     return false
   }
   const budgetStop = (label: string, args: string[], cwd: string, log: string) => {
-    const r = runBoth(label, args, cwd, { status: 2, soft: [0, 1, 3] }, costEnv(log))
+    const r = runBoth(label, args, cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(log))
     return r.ok ? { ...r, attempts: fetchAttempts(log).length } : undefined
   }
   type Stopped = NonNullable<ReturnType<typeof budgetStop>>
@@ -895,7 +897,7 @@ group('budget-gate', [], () => {
 
   ledgerDir(join(observerCwd, 'collect-ok'), 0)
   if (observed('collect 合法账目、合法 --budget 照常续跑（请求观察器阳性对照）',
-      [S('collect.ts'), '--resume', 'collect-ok', '--budget', '3'], observerCwd, join(observerCwd, 'collect-ok.tsv'))) {
+      [S('collect.ts'), '--resume', 'collect-ok', '--budget', '3'], observerCwd, join(observerCwd, 'collect-ok.tsv'), 4)) {
     const badCfg = join(tmp, 'collect-badbudget.json')
     writeFileSync(badCfg, JSON.stringify({ product: 'badbudget', market: 'US', target_count: 1, budget_usd: 'abc', tasks }))
     const collectBad = budgetStop('collect 上限写成 "abc"', [S('collect.ts'), '--config', badCfg], tmp,
@@ -938,7 +940,7 @@ group('cost-input', [], () => {
       const cfg = join(cwd, 'config.json'), log = join(cwd, 'attempts.tsv')
       writeFileSync(cfg, `{"product":"input","market":"US","target_count":1,"nested":{"budget_usd":0.005},"budget_usd":${token},"tasks":[{"keyword":"k","dimension":"category","platform":"tiktok"}]}`)
       const result = runBoth(`${entry} 原始金额 ${token}`, [S(`${entry}.ts`), '--config', cfg], cwd,
-        { status: 2, soft: [0, 1, 3] }, costEnv(log))
+        { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(log))
       if (result.ok) named('原始非法预算不能被浮点舍入、嵌套字段或默认值救活',
         result.status === 2 && fetchAttempts(log).length === 0 && /budget|预算|金额/i.test(result.stderr),
         `${entry} token=${token}, status=${result.status}, attempts=${fetchAttempts(log).length}`)
@@ -970,7 +972,7 @@ group('cost-input', [], () => {
       const result = runBoth(`${entry} CLI 原始金额 ${String(token)}`,
         [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir, '--budget',
           ...(token === undefined ? [] : [token])], f.cwd,
-        { status: 2, soft: [0, 1, 3] }, costEnv(f.log))
+        { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(f.log))
       if (result.ok) named('CLI 非法金额保留原输入，缺操作数不能当成未指定',
         result.status === 2 && fetchAttempts(f.log).length === 0
           && result.stderr.includes(token === undefined ? '--budget' : token)
@@ -987,7 +989,7 @@ group('cost-input', [], () => {
     // 嵌套坏值放在根之后；有效根值不能被同名嵌套字段污染。
     writeFileSync(cfg, `{"product":"precise","market":"US","target_count":1,"budget_usd":${token},"nested":{"budget_usd":${preciseBad}},"tasks":[{"keyword":"k","dimension":"category","platform":"tiktok"}]}`)
     const result = runBoth(`collect 精确保存 ${token}`, [S('collect.ts'), '--config', cfg], cwd,
-      undefined, costEnv(log))
+      { status: 4 }, costEnv(log))
     if (!result.ok) continue
     const taskDir = onlyDir(cwd, 'precise')
     if (!taskDir) { named('精确金额的新任务必须留下断点目录', false, '没有唯一的 precise 目录'); continue }
@@ -1011,7 +1013,7 @@ group('cost-input', [], () => {
     writeFileSync(cfg, JSON.stringify({ product: 'default', market: 'US', target_count: 1,
       tasks: [{ keyword: 'default', dimension: 'category', platform: 'tiktok' }] }))
     const result = runBoth(`${entry} 缺席预算声明默认与范围`, [S(`${entry}.ts`), '--config', cfg],
-      cwd, undefined, costEnv(log))
+      cwd, { status: entry === 'collect' ? 4 : 0 }, costEnv(log))
     if (result.ok) named('只有新输入预算缺席才使用有范围说明的默认值',
       costViewMatches(summaryOf(result.stdout), { budget_usd: entry === 'collect' ? 2 : 0.5,
         cost_scope: entry === 'collect' ? 'task' : 'process', cost_status: 'known' })
@@ -1034,7 +1036,7 @@ group('cost-input', [], () => {
     const task = taskDir ? join(collision, taskDir, 'task.json') : ''
     const before = fileText(task)
     const second = runBoth('同目录第二次新建必须拒绝', [S('collect.ts'), '--config', cfg], collision,
-      { status: 2, soft: [0, 1, 3] }, extra)
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, extra)
     if (second.ok) {
       named('再次 config 不能覆盖已有任务、归零账目或重发请求',
         second.status === 2 && before !== '' && fileText(task) === before
@@ -1050,7 +1052,7 @@ group('cost-input', [], () => {
   writeFileSync(noRawConfig, '{"product":"nojson","market":"US","target_count":1,"budget_usd":0.005,"tasks":[{"keyword":"k","dimension":"category","platform":"tiktok"}]}')
   const noRawLog = join(missingJson, 'attempts.tsv')
   const noRawRun = runBoth('缺少精确 JSON 写出能力不得降级付费', [S('collect.ts'), '--config', noRawConfig], missingJson,
-    { status: 2, soft: [0, 1, 3] }, costEnv(noRawLog, {
+    { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(noRawLog, {
       NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(noRaw).href)}`,
     }))
   if (noRawRun.ok) named('精确 JSON 能力缺失确实被注入，且没有浮点降级或真实请求',
@@ -1062,7 +1064,7 @@ group('cost-input', [], () => {
   const noRawProbeCfg = join(missingJson, 'probe.json')
   writeFileSync(noRawProbeCfg, '{"market":"US","budget_usd":0.5,"tasks":[{"keyword":"k","dimension":"category","platform":"tiktok"}]}')
   const noRawProbe = runBoth('probe 缺少精确 JSON 写出能力', [S('probe.ts'), '--config', noRawProbeCfg], missingJson,
-    { status: 2, soft: [0, 1, 3] }, costEnv(join(missingJson, 'probe-attempts.tsv'), {
+    { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(join(missingJson, 'probe-attempts.tsv'), {
       NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(noRaw).href)}`,
     }))
   if (noRawProbe.ok) {
@@ -1118,7 +1120,7 @@ group('cost-local', [], () => {
     const before = jsonFile(f.task)
     const result = runBoth(`${entry} 本地处理 ${scenario.name}`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir], f.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+      { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (!result.ok) continue
     const after = jsonFile(f.task)
     named('历史费用不可用和恢复 pending 不阻止三个本地入口，缺 key 仍零请求',
@@ -1170,7 +1172,7 @@ group('cost-local', [], () => {
     writeFileSync(f.task, before)
     const result = runBoth(`${entry} 原样保留历史预算 ${String(token)}`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir], f.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+      { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (result.ok) named('未知费用本地写回保留原预算 token，缺席不制造字段',
       result.status === 0 && fetchAttempts(f.log).length === 0
         && rootToken(fileText(f.task), 'budget_usd') === token
@@ -1186,7 +1188,7 @@ group('cost-local', [], () => {
     writeFileSync(f.task, fileText(f.task).replace('"budget_usd":1,', `"budget_usd":${raw},`))
     const result = runBoth(`${entry} 原样保留非法${shape}预算中的数字`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir], f.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+      { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (!result.ok) continue
     const after = jsonFile(f.task), saved = fileText(f.task)
     const tokens = keys.map(key => rootToken(saved, key, ['budget_usd']))
@@ -1245,7 +1247,7 @@ group('cost-resume', [], () => {
     const result = runBoth(`${entry} ${kind} ${change ? '不能借改额恢复' : '首次付费拒绝'}`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir,
         ...(change ? ['--budget', '0.006'] : [])], f.cwd,
-      { status: 2, soft: [0, 1, 3] }, costEnv(f.log))
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(f.log))
     if (result.ok) {
       const after = jsonFile(f.task)
       named('历史未知、坏价、未知版本和恢复 pending 都在付费前拒绝，改额不能洗白',
@@ -1266,7 +1268,7 @@ group('cost-resume', [], () => {
     const before = jsonFile(f.task)
     const denied = runBoth(`${entry} 根预算冲突禁止付费`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir], f.cwd,
-      { status: 2, soft: [0, 1, 3] }, costEnv(f.log))
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(f.log))
     if (!denied.ok) continue
     named('根预算冲突不静默选择一份，也不发出新请求',
       denied.status === 2 && fetchAttempts(f.log).length === 0
@@ -1288,7 +1290,7 @@ group('cost-resume', [], () => {
     writeFileSync(observer, `import { readFileSync, appendFileSync } from 'node:fs'; const previous = globalThis.fetch; globalThis.fetch = async (...args) => { appendFileSync(${JSON.stringify(snapshots)}, readFileSync(${JSON.stringify(f.task)}, 'utf8').replace(/\\n/g, '') + '\\n'); return previous(...args); };`)
     const changed = runBoth(`${entry} 显式设置总额修正冲突`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir, '--budget', '0.006'], f.cwd,
-      { status: 3, soft: [0, 1, 2] }, costEnv(f.log, {
+      { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] }, costEnv(f.log, {
         NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(observer).href)}`,
       }))
     if (!changed.ok) continue
@@ -1314,7 +1316,7 @@ group('cost-resume', [], () => {
     const wanted = limit === '0.003' ? 3 : 2
     const result = runBoth(`${entry} 降额 ${limit}`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir, '--budget', limit], f.cwd,
-      { status: wanted, soft: [0, 1, 2, 3].filter(n => n !== wanted) }, costEnv(f.log))
+      { status: wanted, soft: [0, 1, 2, 3, 4, 5, 6, 7].filter(n => n !== wanted) }, costEnv(f.log))
     if (result.ok) {
       const after = jsonFile(f.task)
       named('总上限可降到占用，低于占用拒绝且不写半份上限',
@@ -1346,7 +1348,7 @@ group('cost-http', [], () => {
     // 不额外定义供应商重试策略。若既有策略重试，下一次为200且恰好占满额度。
     // 费用 oracle 只读真正发出的响应序列：非200为零、200/无状态各保留1000。
     const result = runBoth(`collect HTTP 结算 ${fault}`, [S('collect.ts'), '--config', cfg], cwd,
-      { status: 1, soft: [0, 2, 3] }, costEnv(log, {
+      { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] }, costEnv(log, {
         FAKE_FETCH_FAULT_PATH: TT_SEARCH, FAKE_FETCH_FAULT: fault,
       }))
     if (!result.ok) continue
@@ -1389,7 +1391,7 @@ group('cost-http', [], () => {
         cost_http_200_usd: 0.001, cost_unknown_result_usd: 0, cost_pending_usd: 0 }),
     `attempts=${JSON.stringify(fetchAttempts(profile.log))}, summary=${profileRun.stdout}`)
 
-  // probe 普通错误仍输出部分结果；费用不足也保留既有成功结果且退出0。
+  // probe 普通错误仍输出部分结果；费用不足也保留既有成功结果，退出 3、stopped 为 budget（ADR-193）。
   const probeCwd = join(tmp, 'cost-probe')
   mkdirSync(probeCwd, { recursive: true })
   const probeCfg = join(probeCwd, 'config.json'), probeLog = join(probeCwd, 'attempts.tsv')
@@ -1398,9 +1400,9 @@ group('cost-http', [], () => {
     { keyword: 'second', dimension: 'scene', platform: 'instagram' },
   ] }))
   const probe = runBoth('probe 余额不够下一次仍输出部分结果', [S('probe.ts'), '--config', probeCfg], probeCwd,
-    { status: 0, soft: [1, 2, 3] }, costEnv(probeLog))
-  if (probe.ok) named('probe 预算不足退出0且保留一次 IG 成果，不把三分之二说成100%',
-    probe.status === 0 && JSON.stringify(fetchAttempts(probeLog)) === JSON.stringify([`200\t${IG_REELS}`])
+    { status: 3, soft: [0, 1, 2, 5] }, costEnv(probeLog))
+  if (probe.ok) named('probe 预算不足退出3、stopped 为 budget，且保留一次 IG 成果，不把三分之二说成100%',
+    probe.status === 3 && summaryOf(probe.stdout).stopped === 'budget' && JSON.stringify(fetchAttempts(probeLog)) === JSON.stringify([`200\t${IG_REELS}`])
       && costViewMatches(summaryOf(probe.stdout), { cost_status: 'known', cost_scope: 'process',
         requests: 1, budget_usd: 0.003, cost_estimate_usd: 0.002, cost_http_200_usd: 0.002,
         cost_unknown_result_usd: 0, cost_pending_usd: 0 })
@@ -1411,7 +1413,7 @@ group('cost-http', [], () => {
   for (const fault of ['bad-json-200', 'bad-body-201', 'bad-body-204', 'bad-body-429', 'bad-body-500', 'no-http-status']) {
     const log = join(tmp, `direct-${fault}.tsv`)
     const direct = runBoth(`直接探针错误 ${fault}`, [S('probe-ig-paging.ts'), '--keyword', 'cost-fault'], tmp,
-      { status: 1, soft: [0, 2, 3] }, costEnv(log, { FAKE_FETCH_FAULT_PATH: IG_REELS, FAKE_FETCH_FAULT: fault }))
+      { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] }, costEnv(log, { FAKE_FETCH_FAULT_PATH: IG_REELS, FAKE_FETCH_FAULT: fault }))
     if (direct.ok) named('直接分页探针非 200、坏正文与无状态均中止且不输出成功 JSON',
       direct.status === 1 && fetchAttempts(log).length === 1 && direct.stdout.trim() === '',
       `${fault}: status=${direct.status}, attempts=${JSON.stringify(fetchAttempts(log))}, stdout=${direct.stdout}`)
@@ -1465,13 +1467,13 @@ group('discovery', [], () => {
     { keyword: 'force-discovery-zero', dimension: 'category', platform: 'instagram' },
     { keyword: 'force-402-source', dimension: 'scene', platform: 'tiktok' },
   ] }))
-  const empty = runBoth('发现来源 空结果及错误', [S('probe.ts'), '--config', emptyCfg], f.cwd, undefined,
+  const empty = runBoth('发现来源 空结果及错误', [S('probe.ts'), '--config', emptyCfg], f.cwd, { status: 5 },
     costEnv(join(f.cwd, 'empty.tsv')))
   if (empty.ok) named('零账号与请求错误不制造账号发现来源',
     summaryOf(empty.stdout).results?.[0]?.sample?.length === 0
       && Boolean(summaryOf(empty.stdout).results?.[1]?.error)
       && !empty.stdout.includes('discovery_sources'), empty.stdout)
-  const collected = runBoth('发现来源 collect 保存', [S('collect.ts'), '--resume', f.taskDir], f.cwd, undefined, costEnv(f.log))
+  const collected = runBoth('发现来源 collect 保存', [S('collect.ts'), '--resume', f.taskDir], f.cwd, { status: 4 }, costEnv(f.log))
   if (collected.ok) {
     const raw = jsonFile(join(f.taskDir, 'creators.raw.json')), delivery = jsonFile(join(f.taskDir, 'creators.json'))
     named('三路来源进入raw，空Reels后的账号只有users来源',
@@ -1484,7 +1486,7 @@ group('discovery', [], () => {
       && equal(delivery.find((c: any) => c.handle === 'wanderwithmei')?.discovery_sources, [source(2, 'wanderwithmei')]),
       JSON.stringify(delivery))
     const resumed = runBoth('发现来源 collect 零请求恢复', [S('collect.ts'), '--resume', f.taskDir], f.cwd,
-      undefined, costEnv(f.log))
+      { status: 4 }, costEnv(f.log))
     if (resumed.ok) named('来源保存恢复不丢记录且不改变请求次数和费用',
       equal(jsonFile(join(f.taskDir, 'creators.raw.json')), raw)
         && equal(jsonFile(join(f.taskDir, 'creators.json')), delivery)
@@ -1684,10 +1686,10 @@ group('cost-durable', [], () => {
       const endpoint = entry === 'collect' ? (profile ? IG_PROFILE : IG_REELS) : TT_POSTS
       const unit = entry === 'collect' && !profile ? 2000 : 1000
       const beforePeople = fileText(join(f.taskDir, 'creators.json'))
-      // 收尾若错误进入记忆读取，会遇到坏JSON；D14.h要求原费用运行错误仍是退出1。
+      // 收尾若错误进入记忆读取，会遇到坏JSON；D14.m要求原费用运行错误仍是退出6（ADR-193）。
       if (mode === 'once') writeFileSync(join(f.cwd, 'memory', 'creators.json'), '{broken-memory')
       const result = runBoth(`持久费用保存故障 ${route}/${outcome}/${mode}`, args(entry, f), f.cwd,
-        { status: 1, soft: [0, 2, 3] }, observeEnv(f, {
+        { status: 6, soft: [0, 1, 2, 3, 7] }, observeEnv(f, {
           NODE_OPTIONS: failSave(f, outcome === 'reserve' ? 'reserve' : 'terminal', mode),
           ...(outcome === 'non200' || outcome === 'nostatus' ? {
             FAKE_FETCH_FAULT_PATH: endpoint,
@@ -1704,11 +1706,11 @@ group('cost-durable', [], () => {
       const injected = marks.filter(e => e.kind === 'injected'), count = seen.filter(e => e.kind === 'fetch').length
       const why = `${route}/${outcome}/${mode}: exit=${result.status}, fetch=${count}, injected=${injected.length}, disk=${JSON.stringify(after)}, stderr=${result.stderr}`
       if (outcome === 'reserve') {
-        named('预留保存失败退出1且零请求，不伪造无HTTP状态留存',
-          injected.length > 0 && result.status === 1 && count === 0 && after?.requests === 2
+        named('预留保存失败退出6且零请求，不伪造无HTTP状态留存',
+          injected.length > 0 && result.status === 6 && count === 0 && after?.requests === 2
             && unknown(after) === 1 && retained(after) === 2, why)
       } else {
-        const stopped = injected.length > 0 && result.status === 1 && count === 1
+        const stopped = injected.length > 0 && result.status === 6 && count === 1
           && !seen.some(e => e.kind === 'body')
         if (outcome === 'http200') named('HTTP200终态保存失败停止正文及后续请求，不走兜底', stopped, why)
         if (outcome === 'non200') named('非200终态保存失败停止正文及重试，不走兜底', stopped, why)
@@ -1725,13 +1727,29 @@ group('cost-durable', [], () => {
           injected.length > 0 && (mode === 'persistent' ? stablePending
             : terminal && marks.some(e => e.kind === 'saved')), why)
       }
-      named('费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出1',
-        injected.length > 0 && result.status === 1 && result.stdout.trim() === ''
+      named('费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出6',
+        injected.length > 0 && result.status === 6 && result.stdout.trim() === ''
           && !/断点已保存|已保存.*(?:续跑|继续)|追加预算|续跑不产生|续跑会继续/.test(result.stderr)
           && result.stderr.includes('test durable cost save denied')
           && fileText(join(f.taskDir, 'creators.json')) === beforePeople, why)
     }
-  criterion('D14.b', 'D14.c', 'D14.d', 'D14.e', 'D14.h')
+  criterion('D14.i', 'D14.j', 'D14.k', 'D14.l', 'D14.m')
+
+  {
+    // ADR-193：enrich 遇供应商余额不足（HTTP 402）照出汇总 JSON、stopped 为 error，退出码 5（以前与其他运行错误同为 1）。
+    // fake-fetch 见 URL 里带 force_402 就回 402；TikTok 近期作品请求的 unique_id 就是账号名，所以只有这个人那一次被拒
+    const f = costFixture('enrich-402', knownCosts(1_000_000, []), {},
+      [costPerson('tiktok', 'force_402_enrich'), costPerson('tiktok', 'enrich_after_402')])
+    const r = runBoth('enrich 遇 TikHub 402', [S('enrich.ts'), '--dir', f.taskDir], f.cwd,
+      { status: 5, soft: [0, 1, 2, 3, 4, 6, 7] }, costEnv(f.log))
+    if (r.ok) {
+      const lines = fetchAttempts(f.log), at = lines.findIndex(l => l.startsWith('402\t'))
+      named('enrich 遇 TikHub 402：照出汇总 JSON，stopped 为 error，退出码 5，402 之后不再请求',
+        r.status === 5 && summaryOf(r.stdout).stopped === 'error' && at >= 0 && at === lines.length - 1,
+        `退出码 ${r.status}，stopped=${JSON.stringify(summaryOf(r.stdout).stopped)}，账本 ${JSON.stringify(lines)}，stderr=${stderrTail(r.stderr)}`)
+      criterion('D14.n')
+    }
+  }
 
   for (const entry of ['collect', 'enrich']) {
     const f = fixture('kill-barrier', entry)
@@ -1769,7 +1787,7 @@ group('cost-durable', [], () => {
       const log = join(f.cwd, `resume-${change}.tsv`)
       const resumed = runBoth(`强杀后拒绝付费 ${entry}/${change}`, [...args(entry, f),
         ...(change ? ['--budget', '0.009'] : [])], f.cwd,
-        { status: 2, soft: [0, 1, 3] }, costEnv(log))
+        { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(log))
       if (validRun(resumed)) {
         const after = jsonFile(f.task)
         const changed = [...new Set([...Object.keys(disk ?? {}), ...Object.keys(after ?? {})])]
@@ -1813,7 +1831,7 @@ group('cost-save-errors', [], () => {
     const args = entry === 'probe' ? [S('probe.ts'), '--config', cfg]
       : [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir]
     const result = runBoth(`${entry} 真正需付费却缺 key`, args, f.cwd,
-      { status: 2, soft: [0, 1, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (result.ok) named('真正需要请求时缺 key 是输入错误，零 fetch 且不冒充预算不足',
       result.status === 2 && fetchAttempts(f.log).length === 0 && /TIKHUB_API_KEY|密钥|key/i.test(result.stderr),
       `${entry}: status=${result.status}, attempts=${fetchAttempts(f.log).length}, stderr=${result.stderr}`)
@@ -1840,7 +1858,7 @@ group('cost-save-errors', [], () => {
     const result = runBoth(`${entry} 保存失败 ${scenario}`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir,
         ...(scenario === 'change' ? ['--budget', '0.003'] : [])], f.cwd,
-      { status: 1, soft: [0, 2, 3] }, costEnv(f.log, {
+      { status: 6, soft: [0, 1, 2, 3, 7] }, costEnv(f.log, {
         NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
       }))
     if (!result.ok) continue
@@ -1851,7 +1869,7 @@ group('cost-save-errors', [], () => {
     }
     const attempts = fetchAttempts(f.log)
     named('费用保存故障确实发生，失败不得退3、宣称已保存或继续请求',
-      fileText(mark).includes('injected') && result.status === 1 && !result.stderr.includes('已保存')
+      fileText(mark).includes('injected') && result.status === 6 && !result.stderr.includes('已保存')
         && attempts.length === (scenario === 'after-http' ? 1 : 0)
         && (scenario !== 'after-http' || attempts[0] === `200\t${entry === 'collect' ? TT_SEARCH : TT_POSTS}`)
         && (scenario === 'after-http' ? jsonFile(f.task)?.cost_ledger?.pending?.endpoint === (entry === 'collect' ? TT_SEARCH : TT_POSTS)
@@ -1870,7 +1888,7 @@ group('cost-save-errors', [], () => {
     const preload = join(f.cwd, 'fail-raw-save.mjs'), mark = join(f.cwd, 'raw-fault.txt')
     writeFileSync(preload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = function(src, dest) { if (String(dest) === ${JSON.stringify(raw)}) { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('test raw save denied'), { code: 'EIO' }); } return original(src, dest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
     const result = runBoth('collect 作者累加器写失败', [S('collect.ts'), '--resume', f.taskDir], f.cwd,
-      { status: 1, soft: [0, 2, 3] }, costEnv(f.log, {
+      { status: 6, soft: [0, 1, 2, 3, 7] }, costEnv(f.log, {
         NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
       }))
     if (result.ok) {
@@ -1881,7 +1899,7 @@ group('cost-save-errors', [], () => {
         const disk = jsonFile(f.task)
         const attempts = fetchAttempts(f.log)
         named('作者累加器写失败时，盘上这一页的分页进度不前进',
-          fileText(mark).includes('injected') && result.status === 1
+          fileText(mark).includes('injected') && result.status === 6
             && attempts.length === 1 && attempts[0] === `200\t${TT_SEARCH}`
             && disk?.offsets !== undefined && !Object.hasOwn(disk.offsets, '0')
             && disk?.pages !== undefined && !Object.hasOwn(disk.pages, '0')
@@ -1922,7 +1940,7 @@ group('cost-save-errors', [], () => {
     const args = entry === 'probe' ? [S('probe.ts'), '--config', cfg]
       : [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir]
     const result = runBoth(`${entry} 运行中 ${method} 费用错误`, args, f.cwd,
-      { status: 1, soft: [0, 2, 3] }, costEnv(f.log, {
+      { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] }, costEnv(f.log, {
         NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport(f.cwd))} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
       }))
     if (result.ok) {
@@ -1987,7 +2005,7 @@ const obsAgain = (mk: () => ReturnType<typeof costFixture>) => {
   const f = mk(); rmSync(f.log, { force: true }); rmSync(join(f.cwd, FAULT_FILE), { force: true }); return f
 }
 const obsResume = (label: string, f: ReturnType<typeof costFixture>, extra: NodeJS.ProcessEnv = {},
-  expect: { status: number; soft?: readonly number[] } = { status: 3, soft: [0, 1, 2] }) =>
+  expect: { status: number; soft?: readonly number[] } = { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] }) =>
   tobsRun(label, [S('collect.ts'), '--resume', f.taskDir], f.cwd, expect, f.log, extra)
 const obsSaid = (r: { status: number | null; stdout: string; stderr: string; records?: any[] }, log?: string) =>
   `exit=${r.status}, attempts=${log ? JSON.stringify(fetchAttempts(log)) : '-'}, records=${JSON.stringify(r.records ?? [])}, `
@@ -2021,7 +2039,7 @@ group('test-observer-events', [], () => {
   const readyOf: Record<string, Verdict> = {}
   for (const entry of ['collect', 'probe']) {
     const r = tobsRun(`${entry} 配置不存在时的就绪记录`, [S(`${entry}.ts`), '--config', join(tmp, 'obs-no-such-config.json')], tmp,
-      { status: 2, soft: [0, 1, 3] }, join(tmp, `obs-ready-${entry}.tsv`), TOBS_ON())
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, join(tmp, `obs-ready-${entry}.tsv`), TOBS_ON())
     if (r.ok) readyOf[entry] = [ofKind(r.records, 'ready').length === 1 && ofKind(r.records, 'ready')[0].entry === entry
         && ofKind(r.records, 'ready')[0].contract === TOBS_CONTRACT, `${entry}: ${obsSaid(r)}`]
   }
@@ -2030,7 +2048,7 @@ group('test-observer-events', [], () => {
   // 「读取任何输入（命令行参数、…）之前」—— 一个参数都不给，入口连 argv 都接受不了（用法错误，照 D26.a 的先例以 2 拒绝）
   const argvOf: Record<string, Verdict> = {}
   for (const entry of ['collect', 'probe', 'enrich']) {
-    const r = tobsRun(`${entry} 不带任何参数`, [S(`${entry}.ts`)], tmp, { status: 2, soft: [0, 1, 3] }, join(tmp, `obs-argv-${entry}.tsv`), TOBS_ON())
+    const r = tobsRun(`${entry} 不带任何参数`, [S(`${entry}.ts`)], tmp, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, join(tmp, `obs-argv-${entry}.tsv`), TOBS_ON())
     if (r.ok) argvOf[entry] = [ofKind(r.records, 'ready').length === 1 && ofKind(r.records, 'ready')[0].entry === entry, `${entry}: ${obsSaid(r)}`]
   }
   if (argvOf.collect) named('collect 连命令行参数都接受不了时也已写出恰好一条 ready 记录，entry 是 collect', ...argvOf.collect)
@@ -2046,7 +2064,7 @@ group('test-observer-events', [], () => {
     ['probe', ['--config', probeCfg], tmp, probeLog, 'process']] as const
   const shapeOf: Record<string, Verdict> = {}, pairOf: Record<string, Verdict> = {}, idOf: Record<string, Verdict> = {}
   for (const [entry, args, cwd, log, scope] of paid) {
-    const r = tobsRun(`${entry} 开着开关的付费跑`, [S(`${entry}.ts`), ...args], cwd, { status: 0, soft: [1, 2, 3] }, log, TOBS_ON())
+    const r = tobsRun(`${entry} 开着开关的付费跑`, [S(`${entry}.ts`), ...args], cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, log, TOBS_ON())
     if (!r.ok) continue
     const attempts = fetchAttempts(log), ok = reserves(r.records, 'reserved'), ready = ofKind(r.records, 'ready')
     if (attempts.length === 0) { failed++; console.error(`  ✗ ${entry} 付费跑${SELFCHECK_FIXTURE_MARK}：假 fetch 一次请求都没记下`); continue }
@@ -2076,7 +2094,7 @@ group('test-observer-events', [], () => {
       && reserves(kr.records, 'reserved')[0].attempt_id === 1 && ofKind(kr.records, 'ready').length === 1, obsSaid(kr, killed.log))
   // 「包括重试」：第一次 429、若既有策略重试则下一次 200 —— 不另定重试策略，只要 reserved 记录数等于账本行数
   const retry = obsFixture('retry')
-  const rr = obsResume('collect 搜索先吃 429', retry, { ...TOBS_ON(), FAKE_FETCH_FAULT_PATH: TT_SEARCH, FAKE_FETCH_FAULT: 'bad-body-429' }, { status: 3, soft: [0, 1, 2] })
+  const rr = obsResume('collect 搜索先吃 429', retry, { ...TOBS_ON(), FAKE_FETCH_FAULT_PATH: TT_SEARCH, FAKE_FETCH_FAULT: 'bad-body-429' }, { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] })
   if (rr.ok) named('429 那次与重试各算一次真实尝试：reserved 记录数等于账本行数，端点逐条对应',
     fetchAttempts(retry.log)[0] === `429\t${TT_SEARCH}` && reserves(rr.records, 'reserved').length === fetchAttempts(retry.log).length
       && reserves(rr.records, 'reserved').every((o, i) => o.endpoint === fetchAttempts(retry.log)[i].split('\t')[1]), obsSaid(rr, retry.log))
@@ -2103,10 +2121,10 @@ group('test-observer-events', [], () => {
   // save-failed＝「这次预留没能存进任务账」：同 cost-save-errors，只拦 task.json 最终改名写入的目标
   const sf = obsFixture('reject-save-failed'), preload = join(sf.cwd, 'deny-task-save.mjs'), mark = join(sf.cwd, 'mark.txt')
   writeFileSync(preload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = function(src, dest) { if (String(dest) === ${JSON.stringify(sf.task)}) { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('test task save denied'), { code: 'EIO' }); } return original(src, dest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
-  const sr = obsResume('collect 预留存不进任务账', sf, { ...TOBS_ON(), NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}` }, { status: 1, soft: [0, 2, 3] })
+  const sr = obsResume('collect 预留存不进任务账', sf, { ...TOBS_ON(), NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}` }, { status: 6, soft: [0, 1, 2, 3, 7] })
   if (sr.ok && !fileText(mark).includes('armed')) { failed++; console.error(`  ✗ 预留保存故障注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${sr.stderr}`) }
-  else if (sr.ok) named('预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 1',
-    fileText(mark).includes('injected') && sr.status === 1 && fetchAttempts(sf.log).length === 0 && reserves(sr.records, 'reserved').length === 0
+  else if (sr.ok) named('预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 6',
+    fileText(mark).includes('injected') && sr.status === 6 && fetchAttempts(sf.log).length === 0 && reserves(sr.records, 'reserved').length === 0
       && reserves(sr.records, 'rejected').some(o => o.reason === 'save-failed' && !('attempt_id' in o)), obsSaid(sr, sf.log))
   // 「记录只写进这个文件：stdout 和 stderr 一行都不因此多写，除了这个文件也不因此写任何别的文件」—— 同一目录、同一夹具跑两次
   const mkSame = () => obsFixture('same'), s1 = mkSame()
@@ -2139,7 +2157,7 @@ group('test-observer-events', [], () => {
   }
   const wo = TOBS_ON(), woPath = String(wo[TOBS_VAR]), woF = obsFixture('append-unreadable'), woDeny = denyRead(woF.cwd, woPath)
   writeFileSync(woPath, halfText)
-  const wr = obsResume('collect 记录文件已存在、最后一行没有换行、又读不出', woF, { ...wo, NODE_OPTIONS: woDeny.NODE_OPTIONS }, { status: 1, soft: [0, 2, 3] })
+  const wr = obsResume('collect 记录文件已存在、最后一行没有换行、又读不出', woF, { ...wo, NODE_OPTIONS: woDeny.NODE_OPTIONS }, { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] })
   if (wr.ok && !fileText(woDeny.mark).includes('armed')) { failed++; console.error(`  ✗ 记录文件读不出的注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${wr.stderr}`) }
   else if (wr.ok) named('记录文件已存在、最后一行没有以换行结束、又读不出时：以 1 退出、stderr 说出是哪个文件，一次请求都不发，记录文件一字不动',
     fileText(woDeny.mark).includes('injected') && wr.status === 1 && wr.stderr.includes(woPath) && fetchAttempts(woF.log).length === 0
@@ -2159,7 +2177,7 @@ group('test-observer-events', [], () => {
   const unopenOf: Record<string, Verdict> = {}
   for (const [entry, args, cwd, log, dir] of unopenable) {
     const before = dir ? ['task.json', 'creators.json', 'creators.raw.json'].map(n => fileText(join(dir, n))) : []
-    const r = tobsRun(`${entry} 记录文件打不开`, [S(`${entry}.ts`), ...args], cwd, { status: 1, soft: [0, 2, 3] }, log, { [TOBS_VAR]: unopen })
+    const r = tobsRun(`${entry} 记录文件打不开`, [S(`${entry}.ts`), ...args], cwd, { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] }, log, { [TOBS_VAR]: unopen })
     if (r.ok) unopenOf[entry] = [r.status === 1 && r.stderr.includes(unopen) && fetchAttempts(log).length === 0 && !existsSync(unopen)
         && (!dir || ['task.json', 'creators.json', 'creators.raw.json'].every((n, i) => fileText(join(dir, n)) === before[i])), `${entry}: ${obsSaid(r, log)}`]
   }
@@ -2170,7 +2188,7 @@ group('test-observer-events', [], () => {
   const mid = obsFixture('write-fails'), midPreload = join(mid.cwd, 'deny-record.mjs'), midMark = join(mid.cwd, 'deny-record.txt')
   writeFileSync(midPreload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.writeSync; fs.writeSync = function(fd, data, ...rest) { const bytes = typeof data === 'string' ? Buffer.from(data) : Buffer.from(data.buffer, data.byteOffset, data.byteLength); if (fd > 2 && bytes.includes('"kind":"reserve"')) { fs.appendFileSync(${JSON.stringify(midMark)}, 'injected\\n'); throw Object.assign(new Error('EIO: i/o error, write'), { code: 'EIO', errno: -5, syscall: 'write' }); } return original.call(this, fd, data, ...rest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(midMark)}, 'armed\\n');`)
   const midOn = TOBS_ON()
-  const mr = obsResume('collect 记录文件中途写不进去', mid, { ...midOn, NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(midPreload).href)}` }, { status: 1, soft: [0, 2, 3] })
+  const mr = obsResume('collect 记录文件中途写不进去', mid, { ...midOn, NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(midPreload).href)}` }, { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] })
   if (mr.ok && !fileText(midMark).includes('armed')) { failed++; console.error(`  ✗ 记录写不进的注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${mr.stderr}`) }
   else if (mr.ok) named('记录文件中途写不进去：以 1 退出、stderr 说出是哪个文件，那一次请求不发',
     fileText(midMark).includes('injected') && mr.status === 1 && mr.stderr.includes(String(midOn[TOBS_VAR])) && fetchAttempts(mid.log).length === 0
@@ -2180,14 +2198,14 @@ group('test-observer-events', [], () => {
 group('test-observer-save-fault', [], () => {
   const TOBS_ON = tobsSwitch(join(tmp, 'test-observer-save-fault-records'))
   const hits = (records: any[]) => ofKind(records, 'save-fault'), misses = (records: any[]) => ofKind(records, 'save-fault-miss')
-  const noSummary = (stdout: string) => Object.keys(summaryOf(stdout)).length === 0   // 收尾表：保存失败 → stdout 无汇总 JSON、退出 1
+  const noSummary = (stdout: string) => Object.keys(summaryOf(stdout)).length === 0   // 收尾表：保存失败 → stdout 无汇总 JSON、退出 6（ADR-193）
   // SP-R 第 1 次＝「每次真实 HTTP 尝试之前，把这次预留写进 task.json 的那次保存」—— 一个请求都发不出去；attempt_id ＝ next_attempt_id ＝ 1
   const mkR = () => obsFixture('spr'), spr = mkR(), ctl = obsFault(spr.cwd, FAULT_OK), bytes = fileText(ctl)
-  const r1 = obsResume('collect 注入 SP-R 第 1 次', spr, TOBS_ON(), { status: 1, soft: [0, 2, 3] })
+  const r1 = obsResume('collect 注入 SP-R 第 1 次', spr, TOBS_ON(), { status: 6, soft: [0, 1, 2, 3, 7] })
   if (r1.ok) {
     const h = hits(r1.records)
-    named('SP-R 命中：退出 1、stdout 没有汇总 JSON、零请求；恰好一条命中记录指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中记录',
-      r1.status === 1 && noSummary(r1.stdout) && fetchAttempts(spr.log).length === 0 && h.length === 1 && h[0].entry === 'collect'
+    named('SP-R 命中：退出 6、stdout 没有汇总 JSON、零请求；恰好一条命中记录指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中记录',
+      r1.status === 6 && noSummary(r1.stdout) && fetchAttempts(spr.log).length === 0 && h.length === 1 && h[0].entry === 'collect'
         && h[0].contract === TOBS_CONTRACT && h[0].point === 'SP-R' && h[0].occurrence === 1 && h[0].attempt_id === 1
         && h[0].endpoint === TT_SEARCH && h[0].not_written === true && misses(r1.records).length === 0, obsSaid(r1, spr.log))
     // 「stderr 报保存失败，原因写明是 .kol-save-fault.json 注入的」「只读，不改也不删」
@@ -2211,23 +2229,23 @@ group('test-observer-save-fault', [], () => {
   const finalOf: Record<string, Verdict> = {}
   for (const [point, kind, status] of [['SP-200', undefined, '200'], ['SP-N200', 'bad-body-500', '500'], ['SP-NS', 'no-http-status', 'NO_HTTP_STATUS']] as const) {
     const f = obsFixture(`sp-${point}`); obsFault(f.cwd, { ...FAULT_OK, point })
-    const r = obsResume(`collect 注入 ${point} 第 1 次`, f, { ...TOBS_ON(), ...(kind ? { FAKE_FETCH_FAULT_PATH: TT_SEARCH, FAKE_FETCH_FAULT: kind } : {}) }, { status: 1, soft: [0, 2, 3] })
-    if (r.ok) finalOf[point] = [r.status === 1 && noSummary(r.stdout) && JSON.stringify(fetchAttempts(f.log)) === JSON.stringify([`${status}\t${TT_SEARCH}`])
+    const r = obsResume(`collect 注入 ${point} 第 1 次`, f, { ...TOBS_ON(), ...(kind ? { FAKE_FETCH_FAULT_PATH: TT_SEARCH, FAKE_FETCH_FAULT: kind } : {}) }, { status: 6, soft: [0, 1, 2, 3, 7] })
+    if (r.ok) finalOf[point] = [r.status === 6 && noSummary(r.stdout) && JSON.stringify(fetchAttempts(f.log)) === JSON.stringify([`${status}\t${TT_SEARCH}`])
         && hits(r.records).length === 1 && hits(r.records)[0].point === point && hits(r.records)[0].occurrence === 1 && hits(r.records)[0].attempt_id === 1
         && hits(r.records)[0].endpoint === TT_SEARCH && hits(r.records)[0].not_written === true && misses(r.records).length === 0, `${point}: ${obsSaid(r, f.log)}`]
   }
-  if (finalOf['SP-200']) named('SP-200 在恰好一次 200 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-200、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-200'])
-  if (finalOf['SP-N200']) named('SP-N200 在恰好一次 500 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-N200'])
-  if (finalOf['SP-NS']) named('SP-NS 在恰好一次没拿到状态之后命中：退出 1、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-NS'])
+  if (finalOf['SP-200']) named('SP-200 在恰好一次 200 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-200、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-200'])
+  if (finalOf['SP-N200']) named('SP-N200 在恰好一次 500 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-N200'])
+  if (finalOf['SP-NS']) named('SP-NS 在恰好一次没拿到状态之后命中：退出 6、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-NS'])
   // SP-BUD＝「已知额度不足、停下时的断点保存；注入时作者文件和 task.json 都不写」—— 已用 1000/1000 的续跑，没有文件时今天以 3 收尾
   const mkBud = () => obsFixture('spbud', knownCosts(1000, [costEntry(TT_PROFILE, 1000, 1)]), {}, [costPerson()])
-  const budCtl = obsResume('collect 额度不足的对照跑', mkBud(), TOBS_ON(), { status: 3, soft: [0, 1, 2] })
+  const budCtl = obsResume('collect 额度不足的对照跑', mkBud(), TOBS_ON(), { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] })
   const bud = obsAgain(mkBud); obsFault(bud.cwd, { ...FAULT_OK, point: 'SP-BUD' })
   const budFiles = ['task.json', 'creators.json', 'creators.raw.json'].map(n => join(bud.taskDir, n)), budBefore = budFiles.map(fileText)
-  const br = obsResume('collect 注入 SP-BUD 第 1 次', bud, TOBS_ON(), { status: 1, soft: [0, 2, 3] })
+  const br = obsResume('collect 注入 SP-BUD 第 1 次', bud, TOBS_ON(), { status: 6, soft: [0, 1, 2, 3, 7] })
   if (budCtl.ok && br.ok) {
-    named('SP-BUD 命中：对照跑以 3 收尾，注入跑以 1 收尾、stdout 没有汇总 JSON、零请求，stderr 不说已保存',
-      budCtl.status === 3 && br.status === 1 && noSummary(br.stdout) && fetchAttempts(bud.log).length === 0 && !/已保存/.test(br.stderr), obsSaid(br, bud.log))
+    named('SP-BUD 命中：对照跑以 3 收尾，注入跑以 6 收尾、stdout 没有汇总 JSON、零请求，stderr 不说已保存',
+      budCtl.status === 3 && br.status === 6 && noSummary(br.stdout) && fetchAttempts(bud.log).length === 0 && !/已保存/.test(br.stderr), obsSaid(br, bud.log))
     named('SP-BUD 的命中记录没有 attempt_id 与 endpoint，作者文件和 task.json 一字没写',
       hits(br.records).length === 1 && hits(br.records)[0].point === 'SP-BUD' && hits(br.records)[0].occurrence === 1 && hits(br.records)[0].not_written === true
         && !('attempt_id' in hits(br.records)[0]) && !('endpoint' in hits(br.records)[0]) && budFiles.every((p, i) => fileText(p) === budBefore[i]), obsSaid(br))
@@ -2247,7 +2265,7 @@ group('test-observer-save-fault', [], () => {
   const exitW = obsAgain(mkMiss); obsFault(exitW.cwd, { ...FAULT_OK, occurrence: 5 })
   const exitPreload = join(exitW.cwd, 'deny-miss.mjs'), exitMark = join(exitW.cwd, 'deny-miss.txt'), exitOn = TOBS_ON()
   writeFileSync(exitPreload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.writeSync; fs.writeSync = function(fd, data, ...rest) { const bytes = typeof data === 'string' ? Buffer.from(data) : Buffer.from(data.buffer, data.byteOffset, data.byteLength); if (fd > 2 && bytes.includes('"kind":"save-fault-miss"')) { fs.appendFileSync(${JSON.stringify(exitMark)}, 'injected\\n'); throw Object.assign(new Error('EIO: i/o error, write'), { code: 'EIO', errno: -5, syscall: 'write' }); } return original.call(this, fd, data, ...rest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(exitMark)}, 'armed\\n');`)
-  const er = obsResume('collect 退出时未命中记录写不进去', exitW, { ...exitOn, NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(exitPreload).href)}` }, { status: 1, soft: [0, 2, 3] })
+  const er = obsResume('collect 退出时未命中记录写不进去', exitW, { ...exitOn, NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(exitPreload).href)}` }, { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] })
   if (er.ok && !fileText(exitMark).includes('armed')) { failed++; console.error(`  ✗ 未命中记录写不进的注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${er.stderr}`) }
   else if (er.ok && missCtl.ok) named('退出时未命中记录写不进去：以 1 退出（没有这处故障时是对照跑的退出码）、stderr 说出是哪个文件，记录文件里没有未命中记录',
     fileText(exitMark).includes('injected') && er.status === 1 && missCtl.status !== 1 && er.stderr.includes(String(exitOn[TOBS_VAR]))
@@ -2292,9 +2310,9 @@ group('test-observer-save-fault', [], () => {
   const ignoreOf: Record<string, Verdict> = {}
   for (const [entry, args, cwd, log, again] of [['probe', ['--config', ignCfg], ign, ignLog, () => rmSync(ignLog, { force: true })],
     ['enrich', ['--dir', en.taskDir], en.cwd, en.log, () => obsAgain(mkEnrich)]] as const) {
-    const without = tobsRun(`${entry} 没有控制文件`, [S(`${entry}.ts`), ...args], cwd, { status: 0, soft: [1, 2, 3] }, log, TOBS_ON())
+    const without = tobsRun(`${entry} 没有控制文件`, [S(`${entry}.ts`), ...args], cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, log, TOBS_ON())
     again(); obsFault(cwd, FAULT_OK)
-    const withFile = tobsRun(`${entry} 当前目录有控制文件`, [S(`${entry}.ts`), ...args], cwd, { status: 0, soft: [1, 2, 3] }, log, TOBS_ON())
+    const withFile = tobsRun(`${entry} 当前目录有控制文件`, [S(`${entry}.ts`), ...args], cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, log, TOBS_ON())
     if (without.ok && withFile.ok) ignoreOf[entry] = [hits(withFile.records).length === 0 && misses(withFile.records).length === 0
       && withFile.status === without.status && fetchAttempts(log).length >= 1, `${entry}: ${obsSaid(withFile, log)}`]
   }
@@ -2359,7 +2377,7 @@ group('crash-resume', [], () => {
           && disk?.cost_ledger?.entries?.some((e: any) => e.endpoint === TT_SEARCH && e.http_200_count === 1),
         `task=${JSON.stringify(disk)}, attempts=${ledgerLines(ledger, true)}`)
       const second = runBoth('collect 搜索循环里被杀后续跑：未结费用退 2', [S('collect.ts'), '--resume', dir], cwd,
-                             { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_LEDGER: ledger })
+                             { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, { FAKE_FETCH_LEDGER: ledger })
       if (second.ok) {
         named('collect 搜索循环里被杀后续跑：未结占用阻止任何新请求',
               second.status === 2 && ledgerLines(ledger, true) === 2,
@@ -2396,7 +2414,7 @@ group('crash-resume', [], () => {
           && disk?.cost_ledger?.pending?.attempt_id === 3,
         `task=${JSON.stringify(disk)}, attempts=${ledgerLines(ledger, true)}`)
       const second = runBoth('collect 补 profile 循环里被杀后续跑：未结费用退 2', [S('collect.ts'), '--resume', dir], cwd,
-                             { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_LEDGER: ledger })
+                             { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, { FAKE_FETCH_LEDGER: ledger })
       if (second.ok) {
         named('collect 补 profile 循环里被杀后续跑：未结占用阻止任何新请求',
               second.status === 2 && ledgerLines(ledger, true) === 3,
@@ -2706,7 +2724,7 @@ group('enrich', ['collect'], () => {
             && disk?.cost_ledger?.entries?.some((e: any) => e.endpoint === TT_POSTS && e.http_200_count === 1),
           `task=${JSON.stringify(disk)}, attempts=${ledgerLines(ledgerC, true)}`)
         const secondC = runBoth('enrich 两个账号之间被杀后续跑：未结费用退 2', [S('enrich.ts'), '--dir', crashDir], tmp,
-                                { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_LEDGER: ledgerC })
+                                { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, { FAKE_FETCH_LEDGER: ledgerC })
         if (secondC.ok) {
           named('enrich 两个账号之间被杀后续跑：未结占用阻止任何新请求',
                 secondC.status === 2 && ledgerLines(ledgerC, true) === 2,
@@ -3042,9 +3060,13 @@ group('memory', ['collect', 'render'], () => {
     const deliverable = join(tmp, dir, 'creators.json')
     const beforeList = readFileSync(deliverable, 'utf8')
 
-    const stderr = run('collect 记忆读不出来时不产出名单',
+    // ADR-193：读不出记忆单独退 7，不与输入问题的 2 混在一起；别的退出码交给下面这条具名断言判
+    const memRun = runBoth('collect 记忆读不出来时不产出名单',
                        [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp,
-                       { status: 2, stream: 'stderr' })
+                       { status: 7, soft: [0, 1, 2, 3, 4, 5, 6] })
+    if (memRun.ok) named('collect 记忆读不出来以退出码 7 结束（不是输入问题的 2），stdout 不出汇总',
+      memRun.status === 7 && memRun.stdout.trim() === '', `退出=${memRun.status}，stdout=${memRun.stdout.slice(0, 200)}`)
+    const stderr = memRun.ok && memRun.status === 7 ? memRun.stderr : undefined
     // 整段一起守住 —— 下面四条断言全都依赖这一次中止。逐条判空的写法里第三条
     // 会判出**假绿**：`stderr` 为空时两个布尔都是 false，`budgetGone !== cmdHasBudget`
     // 不成立，于是它在进程失败之后打了一个 ✓（#94 评审指出）
@@ -3072,7 +3094,7 @@ group('memory', ['collect', 'render'], () => {
       } else console.log('  ✓ 中止未触碰交付物')
     }
 
-    // ---- 收尾那句话：两种剩余工作量各真跑一遍（D6.e 的入口那一半）----
+    // ---- 收尾那句话：两种剩余工作量各真跑一遍（D6.e 的入口那一半，今 D6.q）----
     // 说哪一句、两个剩余量怎么数，都由 scripts/test.ts 断言；这里验的是**入口真的
     // 调了它**。上面那条老断言用的是「两句里出现一句」的或，两支对调它照样绿 ——
     // 而这一段的接线至今没有变异守着：变异缺省跑的是 scripts/test.ts，够不到入口脚本
@@ -3090,7 +3112,7 @@ group('memory', ['collect', 'render'], () => {
       })),
     }))
     const zeroErr = run('collect 收尾：没活了就说续跑不产生新请求',
-                        [S('collect.ts'), '--config', zeroCfg], tmp, { status: 2, stream: 'stderr' })
+                        [S('collect.ts'), '--config', zeroCfg], tmp, { status: 7, stream: 'stderr' })
     if (zeroErr === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
     } else if (!zeroErr.includes('续跑不产生新的请求')) {
@@ -3109,7 +3131,7 @@ group('memory', ['collect', 'render'], () => {
       })),
     }))
     const leftErr = run('collect 收尾：还有活就说续跑要继续花钱',
-                        [S('collect.ts'), '--config', leftCfg], tmp, { status: 2, stream: 'stderr' })
+                        [S('collect.ts'), '--config', leftCfg], tmp, { status: 7, stream: 'stderr' })
     if (leftErr === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
     } else if (!leftErr.includes('续跑会继续发请求、继续花钱')) {
@@ -3140,7 +3162,7 @@ group('memory', ['collect', 'render'], () => {
       tasks: [{ keyword: 'ok0', dimension: 'category', platform: 'tiktok' }],
     }))
     const onlyErr = run('collect 收尾：只剩 profile 也要说续跑要花钱',
-                        [S('collect.ts'), '--config', onlyCfg], tmp, { status: 2, stream: 'stderr' })
+                        [S('collect.ts'), '--config', onlyCfg], tmp, { status: 7, stream: 'stderr' })
     if (onlyErr === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
     } else if (!/还有 \d+ 个人的 profile/.test(onlyErr)) {
@@ -3155,7 +3177,7 @@ group('memory', ['collect', 'render'], () => {
                     + ` —— 夹具没造对${SELFCHECK_FIXTURE_MARK}`)
     } else console.log('  ✓ 收尾：只剩 profile 没补时也说要花钱，并点名了是 profile')
 
-    // ---- 产出了名单的四种收尾都说续跑代价（D6.f 的入口那一半）----
+    // ---- 产出了名单的四种收尾都说续跑代价（D6.f 的入口那一半，今 D6.r）----
     // 这四条路径原先一个字都不说，用户手里没有判断「值不值得续跑」的依据（ADR-25 的欠条）。
     // 四条共用分支之前的同一句话，所以是一条判据；也正因为共用，**一条把话写死就会被
     // 别的抓住** —— 前两条要的是「不花钱」，后两条要的是「花钱 + 还剩多少」。
@@ -3171,7 +3193,7 @@ group('memory', ['collect', 'render'], () => {
     // 退役表）现在靠 M-D6-j、M-D6-bi…bl 与那条硬失败顶着。
     //
     // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
-    // 「达标提前停下」和「关键词跑完」都是退出码 0、都说「不花钱」，一条夹具会让另一条
+    // 「达标提前停下」和「关键词跑完」都说「不花钱」（ADR-193 之前还同为退出码 0），一条夹具会让另一条
     // 看起来也测过了，而它们是 `stopped` 的两个不同取值（评审指出）。
     const paths = join(tmp, 'paths')
     mkdirSync(join(paths, 'memory'), { recursive: true })
@@ -3215,21 +3237,21 @@ group('memory', ['collect', 'render'], () => {
     endPath('collect 关键词跑完（退出码 0）也说续跑代价',
             pathCfg('pdone', { target_count: 9999 }), 0, 'done', FREE, COST)
 
-    // 达标提前停下：和上面同为退出码 0、同说「不花钱」，但 stopped 不同 ——
+    // 达标提前停下：和上面同说「不花钱」，但 stopped 不同、退出码是 4（ADR-193）——
     // 这个夹具里补全没把人筛下去，收尾时 qualified 仍够目标，且三个关键词都问过了
     // 第一页，所以那句话说不花钱（D6.g 按调用那一刻的 qualified 算）。
     // 筛掉之后结论会反过来 —— ADR-94 第十三节。
-    endPath('collect 达标提前停下（退出码 0）也说续跑代价',
-            pathCfg('ptarget', { target_count: 1 }), 0, 'target', FREE, COST)
+    endPath('collect 达标提前停下（退出码 4）也说续跑代价',
+            pathCfg('ptarget', { target_count: 1 }), 4, 'target', FREE, COST)
 
     // 预算用尽：退出码 3，带着断点目录走 stdout，那句话在 stderr
     endPath('collect 预算用尽（退出码 3）也说续跑代价',
             pathCfg('pbudget', { budget_usd: 0.002 }), 3, 'budget', COST, FREE)
 
-    // 出错中止：退出码 1。402 是对面拒收（余额不足），和预算用尽不是一回事 ——
+    // 出错中止：402 是对面拒收（余额不足），和预算用尽不是一回事，退出码 5（ADR-193）——
     // 关键词里带 force-402 让罐头 fetch 抛它，这是走到这条路径的唯一办法。
-    endPath('collect 出错中止（退出码 1）也说续跑代价',
-            pathCfg('perror', {}, 'force-402-k'), 1, 'error', COST, FREE)
+    endPath('collect 出错中止（402，退出码 5）也说续跑代价',
+            pathCfg('perror', {}, 'force-402-k'), 5, 'error', COST, FREE)
 
     // 四条收尾各跑过一次，每次都验了退出码、`stopped` 取值、那句话说什么 ——
     // D6.f 逐字要求的正是这四条路都说清续跑要不要花钱（落地 3 第一片）
@@ -3251,9 +3273,9 @@ group('memory', ['collect', 'render'], () => {
     const deliveryFiles = ['task.json', 'creators.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
     const beforeRender = deliveryFiles.map(name => fileText(join(tmp, dir, name)))
     const refusedRender = runBoth('render 坏记忆默认拒绝交付',
-      [S('render.ts'), '--dir', dir], tmp, { status: 2, soft: [0] })
+      [S('render.ts'), '--dir', dir], tmp, { status: 7, soft: [0, 1, 2] })
     named('render 坏记忆默认拒绝且不改旧交付或记忆',
-      refusedRender.status === 2 && deliveryFiles.every((name, i) =>
+      refusedRender.status === 7 && deliveryFiles.every((name, i) =>
         fileText(join(tmp, dir, name)) === beforeRender[i]) && fileText(memFile) === broken,
       `退出=${refusedRender.status}，stderr=${stderrTail(refusedRender.stderr)}`)
 
@@ -3269,6 +3291,20 @@ group('memory', ['collect', 'render'], () => {
           && taskAfter?.memory_status === 'unreadable_ignored'
           && htmlAfter.includes('未做「已联系 / 已推荐」去重'),
         `meta=${JSON.stringify(metaAfter)}，task=${JSON.stringify(taskAfter)}`)
+    }
+
+    // ADR-193：交付物写不进去以保存失败（6）结束，不说成成功或输入问题。kol.csv 那个位置换成目录，写它必然失败；跑完原样换回
+    const csvAt = join(tmp, dir, 'kol.csv'), csvText = fileText(csvAt)
+    rmSync(csvAt, { force: true }); mkdirSync(join(csvAt, 'held'), { recursive: true })
+    let unsaved: ReturnType<typeof runBoth>
+    try { unsaved = runBoth('render 交付物写不进去', [S('render.ts'), '--dir', dir, '--ignore-memory'], tmp, { status: 6, soft: [0, 1, 2, 7] }) }
+    finally { rmSync(csvAt, { recursive: true, force: true }); writeFileSync(csvAt, csvText) }
+    if (unsaved.ok) {
+      named('render 交付物写不进去以退出码 6 结束，stdout 不出交付 JSON',
+        unsaved.status === 6 && unsaved.stdout.trim() === '' && unsaved.stderr.includes('kol.csv'),
+        `退出=${unsaved.status}，stdout=${unsaved.stdout.slice(0, 200)}，stderr=${stderrTail(unsaved.stderr)}`)
+      // D4.u 的三半：读不出记忆退 7（上面那条）、交付物保存失败退 6（这条）、写回失败照常退 0（上面「显式忽略坏记忆」那跑）
+      criterion('D4.u')
     }
 
     // 旧任务目录：task.json 里根本没有这个字段。**不能读成「去重跑过了」** ——
@@ -3508,9 +3544,9 @@ group('f9', [], () => {
     JSON.parse(readFileSync(join(firstPage, dir, 'task.json'), 'utf8')).offsets ?? {}).length
 
   const ascRun = runBoth('collect 第一页保证：正序跑一遍',
-                         [S('collect.ts'), '--config', f9Cfg('asc', [0, 1, 2, 3, 4, 5])], firstPage)
+                         [S('collect.ts'), '--config', f9Cfg('asc', [0, 1, 2, 3, 4, 5])], firstPage, { status: 4 })
   const descRun = runBoth('collect 第一页保证：同一批任务倒序再跑一遍',
-                          [S('collect.ts'), '--config', f9Cfg('desc', [5, 4, 3, 2, 1, 0])], firstPage)
+                          [S('collect.ts'), '--config', f9Cfg('desc', [5, 4, 3, 2, 1, 0])], firstPage, { status: 4 })
   if (ascRun.ok && descRun.ok) {
     const asc = summaryOf(ascRun.stdout)
     const desc = summaryOf(descRun.stdout)
@@ -3539,7 +3575,7 @@ group('f9', [], () => {
       // 不是它的第三拍 —— 别把它读成「这段接线有人守着」。
       const again = run('collect 第一页保证：每个任务都问过之后再续跑一次',
                         [S('collect.ts'), '--resume', asc.dir, '--budget', '2'], firstPage,
-                        { status: 0, stream: 'stdout' })
+                        { status: 4, stream: 'stdout' })
       if (again !== undefined) {
         const after = summaryOf(again).requests
         named('第一页之后照旧按达标停下 —— 已经问过的不再多翻一页',
@@ -3756,9 +3792,9 @@ group('d6il-402', [], () => {
     product: 'refunded', market: 'US', target_count: 9999, budget_usd: 1,
     tasks: [{ keyword: 'force-402-kw', dimension: 'category', platform: 'tiktok' }],
   }))
-  // 402 是对面拒收：不重试、直接抛穿搜索循环 → stopped='error'、退出码 1
+  // 402 是对面拒收：不重试、直接抛穿搜索循环 → stopped='error'、退出码 5（ADR-193）
   const refRun = runBoth('collect 供应商拒收（402）：以出错收尾',
-                         [S('collect.ts'), '--config', refCfg], refunded, { status: 1 })
+                         [S('collect.ts'), '--config', refCfg], refunded, { status: 5 })
   if (refRun.ok) {
     let rstate: any
     try {
@@ -3776,7 +3812,7 @@ group('d6il-402', [], () => {
   }
 })
 
-// ---- KOL-105：profile 补全阶段遇 TikHub 402 立即停，以 stopped=error、退出码 1 收尾 ----
+// ---- KOL-105：profile 补全阶段遇 TikHub 402 立即停，以 stopped=error 收尾（退出码原为 1，ADR-193 起为 5） ----
 group('profile-402-stop', [], () => {
   // 改前（主干 0917a2f 实测，与卡片「复现步骤与实测结果」一致）：profile 端点回 402 时只计作那个人补全失败，
   // 接着为其余待补的人照发请求，收尾仍是 done／target、退 0。先于修补写成，看过它对着未修的代码红。
@@ -3790,7 +3826,7 @@ group('profile-402-stop', [], () => {
   //    路径核对结果」记的搜索阶段实测汇总 `error` 也正是这一句。同组最后一条对照把搜索阶段再验一遍。
   //  · 待补 profile 几人：D6.p（简介没查过、或查过但没有外链的仍待补）手数；四种收尾同一续跑口径（D6.q／D6.r）。
   //  · 断点的净次数：D6.s，只数 HTTP 200（这里没有无 HTTP 状态的），402／404 已撤销、不计。
-  //  · `profile_failed`：需求方 2026-10-31 13:00 CST 裁决（派发方转达，D6.z）—— 402 那人不计入、算待补，只数 402 之前非 402 的失败。
+  //  · `profile_failed`：需求方 2026-10-31 13:00 CST 裁决（派发方转达，D6.z，今 D6.ab）—— 402 那人不计入、算待补，只数 402 之前非 402 的失败。
   //
   // 夹具：关键词带 `profile-halt` 时假 fetch 回三个人（profhalt_a／b／c，粉丝 82000／90000／95000，都在闸门之内、
   // 都没带简介），`FAKE_FETCH_HALT_*` 让这三人发到某个 profile 端点的第 n 次请求起都回 402 或 404（fake-fetch.ts
@@ -3801,7 +3837,7 @@ group('profile-402-stop', [], () => {
   // 402 那一行也要记下了，才去判「402 之后再无记录」。对照不成立是夹具失格（带夹具记号），这一跑的具名断言都不判。
   // IG「不降级 V2」另配一份阳性对照：同一种接线下 V3 回 404 时账本要真记下 V2 那一行。
   //
-  // 认领 D6.z（组末尾）。D6.x 退役、整条映射由 D6.y 接替，D6.y 留给 KOL-21 独立测试包，这里不认（ADR-183 末尾）。
+  // 认领 D6.ab（组末尾；ADR-193 接替 D6.z，补上「N 人补全失败」那一行）。整条映射由 D6.aa（接替 D6.y、D6.x）管，留给 KOL-21 独立测试包，这里不认（ADR-183 末尾、ADR-193）。
   const root = join(tmp, 'profile-402-stop')
   const HALT = ['profhalt_a', 'profhalt_b', 'profhalt_c']
   const MSG_402 = 'TikHub 余额不足，请充值后重试'
@@ -3820,7 +3856,7 @@ group('profile-402-stop', [], () => {
       ...(fault.before === undefined ? {} : { FAKE_FETCH_HALT_BEFORE: String(fault.before) }) }
     // 退出码本身就是下面具名断言点名的东西：别的正常退出码交给它们判，被信号打死照旧带进程记号
     const r = runBoth(label, [S('collect.ts'), '--config', cfg], cwd,
-      { status: want, soft: [0, 1, 2, 3].filter(s => s !== want) }, costEnv(log, knobs))
+      { status: want, soft: [0, 1, 2, 3, 4, 5, 6, 7].filter(s => s !== want) }, costEnv(log, knobs))
     if (!r.ok) return undefined
     let sum: any
     try { sum = JSON.parse(r.stdout) } catch { sum = undefined }
@@ -3836,7 +3872,7 @@ group('profile-402-stop', [], () => {
       + `实际 ${JSON.stringify(h.lines)} —— 观察器没接上、或这一跑没走到 profile 补全，这一跑的具名断言都不判`)
     return undefined
   }
-  const stopsWith402 = (h: Halt) => h.status === 1 && h.sum !== undefined
+  const stopsWith402 = (h: Halt) => h.status === 5 && h.sum !== undefined
     && h.sum.stopped === 'error' && h.sum.error === MSG_402
   const how = (h: Halt) => `退出码 ${h.status}、汇总 ${h.sum === undefined ? '读不成 JSON' : `stopped=${JSON.stringify(h.sum.stopped)}`
     + `、error=${JSON.stringify(h.sum.error)}、profile_failed=${JSON.stringify(h.sum.profile_failed)}`}，账本 ${JSON.stringify(h.lines)}`
@@ -3850,10 +3886,10 @@ group('profile-402-stop', [], () => {
   // ① TikTok，关键词跑完之后补 profile，第一个人就 402 —— 卡片复现那一跑的形状（改前 done、退 0）。
   // target_count 9999：三个人凑不够，收尾不会是达标。
   const first = collectHalt('tt-first', 'collect TikTok profile 第一次请求起就回 402', TT, 9999,
-    { path: TT_PROFILE, status: 402, from: 1 }, 1)
+    { path: TT_PROFILE, status: 402, from: 1 }, 5)
   const firstAt = first === undefined ? undefined : refusedAt(first, TT_PROFILE, 402)
   if (first !== undefined && firstAt !== undefined) {
-    named('collect 在 profile 补全阶段遇 TikHub 402（TikTok）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 1',
+    named('collect 在 profile 补全阶段遇 TikHub 402（TikTok）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 5',
       stopsWith402(first), how(first))
     named('collect 在 profile 补全阶段遇 TikHub 402 之后不再发任何请求：其余待补的人一个都不请求（TikTok）',
       first.lines.length === firstAt + 1, after(first, firstAt))
@@ -3872,10 +3908,10 @@ group('profile-402-stop', [], () => {
 
   // ② TikTok，第一次 profile 请求照常回资料、第二次起 402：402 之前补好的那人要落盘，第三个人不再请求。
   const mid = collectHalt('tt-mid', 'collect TikTok profile 第二次请求起回 402', TT, 9999,
-    { path: TT_PROFILE, status: 402, from: 2 }, 1)
+    { path: TT_PROFILE, status: 402, from: 2 }, 5)
   const midAt = mid === undefined ? undefined : refusedAt(mid, TT_PROFILE, 402)
   if (mid !== undefined && midAt !== undefined) {
-    named('collect 在 profile 补全中途遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 1',
+    named('collect 在 profile 补全中途遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 5',
       stopsWith402(mid), how(mid))
     named('collect 在 profile 补全中途遇 TikHub 402 之后不再请求下一个人',
       mid.lines.length === midAt + 1, after(mid, midAt))
@@ -3898,7 +3934,7 @@ group('profile-402-stop', [], () => {
   // `profile-halt-more` 让搜索声明还有下一页，而预算 $1 够翻满 4 页上限（skill/SKILL.md「单关键词页数上限 4 页」），
   // 于是账本里只有一次搜索 = 走到了达标。不是一次就是夹具没造对。
   const tgt = collectHalt('tt-target', 'collect 达标之后补 TikTok profile 第一次请求起就回 402',
-    { ...TT, keyword: 'profile-halt-more' }, 1, { path: TT_PROFILE, status: 402, from: 1 }, 1)
+    { ...TT, keyword: 'profile-halt-more' }, 1, { path: TT_PROFILE, status: 402, from: 1 }, 5)
   let tgtAt = tgt === undefined ? undefined : refusedAt(tgt, TT_PROFILE, 402)
   if (tgt !== undefined && tgtAt !== undefined && tgt.lines.slice(0, tgtAt).filter(isSearch).length !== 1) {
     failed++
@@ -3907,7 +3943,7 @@ group('profile-402-stop', [], () => {
     tgtAt = undefined
   }
   if (tgt !== undefined && tgtAt !== undefined) {
-    named('collect 达标之后补 profile 遇 TikHub 402：stopped 为 error（不是 target）、error 为余额不足的提示，退出码 1',
+    named('collect 达标之后补 profile 遇 TikHub 402：stopped 为 error（不是 target）、error 为余额不足的提示，退出码 5',
       stopsWith402(tgt), how(tgt))
     named('collect 达标之后补 profile 遇 TikHub 402 之后不再发任何请求',
       tgt.lines.length === tgtAt + 1, after(tgt, tgtAt))
@@ -3935,10 +3971,10 @@ group('profile-402-stop', [], () => {
 
   // ⑤ IG，profile V3 第一个人就 402（卡片未核实项 2；改前实测：不降级 V2，但接着请求了下一个人，done、退 0）
   const ig = collectHalt('ig-first', 'collect IG profile V3 第一次请求起就回 402', IG, 9999,
-    { path: IG_PROFILE, status: 402, from: 1 }, 1)
+    { path: IG_PROFILE, status: 402, from: 1 }, 5)
   const igAt = ig === undefined ? undefined : refusedAt(ig, IG_PROFILE, 402)
   if (ig !== undefined && igAt !== undefined) {
-    named('collect 在 profile 补全阶段遇 TikHub 402（IG，V3 回 402）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 1',
+    named('collect 在 profile 补全阶段遇 TikHub 402（IG，V3 回 402）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 5',
       stopsWith402(ig), how(ig))
     named('collect 在 IG profile V3 遇 TikHub 402 之后不再发任何请求：同一人不降级 V2，其余待补的人也不请求',
       ig.lines.length === igAt + 1, after(ig, igAt))
@@ -3964,9 +4000,9 @@ group('profile-402-stop', [], () => {
 
   // ⑦ 对照：搜索阶段的 402 本来就是这种收尾（卡片「其余 402 路径核对结果」第一条，实测）—— profile 阶段修好后与它一致
   const search = collectHalt('search-402', 'collect 搜索阶段就回 402',
-    { keyword: 'force-402-searchstage', dimension: 'category', platform: 'tiktok' }, 9999, undefined, 1)
+    { keyword: 'force-402-searchstage', dimension: 'category', platform: 'tiktok' }, 9999, undefined, 5)
   if (search !== undefined) {
-    named('collect 在搜索阶段遇 TikHub 402 照旧：stopped 为 error、error 为余额不足的提示，退出码 1',
+    named('collect 在搜索阶段遇 TikHub 402 照旧：stopped 为 error、error 为余额不足的提示，退出码 5',
       stopsWith402(search), how(search))
   }
 
@@ -3974,20 +4010,23 @@ group('profile-402-stop', [], () => {
   // 只数 402 之前非 402 的失败）：404 那人计 1，402 那人不计，第三个人不再请求 → 1；三人简介都没查成 → 三人待补（D6.p）。
   // 账本里 404、402 两行都要真记下（`refusedAt` 的 early），才判 402 之后再无记录。
   const mix = collectHalt('tt-404-402', 'collect TikTok profile 第一次请求回 404、第二次起回 402', TT, 9999,
-    { path: TT_PROFILE, status: 402, from: 2, before: 404 }, 1)
+    { path: TT_PROFILE, status: 402, from: 2, before: 404 }, 5)
   const mixAt = mix === undefined ? undefined : refusedAt(mix, TT_PROFILE, 402, [`404\t${TT_PROFILE}`])
   if (mix !== undefined && mixAt !== undefined) {
-    named('collect 在 profile 补全先遇一次 404、再遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 1',
+    named('collect 在 profile 补全先遇一次 404、再遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 5',
       stopsWith402(mix), how(mix))
     named('collect 在 profile 补全先遇 404、再遇 TikHub 402 之后不再请求下一个人', mix.lines.length === mixAt + 1, after(mix, mixAt))
     named('collect 在 profile 补全先遇 404、再遇 TikHub 402：汇总的 profile_failed 为 1，只数 402 之前那次 404，不含 402 那人',
       mix.sum?.profile_failed === 1, how(mix))
     named('profile 补全先 404 后 402 收尾时，续跑提示把 404 那人、402 那人与之后没请求的人都算作待补 profile',
       pending(mix, 3), `应说还有 3 个人的 profile、且不说续跑不产生新的请求；stderr 末几行 ${stderrTail(mix.stderr)}`)
+    // KOL-108 第 1 条：补全循环被 402 打断时，「N 人补全失败」那一行也照打，与汇总的 profile_failed 对得上
+    named('collect 在 profile 补全先遇 404、再遇 TikHub 402：stderr 照打「1 人补全失败」那一行，与汇总的 profile_failed 对得上',
+      /1 人补全失败/.test(mix.stderr) && mix.sum?.profile_failed === 1, `stderr 末几行 ${stderrTail(mix.stderr)}`)
   }
-  // ①–⑧ 合起来是 D6.z 的每一半：停与提示、零请求（含 IG 不降级）、profile_failed 只数 402 之前非 402 的失败、
+  // ①–⑧ 合起来是 D6.ab 的每一半：停与提示、零请求（含 IG 不降级）、profile_failed 只数 402 之前非 402 的失败、
   // 待补与续跑提示、402 之前补成的落盘、非 402 不停（④⑥）、达标与否都一样（①③）。负片 M-D6-bm、M-D6-bn
-  criterion('D6.z')
+  criterion('D6.ab')
 })
 
 // ---- D6.j：上一版留下的目录，两张表缺着就一直缺着 ----
@@ -4865,7 +4904,7 @@ group('config-entry-invalid', [], () => {
   for (const { mode, c } of cases) {
     const f = make(mode, c)
     if (!inputReady(f, c)) continue
-    const r = runBoth(`市场人数 ${mode}：${c.id}`, f.args, f.cwd, { status: 2, soft: [0, 1, 3] }, f.observation)
+    const r = runBoth(`市场人数 ${mode}：${c.id}`, f.args, f.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, f.observation)
     if (!r.ok || !ready(f.armed, r.stderr)) continue
     const calls = fetchAttempts(f.reserves), requests = fetchAttempts(f.log)
     const rejected = r.status === 2 && requests.length === 0 && fetchAttempts(f.events).length === 0
@@ -4922,12 +4961,14 @@ group('config-entry-valid', [], () => {
   for (const { mode, c } of positives) {
     const f = make(mode, c, true)
     if (!inputReady(f, c)) continue
-    const r = runBoth(`市场人数 ${mode}：${c.id}`, f.args, f.cwd, { status: 0, soft: [1, 2, 3] }, f.observation)
-    if (!r.ok || !ready(f.armed, r.stderr)) continue
-    const searches = fetchAttempts(f.events).map(summaryOf).filter(e => e.kind === 'fetch' && e.endpoint === TT_SEARCH)
     const market = c.missing?.includes('market') ? 'US' : c.values?.market ?? 'US'
     const target = c.missing?.includes('target_count') ? 50 : c.values?.target_count ?? 1
-    const searched = r.status === 0 && tasks.every(task => searches.some(e => e.query?.keyword === task.keyword))
+    // collect 首页就够数（目标不到 50）时以达标收尾，退出码 4；缺省 50 跑完关键词才停，退出码 0（ADR-193）
+    const want = mode !== 'probe' && typeof target === 'number' && target < 50 ? 4 : 0
+    const r = runBoth(`市场人数 ${mode}：${c.id}`, f.args, f.cwd, { status: want, soft: [0, 1, 2, 3, 4, 5, 6, 7].filter(s => s !== want) }, f.observation)
+    if (!r.ok || !ready(f.armed, r.stderr)) continue
+    const searches = fetchAttempts(f.events).map(summaryOf).filter(e => e.kind === 'fetch' && e.endpoint === TT_SEARCH)
+    const searched = r.status === want && tasks.every(task => searches.some(e => e.query?.keyword === task.keyword))
     const detail = `${mode}/${c.id}：退出=${r.status}，搜索=${JSON.stringify(searches)}，stderr=${stderrTail(r.stderr)}`
     named('市场人数：合法入口证明预算观察器确实记录 reserve 调用',
       searched && fetchAttempts(f.reserves).includes('reserve'), detail)
@@ -4937,9 +4978,9 @@ group('config-entry-valid', [], () => {
       /默认|缺省|default/i.test(line) && /\bUS\b/.test(line) && /market|市场/i.test(line)
         && !/(?:未|不)(?:采用|使用|用)(?:默认|缺省)|(?:不是|并非)(?:默认|缺省)|not (using|the) default/i.test(line))
     if (c.missing?.includes('market')) named('市场人数：缺市场使用 US 时 stderr 明说市场未提供并采用默认',
-      r.status === 0 && defaultNotices.some(line => /未(?:提供|指定|填写|设置|给出)|没(?:有)?(?:提供|指定|填写|设置)|缺(?:席|失|少)|不存在|不在配置|absent|missing|omitted|not (provided|specified)/i.test(line)), detail)
+      r.status === want && defaultNotices.some(line => /未(?:提供|指定|填写|设置|给出)|没(?:有)?(?:提供|指定|填写|设置)|缺(?:席|失|少)|不存在|不在配置|absent|missing|omitted|not (provided|specified)/i.test(line)), detail)
     else if (mode === 'new' || mode === 'probe') named('市场人数：显式合法市场不冒称采用默认US',
-      r.status === 0 && defaultNotices.length === 0, detail)
+      r.status === want && defaultNotices.length === 0, detail)
     if (mode === 'probe') {
       const rows = summaryOf(r.stdout).results
       named('市场人数：probe 完全忽略 target_count，仍逐项搜索且输入原样',
@@ -4960,13 +5001,14 @@ group('config-entry-valid', [], () => {
   for (const target of [1, 50]) {
     const f = make('new', { id: `target-depth-${target}`, missing: target === 50 ? ['target_count'] : [],
       values: { target_count: 1, tasks: [{ keyword: 'force-paged-config-target', dimension: 'category', platform: 'instagram' }] } }, true)
-    const r = runBoth(`市场人数：实际目标 ${target}`, f.args, f.cwd, { status: 0, soft: [1, 2, 3] }, f.observation)
+    const want = target === 1 ? 4 : 0
+    const r = runBoth(`市场人数：实际目标 ${target}`, f.args, f.cwd, { status: want, soft: [0, 1, 2, 3, 4, 5, 6, 7].filter(s => s !== want) }, f.observation)
     if (!r.ok || !ready(f.armed, r.stderr)) continue
     const queries = fetchAttempts(f.events).map(summaryOf).filter(e => e.kind === 'fetch' && e.endpoint === IG_REELS)
     const tokens = queries.map(e => e.query?.pagination_token ?? null)
     const expected = target === 1 ? [null] : [null, 'page-2', 'page-3']
     const dir = onlyDir(f.cwd, 'configentry'), state = dir ? jsonFile(join(f.cwd, dir, 'task.json')) : undefined
-    named('市场人数：缺省50实际继续翻页，显式1在首页后停', r.status === 0
+    named('市场人数：缺省50实际继续翻页，显式1在首页后停', r.status === want
       && state?.target_count === target && JSON.stringify(tokens) === JSON.stringify(expected)
       && fetchAttempts(f.reserves).includes('reserve'),
       `目标=${target}，盘上=${state?.target_count}，实际令牌=${JSON.stringify(tokens)}，stderr=${stderrTail(r.stderr)}`)
@@ -5067,12 +5109,12 @@ group('brand-calibration-entry', [], () => {
 
   const fresh = newInput('valid-new', brand)
   const freshRun = runBoth('品牌校准合法新建', [S('collect.ts'), '--config', fresh.file], fresh.cwd,
-    { status: 0, soft: [1, 2, 3] }, observed(fresh))
+    { status: 4, soft: [0, 1, 2, 3, 5, 6, 7] }, observed(fresh))
   if (freshRun.ok && ready(fresh, freshRun.stderr)) {
     const dir = onlyDir(fresh.cwd, 'brandcalibration')
     const state = dir ? jsonFile(join(fresh.cwd, dir, 'task.json')) : undefined
     named('品牌校准：合法新建确实预留和请求，task.json 原样保存校准',
-      freshRun.status === 0 && fetchAttempts(fresh.reserves).length > 0
+      freshRun.status === 4 && fetchAttempts(fresh.reserves).length > 0
         && fetchAttempts(fresh.log).length > 0 && isDeepStrictEqual(state?.brand_calibration, brand),
       `退出=${freshRun.status}，目录=${dir}，预留=${fetchAttempts(fresh.reserves).length}，`
         + `请求=${fetchAttempts(fresh.log).length}，盘上=${JSON.stringify(state?.brand_calibration)}`)
@@ -5080,22 +5122,22 @@ group('brand-calibration-entry', [], () => {
   }
   const absent = newInput('absent-new', undefined, false)
   const absentRun = runBoth('品牌校准缺席新建', [S('collect.ts'), '--config', absent.file], absent.cwd,
-    { status: 0, soft: [1, 2, 3] }, observed(absent))
+    { status: 4, soft: [0, 1, 2, 3, 5, 6, 7] }, observed(absent))
   if (absentRun.ok && ready(absent, absentRun.stderr)) {
     const dir = onlyDir(absent.cwd, 'brandcalibration')
     const state = dir ? jsonFile(join(absent.cwd, dir, 'task.json')) : undefined
     named('品牌校准：缺席新建后 task.json 仍无该字段',
-      absentRun.status === 0 && state !== undefined && !Object.hasOwn(state, 'brand_calibration'),
+      absentRun.status === 4 && state !== undefined && !Object.hasOwn(state, 'brand_calibration'),
       `退出=${absentRun.status}，目录=${dir}，盘上字段=${JSON.stringify(state?.brand_calibration)}`)
     saved++
   }
   const resume = taskInput('brand-valid-resume', brand)
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const result = runBoth(`品牌校准合法${mode}续跑`, [S('collect.ts'), '--resume', resume.taskDir, ...extra],
-      resume.cwd, { status: 0, soft: [1, 2, 3] }, observed(resume))
+      resume.cwd, { status: 4, soft: [0, 1, 2, 3, 5, 6, 7] }, observed(resume))
     if (!result.ok || !ready(resume, result.stderr)) continue
     const state = jsonFile(resume.task)
-    const kept = result.status === 0 && isDeepStrictEqual(state?.brand_calibration, brand)
+    const kept = result.status === 4 && isDeepStrictEqual(state?.brand_calibration, brand)
     const detail = `${mode}：退出=${result.status}，盘上=${JSON.stringify(state?.brand_calibration)}`
     if (mode === '普通') named('品牌校准：普通续跑原样保留品牌输入', kept, detail)
     else named('品牌校准：改额续跑原样保留品牌输入', kept, detail)
@@ -5107,7 +5149,7 @@ group('brand-calibration-entry', [], () => {
   const invalidNew = newInput('invalid-new', bad, true, 'not-a-budget')
   const newBefore = fileText(invalidNew.file)
   const newRun = runBoth('品牌校准非法新建', [S('collect.ts'), '--config', invalidNew.file], invalidNew.cwd,
-    { status: 2, soft: [0, 1, 3] }, observed(invalidNew))
+    { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(invalidNew))
   if (newRun.ok && ready(invalidNew, newRun.stderr)) {
     const output = join(invalidNew.cwd, 'output')
     named('品牌校准：非法新建在建目录、预留和请求前退出2',
@@ -5122,7 +5164,7 @@ group('brand-calibration-entry', [], () => {
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const f = taskInput(`brand-invalid-${mode}`, bad), before = original(f)
     const r = runBoth(`品牌校准非法${mode}续跑`, [S('collect.ts'), '--resume', f.taskDir, ...extra],
-      f.cwd, { status: 2, soft: [0, 1, 3] }, observed(f))
+      f.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(f))
     if (!r.ok || !ready(f, r.stderr)) continue
     const stopped = r.status === 2 && noReserveOrFetch(f) && unchanged(f, before)
     const detail = `${mode}：退出=${r.status}，预留=${fetchAttempts(f.reserves).length}，请求=${fetchAttempts(f.log).length}`
@@ -5141,7 +5183,7 @@ group('brand-calibration-entry', [], () => {
     const outputFiles = ['enrichment.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
       .map(name => join(f.taskDir, name))
     const r = runBoth(`品牌校准非法 ${entry}`, [S(`${entry}.ts`), '--dir', f.taskDir], f.cwd,
-      { status: 2, soft: [0, 1, 3] }, observed(f))
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(f))
     if (!r.ok || !ready(f, r.stderr)) continue
     const stopped = r.status === 2 && noReserveOrFetch(f) && unchanged(f, before)
       && outputFiles.every(path => !existsSync(path)) && !existsSync(join(f.cwd, 'memory', 'creators.json'))
@@ -5172,7 +5214,7 @@ group('brand-calibration-entry', [], () => {
     .concat(dualMemory)
   const dualBefore = dualFiles.map(file => existsSync(file) ? readFileSync(file) : undefined)
   const dualRun = runBoth('品牌校准与任务列表同时非法 render', [S('render.ts'), '--dir', dual.taskDir],
-    dual.cwd, { status: 2, soft: [0, 1, 3] }, observed(dual))
+    dual.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(dual))
   if (dualRun.ok && ready(dual, dualRun.stderr)) {
     const matches = [...dualRun.stderr.matchAll(/任务\s*(\d+)(?!\d)|第\s*(\d+)\s*个/g)]
     const parts = matches.map((match, i) => ({ task: Number(match[1] ?? match[2]),
@@ -5198,7 +5240,7 @@ group('brand-calibration-entry', [], () => {
   const budgetEnrichBefore = original(budgetEnrich)
   const budgetEnrichRun = runBoth('品牌校准非法 enrich 改额',
     [S('enrich.ts'), '--dir', budgetEnrich.taskDir, '--budget', '2'], budgetEnrich.cwd,
-    { status: 2, soft: [0, 1, 3] }, observed(budgetEnrich))
+    { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(budgetEnrich))
   if (budgetEnrichRun.ok && ready(budgetEnrich, budgetEnrichRun.stderr)) {
     const outputFiles = ['enrichment.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
       .map(name => join(budgetEnrich.taskDir, name))
@@ -5349,7 +5391,7 @@ const createTaskListFixture = () => {
   const observe = (mode: Mode, scenario: Scenario) => {
     const f = make(mode, scenario)
     const r = runBoth(`任务列表 ${mode}：${scenario.id}`, f.args, f.cwd,
-      { status: 2, soft: [0, 1, 3] }, f.observation)
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, f.observation)
     if (!r.ok || !observerReady(f.armed, r.stderr)) return undefined
     const requests = fetchAttempts(f.log), events = fetchAttempts(f.events)
     const reserveCalls = fetchAttempts(f.reserves)
@@ -5442,7 +5484,7 @@ group('task-list-good', [], () => {
     writeFileSync(f.file, JSON.stringify(config, null, 2) + '\n')
     const before = fileText(f.file)
     const r = runBoth('任务列表 resume：合法任务与 done:null 旧断点', f.args, f.cwd,
-      { status: 2, soft: [0, 1, 3] }, f.observation)
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, f.observation)
     if (r.ok && observerReady(f.armed, r.stderr)) {
       named('任务列表：合法任务续跑遇到 done:null 仍退出2、零请求且文件不变',
         r.status === 2 && fetchAttempts(f.log).length === 0 && fetchAttempts(f.events).length === 0
@@ -5469,15 +5511,17 @@ group('task-list-good', [], () => {
     if (mode === 'resume' || mode === 'resume-budget') Object.assign(config, knownCosts(1_000_000, []))
     writeFileSync(f.file, JSON.stringify(config))
     const args = mode === 'resume-budget' ? [...f.args.slice(0, -1), '2'] : f.args
+    // collect 首页就够数，以达标收尾（退出码 4，ADR-193）；probe 跑完为 0
+    const want = mode === 'probe' ? 0 : 4
     const r = runBoth(`任务列表 ${mode}：合法非空列表`, args, f.cwd,
-      { status: 0, soft: [1, 2, 3] }, f.observation)
+      { status: want, soft: [0, 1, 2, 3, 4, 5, 6, 7].filter(s => s !== want) }, f.observation)
     if (!r.ok || !observerReady(f.armed, r.stderr)) continue
     const requests = fetchAttempts(f.log)
-    const searched = r.status === 0 && [TT_SEARCH, IG_REELS, '/api/v1/instagram/v2/fetch_hashtag_posts']
+    const searched = r.status === want && [TT_SEARCH, IG_REELS, '/api/v1/instagram/v2/fetch_hashtag_posts']
       .every(endpoint => requests.includes(`200\t${endpoint}`))
     const detail = `${mode}，退出码 ${r.status}、请求 ${JSON.stringify(requests)}，stderr=${stderrTail(r.stderr)}`
     named('任务列表：合法入口的预算预留观测确实记录调用',
-      r.status === 0 && fetchAttempts(f.reserves).includes('reserve'), detail)
+      r.status === want && fetchAttempts(f.reserves).includes('reserve'), detail)
     if (mode === 'probe') {
       const rows = summaryOf(r.stdout).results
       named('任务列表：probe 合法非空列表照常搜索，重复任务及原关键词保留',
@@ -5530,7 +5574,7 @@ group('resume-progress-collect-control', [], () => {
     `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
   ].join('\n'))
   const r = runBoth('恢复进度阳性对照：进度合规的 collect 续跑照常预留并请求', [S('collect.ts'), '--resume', f.taskDir], f.cwd,
-    { status: 0, soft: [1, 2, 3] }, costEnv(f.log, {
+    { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(f.log, {
       NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport(f.cwd))} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
     }))
   if (r.ok && (r.status !== 0 || !fetchAttempts(armed).includes('armed') || fetchAttempts(reserves).length === 0 || fetchAttempts(f.log).length === 0)) {
@@ -5589,7 +5633,7 @@ group('resume-progress-collect-bad', ['resume-progress-collect-control'], () => 
     ].join('\n'))
     const r = runBoth(`恢复坏进度 ${id}/${change}`, [S('collect.ts'), '--resume', f.taskDir,
       ...(change ? ['--budget', '2'] : [])], f.cwd,
-      { status: 2, soft: [0, 1, 3] }, costEnv(f.log, {
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(f.log, {
         NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport(f.cwd))} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
       }))
     if (!r.ok || !fetchAttempts(armed).includes('armed')) {
@@ -5619,7 +5663,7 @@ group('resume-progress-collect-bad', ['resume-progress-collect-control'], () => 
   for (const field of ['offsets', 'answered', 'found', 'pages']) delete original[field]
   writeFileSync(good.task, JSON.stringify(original))
   const r = runBoth('恢复进度：旧目录缺四张整表仍可续跑', [S('collect.ts'), '--resume', good.taskDir],
-    good.cwd, { status: 0, soft: [1, 2, 3] }, costEnv(good.log))
+    good.cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(good.log))
   if (r.ok) {
     named('恢复进度：旧目录缺表照常收尾且不回填四张表',
       r.status === 0 && ['offsets', 'answered', 'found', 'pages']
@@ -5660,7 +5704,7 @@ group('resume-progress-writeback', ['resume-progress-collect-control'], () => {
     const text = fileText(f.task)
     if (!text.includes(from) || (bare && text.includes('"budget_usd"'))) { failed++; console.error(`  ✗ 续跑进度写回测试输入${SELFCHECK_FIXTURE_MARK}：${writer}/${id}`); continue }
     writeFileSync(f.task, text.replace(from, raw))
-    const w = runBoth(`续跑进度写回 ${writer}/${id}`, argv(f.taskDir), f.cwd, { status: 0, soft: [1, 2, 3] },
+    const w = runBoth(`续跑进度写回 ${writer}/${id}`, argv(f.taskDir), f.cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] },
       costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (!w.ok) continue
     if (w.status !== 0 || jsonFile(f.task)?.updated_at === '2026-01-01T00:00:00.000Z') { failed++
@@ -5669,7 +5713,7 @@ group('resume-progress-writeback', ['resume-progress-collect-control'], () => {
     // 阳性对照：改额确实把根预算写上盘，按字节找 "budget_usd" 认得出写回方补上的根预算
     if (bare && writer === 'enrich-budget' && !before.includes('"budget_usd"')) { failed++; console.error(`  ✗ 续跑进度写回根预算观测${SELFCHECK_FIXTURE_MARK}：${writer}/${id} 改额写回后盘上找不到 "budget_usd"`) }
     const armed = join(f.cwd, 'armed.txt'), ledger = join(f.cwd, 'resume.tsv')
-    const c = runBoth(`续跑进度写回后续跑 ${writer}/${id}`, [S('collect.ts'), '--resume', f.taskDir], f.cwd, { status: 2, soft: [0, 1, 3] },
+    const c = runBoth(`续跑进度写回后续跑 ${writer}/${id}`, [S('collect.ts'), '--resume', f.taskDir], f.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] },
       costEnv(ledger, { KEPT_PROGRESS_ARMED: armed, NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(armedJs).href)}` }))
     if (!c.ok) continue
     if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ 续跑进度写回请求观测${SELFCHECK_FIXTURE_MARK}：${writer}/${id}`); continue }
@@ -5734,7 +5778,7 @@ group('resume-progress-render-control', [], () => {
   const control = costFixture('render-progress-control', knownCosts(1_000_000, []), {}, [costPerson()])
   seed(control)
   const c = runBoth('render 坏进度阳性对照：同样的哨兵与记忆、进度合规', [S('render.ts'), '--dir', control.taskDir], control.cwd,
-    { status: 0, soft: [1, 2, 3] }, costEnv(control.log, { TIKHUB_API_KEY: undefined }))
+    { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(control.log, { TIKHUB_API_KEY: undefined }))
   if (c.ok && (c.status !== 0 || !existsSync(join(control.taskDir, 'kol.csv')))) {
     failed++; console.error(`  ✗ render 坏进度阳性对照${SELFCHECK_FIXTURE_MARK}：合规进度没有以 0 结束并生成 kol.csv，exit=${c.status}，stderr=${stderrTail(c.stderr)}`)
   }
@@ -5753,7 +5797,7 @@ group('resume-progress-render-reject', ['resume-progress-render-control'], () =>
     seed(f)
     const before = [snapshot(f.taskDir), snapshot(join(f.cwd, 'memory'))]
     const r = runBoth(`render 坏进度 ${id}`, [S('render.ts'), '--dir', f.taskDir], f.cwd,
-      { status: 2, soft: [0, 1, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (!r.ok) continue
     const same = snapshot(f.taskDir) === before[0] && snapshot(join(f.cwd, 'memory')) === before[1]
     const leak = probeInputLeak(r.stderr), message = r.stderr.replaceAll(f.task, '[任务文件]')
@@ -5789,7 +5833,7 @@ group('resume-progress-render-accept', [], () => {
     if (text === undefined) { failed++; console.error(`  ✗ render 合规进度测试输入${SELFCHECK_FIXTURE_MARK}：${id}`); continue }
     writeFileSync(f.task, text)
     const r = runBoth(`render 合规进度 ${id}`, [S('render.ts'), '--dir', f.taskDir], f.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+      { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (!r.ok) continue
     const after = fileText(f.task), meta = jsonFile(join(f.taskDir, 'meta.json')), saved = jsonFile(f.task)
     const tokens = kept.map(([table, key]) => rootToken(after, key, [table]) ?? '缺席')
@@ -5858,12 +5902,12 @@ group('resume-progress-dup-collect', [], () => {
   }
   const collectLeaked: string[] = [], collectHidden: string[] = []
   for (const [id, from, dup, last, field, tokens] of dupCases) {
-    const lastOnly = dupCollect(`${id}-control`, from, last, [], { status: 0, soft: [1, 2, 3] })
+    const lastOnly = dupCollect(`${id}-control`, from, last, [], { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
     if (!lastOnly) continue
     if (lastOnly.reserves === 0 || lastOnly.attempts === 0) { failed++
       console.error(`  ✗ 重复进度键 collect 阳性对照${SELFCHECK_FIXTURE_MARK}：${id} 只留最后一处时没有照常预留并请求，exit=${lastOnly.r.status}，reserves=${lastOnly.reserves}，attempts=${lastOnly.attempts}，stderr=${stderrTail(lastOnly.r.stderr)}`); continue }
     for (const change of [false, true]) {
-      const got = dupCollect(`${id}-${change ? 'budget' : 'resume'}`, from, dup, change ? ['--budget', '2'] : [], { status: 2, soft: [0, 1, 3] })
+      const got = dupCollect(`${id}-${change ? 'budget' : 'resume'}`, from, dup, change ? ['--budget', '2'] : [], { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
       if (!got) continue
       const { f, r, before, same, reserves, attempts } = got
       const at = `${id}/${change ? '--budget 2' : '--resume'}：exit=${r.status}，fileSame=${fileText(f.task) === before}，目录原样=${same}，reserves=${reserves}，attempts=${attempts}，stderr=${stderrTail(r.stderr)}`
@@ -5889,13 +5933,13 @@ group('resume-progress-dup-render', ['resume-progress-render-control'], () => {
     const lastOnly = fixture(`${id}-control`, last), f = fixture(id, dup)
     if (!lastOnly || !f) { failed++; console.error(`  ✗ render 重复进度键测试输入${SELFCHECK_FIXTURE_MARK}：${id} 的夹具里找不到 ${from}`); continue }
     const plain = runBoth(`render 重复进度键阳性对照 ${id}`, [S('render.ts'), '--dir', lastOnly.taskDir], lastOnly.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(lastOnly.log, { TIKHUB_API_KEY: undefined }))
+      { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(lastOnly.log, { TIKHUB_API_KEY: undefined }))
     if (!plain.ok) continue
     if (plain.status !== 0 || !existsSync(join(lastOnly.taskDir, 'kol.csv'))) { failed++
       console.error(`  ✗ render 重复进度键阳性对照${SELFCHECK_FIXTURE_MARK}：${id} 只留最后一处时没有以 0 结束并生成 kol.csv，exit=${plain.status}，stderr=${stderrTail(plain.stderr)}`); continue }
     const before = [snapshot(f.taskDir), snapshot(join(f.cwd, 'memory'))]
     const r = runBoth(`render 重复进度键 ${id}`, [S('render.ts'), '--dir', f.taskDir], f.cwd,
-      { status: 2, soft: [0, 1, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (!r.ok) continue
     const same = snapshot(f.taskDir) === before[0] && snapshot(join(f.cwd, 'memory')) === before[1]
     const created = ['kol.csv', 'kol.xlsx'].filter(name => existsSync(join(f.taskDir, name)))
@@ -5949,11 +5993,11 @@ group('resume-progress-dup-enrich', [], () => {
   const enrichLeaked: string[] = [], enrichHidden: string[] = []
   let enrichDupRan = 0
   for (const [i, [id, from, dup, last, field, tokens]] of dupCases.entries()) for (const [mode, extra] of enrichModes) {
-    const lastOnly = enrichDup(`k${i}-${mode}-control`, [[from, last]], {}, [...extra], { status: 0, soft: [1, 2, 3] })
+    const lastOnly = enrichDup(`k${i}-${mode}-control`, [[from, last]], {}, [...extra], { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
     if (!lastOnly) continue
     if (lastOnly.r.status !== 0 || lastOnly.reserves === 0 || lastOnly.attempts === 0 || lastOnly.after === lastOnly.before || !lastOnly.refreshed) { failed++
       console.error(`  ✗ enrich 重复进度键阳性对照${SELFCHECK_FIXTURE_MARK}：${id}/${mode} 只留最后一处时没有照常预留、请求并写回 task.json，exit=${lastOnly.r.status}，reserves=${lastOnly.reserves}，attempts=${lastOnly.attempts}，写回=${lastOnly.after !== lastOnly.before}，stderr=${stderrTail(lastOnly.r.stderr)}`); continue }
-    const got = enrichDup(`k${i}-${mode}`, [[from, dup]], {}, [...extra], { status: 2, soft: [0, 1, 3] })
+    const got = enrichDup(`k${i}-${mode}`, [[from, dup]], {}, [...extra], { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
     if (!got) continue
     const { f, r, before, after, same, reserves, attempts } = got
     const at = `${id}/${mode}：exit=${r.status}，fileSame=${after === before}，目录原样=${same}，reserves=${reserves}，attempts=${attempts}，stderr=${stderrTail(r.stderr)}`
@@ -5973,7 +6017,7 @@ group('resume-progress-dup-enrich', [], () => {
     const got = enrichDup(`mixed-${mode}`, [[mixedFrom, mixedDup]], {
       tasks: [{ keyword: ' ', dimension: 'Category', platform: 'TikTok' }],
       brand_calibration: { version: ' ', target_creator_types: [], tone_aesthetic: [], natural_scenarios: [], negative_signals: [], sources: [] },
-    }, [...extra], { status: 2, soft: [0, 1, 3] })
+    }, [...extra], { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
     if (!got) continue
     const { f, r } = got
     const message = r.stderr.replaceAll(f.task, '[任务文件]').replaceAll(f.cwd, '[目录]')
@@ -5986,7 +6030,7 @@ group('resume-progress-dup-enrich', [], () => {
   if (enrichMixedRan > 0) named('重复进度键：enrich 见进度键重复且任务列表与品牌输入也不合规时退出2，stderr 三类问题都写出，重复键按文件先后写出每一处原文', !mixedLost.length, mixedLost.join('；'))
 
   // D19.m 末句：enrich 只判重复、不按 D19.a–b 判进度的值。没有重复而溢出的 found 照常预留、请求、以 0 结束，并照 D19.g 原文写回
-  const alone = enrichDup('alone', [['"found":{"0":3}', '"found":{"0":1e400}']], {}, [], { status: 0, soft: [1, 2, 3] })
+  const alone = enrichDup('alone', [['"found":{"0":3}', '"found":{"0":1e400}']], {}, [], { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
   if (alone) {
     const saved = rootToken(alone.after, '0', ['found']) ?? '缺席'
     named('重复进度键：enrich 不因此判进度的值，没有重复的坏进度（found 溢出）照常预留、请求并以0结束，写回后原文逐字不变',
@@ -5998,12 +6042,12 @@ group('resume-progress-dup-enrich', [], () => {
   // 只有 D19.k 拦着。阳性对照是同一份只留最后一处：enrich 照常预留、请求并写回（上一条断言里不判值的那一半）；
   // 前一处 6.25e1 读入后不留痕迹，stderr 里找得到它才是「每一处的原文」。只跑普通模式：改额那一支走同一个判定，上面已各跑过
   const nonIndexFrom = '"found":{"0":3}'
-  const nonIndexControl = enrichDup('k9-control', [[nonIndexFrom, '"found":{"0":3,"zq":5}']], {}, [], { status: 0, soft: [1, 2, 3] })
+  const nonIndexControl = enrichDup('k9-control', [[nonIndexFrom, '"found":{"0":3,"zq":5}']], {}, [], { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
   let nonIndexRan = false
   if (nonIndexControl && (nonIndexControl.r.status !== 0 || nonIndexControl.reserves === 0 || nonIndexControl.attempts === 0 || nonIndexControl.after === nonIndexControl.before)) { failed++
     console.error(`  ✗ enrich 重复进度键阳性对照${SELFCHECK_FIXTURE_MARK}：表里非任务索引的键只留最后一处时没有照常预留、请求并写回 task.json，exit=${nonIndexControl.r.status}，reserves=${nonIndexControl.reserves}，attempts=${nonIndexControl.attempts}，stderr=${stderrTail(nonIndexControl.r.stderr)}`) }
   else if (nonIndexControl) {
-    const got = enrichDup('k9', [[nonIndexFrom, '"found":{"0":3,"zq":6.25e1,"zq":5}']], {}, [], { status: 2, soft: [0, 1, 3] })
+    const got = enrichDup('k9', [[nonIndexFrom, '"found":{"0":3,"zq":6.25e1,"zq":5}']], {}, [], { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
     if (got) {
       const { f, r, before, after, same, reserves, attempts } = got
       named('重复进度键：enrich 见表里不是任务索引的键写了不止一次同样在预留与请求前退出2，task.json 与任务目录原字节不变，stderr 按文件先后写出每一处原文',
@@ -6051,19 +6095,19 @@ group('resume-progress-dup-calibration', [], () => {
   let calRan = 0
   for (const [i, [id, from, dup, last, field, tokens]] of dupCases.entries()) {
     const manualCal = { version: 'kept-v1', ...calContent }
-    const control = calDup(`k${i}-control`, from, last, manualCal, { status: 0, soft: [1, 2, 3] })
+    const control = calDup(`k${i}-control`, from, last, manualCal, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
     if (!control) continue
     if (control.r.status !== 0 || control.out?.status !== 'written' || control.kept || jsonFile(control.f.task)?.updated_at === '2026-01-01T00:00:00.000Z') { failed++
       console.error(`  ✗ calibration version 重复进度键阳性对照${SELFCHECK_FIXTURE_MARK}：${id} 只留最后一处时没有以 0 写入，exit=${control.r.status}，stdout=${JSON.stringify(control.r.stdout)}，stderr=${stderrTail(control.r.stderr)}`); continue }
     // 已一致的对照：同一份只留最后一处、version 是上面独立算出的值，以 0 报 unchanged —— oracle 与被测命令对得上
-    const sameControl = calDup(`k${i}-same-control`, from, last, { version: calSame, ...calContent }, { status: 0, soft: [1, 2, 3] })
+    const sameControl = calDup(`k${i}-same-control`, from, last, { version: calSame, ...calContent }, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
     if (!sameControl) continue
     if (sameControl.r.status !== 0 || sameControl.out?.status !== 'unchanged' || !sameControl.kept) { failed++
       console.error(`  ✗ calibration version 重复进度键已一致对照${SELFCHECK_FIXTURE_MARK}：${id} 只留最后一处、version=${calSame} 时没有以 0 报 unchanged，exit=${sameControl.r.status}，stdout=${JSON.stringify(sameControl.r.stdout)}，stderr=${stderrTail(sameControl.r.stderr)}`); continue }
-    const w = calDup(`k${i}-write`, from, dup, manualCal, { status: 2, soft: [0, 1, 3] })
-    const m = calDup(`k${i}-invalid`, from, dup, { ...manualCal, tone_aesthetic: [7] }, { status: 2, soft: [0, 1, 3] })
-    const a = calDup(`k${i}-absent`, from, dup, undefined, { status: 0, soft: [1, 2, 3] })
-    const u = calDup(`k${i}-same`, from, dup, { version: calSame, ...calContent }, { status: 0, soft: [1, 2, 3] })
+    const w = calDup(`k${i}-write`, from, dup, manualCal, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
+    const m = calDup(`k${i}-invalid`, from, dup, { ...manualCal, tone_aesthetic: [7] }, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
+    const a = calDup(`k${i}-absent`, from, dup, undefined, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
+    const u = calDup(`k${i}-same`, from, dup, { version: calSame, ...calContent }, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
     if (!w || !m || !a || !u) continue
     const said = (got: NonNullable<ReturnType<typeof calDup>>) => `exit=${got.r.status}，原样=${got.kept}，stdout=${JSON.stringify(got.r.stdout)}，stderr=${stderrTail(got.r.stderr)}`
     if (w.r.status !== 2 || !w.kept || w.r.stdout !== '') calWrote.push(`${id}：${said(w)}`)
@@ -6173,14 +6217,14 @@ group('resume-progress-d27-entries', [], () => {
     // 只留最后一处就是夹具原样（from 与 last 相同）的几个用例共用一份对照：文本一样，对照只跑一次
     const key = `${mode}|${from === last ? '' : `${from}→${last}`}`
     if (!d27Controls.has(key)) {
-      const control = d27Run(entry, [[from, last]], extra, { status: 0, soft: [1, 2, 3] })
+      const control = d27Run(entry, [[from, last]], extra, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
       const fine = control !== undefined && d27Normal(entry, control)
       if (control !== undefined && !fine) { failed++
         console.error(`  ✗ 写重复的键阳性对照${SELFCHECK_FIXTURE_MARK}：${mode} 只留最后一处（${id}）时没有照常${entry === 'render' ? '以 0 生成 kol.csv' : '预留并请求'}，${d27Said(control)}`) }
       d27Controls.set(key, fine)
     }
     if (!d27Controls.get(key)) continue
-    const got = d27Run(entry, [[from, dup]], extra, { status: 2, soft: [0, 1, 3] })
+    const got = d27Run(entry, [[from, dup]], extra, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
     if (!got) continue
     const at2 = `${mode}/${id}：${d27Said(got)}`
     const held = got.r.status === 2 && got.after === got.before && got.same && got.reserves === 0 && got.attempts === 0 && got.created.length === 0
@@ -6207,7 +6251,7 @@ group('resume-progress-d27-mixed', ['resume-progress-d27-entries'], () => {
   // 任务问题按 D16 的写法认字段名与 JSON 原值
   const d27Mixed: string[] = []
   for (const [mode, entry] of [['collect --resume', 'collect'], ['enrich', 'enrich'], ['render', 'render']] as const) {
-    const got = d27Run(entry, [['"tasks":[', '"tasks":"zq-first-list","tasks":[']], [], { status: 2, soft: [0, 1, 3] },
+    const got = d27Run(entry, [['"tasks":[', '"tasks":"zq-first-list","tasks":[']], [], { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] },
       { tasks: [{ keyword: 'local', dimension: 'Category', platform: 'TikTok' }] })
     if (!got) continue
     const message = got.r.stderr.replaceAll(got.f.task, '[任务文件]').replaceAll(got.f.cwd, '[目录]')
@@ -6227,7 +6271,7 @@ group('resume-progress-d27-twice', [], () => {
   // 任务列表有效时它照判，其余位置的重复不遮住它（复核发现 2）；坏进度值（D19.h、D19.i）同样不被遮住
   const d27Twice: string[] = []
   for (const [mode, entry] of [['collect --resume', 'collect'], ['enrich', 'enrich'], ['render', 'render']] as const) {
-    const got = d27Run(entry, [['"found":{"0":3}', '"found":{"0":1e400,"0":3.000}'], ['"requests":0', '"requests":7.5e1,"requests":0']], [], { status: 2, soft: [0, 1, 3] })
+    const got = d27Run(entry, [['"found":{"0":3}', '"found":{"0":1e400,"0":3.000}'], ['"requests":0', '"requests":7.5e1,"requests":0']], [], { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
     if (!got) continue
     const message = got.r.stderr.replaceAll(got.f.task, '[任务文件]').replaceAll(got.f.cwd, '[目录]')
     const times = (token: string) => message.split(token).length - 1
@@ -6236,7 +6280,7 @@ group('resume-progress-d27-twice', [], () => {
     if (!fine) d27Twice.push(`${mode}：7.5e1 出现 ${times('7.5e1')} 次，1e400 出现 ${times('1e400')} 次，${d27Said(got)}`)
     d27BothRan++
     if (entry === 'enrich') continue // enrich 不判进度的值（D19.m 末句）
-    const bad = d27Run(entry, [['"found":{"0":3}', '"found":{"0":-9.25e2}'], ['"requests":0', '"requests":7.5e1,"requests":0']], [], { status: 2, soft: [0, 1, 3] })
+    const bad = d27Run(entry, [['"found":{"0":3}', '"found":{"0":-9.25e2}'], ['"requests":0', '"requests":7.5e1,"requests":0']], [], { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
     if (!bad) continue
     const badMessage = bad.r.stderr.replaceAll(bad.f.task, '[任务文件]').replaceAll(bad.f.cwd, '[目录]')
     if (bad.r.status !== 2 || !dupListed(bad.r.stderr, bad.f, 'requests', ['7.5e1']) || !badMessage.includes('-9.25e2'))
@@ -6256,14 +6300,14 @@ group('resume-progress-d27-same-names', [], () => {
   const d27Rejected: string[] = []
   let d27NormalRan = 0
   for (const [mode, entry, extra] of d27Modes) {
-    const got = d27Run(entry, [], extra, { status: 0, soft: [1, 2, 3] }, d27SameNames)
+    const got = d27Run(entry, [], extra, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, d27SameNames)
     if (!got) continue
     if (!d27Normal(entry, got)) d27Rejected.push(`${mode}：${d27Said(got)}`)
     d27NormalRan++
   }
   const d27CalNormal = costFixture('d27-calibration-same-names', knownCosts(1_000_000, []), { ...d27SameNames, brand_calibration: { version: 'kept-v1', ...calContent } })
   const d27CalNormalRun = runBoth('写重复的键不多拒 calibration version', [S('calibration.ts'), 'version', '--dir', d27CalNormal.taskDir], d27CalNormal.cwd,
-    { status: 0, soft: [1, 2, 3] }, costEnv(d27CalNormal.log, { TIKHUB_API_KEY: undefined }))
+    { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(d27CalNormal.log, { TIKHUB_API_KEY: undefined }))
   if (d27CalNormalRun.ok) {
     if (d27CalNormalRun.status !== 0 || summaryOf(d27CalNormalRun.stdout)?.status !== 'written')
       d27Rejected.push(`calibration version：exit=${d27CalNormalRun.status}，stdout=${JSON.stringify(d27CalNormalRun.stdout)}，stderr=${stderrTail(d27CalNormalRun.stderr)}`)
@@ -6292,8 +6336,8 @@ group('resume-progress-d27-calibration', [], () => {
     const manualCal = { version: 'kept-v1', ...calContent }, sameCal = { version: calSame, ...calContent }
     const key = from === last ? '' : `${from}→${last}`
     if (!d27CalControls.has(key)) {
-      const control = calDup(`d27-${id}-control`, from, last, manualCal, { status: 0, soft: [1, 2, 3] })
-      const same = control && calDup(`d27-${id}-same-control`, from, last, sameCal, { status: 0, soft: [1, 2, 3] })
+      const control = calDup(`d27-${id}-control`, from, last, manualCal, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
+      const same = control && calDup(`d27-${id}-same-control`, from, last, sameCal, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
       const fine = !!control && !!same && control.r.status === 0 && control.out?.status === 'written' && !control.kept
         && jsonFile(control.f.task)?.updated_at !== '2026-01-01T00:00:00.000Z' && same.r.status === 0 && same.out?.status === 'unchanged' && same.kept
       if (control && same && !fine) { failed++
@@ -6302,11 +6346,11 @@ group('resume-progress-d27-calibration', [], () => {
       d27CalControls.set(key, fine)
     }
     if (!d27CalControls.get(key)) continue
-    const w = calDup(`d27-${id}-write`, from, dup, manualCal, { status: 2, soft: [0, 1, 3] })
-    const m = calDup(`d27-${id}-invalid`, from, dup, { ...manualCal, tone_aesthetic: [7] }, { status: 2, soft: [0, 1, 3] })
+    const w = calDup(`d27-${id}-write`, from, dup, manualCal, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
+    const m = calDup(`d27-${id}-invalid`, from, dup, { ...manualCal, tone_aesthetic: [7] }, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
     // 缺席时没有 brand_calibration，里面那一处写重复也就无从谈起：brand-inner 只跑 version 已一致的一半
-    const a = id === 'brand-inner' ? null : calDup(`d27-${id}-absent`, from, dup, undefined, { status: 0, soft: [1, 2, 3] })
-    const u = calDup(`d27-${id}-same`, from, dup, sameCal, { status: 0, soft: [1, 2, 3] })
+    const a = id === 'brand-inner' ? null : calDup(`d27-${id}-absent`, from, dup, undefined, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
+    const u = calDup(`d27-${id}-same`, from, dup, sameCal, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
     if (!w || !m || a === undefined || !u) continue
     const said = (got: NonNullable<ReturnType<typeof calDup>>) => `exit=${got.r.status}，原样=${got.kept}，stdout=${JSON.stringify(got.r.stdout)}，stderr=${stderrTail(got.r.stderr)}`
     if (w.r.status !== 2 || !w.kept || w.r.stdout !== '') d27CalWrote.push(`${id}：${said(w)}`)
@@ -6457,7 +6501,7 @@ appendFileSync(${JSON.stringify(armed)}, 'armed\\n');\n`);
     reset('false');
     requireFixture(codeIdentity() === identity, 'bad input changed code/loader/argv/env point');
     const badBefore = tree();
-    const bad = runBoth(`as_hashtag fixture bad-string ${mode}`, args, cwd, { status: 2, soft: [0, 1, 3] }, extra);
+    const bad = runBoth(`as_hashtag fixture bad-string ${mode}`, args, cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, extra);
     requireFixture(bad.ok, 'bad fixture failed to start or terminated by signal');
     requireFixture(codeIdentity() === identity, 'bad actual factory/loader/code point changed');
     const negative = observe(), after = tree();
@@ -6595,7 +6639,7 @@ group('hashtag-route', [], () => {
       [S('collect.ts'), '--config', cfgOf(cwd, 'htbadcfg', [
         { keyword: 'htbad-tt-kw', dimension: 'category', platform: 'tiktok' },
         { keyword: 'htbad-ig-kw', dimension: 'scene', platform: 'instagram', ig_route: 'Hashtag' },
-      ])], cwd, { status: 2, soft: [0, 1, 3] }, htEnv(ledger))
+      ])], cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, htEnv(ledger))
     if (r.ok) {
       named('IG 话题入口：collect 新建时 ig_route 不合规，以退出码 2 结束、零请求、不建任务目录',
         r.status === 2 && fetchAttempts(ledger).length === 0 && taskDirs(cwd, 'htbadcfg').length === 0,
@@ -6614,7 +6658,7 @@ group('hashtag-route', [], () => {
         { keyword: 'htresume-bad-kw', dimension: 'scene', platform: 'instagram', ig_route: null },
       ], done: [], offsets: {}, pages: {}, answered: {}, found: {} })
     const r = runBoth('collect 话题入口：续跑的 task.json 里第 2 个任务的 ig_route 是 null',
-      [S('collect.ts'), '--resume', f.taskDir], f.cwd, { status: 2, soft: [0, 1, 3] }, htEnv(f.log))
+      [S('collect.ts'), '--resume', f.taskDir], f.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, htEnv(f.log))
     if (r.ok) {
       const st = jsonFile(f.task)
       named('IG 话题入口：collect 续跑时 task.json 的 ig_route 不合规，以退出码 2 结束、零请求、不留预留',
@@ -6636,7 +6680,7 @@ group('hashtag-route', [], () => {
       ], done: [], offsets: {}, pages: {}, answered: {}, found: {} })
     const before = fileText(f.task)
     const r = runBoth('collect 话题入口：续跑带 --budget，task.json 里第 2 个任务的 ig_route 是 null',
-      [S('collect.ts'), '--resume', f.taskDir, '--budget', '3'], f.cwd, { status: 2, soft: [0, 1, 3] }, htEnv(f.log))
+      [S('collect.ts'), '--resume', f.taskDir, '--budget', '3'], f.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, htEnv(f.log))
     if (r.ok) {
       const st = jsonFile(f.task)
       named('IG 话题入口：collect 续跑带 --budget 时 ig_route 不合规，以退出码 2 结束、零请求、不留预留',
@@ -6658,7 +6702,7 @@ group('hashtag-route', [], () => {
       { keyword: 'htbad-probe-tt', dimension: 'category', platform: 'tiktok', ig_route: 'hashtag' },
     ])
     const r = runBoth('probe 话题入口：第 2 个任务把 hashtag 写在 TikTok 任务上',
-      [S('probe.ts'), '--config', cfg], cwd, { status: 2, soft: [0, 1, 3] }, htEnv(ledger))
+      [S('probe.ts'), '--config', cfg], cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, htEnv(ledger))
     if (r.ok) {
       named('IG 话题入口：probe 的 ig_route 不合规，以退出码 2 结束、零请求',
         r.status === 2 && fetchAttempts(ledger).length === 0,
@@ -6813,6 +6857,9 @@ group('hashtag-route', [], () => {
         { keyword: '#htroute-both', dimension: 'scene', platform: 'instagram', as_hashtag: true },
       ])], cwd, { status: 0 }, htEnv(ledger))
     if (r.ok) {
+      // ADR-193：全部任务跑完时 stopped 为 done、退出码 0
+      named('probe 全部任务跑完：stdout 顶层 stopped 为 done，退出码 0',
+        r.status === 0 && summaryOf(r.stdout).stopped === 'done', `退出码 ${r.status}，stopped=${JSON.stringify(summaryOf(r.stdout).stopped)}`)
       const at = rowsByIndex(r.stdout)
       const success = (i: number): boolean => at(i) !== undefined && !at(i)?.error
       named('IG 话题入口：probe 成功结果带出任务配置里写的 ig_route，写了 hashtag 的 IG 任务那一行原样是 hashtag',
@@ -6847,9 +6894,15 @@ group('hashtag-route', [], () => {
         // 垫的成功任务故意不写 ig_route（走 Reels），和出错的那个相反
         { keyword: 'htroute-err-ok', dimension: 'scene', platform: 'instagram' },
         { keyword: '#force-402-htroute', dimension: 'audience', platform: 'instagram', ig_route: 'hashtag' },
-      ])], cwd, { status: 0 }, htEnv(ledger))
+      ])], cwd, { status: 5, soft: [0, 1, 3] }, htEnv(ledger))
     if (r.ok) {
       const row = rowsByIndex(r.stdout)(1)
+      // ADR-193：402 中途停下照出部分结果，stopped 写明是供应商余额不足，退出码 5（不是跑完的 0）
+      criterion('F3.f')
+      named('probe 遇 TikHub 402：stdout 照出部分结果，顶层 stopped 为 provider_402，退出码 5',
+        r.status === 5 && summaryOf(r.stdout).stopped === 'provider_402' && rowsByIndex(r.stdout)(0) !== undefined
+          && !rowsByIndex(r.stdout)(0)?.error,
+        `退出码 ${r.status}，stopped=${JSON.stringify(summaryOf(r.stdout).stopped)}，task_index 0 那一行 ${showRow(rowsByIndex(r.stdout)(0))}`)
       const refused = fetchAttempts(ledger).includes(`402\t${HT}`)
       named('IG 话题入口：probe 错误结果同样带出任务配置里写的 ig_route，话题页请求失败的那一行原样是 hashtag',
         refused && row !== undefined && Boolean(row?.error) && row?.ig_route === 'hashtag',
@@ -6866,7 +6919,7 @@ group('hashtag-route', [], () => {
         // 垫的成功任务故意写了 hashtag（走话题页），和出错的那个相反
         { keyword: '#htroute-err-plain-ok', dimension: 'category', platform: 'instagram', ig_route: 'hashtag' },
         { keyword: '#force-402-htroute-plain', dimension: 'competitor', platform: 'instagram', as_hashtag: true },
-      ])], cwd, { status: 0 }, htEnv(ledger))
+      ])], cwd, { status: 5, soft: [0, 1, 3] }, htEnv(ledger))
     if (r.ok) {
       const row = rowsByIndex(r.stdout)(1)
       const refused = fetchAttempts(ledger).includes(`402\t${IG_REELS}`)
@@ -6884,7 +6937,7 @@ group('hashtag-route', [], () => {
       [S('probe.ts'), '--config', cfgOf(cwd, 'htrouteerrtt', [
         { keyword: '#htroute-err-tt-ok', dimension: 'category', platform: 'instagram', ig_route: 'hashtag' },
         { keyword: 'force-402-htroute-tt', dimension: 'scene', platform: 'tiktok' },
-      ])], cwd, { status: 0 }, htEnv(ledger))
+      ])], cwd, { status: 5, soft: [0, 1, 3] }, htEnv(ledger))
     if (r.ok) {
       const row = rowsByIndex(r.stdout)(1)
       const refused = fetchAttempts(ledger).includes(`402\t${TT_SEARCH}`)
@@ -9865,7 +9918,7 @@ group('review-cli-entry-positive', [], () => {
   const { agentName, person, review, document, put, fixture, observed, entry } = reviewCliEntryFixture()
   // Shared positive controls prove both interception points before any zero-event claim.
   const paidCollect = fixture('paid-collect', [], { target_count: 0, done: [], offsets: {}, pages: {}, answered: {}, found: {} })
-  const pc = runBoth('评审入口 collect 阳性请求', entry('collect', paidCollect), paidCollect.cwd, undefined, observed(paidCollect))
+  const pc = runBoth('评审入口 collect 阳性请求', entry('collect', paidCollect), paidCollect.cwd, { status: 4 }, observed(paidCollect))
   const paidEnrich = fixture('paid-enrich', [person('paid')])
   put(paidEnrich, agentName, document({ 'tiktok:paid': review('tiktok:paid') }, ['tiktok:paid']))
   const pe = runBoth('评审入口 enrich 阳性请求', entry('enrich', paidEnrich), paidEnrich.cwd, undefined, observed(paidEnrich))
@@ -10024,12 +10077,12 @@ group('review-cli-entry-collect-exit', ['review-cli-entry-positive'], () => {
   const saveBefore = snapshot(save)
   chmodSync(join(save.taskDir, agentName), 0o444)
   let sf: ReturnType<typeof runBoth>
-  try { sf = runBoth('评审正本真实只读保存失败', entry('collect', save), save.cwd, { status: 1, soft: [0, 2, 3] }, observed(save)) }
+  try { sf = runBoth('评审正本真实只读保存失败', entry('collect', save), save.cwd, { status: 6, soft: [0, 1, 2, 3, 4, 7] }, observed(save)) }
   finally { chmodSync(join(save.taskDir, agentName), 0o644) }
-  named('CLI 正本保存失败退出1且不提前覆盖名单', sf!.ok && sf!.status === 1 && sf!.stderr.includes(agentName) &&
+  named('CLI 正本保存失败退出6且不提前覆盖名单', sf!.ok && sf!.status === 6 && sf!.stderr.includes(agentName) &&
     !/断点.*已保存|已保存.*断点|预算不足/.test(sf!.stderr) && unchanged(saveBefore) && positive && noPaid(save), '保存失败伪装输入、预算或成功')
   const stop = fixture('budget-stop', [], { budget_usd: 0, ...knownCosts(0, []), done: [], offsets: {}, answered: {}, found: {}, pages: {} })
-  const bs = runBoth('评审入口预算不足断点', entry('collect', stop), stop.cwd, { status: 3, soft: [0, 1, 2] }, observed(stop))
+  const bs = runBoth('评审入口预算不足断点', entry('collect', stop), stop.cwd, { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] }, observed(stop))
   named('CLI 预算不足仍退出3保存真实断点', bs.ok && bs.status === 3 && bs.stderr.includes('保存') && jsonFile(stop.task)?.done?.length === 0 &&
     jsonFile(stop.task)?.requests === 0 && fetchAttempts(stop.log).length === 0 && fileText(stop.armed).includes('armed') && positive,
     '预算状态被输入或保存错误掩盖、或请求提前发出')
@@ -10348,7 +10401,7 @@ group('render-raw-memory', [], () => {
   named('raw 关联仅本任务推荐可重导出且保留别产品阳性', identities(exported(resume.taskDir), ['tiktok:same_task', 'tiktok:other_product']), '仅同产品别任务推荐须排除，不能把推荐状态升级成已联系')
   const broken = '{"creators":', ignored = make('raw-memory-ignored', [person('tiktok', 'ignore_positive')], [person('tiktok', 'ignore_positive', { linked_handle: 'instagram:ignore_marker' }), person('instagram', 'ignore_marker')], broken)
   const before = readFileSync(join(ignored.taskDir, 'creators.json'), 'utf8')
-  runBoth('raw 坏记忆默认拒绝实际 render', [S('render.ts'), '--dir', ignored.taskDir], ignored.cwd, { status: 2 })
+  runBoth('raw 坏记忆默认拒绝实际 render', [S('render.ts'), '--dir', ignored.taskDir], ignored.cwd, { status: 7 })
   named('raw 当前记忆读不出默认不产出名单', readFileSync(join(ignored.taskDir, 'creators.json'), 'utf8') === before
     && ['kol.csv', 'kol.xlsx', 'meta.json', 'report.html'].every(n => !existsSync(join(ignored.taskDir, n))) && preserved(ignored), '坏记忆须拒绝且不覆盖原名单或输入正本')
   runBoth('raw 显式忽略坏记忆实际 render', [S('render.ts'), '--dir', ignored.taskDir, '--ignore-memory'], ignored.cwd)
@@ -10715,19 +10768,19 @@ group('brand-content-version-entry', [], () => {
   // D20.h：版本与内容一致时照常运行。collect 新建同时是下面零预留、零请求断言的阳性对照
   const fresh = newInput('match-new', good)
   const freshRun = runBoth('内容哈希版本一致新建', [S('collect.ts'), '--config', fresh.file], fresh.cwd,
-    { status: 0, soft: [1, 2, 3] }, observed(fresh, S('collect.ts')))
+    { status: 4, soft: [0, 1, 2, 3, 5, 6, 7] }, observed(fresh, S('collect.ts')))
   if (freshRun.ok && ready(fresh, freshRun.stderr)) {
     const dir = onlyDir(fresh.cwd, 'brandversion')
     const state = dir ? jsonFile(join(fresh.cwd, dir, 'task.json')) : undefined
     named('内容哈希版本一致：collect 新建确实预留和请求，task.json 原样保存校准',
-      freshRun.status === 0 && fetchAttempts(fresh.reserves).length > 0 && fetchAttempts(fresh.log).length > 0
+      freshRun.status === 4 && fetchAttempts(fresh.reserves).length > 0 && fetchAttempts(fresh.log).length > 0
         && isDeepStrictEqual(state?.brand_calibration, good),
       `退出=${freshRun.status}，目录=${dir}，${events(fresh)}，stderr=${stderrTail(freshRun.stderr)}`)
     passed++
   }
   const matchEnrich = taskInput('match-enrich', good, true)
   const matchEnrichRun = runBoth('内容哈希版本一致 enrich', [S('enrich.ts'), '--dir', matchEnrich.taskDir],
-    matchEnrich.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchEnrich, S('enrich.ts')))
+    matchEnrich.cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, observed(matchEnrich, S('enrich.ts')))
   if (matchEnrichRun.ok && ready(matchEnrich, matchEnrichRun.stderr)) {
     named('内容哈希版本一致：enrich 确实预留和请求，不因版本拒绝，不改写校准',
       matchEnrichRun.status === 0 && fetchAttempts(matchEnrich.reserves).length > 0
@@ -10741,7 +10794,7 @@ group('brand-content-version-entry', [], () => {
   const matchEnrichBudget = taskInput('match-enrich-budget', good, true)
   const matchEnrichBudgetRun = runBoth('内容哈希版本一致 enrich 改额',
     [S('enrich.ts'), '--dir', matchEnrichBudget.taskDir, '--budget', '2'],
-    matchEnrichBudget.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchEnrichBudget, S('enrich.ts')))
+    matchEnrichBudget.cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, observed(matchEnrichBudget, S('enrich.ts')))
   if (matchEnrichBudgetRun.ok && ready(matchEnrichBudget, matchEnrichBudgetRun.stderr)) {
     named('内容哈希版本一致：enrich 改额确实预留和请求，不因版本拒绝，不改写校准',
       matchEnrichBudgetRun.status === 0 && fetchAttempts(matchEnrichBudget.reserves).length > 0
@@ -10753,9 +10806,9 @@ group('brand-content-version-entry', [], () => {
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const f = taskInput(mode === '普通' ? 'match-resume' : 'match-resume-budget', good)
     const r = runBoth(`内容哈希版本一致${mode}续跑`, [S('collect.ts'), '--resume', f.taskDir, ...extra],
-      f.cwd, { status: 0, soft: [1, 2, 3] }, observed(f, S('collect.ts')))
+      f.cwd, { status: 4, soft: [0, 1, 2, 3, 5, 6, 7] }, observed(f, S('collect.ts')))
     if (!r.ok || !ready(f, r.stderr)) continue
-    const ok = r.status === 0 && fetchAttempts(f.reserves).length > 0 && fetchAttempts(f.log).length > 0
+    const ok = r.status === 4 && fetchAttempts(f.reserves).length > 0 && fetchAttempts(f.log).length > 0
       && !namesVersion(r.stderr) && keptCalibration(f, good)
     const detail = `${mode}：退出=${r.status}，${events(f)}，stderr=${stderrTail(r.stderr)}`
     if (mode === '普通') named('内容哈希版本一致：collect 普通续跑确实预留和请求，不因版本拒绝，不改写校准', ok, detail)
@@ -10764,7 +10817,7 @@ group('brand-content-version-entry', [], () => {
   }
   const matchRender = taskInput('match-render', good, true)
   const matchRenderRun = runBoth('内容哈希版本一致 render', [S('render.ts'), '--dir', matchRender.taskDir],
-    matchRender.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchRender, S('render.ts')))
+    matchRender.cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, observed(matchRender, S('render.ts')))
   if (matchRenderRun.ok && ready(matchRender, matchRenderRun.stderr)) {
     named('内容哈希版本一致：render 照常交付名单并写记忆，不改写校准',
       matchRenderRun.status === 0 && delivered(matchRender) && keptCalibration(matchRender, good)
@@ -10777,7 +10830,7 @@ group('brand-content-version-entry', [], () => {
   // D20.g：版本与内容不一致时，三个入口在预留、请求和写入前以 2 拒绝
   const staleNew = newInput('stale-new', stale)
   const staleNewRun = runBoth('内容哈希版本不一致新建', [S('collect.ts'), '--config', staleNew.file], staleNew.cwd,
-    { status: 2, soft: [0, 1, 3] }, observed(staleNew, S('collect.ts')))
+    { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(staleNew, S('collect.ts')))
   if (staleNewRun.ok && ready(staleNew, staleNewRun.stderr)) {
     // 照常运行的新建会在 output/ 下建 brandversion-* 任务目录；拒绝时一个都不能有
     const output = join(staleNew.cwd, 'output')
@@ -10795,7 +10848,7 @@ group('brand-content-version-entry', [], () => {
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const f = taskInput(mode === '普通' ? 'stale-resume' : 'stale-resume-budget', stale), before = original(f)
     const r = runBoth(`内容哈希版本不一致${mode}续跑`, [S('collect.ts'), '--resume', f.taskDir, ...extra],
-      f.cwd, { status: 2, soft: [0, 1, 3] }, observed(f, S('collect.ts')))
+      f.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(f, S('collect.ts')))
     if (!r.ok || !ready(f, r.stderr)) continue
     const stopped = r.status === 2 && noReserveOrFetch(f) && unchanged(f, before)
     const detail = `${mode}：退出=${r.status}，${events(f)}，三文件原字节=${unchanged(f, before)}`
@@ -10813,7 +10866,7 @@ group('brand-content-version-entry', [], () => {
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const f = taskInput(mode === '普通' ? 'stale-enrich' : 'stale-enrich-budget', stale, true), before = original(f)
     const r = runBoth(`内容哈希版本不一致 enrich ${mode}`, [S('enrich.ts'), '--dir', f.taskDir, ...extra],
-      f.cwd, { status: 2, soft: [0, 1, 3] }, observed(f, S('enrich.ts')))
+      f.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(f, S('enrich.ts')))
     if (!r.ok || !ready(f, r.stderr)) continue
     const stopped = r.status === 2 && noReserveOrFetch(f) && unchanged(f, before)
       && deliveries(f).every(path => !existsSync(path))
@@ -10831,7 +10884,7 @@ group('brand-content-version-entry', [], () => {
   }
   const staleRender = taskInput('stale-render', stale, true), staleRenderBefore = original(staleRender)
   const staleRenderRun = runBoth('内容哈希版本不一致 render', [S('render.ts'), '--dir', staleRender.taskDir],
-    staleRender.cwd, { status: 2, soft: [0, 1, 3] }, observed(staleRender, S('render.ts')))
+    staleRender.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(staleRender, S('render.ts')))
   if (staleRenderRun.ok && ready(staleRender, staleRenderRun.stderr)) {
     named('内容哈希版本不一致：render 在预留、请求和交付写入前退出2，不写记忆',
       staleRenderRun.status === 2 && noReserveOrFetch(staleRender) && unchanged(staleRender, staleRenderBefore)
@@ -10864,7 +10917,7 @@ group('brand-content-version-entry', [], () => {
   }
   const dual = dualInput('stale-render-dual'), dualBefore = original(dual)
   const dualRun = runBoth('内容哈希版本不一致且任务列表非法 render', [S('render.ts'), '--dir', dual.taskDir],
-    dual.cwd, { status: 2, soft: [0, 1, 3] }, observed(dual, S('render.ts')))
+    dual.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(dual, S('render.ts')))
   if (dualRun.ok && ready(dual, dualRun.stderr)) {
     const taskProblems = taskProblemsReported(dualRun.stderr)
     named('内容哈希版本不一致且任务列表也坏：render 两类问题都报且给出复算值，零预留零请求，文件原字节不变',
@@ -10877,7 +10930,7 @@ group('brand-content-version-entry', [], () => {
   }
   const dualEnrich = dualInput('stale-enrich-dual'), dualEnrichBefore = original(dualEnrich)
   const dualEnrichRun = runBoth('内容哈希版本不一致且任务列表非法 enrich', [S('enrich.ts'), '--dir', dualEnrich.taskDir],
-    dualEnrich.cwd, { status: 2, soft: [0, 1, 3] }, observed(dualEnrich, S('enrich.ts')))
+    dualEnrich.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(dualEnrich, S('enrich.ts')))
   if (dualEnrichRun.ok && ready(dualEnrich, dualEnrichRun.stderr)) {
     const taskProblems = taskProblemsReported(dualEnrichRun.stderr)
     named('内容哈希版本不一致且任务列表也坏：enrich 两类问题都报且给出复算值，零预留零请求，文件原字节不变',
@@ -10895,7 +10948,7 @@ group('brand-content-version-entry', [], () => {
   const brokenRecomputed = versionOf(broken)
   const structureFirst = taskInput('stale-render-structure', broken, true), structureBefore = original(structureFirst)
   const structureRun = runBoth('内容哈希版本不一致且结构非法 render', [S('render.ts'), '--dir', structureFirst.taskDir],
-    structureFirst.cwd, { status: 2, soft: [0, 1, 3] }, observed(structureFirst, S('render.ts')))
+    structureFirst.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(structureFirst, S('render.ts')))
   if (structureRun.ok && ready(structureFirst, structureRun.stderr)) {
     named('内容哈希版本不一致而结构不合 D20.a：render 只报结构问题，不另算哈希，零预留零请求',
       structureRun.status === 2
@@ -10922,13 +10975,13 @@ group('brand-content-version-entry', [], () => {
     const id = loose.findIndex(([k]) => k === kind)
     const resume = taskInput(`loose-${id}-resume`, value)
     const resumeRun = runBoth(`非哈希版本${kind}续跑`, [S('collect.ts'), '--resume', resume.taskDir], resume.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(resume.log))
+      { status: 4, soft: [0, 1, 2, 3, 5, 6, 7] }, costEnv(resume.log))
     if (!resumeRun.ok) continue
     const render = taskInput(`loose-${id}-render`, value, true)
     const renderRun = runBoth(`非哈希版本${kind} render`, [S('render.ts'), '--dir', render.taskDir], render.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(render.log))
+      { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(render.log))
     if (!renderRun.ok) continue
-    const ok = resumeRun.status === 0 && keptCalibration(resume, value)
+    const ok = resumeRun.status === 4 && keptCalibration(resume, value)
       && renderRun.status === 0 && delivered(render) && keptCalibration(render, value)
     const detail = `${version}：续跑退出=${resumeRun.status}，render 退出=${renderRun.status}，`
       + `续跑 stderr=${stderrTail(resumeRun.stderr)}，render stderr=${stderrTail(renderRun.stderr)}`
@@ -10942,7 +10995,7 @@ group('brand-content-version-entry', [], () => {
   const looseEnrichValue = { ...stale, version: `sha256:${hex.toUpperCase()}` }
   const looseEnrich = taskInput('loose-enrich', looseEnrichValue, true)
   const looseEnrichRun = runBoth('非哈希版本大写十六进制 enrich', [S('enrich.ts'), '--dir', looseEnrich.taskDir],
-    looseEnrich.cwd, { status: 0, soft: [1, 2, 3] }, costEnv(looseEnrich.log))
+    looseEnrich.cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(looseEnrich.log))
   if (looseEnrichRun.ok) {
     named('大写十六进制的 sha256 版本内容改了：enrich 照常运行，版本不被改写',
       looseEnrichRun.status === 0 && !namesVersion(looseEnrichRun.stderr) && keptCalibration(looseEnrich, looseEnrichValue),
@@ -11327,14 +11380,14 @@ group('observer-cert-entry', [], () => {
 // 整套是一组：冻结套件的依赖跨它自己的分组连成一片（G2-00、G1-02、G3-02 当基线，三个阳性每跑都起），拆开的话每组都得重跑这几跑。
 // 本文件直接起的只有接线那一个进程（ADR-145 的计数单位只数这一层），接线在沙箱里起的八十几跑入口不进那个数 —— 一条指着这里的
 // 变异实际要花整套一跑的时间，照实写在这里。
-// 具名断言只给交给本片认领的判据，每条一句（D6.y：ADR-183 第 95、196 行；D13.v、D13.u：ADR-184 第 193、272 行），各断言
+// 具名断言只给交给本片认领的判据，每条一句（D6.aa 接替 D6.y：ADR-183 第 95、196 行、ADR-193；D13.v、D13.u：ADR-184 第 193、272 行），各断言
 // 「所涉各例没有一例判红、设施故障或夹具失格」；所涉各例按冻结用例（连同它调到的公共判据）在依据里引了哪条判据来列，冻结单的
 // 认领对照没有交到本片手上。认领另要那几例全部 pass、而且没有一项不判 —— 附条件子断言、复核没做、GAP 或 E 前提没补齐的，
 // 一条都认不下来。交点 U9×P1 不在这里认领（由需求测试 `u9-p1-independent-claim` 起接线认领，接线模块头写着），自检的入口认领记录本来也不收交点。
 // D4.s 也不在这里认领：需求测试 `d4s-independent-claim` 起接线只点 G3-15，读回退出码与字节比那两项认领（ADR-185 末尾）。
 // 唯一的例外是 G3-14c（ADR-186 末尾「第二片」，需求所有者选的处置）：接上 E-2 之后，GAP-24b 登为保存失败后不读记忆，冻结套件照冻结单
 // 判它夹具失格。只有「G3-14c 前提」那一项失格、「E-2 命中」那一项判过、别的项没有红与设施故障时，读作预期结果：一行「·」写明，
-// 不计失败，D6.y 那条具名断言也不因它不成立；它不是 pass，照旧认领不下。别的样子的失格照常算失败。
+// 不计失败，D6.aa 那条具名断言也不因它不成立；它不是 pass，照旧认领不下。别的样子的失格照常算失败。
 group('kol21-independent', [], () => {
   const root = join(tmp, 'kol21-independent'), work = join(root, 'work'), report = join(root, 'report.json')
   mkdirSync(work, { recursive: true })
@@ -11393,16 +11446,16 @@ group('kol21-independent', [], () => {
   const clean = (ids: readonly string[]) => ids.every(id => ['pass', 'review-pending', 'not-judged'].includes(byId.get(id)?.verdict ?? '缺') || expectedFixture(byId.get(id)))
   const dirty = (ids: readonly string[]) => ids.filter(id => !clean([id])).map(id => `${id}=${byId.get(id)?.verdict ?? '缺'}`).join(' ')
   const settled = (ids: readonly string[]) => ids.every(id => byId.get(id)?.verdict === 'pass' && byId.get(id)!.items.every(i => i.status === 'pass'))
-  named('KOL-21 独立测试包 D6.y：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格',
+  named('KOL-21 独立测试包 D6.aa：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格',
     clean(D6Y), `不成立的：${dirty(D6Y)}`)
   named('KOL-21 独立测试包 D13.v：新建缺预算按 $2 落盘、不合规预算与其余前置检查拒绝、续跑不借默认、不回写配置所涉各例，没有一例判红、设施故障或夹具失格',
     clean(D13V), `不成立的：${dirty(D13V)}`)
   named('KOL-21 独立测试包 D13.u：新建给了合规 --budget 时根 budget_usd 与费用账上限都取该金额（G1-02U），不判红、不是设施故障或夹具失格',
     clean(D13U), `不成立的：${dirty(D13U)}`)
-  if (settled(D6Y)) criterion('D6.y')
+  if (settled(D6Y)) criterion('D6.aa')
   if (settled(D13V)) criterion('D13.v')
   if (settled(D13U)) criterion('D13.u')
-  const unsettled = ([['D6.y', D6Y], ['D13.v', D13V], ['D13.u', D13U]] as const).filter(([, ids]) => !settled(ids))
+  const unsettled = ([['D6.aa', D6Y], ['D13.v', D13V], ['D13.u', D13U]] as const).filter(([, ids]) => !settled(ids))
     .map(([id, ids]) => `${id}（${ids.filter(c => !settled([c])).length}/${ids.length} 例没有全数判过）`)
   if (unsettled.length) console.log(`  · 这一跑认领不下：${unsettled.join('、')} —— 没认领的照旧是缺口，不在这里补`)
 })

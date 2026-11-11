@@ -103,7 +103,7 @@ function unreadable(f: Fixture, reason: string): void {
   const paths = [f.memory, join(f.dir, 'task.json'), join(f.dir, 'creators.json')]
   const before = paths.map(path => readFileSync(path))
   const refused = run(f)
-  assert.equal(refused.status, 2, `${reason} should stop render: ${refused.stderr}`)
+  assert.equal(refused.status, 7, `${reason} should stop render: ${refused.stderr}`)
   for (const file of ['kol.csv', 'kol.xlsx', 'meta.json', 'report.html'])
     assert.ok(!existsSync(join(f.dir, file)), `${file} was written despite ${reason}`)
   paths.forEach((path, i) => assert.deepEqual(readFileSync(path), before[i]))

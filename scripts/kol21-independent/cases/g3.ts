@@ -44,8 +44,8 @@ function e2Hit(c: Ctx, r: RunRec): boolean {
 }
 /** SAVE-FAIL 公共 expected（G3-14 组 :1246-1250）。 */
 function saveFail(c: Ctx, r: RunRec): void {
-  const b = 'D6.y「断点或费用保存失败退 1…不打出 stopped、不出汇总 JSON」；skill/SKILL.md:196；ADR-108:46、:48；D14.h；ADR-109:19、:47；README.md:181'
-  J.exitIs(c, r, 1, b)
+  const b = 'ADR-193（KOL-106 方案乙）（保存失败退 6、不出汇总）；旧值 1 见 D6.y「断点或费用保存失败退 1…不打出 stopped、不出汇总 JSON」；skill/SKILL.md:196；ADR-108:46、:48；D14.h；ADR-109:19、:47；README.md:181'
+  J.exitIs(c, r, 6, b)
   J.noSummaryJson(c, r)
   J.noStopped(c, r)
   J.semBoth(c, r, 'NO-SAVED-CLAIM', 'P3.d；D14.h；ADR-108:46「不能称已保存」；skill/SKILL.md:206')
@@ -88,7 +88,7 @@ export const G3: CaseDef[] = [
     id: 'G3-01', group: 'G3', frozen: '可执行', spec: `${SP}:1037-1057`, runs: ['G3-01'], deps: [ACC],
     judge(c) {
       const r = c.observed('G3-01'); if (!r) return
-      J.exitIs(c, r, 0, 'D6.y；skill/SKILL.md:192；需求方口径第 3 条')
+      J.exitIs(c, r, 4, 'ADR-193（KOL-106 方案乙）；旧值 0 见 D6.y；skill/SKILL.md:192；需求方口径第 3 条')
       J.summary(c, r, 'target')
       J.sigmaCount(c, r, 'profile_failed', 0, 'D6.z')
       J.pk(c, r, 'kol21 g3 target a', 'LACKS')
@@ -217,7 +217,7 @@ export const G3: CaseDef[] = [
     id: 'G3-06', group: 'G3', frozen: '附条件', spec: `${SP}:1112-1121`, runs: ['G3-06'], deps: [ACC],
     judge(c) {
       const r = c.observed('G3-06'); if (!r) return
-      J.exitIs(c, r, 1, 'D6.y；skill/SKILL.md:194；tikhub.md:437')
+      J.exitIs(c, r, 5, 'ADR-193（KOL-106 方案乙）；旧值 1 见 D6.y；skill/SKILL.md:194；tikhub.md:437')
       J.summary(c, r, 'error')
       J.err402(c, r)
       J.reqExactly(c, r, '请求恰好 1 次：T1，402', [['T1', 0, 'status:402']], 'D6.y「立即停、之后不再请求」')
@@ -242,7 +242,7 @@ export const G3: CaseDef[] = [
     judge(c) {
       const r = c.observed('G3-07'); if (!r) return
       // 冻结单写明与 GAP-39 无关的三项（退出码、stopped、ERR-402）照判；不把场景改成 target，不猜重试。
-      J.exitIs(c, r, 1, 'D6.z、D6.y（profile 阶段 402 → error、退 1）')
+      J.exitIs(c, r, 5, 'ADR-193（KOL-106 方案乙）（profile 阶段 402 → error、退 5）；旧值 1 见 D6.z、D6.y')
       J.summary(c, r, 'error')
       J.err402(c, r)
       // 依赖「404 后是否改 secUid 再查」的部分（GAP-39）：只在整合方登记答案为「不再查」时按现 expected 判。
@@ -266,7 +266,7 @@ export const G3: CaseDef[] = [
     id: 'G3-07T', group: 'G3', frozen: '可执行', spec: `${SP}:1147-1166`, runs: ['G3-07T'], deps: [ACC],
     judge(c) {
       const r = c.observed('G3-07T'); if (!r) return
-      J.exitIs(c, r, 0, 'D6.y；skill/SKILL.md:192；需求方口径第 3、5 条')
+      J.exitIs(c, r, 4, 'ADR-193（KOL-106 方案乙）；旧值 0 见 D6.y；skill/SKILL.md:192；需求方口径第 3、5 条')
       J.summary(c, r, 'target')
       J.sigmaCount(c, r, 'profile_failed', 0, 'D6.z 那一路不发生')
       J.reqExactly(c, r, '请求恰好 4 次：T1、P1、P2、P3 各自第 0 个响应（200）', [['T1', 0, 'status:200'], ['P1', 0, 'status:200'], ['P2', 0, 'status:200'], ['P3', 0, 'status:200']],
@@ -288,7 +288,7 @@ export const G3: CaseDef[] = [
     id: 'G3-08', group: 'G3', frozen: '可执行', spec: `${SP}:1168-1177`, runs: ['G3-08'], deps: [ACC],
     judge(c) {
       const r = c.observed('G3-08'); if (!r) return
-      J.exitIs(c, r, 1, 'D6.z；D6.y')
+      J.exitIs(c, r, 5, 'ADR-193（KOL-106 方案乙）；旧值 1 见 D6.z；D6.y')
       J.summary(c, r, 'error')
       J.err402(c, r)
       J.sigmaCount(c, r, 'profile_failed', 0, 'D6.z（402 那人不计）')
@@ -406,7 +406,7 @@ export const G3: CaseDef[] = [
     deps: [PAYDEP, { kind: 'exit3', of: 'G3-04R', why: '前提：G3-04R（同一夹具、无注入）已按预期退 3' }],
     judge(c) {
       const r = c.observed('G3-14b'); if (!r || !e2Hit(c, r)) return
-      saveFail(c, r) // 退出码 1（不是 3）；NO-STOPPED（因而也没有 budget 标签）；NO-SAVED-CLAIM
+      saveFail(c, r) // 退出码 6（不是 3）；NO-STOPPED（因而也没有 budget 标签）；NO-SAVED-CLAIM
       J.zero(c, r, 'G2-00')
       J.fk(c, r, { cost_ledger: SAME, requests: { eq: 0 }, budget_usd: { exact: '0' } }, '三项与 L0z 相同（D12.g、D12.w）')
     },
@@ -416,12 +416,12 @@ export const G3: CaseDef[] = [
     judge(c) {
       const r = c.observed('G3-14c'); if (!r || !e2Hit(c, r)) return
       // 还缺「已读记忆」的证据（:1277）：保存失败后不再进入生成名单（ADR-109:19），收尾读不读记忆包内没写；
-      // 不读时「不被记忆错误改成 2」会被无关的东西满足，所以登记答案前不判（GAP-24b）。
+      // 不读时「不被记忆错误改成 7」会被无关的东西满足，所以登记答案前不判（GAP-24b）。
       if (c.cond('GAP-24b', 'not-read')) return c.fixture('G3-14c 前提', 'GAP-24b 登记为保存失败后不读记忆：本例的区分力不存在（:1277）')
       if (!c.cond('GAP-24b', 'reads-memory')) {
-        c.nj('同 G3-14a（退 1、NO-SUMMARY-JSON、NO-STOPPED、零请求、NO-SAVED-CLAIM、SAVE-FAIL-DIAG）', 'GAP-24b：保存失败后的收尾是否读记忆缺出处、也没有「已读记忆」证据（:1277；:1592）')
+        c.nj('同 G3-14a（退 6、NO-SUMMARY-JSON、NO-STOPPED、零请求、NO-SAVED-CLAIM、SAVE-FAIL-DIAG）', 'GAP-24b：保存失败后的收尾是否读记忆缺出处、也没有「已读记忆」证据（:1277；:1592）')
       } else {
-        J.exitIs(c, r, 1, 'D14.h「…也不得被后续记忆错误改成退出 2」')
+        J.exitIs(c, r, 6, 'ADR-193（KOL-106 方案乙）：费用保存失败之后又碰到记忆读不出，仍退 6、不改成 7；旧值见 D14.h「…也不得被后续记忆错误改成退出 2」')
         J.noSummaryJson(c, r)
         J.noStopped(c, r)
         J.zero(c, r, 'G2-00')
@@ -477,9 +477,9 @@ export const G3: CaseDef[] = [
       // 未满足的前提（:1313）：名单为空的续跑是否走到读记忆这一步；若实际不读，本例夹具失格（GAP-24a）。
       if (c.cond('GAP-24a', 'not-read')) return c.fixture('G3-15 前提', 'GAP-24a 登记为名单为空的续跑不读记忆：本例夹具失格（:1313）')
       if (!c.cond('GAP-24a', 'reads-memory')) {
-        c.nj('退 2、NO-SUMMARY-JSON、NO-STOPPED、零请求、HINT(0, 0)、三字段期望', 'GAP-24a：名单为空的续跑是否走到读记忆这一步未定；若不读则夹具失格（:1313；:1592）')
+        c.nj('退 7、NO-SUMMARY-JSON、NO-STOPPED、零请求、HINT(0, 0)、三字段期望', 'GAP-24a：名单为空的续跑是否走到读记忆这一步未定；若不读则夹具失格（:1313；:1592）')
       } else {
-        J.exitIs(c, r, 2, 'D6.y；skill/SKILL.md:198；README.md:197')
+        J.exitIs(c, r, 7, 'ADR-193（KOL-106 方案乙）；旧值 2 见 D6.y；skill/SKILL.md:198；README.md:197')
         J.noSummaryJson(c, r)
         J.noStopped(c, r)
         J.zero(c, r, 'G2-00')

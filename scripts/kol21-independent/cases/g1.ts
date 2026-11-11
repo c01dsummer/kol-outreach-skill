@@ -48,7 +48,7 @@ function probeMain(c: Ctx, r: RunRec, t1Count: number): void {
 
 /** G1-02 / G1-02B / G1-02C 共用的 collect 新建 expected。原 PK-HAS 已删（GAP-07④，:343、:391），不恢复。 */
 function newMain(c: Ctx, r: RunRec, cfg: string, doneRule: 'lacks0' | 'empty'): void {
-  J.exitIs(c, r, 1, 'D6.y；skill/SKILL.md:194；tikhub.md:437')
+  J.exitIs(c, r, 5, 'ADR-193（KOL-106 方案乙）；旧值 1 见 D6.y；skill/SKILL.md:194；tikhub.md:437')
   J.summary(c, r, 'error')
   J.err402(c, r)
   const K = J.costOut(c, r)
@@ -178,7 +178,7 @@ export const G1: CaseDef[] = [
     id: 'G1-02U', group: 'G1', frozen: '可执行', spec: `${SP}:406-412`, runs: ['G1-02U'], deps: [ACC],
     judge(c) {
       const r = c.observed('G1-02U'); if (!r) return
-      J.exitIs(c, r, 1, 'D6.y（402 收尾同 G1-02，:410）')
+      J.exitIs(c, r, 5, 'ADR-193（KOL-106 方案乙）；旧值 1 见 D6.y（402 收尾同 G1-02，:410）')
       J.summary(c, r, 'error')
       J.err402(c, r)
       J.reqExactly(c, r, '请求恰好 1 次：T1，402', [['T1', 0, 'status:402']], 'D6.y')
@@ -237,7 +237,7 @@ export const G1: CaseDef[] = [
     id: 'G1-03C', group: 'G1', frozen: '可执行', spec: `${SP}:439-449`, runs: ['G1-03C'], deps: [ACC],
     judge(c) {
       const r = c.observed('G1-03C'); if (!r) return
-      J.exitIs(c, r, 1, '402 收尾同 G1-02')
+      J.exitIs(c, r, 5, 'ADR-193（KOL-106 方案乙）；402 收尾同 G1-02（旧值 1）')
       J.summary(c, r, 'error')
       J.err402(c, r)
       J.reqExactly(c, r, '请求恰好 1 次：R0（region=us），402', [['R0', 0, 'status:402']], 'D17.o')

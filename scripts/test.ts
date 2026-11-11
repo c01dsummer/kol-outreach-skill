@@ -14331,7 +14331,7 @@ try {
   const fresh = newTask('缺预算新建', { ...base, notes: { budget_usd: 0.005 } })
   ok('观察失格：缺预算新建：collect 入口已接入同一 stderr/HTTP 顺序观察器', fresh.connected)
   if (!fresh.observed || !fresh.connected) return
-  eq('缺预算新建任务按默认总预算继续采集，以退出码 0 结束', fresh.status, 0)
+  eq('缺预算新建任务按默认总预算继续采集，达标以退出码 4 结束', fresh.status, 4)
   ok('缺预算新建任务确实发出了实际 HTTP，逐笔对应假 fetch 记录', fresh.http.length > 0 && fresh.http.length === fresh.attempts.length)
   const atFirstHttp = disclosure(fresh.http[0]?.stderr ?? '')
   ok('首笔 HTTP 发出时已告知未提供预算', atFirstHttp.missing)
@@ -14358,7 +14358,7 @@ try {
     const explicit = newTask('合规根预算0.005', { ...base, budget_usd: 0.005 })
     ok('观察失格：合规根预算0.005：collect 入口已接入同一 stderr/HTTP 顺序观察器', explicit.connected)
     if (explicit.observed && explicit.connected) {
-      eq('根上合规预算 0.005 美元仍按原预算结束，不能改用默认额度', explicit.status, 0)
+      eq('根上合规预算 0.005 美元仍按原预算结束，不能改用默认额度', explicit.status, 4)
       eq('根上已给合规预算 0.005 美元时 stderr 不误称采用默认 $2', disclosure(explicit.stderr).defaultTwo, false)
       eq('根上合规预算 0.005 美元不被默认 $2 覆盖', explicit.task?.budget_usd, 0.005)
     }
@@ -14367,7 +14367,7 @@ try {
     const explicit = newTask('合规根预算2', { ...base, budget_usd: 2 })
     ok('观察失格：合规根预算2：collect 入口已接入同一 stderr/HTTP 顺序观察器', explicit.connected)
     if (explicit.observed && explicit.connected) {
-      eq('根上合规预算 2 美元仍按原预算结束，不能改用默认额度', explicit.status, 0)
+      eq('根上合规预算 2 美元仍按原预算结束，不能改用默认额度', explicit.status, 4)
       eq('根上已给合规预算 2 美元时 stderr 不误称采用默认 $2', disclosure(explicit.stderr).defaultTwo, false)
       eq('根上合规预算 2 美元不被默认 $2 覆盖', explicit.task?.budget_usd, 2)
     }
@@ -18969,10 +18969,11 @@ d28Run(({ MODES, runConfig, brief, inOrder, held, listed, leaks }) => {
   eq('配置写重复的键夹具有效：每一份经普通 JSON.parse 读成与只留最后一处的那一份相同，前几处读入后不留痕迹',
     DUPS.filter(({ text }) => !isDeepStrictEqual(JSON.parse(text), JSON.parse(cfg()))).map(({ name }) => name), [])
   const controls = MODES.map(mode => runConfig(mode, cfg()))
-  eq('配置写重复的键入口夹具有效：只留最后一处的同一份配置，collect --config、collect --config --budget 2 与 probe 照常以 0 结束、预留并请求，观测确实装上了；collect 建了任务目录、probe 往 stdout 写了结果',
+  // 配置的人数目标是 1：collect 首页就够数、以达标收尾，退出码 4；probe 跑完为 0（ADR-193）
+  eq('配置写重复的键入口夹具有效：只留最后一处的同一份配置，collect --config 与 collect --config --budget 2 照常以达标（4）结束、probe 照常以 0 结束，都预留并请求，观测确实装上了；collect 建了任务目录、probe 往 stdout 写了结果',
     controls.map(g => [g.status, g.armed, g.reserves > 0, g.attempts > 0, g.mode === 'probe' ? g.stdout.trim() !== '' : g.made]),
-    MODES.map(() => [0, true, true, true, true]))
-  if (controls.some(g => g.status !== 0 || g.reserves === 0 || g.attempts === 0)) console.log(`     ${controls.map(brief).join('\n     ')}`)
+    MODES.map(mode => [mode === 'probe' ? 0 : 4, true, true, true, true]))
+  if (controls.some(g => g.status !== (g.mode === 'probe' ? 0 : 4) || g.reserves === 0 || g.attempts === 0)) console.log(`     ${controls.map(brief).join('\n     ')}`)
   d28Done.add('d28-control')
 })
 }
@@ -19041,8 +19042,8 @@ d28Run(({ MODES, runConfig, brief, inOrder, held, listed, leaks }) => {
   const BARE: Dup = { name: 'no-defaults', at: 'found', tokens: ['7.25e0'], text: bareText('"found":7.25e0,"found":{"0":3}') }
   const bare = (['collect', 'probe'] as const).flatMap(mode => [runConfig(mode, bareText(CFG.found)), runConfig(mode, BARE.text, BARE)])
   const defaulted = (g: D28Got) => /默认|缺省|default/i.test(g.message)
-  eq('写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常以 0 结束并说明默认）',
-    bare.filter(g => g.name === undefined ? !(g.status === 0 && defaulted(g)) : !(held(g) && listed(g)) || defaulted(g)).map(brief), [])
+  eq('写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常收尾 —— collect 达标 4、probe 0 —— 并说明默认）',
+    bare.filter(g => g.name === undefined ? !(g.status === (g.mode === 'probe' ? 0 : 4) && defaulted(g)) : !(held(g) && listed(g)) || defaulted(g)).map(brief), [])
   d28Done.add('d28-defaults')
 })
 }
@@ -19055,8 +19056,8 @@ d28Run(({ MODES, runConfig, brief, inOrder, held, listed, leaks }) => {
   const SAME = cfg({ tasks: '"tasks":[{"keyword":"local","dimension":"category","platform":"tiktok"},'
     + '{"keyword":"local-two","dimension":"scene","platform":"tiktok"},{"keyword":"local-two","dimension":"scene","platform":"tiktok"}]' })
   const normal = (['collect', 'probe'] as const).map(mode => runConfig(mode, SAME))
-  eq('写重复的键不多拒：各个任务各有 keyword 与任务数组里一模一样的两项不算写重复，collect --config 与 probe 照常以 0 结束、预留并请求',
-    normal.map(g => [g.status, g.armed, g.reserves > 0, g.attempts > 0]), normal.map(() => [0, true, true, true]))
+  eq('写重复的键不多拒：各个任务各有 keyword 与任务数组里一模一样的两项不算写重复，collect --config 照常以达标（4）结束、probe 照常以 0 结束，都预留并请求',
+    normal.map(g => [g.status, g.armed, g.reserves > 0, g.attempts > 0]), (['collect', 'probe'] as const).map(mode => [mode === 'probe' ? 0 : 4, true, true, true]))
   d28Done.add('d28-no-overreject')
 })
 }
@@ -19110,8 +19111,8 @@ d28Run(({ runConfig, brief }) => {
     const top = readdirSync(g.cwd).sort().join(','), kids = existsSync(join(g.cwd, 'output')) ? readdirSync(join(g.cwd, 'output')) : []
     return top === 'config.json,memory,output' && kids.length === 1 && kids[0].startsWith(`${product}-`) && statSync(join(g.cwd, 'output', kids[0])).isDirectory()
   }
-  eq('产品名不含 /、\\ 与 NUL 时（..、.、含空格与大写）collect --config 照常以 0 结束、预留并请求，任务目录建在 output/ 底下、名字以产品名加短横线开头，上一级不多东西',
-    good.filter(({ product, g }) => !(g.status === 0 && g.armed && g.reserves > 0 && g.attempts > 0 && under(product, g) && !d29Outside(g)))
+  eq('产品名不含 /、\\ 与 NUL 时（..、.、含空格与大写）collect --config 照常以达标（4）结束、预留并请求，任务目录建在 output/ 底下、名字以产品名加短横线开头，上一级不多东西',
+    good.filter(({ product, g }) => !(g.status === 4 && g.armed && g.reserves > 0 && g.attempts > 0 && under(product, g) && !d29Outside(g)))
       .map(({ product, g }) => `${JSON.stringify(product)} ${brief(g)} output=${existsSync(join(g.cwd, 'output')) ? readdirSync(join(g.cwd, 'output')).join('|') : '-'}`), [])
   criterion('D29.b')
 })
@@ -19124,17 +19125,17 @@ d28Run(({ runConfig, brief }) => {
   // D29.c：同一份配置新建两次，其中一份把 task.json 里的 product 原文换成含 / 与 \ 的；两份各续跑一次（新的工作目录，--resume 给绝对路径），结果相同
   const made = [0, 1].map(() => runConfig('collect', d29Named('d29resume')))
   const dirs = made.map(g => existsSync(join(g.cwd, 'output')) ? readdirSync(join(g.cwd, 'output')).map(n => join(g.cwd, 'output', n)) : [])
-  if (made.some(g => g.status !== 0) || dirs.some(d => d.length !== 1)) eq('产品名续跑夹具有效：两份新建都以 0 结束、各建了一个任务目录', made.map(brief), [])
+  if (made.some(g => g.status !== 4) || dirs.some(d => d.length !== 1)) eq('产品名续跑夹具有效：两份新建都以达标（4）结束、各建了一个任务目录', made.map(brief), [])
   else {
     const edited = join(dirs[1][0], 'task.json'), text = rf(edited, 'utf8')
     writeFileSync(edited, text.replace('"product": "d29resume"', '"product": "d29/re\\\\sume"').replace('"product":"d29resume"', '"product":"d29/re\\\\sume"'))
     const changed = rf(edited, 'utf8') !== text
     const resumed = dirs.map(d => runConfig('collect', cfg(), undefined, ['--resume', d[0]]))
-    // 没换的那一份要照常以 0 结束、装上了记账：两份都因无关原因失败时，三项相等也说明不了什么
-    eq('续跑不按产品名判：task.json 里的 product 换成含 / 与 \\ 的之后，collect --resume 的退出码、预留与请求次数与没换的那一份（照常以 0 结束）相同，不以 2 拒绝',
-      [changed, resumed[0].status === 0 && resumed[0].armed, resumed[1].status === 2, [resumed[1].status, resumed[1].reserves, resumed[1].attempts]],
+    // 没换的那一份要照常以达标（4）结束、装上了记账：两份都因无关原因失败时，三项相等也说明不了什么
+    eq('续跑不按产品名判：task.json 里的 product 换成含 / 与 \\ 的之后，collect --resume 的退出码、预留与请求次数与没换的那一份（照常以达标 4 结束）相同，不以 2 拒绝',
+      [changed, resumed[0].status === 4 && resumed[0].armed, resumed[1].status === 2, [resumed[1].status, resumed[1].reserves, resumed[1].attempts]],
       [true, true, false, [resumed[0].status, resumed[0].reserves, resumed[0].attempts]])
-    if (!changed || resumed.some(g => g.status !== 0)) console.log(`     ${resumed.map(brief).join('\n     ')}`)
+    if (!changed || resumed.some(g => g.status !== 4)) console.log(`     ${resumed.map(brief).join('\n     ')}`)
   }
   criterion('D29.c')
 })
@@ -19163,12 +19164,12 @@ d28Run(({ runConfig, brief }) => {
   const bare = runConfig('collect', d30Cfg())
   eq('D30.a 配置带合规 sender_name 时新建任务的 task.json 根上原值逐字不变（不去空白、不改大小写），不带时根上没有这个键',
     [...good.map(({ name, g }) => [g.status, d30Has(d30Task(g)) === JSON.stringify(name)]), [bare.status, d30Has(d30Task(bare))]],
-    [...GOOD.map(() => [0, true]), [0, '缺席']])
-  if (good.some(({ g }) => g.status !== 0) || bare.status !== 0) console.log(`     ${[...good.map(({ g }) => g), bare].map(brief).join('\n     ')}`)
+    [...GOOD.map(() => [4, true]), [4, '缺席']])
+  if (good.some(({ g }) => g.status !== 4) || bare.status !== 4) console.log(`     ${[...good.map(({ g }) => g), bare].map(brief).join('\n     ')}`)
   // D30.d 不多拒：带合规 sender_name 与去掉它的同一份配置，退出码、是否预留、是否请求相同（且都照常以 0 结束、装上了观测）
-  eq('D30.d 带合规 sender_name 的 collect --config 与去掉它的同一份配置退出码、预留与请求相同，都照常以 0 结束',
+  eq('D30.d 带合规 sender_name 的 collect --config 与去掉它的同一份配置退出码、预留与请求相同，都照常以达标（4）结束',
     [...good.map(({ g }) => g), bare].map(g => [g.status, g.armed, g.reserves > 0, g.attempts > 0]),
-    [...good.map(() => [0, true, true, true]), [0, true, true, true]])
+    [...good.map(() => [4, true, true, true]), [4, true, true, true]])
   criterion('D30.a', 'D30.d'); tension('D30', 'P1')
 })
 }
@@ -19203,15 +19204,15 @@ d28Run(({ runConfig, brief }) => {
   // 再把带的那份 task.json 里的值换成只有空白、再换成数，续跑以 2 拒绝、零预留零请求、task.json 原字节
   const made = [d30Cfg('" Eric "'), d30Cfg()].map(text => runConfig('collect', text))
   const tasks = made.map(d30Task)
-  if (made.some(g => g.status !== 0) || tasks.some(t => t === undefined)) eq('D30.c 续跑夹具有效：两份新建都以 0 结束、各建了一个任务目录', made.map(brief), [])
+  if (made.some(g => g.status !== 4) || tasks.some(t => t === undefined)) eq('D30.c 续跑夹具有效：两份新建都以达标（4）结束、各建了一个任务目录', made.map(brief), [])
   else {
     const now = (i: number) => { try { return d30Has({ ...tasks[i]!, json: JSON.parse(rf(tasks[i]!.file, 'utf8')) }) } catch (e) { return `读不了 ${String(e)}` } }
     const kept = (['collect', 'collect --budget 2'] as const).flatMap(mode => tasks.map((t, i) => {
       const g = runConfig(mode, cfg(), undefined, ['--resume', t!.dir])
       return [mode, g.status, g.armed, now(i)]
     }))
-    eq('D30.c collect --resume（含 --budget 2）原样保留 sender_name：有则逐字不变，缺则仍缺，都照常以 0 结束、装上了观测',
-      kept, (['collect', 'collect --budget 2'] as const).flatMap(mode => [[mode, 0, true, '" Eric "'], [mode, 0, true, '缺席']]))
+    eq('D30.c collect --resume（含 --budget 2）原样保留 sender_name：有则逐字不变，缺则仍缺，都照常以达标（4）结束、装上了观测',
+      kept, (['collect', 'collect --budget 2'] as const).flatMap(mode => [[mode, 4, true, '" Eric "'], [mode, 4, true, '缺席']]))
     const file = tasks[0]!.file, text = rf(file, 'utf8')
     const rejects = ['"  "', '42'].flatMap(bad => {
       writeFileSync(file, text.replace('"sender_name": " Eric "', `"sender_name": ${bad}`).replace('"sender_name":" Eric "', `"sender_name":${bad}`))

@@ -8,6 +8,9 @@
  *   tsx scripts/enrich.ts --dir output/xxx --refresh
  *
  * 默认跳过 enrichment.json 里已经查询过的账号；--refresh 才会重新花费请求。
+ *
+ * 退出码见 lib/exit-codes.ts（ADR-193）：跑完 0、预算不足以支付下一请求且已保存 3、供应商余额不足（402）5、
+ * 保存失败 6、输入问题 2、其他运行错误 1。
  */
 import { existsSync } from 'node:fs'
 import {
@@ -53,6 +56,7 @@ import type {
   TaskState,
 } from './lib/types.js'
 import { obsReady } from './lib/obs.js'
+import { EXIT, isSaveFailure, saving } from './lib/exit-codes.js'
 
 // kol-test-observer/v1（`skill/references/output-format.md`）：就绪记录在读任何输入之前，平时关着
 obsReady('enrich')
@@ -103,7 +107,7 @@ try {
 } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
 if (newBudget !== undefined) {
   try { saveTask(dir, task) }
-  catch (e) { console.error(`保存费用失败：${String(e)}`); process.exit(1) }
+  catch (e) { console.error(`保存费用失败：${String(e)}`); process.exit(EXIT.save) }
 }
 const refresh = argv.includes('--refresh')
 const api = new TikHub(process.env.TIKHUB_API_KEY, budget)
@@ -150,16 +154,17 @@ const sourceFor = (platform: Platform): MetricSource => ({
   endpoint: platform === 'tiktok' ? TIKTOK_POSTS_ENDPOINT : INSTAGRAM_POSTS_ENDPOINT,
 })
 
-const persist = () => {
+// 这里抛的都算保存失败，收尾以 EXIT.save 退出（ADR-193）
+const persist = () => saving(() => {
   saveTask(dir, task)
   saveEnrichment(dir, state)
-}
+})
 
 let newlyQueried = 0
 let locallyRecomputed = 0
 let stopped: 'done' | 'budget' | 'error' = 'done'
 let errorMessage = ''
-let errorExit = 1
+let errorExit: number = EXIT.runtime
 
 async function assess(ref: AccountRef): Promise<void> {
   const k = accountKey(ref.platform, ref.handle)
@@ -248,7 +253,8 @@ async function main() {
       if (done % 10 === 0) console.error(`  ${done}/${list.length}`)
     }
   } catch (e) {
-    if (e instanceof CostError && e.code === 'persistence-failed') {
+    // 保存失败（费用检查点或结果文件）不出汇总：试着再存一次，然后照原样抛出，以 EXIT.save 退出
+    if ((e instanceof CostError && e.code === 'persistence-failed') || isSaveFailure(e)) {
       try { persist() }
       catch (cleanupError) { console.error(`收尾保存也失败：${String(cleanupError)}`) }
       throw e
@@ -258,7 +264,9 @@ async function main() {
     } else {
       stopped = 'error'
       errorMessage = e instanceof Error ? e.message : String(e)
-      errorExit = e instanceof BudgetInputError ? 2 : 1
+      errorExit = e instanceof BudgetInputError ? EXIT.input
+        : e instanceof TikHubError && e.status === 402 ? EXIT.provider402
+        : EXIT.runtime
     }
   }
 
@@ -300,7 +308,7 @@ async function main() {
 
   if (stopped === 'budget') {
     console.error(`\n⛔ 余额不足以支付下一请求 ${budget.summary()} —— enrichment.json 已保存，可提高总预算后续跑。`)
-    process.exit(3)
+    process.exit(EXIT.budget)
   }
   if (stopped === 'error') {
     console.error(errorMessage)
@@ -308,4 +316,8 @@ async function main() {
   }
 }
 
-main().catch(e => { console.error(e); process.exit(1) })
+// 走到这里的都没有汇总 JSON：保存失败 6、其余 1（ADR-193）
+main().catch(e => {
+  console.error(e)
+  process.exit(isSaveFailure(e) || (e instanceof CostError && e.code === 'persistence-failed') ? EXIT.save : EXIT.runtime)
+})
