@@ -3340,7 +3340,8 @@ group('memory', ['collect', 'render'], () => {
 // 预加载让「这一次运行第一次读记忆文件」失败（读不到，D4.d 第一类；ADR-185 第 173 行举的就是暂时性 I/O 错误），
 // 失败原文是这里写定的一串标记，于是「报的是首次那一次」可以按 D4.d「报错原样带出真实原因」、D4.n「交付物带出失败
 // 原因原文」直接断言。同一份预加载还记下落在记忆目录里的写类调用：零写入那几条靠它，阳性对照是第一跑。
-// 不认领 D4.t：它还管 collect --ignore-memory 与 D4.d 的另两类，这里只验 render 这一路（认领仍走 ADR-185 第 169 行）。
+// 不认领 D4.t：D4.t 由需求测试 `d4t-independent-claim` 经冻结用例 G3-19、G3-19N 认领（ADR-185 末尾）；这一组补的是那两例不造的
+// 「读不到」一类与首次读不出、写回前再读得出那一种。
 group('memory-d4t-ignore', [], () => {
   const FIRST = 'D4T-FIRST-READ-FAILED-7c41', SECOND = 'D4T-SECOND-READ-FAILED-2e9b'
   const held = { platform: 'tiktok', handle: 'd4t_held', nickname: 'd4t_held', followers: 12000, first_seen: '2026-01-01',
@@ -11419,6 +11420,7 @@ group('observer-cert-entry', [], () => {
 // 认领对照没有交到本片手上。认领另要那几例全部 pass、而且没有一项不判 —— 附条件子断言、复核没做、GAP 或 E 前提没补齐的，
 // 一条都认不下来。交点 U9×P1 不在这里认领（由需求测试 `u9-p1-independent-claim` 起接线认领，接线模块头写着），自检的入口认领记录本来也不收交点。
 // D4.s 也不在这里认领：需求测试 `d4s-independent-claim` 起接线只点 G3-15，读回退出码与字节比那两项认领（ADR-185 末尾）。
+// D4.t 同样不在这里：需求测试 `d4t-independent-claim` 起接线只点 G3-19、G3-19N，各读回退出码、MEM-READ 与字节比三项认领（ADR-185 末尾）。
 // 唯一的例外是 G3-14c（ADR-186 末尾「第二片」，需求所有者选的处置）：接上 E-2 之后，GAP-24b 登为保存失败后不读记忆，冻结套件照冻结单
 // 判它夹具失格。只有「G3-14c 前提」那一项失格、「E-2 命中」那一项判过、别的项没有红与设施故障时，读作预期结果：一行「·」写明，
 // 不计失败，D6.aa 那条具名断言也不因它不成立；它不是 pass，照旧认领不下。别的样子的失格照常算失败。
@@ -11441,11 +11443,11 @@ group('kol21-independent', [], () => {
   const expectedFixture = (c: Kol21Case | undefined) => c?.id === 'G3-14c' && c.verdict === 'fixture'
     && c.items.filter(i => i.status === 'fixture').map(i => i.label).join('、') === 'G3-14c 前提'
     && c.items.some(i => i.label === 'E-2 命中' && i.status === 'pass') && !c.items.some(i => i.status === 'red' || i.status === 'facility')
-  // 冻结单的用例数照各组文件头：G1 35、G2 30、G3 27、G4 8、G5 3、G6 3
-  if (cases.length !== 106 || byId.size !== 106
+  // 冻结单的用例数照各组文件头：G1 35、G2 30、G3 29、G4 8、G5 3、G6 3
+  if (cases.length !== 108 || byId.size !== 108
     || cases.some(c => typeof c?.id !== 'string' || typeof c.verdict !== 'string' || !Array.isArray(c.items) || !Array.isArray(c.notes))) {
     failed++
-    console.error(`  ✗ KOL-21 独立测试包的报告${SELFCHECK_FIXTURE_MARK}：${report} 读不出、形状不对或不是冻结单的 106 例（读到 ${cases.length} 例）；${stderrTail(r.stderr)}`)
+    console.error(`  ✗ KOL-21 独立测试包的报告${SELFCHECK_FIXTURE_MARK}：${report} 读不出、形状不对或不是冻结单的 108 例（读到 ${cases.length} 例）；${stderrTail(r.stderr)}`)
     return
   }
   const tally = new Map<string, number>()

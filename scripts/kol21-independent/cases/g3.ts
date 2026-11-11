@@ -1,10 +1,15 @@
-// KOL-21 C1 · G3 collect 收尾（冻结单 pack/30-frozen-spec.md:1011-1333；27 例：可执行 15、附条件 11、不覆盖 1）
+// KOL-21 C1 · G3 collect 收尾（冻结单 pack/30-frozen-spec.md:1011-1333；另 F 节 :1932-2053 的 D4.t 补例 G3-19、G3-19N，入口 render；29 例：可执行 16、附条件 12、不覆盖 1，:1878、:1887、:2053）
 // 每条都同时断 stopped 与退出码，不从退出码推标签（D6.y；skill/SKILL.md:200）。
 import type { CaseDef, Ctx, RunRec, FKExp } from '../lib/judge.ts'
 import * as J from '../lib/judge.ts'
 import { PRICE_VERSION } from '../fixtures.ts'
 import { get1, has, describe, decEq, type JNode } from '../lib/json.ts'
 import { SP, onNode, exactAt, intEq, fieldEq, noPending, lcIs, doneHas, doneEmpty, newTaskDir } from './common.ts'
+// 以下几行只供 F 节两例（G3-19、G3-19N）用
+import { DIR, F_MEM_BAD, MEM_MARKER, G6_K, G6_U, fileBytes } from '../fixtures.ts'
+import { getAll, parseDocument, deepEqual } from '../lib/json.ts'
+import { bytesSame, sha256 } from '../lib/fsnap.ts'
+import { parseCsv, col } from '../lib/table.ts'
 
 const ACC = { kind: 'accepted' as const, of: 'G1-02', why: 'GAP-03：全部 collect 新建用例以 G1-02 被接受为资格（:1571）' }
 const PAYDEP = { kind: 'semantic' as const, of: 'G2-00', why: 'F-PAY 确有待付费工作（G2-00「作用」:801；A.0.10 第 1、2 条）' }
@@ -82,6 +87,108 @@ function noBodySeq1(c: Ctx, r: RunRec): void {
 }
 const SUMMARY_RUNS_G318 = ['G3-01', 'G3-02', 'G3-03', 'G3-04', 'G3-04R', 'G3-05', 'G3-06', 'G3-07', 'G3-07T', 'G3-08', 'G1-02', 'G2-00']
 const ERROR_RUNS = new Set(['G3-06', 'G3-07', 'G3-08', 'G1-02', 'G2-00'])
+
+// ---------------- F 节 · D4.t 补例（冻结单 :1932-2053）：G3-19、G3-19N（入口 render，:1943-1951）----------------
+const T = MEM_MARKER                       // 标记串 t（:1964）
+const MEM_REL = 'memory/creators.json'     // <RUN>/cwd/memory/creators.json（:1959）
+const D4T_RENDERDEP = { kind: 'semantic' as const, of: 'G2-17', why: '前提：G2-17（同目录、同入口、无记忆文件、不加开关）已过（:1988；A.0.10 第 2 条）' }
+const D4T_GAP18 = 'GAP-18：F-G6 的两条名单记录要是合法的 Creator，完整声明不在资料内（与 G6-01…03 同一前提，:2035；:1586）；补齐前不判，不编造字段'
+
+/** 夹具自检（不是产品断言）：F-MEM-BAD 已按原字节写在 memory/creators.json（:1959-1961）；标记串 t 只出现在这份文件的内容里，
+ *  <RUN> 路径、任务目录、其余夹具文件、命令行、响应脚本里都不得出现（:1964）。不成立 → 夹具失格（MEM-READ 的充分性 :1974 靠它）。 */
+function memFixtureOk(c: Ctx, r: RunRec, label: string): boolean {
+  const probs: string[] = []
+  if (r.before.files.get(MEM_REL) !== sha256(fileBytes(F_MEM_BAD))) probs.push('起入口前 memory/creators.json 的字节不是 F-MEM-BAD')
+  if (r.cwd.includes(T) || r.evidenceDir.includes(T)) probs.push('<RUN> 路径里出现 t')
+  if (r.def.args(r.cwd).some((a) => a.includes(T))) probs.push('命令行里出现 t')
+  for (const [rel, text] of Object.entries(r.def.files)) if (rel !== MEM_REL && (rel.includes(T) || text.includes(T))) probs.push(`夹具文件 ${rel} 里出现 t`)
+  if (JSON.stringify(r.script.script).includes(T)) probs.push('响应脚本里出现 t')
+  if (probs.length) c.fixture(label, probs.join('；') + '（:1959-1964）')
+  return probs.length === 0
+}
+/** 资格 Q-MEM / Q-MEM-N（:1976-1982；:2019）：对照跑 observed、退出码 7、stderr 含 t（按字节判，取入口原始 stderr）。
+ *  不成立 → 本例记夹具失格，不判红也不判过（:1988、:2017；A.0.10）。只作资格用，不凭它认领 D4.s、D4.u 或任何别的判据（:1982）。 */
+function qMem(c: Ctx, runId: 'Q-MEM' | 'Q-MEM-N', at: string): boolean {
+  const label = `资格：${runId}（对照跑 observed、退出码 7、stderr 含 ${T}）`
+  const q = c.run(runId)
+  const obs = q?.obs && q.obs.outcome.kind === 'observed' ? q.obs : undefined
+  if (!q || !obs) { c.fixture(label, `对照跑未观察成立（${q?.skip ?? q?.obs?.outcome.kind ?? '未起'}）→ 资格不成立，本例记夹具失格（${at}）`); return false }
+  if (!memFixtureOk(c, q, `夹具：${runId} 的 F-MEM-BAD 与标记串`)) return false
+  const hasT = obs.stderr.includes(T)
+  if (obs.status === 7 && hasT) { c.pass(label, `退出码 7；stderr 含 t`, `D4.u；ADR-193-取值.md:71；skill/SKILL.md:214、:227、:229；README.md:205；D4.d（冻结单 ${at}）`); return true }
+  c.fixture(label, `退出码 ${obs.status}（signal ${obs.signal}）；stderr ${hasT ? '含' : '不含'} t → 资格不成立，本例记夹具失格（${at}）`)
+  return false
+}
+/** G3-19 :1989-1998 与 G3-19N :2021-2030 的 expected（两例各项相同，只有三字段期望的参照与推导第 3、9 条的对照例不同）。
+ *  前提 / 资格成立后逐项判，任一项不过即红（:2009、:2034）。 */
+function d4tExpected(c: Ctx, r: RunRec, o: { at: string; like: string; fkBasis: string }): void {
+  const dir = r.def.taskRel!.split('/').slice(0, -1).join('/')
+  const at = (n: number): string => `冻结单 :${n}`
+  const L0 = o.at === 'G3-19' ? 1990 : 2022   // expected 首行（退出码那一项）；其后各项依次 +1…+8
+  // 退出码 0（不是 7）
+  J.exitIs(c, r, 0, `D4.f；P4.c；D4×P4（req:414）；ADR-193-取值.md:69、:71；skill/SKILL.md:191；D4.u（${at(L0)}；推导 2 :2001）`)
+  // 零请求（阳性 G4-04）
+  J.zero(c, r, 'G4-04')
+  // 出名单：四个交付文件，运行后在、运行前都不存在
+  for (const f of ['kol.csv', 'kol.xlsx', 'report.html', 'meta.json']) {
+    const rel = `${dir}/${f}`
+    const was = r.before.files.has(rel) || r.before.dirs.has(rel)
+    const now = r.after!.files.has(rel)
+    c.ok(`出名单：任务目录下运行后有 ${f}（运行前不存在）`, now && !was, `运行前${was ? '在' : '不在'} / 运行后${now ? '在' : '不在'}`,
+      `D4.f；output-format.md:11-22、:142；${o.like}（${at(L0 + 2)}；推导 3 :2002${o.at === 'G3-19' ? '' : '、:2031'}）`)
+  }
+  // meta.json：RFC 8259、根为对象
+  const metaRel = `${dir}/meta.json`
+  const metaText = r.after!.files.has(metaRel) ? J.readRel(r, metaRel) : null
+  const meta = metaText === null ? null : parseDocument(metaText)
+  const root = meta && meta.t === 'obj' ? meta : undefined
+  const metaProblem = metaText === null ? 'meta.json 不存在' : !meta ? 'meta.json 不是合法 JSON（RFC 8259）' : 'meta.json 根不是对象'
+  // memory_status === "unreadable_ignored"
+  const stLabel = 'meta.json 按 RFC 8259 解析、根为对象，根上 memory_status === "unreadable_ignored"'
+  const stBasis = `D4.f；output-format.md:289、:311-312；README.md:205（${at(L0 + 3)}；推导 4 :2003）`
+  if (!root) c.red(stLabel, metaProblem, stBasis)
+  else {
+    const v = get1(root, 'memory_status')
+    c.ok(stLabel, v !== undefined && v !== 'dup' && v.t === 'str' && v.v === 'unreadable_ignored', `memory_status = ${describe(v)}`, stBasis)
+  }
+  // memory_written 不为 true
+  const wrLabel = 'meta.json 根上 memory_written 不为 true'
+  const wrBasis = `output-format.md:314；D4.t（${at(L0 + 4)}；推导 5 :2004）`
+  if (!root) c.nj(wrLabel, `${metaProblem}：根上的值无从读（上一项 memory_status 已判不过），本项不判过`, wrBasis)
+  else {
+    const all = getAll(root, 'memory_written')
+    const bad = all.some((x) => x.t === 'bool' && x.v === true)
+    c.ok(wrLabel, !bad, all.length === 0 ? 'memory_written 缺席' : `memory_written = ${all.map((x) => describe(x)).join(' / ')}${all.length > 1 ? '（重复键：任一处为 true 即不过）' : ''}`, wrBasis)
+  }
+  // MEM-READ(t)（:1968-1974）：t 出现在 (a) 本跑 stderr，或 (b) meta.json 根上 memory_write_error 的值（JSON 字符串，取解码后的文本）；按字节判，不做语义复核
+  const inErr = r.obs!.stderr.includes(T)
+  const mwe = root ? get1(root, 'memory_write_error') : undefined
+  const inMeta = mwe !== undefined && mwe !== 'dup' && mwe.t === 'str' && mwe.v.includes(T)
+  const memRead = inErr || inMeta
+  c.ok(`MEM-READ(${T})`, memRead, `(a) stderr ${inErr ? '含' : '不含'} t；(b) meta.json 根 memory_write_error ${root ? describe(mwe) : '读不出（' + metaProblem + '）'} ${inMeta ? '含' : '不含'} t`,
+    `D4.d；memory.md:137-138、:88-89；skill/SKILL.md:229；output-format.md:315-316（${at(L0 + 5)}；判读 :1968-1974；推导 6 :2005）`)
+  // BYTES(memory/creators.json)：与 G3-15 那一项同名同判法（J.bytesC：运行前后快照的 SHA-256；不在了、成了目录或符号链接、内容变了都不相同；只比字节）。
+  // MEM-READ 不过时本项不得判过、不得据以认领 D4.t（:2009、:2034）：字节相同也只记不判；字节已变则照判不过。
+  const bytesBasis = `D4.t（req:392-393）；D4.h；memory.md:137（${at(L0 + 6)}；推导 7 :2006${o.at === 'G3-19' ? '' : '、10 :2032'}）`
+  const same = bytesSame(r.before, r.after!, MEM_REL)
+  if (memRead || !same.ok) J.bytesC(c, r, MEM_REL, bytesBasis)
+  else c.nj(`BYTES(${MEM_REL})`, `MEM-READ 不成立：没有「入口读过这份文件」的机械证据，本项不得判过、不得据以认领 D4.t（:${o.at === 'G3-19' ? 2009 : 2034}）；字节比较结果：${same.detail}`, bytesBasis)
+  // report.html（语义复核）：声明本次没有做已联系去重；预筛「去重」只辅助
+  const repLabel = 'report.html 声明本次未做已联系去重'
+  const repBasis = `D4.f「报告声明本次未做已联系去重」；P4.c；output-format.md:318；README.md:205（${at(L0 + 7)}；推导 8 :2007）`
+  const repRel = `${dir}/report.html`
+  const rep = r.after!.files.has(repRel) ? J.readRel(r, repRel) : null
+  if (rep === null) c.nj(repLabel, 'report.html 不存在（出名单一项已判不过），无从复核', repBasis)
+  else {
+    c.review(repLabel, {
+      text: rep, textRef: `${r.cwd}/${repRel}`, needsQuote: true, basis: repBasis,
+      points: ['report.html 声明本次没有做已联系去重（任意等价写法）', '预筛（含「去重」）只辅助定位：命中本身不足以通过，未命中也不判红'],
+      pre: (t) => t.includes('去重') ? '预筛命中（含「去重」）' : '预筛未命中（含「去重」）——不判红，待复核',
+    })
+  }
+  // 三字段期望（FK）：cost_ledger 与运行前深度相等（空账）、requests === 0、budget_usd EXACT 2
+  J.fk(c, r, { cost_ledger: SAME, requests: { eq: 0 }, budget_usd: { exact: '2' } }, `${o.fkBasis}（${at(L0 + 8)}；推导 9 :2008${o.at === 'G3-19' ? '' : '、:2031'}）`)
+}
 
 export const G3: CaseDef[] = [
   {
@@ -520,6 +627,59 @@ export const G3: CaseDef[] = [
         c.ok('Σ.pending_keywords 是数组、元素是关键词字符串', ok, `pending_keywords = ${describe(v)}${has(s, 'pending_keywords') ? '' : '（缺席）'}`, 'GAP-07① 登记的出处')
       }
       c.prefix = ''
+    },
+  },
+  {
+    // F 节 :1984-2011。render 加 --ignore-memory：读不出的记忆被忽略、出名单，记忆文件逐字节不变（D4.t）。夹具 F-MEM-BAD :1957-1966；MEM-READ :1968-1974；Q-MEM :1976-1982。
+    id: 'G3-19', group: 'G3', frozen: '可执行', spec: `${SP}:1953-1982、:1984-2011`, runs: ['G3-19', 'Q-MEM'], deps: [D4T_RENDERDEP],
+    judge(c) {
+      // 前提（:1988）：G2-17 已过（deps）；Q-MEM 成立。任一不成立 → 夹具失格，不判红也不判过（A.0.10）。
+      if (!qMem(c, 'Q-MEM', ':1976-1982、:1988')) return
+      const r = c.observed('G3-19'); if (!r) return
+      if (!memFixtureOk(c, r, '夹具：G3-19 的 F-MEM-BAD 与标记串')) return
+      d4tExpected(c, r, { at: 'G3-19', like: '同 G2-17（同一目录，空名单、正本缺席时 render 照常生成这四个文件）', fkBasis: '三项与 L0 相同；同 G2-17、ADR-108:52「render 只读费用，不创建或修复账」；D4 条头 req:317' })
+    },
+  },
+  {
+    // F 节 :2013-2036。同 G3-19，名单非空（F-G6 的两人）：多挡「照常把本批推荐写回记忆」（:2032-2033）。附条件：GAP-18（:2035-2036）。
+    id: 'G3-19N', group: 'G3', frozen: '附条件', spec: `${SP}:1953-1974、:2013-2036`, runs: ['G3-19N', 'Q-MEM-N', 'G6-01'],
+    judge(c) {
+      // 未满足的前提（:2035）：GAP-18，与 G6-01…03 同一前提、同一闸门写法（cases/g56.ts）。
+      if (!c.cond('GAP-18')) return c.nj('资格（G6-01 的 Q1–Q5、Q-MEM-N、本跑名单非空）与 expected 各项', D4T_GAP18)
+      if (c.env.creatorCheck) {
+        const probs = [G6_U, G6_K].flatMap((s) => c.env.creatorCheck!(JSON.parse(s)))
+        if (probs.length) return c.fixture('名单记录是合法 Creator', '公开夹具资格检查不过：' + probs.join('；'))
+      }
+      // 资格 1（:2018）：G6-01 的 Q1–Q5 在原 F-G6（无记忆文件、不加开关）上成立。只看 Q1–Q5 这五项资格（零请求阳性同为 G4-04），
+      // 不要求 G6-01 自己的排序断言也过——那是 P1.h 的结论，不是 F-G6 对 render 可用与否。
+      const g6 = c.env.result('G6-01')
+      const QS = ['Q1 零请求', 'Q2', 'Q3', 'Q4', 'Q5']
+      const miss = QS.filter((l) => !g6.items.some((i) => i.label === l && i.status === 'pass'))
+      if (miss.length) return c.fixture('资格：G6-01 的 Q1–Q5', `G6-01（${g6.verdict}）未成立的资格项：${miss.join('、')} → 本例记夹具失格（:2017-2018；A.0.10）`)
+      c.pass('资格：G6-01 的 Q1–Q5', 'F-G6 对 render 可用、两人都在交付名单上', '冻结单 :2018；Q1–Q5 定义 :1524-1530')
+      // 资格 2（:2019）：Q-MEM-N（F-G6 上的对照跑；G3-19 的 Q-MEM 不能代替它）
+      if (!qMem(c, 'Q-MEM-N', ':2017、:2019')) return
+      const r = c.observed('G3-19N'); if (!r) return
+      if (!memFixtureOk(c, r, '夹具：G3-19N 的 F-MEM-BAD 与标记串')) return
+      // 资格 3（:2020）：本跑名单非空。只在主跑退出码为 0 且任务目录下有 kol.csv 时才查；否则不查、也不算资格不成立，直接逐项判 expected（退出码、出名单两项即红）。
+      const csvRel = `${DIR['F-G6']}/kol.csv`
+      if (r.obs!.status === 0 && r.after!.files.has(csvRel)) {
+        const label = '资格：本跑名单非空（kol.csv 恰 2 行数据，handle 列恰为 {aa_unqueried_g6, zz_known_g6}）'
+        const text = J.readRel(r, csvRel)
+        const t = text === null ? undefined : parseCsv(text)   // 测试自写最小 CSV 解析器，同 G6（lib/table.ts）
+        const ih = t ? col(t, 'handle') : -1
+        const hs = t && ih >= 0 ? t.rows.map((row) => row[ih]) : undefined
+        const ok = !!t && !!hs && t.rows.length === 2 && deepEqual([...hs].sort(), ['aa_unqueried_g6', 'zz_known_g6'])
+        if (!ok) {
+          const seen = `kol.csv 数据行 ${t ? t.rows.length : '读不出'}，handle ${hs ? JSON.stringify(hs) : '列缺席'}`
+          c.env.questions.push(`G3-19N：加了 --ignore-memory 的主跑交付名单不是 F-G6 的两人（${seen}）——另报需求方：加了开关即跳过去重（P4.c），记忆里的那个人也不是这两人（冻结单 :2020）`)
+          return c.fixture(label, `${seen} → 本例记夹具失格，现象另报需求方（:2020）`)
+        }
+        c.pass(label, 'kol.csv 2 行，handle = {aa_unqueried_g6, zz_known_g6}', '冻结单 :2020')
+      } else {
+        c.notes.push('资格「本跑名单非空」未查：主跑退出码不是 0 或任务目录下没有 kol.csv；这一条不查、也不算资格不成立，直接按 expected 逐项判（:2020）')
+      }
+      d4tExpected(c, r, { at: 'G3-19N', like: '同 G6-01 的 Q1（F-G6 上 render 照常交付）', fkBasis: '三项与运行前的 F-G6 task.json 相同（空账、requests 0、budget_usd EXACT 2）；同 G6-01 的 Q1、ADR-108:52；D4 条头 req:317' })
     },
   },
 ]
