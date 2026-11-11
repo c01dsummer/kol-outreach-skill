@@ -4709,9 +4709,9 @@
       "by": "selfcheck",
       "kills": [
         "collect 关键词跑完（退出码 0）也说续跑代价",
-        "collect 达标提前停下（退出码 0）也说续跑代价",
+        "collect 达标提前停下（退出码 4）也说续跑代价",
         "collect 预算用尽（退出码 3）也说续跑代价",
-        "collect 出错中止（退出码 1）也说续跑代价"
+        "collect 出错中止（402，退出码 5）也说续跑代价"
       ]
     },
     {
@@ -4735,7 +4735,7 @@
       "replace": "  if (stopped !== 'target') console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
       "by": "selfcheck",
       "kills": [
-        "collect 达标提前停下（退出码 0）也说续跑代价"
+        "collect 达标提前停下（退出码 4）也说续跑代价"
       ]
     },
     {
@@ -4759,39 +4759,39 @@
       "replace": "  if (stopped !== 'error') console.error(`\\n${resumeCostLine(dir, state, qualified(), [...creators.values()])}`)",
       "by": "selfcheck",
       "kills": [
-        "collect 出错中止（退出码 1）也说续跑代价"
+        "collect 出错中止（402，退出码 5）也说续跑代价"
       ]
     },
     {
       "id": "M-D6-bm",
-      "req": "D6.z",
+      "req": "D6.ab",
       "why": "profile 补全阶段遇 TikHub 402 只记作那一个人补全失败、接着为其余待补的人照发请求：stdout 汇总的 stopped 仍是 done 或 target、没有 error、退出码 0 —— 余额不足没有停下，也没有告诉用户去充值；402 那人与之后照发又撞 402 的人还都记进汇总的 profile_failed",
       "file": "scripts/collect.ts",
       "find": "      if (e instanceof TikHubError && e.status === 402) throw e\n",
       "replace": "",
       "by": "selfcheck",
       "kills": [
-        "collect 在 profile 补全阶段遇 TikHub 402（TikTok）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 1",
+        "collect 在 profile 补全阶段遇 TikHub 402（TikTok）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 5",
         "collect 在 profile 补全阶段遇 TikHub 402 之后不再发任何请求：其余待补的人一个都不请求（TikTok）",
-        "collect 在 profile 补全中途遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 1",
+        "collect 在 profile 补全中途遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 5",
         "collect 在 profile 补全中途遇 TikHub 402 之后不再请求下一个人",
-        "collect 达标之后补 profile 遇 TikHub 402：stopped 为 error（不是 target）、error 为余额不足的提示，退出码 1",
+        "collect 达标之后补 profile 遇 TikHub 402：stopped 为 error（不是 target）、error 为余额不足的提示，退出码 5",
         "collect 达标之后补 profile 遇 TikHub 402 之后不再发任何请求",
-        "collect 在 profile 补全阶段遇 TikHub 402（IG，V3 回 402）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 1",
+        "collect 在 profile 补全阶段遇 TikHub 402（IG，V3 回 402）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 5",
         "collect 在 IG profile V3 遇 TikHub 402 之后不再发任何请求：同一人不降级 V2，其余待补的人也不请求",
         "collect 在 profile 补全第一次请求就遇 TikHub 402（TikTok）：汇总的 profile_failed 为 0，402 那人不计入补全失败",
         "collect 在 profile 补全中途遇 TikHub 402（TikTok）：汇总的 profile_failed 为 0，402 之前补成的不算失败，402 那人也不计入",
         "collect 达标之后补 profile 遇 TikHub 402：汇总的 profile_failed 为 0，402 那人不计入补全失败",
         "collect 在 IG profile V3 遇 TikHub 402：汇总的 profile_failed 为 0，402 那人不计入补全失败",
-        "collect 在 profile 补全先遇一次 404、再遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 1",
+        "collect 在 profile 补全先遇一次 404、再遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 5",
         "collect 在 profile 补全先遇 404、再遇 TikHub 402 之后不再请求下一个人",
         "collect 在 profile 补全先遇 404、再遇 TikHub 402：汇总的 profile_failed 为 1，只数 402 之前那次 404，不含 402 那人"
       ]
     },
     {
       "id": "M-D6-bn",
-      "req": "D6.z",
-      "why": "profile 补全阶段遇 TikHub 402 时照样停下、以 error 退 1、之后不再请求，却把 402 那个人也记进汇总的 profile_failed：用户读到的补全失败人数多出一人，像是那人的资料查不到，其实是余额不足、那人从没查成，充值后续跑会照常再补",
+      "req": "D6.ab",
+      "why": "profile 补全阶段遇 TikHub 402 时照样停下、以 error 退 5、之后不再请求，却把 402 那个人也记进汇总的 profile_failed：用户读到的补全失败人数多出一人，像是那人的资料查不到，其实是余额不足、那人从没查成，充值后续跑会照常再补",
       "file": "scripts/collect.ts",
       "find": "      if (e instanceof TikHubError && e.status === 402) throw e\n",
       "replace": "      if (e instanceof TikHubError && e.status === 402) { profileFailed++; throw e }\n",
@@ -7636,7 +7636,7 @@
       "replace": "      receipt = engine.reserve(quoteTikHub('/api/v1/tiktok/web/fetch_user_profile'))",
       "by": "selfcheck",
       "kills": [
-        "probe 预算不足退出0且保留一次 IG 成果，不把三分之二说成100%"
+        "probe 预算不足退出3、stopped 为 budget，且保留一次 IG 成果，不把三分之二说成100%"
       ]
     },
     {
@@ -7716,8 +7716,8 @@
       "req": "D13.s",
       "why": "collect 把运行中的费用内部错误当成输入问题，错误退出码由 1 变为 2",
       "file": "scripts/collect.ts",
-      "find": "      errorExit = e instanceof BudgetInputError ? 2 : 1",
-      "replace": "      errorExit = 2",
+      "find": "      errorExit = e instanceof BudgetInputError ? EXIT.input : EXIT.runtime",
+      "replace": "      errorExit = EXIT.input",
       "by": "selfcheck",
       "kills": [
         "运行中费用错误穿透入口，退出1且不再请求，不伪装成输入或余额不足"
@@ -7901,8 +7901,8 @@
       "req": "D13.s",
       "why": "collect 续跑时盘上的已花次数是坏的（写成 null），它照样在付费前拦下，却把这当成运行中的内部错误、退出码 1：该停下问人修文件的事，看起来像程序自己坏了，用户不知道要去改的是自己那份任务文件",
       "file": "scripts/collect.ts",
-      "find": "      errorExit = e instanceof BudgetInputError ? 2 : 1",
-      "replace": "      errorExit = 1",
+      "find": "      errorExit = e instanceof BudgetInputError ? EXIT.input : EXIT.runtime",
+      "replace": "      errorExit = EXIT.runtime",
       "by": "selfcheck",
       "kills": [
         "collect 坏次数必须指明费用问题并在实际付费前拒绝"
@@ -7913,8 +7913,8 @@
       "req": "D13.s",
       "why": "enrich 遇到盘上坏掉的已花次数（写成 null），照样在付费前拦下，却把这当成运行中的内部错误、退出码 1：该停下问人修文件的事，看起来像程序自己坏了，用户不知道要去改的是自己那份任务文件",
       "file": "scripts/enrich.ts",
-      "find": "      errorExit = e instanceof BudgetInputError ? 2 : 1",
-      "replace": "      errorExit = 1",
+      "find": "      errorExit = e instanceof BudgetInputError ? EXIT.input\n",
+      "replace": "      errorExit = e instanceof BudgetInputError ? EXIT.runtime\n",
       "by": "selfcheck",
       "kills": [
         "enrich 坏次数必须指明费用问题并在实际付费前拒绝"
@@ -7934,19 +7934,19 @@
     },
     {
       "id": "M-D14-b",
-      "req": "D14.b",
+      "req": "D14.i",
       "why": "吞掉请求前的费用保存失败，尚未成功写入未结预留就发出该次请求",
       "file": "scripts/lib/budget.ts",
       "find": "      receipt = engine.reserve(quoteTikHub(endpoint))\n      this.sync()\n      attempt_id = engine.snapshot().cost_ledger.pending!.attempt_id\n      this.checkpoint({ point: 'SP-R', attempt_id, endpoint })",
       "replace": "      receipt = engine.reserve(quoteTikHub(endpoint))\n      this.sync()\n      attempt_id = engine.snapshot().cost_ledger.pending!.attempt_id\n      try { this.checkpoint({ point: 'SP-R', attempt_id, endpoint }) } catch {}",
       "by": "selfcheck",
       "kills": [
-        "预留保存失败退出1且零请求，不伪造无HTTP状态留存"
+        "预留保存失败退出6且零请求，不伪造无HTTP状态留存"
       ]
     },
     {
       "id": "M-D14-c",
-      "req": "D14.c",
+      "req": "D14.j",
       "why": "HTTP 200 的费用终态不先保存就进入正文处理和后续请求，保存故障不再阻止这次继续执行",
       "file": "scripts/lib/budget.ts",
       "find": "    this.engine.settle(receipt, outcome)\n    this.sync()\n    // 结算成了，账上原先一定有这一笔未结预留（`settle` 不认别的凭据）\n    this.checkpoint(",
@@ -7958,7 +7958,7 @@
     },
     {
       "id": "M-D14-d",
-      "req": "D14.d",
+      "req": "D14.k",
       "why": "非 200 的撤销终态不先保存就处理正文、重试或兜底，下一次尝试开始时上次撤销可能仍未落盘",
       "file": "scripts/lib/budget.ts",
       "find": "    this.engine.settle(receipt, outcome)\n    this.sync()\n    // 结算成了，账上原先一定有这一笔未结预留（`settle` 不认别的凭据）\n    this.checkpoint(",
@@ -7970,7 +7970,7 @@
     },
     {
       "id": "M-D14-e",
-      "req": "D14.e",
+      "req": "D14.l",
       "why": "没有 HTTP 状态时跳过保守留存终态的保存，费用保存故障无法阻止后续兜底请求",
       "file": "scripts/lib/budget.ts",
       "find": "    this.engine.settle(receipt, outcome)\n    this.sync()\n    // 结算成了，账上原先一定有这一笔未结预留（`settle` 不认别的凭据）\n    this.checkpoint(",
@@ -8004,31 +8004,31 @@
     },
     {
       "id": "M-D14-h",
-      "req": "D14.h",
+      "req": "D14.m",
       "why": "collect 的费用保存失败仍进入常规交付收尾，补存成功或后续记忆错误掩盖原来的费用运行错误",
       "file": "scripts/collect.ts",
-      "find": "    if (e instanceof CostError && e.code === 'persistence-failed') {",
-      "replace": "    if (false) {",
+      "find": "    if ((e instanceof CostError && e.code === 'persistence-failed') || isSaveFailure(e)) {\n      try { persist() }",
+      "replace": "    if (false) {\n      try { persist() }",
       "by": "selfcheck",
       "kills": [
-        "费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出1"
+        "费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出6"
       ]
     },
     {
       "id": "M-D14-i",
-      "req": "D14.h",
+      "req": "D14.m",
       "why": "enrich 的费用保存失败仍进入常规结果输出，尽力补存成功后输出本不该生成的普通结果",
       "file": "scripts/enrich.ts",
-      "find": "    if (e instanceof CostError && e.code === 'persistence-failed') {",
+      "find": "    if ((e instanceof CostError && e.code === 'persistence-failed') || isSaveFailure(e)) {",
       "replace": "    if (false) {",
       "by": "selfcheck",
       "kills": [
-        "费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出1"
+        "费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出6"
       ]
     },
     {
       "id": "M-D14-j",
-      "req": "D14.h",
+      "req": "D14.m",
       "why": "费用保存失败后不锁定本实例，后续操作仍可改变费用或再次尝试保存",
       "file": "scripts/lib/budget.ts",
       "find": "    if (this.persistenceFailure) throw this.persistenceFailure",
@@ -11300,7 +11300,7 @@
       "replace": "...(c === 123 ? { seen: top && !top.seen ? ((top as Frame & { shared?: Map<string, string[]> }).shared ??= new Map()) : new Map() } : {})",
       "by": "test",
       "kills": [
-        "写重复的键不多拒：各个任务各有 keyword 与任务数组里一模一样的两项不算写重复，collect --config 与 probe 照常以 0 结束、预留并请求"
+        "写重复的键不多拒：各个任务各有 keyword 与任务数组里一模一样的两项不算写重复，collect --config 照常以达标（4）结束、probe 照常以 0 结束，都预留并请求"
       ]
     },
     {
@@ -11312,7 +11312,7 @@
       "replace": "// D20.e：先报告原始品牌字段问题；合法配置才读取预算 token、应用缺省或开账。\nif (!resume) {\n  try {\n    if (Object.hasOwn(state, 'budget_usd')) freshLimit = readCostLimit(state)\n    else {\n      freshLimit = parseUsdMicros('2')\n      if (replacementLimit === undefined) console.error('未提供预算，默认采用任务总预算 $2。')\n    }\n    if (replacementLimit !== undefined) freshLimit = replacementLimit\n  } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }\n}\nif (!resume && badDuplicates.length) process.exit(2)",
       "by": "test",
       "kills": [
-        "写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常以 0 结束并说明默认）"
+        "写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常收尾 —— collect 达标 4、probe 0 —— 并说明默认）"
       ]
     },
     {
@@ -11324,7 +11324,7 @@
       "replace": "    const taskProblems = [...badFields, ...badTasks, ...badRoutes]\n    if (taskProblems.length) throw new Error(`任务配置不合规：${taskProblems.join('；')}`)\n    // D13.a：只在缺席时默认；显式 null、字符串与超精度原 token 均交给共同边界拒绝。\n    const absent = cfg.budget_usd === undefined\n    const limit = absent ? parseUsdMicros('0.5') : readCostLimit(cfg)\n    if (absent) console.error('未提供 budget_usd，本次试探默认使用进程总预算 $0.5。')\n    taskProblems.push(...duplicateKeyProblems(sourceDuplicates(cfg)))\n    if (taskProblems.length) throw new Error(`任务配置不合规：${taskProblems.join('；')}`)",
       "by": "test",
       "kills": [
-        "写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常以 0 结束并说明默认）"
+        "写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常收尾 —— collect 达标 4、probe 0 —— 并说明默认）"
       ]
     },
     {
@@ -18003,8 +18003,8 @@
       "req": "D23.i",
       "why": "collect 在本次新关联揭示人工采用冲突前保存新候选轮次，拒绝交付仍改变了评审正本。",
       "file": "scripts/collect.ts",
-      "find": "  fin.kept = reviews.project(fin.kept, fin.full_relations, state.brand_calibration?.version)\n  reviews.save(new Date().toISOString())",
-      "replace": "  reviews.save(new Date().toISOString())\n  fin.kept = reviews.project(fin.kept, fin.full_relations, state.brand_calibration?.version)",
+      "find": "  fin.kept = reviews.project(fin.kept, fin.full_relations, state.brand_calibration?.version)\n  saving(() => reviews.save(new Date().toISOString()))",
+      "replace": "  saving(() => reviews.save(new Date().toISOString()))\n  fin.kept = reviews.project(fin.kept, fin.full_relations, state.brand_calibration?.version)",
       "by": "selfcheck",
       "kills": [
         "CLI 新发现关联冲突保留费用原件且不交付"
@@ -18065,11 +18065,11 @@
       "req": "U9.j",
       "why": "collect 把评审正本真实保存失败归为输入拒绝，退出码变为 2 而不是写入失败的 1。",
       "file": "scripts/collect.ts",
-      "find": "try { reviews.save(new Date().toISOString()) }\ncatch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1) }",
+      "find": "try { reviews.save(new Date().toISOString()) }\ncatch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(EXIT.save) }",
       "replace": "try { reviews.save(new Date().toISOString()) }\ncatch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }",
       "by": "selfcheck",
       "kills": [
-        "CLI 正本保存失败退出1且不提前覆盖名单"
+        "CLI 正本保存失败退出6且不提前覆盖名单"
       ]
     },
     {
@@ -20384,14 +20384,14 @@
     },
     {
       "id": "M-D6-bo",
-      "req": "D6.y",
+      "req": "D6.aa",
       "why": "collect 以 --config 新建任务、配置根上的 budget_usd 不合规（null、字符串、超出精度）时，这类开跑前就查出的预算配置问题以退出码 1 结束，不是约定的 2：退出码说成了运行中出错，用户分不出该改配置还是该重试。",
       "file": "scripts/collect.ts",
       "find": "    if (replacementLimit !== undefined) freshLimit = replacementLimit\n  } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }",
       "replace": "    if (replacementLimit !== undefined) freshLimit = replacementLimit\n  } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1) }",
       "by": "selfcheck",
       "kills": [
-        "KOL-21 独立测试包 D6.y：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格"
+        "KOL-21 独立测试包 D6.aa：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格"
       ]
     },
     {
@@ -20463,11 +20463,11 @@
       "by": "selfcheck",
       "kills": [
         "429 那次与重试各算一次真实尝试：reserved 记录数等于账本行数，端点逐条对应",
-        "SP-200 在恰好一次 200 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-200、occurrence 1、attempt_id 1、搜索端点、not_written",
+        "SP-200 在恰好一次 200 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-200、occurrence 1、attempt_id 1、搜索端点、not_written",
         "SP-BUD 的命中记录没有 attempt_id 与 endpoint，作者文件和 task.json 一字没写",
-        "SP-N200 在恰好一次 500 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written",
-        "SP-NS 在恰好一次没拿到状态之后命中：退出 1、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written",
-        "SP-R 命中：退出 1、stdout 没有汇总 JSON、零请求；恰好一条命中记录指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中记录",
+        "SP-N200 在恰好一次 500 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written",
+        "SP-NS 在恰好一次没拿到状态之后命中：退出 6、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written",
+        "SP-R 命中：退出 6、stdout 没有汇总 JSON、零请求；恰好一条命中记录指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中记录",
         "SP-R 注入同时留下 reason 为 save-failed 的 rejected 记录，没有 reserved 记录",
         "collect 每条记录都是带 kind 与 contract 的单行 JSON 对象、以换行结束，ready 恰好一条且是第一条",
         "collect 的 reserved 记录与账本里的真实 HTTP 尝试一一对应：endpoint 是请求路径、unit_micro_usd 是这一路单价、scope 是 task、没有 reason",
@@ -20504,7 +20504,7 @@
         "账上有没结的预留时被拒的预留写 rejected 记录：reason 是 pending、没有 attempt_id、没有 reserved 记录，请求一次都没发",
         "费用账认不得时被拒的预留写 rejected 记录：reason 是 ledger-unavailable、没有 attempt_id、没有 reserved 记录，请求一次都没发",
         "退出时未命中记录写不进去：以 1 退出（没有这处故障时是对照跑的退出码）、stderr 说出是哪个文件，记录文件里没有未命中记录",
-        "预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 1",
+        "预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 6",
         "额度不够时被拒的预留写 rejected 记录：reason 是 budget、没有 attempt_id、没有 reserved 记录，请求一次都没发"
       ]
     },
@@ -20530,7 +20530,7 @@
       "by": "selfcheck",
       "kills": [
         "SP-R 注入同时留下 reason 为 save-failed 的 rejected 记录，没有 reserved 记录",
-        "预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 1"
+        "预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 6"
       ]
     },
     {
@@ -20567,7 +20567,7 @@
         "根预算与账上的上限冲突时被拒的预留写 rejected 记录：reason 是 root-conflict、没有 attempt_id、没有 reserved 记录，请求一次都没发",
         "账上有没结的预留时被拒的预留写 rejected 记录：reason 是 pending、没有 attempt_id、没有 reserved 记录，请求一次都没发",
         "费用账认不得时被拒的预留写 rejected 记录：reason 是 ledger-unavailable、没有 attempt_id、没有 reserved 记录，请求一次都没发",
-        "预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 1",
+        "预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 6",
         "额度不够时被拒的预留写 rejected 记录：reason 是 budget、没有 attempt_id、没有 reserved 记录，请求一次都没发"
       ]
     },
@@ -20618,7 +20618,7 @@
       "by": "selfcheck",
       "kills": [
         "SP-R 注入同时留下 reason 为 save-failed 的 rejected 记录，没有 reserved 记录",
-        "预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 1"
+        "预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 6"
       ]
     },
     {
@@ -20655,7 +20655,7 @@
       "replace": "attempt_id = engine.snapshot().cost_ledger.pending!.attempt_id + 1",
       "by": "selfcheck",
       "kills": [
-        "SP-R 命中：退出 1、stdout 没有汇总 JSON、零请求；恰好一条命中记录指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中记录",
+        "SP-R 命中：退出 6、stdout 没有汇总 JSON、零请求；恰好一条命中记录指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中记录",
         "collect 的 reserved 记录都有 attempt_id，首次是任务账里的序号 1",
         "enrich 的 reserved 记录都有 attempt_id，首次是任务账里的序号 1",
         "第一次请求的响应还没交还就被杀时，那条 reserved 记录已经在记录文件里：恰好一条、端点是搜索路径、attempt_id 1"
@@ -20781,7 +20781,7 @@
       "replace": "persist()",
       "by": "selfcheck",
       "kills": [
-        "SP-BUD 命中：对照跑以 3 收尾，注入跑以 1 收尾、stdout 没有汇总 JSON、零请求，stderr 不说已保存",
+        "SP-BUD 命中：对照跑以 3 收尾，注入跑以 6 收尾、stdout 没有汇总 JSON、零请求，stderr 不说已保存",
         "SP-BUD 的命中记录没有 attempt_id 与 endpoint，作者文件和 task.json 一字没写"
       ]
     },
@@ -20794,7 +20794,7 @@
       "replace": "outcome.status === 200 ? 'SP-200' : 'SP-200'",
       "by": "selfcheck",
       "kills": [
-        "SP-N200 在恰好一次 500 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written"
+        "SP-N200 在恰好一次 500 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written"
       ]
     },
     {
@@ -20806,7 +20806,7 @@
       "replace": "outcome.kind === 'no_http_status' ? 'SP-N200'",
       "by": "selfcheck",
       "kills": [
-        "SP-NS 在恰好一次没拿到状态之后命中：退出 1、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written"
+        "SP-NS 在恰好一次没拿到状态之后命中：退出 6、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written"
       ]
     },
     {
@@ -20818,10 +20818,10 @@
       "replace": "",
       "by": "selfcheck",
       "kills": [
-        "SP-200 在恰好一次 200 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-200、occurrence 1、attempt_id 1、搜索端点、not_written",
-        "SP-N200 在恰好一次 500 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written",
-        "SP-NS 在恰好一次没拿到状态之后命中：退出 1、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written",
-        "SP-R 命中：退出 1、stdout 没有汇总 JSON、零请求；恰好一条命中记录指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中记录"
+        "SP-200 在恰好一次 200 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-200、occurrence 1、attempt_id 1、搜索端点、not_written",
+        "SP-N200 在恰好一次 500 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written",
+        "SP-NS 在恰好一次没拿到状态之后命中：退出 6、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written",
+        "SP-R 命中：退出 6、stdout 没有汇总 JSON、零请求；恰好一条命中记录指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中记录"
       ]
     },
     {
@@ -20890,9 +20890,9 @@
       "replace": "      seen++\n      if (point !== file.point) return\n",
       "by": "selfcheck",
       "kills": [
-        "SP-200 在恰好一次 200 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-200、occurrence 1、attempt_id 1、搜索端点、not_written",
-        "SP-N200 在恰好一次 500 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written",
-        "SP-NS 在恰好一次没拿到状态之后命中：退出 1、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written",
+        "SP-200 在恰好一次 200 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-200、occurrence 1、attempt_id 1、搜索端点、not_written",
+        "SP-N200 在恰好一次 500 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written",
+        "SP-NS 在恰好一次没拿到状态之后命中：退出 6、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written",
         "控制文件 occurrence 为 0 时未命中记录的 occurrence 是 null、point 照原样，seen 是实际次数 1",
         "控制文件 occurrence 为 1.5 时未命中记录的 occurrence 是 null、point 照原样，seen 是实际次数 1",
         "控制文件 occurrence 是字符串时未命中记录的 occurrence 是 null、point 照原样，seen 是实际次数 1",
@@ -21032,11 +21032,11 @@
       "by": "selfcheck",
       "kills": [
         "429 那次与重试各算一次真实尝试：reserved 记录数等于账本行数，端点逐条对应",
-        "SP-200 在恰好一次 200 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-200、occurrence 1、attempt_id 1、搜索端点、not_written",
+        "SP-200 在恰好一次 200 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-200、occurrence 1、attempt_id 1、搜索端点、not_written",
         "SP-BUD 的命中记录没有 attempt_id 与 endpoint，作者文件和 task.json 一字没写",
-        "SP-N200 在恰好一次 500 之后命中：退出 1、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written",
-        "SP-NS 在恰好一次没拿到状态之后命中：退出 1、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written",
-        "SP-R 命中：退出 1、stdout 没有汇总 JSON、零请求；恰好一条命中记录指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中记录",
+        "SP-N200 在恰好一次 500 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written",
+        "SP-NS 在恰好一次没拿到状态之后命中：退出 6、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written",
+        "SP-R 命中：退出 6、stdout 没有汇总 JSON、零请求；恰好一条命中记录指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中记录",
         "SP-R 注入同时留下 reason 为 save-failed 的 rejected 记录，没有 reserved 记录",
         "collect 每条记录都是带 kind 与 contract 的单行 JSON 对象、以换行结束，ready 恰好一条且是第一条",
         "collect 的 reserved 记录与账本里的真实 HTTP 尝试一一对应：endpoint 是请求路径、unit_micro_usd 是这一路单价、scope 是 task、没有 reason",
@@ -21073,7 +21073,7 @@
         "账上有没结的预留时被拒的预留写 rejected 记录：reason 是 pending、没有 attempt_id、没有 reserved 记录，请求一次都没发",
         "费用账认不得时被拒的预留写 rejected 记录：reason 是 ledger-unavailable、没有 attempt_id、没有 reserved 记录，请求一次都没发",
         "退出时未命中记录写不进去：以 1 退出（没有这处故障时是对照跑的退出码）、stderr 说出是哪个文件，记录文件里没有未命中记录",
-        "预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 1",
+        "预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 6",
         "额度不够时被拒的预留写 rejected 记录：reason 是 budget、没有 attempt_id、没有 reserved 记录，请求一次都没发"
       ]
     },
@@ -21176,7 +21176,7 @@
       "replace": "productDirProblem(state.product)",
       "by": "test",
       "kills": [
-        "续跑不按产品名判：task.json 里的 product 换成含 / 与 \\ 的之后，collect --resume 的退出码、预留与请求次数与没换的那一份（照常以 0 结束）相同，不以 2 拒绝"
+        "续跑不按产品名判：task.json 里的 product 换成含 / 与 \\ 的之后，collect --resume 的退出码、预留与请求次数与没换的那一份（照常以达标 4 结束）相同，不以 2 拒绝"
       ]
     },
     {
@@ -21226,7 +21226,7 @@
       "replace": "['\\u0000', 'NUL（U+0000）'], ['.', '.']]",
       "by": "test",
       "kills": [
-        "产品名不含 /、\\ 与 NUL 时（..、.、含空格与大写）collect --config 照常以 0 结束、预留并请求，任务目录建在 output/ 底下、名字以产品名加短横线开头，上一级不多东西"
+        "产品名不含 /、\\ 与 NUL 时（..、.、含空格与大写）collect --config 照常以达标（4）结束、预留并请求，任务目录建在 output/ 底下、名字以产品名加短横线开头，上一级不多东西"
       ]
     },
     {
@@ -21339,7 +21339,7 @@
       "by": "test",
       "kills": [
         "D30.a 配置带合规 sender_name 时新建任务的 task.json 根上原值逐字不变（不去空白、不改大小写），不带时根上没有这个键",
-        "D30.d 带合规 sender_name 的 collect --config 与去掉它的同一份配置退出码、预留与请求相同，都照常以 0 结束"
+        "D30.d 带合规 sender_name 的 collect --config 与去掉它的同一份配置退出码、预留与请求相同，都照常以达标（4）结束"
       ]
     },
     {
@@ -21832,6 +21832,152 @@
       "by": "test",
       "kills": [
         "测试观察记录对照请求数：合契约、预留条条成功、条数等于请求数才没有问题；文件不在、不合契约、有被拒的、条数对不上，各报一处"
+      ]
+    },
+    {
+      "id": "M-D6-bp",
+      "req": "D6.aa",
+      "why": "collect 达标停下时不按 ADR-193 退 4，落回 0：调用方只看退出码又分不出「达标停下」与「关键词跑完」，要不要转述 pending_keywords 无从判断",
+      "file": "scripts/collect.ts",
+      "find": "  if (stopped === 'target') process.exitCode = EXIT.target\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "市场人数：缺省50实际继续翻页，显式1在首页后停",
+        "品牌校准：合法新建确实预留和请求，task.json 原样保存校准"
+      ]
+    },
+    {
+      "id": "M-D6-bq",
+      "req": "D6.ab",
+      "why": "collect 遇供应商 402 照样停下、出汇总，却以其他运行错误的 1 退出：调用方读不出该去充值，可能原样重试、再撞一次 402",
+      "file": "scripts/collect.ts",
+      "find": "      stopped = 'error'; errorMsg = e.message; errorExit = EXIT.provider402\n",
+      "replace": "      stopped = 'error'; errorMsg = e.message; errorExit = EXIT.runtime\n",
+      "by": "selfcheck",
+      "kills": [
+        "collect 在 profile 补全阶段遇 TikHub 402（TikTok）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 5",
+        "collect 达标之后补 profile 遇 TikHub 402：stopped 为 error（不是 target）、error 为余额不足的提示，退出码 5"
+      ]
+    },
+    {
+      "id": "M-D6-br",
+      "req": "D6.aa",
+      "why": "collect 采集结束后读不出记忆文件时退 2，与开跑前的输入问题混在一起：调用方会让用户去改配置，而该修的是 memory/creators.json",
+      "file": "scripts/collect.ts",
+      "find": "    process.exit(EXIT.memory)\n",
+      "replace": "    process.exit(EXIT.input)\n",
+      "by": "selfcheck",
+      "kills": [
+        "collect 记忆读不出来以退出码 7 结束（不是输入问题的 2），stdout 不出汇总"
+      ]
+    },
+    {
+      "id": "M-D6-bs",
+      "req": "D6.ab",
+      "why": "KOL-108 第 1 条退回去：补 profile 的循环被 402 打断时不打「N 人补全失败」那一行，汇总的 profile_failed 有数、stderr 却一句不提",
+      "file": "scripts/collect.ts",
+      "find": "  } finally {\n    if (profileFailed) console.error(",
+      "replace": "  } finally {\n    if (profileFailed && false) console.error(",
+      "by": "selfcheck",
+      "kills": [
+        "collect 在 profile 补全先遇 404、再遇 TikHub 402：stderr 照打「1 人补全失败」那一行，与汇总的 profile_failed 对得上"
+      ]
+    },
+    {
+      "id": "M-D14-m",
+      "req": "D14.i",
+      "why": "collect 的保存失败落到 main().catch 时按其他运行错误退 1：调用方读不出「没存上」，可能当成断点已保存去续跑",
+      "file": "scripts/collect.ts",
+      "find": "    : isSaveFailure(e) || (e instanceof CostError && e.code === 'persistence-failed') ? EXIT.save\n",
+      "replace": "    : isSaveFailure(e) || (e instanceof CostError && e.code === 'persistence-failed') ? EXIT.runtime\n",
+      "by": "selfcheck",
+      "kills": [
+        "预留保存失败退出6且零请求，不伪造无HTTP状态留存"
+      ]
+    },
+    {
+      "id": "M-D14-n",
+      "req": "D14.n",
+      "why": "enrich 遇供应商 402 以其他运行错误的 1 退出：调用方读不出该去充值",
+      "file": "scripts/enrich.ts",
+      "find": "        : e instanceof TikHubError && e.status === 402 ? EXIT.provider402\n",
+      "replace": "        : e instanceof TikHubError && e.status === 402 ? EXIT.runtime\n",
+      "by": "selfcheck",
+      "kills": [
+        "enrich 遇 TikHub 402：照出汇总 JSON，stopped 为 error，退出码 5，402 之后不再请求"
+      ]
+    },
+    {
+      "id": "M-D14-o",
+      "req": "D14.n",
+      "why": "enrich 的保存失败落到 main().catch 时按其他运行错误退 1：调用方读不出「没存上」",
+      "file": "scripts/enrich.ts",
+      "find": "  process.exit(isSaveFailure(e) || (e instanceof CostError && e.code === 'persistence-failed') ? EXIT.save : EXIT.runtime)",
+      "replace": "  process.exit(EXIT.runtime)",
+      "by": "selfcheck",
+      "kills": [
+        "费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出6"
+      ]
+    },
+    {
+      "id": "M-F3-e",
+      "req": "F3.f",
+      "why": "probe 遇供应商 402 中途停下，照出部分结果却以 0 退出：调用方当成全部任务跑完了",
+      "file": "scripts/probe.ts",
+      "find": "  if (stopped === 'provider_402') process.exitCode = EXIT.provider402",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "probe 遇 TikHub 402：stdout 照出部分结果，顶层 stopped 为 provider_402，退出码 5"
+      ]
+    },
+    {
+      "id": "M-F3-f",
+      "req": "F3.f",
+      "why": "probe 预算不足中途停下，照出部分结果却以 0 退出：调用方当成全部任务跑完了，不会请用户确认新上限",
+      "file": "scripts/probe.ts",
+      "find": "  if (stopped === 'budget') process.exitCode = EXIT.budget\n",
+      "replace": "",
+      "by": "selfcheck",
+      "kills": [
+        "probe 预算不足退出3、stopped 为 budget，且保留一次 IG 成果，不把三分之二说成100%"
+      ]
+    },
+    {
+      "id": "M-F3-g",
+      "req": "F3.f",
+      "why": "probe 遇 402 停下时不记停的原因：stopped 仍写 done、退 0，只读结果 JSON 的调用方看不出试探没跑完",
+      "file": "scripts/probe.ts",
+      "find": "{ stopped = 'provider_402'; break }",
+      "replace": "{ break }",
+      "by": "selfcheck",
+      "kills": [
+        "probe 遇 TikHub 402：stdout 照出部分结果，顶层 stopped 为 provider_402，退出码 5"
+      ]
+    },
+    {
+      "id": "M-D4-ba",
+      "req": "D4.u",
+      "why": "render 读不出记忆时退 2，与输入问题混在一起：调用方会让用户去改任务文件，而该修的是 memory/creators.json",
+      "file": "scripts/render.ts",
+      "find": "    process.exit(EXIT.memory)\n",
+      "replace": "    process.exit(EXIT.input)\n",
+      "by": "selfcheck",
+      "kills": [
+        "render 坏记忆默认拒绝且不改旧交付或记忆"
+      ]
+    },
+    {
+      "id": "M-D4-bb",
+      "req": "D4.u",
+      "why": "render 交付物写不进去时按其他运行错误退 1：调用方读不出「没交付上」",
+      "file": "scripts/render.ts",
+      "find": "const saveFailed = (e: unknown): never => { console.error(e); process.exit(EXIT.save) }",
+      "replace": "const saveFailed = (e: unknown): never => { console.error(e); process.exit(EXIT.runtime) }",
+      "by": "selfcheck",
+      "kills": [
+        "render 交付物写不进去以退出码 6 结束，stdout 不出交付 JSON"
       ]
     },
     {

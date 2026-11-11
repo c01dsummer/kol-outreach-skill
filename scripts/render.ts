@@ -6,6 +6,11 @@
  * 算分、分层、写评审 CSV/XLSX/HTML + meta.json，并写回跨任务记忆。
  *
  * 用法: tsx scripts/render.ts --dir output/anker-powerbank-202608251430
+ *
+ * 退出码（ADR-193，与 collect、enrich、probe 共用一套数）：
+ *   0  成功；2  输入问题；7  跨任务记忆读不出来（没加 --ignore-memory）
+ *   6  名单、交付物或评审正本保存失败（不得声称已交付）；1  其余意外异常
+ * 记忆写回失败不中断交付：照常退 0，meta 的 memory_written／memory_write_error 写明（ADR-15、ADR-20）。
  */
 import { writeFileAtomic } from './lib/atomic.js'
 import { join } from 'node:path'
@@ -28,6 +33,10 @@ import { duplicateKeyProblems } from './lib/duplicate-keys.js'
 import { resumeProgressProblems } from './lib/resume-progress.js'
 import { asMemoryStatus } from './lib/types.js'
 import type { Creator, Measurement, TaskState } from './lib/types.js'
+import { EXIT } from './lib/exit-codes.js'
+
+/** 名单与交付物写不进去：原样打出错误，以保存失败（6）退出，不往下写别的（ADR-193） */
+const saveFailed = (e: unknown): never => { console.error(e); process.exit(EXIT.save) }
 
 const i = process.argv.indexOf('--dir')
 const dir = i >= 0 ? process.argv[i + 1] : undefined
@@ -89,7 +98,7 @@ try {
 } catch (e) {
   if (e instanceof MemoryUnreadable) {
     console.error(`${e.message}\n修复记忆后重跑；只有明确接受不去重风险时才加 --ignore-memory。`)
-    process.exit(2)
+    process.exit(EXIT.memory)
   }
   throw e
 }
@@ -118,19 +127,25 @@ attachAssessments(creators, enrichment)
 creators = rankCreators(creators, state.market)
 creators = sortForReviewOutput(creators)
 try { reviews.save(new Date().toISOString()) }
-catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1) }
+catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(EXIT.save) }
+try {
 persistListAndStatus(dir, state, creators, memoryStatus)
+} catch (e) { saveFailed(e) }
 const accountKeys = accountKeysFor(creators)
 
 // ---------- CSV（单表，供脚本与其他工具消费）----------
 const csvPath = join(dir, 'kol.csv')
+try {
 writeCsv(csvPath, [...REVIEW_HEADERS], creators.map(toReviewRow))
+} catch (e) { saveFailed(e) }
 
 // ---------- XLSX（分 sheet，供人快速切换）----------
 // CSV 规范里没有「工作表」这个概念，多 sheet 只能走 xlsx。两个文件各司其职：
 // CSV 给机器读，xlsx 给人看。CSV 里可能被当成公式的文字格多一个 '（D5.c），要逐字原值的读 xlsx。
 const xlsxPath = join(dir, 'kol.xlsx')
+try {
 writeXlsx(xlsxPath, buildSheets(creators, { mode: 'review' }) as Sheet[])
+} catch (e) { saveFailed(e) }
 
 // ---------- HTML + meta ----------
 const countMeasurements = <T>(total: number, values: Array<Measurement<T> | undefined>) => ({
@@ -224,8 +239,10 @@ const meta = {
   },
 }
 // 交付物也走整体替换：render 被打断时，上一份完整的 meta.json / report.html 还在（D4）
+try {
 writeFileAtomic(join(dir, 'meta.json'), stringifyCostJson(meta, cost))
 writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review', filters: 'dual' }))
+} catch (e) { saveFailed(e) }
 
 console.log(stringifyCostJson({
   csv: csvPath,
