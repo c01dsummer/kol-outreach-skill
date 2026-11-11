@@ -3850,7 +3850,7 @@ git show 4520bcd:scripts/check/mutations.json | node -e 'const m=JSON.parse(requ
 
 施加一条变异改走 `mutate-rule.ts` 的 `applyMutation`，替换文本交一个函数进去，返回值原样落盘，`$$`、`$&`、`` $` ``、`$'` 一个也不展开。`mutate.ts` 里施加只有一处（`runOne`，串行与派工 worker 两条路都调它），它改调这个函数；预编缓存 `prebuildOne` 吃的是同一个施加结果，顺序没动。
 
-**`M-D13-r` 的结论没变。** 照字面施加之后，盘上就是登记的那段：未知金额显示成 `$0`，已知金额前面的 `$` 照旧。在本片的头 `d28f41c` 上照字面施加到 `scripts/lib/report.ts`、跑 `npx tsx scripts/check/selfcheck.ts --only=cost-local`，它点名的那条断言在 `unknown-positive`、`unknown-invalid-count`、`invalid-price`、`unknown-version` 四处红，以 1 结束，同第一片那一节。全目录替换文本里带这几种记号的仍只有它一条；逐条比字符串形式与函数形式的施加结果，不同的也只有它一条，别的变异施加到盘上的内容一个字没变。在本片的树上跑，打出 `1926 M-D13-r M-D13-r`：
+**`M-D13-r` 的结论没变。** 照字面施加之后，盘上就是登记的那段：未知金额显示成 `$0`，已知金额前面的 `$` 照旧。在本片的头 `d28f41c` 上照字面施加到 `scripts/lib/report.ts`、跑 `npx tsx scripts/check/selfcheck.ts --only=cost-local`，它点名的那条断言在 `unknown-positive`、`unknown-invalid-count`、`invalid-price`、`unknown-version` 四处红，以 1 结束，同第一片那一节；在 `d28f41c` 上以 nobody 跑整套检查，`npm run mutate` 经改过的入口施加它，判被抓到。全目录替换文本里带这几种记号的仍只有它一条；逐条比字符串形式与函数形式的施加结果，不同的也只有它一条，别的变异施加到盘上的内容一个字没变。在本片的树上跑，打出 `1926 M-D13-r M-D13-r`：
 
 ```sh
 npx tsx -e 'import{readFileSync as r}from"node:fs";import{applyMutation as a}from"./scripts/check/mutate-rule.ts";const m=JSON.parse(r("scripts/check/mutations.json","utf8")).mutations;const k=m.filter(x=>/\$[$&`\x27]/.test(x.replace)).map(x=>x.id);const d=m.filter(x=>{const s=r(x.file,"utf8");return s.replace(x.find,x.replace)!==a(s,x.find,x.replace)}).map(x=>x.id);console.log(m.length,k.join(","),d.join(","))'
