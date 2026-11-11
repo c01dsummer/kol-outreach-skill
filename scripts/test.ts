@@ -192,6 +192,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd6-pipeline', needs: [] },
   { id: 'd4-memory', needs: [] },
   { id: 'd4t-ignore-memory', needs: [] },
+  { id: 'd4s-independent-claim', needs: [] },
   { id: 'd4-pid-boundary', needs: [] },
   { id: 'f5-geo', needs: [] },
   { id: 'u3-keywords', needs: [] },
@@ -264,6 +265,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd25-effective-priority', needs: [] },
   { id: 'd21-tier-guards', needs: [] },
   { id: 'u9-review-output', needs: [] },
+  { id: 'u9-p1-independent-claim', needs: [] },
   { id: 'p1-legacy-score-output', needs: [] },
   { id: 'd21-task-reviews', needs: [] },
   { id: 'feedback-template-crossings', needs: [] },
@@ -2508,6 +2510,37 @@ suite('D4', 'D4.t：显式跳过时首次读不出，写回前再读得出也不
     rmSync(dir, { recursive: true, force: true })
   }
 }
+})
+// KOL-21 D4a：D4.s 的独立认领（ADR-185「后续」；记录在 ADR-185 末尾）。只用独立测试包里冻结了的 G3-15（collect 续跑时记忆文件
+// 读不出而中止、没给 --ignore-memory），经接线（`scripts/kol21-independent-wiring.ts`，登了 GAP-24c）跑一遍；冻结用例自己按字节比
+// 运行前后的 memory/creators.json，这里只读回结论，不改断言、不改冻结字节。
+// 认领看字节比那一项，D4.s 说的就是它：它判 pass，而且这一例没有一项判红、设施故障或夹具失格。同一例里待语义复核、资格待定的项
+// 说的是退出前的提示与基线，不挡这一项；它们挡的是 D6.y 那边的认领（自检 `kol21-independent`）。
+// 退出码那一项也要判过：它说明入口确实走到读记忆、照冻结单的期望中止，字节比才不是空的。接线哪天不再登 GAP-24a，那几项会合成一条
+// 不判，不在挡的三种里；没有这一项，入口没走到读记忆、文件自然没动，字节比照样判 pass。期望的数由冻结用例定，这里只按标签开头找。
+// 认领写在断言后面：断言不成立，这一跑就红，认领不写盘。
+await group('d4s-independent-claim', () => {
+  suite('D4', 'D4.s 独立认领：冻结用例 G3-15 经接线跑真实 collect，按字节比记忆文件')
+  const root = scMkdtempSync(scJoin(scTmpdir(), 'kol21-d4s-')), work = scJoin(root, 'work'), report = scJoin(root, 'report.json')
+  try {
+    scMkdirSync(work)
+    const [exe, argv] = scPrebuiltCommand([scJoin(process.cwd(), 'scripts', 'kol21-independent-wiring.ts'),
+      '--work', work, '--report', report, '--only', 'G3-15'])
+    const r = cxSpawnSync(exe, argv, { encoding: 'utf8', timeout: 120000 })
+    eq('D4.s 独立认领：接线以 0 收尾、写出报告', [r.status, scExistsSync(report)], [0, true])
+    if (r.status !== 0) console.log(`     stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+    type Item = { label: string; status: string }
+    let cases: { id: string; items: Item[] }[] = []
+    try { cases = JSON.parse(rf(report, 'utf8')).cases } catch { cases = [] }
+    // 读不出报告、没有这一例或没有这一项时，字节比读作 []，照「缺」红
+    const c = Array.isArray(cases) ? cases.find(x => x?.id === 'G3-15') : undefined
+    const items = Array.isArray(c?.items) ? c.items : []
+    const bytes = items.filter(i => i?.label === 'BYTES(memory/creators.json)').map(i => i?.status)
+    const exit = items.filter(i => typeof i?.label === 'string' && i.label.startsWith('退出码 = ')).map(i => i?.status)
+    const bad = items.filter(i => ['red', 'facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)
+    eq('D4.s 独立认领：冻结用例 G3-15 的退出码那一项与 BYTES(memory/creators.json) 都判过，这一例没有一项判红、设施故障或夹具失格', [exit, bytes, bad], [['pass'], ['pass'], []])
+  } finally { scRmSync(root, { recursive: true, force: true }) }
+  criterion('D4.s')
 })
 await group('d4-pid-boundary', async () => {
   suite('D4', '残留识别采用本机PID不包含上界')
@@ -16301,6 +16334,38 @@ await group('u9-review-output', () => {
     subjectCases.map(([h, draft, subject]) => [h, draft !== undefined && draft.trim() !== '' ? `主题：${subject}` : undefined]))
   ok('U13.c 旧表头不出现主题列', api.buildSheets(subjectFixtures).every(s => !s.headers.includes('outreach_subject')))
 
+})
+
+// KOL-21 R 片：U9 × P1 交点的独立认领（ADR-183 第 96 行；记录在 ADR-92 末尾）。上面那一组的认领与实现出自同一个上下文；
+// 这一组只用独立测试包里冻结了的粉丝三档用例 —— 排序函数层 G5-01…03、名单层 G6-01…03（真实 render 入口）—— 经接线
+// （`scripts/kol21-independent-wiring.ts`）跑一遍，冻结用例自己判，这里只读回结论，不改断言、不改冻结字节。
+// 判过的意思是那一例的结论是 pass、而且每一项都是 pass：附条件、待复核、不判、失格的都认不下。
+// 认领写在断言后面：哪一例没判过，这一跑就红，认领不写盘。
+await group('u9-p1-independent-claim', () => {
+  suite('U9', 'U9 × P1 独立认领：冻结的粉丝三档用例经接线跑真实排序函数与 render 入口')
+  const sortLayer = ['G5-01', 'G5-02', 'G5-03'], listLayer = ['G6-01', 'G6-02', 'G6-03']
+  const root = scMkdtempSync(scJoin(scTmpdir(), 'kol21-u9p1-')), work = scJoin(root, 'work'), report = scJoin(root, 'report.json')
+  try {
+    scMkdirSync(work)
+    const [exe, argv] = scPrebuiltCommand([scJoin(process.cwd(), 'scripts', 'kol21-independent-wiring.ts'),
+      '--work', work, '--report', report, '--only', [...sortLayer, ...listLayer].join(',')])
+    const r = cxSpawnSync(exe, argv, { encoding: 'utf8', timeout: 120000 })
+    eq('U9×P1 独立认领：接线以 0 收尾、写出报告', [r.status, scExistsSync(report)], [0, true])
+    if (r.status !== 0) console.log(`     stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+    type Item = { label: string; status: string }
+    let cases: { id: string; verdict: string; items: Item[] }[] = []
+    try { cases = JSON.parse(rf(report, 'utf8')).cases } catch { cases = [] }
+    // 每例交回 [用例号, 结论, 有没有判过任何一项, 没判过的那几项]；读不出报告时整组照「缺」红
+    const settled = (ids: string[]) => ids.map(id => {
+      const c = Array.isArray(cases) ? cases.find(x => x?.id === id) : undefined
+      const items = Array.isArray(c?.items) ? c.items : []
+      return [id, c?.verdict ?? '缺', items.length > 0, items.filter(i => i?.status !== 'pass').map(i => `${i?.label}：${i?.status}`)]
+    })
+    const want = (ids: string[]) => ids.map(id => [id, 'pass', true, []])
+    eq('U9×P1 独立认领：排序函数层（冻结用例 G5-01、G5-02、G5-03）各例判过，每一项都判过', settled(sortLayer), want(sortLayer))
+    eq('U9×P1 独立认领：名单层（冻结用例 G6-01、G6-02、G6-03，真实 render 入口）各例判过，每一项都判过', settled(listLayer), want(listLayer))
+  } finally { scRmSync(root, { recursive: true, force: true }) }
+  tension('U9', 'P1')
 })
 await group('p1-legacy-score-output', () => {
   // Independent contract test: /private/tmp/kol-legacy-score-contract.md and P1.e.

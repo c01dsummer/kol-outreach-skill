@@ -160,3 +160,7 @@
 > ⚠️ 欠条：`observer-run.ts` 起进程的那一半（认证时起受控目标与两个探针、起入口时拼沙箱参数与环境、收证据）照旧没有变异守着，承接 ADR-70 第 3385 行、ADR-187 第 88 行同一笔余额。这一片在起入口那一行多给了测试观察记录文件的开关（按 `6936fea`：`scripts/check/observer-run.ts` 第 203–204 行）；把它拿掉，认证与自检 `observer-cert-entry`、`kol21-independent` 在起得来 bwrap 的机器上当场判出来（认证的记录对照、E-2 命中、E-3 就绪都不成立），但那是实跑，不是负片；变异写 `by: "selfcheck"` 会被自己验自己拦下（它在自检的闭包里） · 来源：ADR-70 第 3385 行（2026-10-30 作者自记）；ADR-186 第二片欠条清点 · 档：登记 · 重启条件：下一条改 `certifyIsolation` 或起入口那几行逻辑（只改名字不算）的 PR，或 CI 上确认起不来 bwrap 时，先到为准
 
 > ⚠️ 欠条：自检组 `observer-cert-entry` 在 PR #426 作者的本机上红、红在哪一条具名断言、为什么红，照旧没人核（ADR-70 第 3712 行原样）。这一片改了认证入口 `observer-cert.ts`（阳性与零记录对照多核测试观察记录），本机这一组是绿的；那台机器若红在认证项，这一片又多了一处可能红的地方 · 来源：ADR-70 第 3712 行；ADR-186 第二片欠条清点 · 档：登记 · 重启条件：下次有改动碰到 `scripts/check/selfcheck.ts` 的 `observer-cert-entry` 组、认证入口 `scripts/check/observer-cert.ts`、`scripts/check/observer-run.ts` 的 `certifyIsolation` 或 `scripts/check/observer-rule.ts` 的 `sandboxArgs`（ADR-186 第二片那条 PR 之后），或同一缺口再被点名（又有一台机器或一条 PR 报 `observer-cert-entry` 本机红），先到为准
+
+## 需求所有者 2026-11-10：契约不登需求登记表，照第三节
+
+KOL-21 收尾清单上「测试观察契约要不要在需求登记表里登一条判据」那一项。需求所有者 2026-11-10 17:36Z 在卡片上选了「不登，照 ADR-186 第三节」。第三节的理由照旧：契约是给测试看的接口，平时不改变用户拿到的东西；变异照旧记在 `harness` 名下。哪天评审认为控制文件那一面也该有判据守着，照第三节走 `process/2-CHANGE.md` 补登。这一块只记决定，前面各节不动；写在 KOL-21 D4a 那条 PR 里。

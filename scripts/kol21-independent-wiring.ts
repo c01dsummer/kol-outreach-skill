@@ -13,7 +13,8 @@
  * - `sortForOutput`：`scripts/lib/rows.ts` 的导出函数，同一个数组原样传进去（G5-03 要看调用后输入有没有被改）。
  * - `conditions`：每条 `ref` 写着出处。登的是冻结单 B 节把「建议问谁」写成整合方、整合方又答得出出处的（冻结单 :1586、:1592）：
  *   GAP-18（补法是下面的 `creatorCheck`）；GAP-24a、GAP-24b 是读实现得出的事实，只作资格前提（夹具有没有区分力），
- *   不当任何断言的期望。GAP-24c 要正本或对外文档直接给出「原文件不被改动」，没找到，不登；GAP-09、GAP-20 登了也不判，不登。
+ *   不当任何断言的期望。GAP-24c 要正本或对外文档直接给出「原文件不被改动」：正本的 D4.s 直接写了（ADR-185），照它登，
+ *   G3-15 的字节比因此判得到（D4.s 由需求测试 `d4s-independent-claim` 经本文件认领）；GAP-09、GAP-20 登了也不判，不登。
  *   再加 E-2、E-3：实现方把契约 kol-test-observer/v1 公开在 `skill/references/output-format.md` 末节，需求方逐字确认过
  *   （冻结单 :1797），`ref` 指那一节与 ADR-186、ADR-187。其余（GAP-07①④、GAP-10、GAP-39、GAP-40 与 E-1）不登。
  *   没登的，依赖它的断言照冻结单落在 not-judged。
@@ -30,7 +31,8 @@
  *   控制文件名与它的 `schema` 照原文抄在这里，不从产品代码 import：被测的正是产品照不照原文做。
  *
  * 判定一律在冻结套件里：这里不读、不改、不合并任何一条结论。冻结套件的每一种结论原样留在报告里，由读报告的一侧
- * （自检组 `kol21-independent`）分开报。
+ * （自检组 `kol21-independent`；只点 G5、G6 那几例时是需求测试 `u9-p1-independent-claim`，只点 G3-15 时是需求测试
+ * `d4s-independent-claim`）分开报。
  * 退出码：报告写成就是 0，不论里面的结论是什么；用法错 2；跑到一半抛出 1。
  *
  * 它不是 `scripts/check/` 下的工具，自检把它当被测对象起（`verifier-rule.ts`「它挡不住什么」第一条说的正是这种写法：
@@ -76,9 +78,9 @@ const facility: ObserverFacility = {
 // 冻结包里没有 Creator 的完整声明（GAP-18），G5 按导出签名把冻结单的候选原文当参数传进来；这里只在类型上认作
 // `Creator[]`，运行时就是那个数组本身。G5 先过 GAP-18 的登记与下面的 `creatorCheck`（冻结单 G5 各例的闸门）才调它。
 //
-// R 片（`claude/kol-21-u9p1-independent-claim`，ADR-183 第 96 行）要补的 U9×P1 独立认领，用的就是从这里接进去的 G5
-// 排序函数层与 G6 名单层（真实 render 入口）那几例：只用冻结了的用例，不改断言、不改冻结字节。交点的认领只写在需求测试里
-// （自检的入口认领记录不收交点），本片不认领 U9×P1。
+// U9×P1 的独立认领（R 片，ADR-183 第 96 行；记录在 ADR-92 末尾）用的就是从这里接进去的 G5 排序函数层与 G6 名单层（真实
+// render 入口）G5-01…03、G6-01…03：需求测试 `u9-p1-independent-claim` 起本文件、用 `--only` 只点这几例，各例都判 pass、
+// 每一项也都是 pass 才认领。只用冻结了的用例，不改断言、不改冻结字节；交点的认领只写在需求测试里（自检的入口认领记录不收交点）。
 const sort: SortForOutput = creators => sortForOutput(creators as Creator[])
 
 // 公开的夹具资格检查（GAP-18）：只照 `scripts/lib/types.ts` @251d2d6 的类型声明 —— `Creator` 在 :270-408，它用到的
@@ -195,6 +197,12 @@ const conditions: Partial<Record<ConditionId, Resolution>> = {
       `scripts/lib/budget.ts:80-93 reserve 落盘失败即抛 CostError('persistence-failed')；scripts/collect.ts:444-449 main() 的 catch 对它` +
       `只尽力 persist() 一次再原样抛出，走不到 :469-472 的 finalize（collect 读记忆只有这一处：scripts/lib/pipeline.ts:115 → ` +
       `scripts/lib/memory.ts:397），由 :557-560 退 1。${MAIN}`,
+  },
+  'GAP-24c': {
+    resolved: true, answer: 'unchanged',
+    ref: `正本 docs/requirements.json 的 D4.s：记忆读不出来（D4.d）、没给 --ignore-memory、按 D4.e 不出名单的那一次运行，结束后盘上的 ` +
+      `memory/creators.json 与运行开始前逐字节相同（collect 中止就是这一次，ADR-185「拆开后各管什么」第 1 条）；给了 --ignore-memory、` +
+      `按 D4.f 出名单的那一次归 D4.t，同样逐字节不变。两条原文进主干的那一次合入：#426 @52ac2d1（ADR-185）`,
   },
   'E-2': {
     resolved: true,
