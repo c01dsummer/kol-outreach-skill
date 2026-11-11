@@ -1,6 +1,6 @@
 // KOL-21 C1 · 夹具原文（逐字照冻结单代码块誊写；不经 JSON 序列化器生成配置/任务文件）
 // 冻结单 pack/30-frozen-spec.md：R-* :105-160；T1–T15 :166-182；S-* :186-199；F-* :201-272；G1/G3 配置见各用例；
-// «COST» 槽样本 :660-761；G5 候选 :1426-1441；F-G6 :1473-1502。
+// «COST» 槽样本 :660-761；G5 候选 :1426-1441；F-G6 :1473-1502；F-MEM-BAD :1957-1966（F 节，D4.t 补例）。
 // 写盘规则（:25）：代码块就是文件原字节，UTF-8、无 BOM、块内文本原样，末尾再加一个 LF —— 见 fileBytes()。
 import type { ResponseScript, ScriptResponse, ScriptRule } from './lib/contract.ts'
 
@@ -359,6 +359,12 @@ export const CFG: Record<string, string> = {
 }
 /** G3-14c、G3-15 的记忆文件内容（:1272-1274 text 块 `{`；G3-15 :1309 引用同一行）。 */
 export const MEMORY_BAD = `{`
+/** F-MEM-BAD（F 节 :1957-1966；json 块 :1961）：G3-19、G3-19N 与对照跑 Q-MEM、Q-MEM-N 的记忆文件，写在 <RUN>/cwd/memory/creators.json（:1959）。
+ *  原字节 = 下面这一行 + 一个 LF（fileBytes()；A.0.1 第 2 条 :26）；第一个逗号后面是**两个**空格（:1959、:1966），不得经 JSON 序列化器重写。
+ *  合法 JSON，唯一的毛病是那一个人的 contacted 写成了字符串 "yes"（结构不对一类读不出来，D4.d；:1963）。 */
+export const F_MEM_BAD = `{"version":1,  "updated_at":"2026-10-01T00:00:00Z","creators":{"tiktok:kol21_d4t_marker":{"platform":"tiktok","handle":"kol21_d4t_marker","nickname":"KOL21 D4T Marker","followers":12000,"first_seen":"2026-10-01","recommendations":[],"contacted":"yes","replied":false,"blocked":false,"note":""}}}`
+/** 标记串 t（:1964）：只出现在 F-MEM-BAD 的内容里；<RUN> 路径、任务目录、task.json、两份名单、命令行、响应脚本里都不得出现。MEM-READ(t) 见 :1968-1974。 */
+export const MEM_MARKER = 'kol21_d4t_marker'
 
 // ---------------- G5 候选（:1426-1441；C-Z :1430、C-U :1434、C-N :1438）----------------
 export const G5 = {

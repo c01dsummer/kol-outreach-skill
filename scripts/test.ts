@@ -193,6 +193,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd4-memory', needs: [] },
   { id: 'd4t-ignore-memory', needs: [] },
   { id: 'd4s-independent-claim', needs: [] },
+  { id: 'd4t-independent-claim', needs: [] },
   { id: 'd4-pid-boundary', needs: [] },
   { id: 'f5-geo', needs: [] },
   { id: 'u3-keywords', needs: [] },
@@ -2538,9 +2539,62 @@ await group('d4s-independent-claim', () => {
     const bytes = items.filter(i => i?.label === 'BYTES(memory/creators.json)').map(i => i?.status)
     const exit = items.filter(i => typeof i?.label === 'string' && i.label.startsWith('退出码 = ')).map(i => i?.status)
     const bad = items.filter(i => ['red', 'facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)
-    eq('D4.s 独立认领：冻结用例 G3-15 的退出码那一项与 BYTES(memory/creators.json) 都判过，这一例没有一项判红、设施故障或夹具失格', [exit, bytes, bad], [['pass'], ['pass'], []])
+    // 接线没以 0 收尾、报告里没有这一例、或哪一项判设施故障或夹具失格时，这一跑什么也没测到：只让前提那一条红，
+    // 认领那一条不判。需求测试这个验证者分不出「夹具没造对」与「断言红了」，合成一条的话，负片点名的那一条会把
+    // 夹具失格记成抓到（#452 评审指出；同形的还有下面 D4.t 与 U9×P1 两组，一并改了）
+    const unsound = r.status !== 0 ? [`接线退出码 ${r.status}`] : c === undefined ? ['G3-15：报告里没有这一例']
+      : items.filter(i => ['facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)
+    eq('D4.s 独立认领：冻结用例 G3-15 这一跑可信，接线以 0 收尾、读得到这一例，没有一项判设施故障或夹具失格', unsound, [])
+    if (unsound.length === 0) eq('D4.s 独立认领：冻结用例 G3-15 的退出码那一项与 BYTES(memory/creators.json) 都判过，这一例没有一项判红、设施故障或夹具失格', [exit, bytes, bad], [['pass'], ['pass'], []])
   } finally { scRmSync(root, { recursive: true, force: true }) }
   criterion('D4.s')
+})
+// KOL-21 D4b：D4.t 的独立认领（还 ADR-185 第 212 行；记录在 ADR-185 末尾）。冻结单 F 节是不读实现的作者照需求所有者的选择补的两例，
+// 需求所有者逐字确认后嵌回：G3-19（空名单）与 G3-19N（F-G6 的两人），都是 render 加 --ignore-memory、记忆文件放一份结构不对的。
+// 经接线跑一遍，只读回冻结用例自己的结论，不改断言、不改冻结字节。
+// 两例各要三项判过：退出码（照 D4.f 出了名单、没中止）、MEM-READ（入口确实读过那份文件，字节比才不是空的）、字节比（D4.t 原文）；
+// 每例都没有一项判红、设施故障或夹具失格。复核没做的那一项（报告的未去重声明）说的是 D4.f，不挡这里。
+// 要两例：空名单时没有人可写，「照常把这一批写回记忆」那种做法可能根本不触发，G3-19 的字节比会照过；G3-19N 有两人可写。
+// G3-19N 挂在 GAP-18 上，接线登了它；哪天不登，那一例只剩一项不判，三项都读不到，这里照「缺」红。
+// 认领写在断言后面：断言不成立，这一跑就红，认领不写盘。
+await group('d4t-independent-claim', () => {
+  suite('D4', 'D4.t 独立认领：冻结用例 G3-19、G3-19N 经接线跑真实 render，按字节比记忆文件')
+  const root = scMkdtempSync(scJoin(scTmpdir(), 'kol21-d4t-')), work = scJoin(root, 'work'), report = scJoin(root, 'report.json')
+  try {
+    scMkdirSync(work)
+    const [exe, argv] = scPrebuiltCommand([scJoin(process.cwd(), 'scripts', 'kol21-independent-wiring.ts'),
+      '--work', work, '--report', report, '--only', 'G3-19,G3-19N'])
+    const r = cxSpawnSync(exe, argv, { encoding: 'utf8', timeout: 120000 })
+    eq('D4.t 独立认领：接线以 0 收尾、写出报告', [r.status, scExistsSync(report)], [0, true])
+    if (r.status !== 0) console.log(`     stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+    type Item = { label: string; status: string }
+    let cases: { id: string; items: Item[] }[] = []
+    try { cases = JSON.parse(rf(report, 'utf8')).cases } catch { cases = [] }
+    // 读不出报告、没有这一例或没有这一项时，那一项读作 []，照「缺」红
+    const read = (id: string) => {
+      const c = Array.isArray(cases) ? cases.find(x => x?.id === id) : undefined
+      const items = Array.isArray(c?.items) ? c.items : []
+      const st = (hit: (label: string) => boolean) => items.filter(i => typeof i?.label === 'string' && hit(i.label)).map(i => i?.status)
+      return [st(l => l.startsWith('退出码 = ')), st(l => l.startsWith('MEM-READ(')), st(l => l === 'BYTES(memory/creators.json)'),
+        items.filter(i => ['red', 'facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)]
+    }
+    // 前提与认领分开断言，理由见上面 D4.s 那一组：这一跑不可信时只让前提那一条红，认领那一条不判
+    const unsound = (id: string) => {
+      if (r.status !== 0) return [`接线退出码 ${r.status}`]
+      const c = Array.isArray(cases) ? cases.find(x => x?.id === id) : undefined
+      return c === undefined ? [`${id}：报告里没有这一例`] : (Array.isArray(c.items) ? c.items : [])
+        .filter(i => ['facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)
+    }
+    const g19 = unsound('G3-19'), g19n = unsound('G3-19N')
+    // 各条名字写成字面量：负片的 kills 按名字点它们，变异清册只认字面量
+    eq('D4.t 独立认领：冻结用例 G3-19 这一跑可信，接线以 0 收尾、读得到这一例，没有一项判设施故障或夹具失格', g19, [])
+    eq('D4.t 独立认领：冻结用例 G3-19N 这一跑可信，接线以 0 收尾、读得到这一例，没有一项判设施故障或夹具失格', g19n, [])
+    if (g19.length === 0) eq('D4.t 独立认领：冻结用例 G3-19 的退出码、MEM-READ 与 BYTES(memory/creators.json) 三项都判过，这一例没有一项判红、设施故障或夹具失格',
+      read('G3-19'), [['pass'], ['pass'], ['pass'], []])
+    if (g19n.length === 0) eq('D4.t 独立认领：冻结用例 G3-19N 的退出码、MEM-READ 与 BYTES(memory/creators.json) 三项都判过，这一例没有一项判红、设施故障或夹具失格',
+      read('G3-19N'), [['pass'], ['pass'], ['pass'], []])
+  } finally { scRmSync(root, { recursive: true, force: true }) }
+  criterion('D4.t')
 })
 await group('d4-pid-boundary', async () => {
   suite('D4', '残留识别采用本机PID不包含上界')
@@ -16370,8 +16424,17 @@ await group('u9-p1-independent-claim', () => {
       return [id, c?.verdict ?? '缺', items.length > 0, items.filter(i => i?.status !== 'pass').map(i => `${i?.label}：${i?.status}`)]
     })
     const want = (ids: string[]) => ids.map(id => [id, 'pass', true, []])
-    eq('U9×P1 独立认领：排序函数层（冻结用例 G5-01、G5-02、G5-03）各例判过，每一项都判过', settled(sortLayer), want(sortLayer))
-    eq('U9×P1 独立认领：名单层（冻结用例 G6-01、G6-02、G6-03，真实 render 入口）各例判过，每一项都判过', settled(listLayer), want(listLayer))
+    // 前提与认领分开断言，理由见 `d4s-independent-claim` 那一组：这一跑不可信时只让前提那一条红，认领那一条不判
+    const unsound = (ids: string[]) => r.status !== 0 ? [`接线退出码 ${r.status}`] : ids.flatMap(id => {
+      const c = Array.isArray(cases) ? cases.find(x => x?.id === id) : undefined
+      return c === undefined ? [`${id}：报告里没有这一例`] : (Array.isArray(c.items) ? c.items : [])
+        .filter(i => ['facility', 'fixture'].includes(i?.status)).map(i => `${id} ${i?.label}：${i?.status}`)
+    })
+    const sortUnsound = unsound(sortLayer), listUnsound = unsound(listLayer)
+    eq('U9×P1 独立认领：排序函数层这一跑可信，接线以 0 收尾、三例都读得到，没有一项判设施故障或夹具失格', sortUnsound, [])
+    eq('U9×P1 独立认领：名单层这一跑可信，接线以 0 收尾、三例都读得到，没有一项判设施故障或夹具失格', listUnsound, [])
+    if (sortUnsound.length === 0) eq('U9×P1 独立认领：排序函数层（冻结用例 G5-01、G5-02、G5-03）各例判过，每一项都判过', settled(sortLayer), want(sortLayer))
+    if (listUnsound.length === 0) eq('U9×P1 独立认领：名单层（冻结用例 G6-01、G6-02、G6-03，真实 render 入口）各例判过，每一项都判过', settled(listLayer), want(listLayer))
   } finally { scRmSync(root, { recursive: true, force: true }) }
   tension('U9', 'P1')
 })

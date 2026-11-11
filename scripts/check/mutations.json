@@ -22040,6 +22040,18 @@
       "kills": [
         "D4.s 独立认领：冻结用例 G3-15 的退出码那一项与 BYTES(memory/creators.json) 都判过，这一例没有一项判红、设施故障或夹具失格"
       ]
+    },
+    {
+      "id": "M-D4-bc",
+      "req": "D4.t",
+      "why": "用户显式跳过读不出的记忆、名单上又有人时，写回那一步把读不出的原文件当成空记忆：先拿一份空记录盖掉它，再把这一批照常记进去。那份坏了但还能人工修好的联系记录就此没了，交付物却说这一批已记入记忆。名单为空时没人可写，这一步不触发，空名单那一例照过",
+      "file": "scripts/lib/memory.ts",
+      "find": "  if (opts?.prior_unreadable !== undefined) return { written: false, reason: opts.prior_unreadable }",
+      "replace": "  if (opts?.prior_unreadable !== undefined && creators.length === 0) return { written: false, reason: opts.prior_unreadable }\n  if (opts?.prior_unreadable !== undefined) saveMemory({ version: 1, updated_at: new Date().toISOString(), creators: {} })",
+      "by": "test",
+      "kills": [
+        "D4.t 独立认领：冻结用例 G3-19N 的退出码、MEM-READ 与 BYTES(memory/creators.json) 三项都判过，这一例没有一项判红、设施故障或夹具失格"
+      ]
     }
   ],
   "exemptions": [
