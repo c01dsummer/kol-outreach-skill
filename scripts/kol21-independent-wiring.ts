@@ -31,7 +31,8 @@
  *   控制文件名与它的 `schema` 照原文抄在这里，不从产品代码 import：被测的正是产品照不照原文做。
  *
  * 判定一律在冻结套件里：这里不读、不改、不合并任何一条结论。冻结套件的每一种结论原样留在报告里，由读报告的一侧
- * （自检组 `kol21-independent`；只点 G5、G6 那几例时是需求测试 `u9-p1-independent-claim`）分开报。
+ * （自检组 `kol21-independent`；只点 G5、G6 那几例时是需求测试 `u9-p1-independent-claim`，只点 G3-15 时是需求测试
+ * `d4s-independent-claim`）分开报。
  * 退出码：报告写成就是 0，不论里面的结论是什么；用法错 2；跑到一半抛出 1。
  *
  * 它不是 `scripts/check/` 下的工具，自检把它当被测对象起（`verifier-rule.ts`「它挡不住什么」第一条说的正是这种写法：
@@ -200,8 +201,8 @@ const conditions: Partial<Record<ConditionId, Resolution>> = {
   'GAP-24c': {
     resolved: true, answer: 'unchanged',
     ref: `正本 docs/requirements.json 的 D4.s：记忆读不出来（D4.d）、没给 --ignore-memory、按 D4.e 不出名单的那一次运行，结束后盘上的 ` +
-      `memory/creators.json 与运行开始前逐字节相同（collect 中止就是这一次，ADR-185「拆开后各管什么」第 1 条）；给了 --ignore-memory 的` +
-      `那一次归 D4.t，同样逐字节不变。两条原文进主干的那一次合入：#426 @52ac2d1（ADR-185）`,
+      `memory/creators.json 与运行开始前逐字节相同（collect 中止就是这一次，ADR-185「拆开后各管什么」第 1 条）；给了 --ignore-memory、` +
+      `按 D4.f 出名单的那一次归 D4.t，同样逐字节不变。两条原文进主干的那一次合入：#426 @52ac2d1（ADR-185）`,
   },
   'E-2': {
     resolved: true,

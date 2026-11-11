@@ -21661,7 +21661,7 @@
       "replace": "    if (!opts.ignoreUnreadable) { writeFileAtomic(FILE, '{}'); throw new MemoryUnreadable(FILE, r.detail) }",
       "by": "test",
       "kills": [
-        "D4.s 独立认领：冻结用例 G3-15 的 BYTES(memory/creators.json) 判过，这一例没有一项判红、设施故障或夹具失格"
+        "D4.s 独立认领：冻结用例 G3-15 的退出码那一项与 BYTES(memory/creators.json) 都判过，这一例没有一项判红、设施故障或夹具失格"
       ]
     }
   ],

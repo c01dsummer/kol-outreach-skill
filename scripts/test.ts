@@ -2514,8 +2514,10 @@ suite('D4', 'D4.t：显式跳过时首次读不出，写回前再读得出也不
 // KOL-21 D4a：D4.s 的独立认领（ADR-185「后续」；记录在 ADR-185 末尾）。只用独立测试包里冻结了的 G3-15（collect 续跑时记忆文件
 // 读不出而中止、没给 --ignore-memory），经接线（`scripts/kol21-independent-wiring.ts`，登了 GAP-24c）跑一遍；冻结用例自己按字节比
 // 运行前后的 memory/creators.json，这里只读回结论，不改断言、不改冻结字节。
-// 认领只看字节比那一项，D4.s 说的就是它：它判 pass，而且这一例没有一项判红、设施故障或夹具失格。同一例里待语义复核、资格待定的项
+// 认领看字节比那一项，D4.s 说的就是它：它判 pass，而且这一例没有一项判红、设施故障或夹具失格。同一例里待语义复核、资格待定的项
 // 说的是退出前的提示与基线，不挡这一项；它们挡的是 D6.y 那边的认领（自检 `kol21-independent`）。
+// 退出码那一项也要判过：它说明入口确实走到读记忆、照冻结单的期望中止，字节比才不是空的。接线哪天不再登 GAP-24a，那几项会合成一条
+// 不判，不在挡的三种里；没有这一项，入口没走到读记忆、文件自然没动，字节比照样判 pass。期望的数由冻结用例定，这里只按标签开头找。
 // 认领写在断言后面：断言不成立，这一跑就红，认领不写盘。
 await group('d4s-independent-claim', () => {
   suite('D4', 'D4.s 独立认领：冻结用例 G3-15 经接线跑真实 collect，按字节比记忆文件')
@@ -2534,8 +2536,9 @@ await group('d4s-independent-claim', () => {
     const c = Array.isArray(cases) ? cases.find(x => x?.id === 'G3-15') : undefined
     const items = Array.isArray(c?.items) ? c.items : []
     const bytes = items.filter(i => i?.label === 'BYTES(memory/creators.json)').map(i => i?.status)
+    const exit = items.filter(i => typeof i?.label === 'string' && i.label.startsWith('退出码 = ')).map(i => i?.status)
     const bad = items.filter(i => ['red', 'facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)
-    eq('D4.s 独立认领：冻结用例 G3-15 的 BYTES(memory/creators.json) 判过，这一例没有一项判红、设施故障或夹具失格', [bytes, bad], [['pass'], []])
+    eq('D4.s 独立认领：冻结用例 G3-15 的退出码那一项与 BYTES(memory/creators.json) 都判过，这一例没有一项判红、设施故障或夹具失格', [exit, bytes, bad], [['pass'], ['pass'], []])
   } finally { scRmSync(root, { recursive: true, force: true }) }
   criterion('D4.s')
 })
