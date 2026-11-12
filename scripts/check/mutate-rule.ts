@@ -109,6 +109,104 @@ export function processFailed(output: string, mark: string): boolean {
 }
 
 /**
+ * 自检源码里**记号该打却没打**的那几处诊断 —— 按语法树找，两种记号各交回一串说明，空的就是都打了。
+ *
+ * 判定认记号（上面那条 `processFailed`），可记号是自检那边打的：那边哪一句漏了，判定就把
+ * 「夹具废了」「进程崩了」当成断言红了、记成被抓到。`selfcheck.ts` 在验证基础设施的闭包里，
+ * 指名自检的变异施在它上面会被「自己验自己」拦下，所以这一半只能由需求测试静态地问
+ * （ADR-70 第 1019 行那张欠条）。问两件：
+ *
+ * - **说了「夹具没造对」的，要带夹具记号。** 一个串或模板串的某一段里有这几个字，往上最近的
+ *   那个调用又是 `console.error` 或 `named`，它就得带着 `SELFCHECK_FIXTURE_MARK`。
+ *   字是说给人看的「这条夹具废了」，记号是说给判定看的同一件事，两边要对得上。
+ * - **`runBoth` 里的每一句 `console.error` 都要带进程记号。** 起进程的夹具都走它，进程级失败
+ *   就是它报的。源码里找不到 `runBoth`，或它里面一句 `console.error` 都没有，也报 ——
+ *   改了名、挪了地方，不能让这一条悄悄变成空的。
+ *
+ * **「带着」指打在 ✗ 那一行上**，因为 `processFailed` 只认以「✗ 」开头的那一行：把实参按源码先后拆成拼接（`+`）
+ * 与模板串的一段一段，光秃秃的那个名字自己是一段，又落在去掉行首空白后以「✗ 」开头的那一行上，才算 ——
+ * 落在换行之后、或落在 ✗ 那一行之前的行上，都不算。
+ * 包在别的表达式里的（`String(记号)`、`条件 ? 记号 : ''`、`记号.length`）、`别的对象.记号`
+ * 都不算一段；按语法树而不是按正则，注释里写着这几个字的也不是诊断。
+ * `phraseSites` 是查过的「说了这几个字」的诊断有几句，调用方拿它判这一条是不是空的。
+ *
+ * ⚠️ 看不见的，照实列：
+ * - 它认的是「说了这几个字」，不是「夹具废了」：用别的字说夹具废了的那些带夹具记号的诊断，这里不问。
+ * - 不走 `runBoth` 报进程失败的那几处（拆进程跑之类），这里不问。
+ * - 先存进变量再印的、中间隔了别的调用的（`[…].join()`、`String(…)`）、不是直接写 `console.error`
+ *   或 `named` 的（别名、`process.stderr.write`、`console['error']`），这几个字都看不见。
+ * - 拿 `named` 去断言**别人的输出**里有这几个字，会被当成一句诊断、报没带记号（宁可多报）。
+ * - 同名的 `runBoth` 不止一个时只看文档里头一个。
+ */
+export function unmarkedDiagnostics(source: string): { fixture: string[]; process: string[]; phraseSites: number } {
+  const ts = typescript()
+  const tree = ts.createSourceFile('selfcheck.ts', source, ts.ScriptTarget.Latest, true)
+  const lineOf = (node: Ts.Node) => tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1
+  const consoleError = (call: Ts.CallExpression) => ts.isPropertyAccessExpression(call.expression)
+    && ts.isIdentifier(call.expression.expression) && call.expression.expression.text === 'console'
+    && call.expression.name.text === 'error'
+  /**
+   * 记号打没打在 ✗ 那一行上：实参拆成一段一段，按先后拼出「到这儿为止的这一行」，这个名字自己是一段、
+   * 又落在去掉行首空白后以「✗ 」开头的那一行上才算。`named` 自己先打「✗ 」，所以它从那一行起算；
+   * 认不出印什么的一段当成非空白
+   */
+  const passes = (call: Ts.CallExpression, name: string): boolean => {
+    const pieces: Ts.Node[] = []
+    const flatten = (e: Ts.Expression): void => {
+      if (ts.isParenthesizedExpression(e)) flatten(e.expression)
+      else if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.PlusToken) { flatten(e.left); flatten(e.right) }
+      else if (ts.isTemplateExpression(e)) {
+        pieces.push(e.head)
+        for (const span of e.templateSpans) { flatten(span.expression); pieces.push(span.literal) }
+      } else pieces.push(e)
+    }
+    call.arguments.forEach(flatten)
+    let line = ts.isIdentifier(call.expression) && call.expression.text === 'named' ? '✗ ' : ''
+    for (const piece of pieces) {
+      if (ts.isIdentifier(piece) && piece.text === name) return line.trimStart().startsWith('✗ ')
+      if (ts.isStringLiteralLike(piece) || ts.isTemplateHead(piece) || ts.isTemplateMiddle(piece) || ts.isTemplateTail(piece)) {
+        const parts = piece.text.split('\n')
+        line = parts.length > 1 ? parts[parts.length - 1] : line + parts[0]
+      } else line += '\u0000'
+    }
+    return false
+  }
+  const fixtureFaults: string[] = [], processFaults: string[] = []
+  const checked = new Set<Ts.CallExpression>()
+  let runBoth: Ts.Node | undefined
+  const scan = (node: Ts.Node): void => {
+    if ((ts.isStringLiteralLike(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node))
+        && node.text.includes('夹具没造对')) {
+      let call = node.parent
+      while (call !== undefined && !ts.isCallExpression(call)) call = call.parent
+      if (call !== undefined && ts.isCallExpression(call) && !checked.has(call)
+          && (consoleError(call) || (ts.isIdentifier(call.expression) && call.expression.text === 'named'))) {
+        checked.add(call)
+        if (!passes(call, 'SELFCHECK_FIXTURE_MARK')) fixtureFaults.push(`第 ${lineOf(call)} 行说了「夹具没造对」，却没带夹具记号`)
+      }
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === 'runBoth') runBoth ??= node.initializer
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'runBoth') runBoth ??= node
+    ts.forEachChild(node, scan)
+  }
+  scan(tree)
+  if (runBoth === undefined) processFaults.push('找不到 runBoth —— 进程失败那句在哪儿打，这里问不着')
+  else {
+    const errors: Ts.CallExpression[] = []
+    const collect = (node: Ts.Node): void => {
+      if (ts.isCallExpression(node) && consoleError(node)) errors.push(node)
+      ts.forEachChild(node, collect)
+    }
+    collect(runBoth)
+    if (errors.length === 0) processFaults.push('runBoth 里一句 console.error 都没有 —— 进程失败那句挪走了')
+    for (const call of errors) {
+      if (!passes(call, 'SELFCHECK_PROCESS_MARK')) processFaults.push(`第 ${lineOf(call)} 行是 runBoth 报的失败，却没带进程记号`)
+    }
+  }
+  return { fixture: fixtureFaults, process: processFaults, phraseSites: checked.size }
+}
+
+/**
  * 判 `crashed` 时该把哪几行现场留下来。**带记号的一条都不许丢**,其余的封顶。
  *
  * 带记号的那几行是判定一票否决的**原因**(`notAssertion`) —— 把它们和普通失败行
