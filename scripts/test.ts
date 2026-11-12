@@ -19958,7 +19958,7 @@ await group('h-observer-records', async () => {
 // 真实入口这一跑只新建一个，那一支跑不到；这里照冻结用例自己的判法，造一跑「新增两个、其中一个有无结果留存」交给它判
 await group('h-blackbox-many-task-files', async () => {
   harness('独立黑盒测试包 G3-09：运行后新增两个以上 task.json 时逐个判，有无结果留存的那一个判红、另一个判过')
-  const { G3 } = await import('./independent-blackbox-tests/cases/g3.ts')
+  const { G3 } = await import('./independent-blackbox-tests/cases/collect-wrap-up.ts')
   const { Ctx } = await import('./independent-blackbox-tests/lib/judge.ts')
   const { snap } = await import('./independent-blackbox-tests/lib/fsnap.ts')
   const { RUNS } = await import('./independent-blackbox-tests/runs.ts')

@@ -21646,7 +21646,7 @@
       "id": "M-H186-co",
       "req": "harness",
       "why": "独立测试包 G3-09 运行后新增两个以上 task.json 时，每一项都读第一个：别的那几个里有无结果留存也报不出",
-      "file": "scripts/independent-blackbox-tests/cases/g3.ts",
+      "file": "scripts/independent-blackbox-tests/cases/collect-wrap-up.ts",
       "find": "taskRel: f } }); onNode(c, a.node, a.problem, [[`${L} [${f}]`",
       "replace": "taskRel: news[0] } }); onNode(c, a.node, a.problem, [[`${L} [${f}]`",
       "by": "test",
