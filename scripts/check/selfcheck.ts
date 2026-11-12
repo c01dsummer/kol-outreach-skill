@@ -8677,9 +8677,10 @@ const beats = () => { try { return beatsOrThrow(); } catch { return []; } }, sum
 const numbered = name => { try { const t = fs.readFileSync(path.join(jobsDir, name), 'utf8'); return /^[1-9]\d*\n$/.test(t) ? Number(t) : undefined; } catch { return undefined; } };
 const childrenOf = pid => fs.readFileSync('/proc/' + pid + '/task/' + pid + '/children', 'utf8').split(/\s+/).filter(Boolean).map(Number);
 const descendants = pid => { const out = [], walk = p => { let kids = []; try { kids = childrenOf(p); } catch {} for (const k of kids) { out.push(k); walk(k); } }; walk(pid); return out; };
-// 记下的验证者组里还活着的进程数：按 /proc/<pid>/stat 的组号认，僵尸（Z、X）不算 —— 被杀的验证者父进程是冻住的 worker，收不了尸
+// 记下的验证者组里还活着的进程数：按 /proc/<pid>/stat 的组号认，僵尸（Z、X）不算 —— 被杀的验证者父进程是冻住的 worker，收不了尸。
+// 读的时候进程刚好没了（ENOENT、ESRCH）才跳过；别的读错照抛，按没量成报，不当它退了（CodeRabbit 指出）
 const groupLeft = () => { let n = 0; for (const d of fs.readdirSync('/proc')) { if (!/^\d+$/.test(d)) continue;
-  let s; try { s = fs.readFileSync('/proc/' + d + '/stat', 'utf8'); } catch { continue; }
+  let s; try { s = fs.readFileSync('/proc/' + d + '/stat', 'utf8'); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ESRCH') continue; throw e; }
   const f = s.slice(s.lastIndexOf(')') + 2).split(' '); if (f[0] !== 'Z' && f[0] !== 'X' && seen.has(Number(f[2]))) n++; } return n; };
 let dispatcher, foundAt;
 const seen = new Set(), frozen = [];
@@ -8708,11 +8709,11 @@ const cleanup = () => {
   for (const began = Date.now(); Date.now() - began < 30000 && ended === undefined; ) await sleep(50);
   await sleep(200);
   // 量的这两次读不到就算没量成，不退回空表：两次都读成 0 的话「心跳停了」会白白成立
-  let first, before, after, left;
-  try { first = beatsOrThrow(); before = sum(first); await sleep(1000); after = sum(beatsOrThrow()); left = groupLeft(); }
+  let first, second, before, after, left;
+  try { first = beatsOrThrow(); before = sum(first); await sleep(1000); second = beatsOrThrow(); after = sum(second); left = groupLeft(); }
   catch (e) { cleanup(); say({ setup: false, measure: e.message, ended }); return; }
   const dirLeft = fs.existsSync(jobsDir), slow = Date.now() - foundAt > 60000;
-  cleanup(); say({ setup: true, shells: shells.length, workers: workers.length, ended, beatFiles: first.length, before, after, groupLeft: left, dirLeft, slow });
+  cleanup(); say({ setup: true, shells: shells.length, workers: workers.length, ended, beatFiles: first.length, beatFilesAfter: second.length, before, after, groupLeft: left, dirLeft, slow });
 })();
 `, 'utf8')
   const hardEnv = { ...env, ...mutationFixtureEnv('mutate', ['--jobs=2'], hardTmp) }
@@ -8725,16 +8726,17 @@ const cleanup = () => {
   // 入口删不动目录时那句话打在退出之前，后面还跟着成本摘要那几行，末几行里看不见它，单独捞出来
   const logAbout = (word: string): string => existsSync(hardLog) ? readFileSync(hardLog, 'utf8').split('\n').filter(l => l.includes(word)).join('\n') : ''
   let got: { setup?: boolean; degraded?: string; shells?: number; workers?: number; ended?: { code?: number | null; signal?: string | null; error?: string };
-    beatFiles?: number; before?: number; after?: number; groupLeft?: number; dirLeft?: boolean; slow?: boolean } | undefined
+    beatFiles?: number; beatFilesAfter?: number; before?: number; after?: number; groupLeft?: number; dirLeft?: boolean; slow?: boolean } | undefined
   try { got = JSON.parse((r.stdout ?? '').trim().split('\n').pop() ?? '') } catch { got = undefined }
   if (got?.degraded !== undefined) {
     console.log(`  ⊘ 派工硬停按组收验证者：这台机器上没验 —— 读不到派工进程的子进程表（${got.degraded}），那是 Linux 才有的`)
-  } else if (got?.setup !== true || got.shells !== 2 || got.workers !== 2 || got.slow !== false || got.beatFiles !== 2 || !((got.before ?? 0) > 0)) {
+  } else if (got?.setup !== true || got.shells !== 2 || got.workers !== 2 || got.slow !== false || got.beatFiles !== 2 || got.beatFilesAfter !== 2 || !((got.before ?? 0) > 0)) {
     // 慢到超过一分钟的那一跑也不判：孙子的心跳有上限，量的时候它可能已经自己停了，删掉那一刀也照绿。
-    // 量的时候不是两份心跳、或一个字节也没有，同样不判：两次都量成 0 也是「没长」
+    // 量的时候不是两份心跳、或一个字节也没有，同样不判：两次都量成 0 也是「没长」。
+    // 两次各数一遍份数：第二次少了一份、另一份正好长出这么多的话，总数不变也会读成「停了」（CodeRabbit 指出）
     failed++
     console.error(`  ✗ 派工硬停${SELFCHECK_FIXTURE_MARK}：夹具没造对 —— 两个验证者、两份心跳没都起来，派工底下不是恰好两个 worker 壳、各带一个真 worker，`
-      + `量心跳时读不到那两份，或从心跳齐了到量完拖过了一分钟，硬来那一刀这一跑验不着：${JSON.stringify(got) ?? r.error ?? r.stderr}\n${logTail()}`)
+      + `量心跳的两次里有一次读不到那两份，或从心跳齐了到量完拖过了一分钟，硬来那一刀这一跑验不着：${JSON.stringify(got) ?? r.error ?? r.stderr}\n${logTail()}`)
   } else {
     // 两样都看：心跳只说孙子停了，验证者那几组自己有没有收干净，按组号数一遍才知道（CodeRabbit 指出）
     named('派工硬停：验证者那一组被收掉，孙子的心跳停了', got.groupLeft === 0 && got.before === got.after,
