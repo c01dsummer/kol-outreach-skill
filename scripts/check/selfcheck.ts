@@ -8646,8 +8646,13 @@ group('jobs-hard-stop', [], () => {
   // 不先杀壳的话，SIGTERM 经壳转发给 worker，worker 自己就把验证者那一组收了，硬来那一刀删掉也照样绿。
   // 不冻住真 worker 的话，它看见验证者没了会去抹号、还原副本，正赶上硬来删隔离目录，删会抛、目录留下：整跑的负载下撞上过一次（ADR-74 第 122–127 行那张欠条的残量）。
   // 心跳一个孙子一份、名字带它自己的号，而 tmp 是这一跑新建的：复用旧心跳时，上一轮留下的孤儿会把这一轮读红（ADR-74 第 188 行）。
-  // 读不到 `/proc/<pid>/task/<pid>/children`（Linux 之外、或内核没开）时明着降级、不判。
+  // 读不到 `/proc/<pid>/task/<pid>/children`（Linux 之外、或内核没开）时明着降级、不判：开跑之前先探本进程的那一份，
+  // 探不到就不起派工 —— 起了才发现的话，驱动拿不到壳与 worker，Windows 上负 pid 又落空，孙子要活到自己的上限。
+  // 起了之后才读不到的，驱动照样降级。
   // 收尾由驱动兜底：不论绿红，最后都给记下的验证者组补一刀 SIGKILL、把冻住的真 worker 杀掉，红的那一跑也不留孤儿
+  if (!existsSync(`/proc/${process.pid}/task/${process.pid}/children`)) {
+    console.log('  ⊘ 派工硬停按组收验证者：这台机器上没验 —— 读不到子进程表，那是 Linux 才有的'); return
+  }
   const hardTmp = join(tmp, 'jobs-hard-stop'), beat = join(tmp, 'jobs-hard-stop-beat')
   const hardDriver = join(tmp, 'jobs-hard-stop-driver.cjs'), hardLog = join(tmp, 'jobs-hard-stop.log')
   // 记当前目录的那份文件用不上：`scripts/test.ts` 紧接着整份换掉
@@ -8661,9 +8666,9 @@ group('jobs-hard-stop', [], () => {
   ].join('\n') + '\n', 'utf8')
   writeFileSync(hardDriver, String.raw`
 const { spawn } = require('node:child_process'), fs = require('node:fs'), path = require('node:path');
-const [exe, argvJson, cwd, envJson, beat, logPath] = process.argv.slice(2);
+const [exe, argvJson, cwd, beat, logPath] = process.argv.slice(2), env = JSON.parse(fs.readFileSync(0, 'utf8'));
 const jobsDir = path.join(cwd, '.check-cache', 'mutate-jobs'), log = fs.openSync(logPath, 'w');
-const kid = spawn(exe, JSON.parse(argvJson), { cwd, env: JSON.parse(envJson), stdio: ['ignore', log, log] });
+const kid = spawn(exe, JSON.parse(argvJson), { cwd, env, stdio: ['ignore', log, log] });
 let ended; kid.on('exit', (code, signal) => { ended = { code, signal }; }); kid.on('error', e => { ended = { error: String(e) }; });
 const sleep = ms => new Promise(done => setTimeout(done, ms)), say = row => process.stdout.write(JSON.stringify(row) + '\n');
 const beatsOrThrow = () => { const dir = path.dirname(beat), stem = path.basename(beat) + '-';
@@ -8708,8 +8713,10 @@ const cleanup = () => {
 `, 'utf8')
   const hardEnv = { ...env, ...mutationFixtureEnv('mutate', ['--jobs=2'], hardTmp) }
   const [hardExe, hardArgv] = prebuiltCommand([S(SELFCHECK_TOOLS.mutate), '--jobs=2'], hardTmp, hardEnv)
-  const r = spawnSync(process.execPath, [hardDriver, hardExe, JSON.stringify(hardArgv), hardTmp, JSON.stringify(hardEnv), beat, hardLog],
-    { encoding: 'utf8', timeout: 120_000 })
+  // 环境从标准输入交给驱动，不放进命令行：命令行谁都列得出来，环境里有继承来的令牌（CodeRabbit 指出）。
+  // 也不用 `env` 选项给驱动本身：那份环境的 NODE_OPTIONS 要预加载 .ts 的假 fetch，是给被测入口的，裸 node 起的驱动不该加载
+  const r = spawnSync(process.execPath, [hardDriver, hardExe, JSON.stringify(hardArgv), hardTmp, beat, hardLog],
+    { encoding: 'utf8', timeout: 120_000, input: JSON.stringify(hardEnv) })
   const logTail = (): string => existsSync(hardLog) ? readFileSync(hardLog, 'utf8').split('\n').slice(-8).join('\n') : '（没有日志）'
   // 入口删不动目录时那句话打在退出之前，后面还跟着成本摘要那几行，末几行里看不见它，单独捞出来
   const logAbout = (word: string): string => existsSync(hardLog) ? readFileSync(hardLog, 'utf8').split('\n').filter(l => l.includes(word)).join('\n') : ''
