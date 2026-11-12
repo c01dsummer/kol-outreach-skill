@@ -303,15 +303,24 @@ export type StagedFault = { kind: 'residue' | 'unclear'; id: string; file: strin
  * - 只看**工作树上一条毛病都没有**的变异。工作树上已经报了的（任何一种），那条该先处理的是工作树，暂存区不再重复说。
  * - 只交 `residue` 与 `unclear`（意思同 `anchorFaults` 那张表）。暂存区里锚点失效、不唯一、读不到，
  *   多半是暂存了一版旧代码、或者那个文件根本没进暂存区，不是变异躺在那里。
+ * - **HEAD 上已是同一种的不交。** 改完还没 `git add` 时暂存区就是 HEAD 的旧代码：新写的「删一段」变异在旧代码里
+ *   必然分不开，「把修复按回去」的变异在旧代码里正是没还原 —— 那是暂存区还没跟上，不是暂存了变异
+ *   （复审拿主干最近 40 次提交模拟，工作树取该提交、暂存区取父提交，不比 HEAD 时 10 次误报）。
+ *   HEAD 上已经提交了的残留不归这一步：那是已提交的，`git diff HEAD` 那条路去找。
  *
- * 读暂存区由调用方给：文件不在暂存区（没跟踪、不是 git 仓库）交 `undefined`；暂存区与工作树一样的，交工作树那份也行，
- * 结论一样 —— 工作树上对得上的，同样的内容在暂存区里也对得上。判定不碰 git。
+ * 读暂存区、读 HEAD 由调用方给：文件不在暂存区或 HEAD 里（没跟踪、新文件、不是 git 仓库）交 `undefined`；
+ * 暂存区与工作树一样的，交工作树那份也行，结论一样。判定不碰 git。
+ * **前提：编号唯一。** 按编号排除，两条同编号的会互相遮住；入口先过 `anchorVerdict`，重名时不调这一个。
  */
 export function stagedResidue(muts: readonly { id: string; file: string; find: string; replace: string }[],
-  readWork: (file: string) => string | undefined, readIndex: (file: string) => string | undefined): StagedFault[] {
+  readWork: (file: string) => string | undefined, readIndex: (file: string) => string | undefined,
+  readHead: (file: string) => string | undefined): StagedFault[] {
   const faultedInWork = new Set(anchorFaults(muts, readWork).map(f => f.id))
-  return anchorFaults(muts.filter(m => !faultedInWork.has(m.id)), readIndex)
+  const rest = muts.filter(m => !faultedInWork.has(m.id))
+  const inHead = new Map(anchorFaults(rest, readHead).map(f => [f.id, f.kind]))
+  return anchorFaults(rest, readIndex)
     .filter((f): f is StagedFault => f.kind === 'residue' || f.kind === 'unclear')
+    .filter(f => inHead.get(f.id) !== f.kind)
 }
 
 /**

@@ -5815,11 +5815,13 @@
       "req": "harness",
       "why": "暂存区那一步不跳过工作树上已报的变异：同一条在两处各说一遍，人先去撤暂存区，工作树上那一处还在",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "  return anchorFaults(muts.filter(m => !faultedInWork.has(m.id)), readIndex)",
-      "replace": "  return anchorFaults(muts, readIndex)",
+      "find": "  const rest = muts.filter(m => !faultedInWork.has(m.id))",
+      "replace": "  const rest = muts",
       "by": "test",
       "kills": [
-        "工作树上那条已有毛病：暂存区里的不重复报"
+        "工作树上那条已有毛病：暂存区里的不重复报",
+        "工作树与暂存区都是施加之后的样子：只算工作树的",
+        "工作树上文件没了：暂存区里的不报"
       ]
     },
     {
@@ -5827,8 +5829,8 @@
       "req": "harness",
       "why": "暂存区里删一段的变异不报：分不开的那种躺在暂存区，下一次提交照样带进去",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "f.kind === 'residue' || f.kind === 'unclear')\n}",
-      "replace": "f.kind === 'residue')\n}",
+      "find": "f.kind === 'residue' || f.kind === 'unclear')\n    .filter(f =>",
+      "replace": "f.kind === 'residue')\n    .filter(f =>",
       "by": "test",
       "kills": [
         "暂存区里删一段的那段没了、工作树里还在：报分不开"
@@ -5837,7 +5839,7 @@
     {
       "id": "M-H45-aj",
       "req": "harness",
-      "why": "暂存区里锚点失效、不唯一、读不到的也报成躺着的变异：暂存了旧代码或没跟踪的文件，被说成要撤",
+      "why": "暂存区里锚点失效、不唯一、读不到的也报成躺着的变异：锚点只是对不上或文件没进暂存区，被说成要撤",
       "file": "scripts/check/mutate-rule.ts",
       "find": "    .filter((f): f is StagedFault => f.kind === 'residue' || f.kind === 'unclear')",
       "replace": "    .filter((f): f is StagedFault => f.kind !== undefined)",
@@ -5852,11 +5854,35 @@
       "req": "harness",
       "why": "暂存区那一步读的还是工作树：暂存区里躺着的变异一处也看不见",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "!faultedInWork.has(m.id)), readIndex)",
-      "replace": "!faultedInWork.has(m.id)), readWork)",
+      "find": "  return anchorFaults(rest, readIndex)",
+      "replace": "  return anchorFaults(rest, readWork)",
       "by": "test",
       "kills": [
         "暂存区里没还原、工作树已按回去：报没还原"
+      ]
+    },
+    {
+      "id": "M-H45-al",
+      "req": "harness",
+      "why": "暂存区那一步不比 HEAD：改完还没 git add 时暂存区就是旧代码，新变异在旧代码里本来就是那个样子，最常见的工作状态被报成暂存了变异",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    .filter(f => inHead.get(f.id) !== f.kind)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "还没 git add、暂存区与 HEAD 同是旧代码：不报"
+      ]
+    },
+    {
+      "id": "M-H45-am",
+      "req": "harness",
+      "why": "工作树上一条有毛病，同文件别的变异也不看暂存区：按文件排除，躺在暂存区里的那条漏掉",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "new Set(anchorFaults(muts, readWork).map(f => f.id))",
+      "replace": "new Set(anchorFaults(muts, readWork).flatMap(f => muts.filter(m => m.file === f.file).map(m => m.id)))",
+      "by": "test",
+      "kills": [
+        "同文件另一条工作树上失效：暂存区里这一条照报"
       ]
     },
     {
