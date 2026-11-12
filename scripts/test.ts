@@ -50,7 +50,7 @@ import {
   judgeRun, killsMatched,
   labelFault, notAssertion,
   labelFaults,
-  groupOfLabel, labelsOf, leadWired, processFailed, wiringFault,
+  groupOfLabel, labelsOf, leadWired, processFailed, unmarkedDiagnostics, wiringFault,
   anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
@@ -8005,6 +8005,44 @@ harness('by 与 kills 同进同出：四种写错各有名字')
     eq(`语言内建的名字不算认得：${builtin}`,
       wiringFault({ by: builtin, kills: ['某条夹具'] }), 'unknown-verifier')
   }
+}
+
+harness('记号真打在自检的诊断上：说了「夹具没造对」的带夹具记号，runBoth 报的失败带进程记号')
+{
+  // 判定认记号（上面那几条），记号却是自检那边打的。selfcheck.ts 在验证基础设施的闭包里，
+  // 指名自检的变异施不上去，这一半只能在这里按语法树问真文件（ADR-70 第 1019 行那张欠条）。
+  // 玩具源码头上那句 runBoth 是为了让进程记号那一半不来搅局
+  const runBothOk = 'const runBoth = () => { console.error(`✗ x${SELFCHECK_PROCESS_MARK}：退出码不对`) }\n'
+  const fixtureFaults = (src: string) => unmarkedDiagnostics(runBothOk + src).fixture
+  eq('说了夹具没造对、带着记号 → 没毛病',
+    fixtureFaults('console.error(`  ✗ 甲${SELFCHECK_FIXTURE_MARK}：夹具没造对`)'), [])
+  eq('说了夹具没造对、没带记号 → 报那一行',
+    fixtureFaults('\nconsole.error(`  ✗ 甲：夹具没造对`)'), ['第 3 行说了「夹具没造对」，却没带夹具记号'])
+  // 收尾夹具那一句是两段拼起来的：记号在前一段，那几个字在后一段
+  eq('记号和那几个字分在拼接的两段里也认',
+    fixtureFaults('console.error(`  ✗ ${label}${SELFCHECK_FIXTURE_MARK}：` + `走的不是那条收尾 —— 夹具没造对`)'), [])
+  eq('named 的实参里带着也认', fixtureFaults("named('甲' + SELFCHECK_FIXTURE_MARK, false, '夹具没造对')"), [])
+  eq('named 没带也报', fixtureFaults("named('甲', false, '夹具没造对')").length, 1)
+  // 按语法树问：注释不是诊断，别的对象上的同名属性不是那个记号，拿这几个字去比输出也不是在打诊断
+  eq('注释里写着这几个字不算一句诊断', unmarkedDiagnostics(runBothOk + '// 夹具没造对').phraseSites, 0)
+  eq('别的对象上的同名属性不算带了记号',
+    fixtureFaults('console.error(`✗ 甲${other.SELFCHECK_FIXTURE_MARK}：夹具没造对`)').length, 1)
+  eq('拿这几个字去比输出，不是在打诊断', fixtureFaults("if (out.includes('夹具没造对')) bad = true"), [])
+
+  // 起进程的夹具都走 runBoth，它报的失败就是进程级失败
+  eq('runBoth 报的失败没带进程记号 → 报那一行',
+    unmarkedDiagnostics('const runBoth = () => {\n  console.error(`✗ x：退出码不对`)\n}').process,
+    ['第 2 行是 runBoth 报的失败，却没带进程记号'])
+  // 改了名、挪了地方，这一半不能悄悄变成空的
+  eq('找不到 runBoth 也报', unmarkedDiagnostics('').process.length, 1)
+  eq('runBoth 里一句 console.error 都没有也报',
+    unmarkedDiagnostics("function runBoth() { console.log('✓') }").process.length, 1)
+
+  // 手搭的数据证不了真文件里还打着
+  const real = unmarkedDiagnostics(rf('scripts/check/selfcheck.ts', 'utf8'))
+  eq('真自检里说了夹具没造对的诊断都带夹具记号', real.fixture, [])
+  ok('真自检里确有说了夹具没造对的诊断 —— 一句都没有的话，上面那条是空的', real.phraseSites > 0)
+  eq('真自检里 runBoth 报的失败带进程记号', real.process, [])
 }
 
 harness('豁免那一行开头说的话，要跟变异集对得上')

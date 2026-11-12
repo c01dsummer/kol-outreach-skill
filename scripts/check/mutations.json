@@ -5091,6 +5091,36 @@
       "kills": ["自检夹具故障记号非空"]
     },
     {
+      "id": "M-H25-d",
+      "req": "harness",
+      "why": "收尾夹具走错了那条收尾时，自检照旧说「夹具没造对」，却不再打夹具记号 —— 那一行又成了普通的 ✗ 加名字，点名那条夹具的变异点得着它，一次什么也没测到的跑被记成抓到",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "        console.error(`  ✗ ${label}${SELFCHECK_FIXTURE_MARK}：`\n",
+      "replace": "        console.error(`  ✗ ${label}：`\n",
+      "by": "test",
+      "kills": ["真自检里说了夹具没造对的诊断都带夹具记号"]
+    },
+    {
+      "id": "M-H25-e",
+      "req": "harness",
+      "why": "被测脚本退出码不对、或者根本没起来时，自检照旧报一行失败，却不再打进程记号 —— 那一行成了普通的 ✗ 加名字，一条只把入口弄崩的变异被记成那条夹具抓到了它",
+      "file": "scripts/check/selfcheck.ts",
+      "find": "    console.error(`  ✗ ${label}${SELFCHECK_PROCESS_MARK}：${why}\\n",
+      "replace": "    console.error(`  ✗ ${label}：${why}\\n",
+      "by": "test",
+      "kills": ["真自检里 runBoth 报的失败带进程记号"]
+    },
+    {
+      "id": "M-H25-f",
+      "req": "harness",
+      "why": "自检里起进程、报进程失败的那个函数改了名或挪了地方，进程记号那一半就什么也不问、照样报没毛病 —— 那条断言从此是空的，进程失败那句漏了记号也没人知道",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  if (runBoth === undefined) processFaults.push('找不到 runBoth —— 进程失败那句在哪儿打，这里问不着')\n",
+      "replace": "  if (runBoth === undefined) { /* 找不到就不问 */ }\n",
+      "by": "test",
+      "kills": ["找不到 runBoth 也报"]
+    },
+    {
       "id": "M-H26-a",
       "req": "harness",
       "why": "点名一组、只要红了其中一条就算被抓到 —— 名单里剩下那几条明天删光，这条变异照样绿，而它对那几条什么也没证明",
