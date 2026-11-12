@@ -68,6 +68,7 @@ const catBatch = (specs: readonly string[]): Batch => {
 const STAGED: Record<StagedFault['kind'], string> = {
   residue: '暂存区里像是没还原 —— 工作树已按回去，暂存区里还是这条变异施加之后的样子',
   unclear: '暂存区里分不开 —— 暂存区里 find 一处都没有、replace 在，工作树里对得上',
+  unconfirmed: '暂存区里认不准 —— HEAD 里没有这个文件，暂存区里 find 一处都没有：暂存的也许是一版旧稿，也许是这条变异施加之后的样子',
 }
 
 const SAY: Record<AnchorFault['kind'], string> = {
@@ -94,7 +95,14 @@ if (catalog === undefined) {
     const batch = catBatch([...files.map(f => `:./${f}`), ...files.map(f => `HEAD:./${f}`)])
     const gitBroken = !batch.ok && !notARepo(batch.stderr)
     const blob = (offset: number) => (file: string) => batch.ok ? batch.blobs[offset + files.indexOf(file)] : undefined
-    const staged = batch.ok ? stagedResidue(catalog, read, blob(0), blob(files.length)) : []
+    const found = batch.ok ? stagedResidue(catalog, read, blob(0), blob(files.length)) : []
+    // 认不准的不报错，可也不说「暂存区也查过」：分开说（#460 上 CodeRabbit 第一轮）
+    const staged = found.filter(f => f.kind !== 'unconfirmed')
+    const unsure = found.filter(f => f.kind === 'unconfirmed')
+    const unsureLines = unsure.length === 0 ? [] : [
+      `⚠ 变异锚点：暂存区里 ${unsure.length} 条在 HEAD 里还没有的新文件里认不准，下一次 git commit 可能把它带进去\n`,
+      ...unsure.map(f => `  ${f.id}  ${f.file}：${STAGED[f.kind]}`),
+      '\n  先用 git diff --cached 看那个文件：暂存的是旧稿就不用管；是这条变异施加之后的样子，只撤暂存区里那一处（git restore --staged -p）。']
     const { faults, advice } = verdict
     if (gitBroken) {
       const said = batch.ok ? '' : batch.stderr.trim().split('\n')[0]
@@ -104,7 +112,8 @@ if (catalog === undefined) {
     }
     if (faults.length === 0 && staged.length === 0) {
       const index = batch.ok ? '暂存区也查过' : '不是 git 仓库，暂存区没查'
-      if (!gitBroken) console.log(`✓ 变异锚点：${catalog.length} 条变异的锚点各在目标文件里恰好一处，树上没有没还原的变异（${index}）`)
+      if (unsure.length > 0) console.log(unsureLines.join('\n'))
+      else if (!gitBroken) console.log(`✓ 变异锚点：${catalog.length} 条变异的锚点各在目标文件里恰好一处，树上没有没还原的变异（${index}）`)
     } else {
       const out = faults.length === 0 ? [] : [`✗ 变异锚点：${faults.length} 条变异对不上目标文件\n`]
       for (const f of faults) {
@@ -127,6 +136,7 @@ if (catalog === undefined) {
         out.push('\n  暂存区里的：先用 git diff --cached 看那个文件，只撤暂存区里那一处 —— git restore --staged 整个文件会把它暂存的别的改动一起撤掉，'
           + '有别的改动就用 git restore --staged -p 挑出那一处。工作树里也有那一处的，两边都要撤。')
       }
+      if (unsure.length > 0) out.push('', ...unsureLines)
       console.error(out.join('\n'))
       process.exitCode = 1
     }

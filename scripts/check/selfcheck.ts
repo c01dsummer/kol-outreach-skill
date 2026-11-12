@@ -7265,6 +7265,23 @@ group('anchor-staged-entry', [], () => {
     const pending = runToolBoth('anchors 改完还没 git add 时以退出码 0 结束', 'anchors', [], pendingTmp)
     if (pending.ok) named('anchors 改完还没 git add 时说暂存区也查过', pending.stdout.includes('2 条变异') && pending.stdout.includes('暂存区也查过'), pending.stdout)
   }
+  // HEAD 里还没有的新文件：暂存了一版旧稿、工作树里写上那段并登记删一段的变异。暂存区里没那段 —— 是旧稿还是变异暂存了
+  // 分不开：不报错（以 0 退出），也不说「暂存区也查过」，单起一行说认不准、点名、叫人看 git diff --cached（#460 上 CodeRabbit 第一轮）
+  const freshTmp = join(tmp, 'anchor-new-file')
+  if (repo(freshTmp, freshTmp, { 'e.ts': 'ok()\n' }, { mutations: [fine] })) {
+    writeFileSync(join(freshTmp, 'n.ts'), 'z\n', 'utf8')
+    const drafted = git(freshTmp, 'add', 'n.ts')
+    writeFileSync(join(freshTmp, 'n.ts'), 'del()\nz\n', 'utf8')
+    writeFileSync(join(freshTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [fine,
+      { id: 'M-X-n', req: 'X1', why: '新文件里删一段', file: 'n.ts', find: 'del()\n', replace: '' }] }), 'utf8')
+    const fresh = drafted ? runToolBoth('anchors 新文件里暂存区认不准时以退出码 0 结束', 'anchors', [], freshTmp) : undefined
+    if (fresh?.ok) {
+      named('anchors 新文件里认不准的单起一行点名、叫人看 git diff --cached',
+        fresh.stdout.includes('⚠ 变异锚点：暂存区里 1 条在 HEAD 里还没有的新文件里认不准')
+        && fresh.stdout.includes('M-X-n  n.ts：暂存区里认不准') && fresh.stdout.includes('git diff --cached'), fresh.stdout)
+      named('anchors 新文件里认不准时不说暂存区也查过', !fresh.stdout.includes('✓') && !fresh.stdout.includes('暂存区也查过'), fresh.stdout)
+    }
+  }
   // 不是 git 仓库：暂存区那一步不做，照实说没查，以 0 退出。「不是」要真的不是：往上哪一层有 .git，那一跑读到的是别人的仓库
   const noRepoTmp = join(tmp, 'anchor-no-repo')
   mkdirSync(join(noRepoTmp, 'scripts', 'check'), { recursive: true })
