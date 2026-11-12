@@ -4261,14 +4261,16 @@ harness('变异集的 why 不许夹带实现原文')
   // 两侧分开交回，报的时候说得出是哪一边、哪一栏；不打的那一栏（缓解）不查
   const leakyWhy = '降完立刻被 tierOf 覆盖'
   const plain = '受众降权跑在分层之前'
-  eq('清单夹带：变异一侧报出编号与那一段',
-    briefLeaks([{ id: 'M-1', why: plain }, { id: 'M-2', why: leakyWhy }], []),
-    [{ side: 'mutation', id: 'M-2', leak: 'tierOf' }])
-  eq('清单夹带：豁免一侧范围与 why 各报各的，先范围后 why',
-    briefLeaks([], [{ req: 'P1.b', scope: '拿不到就 || [] 兜过去', why: leakyWhy }]),
+  eq('清单夹带：变异一侧每条有夹带的都报，带编号与那一段',
+    briefLeaks([{ id: 'M-1', why: plain }, { id: 'M-2', why: leakyWhy }, { id: 'M-3', why: '拿不到就 || [] 兜过去' }], []),
+    [{ side: 'mutation', id: 'M-2', leak: 'tierOf' }, { side: 'mutation', id: 'M-3', leak: '||' }])
+  eq('清单夹带：豁免一侧每条都查，范围与 why 各报各的，先范围后 why',
+    briefLeaks([], [{ req: 'P3.e', why: plain },
+      { req: 'P1.b', scope: '拿不到就 || [] 兜过去', why: leakyWhy }, { req: 'S1.b', why: leakyWhy }]),
     [{ side: 'exemption', req: 'P1.b', field: 'scope', leak: '||' },
-     { side: 'exemption', req: 'P1.b', field: 'why', leak: 'tierOf' }])
-  eq('清单夹带：没写范围的豁免只查 why，缓解那一栏不打也不查',
+     { side: 'exemption', req: 'P1.b', field: 'why', leak: 'tierOf' },
+     { side: 'exemption', req: 'S1.b', field: 'why', leak: 'tierOf' }])
+  eq('清单夹带：没写范围的豁免只查 why，缓解那一栏不查',
     briefLeaks([], [{ req: 'P2.a', why: plain, mitigation: leakyWhy } as { req: string; why: string }]), [])
   eq('清单夹带：先变异后豁免',
     briefLeaks([{ id: 'M-2', why: leakyWhy }], [{ req: 'P1.b', why: leakyWhy }]).map(l => l.side),
@@ -4277,7 +4279,7 @@ harness('变异集的 why 不许夹带实现原文')
   // 判定对不对是一回事，**当前那份变异集干不干净**是另一回事。后者才是 --brief
   // 名副其实的前提，所以直接断言真文件，而不是断言一个抽象能力 —— 连豁免一起查
   const corpus = JSON.parse(rf('scripts/check/mutations.json', 'utf8'))
-  eq('当前变异集全集干净', briefLeaks(corpus.mutations, corpus.exemptions ?? []), [])
+  eq('当前变异集全集干净', briefLeaks(corpus.mutations, corpus.exemptions), [])
 }
 })
 if (fullRun) {

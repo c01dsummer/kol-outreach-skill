@@ -6137,7 +6137,7 @@
       "replace": "const inScope = undefined as string | undefined",
       "by": "test",
       "kills": [
-        "清单夹带：豁免一侧范围与 why 各报各的，先范围后 why"
+        "清单夹带：豁免一侧每条都查，范围与 why 各报各的，先范围后 why"
       ]
     },
     {
@@ -6149,7 +6149,7 @@
       "replace": "const inWhy = undefined as string | undefined",
       "by": "test",
       "kills": [
-        "清单夹带：豁免一侧范围与 why 各报各的，先范围后 why",
+        "清单夹带：豁免一侧每条都查，范围与 why 各报各的，先范围后 why",
         "清单夹带：先变异后豁免"
       ]
     },
@@ -6162,7 +6162,7 @@
       "replace": "out.push({ side: 'exemption', id: m.id, leak })",
       "by": "test",
       "kills": [
-        "清单夹带：变异一侧报出编号与那一段",
+        "清单夹带：变异一侧每条有夹带的都报，带编号与那一段",
         "清单夹带：先变异后豁免"
       ]
     },
@@ -6175,7 +6175,7 @@
       "replace": "field: 'why', leak: inScope",
       "by": "test",
       "kills": [
-        "清单夹带：豁免一侧范围与 why 各报各的，先范围后 why"
+        "清单夹带：豁免一侧每条都查，范围与 why 各报各的，先范围后 why"
       ]
     },
     {
@@ -6187,7 +6187,31 @@
       "replace": "const inScope = e.scope === undefined ? implementationLeak(String((e as { mitigation?: string }).mitigation ?? '')) :",
       "by": "test",
       "kills": [
-        "清单夹带：没写范围的豁免只查 why，缓解那一栏不打也不查"
+        "清单夹带：没写范围的豁免只查 why，缓解那一栏不查"
+      ]
+    },
+    {
+      "id": "M-H1-g",
+      "req": "harness",
+      "why": "只查第一条豁免：后面几条夹带了实现原文照样打进清单，真文件那条也照绿",
+      "file": "scripts/check/why-rule.ts",
+      "find": "for (const e of exemptions) {",
+      "replace": "for (const e of exemptions.slice(0, 1)) {",
+      "by": "test",
+      "kills": [
+        "清单夹带：豁免一侧每条都查，范围与 why 各报各的，先范围后 why"
+      ]
+    },
+    {
+      "id": "M-H1-h",
+      "req": "harness",
+      "why": "变异一侧报出第一条就停：后面几条夹带了实现原文的没人报",
+      "file": "scripts/check/why-rule.ts",
+      "find": "if (leak !== undefined) out.push({ side: 'mutation', id: m.id, leak })",
+      "replace": "if (leak !== undefined) { out.push({ side: 'mutation', id: m.id, leak }); break }",
+      "by": "test",
+      "kills": [
+        "清单夹带：变异一侧每条有夹带的都报，带编号与那一段"
       ]
     },
     {
