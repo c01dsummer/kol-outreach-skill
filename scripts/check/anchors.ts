@@ -61,7 +61,7 @@ if (catalog === undefined) {
       out.push('\n  没还原或分不开的：先用 git diff HEAD 看那个文件再动手（暂存了的也看得见）。是没还原的（多半是上一次变异跑被打断，'
         + '或者 --jobs=1 正跑着的时候动了树），只撤那一处 —— 整个文件 git checkout 会把别的改动一起按回去（ADR-70 第 2099 行）。'
         + 'diff 里看不到那一处的（空的，或者只有你自己的改动），那处可能已经提交了：先 git log -p 那个文件，找出那次提交里的那一处：是变异跑漏下的残留才撤，是有意改的就不撤，改变异集；'
-        + '历史里也找不到，才是锚点失效：改那条变异的 file 与 find，跟上现在的代码。')
+        + '浅克隆（git rev-parse --is-shallow-repository 为 true）先 git fetch --unshallow 再查；历史完整也找不到，才是锚点失效：改那条变异的 file 与 find，跟上现在的代码。')
     }
     if (advice.catalog) {
       out.push('\n  锚点失效、不唯一、读不到的：改那条变异的 file 与 find，跟上现在的代码。')
