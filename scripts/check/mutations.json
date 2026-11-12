@@ -5811,6 +5811,55 @@
       ]
     },
     {
+      "id": "M-H45-ah",
+      "req": "harness",
+      "why": "暂存区那一步不跳过工作树上已报的变异：同一条在两处各说一遍，人先去撤暂存区，工作树上那一处还在",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return anchorFaults(muts.filter(m => !faultedInWork.has(m.id)), readIndex)",
+      "replace": "  return anchorFaults(muts, readIndex)",
+      "by": "test",
+      "kills": [
+        "工作树上那条已有毛病：暂存区里的不重复报"
+      ]
+    },
+    {
+      "id": "M-H45-ai",
+      "req": "harness",
+      "why": "暂存区里删一段的变异不报：分不开的那种躺在暂存区，下一次提交照样带进去",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "f.kind === 'residue' || f.kind === 'unclear')\n}",
+      "replace": "f.kind === 'residue')\n}",
+      "by": "test",
+      "kills": [
+        "暂存区里删一段的那段没了、工作树里还在：报分不开"
+      ]
+    },
+    {
+      "id": "M-H45-aj",
+      "req": "harness",
+      "why": "暂存区里锚点失效、不唯一、读不到的也报成躺着的变异：暂存了旧代码或没跟踪的文件，被说成要撤",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    .filter((f): f is StagedFault => f.kind === 'residue' || f.kind === 'unclear')",
+      "replace": "    .filter((f): f is StagedFault => f.kind !== undefined)",
+      "by": "test",
+      "kills": [
+        "暂存区里锚点失效或不唯一：不报",
+        "文件不在暂存区：不报"
+      ]
+    },
+    {
+      "id": "M-H45-ak",
+      "req": "harness",
+      "why": "暂存区那一步读的还是工作树：暂存区里躺着的变异一处也看不见",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "!faultedInWork.has(m.id)), readIndex)",
+      "replace": "!faultedInWork.has(m.id)), readWork)",
+      "by": "test",
+      "kills": [
+        "暂存区里没还原、工作树已按回去：报没还原"
+      ]
+    },
+    {
       "id": "M-H45-i",
       "req": "harness",
       "why": "施加变异时替换文本里的美元记号被当成替换记号展开，盘上写出的不是目录里登记的那一段 —— 一条变异顺带多改一处，被抓到也说不清是哪一处的功劳",
