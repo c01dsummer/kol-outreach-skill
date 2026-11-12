@@ -7303,7 +7303,7 @@ group('stop-if-seen', [], () => {
   writeFileSync(join(stopTmp, 'docs', 'ARCHITECTURE.md'), ORDER_TABLE_STUB, 'utf8')
   writeFileSync(join(stopTmp, 'a.ts'), 'const x = 1\n', 'utf8')
   // 这个假验证者既要被清册扫得到（endPath 的字面量），又要真的打出那一行、然后赖着不走。
-  // 孩子起不来（`error`）也照打那一行，让 mutate 当场停；孩子没起来由下面那条夹具诊断说。
+  // 孩子起不来（`error`）或没记下时刻就退了（`exit`），也照打那一行，让 mutate 当场停；孩子没起来由下面那条夹具诊断说。
   // 那一行只有一处调用：清册按名字认，同名的两处会被当成重名拦在开跑之前
   writeFileSync(join(stopTmp, 'scripts', 'check', 'selfcheck.ts'),
     ["import { spawn } from 'node:child_process'",
@@ -7315,6 +7315,7 @@ group('stop-if-seen', [], () => {
      "const say = (): void => { if (!said) { said = true; endPath('甲', []) } }",
      `const kid = spawn(process.execPath, ['-e', ${JSON.stringify(childCode)}], { stdio: 'ignore' })`,
      "kid.on('error', say)",
+     "kid.on('exit', say)",
      `const ready = setInterval(() => { if (existsSync(${JSON.stringify(childStarted)})) { clearInterval(ready); say() } }, 20)`,
      'setTimeout(() => {}, 20_000)',
      ''].join('\n'), 'utf8')
@@ -7339,8 +7340,9 @@ group('stop-if-seen', [], () => {
   if (stopOut === undefined) return
   // 负 pid 是 POSIX 的进程组语义；Windows 上 `detached` 给的是一个控制台窗口，那一刀落空（`mutate.ts` 头上记着），这里不判
   if (process.platform === 'win32') { console.log('  ⊘ 见齐就停杀整组：Windows 上没有进程组，这里没验'); return }
+  // 文件在、内容还没写进去时读成空串，`Number('')` 是 0：也当孩子没起来
   const startedAt = existsSync(childStarted) ? Number(readFileSync(childStarted, 'utf8')) : Number.NaN
-  if (!Number.isFinite(startedAt)) {
+  if (!Number.isFinite(startedAt) || startedAt <= 0) {
     failed++
     console.error(`  ✗ 见齐就停杀整组${SELFCHECK_FIXTURE_MARK}：假验证者的孩子没起来 —— 夹具没造对，停的是不是整组这一跑分不出`)
     return
@@ -8639,21 +8641,23 @@ group('jobs-hard-stop', [], () => {
   //
   // 形状照 ADR-74 第 174–191 行：两条变异、`--jobs=2`，每个验证者分出一个孙子不停写心跳，自己挂住不退。
   // 驱动等两份号文件与两份心跳都有了，从号文件的名字里拿到派工进程的号，读 `/proc/<派工>/task/<派工>/children`
-  // 拿到两个 worker 壳，全部 SIGKILL —— 壳底下真跑的 worker 收不到转发来的 SIGTERM，还活着、管道没关，`close` 不来，宽限期到点走硬来 ——
-  // 再给派工发 SIGTERM，等它退出，看心跳停没停、隔离目录收没收。不先杀壳的话，SIGTERM 经壳转发给 worker，
-  // worker 自己就把验证者那一组收了，硬来那一刀删掉也照样绿。
+  // 拿到两个 worker 壳和壳底下真跑的 worker：先把真 worker 冻住（SIGSTOP），再把壳全部 SIGKILL —— 真 worker 收不到转发来的 SIGTERM，
+  // 管道没关，`close` 不来，宽限期到点走硬来 —— 再给派工发 SIGTERM，等它退出，看心跳停没停、隔离目录收没收。
+  // 不先杀壳的话，SIGTERM 经壳转发给 worker，worker 自己就把验证者那一组收了，硬来那一刀删掉也照样绿。
+  // 不冻住真 worker 的话，它看见验证者没了会去抹号、还原副本，正赶上硬来删隔离目录，删会抛、目录留下：整跑的负载下撞上过一次（ADR-74 第 122–127 行那张欠条的残量）。
   // 心跳一个孙子一份、名字带它自己的号，而 tmp 是这一跑新建的：复用旧心跳时，上一轮留下的孤儿会把这一轮读红（ADR-74 第 188 行）。
   // 读不到 `/proc/<pid>/task/<pid>/children`（Linux 之外、或内核没开）时明着降级、不判。
-  // 收尾由驱动兜底：不论绿红，最后都给记下的验证者组补一刀 SIGKILL，红的那一跑也不留孤儿
+  // 收尾由驱动兜底：不论绿红，最后都给记下的验证者组补一刀 SIGKILL、把冻住的真 worker 杀掉，红的那一跑也不留孤儿
   const hardTmp = join(tmp, 'jobs-hard-stop'), beat = join(tmp, 'jobs-hard-stop-beat')
   const hardDriver = join(tmp, 'jobs-hard-stop-driver.cjs'), hardLog = join(tmp, 'jobs-hard-stop.log')
+  // 记当前目录的那份文件用不上：`scripts/test.ts` 紧接着整份换掉
   seedJobs(hardTmp, [jobMut('M-J-h0', 'keep', 'gone'), jobMut('M-J-h1', 'hold', 'lost')], join(tmp, 'jobs-hard-stop-cwd.txt'))
   const beatCode = `const fs = require('node:fs'); const at = ${JSON.stringify(beat)} + '-' + process.pid;`
-    + ' const t = setInterval(() => fs.appendFileSync(at, "."), 50); setTimeout(() => clearInterval(t), 30000)'
+    + ' const t = setInterval(() => fs.appendFileSync(at, "."), 50); setTimeout(() => clearInterval(t), 150000)'
   writeFileSync(join(hardTmp, 'scripts', 'test.ts'), [
     "import { spawn } from 'node:child_process'",
     `spawn(process.execPath, ['-e', ${JSON.stringify(beatCode)}], { stdio: 'ignore' })`,
-    'setTimeout(() => {}, 30000)',
+    'setTimeout(() => {}, 150000)',
   ].join('\n') + '\n', 'utf8')
   writeFileSync(hardDriver, String.raw`
 const { spawn } = require('node:child_process'), fs = require('node:fs'), path = require('node:path');
@@ -8662,32 +8666,44 @@ const jobsDir = path.join(cwd, '.check-cache', 'mutate-jobs'), log = fs.openSync
 const kid = spawn(exe, JSON.parse(argvJson), { cwd, env: JSON.parse(envJson), stdio: ['ignore', log, log] });
 let ended; kid.on('exit', (code, signal) => { ended = { code, signal }; }); kid.on('error', e => { ended = { error: String(e) }; });
 const sleep = ms => new Promise(done => setTimeout(done, ms)), say = row => process.stdout.write(JSON.stringify(row) + '\n');
-const beats = () => { const dir = path.dirname(beat), stem = path.basename(beat) + '-';
-  try { return fs.readdirSync(dir).filter(n => n.startsWith(stem)).map(n => fs.statSync(path.join(dir, n)).size); } catch { return []; } };
+const beatsOrThrow = () => { const dir = path.dirname(beat), stem = path.basename(beat) + '-';
+  return fs.readdirSync(dir).filter(n => n.startsWith(stem)).map(n => fs.statSync(path.join(dir, n)).size); };
+const beats = () => { try { return beatsOrThrow(); } catch { return []; } }, sum = sizes => sizes.reduce((a, b) => a + b, 0);
 const numbered = name => { try { const t = fs.readFileSync(path.join(jobsDir, name), 'utf8'); return /^[1-9]\d*\n$/.test(t) ? Number(t) : undefined; } catch { return undefined; } };
 const childrenOf = pid => fs.readFileSync('/proc/' + pid + '/task/' + pid + '/children', 'utf8').split(/\s+/).filter(Boolean).map(Number);
-let dispatcher, verifiers = [];
+const descendants = pid => { const out = [], walk = p => { let kids = []; try { kids = childrenOf(p); } catch {} for (const k of kids) { out.push(k); walk(k); } }; walk(pid); return out; };
+let dispatcher, foundAt;
+const seen = new Set(), frozen = [];
 const cleanup = () => {
-  for (const v of verifiers) { try { process.kill(-v, 'SIGKILL'); } catch {} }
-  if (ended === undefined) { if (dispatcher !== undefined) { try { for (const c of childrenOf(dispatcher)) process.kill(c, 'SIGKILL'); } catch {} try { process.kill(dispatcher, 'SIGKILL'); } catch {} } try { kid.kill('SIGKILL'); } catch {} }
+  for (const v of seen) if (v > 1) { try { process.kill(-v, 'SIGKILL'); } catch {} }
+  for (const w of frozen) { try { process.kill(w, 'SIGKILL'); } catch {} }
+  if (ended !== undefined) return;
+  for (const p of descendants(kid.pid).reverse()) { try { process.kill(p, 'SIGKILL'); } catch {} }
+  if (dispatcher !== undefined) { try { process.kill(dispatcher, 'SIGKILL'); } catch {} }
+  try { kid.kill('SIGKILL'); } catch {}
 };
 (async () => {
   for (const began = Date.now(); Date.now() - began < 60000 && ended === undefined; await sleep(50)) {
     let names = []; try { names = fs.readdirSync(jobsDir); } catch {}
     const hits = names.map(n => /^w\d+\.(\d+)\.verifier$/.exec(n)).filter(Boolean), pids = hits.map(m => numbered(m[0])), b = beats();
-    if (hits.length === 2 && pids.every(p => p !== undefined) && b.length === 2 && b.every(s => s > 0)) { dispatcher = Number(hits[0][1]); verifiers = pids; break; }
+    for (const p of pids) if (p !== undefined) seen.add(p);
+    if (hits.length === 2 && pids.every(p => p !== undefined) && b.length === 2 && b.every(s => s > 0)) { dispatcher = Number(hits[0][1]); foundAt = Date.now(); break; }
   }
   if (dispatcher === undefined) { cleanup(); say({ setup: false, ended }); return; }
-  let shells;
-  try { shells = childrenOf(dispatcher); } catch (e) { cleanup(); say({ degraded: e.message }); return; }
+  let shells, workers = [];
+  try { shells = childrenOf(dispatcher); for (const s of shells) workers.push(...childrenOf(s)); }
+  catch (e) { cleanup(); say({ degraded: e.message }); return; }
+  for (const w of workers) { frozen.push(w); try { process.kill(w, 'SIGSTOP'); } catch {} }
   for (const s of shells) { try { process.kill(s, 'SIGKILL'); } catch {} }
   try { process.kill(dispatcher, 'SIGTERM'); } catch {}
   for (const began = Date.now(); Date.now() - began < 30000 && ended === undefined; ) await sleep(50);
   await sleep(200);
-  const total = () => beats().reduce((a, b) => a + b, 0), before = total();
-  await sleep(1000);
-  const after = total(), dirLeft = fs.existsSync(jobsDir);
-  cleanup(); say({ setup: true, shells: shells.length, ended, before, after, dirLeft });
+  // 量的这两次读不到就算没量成，不退回空表：两次都读成 0 的话「心跳停了」会白白成立
+  let first, before, after;
+  try { first = beatsOrThrow(); before = sum(first); await sleep(1000); after = sum(beatsOrThrow()); }
+  catch (e) { cleanup(); say({ setup: false, measure: e.message, ended }); return; }
+  const dirLeft = fs.existsSync(jobsDir), slow = Date.now() - foundAt > 60000;
+  cleanup(); say({ setup: true, shells: shells.length, workers: workers.length, ended, beatFiles: first.length, before, after, dirLeft, slow });
 })();
 `, 'utf8')
   const hardEnv = { ...env, ...mutationFixtureEnv('mutate', ['--jobs=2'], hardTmp) }
@@ -8695,19 +8711,23 @@ const cleanup = () => {
   const r = spawnSync(process.execPath, [hardDriver, hardExe, JSON.stringify(hardArgv), hardTmp, JSON.stringify(hardEnv), beat, hardLog],
     { encoding: 'utf8', timeout: 120_000 })
   const logTail = (): string => existsSync(hardLog) ? readFileSync(hardLog, 'utf8').split('\n').slice(-8).join('\n') : '（没有日志）'
-  let got: { setup?: boolean; degraded?: string; shells?: number; ended?: { code?: number | null; signal?: string | null; error?: string };
-    before?: number; after?: number; dirLeft?: boolean } | undefined
+  // 入口删不动目录时那句话打在退出之前，后面还跟着成本摘要那几行，末几行里看不见它，单独捞出来
+  const logAbout = (word: string): string => existsSync(hardLog) ? readFileSync(hardLog, 'utf8').split('\n').filter(l => l.includes(word)).join('\n') : ''
+  let got: { setup?: boolean; degraded?: string; shells?: number; workers?: number; ended?: { code?: number | null; signal?: string | null; error?: string };
+    beatFiles?: number; before?: number; after?: number; dirLeft?: boolean; slow?: boolean } | undefined
   try { got = JSON.parse((r.stdout ?? '').trim().split('\n').pop() ?? '') } catch { got = undefined }
   if (got?.degraded !== undefined) {
     console.log(`  ⊘ 派工硬停按组收验证者：这台机器上没验 —— 读不到派工进程的子进程表（${got.degraded}），那是 Linux 才有的`)
-  } else if (got?.setup !== true || got.shells !== 2) {
+  } else if (got?.setup !== true || got.shells !== 2 || got.workers !== 2 || got.slow !== false || got.beatFiles !== 2 || !((got.before ?? 0) > 0)) {
+    // 慢到超过一分钟的那一跑也不判：孙子的心跳有上限，量的时候它可能已经自己停了，删掉那一刀也照绿。
+    // 量的时候不是两份心跳、或一个字节也没有，同样不判：两次都量成 0 也是「没长」
     failed++
-    console.error(`  ✗ 派工硬停${SELFCHECK_FIXTURE_MARK}：夹具没造对 —— 两个验证者、两份心跳没都起来，或派工底下不是恰好两个 worker 壳，`
-      + `硬来那一刀这一跑够不着：${JSON.stringify(got) ?? r.error ?? r.stderr}\n${logTail()}`)
+    console.error(`  ✗ 派工硬停${SELFCHECK_FIXTURE_MARK}：夹具没造对 —— 两个验证者、两份心跳没都起来，派工底下不是恰好两个 worker 壳、各带一个真 worker，`
+      + `量心跳时读不到那两份，或从心跳齐了到量完拖过了一分钟，硬来那一刀这一跑验不着：${JSON.stringify(got) ?? r.error ?? r.stderr}\n${logTail()}`)
   } else {
     named('派工硬停：验证者那一组被收掉，孙子的心跳停了', got.before === got.after,
       `派工退出之后心跳还在长（${got.before} → ${got.after}）—— 硬来没给验证者那一组发那一刀，孤儿照样跑被改过的源码`)
-    named('派工硬停：隔离目录收干净了', got.dirLeft === false, `硬来之后 .check-cache/mutate-jobs 还在：\n${logTail()}`)
+    named('派工硬停：隔离目录收干净了', got.dirLeft === false, `硬来之后 .check-cache/mutate-jobs 还在：\n${logAbout('隔离目录') || logTail()}`)
     named('派工硬停：以退出码 1 收场', got.ended?.code === 1,
       `派工那一跑的结局是 ${JSON.stringify(got.ended)} —— 硬来那一步以 1 退出，这里不是：\n${logTail()}`)
   }
