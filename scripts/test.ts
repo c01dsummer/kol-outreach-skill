@@ -51,7 +51,7 @@ import {
   labelFault, notAssertion,
   labelFaults,
   groupOfLabel, labelsOf, leadWired, processFailed, wiringFault,
-  anchorFaults, anchorMatches, applyMutation, baselineFault,
+  anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { judgeShares, scanShares } from './check/share-rule.js'
@@ -7884,6 +7884,97 @@ harness('施加变异照字面：盘上写的就是目录里登记的那一段')
   // find 带括号：把 find 当正则的坏实现只换掉 X、留下括号，这条也红
   eq('$$、$&、$`、$\' 照原样写出', applyMutation('a (X) b', '(X)', "$$ $& $` $'"), "a $$ $& $` $' b")
   eq('只换第一处', applyMutation('X X', 'X', 'Y'), 'Y X')
+}
+
+harness('变异锚点那一步：编号重复先报，连带的标出来，附哪两句话')
+{
+  const tree = (t: Record<string, string>) => (file: string): string | undefined => t[file]
+  // 重名的两条锚点都对得上，旁边还有一条锚点失效的：只报重名，不往下查
+  eq('编号重复先报，锚点不往下查', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' },
+    { id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' },
+    { id: 'M-乙', file: 'b.ts', find: 'gone', replace: 'went' },
+  ], tree({ 'a.ts': 'ok\n', 'b.ts': 'keep\n' })), { kind: 'duplicate', ids: ['M-甲'] })
+  // a.ts 里 M-甲 没还原（return y），它连带 M-乙 的锚点失效；b.ts 里 M-丙 锚点失效，不连带
+  eq('同文件里另有一条没还原的：锚点失效的那条标连带，没还原的自己不标，别的文件里的不标；两句话都附', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' },
+    { id: 'M-乙', file: 'a.ts', find: 'x;', replace: 'z;' },
+    { id: 'M-丙', file: 'b.ts', find: 'gone', replace: 'went' },
+  ], tree({ 'a.ts': 'return y\n', 'b.ts': 'keep\n' })), { kind: 'faults', faults: [
+    { kind: 'residue', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'stale', id: 'M-乙', file: 'a.ts', knockOn: true },
+    { kind: 'stale', id: 'M-丙', file: 'b.ts', knockOn: false },
+  ], advice: { diff: true, catalog: true } })
+  // 分不开的也可能是没还原：同文件里锚点失效的那条照样标连带；被连带的不附「改目录」
+  eq('同文件里另有一条分不开的：锚点失效的那条也标连带，只附先看差异', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'del()\n', replace: '' },
+    { id: 'M-乙', file: 'a.ts', find: 'gone', replace: 'went' },
+  ], tree({ 'a.ts': 'z\n' })), { kind: 'faults', faults: [
+    { kind: 'unclear', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'stale', id: 'M-乙', file: 'a.ts', knockOn: true },
+  ], advice: { diff: true, catalog: false } })
+  // 同一个文件里两条都没还原、两条都分不开：都是要先看的那一处，都不标连带（标了就互相指）
+  eq('同文件两条都没还原：都不标连带，不附改目录', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' },
+    { id: 'M-乙', file: 'a.ts', find: 'k = 1', replace: 'k = 2' },
+  ], tree({ 'a.ts': 'return y\nk = 2\n' })), { kind: 'faults', faults: [
+    { kind: 'residue', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'residue', id: 'M-乙', file: 'a.ts', knockOn: false },
+  ], advice: { diff: true, catalog: false } })
+  eq('同文件两条都分不开：都不标连带', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'del()\n', replace: '' },
+    { id: 'M-乙', file: 'a.ts', find: 'drop()\n', replace: '' },
+  ], tree({ 'a.ts': 'z\n' })), { kind: 'faults', faults: [
+    { kind: 'unclear', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'unclear', id: 'M-乙', file: 'a.ts', knockOn: false },
+  ], advice: { diff: true, catalog: false } })
+  // 不唯一的被连带也标；不唯一的、锚点失效的都不是源头 —— 同文件里只有它们两条时谁也不标
+  eq('同文件里另有一条没还原的：不唯一的那条也标连带', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' },
+    { id: 'M-乙', file: 'a.ts', find: 'k = 1', replace: 'k = 2' },
+  ], tree({ 'a.ts': 'return y\nk = 1\nk = 1\n' })), { kind: 'faults', faults: [
+    { kind: 'residue', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'ambiguous', id: 'M-乙', file: 'a.ts', count: 2, knockOn: true },
+  ], advice: { diff: true, catalog: false } })
+  eq('同文件里只有不唯一的与锚点失效的：谁也不标连带，只附改目录', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'k = 1', replace: 'k = 2' },
+    { id: 'M-乙', file: 'a.ts', find: 'gone', replace: 'went' },
+  ], tree({ 'a.ts': 'k = 1\nk = 1\n' })), { kind: 'faults', faults: [
+    { kind: 'ambiguous', id: 'M-甲', file: 'a.ts', count: 2, knockOn: false },
+    { kind: 'stale', id: 'M-乙', file: 'a.ts', knockOn: false },
+  ], advice: { diff: false, catalog: true } })
+  // 连带不看先后：被连带的那条排在没还原的前面也标
+  eq('被连带的那条排在没还原的前面：照样标连带', anchorVerdict([
+    { id: 'M-乙', file: 'a.ts', find: 'x;', replace: 'z;' },
+    { id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' },
+  ], tree({ 'a.ts': 'return y\n' })), { kind: 'faults', faults: [
+    { kind: 'stale', id: 'M-乙', file: 'a.ts', knockOn: true },
+    { kind: 'residue', id: 'M-甲', file: 'a.ts', knockOn: false },
+  ], advice: { diff: true, catalog: false } })
+  eq('编号重复：每个重了的编号都报，各报一次', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' }, { id: 'M-乙', file: 'a.ts', find: 'ok', replace: 'no' },
+    { id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' }, { id: 'M-乙', file: 'a.ts', find: 'ok', replace: 'no' },
+    { id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' },
+  ], tree({ 'a.ts': 'ok\n' })), { kind: 'duplicate', ids: ['M-甲', 'M-乙'] })
+  // 只有锚点失效、读不到的：只附改目录
+  eq('只有锚点失效与读不到的：只附改目录', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'gone', replace: 'went' },
+    { id: 'M-乙', file: 'nope.ts', find: 'x', replace: 'y' },
+  ], tree({ 'a.ts': 'keep\n' })), { kind: 'faults', faults: [
+    { kind: 'stale', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'unreadable', id: 'M-乙', file: 'nope.ts', knockOn: false },
+  ], advice: { diff: false, catalog: true } })
+  eq('全对得上：没有一条，两句话都不附', anchorVerdict([{ id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' }], tree({ 'a.ts': 'ok\n' })),
+    { kind: 'faults', faults: [], advice: { diff: false, catalog: false } })
+  // 目录读出来的是不是一组变异：没得核不是核过了
+  const m = { id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' }
+  eq('变异目录：一组齐全的变异照原样交回', anchorCatalog({ mutations: [m] }), [m])
+  eq('变异目录：空的一组不算一组变异', anchorCatalog({ mutations: [] }), undefined)
+  eq('变异目录：键写岔了、不是数组、整个不是对象，都不算', [anchorCatalog({ mutation: [m] }), anchorCatalog({ mutations: m }), anchorCatalog(null)],
+    [undefined, undefined, undefined])
+  eq('变异目录：哪一条缺了 id、file、find、replace 里的一样，或不是字符串，整份不算', [
+    anchorCatalog({ mutations: [m, null] }), anchorCatalog({ mutations: [m, { ...m, find: 1 }] }), anchorCatalog({ mutations: [{ id: 'M-乙', file: 'a.ts', find: 'ok' }] }),
+  ], [undefined, undefined, undefined])
 }
 
 harness('by 与 kills 同进同出：四种写错各有名字')
