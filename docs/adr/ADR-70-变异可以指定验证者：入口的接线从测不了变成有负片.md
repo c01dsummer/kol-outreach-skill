@@ -4002,3 +4002,36 @@ npx tsx -e 'import{readFileSync as r}from"node:fs";import{applyMutation as a}fro
 > ⚠️ 已重挂：ADR-70 第 3934 行 · 现行的是 ADR-70 第 4004 行
 
 > ⚠️ 欠条：变异锚点那一步对旧的 CRLF 工作区、重新拼出 `find` 的几种形状、两条同锚点同替换的变异（`3f5cedc` 上 10 对），以及暂存区那一步的部分暂存、暂存区内容是 CRLF 时判成锚点失效不交、暂存区里一条带出同文件别的条不标连带，都没有专门的说法 · 来源：本节由第 3934 行重挂 · 档：登记 · 重启条件：有人在这一步上撞见其中一种，或下一条改 `anchorFaults`、`anchorVerdict`、`stagedResidue` 或 `anchors.ts` 的改动
+
+## 硬退出收口（2026-11-12）
+
+**做了什么。** 还三张同一类的欠条：本文第 2077 行（`exitRace` 按正则扫源码字面，注释与字符串里长得像的也算数）、第 2082 行（`exitRace` 只查验证者，查不到 `mutate.ts` 自己）、ADR-72 第 484 行（硬退出截掉紧挨着它的那句诊断；ADR-72 那张表明写「不要只改其中一处」）。
+- `mutate.ts` 原先 20 处 `process.exit` 收成一个 `function exitWith(code, ...lines): never`，全文件 21 处调用它；退出前要说的话作为参数交进去，由它同步写满 fd 2 再退出。`mutate.ts` 里除了它再没有硬退出。
+- 被打断与起不来时走的那条 `hardStop`（杀干净、收目录、再 `exitWith`）也收了：ADR-72 那张表「派工循环」三行（`error` 事件、没装 stdio、外层 `catch`）原先先 `console.error` 一句再叫它，现在那句交给 `hardStop(...)`，由它头一个同步写出去。
+- 新模块 `scripts/check/sync-write.ts` 的 `writeAllSync`：一截一截写，写进去多少记多少；`EAGAIN` 就停 1 毫秒接着写，累计等够 5 秒放弃；`EPIPE` 不等、当场放弃。写不出去也照样退出 —— 这一步的承诺是退出码，那句话尽力写完。
+- `exitRace` 改按语法树认：认 `process.exit(…)` 与 `process['exit'](…)` 两种调用，交回每一处所在的行号（原先交回撞上的那一段字面）。注释、字符串、模板串里写全了的结构上就不是调用，做法同隔壁的 `labelsOf`。
+- 新判定 `exitFaults(source, helper)` 查一个入口的硬退出收没收口：出了名叫 `helper` 的那个函数声明的硬退出报 `outside`；「会退出的那一句」之前、同一段语句里有 `console.` 调用的报 `async-before`，收口函数自己的函数体也照这样查。「会退出的那一句」是直接硬退出，或者叫一个会退出的名字：`helper` 本身，加上函数体里叫了会退出的名字的具名函数，一直推到不再多 —— 初稿只认直接叫 `helper` 的，对真 `mutate.ts` 交回空表，可上面 `hardStop` 那三处正是它该报的；推了之后初稿的 `mutate.ts` 报出恰好那三处，改完交回空表。需求测试对真 `mutate.ts` 跑它，交回空表才算过。
+
+**为什么光换成同步写不够。** 三次实测（交接文档里两次是 2026-10-23、Node v22.22.0；本片在 Node v22.23.4 上重做了第一次并补了第三次，读的那头都先睡一秒）：
+- `console.error` 2 万行、再 `console.error` 一句、再硬退出：本片量到 897 行（交接时量到 640 行），最后那句没到。
+- 先用过一次 `console.error` 之后，`writeFileSync(2, 5 MB)` 写到 64326 字节抛 `EAGAIN`；没碰过 `console` 时同样写 5 MB 全到。所以「改成同步写」那一步本身会在管道满时写一截就抛，要 `writeAllSync` 那样接着写。
+- 同样 2 万行积压，最后那句改交 `writeAllSync`、再硬退出：三次都是前 897 行到、那句接在后面到，积压里排队的那一万九千多行照样没了。
+
+**这道闸门替代的是什么。** 替代的是「记得」：原先靠一句注释纪律（「只提名字不带括号的是散文」）和「新加的那一处按现行写法写」顶着，本文第 2077 行自承这句纪律拦不住了两次。判据是需求测试 `h-mutate` 里那几条断言，`npm test` 跑它。整个撤掉的条件：变异一步不再需要被打断时当场退出（比如改由外层进程管杀与收目录），那时 `mutate.ts` 里一处硬退出都不该有，`exitRace` 就够了。
+
+**怎么验的。**
+- 需求测试 `h-mutate`：`exitRace` 原有两条改成比行号数组，另加注释里写全了的不算、字符串里写全了的不算、`process['exit']` 也认、两处各报各的行；`exitFaults` 六条玩具源码（收口函数里那一处不报、收口外的报 `outside`、叫收口前同一段先 `console.error` 报 `async-before`、那句写在里面一层函数里的不报、收口函数自己先 `console.error` 再退出也报、先 `console.error` 再叫一个里面才收口的箭头函数也报）加真 `mutate.ts` 一条；`writeAllSync` 三条用假的写与等（`EAGAIN` 夹着部分写一个字不丢且等了三回；一直 `EAGAIN` 等够上限交回 `false`；`EPIPE` 一回不等交回 `false`）。
+- 变异：`M-H14-x`、`M-H14-y` 照新实现重钉锚点（一条把语法树改回按字面认、一条让散文也算撞上）；`M-H23-h` 的锚点被新代码撞成两处，加长到唯一；`M-H14-af` 的锚点被推名字那一段撞成两处，加长到唯一；新加 `M-H14-ab`..`M-H14-am` 十二条，全是 `by: test`：`process['exit']` 认不出、行号差一、`outside` 不报、`async-before` 不报、里面一层函数不排除、`EAGAIN` 不等、部分写当写完、没有上限、`EPIPE` 也等、不往外推会退出的名字，以及打在 `mutate.ts` 上的两条：把 `exitWith` 改回 `console.error` 再硬退出、把「派工没能起来」那条路改回先 `console.error` 再叫 `hardStop()`。每条照字面施加后点名的断言红，`npm run anchors` 绿。
+- 入口这一半（`mutate.ts` 的 21 处调用与 `hardStop` 的三处）没有另起自检组：每一处是不是收进了 `exitWith`、退出前有没有先异步写，由 `exitFaults` 对真文件那条断言管；`exitWith` 自己写没写满，由 `writeAllSync` 的断言与 `M-H14-ak` 管。
+
+**已知边界，照实记。**
+- 收口只保证退出前**交给 `exitWith` 的那几句**到得了；在它之前用 `console` 写进 fd 1／fd 2、还在队里排着的，硬退出照样掐掉（上面第三次实测）。`mutate.ts` 跑的时候 fd 2 上会不会有积压，ADR-72 那张表逐条分过，那张表还在。
+- `async-before` 只看同一段语句里、退出那一句之前的 `console.`：外面一层先打了一句、里面一层才退出的，查不到；`console` 之外的异步写（`process.stderr.write`、流）也不认。往外推名字只认具名函数（函数声明、赋给常量的箭头函数与函数表达式），当参数传进去的函数（比如交给 `stopJobs` 的那个）推不到，同名的不分作用域。
+- 「会退出的名字」是「有一条路会退出」：一个函数只在某个分支里收口，叫它之前的 `console.` 也报。今天真 `mutate.ts` 上没有这样被误报的。
+- 先把 `process.exit` 赋给别的名字再调、或者 `const { exit } = process` 的，`exitRace` 与 `exitFaults` 都认不出，不假装认得出。
+- 收口函数要写成函数声明（`function 名字(…): never`）；写成赋给常量的箭头函数时 TypeScript 认不出它不返回，判定也不认它是收口。
+- `writeAllSync` 等的是累计停顿的毫秒数，不是墙上时间；一次 `write` 本身卡住（fd 是阻塞的）不算在上限里。
+
+> ⚠️ 已还：ADR-70 第 2077 行 · 还在 #待定：`exitRace` 改按语法树认（`process.exit` 与 `process['exit']` 两种调用），注释、字符串里写全了的不算，见本节
+
+> ⚠️ 已还：ADR-70 第 2082 行 · 还在 #待定：新判定 `exitFaults` 对真 `mutate.ts` 查硬退出收没收口，需求测试 `h-mutate` 跑它，见本节
