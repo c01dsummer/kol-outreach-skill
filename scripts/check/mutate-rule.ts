@@ -189,9 +189,9 @@ export function anchorMatches(content: string, find: string): number {
 
 /**
  * 变异目录对着一棵树：每条变异的锚点在它的目标文件里还对不对得上。对不上的五种各有名字，
- * 全对得上交回空表（ADR-70 第 1394、2099 行那两张欠条；检查链第一步经下面的 `anchorVerdict` 用它，见 ADR-70「变异残留」两节）。
+ * 全对得上交回空表（ADR-70 第 1394、2099 行那两张欠条；下面的 `anchorVerdict` 用它，入口接进检查链开头是后面一片，见 ADR-70「变异残留」几节）。
  *
- * 干净的树上，每条变异的 `find` 在目标文件里恰好一处（不唯一的由检查链第一步与 `mutate.ts` 开跑前那道体检拦下）。
+ * 干净的树上，每条变异的 `find` 在目标文件里恰好一处（不唯一的由 `mutate.ts` 开跑前那道体检拦下）。
  * 一处变异没还原、躺在树里时（被打断、`--jobs=1` 正跑着就提交），那个文件是「`find` 换成了 `replace`」的
  * 样子 —— 目录自己就是那张对照表。前提是施加照字面，已满足：`mutate.ts` 经下面的 `applyMutation` 施加，
  * 替换文本里的 `$$` 等记号不展开，盘上就是登记的那段（ADR-70「施加照字面」一节）：
@@ -260,7 +260,7 @@ export function anchorCatalog(json: unknown): { id: string; file: string; find: 
 }
 
 /**
- * 检查链第一步（`anchors.ts`）的判定：先问编号唯一，再按 `anchorFaults` 逐条判，再标连带、定附哪两句话
+ * 检查链第一步（入口 `anchors.ts`，下一片接上）的判定：先问编号唯一，再按 `anchorFaults` 逐条判，再标连带、定附哪两句话
  * （ADR-70 末尾「变异残留」第二片）。
  *
  * **先问编号**：报告按编号指回目录里那一行，两条重名时指不回（ADR-34）。这一步排在 `mutate.ts` 那道重复编号检查之前，
