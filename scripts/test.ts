@@ -8071,6 +8071,11 @@ harness('记号真打在自检的诊断上：说了「夹具没造对」的带�
   // 判定只认 ✗ 那一行上的记号：记号落在换行之后、或包在别的调用里，判定那边看不见，这里也不算带了
   eq('记号落在换行之后不算打在那一行上',
     fixtureFaults('console.error(`  ✗ 甲：夹具没造对\\n${SELFCHECK_FIXTURE_MARK}`)').length, 1)
+  // 判定认的是以「✗ 」开头的那一行：记号打在它前面的行上，判定那边同样看不见
+  eq('记号打在 ✗ 那一行之前的行上不算',
+    fixtureFaults('console.error(`  前言${SELFCHECK_FIXTURE_MARK}\\n  ✗ 甲：夹具没造对`)').length, 1)
+  eq('记号单独占了 ✗ 那一行之前的一行也不算',
+    fixtureFaults('console.error(`${SELFCHECK_FIXTURE_MARK}\\n✗ 甲：夹具没造对`)').length, 1)
   eq('包在别的调用里的记号不算带了',
     fixtureFaults('console.error(`  ✗ 甲${String(SELFCHECK_FIXTURE_MARK)}：夹具没造对`)').length, 1)
 

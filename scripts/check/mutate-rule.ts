@@ -123,8 +123,9 @@ export function processFailed(output: string, mark: string): boolean {
  *   就是它报的。源码里找不到 `runBoth`，或它里面一句 `console.error` 都没有，也报 ——
  *   改了名、挪了地方，不能让这一条悄悄变成空的。
  *
- * **「带着」指打在 ✗ 那一行上**，因为 `processFailed` 只认同一行：把实参按源码先后拆成拼接（`+`）
- * 与模板串的一段一段，光秃秃的那个名字自己是一段，又排在任何带换行的字面段之前，才算。
+ * **「带着」指打在 ✗ 那一行上**，因为 `processFailed` 只认以「✗ 」开头的那一行：把实参按源码先后拆成拼接（`+`）
+ * 与模板串的一段一段，光秃秃的那个名字自己是一段，又落在去掉行首空白后以「✗ 」开头的那一行上，才算 ——
+ * 落在换行之后、或落在 ✗ 那一行之前的行上，都不算。
  * 包在别的表达式里的（`String(记号)`、`条件 ? 记号 : ''`、`记号.length`）、`别的对象.记号`
  * 都不算一段；按语法树而不是按正则，注释里写着这几个字的也不是诊断。
  * `phraseSites` 是查过的「说了这几个字」的诊断有几句，调用方拿它判这一条是不是空的。
@@ -144,7 +145,11 @@ export function unmarkedDiagnostics(source: string): { fixture: string[]; proces
   const consoleError = (call: Ts.CallExpression) => ts.isPropertyAccessExpression(call.expression)
     && ts.isIdentifier(call.expression.expression) && call.expression.expression.text === 'console'
     && call.expression.name.text === 'error'
-  /** 记号打没打在 ✗ 那一行上：实参拆成一段一段，这个名字自己是一段、又排在头一个换行之前 */
+  /**
+   * 记号打没打在 ✗ 那一行上：实参拆成一段一段，按先后拼出「到这儿为止的这一行」，这个名字自己是一段、
+   * 又落在去掉行首空白后以「✗ 」开头的那一行上才算。`named` 自己先打「✗ 」，所以它从那一行起算；
+   * 认不出印什么的一段当成非空白
+   */
   const passes = (call: Ts.CallExpression, name: string): boolean => {
     const pieces: Ts.Node[] = []
     const flatten = (e: Ts.Expression): void => {
@@ -156,10 +161,13 @@ export function unmarkedDiagnostics(source: string): { fixture: string[]; proces
       } else pieces.push(e)
     }
     call.arguments.forEach(flatten)
+    let line = ts.isIdentifier(call.expression) && call.expression.text === 'named' ? '✗ ' : ''
     for (const piece of pieces) {
-      if (ts.isIdentifier(piece) && piece.text === name) return true
-      if ((ts.isStringLiteralLike(piece) || ts.isTemplateHead(piece) || ts.isTemplateMiddle(piece) || ts.isTemplateTail(piece))
-          && piece.text.includes('\n')) return false
+      if (ts.isIdentifier(piece) && piece.text === name) return line.trimStart().startsWith('✗ ')
+      if (ts.isStringLiteralLike(piece) || ts.isTemplateHead(piece) || ts.isTemplateMiddle(piece) || ts.isTemplateTail(piece)) {
+        const parts = piece.text.split('\n')
+        line = parts.length > 1 ? parts[parts.length - 1] : line + parts[0]
+      } else line += '\u0000'
     }
     return false
   }

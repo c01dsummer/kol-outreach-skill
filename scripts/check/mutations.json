@@ -5135,10 +5135,20 @@
       "req": "harness",
       "why": "记号打在换行之后也算带了 —— 判定只认 ✗ 那一行上的记号，那一行照样是普通的 ✗ 加名字，什么也没测到的跑被记成抓到，静态那一问却说没毛病",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "          && piece.text.includes('\\n')) return false\n",
-      "replace": "          && piece.text.includes('\\n')) continue\n",
+      "find": "        line = parts.length > 1 ? parts[parts.length - 1] : line + parts[0]\n",
+      "replace": "        line += parts.join('')\n",
       "by": "test",
       "kills": ["记号落在换行之后不算打在那一行上"]
+    },
+    {
+      "id": "M-H25-i",
+      "req": "harness",
+      "why": "记号打在哪一行都算带了，不问那一行是不是 ✗ 开头 —— 记号写在失败行之前的一行上，判定那边照样认不出，静态那一问却说没毛病",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "      if (ts.isIdentifier(piece) && piece.text === name) return line.trimStart().startsWith('✗ ')\n",
+      "replace": "      if (ts.isIdentifier(piece) && piece.text === name) return line.trim() !== ''\n",
+      "by": "test",
+      "kills": ["记号打在 ✗ 那一行之前的行上不算"]
     },
     {
       "id": "M-H26-a",
