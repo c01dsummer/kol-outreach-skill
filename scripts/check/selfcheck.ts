@@ -3016,7 +3016,7 @@ group('render-order', [], () => {
 })
 
 // ---- 回归：collect → render → --resume 之后，已采集的人必须还在 ----
-group('regress', ['collect', 'render'], () => {
+group('resume-after-render-keeps-creators', ['collect', 'render'], () => {
   // 早先 creators.json 一个文件身兼两职：既是 --resume 的输入，又是过滤后的交付物。
   // render 把这批人写进记忆后再续跑，记忆过滤判定「本产品已推荐过」，交付物被清成
   // 空数组 —— 已经付费采集的数据不可恢复地消失。触发路径不冷门：用户看完报告说
@@ -7036,7 +7036,7 @@ group('empty-platform-still-reported', [], () => {
 })
 
 // ---- 变异集编号重复：两个入口都命中即以退出码 1 结束（M-H7-b、M-H7-c 的入口那一半）----
-group('dup-ids', [], () => {
+group('mutation-duplicate-ids', [], () => {
   // 判定和「两种毛病同时在时先报哪一种」都由 scripts/test.ts 断言；剩下的那一半是
   // **入口真的调了它、并且以退出码 1 结束** —— 把两处调用整块删掉，那些断言和
   // M-H7-b、M-H7-c 照样全绿，因为它们跑的是缺省那个验证者 scripts/test.ts，够不到入口。
@@ -7082,9 +7082,9 @@ group('selfcheck-selection', [], () => {
     }
     return { status: r.status, stdout: r.stdout, stderr: r.stderr }
   }
-  const good = entry(['--only=dup-ids'])
+  const good = entry(['--only=mutation-duplicate-ids'])
   if (good) named('自检选择：合法轻量组实际执行并正常完成',
-    good.status === 0 && good.stdout.includes('[只跑 dup-ids]')
+    good.status === 0 && good.stdout.includes('[只跑 mutation-duplicate-ids]')
       && good.stdout.includes('mutate 遇到重复编号即以退出码 1 结束')
       && good.stdout.includes('点名的那几组都跑完了，一条断言都没红'),
     `退出码=${good.status}，stdout=${good.stdout}，stderr=${good.stderr}`)
@@ -7098,20 +7098,20 @@ group('selfcheck-selection', [], () => {
       detail: `退出码=${r.status}，stdout=${r.stdout}，stderr=${r.stderr}`,
     }
   }
-  const trailing = rejectsBeforeFixtures(['--only=dup-ids,'])
+  const trailing = rejectsBeforeFixtures(['--only=mutation-duplicate-ids,'])
   if (trailing) named('自检选择：尾随逗号明确失败且不执行夹具', trailing.rejected, trailing.detail)
-  const unknown = rejectsBeforeFixtures(['--only=dup-ids', '--selection-typo'])
+  const unknown = rejectsBeforeFixtures(['--only=mutation-duplicate-ids', '--selection-typo'])
   if (unknown) named('自检选择：未知参数明确失败且不执行夹具', unknown.rejected, unknown.detail)
-  const repeatedOption = rejectsBeforeFixtures(['--only=dup-ids', '--only=dup-ids'])
+  const repeatedOption = rejectsBeforeFixtures(['--only=mutation-duplicate-ids', '--only=mutation-duplicate-ids'])
   if (repeatedOption) named('自检选择：重复选择参数明确失败且不执行夹具',
     repeatedOption.rejected, repeatedOption.detail)
-  const repeatedGroup = rejectsBeforeFixtures(['--only=dup-ids,dup-ids'])
+  const repeatedGroup = rejectsBeforeFixtures(['--only=mutation-duplicate-ids,mutation-duplicate-ids'])
   if (repeatedGroup) named('自检选择：重复组明确失败且不执行夹具',
     repeatedGroup.rejected, repeatedGroup.detail)
 })
 
 // ---- 变异锚点不唯一即以退出码 1 结束（anchorMatches 的入口那一半，ADR-99 第十二节）----
-group('anchors', [], () => {
+group('mutate-anchor-not-unique', [], () => {
   // 判定在 mutate-rule.ts 的 anchorMatches，由 scripts/test.ts 断言、M-H45-a／b 守着；
   // 剩下的是入口真的调了它、点名并以 1 结束。入口在自检的验证基础设施闭包里，
   // 指着它、显式写了 `by` 且不是 `test` 的变异会被「自己验自己」拒掉；不写 `by` 或写
@@ -7137,7 +7137,7 @@ group('anchors', [], () => {
 })
 
 // ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----
-group('wiring', [], () => {
+group('mutate-verifier-wiring-invalid', [], () => {
   // 判据是 mutate-rule.ts 的 wiringFault，由 scripts/test.ts 断言、M-H14-t/u/v/w 四条负片
   // 守着；剩下的那一半是**入口真的调了它、并且以退出码 1 结束**，还把四种裁定各翻成
   // 一句人话 —— 把这一整段删掉，那四条负片和那些断言照样全绿，因为变异跑的是缺省
@@ -7281,7 +7281,7 @@ group('literal-apply', [], () => {
 })
 
 // ---- 点的夹具立不住即以退出码 1 结束（清册的入口那一半）----
-group('roster', [], () => {
+group('mutate-kills-fixture-unresolved', [], () => {
   // 判据在 mutate-rule.ts（扫源码建清册、裁定点得着点不着），由 scripts/test.ts 断言、
   // 负片守着；剩下的那一半是**入口真的读了验证者的源码、真的建了清册、并且以退出码 1
   // 结束**。把那一整段从 mutate.ts 删掉，那些断言和负片照样全绿 —— 变异跑的是缺省
@@ -8351,7 +8351,7 @@ group('adr-ledger-entry', [], () => {
 })
 
 // ---- 派工那条路：真起 worker，真在隔离目录里跑 ----
-group('jobs', [], () => {
+group('mutate-parallel-workers', [], () => {
   // **上面那些 mutate 夹具没有一处走到派工。** 那几道体检在派几个之前就退出了，`--brief`
   // 在打完清单那一步退出，而整跑那一份只有一条变异 —— 派几个按「不超过要跑的条数」收口
   // 成 1，落回原来那条串行路。于是隔离目录、起 worker、一条一派、打断转发、跑完核账，
@@ -8524,7 +8524,7 @@ group('jobs-resource', [], () => {
 })
 
 // ---- 判 `crashed` 那一档要留下现场（入口的第三处）----
-group('crashed', [], () => {
+group('mutate-crash-keeps-verifier-output', [], () => {
   // 判定说「跑不起来」时，原先一个字都不留下验证者说过什么 —— 而那是唯一能分辨
   // 「真崩了」与「这一次不巧」的证据（ADR-70：它在落地 4 那一片里咬了两次才补上）。
   // 这段输出在 `mutate.ts` 入口里。入口在自检的验证基础设施闭包里，指着它、显式写了
