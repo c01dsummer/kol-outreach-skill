@@ -7281,7 +7281,7 @@ group('literal-apply', [], () => {
 })
 
 // ---- 点的夹具立不住即以退出码 1 结束（清册的入口那一半）----
-group('mutate-kills-fixture-missing', [], () => {
+group('mutate-kills-fixture-unresolved', [], () => {
   // 判据在 mutate-rule.ts（扫源码建清册、裁定点得着点不着），由 scripts/test.ts 断言、
   // 负片守着；剩下的那一半是**入口真的读了验证者的源码、真的建了清册、并且以退出码 1
   // 结束**。把那一整段从 mutate.ts 删掉，那些断言和负片照样全绿 —— 变异跑的是缺省
