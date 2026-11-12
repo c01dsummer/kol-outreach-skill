@@ -644,7 +644,7 @@ export const G3: CaseDef[] = [
     // F 节 :2013-2036。同 G3-19，名单非空（F-G6 的两人）：多挡「照常把本批推荐写回记忆」（:2032-2033）。附条件：GAP-18（:2035-2036）。
     id: 'G3-19N', group: 'G3', frozen: '附条件', spec: `${SP}:1953-1974、:2013-2036`, runs: ['G3-19N', 'Q-MEM-N', 'G6-01'],
     judge(c) {
-      // 未满足的前提（:2035）：GAP-18，与 G6-01…03 同一前提、同一闸门写法（cases/g56.ts）。
+      // 未满足的前提（:2035）：GAP-18，与 G6-01…03 同一前提、同一闸门写法（cases/output-sort-and-roster.ts）。
       if (!c.cond('GAP-18')) return c.nj('资格（G6-01 的 Q1–Q5、Q-MEM-N、本跑名单非空）与 expected 各项', D4T_GAP18)
       if (c.env.creatorCheck) {
         const probs = [G6_U, G6_K].flatMap((s) => c.env.creatorCheck!(JSON.parse(s)))

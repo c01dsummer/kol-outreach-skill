@@ -18,11 +18,11 @@ import { scanJ } from './lib/json.ts'
 import { snap, newFilesNamed, sha256 } from './lib/fsnap.ts'
 import { S } from './fixtures.ts'
 import { RUNS } from './runs.ts'
-import { G1 } from './cases/g1.ts'
-import { G2 } from './cases/g2.ts'
-import { G3 } from './cases/g3.ts'
-import { G4 } from './cases/g4.ts'
-import { G56 } from './cases/g56.ts'
+import { G1 } from './cases/minimal-input-and-field-rejects.ts'
+import { G2 } from './cases/bad-cost-ledger-samples.ts'
+import { G3 } from './cases/collect-wrap-up.ts'
+import { G4 } from './cases/observer-and-zero-reservation.ts'
+import { G56 } from './cases/output-sort-and-roster.ts'
 
 export const CASES: CaseDef[] = [...G1, ...G2, ...G3, ...G4, ...G56]
 export { RUNS }

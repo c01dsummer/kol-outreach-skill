@@ -5,7 +5,7 @@
  *
  *   tsx scripts/independent-blackbox-tests-wiring.ts --work <已存在的空目录> --report <报告文件> [--only <用例号,…>]
  *
- * 冻结目录一个字节都不改（嵌入提交按 freeze-tests.sha256 核等）。这里只做冻结包 `INTEGRATION.md` 写明留给整合方的几样：
+ * 冻结目录一个字节都不改（嵌入提交按 freeze-tests.sha256 核等；需求所有者批过的文件名例外与改后两份的 SHA256 见 ADR-195 第四节）。这里只做冻结包 `INTEGRATION.md` 写明留给整合方的几样：
  *
  * - `facility`：观察器的公开调用面，`observer-run.ts` 的 `certifyIsolation`、`runObserved` 与 `observer-rule.ts` 的
  *   `zeroVerdict`、`readEvents`（ADR-70 末尾那一节，`Zero` 是修复轮 1 修订后带 side/cause 的那一版）。`readEvents` 交回的
