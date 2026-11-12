@@ -8677,6 +8677,10 @@ const beats = () => { try { return beatsOrThrow(); } catch { return []; } }, sum
 const numbered = name => { try { const t = fs.readFileSync(path.join(jobsDir, name), 'utf8'); return /^[1-9]\d*\n$/.test(t) ? Number(t) : undefined; } catch { return undefined; } };
 const childrenOf = pid => fs.readFileSync('/proc/' + pid + '/task/' + pid + '/children', 'utf8').split(/\s+/).filter(Boolean).map(Number);
 const descendants = pid => { const out = [], walk = p => { let kids = []; try { kids = childrenOf(p); } catch {} for (const k of kids) { out.push(k); walk(k); } }; walk(pid); return out; };
+// 记下的验证者组里还活着的进程数：按 /proc/<pid>/stat 的组号认，僵尸（Z、X）不算 —— 被杀的验证者父进程是冻住的 worker，收不了尸
+const groupLeft = () => { let n = 0; for (const d of fs.readdirSync('/proc')) { if (!/^\d+$/.test(d)) continue;
+  let s; try { s = fs.readFileSync('/proc/' + d + '/stat', 'utf8'); } catch { continue; }
+  const f = s.slice(s.lastIndexOf(')') + 2).split(' '); if (f[0] !== 'Z' && f[0] !== 'X' && seen.has(Number(f[2]))) n++; } return n; };
 let dispatcher, foundAt;
 const seen = new Set(), frozen = [];
 const cleanup = () => {
@@ -8704,11 +8708,11 @@ const cleanup = () => {
   for (const began = Date.now(); Date.now() - began < 30000 && ended === undefined; ) await sleep(50);
   await sleep(200);
   // 量的这两次读不到就算没量成，不退回空表：两次都读成 0 的话「心跳停了」会白白成立
-  let first, before, after;
-  try { first = beatsOrThrow(); before = sum(first); await sleep(1000); after = sum(beatsOrThrow()); }
+  let first, before, after, left;
+  try { first = beatsOrThrow(); before = sum(first); await sleep(1000); after = sum(beatsOrThrow()); left = groupLeft(); }
   catch (e) { cleanup(); say({ setup: false, measure: e.message, ended }); return; }
   const dirLeft = fs.existsSync(jobsDir), slow = Date.now() - foundAt > 60000;
-  cleanup(); say({ setup: true, shells: shells.length, workers: workers.length, ended, beatFiles: first.length, before, after, dirLeft, slow });
+  cleanup(); say({ setup: true, shells: shells.length, workers: workers.length, ended, beatFiles: first.length, before, after, groupLeft: left, dirLeft, slow });
 })();
 `, 'utf8')
   const hardEnv = { ...env, ...mutationFixtureEnv('mutate', ['--jobs=2'], hardTmp) }
@@ -8721,7 +8725,7 @@ const cleanup = () => {
   // 入口删不动目录时那句话打在退出之前，后面还跟着成本摘要那几行，末几行里看不见它，单独捞出来
   const logAbout = (word: string): string => existsSync(hardLog) ? readFileSync(hardLog, 'utf8').split('\n').filter(l => l.includes(word)).join('\n') : ''
   let got: { setup?: boolean; degraded?: string; shells?: number; workers?: number; ended?: { code?: number | null; signal?: string | null; error?: string };
-    beatFiles?: number; before?: number; after?: number; dirLeft?: boolean; slow?: boolean } | undefined
+    beatFiles?: number; before?: number; after?: number; groupLeft?: number; dirLeft?: boolean; slow?: boolean } | undefined
   try { got = JSON.parse((r.stdout ?? '').trim().split('\n').pop() ?? '') } catch { got = undefined }
   if (got?.degraded !== undefined) {
     console.log(`  ⊘ 派工硬停按组收验证者：这台机器上没验 —— 读不到派工进程的子进程表（${got.degraded}），那是 Linux 才有的`)
@@ -8732,8 +8736,10 @@ const cleanup = () => {
     console.error(`  ✗ 派工硬停${SELFCHECK_FIXTURE_MARK}：夹具没造对 —— 两个验证者、两份心跳没都起来，派工底下不是恰好两个 worker 壳、各带一个真 worker，`
       + `量心跳时读不到那两份，或从心跳齐了到量完拖过了一分钟，硬来那一刀这一跑验不着：${JSON.stringify(got) ?? r.error ?? r.stderr}\n${logTail()}`)
   } else {
-    named('派工硬停：验证者那一组被收掉，孙子的心跳停了', got.before === got.after,
-      `派工退出之后心跳还在长（${got.before} → ${got.after}）—— 硬来没给验证者那一组发那一刀，孤儿照样跑被改过的源码`)
+    // 两样都看：心跳只说孙子停了，验证者那几组自己有没有收干净，按组号数一遍才知道（CodeRabbit 指出）
+    named('派工硬停：验证者那一组被收掉，孙子的心跳停了', got.groupLeft === 0 && got.before === got.after,
+      `派工退出之后验证者那几组还剩 ${String(got.groupLeft)} 个活着的进程，心跳 ${got.before} → ${got.after}`
+      + ' —— 硬来没给验证者那一组发那一刀，孤儿照样跑被改过的源码')
     named('派工硬停：隔离目录收干净了', got.dirLeft === false, `硬来之后 .check-cache/mutate-jobs 还在：\n${logAbout('隔离目录') || logTail()}`)
     named('派工硬停：以退出码 1 收场', got.ended?.code === 1,
       `派工那一跑的结局是 ${JSON.stringify(got.ended)} —— 硬来那一步以 1 退出，这里不是：\n${logTail()}`)
