@@ -5121,6 +5121,26 @@
       "kills": ["找不到 runBoth 也报"]
     },
     {
+      "id": "M-H25-g",
+      "req": "harness",
+      "why": "自检里报进程失败的那一句挪出了起进程的那个函数，进程记号那一半就一句也不问、照样报没毛病 —— 那条断言从此是空的",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    if (errors.length === 0) processFaults.push('runBoth 里一句 console.error 都没有 —— 进程失败那句挪走了')\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["runBoth 里一句 console.error 都没有也报"]
+    },
+    {
+      "id": "M-H25-h",
+      "req": "harness",
+      "why": "记号打在换行之后也算带了 —— 判定只认 ✗ 那一行上的记号，那一行照样是普通的 ✗ 加名字，什么也没测到的跑被记成抓到，静态那一问却说没毛病",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "          && piece.text.includes('\\n')) return false\n",
+      "replace": "          && piece.text.includes('\\n')) continue\n",
+      "by": "test",
+      "kills": ["记号落在换行之后不算打在那一行上"]
+    },
+    {
       "id": "M-H26-a",
       "req": "harness",
       "why": "点名一组、只要红了其中一条就算被抓到 —— 名单里剩下那几条明天删光，这条变异照样绿，而它对那几条什么也没证明",

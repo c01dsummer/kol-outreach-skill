@@ -117,18 +117,25 @@ export function processFailed(output: string, mark: string): boolean {
  * （ADR-70 第 1019 行那张欠条）。问两件：
  *
  * - **说了「夹具没造对」的，要带夹具记号。** 一个串或模板串的某一段里有这几个字，往上最近的
- *   那个调用又是 `console.error` 或 `named`，它的实参里就得有 `SELFCHECK_FIXTURE_MARK`。
+ *   那个调用又是 `console.error` 或 `named`，它就得带着 `SELFCHECK_FIXTURE_MARK`。
  *   字是说给人看的「这条夹具废了」，记号是说给判定看的同一件事，两边要对得上。
- *   ⚠️ 它认的是「说了这几个字」，不是「夹具废了」：用别的字说、本来就带着记号的那几十句，
- *   这里不问；先存进变量再印的，这里也看不见。
  * - **`runBoth` 里的每一句 `console.error` 都要带进程记号。** 起进程的夹具都走它，进程级失败
  *   就是它报的。源码里找不到 `runBoth`，或它里面一句 `console.error` 都没有，也报 ——
- *   改了名、挪了地方，不能让这一条悄悄变成空的。不走 `runBoth` 报进程失败的那几处（拆进程跑
- *   之类）这里不问。
+ *   改了名、挪了地方，不能让这一条悄悄变成空的。
  *
- * 按语法树而不是按正则：注释里写着这几个字的（`selfcheck.ts` 里就有几处）不是诊断；
- * 名字只认光秃秃的，`别的对象.SELFCHECK_FIXTURE_MARK` 不算 —— 与下面 `leadWired` 同一条判据。
+ * **「带着」指打在 ✗ 那一行上**，因为 `processFailed` 只认同一行：把实参按源码先后拆成拼接（`+`）
+ * 与模板串的一段一段，光秃秃的那个名字自己是一段，又排在任何带换行的字面段之前，才算。
+ * 包在别的表达式里的（`String(记号)`、`条件 ? 记号 : ''`、`记号.length`）、`别的对象.记号`
+ * 都不算一段；按语法树而不是按正则，注释里写着这几个字的也不是诊断。
  * `phraseSites` 是查过的「说了这几个字」的诊断有几句，调用方拿它判这一条是不是空的。
+ *
+ * ⚠️ 看不见的，照实列：
+ * - 它认的是「说了这几个字」，不是「夹具废了」：用别的字说夹具废了的那些带夹具记号的诊断，这里不问。
+ * - 不走 `runBoth` 报进程失败的那几处（拆进程跑之类），这里不问。
+ * - 先存进变量再印的、中间隔了别的调用的（`[…].join()`、`String(…)`）、不是直接写 `console.error`
+ *   或 `named` 的（别名、`process.stderr.write`、`console['error']`），这几个字都看不见。
+ * - 拿 `named` 去断言**别人的输出**里有这几个字，会被当成一句诊断、报没带记号（宁可多报）。
+ * - 同名的 `runBoth` 不止一个时只看文档里头一个。
  */
 export function unmarkedDiagnostics(source: string): { fixture: string[]; process: string[]; phraseSites: number } {
   const ts = typescript()
@@ -137,16 +144,24 @@ export function unmarkedDiagnostics(source: string): { fixture: string[]; proces
   const consoleError = (call: Ts.CallExpression) => ts.isPropertyAccessExpression(call.expression)
     && ts.isIdentifier(call.expression.expression) && call.expression.expression.text === 'console'
     && call.expression.name.text === 'error'
-  /** 实参里有没有光秃秃这个名字 —— 不往套在里面的调用里找，那些自己算一处 */
+  /** 记号打没打在 ✗ 那一行上：实参拆成一段一段，这个名字自己是一段、又排在头一个换行之前 */
   const passes = (call: Ts.CallExpression, name: string): boolean => {
-    let found = false
-    const visit = (node: Ts.Node): void => {
-      if (ts.isIdentifier(node) && node.text === name
-          && !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node)) found = true
-      else if (!ts.isCallExpression(node)) ts.forEachChild(node, visit)
+    const pieces: Ts.Node[] = []
+    const flatten = (e: Ts.Expression): void => {
+      if (ts.isParenthesizedExpression(e)) flatten(e.expression)
+      else if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.PlusToken) { flatten(e.left); flatten(e.right) }
+      else if (ts.isTemplateExpression(e)) {
+        pieces.push(e.head)
+        for (const span of e.templateSpans) { flatten(span.expression); pieces.push(span.literal) }
+      } else pieces.push(e)
     }
-    call.arguments.forEach(visit)
-    return found
+    call.arguments.forEach(flatten)
+    for (const piece of pieces) {
+      if (ts.isIdentifier(piece) && piece.text === name) return true
+      if ((ts.isStringLiteralLike(piece) || ts.isTemplateHead(piece) || ts.isTemplateMiddle(piece) || ts.isTemplateTail(piece))
+          && piece.text.includes('\n')) return false
+    }
+    return false
   }
   const fixtureFaults: string[] = [], processFaults: string[] = []
   const checked = new Set<Ts.CallExpression>()
