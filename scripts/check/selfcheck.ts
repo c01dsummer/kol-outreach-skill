@@ -7212,38 +7212,41 @@ group('anchor-residue-entry', [], () => {
 
 // ---- 变异锚点读暂存区：入口真的读了 git 暂存区与 HEAD（ADR-70 末尾「变异残留：暂存区」第五片，接线证明）----
 group('anchor-staged-entry', [], () => {
-  // 判定是纯函数 stagedResidue（工作树上已报的不看、只交没还原与分不开、HEAD 上已是同一种的不交），由需求测试 h-mutate
-  // 断言、M-H45-ah…am 守着；剩下的那一半是**入口真的读了暂存区与 HEAD、交给判定、点名、照它退出**。
-  // 不配负片的理由同 anchor-residue-entry。两棵树都是真 git 仓库；夹具与入口的 git 都不读用户与系统配置、
-  // 不认继承来的仓库指向（同 skill-entry 那组）：环境里带着 GIT_DIR、GIT_INDEX_FILE 时，不删的话读写落到别人的索引。
+  // 判定是纯函数 stagedResidue 与 notARepo，由需求测试 h-mutate 断言、M-H45-ah…an 守着；剩下的那一半是**入口真的
+  // 读了暂存区与 HEAD、交给判定、点名、照它退出，git 读不到时分得开不是仓库与坏了**。不配负片的理由同 anchor-residue-entry。
+  // 夹具与入口的 git 都不读用户与系统配置、不认继承来的仓库指向与注入的配置（同 skill-entry 那组，另加 GIT_CONFIG_COUNT
+  // 与模板目录）：环境里带着 GIT_DIR、GIT_INDEX_FILE 时，不删的话读写落到别人的索引。
   const noOuter: NodeJS.ProcessEnv = { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
-  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) noOuter[key] = undefined
+  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR',
+    'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) noOuter[key] = undefined
   const git = (cwd: string, ...args: string[]): boolean => {
     const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, ...noOuter } })
     if (r.status === 0) return true
     failed++; console.error(`  ✗ 暂存区夹具${SELFCHECK_FIXTURE_MARK}：${cwd} 里 git ${args.join(' ')}：${r.error ?? r.stderr}`)
     return false
   }
-  // 建一个仓库，files 与目录都提交进 HEAD
-  const repo = (dir: string, files: Record<string, string>, catalog: unknown): boolean => {
-    mkdirSync(join(dir, 'scripts', 'check'), { recursive: true })
-    for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text, 'utf8')
-    writeFileSync(join(dir, 'scripts', 'check', 'mutations.json'), JSON.stringify(catalog), 'utf8')
-    return git(dir, 'init', '--quiet', '-b', 'main') && git(dir, 'config', 'user.name', 'Anchor fixture')
-      && git(dir, 'config', 'user.email', 'fixture@example.invalid') && git(dir, 'add', '-A') && git(dir, 'commit', '--quiet', '-m', 'fixture')
+  // 建一个仓库，包放在带空格与中文的子目录里（钉住入口按当前目录给路径），files 与目录都提交进 HEAD
+  const repo = (root: string, pkg: string, files: Record<string, string>, catalog: unknown): boolean => {
+    mkdirSync(join(pkg, 'scripts', 'check'), { recursive: true })
+    for (const [name, text] of Object.entries(files)) { mkdirSync(dirname(join(pkg, name)), { recursive: true }); writeFileSync(join(pkg, name), text, 'utf8') }
+    writeFileSync(join(pkg, 'scripts', 'check', 'mutations.json'), JSON.stringify(catalog), 'utf8')
+    return git(root, 'init', '--quiet', '-b', 'main') && git(root, 'config', 'user.name', 'Anchor fixture')
+      && git(root, 'config', 'user.email', 'fixture@example.invalid') && git(root, 'add', '-A') && git(root, 'commit', '--quiet', '-m', 'fixture')
   }
   const fine = { id: 'M-X-e', req: 'X1', why: '干净的一条', file: 'e.ts', find: 'ok()', replace: 'no()' }
-  const back = { id: 'M-X-s', req: 'X1', why: '暂存过的', file: 's.ts', find: 'return x', replace: 'return y' }
+  const back = { id: 'M-X-s', req: 'X1', why: '暂存过的', file: '目 录/中 文.ts', find: 'return x', replace: 'return y' }
   // 变异 git add 过、工作树那一处后来按回去了：工作树对得上，暂存区里是施加之后的样子
-  const stagedTmp = join(tmp, 'anchor-staged')
-  if (repo(stagedTmp, { 's.ts': 'return x\n', 'e.ts': 'ok()\n' }, { mutations: [back, fine] })) {
-    writeFileSync(join(stagedTmp, 's.ts'), 'return y\n', 'utf8')
-    const ready = git(stagedTmp, 'add', 's.ts')
-    writeFileSync(join(stagedTmp, 's.ts'), 'return x\n', 'utf8')
-    const staged = ready ? runBoth('anchors 暂存区里躺着变异即以退出码 1 结束', [S(SELFCHECK_TOOLS.anchors)], stagedTmp, { status: 1 }, noOuter) : undefined
+  const stagedRoot = join(tmp, 'anchor-staged')
+  const stagedPkg = join(stagedRoot, '子 包')
+  const target = join(stagedPkg, '目 录', '中 文.ts')
+  if (repo(stagedRoot, stagedPkg, { '目 录/中 文.ts': 'return x\n', 'e.ts': 'ok()\n' }, { mutations: [back, fine] })) {
+    writeFileSync(target, 'return y\n', 'utf8')
+    const ready = git(stagedRoot, 'add', '-A')
+    writeFileSync(target, 'return x\n', 'utf8')
+    const staged = ready ? runBoth('anchors 暂存区里躺着变异即以退出码 1 结束', [S(SELFCHECK_TOOLS.anchors)], stagedPkg, { status: 1 }, noOuter) : undefined
     if (staged?.ok) {
       const lines = staged.stderr.split('\n')
-      named('anchors 点名暂存区里没还原的那条', lines.some(l => l.trimStart().startsWith('M-X-s  s.ts：暂存区里像是没还原')), staged.stderr)
+      named('anchors 点名暂存区里没还原的那条', lines.some(l => l.trimStart().startsWith('M-X-s  目 录/中 文.ts：暂存区里像是没还原')), staged.stderr)
       named('anchors 暂存区里的叫人看 git diff --cached、只撤那一处',
         staged.stderr.includes('git diff --cached') && staged.stderr.includes('git restore --staged -p'), staged.stderr)
       named('anchors 不点名暂存区里对得上的那条', !staged.stderr.includes('M-X-e'), staged.stderr)
@@ -7251,13 +7254,22 @@ group('anchor-staged-entry', [], () => {
   }
   // 改完还没 git add：暂存区与 HEAD 同是旧代码，新写的删一段的变异在那里本来就分不开 —— 不是暂存了变异
   const pendingTmp = join(tmp, 'anchor-unstaged-edit')
-  if (repo(pendingTmp, { 'n.ts': 'z\n', 'e.ts': 'ok()\n' }, { mutations: [fine] })) {
+  if (repo(pendingTmp, pendingTmp, { 'n.ts': 'z\n', 'e.ts': 'ok()\n' }, { mutations: [fine] })) {
     writeFileSync(join(pendingTmp, 'n.ts'), 'del()\nz\n', 'utf8')
     writeFileSync(join(pendingTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [fine,
       { id: 'M-X-n', req: 'X1', why: '新写的删一段', file: 'n.ts', find: 'del()\n', replace: '' }] }), 'utf8')
     const pending = runBoth('anchors 改完还没 git add 时以退出码 0 结束', [S(SELFCHECK_TOOLS.anchors)], pendingTmp, undefined, noOuter)
     if (pending.ok) named('anchors 改完还没 git add 时说暂存区也查过', pending.stdout.includes('2 条变异') && pending.stdout.includes('暂存区也查过'), pending.stdout)
   }
+  // git 坏了（.git 是个读不出的文件）：不当成不是仓库，以 1 退出并带出 git 的原话
+  const brokenTmp = join(tmp, 'anchor-broken-git')
+  mkdirSync(join(brokenTmp, 'scripts', 'check'), { recursive: true })
+  writeFileSync(join(brokenTmp, 'e.ts'), 'ok()\n', 'utf8')
+  writeFileSync(join(brokenTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [fine] }), 'utf8')
+  writeFileSync(join(brokenTmp, '.git'), '不是 gitdir 那一行\n', 'utf8')
+  const broken = runBoth('anchors git 读不到暂存区即以退出码 1 结束', [S(SELFCHECK_TOOLS.anchors)], brokenTmp, { status: 1 }, noOuter)
+  if (broken.ok) named('anchors git 坏了时说读不到暂存区并带出 git 的原话',
+    broken.stderr.includes('git 读不到暂存区') && broken.stderr.includes('fatal:') && !broken.stdout.includes('✓'), broken.stderr + broken.stdout)
 })
 
 // ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----

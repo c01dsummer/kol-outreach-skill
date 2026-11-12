@@ -5886,6 +5886,18 @@
       ]
     },
     {
+      "id": "M-H45-an",
+      "req": "harness",
+      "why": "git 读不到一律当成不是仓库：属主不符、.git 坏了时暂存区那一步静默不做，入口以 0 退出，暂存区里躺着的变异照样被提交带进去",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "/^fatal: not a git repository\\b/m.test(gitStderr)",
+      "replace": "gitStderr !== ''",
+      "by": "test",
+      "kills": [
+        "git 说属主不符：不放过"
+      ]
+    },
+    {
       "id": "M-H45-i",
       "req": "harness",
       "why": "施加变异时替换文本里的美元记号被当成替换记号展开，盘上写出的不是目录里登记的那一段 —— 一条变异顺带多改一处，被抓到也说不清是哪一处的功劳",

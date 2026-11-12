@@ -3967,18 +3967,23 @@ npx tsx -e 'import{readFileSync as r}from"node:fs";import{applyMutation as a}fro
 
 ## 变异残留：暂存区（第五片：入口，2026-11-12）
 
-**做了什么。** 上一节的判定已合入（#458）；这一片照「闸门自身走最后一块砖」只接入口。`anchors.ts` 在编号不重复时（`anchorVerdict` 没报重名）再读 git 暂存区与 HEAD，交给 `stagedResidue`，躺在暂存区里的逐条点名为「暂存区里像是没还原」或「暂存区里分不开」，以 1 退出。重名时不调它 —— 那是它写在注释里的前提。暂存区只对 `git diff --name-only --relative`（工作树与暂存区不同）列出的文件用 `git show :./文件` 读，HEAD 同样只对这几个文件用 `git show HEAD:./文件` 读；其余文件两边一样，交工作树那份，判定注释写着结论一样，这只省进程。git 用的是体量闸门那份 `GIT_CONFIG`。读不到 git（不是仓库、没装 git）时这一步不做，✓ 那一行说「读不到 git，暂存区没查」；查过的说「暂存区也查过」。入口只读、说话、设退出码，判定一处也不在入口里（`docs/CONVENTIONS.md` 第 10 条）。`AGENTS.md` 检查命令那一行、`docs/ARCHITECTURE.md` 锚点表 `anchors.ts` 与 `mutate-rule.ts` 两行跟着改了。
+**做了什么。** 上一节的判定已合入（#458）；这一片照「闸门自身走最后一块砖」只接入口，外加一个小判定。`anchors.ts` 在编号不重复时（`anchorVerdict` 没报重名）再读 git 暂存区与 HEAD，交给 `stagedResidue`，躺在暂存区里的逐条点名为「暂存区里像是没还原」或「暂存区里分不开」，以 1 退出。重名时不调它 —— 那是它写在注释里的前提。目录里每个目标文件的暂存区与 HEAD 版本，一次 `git cat-file --batch` 读完（`:./文件`、`HEAD:./文件`，路径相对当前目录），读出来不是 blob 的（缺、歧义、合并冲突里的多阶段条目）按不在算。查过的 ✓ 那一行说「暂存区也查过」。`AGENTS.md` 检查命令那一行、`docs/ARCHITECTURE.md` 锚点表 `anchors.ts` 与 `mutate-rule.ts` 两行跟着改了。
 
-**入口怎么说。** 暂存区里的那一块单独起一行汇总（「下一次 git commit 会把它带进去」），附一句：先用 `git diff --cached` 看那个文件，只撤暂存区里那一处 —— `git restore --staged` 整个文件会把它暂存的别的改动一起撤掉，有别的改动就用 `git restore --staged -p` 挑出那一处；工作树里也有那一处的，两边都要撤（上一节已知边界里留给这一片的那句）。在本片的树上实做：把 `M-D6-d` 照字面施加到 `scripts/lib/pipeline.ts`、`git add`、再写回原字节，`npm run anchors` 以 1 退出，报 `M-D6-d` 暂存区里分不开（同文件的 `M-P1-u` 不另报，工作树上它对得上、暂存区里被连带的不交）；`git restore --staged` 之后以 0 退出。
+**初稿怎么改成这样的。** 初稿只对 `git diff --name-only --relative` 列出的文件读暂存区，其余交工作树那份，git 一失败就当成不是仓库。独立复审实测三处毛病：
+- **属主不符时静默放过。** 仓库属主与跑的人不同，git 报 dubious ownership，初稿说「读不到 git，暂存区没查」、以 0 退出，暂存区里那条照样被提交带进去 —— 容器里 root 跑检查、宿主机提交就是这样。现在由新判定 `notARepo` 认 git 的原话（入口按 `LC_ALL=C` 起 git）：只有「不是仓库」放过、✓ 那一行说「不是 git 仓库，暂存区没查」；属主不符、`.git` 坏了、没装 git 都以 1 退出并带出 git 的第一行原话。没得核不是核过了。
+- **挑文件读是判定，而且挑漏了。** 挑哪几个文件读决定这一步看得见多少（`docs/CONVENTIONS.md` 第 10 条）；`git diff` 不列 `assume-unchanged`、`skip-worktree` 的文件，目录里写成 `./e.ts` 的也对不上。现在不挑，每个目标文件都读。
+- **慢。** 初稿按变异条数起 `git show`，目标文件都有未暂存改动时单跑要二十几秒；现在一次 `cat-file`，真树上单跑一秒多。`cat-file` 也不像 `git diff` 那样回写索引的 stat 缓存。
+
+**入口怎么说。** 暂存区里的那一块单独起一行汇总（「下一次 git commit 会把它带进去」），附一句：先用 `git diff --cached` 看那个文件，只撤暂存区里那一处 —— `git restore --staged` 整个文件会把它暂存的别的改动一起撤掉，有别的改动就用 `git restore --staged -p` 挑出那一处；工作树里也有那一处的，两边都要撤（上一节已知边界里留给这一片的那句）。在本片的树上实做：把 `M-D6-d` 照字面施加到 `scripts/lib/pipeline.ts`、`git add`、再写回原字节，`npm run anchors` 以 1 退出，报 `M-D6-d` 暂存区里分不开（同文件的 `M-P1-u` 不另报：工作树上它对得上，暂存区里被连带的不交）；`git restore --staged` 之后以 0 退出。
 
 **怎么验的。**
-- 判定那一半上一节已验（`h-mutate` 的断言与 `M-H45-ah`…`am`）。
-- 入口那一半由新自检组 `anchor-staged-entry` 证：两个玩具 git 仓库，入口各起一次。一个暂存了变异、工作树又按回去，以 1 退出、点名那一条、叫人 `git diff --cached` 与 `git restore --staged -p`、不点名对得上的那条；一个改完还没 `git add`（新写的删一段变异在 HEAD 与暂存区的旧代码里分不开），以 0 退出、说「暂存区也查过」。夹具与入口的 git 都不读用户与系统配置，不认继承来的 `GIT_DIR`、`GIT_INDEX_FILE` 等仓库指向（同 `skill-entry` 那组）。命令 `npx tsx scripts/check/selfcheck.ts --only=anchor-staged-entry`。在本地把入口改坏三种（暂存区交工作树那份、HEAD 交暂存区那份、对不同的文件先读工作树），这一组各红在「暂存区里躺着变异即以退出码 1 结束」上。
+- `notARepo` 由需求测试 `h-mutate` 两条断言钉住（不是仓库放过；属主不符、gitfile 坏了、没装 git、`git diff` 那句 warning 都不放过），变异 `M-H45-an`（`by: test`）照字面施加后点名的断言红。`stagedResidue` 上一节已验。
+- 入口那一半由新自检组 `anchor-staged-entry` 证，入口各起一次：包放在仓库里带空格与中文的子目录、目标文件也是，暂存了变异又按回去 —— 以 1 退出、点名那一条、叫人 `git diff --cached` 与 `git restore --staged -p`、不点名对得上的那条；改完还没 `git add`（新写的删一段变异在 HEAD 与暂存区的旧代码里分不开）—— 以 0 退出、说「暂存区也查过」；`.git` 是个读不出的文件 —— 以 1 退出、说读不到暂存区并带出 `fatal:` 那句。夹具与入口的 git 都不读用户与系统配置，不认继承来的 `GIT_DIR`、`GIT_INDEX_FILE` 等仓库指向，也不认注入的 `GIT_CONFIG_COUNT` 与模板目录。命令 `npx tsx scripts/check/selfcheck.ts --only=anchor-staged-entry`。在本地把入口改坏几种（暂存区交工作树那份、HEAD 交暂存区那份、HEAD 恒交 `undefined`、路径不带 `./`、git 读不到一律当成不是仓库），这一组各红。
 - 入口这一半不配负片，理由同第三片。
 
 **已知边界，照实记。**
-- 读不到 git 时暂存区那一步不做，✓ 那一行说没查，不以 1 退出：不是仓库就没有下一次提交可带。
-- 合并冲突里多阶段的条目，`git show :./文件` 读不出，那个文件按不在暂存区算，不报。
+- 「不是仓库」放过，是因为没有下一次提交可带；认的是 git 那句原话，git 改了措辞的话会落到「以 1 退出」那一边，不会落到放过那一边。
+- 文件名里带换行的没法写进 `cat-file` 的一行，按不在暂存区算。
 - 部分暂存、CRLF、重新拼出 `find`、两条同锚点同替换的变异，判定那一节与第 3934 行记着的照旧没有专门的说法，见末行。
 - 暂存区里一条躺着的，同文件被它连带的不交，入口也不说「先撤那一处」 —— 工作树上它们对得上，撤了暂存区那一处再跑就清楚。
 

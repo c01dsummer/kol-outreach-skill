@@ -324,6 +324,16 @@ export function stagedResidue(muts: readonly { id: string; file: string; find: s
 }
 
 /**
+ * git 读不到暂存区时，是**这里本来就不是仓库**（没有下一次提交可带，暂存区那一步可以不做），还是 **git 出了别的毛病**
+ * （属主不符的 dubious ownership、`.git` 坏了、没装 git……仓库可能就在那里，暂存区里可能正躺着一条）。
+ * 只有前一种放过，其余都算没得核 —— 没得核不是核过了。认的是 `LC_ALL=C` 下 git 的那句原话；调用方要按这个语言起 git。
+ * ADR-70 末尾「变异残留：暂存区」第五片（复审实测：属主不符时 `git diff` 以 129 退出，旧入口当成不是仓库、以 0 退出）。
+ */
+export function notARepo(gitStderr: string): boolean {
+  return /^fatal: not a git repository\b/m.test(gitStderr)
+}
+
+/**
  * 把一条变异施加到源码上：`find` 的第一处换成 `replace`，**照字面**（ADR-70 末尾「施加照字面」一节）。
  *
  * `String.prototype.replace` 的字符串形式把替换文本里的 `$$`、`$&`、`` $` ``、`$'` 当记号展开，盘上写出的

@@ -51,7 +51,7 @@ import {
   labelFault, notAssertion,
   labelFaults,
   groupOfLabel, labelsOf, leadWired, processFailed, wiringFault,
-  anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault, stagedResidue,
+  anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault, notARepo, stagedResidue,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { judgeShares, scanShares } from './check/share-rule.js'
@@ -8011,6 +8011,18 @@ harness('变异锚点那一步：暂存区里躺着的变异')
   // 不在暂存区（没跟踪、git rm --cached 过、不是仓库）：读暂存区交 undefined，不当成读不到的毛病；HEAD 里有它也一样
   eq('文件不在暂存区：不报', stagedResidue([back, cut], tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' }), tree({}), head), [])
   eq('暂存区与工作树一样、都对得上：不报', stagedResidue([back], tree({ 'a.ts': 'return x\n' }), tree({ 'a.ts': 'return x\n' }), head), [])
+}
+
+harness('变异锚点那一步：git 读不到时是不是本来就不是仓库')
+{
+  // 只有「不是仓库」放过；属主不符、.git 坏了、没装 git 都算没得核（复审实测属主不符时旧入口当成不是仓库、以 0 退出）
+  eq('git 说不是仓库：放过', notARepo('fatal: not a git repository (or any of the parent directories): .git\n'), true)
+  eq('git 说属主不符：不放过', [
+    notARepo("fatal: detected dubious ownership in repository at '/r'\nTo add an exception for this directory, call:\n"),
+    notARepo('fatal: invalid gitfile format: /r/.git\n'),
+    notARepo('Error: spawnSync git ENOENT'),
+    notARepo("warning: Not a git repository. Use --no-index to compare two paths outside a working tree\n"),
+  ], [false, false, false, false])
 }
 
 harness('by 与 kills 同进同出：四种写错各有名字')
