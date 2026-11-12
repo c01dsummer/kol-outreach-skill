@@ -51,7 +51,7 @@ import {
   labelFault, notAssertion,
   labelFaults,
   groupOfLabel, labelsOf, leadWired, processFailed, wiringFault,
-  anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault,
+  anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault, stagedResidue,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { judgeShares, scanShares } from './check/share-rule.js'
@@ -7975,6 +7975,42 @@ harness('变异锚点那一步：编号重复先报，连带的标出来，附�
   eq('变异目录：哪一条缺了 id、file、find、replace 里的一样，或不是字符串，整份不算', [
     anchorCatalog({ mutations: [m, null] }), anchorCatalog({ mutations: [m, { ...m, find: 1 }] }), anchorCatalog({ mutations: [{ id: 'M-乙', file: 'a.ts', find: 'ok' }] }),
   ], [undefined, undefined, undefined])
+}
+
+harness('变异锚点那一步：暂存区里躺着的变异')
+{
+  const tree = (t: Record<string, string>) => (file: string): string | undefined => t[file]
+  const back = { id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' }
+  const cut = { id: 'M-乙', file: 'u.ts', find: 'del()\n', replace: '' }
+  const head = tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' })
+  // 变异 git add 过、工作树那一处后来按回去了：工作树对得上，暂存区里是施加之后的样子
+  eq('暂存区里没还原、工作树已按回去：报没还原', stagedResidue([back],
+    tree({ 'a.ts': 'return x\n' }), tree({ 'a.ts': 'return y\n' }), head), [{ kind: 'residue', id: 'M-甲', file: 'a.ts' }])
+  // 删一段的：暂存区里那段没了、工作树里还在 —— 分不开，照样报
+  eq('暂存区里删一段的那段没了、工作树里还在：报分不开', stagedResidue([cut],
+    tree({ 'u.ts': 'del()\nz\n' }), tree({ 'u.ts': 'z\n' }), head), [{ kind: 'unclear', id: 'M-乙', file: 'u.ts' }])
+  // 工作树上那条已经有毛病（锚点失效、没还原、读不到）：该先处理工作树，暂存区不重复说
+  eq('工作树上那条已有毛病：暂存区里的不重复报', stagedResidue([back],
+    tree({ 'a.ts': 'return z\n' }), tree({ 'a.ts': 'return y\n' }), head), [])
+  eq('工作树与暂存区都是施加之后的样子：只算工作树的', stagedResidue([back],
+    tree({ 'a.ts': 'return y\n' }), tree({ 'a.ts': 'return y\n' }), head), [])
+  eq('工作树上文件没了：暂存区里的不报', stagedResidue([back], tree({}), tree({ 'a.ts': 'return y\n' }), head), [])
+  // 同文件另一条在工作树上有毛病，不连累这一条：按编号排除，不按文件
+  eq('同文件另一条工作树上失效：暂存区里这一条照报', stagedResidue([back, { id: 'M-丁', file: 'a.ts', find: 'gone()', replace: 'g()' }],
+    tree({ 'a.ts': 'return x\n' }), tree({ 'a.ts': 'return y\n' }), head), [{ kind: 'residue', id: 'M-甲', file: 'a.ts' }])
+  eq('两个文件的变异都躺在暂存区：都报', stagedResidue([back, cut],
+    tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' }), tree({ 'a.ts': 'return y\n', 'u.ts': 'z\n' }), head),
+    [{ kind: 'residue', id: 'M-甲', file: 'a.ts' }, { kind: 'unclear', id: 'M-乙', file: 'u.ts' }])
+  // 改完还没 git add：暂存区就是 HEAD 的旧代码，新变异在旧代码里本来就是那个样子 —— 暂存区没跟上，不是暂存了变异
+  eq('还没 git add、暂存区与 HEAD 同是旧代码：不报', stagedResidue([back, cut],
+    tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' }), tree({ 'a.ts': 'return y\n', 'u.ts': 'z\n' }),
+    tree({ 'a.ts': 'return y\n', 'u.ts': 'z\n' })), [])
+  // 暂存区里锚点失效、不唯一：多半是暂存了一版旧代码，不是变异躺在那里
+  eq('暂存区里锚点失效或不唯一：不报', stagedResidue([back, { id: 'M-丙', file: 'c.ts', find: 'k = 1', replace: 'k = 2' }],
+    tree({ 'a.ts': 'return x\n', 'c.ts': 'k = 1\n' }), tree({ 'a.ts': 'keep\n', 'c.ts': 'k = 1\nk = 1\n' }), head), [])
+  // 不在暂存区（没跟踪、git rm --cached 过、不是仓库）：读暂存区交 undefined，不当成读不到的毛病；HEAD 里有它也一样
+  eq('文件不在暂存区：不报', stagedResidue([back, cut], tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' }), tree({}), head), [])
+  eq('暂存区与工作树一样、都对得上：不报', stagedResidue([back], tree({ 'a.ts': 'return x\n' }), tree({ 'a.ts': 'return x\n' }), head), [])
 }
 
 harness('by 与 kills 同进同出：四种写错各有名字')
