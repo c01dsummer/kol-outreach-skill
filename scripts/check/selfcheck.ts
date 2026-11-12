@@ -3340,8 +3340,9 @@ group('memory', ['collect', 'render'], () => {
 // 预加载让「这一次运行第一次读记忆文件」失败（读不到，D4.d 第一类；ADR-185 第 173 行举的就是暂时性 I/O 错误），
 // 失败原文是这里写定的一串标记，于是「报的是首次那一次」可以按 D4.d「报错原样带出真实原因」、D4.n「交付物带出失败
 // 原因原文」直接断言。同一份预加载还记下落在记忆目录里的写类调用：零写入那几条靠它，阳性对照是第一跑。
-// 不认领 D4.t：它还管 collect --ignore-memory 与 D4.d 的另两类，这里只验 render 这一路（认领仍走 ADR-185 第 169 行）。
-group('memory-d4t-ignore', [], () => {
+// 不认领 D4.t：D4.t 由需求测试 `d4t-independent-claim` 经冻结用例 G3-19、G3-19N 认领（ADR-185 末尾）；这一组补的是那两例不造的
+// 「读不到」一类与首次读不出、写回前再读得出那一种。
+group('ignore-unreadable-memory', [], () => {
   const FIRST = 'D4T-FIRST-READ-FAILED-7c41', SECOND = 'D4T-SECOND-READ-FAILED-2e9b'
   const held = { platform: 'tiktok', handle: 'd4t_held', nickname: 'd4t_held', followers: 12000, first_seen: '2026-01-01',
     recommendations: [], contacted: true, replied: false, blocked: false, note: 'operator marked' }
@@ -3507,7 +3508,7 @@ note('armed\t' + process.pid);
 })
 
 // ---- F9：达标判断不得让任何一个关键词×平台连第一页都没抓到 ----
-group('f9', [], () => {
+group('first-page-before-target-stop', [], () => {
   // 达标判断原先跑在**每一次**搜索之前、第一轮也不例外：前面几个词各抓一页就填满目标时，
   // 后面的任务一个请求都不发 —— 而 task.json 的顺序由 Agent 决定，实测 IG 写在后面时
   // 整个平台为零，报告里它和「查了没人」长得一模一样（ADR-94）。
@@ -3716,7 +3717,7 @@ group('f9', [], () => {
 })
 
 // ---- D6.i／D6.l：请求发出去了、钱扣了，在记下来之前抛了 ----
-group('d6il-paid', [], () => {
+group('paid-request-crash-before-record', [], () => {
   // 供应商换了响应结构：200 已返回、`charge()` 已计费且不退，而 `pickList` 认不出结构抛出。
   // 这条路上 `offsets` 那个键从头到尾没被写过 —— 一度打算拿它兼职回答「问过没有」，
   // 于是一个付过钱的词在盘上看起来像从没问过（ADR-94 第十五节甲，独立复核的实测反例）。
@@ -3778,7 +3779,7 @@ group('d6il-paid', [], () => {
 })
 
 // ---- D6.i／D6.l：402 退了费 —— 钱没花，盘上不许记成「发出过付费请求」 ----
-group('d6il-402', [], () => {
+group('refunded-402-not-recorded-paid', [], () => {
   // 判据逐字：「402／429 退了费的不计入 —— 钱没花、续跑会照常重试，读作『还没问过』
   // 既如实也可行动。」这一半在**入口**：`paid` 取的是预算计数器的**净**增量，
   // `charge()` 加、`refund()` 减，402 那一次净增 0。
@@ -3837,7 +3838,7 @@ group('profile-402-stop', [], () => {
   // 402 那一行也要记下了，才去判「402 之后再无记录」。对照不成立是夹具失格（带夹具记号），这一跑的具名断言都不判。
   // IG「不降级 V2」另配一份阳性对照：同一种接线下 V3 回 404 时账本要真记下 V2 那一行。
   //
-  // 认领 D6.ab（组末尾；ADR-193 接替 D6.z，补上「N 人补全失败」那一行）。整条映射由 D6.aa（接替 D6.y、D6.x）管，留给 KOL-21 独立测试包，这里不认（ADR-183 末尾、ADR-193）。
+  // 认领 D6.ab（组末尾；ADR-193 接替 D6.z，补上「N 人补全失败」那一行）。整条映射由 D6.aa（接替 D6.y、D6.x）管，留给独立黑盒测试包，这里不认（ADR-183 末尾、ADR-193）。
   const root = join(tmp, 'profile-402-stop')
   const HALT = ['profhalt_a', 'profhalt_b', 'profhalt_c']
   const MSG_402 = 'TikHub 余额不足，请充值后重试'
@@ -4030,7 +4031,7 @@ group('profile-402-stop', [], () => {
 })
 
 // ---- D6.j：上一版留下的目录，两张表缺着就一直缺着 ----
-group('d6j-legacy', [], () => {
+group('legacy-dir-missing-tables', [], () => {
   // **只能端到端跑**：建表那两处都在入口脚本里，缺省那个验证者够不到
   // （实测 `M-D6-q` 在 npm test 下存活）。
   //
@@ -4105,7 +4106,7 @@ group('d6j-legacy', [], () => {
 })
 
 // ---- D6.h / D6.m：页数上限跨运行有效 ----
-group('d6h-pagecap', [], () => {
+group('page-cap-across-runs', [], () => {
   // **只能端到端跑**：计数与那道闸都在入口脚本里，缺省那个验证者够不到；而且这条判据
   // 说的正是「**跨运行**」—— 一次进程内的断言天然证不了它。
   //
@@ -4257,7 +4258,7 @@ group('d6h-pagecap', [], () => {
 })
 
 // ---- D6.k：IG 兜底撞上预算时，这个任务不许被烧掉 ----
-group('d6k-igfallback', [], () => {
+group('ig-fallback-budget-keeps-task', [], () => {
   // 判据逐字点名的三样（不进 done、不以退出码 0 收尾、那句话不说「续跑不产生新的请求」）
   // **全在入口那一层**，provider 契约测试够不到（`scripts/test.ts` 那一组只调 `search()`）。
   // 造法：reels 返回条目但一条都解析不出人 → 走兜底；额度只够一次请求 → 第二次当场抛。
@@ -4307,7 +4308,7 @@ group('d6k-igfallback', [], () => {
 })
 
 // ---- D6.u／D6.v：IG Reels 顺着续页令牌翻页，令牌只在一次运行内用 ----
-group('d6uv-igpaging', [], () => {
+group('ig-reels-cursor-paging', [], () => {
   // **只能端到端跑**：「下一页拿什么去请求」「一次运行结束时手里的令牌怎么处置」都是入口脚本的
   // 调度，缺省那个验证者（scripts/test.ts）够不到；而 D6.v 说的正是**跨运行**的事。
   //
@@ -4320,7 +4321,7 @@ group('d6uv-igpaging', [], () => {
   //    FAKE_FETCH_COST_EVENTS 那份逐次记录的 `query` 里读（同 crash-resume A 读 offset 的先例）
   // 单价（ADR-107/108）：IG Reels 0.002/次、TikTok 搜索 0.001/次、profile 0.001/次；
   // 页数上限 4（D6.h 的 `MAX_PAGES`，对外契约）。额度按「已占用 + 这一次 ≤ 上限」放行，
-  // 恰好花完那一次照样放行（d6h-pagecap 夹具 a：0.003 正好 3 次 0.001 的搜索）。
+  // 恰好花完那一次照样放行（page-cap-across-runs 夹具 a：0.003 正好 3 次 0.001 的搜索）。
   // 每一跑都关掉第 7 次回 429 的触发器 —— IG 翻页让请求数变多，碰上它就多出一行重试。
   //
   // 旧行为（入口没接令牌：IG 每个任务只取一页、第二页起一个请求都不发）下，夹具 1、2、4
@@ -6086,7 +6087,7 @@ const calDup = (name: string, from: string, to: string, calibration: Record<stri
 }
 
 group('resume-progress-dup-calibration', [], () => {
-  // calDup 依赖的 calSame 由这条 oracle 证（手写规范化串与 SHA256 手推向量）；用到它的 d27-calibration 组另抄一份
+  // calDup 依赖的 calSame 由这条 oracle 证（手写规范化串与 SHA256 手推向量）；用到它的 task-json-duplicate-keys-calibration 组另抄一份
   if (sha256('abc') !== 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
     || JSON.stringify(Object.fromEntries(Object.entries(calContent).sort(([a], [b]) => a < b ? -1 : 1))) !== calCanonical) {
     failed++; console.error(`  ✗ calibration version 重复进度键内容哈希 oracle${SELFCHECK_FIXTURE_MARK}：手写规范化串或 SHA256 与手推向量不符`); return
@@ -6204,7 +6205,7 @@ const d27Modes: [string, D27Entry, string[]][] = [
   ['enrich', 'enrich', []], ['enrich --budget 2', 'enrich', ['--budget', '2']], ['render', 'render', []],
 ]
 
-group('resume-progress-d27-entries', [], () => {
+group('task-json-duplicate-keys-entries', [], () => {
   const d27Run = d27Runner('')
   const d27Controls = new Map<string, boolean>()
   const d27Leaked: Record<D27Entry, string[]> = { collect: [], enrich: [], render: [] }
@@ -6243,9 +6244,9 @@ group('resume-progress-d27-entries', [], () => {
   d27MainDone = d27Ran === d27Planned
 })
 
-group('resume-progress-d27-mixed', ['resume-progress-d27-entries'], () => {
+group('task-json-duplicate-keys-mixed', ['task-json-duplicate-keys-entries'], () => {
   const d27Run = d27Runner('mixed-')
-  // 指向 d27-entries 的边不为读它的结果：下面的判定含零预留、零请求，以主循环里各入口的阳性对照先跑过为前提（ADR-131；ADR-144 复核发现 2）
+  // 指向 task-json-duplicate-keys-entries 的边不为读它的结果：下面的判定含零预留、零请求，以主循环里各入口的阳性对照先跑过为前提（ADR-131；ADR-144 复核发现 2）
   // 「与同文件的任务列表问题一起」（D27.b、ADR-142 第一节第 3 条）：tasks 写了两次、最后那份任务列表不合规 —— 任务列表按最后那份判，
   // 两类问题在同一次拒绝里都写出，不让用户先照最后那份改完任务、再撞上写重复。退出 2 本来就由任务列表的问题满足，所以要的是两类都写出；
   // 任务问题按 D16 的写法认字段名与 JSON 原值
@@ -6264,7 +6265,7 @@ group('resume-progress-d27-mixed', ['resume-progress-d27-entries'], () => {
   if (d27MixedRan > 0) named('写重复的键：tasks 写了两次且最后那份任务列表不合规时，collect、enrich 与 render 退出2，stderr 任务列表问题与 tasks 的每一处都写出', !d27Mixed.length, d27Mixed.join('；'))
 })
 
-group('resume-progress-d27-twice', [], () => {
+group('task-json-duplicate-keys-twice', [], () => {
   const d27Run = d27Runner('twice-')
   // D19.k 那几处照 D19.l、D19.m 报，不重复报（D27.b 末句）：同一份里进度键 found 的 "0" 与 requests 都写了重复。
   // 三个入口两处都写出、各只列一遍 —— 去掉路径的 stderr 里 7.5e1 与 1e400 各恰好一次。collect 与 render 的进度那一道在任务列表那一道之后：
@@ -6289,7 +6290,7 @@ group('resume-progress-d27-twice', [], () => {
   if (d27BothRan > 0) named('写重复的键：进度键或坏进度与别处同时出问题时，三个入口都写出每一处，每一处只报一遍、不因两条判据报两遍', !d27Twice.length, d27Twice.join('；'))
 })
 
-group('resume-progress-d27-same-names', [], () => {
+group('task-json-duplicate-keys-same-names', [], () => {
   const d27Run = d27Runner('same-')
   // D27.e：不多拒 —— 两个一模一样的任务（不同对象里的同名键、数组里相同的元素）、费用账两项各有同名键、根上一个装着相同元素的数组，
   // collect 续跑与改额照常预留并请求，enrich 与改额照常预留、请求并写回，render 照常导出，calibration version 照常写入
@@ -6317,7 +6318,7 @@ group('resume-progress-d27-same-names', [], () => {
   if (d27NormalRan === d27Modes.length + 1) criterion('D27.e')
 })
 
-group('resume-progress-d27-calibration', [], () => {
+group('task-json-duplicate-keys-calibration', [], () => {
   // calSame 的 oracle 照 dup-calibration 组再证一遍：--only 只点这一组时那一组不跑
   if (sha256('abc') !== 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
     || JSON.stringify(Object.fromEntries(Object.entries(calContent).sort(([a], [b]) => a < b ? -1 : 1))) !== calCanonical) {
@@ -6376,8 +6377,8 @@ group('resume-progress-d27-calibration', [], () => {
 group('resume-progress', [
   'resume-progress-collect-control', 'resume-progress-collect-bad', 'resume-progress-writeback', 'resume-progress-render-control',
   'resume-progress-render-reject', 'resume-progress-render-accept', 'resume-progress-dup-collect', 'resume-progress-dup-render',
-  'resume-progress-dup-enrich', 'resume-progress-dup-calibration', 'resume-progress-d27-entries', 'resume-progress-d27-mixed',
-  'resume-progress-d27-twice', 'resume-progress-d27-same-names', 'resume-progress-d27-calibration',
+  'resume-progress-dup-enrich', 'resume-progress-dup-calibration', 'task-json-duplicate-keys-entries', 'task-json-duplicate-keys-mixed',
+  'task-json-duplicate-keys-twice', 'task-json-duplicate-keys-same-names', 'task-json-duplicate-keys-calibration',
 ], () => {
   if (writebackHeld && renderKeptLegal) criterion('D19.g')
   if (collectDup === dupCases.length * 2 && renderDup === dupCases.length) criterion('D19.l')
@@ -6554,31 +6555,31 @@ appendFileSync(${JSON.stringify(armed)}, 'armed\\n');\n`);
   return result;
 }
 
-group('d15-as-hashtag-new', [], () => {
+group('as-hashtag-invalid-rejected-new', [], () => {
   const r = asHashtagCliPair('new'); if (!r) return;
   named('as-hashtag-cli.new.reject', r.reject, r.why);
   named('as-hashtag-cli.new.diagnostic', r.diagnostic, r.why);
   criterion('D15.n');
 });
-group('d15-as-hashtag-new-budget', [], () => {
+group('as-hashtag-invalid-rejected-new-budget', [], () => {
   const r = asHashtagCliPair('new-budget'); if (!r) return;
   named('as-hashtag-cli.new-budget.reject', r.reject, r.why);
   named('as-hashtag-cli.new-budget.diagnostic', r.diagnostic, r.why);
   criterion('D15.n');
 });
-group('d15-as-hashtag-resume', [], () => {
+group('as-hashtag-invalid-rejected-resume', [], () => {
   const r = asHashtagCliPair('resume'); if (!r) return;
   named('as-hashtag-cli.resume.reject', r.reject, r.why);
   named('as-hashtag-cli.resume.diagnostic', r.diagnostic, r.why);
   criterion('D15.n');
 });
-group('d15-as-hashtag-resume-budget', [], () => {
+group('as-hashtag-invalid-rejected-resume-budget', [], () => {
   const r = asHashtagCliPair('resume-budget'); if (!r) return;
   named('as-hashtag-cli.resume-budget.reject', r.reject, r.why);
   named('as-hashtag-cli.resume-budget.diagnostic', r.diagnostic, r.why);
   criterion('D15.n');
 });
-group('d15-as-hashtag-probe', [], () => {
+group('as-hashtag-invalid-rejected-probe', [], () => {
   const r = asHashtagCliPair('probe'); if (!r) return;
   named('as-hashtag-cli.probe.reject', r.reject, r.why);
   named('as-hashtag-cli.probe.diagnostic', r.diagnostic, r.why);
@@ -6594,7 +6595,7 @@ group('hashtag-route', [], () => {
   //  · 话题页回罐头 igHashtag：3 条（视频、图文、轮播），作者 hashtagreeler（两条）与 hashtagphoto，
   //    响应里带着令牌；关键词含 `hashtag-nobody` 时回 2 条、一个作者都解析不出
   //  · 其余 Reels 回罐头 igReels：作者 techwithsarah、privateaccount，每次都给令牌
-  //  · 账本只记 pathname；请求参数从 FAKE_FETCH_COST_EVENTS 的逐次记录里读（同 d6uv-igpaging）
+  //  · 账本只记 pathname；请求参数从 FAKE_FETCH_COST_EVENTS 的逐次记录里读（同 ig-reels-cursor-paging）
   // 单价（ADR-107、#167）：话题页与 Reels 各 0.002/次；预算 1 远够，目标 9999 走不到达标。
   // 每一跑都关掉第 7 次回 429 的触发器，免得多出一行重试。
   const base = join(tmp, 'hashtag-route')
@@ -6953,7 +6954,7 @@ group('hashtag-route', [], () => {
 })
 
 // ---- P5.i：一次都没查到人的平台，不得从报告上静默消失 ----
-group('p5i-platform', [], () => {
+group('empty-platform-still-reported', [], () => {
   // 这一条**只能端到端跑**：`meta.platforms` 的接线在 `render.ts` 里，缺省那个验证者
   // （scripts/test.ts）够不到入口脚本。单元那一头断言的是判定本身（`taskPlatforms`、
   // `keywordRows` 的四态）与渲染（直调 `renderHtml`）。
@@ -11403,9 +11404,9 @@ group('observer-cert-entry', [], () => {
     `result=${summary.result}，退出码 ${r.status}，汇总里的提交 ${summary.provenance?.head}，证据 ${summary.evidence.length} 份`)
 })
 
-// ---- KOL-21 独立测试包（ADR-183 第 95 行 T 那一片）：冻结的用例经接线跑真实入口与观察器 ----
-// 用例在 `scripts/kol21-independent/`：独立上下文只照冻结规格单写成、不 import 任何实现，整合方嵌回原字节。接线在
-// `scripts/kol21-independent-wiring.ts`（当被测对象起，不进工具表，理由在它的文件头）。这一组起它一次、读回冻结套件自己写的
+// ---- 独立黑盒测试包（ADR-183 第 95 行 T 那一片）：冻结的用例经接线跑真实入口与观察器 ----
+// 用例在 `scripts/independent-blackbox-tests/`：独立上下文只照冻结规格单写成、不 import 任何实现，整合方嵌回原字节。接线在
+// `scripts/independent-blackbox-tests-wiring.ts`（当被测对象起，不进工具表，理由在它的文件头）。这一组起它一次、读回冻结套件自己写的
 // 报告，**不重判任何一条**，每例照报告里的结论分开报：
 //   pass → ✓；red → 不带记号的 ✗（断言红了）；fixture、facility → 带夹具记号的 ✗（这一例什么也没测到，与本文件别处
 //   「阳性对照没成立是夹具失格」同一种处理，见了整次判跑不起来）；review-pending、not-judged、not-covered → 一行「·」写明是哪一种，
@@ -11419,13 +11420,14 @@ group('observer-cert-entry', [], () => {
 // 认领对照没有交到本片手上。认领另要那几例全部 pass、而且没有一项不判 —— 附条件子断言、复核没做、GAP 或 E 前提没补齐的，
 // 一条都认不下来。交点 U9×P1 不在这里认领（由需求测试 `u9-p1-independent-claim` 起接线认领，接线模块头写着），自检的入口认领记录本来也不收交点。
 // D4.s 也不在这里认领：需求测试 `d4s-independent-claim` 起接线只点 G3-15，读回退出码与字节比那两项认领（ADR-185 末尾）。
+// D4.t 同样不在这里：需求测试 `d4t-independent-claim` 起接线只点 G3-19、G3-19N，各读回退出码、MEM-READ 与字节比三项认领（ADR-185 末尾）。
 // 唯一的例外是 G3-14c（ADR-186 末尾「第二片」，需求所有者选的处置）：接上 E-2 之后，GAP-24b 登为保存失败后不读记忆，冻结套件照冻结单
 // 判它夹具失格。只有「G3-14c 前提」那一项失格、「E-2 命中」那一项判过、别的项没有红与设施故障时，读作预期结果：一行「·」写明，
 // 不计失败，D6.aa 那条具名断言也不因它不成立；它不是 pass，照旧认领不下。别的样子的失格照常算失败。
-group('kol21-independent', [], () => {
-  const root = join(tmp, 'kol21-independent'), work = join(root, 'work'), report = join(root, 'report.json')
+group('independent-blackbox-tests', [], () => {
+  const root = join(tmp, 'independent-blackbox-tests'), work = join(root, 'work'), report = join(root, 'report.json')
   mkdirSync(work, { recursive: true })
-  const r = runBoth('KOL-21 独立测试包经接线跑真实入口与观察器', [S('kol21-independent-wiring.ts'), '--work', work, '--report', report], root, { status: 0 })
+  const r = runBoth('独立黑盒测试包经接线跑真实入口与观察器', [S('independent-blackbox-tests-wiring.ts'), '--work', work, '--report', report], root, { status: 0 })
   if (!r.ok) return
   // 接线读到不合契约的测试观察记录时，冻结套件那几例只报得出「命中记录 []」「就绪标记缺席」；不合在哪只写在接线 stdout 的汇总里，照抄出来。
   // 只是让人看得见原因：那几例的夹具失格照常算失败
@@ -11433,19 +11435,19 @@ group('kol21-independent', [], () => {
   try { wired = JSON.parse(r.stdout.trim().split('\n').at(-1) ?? '') } catch { wired = undefined }
   for (const p of Array.isArray(wired?.records) ? wired.records as { evidenceDir?: unknown; problems?: unknown }[] : [])
     console.log(`  · 接线读到不合契约的测试观察记录（${String(p?.evidenceDir)}）：${Array.isArray(p?.problems) ? p.problems.join('；') : String(p?.problems)}`)
-  type Kol21Item = { label: string; status: string; detail?: string }
-  type Kol21Case = { id: string; verdict: string; items: Kol21Item[]; notes: string[] }
+  type PackItem = { label: string; status: string; detail?: string }
+  type PackCase = { id: string; verdict: string; items: PackItem[]; notes: string[] }
   const rep = jsonFile(report)
-  const cases: Kol21Case[] = Array.isArray(rep?.cases) ? rep.cases : []
+  const cases: PackCase[] = Array.isArray(rep?.cases) ? rep.cases : []
   const byId = new Map(cases.map(c => [c?.id, c]))
-  const expectedFixture = (c: Kol21Case | undefined) => c?.id === 'G3-14c' && c.verdict === 'fixture'
+  const expectedFixture = (c: PackCase | undefined) => c?.id === 'G3-14c' && c.verdict === 'fixture'
     && c.items.filter(i => i.status === 'fixture').map(i => i.label).join('、') === 'G3-14c 前提'
     && c.items.some(i => i.label === 'E-2 命中' && i.status === 'pass') && !c.items.some(i => i.status === 'red' || i.status === 'facility')
-  // 冻结单的用例数照各组文件头：G1 35、G2 30、G3 27、G4 8、G5 3、G6 3
-  if (cases.length !== 106 || byId.size !== 106
+  // 冻结单的用例数照各组文件头：G1 35、G2 30、G3 29、G4 8、G5 3、G6 3
+  if (cases.length !== 108 || byId.size !== 108
     || cases.some(c => typeof c?.id !== 'string' || typeof c.verdict !== 'string' || !Array.isArray(c.items) || !Array.isArray(c.notes))) {
     failed++
-    console.error(`  ✗ KOL-21 独立测试包的报告${SELFCHECK_FIXTURE_MARK}：${report} 读不出、形状不对或不是冻结单的 106 例（读到 ${cases.length} 例）；${stderrTail(r.stderr)}`)
+    console.error(`  ✗ 独立黑盒测试包的报告${SELFCHECK_FIXTURE_MARK}：${report} 读不出、形状不对或不是冻结单的 108 例（读到 ${cases.length} 例）；${stderrTail(r.stderr)}`)
     return
   }
   const tally = new Map<string, number>()
@@ -11480,11 +11482,11 @@ group('kol21-independent', [], () => {
   const clean = (ids: readonly string[]) => ids.every(id => ['pass', 'review-pending', 'not-judged'].includes(byId.get(id)?.verdict ?? '缺') || expectedFixture(byId.get(id)))
   const dirty = (ids: readonly string[]) => ids.filter(id => !clean([id])).map(id => `${id}=${byId.get(id)?.verdict ?? '缺'}`).join(' ')
   const settled = (ids: readonly string[]) => ids.every(id => byId.get(id)?.verdict === 'pass' && byId.get(id)!.items.every(i => i.status === 'pass'))
-  named('KOL-21 独立测试包 D6.aa：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格',
+  named('独立黑盒测试包 D6.aa：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格',
     clean(D6Y), `不成立的：${dirty(D6Y)}`)
-  named('KOL-21 独立测试包 D13.v：新建缺预算按 $2 落盘、不合规预算与其余前置检查拒绝、续跑不借默认、不回写配置所涉各例，没有一例判红、设施故障或夹具失格',
+  named('独立黑盒测试包 D13.v：新建缺预算按 $2 落盘、不合规预算与其余前置检查拒绝、续跑不借默认、不回写配置所涉各例，没有一例判红、设施故障或夹具失格',
     clean(D13V), `不成立的：${dirty(D13V)}`)
-  named('KOL-21 独立测试包 D13.u：新建给了合规 --budget 时根 budget_usd 与费用账上限都取该金额（G1-02U），不判红、不是设施故障或夹具失格',
+  named('独立黑盒测试包 D13.u：新建给了合规 --budget 时根 budget_usd 与费用账上限都取该金额（G1-02U），不判红、不是设施故障或夹具失格',
     clean(D13U), `不成立的：${dirty(D13U)}`)
   if (settled(D6Y)) criterion('D6.aa')
   if (settled(D13V)) criterion('D13.v')

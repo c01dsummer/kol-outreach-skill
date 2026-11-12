@@ -1,6 +1,6 @@
 # KOL-21 C1 测试 · 接入说明（给整合方）
 
-本目录的测试只按冻结规格单 `pack/30-frozen-spec.md`（SHA-256 `a36fb4706b1bb7a16114a18390286ca8e5f725e3dd11ca02a8b2241757658eda`；2026-11-10 按 ADR-193（KOL-106 方案乙）重冻退出码，重冻前 SHA-256 `cabd676f583337487f63f7e8bf4a1cbaad05f2f848f8824db29c4fe7a05e0405`）写成，**不 import 任何产品实现、观察器源码、writer/reader 或比较器**。真实调用面由整合方在测试之外接入。下面的接口形状是测试侧的形式选择，不是新的产品契约。
+本目录的测试只按冻结规格单 `pack/30-frozen-spec.md`（SHA-256 `6a9771c1d650d0d3c610b4cf8332c53995a3c5df8114f2de5c7c7146d6803166`；D4.t 补例（G3-19、G3-19N）追加 F 节，重冻前 SHA-256 `a36fb4706b1bb7a16114a18390286ca8e5f725e3dd11ca02a8b2241757658eda`；再前一次是 2026-11-10 按 ADR-193（KOL-106 方案乙）重冻退出码，重冻前 SHA-256 `cabd676f583337487f63f7e8bf4a1cbaad05f2f848f8824db29c4fe7a05e0405`）写成，**不 import 任何产品实现、观察器源码、writer/reader 或比较器**。真实调用面由整合方在测试之外接入。下面的接口形状是测试侧的形式选择，不是新的产品契约。
 
 ## 入口
 
@@ -20,6 +20,10 @@ const report = runSuite({
 
 运行方式：Node 22+ 的类型擦除或 tsx 均可；文件间 import 带 `.ts` 后缀、只用可擦除语法。
 
+用例数（冻结单 :1878-1887、:2053）：合计 108 例（可执行 79、附条件 26、不覆盖 3）；其中 G3 共 29 例（可执行 16、附条件 12、不覆盖 1）。
+
+render 的命令行：一律 `['--dir','<任务目录绝对路径>']`；仅有的例外是 G3-19、G3-19N 两跑在后面加 `--ignore-memory`（不带操作数；冻结单 :47、F 节 :1955）。`runObserved` 须把 `args` 原样交给入口。跑号 `Q-MEM`、`Q-MEM-N` 是这两例的资格对照跑（不加 `--ignore-memory`），不是用例、不计入用例数。
+
 ## 前提登记（conditions）
 
 只有冻结单写死「补齐后照现有 expected 判」的那一种答案才放行；其他答案意味着 expected 要改，须退回 B2。
@@ -28,7 +32,7 @@ const report = runSuite({
 |---|---|---|
 | `GAP-07①` | `array-of-keyword-strings` | G3-18 的 pending_keywords 形状（keywords_done 的期望类型冻结单未写，仍不判） |
 | `GAP-07④` | `present` | SUMMARY(error) 的 pending_keywords 在场子项；G2-00、G2-01、G3-06 的 PK-HAS；G3-18 error 跑 |
-| `GAP-18` | （任意，已补齐） | G5-01…03、G6-01…03 |
+| `GAP-18` | （任意，已补齐） | G5-01…03、G6-01…03、G3-19N |
 | `GAP-24a` | `reads-memory`（`not-read` → G3-15 夹具失格） | G3-15 |
 | `GAP-24b` | `reads-memory`（`not-read` → G3-14c 夹具失格） | G3-14c |
 | `GAP-24c` | `unchanged` | G3-14c、G3-15 的 BYTES(memory/creators.json) |

@@ -20415,7 +20415,7 @@
       "replace": "    if (replacementLimit !== undefined) freshLimit = replacementLimit\n  } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1) }",
       "by": "selfcheck",
       "kills": [
-        "KOL-21 独立测试包 D6.aa：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格"
+        "独立黑盒测试包 D6.aa：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格"
       ]
     },
     {
@@ -20427,7 +20427,7 @@
       "replace": "",
       "by": "selfcheck",
       "kills": [
-        "KOL-21 独立测试包 D13.u：新建给了合规 --budget 时根 budget_usd 与费用账上限都取该金额（G1-02U），不判红、不是设施故障或夹具失格"
+        "独立黑盒测试包 D13.u：新建给了合规 --budget 时根 budget_usd 与费用账上限都取该金额（G1-02U），不判红、不是设施故障或夹具失格"
       ]
     },
     {
@@ -20439,7 +20439,7 @@
       "replace": "      freshLimit = parseUsdMicros('1')",
       "by": "selfcheck",
       "kills": [
-        "KOL-21 独立测试包 D13.v：新建缺预算按 $2 落盘、不合规预算与其余前置检查拒绝、续跑不借默认、不回写配置所涉各例，没有一例判红、设施故障或夹具失格"
+        "独立黑盒测试包 D13.v：新建缺预算按 $2 落盘、不合规预算与其余前置检查拒绝、续跑不借默认、不回写配置所涉各例，没有一例判红、设施故障或夹具失格"
       ]
     },
     {
@@ -21646,12 +21646,12 @@
       "id": "M-H186-co",
       "req": "harness",
       "why": "独立测试包 G3-09 运行后新增两个以上 task.json 时，每一项都读第一个：别的那几个里有无结果留存也报不出",
-      "file": "scripts/kol21-independent/cases/g3.ts",
+      "file": "scripts/independent-blackbox-tests/cases/g3.ts",
       "find": "taskRel: f } }); onNode(c, a.node, a.problem, [[`${L} [${f}]`",
       "replace": "taskRel: news[0] } }); onNode(c, a.node, a.problem, [[`${L} [${f}]`",
       "by": "test",
       "kills": [
-        "KOL-21 独立测试包 G3-09：新增两个 task.json，各判一项，带着路径；有一笔无结果留存的判红，没有的判过"
+        "独立黑盒测试包 G3-09：新增两个 task.json，各判一项，带着路径；有一笔无结果留存的判红，没有的判过"
       ]
     },
     {
@@ -22039,6 +22039,18 @@
       "by": "test",
       "kills": [
         "D4.s 独立认领：冻结用例 G3-15 的退出码那一项与 BYTES(memory/creators.json) 都判过，这一例没有一项判红、设施故障或夹具失格"
+      ]
+    },
+    {
+      "id": "M-D4-bc",
+      "req": "D4.t",
+      "why": "用户显式跳过读不出的记忆、名单上又有人时，写回那一步把读不出的原文件当成空记忆：先拿一份空记录盖掉它，再把这一批照常记进去。那份坏了但还能人工修好的联系记录就此没了，交付物却说这一批已记入记忆。名单为空时没人可写，这一步不触发，空名单那一例照过",
+      "file": "scripts/lib/memory.ts",
+      "find": "  if (opts?.prior_unreadable !== undefined) return { written: false, reason: opts.prior_unreadable }",
+      "replace": "  if (opts?.prior_unreadable !== undefined && creators.length === 0) return { written: false, reason: opts.prior_unreadable }\n  if (opts?.prior_unreadable !== undefined) saveMemory({ version: 1, updated_at: new Date().toISOString(), creators: {} })",
+      "by": "test",
+      "kills": [
+        "D4.t 独立认领：冻结用例 G3-19N 的退出码、MEM-READ 与 BYTES(memory/creators.json) 三项都判过，这一例没有一项判红、设施故障或夹具失格"
       ]
     }
   ],

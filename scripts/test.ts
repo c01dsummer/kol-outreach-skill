@@ -193,6 +193,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd4-memory', needs: [] },
   { id: 'd4t-ignore-memory', needs: [] },
   { id: 'd4s-independent-claim', needs: [] },
+  { id: 'd4t-independent-claim', needs: [] },
   { id: 'd4-pid-boundary', needs: [] },
   { id: 'f5-geo', needs: [] },
   { id: 'u3-keywords', needs: [] },
@@ -311,7 +312,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-observer-run', needs: [] },
   { id: 'h-observer-contexts', needs: [] },
   { id: 'h-observer-records', needs: [] },
-  { id: 'h-kol21-g309-many', needs: [] },
+  { id: 'h-blackbox-many-task-files', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -2354,7 +2355,7 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
 // 期望只出自 D4.t（结束后记忆文件逐字节不变）、D4.n（交付物带出失败原因原文）、D4.d（报错原样带出真实原因）、
 // ADR-185 第 173 行的还法（首次不可读的状态贯穿到写回，跳过写回并报告未写回）与已批准的最小接口
 // （写回的第四个参数带上同一次运行首次读不出的原因）。独立测试上下文写的：没读 memory.ts 的函数体，
-// expected 没有一条取自运行结果 ——「首次那一句」是这里写定、自己传进去的。入口那一半在自检 memory-d4t-ignore 组。
+// expected 没有一条取自运行结果 ——「首次那一句」是这里写定、自己传进去的。入口那一半在自检 ignore-unreadable-memory 组。
 await group('d4t-ignore-memory', async () => {
 suite('D4', 'D4.t：显式跳过时首次读不出，写回前再读得出也不写回，原因报首次那一次')
 {
@@ -2512,19 +2513,19 @@ suite('D4', 'D4.t：显式跳过时首次读不出，写回前再读得出也不
 }
 })
 // KOL-21 D4a：D4.s 的独立认领（ADR-185「后续」；记录在 ADR-185 末尾）。只用独立测试包里冻结了的 G3-15（collect 续跑时记忆文件
-// 读不出而中止、没给 --ignore-memory），经接线（`scripts/kol21-independent-wiring.ts`，登了 GAP-24c）跑一遍；冻结用例自己按字节比
+// 读不出而中止、没给 --ignore-memory），经接线（`scripts/independent-blackbox-tests-wiring.ts`，登了 GAP-24c）跑一遍；冻结用例自己按字节比
 // 运行前后的 memory/creators.json，这里只读回结论，不改断言、不改冻结字节。
 // 认领看字节比那一项，D4.s 说的就是它：它判 pass，而且这一例没有一项判红、设施故障或夹具失格。同一例里待语义复核、资格待定的项
-// 说的是退出前的提示与基线，不挡这一项；它们挡的是 D6.y 那边的认领（自检 `kol21-independent`）。
+// 说的是退出前的提示与基线，不挡这一项；它们挡的是 D6.y 那边的认领（自检 `independent-blackbox-tests`）。
 // 退出码那一项也要判过：它说明入口确实走到读记忆、照冻结单的期望中止，字节比才不是空的。接线哪天不再登 GAP-24a，那几项会合成一条
 // 不判，不在挡的三种里；没有这一项，入口没走到读记忆、文件自然没动，字节比照样判 pass。期望的数由冻结用例定，这里只按标签开头找。
 // 认领写在断言后面：断言不成立，这一跑就红，认领不写盘。
 await group('d4s-independent-claim', () => {
   suite('D4', 'D4.s 独立认领：冻结用例 G3-15 经接线跑真实 collect，按字节比记忆文件')
-  const root = scMkdtempSync(scJoin(scTmpdir(), 'kol21-d4s-')), work = scJoin(root, 'work'), report = scJoin(root, 'report.json')
+  const root = scMkdtempSync(scJoin(scTmpdir(), 'blackbox-unreadable-memory-')), work = scJoin(root, 'work'), report = scJoin(root, 'report.json')
   try {
     scMkdirSync(work)
-    const [exe, argv] = scPrebuiltCommand([scJoin(process.cwd(), 'scripts', 'kol21-independent-wiring.ts'),
+    const [exe, argv] = scPrebuiltCommand([scJoin(process.cwd(), 'scripts', 'independent-blackbox-tests-wiring.ts'),
       '--work', work, '--report', report, '--only', 'G3-15'])
     const r = cxSpawnSync(exe, argv, { encoding: 'utf8', timeout: 120000 })
     eq('D4.s 独立认领：接线以 0 收尾、写出报告', [r.status, scExistsSync(report)], [0, true])
@@ -2538,9 +2539,62 @@ await group('d4s-independent-claim', () => {
     const bytes = items.filter(i => i?.label === 'BYTES(memory/creators.json)').map(i => i?.status)
     const exit = items.filter(i => typeof i?.label === 'string' && i.label.startsWith('退出码 = ')).map(i => i?.status)
     const bad = items.filter(i => ['red', 'facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)
-    eq('D4.s 独立认领：冻结用例 G3-15 的退出码那一项与 BYTES(memory/creators.json) 都判过，这一例没有一项判红、设施故障或夹具失格', [exit, bytes, bad], [['pass'], ['pass'], []])
+    // 接线没以 0 收尾、报告里没有这一例、或哪一项判设施故障或夹具失格时，这一跑什么也没测到：只让前提那一条红，
+    // 认领那一条不判。需求测试这个验证者分不出「夹具没造对」与「断言红了」，合成一条的话，负片点名的那一条会把
+    // 夹具失格记成抓到（#452 评审指出；同形的还有下面 D4.t 与 U9×P1 两组，一并改了）
+    const unsound = r.status !== 0 ? [`接线退出码 ${r.status}`] : c === undefined ? ['G3-15：报告里没有这一例']
+      : items.filter(i => ['facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)
+    eq('D4.s 独立认领：冻结用例 G3-15 这一跑可信，接线以 0 收尾、读得到这一例，没有一项判设施故障或夹具失格', unsound, [])
+    if (unsound.length === 0) eq('D4.s 独立认领：冻结用例 G3-15 的退出码那一项与 BYTES(memory/creators.json) 都判过，这一例没有一项判红、设施故障或夹具失格', [exit, bytes, bad], [['pass'], ['pass'], []])
   } finally { scRmSync(root, { recursive: true, force: true }) }
   criterion('D4.s')
+})
+// KOL-21 D4b：D4.t 的独立认领（还 ADR-185 第 212 行；记录在 ADR-185 末尾）。冻结单 F 节是不读实现的作者照需求所有者的选择补的两例，
+// 需求所有者逐字确认后嵌回：G3-19（空名单）与 G3-19N（F-G6 的两人），都是 render 加 --ignore-memory、记忆文件放一份结构不对的。
+// 经接线跑一遍，只读回冻结用例自己的结论，不改断言、不改冻结字节。
+// 两例各要三项判过：退出码（照 D4.f 出了名单、没中止）、MEM-READ（入口确实读过那份文件，字节比才不是空的）、字节比（D4.t 原文）；
+// 每例都没有一项判红、设施故障或夹具失格。复核没做的那一项（报告的未去重声明）说的是 D4.f，不挡这里。
+// 要两例：空名单时没有人可写，「照常把这一批写回记忆」那种做法可能根本不触发，G3-19 的字节比会照过；G3-19N 有两人可写。
+// G3-19N 挂在 GAP-18 上，接线登了它；哪天不登，那一例只剩一项不判，三项都读不到，这里照「缺」红。
+// 认领写在断言后面：断言不成立，这一跑就红，认领不写盘。
+await group('d4t-independent-claim', () => {
+  suite('D4', 'D4.t 独立认领：冻结用例 G3-19、G3-19N 经接线跑真实 render，按字节比记忆文件')
+  const root = scMkdtempSync(scJoin(scTmpdir(), 'blackbox-ignore-memory-')), work = scJoin(root, 'work'), report = scJoin(root, 'report.json')
+  try {
+    scMkdirSync(work)
+    const [exe, argv] = scPrebuiltCommand([scJoin(process.cwd(), 'scripts', 'independent-blackbox-tests-wiring.ts'),
+      '--work', work, '--report', report, '--only', 'G3-19,G3-19N'])
+    const r = cxSpawnSync(exe, argv, { encoding: 'utf8', timeout: 120000 })
+    eq('D4.t 独立认领：接线以 0 收尾、写出报告', [r.status, scExistsSync(report)], [0, true])
+    if (r.status !== 0) console.log(`     stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+    type Item = { label: string; status: string }
+    let cases: { id: string; items: Item[] }[] = []
+    try { cases = JSON.parse(rf(report, 'utf8')).cases } catch { cases = [] }
+    // 读不出报告、没有这一例或没有这一项时，那一项读作 []，照「缺」红
+    const read = (id: string) => {
+      const c = Array.isArray(cases) ? cases.find(x => x?.id === id) : undefined
+      const items = Array.isArray(c?.items) ? c.items : []
+      const st = (hit: (label: string) => boolean) => items.filter(i => typeof i?.label === 'string' && hit(i.label)).map(i => i?.status)
+      return [st(l => l.startsWith('退出码 = ')), st(l => l.startsWith('MEM-READ(')), st(l => l === 'BYTES(memory/creators.json)'),
+        items.filter(i => ['red', 'facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)]
+    }
+    // 前提与认领分开断言，理由见上面 D4.s 那一组：这一跑不可信时只让前提那一条红，认领那一条不判
+    const unsound = (id: string) => {
+      if (r.status !== 0) return [`接线退出码 ${r.status}`]
+      const c = Array.isArray(cases) ? cases.find(x => x?.id === id) : undefined
+      return c === undefined ? [`${id}：报告里没有这一例`] : (Array.isArray(c.items) ? c.items : [])
+        .filter(i => ['facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)
+    }
+    const g19 = unsound('G3-19'), g19n = unsound('G3-19N')
+    // 各条名字写成字面量：负片的 kills 按名字点它们，变异清册只认字面量
+    eq('D4.t 独立认领：冻结用例 G3-19 这一跑可信，接线以 0 收尾、读得到这一例，没有一项判设施故障或夹具失格', g19, [])
+    eq('D4.t 独立认领：冻结用例 G3-19N 这一跑可信，接线以 0 收尾、读得到这一例，没有一项判设施故障或夹具失格', g19n, [])
+    if (g19.length === 0) eq('D4.t 独立认领：冻结用例 G3-19 的退出码、MEM-READ 与 BYTES(memory/creators.json) 三项都判过，这一例没有一项判红、设施故障或夹具失格',
+      read('G3-19'), [['pass'], ['pass'], ['pass'], []])
+    if (g19n.length === 0) eq('D4.t 独立认领：冻结用例 G3-19N 的退出码、MEM-READ 与 BYTES(memory/creators.json) 三项都判过，这一例没有一项判红、设施故障或夹具失格',
+      read('G3-19N'), [['pass'], ['pass'], ['pass'], []])
+  } finally { scRmSync(root, { recursive: true, force: true }) }
+  criterion('D4.t')
 })
 await group('d4-pid-boundary', async () => {
   suite('D4', '残留识别采用本机PID不包含上界')
@@ -13472,7 +13526,7 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
     eq('也不谎报条数', page.raw_count, 0)
   }
 
-  // ⑤ IG 续页令牌（ADR-111 第五节第 1 步：provider 读出、带上；入口怎么用见 D6.u、D6.v 与自检 d6uv-igpaging）。
+  // ⑤ IG 续页令牌（ADR-111 第五节第 1 步：provider 读出、带上；入口怎么用见 D6.u、D6.v 与自检 ig-reels-cursor-paging）。
   //    期望只出自 ADR-111 与对外契约：令牌在与 `data.data` 同级的 `data.pagination_token`，
   //    请求参数名是 `pagination_token`（固定官方规范）；兜底只属于第一页、
   //    不取账号名响应里的任何值作令牌、带令牌的续页不走兜底（ADR-111 第二节）。
@@ -16346,16 +16400,16 @@ await group('u9-review-output', () => {
 
 // KOL-21 R 片：U9 × P1 交点的独立认领（ADR-183 第 96 行；记录在 ADR-92 末尾）。上面那一组的认领与实现出自同一个上下文；
 // 这一组只用独立测试包里冻结了的粉丝三档用例 —— 排序函数层 G5-01…03、名单层 G6-01…03（真实 render 入口）—— 经接线
-// （`scripts/kol21-independent-wiring.ts`）跑一遍，冻结用例自己判，这里只读回结论，不改断言、不改冻结字节。
+// （`scripts/independent-blackbox-tests-wiring.ts`）跑一遍，冻结用例自己判，这里只读回结论，不改断言、不改冻结字节。
 // 判过的意思是那一例的结论是 pass、而且每一项都是 pass：附条件、待复核、不判、失格的都认不下。
 // 认领写在断言后面：哪一例没判过，这一跑就红，认领不写盘。
 await group('u9-p1-independent-claim', () => {
   suite('U9', 'U9 × P1 独立认领：冻结的粉丝三档用例经接线跑真实排序函数与 render 入口')
   const sortLayer = ['G5-01', 'G5-02', 'G5-03'], listLayer = ['G6-01', 'G6-02', 'G6-03']
-  const root = scMkdtempSync(scJoin(scTmpdir(), 'kol21-u9p1-')), work = scJoin(root, 'work'), report = scJoin(root, 'report.json')
+  const root = scMkdtempSync(scJoin(scTmpdir(), 'blackbox-follower-sort-')), work = scJoin(root, 'work'), report = scJoin(root, 'report.json')
   try {
     scMkdirSync(work)
-    const [exe, argv] = scPrebuiltCommand([scJoin(process.cwd(), 'scripts', 'kol21-independent-wiring.ts'),
+    const [exe, argv] = scPrebuiltCommand([scJoin(process.cwd(), 'scripts', 'independent-blackbox-tests-wiring.ts'),
       '--work', work, '--report', report, '--only', [...sortLayer, ...listLayer].join(',')])
     const r = cxSpawnSync(exe, argv, { encoding: 'utf8', timeout: 120000 })
     eq('U9×P1 独立认领：接线以 0 收尾、写出报告', [r.status, scExistsSync(report)], [0, true])
@@ -16370,8 +16424,17 @@ await group('u9-p1-independent-claim', () => {
       return [id, c?.verdict ?? '缺', items.length > 0, items.filter(i => i?.status !== 'pass').map(i => `${i?.label}：${i?.status}`)]
     })
     const want = (ids: string[]) => ids.map(id => [id, 'pass', true, []])
-    eq('U9×P1 独立认领：排序函数层（冻结用例 G5-01、G5-02、G5-03）各例判过，每一项都判过', settled(sortLayer), want(sortLayer))
-    eq('U9×P1 独立认领：名单层（冻结用例 G6-01、G6-02、G6-03，真实 render 入口）各例判过，每一项都判过', settled(listLayer), want(listLayer))
+    // 前提与认领分开断言，理由见 `d4s-independent-claim` 那一组：这一跑不可信时只让前提那一条红，认领那一条不判
+    const unsound = (ids: string[]) => r.status !== 0 ? [`接线退出码 ${r.status}`] : ids.flatMap(id => {
+      const c = Array.isArray(cases) ? cases.find(x => x?.id === id) : undefined
+      return c === undefined ? [`${id}：报告里没有这一例`] : (Array.isArray(c.items) ? c.items : [])
+        .filter(i => ['facility', 'fixture'].includes(i?.status)).map(i => `${id} ${i?.label}：${i?.status}`)
+    })
+    const sortUnsound = unsound(sortLayer), listUnsound = unsound(listLayer)
+    eq('U9×P1 独立认领：排序函数层这一跑可信，接线以 0 收尾、三例都读得到，没有一项判设施故障或夹具失格', sortUnsound, [])
+    eq('U9×P1 独立认领：名单层这一跑可信，接线以 0 收尾、三例都读得到，没有一项判设施故障或夹具失格', listUnsound, [])
+    if (sortUnsound.length === 0) eq('U9×P1 独立认领：排序函数层（冻结用例 G5-01、G5-02、G5-03）各例判过，每一项都判过', settled(sortLayer), want(sortLayer))
+    if (listUnsound.length === 0) eq('U9×P1 独立认领：名单层（冻结用例 G6-01、G6-02、G6-03，真实 render 入口）各例判过，每一项都判过', settled(listLayer), want(listLayer))
   } finally { scRmSync(root, { recursive: true, force: true }) }
   tension('U9', 'P1')
 })
@@ -19891,15 +19954,15 @@ await group('h-observer-records', async () => {
       ag(lines(ready(), reserved(1)), 2), ag(lines(ready(), reserved(1), rejected()), 2)], [0, 0, 1, 1, 1, 1])
 })
 
-// KOL-21 独立测试包 G3-09 新增两个以上 task.json 那一支的回归测试（ADR-70 第 3765 行那张欠条要的，放在冻结包之外）：
+// 独立黑盒测试包 G3-09 新增两个以上 task.json 那一支的回归测试（ADR-70 第 3765 行那张欠条要的，放在冻结包之外）：
 // 真实入口这一跑只新建一个，那一支跑不到；这里照冻结用例自己的判法，造一跑「新增两个、其中一个有无结果留存」交给它判
-await group('h-kol21-g309-many', async () => {
-  harness('KOL-21 独立测试包 G3-09：运行后新增两个以上 task.json 时逐个判，有无结果留存的那一个判红、另一个判过')
-  const { G3 } = await import('./kol21-independent/cases/g3.ts')
-  const { Ctx } = await import('./kol21-independent/lib/judge.ts')
-  const { snap } = await import('./kol21-independent/lib/fsnap.ts')
-  const { RUNS } = await import('./kol21-independent/runs.ts')
-  const root = scMkdtempSync(scJoin(scTmpdir(), 'kol21-g309-')), cwd = scJoin(root, 'cwd')
+await group('h-blackbox-many-task-files', async () => {
+  harness('独立黑盒测试包 G3-09：运行后新增两个以上 task.json 时逐个判，有无结果留存的那一个判红、另一个判过')
+  const { G3 } = await import('./independent-blackbox-tests/cases/g3.ts')
+  const { Ctx } = await import('./independent-blackbox-tests/lib/judge.ts')
+  const { snap } = await import('./independent-blackbox-tests/lib/fsnap.ts')
+  const { RUNS } = await import('./independent-blackbox-tests/runs.ts')
+  const root = scMkdtempSync(scJoin(scTmpdir(), 'blackbox-many-task-files-')), cwd = scJoin(root, 'cwd')
   try {
     scMkdirSync(cwd)
     const before = snap(cwd)
@@ -19916,7 +19979,7 @@ await group('h-kol21-g309-many', async () => {
       result: () => { throw new Error('G3-09 不该去读别的用例的结论') } })
     G3.find(x => x.id === 'G3-09')!.judge!(c)
     const lc = c.items.filter(i => i.label.startsWith('新 task.json（若已建）LC：U = 0')).map(i => [i.label, i.status]).sort()
-    eq('KOL-21 独立测试包 G3-09：新增两个 task.json，各判一项，带着路径；有一笔无结果留存的判红，没有的判过',
+    eq('独立黑盒测试包 G3-09：新增两个 task.json，各判一项，带着路径；有一笔无结果留存的判红，没有的判过',
       lc, [['新 task.json（若已建）LC：U = 0 [output/kept-1/task.json]', 'pass'], ['新 task.json（若已建）LC：U = 0 [output/left-2/task.json]', 'red']])
   } finally { scRmSync(root, { recursive: true, force: true }) }
 })

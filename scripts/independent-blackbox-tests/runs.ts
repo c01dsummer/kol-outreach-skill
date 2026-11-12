@@ -4,7 +4,7 @@
 import type { RunDef } from './lib/judge.ts'
 import type { SavePoint, ApiKey } from './lib/contract.ts'
 import {
-  CFG, COST, DIR, EMPTY_LIST, F_DONE_LINES, F_OLD_LINES, F_PAY_LINES, G6_K, G6_K3, G6_TASK, G6_U, G6_U3, MEMORY_BAD,
+  CFG, COST, DIR, EMPTY_LIST, F_DONE_LINES, F_MEM_BAD, F_OLD_LINES, F_PAY_LINES, G6_K, G6_K3, G6_TASK, G6_U, G6_U3, MEMORY_BAD,
   deleteLine, fileBytes, g6List, replaceLine, withCost,
 } from './fixtures.ts'
 
@@ -36,6 +36,13 @@ function resume(id: string, dir: string, lines: string[], script: string, o: { e
 // render：['--dir','<任务目录绝对路径>']（:46；README.md:172）
 function render(id: string, dir: string, files: Record<string, string>): RunDef {
   return { id, entry: 'render', script: 'S-TRAP', files, taskRel: `${dir}/task.json`, args: (cwd) => ['--dir', `${cwd}/${dir}`] }
+}
+// render + F-MEM-BAD（F 节 :1953-1966）：任务目录文件之外，在 <RUN>/cwd/memory/creators.json 写入 F-MEM-BAD（:1959）。
+// ignoreMemory = true：命令行在 ['--dir','<任务目录绝对路径>'] 后面加 '--ignore-memory'，不给它操作数（:1955；A.0.2 :47 的仅有例外，只限 G3-19、G3-19N）；
+// ignoreMemory = false：对照跑 Q-MEM、Q-MEM-N，命令行与普通 render 相同（:1978、:2019「不加」）。脚本 S-TRAP（由 render() 给出）。
+function renderMemBad(id: string, dir: string, files: Record<string, string>, ignoreMemory: boolean): RunDef {
+  const base = render(id, dir, { ...files, 'memory/creators.json': fileBytes(F_MEM_BAD) })
+  return ignoreMemory ? { ...base, args: (cwd) => [...base.args(cwd), '--ignore-memory'] } : base
 }
 const PAY = (slot: string[]): string[] => withCost(F_PAY_LINES, slot)
 const DONE = (slot: string[]): string[] => withCost(F_DONE_LINES, slot)
@@ -136,6 +143,12 @@ export const RUNS: RunDef[] = [
   resume('G3-14e', DIR['F-PAY'], PAY(COST.L0), 'S-SAVE-404', { e2: { point: 'SP-N200', k: 1 } }),
   resume('G3-14f', DIR['F-PAY'], PAY(COST.L0), 'S-SAVE-NS', { e2: { point: 'SP-NS', k: 1 } }),
   resume('G3-15', DIR['F-DONE'], DONE(COST.L0), 'S-TRAP', { memory: true }),
+  // ---------------- G3 render + F-MEM-BAD（F 节 :1932-2053，D4.t 补例；每一跑各自全新的 <RUN>）----------------
+  // Q-MEM、Q-MEM-N 是资格对照跑，不另编号、不计入用例数（:1976、:2019、:2053）。
+  renderMemBad('Q-MEM', DIR['F-PAY'], taskDir(DIR['F-PAY'], PAY(COST.L0)), false),            // :1978 F-PAY（L0），不加 --ignore-memory
+  renderMemBad('G3-19', DIR['F-PAY'], taskDir(DIR['F-PAY'], PAY(COST.L0)), true),             // :1986-1987
+  renderMemBad('Q-MEM-N', DIR['F-G6'], g6Files(g6List(G6_U, G6_K)), false),                   // :2019 F-G6（G6-01 的顺序、U 在前），不加 --ignore-memory
+  renderMemBad('G3-19N', DIR['F-G6'], g6Files(g6List(G6_U, G6_K)), true),                     // :2015-2016
   // ---------------- G4 render 阳性对照（control，:1375）----------------
   { id: 'G4-04', entry: 'control', script: 'S-CONTROL', files: {}, args: () => ['fetch', 'http://kol21-control.invalid/kol21/control'] },
   // ---------------- G6 名单层（F-G6，:1473-1502；G6-02 只换数组顺序，G6-03 只换身份）----------------
