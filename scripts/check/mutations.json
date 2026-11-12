@@ -20559,7 +20559,7 @@
       "replace": "    if (replacementLimit !== undefined) freshLimit = replacementLimit\n  } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1) }",
       "by": "selfcheck",
       "kills": [
-        "KOL-21 独立测试包 D6.aa：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格"
+        "独立黑盒测试包 D6.aa：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格"
       ]
     },
     {
@@ -20571,7 +20571,7 @@
       "replace": "",
       "by": "selfcheck",
       "kills": [
-        "KOL-21 独立测试包 D13.u：新建给了合规 --budget 时根 budget_usd 与费用账上限都取该金额（G1-02U），不判红、不是设施故障或夹具失格"
+        "独立黑盒测试包 D13.u：新建给了合规 --budget 时根 budget_usd 与费用账上限都取该金额（G1-02U），不判红、不是设施故障或夹具失格"
       ]
     },
     {
@@ -20583,7 +20583,7 @@
       "replace": "      freshLimit = parseUsdMicros('1')",
       "by": "selfcheck",
       "kills": [
-        "KOL-21 独立测试包 D13.v：新建缺预算按 $2 落盘、不合规预算与其余前置检查拒绝、续跑不借默认、不回写配置所涉各例，没有一例判红、设施故障或夹具失格"
+        "独立黑盒测试包 D13.v：新建缺预算按 $2 落盘、不合规预算与其余前置检查拒绝、续跑不借默认、不回写配置所涉各例，没有一例判红、设施故障或夹具失格"
       ]
     },
     {
@@ -21790,12 +21790,12 @@
       "id": "M-H186-co",
       "req": "harness",
       "why": "独立测试包 G3-09 运行后新增两个以上 task.json 时，每一项都读第一个：别的那几个里有无结果留存也报不出",
-      "file": "scripts/kol21-independent/cases/g3.ts",
+      "file": "scripts/independent-blackbox-tests/cases/g3.ts",
       "find": "taskRel: f } }); onNode(c, a.node, a.problem, [[`${L} [${f}]`",
       "replace": "taskRel: news[0] } }); onNode(c, a.node, a.problem, [[`${L} [${f}]`",
       "by": "test",
       "kills": [
-        "KOL-21 独立测试包 G3-09：新增两个 task.json，各判一项，带着路径；有一笔无结果留存的判红，没有的判过"
+        "独立黑盒测试包 G3-09：新增两个 task.json，各判一项，带着路径；有一笔无结果留存的判红，没有的判过"
       ]
     },
     {
