@@ -4042,7 +4042,7 @@ npx tsx -e 'import{readFileSync as r}from"node:fs";import{applyMutation as a}fro
 - `hardStop` 先说话再杀：fd 2 非阻塞且读的那头停住时，杀 worker 最多晚几秒；退出钩子里成本段的 `writeAllSync(1, …)` 同理。两处都在马上就杀的路上。
 - 收口只到 `mutate.ts`。检查链别的入口（`audit.ts` 5 处，`size.ts`、`adr-sync.ts`、`spec-sync.ts` 各 4 处）同样是先 `console.error` 再硬退出，`mutate-restore.ts` 的 `onInterrupt` 也是一处硬退出；它们都不在这道闸门下。ADR-72 那张表本来只数 `mutate.ts`，所以那张算还。
 
-**欠条清点（三份独立清点与一份独立复审；台账条数见末段）。**
+**欠条清点（三份独立清点与一份独立复审）。**
 - 还了：本文第 2077、2082 行，ADR-72 第 484 行（见末尾三行与 ADR-72 末行）。
 - 响了、重挂（条件不带重新起算，头一次响，没还），新的一张挂在本节末尾、原处续一行「已重挂」：ADR-145 第 790 行（删不掉旧启动数文件那一支改走 `exitWith`；先后照旧只有自检守。原文「施在 `mutate.ts` 上的变异只有自检够得到」不分 `by`，今天有反例 —— `M-H68-a`、`M-H14-ak`、`M-H14-am` 都是 `by: test` 打在 `mutate.ts` 上 —— 重挂时订正）；ADR-145 第 946 行（紧接进程内耗时那一行之后的结论段改成同步写，那一行与它的位置没动，「有变异没被抓到时也照打」照旧没人守）；ADR-74 第 127 行（碰了 `hardStop`，#116 之后头一条；起 worker 的 `spawn` 仍不带 `detached`）；ADR-72 第 211 行（派工循环三处改了说话方式；这张早在 #110 就烧过、一直没人对账，`hand()` 仍在入口）；本文第 1692 行（准入检查「`why` 夹带实现原文」那一块换了出口写法，欠条写下后头一次被碰；豁免的 `why` 仍不查）；ADR-126 第 50 行（`exitRace`、`exitFaults` 成了新的同步取 TypeScript 的调用点，缺 TypeScript 时从照常交回变成在调用处抛）。
 - 响了、只记核过：ADR-145 第 529 行（改动落在 `dispatch` 里；那两处 env 一字没动，余额照旧）；ADR-158 第 330 行（`exitRace` 换成行号数组、新返回形状 `ExitFault` 两个字段、`writeAllSync` 的布尔，都被整值比较的断言碰到）；ADR-132 第 375 行（`M-H14-ak`、`am` 是打在 `mutate.ts` 上的 `by: test` 变异；本节与新注释没有不分 `by` 的那句，ADR-70、ADR-72 正文副本余额照挂）；ADR-89 第 92 行（新变异的 `find` 在 #460 的头上都没有或文件不存在，重钉的 `M-H14-x`、`y` 也是）；ADR-99 第 541 行（在途 PR 核在 PR 正文）；ADR-80 第 123 行与 ADR-86 第 182 行（本节新写了一条死亡条件；它们管的那件事照旧）。
@@ -4050,7 +4050,7 @@ npx tsx -e 'import{readFileSync as r}from"node:fs";import{applyMutation as a}fro
 - 两种读法、照先例不重挂：ADR-193 第 112 行（窄读：入口只交话、设退出码，等与写的取舍在 `sync-write.ts`；宽读：`hardStop` 那句排在杀之前、两处诊断排在成本段之前、`--brief` 写不满以 1 退出，是入口里的先后与取舍，没有断言守）；ADR-155 第 115 行（夹具没引判定模块；宽读：入口新引 `sync-write.ts`，要核的已核：自检验证闭包只多这一个文件，旧变异的路由逐条没变，新的全在 `h-mutate`）；ADR-74 第 136 行（`hardStopPlan`、`readBeacon` 没动；`warn` 那句换成了 `writeAllSync`）；ADR-72 第 303 行（`cpSync`、`copyIntoWorker` 没动，外层 `catch` 只换了说话方式）。
 - 字面响、那张早已还或已收尾，不计：ADR-12 第 7、17、45 行（锚点表改了 `mutate-rule.ts` 一行的说明、加了 `sync-write.ts` 一行；两行说明照代码核过）；ADR-87 第 98 行（已还在 ADR-145 第 740 行，替代的是什么上面写了）；ADR-120 第 74 行；ADR-82 第 112 行（新加两格里没有可算的数词）；ADR-146 第 101 行、ADR-148 第 293 行；ADR-100 第 187 行。
 - 不响：第 4004 行（`anchorFaults`、`anchorVerdict`、`stagedResidue` 与 `anchors.ts` 都没碰；同锚点同替换仍是那 10 对，新变异施加后 `find` 都剩 0 处；`M-H23-h` 撞成两处由锚点不唯一那道拦下，不是那张列的形状）；ADR-193 第 120 行、ADR-144 第 173 行（没有新增或改动自检组；`selfcheck.ts` 只改了一段注释，说 `exitRace` 已不扫字面）；ADR-34 第 74 行（新判定不读变异编号）。
-- 写回 `launches.json` 时核：ADR-129 第 149 行、ADR-145 第 120 行与第 1239 行（见下一段）。
+- 写回 `launches.json` 时核过：ADR-129 第 149 行、ADR-145 第 120 行与第 1239 行没有超线、没有「启动数不确定」（`h-mutate` 那一行 103 → 121；197 种配置都在线内）。台账 612 条：本节多一条死亡条件、新挂七张（一张新的、六张重挂），改前 604 条。
 
 > ⚠️ 已还：ADR-70 第 2077 行 · 还在 #待定：`exitRace` 改按语法树认（`process.exit`、`process['exit']`，带 `globalThis.` 的也认），注释、字符串里写全了的不算，见本节
 
