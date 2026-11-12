@@ -2655,8 +2655,8 @@
       "req": "harness",
       "why": "验证者里「打完汇总就立刻退出」的写法一律认不出来 —— 那句汇总在管道上被截掉之后，一条真被抓到的变异会被报成跑不起来，而且时红时绿",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "return named === 'exit' && ts.isIdentifier(callee.expression)",
-      "replace": "return named === 'exitImmediately' && ts.isIdentifier(callee.expression)",
+      "find": "return named === 'exit' && isProcess",
+      "replace": "return named === 'exitImmediately' && isProcess",
       "by": "test",
       "kills": [
         "打完汇总就硬退出的写法要认出来"
@@ -6052,6 +6052,79 @@
       "replace": "    console.error(`\\n✗ 变异测试：派工没能起来 —— ${e instanceof Error ? e.message : String(e)}`)\n    hardStop()",
       "by": "test",
       "kills": [
+        "变异一步的硬退出全部收口"
+      ]
+    },
+    {
+      "id": "M-H14-an",
+      "req": "harness",
+      "why": "硬退出前面多写一层全局对象就认不出：换个写法就绕过了「验证者不许硬退出」",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    || (ts.isPropertyAccessExpression(owner) && owner.name.text === 'process'",
+      "replace": "    || (false && ts.isPropertyAccessExpression(owner) && owner.name.text === 'process'",
+      "by": "test",
+      "kills": [
+        "前面带 globalThis 的也认"
+      ]
+    },
+    {
+      "id": "M-H14-ao",
+      "req": "harness",
+      "why": "每写进去一截不重新数：读的那头慢但一直在读，也被当成不读，诊断写一半就放弃",
+      "file": "scripts/check/sync-write.ts",
+      "find": "      waited = 0\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "读的那头慢但一直在读，不放弃：每写进去一截重新数"
+      ]
+    },
+    {
+      "id": "M-H14-ap",
+      "req": "harness",
+      "why": "return 着叫收口那一句不算退出：之前先异步写的那句被掐掉，没人报",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "ts.isExpressionStatement(statement) || ts.isReturnStatement(statement) ||",
+      "replace": "ts.isExpressionStatement(statement) ||",
+      "by": "test",
+      "kills": [
+        "return 着叫收口、不带花括号的 if 里叫收口，之前先异步写了，都报出来"
+      ]
+    },
+    {
+      "id": "M-H14-aq",
+      "req": "harness",
+      "why": "不带花括号的 if 子句里叫收口不算退出：之前先异步写的那句被掐掉，没人报",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    if (ts.isIfStatement(statement)) {",
+      "replace": "    if (false && ts.isIfStatement(statement)) {",
+      "by": "test",
+      "kills": [
+        "return 着叫收口、不带花括号的 if 里叫收口，之前先异步写了，都报出来"
+      ]
+    },
+    {
+      "id": "M-H14-ar",
+      "req": "harness",
+      "why": "调用方交进来的会退出的名字不认：从别的模块进来的硬退出之前先异步写，没人报",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "new Set([helper, ...imported])",
+      "replace": "new Set([helper])",
+      "by": "test",
+      "kills": [
+        "引进来的会退出的名字由调用方交进来，之前先异步写了，报出来"
+      ]
+    },
+    {
+      "id": "M-H14-as",
+      "req": "harness",
+      "why": "没标 never 的函数也当成会退出：叫它之前打的正常输出被报成退出前异步写了",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "(fn: Ts.SignatureDeclaration): boolean => fn.type?.kind === ts.SyntaxKind.NeverKeyword",
+      "replace": "(fn: Ts.SignatureDeclaration): boolean => fn !== undefined",
+      "by": "test",
+      "kills": [
+        "没标 never 的函数只是可能退出，叫它之前的正常输出不报",
         "变异一步的硬退出全部收口"
       ]
     },

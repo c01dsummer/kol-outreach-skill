@@ -372,7 +372,7 @@ export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault 
  * 就是打完自己那句话直接退出,它的失败根本到不了汇总。
  *
  * **按语法树认，不按字面扫**（ADR-70 末尾「硬退出收口」一节；原先按正则扫，注释与字符串里长得一样的也算数，
- * ADR-70 第 2077 行那张欠条）：认的是 `process.exit(…)` 与 `process['exit'](…)` 这两种调用，注释、字符串、
+ * ADR-70 第 2077 行那张欠条）：认的是 `process.exit(…)` 与 `process['exit'](…)` 这两种调用（前面带 `globalThis.` 的也认），注释、字符串、
  * 模板串里写全了的结构上就不是调用（同 `labelsOf`）。先把它赋给别的名字再调的认不出，不假装认得出。
  */
 const isProcessExit = (callee: Ts.Expression): boolean => {
@@ -380,7 +380,11 @@ const isProcessExit = (callee: Ts.Expression): boolean => {
   if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return false
   const named = ts.isPropertyAccessExpression(callee) ? callee.name.text
     : ts.isStringLiteralLike(callee.argumentExpression) ? callee.argumentExpression.text : undefined
-  return named === 'exit' && ts.isIdentifier(callee.expression) && callee.expression.text === 'process'
+  const owner = callee.expression
+  const isProcess = (ts.isIdentifier(owner) && owner.text === 'process')
+    || (ts.isPropertyAccessExpression(owner) && owner.name.text === 'process'
+        && ts.isIdentifier(owner.expression) && owner.expression.text === 'globalThis')
+  return named === 'exit' && isProcess
 }
 
 /** 一个调用在第几行（从 1 数），报给人看的那个数 */
@@ -416,8 +420,11 @@ export interface ExitFault { kind: 'outside' | 'async-before'; line: number }
  * 那一句、或者直接硬退出的那一句，**之前**的同级语句里有 `console.` 的调用，报一处 `async-before` —— 收口函数
  * 自己的函数体也照这样查。只看同一段：外面一层先打的报告行不算（那是正常输出，不是退出前那句话），
  * 里面一层函数体里的也不算（定义在那儿，不是这一刻在写）。
+ *
+ * 从别的模块引进来、叫了就会退出的名字（比如 `mutate-restore.ts` 的 `onInterrupt`），这份源码里推不出来，
+ * 由调用方用 `imported` 交进来。
  */
-export function exitFaults(source: string, helper: string): ExitFault[] {
+export function exitFaults(source: string, helper: string, imported: readonly string[] = []): ExitFault[] {
   const ts = typescript()
   const tree = ts.createSourceFile('entry.ts', source, ts.ScriptTarget.Latest, true)
   const faults: ExitFault[] = []
@@ -429,21 +436,25 @@ export function exitFaults(source: string, helper: string): ExitFault[] {
     return ts.forEachChild(node, writesConsole) === true
   }
   /**
-   * 叫了就会退出的名字：收口函数本身，加上函数体里（不进里面一层函数）叫了它们的具名函数 —— 一直推到不再多。
-   * 不推的话，先 `console.error` 一句、再叫一个里面才 `helper` 的函数（`hardStop` 那样），就查不到了。
-   * 只认函数声明与赋给常量的箭头函数、函数表达式；「会退出」是「有一条路会退出」，不是每条路都退出。
+   * 叫了就会退出的名字：收口函数本身，加上标了 `: never`、函数体里（不进里面一层函数）叫了它们的具名函数 ——
+   * 一直推到不再多。不推的话，先 `console.error` 一句、再叫一个里面才 `helper` 的函数（`hardStop` 那样），就查不到了。
+   * 只认函数声明与赋给常量的箭头函数、函数表达式，而且要标 `: never`：没标的只是「有一条路会退出」（`dispatch`
+   * 出错时才收尾），叫它之前打的是正常输出，不是退出前那句话；标了 `never` 而不退出，TypeScript 自己会报。
    */
   const named = new Map<string, Ts.Node>()
+  const never = (fn: Ts.SignatureDeclaration): boolean => fn.type?.kind === ts.SyntaxKind.NeverKeyword
   const collect = (node: Ts.Node): void => {
-    if (ts.isFunctionDeclaration(node) && node.name !== undefined && node.body !== undefined) named.set(node.name.text, node.body)
+    if (ts.isFunctionDeclaration(node) && node.name !== undefined && node.body !== undefined && never(node)) {
+      named.set(node.name.text, node.body)
+    }
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined
-        && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
+        && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) && never(node.initializer)) {
       named.set(node.name.text, node.initializer.body)
     }
     ts.forEachChild(node, collect)
   }
   collect(tree)
-  const exiting = new Set([helper])
+  const exiting = new Set([helper, ...imported])
   /** 这一段里（不进里面一层函数）有没有叫一个会退出的名字 */
   const callsExiting = (node: Ts.Node): boolean => {
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && exiting.has(node.expression.text)) return true
@@ -456,11 +467,16 @@ export function exitFaults(source: string, helper: string): ExitFault[] {
       if (!exiting.has(name) && callsExiting(body)) { exiting.add(name); grew = true }
     }
   }
-  /** 这一句是不是「退出」：叫会退出的名字，或者直接硬退出 */
+  /** 这一句是不是「退出」：叫会退出的名字，或者直接硬退出；`return`／`throw` 着的、`await`／`void` 包着的、
+   *  不带花括号的 `if` 子句里的也算 */
   const exits = (statement: Ts.Statement): boolean => {
-    if (!ts.isExpressionStatement(statement)) return false
-    const e = ts.isAwaitExpression(statement.expression) ? statement.expression.expression : statement.expression
-    if (!ts.isCallExpression(e)) return false
+    if (ts.isIfStatement(statement)) {
+      return exits(statement.thenStatement) || (statement.elseStatement !== undefined && exits(statement.elseStatement))
+    }
+    let e = ts.isExpressionStatement(statement) || ts.isReturnStatement(statement) || ts.isThrowStatement(statement)
+      ? statement.expression : undefined
+    while (e !== undefined && (ts.isAwaitExpression(e) || ts.isVoidExpression(e) || ts.isParenthesizedExpression(e))) e = e.expression
+    if (e === undefined || !ts.isCallExpression(e)) return false
     return (ts.isIdentifier(e.expression) && exiting.has(e.expression.text)) || isProcessExit(e.expression)
   }
   const checkList = (statements: readonly Ts.Statement[]): void => {

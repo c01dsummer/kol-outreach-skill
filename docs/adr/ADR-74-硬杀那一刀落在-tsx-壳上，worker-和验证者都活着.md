@@ -256,3 +256,5 @@ ADR-72 里把「让 worker 自成一组」按「够不到验证者」否掉了 �
 >
 > 第 122 行那张（真 worker 在硬杀之后仍然活着）不在这次的范围里：`mutate.ts` 里 `dispatch`
 > 起 worker 那句 `spawn` 仍不带 `detached`，号文件里仍只有验证者的号（`jobs-rule.ts` 的 `beaconNote`）。
+
+> ⚠️ 已重挂：ADR-74 第 127 行 · 现行的是 ADR-70 第 4065 行

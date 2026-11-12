@@ -65,7 +65,7 @@ import {
   inProcessLine, launchFindings, launchRecheck, launchReport, launchTally, settleLaunches, tallyLine,
 } from './launch-rule.js'
 import { LAUNCH_PRELOAD, infraClosure, selfVerifying } from './verifier-rule.js'
-import { writeAllSync } from './sync-write.js'
+import { realIo, writeAllSync } from './sync-write.js'
 
 /**
  * 本文件**唯一**的硬退出（ADR-70 末尾「硬退出收口」一节）：退出前要说的话先同步写满 fd 2，再退出。
@@ -339,8 +339,10 @@ if (process.argv.includes('--brief')) {
     out.push(`  ⊘     [${e.req}]  ${lead}${e.scope === undefined ? '' : `（${e.scope}）`}：${e.why}`)
   }
   out.push(`\n共 ${muts.length} 个变异、${exemptions.length} 处显式豁免。`)
-  writeAllSync(1, `${out.join('\n')}\n`)
-  exitWith(0)
+  // 主产物：写不满不放过（不设上限），写不出去（读的那头关了）就非零退出、在 fd 2 说一句 —— 交给写测试的
+  // 上下文的那份读物缺了半截还以 0 退出，比崩溃更坏（ADR-70 末尾「硬退出收口」一节）
+  if (writeAllSync(1, `${out.join('\n')}\n`, realIo, Infinity)) exitWith(0)
+  exitWith(1, '✗ 变异测试：--brief 那份清单没写完 —— 读的那头关了')
 }
 
 /**
