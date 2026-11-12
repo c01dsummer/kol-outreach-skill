@@ -307,6 +307,9 @@ export type StagedFault = { kind: 'residue' | 'unclear'; id: string; file: strin
  *   必然分不开，「把修复按回去」的变异在旧代码里正是没还原 —— 那是暂存区还没跟上，不是暂存了变异
  *   （复审拿主干上的提交模拟过：工作树取该提交、暂存区取父提交，不比 HEAD 时确有误报）。
  *   HEAD 上已经提交了的残留不归这一步：那是已提交的，`git diff HEAD` 那条路去找。
+ * - **HEAD 里没有这个文件的，分不开的不交。** 新文件先暂存一版旧稿（或 `git add -N` 只登记了一个空文件）、再在工作树里
+ *   写上那段并登记删一段的变异，暂存区里那段本来就没有 —— 与上一条同理，是暂存区没跟上，可 HEAD 里没有可比的
+ *   （复审实测两种都误报）。没还原的照交：暂存区里有 `replace`、没有 `find`，旧稿碰巧长这样的少。
  *
  * 读暂存区、读 HEAD 由调用方给：文件不在暂存区或 HEAD 里（没跟踪、新文件、不是 git 仓库）交 `undefined`；
  * 暂存区与工作树一样的，交工作树那份也行，结论一样。判定不碰 git。
@@ -321,6 +324,7 @@ export function stagedResidue(muts: readonly { id: string; file: string; find: s
   return anchorFaults(rest, readIndex)
     .filter((f): f is StagedFault => f.kind === 'residue' || f.kind === 'unclear')
     .filter(f => inHead.get(f.id) !== f.kind)
+    .filter(f => f.kind === 'residue' || inHead.get(f.id) !== 'unreadable')
 }
 
 /**

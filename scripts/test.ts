@@ -8010,6 +8010,10 @@ harness('变异锚点那一步：暂存区里躺着的变异')
     tree({ 'a.ts': 'return x\n', 'c.ts': 'k = 1\n' }), tree({ 'a.ts': 'keep\n', 'c.ts': 'k = 1\nk = 1\n' }), head), [])
   // 不在暂存区（没跟踪、git rm --cached 过、不是仓库）：读暂存区交 undefined，不当成读不到的毛病；HEAD 里有它也一样
   eq('文件不在暂存区：不报', stagedResidue([back, cut], tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' }), tree({}), head), [])
+  // 新文件：HEAD 里没有。暂存的是旧稿（或 git add -N 的空文件），删一段的在那里本来就没那段 —— 不报；没还原的照报
+  eq('HEAD 里没有的新文件、暂存区是旧稿：分不开的不报、没还原的照报', stagedResidue([back, cut],
+    tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' }), tree({ 'a.ts': 'return y\n', 'u.ts': '' }), tree({})),
+    [{ kind: 'residue', id: 'M-甲', file: 'a.ts' }])
   eq('暂存区与工作树一样、都对得上：不报', stagedResidue([back], tree({ 'a.ts': 'return x\n' }), tree({ 'a.ts': 'return x\n' }), head), [])
 }
 

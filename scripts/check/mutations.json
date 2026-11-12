@@ -5898,6 +5898,18 @@
       ]
     },
     {
+      "id": "M-H45-ao",
+      "req": "harness",
+      "why": "HEAD 里没有的新文件，暂存区里是旧稿或 git add -N 的空文件时，删一段的变异被报成暂存区里躺着 —— 暂存区只是没跟上",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    .filter(f => f.kind === 'residue' || inHead.get(f.id) !== 'unreadable')\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "HEAD 里没有的新文件、暂存区是旧稿：分不开的不报、没还原的照报"
+      ]
+    },
+    {
       "id": "M-H45-i",
       "req": "harness",
       "why": "施加变异时替换文本里的美元记号被当成替换记号展开，盘上写出的不是目录里登记的那一段 —— 一条变异顺带多改一处，被抓到也说不清是哪一处的功劳",
