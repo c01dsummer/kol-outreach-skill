@@ -1,9 +1,9 @@
 #!/usr/bin/env tsx
 /**
- * KOL-21 独立测试包的接线：把冻结在 `scripts/kol21-independent/` 的测试套件接到真实入口与观察器的公开调用面上，
+ * 独立黑盒测试包的接线：把冻结在 `scripts/independent-blackbox-tests/` 的测试套件接到真实入口与观察器的公开调用面上，
  * 跑一遍，把冻结套件自己写的报告原样落盘（ADR-183 第 95 行 T 那一片）。
  *
- *   tsx scripts/kol21-independent-wiring.ts --work <已存在的空目录> --report <报告文件> [--only <用例号,…>]
+ *   tsx scripts/independent-blackbox-tests-wiring.ts --work <已存在的空目录> --report <报告文件> [--only <用例号,…>]
  *
  * 冻结目录一个字节都不改（嵌入提交按 freeze-tests.sha256 核等）。这里只做冻结包 `INTEGRATION.md` 写明留给整合方的几样：
  *
@@ -32,7 +32,7 @@
  *   控制文件名与它的 `schema` 照原文抄在这里，不从产品代码 import：被测的正是产品照不照原文做。
  *
  * 判定一律在冻结套件里：这里不读、不改、不合并任何一条结论。冻结套件的每一种结论原样留在报告里，由读报告的一侧
- * （自检组 `kol21-independent`；只点 G5、G6 那几例时是需求测试 `u9-p1-independent-claim`，只点 G3-15 时是需求测试
+ * （自检组 `independent-blackbox-tests`；只点 G5、G6 那几例时是需求测试 `u9-p1-independent-claim`，只点 G3-15 时是需求测试
  * `d4s-independent-claim`，只点 G3-19、G3-19N 时是需求测试 `d4t-independent-claim`）分开报。
  * 退出码：报告写成就是 0，不论里面的结论是什么；用法错 2；跑到一半抛出 1。
  *
@@ -43,16 +43,16 @@
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
-import { CASES, runSuite } from './kol21-independent/suite.ts'
+import { CASES, runSuite } from './independent-blackbox-tests/suite.ts'
 import type {
   ConditionId, E2Adapter, E2HitRecord, E3Adapter, ObservedRun, ObserverFacility, Resolution, SavePoint, SortForOutput,
-} from './kol21-independent/lib/contract.ts'
+} from './independent-blackbox-tests/lib/contract.ts'
 import { certifyIsolation, facilityFiles, runObserved } from './check/observer-run.js'
 import { CONTRACT_RECORDS, readContractRecords, readEvents, zeroVerdict, type ContractRecord } from './check/observer-rule.js'
 import { sortForOutput } from './lib/rows.js'
 import type { AdoptionPriority, Creator, Dimension, Eligibility, Fit, Platform, RecentPost, ReviewStatus, Tier } from './lib/types.js'
 
-const USAGE = '用法: tsx scripts/kol21-independent-wiring.ts --work <已存在的空目录> --report <报告文件> [--only <用例号,…>]'
+const USAGE = '用法: tsx scripts/independent-blackbox-tests-wiring.ts --work <已存在的空目录> --report <报告文件> [--only <用例号,…>]'
 const args = process.argv.slice(2)
 const flags = new Map<string, string>()
 for (let i = 0; i < args.length; i += 2) {

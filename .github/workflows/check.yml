@@ -39,7 +39,7 @@ jobs:
           node-version: '22'
           cache: npm
       # 装 bubblewrap：观察器的外层断网要 bwrap（`--unshare-net`），这个镜像里没有 —— run 41838288608 在
-      # ubuntu-24.04 上三处（/usr/bin、/bin、/usr/local/bin）都找不到，KOL-21 独立测试包那一组一个入口也起不来，
+      # ubuntu-24.04 上三处（/usr/bin、/bin、/usr/local/bin）都找不到，独立黑盒测试包那一组一个入口也起不来，
       # 自检组 observer-cert-entry 也只验得到「认证不成立」那一半。需求所有者定的就是「CI 装 bubblewrap」
       # （ADR-70 末尾「CI 装 bubblewrap」一节）：这一步只装这一个包。用户命名空间那条限制由下一步照后来的
       # 另一张答卡关掉；AppArmor 的配置文件两步都不动。
