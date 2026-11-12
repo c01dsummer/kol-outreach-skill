@@ -12325,7 +12325,7 @@ const step = '✓ mutate 遇到重复编号即以退出码 1 结束'
 const entry = (name: string, extra: NodeJS.ProcessEnv) => {
   const root = join(owner, name); mkdirSync(root)
   const env = { ...clean, ...extra, TMPDIR: root, TMP: root, TEMP: root }
-  const r = spawnSync(...prebuiltCommand(['scripts/check/selfcheck.ts', '--only=dup-ids'], process.cwd(), env),
+  const r = spawnSync(...prebuiltCommand(['scripts/check/selfcheck.ts', '--only=mutation-duplicate-ids'], process.cwd(), env),
     { env, encoding: 'utf8', timeout: 45_000, maxBuffer: 4 * 1024 * 1024 })
   const output = `${r.stdout}\n${r.stderr}`, lines = output.split(/\r?\n/).map(line => line.trim())
   if (r.error || r.signal || r.status === null || output.includes(SELFCHECK_PROCESS_MARK)
@@ -12341,7 +12341,7 @@ const entry = (name: string, extra: NodeJS.ProcessEnv) => {
 try {
   const unguarded = repo('unguarded-decoy'), before = snapshot(unguarded)
   const completed = entry('unguarded-run', { GIT_DIR: join(unguarded, '.git') })
-  ok('Git 隔离无探针对照：真实 dup-ids 入口执行完成', completed)
+  ok('Git 隔离无探针对照：真实 mutation-duplicate-ids 入口执行完成', completed)
   if (!completed) return
   eq('Git 隔离真实副作用：继承 GIT_DIR 不改诱饵任何 Git 文件', changes(before, snapshot(unguarded)), [])
 
@@ -12404,7 +12404,7 @@ console.log('positive complete');`], { cwd: control, env: { ...observerEnv, KOL_
   if (!filesystemObserved) return
 
   const observed = entry('audited-run', { ...observerEnv, KOL_GIT_AUDIT_STAGE: 'target' })
-  ok('Git 六项审计接线：真实 dup-ids 入口执行完成', observed)
+  ok('Git 六项审计接线：真实 mutation-duplicate-ids 入口执行完成', observed)
   if (!observed) return
   const targetEvents = events().filter(event => event.stage === 'target' && event.entry && event.source === startHash)
   const history = targetEvents.filter(event => event.kind === 'before')
@@ -12431,7 +12431,7 @@ await group('h-selfcheck-selection-entry', () => {
 harness('真实自检入口的严格选择：非法参数不能被忽略后报成功')
 {
   // 独立上下文只依据 ARCHITECTURE 的入口/认领契约与 ADR-99 的拒绝契约。
-  // dup-ids 的公开登记无依赖；步骤名、单组完成行与临时资源前缀来自既有声明，
+  // mutation-duplicate-ids 的公开登记无依赖；步骤名、单组完成行与临时资源前缀来自既有声明，
   // 没有把实现运行结果复制成 expected，也不认领任何产品验收判据。
   const step = '✓ mutate 遇到重复编号即以退出码 1 结束'
   const done = '✓ 脚本自检（只跑 1 组）：点名的那几组都跑完了，一条断言都没红'
@@ -12469,12 +12469,12 @@ harness('真实自检入口的严格选择：非法参数不能被忽略后报�
     return { status: r.status, stderr: r.stderr, output }
   }
   try {
-    const good = run(['--only=dup-ids'])
+    const good = run(['--only=mutation-duplicate-ids'])
     const completed = good.status === 0 && hasStep(good.output) && hasLine(good.output, done)
     ok('真实自检入口接受合法单组选跑并执行完成', completed)
     if (!completed) return
 
-    const bad = run(['--only=dup-ids', unknown])
+    const bad = run(['--only=mutation-duplicate-ids', unknown])
     // 拒绝理由按语义核对，不固定一句文案；仍必须点出这次传入的参数原文。
     const rejected = bad.status === 1 && bad.stderr.includes(unknown)
       && /未知|未识别|无法识别|不能识别|不(?:认识|识别|支持|受支持|接受)|unknown|unsupported|unrecognized|not (?:recognized|supported|accepted)/i.test(bad.stderr)
@@ -12518,7 +12518,7 @@ harness('拆进程跑的子进程：出处那句与末尾汇总只由父进程�
   const provenanceSkipped = (output: string) =>
     lines(output).some(line => line.includes('没验') && line.includes('每个可执行文件都有出处'))
   const run = (extra: NodeJS.ProcessEnv) => {
-    const [exe, argv] = prebuiltCommand(['scripts/check/selfcheck.ts', '--only=dup-ids'])
+    const [exe, argv] = prebuiltCommand(['scripts/check/selfcheck.ts', '--only=mutation-duplicate-ids'])
     const r = spawnSync(exe, argv, { encoding: 'utf8', env: { ...env, ...extra }, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 })
     const output = `${r.stdout}\n${r.stderr}`
     // 起不来、超时、被信号停下、内部崩溃、动了认领、留下临时夹具：都没有资格作证（与上一组同一道门）
@@ -12534,7 +12534,7 @@ harness('拆进程跑的子进程：出处那句与末尾汇总只由父进程�
     return { status: r.status, output }
   }
   try {
-    // 对照记成断言、不抛（ADR-119）：别处的变异弄坏 dup-ids 那一组时，这里照常计一处失败、保住汇总
+    // 对照记成断言、不抛（ADR-119）：别处的变异弄坏 mutation-duplicate-ids 那一组时，这里照常计一处失败、保住汇总
     const plain = run({})
     const plainDone = plain.status === 0 && hasStep(plain.output) && hasLine(plain.output, done)
     ok('不拆进程的子集跑照旧跑完点名的那一组并打子集汇总', plainDone)
@@ -12546,7 +12546,7 @@ harness('拆进程跑的子进程：出处那句与末尾汇总只由父进程�
     // 回报只核两栏，栏名照 `ShardReport` 的声明手写核，不借实现里的读法（`readShardReport`）
     const back = existsSync(report) ? JSON.parse(rf(report, 'utf8')) : undefined
     const shardDone = shard.status === 0 && hasStep(shard.output)
-      && isDeepStrictEqual(back?.groups, ['dup-ids']) && back?.failed === 0
+      && isDeepStrictEqual(back?.groups, ['mutation-duplicate-ids']) && back?.failed === 0
     ok('拆进程跑的子进程跑完点名的那一组、交回全绿回报并以 0 结束', shardDone)
     if (!shardDone) return
     ok('拆进程跑的子进程不打末尾汇总：那一句只由父进程合并后打', !hasLine(shard.output, done))
