@@ -34,7 +34,7 @@
  * 形如代码的那几种写法，snake_case 的内部名字挡不住（见 `why-rule.ts`）；打的清单（下面 `--brief`
  * 那一段）与查的清单（`briefLeaks`）各写一份，哪天这边多打一栏，那边不跟也不红。
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -738,7 +738,7 @@ if (process.argv.includes('--worker')) {
 const JOBS_ROOT = '.check-cache/mutate-jobs'
 /**
  * 这一跑自己那一层（ADR-74 第 237 行）：副本与号只建在这一层里。开工前另清进程已不在的那几层，
- * 收尾时作业根空了才删根 —— 同一棵树上同时开、还活着的另一跑那一层不碰（同一个进程号空间里）。
+ * 作业根本身不删 —— 同一棵树上同时开、还活着的另一跑那一层不碰（同一个进程号空间里）。
  */
 const JOBS_DIR = jobsRunDir(JOBS_ROOT, process.pid)
 /** 那个进程还在不在。问不出来（`EPERM`：在，只是不归我们管）也算在 —— 宁可留着不收，不可删掉人家的 */
@@ -755,10 +755,13 @@ const freshJobs = (): void => {
   for (const name of staleRunDirs(names, pidAlive)) rmSync(join(JOBS_ROOT, name), { recursive: true, force: true })
   rmSync(JOBS_DIR, { recursive: true, force: true })
 }
-/** 收尾：删自己这一层；作业根空了就一并删掉，别的跑还在用（非空）就留着 */
+/**
+ * 收尾：只删自己这一层，作业根留着（空的也留）。删空根那一下会撞上另一跑正在建自己那一层的
+ * 头一级目录，那一跑的复制当场 `ENOENT`、整跑硬来（#466 CodeRabbit 第 1 轮指出，ADR-74 末节）；
+ * 一个空目录留在 `.check-cache` 底下无害，不进 worker 副本
+ */
 const dropJobs = (): void => {
   rmSync(JOBS_DIR, { recursive: true, force: true })
-  try { rmdirSync(JOBS_ROOT) } catch { /* 非空、已没了，或别的删不掉：根留着无害，不为它失败 */ }
 }
 /** 宽限期：请 worker 自己收摊之后等多久。它们要停掉手上的验证者、把动过的那份还回去 */
 const GRACE_MS = 5000

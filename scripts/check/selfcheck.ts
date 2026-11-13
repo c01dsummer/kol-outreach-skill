@@ -8691,7 +8691,7 @@ group('mutate-jobs-per-run', [], () => {
   //   承重的：入口问「在不在」时 `w0` 读成 NaN、问不出来、算在，删不到；带 0 的那个读得成号、
   //   进程又已不在，入口不先经判定认名字就会把它删掉。
   // 判定那一半（`jobsRunDir`、`staleRunDirs`）有单测和负片；**这里守的是入口派工那一半**：
-  // 开工前真按判定清、正常收尾只删自己那一层、作业根还有别人时不删根。正常基线那一半（同样两句）
+  // 开工前真按判定清、正常收尾只删自己那一层、作业根不删。正常基线那一半（同样两句）
   // 这个玩具语料走不到 —— 它没有子集基线；硬来那一句收尾这里也不走 —— 这两处没有夹具，记在 ADR-74。入口在自检的验证基础设施
   // 闭包里，指名自检的变异被「自己验自己」拦下；`by: test` 不被拦，但需求测试根本不起派工，
   // 所以这一半只有自检夹具、没有负片。
@@ -8724,7 +8724,7 @@ group('mutate-jobs-per-run', [], () => {
   named('作业目录：已不在的那一跑留下的层清掉了', !existsSync(deadRun), `进程 ${deadPid} 那一层还在`)
   named('作业目录：名字不是规范的号的不碰（旧布局的 w0、前面带 0 的号）', existsSync(legacy) && existsSync(padded),
     `作业根底下剩：${left.join('、')}`)
-  named('作业目录：这一跑自己那一层收干净了，作业根因为还有别人在用而留着',
+  named('作业目录：这一跑自己那一层收干净了，作业根留着',
     JSON.stringify(left) === JSON.stringify([String(process.pid), 'w0', `0${deadPid}`].sort()), `作业根底下剩：${left.join('、')}`)
 })
 
@@ -8802,7 +8802,9 @@ group('jobs-resource', [], () => {
                 + '要 POSIX shell（`/bin/sh`），这里起不来')
   } else {
     const out = (r.stdout ?? '') + (r.stderr ?? '')   // P1 例外：拿不到就是空输出，这是子进程的两股流
-    const left = existsSync(join(fdTmp, '.check-cache', 'mutate-jobs'))
+    // 作业根本身留着（ADR-74 末节）；收干净 = 根底下一层都不剩
+    const jobsRoot = join(fdTmp, '.check-cache', 'mutate-jobs')
+    const left = existsSync(jobsRoot) && readdirSync(jobsRoot).length > 0
     rmSync(join(fdTmp, '.check-cache'), { recursive: true, force: true })
     const tail = out.split('\n').slice(-6).join('\n')
     named('起 worker 时资源不够：真实派工前实际耗尽了文件描述符',
@@ -8825,7 +8827,7 @@ group('jobs-resource', [], () => {
       /ulimit -n/.test(out) && /--jobs=/.test(out),
       `那句话没给出路：\n${tail}`)
     named('起 worker 时资源不够：隔离目录收干净了', !left,
-      '硬来之后 `.check-cache/mutate-jobs` 还在 —— 半成品副本留在盘上了')
+      '硬来之后 `.check-cache/mutate-jobs` 底下还有东西 —— 半成品副本留在盘上了')
   }
 
   // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
@@ -8926,7 +8928,7 @@ const cleanup = () => {
   let first, second, before, after, left;
   try { first = beatsOrThrow(); before = sum(first); await sleep(1000); second = beatsOrThrow(); after = sum(second); left = groupLeft(); }
   catch (e) { cleanup(); say({ setup: false, measure: e.message, ended }); return; }
-  const dirLeft = fs.existsSync(jobsDir), slow = Date.now() - foundAt > 60000;
+  const dirLeft = fs.existsSync(jobsDir) && fs.readdirSync(jobsDir).length > 0, slow = Date.now() - foundAt > 60000;
   cleanup(); say({ setup: true, shells: shells.length, workers: workers.length, ended, beatFiles: first.length, beatFilesAfter: second.length, before, after, groupLeft: left, dirLeft, slow });
 })();
 `, 'utf8')
@@ -8956,7 +8958,7 @@ const cleanup = () => {
     named('派工硬停：验证者那一组被收掉，孙子的心跳停了', got.groupLeft === 0 && got.before === got.after,
       `派工退出之后验证者那几组还剩 ${String(got.groupLeft)} 个活着的进程，心跳 ${got.before} → ${got.after}`
       + ' —— 硬来没给验证者那一组发那一刀，孤儿照样跑被改过的源码')
-    named('派工硬停：隔离目录收干净了', got.dirLeft === false, `硬来之后 .check-cache/mutate-jobs 还在：\n${logAbout('隔离目录') || logTail()}`)
+    named('派工硬停：隔离目录收干净了', got.dirLeft === false, `硬来之后 .check-cache/mutate-jobs 底下还有东西：\n${logAbout('隔离目录') || logTail()}`)
     named('派工硬停：以退出码 1 收场', got.ended?.code === 1,
       `派工那一跑的结局是 ${JSON.stringify(got.ended)} —— 硬来那一步以 1 退出，这里不是：\n${logTail()}`)
   }
