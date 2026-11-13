@@ -4357,13 +4357,14 @@
     {
       "id": "M-H20-a",
       "req": "harness",
-      "why": "定不下来的实参不再跳过，改成把它的源码原文当名字：转发调用和带插值的模板串都被收进清册，而清册大了那一头是放行",
+      "why": "定不下来的实参不再跳过，改成把它的源码原文当名字：转发调用和带插值的模板串都被收进清册、也被归进某一组，而清册大了那一头是放行",
       "file": "scripts/check/mutate-rule.ts",
       "find": "first !== undefined && ts.isStringLiteralLike(first) ? first.text : undefined",
       "replace": "first !== undefined && ts.isStringLiteralLike(first) ? first.text : first?.getText()",
       "by": "test",
       "kills": [
-        "转发调用（实参是个变量）不进清册"
+        "转发调用（实参是个变量）不进清册",
+        "转发变量、带插值的反引号定不下来，不归组"
       ]
     },
     {
