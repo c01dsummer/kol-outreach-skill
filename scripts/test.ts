@@ -61,8 +61,8 @@ import {
   testRunning, trackTest,
 } from './check/mutate-restore.js'
 import {
-  type BillRow, type Outcome, type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, jobsRunDir, staleRunDirs,
-  billLines, copyIntoWorker, groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
+  type BillRow, type Outcome, type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, jobsRunDir, staleRunDirs, workerCopyList,
+  billLines, groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
   neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill,
 } from './check/jobs-rule.js'
 import {
@@ -10888,19 +10888,28 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
     missingVerdicts(['M-a', 'M-b', 'M-c'], new Set(['M-b'])), ['M-a', 'M-c'])
   eq('都回话了就没有欠账', missingVerdicts(['M-a', 'M-b'], new Set(['M-a', 'M-b'])), [])
 
-  // 哪些文件进得了 worker 的那份副本。错一格不是跑得慢，是密钥被复制出去
-  // （`docs/CONVENTIONS.md` 第 10 条：走文件树那一半也是判定）
-  eq('装不下的那几个：不带', copyIntoWorker('node_modules'), false)
-  eq('会把自己复制进自己的：不带', copyIntoWorker('.check-cache'), false)
-  eq('源文件：带', copyIntoWorker('scripts/check/a.ts'), true)
-  eq('`.env` 本人：不带', copyIntoWorker('.env'), false)
-  eq('`.env.local`：不带 —— 逐字比认不出它，这一条正是手抄本漂掉的那个',
-    copyIntoWorker('.env.local'), false)
-  eq('受跟踪的 `.env.example` 也不带 —— 有意的，没有代码从盘上读它',
-    copyIntoWorker('.env.example'), false)
-  eq('认的是文件名那一节，不是整条路径', copyIntoWorker('a/b/.env.local'), false)
-  eq('名字里带 env 但不在开头：照带', copyIntoWorker('my.env.ts'), true)
-  eq('逐字那张表不按前缀 —— `outputs` 不是 `output`', copyIntoWorker('outputs'), true)
+  // 哪些文件进得了 worker 的那份副本。清单由 git 说，这里认的是解析与两道不交给 git 的挡
+  // （ADR-72 第 303 行；`docs/CONVENTIONS.md` 第 10 条：走文件树那一半也是判定）。错一格不是跑得慢，是密钥被复制出去
+  const listed = (...names: string[]): string => names.map(n => `${n}\0`).join('')
+  eq('git 列的照带，按列的顺序', workerCopyList('\n', listed('scripts/check/a.ts', 'docs/x.md')),
+    { files: ['scripts/check/a.ts', 'docs/x.md'] })
+  eq('末尾那个空的不算一项', workerCopyList('\n', 'a.ts\0'), { files: ['a.ts'] })
+  eq('以斜杠结尾的（树里一份没受跟踪的嵌套仓库）不带', workerCopyList('\n', listed('a.ts', '.claude/worktrees/w1/')), { files: ['a.ts'] })
+  eq('列了两遍的（解决冲突中的文件）只带一份', workerCopyList('\n', listed('a.ts', 'a.ts', 'b.ts')), { files: ['a.ts', 'b.ts'] })
+  eq('作业目录那一棵不带 —— 没写 `.gitignore` 的树里 git 会列出来，带进去就是把自己复制进自己',
+    workerCopyList('\n', listed('a.ts', '.check-cache/mutate-jobs/1/w0/a.ts')), { files: ['a.ts'] })
+  eq('依赖树那一处不带 —— 那里换成符号链接', workerCopyList('\n', listed('a.ts', 'node_modules/x/index.js')), { files: ['a.ts'] })
+  eq('认的是第一节 —— 深处叫 `node_modules` 的照带', workerCopyList('\n', listed('docs/node_modules/x.md')), { files: ['docs/node_modules/x.md'] })
+  eq('`.env.production` 没登记进 `.gitignore`、git 照列：不带', workerCopyList('\n', listed('a.ts', '.env.production')), { files: ['a.ts'] })
+  eq('受跟踪的 `.env.example` 也不带 —— 有意的，没有代码从盘上读它', workerCopyList('\n', listed('a.ts', '.env.example')), { files: ['a.ts'] })
+  eq('深处那份、以及 `.env` 开头的目录底下的：不带',
+    workerCopyList('\n', listed('a.ts', 'a/b/.env.local', '.envs/x.ts')), { files: ['a.ts'] })
+  eq('名字里带 env 但不在开头：照带', workerCopyList('\n', listed('my.env.ts')), { files: ['my.env.ts'] })
+  eq('不在仓库顶层：不开工 —— git 只列这一层底下的，带出去的是半棵树',
+    workerCopyList('sub/\n', listed('a.ts')), { fault: '当前目录不是仓库顶层（git 说这里在仓库的 sub/ 底下）' })
+  eq('清单是空的：不开工', workerCopyList('\n', ''), { fault: 'git 列出来要带进副本的文件一个也没有' })
+  eq('只剩挡掉的那几样也算空：不开工', workerCopyList('\n', listed('.env', '.check-cache/x')),
+    { fault: 'git 列出来要带进副本的文件一个也没有' })
 
   // `spawn` 交回来的对象起没起来。不先问这一句，报出来的原因会指向派工代码
   eq('连管道都没装上：没起来', noStdio({ stdin: undefined }), true)

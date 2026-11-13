@@ -34,7 +34,7 @@
  * 形如代码的那几种写法，snake_case 的内部名字挡不住（见 `why-rule.ts`）；打的清单（下面 `--brief`
  * 那一段）与查的清单（`briefLeaks`）各写一份，哪天这边多打一栏，那边不跟也不红。
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -52,10 +52,10 @@ import {
 import { CLAIMS_PATH, mutationSourceIdentity } from './claims.js'
 import {
   type Ran, type CostBaseline, type CostCombination, type CostIdentity, type CostMutation,
-  BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, billLines, copyIntoWorker,
+  BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, billLines,
   configurationCost, configurationCostLines, configurationKey, costObservation,
   groupShot, hardStopPlan, jobsRunDir, jobsWanted, looksLikeReport, missingVerdicts,
-  noStdio, ownGroup, parseReport, reportLine, staleRunDirs, verifierBill,
+  noStdio, ownGroup, parseReport, reportLine, staleRunDirs, verifierBill, workerCopyList,
 } from './jobs-rule.js'
 import {
   INTERRUPTS, beginMutation, claimsRestoreAction, onInterrupt, restoreMutation, stopJobs, trackTest,
@@ -447,7 +447,7 @@ process.on('exit', publishCostAtExit)
  * 照今天的派法，前一样走不到：`test.ts` 删和写都只在跑全套时做，而 M-H14-e 从 #229 起只跑
  * `h-infra-rules` 一组（ADR-128）—— 它那一跑连删都不删，事先放的记录原样留着（实测记在
  * ADR-69 末尾那块）。后一样在多核机器上也不是缺省：派工跑时验证者跑在 worker 自己那份目录里，那份目录
- * 不带 `.check-cache`（`jobs-rule.ts` 的 `copyIntoWorker`），删的写的都不是审计读的那一份。
+ * 不带 `.check-cache`（`jobs-rule.ts` 的 `workerCopyList`），删的写的都不是审计读的那一份。
  * 两样都退回去，这两段才又成立。
  *
  * **这一条至今没修，也不假装修了** —— 改它要碰 `mutate-restore.ts` 的杀进程策略
@@ -721,16 +721,9 @@ if (process.argv.includes('--worker')) {
  * 所以每个 worker 拿一份自己的源码树：改的、还的、它那一跑写下的覆盖记录，全在自己那份里。
  * `node_modules` 是符号链接，那份没人改。
  *
- * 复制时把 `.check-cache` 排除在外 —— worker 目录自己就在那底下，不排除会一路复制自己。
- *
- * ⚠️ **这一句靠的是 `cpSync` 的一处没写进文档的次序**（#109 评审追问出来的）：
- * 目标目录在源目录**底下**时 `cpSync` 会拒绝（`ERR_FS_CP_EINVAL`），而 `filter`
- * 是在那道检查**之前**跑的 —— `.check-cache` 整棵被 `filter` 挡掉，那道检查于是根本
- * 没机会撞上。Node v22.22.2 上实测成立（本条全部计时数据都来自真跑成功的并行）。
- * 但**官方文档没有承诺这个次序**：哪天它挪到检查后面，症状是每一次派工跑当场抛
- * `ERR_FS_CP_EINVAL`（响的，不是静默的）。升 Node 之后要重新确认的就是这一句；
- * 真变了的话，改法是把 worker 目录挪到源码树外面（比如 `mkdtempSync` 到系统临时目录），
- * 而那会连带改掉「隔离目录跟着仓库走、看得见也删得掉」这个性质。
+ * 副本带哪些文件由 git 说（`workerCopyList`，ADR-72 第 303 行）：受跟踪的加上没被忽略的，`.check-cache`
+ * 不带 —— worker 目录自己就在那底下，带进去会一路复制自己。原先是 `cpSync` 整棵复制、靠一张手抄的跳过表挡，
+ * 还靠着它一处没写进文档的次序（`filter` 跑在「目标在源底下」那道检查之前）；照清单一份一份建之后两样都不靠了。
  *
  * 报告的行序是**跑完的先后**，不再是清单的顺序（串行那条路仍是清单顺序）。
  * 每行自带编号，归因不受影响；换来的是跑的过程中一直有东西在动，而不是憋到最后一次吐完。
@@ -781,6 +774,54 @@ const readBeacon = (path: string): { text?: string; error?: string } => {
 }
 
 /**
+ * 要带进 worker 副本的文件，开工前问一次 git、整跑共用（判定在 `workerCopyList`，ADR-72 第 303 行）。git 起不来、
+ * 以非 0 退出、或判定说不开工的，在建任何隔离目录之前以 1 退出 —— 一份不知道该带什么的副本不能拿来跑。
+ */
+let copyList: string[] | undefined
+const workerFiles = async (): Promise<void> => {
+  if (copyList !== undefined) return
+  // 异步问：这个入口接管了信号，同步等子进程的那一会儿信号处理器跑不了（h-mutate 的「没有一处同步等子进程」）
+  const git = (...args: string[]): Promise<string> => new Promise(done => {
+    execFile('git', args, { encoding: 'utf8', maxBuffer: 1 << 30 }, (error, stdout, stderr) => {
+      if (error !== null) {
+        exitWith(1, `✗ 变异测试：没法问 git 哪些文件要带进 worker 的副本（git ${args.join(' ')}）—— `
+          + `${stderr.trim() || error.message}；没有建任何隔离目录，也没施加任何变异`)
+      }
+      done(stdout)
+    })
+  })
+  const plan = workerCopyList(await git('rev-parse', '--show-prefix'), await git('ls-files', '-z', '--cached', '--others', '--exclude-standard'))
+  if ('fault' in plan) exitWith(1, `✗ 变异测试：${plan.fault} —— 没有建任何隔离目录，也没施加任何变异`)
+  copyList = plan.files
+}
+/**
+ * 照那份清单建一份副本。受跟踪、工作树里却已删掉或已不是文件的（`--cached` 照列）跳过 —— 副本跟工作树一样没有它；
+ * 符号链接照原样建成符号链接，不跟进去。空目录不在清单里，副本里没有（原先整棵复制时有）。
+ */
+const copyIntoWorker = (dir: string): void => {
+  mkdirSync(dir, { recursive: true })
+  if (copyList === undefined) throw new Error('建副本之前没问过 git 要带哪些文件')
+  for (const rel of copyList) {
+    let link: boolean
+    try {
+      const st = lstatSync(rel)
+      // 受跟踪的路径在工作树里成了目录（或是个子模块）：副本跟工作树一样，没有那个文件
+      if (st.isDirectory()) continue
+      link = st.isSymbolicLink()
+    } catch (e) {
+      // 已删掉，或上一级成了文件：同上
+      const code = (e as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') continue
+      throw e
+    }
+    const to = join(dir, rel)
+    mkdirSync(dirname(to), { recursive: true })
+    if (link) symlinkSync(readlinkSync(rel), to)
+    else copyFileSync(rel, to)
+  }
+}
+
+/**
  * 这个进程自己那一组的号，拿不到就 undefined。判定（怎么从那一行里切出来）在 `ownGroup`。
  * 拿不到时自保守卫那一格就是没守 —— 非 Linux、procfs 没挂的时候如此，记在 ADR-74。
  */
@@ -789,6 +830,7 @@ const readOwnGroup = (): number | undefined => {
 }
 
 const dispatch = async (jobs: number): Promise<void> => {
+  await workerFiles()
   freshJobs()
   const queue = muts.map(m => m.id)
   const byId = new Map(muts.map(m => [m.id, m]))
@@ -841,14 +883,14 @@ const dispatch = async (jobs: number): Promise<void> => {
     process.on(sig, () => stopJobs([...live].map(s => s.kid), () => hardStop(), GRACE_MS,
                                    (fn, ms) => { setTimeout(fn, ms) }))
   }
-  // **建目录那一步抛出来的，也要走收尾。** `cpSync` / `symlinkSync` 在第 i 个上失败时，
+  // **建目录那一步抛出来的，也要走收尾。** 建副本 / `symlinkSync` 在第 i 个上失败时，
   // 前面已经起来的 worker 正拿着任务在跑，而 `Promise.all` 会把异常直接抛上去、
   // 跳过下面那句删目录 —— 活着的子进程和半成品目录都留下了。走跟打断同一条硬来路径
   // （杀干净、收目录、非零退出），不另写一份（#109 第四轮评审指出）
   try {
     await Promise.all(Array.from({ length: jobs }, (_unused, i) => new Promise<void>(done => {
     const dir = join(JOBS_DIR, `w${i}`)
-    cpSync('.', dir, { recursive: true, filter: copyIntoWorker })
+    copyIntoWorker(dir)
     symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
     // 号文件搁在 `w<i>/` 的**兄弟**位置(判定在 `beaconPathOf`),绝对路径交给 worker ——
     // 它的 cwd 是 `dir`,相对路径会落进那棵被复制的树里
@@ -867,7 +909,7 @@ const dispatch = async (jobs: number): Promise<void> => {
     })
     // 为什么这一问必须在这里、而且在给 stdin 装监听器之前：判定与理由见 `noStdio`。
     // 实测（node v22.22.2）：`spawn` 那一刻剩 ≤6 个 fd 走这一支，剩 ≥8 个正常。
-    // 耗尽位置随环境变化，小语料也可能在前面的 cpSync 先撞 EMFILE（ADR-104）。
+    // 耗尽位置随环境变化，小语料也可能在前面建副本那一步先撞 EMFILE（ADR-104）。
     // 自检现在给复制留空间，只在真实 worker spawn 前耗尽描述符，专门验证下面这一支。
     if (noStdio(kid)) {
       hardStop('\n✗ 变异测试：worker 起不来 —— 起进程时资源不够，Node 连管道都没装上。'
@@ -1106,11 +1148,12 @@ if (subsets.size) {
     dropJobs()
     exitWith(1)
   }
+  await workerFiles()
   for (const sig of INTERRUPTS) process.on(sig, stopBaseline)
   freshJobs()
   try {
     for (const dir of dirs) {
-      cpSync('.', dir, { recursive: true, filter: copyIntoWorker })
+      copyIntoWorker(dir)
       symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
     }
     await Promise.all(dirs.map(async dir => {

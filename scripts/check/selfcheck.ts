@@ -8728,6 +8728,75 @@ group('mutate-jobs-per-run', [], () => {
     JSON.stringify(left) === JSON.stringify([String(process.pid), 'w0', `0${deadPid}`].sort()), `作业根底下剩：${left.join('、')}`)
 })
 
+// ---- worker 副本带哪些文件：清单由 git 说（ADR-72 第 303 行）----
+group('mutate-copy-list', [], () => {
+  // 判定那一半（`workerCopyList`：解析、去重、入口占着的两处、`.env` 一族、不在顶层、清单空）有单测与负片；
+  // **这里守的是入口那一半**：真去问了 git、照清单一份一份建副本。玩具语料自己建 git 历史（与 `mutationFixtureEnv`
+  // 建的同形：两次提交），另摆五样，每个 worker 里的验证者把它看到的记一笔：
+  // - 没受跟踪、也没被忽略的 `notes/loose.txt` —— 该带（站的是 `--others`）；
+  // - 写进 `.gitignore` 的 `ignored.txt` —— 不该带（站的是 `--exclude-standard`；原先的手抄表里没有这个名字，整棵复制会带上）；
+  // - 没登记的 `.env.production` —— 不该带（不交给 git 的那一道）；
+  // - 受跟踪、工作树里已删掉的 `gone.txt` —— 不带，也不让建副本那一步失败（`--cached` 照列它）；
+  // - 受跟踪的相对符号链接 `linked` —— 建成符号链接，不跟进去复制成文件；
+  // - 一份没受跟踪的嵌套仓库 `nested/`（git 列成一项、以斜杠结尾）—— 不带，也不让建副本那一步失败。
+  // 正常基线那一处（同一个建副本的函数）这个语料走不到 —— 它没有子集基线；不在仓库顶层那一种入口里没有夹具，记在 ADR-72。
+  // 入口在自检的验证基础设施闭包里，指名自检的变异被「自己验自己」拦下；`by: test` 不被拦，但需求测试只起 `mutate --worker`、
+  // 根本不起派工，走不到这两处 —— 所以这一半只有自检夹具、没有负片。
+  const copyTmp = join(tmp, 'jobs-copy-list'), copyMark = join(tmp, 'jobs-copy-list-seen.txt')
+  seedJobs(copyTmp, [jobMut('M-J-g', 'keep', 'gone'), jobMut('M-J-h', 'hold', 'lost')], copyMark)
+  const q = "'"
+  const git = (...args: string[]): void => {
+    const r = spawnSync('git', args, { cwd: copyTmp, encoding: 'utf8', env: { ...process.env, ...GIT_ISOLATED } })
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')}：${r.stderr || r.error}`)
+  }
+  try {
+    writeFileSync(join(copyTmp, 'scripts', 'test.ts'), [
+      `import { v, w } from ${q}./check/a.js${q}`,
+      `import { appendFileSync, existsSync, lstatSync } from ${q}node:fs${q}`,
+      `appendFileSync(${JSON.stringify(copyMark)}, JSON.stringify({ cwd: process.cwd(), loose: existsSync(${q}notes/loose.txt${q}),`
+        + ` ignored: existsSync(${q}ignored.txt${q}), env: existsSync(${q}.env.production${q}), gone: existsSync(${q}gone.txt${q}),`
+        + ` link: existsSync(${q}linked${q}) && lstatSync(${q}linked${q}).isSymbolicLink(), nested: existsSync(${q}nested${q}) }) + ${q}\\n${q})`,
+      `const bad = (v !== ${q}keep${q} ? 1 : 0) + (w !== ${q}hold${q} ? 1 : 0)`,
+      `if (bad) { console.log(${q}\\n${q} + bad + ${q} 个失败\\n${q}); process.exitCode = 1 }`,
+    ].join('\n') + '\n', 'utf8')
+    writeFileSync(join(copyTmp, 'gone.txt'), 'x')
+    symlinkSync(join('docs', 'requirements.json'), join(copyTmp, 'linked'))
+    git('init', '--quiet', '-b', 'main')
+    git('config', 'user.name', 'Mutation fixture')
+    git('config', 'user.email', 'fixture@example.invalid')
+    git('add', '--', 'scripts', 'docs', 'gone.txt', 'linked')
+    git('commit', '--quiet', '-m', 'fixture baseline')
+    git('commit', '--quiet', '--allow-empty', '-m', 'fixture head')
+    rmSync(join(copyTmp, 'gone.txt'))
+    mkdirSync(join(copyTmp, 'notes'))
+    writeFileSync(join(copyTmp, 'notes', 'loose.txt'), 'x')
+    writeFileSync(join(copyTmp, '.gitignore'), 'ignored.txt\n')
+    writeFileSync(join(copyTmp, 'ignored.txt'), 'x')
+    writeFileSync(join(copyTmp, '.env.production'), 'SECRET=x\n')
+    mkdirSync(join(copyTmp, 'nested'))
+    writeFileSync(join(copyTmp, 'nested', 'x.txt'), 'x')
+    const inner = spawnSync('git', ['init', '--quiet'], { cwd: join(copyTmp, 'nested'), encoding: 'utf8', env: { ...process.env, ...GIT_ISOLATED } })
+    if (inner.status !== 0) throw new Error(`git init（嵌套仓库）：${inner.stderr || inner.error}`)
+    rmSync(copyMark, { force: true })
+  } catch (e) {
+    failed++
+    console.error(`  ✗ 副本清单夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`)
+    return
+  }
+  const run = runToolBoth('mutate 派工：副本照 git 的清单建', 'mutate', ['--jobs=2'], copyTmp)
+  if (!run.ok) return
+  const seen = existsSync(copyMark) ? readFileSync(copyMark, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)) : []
+  const shown = JSON.stringify(seen)
+  named('副本清单：派工照常跑完，两条都抓到', /2 个变异全部被抓到/.test(run.stdout), run.stdout.split('\n').slice(-8).join('\n'))
+  named('副本清单：两个验证者都跑在隔离目录里', seen.length === 2 && seen.every(r => r.cwd.includes('mutate-jobs')), shown)
+  named('副本清单：没受跟踪、也没被忽略的带上了', seen.length === 2 && seen.every(r => r.loose === true), shown)
+  named('副本清单：写进忽略规则的没带', seen.length === 2 && seen.every(r => r.ignored === false), shown)
+  named('副本清单：没登记的环境文件没带', seen.length === 2 && seen.every(r => r.env === false), shown)
+  named('副本清单：工作树里已删掉的没带，建副本也没失败', seen.length === 2 && seen.every(r => r.gone === false), shown)
+  named('副本清单：符号链接建成符号链接', seen.length === 2 && seen.every(r => r.link === true), shown)
+  named('副本清单：没受跟踪的嵌套仓库没带，建副本也没失败', seen.length === 2 && seen.every(r => r.nested === false), shown)
+})
+
 // ---- 起 worker 时资源不够：报出来的原因要指向资源，不要指向派工代码 ----
 group('jobs-resource', [], () => {
   // 打开的文件数到顶时，`spawn` **既不同步抛、也来不及发 `error`**：Node 在装管道之前
@@ -8747,7 +8816,7 @@ group('jobs-resource', [], () => {
   //
   // **这条路上压根没有验证者可漏**，虽然它每次都走硬来（硬来现在会按组收掉各 worker 底下的
   // 验证者，见 ADR-74；这里说的不是那一刀，是这条路走到时一个验证者都还没起来）。
-  // 理由是结构上的，不是运气：派工那一段从 `cpSync` 到 `spawn` 到
+  // 理由是结构上的，不是运气：派工那一段从建副本到 `spawn` 到
   // 派第一个编号，整个是**一遍同步**跑完的，中间事件循环一次都没转 —— 而 worker 要先把
   // tsx 启起来、读到 stdin，才谈得上起验证者。硬来那一句 `process.exit` 就发生在同一拍里。
   // 本夹具在第一趟真实 spawn 前耗尽描述符，spawn 返回后释放；它只验启动失败后的清理

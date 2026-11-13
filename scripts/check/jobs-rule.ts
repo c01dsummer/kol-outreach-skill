@@ -36,7 +36,6 @@
  * 是因为它与 `ownGroup` 读同一种 `/proc/<pid>/stat` 正文、用同一种切法；自检本身在验证基础设施
  * 闭包里，这条判定只有放在规则模块里才有变异守着。
  */
-import { basename } from 'node:path'
 
 import type { RunVerdict } from './mutate-rule.js'
 
@@ -232,31 +231,43 @@ export function missingVerdicts(handed: readonly string[], reported: ReadonlySet
 }
 
 /**
- * 这个名字**要不要带进 worker 的那份副本**。
+ * worker 的那份副本**带哪些文件**：清单由 git 说（`git ls-files -z --cached --others --exclude-standard`，
+ * 受跟踪的加上没被忽略的），这里只做解析与两道不交给 git 的挡（ADR-72 第 303 行）。
  *
  * 为什么这是判定而不是 I/O：`docs/CONVENTIONS.md` 第 10 条把「跳过哪些目录、
  * 哪些文件算数」明写在判定那一层 —— 它决定 worker 看得见什么。这里错一格的后果
  * 不是跑得慢：**一份装着密钥的 `.env.local` 会被复制进每个 worker 目录**，
  * 正常跑完会删，被硬杀就留在盘上。
  *
- * 两张表，一张逐字比一张按前缀。`.env` 那一族必须按前缀 —— 这两张表合起来是
- * `.gitignore` 的**手抄本**，而手抄本会漂：实测漂过一次，`.gitignore` 里写着
- * `.env.local`，表里只有 `.env`，而逐字比认不出前者。
+ * 原先这里是两张手抄的跳过表（逐字比一张、按前缀一张），合起来是 `.gitignore` 的**手抄本**，
+ * 而手抄本会漂：实测漂过一次，`.gitignore` 里写着 `.env.local`，表里只有 `.env`。改成问 git 之后，
+ * 要记的只剩 `.gitignore` 那一份，漏登记的东西会出现在 `git status` 里。没登记进去的密钥文件仍会被带进副本
+ * （它没受跟踪、也没被忽略）—— 所以下面 `.env` 那一道挡留着；带斜杠的那几行只挡目录，根上同名的符号链接
+ * git 照列（ADR-72 末节已知边界）。
  *
- * 偏大的那一头是安全的：worker 不需要任何 `.env`，它继承派工进程的环境变量。
- * 跟着被挡掉的受跟踪文件 `.env.example` 也是有意的 —— 全仓库只有 `README.md`
- * 把它当一句 `cp` 的说明提过一次，没有任何代码从盘上读它。
+ * 以 `/` 结尾的一项不带：那是 git 认出来的一整个没受跟踪的嵌套仓库（比如树里的一份 worktree、一份克隆），
+ * 不是这棵树的文件，照文件复制会当场 `EISDIR`。
  *
- * ⚠️ **两份表是手抄本这件事本身没修，只补了漏掉的那一项。** 真正的修法是不再手抄：
- * 让 `git ls-files --cached --others --exclude-standard` 来说哪些该复制，失败方向就从
- * 「不该带的漏进来」翻成「该带的漏出去」。挡着的是自检夹具 —— 它们的语料建在临时目录里，
- * **不是 git 仓库**，那条路会把它们全弄挂。欠条与重启条件记在 ADR-72。
+ * 不交给 git 的两道：
+ * - `mutate` 自己占着的两处：作业目录在 `.check-cache` 底下（带进去就是把自己复制进自己），
+ *   `node_modules` 换成一条符号链接。一棵没写 `.gitignore` 的树（自检的玩具语料就是）里它们是
+ *   「没被忽略的」，git 会列出来。
+ * - 路径里哪一节以 `.env` 开头的一律不带：worker 不需要任何 `.env`，它继承派工进程的环境变量；
+ *   `.gitignore` 里只写了 `.env` 与 `.env.local`，一份没登记的 `.env.production` git 会照列。
+ *   跟着被挡掉的还有受跟踪的 `.env.example`，是有意的：没有任何代码从盘上读它。
+ *
+ * 不开工的两种（交回 `fault`，入口照原话报、以 1 退出）：当前目录不是仓库顶层（`prefix` 是
+ * `git rev-parse --show-prefix` 的那一行，顶层时为空 —— 不在顶层时 git 只列这一层底下的，
+ * 带出去的是半棵树）；清单是空的（一个文件都不带，验证者跑的是一棵空树）。
  */
-const SKIP = new Set(['node_modules', '.git', '.check-cache', 'output', 'memory'])
-const SKIP_PREFIX = ['.env']
-export function copyIntoWorker(src: string): boolean {
-  const name = basename(src)
-  return !SKIP.has(name) && !SKIP_PREFIX.some(p => name.startsWith(p))
+const OWNED = ['.check-cache', 'node_modules']
+export type CopyList = { files: string[] } | { fault: string }
+export function workerCopyList(prefix: string, listing: string): CopyList {
+  if (prefix.trim() !== '') return { fault: `当前目录不是仓库顶层（git 说这里在仓库的 ${prefix.trim()} 底下）` }
+  const files = [...new Set(listing.split('\0'))].filter(p => p !== '' && !p.endsWith('/'))
+    .filter(p => !OWNED.includes(p.split('/')[0]) && !p.split('/').some(part => part.startsWith('.env')))
+  if (files.length === 0) return { fault: 'git 列出来要带进副本的文件一个也没有' }
+  return { files }
 }
 
 /**
@@ -324,7 +335,7 @@ export function signalTargets<T extends { pid?: number }>(kids: Iterable<T>): T[
  *
  * **硬来那一步是同步的,而管道不是。** 它从三个地方进来 —— `error` 事件、`noStdio`、
  * 建目录那一圈的外层 catch —— 其中后两条发生在派工进程**一次事件循环都还没转过**的时候
- * (`cpSync` → `spawn` → 第一次 `hand()` 是一整趟同步)。那时管道里就算躺着一行号,
+ * (建副本 → `spawn` → 第一次 `hand()` 是一整趟同步)。那时管道里就算躺着一行号,
  * 也还没变成「派工进程知道」。文件不挑这个:`readFileSync` 当场就读得到。
  *
  * 代价诚实写在这里:**fd 到顶那一次硬来,号一个都读不出来**,那几组验证者照旧漏掉。
@@ -355,7 +366,7 @@ export function jobsRunDir(jobsRoot: string, dispatcherPid: number): string {
 /**
  * 第 `i` 个 worker 的号文件搁哪。**派工进程算一次**,既记在自己表里、又拼进 argv 交给 worker。
  *
- * **是 `w<i>/` 的兄弟,不是它的孩子。** 那个目录是 `cpSync` 复制出来的源码树,
+ * **是 `w<i>/` 的兄弟,不是它的孩子。** 那个目录是照 git 清单建出来的源码树,
  * 也是验证者的 cwd,还是收尾那句 `rmSync` 的目标。号文件落进去会跟着被复制、
  * 被检查链看见、被当成树的一部分。放在外面、仍在这一跑的作业目录底下,收尾顺手收掉。
  *

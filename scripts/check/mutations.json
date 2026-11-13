@@ -6514,30 +6514,6 @@
       ]
     },
     {
-      "id": "M-H38-a",
-      "req": "harness",
-      "why": "复制源码树时那张按前缀认的表没了，只剩逐字比 —— 于是装着密钥的那份本地环境文件被复制进每个 worker 目录，正常跑完会删，被硬杀就留在盘上",
-      "file": "scripts/check/jobs-rule.ts",
-      "find": "  return !SKIP.has(name) && !SKIP_PREFIX.some(p => name.startsWith(p))",
-      "replace": "  return !SKIP.has(name)",
-      "by": "test",
-      "kills": [
-        "`.env.local`：不带 —— 逐字比认不出它，这一条正是手抄本漂掉的那个"
-      ]
-    },
-    {
-      "id": "M-H38-b",
-      "req": "harness",
-      "why": "认的不再是文件名那一节，而是整条路径 —— 目录深处那份环境文件于是不匹配、照样被复制进去，而根目录下那份看着还挡得住，症状只在子目录里出现",
-      "file": "scripts/check/jobs-rule.ts",
-      "find": "  const name = basename(src)",
-      "replace": "  const name = src",
-      "by": "test",
-      "kills": [
-        "认的是文件名那一节，不是整条路径"
-      ]
-    },
-    {
       "id": "M-H38-c",
       "req": "harness",
       "why": "判进程起没起来时只问明写着空的那一种，不问压根没有这一栏的那一种 —— 而资源不够时交回来的正是后者，于是报出来的原因指向派工代码，人去翻代码，该做的却是调高允许打开的文件数",
@@ -6550,16 +6526,127 @@
       ]
     },
     {
-      "id": "M-H38-d",
+      "id": "M-H38-e",
       "req": "harness",
-      "why": "复制源码树时那张逐字比的表没了，只剩按前缀认的那张 —— 于是装不下的那几个大目录（依赖树、缓存、产出）全被复制进每个 worker 目录，而且会把自己的隔离目录复制进自己",
+      "why": "不在仓库顶层也照开工 —— 那时 git 只列当前这一层底下的，带进副本的是半棵树，验证者在副本里找不到另一半",
       "file": "scripts/check/jobs-rule.ts",
-      "find": "  return !SKIP.has(name) && !SKIP_PREFIX.some(p => name.startsWith(p))",
-      "replace": "  return !SKIP_PREFIX.some(p => name.startsWith(p))",
+      "find": "  if (prefix.trim() !== '') return { fault:",
+      "replace": "  if (false) return { fault:",
       "by": "test",
       "kills": [
-        "装不下的那几个：不带",
-        "会把自己复制进自己的：不带"
+        "不在仓库顶层：不开工 —— git 只列这一层底下的，带出去的是半棵树"
+      ]
+    },
+    {
+      "id": "M-H38-f",
+      "req": "harness",
+      "why": "解决冲突中的文件被列了好几遍，就复制好几遍 —— 是符号链接的那一份第二遍建不起来，整跑当场失败",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "[...new Set(listing.split('\\0'))]",
+      "replace": "listing.split('\\0')",
+      "by": "test",
+      "kills": [
+        "列了两遍的（解决冲突中的文件）只带一份"
+      ]
+    },
+    {
+      "id": "M-H38-g",
+      "req": "harness",
+      "why": "按空字符切开后末尾那个空串也算一项 —— 副本里要建一个没有名字的文件",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": ".filter(p => p !== '' && !p.endsWith('/'))",
+      "replace": ".filter(p => !p.endsWith('/'))",
+      "by": "test",
+      "kills": [
+        "末尾那个空的不算一项"
+      ]
+    },
+    {
+      "id": "M-H38-n",
+      "req": "harness",
+      "why": "树里一份没受跟踪的嵌套仓库（一份 worktree、一份克隆）被当成一个文件复制 —— 建副本当场失败，有这样一份的机器上变异一步一次也跑不起来",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": " && !p.endsWith('/'))",
+      "replace": ")",
+      "by": "test",
+      "kills": [
+        "以斜杠结尾的（树里一份没受跟踪的嵌套仓库）不带"
+      ]
+    },
+    {
+      "id": "M-H38-h",
+      "req": "harness",
+      "why": "入口自己占着的两处不再挡 —— 一棵没写忽略规则的树里，作业目录被复制进每个副本（自己复制自己），依赖树那一处跟符号链接撞上",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "!OWNED.includes(p.split('/')[0]) && ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "作业目录那一棵不带 —— 没写 `.gitignore` 的树里 git 会列出来，带进去就是把自己复制进自己",
+        "依赖树那一处不带 —— 那里换成符号链接"
+      ]
+    },
+    {
+      "id": "M-H38-i",
+      "req": "harness",
+      "why": "入口占着的那两处按路径里任何一节认 —— 文档深处一个恰好同名的目录也被挡掉，副本里少了它",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "!OWNED.includes(p.split('/')[0])",
+      "replace": "!p.split('/').some(part => OWNED.includes(part))",
+      "by": "test",
+      "kills": [
+        "认的是第一节 —— 深处叫 `node_modules` 的照带"
+      ]
+    },
+    {
+      "id": "M-H38-j",
+      "req": "harness",
+      "why": "环境文件那一道挡没了 —— 一份没登记进忽略规则的环境文件被复制进每个 worker 目录，正常跑完会删，被硬杀就留在盘上",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": " && !p.split('/').some(part => part.startsWith('.env'))",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "`.env.production` 没登记进 `.gitignore`、git 照列：不带",
+        "受跟踪的 `.env.example` 也不带 —— 有意的，没有代码从盘上读它",
+        "深处那份、以及 `.env` 开头的目录底下的：不带"
+      ]
+    },
+    {
+      "id": "M-H38-k",
+      "req": "harness",
+      "why": "环境文件只在根目录那一层认 —— 子目录里那一份照样被复制进去，根目录下的看着还挡得住，症状只在子目录里出现",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "p.split('/').some(part => part.startsWith('.env'))",
+      "replace": "p.startsWith('.env')",
+      "by": "test",
+      "kills": [
+        "深处那份、以及 `.env` 开头的目录底下的：不带"
+      ]
+    },
+    {
+      "id": "M-H38-l",
+      "req": "harness",
+      "why": "环境文件按名字里含不含来认，不按开头 —— 名字中间恰好带这几个字的源文件被挡在副本外，验证者找不到它",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "part.startsWith('.env')",
+      "replace": "part.includes('.env')",
+      "by": "test",
+      "kills": [
+        "名字里带 env 但不在开头：照带"
+      ]
+    },
+    {
+      "id": "M-H38-m",
+      "req": "harness",
+      "why": "清单空了也照开工 —— 验证者在一棵空树里跑，结论全是它起不来",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (files.length === 0) return { fault:",
+      "replace": "  if (false) return { fault:",
+      "by": "test",
+      "kills": [
+        "清单是空的：不开工",
+        "只剩挡掉的那几样也算空：不开工"
       ]
     },
     {
