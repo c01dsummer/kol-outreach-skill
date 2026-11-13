@@ -625,15 +625,30 @@ export function exitFaults(source: string, helper: string, imported: readonly st
  * 清册唯一的用途是「点的这条真的在」,小了是拦住,大了是放行。
  */
 /**
+ * 「这是不是一条具名夹具」—— `groupOfLabel` 与 `labelsOf` 两个 walk 共用这一处（ADR-99 第 316 行）。
+ *
+ * 三条判据：调用的是光秃秃一个名字（`别的对象.eq(…)` 不是那个函数）、名字在 `declared` 里、
+ * 首参是字符串字面量或不带插值的反引号串（两种都静态定得下来）。是就交回标签，不是交回 `undefined`。
+ * 原先这三条在两个 walk 里各写了一份，改一处另一处不跟（ADR-25：一个判断只放一处）。
+ * 「`group('<id>', …)` 开了一组」也是同一种形状，`groupOfLabel` 拿只装着 `group` 的集合问它。
+ */
+function fixtureLabel(node: Ts.Node, declared: { has(name: string): boolean }): string | undefined {
+  const ts = typescript()
+  if (!ts.isCallExpression(node)) return undefined
+  const callee = ts.isIdentifier(node.expression) ? node.expression.text : undefined
+  const first = node.arguments[0]
+  const label = first !== undefined && ts.isStringLiteralLike(first) ? first.text : undefined
+  return callee !== undefined && declared.has(callee) ? label : undefined
+}
+
+const OPENS_GROUP = new Set(['group'])
+
+/**
  * 每条夹具标签属于哪一组 —— 把负片 `kills` 点名的夹具翻成 `--only` 要的组 id。
  *
- * **它和 `labelsOf` 各扫一遍，判定重复了一份 —— 照实写，别否认。** 共享的只有
- * `declares` 这个参数值：语法树两棵（这里与 `labelsOf` 各 `createSourceFile` 一次），
- * 调用侧也两趟（`mutate.ts` 的 `inventoryOf` 与 `onlyFor` 各读一次文件）。
- * 「什么算给夹具起名」这个判定在两处各写了一份：callee 只认光秃秃的 Identifier、
- * 首参只认 `isStringLiteralLike`、名字要在 `declares` 里。
- * **改 `labelsOf` 那三条判据时，这里要跟着改。** ADR-25 说的是「一个判断只放一处」，
- * 这里没做到；合成一趟同时产出两张表是可以的，本条没做，欠条在 ADR-99 第八节。
+ * 「什么算给夹具起名」与 `labelsOf` 共用 `fixtureLabel`。语法树仍是两棵（这里与 `labelsOf`
+ * 各 `createSourceFile` 一次），调用侧也两趟（`mutate.ts` 的 `inventoryOf` 与 `onlyFor` 各读一次文件）；
+ * 合成一趟同时产出两张表是可以的，没做 —— 两趟各花一次解析，判据只有一份。
  *
  * 认的是 `group('<id>', [...], () => { … })` 这个**代码结构**本身，不认任何注释约定 ——
  * 注释里的分节线只是装饰，改了不影响这里。
@@ -645,20 +660,14 @@ export function groupOfLabel(source: string, declares: readonly string[]): Map<s
   const ts = typescript()
   const out = new Map<string, string>()
   const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
-  // **用 Set 查，不要照抄 `labelsOf` 里那句 includes。** 照抄的话同一串字面量在这个
-  // 文件里出现两次，而 `mutate` 只检查锚点在不在、不检查唯一不唯一
-  // （它用的是字符串版 `replace`，只改第一处）。实测：`M-H20-b` 本该改 `labelsOf`，
-  // 结果改了这里，而这里当时还没有测试守着 —— 它「存活」了一整轮全链。
   const declared = new Set(declares)
   const walk = (node: Ts.Node, group: string | undefined): void => {
     let inner = group
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-      const name = node.expression.text
-      const first = node.arguments[0]
-      const label = first !== undefined && ts.isStringLiteralLike(first) ? first.text : undefined
-      if (name === 'group' && label !== undefined) inner = label
-      else if (label !== undefined && group !== undefined && declared.has(name)
-               && !out.has(label)) out.set(label, group)
+    const opened = fixtureLabel(node, OPENS_GROUP)
+    if (opened !== undefined) inner = opened
+    else {
+      const fixture = fixtureLabel(node, declared)
+      if (fixture !== undefined && group !== undefined && !out.has(fixture)) out.set(fixture, group)
     }
     ts.forEachChild(node, n => walk(n, inner))
   }
@@ -670,19 +679,14 @@ export function labelsOf(source: string, declares: readonly string[]): Map<strin
   const ts = typescript()
   const seen = new Map<string, number>()
   const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
-  const literal = (node: Ts.Node | undefined): string | undefined =>
-    node !== undefined && ts.isStringLiteralLike(node) ? node.text : undefined
-  /** 调的是谁 —— 只认光秃秃一个名字。`别的对象.eq(…)` 不是那个函数,交回 `undefined` */
-  const callee = (node: Ts.CallExpression): string | undefined =>
-    ts.isIdentifier(node.expression) ? node.expression.text : undefined
+  // 名字不同于 `groupOfLabel` 里那个 `declared`，是故意的：变异只改锚点第一次出现的地方，
+  // 两处写成同一串字面量，点这边的变异会落到那边去（`M-H20-b` 当年就这样「存活」了一整轮）
+  const known = new Set(declares)
   const walk = (node: Ts.Node): void => {
-    if (ts.isCallExpression(node)) {
-      const name = callee(node)
-      const label = literal(node.arguments[0])
-      if (name !== undefined && declares.includes(name) && label !== undefined) {
-        const had = seen.get(label)
-        seen.set(label, had === undefined ? 1 : had + 1)
-      }
+    const label = fixtureLabel(node, known)
+    if (label !== undefined) {
+      const had = seen.get(label)
+      seen.set(label, had === undefined ? 1 : had + 1)
     }
     ts.forEachChild(node, walk)
   }
