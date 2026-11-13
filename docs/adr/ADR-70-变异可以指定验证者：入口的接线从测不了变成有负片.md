@@ -4146,9 +4146,9 @@ ADR-74 第 198 行（派工硬来那一刀）同一条 PR 还，记在 ADR-74 �
 - 不响：第 4092 行（`anchorFaults`、`anchorVerdict`、`stagedResidue` 与 `anchors.ts` 都没碰；同锚点同替换仍是那 10 对，新变异施加后 `find` 都剩 0 处；`M-H23-h` 撞成两处由锚点不唯一那道拦下，不是那张列的形状）；ADR-193 第 120 行、ADR-144 第 173 行（没有新增或改动自检组；`selfcheck.ts` 只改了一段注释，说 `exitRace` 已不扫字面）；ADR-34 第 74 行（新判定不读变异编号）。
 - 写回 `launches.json` 时核过：ADR-129 第 149 行、ADR-145 第 120 行与第 1239 行没有超线、没有「启动数不确定」（`h-mutate` 那一行以并入主干之后那次整跑写回的为准，所有配置都在线内）。台账：本节多一条死亡条件、新挂七张（一张新的、六张重挂）；前后各多少条，在本片前后两棵树上各跑一次 `npm run -s adr-ledger`。
 
-> ⚠️ 已还：ADR-70 第 2077 行 · 还在 #待定：`exitRace` 改按语法树认（`process.exit`、`process['exit']`，带 `globalThis.` 的也认），注释、字符串里写全了的不算，见本节
+> ⚠️ 已还：ADR-70 第 2077 行 · 还在 #462：`exitRace` 改按语法树认（`process.exit`、`process['exit']`，带 `globalThis.` 的也认），注释、字符串里写全了的不算，见本节
 
-> ⚠️ 已还：ADR-70 第 2082 行 · 还在 #待定：新判定 `exitFaults` 对真 `mutate.ts` 查硬退出收没收口，需求测试 `h-mutate` 跑它，见本节；别的检查入口不在这道闸门下，见本节末尾新挂的那张
+> ⚠️ 已还：ADR-70 第 2082 行 · 还在 #462：新判定 `exitFaults` 对真 `mutate.ts` 查硬退出收没收口，需求测试 `h-mutate` 跑它，见本节；别的检查入口不在这道闸门下，见本节末尾新挂的那张
 
 > ⚠️ 欠条（档：登记）：硬退出收口只到 `mutate.ts`：检查链别的入口（`audit.ts`、`size.ts`、`adr-sync.ts`、`spec-sync.ts` 共 17 处）照旧先 `console.error` 再硬退出，`mutate-restore.ts` 的 `onInterrupt` 也是一处；这道闸门的判定 `exitFaults` 认不出的写法、`exitWith` 与 `hardStop` 自己写没写没有断言、`--brief` 不设上限没有断言，都在本节已知边界里 · 来源：本节三份清点与独立复审 · 重启条件：下一条碰这几个入口里任一处硬退出的改动；或有人在检查链的输出里撞见一句被掐掉的诊断
 
