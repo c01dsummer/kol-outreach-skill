@@ -165,13 +165,17 @@ const named = (label: string, ok: boolean, why: string) => {
 }
 
 const runBoth = (label: string, args: string[], cwd = process.cwd(),
-  expect?: { status: number; soft?: readonly number[] }, extra: NodeJS.ProcessEnv = {}): { ok: boolean; stdout: string; stderr: string; status: number | null } => {
+  expect?: { status: number; soft?: readonly number[]; timeoutMs?: number }, extra: NodeJS.ProcessEnv = {}): { ok: boolean; stdout: string; stderr: string; status: number | null } => {
   // extra 只给这一次 spawn：崩溃续跑那几条轨迹要给「杀掉那一跑」传旋钮、给续跑不传
   const kidEnv = { ...env, ...extra }
   // 预编缓存里有整棵树现在这一版就裸 node 起，否则照旧 tsx（`prebuilt.ts`，ADR-158）；
   // 退出码按 tsx 的壳会报的那样换算（夹具「被杀」那几条认的是 137）
   const [exe, argv] = prebuiltCommand(args, cwd, kidEnv)
-  const spawned = spawnSync(exe, argv, { env: kidEnv, cwd, encoding: 'utf8' })
+  // `timeoutMs` 给的是「卡住了也要有个了断」：到点用 SIGKILL 杀掉这一个子进程，`r.error` 带 ETIMEDOUT，
+  // 下面照「起不来 / 被打死」那一支报（带进程记号，`soft` 救不回来）——卡住就是没跑完，不是哪条断言判了不过。
+  // 只杀直接起的这一个：调用点要自己说清楚卡住那一刻底下还有没有孙进程（#467 CodeRabbit 第 1 轮）。
+  const spawned = spawnSync(exe, argv, { env: kidEnv, cwd, encoding: 'utf8',
+    ...(expect?.timeoutMs === undefined ? {} : { timeout: expect.timeoutMs, killSignal: 'SIGKILL' as const }) })
   const r = { ...spawned, ...asTsx(argv, spawned.status, spawned.signal) }
   const stdout = r.stdout ?? ''   // P1 例外：拿不到就是空输出，不是「没查过」——这是子进程的两股流
   const stderr = r.stderr ?? ''   // P1 例外：同上
@@ -193,7 +197,9 @@ const runBoth = (label: string, args: string[], cwd = process.cwd(),
   }
   if (bad) {
     failed++
-    const why = r.error ? String(r.error) : `预期以退出码 ${want} 结束，实际是 ${r.status}`
+    const why = (r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT'
+      ? `过了 ${(expect?.timeoutMs ?? 0) / 1000} 秒还没结束，已杀掉（卡住了）`
+      : r.error ? String(r.error) : `预期以退出码 ${want} 结束，实际是 ${r.status}`
     console.error(`  ✗ ${label}${SELFCHECK_PROCESS_MARK}：${why}\n${(stderr || stdout).split('\n').slice(-12).join('\n')}`)
     return { ok: false, stdout: '', stderr: '', status: r.status }
   }
@@ -279,7 +285,7 @@ const runTool = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string
  * 要读 stdout 与判成败,`run` 只给一股。
  */
 const runToolBoth = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string[] = [],
-  cwd = process.cwd(), expect?: { status: number; soft?: readonly number[] }) =>
+  cwd = process.cwd(), expect?: { status: number; soft?: readonly number[]; timeoutMs?: number }) =>
   runBoth(label, [S(SELFCHECK_TOOLS[tool]), ...rest], cwd, expect, mutationFixtureEnv(tool, rest, cwd))
 
 console.log('\n[脚本自检] 假 fetch，无真实请求\n')
@@ -8788,7 +8794,23 @@ group('mutate-copy-list', [], () => {
     console.error(`  ✗ 副本清单夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`)
     return
   }
-  const run = runToolBoth('mutate 派工：副本照 git 的清单建', 'mutate', ['--jobs=2'], copyTmp)
+  // 建副本时若去打开那根命名管道，`open` 会一直等一个写端，整跑停在那里不动 —— 自检也跟着挂住、什么也不报。
+  // 所以旁边起一个「疏通的」：每半秒用不阻塞的方式把管道的写端开一下再关上。没人在读时这一下直接失败、什么也不发生
+  // （修复在的时候就是这样）；有人卡在读端时，读端拿到文件结尾，那份副本建成一个空文件、整跑接着走完 ——
+  // 于是撤掉修复不会挂住，而是由下面「换成命名管道的没带」那条具名断言判红，派工起的子孙也都自己跑完、收干净。
+  // 撤掉修复实测过：具名断言红、整跑照常结束、不留进程（#467 CodeRabbit 第 1 轮）。
+  // 时限是疏通的那个自己也出了岔子时的兜底：到点只杀直接起的那一个，经 tsx 起时它底下那个真跑着的 node 会留下，
+  // 所以兜底只保证自检不挂住，不保证收干净。
+  const unjam = spawn(process.execPath, ['-e', [
+    `const fs = require('node:fs')`,
+    `const end = Date.now() + 150000`,
+    `setInterval(() => {`,
+    `  try { fs.closeSync(fs.openSync(process.argv[1], fs.constants.O_WRONLY | fs.constants.O_NONBLOCK)) } catch {}`,
+    `  if (Date.now() > end) process.exit(0)`,
+    `}, 500)`,
+  ].join('\n'), join(copyTmp, 'piped.txt')], { stdio: 'ignore' })
+  const run = runToolBoth('mutate 派工：副本照 git 的清单建', 'mutate', ['--jobs=2'], copyTmp, { status: 0, timeoutMs: 120_000 })
+  unjam.kill('SIGKILL')
   if (!run.ok) return
   const seen = existsSync(copyMark) ? readFileSync(copyMark, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)) : []
   const shown = JSON.stringify(seen)
