@@ -25,11 +25,14 @@
  * 「主动停掉」那一档改成了判开枪那一刻的快照（修一处间歇性假红，ADR-72 末节记着）。
  * 两句话不是一回事，别把前一句读成后一句。
  *
- * `--brief` 是给**写测试的那个上下文**用的：`why` 是需求语言，可以给；
- * `find`/`replace` 是实现原文，给了就等于让它读实现。
+ * `--brief` 是给**写测试的那个上下文**用的：它打每条变异的 `why`、每条豁免的范围与 `why`，
+ * 都是需求语言，可以给；`find`/`replace` 是实现原文，给了就等于让它读实现。
  * 见 process/4-VERIFY.md 的「给测试上下文一张准入读物清单」。
  *
- * 这条防线的强度取决于 `why` 怎么写 —— 引了实现原文的 why，`--brief` 照样把它漏出去。
+ * 这条防线的强度取决于打出去的那几段怎么写 —— 开跑前用 `why-rule.ts` 的 `briefLeaks` 逐段查，
+ * 夹带了实现原文就不开跑、`--brief` 也不打（ADR-70 末尾「清单夹带（入口）」一节）。查得出的只是
+ * 形如代码的那几种写法，snake_case 的内部名字挡不住（见 `why-rule.ts`）；打的清单（下面 `--brief`
+ * 那一段）与查的清单（`briefLeaks`）各写一份，哪天这边多打一栏，那边不跟也不红。
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
@@ -39,7 +42,7 @@ import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { attributionFault } from './attribution-rule.js'
 import { orderBindingFaults, type OrderFault } from './order-rule.js'
-import { implementationLeak } from './why-rule.js'
+import { briefLeaks } from './why-rule.js'
 import {
   type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
@@ -180,14 +183,18 @@ if (fault?.kind === 'orphan') {
     '\n  守检查链本身的写 harness；守某条需求的写它真实的编号。')
 }
 
-const dirty = muts.flatMap(m => {
-  const leak = implementationLeak(m.why)
-  return leak === undefined ? [] : [`${m.id}  夹带实现原文：${leak}`]
-})
-if (dirty.length) {
-  exitWith(1, `✗ 变异集：${dirty.length} 条 why 夹带实现原文 —— --brief 会把它漏给写测试的上下文\n`,
-    ...dirty.map(d => `  ${d}`),
-    '\n  why 说「什么会变错、用户会看到什么」，不引代码。对外契约里的名字不算实现原文。')
+// `--brief` 打出去的每一段（变异的 why、豁免的范围与 why）都过一遍；排在上面拒重复编号之后 ——
+// `briefLeaks` 按编号报、自己不拒重复（ADR-34 末尾）。两侧分开报：变异的 why 归写变异的人改，
+// 豁免的归登记豁免的人改（ADR-70 末尾「清单夹带（入口）」一节）。
+const leaks = briefLeaks(muts, exemptions)
+if (leaks.length) {
+  const mutSide = leaks.flatMap(l => l.side === 'mutation' ? [`    ${l.id}  why 夹带实现原文：${l.leak}`] : [])
+  const exSide = leaks.flatMap(l => l.side === 'exemption'
+    ? [`    豁免 [${l.req}]  ${l.field === 'scope' ? '范围' : 'why'} 夹带实现原文：${l.leak}`] : [])
+  exitWith(1, `✗ 变异集：${leaks.length} 处夹带实现原文 —— --brief 会把它漏给写测试的上下文\n`,
+    ...(mutSide.length ? [`  变异一侧 ${mutSide.length} 处（改变异的 why）：`, ...mutSide] : []),
+    ...(exSide.length ? [`  豁免一侧 ${exSide.length} 处（改豁免的范围或 why）：`, ...exSide] : []),
+    '\n  打出去的每一段都说「什么会变错、用户会看到什么」，不引代码。对外契约里的名字不算实现原文。')
 }
 
 // 锚点在目标文件里必须恰好出现一次 —— 出现两处以上时替换只改第一处，作者要验的那一处

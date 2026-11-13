@@ -80,3 +80,11 @@ ADR-70 末尾「清单夹带（判定）」一节加了判定 `briefLeaks`，它
 > ⚠️ 已重挂：ADR-34 第 74 行 · 现行的是 ADR-34 第 82 行
 
 > ⚠️ 欠条：变异编号的唯一性仍由每个读编号的地方各自先拒或写成前提（`mutate.ts` 与检查链第一步共用 `duplicateIds`，`executionRoutes` 自己拒，`stagedResidue` 由检查链第一步先过 `anchorVerdict`，`briefLeaks` 靠检查链第一步排在需求测试之前），没有一个所有消费者之前都经过的统一阶段 · 来源：ADR-34 第 74 行续挂 · 档：登记 · 重启条件：再出现一处新的读变异编号的消费者，或在 `executionRoutes` 之外又有一处读编号的地方不经 `duplicateIds` 自己拒，或接 `briefLeaks` 的入口合入，或定期清点
+
+## 续：清单夹带的入口接上（2026-11-13）
+
+ADR-70 末尾「清单夹带（入口）」一节把 `briefLeaks` 接进 `mutate.ts` 开跑前那一道，排在 `attributionFault` 拒重复编号之后，第 82 行的重启条件「接 `briefLeaks` 的入口合入」由此响了。编号唯一照旧是每个读编号的地方各自先拒或写成前提，没有统一的阶段。
+
+> ⚠️ 已重挂：ADR-34 第 82 行 · 现行的是 ADR-34 第 90 行
+
+> ⚠️ 欠条：变异编号的唯一性仍由每个读编号的地方各自先拒或写成前提（`mutate.ts` 与检查链第一步共用 `duplicateIds`，`executionRoutes` 自己拒，`stagedResidue` 由检查链第一步先过 `anchorVerdict`，`briefLeaks` 在 `mutate.ts` 里排在拒重复之后、在需求测试里靠检查链第一步排在前面），没有一个所有消费者之前都经过的统一阶段 · 来源：ADR-34 第 82 行续挂 · 档：登记 · 重启条件：再出现一处新的读变异编号的消费者，或在 `executionRoutes` 之外又有一处读编号的地方不经 `duplicateIds` 自己拒，或定期清点
