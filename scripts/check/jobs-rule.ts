@@ -341,20 +341,45 @@ export function signalTargets<T extends { pid?: number }>(kids: Iterable<T>): T[
 export const BEACON_FLAG = '--beacon='
 
 /**
+ * 这一跑的作业目录：作业根底下、按**派工进程的号**分开的一层（ADR-74 第 237 行）。
+ *
+ * 原先所有跑共用作业根，worker 目录叫 `w0`、`w1`……开头那句整删又删的是整个根 ——
+ * 两跑同时开，后来的那个把先来的那份连同号文件一起抹掉，先来的那个硬来时读到 ENOENT、
+ * 当成「没号」一声不响放过，它底下的验证者那一组就留着了（实测，记在 ADR-74）。
+ * 分开之后每一跑只建、只删自己这一层；根底下别的跑留下的东西，由 `staleRunDirs` 判谁能清。
+ */
+export function jobsRunDir(jobsRoot: string, dispatcherPid: number): string {
+  return `${jobsRoot}/${dispatcherPid}`
+}
+
+/**
  * 第 `i` 个 worker 的号文件搁哪。**派工进程算一次**,既记在自己表里、又拼进 argv 交给 worker。
  *
- * 两处讲究,各挡一种坏法:
+ * **是 `w<i>/` 的兄弟,不是它的孩子。** 那个目录是 `cpSync` 复制出来的源码树,
+ * 也是验证者的 cwd,还是收尾那句 `rmSync` 的目标。号文件落进去会跟着被复制、
+ * 被检查链看见、被当成树的一部分。放在外面、仍在这一跑的作业目录底下,收尾顺手收掉。
  *
- * - **是 `w<i>/` 的兄弟,不是它的孩子。** 那个目录是 `cpSync` 复制出来的源码树,
- *   也是验证者的 cwd,还是收尾那句 `rmSync` 的目标。号文件落进去会跟着被复制、
- *   被检查链看见、被当成树的一部分。放在外面、仍在 `JOBS_DIR` 底下,收尾顺手收掉。
- * - **名字里带派工进程的号。** 同一棵树上另一跑(或者被当工具起的另一个 `mutate`)
- *   留下的号文件,路径就对不上,我们读都不会去读 —— **不会拿着别人的号去开刀**。
- *   ⚠️ 挡的只有这一头。它**挡不住别人把我们这份删掉** —— 两跑共用同一个根目录、
- *   `w<i>` 还同名,那一格还开着(实测过,记在 ADR-74);也堵不住**号被系统回收**给别人。
+ * 两跑不会读到对方的号,靠的是 `runDir` 本身已经按派工进程分开(`jobsRunDir`);
+ * 原先名字里带派工进程的号挡的就是这一头,而它挡不住别人把我们这份删掉 —— 那一格现在由
+ * 「各删各的那一层」堵上。**号被系统回收**给别人这一格照旧没堵。
  */
-export function beaconPathOf(jobsDir: string, dispatcherPid: number, i: number): string {
-  return `${jobsDir}/w${i}.${dispatcherPid}.verifier`
+export function beaconPathOf(runDir: string, i: number): string {
+  return `${runDir}/w${i}.verifier`
+}
+
+/**
+ * 作业根底下哪几层可以清掉：名字是一个正整数(派工进程的号),而那个进程**已经不在了**。
+ *
+ * 原先「下一跑开头整删」顺带收掉了上一跑被 SIGKILL 留下的半成品；各删各的之后这件事要另判,
+ * 否则被硬杀的那一跑留下的副本永远没人收。两头都不许错：
+ * - 进程还在的不清 —— 那正是本条要堵的「后来的抹掉先来的」。问不出来(没权限发信号)也算在。
+ * - 名字不是号的不碰 —— 旧布局(`w0`、`baseline-0`、号文件)或别的东西,不知道是谁的,不猜。
+ *
+ * ⚠️ 号被回收给一个不相干的进程时,那一层会一直留着(只占盘,不误删);
+ * 共用同一棵树、却不在同一个进程号空间里的两跑(比如一跑在容器里)会把对方当成已不在 —— 记在 ADR-74。
+ */
+export function staleRunDirs(names: readonly string[], alive: (pid: number) => boolean): string[] {
+  return names.filter(n => /^[1-9][0-9]*$/.test(n) && !alive(Number(n)))
 }
 
 /**

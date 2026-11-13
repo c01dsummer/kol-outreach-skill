@@ -8680,6 +8680,49 @@ group('mutate-parallel-workers', [], () => {
   }
 })
 
+// ---- 两跑共用一棵树：各删各的作业目录，已不在的那一跑留下的才清（ADR-74 第 237 行）----
+group('mutate-jobs-per-run', [], () => {
+  // 原先每一跑开头整删作业根、worker 目录又都叫 `w0`、`w1`……两跑同时开，后来的把先来的
+  // 那份连号文件一起抹掉，先来的硬来时读到 ENOENT、当成「没号」放过，验证者那一组就留着了。
+  // 这里在作业根底下先摆三样，再真起一跑派工：
+  // - 自检自己这个进程号的一层（整跑期间都在）—— 站的是「另一跑还在用」，必须原样留着；
+  // - 一个已经退出的进程号的一层 —— 站的是「被硬杀的那一跑留下的半成品」，该清；
+  // - 一个名字不是号的 `w0` —— 站的是旧布局或不知道是谁的东西，不碰。
+  // 判定那一半（`jobsRunDir`、`staleRunDirs`）有单测和负片；**这里守的是入口那一半**：
+  // 开工前真按判定清、只删自己那一层、作业根还有别人时不删根。入口在自检的验证基础设施闭包里，
+  // 指着它的变异会被「自己验自己」拦下；`by: test` 不被拦，但需求测试不在有别的跑的作业根上起派工，
+  // 所以这一半只有自检夹具、没有负片。
+  const runTmp = join(tmp, 'jobs-per-run'), runMark = join(tmp, 'jobs-per-run-cwd.txt')
+  seedJobs(runTmp, [jobMut('M-J-e', 'keep', 'gone'), jobMut('M-J-f', 'hold', 'lost')], runMark)
+  const root = join(runTmp, '.check-cache', 'mutate-jobs')
+  const liveRun = join(root, String(process.pid))
+  const deadPid = spawnSync(process.execPath, ['-e', '']).pid
+  const deadRun = join(root, String(deadPid))
+  const legacy = join(root, 'w0')
+  try {
+    mkdirSync(join(liveRun, 'w0'), { recursive: true })
+    writeFileSync(join(liveRun, 'w0', 'marker'), 'x')
+    writeFileSync(join(liveRun, 'w0.verifier'), '1\n')
+    mkdirSync(join(deadRun, 'w0'), { recursive: true })
+    mkdirSync(legacy, { recursive: true })
+  } catch (e) {
+    failed++
+    console.error(`  ✗ 作业目录夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`)
+    return
+  }
+  const run = runToolBoth('mutate 派工：作业根底下有另一跑还在用的一层、一跑已不在的一层', 'mutate',
+    ['--jobs=2'], runTmp)
+  if (!run.ok) return
+  const left = existsSync(root) ? readdirSync(root).sort() : []
+  named('作业目录：派工照常跑完，两条都抓到', /2 个变异全部被抓到/.test(run.stdout), run.stdout.split('\n').slice(-8).join('\n'))
+  named('作业目录：另一跑还在用的那一层原样留着（隔离副本与号文件都在）',
+    existsSync(join(liveRun, 'w0', 'marker')) && existsSync(join(liveRun, 'w0.verifier')), `作业根底下剩：${left.join('、')}`)
+  named('作业目录：已不在的那一跑留下的层清掉了', !existsSync(deadRun), `进程 ${deadPid} 那一层还在`)
+  named('作业目录：名字不是号的旧布局不碰', existsSync(legacy), `作业根底下剩：${left.join('、')}`)
+  named('作业目录：这一跑自己那一层收干净了，作业根因为还有别人在用而留着',
+    JSON.stringify(left) === JSON.stringify([String(process.pid), 'w0'].sort()), `作业根底下剩：${left.join('、')}`)
+})
+
 // ---- 起 worker 时资源不够：报出来的原因要指向资源，不要指向派工代码 ----
 group('jobs-resource', [], () => {
   // 打开的文件数到顶时，`spawn` **既不同步抛、也来不及发 `error`**：Node 在装管道之前
@@ -8859,8 +8902,9 @@ const cleanup = () => {
 };
 (async () => {
   for (const began = Date.now(); Date.now() - began < 60000 && ended === undefined; await sleep(50)) {
-    let names = []; try { names = fs.readdirSync(jobsDir); } catch {}
-    const hits = names.map(n => /^w\d+\.(\d+)\.verifier$/.exec(n)).filter(Boolean), pids = hits.map(m => numbered(m[0])), b = beats();
+    // 号文件在这一跑自己那一层底下（作业根/<派工进程号>/w<i>.verifier，ADR-74 第 237 行），层名就是派工进程的号
+    let names = []; try { names = fs.readdirSync(jobsDir).filter(d => /^\d+$/.test(d)).flatMap(d => fs.readdirSync(path.join(jobsDir, d)).map(n => d + '/' + n)); } catch {}
+    const hits = names.map(n => /^(\d+)\/w\d+\.verifier$/.exec(n)).filter(Boolean), pids = hits.map(m => numbered(m[0])), b = beats();
     for (const p of pids) if (p !== undefined) seen.add(p);
     if (hits.length === 2 && pids.every(p => p !== undefined) && b.length === 2 && b.every(s => s > 0)) { dispatcher = Number(hits[0][1]); foundAt = Date.now(); break; }
   }

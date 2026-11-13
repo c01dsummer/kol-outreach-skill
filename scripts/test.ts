@@ -61,7 +61,7 @@ import {
   testRunning, trackTest,
 } from './check/mutate-restore.js'
 import {
-  type BillRow, type Outcome, type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf,
+  type BillRow, type Outcome, type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, jobsRunDir, staleRunDirs,
   billLines, copyIntoWorker, groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
   neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill,
 } from './check/jobs-rule.js'
@@ -10921,14 +10921,27 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
 
   // ── 验证者那一组的号：从 worker 传到派工进程（ADR-74）
 
+  // 每一跑的作业目录按派工进程的号分开（ADR-74 第 237 行）：两跑同时开，各建各删，
+  // 后来的不会把先来的那份连号文件一起抹掉
+  eq('这一跑的作业目录在作业根底下、以派工进程的号命名', jobsRunDir('.cache/jobs', 777), '.cache/jobs/777')
+  ok('两跑的作业目录不一样 —— 后来的那跑删不到先来的那份', jobsRunDir('j', 1) !== jobsRunDir('j', 2))
+
   // 号文件搁哪。是 `w<i>/` 的兄弟不是它的孩子 —— 那个目录会被复制、是验证者的 cwd、
-  // 还是收尾要删的目标；名字里带派工进程的号，另一跑留下的路径就对不上
+  // 还是收尾要删的目标；它在这一跑自己的作业目录里，另一跑留下的路径就对不上
   eq('号文件是隔离目录的兄弟，不在它里面',
-    beaconPathOf('.cache/jobs', 777, 3), '.cache/jobs/w3.777.verifier')
+    beaconPathOf(jobsRunDir('.cache/jobs', 777), 3), '.cache/jobs/777/w3.verifier')
   ok('不落进 w<i>/ 那棵被复制的树',
-    !beaconPathOf('.cache/jobs', 777, 3).startsWith('.cache/jobs/w3/'))
+    !beaconPathOf(jobsRunDir('.cache/jobs', 777), 3).startsWith('.cache/jobs/777/w3/'))
   ok('两跑的路径不一样 —— 并发两跑不会读到对方的号',
-    beaconPathOf('j', 1, 0) !== beaconPathOf('j', 2, 0))
+    beaconPathOf(jobsRunDir('j', 1), 0) !== beaconPathOf(jobsRunDir('j', 2), 0))
+
+  // 作业根底下哪几层能清：名字是号、那个进程已不在。原先开头整删顺带收掉被硬杀那一跑的副本，
+  // 各删各的之后这件事另判 —— 进程还在的清了，就是本条要堵的「后来的抹掉先来的」
+  const gone = new Set([11, 13])
+  eq('已不在的那几跑留下的层清掉', staleRunDirs(['11', '12', '13'], pid => !gone.has(pid)), ['11', '13'])
+  eq('进程还在的那一跑的层不清', staleRunDirs(['12'], pid => !gone.has(pid)), [])
+  eq('名字不是号的不碰 —— 旧布局的 w0、号文件，或别的不知道是谁的东西',
+    staleRunDirs(['w0', 'baseline-0', 'w0.11.verifier', '011', '0', '11x', ''], () => false), [])
 
   // 这一跑有没有人收号。空值那一种要挡：worker 会去写一个空路径，抛在 close 监听器里，
   // 那一轮的还原整个不跑，被改过的源文件留在工作区
