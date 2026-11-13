@@ -628,7 +628,7 @@ const OPENS_GROUP = new Set(['group'])
  * 每条夹具标签属于哪一组 —— 把负片 `kills` 点名的夹具翻成 `--only` 要的组 id。
  *
  * 「什么算给夹具起名」与 `labelsOf` 共用 `fixtureLabel`。语法树仍是两棵（这里与 `labelsOf`
- * 各 `createSourceFile` 一次），调用侧也两趟（`mutate.ts` 的 `inventoryOf` 与 `onlyFor` 各读一次文件）；
+ * 各 `createSourceFile` 一次；`executionRoutes` 读一次源码、两个 walk 都喂它；`mutate.ts` 的 `inventoryOf` 另读一次、再跑一遍 `labelsOf`）；
  * 合成一趟同时产出两张表是可以的，没做 —— 两趟各花一次解析，判据只有一份。
  *
  * 认的是 `group('<id>', [...], () => { … })` 这个**代码结构**本身，不认任何注释约定 ——
