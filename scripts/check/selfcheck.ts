@@ -8738,7 +8738,8 @@ group('mutate-copy-list', [], () => {
   // - 没登记的 `.env.production` —— 不该带（不交给 git 的那一道）；
   // - 受跟踪、工作树里已删掉的 `gone.txt` —— 不带，也不让建副本那一步失败（`--cached` 照列它）；
   // - 受跟踪的相对符号链接 `linked` —— 建成符号链接，不跟进去复制成文件；
-  // - 一份没受跟踪的嵌套仓库 `nested/`（git 列成一项、以斜杠结尾）—— 不带，也不让建副本那一步失败。
+  // - 一份没受跟踪的嵌套仓库 `nested/`（git 列成一项、以斜杠结尾）—— 不带，也不让建副本那一步失败；
+  // - 受跟踪、工作树里换成了命名管道的 `piped.txt` —— 不带：拿去复制会在打开那一下挂住，整跑停在建副本（#467 CodeRabbit 第 1 轮）。
   // 正常基线那一处（同一个建副本的函数）这个语料走不到 —— 它没有子集基线；不在仓库顶层那一种入口里没有夹具，记在 ADR-72。
   // 入口在自检的验证基础设施闭包里，指名自检的变异被「自己验自己」拦下；`by: test` 不被拦，但需求测试只起 `mutate --worker`、
   // 根本不起派工，走不到这两处 —— 所以这一半只有自检夹具、没有负片。
@@ -8755,19 +8756,23 @@ group('mutate-copy-list', [], () => {
       `import { appendFileSync, existsSync, lstatSync } from ${q}node:fs${q}`,
       `appendFileSync(${JSON.stringify(copyMark)}, JSON.stringify({ cwd: process.cwd(), loose: existsSync(${q}notes/loose.txt${q}),`
         + ` ignored: existsSync(${q}ignored.txt${q}), env: existsSync(${q}.env.production${q}), gone: existsSync(${q}gone.txt${q}),`
-        + ` link: existsSync(${q}linked${q}) && lstatSync(${q}linked${q}).isSymbolicLink(), nested: existsSync(${q}nested${q}) }) + ${q}\\n${q})`,
+        + ` link: existsSync(${q}linked${q}) && lstatSync(${q}linked${q}).isSymbolicLink(), nested: existsSync(${q}nested${q}), piped: existsSync(${q}piped.txt${q}) }) + ${q}\\n${q})`,
       `const bad = (v !== ${q}keep${q} ? 1 : 0) + (w !== ${q}hold${q} ? 1 : 0)`,
       `if (bad) { console.log(${q}\\n${q} + bad + ${q} 个失败\\n${q}); process.exitCode = 1 }`,
     ].join('\n') + '\n', 'utf8')
     writeFileSync(join(copyTmp, 'gone.txt'), 'x')
+    writeFileSync(join(copyTmp, 'piped.txt'), 'x')
     symlinkSync(join('docs', 'requirements.json'), join(copyTmp, 'linked'))
     git('init', '--quiet', '-b', 'main')
     git('config', 'user.name', 'Mutation fixture')
     git('config', 'user.email', 'fixture@example.invalid')
-    git('add', '--', 'scripts', 'docs', 'gone.txt', 'linked')
+    git('add', '--', 'scripts', 'docs', 'gone.txt', 'piped.txt', 'linked')
     git('commit', '--quiet', '-m', 'fixture baseline')
     git('commit', '--quiet', '--allow-empty', '-m', 'fixture head')
     rmSync(join(copyTmp, 'gone.txt'))
+    rmSync(join(copyTmp, 'piped.txt'))
+    const fifo = spawnSync('mkfifo', [join(copyTmp, 'piped.txt')], { encoding: 'utf8' })
+    if (fifo.status !== 0) throw new Error(`mkfifo：${fifo.stderr || fifo.error}`)
     mkdirSync(join(copyTmp, 'notes'))
     writeFileSync(join(copyTmp, 'notes', 'loose.txt'), 'x')
     writeFileSync(join(copyTmp, '.gitignore'), 'ignored.txt\n')
@@ -8795,6 +8800,7 @@ group('mutate-copy-list', [], () => {
   named('副本清单：工作树里已删掉的没带，建副本也没失败', seen.length === 2 && seen.every(r => r.gone === false), shown)
   named('副本清单：符号链接建成符号链接', seen.length === 2 && seen.every(r => r.link === true), shown)
   named('副本清单：没受跟踪的嵌套仓库没带，建副本也没失败', seen.length === 2 && seen.every(r => r.nested === false), shown)
+  named('副本清单：换成命名管道的没带，建副本也没挂住', seen.length === 2 && seen.every(r => r.piped === false), shown)
 })
 
 // ---- 起 worker 时资源不够：报出来的原因要指向资源，不要指向派工代码 ----
