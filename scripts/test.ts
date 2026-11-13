@@ -8022,6 +8022,8 @@ harness('变异锚点那一步：git 读不到时是不是本来就不是仓库'
 {
   // 只有「不是仓库」放过；属主不符、.git 坏了、没装 git 都算没得核（复审实测属主不符时旧入口当成不是仓库、以 0 退出）
   eq('git 说不是仓库：放过', notARepo('fatal: not a git repository (or any of the parent directories): .git\n'), true)
+  eq('git 往上找到挂载点也没找到：放过', notARepo('fatal: not a git repository (or any parent up to mount point /mnt)\nStopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).\n'), true)
+  eq('GIT_DIR 指向不存在的目录：不放过', notARepo("fatal: not a git repository: '/r/missing'\n"), false)
   eq('git 说属主不符：不放过', [
     notARepo("fatal: detected dubious ownership in repository at '/r'\nTo add an exception for this directory, call:\n"),
     notARepo('fatal: invalid gitfile format: /r/.git\n'),

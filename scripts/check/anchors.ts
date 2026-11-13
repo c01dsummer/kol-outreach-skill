@@ -41,25 +41,27 @@ const catalog = ((): Mut[] | undefined => {
 
 /**
  * 一次 `git cat-file --batch` 读一组对象（`<修订>:./<文件>`）。交回每一个读出来的正文（不是 blob 的交 `undefined`），
- * 或 git 起不来、以非 0 退出时的原话。文件名里带换行的没法写进一行，按读不到算。
+ * 或 git 起不来、以非 0 退出时的原话。文件名里带换行的没法写进一行：不起 git，整步算读不到、以 1 退出 —— 按读不到的
+ * 那一个算的话，暂存区里躺着的变异就被判定按「不在暂存区」放过，✓ 照打（#460 上 CodeRabbit 第三轮）。
  */
 type Batch = { ok: true; blobs: (string | undefined)[] } | { ok: false; stderr: string }
 const catBatch = (specs: readonly string[]): Batch => {
-  const asked = specs.map(s => s.includes('\n') ? ':' : s)
-  const r = spawnSync('git', [...GIT_CONFIG, 'cat-file', '--batch'], { input: asked.join('\n') + '\n', maxBuffer: 1 << 30,
+  const odd = specs.find(s => s.includes('\n'))
+  if (odd !== undefined) return { ok: false, stderr: `目标文件名里带换行，git cat-file --batch 一行写不下：${JSON.stringify(odd)}` }
+  const r = spawnSync('git', [...GIT_CONFIG, 'cat-file', '--batch'], { input: specs.join('\n') + '\n', maxBuffer: 1 << 30,
     env: { ...process.env, LC_ALL: 'C' } })
   // git 不读 stdin 就退了时 spawnSync 另报一个 EPIPE，原话还在 stderr 里，先认原话
   const said = r.stderr?.toString('utf8') ?? ''
   if (r.error !== undefined || r.status !== 0) return { ok: false, stderr: said.trim() !== '' ? said : String(r.error) }
   const out = r.stdout, blobs: (string | undefined)[] = []
   let at = 0
-  for (const spec of specs) {
+  for (let n = 0; n < specs.length; n++) {
     const eol = out.indexOf(0x0a, at)
     const head = out.toString('utf8', at, eol).match(/^[0-9a-f]+ (\S+) (\d+)$/)
     at = eol + 1
     if (head === null) { blobs.push(undefined); continue }
     const size = Number(head[2])
-    blobs.push(head[1] === 'blob' && !spec.includes('\n') ? out.toString('utf8', at, at + size) : undefined)
+    blobs.push(head[1] === 'blob' ? out.toString('utf8', at, at + size) : undefined)
     at += size + 1
   }
   return { ok: true, blobs }

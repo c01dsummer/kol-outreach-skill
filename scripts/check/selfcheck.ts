@@ -7305,6 +7305,15 @@ group('anchor-staged-entry', [], () => {
   const broken = runToolBoth('anchors git 读不到暂存区即以退出码 1 结束', 'anchors', [], brokenTmp, { status: 1 })
   if (broken.ok) named('anchors git 坏了时说读不到暂存区并带出 git 的原话',
     broken.stderr.includes('git 读不到暂存区') && broken.stderr.includes('fatal:') && !broken.stdout.includes('✓'), broken.stderr + broken.stdout)
+  // 目标文件名里带换行：cat-file --batch 一行写不下它，不起 git、整步算读不到、以 1 退出，不打 ✓ —— 按读不到的那一个算的话，
+  // 暂存区里躺着的变异会被当成不在暂存区放过（#460 上 CodeRabbit 第三轮）
+  const nlTmp = join(tmp, 'anchor-newline-name')
+  const nl = { id: 'M-X-l', req: 'X1', why: '文件名带换行', file: 'n\nl.ts', find: 'ok()', replace: 'no()' }
+  if (repo(nlTmp, nlTmp, { 'n\nl.ts': 'ok()\n' }, { mutations: [nl] })) {
+    const odd = runToolBoth('anchors 目标文件名带换行时以退出码 1 结束', 'anchors', [], nlTmp, { status: 1 })
+    if (odd.ok) named('anchors 目标文件名带换行时说读不到暂存区、不打 ✓',
+      odd.stderr.includes('git 读不到暂存区') && odd.stderr.includes('带换行') && !odd.stdout.includes('✓'), odd.stderr + odd.stdout)
+  }
 })
 
 // ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----

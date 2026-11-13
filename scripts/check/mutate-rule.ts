@@ -431,10 +431,12 @@ export function stagedResidue(muts: readonly { id: string; file: string; find: s
  * git 读不到暂存区时，是**这里本来就不是仓库**（没有下一次提交可带，暂存区那一步可以不做），还是 **git 出了别的毛病**
  * （属主不符的 dubious ownership、`.git` 坏了、没装 git……仓库可能就在那里，暂存区里可能正躺着一条）。
  * 只有前一种放过，其余都算没得核 —— 没得核不是核过了。认的是 `LC_ALL=C` 下 git 的那句原话；调用方要按这个语言起 git。
+ * 认的是**往上找仓库没找到**那一句（带括号里「或任何一层上级目录」，停在挂载点的那一种也算）：`GIT_DIR` 指向一个不存在的目录时
+ * git 也说「not a git repository」，可那时人明明在仓库里，只是环境变量指错了，放过就是对着仓库说「不是仓库，暂存区没查」（#460 上 CodeRabbit 第三轮）。
  * ADR-70 末尾「变异残留：暂存区」第五片（复审实测：属主不符时 `git diff` 以 129 退出，旧入口当成不是仓库、以 0 退出）。
  */
 export function notARepo(gitStderr: string): boolean {
-  return /^fatal: not a git repository\b/m.test(gitStderr)
+  return /^fatal: not a git repository \(or any (?:of the )?parent/m.test(gitStderr)
 }
 
 /**
