@@ -736,7 +736,10 @@ if (process.argv.includes('--worker')) {
  * 每行自带编号，归因不受影响；换来的是跑的过程中一直有东西在动，而不是憋到最后一次吐完。
  */
 const JOBS_ROOT = '.check-cache/mutate-jobs'
-/** 这一跑自己那一层（ADR-74 第 237 行）：只建、只删这一层，同一棵树上同时开的另一跑碰不到 */
+/**
+ * 这一跑自己那一层（ADR-74 第 237 行）：副本与号只建在这一层里。开工前另清进程已不在的那几层，
+ * 收尾时作业根空了才删根 —— 同一棵树上同时开、还活着的另一跑那一层不碰（同一个进程号空间里）。
+ */
 const JOBS_DIR = jobsRunDir(JOBS_ROOT, process.pid)
 /** 那个进程还在不在。问不出来（`EPERM`：在，只是不归我们管）也算在 —— 宁可留着不收，不可删掉人家的 */
 const pidAlive = (pid: number): boolean => {
@@ -755,7 +758,7 @@ const freshJobs = (): void => {
 /** 收尾：删自己这一层；作业根空了就一并删掉，别的跑还在用（非空）就留着 */
 const dropJobs = (): void => {
   rmSync(JOBS_DIR, { recursive: true, force: true })
-  try { rmdirSync(JOBS_ROOT) } catch { /* 非空或已没了 */ }
+  try { rmdirSync(JOBS_ROOT) } catch { /* 非空、已没了，或别的删不掉：根留着无害，不为它失败 */ }
 }
 /** 宽限期：请 worker 自己收摊之后等多久。它们要停掉手上的验证者、把动过的那份还回去 */
 const GRACE_MS = 5000

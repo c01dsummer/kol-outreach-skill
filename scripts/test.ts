@@ -9935,14 +9935,14 @@ harness('预编 JS：缓存按正文寻址，缺一份就照旧 tsx，钩子只�
   const id = 'id-a', k = keyOf(id, '/r/scripts/a.ts', 'x')
   eq('预编缓存的键：正文、编译身份、文件名任一样不同就是另一个键；目录不算',
     [k === keyOf(id, '/r/scripts/a.ts', 'y'), k === keyOf('id-b', '/r/scripts/a.ts', 'x'), k === keyOf(id, '/r/scripts/b.ts', 'x'),
-      k === keyOf(id, '/r/.check-cache/mutate-jobs/w0/scripts/a.ts', 'x')], [false, false, false, true])
+      k === keyOf(id, '/r/.check-cache/mutate-jobs/123/w0/scripts/a.ts', 'x')], [false, false, false, true])
   const base = { esbuild: '0.28.2', node: '22.22.0', compilerOptions: { strict: true } }
   ok('编译身份随 esbuild 版本、node 版本、compilerOptions 变', [identityOf({ ...base, esbuild: '0.28.3' }),
     identityOf({ ...base, node: '22.23.0' }), identityOf({ ...base, compilerOptions: {} })].every(x => x !== identityOf(base)))
   const has = (p: string) => p === '/r/.check-cache/prebuilt'
   eq('一个脚本的树与缓存主人：往上找最近的 scripts/，再从它的上一层往上找第一个带缓存的；worker 副本找到仓库根，临时目录里的找不到',
     [scriptsRootOf('/r/scripts/check/x.ts'), scriptsRootOf('/r/lib/x.ts'), ownerOf('/r/scripts', has),
-      ownerOf('/r/.check-cache/mutate-jobs/w0/scripts', has), ownerOf('/t/toy/scripts', has)],
+      ownerOf('/r/.check-cache/mutate-jobs/123/w0/scripts', has), ownerOf('/t/toy/scripts', has)],
     ['/r/scripts', null, '/r', '/r', null])
   eq('整棵树每个 .ts 在缓存里都有现在这一版才算齐', [cacheComplete(['a', 'b'], f => `e-${f}`, e => e !== 'e-b'),
     cacheComplete(['a', 'b'], f => `e-${f}`, () => true)], [false, true])

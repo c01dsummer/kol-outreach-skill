@@ -6898,7 +6898,7 @@
       "id": "M-H40-z",
       "req": "harness",
       "file": "scripts/check/jobs-rule.ts",
-      "why": "开工前清作业根时不认名字，旧布局留下的或不知道是谁的东西也一并删掉",
+      "why": "开工前清作业根时不认名字是不是规范的号：前面带 0 之类长得像号、却不是哪一跑开的那一层的东西，被当成别的跑的层，那个号的进程已不在就一并删掉",
       "find": "names.filter(n => /^[1-9][0-9]*$/.test(n) && ",
       "replace": "names.filter(n => ",
       "by": "test",

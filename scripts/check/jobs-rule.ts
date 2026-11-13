@@ -346,7 +346,7 @@ export const BEACON_FLAG = '--beacon='
  * 原先所有跑共用作业根，worker 目录叫 `w0`、`w1`……开头那句整删又删的是整个根 ——
  * 两跑同时开，后来的那个把先来的那份连同号文件一起抹掉，先来的那个硬来时读到 ENOENT、
  * 当成「没号」一声不响放过，它底下的验证者那一组就留着了（实测，记在 ADR-74）。
- * 分开之后每一跑只建、只删自己这一层；根底下别的跑留下的东西，由 `staleRunDirs` 判谁能清。
+ * 分开之后每一跑只在自己这一层里建；根底下别的跑留下的层，由 `staleRunDirs` 判谁能清（进程已不在的）。
  */
 export function jobsRunDir(jobsRoot: string, dispatcherPid: number): string {
   return `${jobsRoot}/${dispatcherPid}`
