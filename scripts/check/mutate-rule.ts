@@ -462,7 +462,7 @@ export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault 
 }
 
 /**
- * 验证者源码里**打完汇总立刻退出**的写法 —— 交回撞上的那一段,没撞上交回 `undefined`。
+ * 源码里的**硬退出**各在第几行 —— 验证者一处也不许有，交回空表才算过。
  *
  * 汇总是最后打的,紧跟着硬退出、而输出又接着管道(变异就是这么跑的),那一行可能还没
  * 写出去就被截掉:退出码非零、汇总没有,判定只能判 `crashed`。**一条真被抓到的变异被
@@ -473,13 +473,136 @@ export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault 
  * 顺带买到第二样:**没有提前退出,就没有绕过汇总的路** —— 自检原先「孤儿文件」那一条
  * 就是打完自己那句话直接退出,它的失败根本到不了汇总。
  *
- * ⚠️ 扫的是源码字面,**注释也算**(和 `mutate-restore.ts` 那条同步等法的判据同一处境)。
- * 只提名字不带括号的是散文,不算;要举反例得把那一串拼出来,别写成整串。
+ * **按语法树认，不按字面扫**（ADR-70 末尾「硬退出收口」一节；原先按正则扫，注释与字符串里长得一样的也算数，
+ * ADR-70 第 2077 行那张欠条）：认的是 `process.exit(…)` 与 `process['exit'](…)` 这两种调用（前面带 `globalThis.` 的也认），注释、字符串、
+ * 模板串里写全了的结构上就不是调用（同 `labelsOf`）。先把它赋给别的名字再调的认不出，不假装认得出。
+ * 套在调用目标或 `process` 外面的括号先剥掉：`(process.exit)(1)`、`(process).exit(1)` 没换名字，照认（#462 上 CodeRabbit 第一轮）。
  */
-const HARD_EXIT = /\bprocess\.exit\s*\(/
+const isProcessExit = (wrapped: Ts.Expression): boolean => {
+  const ts = typescript()
+  const bare = (e: Ts.Expression): Ts.Expression => ts.isParenthesizedExpression(e) ? bare(e.expression) : e
+  const callee = bare(wrapped)
+  if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return false
+  const named = ts.isPropertyAccessExpression(callee) ? callee.name.text
+    : ts.isStringLiteralLike(callee.argumentExpression) ? callee.argumentExpression.text : undefined
+  const owner = bare(callee.expression)
+  const isProcess = (ts.isIdentifier(owner) && owner.text === 'process')
+    || (ts.isPropertyAccessExpression(owner) && owner.name.text === 'process'
+        && ts.isIdentifier(owner.expression) && owner.expression.text === 'globalThis')
+  return named === 'exit' && isProcess
+}
 
-export function exitRace(source: string): string | undefined {
-  return HARD_EXIT.exec(source)?.[0]
+/** 一个调用在第几行（从 1 数），报给人看的那个数 */
+const lineOf = (tree: Ts.SourceFile, node: Ts.Node): number =>
+  tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1
+
+export function exitRace(source: string): number[] {
+  const ts = typescript()
+  const tree = ts.createSourceFile('source.ts', source, ts.ScriptTarget.Latest, true)
+  const lines: number[] = []
+  const visit = (node: Ts.Node): void => {
+    if (ts.isCallExpression(node) && isProcessExit(node.expression)) lines.push(lineOf(tree, node))
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  return lines
+}
+
+/** 入口的硬退出哪里没收口：出了收口函数的硬退出（`outside`），硬退出之前同一段里还有异步写（`async-before`） */
+export interface ExitFault { kind: 'outside' | 'async-before'; line: number }
+
+/**
+ * 一个**入口**的硬退出收没收口（ADR-70 末尾「硬退出收口」一节，还第 2082 行那张：`exitRace` 只查验证者，
+ * 查不到 `mutate.ts` 自己）。
+ *
+ * 入口跟验证者不一样，不能一处硬退出都没有：被打断时要当场杀干净、收目录、退出，等不了进程自己走完。
+ * 所以这里要的是**只有一处**：`process.exit` 只许出现在名叫 `helper` 的那个函数声明里（写成
+ * `function 名字(…): never`；赋给常量的箭头函数 TypeScript 认不出它不返回，这里也不认），那个函数先把要说的话
+ * 同步写出去再退出；别处出现一处，报一处 `outside`。
+ *
+ * 光收口还不够：先 `console.error` 一句、再退出，那一句照样是异步的，照样被掐。所以每一段语句里，叫 `helper`
+ * （或者叫一个里面会叫到 `helper` 的具名函数，比如被打断时那条 `hardStop`）的
+ * 那一句、或者直接硬退出的那一句，**之前**的同级语句里有 `console.` 的调用，报一处 `async-before` —— 收口函数
+ * 自己的函数体也照这样查。只看同一段：外面一层先打的报告行不算（那是正常输出，不是退出前那句话），
+ * 里面一层函数体里的也不算（定义在那儿，不是这一刻在写）。
+ *
+ * 从别的模块引进来、叫了就会退出的名字（比如 `mutate-restore.ts` 的 `onInterrupt`），这份源码里推不出来，
+ * 由调用方用 `imported` 交进来。
+ */
+export function exitFaults(source: string, helper: string, imported: readonly string[] = []): ExitFault[] {
+  const ts = typescript()
+  const tree = ts.createSourceFile('entry.ts', source, ts.ScriptTarget.Latest, true)
+  const faults: ExitFault[] = []
+  /** 这一句里（不进里面一层函数）有没有 `console.` 的调用 */
+  const writesConsole = (node: Ts.Node): boolean => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+        && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === 'console') return true
+    if (ts.isFunctionLike(node)) return false
+    return ts.forEachChild(node, writesConsole) === true
+  }
+  /**
+   * 叫了就会退出的名字：收口函数本身，加上标了 `: never`、函数体里（不进里面一层函数）叫了它们的具名函数 ——
+   * 一直推到不再多。不推的话，先 `console.error` 一句、再叫一个里面才 `helper` 的函数（`hardStop` 那样），就查不到了。
+   * 只认函数声明与赋给常量的箭头函数、函数表达式，而且要标 `: never`：没标的只是「有一条路会退出」（`dispatch`
+   * 出错时才收尾），叫它之前打的是正常输出，不是退出前那句话；标了 `never` 而不退出，TypeScript 自己会报。
+   */
+  const named = new Map<string, Ts.Node>()
+  const never = (fn: Ts.SignatureDeclaration): boolean => fn.type?.kind === ts.SyntaxKind.NeverKeyword
+  const collect = (node: Ts.Node): void => {
+    if (ts.isFunctionDeclaration(node) && node.name !== undefined && node.body !== undefined && never(node)) {
+      named.set(node.name.text, node.body)
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined
+        && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) && never(node.initializer)) {
+      named.set(node.name.text, node.initializer.body)
+    }
+    ts.forEachChild(node, collect)
+  }
+  collect(tree)
+  const exiting = new Set([helper, ...imported])
+  /** 这一段里（不进里面一层函数）有没有叫一个会退出的名字 */
+  const callsExiting = (node: Ts.Node): boolean => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && exiting.has(node.expression.text)) return true
+    if (ts.isFunctionLike(node)) return false
+    return ts.forEachChild(node, callsExiting) === true
+  }
+  for (let grew = true; grew;) {
+    grew = false
+    for (const [name, body] of named) {
+      if (!exiting.has(name) && callsExiting(body)) { exiting.add(name); grew = true }
+    }
+  }
+  /** 这一句是不是「退出」：叫会退出的名字，或者直接硬退出；`return`／`throw` 着的、`await`／`void` 包着的、
+   *  不带花括号的 `if` 子句里的也算 */
+  const exits = (statement: Ts.Statement): boolean => {
+    if (ts.isIfStatement(statement)) {
+      return exits(statement.thenStatement) || (statement.elseStatement !== undefined && exits(statement.elseStatement))
+    }
+    let e = ts.isExpressionStatement(statement) || ts.isReturnStatement(statement) || ts.isThrowStatement(statement)
+      ? statement.expression : undefined
+    while (e !== undefined && (ts.isAwaitExpression(e) || ts.isVoidExpression(e) || ts.isParenthesizedExpression(e))) e = e.expression
+    if (e === undefined || !ts.isCallExpression(e)) return false
+    return (ts.isIdentifier(e.expression) && exiting.has(e.expression.text)) || isProcessExit(e.expression)
+  }
+  const checkList = (statements: readonly Ts.Statement[]): void => {
+    let wrote = false
+    for (const st of statements) {
+      if (wrote && exits(st)) faults.push({ kind: 'async-before', line: lineOf(tree, st) })
+      if (writesConsole(st)) wrote = true
+    }
+  }
+  const walk = (node: Ts.Node, inHelper: boolean): void => {
+    if (ts.isCallExpression(node) && isProcessExit(node.expression) && !inHelper) {
+      faults.push({ kind: 'outside', line: lineOf(tree, node) })
+    }
+    if (ts.isSourceFile(node) || ts.isBlock(node) || ts.isCaseClause(node) || ts.isDefaultClause(node)) {
+      checkList(node.statements)
+    }
+    const inside = inHelper || (ts.isFunctionDeclaration(node) && node.name?.text === helper)
+    ts.forEachChild(node, child => walk(child, inside))
+  }
+  walk(tree, false)
+  return faults.sort((x, y) => x.line - y.line)
 }
 
 /**

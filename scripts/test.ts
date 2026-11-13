@@ -41,12 +41,13 @@ import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { adrDocs, entries, ledgerReport, ledgerSummary, orphanIous } from './check/debt-rule.js'
 import { implementationLeak } from './check/why-rule.js'
+import { writeAllSync } from './check/sync-write.js'
 import {
   JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
   ledger, selfcheckCriterionMutations, unguarded,
 } from './check/audit-rule.js'
 import {
-  VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, exitRace,
+  VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, exitFaults, exitRace,
   judgeRun, killsMatched,
   labelFault, notAssertion,
   labelFaults,
@@ -7643,11 +7644,18 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
   // 另一边的症状是「它真的红了，却被判成跑不起来」—— 一个不响的假阴性
   // 汇总是最后打的，紧跟着硬退出会在管道上把它截掉 —— 退出码非零、汇总没有，
   // 判定只能判「跑不起来」，而那是一条真被抓到的变异，还时红时绿（评审指出）。
-  // 反例得把那一串拼出来：本文件自己也是验证者，写成整串的话下面那条循环会判到它自己
+  // 反例里那一串是拼出来的：`exitRace` 原先扫字面，本文件自己也是验证者，写成整串会判到它自己。
+  // 现在按语法树认（ADR-70 末尾「硬退出收口」一节），串里写全了的不是调用，拼不拼都一样；留着无害
   const hardExit = `process.${'exit'}(1)`
-  eq('打完汇总就硬退出的写法要认出来',
-    exitRace(`console.error(汇总); ${hardExit}`), `process.${'exit'}(`)
-  eq('只提名字不调用的是散文，不算', exitRace('// 别用 process.exit 那种写法'), undefined)
+  eq('打完汇总就硬退出的写法要认出来', exitRace(`console.error(汇总); ${hardExit}`), [1])
+  eq('只提名字不调用的是散文，不算', exitRace('// 别用 process.exit 那种写法'), [])
+  // 按语法树认（ADR-70 末尾「硬退出收口」一节）：注释、字符串里写全了的结构上不是调用
+  eq('注释里写全了的硬退出不算', exitRace(`// 别写 ${hardExit}`), [])
+  eq('字符串里写全了的硬退出不算', exitRace(`const s = '${hardExit}'`), [])
+  eq("process['exit'] 那种写法也认", exitRace(`process['${'exit'}'](1)`), [1])
+  eq('前面带 globalThis 的也认', exitRace(`globalThis.${hardExit}`), [1])
+  eq('套了括号的调用目标与 process 也认', [exitRace(`(${'process.exit'})(1)`), exitRace(`(process).${'exit'}(1)`)], [[1], [1]])
+  eq('报出每一处硬退出所在的行', exitRace(`a()\n${hardExit}\nb()\n${hardExit}\n`), [2, 4])
 
   const demandEntry = VERIFIERS.test.script
   const demandSource = existsSync(demandEntry) ? rf(demandEntry, 'utf8') : ''
@@ -7664,7 +7672,7 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
     ok(`${name} 这个验证者起的是一个真在的入口`, src.startsWith('#!'))
     // 没有提前退出，就没有绕过汇总的路 —— 每条失败路径都经过同一句汇总，
     // 这一条从此不必靠读代码相信
-    eq(`${name} 这个验证者不硬退出`, exitRace(src), undefined)
+    eq(`${name} 这个验证者不硬退出`, exitRace(src), [])
   }
   const scFail = '  ✗ 某条夹具：说错了\n\n✗ 脚本自检：1 项失败\n'
   eq('自检红了，按它自己那句汇总认', judgeRun(1, scFail, SC), 'caught')
@@ -8030,6 +8038,64 @@ harness('变异锚点那一步：git 读不到时是不是本来就不是仓库'
     notARepo('Error: spawnSync git ENOENT'),
     notARepo("warning: Not a git repository. Use --no-index to compare two paths outside a working tree\n"),
   ], [false, false, false, false])
+}
+
+harness('入口的硬退出收口：只有一处，退出前那句话同步写满')
+{
+  // 判定 exitFaults：process.exit 只许在收口函数里；叫收口之前同一段里不许先 console. 一句
+  // （ADR-70 末尾「硬退出收口」一节）。反例里的硬退出照上面那块拼出来
+  const hardExit = `process.${'exit'}(code)`
+  const helper = `function quit(code: number): never {\n  ${hardExit}\n}\n`
+  eq('收口函数里那一处不报', exitFaults(`${helper}if (bad) quit(1)\n`, 'quit'), [])
+  eq('收口函数外的硬退出报出来', exitFaults(`${helper}if (bad) { process.${'exit'}(1) }\n`, 'quit'),
+    [{ kind: 'outside', line: 4 }])
+  eq('叫收口之前同一段里先异步写了一句，报出来',
+    exitFaults(`${helper}if (bad) {\n  console.error('坏了')\n  quit(1)\n}\n`, 'quit'), [{ kind: 'async-before', line: 6 }])
+  eq('异步写在里面一层的函数里，不算',
+    exitFaults(`${helper}if (bad) {\n  const say = () => console.error('坏了')\n  quit(1)\n}\n`, 'quit'), [])
+  eq('收口函数自己先异步写再退出，报出来',
+    exitFaults(`function quit(code: number): never {\n  console.error('坏了')\n  ${hardExit}\n}\n`, 'quit'),
+    [{ kind: 'async-before', line: 3 }])
+  eq('先异步写一句、再叫一个里面才收口的函数，报出来',
+    exitFaults(`${helper}const stop = (): never => {\n  quit(1)\n}\nif (bad) {\n  console.error('坏了')\n  stop()\n}\n`, 'quit'),
+    [{ kind: 'async-before', line: 9 }])
+  // 真入口：变异一步那一份（ADR-70 第 2082 行那张欠条说的「查不到 mutate.ts 自己」）
+  eq('return 着叫收口、不带花括号的 if 里叫收口，之前先异步写了，都报出来',
+    exitFaults(`${helper}function f(): never {\n  console.error('坏了')\n  return quit(1)\n}\nfunction g() {\n  console.error('坏了')\n  if (bad) quit(1)\n}\n`, 'quit'),
+    [{ kind: 'async-before', line: 6 }, { kind: 'async-before', line: 10 }])
+  eq('没标 never 的函数只是可能退出，叫它之前的正常输出不报',
+    exitFaults(`${helper}function maybe() {\n  if (bad) quit(1)\n}\nconsole.log('报告')\nmaybe()\n`, 'quit'), [])
+  eq('引进来的会退出的名字由调用方交进来，之前先异步写了，报出来',
+    exitFaults(`console.error('坏了')\nonInterrupt()\n`, 'quit', ['onInterrupt']), [{ kind: 'async-before', line: 2 }])
+  // 真入口：变异一步那一份；`onInterrupt` 在 mutate-restore.ts 里硬退出，这份源码里推不出来
+  eq('变异一步的硬退出全部收口', exitFaults(rf('scripts/check/mutate.ts', 'utf8'), 'exitWith', ['onInterrupt']), [])
+
+  // writeAllSync：写与等都用假的。管道满了（EAGAIN）就等一下接着写，写进去一截的接着写剩下的
+  const fake = (plan: (number | string)[]) => {
+    const got: number[] = []
+    let pauses = 0
+    let i = 0
+    const io = {
+      write: (_fd: number, buf: Uint8Array, offset: number, length: number): number => {
+        const step = plan[Math.min(i++, plan.length - 1)]
+        if (typeof step === 'string') throw Object.assign(new Error(step), { code: step })
+        const n = Math.min(step, length)
+        got.push(...buf.subarray(offset, offset + n))
+        return n
+      },
+      pause: () => { pauses++ },
+    }
+    return { io, text: () => Buffer.from(got).toString('utf8'), pauses: () => pauses }
+  }
+  const choppy = fake([3, 'EAGAIN', 2, 'EAGAIN', 'EAGAIN', 100])
+  eq('管道满了等一下接着写，一个字不丢', [writeAllSync(2, '一二三四五', choppy.io), choppy.text(), choppy.pauses()],
+    [true, '一二三四五', 3])
+  const stuck = fake(['EAGAIN', 'EAGAIN', 'EAGAIN', 'EAGAIN', 'EAGAIN', 'EAGAIN', 'EAGAIN', 100])
+  const slow = fake(['EAGAIN', 'EAGAIN', 1, 'EAGAIN', 'EAGAIN', 1, 'EAGAIN', 'EAGAIN', 100])
+  eq('读的那头慢但一直在读，不放弃：每写进去一截重新数', [writeAllSync(2, 'abc', slow.io, 2), slow.text()], [true, 'abc'])
+  eq('读的那头一直不读，等够了就放弃', [writeAllSync(2, 'x', stuck.io, 3), stuck.pauses()], [false, 3])
+  const closed = fake(['EPIPE'])
+  eq('读的那头关了不等，当场放弃', [writeAllSync(2, 'x', closed.io), closed.pauses()], [false, 0])
 }
 
 harness('by 与 kills 同进同出：四种写错各有名字')

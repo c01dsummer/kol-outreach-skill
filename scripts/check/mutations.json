@@ -2655,8 +2655,8 @@
       "req": "harness",
       "why": "验证者里「打完汇总就立刻退出」的写法一律认不出来 —— 那句汇总在管道上被截掉之后，一条真被抓到的变异会被报成跑不起来，而且时红时绿",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "const HARD_EXIT = /\\bprocess\\.exit\\s*\\(/",
-      "replace": "const HARD_EXIT = /\\bprocess\\.exitImmediately\\s*\\(/",
+      "find": "return named === 'exit' && isProcess",
+      "replace": "return named === 'exitImmediately' && isProcess",
       "by": "test",
       "kills": [
         "打完汇总就硬退出的写法要认出来"
@@ -2665,10 +2665,10 @@
     {
       "id": "M-H14-y",
       "req": "harness",
-      "why": "只提到那个名字、没有真调用的散文也算撞上 —— 解释这条规矩的那句注释会把它自己判红",
+      "why": "改回按字面认：只提到那个名字的散文与注释也算撞上 —— 解释这条规矩的那句注释会把它自己判红",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "const HARD_EXIT = /\\bprocess\\.exit\\s*\\(/",
-      "replace": "const HARD_EXIT = /\\bprocess\\.exit\\b/",
+      "find": "  visit(tree)\n  return lines\n}",
+      "replace": "  visit(tree)\n  return source.includes('process.exit') ? [1] : lines\n}",
       "by": "test",
       "kills": [
         "只提名字不调用的是散文，不算"
@@ -4894,8 +4894,8 @@
       "req": "harness",
       "why": "只看源码最外层那一层，不往里走：真入口里那句话嵌在函数体里，于是三处报告一律被判成断了 —— 每次全量检查都挨一次假警报，久了就没人看它",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "    ts.forEachChild(node, visit)",
-      "replace": "",
+      "find": "    if (callTo(node, 'exemptionLead') && callTo(node.arguments[0], 'exemptionCovered')) wired = true\n    ts.forEachChild(node, visit)",
+      "replace": "    if (callTo(node, 'exemptionLead') && callTo(node.arguments[0], 'exemptionCovered')) wired = true\n",
       "by": "test",
       "kills": ["函数体中的真实豁免来源调用必须被识别"]
     },
@@ -5979,6 +5979,237 @@
       "by": "test",
       "kills": [
         "GIT_DIR 指向不存在的目录：不放过"
+      ]
+    },
+    {
+      "id": "M-H14-ab",
+      "req": "harness",
+      "why": "process['exit'] 那种写法认不出：换个写法就绕过了「验证者不许硬退出」",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": ": ts.isStringLiteralLike(callee.argumentExpression) ? callee.argumentExpression.text : undefined",
+      "replace": ": undefined",
+      "by": "test",
+      "kills": [
+        "process['exit'] 那种写法也认"
+      ]
+    },
+    {
+      "id": "M-H14-ac",
+      "req": "harness",
+      "why": "报出来的行号差一：人照着行号去找，找到的是上一行",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1",
+      "replace": "  tree.getLineAndCharacterOfPosition(node.getStart(tree)).line",
+      "by": "test",
+      "kills": [
+        "报出每一处硬退出所在的行",
+        "收口函数外的硬退出报出来"
+      ]
+    },
+    {
+      "id": "M-H14-ad",
+      "req": "harness",
+      "why": "入口里出了收口函数的硬退出不报：又一处硬退出把它前面那句诊断掐掉，没人知道",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "isProcessExit(node.expression) && !inHelper) {",
+      "replace": "isProcessExit(node.expression) && false) {",
+      "by": "test",
+      "kills": [
+        "收口函数外的硬退出报出来"
+      ]
+    },
+    {
+      "id": "M-H14-ae",
+      "req": "harness",
+      "why": "叫收口之前先 console. 一句不报：那一句是异步的，照样被硬退出掐掉",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "      if (wrote && exits(st)) faults.push",
+      "replace": "      if (false && exits(st)) faults.push",
+      "by": "test",
+      "kills": [
+        "叫收口之前同一段里先异步写了一句，报出来",
+        "收口函数自己先异步写再退出，报出来"
+      ]
+    },
+    {
+      "id": "M-H14-af",
+      "req": "harness",
+      "why": "里面一层函数体里的 console. 也算在这一段：只是定义了一个会写的函数，被报成退出前异步写了",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    if (ts.isFunctionLike(node)) return false\n    return ts.forEachChild(node, writesConsole) === true",
+      "replace": "    return ts.forEachChild(node, writesConsole) === true",
+      "by": "test",
+      "kills": [
+        "异步写在里面一层的函数里，不算"
+      ]
+    },
+    {
+      "id": "M-H14-ag",
+      "req": "harness",
+      "why": "管道满了（EAGAIN）不等、当场放弃：退出前那句诊断照样只写出去一截",
+      "file": "scripts/check/sync-write.ts",
+      "find": "      if ((e as NodeJS.ErrnoException).code !== 'EAGAIN' || waited >= deadlineMs) return false",
+      "replace": "      return false",
+      "by": "test",
+      "kills": [
+        "管道满了等一下接着写，一个字不丢"
+      ]
+    },
+    {
+      "id": "M-H14-ah",
+      "req": "harness",
+      "why": "写进去一截当成写完了：余下的那半句没了",
+      "file": "scripts/check/sync-write.ts",
+      "find": "      offset += io.write(fd, buf, offset, buf.length - offset)",
+      "replace": "      io.write(fd, buf, offset, buf.length - offset); offset = buf.length",
+      "by": "test",
+      "kills": [
+        "管道满了等一下接着写，一个字不丢"
+      ]
+    },
+    {
+      "id": "M-H14-ai",
+      "req": "harness",
+      "why": "读的那头一直不读也一直等：一句诊断把退出挂死",
+      "file": "scripts/check/sync-write.ts",
+      "find": " || waited >= deadlineMs) return false",
+      "replace": ") return false",
+      "by": "test",
+      "kills": [
+        "读的那头一直不读，等够了就放弃"
+      ]
+    },
+    {
+      "id": "M-H14-aj",
+      "req": "harness",
+      "why": "读的那头关了（EPIPE）也等：白等够上限才退出",
+      "file": "scripts/check/sync-write.ts",
+      "find": "code !== 'EAGAIN' || waited",
+      "replace": "code === undefined || waited",
+      "by": "test",
+      "kills": [
+        "读的那头关了不等，当场放弃"
+      ]
+    },
+    {
+      "id": "M-H14-ak",
+      "req": "harness",
+      "why": "变异一步的收口函数改回 console.error 再硬退出：退出前那句诊断接管道时被掐掉",
+      "file": "scripts/check/mutate.ts",
+      "find": "  if (lines.length) writeAllSync(2, `${lines.join('\\n')}\\n`)\n  process.exit(code)",
+      "replace": "  if (lines.length) console.error(lines.join('\\n'))\n  process.exit(code)",
+      "by": "test",
+      "kills": [
+        "变异一步的硬退出全部收口"
+      ]
+    },
+    {
+      "id": "M-H14-al",
+      "req": "harness",
+      "why": "只认直接叫收口的那一句：先异步写一句、再叫一个里面才收口的函数（被打断时那条路那样），查不到",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "if (!exiting.has(name) && callsExiting(body))",
+      "replace": "if (false && callsExiting(body))",
+      "by": "test",
+      "kills": [
+        "先异步写一句、再叫一个里面才收口的函数，报出来"
+      ]
+    },
+    {
+      "id": "M-H14-am",
+      "req": "harness",
+      "why": "派工没能起来那条路改回先 console.error 再收尾：那句诊断排在队里，被随后的硬退出掐掉",
+      "file": "scripts/check/mutate.ts",
+      "find": "    hardStop(`\\n✗ 变异测试：派工没能起来 —— ${e instanceof Error ? e.message : String(e)}`)",
+      "replace": "    console.error(`\\n✗ 变异测试：派工没能起来 —— ${e instanceof Error ? e.message : String(e)}`)\n    hardStop()",
+      "by": "test",
+      "kills": [
+        "变异一步的硬退出全部收口"
+      ]
+    },
+    {
+      "id": "M-H14-an",
+      "req": "harness",
+      "why": "硬退出前面多写一层全局对象就认不出：换个写法就绕过了「验证者不许硬退出」",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    || (ts.isPropertyAccessExpression(owner) && owner.name.text === 'process'",
+      "replace": "    || (false && ts.isPropertyAccessExpression(owner) && owner.name.text === 'process'",
+      "by": "test",
+      "kills": [
+        "前面带 globalThis 的也认"
+      ]
+    },
+    {
+      "id": "M-H14-ao",
+      "req": "harness",
+      "why": "每写进去一截不重新数：读的那头慢但一直在读，也被当成不读，诊断写一半就放弃",
+      "file": "scripts/check/sync-write.ts",
+      "find": "      waited = 0\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "读的那头慢但一直在读，不放弃：每写进去一截重新数"
+      ]
+    },
+    {
+      "id": "M-H14-ap",
+      "req": "harness",
+      "why": "return 着叫收口那一句不算退出：之前先异步写的那句被掐掉，没人报",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "ts.isExpressionStatement(statement) || ts.isReturnStatement(statement) ||",
+      "replace": "ts.isExpressionStatement(statement) ||",
+      "by": "test",
+      "kills": [
+        "return 着叫收口、不带花括号的 if 里叫收口，之前先异步写了，都报出来"
+      ]
+    },
+    {
+      "id": "M-H14-aq",
+      "req": "harness",
+      "why": "不带花括号的 if 子句里叫收口不算退出：之前先异步写的那句被掐掉，没人报",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    if (ts.isIfStatement(statement)) {",
+      "replace": "    if (false && ts.isIfStatement(statement)) {",
+      "by": "test",
+      "kills": [
+        "return 着叫收口、不带花括号的 if 里叫收口，之前先异步写了，都报出来"
+      ]
+    },
+    {
+      "id": "M-H14-ar",
+      "req": "harness",
+      "why": "调用方交进来的会退出的名字不认：从别的模块进来的硬退出之前先异步写，没人报",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "new Set([helper, ...imported])",
+      "replace": "new Set([helper])",
+      "by": "test",
+      "kills": [
+        "引进来的会退出的名字由调用方交进来，之前先异步写了，报出来"
+      ]
+    },
+    {
+      "id": "M-H14-as",
+      "req": "harness",
+      "why": "没标 never 的函数也当成会退出：叫它之前打的正常输出被报成退出前异步写了",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "(fn: Ts.SignatureDeclaration): boolean => fn.type?.kind === ts.SyntaxKind.NeverKeyword",
+      "replace": "(fn: Ts.SignatureDeclaration): boolean => fn !== undefined",
+      "by": "test",
+      "kills": [
+        "没标 never 的函数只是可能退出，叫它之前的正常输出不报",
+        "变异一步的硬退出全部收口"
+      ]
+    },
+    {
+      "id": "M-H14-at",
+      "req": "harness",
+      "why": "套在调用目标或进程对象外面的括号不剥：没换名字的硬退出多包一层括号就认不出，验证者与变异一步里都漏报",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "ts.isParenthesizedExpression(e) ? bare(e.expression) : e",
+      "replace": "e",
+      "by": "test",
+      "kills": [
+        "套了括号的调用目标与 process 也认"
       ]
     },
     {
