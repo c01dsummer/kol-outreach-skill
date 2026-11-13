@@ -231,7 +231,14 @@ const run = (label: string, args: string[], cwd = process.cwd(),
  * 「闭包以为它起了什么」不可能对不上：两边读的是同一份东西。
  */
 // 既有变异执行夹具也提供真实历史：未改的旧全量项按生产规则兼容，不能绕过维护比较。
+// 变异锚点入口会读 git 暂存区：它在玩具树里起时不读用户与系统配置、不认继承来的仓库指向与注入的配置 ——
+// 环境里带着 GIT_DIR、GIT_INDEX_FILE 时（比如从 git 钩子里起检查）读到的是别人的索引（ADR-70「变异残留：暂存区」第五片）。
+// 值写成 undefined：子进程的环境里就没有这几项
+const GIT_ISOLATED: NodeJS.ProcessEnv = { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
+for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR',
+  'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) GIT_ISOLATED[key] = undefined
 const mutationFixtureEnv = (tool: keyof typeof SELFCHECK_TOOLS, rest: readonly string[], cwd: string): NodeJS.ProcessEnv => {
+  if (tool === 'anchors') return GIT_ISOLATED
   if (tool !== 'mutate' || rest.includes('--brief') || cwd === process.cwd()) return {}
   const fixtureGitEnv: NodeJS.ProcessEnv = { ...process.env,
     GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
@@ -7208,6 +7215,105 @@ group('anchor-residue-entry', [], () => {
   toy(dupTmp, { 'e.ts': 'ok()\n' }, { mutations: [fine, fine] })
   const dup = runToolBoth('anchors 变异编号重复即以退出码 1 结束', 'anchors', [], dupTmp, { status: 1 })
   if (dup.ok) named('anchors 编号重复时点名那个编号', dup.stderr.includes('1 个编号重复') && dup.stderr.includes('M-X-e  出现不止一次'), dup.stderr)
+})
+
+// ---- 变异锚点读暂存区：入口真的读了 git 暂存区与 HEAD（ADR-70 末尾「变异残留：暂存区」第五片，接线证明）----
+group('anchor-staged-entry', [], () => {
+  // 判定是纯函数 stagedResidue 与 notARepo，由需求测试 h-mutate 断言、M-H45-ah…an 守着；剩下的那一半是**入口真的
+  // 读了暂存区与 HEAD、交给判定、点名、照它退出，git 读不到时分得开不是仓库与坏了**。不配负片的理由同 anchor-residue-entry。
+  // 夹具与入口的 git 都用 GIT_ISOLATED（见 mutationFixtureEnv 上面那段）：入口经 runToolBoth 起，自动带上
+  const git = (cwd: string, ...args: string[]): boolean => {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, ...GIT_ISOLATED } })
+    if (r.status === 0) return true
+    failed++; console.error(`  ✗ 暂存区夹具${SELFCHECK_FIXTURE_MARK}：${cwd} 里 git ${args.join(' ')}：${r.error ?? r.stderr}`)
+    return false
+  }
+  // 建一个仓库，包放在带空格与中文的子目录里（钉住入口按当前目录给路径），files 与目录都提交进 HEAD
+  const repo = (root: string, pkg: string, files: Record<string, string>, catalog: unknown): boolean => {
+    mkdirSync(join(pkg, 'scripts', 'check'), { recursive: true })
+    for (const [name, text] of Object.entries(files)) { mkdirSync(dirname(join(pkg, name)), { recursive: true }); writeFileSync(join(pkg, name), text, 'utf8') }
+    writeFileSync(join(pkg, 'scripts', 'check', 'mutations.json'), JSON.stringify(catalog), 'utf8')
+    return git(root, 'init', '--quiet', '-b', 'main') && git(root, 'config', 'user.name', 'Anchor fixture')
+      && git(root, 'config', 'user.email', 'fixture@example.invalid') && git(root, 'add', '-A') && git(root, 'commit', '--quiet', '-m', 'fixture')
+  }
+  const fine = { id: 'M-X-e', req: 'X1', why: '干净的一条', file: 'e.ts', find: 'ok()', replace: 'no()' }
+  const back = { id: 'M-X-s', req: 'X1', why: '暂存过的', file: '目 录/中 文.ts', find: 'return x', replace: 'return y' }
+  // 变异 git add 过、工作树那一处后来按回去了：工作树对得上，暂存区里是施加之后的样子
+  const stagedRoot = join(tmp, 'anchor-staged')
+  const stagedPkg = join(stagedRoot, '子 包')
+  const target = join(stagedPkg, '目 录', '中 文.ts')
+  if (repo(stagedRoot, stagedPkg, { '目 录/中 文.ts': 'return x\n', 'e.ts': 'ok()\n' }, { mutations: [back, fine] })) {
+    writeFileSync(target, 'return y\n', 'utf8')
+    const ready = git(stagedRoot, 'add', '-A')
+    writeFileSync(target, 'return x\n', 'utf8')
+    const staged = ready ? runToolBoth('anchors 暂存区里躺着变异即以退出码 1 结束', 'anchors', [], stagedPkg, { status: 1 }) : undefined
+    if (staged?.ok) {
+      const lines = staged.stderr.split('\n')
+      named('anchors 点名暂存区里没还原的那条', lines.some(l => l.trimStart().startsWith('M-X-s  目 录/中 文.ts：暂存区里像是没还原')), staged.stderr)
+      named('anchors 暂存区那一块汇总说出条数', lines.includes('✗ 变异锚点：暂存区里 1 条变异是施加之后的样子，下一次 git commit 会把它带进去'), staged.stderr)
+      named('anchors 暂存区里的叫人看 git diff --cached、只撤那一处、两边都撤',
+        staged.stderr.includes('git diff --cached') && staged.stderr.includes('git restore --staged -p') && staged.stderr.includes('两边都要撤'), staged.stderr)
+      named('anchors 不点名暂存区里对得上的那条', !staged.stderr.includes('M-X-e'), staged.stderr)
+    }
+  }
+  // 改完还没 git add：暂存区与 HEAD 同是旧代码，新写的删一段的变异在那里本来就分不开 —— 不是暂存了变异
+  const pendingTmp = join(tmp, 'anchor-unstaged-edit')
+  if (repo(pendingTmp, pendingTmp, { 'n.ts': 'z\n', 'e.ts': 'ok()\n' }, { mutations: [fine] })) {
+    writeFileSync(join(pendingTmp, 'n.ts'), 'del()\nz\n', 'utf8')
+    writeFileSync(join(pendingTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [fine,
+      { id: 'M-X-n', req: 'X1', why: '新写的删一段', file: 'n.ts', find: 'del()\n', replace: '' }] }), 'utf8')
+    const pending = runToolBoth('anchors 改完还没 git add 时以退出码 0 结束', 'anchors', [], pendingTmp)
+    if (pending.ok) named('anchors 改完还没 git add 时说暂存区也查过', pending.stdout.includes('2 条变异') && pending.stdout.includes('暂存区也查过'), pending.stdout)
+  }
+  // HEAD 里还没有的新文件：暂存了一版旧稿、工作树里写上那段并登记删一段的变异。暂存区里没那段 —— 是旧稿还是变异暂存了
+  // 分不开：不报错（以 0 退出），也不说「暂存区也查过」，单起一行说认不准、点名、叫人看 git diff --cached（#460 上 CodeRabbit 第一轮）
+  const freshTmp = join(tmp, 'anchor-new-file')
+  if (repo(freshTmp, freshTmp, { 'e.ts': 'ok()\n' }, { mutations: [fine] })) {
+    writeFileSync(join(freshTmp, 'n.ts'), 'z\n', 'utf8')
+    const drafted = git(freshTmp, 'add', 'n.ts')
+    writeFileSync(join(freshTmp, 'n.ts'), 'del()\nz\n', 'utf8')
+    writeFileSync(join(freshTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [fine,
+      { id: 'M-X-n', req: 'X1', why: '新文件里删一段', file: 'n.ts', find: 'del()\n', replace: '' }] }), 'utf8')
+    const fresh = drafted ? runToolBoth('anchors 新文件里暂存区认不准时以退出码 0 结束', 'anchors', [], freshTmp) : undefined
+    if (fresh?.ok) {
+      named('anchors 新文件里认不准的单起一行点名、叫人看 git diff --cached',
+        fresh.stdout.includes('⚠ 变异锚点：暂存区里 1 条在 HEAD 里还没有的新文件里认不准')
+        && fresh.stdout.includes('M-X-n  n.ts：暂存区里认不准') && fresh.stdout.includes('git diff --cached'), fresh.stdout)
+      named('anchors 新文件里认不准时不说暂存区也查过', !fresh.stdout.includes('✓') && !fresh.stdout.includes('暂存区也查过'), fresh.stdout)
+    }
+  }
+  // 不是 git 仓库：暂存区那一步不做，照实说没查，以 0 退出。「不是」要真的不是：往上哪一层有 .git，那一跑读到的是别人的仓库
+  const noRepoTmp = join(tmp, 'anchor-no-repo')
+  mkdirSync(join(noRepoTmp, 'scripts', 'check'), { recursive: true })
+  writeFileSync(join(noRepoTmp, 'e.ts'), 'ok()\n', 'utf8')
+  writeFileSync(join(noRepoTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [fine] }), 'utf8')
+  const outer: string[] = []
+  for (let p = noRepoTmp; outer.length === 0; p = dirname(p)) {
+    if (existsSync(join(p, '.git'))) outer.push(join(p, '.git'))
+    if (dirname(p) === p) break
+  }
+  if (outer.length > 0) { failed++; console.error(`  ✗ 暂存区夹具${SELFCHECK_FIXTURE_MARK}：${noRepoTmp} 不该在任何 git 仓库里，找到了 ${outer[0]}`) } else {
+    const noRepo = runToolBoth('anchors 不是 git 仓库时以退出码 0 结束', 'anchors', [], noRepoTmp)
+    if (noRepo.ok) named('anchors 不是 git 仓库时说暂存区没查', noRepo.stdout.includes('不是 git 仓库，暂存区没查'), noRepo.stdout)
+  }
+  // git 坏了（.git 是个读不出的文件）：不当成不是仓库，以 1 退出并带出 git 的原话
+  const brokenTmp = join(tmp, 'anchor-broken-git')
+  mkdirSync(join(brokenTmp, 'scripts', 'check'), { recursive: true })
+  writeFileSync(join(brokenTmp, 'e.ts'), 'ok()\n', 'utf8')
+  writeFileSync(join(brokenTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [fine] }), 'utf8')
+  writeFileSync(join(brokenTmp, '.git'), '不是 gitdir 那一行\n', 'utf8')
+  const broken = runToolBoth('anchors git 读不到暂存区即以退出码 1 结束', 'anchors', [], brokenTmp, { status: 1 })
+  if (broken.ok) named('anchors git 坏了时说读不到暂存区并带出 git 的原话',
+    broken.stderr.includes('git 读不到暂存区') && broken.stderr.includes('fatal:') && !broken.stdout.includes('✓'), broken.stderr + broken.stdout)
+  // 目标文件名里带换行：cat-file --batch 一行写不下它，不起 git、整步算读不到、以 1 退出，不打 ✓ —— 按读不到的那一个算的话，
+  // 暂存区里躺着的变异会被当成不在暂存区放过（#460 上 CodeRabbit 第三轮）
+  const nlTmp = join(tmp, 'anchor-newline-name')
+  const nl = { id: 'M-X-l', req: 'X1', why: '文件名带换行', file: 'n\nl.ts', find: 'ok()', replace: 'no()' }
+  if (repo(nlTmp, nlTmp, { 'n\nl.ts': 'ok()\n' }, { mutations: [nl] })) {
+    const odd = runToolBoth('anchors 目标文件名带换行时以退出码 1 结束', 'anchors', [], nlTmp, { status: 1 })
+    if (odd.ok) named('anchors 目标文件名带换行时说读不到暂存区、不打 ✓',
+      odd.stderr.includes('git 读不到暂存区') && odd.stderr.includes('带换行') && !odd.stdout.includes('✓'), odd.stderr + odd.stdout)
+  }
 })
 
 // ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----

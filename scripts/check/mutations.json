@@ -5901,8 +5901,8 @@
       "req": "harness",
       "why": "暂存区里锚点失效、不唯一、读不到的也报成躺着的变异：锚点只是对不上或文件没进暂存区，被说成要撤",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "    .filter((f): f is StagedFault => f.kind === 'residue' || f.kind === 'unclear')",
-      "replace": "    .filter((f): f is StagedFault => f.kind !== undefined)",
+      "find": "    .filter((f): f is StagedFault & AnchorFault => f.kind === 'residue' || f.kind === 'unclear')",
+      "replace": "    .filter((f): f is StagedFault & AnchorFault => f.kind !== undefined)",
       "by": "test",
       "kills": [
         "暂存区里锚点失效或不唯一：不报",
@@ -5943,6 +5943,42 @@
       "by": "test",
       "kills": [
         "同文件另一条工作树上失效：暂存区里这一条照报"
+      ]
+    },
+    {
+      "id": "M-H45-an",
+      "req": "harness",
+      "why": "git 读不到一律当成不是仓库：属主不符、.git 坏了时暂存区那一步静默不做，入口以 0 退出，暂存区里躺着的变异照样被提交带进去",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "/^fatal: not a git repository \\(or any (?:of the )?parent/m.test(gitStderr)",
+      "replace": "gitStderr !== ''",
+      "by": "test",
+      "kills": [
+        "git 说属主不符：不放过"
+      ]
+    },
+    {
+      "id": "M-H45-ao",
+      "req": "harness",
+      "why": "HEAD 里没有的新文件里分不开的，当成暂存区里分不开报错 —— 暂存了一版旧稿或 git add -N 的空文件也让检查红，其实暂存区只是没跟上",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "f.kind === 'unclear' && inHead.get(f.id) === 'unreadable' ? { ...f, kind: 'unconfirmed' as const } : f)",
+      "replace": "f)",
+      "by": "test",
+      "kills": [
+        "HEAD 里没有的新文件：分不开的交认不准、没还原的照报"
+      ]
+    },
+    {
+      "id": "M-H45-ap",
+      "req": "harness",
+      "why": "凡是 git 说不是仓库都放过：环境变量把仓库指到一个不存在的目录时，人明明在仓库里，入口却说不是仓库、暂存区没查，以 0 退出",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": " \\(or any (?:of the )?parent/m.test(gitStderr)",
+      "replace": "\\b/m.test(gitStderr)",
+      "by": "test",
+      "kills": [
+        "GIT_DIR 指向不存在的目录：不放过"
       ]
     },
     {

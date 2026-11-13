@@ -64,3 +64,11 @@ ADR-70 末尾「变异残留：暂存区」第四片加了判定 `stagedResidue`
 > ⚠️ 已重挂：ADR-34 第 57 行 · 现行的是 ADR-34 第 66 行
 
 > ⚠️ 欠条：变异编号的唯一性仍由每个读编号的地方各自先拒或写成前提（`mutate.ts` 与检查链第一步共用 `duplicateIds`，`executionRoutes` 自己拒，`stagedResidue` 要调用方先过 `anchorVerdict`），没有一个所有消费者之前都经过的统一阶段 · 来源：ADR-34 第 57 行续挂 · 档：登记 · 重启条件：再出现一处新的读变异编号的消费者，或在 `executionRoutes` 之外又有一处读编号的地方不经 `duplicateIds` 自己拒，或接 `stagedResidue` 的入口合入，或定期清点
+
+## 续：检查链第一步接上暂存区判定（2026-11-12）
+
+ADR-70 末尾「变异残留：暂存区」第五片把 `stagedResidue` 接进 `anchors.ts`：编号不重复时才调它，重名时 `anchorVerdict` 先报、它不调。第 66 行的重启条件「接 `stagedResidue` 的入口合入」由此响了；编号唯一照旧是每个读编号的地方各自先拒或写成前提，没有统一的阶段。
+
+> ⚠️ 已重挂：ADR-34 第 66 行 · 现行的是 ADR-34 第 74 行
+
+> ⚠️ 欠条：变异编号的唯一性仍由每个读编号的地方各自先拒或写成前提（`mutate.ts` 与检查链第一步共用 `duplicateIds`，`executionRoutes` 自己拒，`stagedResidue` 由检查链第一步先过 `anchorVerdict`），没有一个所有消费者之前都经过的统一阶段 · 来源：ADR-34 第 66 行续挂 · 档：登记 · 重启条件：再出现一处新的读变异编号的消费者，或在 `executionRoutes` 之外又有一处读编号的地方不经 `duplicateIds` 自己拒，或定期清点
