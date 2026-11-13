@@ -805,8 +805,9 @@ const copyIntoWorker = (dir: string): void => {
     let link: boolean
     try {
       const st = lstatSync(rel)
-      // 受跟踪的路径在工作树里成了目录（或是个子模块）：副本跟工作树一样，没有那个文件
-      if (st.isDirectory()) continue
+      // 受跟踪的路径在工作树里成了目录（或是个子模块）、管道之类的特殊文件：副本跟工作树一样，没有那个文件。
+      // 管道不能拿去复制 —— 没人写的时候一打开就挂住，整跑停在建副本那一步（#467 CodeRabbit 第 1 轮）
+      if (!st.isFile() && !st.isSymbolicLink()) continue
       link = st.isSymbolicLink()
     } catch (e) {
       // 已删掉，或上一级成了文件：同上
