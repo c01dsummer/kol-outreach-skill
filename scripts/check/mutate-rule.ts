@@ -390,7 +390,7 @@ export function anchorVerdict(muts: readonly { id: string; file: string; find: s
   }
 }
 
-export type StagedFault = { kind: 'residue' | 'unclear'; id: string; file: string }
+export type StagedFault = { kind: 'residue' | 'unclear' | 'unconfirmed'; id: string; file: string }
 
 /**
  * 暂存区里躺着的变异：工作树上那一条对得上，暂存区里却是施加之后的样子（ADR-70 末尾「暂存区」一节；#457 上 CodeRabbit 第六轮）。
@@ -405,9 +405,11 @@ export type StagedFault = { kind: 'residue' | 'unclear'; id: string; file: strin
  *   必然分不开，「把修复按回去」的变异在旧代码里正是没还原 —— 那是暂存区还没跟上，不是暂存了变异
  *   （复审拿主干上的提交模拟过：工作树取该提交、暂存区取父提交，不比 HEAD 时确有误报）。
  *   HEAD 上已经提交了的残留不归这一步：那是已提交的，`git diff HEAD` 那条路去找。
- * - **HEAD 里没有这个文件的，分不开的不交。** 新文件先暂存一版旧稿（或 `git add -N` 只登记了一个空文件）、再在工作树里
- *   写上那段并登记删一段的变异，暂存区里那段本来就没有 —— 与上一条同理，是暂存区没跟上，可 HEAD 里没有可比的
- *   （复审实测两种都误报）。没还原的照交：暂存区里有 `replace`、没有 `find`，旧稿碰巧长这样的少。
+ * - **HEAD 里没有这个文件的，分不开的交 `unconfirmed`（认不准），不交 `unclear`。** 新文件先暂存一版旧稿（或 `git add -N`
+ *   只登记了一个空文件）、再在工作树里写上那段并登记删一段的变异，暂存区里那段本来就没有 —— 与上一条同理，是暂存区
+ *   没跟上，可 HEAD 里没有可比的（复审实测两种都误报）；而删一段的变异真暂存进去了，暂存区也正是这个样子，两种分不开
+ *   （#460 上 CodeRabbit 第一轮）。所以单列一种，由入口说「认不准」、不报错也不说查过。没还原的照交：暂存区里有
+ *   `replace`、没有 `find`，旧稿碰巧长这样的少。
  *
  * 读暂存区、读 HEAD 由调用方给：文件不在暂存区或 HEAD 里（没跟踪、新文件、不是 git 仓库）交 `undefined`；
  * 暂存区与工作树一样的，交工作树那份也行，结论一样。判定不碰 git。
@@ -420,19 +422,21 @@ export function stagedResidue(muts: readonly { id: string; file: string; find: s
   const rest = muts.filter(m => !faultedInWork.has(m.id))
   const inHead = new Map(anchorFaults(rest, readHead).map(f => [f.id, f.kind]))
   return anchorFaults(rest, readIndex)
-    .filter((f): f is StagedFault => f.kind === 'residue' || f.kind === 'unclear')
+    .filter((f): f is StagedFault & AnchorFault => f.kind === 'residue' || f.kind === 'unclear')
     .filter(f => inHead.get(f.id) !== f.kind)
-    .filter(f => f.kind === 'residue' || inHead.get(f.id) !== 'unreadable')
+    .map(f => f.kind === 'unclear' && inHead.get(f.id) === 'unreadable' ? { ...f, kind: 'unconfirmed' as const } : f)
 }
 
 /**
  * git 读不到暂存区时，是**这里本来就不是仓库**（没有下一次提交可带，暂存区那一步可以不做），还是 **git 出了别的毛病**
  * （属主不符的 dubious ownership、`.git` 坏了、没装 git……仓库可能就在那里，暂存区里可能正躺着一条）。
  * 只有前一种放过，其余都算没得核 —— 没得核不是核过了。认的是 `LC_ALL=C` 下 git 的那句原话；调用方要按这个语言起 git。
+ * 认的是**往上找仓库没找到**那一句（带括号里「或任何一层上级目录」，停在挂载点的那一种也算）：`GIT_DIR` 指向一个不存在的目录时
+ * git 也说「not a git repository」，可那时人明明在仓库里，只是环境变量指错了，放过就是对着仓库说「不是仓库，暂存区没查」（#460 上 CodeRabbit 第三轮）。
  * ADR-70 末尾「变异残留：暂存区」第五片（复审实测：属主不符时 `git diff` 以 129 退出，旧入口当成不是仓库、以 0 退出）。
  */
 export function notARepo(gitStderr: string): boolean {
-  return /^fatal: not a git repository\b/m.test(gitStderr)
+  return /^fatal: not a git repository \(or any (?:of the )?parent/m.test(gitStderr)
 }
 
 /**
@@ -472,13 +476,16 @@ export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault 
  * **按语法树认，不按字面扫**（ADR-70 末尾「硬退出收口」一节；原先按正则扫，注释与字符串里长得一样的也算数，
  * ADR-70 第 2077 行那张欠条）：认的是 `process.exit(…)` 与 `process['exit'](…)` 这两种调用（前面带 `globalThis.` 的也认），注释、字符串、
  * 模板串里写全了的结构上就不是调用（同 `labelsOf`）。先把它赋给别的名字再调的认不出，不假装认得出。
+ * 套在调用目标或 `process` 外面的括号先剥掉：`(process.exit)(1)`、`(process).exit(1)` 没换名字，照认（#462 上 CodeRabbit 第一轮）。
  */
-const isProcessExit = (callee: Ts.Expression): boolean => {
+const isProcessExit = (wrapped: Ts.Expression): boolean => {
   const ts = typescript()
+  const bare = (e: Ts.Expression): Ts.Expression => ts.isParenthesizedExpression(e) ? bare(e.expression) : e
+  const callee = bare(wrapped)
   if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return false
   const named = ts.isPropertyAccessExpression(callee) ? callee.name.text
     : ts.isStringLiteralLike(callee.argumentExpression) ? callee.argumentExpression.text : undefined
-  const owner = callee.expression
+  const owner = bare(callee.expression)
   const isProcess = (ts.isIdentifier(owner) && owner.text === 'process')
     || (ts.isPropertyAccessExpression(owner) && owner.name.text === 'process'
         && ts.isIdentifier(owner.expression) && owner.expression.text === 'globalThis')

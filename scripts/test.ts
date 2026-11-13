@@ -7668,6 +7668,7 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
   eq('字符串里写全了的硬退出不算', exitRace(`const s = '${hardExit}'`), [])
   eq("process['exit'] 那种写法也认", exitRace(`process['${'exit'}'](1)`), [1])
   eq('前面带 globalThis 的也认', exitRace(`globalThis.${hardExit}`), [1])
+  eq('套了括号的调用目标与 process 也认', [exitRace(`(${'process.exit'})(1)`), exitRace(`(process).${'exit'}(1)`)], [[1], [1]])
   eq('报出每一处硬退出所在的行', exitRace(`a()\n${hardExit}\nb()\n${hardExit}\n`), [2, 4])
 
   const demandEntry = VERIFIERS.test.script
@@ -8031,10 +8032,11 @@ harness('变异锚点那一步：暂存区里躺着的变异')
     tree({ 'a.ts': 'return x\n', 'c.ts': 'k = 1\n' }), tree({ 'a.ts': 'keep\n', 'c.ts': 'k = 1\nk = 1\n' }), head), [])
   // 不在暂存区（没跟踪、git rm --cached 过、不是仓库）：读暂存区交 undefined，不当成读不到的毛病；HEAD 里有它也一样
   eq('文件不在暂存区：不报', stagedResidue([back, cut], tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' }), tree({}), head), [])
-  // 新文件：HEAD 里没有。暂存的是旧稿（或 git add -N 的空文件），删一段的在那里本来就没那段 —— 不报；没还原的照报
-  eq('HEAD 里没有的新文件、暂存区是旧稿：分不开的不报、没还原的照报', stagedResidue([back, cut],
+  // 新文件：HEAD 里没有。暂存的是旧稿（或 git add -N 的空文件）还是删一段的变异真暂存了，暂存区都是没那段 —— 认不准，
+  // 单列一种，不报成分不开；没还原的照报
+  eq('HEAD 里没有的新文件：分不开的交认不准、没还原的照报', stagedResidue([back, cut],
     tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' }), tree({ 'a.ts': 'return y\n', 'u.ts': '' }), tree({})),
-    [{ kind: 'residue', id: 'M-甲', file: 'a.ts' }])
+    [{ kind: 'residue', id: 'M-甲', file: 'a.ts' }, { kind: 'unconfirmed', id: 'M-乙', file: 'u.ts' }])
   eq('暂存区与工作树一样、都对得上：不报', stagedResidue([back], tree({ 'a.ts': 'return x\n' }), tree({ 'a.ts': 'return x\n' }), head), [])
 }
 
@@ -8042,6 +8044,8 @@ harness('变异锚点那一步：git 读不到时是不是本来就不是仓库'
 {
   // 只有「不是仓库」放过；属主不符、.git 坏了、没装 git 都算没得核（复审实测属主不符时旧入口当成不是仓库、以 0 退出）
   eq('git 说不是仓库：放过', notARepo('fatal: not a git repository (or any of the parent directories): .git\n'), true)
+  eq('git 往上找到挂载点也没找到：放过', notARepo('fatal: not a git repository (or any parent up to mount point /mnt)\nStopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).\n'), true)
+  eq('GIT_DIR 指向不存在的目录：不放过', notARepo("fatal: not a git repository: '/r/missing'\n"), false)
   eq('git 说属主不符：不放过', [
     notARepo("fatal: detected dubious ownership in repository at '/r'\nTo add an exception for this directory, call:\n"),
     notARepo('fatal: invalid gitfile format: /r/.git\n'),
