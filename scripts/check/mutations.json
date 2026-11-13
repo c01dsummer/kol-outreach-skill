@@ -2265,8 +2265,8 @@
       "req": "harness",
       "file": "scripts/check/mutate-rule.ts",
       "why": "进了 group 也不记组名 —— 每条标签都落不进组，于是每条负片都退回整跑，这条改动买到的东西一秒不剩，而没有任何东西会红",
-      "find": "      if (name === 'group' && label !== undefined) inner = label",
-      "replace": "      if (name === 'group' && label !== undefined) inner = group",
+      "find": "    if (opened !== undefined) inner = opened",
+      "replace": "    if (opened !== undefined) inner = group",
       "by": "test",
       "kills": [
         "组里的标签归到那一组"
@@ -2276,34 +2276,13 @@
       "id": "M-H43-b",
       "req": "harness",
       "file": "scripts/check/mutate-rule.ts",
-      "why": "任何一处调用都算起名 —— 组里随便一个带字符串首参的调用都会被当成夹具标签，负片点名时翻到的组可能整个是错的",
-      "find": "      else if (label !== undefined && group !== undefined && declared.has(name)",
-      "replace": "      else if (label !== undefined && group !== undefined && true",
-      "by": "test",
-      "kills": ["工具标签归组 普通字符串调用不成为夹具"]
-    },
-    {
-      "id": "M-H43-c",
-      "req": "harness",
-      "file": "scripts/check/mutate-rule.ts",
-      "why": "调用者认成「点号右边那一截」：别的对象上碰巧同名的方法也被当成起名，于是一条本不属于这一组的标签被归进来，负片点名时翻到的组整个是错的（清册那一侧同形的一条是 M-H20-c，归组这一侧原先一条都没有）",
-      "find": "    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {\n      const name = node.expression.text",
-      "replace": "    if (ts.isCallExpression(node) && (ts.isIdentifier(node.expression) || ts.isPropertyAccessExpression(node.expression))) {\n      const name = ts.isIdentifier(node.expression) ? node.expression.text : node.expression.name.text",
+      "why": "归组那一侧任何一处调用都算起名 —— 组里随便一个带字符串首参的调用都会被当成夹具标签，负片点名时翻到的组可能整个是错的；清册那一侧照旧，两边认的不再是同一套",
+      "find": "const declared = new Set(declares)",
+      "replace": "const declared = { has: (_: string) => true }",
       "by": "test",
       "kills": [
-        "点号右边那一截不算起名 —— 别的对象上碰巧同名的方法"
-      ]
-    },
-    {
-      "id": "M-H43-d",
-      "req": "harness",
-      "file": "scripts/check/mutate-rule.ts",
-      "why": "只认引号括起来的那一种字面量：反引号写的、静态一样定得下来的夹具名翻不出组，那条负片于是静默退回整跑 —— 这条改动买到的东西悄悄漏掉，而没有任何东西会红（清册那一侧同形的一条是 M-H20-g，归组这一侧原先一条都没有）",
-      "find": "ts.isStringLiteralLike(first) ? first.text : undefined",
-      "replace": "ts.isStringLiteral(first) ? first.text : undefined",
-      "by": "test",
-      "kills": [
-        "反引号、没插值的也定得下来，归到那一组"
+        "工具标签归组 普通字符串调用不成为夹具",
+        "同一份语料：归组认得出的标签与清册收的标签是同一套（组外那条除外）"
       ]
     },
     {
@@ -4378,36 +4357,41 @@
     {
       "id": "M-H20-a",
       "req": "harness",
-      "why": "定不下来的实参不再跳过，改成把它的源码原文当名字：转发调用和带插值的模板串都被收进清册，而清册大了那一头是放行",
+      "why": "定不下来的实参不再跳过，改成把它的源码原文当名字：转发调用和带插值的模板串都被收进清册、也被归进某一组，而清册大了那一头是放行",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "node !== undefined && ts.isStringLiteralLike(node) ? node.text : undefined",
-      "replace": "node !== undefined && ts.isStringLiteralLike(node) ? node.text : node?.getText()",
+      "find": "first !== undefined && ts.isStringLiteralLike(first) ? first.text : undefined",
+      "replace": "first !== undefined && ts.isStringLiteralLike(first) ? first.text : first?.getText()",
       "by": "test",
       "kills": [
-        "转发调用（实参是个变量）不进清册"
+        "转发调用（实参是个变量）不进清册",
+        "转发变量、带插值的反引号定不下来，不归组"
       ]
     },
     {
       "id": "M-H20-b",
       "req": "harness",
-      "why": "不再问「这个名字在不在起名的那张表里」：任何一处调用都算起名，那张表写什么都不作数",
+      "why": "清册那一侧不再问「这个名字在不在起名的那张表里」：任何一处调用都算起名，那张表写什么都不作数；归组那一侧照旧，两边认的不再是同一套",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "declares.includes(name)",
-      "replace": "true",
+      "find": "const known = new Set(declares)",
+      "replace": "const known = { has: (_: string) => true }",
       "by": "test",
       "kills": [
-        "一个起名的函数都没写 → 清册是空的"
+        "一个起名的函数都没写 → 清册是空的",
+        "同一份语料：归组认得出的标签与清册收的标签是同一套（组外那条除外）"
       ]
     },
     {
       "id": "M-H20-c",
       "req": "harness",
-      "why": "调用者认成「点号右边那一截」：别的对象上的同名方法也被当成起名 —— 一个碰巧同名的方法就能凭空往清册里塞名字",
+      "why": "调用者认成「点号右边那一截」：别的对象上的同名方法也被当成起名 —— 清册凭空多出名字，归组把一条本不属于这一组的标签归进来（两边共用这一处判据）",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "ts.isIdentifier(node.expression) ? node.expression.text : undefined",
-      "replace": "ts.isIdentifier(node.expression) ? node.expression.text\n      : ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : undefined",
+      "find": "const callee = ts.isIdentifier(node.expression) ? node.expression.text : undefined",
+      "replace": "const callee = ts.isIdentifier(node.expression) ? node.expression.text\n    : ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : undefined",
       "by": "test",
-      "kills": ["工具标签清册 外部对象同尾方法不成为声明"]
+      "kills": [
+        "工具标签清册 外部对象同尾方法不成为声明",
+        "点号右边那一截不算起名 —— 别的对象上碰巧同名的方法"
+      ]
     },
     {
       "id": "M-H20-d",
@@ -4438,8 +4422,8 @@
       "req": "harness",
       "why": "第一次见到的名字不写进清册：只有起过两次以上的才收得到，起过一次的那些全漏",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "        const had = seen.get(label)\n        seen.set(label, had === undefined ? 1 : had + 1)",
-      "replace": "        const had = seen.get(label)\n        if (had !== undefined) seen.set(label, had + 1)",
+      "find": "      const had = seen.get(label)\n      seen.set(label, had === undefined ? 1 : had + 1)",
+      "replace": "      const had = seen.get(label)\n      if (had !== undefined) seen.set(label, had + 1)",
       "by": "test",
       "kills": [
         "声明处的字面量进清册"
@@ -4448,13 +4432,14 @@
     {
       "id": "M-H20-g",
       "req": "harness",
-      "why": "只认引号括起来的那一种字面量：反引号写的、静态一样定得下来的名字被判成定不下来，好好的点名从此立不住。引号那两种（单引号与双引号）不受影响",
+      "why": "只认引号括起来的那一种字面量：反引号写的、静态一样定得下来的名字被判成定不下来 —— 清册里好好的点名立不住，归组那一侧这条负片静默退回整跑（两边共用这一处判据）。引号那两种（单引号与双引号）不受影响",
       "file": "scripts/check/mutate-rule.ts",
-      "find": "ts.isStringLiteralLike(node) ? node.text",
-      "replace": "ts.isStringLiteral(node) ? node.text",
+      "find": "ts.isStringLiteralLike(first) ? first.text",
+      "replace": "ts.isStringLiteral(first) ? first.text",
       "by": "test",
       "kills": [
-        "反引号但没插值的也定得下来，算数"
+        "反引号但没插值的也定得下来，算数",
+        "反引号、没插值的也定得下来，归到那一组"
       ]
     },
     {
