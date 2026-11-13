@@ -7654,6 +7654,7 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
   eq('字符串里写全了的硬退出不算', exitRace(`const s = '${hardExit}'`), [])
   eq("process['exit'] 那种写法也认", exitRace(`process['${'exit'}'](1)`), [1])
   eq('前面带 globalThis 的也认', exitRace(`globalThis.${hardExit}`), [1])
+  eq('套了括号的调用目标与 process 也认', [exitRace(`(${'process.exit'})(1)`), exitRace(`(process).${'exit'}(1)`)], [[1], [1]])
   eq('报出每一处硬退出所在的行', exitRace(`a()\n${hardExit}\nb()\n${hardExit}\n`), [2, 4])
 
   const demandEntry = VERIFIERS.test.script

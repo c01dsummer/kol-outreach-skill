@@ -6201,6 +6201,18 @@
       ]
     },
     {
+      "id": "M-H14-at",
+      "req": "harness",
+      "why": "套在调用目标或进程对象外面的括号不剥：没换名字的硬退出多包一层括号就认不出，验证者与变异一步里都漏报",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "ts.isParenthesizedExpression(e) ? bare(e.expression) : e",
+      "replace": "e",
+      "by": "test",
+      "kills": [
+        "套了括号的调用目标与 process 也认"
+      ]
+    },
+    {
       "id": "M-H45-i",
       "req": "harness",
       "why": "施加变异时替换文本里的美元记号被当成替换记号展开，盘上写出的不是目录里登记的那一段 —— 一条变异顺带多改一处，被抓到也说不清是哪一处的功劳",

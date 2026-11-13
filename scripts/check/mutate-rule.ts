@@ -476,13 +476,16 @@ export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault 
  * **按语法树认，不按字面扫**（ADR-70 末尾「硬退出收口」一节；原先按正则扫，注释与字符串里长得一样的也算数，
  * ADR-70 第 2077 行那张欠条）：认的是 `process.exit(…)` 与 `process['exit'](…)` 这两种调用（前面带 `globalThis.` 的也认），注释、字符串、
  * 模板串里写全了的结构上就不是调用（同 `labelsOf`）。先把它赋给别的名字再调的认不出，不假装认得出。
+ * 套在调用目标或 `process` 外面的括号先剥掉：`(process.exit)(1)`、`(process).exit(1)` 没换名字，照认（#462 上 CodeRabbit 第一轮）。
  */
-const isProcessExit = (callee: Ts.Expression): boolean => {
+const isProcessExit = (wrapped: Ts.Expression): boolean => {
   const ts = typescript()
+  const bare = (e: Ts.Expression): Ts.Expression => ts.isParenthesizedExpression(e) ? bare(e.expression) : e
+  const callee = bare(wrapped)
   if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return false
   const named = ts.isPropertyAccessExpression(callee) ? callee.name.text
     : ts.isStringLiteralLike(callee.argumentExpression) ? callee.argumentExpression.text : undefined
-  const owner = callee.expression
+  const owner = bare(callee.expression)
   const isProcess = (ts.isIdentifier(owner) && owner.text === 'process')
     || (ts.isPropertyAccessExpression(owner) && owner.name.text === 'process'
         && ts.isIdentifier(owner.expression) && owner.expression.text === 'globalThis')
