@@ -7147,8 +7147,10 @@ group('mutate-anchor-not-unique', [], () => {
 group('mutate-brief-leak-entry', [], () => {
   // 判定是纯函数 briefLeaks，由需求测试 h-why 断言、M-H1-b..h 守着；剩下的那一半是**入口真的调了它、
   // 豁免一侧也拦、两侧分开说、`--brief` 一行清单也不打、以 1 结束**。入口在自检的验证基础设施闭包里，
-  // 指名自检来验的变异会被「自己验自己」拦下；by: test 不被拦，但需求测试不起这个入口，所以这一半只有这条自检夹具守。
-  // 一棵树里放三条：一条干净的变异、一条 why 夹带的变异、一条范围夹带的豁免（why 干净）。
+  // 指名自检来验的变异会被「自己验自己」拦下；by: test 不被拦，需求测试也起真 mutate.ts（h-worker-output-contract
+  // 的 --worker），可喂的目录都干净，走不到这一道拒的那一支 —— 要负片得另加一条喂夹带目录的需求测试，没加，
+  // 所以今天这一半只有这条自检夹具守。
+  // 两棵树。第一棵三条：一条干净的变异、一条 why 夹带的变异、一条范围夹带的豁免（why 干净），起 --brief。
   // 期望照 briefLeaks 的定义手推：变异一侧 1 处（M-X-g）、豁免一侧 1 处（X2 的范围），共 2 处。
   // 夹带的那一段只认开头：implementationLeak 交回的是正则匹配到的那一截，不一定是整个词。
   const leakTmp = join(tmp, 'brief-leak-entry')
@@ -7166,16 +7168,38 @@ group('mutate-brief-leak-entry', [], () => {
       { req: 'X2', scope: '只在 retryBudget 用完时', why: '干净的理由：这一支没有可观察的产出', mitigation: 'n/a' },
     ],
   }), 'utf8')
-  const r = runToolBoth('mutate --brief 遇到夹带即以退出码 1 结束', 'mutate', ['--brief'], leakTmp, { status: 1 })
-  if (!r.ok) return
-  named('mutate 开跑前两侧分开点名夹带：变异一侧报编号、豁免一侧报需求号与哪一栏',
+  const r = runToolBoth('mutate --brief 在两侧都有夹带的树上以退出码 1 结束', 'mutate', ['--brief'], leakTmp, { status: 1 })
+  if (r.ok) named('mutate 开跑前两侧分开点名夹带：变异一侧报编号、豁免一侧报需求号与范围那一栏',
     r.stderr.includes('2 处夹带实现原文')
       && /变异一侧 1 处[^\n]*\n\s+M-X-g  why 夹带实现原文：resume/.test(r.stderr)
       && /豁免一侧 1 处[^\n]*\n\s+豁免 \[X2\]  范围 夹带实现原文：retry/.test(r.stderr)
       && !r.stderr.includes('M-X-f'),
     r.stderr)
-  named('mutate 拒绝时 --brief 的清单一行也没打', !r.stdout.includes('每条变异「违反了什么」') && !r.stdout.includes('M-X-'),
+  if (r.ok) named('mutate 拒绝时 --brief 的清单一行也没打', !r.stdout.includes('每条变异「违反了什么」') && !r.stdout.includes('M-X-'),
     r.stdout)
+  // 第二棵只有豁免一侧夹带，而且夹带在 why（范围干净），起整跑（不带参数）：只查变异的入口在这里会放行，
+  // 整跑也要经过这一道，why 那一栏的叫法与「没有的那一侧不打标题」也在这里看得见。
+  // 玩具树没有锚点表，就算这一道被拿掉，整跑也会在后面别的核对上以 1 退出 —— 所以判的是那几句诊断，不只是退出码。
+  const exTmp = join(tmp, 'brief-leak-entry-exemption')
+  mkdirSync(join(exTmp, 'scripts', 'check'), { recursive: true })
+  mkdirSync(join(exTmp, 'docs'), { recursive: true })
+  writeFileSync(join(exTmp, 'docs', 'requirements.json'), JSON.stringify({ requirements: [
+    { id: 'X1', accept: [{ id: 'X1.a' }] }, { id: 'X2', accept: [{ id: 'X2.a' }] },
+  ] }), 'utf8')
+  writeFileSync(join(exTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({
+    mutations: [
+      { id: 'M-X-h', req: 'X1', why: '干净的一条：用户看到的总数少一', file: 'a.ts', find: 'x', replace: 'y' },
+    ],
+    exemptions: [
+      { req: 'X2', scope: '只在额度用完时', why: '夹带的理由：cacheHit 那一支没有可观察的产出', mitigation: 'n/a' },
+    ],
+  }), 'utf8')
+  const ex = runToolBoth('mutate 整跑在只有豁免夹带的树上以退出码 1 结束', 'mutate', [], exTmp, { status: 1 })
+  if (ex.ok) named('mutate 整跑开跑前也拦只在豁免 why 里的夹带，只打豁免一侧',
+    ex.stderr.includes('1 处夹带实现原文')
+      && /豁免一侧 1 处[^\n]*\n\s+豁免 \[X2\]  why 夹带实现原文：cache/.test(ex.stderr)
+      && !ex.stderr.includes('变异一侧') && !ex.stderr.includes('M-X-h'),
+    ex.stderr)
 })
 
 // ---- 变异锚点对着树：入口真的读了目录与目标文件、逐条点名并照判定退出（ADR-70 末尾「变异残留」第三片，接线证明）----

@@ -30,7 +30,9 @@
  * 见 process/4-VERIFY.md 的「给测试上下文一张准入读物清单」。
  *
  * 这条防线的强度取决于打出去的那几段怎么写 —— 开跑前用 `why-rule.ts` 的 `briefLeaks` 逐段查，
- * 夹带了实现原文就不开跑、`--brief` 也不打（ADR-70 末尾「清单夹带（入口）」一节）。
+ * 夹带了实现原文就不开跑、`--brief` 也不打（ADR-70 末尾「清单夹带（入口）」一节）。查得出的只是
+ * 形如代码的那几种写法，snake_case 的内部名字挡不住（见 `why-rule.ts`）；打的清单（下面 `--brief`
+ * 那一段）与查的清单（`briefLeaks`）各写一份，哪天这边多打一栏，那边不跟也不红。
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
