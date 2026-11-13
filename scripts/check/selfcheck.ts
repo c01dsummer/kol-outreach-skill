@@ -8680,6 +8680,54 @@ group('mutate-parallel-workers', [], () => {
   }
 })
 
+// ---- 两跑共用一棵树：各删各的作业目录，已不在的那一跑留下的才清（ADR-74 第 237 行）----
+group('mutate-jobs-per-run', [], () => {
+  // 原先每一跑开头整删作业根、worker 目录又都叫 `w0`、`w1`……两跑同时开，后来的把先来的
+  // 那份连号文件一起抹掉，先来的硬来时读到 ENOENT、当成「没号」放过，验证者那一组就留着了。
+  // 这里在作业根底下先摆三样，再真起一跑派工：
+  // - 自检自己这个进程号的一层（整跑期间都在）—— 站的是「另一跑还在用」，必须原样留着；
+  // - 一个已经退出的进程号的一层 —— 站的是「被硬杀的那一跑留下的半成品」，该清；
+  // - 两个名字不是规范的号的：`w0`（旧布局）与前面带 0 的那个已退出进程号 —— 不碰。后一个是
+  //   承重的：入口问「在不在」时 `w0` 读成 NaN、问不出来、算在，删不到；带 0 的那个读得成号、
+  //   进程又已不在，入口不先经判定认名字就会把它删掉。
+  // 判定那一半（`jobsRunDir`、`staleRunDirs`）有单测和负片；**这里守的是入口派工那一半**：
+  // 开工前真按判定清、正常收尾只删自己那一层、作业根不删。正常基线那一半（同样两句）
+  // 这个玩具语料走不到 —— 它没有子集基线；硬来那一句收尾这里也不走 —— 这两处没有夹具，记在 ADR-74。入口在自检的验证基础设施
+  // 闭包里，指名自检的变异被「自己验自己」拦下；`by: test` 不被拦，但需求测试根本不起派工，
+  // 所以这一半只有自检夹具、没有负片。
+  const runTmp = join(tmp, 'jobs-per-run'), runMark = join(tmp, 'jobs-per-run-cwd.txt')
+  seedJobs(runTmp, [jobMut('M-J-e', 'keep', 'gone'), jobMut('M-J-f', 'hold', 'lost')], runMark)
+  const root = join(runTmp, '.check-cache', 'mutate-jobs')
+  const liveRun = join(root, String(process.pid))
+  const deadPid = spawnSync(process.execPath, ['-e', '']).pid
+  const deadRun = join(root, String(deadPid))
+  const legacy = join(root, 'w0'), padded = join(root, `0${deadPid}`)
+  try {
+    mkdirSync(join(liveRun, 'w0'), { recursive: true })
+    writeFileSync(join(liveRun, 'w0', 'marker'), 'x')
+    writeFileSync(join(liveRun, 'w0.verifier'), '1\n')
+    mkdirSync(join(deadRun, 'w0'), { recursive: true })
+    mkdirSync(legacy, { recursive: true })
+    mkdirSync(padded, { recursive: true })
+  } catch (e) {
+    failed++
+    console.error(`  ✗ 作业目录夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`)
+    return
+  }
+  const run = runToolBoth('mutate 派工：作业根底下有另一跑还在用的一层、一跑已不在的一层', 'mutate',
+    ['--jobs=2'], runTmp)
+  if (!run.ok) return
+  const left = existsSync(root) ? readdirSync(root).sort() : []
+  named('作业目录：派工照常跑完，两条都抓到', /2 个变异全部被抓到/.test(run.stdout), run.stdout.split('\n').slice(-8).join('\n'))
+  named('作业目录：另一跑还在用的那一层原样留着（隔离副本与号文件都在）',
+    existsSync(join(liveRun, 'w0', 'marker')) && existsSync(join(liveRun, 'w0.verifier')), `作业根底下剩：${left.join('、')}`)
+  named('作业目录：已不在的那一跑留下的层清掉了', !existsSync(deadRun), `进程 ${deadPid} 那一层还在`)
+  named('作业目录：名字不是规范的号的不碰（旧布局的 w0、前面带 0 的号）', existsSync(legacy) && existsSync(padded),
+    `作业根底下剩：${left.join('、')}`)
+  named('作业目录：这一跑自己那一层收干净了，作业根留着',
+    JSON.stringify(left) === JSON.stringify([String(process.pid), 'w0', `0${deadPid}`].sort()), `作业根底下剩：${left.join('、')}`)
+})
+
 // ---- 起 worker 时资源不够：报出来的原因要指向资源，不要指向派工代码 ----
 group('jobs-resource', [], () => {
   // 打开的文件数到顶时，`spawn` **既不同步抛、也来不及发 `error`**：Node 在装管道之前
@@ -8754,7 +8802,9 @@ group('jobs-resource', [], () => {
                 + '要 POSIX shell（`/bin/sh`），这里起不来')
   } else {
     const out = (r.stdout ?? '') + (r.stderr ?? '')   // P1 例外：拿不到就是空输出，这是子进程的两股流
-    const left = existsSync(join(fdTmp, '.check-cache', 'mutate-jobs'))
+    // 作业根本身留着（ADR-74 末节）；收干净 = 根底下一层都不剩
+    const jobsRoot = join(fdTmp, '.check-cache', 'mutate-jobs')
+    const left = existsSync(jobsRoot) && readdirSync(jobsRoot).length > 0
     rmSync(join(fdTmp, '.check-cache'), { recursive: true, force: true })
     const tail = out.split('\n').slice(-6).join('\n')
     named('起 worker 时资源不够：真实派工前实际耗尽了文件描述符',
@@ -8777,7 +8827,7 @@ group('jobs-resource', [], () => {
       /ulimit -n/.test(out) && /--jobs=/.test(out),
       `那句话没给出路：\n${tail}`)
     named('起 worker 时资源不够：隔离目录收干净了', !left,
-      '硬来之后 `.check-cache/mutate-jobs` 还在 —— 半成品副本留在盘上了')
+      '硬来之后 `.check-cache/mutate-jobs` 底下还有东西 —— 半成品副本留在盘上了')
   }
 
   // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
@@ -8805,7 +8855,7 @@ group('jobs-hard-stop', [], () => {
   // 而需求测试走不到派工的硬来，所以这里只有夹具、没有负片（同 `jobs-resource`）。
   //
   // 形状照 ADR-74 第 174–191 行：两条变异、`--jobs=2`，每个验证者分出一个孙子不停写心跳，自己挂住不退。
-  // 驱动等两份号文件与两份心跳都有了，从号文件的名字里拿到派工进程的号，读 `/proc/<派工>/task/<派工>/children`
+  // 驱动等两份号文件与两份心跳都有了，从号文件所在那一层的名字里拿到派工进程的号（ADR-74 第 237 行之后号文件在 `<派工进程号>/w<i>.verifier`），读 `/proc/<派工>/task/<派工>/children`
   // 拿到两个 worker 壳和壳底下真跑的 worker：先把真 worker 冻住（SIGSTOP），再把壳全部 SIGKILL —— 真 worker 收不到转发来的 SIGTERM，
   // 管道没关，`close` 不来，宽限期到点走硬来 —— 再给派工发 SIGTERM，等它退出，看心跳停没停、隔离目录收没收。
   // 不先杀壳的话，SIGTERM 经壳转发给 worker，worker 自己就把验证者那一组收了，硬来那一刀删掉也照样绿。
@@ -8859,8 +8909,9 @@ const cleanup = () => {
 };
 (async () => {
   for (const began = Date.now(); Date.now() - began < 60000 && ended === undefined; await sleep(50)) {
-    let names = []; try { names = fs.readdirSync(jobsDir); } catch {}
-    const hits = names.map(n => /^w\d+\.(\d+)\.verifier$/.exec(n)).filter(Boolean), pids = hits.map(m => numbered(m[0])), b = beats();
+    // 号文件在这一跑自己那一层底下（作业根/<派工进程号>/w<i>.verifier，ADR-74 第 237 行），层名就是派工进程的号
+    let names = []; try { names = fs.readdirSync(jobsDir).filter(d => /^\d+$/.test(d)).flatMap(d => fs.readdirSync(path.join(jobsDir, d)).map(n => d + '/' + n)); } catch {}
+    const hits = names.map(n => /^(\d+)\/w\d+\.verifier$/.exec(n)).filter(Boolean), pids = hits.map(m => numbered(m[0])), b = beats();
     for (const p of pids) if (p !== undefined) seen.add(p);
     if (hits.length === 2 && pids.every(p => p !== undefined) && b.length === 2 && b.every(s => s > 0)) { dispatcher = Number(hits[0][1]); foundAt = Date.now(); break; }
   }
@@ -8877,7 +8928,7 @@ const cleanup = () => {
   let first, second, before, after, left;
   try { first = beatsOrThrow(); before = sum(first); await sleep(1000); second = beatsOrThrow(); after = sum(second); left = groupLeft(); }
   catch (e) { cleanup(); say({ setup: false, measure: e.message, ended }); return; }
-  const dirLeft = fs.existsSync(jobsDir), slow = Date.now() - foundAt > 60000;
+  const dirLeft = fs.existsSync(jobsDir) && fs.readdirSync(jobsDir).length > 0, slow = Date.now() - foundAt > 60000;
   cleanup(); say({ setup: true, shells: shells.length, workers: workers.length, ended, beatFiles: first.length, beatFilesAfter: second.length, before, after, groupLeft: left, dirLeft, slow });
 })();
 `, 'utf8')
@@ -8907,7 +8958,7 @@ const cleanup = () => {
     named('派工硬停：验证者那一组被收掉，孙子的心跳停了', got.groupLeft === 0 && got.before === got.after,
       `派工退出之后验证者那几组还剩 ${String(got.groupLeft)} 个活着的进程，心跳 ${got.before} → ${got.after}`
       + ' —— 硬来没给验证者那一组发那一刀，孤儿照样跑被改过的源码')
-    named('派工硬停：隔离目录收干净了', got.dirLeft === false, `硬来之后 .check-cache/mutate-jobs 还在：\n${logAbout('隔离目录') || logTail()}`)
+    named('派工硬停：隔离目录收干净了', got.dirLeft === false, `硬来之后 .check-cache/mutate-jobs 底下还有东西：\n${logAbout('隔离目录') || logTail()}`)
     named('派工硬停：以退出码 1 收场', got.ended?.code === 1,
       `派工那一跑的结局是 ${JSON.stringify(got.ended)} —— 硬来那一步以 1 退出，这里不是：\n${logTail()}`)
   }

@@ -6746,11 +6746,12 @@
       "id": "M-H40-m",
       "req": "harness",
       "file": "scripts/check/jobs-rule.ts",
-      "why": "号文件的名字里不再带是谁留下的 —— 同一棵树上另一跑留下的号会被这一跑读走，于是这一跑按别人的号对一整组进程开刀",
-      "find": "  return `${jobsDir}/w${i}.${dispatcherPid}.verifier`",
-      "replace": "  return `${jobsDir}/w${i}.verifier`",
+      "why": "每一跑的作业目录不再按是谁开的分开 —— 同一棵树上同时开的两跑共用一处，后来的那跑开工时把先来那跑的隔离副本和号一起删掉，先来的那跑出事时收不掉自己的验证者；也会读到对方的号，对一整组不相干的进程开刀",
+      "find": "  return `${jobsRoot}/${dispatcherPid}`",
+      "replace": "  return jobsRoot",
       "by": "test",
       "kills": [
+        "两跑的作业目录不一样 —— 后来的那跑删不到先来的那份",
         "两跑的路径不一样 —— 并发两跑不会读到对方的号"
       ]
     },
@@ -6879,6 +6880,30 @@
         "僵尸、只剩一个线程：已结束，只是没人回收",
         "comm 里带右括号的僵尸：照样认出",
         "comm 里带空格的僵尸：照样认出"
+      ]
+    },
+    {
+      "id": "M-H40-y",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "开工前不问那一跑还在不在就清 —— 同一棵树上另一跑正在用的隔离副本和号被删掉，它出事时收不掉自己的验证者，被改过的源码可能一直跑着",
+      "find": "/^[1-9][0-9]*$/.test(n) && !alive(Number(n))",
+      "replace": "/^[1-9][0-9]*$/.test(n)",
+      "by": "test",
+      "kills": [
+        "进程还在的那一跑的层不清"
+      ]
+    },
+    {
+      "id": "M-H40-z",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "开工前清作业根时不认名字是不是规范的号：前面带 0 之类长得像号、却不是哪一跑开的那一层的东西，被当成别的跑的层，那个号的进程已不在就一并删掉",
+      "find": "names.filter(n => /^[1-9][0-9]*$/.test(n) && ",
+      "replace": "names.filter(n => ",
+      "by": "test",
+      "kills": [
+        "名字不是号的不碰 —— 旧布局的 w0、号文件，或别的不知道是谁的东西"
       ]
     },
     {

@@ -34,7 +34,7 @@
  * 形如代码的那几种写法，snake_case 的内部名字挡不住（见 `why-rule.ts`）；打的清单（下面 `--brief`
  * 那一段）与查的清单（`briefLeaks`）各写一份，哪天这边多打一栏，那边不跟也不红。
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -54,8 +54,8 @@ import {
   type Ran, type CostBaseline, type CostCombination, type CostIdentity, type CostMutation,
   BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, billLines, copyIntoWorker,
   configurationCost, configurationCostLines, configurationKey, costObservation,
-  groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
-  noStdio, ownGroup, parseReport, reportLine, verifierBill,
+  groupShot, hardStopPlan, jobsRunDir, jobsWanted, looksLikeReport, missingVerdicts,
+  noStdio, ownGroup, parseReport, reportLine, staleRunDirs, verifierBill,
 } from './jobs-rule.js'
 import {
   INTERRUPTS, beginMutation, claimsRestoreAction, onInterrupt, restoreMutation, stopJobs, trackTest,
@@ -735,7 +735,34 @@ if (process.argv.includes('--worker')) {
  * 报告的行序是**跑完的先后**，不再是清单的顺序（串行那条路仍是清单顺序）。
  * 每行自带编号，归因不受影响；换来的是跑的过程中一直有东西在动，而不是憋到最后一次吐完。
  */
-const JOBS_DIR = '.check-cache/mutate-jobs'
+const JOBS_ROOT = '.check-cache/mutate-jobs'
+/**
+ * 这一跑自己那一层（ADR-74 第 237 行）：副本与号只建在这一层里。开工前另清进程已不在的那几层，
+ * 作业根本身不删 —— 同一棵树上同时开、还活着的另一跑那一层不碰（同一个进程号空间里）。
+ */
+const JOBS_DIR = jobsRunDir(JOBS_ROOT, process.pid)
+/** 那个进程还在不在。问不出来（`EPERM`：在，只是不归我们管）也算在 —— 宁可留着不收，不可删掉人家的 */
+const pidAlive = (pid: number): boolean => {
+  try { process.kill(pid, 0); return true } catch (e) { return (e as NodeJS.ErrnoException).code !== 'ESRCH' }
+}
+/**
+ * 开工前：清掉已经不在的那几跑留下的层（判定在 `staleRunDirs`），再清自己这一层。
+ * 原先这里是整删作业根 —— 两跑同时开时，后来的把先来的那份连号文件一起抹掉。
+ */
+const freshJobs = (): void => {
+  let names: string[] = []
+  try { names = readdirSync(JOBS_ROOT) } catch { /* 还没有作业根 */ }
+  for (const name of staleRunDirs(names, pidAlive)) rmSync(join(JOBS_ROOT, name), { recursive: true, force: true })
+  rmSync(JOBS_DIR, { recursive: true, force: true })
+}
+/**
+ * 收尾：只删自己这一层，作业根留着（空的也留）。删空根那一下会撞上另一跑正在建自己那一层的
+ * 头一级目录，那一跑的复制当场 `ENOENT`、整跑硬来（#466 CodeRabbit 第 1 轮指出，ADR-74 末节）；
+ * 一个空目录留在 `.check-cache` 底下无害，不进 worker 副本
+ */
+const dropJobs = (): void => {
+  rmSync(JOBS_DIR, { recursive: true, force: true })
+}
 /** 宽限期：请 worker 自己收摊之后等多久。它们要停掉手上的验证者、把动过的那份还回去 */
 const GRACE_MS = 5000
 const SELF = fileURLToPath(import.meta.url)
@@ -762,7 +789,7 @@ const readOwnGroup = (): number | undefined => {
 }
 
 const dispatch = async (jobs: number): Promise<void> => {
-  rmSync(JOBS_DIR, { recursive: true, force: true })
+  freshJobs()
   const queue = muts.map(m => m.id)
   const byId = new Map(muts.map(m => [m.id, m]))
   const reported = new Set<string>()
@@ -801,12 +828,12 @@ const dispatch = async (jobs: number): Promise<void> => {
     // 这条路触发的条件正是 fd 到顶，所以那一支够得着 —— 真撞上时让人知道半成品留在哪，
     // 比让异常冒上去盖掉上面那句真正的诊断强。（⚠️ 这一支在真入口上还没撞到过。）
     try {
-      rmSync(JOBS_DIR, { recursive: true, force: true })
+      dropJobs()
     } catch (e) {
       // **走 `exitWith`，不用 `console.error`。** 这就是硬退出前那句话：这一句的**全部用处**就是告诉人
       // 半成品留在哪，被截掉就等于没有（#112 第二轮机器评审指出）
       exitWith(1, `\n  ⚠️ 隔离目录没收干净（${e instanceof Error ? e.message : String(e)}）`
-                  + ` —— 半成品副本留在 ${JOBS_DIR}，下一跑开头会重建`)
+                  + ` —— 半成品副本留在 ${JOBS_DIR}，以后哪一跑开头见这个进程已不在就会清掉`)
     }
     exitWith(1)
   }
@@ -825,7 +852,7 @@ const dispatch = async (jobs: number): Promise<void> => {
     symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
     // 号文件搁在 `w<i>/` 的**兄弟**位置(判定在 `beaconPathOf`),绝对路径交给 worker ——
     // 它的 cwd 是 `dir`,相对路径会落进那棵被复制的树里
-    const beacon = resolve(beaconPathOf(JOBS_DIR, process.pid, i))
+    const beacon = resolve(beaconPathOf(JOBS_DIR, i))
     const [exe, argv] = tsxCommand([SELF, '--worker', `${BEACON_FLAG}${beacon}`])
     const kid = spawn(exe, argv,
       { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'], env: { ...process.env, NODE_COMPILE_CACHE } })
@@ -879,7 +906,7 @@ const dispatch = async (jobs: number): Promise<void> => {
   } catch (e) {
     hardStop(`\n✗ 变异测试：派工没能起来 —— ${e instanceof Error ? e.message : String(e)}`)
   }
-  rmSync(JOBS_DIR, { recursive: true, force: true })
+  dropJobs()
   // 派出去却没回话的：跑它的那一份崩了、被杀了、或者那一行没写出来。三种在输出上
   // 长得一样 —— **那一条没有结论**，而没有结论不是通过（`process/README.md` 总纲）
   for (const id of missingVerdicts(muts.map(m => m.id), reported)) {
@@ -1076,11 +1103,11 @@ if (subsets.size) {
     for (const kid of baselineLive) {
       if (kid.pid !== undefined) try { process.kill(-kid.pid, 'SIGKILL') } catch { /* 已结束 */ }
     }
-    rmSync(JOBS_DIR, { recursive: true, force: true })
+    dropJobs()
     exitWith(1)
   }
   for (const sig of INTERRUPTS) process.on(sig, stopBaseline)
-  rmSync(JOBS_DIR, { recursive: true, force: true })
+  freshJobs()
   try {
     for (const dir of dirs) {
       cpSync('.', dir, { recursive: true, filter: copyIntoWorker })
@@ -1115,7 +1142,7 @@ if (subsets.size) {
     if (faults.length === 0) launchOutput = await countLaunches(configs, dirs[0], baselineLive)
   } finally {
     for (const sig of INTERRUPTS) process.off(sig, stopBaseline)
-    rmSync(JOBS_DIR, { recursive: true, force: true })
+    dropJobs()
   }
   if (faults.length) {
     // 先同步写出来再等成本段：顺序同原来（诊断在前），而且不在异步那条路上排队（ADR-70 末尾「硬退出收口」一节）
