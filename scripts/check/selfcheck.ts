@@ -7143,6 +7143,41 @@ group('mutate-anchor-not-unique', [], () => {
     `a.ts 变成了 ${JSON.stringify(readFileSync(join(anchorTmp, 'a.ts'), 'utf8'))}`)
 })
 
+// ---- 清单夹带：入口开跑前用 briefLeaks 查 --brief 要打的每一段，两侧分开报（ADR-70 末尾「清单夹带（入口）」一节）----
+group('mutate-brief-leak-entry', [], () => {
+  // 判定是纯函数 briefLeaks，由需求测试 h-why 断言、M-H1-b..h 守着；剩下的那一半是**入口真的调了它、
+  // 豁免一侧也拦、两侧分开说、`--brief` 一行清单也不打、以 1 结束**。入口在自检的验证基础设施闭包里，
+  // 指名自检来验的变异会被「自己验自己」拦下；by: test 不被拦，但需求测试不起这个入口，所以这一半只有这条自检夹具守。
+  // 一棵树里放三条：一条干净的变异、一条 why 夹带的变异、一条范围夹带的豁免（why 干净）。
+  // 期望照 briefLeaks 的定义手推：变异一侧 1 处（M-X-g）、豁免一侧 1 处（X2 的范围），共 2 处。
+  // 夹带的那一段只认开头：implementationLeak 交回的是正则匹配到的那一截，不一定是整个词。
+  const leakTmp = join(tmp, 'brief-leak-entry')
+  mkdirSync(join(leakTmp, 'scripts', 'check'), { recursive: true })
+  mkdirSync(join(leakTmp, 'docs'), { recursive: true })
+  writeFileSync(join(leakTmp, 'docs', 'requirements.json'), JSON.stringify({ requirements: [
+    { id: 'X1', accept: [{ id: 'X1.a' }] }, { id: 'X2', accept: [{ id: 'X2.a' }] },
+  ] }), 'utf8')
+  writeFileSync(join(leakTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({
+    mutations: [
+      { id: 'M-X-f', req: 'X1', why: '干净的一条：用户看到的总数少一', file: 'a.ts', find: 'x', replace: 'y' },
+      { id: 'M-X-g', req: 'X1', why: '夹带的一条：resumeCount 少加一', file: 'a.ts', find: 'y', replace: 'z' },
+    ],
+    exemptions: [
+      { req: 'X2', scope: '只在 retryBudget 用完时', why: '干净的理由：这一支没有可观察的产出', mitigation: 'n/a' },
+    ],
+  }), 'utf8')
+  const r = runToolBoth('mutate --brief 遇到夹带即以退出码 1 结束', 'mutate', ['--brief'], leakTmp, { status: 1 })
+  if (!r.ok) return
+  named('mutate 开跑前两侧分开点名夹带：变异一侧报编号、豁免一侧报需求号与哪一栏',
+    r.stderr.includes('2 处夹带实现原文')
+      && /变异一侧 1 处[^\n]*\n\s+M-X-g  why 夹带实现原文：resume/.test(r.stderr)
+      && /豁免一侧 1 处[^\n]*\n\s+豁免 \[X2\]  范围 夹带实现原文：retry/.test(r.stderr)
+      && !r.stderr.includes('M-X-f'),
+    r.stderr)
+  named('mutate 拒绝时 --brief 的清单一行也没打', !r.stdout.includes('每条变异「违反了什么」') && !r.stdout.includes('M-X-'),
+    r.stdout)
+})
+
 // ---- 变异锚点对着树：入口真的读了目录与目标文件、逐条点名并照判定退出（ADR-70 末尾「变异残留」第三片，接线证明）----
 group('anchor-residue-entry', [], () => {
   // 判定是纯函数 anchorVerdict（编号重复先报、anchorFaults 的五种、连带），由需求测试 h-mutate 断言、M-H45-* 守着；
