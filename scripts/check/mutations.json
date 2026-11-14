@@ -6457,13 +6457,12 @@
     {
       "id": "M-H197-e",
       "req": "harness",
-      "why": "分份不再轮流发，改成只发头一份 —— 几台 runner 合起来不是整份清单，有几条变异谁也没跑，而每一份都报全部被抓到",
+      "why": "分份只认第 1 份 —— 每一份都跑第 1 份那几摞，几台 runner 合起来不是整份清单，有几条变异谁也没跑",
       "file": "scripts/check/jobs-rule.ts",
-      "find": "  return items.filter((_unused, i) => i % count === index - 1)",
-      "replace": "  return items.filter((_unused, i) => i % count === 0)",
+      "find": "    if (to === index - 1) for (const i of pile) mine.add(i)",
+      "replace": "    if (to === 0) for (const i of pile) mine.add(i)",
       "by": "test",
       "kills": [
-        "分份：第 3 份按轮流发",
         "分份：几份合起来恰好是整份"
       ]
     },
@@ -6537,6 +6536,210 @@
       "by": "test",
       "kills": [
         "分份读不出来：大到失了精度（两个数转成同一个数）"
+      ]
+    },
+    {
+      "id": "M-H200-a",
+      "req": "harness",
+      "why": "小摞先发 —— 大摞最后落到哪一份由前面的小摞定，三份的条数可以差出一大截，最慢的那台拖住整跑",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  const order = piles.map((pile, at) => ({ pile, at })).sort((a, b) => b.pile.length - a.pile.length || a.at - b.at)",
+      "replace": "  const order = piles.map((pile, at) => ({ pile, at })).sort((a, b) => a.pile.length - b.pile.length || a.at - b.at)",
+      "by": "test",
+      "kills": [
+        "分份：同一种配置整摞落在同一份"
+      ]
+    },
+    {
+      "id": "M-H200-b",
+      "req": "harness",
+      "why": "一样少时给编号大的那一份 —— 分法说的是给编号小的，按说法核对哪一份跑哪几条就对不上",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "    for (let s = 1; s < count; s++) if (loads[s] < loads[to]) to = s",
+      "replace": "    for (let s = 1; s < count; s++) if (loads[s] <= loads[to]) to = s",
+      "by": "test",
+      "kills": [
+        "分份：同一种配置整摞落在同一份"
+      ]
+    },
+    {
+      "id": "M-H200-c",
+      "req": "harness",
+      "why": "整跑的变异全堆成一摞 —— 它们本来没有共用的基线，堆在一起只让某一份平白多出一串整跑",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "    const key = keyOf(item)\n",
+      "replace": "    const key = keyOf(item) ?? ''\n",
+      "by": "test",
+      "kills": [
+        "分份：整跑的各自成一摞"
+      ]
+    },
+    {
+      "id": "M-H200-d",
+      "req": "harness",
+      "why": "每发一摞只记一条 —— 一份领了一大摞也当只领了一条，接着还给它发，三份的条数差出一大截",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "    loads[to] += pile.length",
+      "replace": "    loads[to] += 1",
+      "by": "test",
+      "kills": [
+        "分份：同一种配置整摞落在同一份"
+      ]
+    },
+    {
+      "id": "M-H200-e",
+      "req": "harness",
+      "why": "交回的不再照清单原顺序，而按摞的先后 —— 收尾报告与派工的先后跟清单对不上",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  return items.filter((_unused, i) => mine.has(i))",
+      "replace": "  return order.flatMap(o => o.pile.filter(i => mine.has(i))).map(i => items[i])",
+      "by": "test",
+      "kills": [
+        "分份：整份就是原清单"
+      ]
+    },
+    {
+      "id": "M-H200-f",
+      "req": "harness",
+      "why": "拼回来的各种配置的计数照拿到文件的先后排 —— 与整份跑写的不一样，同一棵树换个下载顺序摘要就对不上",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  const tally = objects.flatMap(p => p.tally as unknown[])\n    .sort((a, b) => byText(isObject(a) ? String(a.config) : '', isObject(b) ? String(b.config) : ''))\n",
+      "replace": "  const tally = objects.flatMap(p => p.tally as unknown[])\n",
+      "by": "test",
+      "kills": [
+        "拼份：tally 按配置键排"
+      ]
+    },
+    {
+      "id": "M-H200-g",
+      "req": "harness",
+      "why": "拼回来的发现里全跑的不再排在前头 —— 顺序与整份跑写的不一样，摘要在 PR 上平白报不同",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  const rank = (f: unknown): [number, string] => isObject(f) && f.kind === 'full-run' ? [0, String(f.id)]",
+      "replace": "  const rank = (f: unknown): [number, string] => isObject(f) && f.kind === 'full-run' ? [1, String(f.id)]",
+      "by": "test",
+      "kills": [
+        "拼份：findings 全跑的按 id 在前，其余按配置键，同一配置里照原顺序"
+      ]
+    },
+    {
+      "id": "M-H200-h",
+      "req": "harness",
+      "why": "拼回来的发现只分全跑与否、不按配置键排 —— 顺序随拿到文件的先后变，摘要在 PR 上平白报不同",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "    return x[0] - y[0] || byText(x[1], y[1])",
+      "replace": "    return x[0] - y[0]",
+      "by": "test",
+      "kills": [
+        "拼份：findings 全跑的按 id 在前，其余按配置键，同一配置里照原顺序"
+      ]
+    },
+    {
+      "id": "M-H200-i",
+      "req": "harness",
+      "why": "几份说的总份数不一样也照拼 —— 一份按三份分、一份按两份分，拼出来缺几种配置却不报",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  if (!shards.every(s => (s as { count: number }).count === count)) return { fault: '几份说的总份数不一样' }\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "拼份：份数说法不一"
+      ]
+    },
+    {
+      "id": "M-H200-j",
+      "req": "harness",
+      "why": "同一份拿到两次也照拼 —— 另一份没到，它那几种配置的计数就缺了，闸门却拿到一份看着齐的文件",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  if (seen.length !== wanted.length || seen.some((k, i) => k !== wanted[i]))",
+      "replace": "  if (seen.length !== wanted.length)",
+      "by": "test",
+      "kills": [
+        "拼份：同一份两次"
+      ]
+    },
+    {
+      "id": "M-H200-k",
+      "req": "harness",
+      "why": "少一份也照拼 —— 有一台 runner 的计数没交上来，闸门照旧拿到一份文件",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  if (seen.length !== wanted.length || seen.some((k, i) => k !== wanted[i]))",
+      "replace": "  if (seen.some((k, i) => k !== wanted[i]))",
+      "by": "test",
+      "kills": [
+        "拼份：少一份"
+      ]
+    },
+    {
+      "id": "M-H200-l",
+      "req": "harness",
+      "why": "几份不是同一棵树上写的也照拼 —— 一份是旧树的计数，拼在一起闸门判的不是这棵树",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  if (!objects.every(p => p.schema === objects[0].schema && p.head === objects[0].head && p.source === objects[0].source))",
+      "replace": "  if (!objects.every(p => p.schema === objects[0].schema && p.head === objects[0].head))",
+      "by": "test",
+      "kills": [
+        "拼份：另一棵树上写的"
+      ]
+    },
+    {
+      "id": "M-H200-m",
+      "req": "harness",
+      "why": "几份不是同一个提交上写的也照拼 —— 拼出来说的提交与其中一份的对不上",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  if (!objects.every(p => p.schema === objects[0].schema && p.head === objects[0].head && p.source === objects[0].source))",
+      "replace": "  if (!objects.every(p => p.schema === objects[0].schema && p.source === objects[0].source))",
+      "by": "test",
+      "kills": [
+        "拼份：另一个提交上写的"
+      ]
+    },
+    {
+      "id": "M-H200-n",
+      "req": "harness",
+      "why": "有一份的各段不是该有的形状也照拼 —— 拼出来的发现里混进认不得的东西",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  if (!objects.every(p => Array.isArray(p.tally) && Array.isArray(p.findings) && isObject(p.baselines) && isObject(p.again)))\n    return { fault: '有一份的 tally、findings 不是数组，或 baselines、again 不是对象' }\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "拼份：有一份的 findings 不是数组"
+      ]
+    },
+    {
+      "id": "M-H200-o",
+      "req": "harness",
+      "why": "拼好的那份还带着「第几份」 —— 它说的是整份，却写着是其中一份",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  const { shard: _shard, ...first } = inOrder[0]",
+      "replace": "  const first = inOrder[0]",
+      "by": "test",
+      "kills": [
+        "拼份：拼好的不带第几份，其余照抄"
+      ]
+    },
+    {
+      "id": "M-H200-p",
+      "req": "harness",
+      "why": "各份的基线计数照拿到文件的先后拼 —— 同一棵树换个下载顺序，拼出来的文件就不一样",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  const inOrder = [...objects].sort((a, b) => (a.shard as { index: number }).index - (b.shard as { index: number }).index)",
+      "replace": "  const inOrder = [...objects]",
+      "by": "test",
+      "kills": [
+        "拼份：baselines 与 again 拼成一个"
+      ]
+    },
+    {
+      "id": "M-H200-q",
+      "req": "harness",
+      "why": "有一份读不出来也只当它不在 —— 报的原因指向少了一份，人去查哪台 runner 没交，其实是文件坏了",
+      "file": "scripts/check/launch-rule.ts",
+      "find": "  if (objects.length !== parts.length) return { fault: '有一份读不出来或不是一个 JSON 对象' }\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "拼份：有一份不是对象"
       ]
     },
     {

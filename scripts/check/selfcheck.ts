@@ -8508,6 +8508,24 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
     if (calmSame.ok) named('启动数入口：覆盖写之后不带 --write 再跑，那一行是树内摘要与现算的相同、3 种配置，闸门绿、以 0 退出',
       calmSame.status === 0 && isDeepStrictEqual(gateOut(calmSame), [NO_IDLE, SAME, CALM]),
       `退出码 ${calmSame.status}；树内的${treeNow()}\n闸门打的：\n${calmSame.stdout}stderr 末几行：${stderrTail(calmSame.stderr)}`)
+    // 分份跑写的几份（ADR-200）：没有整份的 launches.json 时入口读目录里的 launches-k-of-n.json 拼回整份。
+    // 把上面那份（findings 空）按 tally 拆成两份写进去：拼回来与整份逐字节一样 → 同 calmSame；再删掉第 2 份 → 拼不起来，先打一行 ✗、当没有文件，闸门红
+    const partAt = (k: number) => join(dirname(recAt), `launches-${k}-of-2.json`)
+    rmSync(recAt, { force: true })
+    writeFileSync(partAt(1), JSON.stringify({ ...file, findings: [], tally: inTally.slice(0, 1), shard: { index: 1, count: 2 } }))
+    writeFileSync(partAt(2), JSON.stringify({ ...file, findings: [], tally: inTally.slice(1), baselines: {}, again: {}, shard: { index: 2, count: 2 } }))
+    const joined = runToolBoth('launches 在只有两份分份启动数文件的启动数玩具树分支上判', 'launches', [], root, { status: 0, soft: [1] })
+    if (joined.ok) named('启动数入口：没有整份文件时拼两份分份文件，结果与整份那一跑一样（树内摘要相同、闸门绿、以 0 退出）',
+      joined.status === 0 && isDeepStrictEqual(gateOut(joined), [NO_IDLE, SAME, CALM]),
+      `退出码 ${joined.status}；闸门打的：\n${joined.stdout}stderr 末几行：${stderrTail(joined.stderr)}`)
+    rmSync(partAt(2), { force: true })
+    const halfJoined = runToolBoth('launches 在只剩第 1 份分份启动数文件的启动数玩具树分支上判', 'launches', [], root, { status: 1, soft: [0] })
+    if (halfJoined.ok) named('启动数入口：分份文件少一份时先打拼不起来的那一行，闸门照没有文件红、以 1 退出',
+      halfJoined.status === 1 && gateOut(halfJoined)[0] === '✗ 分份的启动数文件：launches-1-of-2.json 拼不起来：要第 1 到第 2 份各一份，拿到的是第 1 份'
+        && /✗ 启动数闸门：无从判断/.test(halfJoined.stdout),
+      `退出码 ${halfJoined.status}；闸门打的：\n${halfJoined.stdout}stderr 末几行：${stderrTail(halfJoined.stderr)}`)
+    rmSync(partAt(1), { force: true })
+    putRec({ ...file, findings: [] })
     // 入口自己怎么读树内文件：第 4 小节「照 readFileSync 的 'utf8' 读，BOM 不去」、逐字节与现算的 CALM_WANT 比，不解析成结构再比。下面五份各放一次、
     // 各跑一次，都在分支上，都不是逐字节相同 → 丙，闸门绿着也红、以 1 退出；差别照第 4 小节：带 BOM 的解析不成 JSON（第三十八节「实现定了的」第 1 条）、空文件读得出来
     // （是空串，不是没有这个文件）也解析不成 JSON → 认不得树内的文件；CRLF、每行行首多一个空格、少了末尾换行都解析得成、认得，
@@ -8857,7 +8875,7 @@ group('mutate-copy-list', [], () => {
   named('副本清单：换成命名管道的没带，建副本也没挂住', seen.length === 2 && seen.every(r => r.piped === false), shown)
 })
 
-// ---- 分份（ADR-197）：CI 上几台 runner 各跑清单的一份，几份合起来是整份；写坏了一条也不施 ----
+// ---- 分份（ADR-197、ADR-200）：CI 上几台 runner 各跑清单的一份，几份合起来是整份；写坏了一条也不施；启动数写这一份自己的文件 ----
 group('mutate-shard', [], () => {
   // 判定那一半（`shardWanted`、`shardOf`）有单测和负片；**这里守的是入口接线那一半**：派工与串行两条路
   // 都只发这一份、收尾那一句按这一份说、验证者的环境里不带 MUTATE_SHARD、写坏了在施变之前就退出。
@@ -8890,9 +8908,16 @@ group('mutate-shard', [], () => {
     runBoth(label, [S(SELFCHECK_TOOLS.mutate), jobs], shardTmp, { status },
       { ...mutationFixtureEnv('mutate', [jobs], shardTmp), MUTATE_SHARD: shard })
   // 第 1 份走派工那条路（两个 worker），第 2 份走串行那条路
+  // 分份时启动数写这一份自己的文件（ADR-200），开跑先删上一跑留下的整份文件与各份文件
+  const launchDir = join(shardTmp, 'output', 'mutation-launches')
+  const launchFiles = (): string[] => existsSync(launchDir) ? readdirSync(launchDir).filter(n => n.startsWith('launches')).sort() : []
+  mkdirSync(launchDir, { recursive: true })
+  writeFileSync(join(launchDir, 'launches.json'), '{}\n')
   const first = shardRun('mutate 分份：第 1/2 份，派工', '1/2', '--jobs=2', 0)
+  const firstFiles = launchFiles()
   const firstSeen = seen()
   const second = shardRun('mutate 分份：第 2/2 份，串行', '2/2', '--jobs=1', 0)
+  const secondFiles = launchFiles()
   const secondSeen = seen()
   const bad = shardRun('mutate 分份：写成 3/2', '3/2', '--jobs=1', 1)
   const badSeen = seen()
@@ -8902,6 +8927,8 @@ group('mutate-shard', [], () => {
   named('分份：收尾那一句按这一份说', /第 1\/2 份 2 个变异全部被抓到（整份 4 个/.test(first.stdout) && /第 2\/2 份 2 个变异全部被抓到（整份 4 个/.test(second.stdout),
     [first.stdout, second.stdout].map(o => o.split('\n').slice(-3).join(' / ')).join(' ‖ '))
   named('分份：验证者的环境里不带 MUTATE_SHARD', [...firstSeen, ...secondSeen].length > 0 && [...firstSeen, ...secondSeen].every(l => l.endsWith(',-')), [...firstSeen, ...secondSeen].join(' | '))
+  named('分份：启动数写这一份自己的文件，上一跑的整份文件删了', JSON.stringify(firstFiles) === JSON.stringify(['launches-1-of-2.json']), firstFiles.join(' | '))
+  named('分份：上一份留下的分份文件也删了', JSON.stringify(secondFiles) === JSON.stringify(['launches-2-of-2.json']), secondFiles.join(' | '))
   named('分份：写成 3/2 以 1 退出、一条也没施', bad.ok && mutated(badSeen).length === 0 && /说不清这一跑是第几份/.test(bad.stdout + bad.stderr), `${badSeen.join(' | ')} ‖ ${(bad.stdout + bad.stderr).split('\n').slice(-3).join(' / ')}`)
 })
 
