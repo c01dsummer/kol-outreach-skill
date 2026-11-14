@@ -3860,7 +3860,8 @@ group('profile-402-stop', [], () => {
   type Halt = { name: string; cwd: string; status: number | null; stdout: string; stderr: string; sum: any; lines: string[] }
   /** 起一次 collect（新建任务、预算 $1），交回两股输出、汇总（读不成 JSON 是 undefined）与这一跑的账本 */
   const collectHalt = (name: string, label: string, task: Record<string, unknown>, target: number,
-    fault: { path: string; status: 402 | 404; from: number; before?: 404 } | undefined, want: number): Halt | undefined => {
+    fault: { path: string; status: 402 | 404; from: number; before?: 404 } | undefined, want: number,
+    extraEnv: NodeJS.ProcessEnv = {}): Halt | undefined => {
     const cwd = join(root, name)
     mkdirSync(join(cwd, 'memory'), { recursive: true })
     const cfg = join(cwd, 'config.json'), log = join(cwd, 'attempts.tsv')
@@ -3870,7 +3871,7 @@ group('profile-402-stop', [], () => {
       ...(fault.before === undefined ? {} : { FAKE_FETCH_HALT_BEFORE: String(fault.before) }) }
     // 退出码本身就是下面具名断言点名的东西：别的正常退出码交给它们判，被信号打死照旧带进程记号
     const r = runBoth(label, [S('collect.ts'), '--config', cfg], cwd,
-      { status: want, soft: [0, 1, 2, 3, 4, 5, 6, 7].filter(s => s !== want) }, costEnv(log, knobs))
+      { status: want, soft: [0, 1, 2, 3, 4, 5, 6, 7].filter(s => s !== want) }, costEnv(log, { ...knobs, ...extraEnv }))
     if (!r.ok) return undefined
     let sum: any
     try { sum = JSON.parse(r.stdout) } catch { sum = undefined }
@@ -4038,6 +4039,37 @@ group('profile-402-stop', [], () => {
     named('collect 在 profile 补全先遇 404、再遇 TikHub 402：stderr 照打「1 人补全失败」那一行，与汇总的 profile_failed 对得上',
       /1 人补全失败/.test(mix.stderr) && mix.sum?.profile_failed === 1, `stderr 末几行 ${stderrTail(mix.stderr)}`)
   }
+  // ⑨ KOL-108 卡 11-01 追加段：补 profile 的单人 catch 重抛费用错误（CostError）时，「N 人补全失败」那一行也照打。
+  // 造法：TikTok profile 每一次都回 404（三人逐个失败），再用测试观察的保存失败注入（kol-test-observer/v1，
+  // skill/references/output-format.md「测试观察用的记录文件与保存失败注入」）让第 K 次预留保存（保存点 SP-R）失败 ——
+  // 预算把它记成保存费用失败、以费用错误抛出，正落在补 profile 那一处单人 catch 的重抛那一支。
+  // K = 搜索那几次预留 + 2：第一个人的 profile 请求照常发出并 404，第二个人的预留保存就失败。
+  // 手数：失败前只有第一个人 404 → stderr 打「1 人补全失败」；这一路是保存失败，按 ADR-193 退 6、不出汇总。
+  const searchReserves = 1 // TikTok 一页搜索（profile-halt 关键词，has_more 为 0）
+  const costCwd = join(root, 'tt-404-cost')
+  mkdirSync(costCwd, { recursive: true })
+  writeFileSync(join(costCwd, FAULT_FILE), JSON.stringify({ ...FAULT_OK, occurrence: searchReserves + 2 }))
+  const cost = collectHalt('tt-404-cost', 'collect TikTok profile 每次都回 404、第二个人的预留保存被注入失败', TT, 9999,
+    { path: TT_PROFILE, status: 404, from: 1 }, 6, { [TOBS_VAR]: join(root, 'tt-404-cost-observer.jsonl') })
+  if (cost !== undefined) {
+    // 夹具资格只核走到了 profile 补全：先是搜索、紧接着第一次 profile 请求回 404。之后怎样交给具名断言判。
+    const firstProfile = cost.lines.findIndex(l => !isSearch(l))
+    const shaped = firstProfile > 0 && cost.lines.slice(0, firstProfile).every(isSearch)
+      && cost.lines[firstProfile] === `404\t${TT_PROFILE}`
+    if (!shaped) {
+      failed++
+      console.error(`  ✗ tt-404-cost 夹具${SELFCHECK_FIXTURE_MARK}：要先记下搜索、紧接着记下一次 404 ${TT_PROFILE}，`
+        + `实际账本 ${JSON.stringify(cost.lines)}，stderr 末几行 ${stderrTail(cost.stderr)} —— 这一跑的具名断言不判`)
+    } else {
+      // 费用错误照样往外抛（不被当成那一个人的失败吞掉、接着补下一个人）：注入那次之后再无请求，保存失败退 6、不出汇总
+      named('collect 在 profile 补全遇费用错误（保存费用失败）即中止：退出码 6、不出汇总、之后不再请求下一个人',
+        cost.status === 6 && cost.stdout.trim() === '' && cost.lines.length === firstProfile + 1 && /注入的保存失败/.test(cost.stderr),
+        `退出码 ${cost.status}，stdout ${JSON.stringify(cost.stdout.slice(0, 120))}，账本 ${JSON.stringify(cost.lines)}，stderr 末几行 ${stderrTail(cost.stderr)}`)
+      named('collect 在 profile 补全先遇 404、再因费用错误（保存费用失败）中止：stderr 照打「1 人补全失败」那一行',
+        /1 人补全失败/.test(cost.stderr), `退出码 ${cost.status}，stderr 末几行 ${stderrTail(cost.stderr)}`)
+    }
+  }
+
   // ①–⑧ 合起来是 D6.ab 的每一半：停与提示、零请求（含 IG 不降级）、profile_failed 只数 402 之前非 402 的失败、
   // 待补与续跑提示、402 之前补成的落盘、非 402 不停（④⑥）、达标与否都一样（①③）。负片 M-D6-bm、M-D6-bn
   criterion('D6.ab')
