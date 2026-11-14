@@ -20705,7 +20705,12 @@ await group('h-iou-file-reminder', () => {
   const tracked = cxSpawnSync('git', ['-c', 'core.quotePath=false', 'ls-files', '-z'], { encoding: 'utf8' }).stdout.split('\0').filter(Boolean)
   const real = touchReport(realDocs, tracked, ['scripts/check/selfcheck.ts'])
   const realText = new Map(entryTexts(realDocs).map(t => [`${t.entry.file}:${t.entry.line}`, t.text]))
-  const namesSelfcheck = /(^|[^\w./-])(scripts\/)?(check\/)?selfcheck\.ts(?=$|[^\w./-]|\.(?!\w))/
+  // 独立数：完整路径，加上只属于它一个受控文件的尾段（`check/selfcheck.ts`、`selfcheck.ts`），两头都不能再连路径字符
+  // 与判定看到的同一份文件：受控文件加上改到的那个（变异的子集跑在没有 .git 的副本里时，受控文件为空）
+  const known = [...new Set([...tracked, 'scripts/check/selfcheck.ts'])]
+  const selfcheckForms = ['scripts/check/selfcheck.ts', 'check/selfcheck.ts', 'selfcheck.ts']
+    .filter((form, i) => i === 0 || known.filter(f => f === form || f.endsWith(`/${form}`)).length === 1)
+  const namesSelfcheck = new RegExp(`(^|[^\\w./-])(${selfcheckForms.map(f => f.replace(/[./]/g, c => `\\${c}`)).join('|')})(?=$|[^\\w./-]|\\.(?!\\w))`)
   const realClosed = closedKeys(realDocs)
   const stillOpen = entryTexts(realDocs).some(t => !realClosed.has(entryKey(t.entry) ?? '') && namesSelfcheck.test(t.text))
   ok('真仓库：改 selfcheck.ts 时列得出，列出的每一条正文里都写着 selfcheck.ts',
