@@ -75,6 +75,17 @@ jobs:
       - run: npm ci --prefer-offline --no-audit
       # 与本地 `npm run check` 同一串，只少了变异与启动数两步（各在下面的 job 里）
       - run: npm run anchors && npm run size && npm run spec && npm run skill && npm run adr && npm run typecheck && npm run compile && npm test && npm run selfcheck && npm run audit
+      # 只提醒：这一跑改到的文件被哪几条开着的欠条写进了正文（需求所有者 2026-11-14 要的，KOL-110；ADR-196）。
+      # 汇总那一句打成一条 notice（PR 的 Checks 页与这一跑的总览上看得到），全文写进这一跑的 Summary。
+      # 「改到的」与体量闸门同一个起点：PR 上是这次合并用的主干头，推 main 时是上一版。
+      # 不判响没响、不拦合入：不在 `npm run check` 里，脚本每条路都以 0 退出，另有 continue-on-error 兜底；
+      # 检查红了也照跑（红的时候更要看碰了哪些欠条）。本地同一件事是 `npm run debt-touch`。
+      # 放在 chain 这个 job：它有完整历史、装好了依赖；check 那个 job 在前两种红了时连仓库都不取（ADR-197）
+      - name: 欠条点名提醒（只提醒）
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        run: npm run -s debt-touch
       # 自检按族写的启动计数：check 那个 job 里的启动数闸门要读它
       - uses: actions/upload-artifact@v4
         with:
