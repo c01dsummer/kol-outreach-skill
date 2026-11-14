@@ -62,8 +62,8 @@ import {
 } from './check/mutate-restore.js'
 import {
   type BillRow, type Outcome, type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, jobsRunDir, staleRunDirs, workerCopyList,
-  billLines, groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts, shardOf, shardWanted,
-  neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill,
+  billLines, groupShot, handNext, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts, shardOf, shardWanted,
+  neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill, workerLine,
 } from './check/jobs-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
@@ -11063,6 +11063,27 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
     parseReport(wire({ id: 'M-X-a', outcome: 'caught', status: 1, output: '', ms: 1234 })), undefined)
   eq('少了现场那一栏：认不出',
     parseReport(wire({ id: 'M-X-a', outcome: 'caught', status: 1, stopped: false, ms: 1234 })), undefined)
+
+  // ── 一条一派（ADR-72 第 211 行）：worker 起来时领一条，交回一条结论再领一条，队列空了关掉它的输入。
+  // 两条配两个 worker 每人领一条就到头了；三条配两个才走得到「收到结论之后再派下一条」那一支。
+  // 期望手推：甲、乙起来各领一条；乙先交回 M-2，领到 M-3；甲交回 M-1 时队列已空；乙交回 M-3 也空
+  {
+    const queue = ['M-1', 'M-2', 'M-3'], log: string[] = []
+    const give = (who: string) => {
+      const h = handNext(queue)
+      log.push('end' in h ? `${who} 关输入` : `${who} 领 ${h.send}`)
+    }
+    give('甲'); give('乙'); give('乙'); give('甲'); give('乙')
+    eq('三条配两个 worker：先空出来的接下一条，队列空了才关输入，每条恰好派一次',
+      log, ['甲 领 M-1', '乙 领 M-2', '乙 领 M-3', '甲 关输入', '乙 关输入'])
+    eq('派完之后共用的队列空了', queue, [])
+  }
+  eq('队列本来就空：头一次就关输入', handNext([]), { end: true })
+  // 交回的一行怎么接：读得出是结论（记账、再派），没有记号的是验证者的闲话（跳过），
+  // 带着记号却读不出来要让它收摊 —— 它正等着下一个编号，不收摊就永远等下去，整跑挂住
+  eq('worker 交回的结论行：读出结论', workerLine(wire(good)), { report: good })
+  eq('worker 漏出来的闲话：跳过，不收摊', workerLine('  ✓ 某条断言'), { skip: true })
+  eq('带着记号却读不出来：让这个 worker 收摊', workerLine('⟦结论⟧ caught M-X-a'), { end: true })
 
   // ── 计时那一栏（Ran.ms）。契约：「ms 须是有限、非负的数，否则认不出」；它和别的字段一样
   // 要穿过 worker 的进程边界，所以写下去读回来必须还是原值 —— 读回一个 0 的话，账单上那个

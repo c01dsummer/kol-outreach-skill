@@ -8681,13 +8681,16 @@ group('mutate-parallel-workers', [], () => {
   // 只有真派工才成立 —— 那正是整套隔离的地基：改的、还的、写的，全在各自那份副本里。
   const jobsTmp = join(tmp, 'jobs'), jobsMark = join(tmp, 'jobs-cwd.txt')
 
-  seedJobs(jobsTmp, [jobMut('M-J-a', 'keep', 'gone'), jobMut('M-J-b', 'hold', 'lost')], jobsMark)
+  // **三条配两个 worker**（ADR-72 第 211 行）：两条配两个的话每人领一条就到头了，「收到结论之后
+  // 再派下一条」那一支一次都走不到。三条里总有一个 worker 交回第一条结论后再领第三条
+  seedJobs(jobsTmp, [jobMut('M-J-a', 'keep', 'gone'), jobMut('M-J-b', 'hold', 'lost'),
+    jobMut('M-J-e', "v = 'keep'", "v = 'kept'")], jobsMark)
   rmSync(jobsMark, { force: true })
-  const jobs = runToolBoth('mutate 派工：两条变异各在自己的隔离目录里跑', 'mutate',
+  const jobs = runToolBoth('mutate 派工：三条变异配两个 worker，各在自己的隔离目录里跑', 'mutate',
     ['--jobs=2'], jobsTmp)
-  if (jobs.ok && !/2 个变异全部被抓到/.test(jobs.stdout)) {
+  if (jobs.ok && !/3 个变异全部被抓到/.test(jobs.stdout)) {
     failed++
-    console.error('  ✗ 派工跑完，两条的结论没有都回来')
+    console.error('  ✗ 派工跑完，三条的结论没有都回来')
   } else if (jobs.ok) {
     // 每一行都得落在隔离目录里。串行那条路记下的会是语料根目录，一眼分得出
     const cwds = existsSync(jobsMark)
@@ -8695,8 +8698,8 @@ group('mutate-parallel-workers', [], () => {
     const outside = cwds.filter(d => !d.includes('mutate-jobs'))
     // **还要两个目录互不相同。** 只问「都在 mutate-jobs 底下」的话，两个 worker 错误地
     // 共用同一个 w0 时这条照样绿 —— 而「一人一个隔离目录」正是整套隔离的地基，
-    // 那样就等于没证（#109 第四轮评审指出）
-    if (cwds.length !== 2 || outside.length || new Set(cwds).size !== 2) {
+    // 那样就等于没证（#109 第四轮评审指出）。三条跑了三遍、只落在两个目录里：有一个 worker 跑了两条
+    if (cwds.length !== 3 || outside.length || new Set(cwds).size !== 2) {
       failed++
       console.error(`  ✗ 验证者没各跑在自己的隔离目录里 —— 记下的当前目录：${JSON.stringify(cwds)}`)
     }
