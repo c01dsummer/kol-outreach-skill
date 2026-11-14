@@ -17,6 +17,26 @@
 import { entries, iouBlocks, type Entry } from './debt-rule.js'
 import { quotedMask } from './quoted.js'
 
+/** git 的一次调用：参数进、标准输出出，失败就抛。入口给真的 git，测试给假的。 */
+export type GitRun = (...args: string[]) => string
+
+/** `-z` 的输出按 NUL 切开；末尾那个 NUL 后面的空段不算一个文件。 */
+const nulList = (out: string) => out.split('\0').filter(Boolean)
+
+/**
+ * 「改到的文件」看得见哪些 —— 扫描范围也是判定（`docs/CONVENTIONS.md` 第 10 条）：
+ * 与 `base` 比到**工作区**为止，不写 head，所以本地没提交的改动也算；`--no-renames` 让改名记成
+ * 删旧加新，点了旧路径的欠条照样被认出；`-z` 按 NUL 切，路径里有空格或中文也不被引号包起来。
+ */
+export function changedFiles(git: GitRun, base: string): string[] {
+  return nulList(git('diff', '--name-only', '--no-renames', '-z', base))
+}
+
+/** 认得的名字从哪来：受控文件（`git ls-files`）。没 `git add` 的新文件不在里面。 */
+export function trackedFiles(git: GitRun): string[] {
+  return nulList(git('ls-files', '-z'))
+}
+
 /**
  * 每个文件能被怎样点名：完整路径，以及按 `/` 切出来的尾段里**只属于它一个**、且带扩展名的那些。
  *

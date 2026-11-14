@@ -23100,14 +23100,13 @@
     {
       "id": "M-H196-m",
       "req": "harness",
-      "file": "scripts/check/debt-touch.ts",
+      "file": "scripts/check/debt-touch-rule.ts",
       "why": "改到的文件只算已提交的，工作区里还没提交的改动不算 —— 本地提交前跑一次，正改着的那个被点名的文件不提醒",
-      "find": "git('diff', '--name-only', '--no-renames', '-z', baseline.base)",
-      "replace": "git('diff', '--name-only', '--no-renames', '-z', baseline.base, baseline.head)",
+      "find": "git('diff', '--name-only', '--no-renames', '-z', base)",
+      "replace": "git('diff', '--name-only', '--no-renames', '-z', base, 'HEAD')",
       "by": "test",
       "kills": [
-        "入口：改没被点名的文件不列，改被点名的文件列出那条，两次都以 0 退出",
-        "入口：在 CI 里汇总一句打成 notice，全文（含那条欠条）写进 Summary，仍以 0 退出"
+        "改到的文件：与基线比到工作区为止，改名拆成删旧加新，按 NUL 切"
       ]
     },
     {
@@ -23197,13 +23196,25 @@
     {
       "id": "M-H196-u",
       "req": "harness",
-      "file": "scripts/check/debt-touch.ts",
+      "file": "scripts/check/debt-touch-rule.ts",
       "why": "改名只记新路径 —— 欠条点的是改名之前的路径，被点名的文件一改名，那张欠条就从提醒里消失",
       "find": "'--name-only', '--no-renames', '-z'",
       "replace": "'--name-only', '-z'",
       "by": "test",
       "kills": [
-        "入口：被点名的文件改了名，照样列出点了旧路径的那条"
+        "改到的文件：与基线比到工作区为止，改名拆成删旧加新，按 NUL 切"
+      ]
+    },
+    {
+      "id": "M-H196-v",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "git 的 -z 输出按换行切 —— 整串 NUL 分隔的路径被当成一个文件名，改到的文件一个也认不出，提醒永远说没碰到欠条",
+      "find": "const nulList = (out: string) => out.split('\\0').filter(Boolean)",
+      "replace": "const nulList = (out: string) => out.split('\\n').filter(Boolean)",
+      "by": "test",
+      "kills": [
+        "NUL 切开的路径原样交回，带空格与中文的不拆、末尾空段不算"
       ]
     }
   ],

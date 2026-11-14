@@ -40,7 +40,7 @@ import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { adrDocs, entries, ledgerReport, ledgerSummary, orphanIous } from './check/debt-rule.js'
-import { TEXT_LIMIT, closedKeys, entryKey, entryTexts, namedFiles, pathNames, touchLines, touchReport } from './check/debt-touch-rule.js'
+import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -20451,6 +20451,14 @@ await group('h-iou-file-reminder', () => {
     '  欠条点名提醒：改到的 1 个文件没有被开着的欠条点名（另有 1 条点到了、已标已还／已重挂／收尾，不列） —— 只认逐字写着的文件路径，没写路径的欠条仍要读台账判',
     '  只认欠条正文里逐字写着的文件路径；只写了模块名、代码标识符、需求编号或「某类改动」的欠条这里提醒不到，仍要读台账（npm run adr-ledger）判',
   ])
+
+  // 扫描范围也是判定：「改到的文件」用哪条 git 命令取、怎么切，用假 git 直接核，不起入口
+  const gitCalls: string[][] = []
+  const fakeGit = (...args: string[]) => { gitCalls.push(args); return 'a b.ts\0docs/中文.md\0' }
+  const scanned = [changedFiles(fakeGit, 'base0'), trackedFiles(fakeGit)]
+  eq('改到的文件：与基线比到工作区为止，改名拆成删旧加新，按 NUL 切', gitCalls[0], ['diff', '--name-only', '--no-renames', '-z', 'base0'])
+  eq('受控文件取 ls-files，按 NUL 切', gitCalls[1], ['ls-files', '-z'])
+  eq('NUL 切开的路径原样交回，带空格与中文的不拆、末尾空段不算', scanned, [['a b.ts', 'docs/中文.md'], ['a b.ts', 'docs/中文.md']])
 
   // 真仓库：不钉某一张（哪张会被补上状态行说不准），只要求列得出、列出的每一条正文里都真写着它
   const realDocs = adrDocs()

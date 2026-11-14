@@ -8,12 +8,13 @@
  *
  * 「改到的文件」从哪里量起，和体量闸门是同一个判定（`size-rule.ts` 的 `resolveBaseline`）：
  * 分支上是与主干的共同祖先，主干上是上一版。量到工作区为止，所以本地没提交的改动也算；
- * 没 `git add` 的新文件不算。判定在 `debt-touch-rule.ts`。
+ * 没 `git add` 的新文件不算。判定在 `debt-touch-rule.ts` —— 连同「改到的文件」用哪条 git 命令取、
+ * 怎么切（`changedFiles`），这里只起 git、打印。
  */
 import { execFileSync } from 'node:child_process'
 import { appendFileSync } from 'node:fs'
 import { adrDocs } from './debt-rule.js'
-import { touchLines, touchReport, touchSummary } from './debt-touch-rule.js'
+import { changedFiles, touchLines, touchReport, touchSummary, trackedFiles } from './debt-touch-rule.js'
 import { GIT_CONFIG, resolveBaseline } from './size-rule.js'
 
 function git(...args: string[]): string {
@@ -23,7 +24,6 @@ function git(...args: string[]): string {
 function tryGit(...args: string[]): string | null {
   try { return git(...args) } catch { return null }
 }
-const list = (out: string) => out.split('\0').filter(Boolean)
 
 /** 在 GitHub Actions 里：汇总一句进通知，全文进 Summary。通知里只有固定文案与数字。 */
 function toGithub(summary: string, lines: string[]): void {
@@ -45,8 +45,8 @@ function main(): void {
     const line = `欠条点名提醒：无从比较（${why}）`
     console.log(line); toGithub(line, [line]); return
   }
-  const changed = list(git('diff', '--name-only', '--no-renames', '-z', baseline.base))
-  const files = list(git('ls-files', '-z'))
+  const changed = changedFiles(git, baseline.base)
+  const files = trackedFiles(git)
   const report = touchReport(adrDocs(), files, changed)
   const lines = touchLines(report)
   for (const line of lines) console.log(line)
