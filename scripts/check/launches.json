@@ -125,7 +125,7 @@
     {"config":"[\"test\",[\"f8-risk\"]]","launches":0,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"feedback-template-crossings\"]]","launches":0,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"h-blackbox-many-task-files\"]]","launches":0,"maxPaid":null,"running":1,"stopping":0},
-    {"config":"[\"test\",[\"h-check-rules\"]]","launches":0,"maxPaid":null,"running":124,"stopping":0},
+    {"config":"[\"test\",[\"h-check-rules\"]]","launches":0,"maxPaid":null,"running":131,"stopping":0},
     {"config":"[\"test\",[\"h-ci-wallclock-core\"]]","launches":8,"maxPaid":null,"running":2,"stopping":0},
     {"config":"[\"test\",[\"h-ci-wallclock-cpu\"]]","launches":8,"maxPaid":null,"running":1,"stopping":0},
     {"config":"[\"test\",[\"h-ci-wallclock-identity\"]]","launches":2,"maxPaid":null,"running":2,"stopping":0},
