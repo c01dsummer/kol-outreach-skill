@@ -17,12 +17,14 @@ import { adrDocs } from './debt-rule.js'
 import { changedFiles, touchLines, touchReport, touchSummary, trackedFiles } from './debt-touch-rule.js'
 import { GIT_CONFIG, resolveBaseline } from './size-rule.js'
 
+/** 原样交回、不 trim：`-z` 的输出里首尾那个路径若以空白开头或结尾，trim 会把它削掉。 */
 function git(...args: string[]): string {
   return execFileSync('git', [...GIT_CONFIG, ...args],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }).trim()
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
 }
+/** 给 `resolveBaseline` 用：它问的都是一个提交号或引用名，去掉末尾换行。 */
 function tryGit(...args: string[]): string | null {
-  try { return git(...args) } catch { return null }
+  try { return git(...args).trim() } catch { return null }
 }
 
 /** 在 GitHub Actions 里：汇总一句进通知，全文进 Summary。通知里只有固定文案与数字。 */
