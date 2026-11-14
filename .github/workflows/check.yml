@@ -27,7 +27,7 @@ permissions:
   actions: read
 
 # 一条检查链拆在三种 job 上跑（ADR-197）：`npm run check` 那一串里最贵的是变异一步，它在 CI 上按
-# `MUTATE_SHARD=k/n` 分到 n 台 runner 上各跑一份；其余各步在 chain 那个 job 里照原顺序跑；
+# `MUTATE_SHARD=k/n` 分到 n 台 runner 上各跑一份（同一种子集配置的变异落在同一份，ADR-200）；其余各步在 chain 那个 job 里照原顺序跑；
 # 最后一步启动数闸门要变异一步与自检各写的那份计数，放在 check 那个 job 里，等前两种都绿了才跑。
 # 合起来跑的步骤、判红的条件与本地 `npm run check` 一样：哪一份红、哪一步红，这一跑就红。
 # 分份只在这里写：本地不写 MUTATE_SHARD，就是整份。
@@ -118,15 +118,17 @@ jobs:
       - run: npm ci --prefer-offline --no-audit
       # 预编 JS：验证者跑预编的那份，缺了就照旧 tsx（ADR-158），只是慢
       - run: npm run compile
+      # 4 核的 runner 上派 6 个 worker（ADR-200）：验证者有不少时间在等子进程起来，多派两个把空出来的核填上。
+      # 本地不写，照旧按核数派
       - run: npm run mutate
         env:
           MUTATE_SHARD: ${{ matrix.shard }}/3
-      # 每一份都按整份清单跑基线、数启动数，写下的启动数文件一样（ADR-197）；交第 1 份那个给最后一步
+          MUTATE_JOBS: '6'
+      # 每一份只跑自己那几种配置的基线、数它们的启动数，写 launches-k-of-3.json（ADR-200）；三份都交给最后一步拼回整份
       - uses: actions/upload-artifact@v4
-        if: matrix.shard == 1
         with:
-          name: mutation-launches
-          path: output/mutation-launches/launches.json
+          name: mutation-launches-${{ matrix.shard }}
+          path: output/mutation-launches/launches-${{ matrix.shard }}-of-3.json
           if-no-files-found: error
           retention-days: 3
       # 只报数：这台 runner 的 CPU 型号与核数（同 check 那个 job 末尾那一步的理由）
@@ -155,9 +157,11 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --prefer-offline --no-audit
+      # 三份启动数文件放进同一个目录，`npm run launches` 拼回整份（ADR-200）
       - uses: actions/download-artifact@v4
         with:
-          name: mutation-launches
+          pattern: mutation-launches-*
+          merge-multiple: true
           path: output/mutation-launches
       - uses: actions/download-artifact@v4
         with:
