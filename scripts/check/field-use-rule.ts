@@ -245,16 +245,17 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
     }
     // entries：比对时会不会进到 Map/Set/Promise 这类库泛型里面。只有 deepStrictEqual 会；
     // eq、assert、stringify 与规整函数走 JSON 那一路，Map/Set 成了 {}，里面的字段没被比
-    const whole = (t: Ts.Type, seen: Set<Ts.Type>, entries: boolean, swap = true): void => { // swap：这个位置还没被 toJSON 换过
-      if (seen.has(t)) return; seen.add(t)
+    const whole = (t: Ts.Type, seen: Map<Ts.Type, boolean[]>, entries: boolean, swap = true): void => { // swap：这个位置还没被 toJSON 换过
+      const was = seen.get(t) ?? []; if (was.includes(swap)) return; seen.set(t, [...was, swap]) // 换过与没换过的位置各走一次
       if (t.isUnion()) { for (const u of t.types) whole(u, seen, entries, swap); return }
       // JSON 那一路：有可调用的 toJSON 时序列化的是它的返回值，原来的属性一个也没被读；交叉类型先整体看再拆
       const toJSON = entries || !swap || !(t.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection)) ? undefined : t.getProperty('toJSON')
-      const replaced = toJSON === undefined ? [] : tc.getTypeOfSymbol(toJSON).getCallSignatures().filter(sig => tc.getReturnTypeOfSignature(sig) !== t) // 返回自己的照原样序列化
-      if (replaced.length > 0) { for (const sig of replaced) whole(tc.getReturnTypeOfSignature(sig), seen, entries, false); return }
+      const replaced = toJSON === undefined ? [] : tc.getTypeOfSymbol(toJSON).getCallSignatures()
+      if (replaced.length > 0) { mark(toJSON); for (const sig of replaced) whole(tc.getReturnTypeOfSignature(sig), seen, entries, false); return }
       if (t.isIntersection()) { for (const u of t.types) whole(u, seen, entries, swap); return }
       if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, entries); return }
       if (!(t.flags & ts.TypeFlags.Object)) return
+      if (!entries && t.getCallSignatures().length > 0) return // JSON 不写可调用的值，挂在它上面的属性没被读
       if (fromLibrary(t) && entries && !/^(Weak|Promise$)/.test(t.symbol.name)) for (const a of argumentsOf(t)) whole(a, seen, entries)
       for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, entries)
       for (const p of t.getProperties()) {
@@ -287,7 +288,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
         // JSON.stringify 带了 replacer：留下哪些字段由它定，不算整体比对
         const second = n.arguments[1]
         const filtered = callee === 'stringify' && second !== undefined && second.kind !== ts.SyntaxKind.NullKeyword && !(ts.isIdentifier(second) && second.text === 'undefined')
-        if ((WHOLE_COMPARE.has(callee) && !filtered) || opaque) for (const a of n.arguments) whole(tc.getTypeAtLocation(a), new Set(), callee === 'deepStrictEqual')
+        if ((WHOLE_COMPARE.has(callee) && !filtered) || opaque) for (const a of n.arguments) whole(tc.getTypeAtLocation(a), new Map(), callee === 'deepStrictEqual')
       }
       ts.forEachChild(n, visit)
     }
