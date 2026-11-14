@@ -56,6 +56,7 @@ import {
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { judgeShares, scanShares } from './check/share-rule.js'
+import { fieldVerdict, fieldsOf, isJudgedFile, isVerifierFile } from './check/field-use-rule.js'
 import {
   beginMutation, blockingWait, claimsRestoreAction, onInterrupt, restoreMutation, restoreOnInterrupt, stopJobs,
   testRunning, trackTest,
@@ -14024,6 +14025,245 @@ harness('被引表：每条记录被几条别的记录引过、有没有教训�
 
   eq('真仓库：每个记录文件一行，索引不在表里', citeTable(adrDocs()).map(r => r.file).sort(),
     readdirSync('docs/adr').filter(f => FILE_RE.test(f)).map(f => `docs/adr/${f}`).sort())
+}
+
+harness('字段断言闸门：检查链判定新增的返回字段，没有测试碰过就红（ADR-198）')
+{
+  // 玩具仓库：两份判定文件、一份不归它管的 lib、一份验证者。期望值按 field-use-rule.ts 文件头的三条规则手推，不从运行结果抄
+  const fieldToy = (tweak: (files: Record<string, string>) => void = () => {}) => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'field-use-toy-')))
+    const files: Record<string, string> = {
+      'scripts/check/a.ts': [
+        'export interface Row { kept: number; idle: number }',
+        'export function rows(): Row[] { return [] }',
+        "export type Shape = { kind: 'dot'; x: number } | { kind: 'box'; w: number }",
+        "export function shape(): Shape { return { kind: 'dot', x: 1 } }",
+        "export function inferred() { return { one: 1, two: 'b' } }",
+        'export async function later(): Promise<{ awaited: number }> { return { awaited: 1 } }',
+        'export function withCallback(): { run: () => { hidden: number } } { return { run: () => ({ hidden: 1 }) } }',
+        'export interface Quiet {',
+        '  // 字段不入断言：只能从子进程输出验到',
+        '  quiet: number',
+        '  bare: number // 字段不入断言：',
+        '  after: number',
+        '}',
+        'export function quiet(): Quiet { return { quiet: 1, bare: 2, after: 3 } }',
+        'export function store(): Map<string, { held: number }> { return new Map() }',
+      ].join('\n'),
+      'scripts/check/b.ts': [
+        'export function whole(): { w1: number; nest: { w2: number }[] } { return { w1: 1, nest: [] } }',
+        'export function canonical(): { c1: number } { return { c1: 1 } }',
+        'export function expected(): { e1: number } { return { e1: 1 } }',
+        'export function destructured(): { d1: number } { return { d1: 1 } }',
+        'export function blackBox(): { bb: number } { return { bb: 1 } }',
+      ].join('\n'),
+      'scripts/check/c.ts': 'export function lonely(): { bb: number } { return { bb: 1 } }',
+      'scripts/lib/d.ts': 'export function lib(): { libField: number } { return { libField: 1 } }',
+      'scripts/test.ts': [
+        "import { rows, shape, inferred, later, quiet, store } from './check/a.js'",
+        "import { whole, canonical, expected, destructured } from './check/b.js'",
+        "import { lib } from './lib/d.js'",
+        'declare function eq(label: string, got: unknown, want: unknown): void',
+        'declare function canon(v: unknown): unknown',
+        "eq('r', rows()[0].kept, 1)",
+        "const s = shape(); if (s.kind === 'dot') eq('x', s.x, 1)",
+        "eq('one', inferred().one, 1)",
+        "eq('aw', (await later()).awaited, 1)",
+        "eq('q', quiet() !== undefined, true)",
+        "eq('st', store().get('k')?.held, 1)",
+        "eq('w', whole(), {})",
+        "const flat = canon(canonical())",
+        'const want: ReturnType<typeof expected> = { e1: 1 }',
+        'const { d1 } = destructured()',
+        "const m = await import('./check/b.js') as unknown as { blackBox: () => { bb: number } }",
+        "eq('bb', m.blackBox().bb, 1)",
+        "eq('lib', typeof lib, 'function')",
+        'export { flat, want, d1 }',
+      ].join('\n'),
+    }
+    tweak(files)
+    for (const [path, text] of Object.entries(files)) { mkdirSync(join(root, dirname(path)), { recursive: true }); writeFileSync(join(root, path), text) }
+    const ts = createRequire(import.meta.url)('typescript') as typeof import('typescript')
+    const program = ts.createProgram(Object.keys(files).map(p => join(root, p)), {
+      target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true, noEmit: true, types: [], lib: ['lib.es2022.d.ts'],
+    })
+    try { return fieldsOf(program, root) } finally { rmSync(root, { recursive: true, force: true }) }
+  }
+  const toy = fieldToy()
+  const usedOf = (key: string) => toy.find(f => f.key === key)?.used
+  eq('字段：导出函数返回类型逐层展开，数组、Promise、Map 的类型参数、判别联合各成员都算；回调不展开，lib 下与验证者自己的不算；一处声明一条（判别值所在的那个属性两个成员各一条，名字相同）',
+    toy.map(f => f.key).sort(), [
+      'scripts/check/a.ts#Quiet.after', 'scripts/check/a.ts#Quiet.bare', 'scripts/check/a.ts#Quiet.quiet', 'scripts/check/a.ts#Row.idle', 'scripts/check/a.ts#Row.kept',
+      'scripts/check/a.ts#Shape.kind', 'scripts/check/a.ts#Shape.kind', 'scripts/check/a.ts#Shape.{kind=box}.w', 'scripts/check/a.ts#Shape.{kind=dot}.x',
+      'scripts/check/a.ts#inferred.one', 'scripts/check/a.ts#inferred.two', 'scripts/check/a.ts#later.awaited',
+      'scripts/check/a.ts#store.held', 'scripts/check/a.ts#withCallback.run',
+      'scripts/check/b.ts#blackBox.bb', 'scripts/check/b.ts#canonical.c1', 'scripts/check/b.ts#destructured.d1',
+      'scripts/check/b.ts#expected.e1', 'scripts/check/b.ts#whole.nest', 'scripts/check/b.ts#whole.nest.w2', 'scripts/check/b.ts#whole.w1',
+      'scripts/check/c.ts#lonely.bb',
+    ])
+  eq('字段：读属性算用到（数组元素上的、判别后的、await 出来的、Map 取出来的）',
+    ['Row.kept', 'Shape.{kind=dot}.x', 'inferred.one', 'later.awaited', 'store.held'].map(k => usedOf(`scripts/check/a.ts#${k}`)), [true, true, true, true, true])
+  eq('字段：整个值交给 eq，逐层都算用到', [usedOf('scripts/check/b.ts#whole.w1'), usedOf('scripts/check/b.ts#whole.nest.w2')], [true, true])
+  eq('字段：交给返回 unknown 的规整函数，也算整体比对', usedOf('scripts/check/b.ts#canonical.c1'), true)
+  eq('字段：按上下文类型写成的期望值对象，键算用到', usedOf('scripts/check/b.ts#expected.e1'), true)
+  eq('字段：解构算用到', usedOf('scripts/check/b.ts#destructured.d1'), true)
+  eq('字段：黑盒重抄类型时按名字兜底 —— 只认验证者 import 了的那个文件', [usedOf('scripts/check/b.ts#blackBox.bb'), usedOf('scripts/check/c.ts#lonely.bb')], [true, false])
+  eq('字段：只比了整个值是不是 undefined 不算碰到它的字段', [usedOf('scripts/check/a.ts#Quiet.quiet'), usedOf('scripts/check/a.ts#Quiet.bare')], [false, false])
+  eq('字段：豁免写在上一行或同一行；标记后面空着就是空串', [toy.find(f => f.key === 'scripts/check/a.ts#Quiet.quiet')?.waiver, toy.find(f => f.key === 'scripts/check/a.ts#Quiet.bare')?.waiver,
+    toy.find(f => f.key === 'scripts/check/a.ts#Row.idle')?.waiver], ['只能从子进程输出验到', '', undefined])
+  eq('字段：上一个字段行尾的豁免不漏到下一个字段上', toy.find(f => f.key === 'scripts/check/a.ts#Quiet.after')?.waiver, undefined)
+  eq('字段：打印用的路从函数名起，数组记 []、库泛型记 <>', ['scripts/check/b.ts#whole.nest.w2', 'scripts/check/a.ts#store.held'].map(k => toy.find(f => f.key === k)?.via),
+    ['whole().nest[].w2', 'store()<>.held'])
+  eq('字段：行号从 1 起，指向声明那一行', toy.find(f => f.key === 'scripts/check/a.ts#Quiet.quiet')?.line, 10)
+
+  const fresh = fieldVerdict(toy, [])
+  eq('字段闸门：基线上一个都没有时，没人碰、没豁免的按名字排着报出来',
+    fresh.unused.map(f => f.key), ['scripts/check/a.ts#Quiet.after', 'scripts/check/a.ts#Row.idle', 'scripts/check/a.ts#Shape.{kind=box}.w', 'scripts/check/a.ts#inferred.two',
+      'scripts/check/a.ts#withCallback.run', 'scripts/check/c.ts#lonely.bb'])
+  eq('字段闸门：有理由的豁免放行，空理由的单列', [fresh.waived.map(f => f.key), fresh.unjustified.map(f => f.key)],
+    [['scripts/check/a.ts#Quiet.quiet'], ['scripts/check/a.ts#Quiet.bare']])
+  ok('字段闸门：有没人碰的新字段就红', fresh.red)
+  const settled = fieldVerdict(toy, toy.map(f => f.key))
+  eq('字段闸门：基线上已有的字段不归它管，没人碰也不红', [settled.fresh.length, settled.red], [0, false])
+  const onlyBare = fieldVerdict(toy, toy.map(f => f.key).filter(k => k !== 'scripts/check/a.ts#Quiet.bare'))
+  eq('字段闸门：只新增一个空理由的豁免也红', [onlyBare.unused.length, onlyBare.unjustified.map(f => f.key), onlyBare.red], [0, ['scripts/check/a.ts#Quiet.bare'], true])
+  const dup = (used: boolean) => ({ key: 'k', file: 'f', line: 1, via: 'v', used })
+  eq('字段闸门：按名字排，不按找到的先后', fieldVerdict([{ ...dup(false), key: 'b' }, { ...dup(false), key: 'a' }], []).unused.map(f => f.key), ['a', 'b'])
+  eq('字段闸门：同名的两处有一处用到就算用到', fieldVerdict([dup(false), dup(true)], []).unused.length, 0)
+  eq('字段闸门：同名的两处只一处写了豁免，照样算豁免', fieldVerdict([dup(false), { ...dup(false), waiver: '子进程' }], []).waived.length, 1)
+  eq('字段闸门：用到了的新字段写了空理由的豁免，也算不成立', fieldVerdict([{ ...dup(true), waiver: '' }], []).unjustified.length, 1)
+  eq('字段闸门：同名的两处一处有理由一处空理由，不论先后都算不成立、都红',
+    [[{ ...dup(true), waiver: '子进程' }, { ...dup(true), waiver: '' }], [{ ...dup(true), waiver: '' }, { ...dup(true), waiver: '子进程' }]]
+      .map(two => { const v = fieldVerdict(two, []); return [v.unjustified.length, v.waived.length, v.red] }), [[1, 0, true], [1, 0, true]])
+  eq('字段：交回的每一项带着它所在的文件', toy.find(f => f.key === 'scripts/check/c.ts#lonely.bb')?.file, 'scripts/check/c.ts')
+
+  // 第二个玩具：映射与索引签名、别的整体比对名字、只经动态或只经静态 import 的兜底、注释里的豁免
+  const more = fieldToy(files => Object.assign(files, {
+    'scripts/lib/d.ts': 'export interface LibShape { libOnly: number }',
+    'scripts/check/f.ts': [
+      "import type { LibShape } from '../lib/d.js'",
+      'export interface Base { kept: number; hiddenR: number; renamedR: number }',
+      'export function ro(): Readonly<Base> { return { kept: 1, hiddenR: 2, renamedR: 3 } }',
+      'export function rec(): Record<string, { inRec: number }> { return {} }',
+      'export function indexed(): { [k: string]: { inIdx: number } } { return {} }',
+      'export function both(): { left: number } & { right: number } { return { left: 1, right: 2 } }',
+      'export function libShaped(): LibShape { return { libOnly: 1 } }',
+      "export type CU = { kind: 'a'; ca: number } | { kind: 'b'; cb: number }",
+      "export function cu(): CU { return { kind: 'a', ca: 1 } }",
+      'export interface W {',
+      '  /** 字段不入断言：块注释里的理由 */',
+      '  block: number',
+      '  spaced: number // 字段不入断言：   ',
+      "  marked: '// 字段不入断言：字符串里的不算'",
+      '  plain: number',
+      '}',
+      "export function waivers(): W { return { block: 1, spaced: 2, marked: '// 字段不入断言：字符串里的不算', plain: 3 } }",
+      'export function copied(): { cp: number } { return { cp: 1 } }',
+      'export function mapped(): Map<string, { inMap: number }> { return new Map() }',
+      'export function jsonMap(): Map<string, { viaJson: number }> { return new Map() }',
+      "export function named(): { 0: number; ['comp']: number; [Symbol.iterator]: number } { return { 0: 1, comp: 2, [Symbol.iterator]: 3 } }",
+      'export function written(): { onlySet: number; onlyIdx: number; bumped: number; paren: number; spread: number; inObj: number; looped: number; gone?: number; inc: number; inArr: number; rest: { a?: number }; iter: number[]; nn?: number; asserted: number; angle: number } {',
+      '  return { onlySet: 1, onlyIdx: 2, bumped: 3, paren: 4, spread: 5, inObj: 6, looped: 7, inc: 8, inArr: 9, rest: {}, iter: [], asserted: 10, angle: 11 } }',
+    ].join('\n'),
+    'scripts/check/u.ts': "export function choose(n: number) { return n > 0 ? { kind: 'a' as const, value: 1 } : { kind: 'b' as const } }",
+    'scripts/check/g.ts': 'export function gOnly(): { gg: number } { return { gg: 1 } }',
+    'scripts/check/h.ts': 'export function hz(): { other: number } { return { other: 1 } }',
+    'scripts/check/k.ts': 'export function kOnly(): { kk: number } { return { kk: 1 } }\nexport function table(): Record<string, { tcp: number }> { return {} }',
+    'scripts/check/m.ts': [
+      "export function dotted(): { a: { b: number }; 'a.b': number } { return { a: { b: 1 }, 'a.b': 2 } }",
+      "export function numeric(): { 0: number; 1: number; ['lit']: number; ['dlit']: number } { return { 0: 1, 1: 2, lit: 3, dlit: 4 } }",
+      "export type Odd = { kind: 'a'; z: { kind: 'b'; x: number } } | { kind: 'a}.z.{kind=b'; x: number }",
+      "export function odd(): Odd { return { kind: 'a', z: { kind: 'b', x: 1 } } }",
+      "export function oddInferred(n: number) { return n > 0 ? { kind: 'a' as const, z: { kind: 'b' as const, y: 1 } } : { kind: 'a}.z.{kind=b' as const, y: 2 } }",
+    ].join('\n'),
+    'scripts/check/n.ts': 'export function nOnly(): { extless: number } { return { extless: 1 } }',
+    'scripts/check/selfcheck.ts': [
+      'declare function assert(c: unknown, w: unknown): void',
+      'declare function deepStrictEqual(a: unknown, b: unknown): void',
+      "const f = await import('./f.js')",
+      'deepStrictEqual(f.rec(), {})',
+      'deepStrictEqual(f.mapped(), new Map())',
+      'assert(f.indexed(), 1)',
+      "const r = f.ro(); const k = r['kept']",
+      'const s = JSON.stringify(f.both())',
+      'const j = JSON.stringify(f.jsonMap())',
+      "const w = f.written(); w.onlySet = 1; w['onlyIdx'] = 2; w.bumped += 1; (w.paren) = 4",
+      "declare const xs: number[]; [, ...[w.spread]] = xs; ({ k: w.inObj } = { k: 6 }); for (w.looped of xs) {}; delete w.gone; w.inc++; ({ ...w.rest } = { a: 1 }); for (const _ of w.iter) {}; w.nn! = 1; (w.asserted as number) = 2; (<number>w.angle) = 3",
+      'const arr = [w.inArr]',
+      "const mm = await import('./m.js')",
+      "const wantNum: Partial<ReturnType<typeof mm.numeric>> = { 0: 1, ['lit']: 3 }",
+      "const { 1: one, ['dlit']: dl } = mm.numeric()",
+      'const { renamedR: other } = f.ro()',
+      "const wantCu: import('./f.js').CU = { kind: 'b', cb: 1 }",
+      "const m = await import('./f.js') as unknown as { copied: () => { cp: number } }",
+      'export const v = [k, s, j, other, wantCu, m.copied().cp, arr, wantNum, one, dl]',
+    ].join('\n'),
+    'scripts/pid-boundary-contract-test.ts': [
+      "import { gOnly } from './check/g.js'",
+      "const m = await import('./check/h.js') as unknown as { hz: () => { gg: number } }",
+      'const local: { other: number } = { other: 1 }',
+      'export const v = [gOnly, m.hz().gg, local.other]',
+    ].join('\n'),
+    'scripts/independent-blackbox-tests/suite.ts': [
+      "const m = await import('../check/k.js') as unknown as { kOnly: () => { kk: number }; table: () => Record<string, { tcp: number }> }",
+      "export const v = [m.kOnly().kk, m.table()['one'].tcp]",
+    ].join('\n'),
+    'scripts/independent-blackbox-tests/bare.ts': [
+      "const m = await import('../check/n') as unknown as { nOnly: () => { extless: number } }",
+      'export const v = m.nOnly().extless',
+    ].join('\n'),
+  }))
+  const moreOf = (k: string) => more.find(f => f.key === `scripts/check/${k}`)
+  eq('字段：Readonly 这类映射、Record 与索引签名、交叉都展开；返回类型声明在 lib 下的不算',
+    ['f.ts#Base.kept', 'f.ts#Base.hiddenR', 'f.ts#rec.inRec', 'f.ts#indexed.inIdx', 'f.ts#both.left', 'f.ts#both.right'].map(k => moreOf(k) !== undefined)
+      .concat(more.some(f => f.key.includes('libOnly'))), [true, true, true, true, true, true, false])
+  eq('字段：assert、deepStrictEqual、JSON.stringify 也算整体比对', ['f.ts#rec.inRec', 'f.ts#indexed.inIdx', 'f.ts#both.left', 'f.ts#both.right'].map(k => moreOf(k)?.used), [true, true, true, true])
+  eq('字段：按字符串下标读、解构改名、按联合类型写成的期望值，都算用到；没读的那个不算',
+    ['f.ts#Base.kept', 'f.ts#Base.renamedR', 'f.ts#CU.{kind=b}.cb', 'f.ts#CU.{kind=a}.ca', 'f.ts#Base.hiddenR'].map(k => moreOf(k)?.used), [true, true, true, false, false])
+  eq('字段：按名字兜底 —— 只经动态 import、只经静态 import、经 ../ 的 import 都认', ['f.ts#copied.cp', 'g.ts#gOnly.gg', 'k.ts#kOnly.kk'].map(k => moreOf(k)?.used), [true, true, true])
+  eq('字段：整体比对穿过 Map 取里面的字段只认 deepStrictEqual；JSON 那一路把 Map 写成 {}，里面的不算', [moreOf('f.ts#mapped.inMap')?.used, moreOf('f.ts#jsonMap.viaJson')?.used], [true, false])
+  eq('字段：按名字兜底只认重抄的那份类型，本文件别的同名属性不算', moreOf('h.ts#hz.other')?.used, false)
+  eq('字段：按名字兜底时重抄的类型也穿过索引签名（Record 里的字段）', moreOf('k.ts#table.tcp')?.used, true)
+  eq('字段：数字名、字面量计算属性名各有自己的名字，别的计算属性名记成 [表达式]',
+    more.filter(f => f.file === 'scripts/check/f.ts' && f.key.startsWith('scripts/check/f.ts#named.')).map(f => f.key).sort(),
+    ['scripts/check/f.ts#named.0', 'scripts/check/f.ts#named.[Symbol.iterator]', 'scripts/check/f.ts#named.comp'])
+  eq('字段：只被 = 赋值的不算读到（点号与下标都一样）；+= 先读旧值，算',
+    ['f.ts#written.onlySet', 'f.ts#written.onlyIdx', 'f.ts#written.bumped'].map(k => moreOf(k)?.used), [false, false, true])
+  eq('字段：括号里、解构赋值里（含 ...剩余）、for…of 循环变量、delete 的只写也不算读到；++ 先读旧值、数组字面量里、被 for…of 遍历的，算',
+    ['paren', 'spread', 'inObj', 'rest', 'looped', 'gone', 'inc', 'inArr', 'iter'].map(k => moreOf(`f.ts#written.${k}`)?.used),
+    [false, false, false, false, false, false, true, true, true])
+  eq('字段：套着 ! 与 as、<T> 类型断言的只写也不算读到',
+    ['nn', 'asserted', 'angle'].map(k => moreOf(`f.ts#written.${k}`)?.used), [false, false, false])
+  const dottedKeys = more.filter(f => f.file === 'scripts/check/m.ts' && f.key.includes('#dotted.')).map(f => f.key).sort()
+  eq('字段：名字里带点的字段写成带引号的一段，不和嵌套路径撞成同一个键',
+    [dottedKeys, fieldVerdict(more.filter(f => f.file === 'scripts/check/m.ts' && f.key.includes('#dotted.')), ['scripts/check/m.ts#dotted.a', 'scripts/check/m.ts#dotted.a.b']).fresh.map(f => f.key)],
+    [['scripts/check/m.ts#dotted."a.b"', 'scripts/check/m.ts#dotted.a', 'scripts/check/m.ts#dotted.a.b'], ['scripts/check/m.ts#dotted."a.b"']])
+  const oddX = more.filter(f => f.file === 'scripts/check/m.ts' && f.key.includes('#Odd.') && f.key.endsWith('.x'))
+  eq('字段：判别值里带分隔符时也写成带引号的一段，两个成员下的同名字段不撞键',
+    [oddX.map(f => f.key).sort(), fieldVerdict(oddX, ['scripts/check/m.ts#Odd.{kind=a}.z.{kind=b}.x']).fresh.map(f => f.key)],
+    [['scripts/check/m.ts#Odd.{kind="a}.z.{kind=b"}.x', 'scripts/check/m.ts#Odd.{kind=a}.z.{kind=b}.x'], ['scripts/check/m.ts#Odd.{kind="a}.z.{kind=b"}.x']])
+  eq('字段：推断出来的判别值带分隔符时同样写成带引号的一段',
+    more.filter(f => f.file === 'scripts/check/m.ts' && f.key.includes('#oddInferred.') && f.key.endsWith('.y')).map(f => f.key).sort(),
+    ['scripts/check/m.ts#oddInferred.{kind="a}.z.{kind=b"}.y', 'scripts/check/m.ts#oddInferred.{kind=a}.z.{kind=b}.y'])
+  eq('字段：按名字兜底认不带扩展名的 import（照程序自己的解析）', moreOf('n.ts#nOnly.extless')?.used, true)
+  eq('字段：按上下文类型写的期望值与解构，数字名、字面量计算属性名也算用到',
+    ['0', '1', 'lit', 'dlit'].map(k => moreOf(`m.ts#numeric.${k}`)?.used), [true, true, true, true])
+  eq('字段：块注释里的豁免认；理由只有空白算空串；字符串里的标记不算，也不漏到下一个字段',
+    ['f.ts#W.block', 'f.ts#W.spaced', 'f.ts#W.marked', 'f.ts#W.plain'].map(k => moreOf(k)?.waiver), ['块注释里的理由', '', undefined, undefined])
+
+  const moved = fieldToy(files => {
+    files['scripts/check/a.ts'] = `export function first(): Row[] { return [] }\n${files['scripts/check/a.ts']}`
+    files['scripts/check/u.ts'] = "export function choose(n: number) { return n > 0 ? { kind: 'a' as const, value: 1 } : { kind: 'b' as const, value: 2 } }"
+  })
+  ok('字段：多一个函数走到旧字段，旧字段的名字不变', toy.every(f => moved.some(g => g.key === f.key)))
+  eq('字段闸门：推断出来的判别联合，给另一个成员也加上同名字段，按新增报',
+    fieldVerdict(moved.filter(f => f.file === 'scripts/check/u.ts'), more.filter(f => f.file === 'scripts/check/u.ts').map(f => f.key)).fresh.map(f => f.key),
+    ['scripts/check/u.ts#choose.{kind=b}.value'])
+  eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',
+    'scripts/independent-blackbox-tests/suite.ts', 'scripts/check/launch-rule.ts', 'scripts/lib/test.ts'].map(isVerifierFile), [true, true, true, true, false, false])
+  eq('判定文件：scripts/check 直属、不是验证者', ['scripts/check/a.ts', 'scripts/check/selfcheck.ts', 'scripts/check/x/y.ts', 'scripts/lib/a.ts'].map(isJudgedFile),
+    [true, false, false, false])
 }
 
 })
