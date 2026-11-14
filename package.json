@@ -22,6 +22,7 @@
     "selfcheck": "tsx scripts/check/selfcheck.ts",
     "audit": "tsx scripts/check/audit.ts",
     "adr-ledger": "tsx scripts/check/adr-ledger.ts",
+    "debt-touch": "tsx scripts/check/debt-touch.ts",
     "launches": "tsx scripts/check/launches.ts",
     "typecheck": "tsc --noEmit",
     "compile": "tsx scripts/check/compile.ts",
