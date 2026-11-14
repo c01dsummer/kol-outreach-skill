@@ -4244,4 +4244,8 @@ ADR-74 第 198 行（派工硬来那一刀）同一条 PR 还，记在 ADR-74 �
 
 条件（下一条碰 `crashEvidence` 或它那组断言的 PR）在本块所在 PR 上照字面响了 —— 删的那一行就夹在那组断言中间。ADR-195 第 114 行记过它在改名那条 PR 上「宽读响、字面不响」，没在那里顺手还。
 
+**本条第 3027 行在本块所在 PR 上响了。** 那张说冻结 preload 工具读 ready 文件只查「在不在」，读到空文件时在 `.pid` 上抛 TypeError，记 R 失格；当时只在写方的插桩克隆里见过一次。本块所在 PR 的头一跑完整检查（`842339b`，干净克隆，以 nobody 跑，4 核、4 个 worker，没有任何插桩或计时预加载）红在变异一步：`M-H62-aq`（验证者是需求测试组 `h-prebuilt-no-config-lifecycle-contract`）判「跑不起来」，冻结工具回 `INVALID`、`semanticAssertions` 0，`reason` 是 `Cannot read properties of undefined (reading 'pid')`，出在 `packet/lifecycle319/preload/run.mjs`。同一棵树上单独把这条变异施一次（`mutate --worker`）是 `caught`。这是未插桩的跑里第一次见到它。那一跑的整份日志存在仓库外（项目共享目录 `check-logs/`），临时根照旧被适配器删掉，没有现场。本 PR 没碰冻结包，也不在授权范围，没还；条件不带「重新起算」，响过就烧掉，在下面重挂。
+
+> ⚠️ 欠条（重挂本记录第 3027 行 · 档：登记）：冻结 preload 工具读 ready 文件仍只查「在不在」（`packet/lifecycle319/preload/run.mjs` 在 `existsSync` 为真后马上读 `.pid`），读到空文件时抛 TypeError、记 R 失格，整组带记号失败；2026-11-14 在未插桩的完整变异里见到一次（`M-H62-aq`，`842339b`），单独重施照常被抓到。两份文件都在冻结包里，改要另有授权 · 重启条件：这一组再以 preload 的 R 失格结束一次，或冻结包下一次版本变更，先到为准（重新起算）
+
 > ⚠️ 已还：ADR-70 第 2038 行 · 还在本块所在 PR：删掉 `scripts/test.ts` 里那句假注释
