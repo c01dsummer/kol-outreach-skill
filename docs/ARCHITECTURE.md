@@ -445,7 +445,7 @@ catalog 为 `scripts/check/mutations.json`，lock 为 `package-lock.json`；均�
 | 模板参数与 task／品牌原值 → 已保存正本及冻结来源 → 完整旧名单／raw 直接关系 → 才读目标并计划写入 | `scripts/feedback-template.ts`、`scripts/lib/feedback-template-task.ts` | 坏输入在写入后才拒绝；缺席正本被迁移或冻结，坏 raw 被当成缺席，过滤后关系漏掉人工冲突 | M-D26-a–i、M-D27-r |
 | 显式追加先核完整人工 CSV → 再判新增账号／unchanged | `scripts/lib/feedback-template-task.ts`、`scripts/lib/manual-feedback-template.ts` | 无新增时放过坏人工表，或重复写入同账号；同字节重写改变文件身份与修改时间 | M-D26-g、M-D26-k、M-D26-m、M-D24-f |
 | 人工反馈模板新增行的轮次原值能无损编码成 UTF-8 → 才拼出新增行的字节、计划写入 | `scripts/lib/manual-feedback-template.ts` | 带未配对代理项的轮次原值被替换编码写进新增行，原值没保留，也没有拒绝 | M-D24-n |
-| 非 unchanged 计划实际保存成功；合法 unchanged 零写入确认 → 才输出成功 JSON | `scripts/lib/feedback-template-task.ts`、`scripts/feedback-template.ts` | 保存失败仍报成功，或失败覆盖旧作答、留下首次创建目标 | M-D26-m |
+| 非 unchanged 计划实际保存成功；合法 unchanged 零写入确认 → 才输出成功 JSON | `scripts/lib/feedback-template-task.ts`、`scripts/feedback-template.ts` | 保存失败仍报成功，或失败覆盖旧作答、留下首次创建目标 | M-D26-m、M-D26-r |
 | 补发件人姓名：姓名过 D30 那一道 → 既有 `task.json` 读成对象、任一层没有写重复的键 → 才只换根上 `sender_name` 整份写回 | `scripts/sender.ts` | 空串或只有空白的姓名写进任务；写重复的键被整份写回悄悄只留最后一处；其余键被丢掉；姓名被修剪后才写 | M-D30-i、M-D30-j、M-D30-k、M-D30-l |
 <!-- END:ORDER -->
 
