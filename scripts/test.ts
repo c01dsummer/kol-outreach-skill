@@ -20362,7 +20362,7 @@ await group('h-worker-output-reclaim', async () => {
     eq('worker夹具回收：组列不出来时不删，说明原因', [typeof third === 'string' && third.includes('cannot be listed'), fsx.existsSync(unknown)], [true, true])
     const { spawnSync: spawnSyncChild } = await import('node:child_process')
     const ownGroup = Number(spawnSyncChild('/bin/ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).stdout.trim())
-    eq('worker夹具回收：看组用的 ps 能读出本进程自己那组', [Number.isSafeInteger(ownGroup) && ownGroup > 0, liveGroups([ownGroup])], [true, [ownGroup]])
+    eq('worker夹具回收：看进程表读得出本进程自己那一组', [Number.isSafeInteger(ownGroup) && ownGroup > 0, liveGroups([ownGroup])], [true, [ownGroup]])
   } finally {
     for (const pid of started) { try { process.kill(-pid, 'SIGKILL') } catch { /* already gone */ } }
     fsx.rmSync(base, { recursive: true, force: true })

@@ -6795,8 +6795,8 @@
       "req": "harness",
       "why": "已经退出、只剩僵尸的进程也算组里还活着 —— 没人收尸的机器上永远等不到，每次都判失格、临时根也留着",
       "file": "scripts/worker-output-contract-test.ts",
-      "find": "    if (pgids.includes(pgid) && !match[3]!.includes('Z')) live.add(pgid)\n",
-      "replace": "    if (pgids.includes(pgid)) live.add(pgid)\n",
+      "find": "      if (pgids.includes(pgid) && fields[0] !== 'Z') live.add(pgid)\n",
+      "replace": "      if (pgids.includes(pgid)) live.add(pgid)\n",
       "by": "test",
       "kills": [
         "worker夹具回收：组里的进程还在往临时根里写时，等它停了再删，删后没有被建回来；别的目录不动"

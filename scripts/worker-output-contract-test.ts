@@ -67,8 +67,27 @@ function dependencyManifest(root: string, rel = ''): SourceEntry[] {
   })
 }
 
-/** Process groups whose leader is one of `pgids` and that still have a member that is not a zombie; null when `ps` cannot be read. */
+/**
+ * Process groups whose leader is one of `pgids` and that still have a member that is not a zombie; null when the
+ * process table cannot be read. Linux reads /proc without starting a process, so polling it does not change how
+ * many processes a test group starts (the launch-count gate, ADR-145); elsewhere `ps` lists the table.
+ */
 export function liveGroups(pgids: readonly number[]): number[] | null {
+  if (process.platform === 'linux') {
+    let pids: string[]
+    try { pids = readdirSync('/proc').filter(name => /^\d+$/.test(name)) } catch { return null }
+    const live = new Set<number>()
+    for (const pid of pids) {
+      let stat: string
+      try { stat = readFileSync(`/proc/${pid}/stat`, 'utf8') } catch { continue }
+      // pid (comm) state ppid pgrp …; comm may hold spaces and parentheses, so split after the last ')'
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
+      const pgid = Number(fields[2])
+      if (!Number.isSafeInteger(pgid)) return null
+      if (pgids.includes(pgid) && fields[0] !== 'Z') live.add(pgid)
+    }
+    return [...live]
+  }
   const ps = spawnSync('/bin/ps', ['-A', '-o', 'pid=', '-o', 'pgid=', '-o', 'stat='], { encoding: 'utf8', timeout: 2000, maxBuffer: 8 * 1024 * 1024 })
   if (ps.error || ps.status !== 0 || !ps.stdout.trim()) return null
   const live = new Set<number>()
