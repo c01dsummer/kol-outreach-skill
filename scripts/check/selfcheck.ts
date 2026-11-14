@@ -8857,6 +8857,54 @@ group('mutate-copy-list', [], () => {
   named('副本清单：换成命名管道的没带，建副本也没挂住', seen.length === 2 && seen.every(r => r.piped === false), shown)
 })
 
+// ---- 分份（ADR-197）：CI 上几台 runner 各跑清单的一份，几份合起来是整份；写坏了一条也不施 ----
+group('mutate-shard', [], () => {
+  // 判定那一半（`shardWanted`、`shardOf`）有单测和负片；**这里守的是入口接线那一半**：派工与串行两条路
+  // 都只发这一份、收尾那一句按这一份说、验证者的环境里不带 MUTATE_SHARD、写坏了在施变之前就退出。
+  // 入口在自检的验证基础设施闭包里，指名自检的变异被「自己验自己」拦下，需求测试又不起入口，
+  // 所以同 mutate-jobs-per-run，这一半只有自检夹具、没有负片（ADR-197 第五节）。
+  // 四条变异各改一处：清单第 1、3 条改 v，第 2、4 条改 w —— 验证者每跑一遍记下它看见的两个值，
+  // 哪一份跑了哪几条就看得出来
+  const shardTmp = join(tmp, 'mutate-shard'), shardMark = join(tmp, 'mutate-shard-seen.txt')
+  try {
+    seedJobs(shardTmp, [jobMut('M-S-a', 'keep', 'gone'), jobMut('M-S-b', 'hold', 'lost'),
+      jobMut('M-S-c', `${q}keep${q}`, `${q}kept${q}`), jobMut('M-S-d', `${q}hold${q}`, `${q}held${q}`)], shardMark)
+    writeFileSync(join(shardTmp, 'scripts', 'test.ts'), [
+      `import { v, w } from ${q}./check/a.js${q}`,
+      `import { appendFileSync } from ${q}node:fs${q}`,
+      `appendFileSync(${JSON.stringify(shardMark)}, v + ${q},${q} + w + ${q},${q} + (process.env.MUTATE_SHARD ?? ${q}-${q}) + ${q}\\n${q})`,
+      `const bad = (v !== ${q}keep${q} ? 1 : 0) + (w !== ${q}hold${q} ? 1 : 0)`,
+      `if (bad) { console.log(${q}\\n${q} + bad + ${q} 个失败\\n${q}); process.exitCode = 1 }`,
+    ].join('\n') + '\n', 'utf8')
+  } catch (e) {
+    failed++
+    console.error(`  ✗ 分份夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`)
+    return
+  }
+  const seen = (): string[] => {
+    const lines = existsSync(shardMark) ? readFileSync(shardMark, 'utf8').split('\n').filter(Boolean) : []
+    rmSync(shardMark, { force: true })
+    return lines
+  }
+  const shardRun = (label: string, shard: string, jobs: string, status: number) =>
+    runBoth(label, [S(SELFCHECK_TOOLS.mutate), jobs], shardTmp, { status },
+      { ...mutationFixtureEnv('mutate', [jobs], shardTmp), MUTATE_SHARD: shard })
+  // 第 1 份走派工那条路（两个 worker），第 2 份走串行那条路
+  const first = shardRun('mutate 分份：第 1/2 份，派工', '1/2', '--jobs=2', 0)
+  const firstSeen = seen()
+  const second = shardRun('mutate 分份：第 2/2 份，串行', '2/2', '--jobs=1', 0)
+  const secondSeen = seen()
+  const bad = shardRun('mutate 分份：写成 3/2', '3/2', '--jobs=1', 1)
+  const badSeen = seen()
+  const mutated = (lines: string[]) => lines.map(l => l.split(',').slice(0, 2).join(',')).filter(l => l !== 'keep,hold').sort()
+  named('分份：第 1 份派工只跑了清单第 1、3 条', first.ok && JSON.stringify(mutated(firstSeen)) === JSON.stringify(['gone,hold', 'kept,hold']), firstSeen.join(' | '))
+  named('分份：第 2 份串行只跑了清单第 2、4 条', second.ok && JSON.stringify(mutated(secondSeen)) === JSON.stringify(['keep,held', 'keep,lost']), secondSeen.join(' | '))
+  named('分份：收尾那一句按这一份说', /第 1\/2 份 2 个变异全部被抓到（整份 4 个/.test(first.stdout) && /第 2\/2 份 2 个变异全部被抓到（整份 4 个/.test(second.stdout),
+    [first.stdout, second.stdout].map(o => o.split('\n').slice(-3).join(' / ')).join(' ‖ '))
+  named('分份：验证者的环境里不带 MUTATE_SHARD', [...firstSeen, ...secondSeen].length > 0 && [...firstSeen, ...secondSeen].every(l => l.endsWith(',-')), [...firstSeen, ...secondSeen].join(' | '))
+  named('分份：写成 3/2 以 1 退出、一条也没施', bad.ok && mutated(badSeen).length === 0 && /说不清这一跑是第几份/.test(bad.stdout + bad.stderr), `${badSeen.join(' | ')} ‖ ${(bad.stdout + bad.stderr).split('\n').slice(-3).join(' / ')}`)
+})
+
 // ---- 起 worker 时资源不够：报出来的原因要指向资源，不要指向派工代码 ----
 group('jobs-resource', [], () => {
   // 打开的文件数到顶时，`spawn` **既不同步抛、也来不及发 `error`**：Node 在装管道之前
