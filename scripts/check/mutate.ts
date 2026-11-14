@@ -46,7 +46,7 @@ import { briefLeaks } from './why-rule.js'
 import {
   type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
-  executionRoutes, labelFaults, labelsOf, mutationEventBase, resolveMutationBaseline, routeDelta, type RouteSnapshot,
+  executionRoutes, labelFaults, labelsOf, mutationEventBase, resolveMutationBaseline, routeDelta, routeReport, type RouteSnapshot,
   anchorMatches, applyMutation, baselineFault, stopsEarly, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH, mutationSourceIdentity } from './claims.js'
@@ -1022,31 +1022,9 @@ try {
     file => ask('show', `${comparison.base}:${file}`) ?? undefined))
   const current = currentSnapshot()
   const delta = routeDelta(previous, current)
-  const before = new Map(previous.routes.map(r => [r.id, r]))
-  const after = new Map(current.routes.map(r => [r.id, r]))
-  const names = { 'added-full': '新增全跑', 'back-to-full': '选跑退回全跑',
-    'changed-full': '旧全跑正文改变', configuration: '执行配置改变' }
-  const describe = (r: RouteSnapshot['routes'][number] | undefined): string => r === undefined ? '不存在'
-    : `${r.by} ${r.only === undefined ? '全跑' : `选组 ${r.only.join(',')}`}（执行 ${r.executes.join(',') || '无分组'}）`
-  const routeChanges = delta.changes.filter(change => change.kind !== 'configuration')
-  const configChanges = delta.changes.filter(change => change.kind === 'configuration')
-  const counts = Object.fromEntries(Object.keys(names).map(kind => [kind,
-    delta.changes.filter(change => change.kind === kind).length]))
   console.log(`\n维护比较 ${comparison.base.slice(0, 7)}..${comparison.head.slice(0, 7)}：${delta.changes.length} 条路由/正文变化`)
-  console.log(`  路由/正文 ${routeChanges.length} 条：新增全跑 ${counts['added-full']}，选跑退回全跑 ${counts['back-to-full']}，`
-    + `旧全跑正文改变 ${counts['changed-full']}；执行配置 ${configChanges.length} 条，验证者布局 ${delta.layoutChanges.length} 份`)
-  const printChange = (change: typeof delta.changes[number]): void => {
-    console.log(`  ${change.id} ${names[change.kind]}：${describe(before.get(change.id))} → ${describe(after.get(change.id))}`)
-    const explanation = muts.find(m => m.id === change.id)?.full_run as { reason?: unknown; recheck_when?: unknown } | undefined
-    if (explanation !== undefined) console.log(`    全跑原因：${explanation?.reason}；重评条件：${explanation?.recheck_when}`)
-  }
-  console.log('  路由与全跑正文变化（完整清单）：')
-  for (const change of routeChanges) printChange(change)
-  console.log('  分组执行配置、依赖与顺序变化（完整清单）：')
-  for (const change of configChanges) printChange(change)
-  for (const by of delta.layoutChanges) {
-    console.log(`  ${by} 分组依赖/顺序变化：${JSON.stringify(previous.layouts[by])} → ${JSON.stringify(current.layouts[by])}`)
-  }
+  for (const line of routeReport(previous, current, delta,
+    id => muts.find(m => m.id === id)?.full_run as { reason?: unknown; recheck_when?: unknown } | undefined)) console.log(line)
   if (delta.faults.length) {
     exitWith(1, ...delta.faults.map(fault => `✗ 维护比较：${fault}`), '✗ 维护比较未通过，未启动子集基线，未施加任何变异')
   }
