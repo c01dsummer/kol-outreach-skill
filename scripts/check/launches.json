@@ -38,7 +38,7 @@
     {"config":"[\"selfcheck\",[\"page-cap-across-runs\"]]","launches":8,"maxPaid":{"id":"M-D6-a","paid":7},"running":0,"stopping":6},
     {"config":"[\"selfcheck\",[\"paid-request-crash-before-record\"]]","launches":3,"maxPaid":{"id":"M-D6-r","paid":2},"running":0,"stopping":3},
     {"config":"[\"selfcheck\",[\"probe\"]]","launches":6,"maxPaid":{"id":"M-P1-z","paid":3},"running":0,"stopping":5},
-    {"config":"[\"selfcheck\",[\"profile-402-stop\"]]","launches":9,"maxPaid":{"id":"M-D6-bm","paid":8},"running":0,"stopping":4},
+    {"config":"[\"selfcheck\",[\"profile-402-stop\"]]","launches":10,"maxPaid":{"id":"M-D6-bs","paid":9},"running":0,"stopping":5},
     {"config":"[\"selfcheck\",[\"refunded-402-not-recorded-paid\"]]","launches":2,"maxPaid":{"id":"M-D6-w","paid":1},"running":0,"stopping":1},
     {"config":"[\"selfcheck\",[\"render\"]]","launches":11,"maxPaid":{"id":"M-P5-z","paid":9},"running":0,"stopping":2},
     {"config":"[\"selfcheck\",[\"render-input-read\"]]","launches":17,"maxPaid":{"id":"M-D16-an","paid":16},"running":0,"stopping":5},
