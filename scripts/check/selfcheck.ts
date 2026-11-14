@@ -4048,9 +4048,9 @@ group('profile-402-stop', [], () => {
   const searchReserves = 1 // TikTok 一页搜索（profile-halt 关键词，has_more 为 0）
   const costCwd = join(root, 'tt-404-cost')
   mkdirSync(costCwd, { recursive: true })
-  writeFileSync(join(costCwd, '.kol-save-fault.json'), JSON.stringify({ schema: 'kol-save-fault/v1', point: 'SP-R', occurrence: searchReserves + 2 }))
+  writeFileSync(join(costCwd, FAULT_FILE), JSON.stringify({ ...FAULT_OK, occurrence: searchReserves + 2 }))
   const cost = collectHalt('tt-404-cost', 'collect TikTok profile 每次都回 404、第二个人的预留保存被注入失败', TT, 9999,
-    { path: TT_PROFILE, status: 404, from: 1 }, 6, { KOL_TEST_OBSERVER_EVENTS: join(costCwd, 'observer.jsonl') })
+    { path: TT_PROFILE, status: 404, from: 1 }, 6, { [TOBS_VAR]: join(root, 'tt-404-cost-observer.jsonl') })
   if (cost !== undefined) {
     // 夹具资格只核走到了 profile 补全：先是搜索、紧接着第一次 profile 请求回 404。之后怎样交给具名断言判。
     const firstProfile = cost.lines.findIndex(l => !isSearch(l))
