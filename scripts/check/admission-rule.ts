@@ -13,7 +13,11 @@ import type { Req } from './spec-rule.js'
 import { implementationLeak } from './why-rule.js'
 import { exemptionCovered, exemptionLead } from './mutate-rule.js'
 
-const ts = createRequire(import.meta.url)('typescript') as typeof Ts
+// 用到才取（同 `mutate-rule.ts`、`share-rule.ts`，ADR-158 第三十三节）：`scripts/test.ts` 静态引入本模块，
+// 顶层就取的话每次起 `test.ts`（包括每条变异的验证者）都要先初始化一遍编译器。下面三个在第一次扫声明时才有值
+let ts: typeof Ts
+let DECLARATION_STATEMENTS: Set<Ts.SyntaxKind>
+let LITERALS: Set<Ts.SyntaxKind>
 
 /**
  * 原文里点到名的需求编号（ADR-202 第二节第 1 份第 4 条）。前面贴着 ASCII 字母、数字或下划线的不算，
@@ -80,7 +84,10 @@ export function briefSheet(id: string,
     const leak = implementationLeak(m.why)
     if (leak !== undefined) leaks.push({ id: m.id, leak })
   }
+  // 范围也印进包里，与 why 一样要扫（主干上 `briefLeaks` 同样两处都查，#464）；同一条豁免先范围、后 why
   for (const e of exes) {
+    const inScope = e.scope === undefined ? undefined : implementationLeak(e.scope)
+    if (inScope !== undefined) leaks.push({ id: `⊘ [${e.req}]（范围）`, leak: inScope })
     const leak = implementationLeak(e.why)
     if (leak !== undefined) leaks.push({ id: `⊘ [${e.req}]`, leak })
   }
@@ -93,19 +100,22 @@ export function briefSheet(id: string,
   return { text: `${lines.join('\n')}\n`, leaks }
 }
 
-/** 声明文件里允许出现的语句：顶层与每一个命名空间／模块块里（带不带 `declare`、套几层）都是这几种 */
-const DECLARATION_STATEMENTS = new Set<Ts.SyntaxKind>([
-  ts.SyntaxKind.ImportDeclaration, ts.SyntaxKind.ImportEqualsDeclaration,
-  ts.SyntaxKind.ExportDeclaration, ts.SyntaxKind.ExportAssignment,
-  ts.SyntaxKind.InterfaceDeclaration, ts.SyntaxKind.TypeAliasDeclaration,
-  ts.SyntaxKind.ClassDeclaration, ts.SyntaxKind.FunctionDeclaration,
-  ts.SyntaxKind.VariableStatement, ts.SyntaxKind.EnumDeclaration, ts.SyntaxKind.ModuleDeclaration,
-])
-
-const LITERALS = new Set<Ts.SyntaxKind>([
-  ts.SyntaxKind.NumericLiteral, ts.SyntaxKind.StringLiteral, ts.SyntaxKind.NoSubstitutionTemplateLiteral,
-  ts.SyntaxKind.BigIntLiteral, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword,
-])
+function loadCompiler(): void {
+  if (ts !== undefined) return
+  ts = createRequire(import.meta.url)('typescript') as typeof Ts
+  /** 声明文件里允许出现的语句：顶层与每一个命名空间／模块块里（带不带 `declare`、套几层）都是这几种 */
+  DECLARATION_STATEMENTS = new Set<Ts.SyntaxKind>([
+    ts.SyntaxKind.ImportDeclaration, ts.SyntaxKind.ImportEqualsDeclaration,
+    ts.SyntaxKind.ExportDeclaration, ts.SyntaxKind.ExportAssignment,
+    ts.SyntaxKind.InterfaceDeclaration, ts.SyntaxKind.TypeAliasDeclaration,
+    ts.SyntaxKind.ClassDeclaration, ts.SyntaxKind.FunctionDeclaration,
+    ts.SyntaxKind.VariableStatement, ts.SyntaxKind.EnumDeclaration, ts.SyntaxKind.ModuleDeclaration,
+  ])
+  LITERALS = new Set<Ts.SyntaxKind>([
+    ts.SyntaxKind.NumericLiteral, ts.SyntaxKind.StringLiteral, ts.SyntaxKind.NoSubstitutionTemplateLiteral,
+    ts.SyntaxKind.BigIntLiteral, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword,
+  ])
+}
 
 const literal = (e: Ts.Expression): boolean => LITERALS.has(e.kind)
   || (ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.MinusToken
@@ -113,6 +123,7 @@ const literal = (e: Ts.Expression): boolean => LITERALS.has(e.kind)
 
 /** ADR-202 第三节。空单子 = 没找到 */
 export function declarationFindings(text: string): string[] {
+  loadCompiler()
   const file = ts.createSourceFile('pack.d.ts', text, ts.ScriptTarget.Latest, true)
   const found: { at: number; what: string }[] = []
   const report = (n: Ts.Node, what: string) => found.push({ at: n.getStart(file), what })

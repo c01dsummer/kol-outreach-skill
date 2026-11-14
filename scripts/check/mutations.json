@@ -17737,8 +17737,8 @@
       "req": "harness",
       "why": "交出的夹带先豁免后变异，与说明里的先后反着",
       "file": "scripts/check/admission-rule.ts",
-      "find": "  for (const m of muts) {\n    const leak = implementationLeak(m.why)\n    if (leak !== undefined) leaks.push({ id: m.id, leak })\n  }\n  for (const e of exes) {\n    const leak = implementationLeak(e.why)\n    if (leak !== undefined) leaks.push({ id: `⊘ [${e.req}]`, leak })\n  }",
-      "replace": "  for (const e of exes) {\n    const leak = implementationLeak(e.why)\n    if (leak !== undefined) leaks.push({ id: `⊘ [${e.req}]`, leak })\n  }\n  for (const m of muts) {\n    const leak = implementationLeak(m.why)\n    if (leak !== undefined) leaks.push({ id: m.id, leak })\n  }",
+      "find": "  for (const m of muts) {\n    const leak = implementationLeak(m.why)\n    if (leak !== undefined) leaks.push({ id: m.id, leak })\n  }\n  // 范围也印进包里，与 why 一样要扫（主干上 `briefLeaks` 同样两处都查，#464）；同一条豁免先范围、后 why\n  for (const e of exes) {\n    const inScope = e.scope === undefined ? undefined : implementationLeak(e.scope)\n    if (inScope !== undefined) leaks.push({ id: `⊘ [${e.req}]（范围）`, leak: inScope })\n    const leak = implementationLeak(e.why)\n    if (leak !== undefined) leaks.push({ id: `⊘ [${e.req}]`, leak })\n  }",
+      "replace": "  // 范围也印进包里，与 why 一样要扫（主干上 `briefLeaks` 同样两处都查，#464）；同一条豁免先范围、后 why\n  for (const e of exes) {\n    const inScope = e.scope === undefined ? undefined : implementationLeak(e.scope)\n    if (inScope !== undefined) leaks.push({ id: `⊘ [${e.req}]（范围）`, leak: inScope })\n    const leak = implementationLeak(e.why)\n    if (leak !== undefined) leaks.push({ id: `⊘ [${e.req}]`, leak })\n  }\n  for (const m of muts) {\n    const leak = implementationLeak(m.why)\n    if (leak !== undefined) leaks.push({ id: m.id, leak })\n  }",
       "by": "test",
       "kills": ["准入读物：几条夹带一起交时先变异、后豁免，各按原数组的先后"]
     },
@@ -18091,6 +18091,26 @@
       "replace": "  return r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r) && !r.includes(sep)",
       "by": "test",
       "kills": ["准入读物：包目录在仓库的深层子目录算在里面", "准入读物：仓库根是文件系统根时任何目录都在里面"]
+    },
+    {
+      "id": "M-H202-bd",
+      "req": "harness",
+      "why": "豁免的范围里夹带了实现原文也照样出包 —— 写测试的上下文从范围那半句里读到了实现",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "    if (inScope !== undefined) leaks.push({ id: `⊘ [${e.req}]（范围）`, leak: inScope })\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["准入读物：豁免的范围夹带代码运算符也交出来，编号写成 ⊘ [req]（范围），排在同一条豁免的 why 之前"]
+    },
+    {
+      "id": "M-H202-be",
+      "req": "harness",
+      "why": "同一条豁免的两处夹带先交 why、后交范围，与那一行里先范围后 why 的写法反着",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "    const inScope = e.scope === undefined ? undefined : implementationLeak(e.scope)\n    if (inScope !== undefined) leaks.push({ id: `⊘ [${e.req}]（范围）`, leak: inScope })\n    const leak = implementationLeak(e.why)\n    if (leak !== undefined) leaks.push({ id: `⊘ [${e.req}]`, leak })\n",
+      "replace": "    const leak = implementationLeak(e.why)\n    if (leak !== undefined) leaks.push({ id: `⊘ [${e.req}]`, leak })\n    const inScope = e.scope === undefined ? undefined : implementationLeak(e.scope)\n    if (inScope !== undefined) leaks.push({ id: `⊘ [${e.req}]（范围）`, leak: inScope })\n",
+      "by": "test",
+      "kills": ["准入读物：豁免的范围夹带代码运算符也交出来，编号写成 ⊘ [req]（范围），排在同一条豁免的 why 之前"]
     },
     {
       "id": "M-D20-a",
