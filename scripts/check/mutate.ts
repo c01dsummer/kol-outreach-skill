@@ -25,13 +25,16 @@
  * 「主动停掉」那一档改成了判开枪那一刻的快照（修一处间歇性假红，ADR-72 末节记着）。
  * 两句话不是一回事，别把前一句读成后一句。
  *
- * `--brief` 是给**写测试的那个上下文**用的：`why` 是需求语言，可以给；
- * `find`/`replace` 是实现原文，给了就等于让它读实现。
+ * `--brief` 是给**写测试的那个上下文**用的：它打每条变异的 `why`、每条豁免的范围与 `why`，
+ * 都是需求语言，可以给；`find`/`replace` 是实现原文，给了就等于让它读实现。
  * 见 process/4-VERIFY.md 的「给测试上下文一张准入读物清单」。
  *
- * 这条防线的强度取决于 `why` 怎么写 —— 引了实现原文的 why，`--brief` 照样把它漏出去。
+ * 这条防线的强度取决于打出去的那几段怎么写 —— 开跑前用 `why-rule.ts` 的 `briefLeaks` 逐段查，
+ * 夹带了实现原文就不开跑、`--brief` 也不打（ADR-70 末尾「清单夹带（入口）」一节）。查得出的只是
+ * 形如代码的那几种写法，snake_case 的内部名字挡不住（见 `why-rule.ts`）；打的清单（下面 `--brief`
+ * 那一段）与查的清单（`briefLeaks`）各写一份，哪天这边多打一栏，那边不跟也不红。
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -39,42 +42,61 @@ import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { attributionFault } from './attribution-rule.js'
 import { orderBindingFaults, type OrderFault } from './order-rule.js'
-import { implementationLeak } from './why-rule.js'
+import { briefLeaks } from './why-rule.js'
 import {
   type LabelFault, type Verifier, type WiringFault,
   VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, judgeRun,
-  executionRoutes, labelFaults, labelsOf, mutationEventBase, resolveMutationBaseline, routeDelta, type RouteSnapshot,
-  anchorMatches, baselineFault, stopsEarly, wiringFault,
+  executionRoutes, labelFaults, labelsOf, mutationEventBase, resolveMutationBaseline, routeDelta, routeReport, type RouteSnapshot,
+  anchorMatches, applyMutation, baselineFault, stopsEarly, wiringFault,
 } from './mutate-rule.js'
 import { CLAIMS_PATH, mutationSourceIdentity } from './claims.js'
 import {
   type Ran, type CostBaseline, type CostCombination, type CostIdentity, type CostMutation,
-  BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, billLines, copyIntoWorker,
+  BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, billLines,
   configurationCost, configurationCostLines, configurationKey, costObservation,
-  groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
-  noStdio, ownGroup, parseReport, reportLine, verifierBill,
+  groupShot, handNext, hardStopPlan, jobsRunDir, jobsWanted, missingVerdicts, shardOf, shardWanted,
+  noStdio, ownGroup, reportLine, staleRunDirs, verifierBill, workerCopyList, workerLine,
 } from './jobs-rule.js'
 import {
   INTERRUPTS, beginMutation, claimsRestoreAction, onInterrupt, restoreMutation, stopJobs, trackTest,
 } from './mutate-restore.js'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
+import { asTsx, prebuildOne, prebuiltCommand } from './prebuilt.js'
 import { countingEnv, parseLaunchLog } from './launch-count.js'
 import {
-  type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchVerifier,
-  inProcessLine, launchFindings, launchRecheck, launchReport, launchTally, settleLaunches, tallyLine,
+  type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchVerifier, LAUNCH_PART_NAME,
+  inProcessLine, launchPartFile, launchFindings, launchRecheck, launchReport, launchTally, settleLaunches, tallyLine,
 } from './launch-rule.js'
 import { LAUNCH_PRELOAD, infraClosure, selfVerifying } from './verifier-rule.js'
+import { realIo, writeAllSync } from './sync-write.js'
+
+/**
+ * 本文件**唯一**的硬退出（ADR-70 末尾「硬退出收口」一节）：退出前要说的话先同步写满 fd 2，再退出。
+ *
+ * 接管道时 `console.error` 是异步的，排在队里那句会被紧跟着的硬退出掐掉（ADR-72 第 431 行起那张表）；
+ * 光换成 `writeFileSync` 也不够，管道一满它写进去一截就抛（`sync-write.ts` 头注释那次实测）。所以退出前的话
+ * 全交给这里。需求测试对本文件跑 `exitFaults`：硬退出出了这个函数，或叫它之前同一段里先 `console.` 了一句，
+ * 都红。写不出去（读的那头关了、一直不读）也照样退出：这一步的承诺是退出码，那句话尽力写完。
+ */
+function exitWith(code: number, ...lines: string[]): never {
+  if (lines.length) writeAllSync(2, `${lines.join('\n')}\n`)
+  process.exit(code)
+}
 
 // 观察不参与检查判定；普通收尾的人读行与机器段共用这一份原料。
 const costEnabled = !process.argv.includes('--brief') && !process.argv.includes('--worker')
 // 启动数文件这一跑重写，开跑先删旧的，排在变异集体检之前：这一跑在哪一步停下、数没数成，
 // 检查链最后一步都读不到上一跑的（ADR-145 第二十一节第 2 小节）。删不掉（比如那是个目录、没有权限）
 // 就以 1 退出、不往下跑，同变异集那几道体检：留着它，最后一步读到的就是上一跑的数
+// 分份跑写的那几份（ADR-200）一起删：留着别的份上一跑的，最后一步会拿它与这一跑的拼在一起
 const LAUNCHES_FILE = 'output/mutation-launches/launches.json'
-if (costEnabled) try { rmSync(LAUNCHES_FILE, { force: true }) } catch (e) {
-  console.error(`✗ 变异测试：上一跑留下的启动数文件删不掉（${e instanceof Error ? e.message : String(e)}）—— 留着它，检查链最后一步读到的是上一跑的数；未施加任何变异`)
-  console.error(`\n  先把 ${LAUNCHES_FILE} 挪走或删掉再跑。`)
-  process.exit(1)
+if (costEnabled) try {
+  rmSync(LAUNCHES_FILE, { force: true })
+  if (existsSync(dirname(LAUNCHES_FILE))) for (const name of readdirSync(dirname(LAUNCHES_FILE)))
+    if (LAUNCH_PART_NAME.test(name)) rmSync(join(dirname(LAUNCHES_FILE), name), { force: true })
+} catch (e) {
+  exitWith(1, `✗ 变异测试：上一跑留下的启动数文件删不掉（${e instanceof Error ? e.message : String(e)}）—— 留着它，检查链最后一步读到的是上一跑的数；未施加任何变异`,
+    `\n  先把 ${LAUNCHES_FILE} 挪走或删掉再跑。`)
 }
 let costContext: { identity: CostIdentity; combinations: CostCombination[] } | undefined
 const costBaselines: CostBaseline[] = []
@@ -108,14 +130,15 @@ const publishCost = async (): Promise<void> => {
     })
   } catch (e) {
     // 缺段／截断不能作成本证据；观察输出故障不为旧检查另立通过闸门。
-    try { writeFileSync(2, `成本报告未能完整输出：${e instanceof Error ? e.message : String(e)}\n`) } catch { /* 输出不可用 */ }
+    writeAllSync(2, `成本报告未能完整输出：${e instanceof Error ? e.message : String(e)}\n`)   // 写不出去不抛
   }
 }
 const publishCostAtExit = (): void => {
   if (!costEnabled || costPublished) return
   costPublished = true
   // 早期拒绝与不能异步收尾的路径；写不成只表示没有可用成本段，不改原结论。
-  try { writeFileSync(1, costOutput()) } catch { /* 信号、崩溃或输出故障不保证有段 */ }
+  // 管道满了等着写完（`sync-write.ts`）；写不出去不抛
+  try { writeAllSync(1, costOutput()) } catch { /* 信号、崩溃或输出故障不保证有段 */ }
 }
 process.on('exit', publishCostAtExit)
 const observeHand = (id: string): void => {
@@ -155,27 +178,28 @@ const fault = attributionFault(muts, [
   ...exemptions.map(e => ({ id: `豁免 ${e.req}`, req: e.req })),
 ], known)
 if (fault?.kind === 'duplicate') {
-  console.error(`✗ 变异集：${fault.ids.length} 个编号重复 —— 多条顶着同一个名字，报告指不回表里哪一行\n`)
-  for (const d of fault.ids) console.error(`  ${d}  出现不止一次`)
-  console.error('\n  编号是报告里唯一能把一条变异指回表里那一行的东西。复制一条就改掉它的字母。')
-  process.exit(1)
+  exitWith(1, `✗ 变异集：${fault.ids.length} 个编号重复 —— 多条顶着同一个名字，报告指不回表里哪一行\n`,
+    ...fault.ids.map(d => `  ${d}  出现不止一次`),
+    '\n  编号是报告里唯一能把一条变异指回表里那一行的东西。复制一条就改掉它的字母。')
 }
 if (fault?.kind === 'orphan') {
-  console.error(`✗ 变异集：${fault.entries.length} 条记在不存在的需求名下 —— 它们对任何一条需求都不算数\n`)
-  for (const o of fault.entries) console.error(`  ${o.id}  记在 ${o.req} 名下，而登记表里没有这条`)
-  console.error('\n  守检查链本身的写 harness；守某条需求的写它真实的编号。')
-  process.exit(1)
+  exitWith(1, `✗ 变异集：${fault.entries.length} 条记在不存在的需求名下 —— 它们对任何一条需求都不算数\n`,
+    ...fault.entries.map(o => `  ${o.id}  记在 ${o.req} 名下，而登记表里没有这条`),
+    '\n  守检查链本身的写 harness；守某条需求的写它真实的编号。')
 }
 
-const dirty = muts.flatMap(m => {
-  const leak = implementationLeak(m.why)
-  return leak === undefined ? [] : [`${m.id}  夹带实现原文：${leak}`]
-})
-if (dirty.length) {
-  console.error(`✗ 变异集：${dirty.length} 条 why 夹带实现原文 —— --brief 会把它漏给写测试的上下文\n`)
-  for (const d of dirty) console.error(`  ${d}`)
-  console.error('\n  why 说「什么会变错、用户会看到什么」，不引代码。对外契约里的名字不算实现原文。')
-  process.exit(1)
+// `--brief` 打出去的每一段（变异的 why、豁免的范围与 why）都过一遍；排在上面拒重复编号之后 ——
+// `briefLeaks` 按编号报、自己不拒重复（ADR-34 末尾）。两侧分开报：变异的 why 归写变异的人改，
+// 豁免的归登记豁免的人改（ADR-70 末尾「清单夹带（入口）」一节）。
+const leaks = briefLeaks(muts, exemptions)
+if (leaks.length) {
+  const mutSide = leaks.flatMap(l => l.side === 'mutation' ? [`    ${l.id}  why 夹带实现原文：${l.leak}`] : [])
+  const exSide = leaks.flatMap(l => l.side === 'exemption'
+    ? [`    豁免 [${l.req}]  ${l.field === 'scope' ? '范围' : 'why'} 夹带实现原文：${l.leak}`] : [])
+  exitWith(1, `✗ 变异集：${leaks.length} 处夹带实现原文 —— --brief 会把它漏给写测试的上下文\n`,
+    ...(mutSide.length ? [`  变异一侧 ${mutSide.length} 处（改变异的 why）：`, ...mutSide] : []),
+    ...(exSide.length ? [`  豁免一侧 ${exSide.length} 处（改豁免的范围或 why）：`, ...exSide] : []),
+    '\n  打出去的每一段都说「什么会变错、用户会看到什么」，不引代码。对外契约里的名字不算实现原文。')
 }
 
 // 锚点在目标文件里必须恰好出现一次 —— 出现两处以上时替换只改第一处，作者要验的那一处
@@ -187,10 +211,9 @@ const ambiguous = muts.flatMap(m => {
   return n > 1 ? [`${m.id}  锚点在 ${m.file} 里出现 ${n} 处`] : []
 })
 if (ambiguous.length) {
-  console.error(`✗ 变异集：${ambiguous.length} 条的锚点不唯一 —— 替换只改第一处，要验的那一处可能一个字没动\n`)
-  for (const a of ambiguous) console.error(`  ${a}`)
-  console.error('\n  把 find 加长到在目标文件里只出现一次（按起点数，重叠的也算两处）。')
-  process.exit(1)
+  exitWith(1, `✗ 变异集：${ambiguous.length} 条的锚点不唯一 —— 替换只改第一处，要验的那一处可能一个字没动\n`,
+    ...ambiguous.map(a => `  ${a}`),
+    '\n  把 find 加长到在目标文件里只出现一次（按起点数，重叠的也算两处）。')
 }
 
 // 四种写错都在开跑之前拦下 —— 判据在 `mutate-rule.ts` 的 `wiringFault`，这里只把它的
@@ -210,10 +233,9 @@ const miswired = muts.flatMap(m => {
   return fault === undefined ? [] : [`${m.id}  ${SAY[fault](m)}`]
 })
 if (miswired.length) {
-  console.error(`✗ 变异集：${miswired.length} 条的验证者接线不成立 —— 它们的绿或红都不算数\n`)
-  for (const w of miswired) console.error(`  ${w}`)
-  console.error('\n  by 只能写 mutate-rule.ts 认得的那几个；by 与 kills 同进同出，写一个就要写另一个。')
-  process.exit(1)
+  exitWith(1, `✗ 变异集：${miswired.length} 条的验证者接线不成立 —— 它们的绿或红都不算数\n`,
+    ...miswired.map(w => `  ${w}`),
+    '\n  by 只能写 mutate-rule.ts 认得的那几个；by 与 kills 同进同出，写一个就要写另一个。')
 }
 
 // 指名了验证者的变异，不许改**验证者自己要用的东西** —— 那是自己验自己，跑出来的
@@ -223,11 +245,9 @@ if (miswired.length) {
 const infra = infraClosure(f => existsSync(f) ? readFileSync(f, 'utf8') : undefined)
 const selfVerified = muts.filter(m => selfVerifying(m, infra))
 if (selfVerified.length) {
-  console.error(`✗ 变异集：${selfVerified.length} 条在自己验自己 —— 它们的绿或红都不算数\n`)
-  for (const m of selfVerified) console.error(`  ${m.id}  改的 ${m.file} 是 ${m.by} 自己要用的东西`)
-  console.error(`\n  验证基础设施闭包共 ${infra.length} 个文件。要么把变异挪到被测对象上，`
-                + '要么让缺省那个验证者来验它。')
-  process.exit(1)
+  exitWith(1, `✗ 变异集：${selfVerified.length} 条在自己验自己 —— 它们的绿或红都不算数\n`,
+    ...selfVerified.map(m => `  ${m.id}  改的 ${m.file} 是 ${m.by} 自己要用的东西`),
+    `\n  验证基础设施闭包共 ${infra.length} 个文件。要么把变异挪到被测对象上，要么让缺省那个验证者来验它。`)
 }
 
 // 点的那些夹具真的在，而且各自只有一条叫那个名字 —— 判据在 `mutate-rule.ts` 的
@@ -277,11 +297,10 @@ const misnamed = muts.flatMap(m => {
   return labelFaults(m.kills, inventoryOf(m.by)).map(f => `${m.id}  ${SAY_LABEL[f.fault](m, f.label)}`)
 })
 if (misnamed.length) {
-  console.error(`✗ 变异集：${misnamed.length} 条点的夹具立不住 —— 它们的绿或红都不算数\n`)
-  for (const w of misnamed) console.error(`  ${w}`)
-  console.error('\n  kills 要逐字抄验证者里那条夹具的名字。清册静态扫源码得出，只认字面量 ——'
-                + '拼出来的名字点不着，把那条夹具的名字写成字面量。')
-  process.exit(1)
+  exitWith(1, `✗ 变异集：${misnamed.length} 条点的夹具立不住 —— 它们的绿或红都不算数\n`,
+    ...misnamed.map(w => `  ${w}`),
+    '\n  kills 要逐字抄验证者里那条夹具的名字。清册静态扫源码得出，只认字面量 ——'
+      + '拼出来的名字点不着，把那条夹具的名字写成字面量。')
 }
 
 // 顺序契约表上点名的变异对不对得上 —— 判据在 `order-rule.ts`（ADR-148），这里只读那份文档、
@@ -314,8 +333,7 @@ if (orderFaults.length) {
   }
   out.push('\n  改表或改变异，让两边对上。这里只核点名的变异在不在、file 在不在那一行的位置栏里；'
            + '守不守那一行要人按施加之后的后果判（ADR-146 第一节）。')
-  writeFileSync(2, `${out.join('\n')}\n`)
-  process.exit(1)
+  exitWith(1, ...out)
 }
 
 if (process.argv.includes('--brief')) {
@@ -323,8 +341,9 @@ if (process.argv.includes('--brief')) {
   // 接管道时 `console.log` 是异步的 —— 排在队里还没写出去就被 `process.exit` 掐掉。
   // 照自检那条 spawn 路径实测 8 次：豁免行只活下来 2 次，末尾那句汇总只活 1 次，
   // 另外 6 次停在 139／140／221／233 行。而豁免行恰好在最末尾，正是要断言的那一段。
-  // 这就是 `mutate-rule.ts` 的 `exitRace` 记着的那个坑 —— 那道判据只查**验证者**，
+  // 这就是 `mutate-rule.ts` 的 `exitRace` 记着的那个坑 —— 那道判据当时只查**验证者**，
   // 查不到 `mutate.ts` 自己，于是同一个坑在检查链自己身上又踩了一次（#91 评审引出）。
+  // 现在本文件的硬退出收口在 `exitWith`，由 `exitFaults` 查（ADR-70 末尾「硬退出收口」一节）。
   const out = ['\n变异集 —— 每条变异「违反了什么」。不含实现原文，可以交给写测试的上下文。\n']
   for (const m of muts) out.push(`  ${m.id}  [${m.req}]  ${m.why}`)
   for (const e of exemptions) {
@@ -332,8 +351,10 @@ if (process.argv.includes('--brief')) {
     out.push(`  ⊘     [${e.req}]  ${lead}${e.scope === undefined ? '' : `（${e.scope}）`}：${e.why}`)
   }
   out.push(`\n共 ${muts.length} 个变异、${exemptions.length} 处显式豁免。`)
-  writeFileSync(1, `${out.join('\n')}\n`)
-  process.exit(0)
+  // 主产物：写不满不放过（不设上限），写不出去（读的那头关了）就非零退出、在 fd 2 说一句 —— 交给写测试的
+  // 上下文的那份读物缺了半截还以 0 退出，比崩溃更坏（ADR-70 末尾「硬退出收口」一节）
+  if (writeAllSync(1, `${out.join('\n')}\n`, realIo, Infinity)) exitWith(0)
+  exitWith(1, '✗ 变异测试：--brief 那份清单没写完 —— 读的那头关了')
 }
 
 /**
@@ -375,7 +396,8 @@ const restoreClaims = () => {
 process.on('exit', restoreClaims)
 process.off('exit', publishCostAtExit)
 process.on('exit', publishCostAtExit)
-// 但**信号杀进来时 exit 处理也不跑** —— Ctrl-C、被杀掉、CI 超时、终端关掉，
+// 但**没人接管信号时 exit 处理靠不住** —— 裸 node 起时三种打断都不跑它；经 tsx 起时只有 SIGINT／SIGTERM
+// 落在没卡在同步等里、也没摘过处理的真进程上才跑（ADR-158 第四节那张表）。Ctrl-C、被杀掉、CI 超时、终端关掉之后
 // 留下的是一份被改写的源文件加一份对不上的覆盖记录，而没有任何东西说过它们在那儿。
 // 下面记现场那一步顺手把这几个信号接管了（`mutate-restore.ts`），
 // 让「被打断」和「跑完」走同一条还原路径 —— 这里不再单写一行，是为了没有一行可忘。
@@ -430,7 +452,7 @@ process.on('exit', publishCostAtExit)
  * 照今天的派法，前一样走不到：`test.ts` 删和写都只在跑全套时做，而 M-H14-e 从 #229 起只跑
  * `h-infra-rules` 一组（ADR-128）—— 它那一跑连删都不删，事先放的记录原样留着（实测记在
  * ADR-69 末尾那块）。后一样在多核机器上也不是缺省：派工跑时验证者跑在 worker 自己那份目录里，那份目录
- * 不带 `.check-cache`（`jobs-rule.ts` 的 `copyIntoWorker`），删的写的都不是审计读的那一份。
+ * 不带 `.check-cache`（`jobs-rule.ts` 的 `workerCopyList`），删的写的都不是审计读的那一份。
  * 两样都退回去，这两段才又成立。
  *
  * **这一条至今没修，也不假装修了** —— 改它要碰 `mutate-restore.ts` 的杀进程策略
@@ -475,9 +497,7 @@ const forgetVerifier = (): void => {
   // 出话这一步**必须兜住**：它抛出去就是从 `close` 监听器里抛，promise 不 resolve、
   // `runOne` 的 `finally` 走不到 —— 被改过的源码留在 worker 树里。和第五轮在 `hardStop`
   // 那头修的是同一类，我在同一条提交里又犯了一次（#116 第六轮评审指出）。
-  try {
-    writeFileSync(2, `\n⚠️ 验证者的号作废不掉(${why}) —— 这个 worker 停在这里，这一条没有结论\n`)
-  } catch { /* 说不出也要停 */ }
+  writeAllSync(2, `\n⚠️ 验证者的号作废不掉(${why}) —— 这个 worker 停在这里，这一条没有结论\n`)   // 写不出去不抛，说不出也要停
   // **停要走 `onInterrupt`，不能自己还原完就退。** 走信号那条路进来时手上正有一个
   // 活着的验证者（号文件里有号就是证据），而 `onInterrupt` 的顺序是定死的：先杀那一组、
   // 再还原、最后退。自己写「还原+退出」会把杀组那一步整个跳过 —— 恰好在最需要它的那一格
@@ -489,7 +509,9 @@ const forgetVerifier = (): void => {
 // 正常基线那一跑注入的计数预加载（ADR-145 第十三节）；按本文件的位置找，玩具树里起的 mutate 也找得到
 const launchPreload = new URL(`../${LAUNCH_PRELOAD}`, import.meta.url).href
 const verifierEnv = (verifier: Verifier, cwd: string | undefined, countLog: string | undefined): NodeJS.ProcessEnv => {
-  const env = { ...process.env, MUTATING: '1', NODE_COMPILE_CACHE }
+  // 分份只管这一跑自己发哪几条（ADR-197）：验证者里再起的 mutate（玩具树）一律整份，不带它
+  const { MUTATE_SHARD: _shard, ...inherited } = process.env
+  const env = { ...inherited, MUTATING: '1', NODE_COMPILE_CACHE }
   return countLog === undefined ? env
     : countingEnv(env, { log: countLog, target: resolve(cwd ?? '.', verifier.script), preload: launchPreload })
 }
@@ -504,10 +526,12 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     // 照样跑到底（ADR-74 第一节那张表；按这里的起法又实跑过几轮，见 ADR-70 末尾）。
     // 见齐就停发的是 SIGTERM，要这一组另有理由，见下面 `stopIfSeen`。负 pid 是进程组语义，
     // POSIX 上才成立（见 `tsx-cmd.ts`）
-    const [exe, argv] = tsxCommand(
-      only === undefined ? [verifier.script] : [verifier.script, `--only=${only.join(',')}`])
-    const kid = spawn(exe, argv,
-      { cwd, stdio: 'pipe', detached: true, env: verifierEnv(verifier, cwd, countLog) })
+    // 预编缓存里有整棵树现在这一版就裸 node 起，否则照旧 tsx（`prebuilt.ts`，ADR-158）。裸 node 没有壳：
+    // 下面说的「壳会转发」「壳隔几十毫秒改发 SIGKILL」那几句只在退回 tsx 时成立，整组照杀，结果一样
+    const env = verifierEnv(verifier, cwd, countLog)
+    const [exe, argv] = prebuiltCommand(
+      only === undefined ? [verifier.script] : [verifier.script, `--only=${only.join(',')}`], cwd, env)
+    const kid = spawn(exe, argv, { cwd, stdio: 'pipe', detached: true, env })
     let started = false
     let began: number | undefined
     kid.on('spawn', () => { started = true; began = performance.now(); observeSpawn?.() })
@@ -551,9 +575,11 @@ const runTest = (verifier: Verifier, kills?: readonly string[], only?: readonly 
     // 压根没起来（命令不在、权限不足）也要留下话：那时两股都是空的，
     // 判定只会说「跑不起来」，而人得知道是没起来还是跑崩了
     kid.on('error', e => { err += `\n${e}` })
-    kid.on('close', status => {
+    kid.on('close', (code, signal) => {
       const ms = began === undefined ? 0 : Math.round(performance.now() - began)
       forgetVerifier()
+      // 裸 node 起的按 tsx 的壳会报的那样换算信号死亡（`asTsx`）：判定与成本账看到的退出码不随起法变
+      const { status } = asTsx(argv, code, signal)
       resolve({ status, output: `${out}\n${err}`, atStop, started, ms })
     })
     // **留号在装完那两个监听器之后。** 放在 `trackTest` 紧后面的话,这一句一抛就落在
@@ -596,7 +622,10 @@ const runOne = async (m: Mut): Promise<Ran> => {
     // 写盘也在这一段里面：写盘是先截断再写的，写到一半抛出去（盘满、IO 错）留下的是
     // 半份源文件，而那时 `finally` 要是够不着，被截断的那份就留在工作区里，
     // 记着的现场谁也不去取（评审指出）
-    writeFileSync(m.file, orig.replace(m.find, m.replace), 'utf8')
+    const mutated = applyMutation(orig, m.find, m.replace)
+    writeFileSync(m.file, mutated, 'utf8')
+    // 被改的这一个文件编进预编缓存（按正文存，不必还原）；编不出来就不写，验证者退回 tsx（ADR-158）
+    prebuildOne(m.file, mutated)
     // 非零退出是期望的结果 —— 但要看是断言红的,还是进程死在半路(被信号杀掉时 status 为 null);
     // 点了名的还要再看一层:红的是不是 kills 说的那一条
     const verifier = VERIFIERS[m.by ?? 'test']
@@ -662,8 +691,8 @@ const record = (m: Mut, ran: Ran): void => {
  * **只往 stdout 写结论那一种行**，人看的报告由派工那一侧打 —— 两边都打的话，
  * 同一条变异在同一份输出里出现两次，而两次的措辞将来一定会岔开。
  *
- * 写用的是同步那一路（和 `--brief` 同一个理由）：紧接着可能就没有事件循环再跑了，
- * 排在队里没写出去的那一行会被当成「这一条没回话」，而那是硬失败。
+ * 每条结论等待 stdout 的写回回调再接下一条或正常退出；暂时背压交给流等待，
+ * 写回失败向外传播，不能把排队未交回的结论当成正常完成。
  */
 if (process.argv.includes('--worker')) {
   // coordinator 已核可信历史；worker 在施变前冻结同一正常源码路由，不读取被排除的 .git。
@@ -683,9 +712,12 @@ if (process.argv.includes('--worker')) {
   for await (const line of createInterface({ input: process.stdin })) {
     const m = byId.get(line.trim())
     if (m === undefined) break
-    writeFileSync(1, `${reportLine(m.id, await runOne(m))}\n`)
+    const report = `${reportLine(m.id, await runOne(m))}\n`
+    await new Promise<void>((done, reject) => {
+      process.stdout.write(report, error => error ? reject(error) : done())
+    })
   }
-  process.exit(0)
+  exitWith(0)
 }
 
 /**
@@ -696,21 +728,41 @@ if (process.argv.includes('--worker')) {
  * 所以每个 worker 拿一份自己的源码树：改的、还的、它那一跑写下的覆盖记录，全在自己那份里。
  * `node_modules` 是符号链接，那份没人改。
  *
- * 复制时把 `.check-cache` 排除在外 —— worker 目录自己就在那底下，不排除会一路复制自己。
- *
- * ⚠️ **这一句靠的是 `cpSync` 的一处没写进文档的次序**（#109 评审追问出来的）：
- * 目标目录在源目录**底下**时 `cpSync` 会拒绝（`ERR_FS_CP_EINVAL`），而 `filter`
- * 是在那道检查**之前**跑的 —— `.check-cache` 整棵被 `filter` 挡掉，那道检查于是根本
- * 没机会撞上。Node v22.22.2 上实测成立（本条全部计时数据都来自真跑成功的并行）。
- * 但**官方文档没有承诺这个次序**：哪天它挪到检查后面，症状是每一次派工跑当场抛
- * `ERR_FS_CP_EINVAL`（响的，不是静默的）。升 Node 之后要重新确认的就是这一句；
- * 真变了的话，改法是把 worker 目录挪到源码树外面（比如 `mkdtempSync` 到系统临时目录），
- * 而那会连带改掉「隔离目录跟着仓库走、看得见也删得掉」这个性质。
+ * 副本带哪些文件由 git 说（`workerCopyList`，ADR-72 第 303 行）：受跟踪的加上没被忽略的，`.check-cache`
+ * 不带 —— worker 目录自己就在那底下，带进去会一路复制自己。原先是 `cpSync` 整棵复制、靠一张手抄的跳过表挡，
+ * 还靠着它一处没写进文档的次序（`filter` 跑在「目标在源底下」那道检查之前）；照清单一份一份建之后两样都不靠了。
  *
  * 报告的行序是**跑完的先后**，不再是清单的顺序（串行那条路仍是清单顺序）。
  * 每行自带编号，归因不受影响；换来的是跑的过程中一直有东西在动，而不是憋到最后一次吐完。
  */
-const JOBS_DIR = '.check-cache/mutate-jobs'
+const JOBS_ROOT = '.check-cache/mutate-jobs'
+/**
+ * 这一跑自己那一层（ADR-74 第 237 行）：副本与号只建在这一层里。开工前另清进程已不在的那几层，
+ * 作业根本身不删 —— 同一棵树上同时开、还活着的另一跑那一层不碰（同一个进程号空间里）。
+ */
+const JOBS_DIR = jobsRunDir(JOBS_ROOT, process.pid)
+/** 那个进程还在不在。问不出来（`EPERM`：在，只是不归我们管）也算在 —— 宁可留着不收，不可删掉人家的 */
+const pidAlive = (pid: number): boolean => {
+  try { process.kill(pid, 0); return true } catch (e) { return (e as NodeJS.ErrnoException).code !== 'ESRCH' }
+}
+/**
+ * 开工前：清掉已经不在的那几跑留下的层（判定在 `staleRunDirs`），再清自己这一层。
+ * 原先这里是整删作业根 —— 两跑同时开时，后来的把先来的那份连号文件一起抹掉。
+ */
+const freshJobs = (): void => {
+  let names: string[] = []
+  try { names = readdirSync(JOBS_ROOT) } catch { /* 还没有作业根 */ }
+  for (const name of staleRunDirs(names, pidAlive)) rmSync(join(JOBS_ROOT, name), { recursive: true, force: true })
+  rmSync(JOBS_DIR, { recursive: true, force: true })
+}
+/**
+ * 收尾：只删自己这一层，作业根留着（空的也留）。删空根那一下会撞上另一跑正在建自己那一层的
+ * 头一级目录，那一跑的复制当场 `ENOENT`、整跑硬来（#466 CodeRabbit 第 1 轮指出，ADR-74 末节）；
+ * 一个空目录留在 `.check-cache` 底下无害，不进 worker 副本
+ */
+const dropJobs = (): void => {
+  rmSync(JOBS_DIR, { recursive: true, force: true })
+}
 /** 宽限期：请 worker 自己收摊之后等多久。它们要停掉手上的验证者、把动过的那份还回去 */
 const GRACE_MS = 5000
 const SELF = fileURLToPath(import.meta.url)
@@ -729,6 +781,55 @@ const readBeacon = (path: string): { text?: string; error?: string } => {
 }
 
 /**
+ * 要带进 worker 副本的文件，开工前问一次 git、整跑共用（判定在 `workerCopyList`，ADR-72 第 303 行）。git 起不来、
+ * 以非 0 退出、或判定说不开工的，在建任何隔离目录之前以 1 退出 —— 一份不知道该带什么的副本不能拿来跑。
+ */
+let copyList: string[] | undefined
+const workerFiles = async (): Promise<void> => {
+  if (copyList !== undefined) return
+  // 异步问：这个入口接管了信号，同步等子进程的那一会儿信号处理器跑不了（h-mutate 的「没有一处同步等子进程」）
+  const git = (...args: string[]): Promise<string> => new Promise(done => {
+    execFile('git', args, { encoding: 'utf8', maxBuffer: 1 << 30 }, (error, stdout, stderr) => {
+      if (error !== null) {
+        exitWith(1, `✗ 变异测试：没法问 git 哪些文件要带进 worker 的副本（git ${args.join(' ')}）—— `
+          + `${stderr.trim() || error.message}；没有建任何隔离目录，也没施加任何变异`)
+      }
+      done(stdout)
+    })
+  })
+  const plan = workerCopyList(await git('rev-parse', '--show-prefix'), await git('ls-files', '-z', '--cached', '--others', '--exclude-standard'))
+  if ('fault' in plan) exitWith(1, `✗ 变异测试：${plan.fault} —— 没有建任何隔离目录，也没施加任何变异`)
+  copyList = plan.files
+}
+/**
+ * 照那份清单建一份副本。受跟踪、工作树里却已删掉或已不是文件的（`--cached` 照列）跳过 —— 副本跟工作树一样没有它；
+ * 符号链接照原样建成符号链接，不跟进去。空目录不在清单里，副本里没有（原先整棵复制时有）。
+ */
+const copyIntoWorker = (dir: string): void => {
+  mkdirSync(dir, { recursive: true })
+  if (copyList === undefined) throw new Error('建副本之前没问过 git 要带哪些文件')
+  for (const rel of copyList) {
+    let link: boolean
+    try {
+      const st = lstatSync(rel)
+      // 受跟踪的路径在工作树里成了目录（或是个子模块）、管道之类的特殊文件：副本跟工作树一样，没有那个文件。
+      // 管道不能拿去复制 —— 没人写的时候一打开就挂住，整跑停在建副本那一步（#467 CodeRabbit 第 1 轮）
+      if (!st.isFile() && !st.isSymbolicLink()) continue
+      link = st.isSymbolicLink()
+    } catch (e) {
+      // 已删掉，或上一级成了文件：同上
+      const code = (e as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') continue
+      throw e
+    }
+    const to = join(dir, rel)
+    mkdirSync(dirname(to), { recursive: true })
+    if (link) symlinkSync(readlinkSync(rel), to)
+    else copyFileSync(rel, to)
+  }
+}
+
+/**
  * 这个进程自己那一组的号，拿不到就 undefined。判定（怎么从那一行里切出来）在 `ownGroup`。
  * 拿不到时自保守卫那一格就是没守 —— 非 Linux、procfs 没挂的时候如此，记在 ADR-74。
  */
@@ -737,8 +838,9 @@ const readOwnGroup = (): number | undefined => {
 }
 
 const dispatch = async (jobs: number): Promise<void> => {
-  rmSync(JOBS_DIR, { recursive: true, force: true })
-  const queue = muts.map(m => m.id)
+  await workerFiles()
+  freshJobs()
+  const queue = mine.map(m => m.id)
   const byId = new Map(muts.map(m => [m.id, m]))
   const reported = new Set<string>()
   /** 一个槽 = 一个 worker 壳,加上它那份号文件搁哪 */
@@ -760,12 +862,15 @@ const dispatch = async (jobs: number): Promise<void> => {
   //
   // 是 #111 的 CI 逼出来的：同一个提交两个 job 一绿一红，红的那次报「隔离目录没收干净」。
   // 本地同形状 32 次复现到 2 次，插同步标记定位到死在「杀第 N 个 pid=undefined」那一句。
-  const hardStop = (): never => {
+  // 起不来那几条路要说的那句话交进来、头一个同步写出去（ADR-70 末尾「硬退出收口」一节）：先 `console.error`
+  // 再叫它的话，那句排在队里，随后的硬退出把它掐掉 —— ADR-72 那张表「派工循环」三行说的正是这几条路
+  const hardStop = (...lines: string[]): never => {
+    if (lines.length) writeAllSync(2, `${lines.join('\n')}\n`)
     const self = { pid: process.pid, pgid: readOwnGroup() }
     for (const step of hardStopPlan(live, readBeacon, self)) {
       if (step.do === 'kid') { try { step.kid.kill('SIGKILL') } catch { /* 早没了 */ } }
       else if (step.do === 'group') { try { process.kill(step.shot, 'SIGKILL') } catch { /* 组散了 */ } }
-      else if (step.do === 'warn') { try { writeFileSync(2, step.text) } catch { /* 说不出也要收完 */ } }
+      else if (step.do === 'warn') writeAllSync(2, step.text)   // 写不出去不抛，说不出也要收完
       else break
     }
     // 收不动也要把话说完整。这一步的承诺是「杀干净、收目录、非零退出」，而递归删一棵树
@@ -773,33 +878,31 @@ const dispatch = async (jobs: number): Promise<void> => {
     // 这条路触发的条件正是 fd 到顶，所以那一支够得着 —— 真撞上时让人知道半成品留在哪，
     // 比让异常冒上去盖掉上面那句真正的诊断强。（⚠️ 这一支在真入口上还没撞到过。）
     try {
-      rmSync(JOBS_DIR, { recursive: true, force: true })
+      dropJobs()
     } catch (e) {
-      // **同步写 fd 2，不用 `console.error`。** 下一句就是硬退出，而输出接管道时
-      // `console.error` 是异步的 —— 排在队里还没写出去就被掐掉，那正是本文件 `--brief`
-      // 那一支早就改成同步写的理由。这一句的**全部用处**就是告诉人半成品留在哪，
-      // 被截掉就等于没有（#112 第二轮机器评审指出）
-      writeFileSync(2, `\n  ⚠️ 隔离目录没收干净（${e instanceof Error ? e.message : String(e)}）`
-                       + ` —— 半成品副本留在 ${JOBS_DIR}，下一跑开头会重建\n`)
+      // **走 `exitWith`，不用 `console.error`。** 这就是硬退出前那句话：这一句的**全部用处**就是告诉人
+      // 半成品留在哪，被截掉就等于没有（#112 第二轮机器评审指出）
+      exitWith(1, `\n  ⚠️ 隔离目录没收干净（${e instanceof Error ? e.message : String(e)}）`
+                  + ` —— 半成品副本留在 ${JOBS_DIR}，以后哪一跑开头见这个进程已不在就会清掉`)
     }
-    process.exit(1)
+    exitWith(1)
   }
   for (const sig of INTERRUPTS) {
-    process.on(sig, () => stopJobs([...live].map(s => s.kid), hardStop, GRACE_MS,
+    process.on(sig, () => stopJobs([...live].map(s => s.kid), () => hardStop(), GRACE_MS,
                                    (fn, ms) => { setTimeout(fn, ms) }))
   }
-  // **建目录那一步抛出来的，也要走收尾。** `cpSync` / `symlinkSync` 在第 i 个上失败时，
+  // **建目录那一步抛出来的，也要走收尾。** 建副本 / `symlinkSync` 在第 i 个上失败时，
   // 前面已经起来的 worker 正拿着任务在跑，而 `Promise.all` 会把异常直接抛上去、
   // 跳过下面那句删目录 —— 活着的子进程和半成品目录都留下了。走跟打断同一条硬来路径
   // （杀干净、收目录、非零退出），不另写一份（#109 第四轮评审指出）
   try {
     await Promise.all(Array.from({ length: jobs }, (_unused, i) => new Promise<void>(done => {
     const dir = join(JOBS_DIR, `w${i}`)
-    cpSync('.', dir, { recursive: true, filter: copyIntoWorker })
+    copyIntoWorker(dir)
     symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
     // 号文件搁在 `w<i>/` 的**兄弟**位置(判定在 `beaconPathOf`),绝对路径交给 worker ——
     // 它的 cwd 是 `dir`,相对路径会落进那棵被复制的树里
-    const beacon = resolve(beaconPathOf(JOBS_DIR, process.pid, i))
+    const beacon = resolve(beaconPathOf(JOBS_DIR, i))
     const [exe, argv] = tsxCommand([SELF, '--worker', `${BEACON_FLAG}${beacon}`])
     const kid = spawn(exe, argv,
       { cwd: dir, stdio: ['pipe', 'pipe', 'inherit'], env: { ...process.env, NODE_COMPILE_CACHE } })
@@ -810,39 +913,39 @@ const dispatch = async (jobs: number): Promise<void> => {
     // 接不到 —— 而 `error` 没人听的话 Node 当未捕获异常退掉，活着的 worker 和隔离目录
     // 全留下；资源不够那一种更早，连 stdio 都没装上，由下面那一问认出来
     kid.on('error', e => {
-      console.error(`\n✗ 变异测试：worker 起不来 —— ${e.message}`)
-      hardStop()
+      hardStop(`\n✗ 变异测试：worker 起不来 —— ${e.message}`)
     })
     // 为什么这一问必须在这里、而且在给 stdin 装监听器之前：判定与理由见 `noStdio`。
     // 实测（node v22.22.2）：`spawn` 那一刻剩 ≤6 个 fd 走这一支，剩 ≥8 个正常。
-    // 耗尽位置随环境变化，小语料也可能在前面的 cpSync 先撞 EMFILE（ADR-104）。
+    // 耗尽位置随环境变化，小语料也可能在前面建副本那一步先撞 EMFILE（ADR-104）。
     // 自检现在给复制留空间，只在真实 worker spawn 前耗尽描述符，专门验证下面这一支。
     if (noStdio(kid)) {
-      console.error('\n✗ 变异测试：worker 起不来 —— 起进程时资源不够，Node 连管道都没装上。'
-                    + '最常见是打开的文件数到顶（EMFILE／ENFILE）：调高 `ulimit -n`，'
-                    + '或者用 `--jobs=` 少派几个。')
-      hardStop()
+      hardStop('\n✗ 变异测试：worker 起不来 —— 起进程时资源不够，Node 连管道都没装上。'
+               + '最常见是打开的文件数到顶（EMFILE／ENFILE）：调高 `ulimit -n`，'
+               + '或者用 `--jobs=` 少派几个。')
     }
     // worker 已经没了还往它 stdin 写，常见情形是流已关闭、编号被**静默丢掉**（由核账兜住）；
     // 只有死亡窗口里那一下才真发 EPIPE，而那是异步的，没人听就是未捕获退出
     kid.stdin.on('error', () => {})
+    // 派哪一条、什么时候关输入是判定（`handNext`），这里只照做
     const hand = () => {
-      const id = queue.shift()
-      if (id === undefined) kid.stdin.end()
-      else { observeHand(id); kid.stdin.write(`${id}\n`) }
+      const h = handNext(queue)
+      if ('end' in h) kid.stdin.end()
+      else { observeHand(h.send); kid.stdin.write(`${h.send}\n`) }
     }
     createInterface({ input: kid.stdout }).on('line', line => {
-      const r = parseReport(line)
-      if (r === undefined) {
+      const got = workerLine(line)
+      if (!('report' in got)) {
         // **带着记号却读不出来 = 协议坏了，得让这个 worker 收摊。** 它这会儿正等着下一个
         // 编号，而那一条已经不会有结论了；不收摊的话它永远等下去、`close` 永远不来、
         // 这里的 `Promise.all` 也就永远不返回 —— **整条检查挂住，而不是硬失败**。
         // 模块头上承诺的是后者（「汇报行被截断……少一个就是硬失败」），挂住连核账
         // 那一步都走不到。收摊之后剩下的编号由别的 worker 领，没领到的由核账报出来。
-        // 不带记号的那种是验证者漏出来的闲话，照旧跳过（#109 第三轮评审指出）
-        if (looksLikeReport(line)) kid.stdin.end()
+        // 不带记号的那种是验证者漏出来的闲话，照旧跳过（#109 第三轮评审指出）。哪一种由 `workerLine` 判
+        if ('end' in got) kid.stdin.end()
         return
       }
+      const r = got.report
       reported.add(r.id)
       const m = byId.get(r.id)
       if (m !== undefined) record(m, r)
@@ -853,13 +956,12 @@ const dispatch = async (jobs: number): Promise<void> => {
     hand()
     })))
   } catch (e) {
-    console.error(`\n✗ 变异测试：派工没能起来 —— ${e instanceof Error ? e.message : String(e)}`)
-    hardStop()
+    hardStop(`\n✗ 变异测试：派工没能起来 —— ${e instanceof Error ? e.message : String(e)}`)
   }
-  rmSync(JOBS_DIR, { recursive: true, force: true })
+  dropJobs()
   // 派出去却没回话的：跑它的那一份崩了、被杀了、或者那一行没写出来。三种在输出上
   // 长得一样 —— **那一条没有结论**，而没有结论不是通过（`process/README.md` 总纲）
-  for (const id of missingVerdicts(muts.map(m => m.id), reported)) {
+  for (const id of missingVerdicts(mine.map(m => m.id), reported)) {
     const m = byId.get(id)
     if (m === undefined) continue
     silent.push(m)
@@ -867,11 +969,21 @@ const dispatch = async (jobs: number): Promise<void> => {
   }
 }
 
-const jobs = jobsWanted(process.argv, process.env.MUTATE_JOBS, availableParallelism(), muts.length)
+// 这一跑只跑清单的第几份（ADR-197）：CI 上几台 runner 各跑一份，本地不写就是整份。开跑前的检查照旧按整份清单做；
+// 子集基线、启动数、成本报告、施变、派工与收尾那一句按这一份（ADR-200）
+const shard = shardWanted(process.env.MUTATE_SHARD)
+if (shard === undefined) {
+  exitWith(1, `✗ 变异测试：说不清这一跑是第几份 —— MUTATE_SHARD 要写成「k/n」，1 ≤ k ≤ n（现在是 ${JSON.stringify(process.env.MUTATE_SHARD)}）\n`,
+    '  跑整份请把它去掉，不要写一个读不出来的值；未施加任何变异。')
+}
+// 同一种子集配置的整摞落在同一份里（ADR-200），这一份只跑自己那几种配置的基线；整跑的没有子集基线，各自成一摞
+const mine = shardOf(muts, m => { const only = onlyFor(m); return only === undefined ? undefined : JSON.stringify([m.by, [...only].sort()]) },
+  shard.index, shard.count)
+const sharded = shard.count > 1
+const jobs = jobsWanted(process.argv, process.env.MUTATE_JOBS, availableParallelism(), mine.length)
 if (jobs === undefined) {
-  console.error('✗ 变异测试：说不清要派几个 —— --jobs= 或 MUTATE_JOBS 要一个 1 以上的整数\n')
-  console.error('  按机器核数跑请把它去掉，不要写一个读不出来的值。')
-  process.exit(1)
+  exitWith(1, '✗ 变异测试：说不清要派几个 —— --jobs= 或 MUTATE_JOBS 要一个 1 以上的整数\n',
+    '  按机器核数跑请把它去掉，不要写一个读不出来的值。')
 }
 // 可信历史与实际路由的核对只由 coordinator 做；拒绝发生在基线或任何施变之前。
 const askGit = (...args: string[]): Promise<string | null> => new Promise(done => {
@@ -906,13 +1018,11 @@ try {
     explicitBase = mutationEventBase(process.env.GITHUB_EVENT_NAME, JSON.parse(readFileSync(eventPath, 'utf8')))
   }
 } catch (e) {
-  console.error(`✗ 维护基线：无法读取 CI 事件：${e instanceof Error ? e.message : String(e)}；未施加任何变异`)
-  process.exit(1)
+  exitWith(1, `✗ 维护基线：无法读取 CI 事件：${e instanceof Error ? e.message : String(e)}；未施加任何变异`)
 }
 const comparison = await withGit(ask => resolveMutationBaseline(ask, explicitBase))
 if (comparison.kind === 'cannot-answer') {
-  console.error(`✗ 维护基线：${comparison.why}；未施加任何变异`)
-  process.exit(1)
+  exitWith(1, `✗ 维护基线：${comparison.why}；未施加任何变异`)
 }
 try {
   const catalog = await askGit('show', `${comparison.base}:scripts/check/mutations.json`)
@@ -921,49 +1031,27 @@ try {
     file => ask('show', `${comparison.base}:${file}`) ?? undefined))
   const current = currentSnapshot()
   const delta = routeDelta(previous, current)
-  const before = new Map(previous.routes.map(r => [r.id, r]))
-  const after = new Map(current.routes.map(r => [r.id, r]))
-  const names = { 'added-full': '新增全跑', 'back-to-full': '选跑退回全跑',
-    'changed-full': '旧全跑正文改变', configuration: '执行配置改变' }
-  const describe = (r: RouteSnapshot['routes'][number] | undefined): string => r === undefined ? '不存在'
-    : `${r.by} ${r.only === undefined ? '全跑' : `选组 ${r.only.join(',')}`}（执行 ${r.executes.join(',') || '无分组'}）`
-  const routeChanges = delta.changes.filter(change => change.kind !== 'configuration')
-  const configChanges = delta.changes.filter(change => change.kind === 'configuration')
-  const counts = Object.fromEntries(Object.keys(names).map(kind => [kind,
-    delta.changes.filter(change => change.kind === kind).length]))
   console.log(`\n维护比较 ${comparison.base.slice(0, 7)}..${comparison.head.slice(0, 7)}：${delta.changes.length} 条路由/正文变化`)
-  console.log(`  路由/正文 ${routeChanges.length} 条：新增全跑 ${counts['added-full']}，选跑退回全跑 ${counts['back-to-full']}，`
-    + `旧全跑正文改变 ${counts['changed-full']}；执行配置 ${configChanges.length} 条，验证者布局 ${delta.layoutChanges.length} 份`)
-  const printChange = (change: typeof delta.changes[number]): void => {
-    console.log(`  ${change.id} ${names[change.kind]}：${describe(before.get(change.id))} → ${describe(after.get(change.id))}`)
-    const explanation = muts.find(m => m.id === change.id)?.full_run as { reason?: unknown; recheck_when?: unknown } | undefined
-    if (explanation !== undefined) console.log(`    全跑原因：${explanation?.reason}；重评条件：${explanation?.recheck_when}`)
-  }
-  console.log('  路由与全跑正文变化（完整清单）：')
-  for (const change of routeChanges) printChange(change)
-  console.log('  分组执行配置、依赖与顺序变化（完整清单）：')
-  for (const change of configChanges) printChange(change)
-  for (const by of delta.layoutChanges) {
-    console.log(`  ${by} 分组依赖/顺序变化：${JSON.stringify(previous.layouts[by])} → ${JSON.stringify(current.layouts[by])}`)
-  }
+  for (const line of routeReport(previous, current, delta,
+    id => muts.find(m => m.id === id)?.full_run as { reason?: unknown; recheck_when?: unknown } | undefined)) console.log(line)
   if (delta.faults.length) {
-    for (const fault of delta.faults) console.error(`✗ 维护比较：${fault}`)
-    console.error('✗ 维护比较未通过，未启动子集基线，未施加任何变异')
-    process.exit(1)
+    exitWith(1, ...delta.faults.map(fault => `✗ 维护比较：${fault}`), '✗ 维护比较未通过，未启动子集基线，未施加任何变异')
   }
 } catch (e) {
-  console.error(`✗ 维护比较：无法核实旧目录或实际分组：${e instanceof Error ? e.message : String(e)}；未施加任何变异`)
-  process.exit(1)
+  exitWith(1, `✗ 维护比较：无法核实旧目录或实际分组：${e instanceof Error ? e.message : String(e)}；未施加任何变异`)
 }
 // 在首次正常基线和施变之前冻结 live 源码、目录与锁的原字节身份；读取失败保留未知。
 const combinations = new Map<string, CostCombination>()
-for (const route of currentSnapshot().routes) {
+// 分份时（ADR-200）组合只按这一份建：子集基线也只跑这一份的配置，别的份的配置与变异都不在这一份的成本报告里
+const mineIds = new Set(mine.map(m => m.id))
+for (const route of currentSnapshot().routes.filter(r => mineIds.has(r.id))) {
   const key = configurationKey(route)
+  const ids = [route.id]
   const previous = combinations.get(key)
   if (previous === undefined) combinations.set(key, { key,
     route: { by: route.by, ...(route.only === undefined ? {} : { only: [...route.only].sort() }), executes: [...route.executes] },
-    mutationIds: [route.id] })
-  else combinations.set(key, { ...previous, mutationIds: [...previous.mutationIds, route.id] })
+    mutationIds: ids })
+  else combinations.set(key, { ...previous, mutationIds: [...previous.mutationIds, ...ids] })
 }
 const identity: CostIdentity = {
   headSha: comparison.head, comparisonBaseSha: comparison.base,
@@ -977,7 +1065,7 @@ try {
   identity.identityFault = `待验源码／目录／依赖锁身份未取得：${e instanceof Error ? e.message : String(e)}`
 }
 costContext = { identity, combinations: [...combinations.values()] }
-for (const route of currentSnapshot().routes) {
+for (const route of currentSnapshot().routes.filter(r => mineIds.has(r.id))) {
   costMutationIndex.set(route.id, costMutations.length)
   costMutations.push({ id: route.id, key: configurationKey(route), state: 'not-started', reason: '尚未派出变异，未启动验证者' })
 }
@@ -989,7 +1077,7 @@ for (const route of currentSnapshot().routes) {
 const countLaunches = async (configs: readonly { by: string; only: string[]; key: string; id: string }[], dir: string,
   live: Set<ChildProcess>): Promise<string[]> => {
   try {
-    const mutations: LaunchMutation[] = muts.map(m =>
+    const mutations: LaunchMutation[] = mine.map(m =>
       ({ id: m.id, by: (m.by ?? 'test') as LaunchVerifier, only: onlyFor(m), kills: m.kills ?? [] }))
     const declared = { selfcheck: [...inventoryOf('selfcheck').keys()], test: [...inventoryOf('test').keys()] }
     const again = new Map<string, BaselineLaunches | undefined>()
@@ -1006,8 +1094,11 @@ const countLaunches = async (configs: readonly { by: string; only: string[]; key
     const lines = [`  ${tallyLine(tally)}`]
     if (findings.length) lines.push('  检查链最后一步的启动数闸门会照下面这些判（变异一步只报数）：', ...launchReport(findings).map(l => `    ${l}`))
     try {
-      mkdirSync(dirname(LAUNCHES_FILE), { recursive: true })
-      writeFileSync(LAUNCHES_FILE, JSON.stringify({ ...record, baselines: Object.fromEntries(launchCounts),
+      // 分份时写这一份自己的那个文件、记下是第几份，检查链最后一步拼回整份（ADR-200）
+      const file = sharded ? launchPartFile(shard.index, shard.count) : LAUNCHES_FILE
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, JSON.stringify({ ...record, ...(sharded ? { shard: { index: shard.index, count: shard.count } } : {}),
+        baselines: Object.fromEntries(launchCounts),
         again: Object.fromEntries([...again].map(([key, b]) => [key, b ?? null])) }, null, 2) + '\n')
     } catch (e) {
       lines.push(`  启动数文件没写成（${e instanceof Error ? e.message : String(e)}）`)
@@ -1030,7 +1121,7 @@ const launchRead = (log: string): BaselineLaunches | undefined => {
 let launchOutput: string[] = []
 let fullWithoutKills = 0
 let fullUngrouped = 0
-for (const m of muts) {
+for (const m of mine) {
   const only = onlyFor(m)
   if (only === undefined) {
     if (m.by === undefined || m.kills === undefined) fullWithoutKills++
@@ -1059,14 +1150,15 @@ if (subsets.size) {
     for (const kid of baselineLive) {
       if (kid.pid !== undefined) try { process.kill(-kid.pid, 'SIGKILL') } catch { /* 已结束 */ }
     }
-    rmSync(JOBS_DIR, { recursive: true, force: true })
-    process.exit(1)
+    dropJobs()
+    exitWith(1)
   }
+  await workerFiles()
   for (const sig of INTERRUPTS) process.on(sig, stopBaseline)
-  rmSync(JOBS_DIR, { recursive: true, force: true })
+  freshJobs()
   try {
     for (const dir of dirs) {
-      cpSync('.', dir, { recursive: true, filter: copyIntoWorker })
+      copyIntoWorker(dir)
       symlinkSync(resolve('node_modules'), join(dir, 'node_modules'))
     }
     await Promise.all(dirs.map(async dir => {
@@ -1098,15 +1190,16 @@ if (subsets.size) {
     if (faults.length === 0) launchOutput = await countLaunches(configs, dirs[0], baselineLive)
   } finally {
     for (const sig of INTERRUPTS) process.off(sig, stopBaseline)
-    rmSync(JOBS_DIR, { recursive: true, force: true })
+    dropJobs()
   }
   if (faults.length) {
-    for (const fault of faults) console.error(`\n✗ 子集基线：${fault}`)
-    console.error(`\n✗ 变异测试：${faults.length} 种子集未通过正常代码基线，未施加任何变异`)
+    // 先同步写出来再等成本段：顺序同原来（诊断在前），而且不在异步那条路上排队（ADR-70 末尾「硬退出收口」一节）
+    writeAllSync(2, `${[...faults.map(fault => `\n✗ 子集基线：${fault}`),
+      `\n✗ 变异测试：${faults.length} 种子集未通过正常代码基线，未施加任何变异`].join('\n')}\n`)
     identity.state = 'failed'
     identity.reason = '正常代码子集基线未全部通过；未施加任何变异'
     await publishCost()
-    process.exit(1)
+    exitWith(1)
   }
 } else launchOutput = await countLaunches([], '.', new Set())
 const selectedCount = [...subsets.values()].reduce((n, s) => n + s.count, 0)
@@ -1115,7 +1208,8 @@ console.log(`  子集选跑 ${selectedCount} 条、${subsets.size} 种配置；�
 for (const line of launchOutput) console.log(line)
 // 只有一条路走串行：清单只剩一条、机器只有一个核、或者人明确要求。那条路逐字保持原样，
 // 派工那一侧一个进程都不起 —— 自检里那几份最小语料走的正是它
-if (jobs === 1) for (const m of muts) { observeHand(m.id); record(m, await runOne(m)) }
+if (sharded) console.log(`  这一跑只跑第 ${shard.index}/${shard.count} 份：${mine.length} 条（整份 ${muts.length} 条，ADR-197）；子集基线与启动数只做这一份的配置（ADR-200）`)
+if (jobs === 1) for (const m of mine) { observeHand(m.id); record(m, await runOne(m)) }
 else await dispatch(jobs)
 
 console.log()
@@ -1135,20 +1229,23 @@ if (bill.length) {
 if (costEnabled) console.log(`\n  ${inProcessLine(launchCounts, costMutations)}`)
 
 if (survived.length || elsewhere.length || crashed.length || notApplied.length || silent.length) {
-  console.error(`\n✗ 变异测试：${survived.length} 个存活，${elsewhere.length} 个红错了地方，`
+  // 先同步写出来再等成本段，同子集基线那一处
+  const verdict = [`\n✗ 变异测试：${survived.length} 个存活，${elsewhere.length} 个红错了地方，`
                 + `${crashed.length} 个跑不起来，${notApplied.length} 个锚点失效，`
-                + `${silent.length} 个没有结论`)
-  if (silent.length) console.error('  没有结论不是通过：那一条派出去了，而跑它的那一份没回话 —— 重跑，或者用 MUTATE_JOBS=1 串行跑一遍看它到底怎么了。')
-  if (survived.length) console.error('  存活意味着对应的测试证明不了任何事 —— 修测试，不要删变异。')
-  if (elsewhere.length) console.error('  红错了地方也不算抓到：点名的夹具里有没红的，它对那几条就什么也没证明。'
-                                      + '先核对名单里的名字是不是都指对了，再看没红的那条夹具在不在、这个变异该不该弄红它。')
-  if (crashed.length) console.error('  跑不起来不算抓到：崩溃不是断言的功劳。让那条测试作为断言失败，或者把变异改成一处语义改动而不是语法错误。')
+                + `${silent.length} 个没有结论`]
+  if (silent.length) verdict.push('  没有结论不是通过：那一条派出去了，而跑它的那一份没回话 —— 重跑，或者用 MUTATE_JOBS=1 串行跑一遍看它到底怎么了。')
+  if (survived.length) verdict.push('  存活意味着对应的测试证明不了任何事 —— 修测试，不要删变异。')
+  if (elsewhere.length) verdict.push('  红错了地方也不算抓到：点名的夹具里有没红的，它对那几条就什么也没证明。'
+                                     + '先核对名单里的名字是不是都指对了，再看没红的那条夹具在不在、这个变异该不该弄红它。')
+  if (crashed.length) verdict.push('  跑不起来不算抓到：崩溃不是断言的功劳。让那条测试作为断言失败，或者把变异改成一处语义改动而不是语法错误。')
+  writeAllSync(2, `${verdict.join('\n')}\n`)
   identity.state = silent.length ? 'incomplete' : 'failed'
   identity.reason = silent.length ? '部分变异未回报执行结论' : '有变异未满足既有被抓到资格'
   await publishCost()
-  process.exit(1)
+  exitWith(1)
 }
-console.log(`✓ 变异测试：${muts.length} 个变异全部被抓到`)
+console.log(sharded ? `✓ 变异测试：第 ${shard.index}/${shard.count} 份 ${mine.length} 个变异全部被抓到（整份 ${muts.length} 个，其余几份在别的 runner 上跑）`
+  : `✓ 变异测试：${muts.length} 个变异全部被抓到`)
 identity.state = 'succeeded'
 delete identity.reason
 await publishCost()

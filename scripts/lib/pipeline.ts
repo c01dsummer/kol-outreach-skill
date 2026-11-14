@@ -331,16 +331,17 @@ export function pendingKeywords(state: TaskState): string[] {
  *
  * **`collect.ts` 里有两处调它**，对应两条判据：
  *
- * - `catch (MemoryUnreadable)` 里那一处，退出码 2、不产出名单 —— **D6.e**
+ * - `catch (MemoryUnreadable)` 里那一处，退出码 7（ADR-193 之前是 2）、不产出名单 —— **D6.e**（今 D6.q）
  * - 产出了名单的四种收尾共用的那一处（在 `stopped` 分支之前）：关键词跑完、
- *   达标提前停下、预算用尽、出错中止 —— **D6.f**
+ *   达标提前停下、预算用尽、出错中止 —— **D6.f**（今 D6.r）
  *
  * 分成两条判据是因为两处**能各自坏掉**；四种收尾共用一处，所以它们合起来才是一条。
  *
  * 缺省那个验证者（`scripts/test.ts`）够不到入口脚本，两处都由自检端到端守着。
  * **两处现在各有一条负片**：`M-D6-j` 改跑自检来验，`kills` 点名四条收尾夹具**全部**，
  * 一条没红就判「红错了地方」（5c 第二片把 `kills` 收成一组之前只点得着第一条）——
- * 它证明的是四条都还活着、都靠那一行，不是「四条路能各自坏掉」，后者仍欠着；
+ * 它证明的是四条都还活着、都靠那一行；「四条路能各自坏掉」那半由 `M-D6-bi`～`M-D6-bl`
+ * 证，每条只让一种收尾闭嘴、`kills` 只点名那一条夹具（还 ADR-70 第 1087 行那张欠条）；
  * `P3.b` 那一处由 `M-P3-b` 守着断点记的内容；它逐字要求的另外两件（捕获、退出码 3）今天
  * 拿不到负片，理由是判定层的结论（弄坏它们打的是进程级失败，整次判「跑不起来」），记在 ADR-70。
  *
@@ -349,8 +350,8 @@ export function pendingKeywords(state: TaskState): string[] {
  *
  * **两条都不在 `mutations.json` 的 `exemptions` 里** —— D6.f 原先登记过，落地 4 撤了；
  * `P3.b` 从头到尾没登记过。D6.e 也不必：它说的是「那句话说什么」，在 `scripts/test.ts`
- * 里有认领；`M-D6-f`／`M-D6-g`／`M-D6-h` 的 `req` 写的是 `D6`，按「编号逐字相同」守的是
- * 需求级的 D6、不是判据 D6.e，但判据这一头有测试认领就不会被报成缺口（ADR-25）。
+ * 里有认领。#155 把它重编成 D6.q（D6.f 同时重编成 D6.r）。`M-D6-f`／`M-D6-g`／`M-D6-h`
+ * 守的是哪条判据，以 `mutations.json` 里各条的 `req` 为准，这里不抄（迁移经过见 ADR-25 末尾）。
  */
 export function resumeCostLine(
   dir: string, state: TaskState, qualified: number, creators: Creator[],

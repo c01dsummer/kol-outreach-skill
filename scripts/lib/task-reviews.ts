@@ -60,7 +60,13 @@ export function prepareTaskReviews(
       throw error
     }
   }
-  let pending = freeze(migrateLegacyAgentReviews(original, previousCreators), previousCreators, [], createdAt)
+  let migrated: AgentReviewDocument
+  try { migrated = migrateLegacyAgentReviews(original, previousCreators) }
+  catch (error) {
+    if (error instanceof ReviewInputError) throw new ReviewInputError(error.problems.map(problem => `${file} 缺席，${problem}`))
+    throw error
+  }
+  let pending = freeze(migrated, previousCreators, [], createdAt)
   let saved = structuredClone(original.document)
   const content = (document: AgentReviewDocument): string => {
     const { updated_at: _time, ...body } = document

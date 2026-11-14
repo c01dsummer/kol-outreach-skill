@@ -308,13 +308,16 @@ export function saveMemory(mem: MemoryFile): void {
   writeFileAtomic(FILE, JSON.stringify(mem, null, 2))
 }
 
-export interface FilterResult {
-  kept: Creator[]
-  filtered_recommended: number
-  filtered_contacted: number
-  /** 「没查到」与「查过、确实没人」的 filtered_contacted 都是 0，能分开它们的只有这个 */
-  memory_status: Exclude<MemoryStatus, 'unknown'>
-}
+/**
+ * memory_status 区分「没查到」与「查过、确实没人」—— 两者的 filtered_contacted 都是 0，能分开它们的只有它。
+ * unreadable_detail 在类型上跟着 unreadable_ignored 走：那一支必带这一次读不出来的原因原文，别的状态不带。
+ * 同一次运行的写回把它原样交给 recordRecommendations 的 prior_unreadable —— 首次读不出，写回就不再读、
+ * 不写（D4.t）。将来多一处 unreadable_ignored 返回点而漏带原因，tsc 就过不去。
+ */
+export type FilterResult = { kept: Creator[]; filtered_recommended: number; filtered_contacted: number } & (
+  | { memory_status: 'unreadable_ignored'; unreadable_detail: string }
+  | { memory_status: Exclude<MemoryStatus, 'unknown' | 'unreadable_ignored'>; unreadable_detail?: undefined }
+)
 
 /** Persisted links are undirected person evidence, including links to unsaved accounts. */
 function linkedGraph(mem: MemoryFile): Map<string, Set<string>> {
@@ -404,6 +407,7 @@ export function filterByMemory(
     return {
       kept: [...creators], filtered_recommended: 0, filtered_contacted: 0,
       memory_status: 'unreadable_ignored',
+      unreadable_detail: r.detail,
     }
   }
   const mem = r.mem
@@ -453,10 +457,18 @@ export type WriteBackResult =
  * 读不出来的记忆替换成一份「谁都没联系过」的合法记忆 —— contacted 与 blocked
  * 被永久抹掉，而它们只有用户自己知道，没有任何地方能重建（ADR-15）。
  * 一个坏掉的文件还能手工修，被盖掉的就没有了。
+ *
+ * **同一次运行首次读不出来，这里也不再读。** `prior_unreadable` 是首次读的原因原文
+ * （`filterByMemory` 的 `unreadable_detail`）：带了就不读、不写，原样报它。自己再读一次的话，
+ * 首次只是暂时性 I/O 错误时第二次读得出，就会改写用户要手修的那一份（D4.t，ADR-185 第 173 行）；
+ * 两次都读不出时报的也是首次那一句 —— 跳过写回的原因就是它。只认带没带，不按内容另判：
+ * 带进来的是空白也算首次读不出。不带时照旧这一次自己读、自己报。
  */
 export function recordRecommendations(
   creators: Creator[], product: string, task?: string,
+  opts?: { prior_unreadable: string },
 ): WriteBackResult {
+  if (opts?.prior_unreadable !== undefined) return { written: false, reason: opts.prior_unreadable }
   // **写入侧不许写出读取侧会拒绝的东西。** 任务配置里的 product 是空白时，
   // 这里会存下一条 product 为空的推荐记录，而下一次读盘 shapeProblem 正是
   // 按「product 必须是非空字符串」判它损坏 —— 一次写回就把一份好好的记忆

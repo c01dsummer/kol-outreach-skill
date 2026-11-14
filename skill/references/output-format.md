@@ -1,6 +1,6 @@
 # 输出格式
 
-> 相关需求：**U9.a** 公共格式默认兼容 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U10** HTML 默认全量与双筛选（原 U6 由 U9.a 兼容） · **U7** 公开指标与报价 · **U8** 任务展示身份 · **U9** 显式评审三格式输出 · **U11** 人工审核汇总 · **D5** BOM 与转义 · **D8–D10** 指标口径 · **D21/D23/D25** 平台独立评审及人工投影 · **D24/D26** 人工模板及真实本地入口 · **P5** 数据边界声明
+> 相关需求：**U9.a** 公共格式默认兼容 · **U2** HTML 单文件不依赖网络 · **U3** 关键词表现 · **U4** A 级附草稿 · **U5** xlsx 分 sheet · **U10** HTML 默认全量与双筛选（原 U6 由 U9.a 兼容） · **U7** 公开指标与报价 · **U8** 任务展示身份 · **U9** 显式评审三格式输出 · **U11** 人工审核汇总 · **U12** 报告取值在输出处转义 · **U13** 评审表与评审 HTML 单列草稿主题 · **D5** BOM 与转义 · **D8–D10** 指标口径 · **D21/D23/D25** 平台独立评审及人工投影 · **D24/D26** 人工模板及真实本地入口 · **P5** 数据边界声明
 
 Phase 06 用。
 
@@ -10,7 +10,7 @@ Phase 06 用。
 
 ```
 output/{product}-{YYYYMMDDHHmm}/
-├── kol.csv        单表名单 —— 给脚本和其他工具读
+├── kol.csv        单表名单 —— 给脚本和其他工具读（可能被当成公式的文字格多一个 '，见「防公式」）
 ├── kol.xlsx       分层名单 —— 给人看，按分层分 sheet
 ├── report.html    可读报告
 ├── creators.json  交付物 —— 过滤后的名单及当前评审投影
@@ -24,9 +24,9 @@ output/{product}-{YYYYMMDDHHmm}/
 
 **为什么 CSV 和 xlsx 都要**：CSV 规范里没有「工作表」这个概念，多 sheet 只能走 xlsx。
 但 CSV 是通用交换格式，脚本、导入工具、其他系统都读它。**两个文件各司其职，不能只留一个** ——
-只留 xlsx 会让机器消费变麻烦，只留 CSV 就没法分层切换。
+只留 xlsx 会让机器消费变麻烦，只留 CSV 就没法分层切换。要逐字原值的机器读者读 xlsx（见下文「防公式」）。
 
-`{product}` 用短横线小写，如 `anker-powerbank`。
+`{product}` 用短横线小写，如 `anker-powerbank`。它不能含 `/`、`\` 或 NUL：任务目录由它拼成，含这几个字符时 collect 新建任务以 2 拒绝、不建目录（D29）。
 
 ## 人工反馈模板（D23、D24、D26）
 
@@ -111,6 +111,8 @@ round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manua
 
 **转义**：字段含逗号、引号或换行时用双引号包裹，内部双引号写成两个。`outreach_draft` 一定有换行，务必正确转义。
 
+**防公式**：表格软件会把以 `=`、`+`、`-`、`@`、制表符或回车开头的格子当成公式算，所以 `kol.csv` 里这样开头的文字格先在格首加一个 `'`，再照上一段转义（D5.c，ADR-161）。数和纯数字的文字（如 `-0.5`、`+3`）不加（D5.d、D5.e）。格内其余的字不改；要逐字原值的读 `kol.xlsx`，那里不加。人工反馈模板 `manual-feedback.csv` 也不加（D5.f）。Excel 以外的表格软件可能把这个 `'` 显示出来（没有实测）。
+
 公共格式默认模式（U9.a）保留原排序：先按 `tier`（A→B→C），同层按 `score` 降序；生产 render 按下文 U9 先排有效建议，再使用原排序及同分规则。**同层同分时按粉丝数分三档 ——
 「已查到且不是 0」→「未查询」→「确实是 0」**（P1.h）。「不知道」压得过确认为 0 的人，
 压不过任何真查到了数的人。
@@ -143,7 +145,7 @@ collect、enrich、render 统一消费已经完成 D21/D23/D25 校验及投影�
 
 默认与新评审输出都区分未计算评分和真实零分：表格缺席显示「未查询」、HTML 缺席显示「未知」，真零仍显示 0；已计算评分在 XLSX 中保留数值单元格。
 
-CSV/XLSX 的完整旧表头保持前缀，依次追加以下 21 列，两种格式列定义及值一致：
+CSV/XLSX 的完整旧表头保持前缀，依次追加以下 22 列（U9 的 21 列，末尾再加 U13 的主题列），两种格式列定义及值一致（只有一处例外：CSV 里以 `=`、`+`、`-`、`@`、制表符或回车开头的文字格格首多一个 `'`，见「防公式」）：
 
 | 追加列 | 取值 |
 |---|---|
@@ -168,12 +170,17 @@ CSV/XLSX 的完整旧表头保持前缀，依次追加以下 21 列，两种格�
 | `manual_round_id` | 主平台冻结轮次原值；缺席为空白，不从另一平台猜补 |
 | `linked_agent_review` | 存在时为该对象的 JSON，保留账号、状态、原判断及四项证据；缺席为空白 |
 | `manual_feedback_accounts` | 存在时为完整原数组的 JSON，保留各账号、轮次、物理行及人工原值，空数组为 `[]`；缺席为空白 |
+| `outreach_subject` | 草稿的主题（U13）：`outreach_draft` 第一个非空行以 `Subject` 加冒号开头（不分大小写，冒号半角全角都算）时，取冒号后去掉首尾空白的那段，`{…}` 原样保留；没有草稿或草稿只有空白时为空白；有草稿但拆不出时为字面 `拆不出主题`。`outreach_draft` 那一格照旧是整封草稿（CSV 里只按「防公式」可能在格首多一个 `'`）、一个字都不改，主题行仍在里面 |
 
 其余新增 Agent/人工字段缺席也为空白。JSON 单元格仍由真实 CSV/XLSX writer 转义，不能另造关联平台镜像结论。作品证据、已观察发现来源、冻结任务来源和有效建议的人工账号是不同出处，不互相代填。
 
 CSV/HTML 排序为优先联系→备选→待核实→暂不采用，再按 A/B/C、原分数与同分规则。缺席的有效建议只在排序上落在待核实位置，输入及输出字段仍缺席。XLSX 保留且仅保留三层表，空层也保留；各表内先排有效建议，再按原分数及同分规则，不添加全部表。排序不修改输入名单、判断、层级或分数。
 
 HTML 在原卡片中按主平台、关联平台分别展示 Agent 原判断、四项证据、状态及人工原作答，来源账号明示。Agent/人工缺席字段标未填写，人工 `unknown` 原样展示，不把空白当作 unknown 或 no；有效建议缺席标未提供。待重评的原采用建议标“历史建议（待重评，仅展示）”，不冒充当前建议。生产 HTML 的默认全量与双筛选由 U10 接替；旧公共单层视图由 U9.a 保留，具体可见性合同见下文。
+
+评审模式 HTML 的草稿块在草稿上方单列一行「主题：」，带 `data-draft-subject="outreach_subject"`，取值同上表 `outreach_subject`，在输出处转义；默认模式 HTML 不出这一行（U13.c）。
+
+评审模式 HTML 的草稿块在「主题：」之后再单列一行「出处对不上：…（只查数字和承诺词，其余说法仍要自己看）」，带 `data-draft-claims="unsourced"`：列出草稿里带数字的说法和承诺词中，任务已证实的产品事实与该账号作品文字里都找不到的那些；都找得到写「无」；任务里没有已证实的产品事实时开头写明「任务里没有已证实的产品事实可对」。没有草稿或草稿只有空白不出，默认模式不出；评审 CSV/XLSX 没有这一列（P2.c，ADR-199）。
 
 评审模式 HTML 的平台区块提供账号定界：Agent／人工区块分别带 `data-review-kind="agent"`／`"manual"`，其 `data-account-key` 为各自规范化平台账号键；有效建议区块带 `data-review-kind="effective"`，`data-account-key` 为主账号键。仅在人工来源键实际存在时，有效建议区块再带 `data-priority-account-key` 原来源键。属性在输出处转义，不能把关联平台标签贴在主平台内容上；旧公共视图的卡片开头、主页链接及默认模式 markup 保持原样。
 
@@ -191,7 +198,7 @@ renderHtml(creators, meta, { mode: 'review', filters: 'dual' })
 
 `#none` 文案为「当前筛选下没有候选」，空集时可见，命中时 `display:none`；控件与当前选择始终保留。切换不缩短名单占用的最小布局高度，也不启动滚动或使用锚点；长名单筛成短名单或空集时仍保留实际阅读位置。
 
-以上 formatter 只消费已投影列表及调用方提供的元数据，不读写评审正本、人工 CSV、采集原件或 memory，也不请求、不补模板；HTML 只格式化调用方提供的人工汇总及轮次快照，不自行计算统计。生产 render 负责先只读校验任务、正本、冻结来源与人工表，利用采集原件及旧名单的完整直接关联重验人工，再从正本重建投影，随后复核当前 memory、分层和公开风险，最后选择三个评审 formatter。正本保存成功才覆盖配对名单；真实保存失败退出 1，不能当作输入失败或预算不足。render 不改人工表或采集原件，仍按原契约写回推荐记忆并声明结果。
+以上 formatter 只消费已投影列表及调用方提供的元数据，不读写评审正本、人工 CSV、采集原件或 memory，也不请求、不补模板；HTML 只格式化调用方提供的人工汇总及轮次快照，不自行计算统计。生产 render 负责先只读校验任务、正本、冻结来源与人工表，利用采集原件及旧名单的完整直接关联重验人工，再从正本重建投影，随后复核当前 memory、分层和公开风险，最后选择三个评审 formatter。正本保存成功才覆盖配对名单；真实保存失败退出 6（ADR-193），不能当作输入失败或预算不足。render 不改人工表或采集原件，仍按原契约写回推荐记忆并声明结果。
 
 ## 人工审核汇总（U11）
 
@@ -234,6 +241,7 @@ renderHtml(creators, meta, { mode: 'review', filters: 'dual' })
 需要包含：
 
 - 顶部统计：总人数、A/B/C 分布、有邮箱比例、跨平台人数；费用显示预算占用估算、总上限与分项（按固定公开基础价估算，不是实际账单），费用不可用时说明原因
+  公开指标已测账号数与高风险人数未提供或为 null 时明确标示未知状态，真实零显示 `0`；两种 HTML 视图一致，动态值仍在输出处转义一次（P1、U12）。
 - 关键词表现：**关键词×平台一行，任务里的每一个都在表上**，包括 0 命中的和一次都没查过的（U3.b）。
   每行先列任务序号（原 task_index 加一）；缺失或非法下标显示「无从确认」，不按显示位置猜补。
   序号不是查询或命中数；as_hashtag 不渲染成实际路径声明（U8）。
@@ -260,7 +268,7 @@ renderHtml(creators, meta, { mode: 'review', filters: 'dual' })
 
 下例展示部分业务字段；新增人工汇总与完整冻结轮次字段见上文 U11，实际费用字段完整契约见 [ADR-108](../../docs/adr/ADR-108-生产请求与输出统一使用逐端点费用账.md)。费用以脚本输出为准，不按请求数重算。`cost_estimate_usd` 是预算占用，含保守留存和 pending；四态 `cost_status` 与 `cost_problems` 决定金额是否可用，未知不显示零或百分比。根预算冲突整体不可用；HTML 同样说明原因，render 不修复任务费用。
 
-费用检查点失败以 stderr 和退出码 1 报错，可能没有本轮结果 JSON；不能拿上一次产物当本轮成功。持久 pending 不代表已发请求或已扣款，恢复时按脚本拒绝原因处理（ADR-109）。
+费用检查点失败以 stderr 和退出码 6 报错，可能没有本轮结果 JSON；不能拿上一次产物当本轮成功。持久 pending 不代表已发请求或已扣款，恢复时按脚本拒绝原因处理（ADR-109）。
 
 ```json
 {
@@ -355,3 +363,62 @@ Instagram 的「portable charger」这次一次都没查到 —— 预算停在�
 套用上面那句去说 `unknown`，等于替它编了一个诊断（「读不出来、你让我跳过了」），
 而 `unknown` 有两个来源、事后分不出是哪一个。措辞的规矩在
 [`memory.md`](memory.md) 里，**以那份为准** —— 这里只是把它排进输出顺序。
+
+### 测试观察用的记录文件与保存失败注入（契约 kol-test-observer/v1）
+
+这一节只给自动化测试用，平时用不到。它整个由环境变量 `KOL_TEST_OBSERVER_EVENTS` 打开：没设这个变量、或者值为空时，collect、probe、enrich 的行为、输出和落盘，与没有这一节时完全相同，当前目录里放着 `.kol-save-fault.json` 也一样。
+
+**记录文件。** `KOL_TEST_OBSERVER_EVENTS` 的值是一个文件的路径。测试观察器每一跑都设它，平时使用不用设。设了时，入口一启动就打开这个文件：不存在就新建，已存在就接着往后写，不清空。每条记录占一整行，是一个单行 JSON 对象，以换行结束；每个对象都有 `kind`（记录种类）和 `contract`（固定为 `"kol-test-observer/v1"`）。记录只写进这个文件：stdout 和 stderr 一行都不因此多写，除了这个文件也不因此写任何别的文件。这个文件打不开或写不进去时，入口在 stderr 说明原因，以 1 退出：启动时就打不开的，什么输入都不读；中途写不进去的，就停在那里，还没发出的请求都不再发。
+
+**一、预留事件。** 设了 `KOL_TEST_OBSERVER_EVENTS` 时，collect、probe、enrich 写两种记录。
+
+就绪记录：入口一启动、读取任何输入（命令行参数、配置、`task.json`）之前写一条，每一跑恰好一条。`entry` 取 `collect`、`probe` 或 `enrich`。
+
+```
+{"kind":"ready","contract":"kol-test-observer/v1","entry":"collect"}
+```
+
+预留记录：每一次预算预留尝试写一条，成没成都写。
+
+```
+{"kind":"reserve","contract":"kol-test-observer/v1","entry":"collect","scope":"task","endpoint":"/api/v1/tiktok/app/v3/fetch_video_search_result","unit_micro_usd":1000,"result":"reserved","attempt_id":3}
+```
+
+- `scope`：`task` 是写进 `task.json` 的任务账（collect、enrich）；`process` 是只在本进程里的账（probe）。
+- `endpoint`：这次请求的 URL 路径，不含主机和查询串。
+- `unit_micro_usd`：这一路的单价，单位是百万分之一美元。
+- `result`：`reserved` 是预留成功，`rejected` 是被拒。
+- `attempt_id`：只在 `scope` 为 `task` 且 `result` 为 `reserved` 时有，是这次尝试在任务账里的序号。
+- `reason`：只在 `rejected` 时有，取五个之一。`budget`：已知额度不够付这一次。`ledger-unavailable`：费用账缺席、损坏或版本认不得。`pending`：账上有没结的预留。`root-conflict`：根预算与账上的上限冲突。`save-failed`：这次预留没能存进任务账，或本跑早先已有一次保存失败。
+
+`reserved` 记录在这次预留已经存好（任务账）之后、真正发出这次 HTTP 请求之前写出。每一次真实的 HTTP 尝试（包括重试和换路）恰好对应一条 `reserved` 记录，没有发出去的尝试没有 `reserved` 记录。`rejected` 记录在被拒的那一刻写出，这次请求不发。
+
+**二、让某一次保存故意失败。** 只对 collect 生效，也只在设了 `KOL_TEST_OBSERVER_EVENTS` 时生效。这时当前目录下有 `.kol-save-fault.json` 的话，collect 启动时读它一次，只读，不改也不删。
+
+```
+{"schema":"kol-save-fault/v1","point":"SP-R","occurrence":1}
+```
+
+`point` 是保存点，取五个之一：
+
+- `SP-R`：每次真实 HTTP 尝试之前，把这次预留写进 `task.json` 的那次保存。
+- `SP-200`：收到 HTTP 200 之后，把费用终态写进 `task.json` 的那次保存。
+- `SP-N200`：收到非 200 的 HTTP 状态之后，把撤销终态写进 `task.json` 的那次保存。
+- `SP-NS`：没拿到 HTTP 状态（例如连不上）之后，把保守留存的终态写进 `task.json` 的那次保存。
+- `SP-BUD`：已知额度不足、停下时的断点保存；注入时作者文件和 `task.json` 都不写。
+
+`occurrence` 是正整数 k。本跑里这个保存点第 k 次出现时，那一次保存不写盘，collect 照真实的保存失败收尾，和磁盘写失败走同一条路：stderr 报保存失败，原因写明是 `.kol-save-fault.json` 注入的。同一跑里这个保存点的其余各次和别的保存点都照常写。注入不改变请求的端点、价目、调度和重试次数。
+
+生效的那一刻，记录文件里写一条命中记录，一跑最多一条。`attempt_id` 和 `endpoint` 只在 `SP-R`、`SP-200`、`SP-N200`、`SP-NS` 时有。
+
+```
+{"kind":"save-fault","contract":"kol-test-observer/v1","entry":"collect","point":"SP-R","occurrence":1,"attempt_id":3,"endpoint":"/api/v1/tiktok/app/v3/fetch_video_search_result","not_written":true}
+```
+
+退出时如果注入一直没生效，记录文件里写一条未命中记录。`seen` 是本跑里这个保存点实际出现的次数。`why` 是 `not-reached`（没到第 k 次）或 `invalid-file`（文件不是合格的 JSON、`schema` 不对、`point` 不在上面五个里，或 `occurrence` 不是正整数）；文件不合格时不注入、其余照常，读不出的字段写 `null`。
+
+```
+{"kind":"save-fault-miss","contract":"kol-test-observer/v1","entry":"collect","point":"SP-R","occurrence":1,"seen":0,"why":"not-reached"}
+```
+
+平时使用不需要、也不应该放这个文件。

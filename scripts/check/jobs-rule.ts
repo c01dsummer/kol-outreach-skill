@@ -36,7 +36,6 @@
  * 是因为它与 `ownGroup` 读同一种 `/proc/<pid>/stat` 正文、用同一种切法；自检本身在验证基础设施
  * 闭包里，这条判定只有放在规则模块里才有变异守着。
  */
-import { basename } from 'node:path'
 
 import type { RunVerdict } from './mutate-rule.js'
 
@@ -143,6 +142,36 @@ export function parseReport(line: string): ({ id: string } & Ran) | undefined {
     ...(hasStarted ? { started: started as boolean } : {}) }
 }
 
+/** 派给一个 worker 的下一步：一个编号，或者关掉它的输入 —— 它收完手上那条就退出 */
+export type Hand = { send: string } | { end: true }
+
+/**
+ * 「一条一派」的那一步（ADR-72 第 211 行那张欠条）：worker 起来时调一次，每交回一条结论再调一次。
+ * **从共用的队列里取走**那一条 —— 只看不取的话，下一个来要的领到同一条，同一条跑两遍、
+ * 末尾那条没人跑。队列空了交回关输入：不关的话 worker 一直等下一个编号，`close` 永远不来。
+ *
+ * 这是判定不是 I/O（`docs/CONVENTIONS.md` 第 10 条）：顺序错了会漏跑或者挂住。入口只留
+ * 起进程、写管道、关输入。
+ */
+export function handNext(queue: string[]): Hand {
+  const id = queue.shift()
+  return id === undefined ? { end: true } : { send: id }
+}
+
+/** worker 交回的一行，派工那一侧怎么接 */
+export type WorkerLine = { report: { id: string } & Ran } | { skip: true } | { end: true }
+
+/**
+ * 读得出是结论：交回结论，入口记账、再派下一条。没有记号的是验证者漏出来的闲话：跳过。
+ * **带着记号却读不出来**：让这个 worker 收摊 —— 理由见 `looksLikeReport`，剩下的编号由别的
+ * worker 领，没领到的由核账报出来。
+ */
+export function workerLine(line: string): WorkerLine {
+  const r = parseReport(line)
+  if (r !== undefined) return { report: r }
+  return looksLikeReport(line) ? { end: true } : { skip: true }
+}
+
 /** 一个验证者在这一跑里的账：用了几条、实测花了多久 */
 export interface BillRow {
   /** 验证者的名字（`VERIFIERS` 的键，缺省那个是 `test`） */
@@ -209,16 +238,72 @@ export function billLines(rows: readonly BillRow[]): string[] {
  *
  * 命令行压环境变量：临时改一次不该要求先改环境。都没写就按机器核数。
  * 再按要跑的条数收口 —— 派出去的 worker 比变异还多，多出来那几个只是白起一遍进程。
+ *
+ * **旗标本身写坏了当场抛**：这两种写错与 `group-rule.ts` 的 `parseOnlyStrict` 同等待遇（ADR-99 第 335 行；它还拒不认识的参数，这里不管）：
+ * 写了两次只认头一个、空格写法 `--jobs 3` 当成没写，都是把写的人以为自己给的那个数换成了另一个，
+ * 不是「说不清要几个」那一种。
  */
 export function jobsWanted(
   argv: readonly string[], env: string | undefined, cpus: number, total: number,
 ): number | undefined {
+  if (argv.includes('--jobs')) throw new Error('--jobs 要写成 --jobs=<个数>，不认空格写法')
+  if (argv.filter(a => a.startsWith('--jobs=')).length > 1) throw new Error('变异测试只能写一次 --jobs=')
   const flag = argv.find(a => a.startsWith('--jobs='))
   const asked = flag === undefined ? env : flag.slice('--jobs='.length)
   if (asked === undefined) return Math.max(1, Math.min(cpus, total))
   const n = Number(asked)
   if (!Number.isInteger(n) || n < 1) return undefined
   return Math.max(1, Math.min(n, total))
+}
+
+/**
+ * 这一跑只跑变异清单的第几份（ADR-197）。`MUTATE_SHARD=k/n`：清单按子集配置成摞分成 n 份（ADR-200，见 `shardOf`），这一跑跑第 k 份；
+ * 没写（或写空）就是整份，也就是 1/1。**说不清是哪一份就交回 undefined**，由入口当场拒绝 ——
+ * 写错的分法悄悄按整份跑，CI 上几台 runner 会各跑一遍全量，人以为分了、其实没分；
+ * 悄悄按 1/1 以外的哪一份跑更坏：有几份谁也没跑，却没有一处会红。
+ *
+ * 只在 CI 上用（`.github/workflows/check.yml` 的变异那几个 job）：本地 `npm run check` 不写它，照旧整份。
+ */
+export function shardWanted(env: string | undefined): { index: number; count: number } | undefined {
+  if (env === undefined || env.trim() === '') return { index: 1, count: 1 }
+  const m = /^(\d+)\/(\d+)$/.exec(env.trim())
+  if (m === null) return undefined
+  const index = Number(m[1]), count = Number(m[2])
+  if (!Number.isSafeInteger(index) || !Number.isSafeInteger(count)) return undefined
+  if (index < 1 || index > count) return undefined
+  return { index, count }
+}
+
+/**
+ * 第 index 份（从 1 数）是哪几条（ADR-200）：**同一种子集配置的整摞落在同一份里**，那种配置的正常基线就只在这一份跑一次。
+ * `keyOf` 交回这一条的配置键；交回 undefined 的（整跑的，没有子集基线）各自成一摞。
+ * 摞按条数从多到少排（一样多的按在清单里第一次出现的先后），逐摞发给眼下条数最少的那一份（一样少的给编号小的）。
+ * 交回的照清单原顺序。每一条恰好落在一份里，几份合起来就是整份清单；每一份各自算，算出来的分法一样。
+ *
+ * 按条数而不按秒数配：拿一跑的实测秒数回放过，照条数分的几份秒数差得不多（数在 ADR-200 第二节）。
+ * 不再轮流发：轮流发时每一份都碰到约八成的配置，每种配置的基线三份各跑一遍（ADR-197 第五节那张欠条）。
+ */
+export function shardOf<T>(items: readonly T[], keyOf: (item: T) => string | undefined, index: number, count: number): T[] {
+  const piles: number[][] = []
+  const byKey = new Map<string, number[]>()
+  items.forEach((item, i) => {
+    const key = keyOf(item)
+    const known = key === undefined ? undefined : byKey.get(key)
+    if (known !== undefined) { known.push(i); return }
+    const pile = [i]
+    piles.push(pile)
+    if (key !== undefined) byKey.set(key, pile)
+  })
+  const order = piles.map((pile, at) => ({ pile, at })).sort((a, b) => b.pile.length - a.pile.length || a.at - b.at)
+  const loads: number[] = Array.from({ length: count }, () => 0)
+  const mine = new Set<number>()
+  for (const { pile } of order) {
+    let to = 0
+    for (let s = 1; s < count; s++) if (loads[s] < loads[to]) to = s
+    loads[to] += pile.length
+    if (to === index - 1) for (const i of pile) mine.add(i)
+  }
+  return items.filter((_unused, i) => mine.has(i))
 }
 
 /**
@@ -232,31 +317,43 @@ export function missingVerdicts(handed: readonly string[], reported: ReadonlySet
 }
 
 /**
- * 这个名字**要不要带进 worker 的那份副本**。
+ * worker 的那份副本**带哪些文件**：清单由 git 说（`git ls-files -z --cached --others --exclude-standard`，
+ * 受跟踪的加上没被忽略的），这里只做解析与两道不交给 git 的挡（ADR-72 第 303 行）。
  *
  * 为什么这是判定而不是 I/O：`docs/CONVENTIONS.md` 第 10 条把「跳过哪些目录、
  * 哪些文件算数」明写在判定那一层 —— 它决定 worker 看得见什么。这里错一格的后果
  * 不是跑得慢：**一份装着密钥的 `.env.local` 会被复制进每个 worker 目录**，
  * 正常跑完会删，被硬杀就留在盘上。
  *
- * 两张表，一张逐字比一张按前缀。`.env` 那一族必须按前缀 —— 这两张表合起来是
- * `.gitignore` 的**手抄本**，而手抄本会漂：实测漂过一次，`.gitignore` 里写着
- * `.env.local`，表里只有 `.env`，而逐字比认不出前者。
+ * 原先这里是两张手抄的跳过表（逐字比一张、按前缀一张），合起来是 `.gitignore` 的**手抄本**，
+ * 而手抄本会漂：实测漂过一次，`.gitignore` 里写着 `.env.local`，表里只有 `.env`。改成问 git 之后，
+ * 要记的只剩 `.gitignore` 那一份，漏登记的东西会出现在 `git status` 里。没登记进去的密钥文件仍会被带进副本
+ * （它没受跟踪、也没被忽略）—— 所以下面 `.env` 那一道挡留着；带斜杠的那几行只挡目录，根上同名的符号链接
+ * git 照列（ADR-72 末节已知边界）。
  *
- * 偏大的那一头是安全的：worker 不需要任何 `.env`，它继承派工进程的环境变量。
- * 跟着被挡掉的受跟踪文件 `.env.example` 也是有意的 —— 全仓库只有 `README.md`
- * 把它当一句 `cp` 的说明提过一次，没有任何代码从盘上读它。
+ * 以 `/` 结尾的一项不带：那是 git 认出来的一整个没受跟踪的嵌套仓库（比如树里的一份 worktree、一份克隆），
+ * 不是这棵树的文件，照文件复制会当场 `EISDIR`。
  *
- * ⚠️ **两份表是手抄本这件事本身没修，只补了漏掉的那一项。** 真正的修法是不再手抄：
- * 让 `git ls-files --cached --others --exclude-standard` 来说哪些该复制，失败方向就从
- * 「不该带的漏进来」翻成「该带的漏出去」。挡着的是自检夹具 —— 它们的语料建在临时目录里，
- * **不是 git 仓库**，那条路会把它们全弄挂。欠条与重启条件记在 ADR-72。
+ * 不交给 git 的两道：
+ * - `mutate` 自己占着的两处：作业目录在 `.check-cache` 底下（带进去就是把自己复制进自己），
+ *   `node_modules` 换成一条符号链接。一棵没写 `.gitignore` 的树（自检的玩具语料就是）里它们是
+ *   「没被忽略的」，git 会列出来。
+ * - 路径里哪一节以 `.env` 开头的一律不带：worker 不需要任何 `.env`，它继承派工进程的环境变量；
+ *   `.gitignore` 里只写了 `.env` 与 `.env.local`，一份没登记的 `.env.production` git 会照列。
+ *   跟着被挡掉的还有受跟踪的 `.env.example`，是有意的：没有任何代码从盘上读它。
+ *
+ * 不开工的两种（交回 `fault`，入口照原话报、以 1 退出）：当前目录不是仓库顶层（`prefix` 是
+ * `git rev-parse --show-prefix` 的那一行，顶层时为空 —— 不在顶层时 git 只列这一层底下的，
+ * 带出去的是半棵树）；清单是空的（一个文件都不带，验证者跑的是一棵空树）。
  */
-const SKIP = new Set(['node_modules', '.git', '.check-cache', 'output', 'memory'])
-const SKIP_PREFIX = ['.env']
-export function copyIntoWorker(src: string): boolean {
-  const name = basename(src)
-  return !SKIP.has(name) && !SKIP_PREFIX.some(p => name.startsWith(p))
+const OWNED = ['.check-cache', 'node_modules']
+export type CopyList = { files: string[] } | { fault: string }
+export function workerCopyList(prefix: string, listing: string): CopyList {
+  if (prefix.trim() !== '') return { fault: `当前目录不是仓库顶层（git 说这里在仓库的 ${prefix.trim()} 底下）` }
+  const files = [...new Set(listing.split('\0'))].filter(p => p !== '' && !p.endsWith('/'))
+    .filter(p => !OWNED.includes(p.split('/')[0]) && !p.split('/').some(part => part.startsWith('.env')))
+  if (files.length === 0) return { fault: 'git 列出来要带进副本的文件一个也没有' }
+  return { files }
 }
 
 /**
@@ -283,7 +380,9 @@ export function noStdio(kid: { stdin?: unknown }): boolean {
  *
  * 这条判定在别处已经有一份（`mutate-restore.ts` 停测试那一步的 `pid === undefined`
  * 就返回），而硬来那一步漏了 —— 同一个坑的第二处。抽在这里是为了第三处不要再漏，
- * 也为了它能被变异守住：留在入口里的话，指着入口的变异会被「自己验自己」拦下。
+ * 也为了它能被变异守住：`mutate.ts` 在自检的验证基础设施闭包里，指着它、显式写了
+ * `by` 且不是 `test` 的变异会被「自己验自己」拦下；不写 `by` 或写 `by: test` 不被拦，
+ * 但当前需求测试没走到硬来时跳过未启动对象的那段接线，留在入口里就只有自检夹具守这一半。
  */
 export function neverStarted(kid: { pid?: number }): boolean {
   return kid.pid === undefined
@@ -322,7 +421,7 @@ export function signalTargets<T extends { pid?: number }>(kids: Iterable<T>): T[
  *
  * **硬来那一步是同步的,而管道不是。** 它从三个地方进来 —— `error` 事件、`noStdio`、
  * 建目录那一圈的外层 catch —— 其中后两条发生在派工进程**一次事件循环都还没转过**的时候
- * (`cpSync` → `spawn` → 第一次 `hand()` 是一整趟同步)。那时管道里就算躺着一行号,
+ * (建副本 → `spawn` → 第一次 `hand()` 是一整趟同步)。那时管道里就算躺着一行号,
  * 也还没变成「派工进程知道」。文件不挑这个:`readFileSync` 当场就读得到。
  *
  * 代价诚实写在这里:**fd 到顶那一次硬来,号一个都读不出来**,那几组验证者照旧漏掉。
@@ -339,20 +438,45 @@ export function signalTargets<T extends { pid?: number }>(kids: Iterable<T>): T[
 export const BEACON_FLAG = '--beacon='
 
 /**
+ * 这一跑的作业目录：作业根底下、按**派工进程的号**分开的一层（ADR-74 第 237 行）。
+ *
+ * 原先所有跑共用作业根，worker 目录叫 `w0`、`w1`……开头那句整删又删的是整个根 ——
+ * 两跑同时开，后来的那个把先来的那份连同号文件一起抹掉，先来的那个硬来时读到 ENOENT、
+ * 当成「没号」一声不响放过，它底下的验证者那一组就留着了（实测，记在 ADR-74）。
+ * 分开之后每一跑只在自己这一层里建；根底下别的跑留下的层，由 `staleRunDirs` 判谁能清（进程已不在的）。
+ */
+export function jobsRunDir(jobsRoot: string, dispatcherPid: number): string {
+  return `${jobsRoot}/${dispatcherPid}`
+}
+
+/**
  * 第 `i` 个 worker 的号文件搁哪。**派工进程算一次**,既记在自己表里、又拼进 argv 交给 worker。
  *
- * 两处讲究,各挡一种坏法:
+ * **是 `w<i>/` 的兄弟,不是它的孩子。** 那个目录是照 git 清单建出来的源码树,
+ * 也是验证者的 cwd,还是收尾那句 `rmSync` 的目标。号文件落进去会跟着被复制、
+ * 被检查链看见、被当成树的一部分。放在外面、仍在这一跑的作业目录底下,收尾顺手收掉。
  *
- * - **是 `w<i>/` 的兄弟,不是它的孩子。** 那个目录是 `cpSync` 复制出来的源码树,
- *   也是验证者的 cwd,还是收尾那句 `rmSync` 的目标。号文件落进去会跟着被复制、
- *   被检查链看见、被当成树的一部分。放在外面、仍在 `JOBS_DIR` 底下,收尾顺手收掉。
- * - **名字里带派工进程的号。** 同一棵树上另一跑(或者被当工具起的另一个 `mutate`)
- *   留下的号文件,路径就对不上,我们读都不会去读 —— **不会拿着别人的号去开刀**。
- *   ⚠️ 挡的只有这一头。它**挡不住别人把我们这份删掉** —— 两跑共用同一个根目录、
- *   `w<i>` 还同名,那一格还开着(实测过,记在 ADR-74);也堵不住**号被系统回收**给别人。
+ * 两跑不会读到对方的号,靠的是 `runDir` 本身已经按派工进程分开(`jobsRunDir`);
+ * 原先名字里带派工进程的号挡的就是这一头,而它挡不住别人把我们这份删掉 —— 那一格现在由
+ * 「各删各的那一层」堵上。**号被系统回收**给别人这一格照旧没堵。
  */
-export function beaconPathOf(jobsDir: string, dispatcherPid: number, i: number): string {
-  return `${jobsDir}/w${i}.${dispatcherPid}.verifier`
+export function beaconPathOf(runDir: string, i: number): string {
+  return `${runDir}/w${i}.verifier`
+}
+
+/**
+ * 作业根底下哪几层可以清掉：名字是一个正整数(派工进程的号),而那个进程**已经不在了**。
+ *
+ * 原先「下一跑开头整删」顺带收掉了上一跑被 SIGKILL 留下的半成品；各删各的之后这件事要另判,
+ * 否则被硬杀的那一跑留下的副本永远没人收。两头都不许错：
+ * - 进程还在的不清 —— 那正是本条要堵的「后来的抹掉先来的」。问不出来(没权限发信号)也算在。
+ * - 名字不是号的不碰 —— 旧布局(`w0`、`baseline-0`、号文件)或别的东西,不知道是谁的,不猜。
+ *
+ * ⚠️ 号被回收给一个不相干的进程时,那一层会一直留着(只占盘,不误删);
+ * 共用同一棵树、却不在同一个进程号空间里的两跑(比如一跑在容器里)会把对方当成已不在 —— 记在 ADR-74。
+ */
+export function staleRunDirs(names: readonly string[], alive: (pid: number) => boolean): string[] {
+  return names.filter(n => /^[1-9][0-9]*$/.test(n) && !alive(Number(n)))
 }
 
 /**

@@ -13,7 +13,7 @@ enrich 先校验任务列表、品牌输入、Agent 正本、冻结来源与已�
 npm run enrich -- --dir output/xxx
 ```
 
-已知额度不足时，断点保存成功后退出 3；保存失败退出 1。`--budget` 修改的是同一任务的**总上限**：
+已知额度不足时，断点保存成功后退出 3；保存失败退出 6；供应商余额不足（402）退出 5（ADR-193）。`--budget` 修改的是同一任务的**总上限**：
 
 ```bash
 npm run enrich -- --dir output/xxx --budget 3

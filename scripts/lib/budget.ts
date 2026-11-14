@@ -5,6 +5,7 @@ import {
 } from './cost-ledger.js'
 import { assertCostJsonRuntime, readCostLimit, setCostLimitField, type CostState } from './cost-json.js'
 import { quoteTikHub, TIKHUB_PRICE_BASIS, TIKHUB_PRICE_CATALOG } from '../providers/tikhub-pricing.js'
+import { obsReserve, type Attempt, type RejectReason } from './obs.js'
 
 export type CostView = {
   requests: number | null
@@ -20,7 +21,9 @@ export type CostView = {
   cost_problems: CostProblem[]
 }
 export type NotifyCost = (threshold: 0.5 | 0.8, view: CostView) => void
-export type PersistCost = (snapshot: CostSnapshot) => void
+/** 这一次费用保存是哪个保存点、对着哪一次尝试（kol-test-observer/v1 的保存点名；collect 据此注入，见 `obs.ts`） */
+export type CostSave = Attempt & { point: 'SP-R' | 'SP-200' | 'SP-N200' | 'SP-NS' }
+export type PersistCost = (snapshot: CostSnapshot, save: CostSave) => void
 export class BudgetInputError extends Error {
   constructor(message: string) { super(message); this.name = 'BudgetInputError' }
 }
@@ -50,6 +53,20 @@ export function costView(state: CostState): CostView {
     cost_price_versions: [...new Set([...ledger.entries, ...(ledger.pending ? [ledger.pending] : [])].map(e => e.price_version))] }
 }
 
+/** 预留被拒时属于 kol-test-observer/v1 的哪一种原因：抛出点当场标上，`reserve` 写预留记录时取 */
+const REJECTED = new WeakMap<object, RejectReason>()
+const refused = <E extends Error>(reason: RejectReason, error: E): E => { REJECTED.set(error, reason); return error }
+function rejectReason(error: unknown): RejectReason {
+  const tagged = typeof error === 'object' && error !== null ? REJECTED.get(error) : undefined
+  if (tagged) return tagged
+  if (error instanceof CostError && error.code === 'persistence-failed') return 'save-failed'
+  if (error instanceof CostError && error.code === 'budget-exceeded') return 'budget'
+  if (error instanceof CostError && error.code === 'pending-attempt') return 'pending'
+  // 余下的是账本身走不下去（运行时缺精确 JSON、尝试序号到顶）：契约五种里最近的是「认不得」（ADR-186）
+  return 'ledger-unavailable'
+}
+const unitOf = (endpoint: string): number | undefined => { try { return quoteTikHub(endpoint).unit_micro_usd } catch { return undefined } }
+
 export class Budget {
   private engine?: CostBudget
   private notified = new Set<number>()
@@ -63,13 +80,16 @@ export class Budget {
     try { assertCostJsonRuntime() } catch (e) { throw new BudgetInputError((e as Error).message) }
     if (checkRoot) {
       const view = this.view()
-      if (view.cost_status !== 'known') throw new BudgetInputError(`费用账不可用：${view.cost_problems.map(p => `${p.path}: ${p.reason}`).join('; ')}`)
+      // 账本身认得、合起来却不可用，只剩根预算与账上上限对不上那一种（`costView`）
+      const rootConflict = () => inspectExistingCostLedger(this.state.cost_ledger, this.state.requests, TIKHUB_PRICE_CATALOG).status === 'known'
+      if (view.cost_status !== 'known') throw refused(rootConflict() ? 'root-conflict' : 'ledger-unavailable',
+        new BudgetInputError(`费用账不可用：${view.cost_problems.map(p => `${p.path}: ${p.reason}`).join('; ')}`))
     }
     if (this.engine) return this.engine
     const seen = inspectExistingCostLedger(this.state.cost_ledger, this.state.requests, TIKHUB_PRICE_CATALOG)
-    if (seen.status !== 'known') throw new BudgetInputError(`费用账不可用：${seen.problems.map(p => `${p.path}: ${p.reason}`).join('; ')}`)
+    if (seen.status !== 'known') throw refused('ledger-unavailable', new BudgetInputError(`费用账不可用：${seen.problems.map(p => `${p.path}: ${p.reason}`).join('; ')}`))
     if (seen.snapshot.cost_ledger.pending)
-      throw new BudgetInputError('cost_ledger.pending 存在未结预留，不能新增付费或改额')
+      throw refused('pending', new BudgetInputError('cost_ledger.pending 存在未结预留，不能新增付费或改额'))
     this.engine = restoreCostBudget(this.state.cost_ledger, this.state.requests, TIKHUB_PRICE_CATALOG)
     return this.engine
   }
@@ -77,20 +97,33 @@ export class Budget {
   private assertWritable(): void {
     if (this.persistenceFailure) throw this.persistenceFailure
   }
-  private checkpoint(): void {
+  private checkpoint(save: CostSave): void {
     if (!this.persistCost) return
-    try { this.persistCost(this.engine!.snapshot()) }
+    try { this.persistCost(this.engine!.snapshot(), save) }
     catch (error) {
       this.persistenceFailure = new CostError('persistence-failed', `保存费用失败：${error instanceof Error ? error.message : String(error)}`)
       throw this.persistenceFailure
     }
   }
 
+  /**
+   * 每一次尝试都留一条预留记录（kol-test-observer/v1，开着记录文件时）：成了的在预留存好之后、返回去发请求之前写，
+   * 被拒的在拒的那一刻写。价目外的端点算不出单价，不写行 —— 那是调用方的缺陷，`quoteTikHub` 照样会抛（ADR-186）
+   */
   reserve(endpoint: string): AttemptReceipt {
-    const engine = this.open(true)
-    const receipt = engine.reserve(quoteTikHub(endpoint))
-    this.sync()
-    this.checkpoint()
+    const unit = unitOf(endpoint)
+    let engine: CostBudget, receipt: AttemptReceipt, attempt_id: number
+    try {
+      engine = this.open(true)
+      receipt = engine.reserve(quoteTikHub(endpoint))
+      this.sync()
+      attempt_id = engine.snapshot().cost_ledger.pending!.attempt_id
+      this.checkpoint({ point: 'SP-R', attempt_id, endpoint })
+    } catch (error) {
+      if (unit !== undefined) obsReserve(endpoint, unit, { result: 'rejected', reason: rejectReason(error) })
+      throw error
+    }
+    if (unit !== undefined) obsReserve(endpoint, unit, { result: 'reserved', attempt_id })
     const { occupied_micro_usd: occupied, limit_micro_usd: limit } = engine.summary()
     for (const threshold of [0.5, 0.8] as const) {
       const numerator = threshold === 0.5 ? 5n : 8n
@@ -104,9 +137,12 @@ export class Budget {
   settle(receipt: AttemptReceipt, outcome: AttemptOutcome): void {
     this.assertWritable()
     if (!this.engine) throw new CostError('invalid-receipt', '本运行没有当前请求凭据')
+    const pending = this.engine.snapshot().cost_ledger.pending
     this.engine.settle(receipt, outcome)
     this.sync()
-    this.checkpoint()
+    // 结算成了，账上原先一定有这一笔未结预留（`settle` 不认别的凭据）
+    this.checkpoint({ point: outcome.kind === 'no_http_status' ? 'SP-NS' : outcome.status === 200 ? 'SP-200' : 'SP-N200',
+      attempt_id: pending!.attempt_id, endpoint: pending!.endpoint })
   }
   setLimit(limit: MicroUsd): void {
     this.assertWritable()

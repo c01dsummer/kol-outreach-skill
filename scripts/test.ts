@@ -1,4 +1,22 @@
 #!/usr/bin/env tsx
+import asHashtagPermanentAssert from 'node:assert/strict';
+import { isDeepStrictEqual as asHashtagPermanentDeepEqual } from 'node:util';
+import type { runPrebuiltNoConfigContracts as RunPrebuiltNoConfigContracts } from './prebuilt-no-config-contract-test.js'
+import { mkdtempSync as cxMkdtempSync, mkdirSync as cxMkdirSync, writeFileSync as cxWriteFileSync, rmSync as cxRmSync } from 'node:fs';
+import { join as cxJoin, dirname as cxDirname, relative as cxRelative, isAbsolute as cxIsAbsolute } from 'node:path';
+import { tmpdir as cxTmpdir } from 'node:os';
+import { createHash as cxCreateHash } from 'node:crypto';
+import { pathToFileURL as cxPathToFileURL } from 'node:url';
+import { spawnSync as cxSpawnSync } from 'node:child_process';
+import { prebuildTree as cxPrebuildTree, fixtureLoader as cxFixtureLoader, prebuiltCommand as cxPrebuiltCommand, isBare as cxIsBare } from './check/prebuilt.js';
+import { mkdtempSync as scMkdtempSync, realpathSync as scRealpathSync, mkdirSync as scMkdirSync, writeFileSync as scWriteFileSync, existsSync as scExistsSync, rmSync as scRmSync } from 'node:fs';
+import { join as scJoin, dirname as scDirname } from 'node:path';
+import { tmpdir as scTmpdir } from 'node:os';
+import { createHash as scCreateHash } from 'node:crypto';
+import { prebuildTree as scPrebuildTree, prebuiltCommand as scPrebuiltCommand, isBare as scIsBare } from './check/prebuilt.js';
+import { runWallclockContract } from './ci-wallclock-contract-test.js'
+import { runWallclockIdentityContracts } from './ci-wallclock-identity-test.js'
+import { runActualPathContracts } from './actual-path-contract-test.js'
 import { effectivePriority, projectManualFeedback } from './lib/effective-priority.js'
 import { prepareTaskReviews } from './lib/task-reviews.js'
 /**
@@ -14,7 +32,7 @@ import { configurationKey, costObservation, configurationCost, configurationCost
 import type { RunVerdict } from './check/mutate-rule.js'
 import { stopsEarly } from './check/mutate-rule.js'
 import {
-  LAUNCH_LIMIT, LAUNCH_SUMMARY_FILE, LAUNCH_SUMMARY_SCHEMA, idleGroupsLine, inProcessLine, launchFindings, launchGate, launchRecheck, launchReport,
+  LAUNCH_LIMIT, LAUNCH_PART_NAME, LAUNCH_SUMMARY_FILE, joinLaunchParts, launchPartFile, LAUNCH_SUMMARY_SCHEMA, idleGroupsLine, inProcessLine, launchFindings, launchGate, launchRecheck, launchReport,
   launchSummary, launchTally, paidLaunches, printLabel, settleLaunches, summaryLine, tallyLine,
   type BaselineLaunches, type LaunchFinding, type LaunchMutation, type LaunchPrint, type LaunchSummary, type LaunchTally, type LaunchTrunk, type LaunchVerifier,
 } from './check/launch-rule.js'
@@ -22,18 +40,20 @@ import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { adrDocs, entries, ledgerReport, ledgerSummary, orphanIous } from './check/debt-rule.js'
-import { implementationLeak } from './check/why-rule.js'
+import { TEXT_LIMIT, changedFiles, closedKeys, entryKey, entryTexts, namedFiles, pathNames, touchLines, touchReport, trackedFiles } from './check/debt-touch-rule.js'
+import { briefLeaks, implementationLeak } from './check/why-rule.js'
+import { writeAllSync } from './check/sync-write.js'
 import {
   JUDGMENT_EXEMPT, coverageSummary, criterionMutations, deprecatedBlock, judgmentModules,
   ledger, selfcheckCriterionMutations, unguarded,
 } from './check/audit-rule.js'
 import {
-  VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, exitRace,
+  VERIFIERS, allKilled, complete, crashEvidence, exemptionCovered, exemptionLead, exitFaults, exitRace,
   judgeRun, killsMatched,
   labelFault, notAssertion,
   labelFaults,
-  groupOfLabel, labelsOf, leadWired, processFailed, wiringFault,
-  anchorMatches, baselineFault,
+  groupOfLabel, labelsOf, leadWired, processFailed, unmarkedDiagnostics, wiringFault,
+  anchorCatalog, anchorFaults, anchorMatches, anchorVerdict, applyMutation, baselineFault, notARepo, stagedResidue,
 } from './check/mutate-rule.js'
 import { type Group, families, mergeShards, parseOnly, parseOnlyStrict, readShardReport, shardJobs, shardOrder, wanted } from './check/group-rule.js'
 import { judgeShares, scanShares } from './check/share-rule.js'
@@ -42,9 +62,9 @@ import {
   testRunning, trackTest,
 } from './check/mutate-restore.js'
 import {
-  type BillRow, type Outcome, type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf,
-  billLines, copyIntoWorker, groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
-  neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill,
+  type BillRow, type Outcome, type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, jobsRunDir, staleRunDirs, workerCopyList,
+  billLines, groupShot, handNext, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts, shardOf, shardWanted,
+  neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill, workerLine,
 } from './check/jobs-rule.js'
 import {
   active, adrIdsIn, contentHash, criteriaCell, danglingAdrRefs, mutationCell, renderTables,
@@ -75,14 +95,23 @@ import {
 import { endsOpen, quotedMask } from './check/quoted.js'
 import { compileCacheDir, tsxCommand } from './check/tsx-cmd.js'
 import {
+  PREBUILT_DIR, asTsx, bareLaunch, bringsTsxLoader, complete as cacheComplete, identityOf, isBare, ownerOf, prebuildOne, prebuildTree,
+  fixtureLoader, prebuiltCommand, scriptsRootOf,
+} from './check/prebuilt.js'
+import { entryPath, keyOf, prebuiltHooks } from './check/prebuilt-hook.js'
+import {
   SELFCHECK_FIXTURE_MARK, SELFCHECK_PRELOAD, SELFCHECK_PROCESS_MARK, SELFCHECK_SEEDS,
   SELFCHECK_TOOLS,
   closure, importsOf, infraClosure, selfVerifying, selfcheckSummary,
 } from './check/verifier-rule.js'
+import {
+  API_KEY_PLACEHOLDER, SCRIPT_SCHEMA, answer, ghDirs, judgeRun as judgeObservation, layoutId, netcutProblems, observerEnv, readEvents, rwProblems, sandboxArgs, sandboxModulePath,
+  scriptProblems, zeroVerdict, type Armed, type Judged, type Layout, type NetcutFacts, type Observation, type ProbeReport, type RequestEvent, type ResponseScript, type RunFacts,
+} from './check/observer-rule.js'
 import { linkCrossPlatform, mergeCrossPlatform } from './lib/identity.js'
 import { scoreCreator, tierOf, passesFollowerGate } from './lib/score.js'
 import { formatDiscoverySources, mergeDiscoverySources } from './lib/discovery.js'
-import { hashtagKeyword, igRouteProblems } from './lib/ig-route.js'
+import { asHashtagProblems, hashtagKeyword, igRouteProblems } from './lib/ig-route.js'
 import { taskListProblems } from './lib/search-tasks.js'
 import { duplicateProgressProblems, resumeProgressProblems } from './lib/resume-progress.js'
 import { duplicateKeyProblems } from './lib/duplicate-keys.js'
@@ -127,6 +156,7 @@ import {
   TIKHUB_PRICE_BASIS, TIKHUB_PRICE_CATALOG, TIKHUB_PRICE_VERSION, quoteTikHub, resolveTikHubPrice,
 } from './providers/tikhub-pricing.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
+import { unsourcedLine } from './lib/draft-claims.js'
 import { filterByMemory, loadMemory, MemoryUnreadable, recordRecommendations, useMemoryFile } from './lib/memory.js'
 import {
   MAX_PAGES, canRequestPage, finalize, firstPagePending, igAfterPage, keywordsResumeWillRun,
@@ -140,7 +170,7 @@ import {
 } from './lib/assessment.js'
 import {
   writeFileSync, unlinkSync, truncateSync, rmSync, mkdirSync, mkdtempSync, existsSync,
-  readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync,
+  readdirSync, chmodSync, statSync, symlinkSync, lstatSync, utimesSync, cpSync, realpathSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
@@ -148,7 +178,7 @@ import type {
   AccountAssessment, AudienceRiskAssessment, CollaborationQuote, Creator, DiscoverySource, EnrichmentState, MetricSource, NormalizedPublicPost, RecentPost, SearchTask, TaskState,
 } from './lib/types.js'
 import { asMemoryStatus, creatorKey } from './lib/types.js'
-import { loadRawCreators, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
+import { loadRawCreators, loadReviewCreatorInputs, loadTask, persistListAndStatus, saveCostCheckpoint, saveRawCreators, saveTask } from './lib/task.js'
 import { isAbsence, mkdirDurable, writeFileAtomic } from './lib/atomic.js'
 
 let fail = 0
@@ -163,8 +193,13 @@ const GROUPS: readonly Group[] = [
   { id: 'p1-profile-state', needs: [] },
   { id: 'p1-plays', needs: [] },
   { id: 'p2-placeholders', needs: [] },
+  { id: 'p2-draft-claims', needs: [] },
   { id: 'd6-pipeline', needs: [] },
   { id: 'd4-memory', needs: [] },
+  { id: 'd4t-ignore-memory', needs: [] },
+  { id: 'd4s-independent-claim', needs: [] },
+  { id: 'd4t-independent-claim', needs: [] },
+  { id: 'd4-pid-boundary', needs: [] },
   { id: 'f5-geo', needs: [] },
   { id: 'u3-keywords', needs: [] },
   { id: 'u8-labels', needs: [] },
@@ -178,6 +213,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd11-posts', needs: [] },
   { id: 'd15-discovery-sources', needs: [] },
   { id: 'd15-hashtag-parser', needs: [] },
+  { id: 'd15-as-hashtag', needs: [] },
   { id: 'd15-hashtag', needs: [] },
   { id: 'd16-tasks', needs: [] },
   { id: 'd17-config', needs: [] },
@@ -185,6 +221,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd27-p3-entry', needs: ['d19-resume'] },
   { id: 'p1-followers-sort', needs: [] },
   { id: 'd5-csv', needs: [] },
+  { id: 'd2-d8-actual-paths', needs: [] },
   { id: 'f6-veto', needs: [] },
   { id: 'f7-budget-notices', needs: [] },
   { id: 'f8-risk', needs: [] },
@@ -197,8 +234,16 @@ const GROUPS: readonly Group[] = [
   { id: 'h-mutation-cost', needs: [] },
   { id: 'h-launch-rule', needs: [] },
   { id: 'h-launch-summary-deep', needs: [] },
+  { id: 'h-launch-parts', needs: [] },
   { id: 'h-launch-preload', needs: [] },
   { id: 'h-launch-preload-edge', needs: [] },
+  { id: 'h-prebuilt', needs: [] },
+  { id: 'h-prebuilt-entry', needs: [] },
+  { id: 'h-prebuilt-options', needs: [] },
+  { id: 'h-prebuilt-observer', needs: [] },
+  { id: 'h-prebuilt-observer-child-cwd', needs: [] },
+  { id: 'h-prebuilt-cwd-config', needs: [] },
+  { id: 'h-prebuilt-scope', needs: [] },
   { id: 'h-worker-start', needs: [] },
   { id: 'h-jobs', needs: [] },
   { id: 'h-infra-rules', needs: [] },
@@ -208,13 +253,16 @@ const GROUPS: readonly Group[] = [
   { id: 'h-group', needs: [] },
   { id: 'h-group-share', needs: [] },
   { id: 'h-group-share-real', needs: [] },
+  { id: 'h-mutation-fixture-git-env', needs: [] },
   { id: 'h-selfcheck-selection-entry', needs: [] },
   { id: 'h-selfcheck-shard-entry', needs: [] },
+  { id: 'h-selfcheck-shard-open', needs: [] },
   { id: 'h-check-rules', needs: [] },
   { id: 'p1-provider', needs: [] },
   { id: 'd6-provider', needs: [] },
   { id: 'd12-ledger', needs: [] },
   { id: 'p3-budget-token', needs: [] },
+  { id: 'd13-default-budget-entry', needs: [] },
   { id: 'd14-cost-persistence', needs: [] },
   { id: 'p4-render-recheck', needs: [] },
   { id: 'd21-review-document', needs: [] },
@@ -225,6 +273,7 @@ const GROUPS: readonly Group[] = [
   { id: 'd25-effective-priority', needs: [] },
   { id: 'd21-tier-guards', needs: [] },
   { id: 'u9-review-output', needs: [] },
+  { id: 'u9-p1-independent-claim', needs: [] },
   { id: 'p1-legacy-score-output', needs: [] },
   { id: 'd21-task-reviews', needs: [] },
   { id: 'feedback-template-crossings', needs: [] },
@@ -234,6 +283,9 @@ const GROUPS: readonly Group[] = [
   { id: 'u11-feedback-report-entry', needs: [] },
   { id: 'u11-keyword-attribution', needs: [] },
   { id: 'u11-keyword-report-entry', needs: [] },
+  { id: 'p1-report-stat-counts', needs: [] },
+  { id: 'u12-product-name-complete', needs: [] },
+  { id: 'u12-report-escape', needs: [] },
   { id: 'd20-content-version', needs: [] },
   { id: 'd28-control', needs: [] },
   { id: 'd28-collect', needs: ['d28-control'] },
@@ -242,6 +294,35 @@ const GROUPS: readonly Group[] = [
   { id: 'd28-defaults', needs: ['d28-control'] },
   { id: 'd28-no-overreject', needs: [] },
   { id: 'd28-config-duplicates', needs: ['d28-control', 'd28-collect', 'd28-probe', 'd28-mixed', 'd28-defaults', 'd28-no-overreject'] },
+  { id: 'd29-reject', needs: [] },
+  { id: 'd29-no-overreject', needs: [] },
+  { id: 'd29-resume', needs: [] },
+  { id: 'd30-new', needs: [] },
+  { id: 'd30-reject', needs: [] },
+  { id: 'd30-resume', needs: [] },
+  { id: 'd30-render', needs: [] },
+  { id: 'd30-set', needs: [] },
+  { id: 'h-ci-wallclock-core', needs: [] },
+  { id: 'h-ci-wallclock-cpu', needs: [] },
+  { id: 'h-ci-wallclock-unavailable', needs: [] },
+  { id: 'h-ci-wallclock-identity', needs: [] },
+  { id: 'h-ci-wallclock-identity-parent-read', needs: [] },
+  { id: 'h-prebuilt-no-config-contract', needs: [] },
+  { id: 'h-prebuilt-no-config-lifecycle-contract', needs: [] },
+  { id: 'h-prebuilt-owner-descendant-contract', needs: [] },
+  { id: 'h-lazy-typescript-contract', needs: [] },
+  { id: 'h-worker-output-contract', needs: [] },
+  { id: 'h-worker-output-guardian', needs: [] },
+  { id: 'h-worker-output-cleanup', needs: [] },
+  { id: 'h-observer-rule', needs: [] },
+  { id: 'h-observer-preload', needs: [] },
+  { id: 'h-observer-run', needs: [] },
+  { id: 'h-observer-contexts', needs: [] },
+  { id: 'h-observer-records', needs: [] },
+  { id: 'h-blackbox-many-task-files', needs: [] },
+  { id: 'h-iou-file-reminder', needs: [] },
+  { id: 'h-iou-file-reminder-entry', needs: [] },
+  { id: 'd19-config-known-gap', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -382,20 +463,24 @@ const harness = (name: string) => { console.log(`\n[harness] ${name}`) }
  * 永远不会失败的检查，等于没测。
  */
 function xlsxSheetNames(path: string): string[] {
+  return [...xlsxPart(path, 'xl/workbook.xml').matchAll(/<sheet name="([^"]+)"/g)].map(m => m[1])
+}
+
+/** 从 xlsx 里真正解压出一个部件（如 `xl/workbook.xml`、`xl/worksheets/sheet1.xml`） */
+function xlsxPart(path: string, part: string): string {
   const buf = rf(path)
-  // 扫本地文件头，找到 xl/workbook.xml 那条，inflate 后取 <sheet name="...">
+  // 扫本地文件头，找到那一条，inflate
   for (let i = 0; i + 30 < buf.length; i++) {
     if (buf.readUInt32LE(i) !== 0x04034b50) continue
     const nameLen = buf.readUInt16LE(i + 26)
     const extraLen = buf.readUInt16LE(i + 28)
     const name = buf.subarray(i + 30, i + 30 + nameLen).toString('utf8')
-    if (name !== 'xl/workbook.xml') continue
+    if (name !== part) continue
     const start = i + 30 + nameLen + extraLen
     const compSize = buf.readUInt32LE(i + 18)
-    const xml = inflateRawSync(buf.subarray(start, start + compSize)).toString('utf8')
-    return [...xml.matchAll(/<sheet name="([^"]+)"/g)].map(m => m[1])
+    return inflateRawSync(buf.subarray(start, start + compSize)).toString('utf8')
   }
-  throw new Error('xlsx 里找不到 xl/workbook.xml')
+  throw new Error(`xlsx 里找不到 ${part}`)
 }
 
 const mk = (p: 'tiktok' | 'instagram', h: string, over: Partial<Creator> = {}): Creator => ({
@@ -671,6 +756,103 @@ suite('P2', '开发信占位符必须原样保留到产出物')
   criterion('P2.b')
 }
 
+})
+await group('p2-draft-claims', () => {
+suite('P2', '开发信草稿里对不上出处的数字与承诺词在评审 HTML 里标出，不拦')
+{
+  // P2.c（ADR-199）：期望只取自判据原文与下面写进夹具的字面值。对照是已证实的产品事实，加上这位博主自己作品的文字。
+  // 阳性对照：出处里有的说法（换了写法也算：400 mL ↔ 400ml、10 seconds ↔ ten seconds、29.99 USD ↔ $29.99）不报；
+  // 第一句引用博主作品里的数字（3-ingredient）不报；{…} 占位符里的字不算说法。负片：编出来的 2-year、warranty、IPX7、30% 要报。
+  const FACTS = ['400 mL capacity portable blender', 'Rinses clean in 10 seconds', 'BPA-free Tritan jar', 'Price: 29.99 USD']
+  const DRAFT = 'Subject: Your 3-ingredient smoothie series\n\nHi Mei,\n\nYour 3-ingredient smoothie series is great.\n\n' +
+    "I'm {name} from Brightly. We make a 400ml blender that rinses in about ten seconds, BPA-free, only $29.99, " +
+    'with a 2-year warranty, IPX7 rated, now 30% off.\n\nHappy to send one over. One post is plenty. {12 month warranty}\n\nBest,\n{name}'
+  const POSTS = [{ desc: '3 ingredient smoothie, no cleanup drama', plays: 1 }] as unknown as Creator['recent_posts']
+  const meta = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 4,
+    tiers: { A: 4, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false }
+  const people = [
+    mk('tiktok', 'claims', { tier: 'A', score: 4, outreach_draft: DRAFT, recent_posts: POSTS, profile_url: 'https://example.com/claims' }),
+    mk('tiktok', 'clean', { tier: 'A', score: 3, outreach_draft: 'Subject: Hi\n\nWe make a 400 ml blender, BPA-free.\n\nBest,\n{name}', profile_url: 'https://example.com/clean' }),
+    mk('tiktok', 'blank', { tier: 'A', score: 2, outreach_draft: ' \n ', profile_url: 'https://example.com/blank' }),
+    mk('tiktok', 'none', { tier: 'A', score: 1, profile_url: 'https://example.com/none' }),
+  ]
+  const before = structuredClone(people)
+  const lineOf = (page: string, handle: string): string | undefined => {
+    const card = page.split('<div class="card ').find(chunk => chunk.includes(`href="https://example.com/${handle}"`))
+    const m = card === undefined ? null : /<div class="bio" data-draft-claims="unsourced">([^<]*)<\/div>/.exec(card)
+    return m === null ? undefined : m[1]
+  }
+  const SUFFIX = '（只查数字和承诺词，其余说法仍要自己看）'
+  const review = renderHtml(people, meta, { mode: 'review', filters: 'dual', facts: FACTS })
+  eq('P2.c 出处对得上的（换写法也算）、博主作品里的数字、占位符里的字都不报；编出来的参数、保修、型号、折扣按出现先后列出',
+    lineOf(review, 'claims'), `出处对不上：2-year；warranty；IPX7；30%${SUFFIX}`)
+  eq('P2.c 有草稿、扫完没有对不上的写「无」，没草稿或草稿全是空白的卡片不出这一行',
+    ['clean', 'blank', 'none'].map(h => lineOf(review, h)), [`出处对不上：无${SUFFIX}`, undefined, undefined])
+  ok('P2.c 只标不改：草稿原文逐字在 HTML 里，占位符一个不少，输入名单不变',
+    review.includes(DRAFT.replace(/&/g, '&amp;').replace(/'/g, '&#39;')) && isDeepStrictEqual(people, before))
+  const noFacts = renderHtml(people, meta, { mode: 'review', filters: 'dual' })
+  eq('P2.c 任务里没有已证实的产品事实时，草稿里的说法全列出来，前面写明没有可对的',
+    lineOf(noFacts, 'claims'), `出处对不上：任务里没有已证实的产品事实可对：400ml；ten seconds；BPA-free；$29.99；2-year；warranty；IPX7；30%${SUFFIX}`)
+  const legacy = renderHtml(people, meta)
+  ok('P2.c 默认模式 HTML 不出这一行（U9.a）', !legacy.includes('data-draft-claims'))
+  // 比对口径逐条：每一行是 [草稿, 已证实的产品事实, 期望]；作品文字都给空，只看对出处这一边。
+  const rules: Array<[string, string, string[], string | undefined]> = [
+    ['数字按值与单位比：单位冲突对不上', 'A 400ml jar.', ['Weighs 400 g'], '400ml'],
+    ['数字按值与单位比：单位别名归一（mL、ounces、hrs）', 'A 400 mL jar, 16 ounces, 10 hrs.', ['400ml', '16 oz', '10 hours'], '无'],
+    ['草稿带单位、出处没写单位：同数即可', 'A 400ml jar.', ['Capacity: 400'], '无'],
+    ['草稿没写单位、出处带单位：同数即可', 'Holds 400, weighs 400 g.', ['400 g'], '无'],
+    ['千分位与小数归一，后面跟的逗号不算数的一部分', 'Packs 1,000 mAh, 2.50 lb.', ['1000mAh', '2.5 lb'], '无'],
+    ['数后面跟的逗号不吃进说法', 'Holds 500, weighs 500 g.', ['x'], '500；500 g'],
+    ['不写单位的数对得上出处里同数的价格', 'Only 29 dollars.', ['$29'], '无'],
+    ['k 跟在数后面整串算一条', 'Reached 120k views.', ['x'], '120k'],
+    ['k 算单位：120k 与 120 K 对得上', 'Reached 120k views.', ['120 K views'], '无'],
+    ['「.5」这样的小数也扫', 'Weighs just .5 kg.', ['Weighs 1 kg'], '.5 kg'],
+    ['价格对价格或不带单位的同数，不对带单位的同数', 'Only $29, $35 and $40.', ['Price 29', '$35', '40 g'], '$40'],
+    ['拼写的数字：十三到十九、七十、八十、连写的二十五、thousand', 'Runs seventy hours, eighty percent quieter, sixteen ounces, twenty-five minutes, a thousand-hour motor.', ['x'], 'seventy hours；eighty percent；sixteen ounces；twenty-five minutes；thousand-hour'],
+    ['连写的拼写数字按整数比，不拆成个位', 'Brews in twenty-five minutes.', ['Brews in 5 minutes'], 'twenty-five minutes'],
+    ['型号串整串对，不按子串', 'An H1 chip and IPX7 rating.', ['H13 HEPA filter', 'IPX7'], 'H1'],
+    ['多字承诺词出处里逐字有就对得上', 'A 30-day return policy, and our returns window is generous.', ['30-day return policy', 'Returns window: 30 days'], '无'],
+    ['数字开头的型号串整串对：1080p 不拆出 1080', 'Shoots 1080p, has a 2nd lens.', ['1080 lumens', '2 lenses'], '1080p；2nd'],
+    ['数字开头的型号串出处里整串有就对得上', 'Shoots 1080p video.', ['Records 1080p'], '无'],
+    ['负数带负号比；区间与连字符词里的不算负号', 'Works to -20 degrees, lasts 3-5 years, COVID-19 safe.', ['Rated to 20 degrees', '3 to 5 years', 'COVID-19'], '-20'],
+    ['多字承诺词各对各的：出处里的 free trial 不是 free shipping 的出处', 'Free shipping and a free trial.', ['30-day free trial'], 'Free shipping'],
+    ['同一写法只列一次（不分大小写）', 'A 400ml jar. Yes, 400ml. 400ML!', ['x'], '400ml'],
+    ['任务里没有已证实的产品事实、又没扫到说法时也写明没有可对的', 'Hi Ana, love your videos.', [], '任务里没有已证实的产品事实可对：无'],
+  ]
+  eq('P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实',
+    rules.map(([name, draft, facts]) => [name, unsourcedLine(draft, facts, [])]), rules.map(([name, , , want]) => [name, want]))
+  criterion('P2.c'); tension('U9', 'P2')
+}
+{
+  // 真起 render：task.json 的 brand_calibration 里两条已证实的产品事实、一条品牌偏好（偏好不算出处），名单里一条草稿；
+  // render 以 0 结束（不拦），report.html 里那一行只列编出来的，kol.csv 里草稿原样。
+  const root = mkdtempSync(join(tmpdir(), 'kol-p2-claims-'))
+  try {
+    const dir = join(root, 'task'), cwd = join(root, 'cwd'), now = '2026-10-01T00:00:00Z'
+    mkdirSync(dir); mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const DRAFT = 'Subject: Quick one\n\nHi Ana,\n\nWe make a 400ml blender with a 5-year warranty, waterproof.\n\nBest,\n{name}'
+    const creator = { platform: 'tiktok', handle: 'p2_claims', nickname: 'p2_claims', followers: 80000, bio: 'Creator profile', bio_links: [], verified: false,
+      profile_url: 'https://www.tiktok.com/@p2_claims', source_keyword: 'portable', source_dimension: 'category', source_tasks: [0],
+      fit: '✅', fit_reason: '夹具里的内容判断', outreach_draft: DRAFT, email: 'p2@example.test' }
+    const calibration = { version: 'brand-v1', target_creator_types: [], tone_aesthetic: [], natural_scenarios: [], negative_signals: [], sources: [
+      { source: 'product page', kind: 'verified_product_fact', detail: 'Capacity 400 mL' },
+      { source: 'product page', kind: 'verified_product_fact', detail: 'Waterproof base' },
+      { source: 'brand call', kind: 'brand_preference', detail: 'we would like to offer a 5-year warranty' },
+    ] }
+    writeFileSync(join(dir, 'task.json'), JSON.stringify({ product: 'p2claims', market: 'US', target_count: 1, brand_calibration: calibration,
+      tasks: [{ keyword: 'portable', dimension: 'category', platform: 'tiktok' }], done: [0], created_at: now, updated_at: now }))
+    for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), JSON.stringify([creator]))
+    writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: now, creators: {} }))
+    const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
+    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', timeout: 30000 })
+    const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : ''
+    const line = /<div class="bio" data-draft-claims="unsourced">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
+    eq('P2.c 真起 render：以 0 结束不拦，报告里只列已证实产品事实对不上的（品牌偏好不算出处），kol.csv 里草稿原样',
+      [r.status, line, read('kol.csv').includes(DRAFT.replace(/"/g, '""'))],
+      [0, '出处对不上：5-year；warranty（只查数字和承诺词，其余说法仍要自己看）', true])
+    if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}
 })
 if (fullRun) {
 suite('P1', '响应结构探测不得被空数组满足')
@@ -1733,12 +1915,27 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   //        临时文件按最严建是为了盖住那段窗口，不是替产品决定新文件该多严；
   //        少了还原那一步，每个新建的 task.json / 名单 / 增强结果都变成
   //        只有属主可读，而这是一句注释说了、代码没做的事（ADR-42 追记）。
+  //        umask 由这里定成 022、写完就还原：照会话的 umask 算期望值的话，
+  //        077 下 0666 & ~077 正好是临时文件那一档 0600，停在那一档也照样绿
+  //        （ADR-70 第 3526 行）。同 ADR-42 的 0640 一样，挑一个不等于那一档的值。
+  //        只取 022 一个点，证得出「等于 0644」、证不出「跟着 umask 走」—— 写死 0644
+  //        也照样绿（ADR-70 第 3549 行）。所以再取一个 002：0664、0644、0600 两两不等，
+  //        写死 0644 或停在临时文件那一档，第二条都会红。
   {
     const fresh = join(tmpdir(), `kol-d4-fresh-${process.pid}.json`)
     rmSync(fresh, { force: true })
-    const before = process.umask()
-    writeFileAtomic(fresh, '{}')
-    eq('新文件按 umask 默认，不是临时文件那档最严的', modeOf(fresh), 0o666 & ~before)
+    const before = process.umask(0o022)
+    try { writeFileAtomic(fresh, '{}') } finally { process.umask(before) }
+    eq('新文件按 umask 默认，不是临时文件那档最严的', modeOf(fresh), 0o644)
+    rmSync(fresh, { force: true })
+  }
+  {
+    const fresh = join(tmpdir(), `kol-d4-fresh-umask002-${process.pid}.json`)
+    rmSync(fresh, { force: true })
+    const before = process.umask(0o002)
+    try { writeFileAtomic(fresh, '{}') } finally { process.umask(before) }
+    // 0666 & ~002 = 0664：002 只去掉其他人的写位，rw-rw-rw- → rw-rw-r--
+    eq('新文件跟着 umask 走：umask 002 下是 0664，不是写死的 0644', modeOf(fresh), 0o664)
     rmSync(fresh, { force: true })
   }
 
@@ -1774,7 +1971,25 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
   //        一份完整的临时文件留在盘上。任何 write-then-rename 都躲不掉这一格，
   //        能做的是下次写回时把它清掉 —— 但只清死掉的进程留下的（ADR-30）。
   writeFileSync(tmp, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
-  const deadPid = 999999          // 不存在的进程
+  // 上界内的 ESRCH 空号才是这四处旧断言的合格夹具；不借用生产上界函数。
+  let kernelPidText: string | undefined
+  try { if (process.platform === 'linux') kernelPidText = rf('/proc/sys/kernel/pid_max', 'utf8').trim() }
+  catch { throw new Error(`PID夹具读不到Linux当前上界`) }
+  const fixtureCeiling = kernelPidText === undefined
+    ? (process.platform === 'darwin' ? 99999 : 4194304)
+    : (/^[1-9][0-9]*$/.test(kernelPidText) ? Math.min(Number(kernelPidText), 4194304) : NaN)
+  if (!Number.isSafeInteger(fixtureCeiling) || fixtureCeiling <= 2) throw new Error(`PID夹具上界无效`)
+  const deadBelow = (upper: number): number => {
+    for (let pid = upper - 1; pid > 0 && pid >= upper - 128; pid--) {
+      try { process.kill(pid, 0) } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code === 'ESRCH') return pid
+        if (code !== 'EPERM') throw new Error(`PID夹具探活失败：${code}`)
+      }
+    }
+    throw new Error(`PID夹具未在有界范围内找到空号`)
+  }
+  const deadPid = deadBelow(fixtureCeiling), deadPid2 = deadBelow(deadPid)
   const orphan = `${tmp}.${deadPid}.tmp`
   writeFileSync(orphan, '上一次被硬杀时留下的', 'utf8')
   recordRecommendations([mk('tiktok', 'erin')], 'p')
@@ -1818,7 +2033,7 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
 
   // 清不掉的残留不让写回失败：占着临时名的是个目录时删不掉，写回照常
   {
-    const stuck = `${tmp}.999998.tmp`
+    const stuck = `${tmp}.${deadPid2}.tmp`
     rmSync(stuck, { recursive: true, force: true })
     mkdirSync(stuck, { recursive: true })
     const r = writeOf(() => recordRecommendations([mk('tiktok', 'erin')], 'p'))
@@ -1838,7 +2053,7 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     writeFileSync(real, JSON.stringify({ version: 1, updated_at: '', creators: {} }), 'utf8')
     symlinkSync(real, link)
     useMemoryFile(link)
-    const orphan2 = `${real}.999999.tmp`     // 死掉的进程留下的
+    const orphan2 = `${real}.${deadPid}.tmp`     // 死掉的进程留下的
     writeFileSync(orphan2, '{}', 'utf8')
     recordRecommendations([mk('tiktok', 'zed')], 'p')
     eq('终点旁边的孤儿也被清掉了', existsSync(orphan2), false)
@@ -1851,7 +2066,7 @@ suite('D4', '记忆不可用分三档：不存在 / 读不出来 / 显式跳过'
     const d3 = join(tmpdir(), `kol-d4-sweep-${process.pid}`)
     rmSync(d3, { recursive: true, force: true })
     mkdirSync(d3, { recursive: true })
-    const orphan3 = join(d3, 'task.json.999999.tmp')
+    const orphan3 = join(d3, `task.json.${deadPid}.tmp`)
     writeFileSync(orphan3, '{}', 'utf8')
     saveTask(d3, readCostDocument<TaskState>(JSON.stringify({ product: 'p', market: 'US', platforms: ['tiktok'], keywords: [],
       target_count: 1, done: [], requests: 0, budget_usd: 1 })))
@@ -2243,6 +2458,281 @@ suite('P4', '记忆读不出来时不产出名单 —— 已联系的人不得�
 }
 
 })
+// D4.t 那一次（显式 --ignore-memory）：首次读记忆读不出、写回前再读却读得出 —— ADR-185 第 173 行那张欠条。
+// 期望只出自 D4.t（结束后记忆文件逐字节不变）、D4.n（交付物带出失败原因原文）、D4.d（报错原样带出真实原因）、
+// ADR-185 第 173 行的还法（首次不可读的状态贯穿到写回，跳过写回并报告未写回）与已批准的最小接口
+// （写回的第四个参数带上同一次运行首次读不出的原因）。独立测试上下文写的：没读 memory.ts 的函数体，
+// expected 没有一条取自运行结果 ——「首次那一句」是这里写定、自己传进去的。入口那一半在自检 ignore-unreadable-memory 组。
+await group('d4t-ignore-memory', async () => {
+suite('D4', 'D4.t：显式跳过时首次读不出，写回前再读得出也不写回，原因报首次那一次')
+{
+  const fsLive = createRequire(import.meta.url)('node:fs') as typeof import('node:fs')
+  const { sep } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'kol-d4t-'))
+  const file = join(dir, 'creators.json')
+  const FIRST = 'first failure detail'
+  const held = { platform: 'tiktok', handle: 'd4t_held', nickname: 'd4t_held', followers: 50000, first_seen: '2026-01-01',
+    recommendations: [], contacted: true, replied: false, blocked: false, note: 'operator marked' }
+  const valid = JSON.stringify({ version: 1, updated_at: '2026-01-01', creators: { 'tiktok:d4t_held': held } }, null, 2) + '\n'
+  const truncated = valid.slice(0, Math.floor(valid.length * 0.6))   // 解析失败（D4.d 第二类）
+  const wrongShape = '{"version":1,"creators":[]}'                    // 结构不对（D4.d 第三类，ADR-19 那一种手滑）
+  const batch = [mk('tiktok', 'd4t_fresh')]
+  // 万一抛了也变成一个能断言的值 —— 崩溃不是断言的功劳（同上一组的 writeOf）
+  type Attempt = { written?: boolean; reason?: string; threw?: string }
+  const attempt = (f: () => ReturnType<typeof recordRecommendations>): Attempt => {
+    try { return f() } catch (e) { return { threw: (e as Error).name } }
+  }
+  const reasonOf = (r: Attempt) => r.threw !== undefined ? `抛了：${r.threw}` : r.written === false ? r.reason : '（写回了）'
+
+  // 写入观察器：只在 watched(…) 那一小段里记，只记落在本组临时目录里的写类调用（改名、整写、追加、复制、
+  // 截断、删除、以写方式打开）。「没有写入」那几条靠它；阳性对照在第四段 —— 记忆读得出时照常写回，
+  // 同一接线必须记到（process/4-VERIFY.md「观察器的零记录不能单独证明没有事件」）
+  const events: string[] = []
+  let armed = false
+  const WATCHED = ['writeFileSync', 'appendFileSync', 'renameSync', 'copyFileSync', 'cpSync', 'linkSync', 'symlinkSync',
+    'truncateSync', 'unlinkSync', 'rmSync', 'rmdirSync', 'openSync'] as const
+  const live = fsLive as unknown as Record<string, (...args: unknown[]) => unknown>
+  const originals = new Map(WATCHED.map(name => [name, live[name]] as const))
+  const toPath = (p: unknown): string | undefined =>
+    typeof p === 'number' ? undefined : p instanceof URL ? fileURLToPath(p) : resolve(String(p))
+  const opensForWrite = (flags: unknown): boolean => typeof flags === 'number'
+    ? (flags & (fsLive.constants.O_WRONLY | fsLive.constants.O_RDWR | fsLive.constants.O_CREAT
+      | fsLive.constants.O_TRUNC | fsLive.constants.O_APPEND)) !== 0
+    : typeof flags === 'string' && /[wa+]/.test(flags)
+  const record = (name: string, args: unknown[]) => {
+    if (!armed || (name === 'openSync' && !opensForWrite(args[1]))) return
+    const targets = name === 'renameSync' ? [args[0], args[1]]
+      : ['copyFileSync', 'cpSync', 'linkSync', 'symlinkSync'].includes(name) ? [args[1]] : [args[0]]
+    for (const t of targets) {
+      const p = toPath(t)
+      if (p !== undefined && (p === dir || p.startsWith(dir + sep))) events.push(`${name} ${p}`)
+    }
+  }
+  for (const name of WATCHED) {
+    const original = originals.get(name)!
+    live[name] = function (this: unknown, ...args: unknown[]) { record(name, args); return original.apply(this, args) }
+  }
+  syncBuiltinESMExports()
+  const watched = <T>(f: () => T): T => { events.length = 0; armed = true; try { return f() } finally { armed = false } }
+
+  try {
+    useMemoryFile(file)
+
+    // 一、首次读不出（截断的 JSON），之后文件被修好 —— 写回前再读就读得出了。
+    //     这一路原先第二次读成功就照常写回；还法要的是首次读不出的原因贯穿到写回：不写，报首次那一句
+    writeFileSync(file, truncated, 'utf8')
+    const first = filterByMemory(batch, 'p', 'task-d4t', { ignoreUnreadable: true })
+    eq('D4.t 库：首次读不出时显式跳过照常出名单', [first.memory_status, first.kept.length], ['unreadable_ignored', 1])
+    writeFileSync(file, valid, 'utf8')
+    const repaired = rf(file)
+    const fixed = watched(() => attempt(() => recordRecommendations(first.kept, 'p', 'task-d4t', { prior_unreadable: FIRST })))
+    eq('D4.t 库：首次读不出、第二次读得出时报未写回，原因原样是首次那一句', reasonOf(fixed), FIRST)
+    ok('D4.t 库：首次读不出、第二次读得出时记忆文件一个字节没动', rf(file).equals(repaired))
+    eq('D4.t 库：首次读不出、第二次读得出时没有一次写入落到记忆目录', [...events], [])
+
+    // 二、两次都读不出：首次截断，第二次是另一种坏法（结构不对）。报的仍是首次那一句 —— 跳过写回的原因就是它
+    writeFileSync(file, truncated, 'utf8')
+    const again = filterByMemory(batch, 'p', 'task-d4t', { ignoreUnreadable: true })
+    writeFileSync(file, wrongShape, 'utf8')
+    const stillBroken = rf(file)
+    const both = watched(() => attempt(() => recordRecommendations(again.kept, 'p', 'task-d4t', { prior_unreadable: FIRST })))
+    eq('D4.t 库：两次都读不出时报的是首次那一句，不是第二次的', reasonOf(both), FIRST)
+    ok('D4.t 库：两次都读不出时记忆文件逐字节不变，没被挪走、另存或留下临时文件',
+      rf(file).equals(stillBroken) && JSON.stringify(readdirSync(dir)) === JSON.stringify(['creators.json']) && events.length === 0)
+
+    // 三、不带首次原因 = 旧行为：这一次调用自己读、自己报。文件仍是结构不对的那一份，所以不写、原因是它自己读出的
+    const own = watched(() => attempt(() => recordRecommendations(again.kept, 'p', 'task-d4t')))
+    ok('D4.t 库：不带首次原因时照旧报这一次自己读出的原因、不写回',
+      own.threw === undefined && own.written === false && typeof own.reason === 'string' && own.reason.trim() !== ''
+        && own.reason !== FIRST && rf(file).equals(stillBroken) && events.length === 0)
+
+    // 四、对照：记忆读得出时照常写回 —— 不留这一条，「一律不写回」的实现也能让上面全绿。
+    //     前两次调用带过首次原因，这一次不带：带过的那一句不得留到下一次调用（不跨调用记着）
+    writeFileSync(file, valid, 'utf8')
+    const healthy = rf(file)
+    const normal = filterByMemory([...batch, mk('tiktok', 'd4t_held')], 'p', 'task-d4t')
+    eq('D4.t 库对照：记忆读得出时已联系的人挡在名单外', [normal.memory_status, normal.kept.map(c => c.handle)], ['ok', ['d4t_fresh']])
+    const wrote = watched(() => attempt(() => recordRecommendations(normal.kept, 'p', 'task-d4t')))
+    eq('D4.t 库对照：前面带过首次原因，这一次读得出照常写回', [wrote.written, wrote.threw], [true, undefined])
+    const saved = (() => { try { return JSON.parse(rf(file, 'utf8')) } catch { return undefined } })()
+    ok('D4.t 库对照：新推荐记进记忆，已联系的标记原样保留',
+      !rf(file).equals(healthy)
+        && saved?.creators?.['tiktok:d4t_fresh']?.recommendations?.some((r: { product?: unknown }) => r?.product === 'p') === true
+        && saved?.creators?.['tiktok:d4t_held']?.contacted === true)
+    ok('D4.t 库对照：同一观察接线记到了落在记忆文件上的写入（上面零写入的阳性对照）', events.some(e => e.endsWith(` ${file}`)))
+
+    // 五、「只认带没带，不按内容另判」（ADR-185 第 177 行）：带进来的首次原因是空串也算带了。
+    //     这里文件是读得出的那一份 —— 要是实现按内容判（空串当没带）、自己再读一次，就会照常写回，文件就变了
+    writeFileSync(file, valid, 'utf8')
+    const beforeEmpty = rf(file)
+    const empty = watched(() => attempt(() => recordRecommendations(batch, 'p', 'task-d4t', { prior_unreadable: '' })))
+    eq('D4.t 库：带进来的首次原因是空串也算带了 —— 不写回，written 为 false', [empty.threw, empty.written], [undefined, false])
+    ok('D4.t 库：带进来的首次原因是空串时 reason 原样是空串（严格相等）', empty.reason === '')
+    ok('D4.t 库：带进来的首次原因是空串时记忆文件一个字节没动', rf(file).equals(beforeEmpty))
+    ok('D4.t 库：带进来的首次原因是空串时没有一次写入落到记忆目录、没留下别的文件',
+      events.length === 0 && JSON.stringify(readdirSync(dir)) === JSON.stringify(['creators.json']))
+
+    // 六、贯穿的前半：首次读不出时 filterByMemory 带出的原因是什么。
+    //     D4.d「报错原样带出真实原因」—— 解析失败的真实原因就是对同一份字节 JSON.parse 抛出的那句；
+    //     独立 oracle 自己 parse 一遍，用「包含」不用整句相等（需求没说没有前缀）
+    writeFileSync(file, truncated, 'utf8')
+    const sameBytes = rf(file)
+    let want: string | undefined
+    try { JSON.parse(sameBytes.toString('utf8')) } catch (e) { want = (e as Error).message }
+    const broken = filterByMemory(batch, 'p', 'task-d4t', { ignoreUnreadable: true })
+    eq('D4.t 库：首次读不出（解析失败）、显式跳过时 memory_status 是 unreadable_ignored', broken.memory_status, 'unreadable_ignored')
+    ok('D4.t 库：首次读不出（解析失败）、显式跳过时 unreadable_detail 是非空字符串',
+      typeof broken.unreadable_detail === 'string' && broken.unreadable_detail.length > 0)
+    ok('D4.t 库：unreadable_detail 原样包含对同一份字节 JSON.parse 抛出的那条错误信息（D4.d 报错原样带出真实原因）',
+      typeof want === 'string' && want.length > 0
+        && typeof broken.unreadable_detail === 'string' && broken.unreadable_detail.includes(want))
+
+    // 七、记忆读得出时没有这一句：unreadable_detail 为 undefined —— 显式跳过与不跳过都一样
+    writeFileSync(file, valid, 'utf8')
+    const fineIgnoring = filterByMemory(batch, 'p', 'task-d4t', { ignoreUnreadable: true })
+    const finePlain = filterByMemory(batch, 'p', 'task-d4t')
+    ok('D4.t 库：记忆读得出时 unreadable_detail 为 undefined（显式跳过）',
+      fineIgnoring.memory_status === 'ok' && fineIgnoring.unreadable_detail === undefined)
+    ok('D4.t 库：记忆读得出时 unreadable_detail 为 undefined（不跳过）',
+      finePlain.memory_status === 'ok' && finePlain.unreadable_detail === undefined)
+
+    // 八、贯穿：把 filterByMemory 真返回的那一句（不是测试写定的常量）交给写回。
+    //     中间把文件修好，写回前再读就读得出 —— 仍不写、reason 与交进去的那一句严格相等
+    writeFileSync(file, truncated, 'utf8')
+    const chain = filterByMemory(batch, 'p', 'task-d4t', { ignoreUnreadable: true })
+    const detail = chain.unreadable_detail
+    writeFileSync(file, valid, 'utf8')
+    const repairedAgain = rf(file)
+    const carried: Attempt = typeof detail === 'string'
+      ? watched(() => attempt(() => recordRecommendations(chain.kept, 'p', 'task-d4t', { prior_unreadable: detail })))
+      : { threw: '（filterByMemory 没给 unreadable_detail）' }
+    ok('D4.t 库：把 filterByMemory 真返回的首次原因交给写回，不写回、reason 与它严格相等',
+      typeof detail === 'string' && detail.length > 0 && carried.threw === undefined && carried.written === false && carried.reason === detail)
+    ok('D4.t 库：交的是真返回的首次原因时记忆文件逐字节不变', rf(file).equals(repairedAgain))
+    eq('D4.t 库：交的是真返回的首次原因时没有一次写入落到记忆目录',
+      typeof detail === 'string' ? [...events] : ['（filterByMemory 没给 unreadable_detail，没跑写回）'], [])
+  } finally {
+    for (const name of WATCHED) live[name] = originals.get(name)!
+    syncBuiltinESMExports()
+    useMemoryFile('memory/creators.json')
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+})
+// KOL-21 D4a：D4.s 的独立认领（ADR-185「后续」；记录在 ADR-185 末尾）。只用独立测试包里冻结了的 G3-15（collect 续跑时记忆文件
+// 读不出而中止、没给 --ignore-memory），经接线（`scripts/independent-blackbox-tests-wiring.ts`，登了 GAP-24c）跑一遍；冻结用例自己按字节比
+// 运行前后的 memory/creators.json，这里只读回结论，不改断言、不改冻结字节。
+// 认领看字节比那一项，D4.s 说的就是它：它判 pass，而且这一例没有一项判红、设施故障或夹具失格。同一例里待语义复核、资格待定的项
+// 说的是退出前的提示与基线，不挡这一项；它们挡的是 D6.y 那边的认领（自检 `independent-blackbox-tests`）。
+// 退出码那一项也要判过：它说明入口确实走到读记忆、照冻结单的期望中止，字节比才不是空的。接线哪天不再登 GAP-24a，那几项会合成一条
+// 不判，不在挡的三种里；没有这一项，入口没走到读记忆、文件自然没动，字节比照样判 pass。期望的数由冻结用例定，这里只按标签开头找。
+// 认领写在断言后面：断言不成立，这一跑就红，认领不写盘。
+await group('d4s-independent-claim', () => {
+  suite('D4', 'D4.s 独立认领：冻结用例 G3-15 经接线跑真实 collect，按字节比记忆文件')
+  const root = scMkdtempSync(scJoin(scTmpdir(), 'blackbox-unreadable-memory-')), work = scJoin(root, 'work'), report = scJoin(root, 'report.json')
+  try {
+    scMkdirSync(work)
+    const [exe, argv] = scPrebuiltCommand([scJoin(process.cwd(), 'scripts', 'independent-blackbox-tests-wiring.ts'),
+      '--work', work, '--report', report, '--only', 'G3-15'])
+    const r = cxSpawnSync(exe, argv, { encoding: 'utf8', timeout: 120000 })
+    eq('D4.s 独立认领：接线以 0 收尾、写出报告', [r.status, scExistsSync(report)], [0, true])
+    if (r.status !== 0) console.log(`     stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+    type Item = { label: string; status: string }
+    let cases: { id: string; items: Item[] }[] = []
+    try { cases = JSON.parse(rf(report, 'utf8')).cases } catch { cases = [] }
+    // 读不出报告、没有这一例或没有这一项时，字节比读作 []，照「缺」红
+    const c = Array.isArray(cases) ? cases.find(x => x?.id === 'G3-15') : undefined
+    const items = Array.isArray(c?.items) ? c.items : []
+    const bytes = items.filter(i => i?.label === 'BYTES(memory/creators.json)').map(i => i?.status)
+    const exit = items.filter(i => typeof i?.label === 'string' && i.label.startsWith('退出码 = ')).map(i => i?.status)
+    const bad = items.filter(i => ['red', 'facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)
+    // 接线没以 0 收尾、报告里没有这一例、或哪一项判设施故障或夹具失格时，这一跑什么也没测到：只让前提那一条红，
+    // 认领那一条不判。需求测试这个验证者分不出「夹具没造对」与「断言红了」，合成一条的话，负片点名的那一条会把
+    // 夹具失格记成抓到（#452 评审指出；同形的还有下面 D4.t 与 U9×P1 两组，一并改了）
+    const unsound = r.status !== 0 ? [`接线退出码 ${r.status}`] : c === undefined ? ['G3-15：报告里没有这一例']
+      : items.filter(i => ['facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)
+    eq('D4.s 独立认领：冻结用例 G3-15 这一跑可信，接线以 0 收尾、读得到这一例，没有一项判设施故障或夹具失格', unsound, [])
+    if (unsound.length === 0) eq('D4.s 独立认领：冻结用例 G3-15 的退出码那一项与 BYTES(memory/creators.json) 都判过，这一例没有一项判红、设施故障或夹具失格', [exit, bytes, bad], [['pass'], ['pass'], []])
+  } finally { scRmSync(root, { recursive: true, force: true }) }
+  criterion('D4.s')
+})
+// KOL-21 D4b：D4.t 的独立认领（还 ADR-185 第 212 行；记录在 ADR-185 末尾）。冻结单 F 节是不读实现的作者照需求所有者的选择补的两例，
+// 需求所有者逐字确认后嵌回：G3-19（空名单）与 G3-19N（F-G6 的两人），都是 render 加 --ignore-memory、记忆文件放一份结构不对的。
+// 经接线跑一遍，只读回冻结用例自己的结论，不改断言、不改冻结字节。
+// 两例各要三项判过：退出码（照 D4.f 出了名单、没中止）、MEM-READ（入口确实读过那份文件，字节比才不是空的）、字节比（D4.t 原文）；
+// 每例都没有一项判红、设施故障或夹具失格。复核没做的那一项（报告的未去重声明）说的是 D4.f，不挡这里。
+// 要两例：空名单时没有人可写，「照常把这一批写回记忆」那种做法可能根本不触发，G3-19 的字节比会照过；G3-19N 有两人可写。
+// G3-19N 挂在 GAP-18 上，接线登了它；哪天不登，那一例只剩一项不判，三项都读不到，这里照「缺」红。
+// 认领写在断言后面：断言不成立，这一跑就红，认领不写盘。
+await group('d4t-independent-claim', () => {
+  suite('D4', 'D4.t 独立认领：冻结用例 G3-19、G3-19N 经接线跑真实 render，按字节比记忆文件')
+  const root = scMkdtempSync(scJoin(scTmpdir(), 'blackbox-ignore-memory-')), work = scJoin(root, 'work'), report = scJoin(root, 'report.json')
+  try {
+    scMkdirSync(work)
+    const [exe, argv] = scPrebuiltCommand([scJoin(process.cwd(), 'scripts', 'independent-blackbox-tests-wiring.ts'),
+      '--work', work, '--report', report, '--only', 'G3-19,G3-19N'])
+    const r = cxSpawnSync(exe, argv, { encoding: 'utf8', timeout: 120000 })
+    eq('D4.t 独立认领：接线以 0 收尾、写出报告', [r.status, scExistsSync(report)], [0, true])
+    if (r.status !== 0) console.log(`     stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+    type Item = { label: string; status: string }
+    let cases: { id: string; items: Item[] }[] = []
+    try { cases = JSON.parse(rf(report, 'utf8')).cases } catch { cases = [] }
+    // 读不出报告、没有这一例或没有这一项时，那一项读作 []，照「缺」红
+    const read = (id: string) => {
+      const c = Array.isArray(cases) ? cases.find(x => x?.id === id) : undefined
+      const items = Array.isArray(c?.items) ? c.items : []
+      const st = (hit: (label: string) => boolean) => items.filter(i => typeof i?.label === 'string' && hit(i.label)).map(i => i?.status)
+      return [st(l => l.startsWith('退出码 = ')), st(l => l.startsWith('MEM-READ(')), st(l => l === 'BYTES(memory/creators.json)'),
+        items.filter(i => ['red', 'facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)]
+    }
+    // 前提与认领分开断言，理由见上面 D4.s 那一组：这一跑不可信时只让前提那一条红，认领那一条不判
+    const unsound = (id: string) => {
+      if (r.status !== 0) return [`接线退出码 ${r.status}`]
+      const c = Array.isArray(cases) ? cases.find(x => x?.id === id) : undefined
+      return c === undefined ? [`${id}：报告里没有这一例`] : (Array.isArray(c.items) ? c.items : [])
+        .filter(i => ['facility', 'fixture'].includes(i?.status)).map(i => `${i?.label}：${i?.status}`)
+    }
+    const g19 = unsound('G3-19'), g19n = unsound('G3-19N')
+    // 各条名字写成字面量：负片的 kills 按名字点它们，变异清册只认字面量
+    eq('D4.t 独立认领：冻结用例 G3-19 这一跑可信，接线以 0 收尾、读得到这一例，没有一项判设施故障或夹具失格', g19, [])
+    eq('D4.t 独立认领：冻结用例 G3-19N 这一跑可信，接线以 0 收尾、读得到这一例，没有一项判设施故障或夹具失格', g19n, [])
+    if (g19.length === 0) eq('D4.t 独立认领：冻结用例 G3-19 的退出码、MEM-READ 与 BYTES(memory/creators.json) 三项都判过，这一例没有一项判红、设施故障或夹具失格',
+      read('G3-19'), [['pass'], ['pass'], ['pass'], []])
+    if (g19n.length === 0) eq('D4.t 独立认领：冻结用例 G3-19N 的退出码、MEM-READ 与 BYTES(memory/creators.json) 三项都判过，这一例没有一项判红、设施故障或夹具失格',
+      read('G3-19N'), [['pass'], ['pass'], ['pass'], []])
+  } finally { scRmSync(root, { recursive: true, force: true }) }
+  criterion('D4.t')
+})
+await group('d4-pid-boundary', async () => {
+  suite('D4', '残留识别采用本机PID不包含上界')
+  // 事前独立v3合同及19具名预期先冻；通过公开入口，不读内部上界函数。
+  const { runPidBoundaryContract } = await import('./pid-boundary-contract-test.js')
+  const report = runPidBoundaryContract(writeFileAtomic)
+  if (report.fixture.status !== 'VALID' || !report.fixture.restorationChecked) {
+    throw new Error(`PID合同夹具失格：${report.fixture.issues.join('; ')}`)
+  }
+  const results = new Map(report.assertionResults.map(row => [row.label, row.status]))
+  eq('pid.linux.dynamic.initial-exclusive-boundary', results.get('pid.linux.dynamic.initial-exclusive-boundary'), 'PASS')
+  eq('pid.linux.dynamic.lowered-and-whitespace', results.get('pid.linux.dynamic.lowered-and-whitespace'), 'PASS')
+  eq('pid.linux.dynamic.restored', results.get('pid.linux.dynamic.restored'), 'PASS')
+  eq('pid.linux.fallback.blank', results.get('pid.linux.fallback.blank'), 'PASS')
+  eq('pid.linux.fallback.zero', results.get('pid.linux.fallback.zero'), 'PASS')
+  eq('pid.linux.fallback.negative', results.get('pid.linux.fallback.negative'), 'PASS')
+  eq('pid.linux.fallback.leading-zero', results.get('pid.linux.fallback.leading-zero'), 'PASS')
+  eq('pid.linux.fallback.exponent', results.get('pid.linux.fallback.exponent'), 'PASS')
+  eq('pid.linux.fallback.plus', results.get('pid.linux.fallback.plus'), 'PASS')
+  eq('pid.linux.fallback.junk', results.get('pid.linux.fallback.junk'), 'PASS')
+  eq('pid.linux.fallback.fraction', results.get('pid.linux.fallback.fraction'), 'PASS')
+  eq('pid.linux.fallback.non-ascii', results.get('pid.linux.fallback.non-ascii'), 'PASS')
+  eq('pid.linux.fallback.read-denied', results.get('pid.linux.fallback.read-denied'), 'PASS')
+  eq('pid.linux.cap.just-over-cap', results.get('pid.linux.cap.just-over-cap'), 'PASS')
+  eq('pid.linux.cap.huge-digits', results.get('pid.linux.cap.huge-digits'), 'PASS')
+  eq('pid.darwin.same-named-proc-ignored', results.get('pid.darwin.same-named-proc-ignored'), 'PASS')
+  eq('pid.other-platform.same-named-proc-ignored', results.get('pid.other-platform.same-named-proc-ignored'), 'PASS')
+  eq('pid.name.noncanonical-neighbors-preserved', results.get('pid.name.noncanonical-neighbors-preserved'), 'PASS')
+  eq('pid.lifecycle.age-and-soft-cleanup', results.get('pid.lifecycle.age-and-soft-cleanup'), 'PASS')
+})
+
 await group('f5-geo', () => {
 suite('F5', '分层管线：受众降权在分层之后，且缺增强数据时不中断')
 {
@@ -2947,8 +3437,6 @@ suite('D8', '公开指标使用独立近期样本并保留三态与溯源')
     'insufficient_posts')
   eq('不可用仍保留真实有效样本数', partialMetrics.median_engagements.sample_size, 5)
 
-  const notQueried: AccountAssessment = { platform: 'tiktok', handle: 'not-queried' }
-  ok('未查询时 sample 字段不存在', !('sample' in notQueried))
   const privateSample = unavailable<NormalizedPublicPost[]>(
     'private_account', PUBLIC_SOURCE, '2026-08-26T00:00:00.000Z')
   eq('查询过但私密与未查询可区分', privateSample.status, 'unavailable')
@@ -3763,6 +4251,12 @@ harness('审计对一条需求的裁定')
     mutatedCriteria: new Set(['P9.a', 'P9.b']) })).mutatedCrit, 2)
   eq('一条都没有就是 0', requirementVerdict(p, ev({
     claimedCriteria: new Set(['P9.a', 'P9.b']) })).mutatedCrit, 0)
+  // 交进来的判据级负片编号是全仓的：只数与这条需求判据的交集。上面两条喂的恰好都是 P9 自己的，
+  // 直接数集合大小也全绿 —— 那时审计会把全仓的总数印在每一条需求头上（ADR-70 第 345–354 行那张欠条）。
+  // 手算：P9 的判据是 P9.a、P9.b，与 {P9.a, D9.a, P5.f} 的交集只有 P9.a，所以是 1
+  eq('别的需求的判据级负片不算到这条头上', requirementVerdict(p, ev({
+    claimedCriteria: new Set(['P9.a', 'P9.b']),
+    mutatedCriteria: new Set(['P9.a', 'D9.a', 'P5.f']) })).mutatedCrit, 1)
 
   // 需求级豁免那一路此前一条测试都没有 —— 生产数据里三条豁免全是判据号，
   // 于是它整段拆掉照样全绿（实测）。它是可达的（有人写一条需求号的豁免就走到），
@@ -3875,15 +4369,29 @@ harness('变异集的 why 不许夹带实现原文')
     eq(`放行：${why.slice(0, 16)}…`, implementationLeak(why), undefined)
   }
 
+  // `--brief` 打出去的不止变异的 why：豁免的范围（写了才打）与 why 也打（ADR-70 末尾「清单夹带（判定）」一节）。
+  // 两侧分开交回，报的时候说得出是哪一边、哪一栏；不打的那一栏（缓解）不查
+  const leakyWhy = '降完立刻被 tierOf 覆盖'
+  const plain = '受众降权跑在分层之前'
+  eq('清单夹带：变异一侧每条有夹带的都报，带编号与那一段',
+    briefLeaks([{ id: 'M-1', why: plain }, { id: 'M-2', why: leakyWhy }, { id: 'M-3', why: '拿不到就 || [] 兜过去' }], []),
+    [{ side: 'mutation', id: 'M-2', leak: 'tierOf' }, { side: 'mutation', id: 'M-3', leak: '||' }])
+  eq('清单夹带：豁免一侧每条都查，范围与 why 各报各的，先范围后 why',
+    briefLeaks([], [{ req: 'P3.e', why: plain },
+      { req: 'P1.b', scope: '拿不到就 || [] 兜过去', why: leakyWhy }, { req: 'S1.b', why: leakyWhy }]),
+    [{ side: 'exemption', req: 'P1.b', field: 'scope', leak: '||' },
+     { side: 'exemption', req: 'P1.b', field: 'why', leak: 'tierOf' },
+     { side: 'exemption', req: 'S1.b', field: 'why', leak: 'tierOf' }])
+  eq('清单夹带：没写范围的豁免只查 why，缓解那一栏不查',
+    briefLeaks([], [{ req: 'P2.a', why: plain, mitigation: leakyWhy } as { req: string; why: string }]), [])
+  eq('清单夹带：先变异后豁免',
+    briefLeaks([{ id: 'M-2', why: leakyWhy }], [{ req: 'P1.b', why: leakyWhy }]).map(l => l.side),
+    ['mutation', 'exemption'])
+
   // 判定对不对是一回事，**当前那份变异集干不干净**是另一回事。后者才是 --brief
-  // 名副其实的前提，所以直接断言真文件，而不是断言一个抽象能力。
+  // 名副其实的前提，所以直接断言真文件，而不是断言一个抽象能力 —— 连豁免一起查
   const corpus = JSON.parse(rf('scripts/check/mutations.json', 'utf8'))
-  const dirty = (corpus.mutations as { id: string; why: string }[])
-    .flatMap(m => {
-      const leak = implementationLeak(m.why)
-      return leak === undefined ? [] : [`${m.id}:${leak}`]
-    })
-  eq('当前变异集全集干净', dirty, [])
+  eq('当前变异集全集干净', briefLeaks(corpus.mutations, corpus.exemptions), [])
 }
 })
 if (fullRun) {
@@ -4614,6 +5122,200 @@ suite('D15', 'IG 话题页解析：只解析、不分派（ADR-112 第四节第 
 // 独立上下文先于实现写成：期望只出自 ADR-112 第二、五节，D15.j、D15.k、D6.w、D11.b 原文，
 // 以及 ig-route.ts 与 TikHub.search 的说明；没有读 search() 与 ig-route.ts 的函数体。
 })
+// Add the two unique alias imports from imports.ts.txt to the import section.
+// The coordinator imports the public asHashtagProblems by that name.
+// No production helpers, fixture files, CLI startup or external oracle are used.
+await group('d15-as-hashtag', () => {
+  suite('D15', 'as_hashtag 原值校验：独立冻结的14个JSON用例')
+  type Problem = { ordinal: number; field: 'as_hashtag'; raw: unknown };
+  type Case = { id: string; tasks: Record<string, unknown>[]; expected: Problem[] };
+  type Mention = { ordinal: number | undefined; start: number; end: number };
+
+  // Literal data abbreviations only: each object is a frozen v3 task input.
+  // They do not supply defaults to the production validator.
+  const tt = { keyword: 'local', dimension: 'category', platform: 'tiktok' };
+  const ig = { keyword: '#local', dimension: 'scene', platform: 'instagram' };
+  const route = { keyword: '#local', dimension: 'category', platform: 'instagram', ig_route: 'hashtag' };
+  const cases: Case[] = [
+    {
+      id: 'pure.legal-metadata',
+      tasks: [
+        { ...tt }, { ...tt, as_hashtag: false }, { ...tt, as_hashtag: true },
+        { ...ig }, { ...ig, as_hashtag: false }, { ...ig, as_hashtag: true },
+      ],
+      expected: [],
+    },
+    {
+      id: 'pure.legal-explicit-route',
+      tasks: [{ ...route }, { ...route, as_hashtag: false }, { ...route, as_hashtag: true }],
+      expected: [],
+    },
+    { id: 'pure.null', tasks: [{ ...tt, as_hashtag: null }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: null }] },
+    { id: 'pure.string-false', tasks: [{ ...tt, as_hashtag: 'false' }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: 'false' }] },
+    { id: 'pure.string-true', tasks: [{ ...tt, as_hashtag: 'true' }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: 'true' }] },
+    { id: 'pure.string-empty', tasks: [{ ...tt, as_hashtag: '' }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: '' }] },
+    { id: 'pure.number-zero', tasks: [{ ...tt, as_hashtag: 0 }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: 0 }] },
+    { id: 'pure.number-one', tasks: [{ ...tt, as_hashtag: 1 }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: 1 }] },
+    { id: 'pure.number-fraction', tasks: [{ ...tt, as_hashtag: -1.5 }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: -1.5 }] },
+    { id: 'pure.array-empty', tasks: [{ ...tt, as_hashtag: [] }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: [] }] },
+    { id: 'pure.array-values', tasks: [{ ...tt, as_hashtag: [true, false] }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: [true, false] }] },
+    { id: 'pure.object-empty', tasks: [{ ...tt, as_hashtag: {} }], expected: [{ ordinal: 1, field: 'as_hashtag', raw: {} }] },
+    {
+      id: 'pure.object-values',
+      tasks: [{ ...tt, as_hashtag: { enabled: true, note: '雪"\\\n' } }],
+      expected: [{ ordinal: 1, field: 'as_hashtag', raw: { enabled: true, note: '雪"\\\n' } }],
+    },
+    {
+      id: 'pure.mixed-original-ordinals',
+      tasks: [
+        { ...tt },
+        { ...tt, as_hashtag: true },
+        { ...tt, as_hashtag: 'false' },
+        { ...ig, as_hashtag: false },
+        { ...ig, as_hashtag: null },
+        { ...tt },
+        { ...ig, as_hashtag: true },
+        { ...ig, as_hashtag: { enabled: true } },
+      ],
+      expected: [
+        { ordinal: 3, field: 'as_hashtag', raw: 'false' },
+        { ordinal: 5, field: 'as_hashtag', raw: null },
+        { ordinal: 8, field: 'as_hashtag', raw: { enabled: true } },
+      ],
+    },
+  ];
+
+  // Same finite information reader as frozen v3; sentence/order are not fixed.
+  class DiagnosticReviewRequired extends Error {}
+
+  function ordinalMentions(text: string): Mention[] {
+    const number = String.raw`(\d+|[一二三四五六七八九十]+)`;
+    const patterns = [
+      new RegExp(String.raw`第\s*${number}\s*(?:个|项|号)?\s*任务`, 'gu'),
+      new RegExp(String.raw`(?:任务|tasks?)\s*(?:编号|序号|#|第)?\s*[:：]?\s*\[?\s*${number}\s*\]?`, 'giu'),
+      new RegExp(String.raw`\[\s*${number}\s*\]\s*[.:：-]?\s*(?=as_hashtag)`, 'gu'),
+      new RegExp(String.raw`#\s*${number}\s*[.:：-]?\s*(?=as_hashtag)`, 'gu'),
+    ];
+    const chinese: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+    return patterns.flatMap(pattern => Array.from(text.matchAll(pattern), match => ({
+      ordinal: /^\d+$/.test(match[1]) ? Number(match[1]) : chinese[match[1]],
+      start: match.index!,
+      end: match.index! + match[0].length,
+    })));
+  }
+
+  function withoutOrdinals(text: string, mentions: Mention[]): string {
+    return text.split('').map((character, index) =>
+      mentions.some(span => index >= span.start && index < span.end) ? ' ' : character
+    ).join('');
+  }
+
+  function containsJsonValue(text: string, wanted: unknown): boolean {
+    // Parse whole JSON tokens; "0" cannot count as numeric 0.
+    for (let start = 0; start < text.length; start += 1) {
+      if (!/[\[\{"\-0-9ntf]/.test(text[start])) continue;
+      let longest: { value: unknown; end: number } | undefined;
+      for (let end = start + 1; end <= text.length; end += 1) {
+        try {
+          const value: unknown = JSON.parse(text.slice(start, end));
+          if (typeof value === 'number' || value === null || typeof value === 'boolean') {
+            const adjacent = /[A-Za-z0-9_.+\-]/;
+            if ((start && adjacent.test(text[start - 1])) ||
+                (end < text.length && adjacent.test(text[end]))) continue;
+          }
+          longest = { value, end };
+        } catch { /* Prose or an incomplete JSON value. */ }
+      }
+      if (longest) {
+        if (asHashtagPermanentDeepEqual(longest.value, wanted)) return true;
+        start = longest.end - 1;
+      }
+    }
+    return false;
+  }
+
+  function assertInformation(actual: string[], wanted: Problem[]): void {
+    asHashtagPermanentAssert.equal(actual.length, wanted.length, 'one problem per invalid task');
+    const details = actual.map(message => {
+      asHashtagPermanentAssert.ok(message.includes('as_hashtag'), 'problem identifies as_hashtag');
+      const mentions = ordinalMentions(message);
+      return { mentions, masked: withoutOrdinals(message, mentions) };
+    });
+    if (details.some(detail => detail.mentions.length === 0)) {
+      throw new DiagnosticReviewRequired('unrecognized ordinal presentation; inspect diagnostic information manually');
+    }
+    const edges = wanted.map(item => details.flatMap((detail, index) =>
+      detail.mentions.some(mention => mention.ordinal === item.ordinal) &&
+      containsJsonValue(detail.masked, item.raw) ? [index] : []
+    ));
+    function matches(position: number, used: Set<number>): boolean {
+      if (position === edges.length) return true;
+      return edges[position].some(index => !used.has(index) &&
+        matches(position + 1, new Set([...used, index])));
+    }
+    asHashtagPermanentAssert.ok(matches(0, new Set()), 'original ordinal/field/JSON value match one-to-one; order is free');
+  }
+
+  const failures = {
+    shape: [] as string[],
+    input: [] as string[],
+    count: [] as string[],
+    diagnostic: [] as string[],
+  };
+  const reason = (error: unknown): string =>
+    `${error instanceof DiagnosticReviewRequired ? '[review-required] ' : ''}${error instanceof Error ? error.message : String(error)}`;
+
+  // Four decisions for every original case = 56 decisions, with no early exit.
+  // Catch each decision independently so one failure cannot hide another kind.
+  for (const item of cases) {
+    const input = structuredClone(item.tasks);
+    const before = structuredClone(input);
+    const originalJson = JSON.stringify(input);
+    let actual: unknown;
+    let thrown: unknown;
+    try { actual = asHashtagProblems(input); } catch (error) { thrown = error; }
+
+    try {
+      asHashtagPermanentAssert.equal(thrown, undefined, 'JSON-domain call must not throw');
+      asHashtagPermanentAssert.ok(Array.isArray(actual), 'return is an array');
+      asHashtagPermanentAssert.ok(Array.from(actual).every(problem => typeof problem === 'string'), 'every result item is a string');
+    } catch (error) {
+      failures.shape.push(`${item.id}: ${reason(error)}`);
+    }
+
+    try {
+      asHashtagPermanentAssert.deepEqual(input, before, 'input and own-field absence stay unchanged');
+      asHashtagPermanentAssert.equal(JSON.stringify(input), originalJson, 'input serialization stays unchanged');
+    } catch (error) {
+      failures.input.push(`${item.id}: ${reason(error)}`);
+    }
+
+    try {
+      asHashtagPermanentAssert.ok(Array.isArray(actual), 'usable result required');
+      asHashtagPermanentAssert.equal(actual.length, item.expected.length, 'exact problem count');
+    } catch (error) {
+      failures.count.push(`${item.id}: ${reason(error)}`);
+    }
+
+    try {
+      asHashtagPermanentAssert.ok(Array.isArray(actual) && Array.from(actual).every(value => typeof value === 'string'), 'usable string[] required');
+      assertInformation(actual as string[], item.expected);
+    } catch (error) {
+      // Unknown presentation never aggregates to true. Its red requires review,
+      // not a new sentence requirement or an automatic claim of product defect.
+      failures.diagnostic.push(`${item.id}: ${reason(error)}`);
+    }
+  }
+
+  // Fixed literal labels for existing group routing and formal mutation kills.
+  // Every unpassed case remains in its category's actual array, making it red.
+  eq('as-hashtag-pure.shape', failures.shape, []);
+  eq('as-hashtag-pure.input', failures.input, []);
+  eq('as-hashtag-pure.count', failures.count, []);
+  eq('as-hashtag-pure.diagnostic', failures.diagnostic, []);
+  criterion('D15.n');
+});
+
 await group('d15-hashtag', async () => {
 suite('D15', 'IG 话题入口：配置校验与分派（ADR-112 第四节第 3 步）')
 {
@@ -6255,7 +6957,6 @@ suite('D27', 'task.json 写重复的费用字段：collect 续跑与 enrich 改�
   // 阳性对照：同一份只留最后一处的任务、同一种接线，照常预留并请求（collect 去搜那个没完成的任务，enrich 去补那个创作者）
   const p3Root = mkdtempSync(join(tmpdir(), 'kol-d27-p3-'))
   try {
-    const tsxLoader = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
     const fakeFetch = pathToFileURL(join(process.cwd(), 'scripts', 'check', 'fake-fetch.ts')).href
     const budgetModule = pathToFileURL(join(process.cwd(), 'scripts', 'lib', 'budget.ts')).href
     const person = { platform: 'tiktok', handle: 'cost_person', nickname: 'cost_person', followers: 10000, post_count: 50, bio: null,
@@ -6277,10 +6978,11 @@ suite('D27', 'task.json 写重复的费用字段：collect 续跑与 enrich 改�
       ].join('\n'))
       const argv = entry === 'collect' ? [join(process.cwd(), 'scripts', 'collect.ts'), '--resume', taskDir, '--budget', '2']
         : [join(process.cwd(), 'scripts', 'enrich.ts'), '--dir', taskDir, '--budget', '2']
-      const [exe, args] = tsxCommand(argv)
-      const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d27', FAKE_FETCH_LEDGER: ledger,
-        FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(),
-        NODE_OPTIONS: `--import ${JSON.stringify(tsxLoader)} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}` } })
+      const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d27', FAKE_FETCH_LEDGER: ledger,
+        FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
+      kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv, cwd))} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}`
+      const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
+      const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv })
       const lines = (path: string) => existsSync(path) ? rf(path, 'utf8').split('\n').filter(Boolean).length : 0
       return { status: r.status, armed: lines(armed) > 0, kept: rf(file, 'utf8') === text, reserves: lines(reserves), attempts: lines(ledger),
         stderr: (r.stderr ?? '').split('\n').filter(Boolean).slice(-2).join(' | ') }
@@ -6350,18 +7052,63 @@ suite('D5', 'CSV 转义')
   eq('含换行', esc('l1\nl2'), '"l1\nl2"')
   eq('普通不加引号', esc('plain'), 'plain')
 }
+suite('D5', '名单 CSV 里可能被当成公式的文字格先加一个单引号（ADR-161）')
+criterion('D5.c', 'D5.d', 'D5.e', 'D5.f')
+tension('D5', 'P2'); tension('U9', 'D5')
+{
+  const dir = mkdtempSync(join(tmpdir(), 'kol-d5-'))
+  const csvP = join(dir, 'kol.csv'), xlsxP = join(dir, 'kol.xlsx')
+  // 走真的 writeCsv 写一行，取表头之后那一段 —— 验的是名单 CSV 的出口，不是某个内部函数
+  const line = (cells: unknown[]): string => {
+    writeCsv(csvP, cells.map((_, i) => `h${i}`), [cells])
+    const s = rf(csvP, 'utf8')
+    return s.slice(s.indexOf('\n') + 1)
+  }
+  // 先于实现写成：期望只出自 D5.c–D5.f 与 ADR-161 第二节的原文，写完时对着还没改的 csv.ts 跑出 10 条红
+  try {
+    eq('D5.c 等号开头加单引号', line(['=1+1']), "'=1+1")
+    eq('D5.c 加号开头加单引号', line(['+1 555']), "'+1 555")
+    eq('D5.c 减号开头加单引号', line(['-x']), "'-x")
+    eq('D5.c @ 开头加单引号', line(['@alice']), "'@alice")
+    eq('D5.c 制表符开头加单引号', line(['\tx']), "'\tx")
+    eq('D5.c 回车开头加单引号后整格加引号', line(['\rx']), "\"'\rx\"")
+    eq('D5.c 先加单引号再转义', line(['=a,b']), "\"'=a,b\"")
+    eq('D5.c 格中间的等号不加', line(['a=b']), 'a=b')
+    eq('D5.c 空格开头不加', line([' =x']), ' =x')
+    eq('D5.c 一行里只加该加的格', line(['=x', 'plain', '@y']), "'=x,plain,'@y")
+    eq('D5.d 数不加', line([-5, 0.5, -1e-7]), '-5,0.5,-1e-7')
+    eq('D5.e 纯数字的文字不加', line(['-0.5', '+3', '12']), '-0.5,+3,12')
+    eq('D5.e 带指数的文字不算纯数字照加', line(['-1e-7']), "'-1e-7")
+    eq('D5.f 人工反馈模板那条转义不加单引号', esc('=x'), '=x')
+    const draft = '@{creator_name} Hi, {brand} here about {product}'
+    const kolLine = (() => {
+      writeCsv(csvP, [...HEADERS], [toRow(mk('tiktok', 'd5-draft', { outreach_draft: draft }))])
+      return rf(csvP, 'utf8')
+    })()
+    ok('D5/P2 开发信草稿只在格首加单引号，占位符原样', kolLine.includes(`"'${draft}"`))
+    const risk = '=HYPERLINK("http://x","y")'
+    const sheets = buildSheets([mk('tiktok', 'd5-review', { tier: 'A', mismatch_risk: risk })], { mode: 'review' })
+    writeCsv(csvP, sheets[0].headers, sheets[0].rows); writeXlsx(xlsxP, sheets)
+    ok('U9/D5 评审列在 CSV 里加单引号，其余原值', rf(csvP, 'utf8').includes(`"'=HYPERLINK(""http://x"",""y"")"`))
+    const sheetXml = xlsxPart(xlsxP, 'xl/worksheets/sheet1.xml')
+    ok('U9/D5 同一格在 XLSX 里仍是原值文字', sheetXml.includes(`<t xml:space="preserve">${risk}</t>`) && !sheetXml.includes('<f>'))
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+}
 
 })
-if (fullRun) {
-suite('D2', 'bio_links 归一化为数组')
-{
-  const c = mk('tiktok', 'a', { bio_links: ['https://x.com'] })
-  ok('恒为数组', Array.isArray(c.bio_links))
-}
+await group('d2-d8-actual-paths', () => {
+  const results = runActualPathContracts()
+  suite('D2', '公开profile实际适配的bio_links为string数组')
+  eq('D2.a::tiktok-single-link-through-public-profile', results.get('D2.a::tiktok-single-link-through-public-profile'), [])
+  eq('D2.a::instagram-array-through-public-profile', results.get('D2.a::instagram-array-through-public-profile'), [])
+  criterion('D2.a')
+  suite('D8', '真实save/load保留未查询与已查询不可用')
+  eq('D8.c::save-load-preserves-unqueried-sample-absence', results.get('D8.c::save-load-preserves-unqueried-sample-absence'), [])
+  eq('D8.c::save-load-preserves-queried-unavailable', results.get('D8.c::save-load-preserves-queried-unavailable'), [])
+})
 
 // ─────────────────────────── 流程 ───────────────────────────
 
-}
 await group('f6-veto', () => {
 suite('F6', '语义判断否定有一票否决权')
 {
@@ -6989,7 +7736,6 @@ harness('判 crashed 时留下的现场：带记号的一条都不许丢')
   // 夹具记号与进程记号同权 —— 两支都是「不是断言的功劳」
   ok('夹具记号也算原因',
     crashEvidence(`  ✗ 某条${SELFCHECK_FIXTURE_MARK}：夹具废了`, SC, 1).lines.length === 1)
-  // 没有失败行就是没有 —— 兜底那句话由入口打，判定这边交空名单
   // ⚠️ 一条成形的失败行都没有 → 交回原始输出的末尾几行。真崩掉的那一次打的是**栈**，
   // 一行以「✗ 」开头的都没有 —— 只认成形的失败行的话，现场恰恰在最需要它的那一档
   // 是空的，而这段代码存在的唯一理由就是诊断那一次（M-H35-a，#105 第四轮评审指出）。
@@ -7023,11 +7769,18 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
   // 另一边的症状是「它真的红了，却被判成跑不起来」—— 一个不响的假阴性
   // 汇总是最后打的，紧跟着硬退出会在管道上把它截掉 —— 退出码非零、汇总没有，
   // 判定只能判「跑不起来」，而那是一条真被抓到的变异，还时红时绿（评审指出）。
-  // 反例得把那一串拼出来：本文件自己也是验证者，写成整串的话下面那条循环会判到它自己
+  // 反例里那一串是拼出来的：`exitRace` 原先扫字面，本文件自己也是验证者，写成整串会判到它自己。
+  // 现在按语法树认（ADR-70 末尾「硬退出收口」一节），串里写全了的不是调用，拼不拼都一样；留着无害
   const hardExit = `process.${'exit'}(1)`
-  eq('打完汇总就硬退出的写法要认出来',
-    exitRace(`console.error(汇总); ${hardExit}`), `process.${'exit'}(`)
-  eq('只提名字不调用的是散文，不算', exitRace('// 别用 process.exit 那种写法'), undefined)
+  eq('打完汇总就硬退出的写法要认出来', exitRace(`console.error(汇总); ${hardExit}`), [1])
+  eq('只提名字不调用的是散文，不算', exitRace('// 别用 process.exit 那种写法'), [])
+  // 按语法树认（ADR-70 末尾「硬退出收口」一节）：注释、字符串里写全了的结构上不是调用
+  eq('注释里写全了的硬退出不算', exitRace(`// 别写 ${hardExit}`), [])
+  eq('字符串里写全了的硬退出不算', exitRace(`const s = '${hardExit}'`), [])
+  eq("process['exit'] 那种写法也认", exitRace(`process['${'exit'}'](1)`), [1])
+  eq('前面带 globalThis 的也认', exitRace(`globalThis.${hardExit}`), [1])
+  eq('套了括号的调用目标与 process 也认', [exitRace(`(${'process.exit'})(1)`), exitRace(`(process).${'exit'}(1)`)], [[1], [1]])
+  eq('报出每一处硬退出所在的行', exitRace(`a()\n${hardExit}\nb()\n${hardExit}\n`), [2, 4])
 
   const demandEntry = VERIFIERS.test.script
   const demandSource = existsSync(demandEntry) ? rf(demandEntry, 'utf8') : ''
@@ -7044,7 +7797,7 @@ harness('变异指定验证者：认哪一句汇总，点名杀哪几条夹具')
     ok(`${name} 这个验证者起的是一个真在的入口`, src.startsWith('#!'))
     // 没有提前退出，就没有绕过汇总的路 —— 每条失败路径都经过同一句汇总，
     // 这一条从此不必靠读代码相信
-    eq(`${name} 这个验证者不硬退出`, exitRace(src), undefined)
+    eq(`${name} 这个验证者不硬退出`, exitRace(src), [])
   }
   const scFail = '  ✗ 某条夹具：说错了\n\n✗ 脚本自检：1 项失败\n'
   eq('自检红了，按它自己那句汇总认', judgeRun(1, scFail, SC), 'caught')
@@ -7195,6 +7948,281 @@ harness('变异的锚点在目标文件里数几处：按起点数，重叠也�
   eq('空锚点在每个起点都出现', anchorMatches('ab', ''), 3)
 }
 
+harness('变异目录对着树：锚点对不上的五种各有名字，没还原的变异认得出')
+{
+  // ADR-70 第 1394、2099 行：一处变异没还原、躺在树里时，那个文件是「find 换成了 replace」的样子。
+  // 只断言判定；**不对真树断言**：需求测试自己就是验证者，变异跑它的时候树上正躺着那一条，
+  // 对真树断言的话每条不点名的变异都会被这一句抓到，功劳全记错（ADR-70 末尾「变异残留」一节）
+  const files = (tree: Record<string, string>) => (file: string): string | undefined => tree[file]
+  const one = [{ id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' }]
+  eq('干净的树：一条也不报', anchorFaults(one, files({ 'a.ts': 'return x\n' })), [])
+  eq('find 不在而 replace 在 → 没还原的变异',
+    anchorFaults(one, files({ 'a.ts': 'return y\n' })), [{ kind: 'residue', id: 'M-甲', file: 'a.ts' }])
+  eq('find 不在、replace 也不在 → 锚点失效，不是没还原',
+    anchorFaults(one, files({ 'a.ts': 'return z\n' })), [{ kind: 'stale', id: 'M-甲', file: 'a.ts' }])
+  eq('find 两处 → 不唯一，带上处数',
+    anchorFaults(one, files({ 'a.ts': 'return x\nreturn x\n' })), [{ kind: 'ambiguous', id: 'M-甲', file: 'a.ts', count: 2 }])
+  // 读不到不当成空文件：当空文件的话它只是又一条「锚点失效」，文件不在这件事就没人说了
+  eq('目标文件读不到单独报，不当没毛病',
+    anchorFaults(one, files({})), [{ kind: 'unreadable', id: 'M-甲', file: 'a.ts' }])
+  // replace 整段包着 find：残留时 find 照样在一处，只数 find 的话看不出来
+  const wrap = [{ id: 'M-乙', file: 'b.ts', find: 'ok(x)', replace: '!ok(x)' }]
+  eq('replace 包着 find：干净的树不报', anchorFaults(wrap, files({ 'b.ts': 'if (ok(x)) go()\n' })), [])
+  eq('replace 包着 find 的没还原也认得出',
+    anchorFaults(wrap, files({ 'b.ts': 'if (!ok(x)) go()\n' })), [{ kind: 'residue', id: 'M-乙', file: 'b.ts' }])
+  eq('replace 与 find 一字不差：施加没施加分不出，不判没还原',
+    anchorFaults([{ id: 'M-丙', file: 'c.ts', find: 'k', replace: 'k' }], files({ 'c.ts': 'k\n' })), [])
+  // replace 在干净的树上本来就在的两类 —— 删一段的（空串）、replace 是 find 的一段的（M-D6-d 那样）：
+  // find 一不在，没还原与「改代码改掉了 find、目录没跟上」长得一样，只说分不开（第 1402–1407 行那次判反）
+  const cut = [{ id: 'M-丁', file: 'd.ts', find: 'gate()\n', replace: '' }]
+  eq('删一段的：干净的树不报', anchorFaults(cut, files({ 'd.ts': 'gate()\nother()\n' })), [])
+  eq('删一段的：find 不在只说分不开，不说没还原',
+    anchorFaults(cut, files({ 'd.ts': 'other()\n' })), [{ kind: 'unclear', id: 'M-丁', file: 'd.ts' }])
+  const part = [{ id: 'M-戊', file: 'e.ts', find: 'return ok || bio', replace: 'return ok' }]
+  eq('replace 是 find 的一段：干净的树不报', anchorFaults(part, files({ 'e.ts': 'return ok || bio\n' })), [])
+  eq('replace 是 find 的一段、find 不在：只说分不开',
+    anchorFaults(part, files({ 'e.ts': 'return ok\n' })), [{ kind: 'unclear', id: 'M-戊', file: 'e.ts' }])
+  eq('replace 是 find 的一段、两样都不在：锚点失效',
+    anchorFaults(part, files({ 'e.ts': 'return no\n' })), [{ kind: 'stale', id: 'M-戊', file: 'e.ts' }])
+  // replace 在同一个文件别处本来就有、find 也在：干净的树，不许因为 replace 在就报（只问 replace 在不在的那种判法）
+  eq('replace 在同一个文件别处本来就有：干净的树不报',
+    anchorFaults([{ id: 'M-己', file: 'f.ts', find: 'a = 1', replace: 'b = 2' }], files({ 'f.ts': 'a = 1\nb = 2\n' })), [])
+  // 整段重复 find 的（「扣两次钱」那种）：没还原时 find 有两处，先认没还原，不报成锚点的毛病
+  eq('整段重复 find 的没还原：认成没还原，不当不唯一',
+    anchorFaults([{ id: 'M-庚', file: 'g.ts', find: '  charge(u)\n', replace: '  charge(u)\n  charge(u)\n' }],
+      files({ 'g.ts': 'go()\n  charge(u)\n  charge(u)\n' })), [{ kind: 'residue', id: 'M-庚', file: 'g.ts' }])
+  // 入口拿它对整份目录、多个文件判：每一条各读各的文件、各报各的编号，读不到一条不收工，报出一条不停
+  eq('整份目录：每条各读各的文件、各报各的，读不到一条照样往下判',
+    anchorFaults([
+      { id: 'M-辛', file: 'gone.ts', find: 'a', replace: 'b' },
+      { id: 'M-壬', file: 'h.ts', find: 'return x', replace: 'return y' },
+      { id: 'M-癸', file: 'i.ts', find: 'return x', replace: 'return y' },
+    ], files({ 'h.ts': 'return y\n', 'i.ts': 'return y\n' })),
+    [{ kind: 'unreadable', id: 'M-辛', file: 'gone.ts' }, { kind: 'residue', id: 'M-壬', file: 'h.ts' },
+      { kind: 'residue', id: 'M-癸', file: 'i.ts' }])
+  // 读得到的空文件不是读不到：它只是锚点失效
+  eq('空文件读得到：锚点失效，不报读不到',
+    anchorFaults(one, files({ 'a.ts': '' })), [{ kind: 'stale', id: 'M-甲', file: 'a.ts' }])
+  eq('replace 包着 find、两样都不在：锚点失效，不当干净',
+    anchorFaults(wrap, files({ 'b.ts': 'if (no(x)) go()\n' })), [{ kind: 'stale', id: 'M-乙', file: 'b.ts' }])
+  // 不包着的：find 两处而 replace 也在，是锚点不唯一，不是没还原（还原的那一处找不到唯一的位置）
+  eq('find 两处、replace 也在：报不唯一，不报没还原',
+    anchorFaults(one, files({ 'a.ts': 'return x\nreturn x\nreturn y\n' })),
+    [{ kind: 'ambiguous', id: 'M-甲', file: 'a.ts', count: 2 }])
+}
+
+harness('施加变异照字面：盘上写的就是目录里登记的那一段')
+{
+  // 替换文本里的四种 $ 记号各照原样落盘，一个也不展开（展开的话 $$ 折成一个 $，$& 换成 find 本身）
+  // find 带括号：把 find 当正则的坏实现只换掉 X、留下括号，这条也红
+  eq('$$、$&、$`、$\' 照原样写出', applyMutation('a (X) b', '(X)', "$$ $& $` $'"), "a $$ $& $` $' b")
+  eq('只换第一处', applyMutation('X X', 'X', 'Y'), 'Y X')
+}
+
+harness('变异锚点那一步：编号重复先报，连带的标出来，附哪两句话')
+{
+  const tree = (t: Record<string, string>) => (file: string): string | undefined => t[file]
+  // 重名的两条锚点都对得上，旁边还有一条锚点失效的：只报重名，不往下查
+  eq('编号重复先报，锚点不往下查', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' },
+    { id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' },
+    { id: 'M-乙', file: 'b.ts', find: 'gone', replace: 'went' },
+  ], tree({ 'a.ts': 'ok\n', 'b.ts': 'keep\n' })), { kind: 'duplicate', ids: ['M-甲'] })
+  // a.ts 里 M-甲 没还原（return y），它连带 M-乙 的锚点失效；b.ts 里 M-丙 锚点失效，不连带
+  eq('同文件里另有一条没还原的：锚点失效的那条标连带，没还原的自己不标，别的文件里的不标；两句话都附', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' },
+    { id: 'M-乙', file: 'a.ts', find: 'x;', replace: 'z;' },
+    { id: 'M-丙', file: 'b.ts', find: 'gone', replace: 'went' },
+  ], tree({ 'a.ts': 'return y\n', 'b.ts': 'keep\n' })), { kind: 'faults', faults: [
+    { kind: 'residue', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'stale', id: 'M-乙', file: 'a.ts', knockOn: true },
+    { kind: 'stale', id: 'M-丙', file: 'b.ts', knockOn: false },
+  ], advice: { diff: true, catalog: true } })
+  // 分不开的也可能是没还原：同文件里锚点失效的那条照样标连带；被连带的不附「改目录」
+  eq('同文件里另有一条分不开的：锚点失效的那条也标连带，只附先看差异', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'del()\n', replace: '' },
+    { id: 'M-乙', file: 'a.ts', find: 'gone', replace: 'went' },
+  ], tree({ 'a.ts': 'z\n' })), { kind: 'faults', faults: [
+    { kind: 'unclear', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'stale', id: 'M-乙', file: 'a.ts', knockOn: true },
+  ], advice: { diff: true, catalog: false } })
+  // 同一个文件里两条都没还原、两条都分不开：都是要先看的那一处，都不标连带（标了就互相指）
+  eq('同文件两条都没还原：都不标连带，不附改目录', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' },
+    { id: 'M-乙', file: 'a.ts', find: 'k = 1', replace: 'k = 2' },
+  ], tree({ 'a.ts': 'return y\nk = 2\n' })), { kind: 'faults', faults: [
+    { kind: 'residue', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'residue', id: 'M-乙', file: 'a.ts', knockOn: false },
+  ], advice: { diff: true, catalog: false } })
+  eq('同文件两条都分不开：都不标连带', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'del()\n', replace: '' },
+    { id: 'M-乙', file: 'a.ts', find: 'drop()\n', replace: '' },
+  ], tree({ 'a.ts': 'z\n' })), { kind: 'faults', faults: [
+    { kind: 'unclear', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'unclear', id: 'M-乙', file: 'a.ts', knockOn: false },
+  ], advice: { diff: true, catalog: false } })
+  // 不唯一的被连带也标；不唯一的、锚点失效的都不是源头 —— 同文件里只有它们两条时谁也不标
+  eq('同文件里另有一条没还原的：不唯一的那条也标连带', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' },
+    { id: 'M-乙', file: 'a.ts', find: 'k = 1', replace: 'k = 2' },
+  ], tree({ 'a.ts': 'return y\nk = 1\nk = 1\n' })), { kind: 'faults', faults: [
+    { kind: 'residue', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'ambiguous', id: 'M-乙', file: 'a.ts', count: 2, knockOn: true },
+  ], advice: { diff: true, catalog: false } })
+  eq('同文件里只有不唯一的与锚点失效的：谁也不标连带，只附改目录', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'k = 1', replace: 'k = 2' },
+    { id: 'M-乙', file: 'a.ts', find: 'gone', replace: 'went' },
+  ], tree({ 'a.ts': 'k = 1\nk = 1\n' })), { kind: 'faults', faults: [
+    { kind: 'ambiguous', id: 'M-甲', file: 'a.ts', count: 2, knockOn: false },
+    { kind: 'stale', id: 'M-乙', file: 'a.ts', knockOn: false },
+  ], advice: { diff: false, catalog: true } })
+  // 连带不看先后：被连带的那条排在没还原的前面也标
+  eq('被连带的那条排在没还原的前面：照样标连带', anchorVerdict([
+    { id: 'M-乙', file: 'a.ts', find: 'x;', replace: 'z;' },
+    { id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' },
+  ], tree({ 'a.ts': 'return y\n' })), { kind: 'faults', faults: [
+    { kind: 'stale', id: 'M-乙', file: 'a.ts', knockOn: true },
+    { kind: 'residue', id: 'M-甲', file: 'a.ts', knockOn: false },
+  ], advice: { diff: true, catalog: false } })
+  eq('编号重复：每个重了的编号都报，各报一次', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' }, { id: 'M-乙', file: 'a.ts', find: 'ok', replace: 'no' },
+    { id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' }, { id: 'M-乙', file: 'a.ts', find: 'ok', replace: 'no' },
+    { id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' },
+  ], tree({ 'a.ts': 'ok\n' })), { kind: 'duplicate', ids: ['M-甲', 'M-乙'] })
+  // 只有锚点失效、读不到的：只附改目录
+  eq('只有锚点失效与读不到的：只附改目录', anchorVerdict([
+    { id: 'M-甲', file: 'a.ts', find: 'gone', replace: 'went' },
+    { id: 'M-乙', file: 'nope.ts', find: 'x', replace: 'y' },
+  ], tree({ 'a.ts': 'keep\n' })), { kind: 'faults', faults: [
+    { kind: 'stale', id: 'M-甲', file: 'a.ts', knockOn: false },
+    { kind: 'unreadable', id: 'M-乙', file: 'nope.ts', knockOn: false },
+  ], advice: { diff: false, catalog: true } })
+  eq('全对得上：没有一条，两句话都不附', anchorVerdict([{ id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' }], tree({ 'a.ts': 'ok\n' })),
+    { kind: 'faults', faults: [], advice: { diff: false, catalog: false } })
+  // 目录读出来的是不是一组变异：没得核不是核过了
+  const m = { id: 'M-甲', file: 'a.ts', find: 'ok', replace: 'no' }
+  eq('变异目录：一组齐全的变异照原样交回', anchorCatalog({ mutations: [m] }), [m])
+  eq('变异目录：空的一组不算一组变异', anchorCatalog({ mutations: [] }), undefined)
+  eq('变异目录：键写岔了、不是数组、整个不是对象，都不算', [anchorCatalog({ mutation: [m] }), anchorCatalog({ mutations: m }), anchorCatalog(null)],
+    [undefined, undefined, undefined])
+  eq('变异目录：哪一条缺了 id、file、find、replace 里的一样，或不是字符串，整份不算', [
+    anchorCatalog({ mutations: [m, null] }), anchorCatalog({ mutations: [m, { ...m, find: 1 }] }), anchorCatalog({ mutations: [{ id: 'M-乙', file: 'a.ts', find: 'ok' }] }),
+  ], [undefined, undefined, undefined])
+}
+
+harness('变异锚点那一步：暂存区里躺着的变异')
+{
+  const tree = (t: Record<string, string>) => (file: string): string | undefined => t[file]
+  const back = { id: 'M-甲', file: 'a.ts', find: 'return x', replace: 'return y' }
+  const cut = { id: 'M-乙', file: 'u.ts', find: 'del()\n', replace: '' }
+  const head = tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' })
+  // 变异 git add 过、工作树那一处后来按回去了：工作树对得上，暂存区里是施加之后的样子
+  eq('暂存区里没还原、工作树已按回去：报没还原', stagedResidue([back],
+    tree({ 'a.ts': 'return x\n' }), tree({ 'a.ts': 'return y\n' }), head), [{ kind: 'residue', id: 'M-甲', file: 'a.ts' }])
+  // 删一段的：暂存区里那段没了、工作树里还在 —— 分不开，照样报
+  eq('暂存区里删一段的那段没了、工作树里还在：报分不开', stagedResidue([cut],
+    tree({ 'u.ts': 'del()\nz\n' }), tree({ 'u.ts': 'z\n' }), head), [{ kind: 'unclear', id: 'M-乙', file: 'u.ts' }])
+  // 工作树上那条已经有毛病（锚点失效、没还原、读不到）：该先处理工作树，暂存区不重复说
+  eq('工作树上那条已有毛病：暂存区里的不重复报', stagedResidue([back],
+    tree({ 'a.ts': 'return z\n' }), tree({ 'a.ts': 'return y\n' }), head), [])
+  eq('工作树与暂存区都是施加之后的样子：只算工作树的', stagedResidue([back],
+    tree({ 'a.ts': 'return y\n' }), tree({ 'a.ts': 'return y\n' }), head), [])
+  eq('工作树上文件没了：暂存区里的不报', stagedResidue([back], tree({}), tree({ 'a.ts': 'return y\n' }), head), [])
+  // 同文件另一条在工作树上有毛病，不连累这一条：按编号排除，不按文件
+  eq('同文件另一条工作树上失效：暂存区里这一条照报', stagedResidue([back, { id: 'M-丁', file: 'a.ts', find: 'gone()', replace: 'g()' }],
+    tree({ 'a.ts': 'return x\n' }), tree({ 'a.ts': 'return y\n' }), head), [{ kind: 'residue', id: 'M-甲', file: 'a.ts' }])
+  eq('两个文件的变异都躺在暂存区：都报', stagedResidue([back, cut],
+    tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' }), tree({ 'a.ts': 'return y\n', 'u.ts': 'z\n' }), head),
+    [{ kind: 'residue', id: 'M-甲', file: 'a.ts' }, { kind: 'unclear', id: 'M-乙', file: 'u.ts' }])
+  // 改完还没 git add：暂存区就是 HEAD 的旧代码，新变异在旧代码里本来就是那个样子 —— 暂存区没跟上，不是暂存了变异
+  eq('还没 git add、暂存区与 HEAD 同是旧代码：不报', stagedResidue([back, cut],
+    tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' }), tree({ 'a.ts': 'return y\n', 'u.ts': 'z\n' }),
+    tree({ 'a.ts': 'return y\n', 'u.ts': 'z\n' })), [])
+  // 暂存区里锚点失效、不唯一：多半是暂存了一版旧代码，不是变异躺在那里
+  eq('暂存区里锚点失效或不唯一：不报', stagedResidue([back, { id: 'M-丙', file: 'c.ts', find: 'k = 1', replace: 'k = 2' }],
+    tree({ 'a.ts': 'return x\n', 'c.ts': 'k = 1\n' }), tree({ 'a.ts': 'keep\n', 'c.ts': 'k = 1\nk = 1\n' }), head), [])
+  // 不在暂存区（没跟踪、git rm --cached 过、不是仓库）：读暂存区交 undefined，不当成读不到的毛病；HEAD 里有它也一样
+  eq('文件不在暂存区：不报', stagedResidue([back, cut], tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' }), tree({}), head), [])
+  // 新文件：HEAD 里没有。暂存的是旧稿（或 git add -N 的空文件）还是删一段的变异真暂存了，暂存区都是没那段 —— 认不准，
+  // 单列一种，不报成分不开；没还原的照报
+  eq('HEAD 里没有的新文件：分不开的交认不准、没还原的照报', stagedResidue([back, cut],
+    tree({ 'a.ts': 'return x\n', 'u.ts': 'del()\nz\n' }), tree({ 'a.ts': 'return y\n', 'u.ts': '' }), tree({})),
+    [{ kind: 'residue', id: 'M-甲', file: 'a.ts' }, { kind: 'unconfirmed', id: 'M-乙', file: 'u.ts' }])
+  eq('暂存区与工作树一样、都对得上：不报', stagedResidue([back], tree({ 'a.ts': 'return x\n' }), tree({ 'a.ts': 'return x\n' }), head), [])
+}
+
+harness('变异锚点那一步：git 读不到时是不是本来就不是仓库')
+{
+  // 只有「不是仓库」放过；属主不符、.git 坏了、没装 git 都算没得核（复审实测属主不符时旧入口当成不是仓库、以 0 退出）
+  eq('git 说不是仓库：放过', notARepo('fatal: not a git repository (or any of the parent directories): .git\n'), true)
+  eq('git 往上找到挂载点也没找到：放过', notARepo('fatal: not a git repository (or any parent up to mount point /mnt)\nStopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).\n'), true)
+  eq('GIT_DIR 指向不存在的目录：不放过', notARepo("fatal: not a git repository: '/r/missing'\n"), false)
+  eq('git 说属主不符：不放过', [
+    notARepo("fatal: detected dubious ownership in repository at '/r'\nTo add an exception for this directory, call:\n"),
+    notARepo('fatal: invalid gitfile format: /r/.git\n'),
+    notARepo('Error: spawnSync git ENOENT'),
+    notARepo("warning: Not a git repository. Use --no-index to compare two paths outside a working tree\n"),
+  ], [false, false, false, false])
+}
+
+harness('入口的硬退出收口：只有一处，退出前那句话同步写满')
+{
+  // 判定 exitFaults：process.exit 只许在收口函数里；叫收口之前同一段里不许先 console. 一句
+  // （ADR-70 末尾「硬退出收口」一节）。反例里的硬退出照上面那块拼出来
+  const hardExit = `process.${'exit'}(code)`
+  const helper = `function quit(code: number): never {\n  ${hardExit}\n}\n`
+  eq('收口函数里那一处不报', exitFaults(`${helper}if (bad) quit(1)\n`, 'quit'), [])
+  eq('收口函数外的硬退出报出来', exitFaults(`${helper}if (bad) { process.${'exit'}(1) }\n`, 'quit'),
+    [{ kind: 'outside', line: 4 }])
+  eq('叫收口之前同一段里先异步写了一句，报出来',
+    exitFaults(`${helper}if (bad) {\n  console.error('坏了')\n  quit(1)\n}\n`, 'quit'), [{ kind: 'async-before', line: 6 }])
+  eq('异步写在里面一层的函数里，不算',
+    exitFaults(`${helper}if (bad) {\n  const say = () => console.error('坏了')\n  quit(1)\n}\n`, 'quit'), [])
+  eq('收口函数自己先异步写再退出，报出来',
+    exitFaults(`function quit(code: number): never {\n  console.error('坏了')\n  ${hardExit}\n}\n`, 'quit'),
+    [{ kind: 'async-before', line: 3 }])
+  eq('先异步写一句、再叫一个里面才收口的函数，报出来',
+    exitFaults(`${helper}const stop = (): never => {\n  quit(1)\n}\nif (bad) {\n  console.error('坏了')\n  stop()\n}\n`, 'quit'),
+    [{ kind: 'async-before', line: 9 }])
+  // 真入口：变异一步那一份（ADR-70 第 2082 行那张欠条说的「查不到 mutate.ts 自己」）
+  eq('return 着叫收口、不带花括号的 if 里叫收口，之前先异步写了，都报出来',
+    exitFaults(`${helper}function f(): never {\n  console.error('坏了')\n  return quit(1)\n}\nfunction g() {\n  console.error('坏了')\n  if (bad) quit(1)\n}\n`, 'quit'),
+    [{ kind: 'async-before', line: 6 }, { kind: 'async-before', line: 10 }])
+  eq('没标 never 的函数只是可能退出，叫它之前的正常输出不报',
+    exitFaults(`${helper}function maybe() {\n  if (bad) quit(1)\n}\nconsole.log('报告')\nmaybe()\n`, 'quit'), [])
+  eq('引进来的会退出的名字由调用方交进来，之前先异步写了，报出来',
+    exitFaults(`console.error('坏了')\nonInterrupt()\n`, 'quit', ['onInterrupt']), [{ kind: 'async-before', line: 2 }])
+  // 真入口：变异一步那一份；`onInterrupt` 在 mutate-restore.ts 里硬退出，这份源码里推不出来
+  eq('变异一步的硬退出全部收口', exitFaults(rf('scripts/check/mutate.ts', 'utf8'), 'exitWith', ['onInterrupt']), [])
+
+  // writeAllSync：写与等都用假的。管道满了（EAGAIN）就等一下接着写，写进去一截的接着写剩下的
+  const fake = (plan: (number | string)[]) => {
+    const got: number[] = []
+    let pauses = 0
+    let i = 0
+    const io = {
+      write: (_fd: number, buf: Uint8Array, offset: number, length: number): number => {
+        const step = plan[Math.min(i++, plan.length - 1)]
+        if (typeof step === 'string') throw Object.assign(new Error(step), { code: step })
+        const n = Math.min(step, length)
+        got.push(...buf.subarray(offset, offset + n))
+        return n
+      },
+      pause: () => { pauses++ },
+    }
+    return { io, text: () => Buffer.from(got).toString('utf8'), pauses: () => pauses }
+  }
+  const choppy = fake([3, 'EAGAIN', 2, 'EAGAIN', 'EAGAIN', 100])
+  eq('管道满了等一下接着写，一个字不丢', [writeAllSync(2, '一二三四五', choppy.io), choppy.text(), choppy.pauses()],
+    [true, '一二三四五', 3])
+  const stuck = fake(['EAGAIN', 'EAGAIN', 'EAGAIN', 'EAGAIN', 'EAGAIN', 'EAGAIN', 'EAGAIN', 100])
+  const slow = fake(['EAGAIN', 'EAGAIN', 1, 'EAGAIN', 'EAGAIN', 1, 'EAGAIN', 'EAGAIN', 100])
+  eq('读的那头慢但一直在读，不放弃：每写进去一截重新数', [writeAllSync(2, 'abc', slow.io, 2), slow.text()], [true, 'abc'])
+  eq('读的那头一直不读，等够了就放弃', [writeAllSync(2, 'x', stuck.io, 3), stuck.pauses()], [false, 3])
+  const closed = fake(['EPIPE'])
+  eq('读的那头关了不等，当场放弃', [writeAllSync(2, 'x', closed.io), closed.pauses()], [false, 0])
+}
+
 harness('by 与 kills 同进同出：四种写错各有名字')
 {
   // 不写这一对的那些逐字保持原样；写全了的也成立
@@ -7225,6 +8253,59 @@ harness('by 与 kills 同进同出：四种写错各有名字')
   }
 }
 
+harness('记号真打在自检的诊断上：说了「夹具没造对」的带夹具记号，runBoth 报的失败带进程记号')
+{
+  // 判定认记号（上面那几条），记号却是自检那边打的。selfcheck.ts 在验证基础设施的闭包里，
+  // 指名自检的变异施不上去，这一半只能在这里按语法树问真文件（ADR-70 第 1019 行那张欠条）。
+  // 玩具源码头上那句 runBoth 是为了让进程记号那一半不来搅局
+  const runBothOk = 'const runBoth = () => { console.error(`✗ x${SELFCHECK_PROCESS_MARK}：退出码不对`) }\n'
+  const fixtureFaults = (src: string) => unmarkedDiagnostics(runBothOk + src).fixture
+  eq('说了夹具没造对、带着记号 → 没毛病',
+    fixtureFaults('console.error(`  ✗ 甲${SELFCHECK_FIXTURE_MARK}：夹具没造对`)'), [])
+  eq('说了夹具没造对、没带记号 → 报那一行',
+    fixtureFaults('\nconsole.error(`  ✗ 甲：夹具没造对`)'), ['第 3 行说了「夹具没造对」，却没带夹具记号'])
+  // 收尾夹具那一句是两段拼起来的：记号在前一段，那几个字在后一段
+  eq('记号和那几个字分在拼接的两段里也认',
+    fixtureFaults('console.error(`  ✗ ${label}${SELFCHECK_FIXTURE_MARK}：` + `走的不是那条收尾 —— 夹具没造对`)'), [])
+  eq('named 的实参里带着也认', fixtureFaults("named('甲' + SELFCHECK_FIXTURE_MARK, false, '夹具没造对')"), [])
+  eq('named 没带也报', fixtureFaults("named('甲', false, '夹具没造对')").length, 1)
+  // 按语法树问：注释不是诊断，别的对象上的同名属性不是那个记号，拿这几个字去比输出也不是在打诊断
+  eq('注释里写着这几个字不算一句诊断', unmarkedDiagnostics(runBothOk + '// 夹具没造对').phraseSites, 0)
+  eq('别的对象上的同名属性不算带了记号',
+    fixtureFaults('console.error(`✗ 甲${other.SELFCHECK_FIXTURE_MARK}：夹具没造对`)').length, 1)
+  eq('拿这几个字去比输出，不是在打诊断', fixtureFaults("if (out.includes('夹具没造对')) bad = true"), [])
+  // 那几个字落在模板串的头一段、中间一段，都是一句诊断
+  eq('那几个字在模板串头一段也认',
+    fixtureFaults('console.error(`  ✗ 甲：夹具没造对${x}`)'), ['第 2 行说了「夹具没造对」，却没带夹具记号'])
+  eq('那几个字在模板串中间一段也认', fixtureFaults('console.error(`  ✗ ${a}：夹具没造对${b}`)').length, 1)
+  // 判定只认 ✗ 那一行上的记号：记号落在换行之后、或包在别的调用里，判定那边看不见，这里也不算带了
+  eq('记号落在换行之后不算打在那一行上',
+    fixtureFaults('console.error(`  ✗ 甲：夹具没造对\\n${SELFCHECK_FIXTURE_MARK}`)').length, 1)
+  // 判定认的是以「✗ 」开头的那一行：记号打在它前面的行上，判定那边同样看不见
+  eq('记号打在 ✗ 那一行之前的行上不算',
+    fixtureFaults('console.error(`  前言${SELFCHECK_FIXTURE_MARK}\\n  ✗ 甲：夹具没造对`)').length, 1)
+  eq('记号单独占了 ✗ 那一行之前的一行也不算',
+    fixtureFaults('console.error(`${SELFCHECK_FIXTURE_MARK}\\n✗ 甲：夹具没造对`)').length, 1)
+  eq('包在别的调用里的记号不算带了',
+    fixtureFaults('console.error(`  ✗ 甲${String(SELFCHECK_FIXTURE_MARK)}：夹具没造对`)').length, 1)
+
+  // 起进程的夹具都走 runBoth，它报的失败就是进程级失败
+  eq('runBoth 报的失败没带进程记号 → 报那一行',
+    unmarkedDiagnostics('const runBoth = () => {\n  console.error(`✗ x：退出码不对`)\n}').process,
+    ['第 2 行是 runBoth 报的失败，却没带进程记号'])
+  // 改了名、挪了地方，这一半不能悄悄变成空的；两种空法各报各的话，说的是哪一种要对得上
+  eq('找不到 runBoth 也报', unmarkedDiagnostics('').process, ['找不到 runBoth —— 进程失败那句在哪儿打，这里问不着'])
+  eq('runBoth 里一句 console.error 都没有也报',
+    unmarkedDiagnostics("function runBoth() { console.log('✓') }").process,
+    ['runBoth 里一句 console.error 都没有 —— 进程失败那句挪走了'])
+
+  // 手搭的数据证不了真文件里还打着
+  const real = unmarkedDiagnostics(rf('scripts/check/selfcheck.ts', 'utf8'))
+  eq('真自检里说了夹具没造对的诊断都带夹具记号', real.fixture, [])
+  ok('真自检里确有说了夹具没造对的诊断 —— 一句都没有的话，上面那条是空的', real.phraseSites > 0)
+  eq('真自检里 runBoth 报的失败带进程记号', real.process, [])
+}
+
 harness('豁免那一行开头说的话，要跟变异集对得上')
 {
   // 「无变异（显式缺口）」原先写死在入口里。落地 2 第 5 步起它变成假话 ——
@@ -7242,10 +8323,9 @@ harness('豁免那一行开头说的话，要跟变异集对得上')
   eq('名下有变异时这么说', exemptionLead(true), '名下有负片')
   eq('没有时这么说', exemptionLead(false), '名下无变异')
 
-  // 同一句话有三处入口在印。mutate 那两处各有自检夹具真跑一遍断言输出；audit 那一处
-  // 没有 —— 给它造夹具要把 audit 加进自检的工具表，而那张表同时是隔离判据的种子来源，
-  // 闭包会跟着撑大，为一行报告不值。退而求其次扫源码问「还在调吗」，
-  // 它挡得住「换回写死的字面量」这个坏法，但证不了印出来的话对（差额记在 ADR-70）
+  // 同一句话有三处入口在印。mutate 两处与 audit 现各有输出级夹具；audit-entry 经工具表
+  // 起普通报告。这里继续保留较弱的源码接线判定：它问「还在调吗」，挡得住写死字面量，
+  // 但证不了印出来的话对，也不能据此绕过工具表扩大后的基础设施闭包（ADR-70）。
   eq('调了判定就算接着', leadWired('exemptionLead(exemptionCovered(x, y))'), true)
 
   const nestedSource = `
@@ -7266,7 +8346,7 @@ entry();
     leadWired("const s = 'exemptionLead(exemptionCovered(x, y))'"), false)
   eq('别的对象上的同名方法不算', leadWired('other.exemptionLead(exemptionCovered(x, y))'), false)
   // 两个文件、三处调用：手搭的数据证不了真文件里还在调。判定按文件问，mutate 里那两处
-  // 断了哪一处它分不出 —— 那两处各有夹具兜着，这里真正独自扛的是 audit 那一处
+  // 断了哪一处它分不出；各入口的实际报告另由输出级夹具核，这里只保留调用存在的弱层
   for (const f of ['scripts/check/mutate.ts', 'scripts/check/audit.ts']) {
     ok(`${f} 里还有从判定取的豁免行`, leadWired(rf(f, 'utf8')))
   }
@@ -7537,8 +8617,10 @@ try {
   const ask = (...args: string[]) => maintenanceGit(repository, ...args);
   const comparison = resolveMutationBaseline(ask, base);
   eq('维护-显式基线取真实祖先与HEAD', JSON.stringify(comparison), JSON.stringify({ kind: 'compare', base, head }));
-  for (const invalid of ['', ' ', 'HEAD', base.slice(0, 12), '0'.repeat(40), 'z'.repeat(40)]) {
-    eq(`维护-显式基线拒绝非法SHA ${JSON.stringify(invalid)}`, resolveMutationBaseline(ask, invalid).kind, 'cannot-answer');
+  // 短 SHA 每跑不同，标签里写成固定的名字：同一配置两次正常基线的打印要逐字相同（ADR-145 第 1134 行那一类）
+  for (const [name, invalid] of [['""', ''], ['" "', ' '], ['"HEAD"', 'HEAD'], ['基线的12位短SHA', base.slice(0, 12)],
+    [JSON.stringify('0'.repeat(40)), '0'.repeat(40)], [JSON.stringify('z'.repeat(40)), 'z'.repeat(40)]]) {
+    eq(`维护-显式基线拒绝非法SHA ${name}`, resolveMutationBaseline(ask, invalid).kind, 'cannot-answer');
   }
   eq('维护-显式基线不能等于HEAD', resolveMutationBaseline(ask, head).kind, 'cannot-answer');
   eq('维护-显式基线提交缺失无从比较', resolveMutationBaseline(ask, 'f'.repeat(40)).kind, 'cannot-answer');
@@ -7694,6 +8776,93 @@ ok('维护-GROUPS与调用顺序不一致不得放行', maintenanceThrows(() => 
   }
 }
 
+{
+  // KOL-32 / ADR-120 第 74 行：维护报告按新增、删除、改配置分组，摘要在前、完整清单在后。
+  // 对照夹具含三类变化、四种变化种类各至少一条（各种类条数互不相同）、一条完全没变的，外加一份验证者布局变化；
+  // 另一份是全无变化。期望全部手写，不调报告去算期望。
+  type ReportRoute = { id: string; by: string; only?: readonly string[]; executes: readonly string[] };
+  type ReportSnapshot = { mutations: readonly { id: string; req: string; file: string; find: string; replace: string; by?: string; kills?: readonly string[]; full_run?: unknown }[]; routes: readonly ReportRoute[]; layouts: Readonly<Record<string, readonly { id: string; needs: readonly string[] }[]>> };
+  type ReportDelta = { changes: readonly { id: string; kind: 'added-full' | 'back-to-full' | 'changed-full' | 'configuration' }[]; faults: readonly string[]; layoutChanges: readonly string[] };
+  const { routeDelta: reportDelta, routeReport, groupRouteChanges } = await import('./check/mutate-rule.js') as unknown as {
+    routeDelta: (base: ReportSnapshot, head: ReportSnapshot) => ReportDelta;
+    routeReport: (base: ReportSnapshot, head: ReportSnapshot, delta: ReportDelta, explain: (id: string) => { reason?: unknown; recheck_when?: unknown } | undefined) => string[];
+    groupRouteChanges: (base: ReportSnapshot, head: ReportSnapshot, changes: ReportDelta['changes']) => Record<'added' | 'removed' | 'changed', ReportDelta['changes']>;
+  };
+  ok('维护报告-公开API存在', typeof routeReport === 'function' && typeof groupRouteChanges === 'function');
+  if (typeof routeReport === 'function' && typeof groupRouteChanges === 'function') {
+    const why = { reason: 'Report fixture needs every group.', recheck_when: 'When the fixture gains a selectable group.' };
+    const why2 = { reason: 'Second fixture needs every group.', recheck_when: 'When the second fixture is split.' };
+    const mut = (id: string, extra: object = {}) => ({ id, req: 'H-mutate', file: 'scripts/lib/fixture.ts', find: `safe-${id}`, replace: 'unsafe', by: 'test', kills: [`${id}-assertion`], ...extra });
+    const flat = [{ id: 'g-first', needs: [] }, { id: 'g-second', needs: [] }];
+    const chained = [{ id: 'g-first', needs: [] }, { id: 'g-second', needs: ['g-first'] }];
+    const picked = (id: string, group: string): ReportRoute => ({ id, by: 'test', only: [group], executes: [group] });
+    const whole = (id: string): ReportRoute => ({ id, by: 'test', executes: ['g-first', 'g-second'] });
+    const base: ReportSnapshot = {
+      mutations: [mut('M-keep'), mut('M-gone'), mut('M-move'), mut('M-back'), mut('M-body', { full_run: why })],
+      routes: [picked('M-keep', 'g-first'), picked('M-gone', 'g-first'), picked('M-move', 'g-first'), picked('M-back', 'g-first'), whole('M-body')],
+      layouts: { test: flat },
+    };
+    const head: ReportSnapshot = {
+      mutations: [mut('M-keep'), mut('M-move'), mut('M-back', { full_run: why }), mut('M-body', { full_run: why, find: 'changed-body' }),
+        mut('M-new-picked'), mut('M-new', { full_run: why }), mut('M-new2', { full_run: why2 })],
+      routes: [picked('M-keep', 'g-first'), picked('M-move', 'g-second'), whole('M-back'), whole('M-body'),
+        picked('M-new-picked', 'g-second'), whole('M-new'), whole('M-new2')],
+      layouts: { test: chained },
+    };
+    const delta = reportDelta(base, head);
+    // 原有语义：kind 与先后照旧（新增但选跑的那条照旧记作执行配置，删除的照旧记作执行配置并排在最后）。
+    eq('维护报告-原有路由判定不变', JSON.stringify(delta.changes), JSON.stringify([
+      { id: 'M-move', kind: 'configuration' }, { id: 'M-back', kind: 'back-to-full' }, { id: 'M-body', kind: 'changed-full' },
+      { id: 'M-new-picked', kind: 'configuration' }, { id: 'M-new', kind: 'added-full' }, { id: 'M-new2', kind: 'added-full' },
+      { id: 'M-gone', kind: 'configuration' },
+    ]));
+    eq('维护报告-原有解释与布局判定不变', JSON.stringify([delta.faults, delta.layoutChanges]), JSON.stringify([[], ['test']]));
+    const groups = groupRouteChanges(base, head, delta.changes);
+    const ids = (list: ReportDelta['changes']) => list.map(change => change.id).join(',');
+    eq('维护报告-按有无分三类且类内路由正文变化在前', JSON.stringify([ids(groups.added), ids(groups.removed), ids(groups.changed)]),
+      JSON.stringify(['M-new,M-new2,M-new-picked', 'M-gone', 'M-back,M-body,M-move']));
+    const regrouped = [...groups.added, ...groups.removed, ...groups.changed];
+    ok('维护报告-三类合起来正好是原清单不多不少', regrouped.length === delta.changes.length
+      && delta.changes.every(change => regrouped.filter(item => item === change).length === 1));
+    const explained = new Map([['M-back', why], ['M-body', why], ['M-new', why], ['M-new2', why2]]);
+    const lines = routeReport(base, head, delta, id => explained.get(id));
+    const reason = (w: typeof why) => `      全跑原因：${w.reason}；重评条件：${w.recheck_when}`;
+    const all = '（执行 g-first,g-second）';
+    eq('维护报告-摘要在最前且三类与各种类计数手算一致', lines[0],
+      '  新增 3 条，删除 1 条，改配置 3 条；其中路由/正文 4 条（新增全跑 2，选跑退回全跑 1，旧全跑正文改变 1），执行配置 3 条；验证者布局 1 份');
+    eq('维护报告-完整报告逐行与手写期望相同', JSON.stringify(lines), JSON.stringify([
+      '  新增 3 条，删除 1 条，改配置 3 条；其中路由/正文 4 条（新增全跑 2，选跑退回全跑 1，旧全跑正文改变 1），执行配置 3 条；验证者布局 1 份',
+      '  新增（完整清单，3 条）：',
+      `    M-new 新增全跑：不存在 → test 全跑${all}`, reason(why),
+      `    M-new2 新增全跑：不存在 → test 全跑${all}`, reason(why2),
+      '    M-new-picked 执行配置改变：不存在 → test 选组 g-second（执行 g-second）',
+      '  删除（完整清单，1 条）：',
+      '    M-gone 执行配置改变：test 选组 g-first（执行 g-first） → 不存在',
+      '  改配置（完整清单，3 条）：',
+      `    M-back 选跑退回全跑：test 选组 g-first（执行 g-first） → test 全跑${all}`, reason(why),
+      `    M-body 旧全跑正文改变：test 全跑${all} → test 全跑${all}`, reason(why),
+      '    M-move 执行配置改变：test 选组 g-first（执行 g-first） → test 选组 g-second（执行 g-second）',
+      '  test 分组依赖/顺序变化：[{"id":"g-first","needs":[]},{"id":"g-second","needs":[]}] → [{"id":"g-first","needs":[]},{"id":"g-second","needs":["g-first"]}]',
+    ]));
+    const heading = (title: string) => lines.findIndex(line => line.startsWith(`  ${title}（完整清单，`));
+    const [addedAt, removedAt, changedAt] = [heading('新增'), heading('删除'), heading('改配置')];
+    ok('维护报告-清单段落在摘要之后且按新增删除改配置排列', addedAt > 0 && addedAt < removedAt && removedAt < changedAt);
+    const items = (from: number, to: number) => lines.slice(from + 1, to).filter(line => /^ {4}M-/.test(line)).map(line => line.trim().split(' ')[0]);
+    const layoutAt = lines.findIndex(line => line.startsWith('  test 分组依赖'));
+    eq('维护报告-每段完整列出本类每一条', JSON.stringify([items(addedAt, removedAt), items(removedAt, changedAt), items(changedAt, layoutAt)]),
+      JSON.stringify([['M-new', 'M-new2', 'M-new-picked'], ['M-gone'], ['M-back', 'M-body', 'M-move']]));
+    ok('维护报告-没变的那条不出现在报告里', !lines.some(line => line.includes('M-keep')));
+    eq('维护报告-验证者布局变化殿后', layoutAt, lines.length - 1);
+    const backAt = lines.findIndex(line => line.startsWith('    M-back '));
+    eq('维护报告-全跑原因紧跟在那一条下面', lines[backAt + 1], reason(why));
+    const quiet = reportDelta(base, base);
+    eq('维护报告-无变化对照的判定为空', quiet.changes.length + quiet.layoutChanges.length, 0);
+    eq('维护报告-无变化对照三段都写无', JSON.stringify(routeReport(base, base, quiet, () => undefined)), JSON.stringify([
+      '  新增 0 条，删除 0 条，改配置 0 条；其中路由/正文 0 条（新增全跑 0，选跑退回全跑 0，旧全跑正文改变 0），执行配置 0 条；验证者布局 0 份',
+      '  新增（完整清单，0 条）：', '    无', '  删除（完整清单，0 条）：', '    无', '  改配置（完整清单，0 条）：', '    无',
+    ]));
+  }
+}
 })
 
 await group('h-mutation-cost', () => {
@@ -8795,6 +9964,39 @@ const preloadRun = (dir: string, toy: string, options: string | undefined, log?:
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', parsed: parseLaunchLog(text), rows, L: rows.filter(x => x.t === 'L'),
     seen: (() => { try { return JSON.parse(said!.slice(3)) } catch { return undefined } })() }
 }
+// 分份跑写的几份启动数文件拼回整份（ADR-200）。期望从 ADR-200 第二节手推：配置互不相交，直接拼；
+// findings 照整份跑的顺序（全跑的按 id 在前，其余按配置键，同一配置里照原顺序），tally 按配置键；拼好的不带「第几份」
+await group('h-launch-parts', () => {
+  const part = (index: number, count: number, over: Record<string, unknown> = {}) => ({
+    schema: 'mutation-launches/v1', head: 'H', source: 'S', shard: { index, count }, tally: [], findings: [], baselines: {}, again: {}, ...over })
+  const p1 = part(1, 2, { tally: [{ config: 'c' }, { config: 'a' }],
+    findings: [{ kind: 'paid', config: 'c', id: 'm2' }, { kind: 'full-run', id: 'z' }, { kind: 'paid', config: 'c', id: 'm1' }],
+    baselines: { c: 1, a: 3 }, again: { c: null } })
+  const p2 = part(2, 2, { tally: [{ config: 'b' }],
+    findings: [{ kind: 'product', config: 'b' }, { kind: 'full-run', id: 'y' }, { kind: 'missing', config: 'd' }], baselines: { b: 2 } })
+  const joined = joinLaunchParts([p2, p1])
+  const record = 'record' in joined ? joined.record : undefined
+  eq('拼份：tally 按配置键排', record?.tally, [{ config: 'a' }, { config: 'b' }, { config: 'c' }])
+  eq('拼份：findings 全跑的按 id 在前，其余按配置键，同一配置里照原顺序', record?.findings, [{ kind: 'full-run', id: 'y' }, { kind: 'full-run', id: 'z' },
+    { kind: 'product', config: 'b' }, { kind: 'paid', config: 'c', id: 'm2' }, { kind: 'paid', config: 'c', id: 'm1' }, { kind: 'missing', config: 'd' }])
+  eq('拼份：baselines 与 again 拼成一个', [record?.baselines, record?.again], [{ c: 1, a: 3, b: 2 }, { c: null }])
+  eq('拼份：拼好的不带第几份，其余照抄', record === undefined ? undefined : [record.shard, record.schema, record.head, record.source],
+    [undefined, 'mutation-launches/v1', 'H', 'S'])
+  const fault = (parts: unknown[]) => { const j = joinLaunchParts(parts); return 'fault' in j ? j.fault : '拼成了' }
+  eq('拼份：一份也没有', fault([]), '一份也没有')
+  eq('拼份：少一份', fault([p1]), '要第 1 到第 2 份各一份，拿到的是第 1 份')
+  eq('拼份：同一份两次', fault([p1, p1]), '要第 1 到第 2 份各一份，拿到的是第 1、1 份')
+  eq('拼份：多一份', fault([p1, p2, part(3, 2)]), '要第 1 到第 2 份各一份，拿到的是第 1、2、3 份')
+  eq('拼份：份数说法不一', fault([p1, part(2, 3)]), '几份说的总份数不一样')
+  eq('拼份：没写第几份', fault([p1, { ...p2, shard: undefined }]), '有一份没写自己是第几份')
+  eq('拼份：有一份不是对象', fault([p1, null]), '有一份读不出来或不是一个 JSON 对象')
+  eq('拼份：另一棵树上写的', fault([p1, { ...p2, source: 'T' }]), '几份不是同一个提交、同一棵树上写的（schema、head 或源码身份对不上）')
+  eq('拼份：另一个提交上写的', fault([p1, { ...p2, head: 'G' }]), '几份不是同一个提交、同一棵树上写的（schema、head 或源码身份对不上）')
+  eq('拼份：有一份的 findings 不是数组', fault([p1, { ...p2, findings: {} }]), '有一份的 tally、findings 不是数组，或 baselines、again 不是对象')
+  eq('拼份：文件名', [launchPartFile(2, 3), LAUNCH_PART_NAME.test('launches-2-of-3.json'), LAUNCH_PART_NAME.test('launches.json')],
+    ['output/mutation-launches/launches-2-of-3.json', true, false])
+})
+
 const printsOf = (b: BaselineLaunches | undefined) => b?.prints.map(p => [p.body, p.launched])
 
 await group('h-launch-preload', () => {
@@ -8959,6 +10161,762 @@ try {
 } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
+await group('h-prebuilt', () => {
+harness('预编 JS：缓存按正文寻址，缺一份就照旧 tsx，钩子只换内容不换地址')
+{
+  // 期望值照 ADR-158 第二节的规定手写，不取自实现的运行结果；读盘换成一张表
+  const id = 'id-a', k = keyOf(id, '/r/scripts/a.ts', 'x')
+  eq('预编缓存的键：正文、编译身份、文件名任一样不同就是另一个键；目录不算',
+    [k === keyOf(id, '/r/scripts/a.ts', 'y'), k === keyOf('id-b', '/r/scripts/a.ts', 'x'), k === keyOf(id, '/r/scripts/b.ts', 'x'),
+      k === keyOf(id, '/r/.check-cache/mutate-jobs/123/w0/scripts/a.ts', 'x')], [false, false, false, true])
+  const base = { esbuild: '0.28.2', node: '22.22.0', compilerOptions: { strict: true } }
+  ok('编译身份随 esbuild 版本、node 版本、compilerOptions 变', [identityOf({ ...base, esbuild: '0.28.3' }),
+    identityOf({ ...base, node: '22.23.0' }), identityOf({ ...base, compilerOptions: {} })].every(x => x !== identityOf(base)))
+  const has = (p: string) => p === '/r/.check-cache/prebuilt'
+  eq('一个脚本的树与缓存主人：往上找最近的 scripts/，再从它的上一层往上找第一个带缓存的；worker 副本找到仓库根，临时目录里的找不到',
+    [scriptsRootOf('/r/scripts/check/x.ts'), scriptsRootOf('/r/lib/x.ts'), ownerOf('/r/scripts', has),
+      ownerOf('/r/.check-cache/mutate-jobs/123/w0/scripts', has), ownerOf('/t/toy/scripts', has)],
+    ['/r/scripts', null, '/r', '/r', null])
+  eq('整棵树每个 .ts 在缓存里都有现在这一版才算齐', [cacheComplete(['a', 'b'], f => `e-${f}`, e => e !== 'e-b'),
+    cacheComplete(['a', 'b'], f => `e-${f}`, () => true)], [false, true])
+  const tsxLoader = '--import file:///r/node_modules/tsx/dist/esm/index.mjs'
+  eq('NODE_OPTIONS 里带着 tsx 的加载器才算', [tsxLoader, '--import tsx', '--import=tsx/esm', '--import "tsx"',
+    '--import file:///r/scripts/check/fake-fetch.ts', '--import tsx-other', undefined].map(bringsTsxLoader),
+    [true, true, true, true, false, false, false])
+  let asked = 0
+  const at = { disabled: false, strips: true, script: '/r/scripts/test.ts', nodeOptions: undefined, root: '/r/scripts', owner: '/r',
+    complete: () => { asked++; return true } }
+  eq('走不走裸 node：样样成立才走；关掉、node 自己去不掉类型、不是 .ts、带着 tsx 加载器、找不到树或缓存、缓存不齐，都照旧 tsx',
+    [bareLaunch(at), bareLaunch({ ...at, disabled: true }), bareLaunch({ ...at, strips: false }), bareLaunch({ ...at, script: '/r/scripts/x.mjs' }),
+      bareLaunch({ ...at, nodeOptions: tsxLoader }), bareLaunch({ ...at, root: undefined }), bareLaunch({ ...at, owner: undefined }),
+      bareLaunch({ ...at, complete: () => false })], [true, false, false, false, false, false, false, false])
+  eq('缓存齐不齐最后才问：前面几样不成立就不走一遍树', asked, 1)
+  const bare = ['--import', `${new URL('./check/prebuilt-hook.ts', import.meta.url).href}?root=r`, 'a.ts']
+  eq('裸 node 起的信号死亡按 tsx 的壳报的那样换成 128+N；tsx 起的、正常退出的原样交回',
+    [asTsx(bare, null, 'SIGTERM'), asTsx(bare, null, 'SIGKILL'), asTsx(['/r/node_modules/tsx/dist/cli.mjs', 'a.ts'], null, 'SIGKILL'),
+      asTsx(bare, 1, null)],
+    [{ status: 143, signal: null }, { status: 137, signal: null }, { status: null, signal: 'SIGKILL' }, { status: 1, signal: null }])
+
+  const cache = '/r/.check-cache/prebuilt'
+  const disk: Record<string, string> = { '/r/scripts/a.ts': 'A', '/r/scripts/lib/b.ts': 'B' }
+  disk[entryPath(cache, keyOf(id, '/r/scripts/a.ts', 'A'))] = 'compiled A'
+  const hooks = prebuiltHooks({ root: '/r/scripts', cache, id }, { exists: p => p in disk, read: p => disk[p] })
+  const resolveOf = (specifier: string, parentURL: string) =>
+    hooks.resolve(specifier, { parentURL, conditions: [], importAttributes: {} }, s => ({ url: s.startsWith('file:') ? s : `next:${s}` })).url
+  eq('钩子解析：树里写的 ./x.js 在 x.ts 在时认 x.ts；x.ts 不在、在树外、不是相对路径的交给下一个',
+    [resolveOf('./lib/b.js', 'file:///r/scripts/a.ts'), resolveOf('./lib/c.js', 'file:///r/scripts/a.ts'),
+      resolveOf('./scripts/lib/b.js', 'file:///r/x.ts'), resolveOf('node:fs', 'file:///r/scripts/a.ts')],
+    ['file:///r/scripts/lib/b.ts', 'next:./lib/c.js', 'next:./scripts/lib/b.js', 'next:node:fs'])
+  // ADR-158 第二节：父模块与目标都须在树内；这些越界目标的 .ts 确实存在。
+  disk['/r/outside.ts'] = disk['/r/scripts2/a.ts'] = 'outside'
+  eq('钩子解析：父模块或目标越出树（含同前缀的兄弟目录），即使 .ts 存在也交给下一个',
+    [resolveOf('../outside.js', 'file:///r/scripts/a.ts'), resolveOf('../scripts2/a.js', 'file:///r/scripts/a.ts'),
+      resolveOf('../scripts/a.js', 'file:///r/scripts2/b.ts')],
+    ['next:../outside.js', 'next:../scripts2/a.js', 'next:../scripts/a.js'])
+  const loadOf = (url: string): unknown => {
+    try { return hooks.load(url, { format: undefined, conditions: [], importAttributes: {} }, u => ({ format: 'next', source: u })) }
+    catch (e) { return e instanceof Error ? e.message : String(e) }
+  }
+  eq('钩子加载：树里的 .ts 按现在的正文从缓存取；树外的（含同前缀的兄弟目录）、不是 .ts 的交给下一个',
+    [loadOf('file:///r/scripts/a.ts'), loadOf('file:///r/scripts2/a.ts'), loadOf('file:///r/scripts/x.json')],
+    [{ format: 'module', source: 'compiled A', shortCircuit: true }, { format: 'next', source: 'file:///r/scripts2/a.ts' },
+      { format: 'next', source: 'file:///r/scripts/x.json' }])
+  const miss = loadOf('file:///r/scripts/lib/b.ts')
+  ok('钩子加载：缓存里没有现在这一版就当场报错、点名那个文件，不拿别的顶上', typeof miss === 'string' && miss.includes('/r/scripts/lib/b.ts'))
+}
+})
+
+await group('h-prebuilt-entry', () => {
+harness('预编 JS 端到端：裸 node 跑缓存里的那一份，改过没重编的照旧 tsx，起进程之后才改的当场报错')
+{
+  const owner = mkdtempSync(join(tmpdir(), 'kol-prebuilt-'))
+  try {
+    const strips = Boolean(process.features.typescript) // ADR-158：不能内建剥离时应成功回退，不能要求裸起。
+    const main = join(owner, 'scripts', 'main.ts'), value = join(owner, 'scripts', 'lib', 'value.ts')
+    mkdirSync(join(owner, 'scripts', 'lib'), { recursive: true })
+    mkdirSync(join(owner, PREBUILT_DIR), { recursive: true })
+    writeFileSync(join(owner, 'package.json'), '{"type":"module"}')
+    writeFileSync(main, "import { value } from './lib/value.js'\nconst n: number = value\n"
+      + "console.log(JSON.stringify([n, import.meta.url.endsWith('/scripts/main.ts'), process.argv[1]?.endsWith('/scripts/main.ts')]))\n")
+    writeFileSync(value, 'export const value: number = 1\n')
+    const env: NodeJS.ProcessEnv = { ...process.env }
+    delete env.KOL_PREBUILT
+    delete env.NODE_OPTIONS
+    delete env.TSX_TSCONFIG_PATH
+    // owner 与 N 的格式独立；两个源码各有两份 payload（ADR-158 第二十二节）。
+    eq('预编整棵树：两个 .ts 的两种格式各写一份', prebuildTree(owner), { wrote: 4, kept: 0, removed: 0 })
+    const run = ([exe, argv]: [string, string[]]) => spawnSync(exe, argv, { cwd: owner, env, encoding: 'utf8', timeout: 30_000 })
+    const command = prebuiltCommand([main], owner, env)
+    const first = run(command)
+    eq('缓存齐全时按内建能力选起法：./x.js 认到 x.ts，import.meta.url 与 argv[1] 照旧是 .ts',
+      [command[0] === process.execPath && isBare(command[1]), first.status, first.stdout.trim()], [strips, 0, '[1,true,true]'])
+    // 起进程之后才改：拿改之前算好的那张参数表再跑一次
+    writeFileSync(value, 'export const value: number = 22\n')
+    const stale = run(command)
+    ok('命令选定后源码变化：裸起报缺缓存，tsx 跑当前源码', strips
+      ? stale.status !== 0 && stale.stderr.includes(value) && !stale.stdout.includes('[1,')
+      : stale.status === 0 && stale.stdout.trim() === '[22,true,true]')
+    eq('改了没重编：照旧交给 tsx', isBare(prebuiltCommand([main], owner, env)[1]), false)
+    prebuildOne(value, 'export const value: number = 22\n')
+    const again = prebuiltCommand([main], owner, env), ran = run(again)
+    eq('只编改过的文件：缓存恢复齐全，按内建能力选起法并跑当前源码', [isBare(again[1]), ran.status, ran.stdout.trim()],
+      [strips, 0, '[22,true,true]'])
+    eq('再预编整棵树：沿用现在这一版的，删掉不属于它的', prebuildTree(owner), { wrote: 0, kept: 4, removed: 2 })
+    eq('KOL_PREBUILT=0 照旧交给 tsx', isBare(prebuiltCommand([main], owner, { ...env, KOL_PREBUILT: '0' })[1]), false)
+    // ADR-158 第二节：配置改变须换身份，源码未变也不能沿用上一份键。
+    writeFileSync(join(owner, 'tsconfig.json'), '{"compilerOptions":{"strict":true}}')
+    eq('编译配置改变：旧键不算齐，重编后按内建能力选起法',
+      [isBare(prebuiltCommand([main], owner, env)[1]), prebuildTree(owner), isBare(prebuiltCommand([main], owner, env)[1])],
+      // 只换 owner 的两个键；N 的 {} 格式身份不随 owner strict 选项变化。
+      [false, { wrote: 2, kept: 2, removed: 2 }, strips])
+    const alias = join(owner, 'alias'); symlinkSync(owner, alias, 'dir')
+    writeFileSync(main, `import * as a from './lib/value.js'; import * as b from ${JSON.stringify(pathToFileURL(realpathSync(value)).href)}; console.log(a === b)\n`); prebuildTree(owner)
+    const linked = ['', '--preserve-symlinks', '--preserve-symlinks-main', '--preserve-symlinks --preserve-symlinks-main'].map(flags => {
+      const options = { ...env, NODE_OPTIONS: flags }, child = spawnSync(...prebuiltCommand([join(alias, 'scripts', 'main.ts')], alias, options), { cwd: owner, env: options, encoding: 'utf8', timeout: 30_000 }); return [child.status, child.stdout.trim()]
+    })
+    eq('目录别名起入口：仍加载同一棵树并保留模块地址语义', linked, [[0, 'true'], [0, 'true'], [0, 'true'], [0, 'false']])
+    const compat = join(owner, 'compat.ts'), legacy = join(owner, 'legacy-module.mjs')
+    const hookURL = new URL('./check/prebuilt-hook.ts', import.meta.url).href
+    writeFileSync(compat, `import { prebuiltCommand } from ${JSON.stringify(new URL('./check/prebuilt.ts', import.meta.url).href)}
+import ${JSON.stringify(hookURL)}
+import * as legacyModule from 'kol:legacy-node-module'
+const ready: string = typeof prebuiltCommand
+console.log(JSON.stringify([ready, 'registerHooks' in legacyModule]))
+`)
+    // 父预加载仍用当前 Node 的真实 API；只有被测钩子看到旧 Node 的导出形状。
+    writeFileSync(legacy, `import * as module from 'node:module'
+const names = Object.keys(module).filter(name => name !== 'default' && name !== 'registerHooks')
+const source = "import * as real from 'node:module'; const legacy = {...real.default}; delete legacy.registerHooks; export default legacy;\\n"
+  + names.map(name => 'export const ' + name + ' = real[' + JSON.stringify(name) + ']').join('\\n')
+module.registerHooks({
+  resolve(specifier, context, next) {
+    if (specifier !== 'kol:legacy-node-module'
+      && (specifier !== 'node:module' || context.parentURL?.split('?')[0] !== ${JSON.stringify(hookURL)})) return next(specifier, context)
+    return { url: 'data:text/javascript,' + encodeURIComponent(source), shortCircuit: true }
+  }
+})
+`)
+    const legacyEnv = { ...env, KOL_PREBUILT: '0', NODE_OPTIONS: '--import ' + JSON.stringify(pathToFileURL(legacy).href) }
+    const older = spawnSync(...prebuiltCommand([compat], owner, legacyEnv), { cwd: owner, env: legacyEnv, encoding: 'utf8', timeout: 30_000 })
+    eq('缺少同步注册 API 的 node：普通导入预编模块与 KOL_PREBUILT=0 的 tsx 入口仍可运行',
+      [older.status, older.stdout.trim(), older.status === 0 ? '' : older.stderr], [0, '["function",false]', ''])
+  } finally { rmSync(owner, { recursive: true, force: true }) }
+}
+})
+
+await group('h-prebuilt-options', () => {
+harness('预编选路：不能确认编译配置或子进程剥离能力时保留 tsx 语义')
+const owner = mkdtempSync(join(tmpdir(), 'kol-prebuilt-options-'))
+try {
+  mkdirSync(join(owner, 'scripts'), { recursive: true })
+  writeFileSync(join(owner, 'package.json'), '{"type":"module"}')
+  const main = join(owner, 'scripts', 'main.ts'), config = join(owner, 'tsconfig.json'), custom = join(owner, 'custom.json')
+  // useDefineForClassFields:false 应调用继承的 setter 一次；定义字段则不调用，期望从配置语义推导。
+  writeFileSync(main, 'let calls = 0; class Base {} Object.defineProperty(Base.prototype, "x", { set() { calls++ } }); class Child extends Base { x = 1 } new Child(); console.log(calls)')
+  const plain = '{"compilerOptions":{"useDefineForClassFields":false}}'
+  writeFileSync(custom, plain)
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  delete env.KOL_PREBUILT; delete env.NODE_OPTIONS; delete env.TSX_TSCONFIG_PATH
+  const run = (extra: NodeJS.ProcessEnv = {}) => {
+    const kidEnv = { ...env, ...extra }, command = prebuiltCommand([main], owner, kidEnv)
+    const r = spawnSync(...command, { cwd: owner, env: kidEnv, encoding: 'utf8', timeout: 30_000 })
+    return [isBare(command[1]), r.status, r.stdout.trim()]
+  }
+  writeFileSync(config, plain); prebuildTree(owner)
+  eq('普通 JSON 编译配置保留字段赋值语义并按内建能力选起法', run(), [Boolean(process.features.typescript), 0, '1'])
+  writeFileSync(config, '{}'); prebuildTree(owner)
+  eq('子进程显式 TSX_TSCONFIG_PATH：回退 tsx 使用指定配置', run({ TSX_TSCONFIG_PATH: custom }), [false, 0, '1'])
+  writeFileSync(config, '{\n// JSONC\n"compilerOptions":{"useDefineForClassFields":false}\n}'); prebuildTree(owner)
+  eq('JSONC 编译配置：回退 tsx 保留字段赋值语义', run(), [false, 0, '1'])
+  writeFileSync(config, '{"extends":"./custom.json"}'); prebuildTree(owner)
+  eq('继承编译配置：回退 tsx 使用完整有效配置', run(), [false, 0, '1'])
+  writeFileSync(config, plain); prebuildTree(owner)
+  eq('仅子进程禁用内建类型剥离：普通及引号写法均成功回退 tsx',
+    ['--no-experimental-strip-types', '"--no-experimental-strip-types"'].map(NODE_OPTIONS => run({ NODE_OPTIONS })),
+    [[false, 0, '1'], [false, 0, '1']])
+} finally { rmSync(owner, { recursive: true, force: true }) }
+})
+
+await group('h-prebuilt-observer', async () => {
+harness('观察器加载契约：同环境同选路，.ts 观察器与 .js 入口共用模块实例')
+// ADR-158 第二片公开契约；先于实现独立编写，期望仅来自契约与下面的事件顺序。
+const exported: unknown = Reflect.get(await import('./check/prebuilt.js'), 'fixtureLoader')
+eq('观察器加载器公开契约：fixtureLoader 是函数', typeof exported, 'function')
+if (typeof exported !== 'function') return // 缺 API 是上面的具名断言红，不让 import 崩溃代替它。
+const fixtureLoader = exported as (script: string, env?: NodeJS.ProcessEnv, cwd?: string) => string
+const owner = realpathSync(mkdtempSync(join(tmpdir(), 'kol-prebuilt-observer-')))
+const savedCwd = process.cwd()
+try {
+  process.chdir(owner) // fixtureLoader 的默认 cwd 必须就是随后子进程的 cwd。
+  const scripts = join(owner, 'scripts'), cache = join(owner, PREBUILT_DIR)
+  mkdirSync(join(scripts, 'lib'), { recursive: true }); mkdirSync(cache, { recursive: true })
+  writeFileSync(join(owner, 'package.json'), '{"type":"module"}')
+  const main = join(scripts, 'main.ts'), value = join(scripts, 'lib', 'value.ts'), fake = join(scripts, 'fake-fetch.ts')
+  const observer = join(owner, 'observer.mjs'), config = join(owner, 'tsconfig.json'), custom = join(owner, 'custom.json')
+  const valueURL = pathToFileURL(value).href, observerURL = pathToFileURL(observer).href, fakeURL = pathToFileURL(fake).href
+  writeFileSync(value, "export const state = { wired: false, fake: false, events: [] as string[] }; export class Probe { hit() { state.events.push('unobserved') } }\n")
+  // 树外的 .mjs 由 Node 正常加载；用 .ts URL 改公开对象与原型，不能靠转译观察器本身。
+  writeFileSync(observer, `import { state, Probe } from ${JSON.stringify(valueURL)}; state.wired = true; Probe.prototype.hit = function () { state.events.push('method') }\n`)
+  writeFileSync(fake, `import { state } from ${JSON.stringify(valueURL)}; const active: boolean = true; state.fake = active; globalThis.fetch = async () => { state.events.push('fetch'); return new Response('fixture') }\n`)
+  writeFileSync(main, `import { state, Probe } from './lib/value.js'
+const answer: string = process.env.MODE === 'positive' ? (new Probe().hit(), await (await fetch('data:text/plain,unobserved')).text()) : 'quiet'
+console.log(JSON.stringify([state.wired, state.fake, state.events, answer, import.meta.url === ${JSON.stringify(pathToFileURL(main).href)}, process.argv[1] === ${JSON.stringify(main)}]))
+`)
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  delete env.KOL_PREBUILT; delete env.NODE_OPTIONS; delete env.TSX_TSCONFIG_PATH
+  const strips = Boolean(process.features.typescript), require = createRequire(import.meta.url)
+  const tsxURL = pathToFileURL(require.resolve('tsx/esm')).href
+  const pathOf = (url: string) => { try { return realpathSync(fileURLToPath(url)) } catch { return 'invalid file URL' } }
+  const tsxPaths = new Set(['tsx', 'tsx/esm'].map(specifier => realpathSync(require.resolve(specifier))))
+  const hookPath = pathOf(new URL('./check/prebuilt-hook.ts', import.meta.url).href)
+  const choose = (extra: NodeJS.ProcessEnv = {}) => {
+    const kidEnv = { ...env, ...extra }, loader = fixtureLoader(main, kidEnv, owner)
+    const wired = { ...kidEnv, NODE_OPTIONS: [kidEnv.NODE_OPTIONS ?? '', ...[loader, observerURL, fakeURL].map(u => '--import ' + JSON.stringify(u))].join(' ') }
+    return { loader, wired, command: prebuiltCommand([main], owner, wired) }
+  }
+  const route = (extra: NodeJS.ProcessEnv = {}) => {
+    const chosen = choose(extra), path = pathOf(chosen.loader); return [tsxPaths.has(path) ? 'tsx' : path, isBare(chosen.command[1])]
+  }
+  const fallback = ['tsx', false]
+  prebuildTree(owner)
+  eq('观察器加载器：齐缓存按内建能力返回预编钩子或当前项目 tsx，入口同路', route(), [strips ? hookPath : 'tsx', strips])
+  eq('观察器加载器：省略环境参数等同显式 process.env', fixtureLoader(main), fixtureLoader(main, process.env))
+  const run = (mode: string, via: 'cli' | 'options', extra: NodeJS.ProcessEnv = {}) => {
+    const chosen = choose(extra)
+    const command: [string, string[]] = via === 'cli'
+      ? [process.execPath, ['--import', chosen.loader, '--import', observerURL, '--import', fakeURL, main]] : chosen.command
+    const kidEnv = { ...(via === 'cli' ? { ...env, ...extra } : chosen.wired), MODE: mode }
+    const r = spawnSync(...command, { cwd: owner, env: kidEnv, encoding: 'utf8', timeout: 30_000 })
+    return [r.status, r.stdout.trim(), r.status === 0 ? '' : r.stderr]
+  }
+  // 阳性事件手算为原型方法一次、fake fetch 一次；阴性仍核两个接线标记及入口确实执行。
+  const positive = [0, '[true,true,["method","fetch"],"fixture",true,true]', '']
+  const negative = [0, '[true,true,[],"quiet",true,true]', '']
+  eq('观察器 CLI 阳性：.ts URL 的对象和原型修改被相对 .js 入口看见，地址保持 .ts', run('positive', 'cli'), positive)
+  eq('观察器 CLI 阴性：同接线确实运行且零事件，地址保持 .ts', run('negative', 'cli'), negative)
+  eq('观察器 NODE_OPTIONS 阳性：加载器先于观察器及 fake-fetch，记录两类事件', run('positive', 'options'), positive)
+  eq('观察器 NODE_OPTIONS 阴性：同模块接线已证且确实零事件', run('negative', 'options'), negative)
+  eq('观察器回退阳性：KOL_PREBUILT=0 仍共用对象和原型并记录事件', run('positive', 'options', { KOL_PREBUILT: '0' }), positive)
+  eq('观察器回退阴性：tsx 同接线确实执行且零事件', run('negative', 'options', { KOL_PREBUILT: '0' }), negative)
+  eq('观察器加载器：KOL_PREBUILT=0 与入口一同保留 tsx', route({ KOL_PREBUILT: '0' }), fallback)
+  eq('观察器加载器：仅子进程禁剥离时普通及引号写法均保留 tsx',
+    ['--no-experimental-strip-types', '"--no-experimental-strip-types"'].map(NODE_OPTIONS => route({ NODE_OPTIONS })), [fallback, fallback])
+  eq('观察器加载器：原有绝对或包名 tsx 加载器均保留 tsx',
+    ['--import ' + JSON.stringify(tsxURL), '--import tsx', '--import=tsx/esm'].map(NODE_OPTIONS => route({ NODE_OPTIONS })), [fallback, fallback, fallback])
+  writeFileSync(custom, '{"compilerOptions":{"useDefineForClassFields":false}}')
+  eq('观察器加载器：显式 TSX_TSCONFIG_PATH 与入口一同保留 tsx', route({ TSX_TSCONFIG_PATH: custom }), fallback)
+  writeFileSync(config, '{\n// JSONC\n"compilerOptions":{}}'); prebuildTree(owner)
+  eq('观察器加载器：JSONC 配置与入口一同保留 tsx', route(), fallback)
+  writeFileSync(config, '{"extends":"./custom.json"}'); prebuildTree(owner)
+  eq('观察器加载器：继承配置与入口一同保留 tsx', route(), fallback)
+  writeFileSync(config, '{}'); prebuildTree(owner)
+  renameSync(cache, cache + '.saved')
+  eq('观察器加载器：无缓存目录时与入口一同保留 tsx', route(), fallback)
+  renameSync(cache + '.saved', cache)
+  // 用公开缓存身份选中 owner 的一份；另一种格式的缺席不影响此 owner 观察器。
+  const ownerId = identityOf({ esbuild: require('esbuild/package.json').version, node: process.versions.node, compilerOptions: {} })
+  unlinkSync(join(cache, keyOf(ownerId, value, rf(value, 'utf8')) + '.js'))
+  eq('观察器加载器：整树缺一份缓存时与入口一同保留 tsx', route(), fallback)
+  prebuildTree(owner)
+  writeFileSync(value, rf(value, 'utf8') + '\nexport const changed: number = 2\n')
+  eq('观察器加载器：源码改后未编时与入口一同保留 tsx', route(), fallback)
+} finally { process.chdir(savedCwd); rmSync(owner, { recursive: true, force: true }) }
+})
+
+await group('h-prebuilt-observer-child-cwd', async () => {
+harness('观察器真实子cwd：独立公开契约v4，先验接线与双向字段语义')
+// v4字段oracle/标签保留；v5仅补独立冻结的主线程观测资格，worker诊断另域保留。
+const reportEq = eq;
+const { spawnSync } = await import('node:child_process');
+const { createHash, randomUUID } = await import('node:crypto');
+const { mkdirSync, writeFileSync, readFileSync, symlinkSync, existsSync, rmSync, mkdtempSync, realpathSync } = await import('node:fs');
+const path = await import('node:path');
+const { tmpdir } = await import('node:os');
+const { pathToFileURL } = await import('node:url');
+const bus = `
+type ThreadIdentity = { pid: number; isMainThread: boolean; threadId: number };
+const workersModule: string = 'node:worker_threads';
+const { isMainThread, threadId } = await import(workersModule);
+const runtime = (globalThis as unknown as { process: { pid: number } }).process;
+export const busThread: ThreadIdentity = Object.freeze({ pid: runtime.pid, isMainThread, threadId });
+
+export type Observation = { kind: string; value?: number; wired?: boolean; setterCount?: number; own?: boolean; sourceSha?: string; eventThread?: ThreadIdentity };
+const listeners: Array<(event: Observation) => void> = [];
+export function observe(listener: (event: Observation) => void): void { listeners.push(listener); }
+export function isWired(): boolean { return listeners.length === 1; }
+export function publish(event: Observation): void { for (const listener of listeners) listener({ ...event, eventThread: busThread }); }
+`;
+
+const observer = `
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { isMainThread, threadId } from 'node:worker_threads';
+const observerThread = Object.freeze({ pid: process.pid, isMainThread, threadId });
+const sourceSha = createHash('sha256').update(readFileSync(process.env.OBSERVER_SOURCE_PATH, 'utf8')).digest('hex');
+const nonce = process.env.OBSERVER_NONCE;
+if (isMainThread) {
+  const { observe } = await import('./bus.ts');
+  observe((event) => console.log(JSON.stringify({ channel: 'observer-child-cwd-v1', nonce, observerSha: sourceSha, ...event, observerThread })));
+  console.log(JSON.stringify({ channel: 'observer-child-cwd-v1', nonce, observerSha: sourceSha, kind: 'observer-ready', observerThread }));
+} else {
+  console.log(JSON.stringify({ channel: 'observer-child-cwd-worker-v1', nonce, observerSha: sourceSha, kind: 'worker-preload', observerThread, eventThread: observerThread }));
+}
+`;
+
+const entry = `
+import { isWired, publish } from './bus.ts';
+const runtime = (globalThis as unknown as { process: { env: Record<string, string | undefined>; cwd(): string } }).process;
+const fsModule: string = 'node:fs';
+const cryptoModule: string = 'node:crypto';
+const fs = await import(fsModule);
+const crypto = await import(cryptoModule);
+const sourceSha = crypto.createHash('sha256').update(fs.readFileSync(runtime.env.ENTRY_SOURCE_PATH, 'utf8')).digest('hex');
+publish({ kind: 'target-wired', wired: isWired(), sourceSha });
+let setterCount = 0;
+const stored = new WeakMap<object, number>();
+class Base {}
+Object.defineProperty(Base.prototype, 'signal', {
+  configurable: true,
+  get(this: object): number | undefined { return stored.get(this); },
+  set(this: object, value: number): void { setterCount += 1; stored.set(this, value); publish({ kind: 'setter', value }); }
+});
+class Derived extends Base { signal = 41; }
+let subject: { signal: number };
+if (runtime.env.OBSERVER_ACTION === 'positive') {
+  subject = Object.create(Base.prototype) as { signal: number };
+  subject.signal = 41;
+} else {
+  subject = new Derived();
+}
+publish({ kind: 'result', wired: isWired(), setterCount, own: Object.hasOwn(subject, 'signal'), value: subject.signal, sourceSha });
+`;
+
+
+const scopeProbe = `
+import { isMainThread, threadId } from 'node:worker_threads';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+const scopeSha = createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex');
+console.log(JSON.stringify({ channel: 'observer-child-cwd-scope-v1', kind: 'scope', nonce: process.env.OBSERVER_NONCE, scopeSha, identity: { pid: process.pid, isMainThread, threadId }, runtime: { node: process.version, platform: process.platform, arch: process.arch } }));
+`;
+const qualificationSource = `export function qualify(records, expected) {
+  const mainChannel = 'observer-child-cwd-v1';
+  const workerChannel = 'observer-child-cwd-worker-v1';
+  const scopeChannel = 'observer-child-cwd-scope-v1';
+  const main = records.filter(record => record.channel === mainChannel);
+  const workers = records.filter(record => record.channel === workerChannel);
+  const scopes = records.filter(record => record.channel === scopeChannel);
+  const problems = [];
+  const mainScopes = scopes.filter(record => record.identity?.isMainThread === true && record.identity?.pid === expected.pid);
+  if (mainScopes.length !== 1 || !Number.isInteger(mainScopes[0]?.identity?.threadId)) problems.push('independent-main-scope');
+  const mainThreadId = mainScopes[0]?.identity?.threadId;
+  const exactThread = (thread, isMain, id) => thread && thread.pid === expected.pid && thread.isMainThread === isMain && thread.threadId === id;
+  const mainThread = thread => exactThread(thread, true, mainThreadId);
+  for (const record of records) {
+    if (![mainChannel, workerChannel, scopeChannel].includes(record.channel)) problems.push('unknown-channel');
+    if (record.nonce !== expected.nonce) problems.push('record-nonce');
+    if (record.channel !== scopeChannel && record.observerSha !== expected.observerSha) problems.push('record-provenance');
+  }
+  for (const record of scopes) {
+    if (record.kind !== 'scope' || record.scopeSha !== expected.scopeSha || record.identity?.pid !== expected.pid || typeof record.identity?.isMainThread !== 'boolean' || !Number.isInteger(record.identity?.threadId)) problems.push('scope-provenance');
+  }
+  for (const record of main) {
+    if (!mainThread(record.observerThread)) problems.push('main-observer-thread');
+    if (!['observer-ready', 'target-wired', 'setter', 'result'].includes(record.kind)) problems.push('unknown-main-kind');
+    if (record.kind !== 'observer-ready' && !mainThread(record.eventThread)) problems.push('main-event-thread');
+  }
+  for (const record of workers) {
+    const thread = record.observerThread;
+    if (record.kind !== 'worker-preload' || !thread || thread.pid !== expected.pid || thread.isMainThread !== false || !Number.isInteger(thread.threadId) || thread.threadId === mainThreadId) problems.push('worker-diagnostic-identity');
+    if (!record.eventThread || record.eventThread.pid !== thread?.pid || record.eventThread.isMainThread !== false || record.eventThread.threadId !== thread?.threadId) problems.push('worker-bus-thread');
+  }
+  const ready = main.filter(record => record.kind === 'observer-ready');
+  const wired = main.filter(record => record.kind === 'target-wired');
+  const result = main.filter(record => record.kind === 'result');
+  if (ready.length !== 1) problems.push('main-ready-count');
+  if (wired.length !== 1 || wired[0]?.wired !== true || wired[0]?.sourceSha !== expected.entrySha) problems.push('main-target-wired');
+  if (result.length !== 1 || result[0]?.wired !== true || result[0]?.sourceSha !== expected.entrySha) problems.push('main-result');
+  if (main[0]?.kind !== 'observer-ready' || main[1]?.kind !== 'target-wired' || main.at(-1)?.kind !== 'result') problems.push('main-event-order');
+  return { valid: problems.length === 0, problems: [...new Set(problems)], main, workers, scopes, mainThreadId, ready, wired, result };
+}
+`;
+
+const ARTIFACTS = realpathSync(mkdtempSync(path.join(tmpdir(), 'observer-child-cwd-')));
+const qualificationPath = path.join(ARTIFACTS, 'qualification.mjs');
+writeFileSync(qualificationPath, qualificationSource);
+const { qualify } = await import(pathToFileURL(qualificationPath).href);
+const savedF1Cwd = process.cwd();
+try {
+const NODE = process.execPath;
+const DEPENDENCIES = path.resolve('node_modules');
+const TARGET = path.resolve('scripts/check/prebuilt.ts');
+const mode = process.features.typescript ? 'normal' : 'nostrip';
+const workRoot = path.join(ARTIFACTS, `work-${mode}-${randomUUID()}`);
+mkdirSync(workRoot, { recursive: true });
+const parentHookMappings: Array<{ from: string; to: string }> = [];
+const api = { fixtureLoader: cxFixtureLoader, prebuiltCommand: cxPrebuiltCommand, prebuildTree: cxPrebuildTree, isBare: cxIsBare };
+
+type Outcome = { label: string; ok: boolean; expected: unknown; actual: unknown; category: 'semantic' | 'control' | 'fixture-invalid' };
+const outcomes: Outcome[] = [];
+const childLogs: unknown[] = [];
+const fixtureRecords: unknown[] = [];
+function sha(text: string): string { return createHash('sha256').update(text).digest('hex'); }
+function assert(label: string, actual: unknown, expected: unknown, category: Outcome['category'] = 'control'): void {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected);
+  const result = { label: `${mode}.${label}`, ok, expected, actual, category };
+  outcomes.push(result);
+  // Literal dispatch keeps the frozen runtime labels indexable by the mutation router.
+  switch (result.label) {
+    case 'normal.cross-define-to-assign.target.setter-count': eq('normal.cross-define-to-assign.target.setter-count', actual, expected); break;
+    case 'normal.cross-define-to-assign.target.setter-events': eq('normal.cross-define-to-assign.target.setter-events', actual, expected); break;
+    case 'normal.cross-define-to-assign.target.own-field': eq('normal.cross-define-to-assign.target.own-field', actual, expected); break;
+    case 'normal.cross-assign-to-define.target.setter-count': eq('normal.cross-assign-to-define.target.setter-count', actual, expected); break;
+    case 'normal.cross-assign-to-define.target.setter-events': eq('normal.cross-assign-to-define.target.setter-events', actual, expected); break;
+    case 'normal.cross-assign-to-define.target.own-field': eq('normal.cross-assign-to-define.target.own-field', actual, expected); break;
+    case 'normal.legacy-calltime-define.bare-loader-command-parity': eq('normal.legacy-calltime-define.bare-loader-command-parity', actual, expected); break;
+    case 'normal.legacy-calltime-assign.bare-loader-command-parity': eq('normal.legacy-calltime-assign.bare-loader-command-parity', actual, expected); break;
+    default: reportEq(result.label + (category === 'fixture-invalid' ? SELFCHECK_FIXTURE_MARK : ''), actual, expected);
+  }
+}
+function invalid(label: string, detail: unknown): void {
+  assert(label, detail, 'valid fixture', 'fixture-invalid');
+}
+function cleanEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.TSX_TSCONFIG_PATH;
+  delete env.KOL_PREBUILT;
+  delete env.NODE_OPTIONS;
+  delete env.NODE_V8_COVERAGE;
+  if (mode === 'nostrip') env.NODE_OPTIONS = '--no-experimental-strip-types';
+  env.TSX_DISABLE_CACHE = '1';
+  env.NODE_NO_WARNINGS = '1';
+  return env;
+}
+function config(define: boolean, include: string): string {
+  return JSON.stringify({ compilerOptions: { useDefineForClassFields: define }, include: [include] }, null, 2) + '\n';
+}
+function createTree(id: string, ownerDefine: boolean, childDefine: boolean) {
+  const root = path.join(workRoot, id);
+  const owner = path.join(root, 'owner');
+  const child = path.join(root, 'child');
+  const scripts = path.join(owner, 'scripts');
+  mkdirSync(scripts, { recursive: true });
+  mkdirSync(child, { recursive: true });
+  writeFileSync(path.join(owner, 'package.json'), '{"type":"module"}\n');
+  writeFileSync(path.join(owner, 'tsconfig.json'), config(ownerDefine, 'scripts/**/*.ts'));
+  writeFileSync(path.join(scripts, 'tsconfig.json'), config(!ownerDefine, '**/*.ts'));
+  writeFileSync(path.join(child, 'tsconfig.json'), config(childDefine, '../owner/scripts/**/*.ts'));
+  symlinkSync(DEPENDENCIES, path.join(owner, 'node_modules'), 'dir');
+  writeFileSync(path.join(scripts, 'bus.ts'), bus);
+  writeFileSync(path.join(scripts, 'observer.mjs'), observer);
+  writeFileSync(path.join(scripts, 'scope.mjs'), scopeProbe);
+  writeFileSync(path.join(scripts, 'entry.ts'), entry);
+  const target = path.join(scripts, 'entry.ts');
+  const observerPath = path.join(scripts, 'observer.mjs');
+  const scopePath = path.join(scripts, 'scope.mjs');
+  const cache = api.prebuildTree(owner);
+  fixtureRecords.push({ id, owner, child, target, observerPath, cache, entrySha: sha(entry), observerSha: sha(observer), configOwnerSha: sha(config(ownerDefine, 'scripts/**/*.ts')), configChildSha: sha(config(childDefine, '../owner/scripts/**/*.ts')) });
+  for (const [name, directory] of [['owner', owner], ['child', child]] as const) {
+    const tsc = path.join(DEPENDENCIES, 'typescript/bin/tsc');
+    const verificationOptions = ['--noEmit', '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--allowImportingTsExtensions', '--strict', '--lib', 'ES2022,DOM', '--skipLibCheck'];
+    const check = spawnSync(NODE, [tsc, ...verificationOptions, '--project', path.join(directory, 'tsconfig.json'), '--noEmit', '--pretty', 'false'], { cwd: directory, env: cleanEnv(), encoding: 'utf8', timeout: 15000 });
+    childLogs.push({ id: `${id}.tsc.${name}`, command: [NODE, tsc], cwd: directory, status: check.status, stdout: check.stdout, stderr: check.stderr });
+    if (check.error || check.status !== 0) invalid(`${id}.tsc.${name}`, { status: check.status, error: check.error?.message, stdout: check.stdout, stderr: check.stderr });
+    else assert(`${id}.tsc.${name}`, check.status, 0);
+    const list = spawnSync(NODE, [tsc, ...verificationOptions, '--project', path.join(directory, 'tsconfig.json'), '--listFilesOnly', '--pretty', 'false'], { cwd: directory, env: cleanEnv(), encoding: 'utf8', timeout: 15000 });
+    childLogs.push({ id: `${id}.coverage.${name}`, cwd: directory, status: list.status, stdout: list.stdout, stderr: list.stderr });
+    const covered = list.status === 0 && list.stdout.split(/\r?\n/).includes(target);
+    if (!covered) invalid(`${id}.config-covers-entry.${name}`, { status: list.status, target, stdout: list.stdout, stderr: list.stderr });
+    else assert(`${id}.config-covers-entry.${name}`, covered, true);
+  }
+  return { id, root, owner, child, target, observerPath, scopePath };
+}
+const defineToAssign = createTree('define-to-assign', true, false);
+const assignToDefine = createTree('assign-to-define', false, true);
+
+type Case = { id: string; tree: typeof defineToAssign; childCwd: string; omitCwd?: boolean; wiring: 'cli' | 'node-options'; setterCount: number; own: boolean; expectOptimized?: boolean };
+const cases: Case[] = [
+  { id: 'cross-define-to-assign', tree: defineToAssign, childCwd: defineToAssign.child, wiring: 'cli', setterCount: 1, own: false },
+  { id: 'cross-assign-to-define', tree: assignToDefine, childCwd: assignToDefine.child, wiring: 'node-options', setterCount: 0, own: true },
+  { id: 'same-directory-define', tree: defineToAssign, childCwd: defineToAssign.owner, wiring: 'cli', setterCount: 0, own: true, expectOptimized: true },
+  { id: 'same-directory-assign', tree: assignToDefine, childCwd: assignToDefine.owner, wiring: 'node-options', setterCount: 1, own: false },
+  { id: 'legacy-calltime-define', tree: defineToAssign, childCwd: defineToAssign.owner, omitCwd: true, wiring: 'cli', setterCount: 0, own: true, expectOptimized: true },
+  { id: 'legacy-calltime-assign', tree: assignToDefine, childCwd: assignToDefine.owner, omitCwd: true, wiring: 'node-options', setterCount: 1, own: false }
+];
+
+function runObserved(test: Case, action: 'target' | 'positive', loader: string, env: NodeJS.ProcessEnv, prefix = test.id) {
+  const nonce = randomUUID();
+  const childEnv: NodeJS.ProcessEnv = { ...env, OBSERVER_NONCE: nonce, OBSERVER_ACTION: action, OBSERVER_SOURCE_PATH: test.tree.observerPath, ENTRY_SOURCE_PATH: test.tree.target };
+  const args: string[] = [];
+  if (test.wiring === 'cli') args.push('--import', pathToFileURL(test.tree.scopePath).href, '--import', loader, '--import', pathToFileURL(test.tree.observerPath).href);
+  else childEnv.NODE_OPTIONS = `${childEnv.NODE_OPTIONS || ''} --import=${JSON.stringify(pathToFileURL(test.tree.scopePath).href)} --import=${JSON.stringify(loader)} --import=${JSON.stringify(pathToFileURL(test.tree.observerPath).href)}`.trim();
+  args.push(test.tree.target);
+  const result = spawnSync(NODE, args, { cwd: test.childCwd, env: childEnv, encoding: 'utf8', timeout: 15000 });
+  childLogs.push({ id: `${prefix}.${action}`, loader, command: [NODE, ...args], cwd: test.childCwd, parentCwd: process.cwd(), nodeOptions: childEnv.NODE_OPTIONS || '', status: result.status, signal: result.signal, error: result.error?.message, stdout: result.stdout, stderr: result.stderr });
+  if (result.error || result.status !== 0) { invalid(`${prefix}.${action}.execution`, { status: result.status, error: result.error?.message, stderr: result.stderr }); return; }
+  const records: Record<string, any>[] = [];
+  try {
+    for (const line of result.stdout.split(/\r?\n/).filter(Boolean)) {
+      const parsed = JSON.parse(line);
+      records.push(parsed);
+    }
+  } catch (error) { invalid(`${prefix}.${action}.record-format`, String(error)); return; }
+  const qualification = qualify(records, { pid: result.pid, nonce, observerSha: sha(observer), scopeSha: sha(scopeProbe), entrySha: sha(entry) });
+  childLogs.push({ id: `${prefix}.${action}.qualification`, pid: result.pid, qualification });
+  console.log('F1_THREAD_SCOPE ' + JSON.stringify({ mode, case: prefix, action, pid: result.pid, valid: qualification.valid, problems: qualification.problems, mainThreadId: qualification.mainThreadId, main: qualification.main.map((record: Record<string, any>) => ({ kind: record.kind, observerThread: record.observerThread, eventThread: record.eventThread })), workers: qualification.workers, scopes: qualification.scopes }));
+  if (!qualification.valid) { invalid(`${prefix}.${action}.observer-wired`, { problems: qualification.problems, records }); return; }
+  const mainRecords: Record<string, any>[] = qualification.main;
+  const ready: Record<string, any>[] = qualification.ready;
+  const wired: Record<string, any>[] = qualification.wired;
+  const summary: Record<string, any>[] = qualification.result;
+  assert(`${prefix}.${action}.observer-wired`, { ready: ready.length, wired: wired.length, result: summary.length, wiredFlag: wired[0].wired, sourceSha: wired[0].sourceSha, observerSha: ready[0].observerSha }, { ready: 1, wired: 1, result: 1, wiredFlag: true, sourceSha: sha(entry), observerSha: sha(observer) });
+  assert(`${prefix}.${action}.child-strip-mode`, (childEnv.NODE_OPTIONS || '').includes('--no-experimental-strip-types'), mode === 'nostrip');
+  const expectedCount = action === 'positive' ? 1 : test.setterCount;
+  const expectedOwn = action === 'positive' ? false : test.own;
+  assert(`${prefix}.${action}.setter-count`, summary[0].setterCount, expectedCount, action === 'positive' ? 'control' : 'semantic');
+  assert(`${prefix}.${action}.setter-events`, mainRecords.filter(record => record.kind === 'setter').length, expectedCount, action === 'positive' ? 'control' : 'semantic');
+  assert(`${prefix}.${action}.own-field`, summary[0].own, expectedOwn, action === 'positive' ? 'control' : 'semantic');
+  assert(`${prefix}.${action}.field-value`, summary[0].value, 41, action === 'positive' ? 'control' : 'semantic');
+}
+
+const originalCwd = process.cwd();
+for (const test of cases) {
+  process.chdir(test.tree.owner);
+  const env = cleanEnv();
+  const loader = test.omitCwd ? api.fixtureLoader(test.tree.target, env) : api.fixtureLoader(test.tree.target, env, test.childCwd);
+  const reference = api.prebuiltCommand([test.tree.target], test.childCwd, env);
+  fixtureRecords.push({ id: test.id, loader, reference, parentCwd: process.cwd(), childCwd: test.childCwd, omitCwd: !!test.omitCwd, wiring: test.wiring });
+  assert(`${test.id}.real-cwd-shape`, process.cwd() === test.childCwd, !test.id.startsWith('cross-'));
+  const commandIsBare = api.isBare(reference[1]);
+  if (test.expectOptimized || mode === 'nostrip') assert(`${test.id}.command-expected-route`, commandIsBare, mode === 'normal');
+  const commandLoaders = reference[1].flatMap((arg, index, args) => arg === '--import' ? [args[index + 1]] : arg.startsWith('--import=') ? [arg.slice('--import='.length)] : []);
+  // Public relational contract only: the fallback's behavior is checked by actual execution below.
+  assert(`${test.id}.bare-loader-command-parity`, !commandIsBare || commandLoaders.includes(loader), true, 'semantic');
+  runObserved(test, 'positive', loader, env);
+  runObserved(test, 'target', loader, env);
+}
+process.chdir(originalCwd);
+
+// Independent controls: the exact same source path under both ordinary JSON configs.
+const directTsxLoader = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href;
+for (const [id, tree, childCwd, setterCount, own] of [
+  ['direct-tsx-owner-define', defineToAssign, defineToAssign.owner, 0, true],
+  ['direct-tsx-child-assign', defineToAssign, defineToAssign.child, 1, false],
+  ['direct-tsx-owner-assign', assignToDefine, assignToDefine.owner, 1, false],
+  ['direct-tsx-child-define', assignToDefine, assignToDefine.child, 0, true]
+] as const) {
+  const direct: Case = { id, tree, childCwd, wiring: 'cli', setterCount, own };
+  runObserved(direct, 'positive', directTsxLoader, cleanEnv());
+  runObserved(direct, 'target', directTsxLoader, cleanEnv());
+}
+
+const counts = new Map<string, number>();
+for (const result of outcomes) counts.set(result.label, (counts.get(result.label) || 0) + 1);
+const expectedLabels = (() => {
+const cases = ['cross-define-to-assign', 'cross-assign-to-define', 'same-directory-define', 'same-directory-assign', 'legacy-calltime-define', 'legacy-calltime-assign'];
+const direct = ['direct-tsx-owner-define', 'direct-tsx-child-assign', 'direct-tsx-owner-assign', 'direct-tsx-child-define'];
+const facets = ['observer-wired', 'child-strip-mode', 'setter-count', 'setter-events', 'own-field', 'field-value'];
+const frozenLabels: Record<string, string[]> = {};
+for (const mode of ['normal', 'nostrip']) {
+  const labels: string[] = [];
+  for (const tree of ['define-to-assign', 'assign-to-define']) for (const owner of ['owner', 'child']) {
+    labels.push(`${mode}.${tree}.tsc.${owner}`, `${mode}.${tree}.config-covers-entry.${owner}`);
+  }
+  for (const test of cases) {
+    labels.push(`${mode}.${test}.real-cwd-shape`, `${mode}.${test}.bare-loader-command-parity`);
+    if (mode === 'nostrip' || ['same-directory-define', 'legacy-calltime-define'].includes(test)) labels.push(`${mode}.${test}.command-expected-route`);
+  }
+  for (const test of [...cases, ...direct]) for (const action of ['positive', 'target']) for (const facet of facets) labels.push(`${mode}.${test}.${action}.${facet}`);
+  frozenLabels[mode] = labels.sort();
+}
+return frozenLabels[mode];
+})();
+assert('label-identity', { unique: [...counts.values()].every(count => count === 1), labels: [...counts.keys()].sort() }, { unique: true, labels: expectedLabels });
+counts.set(`${mode}.label-identity`, 1);
+const summary = { mode, target: TARGET, workRoot, parentExecArgv: process.execArgv, parentNodeOptions: process.env.NODE_OPTIONS || '', parentHookMappings, assertionCount: outcomes.length, pass: outcomes.filter(value => value.ok).length, fail: outcomes.filter(value => !value.ok && value.category !== 'fixture-invalid').length, fixtureInvalid: outcomes.filter(value => !value.ok && value.category === 'fixture-invalid').length, labels: Object.fromEntries(counts), outcomes };
+writeFileSync(path.join(ARTIFACTS, `${mode}.child-processes.json`), JSON.stringify(childLogs, null, 2) + '\n');
+writeFileSync(path.join(ARTIFACTS, `${mode}.fixture-records.json`), JSON.stringify(fixtureRecords, null, 2) + '\n');
+writeFileSync(path.join(ARTIFACTS, `${mode}.summary.json`), JSON.stringify(summary, null, 2) + '\n');
+
+
+} catch (error) {
+  reportEq('观察器真实子cwd夹具'+SELFCHECK_FIXTURE_MARK, String(error), 'valid fixture');
+} finally {
+  process.chdir(savedF1Cwd);
+  rmSync(ARTIFACTS, { recursive: true, force: true });
+}
+})
+
+await group('h-prebuilt-cwd-config', () => {
+  harness('跨 cwd 编译配置归属：冻结公开契约的双向语义与加载器接线')
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'cxv4-'));
+  const savedCwd = process.cwd();
+  try {
+    const childEnv = {} as NodeJS.ProcessEnv;
+    for (const key of ['PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'TZ', 'SystemRoot']) {
+      if (process.env[key] !== undefined) childEnv[key] = process.env[key];
+    }
+    childEnv.PATH = `${cxDirname(process.execPath)}:${childEnv.PATH ?? ''}`;
+    const nodeTypeScriptCapability = (process.features as { typescript?: boolean | string }).typescript;
+    const canStripTypes = Boolean(nodeTypeScriptCapability);
+    if (!canStripTypes) childEnv.NODE_OPTIONS = '--no-experimental-strip-types';
+    console.log('PUBLIC_NODE_CAPABILITY ' + JSON.stringify({ typescript: nodeTypeScriptCapability, expectedBare: canStripTypes }));
+    const stateText = `export const state = { setterEvents: 0, last: -1, attached: '' };\n`;
+    const mainBody = `import { state } from './state.ts';\nclass Parent {}\nObject.defineProperty(Parent.prototype, 'payload', {\n  configurable: true,\n  get() { return state.last; },\n  set(value: number) { state.setterEvents += 1; state.last = value; }\n});\nclass Sample extends Parent { payload: number = 41; }\nconst instance = new Sample();\n`;
+    const sourceFingerprint = cxCreateHash('sha256').update(stateText + '\0' + mainBody).digest('hex');
+    const makeOwner = (name: string, useDefineForClassFields: boolean, outerUseDefineForClassFields: boolean) => {
+      const cwd = cxJoin(root, name);
+      const owner = cxJoin(cwd, 'owner');
+      cxMkdirSync(cxJoin(owner, 'scripts'), { recursive: true });
+      cxWriteFileSync(cxJoin(owner, 'package.json'), JSON.stringify({ type: 'module' }));
+      cxWriteFileSync(cxJoin(cwd, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', useDefineForClassFields: outerUseDefineForClassFields } }));
+      cxWriteFileSync(cxJoin(owner, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', useDefineForClassFields } }));
+      cxWriteFileSync(cxJoin(owner, 'scripts', 'state.ts'), stateText);
+      cxWriteFileSync(cxJoin(owner, 'scripts', 'main.ts'), mainBody + `process.stdout.write(JSON.stringify({ completed: 'entry-finished', source: ${JSON.stringify(sourceFingerprint)}, typescript: process.features.typescript, observer: state.attached, setterEvents: state.setterEvents, own: Object.hasOwn(instance, 'payload'), value: instance.payload }) + '\\n');\n`);
+      const observer = cxJoin(owner, 'observer.mjs');
+      cxWriteFileSync(observer, `import { state } from ${JSON.stringify(cxPathToFileURL(cxJoin(owner, 'scripts', 'state.ts')).href)};\nstate.attached = ${JSON.stringify(sourceFingerprint)};\n`);
+      return { owner, cwd, entry: cxJoin(owner, 'scripts', 'main.ts'), observer };
+    };
+    const defineOwner = makeOwner('owner-define', true, false);
+    const assignOwner = makeOwner('owner-assign', false, true);
+    // Both candidate configs omit files/include/exclude. Their default **/*
+    // domains include these .ts descendants; this gate checks our own layout.
+    const domains = [defineOwner, assignOwner].map(fixture => ({
+      entry: fixture.entry,
+      candidateConfigs: [fixture.owner, fixture.cwd].map(configRoot => ({
+        config: cxJoin(configRoot, 'tsconfig.json'),
+        relativeEntry: cxRelative(configRoot, fixture.entry),
+        include: '**/*'
+      }))
+    }));
+    for (const domain of domains) {
+      if (domain.candidateConfigs.some(config => config.relativeEntry.startsWith('..') || cxIsAbsolute(config.relativeEntry) || !config.relativeEntry.endsWith('.ts'))) {
+        throw new Error('[fixture-invalid] entry is outside a candidate default configuration domain');
+      }
+    }
+    console.log('CROSS_CWD_DOMAINS ' + JSON.stringify(domains));
+    cxPrebuildTree(defineOwner.owner);
+    cxPrebuildTree(assignOwner.owner);
+    const loadFor = (entry: string, cwd: string, env: NodeJS.ProcessEnv) => {
+      process.chdir(cwd);
+      try { return cxFixtureLoader(entry, env); }
+      finally { process.chdir(savedCwd); }
+    };
+    const execute = (name: string, fixture: typeof defineOwner, cwd: string, env: NodeJS.ProcessEnv, observed = false) => {
+      const loader = observed ? loadFor(fixture.entry, cwd, env) : undefined;
+      const [command, argv] = cxPrebuiltCommand([fixture.entry], cwd, env);
+      const actualEnv = observed
+        ? { ...env, NODE_OPTIONS: `${env.NODE_OPTIONS ? env.NODE_OPTIONS + ' ' : ''}--import=${loader} --import=${cxPathToFileURL(fixture.observer).href}` }
+        : env;
+      const result = cxSpawnSync(command, argv, { cwd, env: actualEnv, encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024 });
+      let parsed: any;
+      try { parsed = JSON.parse(result.stdout.trim()); } catch { parsed = undefined; }
+      console.log('CROSS_CWD_SAMPLE ' + JSON.stringify({ name, cwd, command, argv, loader, status: result.status, signal: result.signal, error: result.error?.message, stdout: result.stdout, stderr: result.stderr }));
+      if (result.status !== 0 || result.signal !== null || result.error || !parsed || parsed.completed !== 'entry-finished' || parsed.source !== sourceFingerprint || parsed.value !== 41 || parsed.typescript !== nodeTypeScriptCapability) {
+        throw new Error(`[fixture-invalid] ${name}: child did not complete the source-fingerprinted fixture`);
+      }
+      return { parsed, bare: cxIsBare(argv), shared: parsed.observer === sourceFingerprint };
+    };
+
+    // Both observation configurations establish one real assign initializer
+    // before any zero count is accepted. Failed calibration invalidates the run.
+    const plainAssign = execute('plain-assign-control', assignOwner, assignOwner.owner, childEnv);
+    if (plainAssign.parsed.setterEvents !== 1 || plainAssign.parsed.own !== false) {
+      throw new Error('[fixture-invalid] plain assign-positive calibration was not established');
+    }
+    eq('cxv4 plain assign control setter count', plainAssign.parsed.setterEvents, 1);
+    eq('cxv4 plain assign control own property', plainAssign.parsed.own, false);
+    const observedAssign = execute('observed-assign-control', assignOwner, assignOwner.owner, childEnv, true);
+    if (!observedAssign.shared || observedAssign.parsed.setterEvents !== 1 || observedAssign.parsed.own !== false) {
+      throw new Error('[fixture-invalid] observed assign-positive calibration was not established');
+    }
+    ok('cxv4 observed assign control shares observer instance', observedAssign.shared);
+    eq('cxv4 observed assign control setter count', observedAssign.parsed.setterEvents, 1);
+    eq('cxv4 observed assign control own property', observedAssign.parsed.own, false);
+
+    const sameDefine = execute('same-directory-define', defineOwner, defineOwner.owner, childEnv, true);
+    eq('cxv4 same directory cache follows Node strip capability', sameDefine.bare, canStripTypes);
+    ok('cxv4 same directory define shares observer instance', sameDefine.shared);
+    eq('cxv4 same directory define setter count', sameDefine.parsed.setterEvents, 0);
+    eq('cxv4 same directory define own property', sameDefine.parsed.own, true);
+
+    // CLI default config belongs to cwd, so owner=true cannot replace cwd=false.
+    const crossAssign = execute('owner-define-cwd-assign', defineOwner, defineOwner.cwd, childEnv);
+    eq('cxv4 owner define cwd assign setter count', crossAssign.parsed.setterEvents, 1);
+    eq('cxv4 owner define cwd assign own property', crossAssign.parsed.own, false);
+
+    // Reverse direction guards against a one-sided compatibility decision.
+    const crossDefine = execute('owner-assign-cwd-define', assignOwner, assignOwner.cwd, childEnv);
+    eq('cxv4 owner assign cwd define setter count', crossDefine.parsed.setterEvents, 0);
+    eq('cxv4 owner assign cwd define own property', crossDefine.parsed.own, true);
+
+    // This case asserts only the project's conservative explicit-env fallback.
+    // It makes no new claim about absolute env-path field semantics.
+    const explicitEnv = { ...childEnv, TSX_TSCONFIG_PATH: cxJoin(defineOwner.owner, 'tsconfig.json') };
+    const explicit = execute('explicit-child-env', defineOwner, defineOwner.owner, explicitEnv, true);
+    eq('cxv4 explicit child config keeps fallback', explicit.bare, false);
+    ok('cxv4 explicit child config shares observer instance', explicit.shared);
+  } finally {
+    process.chdir(savedCwd);
+    cxRmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+await group('h-prebuilt-scope', () => {
+  harness('预编配置覆盖资格：普通 include 阳性与无法确认的文件范围')
+  const root = scRealpathSync(scMkdtempSync(scJoin(scTmpdir(), 'scv5-')));
+  try {
+    const capability = (process.features as { typescript?: boolean | string }).typescript;
+    const canStripTypes = Boolean(capability);
+    const env = {} as NodeJS.ProcessEnv;
+    for (const key of ['PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'TZ', 'SystemRoot']) {
+      if (process.env[key] !== undefined) env[key] = process.env[key];
+    }
+    env.PATH = `${scDirname(process.execPath)}:${env.PATH ?? ''}`;
+    if (!canStripTypes) env.NODE_OPTIONS = '--no-experimental-strip-types';
+    console.log('PUBLIC_NODE_CAPABILITY ' + JSON.stringify({ typescript: capability, expectedEligible: canStripTypes }));
+    const scriptText = 'export const value: number = 41;\n';
+    const sourceFingerprint = scCreateHash('sha256').update(scriptText).digest('hex');
+    const route = (name: string, rootFields: Record<string, unknown>) => {
+      const owner = scJoin(root, name);
+      scMkdirSync(scJoin(owner, 'scripts'), { recursive: true });
+      scMkdirSync(scJoin(owner, 'other'), { recursive: true });
+      scMkdirSync(scJoin(owner, 'referenced'), { recursive: true });
+      scWriteFileSync(scJoin(owner, 'package.json'), JSON.stringify({ type: 'module' }));
+      const config = { compilerOptions: { target: 'ES2022', useDefineForClassFields: true }, ...rootFields };
+      scWriteFileSync(scJoin(owner, 'tsconfig.json'), JSON.stringify(config));
+      const entry = scJoin(owner, 'scripts', 'main.ts');
+      scWriteFileSync(entry, scriptText);
+      scWriteFileSync(scJoin(owner, 'other', 'selected.ts'), 'export const selected: number = 7;\n');
+      scWriteFileSync(scJoin(owner, 'referenced', 'index.ts'), 'export const referenced: number = 9;\n');
+      scWriteFileSync(scJoin(owner, 'referenced', 'tsconfig.json'), JSON.stringify({ compilerOptions: { composite: true, declaration: true }, files: ['index.ts'] }));
+      const build = scPrebuildTree(owner);
+      if (build.wrote + build.kept < 1 || !scExistsSync(scJoin(owner, '.check-cache', 'prebuilt'))) {
+        throw new Error(`[fixture-invalid] ${name}: complete scripts cache was not established`);
+      }
+      const [command, argv] = scPrebuiltCommand([entry], owner, env);
+      const bare = scIsBare(argv);
+      console.log('SCOPE_ADMISSION_CASE ' + JSON.stringify({ name, owner, cwd: owner, config, sourceFingerprint, build, command, argv, bare }));
+      return bare;
+    };
+
+    const ordinary = route('ordinary-scripts-include', { include: ['scripts/**/*.ts'] });
+    eq('scv5 ordinary scripts include follows Node capability', ordinary, canStripTypes);
+    const outsideFiles = route('files-outside-scripts', { files: ['other/selected.ts'] });
+    eq('scv5 files outside scripts retains tsx', outsideFiles, false);
+    const otherTree = route('include-other-tree', { include: ['other/**/*.ts'] });
+    eq('scv5 include other tree retains tsx', otherTree, false);
+    const excluded = route('exclude-scripts', { include: ['scripts/**/*.ts'], exclude: ['scripts'] });
+    eq('scv5 excluded scripts retains tsx', excluded, false);
+    const referenced = route('referenced-project', { include: ['scripts/**/*.ts'], references: [{ path: './referenced' }] });
+    eq('scv5 referenced project retains tsx', referenced, false);
+  } finally {
+    scRmSync(root, { recursive: true, force: true });
+  }
+});
+
+
 await group('h-worker-start', () => {
 harness('worker 启动观测协议：兼容旧回报并拒绝坏字段')
 
@@ -9055,15 +11013,51 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   eq('零个不成立', jobsWanted([], '0', 8, 100), undefined)
   eq('负数不成立', jobsWanted([], '-1', 8, 100), undefined)
   eq('小数不成立', jobsWanted(['--jobs=2.5'], undefined, 8, 100), undefined)
+  // 旗标本身写坏了，与 --only= 同一套读法当场拒绝（ADR-99 第 335 行）：写了两次不能只认头一个，
+  // 空格写法不能当成没写、退回环境变量或核数 —— 两种都是把「我写的那个」换成了另一个数
+  const refused = (argv: string[]): string => {
+    try { return `没有拒绝，派 ${jobsWanted(argv, '2', 8, 100)} 个` } catch (e) { return e instanceof Error ? e.message : String(e) }
+  }
+  ok('--jobs= 写了两次：拒绝，不只认头一个', refused(['--jobs=3', '--jobs=1']).includes('只能写一次 --jobs='))
+  ok('--jobs 空格写法：拒绝并说出该怎么写', refused(['--jobs', '3']).includes('--jobs=<个数>'))
+  eq('一次 --jobs= 夹在别的参数中间：照常认', refused(['--worker', '--jobs=3', '--brief']), '没有拒绝，派 3 个')
+
+  // 分份（ADR-197）：CI 上几台 runner 各跑清单的一份。没写就是整份；写了读不出来要说读不出来 ——
+  // 悄悄按整份跑是每台各跑一遍全量，悄悄跑错一份是有几条谁也没跑
+  eq('分份没写：整份', shardWanted(undefined), { index: 1, count: 1 })
+  eq('分份写空：整份', shardWanted(''), { index: 1, count: 1 })
+  eq('分份照写的读：第 2 份、共 3 份', shardWanted('2/3'), { index: 2, count: 3 })
+  eq('分份读不出来：不是 k/n', shardWanted('2'), undefined)
+  eq('分份读不出来：两个数之间不是斜杠', shardWanted('1-2'), undefined)
+  eq('分份读不出来：第 0 份', shardWanted('0/2'), undefined)
+  eq('分份读不出来：比份数还大', shardWanted('3/2'), undefined)
+  eq('分份读不出来：共 0 份', shardWanted('1/0'), undefined)
+  eq('分份读不出来：小数', shardWanted('1.5/2'), undefined)
+  eq('分份：最后一份照收', shardWanted('3/3'), { index: 3, count: 3 })
+  eq('分份读不出来：负数', shardWanted('-1/2'), undefined)
+  eq('分份读不出来：后面多一截', shardWanted('1/2/3'), undefined)
+  eq('分份：两头的空白不算', shardWanted(' 2/3 '), { index: 2, count: 3 })
+  eq('分份读不出来：大到失了精度（两个数转成同一个数）', shardWanted('9007199254740993/9007199254740992'), undefined)
+  // 成摞发（ADR-200）：同一种配置整摞落在一份里，那种配置的基线只在那一份跑；整跑的（键是 undefined）各自成一摞。
+  // x 三条、y 两条、d 与 h 整跑、z 一条：x→1（3,0,0），y→2（3,2,0），d→3（3,2,1），z→3（3,2,2），h→2（一样少给编号小的）
+  const piled: [string, string | undefined][] = [['a', 'x'], ['b', 'y'], ['c', 'x'], ['d', undefined], ['e', 'z'], ['f', 'x'], ['g', 'y'], ['h', undefined]]
+  const pileOf = (k: number, n: number) => shardOf(piled, p => p[1], k, n).map(p => p[0])
+  eq('分份：同一种配置整摞落在同一份', pileOf(1, 3), ['a', 'c', 'f'])
+  eq('分份：一样少的给编号小的那一份，照清单原顺序交回', pileOf(2, 3), ['b', 'g', 'h'])
+  eq('分份：整跑的各自成一摞', pileOf(3, 3), ['d', 'e'])
+  eq('分份：几份合起来恰好是整份', [1, 2, 3].flatMap(k => pileOf(k, 3)).sort(), piled.map(p => p[0]))
+  eq('分份：整份就是原清单', pileOf(1, 1), piled.map(p => p[0]))
 
   // 汇报行：写下去再读回来，五种结论一个不丢。两边各写一份格式的话，
   // 改一边不改另一边的症状是「每一条都没回话」，而人会去翻变异集，不会去翻这个格式
   const ran = (outcome: Outcome, over: Partial<Ran> = {}): Ran =>
     ({ outcome, status: 1, stopped: false, output: '', ms: 0, ...over })
-  for (const o of ['caught', 'elsewhere', 'crashed', 'survived', 'not-applied'] as const) {
-    eq(`结论「${o}」写下去读回来还是它`, parseReport(reportLine('M-X-a', ran(o))),
-      { id: 'M-X-a', ...ran(o) })
-  }
+  // 五句逐字写开、不用循环拼标签：负片的 kills 要点名它们，变异那一步的清册只认字面量标签
+  eq('结论「caught」写下去读回来还是它', parseReport(reportLine('M-X-a', ran('caught'))), { id: 'M-X-a', ...ran('caught') })
+  eq('结论「elsewhere」写下去读回来还是它', parseReport(reportLine('M-X-a', ran('elsewhere'))), { id: 'M-X-a', ...ran('elsewhere') })
+  eq('结论「crashed」写下去读回来还是它', parseReport(reportLine('M-X-a', ran('crashed'))), { id: 'M-X-a', ...ran('crashed') })
+  eq('结论「survived」写下去读回来还是它', parseReport(reportLine('M-X-a', ran('survived'))), { id: 'M-X-a', ...ran('survived') })
+  eq('结论「not-applied」写下去读回来还是它', parseReport(reportLine('M-X-a', ran('not-applied'))), { id: 'M-X-a', ...ran('not-applied') })
   // 退出码那一栏要分得开「被信号杀掉」和「退出码 0」—— 压成一个值就是把三档压成两档
   eq('被信号杀掉那一次：退出码是 null，不是 0',
     parseReport(reportLine('M-X-a', ran('crashed', { status: null })))?.status, null)
@@ -9094,8 +11088,13 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   // 桩与「锚点失效没跑」写的都是 0，拿 0 当样本验不出「读回来的是写下去的那个」
   const good = { id: 'M-X-a', outcome: 'caught', status: 1, stopped: false, output: '', ms: 1234 }
   eq('好的那一行认得', parseReport(wire(good)), good)
-  eq('不是汇报行的：认不出', parseReport('  ✓ M-X-a  [X1] 被抓到'), undefined)
-  eq('记号后面不是合法 JSON：认不出', parseReport('⟦结论⟧ caught M-X-a'), undefined)
+  // 认的是记号，不是后面那段：第二个样本记号差一个字、后面是一份合法的汇报。只放闲话那一个的话，
+  // 拿掉认记号那一道它照样绿 —— 闲话本来就不是 JSON，被下一道拦住了。差一个字也就与记号等长，
+  // 不认记号时按记号的长度切下去正好切到 JSON 开头；记号哪天不含「结论」，换不掉，这条会红在样本上
+  eq('不是汇报行的：认不出',
+    [parseReport('  ✓ M-X-a  [X1] 被抓到'), parseReport(wire(good).replace('结论', '结果'))].map(r => r === undefined), [true, true])
+  // 走 `read`：「认不出」要交回 undefined，抛出去的话这一跑算崩，不算这条断言红
+  eq('记号后面不是合法 JSON：认不出', read('⟦结论⟧ caught M-X-a'), undefined)
   eq('记号后面是 null：认不出，不是抛出去', read('⟦结论⟧ null'), undefined)
   eq('结论那个词不认得：认不出，不猜', parseReport(wire({ ...good, outcome: 'ok' })), undefined)
   eq('没有编号：认不出', parseReport(wire({ ...good, id: '' })), undefined)
@@ -9106,6 +11105,32 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
     parseReport(wire({ id: 'M-X-a', outcome: 'caught', status: 1, output: '', ms: 1234 })), undefined)
   eq('少了现场那一栏：认不出',
     parseReport(wire({ id: 'M-X-a', outcome: 'caught', status: 1, stopped: false, ms: 1234 })), undefined)
+
+  // ── 一条一派（ADR-72 第 211 行）：worker 起来时领一条，交回一条结论再领一条，队列空了关掉它的输入。
+  // 两条配两个 worker 每人领一条就到头了；三条配两个才走得到「收到结论之后再派下一条」那一支。
+  // 期望手推：甲、乙起来各领一条；乙先交回 M-2，领到 M-3；甲交回 M-1 时队列已空；乙交回 M-3 也空
+  // 谁先空出来是这里的调用顺序定的，不是 handNext 判的；它只管从共用的队列里取走队首、空了交回关输入
+  {
+    const queue = ['M-1', 'M-2', 'M-3'], log: string[] = []
+    const give = (who: string) => {
+      const h = handNext(queue)
+      log.push('end' in h ? `${who} 关输入` : `${who} 领 ${h.send}`)
+    }
+    give('甲'); give('乙'); give('乙'); give('甲'); give('乙')
+    eq('三条配两个 worker：按来要的先后各取走一条，队列空了才关输入，每条恰好派一次',
+      log, ['甲 领 M-1', '乙 领 M-2', '乙 领 M-3', '甲 关输入', '乙 关输入'])
+    eq('派完之后共用的队列空了', queue, [])
+  }
+  eq('队列本来就空：头一次就关输入', handNext([]), { end: true })
+  // 交回的一行怎么接：读得出是结论（记账、再派），没有记号的是验证者的闲话（跳过），
+  // 带着记号却读不出来要让它收摊 —— 它正等着下一个编号，不收摊就永远等下去，整跑挂住。
+  // 与上面的 `read` 同理走一层接住：解析那一步抛出去的话，这一跑算崩，不算这条断言红（M-H36-ao）
+  const take = (line: string) => {
+    try { return workerLine(line) } catch (e) { return `抛了：${String(e)}` }
+  }
+  eq('worker 交回的结论行：读出结论', take(wire(good)), { report: good })
+  eq('worker 漏出来的闲话：跳过，不收摊', take('  ✓ 某条断言'), { skip: true })
+  eq('带着记号却读不出来：让这个 worker 收摊', take('⟦结论⟧ caught M-X-a'), { end: true })
 
   // ── 计时那一栏（Ran.ms）。契约：「ms 须是有限、非负的数，否则认不出」；它和别的字段一样
   // 要穿过 worker 的进程边界，所以写下去读回来必须还是原值 —— 读回一个 0 的话，账单上那个
@@ -9163,19 +11188,28 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
     missingVerdicts(['M-a', 'M-b', 'M-c'], new Set(['M-b'])), ['M-a', 'M-c'])
   eq('都回话了就没有欠账', missingVerdicts(['M-a', 'M-b'], new Set(['M-a', 'M-b'])), [])
 
-  // 哪些文件进得了 worker 的那份副本。错一格不是跑得慢，是密钥被复制出去
-  // （`docs/CONVENTIONS.md` 第 10 条：走文件树那一半也是判定）
-  eq('装不下的那几个：不带', copyIntoWorker('node_modules'), false)
-  eq('会把自己复制进自己的：不带', copyIntoWorker('.check-cache'), false)
-  eq('源文件：带', copyIntoWorker('scripts/check/a.ts'), true)
-  eq('`.env` 本人：不带', copyIntoWorker('.env'), false)
-  eq('`.env.local`：不带 —— 逐字比认不出它，这一条正是手抄本漂掉的那个',
-    copyIntoWorker('.env.local'), false)
-  eq('受跟踪的 `.env.example` 也不带 —— 有意的，没有代码从盘上读它',
-    copyIntoWorker('.env.example'), false)
-  eq('认的是文件名那一节，不是整条路径', copyIntoWorker('a/b/.env.local'), false)
-  eq('名字里带 env 但不在开头：照带', copyIntoWorker('my.env.ts'), true)
-  eq('逐字那张表不按前缀 —— `outputs` 不是 `output`', copyIntoWorker('outputs'), true)
+  // 哪些文件进得了 worker 的那份副本。清单由 git 说，这里认的是解析与两道不交给 git 的挡
+  // （ADR-72 第 303 行；`docs/CONVENTIONS.md` 第 10 条：走文件树那一半也是判定）。错一格不是跑得慢，是密钥被复制出去
+  const listed = (...names: string[]): string => names.map(n => `${n}\0`).join('')
+  eq('git 列的照带，按列的顺序', workerCopyList('\n', listed('scripts/check/a.ts', 'docs/x.md')),
+    { files: ['scripts/check/a.ts', 'docs/x.md'] })
+  eq('末尾那个空的不算一项', workerCopyList('\n', 'a.ts\0'), { files: ['a.ts'] })
+  eq('以斜杠结尾的（树里一份没受跟踪的嵌套仓库）不带', workerCopyList('\n', listed('a.ts', '.claude/worktrees/w1/')), { files: ['a.ts'] })
+  eq('列了两遍的（解决冲突中的文件）只带一份', workerCopyList('\n', listed('a.ts', 'a.ts', 'b.ts')), { files: ['a.ts', 'b.ts'] })
+  eq('作业目录那一棵不带 —— 没写 `.gitignore` 的树里 git 会列出来，带进去就是把自己复制进自己',
+    workerCopyList('\n', listed('a.ts', '.check-cache/mutate-jobs/1/w0/a.ts')), { files: ['a.ts'] })
+  eq('依赖树那一处不带 —— 那里换成符号链接', workerCopyList('\n', listed('a.ts', 'node_modules/x/index.js')), { files: ['a.ts'] })
+  eq('认的是第一节 —— 深处叫 `node_modules` 的照带', workerCopyList('\n', listed('docs/node_modules/x.md')), { files: ['docs/node_modules/x.md'] })
+  eq('`.env.production` 没登记进 `.gitignore`、git 照列：不带', workerCopyList('\n', listed('a.ts', '.env.production')), { files: ['a.ts'] })
+  eq('受跟踪的 `.env.example` 也不带 —— 有意的，没有代码从盘上读它', workerCopyList('\n', listed('a.ts', '.env.example')), { files: ['a.ts'] })
+  eq('深处那份、以及 `.env` 开头的目录底下的：不带',
+    workerCopyList('\n', listed('a.ts', 'a/b/.env.local', '.envs/x.ts')), { files: ['a.ts'] })
+  eq('名字里带 env 但不在开头：照带', workerCopyList('\n', listed('my.env.ts')), { files: ['my.env.ts'] })
+  eq('不在仓库顶层：不开工 —— git 只列这一层底下的，带出去的是半棵树',
+    workerCopyList('sub/\n', listed('a.ts')), { fault: '当前目录不是仓库顶层（git 说这里在仓库的 sub/ 底下）' })
+  eq('清单是空的：不开工', workerCopyList('\n', ''), { fault: 'git 列出来要带进副本的文件一个也没有' })
+  eq('只剩挡掉的那几样也算空：不开工', workerCopyList('\n', listed('.env', '.check-cache/x')),
+    { fault: 'git 列出来要带进副本的文件一个也没有' })
 
   // `spawn` 交回来的对象起没起来。不先问这一句，报出来的原因会指向派工代码
   eq('连管道都没装上：没起来', noStdio({ stdin: undefined }), true)
@@ -9196,14 +11230,27 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
 
   // ── 验证者那一组的号：从 worker 传到派工进程（ADR-74）
 
+  // 每一跑的作业目录按派工进程的号分开（ADR-74 第 237 行）：两跑同时开，各建各删，
+  // 后来的不会把先来的那份连号文件一起抹掉
+  eq('这一跑的作业目录在作业根底下、以派工进程的号命名', jobsRunDir('.cache/jobs', 777), '.cache/jobs/777')
+  ok('两跑的作业目录不一样 —— 后来的那跑删不到先来的那份', jobsRunDir('j', 1) !== jobsRunDir('j', 2))
+
   // 号文件搁哪。是 `w<i>/` 的兄弟不是它的孩子 —— 那个目录会被复制、是验证者的 cwd、
-  // 还是收尾要删的目标；名字里带派工进程的号，另一跑留下的路径就对不上
+  // 还是收尾要删的目标；它在这一跑自己的作业目录里，另一跑留下的路径就对不上
   eq('号文件是隔离目录的兄弟，不在它里面',
-    beaconPathOf('.cache/jobs', 777, 3), '.cache/jobs/w3.777.verifier')
+    beaconPathOf(jobsRunDir('.cache/jobs', 777), 3), '.cache/jobs/777/w3.verifier')
   ok('不落进 w<i>/ 那棵被复制的树',
-    !beaconPathOf('.cache/jobs', 777, 3).startsWith('.cache/jobs/w3/'))
+    !beaconPathOf(jobsRunDir('.cache/jobs', 777), 3).startsWith('.cache/jobs/777/w3/'))
   ok('两跑的路径不一样 —— 并发两跑不会读到对方的号',
-    beaconPathOf('j', 1, 0) !== beaconPathOf('j', 2, 0))
+    beaconPathOf(jobsRunDir('j', 1), 0) !== beaconPathOf(jobsRunDir('j', 2), 0))
+
+  // 作业根底下哪几层能清：名字是号、那个进程已不在。原先开头整删顺带收掉被硬杀那一跑的副本，
+  // 各删各的之后这件事另判 —— 进程还在的清了，就是本条要堵的「后来的抹掉先来的」
+  const gone = new Set([11, 13])
+  eq('已不在的那几跑留下的层清掉', staleRunDirs(['11', '12', '13'], pid => !gone.has(pid)), ['11', '13'])
+  eq('进程还在的那一跑的层不清', staleRunDirs(['12'], pid => !gone.has(pid)), [])
+  eq('名字不是号的不碰 —— 旧布局的 w0、号文件，或别的不知道是谁的东西',
+    staleRunDirs(['w0', 'baseline-0', 'w0.11.verifier', '011', '0', '11x', ''], () => false), [])
 
   // 这一跑有没有人收号。空值那一种要挡：worker 会去写一个空路径，抛在 close 监听器里，
   // 那一轮的还原整个不跑，被改过的源文件留在工作区
@@ -9520,12 +11567,12 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 串里装着调用形状的、以及普通的读文件）—— 收紧正则是军备竞赛，让清单成为行为才是根治。
   // 第四份是计数预加载：自检当工具起的 mutate，在正常基线那一跑经 NODE_OPTIONS 的 --import 把它加载进验证者（ADR-145 第十三节
   // 第 1、2 小节）。第三片又给工具表加了启动数闸门的入口（第二十一节第 7 小节），ADR-151 第二节第 1 片加了只读台账入口，
-  // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）。
-  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts，
-  // 按字符串排（a < f < launch- < launches < m < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
+  // ADR-156 第十四节加了 Skill 结构的入口（自检组 skill-entry 在玩具树上起它）；KOL-21 加了零请求观察器的认证入口（自检组 observer-cert-entry 起它）。
+  // 期望值 = 原来那三份 ＋ 第十三节第 1 小节写明的路径 ＋ launches.ts ＋ adr-ledger.ts ＋ skill.ts ＋ audit.ts（ADR-70）＋ observer-cert.ts（ADR-70 末尾 KOL-21 观察器一节）＋ anchors.ts（ADR-70 末尾「变异残留」第三片，自检组 anchor-residue-entry 起它），
+  // 按字符串排（adr < anchors < audit < f < launch- < launches < m < o < se < sk：selfcheck 与 skill 第二个字符 e < k）—— 手排的，不来自运行结果
   eq('种子 = 自检自己 ＋ 它当工具起的 ＋ 它预加载的 ＋ 它起的 mutate 给验证者预加载的', SELFCHECK_SEEDS, [
-    'scripts/check/adr-ledger.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
-    'scripts/check/launches.ts', 'scripts/check/mutate.ts', 'scripts/check/selfcheck.ts', 'scripts/check/skill.ts',
+    'scripts/check/adr-ledger.ts', 'scripts/check/anchors.ts', 'scripts/check/audit.ts', 'scripts/check/fake-fetch.ts', 'scripts/check/launch-preload.ts',
+    'scripts/check/launches.ts', 'scripts/check/mutate.ts', 'scripts/check/observer-cert.ts', 'scripts/check/selfcheck.ts', 'scripts/check/skill.ts',
   ])
   // 预加载单独列，因为它既不是 import 也不是「起了谁」—— 两种扫法都收不到
   ok('预加载那一份在种子里', SELFCHECK_SEEDS.includes(`scripts/${SELFCHECK_PRELOAD}`))
@@ -9556,6 +11603,11 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 多拦几条变异；少收就是**放行**一条自己验自己的变异（`closure` 头上同一条道理）
   eq('注释里的也收 —— 宁可闭包偏大，不可偏小',
     importsOf('scripts/a.ts', `// 早先是 from './old.js'`).to, ['scripts/old.ts'])
+  // 不带 from 的副作用 import 是 ESM 里合法的一句：只认 from 的话这条边收不到，
+  // 它加载的依赖落在闭包外，打在它身上、又指名了验证者的变异被放行（ADR-70 第 193–199 行那张欠条）
+  eq('不带 from 的副作用 import 也是一条边',
+    importsOf('scripts/check/a.ts', `import './b.js'\nimport '../lib/c.js'`).to,
+    ['scripts/check/b.ts', 'scripts/lib/c.ts'])
 
   // ---- 递归，不是只收一层 ----
   const graph = [
@@ -9588,6 +11640,23 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 凭空多两个文件）。判据故意宽是为了不漏，可它宽出来的东西该在这儿被看见
   const real = infraClosure(f => existsSync(f) ? rf(f, 'utf8') : undefined)
   eq('真闭包里没有磁盘上不存在的路径', real.filter(f => !existsSync(f)), [])
+  // 被测入口不能在真闭包里：种子里出现一句形状像加载它的引用，它就被收进来，打在它上面、
+  // 改跑自检的变异全被当成自己验自己拦下 —— collect.ts 上那条正是这条记录的头号用例（ADR-70 第 201–207 行那张欠条）。
+  // 名单从 package.json 里产品命令（带 --env-file-if-exists 起的那几条）读，不从闭包那边取，也不手抄
+  const productCommands = Object.values(JSON.parse(rf('package.json', 'utf8')).scripts as Record<string, string>)
+    .filter(cmd => cmd.includes('--env-file-if-exists'))
+  // 按命令分组留着：只比总数时，一条命令抽空、另一条抽出两份也会相抵
+  const entriesByCommand = productCommands.map(cmd => [...cmd.matchAll(/\b(scripts\/[\w./-]+\.ts)\b/g)].map(m => m[1]))
+  const productEntries = entriesByCommand.flat()
+  // 名单不能悄悄少一份：每条产品命令恰好抽出一份入口、文件都在盘上，collect 在里面
+  eq('产品入口名单读得出来：每条产品命令恰好一份入口、都在盘上',
+    [entriesByCommand.length > 0, entriesByCommand.every(g => g.length === 1 && existsSync(g[0])), productEntries.includes('scripts/collect.ts')],
+    [true, true, true])
+  eq('被测入口一个都不在真闭包里', real.filter(f => productEntries.includes(f)), [])
+  // 抽边仍不认的两种写法（双引号的静态引用、动态 import()）在真闭包里今天一处都没有。哪天有了，这条红：
+  // 那时抽边要么再认一种形状，要么改写那一句 —— 漏收正是这道闸门最不该错的那一头（ADR-70 末尾 2026-11-14 那块）
+  eq('真闭包里没有抽边认不得的引用写法',
+    real.filter(f => existsSync(f) && statSync(f).isFile() && /\b(?:from|import)\s*"\.|\bimport\s*\(\s*['"`]\./.test(rf(f, 'utf8'))), [])
 
   // ---- 谁受这条判据管 ----
   const infra = ['scripts/check/mutate-rule.ts']
@@ -10478,13 +12547,13 @@ eq('Skill 结构：没有软链、不是软链、软链指错了三种问题的�
   { broken: [], kinds: ['no-link', 'not-link', 'wrong-target'] })
 })
 await group('h-admission', () => {
-harness('准入读物包的四个纯判定：需求单、变异说明、签名扫描、包目录在不在仓库里（ADR-162）')
-// 期望值只从 ADR-162 第二到第五节手推（第二节的版式与认法、第三节的三种、第四节的判法、第五节的接口）；
+harness('准入读物包的四个纯判定：需求单、变异说明、签名扫描、包目录在不在仓库里（ADR-202）')
+// 期望值只从 ADR-202 第二到第五节手推（第二节的版式与认法、第三节的三种、第四节的判法、第五节的接口）；
 // 写时 admission-rule.ts 是抛错的桩，没有函数体可读，也没有输出可抄。整组只调第五节那四个纯函数，0 次启动、不读文件。
 // 经 guard 调：抛错时返回哨兵 ['抛错', 消息]，每条断言各自红、整组不崩（ADR-156 第七节的先例）。
 // eq 不包 —— 变异点名用的清册只认直接传给它的字面量首参（ADR-145 第 242 行）。
-// 写这一组时问出的含糊处已回写进 ADR-162 第二、三节（51624b1），后补的断言照回写后的原文手推。
-// 一处期望不出自 ADR-162 本身，是它交给 why-rule.ts 的：夹带实现原文认出的那一段，只对代码运算符断言是哪一段，
+// 写这一组时问出的含糊处已回写进 ADR-202 第二、三节（51624b1），后补的断言照回写后的原文手推。
+// 一处期望不出自 ADR-202 本身，是它交给 why-rule.ts 的：夹带实现原文认出的那一段，只对代码运算符断言是哪一段，
 // 认出标识符的只断言交出了哪一条。
 const guard = (run: () => unknown): unknown => {
   try { return run() } catch (e) { return ['抛错', e instanceof Error ? e.message : String(e)] }
@@ -11093,6 +13162,25 @@ harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 n
   ok('选跑判定拒绝重复登记 id',
     rejected(() => wanted([{ id: 'same', needs: [] }, { id: 'same', needs: [] }], ['same']))
       .includes('id 重复'))
+  // 自指与成环（ADR-99 第 327 行那一串）：闭包的记忆化把它们悄悄咽下，而按登记顺序跑时环上总有一组排在
+  // 它的前置组前头。要点出那一圈 —— 从登记里头一个走进环的组起、沿 needs 走回它；自指是只有一组的环
+  ok('选跑判定拒绝自指并点名那一组',
+    rejected(() => wanted([{ id: '自己', needs: ['自己'] }], ['自己'])).includes('自己 → 自己'))
+  ok('选跑判定拒绝成环并点出那一圈',
+    rejected(() => wanted([{ id: '甲', needs: ['乙'] }, { id: '乙', needs: ['甲'] }], ['甲']))
+      .includes('甲 → 乙 → 甲'))
+  ok('选跑判定拒绝成环：没点到环上的组也拒绝',
+    rejected(() => wanted([{ id: '甲', needs: ['乙'] }, { id: '乙', needs: ['甲'] }, { id: '旁', needs: [] }], ['旁']))
+      .includes('甲 → 乙 → 甲'))
+  // 环前有一段引路：入登记在最前、走进环之前先经过它。点出的那一圈从头一个走进环的组（甲）起，不带引路段 ——
+  // 只比结尾的话带上引路段也照样「包含」，所以比整句
+  eq('选跑判定拒绝成环：环前的引路段不算进那一圈',
+    rejected(() => wanted([{ id: '入', needs: ['甲'] }, { id: '甲', needs: ['乙'] }, { id: '乙', needs: ['甲'] }], ['入'])),
+    '组的 needs 成环：甲 → 乙 → 甲')
+  // 菱形不是环：顶经左右两条路都走到底，底被走到两次。把「走过的」当成「在走的」，这张图就被误拒。
+  // 期望按码点排序：右 U+53F3 < 左 U+5DE6 < 底 U+5E95 < 顶 U+9876
+  const D = [{ id: '底', needs: [] }, { id: '左', needs: ['底'] }, { id: '右', needs: ['底'] }, { id: '顶', needs: ['左', '右'] }]
+  eq('菱形依赖不是环：点顶，四组都跑', [...wanted(D, ['顶'])!].sort(), ['右', '左', '底', '顶'])
 
   // 标签落在哪一组 —— 认的是 group(...) 这个代码结构，不认注释里的分节线
   const src = [
@@ -11103,6 +13191,8 @@ harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 n
     "  别的函数('不算起名的')",
     "  别的对象.named('属性调用的', true, '')",
     "  named(`反引号的`, true, '')",
+    "  named(转发的变量, true, '')",
+    "  named(`带插值${x}的`, true, '')",
     '})',
     "group('乙', ['甲'], () => { named('乙里的', true, '') })",
   ].join('\n')
@@ -11113,11 +13203,15 @@ harness('自检夹具的分组与选跑：不点名就全跑，点了名就连 n
   // 组外的标签查不到 —— 调用方据此整跑，而不是缩成一个漏掉它的子集
   eq('组外的标签不在表里', where.get('组外那条'), undefined)
   eq('没写进 declares 的调用不算起名', where.get('不算起名的'), undefined)
-  // 下面两条守的是**照抄过来、却没跟着抄负片**的那两处判断（评审第二轮指出）：
-  // `labelsOf` 那边各有 M-H20-c／M-H20-g，这边原先一条都没有，改了它们在真文件上
-  // 完全等价，全链不可能变红。
+  // 下面两条守的是**当年照抄过来、却没跟着抄负片**的那两处判断（评审第二轮指出）。
+  // 现在两边共用 `fixtureLabel`，M-H20-c／M-H20-g 改那一处时这两条与清册那边的一起红。
   eq('点号右边那一截不算起名 —— 别的对象上碰巧同名的方法', where.get('属性调用的'), undefined)
   eq('反引号、没插值的也定得下来，归到那一组', where.get('反引号的'), '甲')
+  eq('转发变量、带插值的反引号定不下来，不归组', [...where.keys()].filter(l => l.includes('转发') || l.includes('插值')), [])
+  // 两个 walk 认的是不是同一套「具名夹具」（ADR-99 第 316 行）：同一份语料，组内每条标签两边都认，
+  // 两边都不认的也一致（语料里有转发变量、带插值的反引号两条定不下来的，两边都该不收）。今天两边共用 `fixtureLabel`；这条守的是哪天有人在一边内联回去、只改了一边
+  eq('同一份语料：归组认得出的标签与清册收的标签是同一套（组外那条除外）',
+    [...labelsOf(src, ['named', 'endPath']).keys()].filter(l => l !== '组外那条').sort(), [...where.keys()].sort())
 
   // **「宁可多跑」之所以成本为零，全靠每条标签都落得进某一组。** 一条落不进，
   // `onlyFor` 就静默退回整跑 —— 报告一字不差，只有墙钟变了，而检查链里没有任何
@@ -11150,6 +13244,16 @@ harness('独立自检拆进程：needs 连起来的成一族、族内同进程�
     rejected(() => families([{ id: 'r', needs: ['missing'] }])).includes('组 r 缺少依赖组 missing'))
   ok('族划分拒绝重复登记 id',
     rejected(() => families([{ id: 's', needs: [] }, { id: 's', needs: [] }])).includes('id 重复'))
+  // 族划分是自检每一种跑法开跑前都过的那一处（整跑不经选跑），自指与成环要在这里也拦下
+  ok('族划分拒绝自指并点名那一组',
+    rejected(() => families([{ id: 'r', needs: [] }, { id: '自己', needs: ['r', '自己'] }])).includes('自己 → 自己'))
+  // 三组成环：登记 甲、乙、丙，甲 需要 丙、丙 需要 乙、乙 需要 甲；从甲走：甲 → 丙 → 乙 → 甲
+  ok('族划分拒绝成环并点出那一圈',
+    rejected(() => families([{ id: '甲', needs: ['丙'] }, { id: '乙', needs: ['甲'] }, { id: '丙', needs: ['乙'] }]))
+      .includes('甲 → 丙 → 乙 → 甲'))
+  eq('菱形依赖不是环：四组成一族',
+    families([{ id: '底', needs: [] }, { id: '左', needs: ['底'] }, { id: '右', needs: ['底'] }, { id: '顶', needs: ['左', '右'] }]),
+    [['底', '左', '右', '顶']])
 
   // 只有完整、非变异的那一跑才拆：变异那一步的验证者靠单进程输出判「见齐就停」
   const full = { subset: false, mutating: false, env: undefined, cpus: 4, families: 47 }
@@ -11258,13 +13362,14 @@ await group('h-group-share', () => {
 harness('自检组之间共享的运行态：needs 写全才不会在拆进程或选跑时读到初始值')
 {
   // expected 全部按 share-rule.ts 头上的判据手推：写方 ≠ 读方；不同族 → family；
-  // 同族、读方只读不写、闭包里没有写方 → closure；组里读合并量 → merged。
+  // 同族、读方只读不写、闭包里没有写方 → closure；同族、读方只读不写、登记在写方之前 → order；
+  // 组里读合并量 → merged。
   const said = (s: { faults: { kind: string; state: string; writer: string; reader: string }[] }) =>
     s.faults.map(f => `${f.kind} ${f.state}: ${f.writer} → ${f.reader}`).sort()
   const top = "const tmp = mkdtempSync('x')\nlet failed = 0\nconst claimed = new Set<string>()\nlet dir = ''\n"
   const scan = (...lines: string[]) => scanShares(top + lines.join('\n'))
 
-  // ── 判两种 ──
+  // ── family 与 closure ──
   const leak = scan("group('collect', [], () => { dir = 'out' })", "group('peek', [], () => { if (dir) {} })")
   eq('漏写 needs 的组跨族读写方的模块级变量：点出状态、写方、读方', said(leak), ['family dir: collect → peek'])
   const full = scan("group('collect', [], () => { dir = 'out' })", "group('peek', ['collect'], () => { if (dir) {} })")
@@ -11283,6 +13388,33 @@ harness('自检组之间共享的运行态：needs 写全才不会在拆进程�
   eq('惰性夹具：跨族就报，两个方向都报', said(scan(lazy,
     "group('a', [], () => { fixture() })", "group('b', [], () => { fixture() })")),
     ['family fx: a → b', 'family fx: b → a'])
+
+  // ── 登记先后（ADR-131 第 211 行）──
+  // 同一族按登记顺序跑，选跑也照登记顺序：只读不写的读方登记在写方之前，它跑的时候写方还没跑，
+  // 读到的是初始值。needs 写全也救不了 —— 闭包只管跑不跑，不管谁先跑。
+  eq('needs 写全、读方却登记在写方之前：报 order', said(scan(
+    "group('peek', ['collect'], () => { if (dir) {} })", "group('collect', [], () => { dir = 'out' })")),
+    ['order dir: collect → peek'])
+  eq('读方登记在前、闭包里也没有写方：closure 与 order 各报一条', said(scan(
+    "group('peek', [], () => { if (dir) {} })", "group('collect', [], () => { dir = 'out' })",
+    "group('both', ['collect', 'peek'], () => {})")), ['closure dir: collect → peek', 'order dir: collect → peek'])
+  // 先后只在同一族里才有意义：跨族的两组在不同进程里跑，谁先谁后无从说起，只报 family
+  eq('跨族、读方登记在写方之前：只报 family，不报 order', said(scan(
+    "group('peek', [], () => { if (dir) {} })", "group('collect', [], () => { dir = 'out' })")),
+    ['family dir: collect → peek'])
+  // needs 指向登记在后的组本身不是错：坏输入那几组拉着合法对照一起跑，却不读它写的东西（ADR-131 发现二）。
+  // 被依赖的那组真写了一份状态，不读它的那组才算「不读」—— 它什么也不写的话这一条是空真
+  eq('needs 指向登记在后的组、但不读它写的东西：不报', said(scan(
+    "group('bad', ['good'], () => {})", "group('good', [], () => { dir = 'out' })")), [])
+  // 读方自己也写（惰性夹具）：谁先跑谁建，看不出谁靠谁，与 closure 同样不判
+  eq('惰性夹具：总入口登记在最前也不报', said(scan(lazy,
+    "group('all', ['a', 'b'], () => { fixture() })",
+    "group('a', [], () => { fixture() })", "group('b', [], () => { fixture() })")), [])
+  // tmp 下的路径谁写谁读源码里看不出，提到就算又读又写，不判先后。两组提到的路径按前缀重叠、
+  // 却不是同一个串：同一个串的话读方「也写了它」，「读方不写」那一条就先把它挡下了，路径那一条没被问到
+  eq('同族碰 tmp 下重叠的路径、登记在前的那组提到目录：不报', said(scan(
+    "group('b', ['a'], () => { readdirSync(join(tmp, 'x')) })",
+    "group('a', [], () => { writeFileSync(join(tmp, 'x', 'y.json'), '') })")), [])
 
   // ── 什么算写 ──
   const written = (decl: string, body: string) => said(scan(decl,
@@ -11371,7 +13503,7 @@ harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
   const said = (s: { faults: { kind: string; state: string; writer: string; reader: string }[] }) =>
     s.faults.map(f => `${f.kind} ${f.state}: ${f.writer} → ${f.reader}`).sort()
   const real = rf('scripts/check/selfcheck.ts', 'utf8')
-  // 登记本身坏了时：重复 id 让 scanShares 抛 —— 接住，让它带着原文红在「每一组都扫得了」上，
+  // 登记本身坏了时：重复 id、needs 成环（含自指）让 scanShares 抛 —— 接住，让它带着原文红在「每一组都扫得了」上，
   // 不让整个 test.ts 进程崩掉、排在后面的组跑不了（ADR-134 第六节）；needs 指到不存在的组
   // 不抛，报成一条扫不了，红在同一条上（ADR-134 第八节）
   let thrown = ''
@@ -11392,13 +13524,175 @@ harness('真 selfcheck.ts 上扫得见的组间共享都在 needs 里')
     ['family dir: collect → memory', 'family rendered: render → memory'])
   eq('真 selfcheck.ts 拿掉 enrich 的 needs：render 仍把它连在族里，只在选跑时读不到 dir',
     dropped('enrich'), ['closure dir: collect → enrich'])
+  // 阳性对照（登记先后）：ADR-131 发现二复核者在副本里做过的那一挪 —— positive 挪到 reject 之后。
+  // reject 只读 positive 写的 reviewCliEntryPositive（ADR-131「切法与依赖边」），collect-exit 登记在两组之后、照旧在 positive 之后。
+  // 两组都写的 reviewCliEntryCompleted 不在期望里：reject 自己也写它，读方也写的不判先后
+  const moved = (id: string, after: string) => {
+    const before = new Set(said(scanned))
+    const rest = scanned.groups.filter(g => g.id !== id)
+    const at = rest.findIndex(g => g.id === after) + 1
+    const groups = [...rest.slice(0, at), scanned.groups.find(g => g.id === id)!, ...rest.slice(at)]
+    return said(judgeShares(groups, scanned.effects)).filter(f => !before.has(f))
+  }
+  eq('真 selfcheck.ts 把 review-cli-entry-positive 挪到 reject 之后：报 reject 先读了初始值',
+    moved('review-cli-entry-positive', 'review-cli-entry-reject'),
+    ['order reviewCliEntryPositive: review-cli-entry-positive → review-cli-entry-reject'])
 }
 })
+await group('h-mutation-fixture-git-env', () => {
+harness('变异夹具建历史不继承六项 Git 仓库指向')
+// 独立依据：ADR-120「入口夹具的 Git 环境隔离」及第 98 行、ADR-156 第十八节。
+// 不读 mutationFixtureEnv 实现。GIT_DIR 单独一轮查真实副作用；六项同传一轮查 Git 原始环境，
+// 后者的审计探针仅在自建临时目录中保护转交，不能称为六次无探针副作用演练。
+const keys = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR'] as const
+const owner = realpathSync(mkdtempSync(join(tmpdir(), 'kol-fixture-git-env-')))
+const clean: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
+for (const key of keys) delete clean[key]
+delete clean.NODE_OPTIONS
+delete clean.MUTATING // 两轮都跑普通真实子集，不借施变运行跳过夹具准备或认领约束。
+const git = (cwd: string, args: string[], input?: string) => {
+  const r = spawnSync('git', args, { cwd, env: clean, input, encoding: 'utf8' })
+  if (r.error || r.signal || r.status !== 0) throw new Error(`Git 隔离测试未造好夹具：${r.error?.message ?? r.stderr}`)
+  return r.stdout.trim()
+}
+const repo = (name: string) => {
+  const dir = join(owner, name); mkdirSync(dir)
+  git(dir, ['init', '-q']); git(dir, ['config', 'user.name', 'Decoy Owner'])
+  git(dir, ['config', 'user.email', 'decoy@example.invalid'])
+  // 提交可启动后台维护；快照前让自有仓库静止，保留所有 Git 文件的字节审计。
+  git(dir, ['config', 'gc.auto', '0']); git(dir, ['config', 'maintenance.auto', 'false'])
+  writeFileSync(join(dir, 'sentinel.txt'), 'independent decoy content\n')
+  git(dir, ['add', '.']); git(dir, ['commit', '-qm', 'decoy sentinel'])
+  return dir
+}
+// 全仓库字节与路径审计包含工作区文件及 .git 的 config/index/refs/logs/objects；不依赖 HEAD 有没有变。
+const snapshot = (dir: string): Map<string, string> => {
+  const result = new Map<string, string>()
+  const walk = (prefix: string) => {
+    for (const name of readdirSync(join(dir, prefix)).sort()) {
+      const rel = join(prefix, name), path = join(dir, rel), st = lstatSync(path)
+      if (st.isDirectory()) walk(rel)
+      else if (st.isFile()) result.set(rel, createHash('sha256').update(rf(path)).digest('hex'))
+      else throw new Error(`Git 隔离测试不能审计非常规文件：${rel}`)
+    }
+  }
+  walk(''); return result
+}
+const changes = (before: Map<string, string>, after: Map<string, string>) =>
+  [...new Set([...before.keys(), ...after.keys()])].filter(path => before.get(path) !== after.get(path)).sort()
+const done = '✓ 脚本自检（只跑 1 组）：点名的那几组都跑完了，一条断言都没红'
+const step = '✓ mutate 遇到重复编号即以退出码 1 结束'
+const entry = (name: string, extra: NodeJS.ProcessEnv) => {
+  const root = join(owner, name); mkdirSync(root)
+  const env = { ...clean, ...extra, TMPDIR: root, TMP: root, TEMP: root }
+  const r = spawnSync(...prebuiltCommand(['scripts/check/selfcheck.ts', '--only=mutation-duplicate-ids'], process.cwd(), env),
+    { env, encoding: 'utf8', timeout: 45_000, maxBuffer: 4 * 1024 * 1024 })
+  const output = `${r.stdout}\n${r.stderr}`, lines = output.split(/\r?\n/).map(line => line.trim())
+  if (r.error || r.signal || r.status === null || output.includes(SELFCHECK_PROCESS_MARK)
+    || output.includes(SELFCHECK_FIXTURE_MARK)
+    || /\b(?:SyntaxError|TypeError|ReferenceError|TransformError|ERR_[A-Z_]+)\b|Cannot find (?:module|package)/.test(output)) {
+    throw new Error(`Git 隔离测试未取得有效入口证据：${r.error?.message ?? r.signal ?? r.status}\n${output}`)
+  }
+  const completed = r.status === 0 && lines.includes(done)
+    && lines.some(line => line === step || line.startsWith(step + '（') || line.startsWith(step + ' ('))
+  if (!completed) console.log(`     selfcheck=${JSON.stringify(output)}`)
+  return completed
+}
+try {
+  const unguarded = repo('unguarded-decoy'), before = snapshot(unguarded)
+  const completed = entry('unguarded-run', { GIT_DIR: join(unguarded, '.git') })
+  ok('Git 隔离无探针对照：真实 mutation-duplicate-ids 入口执行完成', completed)
+  if (!completed) return
+  eq('Git 隔离真实副作用：继承 GIT_DIR 不改诱饵任何 Git 文件', changes(before, snapshot(unguarded)), [])
+
+  const decoy = repo('six-decoy'), control = repo('observer-control'), log = join(owner, 'audit.jsonl')
+  const sentinels = { GIT_DIR: join(decoy, '.git'), GIT_WORK_TREE: decoy,
+    GIT_INDEX_FILE: join(decoy, '.git', 'index'), GIT_OBJECT_DIRECTORY: join(decoy, '.git', 'objects'),
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: join(owner, 'alternate-objects'), GIT_COMMON_DIR: join(decoy, '.git') }
+  mkdirSync(sentinels.GIT_ALTERNATE_OBJECT_DIRECTORIES)
+  const preload = join(owner, 'audit.cjs')
+  writeFileSync(preload, `const cp = require('node:child_process'), fs = require('node:fs'), path = require('node:path');
+const keys = ${JSON.stringify(keys)}, owner = ${JSON.stringify(owner)}, log = ${JSON.stringify(log)};
+const entry = process.argv.some(arg => /[/\\\\]selfcheck\\.(?:ts|js)$/.test(arg)); let serial = 0;
+const put = row => fs.appendFileSync(log, JSON.stringify({ pid: process.pid, entry, source: ${JSON.stringify(startHash)}, stage: process.env.KOL_GIT_AUDIT_STAGE, ...row }) + '\\n');
+put({ kind: 'ready' });
+for (const api of ['spawnSync', 'execFileSync']) {
+  const original = cp[api];
+  cp[api] = function(file, args, options) {
+    if (typeof file !== 'string' || !/(^|[/\\\\])git(?:\\.exe)?$/.test(file) || !Array.isArray(args)) return original.apply(this, arguments);
+    const opts = options || {}, cwd = path.resolve(String(opts.cwd || process.cwd()));
+    if (!cwd.startsWith(owner + path.sep)) return original.apply(this, arguments);
+    const raw = opts.env || process.env, fields = Object.fromEntries(keys.filter(key => raw[key] !== undefined).map(key => [key, raw[key]]));
+    const id = ++serial; put({ kind: 'before', id, api, args, cwd, fields });
+    const env = { ...raw };
+    // 只保护本测试自建路径；先记录原 env，再真实执行 Git，不伪造 Git 的返回值。
+    for (const key of keys) if (env[key] !== undefined) {
+      if (!String(env[key]).startsWith(owner + path.sep)) throw new Error('审计探针拒绝保护测试所有权之外的 Git 目标');
+      delete env[key];
+    }
+    try { const result = original.call(this, file, args, { ...opts, env });
+      put({ kind: 'after', id, status: api === 'spawnSync' ? result.status : 0 }); return result;
+    } catch (error) { put({ kind: 'after', id, status: error.status ?? null }); throw error; }
+  };
+}
+require('node:module').syncBuiltinESMExports();\n`)
+  type Event = { kind: string; entry: boolean; source: string; stage: string; pid: number; id: number;
+    api: string; args: string[]; cwd: string; fields: Record<string, string>; status: number | null }
+  const events = (): Event[] => rf(log, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const observerEnv = { ...clean, ...sentinels, NODE_OPTIONS: '--require ' + JSON.stringify(preload) }
+  const content = 'object observation without moving HEAD\n'
+  const oid = createHash('sha1').update(`blob ${Buffer.byteLength(content)}\0${content}`).digest('hex')
+  const prior = snapshot(join(control, '.git'))
+  const positive = spawnSync(process.execPath, ['-e', `const cp = require('node:child_process');
+const r = cp.spawnSync('git', ['hash-object', '-w', '--stdin'], { input: ${JSON.stringify(content)}, encoding: 'utf8' });
+if (r.status !== 0 || r.stdout.trim() !== ${JSON.stringify(oid)}) throw new Error('positive object write failed');
+cp.execFileSync('git', ['update-index', '--add', '--cacheinfo', '100644', ${JSON.stringify(oid)}, 'probe-only.txt']);
+console.log('positive complete');`], { cwd: control, env: { ...observerEnv, KOL_GIT_AUDIT_STAGE: 'positive' }, encoding: 'utf8', timeout: 10_000 })
+  if (positive.error || positive.status !== 0 || positive.stdout.trim() !== 'positive complete') {
+    throw new Error(`Git 环境审计阳性控制未执行完成：${positive.error?.message ?? positive.stderr}`)
+  }
+  const positiveEvents = events().filter(event => event.stage === 'positive'), positiveCalls = positiveEvents.filter(event => event.kind === 'before')
+  const positiveObserved = ['spawnSync', 'execFileSync'].every(api => positiveCalls.some(event => event.api === api
+      && keys.every(key => event.fields[key] === sentinels[key])
+      && positiveEvents.some(end => end.kind === 'after' && end.pid === event.pid && end.id === event.id && end.status === 0)))
+  ok('Git 环境审计阳性：两种同步 API 都观察到原始六项污染并完成真实 Git', positiveObserved)
+  if (!positiveObserved) return
+  const delta = changes(prior, snapshot(join(control, '.git')))
+  const filesystemObserved = !delta.includes('HEAD') && delta.includes('index')
+    && delta.includes(join('objects', oid.slice(0, 2), oid.slice(2)))
+  ok('Git 文件审计阳性：HEAD 未变仍看见索引和对象写入', filesystemObserved)
+  if (!filesystemObserved) return
+
+  const observed = entry('audited-run', { ...observerEnv, KOL_GIT_AUDIT_STAGE: 'target' })
+  ok('Git 六项审计接线：真实 mutation-duplicate-ids 入口执行完成', observed)
+  if (!observed) return
+  const targetEvents = events().filter(event => event.stage === 'target' && event.entry && event.source === startHash)
+  const history = targetEvents.filter(event => event.kind === 'before')
+  const historyCompleted = history.length > 0 && ['fixture baseline', 'fixture head'].every(message =>
+    history.some(event => event.args.includes('commit') && event.args.includes(message)
+      && targetEvents.some(end => end.kind === 'after' && end.pid === event.pid && end.id === event.id && end.status === 0)))
+  ok('Git 六项审计接线：非空真实调用且 baseline 与 head 提交完成', historyCompleted)
+  if (!historyCompleted) return
+  const leaked = (key: string) => history.filter(event => event.fields[key] !== undefined)
+    .map(event => [event.api, event.args, event.fields[key]])
+  eq('Git 建历史隔离：不继承 GIT_DIR', leaked('GIT_DIR'), [])
+  eq('Git 建历史隔离：不继承 GIT_WORK_TREE', leaked('GIT_WORK_TREE'), [])
+  eq('Git 建历史隔离：不继承 GIT_INDEX_FILE', leaked('GIT_INDEX_FILE'), [])
+  eq('Git 建历史隔离：不继承 GIT_OBJECT_DIRECTORY', leaked('GIT_OBJECT_DIRECTORY'), [])
+  eq('Git 建历史隔离：不继承 GIT_ALTERNATE_OBJECT_DIRECTORIES', leaked('GIT_ALTERNATE_OBJECT_DIRECTORIES'), [])
+  eq('Git 建历史隔离：不继承 GIT_COMMON_DIR', leaked('GIT_COMMON_DIR'), [])
+} finally {
+  rmSync(owner, { recursive: true, force: true })
+  if (existsSync(owner)) throw new Error('Git 隔离测试未回收独占临时根')
+}
+})
+
 await group('h-selfcheck-selection-entry', () => {
 harness('真实自检入口的严格选择：非法参数不能被忽略后报成功')
 {
   // 独立上下文只依据 ARCHITECTURE 的入口/认领契约与 ADR-99 的拒绝契约。
-  // dup-ids 的公开登记无依赖；步骤名、单组完成行与临时资源前缀来自既有声明，
+  // mutation-duplicate-ids 的公开登记无依赖；步骤名、单组完成行与临时资源前缀来自既有声明，
   // 没有把实现运行结果复制成 expected，也不认领任何产品验收判据。
   const step = '✓ mutate 遇到重复编号即以退出码 1 结束'
   const done = '✓ 脚本自检（只跑 1 组）：点名的那几组都跑完了，一条断言都没红'
@@ -11420,7 +13714,7 @@ harness('真实自检入口的严格选择：非法参数不能被忽略后报�
       && /^(?:\s*\([^()\r\n]*\)|\s*（[^（）\r\n]*）)$/.test(found.slice(step.length)))
   })
   const run = (args: string[]) => {
-    const [exe, argv] = tsxCommand(['scripts/check/selfcheck.ts', ...args])
+    const [exe, argv] = prebuiltCommand(['scripts/check/selfcheck.ts', ...args])
     const r = spawnSync(exe, argv, { encoding: 'utf8', env, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 })
     const output = `${r.stdout}\n${r.stderr}`
     // 起不来、超时、被信号停下或内部崩溃都没有资格满足具名拒绝断言。
@@ -11436,12 +13730,12 @@ harness('真实自检入口的严格选择：非法参数不能被忽略后报�
     return { status: r.status, stderr: r.stderr, output }
   }
   try {
-    const good = run(['--only=dup-ids'])
+    const good = run(['--only=mutation-duplicate-ids'])
     const completed = good.status === 0 && hasStep(good.output) && hasLine(good.output, done)
     ok('真实自检入口接受合法单组选跑并执行完成', completed)
     if (!completed) return
 
-    const bad = run(['--only=dup-ids', unknown])
+    const bad = run(['--only=mutation-duplicate-ids', unknown])
     // 拒绝理由按语义核对，不固定一句文案；仍必须点出这次传入的参数原文。
     const rejected = bad.status === 1 && bad.stderr.includes(unknown)
       && /未知|未识别|无法识别|不能识别|不(?:认识|识别|支持|受支持|接受)|unknown|unsupported|unrecognized|not (?:recognized|supported|accepted)/i.test(bad.stderr)
@@ -11485,7 +13779,7 @@ harness('拆进程跑的子进程：出处那句与末尾汇总只由父进程�
   const provenanceSkipped = (output: string) =>
     lines(output).some(line => line.includes('没验') && line.includes('每个可执行文件都有出处'))
   const run = (extra: NodeJS.ProcessEnv) => {
-    const [exe, argv] = tsxCommand(['scripts/check/selfcheck.ts', '--only=dup-ids'])
+    const [exe, argv] = prebuiltCommand(['scripts/check/selfcheck.ts', '--only=mutation-duplicate-ids'])
     const r = spawnSync(exe, argv, { encoding: 'utf8', env: { ...env, ...extra }, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 })
     const output = `${r.stdout}\n${r.stderr}`
     // 起不来、超时、被信号停下、内部崩溃、动了认领、留下临时夹具：都没有资格作证（与上一组同一道门）
@@ -11501,7 +13795,7 @@ harness('拆进程跑的子进程：出处那句与末尾汇总只由父进程�
     return { status: r.status, output }
   }
   try {
-    // 对照记成断言、不抛（ADR-119）：别处的变异弄坏 dup-ids 那一组时，这里照常计一处失败、保住汇总
+    // 对照记成断言、不抛（ADR-119）：别处的变异弄坏 mutation-duplicate-ids 那一组时，这里照常计一处失败、保住汇总
     const plain = run({})
     const plainDone = plain.status === 0 && hasStep(plain.output) && hasLine(plain.output, done)
     ok('不拆进程的子集跑照旧跑完点名的那一组并打子集汇总', plainDone)
@@ -11513,7 +13807,7 @@ harness('拆进程跑的子进程：出处那句与末尾汇总只由父进程�
     // 回报只核两栏，栏名照 `ShardReport` 的声明手写核，不借实现里的读法（`readShardReport`）
     const back = existsSync(report) ? JSON.parse(rf(report, 'utf8')) : undefined
     const shardDone = shard.status === 0 && hasStep(shard.output)
-      && isDeepStrictEqual(back?.groups, ['dup-ids']) && back?.failed === 0
+      && isDeepStrictEqual(back?.groups, ['mutation-duplicate-ids']) && back?.failed === 0
     ok('拆进程跑的子进程跑完点名的那一组、交回全绿回报并以 0 结束', shardDone)
     if (!shardDone) return
     ok('拆进程跑的子进程不打末尾汇总：那一句只由父进程合并后打', !hasLine(shard.output, done))
@@ -11525,11 +13819,47 @@ harness('拆进程跑的子进程：出处那句与末尾汇总只由父进程�
 }
 
 })
+await group('h-selfcheck-shard-open', () => {
+harness('拆进程跑打不开某一族的日志：那一族报成没起来，照常合并出汇总')
+{
+  // 实现上下文所写，期望照 ADR-132 第 324 行那张欠条：打不开时走「没起来」那条路，不以未捕获异常退出。
+  // 要的是完整、非变异的整跑（只有它拆进程），而它会删认领与按族的启动计数 —— 所以在一份只有 scripts/ 的副本里跑；
+  // 注入让每一族的日志都打不开，于是一个子进程也不起，这一跑只花一次启动
+  const root = mkdtempSync(join(tmpdir(), 'kol-shard-open-'))
+  try {
+    const toy = join(root, 'toy'), tmp = join(root, 'tmp'), inject = join(root, 'emfile.cjs')
+    mkdirSync(tmp)
+    cpSync('scripts', join(toy, 'scripts'), { recursive: true })
+    cpSync('package.json', join(toy, 'package.json'))
+    symlinkSync(resolve('node_modules'), join(toy, 'node_modules'), 'dir')
+    writeFileSync(inject, [
+      "const fs = require('node:fs'), { syncBuiltinESMExports } = require('node:module'), open = fs.openSync",
+      'fs.openSync = function (p, ...rest) {',
+      "  if (typeof p === 'string' && /[\\\\/]shards-[^\\\\/]+[\\\\/]\\d+\\.log$/.test(p))",
+      "    throw Object.assign(new Error(`EMFILE: too many open files, open '${p}'`), { code: 'EMFILE', errno: -24, syscall: 'open', path: p })",
+      '  return open.call(this, p, ...rest)',
+      '}',
+      'syncBuiltinESMExports()',
+    ].join('\n'))
+    const env: NodeJS.ProcessEnv = { ...process.env, TMPDIR: tmp, TMP: tmp, TEMP: tmp, SELFCHECK_JOBS: '2', NODE_OPTIONS: `--require ${inject}` }
+    delete env.MUTATING
+    delete env.SELFCHECK_SHARD_REPORT
+    const r = spawnSync(...prebuiltCommand(['scripts/check/selfcheck.ts'], toy, env),
+      { cwd: toy, env, encoding: 'utf8', timeout: 60_000, maxBuffer: 16 * 1024 * 1024 })
+    const refused = (r.stderr ?? '').split('\n').filter(line => line.includes('的子进程没起来（EMFILE'))
+    ok('拆进程跑打不开某一族的日志：报成那一族没起来、带着原因，照常打出汇总并以 1 结束',
+      r.status === 1 && refused.length > 0 && /^✗ 脚本自检：\d+ 项失败$/m.test(r.stderr ?? ''))
+    ok('拆进程跑打不开日志时照常收尾：临时目录收干净', !readdirSync(tmp).some(name => name.startsWith('kol-selfcheck-')))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}
+})
+
 await group('h-check-rules', () => {
 harness('引文遮罩：围栏与 HTML 注释里的东西不是结构')
 {
-  // 这个遮罩守着两条路径：提交信息里的豁免、决策记录的分节。后者不可逆 ——
-  // 把示例当成分节，`--split` 会截断原记录并写出一个假记录。
+  // 这个遮罩当初守着两条路径：提交信息里的豁免、决策记录的分节。后者不可逆 ——
+  // 把示例当成分节，`--split` 会截断原记录并写出一个假记录。两条都已不在（`--split` 已撤，
+  // ADR-79 末尾）；今天用它的几处见 quoted.ts 文件头。
   eq('围栏块整段盖住', quotedMask(['a', '```', 'b', '```', 'c'].join('\n')),
     [false, true, true, true, false])
   eq('带信息串的开启，闭合不带', quotedMask(['```ts', 'x', '```'].join('\n')),
@@ -11657,8 +13987,8 @@ harness('决策记录：编号唯一、文件名与正文一致、索引按数�
     encodeTarget('ADR-09-甲 乙.md') !== encodeTarget('ADR-09-甲%20乙.md'))
 
   // 整由待剔字符组成的标题过完 slugify 是空串，拼出来 `ADR-15-.md` —— FILE_RE 要求
-  // 标题段非空，读路径不认。`--split` 拿这同一条判据在写之前拦下：写方与读方
-  // 共用一条判据就漂不了，另写一条「标题不能为空」早晚会和 FILE_RE 分家
+  // 标题段非空，读路径不认。`--split`（已撤，ADR-79 末尾）当年拿这同一条判据在写之前拦下：
+  // 写方与读方共用一条判据就漂不了，另写一条「标题不能为空」早晚会和 FILE_RE 分家
   ok('标题剔空之后拼出的文件名，读路径不认', !FILE_RE.test(fileNameOf(15, '[]()')))
   ok('留一个字符就认', FILE_RE.test(fileNameOf(15, '甲[]()')))
 
@@ -11844,7 +14174,9 @@ harness('体量闸门的判定：四类分开算，豁免必须指名类别且�
     g('mv', 'docs/挪走的.md', 'scripts/lib/挪来的.ts')
     // ④ 行尾翻转:两行各多一个 \r。照实数两行都算新增 → 2;`.ts` 吃折扣 → 0。
     //    **这是这条改动明写的代价,不是漏掉的情形** —— 钉住两边的数,
-    //    它哪天变了(比如有人给仓库加了 .gitattributes)这条会红,而不是静默改口径。
+    //    它哪天变了(比如有人给照实数那一份 numstat 加上 --ignore-cr-at-eol)这条会红,而不是静默改口径。
+    //    夹具建在自己的临时仓库里,不读本仓库的 .gitattributes:仓库的行尾规范挡的是翻转入库
+    //    (ADR-145 第四十七节),改不了这里的数。
     w('scripts/lib/行尾.ts', '子\r\n丑\r\n')
     g('add', '-A'); g('commit', '-qm', '改')
 
@@ -12455,7 +14787,7 @@ suite('D6', 'provider：请求发出去之后才坏掉的那几条路')
     eq('也不谎报条数', page.raw_count, 0)
   }
 
-  // ⑤ IG 续页令牌（ADR-111 第五节第 1 步：provider 读出、带上；入口怎么用见 D6.u、D6.v 与自检 d6uv-igpaging）。
+  // ⑤ IG 续页令牌（ADR-111 第五节第 1 步：provider 读出、带上；入口怎么用见 D6.u、D6.v 与自检 ig-reels-cursor-paging）。
   //    期望只出自 ADR-111 与对外契约：令牌在与 `data.data` 同级的 `data.pagination_token`，
   //    请求参数名是 `pagination_token`（固定官方规范）；兜底只属于第一页、
   //    不取账号名响应里的任何值作令牌、带令牌的续页不走兜底（ADR-111 第二节）。
@@ -13221,7 +15553,6 @@ suite('D13', '已有数据可离线输出，未知费用不得换来新增付费
   const cwd = mkdtempSync(join(tmpdir(), 'kol-cost-cross-')), dir = join(cwd, 'task'), taskFile = join(dir, 'task.json')
   const log = join(cwd, 'attempts.tsv'), scripts = new URL('./', import.meta.url)
   const preload = new URL('./check/fake-fetch.ts', import.meta.url).href
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
   mkdirSync(dir); mkdirSync(join(cwd, 'memory'))
   const writeLegacy = (paid = false) => {
     writeFileSync(taskFile, JSON.stringify({ product: 'legacy-cross', market: 'US', target_count: 9999,
@@ -13231,11 +15562,12 @@ suite('D13', '已有数据可离线输出，未知费用不得换来新增付费
       created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' }))
     for (const file of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, file), '[]')
   }
-  const run = (file: string, args: string[], key = '') => spawnSync(process.execPath,
-    ['--import', tsx, '--import', preload, fileURLToPath(new URL(file, scripts)), ...args], {
-      cwd, encoding: 'utf8', timeout: 20000, env: { ...process.env, NODE_OPTIONS: '',
-        TIKHUB_API_KEY: key, FAKE_FETCH_LEDGER: log, FAKE_FETCH_NO_429: '1' },
-    })
+  const run = (file: string, args: string[], key = '') => {
+    const entry = fileURLToPath(new URL(file, scripts))
+    const kidEnv = { ...process.env, NODE_OPTIONS: '', TIKHUB_API_KEY: key, FAKE_FETCH_LEDGER: log, FAKE_FETCH_NO_429: '1' }
+    return spawnSync(process.execPath, ['--import', fixtureLoader(entry, kidEnv, cwd), '--import', preload, entry, ...args],
+      { cwd, encoding: 'utf8', timeout: 20000, env: kidEnv })
+  }
   const noFetch = () => !existsSync(log) || rf(log, 'utf8').trim() === ''
   try {
     await costSucceeds('旧账本地处理交点完整执行', () => {
@@ -13281,6 +15613,201 @@ suite('D13', '已有数据可离线输出，未知费用不得换来新增付费
 
 // ADR-109：仅由公开保存回调与真实临时文件观察，未读取生产函数体。
 }
+await group('d13-default-budget-entry', () => {
+suite('D13', '新建任务缺预算时，先告知默认 $2 总预算，再发出实际 HTTP')
+// 独立测试：期待值只取 D13.v/w、D13 × P3 裁决及公开 CLI/任务文件契约。
+// 不读生产函数体；预加载只拦截 stderr.write 与 globalThis.fetch，不接生产内部对象。
+const root = mkdtempSync(join(tmpdir(), 'kol-d13-default-'))
+try {
+  type Event = { kind: 'armed' | 'stderr' | 'http', pid: number, seq: number, text?: string, stderr?: string }
+  const observer = join(root, 'observe-order.mjs'), control = join(root, 'positive.mjs')
+  const fakeFetch = new URL('./check/fake-fetch.ts', import.meta.url).href
+  // fake-fetch 先于观察器加载；只准许这条已知横幅在观察范围外，不放行任意前缀。
+  const fakeFetchBanner = '[fake-fetch] 已接管 fetch —— 本次运行不发出任何真实请求\n'
+  const collect = fileURLToPath(new URL('./collect.ts', import.meta.url))
+  writeFileSync(observer, [
+    `import { appendFileSync } from 'node:fs';`,
+    `let stderr = '', seq = 0;`,
+    `const record = event => appendFileSync(process.env.D13_ORDER_EVENTS, JSON.stringify({ ...event, pid: process.pid, seq: seq++ }) + '\\n');`,
+    `const write = process.stderr.write;`,
+    `process.stderr.write = function(chunk, ...args) {`,
+    `  const result = Reflect.apply(write, this, [chunk, ...args]);`,
+    `  const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString(typeof args[0] === 'string' ? args[0] : 'utf8');`,
+    `  stderr += text; record({ kind: 'stderr', text }); return result;`,
+    `};`,
+    `const fake = globalThis.fetch;`,
+    `globalThis.fetch = function(...args) { record({ kind: 'http', stderr }); return Reflect.apply(fake, this, args); };`,
+    `record({ kind: 'armed' });`,
+  ].join('\n'))
+  const beforeHttp = '对照：首笔 HTTP 前已写出的进度\n', afterHttp = '对照：首笔 HTTP 后才写出的进度\n'
+  const url = `https://api.tikhub.io${TEST_TT}?keyword=force-discovery-zero`
+  writeFileSync(control, `process.stderr.write(${JSON.stringify(beforeHttp)}); await fetch(${JSON.stringify(url)});\n`
+    + `process.stderr.write(${JSON.stringify(afterHttp)}); await fetch(${JSON.stringify(url)});\n`)
+  let runNumber = 0
+  const run = (entry: string, args: string[], cwd: string) => {
+    const eventsFile = join(root, `events-${++runNumber}.ndjson`), attemptsFile = join(root, `attempts-${runNumber}.tsv`)
+    const kidEnv: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: '', TIKHUB_API_KEY: 'fake-key-for-d13-default' }
+    for (const key of Object.keys(kidEnv)) if (key.startsWith('FAKE_FETCH_')) delete kidEnv[key]
+    Object.assign(kidEnv, { D13_ORDER_EVENTS: eventsFile, FAKE_FETCH_LEDGER: attemptsFile, FAKE_FETCH_NO_429: '1' })
+    const result = spawnSync(process.execPath, ['--import', fixtureLoader(entry, kidEnv, cwd), '--import', fakeFetch,
+      '--import', pathToFileURL(observer).href, entry, ...args], { cwd, env: kidEnv, encoding: 'utf8', timeout: 30_000 })
+    const events: Event[] = existsSync(eventsFile) ? rf(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : []
+    const attempts = existsSync(attemptsFile) ? rf(attemptsFile, 'utf8').split('\n').filter(Boolean) : []
+    const http = events.filter(event => event.kind === 'http')
+    const connected = events[0]?.kind === 'armed' && events.every((event, i) => event.pid === events[0].pid && event.seq === i)
+    const stderrWrites = events.filter(event => event.kind === 'stderr')
+    const observedStderr = stderrWrites.map(event => event.text).join('')
+    const captured = typeof result.stderr === 'string' && observedStderr.length > 0 && stderrWrites.length > 0
+      && stderrWrites.every(event => typeof event.text === 'string')
+      && fakeFetchBanner + observedStderr === result.stderr
+    return { ...result, events, http, attempts, connected, stderrWrites, captured }
+  }
+  const positive = run(control, [], root)
+  eq('观察失格：阳性对照子进程 spawnSync 没有返回 error', positive.error, undefined)
+  eq('观察失格：预算告知顺序观察夹具有效：相同接线实际看见两次 HTTP 与对应假 fetch 记录',
+    [positive.status, positive.connected, positive.http.length, positive.attempts.length], [0, true, 2, 2])
+  eq('观察失格：阳性对照两次 stderr 写入与父进程捕获文本逐字一致',
+    [positive.stderrWrites.length, positive.stderr, positive.captured], [2, fakeFetchBanner + beforeHttp + afterHttp, true])
+  eq('观察失格：预算告知顺序观察夹具有效：首笔 HTTP 看不见之后才写出的 stderr，第二笔才看得见',
+    positive.http.map(event => event.stderr), [beforeHttp, beforeHttp + afterHttp])
+  if (positive.error || !positive.captured || positive.status !== 0 || !positive.connected || positive.http.length !== 2 || positive.attempts.length !== 2
+    || positive.http[0].stderr !== beforeHttp || positive.http[1].stderr !== beforeHttp + afterHttp) return
+
+  // 相同接线复用上述阳性对照；每次真实 collect 仍独立检查启动与 stderr 捕获资格。
+  // 资格不成立时只报观察失格，不把空捕获当成「产品没有打印默认说明」。
+  const observeCollect = (result: ReturnType<typeof run>) => {
+    eq('观察失格：collect 子进程 spawnSync 没有返回 error', result.error, undefined)
+    const finished = result.status !== null && result.signal === null
+    ok('观察失格：collect 已结束且 stderr 写入非空、捕获文本与观察器逐字一致', finished && result.captured)
+    const observed = result.error === undefined && finished && result.captured
+    if (!observed) console.log(`     collect 观察失格：${JSON.stringify({
+      error: result.error && { message: result.error.message, code: (result.error as NodeJS.ErrnoException).code },
+      status: result.status, signal: result.signal, stderrWrites: result.stderrWrites.length, stderr: result.stderr,
+    })}`)
+    return observed
+  }
+
+  // 不固定整句或语序，分别识别「缺预算」「默认 $2」「本任务总预算」三项信息。
+  const disclosure = (text: string) => {
+    const compact = text.replace(/\s+/g, '')
+    const absent = '(?:(?:未|没有|尚未)(?:提供|指定|设置|给出)|缺少|缺失|缺席)'
+    const two = '(?:\\$2(?:\\.0+)?(?![\\d.])|(?<![\\d.])2(?:\\.0+)?(?:美元|USD))'
+    return {
+      missing: new RegExp(`${absent}[^。；]*预算|预算[^。；]*${absent}`).test(compact),
+      defaultTwo: new RegExp(`(?:默认|缺省)[^。；]*${two}|${two}[^。；]*(?:默认|缺省)`).test(compact),
+      taskTotal: /任务[^。；]*(?:总预算|预算总上限|总上限)|(?:总预算|预算总上限|总上限)[^。；]*任务/.test(compact),
+    }
+  }
+  const base = { product: 'd13-default', market: 'US', target_count: 1,
+    tasks: [{ keyword: 'local', dimension: 'category', platform: 'tiktok' }] }
+  const taskFiles = (cwd: string) => {
+    const output = join(cwd, 'output')
+    return existsSync(output) ? readdirSync(output).map(name => join(output, name, 'task.json')).filter(file => existsSync(file)) : []
+  }
+  const newTask = (name: string, config: object) => {
+    const cwd = join(root, name), file = join(cwd, 'config.json')
+    mkdirSync(cwd)
+    const text = JSON.stringify(config, null, 2) + '\n'
+    writeFileSync(file, text)
+    const result = run(collect, ['--config', file], cwd), observed = observeCollect(result), files = taskFiles(cwd)
+    const task = files.length === 1 ? JSON.parse(rf(files[0], 'utf8')) : undefined
+    return { ...result, observed, cwd, file, text, files, task }
+  }
+  // 根预算缺席，嵌套同名字段不能替代它（D13.a/v）；目标目录由本次入口新建。
+  const fresh = newTask('缺预算新建', { ...base, notes: { budget_usd: 0.005 } })
+  ok('观察失格：缺预算新建：collect 入口已接入同一 stderr/HTTP 顺序观察器', fresh.connected)
+  if (!fresh.observed || !fresh.connected) return
+  eq('缺预算新建任务按默认总预算继续采集，达标以退出码 4 结束', fresh.status, 4)
+  ok('缺预算新建任务确实发出了实际 HTTP，逐笔对应假 fetch 记录', fresh.http.length > 0 && fresh.http.length === fresh.attempts.length)
+  const atFirstHttp = disclosure(fresh.http[0]?.stderr ?? '')
+  ok('首笔 HTTP 发出时已告知未提供预算', atFirstHttp.missing)
+  ok('首笔 HTTP 发出时已告知本次采用默认 $2', atFirstHttp.defaultTwo)
+  ok('首笔 HTTP 发出时已告知该额度是本任务总预算', atFirstHttp.taskTotal)
+  if (!atFirstHttp.missing || !atFirstHttp.defaultTwo || !atFirstHttp.taskTotal)
+    console.log(`     首笔 HTTP 时已写出的 stderr=${JSON.stringify(fresh.http[0]?.stderr)}`)
+  eq('缺预算新建任务在唯一 task.json 根写入美元 JSON 数值 2',
+    [fresh.files.length, typeof fresh.task?.budget_usd, fresh.task?.budget_usd], [1, 'number', 2])
+  eq('默认 $2 确认后费用账仍以 2000000 微美元为本任务总上限', fresh.task?.cost_ledger?.limit_micro_usd, 2_000_000)
+  eq('默认 $2 只写入新任务，不回写 --config 所指配置原字节', rf(fresh.file, 'utf8'), fresh.text)
+  tension('D13', 'P3')
+
+  {
+    const explicit = newTask('合规根预算0', { ...base, budget_usd: 0 })
+    ok('观察失格：合规根预算0：collect 入口已接入同一 stderr/HTTP 顺序观察器', explicit.connected)
+    if (explicit.observed && explicit.connected) {
+      eq('根上合规预算 0 美元仍按原预算结束，不能改用默认额度', explicit.status, 3)
+      eq('根上已给合规预算 0 美元时 stderr 不误称采用默认 $2', disclosure(explicit.stderr).defaultTwo, false)
+      eq('根上合规预算 0 美元不被默认 $2 覆盖', explicit.task?.budget_usd, 0)
+    }
+  }
+  {
+    const explicit = newTask('合规根预算0.005', { ...base, budget_usd: 0.005 })
+    ok('观察失格：合规根预算0.005：collect 入口已接入同一 stderr/HTTP 顺序观察器', explicit.connected)
+    if (explicit.observed && explicit.connected) {
+      eq('根上合规预算 0.005 美元仍按原预算结束，不能改用默认额度', explicit.status, 4)
+      eq('根上已给合规预算 0.005 美元时 stderr 不误称采用默认 $2', disclosure(explicit.stderr).defaultTwo, false)
+      eq('根上合规预算 0.005 美元不被默认 $2 覆盖', explicit.task?.budget_usd, 0.005)
+    }
+  }
+  {
+    const explicit = newTask('合规根预算2', { ...base, budget_usd: 2 })
+    ok('观察失格：合规根预算2：collect 入口已接入同一 stderr/HTTP 顺序观察器', explicit.connected)
+    if (explicit.observed && explicit.connected) {
+      eq('根上合规预算 2 美元仍按原预算结束，不能改用默认额度', explicit.status, 4)
+      eq('根上已给合规预算 2 美元时 stderr 不误称采用默认 $2', disclosure(explicit.stderr).defaultTwo, false)
+      eq('根上合规预算 2 美元不被默认 $2 覆盖', explicit.task?.budget_usd, 2)
+    }
+  }
+  // w 不约束前置拒绝时提示有无，也不新增 u 的 --budget 要求。
+  {
+    const invalid = newTask('显式非法预算null', { ...base, budget_usd: null })
+    ok('观察失格：显式非法预算null：collect 入口已接入同一 stderr/HTTP 顺序观察器', invalid.connected)
+    if (invalid.observed && invalid.connected) {
+      eq('根预算显式为 null 不算缺席，以退出码 2 拒绝', invalid.status, 2)
+      eq('根预算显式为 null 不得靠默认 $2 建 task.json 或发 HTTP',
+        [invalid.files.length, invalid.http.length, invalid.attempts.length], [0, 0, 0])
+    }
+  }
+  {
+    const invalid = newTask('显式非法预算"2"', { ...base, budget_usd: '2' })
+    ok('观察失格：显式非法预算"2"：collect 入口已接入同一 stderr/HTTP 顺序观察器', invalid.connected)
+    if (invalid.observed && invalid.connected) {
+      eq('根预算显式为 "2" 不算缺席，以退出码 2 拒绝', invalid.status, 2)
+      eq('根预算显式为 "2" 不得靠默认 $2 建 task.json 或发 HTTP',
+        [invalid.files.length, invalid.http.length, invalid.attempts.length], [0, 0, 0])
+    }
+  }
+  const { product: omittedProduct, ...withoutProduct } = base
+  const noProduct = newTask('只缺product', withoutProduct)
+  ok('观察失格：只缺product：collect 入口已接入同一 stderr/HTTP 顺序观察器', noProduct.connected)
+  if (noProduct.observed && noProduct.connected) {
+    eq('任务列表合规但只缺 product 时，以退出码 2 拒绝', noProduct.status, 2)
+    eq('只缺 product 时不建任务目录、不写 task.json、不发 HTTP',
+      [existsSync(join(noProduct.cwd, 'output')), noProduct.files.length, noProduct.http.length, noProduct.attempts.length], [false, 0, 0, 0])
+  }
+
+  if (fresh.task !== undefined) {
+    const file = fresh.files[0], dir = dirname(file), saved = { ...fresh.task, done: [0] }
+    delete saved.budget_usd
+    writeFileSync(file, JSON.stringify(saved))
+    for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), '[]')
+    const resumed = run(collect, ['--resume', dir], fresh.cwd)
+    const resumedObserved = observeCollect(resumed)
+    ok('观察失格：缺根预算旧任务的续跑入口也已接入同一观察器', resumed.connected)
+    if (resumedObserved && resumed.connected) {
+      eq('缺根预算旧任务的零请求续跑仍可本地完成', resumed.status, 0)
+      eq('续跑缺根预算不借新建默认确认新增 HTTP 或宣称采用默认 $2',
+        [resumed.http.length, resumed.attempts.length, disclosure(resumed.stderr).defaultTwo], [0, 0, false])
+      const after = JSON.parse(rf(file, 'utf8'))
+      eq('续跑缺根预算不借新建默认值补写 budget_usd', Object.hasOwn(after, 'budget_usd'), false)
+      eq('续跑缺根预算仍保留原费用账', after.cost_ledger, saved.cost_ledger)
+    }
+  }
+  criterion('D13.w')
+  // v 还缺字段/列表、已有目标、评审正本/人工表等前置拒绝；不认领 D13.v 或 D13.u。
+} finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 await group('d14-cost-persistence', async () => {
 suite('D14', '费用保存回调先于返回，保存失败后本实例停止一切费用变更')
 {
@@ -14759,11 +17286,11 @@ suite('D21', '未取得当前主号判断时保留待核实分层')
 // U9 independent contract tests: no renderer/row/projection bodies or old test bodies were read.
 await group('u9-review-output', () => {
   suite('U9', '独立评审导出契约：排序、三格式读回及逐账号缺值')
-  criterion('U9.a', 'U9.b', 'U9.c', 'U9.d', 'U9.e', 'U9.f', 'U9.g', 'U9.h', 'U9.i', 'D21.r')
+  criterion('U9.a', 'U9.b', 'U9.c', 'U9.e', 'U9.f', 'U9.g', 'U9.h', 'U9.i', 'U9.k', 'D21.r')
   tension('U9', 'P1'); tension('U9', 'P2'); tension('U9', 'P5'); tension('D21', 'P1')
   const oldHeaders = 'tier,score,fit,fit_reason,platform,handle,nickname,followers,post_count,bio,email,email_verified,audience_geo_top,metrics_account_followers,metrics_account_following,engagement_rate_followers,engagement_rate_views,median_views,median_engagements,view_rate,following_ratio,reach_consistency,median_post_gap_days,latest_post_at,days_since_last_post,activity_status,audience_quality_risk,audience_quality_reasons,tier_adjustments,collaboration_quote,implied_ecpm,implied_ecpe,metrics_observed_at,cross_platform,linked_handle,profile_url,source_keyword,source_dimension,best_post_desc,outreach_draft,previously_recommended,discovery_sources,metrics_sample_scope'.split(',')
   const additions = 'effective_priority,effective_priority_account_key,eligibility,adoption_priority,observed_content,work_evidence,natural_integration,mismatch_risk,brand_calibration_version,review_status,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note,manual_reviewed,manual_round_id,linked_agent_review,manual_feedback_accounts'.split(',')
-  const headers = [...oldHeaders, ...additions]
+  const headers = [...oldHeaders, ...additions, 'outreach_subject']
   type ReviewSheet = { name: string; headers: string[]; rows: unknown[][] }
   const api = reviewRowsApi as unknown as {
     REVIEW_HEADERS: string[]; toReviewRow(c: Creator): unknown[]; sortForReviewOutput(cs: Creator[]): Creator[]
@@ -14771,11 +17298,11 @@ await group('u9-review-output', () => {
   }
   const html = renderHtml as unknown as (cs: Creator[], meta: any, options?: { mode?: 'review' }) => string
   const firstSheets = api.buildSheets([mk('tiktok', 'business-red', { tier: 'A' })], { mode: 'review' })
-  eq('U9.a 评审模式在旧表头后原序追加21个字段', firstSheets[0].headers, headers)
+  eq('U9.a 评审模式在旧表头后原序追加21个字段及主题列', firstSheets[0].headers, headers)
   const available = typeof api.toReviewRow === 'function' && typeof api.sortForReviewOutput === 'function'
   ok('U9.a 新导出公开入口可调用', available)
   if (!available) return
-  eq('U9.d 新公共表头符合契约原序64列', api.REVIEW_HEADERS, headers)
+  eq('U9.k 新公共表头符合契约原序65列', api.REVIEW_HEADERS, headers)
   eq('U9.a 省略模式仍保留旧公共表头', api.buildSheets([]).map(s => s.headers), [oldHeaders, oldHeaders, oldHeaders])
   const bounded = (xs: string[]) => ({ count: xs.length, examples: xs.slice(0, 3) })
   const noFaults = { count: 0, examples: [] }
@@ -14883,7 +17410,7 @@ await group('u9-review-output', () => {
       valueCases.push({ ...candidate, review_status, manual_reviewed, manual_adopted })
   for (const [i, c] of valueCases.entries()) {
     const r = api.toReviewRow(c)
-    if (r.length !== 64 || !isDeepStrictEqual(strings(r.slice(43)), extras(c))) scalarFaults.push(`case ${i}`)
+    if (r.length !== 65 || !isDeepStrictEqual(strings(r.slice(43, 64)), extras(c))) scalarFaults.push(`case ${i}`)
   }
   eq('U9.e/g/h 51组新列原值缺席布尔unknown与JSON状态不压平', bounded(scalarFaults), noFaults)
   const oldState: Record<string, string[]> = { main: ['0', '未查询', ''], missing: ['未查询', '0', '未查询'], zeros: ['0', '0', ''] }
@@ -14945,7 +17472,7 @@ await group('u9-review-output', () => {
           values[col - 1] = ca.t === 'inlineStr' ? [...body.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(t => decode(t[1])).join('')
             : ca.t === 's' ? shared[Number(v)] : ca.t === 'b' ? v === '1' ? 'true' : 'false' : v === undefined ? '' : decode(v)
         }
-        return Array.from({ length: 64 }, (_, i) => values[i] === undefined ? '' : values[i])
+        return Array.from({ length: 65 }, (_, i) => values[i] === undefined ? '' : values[i])
       })
       return { name: a.name, rows }
     })
@@ -14994,19 +17521,19 @@ await group('u9-review-output', () => {
   }
   ok('U9.i 三格式真实夹具成功构建且可独立读回', readbackError === undefined)
   if (readbackError !== undefined) return
-  eq('U9.d CSV真实读回表头精确64列', csvRows[0], headers)
+  eq('U9.k CSV真实读回表头精确65列', csvRows[0], headers)
   eq('U9.b CSV真实读回采用独立预期顺序', csvRows.slice(1).map(r => r[5]), ['main', 'zeros', 'missing'])
-  eq('U9.d/e/f/g/h/i CSV原列及全部新列按原值读回', bounded(csvRows.slice(1).flatMap(r => {
-    const c = fixtures.find(x => x.handle === r[5]); return c && r.length === 64 && isDeepStrictEqual(r.slice(43), extras(c))
+  eq('U9.e/f/g/h/i/k CSV原列及全部新列按原值读回', bounded(csvRows.slice(1).flatMap(r => {
+    const c = fixtures.find(x => x.handle === r[5]); return c && r.length === 65 && isDeepStrictEqual(r.slice(43, 64), extras(c))
       && isDeepStrictEqual([r[1], r[7], r[10]], oldState[c.handle]) && r[39] === (c.outreach_draft === undefined ? '' : c.outreach_draft) ? [] : [r[5]]
   })), noFaults)
   eq('U9.c XLSX真实工作簿只有三层且保留A级空表', workbook.map(s => [s.name.slice(0, 2), s.rows.length - 1]), [['A级', 0], ['B级', 1], ['C级', 2]])
   ok('U9.c 空工作表名称明确显示0', /\(0\)/.test(workbook[0].name))
-  eq('U9.c/d/e/f/g/h/i XLSX表头行序原值及JSON全部独立读回', bounded(workbook.flatMap((s, i) => {
+  eq('U9.c/e/f/g/h/i/k XLSX表头行序原值及JSON全部独立读回', bounded(workbook.flatMap((s, i) => {
     const errors: string[] = [], tier = ['A', 'B', 'C'][i]
     if (!isDeepStrictEqual(s.rows[0], headers)) errors.push(`${tier} headers`)
     if (!isDeepStrictEqual(s.rows.slice(1).map(r => r[5]), order(fixtures.filter(c => c.tier === tier), true))) errors.push(`${tier} order`)
-    for (const r of s.rows.slice(1)) { const c = fixtures.find(x => x.handle === r[5]); if (!c || !isDeepStrictEqual(r.slice(43), extras(c)) || !isDeepStrictEqual([r[1], r[7], r[10]], oldState[c.handle]) || r[39] !== (c.outreach_draft === undefined ? '' : c.outreach_draft)) errors.push(`${tier}/${r[5]} values`) }
+    for (const r of s.rows.slice(1)) { const c = fixtures.find(x => x.handle === r[5]); if (!c || !isDeepStrictEqual(r.slice(43, 64), extras(c)) || !isDeepStrictEqual([r[1], r[7], r[10]], oldState[c.handle]) || r[39] !== (c.outreach_draft === undefined ? '' : c.outreach_draft)) errors.push(`${tier}/${r[5]} values`) }
     return errors
   })), noFaults)
   eq('U9.b HTML实际主页链接顺序遵守有效建议', nodes.filter(n => n.tag === 'a' && fixtures.some(c => c.profile_url === n.a.href)).map(n => fixtures.find(c => c.profile_url === n.a.href)?.handle), ['main', 'zeros', 'missing'])
@@ -15066,6 +17593,111 @@ await group('u9-review-output', () => {
   ok('U9.a 默认HTML独立确认没有新判断区块且保留旧理由', !oldNodes.some(n => ['agent', 'manual', 'effective'].includes(n.a['data-review-kind'])) && oldNodes[0].text.includes(mainReview.fit_reason!))
   eq('U9.a 默认HTML独立确认仍用调用方原顺序', oldNodes.filter(n => n.tag === 'a' && fixtures.some(c => c.profile_url === n.a.href)).map(n => fixtures.find(c => c.profile_url === n.a.href)?.handle), ['zeros', 'missing', 'main'])
 
+  // U13 独立契约：主题列的三态与拆法只按判据写预期，不读 rows.ts / report.ts 的实现。
+  criterion('U13.a', 'U13.b', 'U13.c'); tension('U13', 'P1'); tension('U13', 'P2'); tension('U13', 'D5')
+  const subjectCases: Array<[string, string | undefined, string]> = [
+    ['s-plain', 'Subject: Your {product} smoothie series\n\nHi {name},\nI loved it.', 'Your {product} smoothie series'],
+    ['s-lead', '\n   \r\n  subject：  Hi, "{brand}" <b>&amp;</b>  \r\nbody line', 'Hi, "{brand}" <b>&amp;</b>'],
+    ['s-cr', '\rSUBJECT:x{y}\rbody', 'x{y}'],
+    ['s-ls', 'Subject: Hello {name}\u2028Body line\u2029more', 'Hello {name}'],
+    ['s-none', 'Hi {brand}, no subject here\nSubject: too late', '拆不出主题'],
+    ['s-empty', 'Subject:   \nbody', '拆不出主题'],
+    ['s-prefix', 'Re Subject: not first\nbody', '拆不出主题'],
+    ['s-blank', ' \n\t\n', ''],
+    ['s-absent', undefined, ''],
+    ['s-formula', 'Subject: =1+1 {brand}\nbody', '=1+1 {brand}'],
+  ]
+  const subjectFixtures = subjectCases.map(([handle, draft], i) => mk(i % 2 ? 'instagram' : 'tiktok', handle, {
+    tier: 'B', score: 10 + i, outreach_draft: draft, profile_url: `https://example.com/${handle}`,
+  }))
+  for (const c of subjectFixtures) if (c.outreach_draft === undefined) delete c.outreach_draft
+  const subjectBefore = copy(subjectFixtures)
+  const expectSubject = new Map(subjectCases.map(([h, , subject]) => [h, subject]))
+  const expectDraft = new Map(subjectCases.map(([h, draft]) => [h, draft ?? '']))
+  // D5.c 优先（U13 与 D5 的交点）：CSV 里以 = + - @、制表符或回车开头的主题格与草稿格在格首多一个 '，XLSX 照旧原值。
+  const csvSubject = new Map([...expectSubject, ['s-formula', "'=1+1 {brand}"]])
+  const csvDraft = new Map([...expectDraft, ['s-cr', "'\rSUBJECT:x{y}\rbody"]])
+  let subjectCsv: string[][] = [], subjectBook: ReturnType<typeof xlsxRead> = [], subjectPage = '', subjectError: string | undefined
+  try {
+    writeCsv(join(dir, 'subject.csv'), headers, subjectFixtures.map(c => api.toReviewRow(c)))
+    writeXlsx(join(dir, 'subject.xlsx'), api.buildSheets(subjectFixtures, { mode: 'review' }))
+    subjectCsv = csvRead(rf(join(dir, 'subject.csv'), 'utf8')); subjectBook = xlsxRead(rf(join(dir, 'subject.xlsx')))
+    subjectPage = html(subjectFixtures, { ...meta, total: subjectFixtures.length, tiers: { A: 0, B: subjectFixtures.length, C: 0 } }, { mode: 'review' })
+  } catch (e) {
+    subjectError = String(e)
+    console.log(`${SELFCHECK_FIXTURE_MARK} U13主题列夹具无法构建或读回：${subjectError}`)
+  }
+  ok('U13.a 主题列三格式夹具成功构建且可独立读回', subjectError === undefined)
+  if (subjectError !== undefined) return
+  const subjectIndex = headers.indexOf('outreach_subject'), draftIndex = oldHeaders.indexOf('outreach_draft')
+  eq('U13.a 主题列是评审表末列', [subjectIndex, subjectCsv[0][subjectIndex], subjectBook[1].rows[0][subjectIndex]], [headers.length - 1, 'outreach_subject', 'outreach_subject'])
+  eq('U13.a CSV真实读回主题三态与拆法', subjectCsv.slice(1).map(r => [r[5], r[subjectIndex]]), subjectCases.map(([h]) => [h, csvSubject.get(h)]))
+  eq('U13.a XLSX真实读回主题为原值', bounded(subjectBook[1].rows.slice(1).flatMap(r => r[subjectIndex] === expectSubject.get(r[5]) ? [] : [r[5]])), noFaults)
+  eq('U13.a XLSX读回全部主题夹具都在B层', subjectBook[1].rows.length - 1, subjectCases.length)
+  eq('U13.b 草稿那一格逐字不变（CSV按D5.c只在格首加单引号）且主题行仍在草稿里', bounded([
+    ...subjectCsv.slice(1).flatMap(r => r[draftIndex] === csvDraft.get(r[5]) ? [] : [`csv/${r[5]}`]),
+    ...subjectBook[1].rows.slice(1).flatMap(r => r[draftIndex] === expectDraft.get(r[5]) ? [] : [`xlsx/${r[5]}`]),
+  ]), noFaults)
+  ok('U13.b 导出不改输入草稿', isDeepStrictEqual(subjectFixtures, subjectBefore))
+  const subjectNodes = htmlRead(subjectPage)
+  const cardOf = (ns: HtmlNode[], handle: string) => ns.find(n => classHas(n, 'card') && ns.some(a => a.tag === 'a' && a.a.href === `https://example.com/${handle}` && (() => { let p = a.parent; while (p && p !== n) p = p.parent; return p === n })()))
+  const subjectLine = (ns: HtmlNode[], card: HtmlNode | undefined) => {
+    const hits = ns.filter(n => n.a['data-draft-subject'] !== undefined && (() => { let p = n.parent; while (p && p !== card) p = p.parent; return p === card && card !== undefined })())
+    return hits.length === 1 ? hits[0].text : hits.length === 0 ? undefined : '重复'
+  }
+  eq('U13.c HTML有草稿的卡片单列主题且原文读回', subjectCases.filter(([, draft]) => draft !== undefined && draft.trim() !== '').map(([h]) => [h, subjectLine(subjectNodes, cardOf(subjectNodes, h))]),
+    subjectCases.filter(([, draft]) => draft !== undefined && draft.trim() !== '').map(([h, , subject]) => [h, `主题：${subject}`]))
+  eq('U13.c HTML没有草稿或草稿只有空白的卡片不出主题行', ['s-absent', 's-blank'].map(h => [cardOf(subjectNodes, h) !== undefined, subjectLine(subjectNodes, cardOf(subjectNodes, h))]), [[true, undefined], [true, undefined]])
+  ok('U13.c HTML主题在输出处转义而非注入标签', !subjectNodes.some(n => n.tag === 'b') && subjectPage.includes('&lt;b&gt;&amp;amp;&lt;/b&gt;'))
+  const legacySubject = html(subjectFixtures, { ...meta, total: subjectFixtures.length, tiers: { A: 0, B: subjectFixtures.length, C: 0 } })
+  ok('U13.c 旧HTML不出现主题行', !htmlRead(legacySubject).some(n => n.a['data-draft-subject'] !== undefined))
+  const dualSubjectPage = (html as unknown as (cs: Creator[], meta: any, options?: { mode?: 'review'; filters?: 'dual' }) => string)(subjectFixtures, { ...meta, total: subjectFixtures.length, tiers: { A: 0, B: subjectFixtures.length, C: 0 } }, { mode: 'review', filters: 'dual' })
+  const dualSubjectNodes = htmlRead(dualSubjectPage)
+  eq('U13.c 生产用的双筛选HTML同样单列主题且没草稿不出', subjectCases.map(([h]) => [h, subjectLine(dualSubjectNodes, cardOf(dualSubjectNodes, h))]),
+    subjectCases.map(([h, draft, subject]) => [h, draft !== undefined && draft.trim() !== '' ? `主题：${subject}` : undefined]))
+  ok('U13.c 旧表头不出现主题列', api.buildSheets(subjectFixtures).every(s => !s.headers.includes('outreach_subject')))
+
+})
+
+// KOL-21 R 片：U9 × P1 交点的独立认领（ADR-183 第 96 行；记录在 ADR-92 末尾）。上面那一组的认领与实现出自同一个上下文；
+// 这一组只用独立测试包里冻结了的粉丝三档用例 —— 排序函数层 G5-01…03、名单层 G6-01…03（真实 render 入口）—— 经接线
+// （`scripts/independent-blackbox-tests-wiring.ts`）跑一遍，冻结用例自己判，这里只读回结论，不改断言、不改冻结字节。
+// 判过的意思是那一例的结论是 pass、而且每一项都是 pass：附条件、待复核、不判、失格的都认不下。
+// 认领写在断言后面：哪一例没判过，这一跑就红，认领不写盘。
+await group('u9-p1-independent-claim', () => {
+  suite('U9', 'U9 × P1 独立认领：冻结的粉丝三档用例经接线跑真实排序函数与 render 入口')
+  const sortLayer = ['G5-01', 'G5-02', 'G5-03'], listLayer = ['G6-01', 'G6-02', 'G6-03']
+  const root = scMkdtempSync(scJoin(scTmpdir(), 'blackbox-follower-sort-')), work = scJoin(root, 'work'), report = scJoin(root, 'report.json')
+  try {
+    scMkdirSync(work)
+    const [exe, argv] = scPrebuiltCommand([scJoin(process.cwd(), 'scripts', 'independent-blackbox-tests-wiring.ts'),
+      '--work', work, '--report', report, '--only', [...sortLayer, ...listLayer].join(',')])
+    const r = cxSpawnSync(exe, argv, { encoding: 'utf8', timeout: 120000 })
+    eq('U9×P1 独立认领：接线以 0 收尾、写出报告', [r.status, scExistsSync(report)], [0, true])
+    if (r.status !== 0) console.log(`     stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+    type Item = { label: string; status: string }
+    let cases: { id: string; verdict: string; items: Item[] }[] = []
+    try { cases = JSON.parse(rf(report, 'utf8')).cases } catch { cases = [] }
+    // 每例交回 [用例号, 结论, 有没有判过任何一项, 没判过的那几项]；读不出报告时整组照「缺」红
+    const settled = (ids: string[]) => ids.map(id => {
+      const c = Array.isArray(cases) ? cases.find(x => x?.id === id) : undefined
+      const items = Array.isArray(c?.items) ? c.items : []
+      return [id, c?.verdict ?? '缺', items.length > 0, items.filter(i => i?.status !== 'pass').map(i => `${i?.label}：${i?.status}`)]
+    })
+    const want = (ids: string[]) => ids.map(id => [id, 'pass', true, []])
+    // 前提与认领分开断言，理由见 `d4s-independent-claim` 那一组：这一跑不可信时只让前提那一条红，认领那一条不判
+    const unsound = (ids: string[]) => r.status !== 0 ? [`接线退出码 ${r.status}`] : ids.flatMap(id => {
+      const c = Array.isArray(cases) ? cases.find(x => x?.id === id) : undefined
+      return c === undefined ? [`${id}：报告里没有这一例`] : (Array.isArray(c.items) ? c.items : [])
+        .filter(i => ['facility', 'fixture'].includes(i?.status)).map(i => `${id} ${i?.label}：${i?.status}`)
+    })
+    const sortUnsound = unsound(sortLayer), listUnsound = unsound(listLayer)
+    eq('U9×P1 独立认领：排序函数层这一跑可信，接线以 0 收尾、三例都读得到，没有一项判设施故障或夹具失格', sortUnsound, [])
+    eq('U9×P1 独立认领：名单层这一跑可信，接线以 0 收尾、三例都读得到，没有一项判设施故障或夹具失格', listUnsound, [])
+    if (sortUnsound.length === 0) eq('U9×P1 独立认领：排序函数层（冻结用例 G5-01、G5-02、G5-03）各例判过，每一项都判过', settled(sortLayer), want(sortLayer))
+    if (listUnsound.length === 0) eq('U9×P1 独立认领：名单层（冻结用例 G6-01、G6-02、G6-03，真实 render 入口）各例判过，每一项都判过', settled(listLayer), want(listLayer))
+  } finally { scRmSync(root, { recursive: true, force: true }) }
+  tension('U9', 'P1')
 })
 await group('p1-legacy-score-output', () => {
   // Independent contract test: /private/tmp/kol-legacy-score-contract.md and P1.e.
@@ -15367,6 +17999,106 @@ await group('d21-task-reviews', () => {
     ok('任务评审：旧判断非法不能迁移后保存', legacyError instanceof ReviewInputError)
     eq('任务评审：旧判断拒绝不创建正本', disk(badLegacyDir), badLegacyBefore)
 
+    suite('D21', '正本缺席时旧判断的账号规范化不了就拒绝，不跳过后清掉草稿')
+    // 平台不认、handle 为空、handle 含无效字符：三种都规范化不了，旧草稿原先被跳过、投影随后清掉（ADR-191）。
+    const unkeyed = (label: string, creator: Record<string, unknown>) => {
+      const dir = directory(`unkeyed-legacy-${label}`)
+      const before = disk(dir)
+      const error = caught(() => prepareTaskReviews(dir, state, [mk('tiktok', 'fine'), creator as unknown as Creator], t0, []))
+      const text = String(error)
+      const located = text.includes(join(dir, 'agent-review.json')) && text.includes('第 2 条') && text.includes(String(creator.platform))
+      return { rejected: error instanceof ReviewInputError, located, text, kept: JSON.stringify(disk(dir)) === JSON.stringify(before) }
+    }
+    const badChars = unkeyed('chars', { platform: 'tiktok', handle: 'bad-name', fit: '✅', outreach_draft: 'hi {name}' })
+    ok('任务评审：旧判断 handle 含无效字符时拒绝', badChars.rejected)
+    ok('任务评审：旧判断 handle 含无效字符时指出正本、第几条、平台、原值与原因', badChars.located && badChars.text.includes('"bad-name"') && badChars.text.includes('含无效字符'))
+    ok('任务评审：旧判断 handle 含无效字符时不落盘', badChars.kept)
+    const badPlatform = unkeyed('platform', { platform: 'youtube', handle: 'tube', outreach_draft: 'hi' })
+    ok('任务评审：旧判断平台不认时拒绝', badPlatform.rejected)
+    ok('任务评审：旧判断平台不认时指出正本、第几条、平台、原值与原因', badPlatform.located && badPlatform.text.includes('"tube"') && badPlatform.text.includes('收到 youtube'))
+    ok('任务评审：旧判断平台不认时不落盘', badPlatform.kept)
+    const blankHandle = unkeyed('blank', { platform: 'instagram', handle: ' ', fit_reason: 'old reason' })
+    ok('任务评审：旧判断 handle 为空时拒绝', blankHandle.rejected)
+    ok('任务评审：旧判断 handle 为空时指出正本、第几条、平台、原值与原因', blankHandle.located && blankHandle.text.includes('" "') && blankHandle.text.includes('handle 不能为空'))
+    ok('任务评审：旧判断 handle 为空时不落盘', blankHandle.kept)
+    // 只带一个空值的旧字段也算「带着」：按真假判会跳过它，投影随后照样把这个字段清掉。
+    ok('任务评审：旧判断只有 fit_reason 为 null 时也拒绝', unkeyed('null-reason', { platform: 'tiktok', handle: 'bad-null', fit_reason: null }).rejected)
+    ok('任务评审：旧判断只有 outreach_draft 为空串时也拒绝', unkeyed('empty-draft', { platform: 'tiktok', handle: 'bad-empty', outreach_draft: '' }).rejected)
+    const twoBad = String(caught(() => prepareTaskReviews(directory('unkeyed-legacy-two'), state,
+      [mk('tiktok', 'fine'), { platform: 'tiktok', handle: 'bad-one', fit: '✅' } as unknown as Creator, { platform: 'youtube', handle: 'two', outreach_draft: 'x' } as unknown as Creator], t0, [])))
+    ok('任务评审：两条旧判断都规范化不了时一次报完', twoBad.includes('第 2 条') && twoBad.includes('"bad-one"') && twoBad.includes('第 3 条') && twoBad.includes('"two"'))
+    // 不多拒：没有旧判断字段、已是新评审或已评过的记录本来就不迁，账号坏了也照常放行；正本在场时不迁移，也不查。
+    const passes = (label: string, creator: Record<string, unknown>, document?: unknown) =>
+      !(caught(() => prepareTaskReviews(directory(`unkeyed-pass-${label}`, document), state, [creator as unknown as Creator], t0, [])) instanceof Error)
+    ok('任务评审：没有旧判断字段的坏账号照常准备', passes('plain', { platform: 'tiktok', handle: 'bad-name' }))
+    ok('任务评审：带新评审字段的坏账号照常准备', passes('new-fields', { platform: 'tiktok', handle: 'bad-name', eligibility: '合格', outreach_draft: 'x' }))
+    ok('任务评审：review_status 已评的坏账号照常准备', passes('reviewed', { platform: 'tiktok', handle: 'bad-name', review_status: '已评', outreach_draft: 'x' }))
+    ok('任务评审：正本在场时坏账号的旧判断照常准备', passes('present', { platform: 'tiktok', handle: 'bad-name', outreach_draft: 'x' }, saved()))
+    criterion('D21.s')
+
+    suite('D21', '名单里手改坏的记录在读入时就指出文件、第几条与哪个字段')
+    // 形状清单来自对 render 的逐字段试探：只收会让后面崩掉或报看不懂错误的那几种（ADR-192）。
+    const fine = (handle: string, extra: Record<string, unknown> = {}) =>
+      ({ platform: 'tiktok', handle, nickname: handle, bio_links: [], ...extra })
+    const shaped = (label: string, previous: unknown[], raw?: unknown[]) => {
+      const dir = join(root, `shape-${label}`)
+      mkdirSync(dir)
+      writeFileSync(join(dir, 'creators.json'), JSON.stringify(previous))
+      if (raw !== undefined) writeFileSync(join(dir, 'creators.raw.json'), JSON.stringify(raw))
+      const error = caught(() => loadReviewCreatorInputs(dir))
+      return { dir, error, text: String(error) }
+    }
+    const refuses = (label: string, record: unknown, field: string, value: string) => {
+      const got = shaped(label, [fine('first'), record])
+      return got.error instanceof ReviewInputError &&
+        [join(got.dir, 'creators.json'), '第 2 条', field, value].every(part => got.text.includes(part))
+    }
+    // 每条都要：以输入错误拒绝、指出文件、第几条、字段与原值。读入本来不写盘；入口在写入之前拒绝，由 ADR-192 第三节的入口实跑核。
+    ok('手改坏的记录：条目是字符串时拒绝并指出', refuses('string', 'oops', '不是一条记录', '"oops"'))
+    ok('手改坏的记录：条目是 null 时拒绝并指出', refuses('null', null, '不是一条记录', 'null'))
+    ok('手改坏的记录：条目是数组时拒绝并指出', refuses('array', [], '不是一条记录', '[]'))
+    ok('手改坏的记录：handle 是数字时拒绝并指出', refuses('handle-number', fine('x', { handle: 123 }), 'handle 是 123', '第 2 条'))
+    ok('手改坏的记录：handle 缺席时拒绝并指出', refuses('handle-absent', (({ handle: _, ...rest }) => rest)(fine('x')), 'handle 缺席', '第 2 条'))
+    ok('手改坏的记录：platform 是数字时拒绝并指出', refuses('platform-number', fine('x', { platform: 7 }), 'platform 是 7', '第 2 条'))
+    ok('手改坏的记录：bio_links 缺席时拒绝并指出', refuses('links-absent', (({ bio_links: _, ...rest }) => rest)(fine('x')), 'bio_links 缺席', '第 2 条'))
+    ok('手改坏的记录：bio_links 是对象时拒绝并指出', refuses('links-object', fine('x', { bio_links: {} }), 'bio_links 是 {}', '第 2 条'))
+    ok('手改坏的记录：bio_links 里有数字时拒绝并指出', refuses('links-number', fine('x', { bio_links: ['https://a.example', 5] }), 'bio_links 是 ["https://a.example",5]', '第 2 条'))
+    ok('手改坏的记录：recent_posts 是字符串时拒绝并指出', refuses('posts-string', fine('x', { recent_posts: 'x' }), 'recent_posts 是 "x"', '第 2 条'))
+    ok('手改坏的记录：recent_posts 里有 null 时拒绝并指出', refuses('posts-null-item', fine('x', { recent_posts: [null] }), 'recent_posts 是 [null]', '第 2 条'))
+    ok('手改坏的记录：bio_links 为 null 时拒绝并指出', refuses('links-null', fine('x', { bio_links: null }), 'bio_links 是 null', '应是字符串数组'))
+    ok('手改坏的记录：recent_posts 是对象时拒绝并指出', refuses('posts-object', fine('x', { recent_posts: {} }), 'recent_posts 是 {}', '应是作品对象的数组'))
+    ok('手改坏的记录：discovery_sources 是字符串时拒绝并指出', refuses('sources-string', fine('x', { discovery_sources: 'x' }), 'discovery_sources 是 "x"', '应是来源对象的数组'))
+    ok('手改坏的记录：discovery_sources 里有 null 时拒绝并指出', refuses('sources-null-item', fine('x', { discovery_sources: [null] }), 'discovery_sources 是 [null]', '第 2 条'))
+    ok('手改坏的记录：说出 handle 应是字符串', refuses('handle-expected', fine('x', { handle: 123 }), 'handle 是 123', '应是字符串'))
+    const named = shaped('named', [fine('first'), fine('alpha', { bio_links: 'https://a.example' })])
+    ok('手改坏的记录：读得到时带出平台与账号', named.text.includes('tiktok') && named.text.includes('alpha'))
+    const many = shaped('many', [fine('a', { handle: 1 }), fine('b'), 'oops'], [fine('c'), fine('d', { recent_posts: 'x' })])
+    eq('手改坏的记录：两个文件里的每一处都报出', [
+      many.error instanceof ReviewInputError ? many.error.problems.length : -1,
+      many.text.includes(`${join(many.dir, 'creators.json')} 第 1 条`), many.text.includes(`${join(many.dir, 'creators.json')} 第 3 条`),
+      many.text.includes(`${join(many.dir, 'creators.raw.json')} 第 2 条`)], [3, true, true, true])
+    const rawOnly = shaped('raw-only', [fine('a')], [fine('a'), fine('b', { platform: null })])
+    ok('手改坏的记录：只坏在累加器里也拒绝并指出累加器', rawOnly.error instanceof ReviewInputError && rawOnly.text.includes(`${join(rawOnly.dir, 'creators.raw.json')} 第 2 条`) && !rawOnly.text.includes(`${join(rawOnly.dir, 'creators.json')} 第`))
+    const long = shaped('long', [fine('a', { bio_links: { note: 'x'.repeat(500) } })])
+    ok('手改坏的记录：原值太长时截短', long.error instanceof ReviewInputError && long.text.length < 400)
+    const deepDir = join(root, 'shape-deep'), depth = 100000
+    mkdirSync(deepDir)
+    // 嵌套深到 JSON.stringify 栈溢出：报错仍要是一行输入错误，不是「Maximum call stack size exceeded」
+    writeFileSync(join(deepDir, 'creators.json'), `[{"platform":"tiktok","handle":"deep","bio_links":${'['.repeat(depth)}${']'.repeat(depth)}}]`)
+    const deep = caught(() => loadReviewCreatorInputs(deepDir))
+    ok('手改坏的记录：嵌套深到印不出原值时仍指出是哪条哪个字段', deep instanceof ReviewInputError && String(deep).includes('第 1 条') && String(deep).includes('bio_links') && String(deep).includes('印不出'))
+    // 不多拒：形状对的记录原样读入；其余字段的类型、陌生平台名不在本条检查之内。
+    const passing = [
+      fine('a'), fine('b', { recent_posts: null }), fine('c', { recent_posts: [] }),
+      fine('d', { recent_posts: [{ id: '1', plays: 5 }], bio_links: ['https://a.example'] }),
+      fine('e', { platform: 'youtube' }), fine('f', { followers: 'many', nickname: 5, source_tasks: 'x' }),
+      fine('g', { discovery_sources: null }), fine('h', { discovery_sources: [{ endpoint: 'x' }] }),
+    ]
+    const passed = shaped('passing', passing)
+    ok('手改坏的记录：形状对的记录照常读入', passed.error === undefined)
+    eq('手改坏的记录：读入的内容与盘上一致', passed.error === undefined ? loadReviewCreatorInputs(passed.dir).previous : undefined, passing)
+    criterion('D21.t')
+
     suite('D23', '任务人工授权以准备开始时已保存候选为界')
     // Generated tokens are adversarial input, never an expected ID or an authorization oracle.
     const tokenDir = directory('authorization-token', saved())
@@ -15465,7 +18197,7 @@ await group('feedback-template-crossings', async () => {
     account_keys: ['tiktok:alpha'], eligibility: '合格', adoption_priority: '优先联系', observed_content: '已读内容',
     work_evidence: '取得作品', natural_integration: '真实场景', mismatch_risk: '未核问题', fit: '✅' } }, rounds: [
     { round_id: 'saved-round', created_at: 'saved', source: 'task.json', candidates: [{ account_key: 'tiktok:alpha', source_tasks: [{ task_index: 0, keyword: 'saved', dimension: 'category', platform: 'tiktok' }] }] } ] }) + '\n';
-  const creators = JSON.stringify([{ platform: 'tiktok', handle: 'alpha', manual_adopted: 'yes', manual_note: 'derived' }]) + '\n';
+  const creators = JSON.stringify([{ platform: 'tiktok', handle: 'alpha', bio_links: [], manual_adopted: 'yes', manual_note: 'derived' }]) + '\n';
   const expected = '\ufeffround_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note\nsaved-round,tiktok,alpha,,,,,,,\n';
   fs.writeFileSync(path.join(dir, 'task.json'), task); fs.writeFileSync(path.join(dir, 'agent-review.json'), agent); fs.writeFileSync(path.join(dir, 'creators.json'), creators);
   let requests = 0;
@@ -15837,7 +18569,7 @@ await group('u10-report-entry', async () => {
     await fsBlind.writeFile(pathBlind.join(cwdBlind, 'memory', 'creators.json'), JSON.stringify({
       version: 1, updated_at: now, creators: { 'tiktok:seen_contacted': entry('seen_contacted', true, false), 'tiktok:seen_blocked': entry('seen_blocked', false, true) }
     }));
-    const [nodeBlind, argsBlind] = tsxCommand([filePathBlind(new URL('./render.ts', import.meta.url)), '--dir', taskDir]);
+    const [nodeBlind, argsBlind] = prebuiltCommand([filePathBlind(new URL('./render.ts', import.meta.url)), '--dir', taskDir]);
     const executed = spawnBlind(nodeBlind, argsBlind, { cwd: cwdBlind, encoding: 'utf8', timeout: 30000 });
     if (executed.error || executed.status !== 0) throw new Error('（进程）真实 render 未完成：' + String(executed.error || executed.stderr));
     const delivered = JSON.parse(await fsBlind.readFile(pathBlind.join(taskDir, 'creators.json'), 'utf8')) as Array<{ platform: string; handle: string; tier: string }>;
@@ -16065,7 +18797,7 @@ await group('u11-feedback-report-entry', async () => {
     firstDocument.rounds[0].candidates[0].source_tasks![0].keyword = 'mutated copy'
     ok('U11已校验反馈和冻结来源getter拥有独立副本', isDeepStrictEqual({ feedback: context.feedback, document: context.document }, getterExpected))
     const renderAbsolute = join(dirname(fileURLToPath(import.meta.url)), 'render.ts')
-    const run = spawnSync(...tsxCommand([renderAbsolute, '--dir', taskDir]), { cwd: isolated, env: { ...process.env, TIKHUB_API_KEY: '' }, encoding: 'utf8', timeout: 30000 })
+    const run = spawnSync(...prebuiltCommand([renderAbsolute, '--dir', taskDir], isolated), { cwd: isolated, env: { ...process.env, TIKHUB_API_KEY: '' }, encoding: 'utf8', timeout: 30000 })
     ok('U11真实render入口成功交付报告', run.status === 0 && existsSync(join(taskDir, 'meta.json')) && existsSync(join(taskDir, 'report.html')))
     const meta = existsSync(join(taskDir, 'meta.json')) ? JSON.parse(rf(join(taskDir, 'meta.json'), 'utf8')) : {}
     const expectedSummary = { rounds: [{ round_id: 'old<&>pool', candidates: 3, reviewed: 2, unreviewed: 1 }, { round_id: 'new-pool', candidates: 3, reviewed: 3, unreviewed: 0 }],
@@ -16403,6 +19135,692 @@ await group('u11-keyword-report-entry', async () => {
     eq('U11关键词真实入口保持raw人工与Agent原件字节', [read('creators.raw.json'), read('manual-feedback.csv'), read('agent-review.json')], [raw, manual, originalAgent])
     criterion('U11.m')
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+// P1 independent expected and scenarios were frozen before the production repair.
+// The admitted contract read requirements/public docs only; this context integrated it
+// with the existing HTML decoder. Frozen source and red/green records are preserved.
+await group('p1-report-stat-counts', () => {
+  suite('P1', '报告统计缺失与确实为零分开显示，取值仍只转义一次')
+  tension('U12', 'P1')
+  const fixture: any = {
+    "product": "selfcheck",
+    "market": "US",
+    "platforms": [
+      "tiktok",
+      "instagram"
+    ],
+    "keywords": [
+      {
+        "task_index": 0,
+        "keyword": "power bank review",
+        "platform": "tiktok",
+        "dimension": "category",
+        "status": "queried",
+        "found": 12,
+        "shortlisted": 3,
+        "fit_pass": 3,
+        "manual_reviewed": 0
+      },
+      {
+        "task_index": 1,
+        "keyword": "smoothie",
+        "platform": "instagram",
+        "dimension": "scene",
+        "status": "queried",
+        "found": 8,
+        "shortlisted": 2,
+        "fit_pass": 1,
+        "manual_reviewed": 0
+      }
+    ],
+    "feedback_summary": {
+      "rounds": [
+        {
+          "round_id": "round-001",
+          "candidates": 5,
+          "reviewed": 0,
+          "unreviewed": 5
+        }
+      ],
+      "eligible": {
+        "yes": 0,
+        "no": 0,
+        "unknown": 0,
+        "unreviewed": 5,
+        "denominator": 0,
+        "rate": null
+      },
+      "adopted": {
+        "yes": 0,
+        "no": 0,
+        "unknown": 0,
+        "unreviewed": 5,
+        "denominator": 0,
+        "rate": null
+      },
+      "reject_reasons": [],
+      "disagreements": []
+    },
+    "review_rounds": [
+      {
+        "round_id": "round-001",
+        "created_at": "2026-10-24T02:56:32.514Z",
+        "source": "task.json",
+        "candidates": [
+          {
+            "account_key": "tiktok:techwithsarah",
+            "source_tasks": [
+              {
+                "task_index": 0,
+                "keyword": "power bank review",
+                "dimension": "category",
+                "platform": "tiktok"
+              }
+            ]
+          },
+          {
+            "account_key": "instagram:techwithsarah",
+            "source_tasks": [
+              {
+                "task_index": 1,
+                "keyword": "smoothie",
+                "dimension": "scene",
+                "platform": "instagram"
+              }
+            ]
+          },
+          {
+            "account_key": "tiktok:powerbankdeals",
+            "source_tasks": [
+              {
+                "task_index": 0,
+                "keyword": "power bank review",
+                "dimension": "category",
+                "platform": "tiktok"
+              }
+            ]
+          },
+          {
+            "account_key": "tiktok:mysteryuser",
+            "source_tasks": [
+              {
+                "task_index": 0,
+                "keyword": "power bank review",
+                "dimension": "category",
+                "platform": "tiktok"
+              }
+            ]
+          },
+          {
+            "account_key": "instagram:privateaccount",
+            "source_tasks": [
+              {
+                "task_index": 1,
+                "keyword": "smoothie",
+                "dimension": "scene",
+                "platform": "instagram"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "total": 4,
+    "tiers": {
+      "A": 4,
+      "B": 0,
+      "C": 0
+    },
+    "email_count": 4,
+    "cross_platform_count": 1,
+    "high_risk_count": 0,
+    "requests": 18,
+    "cost_estimate_usd": 0.024,
+    "budget_usd": 1,
+    "cost_status": "known",
+    "cost_scope": "task",
+    "cost_http_200_usd": 0.024,
+    "cost_unknown_result_usd": 0,
+    "cost_pending_usd": 0,
+    "cost_basis": "按固定公开基础价、不计优惠的估算；不是实际账单，也不保证供应商未来价格上限。",
+    "cost_price_versions": [
+      "tikhub-public-20260720-5d52fe8fb109"
+    ],
+    "cost_problems": [],
+    "enriched": false,
+    "memory_status": "ok",
+    "memory_written": true,
+    "capabilities": {
+      "email_verification": {
+        "total": 4,
+        "measured": 0,
+        "unavailable": 0,
+        "unqueried": 4
+      },
+      "audience_geo": {
+        "total": 4,
+        "measured": 0,
+        "unavailable": 0,
+        "unqueried": 4
+      },
+      "public_post_sample": {
+        "total": 5,
+        "measured": 5,
+        "unavailable": 0,
+        "unqueried": 0
+      },
+      "audience_quality_risk": {
+        "total": 5,
+        "measured": 0,
+        "unavailable": 5,
+        "unqueried": 0
+      },
+      "creator_activity": {
+        "total": 5,
+        "measured": 5,
+        "unavailable": 0,
+        "unqueried": 0
+      },
+      "collaboration_quote": {
+        "total": 5,
+        "measured": 0,
+        "unavailable": 0,
+        "unqueried": 5
+      }
+    }
+  }
+  type ExpectedCount = { kind: string, text?: string, allowed?: string[] }
+  type CountCase = { id: string, patches: Array<{ path: string[], operation: string, value?: unknown }>, expected: Record<string, ExpectedCount> }
+  const cases: CountCase[] = [
+    { id: "capabilities_absent",
+      patches: [{"path": ["capabilities"], "operation": "delete"}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "capabilities_undefined",
+      patches: [{"path": ["capabilities"], "operation": "undefined"}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "capabilities_null",
+      patches: [{"path": ["capabilities"], "operation": "set", "value": null}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "public_sample_absent",
+      patches: [{"path": ["capabilities", "public_post_sample"], "operation": "delete"}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "public_sample_undefined",
+      patches: [{"path": ["capabilities", "public_post_sample"], "operation": "undefined"}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "public_sample_null",
+      patches: [{"path": ["capabilities", "public_post_sample"], "operation": "set", "value": null}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "measured_absent",
+      patches: [{"path": ["capabilities", "public_post_sample", "measured"], "operation": "delete"}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "measured_undefined",
+      patches: [{"path": ["capabilities", "public_post_sample", "measured"], "operation": "undefined"}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "measured_null",
+      patches: [{"path": ["capabilities", "public_post_sample", "measured"], "operation": "set", "value": null}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "high_risk_absent",
+      patches: [{"path": ["high_risk_count"], "operation": "delete"}],
+      expected: {"公开指标已测账号": {"kind": "value", "text": "3"}, "高风险复核": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}} },
+    { id: "high_risk_undefined",
+      patches: [{"path": ["high_risk_count"], "operation": "undefined"}],
+      expected: {"公开指标已测账号": {"kind": "value", "text": "3"}, "高风险复核": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}} },
+    { id: "high_risk_null",
+      patches: [{"path": ["high_risk_count"], "operation": "set", "value": null}],
+      expected: {"公开指标已测账号": {"kind": "value", "text": "3"}, "高风险复核": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}} },
+    { id: "both_absent",
+      patches: [{"path": ["capabilities"], "operation": "delete"}, {"path": ["high_risk_count"], "operation": "delete"}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}} },
+    { id: "both_true_zero",
+      patches: [{"path": ["capabilities", "public_post_sample", "measured"], "operation": "set", "value": 0}, {"path": ["high_risk_count"], "operation": "set", "value": 0}],
+      expected: {"公开指标已测账号": {"kind": "value", "text": "0"}, "高风险复核": {"kind": "value", "text": "0"}} },
+    { id: "measured_zero_risk_absent",
+      patches: [{"path": ["capabilities", "public_post_sample", "measured"], "operation": "set", "value": 0}, {"path": ["high_risk_count"], "operation": "delete"}],
+      expected: {"公开指标已测账号": {"kind": "value", "text": "0"}, "高风险复核": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}} },
+    { id: "measured_absent_risk_zero",
+      patches: [{"path": ["capabilities", "public_post_sample", "measured"], "operation": "delete"}, {"path": ["high_risk_count"], "operation": "set", "value": 0}],
+      expected: {"公开指标已测账号": {"kind": "unknown", "allowed": ["未知", "未提供", "无从确认", "未查询"]}, "高风险复核": {"kind": "value", "text": "0"}} },
+    { id: "positive_counts",
+      patches: [],
+      expected: {"公开指标已测账号": {"kind": "value", "text": "3"}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "measured_escape_once",
+      patches: [{"path": ["capabilities", "public_post_sample", "measured"], "operation": "set", "value": "MEASURED-&<>\"'"}],
+      expected: {"公开指标已测账号": {"kind": "escaped", "text": "MEASURED-&<>\"'"}, "高风险复核": {"kind": "value", "text": "2"}} },
+    { id: "high_risk_escape_once",
+      patches: [{"path": ["high_risk_count"], "operation": "set", "value": "HIGH-RISK-&<>\"'"}],
+      expected: {"公开指标已测账号": {"kind": "value", "text": "3"}, "高风险复核": {"kind": "escaped", "text": "HIGH-RISK-&<>\"'"}} },
+  ]
+  const views = [['public_single', {}], ['review_dual', { mode: 'review', filters: 'dual' }]] as const
+  const assertions: Record<string, (pass: boolean) => void> = {
+    'report-stats:public_single:capabilities_absent': pass => ok('report-stats:public_single:capabilities_absent', pass),
+    'report-stats:public_single:capabilities_undefined': pass => ok('report-stats:public_single:capabilities_undefined', pass),
+    'report-stats:public_single:capabilities_null': pass => ok('report-stats:public_single:capabilities_null', pass),
+    'report-stats:public_single:public_sample_absent': pass => ok('report-stats:public_single:public_sample_absent', pass),
+    'report-stats:public_single:public_sample_undefined': pass => ok('report-stats:public_single:public_sample_undefined', pass),
+    'report-stats:public_single:public_sample_null': pass => ok('report-stats:public_single:public_sample_null', pass),
+    'report-stats:public_single:measured_absent': pass => ok('report-stats:public_single:measured_absent', pass),
+    'report-stats:public_single:measured_undefined': pass => ok('report-stats:public_single:measured_undefined', pass),
+    'report-stats:public_single:measured_null': pass => ok('report-stats:public_single:measured_null', pass),
+    'report-stats:public_single:high_risk_absent': pass => ok('report-stats:public_single:high_risk_absent', pass),
+    'report-stats:public_single:high_risk_undefined': pass => ok('report-stats:public_single:high_risk_undefined', pass),
+    'report-stats:public_single:high_risk_null': pass => ok('report-stats:public_single:high_risk_null', pass),
+    'report-stats:public_single:both_absent': pass => ok('report-stats:public_single:both_absent', pass),
+    'report-stats:public_single:both_true_zero': pass => ok('report-stats:public_single:both_true_zero', pass),
+    'report-stats:public_single:measured_zero_risk_absent': pass => ok('report-stats:public_single:measured_zero_risk_absent', pass),
+    'report-stats:public_single:measured_absent_risk_zero': pass => ok('report-stats:public_single:measured_absent_risk_zero', pass),
+    'report-stats:public_single:positive_counts': pass => ok('report-stats:public_single:positive_counts', pass),
+    'report-stats:public_single:measured_escape_once': pass => ok('report-stats:public_single:measured_escape_once', pass),
+    'report-stats:public_single:high_risk_escape_once': pass => ok('report-stats:public_single:high_risk_escape_once', pass),
+    'report-stats:review_dual:capabilities_absent': pass => ok('report-stats:review_dual:capabilities_absent', pass),
+    'report-stats:review_dual:capabilities_undefined': pass => ok('report-stats:review_dual:capabilities_undefined', pass),
+    'report-stats:review_dual:capabilities_null': pass => ok('report-stats:review_dual:capabilities_null', pass),
+    'report-stats:review_dual:public_sample_absent': pass => ok('report-stats:review_dual:public_sample_absent', pass),
+    'report-stats:review_dual:public_sample_undefined': pass => ok('report-stats:review_dual:public_sample_undefined', pass),
+    'report-stats:review_dual:public_sample_null': pass => ok('report-stats:review_dual:public_sample_null', pass),
+    'report-stats:review_dual:measured_absent': pass => ok('report-stats:review_dual:measured_absent', pass),
+    'report-stats:review_dual:measured_undefined': pass => ok('report-stats:review_dual:measured_undefined', pass),
+    'report-stats:review_dual:measured_null': pass => ok('report-stats:review_dual:measured_null', pass),
+    'report-stats:review_dual:high_risk_absent': pass => ok('report-stats:review_dual:high_risk_absent', pass),
+    'report-stats:review_dual:high_risk_undefined': pass => ok('report-stats:review_dual:high_risk_undefined', pass),
+    'report-stats:review_dual:high_risk_null': pass => ok('report-stats:review_dual:high_risk_null', pass),
+    'report-stats:review_dual:both_absent': pass => ok('report-stats:review_dual:both_absent', pass),
+    'report-stats:review_dual:both_true_zero': pass => ok('report-stats:review_dual:both_true_zero', pass),
+    'report-stats:review_dual:measured_zero_risk_absent': pass => ok('report-stats:review_dual:measured_zero_risk_absent', pass),
+    'report-stats:review_dual:measured_absent_risk_zero': pass => ok('report-stats:review_dual:measured_absent_risk_zero', pass),
+    'report-stats:review_dual:positive_counts': pass => ok('report-stats:review_dual:positive_counts', pass),
+    'report-stats:review_dual:measured_escape_once': pass => ok('report-stats:review_dual:measured_escape_once', pass),
+    'report-stats:review_dual:high_risk_escape_once': pass => ok('report-stats:review_dual:high_risk_escape_once', pass),
+  }
+  const labels = new Set<string>()
+  for (const [view, options] of views) for (const c of cases) {
+    const label = `report-stats:${view}:${c.id}`
+    if (labels.has(label)) throw new Error(`${SELFCHECK_FIXTURE_MARK} duplicate contract label ${label}`)
+    labels.add(label)
+    const meta = structuredClone(fixture)
+    meta.capabilities.public_post_sample.measured = 3
+    meta.high_risk_count = 2
+    for (const patch of c.patches) {
+      let parent = meta
+      for (const key of patch.path.slice(0, -1)) parent = parent[key]
+      const key = patch.path[patch.path.length - 1]
+      if (patch.operation === 'delete') delete parent[key]
+      else parent[key] = patch.operation === 'undefined' ? undefined : patch.value
+    }
+    let html: string
+    try { html = renderHtml([], meta, options) }
+    catch (error) { ok(`${SELFCHECK_FIXTURE_MARK} ${label}:render-error ${String(error)}`, false); continue }
+    // Adapter locates the value adjacent to its human label. It never reads a
+    // different statistic or substitutes an expected value for a missing one.
+    const cards = [...html.matchAll(/<div class="stat"><div class="v"[^>]*>([\s\S]*?)<\/div><div class="l">([\s\S]*?)<\/div>/g)]
+    const observations = Object.entries(c.expected).map(([name, expected]) => {
+      const matching = cards.filter(match => u11Decode(match[2]) === name)
+      if (matching.length !== 1) return { valid: false, expected, raw: '', text: '' }
+      const raw = matching[0][1]
+      const text = u11Text(u11ReadHtml(`<div>${raw}</div>`, false))
+      return { valid: true, expected, raw, text }
+    })
+    if (observations.some(value => !value.valid)) {
+      ok(`${SELFCHECK_FIXTURE_MARK} ${label}:fixture-error cannot locate statistic`, false); continue
+    }
+    assertions[label](observations.every(({ expected, raw, text }) => expected.kind === 'unknown'
+      ? expected.allowed!.includes(text)
+      : text === expected.text && (expected.kind !== 'escaped' ||
+          (!/[<>"']/.test(raw) && !/&(?!#\d+;|#x[\da-f]+;|[a-z][\w]+;)/i.test(raw)))))
+  }
+  eq('报告两项统计的独立契约每个标签只执行一次', labels.size, 38)
+  criterion('U12.a', 'U12.b')
+})
+
+// Product-name expected values were frozen in a separate admitted context.
+// This narrow group claims U12.c only, not dynamic escaping provenance.
+await group('u12-product-name-complete', () => {
+  suite('U12', '网页标题与正文标题分别保留完整产品名')
+  type PositionVerdict = { kind: 'pass' | 'assertion-failed' | 'fixture-error'; details: string[] }
+  type U12COnlyPositionVerdict = PositionVerdict & { verifierId: string; scope: string }
+  type ExpectedCase = { escapedOnce: string }
+  type PositionInspection = { status: 'found'; nodes: { sourceId: string; rawTextFragments: string[] }[] }
+    | { status: 'missing' | 'uninspectable'; reason: string }
+  const identity = { verifierId: 'product-name-u12c-only', scope: 'U12.c-only' }
+  const escapes: Record<string, string> = {
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  };
+  const names: Record<string, string> = {
+    amp: '&', AMP: '&', lt: '<', LT: '<', gt: '>', GT: '>',
+    quot: '"', QUOT: '"', apos: "'",
+  };
+  const codepoints: Record<number, string> = { 38: '&', 60: '<', 62: '>', 34: '"', 39: "'" };
+
+  /** Normalize equivalent spellings one layer within this source text token.
+   * A bare ampersand cannot join another fragment to fabricate an entity.
+   * This does not inspect the provenance or escaping of additional copies.
+   */
+  function canonicalizeFiveReferences(text: string): string {
+    return text.replace(/&(?:amp;?|AMP;?|lt;?|LT;?|gt;?|GT;?|quot;?|QUOT;?|apos;|#\d+;?|#[xX][\da-fA-F]+;?)|&/g, token => {
+      if (token === '&') return '\0';
+      const body = token.slice(1).replace(/;$/, '');
+      const char = body[0] === '#'
+        ? codepoints[body[1]?.toLowerCase() === 'x' ? Number.parseInt(body.slice(2), 16) : Number(body.slice(1))]
+        : names[body];
+      return char === undefined ? token : escapes[char];
+    });
+  }
+
+  function verdict(kind: PositionVerdict['kind'], ...details: string[]): U12COnlyPositionVerdict {
+    return { ...identity, kind, details };
+  }
+
+  /** Only complete-value presence is measured. No extra-copy/provenance test. */
+  function evaluateU12COnlyProductPosition(
+    expected: Pick<ExpectedCase, 'escapedOnce'>,
+    inspection: PositionInspection,
+  ): U12COnlyPositionVerdict {
+    if (!inspection || typeof inspection !== 'object') return verdict('fixture-error', 'no structured observation');
+    if ((inspection.status === 'missing' || inspection.status === 'uninspectable') &&
+        (typeof inspection.reason !== 'string' || !inspection.reason)) {
+      return verdict('fixture-error', 'missing/uninspectable observation needs an explicit reason');
+    }
+    if (inspection.status === 'uninspectable') return verdict('fixture-error', `position not measured: ${inspection.reason}`);
+    if (inspection.status === 'missing') return verdict('assertion-failed', `required position missing: ${inspection.reason}`);
+    if (inspection.status !== 'found' || !Array.isArray(inspection.nodes) || !inspection.nodes.length) {
+      return verdict('fixture-error', 'found must contain an observed position');
+    }
+    const seen = new Set<string>();
+    for (const node of inspection.nodes) {
+      if (!node || typeof node.sourceId !== 'string' || !node.sourceId || seen.has(node.sourceId) ||
+          !Array.isArray(node.rawTextFragments) || !node.rawTextFragments.every((text: unknown) => typeof text === 'string')) {
+        return verdict('fixture-error', 'invalid or duplicated source observation');
+      }
+      seen.add(node.sourceId);
+    }
+    const details: string[] = [];
+    for (const node of inspection.nodes) {
+      const actual = node.rawTextFragments.map(canonicalizeFiveReferences).join('');
+      if (!actual.includes(expected.escapedOnce)) details.push(`${node.sourceId}: complete required product value missing`);
+    }
+    return { ...identity, kind: details.length ? 'assertion-failed' : 'pass', details };
+  }
+
+  // Finite source reader for this renderer's canonical document structure.
+  // Preserve text fragments; do not normalize whitespace/Unicode or read script,
+  // style, template, comments, attributes, or the other requested position.
+  const inspect = (html: string, position: 'title' | 'h1'): PositionInspection => {
+    const lower = html.toLowerCase(), stack: string[] = []
+    const nodes: { sourceId: string; rawTextFragments: string[]; depth: number; end: number }[] = []
+    const active: typeof nodes = [], errors: string[] = []
+    const excluded = () => stack.some(tag => /^(script|style|template)$/.test(tag))
+    const voidTags = new Set('area base br col embed hr img input link meta param source track wbr'.split(' '))
+    let at = 0
+    while (at < html.length) {
+      const raw = stack.at(-1)
+      if (raw === 'script' || raw === 'style') {
+        const close = lower.indexOf('</' + raw, at)
+        if (close < 0) { errors.push('unclosed raw-text element'); break }
+        at = close
+      }
+      if (html.startsWith('<!--', at)) {
+        const close = html.indexOf('-->', at + 4)
+        if (close < 0) { errors.push('unclosed comment'); break }
+        at = close + 3; continue
+      }
+      const tag = /^<(\/?)([a-z][\w:-]*)(?=[\s/>])/i.exec(html.slice(at))
+      if (html[at] === '<' && (tag || html.startsWith('<!', at))) {
+        let end = at + 1, quote = ''
+        for (; end < html.length; end++) {
+          const ch = html[end]
+          if (quote) { if (ch === quote) quote = '' }
+          else if (ch === '"' || ch === "'") quote = ch
+          else if (ch === '>') break
+        }
+        if (end === html.length) { errors.push('unclosed tag'); break }
+        if (tag) {
+          const name = tag[2].toLowerCase()
+          if (tag[1]) {
+            if (!voidTags.has(name)) {
+              if (stack.at(-1) !== name) { errors.push('mismatched closing tag'); break }
+              for (let n = active.length - 1; n >= 0; n--) {
+                if (active[n].depth === stack.length - 1) active.splice(n, 1)
+              }
+              stack.pop()
+            }
+          } else {
+            const eligible = name === position && stack.includes(position === 'title' ? 'head' : 'body')
+            if (eligible && !excluded()) {
+              const node = { sourceId: String(at), rawTextFragments: [] as string[], depth: stack.length, end: -1 }
+              nodes.push(node); active.push(node)
+            }
+            const selfClosing = /\/\s*>$/.test(html.slice(at, end + 1))
+            if (!voidTags.has(name) && !selfClosing) stack.push(name)
+            else if (eligible && !excluded()) active.pop()
+          }
+        }
+        at = end + 1; continue
+      }
+      const next = html.indexOf('<', at + 1), end = next < 0 ? html.length : next
+      if (!excluded()) for (const node of active) {
+        const text = html.slice(at, end)
+        if (node.end === at && node.rawTextFragments.length) node.rawTextFragments[node.rawTextFragments.length - 1] += text
+        else node.rawTextFragments.push(text)
+        node.end = end
+      }
+      at = end
+    }
+    if (errors.length || stack.length) return { status: 'uninspectable', reason: errors.join('; ') || 'unclosed structure' }
+    return nodes.length ? { status: 'found', nodes: nodes.map(({ sourceId, rawTextFragments }) => ({ sourceId, rawTextFragments })) }
+      : { status: 'missing', reason: 'required position absent in document scope' }
+  }
+  const measured = (html: string, position: 'title' | 'h1', value: string) =>
+    evaluateU12COnlyProductPosition({ escapedOnce: value }, inspect(html, position)).kind
+  const control = '<html><head><title>HEAD_REQUIRED</title></head><body><h1>BODY_REQUIRED</h1></body></html>'
+  eq('产品名位置读取正控分别读取head标题和body标题',
+    [measured(control, 'title', 'HEAD_REQUIRED'), measured(control, 'h1', 'BODY_REQUIRED')], ['pass', 'pass'])
+  eq('产品名位置读取不能借另一位置的完整值满足',
+    [measured(control, 'title', 'BODY_REQUIRED'), measured(control, 'h1', 'HEAD_REQUIRED')], ['assertion-failed', 'assertion-failed'])
+  const traps = '<html><head><title>WRONG</title></head><body data-note="<title>REQUIRED</title><h1>REQUIRED</h1>">' +
+    '<!--<title>REQUIRED</title><h1>REQUIRED</h1>--><script>"<title>REQUIRED</title><h1>REQUIRED</h1>"</script>' +
+    '<style>.x{content:"<h1>REQUIRED</h1>"}</style><template><h1>REQUIRED</h1></template><h1>WRONG</h1></body></html>'
+  eq('产品名位置读取排除注释属性脚本样式和模板诱饵',
+    [measured(traps, 'title', 'REQUIRED'), measured(traps, 'h1', 'REQUIRED')], ['assertion-failed', 'assertion-failed'])
+  eq('产品名位置读取不把跨标记碎片拼成字符实体',
+    measured('<html><head><title>A&<b></b>amp;</title></head><body></body></html>', 'title', 'A&amp;'), 'assertion-failed')
+  eq('产品名位置读取区分位置缺失和无法观察',
+    [measured('<html><head></head><body></body></html>', 'title', 'REQUIRED'),
+      measured('<html><head><title>REQUIRED', 'title', 'REQUIRED')], ['assertion-failed', 'fixture-error'])
+  const fixture: any = {
+    "product": "CONTRACT_OWNS_THIS_PRODUCT",
+    "market": "US",
+    "platforms": ["tiktok","instagram"],
+    "keywords": [{"task_index": 0,"keyword": "power bank review","platform": "tiktok","dimension": "category","status": "queried","found": 12,"shortlisted": 3,"fit_pass": 3,"manual_reviewed": 0},{"task_index": 1,"keyword": "smoothie","platform": "instagram","dimension": "scene","status": "queried","found": 8,"shortlisted": 2,"fit_pass": 1,"manual_reviewed": 0}],
+    "feedback_summary": {"rounds": [{"round_id": "round-001","candidates": 5,"reviewed": 0,"unreviewed": 5}],"eligible": {"yes": 0,"no": 0,"unknown": 0,"unreviewed": 5,"denominator": 0,"rate": null},"adopted": {"yes": 0,"no": 0,"unknown": 0,"unreviewed": 5,"denominator": 0,"rate": null},"reject_reasons": [],"disagreements": []},
+    "review_rounds": [{"round_id": "round-001","created_at": "2026-10-24T02:56:32.514Z","source": "task.json","candidates": [{"account_key": "tiktok:techwithsarah","source_tasks": [{"task_index": 0,"keyword": "power bank review","dimension": "category","platform": "tiktok"}]},{"account_key": "instagram:techwithsarah","source_tasks": [{"task_index": 1,"keyword": "smoothie","dimension": "scene","platform": "instagram"}]},{"account_key": "tiktok:powerbankdeals","source_tasks": [{"task_index": 0,"keyword": "power bank review","dimension": "category","platform": "tiktok"}]},{"account_key": "tiktok:mysteryuser","source_tasks": [{"task_index": 0,"keyword": "power bank review","dimension": "category","platform": "tiktok"}]},{"account_key": "instagram:privateaccount","source_tasks": [{"task_index": 1,"keyword": "smoothie","dimension": "scene","platform": "instagram"}]}]}],
+    "total": 4,
+    "tiers": {"A": 4,"B": 0,"C": 0},
+    "email_count": 4,
+    "cross_platform_count": 1,
+    "high_risk_count": 0,
+    "requests": 18,
+    "cost_estimate_usd": 0.024,
+    "budget_usd": 1,
+    "cost_status": "known",
+    "cost_scope": "task",
+    "cost_http_200_usd": 0.024,
+    "cost_unknown_result_usd": 0,
+    "cost_pending_usd": 0,
+    "cost_basis": "按固定公开基础价、不计优惠的估算；不是实际账单，也不保证供应商未来价格上限。",
+    "cost_price_versions": ["tikhub-public-20260720-5d52fe8fb109"],
+    "cost_problems": [],
+    "enriched": false,
+    "memory_status": "ok",
+    "memory_written": true,
+    "capabilities": {"email_verification": {"total": 4,"measured": 0,"unavailable": 0,"unqueried": 4},"audience_geo": {"total": 4,"measured": 0,"unavailable": 0,"unqueried": 4},"public_post_sample": {"total": 5,"measured": 5,"unavailable": 0,"unqueried": 0},"audience_quality_risk": {"total": 5,"measured": 0,"unavailable": 5,"unqueried": 0},"creator_activity": {"total": 5,"measured": 5,"unavailable": 0,"unqueried": 0},"collaboration_quote": {"total": 5,"measured": 0,"unavailable": 0,"unqueried": 5}},
+  }
+  const cases = [
+    {"id": "long-tail","product": "LONG_BEGIN|0001-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0002-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0003-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0004-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0005-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0006-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0007-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0008-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0009-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0010-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0011-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0012-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0013-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0014-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0015-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0016-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0017-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0018-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0019-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0020-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0021-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0022-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0023-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0024-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|TAIL_SENTINEL_7B6E9D4C_DO_NOT_TRUNCATE","escapedOnce": "LONG_BEGIN|0001-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0002-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0003-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0004-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0005-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0006-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0007-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0008-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0009-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0010-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0011-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0012-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0013-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0014-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0015-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0016-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0017-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0018-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0019-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0020-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0021-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0022-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0023-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|0024-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789|TAIL_SENTINEL_7B6E9D4C_DO_NOT_TRUNCATE","checks": [{"view": "default","position": "title","label": "U12.product.long-tail.default.title"},{"view": "default","position": "h1","label": "U12.product.long-tail.default.h1"},{"view": "review-dual","position": "title","label": "U12.product.long-tail.review-dual.title"},{"view": "review-dual","position": "h1","label": "U12.product.long-tail.review-dual.h1"}]},
+    {"id": "unicode","product": "UNICODE_BEGIN|产品名：星河充电宝・Café・Café・株式会社・مرحبا・🚀🧪・𠮷|UNICODE_END_90A2","escapedOnce": "UNICODE_BEGIN|产品名：星河充电宝・Café・Café・株式会社・مرحبا・🚀🧪・𠮷|UNICODE_END_90A2","checks": [{"view": "default","position": "title","label": "U12.product.unicode.default.title"},{"view": "default","position": "h1","label": "U12.product.unicode.default.h1"},{"view": "review-dual","position": "title","label": "U12.product.unicode.review-dual.title"},{"view": "review-dual","position": "h1","label": "U12.product.unicode.review-dual.h1"}]},
+    {"id": "five-characters","product": "FIVE_BEGIN|&<>\"'|& then < then > then \" then '|FIVE_END_48C7","escapedOnce": "FIVE_BEGIN|&amp;&lt;&gt;&quot;&#39;|&amp; then &lt; then &gt; then &quot; then &#39;|FIVE_END_48C7","checks": [{"view": "default","position": "title","label": "U12.product.five-characters.default.title"},{"view": "default","position": "h1","label": "U12.product.five-characters.default.h1"},{"view": "review-dual","position": "title","label": "U12.product.five-characters.review-dual.title"},{"view": "review-dual","position": "h1","label": "U12.product.five-characters.review-dual.h1"}]},
+    {"id": "entity-literals","product": "ENTITY_BEGIN|&amp;|&lt;|&gt;|&quot;|&#39;|&#x27;|&apos;|&unknown;|&AMP;|ENTITY_END_C41D","escapedOnce": "ENTITY_BEGIN|&amp;amp;|&amp;lt;|&amp;gt;|&amp;quot;|&amp;#39;|&amp;#x27;|&amp;apos;|&amp;unknown;|&amp;AMP;|ENTITY_END_C41D","checks": [{"view": "default","position": "title","label": "U12.product.entity-literals.default.title"},{"view": "default","position": "h1","label": "U12.product.entity-literals.default.h1"},{"view": "review-dual","position": "title","label": "U12.product.entity-literals.review-dual.title"},{"view": "review-dual","position": "h1","label": "U12.product.entity-literals.review-dual.h1"}]},
+  ]
+  const assertions: Record<string, (pass: boolean) => void> = {
+    "U12.product.long-tail.default.title": pass => ok("U12.product.long-tail.default.title", pass),
+    "U12.product.long-tail.default.h1": pass => ok("U12.product.long-tail.default.h1", pass),
+    "U12.product.long-tail.review-dual.title": pass => ok("U12.product.long-tail.review-dual.title", pass),
+    "U12.product.long-tail.review-dual.h1": pass => ok("U12.product.long-tail.review-dual.h1", pass),
+    "U12.product.unicode.default.title": pass => ok("U12.product.unicode.default.title", pass),
+    "U12.product.unicode.default.h1": pass => ok("U12.product.unicode.default.h1", pass),
+    "U12.product.unicode.review-dual.title": pass => ok("U12.product.unicode.review-dual.title", pass),
+    "U12.product.unicode.review-dual.h1": pass => ok("U12.product.unicode.review-dual.h1", pass),
+    "U12.product.five-characters.default.title": pass => ok("U12.product.five-characters.default.title", pass),
+    "U12.product.five-characters.default.h1": pass => ok("U12.product.five-characters.default.h1", pass),
+    "U12.product.five-characters.review-dual.title": pass => ok("U12.product.five-characters.review-dual.title", pass),
+    "U12.product.five-characters.review-dual.h1": pass => ok("U12.product.five-characters.review-dual.h1", pass),
+    "U12.product.entity-literals.default.title": pass => ok("U12.product.entity-literals.default.title", pass),
+    "U12.product.entity-literals.default.h1": pass => ok("U12.product.entity-literals.default.h1", pass),
+    "U12.product.entity-literals.review-dual.title": pass => ok("U12.product.entity-literals.review-dual.title", pass),
+    "U12.product.entity-literals.review-dual.h1": pass => ok("U12.product.entity-literals.review-dual.h1", pass),
+  }
+
+  const views: [string, Parameters<typeof renderHtml>[2]][] = [
+    ['default', {}], ['review-dual', { mode: 'review', filters: 'dual' }],
+  ]
+  const labels = new Set<string>()
+  for (const item of cases) for (const [view, options] of views) {
+    const meta = structuredClone(fixture); meta.product = item.product
+    let html: string
+    try { html = renderHtml([], meta, { ...options }) }
+    catch (error) { ok(SELFCHECK_FIXTURE_MARK + ' product-name render-error ' + item.id + ':' + view + ' ' + String(error), false); continue }
+    for (const check of item.checks.filter(check => check.view === view)) {
+      if (labels.has(check.label)) throw new Error(SELFCHECK_FIXTURE_MARK + ' duplicate product-name contract label')
+      labels.add(check.label)
+      const result = evaluateU12COnlyProductPosition(item, inspect(html, check.position as 'title' | 'h1'))
+      if (result.kind === 'fixture-error') {
+        ok(SELFCHECK_FIXTURE_MARK + ' ' + check.label + ':fixture-error ' + result.details.join('; '), false); continue
+      }
+      assertions[check.label](result.kind === 'pass')
+    }
+  }
+  eq('产品名逐位置独立契约每个标签恰执行一次', labels.size, 16)
+  criterion('U12.c')
+})
+
+await group('u12-report-escape', () => {
+suite('U12', '报告里取自名单与 meta 的值只当内容展示，改写不了报告的标记')
+{
+  // 期望只来自 U12 三条判据：金丝雀里的 " ' < > & 原样出现就是没转义，转义两次的写法出现就是转义了两次或更多次
+  // （查的几段不带金丝雀的前导字符，转义三次也认得出）；转义一次与两次的写法按 HTML 五个字符实体手写，
+  // 不借被测的转义函数。报告会把有的取值改成大写再显示，
+  // 所以比对前先转小写。夹具当作盘上读进来的 JSON（反序列化进来的就是外部输入），
+  // 每个取值（字符串、数、布尔、null）逐个换成金丝雀，字符串另试末尾追加；渲染被拒不算漏。
+  const canary = `x"y'z<q-u12>&w`, escapedOnce = 'x&quot;y&#39;z&lt;q-u12&gt;&amp;w'
+  const has = (html: string, parts: string[]) => { const low = html.toLowerCase(); return parts.some(s => low.includes(s)) }
+  const leaked = (html: string) => has(html, ['x"y', "y'z", '<q-u12', 'q-u12>', '&w'])
+  const doubled = (html: string) => has(html, ['amp;quot;y', 'amp;#39;z', 'amp;lt;q-u12', 'q-u12&amp;', 'amp;amp;w'])
+  const src = { kind: 'public_api', provider: 'tikhub', endpoint: '/api/v1/instagram/v2/fetch_user_posts' }
+  const at = '2026-10-01T00:00:00.000Z'
+  const got = (value: unknown) => ({ status: 'measured', value, source: src, observed_at: at, sample_size: 6, basis: 'median' })
+  const gone = (reason: string, size?: number) => ({ status: 'unavailable', reason, source: src, observed_at: at, ...(size === undefined ? {} : { sample_size: size }) })
+  const metrics = (activity: unknown, risk: unknown) => ({
+    median_views: got(4200), median_engagements: got(300), engagement_rate_followers: got(0.031), engagement_rate_views: got(0.07),
+    view_rate: got(0.35), following_ratio: got(0.02), reach_consistency: got(0.6), median_post_gap_days: got(2.5),
+    latest_post_at: got('2026-09-29T00:00:00.000Z'), days_since_last_post: got(1.5), activity_status: activity, audience_quality_risk: risk,
+  })
+  // 每项指标都不可用：显示的是不可用的原因，原因的取值也要换成金丝雀扫一遍
+  const metricsGone = (activity: unknown, risk: unknown) => ({
+    ...Object.fromEntries(['median_views', 'median_engagements', 'engagement_rate_followers', 'engagement_rate_views', 'view_rate',
+      'following_ratio', 'reach_consistency', 'median_post_gap_days', 'latest_post_at', 'days_since_last_post'].map(k => [k, gone('insufficient_posts')])),
+    activity_status: activity, audience_quality_risk: risk,
+  })
+  const quote = got({ amount: 300, currency: 'USD', platform: 'instagram', format: 'instagram_reel', quantity: 1, source: 'creator_quote', observed_at: at })
+  const agent = { eligibility: '合格', adoption_priority: '备选', fit: '⚠️', fit_reason: '内容相近', observed_content: '开箱测评',
+    work_evidence: '三条充电宝开箱', natural_integration: '口播自然', mismatch_risk: '报价未核', review_status: '待重评' }
+  const answers = (account_key: string) => ({ account_key, round_id: 'round-001', manual_eligible: 'yes', manual_adopted: 'no',
+    manual_content_fit: 'high', manual_engagement: 'medium', manual_comment_authenticity: 'unknown', manual_reject_reason: '互动弱；其他', manual_note: '见评论区' })
+  const fixture = {
+    creators: [
+      { platform: 'instagram', handle: 'ana.cam', nickname: 'Ana', followers: 125000, post_count: 340, bio: '旅行与相机', bio_links: [], verified: false,
+        profile_url: 'https://www.instagram.com/ana.cam', email: 'ana@example.com', tier: 'A', score: 82, cross_platform: true, linked_handle: 'tiktok:anacam',
+        is_private: false, tier_adjustments: [{ kind: 'audience_quality_risk', from: 'A', to: 'B', reason: '受众风险高' }],
+        discovery_sources: [{ platform: 'instagram', handle: 'ana.cam', keyword: 'travel charger', dimension: 'scene', endpoint: '/api/v1/instagram/v2/search_reels' }],
+        account_assessment: { platform: 'instagram', handle: 'ana.cam', followers: 125000, following: 410, sample: { ...got(12), media_scope: 'provider_returned_first12' },
+          metrics: metrics(got('active'), got({ level: 'high', peer_size: 9, flags: [{ metric: 'view_rate', direction: 'low', value: 0.01, threshold: 0.05, peer_size: 9 }] })),
+          collaboration_quote: quote, quote_efficiency: { implied_ecpm: got(71.4), implied_ecpe: got(0.95) } },
+        // 关联账号没有样本：活跃与风险是盘上存着的那一份
+        linked_account_assessment: { platform: 'tiktok', handle: 'anacam', followers: 54000, following: 80, metrics: metrics(got('dormant'), got({ level: 'low', peer_size: 9, flags: [] })) },
+        previously_recommended: 'task-20260901', outreach_draft: 'Hi Ana, 想请你试试我们的旅行充电宝', ...agent, review_status: '已评',
+        effective_priority: '优先联系', effective_priority_account_key: 'instagram:ana.cam', manual_eligible: 'yes', manual_adopted: 'yes',
+        manual_content_fit: 'high', manual_engagement: 'high', manual_comment_authenticity: 'medium', manual_reject_reason: '其他', manual_note: '  ',
+        manual_round_id: 'round-001', manual_reviewed: true, linked_agent_review: { account_key: 'tiktok:anacam', ...agent },
+        manual_feedback_accounts: [answers('instagram:ana.cam'), answers('tiktok:anacam'), answers('instagram:ana.other')] },
+      { platform: 'tiktok', handle: 'bo_tech', nickname: 'Bo', followers: 980, post_count: 12, bio: null, bio_links: [], verified: false,
+        profile_url: 'https://www.tiktok.com/@bo_tech', email: null, tier: 'B', score: 40, is_private: true, fit: '⚠️', fit_reason: '偏题', discovery_sources: [],
+        account_assessment: { platform: 'tiktok', handle: 'bo_tech', followers: 980, following: 1200, sample: gone('insufficient_posts', 3),
+          metrics: metricsGone(gone('insufficient_posts'), gone('insufficient_peer_group')), collaboration_quote: quote,
+          quote_efficiency: { implied_ecpm: gone('unsupported_content'), implied_ecpe: gone('insufficient_posts', 2) } },
+        effective_priority: '暂不采用' },
+      { platform: 'tiktok', handle: 'cy', nickname: 'Cy', followers: 0, post_count: 1, bio_links: [], verified: false,
+        profile_url: 'https://www.tiktok.com/@cy', tier: 'C', score: 0, account_assessment: { platform: 'tiktok', handle: 'cy', collaboration_quote: gone('account_unavailable') } },
+    ],
+    meta: {
+      product: '旅行充电宝', market: 'US', platforms: ['tiktok', 'instagram'],
+      keywords: [
+        { task_index: 0, keyword: 'travel charger', platform: 'instagram', dimension: 'scene', status: 'queried', found: 12, shortlisted: 2, fit_pass: 1, manual_reviewed: 1 },
+        { task_index: 1, keyword: 'power bank', platform: 'tiktok', dimension: 'category', status: 'unqueried' },
+        { task_index: 2, keyword: 'gan', platform: 'tiktok', dimension: 'category', status: 'unknown', shortlisted: null, fit_pass: null, manual_reviewed: null },
+      ],
+      feedback_summary: { rounds: [{ round_id: 'round-001', candidates: 3, reviewed: 2, unreviewed: 1 }],
+        eligible: { yes: 2, no: 0, unknown: 1, unreviewed: 0, denominator: 2, rate: 1 }, adopted: { yes: 0, no: 2, unknown: 0, unreviewed: 1, denominator: 2, rate: 0 },
+        reject_reasons: [{ reason: '互动弱', count: 2 }], disagreements: ['instagram:ana.cam'] },
+      review_rounds: [{ round_id: 'round-001', created_at: at, source: 'task.json', candidates: [
+        { account_key: 'instagram:ana.cam', source_tasks: [{ task_index: 0, keyword: 'travel charger', dimension: 'scene', platform: 'instagram' }] },
+        { account_key: 'tiktok:bo_tech', source_tasks: null }] }],
+      total: 3, tiers: { A: 1, B: 1, C: 1 }, email_count: 1, cross_platform_count: 1, high_risk_count: 1,
+      requests: 9, cost_estimate_usd: '0.012', budget_usd: '2', cost_status: 'known', cost_scope: 'task', cost_http_200_usd: '0.012',
+      cost_unknown_result_usd: '0', cost_pending_usd: '0', cost_basis: '按固定公开基础价估算', cost_price_versions: [TEST_PRICE_VERSION],
+      cost_problems: [{ path: 'cost_ledger.entries[0]', reason: '单价版本未知' }], enriched: false,
+      memory_status: 'unknown', memory_written: false, memory_write_error: '磁盘已满',
+      capabilities: { email_verification: { total: 3, measured: 0, unavailable: 0, unqueried: 3 }, audience_geo: { total: 3, measured: 0, unavailable: 0, unqueried: 3 },
+        public_post_sample: { total: 4, measured: 1, unavailable: 1, unqueried: 2 }, audience_quality_risk: { total: 4, measured: 2, unavailable: 1, unqueried: 1 },
+        creator_activity: { total: 4, measured: 2, unavailable: 1, unqueried: 1 }, collaboration_quote: { total: 4, measured: 2, unavailable: 1, unqueried: 1 } },
+    },
+  }
+  type Path = (string | number)[]
+  const leaves: Path[] = []
+  const walk = (value: unknown, path: Path): void => {
+    if (value === null || typeof value !== 'object') { leaves.push(path); return }
+    for (const [k, v] of Object.entries(value)) walk(v, [...path, Array.isArray(value) ? Number(k) : k])
+  }
+  walk(fixture, [])
+  const valueAt = (path: Path) => path.reduce<any>((o, k) => o[k], fixture)
+  const put = (path: Path, value: unknown) => {
+    const doc = structuredClone(fixture) as any
+    path.slice(0, -1).reduce((o, k) => o[k], doc)[path.at(-1)!] = value
+    return doc
+  }
+  const views: [string, Parameters<typeof renderHtml>[2]][] = [['公共单层', {}], ['生产双筛选', { mode: 'review', filters: 'dual' }]]
+  const render = (doc: any, options: Parameters<typeof renderHtml>[2]) => {
+    try { return renderHtml(doc.creators, doc.meta, options) } catch { return undefined }
+  }
+  ok('U12夹具两种视图都照常渲染且不含金丝雀的原字符', views.every(([, o]) => { const html = render(fixture, o); return html !== undefined && !leaked(html) && !doubled(html) }))
+  const leaks = new Set<string>(), twice = new Set<string>()
+  for (const path of leaves) {
+    const old = valueAt(path)
+    for (const doc of [put(path, canary), ...(typeof old === 'string' ? [put(path, old + canary)] : [])]) {
+      for (const [name, options] of views) {
+        const html = render(doc, options)
+        if (html !== undefined && leaked(html)) leaks.add(`${name} ${path.join('.')}`)
+        if (html !== undefined && doubled(html)) twice.add(`${name} ${path.join('.')}`)
+      }
+    }
+  }
+  eq('U12名单与meta里每个取值换成金丝雀都不以原字符进入两种视图', [...leaks], [])
+  criterion('U12.a')
+  eq('U12名单与meta里的文字换成金丝雀后两种视图都不出现转义两次及以上的写法', [...twice], [])
+  criterion('U12.b')
+  const freeText: Path[] = [['creators', 0, 'handle'], ['creators', 0, 'nickname'], ['creators', 0, 'bio'],
+    ['creators', 0, 'outreach_draft'], ['meta', 'product'], ['meta', 'keywords', 0, 'keyword']]
+  const mangled = freeText.flatMap(path => views.filter(([, o]) => !render(put(path, canary), o)?.includes(escapedOnce)).map(([name]) => `${name} ${path.join('.')}`))
+  eq('U12自由文本换成金丝雀后两种视图都以转义一次的原文出现', mangled, [])
+  criterion('U12.c')
+}
 })
 
 await group('d20-content-version', () => {
@@ -16878,7 +20296,6 @@ const DUPS: Dup[] = [
   { name: 'found', text: cfg({ found: '"found":7.25e0,"f\\u006fund":"zq-mid-two","found":{"0":3}' }), at: 'found', tokens: ['7.25e0', 'zq-mid-two'], times: 3 },
 ]
 const d28Kit = (root: string) => {
-  const tsxLoader = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
   const fakeFetch = pathToFileURL(join(process.cwd(), 'scripts', 'check', 'fake-fetch.ts')).href
   const budgetModule = pathToFileURL(join(process.cwd(), 'scripts', 'lib', 'budget.ts')).href
   const tree = (dir: string) => JSON.stringify(readdirSync(dir, { recursive: true }).map(String).sort()
@@ -16886,7 +20303,8 @@ const d28Kit = (root: string) => {
   const MODES = ['collect', 'collect --budget 2', 'probe'] as const
   type Mode = typeof MODES[number]
   let made = 0
-  const runConfig = (mode: Mode, text: string, dup?: Dup) => {
+  // entryArgs 给出时入口照它跑（D29.c 的续跑：`--resume <目录>`），配置文件照旧写进新的工作目录、不被读
+  const runConfig = (mode: Mode, text: string, dup?: Dup, entryArgs?: readonly string[]) => {
     const run = join(root, `run-${++made}`), cwd = join(run, 'cwd'), obs = join(run, 'obs'), file = join(cwd, 'config.json')
     mkdirSync(join(cwd, 'memory'), { recursive: true }); mkdirSync(obs)
     writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: '2026-01-01T00:00:00.000Z', creators: {} }, null, 2) + '\n')
@@ -16901,15 +20319,17 @@ const d28Kit = (root: string) => {
       `Budget.prototype.reserve = function(...args) { appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n'); return Reflect.apply(original, this, args); };`,
       `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
     ].join('\n'))
-    const [exe, args] = tsxCommand([join(process.cwd(), 'scripts', mode === 'probe' ? 'probe.ts' : 'collect.ts'), '--config', file,
-      ...mode === 'collect --budget 2' ? ['--budget', '2'] : []])
-    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d28', FAKE_FETCH_LEDGER: ledger,
-      FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(),
-      NODE_OPTIONS: `--import ${JSON.stringify(tsxLoader)} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}` } })
+    const argv = [join(process.cwd(), 'scripts', mode === 'probe' ? 'probe.ts' : 'collect.ts'), ...entryArgs ?? ['--config', file],
+      ...mode === 'collect --budget 2' ? ['--budget', '2'] : []]
+    const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d28', FAKE_FETCH_LEDGER: ledger,
+      FAKE_FETCH_NO_429: '1', NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
+    kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv, cwd))} --import ${JSON.stringify(fakeFetch)} --import ${JSON.stringify(pathToFileURL(preload).href)}`
+    const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
+    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv })
     const lines = (path: string) => existsSync(path) ? rf(path, 'utf8').split('\n').filter(Boolean).length : 0
     // 路径先移走：它不能替问题提供位置、原文或次数
     const stderr = r.stderr ?? '', message = stderr.replaceAll(file, '[配置]').replaceAll(root, '[目录]')
-    return { ...dup, mode, status: r.status, armed: lines(armed) > 0, reserves: lines(reserves), attempts: lines(ledger), kept: rf(file, 'utf8') === text,
+    return { ...dup, mode, cwd, status: r.status, armed: lines(armed) > 0, reserves: lines(reserves), attempts: lines(ledger), kept: rf(file, 'utf8') === text,
       same: tree(cwd) === before, made: existsSync(join(cwd, 'output')), stdout: r.stdout ?? '', pathSaid: stderr.includes(file), message, tail: message.split('\n').filter(Boolean).slice(-3).join(' | ') }
   }
   type Got = ReturnType<typeof runConfig>
@@ -16923,7 +20343,18 @@ const d28Kit = (root: string) => {
   // 拒绝：退出 2，预留与请求都是零（观测装上了），配置文件原字节，工作目录整棵不变 —— 没有任务目录、没有写记忆
   const held = (g: Got) => g.status === 2 && g.armed && g.reserves === 0 && g.attempts === 0 && g.kept && g.same
   // 列出：配置文件路径、位置、按先后每一处被丢掉的原文；出现次数在写着第一处原文的那一行里（写了两次的 2，三次的 3）
-  const listed = (g: Got) => g.status === 2 && g.pathSaid && g.message.includes(g.at!) && inOrder(g.message, g.tokens!)
+  // 位置照 D27.a 的写法原文，而且就写在这一处的那一行上：在写着第一处原文的那一行里、原文之前，前面是行首、空白或
+  // 「：」「；」，后面是空白或「：」「，」。只核「整份 stderr 含键名」的话，根上的 found 写成 ["found"]、found["0"]
+  // 或 $found 也过，别处一句含 found 的话也能替它作证（ADR-143 第 45 行那张欠条）
+  const atSaid = (message: string, at: string, first: string) => {
+    if (at === '') return false
+    const line = message.split('\n').find(l => l.includes(first))
+    if (line === undefined) return false
+    // 只判离原文最近的那一处：probe 把几处问题拼在一行里，前面别的问题里的同名位置不能替它作证
+    const i = line.lastIndexOf(at, line.indexOf(first) - at.length)
+    return i >= 0 && /^(|[\s：；])$/u.test(line[i - 1] ?? '') && /^[\s：，]$/u.test(line[i + at.length] ?? '')
+  }
+  const listed = (g: Got) => g.status === 2 && g.pathSaid && atSaid(g.message, g.at!, g.tokens![0]) && inOrder(g.message, g.tokens!)
     && (g.times === undefined || (g.times === 2 ? /[2两二]/ : /[3三]/).test(g.message.split('\n').find(line => line.includes(g.tokens![0])) ?? ''))
   // F3.c：内部异常的类名（以 Error 结尾的标识符）与栈帧（行首空白加 at ）都不出现
   const leaks = (g: Got) => /\b[A-Za-z]*Error\b/.test(g.message) || /^\s+at\s/m.test(g.message)
@@ -16944,10 +20375,11 @@ d28Run(({ MODES, runConfig, brief, inOrder, held, listed, leaks }) => {
   eq('配置写重复的键夹具有效：每一份经普通 JSON.parse 读成与只留最后一处的那一份相同，前几处读入后不留痕迹',
     DUPS.filter(({ text }) => !isDeepStrictEqual(JSON.parse(text), JSON.parse(cfg()))).map(({ name }) => name), [])
   const controls = MODES.map(mode => runConfig(mode, cfg()))
-  eq('配置写重复的键入口夹具有效：只留最后一处的同一份配置，collect --config、collect --config --budget 2 与 probe 照常以 0 结束、预留并请求，观测确实装上了；collect 建了任务目录、probe 往 stdout 写了结果',
+  // 配置的人数目标是 1：collect 首页就够数、以达标收尾，退出码 4；probe 跑完为 0（ADR-193）
+  eq('配置写重复的键入口夹具有效：只留最后一处的同一份配置，collect --config 与 collect --config --budget 2 照常以达标（4）结束、probe 照常以 0 结束，都预留并请求，观测确实装上了；collect 建了任务目录、probe 往 stdout 写了结果',
     controls.map(g => [g.status, g.armed, g.reserves > 0, g.attempts > 0, g.mode === 'probe' ? g.stdout.trim() !== '' : g.made]),
-    MODES.map(() => [0, true, true, true, true]))
-  if (controls.some(g => g.status !== 0 || g.reserves === 0 || g.attempts === 0)) console.log(`     ${controls.map(brief).join('\n     ')}`)
+    MODES.map(mode => [mode === 'probe' ? 0 : 4, true, true, true, true]))
+  if (controls.some(g => g.status !== (g.mode === 'probe' ? 0 : 4) || g.reserves === 0 || g.attempts === 0)) console.log(`     ${controls.map(brief).join('\n     ')}`)
   d28Done.add('d28-control')
 })
 }
@@ -17016,8 +20448,8 @@ d28Run(({ MODES, runConfig, brief, inOrder, held, listed, leaks }) => {
   const BARE: Dup = { name: 'no-defaults', at: 'found', tokens: ['7.25e0'], text: bareText('"found":7.25e0,"found":{"0":3}') }
   const bare = (['collect', 'probe'] as const).flatMap(mode => [runConfig(mode, bareText(CFG.found)), runConfig(mode, BARE.text, BARE)])
   const defaulted = (g: D28Got) => /默认|缺省|default/i.test(g.message)
-  eq('写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常以 0 结束并说明默认）',
-    bare.filter(g => g.name === undefined ? !(g.status === 0 && defaulted(g)) : !(held(g) && listed(g)) || defaulted(g)).map(brief), [])
+  eq('写重复的键被拒时不先套缺省：配置里没写 market 与 budget_usd，collect --config 与 probe 以 2 退出、零预留零请求，stderr 写出写重复的那一处，不说采用了默认市场或默认预算（只留最后一处的同一份照常收尾 —— collect 达标 4、probe 0 —— 并说明默认）',
+    bare.filter(g => g.name === undefined ? !(g.status === (g.mode === 'probe' ? 0 : 4) && defaulted(g)) : !(held(g) && listed(g)) || defaulted(g)).map(brief), [])
   d28Done.add('d28-defaults')
 })
 }
@@ -17030,8 +20462,8 @@ d28Run(({ MODES, runConfig, brief, inOrder, held, listed, leaks }) => {
   const SAME = cfg({ tasks: '"tasks":[{"keyword":"local","dimension":"category","platform":"tiktok"},'
     + '{"keyword":"local-two","dimension":"scene","platform":"tiktok"},{"keyword":"local-two","dimension":"scene","platform":"tiktok"}]' })
   const normal = (['collect', 'probe'] as const).map(mode => runConfig(mode, SAME))
-  eq('写重复的键不多拒：各个任务各有 keyword 与任务数组里一模一样的两项不算写重复，collect --config 与 probe 照常以 0 结束、预留并请求',
-    normal.map(g => [g.status, g.armed, g.reserves > 0, g.attempts > 0]), normal.map(() => [0, true, true, true]))
+  eq('写重复的键不多拒：各个任务各有 keyword 与任务数组里一模一样的两项不算写重复，collect --config 照常以达标（4）结束、probe 照常以 0 结束，都预留并请求',
+    normal.map(g => [g.status, g.armed, g.reserves > 0, g.attempts > 0]), (['collect', 'probe'] as const).map(mode => [mode === 'probe' ? 0 : 4, true, true, true]))
   d28Done.add('d28-no-overreject')
 })
 }
@@ -17047,6 +20479,970 @@ suite('D28', 'collect --config 与 probe 读的配置写重复的键：在建目
   tension('D28', 'P1')
   tension('D28', 'P3')
   criterion('D28.d')
+}
+})
+
+
+// D29（ADR-188）：collect --config 新建任务时，任务目录由产品名拼成、建在 output/ 底下。期望只来自 D29.a–c 原文与下面写进夹具的字面值；
+// 入口接线借 D28 那一套（fake-fetch 记请求、预加载记预留、armed 证明装上了；工作目录整棵比），另外比工作目录的上一级 ——
+// `../../` 开头的产品名，目录落在工作目录之外
+// 三组按变异点名的用例拆开（ADR-131）：拒绝那一组起入口的次数最多，点名它的变异也最多，合在一组时启动乘条数超线（ADR-145）
+const d29Named = (product: string) => cfg().replace('"product":"d28dup"', `"product":${JSON.stringify(product)}`)
+// 工作目录的上一级在入口跑之前只有 cwd 与 obs 两项（d28Kit 造的）；多出来的就是落到工作目录之外的任务目录
+const d29Outside = (g: { cwd: string }) => readdirSync(dirname(g.cwd)).sort().join(',') !== 'cwd,obs'
+await group('d29-reject', () => {
+suite('D29', '产品名拼任务目录：含 /、\\ 或 NUL 时 collect --config 以 2 拒绝')
+{
+d28Run(({ runConfig, brief, held }) => {
+  // D29.a：三种字符各一例，/ 的两例一个落在工作目录里（output/ 的上一级）、一个落到工作目录之外；\ 与 NUL 在 Linux 上本来建得出目录
+  const BAD = ['../d29-up', '../../d29-far', 'd29\\back', 'd29\u0000nul', 'd29/sub']
+  const bad = (['collect', 'collect --budget 2'] as const).flatMap(mode => BAD.map(product => ({ product, g: runConfig(mode, d29Named(product)) })))
+  eq('产品名含 /、\\ 或 NUL 时 collect --config（含 --budget 2）以 2 退出：零预留、零请求，不建任务目录（工作目录与它的上一级都原样），配置文件原字节',
+    bad.filter(({ g }) => !held(g) || d29Outside(g)).map(({ product, g }) => `${JSON.stringify(product)} ${brief(g)} 上一级多出=${d29Outside(g)}`), [])
+  eq('产品名含 /、\\ 或 NUL 被拒时 stderr 写出配置文件路径、product 与按 JSON 写法的原值',
+    bad.filter(({ product, g }) => !(g.status === 2 && g.pathSaid && g.message.includes('product') && g.message.includes(JSON.stringify(product))))
+      .map(({ product, g }) => `${JSON.stringify(product)} ${brief(g)}`), [])
+  criterion('D29.a')
+})
+}
+})
+await group('d29-no-overreject', () => {
+suite('D29', '产品名拼任务目录：不含 /、\\ 与 NUL 的产品名照常新建')
+{
+d28Run(({ runConfig, brief }) => {
+  // D29.b 不多拒：只由点组成、含空格与大写的产品名照常新建，任务目录在 output/ 底下、名字以「产品名-」开头，工作目录里别处与上一级都不多东西
+  const GOOD = ['..', '.', 'D29 Two Words']
+  const good = GOOD.map(product => ({ product, g: runConfig('collect', d29Named(product)) }))
+  const under = (product: string, g: { cwd: string }) => {
+    const top = readdirSync(g.cwd).sort().join(','), kids = existsSync(join(g.cwd, 'output')) ? readdirSync(join(g.cwd, 'output')) : []
+    return top === 'config.json,memory,output' && kids.length === 1 && kids[0].startsWith(`${product}-`) && statSync(join(g.cwd, 'output', kids[0])).isDirectory()
+  }
+  eq('产品名不含 /、\\ 与 NUL 时（..、.、含空格与大写）collect --config 照常以达标（4）结束、预留并请求，任务目录建在 output/ 底下、名字以产品名加短横线开头，上一级不多东西',
+    good.filter(({ product, g }) => !(g.status === 4 && g.armed && g.reserves > 0 && g.attempts > 0 && under(product, g) && !d29Outside(g)))
+      .map(({ product, g }) => `${JSON.stringify(product)} ${brief(g)} output=${existsSync(join(g.cwd, 'output')) ? readdirSync(join(g.cwd, 'output')).join('|') : '-'}`), [])
+  criterion('D29.b')
+})
+}
+})
+await group('d29-resume', () => {
+suite('D29', '产品名拼任务目录：续跑不按产品名判')
+{
+d28Run(({ runConfig, brief }) => {
+  // D29.c：同一份配置新建两次，其中一份把 task.json 里的 product 原文换成含 / 与 \ 的；两份各续跑一次（新的工作目录，--resume 给绝对路径），结果相同
+  const made = [0, 1].map(() => runConfig('collect', d29Named('d29resume')))
+  const dirs = made.map(g => existsSync(join(g.cwd, 'output')) ? readdirSync(join(g.cwd, 'output')).map(n => join(g.cwd, 'output', n)) : [])
+  if (made.some(g => g.status !== 4) || dirs.some(d => d.length !== 1)) eq('产品名续跑夹具有效：两份新建都以达标（4）结束、各建了一个任务目录', made.map(brief), [])
+  else {
+    const edited = join(dirs[1][0], 'task.json'), text = rf(edited, 'utf8')
+    writeFileSync(edited, text.replace('"product": "d29resume"', '"product": "d29/re\\\\sume"').replace('"product":"d29resume"', '"product":"d29/re\\\\sume"'))
+    const changed = rf(edited, 'utf8') !== text
+    const resumed = dirs.map(d => runConfig('collect', cfg(), undefined, ['--resume', d[0]]))
+    // 没换的那一份要照常以达标（4）结束、装上了记账：两份都因无关原因失败时，三项相等也说明不了什么
+    eq('续跑不按产品名判：task.json 里的 product 换成含 / 与 \\ 的之后，collect --resume 的退出码、预留与请求次数与没换的那一份（照常以达标 4 结束）相同，不以 2 拒绝',
+      [changed, resumed[0].status === 4 && resumed[0].armed, resumed[1].status === 2, [resumed[1].status, resumed[1].reserves, resumed[1].attempts]],
+      [true, true, false, [resumed[0].status, resumed[0].reserves, resumed[0].attempts]])
+    if (!changed || resumed.some(g => g.status !== 4)) console.log(`     ${resumed.map(brief).join('\n     ')}`)
+  }
+  criterion('D29.c')
+})
+}
+})
+
+// D30（ADR-190 第 3 片）：任务可带一个可选的发件人姓名 sender_name。期望只来自 D30.a–d 原文、D30 × P1 与 D30 × P2 的裁决和下面写进夹具的字面值；
+// 入口接线借 D28 那一套（fake-fetch 记请求、预加载记预留、armed 证明装上了；工作目录整棵比）。
+// 三组按变异点名的用例拆开（ADR-131）：新建与不多拒一组、拒绝一组、续跑一组
+const d30Cfg = (sender?: string) => cfg().replace('"product":"d28dup"', `"product":"d30sender"${sender === undefined ? '' : `,"sender_name":${sender}`}`)
+// 新建的任务目录只有一个；读它根上的 task.json 原文与解析结果
+const d30Task = (g: { cwd: string }) => {
+  const out = join(g.cwd, 'output'), kids = existsSync(out) ? readdirSync(out) : []
+  if (kids.length !== 1) return undefined
+  const file = join(out, kids[0], 'task.json')
+  return existsSync(file) ? { dir: join(out, kids[0]), file, json: JSON.parse(rf(file, 'utf8')) as Record<string, unknown> } : undefined
+}
+const d30Has = (t: ReturnType<typeof d30Task>) => t === undefined ? '没有任务' : Object.hasOwn(t.json, 'sender_name') ? JSON.stringify(t.json.sender_name) : '缺席'
+await group('d30-new', () => {
+suite('D30', '发件人姓名：collect --config 新建时原样存，缺席不补')
+{
+d28Run(({ runConfig, brief }) => {
+  // D30.a：带首尾空白与大小写、带中文与重音的两种原值逐字存进 task.json；不带时 task.json 根上没有这个键
+  const GOOD = [' Eric WANG ', 'Zoë 王']
+  const good = GOOD.map(name => ({ name, g: runConfig('collect', d30Cfg(JSON.stringify(name))) }))
+  const bare = runConfig('collect', d30Cfg())
+  eq('D30.a 配置带合规 sender_name 时新建任务的 task.json 根上原值逐字不变（不去空白、不改大小写），不带时根上没有这个键',
+    [...good.map(({ name, g }) => [g.status, d30Has(d30Task(g)) === JSON.stringify(name)]), [bare.status, d30Has(d30Task(bare))]],
+    [...GOOD.map(() => [4, true]), [4, '缺席']])
+  if (good.some(({ g }) => g.status !== 4) || bare.status !== 4) console.log(`     ${[...good.map(({ g }) => g), bare].map(brief).join('\n     ')}`)
+  // D30.d 不多拒：带合规 sender_name 与去掉它的同一份配置，退出码、是否预留、是否请求相同（且都照常以 0 结束、装上了观测）
+  eq('D30.d 带合规 sender_name 的 collect --config 与去掉它的同一份配置退出码、预留与请求相同，都照常以达标（4）结束',
+    [...good.map(({ g }) => g), bare].map(g => [g.status, g.armed, g.reserves > 0, g.attempts > 0]),
+    [...good.map(() => [4, true, true, true]), [4, true, true, true]])
+  criterion('D30.a', 'D30.d'); tension('D30', 'P1')
+})
+}
+})
+await group('d30-reject', () => {
+suite('D30', '发件人姓名：不是非空白字符串时 collect --config 以 2 拒绝；probe 不看它')
+{
+d28Run(({ runConfig, brief, held }) => {
+  // D30.b：null、数、数组、空串、只有空白（含制表符）五种，collect 与 collect --budget 2 各跑一遍
+  const BAD = ['null', '42', '["Eric"]', '""', '" \\t "']
+  const bad = (['collect', 'collect --budget 2'] as const).flatMap(mode => BAD.map(sender => ({ sender, g: runConfig(mode, d30Cfg(sender)) })))
+  eq('D30.b sender_name 不是非空白字符串时 collect --config（含 --budget 2）以 2 退出：零预留、零请求、不建任务目录，配置文件原字节',
+    bad.filter(({ g }) => !held(g)).map(({ sender, g }) => `${sender} ${brief(g)}`), [])
+  eq('D30.b sender_name 被拒时 stderr 写出配置文件路径与 sender_name',
+    bad.filter(({ g }) => !(g.status === 2 && g.pathSaid && g.message.includes('sender_name'))).map(({ sender, g }) => `${sender} ${brief(g)}`), [])
+  criterion('D30.b')
+})
+// D30.f：probe 角色不看 sender_name —— 缺席、合规与上面五种坏值，配置字段问题都与不带它的同一份配置相同（不起进程）
+const base = { market: 'US', target_count: 50 }
+const probeSays = (raw: Record<string, unknown>) => { try { return JSON.stringify(configFieldProblems(raw, 'probe')) } catch (e) { return `抛出 ${String(e)}` } }
+const probeValues: unknown[] = [null, 42, ['Eric'], '', ' \t ', ' Eric ']
+eq('D30.f probe 角色无论 sender_name 缺席或取何值，都不因它返回问题',
+  probeValues.map(v => probeSays({ ...base, sender_name: v })), probeValues.map(() => probeSays(base)))
+criterion('D30.f')
+}
+})
+await group('d30-resume', () => {
+suite('D30', '发件人姓名：续跑原样留着，坏值同样拒绝')
+{
+d28Run(({ runConfig, brief }) => {
+  // D30.c：一份带 sender_name、一份不带，各新建一次，再各用 collect 与 collect --budget 2 续跑（--resume 给绝对路径，配置文件不被读）；
+  // 再把带的那份 task.json 里的值换成只有空白、再换成数，续跑以 2 拒绝、零预留零请求、task.json 原字节
+  const made = [d30Cfg('" Eric "'), d30Cfg()].map(text => runConfig('collect', text))
+  const tasks = made.map(d30Task)
+  if (made.some(g => g.status !== 4) || tasks.some(t => t === undefined)) eq('D30.c 续跑夹具有效：两份新建都以达标（4）结束、各建了一个任务目录', made.map(brief), [])
+  else {
+    const now = (i: number) => { try { return d30Has({ ...tasks[i]!, json: JSON.parse(rf(tasks[i]!.file, 'utf8')) }) } catch (e) { return `读不了 ${String(e)}` } }
+    const kept = (['collect', 'collect --budget 2'] as const).flatMap(mode => tasks.map((t, i) => {
+      const g = runConfig(mode, cfg(), undefined, ['--resume', t!.dir])
+      return [mode, g.status, g.armed, now(i)]
+    }))
+    eq('D30.c collect --resume（含 --budget 2）原样保留 sender_name：有则逐字不变，缺则仍缺，都照常以达标（4）结束、装上了观测',
+      kept, (['collect', 'collect --budget 2'] as const).flatMap(mode => [[mode, 4, true, '" Eric "'], [mode, 4, true, '缺席']]))
+    const file = tasks[0]!.file, text = rf(file, 'utf8')
+    const rejects = ['"  "', '42'].flatMap(bad => {
+      writeFileSync(file, text.replace('"sender_name": " Eric "', `"sender_name": ${bad}`).replace('"sender_name":" Eric "', `"sender_name":${bad}`))
+      const changed = rf(file, 'utf8')
+      return (['collect', 'collect --budget 2'] as const).map(mode => {
+        const g = runConfig(mode, cfg(), undefined, ['--resume', tasks[0]!.dir])
+        return [bad, mode, changed !== text, g.status, g.armed, g.reserves, g.attempts, rf(file, 'utf8') === changed]
+      })
+    })
+    eq('D30.c task.json 里 sender_name 只有空白或不是字符串时 collect --resume（含 --budget 2）以 2 拒绝：零预留、零请求，task.json 原字节',
+      rejects, ['"  "', '42'].flatMap(bad => (['collect', 'collect --budget 2'] as const).map(mode => [bad, mode, true, 2, true, 0, 0, true])))
+  }
+  criterion('D30.c')
+})
+}
+})
+await group('d30-render', () => {
+suite('D30', '发件人姓名：render 不拿它填草稿里的 {name}')
+{
+  // D30.e 与 D30 × P2：task.json 根上带 sender_name、名单里一条草稿含两处 {name}，真起 render，
+  // 交出的 kol.csv、report.html、creators.json 里 {name} 照旧在、sender_name 的值不出现。名字用纯 ASCII，HTML 转义躲不过去
+  const root = mkdtempSync(join(tmpdir(), 'kol-d30-render-'))
+  try {
+    const dir = join(root, 'task'), cwd = join(root, 'cwd'), now = '2026-10-01T00:00:00Z', SENDER = 'Zed Quillsender'
+    mkdirSync(dir); mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const DRAFT = "Hi Ana,\n\nI'm {name} from {brand}.\n\nBest,\n{name}"
+    const creator = { platform: 'tiktok', handle: 'd30_render', nickname: 'd30_render', followers: 80000, bio: 'Creator profile', bio_links: [], verified: false,
+      profile_url: 'https://www.tiktok.com/@d30_render', source_keyword: 'portable', source_dimension: 'category', source_tasks: [0],
+      fit: '✅', fit_reason: '夹具里的内容判断', outreach_draft: DRAFT, email: 'd30@example.test' }
+    writeFileSync(join(dir, 'task.json'), JSON.stringify({ product: 'd30render', market: 'US', target_count: 1, sender_name: SENDER,
+      tasks: [{ keyword: 'portable', dimension: 'category', platform: 'tiktok' }], done: [0], created_at: now, updated_at: now }))
+    for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), JSON.stringify([creator]))
+    writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: now, creators: {} }))
+    const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
+    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', timeout: 30000 })
+    const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : ''
+    const outs = ['kol.csv', 'report.html', 'creators.json'].map(name => ({ name, text: read(name) }))
+    eq('D30.e render 照常以 0 结束，交出的 kol.csv、report.html、creators.json 里 {name} 逐字仍在（每份至少两处）、草稿里的 {brand} 也在，sender_name 的值一处也没有',
+      [r.status, ...outs.map(({ name, text }) => [name, text.split('{name}').length - 1 >= 2, text.includes('{brand}'), text.includes(SENDER)])],
+      [0, ...outs.map(({ name }) => [name, true, true, false])])
+    if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+    criterion('D30.e'); tension('D30', 'P2')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}
+})
+
+await group('d30-set', () => {
+suite('D30', '发件人姓名：任务建好后用 sender 命令补进 task.json')
+{
+  // D30.g（ADR-190 第 5 片）：手写一份任务（预算、计数、进度表，几个数字故意不写成最短形式），真起 scripts/sender.ts。期望只来自 D30.g 原文与下面写进夹具的字面值。
+  // 合规的三种（首尾空白与大小写、中文与重音、旧值不是字符串）原值逐字写进、已有就换掉；其余键除 updated_at 外读回不变，数字原文还在。
+  // 被拒的七种（空串、只有空白、目录里没有 task.json、根是数组、根是 null、坏 JSON、写重复的键）以 2 退出，task.json 原字节（没有的仍没有），stderr 写出路径
+  const root = mkdtempSync(join(tmpdir(), 'kol-d30-set-'))
+  try {
+    const BASE = '{"product":"d30set","market":"US","target_count":5,"budget_usd":2.50,"requests":3,"cost_ledger":{"http_200":2},"rate":7.0,"limit":1E2,' +
+      '"tasks":[{"keyword":"portable","dimension":"category","platform":"tiktok"}],"done":[0],"found":{"0":7},"note":12345678901234567890,' +
+      '"created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"'
+    const run = (dir: string, name: string) => {
+      const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./sender.ts', import.meta.url)), '--dir', dir, '--name', name])
+      return spawnSync(exe, args, { cwd: root, encoding: 'utf8', timeout: 30000 })
+    }
+    let n = 0
+    const task = (text: string | undefined) => {
+      const dir = join(root, `t${n++}`); mkdirSync(dir)
+      if (text !== undefined) writeFileSync(join(dir, 'task.json'), text)
+      return { dir, file: join(dir, 'task.json') }
+    }
+    const others = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'sender_name' && k !== 'updated_at'))
+    const GOOD: [string | undefined, string][] = [[undefined, ' Eric WANG '], ['" Eric "', 'Zoë 王'], ['5', 'Eric']]
+    const TOKENS = ['12345678901234567890', '2.50', '7.0', '1E2']
+    const good = GOOD.map(([had, name]) => {
+      const text = `${BASE}${had === undefined ? '' : `,"sender_name":${had}`}}`, t = task(text), r = run(t.dir, name)
+      const after = existsSync(t.file) ? JSON.parse(rf(t.file, 'utf8')) as Record<string, unknown> : {}
+      return [r.status, after.sender_name === name, isDeepStrictEqual(others(after), others(JSON.parse(text))), existsSync(t.file) && TOKENS.every(x => rf(t.file, 'utf8').includes(x))]
+    })
+    eq('D30.g sender 命令把非空白字符串原值逐字写进 task.json 根上的 sender_name（已有就换掉），以 0 结束，其余键除 updated_at 外读回不变，数字照原文',
+      good, GOOD.map(() => [0, true, true, true]))
+    const BAD: [string, string | undefined, string][] = [
+      ['空串', `${BASE}}`, ''], ['只有空白', `${BASE}}`, ' \t '], ['没有 task.json', undefined, 'Eric'],
+      ['根是数组', '[{"product":"d30set"}]', 'Eric'], ['根是 null', 'null', 'Eric'], ['坏 JSON', '{"product":', 'Eric'],
+      ['写重复的键', `{"market":"GB",${BASE.slice(1)}}`, 'Eric']]
+    const bad = BAD.map(([what, text, name]) => {
+      const t = task(text), r = run(t.dir, name)
+      const kept = text === undefined ? !existsSync(t.file) : existsSync(t.file) && rf(t.file, 'utf8') === text
+      return [what, r.status, kept, (r.stderr ?? '').includes(t.file)]
+    })
+    eq('D30.g 姓名不是非空白字符串、task.json 不存在、根不是对象或写有重复的键时，sender 命令以 2 拒绝，task.json 原字节（没有的仍没有），stderr 写出 task.json 路径',
+      bad, BAD.map(([what]) => [what, 2, true, true]))
+    criterion('D30.g')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}
+})
+
+await group('h-ci-wallclock-core', () => {
+  harness('CI墙钟公开合同：core')
+  const results = runWallclockContract('core')
+  eq('wall.core.pr_first_parent', results.get('wall.core.pr_first_parent'), [])
+  eq('wall.core.push_before', results.get('wall.core.push_before'), [])
+  eq('wall.core.long_minutes', results.get('wall.core.long_minutes'), [])
+  eq('wall.core.head_zero', results.get('wall.core.head_zero'), [])
+  eq('wall.core.head_nonarray', results.get('wall.core.head_nonarray'), [])
+  eq('wall.core.head_missing', results.get('wall.core.head_missing'), [])
+  eq('wall.core.array_length_only', results.get('wall.core.array_length_only'), [])
+  eq('wall.core.base_uppercase', results.get('wall.core.base_uppercase'), [])
+  eq('wall.core.base_zero', results.get('wall.core.base_zero'), [])
+  eq('wall.core.base_missing', results.get('wall.core.base_missing'), [])
+  eq('wall.core.base_nonarray', results.get('wall.core.base_nonarray'), [])
+  eq('wall.core.delta_negative', results.get('wall.core.delta_negative'), [])
+  eq('wall.core.delta_zero', results.get('wall.core.delta_zero'), [])
+})
+
+await group('h-ci-wallclock-cpu', () => {
+  harness('CI墙钟公开合同：cpu')
+  const results = runWallclockContract('cpu')
+  eq('wall.cpu.first_model', results.get('wall.cpu.first_model'), [])
+  eq('wall.cpu.allowed_and_injection', results.get('wall.cpu.allowed_and_injection'), [])
+  eq('wall.cpu.whitespace', results.get('wall.cpu.whitespace'), [])
+  eq('wall.cpu.truncate_before_trim', results.get('wall.cpu.truncate_before_trim'), [])
+  eq('wall.cpu.bios_only', results.get('wall.cpu.bios_only'), [])
+  eq('wall.cpu.filtered_empty', results.get('wall.cpu.filtered_empty'), [])
+})
+
+await group('h-ci-wallclock-unavailable', () => {
+  harness('CI墙钟公开合同：unavailable')
+  const results = runWallclockContract('unavailable')
+  eq('wall.unavailable.current403', results.get('wall.unavailable.current403'), [])
+  eq('wall.unavailable.current500', results.get('wall.unavailable.current500'), [])
+  eq('wall.unavailable.connect', results.get('wall.unavailable.connect'), [])
+  eq('wall.unavailable.timeout', results.get('wall.unavailable.timeout'), [])
+  eq('wall.unavailable.history403', results.get('wall.unavailable.history403'), [])
+  eq('wall.unavailable.history500', results.get('wall.unavailable.history500'), [])
+  eq('wall.unavailable.history_four', results.get('wall.unavailable.history_four'), [])
+  eq('wall.unavailable.history_missing_updated', results.get('wall.unavailable.history_missing_updated'), [])
+  eq('wall.unavailable.current_missing_started', results.get('wall.unavailable.current_missing_started'), [])
+  eq('wall.unavailable.median_zero', results.get('wall.unavailable.median_zero'), [])
+})
+
+await group('h-ci-wallclock-identity', () => {
+  harness('CI墙钟来源身份公共合同')
+  const results = runWallclockIdentityContracts()
+  eq('Q01_fixture_bytes_and_layout', results.get('Q01_fixture_bytes_and_layout'), [])
+  eq('P01_same_fingerprint_fresh', results.get('P01_same_fingerprint_fresh'), [])
+  eq('P02_same_mutation_identity', results.get('P02_same_mutation_identity'), [])
+  eq('D01_default_membership', results.get('D01_default_membership'), [])
+  eq('D02_explicit_scripts_membership', results.get('D02_explicit_scripts_membership'), [])
+  eq('D03_explicit_scripts_fingerprint', results.get('D03_explicit_scripts_fingerprint'), [])
+  eq('C01_custom_membership', results.get('C01_custom_membership'), [])
+  eq('C02_custom_workflow_independent', results.get('C02_custom_workflow_independent'), [])
+  eq('C03_custom_non_ts_independent', results.get('C03_custom_non_ts_independent'), [])
+  eq('W01_workflow_fingerprint_changes', results.get('W01_workflow_fingerprint_changes'), [])
+  eq('W02_workflow_mutation_identity_changes', results.get('W02_workflow_mutation_identity_changes'), [])
+  eq('W03_old_claims_rejected', results.get('W03_old_claims_rejected'), [])
+  eq('W04_current_claims_fresh', results.get('W04_current_claims_fresh'), [])
+  eq('W05_old_cost_launches_identity_unequal', results.get('W05_old_cost_launches_identity_unequal'), [])
+  eq('G01_other_github_fingerprint_stable', results.get('G01_other_github_fingerprint_stable'), [])
+  eq('G02_other_github_mutation_identity_stable', results.get('G02_other_github_mutation_identity_stable'), [])
+  eq('S01_script_fingerprint_changes', results.get('S01_script_fingerprint_changes'), [])
+  eq('S02_script_mutation_identity_changes', results.get('S02_script_mutation_identity_changes'), [])
+  eq('S03_old_script_claims_rejected', results.get('S03_old_script_claims_rejected'), [])
+  eq('A01_absent_default_TS_only', results.get('A01_absent_default_TS_only'), [])
+  eq('A02_absent_explicit_scripts_equivalent', results.get('A02_absent_explicit_scripts_equivalent'), [])
+  eq('A03_absent_custom_TS_only', results.get('A03_absent_custom_TS_only'), [])
+  eq('P01_present_claims_same_hash_fresh', results.get('P01_present_claims_same_hash_fresh'), [])
+  eq('P02_present_mutation_stable', results.get('P02_present_mutation_stable'), [])
+  eq('R01_deletion_fingerprint_changes', results.get('R01_deletion_fingerprint_changes'), [])
+  eq('R02_deletion_old_claims_rejected', results.get('R02_deletion_old_claims_rejected'), [])
+  eq('R03_deletion_old_mutation_identity_unequal', results.get('R03_deletion_old_mutation_identity_unequal'), [])
+  eq('P03_absent_claims_same_hash_fresh', results.get('P03_absent_claims_same_hash_fresh'), [])
+  eq('E01_present_unreadable_default_throws', results.get('E01_present_unreadable_default_throws'), [])
+  eq('E02_present_unreadable_mutation_throws', results.get('E02_present_unreadable_mutation_throws'), [])
+  eq('P04_readable_default_completes', results.get('P04_readable_default_completes'), [])
+  eq('P05_readable_mutation_completes', results.get('P05_readable_mutation_completes'), [])
+})
+
+await group('h-ci-wallclock-identity-parent-read', () => {
+  harness('CI来源身份父路径拒读公共合同')
+  const results = runWallclockIdentityContracts('parent-read')
+  eq('Q01_nonroot_independent_parent_read_calibration', results.get('Q01_nonroot_independent_parent_read_calibration'), [])
+  eq('A01_genuine_absence_default_TS_only', results.get('A01_genuine_absence_default_TS_only'), [])
+  eq('A02_genuine_absence_explicit_scripts_equivalent', results.get('A02_genuine_absence_explicit_scripts_equivalent'), [])
+  eq('A03_genuine_absence_mutation_identity_stable', results.get('A03_genuine_absence_mutation_identity_stable'), [])
+  eq('A04_genuine_absence_current_claims_fresh', results.get('A04_genuine_absence_current_claims_fresh'), [])
+  eq('A05_genuine_absence_custom_TS_only', results.get('A05_genuine_absence_custom_TS_only'), [])
+  eq('W_B01_readable_before_positives', results.get('W_B01_readable_before_positives'), [])
+  eq('W_D01_default_propagates_EACCES', results.get('W_D01_default_propagates_EACCES'), [])
+  eq('W_D02_explicit_scripts_propagates_EACCES', results.get('W_D02_explicit_scripts_propagates_EACCES'), [])
+  eq('W_D03_mutation_identity_propagates_EACCES', results.get('W_D03_mutation_identity_propagates_EACCES'), [])
+  eq('W_D04_custom_scope_unaffected', results.get('W_D04_custom_scope_unaffected'), [])
+  eq('W_R01_restored_public_positives', results.get('W_R01_restored_public_positives'), [])
+  eq('H_B01_readable_before_positives', results.get('H_B01_readable_before_positives'), [])
+  eq('H_D01_default_propagates_EACCES', results.get('H_D01_default_propagates_EACCES'), [])
+  eq('H_D02_explicit_scripts_propagates_EACCES', results.get('H_D02_explicit_scripts_propagates_EACCES'), [])
+  eq('H_D03_mutation_identity_propagates_EACCES', results.get('H_D03_mutation_identity_propagates_EACCES'), [])
+  eq('H_D04_custom_scope_unaffected', results.get('H_D04_custom_scope_unaffected'), [])
+  eq('H_R01_restored_public_positives', results.get('H_R01_restored_public_positives'), [])
+})
+
+await group('h-prebuilt-no-config-contract', async () => {
+  harness('无配置入口producer的独立冻结公开合同')
+  const { runPrebuiltNoConfigContracts }: {
+    runPrebuiltNoConfigContracts: typeof RunPrebuiltNoConfigContracts
+  } = await import('./prebuilt-no-config-contract-test.js')
+  const results = await runPrebuiltNoConfigContracts('producer')
+  eq("预编两种格式与独立无配置身份", results.get("预编两种格式与独立无配置身份"), [])
+  eq("无配置入口参数与默认语义", results.get("无配置入口参数与默认语义"), [])
+  eq("无配置准入边界保留公开加载器回退", results.get("无配置准入边界保留公开加载器回退"), [])
+  eq("观察器加载器与直接IPC及工作线程行为不变", results.get("观察器加载器与直接IPC及工作线程行为不变"), [])
+  eq("已选入口拒绝源码缓存与配置失效", results.get("已选入口拒绝源码缓存与配置失效"), [])
+  eq("单源更新清理与坏编译拒绝旧缓存", results.get("单源更新清理与坏编译拒绝旧缓存"), [])
+})
+
+await group('h-prebuilt-no-config-lifecycle-contract', async () => {
+  harness('无配置入口生命周期的独立冻结公开合同')
+  const { runPrebuiltNoConfigContracts }: {
+    runPrebuiltNoConfigContracts: typeof RunPrebuiltNoConfigContracts
+  } = await import('./prebuilt-no-config-contract-test.js')
+  const results = await runPrebuiltNoConfigContracts('lifecycle')
+  const { runPrebuiltClearTermContracts } = await import('./prebuilt-clear-term-contract-test.js')
+  const clearedTerm = await runPrebuiltClearTermContracts()
+  eq("INT和TERM进程组与同步自身信号生命周期", results.has("INT和TERM进程组与同步自身信号生命周期")
+    ? [...results.get("INT和TERM进程组与同步自身信号生命周期")!, ...clearedTerm] : undefined, [])
+  eq("异常保留原栈且普通预载正常收尾", results.get("异常保留原栈且普通预载正常收尾"), [])
+})
+
+await group('h-prebuilt-owner-descendant-contract', async () => {
+  harness('同项目后代配置归属的独立公开合同')
+  const { runOwnerDescendantContracts } = await import('./prebuilt-owner-descendant-contract-test.js')
+  eq('同配置后代缓存与中间配置回退保持公开语义', await runOwnerDescendantContracts(), [])
+})
+
+await group('h-lazy-typescript-contract', async () => {
+  harness('纯判定按需初始化TypeScript编译器')
+  const { runLazyTypescriptContracts } = await import('./lazy-typescript-contract-test.js')
+  eq('纯判定不预载TypeScript且AST调用保持同步', runLazyTypescriptContracts(), [])
+})
+
+await group('h-worker-output-contract', async () => {
+  harness('worker在stdout短暂背压解除后完整交回唯一结论')
+  const { runWorkerOutputContract } = await import('./worker-output-contract-test.js')
+  eq('真实worker在stdout背压解除后完整唯一回报且恢复源码', runWorkerOutputContract(), true)
+})
+
+await group('h-worker-output-guardian', async () => {
+  harness('worker测试驱动中断时守护其子进程')
+  const { WORKER_OUTPUT_GUARDIAN } = await import('./worker-output-guardian-data.js')
+  const { runWorkerOutputGuardianRegression } = await import('./worker-output-guardian-test.js')
+  const result = await runWorkerOutputGuardianRegression(WORKER_OUTPUT_GUARDIAN)
+  if (result.status === 'invalid') throw new Error(`${SELFCHECK_FIXTURE_MARK} worker guardian regression: ${result.reason}`)
+  eq('worker guardian startup-group', result.checks['startup-group'], true)
+  eq('worker guardian startup-child', result.checks['startup-child'], true)
+  eq('worker guardian normal-group', result.checks['normal-group'], true)
+  eq('worker guardian normal-child', result.checks['normal-child'], true)
+  eq('worker guardian parent-term-group-isolation', result.checks['parent-term-group-isolation'], true)
+  eq('worker guardian parent-kill-group-ignore-term', result.checks['parent-kill-group-ignore-term'], true)
+  eq('worker guardian parent-term-child', result.checks['parent-term-child'], true)
+  eq('worker guardian parent-kill-child-ignore-term', result.checks['parent-kill-child-ignore-term'], true)
+  eq('worker guardian direct-child-term-group', result.checks['direct-child-term-group'], true)
+  eq('worker guardian direct-child-kill-group', result.checks['direct-child-kill-group'], true)
+  eq('worker guardian direct-child-zero-group', result.checks['direct-child-zero-group'], true)
+  eq('worker guardian direct-child-nonzero-group', result.checks['direct-child-nonzero-group'], true)
+})
+
+await group('h-worker-output-cleanup', async () => {
+  harness('worker夹具失格时清理自身临时快照')
+  const { runRealCleanupRegression } = await import('./worker-output-cleanup-test.js')
+  const result = await runRealCleanupRegression()
+  if (!('checks' in result) || !result.checks) throw new Error(`${SELFCHECK_FIXTURE_MARK} worker cleanup regression: ${result.reason}`)
+  eq('outer runner reports fixture invalid', result.checks.fixtureInvalid, true)
+  eq('owned snapshot removed after failed baseline', result.checks.snapshotRemoved, true)
+  eq('foreign directory preserved', result.checks.foreignPreserved, true)
+})
+
+// ---- 零请求观察器（KOL-21，ADR-70 末尾「KOL-21 零请求观察器与外层断网」一节）：判定、预加载、运行器各一组 ----
+// 期望值照那一节「对作者公开的协议」与下面手写的事实推，没有拿观察器跑出来的东西回填
+await group('h-observer-rule', () => {
+  harness('零请求观察器的判定：响应脚本、事件读回、一次观察归哪一档、零请求四档、断网认证、白名单环境与沙箱参数')
+  const sc = (rules: unknown[]) => ({ schema: SCRIPT_SCHEMA, rules })
+  const SC = sc([{ endpoint: '/a', query: { k: '1' }, responses: [{ status: 200, body: 'x' }, { status: 402 }] },
+    { method: 'POST', endpoint: '/a', responses: [{ connect: 'fail' }] }]) as ResponseScript
+  eq('观察器脚本：合格的脚本没有问题，查询条件互斥的两条同端点规则也不算歧义', [scriptProblems(SC),
+    scriptProblems(sc([{ endpoint: '/a', query: { k: '1' }, responses: [{ status: 200 }] }, { endpoint: '/a', query: { k: '2' }, responses: [{ status: 200 }] }]))], [[], []])
+  ok('观察器脚本：两条规则能命中同一个请求时拦下',
+    scriptProblems(sc([{ endpoint: '/a', query: { k: '1' }, responses: [{ status: 200 }] }, { endpoint: '/a', responses: [{ status: 200 }] }])).some(p => p.includes('能命中同一个请求')))
+  eq('观察器脚本：schema、方法、端点、空响应、状态码范围、不带正文的状态、正文二选一、多出的键各报一处',
+    [{ schema: 'x', rules: [] }, sc([{ method: 'get', endpoint: '/a', responses: [{ status: 200 }] }]), sc([{ endpoint: '/a?q=1', responses: [{ status: 200 }] }]),
+      sc([{ endpoint: '/a', responses: [] }]), sc([{ endpoint: '/a', responses: [{ status: 199 }] }]), sc([{ endpoint: '/a', responses: [{ status: 204, body: '' }] }]),
+      sc([{ endpoint: '/a', responses: [{ status: 200, body: 'a', body_base64: 'YQ==' }] }]), sc([{ endpoint: '/a', responses: [{ status: 200 }], extra: 1 }])]
+      .map(v => scriptProblems(v).length), [1, 1, 1, 1, 1, 1, 1, 1])
+  const U = 'https://h.invalid/a?k=1&s=2'
+  eq('观察器脚本：同一条规则依次给出响应，用完了拒答，方法、端点或查询条件不符的不答',
+    [answer(SC, [], 'GET', U), answer(SC, [1], 'get', U), answer(SC, [2], 'GET', U), answer(SC, [], 'GET', 'https://h.invalid/a?k=2'),
+      answer(SC, [], 'GET', 'https://h.invalid/b?k=1'), answer(SC, [], 'POST', 'https://h.invalid/a'), answer(SC, [], 'PUT', 'https://h.invalid/a')],
+    [{ rule: 0, index: 0, response: { status: 200, body: 'x' } }, { rule: 0, index: 1, response: { status: 402 } }, { refused: 'exhausted', rule: 0 },
+      { refused: 'unmatched', rule: null }, { refused: 'unmatched', rule: null }, { rule: 1, index: 0, response: { connect: 'fail' } }, { refused: 'unmatched', rule: null }])
+  eq('观察器事件：空文件、最后一行没写完、不是 JSON、认不得的种类都报，不当成没有',
+    [readEvents('').problems, readEvents('{"kind":"close","run":"r","pid":1,"requests":0}').problems, readEvents('x\n').problems, readEvents('{"kind":"zzz","run":"r","pid":1}\n').problems],
+    [['事件文件是空的'], ['事件文件最后一行没写完'], ['第 1 行不是 JSON'], ['第 1 行认不得']])
+
+  const RUN = 'a'.repeat(32), T = '/repo/scripts/probe.ts', ARGV = ['--import', 'file:///t', '--import', 'file:///o']
+  const armed = { kind: 'armed', run: RUN, pid: 11, ppid: 10, entry: T, script_sha256: 'S1', preload_sha256: 'P1', exec_argv: ARGV, node: 'v22.0.0',
+    env_names: ['HOME', 'PATH', 'TIKHUB_API_KEY'], api_key: 'placeholder', net: ['lo'] } as Armed
+  const rq = (seq: number, index: number | null, outcome: object, rule: number | null = 0) =>
+    ({ kind: 'request', run: RUN, pid: 11, seq, method: 'GET', origin: 'https://h.invalid', endpoint: '/a', query_keys: ['k'], rule, index, outcome }) as RequestEvent
+  const cl = (requests: number, code = 0) => ({ kind: 'close', run: RUN, pid: 11, requests, code })
+  const text = (...es: object[]) => es.map(e => `${JSON.stringify(e)}\n`).join('')
+  const facts = (over: Partial<RunFacts> = {}): RunFacts => ({ run: RUN, target: T, script: SC, scriptSha: 'S1', preloadSha: 'P1', execArgv: ARGV, apiKey: 'placeholder',
+    launcher: 10, status: 0, signal: null, timedOut: false, stderr: '', events: text(armed, rq(1, 0, { status: 200 }), rq(2, 1, { status: 402 }), cl(2)), ...over })
+  const kindOf = (j: Judged) => j.outcome.kind === 'facility' ? `facility:${j.outcome.cause}` : j.outcome.kind
+  const good = judgeObservation(facts()), otherRun = judgeObservation(facts({ run: 'b'.repeat(32) }))
+  eq('观察器判定：armed 打头、请求序号连续且结局与脚本对得上、close 收尾 —— 观察成立，两次请求归得到这次运行', [kindOf(good), good.attributable, good.requests.length], ['observed', true, 2])
+  eq('观察器判定：armed 的运行 id 对不上本次运行判观察器故障，请求不算这次的', [kindOf(otherRun), otherRun.attributable], ['facility:observer', false])
+  eq('观察器判定：armed 不是起的那个进程的子进程、目标入口不对、脚本或预加载或加载顺序不是这一份，都判观察器故障',
+    [facts({ launcher: 99 }), facts({ target: '/repo/scripts/collect.ts' }), facts({ preloadSha: 'P2' }), facts({ execArgv: ARGV.slice(0, 2) }), facts({ scriptSha: 'S2' })]
+      .map(f => kindOf(judgeObservation(f))), Array(5).fill('facility:observer'))
+  eq('观察器判定：入口进程看得见 lo 以外的网卡判隔离故障', kindOf(judgeObservation(facts({ events: text({ ...armed, net: ['eth0', 'lo'] }, cl(0)) }))), 'facility:isolation')
+  eq('观察器判定：入口进程的环境多了白名单外的变量、或 key 不是占位串，判隔离故障',
+    [text({ ...armed, env_names: ['GH_TOKEN', 'HOME', 'PATH'] }, cl(0)), text({ ...armed, api_key: 'other' }, cl(0))].map(events => kindOf(judgeObservation(facts({ events })))),
+    ['facility:isolation', 'facility:isolation'])
+  eq('观察器判定：入口进程的环境里有记录文件那个变量（观察器每一跑都设）不算白名单外，观察照样成立',
+    kindOf(judgeObservation(facts({ events: text({ ...armed, env_names: ['HOME', 'KOL_TEST_OBSERVER_EVENTS', 'PATH', 'TIKHUB_API_KEY'] }, rq(1, 0, { status: 200 }), rq(2, 1, { status: 402 }), cl(2)) }))),
+    'observed')
+  eq('观察器判定：请求序号不连续、或记下的结局与脚本那个位置写的不同，判观察器故障',
+    [text(armed, rq(2, 0, { status: 200 }), cl(1)), text(armed, rq(1, 0, { status: 500 }), cl(1)), text(armed, rq(1, 0, { connect: 'fail' }), cl(1))]
+      .map(events => kindOf(judgeObservation(facts({ events })))), Array(3).fill('facility:observer'))
+  const refused = judgeObservation(facts({ status: 97, stderr: '[kol-test-observer] 脚本外的请求（unmatched）：GET /b\n', events: text(armed, rq(1, null, { refused: 'unmatched' }, null), cl(1, 97)) }))
+  eq('观察器判定：脚本外的请求判观察器故障，那次请求照样归得到这次运行', [kindOf(refused), refused.attributable, refused.requests.length], ['facility:observer', true, 1])
+  eq('观察器判定：事件没写 close 判观察器故障', kindOf(judgeObservation(facts({ events: text(armed, rq(1, 0, { status: 200 })) }))), 'facility:observer')
+  eq('观察器判定：被信号打死、超时、起不来各归各的设施故障',
+    [facts({ signal: 'SIGKILL', status: 137, events: text(armed) }), facts({ timedOut: true }), facts({ error: 'spawn ENOENT', events: undefined })].map(f => kindOf(judgeObservation(f))),
+    ['facility:signal', 'facility:signal', 'facility:launch'])
+  eq('观察器判定：没有事件文件时，沙箱没起来、观察器自己叫停、什么都没说分别判隔离、观察器、加载故障',
+    ["bwrap: Can't mount tmpfs on /newroot/tmp\n", '[kol-test-observer] 事件文件建不出来：EEXIST\n', ''].map(stderr => kindOf(judgeObservation(facts({ events: undefined, status: 1, stderr })))),
+    ['facility:isolation', 'facility:observer', 'facility:loader'])
+  eq('观察器判定：事件完整而入口以观察器的退出码收尾、或事件里有故障，判观察器故障',
+    [facts({ status: 97 }), facts({ events: text(armed, { kind: 'fault', run: RUN, pid: 11, reason: '入口换掉了 fetch' }, cl(0, 97)) })].map(f => kindOf(judgeObservation(f))),
+    ['facility:observer', 'facility:observer'])
+
+  const ob = (over: Partial<Observation> = {}): Observation => ({ outcome: { kind: 'observed' }, attributable: true, armed, requests: [], entry: 'probe', isolation: 'I1', ...over })
+  const hit = [rq(1, 0, { status: 200 })], pos = ob({ requests: hit })
+  eq('观察器零请求：入口自己的 armed、同一认证下同一入口的阳性看见了请求、观察成立 —— 判通过', zeroVerdict(ob(), pos), { verdict: 'pass' })
+  eq('观察器零请求：观察成立、阳性合格时，归得到本次运行的请求判红', zeroVerdict(ob({ requests: hit }), pos), { verdict: 'red', requests: 1 })
+  // 设施故障先于语义红（ADR-70 末尾「修复轮 1」）：那一跑记下的请求照样归得到它，但那一跑本身不成立
+  eq('观察器零请求：目标那一跑是设施故障时判设施故障，带上哪一跑、哪一因；观察器叫停的脚本外请求、请求之后被信号打死，记下的请求都不判红',
+    [zeroVerdict(ob({ outcome: { kind: 'facility', cause: 'observer', reason: 'x' }, requests: hit }), pos), zeroVerdict(ob({ outcome: { kind: 'facility', cause: 'signal', reason: 'y' }, requests: hit }), pos)],
+    [{ verdict: 'facility', side: 'target', cause: 'observer', reason: '目标：x' }, { verdict: 'facility', side: 'target', cause: 'signal', reason: '目标：y' }])
+  eq('观察器零请求：阳性是设施故障、没有阳性或阳性不在同一份认证下时，目标观察到的请求也不判红',
+    [zeroVerdict(ob({ requests: hit }), ob({ outcome: { kind: 'facility', cause: 'signal', reason: 'z' } })), zeroVerdict(ob({ requests: hit }), undefined),
+      zeroVerdict(ob({ requests: hit }), ob({ requests: hit, isolation: 'I2' }))],
+    [{ verdict: 'facility', side: 'positive', cause: 'signal', reason: '阳性：z' }, { verdict: 'fixture', reason: '没有阳性对照' },
+      { verdict: 'fixture', reason: '阳性与目标不在同一份断网认证下' }])
+  eq('观察器零请求：观察不成立判设施故障或夹具失格，不判通过也不判红',
+    [ob({ outcome: { kind: 'facility', cause: 'loader', reason: 'x' }, attributable: false }), ob({ outcome: { kind: 'fixture', reason: 'x' }, attributable: false })]
+      .map(t => zeroVerdict(t, pos).verdict), ['facility', 'fixture'])
+  eq('观察器零请求：没有阳性、阳性不在同一份断网认证下、阳性装的不是同一份预加载，判夹具失格',
+    [zeroVerdict(ob(), undefined), zeroVerdict(ob(), ob({ requests: hit, isolation: 'I2' })), zeroVerdict(ob(), ob({ requests: hit, armed: { ...armed, preload_sha256: 'P2' } }))]
+      .map(z => z.verdict), ['fixture', 'fixture', 'fixture'])
+  eq('观察器零请求：阳性一次请求也没观察到不判通过', zeroVerdict(ob(), ob()).verdict, 'fixture')
+  eq('观察器零请求：阳性是别的入口不算；对照夹具只给按契约不发请求的 render 当阳性',
+    [zeroVerdict(ob(), ob({ requests: hit, entry: 'collect' })), zeroVerdict(ob(), ob({ requests: hit, entry: 'control' })),
+      zeroVerdict(ob({ entry: 'render' }), ob({ requests: hit, entry: 'control' }))].map(z => z.verdict), ['fixture', 'fixture', 'pass'])
+
+  const inside: ProbeReport = { result: 'error', code: 'ECONNREFUSED', interfaces: ['lo'], env: ['HOME', 'PATH', 'PWD'], masks: { '/h/.config/gh': { dir: 0 }, '/r/.env': { file: 0 } } }
+  const nf = (over: Partial<NetcutFacts> = {}, inner: Partial<ProbeReport> = {}): NetcutFacts => ({ outside: { result: 'acked', interfaces: ['eth0', 'lo'], env: [], masks: {} },
+    inside: { ...inside, ...inner }, seen: ['o1'], tokens: { outside: 'o1', inside: 'i1' }, masks: { dirs: ['/h/.config/gh'], files: ['/r/.env'] }, ...over })
+  eq('观察器断网认证：断网外连上受控目标、断网里被拒，网卡只有 lo，盖住的路径为空，环境只有白名单 —— 认证成立', netcutProblems(nf()), [])
+  ok('观察器断网认证：断网里连上了受控目标不认证', netcutProblems(nf({}, { result: 'acked' })).some(p => p.includes('断网不成立')))
+  ok('观察器断网认证：受控目标那一侧收到了断网里的令牌，探针自己说被拒也不认证', netcutProblems(nf({ seen: ['o1', 'i1'] })).some(p => p.includes('断网不成立')))
+  ok('观察器断网认证：断网外连不上受控目标、或受控目标没收到断网外的令牌，探针无效、不认证',
+    [nf({ outside: { result: 'error', code: 'ECONNREFUSED', interfaces: [], env: [], masks: {} } }), nf({ seen: [] })].every(f => netcutProblems(f).some(p => p.includes('探针无效'))))
+  eq('观察器断网认证：断网里超时没被拒、看得见别的网卡、盖住的路径不空或不在、环境多了凭据变量、探针没跑起来，各报一处',
+    [nf({}, { result: 'timeout', code: undefined }), nf({}, { interfaces: ['eth0', 'lo'] }), nf({}, { masks: { '/h/.config/gh': { dir: 1 }, '/r/.env': { file: 0 } } }),
+      nf({}, { masks: { '/h/.config/gh': { dir: 0 }, '/r/.env': { absent: 'ENOENT' } } }), nf({}, { env: ['GITHUB_TOKEN', 'HOME'] }), nf({ inside: undefined, insideError: 'x' })]
+      .map(f => netcutProblems(f).length), [1, 1, 1, 1, 1, 1])
+
+  const envOf = (apiKey: 'placeholder' | 'absent') => observerEnv({ nodeBin: '/n/bin', home: '/tmp', tmp: '/tmp', tsconfig: '/r/tsconfig.json', apiKey })
+  eq('观察器环境：从空表起只给 PATH、HOME、TMPDIR、LANG、TZ、TSX_TSCONFIG_PATH 与占位 key；不给 key 时连这个名字也没有', [envOf('placeholder'), Object.keys(envOf('absent'))],
+    [{ PATH: '/n/bin:/usr/bin:/bin', HOME: '/tmp', TMPDIR: '/tmp', LANG: 'C.UTF-8', TZ: 'UTC', TSX_TSCONFIG_PATH: '/r/tsconfig.json', TIKHUB_API_KEY: API_KEY_PLACEHOLDER },
+      ['PATH', 'HOME', 'TMPDIR', 'LANG', 'TZ', 'TSX_TSCONFIG_PATH']])
+  // 测试观察的记录文件（契约 kol-test-observer/v1）：观察器每一跑都设，值是那一跑证据目录里的一个文件；断网认证的探针不设
+  eq('观察器环境：给了记录文件的路径时多给 KOL_TEST_OBSERVER_EVENTS，值就是那条路径，别的不变；不给就没有这个名字',
+    [observerEnv({ nodeBin: '/n/bin', home: '/tmp', tmp: '/tmp', tsconfig: '/r/tsconfig.json', apiKey: 'absent', records: '/e/contract-records.jsonl' }),
+      Object.keys(envOf('placeholder')).includes('KOL_TEST_OBSERVER_EVENTS')],
+    [{ PATH: '/n/bin:/usr/bin:/bin', HOME: '/tmp', TMPDIR: '/tmp', LANG: 'C.UTF-8', TZ: 'UTC', TSX_TSCONFIG_PATH: '/r/tsconfig.json', KOL_TEST_OBSERVER_EVENTS: '/e/contract-records.jsonl' },
+      false])
+  const L: Layout = { system: [{ path: '/usr', kind: 'dir' }, { path: '/bin', kind: 'symlink', target: 'usr/bin' }, { path: '/lib32', kind: 'absent' }], node: '/opt/node',
+    repoRoot: '/r', repo: [{ path: 'scripts', kind: 'dir' }, { path: 'node_modules', kind: 'symlink', target: '/elsewhere' }, { path: 'tsconfig.json', kind: 'absent' }], ghDirs: ['/h/.config/gh'] }
+  eq('观察器沙箱参数：先断网，根是空的，只读照搬系统目录、node、仓库里那几样，/tmp 是空 tmpfs，gh 配置目录空 tmpfs，仓库根 .env 与 .env.local 盖成空文件，可写目录绑在最后',
+    sandboxArgs(L, { empty: '/e/empty', rw: ['/w', '/e'], chdir: '/w' }),
+    ['--unshare-net', '--die-with-parent', '--new-session', '--ro-bind', '/usr', '/usr', '--symlink', 'usr/bin', '/bin', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
+      '--ro-bind', '/opt/node', '/opt/node', '--ro-bind', '/r/scripts', '/r/scripts', '--ro-bind', '/r/node_modules', '/r/node_modules', '--tmpfs', '/h/.config/gh',
+      '--ro-bind', '/e/empty', '/r/.env', '--ro-bind', '/e/empty', '/r/.env.local', '--bind', '/w', '/w', '--bind', '/e', '/e', '--chdir', '/w'])
+  // 上面那份布局里 node_modules 是指向 /elsewhere 的软链，沙箱照搬的是 /r/node_modules：加载器的地址要落在那底下
+  eq('观察器加载器地址：解开软链的真实路径落在 node_modules 的真实目录里，换回仓库根下 node_modules 那条路（沙箱照搬的那一处）；node_modules 本来就在仓库根下时不变',
+    [sandboxModulePath('/r', '/elsewhere', '/elsewhere/tsx/dist/loader.mjs'), sandboxModulePath('/r', '/r/node_modules', '/r/node_modules/tsx/dist/loader.mjs')],
+    ['/r/node_modules/tsx/dist/loader.mjs', '/r/node_modules/tsx/dist/loader.mjs'])
+  eq('观察器加载器地址：落在 node_modules 真实目录外面的照原样交回（只是名字开头相同的也算外面），不换成仓库里的别的文件',
+    [sandboxModulePath('/r', '/elsewhere', '/elsewhere2/tsx/dist/loader.mjs'), sandboxModulePath('/r', '/elsewhere', '/opt/tsx/dist/loader.mjs')],
+    ['/elsewhere2/tsx/dist/loader.mjs', '/opt/tsx/dist/loader.mjs'])
+  eq('观察器可写目录：盖住仓库根、根目录、gh 配置目录的上一级，落在仓库里只读的那几样、.git 或系统目录里，各报一处；/tmp 底下与仓库的 output 底下不报',
+    ['/r', '/', '/h', '/r/scripts/x', '/r/.git/hooks', '/usr/lib', '/tmp/w', '/r/output/x'].map(d => rwProblems(L, [d]).length), [1, 1, 1, 1, 1, 1, 0, 0])
+  eq('观察器 gh 配置目录：宿主 HOME 下那一处，加上环境里指过的 XDG_CONFIG_HOME/gh 与 GH_CONFIG_DIR；相对路径不认，重复只留一个',
+    [ghDirs('/h', {}), ghDirs('/h', { XDG_CONFIG_HOME: '/x', GH_CONFIG_DIR: '/g' }), ghDirs('/h', { XDG_CONFIG_HOME: '/h/.config', GH_CONFIG_DIR: 'rel' })],
+    [['/h/.config/gh'], ['/h/.config/gh', '/x/gh', '/g'], ['/h/.config/gh']])
+  const bw = { path: '/usr/bin/bwrap', sha256: 'B1', version: 'bubblewrap 0.12.0' }
+  eq('观察器布局身份：同一布局同一 bwrap 得同一个，换了 bwrap 或布局就不同',
+    [layoutId(L, bw) === layoutId(L, bw), layoutId(L, bw) === layoutId(L, { ...bw, sha256: 'B2' }), layoutId(L, bw) === layoutId({ ...L, node: '/n2' }, bw)], [true, false, false])
+})
+
+await group('h-observer-preload', () => {
+  harness('零请求观察器装在入口进程里的那一半：真起五次玩具入口（不进沙箱，只验预加载自己记什么、怎么叫停）')
+  const dir = mkdtempSync(join(tmpdir(), 'kol-test-observer-'))
+  try {
+    const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href, preload = pathToFileURL(resolve('scripts/check/observer-preload.ts')).href
+    const script = JSON.stringify({ schema: SCRIPT_SCHEMA, rules: [
+      { endpoint: '/a', query: { x: '1' }, responses: [{ status: 200, body: 'first' }, { status: 402, body: 'pay' }] }, { endpoint: '/c', responses: [{ connect: 'fail' }] },
+      { method: 'POST', endpoint: '/b', responses: [{ status: 200, body: '{', body_read: 'fail' }] }, { endpoint: '/d', responses: [{ status: 200, body_base64: 'AAEC' }] }] })
+    const scriptFile = join(dir, 'script.json')
+    writeFileSync(scriptFile, script)
+    const toy = (name: string, body: string) => {
+      const file = join(dir, `${name}.mjs`), events = join(dir, `${name}.events`)
+      writeFileSync(file, body)
+      const r = spawnSync(process.execPath, ['--import', tsx, '--import', preload, file], { encoding: 'utf8', timeout: 60_000,
+        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', KOL_TEST_OBSERVER: JSON.stringify({ run: `run-${name}`, events, script: scriptFile, target: file }) } })
+      const text = existsSync(events) ? rf(events, 'utf8') : ''
+      return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', text, events: readEvents(text).events, file: realpathSync(file) }
+    }
+    const shape = (es: ReturnType<typeof readEvents>['events']) => es.map(e => e.kind === 'request' ? `request ${e.seq} ${JSON.stringify(e.outcome)}`
+      : e.kind === 'body' ? `body ${e.seq} ${e.read} ${e.ok}` : e.kind === 'fault' ? `fault ${e.reason}` : e.kind === 'close' ? `close ${e.requests} ${e.code}` : e.kind)
+    const a = toy('a', [
+      `const out = [process.env.KOL_TEST_OBSERVER ?? null]`,
+      `const r1 = await fetch('https://h.invalid/a?x=1&secret=s3cr3t'); out.push([r1.status, await r1.text()])`,
+      `const r2 = await fetch(new URL('https://h.invalid/a?x=1')); out.push([r2.status, await r2.text()])`,
+      `try { await fetch('https://h.invalid/c') } catch (e) { out.push([e.name, e.message]) }`,
+      `const r4 = await fetch('https://h.invalid/b', { method: 'POST' }); try { await r4.json() } catch (e) { out.push(['body', e.name]) }`,
+      `const r5 = await fetch('https://h.invalid/d'); out.push([r5.status, Buffer.from(await r5.arrayBuffer()).toString('hex')])`,
+      `console.log(JSON.stringify(out))`].join('\n'))
+    // 玩具入口没印出合法 JSON 时给一个明示的失败值，让下面两条断言红，而不是异常冲出 group()（ADR-70 第 3564 行）
+    const outA: unknown = (() => { try { return JSON.parse(a.stdout) } catch { return { notJson: a.stdout } } })()
+    const armedA = a.events[0]
+    eq('观察器预加载：armed 记本次运行、入口、脚本与本文件、加载顺序与环境变量名，观察配置在入口里看不见',
+      armedA?.kind === 'armed' ? [armedA.run, armedA.entry, armedA.script_sha256, armedA.preload_sha256, armedA.exec_argv, armedA.env_names, Array.isArray(outA) ? outA[0] : outA] : armedA,
+      ['run-a', a.file, createHash('sha256').update(script).digest('hex'), createHash('sha256').update(rf('scripts/check/observer-preload.ts')).digest('hex'),
+        ['--import', tsx, '--import', preload], ['PATH'], null])
+    eq('观察器预加载：同一次运行里按脚本依次答多次请求（200、402、连接失败、正文读取失败、base64 正文），每次答之前先记一行，正文读没读也记，退出时写 close',
+      [a.status, Array.isArray(outA) ? outA.slice(1) : outA, shape(a.events)],
+      [0, [[200, 'first'], [402, 'pay'], ['TypeError', 'fetch failed'], ['body', 'TypeError'], [200, '000102']],
+        ['armed', 'request 1 {"status":200}', 'body 1 text true', 'request 2 {"status":402}', 'body 2 text true', 'request 3 {"connect":"fail"}',
+          'request 4 {"status":200}', 'body 4 json false', 'request 5 {"status":200}', 'body 5 arrayBuffer true', 'close 5 0']])
+    const firstReq = a.events.find(e => e.kind === 'request')
+    eq('观察器预加载：事件里不记查询的值与完整地址，只记 origin、路径与查询的键名',
+      [firstReq?.kind === 'request' ? [firstReq.origin, firstReq.endpoint, firstReq.query_keys] : firstReq, a.text.includes('s3cr3t'), a.text.includes('?')],
+      [['https://h.invalid', '/a', ['secret', 'x']], false, false])
+    const b = toy('b', [`import fs from 'node:fs'`,
+      `for (const n of fs.readdirSync('/proc/self/fd')) { try { if (fs.readlinkSync('/proc/self/fd/' + n).endsWith('b.events')) fs.closeSync(Number(n)) } catch {} }`,
+      `const r = await fetch('https://h.invalid/a?x=1'); console.log('answered', r.status)`].join('\n'))
+    eq('观察器预加载：事件中途写不进，入口以观察器的退出码失败，那次请求不答出去', [b.status, b.stdout, b.stderr.includes('[kol-test-observer] 事件写不进去'), shape(b.events)],
+      [97, '', true, ['armed']])
+    const c = toy('c', `const r = await fetch('https://h.invalid/zzz'); console.log('answered', r.status)`)
+    eq('观察器预加载：脚本外的请求记下拒答、叫停入口，退出时仍写 close', [c.status, c.stdout, shape(c.events)], [97, '', ['armed', 'request 1 {"refused":"unmatched"}', 'close 1 97']])
+    const d = toy('d', [`import net from 'node:net'`,
+      `const s = net.connect(9, '127.0.0.1'); s.on('error', e => console.log('error', e.code)); s.on('connect', () => { console.log('connected'); s.destroy() })`].join('\n'))
+    eq('观察器预加载：绕过 fetch 直接连网记一条故障、叫停入口', [d.status, d.stdout, shape(d.events)], [97, '', ['armed', 'fault 绕过 fetch 用了 net.Socket.connect', 'close 0 97']])
+    const e = toy('e', `globalThis.fetch = async () => new Response('fake'); console.log('replaced')`)
+    eq('观察器预加载：入口换掉 fetch 记一条故障、叫停入口', [e.status, e.stdout, shape(e.events)], [97, '', ['armed', 'fault 入口换掉了 fetch', 'close 0 97']])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+await group('h-observer-run', async () => {
+  harness('零请求观察器的运行器：没经认证就不起入口，调用方给的东西不对判夹具失格，都在建证据目录之前')
+  const { certifyIsolation, runObserved } = await import('./check/observer-run.js')
+  const dir = mkdtempSync(join(tmpdir(), 'kol-obr-'))
+  try {
+    const repo = realpathSync('.')
+    // 伪造的认证：字段齐全，只是不是 certifyIsolation 交出来的那个对象；bwrap 指一个不存在的文件，万一被当真去起也起不来
+    const forged = { id: 'forged', bwrap: join(dir, 'no-such-bwrap'), layout: { system: [], node: dirname(dirname(realpathSync(process.execPath))), repoRoot: repo, repo: [], ghDirs: [] } }
+    const go = (over: object) => runObserved({ isolation: forged, entry: 'render', args: [], cwd: dir, script: { schema: SCRIPT_SCHEMA, rules: [] }, evidenceDir: join(dir, 'ev'), ...over })
+    const r = go({})
+    eq('观察器运行器：不是认证入口交出的那一份断网认证就不起入口，判隔离故障，证据目录不建', [r.outcome.kind === 'facility' ? r.outcome.cause : r.outcome.kind, existsSync(join(dir, 'ev'))],
+      ['isolation', false])
+    eq('观察器运行器：当前目录盖住仓库根时判夹具失格、不起入口', [go({ cwd: repo }).outcome.kind, existsSync(join(dir, 'ev'))], ['fixture', false])
+    eq('观察器运行器：响应脚本不合格、入口认不得、证据目录已存在，各判夹具失格',
+      [go({ script: { schema: 'x', rules: [] } }), go({ entry: 'zzz' }), go({ evidenceDir: dir })].map(x => x.outcome.kind), ['fixture', 'fixture', 'fixture'])
+    const cert = certifyIsolation({ evidenceDir: join(dir, 'iso'), bwrap: join(dir, 'no-such-bwrap') })
+    eq('观察器运行器：bwrap 读不出时认证不成立，交回原因，不起任何探针', [cert.certified, cert.problems.length, existsSync(join(dir, 'iso', 'probe.mjs'))], [false, 1, false])
+    // node_modules 是指向别处的软链（worktree、变异的 worker 目录都这样建）：照这个建法另搭一棵只有运行器与判定的树，不靠本仓库
+    // 自己的 node_modules 是不是软链。沙箱照搬的是树根下的 node_modules，软链的目标不在沙箱里
+    const linked = join(dir, 'linked')
+    mkdirSync(join(linked, 'scripts', 'check'), { recursive: true })
+    for (const f of ['observer-run.ts', 'observer-rule.ts']) cpSync(join(repo, 'scripts', 'check', f), join(linked, 'scripts', 'check', f))
+    writeFileSync(join(linked, 'package.json'), '{ "type": "module" }\n')
+    symlinkSync(realpathSync('node_modules'), join(linked, 'node_modules'))
+    // 另起一个带 tsx 加载器的进程导入那棵树里的运行器：本进程可能跑在预编的 JS 上（`npm run compile` 之后的变异），仓库外的 .ts 它认不全
+    const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+    const got = spawnSync(process.execPath, ['--import', tsx, '--input-type=module', '-e',
+      `const m = await import(${JSON.stringify(pathToFileURL(join(linked, 'scripts', 'check', 'observer-run.ts')).href)}); console.log(JSON.stringify(m.facilityIdentity().execArgv))`],
+      { encoding: 'utf8', timeout: 60_000 })
+    const modules = join(realpathSync(linked), 'node_modules')
+    let loader: string
+    try { loader = String(JSON.parse(got.stdout)[1]) } catch { loader = `读不出加载顺序（退出码 ${got.status}）：${(got.stderr ?? '').slice(0, 300)}` }
+    eq('观察器运行器：node_modules 是指向别处的软链时，加载器地址落在仓库根下的 node_modules 里（沙箱照搬的那一处），不是软链目标的真实路径',
+      [realpathSync(modules) !== modules, loader.startsWith(`${pathToFileURL(modules).href}/`) ? '落在仓库根下的 node_modules 里' : loader], [true, '落在仓库根下的 node_modules 里'])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+// ADR-70 末尾「修复轮 1」：观察器看不到的执行上下文与吞掉的直连。连的都是本机 127.0.0.1 的 9 号端口（没人听），DNS 指到同一处
+await group('h-observer-contexts', () => {
+  harness('零请求观察器看不到的路：入口起线程、子进程，绕过 fetch 查 DNS、经 http 直连，失败都吞掉也判观察器故障（真起五次玩具入口，不进沙箱）')
+  const dir = mkdtempSync(join(tmpdir(), 'kol-obc-'))
+  try {
+    const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href, preload = pathToFileURL(resolve('scripts/check/observer-preload.ts')).href
+    const scriptFile = join(dir, 'script.json')
+    writeFileSync(scriptFile, JSON.stringify({ schema: SCRIPT_SCHEMA, rules: [] }))
+    writeFileSync(join(dir, 'thread.mjs'), `import net from 'node:net'\nnet.connect(9, '127.0.0.1').on('error', () => {})\n`)
+    const toy = (name: string, body: string) => {
+      const file = join(dir, `${name}.mjs`), events = join(dir, `${name}.events`)
+      writeFileSync(file, body)
+      const r = spawnSync(process.execPath, ['--import', tsx, '--import', preload, file], { encoding: 'utf8', timeout: 60_000,
+        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', KOL_TEST_OBSERVER: JSON.stringify({ run: `run-${name}`, events, script: scriptFile, target: file }) } })
+      const es = readEvents(existsSync(events) ? rf(events, 'utf8') : '').events
+      return [r.status, r.stdout ?? '', es.map(e => e.kind === 'fault' ? `fault ${e.reason}` : e.kind === 'close' ? `close ${e.requests} ${e.code}` : e.kind)]
+    }
+    const settle = `await new Promise(r => setTimeout(r, 300)); console.log('swallowed')`
+    eq('观察器线程：入口起不带预加载的 Worker、线程里直连吞掉失败，观察器在构造时记故障、叫停入口',
+      toy('worker', [`import { Worker } from 'node:worker_threads'`,
+        `try { await new Promise(r => new Worker(new URL('./thread.mjs', import.meta.url), { execArgv: [] }).on('exit', r)) } catch {}`, settle].join('\n')),
+      [97, '', ['armed', 'fault 入口起了观察器看不到的 Worker 线程', 'close 0 97']])
+    eq('观察器线程：绕过构造那一道起的线程一加载预加载就记故障、结束；入口照常以 0 收尾、close 写全，事件里照样有那条故障',
+      toy('unguarded', [`import { Worker } from 'node:worker_threads'`,
+        `const code = await new Promise(r => new (Object.getPrototypeOf(Worker))(new URL('./thread.mjs', import.meta.url)).on('exit', r)); console.log('thread exit', code)`].join('\n')),
+      [0, 'thread exit 97\n', ['armed', 'fault 观察器之外的线程：入口绕过 Worker 那一道起了线程', 'close 0 0']])
+    eq('观察器子进程：入口起子进程、吞掉失败，观察器记故障、叫停入口',
+      toy('child', [`import { execFile } from 'node:child_process'`, `try { execFile(process.execPath, ['--version'], () => {}) } catch {}`, settle].join('\n')),
+      [97, '', ['armed', 'fault 入口起了观察器看不到的 child_process.execFile', 'close 0 97']])
+    eq('观察器 DNS：入口绕过 fetch 自己解析域名、吞掉失败，观察器在查询之前记故障、叫停入口',
+      toy('dns', [`import dns from 'node:dns'`, `const r = new dns.promises.Resolver({ timeout: 200, tries: 1 }); r.setServers(['127.0.0.1:9'])`,
+        `try { await r.resolve4('observer.invalid') } catch {}`, settle].join('\n')),
+      [97, '', ['armed', 'fault 绕过 fetch 用了 dns.promises.Resolver.resolve4', 'close 0 97']])
+    eq('观察器 http：入口经 node:http 直连、吞掉连接失败，走到 net 的连接那一步就记故障、叫停入口',
+      toy('http', [`import http from 'node:http'`, `http.get('http://127.0.0.1:9/').on('error', () => {})`, settle].join('\n')),
+      [97, '', ['armed', 'fault 绕过 fetch 用了 net.Socket.connect', 'close 0 97']])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+// 测试观察的记录文件（契约 kol-test-observer/v1，`skill/references/output-format.md` 末节）读回来：观察器每一跑给入口一个记录文件，
+// 接线的 E-2、E-3 适配器从这里读。期望只来自原文那一节与下面写进夹具的字面值。读的一侧一律偏向「我不知道」：哪一行不合原文，
+// 整份交回问题，适配器就当没有记录（E-2 命中、E-3 就绪都不成立，冻结套件判夹具失格），不挑能读的那几行用
+await group('h-observer-records', async () => {
+  harness('测试观察的记录文件：合原文的读得出，哪一行不合原文都交回问题')
+  // 动态导入：这两个名字还没写出来时只红这一组，不连累别的组
+  const rule: Record<string, unknown> = await import('./check/observer-rule.js')
+  const read = rule.readContractRecords as (text: string, entry: string) => { records: { kind: string }[]; problems: string[] }
+  const C = { contract: 'kol-test-observer/v1' }
+  const T1 = '/api/v1/tiktok/app/v3/fetch_video_search_result'
+  const ready = (entry = 'collect') => ({ kind: 'ready', ...C, entry })
+  const reserved = (attempt_id = 3) => ({ kind: 'reserve', ...C, entry: 'collect', scope: 'task', endpoint: T1, unit_micro_usd: 1000, result: 'reserved', attempt_id })
+  const rejected = (reason = 'budget') => ({ kind: 'reserve', ...C, entry: 'collect', scope: 'task', endpoint: T1, unit_micro_usd: 1000, result: 'rejected', reason })
+  const hit = (point = 'SP-R', more: object = { attempt_id: 3, endpoint: T1 }) => ({ kind: 'save-fault', ...C, entry: 'collect', point, occurrence: 1, ...more, not_written: true })
+  const miss = (more: object = {}) => ({ kind: 'save-fault-miss', ...C, entry: 'collect', point: 'SP-R', occurrence: 1, seen: 0, why: 'not-reached', ...more })
+  const lines = (...rs: object[]) => rs.map(r => `${JSON.stringify(r)}\n`).join('')
+  const n = (text: string, entry = 'collect') => read(text, entry).problems.length
+  const good = read(lines(ready(), reserved(3), rejected('save-failed'), hit()), 'collect')
+  eq('测试观察记录：就绪打头、预留（成与不成）、命中各一条，合原文的整份读得出、没有问题，种类照原样',
+    [good.problems, good.records.map(r => r.kind)], [[], ['ready', 'reserve', 'reserve', 'save-fault']])
+  eq('测试观察记录：probe 的进程账预留、SP-BUD 的命中（不带尝试序号与端点）、文件不合格时读不出的字段写 null 的未命中，都合原文',
+    [n(lines(ready('probe'), { kind: 'reserve', ...C, entry: 'probe', scope: 'process', endpoint: T1, unit_micro_usd: 1000, result: 'reserved' }), 'probe'),
+      n(lines(ready(), hit('SP-BUD', {}))), n(lines(ready(), miss({ point: null, occurrence: null, seen: null, why: 'invalid-file' })))], [0, 0, 0])
+  eq('测试观察记录：空文件、最后一行没写完、不是 JSON、不是对象，各报一处',
+    [n(''), n(`${JSON.stringify(ready())}\n${JSON.stringify(reserved())}`), n(`${JSON.stringify(ready())}\nx\n`), n(`${JSON.stringify(ready())}\n[]\n`)], [1, 1, 1, 1])
+  eq('测试观察记录：contract 不是 kol-test-observer/v1、认不得的种类、多出原文没有的键，各报一处',
+    [n(lines(ready(), { ...reserved(), contract: 'kol-test-observer/v2' })), n(lines(ready(), { kind: 'zzz', ...C, entry: 'collect' })),
+      n(lines(ready(), { ...reserved(), extra: 1 }))], [1, 1, 1])
+  eq('测试观察记录：就绪不打头、有两条、一条也没有，哪一条的 entry 不是起的那个入口，或 collect 以外的入口写了保存失败注入的记录，各报一处',
+    [n(lines(reserved(), ready())), n(lines(ready(), ready())), n(lines(reserved())), n(lines(ready('probe'))), n(lines(ready(), { ...reserved(), entry: 'enrich' })),
+      n(lines(ready('probe'), { ...miss(), entry: 'probe' }), 'probe')],
+    [1, 1, 1, 1, 1, 1])
+  // scope、result 认不得的那两例不带尝试序号：带着的话，尝试序号那一道也会报，数不出 scope、result 自己那一道报没报
+  const bare = (({ attempt_id, ...r }) => r)(reserved())
+  eq('测试观察记录：预留的 scope、端点、单价、result 不合原文，各报一处',
+    [n(lines(ready(), { ...bare, scope: 'job' })), ...[{ endpoint: 'api/x' }, { endpoint: `${T1}?q=1` }, { unit_micro_usd: -1 }, { unit_micro_usd: 1.5 }]
+      .map(over => n(lines(ready(), { ...reserved(), ...over }))), n(lines(ready(), { ...bare, result: 'ok' }))], [1, 1, 1, 1, 1, 1])
+  eq('测试观察记录：预留记录的 scope 与入口对不上 —— probe 记成任务账、collect 记成进程账，各报一处',
+    [n(lines(ready('probe'), { ...reserved(), entry: 'probe' }), 'probe'), n(lines(ready(), { ...bare, scope: 'process' }))], [1, 1])
+  eq('测试观察记录：尝试序号只在任务账的成功预留上有 —— 任务账成功预留缺它、进程账或被拒的带它、它不是正整数，各报一处',
+    [n(lines(ready(), (({ attempt_id, ...r }) => r)(reserved()))), n(lines(ready(), { ...reserved(), scope: 'process' })),
+      n(lines(ready(), { ...rejected(), attempt_id: 3 })), n(lines(ready(), reserved(0)))], [1, 1, 1, 1])
+  eq('测试观察记录：原因只在被拒时有、取原文那五个之一 —— 被拒缺原因、原因认不得、成功预留带原因，各报一处',
+    [n(lines(ready(), (({ reason, ...r }) => r)(rejected()))), n(lines(ready(), rejected('quota'))), n(lines(ready(), { ...reserved(), reason: 'budget' }))], [1, 1, 1])
+  eq('测试观察记录：五种原因都认得',
+    ['budget', 'ledger-unavailable', 'pending', 'root-conflict', 'save-failed'].map(r => n(lines(ready(), rejected(r)))), [0, 0, 0, 0, 0])
+  eq('测试观察记录：命中的保存点不在那五个里、第几次不是正整数、not_written 不是 true、SP-BUD 带了尝试序号或端点、别的保存点缺了它们，各报一处',
+    [n(lines(ready(), hit('SP-X'))), n(lines(ready(), { ...hit(), occurrence: 0 })), n(lines(ready(), { ...hit(), not_written: false })),
+      n(lines(ready(), hit('SP-BUD'))), n(lines(ready(), hit('SP-200', {})))], [1, 1, 1, 1, 1])
+  eq('测试观察记录：未命中的原因不是 not-reached 或 invalid-file、seen 不是非负整数、没到第 k 次却把保存点或次数写成 null、说没到第 k 次而 seen 已经到了，各报一处',
+    [n(lines(ready(), miss({ why: 'other' }))), n(lines(ready(), miss({ seen: -1 }))), n(lines(ready(), miss({ point: null }))), n(lines(ready(), miss({ occurrence: null }))),
+      n(lines(ready(), miss({ seen: 1 })))], [1, 1, 1, 1, 1])
+  eq('测试观察记录：说文件不合格的未命中，有保存点时 seen 要是非负整数，保存点写了就得在那五个里，次数写了就得是正整数，不合各报一处',
+    [n(lines(ready(), miss({ why: 'invalid-file', occurrence: null, seen: null }))), n(lines(ready(), miss({ why: 'invalid-file', point: 'SP-X', occurrence: null }))),
+      n(lines(ready(), miss({ why: 'invalid-file', occurrence: 0 })))], [1, 1, 1])
+  eq('测试观察记录：命中一跑最多一条，命中了就不该再有未命中，各报一处',
+    [n(lines(ready(), hit(), hit())), n(lines(ready(), hit(), miss()))], [1, 1])
+  const against = rule.recordsAgainstRequests as (text: string | undefined, entry: string, requests: number) => string[]
+  const ag = (text: string | undefined, requests: number) => against(text, 'collect', requests).length
+  eq('测试观察记录对照请求数：合契约、预留条条成功、条数等于请求数才没有问题；文件不在、不合契约、有被拒的、条数对不上，各报一处',
+    [ag(lines(ready(), reserved(1), reserved(2)), 2), ag(lines(ready()), 0), ag(undefined, 0), ag(lines(reserved()), 1),
+      ag(lines(ready(), reserved(1)), 2), ag(lines(ready(), reserved(1), rejected()), 2)], [0, 0, 1, 1, 1, 1])
+})
+
+// 独立黑盒测试包 G3-09 新增两个以上 task.json 那一支的回归测试（ADR-70 第 3765 行那张欠条要的，放在冻结包之外）：
+// 真实入口这一跑只新建一个，那一支跑不到；这里照冻结用例自己的判法，造一跑「新增两个、其中一个有无结果留存」交给它判
+await group('h-blackbox-many-task-files', async () => {
+  harness('独立黑盒测试包 G3-09：运行后新增两个以上 task.json 时逐个判，有无结果留存的那一个判红、另一个判过')
+  const { G3 } = await import('./independent-blackbox-tests/cases/collect-wrap-up.ts')
+  const { Ctx } = await import('./independent-blackbox-tests/lib/judge.ts')
+  const { snap } = await import('./independent-blackbox-tests/lib/fsnap.ts')
+  const { RUNS } = await import('./independent-blackbox-tests/runs.ts')
+  const root = scMkdtempSync(scJoin(scTmpdir(), 'blackbox-many-task-files-')), cwd = scJoin(root, 'cwd')
+  try {
+    scMkdirSync(cwd)
+    const before = snap(cwd)
+    const ledger = (unknown: number) => JSON.stringify({ cost_ledger: { entries: [{ http_200_count: 0, unknown_result_count: unknown, unit_micro_usd: 1000 }] } })
+    for (const [dir, unknown] of [['kept-1', 0], ['left-2', 1]] as const) {
+      scMkdirSync(scJoin(cwd, 'output', dir), { recursive: true })
+      scWriteFileSync(scJoin(cwd, 'output', dir, 'task.json'), ledger(unknown))
+    }
+    const def = RUNS.find(r => r.id === 'G3-09')!
+    const obs = { outcome: { kind: 'observed' as const }, attributable: true, requests: [], entry: 'collect' as const, isolation: '', run: '', evidenceDir: '',
+      status: 2, signal: null, stdout: '', stderr: '' }
+    const runs = new Map([['G3-09', { def, script: undefined as never, runDir: root, cwd, evidenceDir: '', before, after: snap(cwd), obs, J: [], stderrText: '' }]])
+    const c = new Ctx('G3-09', { certified: false, certNote: '', runs, reviews: new Map(), conditions: {}, questions: [],
+      result: () => { throw new Error('G3-09 不该去读别的用例的结论') } })
+    G3.find(x => x.id === 'G3-09')!.judge!(c)
+    const lc = c.items.filter(i => i.label.startsWith('新 task.json（若已建）LC：U = 0')).map(i => [i.label, i.status]).sort()
+    eq('独立黑盒测试包 G3-09：新增两个 task.json，各判一项，带着路径；有一笔无结果留存的判红，没有的判过',
+      lc, [['新 task.json（若已建）LC：U = 0 [output/kept-1/task.json]', 'pass'], ['新 task.json（若已建）LC：U = 0 [output/left-2/task.json]', 'red']])
+  } finally { scRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('h-iou-file-reminder', () => {
+  harness('欠条点名提醒：改到的文件被哪几条开着的欠条写进了正文（只提醒，不拦）')
+  const files = ['scripts/check/mutate.ts', 'scripts/a.ts', 'scripts/b.ts', 'README.md', 'docs/README.md', 'docs/x.md', 'skill/x.md',
+    'docs/adr/ADR-1-x.md', 'Makefile', 'tools/Dockerfile']
+  const names = pathNames(files)
+  // 认得的名字只有一种来源：受控文件的路径本身。尾段只在只属于一个文件、又带扩展名时才认
+  eq('认得完整路径与只属于它的带扩展名尾段', ['scripts/check/mutate.ts', 'check/mutate.ts', 'mutate.ts'].map(n => names.get(n)),
+    ['scripts/check/mutate.ts', 'scripts/check/mutate.ts', 'scripts/check/mutate.ts'])
+  eq('不止一份的文件名只认完整路径', [names.has('x.md'), names.get('docs/x.md'), names.get('README.md'), names.get('docs/README.md')],
+    [false, 'docs/x.md', 'README.md', 'docs/README.md'])
+  eq('不带扩展名的尾段不认，完整路径照认', [names.has('Dockerfile'), names.get('tools/Dockerfile'), names.get('Makefile')], [false, 'tools/Dockerfile', 'Makefile'])
+  // 两头不能还连着路径字符：同名前缀、多一个扩展名、前面还有一截别的目录，都不是这个文件
+  eq('名字两头连着路径字符的不算', ['改 xmutate.ts 时', '改 x-mutate.ts 时', '改 x_mutate.ts 时', '改 2mutate.ts 时', '改 mutate.tsx 时',
+    '改 mutate.ts-old 时', '改 other/mutate.ts 时', '改 mutate.ts.bak 时', '改 mutate.ts.1 时']
+    .map(t => namedFiles(t, names)), Array(9).fill([]))
+  // 头一处连着路径字符、后一处才是真点名：要接着往后找，不能只看第一次出现
+  eq('同一个名字头一处不算、后一处算：照样认出', namedFiles('xmutate.ts 不是它，mutate.ts 才是', names), ['scripts/check/mutate.ts'])
+  eq('后面接行号、标点、反引号、句号都算', ['`mutate.ts`', 'mutate.ts:12', '碰 mutate.ts。', '（check/mutate.ts）', 'mutate.ts.']
+    .map(t => namedFiles(t, names)), Array(5).fill(['scripts/check/mutate.ts']))
+
+  // 阳性对照与对照：一条开着的欠条点了 scripts/a.ts —— 改它就列出这一条（带文件与行号），改 b.ts 不列
+  const adr = (body: string) => new Map([['docs/adr/ADR-1-x.md', `# ADR-1 x\n\n${body}\n`]])
+  const open = adr('> ⚠️ 欠条：`scripts/a.ts` 里少一道核 · 重启条件：下一条碰它的 PR')
+  const hitA = touchReport(open, files, ['scripts/a.ts'])
+  eq('改到被点名的文件：列出那条欠条，写明所在文件与行号、点到的文件', hitA.hits.map(h => [h.entry.file, h.entry.line, h.files]),
+    [['docs/adr/ADR-1-x.md', 3, ['scripts/a.ts']]])
+  eq('改到没被点名的文件：一条不列', touchReport(open, files, ['scripts/b.ts']).hits, [])
+  // 块头写缺什么、条件那一行写什么时候回来 —— 文件只点在块头那一行时照样算
+  eq('文件点在块头、条件行没点：照样列出', touchReport(adr('> ⚠️ 欠条：`scripts/a.ts` 少一道核\n> 重启条件：下一条碰它的 PR'), files, ['scripts/a.ts'])
+    .hits.map(h => h.entry.line), [4])
+  // 不在欠条块里的条目（重开讨论一节的条目、块外的重启条件行）拿它那一行找
+  eq('块外的条目拿它那一行找文件名', touchReport(adr('## 什么条件下重开这个讨论\n\n- **改 `scripts/a.ts` 时**：重看'), files, ['scripts/a.ts'])
+    .hits.map(h => [h.entry.notation, h.entry.line]), [['重开讨论', 5]])
+  eq('围栏示例里写的路径不算点名', touchReport(adr('> ⚠️ 欠条：少一道核\n> ```\n> scripts/a.ts\n> ```\n> 重启条件：下一条碰它的 PR'), files, ['scripts/a.ts']).hits, [])
+  // 这次删掉的文件不在受控文件里了，但它是改到的文件
+  eq('删掉的文件也认', touchReport(adr('> ⚠️ 欠条：`scripts/gone.ts` · 重启条件：x'), files, ['scripts/gone.ts']).hits.length, 1)
+
+  // 已关上的不列，只报数：状态行指到「记录 + 行号」
+  eq('状态行的键：已还、已重挂、收尾三种都认', [...closedKeys(new Map([['d.md',
+    '> ⚠️ 已还：ADR-1 第 3 行 · 还在 #1\n> ⚠️ 已重挂：ADR-2 第 4 行 · 现行的是 ADR-3 第 5 行\n> ⚠️ 收尾：ADR-6 第 7 行 · 需求所有者 不做']]))].sort(),
+    ['ADR-1:3', 'ADR-2:4', 'ADR-6:7'])
+  eq('围栏里演示的状态行不算', [...closedKeys(new Map([['d.md', '```\n⚠️ 已还：ADR-1 第 3 行\n```']]))], [])
+  eq('条目的键取记录编号与行号，不是编号记录的文件没有键',
+    [entryKey({ file: 'docs/adr/ADR-86-x.md', line: 118, notation: '重启条件', text: '' }), entryKey({ file: 'docs/adr/README.md', line: 2, notation: '重启条件', text: '' })],
+    ['ADR-86:118', null])
+  const shut = new Map([...open, ['docs/adr/ADR-2-y.md', '# ADR-2 y\n\n> ⚠️ 已还：ADR-1 第 3 行 · 还在 #1\n']])
+  const closedR = touchReport(shut, files, ['scripts/a.ts'])
+  eq('已标已还的不列，只计数', [closedR.hits, closedR.closed], [[], 1])
+  eq('状态行指的是别的行：照旧算开着', touchReport(new Map([...open, ['docs/adr/ADR-2-y.md', '> ⚠️ 已还：ADR-1 第 9 行']]), files, ['scripts/a.ts']).hits.length, 1)
+
+  // 正文太长时截短，末尾接「…」；有命中又有已关的，汇总两样都说
+  const long = touchReport(adr('> ⚠️ 欠条：`scripts/a.ts` ' + '长'.repeat(300) + ' · 重启条件：x'), files, ['scripts/a.ts'])
+  const longText = touchLines(long)[0].split('  —— ')[1]
+  eq('正文超长时截到上限、末尾接省略号', [[...longText].length, longText.endsWith('…')], [TEXT_LIMIT + 1, true])
+  ok('有命中又有已关的：汇总说几条点了名，也说另有几条已关不列', touchLines(touchReport(
+    new Map([...open, ['docs/adr/ADR-2-y.md', '# ADR-2 y\n\n> ⚠️ 欠条：`scripts/a.ts` 另一张 · 重启条件：y\n\n> ⚠️ 已还：ADR-2 第 3 行 · 还在 #2\n']]),
+    files, ['scripts/a.ts'])).some(l => l.includes('被 1 条开着的欠条点了名（另有 1 条点到了、已标已还／已重挂／收尾，不列）')))
+
+  // 报告的样子：一条一行、空一行、汇总、漏网情形每次都说
+  eq('全文：条目一行、空一行、汇总、漏网情形', touchLines(hitA), [
+    'docs/adr/ADR-1-x.md:3  [重启条件]  点名：scripts/a.ts  —— ⚠️ 欠条：`scripts/a.ts` 里少一道核 · 重启条件：下一条碰它的 PR',
+    '',
+    '  欠条点名提醒：改到的 1 个文件被 1 条开着的欠条点了名 —— 只提醒，不拦合入；响没响逐条读条件判',
+    '  只认欠条正文里逐字写着的文件路径；只写了模块名、代码标识符、需求编号或「某类改动」的欠条这里提醒不到，仍要读台账（npm run adr-ledger）判',
+  ])
+  eq('没命中时只有汇总与漏网情形，已关的另报数', touchLines(closedR), [
+    '  欠条点名提醒：改到的 1 个文件没有被开着的欠条点名（另有 1 条点到了、已标已还／已重挂／收尾，不列） —— 只认逐字写着的文件路径，没写路径的欠条仍要读台账判',
+    '  只认欠条正文里逐字写着的文件路径；只写了模块名、代码标识符、需求编号或「某类改动」的欠条这里提醒不到，仍要读台账（npm run adr-ledger）判',
+  ])
+
+  // 扫描范围也是判定：「改到的文件」用哪条 git 命令取、怎么切，用假 git 直接核，不起入口
+  const gitCalls: string[][] = []
+  const fakeGit = (...args: string[]) => { gitCalls.push(args); return 'a b.ts\0docs/中文.md\0' }
+  const scanned = [changedFiles(fakeGit, 'base0'), trackedFiles(fakeGit)]
+  eq('改到的文件：与基线比到工作区为止，改名拆成删旧加新，按 NUL 切', gitCalls[0], ['diff', '--name-only', '--no-renames', '-z', 'base0'])
+  eq('受控文件取 ls-files，按 NUL 切', gitCalls[1], ['ls-files', '-z'])
+  eq('NUL 切开的路径原样交回，带空格与中文的不拆、末尾空段不算', scanned, [['a b.ts', 'docs/中文.md'], ['a b.ts', 'docs/中文.md']])
+
+  // 真仓库：不钉某一张（哪张会被补上状态行说不准）。开着的欠条里还有正文写着 selfcheck.ts 的，就要列得出；
+  // 全还清了就一条不列 —— 还清不该让测试红。列出的每一条正文里都要真写着它
+  const realDocs = adrDocs()
+  const tracked = cxSpawnSync('git', ['-c', 'core.quotePath=false', 'ls-files', '-z'], { encoding: 'utf8' }).stdout.split('\0').filter(Boolean)
+  const real = touchReport(realDocs, tracked, ['scripts/check/selfcheck.ts'])
+  const realText = new Map(entryTexts(realDocs).map(t => [`${t.entry.file}:${t.entry.line}`, t.text]))
+  // 独立数：完整路径，加上只属于它一个受控文件的尾段（`check/selfcheck.ts`、`selfcheck.ts`），两头都不能再连路径字符
+  // 与判定看到的同一份文件：受控文件加上改到的那个（变异的子集跑在没有 .git 的副本里时，受控文件为空）
+  const known = [...new Set([...tracked, 'scripts/check/selfcheck.ts'])]
+  const selfcheckForms = ['scripts/check/selfcheck.ts', 'check/selfcheck.ts', 'selfcheck.ts']
+    .filter((form, i) => i === 0 || known.filter(f => f === form || f.endsWith(`/${form}`)).length === 1)
+  const namesSelfcheck = new RegExp(`(^|[^\\w./-])(${selfcheckForms.map(f => f.replace(/[./]/g, c => `\\${c}`)).join('|')})(?=$|[^\\w./-]|\\.(?!\\w))`)
+  const realClosed = closedKeys(realDocs)
+  ok('独立计数自己的认法：认完整路径与唯一尾段（句末的点、全角标点不算连着），不认 scripts/selfcheck.ts、x/check/selfcheck.ts、selfcheck.tsx、selfcheck.ts.bak',
+    selfcheckForms.every(f => namesSelfcheck.test(`改 ${f}。`) && namesSelfcheck.test(`见${f}.`))
+      && ['scripts/selfcheck.ts', 'x/check/selfcheck.ts', 'selfcheck.tsx', 'selfcheck.ts.bak', 'scripts/check/selfcheck.tsx']
+        .every(t => !namesSelfcheck.test(`改 ${t} 时`)))
+  const stillOpen = entryTexts(realDocs).some(t => !realClosed.has(entryKey(t.entry) ?? '') && namesSelfcheck.test(t.text))
+  ok('真仓库：改 selfcheck.ts 时列得出，列出的每一条正文里都写着 selfcheck.ts',
+    (real.hits.length > 0) === stillOpen && real.hits.every(h => namesSelfcheck.test(realText.get(`${h.entry.file}:${h.entry.line}`) ?? '')))
+
+})
+
+// 入口单列一组：它每跑起 6 次入口，和上面那组纯判定的变异放在一起，启动乘条数就过了上限（ADR-145）
+await group('h-iou-file-reminder-entry', () => {
+  harness('欠条点名提醒的入口：在玩具仓库里真起，改名、CI 输出、无从比较各情形都以 0 退出')
+  // 入口：在玩具仓库里真起一次 —— 改被点名的文件列出那条、改别的不列，两次都以 0 退出；不是仓库时说无从比较，也以 0 退出
+  const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-iou-reminder-'))
+  try {
+    const entry = cxJoin(process.cwd(), 'scripts/check/debt-touch.ts')
+    // 玩具仓库与入口都不许被外面的 git 环境带走：GIT_DIR 一类一律删掉，全局与系统配置换成空的
+    const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GITHUB_ACTIONS: '' }
+    for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete gitEnv[k]
+    const run = (cwd: string, extra: NodeJS.ProcessEnv = {}) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: { ...gitEnv, ...extra } })
+    const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv })
+    cxMkdirSync(cxJoin(root, 'docs/adr'), { recursive: true }); cxMkdirSync(cxJoin(root, 'scripts'))
+    cxWriteFileSync(cxJoin(root, 'docs/adr/ADR-1-x.md'), '# ADR-1 x\n\n> ⚠️ 欠条：`scripts/a.ts` 里少一道核 · 重启条件：下一条碰它的 PR\n')
+    const aBody = Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n') + '\n'
+    cxWriteFileSync(cxJoin(root, 'scripts/a.ts'), aBody); cxWriteFileSync(cxJoin(root, 'scripts/b.ts'), 'b\n')
+    g('init', '-q', '-b', 'main'); g('add', '.'); g('commit', '-q', '-m', 'base')
+    // 主干上只有一个提交、HEAD 就在主干上：没有上一版可比
+    const lone = run(root)
+    eq('入口：主干上只有根提交时说无从比较，仍以 0 退出', [lone.status, lone.stdout.startsWith('欠条点名提醒：无从比较（HEAD 就是 main 且没有父提交')], [0, true])
+    g('checkout', '-q', '-b', 'work')
+    cxWriteFileSync(cxJoin(root, 'scripts/b.ts'), 'b2\n'); g('commit', '-qam', 'b')
+    const onB = run(root)
+    cxWriteFileSync(cxJoin(root, 'scripts/a.ts'), aBody + 'a2\n')
+    const onA = run(root)
+    eq('入口：改没被点名的文件不列，改被点名的文件列出那条，两次都以 0 退出', [onB.status, onB.stdout.includes('ADR-1-x.md:3'), onA.status, onA.stdout.includes('docs/adr/ADR-1-x.md:3  [重启条件]  点名：scripts/a.ts')],
+      [0, false, 0, true])
+    // CI 里：汇总一句进 notice，全文进 Summary 文件
+    const summary = cxJoin(root, 'summary.md')
+    const inCi = run(root, { GITHUB_ACTIONS: 'true', GITHUB_STEP_SUMMARY: summary })
+    const summaryText = (() => { try { return rf(summary, 'utf8') } catch { return '' } })()
+    eq('入口：在 CI 里汇总一句打成 notice，全文（含那条欠条）写进 Summary，仍以 0 退出', [inCi.status,
+      inCi.stdout.includes('::notice title=欠条点名::欠条点名提醒：改到的 2 个文件被 1 条开着的欠条点了名'),
+      summaryText.startsWith('### 欠条点名提醒\n'), summaryText.includes('docs/adr/ADR-1-x.md:3  [重启条件]  点名：scripts/a.ts')], [0, true, true, true])
+    cxRmSync(summary, { force: true })
+    // 改名：欠条写的是旧路径，改名之后旧路径那一侧也算改到（内容大半没变，git 认得出这是改名）
+    g('add', '.'); g('commit', '-qm', 'a'); g('mv', 'scripts/a.ts', 'scripts/c.ts'); g('commit', '-qm', 'mv')
+    const moved = run(root)
+    ok('入口：被点名的文件改了名，照样列出点了旧路径的那条', moved.stdout.includes('docs/adr/ADR-1-x.md:3  [重启条件]  点名：scripts/a.ts'))
+    cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
+    const bare = run(root)
+    eq('入口：不是 git 仓库时说无从比较，仍以 0 退出', [bare.status, bare.stdout.startsWith('欠条点名提醒：无从比较（')], [0, true])
+  } finally { cxRmSync(root, { recursive: true, force: true }) }
+})
+
+await group('d19-config-known-gap', () => {
+// 用 harness 不用 suite：它钉的是 D19 不要求的行为（一个接受了的缺口），不该把 D19 记成被这一组覆盖
+harness('已知缺口：collect --config 新建任务时，未列出键上读不出精确值的数字照今天写成 null、0')
+{
+  // ADR-190 末尾那张（原 ADR-138 第 76 行）：需求所有者 2026-10-11 定为不修，接受为已知缺口 —— collect --config 新建任务时重建了根，只与配置共用
+  // tasks 与 brand_calibration 两个 holder，那里未列出键上读不出精确值的数字（1e400、1e-400）写成 null、0，写出时不报错也不提示。
+  // 这两条断言**正面钉住**这个缺口，期望照那张欠条的原文写，不照运行结果抄，也不认领任何判据。
+  // 哪天它们红了，就是新建任务怎么拼根变了：回去读那张欠条，定这个缺口是不是已经还了，不要把期望改回去了事
+  const root = mkdtempSync(join(tmpdir(), 'kol-d19-gap-'))
+  try {
+    const cwd = join(root, 'cwd')
+    mkdirSync(join(cwd, 'memory'), { recursive: true })
+    writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: '2026-01-01T00:00:00.000Z', creators: {} }, null, 2) + '\n')
+    const unlisted = '"zq_huge":1e400,"zq_tiny":1e-400'
+    writeFileSync(join(cwd, 'config.json'), '{"product":"d19gap","market":"US","target_count":1,"budget_usd":1,'
+      + `"tasks":[{"keyword":"local","dimension":"category","platform":"tiktok",${unlisted}}],`
+      + '"brand_calibration":{"version":"hand-v1","target_creator_types":[],"tone_aesthetic":[],"natural_scenarios":[],'
+      + `"negative_signals":[],"sources":[],${unlisted}}}\n`)
+    const fakeFetch = pathToFileURL(join(process.cwd(), 'scripts', 'check', 'fake-fetch.ts')).href
+    const argv = [join(process.cwd(), 'scripts', 'collect.ts'), '--config', 'config.json']
+    const kidEnv = { ...process.env, TIKHUB_API_KEY: 'fake-key-for-d19-gap', FAKE_FETCH_NO_429: '1',
+      NODE_COMPILE_CACHE: compileCacheDir(), NODE_OPTIONS: '' }
+    kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(argv[0], kidEnv, cwd))} --import ${JSON.stringify(fakeFetch)}`
+    const [exe, args] = prebuiltCommand(argv, cwd, kidEnv)
+    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', env: kidEnv })
+    const made = existsSync(join(cwd, 'output')) ? readdirSync(join(cwd, 'output')) : []
+    const file = made.length === 1 ? join(cwd, 'output', made[0], 'task.json') : ''
+    const text = file && existsSync(file) ? rf(file, 'utf8') : ''
+    // 目标 1 人、假供应商一页就够，所以照常以「达标」那个退出码 4 收尾（ADR-193）—— 写出时不报错、不拒绝
+    eq('已知缺口：collect --config 带着未列出键上的 1e400、1e-400 照常以达标（4）结束、建了一个任务目录，stderr 不提这两个键',
+      [r.status, made.length, /zq_huge|zq_tiny/.test(r.stderr ?? '')], [4, 1, false])
+    // 两个 holder 各自解析出来逐个比（键整个丢掉时是 undefined，严格比 null 会红）；
+    // 再按盘上原文数：1e-400 原样留着时解析出来也是 0，只有看原文才分得出
+    let saved: { tasks?: Record<string, unknown>[], brand_calibration?: Record<string, unknown> } = {}
+    try { saved = JSON.parse(text) } catch { /* 读不出来就让下面那条红 */ }
+    const holders = [saved.tasks?.[0], saved.brand_calibration]
+    eq('已知缺口：新建的 task.json 里，任务条目与 brand_calibration 未列出键上的 1e400 写成 null、1e-400 写成 0，原文不在',
+      [holders.map(h => [h !== undefined && Object.hasOwn(h, 'zq_huge') ? h.zq_huge : 'missing', h !== undefined && Object.hasOwn(h, 'zq_tiny') ? h.zq_tiny : 'missing']),
+        (text.match(/1e-?400/g) ?? []).length],
+      [[[null, 0], [null, 0]], 0])
+  } finally { rmSync(root, { recursive: true, force: true }) }
 }
 })
 

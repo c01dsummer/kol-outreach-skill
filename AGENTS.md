@@ -47,12 +47,13 @@
 
 | 你要做的事 | 读 |
 |---|---|
+| 接手任务、查看当前进度与依赖 | [Linear 项目](https://linear.app/c01dsummer/project/kol-outreach-skill-84d60f579773/issues)；采用决定、职责边界与迁移口径见 [ADR-181](docs/adr/ADR-181-Linear-作为长期任务入口，需求与欠条依据仍在仓库.md) |
 | 写/改需求 | `process/1-REQUIREMENTS.md` |
 | 想改需求、撞见两条需求打架、或想说"这个太麻烦" | `process/2-CHANGE.md` |
 | 写代码 | `process/3-BUILD.md` + **`docs/CONVENTIONS.md`** |
 | 写测试 | `process/4-VERIFY.md` —— **写测试前必读** |
 | 改模块边界、调用顺序或对外契约 | `process/5-DESIGN.md` + **`docs/ARCHITECTURE.md`** |
-| 改 Skill 的行为 | `skill/SKILL.md` + 对应的 `skill/references/*` —— 指向 `skill/` 的软链见 `docs/ARCHITECTURE.md`「新东西落在哪个目录」 |
+| 改 Skill 的行为 | `skill/SKILL.md` + 对应的 `skill/references/*` —— 指向 `skill/` 的软链见 `docs/ARCHITECTURE.md`「新东西落在哪个目录」；判断类文字的产出回归见 `docs/REGRESSION.md` |
 | 要新建目录，或要存运行产物（接口响应原件、快照、日志） | `docs/ARCHITECTURE.md`「新东西落在哪个目录」 |
 | 改完了要同步 | `docs/SYNC.md` |
 | 开分支、切改动、回应评审、往主干合 | `process/6-INTEGRATE.md` |
@@ -73,15 +74,16 @@
   改这三样之前先读它；新增 `scripts/` 下的模块请在锚点表里登记 —— 那张表从 ADR-78 起
   没有机器核了，忘了登记不会有任何东西提醒你
 - **决策记录**:`docs/adr/`,**一条一个文件**,编号 `ADR-NN`(数据需求用 `D` 前缀,两套不撞号)。
-  `DECISIONS.md` 只做转发;还装着整册的分支跑 `npm run adr -- --split` 就地拆开
+  `DECISIONS.md` 只做转发
 - **体量豁免**：超线时用提交信息里的 `size-ok:` 具名豁免 ——
   语法与判定规则见 `process/6-INTEGRATE.md`
-- **评审发现的去向**：每条发现在回复的**第一行**写档与去向 ——
-  五档是 本改动 / 扩范围 / 既有缺陷 / 登记 / 驳回。**从第三轮起,本改动档里不阻塞的只登记、不修**;
-  「禁止顺手重构」同样管评审回应。分档判据、欠条写法与合并者怎么核,见 `process/6-INTEGRATE.md`
+- **评审发现的去向**：见 `process/6-INTEGRATE.md`「五档路由」「从第三轮起只登记,阻塞项除外」(含欠条 PR 的例外)、
+  「合并者核对去向」与「登记怎么做：欠条 PR」
 - **检查命令**：`npm run check`
-  = **体量闸门** → SPEC 一致性 → Skill 结构 → **决策记录** → 类型检查 → 需求测试 → 变异测试 → 脚本自检 → 链路审计 → **启动数闸门**
+  = **变异锚点** → **体量闸门** → SPEC 一致性 → Skill 结构 → **决策记录** → 类型检查 → 需求测试 → 变异测试 → 脚本自检 → 链路审计 → **启动数闸门**
+  （第一步可以在提交前单跑：`npm run anchors`，查树上与暂存区里有没有没还原的变异，不起验证者）
 - **审计命令**：`npm run audit`
+- **欠条点名提醒**：`npm run debt-touch` —— 这条分支改到的文件被哪几条开着的欠条写进了正文；只提醒、不拦，CI 每跑也列一次（ADR-196）
 - **变异清单**：`npm run mutate -- --brief` —— 只列每条变异「违反了什么」，不含实现原文。
   给**写测试的那个上下文**用，见 `process/4-VERIFY.md` 的「给测试上下文一张准入读物清单」
 - **文档同步表**：`docs/SYNC.md`
@@ -107,7 +109,8 @@
 
 | 缺口 | 记在哪 |
 |---|---|
-| P2 的判断那一半机器查不了 | ADR-01 · `npm run audit` 会打印 |
+| P2 的判断那一半机器查不了（带数字的说法和词表里的承诺词由 P2.c 在报告里标出，其余仍靠人） | ADR-01、ADR-199 · `npm run audit` 会打印 |
+| 经用户自己的邮箱工具只存不发（S1.b）、邮箱费用告知（P3.e）只能靠自觉 | ADR-190 · `npm run audit` 会打印 |
 | 测试与实现同上下文写成（同源污染） | ADR-04 |
 | 语义筛选与开发信草稿的实际效果未经真实发信验证 | `docs/SPEC.md` 尚未确定一节 |
 

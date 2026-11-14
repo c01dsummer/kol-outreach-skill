@@ -1,6 +1,6 @@
 import {
   writeFileSync, renameSync, rmSync, statSync, chmodSync, readlinkSync, accessSync, constants,
-  readdirSync, openSync, fsyncSync, closeSync, mkdirSync,
+  readFileSync, readdirSync, openSync, fsyncSync, closeSync, mkdirSync,
 } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 
@@ -188,13 +188,19 @@ export function writeTarget(file: string): string {
  */
 const TMP_MAX_AGE_MS = 60 * 60 * 1000
 
-/**
- * 系统发得出的 pid 上限：Linux 的硬上限 `PID_MAX_LIMIT` 在 64 位下是 4 * 1024 * 1024
- * （运行时的 `pid_max` 只能比它小），macOS / BSD 是 99999，都在这以内；Windows 没写死，
- * 但实际远在此内。名字里的数超过它就没有哪个进程写得出来。**宁严勿宽**：判严了的代价
- * 是那份残留留着不清，判松了会删掉别人的文件（评审第三轮）
- */
-const PID_MAX = 4 * 1024 * 1024
+/** 项目保留硬界与未适配平台的兜底，不代表各平台的真实当前上限（ADR-44）。 */
+const PID_MAX_LIMIT = 4 * 1024 * 1024
+
+/** 本次清扫的 PID 不包含上界；Linux 的运行时配置可在两次写回之间调整。 */
+function pidCeiling(): number {
+  if (process.platform === 'linux') {
+    try {
+      const text = readFileSync('/proc/sys/kernel/pid_max', 'utf8').trim()
+      if (/^[1-9][0-9]*$/.test(text)) return Math.min(Number(text), PID_MAX_LIMIT)
+    } catch { /* 来源读不到时沿用原方案兜底，不因此阻止写回 */ }
+  }
+  return process.platform === 'darwin' ? 99999 : PID_MAX_LIMIT
+}
 
 /** 那个进程还在吗。EPERM 说明进程存在、只是不归我们管 —— 那也算活着 */
 function alive(pid: number): boolean {
@@ -233,16 +239,16 @@ function sweepStaleTemps(target: string): void {
   // 目录列不出来（只写不可读这种权限组合）就跳过这一次清理，**不因此让写回失败** ——
   // 清不掉临时文件的代价是盘上多一份副本，而中断写回的代价是这一轮的记录全丢。
   try { names = readdirSync(dir) } catch { return }
+  const ceiling = pidCeiling()
   for (const name of names) {
     if (!name.startsWith(prefix) || !name.endsWith('.tmp')) continue
     // 只认 `process.pid` 写得出来的名字：正规十进制（`1e3`、`007`、`0x10`、`-5` 都不是，
     // 而 `Number()` 全吞得下）、转成数字没丢精度（过了 2^53 转回来就对不上）、
-    // 落在系统发得出的范围里（`PID_MAX`；超出它的 `process.kill` 答的是「没这个进程」，
-    // 超出 int32 的更是直接抛参数错，`alive` 都会当成「死了」）。别的名字没有哪个进程
-    // 写得出来 —— 那是别人的文件，不是残留，再老也不动（评审一、二、三轮）
+    // 再按本次清扫的策略上界收窄（运行时来源及保留兜底的局限见 ADR-44）。
+    // 不符合这套名字协议的文件不能仅凭形状算残留，即使很老也不动。
     const spelled = name.slice(prefix.length, -'.tmp'.length)
     const pid = Number(spelled)
-    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > PID_MAX || String(pid) !== spelled) continue
+    if (!Number.isSafeInteger(pid) || pid <= 0 || pid >= ceiling || String(pid) !== spelled) continue
     let ageMs: number
     // 看不到它的年龄就跳过（刚被别人清掉、或者读不到）—— **跳过是安全的那一边**：
     // 拿不准的文件不删，代价是盘上多留一份；删错的代价是搬走别人正在写的东西

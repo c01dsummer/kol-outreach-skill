@@ -26,8 +26,14 @@ permissions:
   contents: read
   actions: read
 
+# 一条检查链拆在三种 job 上跑（ADR-197）：`npm run check` 那一串里最贵的是变异一步，它在 CI 上按
+# `MUTATE_SHARD=k/n` 分到 n 台 runner 上各跑一份（同一种子集配置的变异落在同一份，ADR-200）；其余各步在 chain 那个 job 里照原顺序跑；
+# 最后一步启动数闸门要变异一步与自检各写的那份计数，放在 check 那个 job 里，等前两种都绿了才跑。
+# 合起来跑的步骤、判红的条件与本地 `npm run check` 一样：哪一份红、哪一步红，这一跑就红。
+# 分份只在这里写：本地不写 MUTATE_SHARD，就是整份。
 jobs:
-  check:
+  chain:
+    name: 检查链（变异以外各步）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,12 +44,144 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      # 装 bubblewrap：观察器的外层断网要 bwrap（`--unshare-net`），这个镜像里没有 —— run 41838288608 在
+      # ubuntu-24.04 上三处（/usr/bin、/bin、/usr/local/bin）都找不到，独立黑盒测试包那一组一个入口也起不来，
+      # 自检组 observer-cert-entry 也只验得到「认证不成立」那一半。需求所有者定的就是「CI 装 bubblewrap」
+      # （ADR-70 末尾「CI 装 bubblewrap」一节）：这一步只装这一个包。用户命名空间那条限制由下一步照后来的
+      # 另一张答卡关掉；AppArmor 的配置文件两步都不动。
+      # 后两行打出装在哪、什么版本，读 CI 日志用；断网起不起得来这一步不判，看检查里那几组自己打的。
+      # 包从网上装：源连不上或装不上，这一跑就红在这一步（排在 npm ci 前面，后面的不白跑）
+      - name: 装 bubblewrap（外层断网要它）
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bubblewrap
+          command -v bwrap
+          bwrap --version
+      # 关掉非特权用户命名空间限制：装上 bwrap 之后，run 41937484646 里 G4-01 报
+      # `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted` —— bwrap 找到了，在断网里给回环配地址被拒。
+      # 推断是镜像打开了 kernel.apparmor_restrict_unprivileged_userns，非特权建的用户命名空间里没有配网卡的权限；
+      # 第一行打出的值就是核这个推断的。需求所有者答卡 t282s2335 的原话是「CI 加 sysctl 关掉用户命名空间限制试一次」
+      # （ADR-70 末尾「CI 装 bubblewrap」一节的补记）：只改这一个 sysctl，改的是这一跑的 runner；
+      # 不碰 AppArmor 配置文件，不加别的安全设置。前后各打一次值，读 CI 日志用；这个键不存在（换了镜像）时红在这一步。
+      # 关了之后断网仍起不来，就停下报告、等新的裁定，不在这里接着加
+      - name: 关掉用户命名空间限制（bwrap 断网要它）
+        run: |
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sysctl kernel.apparmor_restrict_unprivileged_userns
       # 2026-09-04 起 `npm ci` 从两秒变成七分钟,同样 6 个包、
       # 同样命中缓存。--prefer-offline 有缓存就不回源问元数据,--no-audit 去掉装完
       # 之后那次审计请求
       - run: npm ci --prefer-offline --no-audit
-      # 与本地 `npm run check` 是同一条链 —— 谁跑都一样红
-      - run: npm run check
+      # 与本地 `npm run check` 同一串，只少了变异与启动数两步（各在下面的 job 里）
+      - run: npm run anchors && npm run size && npm run spec && npm run skill && npm run adr && npm run typecheck && npm run compile && npm test && npm run selfcheck && npm run audit
+      # 只提醒：这一跑改到的文件被哪几条开着的欠条写进了正文（需求所有者 2026-11-14 要的，KOL-110；ADR-196）。
+      # 汇总那一句打成一条 notice（PR 的 Checks 页与这一跑的总览上看得到），全文写进这一跑的 Summary。
+      # 「改到的」与体量闸门同一个起点：PR 上是这次合并用的主干头，推 main 时是上一版。
+      # 不判响没响、不拦合入：不在 `npm run check` 里，脚本每条路都以 0 退出，另有 continue-on-error 兜底；
+      # 检查红了也照跑（红的时候更要看碰了哪些欠条）。本地同一件事是 `npm run debt-touch`。
+      # 放在 chain 这个 job：它有完整历史、装好了依赖；check 那个 job 在前两种红了时连仓库都不取（ADR-197）
+      - name: 欠条点名提醒（只提醒）
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        run: npm run -s debt-touch
+      # 自检按族写的启动计数：check 那个 job 里的启动数闸门要读它
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selfcheck-launches
+          path: output/selfcheck-launches/families.json
+          if-no-files-found: error
+          retention-days: 3
+      # 只报数：这台 runner 的 CPU 型号与核数（同 check 那个 job 末尾那一步的理由）
+      - run: lscpu
+        if: always()
+        continue-on-error: true
+
+  mutate:
+    name: 变异（第 ${{ matrix.shard }}/3 份）
+    runs-on: ubuntu-latest
+    strategy:
+      # 一份红了别的照跑完：一次推送看得到全部存活的变异，不用一份一份地修
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      # 同 chain 那个 job：变异的验证者里有起入口、要断网的自检组
+      - name: 装 bubblewrap（外层断网要它）
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bubblewrap
+          command -v bwrap
+          bwrap --version
+      - name: 关掉用户命名空间限制（bwrap 断网要它）
+        run: |
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+      - run: npm ci --prefer-offline --no-audit
+      # 预编 JS：验证者跑预编的那份，缺了就照旧 tsx（ADR-158），只是慢
+      - run: npm run compile
+      # 4 核的 runner 上派 6 个 worker（ADR-200）：验证者有不少时间在等子进程起来，多派两个把空出来的核填上。
+      # 本地不写，照旧按核数派
+      - run: npm run mutate
+        env:
+          MUTATE_SHARD: ${{ matrix.shard }}/3
+          MUTATE_JOBS: '6'
+      # 每一份只跑自己那几种配置的基线、数它们的启动数，写 launches-k-of-3.json（ADR-200）；三份都交给最后一步拼回整份
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mutation-launches-${{ matrix.shard }}
+          path: output/mutation-launches/launches-${{ matrix.shard }}-of-3.json
+          if-no-files-found: error
+          retention-days: 3
+      # 只报数：这台 runner 的 CPU 型号与核数（同 check 那个 job 末尾那一步的理由）
+      - run: lscpu
+        if: always()
+        continue-on-error: true
+
+  check:
+    needs: [chain, mutate]
+    # 前两种 job 红了也要起来、自己红：needs 没过时整个 job 会被跳过，而被跳过的必需检查在分支保护里算过
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 变异以外各步与三份变异都绿了才往下
+        env:
+          CHAIN: ${{ needs.chain.result }}
+          MUTATE: ${{ needs.mutate.result }}
+        run: |
+          echo "chain：$CHAIN · mutate：$MUTATE"
+          [ "$CHAIN" = success ] && [ "$MUTATE" = success ]
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --prefer-offline --no-audit
+      # 三份启动数文件放进同一个目录，`npm run launches` 拼回整份（ADR-200）
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mutation-launches-*
+          merge-multiple: true
+          path: output/mutation-launches
+      - uses: actions/download-artifact@v4
+        with:
+          name: selfcheck-launches
+          path: output/selfcheck-launches
+      # 检查链的最后一步，同本地 `npm run check` 的最后一步
+      - run: npm run launches
+      # 下面墙钟对比那一步（ADR-197 起）：「本跑」是整个 run 的墙钟，含并行的几个 job；型号是这个 job 那台 runner 的，
+      # 干活的那几台各在自己 job 末尾的 lscpu 里。拆 job 之前的主干跑与之后的放在一个窗口里比，倍数会偏低，读的时候知道这一层
       # 只报数：本跑墙钟与主干上 check 前 5 次 push 成功跑的中位比一比，打一行到 notice 与 step summary
       # （ADR-151 P1）。不判快慢，「是劣化还是 runner 噪声、是哪条改动」由评审与合并者读
       # （`process/6-INTEGRATE.md`「改验证成本时」）。
@@ -57,7 +195,7 @@ jobs:
       # 截到 80 字：进 `::notice` 的除了数字与固定文案只有它。正文里的 :: 本就起不了新命令（runner 只认行首那组），
       # %0A 一类会被换回换行；过滤是保险，也让正文整洁。tr 那个字符集里 - 必须在最后，往后再加字符就成了区间。
       # 型号之后再带工作量：「变异 N 条（±d） · 摊到每条 X 秒」。N = 本提交 scripts/check/mutations.json 里 mutations 的条数
-      # （变异一步打的「N 个变异全部被抓到」就是它）；±d 比的是对照提交：PR 上是 checkout 出来的合并提交的第一个父提交，
+      # （本地整份跑时变异一步打的「N 个变异全部被抓到」就是它；CI 上分份后打的是「第 k/3 份 M 个…（整份 N 个…）」里的 N）；±d 比的是对照提交：PR 上是 checkout 出来的合并提交的第一个父提交，
       # 就是这次合并用的主干头；推 main 时是这次推送之前主干的头（github.event.before）。
       # X = 「本跑」秒数 ÷ N，两位小数 —— 整跑（含变异以外各步）摊到每条变异上，不是一条变异实际花的秒数。
       # 倍数偏了时三样一起读：型号换没换、N 涨没涨、X 涨没涨（X 也随机器快慢与变异以外各步变），只报，不判是哪一样。
@@ -79,7 +217,7 @@ jobs:
           api() { curl -sS --max-time 20 -o "$out" -w '%{http_code}' "${auth[@]}" \
                     -H 'Accept: application/vnd.github+json' "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/$1"; }
           why() { if [ "$2" = 28 ]; then echo 超时; elif [ "$1" = 000 ]; then echo 连不上; else echo "HTTP $1"; fi; }
-          cpu=$(export LC_ALL=C; lscpu 2>/dev/null | sed -n 's/^[[:space:]]*Model name:[[:space:]]*//p' | head -n 1 \
+          cpu=$(export LC_ALL=C; lscpu 2>/dev/null | sed -n 's/^[[:space:]]*Model name://p' | head -n 1 \
                   | tr -cd '[:alnum:] ()@.,_+/-' | tr -s ' ' | cut -c 1-80 | sed 's/^ //; s/ $//')
           [ -n "$cpu" ] || cpu=读不到
           count() { git show "$1:scripts/check/mutations.json" 2>/dev/null | jq -er '.mutations | arrays | length' 2>/dev/null; }

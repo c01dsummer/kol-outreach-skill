@@ -28,8 +28,10 @@ import { createRequire } from 'node:module'
 import { type GitAsk, resolveBaseline } from './size-rule.js'
 import { type Group, wanted } from './group-rule.js'
 import { SELFCHECK_FIXTURE_MARK, SELFCHECK_PROCESS_MARK } from './verifier-rule.js'
+import { duplicateIds } from './attribution-rule.js'
 
-const ts = createRequire(import.meta.url)('typescript') as typeof Ts
+let compiler: typeof Ts | undefined
+const typescript = (): typeof Ts => compiler ??= createRequire(import.meta.url)('typescript') as typeof Ts
 
 /** 一个验证者:跑哪个脚本,失败汇总长什么样,进程级失败带什么记号,哪些调用给夹具起名。 */
 export interface Verifier {
@@ -104,6 +106,104 @@ export function baselineFault(status: number | null, output: string, verifier: V
 /** 这一次运行里,有没有过一条带**这个记号**的失败 —— 哪一种记号由调用方给。 */
 export function processFailed(output: string, mark: string): boolean {
   return output.split('\n').some(l => l.trimStart().startsWith('✗ ') && l.includes(mark))
+}
+
+/**
+ * 自检源码里**记号该打却没打**的那几处诊断 —— 按语法树找，两种记号各交回一串说明，空的就是都打了。
+ *
+ * 判定认记号（上面那条 `processFailed`），可记号是自检那边打的：那边哪一句漏了，判定就把
+ * 「夹具废了」「进程崩了」当成断言红了、记成被抓到。`selfcheck.ts` 在验证基础设施的闭包里，
+ * 指名自检的变异施在它上面会被「自己验自己」拦下，所以这一半只能由需求测试静态地问
+ * （ADR-70 第 1019 行那张欠条）。问两件：
+ *
+ * - **说了「夹具没造对」的，要带夹具记号。** 一个串或模板串的某一段里有这几个字，往上最近的
+ *   那个调用又是 `console.error` 或 `named`，它就得带着 `SELFCHECK_FIXTURE_MARK`。
+ *   字是说给人看的「这条夹具废了」，记号是说给判定看的同一件事，两边要对得上。
+ * - **`runBoth` 里的每一句 `console.error` 都要带进程记号。** 起进程的夹具都走它，进程级失败
+ *   就是它报的。源码里找不到 `runBoth`，或它里面一句 `console.error` 都没有，也报 ——
+ *   改了名、挪了地方，不能让这一条悄悄变成空的。
+ *
+ * **「带着」指打在 ✗ 那一行上**，因为 `processFailed` 只认以「✗ 」开头的那一行：把实参按源码先后拆成拼接（`+`）
+ * 与模板串的一段一段，光秃秃的那个名字自己是一段，又落在去掉行首空白后以「✗ 」开头的那一行上，才算 ——
+ * 落在换行之后、或落在 ✗ 那一行之前的行上，都不算。
+ * 包在别的表达式里的（`String(记号)`、`条件 ? 记号 : ''`、`记号.length`）、`别的对象.记号`
+ * 都不算一段；按语法树而不是按正则，注释里写着这几个字的也不是诊断。
+ * `phraseSites` 是查过的「说了这几个字」的诊断有几句，调用方拿它判这一条是不是空的。
+ *
+ * ⚠️ 看不见的，照实列：
+ * - 它认的是「说了这几个字」，不是「夹具废了」：用别的字说夹具废了的那些带夹具记号的诊断，这里不问。
+ * - 不走 `runBoth` 报进程失败的那几处（拆进程跑之类），这里不问。
+ * - 先存进变量再印的、中间隔了别的调用的（`[…].join()`、`String(…)`）、不是直接写 `console.error`
+ *   或 `named` 的（别名、`process.stderr.write`、`console['error']`），这几个字都看不见。
+ * - 拿 `named` 去断言**别人的输出**里有这几个字，会被当成一句诊断、报没带记号（宁可多报）。
+ * - 同名的 `runBoth` 不止一个时只看文档里头一个。
+ */
+export function unmarkedDiagnostics(source: string): { fixture: string[]; process: string[]; phraseSites: number } {
+  const ts = typescript()
+  const tree = ts.createSourceFile('selfcheck.ts', source, ts.ScriptTarget.Latest, true)
+  const lineOf = (node: Ts.Node) => tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1
+  const consoleError = (call: Ts.CallExpression) => ts.isPropertyAccessExpression(call.expression)
+    && ts.isIdentifier(call.expression.expression) && call.expression.expression.text === 'console'
+    && call.expression.name.text === 'error'
+  /**
+   * 记号打没打在 ✗ 那一行上：实参拆成一段一段，按先后拼出「到这儿为止的这一行」，这个名字自己是一段、
+   * 又落在去掉行首空白后以「✗ 」开头的那一行上才算。`named` 自己先打「✗ 」，所以它从那一行起算；
+   * 认不出印什么的一段当成非空白
+   */
+  const passes = (call: Ts.CallExpression, name: string): boolean => {
+    const pieces: Ts.Node[] = []
+    const flatten = (e: Ts.Expression): void => {
+      if (ts.isParenthesizedExpression(e)) flatten(e.expression)
+      else if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.PlusToken) { flatten(e.left); flatten(e.right) }
+      else if (ts.isTemplateExpression(e)) {
+        pieces.push(e.head)
+        for (const span of e.templateSpans) { flatten(span.expression); pieces.push(span.literal) }
+      } else pieces.push(e)
+    }
+    call.arguments.forEach(flatten)
+    let line = ts.isIdentifier(call.expression) && call.expression.text === 'named' ? '✗ ' : ''
+    for (const piece of pieces) {
+      if (ts.isIdentifier(piece) && piece.text === name) return line.trimStart().startsWith('✗ ')
+      if (ts.isStringLiteralLike(piece) || ts.isTemplateHead(piece) || ts.isTemplateMiddle(piece) || ts.isTemplateTail(piece)) {
+        const parts = piece.text.split('\n')
+        line = parts.length > 1 ? parts[parts.length - 1] : line + parts[0]
+      } else line += '\u0000'
+    }
+    return false
+  }
+  const fixtureFaults: string[] = [], processFaults: string[] = []
+  const checked = new Set<Ts.CallExpression>()
+  let runBoth: Ts.Node | undefined
+  const scan = (node: Ts.Node): void => {
+    if ((ts.isStringLiteralLike(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node))
+        && node.text.includes('夹具没造对')) {
+      let call = node.parent
+      while (call !== undefined && !ts.isCallExpression(call)) call = call.parent
+      if (call !== undefined && ts.isCallExpression(call) && !checked.has(call)
+          && (consoleError(call) || (ts.isIdentifier(call.expression) && call.expression.text === 'named'))) {
+        checked.add(call)
+        if (!passes(call, 'SELFCHECK_FIXTURE_MARK')) fixtureFaults.push(`第 ${lineOf(call)} 行说了「夹具没造对」，却没带夹具记号`)
+      }
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === 'runBoth') runBoth ??= node.initializer
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'runBoth') runBoth ??= node
+    ts.forEachChild(node, scan)
+  }
+  scan(tree)
+  if (runBoth === undefined) processFaults.push('找不到 runBoth —— 进程失败那句在哪儿打，这里问不着')
+  else {
+    const errors: Ts.CallExpression[] = []
+    const collect = (node: Ts.Node): void => {
+      if (ts.isCallExpression(node) && consoleError(node)) errors.push(node)
+      ts.forEachChild(node, collect)
+    }
+    collect(runBoth)
+    if (errors.length === 0) processFaults.push('runBoth 里一句 console.error 都没有 —— 进程失败那句挪走了')
+    for (const call of errors) {
+      if (!passes(call, 'SELFCHECK_PROCESS_MARK')) processFaults.push(`第 ${lineOf(call)} 行是 runBoth 报的失败，却没带进程记号`)
+    }
+  }
+  return { fixture: fixtureFaults, process: processFaults, phraseSites: checked.size }
 }
 
 /**
@@ -185,6 +285,171 @@ export function anchorMatches(content: string, find: string): number {
   return n
 }
 
+/**
+ * 变异目录对着一棵树：每条变异的锚点在它的目标文件里还对不对得上。对不上的五种各有名字，
+ * 全对得上交回空表（ADR-70 第 1394、2099 行那两张欠条；检查链第一步经下面的 `anchorVerdict` 用它，见 ADR-70「变异残留」几节）。
+ *
+ * 干净的树上，每条变异的 `find` 在目标文件里恰好一处（不唯一的由检查链第一步与 `mutate.ts` 开跑前那道体检拦下）。
+ * 一处变异没还原、躺在树里时（被打断、`--jobs=1` 正跑着就提交），那个文件是「`find` 换成了 `replace`」的
+ * 样子 —— 目录自己就是那张对照表。前提是施加照字面，已满足：`mutate.ts` 经下面的 `applyMutation` 施加，
+ * 替换文本里的 `$$` 等记号不展开，盘上就是登记的那段（ADR-70「施加照字面」一节）：
+ *
+ * | 名字 | 判据 | 多半是什么 |
+ * |---|---|---|
+ * | `unreadable` | 目标文件读不到 | 文件挪了、删了 |
+ * | `residue` | `replace` 包着 `find` 的：整段 `replace` 在；别的：`find` 一处没有、`replace` 在，而 `replace` 不是空串、也不是 `find` 的一段 | 这条变异还在树里；也可能是同文件另一条没还原，连带的 |
+ * | `ambiguous` | `find` 不止一处（照 `anchorMatches` 数），又不是上一行 | 锚点不唯一；或者同一个文件里另一条没还原，连带的 |
+ * | `unclear` | `find` 一处没有、`replace` 在，而 `replace` 是空串或是 `find` 的一段 | 分不开：没还原是这样，锚点失效也常是这样 |
+ * | `stale` | `find` 一处没有，又不是上面几行 | 锚点失效：代码改了目录没跟上，或者改动被按回去了；也可能是同文件另一条没还原，连带的 |
+ *
+ * **`unclear` 为什么单列**：`replace` 是空串（删一段）或是 `find` 的一段（`M-D6-d` 那样）时，干净的树上它本来就在，
+ * 「`replace` 在」什么也不说明。正常改代码改掉了 `find`、目录没跟上，树也是这个样子 —— 报成「没还原」的话，
+ * 人会去把 `find` 按回来，按回去的正是自己的改动（第 1402–1407 行那次判反就是这个形状）。所以报「分不开」，
+ * 让人先看 `git diff`。剩下一类判不出：`replace` 在同一个文件别处本来就有的，锚点失效时照样报成 `residue`
+ * —— 单看一棵树分不开，入口那句话要叫人先看 `git diff` 再动手。
+ *
+ * **`replace` 整段包着 `find` 的要单独判**：残留时 `find` 照样在，只数 `find` 的话这种残留一处也看不出来，所以改问
+ * 整段 `replace` 在不在，而且先于「不唯一」问 —— 「扣两次钱」那种整段重复 `find` 的变异，没还原时 `find` 有两处，
+ * 先问不唯一就报成了锚点的毛病。这一问也有分不开的时候：干净的文件里本来就有整段 `replace` 的（比如 `find` 是
+ * `ok(x)`、`replace` 是 `!ok(x)`，文件里本来就写着 `!ok(x)`），干净的树也报 `residue`，而它施加了是有改动的
+ * （写成 `!!ok(x)`）。所以目录要守一条：包着 `find` 的变异，`replace` 不能在干净的文件里本来就有 —— 有的话把
+ * `find` 加长。`replace` 与 `find` 一字不差的，施加没施加分不出来，不判残留。
+ *
+ * 读文件由调用方给，判定不碰盘；读不到交 `undefined`，不当成空文件 —— 当空文件的话，
+ * 指着它的每一条都成了锚点失效，真正的原因（文件不在）反倒淹在里面。
+ */
+export type AnchorFault =
+  | { kind: 'unreadable' | 'residue' | 'unclear' | 'stale'; id: string; file: string }
+  | { kind: 'ambiguous'; id: string; file: string; count: number }
+
+export function anchorFaults(muts: readonly { id: string; file: string; find: string; replace: string }[],
+  read: (file: string) => string | undefined): AnchorFault[] {
+  const faults: AnchorFault[] = []
+  for (const m of muts) {
+    const content = read(m.file)
+    if (content === undefined) { faults.push({ kind: 'unreadable', id: m.id, file: m.file }); continue }
+    const count = anchorMatches(content, m.find)
+    const wraps = m.replace !== m.find && m.replace.includes(m.find)
+    const applied = wraps ? content.includes(m.replace) : count === 0 && content.includes(m.replace)
+    // 干净的树上 replace 本来就在：空串、或 find 的一段。这时「在」不说明它施加过
+    const givenAnyway = !wraps && m.find.includes(m.replace)
+    if (applied && !givenAnyway) faults.push({ kind: 'residue', id: m.id, file: m.file })
+    else if (count > 1) faults.push({ kind: 'ambiguous', id: m.id, file: m.file, count })
+    else if (count === 0) faults.push({ kind: applied ? 'unclear' : 'stale', id: m.id, file: m.file })
+  }
+  return faults
+}
+
+/**
+ * 变异锚点那一步对一棵树的结论：编号重复时只报这一种；否则逐条报对不上的，`knockOn` 标出多半是被连带的，
+ * `advice` 说该附哪两句话（先看差异 / 改目录），入口照着打，不自己判
+ */
+export type AnchorVerdict =
+  | { kind: 'duplicate'; ids: string[] }
+  | { kind: 'faults'; faults: (AnchorFault & { knockOn: boolean })[]; advice: { diff: boolean; catalog: boolean } }
+
+/** 变异目录读出来的东西是不是一组变异：是数组、非空、每条的 `id`、`file`、`find`、`replace` 都是字符串。不是交回 `undefined` */
+export function anchorCatalog(json: unknown): { id: string; file: string; find: string; replace: string }[] | undefined {
+  const muts = typeof json === 'object' && json !== null ? (json as { mutations?: unknown }).mutations : undefined
+  if (!Array.isArray(muts) || muts.length === 0) return undefined
+  const ok = muts.every(m => typeof m === 'object' && m !== null
+    && ['id', 'file', 'find', 'replace'].every(k => typeof (m as Record<string, unknown>)[k] === 'string'))
+  return ok ? muts : undefined
+}
+
+/**
+ * 检查链第一步（`anchors.ts`）的判定：先问编号唯一，再按 `anchorFaults` 逐条判，再标连带、定附哪两句话
+ * （ADR-70 末尾「变异残留」第二片）。
+ *
+ * **先问编号**：报告按编号指回目录里那一行，两条重名时指不回（ADR-34）。这一步排在 `mutate.ts` 那道重复编号检查之前，
+ * 所以自己先问，用的是同一个 `duplicateIds`。先后有语义，所以在这里，不在入口（`docs/CONVENTIONS.md` 第 10 条）。
+ *
+ * **连带**：一处变异没还原，常把同一个文件里别的锚点一起弄坏 —— 它改掉的那段要是别的变异的 `find`，那一条就跟着
+ * 失效或不唯一（ADR-70 第一片那一节的逐条模拟）。照「改那条变异的 `find`」去改，就把好好的目录改坏了。所以：一条判成
+ * `stale` 或 `ambiguous` 的，同一个文件里又有一条判成 `residue` 或 `unclear`（分不开的也可能是没还原），标成 `knockOn`，
+ * 入口对它说「先撤那一处，再看」。`residue`、`unclear` 自己不标 —— 它们本身就是要先看的那一处，标了就成了互相指。
+ * 不替人猜哪条是源头。
+ *
+ * **附哪两句话**：有 `residue` 或 `unclear` 的，附「先看差异再动手」；有不是被连带的 `stale`、`ambiguous`、
+ * `unreadable` 的，附「改目录」。被连带的那几条不附「改目录」—— 先撤那一处，它们多半自己就好了。
+ */
+export function anchorVerdict(muts: readonly { id: string; file: string; find: string; replace: string }[],
+  read: (file: string) => string | undefined): AnchorVerdict {
+  const ids = duplicateIds([...muts])
+  if (ids.length) return { kind: 'duplicate', ids }
+  const found = anchorFaults(muts, read)
+  const sources = found.filter(f => f.kind === 'residue' || f.kind === 'unclear')
+  const faults = found.map(f => ({
+    ...f,
+    knockOn: (f.kind === 'stale' || f.kind === 'ambiguous') && sources.some(s => s.file === f.file),
+  }))
+  return {
+    kind: 'faults',
+    faults,
+    advice: { diff: sources.length > 0, catalog: faults.some(f => !f.knockOn && f.kind !== 'residue' && f.kind !== 'unclear') },
+  }
+}
+
+export type StagedFault = { kind: 'residue' | 'unclear' | 'unconfirmed'; id: string; file: string }
+
+/**
+ * 暂存区里躺着的变异：工作树上那一条对得上，暂存区里却是施加之后的样子（ADR-70 末尾「暂存区」一节；#457 上 CodeRabbit 第六轮）。
+ *
+ * 检查链第一步读的是工作树。变异被 `git add` 进了暂存区、工作树那一处后来又按回去了的，工作树上锚点完好，
+ * `anchorVerdict` 一条也不报 —— 下一次 `git commit` 却会把暂存区里那一处带进去。所以对暂存区再判一遍，只交回两种：
+ *
+ * - 只看**工作树上一条毛病都没有**的变异。工作树上已经报了的（任何一种），那条该先处理的是工作树，暂存区不再重复说。
+ * - 只交 `residue` 与 `unclear`（意思同 `anchorFaults` 那张表）。暂存区里锚点失效、不唯一、读不到，
+ *   多半是暂存了一版旧代码、或者那个文件根本没进暂存区，不是变异躺在那里。
+ * - **HEAD 上已是同一种的不交。** 改完还没 `git add` 时暂存区就是 HEAD 的旧代码：新写的「删一段」变异在旧代码里
+ *   必然分不开，「把修复按回去」的变异在旧代码里正是没还原 —— 那是暂存区还没跟上，不是暂存了变异
+ *   （复审拿主干上的提交模拟过：工作树取该提交、暂存区取父提交，不比 HEAD 时确有误报）。
+ *   HEAD 上已经提交了的残留不归这一步：那是已提交的，`git diff HEAD` 那条路去找。
+ * - **HEAD 里没有这个文件的，分不开的交 `unconfirmed`（认不准），不交 `unclear`。** 新文件先暂存一版旧稿（或 `git add -N`
+ *   只登记了一个空文件）、再在工作树里写上那段并登记删一段的变异，暂存区里那段本来就没有 —— 与上一条同理，是暂存区
+ *   没跟上，可 HEAD 里没有可比的（复审实测两种都误报）；而删一段的变异真暂存进去了，暂存区也正是这个样子，两种分不开
+ *   （#460 上 CodeRabbit 第一轮）。所以单列一种，由入口说「认不准」、不报错也不说查过。没还原的照交：暂存区里有
+ *   `replace`、没有 `find`，旧稿碰巧长这样的少。
+ *
+ * 读暂存区、读 HEAD 由调用方给：文件不在暂存区或 HEAD 里（没跟踪、新文件、不是 git 仓库）交 `undefined`；
+ * 暂存区与工作树一样的，交工作树那份也行，结论一样。判定不碰 git。
+ * **前提：编号唯一。** 按编号排除，两条同编号的会互相遮住；入口先过 `anchorVerdict`，重名时不调这一个。
+ */
+export function stagedResidue(muts: readonly { id: string; file: string; find: string; replace: string }[],
+  readWork: (file: string) => string | undefined, readIndex: (file: string) => string | undefined,
+  readHead: (file: string) => string | undefined): StagedFault[] {
+  const faultedInWork = new Set(anchorFaults(muts, readWork).map(f => f.id))
+  const rest = muts.filter(m => !faultedInWork.has(m.id))
+  const inHead = new Map(anchorFaults(rest, readHead).map(f => [f.id, f.kind]))
+  return anchorFaults(rest, readIndex)
+    .filter((f): f is StagedFault & AnchorFault => f.kind === 'residue' || f.kind === 'unclear')
+    .filter(f => inHead.get(f.id) !== f.kind)
+    .map(f => f.kind === 'unclear' && inHead.get(f.id) === 'unreadable' ? { ...f, kind: 'unconfirmed' as const } : f)
+}
+
+/**
+ * git 读不到暂存区时，是**这里本来就不是仓库**（没有下一次提交可带，暂存区那一步可以不做），还是 **git 出了别的毛病**
+ * （属主不符的 dubious ownership、`.git` 坏了、没装 git……仓库可能就在那里，暂存区里可能正躺着一条）。
+ * 只有前一种放过，其余都算没得核 —— 没得核不是核过了。认的是 `LC_ALL=C` 下 git 的那句原话；调用方要按这个语言起 git。
+ * 认的是**往上找仓库没找到**那一句（带括号里「或任何一层上级目录」，停在挂载点的那一种也算）：`GIT_DIR` 指向一个不存在的目录时
+ * git 也说「not a git repository」，可那时人明明在仓库里，只是环境变量指错了，放过就是对着仓库说「不是仓库，暂存区没查」（#460 上 CodeRabbit 第三轮）。
+ * ADR-70 末尾「变异残留：暂存区」第五片（复审实测：属主不符时 `git diff` 以 129 退出，旧入口当成不是仓库、以 0 退出）。
+ */
+export function notARepo(gitStderr: string): boolean {
+  return /^fatal: not a git repository \(or any (?:of the )?parent/m.test(gitStderr)
+}
+
+/**
+ * 把一条变异施加到源码上：`find` 的第一处换成 `replace`，**照字面**（ADR-70 末尾「施加照字面」一节）。
+ *
+ * `String.prototype.replace` 的字符串形式把替换文本里的 `$$`、`$&`、`` $` ``、`$'` 当记号展开，盘上写出的
+ * 就不是目录里登记的那一段 —— `M-D13-r` 登记的是两个 `$`，施加时只剩一个，顺带多改了一处。交一个函数进去，
+ * 它的返回值原样落盘。只换第一处：锚点要恰好一处，由开跑前那道体检拦，这里不另判。
+ */
+export function applyMutation(source: string, find: string, replace: string): string {
+  return source.replace(find, () => replace)
+}
+
 export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault | undefined {
   if (mut.by === undefined) return mut.kills === undefined ? undefined : 'kills-without-by'
   if (!Object.hasOwn(VERIFIERS, mut.by)) return 'unknown-verifier'
@@ -197,7 +462,7 @@ export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault 
 }
 
 /**
- * 验证者源码里**打完汇总立刻退出**的写法 —— 交回撞上的那一段,没撞上交回 `undefined`。
+ * 源码里的**硬退出**各在第几行 —— 验证者一处也不许有，交回空表才算过。
  *
  * 汇总是最后打的,紧跟着硬退出、而输出又接着管道(变异就是这么跑的),那一行可能还没
  * 写出去就被截掉:退出码非零、汇总没有,判定只能判 `crashed`。**一条真被抓到的变异被
@@ -208,13 +473,187 @@ export function wiringFault(mut: { by?: string; kills?: unknown }): WiringFault 
  * 顺带买到第二样:**没有提前退出,就没有绕过汇总的路** —— 自检原先「孤儿文件」那一条
  * 就是打完自己那句话直接退出,它的失败根本到不了汇总。
  *
- * ⚠️ 扫的是源码字面,**注释也算**(和 `mutate-restore.ts` 那条同步等法的判据同一处境)。
- * 只提名字不带括号的是散文,不算;要举反例得把那一串拼出来,别写成整串。
+ * **按语法树认，不按字面扫**（ADR-70 末尾「硬退出收口」一节；原先按正则扫，注释与字符串里长得一样的也算数，
+ * ADR-70 第 2077 行那张欠条）：认的是 `process.exit(…)` 与 `process['exit'](…)` 这两种调用（前面带 `globalThis.` 的也认），注释、字符串、
+ * 模板串里写全了的结构上就不是调用（同 `labelsOf`）。先把它赋给别的名字再调的认不出，不假装认得出。
+ * 套在调用目标或 `process` 外面的括号先剥掉：`(process.exit)(1)`、`(process).exit(1)` 没换名字，照认（#462 上 CodeRabbit 第一轮）。
  */
-const HARD_EXIT = /\bprocess\.exit\s*\(/
+const isProcessExit = (wrapped: Ts.Expression): boolean => {
+  const ts = typescript()
+  const bare = (e: Ts.Expression): Ts.Expression => ts.isParenthesizedExpression(e) ? bare(e.expression) : e
+  const callee = bare(wrapped)
+  if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return false
+  const named = ts.isPropertyAccessExpression(callee) ? callee.name.text
+    : ts.isStringLiteralLike(callee.argumentExpression) ? callee.argumentExpression.text : undefined
+  const owner = bare(callee.expression)
+  const isProcess = (ts.isIdentifier(owner) && owner.text === 'process')
+    || (ts.isPropertyAccessExpression(owner) && owner.name.text === 'process'
+        && ts.isIdentifier(owner.expression) && owner.expression.text === 'globalThis')
+  return named === 'exit' && isProcess
+}
 
-export function exitRace(source: string): string | undefined {
-  return HARD_EXIT.exec(source)?.[0]
+/** 一个调用在第几行（从 1 数），报给人看的那个数 */
+const lineOf = (tree: Ts.SourceFile, node: Ts.Node): number =>
+  tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1
+
+export function exitRace(source: string): number[] {
+  const ts = typescript()
+  const tree = ts.createSourceFile('source.ts', source, ts.ScriptTarget.Latest, true)
+  const lines: number[] = []
+  const visit = (node: Ts.Node): void => {
+    if (ts.isCallExpression(node) && isProcessExit(node.expression)) lines.push(lineOf(tree, node))
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  return lines
+}
+
+/** 入口的硬退出哪里没收口：出了收口函数的硬退出（`outside`），硬退出之前同一段里还有异步写（`async-before`） */
+export interface ExitFault { kind: 'outside' | 'async-before'; line: number }
+
+/**
+ * 一个**入口**的硬退出收没收口（ADR-70 末尾「硬退出收口」一节，还第 2082 行那张：`exitRace` 只查验证者，
+ * 查不到 `mutate.ts` 自己）。
+ *
+ * 入口跟验证者不一样，不能一处硬退出都没有：被打断时要当场杀干净、收目录、退出，等不了进程自己走完。
+ * 所以这里要的是**只有一处**：`process.exit` 只许出现在名叫 `helper` 的那个函数声明里（写成
+ * `function 名字(…): never`；赋给常量的箭头函数 TypeScript 认不出它不返回，这里也不认），那个函数先把要说的话
+ * 同步写出去再退出；别处出现一处，报一处 `outside`。
+ *
+ * 光收口还不够：先 `console.error` 一句、再退出，那一句照样是异步的，照样被掐。所以每一段语句里，叫 `helper`
+ * （或者叫一个里面会叫到 `helper` 的具名函数，比如被打断时那条 `hardStop`）的
+ * 那一句、或者直接硬退出的那一句，**之前**的同级语句里有 `console.` 的调用，报一处 `async-before` —— 收口函数
+ * 自己的函数体也照这样查。只看同一段：外面一层先打的报告行不算（那是正常输出，不是退出前那句话），
+ * 里面一层函数体里的也不算（定义在那儿，不是这一刻在写）。
+ *
+ * 从别的模块引进来、叫了就会退出的名字（比如 `mutate-restore.ts` 的 `onInterrupt`），这份源码里推不出来，
+ * 由调用方用 `imported` 交进来。
+ */
+export function exitFaults(source: string, helper: string, imported: readonly string[] = []): ExitFault[] {
+  const ts = typescript()
+  const tree = ts.createSourceFile('entry.ts', source, ts.ScriptTarget.Latest, true)
+  const faults: ExitFault[] = []
+  /** 这一句里（不进里面一层函数）有没有 `console.` 的调用 */
+  const writesConsole = (node: Ts.Node): boolean => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+        && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === 'console') return true
+    if (ts.isFunctionLike(node)) return false
+    return ts.forEachChild(node, writesConsole) === true
+  }
+  /**
+   * 叫了就会退出的名字：收口函数本身，加上标了 `: never`、函数体里（不进里面一层函数）叫了它们的具名函数 ——
+   * 一直推到不再多。不推的话，先 `console.error` 一句、再叫一个里面才 `helper` 的函数（`hardStop` 那样），就查不到了。
+   * 只认函数声明与赋给常量的箭头函数、函数表达式，而且要标 `: never`：没标的只是「有一条路会退出」（`dispatch`
+   * 出错时才收尾），叫它之前打的是正常输出，不是退出前那句话；标了 `never` 而不退出，TypeScript 自己会报。
+   */
+  const named = new Map<string, Ts.Node>()
+  const never = (fn: Ts.SignatureDeclaration): boolean => fn.type?.kind === ts.SyntaxKind.NeverKeyword
+  const collect = (node: Ts.Node): void => {
+    if (ts.isFunctionDeclaration(node) && node.name !== undefined && node.body !== undefined && never(node)) {
+      named.set(node.name.text, node.body)
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined
+        && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) && never(node.initializer)) {
+      named.set(node.name.text, node.initializer.body)
+    }
+    ts.forEachChild(node, collect)
+  }
+  collect(tree)
+  const exiting = new Set([helper, ...imported])
+  /** 这一段里（不进里面一层函数）有没有叫一个会退出的名字 */
+  const callsExiting = (node: Ts.Node): boolean => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && exiting.has(node.expression.text)) return true
+    if (ts.isFunctionLike(node)) return false
+    return ts.forEachChild(node, callsExiting) === true
+  }
+  for (let grew = true; grew;) {
+    grew = false
+    for (const [name, body] of named) {
+      if (!exiting.has(name) && callsExiting(body)) { exiting.add(name); grew = true }
+    }
+  }
+  /** 这一句是不是「退出」：叫会退出的名字，或者直接硬退出；`return`／`throw` 着的、`await`／`void` 包着的、
+   *  不带花括号的 `if` 子句里的也算 */
+  const exits = (statement: Ts.Statement): boolean => {
+    if (ts.isIfStatement(statement)) {
+      return exits(statement.thenStatement) || (statement.elseStatement !== undefined && exits(statement.elseStatement))
+    }
+    let e = ts.isExpressionStatement(statement) || ts.isReturnStatement(statement) || ts.isThrowStatement(statement)
+      ? statement.expression : undefined
+    while (e !== undefined && (ts.isAwaitExpression(e) || ts.isVoidExpression(e) || ts.isParenthesizedExpression(e))) e = e.expression
+    if (e === undefined || !ts.isCallExpression(e)) return false
+    return (ts.isIdentifier(e.expression) && exiting.has(e.expression.text)) || isProcessExit(e.expression)
+  }
+  const checkList = (statements: readonly Ts.Statement[]): void => {
+    let wrote = false
+    for (const st of statements) {
+      if (wrote && exits(st)) faults.push({ kind: 'async-before', line: lineOf(tree, st) })
+      if (writesConsole(st)) wrote = true
+    }
+  }
+  const walk = (node: Ts.Node, inHelper: boolean): void => {
+    if (ts.isCallExpression(node) && isProcessExit(node.expression) && !inHelper) {
+      faults.push({ kind: 'outside', line: lineOf(tree, node) })
+    }
+    if (ts.isSourceFile(node) || ts.isBlock(node) || ts.isCaseClause(node) || ts.isDefaultClause(node)) {
+      checkList(node.statements)
+    }
+    const inside = inHelper || (ts.isFunctionDeclaration(node) && node.name?.text === helper)
+    ts.forEachChild(node, child => walk(child, inside))
+  }
+  walk(tree, false)
+  return faults.sort((x, y) => x.line - y.line)
+}
+
+/**
+ * 「这是不是一条具名夹具」—— `groupOfLabel` 与 `labelsOf` 两个 walk 共用这一处（ADR-99 第 316 行）。
+ *
+ * 三条判据：调用的是光秃秃一个名字（`别的对象.eq(…)` 不是那个函数）、名字在 `declared` 里、
+ * 首参是字符串字面量或不带插值的反引号串（两种都静态定得下来）。是就交回标签，不是交回 `undefined`。
+ * 原先这三条在两个 walk 里各写了一份，改一处另一处不跟（ADR-25：一个判断只放一处）。
+ * 「`group('<id>', …)` 开了一组」也是同一种形状，`groupOfLabel` 拿只装着 `group` 的集合问它。
+ */
+function fixtureLabel(node: Ts.Node, declared: { has(name: string): boolean }): string | undefined {
+  const ts = typescript()
+  if (!ts.isCallExpression(node)) return undefined
+  const callee = ts.isIdentifier(node.expression) ? node.expression.text : undefined
+  const first = node.arguments[0]
+  const label = first !== undefined && ts.isStringLiteralLike(first) ? first.text : undefined
+  return callee !== undefined && declared.has(callee) ? label : undefined
+}
+
+const OPENS_GROUP = new Set(['group'])
+
+/**
+ * 每条夹具标签属于哪一组 —— 把负片 `kills` 点名的夹具翻成 `--only` 要的组 id。
+ *
+ * 「什么算给夹具起名」与 `labelsOf` 共用 `fixtureLabel`。语法树仍是两棵（这里与 `labelsOf`
+ * 各 `createSourceFile` 一次；`executionRoutes` 读一次源码、两个 walk 都喂它；`mutate.ts` 的 `inventoryOf` 另读一次、再跑一遍 `labelsOf`）；
+ * 合成一趟同时产出两张表是可以的，没做 —— 两趟各花一次解析，判据只有一份。
+ *
+ * 认的是 `group('<id>', [...], () => { … })` 这个**代码结构**本身，不认任何注释约定 ——
+ * 注释里的分节线只是装饰，改了不影响这里。
+ *
+ * 重名不在这里判：`labelsOf` 的计数那道闸已经管着「同一个标签出现不止一次」，
+ * 这里只记第一处，免得两处各自报一遍同一件事（ADR-25：一个判断只放一处）。
+ */
+export function groupOfLabel(source: string, declares: readonly string[]): Map<string, string> {
+  const ts = typescript()
+  const out = new Map<string, string>()
+  const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
+  const declared = new Set(declares)
+  const walk = (node: Ts.Node, group: string | undefined): void => {
+    let inner = group
+    const opened = fixtureLabel(node, OPENS_GROUP)
+    if (opened !== undefined) inner = opened
+    else {
+      const fixture = fixtureLabel(node, declared)
+      if (fixture !== undefined && group !== undefined && !out.has(fixture)) out.set(fixture, group)
+    }
+    ts.forEachChild(node, n => walk(n, inner))
+  }
+  walk(tree, undefined)
+  return out
 }
 
 /**
@@ -236,63 +675,18 @@ export function exitRace(source: string): string | undefined {
  * 带插值的、传变量的(`run(label, …)` 这种转发)定不下来,定不下来就不进清册:
  * 清册唯一的用途是「点的这条真的在」,小了是拦住,大了是放行。
  */
-/**
- * 每条夹具标签属于哪一组 —— 把负片 `kills` 点名的夹具翻成 `--only` 要的组 id。
- *
- * **它和 `labelsOf` 各扫一遍，判定重复了一份 —— 照实写，别否认。** 共享的只有
- * `declares` 这个参数值：语法树两棵（这里与 `labelsOf` 各 `createSourceFile` 一次），
- * 调用侧也两趟（`mutate.ts` 的 `inventoryOf` 与 `onlyFor` 各读一次文件）。
- * 「什么算给夹具起名」这个判定在两处各写了一份：callee 只认光秃秃的 Identifier、
- * 首参只认 `isStringLiteralLike`、名字要在 `declares` 里。
- * **改 `labelsOf` 那三条判据时，这里要跟着改。** ADR-25 说的是「一个判断只放一处」，
- * 这里没做到；合成一趟同时产出两张表是可以的，本条没做，欠条在 ADR-99 第八节。
- *
- * 认的是 `group('<id>', [...], () => { … })` 这个**代码结构**本身，不认任何注释约定 ——
- * 注释里的分节线只是装饰，改了不影响这里。
- *
- * 重名不在这里判：`labelsOf` 的计数那道闸已经管着「同一个标签出现不止一次」，
- * 这里只记第一处，免得两处各自报一遍同一件事（ADR-25：一个判断只放一处）。
- */
-export function groupOfLabel(source: string, declares: readonly string[]): Map<string, string> {
-  const out = new Map<string, string>()
-  const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
-  // **用 Set 查，不要照抄 `labelsOf` 里那句 includes。** 照抄的话同一串字面量在这个
-  // 文件里出现两次，而 `mutate` 只检查锚点在不在、不检查唯一不唯一
-  // （它用的是字符串版 `replace`，只改第一处）。实测：`M-H20-b` 本该改 `labelsOf`，
-  // 结果改了这里，而这里当时还没有测试守着 —— 它「存活」了一整轮全链。
-  const declared = new Set(declares)
-  const walk = (node: Ts.Node, group: string | undefined): void => {
-    let inner = group
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-      const name = node.expression.text
-      const first = node.arguments[0]
-      const label = first !== undefined && ts.isStringLiteralLike(first) ? first.text : undefined
-      if (name === 'group' && label !== undefined) inner = label
-      else if (label !== undefined && group !== undefined && declared.has(name)
-               && !out.has(label)) out.set(label, group)
-    }
-    ts.forEachChild(node, n => walk(n, inner))
-  }
-  walk(tree, undefined)
-  return out
-}
-
 export function labelsOf(source: string, declares: readonly string[]): Map<string, number> {
+  const ts = typescript()
   const seen = new Map<string, number>()
   const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
-  const literal = (node: Ts.Node | undefined): string | undefined =>
-    node !== undefined && ts.isStringLiteralLike(node) ? node.text : undefined
-  /** 调的是谁 —— 只认光秃秃一个名字。`别的对象.eq(…)` 不是那个函数,交回 `undefined` */
-  const callee = (node: Ts.CallExpression): string | undefined =>
-    ts.isIdentifier(node.expression) ? node.expression.text : undefined
+  // 名字不同于 `groupOfLabel` 里那个 `declared`，是故意的：变异的锚点在文件里必须只出现一次
+  // （出现两次就按有歧义拒掉），两处写成同一串字面量，`M-H43-b` 与 `M-H20-b` 就各钉不住自己那一侧
+  const known = new Set(declares)
   const walk = (node: Ts.Node): void => {
-    if (ts.isCallExpression(node)) {
-      const name = callee(node)
-      const label = literal(node.arguments[0])
-      if (name !== undefined && declares.includes(name) && label !== undefined) {
-        const had = seen.get(label)
-        seen.set(label, had === undefined ? 1 : had + 1)
-      }
+    const label = fixtureLabel(node, known)
+    if (label !== undefined) {
+      const had = seen.get(label)
+      seen.set(label, had === undefined ? 1 : had + 1)
     }
     ts.forEachChild(node, walk)
   }
@@ -335,19 +729,13 @@ export const exemptionLead = (covered: boolean): string =>
  * 一个**入口**的源码里,那句豁免行是不是从判定取的 —— **按语法树**问,不是按字面扫。
  *
  * 同一句话有三处入口在印(`mutate` 的 `--brief` 与整跑、`audit` 的报告)。`mutate`
- * 那两处各有一个自检夹具真跑一遍、断言输出;`audit` 那一处**没有** —— 给它造夹具要把
- * `audit` 加进自检的工具表(`runTool` 的形参类型就是那张表的键,起一个表里没有的
- * 编译期都过不去),而那张表同时是隔离判据的种子来源:闭包会跟着撑大
- * (多收 `audit.ts` 自己,带上 `audit-rule` / `spec-rule` / `quoted`),此后能被自检验证的变异空间
- * 也跟着缩小。为一行报告付这个代价不划算(#91 第二轮评审要的是给 `audit` 也造夹具,
- * 这里是实测之后另选的路)。
+ * 那两处各有自检夹具启动入口、断言输出；`audit` 的输出级夹具在 `audit-entry`，
+ * 经自检工具表启动普通报告，按实际关联资料核两类显式豁免。工具表同时是基础设施闭包的
+ * 种子来源，登记 audit 会扩大闭包；不能为输出夹具绕过自己验自己判据添加官方自检负片。
  *
- * 退而求其次:扫源码,问「这个入口还在调那个判定吗」。**它比输出级的夹具弱**,两层弱:
- * 一是只证明调用还在,不证明印出来的话对 —— 调用留着、把结果丢掉照样绿;二是它**按文件
- * 问**,`mutate.ts` 里那两处调用断了哪一处它分不出来。
- * 但它挡得住评审点名的那个坏法(把整句话换回写死的字面量),而且零代价、不动闭包;
- * `mutate` 那两处另有夹具真跑着断言输出,所以这条判定真正独自扛的是 `audit` 那一处。
- * ⚠️ 这条差额记在 ADR-70 的欠条里。
+ * 这里保留较弱的源码接线判定：只问「这个入口还在调那个判定吗」，不证明输出正确；
+ * 调用保留、结果丢掉仍可能通过，而且按文件问，分不出同文件中断了哪一处。
+ * 输出级夹具与这层判定各保留原边界，不把源码调用存在当作报告语义证据（ADR-70）。
  *
  * **头一版写成正则,评审当场指出洞在哪**:`// exemptionLead(exemptionCovered(x, y))`
  * 也算数,于是真调用删掉、同一句话留在注释或串里,这条断言照样绿 —— **它证不了
@@ -356,6 +744,7 @@ export const exemptionLead = (covered: boolean): string =>
  * `StringLiteral` 节点的值,结构上就不是调用。
  */
 export function leadWired(source: string): boolean {
+  const ts = typescript()
   const tree = ts.createSourceFile('entry.ts', source, ts.ScriptTarget.Latest, true)
   /** 调的是不是光秃秃这个名字 —— `别的对象.exemptionLead(…)` 不是那个函数 */
   const callTo = (node: Ts.Node | undefined, name: string): node is Ts.CallExpression =>
@@ -588,6 +977,7 @@ export interface RouteSnapshot {
 
 /** 只接受现有两种字面登记；合法无分组验证者仍可全跑，读不懂不能变成空布局。 */
 function routeLayout(source: string): Group[] {
+  const ts = typescript()
   const tree = ts.createSourceFile('verifier.ts', source, ts.ScriptTarget.Latest, true)
   if ((tree as Ts.SourceFile & { parseDiagnostics: readonly Ts.Diagnostic[] }).parseDiagnostics.length) {
     throw new Error('验证者源码无法解析')
@@ -715,4 +1105,64 @@ export function routeDelta(base: RouteSnapshot, head: RouteSnapshot): {
   const verifiers = new Set([...Object.keys(base.layouts), ...Object.keys(head.layouts)])
   const layoutChanges = [...verifiers].filter(by => JSON.stringify(base.layouts[by]) !== JSON.stringify(head.layouts[by]))
   return { changes, faults, layoutChanges }
+}
+
+type RouteChange = ReturnType<typeof routeDelta>['changes'][number]
+
+/**
+ * 维护报告的呈现分组（ADR-120 第 74 行，KOL-32）：按「基线目录里有没有这条、现在的路由里有没有这条」分新增、删除、
+ * 改配置三类 —— 与 `routeDelta` 判新增、判删除用的是同一对来源。`routeDelta` 的 kind 与判定一字不动：同一条变化
+ * 照旧带着它的 kind，只是换个地方列。三类合起来就是原清单；每类里先列路由/全跑正文变化、再列执行配置变化，
+ * 各自照原清单的先后，评审先看到要解释的那几条。
+ */
+export function groupRouteChanges(base: RouteSnapshot, head: RouteSnapshot, changes: readonly RouteChange[]):
+  { added: RouteChange[]; removed: RouteChange[]; changed: RouteChange[] } {
+  const before = new Set(base.mutations.map(m => m.id)), after = new Set(head.routes.map(r => r.id))
+  const groups = { added: [] as RouteChange[], removed: [] as RouteChange[], changed: [] as RouteChange[] }
+  for (const change of changes) {
+    if (!before.has(change.id)) groups.added.push(change)
+    else if (!after.has(change.id)) groups.removed.push(change)
+    else groups.changed.push(change)
+  }
+  const routeFirst = (list: RouteChange[]) => [...list.filter(change => change.kind !== 'configuration'),
+    ...list.filter(change => change.kind === 'configuration')]
+  return { added: routeFirst(groups.added), removed: routeFirst(groups.removed), changed: routeFirst(groups.changed) }
+}
+
+const KIND_NAMES: Record<RouteChange['kind'], string> = { 'added-full': '新增全跑', 'back-to-full': '选跑退回全跑',
+  'changed-full': '旧全跑正文改变', configuration: '执行配置改变' }
+
+/**
+ * 维护比较的报告正文（不含抬头那一行）：摘要在前，完整清单在后，按新增、删除、改配置分三段，验证者布局变化殿后。
+ * `explain` 给某条变异的全跑解释（没有就 undefined），有就在那一条下面跟一行。只拼字，不判。
+ */
+export function routeReport(base: RouteSnapshot, head: RouteSnapshot, delta: ReturnType<typeof routeDelta>,
+  explain: (id: string) => { reason?: unknown; recheck_when?: unknown } | undefined): string[] {
+  const groups = groupRouteChanges(base, head, delta.changes)
+  const before = new Map(base.routes.map(r => [r.id, r])), after = new Map(head.routes.map(r => [r.id, r]))
+  const describe = (r: RouteSnapshot['routes'][number] | undefined): string => r === undefined ? '不存在'
+    : `${r.by} ${r.only === undefined ? '全跑' : `选组 ${r.only.join(',')}`}（执行 ${r.executes.join(',') || '无分组'}）`
+  const count = (kind: RouteChange['kind']) => delta.changes.filter(change => change.kind === kind).length
+  const lines = [
+    `  新增 ${groups.added.length} 条，删除 ${groups.removed.length} 条，改配置 ${groups.changed.length} 条；`
+      + `其中路由/正文 ${delta.changes.length - count('configuration')} 条（新增全跑 ${count('added-full')}，`
+      + `选跑退回全跑 ${count('back-to-full')}，旧全跑正文改变 ${count('changed-full')}），执行配置 ${count('configuration')} 条；`
+      + `验证者布局 ${delta.layoutChanges.length} 份`,
+  ]
+  const section = (title: string, list: readonly RouteChange[]) => {
+    lines.push(`  ${title}（完整清单，${list.length} 条）：`)
+    if (!list.length) lines.push('    无')
+    for (const change of list) {
+      lines.push(`    ${change.id} ${KIND_NAMES[change.kind]}：${describe(before.get(change.id))} → ${describe(after.get(change.id))}`)
+      const explanation = explain(change.id)
+      if (explanation !== undefined) lines.push(`      全跑原因：${explanation.reason}；重评条件：${explanation.recheck_when}`)
+    }
+  }
+  section('新增', groups.added)
+  section('删除', groups.removed)
+  section('改配置', groups.changed)
+  for (const by of delta.layoutChanges) {
+    lines.push(`  ${by} 分组依赖/顺序变化：${JSON.stringify(base.layouts[by])} → ${JSON.stringify(head.layouts[by])}`)
+  }
+  return lines
 }

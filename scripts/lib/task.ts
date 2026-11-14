@@ -6,6 +6,17 @@ import { readCostDocument, stringifyCostJson } from './cost-json.js'
 import type { CostSnapshot } from './cost-ledger.js'
 import { ReviewInputError } from './review.js'
 
+/**
+ * D29.a：新任务的目录由产品名拼成、建在 `output/` 底下（下面的 `taskDir`）。这三种字符拼不成一层目录名：
+ * `/` 在哪儿都是路径分隔符（`../x` 会落到 `output/` 以外），`\` 在 Windows 上是，NUL 放不进文件名。
+ * 只由点组成的产品名不算 —— 时间戳接在它后面，`..-<时间戳>` 不是上一级（D29.b）
+ */
+const DIR_BREAKERS: readonly (readonly [string, string])[] = [['/', '/'], ['\\', '\\'], ['\u0000', 'NUL（U+0000）']]
+export const productDirProblem = (product: string): string | undefined => {
+  const found = DIR_BREAKERS.filter(([c]) => product.includes(c)).map(([, name]) => name)
+  return found.length ? `含 ${found.join('、')} —— 它要拼成 output/ 底下的一层任务目录名，这几个字符会让目录落到别处或建不出来` : undefined
+}
+
 export function taskDir(product: string, timestamp?: string): string {
   const ts = timestamp ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
   return join('output', `${product}-${ts}`)
@@ -56,19 +67,65 @@ function readOptionalReviewCreators(file: string): Creator[] | undefined {
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return undefined
     throw new ReviewInputError([`${file} 无法检查：${String(error)}`])
   }
+  let creators: unknown
   try {
-    const creators: unknown = JSON.parse(readFileSync(file, 'utf8'))
+    creators = JSON.parse(readFileSync(file, 'utf8'))
     if (!Array.isArray(creators)) throw new Error('名单必须是数组')
-    return creators as Creator[]
   } catch (error) { throw new ReviewInputError([`${file} 无法读入名单：${String(error)}`]) }
+  const problems = creators.flatMap((creator, index) => recordShapeProblems(file, index, creator))
+  if (problems.length) throw new ReviewInputError(problems)
+  return creators as Creator[]
+}
+
+/** 原值按 JSON 写法给出，过长截短；嵌套深到印不出时照直说（ADR-136 那类栈溢出）。 */
+const shown = (value: unknown): string => {
+  let text: string
+  try { text = JSON.stringify(value) } catch { return '一个嵌套太深、印不出来的值' }
+  return text.length > 80 ? `${text.slice(0, 77)}…` : text
+}
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * D21.t：名单被手改坏时，在读入处就指出是哪个文件、第几条、哪个字段 ——
+ * 不然它要到后面的同人识别、打分里才以 `toLowerCase is not a function` 一类的话崩掉。
+ * 只查会崩或会错的这几种（逐字段试探 render 得出，ADR-192）；其余字段的类型不在此查。
+ */
+function recordShapeProblems(file: string, index: number, creator: unknown): string[] {
+  const at = `${file} 第 ${index + 1} 条`
+  if (!isRecord(creator)) return [`${at}不是一条记录（读到 ${shown(creator)}），应是一个对象；改正或删掉这条后再跑`]
+  const who = typeof creator.platform === 'string' && typeof creator.handle === 'string'
+    ? `（platform ${shown(creator.platform)}，handle ${shown(creator.handle)}）` : ''
+  const wrong = (field: string, expected: string) => {
+    const value = creator[field]
+    return `${at}${who}的 ${field} ${value === undefined ? '缺席' : `是 ${shown(value)}`}，应是${expected}；改正这条后再跑`
+  }
+  const problems: string[] = []
+  for (const field of ['platform', 'handle']) if (typeof creator[field] !== 'string') problems.push(wrong(field, '字符串'))
+  const links = creator.bio_links
+  if (!Array.isArray(links) || !links.every(link => typeof link === 'string')) problems.push(wrong('bio_links', '字符串数组（没有外链时写 []）'))
+  const posts = creator.recent_posts
+  if (posts !== undefined && posts !== null && (!Array.isArray(posts) || !posts.every(isRecord)))
+    problems.push(wrong('recent_posts', '作品对象的数组（未查询时删掉这个字段）'))
+  const sources = creator.discovery_sources
+  if (sources !== undefined && sources !== null && (!Array.isArray(sources) || !sources.every(isRecord)))
+    problems.push(wrong('discovery_sources', '来源对象的数组（来源未知时删掉这个字段）'))
+  return problems
 }
 
 /** D21/D23：只读原名单与累加器；只有确认路径缺席才采用旧名单 clone。 */
 export function loadReviewCreatorInputs(dir: string): {
   previous: Creator[]; raw: Creator[]; rawPresent: boolean
 } {
-  const previous = readOptionalReviewCreators(join(dir, 'creators.json')) ?? []
-  const raw = readOptionalReviewCreators(join(dir, RAW))
+  // 两个文件各自读完再一起报，用户改一次就能把两处都改对
+  const problems: string[] = []
+  const read = (file: string): Creator[] | undefined => {
+    try { return readOptionalReviewCreators(file) }
+    catch (error) { if (!(error instanceof ReviewInputError)) throw error; problems.push(...error.problems) }
+  }
+  const before = read(join(dir, 'creators.json')), raw = read(join(dir, RAW))
+  if (problems.length) throw new ReviewInputError(problems)
+  const previous = before ?? []
   return { previous, raw: raw ?? structuredClone(previous), rawPresent: raw !== undefined }
 }
 

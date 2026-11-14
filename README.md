@@ -63,7 +63,7 @@ render 导出的 CSV/HTML 先按有效采用建议，再按原分层与分数排
 
 ## 不做什么
 
-- 不实际发送邮件，只生成草稿
+- 不实际发送邮件，只生成草稿；用户自己接了邮箱工具并明说要放时，Agent 可以把草稿存进他邮箱的草稿箱，仍不发送（ADR-190）
 - 不做 CRM 跟进、付款、寄样物流或投放效果归因
 - 不主动索取发信结果；联系、回复和屏蔽状态由外部手动维护
 - 不支持抖音、小红书、快手等中国大陆平台
@@ -101,6 +101,7 @@ scripts/
 ├── render.ts                    计分、分层和交付物生成
 ├── feedback-template.ts         已保存冻结池的人工复评模板创建／追加
 ├── calibration.ts               任务品牌校准的内容哈希版本（calibration version）
+├── sender.ts                    任务建好后补发件人姓名（sender_name）
 ├── lib/                         预算、邮箱、身份、记忆、CSV/XLSX 等
 ├── providers/                   数据源实现
 └── check/                       纪律检查、变异测试、自检和审计
@@ -176,17 +177,22 @@ npm run --silent feedback-template -- --dir output/xxx
 
 # 保留已有人工作答，只追加冻结池中缺席的平台账号
 npm run --silent feedback-template -- --dir output/xxx --append
+
+# 任务建好后才给的发件人姓名，补进 task.json（不请求 API）
+npm run --silent sender -- --dir output/xxx --name "Eric"
 ```
 
-各脚本将结构化结果写入 `stdout`、进度或诊断写入 `stderr`；机械消费使用 `npm run --silent` 去掉 npm 自身 banner。每次请求按固定端点价检查剩余额度；`--budget 3` 是总上限 $3。collect/enrich 额度不足且保存成功才退出 `3`；初始费用/输入问题退出 `2`，运行或保存失败退出 `1`。旧费用未知仍可导出及做零请求本地处理，不能靠增加上限补造历史账。费用契约见 [ADR-108](docs/adr/ADR-108-生产请求与输出统一使用逐端点费用账.md)。
+各脚本将结构化结果写入 `stdout`、进度或诊断写入 `stderr`；机械消费使用 `npm run --silent` 去掉 npm 自身 banner。每次请求按固定端点价检查剩余额度；`--budget 3` 是总上限 $3。collect/enrich 额度不足且保存成功才退出 `3`；初始费用/输入问题退出 `2`，保存失败退出 `6`，供应商余额不足（402）退出 `5`，collect 达标停下退出 `4`，跨任务记忆读不出来退出 `7`，其他运行错误退出 `1`（四个入口共用一套，见 [ADR-193](docs/adr/ADR-193-四个入口的退出码按调用方该做的事分号.md)）。旧费用未知仍可导出及做零请求本地处理，不能靠增加上限补造历史账。费用契约见 [ADR-108](docs/adr/ADR-108-生产请求与输出统一使用逐端点费用账.md)。
 
-probe 与 collect 要求 `tasks` 至少包含一个任务，每项明确写出非空白 `keyword`、四维之一的 `dimension` 和 `tiktok`/`instagram` 的 `platform`。坏任务与 IG 路线问题会带文件路径一起报告，退出 `2`，不请求或写任务文件；旧任务续跑（含 `--budget`）同样整表检查，不补默认字段、不跳过坏项（D16）。
+自动化测试另有一套观察用的开关（契约 kol-test-observer/v1）：设了 `KOL_TEST_OBSERVER_EVENTS`（值是一个文件路径），collect、probe、enrich 会把观察用的记录写进那个文件，`stdout` 和 `stderr` 都不因此多写（只有那个文件打不开或写不进时，入口在 `stderr` 说明原因、以 1 退出）；这时当前目录里放了 `.kol-save-fault.json`，collect 会照它指定的保存点和次数，试着让那一次保存故意失败：注入了就在那个文件里写一条命中记录；到退出都没注入（没走到那一次，或控制文件不合格）就写一条未命中记录。平时不用设、也不应该放这个文件；格式与规则见[输出说明](skill/references/output-format.md#测试观察用的记录文件与保存失败注入契约-kol-test-observerv1)。
 
-`market` 须为非空白字符串，collect 的 `target_count` 须为有限数；合规原值保留，不另加国家或人数范围限制。新 collect / probe 仅在市场缺席时用 US，并在 stderr 说明默认；新 collect 仅在人数缺席时用 50，probe 不校验人数。显式 null 不算缺席，旧任务缺任一字段直接拒绝。字段问题按输入路径与任务、路线问题一起报告（collect 的 CLI 预算及新建预算须合规），退出 `2`，不建任务目录、不写任务、不预留、不请求；改额续跑也保留原 task.json（D17）。配置文件里同一个对象把同一个键写了不止一次（`budget_usd` 写了两个数、某个任务里 `keyword` 写了两次）时读入只留最后一处，collect --config 与 probe 把它与上面这些问题一起报告，按先后列出每一处原文，同样退出 `2`、不开账不请求（D28）。
+probe 与 collect 要求 `tasks` 至少包含一个任务，每项明确写出非空白 `keyword`、四维之一的 `dimension` 和 `tiktok`/`instagram` 的 `platform`。坏任务与 IG 路线问题会带文件路径一起报告，退出 `2`，不请求或写任务文件；`as_hashtag` 只能缺席或为布尔，非布尔同样前置拒绝并报告原任务序号、字段与 JSON 原值（D15.n）；旧任务续跑（含 `--budget`）同样整表检查，不补默认字段、不跳过坏项（D16）。
+
+`market` 须为非空白字符串，collect 的 `target_count` 须为有限数；合规原值保留，不另加国家或人数范围限制。新 collect / probe 仅在市场缺席时用 US，并在 stderr 说明默认；新 collect 仅在人数缺席时用 50，probe 不校验人数。显式 null 不算缺席，旧任务缺任一字段直接拒绝。字段问题按输入路径与任务、路线问题一起报告（collect 的 CLI 预算及新建预算须合规），退出 `2`，不建任务目录、不写任务、不预留、不请求；改额续跑也保留原 task.json（D17）。配置文件里同一个对象把同一个键写了不止一次（`budget_usd` 写了两个数、某个任务里 `keyword` 写了两次）时读入只留最后一处，collect --config 与 probe 把它与上面这些问题一起报告，按先后列出每一处原文，同样退出 `2`、不开账不请求（D28）。配置根上可选的 `sender_name`（发件人姓名，给 Agent 写开发信署名用）出现时须为非空白字符串，collect 新建时原值存进 `task.json`、续跑原样保留，缺席不补；任务建好后才给的用 `npm run sender -- --dir <dir> --name <姓名>` 补进，只换这一个键（保存时 `updated_at` 照例刷新；不要与同一任务的 collect、enrich、render、`calibration version` 或另一条 sender 同时运行，后写的会盖掉先写的，D30.g、D30.h）；不合规同样退出 `2`、不开账不请求（D30）。
 
 collect 续跑还会先检查 `task.json` 的已完成索引和分页统计；损坏时指出文件及字段，退出 `2`，不改写原文件或发请求。旧目录缺少整张统计表可继续，缺失仍保留为历史未知（D19）。同一个进度键（已完成索引或某张统计表里的同一项）在文件里写了不止一次也算损坏，stderr 按先后列出每一处原文（数字与字符串照原文，对象与数组只标出 `{…}`、`[…]`，那几处要到 `task.json` 里看；D19.k–l）；enrich 与要写盘的 `calibration version` 遇到同样的重复也退出 `2`、不写回（D19.m–n）。进度以外的位置写重复也一样：`task.json` 任一层同一个对象里同一个键写了不止一次（`tasks` 写了两遍、`requests` 写了两个数、某个任务里 `keyword` 写了两次），collect 续跑、enrich、render 与 `feedback-template` 都在任何写入与请求之前退出 `2`，要写盘的 `calibration version` 同样退出 `2`，按先后列出每一处原文（D27）。render 导出前也检查已完成索引和分页统计（与上面 collect 续跑同一判据，含进度键写重复），损坏时同样退出 `2`，不写名单、交付物与跨任务记忆，报告里不会出现由坏统计印出的 `Infinity`（D19.h–j）。
 
-collect、enrich、render 在改预算、预留、请求或交付写入前校验 Agent 正本、冻结来源及已有人工反馈。读取失败、坏 JSON、游离账号或冲突人工行会指出实际文件和位置，以退出码 `2` 拒绝；正本真实保存失败退出 `1`。只确认 `creators.raw.json` 路径缺席时才使用旧名单的采集证据，已有坏原件不能当作缺席；enrich 和 render 不改写采集原件或人工表。
+collect、enrich、render 在改预算、预留、请求或交付写入前校验 Agent 正本、冻结来源及已有人工反馈。读取失败、坏 JSON、游离账号或冲突人工行会指出实际文件和位置，以退出码 `2` 拒绝；正本真实保存失败退出 `6`。只确认 `creators.raw.json` 路径缺席时才使用旧名单的采集证据，已有坏原件不能当作缺席；enrich 和 render 不改写采集原件或人工表。
 
 `feedback-template` 只接受必填一次 `--dir` 和可选一次 `--append`，相对目录按调用 cwd 解析。只读校验任务（task.json 里有写重复的键也退出 `2`，D27.d）、已保存正本及冻结来源，要求完整 `creators.json` 数组；raw 仅真缺席时回退，合法直接关联由完整旧名单及 raw 提供。正本缺席时先由既有生产命令保存真实轮次，模板不迁移或冻结。默认已有人工文件均退出 `2` 防覆盖；显式追加先校验完整原表，保留旧字节，新账号七个人工字段全空，同账号不重复加行。合法无新增返回 `unchanged` 且实际不保存；其他输入问题退出 `2`，实际保存失败退出 `1` 并保原件，均无成功 JSON。成功 JSON 的 `file` 为绝对路径、`status` 为 create/append/unchanged、`added_accounts` 为新增平台账号行数。命令只保存人工目标，不改任务、名单、正本、raw、报告、memory 或费用账，不要求 key 或可付费账。填写与追加边界见[输出说明](skill/references/output-format.md#人工反馈模板d23d24d26)；生产 HTML 的默认全部与双筛选按 U10 启用，人工审核汇总及关键词按原任务、平台分列的冻结人工已审人数见同页 U11 说明。
 
@@ -194,9 +200,9 @@ collect、enrich、render 在改预算、预留、请求或交付写入前校验
 
 render 导出同样要求 `task.json` 至少保留一项合规搜索任务。任务文件读不到、JSON/根对象形状不合规或任务列表不合规时，报告路径和具体问题并退出 `2`，不改写或创建名单、交付物与跨任务记忆（D16.n–q）。`done` 与分页统计损坏时同样如此（D19.h–j）。需按原搜索配置恢复或修正真实任务记录，不能任意添加关键词冒充搜索范围。
 
-`memory/creators.json` 读不出来时（多半是手改 `contacted` 时改坏了），`collect.ts` 以退出码 `2` 结束且**不产出名单** —— 那个文件记着谁已经联系过，读不出来就无法保证不重复打扰。采集结果与预算状态完好，**已经抓到的不会重抓**；但续跑要不要花钱取决于活干完没有 —— 关键词全跑完、profile 也全补完才是零请求；有待查项还须费用状态允许付费，`stderr` 会说明剩余量及阻止原因（**别把它简化成「续跑免费」**）。确实需要在这种状态下拿名单，显式加 `--ignore-memory`，`meta.json` 与报告会声明本次未做去重（见 `docs/adr/` 的 ADR-15、ADR-25）。
+`memory/creators.json` 读不出来时（多半是手改 `contacted` 时改坏了），`collect.ts` 以退出码 `7` 结束且**不产出名单** —— 那个文件记着谁已经联系过，读不出来就无法保证不重复打扰。采集结果与预算状态完好，**已经抓到的不会重抓**；但续跑要不要花钱取决于活干完没有 —— 关键词全跑完、profile 也全补完才是零请求；有待查项还须费用状态允许付费，`stderr` 会说明剩余量及阻止原因（**别把它简化成「续跑免费」**）。确实需要在这种状态下拿名单，显式加 `--ignore-memory`，`meta.json` 与报告会声明本次未做去重（见 `docs/adr/` 的 ADR-15、ADR-25）。
 
-`render.ts` 每次重导出也会按当前记忆复核主账号及历史关联的账号；本次候选没有带关联字段时，仍沿记忆中的同人关系查已联系状态。记忆不可用时默认退出 `2`，保留旧交付；只有明确接受未去重风险时才在 render 命令上加 `--ignore-memory`，并在任务状态、`meta.json` 和报告中声明。
+`render.ts` 每次重导出也会按当前记忆复核主账号及历史关联的账号；本次候选没有带关联字段时，仍沿记忆中的同人关系查已联系状态。记忆不可用时默认退出 `7`，保留旧交付；只有明确接受未去重风险时才在 render 命令上加 `--ignore-memory`，并在任务状态、`meta.json` 和报告中声明。
 
 ## 交付物
 
@@ -206,7 +212,7 @@ render 导出同样要求 `task.json` 至少保留一项合规搜索任务。任
 output/{product}-{timestamp}/
 ├── report.html        单文件可读报告，支持分层切换和草稿复制
 ├── kol.xlsx           A/B/C 分 Sheet 的 Excel 名单
-├── kol.csv            适合脚本和其他工具读取的完整单表
+├── kol.csv            适合脚本和其他工具读取的完整单表（可能被当成公式的文字格多一个 '，逐字原值读 xlsx）
 ├── creators.json      最终筛选后的结构化名单与当前评审投影
 ├── creators.raw.json  原始采集累加器，断点续跑时只增不减
 ├── agent-review.json  Agent 判断、平台账号别名与冻结候选轮次的正本
@@ -219,7 +225,7 @@ output/{product}-{timestamp}/
 其中：
 
 - HTML 报告完全内联，不依赖外部样式或脚本
-- CSV 使用 UTF-8 BOM 并正确处理逗号、引号和换行
+- CSV 使用 UTF-8 BOM 并正确处理逗号、引号和换行；可能被表格软件当成公式的文字格前加一个 `'`
 - XLSX 始终包含 A/B/C 三个 Sheet，包括空分层
 - A 级候选附带可复制的英文开发信草稿
 - 公开指标按平台显示；跨平台创作者不会把两边粉丝和播放量混算
@@ -234,7 +240,7 @@ output/{product}-{timestamp}/
 npm run check
 ```
 
-完整检查有哪几步，正本是 `package.json` 的 `check` 脚本（人话版在 `AGENTS.md` 的「检查命令」那一行）。这里不抄 —— 抄一份就是一份会漂的副本，而它已经漂过一次：ADR-77 撤掉纪律 lint 之后，这句话在主干上说了一段时间的假话。CI 执行同一条命令 —— 推到 `main` 时，以及每个 pull request 上（`.github/workflows/check.yml`；**既不在 `main`、也没开 PR 的分支不跑**，代价与理由记在 ADR-97）。
+完整检查有哪几步，正本是 `package.json` 的 `check` 脚本（人话版在 `AGENTS.md` 的「检查命令」那一行）。这里不抄 —— 抄一份就是一份会漂的副本，而它已经漂过一次：ADR-77 撤掉纪律 lint 之后，这句话在主干上说了一段时间的假话。CI 跑的是同一组步骤，只是变异那一步分到三台 runner 上，与其余各步并行跑、不再排在自检之前（ADR-197）—— 推到 `main` 时，以及每个 pull request 上（`.github/workflows/check.yml`；**既不在 `main`、也没开 PR 的分支不跑**，代价与理由记在 ADR-97）。
 
 ## 当前已知边界
 

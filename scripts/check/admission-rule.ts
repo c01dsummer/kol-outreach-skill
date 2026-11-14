@@ -1,6 +1,6 @@
 /**
- * 准入读物包的判定（ADR-162）：给写测试的那个上下文出的四份读物里，需求单与变异说明怎么出，
- * 签名怎么扫，包目录在不在仓库里。入口在第二片（ADR-162 第六节）。
+ * 准入读物包的判定（ADR-202）：给写测试的那个上下文出的四份读物里，需求单与变异说明怎么出，
+ * 签名怎么扫，包目录在不在仓库里。入口在第二片（ADR-202 第六节）。
  *
  * 读的上下文手里只有这个包（`process/4-VERIFY.md`「给测试上下文一张准入读物清单」）。
  * 所以这里的每一处取舍都是在定「它看得见什么」：少收一条交点，它就写不出那条交点的测试；
@@ -16,7 +16,7 @@ import { exemptionCovered, exemptionLead } from './mutate-rule.js'
 const ts = createRequire(import.meta.url)('typescript') as typeof Ts
 
 /**
- * 原文里点到名的需求编号（ADR-162 第二节第 1 份第 4 条）。前面贴着 ASCII 字母、数字或下划线的不算，
+ * 原文里点到名的需求编号（ADR-202 第二节第 1 份第 4 条）。前面贴着 ASCII 字母、数字或下划线的不算，
  * 所以 `ADR-15`、`Phase 01` 不认（汉字不算字母，`与P4冲突` 照认）。「数字串后面不是数字」不另写：
  * `+` 是贪婪的，一次吃到底，`P10` 认成 `P10` 而不是 `P1`。`P1.e` 认成 `P1`。
  */
@@ -25,7 +25,7 @@ const REQ_TOKEN = /(?<![A-Za-z0-9_])[PSDFU][0-9]+/g
 const criteriaLines = (r: Req): string[] =>
   r.accept.length === 0 ? ['没有。'] : r.accept.map(c => `- **${c.id}** ${c.text}`)
 
-/** 第 1 份（ADR-162 第二节）。不出包时交理由 */
+/** 第 1 份（ADR-202 第二节）。不出包时交理由 */
 export function requirementSheet(reqs: readonly Req[], id: string):
   { ok: true; text: string } | { ok: false; reason: string } {
   const target = reqs.find(r => r.id === id)
@@ -60,7 +60,7 @@ export function requirementSheet(reqs: readonly Req[], id: string):
   return { ok: true, text: `${lines.join('\n')}\n` }
 }
 
-/** 第 4 份（ADR-162 第二节）。leaks 不空时入口不出包 */
+/** 第 4 份（ADR-202 第二节）。leaks 不空时入口不出包 */
 export function briefSheet(id: string,
   mutations: readonly { id: string; req: string; why: string }[],
   exemptions: readonly { req: string; why: string; scope?: string }[]):
@@ -111,7 +111,7 @@ const literal = (e: Ts.Expression): boolean => LITERALS.has(e.kind)
   || (ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.MinusToken
     && (ts.isNumericLiteral(e.operand) || ts.isBigIntLiteral(e.operand)))
 
-/** ADR-162 第三节。空单子 = 没找到 */
+/** ADR-202 第三节。空单子 = 没找到 */
 export function declarationFindings(text: string): string[] {
   const file = ts.createSourceFile('pack.d.ts', text, ts.ScriptTarget.Latest, true)
   const found: { at: number; what: string }[] = []
@@ -138,7 +138,7 @@ export function declarationFindings(text: string): string[] {
     .map(f => `第 ${file.getLineAndCharacterOfPosition(f.at).line + 1} 行：${f.what}`)
 }
 
-/** ADR-162 第四节。两个参数都是绝对路径 */
+/** ADR-202 第四节。两个参数都是绝对路径 */
 export function insideRoot(root: string, dir: string): boolean {
   const r = relative(root, dir)
   // 本身（`r` 是空串）也在里面。名字以 `..` 开头的子目录（`..cache`）在里面：只认整段的 `..`

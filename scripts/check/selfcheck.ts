@@ -25,6 +25,9 @@
  *
  * 死亡条件记在 ADR-85:一身三半,三半的答案不一样,所以没有整道的那一份。
  */
+import * as asHashtagCliFs from 'node:fs';
+import * as asHashtagCliPath from 'node:path';
+import * as asHashtagCliUrl from 'node:url';
 import {
   chmodSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, lstatSync, symlinkSync, utimesSync, realpathSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync, openSync,
 } from 'node:fs'
@@ -37,8 +40,9 @@ import { pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
 import { isDeepStrictEqual } from 'node:util'
 import { compileCacheDir, tsxCommand } from './tsx-cmd.js'
+import { asTsx, brandObserverEnv, fixtureLoader, prebuiltCommand } from './prebuilt.js'
 import {
-  ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, mutationSourceIdentity, sourceFiles,
+  CLAIMS_PATH, ENTRY_CLAIMS_PATH, claimsOwnedBy, claimsPublishable, fingerprint, mutationSourceIdentity, sourceFiles,
 } from './claims.js'
 import { countingEnv, parseLaunchLog } from './launch-count.js'
 import { SELFCHECK_LAUNCHES_FILE, SELFCHECK_LAUNCHES_SCHEMA } from './launch-rule.js'
@@ -51,7 +55,11 @@ import {
   selfcheckSummary,
 } from './verifier-rule.js'
 
-const EXEMPT: Record<string, string> = {}   // 目前无豁免
+const EXEMPT: Record<string, string> = {
+  // 只提醒、恒以 0 退出的入口，不在检查链里（CI 单列一步）。它在玩具 git 仓库上的真起由需求测试组
+  // `h-iou-file-reminder-entry` 做（改被点名的文件列出、改别的不列、改名、CI 输出、无从比较，每次都以 0 退出），这里不再起一遍（ADR-196）
+  'scripts/check/debt-touch.ts': '欠条点名提醒入口：需求测试组 h-iou-file-reminder-entry 在玩具仓库上真起',
+}
 
 /**
  * **入口认领**:哪几条验收判据是这一次端到端真跑过的。
@@ -96,8 +104,10 @@ const S = (f: string) => { covered.add(`scripts/${f}`); return resolve('scripts'
 const tmp = mkdtempSync(join(tmpdir(), 'kol-selfcheck-'))
 // **收尾那句 `rmSync(tmp)` 够不到顶层抛出去的那一路。** `--only` 点错组名会在
 // `runGroups` 里抛，那时目录已经建好、语料已经写盘，收尾一行都不跑，每敲错一次
-// 漏一个目录。照 `mutate.ts` 里 `restoreClaims` 的先例挂在 exit 上 —— 同样管不到
-// 信号杀进来的那一路，写在这儿是为了别把它当成已经保证了的事。
+// 漏一个目录。照 `mutate.ts` 里 `restoreClaims` 的先例挂在 exit 上 —— 信号杀进来的那一路它靠不住：
+// 裸 node 起时（变异的验证者、拆进程的子进程，ADR-158）三种打断都不跑它；经 tsx 起时 SIGINT／SIGTERM
+// 落在没卡在同步等里的真进程上才跑，而本文件几乎一直在同步等子进程（ADR-158 第四节那张表）。
+// 写在这儿是为了别把它当成已经保证了的事。
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
 const env = {
   ...process.env,
@@ -159,10 +169,18 @@ const named = (label: string, ok: boolean, why: string) => {
 }
 
 const runBoth = (label: string, args: string[], cwd = process.cwd(),
-  expect?: { status: number; soft?: readonly number[] }, extra: NodeJS.ProcessEnv = {}): { ok: boolean; stdout: string; stderr: string; status: number | null } => {
-  const [exe, argv] = tsxCommand(args)
+  expect?: { status: number; soft?: readonly number[]; timeoutMs?: number }, extra: NodeJS.ProcessEnv = {}): { ok: boolean; stdout: string; stderr: string; status: number | null } => {
   // extra 只给这一次 spawn：崩溃续跑那几条轨迹要给「杀掉那一跑」传旋钮、给续跑不传
-  const r = spawnSync(exe, argv, { env: { ...env, ...extra }, cwd, encoding: 'utf8' })
+  const kidEnv = { ...env, ...extra }
+  // 预编缓存里有整棵树现在这一版就裸 node 起，否则照旧 tsx（`prebuilt.ts`，ADR-158）；
+  // 退出码按 tsx 的壳会报的那样换算（夹具「被杀」那几条认的是 137）
+  const [exe, argv] = prebuiltCommand(args, cwd, kidEnv)
+  // `timeoutMs` 给的是「卡住了也要有个了断」：到点用 SIGKILL 杀掉这一个子进程，`r.error` 带 ETIMEDOUT，
+  // 下面照「起不来 / 被打死」那一支报（带进程记号，`soft` 救不回来）——卡住就是没跑完，不是哪条断言判了不过。
+  // 只杀直接起的这一个：调用点要自己说清楚卡住那一刻底下还有没有孙进程（#467 CodeRabbit 第 1 轮）。
+  const spawned = spawnSync(exe, argv, { env: kidEnv, cwd, encoding: 'utf8',
+    ...(expect?.timeoutMs === undefined ? {} : { timeout: expect.timeoutMs, killSignal: 'SIGKILL' as const }) })
+  const r = { ...spawned, ...asTsx(argv, spawned.status, spawned.signal) }
   const stdout = r.stdout ?? ''   // P1 例外：拿不到就是空输出，不是「没查过」——这是子进程的两股流
   const stderr = r.stderr ?? ''   // P1 例外：同上
   const want = expect?.status ?? 0
@@ -183,7 +201,9 @@ const runBoth = (label: string, args: string[], cwd = process.cwd(),
   }
   if (bad) {
     failed++
-    const why = r.error ? String(r.error) : `预期以退出码 ${want} 结束，实际是 ${r.status}`
+    const why = (r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT'
+      ? `过了 ${(expect?.timeoutMs ?? 0) / 1000} 秒还没结束，已杀掉（卡住了）`
+      : r.error ? String(r.error) : `预期以退出码 ${want} 结束，实际是 ${r.status}`
     console.error(`  ✗ ${label}${SELFCHECK_PROCESS_MARK}：${why}\n${(stderr || stdout).split('\n').slice(-12).join('\n')}`)
     return { ok: false, stdout: '', stderr: '', status: r.status }
   }
@@ -221,11 +241,20 @@ const run = (label: string, args: string[], cwd = process.cwd(),
  * 「闭包以为它起了什么」不可能对不上：两边读的是同一份东西。
  */
 // 既有变异执行夹具也提供真实历史：未改的旧全量项按生产规则兼容，不能绕过维护比较。
+// 变异锚点入口会读 git 暂存区：它在玩具树里起时不读用户与系统配置、不认继承来的仓库指向与注入的配置 ——
+// 环境里带着 GIT_DIR、GIT_INDEX_FILE 时（比如从 git 钩子里起检查）读到的是别人的索引（ADR-70「变异残留：暂存区」第五片）。
+// 值写成 undefined：子进程的环境里就没有这几项
+const GIT_ISOLATED: NodeJS.ProcessEnv = { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
+for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR',
+  'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) GIT_ISOLATED[key] = undefined
 const mutationFixtureEnv = (tool: keyof typeof SELFCHECK_TOOLS, rest: readonly string[], cwd: string): NodeJS.ProcessEnv => {
+  if (tool === 'anchors') return GIT_ISOLATED
   if (tool !== 'mutate' || rest.includes('--brief') || cwd === process.cwd()) return {}
+  const fixtureGitEnv: NodeJS.ProcessEnv = { ...process.env,
+    GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }
+  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR']) delete fixtureGitEnv[key]
   const git = (...args: string[]): string => {
-    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env,
-      GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } })
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: fixtureGitEnv })
     if (r.status !== 0) {
       console.error(`  ✗ 变异历史夹具${SELFCHECK_FIXTURE_MARK}：${r.stderr || r.error}`)
       throw new Error('无法建立变异夹具的真实历史')
@@ -260,7 +289,7 @@ const runTool = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string
  * 要读 stdout 与判成败,`run` 只给一股。
  */
 const runToolBoth = (label: string, tool: keyof typeof SELFCHECK_TOOLS, rest: string[] = [],
-  cwd = process.cwd(), expect?: { status: number; soft?: readonly number[] }) =>
+  cwd = process.cwd(), expect?: { status: number; soft?: readonly number[]; timeoutMs?: number }) =>
   runBoth(label, [S(SELFCHECK_TOOLS[tool]), ...rest], cwd, expect, mutationFixtureEnv(tool, rest, cwd))
 
 console.log('\n[脚本自检] 假 fetch，无真实请求\n')
@@ -365,6 +394,7 @@ const rootToken = (text: string, key: string, path: readonly (string | number)[]
     return holder !== null && typeof holder === 'object' ? tokens.get(holder)?.get(key) : undefined
   } catch { return undefined }
 }
+// 账号带连字符的夹具传 fit: undefined：正本缺席时带旧判断而账号规范化不了会以 2 拒绝（D21.s），这些夹具原本就不靠 fit。
 const costPerson = (platform = 'tiktok', handle = 'cost_person', over: Record<string, unknown> = {}) => ({
   platform, handle, nickname: handle, followers: 10000, post_count: 50, bio: null,
   bio_links: ['https://example.com'], verified: false, profile_url: '', source_keyword: 'local',
@@ -507,31 +537,35 @@ const runShards = async (jobs: number): Promise<void> => {
   const preload = pathToFileURL(resolve('scripts', LAUNCH_PRELOAD)).href, script = resolve('scripts/check/selfcheck.ts')
   let next = 0, printed = 0
   const one = (i: number) => new Promise<void>(done => {
-    const report = join(shardDir, `${i}.json`), out = join(shardDir, `${i}.log`), fd = openSync(out, 'w')
+    const report = join(shardDir, `${i}.json`), out = join(shardDir, `${i}.log`)
     const count = join(shardDir, `${i}.launches`)
-    const [exe, args] = tsxCommand([script, `--only=${fams[i].join(',')}`])
-    let settled = false
+    const kidEnv = countingEnv({ ...process.env, SELFCHECK_SHARD_REPORT: report, NODE_COMPILE_CACHE: env.NODE_COMPILE_CACHE },
+      { log: count, target: script, preload })
+    let settled = false, fd: number | undefined
     const settle = (status: number | null, signal: string | null, error?: string) => {
       if (settled) return
       settled = true
-      closeSync(fd)
+      if (fd !== undefined) closeSync(fd)
       let text: string | undefined
       try { text = readFileSync(report, 'utf8') } catch { /* 没写出来：下面按没交回结果算 */ }
       runs[i] = { family: fams[i], status, signal, error, report: text === undefined ? undefined : readShardReport(text) }
       try { launches[i] = parseLaunchLog(readFileSync(count, 'utf8'))?.total ?? null } catch { launches[i] = null }
-      logs[i] = readFileSync(out, 'utf8')
+      // 日志打不开的那一族（下面）没有这份文件：读不到当空，不在这里再抛一次
+      try { logs[i] = readFileSync(out, 'utf8') } catch { logs[i] = '' }
       for (; printed < fams.length && runs[printed] !== undefined; printed++) process.stdout.write(logs[printed])
       done()
     }
     // 起不来时 Node 给原因有两条路（ADR-72）：有的 errno 同步抛，其余只发 `error` 事件（资源
     // 不够那一种也走事件；这里不接管道，不必另问 `noStdio`）。两条都把原因交给合并、报成
-    // 「没起来」—— 混进「没交回结果」的话，人会去翻那份空的子进程输出
+    // 「没起来」—— 混进「没交回结果」的话，人会去翻那份空的子进程输出。
+    // 打开这一族的日志也在这个 `try` 里：资源不够时它可能先于 `spawn` 撞上（ADR-72 在变异派工那一侧
+    // 量到过 `cpSync` 先撞 EMFILE），放在外面就是未捕获异常 —— 本进程当场退出，已起的几族没人收（ADR-132 第 324 行）
     try {
-      const kid = spawn(exe, args, { stdio: ['ignore', fd, fd],
-        env: countingEnv({ ...process.env, SELFCHECK_SHARD_REPORT: report, NODE_COMPILE_CACHE: env.NODE_COMPILE_CACHE },
-          { log: count, target: script, preload }) })
+      fd = openSync(out, 'w')
+      const [exe, args] = prebuiltCommand([script, `--only=${fams[i].join(',')}`], process.cwd(), kidEnv)
+      const kid = spawn(exe, args, { stdio: ['ignore', fd, fd], env: kidEnv })
       kid.on('error', e => settle(null, null, e.message))
-      kid.on('close', (status, signal) => settle(status, signal))
+      kid.on('close', (code, sig) => { const { status, signal } = asTsx(args, code, sig); settle(status, signal) })
     } catch (e) { settle(null, null, e instanceof Error ? e.message : String(e)) }
   })
   await Promise.all(Array.from({ length: jobs }, async () => { while (next < parallel.length) await one(parallel[next++]) }))
@@ -579,8 +613,9 @@ group('probe', [], () => {
       { keyword: 'force-402-selfcare', dimension: 'competitor', platform: 'tiktok' },
     ],
   }))
+  // 末尾那个任务回 402：probe 照出部分结果、以 5 收尾（ADR-193）
   const identityRun = runBoth('probe 同词与失败任务身份', [S('probe.ts'), '--config', identityCfg],
-    tmp, undefined, { FAKE_FETCH_NO_429: '1' })
+    tmp, { status: 5 }, { FAKE_FETCH_NO_429: '1' })
   if (identityRun.ok) {
     const results = summaryOf(identityRun.stdout).results
     const rows: any[] = Array.isArray(results) ? results : []
@@ -653,7 +688,7 @@ group('probe', [], () => {
   writeFileSync(brokenCfg, '{"market": "US", "budget_usd": 0.5, "tasks": [')
   for (const [what, cfg] of [['文件不存在', join(unreadableDir, 'missing.json')], ['不是合法 JSON', brokenCfg]] as const) {
     const r = runBoth(`probe 配置读不出：${what}`, [S('probe.ts'), '--config', cfg], unreadableDir,
-      { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_NO_429: '1' })
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, { FAKE_FETCH_NO_429: '1' })
     if (!r.ok) continue
     const leak = probeInputLeak(r.stderr)
     // 「问题本身」：写着配置路径的那一行，去掉路径之后还得剩下字母或数字 —— 只剩一个冒号不算写了问题。
@@ -806,66 +841,109 @@ group('ig-paging-probe', [], () => {
 group('budget-gate', [], () => {
   // 闸门是一句「已花 + 本次开销 > 上限」的比较。两边有一个不是数，这句话恒为假 ——
   // 闸门不是宽了一点，是整条不存在，而且百分比同时恒为 0，连提醒都不出现。
-  // 判定在 lib/budget.ts（有变异守着），但**接线在每条入口各一份**，而缺省那个
-  // 验证者够不到入口，所以只能由这里真跑一遍。
-  // ⚠️ 这几条还没配 `by: "selfcheck"` 的负片 —— 跑是真跑了，但没有第三拍。
-  {
-    const badProbe = join(tmp, 'probe-badbudget.json')
-    writeFileSync(badProbe, JSON.stringify({
-      market: 'US', budget_usd: 'abc',
-      tasks: [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }],
-    }))
-    run('probe 上限不是数字 → 停下问人', [S('probe.ts'), '--config', badProbe],
-        process.cwd(), { status: 2 })
+  // 判定在 lib/cost-json.ts 与 lib/cost-ledger.ts（有变异守着），但**接线在每条入口各一份**，
+  // 而缺省那个验证者够不到入口，所以只能由这里真跑一遍。
+  // 下面六条都是具名断言，各有 `by: "selfcheck"` 的负片指着（ADR-95 第 43 行那张欠条）：上限那三条是
+  // M-D13-w／x（入口把写了却不是数的上限当成没写），`--budget` 那条是 M-D13-y（读不懂就当没给），
+  // 坏次数那两条是 M-D13-z／aa（入口把坏账当成运行中的内部错误，退出码 2 变 1）。「停下问人」按三样
+  // 一起判：退出码 2、stderr 点出了是哪个值、假 fetch 一个请求都没收到。退出码 0、1、3 交给具名断言判，
+  // 被信号打死照旧带进程记号。坏次数原先是一个名字在循环里断两次，红了分不出是哪条入口，现在两条入口
+  // 各一个名字、各一份坏账目录。
+  //
+  // **「一个请求都没收到」先要证明观察器记得到。** 假 fetch 在每次响应前往 FAKE_FETCH_LEDGER 追加一行；
+  // 落点没接上、或者这条入口根本没装上它，读回来同样是 0 行 —— 那种 0 什么也没证明。所以三条入口各先跑
+  // 一次阳性对照：起进程与观察的接线和下面的断言相同（`runBoth`、`costEnv` 交落点、读回同一个落点），输入换成
+  // 合法的，账本里要真记下请求。probe 只把上限换成 0.5；enrich 只把次数换成 0；collect 用合法账目续跑、
+  // `--budget 3` —— 与坏次数、`--budget 3.0.0` 两条同走续跑，「上限不是数字」那条走新建，那一条与对照差的
+  // 不只是那个值。对照没成立是夹具失格（带夹具记号），那条入口的几条具名断言都不判（零请求是每条的一拍，
+  // 这一拍没有依据就整条不判）。probe 那份与两条 probe 夹具一样以 `process.cwd()` 起；collect、enrich 两份共用
+  // 一个当前目录 `observerCwd`（`tmp/budget-gate-observer`），任务数据各在它底下一个子目录。三份的配置或任务目录、
+  // 账本都是 `tmp` 下各自的一份，不碰 `tmp` 下共用的记忆与产出（记忆按当前目录找；probe.ts 不写盘）。
+  const observerCwd = join(tmp, 'budget-gate-observer')
+  mkdirSync(observerCwd, { recursive: true })
+  // collect 那一跑达标收尾，退 4（ADR-193）；其余入口跑完退 0
+  const observed = (label: string, args: string[], cwd: string, log: string, status = 0): boolean => {
+    const r = runBoth(label, args, cwd, { status }, costEnv(log))
+    if (!r.ok) return false
+    const attempts = fetchAttempts(log).length
+    if (attempts > 0) { console.log(`    观察器记下 ${attempts} 次请求`); return true }
+    failed++
+    console.error(`  ✗ ${label}${SELFCHECK_FIXTURE_MARK}：合法输入照常跑完，账本里却一次请求也没记下 —— `
+                  + '观察器没接上，这条入口的几条具名断言都要零请求，没有依据，都不判')
+    return false
+  }
+  const budgetStop = (label: string, args: string[], cwd: string, log: string) => {
+    const r = runBoth(label, args, cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(log))
+    return r.ok ? { ...r, attempts: fetchAttempts(log).length } : undefined
+  }
+  type Stopped = NonNullable<ReturnType<typeof budgetStop>>
+  const refused = (r: Stopped, said: RegExp) => r.status === 2 && said.test(r.stderr) && r.attempts === 0
+  const stopDetail = (r: Stopped) =>
+    `退出码 ${r.status}、发出的请求 ${r.attempts} 次，stderr 末几行 ${stderrTail(r.stderr)}`
+  const tasks = [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }]
+  const probeConfig = (name: string, budget: unknown) => {
+    const f = join(tmp, name)
+    writeFileSync(f, JSON.stringify({ market: 'US', budget_usd: budget, tasks }))
+    return f
+  }
+  // 盘上那个「已经花了多少次」同样是外部输入：null 会让整本账退回零
+  const stateOf = (requests: unknown) => JSON.stringify({
+    product: 'badledger', market: 'US', target_count: 1, budget_usd: 1, tasks,
+    done: [], offsets: {}, ...knownCosts(1_000_000, []), requests, created_at: '', updated_at: '',
+  })
+  const paidCreator = [{ platform: 'tiktok', handle: 'costgate', nickname: 'Cost gate',
+    followers: 10000, post_count: 50, bio: null, bio_links: ['https://example.com'],
+    verified: false, profile_url: '', source_keyword: 'k', source_dimension: 'category', fit: '✅' }]
+  const ledgerDir = (at: string, requests: unknown) => {
+    mkdirSync(at, { recursive: true })
+    writeFileSync(join(at, 'task.json'), stateOf(requests))
+    writeFileSync(join(at, 'creators.json'), JSON.stringify(paidCreator))
+    writeFileSync(join(at, 'creators.raw.json'), JSON.stringify(paidCreator))
+  }
+
+  if (observed('probe 合法上限照常试探（请求观察器阳性对照）',
+      [S('probe.ts'), '--config', probeConfig('probe-okbudget.json', 0.5)], process.cwd(), join(tmp, 'probe-okbudget.tsv'))) {
+    const probeBad = budgetStop('probe 上限写成 "abc"', [S('probe.ts'), '--config', probeConfig('probe-badbudget.json', 'abc')],
+                                process.cwd(), join(tmp, 'probe-badbudget.tsv'))
+    if (probeBad) named('probe 上限不是数字 → 停下问人', refused(probeBad, /budget_usd/), stopDetail(probeBad))
     // 写了个 null 不等于没写：默认值只给 undefined，null 要被拦下
-    const nullProbe = join(tmp, 'probe-nullbudget.json')
-    writeFileSync(nullProbe, JSON.stringify({
-      market: 'US', budget_usd: null,
-      tasks: [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }],
-    }))
-    run('probe 上限是 null → 也停下问人', [S('probe.ts'), '--config', nullProbe],
-        process.cwd(), { status: 2 })
+    const probeNull = budgetStop('probe 上限写成 null', [S('probe.ts'), '--config', probeConfig('probe-nullbudget.json', null)],
+                                 process.cwd(), join(tmp, 'probe-nullbudget.tsv'))
+    if (probeNull) named('probe 上限是 null → 也停下问人', refused(probeNull, /budget_usd/), stopDetail(probeNull))
+  }
 
+  ledgerDir(join(observerCwd, 'collect-ok'), 0)
+  if (observed('collect 合法账目、合法 --budget 照常续跑（请求观察器阳性对照）',
+      [S('collect.ts'), '--resume', 'collect-ok', '--budget', '3'], observerCwd, join(observerCwd, 'collect-ok.tsv'), 4)) {
     const badCfg = join(tmp, 'collect-badbudget.json')
-    writeFileSync(badCfg, JSON.stringify({
-      product: 'badbudget', market: 'US', target_count: 1, budget_usd: 'abc',
-      tasks: [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }],
-    }))
-    run('collect 上限不是数字 → 停下问人', [S('collect.ts'), '--config', badCfg], tmp,
-        { status: 2 })
+    writeFileSync(badCfg, JSON.stringify({ product: 'badbudget', market: 'US', target_count: 1, budget_usd: 'abc', tasks }))
+    const collectBad = budgetStop('collect 上限写成 "abc"', [S('collect.ts'), '--config', badCfg], tmp,
+                                  join(tmp, 'collect-badbudget.tsv'))
+    if (collectBad) named('collect 上限不是数字 → 停下问人', refused(collectBad, /budget_usd/), stopDetail(collectBad))
 
-    // 盘上那个「已经花了多少次」同样是外部输入：null 会让整本账退回零
-    const stateOf = (requests: unknown) => JSON.stringify({
-      product: 'badledger', market: 'US', target_count: 1, budget_usd: 1,
-      tasks: [{ keyword: 'k', dimension: 'category', platform: 'tiktok' }],
-      done: [], offsets: {}, ...knownCosts(1_000_000, []), requests, created_at: '', updated_at: '',
-    })
-    mkdirSync(join(tmp, 'badledger'), { recursive: true })
-    writeFileSync(join(tmp, 'badledger', 'task.json'), stateOf(null))
-    const paidCreator = [{ platform: 'tiktok', handle: 'costgate', nickname: 'Cost gate',
-      followers: 10000, post_count: 50, bio: null, bio_links: ['https://example.com'],
-      verified: false, profile_url: '', source_keyword: 'k', source_dimension: 'category', fit: '✅' }]
-    writeFileSync(join(tmp, 'badledger', 'creators.json'), JSON.stringify(paidCreator))
-    writeFileSync(join(tmp, 'badledger', 'creators.raw.json'), JSON.stringify(paidCreator))
-    for (const entry of ['collect', 'enrich']) {
-      const log = join(tmp, `badledger-${entry}.tsv`)
-      const result = runBoth(`${entry} 已知空账却将次数写成 null`,
-        [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', 'badledger'], tmp,
-        { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_LEDGER: log })
-      if (result.ok) named('坏次数必须指明费用问题并在实际付费前拒绝',
-        result.status === 2 && /requests|次数/.test(result.stderr) && fetchAttempts(log).length === 0,
-        `${entry}: status=${result.status}, attempts=${fetchAttempts(log).length}, ${result.stderr}`)
-    }
+    ledgerDir(join(tmp, 'badledger-collect'), null)
+    const collectLedger = budgetStop('collect 已知空账却将次数写成 null',
+      [S('collect.ts'), '--resume', 'badledger-collect'], tmp, join(tmp, 'badledger-collect.tsv'))
+    if (collectLedger) named('collect 坏次数必须指明费用问题并在实际付费前拒绝',
+      refused(collectLedger, /requests|次数/), stopDetail(collectLedger))
 
     mkdirSync(join(tmp, 'okledger'), { recursive: true })
     writeFileSync(join(tmp, 'okledger', 'task.json'), stateOf(0))
     // 报的必须是**用户打的那个东西**：`3.0.0` 解析成 NaN，照解析结果印是「null」
-    const badArg = run('collect 设置的总预算不是数字 → 停下问人',
-        [S('collect.ts'), '--resume', 'okledger', '--budget', '3.0.0'], tmp, { status: 2 })
-    if (badArg !== undefined && !badArg.includes('3.0.0')) {
-      failed++
-      console.error('  ✗ 报错里没有出现用户打的那个值，他不知道是哪一处写错了')
-    } else if (badArg !== undefined) console.log('  ✓ 报错指名用户打的那个值')
+    const badArg = budgetStop('collect --budget 写成 3.0.0',
+      [S('collect.ts'), '--resume', 'okledger', '--budget', '3.0.0'], tmp, join(tmp, 'okledger-budget.tsv'))
+    if (badArg) named('collect 设置的总预算不是数字 → 停下问人，报错指名用户打的那个值',
+      refused(badArg, /3\.0\.0/), stopDetail(badArg))
+  }
+
+  ledgerDir(join(observerCwd, 'enrich-ok'), 0)
+  if (observed('enrich 合法账目照常补全（请求观察器阳性对照）',
+      [S('enrich.ts'), '--dir', 'enrich-ok'], observerCwd, join(observerCwd, 'enrich-ok.tsv'))) {
+    ledgerDir(join(tmp, 'badledger-enrich'), null)
+    const enrichLedger = budgetStop('enrich 已知空账却将次数写成 null',
+      [S('enrich.ts'), '--dir', 'badledger-enrich'], tmp, join(tmp, 'badledger-enrich.tsv'))
+    if (enrichLedger) named('enrich 坏次数必须指明费用问题并在实际付费前拒绝',
+      refused(enrichLedger, /requests|次数/), stopDetail(enrichLedger))
   }
 })
 
@@ -879,7 +957,7 @@ group('cost-input', [], () => {
       const cfg = join(cwd, 'config.json'), log = join(cwd, 'attempts.tsv')
       writeFileSync(cfg, `{"product":"input","market":"US","target_count":1,"nested":{"budget_usd":0.005},"budget_usd":${token},"tasks":[{"keyword":"k","dimension":"category","platform":"tiktok"}]}`)
       const result = runBoth(`${entry} 原始金额 ${token}`, [S(`${entry}.ts`), '--config', cfg], cwd,
-        { status: 2, soft: [0, 1, 3] }, costEnv(log))
+        { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(log))
       if (result.ok) named('原始非法预算不能被浮点舍入、嵌套字段或默认值救活',
         result.status === 2 && fetchAttempts(log).length === 0 && /budget|预算|金额/i.test(result.stderr),
         `${entry} token=${token}, status=${result.status}, attempts=${fetchAttempts(log).length}`)
@@ -911,7 +989,7 @@ group('cost-input', [], () => {
       const result = runBoth(`${entry} CLI 原始金额 ${String(token)}`,
         [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir, '--budget',
           ...(token === undefined ? [] : [token])], f.cwd,
-        { status: 2, soft: [0, 1, 3] }, costEnv(f.log))
+        { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(f.log))
       if (result.ok) named('CLI 非法金额保留原输入，缺操作数不能当成未指定',
         result.status === 2 && fetchAttempts(f.log).length === 0
           && result.stderr.includes(token === undefined ? '--budget' : token)
@@ -928,7 +1006,7 @@ group('cost-input', [], () => {
     // 嵌套坏值放在根之后；有效根值不能被同名嵌套字段污染。
     writeFileSync(cfg, `{"product":"precise","market":"US","target_count":1,"budget_usd":${token},"nested":{"budget_usd":${preciseBad}},"tasks":[{"keyword":"k","dimension":"category","platform":"tiktok"}]}`)
     const result = runBoth(`collect 精确保存 ${token}`, [S('collect.ts'), '--config', cfg], cwd,
-      undefined, costEnv(log))
+      { status: 4 }, costEnv(log))
     if (!result.ok) continue
     const taskDir = onlyDir(cwd, 'precise')
     if (!taskDir) { named('精确金额的新任务必须留下断点目录', false, '没有唯一的 precise 目录'); continue }
@@ -952,7 +1030,7 @@ group('cost-input', [], () => {
     writeFileSync(cfg, JSON.stringify({ product: 'default', market: 'US', target_count: 1,
       tasks: [{ keyword: 'default', dimension: 'category', platform: 'tiktok' }] }))
     const result = runBoth(`${entry} 缺席预算声明默认与范围`, [S(`${entry}.ts`), '--config', cfg],
-      cwd, undefined, costEnv(log))
+      cwd, { status: entry === 'collect' ? 4 : 0 }, costEnv(log))
     if (result.ok) named('只有新输入预算缺席才使用有范围说明的默认值',
       costViewMatches(summaryOf(result.stdout), { budget_usd: entry === 'collect' ? 2 : 0.5,
         cost_scope: entry === 'collect' ? 'task' : 'process', cost_status: 'known' })
@@ -975,7 +1053,7 @@ group('cost-input', [], () => {
     const task = taskDir ? join(collision, taskDir, 'task.json') : ''
     const before = fileText(task)
     const second = runBoth('同目录第二次新建必须拒绝', [S('collect.ts'), '--config', cfg], collision,
-      { status: 2, soft: [0, 1, 3] }, extra)
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, extra)
     if (second.ok) {
       named('再次 config 不能覆盖已有任务、归零账目或重发请求',
         second.status === 2 && before !== '' && fileText(task) === before
@@ -991,7 +1069,7 @@ group('cost-input', [], () => {
   writeFileSync(noRawConfig, '{"product":"nojson","market":"US","target_count":1,"budget_usd":0.005,"tasks":[{"keyword":"k","dimension":"category","platform":"tiktok"}]}')
   const noRawLog = join(missingJson, 'attempts.tsv')
   const noRawRun = runBoth('缺少精确 JSON 写出能力不得降级付费', [S('collect.ts'), '--config', noRawConfig], missingJson,
-    { status: 2, soft: [0, 1, 3] }, costEnv(noRawLog, {
+    { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(noRawLog, {
       NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(noRaw).href)}`,
     }))
   if (noRawRun.ok) named('精确 JSON 能力缺失确实被注入，且没有浮点降级或真实请求',
@@ -1003,7 +1081,7 @@ group('cost-input', [], () => {
   const noRawProbeCfg = join(missingJson, 'probe.json')
   writeFileSync(noRawProbeCfg, '{"market":"US","budget_usd":0.5,"tasks":[{"keyword":"k","dimension":"category","platform":"tiktok"}]}')
   const noRawProbe = runBoth('probe 缺少精确 JSON 写出能力', [S('probe.ts'), '--config', noRawProbeCfg], missingJson,
-    { status: 2, soft: [0, 1, 3] }, costEnv(join(missingJson, 'probe-attempts.tsv'), {
+    { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(join(missingJson, 'probe-attempts.tsv'), {
       NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(noRaw).href)}`,
     }))
   if (noRawProbe.ok) {
@@ -1059,7 +1137,7 @@ group('cost-local', [], () => {
     const before = jsonFile(f.task)
     const result = runBoth(`${entry} 本地处理 ${scenario.name}`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir], f.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+      { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (!result.ok) continue
     const after = jsonFile(f.task)
     named('历史费用不可用和恢复 pending 不阻止三个本地入口，缺 key 仍零请求',
@@ -1111,7 +1189,7 @@ group('cost-local', [], () => {
     writeFileSync(f.task, before)
     const result = runBoth(`${entry} 原样保留历史预算 ${String(token)}`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir], f.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+      { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (result.ok) named('未知费用本地写回保留原预算 token，缺席不制造字段',
       result.status === 0 && fetchAttempts(f.log).length === 0
         && rootToken(fileText(f.task), 'budget_usd') === token
@@ -1127,7 +1205,7 @@ group('cost-local', [], () => {
     writeFileSync(f.task, fileText(f.task).replace('"budget_usd":1,', `"budget_usd":${raw},`))
     const result = runBoth(`${entry} 原样保留非法${shape}预算中的数字`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir], f.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+      { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (!result.ok) continue
     const after = jsonFile(f.task), saved = fileText(f.task)
     const tokens = keys.map(key => rootToken(saved, key, ['budget_usd']))
@@ -1186,7 +1264,7 @@ group('cost-resume', [], () => {
     const result = runBoth(`${entry} ${kind} ${change ? '不能借改额恢复' : '首次付费拒绝'}`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir,
         ...(change ? ['--budget', '0.006'] : [])], f.cwd,
-      { status: 2, soft: [0, 1, 3] }, costEnv(f.log))
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(f.log))
     if (result.ok) {
       const after = jsonFile(f.task)
       named('历史未知、坏价、未知版本和恢复 pending 都在付费前拒绝，改额不能洗白',
@@ -1207,7 +1285,7 @@ group('cost-resume', [], () => {
     const before = jsonFile(f.task)
     const denied = runBoth(`${entry} 根预算冲突禁止付费`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir], f.cwd,
-      { status: 2, soft: [0, 1, 3] }, costEnv(f.log))
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(f.log))
     if (!denied.ok) continue
     named('根预算冲突不静默选择一份，也不发出新请求',
       denied.status === 2 && fetchAttempts(f.log).length === 0
@@ -1229,7 +1307,7 @@ group('cost-resume', [], () => {
     writeFileSync(observer, `import { readFileSync, appendFileSync } from 'node:fs'; const previous = globalThis.fetch; globalThis.fetch = async (...args) => { appendFileSync(${JSON.stringify(snapshots)}, readFileSync(${JSON.stringify(f.task)}, 'utf8').replace(/\\n/g, '') + '\\n'); return previous(...args); };`)
     const changed = runBoth(`${entry} 显式设置总额修正冲突`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir, '--budget', '0.006'], f.cwd,
-      { status: 3, soft: [0, 1, 2] }, costEnv(f.log, {
+      { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] }, costEnv(f.log, {
         NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(observer).href)}`,
       }))
     if (!changed.ok) continue
@@ -1255,7 +1333,7 @@ group('cost-resume', [], () => {
     const wanted = limit === '0.003' ? 3 : 2
     const result = runBoth(`${entry} 降额 ${limit}`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir, '--budget', limit], f.cwd,
-      { status: wanted, soft: [0, 1, 2, 3].filter(n => n !== wanted) }, costEnv(f.log))
+      { status: wanted, soft: [0, 1, 2, 3, 4, 5, 6, 7].filter(n => n !== wanted) }, costEnv(f.log))
     if (result.ok) {
       const after = jsonFile(f.task)
       named('总上限可降到占用，低于占用拒绝且不写半份上限',
@@ -1287,7 +1365,7 @@ group('cost-http', [], () => {
     // 不额外定义供应商重试策略。若既有策略重试，下一次为200且恰好占满额度。
     // 费用 oracle 只读真正发出的响应序列：非200为零、200/无状态各保留1000。
     const result = runBoth(`collect HTTP 结算 ${fault}`, [S('collect.ts'), '--config', cfg], cwd,
-      { status: 1, soft: [0, 2, 3] }, costEnv(log, {
+      { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] }, costEnv(log, {
         FAKE_FETCH_FAULT_PATH: TT_SEARCH, FAKE_FETCH_FAULT: fault,
       }))
     if (!result.ok) continue
@@ -1319,7 +1397,7 @@ group('cost-http', [], () => {
 
   // IG profile 无关键词；第一次500退款后 v2 正常返回，只保留 v2 的 0.001。
   const profile = costFixture('profile-fallback', knownCosts(1000, []), { budget_usd: 0.001 },
-    [costPerson('instagram', 'profile-fallback', { bio: undefined, bio_links: [] })])
+    [costPerson('instagram', 'profile-fallback', { bio: undefined, bio_links: [], fit: undefined })])
   const profileRun = runBoth('collect IG profile 一次故障后换 v2',
     [S('collect.ts'), '--resume', profile.taskDir], profile.cwd, undefined, costEnv(profile.log, {
       FAKE_FETCH_FAULT_PATH: IG_PROFILE, FAKE_FETCH_FAULT: 'bad-body-500',
@@ -1330,7 +1408,7 @@ group('cost-http', [], () => {
         cost_http_200_usd: 0.001, cost_unknown_result_usd: 0, cost_pending_usd: 0 }),
     `attempts=${JSON.stringify(fetchAttempts(profile.log))}, summary=${profileRun.stdout}`)
 
-  // probe 普通错误仍输出部分结果；费用不足也保留既有成功结果且退出0。
+  // probe 普通错误仍输出部分结果；费用不足也保留既有成功结果，退出 3、stopped 为 budget（ADR-193）。
   const probeCwd = join(tmp, 'cost-probe')
   mkdirSync(probeCwd, { recursive: true })
   const probeCfg = join(probeCwd, 'config.json'), probeLog = join(probeCwd, 'attempts.tsv')
@@ -1339,9 +1417,9 @@ group('cost-http', [], () => {
     { keyword: 'second', dimension: 'scene', platform: 'instagram' },
   ] }))
   const probe = runBoth('probe 余额不够下一次仍输出部分结果', [S('probe.ts'), '--config', probeCfg], probeCwd,
-    { status: 0, soft: [1, 2, 3] }, costEnv(probeLog))
-  if (probe.ok) named('probe 预算不足退出0且保留一次 IG 成果，不把三分之二说成100%',
-    probe.status === 0 && JSON.stringify(fetchAttempts(probeLog)) === JSON.stringify([`200\t${IG_REELS}`])
+    { status: 3, soft: [0, 1, 2, 5] }, costEnv(probeLog))
+  if (probe.ok) named('probe 预算不足退出3、stopped 为 budget，且保留一次 IG 成果，不把三分之二说成100%',
+    probe.status === 3 && summaryOf(probe.stdout).stopped === 'budget' && JSON.stringify(fetchAttempts(probeLog)) === JSON.stringify([`200\t${IG_REELS}`])
       && costViewMatches(summaryOf(probe.stdout), { cost_status: 'known', cost_scope: 'process',
         requests: 1, budget_usd: 0.003, cost_estimate_usd: 0.002, cost_http_200_usd: 0.002,
         cost_unknown_result_usd: 0, cost_pending_usd: 0 })
@@ -1352,7 +1430,7 @@ group('cost-http', [], () => {
   for (const fault of ['bad-json-200', 'bad-body-201', 'bad-body-204', 'bad-body-429', 'bad-body-500', 'no-http-status']) {
     const log = join(tmp, `direct-${fault}.tsv`)
     const direct = runBoth(`直接探针错误 ${fault}`, [S('probe-ig-paging.ts'), '--keyword', 'cost-fault'], tmp,
-      { status: 1, soft: [0, 2, 3] }, costEnv(log, { FAKE_FETCH_FAULT_PATH: IG_REELS, FAKE_FETCH_FAULT: fault }))
+      { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] }, costEnv(log, { FAKE_FETCH_FAULT_PATH: IG_REELS, FAKE_FETCH_FAULT: fault }))
     if (direct.ok) named('直接分页探针非 200、坏正文与无状态均中止且不输出成功 JSON',
       direct.status === 1 && fetchAttempts(log).length === 1 && direct.stdout.trim() === '',
       `${fault}: status=${direct.status}, attempts=${JSON.stringify(fetchAttempts(log))}, stdout=${direct.stdout}`)
@@ -1406,13 +1484,13 @@ group('discovery', [], () => {
     { keyword: 'force-discovery-zero', dimension: 'category', platform: 'instagram' },
     { keyword: 'force-402-source', dimension: 'scene', platform: 'tiktok' },
   ] }))
-  const empty = runBoth('发现来源 空结果及错误', [S('probe.ts'), '--config', emptyCfg], f.cwd, undefined,
+  const empty = runBoth('发现来源 空结果及错误', [S('probe.ts'), '--config', emptyCfg], f.cwd, { status: 5 },
     costEnv(join(f.cwd, 'empty.tsv')))
   if (empty.ok) named('零账号与请求错误不制造账号发现来源',
     summaryOf(empty.stdout).results?.[0]?.sample?.length === 0
       && Boolean(summaryOf(empty.stdout).results?.[1]?.error)
       && !empty.stdout.includes('discovery_sources'), empty.stdout)
-  const collected = runBoth('发现来源 collect 保存', [S('collect.ts'), '--resume', f.taskDir], f.cwd, undefined, costEnv(f.log))
+  const collected = runBoth('发现来源 collect 保存', [S('collect.ts'), '--resume', f.taskDir], f.cwd, { status: 4 }, costEnv(f.log))
   if (collected.ok) {
     const raw = jsonFile(join(f.taskDir, 'creators.raw.json')), delivery = jsonFile(join(f.taskDir, 'creators.json'))
     named('三路来源进入raw，空Reels后的账号只有users来源',
@@ -1425,7 +1503,7 @@ group('discovery', [], () => {
       && equal(delivery.find((c: any) => c.handle === 'wanderwithmei')?.discovery_sources, [source(2, 'wanderwithmei')]),
       JSON.stringify(delivery))
     const resumed = runBoth('发现来源 collect 零请求恢复', [S('collect.ts'), '--resume', f.taskDir], f.cwd,
-      undefined, costEnv(f.log))
+      { status: 4 }, costEnv(f.log))
     if (resumed.ok) named('来源保存恢复不丢记录且不改变请求次数和费用',
       equal(jsonFile(join(f.taskDir, 'creators.raw.json')), raw)
         && equal(jsonFile(join(f.taskDir, 'creators.json')), delivery)
@@ -1434,7 +1512,7 @@ group('discovery', [], () => {
   }
   const profile = costFixture('discovery-profile', knownCosts(2000, []), { budget_usd: 0.002 }, [
     costPerson('tiktok', 'techwithsarah', { bio: undefined, bio_links: [], discovery_sources: [source(0, 'techwithsarah')] }),
-    costPerson('tiktok', 'legacy-source', { bio: undefined, bio_links: [] }),
+    costPerson('tiktok', 'legacy-source', { bio: undefined, bio_links: [], fit: undefined }),
   ])
   const profiles = runBoth('发现来源 profile 仅补资料', [S('collect.ts'), '--resume', profile.taskDir], profile.cwd,
     undefined, costEnv(profile.log))
@@ -1452,8 +1530,8 @@ group('discovery', [], () => {
   const routes = ['TikTok 视频搜索', 'Instagram Reels 搜索', 'Instagram 账号名搜索']
   const text = shown.map((s, i) => `${routes[i]} · ${s.platform}:@${s.handle} · ${s.keyword} · ${s.dimension}`).join('；')
   const display = costFixture('discovery-display', knownCosts(1000, []), { budget_usd: 0.001 }, [
-    costPerson('tiktok', 'display-known', { discovery_sources: shown }),
-    costPerson('tiktok', 'display-missing'), costPerson('instagram', 'display-empty', { discovery_sources: [] }),
+    costPerson('tiktok', 'display-known', { discovery_sources: shown, fit: undefined }),
+    costPerson('tiktok', 'display-missing', { fit: undefined }), costPerson('instagram', 'display-empty', { discovery_sources: [], fit: undefined }),
   ])
   const rendered = runBoth('发现来源 真实交付文件', [S('render.ts'), '--dir', display.taskDir], display.cwd,
     undefined, costEnv(display.log))
@@ -1552,7 +1630,7 @@ group('cost-durable', [], () => {
     ] } : profile ? { done: [0] } : {})
     if (profile) for (const file of ['creators.json', 'creators.raw.json'])
       writeFileSync(join(f.taskDir, file), JSON.stringify([
-        costPerson('instagram', 'durable-profile', { bio: undefined, bio_links: [] }),
+        costPerson('instagram', 'durable-profile', { bio: undefined, bio_links: [], fit: undefined }),
       ]))
     const result = runBoth(`持久费用逐次顺序 ${scenario}`, args(entry, f), f.cwd,
       { status: entry === 'enrich' || profile ? 0 : 3, soft: [0, 1, 2, 3] }, observeEnv(f, fallback ? {} : {
@@ -1621,14 +1699,14 @@ group('cost-durable', [], () => {
       ] } : {})
       if (profile) for (const file of ['creators.json', 'creators.raw.json'])
         writeFileSync(join(f.taskDir, file), JSON.stringify(['a', 'b'].map(h =>
-          costPerson('instagram', `durable-profile-${h}`, { bio: undefined, bio_links: [] }))))
+          costPerson('instagram', `durable-profile-${h}`, { bio: undefined, bio_links: [], fit: undefined }))))
       const endpoint = entry === 'collect' ? (profile ? IG_PROFILE : IG_REELS) : TT_POSTS
       const unit = entry === 'collect' && !profile ? 2000 : 1000
       const beforePeople = fileText(join(f.taskDir, 'creators.json'))
-      // 收尾若错误进入记忆读取，会遇到坏JSON；D14.h要求原费用运行错误仍是退出1。
+      // 收尾若错误进入记忆读取，会遇到坏JSON；D14.m要求原费用运行错误仍是退出6（ADR-193）。
       if (mode === 'once') writeFileSync(join(f.cwd, 'memory', 'creators.json'), '{broken-memory')
       const result = runBoth(`持久费用保存故障 ${route}/${outcome}/${mode}`, args(entry, f), f.cwd,
-        { status: 1, soft: [0, 2, 3] }, observeEnv(f, {
+        { status: 6, soft: [0, 1, 2, 3, 7] }, observeEnv(f, {
           NODE_OPTIONS: failSave(f, outcome === 'reserve' ? 'reserve' : 'terminal', mode),
           ...(outcome === 'non200' || outcome === 'nostatus' ? {
             FAKE_FETCH_FAULT_PATH: endpoint,
@@ -1645,11 +1723,11 @@ group('cost-durable', [], () => {
       const injected = marks.filter(e => e.kind === 'injected'), count = seen.filter(e => e.kind === 'fetch').length
       const why = `${route}/${outcome}/${mode}: exit=${result.status}, fetch=${count}, injected=${injected.length}, disk=${JSON.stringify(after)}, stderr=${result.stderr}`
       if (outcome === 'reserve') {
-        named('预留保存失败退出1且零请求，不伪造无HTTP状态留存',
-          injected.length > 0 && result.status === 1 && count === 0 && after?.requests === 2
+        named('预留保存失败退出6且零请求，不伪造无HTTP状态留存',
+          injected.length > 0 && result.status === 6 && count === 0 && after?.requests === 2
             && unknown(after) === 1 && retained(after) === 2, why)
       } else {
-        const stopped = injected.length > 0 && result.status === 1 && count === 1
+        const stopped = injected.length > 0 && result.status === 6 && count === 1
           && !seen.some(e => e.kind === 'body')
         if (outcome === 'http200') named('HTTP200终态保存失败停止正文及后续请求，不走兜底', stopped, why)
         if (outcome === 'non200') named('非200终态保存失败停止正文及重试，不走兜底', stopped, why)
@@ -1666,21 +1744,39 @@ group('cost-durable', [], () => {
           injected.length > 0 && (mode === 'persistent' ? stablePending
             : terminal && marks.some(e => e.kind === 'saved')), why)
       }
-      named('费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出1',
-        injected.length > 0 && result.status === 1 && result.stdout.trim() === ''
+      named('费用保存失败不生成常规结果或成功续跑提示，后续记忆错误不覆盖退出6',
+        injected.length > 0 && result.status === 6 && result.stdout.trim() === ''
           && !/断点已保存|已保存.*(?:续跑|继续)|追加预算|续跑不产生|续跑会继续/.test(result.stderr)
           && result.stderr.includes('test durable cost save denied')
           && fileText(join(f.taskDir, 'creators.json')) === beforePeople, why)
     }
-  criterion('D14.b', 'D14.c', 'D14.d', 'D14.e', 'D14.h')
+  criterion('D14.i', 'D14.j', 'D14.k', 'D14.l', 'D14.m')
+
+  {
+    // ADR-193：enrich 遇供应商余额不足（HTTP 402）照出汇总 JSON、stopped 为 error，退出码 5（以前与其他运行错误同为 1）。
+    // fake-fetch 见 URL 里带 force_402 就回 402；TikTok 近期作品请求的 unique_id 就是账号名，所以只有这个人那一次被拒
+    const f = costFixture('enrich-402', knownCosts(1_000_000, []), {},
+      [costPerson('tiktok', 'force_402_enrich'), costPerson('tiktok', 'enrich_after_402')])
+    const r = runBoth('enrich 遇 TikHub 402', [S('enrich.ts'), '--dir', f.taskDir], f.cwd,
+      { status: 5, soft: [0, 1, 2, 3, 4, 6, 7] }, costEnv(f.log))
+    if (r.ok) {
+      const lines = fetchAttempts(f.log), at = lines.findIndex(l => l.startsWith('402\t'))
+      named('enrich 遇 TikHub 402：照出汇总 JSON，stopped 为 error，退出码 5，402 之后不再请求',
+        r.status === 5 && summaryOf(r.stdout).stopped === 'error' && at >= 0 && at === lines.length - 1,
+        `退出码 ${r.status}，stopped=${JSON.stringify(summaryOf(r.stdout).stopped)}，账本 ${JSON.stringify(lines)}，stderr=${stderrTail(r.stderr)}`)
+      criterion('D14.n')
+    }
+  }
 
   for (const entry of ['collect', 'enrich']) {
     const f = fixture('kill-barrier', entry)
     const controller = join(f.cwd, 'kill-at-fetch.mjs')
     // 控制器是同步自检的一个子进程；被测入口是其直接IPC子进程，没有tsx壳的信号换算。
+    const childOptions = '--import ' + JSON.stringify(fixtureLoader(S(`${entry}.ts`), env, f.cwd)) + ' '
     writeFileSync(controller, [
       `import { spawn } from 'node:child_process';`,
-      `const child = spawn(process.execPath, ['--import', ${JSON.stringify(pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href)}, ...${JSON.stringify(args(entry, f))}], {cwd:${JSON.stringify(f.cwd)}, env:process.env, stdio:['ignore','pipe','pipe','ipc']});`,
+      `const childEnv = { ...process.env, NODE_OPTIONS: ${JSON.stringify(childOptions)} + (process.env.NODE_OPTIONS ?? '') };`,
+      `const child = spawn(process.execPath, ${JSON.stringify(args(entry, f))}, {cwd:${JSON.stringify(f.cwd)}, env:childEnv, stdio:['ignore','pipe','pipe','ipc']});`,
       `let stdout='', stderr='', barrier=false;`,
       `child.stdout.on('data', x => stdout += x); child.stderr.on('data', x => stderr += x);`,
       `const timer = setTimeout(() => { child.kill('SIGKILL'); }, 15000);`,
@@ -1708,7 +1804,7 @@ group('cost-durable', [], () => {
       const log = join(f.cwd, `resume-${change}.tsv`)
       const resumed = runBoth(`强杀后拒绝付费 ${entry}/${change}`, [...args(entry, f),
         ...(change ? ['--budget', '0.009'] : [])], f.cwd,
-        { status: 2, soft: [0, 1, 3] }, costEnv(log))
+        { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(log))
       if (validRun(resumed)) {
         const after = jsonFile(f.task)
         const changed = [...new Set([...Object.keys(disk ?? {}), ...Object.keys(after ?? {})])]
@@ -1752,7 +1848,7 @@ group('cost-save-errors', [], () => {
     const args = entry === 'probe' ? [S('probe.ts'), '--config', cfg]
       : [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir]
     const result = runBoth(`${entry} 真正需付费却缺 key`, args, f.cwd,
-      { status: 2, soft: [0, 1, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (result.ok) named('真正需要请求时缺 key 是输入错误，零 fetch 且不冒充预算不足',
       result.status === 2 && fetchAttempts(f.log).length === 0 && /TIKHUB_API_KEY|密钥|key/i.test(result.stderr),
       `${entry}: status=${result.status}, attempts=${fetchAttempts(f.log).length}, stderr=${result.stderr}`)
@@ -1779,7 +1875,7 @@ group('cost-save-errors', [], () => {
     const result = runBoth(`${entry} 保存失败 ${scenario}`,
       [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir,
         ...(scenario === 'change' ? ['--budget', '0.003'] : [])], f.cwd,
-      { status: 1, soft: [0, 2, 3] }, costEnv(f.log, {
+      { status: 6, soft: [0, 1, 2, 3, 7] }, costEnv(f.log, {
         NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
       }))
     if (!result.ok) continue
@@ -1790,7 +1886,7 @@ group('cost-save-errors', [], () => {
     }
     const attempts = fetchAttempts(f.log)
     named('费用保存故障确实发生，失败不得退3、宣称已保存或继续请求',
-      fileText(mark).includes('injected') && result.status === 1 && !result.stderr.includes('已保存')
+      fileText(mark).includes('injected') && result.status === 6 && !result.stderr.includes('已保存')
         && attempts.length === (scenario === 'after-http' ? 1 : 0)
         && (scenario !== 'after-http' || attempts[0] === `200\t${entry === 'collect' ? TT_SEARCH : TT_POSTS}`)
         && (scenario === 'after-http' ? jsonFile(f.task)?.cost_ledger?.pending?.endpoint === (entry === 'collect' ? TT_SEARCH : TT_POSTS)
@@ -1809,7 +1905,7 @@ group('cost-save-errors', [], () => {
     const preload = join(f.cwd, 'fail-raw-save.mjs'), mark = join(f.cwd, 'raw-fault.txt')
     writeFileSync(preload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = function(src, dest) { if (String(dest) === ${JSON.stringify(raw)}) { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('test raw save denied'), { code: 'EIO' }); } return original(src, dest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
     const result = runBoth('collect 作者累加器写失败', [S('collect.ts'), '--resume', f.taskDir], f.cwd,
-      { status: 1, soft: [0, 2, 3] }, costEnv(f.log, {
+      { status: 6, soft: [0, 1, 2, 3, 7] }, costEnv(f.log, {
         NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
       }))
     if (result.ok) {
@@ -1820,7 +1916,7 @@ group('cost-save-errors', [], () => {
         const disk = jsonFile(f.task)
         const attempts = fetchAttempts(f.log)
         named('作者累加器写失败时，盘上这一页的分页进度不前进',
-          fileText(mark).includes('injected') && result.status === 1
+          fileText(mark).includes('injected') && result.status === 6
             && attempts.length === 1 && attempts[0] === `200\t${TT_SEARCH}`
             && disk?.offsets !== undefined && !Object.hasOwn(disk.offsets, '0')
             && disk?.pages !== undefined && !Object.hasOwn(disk.pages, '0')
@@ -1832,8 +1928,8 @@ group('cost-save-errors', [], () => {
   criterion('D6.t')
 
   // 公共方法级注入纯费用错误，避免用普通 fetch 错误冒充内部费用错误。
-  // --import tsx 在夹具前加载；不读或改写 Budget/CostError 的函数体。
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  // 与入口一致的加载器在夹具前加载；不读或改写 Budget/CostError 的函数体。
+  const fixtureImport = (cwd: string) => fixtureLoader(S('collect.ts'), env, cwd)
   const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
   const costModule = pathToFileURL(resolve('scripts/lib/cost-ledger.ts')).href
   for (const entry of ['collect', 'enrich', 'probe']) for (const method of ['reserve', 'settle']) {
@@ -1861,8 +1957,8 @@ group('cost-save-errors', [], () => {
     const args = entry === 'probe' ? [S('probe.ts'), '--config', cfg]
       : [S(`${entry}.ts`), entry === 'collect' ? '--resume' : '--dir', f.taskDir]
     const result = runBoth(`${entry} 运行中 ${method} 费用错误`, args, f.cwd,
-      { status: 1, soft: [0, 2, 3] }, costEnv(f.log, {
-        NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] }, costEnv(f.log, {
+        NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport(f.cwd))} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
       }))
     if (result.ok) {
       if (!fileText(mark).includes('armed')) {
@@ -1878,6 +1974,367 @@ group('cost-save-errors', [], () => {
     }
   }
   criterion('D13.s')
+})
+
+// ---- 契约 kol-test-observer/v1（测试观察用的记录文件与保存失败注入）----
+// 期望全部出自需求所有者确认的公开说明原文（引号里是原文），写于实现之前；没有读 obs.ts 与各入口的函数体。
+// 契约没有登记编号，所以这两组不 criterion()。夹具形状沿用 cost-* 几组：空账、上限 1000 微美元＝一次 TikTok 搜索（$0.001），
+// 搜完一页再买不起下一次 → 今天以 3 收尾（SKILL.md 收尾表）；手算的数都写在断言旁边。
+const TOBS_VAR = 'KOL_TEST_OBSERVER_EVENTS', TOBS_CONTRACT = 'kol-test-observer/v1'
+// 开着开关：每一跑一个还不存在的记录文件（「不存在就新建」），放在夹具的当前目录之外，上一跑的记录碰不到这一跑。
+// 目录与计数两组各在自己的组里建一份：完整自检拆进程时两组可能不在同一个进程里，共用一处会撞名（share-rule.ts 头上那段）
+const tobsSwitch = (dir: string) => {
+  let runs = 0
+  return (): NodeJS.ProcessEnv => {
+    mkdirSync(dir, { recursive: true })
+    return { [TOBS_VAR]: join(dir, `run-${++runs}.jsonl`) }
+  }
+}
+// 「每条记录占一整行，是一个单行 JSON 对象，以换行结束」：读不成对象的行、最后没有换行的那一截，都换成 kind 不对的记录留着，
+// 判 kind／contract 的断言因此红；文件不在（关着，或入口一条都没写）就是没有记录
+const recordsOf = (extra: NodeJS.ProcessEnv): any[] => {
+  const path = extra[TOBS_VAR]
+  if (!path || !existsSync(path)) return []
+  const lines = readFileSync(path, 'utf8').split('\n'), tail = lines.pop()
+  const parse = (l: string) => {
+    try { const o = JSON.parse(l); return typeof o === 'object' && o !== null && !Array.isArray(o) ? o : { kind: '<不是 JSON 对象>', raw: l } }
+    catch { return { kind: '<不是单行 JSON>', raw: l } }
+  }
+  return [...lines.map(parse), ...(tail ? [{ kind: '<最后一条没有以换行结束>', raw: tail }] : [])]
+}
+const ofKind = (records: any[], kind: string) => records.filter(o => o?.kind === kind)
+const reserves = (records: any[], result: string) => ofKind(records, 'reserve').filter(o => o.result === result)
+type TobsRun = { ok: boolean; stdout: string; stderr: string; status: number | null; records: any[] }
+// 循环里每一例先把判定（成没成、为什么）收进表里，循环之后一例一个字面量标签地报（`process/4-VERIFY.md`「核对标签的运行身份」）：
+// 变异红在哪一例，看得出是哪个入口、哪个原因；没跑成的那一例表里没有，照旧不报
+type Verdict = readonly [boolean, string]
+// 跑一次入口，连同这一跑记录文件里的记录（没开开关的是 []）
+const tobsRun = (label: string, args: string[], cwd: string, expect: { status: number; soft?: readonly number[] },
+  log: string, extra: NodeJS.ProcessEnv = {}): TobsRun => ({ ...runBoth(label, args, cwd, expect, costEnv(log, extra)), records: recordsOf(extra) })
+const FAULT_FILE = '.kol-save-fault.json'
+const FAULT_OK = { schema: 'kol-save-fault/v1', point: 'SP-R', occurrence: 1 }
+const obsFixture = (name: string, costs: Record<string, unknown> = knownCosts(1000, []),
+  over: Record<string, unknown> = {}, people: ReturnType<typeof costPerson>[] = []) =>
+  costFixture(`obs-${name}`, costs, { budget_usd: 0.001, done: [], offsets: {}, pages: {}, answered: {}, found: {}, ...over }, people)
+// 同一目录再跑一次：整个任务目录清空重建（上一跑落下的任何产物都不留）、清掉账本与控制文件，路径不变 —— 两跑的 stdout／stderr 才比得了
+const obsAgain = (mk: () => ReturnType<typeof costFixture>) => {
+  rmSync(mk().taskDir, { recursive: true, force: true })
+  const f = mk(); rmSync(f.log, { force: true }); rmSync(join(f.cwd, FAULT_FILE), { force: true }); return f
+}
+const obsResume = (label: string, f: ReturnType<typeof costFixture>, extra: NodeJS.ProcessEnv = {},
+  expect: { status: number; soft?: readonly number[] } = { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] }) =>
+  tobsRun(label, [S('collect.ts'), '--resume', f.taskDir], f.cwd, expect, f.log, extra)
+const obsSaid = (r: { status: number | null; stdout: string; stderr: string; records?: any[] }, log?: string) =>
+  `exit=${r.status}, attempts=${log ? JSON.stringify(fetchAttempts(log)) : '-'}, records=${JSON.stringify(r.records ?? [])}, `
+  + `stdout=${r.stdout.slice(0, 200)}, stderr 末几行 ${stderrTail(r.stderr)}`
+const obsFault = (cwd: string, body: unknown) => {
+  const p = join(cwd, FAULT_FILE); writeFileSync(p, typeof body === 'string' ? body : JSON.stringify(body)); return p
+}
+// 两跑的 stderr 对比时去掉假 fetch 自己那句「已接管 fetch」：它由测试的预加载打出，落在入口第一句之前还是之后不定
+// （实测一次：两跑只差在它落的位置），不是入口写的
+const entryStderr = (s: string) => s.split('\n').filter(l => !l.startsWith('[fake-fetch]')).join('\n')
+// 当前目录底下的路径名（不看内容）：「除了这个文件也不因此写任何别的文件」按名字比
+const namesUnder = (root: string): string[] => {
+  const out: string[] = []
+  const walk = (dir: string) => { for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name); out.push(p.slice(root.length)); if (e.isDirectory()) walk(p)
+  } }
+  walk(root); return out.sort()
+}
+
+group('test-observer-events', [], () => {
+  const TOBS_ON = tobsSwitch(join(tmp, 'test-observer-events-records'))
+  // 「没设这个变量、或者值为空时，collect、probe、enrich 的行为、输出和落盘，与没有这一节时完全相同」—— 同一目录、同一夹具跑两次，
+  // 一次没设、一次设成空串（没设的那一跑另在下面「对照跑」里与开着开关的比）
+  const mkEmpty = () => obsFixture('empty'), e1 = mkEmpty()
+  const unset = obsResume('collect 没设记录文件变量', e1), unsetNames = namesUnder(e1.cwd)
+  const e2 = obsAgain(mkEmpty), empty = obsResume('collect 记录文件变量设成空串', e2, { [TOBS_VAR]: '' })
+  if (unset.ok && empty.ok) named('记录文件变量设成空串时与没设时一样：stdout、入口写的 stderr、退出码逐字相同，当前目录底下的文件名也相同',
+    empty.stdout === unset.stdout && entryStderr(empty.stderr) === entryStderr(unset.stderr) && empty.status === unset.status
+      && JSON.stringify(namesUnder(e2.cwd)) === JSON.stringify(unsetNames), `空串: ${obsSaid(empty)}\n    没设: ${obsSaid(unset)}`)
+  // 「入口一启动、读取任何输入（命令行参数、配置、task.json）之前写一条，每一跑恰好一条」—— 配置路径不存在、以 2 结束时也要有
+  const readyOf: Record<string, Verdict> = {}
+  for (const entry of ['collect', 'probe']) {
+    const r = tobsRun(`${entry} 配置不存在时的就绪记录`, [S(`${entry}.ts`), '--config', join(tmp, 'obs-no-such-config.json')], tmp,
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, join(tmp, `obs-ready-${entry}.tsv`), TOBS_ON())
+    if (r.ok) readyOf[entry] = [ofKind(r.records, 'ready').length === 1 && ofKind(r.records, 'ready')[0].entry === entry
+        && ofKind(r.records, 'ready')[0].contract === TOBS_CONTRACT, `${entry}: ${obsSaid(r)}`]
+  }
+  if (readyOf.collect) named('collect 读不到输入也先写恰好一条 ready 记录：entry 是 collect、contract 是 kol-test-observer/v1', ...readyOf.collect)
+  if (readyOf.probe) named('probe 读不到输入也先写恰好一条 ready 记录：entry 是 probe、contract 是 kol-test-observer/v1', ...readyOf.probe)
+  // 「读取任何输入（命令行参数、…）之前」—— 一个参数都不给，入口连 argv 都接受不了（用法错误，照 D26.a 的先例以 2 拒绝）
+  const argvOf: Record<string, Verdict> = {}
+  for (const entry of ['collect', 'probe', 'enrich']) {
+    const r = tobsRun(`${entry} 不带任何参数`, [S(`${entry}.ts`)], tmp, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, join(tmp, `obs-argv-${entry}.tsv`), TOBS_ON())
+    if (r.ok) argvOf[entry] = [ofKind(r.records, 'ready').length === 1 && ofKind(r.records, 'ready')[0].entry === entry, `${entry}: ${obsSaid(r)}`]
+  }
+  if (argvOf.collect) named('collect 连命令行参数都接受不了时也已写出恰好一条 ready 记录，entry 是 collect', ...argvOf.collect)
+  if (argvOf.probe) named('probe 连命令行参数都接受不了时也已写出恰好一条 ready 记录，entry 是 probe', ...argvOf.probe)
+  if (argvOf.enrich) named('enrich 连命令行参数都接受不了时也已写出恰好一条 ready 记录，entry 是 enrich', ...argvOf.enrich)
+  // 付费跑：「每一次真实的 HTTP 尝试（包括重试和换路）恰好对应一条 reserved 记录」「scope：task 是写进 task.json 的任务账（collect、enrich）；
+  // process 是只在本进程里的账（probe）」「attempt_id：只在 scope 为 task 且 result 为 reserved 时有」「reason：只在 rejected 时有」。
+  // 单价只对搜索那一路钉死：原文例子与 tikhub.md 都是 $0.001 ＝ 1000；attempt_id ＝ 夹具 next_attempt_id ＝ 0 次 + 1 ＝ 1。
+  const pc = obsFixture('paid-collect'), pe = obsFixture('paid-enrich', knownCosts(1000, []), {}, [costPerson()])
+  const probeCfg = join(tmp, 'obs-probe.json'), probeLog = join(tmp, 'obs-probe.tsv')
+  writeFileSync(probeCfg, JSON.stringify({ market: 'US', budget_usd: 0.001, tasks: [{ keyword: 'obs', dimension: 'category', platform: 'tiktok' }] }))
+  const paid = [['collect', ['--resume', pc.taskDir], pc.cwd, pc.log, 'task'], ['enrich', ['--dir', pe.taskDir], pe.cwd, pe.log, 'task'],
+    ['probe', ['--config', probeCfg], tmp, probeLog, 'process']] as const
+  const shapeOf: Record<string, Verdict> = {}, pairOf: Record<string, Verdict> = {}, idOf: Record<string, Verdict> = {}
+  for (const [entry, args, cwd, log, scope] of paid) {
+    const r = tobsRun(`${entry} 开着开关的付费跑`, [S(`${entry}.ts`), ...args], cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, log, TOBS_ON())
+    if (!r.ok) continue
+    const attempts = fetchAttempts(log), ok = reserves(r.records, 'reserved'), ready = ofKind(r.records, 'ready')
+    if (attempts.length === 0) { failed++; console.error(`  ✗ ${entry} 付费跑${SELFCHECK_FIXTURE_MARK}：假 fetch 一次请求都没记下`); continue }
+    shapeOf[entry] = [r.records.every(o => typeof o.kind === 'string' && o.contract === TOBS_CONTRACT) && ready.length === 1
+        && ready[0].entry === entry && r.records[0].kind === 'ready', `${entry}: ${obsSaid(r, log)}`]
+    pairOf[entry] = [ok.length === attempts.length && ok.every((o, i) => o.entry === entry && o.scope === scope && o.endpoint === attempts[i].split('\t')[1]
+        && Number.isInteger(o.unit_micro_usd) && o.unit_micro_usd > 0 && (o.endpoint !== TT_SEARCH || o.unit_micro_usd === 1000) && !('reason' in o)),
+      `${entry}: ${obsSaid(r, log)}`]
+    idOf[entry] = [ok.length >= 1 && ok.every(o => scope === 'task' ? Number.isInteger(o.attempt_id) : !('attempt_id' in o)) && (scope !== 'task' || ok[0].attempt_id === 1),
+      `${entry}: ${obsSaid(r, log)}`]
+  }
+  if (shapeOf.collect) named('collect 每条记录都是带 kind 与 contract 的单行 JSON 对象、以换行结束，ready 恰好一条且是第一条', ...shapeOf.collect)
+  if (shapeOf.enrich) named('enrich 每条记录都是带 kind 与 contract 的单行 JSON 对象、以换行结束，ready 恰好一条且是第一条', ...shapeOf.enrich)
+  if (shapeOf.probe) named('probe 每条记录都是带 kind 与 contract 的单行 JSON 对象、以换行结束，ready 恰好一条且是第一条', ...shapeOf.probe)
+  if (pairOf.collect) named('collect 的 reserved 记录与账本里的真实 HTTP 尝试一一对应：endpoint 是请求路径、unit_micro_usd 是这一路单价、scope 是 task、没有 reason', ...pairOf.collect)
+  if (pairOf.enrich) named('enrich 的 reserved 记录与账本里的真实 HTTP 尝试一一对应：endpoint 是请求路径、unit_micro_usd 是这一路单价、scope 是 task、没有 reason', ...pairOf.enrich)
+  if (pairOf.probe) named('probe 的 reserved 记录与账本里的真实 HTTP 尝试一一对应：endpoint 是请求路径、unit_micro_usd 是这一路单价、scope 是 process、没有 reason', ...pairOf.probe)
+  if (idOf.collect) named('collect 的 reserved 记录都有 attempt_id，首次是任务账里的序号 1', ...idOf.collect)
+  if (idOf.enrich) named('enrich 的 reserved 记录都有 attempt_id，首次是任务账里的序号 1', ...idOf.enrich)
+  if (idOf.probe) named('probe 的 reserved 记录没有 attempt_id（process 账）', ...idOf.probe)
+  // 「`reserved` 记录在这次预留已经存好（任务账）之后、真正发出这次 HTTP 请求之前写出」—— 假 fetch 在第 1 个 200 响应交还之前把进程 SIGKILL
+  // （crash-resume 的手法，退出码 137），所以文件里收到的每一条都写于响应被处理之前；只比条数的断言挡不住「响应处理完才写」
+  const killed = obsFixture('kill-first')
+  const kr = obsResume('collect 第一次响应交还前被杀', killed, { ...TOBS_ON(), FAKE_FETCH_KILL_AFTER_OK: '1' }, { status: 137 })
+  if (kr.ok) named('第一次请求的响应还没交还就被杀时，那条 reserved 记录已经在记录文件里：恰好一条、端点是搜索路径、attempt_id 1',
+    fetchAttempts(killed.log).length === 1 && reserves(kr.records, 'reserved').length === 1 && reserves(kr.records, 'reserved')[0].endpoint === TT_SEARCH
+      && reserves(kr.records, 'reserved')[0].attempt_id === 1 && ofKind(kr.records, 'ready').length === 1, obsSaid(kr, killed.log))
+  // 「包括重试」：第一次 429、若既有策略重试则下一次 200 —— 不另定重试策略，只要 reserved 记录数等于账本行数
+  const retry = obsFixture('retry')
+  const rr = obsResume('collect 搜索先吃 429', retry, { ...TOBS_ON(), FAKE_FETCH_FAULT_PATH: TT_SEARCH, FAKE_FETCH_FAULT: 'bad-body-429' }, { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] })
+  if (rr.ok) named('429 那次与重试各算一次真实尝试：reserved 记录数等于账本行数，端点逐条对应',
+    fetchAttempts(retry.log)[0] === `429\t${TT_SEARCH}` && reserves(rr.records, 'reserved').length === fetchAttempts(retry.log).length
+      && reserves(rr.records, 'reserved').every((o, i) => o.endpoint === fetchAttempts(retry.log)[i].split('\t')[1]), obsSaid(rr, retry.log))
+  // 被拒：「rejected 记录在被拒的那一刻写出，这次请求不发」，reason 取五个之一：
+  // budget＝已用 1000/1000「已知额度不够付这一次」；pending＝「账上有没结的预留」；ledger-unavailable＝「费用账缺席、损坏或版本认不得」；
+  // root-conflict＝根 budget_usd 0.002 对账上 limit 1000「根预算与账上的上限冲突」。退出码按 SKILL.md 收尾表（3／2／2／2），只软判。
+  const rejects: [string, Record<string, unknown>, Record<string, unknown>, number][] = [
+    ['budget', knownCosts(1000, [costEntry(TT_PROFILE, 1000, 1)]), {}, 3],
+    ['pending', knownCosts(1000, [], { endpoint: TT_SEARCH, price_version: COST_VERSION, unit_micro_usd: 1000, attempt_id: 1 }), {}, 2],
+    ['ledger-unavailable', { requests: 0, cost_ledger: { version: 'unusable' } }, {}, 2],
+    ['root-conflict', knownCosts(1000, []), { budget_usd: 0.002 }, 2],
+  ]
+  const rejectOf: Record<string, Verdict> = {}
+  for (const [reason, costs, over, today] of rejects) {
+    const f = obsFixture(`reject-${reason}`, costs, over)
+    const r = obsResume(`collect 预留被拒 ${reason}`, f, TOBS_ON(), { status: today, soft: [0, 1, 2, 3].filter(n => n !== today) })
+    if (r.ok) rejectOf[reason] = [reserves(r.records, 'rejected').length >= 1 && ofKind(r.records, 'reserve').every(o => o.result === 'rejected' && o.reason === reason
+        && o.entry === 'collect' && o.scope === 'task' && !('attempt_id' in o)) && fetchAttempts(f.log).length === 0, `${reason}: ${obsSaid(r, f.log)}`]
+  }
+  if (rejectOf.budget) named('额度不够时被拒的预留写 rejected 记录：reason 是 budget、没有 attempt_id、没有 reserved 记录，请求一次都没发', ...rejectOf.budget)
+  if (rejectOf.pending) named('账上有没结的预留时被拒的预留写 rejected 记录：reason 是 pending、没有 attempt_id、没有 reserved 记录，请求一次都没发', ...rejectOf.pending)
+  if (rejectOf['ledger-unavailable']) named('费用账认不得时被拒的预留写 rejected 记录：reason 是 ledger-unavailable、没有 attempt_id、没有 reserved 记录，请求一次都没发', ...rejectOf['ledger-unavailable'])
+  if (rejectOf['root-conflict']) named('根预算与账上的上限冲突时被拒的预留写 rejected 记录：reason 是 root-conflict、没有 attempt_id、没有 reserved 记录，请求一次都没发', ...rejectOf['root-conflict'])
+  // save-failed＝「这次预留没能存进任务账」：同 cost-save-errors，只拦 task.json 最终改名写入的目标
+  const sf = obsFixture('reject-save-failed'), preload = join(sf.cwd, 'deny-task-save.mjs'), mark = join(sf.cwd, 'mark.txt')
+  writeFileSync(preload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.renameSync; fs.renameSync = function(src, dest) { if (String(dest) === ${JSON.stringify(sf.task)}) { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('test task save denied'), { code: 'EIO' }); } return original(src, dest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
+  const sr = obsResume('collect 预留存不进任务账', sf, { ...TOBS_ON(), NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}` }, { status: 6, soft: [0, 1, 2, 3, 7] })
+  if (sr.ok && !fileText(mark).includes('armed')) { failed++; console.error(`  ✗ 预留保存故障注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${sr.stderr}`) }
+  else if (sr.ok) named('预留存不进任务账时写 reason 为 save-failed 的 rejected 记录，没有 reserved 记录，请求不发，退出 6',
+    fileText(mark).includes('injected') && sr.status === 6 && fetchAttempts(sf.log).length === 0 && reserves(sr.records, 'reserved').length === 0
+      && reserves(sr.records, 'rejected').some(o => o.reason === 'save-failed' && !('attempt_id' in o)), obsSaid(sr, sf.log))
+  // 「记录只写进这个文件：stdout 和 stderr 一行都不因此多写，除了这个文件也不因此写任何别的文件」—— 同一目录、同一夹具跑两次
+  const mkSame = () => obsFixture('same'), s1 = mkSame()
+  const off = obsResume('collect 关着开关的对照跑', s1), offNames = namesUnder(s1.cwd)
+  const s2 = obsAgain(mkSame), on = obsResume('collect 开着开关的同一跑', s2, TOBS_ON())
+  if (off.ok && on.ok) named('开着开关时 stdout、入口写的 stderr、退出码与关着时逐字相同，当前目录底下的文件名也相同，记录只在记录文件里',
+    on.records.length >= 2 && entryStderr(on.stderr) === entryStderr(off.stderr) && on.stdout === off.stdout && on.status === off.status
+      && JSON.stringify(namesUnder(s2.cwd)) === JSON.stringify(offNames),
+    `stderr 相同=${entryStderr(on.stderr) === entryStderr(off.stderr)}, stdout 相同=${on.stdout === off.stdout}; on: ${obsSaid(on)}\n    off stderr 末几行 ${stderrTail(off.stderr)}`)
+  // 「不存在就新建，已存在就接着往后写，不清空」—— 记录文件里先放一条别的记录，跑完它还在第一行，后面接这一跑的
+  const pre = TOBS_ON(), preText = '{"kind":"before","contract":"earlier"}\n'
+  writeFileSync(String(pre[TOBS_VAR]), preText)
+  const ap = obsResume('collect 记录文件已存在', obsFixture('append'), pre)
+  if (ap.ok) named('记录文件已存在时接着往后写：原有的那一条一字不动，后面是这一跑的记录、第一条是 ready',
+    fileText(String(pre[TOBS_VAR])).startsWith(preText) && ap.records[0]?.kind === 'before' && ap.records[1]?.kind === 'ready'
+      && reserves(ap.records, 'reserved').length >= 1, obsSaid(ap))
+  // 同上，但原有的最后一行没有以换行结束（例如上一个写它的人断在半行）：「每条记录占一整行」—— 这一跑的就绪记录不能接在那半行后面
+  const half = TOBS_ON(), halfText = '{"kind":"before","contract":"earlier"}'
+  writeFileSync(String(half[TOBS_VAR]), halfText)
+  const hp = obsResume('collect 记录文件已存在、最后一行没有换行', obsFixture('append-half'), half)
+  if (hp.ok) named('记录文件已存在、最后一行没有以换行结束时：原有内容一字不动，这一跑的记录各占一整行、第一条是 ready',
+    fileText(String(half[TOBS_VAR])).startsWith(halfText) && hp.records[0]?.kind === 'before' && hp.records[1]?.kind === 'ready'
+      && hp.records.slice(1).every(o => o?.contract === TOBS_CONTRACT) && reserves(hp.records, 'reserved').length >= 1, obsSaid(hp))
+  // 同上，但这个文件只能追加、读不出（例如只给了写权限）：最后一行有没有换行确认不了，就照「启动时就打不开」以 1 退出、什么都不写。
+  // 预加载换掉 fs.openSync：除了只追加的那种打开，打开这个记录文件都回 EACCES（以 root 跑也一样读不出）；手法同下面「中途写不进去」那一例
+  const denyRead = (cwd: string, path: string) => {
+    const preload = join(cwd, 'deny-read.mjs'), mark = join(cwd, 'deny-read.txt')
+    writeFileSync(preload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.openSync; fs.openSync = function(p, flags, ...rest) { if (String(p) === ${JSON.stringify(path)} && flags !== 'a') { fs.appendFileSync(${JSON.stringify(mark)}, 'injected\\n'); throw Object.assign(new Error('EACCES: permission denied, open ' + JSON.stringify(String(p))), { code: 'EACCES', errno: -13, syscall: 'open' }); } return original.call(this, p, flags, ...rest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(mark)}, 'armed\\n');`)
+    return { mark, NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}` }
+  }
+  const wo = TOBS_ON(), woPath = String(wo[TOBS_VAR]), woF = obsFixture('append-unreadable'), woDeny = denyRead(woF.cwd, woPath)
+  writeFileSync(woPath, halfText)
+  const wr = obsResume('collect 记录文件已存在、最后一行没有换行、又读不出', woF, { ...wo, NODE_OPTIONS: woDeny.NODE_OPTIONS }, { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] })
+  if (wr.ok && !fileText(woDeny.mark).includes('armed')) { failed++; console.error(`  ✗ 记录文件读不出的注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${wr.stderr}`) }
+  else if (wr.ok) named('记录文件已存在、最后一行没有以换行结束、又读不出时：以 1 退出、stderr 说出是哪个文件，一次请求都不发，记录文件一字不动',
+    fileText(woDeny.mark).includes('injected') && wr.status === 1 && wr.stderr.includes(woPath) && fetchAttempts(woF.log).length === 0
+      && fileText(woPath) === halfText, obsSaid(wr, woF.log))
+  // 对照：同样读不出，但文件还不存在（入口新建、是空的），用不着看最后一行，照常跑
+  const wn = TOBS_ON(), wnF = obsFixture('fresh-unreadable'), wnDeny = denyRead(wnF.cwd, String(wn[TOBS_VAR]))
+  const nr = obsResume('collect 记录文件还不存在、新建之后读不出', wnF, { ...wn, NODE_OPTIONS: wnDeny.NODE_OPTIONS })
+  if (nr.ok && !fileText(wnDeny.mark).includes('armed')) { failed++; console.error(`  ✗ 记录文件读不出的注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${nr.stderr}`) }
+  else if (nr.ok) named('只能追加、读不出的记录文件原来不存在时照常跑：第一条是 ready，后面有 reserved 记录',
+    nr.records[0]?.kind === 'ready' && nr.records.every(o => o?.contract === TOBS_CONTRACT) && reserves(nr.records, 'reserved').length >= 1, obsSaid(nr, wnF.log))
+  // 「这个文件打不开或写不进去时，入口在 stderr 说明原因，以 1 退出：启动时就打不开的，什么输入都不读」—— 路径的上一级目录不存在。
+  // 三个入口都指着读得出、本来会付费跑的输入：读了的话会发请求；任务目录一字不改
+  const unopen = join(tmp, 'test-observer-no-such-dir', 'records.jsonl')
+  const uc = obsFixture('unopenable-collect'), ue = obsFixture('unopenable-enrich', knownCosts(1000, []), {}, [costPerson()])
+  const unopenable = [['collect', ['--resume', uc.taskDir], uc.cwd, uc.log, uc.taskDir], ['enrich', ['--dir', ue.taskDir], ue.cwd, ue.log, ue.taskDir],
+    ['probe', ['--config', probeCfg], tmp, join(tmp, 'obs-unopenable-probe.tsv'), undefined]] as const
+  const unopenOf: Record<string, Verdict> = {}
+  for (const [entry, args, cwd, log, dir] of unopenable) {
+    const before = dir ? ['task.json', 'creators.json', 'creators.raw.json'].map(n => fileText(join(dir, n))) : []
+    const r = tobsRun(`${entry} 记录文件打不开`, [S(`${entry}.ts`), ...args], cwd, { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] }, log, { [TOBS_VAR]: unopen })
+    if (r.ok) unopenOf[entry] = [r.status === 1 && r.stderr.includes(unopen) && fetchAttempts(log).length === 0 && !existsSync(unopen)
+        && (!dir || ['task.json', 'creators.json', 'creators.raw.json'].every((n, i) => fileText(join(dir, n)) === before[i])), `${entry}: ${obsSaid(r, log)}`]
+  }
+  if (unopenOf.collect) named('collect 的记录文件启动时就打不开：以 1 退出、stderr 说出是哪个文件，一次请求都不发、任务目录一字不改，记录文件也没建出来', ...unopenOf.collect)
+  if (unopenOf.enrich) named('enrich 的记录文件启动时就打不开：以 1 退出、stderr 说出是哪个文件，一次请求都不发、任务目录一字不改，记录文件也没建出来', ...unopenOf.enrich)
+  if (unopenOf.probe) named('probe 的记录文件启动时就打不开：以 1 退出、stderr 说出是哪个文件，一次请求都不发，记录文件也没建出来', ...unopenOf.probe)
+  // 「中途写不进去的，就停在那里，还没发出的请求都不再发」（写的是预留记录：那一次请求也没发）—— 预加载换掉 fs.writeSync：就绪记录照写，写 reserve 记录的那一次回 EIO（手法同上面 save-failed 那一例）
+  const mid = obsFixture('write-fails'), midPreload = join(mid.cwd, 'deny-record.mjs'), midMark = join(mid.cwd, 'deny-record.txt')
+  writeFileSync(midPreload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.writeSync; fs.writeSync = function(fd, data, ...rest) { const bytes = typeof data === 'string' ? Buffer.from(data) : Buffer.from(data.buffer, data.byteOffset, data.byteLength); if (fd > 2 && bytes.includes('"kind":"reserve"')) { fs.appendFileSync(${JSON.stringify(midMark)}, 'injected\\n'); throw Object.assign(new Error('EIO: i/o error, write'), { code: 'EIO', errno: -5, syscall: 'write' }); } return original.call(this, fd, data, ...rest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(midMark)}, 'armed\\n');`)
+  const midOn = TOBS_ON()
+  const mr = obsResume('collect 记录文件中途写不进去', mid, { ...midOn, NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(midPreload).href)}` }, { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] })
+  if (mr.ok && !fileText(midMark).includes('armed')) { failed++; console.error(`  ✗ 记录写不进的注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${mr.stderr}`) }
+  else if (mr.ok) named('记录文件中途写不进去：以 1 退出、stderr 说出是哪个文件，那一次请求不发',
+    fileText(midMark).includes('injected') && mr.status === 1 && mr.stderr.includes(String(midOn[TOBS_VAR])) && fetchAttempts(mid.log).length === 0
+      && ofKind(mr.records, 'ready').length === 1, obsSaid(mr, mid.log))
+})
+
+group('test-observer-save-fault', [], () => {
+  const TOBS_ON = tobsSwitch(join(tmp, 'test-observer-save-fault-records'))
+  const hits = (records: any[]) => ofKind(records, 'save-fault'), misses = (records: any[]) => ofKind(records, 'save-fault-miss')
+  const noSummary = (stdout: string) => Object.keys(summaryOf(stdout)).length === 0   // 收尾表：保存失败 → stdout 无汇总 JSON、退出 6（ADR-193）
+  // SP-R 第 1 次＝「每次真实 HTTP 尝试之前，把这次预留写进 task.json 的那次保存」—— 一个请求都发不出去；attempt_id ＝ next_attempt_id ＝ 1
+  const mkR = () => obsFixture('spr'), spr = mkR(), ctl = obsFault(spr.cwd, FAULT_OK), bytes = fileText(ctl)
+  const r1 = obsResume('collect 注入 SP-R 第 1 次', spr, TOBS_ON(), { status: 6, soft: [0, 1, 2, 3, 7] })
+  if (r1.ok) {
+    const h = hits(r1.records)
+    named('SP-R 命中：退出 6、stdout 没有汇总 JSON、零请求；恰好一条命中记录指着 SP-R 第 1 次，带 attempt_id 1 与搜索端点，not_written 为 true，没有未命中记录',
+      r1.status === 6 && noSummary(r1.stdout) && fetchAttempts(spr.log).length === 0 && h.length === 1 && h[0].entry === 'collect'
+        && h[0].contract === TOBS_CONTRACT && h[0].point === 'SP-R' && h[0].occurrence === 1 && h[0].attempt_id === 1
+        && h[0].endpoint === TT_SEARCH && h[0].not_written === true && misses(r1.records).length === 0, obsSaid(r1, spr.log))
+    // 「stderr 报保存失败，原因写明是 .kol-save-fault.json 注入的」「只读，不改也不删」
+    named('命中时 stderr 报保存失败并点名 .kol-save-fault.json，控制文件一字不改',
+      /保存/.test(r1.stderr) && r1.stderr.includes(FAULT_FILE) && fileText(ctl) === bytes, obsSaid(r1))
+    // 那次预留「没能存进任务账」→ 另有一条 save-failed 的 rejected 记录，而 reserved 记录不会有（它只在「预留已经存好之后」写）
+    named('SP-R 注入同时留下 reason 为 save-failed 的 rejected 记录，没有 reserved 记录',
+      reserves(r1.records, 'rejected').some(o => o.reason === 'save-failed') && reserves(r1.records, 'reserved').length === 0, obsSaid(r1, spr.log))
+  }
+  // 「只在设了 KOL_TEST_OBSERVER_EVENTS 时生效」「没设这个变量……当前目录里放着 .kol-save-fault.json 也一样」—— 同一目录两跑都没设：
+  // 一跑不放控制文件、一跑放着 SP-R 第 1 次，两跑逐字相同、都照常发出那一次请求
+  const mkOff = () => obsFixture('spr-off')
+  const offCtl = obsResume('collect 没设开关、没放控制文件', mkOff())
+  const offFault = obsAgain(mkOff); obsFault(offFault.cwd, FAULT_OK)
+  const ro = obsResume('collect 没设开关、放着控制文件', offFault)
+  if (offCtl.ok && ro.ok) named('没设记录文件变量时控制文件不起作用：照常请求，stdout、入口写的 stderr、退出码与没放控制文件时逐字相同',
+    fetchAttempts(offFault.log).length === 1 && ro.stdout === offCtl.stdout && entryStderr(ro.stderr) === entryStderr(offCtl.stderr) && ro.status === offCtl.status,
+    `stderr 相同=${entryStderr(ro.stderr) === entryStderr(offCtl.stderr)}, stdout 相同=${ro.stdout === offCtl.stdout}; ${obsSaid(ro, offFault.log)}\n    对照 ${obsSaid(offCtl)}`)
+  // SP-200／SP-N200／SP-NS＝「收到 HTTP 200 之后」「收到非 200 的 HTTP 状态之后」「没拿到 HTTP 状态（例如连不上）之后」的那次保存：
+  // 各在恰好一次请求之后命中（假 fetch 的 500 与断连都只打一次），「注入不改变请求的端点、价目、调度和重试次数」
+  const finalOf: Record<string, Verdict> = {}
+  for (const [point, kind, status] of [['SP-200', undefined, '200'], ['SP-N200', 'bad-body-500', '500'], ['SP-NS', 'no-http-status', 'NO_HTTP_STATUS']] as const) {
+    const f = obsFixture(`sp-${point}`); obsFault(f.cwd, { ...FAULT_OK, point })
+    const r = obsResume(`collect 注入 ${point} 第 1 次`, f, { ...TOBS_ON(), ...(kind ? { FAKE_FETCH_FAULT_PATH: TT_SEARCH, FAKE_FETCH_FAULT: kind } : {}) }, { status: 6, soft: [0, 1, 2, 3, 7] })
+    if (r.ok) finalOf[point] = [r.status === 6 && noSummary(r.stdout) && JSON.stringify(fetchAttempts(f.log)) === JSON.stringify([`${status}\t${TT_SEARCH}`])
+        && hits(r.records).length === 1 && hits(r.records)[0].point === point && hits(r.records)[0].occurrence === 1 && hits(r.records)[0].attempt_id === 1
+        && hits(r.records)[0].endpoint === TT_SEARCH && hits(r.records)[0].not_written === true && misses(r.records).length === 0, `${point}: ${obsSaid(r, f.log)}`]
+  }
+  if (finalOf['SP-200']) named('SP-200 在恰好一次 200 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-200、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-200'])
+  if (finalOf['SP-N200']) named('SP-N200 在恰好一次 500 之后命中：退出 6、无汇总 JSON，命中记录指着 SP-N200、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-N200'])
+  if (finalOf['SP-NS']) named('SP-NS 在恰好一次没拿到状态之后命中：退出 6、无汇总 JSON，命中记录指着 SP-NS、occurrence 1、attempt_id 1、搜索端点、not_written', ...finalOf['SP-NS'])
+  // SP-BUD＝「已知额度不足、停下时的断点保存；注入时作者文件和 task.json 都不写」—— 已用 1000/1000 的续跑，没有文件时今天以 3 收尾
+  const mkBud = () => obsFixture('spbud', knownCosts(1000, [costEntry(TT_PROFILE, 1000, 1)]), {}, [costPerson()])
+  const budCtl = obsResume('collect 额度不足的对照跑', mkBud(), TOBS_ON(), { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] })
+  const bud = obsAgain(mkBud); obsFault(bud.cwd, { ...FAULT_OK, point: 'SP-BUD' })
+  const budFiles = ['task.json', 'creators.json', 'creators.raw.json'].map(n => join(bud.taskDir, n)), budBefore = budFiles.map(fileText)
+  const br = obsResume('collect 注入 SP-BUD 第 1 次', bud, TOBS_ON(), { status: 6, soft: [0, 1, 2, 3, 7] })
+  if (budCtl.ok && br.ok) {
+    named('SP-BUD 命中：对照跑以 3 收尾，注入跑以 6 收尾、stdout 没有汇总 JSON、零请求，stderr 不说已保存',
+      budCtl.status === 3 && br.status === 6 && noSummary(br.stdout) && fetchAttempts(bud.log).length === 0 && !/已保存/.test(br.stderr), obsSaid(br, bud.log))
+    named('SP-BUD 的命中记录没有 attempt_id 与 endpoint，作者文件和 task.json 一字没写',
+      hits(br.records).length === 1 && hits(br.records)[0].point === 'SP-BUD' && hits(br.records)[0].occurrence === 1 && hits(br.records)[0].not_written === true
+        && !('attempt_id' in hits(br.records)[0]) && !('endpoint' in hits(br.records)[0]) && budFiles.every((p, i) => fileText(p) === budBefore[i]), obsSaid(br))
+  }
+  // not-reached＝「没到第 k 次」，「seen 是本跑里这个保存点实际出现的次数」：SP-R 第 5 次，而这一跑只发得出 1 次请求 → seen 1
+  const mkMiss = () => obsFixture('miss')
+  const missCtl = obsResume('collect 未命中的对照跑', mkMiss(), TOBS_ON())
+  const miss = obsAgain(mkMiss); obsFault(miss.cwd, { ...FAULT_OK, occurrence: 5 })
+  const mr = obsResume('collect 注入 SP-R 第 5 次（到不了）', miss, TOBS_ON())
+  if (missCtl.ok && mr.ok) named('没到第 k 次：恰好一条未命中记录，why 是 not-reached、seen 等于实际次数 1；退出码与 stdout 和没有文件时相同，没有命中记录',
+    misses(mr.records).length === 1 && misses(mr.records)[0].point === 'SP-R' && misses(mr.records)[0].occurrence === 5 && misses(mr.records)[0].why === 'not-reached'
+      && misses(mr.records)[0].seen === 1 && fetchAttempts(miss.log).length === 1 && hits(mr.records).length === 0
+      && mr.status === missCtl.status && mr.stdout === missCtl.stdout,
+    `stdout 与对照相同=${mr.stdout === missCtl.stdout}; ${obsSaid(mr, miss.log)}\n    对照 ${obsSaid(missCtl)}`)
+  // 「这个文件打不开或写不进去时，入口在 stderr 说明原因，以 1 退出」也管退出时那一条：同上 SP-R 第 5 次，预加载只让写未命中记录的那一次回 EIO
+  // （手法同 test-observer-events 里「中途写不进去」那一例）；没有这一处故障时这一跑以对照跑的退出码收尾
+  const exitW = obsAgain(mkMiss); obsFault(exitW.cwd, { ...FAULT_OK, occurrence: 5 })
+  const exitPreload = join(exitW.cwd, 'deny-miss.mjs'), exitMark = join(exitW.cwd, 'deny-miss.txt'), exitOn = TOBS_ON()
+  writeFileSync(exitPreload, `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; const original = fs.writeSync; fs.writeSync = function(fd, data, ...rest) { const bytes = typeof data === 'string' ? Buffer.from(data) : Buffer.from(data.buffer, data.byteOffset, data.byteLength); if (fd > 2 && bytes.includes('"kind":"save-fault-miss"')) { fs.appendFileSync(${JSON.stringify(exitMark)}, 'injected\\n'); throw Object.assign(new Error('EIO: i/o error, write'), { code: 'EIO', errno: -5, syscall: 'write' }); } return original.call(this, fd, data, ...rest); }; syncBuiltinESMExports(); fs.appendFileSync(${JSON.stringify(exitMark)}, 'armed\\n');`)
+  const er = obsResume('collect 退出时未命中记录写不进去', exitW, { ...exitOn, NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(exitPreload).href)}` }, { status: 1, soft: [0, 2, 3, 4, 5, 6, 7] })
+  if (er.ok && !fileText(exitMark).includes('armed')) { failed++; console.error(`  ✗ 未命中记录写不进的注入${SELFCHECK_FIXTURE_MARK}：预加载夹具未成功安装\n${er.stderr}`) }
+  else if (er.ok && missCtl.ok) named('退出时未命中记录写不进去：以 1 退出（没有这处故障时是对照跑的退出码）、stderr 说出是哪个文件，记录文件里没有未命中记录',
+    fileText(exitMark).includes('injected') && er.status === 1 && missCtl.status !== 1 && er.stderr.includes(String(exitOn[TOBS_VAR]))
+      && misses(er.records).length === 0 && ofKind(er.records, 'ready').length === 1, obsSaid(er, exitW.log))
+  // invalid-file＝「文件不是合格的 JSON、schema 不对、point 不在上面五个里，或 occurrence 不是正整数」：「文件不合格时不注入、其余照常，读不出的字段写 null」
+  // 「读不出的字段写 null」按字段的契约类型读：point 读得出＝五个名字之一，occurrence 读得出＝正整数 k，否则 null；
+  // 「seen 是本跑里这个保存点实际出现的次数」—— point 读得出（SP-R）时「其余照常」跑完一次搜索 → 1；point 读不出时没有保存点可数，原文没定，不判。
+  // 每项：[tag, 文件内容, 期望 point, 期望 occurrence]
+  const invalid: [string, unknown, string | null, number | null][] = [['not-json', '{nope', null, null], ['schema', { ...FAULT_OK, schema: 'kol-save-fault/v0' }, 'SP-R', 1],
+    ['point', { ...FAULT_OK, point: 'SP-X' }, null, 1], ['occ-0', { ...FAULT_OK, occurrence: 0 }, 'SP-R', null],
+    ['occ-1.5', { ...FAULT_OK, occurrence: 1.5 }, 'SP-R', null], ['occ-str', { ...FAULT_OK, occurrence: '1' }, 'SP-R', null]]
+  const invalidOf: Record<string, Verdict> = {}, fieldsOf: Record<string, Verdict> = {}
+  for (const [tag, body, point, occurrence] of invalid) {
+    const f = obsFixture(`invalid-${tag}`); obsFault(f.cwd, body)
+    const r = obsResume(`collect 不合格的控制文件 ${tag}`, f, TOBS_ON())
+    if (!r.ok || !missCtl.ok) continue
+    const m = misses(r.records)
+    invalidOf[tag] = [m.length === 1 && m[0].why === 'invalid-file' && m[0].entry === 'collect' && hits(r.records).length === 0
+        && fetchAttempts(f.log).length === 1 && r.status === missCtl.status, `${tag}: ${obsSaid(r, f.log)}`]
+    fieldsOf[tag] = [m.length === 1 && m[0].point === point && m[0].occurrence === occurrence && (point === null || m[0].seen === 1),
+      `${tag}: 期望 point=${JSON.stringify(point)} occurrence=${JSON.stringify(occurrence)}；${obsSaid(r, f.log)}`]
+  }
+  // 「恰好一条 why 为 invalid-file 的未命中记录、没有命中记录，照常请求、退出码与没有文件时相同」
+  if (invalidOf['not-json']) named('控制文件不是 JSON：恰好一条 invalid-file 未命中记录、没有命中记录，照常请求、退出码与没有文件时相同', ...invalidOf['not-json'])
+  if (invalidOf.schema) named('控制文件 schema 不对：恰好一条 invalid-file 未命中记录、没有命中记录，照常请求、退出码与没有文件时相同', ...invalidOf.schema)
+  if (invalidOf.point) named('控制文件 point 不在五个里：恰好一条 invalid-file 未命中记录、没有命中记录，照常请求、退出码与没有文件时相同', ...invalidOf.point)
+  if (invalidOf['occ-0']) named('控制文件 occurrence 为 0：恰好一条 invalid-file 未命中记录、没有命中记录，照常请求、退出码与没有文件时相同', ...invalidOf['occ-0'])
+  if (invalidOf['occ-1.5']) named('控制文件 occurrence 为 1.5：恰好一条 invalid-file 未命中记录、没有命中记录，照常请求、退出码与没有文件时相同', ...invalidOf['occ-1.5'])
+  if (invalidOf['occ-str']) named('控制文件 occurrence 是字符串：恰好一条 invalid-file 未命中记录、没有命中记录，照常请求、退出码与没有文件时相同', ...invalidOf['occ-str'])
+  // 「读得出的字段照原样、读不出的字段是 null，point 读得出时 seen 是这一跑实际的次数」
+  if (fieldsOf['not-json']) named('控制文件不是 JSON 时未命中记录的 point、occurrence 都是 null', ...fieldsOf['not-json'])
+  if (fieldsOf.schema) named('控制文件 schema 不对时未命中记录照原样写 point SP-R、occurrence 1，seen 是实际次数 1', ...fieldsOf.schema)
+  if (fieldsOf.point) named('控制文件 point 不在五个里时未命中记录的 point 是 null、occurrence 照原样是 1', ...fieldsOf.point)
+  if (fieldsOf['occ-0']) named('控制文件 occurrence 为 0 时未命中记录的 occurrence 是 null、point 照原样，seen 是实际次数 1', ...fieldsOf['occ-0'])
+  if (fieldsOf['occ-1.5']) named('控制文件 occurrence 为 1.5 时未命中记录的 occurrence 是 null、point 照原样，seen 是实际次数 1', ...fieldsOf['occ-1.5'])
+  if (fieldsOf['occ-str']) named('控制文件 occurrence 是字符串时未命中记录的 occurrence 是 null、point 照原样，seen 是实际次数 1', ...fieldsOf['occ-str'])
+  // 「只对 collect 生效」：probe 与 enrich 开着开关、当前目录里放着合格的控制文件，不写 save-fault 记录，退出码与没有文件时相同
+  const ign = join(tmp, 'obs-ignore-probe'); mkdirSync(ign, { recursive: true })
+  const ignCfg = join(ign, 'probe.json'), ignLog = join(ign, 'attempts.tsv')
+  writeFileSync(ignCfg, JSON.stringify({ market: 'US', budget_usd: 0.001, tasks: [{ keyword: 'obs-ignore', dimension: 'category', platform: 'tiktok' }] }))
+  const mkEnrich = () => obsFixture('ignore-enrich', knownCosts(1000, []), {}, [costPerson()]), en = mkEnrich()
+  const ignoreOf: Record<string, Verdict> = {}
+  for (const [entry, args, cwd, log, again] of [['probe', ['--config', ignCfg], ign, ignLog, () => rmSync(ignLog, { force: true })],
+    ['enrich', ['--dir', en.taskDir], en.cwd, en.log, () => obsAgain(mkEnrich)]] as const) {
+    const without = tobsRun(`${entry} 没有控制文件`, [S(`${entry}.ts`), ...args], cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, log, TOBS_ON())
+    again(); obsFault(cwd, FAULT_OK)
+    const withFile = tobsRun(`${entry} 当前目录有控制文件`, [S(`${entry}.ts`), ...args], cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, log, TOBS_ON())
+    if (without.ok && withFile.ok) ignoreOf[entry] = [hits(withFile.records).length === 0 && misses(withFile.records).length === 0
+      && withFile.status === without.status && fetchAttempts(log).length >= 1, `${entry}: ${obsSaid(withFile, log)}`]
+  }
+  if (ignoreOf.probe) named('probe 无视 .kol-save-fault.json：没有 save-fault／save-fault-miss 记录，照常请求，退出码不变', ...ignoreOf.probe)
+  if (ignoreOf.enrich) named('enrich 无视 .kol-save-fault.json：没有 save-fault／save-fault-miss 记录，照常请求，退出码不变', ...ignoreOf.enrich)
 })
 
 // ---- 崩溃续跑 A / B：业务保存窗口仍要验证，费用窗口由D14持久预留封住 ----
@@ -1937,7 +2394,7 @@ group('crash-resume', [], () => {
           && disk?.cost_ledger?.entries?.some((e: any) => e.endpoint === TT_SEARCH && e.http_200_count === 1),
         `task=${JSON.stringify(disk)}, attempts=${ledgerLines(ledger, true)}`)
       const second = runBoth('collect 搜索循环里被杀后续跑：未结费用退 2', [S('collect.ts'), '--resume', dir], cwd,
-                             { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_LEDGER: ledger })
+                             { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, { FAKE_FETCH_LEDGER: ledger })
       if (second.ok) {
         named('collect 搜索循环里被杀后续跑：未结占用阻止任何新请求',
               second.status === 2 && ledgerLines(ledger, true) === 2,
@@ -1974,7 +2431,7 @@ group('crash-resume', [], () => {
           && disk?.cost_ledger?.pending?.attempt_id === 3,
         `task=${JSON.stringify(disk)}, attempts=${ledgerLines(ledger, true)}`)
       const second = runBoth('collect 补 profile 循环里被杀后续跑：未结费用退 2', [S('collect.ts'), '--resume', dir], cwd,
-                             { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_LEDGER: ledger })
+                             { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, { FAKE_FETCH_LEDGER: ledger })
       if (second.ok) {
         named('collect 补 profile 循环里被杀后续跑：未结占用阻止任何新请求',
               second.status === 2 && ledgerLines(ledger, true) === 3,
@@ -2284,7 +2741,7 @@ group('enrich', ['collect'], () => {
             && disk?.cost_ledger?.entries?.some((e: any) => e.endpoint === TT_POSTS && e.http_200_count === 1),
           `task=${JSON.stringify(disk)}, attempts=${ledgerLines(ledgerC, true)}`)
         const secondC = runBoth('enrich 两个账号之间被杀后续跑：未结费用退 2', [S('enrich.ts'), '--dir', crashDir], tmp,
-                                { status: 2, soft: [0, 1, 3] }, { FAKE_FETCH_LEDGER: ledgerC })
+                                { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, { FAKE_FETCH_LEDGER: ledgerC })
         if (secondC.ok) {
           named('enrich 两个账号之间被杀后续跑：未结占用阻止任何新请求',
                 secondC.status === 2 && ledgerLines(ledgerC, true) === 2,
@@ -2438,8 +2895,145 @@ group('render', ['collect', 'enrich'], () => {
   }
 })
 
+// ---- 名单排序的 P1.h 端到端跑一遍：交付的 CSV 与 xlsx 里真是这个顺序（ADR-92 第 101 行那张欠条）----
+// 规则本身由 scripts/test.ts 在单元层断言、M-P1-m／M-P1-n 守着；那两条跑的是缺省那个验证者，
+// render 写交付物时用的是不是这个比较器、排完有没有被别的步骤打乱，它们够不到。本组读交付的文件核顺序，
+// 只看文件里最后是什么顺序，不分是哪一处排的。负片 M-P1-ai 把几处排序共用的比较器 byFollowers 改成恒返回 0，
+// 几处一起失守，证的是下面两条产物断言能红；它不单独证明 render 里每一处排序调用都接着 —— 只拿掉 render.ts
+// 里紧跟 `rankCreators` 的那一处 `sortForReviewOutput` 照绿（`rankCreators` 已经排过），见 ADR-92 末尾。
+// 三个人同平台、都是 ✅ 但没有邮箱（都落 B 层）、都没有有效建议，粉丝数分别是 0、未查询、100：
+// 100 和 0 都在计分区间外，其余字段一样，于是同分，先后只剩 P1.h 那一档在定。
+// 期望照 P1.h 原文写死：已查到且不是 0 → 未查询 → 确实是 0。同一组人按 ADR-92 第三节正序、逆序各写进名单一次，
+// 两次都要求这个结论：只交逆序的话，一个只把名单倒过来的实现照样绿；只交正序的话，比较器不排粉丝数时
+// 排序稳定、原样留着输入顺序，照样绿。账号名故意取成期望顺序既不是字母序也不是字母倒序 —— 哪一步按账号名
+// 重排，这组照样红。交付物里三个人不同层、不同分、缺人或多人，先后就轮不到 P1.h 来定 —— 那是夹具没造对，
+// 带夹具记号报，不算排序红了；文件读不出来、解不开同样。
+// 两样文件各读各的，都不调用生产的排序与格式化：CSV 按引号规则逐字符解（字段里的逗号、引号、换行都认）；
+// xlsx 只解 ZIP 的中央目录、workbook.xml 与它的关系表找到 B 层那张表，再按单元格引用读表头与各行
+// （共享字符串、内联字符串都认）。xlsx 单独断一条：它由 buildSheets 按层分表、表内再排一遍，和 CSV 不是同一句排序。
+group('render-order', [], () => {
+  const known = costPerson('tiktok', 'order_c_known', { followers: 100 })
+  const unqueried = costPerson('tiktok', 'order_a_unqueried', { followers: undefined })
+  const zero = costPerson('tiktok', 'order_b_zero', { followers: 0 })
+  const want = ['order_c_known', 'order_a_unqueried', 'order_b_zero']
+
+  const csvTable = (text: string): string[][] => {
+    const rows: string[][] = []
+    let row: string[] = [], cell = '', quoted = false
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i]
+      if (quoted) {
+        if (c !== '"') cell += c
+        else if (text[i + 1] === '"') { cell += '"'; i++ }
+        else quoted = false
+      } else if (c === '"') quoted = true
+      else if (c === ',') { row.push(cell); cell = '' }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++
+        row.push(cell); rows.push(row); row = []; cell = ''
+      } else cell += c
+    }
+    if (quoted) throw new Error('有一个引号没闭合')
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row) }
+    return rows
+  }
+  const decode = (s: string) => s.replace(/&#(x[0-9a-f]+|\d+);|&(amp|lt|gt|quot|apos);/gi, (_, n: string | undefined, e: string) =>
+    n ? String.fromCodePoint(n[0].toLowerCase() === 'x' ? parseInt(n.slice(1), 16) : Number(n))
+      : ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" } as Record<string, string>)[e.toLowerCase()])
+  const attr = (tag: string, name: string) => tag.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1]
+  const unzip = (b: Buffer): Map<string, string> => {
+    let end = b.length - 22
+    while (end >= 0 && b.readUInt32LE(end) !== 0x06054b50) end--
+    if (end < 0) throw new Error('找不到 ZIP 的目录结束记录')
+    const out = new Map<string, string>()
+    let at = b.readUInt32LE(end + 16)
+    for (let n = b.readUInt16LE(end + 10); n > 0; n--) {
+      if (b.readUInt32LE(at) !== 0x02014b50) throw new Error('ZIP 中央目录项不对')
+      const method = b.readUInt16LE(at + 10), size = b.readUInt32LE(at + 20), nameLen = b.readUInt16LE(at + 28)
+      const local = b.readUInt32LE(at + 42), name = b.subarray(at + 46, at + 46 + nameLen).toString('utf8')
+      if (b.readUInt32LE(local) !== 0x04034b50) throw new Error('ZIP 本地项不对')
+      if (method !== 0 && method !== 8) throw new Error(`不认得的压缩方法 ${method}`)
+      const start = local + 30 + b.readUInt16LE(local + 26) + b.readUInt16LE(local + 28), data = b.subarray(start, start + size)
+      out.set(name, (method === 8 ? inflateRawSync(data) : data).toString('utf8'))
+      at += 46 + nameLen + b.readUInt16LE(at + 30) + b.readUInt16LE(at + 32)
+    }
+    return out
+  }
+  // B 层那张表的各行（第一行是表头），一格一个字符串，按单元格引用的列号落位
+  const xlsxTierB = (b: Buffer): string[][] => {
+    const files = unzip(b)
+    const texts = (xml: string) => [...xml.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m => decode(m[1])).join('')
+    const shared = [...(files.get('xl/sharedStrings.xml') ?? '').matchAll(/<si(?:\s[^>]*)?>([\s\S]*?)<\/si>/g)].map(m => texts(m[1]))
+    const targets = new Map([...(files.get('xl/_rels/workbook.xml.rels') ?? '').matchAll(/<Relationship\b[^>]*>/g)]
+      .map(m => [attr(m[0], 'Id'), attr(m[0], 'Target')]))
+    const sheets = [...(files.get('xl/workbook.xml') ?? '').matchAll(/<sheet\b[^>]*>/g)]
+      .map(m => ({ name: decode(attr(m[0], 'name') ?? ''), target: targets.get(attr(m[0], 'r:id')) }))
+      .filter(s => s.name.startsWith('B级'))
+    if (sheets.length !== 1 || sheets[0].target === undefined) throw new Error(`名字以「B级」开头、指得到表的有 ${sheets.length} 张`)
+    const target = sheets[0].target.startsWith('/') ? sheets[0].target.slice(1) : `xl/${sheets[0].target}`
+    const xml = files.get(target)
+    if (xml === undefined) throw new Error(`关系表指的 ${target} 不在包里`)
+    return [...xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)].map(row => {
+      const cells: string[] = []
+      for (const c of row[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+        const ref = attr(c[1], 'r')?.match(/^([A-Z]+)\d+$/)?.[1]
+        if (ref === undefined) throw new Error('有一格没写单元格引用')
+        const col = [...ref].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1
+        const body = c[2] ?? '', type = attr(c[1], 't'), v = body.match(/<v>([\s\S]*?)<\/v>/)?.[1]
+        cells[col] = type === 's' ? shared[Number(v)] ?? '' : type === 'inlineStr' ? texts(body) : decode(v ?? '')
+      }
+      return Array.from(cells, x => x ?? '')
+    })
+  }
+  // 一份交付物读出来的表 → 三个人的先后；读不出来、或三个人没落在同一层同一分，交回为什么不算数
+  const orderIn = (file: string, read: () => string[][]): { order: string[] } | { unfit: string } => {
+    let table: string[][]
+    try { table = read() } catch (e) { return { unfit: `${file} 读不出来：${e instanceof Error ? e.message : String(e)}` } }
+    const [head = [], ...body] = table
+    const col = (name: string) => head.indexOf(name)
+    if (col('handle') < 0 || col('tier') < 0 || col('score') < 0) return { unfit: `${file} 的表头里找不到 handle／tier／score：${JSON.stringify(head)}` }
+    const order = body.map(row => row[col('handle')])
+    const tierScore = new Set(body.map(row => `${row[col('tier')]}/${row[col('score')]}`))
+    if (body.length !== want.length || JSON.stringify([...order].sort()) !== JSON.stringify([...want].sort()))
+      return { unfit: `${file} 里的人不是夹具写进去的那三个：${JSON.stringify(order)}` }
+    if (tierScore.size !== 1 || ![...tierScore][0].startsWith('B/'))
+      return { unfit: `${file} 里三个人没落在同一层（B）同一分：${JSON.stringify([...tierScore])}` }
+    return { order }
+  }
+  const noBom = (s: string) => s.charCodeAt(0) === 0xfeff ? s.slice(1) : s
+  type Got = ReturnType<typeof orderIn>
+  const runs: { input: string; csv: Got; xlsx: Got }[] = []
+  for (const [input, slug, people] of [['逆序', 'reversed', [zero, unqueried, known]], ['正序', 'forward', [known, unqueried, zero]]] as const) {
+    const f = costFixture(`render-order-${slug}`, knownCosts(1000, []), { budget_usd: 0.001 }, [...people])
+    const r = runBoth(`render 只差粉丝数三档的三个人（${input}写进名单）`, [S('render.ts'), '--dir', f.taskDir], f.cwd,
+      undefined, costEnv(f.log))
+    if (!r.ok) return
+    runs.push({ input,
+      csv: orderIn('kol.csv', () => csvTable(noBom(readFileSync(join(f.taskDir, 'kol.csv'), 'utf8')))),
+      xlsx: orderIn('kol.xlsx', () => xlsxTierB(readFileSync(join(f.taskDir, 'kol.xlsx')))) })
+  }
+  for (const run of runs) for (const got of [run.csv, run.xlsx]) if ('unfit' in got) {
+    failed++
+    console.error(`  ✗ 名单排序夹具${SELFCHECK_FIXTURE_MARK}：${run.input}写进名单的那一份，${got.unfit} —— 先后轮不到 P1.h 来定，夹具没造对`)
+  }
+  // 两份都过了夹具那一关才判；两份读回的都得是 P1.h 那个顺序
+  const verdict = (pick: (run: typeof runs[number]) => Got) => {
+    const got = runs.map(run => ({ input: run.input, got: pick(run) }))
+    if (!got.every(g => 'order' in g.got)) return undefined
+    const orders = got.map(g => ({ input: g.input, order: (g.got as { order: string[] }).order }))
+    return { pass: orders.every(o => JSON.stringify(o.order) === JSON.stringify(want)),
+      said: orders.map(o => `${o.input}写进名单时读回 ${JSON.stringify(o.order)}`).join('；') }
+  }
+  const csv = verdict(run => run.csv), xlsx = verdict(run => run.xlsx)
+  if (csv) named('render 交付的 CSV 里，同层同分的人按粉丝数三档排：已查到且不是 0 → 未查询 → 确实是 0',
+    csv.pass, `CSV：${csv.said}`)
+  if (xlsx) named('render 交付的 xlsx 里，B 层那张表上同层同分的人也按粉丝数三档排',
+    xlsx.pass, `xlsx 那张表：${xlsx.said}`)
+  if (csv && xlsx) criterion('P1.h')
+})
+
 // ---- 回归：collect → render → --resume 之后，已采集的人必须还在 ----
-group('regress', ['collect', 'render'], () => {
+group('resume-after-render-keeps-creators', ['collect', 'render'], () => {
   // 早先 creators.json 一个文件身兼两职：既是 --resume 的输入，又是过滤后的交付物。
   // render 把这批人写进记忆后再续跑，记忆过滤判定「本产品已推荐过」，交付物被清成
   // 空数组 —— 已经付费采集的数据不可恢复地消失。触发路径不冷门：用户看完报告说
@@ -2483,9 +3077,13 @@ group('memory', ['collect', 'render'], () => {
     const deliverable = join(tmp, dir, 'creators.json')
     const beforeList = readFileSync(deliverable, 'utf8')
 
-    const stderr = run('collect 记忆读不出来时不产出名单',
+    // ADR-193：读不出记忆单独退 7，不与输入问题的 2 混在一起；别的退出码交给下面这条具名断言判
+    const memRun = runBoth('collect 记忆读不出来时不产出名单',
                        [S('collect.ts'), '--resume', dir, '--budget', '1'], tmp,
-                       { status: 2, stream: 'stderr' })
+                       { status: 7, soft: [0, 1, 2, 3, 4, 5, 6] })
+    if (memRun.ok) named('collect 记忆读不出来以退出码 7 结束（不是输入问题的 2），stdout 不出汇总',
+      memRun.status === 7 && memRun.stdout.trim() === '', `退出=${memRun.status}，stdout=${memRun.stdout.slice(0, 200)}`)
+    const stderr = memRun.ok && memRun.status === 7 ? memRun.stderr : undefined
     // 整段一起守住 —— 下面四条断言全都依赖这一次中止。逐条判空的写法里第三条
     // 会判出**假绿**：`stderr` 为空时两个布尔都是 false，`budgetGone !== cmdHasBudget`
     // 不成立，于是它在进程失败之后打了一个 ✓（#94 评审指出）
@@ -2513,7 +3111,7 @@ group('memory', ['collect', 'render'], () => {
       } else console.log('  ✓ 中止未触碰交付物')
     }
 
-    // ---- 收尾那句话：两种剩余工作量各真跑一遍（D6.e 的入口那一半）----
+    // ---- 收尾那句话：两种剩余工作量各真跑一遍（D6.e 的入口那一半，今 D6.q）----
     // 说哪一句、两个剩余量怎么数，都由 scripts/test.ts 断言；这里验的是**入口真的
     // 调了它**。上面那条老断言用的是「两句里出现一句」的或，两支对调它照样绿 ——
     // 而这一段的接线至今没有变异守着：变异缺省跑的是 scripts/test.ts，够不到入口脚本
@@ -2531,7 +3129,7 @@ group('memory', ['collect', 'render'], () => {
       })),
     }))
     const zeroErr = run('collect 收尾：没活了就说续跑不产生新请求',
-                        [S('collect.ts'), '--config', zeroCfg], tmp, { status: 2, stream: 'stderr' })
+                        [S('collect.ts'), '--config', zeroCfg], tmp, { status: 7, stream: 'stderr' })
     if (zeroErr === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
     } else if (!zeroErr.includes('续跑不产生新的请求')) {
@@ -2550,7 +3148,7 @@ group('memory', ['collect', 'render'], () => {
       })),
     }))
     const leftErr = run('collect 收尾：还有活就说续跑要继续花钱',
-                        [S('collect.ts'), '--config', leftCfg], tmp, { status: 2, stream: 'stderr' })
+                        [S('collect.ts'), '--config', leftCfg], tmp, { status: 7, stream: 'stderr' })
     if (leftErr === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
     } else if (!leftErr.includes('续跑会继续发请求、继续花钱')) {
@@ -2581,7 +3179,7 @@ group('memory', ['collect', 'render'], () => {
       tasks: [{ keyword: 'ok0', dimension: 'category', platform: 'tiktok' }],
     }))
     const onlyErr = run('collect 收尾：只剩 profile 也要说续跑要花钱',
-                        [S('collect.ts'), '--config', onlyCfg], tmp, { status: 2, stream: 'stderr' })
+                        [S('collect.ts'), '--config', onlyCfg], tmp, { status: 7, stream: 'stderr' })
     if (onlyErr === undefined) {
       // 没跑起来 —— 失败已由 runBoth 带着记号报过一次，下面的诊断只会说错原因
     } else if (!/还有 \d+ 个人的 profile/.test(onlyErr)) {
@@ -2596,21 +3194,23 @@ group('memory', ['collect', 'render'], () => {
                     + ` —— 夹具没造对${SELFCHECK_FIXTURE_MARK}`)
     } else console.log('  ✓ 收尾：只剩 profile 没补时也说要花钱，并点名了是 profile')
 
-    // ---- 产出了名单的四种收尾都说续跑代价（D6.f 的入口那一半）----
+    // ---- 产出了名单的四种收尾都说续跑代价（D6.f 的入口那一半，今 D6.r）----
     // 这四条路径原先一个字都不说，用户手里没有判断「值不值得续跑」的依据（ADR-25 的欠条）。
     // 四条共用分支之前的同一句话，所以是一条判据；也正因为共用，**一条把话写死就会被
     // 别的抓住** —— 前两条要的是「不花钱」，后两条要的是「花钱 + 还剩多少」。
     // 缺省那个验证者（scripts/test.ts）够不到入口脚本，所以这一段只能这样真跑。
     // **现在有一条负片指着它**：M-D6-j 删掉那行共用的接线、改跑自检来验，kills 点名下面
     // 四条夹具**全部** —— 一条没红就判「红错了地方」（5c 第二片把 kills 收成一组之前只点得着
-    // 第一条，剩下三条删光它照样绿）。⚠️ 它证明的是四条都还活着、都靠那一行，不是
-    // 「四条路能各自坏掉」—— 后者要四条各自的变异（ADR-70 记着这条欠条）。
+    // 第一条，剩下三条删光它照样绿）。它证明的是四条都还活着、都靠那一行。
+    // 「四条路能各自坏掉」那半由 M-D6-bi…bl 证：每条让那一行只对一种 `stopped` 闭嘴，
+    // kills 只点名对应的那一条夹具 —— 四条各自能红、只红在自己身上（还 ADR-70 第 1087 行
+    // 那张欠条）。
     // ⚠️ 这条缺口原先在 mutations.json 的 exemptions 里按 P3.b 的先例登记着，
-    // **落地 4 已经撤掉那条豁免** —— D6.f 现在靠 M-D6-j 与那条硬失败顶着；
-    // 「四条路能各自坏掉」那半仍然欠着，记在 ADR-70，不在豁免表里。
+    // **落地 4 已经撤掉那条豁免** —— 那条判据（D6.f 已退役，#155 起由 D6.r 接替，见 ADR-108 那张
+    // 退役表）现在靠 M-D6-j、M-D6-bi…bl 与那条硬失败顶着。
     //
     // **每条都断言这一次到底走的是哪一种收尾**（stdout 的 `stopped`）—— 只看那句话的话，
-    // 「达标提前停下」和「关键词跑完」都是退出码 0、都说「不花钱」，一条夹具会让另一条
+    // 「达标提前停下」和「关键词跑完」都说「不花钱」（ADR-193 之前还同为退出码 0），一条夹具会让另一条
     // 看起来也测过了，而它们是 `stopped` 的两个不同取值（评审指出）。
     const paths = join(tmp, 'paths')
     mkdirSync(join(paths, 'memory'), { recursive: true })
@@ -2654,21 +3254,21 @@ group('memory', ['collect', 'render'], () => {
     endPath('collect 关键词跑完（退出码 0）也说续跑代价',
             pathCfg('pdone', { target_count: 9999 }), 0, 'done', FREE, COST)
 
-    // 达标提前停下：和上面同为退出码 0、同说「不花钱」，但 stopped 不同 ——
+    // 达标提前停下：和上面同说「不花钱」，但 stopped 不同、退出码是 4（ADR-193）——
     // 这个夹具里补全没把人筛下去，收尾时 qualified 仍够目标，且三个关键词都问过了
     // 第一页，所以那句话说不花钱（D6.g 按调用那一刻的 qualified 算）。
     // 筛掉之后结论会反过来 —— ADR-94 第十三节。
-    endPath('collect 达标提前停下（退出码 0）也说续跑代价',
-            pathCfg('ptarget', { target_count: 1 }), 0, 'target', FREE, COST)
+    endPath('collect 达标提前停下（退出码 4）也说续跑代价',
+            pathCfg('ptarget', { target_count: 1 }), 4, 'target', FREE, COST)
 
     // 预算用尽：退出码 3，带着断点目录走 stdout，那句话在 stderr
     endPath('collect 预算用尽（退出码 3）也说续跑代价',
             pathCfg('pbudget', { budget_usd: 0.002 }), 3, 'budget', COST, FREE)
 
-    // 出错中止：退出码 1。402 是对面拒收（余额不足），和预算用尽不是一回事 ——
+    // 出错中止：402 是对面拒收（余额不足），和预算用尽不是一回事，退出码 5（ADR-193）——
     // 关键词里带 force-402 让罐头 fetch 抛它，这是走到这条路径的唯一办法。
-    endPath('collect 出错中止（退出码 1）也说续跑代价',
-            pathCfg('perror', {}, 'force-402-k'), 1, 'error', COST, FREE)
+    endPath('collect 出错中止（402，退出码 5）也说续跑代价',
+            pathCfg('perror', {}, 'force-402-k'), 5, 'error', COST, FREE)
 
     // 四条收尾各跑过一次，每次都验了退出码、`stopped` 取值、那句话说什么 ——
     // D6.f 逐字要求的正是这四条路都说清续跑要不要花钱（落地 3 第一片）
@@ -2690,9 +3290,9 @@ group('memory', ['collect', 'render'], () => {
     const deliveryFiles = ['task.json', 'creators.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
     const beforeRender = deliveryFiles.map(name => fileText(join(tmp, dir, name)))
     const refusedRender = runBoth('render 坏记忆默认拒绝交付',
-      [S('render.ts'), '--dir', dir], tmp, { status: 2, soft: [0] })
+      [S('render.ts'), '--dir', dir], tmp, { status: 7, soft: [0, 1, 2] })
     named('render 坏记忆默认拒绝且不改旧交付或记忆',
-      refusedRender.status === 2 && deliveryFiles.every((name, i) =>
+      refusedRender.status === 7 && deliveryFiles.every((name, i) =>
         fileText(join(tmp, dir, name)) === beforeRender[i]) && fileText(memFile) === broken,
       `退出=${refusedRender.status}，stderr=${stderrTail(refusedRender.stderr)}`)
 
@@ -2708,6 +3308,20 @@ group('memory', ['collect', 'render'], () => {
           && taskAfter?.memory_status === 'unreadable_ignored'
           && htmlAfter.includes('未做「已联系 / 已推荐」去重'),
         `meta=${JSON.stringify(metaAfter)}，task=${JSON.stringify(taskAfter)}`)
+    }
+
+    // ADR-193：交付物写不进去以保存失败（6）结束，不说成成功或输入问题。kol.csv 那个位置换成目录，写它必然失败；跑完原样换回
+    const csvAt = join(tmp, dir, 'kol.csv'), csvText = fileText(csvAt)
+    rmSync(csvAt, { force: true }); mkdirSync(join(csvAt, 'held'), { recursive: true })
+    let unsaved: ReturnType<typeof runBoth>
+    try { unsaved = runBoth('render 交付物写不进去', [S('render.ts'), '--dir', dir, '--ignore-memory'], tmp, { status: 6, soft: [0, 1, 2, 7] }) }
+    finally { rmSync(csvAt, { recursive: true, force: true }); writeFileSync(csvAt, csvText) }
+    if (unsaved.ok) {
+      named('render 交付物写不进去以退出码 6 结束，stdout 不出交付 JSON',
+        unsaved.status === 6 && unsaved.stdout.trim() === '' && unsaved.stderr.includes('kol.csv'),
+        `退出=${unsaved.status}，stdout=${unsaved.stdout.slice(0, 200)}，stderr=${stderrTail(unsaved.stderr)}`)
+      // D4.u 的三半：读不出记忆退 7（上面那条）、交付物保存失败退 6（这条）、写回失败照常退 0（上面「显式忽略坏记忆」那跑）
+      criterion('D4.u')
     }
 
     // 旧任务目录：task.json 里根本没有这个字段。**不能读成「去重跑过了」** ——
@@ -2735,8 +3349,183 @@ group('memory', ['collect', 'render'], () => {
   }
 })
 
+// ---- D4.t 那一次（render --ignore-memory）首次读不出、写回前再读得出：ADR-185 第 173 行 ----
+// 入口接线要真起入口才证得了（process/4-VERIFY.md「入口的实际接线，不能靠内部判定单测证明」）。期望只出自 D4.t、D4.n、
+// D4.d、D4.f 原文与 ADR-185 第 173 行的还法；独立测试上下文写的，没读 memory.ts、render.ts 的函数体，也没照实现的输出抄。
+// 自成一组、不依赖别组：每一跑都在本组自建的临时目录里起，入口以那里为当前目录、按相对路径读写那里的
+// memory/creators.json —— 碰不到仓库里的记忆、样本或夹具，也不请求真实 TikHub（假 fetch 账本必须是空的）。
+// 预加载让「这一次运行第一次读记忆文件」失败（读不到，D4.d 第一类；ADR-185 第 173 行举的就是暂时性 I/O 错误），
+// 失败原文是这里写定的一串标记，于是「报的是首次那一次」可以按 D4.d「报错原样带出真实原因」、D4.n「交付物带出失败
+// 原因原文」直接断言。同一份预加载还记下落在记忆目录里的写类调用：零写入那几条靠它，阳性对照是第一跑。
+// 不认领 D4.t：D4.t 由需求测试 `d4t-independent-claim` 经冻结用例 G3-19、G3-19N 认领（ADR-185 末尾）；这一组补的是那两例不造的
+// 「读不到」一类与首次读不出、写回前再读得出那一种。
+group('ignore-unreadable-memory', [], () => {
+  const FIRST = 'D4T-FIRST-READ-FAILED-7c41', SECOND = 'D4T-SECOND-READ-FAILED-2e9b'
+  const held = { platform: 'tiktok', handle: 'd4t_held', nickname: 'd4t_held', followers: 12000, first_seen: '2026-01-01',
+    recommendations: [], contacted: true, replied: false, blocked: false, note: 'operator marked' }
+  const VALID = JSON.stringify({ version: 1, updated_at: '2026-01-01', creators: { 'tiktok:d4t_held': held } }, null, 2) + '\n'
+  const BROKEN = VALID.slice(0, Math.floor(VALID.length * 0.6))
+  const realMemory = resolve('memory', 'creators.json')
+  const realBefore = existsSync(realMemory) ? readFileSync(realMemory) : undefined
+  // observe 只记不扰；restore 首次读失败、紧接着把文件修好；both 每一次读都失败（首次与之后各一串标记）
+  const hookSource = (memory: string, log: string, plan: 'observe' | 'restore' | 'both') => String.raw`import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import { dirname, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const MEMORY = ${JSON.stringify(memory)}, LOG = ${JSON.stringify(log)}, PLAN = ${JSON.stringify(plan)};
+const REPAIR = ${JSON.stringify(VALID)}, FIRST = ${JSON.stringify(FIRST)}, SECOND = ${JSON.stringify(SECOND)};
+const DIR = dirname(MEMORY), orig = {};
+for (const k of ['readFileSync', 'writeFileSync', 'appendFileSync', 'renameSync', 'copyFileSync', 'cpSync', 'linkSync', 'symlinkSync', 'truncateSync', 'unlinkSync', 'rmSync', 'rmdirSync', 'openSync']) orig[k] = fs[k];
+let quiet = false, reads = 0;
+const note = (line) => { const was = quiet; quiet = true; try { orig.appendFileSync(LOG, line + '\n'); } finally { quiet = was; } };
+const toPath = (p) => typeof p === 'number' ? undefined : p instanceof URL ? fileURLToPath(p) : resolve(String(p));
+const inDir = (p) => { const q = toPath(p); return q !== undefined && (q === DIR || q.startsWith(DIR + sep)); };
+const writes = (f) => typeof f === 'number' ? (f & (fs.constants.O_WRONLY | fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_APPEND)) !== 0 : typeof f === 'string' && /[wa+]/.test(f);
+const record = (name, targets) => { if (quiet) return; for (const t of targets) if (inDir(t)) note('write\t' + name + '\t' + toPath(t)); };
+const fail = (message) => Object.assign(new Error(message), { code: 'EIO' });
+fs.readFileSync = function (p, ...rest) {
+  if (quiet || toPath(p) !== MEMORY) return orig.readFileSync.call(this, p, ...rest);
+  reads += 1;
+  if (PLAN === 'restore' && reads === 1) {
+    orig.readFileSync.call(this, p, ...rest);
+    quiet = true; try { orig.writeFileSync(MEMORY, REPAIR); } finally { quiet = false; }
+    note('read\t1\tfirst-failed\trestored');
+    throw fail(FIRST);
+  }
+  if (PLAN === 'both') { note('read\t' + reads + '\t' + (reads === 1 ? 'first-failed' : 'later-failed')); throw fail(reads === 1 ? FIRST : SECOND); }
+  note('read\t' + reads + '\tpassed');
+  return orig.readFileSync.call(this, p, ...rest);
+};
+for (const [name, pick] of [['writeFileSync', (a) => [a[0]]], ['appendFileSync', (a) => [a[0]]], ['renameSync', (a) => [a[0], a[1]]], ['copyFileSync', (a) => [a[1]]], ['cpSync', (a) => [a[1]]], ['linkSync', (a) => [a[1]]], ['symlinkSync', (a) => [a[1]]], ['truncateSync', (a) => [a[0]]], ['unlinkSync', (a) => [a[0]]], ['rmSync', (a) => [a[0]]], ['rmdirSync', (a) => [a[0]]]]) {
+  fs[name] = function (...args) { record(name, pick(args)); return orig[name].apply(this, args); };
+}
+fs.openSync = function (p, flags, ...rest) { if (writes(flags)) record('openSync', [p]); return orig.openSync.call(this, p, flags, ...rest); };
+syncBuiltinESMExports();
+note('armed\t' + process.pid);
+`
+  const MANUAL_HEADER = 'round_id,platform,handle,manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note'
+  // 夹具形状照 render-raw-memory 组那份（任务、名单、采集原件、Agent 正本、空人工表），只是各建一份在自己的目录里
+  const setup = (name: string, plan: 'observe' | 'restore' | 'both', start: string) => {
+    const handle = `d4t_${name}`, account = `tiktok:${handle}`, product = `d4t-${name}`
+    const f = costFixture(product, knownCosts(1000000, []), { memory_status: 'ok' },
+      [costPerson('tiktok', handle, { bio_links: [], followers: 12000 })])
+    writeFileSync(join(f.taskDir, 'agent-review.json'), JSON.stringify({ version: 1, updated_at: '2026-01-01', reviews: { [account]: {
+      account_keys: [account], eligibility: '合格', adoption_priority: '优先联系', observed_content: `observed ${account}`,
+      work_evidence: `work ${account}`, natural_integration: `integration ${account}`, mismatch_risk: `risk ${account}`, fit: '✅' } },
+    rounds: [{ round_id: 'r1', created_at: '2026-01-01', source: 'task.json',
+      candidates: [{ account_key: account, source_tasks: null }] }] }, null, 2) + '\n')
+    writeFileSync(join(f.taskDir, 'manual-feedback.csv'), MANUAL_HEADER + '\n')
+    const cwd = realpathSync(f.cwd), memory = join(cwd, 'memory', 'creators.json')
+    const hook = join(cwd, 'd4t-hook.mjs'), hookLog = join(cwd, 'd4t-hook.log')
+    writeFileSync(memory, start)
+    writeFileSync(hook, hookSource(memory, hookLog, plan))
+    return { ...f, cwd, handle, account, product, memory, hook, hookLog, start: readFileSync(memory) }
+  }
+  type Case = ReturnType<typeof setup>
+  const launch = (label: string, s: Case) => runBoth(label, [S('render.ts'), '--dir', s.taskDir, '--ignore-memory'], s.cwd,
+    { status: 0 }, costEnv(s.log, { NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(s.hook).href)}` }))
+  const hookLines = (s: Case) => fileText(s.hookLog).split('\n').filter(Boolean)
+  const writesOf = (s: Case) => hookLines(s).filter(l => l.startsWith('write\t'))
+  const outcome = (s: Case) => ({
+    meta: jsonFile(join(s.taskDir, 'meta.json')), task: jsonFile(join(s.taskDir, 'task.json')),
+    list: jsonFile(join(s.taskDir, 'creators.json')), html: fileText(join(s.taskDir, 'report.html')),
+    after: existsSync(s.memory) ? readFileSync(s.memory) : undefined, entries: readdirSync(dirname(s.memory)),
+  })
+  // 夹具前提，任一不成立都与 D4.t 无关：预加载没装上、该失败的那一次读没发生、入口发了请求（费用账）、这一跑没写出
+  // 交付、交付名单里没有夹具那个人（数据缺失）。带记号报、跳过断言 —— 这些失败不让 D4.t 的断言替它作证，也不被它盖住
+  const fixtureFault = (s: Case, o: ReturnType<typeof outcome>, read: string): string | undefined => {
+    const lines = hookLines(s)
+    if (!lines.some(l => l.startsWith('armed\t'))) return '预加载没装上'
+    if (!lines.includes(read)) return `预加载没记到「${read}」：${JSON.stringify(lines)}`
+    if (fetchAttempts(s.log).length !== 0) return `render 发了请求：${JSON.stringify(fetchAttempts(s.log))}`
+    if (o.meta === null || typeof o.meta !== 'object') return '这一跑没写出可读的 meta.json'
+    if (!Array.isArray(o.list) || !o.list.some((p: any) => p?.handle === s.handle)) return `交付名单里没有夹具那个人：${JSON.stringify(o.list)}`
+    return undefined
+  }
+  const diag = (s: Case, o: ReturnType<typeof outcome>, stderr: string) =>
+    `meta=${JSON.stringify(o.meta)}，记忆=${JSON.stringify(o.after?.toString('utf8'))}，记忆目录=${JSON.stringify(o.entries)}，`
+    + `写入=${JSON.stringify(writesOf(s))}，stderr=${stderrTail(stderr)}`
+
+  // 一、对照，也是写入观察器的阳性对照：记忆读得出时 --ignore-memory 照常写回。
+  //     不留它，「--ignore-memory 一律不写回」的实现也能让后两跑全绿
+  let observerProven = false
+  const normal = setup('normal', 'observe', VALID)
+  const n = launch('render --ignore-memory 记忆读得出（对照）', normal)
+  if (n.ok) {
+    const o = outcome(normal), fault = fixtureFault(normal, o, 'read\t1\tpassed')
+    if (fault !== undefined) { failed++; console.error(`  ✗ D4.t 入口对照夹具${SELFCHECK_FIXTURE_MARK}：${fault}`) }
+    else {
+      const changed = o.after !== undefined && !o.after.equals(normal.start)
+      const mem = (() => { try { return JSON.parse(o.after?.toString('utf8') ?? '') } catch { return undefined } })()
+      named('D4.t 入口对照：记忆读得出时 --ignore-memory 照常写回这一批，已联系的标记原样保留',
+        o.meta.memory_status === 'ok' && o.meta.memory_written === true && !('memory_write_error' in o.meta) && changed
+          && mem?.creators?.[normal.account]?.recommendations?.some((r: any) => r?.product === normal.product) === true
+          && mem?.creators?.['tiktok:d4t_held']?.contacted === true,
+        diag(normal, o, n.stderr))
+      // 文件真被改写了，同一接线就必须记到一次落在它上面的写入；记不到是观察器没接上，后两跑的「没有写入」
+      // 什么也证明不了 —— 那是夹具没造对，不是 D4.t 红了（4-VERIFY「观察器的零记录不能单独证明没有事件」）
+      if (changed) {
+        observerProven = writesOf(normal).some(l => l.endsWith(`\t${normal.memory}`))
+        if (!observerProven) {
+          failed++
+          console.error(`  ✗ D4.t 写入观察器阳性对照${SELFCHECK_FIXTURE_MARK}：记忆文件被改写了，同一接线却没记到落在它上面的写入：`
+            + JSON.stringify(writesOf(normal)))
+        }
+      } else console.log('  · D4.t 写入观察器阳性对照没成立（对照这一跑本身没写回，见上一条）：后两跑的「没有写入」只按字节与目录判')
+    }
+  }
+
+  // 二、首次读不出、写回前再读得出（ADR-185 第 173 行那一路）。夹具在首次读之后修好文件，扮演的是另一个写入方
+  //     （ADR-185「排除范围」第 3 条：并发写入方不归 D4.t 判），所以这一跑比的是修好之后那一份：这一次运行自己
+  //     一个字节都没写。与运行开始前逐字节比的是第三跑
+  const restore = setup('restore', 'restore', BROKEN)
+  const r = launch('render --ignore-memory 首次读不出、第二次读得出', restore)
+  if (r.ok) {
+    const o = outcome(restore), fault = fixtureFault(restore, o, 'read\t1\tfirst-failed\trestored')
+    if (fault !== undefined) { failed++; console.error(`  ✗ D4.t 入口首次读不出夹具${SELFCHECK_FIXTURE_MARK}：${fault}`) }
+    else {
+      named('D4.t 入口：首次读不出、第二次读得出时，记忆文件停在修好的那一份，记忆目录里没有一次写入',
+        o.after !== undefined && o.after.equals(Buffer.from(VALID)) && isDeepStrictEqual(o.entries, ['creators.json'])
+          && (!observerProven || writesOf(restore).length === 0),
+        diag(restore, o, r.stderr))
+      named('D4.t 入口：首次读不出、第二次读得出时，交付声明未去重、未写回，原因原样是首次那一次',
+        o.meta.memory_status === 'unreadable_ignored' && o.task?.memory_status === 'unreadable_ignored'
+          && o.meta.memory_written === false && typeof o.meta.memory_write_error === 'string'
+          && o.meta.memory_write_error.includes(FIRST) && o.html.includes(FIRST),
+        diag(restore, o, r.stderr))
+    }
+  }
+
+  // 三、两次都读不出：D4.t 原文那一种 —— 结束后与运行开始前逐字节相同；未写回的原因报首次那一次，不报第二次的
+  const both = setup('both', 'both', BROKEN)
+  const b = launch('render --ignore-memory 两次都读不出', both)
+  if (b.ok) {
+    const o = outcome(both), fault = fixtureFault(both, o, 'read\t1\tfirst-failed')
+    if (fault !== undefined) { failed++; console.error(`  ✗ D4.t 入口两次读不出夹具${SELFCHECK_FIXTURE_MARK}：${fault}`) }
+    else {
+      named('D4.t 入口：两次都读不出时，记忆文件与运行开始前逐字节相同，记忆目录里没有一次写入',
+        o.after !== undefined && o.after.equals(both.start) && isDeepStrictEqual(o.entries, ['creators.json'])
+          && (!observerProven || writesOf(both).length === 0),
+        diag(both, o, b.stderr))
+      named('D4.t 入口：两次都读不出时，未写回的原因报首次那一次、不报第二次的',
+        o.meta.memory_status === 'unreadable_ignored' && o.task?.memory_status === 'unreadable_ignored'
+          && o.meta.memory_written === false && typeof o.meta.memory_write_error === 'string'
+          && o.meta.memory_write_error.includes(FIRST) && !o.meta.memory_write_error.includes(SECOND)
+          && o.html.includes(FIRST) && !o.html.includes(SECOND),
+        diag(both, o, b.stderr))
+    }
+  }
+
+  // 隔离：这一组前后，仓库里的 memory/creators.json 在不在、字节都不变
+  const realAfter = existsSync(realMemory) ? readFileSync(realMemory) : undefined
+  if (realBefore === undefined ? realAfter !== undefined : realAfter === undefined || !realBefore.equals(realAfter)) {
+    failed++
+    console.error(`  ✗ D4.t 入口夹具隔离${SELFCHECK_FIXTURE_MARK}：仓库里的 memory/creators.json 在这一组前后不一样 —— 入口没在临时目录里读写记忆`)
+  }
+})
+
 // ---- F9：达标判断不得让任何一个关键词×平台连第一页都没抓到 ----
-group('f9', [], () => {
+group('first-page-before-target-stop', [], () => {
   // 达标判断原先跑在**每一次**搜索之前、第一轮也不例外：前面几个词各抓一页就填满目标时，
   // 后面的任务一个请求都不发 —— 而 task.json 的顺序由 Agent 决定，实测 IG 写在后面时
   // 整个平台为零，报告里它和「查了没人」长得一模一样（ADR-94）。
@@ -2773,9 +3562,9 @@ group('f9', [], () => {
     JSON.parse(readFileSync(join(firstPage, dir, 'task.json'), 'utf8')).offsets ?? {}).length
 
   const ascRun = runBoth('collect 第一页保证：正序跑一遍',
-                         [S('collect.ts'), '--config', f9Cfg('asc', [0, 1, 2, 3, 4, 5])], firstPage)
+                         [S('collect.ts'), '--config', f9Cfg('asc', [0, 1, 2, 3, 4, 5])], firstPage, { status: 4 })
   const descRun = runBoth('collect 第一页保证：同一批任务倒序再跑一遍',
-                          [S('collect.ts'), '--config', f9Cfg('desc', [5, 4, 3, 2, 1, 0])], firstPage)
+                          [S('collect.ts'), '--config', f9Cfg('desc', [5, 4, 3, 2, 1, 0])], firstPage, { status: 4 })
   if (ascRun.ok && descRun.ok) {
     const asc = summaryOf(ascRun.stdout)
     const desc = summaryOf(descRun.stdout)
@@ -2804,7 +3593,7 @@ group('f9', [], () => {
       // 不是它的第三拍 —— 别把它读成「这段接线有人守着」。
       const again = run('collect 第一页保证：每个任务都问过之后再续跑一次',
                         [S('collect.ts'), '--resume', asc.dir, '--budget', '2'], firstPage,
-                        { status: 0, stream: 'stdout' })
+                        { status: 4, stream: 'stdout' })
       if (again !== undefined) {
         const after = summaryOf(again).requests
         named('第一页之后照旧按达标停下 —— 已经问过的不再多翻一页',
@@ -2945,7 +3734,7 @@ group('f9', [], () => {
 })
 
 // ---- D6.i／D6.l：请求发出去了、钱扣了，在记下来之前抛了 ----
-group('d6il-paid', [], () => {
+group('paid-request-crash-before-record', [], () => {
   // 供应商换了响应结构：200 已返回、`charge()` 已计费且不退，而 `pickList` 认不出结构抛出。
   // 这条路上 `offsets` 那个键从头到尾没被写过 —— 一度打算拿它兼职回答「问过没有」，
   // 于是一个付过钱的词在盘上看起来像从没问过（ADR-94 第十五节甲，独立复核的实测反例）。
@@ -3007,7 +3796,7 @@ group('d6il-paid', [], () => {
 })
 
 // ---- D6.i／D6.l：402 退了费 —— 钱没花，盘上不许记成「发出过付费请求」 ----
-group('d6il-402', [], () => {
+group('refunded-402-not-recorded-paid', [], () => {
   // 判据逐字：「402／429 退了费的不计入 —— 钱没花、续跑会照常重试，读作『还没问过』
   // 既如实也可行动。」这一半在**入口**：`paid` 取的是预算计数器的**净**增量，
   // `charge()` 加、`refund()` 减，402 那一次净增 0。
@@ -3021,9 +3810,9 @@ group('d6il-402', [], () => {
     product: 'refunded', market: 'US', target_count: 9999, budget_usd: 1,
     tasks: [{ keyword: 'force-402-kw', dimension: 'category', platform: 'tiktok' }],
   }))
-  // 402 是对面拒收：不重试、直接抛穿搜索循环 → stopped='error'、退出码 1
+  // 402 是对面拒收：不重试、直接抛穿搜索循环 → stopped='error'、退出码 5（ADR-193）
   const refRun = runBoth('collect 供应商拒收（402）：以出错收尾',
-                         [S('collect.ts'), '--config', refCfg], refunded, { status: 1 })
+                         [S('collect.ts'), '--config', refCfg], refunded, { status: 5 })
   if (refRun.ok) {
     let rstate: any
     try {
@@ -3041,8 +3830,257 @@ group('d6il-402', [], () => {
   }
 })
 
+// ---- KOL-105：profile 补全阶段遇 TikHub 402 立即停，以 stopped=error 收尾（退出码原为 1，ADR-193 起为 5） ----
+group('profile-402-stop', [], () => {
+  // 改前（主干 0917a2f 实测，与卡片「复现步骤与实测结果」一致）：profile 端点回 402 时只计作那个人补全失败，
+  // 接着为其余待补的人照发请求，收尾仍是 done／target、退 0。先于修补写成，看过它对着未修的代码红。
+  //
+  // 期待值的出处（没读 collect.ts 补全函数与 main 的函数体，也没把实现打印的值抄进来）：
+  //  · skill/references/providers/tikhub.md「错误处理」402 那一行：「**停止**，告诉用户去充值，不要重试」。
+  //    KOL-105 卡片「修复范围」定修法：profile 补全阶段的 402 与搜索阶段同一种收尾 —— stdout 照常有汇总 JSON，
+  //    `stopped` 为 `error`、`error` 为 402 的提示、退出码 1；第一个 402 之后不再发任何请求（同一人的 IG V2 降级、
+  //    其余待补的人都不发）；非 402 的单人失败照旧计数、接着补其余的人，不扩大成「任何错误都停」。
+  //  · 402 的提示原文是 scripts/providers/tikhub.ts 遇 402 抛出的那一句（卡片「代码位置」转述）；卡片「其余 402
+  //    路径核对结果」记的搜索阶段实测汇总 `error` 也正是这一句。同组最后一条对照把搜索阶段再验一遍。
+  //  · 待补 profile 几人：D6.p（简介没查过、或查过但没有外链的仍待补）手数；四种收尾同一续跑口径（D6.q／D6.r）。
+  //  · 断点的净次数：D6.s，只数 HTTP 200（这里没有无 HTTP 状态的），402／404 已撤销、不计。
+  //  · `profile_failed`：需求方 2026-10-31 13:00 CST 裁决（派发方转达，D6.z，今 D6.ab）—— 402 那人不计入、算待补，只数 402 之前非 402 的失败。
+  //
+  // 夹具：关键词带 `profile-halt` 时假 fetch 回三个人（profhalt_a／b／c，粉丝 82000／90000／95000，都在闸门之内、
+  // 都没带简介），`FAKE_FETCH_HALT_*` 让这三人发到某个 profile 端点的第 n 次请求起都回 402 或 404（fake-fetch.ts
+  // `HALT_PEOPLE` 那段）。「先补谁」不在契约里，下面每条都写成与先后无关的形状。
+  //
+  // 「402 之后零请求」看的是假 fetch 的账本（FAKE_FETCH_LEDGER，每次响应之前追加一行「状态 ⇥ pathname」）。
+  // 零记录不单独当证据（process/4-VERIFY.md「观察器的零记录」）：**同一次运行、同一份账本**里，402 之前的搜索要真记下了、
+  // 402 那一行也要记下了，才去判「402 之后再无记录」。对照不成立是夹具失格（带夹具记号），这一跑的具名断言都不判。
+  // IG「不降级 V2」另配一份阳性对照：同一种接线下 V3 回 404 时账本要真记下 V2 那一行。
+  //
+  // 认领 D6.ab（组末尾；ADR-193 接替 D6.z，补上「N 人补全失败」那一行）。整条映射由 D6.aa（接替 D6.y、D6.x）管，留给独立黑盒测试包，这里不认（ADR-183 末尾、ADR-193）。
+  const root = join(tmp, 'profile-402-stop')
+  const HALT = ['profhalt_a', 'profhalt_b', 'profhalt_c']
+  const MSG_402 = 'TikHub 余额不足，请充值后重试'
+  const FREE = /续跑不产生新的请求/
+  const isSearch = (l: string) => l === `200\t${TT_SEARCH}` || l === `200\t${IG_REELS}`
+  type Halt = { name: string; cwd: string; status: number | null; stdout: string; stderr: string; sum: any; lines: string[] }
+  /** 起一次 collect（新建任务、预算 $1），交回两股输出、汇总（读不成 JSON 是 undefined）与这一跑的账本 */
+  const collectHalt = (name: string, label: string, task: Record<string, unknown>, target: number,
+    fault: { path: string; status: 402 | 404; from: number; before?: 404 } | undefined, want: number,
+    extraEnv: NodeJS.ProcessEnv = {}): Halt | undefined => {
+    const cwd = join(root, name)
+    mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const cfg = join(cwd, 'config.json'), log = join(cwd, 'attempts.tsv')
+    writeFileSync(cfg, JSON.stringify({ product: name, market: 'US', target_count: target, budget_usd: 1, tasks: [task] }))
+    const knobs = fault === undefined ? {} : { FAKE_FETCH_HALT_PATH: fault.path,
+      FAKE_FETCH_HALT_STATUS: String(fault.status), FAKE_FETCH_HALT_FROM: String(fault.from),
+      ...(fault.before === undefined ? {} : { FAKE_FETCH_HALT_BEFORE: String(fault.before) }) }
+    // 退出码本身就是下面具名断言点名的东西：别的正常退出码交给它们判，被信号打死照旧带进程记号
+    const r = runBoth(label, [S('collect.ts'), '--config', cfg], cwd,
+      { status: want, soft: [0, 1, 2, 3, 4, 5, 6, 7].filter(s => s !== want) }, costEnv(log, { ...knobs, ...extraEnv }))
+    if (!r.ok) return undefined
+    let sum: any
+    try { sum = JSON.parse(r.stdout) } catch { sum = undefined }
+    return { name, cwd, status: r.status, stdout: r.stdout, stderr: r.stderr, sum, lines: fetchAttempts(log) }
+  }
+  /** 账本里第一次拒收那一行的下标。它之前要有搜索、除 `early` 那几行外全是 200；不成立报夹具失格、交回 undefined */
+  const refusedAt = (h: Halt, path: string, status: number, early: string[] = []): number | undefined => {
+    const at = h.lines.indexOf(`${status}\t${path}`)
+    const before = at > 0 ? h.lines.slice(0, at) : []
+    if (before.some(isSearch) && JSON.stringify(before.filter(l => !l.startsWith('200\t'))) === JSON.stringify(early)) return at
+    failed++
+    console.error(`  ✗ ${h.name} 夹具${SELFCHECK_FIXTURE_MARK}：账本里要先记下搜索${early.length ? `与 ${JSON.stringify(early)}` : ''}、再记下 ${status} ${path}，`
+      + `实际 ${JSON.stringify(h.lines)} —— 观察器没接上、或这一跑没走到 profile 补全，这一跑的具名断言都不判`)
+    return undefined
+  }
+  const stopsWith402 = (h: Halt) => h.status === 5 && h.sum !== undefined
+    && h.sum.stopped === 'error' && h.sum.error === MSG_402
+  const how = (h: Halt) => `退出码 ${h.status}、汇总 ${h.sum === undefined ? '读不成 JSON' : `stopped=${JSON.stringify(h.sum.stopped)}`
+    + `、error=${JSON.stringify(h.sum.error)}、profile_failed=${JSON.stringify(h.sum.profile_failed)}`}，账本 ${JSON.stringify(h.lines)}`
+  const after = (h: Halt, at: number) => `第一次拒收之后账本里还记了 ${JSON.stringify(h.lines.slice(at + 1))}`
+  const pending = (h: Halt, n: number) => new RegExp(`还有 ${n} 个人的 profile`).test(h.stderr) && !FREE.test(h.stderr)
+  const okCount = (h: Halt) => h.lines.filter(l => l.startsWith('200\t')).length
+  const outFile = (h: Halt, file: string) => jsonFile(join(h.cwd, onlyDir(h.cwd, h.name) ?? '', file))
+  const TT = { keyword: 'profile-halt', dimension: 'category', platform: 'tiktok' }
+  const IG = { keyword: 'profile-halt', dimension: 'category', platform: 'instagram' }
+
+  // ① TikTok，关键词跑完之后补 profile，第一个人就 402 —— 卡片复现那一跑的形状（改前 done、退 0）。
+  // target_count 9999：三个人凑不够，收尾不会是达标。
+  const first = collectHalt('tt-first', 'collect TikTok profile 第一次请求起就回 402', TT, 9999,
+    { path: TT_PROFILE, status: 402, from: 1 }, 5)
+  const firstAt = first === undefined ? undefined : refusedAt(first, TT_PROFILE, 402)
+  if (first !== undefined && firstAt !== undefined) {
+    named('collect 在 profile 补全阶段遇 TikHub 402（TikTok）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 5',
+      stopsWith402(first), how(first))
+    named('collect 在 profile 补全阶段遇 TikHub 402 之后不再发任何请求：其余待补的人一个都不请求（TikTok）',
+      first.lines.length === firstAt + 1, after(first, firstAt))
+    // 402 那人不计入 profile_failed（需求方 2026-10-31 裁决）；402 之前没有别的单人失败 → 0
+    named('collect 在 profile 补全第一次请求就遇 TikHub 402（TikTok）：汇总的 profile_failed 为 0，402 那人不计入补全失败',
+      first.sum?.profile_failed === 0, how(first))
+    // 三人都没带简介 → 三人待补（D6.p）；第一次 profile 请求就 402、之后不再请求 → 一个也没补成，仍是三人
+    named('profile 补全遇 402 收尾时，续跑提示把 402 那人与之后没请求的人都算作待补 profile',
+      pending(first, 3), `应说还有 3 个人的 profile、且不说续跑不产生新的请求；stderr 末几行 ${stderrTail(first.stderr)}`)
+    // D6.s：净次数只数 HTTP 200，402 已撤销不计 —— 账本里回 200 的行数就是该留存的次数
+    const st = outFile(first, 'task.json')
+    named('profile 补全遇 402 收尾时照常保存断点：task.json 的净次数等于账本里回 200 的次数，402 不计',
+      st !== undefined && st.requests === okCount(first),
+      `task.json ${st === undefined ? '读不到' : `requests=${JSON.stringify(st.requests)}`}，账本里回 200 的 ${okCount(first)} 行`)
+  }
+
+  // ② TikTok，第一次 profile 请求照常回资料、第二次起 402：402 之前补好的那人要落盘，第三个人不再请求。
+  const mid = collectHalt('tt-mid', 'collect TikTok profile 第二次请求起回 402', TT, 9999,
+    { path: TT_PROFILE, status: 402, from: 2 }, 5)
+  const midAt = mid === undefined ? undefined : refusedAt(mid, TT_PROFILE, 402)
+  if (mid !== undefined && midAt !== undefined) {
+    named('collect 在 profile 补全中途遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 5',
+      stopsWith402(mid), how(mid))
+    named('collect 在 profile 补全中途遇 TikHub 402 之后不再请求下一个人',
+      mid.lines.length === midAt + 1, after(mid, midAt))
+    named('collect 在 profile 补全中途遇 TikHub 402（TikTok）：汇总的 profile_failed 为 0，402 之前补成的不算失败，402 那人也不计入',
+      mid.sum?.profile_failed === 0, how(mid))
+    // 第一个被请求的人拿回了资料：简介是假 fetch 回的 signature、外链里有 bioLink（tikhub.md「补全：用户 Profile」），
+    // 于是不再待补（D6.p）；402 那人与没被请求的那人简介仍是「没查过」（键缺席 = undefined，P1.a 的三态）→ 两人待补
+    const people = outFile(mid, 'creators.raw.json')
+    const three: any[] = Array.isArray(people) ? people.filter((c: any) => HALT.includes(c?.handle)) : []
+    const done = three.filter(c => typeof c.bio === 'string')
+    const kept = done.length === 1 && done[0].bio === `bio of ${done[0].handle}: ${done[0].handle}@example.com`
+      && Array.isArray(done[0].bio_links) && done[0].bio_links.includes(`https://example.com/${done[0].handle}`)
+    named('profile 补全中途遇 402 收尾时，402 之前补好的 profile 落盘，402 那人与之后没请求的人仍算待补',
+      three.length === 3 && kept && three.filter(c => !('bio' in c)).length === 2 && pending(mid, 2),
+      `creators.raw.json 里这三人 ${JSON.stringify(three.map(c => [c.handle, c.bio, c.bio_links]))}；`
+      + `stderr 应说还有 2 个人的 profile，末几行 ${stderrTail(mid.stderr)}`)
+  }
+
+  // ③ 达标之后补 profile 撞 402（改前收尾是 target、退 0，卡片验收第 2 条）。target_count 1，第一页三个人就够；
+  // `profile-halt-more` 让搜索声明还有下一页，而预算 $1 够翻满 4 页上限（skill/SKILL.md「单关键词页数上限 4 页」），
+  // 于是账本里只有一次搜索 = 走到了达标。不是一次就是夹具没造对。
+  const tgt = collectHalt('tt-target', 'collect 达标之后补 TikTok profile 第一次请求起就回 402',
+    { ...TT, keyword: 'profile-halt-more' }, 1, { path: TT_PROFILE, status: 402, from: 1 }, 5)
+  let tgtAt = tgt === undefined ? undefined : refusedAt(tgt, TT_PROFILE, 402)
+  if (tgt !== undefined && tgtAt !== undefined && tgt.lines.slice(0, tgtAt).filter(isSearch).length !== 1) {
+    failed++
+    console.error(`  ✗ ${tgt.name} 夹具${SELFCHECK_FIXTURE_MARK}：402 之前搜了 ${tgt.lines.slice(0, tgtAt).filter(isSearch).length} 页，`
+      + '不是一页 —— 没走到达标那条收尾，这一跑的具名断言都不判')
+    tgtAt = undefined
+  }
+  if (tgt !== undefined && tgtAt !== undefined) {
+    named('collect 达标之后补 profile 遇 TikHub 402：stopped 为 error（不是 target）、error 为余额不足的提示，退出码 5',
+      stopsWith402(tgt), how(tgt))
+    named('collect 达标之后补 profile 遇 TikHub 402 之后不再发任何请求',
+      tgt.lines.length === tgtAt + 1, after(tgt, tgtAt))
+    named('collect 达标之后补 profile 遇 TikHub 402：汇总的 profile_failed 为 0，402 那人不计入补全失败',
+      tgt.sum?.profile_failed === 0, how(tgt))
+  }
+
+  // ④ V2 降级的观察器阳性对照：V3 回 404（不是 402）时照旧降级去请求 V2（卡片「代码位置」：只有 402 原样重抛、
+  // 不降级 V2）。同一份假 fetch、同一种账本接线，要真记下 V2 那一行，⑤ 里「402 时不发 V2」的零记录才有依据。
+  const igDown = collectHalt('ig-404', 'collect IG profile V3 一律回 404（V2 降级请求观察器阳性对照）', IG, 9999,
+    { path: IG_PROFILE, status: 404, from: 1 }, 0)
+  let v2Seen = false
+  if (igDown !== undefined) {
+    v2Seen = igDown.lines.includes(`200\t${IG_PROFILE_V2}`)
+    if (!v2Seen) {
+      failed++
+      console.error(`  ✗ ${igDown.name} 夹具${SELFCHECK_FIXTURE_MARK}：V3 回 404，账本里却一次 V2 请求也没记下 `
+        + `${JSON.stringify(igDown.lines)} —— 观察器看不见 V2，「402 时不降级 V2」那条没有依据，不判`)
+    } else {
+      // 非 402 的失败不停（卡片「修复范围」末句）：关键词跑完、三人凑不够 9999 → done、退 0，同改前
+      named('collect 在 IG profile V3 遇非 402 的失败（404）时不停：照旧降级到 V2，收尾仍是 done、退出码 0',
+        igDown.status === 0 && igDown.sum?.stopped === 'done', how(igDown))
+    }
+  }
+
+  // ⑤ IG，profile V3 第一个人就 402（卡片未核实项 2；改前实测：不降级 V2，但接着请求了下一个人，done、退 0）
+  const ig = collectHalt('ig-first', 'collect IG profile V3 第一次请求起就回 402', IG, 9999,
+    { path: IG_PROFILE, status: 402, from: 1 }, 5)
+  const igAt = ig === undefined ? undefined : refusedAt(ig, IG_PROFILE, 402)
+  if (ig !== undefined && igAt !== undefined) {
+    named('collect 在 profile 补全阶段遇 TikHub 402（IG，V3 回 402）：照常输出汇总 JSON，stopped 为 error、error 为余额不足的提示，退出码 5',
+      stopsWith402(ig), how(ig))
+    named('collect 在 IG profile V3 遇 TikHub 402 之后不再发任何请求：同一人不降级 V2，其余待补的人也不请求',
+      ig.lines.length === igAt + 1, after(ig, igAt))
+    named('collect 在 IG profile V3 遇 TikHub 402：汇总的 profile_failed 为 0，402 那人不计入补全失败',
+      ig.sum?.profile_failed === 0, how(ig))
+    if (v2Seen) {
+      named('collect 在 IG profile V3 遇 TikHub 402 时，同一人不降级去请求 V2',
+        !ig.lines.some(l => l.endsWith(`\t${IG_PROFILE_V2}`)), `账本 ${JSON.stringify(ig.lines)}`)
+    }
+  }
+
+  // ⑥ 非 402 的单人失败不扩大成「停」：第一次 profile 请求照常回资料，第二次起 404。手数：第二、三个人各失败一次
+  // → profile_failed 2（第三个人被请求了才数得到 2 —— 这就是「接着补其余的人」）；关键词跑完、凑不够 9999 → done、
+  // 退 0（同改前）；那两人简介没查过 → 续跑提示两人待补（D6.p）。
+  const nf = collectHalt('tt-404', 'collect TikTok profile 第二次请求起回 404', TT, 9999,
+    { path: TT_PROFILE, status: 404, from: 2 }, 0)
+  const nfAt = nf === undefined ? undefined : refusedAt(nf, TT_PROFILE, 404)
+  if (nf !== undefined && nfAt !== undefined) {
+    named('collect 在 profile 补全遇非 402 的单人失败（404）时照旧计入 profile_failed、接着补其余的人，收尾仍是 done、退出码 0',
+      nf.status === 0 && nf.sum?.stopped === 'done' && nf.sum?.profile_failed === 2 && pending(nf, 2),
+      `${how(nf)}；stderr 应说还有 2 个人的 profile，末几行 ${stderrTail(nf.stderr)}`)
+  }
+
+  // ⑦ 对照：搜索阶段的 402 本来就是这种收尾（卡片「其余 402 路径核对结果」第一条，实测）—— profile 阶段修好后与它一致
+  const search = collectHalt('search-402', 'collect 搜索阶段就回 402',
+    { keyword: 'force-402-searchstage', dimension: 'category', platform: 'tiktok' }, 9999, undefined, 5)
+  if (search !== undefined) {
+    named('collect 在搜索阶段遇 TikHub 402 照旧：stopped 为 error、error 为余额不足的提示，退出码 5',
+      stopsWith402(search), how(search))
+  }
+
+  // ⑧ 402 之前已有一次非 402 的单人失败：第一次 profile 请求回 404、第二次起 402。手数（2026-10-31 裁决：profile_failed
+  // 只数 402 之前非 402 的失败）：404 那人计 1，402 那人不计，第三个人不再请求 → 1；三人简介都没查成 → 三人待补（D6.p）。
+  // 账本里 404、402 两行都要真记下（`refusedAt` 的 early），才判 402 之后再无记录。
+  const mix = collectHalt('tt-404-402', 'collect TikTok profile 第一次请求回 404、第二次起回 402', TT, 9999,
+    { path: TT_PROFILE, status: 402, from: 2, before: 404 }, 5)
+  const mixAt = mix === undefined ? undefined : refusedAt(mix, TT_PROFILE, 402, [`404\t${TT_PROFILE}`])
+  if (mix !== undefined && mixAt !== undefined) {
+    named('collect 在 profile 补全先遇一次 404、再遇 TikHub 402（TikTok）：stopped 为 error、error 为余额不足的提示，退出码 5',
+      stopsWith402(mix), how(mix))
+    named('collect 在 profile 补全先遇 404、再遇 TikHub 402 之后不再请求下一个人', mix.lines.length === mixAt + 1, after(mix, mixAt))
+    named('collect 在 profile 补全先遇 404、再遇 TikHub 402：汇总的 profile_failed 为 1，只数 402 之前那次 404，不含 402 那人',
+      mix.sum?.profile_failed === 1, how(mix))
+    named('profile 补全先 404 后 402 收尾时，续跑提示把 404 那人、402 那人与之后没请求的人都算作待补 profile',
+      pending(mix, 3), `应说还有 3 个人的 profile、且不说续跑不产生新的请求；stderr 末几行 ${stderrTail(mix.stderr)}`)
+    // KOL-108 第 1 条：补全循环被 402 打断时，「N 人补全失败」那一行也照打，与汇总的 profile_failed 对得上
+    named('collect 在 profile 补全先遇 404、再遇 TikHub 402：stderr 照打「1 人补全失败」那一行，与汇总的 profile_failed 对得上',
+      /1 人补全失败/.test(mix.stderr) && mix.sum?.profile_failed === 1, `stderr 末几行 ${stderrTail(mix.stderr)}`)
+  }
+  // ⑨ KOL-108 卡 11-01 追加段：补 profile 的单人 catch 重抛费用错误（CostError）时，「N 人补全失败」那一行也照打。
+  // 造法：TikTok profile 每一次都回 404（三人逐个失败），再用测试观察的保存失败注入（kol-test-observer/v1，
+  // skill/references/output-format.md「测试观察用的记录文件与保存失败注入」）让第 K 次预留保存（保存点 SP-R）失败 ——
+  // 预算把它记成保存费用失败、以费用错误抛出，正落在补 profile 那一处单人 catch 的重抛那一支。
+  // K = 搜索那几次预留 + 2：第一个人的 profile 请求照常发出并 404，第二个人的预留保存就失败。
+  // 手数：失败前只有第一个人 404 → stderr 打「1 人补全失败」；这一路是保存失败，按 ADR-193 退 6、不出汇总。
+  const searchReserves = 1 // TikTok 一页搜索（profile-halt 关键词，has_more 为 0）
+  const costCwd = join(root, 'tt-404-cost')
+  mkdirSync(costCwd, { recursive: true })
+  writeFileSync(join(costCwd, FAULT_FILE), JSON.stringify({ ...FAULT_OK, occurrence: searchReserves + 2 }))
+  const cost = collectHalt('tt-404-cost', 'collect TikTok profile 每次都回 404、第二个人的预留保存被注入失败', TT, 9999,
+    { path: TT_PROFILE, status: 404, from: 1 }, 6, { [TOBS_VAR]: join(root, 'tt-404-cost-observer.jsonl') })
+  if (cost !== undefined) {
+    // 夹具资格只核走到了 profile 补全：先是搜索、紧接着第一次 profile 请求回 404。之后怎样交给具名断言判。
+    const firstProfile = cost.lines.findIndex(l => !isSearch(l))
+    const shaped = firstProfile > 0 && cost.lines.slice(0, firstProfile).every(isSearch)
+      && cost.lines[firstProfile] === `404\t${TT_PROFILE}`
+    if (!shaped) {
+      failed++
+      console.error(`  ✗ tt-404-cost 夹具${SELFCHECK_FIXTURE_MARK}：要先记下搜索、紧接着记下一次 404 ${TT_PROFILE}，`
+        + `实际账本 ${JSON.stringify(cost.lines)}，stderr 末几行 ${stderrTail(cost.stderr)} —— 这一跑的具名断言不判`)
+    } else {
+      // 费用错误照样往外抛（不被当成那一个人的失败吞掉、接着补下一个人）：注入那次之后再无请求，保存失败退 6、不出汇总
+      named('collect 在 profile 补全遇费用错误（保存费用失败）即中止：退出码 6、不出汇总、之后不再请求下一个人',
+        cost.status === 6 && cost.stdout.trim() === '' && cost.lines.length === firstProfile + 1 && /注入的保存失败/.test(cost.stderr),
+        `退出码 ${cost.status}，stdout ${JSON.stringify(cost.stdout.slice(0, 120))}，账本 ${JSON.stringify(cost.lines)}，stderr 末几行 ${stderrTail(cost.stderr)}`)
+      named('collect 在 profile 补全先遇 404、再因费用错误（保存费用失败）中止：stderr 照打「1 人补全失败」那一行',
+        /1 人补全失败/.test(cost.stderr), `退出码 ${cost.status}，stderr 末几行 ${stderrTail(cost.stderr)}`)
+    }
+  }
+
+  // ①–⑧ 合起来是 D6.ab 的每一半：停与提示、零请求（含 IG 不降级）、profile_failed 只数 402 之前非 402 的失败、
+  // 待补与续跑提示、402 之前补成的落盘、非 402 不停（④⑥）、达标与否都一样（①③）。负片 M-D6-bm、M-D6-bn
+  criterion('D6.ab')
+})
+
 // ---- D6.j：上一版留下的目录，两张表缺着就一直缺着 ----
-group('d6j-legacy', [], () => {
+group('legacy-dir-missing-tables', [], () => {
   // **只能端到端跑**：建表那两处都在入口脚本里，缺省那个验证者够不到
   // （实测 `M-D6-q` 在 npm test 下存活）。
   //
@@ -3117,7 +4155,7 @@ group('d6j-legacy', [], () => {
 })
 
 // ---- D6.h / D6.m：页数上限跨运行有效 ----
-group('d6h-pagecap', [], () => {
+group('page-cap-across-runs', [], () => {
   // **只能端到端跑**：计数与那道闸都在入口脚本里，缺省那个验证者够不到；而且这条判据
   // 说的正是「**跨运行**」—— 一次进程内的断言天然证不了它。
   //
@@ -3269,7 +4307,7 @@ group('d6h-pagecap', [], () => {
 })
 
 // ---- D6.k：IG 兜底撞上预算时，这个任务不许被烧掉 ----
-group('d6k-igfallback', [], () => {
+group('ig-fallback-budget-keeps-task', [], () => {
   // 判据逐字点名的三样（不进 done、不以退出码 0 收尾、那句话不说「续跑不产生新的请求」）
   // **全在入口那一层**，provider 契约测试够不到（`scripts/test.ts` 那一组只调 `search()`）。
   // 造法：reels 返回条目但一条都解析不出人 → 走兜底；额度只够一次请求 → 第二次当场抛。
@@ -3319,7 +4357,7 @@ group('d6k-igfallback', [], () => {
 })
 
 // ---- D6.u／D6.v：IG Reels 顺着续页令牌翻页，令牌只在一次运行内用 ----
-group('d6uv-igpaging', [], () => {
+group('ig-reels-cursor-paging', [], () => {
   // **只能端到端跑**：「下一页拿什么去请求」「一次运行结束时手里的令牌怎么处置」都是入口脚本的
   // 调度，缺省那个验证者（scripts/test.ts）够不到；而 D6.v 说的正是**跨运行**的事。
   //
@@ -3332,7 +4370,7 @@ group('d6uv-igpaging', [], () => {
   //    FAKE_FETCH_COST_EVENTS 那份逐次记录的 `query` 里读（同 crash-resume A 读 offset 的先例）
   // 单价（ADR-107/108）：IG Reels 0.002/次、TikTok 搜索 0.001/次、profile 0.001/次；
   // 页数上限 4（D6.h 的 `MAX_PAGES`，对外契约）。额度按「已占用 + 这一次 ≤ 上限」放行，
-  // 恰好花完那一次照样放行（d6h-pagecap 夹具 a：0.003 正好 3 次 0.001 的搜索）。
+  // 恰好花完那一次照样放行（page-cap-across-runs 夹具 a：0.003 正好 3 次 0.001 的搜索）。
   // 每一跑都关掉第 7 次回 429 的触发器 —— IG 翻页让请求数变多，碰上它就多出一行重试。
   //
   // 旧行为（入口没接令牌：IG 每个任务只取一页、第二页起一个请求都不发）下，夹具 1、2、4
@@ -3805,7 +4843,7 @@ const configEntryFixture = () => {
   const badTasks = [good,
     { keyword: '', dimension: 'Scene', platform: 'instagram', ig_route: 'Hashtag' }, good,
     { keyword: 'config-entry-route', dimension: 'category', platform: 'tiktok', ig_route: 'hashtag' }]
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const fixtureImport = (cwd: string) => fixtureLoader(S('collect.ts'), env, cwd)
   const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
   const make = (mode: Mode, c: Case, positive = false) => {
     const cwd = join(base, `${mode}-${c.id}`), taskDir = join(cwd, 'task')
@@ -3845,7 +4883,7 @@ const configEntryFixture = () => {
       `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
     ].join('\n'))
     const observation = costEnv(log, { FAKE_FETCH_COST_EVENTS: events,
-      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}` })
+      NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport(cwd))} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}` })
     const args = resume ? [S('collect.ts'), '--resume', taskDir,
       ...(mode === 'resume-budget' ? ['--budget', positive ? '2' : '0.02'] : [])]
       : [S(mode === 'probe' ? 'probe.ts' : 'collect.ts'), '--config', file]
@@ -3916,7 +4954,7 @@ group('config-entry-invalid', [], () => {
   for (const { mode, c } of cases) {
     const f = make(mode, c)
     if (!inputReady(f, c)) continue
-    const r = runBoth(`市场人数 ${mode}：${c.id}`, f.args, f.cwd, { status: 2, soft: [0, 1, 3] }, f.observation)
+    const r = runBoth(`市场人数 ${mode}：${c.id}`, f.args, f.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, f.observation)
     if (!r.ok || !ready(f.armed, r.stderr)) continue
     const calls = fetchAttempts(f.reserves), requests = fetchAttempts(f.log)
     const rejected = r.status === 2 && requests.length === 0 && fetchAttempts(f.events).length === 0
@@ -3973,12 +5011,14 @@ group('config-entry-valid', [], () => {
   for (const { mode, c } of positives) {
     const f = make(mode, c, true)
     if (!inputReady(f, c)) continue
-    const r = runBoth(`市场人数 ${mode}：${c.id}`, f.args, f.cwd, { status: 0, soft: [1, 2, 3] }, f.observation)
-    if (!r.ok || !ready(f.armed, r.stderr)) continue
-    const searches = fetchAttempts(f.events).map(summaryOf).filter(e => e.kind === 'fetch' && e.endpoint === TT_SEARCH)
     const market = c.missing?.includes('market') ? 'US' : c.values?.market ?? 'US'
     const target = c.missing?.includes('target_count') ? 50 : c.values?.target_count ?? 1
-    const searched = r.status === 0 && tasks.every(task => searches.some(e => e.query?.keyword === task.keyword))
+    // collect 首页就够数（目标不到 50）时以达标收尾，退出码 4；缺省 50 跑完关键词才停，退出码 0（ADR-193）
+    const want = mode !== 'probe' && typeof target === 'number' && target < 50 ? 4 : 0
+    const r = runBoth(`市场人数 ${mode}：${c.id}`, f.args, f.cwd, { status: want, soft: [0, 1, 2, 3, 4, 5, 6, 7].filter(s => s !== want) }, f.observation)
+    if (!r.ok || !ready(f.armed, r.stderr)) continue
+    const searches = fetchAttempts(f.events).map(summaryOf).filter(e => e.kind === 'fetch' && e.endpoint === TT_SEARCH)
+    const searched = r.status === want && tasks.every(task => searches.some(e => e.query?.keyword === task.keyword))
     const detail = `${mode}/${c.id}：退出=${r.status}，搜索=${JSON.stringify(searches)}，stderr=${stderrTail(r.stderr)}`
     named('市场人数：合法入口证明预算观察器确实记录 reserve 调用',
       searched && fetchAttempts(f.reserves).includes('reserve'), detail)
@@ -3988,9 +5028,9 @@ group('config-entry-valid', [], () => {
       /默认|缺省|default/i.test(line) && /\bUS\b/.test(line) && /market|市场/i.test(line)
         && !/(?:未|不)(?:采用|使用|用)(?:默认|缺省)|(?:不是|并非)(?:默认|缺省)|not (using|the) default/i.test(line))
     if (c.missing?.includes('market')) named('市场人数：缺市场使用 US 时 stderr 明说市场未提供并采用默认',
-      r.status === 0 && defaultNotices.some(line => /未(?:提供|指定|填写|设置|给出)|没(?:有)?(?:提供|指定|填写|设置)|缺(?:席|失|少)|不存在|不在配置|absent|missing|omitted|not (provided|specified)/i.test(line)), detail)
+      r.status === want && defaultNotices.some(line => /未(?:提供|指定|填写|设置|给出)|没(?:有)?(?:提供|指定|填写|设置)|缺(?:席|失|少)|不存在|不在配置|absent|missing|omitted|not (provided|specified)/i.test(line)), detail)
     else if (mode === 'new' || mode === 'probe') named('市场人数：显式合法市场不冒称采用默认US',
-      r.status === 0 && defaultNotices.length === 0, detail)
+      r.status === want && defaultNotices.length === 0, detail)
     if (mode === 'probe') {
       const rows = summaryOf(r.stdout).results
       named('市场人数：probe 完全忽略 target_count，仍逐项搜索且输入原样',
@@ -4011,13 +5051,14 @@ group('config-entry-valid', [], () => {
   for (const target of [1, 50]) {
     const f = make('new', { id: `target-depth-${target}`, missing: target === 50 ? ['target_count'] : [],
       values: { target_count: 1, tasks: [{ keyword: 'force-paged-config-target', dimension: 'category', platform: 'instagram' }] } }, true)
-    const r = runBoth(`市场人数：实际目标 ${target}`, f.args, f.cwd, { status: 0, soft: [1, 2, 3] }, f.observation)
+    const want = target === 1 ? 4 : 0
+    const r = runBoth(`市场人数：实际目标 ${target}`, f.args, f.cwd, { status: want, soft: [0, 1, 2, 3, 4, 5, 6, 7].filter(s => s !== want) }, f.observation)
     if (!r.ok || !ready(f.armed, r.stderr)) continue
     const queries = fetchAttempts(f.events).map(summaryOf).filter(e => e.kind === 'fetch' && e.endpoint === IG_REELS)
     const tokens = queries.map(e => e.query?.pagination_token ?? null)
     const expected = target === 1 ? [null] : [null, 'page-2', 'page-3']
     const dir = onlyDir(f.cwd, 'configentry'), state = dir ? jsonFile(join(f.cwd, dir, 'task.json')) : undefined
-    named('市场人数：缺省50实际继续翻页，显式1在首页后停', r.status === 0
+    named('市场人数：缺省50实际继续翻页，显式1在首页后停', r.status === want
       && state?.target_count === target && JSON.stringify(tokens) === JSON.stringify(expected)
       && fetchAttempts(f.reserves).includes('reserve'),
       `目标=${target}，盘上=${state?.target_count}，实际令牌=${JSON.stringify(tokens)}，stderr=${stderrTail(r.stderr)}`)
@@ -4058,7 +5099,7 @@ group('brand-calibration-entry', [], () => {
   const bad = { ...brand, version: ' ', tone_aesthetic: [7],
     sources: [{ source: ' ', kind: 'unknown_fact', detail: 4 }] }
   const tasks = [{ keyword: 'brand input fixture', dimension: 'category', platform: 'tiktok' }]
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const fixtureImport = (cwd: string) => fixtureLoader(S('collect.ts'), env, cwd)
   const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
   const preload = join(base, 'observe-reserve.mjs')
   writeFileSync(preload, [
@@ -4071,9 +5112,9 @@ group('brand-calibration-entry', [], () => {
     `};`,
     `appendFileSync(process.env.BRAND_ARMED_LOG, 'armed\\n');`,
   ].join('\n'))
-  const observed = (f: { log: string; reserves: string; armed: string }) => costEnv(f.log, {
+  const observed = (f: { cwd: string; log: string; reserves: string; armed: string }) => costEnv(f.log, {
     BRAND_RESERVE_LOG: f.reserves, BRAND_ARMED_LOG: f.armed,
-    NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+    NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport(f.cwd))} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
   })
   const logs = (cwd: string) => {
     const log = join(cwd, 'attempts.tsv'), reserves = join(cwd, 'reserves.txt'), armed = join(cwd, 'armed.txt')
@@ -4091,7 +5132,7 @@ group('brand-calibration-entry', [], () => {
   const taskInput = (id: string, value: unknown, withPerson = false) => {
     const f = costFixture(id, knownCosts(1_000_000, []), { target_count: 0, done: [],
       offsets: {}, pages: {}, answered: {}, found: {}, brand_calibration: value },
-    withPerson ? [costPerson('tiktok', `${id}-creator`)] : [])
+    withPerson ? [costPerson('tiktok', `${id}-creator`, { fit: undefined })] : [])
     return { ...f, ...logs(f.cwd) }
   }
   const original = (f: ReturnType<typeof taskInput>) => [f.task,
@@ -4118,12 +5159,12 @@ group('brand-calibration-entry', [], () => {
 
   const fresh = newInput('valid-new', brand)
   const freshRun = runBoth('品牌校准合法新建', [S('collect.ts'), '--config', fresh.file], fresh.cwd,
-    { status: 0, soft: [1, 2, 3] }, observed(fresh))
+    { status: 4, soft: [0, 1, 2, 3, 5, 6, 7] }, observed(fresh))
   if (freshRun.ok && ready(fresh, freshRun.stderr)) {
     const dir = onlyDir(fresh.cwd, 'brandcalibration')
     const state = dir ? jsonFile(join(fresh.cwd, dir, 'task.json')) : undefined
     named('品牌校准：合法新建确实预留和请求，task.json 原样保存校准',
-      freshRun.status === 0 && fetchAttempts(fresh.reserves).length > 0
+      freshRun.status === 4 && fetchAttempts(fresh.reserves).length > 0
         && fetchAttempts(fresh.log).length > 0 && isDeepStrictEqual(state?.brand_calibration, brand),
       `退出=${freshRun.status}，目录=${dir}，预留=${fetchAttempts(fresh.reserves).length}，`
         + `请求=${fetchAttempts(fresh.log).length}，盘上=${JSON.stringify(state?.brand_calibration)}`)
@@ -4131,22 +5172,22 @@ group('brand-calibration-entry', [], () => {
   }
   const absent = newInput('absent-new', undefined, false)
   const absentRun = runBoth('品牌校准缺席新建', [S('collect.ts'), '--config', absent.file], absent.cwd,
-    { status: 0, soft: [1, 2, 3] }, observed(absent))
+    { status: 4, soft: [0, 1, 2, 3, 5, 6, 7] }, observed(absent))
   if (absentRun.ok && ready(absent, absentRun.stderr)) {
     const dir = onlyDir(absent.cwd, 'brandcalibration')
     const state = dir ? jsonFile(join(absent.cwd, dir, 'task.json')) : undefined
     named('品牌校准：缺席新建后 task.json 仍无该字段',
-      absentRun.status === 0 && state !== undefined && !Object.hasOwn(state, 'brand_calibration'),
+      absentRun.status === 4 && state !== undefined && !Object.hasOwn(state, 'brand_calibration'),
       `退出=${absentRun.status}，目录=${dir}，盘上字段=${JSON.stringify(state?.brand_calibration)}`)
     saved++
   }
   const resume = taskInput('brand-valid-resume', brand)
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const result = runBoth(`品牌校准合法${mode}续跑`, [S('collect.ts'), '--resume', resume.taskDir, ...extra],
-      resume.cwd, { status: 0, soft: [1, 2, 3] }, observed(resume))
+      resume.cwd, { status: 4, soft: [0, 1, 2, 3, 5, 6, 7] }, observed(resume))
     if (!result.ok || !ready(resume, result.stderr)) continue
     const state = jsonFile(resume.task)
-    const kept = result.status === 0 && isDeepStrictEqual(state?.brand_calibration, brand)
+    const kept = result.status === 4 && isDeepStrictEqual(state?.brand_calibration, brand)
     const detail = `${mode}：退出=${result.status}，盘上=${JSON.stringify(state?.brand_calibration)}`
     if (mode === '普通') named('品牌校准：普通续跑原样保留品牌输入', kept, detail)
     else named('品牌校准：改额续跑原样保留品牌输入', kept, detail)
@@ -4158,7 +5199,7 @@ group('brand-calibration-entry', [], () => {
   const invalidNew = newInput('invalid-new', bad, true, 'not-a-budget')
   const newBefore = fileText(invalidNew.file)
   const newRun = runBoth('品牌校准非法新建', [S('collect.ts'), '--config', invalidNew.file], invalidNew.cwd,
-    { status: 2, soft: [0, 1, 3] }, observed(invalidNew))
+    { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(invalidNew))
   if (newRun.ok && ready(invalidNew, newRun.stderr)) {
     const output = join(invalidNew.cwd, 'output')
     named('品牌校准：非法新建在建目录、预留和请求前退出2',
@@ -4173,7 +5214,7 @@ group('brand-calibration-entry', [], () => {
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const f = taskInput(`brand-invalid-${mode}`, bad), before = original(f)
     const r = runBoth(`品牌校准非法${mode}续跑`, [S('collect.ts'), '--resume', f.taskDir, ...extra],
-      f.cwd, { status: 2, soft: [0, 1, 3] }, observed(f))
+      f.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(f))
     if (!r.ok || !ready(f, r.stderr)) continue
     const stopped = r.status === 2 && noReserveOrFetch(f) && unchanged(f, before)
     const detail = `${mode}：退出=${r.status}，预留=${fetchAttempts(f.reserves).length}，请求=${fetchAttempts(f.log).length}`
@@ -4192,7 +5233,7 @@ group('brand-calibration-entry', [], () => {
     const outputFiles = ['enrichment.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
       .map(name => join(f.taskDir, name))
     const r = runBoth(`品牌校准非法 ${entry}`, [S(`${entry}.ts`), '--dir', f.taskDir], f.cwd,
-      { status: 2, soft: [0, 1, 3] }, observed(f))
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(f))
     if (!r.ok || !ready(f, r.stderr)) continue
     const stopped = r.status === 2 && noReserveOrFetch(f) && unchanged(f, before)
       && outputFiles.every(path => !existsSync(path)) && !existsSync(join(f.cwd, 'memory', 'creators.json'))
@@ -4223,7 +5264,7 @@ group('brand-calibration-entry', [], () => {
     .concat(dualMemory)
   const dualBefore = dualFiles.map(file => existsSync(file) ? readFileSync(file) : undefined)
   const dualRun = runBoth('品牌校准与任务列表同时非法 render', [S('render.ts'), '--dir', dual.taskDir],
-    dual.cwd, { status: 2, soft: [0, 1, 3] }, observed(dual))
+    dual.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(dual))
   if (dualRun.ok && ready(dual, dualRun.stderr)) {
     const matches = [...dualRun.stderr.matchAll(/任务\s*(\d+)(?!\d)|第\s*(\d+)\s*个/g)]
     const parts = matches.map((match, i) => ({ task: Number(match[1] ?? match[2]),
@@ -4249,7 +5290,7 @@ group('brand-calibration-entry', [], () => {
   const budgetEnrichBefore = original(budgetEnrich)
   const budgetEnrichRun = runBoth('品牌校准非法 enrich 改额',
     [S('enrich.ts'), '--dir', budgetEnrich.taskDir, '--budget', '2'], budgetEnrich.cwd,
-    { status: 2, soft: [0, 1, 3] }, observed(budgetEnrich))
+    { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(budgetEnrich))
   if (budgetEnrichRun.ok && ready(budgetEnrich, budgetEnrichRun.stderr)) {
     const outputFiles = ['enrichment.json', 'kol.csv', 'kol.xlsx', 'meta.json', 'report.html']
       .map(name => join(budgetEnrich.taskDir, name))
@@ -4280,7 +5321,7 @@ const createTaskListFixture = () => {
   process.on('exit', () => rmSync(base, { recursive: true, force: true }))
   // 零 fetch 不能证明此前没有进程内预留。只包裹公共 reserve 方法记录调用，原样委托，
   // 不读其函数体、不改变返回/抛错；合法入口也用同一观测作对照，防止挂错模块空报绿。
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const fixtureImport = (cwd: string) => fixtureLoader(S('collect.ts'), env, cwd)
   const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
   type Problem = { task?: number; field?: string; value?: unknown }
   type Scenario = { id: string; tasks?: unknown; problems: Problem[]; good?: number[]; routes?: number[] }
@@ -4364,7 +5405,7 @@ const createTaskListFixture = () => {
       `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
     ].join('\n'))
     const observation = costEnv(log, { FAKE_FETCH_COST_EVENTS: events,
-      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport(cwd))} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
     })
     const args = resume ? [S('collect.ts'), '--resume', taskDir,
       ...(mode === 'resume-budget' ? ['--budget', '0.02'] : [])]
@@ -4400,7 +5441,7 @@ const createTaskListFixture = () => {
   const observe = (mode: Mode, scenario: Scenario) => {
     const f = make(mode, scenario)
     const r = runBoth(`任务列表 ${mode}：${scenario.id}`, f.args, f.cwd,
-      { status: 2, soft: [0, 1, 3] }, f.observation)
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, f.observation)
     if (!r.ok || !observerReady(f.armed, r.stderr)) return undefined
     const requests = fetchAttempts(f.log), events = fetchAttempts(f.events)
     const reserveCalls = fetchAttempts(f.reserves)
@@ -4493,7 +5534,7 @@ group('task-list-good', [], () => {
     writeFileSync(f.file, JSON.stringify(config, null, 2) + '\n')
     const before = fileText(f.file)
     const r = runBoth('任务列表 resume：合法任务与 done:null 旧断点', f.args, f.cwd,
-      { status: 2, soft: [0, 1, 3] }, f.observation)
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, f.observation)
     if (r.ok && observerReady(f.armed, r.stderr)) {
       named('任务列表：合法任务续跑遇到 done:null 仍退出2、零请求且文件不变',
         r.status === 2 && fetchAttempts(f.log).length === 0 && fetchAttempts(f.events).length === 0
@@ -4520,15 +5561,17 @@ group('task-list-good', [], () => {
     if (mode === 'resume' || mode === 'resume-budget') Object.assign(config, knownCosts(1_000_000, []))
     writeFileSync(f.file, JSON.stringify(config))
     const args = mode === 'resume-budget' ? [...f.args.slice(0, -1), '2'] : f.args
+    // collect 首页就够数，以达标收尾（退出码 4，ADR-193）；probe 跑完为 0
+    const want = mode === 'probe' ? 0 : 4
     const r = runBoth(`任务列表 ${mode}：合法非空列表`, args, f.cwd,
-      { status: 0, soft: [1, 2, 3] }, f.observation)
+      { status: want, soft: [0, 1, 2, 3, 4, 5, 6, 7].filter(s => s !== want) }, f.observation)
     if (!r.ok || !observerReady(f.armed, r.stderr)) continue
     const requests = fetchAttempts(f.log)
-    const searched = r.status === 0 && [TT_SEARCH, IG_REELS, '/api/v1/instagram/v2/fetch_hashtag_posts']
+    const searched = r.status === want && [TT_SEARCH, IG_REELS, '/api/v1/instagram/v2/fetch_hashtag_posts']
       .every(endpoint => requests.includes(`200\t${endpoint}`))
     const detail = `${mode}，退出码 ${r.status}、请求 ${JSON.stringify(requests)}，stderr=${stderrTail(r.stderr)}`
     named('任务列表：合法入口的预算预留观测确实记录调用',
-      r.status === 0 && fetchAttempts(f.reserves).includes('reserve'), detail)
+      r.status === want && fetchAttempts(f.reserves).includes('reserve'), detail)
     if (mode === 'probe') {
       const rows = summaryOf(r.stdout).results
       named('任务列表：probe 合法非空列表照常搜索，重复任务及原关键词保留',
@@ -4561,7 +5604,7 @@ group('task-list', ['task-list-collect-invalid', 'task-list-probe-invalid', 'tas
 // 其余由旧组名读（needs 边都在）
 let writebackHeld = false, renderKeptLegal = false, renderControlOk = false
 let collectDup = 0, renderDup = 0, d27MainDone = false, d27MixedRan = 0, d27BothRan = 0
-const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+const fixtureImport = (cwd: string) => fixtureLoader(S('collect.ts'), env, cwd)
 const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
 
 group('resume-progress-collect-control', [], () => {
@@ -4581,8 +5624,8 @@ group('resume-progress-collect-control', [], () => {
     `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
   ].join('\n'))
   const r = runBoth('恢复进度阳性对照：进度合规的 collect 续跑照常预留并请求', [S('collect.ts'), '--resume', f.taskDir], f.cwd,
-    { status: 0, soft: [1, 2, 3] }, costEnv(f.log, {
-      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+    { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(f.log, {
+      NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport(f.cwd))} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
     }))
   if (r.ok && (r.status !== 0 || !fetchAttempts(armed).includes('armed') || fetchAttempts(reserves).length === 0 || fetchAttempts(f.log).length === 0)) {
     failed++; console.error(`  ✗ 恢复进度阳性对照${SELFCHECK_FIXTURE_MARK}：进度合规的 collect 续跑没有照常预留并请求，exit=${r.status}，`
@@ -4640,8 +5683,8 @@ group('resume-progress-collect-bad', ['resume-progress-collect-control'], () => 
     ].join('\n'))
     const r = runBoth(`恢复坏进度 ${id}/${change}`, [S('collect.ts'), '--resume', f.taskDir,
       ...(change ? ['--budget', '2'] : [])], f.cwd,
-      { status: 2, soft: [0, 1, 3] }, costEnv(f.log, {
-        NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(f.log, {
+        NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport(f.cwd))} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
       }))
     if (!r.ok || !fetchAttempts(armed).includes('armed')) {
       failed++
@@ -4670,7 +5713,7 @@ group('resume-progress-collect-bad', ['resume-progress-collect-control'], () => 
   for (const field of ['offsets', 'answered', 'found', 'pages']) delete original[field]
   writeFileSync(good.task, JSON.stringify(original))
   const r = runBoth('恢复进度：旧目录缺四张整表仍可续跑', [S('collect.ts'), '--resume', good.taskDir],
-    good.cwd, { status: 0, soft: [1, 2, 3] }, costEnv(good.log))
+    good.cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(good.log))
   if (r.ok) {
     named('恢复进度：旧目录缺表照常收尾且不回填四张表',
       r.status === 0 && ['offsets', 'answered', 'found', 'pages']
@@ -4711,7 +5754,7 @@ group('resume-progress-writeback', ['resume-progress-collect-control'], () => {
     const text = fileText(f.task)
     if (!text.includes(from) || (bare && text.includes('"budget_usd"'))) { failed++; console.error(`  ✗ 续跑进度写回测试输入${SELFCHECK_FIXTURE_MARK}：${writer}/${id}`); continue }
     writeFileSync(f.task, text.replace(from, raw))
-    const w = runBoth(`续跑进度写回 ${writer}/${id}`, argv(f.taskDir), f.cwd, { status: 0, soft: [1, 2, 3] },
+    const w = runBoth(`续跑进度写回 ${writer}/${id}`, argv(f.taskDir), f.cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] },
       costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (!w.ok) continue
     if (w.status !== 0 || jsonFile(f.task)?.updated_at === '2026-01-01T00:00:00.000Z') { failed++
@@ -4720,7 +5763,7 @@ group('resume-progress-writeback', ['resume-progress-collect-control'], () => {
     // 阳性对照：改额确实把根预算写上盘，按字节找 "budget_usd" 认得出写回方补上的根预算
     if (bare && writer === 'enrich-budget' && !before.includes('"budget_usd"')) { failed++; console.error(`  ✗ 续跑进度写回根预算观测${SELFCHECK_FIXTURE_MARK}：${writer}/${id} 改额写回后盘上找不到 "budget_usd"`) }
     const armed = join(f.cwd, 'armed.txt'), ledger = join(f.cwd, 'resume.tsv')
-    const c = runBoth(`续跑进度写回后续跑 ${writer}/${id}`, [S('collect.ts'), '--resume', f.taskDir], f.cwd, { status: 2, soft: [0, 1, 3] },
+    const c = runBoth(`续跑进度写回后续跑 ${writer}/${id}`, [S('collect.ts'), '--resume', f.taskDir], f.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] },
       costEnv(ledger, { KEPT_PROGRESS_ARMED: armed, NODE_OPTIONS: `${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(armedJs).href)}` }))
     if (!c.ok) continue
     if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ 续跑进度写回请求观测${SELFCHECK_FIXTURE_MARK}：${writer}/${id}`); continue }
@@ -4785,7 +5828,7 @@ group('resume-progress-render-control', [], () => {
   const control = costFixture('render-progress-control', knownCosts(1_000_000, []), {}, [costPerson()])
   seed(control)
   const c = runBoth('render 坏进度阳性对照：同样的哨兵与记忆、进度合规', [S('render.ts'), '--dir', control.taskDir], control.cwd,
-    { status: 0, soft: [1, 2, 3] }, costEnv(control.log, { TIKHUB_API_KEY: undefined }))
+    { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(control.log, { TIKHUB_API_KEY: undefined }))
   if (c.ok && (c.status !== 0 || !existsSync(join(control.taskDir, 'kol.csv')))) {
     failed++; console.error(`  ✗ render 坏进度阳性对照${SELFCHECK_FIXTURE_MARK}：合规进度没有以 0 结束并生成 kol.csv，exit=${c.status}，stderr=${stderrTail(c.stderr)}`)
   }
@@ -4804,7 +5847,7 @@ group('resume-progress-render-reject', ['resume-progress-render-control'], () =>
     seed(f)
     const before = [snapshot(f.taskDir), snapshot(join(f.cwd, 'memory'))]
     const r = runBoth(`render 坏进度 ${id}`, [S('render.ts'), '--dir', f.taskDir], f.cwd,
-      { status: 2, soft: [0, 1, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (!r.ok) continue
     const same = snapshot(f.taskDir) === before[0] && snapshot(join(f.cwd, 'memory')) === before[1]
     const leak = probeInputLeak(r.stderr), message = r.stderr.replaceAll(f.task, '[任务文件]')
@@ -4840,7 +5883,7 @@ group('resume-progress-render-accept', [], () => {
     if (text === undefined) { failed++; console.error(`  ✗ render 合规进度测试输入${SELFCHECK_FIXTURE_MARK}：${id}`); continue }
     writeFileSync(f.task, text)
     const r = runBoth(`render 合规进度 ${id}`, [S('render.ts'), '--dir', f.taskDir], f.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+      { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (!r.ok) continue
     const after = fileText(f.task), meta = jsonFile(join(f.taskDir, 'meta.json')), saved = jsonFile(f.task)
     const tokens = kept.map(([table, key]) => rootToken(after, key, [table]) ?? '缺席')
@@ -4901,7 +5944,7 @@ group('resume-progress-dup-collect', [], () => {
       `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
     ].join('\n'))
     const r = runBoth(`重复进度键 collect ${name}`, [S('collect.ts'), '--resume', f.taskDir, ...extra], f.cwd, expect, costEnv(f.log, {
-      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport(f.cwd))} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
     }))
     if (!r.ok) return undefined
     if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ 重复进度键预留观测${SELFCHECK_FIXTURE_MARK}：预算预留观测未安装，${name}`); return undefined }
@@ -4909,12 +5952,12 @@ group('resume-progress-dup-collect', [], () => {
   }
   const collectLeaked: string[] = [], collectHidden: string[] = []
   for (const [id, from, dup, last, field, tokens] of dupCases) {
-    const lastOnly = dupCollect(`${id}-control`, from, last, [], { status: 0, soft: [1, 2, 3] })
+    const lastOnly = dupCollect(`${id}-control`, from, last, [], { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
     if (!lastOnly) continue
     if (lastOnly.reserves === 0 || lastOnly.attempts === 0) { failed++
       console.error(`  ✗ 重复进度键 collect 阳性对照${SELFCHECK_FIXTURE_MARK}：${id} 只留最后一处时没有照常预留并请求，exit=${lastOnly.r.status}，reserves=${lastOnly.reserves}，attempts=${lastOnly.attempts}，stderr=${stderrTail(lastOnly.r.stderr)}`); continue }
     for (const change of [false, true]) {
-      const got = dupCollect(`${id}-${change ? 'budget' : 'resume'}`, from, dup, change ? ['--budget', '2'] : [], { status: 2, soft: [0, 1, 3] })
+      const got = dupCollect(`${id}-${change ? 'budget' : 'resume'}`, from, dup, change ? ['--budget', '2'] : [], { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
       if (!got) continue
       const { f, r, before, same, reserves, attempts } = got
       const at = `${id}/${change ? '--budget 2' : '--resume'}：exit=${r.status}，fileSame=${fileText(f.task) === before}，目录原样=${same}，reserves=${reserves}，attempts=${attempts}，stderr=${stderrTail(r.stderr)}`
@@ -4940,13 +5983,13 @@ group('resume-progress-dup-render', ['resume-progress-render-control'], () => {
     const lastOnly = fixture(`${id}-control`, last), f = fixture(id, dup)
     if (!lastOnly || !f) { failed++; console.error(`  ✗ render 重复进度键测试输入${SELFCHECK_FIXTURE_MARK}：${id} 的夹具里找不到 ${from}`); continue }
     const plain = runBoth(`render 重复进度键阳性对照 ${id}`, [S('render.ts'), '--dir', lastOnly.taskDir], lastOnly.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(lastOnly.log, { TIKHUB_API_KEY: undefined }))
+      { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(lastOnly.log, { TIKHUB_API_KEY: undefined }))
     if (!plain.ok) continue
     if (plain.status !== 0 || !existsSync(join(lastOnly.taskDir, 'kol.csv'))) { failed++
       console.error(`  ✗ render 重复进度键阳性对照${SELFCHECK_FIXTURE_MARK}：${id} 只留最后一处时没有以 0 结束并生成 kol.csv，exit=${plain.status}，stderr=${stderrTail(plain.stderr)}`); continue }
     const before = [snapshot(f.taskDir), snapshot(join(f.cwd, 'memory'))]
     const r = runBoth(`render 重复进度键 ${id}`, [S('render.ts'), '--dir', f.taskDir], f.cwd,
-      { status: 2, soft: [0, 1, 3] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
+      { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, costEnv(f.log, { TIKHUB_API_KEY: undefined }))
     if (!r.ok) continue
     const same = snapshot(f.taskDir) === before[0] && snapshot(join(f.cwd, 'memory')) === before[1]
     const created = ['kol.csv', 'kol.xlsx'].filter(name => existsSync(join(f.taskDir, name)))
@@ -4988,7 +6031,7 @@ group('resume-progress-dup-enrich', [], () => {
       `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
     ].join('\n'))
     const r = runBoth(`重复进度键 enrich ${name}`, [S('enrich.ts'), '--dir', f.taskDir, ...extra], f.cwd, expect, costEnv(f.log, {
-      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+      NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport(f.cwd))} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
     }))
     if (!r.ok) return undefined
     if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ enrich 重复进度键预留观测${SELFCHECK_FIXTURE_MARK}：预算预留观测未安装，${name}`); return undefined }
@@ -5000,11 +6043,11 @@ group('resume-progress-dup-enrich', [], () => {
   const enrichLeaked: string[] = [], enrichHidden: string[] = []
   let enrichDupRan = 0
   for (const [i, [id, from, dup, last, field, tokens]] of dupCases.entries()) for (const [mode, extra] of enrichModes) {
-    const lastOnly = enrichDup(`k${i}-${mode}-control`, [[from, last]], {}, [...extra], { status: 0, soft: [1, 2, 3] })
+    const lastOnly = enrichDup(`k${i}-${mode}-control`, [[from, last]], {}, [...extra], { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
     if (!lastOnly) continue
     if (lastOnly.r.status !== 0 || lastOnly.reserves === 0 || lastOnly.attempts === 0 || lastOnly.after === lastOnly.before || !lastOnly.refreshed) { failed++
       console.error(`  ✗ enrich 重复进度键阳性对照${SELFCHECK_FIXTURE_MARK}：${id}/${mode} 只留最后一处时没有照常预留、请求并写回 task.json，exit=${lastOnly.r.status}，reserves=${lastOnly.reserves}，attempts=${lastOnly.attempts}，写回=${lastOnly.after !== lastOnly.before}，stderr=${stderrTail(lastOnly.r.stderr)}`); continue }
-    const got = enrichDup(`k${i}-${mode}`, [[from, dup]], {}, [...extra], { status: 2, soft: [0, 1, 3] })
+    const got = enrichDup(`k${i}-${mode}`, [[from, dup]], {}, [...extra], { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
     if (!got) continue
     const { f, r, before, after, same, reserves, attempts } = got
     const at = `${id}/${mode}：exit=${r.status}，fileSame=${after === before}，目录原样=${same}，reserves=${reserves}，attempts=${attempts}，stderr=${stderrTail(r.stderr)}`
@@ -5024,7 +6067,7 @@ group('resume-progress-dup-enrich', [], () => {
     const got = enrichDup(`mixed-${mode}`, [[mixedFrom, mixedDup]], {
       tasks: [{ keyword: ' ', dimension: 'Category', platform: 'TikTok' }],
       brand_calibration: { version: ' ', target_creator_types: [], tone_aesthetic: [], natural_scenarios: [], negative_signals: [], sources: [] },
-    }, [...extra], { status: 2, soft: [0, 1, 3] })
+    }, [...extra], { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
     if (!got) continue
     const { f, r } = got
     const message = r.stderr.replaceAll(f.task, '[任务文件]').replaceAll(f.cwd, '[目录]')
@@ -5037,7 +6080,7 @@ group('resume-progress-dup-enrich', [], () => {
   if (enrichMixedRan > 0) named('重复进度键：enrich 见进度键重复且任务列表与品牌输入也不合规时退出2，stderr 三类问题都写出，重复键按文件先后写出每一处原文', !mixedLost.length, mixedLost.join('；'))
 
   // D19.m 末句：enrich 只判重复、不按 D19.a–b 判进度的值。没有重复而溢出的 found 照常预留、请求、以 0 结束，并照 D19.g 原文写回
-  const alone = enrichDup('alone', [['"found":{"0":3}', '"found":{"0":1e400}']], {}, [], { status: 0, soft: [1, 2, 3] })
+  const alone = enrichDup('alone', [['"found":{"0":3}', '"found":{"0":1e400}']], {}, [], { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
   if (alone) {
     const saved = rootToken(alone.after, '0', ['found']) ?? '缺席'
     named('重复进度键：enrich 不因此判进度的值，没有重复的坏进度（found 溢出）照常预留、请求并以0结束，写回后原文逐字不变',
@@ -5049,12 +6092,12 @@ group('resume-progress-dup-enrich', [], () => {
   // 只有 D19.k 拦着。阳性对照是同一份只留最后一处：enrich 照常预留、请求并写回（上一条断言里不判值的那一半）；
   // 前一处 6.25e1 读入后不留痕迹，stderr 里找得到它才是「每一处的原文」。只跑普通模式：改额那一支走同一个判定，上面已各跑过
   const nonIndexFrom = '"found":{"0":3}'
-  const nonIndexControl = enrichDup('k9-control', [[nonIndexFrom, '"found":{"0":3,"zq":5}']], {}, [], { status: 0, soft: [1, 2, 3] })
+  const nonIndexControl = enrichDup('k9-control', [[nonIndexFrom, '"found":{"0":3,"zq":5}']], {}, [], { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
   let nonIndexRan = false
   if (nonIndexControl && (nonIndexControl.r.status !== 0 || nonIndexControl.reserves === 0 || nonIndexControl.attempts === 0 || nonIndexControl.after === nonIndexControl.before)) { failed++
     console.error(`  ✗ enrich 重复进度键阳性对照${SELFCHECK_FIXTURE_MARK}：表里非任务索引的键只留最后一处时没有照常预留、请求并写回 task.json，exit=${nonIndexControl.r.status}，reserves=${nonIndexControl.reserves}，attempts=${nonIndexControl.attempts}，stderr=${stderrTail(nonIndexControl.r.stderr)}`) }
   else if (nonIndexControl) {
-    const got = enrichDup('k9', [[nonIndexFrom, '"found":{"0":3,"zq":6.25e1,"zq":5}']], {}, [], { status: 2, soft: [0, 1, 3] })
+    const got = enrichDup('k9', [[nonIndexFrom, '"found":{"0":3,"zq":6.25e1,"zq":5}']], {}, [], { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
     if (got) {
       const { f, r, before, after, same, reserves, attempts } = got
       named('重复进度键：enrich 见表里不是任务索引的键写了不止一次同样在预留与请求前退出2，task.json 与任务目录原字节不变，stderr 按文件先后写出每一处原文',
@@ -5093,7 +6136,7 @@ const calDup = (name: string, from: string, to: string, calibration: Record<stri
 }
 
 group('resume-progress-dup-calibration', [], () => {
-  // calDup 依赖的 calSame 由这条 oracle 证（手写规范化串与 SHA256 手推向量）；用到它的 d27-calibration 组另抄一份
+  // calDup 依赖的 calSame 由这条 oracle 证（手写规范化串与 SHA256 手推向量）；用到它的 task-json-duplicate-keys-calibration 组另抄一份
   if (sha256('abc') !== 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
     || JSON.stringify(Object.fromEntries(Object.entries(calContent).sort(([a], [b]) => a < b ? -1 : 1))) !== calCanonical) {
     failed++; console.error(`  ✗ calibration version 重复进度键内容哈希 oracle${SELFCHECK_FIXTURE_MARK}：手写规范化串或 SHA256 与手推向量不符`); return
@@ -5102,19 +6145,19 @@ group('resume-progress-dup-calibration', [], () => {
   let calRan = 0
   for (const [i, [id, from, dup, last, field, tokens]] of dupCases.entries()) {
     const manualCal = { version: 'kept-v1', ...calContent }
-    const control = calDup(`k${i}-control`, from, last, manualCal, { status: 0, soft: [1, 2, 3] })
+    const control = calDup(`k${i}-control`, from, last, manualCal, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
     if (!control) continue
     if (control.r.status !== 0 || control.out?.status !== 'written' || control.kept || jsonFile(control.f.task)?.updated_at === '2026-01-01T00:00:00.000Z') { failed++
       console.error(`  ✗ calibration version 重复进度键阳性对照${SELFCHECK_FIXTURE_MARK}：${id} 只留最后一处时没有以 0 写入，exit=${control.r.status}，stdout=${JSON.stringify(control.r.stdout)}，stderr=${stderrTail(control.r.stderr)}`); continue }
     // 已一致的对照：同一份只留最后一处、version 是上面独立算出的值，以 0 报 unchanged —— oracle 与被测命令对得上
-    const sameControl = calDup(`k${i}-same-control`, from, last, { version: calSame, ...calContent }, { status: 0, soft: [1, 2, 3] })
+    const sameControl = calDup(`k${i}-same-control`, from, last, { version: calSame, ...calContent }, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
     if (!sameControl) continue
     if (sameControl.r.status !== 0 || sameControl.out?.status !== 'unchanged' || !sameControl.kept) { failed++
       console.error(`  ✗ calibration version 重复进度键已一致对照${SELFCHECK_FIXTURE_MARK}：${id} 只留最后一处、version=${calSame} 时没有以 0 报 unchanged，exit=${sameControl.r.status}，stdout=${JSON.stringify(sameControl.r.stdout)}，stderr=${stderrTail(sameControl.r.stderr)}`); continue }
-    const w = calDup(`k${i}-write`, from, dup, manualCal, { status: 2, soft: [0, 1, 3] })
-    const m = calDup(`k${i}-invalid`, from, dup, { ...manualCal, tone_aesthetic: [7] }, { status: 2, soft: [0, 1, 3] })
-    const a = calDup(`k${i}-absent`, from, dup, undefined, { status: 0, soft: [1, 2, 3] })
-    const u = calDup(`k${i}-same`, from, dup, { version: calSame, ...calContent }, { status: 0, soft: [1, 2, 3] })
+    const w = calDup(`k${i}-write`, from, dup, manualCal, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
+    const m = calDup(`k${i}-invalid`, from, dup, { ...manualCal, tone_aesthetic: [7] }, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
+    const a = calDup(`k${i}-absent`, from, dup, undefined, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
+    const u = calDup(`k${i}-same`, from, dup, { version: calSame, ...calContent }, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
     if (!w || !m || !a || !u) continue
     const said = (got: NonNullable<ReturnType<typeof calDup>>) => `exit=${got.r.status}，原样=${got.kept}，stdout=${JSON.stringify(got.r.stdout)}，stderr=${stderrTail(got.r.stderr)}`
     if (w.r.status !== 2 || !w.kept || w.r.stdout !== '') calWrote.push(`${id}：${said(w)}`)
@@ -5161,7 +6204,7 @@ type D27Entry = 'collect' | 'enrich' | 'render'
 // d27Run 起的夹具目录按组分开：每组拿自己的前缀与计数（ADR-144）。costFixture 撞名会静默复用目录，残留的 armed.txt 会让预留观测像是装上了
 const d27Runner = (prefix: string) => {
   // 起一次入口：collect 的 done 为空（进度合规时一定会去搜）；enrich 与 render 放一个待补的创作者，再放哨兵与记忆（同上面 render 一段的 seed）。
-  // 预留观测与上面 D19.e 一段同一种接法；任务目录与记忆整棵比，原本没有的交付物另看有没有被创建
+  // 预留仍包装同树 Budget.reserve，完整环境交给既有受控观察器接线；任务与记忆整棵比，原本没有的交付物另看有没有被创建
   let d27Made = 0
   const d27Run = (entry: D27Entry, edits: [string, string][], extra: readonly string[], expect: { status: number; soft: number[] },
     over: Record<string, unknown> = {}) => {
@@ -5181,16 +6224,17 @@ const d27Runner = (prefix: string) => {
       `import { Budget } from ${JSON.stringify(budgetModule)};`,
       `const original = Budget.prototype.reserve;`,
       `Budget.prototype.reserve = function(...args) {`,
-      `  appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n');`,
+      `  appendFileSync(process.env.BRAND_VERSION_RESERVE_LOG, 'reserve\\n');`,
       `  return Reflect.apply(original, this, args);`,
       `};`,
-      `appendFileSync(${JSON.stringify(armed)}, 'armed\\n');`,
+      `appendFileSync(process.env.BRAND_VERSION_ARMED_LOG, 'armed\\n');`,
     ].join('\n'))
     const args = entry === 'collect' ? [S('collect.ts'), '--resume', f.taskDir] : [S(entry === 'enrich' ? 'enrich.ts' : 'render.ts'), '--dir', f.taskDir]
-    const r = runBoth(`写重复的键 ${name}`, [...args, ...extra], f.cwd, expect, costEnv(f.log, {
+    const observerEnv = brandObserverEnv(args[0]!, f.cwd, { ...env, ...costEnv(f.log, {
       ...(entry === 'render' ? { TIKHUB_API_KEY: undefined } : {}),
-      NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
-    }))
+      BRAND_VERSION_RESERVE_LOG: reserves, BRAND_VERSION_ARMED_LOG: armed,
+    }) }, preload)
+    const r = runBoth(`写重复的键 ${name}`, [...args, ...extra], f.cwd, expect, observerEnv)
     if (!r.ok) return undefined
     if (!fetchAttempts(armed).includes('armed')) { failed++; console.error(`  ✗ 写重复的键预留观测${SELFCHECK_FIXTURE_MARK}：预算预留观测未安装，${name}`); return undefined }
     const after = fileText(f.task)
@@ -5210,7 +6254,7 @@ const d27Modes: [string, D27Entry, string[]][] = [
   ['enrich', 'enrich', []], ['enrich --budget 2', 'enrich', ['--budget', '2']], ['render', 'render', []],
 ]
 
-group('resume-progress-d27-entries', [], () => {
+group('task-json-duplicate-keys-entries', [], () => {
   const d27Run = d27Runner('')
   const d27Controls = new Map<string, boolean>()
   const d27Leaked: Record<D27Entry, string[]> = { collect: [], enrich: [], render: [] }
@@ -5223,14 +6267,14 @@ group('resume-progress-d27-entries', [], () => {
     // 只留最后一处就是夹具原样（from 与 last 相同）的几个用例共用一份对照：文本一样，对照只跑一次
     const key = `${mode}|${from === last ? '' : `${from}→${last}`}`
     if (!d27Controls.has(key)) {
-      const control = d27Run(entry, [[from, last]], extra, { status: 0, soft: [1, 2, 3] })
+      const control = d27Run(entry, [[from, last]], extra, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
       const fine = control !== undefined && d27Normal(entry, control)
       if (control !== undefined && !fine) { failed++
         console.error(`  ✗ 写重复的键阳性对照${SELFCHECK_FIXTURE_MARK}：${mode} 只留最后一处（${id}）时没有照常${entry === 'render' ? '以 0 生成 kol.csv' : '预留并请求'}，${d27Said(control)}`) }
       d27Controls.set(key, fine)
     }
     if (!d27Controls.get(key)) continue
-    const got = d27Run(entry, [[from, dup]], extra, { status: 2, soft: [0, 1, 3] })
+    const got = d27Run(entry, [[from, dup]], extra, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
     if (!got) continue
     const at2 = `${mode}/${id}：${d27Said(got)}`
     const held = got.r.status === 2 && got.after === got.before && got.same && got.reserves === 0 && got.attempts === 0 && got.created.length === 0
@@ -5249,15 +6293,15 @@ group('resume-progress-d27-entries', [], () => {
   d27MainDone = d27Ran === d27Planned
 })
 
-group('resume-progress-d27-mixed', ['resume-progress-d27-entries'], () => {
+group('task-json-duplicate-keys-mixed', ['task-json-duplicate-keys-entries'], () => {
   const d27Run = d27Runner('mixed-')
-  // 指向 d27-entries 的边不为读它的结果：下面的判定含零预留、零请求，以主循环里各入口的阳性对照先跑过为前提（ADR-131；ADR-144 复核发现 2）
+  // 指向 task-json-duplicate-keys-entries 的边不为读它的结果：下面的判定含零预留、零请求，以主循环里各入口的阳性对照先跑过为前提（ADR-131；ADR-144 复核发现 2）
   // 「与同文件的任务列表问题一起」（D27.b、ADR-142 第一节第 3 条）：tasks 写了两次、最后那份任务列表不合规 —— 任务列表按最后那份判，
   // 两类问题在同一次拒绝里都写出，不让用户先照最后那份改完任务、再撞上写重复。退出 2 本来就由任务列表的问题满足，所以要的是两类都写出；
   // 任务问题按 D16 的写法认字段名与 JSON 原值
   const d27Mixed: string[] = []
   for (const [mode, entry] of [['collect --resume', 'collect'], ['enrich', 'enrich'], ['render', 'render']] as const) {
-    const got = d27Run(entry, [['"tasks":[', '"tasks":"zq-first-list","tasks":[']], [], { status: 2, soft: [0, 1, 3] },
+    const got = d27Run(entry, [['"tasks":[', '"tasks":"zq-first-list","tasks":[']], [], { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] },
       { tasks: [{ keyword: 'local', dimension: 'Category', platform: 'TikTok' }] })
     if (!got) continue
     const message = got.r.stderr.replaceAll(got.f.task, '[任务文件]').replaceAll(got.f.cwd, '[目录]')
@@ -5270,14 +6314,14 @@ group('resume-progress-d27-mixed', ['resume-progress-d27-entries'], () => {
   if (d27MixedRan > 0) named('写重复的键：tasks 写了两次且最后那份任务列表不合规时，collect、enrich 与 render 退出2，stderr 任务列表问题与 tasks 的每一处都写出', !d27Mixed.length, d27Mixed.join('；'))
 })
 
-group('resume-progress-d27-twice', [], () => {
+group('task-json-duplicate-keys-twice', [], () => {
   const d27Run = d27Runner('twice-')
   // D19.k 那几处照 D19.l、D19.m 报，不重复报（D27.b 末句）：同一份里进度键 found 的 "0" 与 requests 都写了重复。
   // 三个入口两处都写出、各只列一遍 —— 去掉路径的 stderr 里 7.5e1 与 1e400 各恰好一次。collect 与 render 的进度那一道在任务列表那一道之后：
   // 任务列表有效时它照判，其余位置的重复不遮住它（复核发现 2）；坏进度值（D19.h、D19.i）同样不被遮住
   const d27Twice: string[] = []
   for (const [mode, entry] of [['collect --resume', 'collect'], ['enrich', 'enrich'], ['render', 'render']] as const) {
-    const got = d27Run(entry, [['"found":{"0":3}', '"found":{"0":1e400,"0":3.000}'], ['"requests":0', '"requests":7.5e1,"requests":0']], [], { status: 2, soft: [0, 1, 3] })
+    const got = d27Run(entry, [['"found":{"0":3}', '"found":{"0":1e400,"0":3.000}'], ['"requests":0', '"requests":7.5e1,"requests":0']], [], { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
     if (!got) continue
     const message = got.r.stderr.replaceAll(got.f.task, '[任务文件]').replaceAll(got.f.cwd, '[目录]')
     const times = (token: string) => message.split(token).length - 1
@@ -5286,7 +6330,7 @@ group('resume-progress-d27-twice', [], () => {
     if (!fine) d27Twice.push(`${mode}：7.5e1 出现 ${times('7.5e1')} 次，1e400 出现 ${times('1e400')} 次，${d27Said(got)}`)
     d27BothRan++
     if (entry === 'enrich') continue // enrich 不判进度的值（D19.m 末句）
-    const bad = d27Run(entry, [['"found":{"0":3}', '"found":{"0":-9.25e2}'], ['"requests":0', '"requests":7.5e1,"requests":0']], [], { status: 2, soft: [0, 1, 3] })
+    const bad = d27Run(entry, [['"found":{"0":3}', '"found":{"0":-9.25e2}'], ['"requests":0', '"requests":7.5e1,"requests":0']], [], { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
     if (!bad) continue
     const badMessage = bad.r.stderr.replaceAll(bad.f.task, '[任务文件]').replaceAll(bad.f.cwd, '[目录]')
     if (bad.r.status !== 2 || !dupListed(bad.r.stderr, bad.f, 'requests', ['7.5e1']) || !badMessage.includes('-9.25e2'))
@@ -5295,7 +6339,7 @@ group('resume-progress-d27-twice', [], () => {
   if (d27BothRan > 0) named('写重复的键：进度键或坏进度与别处同时出问题时，三个入口都写出每一处，每一处只报一遍、不因两条判据报两遍', !d27Twice.length, d27Twice.join('；'))
 })
 
-group('resume-progress-d27-same-names', [], () => {
+group('task-json-duplicate-keys-same-names', [], () => {
   const d27Run = d27Runner('same-')
   // D27.e：不多拒 —— 两个一模一样的任务（不同对象里的同名键、数组里相同的元素）、费用账两项各有同名键、根上一个装着相同元素的数组，
   // collect 续跑与改额照常预留并请求，enrich 与改额照常预留、请求并写回，render 照常导出，calibration version 照常写入
@@ -5306,14 +6350,14 @@ group('resume-progress-d27-same-names', [], () => {
   const d27Rejected: string[] = []
   let d27NormalRan = 0
   for (const [mode, entry, extra] of d27Modes) {
-    const got = d27Run(entry, [], extra, { status: 0, soft: [1, 2, 3] }, d27SameNames)
+    const got = d27Run(entry, [], extra, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, d27SameNames)
     if (!got) continue
     if (!d27Normal(entry, got)) d27Rejected.push(`${mode}：${d27Said(got)}`)
     d27NormalRan++
   }
   const d27CalNormal = costFixture('d27-calibration-same-names', knownCosts(1_000_000, []), { ...d27SameNames, brand_calibration: { version: 'kept-v1', ...calContent } })
   const d27CalNormalRun = runBoth('写重复的键不多拒 calibration version', [S('calibration.ts'), 'version', '--dir', d27CalNormal.taskDir], d27CalNormal.cwd,
-    { status: 0, soft: [1, 2, 3] }, costEnv(d27CalNormal.log, { TIKHUB_API_KEY: undefined }))
+    { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(d27CalNormal.log, { TIKHUB_API_KEY: undefined }))
   if (d27CalNormalRun.ok) {
     if (d27CalNormalRun.status !== 0 || summaryOf(d27CalNormalRun.stdout)?.status !== 'written')
       d27Rejected.push(`calibration version：exit=${d27CalNormalRun.status}，stdout=${JSON.stringify(d27CalNormalRun.stdout)}，stderr=${stderrTail(d27CalNormalRun.stderr)}`)
@@ -5323,7 +6367,7 @@ group('resume-progress-d27-same-names', [], () => {
   if (d27NormalRan === d27Modes.length + 1) criterion('D27.e')
 })
 
-group('resume-progress-d27-calibration', [], () => {
+group('task-json-duplicate-keys-calibration', [], () => {
   // calSame 的 oracle 照 dup-calibration 组再证一遍：--only 只点这一组时那一组不跑
   if (sha256('abc') !== 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
     || JSON.stringify(Object.fromEntries(Object.entries(calContent).sort(([a], [b]) => a < b ? -1 : 1))) !== calCanonical) {
@@ -5342,8 +6386,8 @@ group('resume-progress-d27-calibration', [], () => {
     const manualCal = { version: 'kept-v1', ...calContent }, sameCal = { version: calSame, ...calContent }
     const key = from === last ? '' : `${from}→${last}`
     if (!d27CalControls.has(key)) {
-      const control = calDup(`d27-${id}-control`, from, last, manualCal, { status: 0, soft: [1, 2, 3] })
-      const same = control && calDup(`d27-${id}-same-control`, from, last, sameCal, { status: 0, soft: [1, 2, 3] })
+      const control = calDup(`d27-${id}-control`, from, last, manualCal, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
+      const same = control && calDup(`d27-${id}-same-control`, from, last, sameCal, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
       const fine = !!control && !!same && control.r.status === 0 && control.out?.status === 'written' && !control.kept
         && jsonFile(control.f.task)?.updated_at !== '2026-01-01T00:00:00.000Z' && same.r.status === 0 && same.out?.status === 'unchanged' && same.kept
       if (control && same && !fine) { failed++
@@ -5352,11 +6396,11 @@ group('resume-progress-d27-calibration', [], () => {
       d27CalControls.set(key, fine)
     }
     if (!d27CalControls.get(key)) continue
-    const w = calDup(`d27-${id}-write`, from, dup, manualCal, { status: 2, soft: [0, 1, 3] })
-    const m = calDup(`d27-${id}-invalid`, from, dup, { ...manualCal, tone_aesthetic: [7] }, { status: 2, soft: [0, 1, 3] })
+    const w = calDup(`d27-${id}-write`, from, dup, manualCal, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
+    const m = calDup(`d27-${id}-invalid`, from, dup, { ...manualCal, tone_aesthetic: [7] }, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] })
     // 缺席时没有 brand_calibration，里面那一处写重复也就无从谈起：brand-inner 只跑 version 已一致的一半
-    const a = id === 'brand-inner' ? null : calDup(`d27-${id}-absent`, from, dup, undefined, { status: 0, soft: [1, 2, 3] })
-    const u = calDup(`d27-${id}-same`, from, dup, sameCal, { status: 0, soft: [1, 2, 3] })
+    const a = id === 'brand-inner' ? null : calDup(`d27-${id}-absent`, from, dup, undefined, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
+    const u = calDup(`d27-${id}-same`, from, dup, sameCal, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] })
     if (!w || !m || a === undefined || !u) continue
     const said = (got: NonNullable<ReturnType<typeof calDup>>) => `exit=${got.r.status}，原样=${got.kept}，stdout=${JSON.stringify(got.r.stdout)}，stderr=${stderrTail(got.r.stderr)}`
     if (w.r.status !== 2 || !w.kept || w.r.stdout !== '') d27CalWrote.push(`${id}：${said(w)}`)
@@ -5382,8 +6426,8 @@ group('resume-progress-d27-calibration', [], () => {
 group('resume-progress', [
   'resume-progress-collect-control', 'resume-progress-collect-bad', 'resume-progress-writeback', 'resume-progress-render-control',
   'resume-progress-render-reject', 'resume-progress-render-accept', 'resume-progress-dup-collect', 'resume-progress-dup-render',
-  'resume-progress-dup-enrich', 'resume-progress-dup-calibration', 'resume-progress-d27-entries', 'resume-progress-d27-mixed',
-  'resume-progress-d27-twice', 'resume-progress-d27-same-names', 'resume-progress-d27-calibration',
+  'resume-progress-dup-enrich', 'resume-progress-dup-calibration', 'task-json-duplicate-keys-entries', 'task-json-duplicate-keys-mixed',
+  'task-json-duplicate-keys-twice', 'task-json-duplicate-keys-same-names', 'task-json-duplicate-keys-calibration',
 ], () => {
   if (writebackHeld && renderKeptLegal) criterion('D19.g')
   if (collectDup === dupCases.length * 2 && renderDup === dupCases.length) criterion('D19.l')
@@ -5391,6 +6435,206 @@ group('resume-progress', [
 })
 
 // ---- D15.j／D15.k／D6.w：IG 话题入口只由配置显式开启，校验在一切请求之前，probe 与 collect 同一处分派 ----
+// Add imports.ts.txt's unique aliases. Public helpers are supplied by selfcheck.
+// Five finite B pairs only: one legal false, then the frozen bad string 'false'.
+type AsHashtagCliMode = 'new' | 'new-budget' | 'resume' | 'resume-budget' | 'probe';
+function asHashtagCliPair(mode: AsHashtagCliMode): { reject: boolean; diagnostic: boolean; why: string } | null {
+  let base = '';
+  let result: { reject: boolean; diagnostic: boolean; why: string } | null = null;
+  const fixtureFailure = (why: unknown) => {
+    failed++;
+    console.error(`  ✗ ${SELFCHECK_FIXTURE_MARK} as_hashtag ${mode}: ${why instanceof Error ? why.message : String(why)}`);
+  };
+  const requireFixture = (ok: unknown, why: string): void => { if (!ok) throw new Error(why); };
+  try {
+    const output = asHashtagCliPath.resolve('output');
+    asHashtagCliFs.mkdirSync(output, { recursive: true });
+    base = asHashtagCliFs.mkdtempSync(asHashtagCliPath.join(output, 'selfcheck-as-hashtag-'));
+    const P = (...parts: string[]) => asHashtagCliPath.join(base, ...parts);
+    const cwd = P('cwd'), log = P('attempts.tsv'), events = P('cost-events.jsonl');
+    const reserves = P('reserves.txt'), armed = P('armed.txt'), preload = P('observe-reserve.mjs');
+    const resume = mode.startsWith('resume'), probe = mode === 'probe';
+    const script = S(probe ? 'probe.ts' : 'collect.ts');
+    const input = asHashtagCliPath.join(cwd, resume ? 'task/task.json' : 'config.json');
+    const write = (path: string, value: unknown) => asHashtagCliFs.writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+    const reset = (value: boolean | string) => {
+      asHashtagCliFs.rmSync(cwd, { recursive: true, force: true });
+      asHashtagCliFs.mkdirSync(asHashtagCliPath.join(cwd, 'memory'), { recursive: true });
+      write(asHashtagCliPath.join(cwd, 'memory/creators.json'), { version: 1, updated_at: '2026-01-01T00:00:00.000Z', creators: {} });
+      const tasks = [{ keyword: 'local', dimension: 'category', platform: 'tiktok', as_hashtag: value }];
+      const common = { product: 'admission-local', market: 'US', target_count: 9999, budget_usd: 1, tasks };
+      if (resume) {
+        asHashtagCliFs.mkdirSync(asHashtagCliPath.join(cwd, 'task'));
+        write(input, { ...common, done: [], offsets: {}, pages: {}, answered: {}, found: {},
+          created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', requests: 0,
+          cost_ledger: { schema: 1, currency: 'USD', unit: 'micro_usd', scope: 'task', limit_micro_usd: 1000000, next_attempt_id: 1, entries: [] } });
+        write(asHashtagCliPath.join(cwd, 'task/creators.json'), []);
+        write(asHashtagCliPath.join(cwd, 'task/creators.raw.json'), []);
+      } else write(input, probe ? { market: 'US', budget_usd: 1, tasks } : common);
+      for (const file of [log, events, reserves, armed]) asHashtagCliFs.writeFileSync(file, '');
+    };
+    // The provided existing wrapper, with only its three JSON literal slots filled.
+    asHashtagCliFs.writeFileSync(preload, `import { appendFileSync } from 'node:fs';
+import { Budget } from ${JSON.stringify(asHashtagCliUrl.pathToFileURL(S('lib/budget.ts')).href)};
+const original = Budget.prototype.reserve;
+Budget.prototype.reserve = function(...args) {
+  appendFileSync(${JSON.stringify(reserves)}, 'reserve\\n');
+  return Reflect.apply(original, this, args);
+};
+appendFileSync(${JSON.stringify(armed)}, 'armed\\n');\n`);
+    reset(false);
+    const initialExtra = costEnv(log, { TIKHUB_API_KEY: 'admission-dummy', FAKE_FETCH_NO_429: '1', FAKE_FETCH_COST_EVENTS: events });
+    const loader = fixtureLoader(script, { ...env, ...initialExtra }, cwd);
+    const urls = [loader, asHashtagCliUrl.pathToFileURL(S('check/fake-fetch.ts')).href, asHashtagCliUrl.pathToFileURL(preload).href];
+    requireFixture(urls.every(url => typeof url === 'string' && !/[\s"'\\]/.test(url)), 'invalid existing preload URL');
+    const extra = { ...initialExtra, NODE_OPTIONS: urls.map(url => `--import=${url}`).join(' ') };
+    const kidEnv = { ...env, ...extra };
+    const args = [script, resume ? '--resume' : '--config', resume ? asHashtagCliPath.join(cwd, 'task') : input,
+      ...(mode.endsWith('-budget') ? ['--budget', '2'] : [])];
+    // Exact code byte identity is stronger than a digest. JSON inputs are excluded.
+    // Never print this identity: it is used only to compare the same fixed point.
+    const codeIdentity = () => {
+      const command = prebuiltCommand(args, cwd, kidEnv);
+      const candidates = [script, S('lib/budget.ts'), S('check/prebuilt.ts'), S('check/fake-fetch.ts'), preload, loader, ...command[1]];
+      const code: [string, string][] = [];
+      for (let path of candidates) {
+        try {
+          if (path.startsWith('--import=')) path = path.slice('--import='.length);
+          if (path.startsWith('file:')) path = asHashtagCliUrl.fileURLToPath(path);
+          if (asHashtagCliPath.isAbsolute(path) && /\.(?:[cm]?[jt]s|[jt]sx)$/.test(path) && asHashtagCliFs.statSync(path).isFile()) {
+            code.push([path, asHashtagCliFs.readFileSync(path).toString('base64')]);
+          }
+        } catch { /* An argument need not be an independently addressable code file. */ }
+      }
+      requireFixture(code.some(([path]) => path === script) && code.some(([path]) => path === preload), 'missing entry/observer code identity');
+      return JSON.stringify({ command, loader, cwd, kidEnv, code });
+    };
+    const observe = () => {
+      const read = (file: string) => { requireFixture(asHashtagCliFs.existsSync(file), `missing observation file ${file}`); return asHashtagCliFs.readFileSync(file, 'utf8'); };
+      const armedText = read(armed), reserveText = read(reserves), attemptText = read(log), eventText = read(events);
+      requireFixture(/^(?:armed\n)+$/.test(armedText), 'need one or more valid armed lines');
+      requireFixture(/^(?:reserve\n)*$/.test(reserveText), 'invalid reserve text records');
+      requireFixture(!attemptText || attemptText.endsWith('\n'), 'incomplete fake HTTP text');
+      const attempts = attemptText.split('\n').filter(Boolean);
+      requireFixture(attempts.every(line => /^[^\t\n]+\t\/[^\n]*$/.test(line)), 'invalid fake HTTP text record');
+      requireFixture(!eventText || eventText.endsWith('\n'), 'incomplete fake-fetch JSONL');
+      const parsed = eventText.split('\n').filter(Boolean).map(line => JSON.parse(line) as { kind?: string });
+      requireFixture(parsed.every(event => ['fetch', 'http', 'no-http-status', 'body'].includes(event.kind ?? '')), 'invalid fake-fetch event');
+      return { reserve: reserveText.split('\n').filter(Boolean).length, attempts: attempts.length,
+        fetch: parsed.filter(event => event.kind === 'fetch').length, http: parsed.filter(event => event.kind === 'http').length,
+        noStatus: parsed.filter(event => event.kind === 'no-http-status').length };
+    };
+    const tree = () => {
+      const dirs: string[] = [], tasks: string[] = [];
+      const walk = (path: string, prefix: string) => {
+        for (const item of asHashtagCliFs.readdirSync(path, { withFileTypes: true })) {
+          const rel = prefix ? `${prefix}/${item.name}` : item.name;
+          if (item.isDirectory()) { dirs.push(rel); walk(asHashtagCliPath.join(path, item.name), rel); }
+          else if (item.isFile() && item.name === 'task.json') tasks.push(prefix || '.');
+        }
+      };
+      walk(cwd, '');
+      return { dirs, tasks };
+    };
+    const newTasks = (before: ReturnType<typeof tree>, after: ReturnType<typeof tree>, parents: string[]) =>
+      [...new Set([...after.tasks.filter(path => !before.tasks.includes(path)), ...after.dirs.filter(path =>
+        !before.dirs.includes(path) && parents.some(parent => path.startsWith(`${parent}/`) && !path.slice(parent.length + 1).includes('/')))])];
+    const identity = codeIdentity(), legalBefore = tree();
+    const legal = runBoth(`as_hashtag fixture legal ${mode}`, args, cwd, probe ? { status: 0 } : { status: 0, soft: [3] }, extra);
+    requireFixture(legal.ok && (probe ? legal.status === 0 : [0, 3].includes(legal.status ?? -1)), 'legal CLI did not finish by an admissible exit');
+    requireFixture(codeIdentity() === identity, 'legal actual factory/loader/code point changed');
+    const positive = observe(), created = newTasks(legalBefore, tree(), ['output']);
+    requireFixture(positive.reserve > 0 && positive.attempts > 0 && positive.fetch > 0 && positive.http > 0, 'legal actual CLI did not touch reserve and fake HTTP');
+    requireFixture(!mode.startsWith('new') || created.length > 0, 'legal new collect did not create an observable task directory');
+    const parents = [...new Set(created.map(path => asHashtagCliPath.dirname(path).split(asHashtagCliPath.sep).join('/')))];
+    if (!parents.length) parents.push('output');
+    reset('false');
+    requireFixture(codeIdentity() === identity, 'bad input changed code/loader/argv/env point');
+    const badBefore = tree();
+    const bad = runBoth(`as_hashtag fixture bad-string ${mode}`, args, cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, extra);
+    requireFixture(bad.ok, 'bad fixture failed to start or terminated by signal');
+    requireFixture(codeIdentity() === identity, 'bad actual factory/loader/code point changed');
+    const negative = observe(), after = tree();
+    const persisted = JSON.parse(asHashtagCliFs.readFileSync(input, 'utf8')) as { tasks?: unknown };
+    requireFixture(Array.isArray(persisted.tasks) && persisted.tasks.length === 1 && persisted.tasks[0] &&
+      typeof persisted.tasks[0] === 'object' && !Array.isArray(persisted.tasks[0]), 'review-required: input task shape changed');
+    const raw = (persisted.tasks as Record<string, unknown>[])[0];
+    // Same finite v3 JSON token reader, specialized only to the frozen string.
+    const diagnostic = (() => {
+      if (!bad.stderr.includes('as_hashtag')) return false;
+      const lines = bad.stderr.split(/\r?\n/).filter(line => line.includes('as_hashtag'));
+      if (lines.length !== 1) return null;
+      const number = String.raw`(\d+|[一二三四五六七八九十]+)`;
+      const patterns = [new RegExp(String.raw`第\s*${number}\s*(?:个|项|号)?\s*任务`, 'gu'),
+        new RegExp(String.raw`(?:任务|tasks?)\s*(?:编号|序号|#|第)?\s*[:：]?\s*\[?\s*${number}\s*\]?`, 'giu'),
+        new RegExp(String.raw`\[\s*${number}\s*\]\s*[.:：-]?\s*(?=as_hashtag)`, 'gu'), new RegExp(String.raw`#\s*${number}\s*[.:：-]?\s*(?=as_hashtag)`, 'gu')];
+      const chinese: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+      const mentions = patterns.flatMap(pattern => Array.from(lines[0].matchAll(pattern), match => ({
+        n: /^\d+$/.test(match[1]) ? Number(match[1]) : chinese[match[1]], start: match.index!, end: match.index! + match[0].length })));
+      if (!mentions.length || mentions.some(item => item.n !== 1)) return null;
+      const text = lines[0].split('').map((char, index) => mentions.some(item => index >= item.start && index < item.end) ? ' ' : char).join('');
+      for (let start = 0; start < text.length; start++) {
+        if (!/[\[\{"\-0-9ntf]/.test(text[start])) continue;
+        let longest: { value: unknown; end: number } | undefined;
+        for (let end = start + 1; end <= text.length; end++) {
+          try {
+            const value: unknown = JSON.parse(text.slice(start, end));
+            if (typeof value === 'number' || value === null || typeof value === 'boolean') {
+              const adjacent = /[A-Za-z0-9_.+\-]/;
+              if ((start && adjacent.test(text[start - 1])) || (end < text.length && adjacent.test(text[end]))) continue;
+            }
+            longest = { value, end };
+          } catch { /* Prose or incomplete JSON. */ }
+        }
+        if (longest) { if (longest.value === 'false') return true; start = longest.end - 1; }
+      }
+      return null;
+    })();
+    requireFixture(diagnostic !== null, 'review-required: diagnostic presentation not recognized; no sentence requirement');
+    const badDirs = newTasks(badBefore, after, parents);
+    const rawPreserved = Object.hasOwn(raw, 'as_hashtag') && raw.as_hashtag === 'false';
+    result = { reject: bad.status === 2 && negative.reserve === 0 && negative.attempts === 0 && negative.fetch === 0 &&
+      negative.http === 0 && negative.noStatus === 0 && badDirs.length === 0 && rawPreserved, diagnostic: diagnostic === true,
+      why: `status=${bad.status}; reserve=${negative.reserve}; HTTP=${negative.attempts}; fetch=${negative.fetch}; newDirs=${badDirs.length}; rawPreserved=${rawPreserved}; diagnostic=${diagnostic}; legal reserve=${positive.reserve}/HTTP=${positive.attempts}; stderr=${JSON.stringify(bad.stderr.slice(0, 300))}` };
+  } catch (error) { fixtureFailure(error); }
+  finally {
+    if (base) try { asHashtagCliFs.rmSync(base, { recursive: true, force: true }); }
+    catch (error) { fixtureFailure(error); result = null; }
+  }
+  return result;
+}
+
+group('as-hashtag-invalid-rejected-new', [], () => {
+  const r = asHashtagCliPair('new'); if (!r) return;
+  named('as-hashtag-cli.new.reject', r.reject, r.why);
+  named('as-hashtag-cli.new.diagnostic', r.diagnostic, r.why);
+  criterion('D15.n');
+});
+group('as-hashtag-invalid-rejected-new-budget', [], () => {
+  const r = asHashtagCliPair('new-budget'); if (!r) return;
+  named('as-hashtag-cli.new-budget.reject', r.reject, r.why);
+  named('as-hashtag-cli.new-budget.diagnostic', r.diagnostic, r.why);
+  criterion('D15.n');
+});
+group('as-hashtag-invalid-rejected-resume', [], () => {
+  const r = asHashtagCliPair('resume'); if (!r) return;
+  named('as-hashtag-cli.resume.reject', r.reject, r.why);
+  named('as-hashtag-cli.resume.diagnostic', r.diagnostic, r.why);
+  criterion('D15.n');
+});
+group('as-hashtag-invalid-rejected-resume-budget', [], () => {
+  const r = asHashtagCliPair('resume-budget'); if (!r) return;
+  named('as-hashtag-cli.resume-budget.reject', r.reject, r.why);
+  named('as-hashtag-cli.resume-budget.diagnostic', r.diagnostic, r.why);
+  criterion('D15.n');
+});
+group('as-hashtag-invalid-rejected-probe', [], () => {
+  const r = asHashtagCliPair('probe'); if (!r) return;
+  named('as-hashtag-cli.probe.reject', r.reject, r.why);
+  named('as-hashtag-cli.probe.diagnostic', r.diagnostic, r.why);
+  criterion('D15.n');
+});
+
 group('hashtag-route', [], () => {
   // **只能端到端跑**：「退出码 2、零请求、不建目录」「续跑也校验」「probe 与 collect 走同一条路线」
   // 「拿回首页即进 done」都在入口那一层，缺省那个验证者（scripts/test.ts）只够得到
@@ -5400,7 +6644,7 @@ group('hashtag-route', [], () => {
   //  · 话题页回罐头 igHashtag：3 条（视频、图文、轮播），作者 hashtagreeler（两条）与 hashtagphoto，
   //    响应里带着令牌；关键词含 `hashtag-nobody` 时回 2 条、一个作者都解析不出
   //  · 其余 Reels 回罐头 igReels：作者 techwithsarah、privateaccount，每次都给令牌
-  //  · 账本只记 pathname；请求参数从 FAKE_FETCH_COST_EVENTS 的逐次记录里读（同 d6uv-igpaging）
+  //  · 账本只记 pathname；请求参数从 FAKE_FETCH_COST_EVENTS 的逐次记录里读（同 ig-reels-cursor-paging）
   // 单价（ADR-107、#167）：话题页与 Reels 各 0.002/次；预算 1 远够，目标 9999 走不到达标。
   // 每一跑都关掉第 7 次回 429 的触发器，免得多出一行重试。
   const base = join(tmp, 'hashtag-route')
@@ -5445,7 +6689,7 @@ group('hashtag-route', [], () => {
       [S('collect.ts'), '--config', cfgOf(cwd, 'htbadcfg', [
         { keyword: 'htbad-tt-kw', dimension: 'category', platform: 'tiktok' },
         { keyword: 'htbad-ig-kw', dimension: 'scene', platform: 'instagram', ig_route: 'Hashtag' },
-      ])], cwd, { status: 2, soft: [0, 1, 3] }, htEnv(ledger))
+      ])], cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, htEnv(ledger))
     if (r.ok) {
       named('IG 话题入口：collect 新建时 ig_route 不合规，以退出码 2 结束、零请求、不建任务目录',
         r.status === 2 && fetchAttempts(ledger).length === 0 && taskDirs(cwd, 'htbadcfg').length === 0,
@@ -5464,7 +6708,7 @@ group('hashtag-route', [], () => {
         { keyword: 'htresume-bad-kw', dimension: 'scene', platform: 'instagram', ig_route: null },
       ], done: [], offsets: {}, pages: {}, answered: {}, found: {} })
     const r = runBoth('collect 话题入口：续跑的 task.json 里第 2 个任务的 ig_route 是 null',
-      [S('collect.ts'), '--resume', f.taskDir], f.cwd, { status: 2, soft: [0, 1, 3] }, htEnv(f.log))
+      [S('collect.ts'), '--resume', f.taskDir], f.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, htEnv(f.log))
     if (r.ok) {
       const st = jsonFile(f.task)
       named('IG 话题入口：collect 续跑时 task.json 的 ig_route 不合规，以退出码 2 结束、零请求、不留预留',
@@ -5486,7 +6730,7 @@ group('hashtag-route', [], () => {
       ], done: [], offsets: {}, pages: {}, answered: {}, found: {} })
     const before = fileText(f.task)
     const r = runBoth('collect 话题入口：续跑带 --budget，task.json 里第 2 个任务的 ig_route 是 null',
-      [S('collect.ts'), '--resume', f.taskDir, '--budget', '3'], f.cwd, { status: 2, soft: [0, 1, 3] }, htEnv(f.log))
+      [S('collect.ts'), '--resume', f.taskDir, '--budget', '3'], f.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, htEnv(f.log))
     if (r.ok) {
       const st = jsonFile(f.task)
       named('IG 话题入口：collect 续跑带 --budget 时 ig_route 不合规，以退出码 2 结束、零请求、不留预留',
@@ -5508,7 +6752,7 @@ group('hashtag-route', [], () => {
       { keyword: 'htbad-probe-tt', dimension: 'category', platform: 'tiktok', ig_route: 'hashtag' },
     ])
     const r = runBoth('probe 话题入口：第 2 个任务把 hashtag 写在 TikTok 任务上',
-      [S('probe.ts'), '--config', cfg], cwd, { status: 2, soft: [0, 1, 3] }, htEnv(ledger))
+      [S('probe.ts'), '--config', cfg], cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, htEnv(ledger))
     if (r.ok) {
       named('IG 话题入口：probe 的 ig_route 不合规，以退出码 2 结束、零请求',
         r.status === 2 && fetchAttempts(ledger).length === 0,
@@ -5663,6 +6907,9 @@ group('hashtag-route', [], () => {
         { keyword: '#htroute-both', dimension: 'scene', platform: 'instagram', as_hashtag: true },
       ])], cwd, { status: 0 }, htEnv(ledger))
     if (r.ok) {
+      // ADR-193：全部任务跑完时 stopped 为 done、退出码 0
+      named('probe 全部任务跑完：stdout 顶层 stopped 为 done，退出码 0',
+        r.status === 0 && summaryOf(r.stdout).stopped === 'done', `退出码 ${r.status}，stopped=${JSON.stringify(summaryOf(r.stdout).stopped)}`)
       const at = rowsByIndex(r.stdout)
       const success = (i: number): boolean => at(i) !== undefined && !at(i)?.error
       named('IG 话题入口：probe 成功结果带出任务配置里写的 ig_route，写了 hashtag 的 IG 任务那一行原样是 hashtag',
@@ -5697,9 +6944,15 @@ group('hashtag-route', [], () => {
         // 垫的成功任务故意不写 ig_route（走 Reels），和出错的那个相反
         { keyword: 'htroute-err-ok', dimension: 'scene', platform: 'instagram' },
         { keyword: '#force-402-htroute', dimension: 'audience', platform: 'instagram', ig_route: 'hashtag' },
-      ])], cwd, { status: 0 }, htEnv(ledger))
+      ])], cwd, { status: 5, soft: [0, 1, 3] }, htEnv(ledger))
     if (r.ok) {
       const row = rowsByIndex(r.stdout)(1)
+      // ADR-193：402 中途停下照出部分结果，stopped 写明是供应商余额不足，退出码 5（不是跑完的 0）
+      criterion('F3.f')
+      named('probe 遇 TikHub 402：stdout 照出部分结果，顶层 stopped 为 provider_402，退出码 5',
+        r.status === 5 && summaryOf(r.stdout).stopped === 'provider_402' && rowsByIndex(r.stdout)(0) !== undefined
+          && !rowsByIndex(r.stdout)(0)?.error,
+        `退出码 ${r.status}，stopped=${JSON.stringify(summaryOf(r.stdout).stopped)}，task_index 0 那一行 ${showRow(rowsByIndex(r.stdout)(0))}`)
       const refused = fetchAttempts(ledger).includes(`402\t${HT}`)
       named('IG 话题入口：probe 错误结果同样带出任务配置里写的 ig_route，话题页请求失败的那一行原样是 hashtag',
         refused && row !== undefined && Boolean(row?.error) && row?.ig_route === 'hashtag',
@@ -5716,7 +6969,7 @@ group('hashtag-route', [], () => {
         // 垫的成功任务故意写了 hashtag（走话题页），和出错的那个相反
         { keyword: '#htroute-err-plain-ok', dimension: 'category', platform: 'instagram', ig_route: 'hashtag' },
         { keyword: '#force-402-htroute-plain', dimension: 'competitor', platform: 'instagram', as_hashtag: true },
-      ])], cwd, { status: 0 }, htEnv(ledger))
+      ])], cwd, { status: 5, soft: [0, 1, 3] }, htEnv(ledger))
     if (r.ok) {
       const row = rowsByIndex(r.stdout)(1)
       const refused = fetchAttempts(ledger).includes(`402\t${IG_REELS}`)
@@ -5734,7 +6987,7 @@ group('hashtag-route', [], () => {
       [S('probe.ts'), '--config', cfgOf(cwd, 'htrouteerrtt', [
         { keyword: '#htroute-err-tt-ok', dimension: 'category', platform: 'instagram', ig_route: 'hashtag' },
         { keyword: 'force-402-htroute-tt', dimension: 'scene', platform: 'tiktok' },
-      ])], cwd, { status: 0 }, htEnv(ledger))
+      ])], cwd, { status: 5, soft: [0, 1, 3] }, htEnv(ledger))
     if (r.ok) {
       const row = rowsByIndex(r.stdout)(1)
       const refused = fetchAttempts(ledger).includes(`402\t${TT_SEARCH}`)
@@ -5750,7 +7003,7 @@ group('hashtag-route', [], () => {
 })
 
 // ---- P5.i：一次都没查到人的平台，不得从报告上静默消失 ----
-group('p5i-platform', [], () => {
+group('empty-platform-still-reported', [], () => {
   // 这一条**只能端到端跑**：`meta.platforms` 的接线在 `render.ts` 里，缺省那个验证者
   // （scripts/test.ts）够不到入口脚本。单元那一头断言的是判定本身（`taskPlatforms`、
   // `keywordRows` 的四态）与渲染（直调 `renderHtml`）。
@@ -5832,7 +7085,7 @@ group('p5i-platform', [], () => {
 })
 
 // ---- 变异集编号重复：两个入口都命中即以退出码 1 结束（M-H7-b、M-H7-c 的入口那一半）----
-group('dup-ids', [], () => {
+group('mutation-duplicate-ids', [], () => {
   // 判定和「两种毛病同时在时先报哪一种」都由 scripts/test.ts 断言；剩下的那一半是
   // **入口真的调了它、并且以退出码 1 结束** —— 把两处调用整块删掉，那些断言和
   // M-H7-b、M-H7-c 照样全绿，因为它们跑的是缺省那个验证者 scripts/test.ts，够不到入口。
@@ -5878,9 +7131,9 @@ group('selfcheck-selection', [], () => {
     }
     return { status: r.status, stdout: r.stdout, stderr: r.stderr }
   }
-  const good = entry(['--only=dup-ids'])
+  const good = entry(['--only=mutation-duplicate-ids'])
   if (good) named('自检选择：合法轻量组实际执行并正常完成',
-    good.status === 0 && good.stdout.includes('[只跑 dup-ids]')
+    good.status === 0 && good.stdout.includes('[只跑 mutation-duplicate-ids]')
       && good.stdout.includes('mutate 遇到重复编号即以退出码 1 结束')
       && good.stdout.includes('点名的那几组都跑完了，一条断言都没红'),
     `退出码=${good.status}，stdout=${good.stdout}，stderr=${good.stderr}`)
@@ -5894,23 +7147,24 @@ group('selfcheck-selection', [], () => {
       detail: `退出码=${r.status}，stdout=${r.stdout}，stderr=${r.stderr}`,
     }
   }
-  const trailing = rejectsBeforeFixtures(['--only=dup-ids,'])
+  const trailing = rejectsBeforeFixtures(['--only=mutation-duplicate-ids,'])
   if (trailing) named('自检选择：尾随逗号明确失败且不执行夹具', trailing.rejected, trailing.detail)
-  const unknown = rejectsBeforeFixtures(['--only=dup-ids', '--selection-typo'])
+  const unknown = rejectsBeforeFixtures(['--only=mutation-duplicate-ids', '--selection-typo'])
   if (unknown) named('自检选择：未知参数明确失败且不执行夹具', unknown.rejected, unknown.detail)
-  const repeatedOption = rejectsBeforeFixtures(['--only=dup-ids', '--only=dup-ids'])
+  const repeatedOption = rejectsBeforeFixtures(['--only=mutation-duplicate-ids', '--only=mutation-duplicate-ids'])
   if (repeatedOption) named('自检选择：重复选择参数明确失败且不执行夹具',
     repeatedOption.rejected, repeatedOption.detail)
-  const repeatedGroup = rejectsBeforeFixtures(['--only=dup-ids,dup-ids'])
+  const repeatedGroup = rejectsBeforeFixtures(['--only=mutation-duplicate-ids,mutation-duplicate-ids'])
   if (repeatedGroup) named('自检选择：重复组明确失败且不执行夹具',
     repeatedGroup.rejected, repeatedGroup.detail)
 })
 
 // ---- 变异锚点不唯一即以退出码 1 结束（anchorMatches 的入口那一半，ADR-99 第十二节）----
-group('anchors', [], () => {
+group('mutate-anchor-not-unique', [], () => {
   // 判定在 mutate-rule.ts 的 anchorMatches，由 scripts/test.ts 断言、M-H45-a／b 守着；
   // 剩下的是入口真的调了它、点名并以 1 结束。入口在自检的验证基础设施闭包里，
-  // 指着它的变异会被「自己验自己」拒掉，所以这一半只由这条夹具守（ADR-70）。
+  // 指着它、显式写了 `by` 且不是 `test` 的变异会被「自己验自己」拒掉；不写 `by` 或写
+  // `by: test` 不被拦，但当前需求测试没走到锚点不唯一的拒绝支路，所以这一半只有这条自检夹具守（ADR-70）。
   const anchorTmp = join(tmp, 'dup-anchor')
   mkdirSync(join(anchorTmp, 'scripts', 'check'), { recursive: true })
   mkdirSync(join(anchorTmp, 'docs'), { recursive: true })
@@ -5931,8 +7185,240 @@ group('anchors', [], () => {
     `a.ts 变成了 ${JSON.stringify(readFileSync(join(anchorTmp, 'a.ts'), 'utf8'))}`)
 })
 
+// ---- 清单夹带：入口开跑前用 briefLeaks 查 --brief 要打的每一段，两侧分开报（ADR-70 末尾「清单夹带（入口）」一节）----
+group('mutate-brief-leak-entry', [], () => {
+  // 判定是纯函数 briefLeaks，由需求测试 h-why 断言、M-H1-b..h 守着；剩下的那一半是**入口真的调了它、
+  // 豁免一侧也拦、两侧分开说、`--brief` 一行清单也不打、以 1 结束**。入口在自检的验证基础设施闭包里，
+  // 指名自检来验的变异会被「自己验自己」拦下；by: test 不被拦，需求测试也起真 mutate.ts（h-worker-output-contract
+  // 的 --worker），可喂的目录都干净，走不到这一道拒的那一支 —— 要负片得另加一条喂夹带目录的需求测试，没加，
+  // 所以今天这一半只有这条自检夹具守。
+  // 两棵树。第一棵三条：一条干净的变异、一条 why 夹带的变异、一条范围夹带的豁免（why 干净），起 --brief。
+  // 期望照 briefLeaks 的定义手推：变异一侧 1 处（M-X-g）、豁免一侧 1 处（X2 的范围），共 2 处。
+  // 夹带的那一段只认开头：implementationLeak 交回的是正则匹配到的那一截，不一定是整个词。
+  const leakTmp = join(tmp, 'brief-leak-entry')
+  mkdirSync(join(leakTmp, 'scripts', 'check'), { recursive: true })
+  mkdirSync(join(leakTmp, 'docs'), { recursive: true })
+  writeFileSync(join(leakTmp, 'docs', 'requirements.json'), JSON.stringify({ requirements: [
+    { id: 'X1', accept: [{ id: 'X1.a' }] }, { id: 'X2', accept: [{ id: 'X2.a' }] },
+  ] }), 'utf8')
+  writeFileSync(join(leakTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({
+    mutations: [
+      { id: 'M-X-f', req: 'X1', why: '干净的一条：用户看到的总数少一', file: 'a.ts', find: 'x', replace: 'y' },
+      { id: 'M-X-g', req: 'X1', why: '夹带的一条：resumeCount 少加一', file: 'a.ts', find: 'y', replace: 'z' },
+    ],
+    exemptions: [
+      { req: 'X2', scope: '只在 retryBudget 用完时', why: '干净的理由：这一支没有可观察的产出', mitigation: 'n/a' },
+    ],
+  }), 'utf8')
+  const r = runToolBoth('mutate --brief 在两侧都有夹带的树上以退出码 1 结束', 'mutate', ['--brief'], leakTmp, { status: 1 })
+  if (r.ok) named('mutate 开跑前两侧分开点名夹带：变异一侧报编号、豁免一侧报需求号与范围那一栏',
+    r.stderr.includes('2 处夹带实现原文')
+      && /变异一侧 1 处[^\n]*\n\s+M-X-g  why 夹带实现原文：resume/.test(r.stderr)
+      && /豁免一侧 1 处[^\n]*\n\s+豁免 \[X2\]  范围 夹带实现原文：retry/.test(r.stderr)
+      && !r.stderr.includes('M-X-f'),
+    r.stderr)
+  if (r.ok) named('mutate 拒绝时 --brief 的清单一行也没打', !r.stdout.includes('每条变异「违反了什么」') && !r.stdout.includes('M-X-'),
+    r.stdout)
+  // 第二棵只有豁免一侧夹带，而且夹带在 why（范围干净），起整跑（不带参数）：只查变异的入口在这里会放行，
+  // 整跑也要经过这一道，why 那一栏的叫法与「没有的那一侧不打标题」也在这里看得见。
+  // 玩具树没有锚点表，就算这一道被拿掉，整跑也会在后面别的核对上以 1 退出 —— 所以判的是那几句诊断，不只是退出码。
+  const exTmp = join(tmp, 'brief-leak-entry-exemption')
+  mkdirSync(join(exTmp, 'scripts', 'check'), { recursive: true })
+  mkdirSync(join(exTmp, 'docs'), { recursive: true })
+  writeFileSync(join(exTmp, 'docs', 'requirements.json'), JSON.stringify({ requirements: [
+    { id: 'X1', accept: [{ id: 'X1.a' }] }, { id: 'X2', accept: [{ id: 'X2.a' }] },
+  ] }), 'utf8')
+  writeFileSync(join(exTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({
+    mutations: [
+      { id: 'M-X-h', req: 'X1', why: '干净的一条：用户看到的总数少一', file: 'a.ts', find: 'x', replace: 'y' },
+    ],
+    exemptions: [
+      { req: 'X2', scope: '只在额度用完时', why: '夹带的理由：cacheHit 那一支没有可观察的产出', mitigation: 'n/a' },
+    ],
+  }), 'utf8')
+  const ex = runToolBoth('mutate 整跑在只有豁免夹带的树上以退出码 1 结束', 'mutate', [], exTmp, { status: 1 })
+  if (ex.ok) named('mutate 整跑开跑前也拦只在豁免 why 里的夹带，只打豁免一侧',
+    ex.stderr.includes('1 处夹带实现原文')
+      && /豁免一侧 1 处[^\n]*\n\s+豁免 \[X2\]  why 夹带实现原文：cache/.test(ex.stderr)
+      && !ex.stderr.includes('变异一侧') && !ex.stderr.includes('M-X-h'),
+    ex.stderr)
+})
+
+// ---- 变异锚点对着树：入口真的读了目录与目标文件、逐条点名并照判定退出（ADR-70 末尾「变异残留」第三片，接线证明）----
+group('anchor-residue-entry', [], () => {
+  // 判定是纯函数 anchorVerdict（编号重复先报、anchorFaults 的五种、连带），由需求测试 h-mutate 断言、M-H45-* 守着；
+  // 剩下的那一半是**入口真的读了变异目录与每条的目标文件、调了判定、逐条点名、照它退出**。
+  // 入口这一半不配负片，是选择：指名自检来验的变异会被「自己验自己」拦下；by: test 不被拦，但需求测试不起这个入口，
+  // 要负片得另加一组起真 anchors.ts 的需求测试。这里用自检组证接线。期望从 anchorFaults 头上那张表手推，不照入口的输出抄：
+  // 只认退出码、汇总那一行的条数、每条那一行开头的编号与文件和那一种的头几个字。
+  // 每棵树路径写成字面量（组间共享的扫描只认字面量路径，ADR-134 第二节）；入口每棵起一次，别的不起进程。
+  const toy = (dir: string, files: Record<string, string>, catalog?: unknown) => {
+    mkdirSync(join(dir, 'scripts', 'check'), { recursive: true })
+    for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text, 'utf8')
+    if (catalog !== undefined) writeFileSync(join(dir, 'scripts', 'check', 'mutations.json'), JSON.stringify(catalog), 'utf8')
+  }
+  const fine = { id: 'M-X-e', req: 'X1', why: '干净的一条', file: 'e.ts', find: 'ok()', replace: 'no()' }
+  // 坏树：没还原一条（a.ts 里是施加之后的样子）、锚点失效两条（一条和没还原的同在 a.ts，被它连带）、不唯一一条、
+  // 目标文件不在一条、分不开一条（删一段的，u.ts 里那段没了），外加干净的一条不该报
+  const dirtyTmp = join(tmp, 'anchor-residue')
+  toy(dirtyTmp, { 'a.ts': 'return y\n', 'b.ts': 'keep()\n', 'c.ts': 'k = 1\nk = 1\nk = 1\n', 'e.ts': 'ok()\n', 'u.ts': 'z\n' }, { mutations: [
+    { id: 'M-X-a', req: 'X1', why: '没还原', file: 'a.ts', find: 'return x', replace: 'return y' },
+    { id: 'M-X-f', req: 'X1', why: '被没还原的连带', file: 'a.ts', find: 'x;', replace: 'z;' },
+    { id: 'M-X-b', req: 'X1', why: '锚点失效', file: 'b.ts', find: 'gone()', replace: 'went()' },
+    { id: 'M-X-c', req: 'X1', why: '不唯一', file: 'c.ts', find: 'k = 1', replace: 'k = 2' },
+    { id: 'M-X-d', req: 'X1', why: '目标文件不在', file: 'missing.ts', find: 'x', replace: 'y' },
+    { id: 'M-X-u', req: 'X1', why: '删一段的，分不开', file: 'u.ts', find: 'del()\n', replace: '' },
+    fine,
+  ] })
+  const dirty = runToolBoth('anchors 遇到对不上的变异即以退出码 1 结束', 'anchors', [], dirtyTmp, { status: 1 })
+  if (dirty.ok) {
+    const lines = dirty.stderr.split('\n')
+    const said = (id: string, file: string, head: string) => lines.some(l => l.trimStart().startsWith(`${id}  ${file}：${head}`))
+    // 自检给子进程预加载的假 fetch 会先往 stderr 打一行，所以认的是那一整行在不在，不认它是不是第一行
+    named('anchors 那一行汇总说出对不上的条数', lines.includes('✗ 变异锚点：6 条变异对不上目标文件'), dirty.stderr)
+    named('anchors 逐条点名五种对不上的：没还原、锚点失效、不唯一带处数、读不到、分不开',
+      said('M-X-a', 'a.ts', '像是没还原') && said('M-X-b', 'b.ts', '锚点失效') && said('M-X-c', 'c.ts', '锚点不止一处')
+        && lines.some(l => l.trimStart().startsWith('M-X-c  ') && l.includes('（3 处）'))
+        && said('M-X-d', 'missing.ts', '目标文件读不到') && said('M-X-u', 'u.ts', '分不开'), dirty.stderr)
+    // 没还原与分不开的都要叫人先看 git diff 再动手（第一片定下的说法）
+    named('anchors 有没还原或分不开的时叫人先看 git diff、只撤那一处',
+      dirty.stderr.includes('先用 git diff HEAD 看那个文件再动手') && dirty.stderr.includes('只撤那一处'), dirty.stderr)
+    named('anchors 有不是被连带的锚点失效时叫人改目录', dirty.stderr.includes('锚点失效、不唯一、读不到的：改那条变异的 file 与 find'), dirty.stderr)
+    // 连带的那条要叫人先撤没还原的，别去改它的 find；不在同一个文件里的那条不这么说
+    const knocked = (id: string) => lines.some(l => l.trimStart().startsWith(`${id}  `) && l.includes('先撤那一处'))
+    named('anchors 和没还原的同在一个文件的那条说先撤没还原的', said('M-X-f', 'a.ts', '锚点失效') && knocked('M-X-f'), dirty.stderr)
+    named('anchors 别的文件里的锚点失效不说先撤', !knocked('M-X-b') && !knocked('M-X-c'), dirty.stderr)
+    named('anchors 不点名对得上的那条', !dirty.stderr.includes('M-X-e') && !dirty.stdout.includes('M-X-e'), dirty.stderr)
+  }
+  // 好树：只有干净的那一条，以 0 退出，✓ 那一行带条数
+  const cleanTmp = join(tmp, 'anchor-clean')
+  toy(cleanTmp, { 'e.ts': 'ok()\n' }, { mutations: [fine] })
+  const clean = runToolBoth('anchors 全对得上即以退出码 0 结束', 'anchors', [], cleanTmp)
+  if (clean.ok) named('anchors 全对得上时说出条数', clean.stdout.trim().startsWith('✓ 变异锚点：1 条变异'), clean.stdout)
+  // 读不到目录：不当成「没有变异、全对得上」
+  const noCatalogTmp = join(tmp, 'anchor-no-catalog')
+  toy(noCatalogTmp, { 'e.ts': 'ok()\n' })
+  const noCatalog = runToolBoth('anchors 读不到变异目录即以退出码 1 结束', 'anchors', [], noCatalogTmp, { status: 1 })
+  if (noCatalog.ok) named('anchors 读不到变异目录时说读不到', noCatalog.stderr.includes('读不到'), noCatalog.stderr)
+  // 目录读得到、里面是空的一组：同样不当成「零条、全对得上」（键写岔、条目缺字段由需求测试断言判定）
+  const noListTmp = join(tmp, 'anchor-no-list')
+  toy(noListTmp, { 'e.ts': 'ok()\n' }, { mutations: [] })
+  const noList = runToolBoth('anchors 目录里读不出一组变异即以退出码 1 结束', 'anchors', [], noListTmp, { status: 1 })
+  if (noList.ok) named('anchors 目录里读不出一组变异时说读不出', noList.stderr.includes('读不出一组变异'), noList.stderr)
+  // 只有锚点失效的：不叫人看 git diff（判定说不附那一句，入口照着不打）
+  const staleTmp = join(tmp, 'anchor-stale-only')
+  toy(staleTmp, { 'b.ts': 'keep()\n' }, { mutations: [{ id: 'M-X-b', req: 'X1', why: '锚点失效', file: 'b.ts', find: 'gone()', replace: 'went()' }] })
+  const stale = runToolBoth('anchors 只有锚点失效时以退出码 1 结束', 'anchors', [], staleTmp, { status: 1 })
+  if (stale.ok) named('anchors 只有锚点失效时只叫人改目录、不叫人看 git diff',
+    stale.stderr.includes('改那条变异的 file 与 find') && !stale.stderr.includes('git diff'), stale.stderr)
+  // 编号重复：先报这一种，锚点不往下查（干净的那条复制了一份，锚点本身对得上）
+  const dupTmp = join(tmp, 'anchor-dup')
+  toy(dupTmp, { 'e.ts': 'ok()\n' }, { mutations: [fine, fine] })
+  const dup = runToolBoth('anchors 变异编号重复即以退出码 1 结束', 'anchors', [], dupTmp, { status: 1 })
+  if (dup.ok) named('anchors 编号重复时点名那个编号', dup.stderr.includes('1 个编号重复') && dup.stderr.includes('M-X-e  出现不止一次'), dup.stderr)
+})
+
+// ---- 变异锚点读暂存区：入口真的读了 git 暂存区与 HEAD（ADR-70 末尾「变异残留：暂存区」第五片，接线证明）----
+group('anchor-staged-entry', [], () => {
+  // 判定是纯函数 stagedResidue 与 notARepo，由需求测试 h-mutate 断言、M-H45-ah…an 守着；剩下的那一半是**入口真的
+  // 读了暂存区与 HEAD、交给判定、点名、照它退出，git 读不到时分得开不是仓库与坏了**。不配负片的理由同 anchor-residue-entry。
+  // 夹具与入口的 git 都用 GIT_ISOLATED（见 mutationFixtureEnv 上面那段）：入口经 runToolBoth 起，自动带上
+  const git = (cwd: string, ...args: string[]): boolean => {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, ...GIT_ISOLATED } })
+    if (r.status === 0) return true
+    failed++; console.error(`  ✗ 暂存区夹具${SELFCHECK_FIXTURE_MARK}：${cwd} 里 git ${args.join(' ')}：${r.error ?? r.stderr}`)
+    return false
+  }
+  // 建一个仓库，包放在带空格与中文的子目录里（钉住入口按当前目录给路径），files 与目录都提交进 HEAD
+  const repo = (root: string, pkg: string, files: Record<string, string>, catalog: unknown): boolean => {
+    mkdirSync(join(pkg, 'scripts', 'check'), { recursive: true })
+    for (const [name, text] of Object.entries(files)) { mkdirSync(dirname(join(pkg, name)), { recursive: true }); writeFileSync(join(pkg, name), text, 'utf8') }
+    writeFileSync(join(pkg, 'scripts', 'check', 'mutations.json'), JSON.stringify(catalog), 'utf8')
+    return git(root, 'init', '--quiet', '-b', 'main') && git(root, 'config', 'user.name', 'Anchor fixture')
+      && git(root, 'config', 'user.email', 'fixture@example.invalid') && git(root, 'add', '-A') && git(root, 'commit', '--quiet', '-m', 'fixture')
+  }
+  const fine = { id: 'M-X-e', req: 'X1', why: '干净的一条', file: 'e.ts', find: 'ok()', replace: 'no()' }
+  const back = { id: 'M-X-s', req: 'X1', why: '暂存过的', file: '目 录/中 文.ts', find: 'return x', replace: 'return y' }
+  // 变异 git add 过、工作树那一处后来按回去了：工作树对得上，暂存区里是施加之后的样子
+  const stagedRoot = join(tmp, 'anchor-staged')
+  const stagedPkg = join(stagedRoot, '子 包')
+  const target = join(stagedPkg, '目 录', '中 文.ts')
+  if (repo(stagedRoot, stagedPkg, { '目 录/中 文.ts': 'return x\n', 'e.ts': 'ok()\n' }, { mutations: [back, fine] })) {
+    writeFileSync(target, 'return y\n', 'utf8')
+    const ready = git(stagedRoot, 'add', '-A')
+    writeFileSync(target, 'return x\n', 'utf8')
+    const staged = ready ? runToolBoth('anchors 暂存区里躺着变异即以退出码 1 结束', 'anchors', [], stagedPkg, { status: 1 }) : undefined
+    if (staged?.ok) {
+      const lines = staged.stderr.split('\n')
+      named('anchors 点名暂存区里没还原的那条', lines.some(l => l.trimStart().startsWith('M-X-s  目 录/中 文.ts：暂存区里像是没还原')), staged.stderr)
+      named('anchors 暂存区那一块汇总说出条数', lines.includes('✗ 变异锚点：暂存区里 1 条变异是施加之后的样子，下一次 git commit 会把它带进去'), staged.stderr)
+      named('anchors 暂存区里的叫人看 git diff --cached、只撤那一处、两边都撤',
+        staged.stderr.includes('git diff --cached') && staged.stderr.includes('git restore --staged -p') && staged.stderr.includes('两边都要撤'), staged.stderr)
+      named('anchors 不点名暂存区里对得上的那条', !staged.stderr.includes('M-X-e'), staged.stderr)
+    }
+  }
+  // 改完还没 git add：暂存区与 HEAD 同是旧代码，新写的删一段的变异在那里本来就分不开 —— 不是暂存了变异
+  const pendingTmp = join(tmp, 'anchor-unstaged-edit')
+  if (repo(pendingTmp, pendingTmp, { 'n.ts': 'z\n', 'e.ts': 'ok()\n' }, { mutations: [fine] })) {
+    writeFileSync(join(pendingTmp, 'n.ts'), 'del()\nz\n', 'utf8')
+    writeFileSync(join(pendingTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [fine,
+      { id: 'M-X-n', req: 'X1', why: '新写的删一段', file: 'n.ts', find: 'del()\n', replace: '' }] }), 'utf8')
+    const pending = runToolBoth('anchors 改完还没 git add 时以退出码 0 结束', 'anchors', [], pendingTmp)
+    if (pending.ok) named('anchors 改完还没 git add 时说暂存区也查过', pending.stdout.includes('2 条变异') && pending.stdout.includes('暂存区也查过'), pending.stdout)
+  }
+  // HEAD 里还没有的新文件：暂存了一版旧稿、工作树里写上那段并登记删一段的变异。暂存区里没那段 —— 是旧稿还是变异暂存了
+  // 分不开：不报错（以 0 退出），也不说「暂存区也查过」，单起一行说认不准、点名、叫人看 git diff --cached（#460 上 CodeRabbit 第一轮）
+  const freshTmp = join(tmp, 'anchor-new-file')
+  if (repo(freshTmp, freshTmp, { 'e.ts': 'ok()\n' }, { mutations: [fine] })) {
+    writeFileSync(join(freshTmp, 'n.ts'), 'z\n', 'utf8')
+    const drafted = git(freshTmp, 'add', 'n.ts')
+    writeFileSync(join(freshTmp, 'n.ts'), 'del()\nz\n', 'utf8')
+    writeFileSync(join(freshTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [fine,
+      { id: 'M-X-n', req: 'X1', why: '新文件里删一段', file: 'n.ts', find: 'del()\n', replace: '' }] }), 'utf8')
+    const fresh = drafted ? runToolBoth('anchors 新文件里暂存区认不准时以退出码 0 结束', 'anchors', [], freshTmp) : undefined
+    if (fresh?.ok) {
+      named('anchors 新文件里认不准的单起一行点名、叫人看 git diff --cached',
+        fresh.stdout.includes('⚠ 变异锚点：暂存区里 1 条在 HEAD 里还没有的新文件里认不准')
+        && fresh.stdout.includes('M-X-n  n.ts：暂存区里认不准') && fresh.stdout.includes('git diff --cached'), fresh.stdout)
+      named('anchors 新文件里认不准时不说暂存区也查过', !fresh.stdout.includes('✓') && !fresh.stdout.includes('暂存区也查过'), fresh.stdout)
+    }
+  }
+  // 不是 git 仓库：暂存区那一步不做，照实说没查，以 0 退出。「不是」要真的不是：往上哪一层有 .git，那一跑读到的是别人的仓库
+  const noRepoTmp = join(tmp, 'anchor-no-repo')
+  mkdirSync(join(noRepoTmp, 'scripts', 'check'), { recursive: true })
+  writeFileSync(join(noRepoTmp, 'e.ts'), 'ok()\n', 'utf8')
+  writeFileSync(join(noRepoTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [fine] }), 'utf8')
+  const outer: string[] = []
+  for (let p = noRepoTmp; outer.length === 0; p = dirname(p)) {
+    if (existsSync(join(p, '.git'))) outer.push(join(p, '.git'))
+    if (dirname(p) === p) break
+  }
+  if (outer.length > 0) { failed++; console.error(`  ✗ 暂存区夹具${SELFCHECK_FIXTURE_MARK}：${noRepoTmp} 不该在任何 git 仓库里，找到了 ${outer[0]}`) } else {
+    const noRepo = runToolBoth('anchors 不是 git 仓库时以退出码 0 结束', 'anchors', [], noRepoTmp)
+    if (noRepo.ok) named('anchors 不是 git 仓库时说暂存区没查', noRepo.stdout.includes('不是 git 仓库，暂存区没查'), noRepo.stdout)
+  }
+  // git 坏了（.git 是个读不出的文件）：不当成不是仓库，以 1 退出并带出 git 的原话
+  const brokenTmp = join(tmp, 'anchor-broken-git')
+  mkdirSync(join(brokenTmp, 'scripts', 'check'), { recursive: true })
+  writeFileSync(join(brokenTmp, 'e.ts'), 'ok()\n', 'utf8')
+  writeFileSync(join(brokenTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [fine] }), 'utf8')
+  writeFileSync(join(brokenTmp, '.git'), '不是 gitdir 那一行\n', 'utf8')
+  const broken = runToolBoth('anchors git 读不到暂存区即以退出码 1 结束', 'anchors', [], brokenTmp, { status: 1 })
+  if (broken.ok) named('anchors git 坏了时说读不到暂存区并带出 git 的原话',
+    broken.stderr.includes('git 读不到暂存区') && broken.stderr.includes('fatal:') && !broken.stdout.includes('✓'), broken.stderr + broken.stdout)
+  // 目标文件名里带换行：cat-file --batch 一行写不下它，不起 git、整步算读不到、以 1 退出，不打 ✓ —— 按读不到的那一个算的话，
+  // 暂存区里躺着的变异会被当成不在暂存区放过（#460 上 CodeRabbit 第三轮）
+  const nlTmp = join(tmp, 'anchor-newline-name')
+  const nl = { id: 'M-X-l', req: 'X1', why: '文件名带换行', file: 'n\nl.ts', find: 'ok()', replace: 'no()' }
+  if (repo(nlTmp, nlTmp, { 'n\nl.ts': 'ok()\n' }, { mutations: [nl] })) {
+    const odd = runToolBoth('anchors 目标文件名带换行时以退出码 1 结束', 'anchors', [], nlTmp, { status: 1 })
+    if (odd.ok) named('anchors 目标文件名带换行时说读不到暂存区、不打 ✓',
+      odd.stderr.includes('git 读不到暂存区') && odd.stderr.includes('带换行') && !odd.stdout.includes('✓'), odd.stderr + odd.stdout)
+  }
+})
+
 // ---- 变异的验证者接线不成立即以退出码 1 结束（wiringFault 的入口那一半）----
-group('wiring', [], () => {
+group('mutate-verifier-wiring-invalid', [], () => {
   // 判据是 mutate-rule.ts 的 wiringFault，由 scripts/test.ts 断言、M-H14-t/u/v/w 四条负片
   // 守着；剩下的那一半是**入口真的调了它、并且以退出码 1 结束**，还把四种裁定各翻成
   // 一句人话 —— 把这一整段删掉，那四条负片和那些断言照样全绿，因为变异跑的是缺省
@@ -6006,19 +7492,38 @@ group('stop-if-seen', [], () => {
   // 这条夹具的验证者**故意不立刻结束**：见齐就停生效时它被当场停掉，mutate 立刻判「被抓到」；
   // 坏掉的话只能等它自己退（退出码 0）——判定当场给「存活」，mutate 以 1 结束，这里就红了。
   // 用定时退出而不是永不退出：坏掉时要红，不是要把整份检查挂住。
+  //
+  // **停的是整组，不只是手上那一个**（ADR-70 第 1208 行）。假验证者先起一个不 `detached` 的孩子（同在验证者那一组），
+  // 孩子一起来就记下时刻，过 `childLateMs` 再写一个文件；假验证者见孩子起来了才打那一行。整组停时孩子一起停，
+  // 那个文件永远不出现；退化成只给手上那一个发信号时，验证者停了（tsx 壳收到 SIGTERM 会转发），孩子活着，到点照写。
+  // 定时器放在孩子身上：放在假验证者自己身上的话，只给壳发信号它也停，两种杀法分不出（ADR-70 第 2483 行）。
+  // 孩子不接管道（`stdio: 'ignore'`）：接着的话，关闭事件要等它写完才来，「停没停」就被拖成了「它自己退没退」
   const stopTmp = join(tmp, 'stop-on-kills')
+  const childStarted = join(tmp, 'stop-on-kills-child-started'), childLate = join(tmp, 'stop-on-kills-child-late')
+  const childLateMs = 3000
+  const childCode = `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(childStarted)}, String(Date.now()));`
+    + ` setTimeout(() => fs.writeFileSync(${JSON.stringify(childLate)}, 'alive'), ${childLateMs})`
   mkdirSync(join(stopTmp, 'scripts', 'check'), { recursive: true })
   mkdirSync(join(stopTmp, 'docs'), { recursive: true })
   writeFileSync(join(stopTmp, 'docs', 'requirements.json'),
     JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
   writeFileSync(join(stopTmp, 'docs', 'ARCHITECTURE.md'), ORDER_TABLE_STUB, 'utf8')
   writeFileSync(join(stopTmp, 'a.ts'), 'const x = 1\n', 'utf8')
-  // 这个假验证者既要被清册扫得到（endPath 的字面量），又要真的打出那一行、然后赖着不走
+  // 这个假验证者既要被清册扫得到（endPath 的字面量），又要真的打出那一行、然后赖着不走。
+  // 孩子起不来（`error`）或没记下时刻就退了（`exit`），也照打那一行，让 mutate 当场停；孩子没起来由下面那条夹具诊断说。
+  // 那一行只有一处调用：清册按名字认，同名的两处会被当成重名拦在开跑之前
   writeFileSync(join(stopTmp, 'scripts', 'check', 'selfcheck.ts'),
-    ['const endPath = (label: string, _rest: unknown[]): void => {',
+    ["import { spawn } from 'node:child_process'",
+     "import { existsSync } from 'node:fs'",
+     'const endPath = (label: string, _rest: unknown[]): void => {',
      '  console.error(`  ✗ ${label}`)',
      '}',
-     "endPath('甲', [])",
+     'let said = false',
+     "const say = (): void => { if (!said) { said = true; endPath('甲', []) } }",
+     `const kid = spawn(process.execPath, ['-e', ${JSON.stringify(childCode)}], { stdio: 'ignore' })`,
+     "kid.on('error', say)",
+     "kid.on('exit', say)",
+     `const ready = setInterval(() => { if (existsSync(${JSON.stringify(childStarted)})) { clearInterval(ready); say() } }, 20)`,
      'setTimeout(() => {}, 20_000)',
      ''].join('\n'), 'utf8')
   writeFileSync(join(stopTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
@@ -6039,10 +7544,61 @@ group('stop-if-seen', [], () => {
     console.error('  ✗ 见齐了却没停 —— 验证者赖着不走，判定于是等到它自己退，'
                   + `报的不是「被抓到」：\n${stopOut.split('\n').filter(l => l.includes('M-X-i')).join('\n')}`)
   } else console.log('  ✓ 见齐就停：验证者没结束，那条变异照样判「被抓到」')
+  if (stopOut === undefined) return
+  // 负 pid 是 POSIX 的进程组语义；Windows 上 `detached` 给的是一个控制台窗口，那一刀落空（`mutate.ts` 头上记着），这里不判
+  if (process.platform === 'win32') { console.log('  ⊘ 见齐就停杀整组：Windows 上没有进程组，这里没验'); return }
+  // 文件在、内容还没写进去时读成空串，`Number('')` 是 0：也当孩子没起来
+  const startedAt = existsSync(childStarted) ? Number(readFileSync(childStarted, 'utf8')) : Number.NaN
+  if (!Number.isFinite(startedAt) || startedAt <= 0) {
+    failed++
+    console.error(`  ✗ 见齐就停杀整组${SELFCHECK_FIXTURE_MARK}：假验证者的孩子没起来 —— 夹具没造对，停的是不是整组这一跑分不出`)
+    return
+  }
+  // 等过孩子定的那一刻再多一秒：只杀手上那一个时，孩子此刻已经写了
+  const pause = new Int32Array(new SharedArrayBuffer(4))
+  for (let left = startedAt + childLateMs + 1000 - Date.now(); left > 0; left = startedAt + childLateMs + 1000 - Date.now()) {
+    Atomics.wait(pause, 0, 0, left)
+  }
+  named('见齐就停：停的是验证者整组，它起的孩子没活到写文件', !existsSync(childLate),
+    `孩子起来之后 ${childLateMs} 毫秒照样写出了 ${childLate} —— 见齐就停只停了手上那一个，验证者自己起的子进程活着跑完`)
+})
+
+// ---- 施加变异照字面：入口真的用 applyMutation 落盘（ADR-70 末尾「施加照字面」一节，接线证明）----
+group('literal-apply', [], () => {
+  // 判定是纯函数 applyMutation，由需求测试 h-mutate 断言、M-H45-i/j 守着；剩下的那一半是**入口施加时真的走它**。
+  // 入口这一半不配负片，是选择：指名自检来验的变异会被「自己验自己」拦下；by: test 不被拦（M-H68-a 就这样守 mutate.ts），
+  // 但需求测试里只有 h-worker-output-contract 起真 worker 经过施加那一行，又不核落盘内容，要负片得给它加断言。这里用自检组证接线。
+  // 玩具树里只有一条变异，替换文本是两个美元记号；假验证者见文件里有两个就红。照字面施加 → 红 → 被抓到、以 0 结束；
+  // 照记号展开的话盘上只剩一个 → 验证者绿 → 存活、以 1 结束，这里就红了。
+  const litTmp = join(tmp, 'literal-apply')
+  mkdirSync(join(litTmp, 'scripts', 'check'), { recursive: true })
+  mkdirSync(join(litTmp, 'docs'), { recursive: true })
+  writeFileSync(join(litTmp, 'docs', 'requirements.json'),
+    JSON.stringify({ requirements: [{ id: 'X1', accept: [{ id: 'X1.a' }] }] }), 'utf8')
+  writeFileSync(join(litTmp, 'docs', 'ARCHITECTURE.md'), ORDER_TABLE_STUB, 'utf8')
+  const litSource = "const s = 'P'\n"
+  writeFileSync(join(litTmp, 'a.ts'), litSource, 'utf8')
+  writeFileSync(join(litTmp, 'scripts', 'check', 'selfcheck.ts'),
+    ["import { readFileSync } from 'node:fs'",
+     'const endPath = (label: string, _rest: unknown[]): void => {',
+     '  console.error(`  ✗ ${label}`)',
+     '  process.exitCode = 1',
+     '}',
+     "if (readFileSync('a.ts', 'utf8').includes('$$')) endPath('甲', [])",
+     ''].join('\n'), 'utf8')
+  writeFileSync(join(litTmp, 'scripts', 'check', 'mutations.json'), JSON.stringify({ mutations: [
+    { id: 'M-X-j', req: 'X1', why: '把那个字面量换成两个美元记号', file: 'a.ts', find: "'P'", replace: "'$$'",
+      by: 'selfcheck', kills: ['甲'] },
+  ] }), 'utf8')
+  const lit = runToolBoth('mutate 照字面施加替换文本（两个美元记号不折成一个）', 'mutate', [], litTmp, { status: 0 })
+  if (lit.ok) named('mutate 照字面施加的那条判被抓到', /M-X-j\s+\[X1\] 被抓到/.test(lit.stdout), lit.stdout)
+  named('mutate 照字面施加之后目标文件还原',
+    readFileSync(join(litTmp, 'a.ts'), 'utf8') === litSource,
+    `a.ts 变成了 ${JSON.stringify(readFileSync(join(litTmp, 'a.ts'), 'utf8'))}`)
 })
 
 // ---- 点的夹具立不住即以退出码 1 结束（清册的入口那一半）----
-group('roster', [], () => {
+group('mutate-kills-fixture-unresolved', [], () => {
   // 判据在 mutate-rule.ts（扫源码建清册、裁定点得着点不着），由 scripts/test.ts 断言、
   // 负片守着；剩下的那一半是**入口真的读了验证者的源码、真的建了清册、并且以退出码 1
   // 结束**。把那一整段从 mutate.ts 删掉，那些断言和负片照样全绿 —— 变异跑的是缺省
@@ -6340,10 +7896,10 @@ group('skill-entry', [], () => {
 
 // ---- 整跑那份报告里的豁免行，也要随负片改口（入口的第二处）----
 group('exempt-lead', [], () => {
-  // 上面那条断言守的是 `--brief`；**同一句话在 mutate.ts 里有两处**，整跑那一处
-  // 单元测试与变异集都够不到（`mutate.ts` 在验证基础设施闭包里，指着它的变异会被
-  // 「自己验自己」当场拦下，所以这一处只能有夹具、不能有负片 —— 与本文件另外四处
-  // mutate 夹具同一处境）。造一份最小语料真跑一遍整跑：一条会被抓到的变异 ＋ 两条豁免，
+  // 上面那条断言守的是 `--brief`；**同一句话在 mutate.ts 里有两处**。入口在自检的
+  // 验证基础设施闭包里，指着它、显式写了 `by` 且不是 `test` 的变异会被「自己验自己」拦下；
+  // 不写 `by` 或写 `by: test` 不被拦，但当前需求测试没走到整跑报告打印豁免行的这一段，
+  // 所以这里只有自检夹具、没有负片。造一份最小语料真跑一遍整跑：一条会被抓到的变异 ＋ 两条豁免，
   // 一条命中、一条不命中，两支话在同一次输出里各出现一次。约 2.7 秒。
   // 前置条件问的是 `ok`,不是「输出非空」—— 跑起来了就必须断言,一个字不打也算红
   const both = runToolBoth('mutate 整跑那份报告的豁免行随负片改口', 'mutate', [], bothTmp)
@@ -6355,6 +7911,204 @@ group('exempt-lead', [], () => {
     console.error('  ✗ 整跑那份报告里，名下没有变异的那条没这么说')
   }
 })
+
+group('audit-entry', [], () => {
+  let ownedToyRoot: string | undefined;
+  let fixtureReported = false;
+  let runnerReportedFailure = false;
+  let observedA: string | undefined;
+  let observedB: string | undefined;
+  // 夹具没造对只报一次、只计一次失败。`raw` 是要交给人读的那份原始报告（报告认不出那一支给）：
+  // 逐行加前缀再打，免得报告里自己的 `✗ …` 行顶格打出来，被 `killsMatched` 与汇总正则当成自检的话
+  const fixtureFailure = (why: string, raw?: { stdout: string; stderr: string }): void => {
+    if (fixtureReported || runnerReportedFailure) return;
+    fixtureReported = true;
+    failed++;
+    console.error(`  ✗ audit-entry${SELFCHECK_FIXTURE_MARK}：${why.replace(/[\r\n]+/g, ' ')}`);
+    if (raw === undefined) return;
+    const dump = (stream: string, text: string): void => {
+      console.error(`    ┌ 普通审计的原始 ${stream}${text ? '' : '（空）'}`);
+      if (text) console.error(text.replace(/\n$/, '').split('\n').map((line) => `    │ ${line}`).join('\n'));
+    };
+    dump('stdout', raw.stdout);
+    if (raw.stderr) dump('stderr', raw.stderr);
+  };
+  const sourceText = "/** Ordinary synthetic references: X1, X1.a, X1.b. */\nexport const toyReferences = ['X1', 'X1.a', 'X1.b'] as const;\n";
+  const requirements = {
+    "requirements": [
+      {
+        "id": "X1",
+        "cat": "X",
+        "pri": "P2",
+        "text": "Synthetic ordinary report classification example.",
+        "accept": [
+          {
+            "id": "X1.a",
+            "text": "Synthetic criterion with a declared negative case."
+          },
+          {
+            "id": "X1.b",
+            "text": "Synthetic criterion without a declared negative case."
+          }
+        ]
+      }
+    ]
+  };
+  const mutationData = {
+    "mutations": [
+      {
+        "id": "toy-negative-alpha",
+        "req": "X1.a",
+        "why": "Synthetic data relationship for criterion A."
+      }
+    ],
+    "exemptions": [
+      {
+        "req": "X1.a",
+        "why": "TOY_EXEMPT_ALPHA_7c6f: synthetic justification A."
+      },
+      {
+        "req": "X1.b",
+        "why": "TOY_EXEMPT_BETA_2d91: synthetic justification B."
+      }
+    ]
+  };
+  // 解释器只按编号与理由记号认豁免行。两条预期是照上面自造的资料关系手推的，不取自审计的运行结果：
+  // `mutationData` 只有一条变异、记在 X1.a 名下，所以 X1.a 那条豁免该说「名下有负片」；X1.b 名下
+  // 一条也没有，该说「名下无变异」。预期只写在文末两条 `named` 里 —— 标签是字面量，清册才看得见。
+  // 推导与三种弄坏法的实测见 ADR-70 末尾「还第 790 行」那一节。
+  const definitions = [
+    {
+      "criterion": "X1.a",
+      "why": "TOY_EXEMPT_ALPHA_7c6f: synthetic justification A."
+    },
+    {
+      "criterion": "X1.b",
+      "why": "TOY_EXEMPT_BETA_2d91: synthetic justification B."
+    }
+  ];
+
+  function interpretReport(stdout: string, definitions: readonly { criterion: string; why: string }[]) {
+    const plain = stdout.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\r\n/g, '\n');
+    const lines = plain.split('\n');
+    const units = [...lines, ...plain.split(/\n[ \t]*\n/)];
+    const ids = definitions.map((definition) => definition.criterion);
+    const idPattern = (id: string) => new RegExp(`(?<![A-Za-z0-9_.])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9_.])`);
+    const idsIn = (unit: string) => ids.filter((id) => idPattern(id).test(unit));
+    const hasClassification = (unit: string) => unit.includes('名下有负片') || unit.includes('名下无变异');
+    const indent = (line: string) => line.match(/^[ \t]*/)![0].length;
+    const records: { criterion: string; why: string; actual: string; evidence: string }[] = [];
+    for (const id of ids) {
+      if (lines.filter((line) => idPattern(id).test(line) && hasClassification(line)).length > 1) {
+        return { qualified: false, reason: `${id} 带分类的行不止一处`, records };
+      }
+    }
+    // 只是多认得一种排法，不是要求报告这么排：带且只带一个编号、又带分类的那一行，可以领下面紧跟着、
+    // 缩进更深的理由行；碰到空行、别的编号、别的分类或同级缩进就停。
+    for (let index = 0; index < lines.length; index++) {
+      const header = lines[index];
+      if (idsIn(header).length !== 1 || !hasClassification(header)) continue;
+      const owned = [header];
+      for (let next = index + 1; next < lines.length; next++) {
+        const line = lines[next];
+        if (!line.trim() || indent(line) <= indent(header) || idsIn(line).length || hasClassification(line)) break;
+        owned.push(line);
+      }
+      if (owned.length > 1) units.push(owned.join('\n'));
+    }
+    for (const definition of definitions) {
+      const reasonOccurrences = plain.split(definition.why).length - 1;
+      if (reasonOccurrences !== 1) return { qualified: false, reason: `${definition.criterion} 的豁免理由在报告里不是恰好出现一次`, records };
+      const candidates = units.filter((unit) => unit.includes(definition.why)
+        && idPattern(definition.criterion).test(unit)
+        && definitions.filter((other) => unit.includes(other.why)).length === 1
+        && ids.filter((id) => idPattern(id).test(unit)).length === 1);
+      // 取能独立对上的最小那一行或一段就够了。认不得的排法交人工读，从不算语义红。
+      candidates.sort((a, b) => a.length - b.length);
+      if (!candidates.length) return { qualified: false, reason: `${definition.criterion} 的编号与理由对不上同一行或同一段`, records };
+      const unit = candidates[0];
+      const classes = [
+        ...(unit.includes('名下有负片') ? ['has-negative'] : []),
+        ...(unit.includes('名下无变异') ? ['no-mutation'] : []),
+      ];
+      if (classes.length !== 1) return { qualified: false, reason: `${definition.criterion} 那一处两种说法不是恰好有一种`, records };
+      records.push({ criterion: definition.criterion, why: definition.why, actual: classes[0], evidence: unit });
+    }
+    return { qualified: true, records };
+  }
+
+  try {
+    ownedToyRoot = mkdtempSync(join(tmpdir(), 'selfcheck-audit-entry-'));
+    if (CLAIMS_PATH !== '.check-cache/test-claims.json' || ENTRY_CLAIMS_PATH !== '.check-cache/selfcheck-claims.json') {
+      fixtureFailure('两份覆盖记录的路径常量与本组写死的不一样');
+      return;
+    }
+    for (const directory of ['scripts', 'scripts/check', 'docs', 'docs/adr', 'skill', '.check-cache']) {
+      mkdirSync(join(ownedToyRoot, directory), { recursive: true });
+    }
+    const sourceHash = fingerprint([['scripts/toy-reference.ts', sourceText]]);
+    if (typeof sourceHash !== 'string' || sourceHash.length === 0) {
+      fixtureFailure('fingerprint 没交回非空的源码指纹');
+      return;
+    }
+    const encode = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
+    const unitClaims = { source_hash: sourceHash, covered: ['X1'], criteria: ['X1.a', 'X1.b'], tensions: [] };
+    const entryClaims = { source_hash: sourceHash, covered: [], criteria: [], tensions: [] };
+    // 都是自造的玩具输入，不是真实产品测试的覆盖证据。
+    const files: readonly (readonly [string, string])[] = [
+      ['package.json', '{"private":true,"type":"module"}\n'],
+      ['scripts/toy-reference.ts', sourceText],
+      ['docs/requirements.json', encode(requirements)],
+      ['scripts/check/mutations.json', encode(mutationData)],
+      [CLAIMS_PATH, encode(unitClaims)],
+      [ENTRY_CLAIMS_PATH, encode(entryClaims)],
+    ];
+    for (const [relative, body] of files) {
+      const filename = join(ownedToyRoot, relative);
+      mkdirSync(dirname(filename), { recursive: true });
+      writeFileSync(filename, body);
+    }
+    if (files.some(([relative, body]) => readFileSync(join(ownedToyRoot!, relative), 'utf8') !== body)) {
+      fixtureFailure('玩具树里读回的字节与写下去的不一样');
+      return;
+    }
+    const run = runToolBoth('audit-entry 起普通审计', 'audit', [], ownedToyRoot, { status: 0 });
+    if (!run.ok) {
+      runnerReportedFailure = true;
+      return; // runBoth 已经带进程记号报过、计过一次
+    }
+    if (files.some(([relative, body]) => readFileSync(join(ownedToyRoot!, relative), 'utf8') !== body)) {
+      fixtureFailure('审计跑完，玩具树里的源码、资料或覆盖记录变了');
+      return;
+    }
+    const interpretation = interpretReport(run.stdout, definitions);
+    if (!interpretation.qualified) {
+      // 认不出不算语义红，也不算抓到：原始报告连同 stderr 交出来待人工读，玩具树随后照常删掉
+      fixtureFailure(`${interpretation.reason ?? '报告里的豁免行认不出'}，原始报告附在下面，待人工读`,
+        { stdout: run.stdout, stderr: run.stderr });
+      return;
+    }
+    observedA = interpretation.records.find((record) => record.criterion === 'X1.a')?.actual;
+    observedB = interpretation.records.find((record) => record.criterion === 'X1.b')?.actual;
+    if (!observedA || !observedB) {
+      fixtureFailure('解释合格了，却没交回 X1.a、X1.b 两条记录');
+      return;
+    }
+  } catch (error) {
+    fixtureFailure(error instanceof Error ? error.message : String(error));
+    return;
+  } finally {
+    if (ownedToyRoot !== undefined) {
+      try { rmSync(ownedToyRoot, { recursive: true, force: true }); }
+      catch (error) { fixtureFailure(error instanceof Error ? error.message : String(error)); }
+    }
+  }
+  if (fixtureReported || runnerReportedFailure) return;
+  named('audit-exempt-X1.a-has-named-negative', observedA === 'has-negative',
+    'X1.a 那条豁免（理由带 TOY_EXEMPT_ALPHA_7c6f）该说「名下有负片」');
+  named('audit-exempt-X1.b-has-no-mutation', observedB === 'no-mutation',
+    'X1.b 那条豁免（理由带 TOY_EXEMPT_BETA_2d91）该说「名下无变异」');
+});
 
 // ---- 子集基线：先验正常代码，同一配置只验一次，未通过就不能施加变异 ----
 group('mutation-baseline', [], () => {
@@ -6758,6 +8512,24 @@ if (bad) { console.log('✗ 脚本自检：' + bad + ' 项失败'); process.exit
     if (calmSame.ok) named('启动数入口：覆盖写之后不带 --write 再跑，那一行是树内摘要与现算的相同、3 种配置，闸门绿、以 0 退出',
       calmSame.status === 0 && isDeepStrictEqual(gateOut(calmSame), [NO_IDLE, SAME, CALM]),
       `退出码 ${calmSame.status}；树内的${treeNow()}\n闸门打的：\n${calmSame.stdout}stderr 末几行：${stderrTail(calmSame.stderr)}`)
+    // 分份跑写的几份（ADR-200）：没有整份的 launches.json 时入口读目录里的 launches-k-of-n.json 拼回整份。
+    // 把上面那份（findings 空）按 tally 拆成两份写进去：拼回来与整份逐字节一样 → 同 calmSame；再删掉第 2 份 → 拼不起来，先打一行 ✗、当没有文件，闸门红
+    const partAt = (k: number) => join(dirname(recAt), `launches-${k}-of-2.json`)
+    rmSync(recAt, { force: true })
+    writeFileSync(partAt(1), JSON.stringify({ ...file, findings: [], tally: inTally.slice(0, 1), shard: { index: 1, count: 2 } }))
+    writeFileSync(partAt(2), JSON.stringify({ ...file, findings: [], tally: inTally.slice(1), baselines: {}, again: {}, shard: { index: 2, count: 2 } }))
+    const joined = runToolBoth('launches 在只有两份分份启动数文件的启动数玩具树分支上判', 'launches', [], root, { status: 0, soft: [1] })
+    if (joined.ok) named('启动数入口：没有整份文件时拼两份分份文件，结果与整份那一跑一样（树内摘要相同、闸门绿、以 0 退出）',
+      joined.status === 0 && isDeepStrictEqual(gateOut(joined), [NO_IDLE, SAME, CALM]),
+      `退出码 ${joined.status}；闸门打的：\n${joined.stdout}stderr 末几行：${stderrTail(joined.stderr)}`)
+    rmSync(partAt(2), { force: true })
+    const halfJoined = runToolBoth('launches 在只剩第 1 份分份启动数文件的启动数玩具树分支上判', 'launches', [], root, { status: 1, soft: [0] })
+    if (halfJoined.ok) named('启动数入口：分份文件少一份时先打拼不起来的那一行，闸门照没有文件红、以 1 退出',
+      halfJoined.status === 1 && gateOut(halfJoined)[0] === '✗ 分份的启动数文件：launches-1-of-2.json 拼不起来：要第 1 到第 2 份各一份，拿到的是第 1 份'
+        && /✗ 启动数闸门：无从判断/.test(halfJoined.stdout),
+      `退出码 ${halfJoined.status}；闸门打的：\n${halfJoined.stdout}stderr 末几行：${stderrTail(halfJoined.stderr)}`)
+    rmSync(partAt(1), { force: true })
+    putRec({ ...file, findings: [] })
     // 入口自己怎么读树内文件：第 4 小节「照 readFileSync 的 'utf8' 读，BOM 不去」、逐字节与现算的 CALM_WANT 比，不解析成结构再比。下面五份各放一次、
     // 各跑一次，都在分支上，都不是逐字节相同 → 丙，闸门绿着也红、以 1 退出；差别照第 4 小节：带 BOM 的解析不成 JSON（第三十八节「实现定了的」第 1 条）、空文件读得出来
     // （是空串，不是没有这个文件）也解析不成 JSON → 认不得树内的文件；CRLF、每行行首多一个空格、少了末尾换行都解析得成、认得，
@@ -6914,26 +8686,33 @@ group('adr-ledger-entry', [], () => {
 })
 
 // ---- 派工那条路：真起 worker，真在隔离目录里跑 ----
-group('jobs', [], () => {
+group('mutate-parallel-workers', [], () => {
   // **上面那些 mutate 夹具没有一处走到派工。** 那几道体检在派几个之前就退出了，`--brief`
   // 在打完清单那一步退出，而整跑那一份只有一条变异 —— 派几个按「不超过要跑的条数」收口
   // 成 1，落回原来那条串行路。于是隔离目录、起 worker、一条一派、打断转发、跑完核账，
   // 检查链里**一行都没执行到**：把核账那一整段从入口删掉，整条链照样全绿（实测）。
-  // 指着入口的变异又造不出来（入口在验证基础设施闭包里，指着它的变异会被「自己验自己」
-  // 当场拦下），所以这一层只能有夹具 —— 与本文件别处那些 mutate 夹具同一处境。
+  // （上句是写成时的实测；当前真实 worker 入口的覆盖见下文。）
+  // 入口在自检的验证基础设施闭包里，指着它、显式写了 `by` 且不是 `test` 的变异会被
+  // 「自己验自己」拦下；不写 `by` 或写 `by: test` 不被拦，但当前需求测试没走到这些
+  // 协调者的接线，所以这里只有自检夹具、没有负片。
+  // `h-worker-output-contract` 已验真实公开 worker 入口的输出合同，
+  // 不能代替协调者的派工与核账。
   //
   // **断言认的是「跑那一遍的当前目录在哪」，不是「结论对不对」。** 结论对不对串行也能对，
   // 证不了它真的派了工；而验证者跑在 `.check-cache/mutate-jobs/` 底下这件事，
   // 只有真派工才成立 —— 那正是整套隔离的地基：改的、还的、写的，全在各自那份副本里。
   const jobsTmp = join(tmp, 'jobs'), jobsMark = join(tmp, 'jobs-cwd.txt')
 
-  seedJobs(jobsTmp, [jobMut('M-J-a', 'keep', 'gone'), jobMut('M-J-b', 'hold', 'lost')], jobsMark)
+  // **三条配两个 worker**（ADR-72 第 211 行）：两条配两个的话每人领一条就到头了，「收到结论之后
+  // 再派下一条」那一支一次都走不到。三条里总有一个 worker 交回第一条结论后再领第三条
+  seedJobs(jobsTmp, [jobMut('M-J-a', 'keep', 'gone'), jobMut('M-J-b', 'hold', 'lost'),
+    jobMut('M-J-i', "v = 'keep'", "v = 'kept'")], jobsMark)
   rmSync(jobsMark, { force: true })
-  const jobs = runToolBoth('mutate 派工：两条变异各在自己的隔离目录里跑', 'mutate',
+  const jobs = runToolBoth('mutate 派工：三条变异配两个 worker，各在自己的隔离目录里跑', 'mutate',
     ['--jobs=2'], jobsTmp)
-  if (jobs.ok && !/2 个变异全部被抓到/.test(jobs.stdout)) {
+  if (jobs.ok && !/3 个变异全部被抓到/.test(jobs.stdout)) {
     failed++
-    console.error('  ✗ 派工跑完，两条的结论没有都回来')
+    console.error('  ✗ 派工跑完，三条的结论没有都回来')
   } else if (jobs.ok) {
     // 每一行都得落在隔离目录里。串行那条路记下的会是语料根目录，一眼分得出
     const cwds = existsSync(jobsMark)
@@ -6941,8 +8720,8 @@ group('jobs', [], () => {
     const outside = cwds.filter(d => !d.includes('mutate-jobs'))
     // **还要两个目录互不相同。** 只问「都在 mutate-jobs 底下」的话，两个 worker 错误地
     // 共用同一个 w0 时这条照样绿 —— 而「一人一个隔离目录」正是整套隔离的地基，
-    // 那样就等于没证（#109 第四轮评审指出）
-    if (cwds.length !== 2 || outside.length || new Set(cwds).size !== 2) {
+    // 那样就等于没证（#109 第四轮评审指出）。三条跑了三遍、只落在两个目录里：有一个 worker 跑了两条
+    if (cwds.length !== 3 || outside.length || new Set(cwds).size !== 2) {
       failed++
       console.error(`  ✗ 验证者没各跑在自己的隔离目录里 —— 记下的当前目录：${JSON.stringify(cwds)}`)
     }
@@ -6964,6 +8743,202 @@ group('jobs', [], () => {
   }
 })
 
+// ---- 两跑共用一棵树：各删各的作业目录，已不在的那一跑留下的才清（ADR-74 第 237 行）----
+group('mutate-jobs-per-run', [], () => {
+  // 原先每一跑开头整删作业根、worker 目录又都叫 `w0`、`w1`……两跑同时开，后来的把先来的
+  // 那份连号文件一起抹掉，先来的硬来时读到 ENOENT、当成「没号」放过，验证者那一组就留着了。
+  // 这里在作业根底下先摆三样，再真起一跑派工：
+  // - 自检自己这个进程号的一层（整跑期间都在）—— 站的是「另一跑还在用」，必须原样留着；
+  // - 一个已经退出的进程号的一层 —— 站的是「被硬杀的那一跑留下的半成品」，该清；
+  // - 两个名字不是规范的号的：`w0`（旧布局）与前面带 0 的那个已退出进程号 —— 不碰。后一个是
+  //   承重的：入口问「在不在」时 `w0` 读成 NaN、问不出来、算在，删不到；带 0 的那个读得成号、
+  //   进程又已不在，入口不先经判定认名字就会把它删掉。
+  // 判定那一半（`jobsRunDir`、`staleRunDirs`）有单测和负片；**这里守的是入口派工那一半**：
+  // 开工前真按判定清、正常收尾只删自己那一层、作业根不删。正常基线那一半（同样两句）
+  // 这个玩具语料走不到 —— 它没有子集基线；硬来那一句收尾这里也不走 —— 这两处没有夹具，记在 ADR-74。入口在自检的验证基础设施
+  // 闭包里，指名自检的变异被「自己验自己」拦下；`by: test` 不被拦，但需求测试根本不起派工，
+  // 所以这一半只有自检夹具、没有负片。
+  const runTmp = join(tmp, 'jobs-per-run'), runMark = join(tmp, 'jobs-per-run-cwd.txt')
+  seedJobs(runTmp, [jobMut('M-J-e', 'keep', 'gone'), jobMut('M-J-f', 'hold', 'lost')], runMark)
+  const root = join(runTmp, '.check-cache', 'mutate-jobs')
+  const liveRun = join(root, String(process.pid))
+  const deadPid = spawnSync(process.execPath, ['-e', '']).pid
+  const deadRun = join(root, String(deadPid))
+  const legacy = join(root, 'w0'), padded = join(root, `0${deadPid}`)
+  try {
+    mkdirSync(join(liveRun, 'w0'), { recursive: true })
+    writeFileSync(join(liveRun, 'w0', 'marker'), 'x')
+    writeFileSync(join(liveRun, 'w0.verifier'), '1\n')
+    mkdirSync(join(deadRun, 'w0'), { recursive: true })
+    mkdirSync(legacy, { recursive: true })
+    mkdirSync(padded, { recursive: true })
+  } catch (e) {
+    failed++
+    console.error(`  ✗ 作业目录夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`)
+    return
+  }
+  const run = runToolBoth('mutate 派工：作业根底下有另一跑还在用的一层、一跑已不在的一层', 'mutate',
+    ['--jobs=2'], runTmp)
+  if (!run.ok) return
+  const left = existsSync(root) ? readdirSync(root).sort() : []
+  named('作业目录：派工照常跑完，两条都抓到', /2 个变异全部被抓到/.test(run.stdout), run.stdout.split('\n').slice(-8).join('\n'))
+  named('作业目录：另一跑还在用的那一层原样留着（隔离副本与号文件都在）',
+    existsSync(join(liveRun, 'w0', 'marker')) && existsSync(join(liveRun, 'w0.verifier')), `作业根底下剩：${left.join('、')}`)
+  named('作业目录：已不在的那一跑留下的层清掉了', !existsSync(deadRun), `进程 ${deadPid} 那一层还在`)
+  named('作业目录：名字不是规范的号的不碰（旧布局的 w0、前面带 0 的号）', existsSync(legacy) && existsSync(padded),
+    `作业根底下剩：${left.join('、')}`)
+  named('作业目录：这一跑自己那一层收干净了，作业根留着',
+    JSON.stringify(left) === JSON.stringify([String(process.pid), 'w0', `0${deadPid}`].sort()), `作业根底下剩：${left.join('、')}`)
+})
+
+// ---- worker 副本带哪些文件：清单由 git 说（ADR-72 第 303 行）----
+group('mutate-copy-list', [], () => {
+  // 判定那一半（`workerCopyList`：解析、去重、入口占着的两处、`.env` 一族、不在顶层、清单空）有单测与负片；
+  // **这里守的是入口那一半**：真去问了 git、照清单一份一份建副本。玩具语料自己建 git 历史（与 `mutationFixtureEnv`
+  // 建的同形：两次提交），另摆五样，每个 worker 里的验证者把它看到的记一笔：
+  // - 没受跟踪、也没被忽略的 `notes/loose.txt` —— 该带（站的是 `--others`）；
+  // - 写进 `.gitignore` 的 `ignored.txt` —— 不该带（站的是 `--exclude-standard`；原先的手抄表里没有这个名字，整棵复制会带上）；
+  // - 没登记的 `.env.production` —— 不该带（不交给 git 的那一道）；
+  // - 受跟踪、工作树里已删掉的 `gone.txt` —— 不带，也不让建副本那一步失败（`--cached` 照列它）；
+  // - 受跟踪的相对符号链接 `linked` —— 建成符号链接，不跟进去复制成文件；
+  // - 一份没受跟踪的嵌套仓库 `nested/`（git 列成一项、以斜杠结尾）—— 不带，也不让建副本那一步失败；
+  // - 受跟踪、工作树里换成了命名管道的 `piped.txt` —— 不带：拿去复制会在打开那一下挂住，整跑停在建副本（#467 CodeRabbit 第 1 轮）。
+  // 正常基线那一处（同一个建副本的函数）这个语料走不到 —— 它没有子集基线；不在仓库顶层那一种入口里没有夹具，记在 ADR-72。
+  // 入口在自检的验证基础设施闭包里，指名自检的变异被「自己验自己」拦下；`by: test` 不被拦，但需求测试只起 `mutate --worker`、
+  // 根本不起派工，走不到这两处 —— 所以这一半只有自检夹具、没有负片。
+  const copyTmp = join(tmp, 'jobs-copy-list'), copyMark = join(tmp, 'jobs-copy-list-seen.txt')
+  seedJobs(copyTmp, [jobMut('M-J-g', 'keep', 'gone'), jobMut('M-J-h', 'hold', 'lost')], copyMark)
+  const q = "'"
+  const git = (...args: string[]): void => {
+    const r = spawnSync('git', args, { cwd: copyTmp, encoding: 'utf8', env: { ...process.env, ...GIT_ISOLATED } })
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')}：${r.stderr || r.error}`)
+  }
+  try {
+    writeFileSync(join(copyTmp, 'scripts', 'test.ts'), [
+      `import { v, w } from ${q}./check/a.js${q}`,
+      `import { appendFileSync, existsSync, lstatSync } from ${q}node:fs${q}`,
+      `appendFileSync(${JSON.stringify(copyMark)}, JSON.stringify({ cwd: process.cwd(), loose: existsSync(${q}notes/loose.txt${q}),`
+        + ` ignored: existsSync(${q}ignored.txt${q}), env: existsSync(${q}.env.production${q}), gone: existsSync(${q}gone.txt${q}),`
+        + ` link: existsSync(${q}linked${q}) && lstatSync(${q}linked${q}).isSymbolicLink(), nested: existsSync(${q}nested${q}), piped: existsSync(${q}piped.txt${q}) }) + ${q}\\n${q})`,
+      `const bad = (v !== ${q}keep${q} ? 1 : 0) + (w !== ${q}hold${q} ? 1 : 0)`,
+      `if (bad) { console.log(${q}\\n${q} + bad + ${q} 个失败\\n${q}); process.exitCode = 1 }`,
+    ].join('\n') + '\n', 'utf8')
+    writeFileSync(join(copyTmp, 'gone.txt'), 'x')
+    writeFileSync(join(copyTmp, 'piped.txt'), 'x')
+    symlinkSync(join('docs', 'requirements.json'), join(copyTmp, 'linked'))
+    git('init', '--quiet', '-b', 'main')
+    git('config', 'user.name', 'Mutation fixture')
+    git('config', 'user.email', 'fixture@example.invalid')
+    git('add', '--', 'scripts', 'docs', 'gone.txt', 'piped.txt', 'linked')
+    git('commit', '--quiet', '-m', 'fixture baseline')
+    git('commit', '--quiet', '--allow-empty', '-m', 'fixture head')
+    rmSync(join(copyTmp, 'gone.txt'))
+    rmSync(join(copyTmp, 'piped.txt'))
+    const fifo = spawnSync('mkfifo', [join(copyTmp, 'piped.txt')], { encoding: 'utf8' })
+    if (fifo.status !== 0) throw new Error(`mkfifo：${fifo.stderr || fifo.error}`)
+    mkdirSync(join(copyTmp, 'notes'))
+    writeFileSync(join(copyTmp, 'notes', 'loose.txt'), 'x')
+    writeFileSync(join(copyTmp, '.gitignore'), 'ignored.txt\n')
+    writeFileSync(join(copyTmp, 'ignored.txt'), 'x')
+    writeFileSync(join(copyTmp, '.env.production'), 'SECRET=x\n')
+    mkdirSync(join(copyTmp, 'nested'))
+    writeFileSync(join(copyTmp, 'nested', 'x.txt'), 'x')
+    const inner = spawnSync('git', ['init', '--quiet'], { cwd: join(copyTmp, 'nested'), encoding: 'utf8', env: { ...process.env, ...GIT_ISOLATED } })
+    if (inner.status !== 0) throw new Error(`git init（嵌套仓库）：${inner.stderr || inner.error}`)
+    rmSync(copyMark, { force: true })
+  } catch (e) {
+    failed++
+    console.error(`  ✗ 副本清单夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`)
+    return
+  }
+  // 建副本时若去打开那根命名管道，`open` 会一直等一个写端，整跑停在那里不动 —— 自检也跟着挂住、什么也不报。
+  // 所以旁边起一个「疏通的」：每半秒用不阻塞的方式把管道的写端开一下再关上。没人在读时这一下直接失败、什么也不发生
+  // （修复在的时候就是这样）；有人卡在读端时，读端拿到文件结尾，那份副本建成一个空文件、整跑接着走完 ——
+  // 于是撤掉修复不会挂住，而是由下面「换成命名管道的没带」那条具名断言判红，派工起的子孙也都自己跑完、收干净。
+  // 撤掉修复实测过：具名断言红、整跑照常结束、不留进程（#467 CodeRabbit 第 1 轮）。
+  // 时限是疏通的那个自己也出了岔子时的兜底：到点只杀直接起的那一个，经 tsx 起时它底下那个真跑着的 node 会留下，
+  // 所以兜底只保证自检不挂住，不保证收干净。
+  const unjam = spawn(process.execPath, ['-e', [
+    `const fs = require('node:fs')`,
+    `const end = Date.now() + 150000`,
+    `setInterval(() => {`,
+    `  try { fs.closeSync(fs.openSync(process.argv[1], fs.constants.O_WRONLY | fs.constants.O_NONBLOCK)) } catch {}`,
+    `  if (Date.now() > end) process.exit(0)`,
+    `}, 500)`,
+  ].join('\n'), join(copyTmp, 'piped.txt')], { stdio: 'ignore' })
+  const run = runToolBoth('mutate 派工：副本照 git 的清单建', 'mutate', ['--jobs=2'], copyTmp, { status: 0, timeoutMs: 120_000 })
+  unjam.kill('SIGKILL')
+  if (!run.ok) return
+  const seen = existsSync(copyMark) ? readFileSync(copyMark, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)) : []
+  const shown = JSON.stringify(seen)
+  named('副本清单：派工照常跑完，两条都抓到', /2 个变异全部被抓到/.test(run.stdout), run.stdout.split('\n').slice(-8).join('\n'))
+  named('副本清单：两个验证者都跑在隔离目录里', seen.length === 2 && seen.every(r => r.cwd.includes('mutate-jobs')), shown)
+  named('副本清单：没受跟踪、也没被忽略的带上了', seen.length === 2 && seen.every(r => r.loose === true), shown)
+  named('副本清单：写进忽略规则的没带', seen.length === 2 && seen.every(r => r.ignored === false), shown)
+  named('副本清单：没登记的环境文件没带', seen.length === 2 && seen.every(r => r.env === false), shown)
+  named('副本清单：工作树里已删掉的没带，建副本也没失败', seen.length === 2 && seen.every(r => r.gone === false), shown)
+  named('副本清单：符号链接建成符号链接', seen.length === 2 && seen.every(r => r.link === true), shown)
+  named('副本清单：没受跟踪的嵌套仓库没带，建副本也没失败', seen.length === 2 && seen.every(r => r.nested === false), shown)
+  named('副本清单：换成命名管道的没带，建副本也没挂住', seen.length === 2 && seen.every(r => r.piped === false), shown)
+})
+
+// ---- 分份（ADR-197、ADR-200）：CI 上几台 runner 各跑清单的一份，几份合起来是整份；写坏了一条也不施；启动数写这一份自己的文件 ----
+group('mutate-shard', [], () => {
+  // 判定那一半（`shardWanted`、`shardOf`）有单测和负片；**这里守的是入口接线那一半**：派工与串行两条路
+  // 都只发这一份、收尾那一句按这一份说、验证者的环境里不带 MUTATE_SHARD、写坏了在施变之前就退出。
+  // 入口在自检的验证基础设施闭包里，指名自检的变异被「自己验自己」拦下，需求测试又不起入口，
+  // 所以同 mutate-jobs-per-run，这一半只有自检夹具、没有负片（ADR-197 第五节）。
+  // 四条变异各改一处：清单第 1、3 条改 v，第 2、4 条改 w —— 验证者每跑一遍记下它看见的两个值，
+  // 哪一份跑了哪几条就看得出来
+  const shardTmp = join(tmp, 'mutate-shard'), shardMark = join(tmp, 'mutate-shard-seen.txt')
+  try {
+    seedJobs(shardTmp, [jobMut('M-S-a', 'keep', 'gone'), jobMut('M-S-b', 'hold', 'lost'),
+      jobMut('M-S-c', `${q}keep${q}`, `${q}kept${q}`), jobMut('M-S-d', `${q}hold${q}`, `${q}held${q}`)], shardMark)
+    writeFileSync(join(shardTmp, 'scripts', 'test.ts'), [
+      `import { v, w } from ${q}./check/a.js${q}`,
+      `import { appendFileSync } from ${q}node:fs${q}`,
+      `appendFileSync(${JSON.stringify(shardMark)}, v + ${q},${q} + w + ${q},${q} + (process.env.MUTATE_SHARD ?? ${q}-${q}) + ${q}\\n${q})`,
+      `const bad = (v !== ${q}keep${q} ? 1 : 0) + (w !== ${q}hold${q} ? 1 : 0)`,
+      `if (bad) { console.log(${q}\\n${q} + bad + ${q} 个失败\\n${q}); process.exitCode = 1 }`,
+    ].join('\n') + '\n', 'utf8')
+  } catch (e) {
+    failed++
+    console.error(`  ✗ 分份夹具${SELFCHECK_FIXTURE_MARK}：${e instanceof Error ? e.message : String(e)}`)
+    return
+  }
+  const seen = (): string[] => {
+    const lines = existsSync(shardMark) ? readFileSync(shardMark, 'utf8').split('\n').filter(Boolean) : []
+    rmSync(shardMark, { force: true })
+    return lines
+  }
+  const shardRun = (label: string, shard: string, jobs: string, status: number) =>
+    runBoth(label, [S(SELFCHECK_TOOLS.mutate), jobs], shardTmp, { status },
+      { ...mutationFixtureEnv('mutate', [jobs], shardTmp), MUTATE_SHARD: shard })
+  // 第 1 份走派工那条路（两个 worker），第 2 份走串行那条路
+  // 分份时启动数写这一份自己的文件（ADR-200），开跑先删上一跑留下的整份文件与各份文件
+  const launchDir = join(shardTmp, 'output', 'mutation-launches')
+  const launchFiles = (): string[] => existsSync(launchDir) ? readdirSync(launchDir).filter(n => n.startsWith('launches')).sort() : []
+  mkdirSync(launchDir, { recursive: true })
+  writeFileSync(join(launchDir, 'launches.json'), '{}\n')
+  const first = shardRun('mutate 分份：第 1/2 份，派工', '1/2', '--jobs=2', 0)
+  const firstFiles = launchFiles()
+  const firstSeen = seen()
+  const second = shardRun('mutate 分份：第 2/2 份，串行', '2/2', '--jobs=1', 0)
+  const secondFiles = launchFiles()
+  const secondSeen = seen()
+  const bad = shardRun('mutate 分份：写成 3/2', '3/2', '--jobs=1', 1)
+  const badSeen = seen()
+  const mutated = (lines: string[]) => lines.map(l => l.split(',').slice(0, 2).join(',')).filter(l => l !== 'keep,hold').sort()
+  named('分份：第 1 份派工只跑了清单第 1、3 条', first.ok && JSON.stringify(mutated(firstSeen)) === JSON.stringify(['gone,hold', 'kept,hold']), firstSeen.join(' | '))
+  named('分份：第 2 份串行只跑了清单第 2、4 条', second.ok && JSON.stringify(mutated(secondSeen)) === JSON.stringify(['keep,held', 'keep,lost']), secondSeen.join(' | '))
+  named('分份：收尾那一句按这一份说', /第 1\/2 份 2 个变异全部被抓到（整份 4 个/.test(first.stdout) && /第 2\/2 份 2 个变异全部被抓到（整份 4 个/.test(second.stdout),
+    [first.stdout, second.stdout].map(o => o.split('\n').slice(-3).join(' / ')).join(' ‖ '))
+  named('分份：验证者的环境里不带 MUTATE_SHARD', [...firstSeen, ...secondSeen].length > 0 && [...firstSeen, ...secondSeen].every(l => l.endsWith(',-')), [...firstSeen, ...secondSeen].join(' | '))
+  named('分份：启动数写这一份自己的文件，上一跑的整份文件删了', JSON.stringify(firstFiles) === JSON.stringify(['launches-1-of-2.json']), firstFiles.join(' | '))
+  named('分份：上一份留下的分份文件也删了', JSON.stringify(secondFiles) === JSON.stringify(['launches-2-of-2.json']), secondFiles.join(' | '))
+  named('分份：写成 3/2 以 1 退出、一条也没施', bad.ok && mutated(badSeen).length === 0 && /说不清这一跑是第几份/.test(bad.stdout + bad.stderr), `${badSeen.join(' | ')} ‖ ${(bad.stdout + bad.stderr).split('\n').slice(-3).join(' / ')}`)
+})
+
 // ---- 起 worker 时资源不够：报出来的原因要指向资源，不要指向派工代码 ----
 group('jobs-resource', [], () => {
   // 打开的文件数到顶时，`spawn` **既不同步抛、也来不及发 `error`**：Node 在装管道之前
@@ -6973,8 +8948,9 @@ group('jobs-resource', [], () => {
   //
   // 判定那一半（`noStdio`）有单测和负片守着；**这里守的是入口那一半** ——
   // 问得够不够早（在碰 stdin 之前）、说的是不是资源、以及走完硬来之后目录收没收干净。
-  // 那三件都在 `mutate.ts` 里，而指着它的变异造不出来（它在验证基础设施闭包里），
-  // 与本文件另外几处 mutate 夹具同一处境。
+  // 那三件都在 `mutate.ts` 里。入口在自检的验证基础设施闭包里，指着它、显式写了 `by`
+  // 且不是 `test` 的变异会被「自己验自己」拦下；不写 `by` 或写 `by: test` 不被拦，
+  // 但当前需求测试没走到这里的资源拒绝与收尾，所以这一半只有自检夹具、没有负片。
   //
   // 低文件数上限不能决定耗尽位置：macOS / Node 24 曾先在复制首个 worker 时撞 EMFILE，
   // 没到这条分支（ADR-104）。保留派工语料，给复制留空间，再由临时预加载在真实
@@ -6982,7 +8958,7 @@ group('jobs-resource', [], () => {
   //
   // **这条路上压根没有验证者可漏**，虽然它每次都走硬来（硬来现在会按组收掉各 worker 底下的
   // 验证者，见 ADR-74；这里说的不是那一刀，是这条路走到时一个验证者都还没起来）。
-  // 理由是结构上的，不是运气：派工那一段从 `cpSync` 到 `spawn` 到
+  // 理由是结构上的，不是运气：派工那一段从建副本到 `spawn` 到
   // 派第一个编号，整个是**一遍同步**跑完的，中间事件循环一次都没转 —— 而 worker 要先把
   // tsx 启起来、读到 stdin，才谈得上起验证者。硬来那一句 `process.exit` 就发生在同一拍里。
   // 本夹具在第一趟真实 spawn 前耗尽描述符，spawn 返回后释放；它只验启动失败后的清理
@@ -7037,7 +9013,9 @@ group('jobs-resource', [], () => {
                 + '要 POSIX shell（`/bin/sh`），这里起不来')
   } else {
     const out = (r.stdout ?? '') + (r.stderr ?? '')   // P1 例外：拿不到就是空输出，这是子进程的两股流
-    const left = existsSync(join(fdTmp, '.check-cache', 'mutate-jobs'))
+    // 作业根本身留着（ADR-74 末节）；收干净 = 根底下一层都不剩
+    const jobsRoot = join(fdTmp, '.check-cache', 'mutate-jobs')
+    const left = existsSync(jobsRoot) && readdirSync(jobsRoot).length > 0
     rmSync(join(fdTmp, '.check-cache'), { recursive: true, force: true })
     const tail = out.split('\n').slice(-6).join('\n')
     named('起 worker 时资源不够：真实派工前实际耗尽了文件描述符',
@@ -7060,7 +9038,7 @@ group('jobs-resource', [], () => {
       /ulimit -n/.test(out) && /--jobs=/.test(out),
       `那句话没给出路：\n${tail}`)
     named('起 worker 时资源不够：隔离目录收干净了', !left,
-      '硬来之后 `.check-cache/mutate-jobs` 还在 —— 半成品副本留在盘上了')
+      '硬来之后 `.check-cache/mutate-jobs` 底下还有东西 —— 半成品副本留在盘上了')
   }
 
   // mutate 的 --brief 只在「写测试的上下文」里用，检查链平时走的是不带参数那条路。
@@ -7081,13 +9059,130 @@ group('jobs-resource', [], () => {
   // 指到语料上之后两支话都在，于是两支都断言 —— 与整跑那一处对齐。
 })
 
+// ---- 派工那一侧硬来时，真的按组收掉各 worker 底下的验证者（ADR-74 第 198 行）----
+group('jobs-hard-stop', [], () => {
+  // 判定 `hardStopPlan` 有单测守着；**这里守的是入口那一半** —— 硬来时真的给每个读得出号的验证者组发那一刀。
+  // 那一句从 `mutate.ts` 删掉，单测与变异照样全绿（ADR-74 那张欠条，#116 第二轮评审核过）。入口在验证基础设施闭包里，
+  // 而需求测试走不到派工的硬来，所以这里只有夹具、没有负片（同 `jobs-resource`）。
+  //
+  // 形状照 ADR-74 第 174–191 行：两条变异、`--jobs=2`，每个验证者分出一个孙子不停写心跳，自己挂住不退。
+  // 驱动等两份号文件与两份心跳都有了，从号文件所在那一层的名字里拿到派工进程的号（ADR-74 第 237 行之后号文件在 `<派工进程号>/w<i>.verifier`），读 `/proc/<派工>/task/<派工>/children`
+  // 拿到两个 worker 壳和壳底下真跑的 worker：先把真 worker 冻住（SIGSTOP），再把壳全部 SIGKILL —— 真 worker 收不到转发来的 SIGTERM，
+  // 管道没关，`close` 不来，宽限期到点走硬来 —— 再给派工发 SIGTERM，等它退出，看心跳停没停、隔离目录收没收。
+  // 不先杀壳的话，SIGTERM 经壳转发给 worker，worker 自己就把验证者那一组收了，硬来那一刀删掉也照样绿。
+  // 不冻住真 worker 的话，它看见验证者没了会去抹号、还原副本，正赶上硬来删隔离目录，删会抛、目录留下：整跑的负载下撞上过一次（ADR-74 第 122–127 行那张欠条的残量）。
+  // 心跳一个孙子一份、名字带它自己的号，而 tmp 是这一跑新建的：复用旧心跳时，上一轮留下的孤儿会把这一轮读红（ADR-74 第 188 行）。
+  // 读不到 `/proc/<pid>/task/<pid>/children`（Linux 之外、或内核没开）时明着降级、不判：开跑之前先探本进程的那一份，
+  // 探不到就不起派工 —— 起了才发现的话，驱动拿不到壳与 worker，Windows 上负 pid 又落空，孙子要活到自己的上限。
+  // 起了之后才读不到的，驱动照样降级。
+  // 收尾由驱动兜底：不论绿红，最后都给记下的验证者组补一刀 SIGKILL、把冻住的真 worker 杀掉，红的那一跑也不留孤儿
+  if (!existsSync(`/proc/${process.pid}/task/${process.pid}/children`)) {
+    console.log('  ⊘ 派工硬停按组收验证者：这台机器上没验 —— 读不到子进程表，那是 Linux 才有的'); return
+  }
+  const hardTmp = join(tmp, 'jobs-hard-stop'), beat = join(tmp, 'jobs-hard-stop-beat')
+  const hardDriver = join(tmp, 'jobs-hard-stop-driver.cjs'), hardLog = join(tmp, 'jobs-hard-stop.log')
+  // 记当前目录的那份文件用不上：`scripts/test.ts` 紧接着整份换掉
+  seedJobs(hardTmp, [jobMut('M-J-h0', 'keep', 'gone'), jobMut('M-J-h1', 'hold', 'lost')], join(tmp, 'jobs-hard-stop-cwd.txt'))
+  const beatCode = `const fs = require('node:fs'); const at = ${JSON.stringify(beat)} + '-' + process.pid;`
+    + ' const t = setInterval(() => fs.appendFileSync(at, "."), 50); setTimeout(() => clearInterval(t), 150000)'
+  writeFileSync(join(hardTmp, 'scripts', 'test.ts'), [
+    "import { spawn } from 'node:child_process'",
+    `spawn(process.execPath, ['-e', ${JSON.stringify(beatCode)}], { stdio: 'ignore' })`,
+    'setTimeout(() => {}, 150000)',
+  ].join('\n') + '\n', 'utf8')
+  writeFileSync(hardDriver, String.raw`
+const { spawn } = require('node:child_process'), fs = require('node:fs'), path = require('node:path');
+const [exe, argvJson, cwd, beat, logPath] = process.argv.slice(2), env = JSON.parse(fs.readFileSync(0, 'utf8'));
+const jobsDir = path.join(cwd, '.check-cache', 'mutate-jobs'), log = fs.openSync(logPath, 'w');
+const kid = spawn(exe, JSON.parse(argvJson), { cwd, env, stdio: ['ignore', log, log] });
+let ended; kid.on('exit', (code, signal) => { ended = { code, signal }; }); kid.on('error', e => { ended = { error: String(e) }; });
+const sleep = ms => new Promise(done => setTimeout(done, ms)), say = row => process.stdout.write(JSON.stringify(row) + '\n');
+const beatsOrThrow = () => { const dir = path.dirname(beat), stem = path.basename(beat) + '-';
+  return fs.readdirSync(dir).filter(n => n.startsWith(stem)).map(n => fs.statSync(path.join(dir, n)).size); };
+const beats = () => { try { return beatsOrThrow(); } catch { return []; } }, sum = sizes => sizes.reduce((a, b) => a + b, 0);
+const numbered = name => { try { const t = fs.readFileSync(path.join(jobsDir, name), 'utf8'); return /^[1-9]\d*\n$/.test(t) ? Number(t) : undefined; } catch { return undefined; } };
+const childrenOf = pid => fs.readFileSync('/proc/' + pid + '/task/' + pid + '/children', 'utf8').split(/\s+/).filter(Boolean).map(Number);
+const descendants = pid => { const out = [], walk = p => { let kids = []; try { kids = childrenOf(p); } catch {} for (const k of kids) { out.push(k); walk(k); } }; walk(pid); return out; };
+// 记下的验证者组里还活着的进程数：按 /proc/<pid>/stat 的组号认，僵尸（Z、X）不算 —— 被杀的验证者父进程是冻住的 worker，收不了尸。
+// 读的时候进程刚好没了（ENOENT、ESRCH）才跳过；别的读错照抛，按没量成报，不当它退了（CodeRabbit 指出）
+const groupLeft = () => { let n = 0; for (const d of fs.readdirSync('/proc')) { if (!/^\d+$/.test(d)) continue;
+  let s; try { s = fs.readFileSync('/proc/' + d + '/stat', 'utf8'); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ESRCH') continue; throw e; }
+  const f = s.slice(s.lastIndexOf(')') + 2).split(' '); if (f[0] !== 'Z' && f[0] !== 'X' && seen.has(Number(f[2]))) n++; } return n; };
+let dispatcher, foundAt;
+const seen = new Set(), frozen = [];
+const cleanup = () => {
+  for (const v of seen) if (v > 1) { try { process.kill(-v, 'SIGKILL'); } catch {} }
+  for (const w of frozen) { try { process.kill(w, 'SIGKILL'); } catch {} }
+  if (ended !== undefined) return;
+  for (const p of descendants(kid.pid).reverse()) { try { process.kill(p, 'SIGKILL'); } catch {} }
+  if (dispatcher !== undefined) { try { process.kill(dispatcher, 'SIGKILL'); } catch {} }
+  try { kid.kill('SIGKILL'); } catch {}
+};
+(async () => {
+  for (const began = Date.now(); Date.now() - began < 60000 && ended === undefined; await sleep(50)) {
+    // 号文件在这一跑自己那一层底下（作业根/<派工进程号>/w<i>.verifier，ADR-74 第 237 行），层名就是派工进程的号
+    let names = []; try { names = fs.readdirSync(jobsDir).filter(d => /^\d+$/.test(d)).flatMap(d => fs.readdirSync(path.join(jobsDir, d)).map(n => d + '/' + n)); } catch {}
+    const hits = names.map(n => /^(\d+)\/w\d+\.verifier$/.exec(n)).filter(Boolean), pids = hits.map(m => numbered(m[0])), b = beats();
+    for (const p of pids) if (p !== undefined) seen.add(p);
+    if (hits.length === 2 && pids.every(p => p !== undefined) && b.length === 2 && b.every(s => s > 0)) { dispatcher = Number(hits[0][1]); foundAt = Date.now(); break; }
+  }
+  if (dispatcher === undefined) { cleanup(); say({ setup: false, ended }); return; }
+  let shells, workers = [];
+  try { shells = childrenOf(dispatcher); for (const s of shells) workers.push(...childrenOf(s)); }
+  catch (e) { cleanup(); say({ degraded: e.message }); return; }
+  for (const w of workers) { frozen.push(w); try { process.kill(w, 'SIGSTOP'); } catch {} }
+  for (const s of shells) { try { process.kill(s, 'SIGKILL'); } catch {} }
+  try { process.kill(dispatcher, 'SIGTERM'); } catch {}
+  for (const began = Date.now(); Date.now() - began < 30000 && ended === undefined; ) await sleep(50);
+  await sleep(200);
+  // 量的这两次读不到就算没量成，不退回空表：两次都读成 0 的话「心跳停了」会白白成立
+  let first, second, before, after, left;
+  try { first = beatsOrThrow(); before = sum(first); await sleep(1000); second = beatsOrThrow(); after = sum(second); left = groupLeft(); }
+  catch (e) { cleanup(); say({ setup: false, measure: e.message, ended }); return; }
+  const dirLeft = fs.existsSync(jobsDir) && fs.readdirSync(jobsDir).length > 0, slow = Date.now() - foundAt > 60000;
+  cleanup(); say({ setup: true, shells: shells.length, workers: workers.length, ended, beatFiles: first.length, beatFilesAfter: second.length, before, after, groupLeft: left, dirLeft, slow });
+})();
+`, 'utf8')
+  const hardEnv = { ...env, ...mutationFixtureEnv('mutate', ['--jobs=2'], hardTmp) }
+  const [hardExe, hardArgv] = prebuiltCommand([S(SELFCHECK_TOOLS.mutate), '--jobs=2'], hardTmp, hardEnv)
+  // 环境从标准输入交给驱动，不放进命令行：命令行谁都列得出来，环境里有继承来的令牌（CodeRabbit 指出）。
+  // 也不用 `env` 选项给驱动本身：那份环境的 NODE_OPTIONS 要预加载 .ts 的假 fetch，是给被测入口的，裸 node 起的驱动不该加载
+  const r = spawnSync(process.execPath, [hardDriver, hardExe, JSON.stringify(hardArgv), hardTmp, beat, hardLog],
+    { encoding: 'utf8', timeout: 120_000, input: JSON.stringify(hardEnv) })
+  const logTail = (): string => existsSync(hardLog) ? readFileSync(hardLog, 'utf8').split('\n').slice(-8).join('\n') : '（没有日志）'
+  // 入口删不动目录时那句话打在退出之前，后面还跟着成本摘要那几行，末几行里看不见它，单独捞出来
+  const logAbout = (word: string): string => existsSync(hardLog) ? readFileSync(hardLog, 'utf8').split('\n').filter(l => l.includes(word)).join('\n') : ''
+  let got: { setup?: boolean; degraded?: string; shells?: number; workers?: number; ended?: { code?: number | null; signal?: string | null; error?: string };
+    beatFiles?: number; beatFilesAfter?: number; before?: number; after?: number; groupLeft?: number; dirLeft?: boolean; slow?: boolean } | undefined
+  try { got = JSON.parse((r.stdout ?? '').trim().split('\n').pop() ?? '') } catch { got = undefined }
+  if (got?.degraded !== undefined) {
+    console.log(`  ⊘ 派工硬停按组收验证者：这台机器上没验 —— 读不到派工进程的子进程表（${got.degraded}），那是 Linux 才有的`)
+  } else if (got?.setup !== true || got.shells !== 2 || got.workers !== 2 || got.slow !== false || got.beatFiles !== 2 || got.beatFilesAfter !== 2 || !((got.before ?? 0) > 0)) {
+    // 慢到超过一分钟的那一跑也不判：孙子的心跳有上限，量的时候它可能已经自己停了，删掉那一刀也照绿。
+    // 量的时候不是两份心跳、或一个字节也没有，同样不判：两次都量成 0 也是「没长」。
+    // 两次各数一遍份数：第二次少了一份、另一份正好长出这么多的话，总数不变也会读成「停了」（CodeRabbit 指出）
+    failed++
+    console.error(`  ✗ 派工硬停${SELFCHECK_FIXTURE_MARK}：夹具没造对 —— 两个验证者、两份心跳没都起来，派工底下不是恰好两个 worker 壳、各带一个真 worker，`
+      + `量心跳的两次里有一次读不到那两份，或从心跳齐了到量完拖过了一分钟，硬来那一刀这一跑验不着：${JSON.stringify(got) ?? r.error ?? r.stderr}\n${logTail()}`)
+  } else {
+    // 两样都看：心跳只说孙子停了，验证者那几组自己有没有收干净，按组号数一遍才知道（CodeRabbit 指出）
+    named('派工硬停：验证者那一组被收掉，孙子的心跳停了', got.groupLeft === 0 && got.before === got.after,
+      `派工退出之后验证者那几组还剩 ${String(got.groupLeft)} 个活着的进程，心跳 ${got.before} → ${got.after}`
+      + ' —— 硬来没给验证者那一组发那一刀，孤儿照样跑被改过的源码')
+    named('派工硬停：隔离目录收干净了', got.dirLeft === false, `硬来之后 .check-cache/mutate-jobs 底下还有东西：\n${logAbout('隔离目录') || logTail()}`)
+    named('派工硬停：以退出码 1 收场', got.ended?.code === 1,
+      `派工那一跑的结局是 ${JSON.stringify(got.ended)} —— 硬来那一步以 1 退出，这里不是：\n${logTail()}`)
+  }
+})
+
 // ---- 判 `crashed` 那一档要留下现场（入口的第三处）----
-group('crashed', [], () => {
+group('mutate-crash-keeps-verifier-output', [], () => {
   // 判定说「跑不起来」时，原先一个字都不留下验证者说过什么 —— 而那是唯一能分辨
   // 「真崩了」与「这一次不巧」的证据（ADR-70：它在落地 4 那一片里咬了两次才补上）。
-  // 这段输出在 `mutate.ts` 入口里，**变异够不到它**（`mutate.ts` 在验证基础设施闭包里，
-  // 指着它的变异会被「自己验自己」当场拦下）—— 与另外几处 mutate 夹具同一处境，
-  // 所以只能有夹具。删掉那几行打印，这条断言必须红。
+  // 这段输出在 `mutate.ts` 入口里。入口在自检的验证基础设施闭包里，指着它、显式写了
+  // `by` 且不是 `test` 的变异会被「自己验自己」拦下；不写 `by` 或写 `by: test` 不被拦，
+  // 但当前需求测试没走到判 `crashed` 后留下现场的输出段，所以这里只有自检夹具、没有负片。
+  // 删掉那几行打印，这条断言必须红。
   //
   // 单独一份语料，两条变异各造一种 `crashed`（口径见下面那段）。⚠️ 不能塞进上面那份 ——
   // 一条 crashed 会让整跑非零退出，上面两条断言的前置条件 `both.ok` 当场为假，
@@ -7107,9 +9202,10 @@ group('crashed', [], () => {
   //   `M-X-r` 把另一处改成**语法错误** → 验证者打的是栈、一行成形的失败行都没有，
   //           走「原始输出的尾巴」那一支。⚠️ **那才是真崩的样子**，而这段现场存在的
   //           唯一理由就是诊断它；头一版只有这一种，于是反过来把上面那一支漏空了。
-  // 用 `exitCode` 而不是那个硬退出的写法：`exitRace` 扫的是**源码字面**，把那一串原样
-  // 写进这里，本文件自己就会被判成「打完汇总立刻退出」（ADR-70 逐字警告过这个坑，
-  // 我照样踩了 —— 断言 `selfcheck 这个验证者不硬退出` 当场红）。
+  // 用 `exitCode` 而不是那个硬退出的写法：`exitRace` 原先扫**源码字面**，把那一串原样
+  // 写进这里，本文件自己就被判成「打完汇总立刻退出」（断言 `selfcheck 这个验证者不硬退出` 当场红过）。
+  // 现在它按语法树认，串里写全了的不算（ADR-70 末尾「硬退出收口」一节）；语料照旧用 `exitCode`，
+  // 也是因为它本来就不该硬退出。
   writeFileSync(join(crashTmp, 'scripts', 'test.ts'),
     `import { v } from ${q}./check/a.js${q}\n`
     + `if (v !== ${q}keep${q}) {\n`
@@ -7341,11 +9437,12 @@ group('ig-search-plays', [], () => {
 
 // ADR-102 §9：从公开入口跑适配器、缓存命中和直接交付；全程假网络。
 group('ig-homepage-mixed', [], () => {
-  // 本组直接用 Node 的 --import tsx：自检在受限环境也不依赖 tsx CLI 的 IPC socket。
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  // 本组直接用 Node 的 --import：自检在受限环境也不依赖 tsx CLI 的 IPC socket。
   const runIg = (label: string, args: string[], cwd = tmp, extra: NodeJS.ProcessEnv = {}) => {
-    const r = spawnSync(process.execPath, ['--import', tsx, ...args],
-      { cwd, env: { ...env, ...extra }, encoding: 'utf8', timeout: 20_000 })
+    const kidEnv = { ...env, ...extra }
+    kidEnv.NODE_OPTIONS = `--import ${JSON.stringify(fixtureLoader(args[0], kidEnv, cwd))} ${kidEnv.NODE_OPTIONS ?? ''}`
+    const r = spawnSync(process.execPath, args,
+      { cwd, env: kidEnv, encoding: 'utf8', timeout: 20_000 })
     const ok = !r.error && r.status === 0
     if (!ok) { failed++; console.error(`  ✗ ${label}${SELFCHECK_PROCESS_MARK}：${
       r.error?.message ?? `退出码 ${r.status}`}\n${(r.stderr ?? '').split('\n').slice(-12).join('\n')}`) }
@@ -7694,6 +9791,17 @@ console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执�
     const claimSentinel = '{"sentinel":"preexisting claims"}\n'; entryWrite(claimPath, claimSentinel);
     const accepted = entryRun(fixture.cwd, fixture.base);
     named('维护入口-合法解释真实施变通过', (accepted.status) === (0), '实际值必须与既定期望完全相同');
+    // 报告正文由入口交给规则模块拼、再逐行打（ADR-120「报告按新增、删除、改配置分组」）：这里只核入口把基线、现状和
+    // 全跑解释按对的方向接进去 —— 两侧传反时这条变异会落进「删除」、前后路由颠倒。期望手写。
+    named('维护入口-报告按新增删除改配置分段且方向与解释接对', String(accepted.stdout).includes([
+      '  新增 1 条，删除 0 条，改配置 0 条；其中路由/正文 1 条（新增全跑 1，选跑退回全跑 0，旧全跑正文改变 0），执行配置 0 条；验证者布局 1 份',
+      '  新增（完整清单，1 条）：',
+      '    M-X-a 新增全跑：不存在 → test 全跑（执行 a,b）',
+      '      全跑原因：This fixture must observe every verifier group.；重评条件：When its complete behavior is selectable.',
+      '  删除（完整清单，0 条）：', '    无', '  改配置（完整清单，0 条）：', '    无',
+      // 基线目录还是空的，那时没有任何验证者布局可比，所以布局那一行的改前是 undefined。
+      '  test 分组依赖/顺序变化：undefined → [{"id":"a","needs":[]},{"id":"b","needs":[]}]',
+    ].join('\n') + '\n'), '维护报告正文与手写期望不同：' + JSON.stringify(String(accepted.stdout).slice(0, 900)));
     const observed = entryExists(fixture.marker) ? entryRead(fixture.marker, 'utf8').split('\n').filter(Boolean) : [];
     named('维护入口-施变仅按顺序执行全部目标组', (JSON.stringify(observed)) === (JSON.stringify(['a:gone', 'b:gone'])), '实际值必须与既定期望完全相同');
     named('维护入口-施变后恢复目标', (entryRead(fixture.target, 'utf8')) === ('keep\n'), '实际值必须与既定期望完全相同');
@@ -7737,10 +9845,11 @@ console.log(failed ? '\\n' + failed + ' 个失败\\n' : '\\n全部通过（执�
       named('维护入口-事件拒绝零验证者执行 ' + kind, (entryRead(fixture.marker, 'utf8')) === ('sentinel\n'), '实际值必须与既定期望完全相同');
       named('维护入口-事件拒绝未施变 ' + kind, (entryRead(fixture.target, 'utf8')) === ('keep\n'), '实际值必须与既定期望完全相同');
     }
-    for (const base of [head, 'invalid-base']) {
+    // 标签写固定的名字，不拼玩具仓库这一跑的提交号：同一配置两次正常基线的打印要逐字相同（ADR-145 第 1134 行那张欠条）
+    for (const [name, base] of [['等于HEAD', head], ['invalid-base', 'invalid-base']]) {
       entryWrite(fixture.marker, 'sentinel\n');
-      entryRefusal('维护入口-显式基线拒绝 ' + base, entryRun(fixture.cwd, base));
-      named('维护入口-坏基线未新增验证者执行 ' + base, (entryRead(fixture.marker, 'utf8')) === ('sentinel\n'), '实际值必须与既定期望完全相同');
+      entryRefusal('维护入口-显式基线拒绝 ' + name, entryRun(fixture.cwd, base));
+      named('维护入口-坏基线未新增验证者执行 ' + name, (entryRead(fixture.marker, 'utf8')) === ('sentinel\n'), '实际值必须与既定期望完全相同');
     }
     const missing = entrySetup('missing-baseline-catalog', true);
     entryCatalog(missing.cwd, [{ ...entryMutation, full_run: entryReason }]); entryCommit(missing.cwd, 'current catalog exists');
@@ -8451,7 +10560,7 @@ const reviewCliEntryFixture = () => {
     'metrics_account_followers,metrics_account_following,engagement_rate_followers,engagement_rate_views,median_views,median_engagements,view_rate,following_ratio,reach_consistency,median_post_gap_days,latest_post_at,days_since_last_post,activity_status,audience_quality_risk,audience_quality_reasons,tier_adjustments,collaboration_quote,implied_ecpm,implied_ecpe,metrics_observed_at,' +
     'cross_platform,linked_handle,profile_url,source_keyword,source_dimension,best_post_desc,outreach_draft,previously_recommended,discovery_sources,metrics_sample_scope').split(',')
   const addedHeaders = ('effective_priority,effective_priority_account_key,eligibility,adoption_priority,observed_content,work_evidence,natural_integration,mismatch_risk,brand_calibration_version,review_status,' +
-    'manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note,manual_reviewed,manual_round_id,linked_agent_review,manual_feedback_accounts').split(',')
+    'manual_eligible,manual_adopted,manual_content_fit,manual_engagement,manual_comment_authenticity,manual_reject_reason,manual_note,manual_reviewed,manual_round_id,linked_agent_review,manual_feedback_accounts,outreach_subject').split(',')
   const calibration = (version = 'v1') => ({ version, target_creator_types: [], tone_aesthetic: [],
     natural_scenarios: [], negative_signals: [], sources: [] })
   const person = (handle: string, over: Record<string, unknown> = {}) => costPerson('tiktok', handle,
@@ -8486,7 +10595,7 @@ const reviewCliEntryFixture = () => {
   }
   const sameStamp = (path: string, before: ReturnType<typeof stamp>) => before !== undefined && isDeepStrictEqual(stamp(path), before)
   const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  const fixtureImport = (cwd: string) => fixtureLoader(S('collect.ts'), env, cwd)
   const preload = join(base, 'observe-reserve.mjs')
   writeFileSync(preload, ["import { appendFileSync } from 'node:fs';",
     `import { Budget } from ${JSON.stringify(budgetModule)};`, 'const original = Budget.prototype.reserve;',
@@ -8495,7 +10604,7 @@ const reviewCliEntryFixture = () => {
     "appendFileSync(process.env.REVIEW_ARMED_LOG, 'armed\\n');"].join('\n'))
   const observed = (f: ReturnType<typeof fixture>) => costEnv(f.log, {
     REVIEW_RESERVE_LOG: f.reserves, REVIEW_ARMED_LOG: f.armed,
-    NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
+    NODE_OPTIONS: `--import ${JSON.stringify(fixtureImport(f.cwd))} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
   })
   const noPaid = (f: ReturnType<typeof fixture>) => fileText(f.armed).includes('armed') &&
     fetchAttempts(f.log).length === 0 && fileText(f.reserves) === ''
@@ -8509,7 +10618,7 @@ group('review-cli-entry-positive', [], () => {
   const { agentName, person, review, document, put, fixture, observed, entry } = reviewCliEntryFixture()
   // Shared positive controls prove both interception points before any zero-event claim.
   const paidCollect = fixture('paid-collect', [], { target_count: 0, done: [], offsets: {}, pages: {}, answered: {}, found: {} })
-  const pc = runBoth('评审入口 collect 阳性请求', entry('collect', paidCollect), paidCollect.cwd, undefined, observed(paidCollect))
+  const pc = runBoth('评审入口 collect 阳性请求', entry('collect', paidCollect), paidCollect.cwd, { status: 4 }, observed(paidCollect))
   const paidEnrich = fixture('paid-enrich', [person('paid')])
   put(paidEnrich, agentName, document({ 'tiktok:paid': review('tiktok:paid') }, ['tiktok:paid']))
   const pe = runBoth('评审入口 enrich 阳性请求', entry('enrich', paidEnrich), paidEnrich.cwd, undefined, observed(paidEnrich))
@@ -8662,22 +10771,69 @@ group('review-cli-entry-collect-exit', ['review-cli-entry-positive'], () => {
     fileText(join(late.taskDir, 'creators.json')) === lateList && fileText(join(late.taskDir, manualName)) === lateManual &&
     fileText(join(late.taskDir, agentName)) === lateAgent && isDeepStrictEqual(jsonFile(join(late.taskDir, agentName))?.rounds, lateRounds) &&
     !existsSync(join(late.taskDir, 'kol.csv')) && !existsSync(join(late.cwd, 'memory', 'creators.json')), '已付费证据丢失或冲突仍交付')
+  // KOL-108 第 2 条：收尾投影抛评审输入错误（退 2）时，stdout 不出汇总（ADR-193 第一节）
+  named('collect 收尾投影发现评审输入冲突以退出码 2 结束，stdout 不出汇总',
+    lr.ok && lr.status === 2 && lr.stdout.trim() === '', `退出=${lr.status}，stdout=${lr.stdout.slice(0, 200)}`)
 
   const save = fixture('save-failure', [person('old')])
   put(save, agentName, { version: 1, updated_at: clock, reviews: {}, rounds: [] })
   const saveBefore = snapshot(save)
   chmodSync(join(save.taskDir, agentName), 0o444)
   let sf: ReturnType<typeof runBoth>
-  try { sf = runBoth('评审正本真实只读保存失败', entry('collect', save), save.cwd, { status: 1, soft: [0, 2, 3] }, observed(save)) }
+  try { sf = runBoth('评审正本真实只读保存失败', entry('collect', save), save.cwd, { status: 6, soft: [0, 1, 2, 3, 4, 7] }, observed(save)) }
   finally { chmodSync(join(save.taskDir, agentName), 0o644) }
-  named('CLI 正本保存失败退出1且不提前覆盖名单', sf!.ok && sf!.status === 1 && sf!.stderr.includes(agentName) &&
+  named('CLI 正本保存失败退出6且不提前覆盖名单', sf!.ok && sf!.status === 6 && sf!.stderr.includes(agentName) &&
     !/断点.*已保存|已保存.*断点|预算不足/.test(sf!.stderr) && unchanged(saveBefore) && positive && noPaid(save), '保存失败伪装输入、预算或成功')
   const stop = fixture('budget-stop', [], { budget_usd: 0, ...knownCosts(0, []), done: [], offsets: {}, answered: {}, found: {}, pages: {} })
-  const bs = runBoth('评审入口预算不足断点', entry('collect', stop), stop.cwd, { status: 3, soft: [0, 1, 2] }, observed(stop))
+  const bs = runBoth('评审入口预算不足断点', entry('collect', stop), stop.cwd, { status: 3, soft: [0, 1, 2, 4, 5, 6, 7] }, observed(stop))
   named('CLI 预算不足仍退出3保存真实断点', bs.ok && bs.status === 3 && bs.stderr.includes('保存') && jsonFile(stop.task)?.done?.length === 0 &&
     jsonFile(stop.task)?.requests === 0 && fetchAttempts(stop.log).length === 0 && fileText(stop.armed).includes('armed') && positive,
     '预算状态被输入或保存错误掩盖、或请求提前发出')
   reviewCliEntryCompleted.exit = true
+})
+
+// KOL-108 第 2 条：收尾那一路（冻结候选、投影、保存评审正本、写名单）抛出时不出汇总，退出码按评审输入 2、
+// 保存失败 6 分（ADR-193 第一节）。上一组的只读正本在开跑前那次保存就失败；这里让开跑前没有可存的变化
+// （正本已冻着名单里的人），只有收尾冻结累加器里多出来的那人时才真去写，失败才落在收尾。
+group('review-cli-entry-collect-wrapup', ['review-cli-entry-positive'], () => {
+  const { agentName, person, document, put, fixture, observed, entry } = reviewCliEntryFixture()
+  const positive = reviewCliEntryPositive.value === true
+  const noSummary = (r: ReturnType<typeof runBoth>) => r.stdout.trim() === ''
+  const staged = (name: string) => {
+    const f = fixture(name, [person('kept')])
+    put(f, 'creators.raw.json', [person('kept'), person('wrapup_new')])
+    put(f, agentName, document({}, ['tiktok:kept']))
+    return f
+  }
+
+  const review = staged('wrapup-review-save')
+  const reviewAgent = fileText(join(review.taskDir, agentName)), reviewList = fileText(join(review.taskDir, 'creators.json'))
+  chmodSync(join(review.taskDir, agentName), 0o444)
+  let rs: ReturnType<typeof runBoth>
+  try { rs = runBoth('收尾保存评审正本失败', entry('collect', review), review.cwd, { status: 6, soft: [0, 1, 2, 3, 4, 5, 7] }, observed(review)) }
+  finally { chmodSync(join(review.taskDir, agentName), 0o644) }
+  named('collect 收尾保存评审正本失败以退出码 6 结束（不是其余错误的 1），stdout 不出汇总',
+    rs!.ok && rs!.status === 6 && noSummary(rs!) && rs!.stderr.includes(agentName) && positive,
+    `退出=${rs!.status}，stdout=${rs!.stdout.slice(0, 200)}`)
+  // 开跑前那次保存若失败，同样退 6、点名正本、两份文件不变；能分开两次的是「续跑 … 已完成」那句 ——
+  // collect 只在开跑前那次保存成功之后才打它。
+  named('收尾保存评审正本失败的夹具确实走到收尾：开跑前那次保存已过（打出续跑那句），正本与名单都没被改',
+    rs!.ok && /续跑 .* —— 已完成 /.test(rs!.stderr) && fileText(join(review.taskDir, agentName)) === reviewAgent &&
+    fileText(join(review.taskDir, 'creators.json')) === reviewList, '正本或名单被改，或失败不在收尾那次保存')
+
+  const list = staged('wrapup-list-save')
+  const listAgent = fileText(join(list.taskDir, agentName)), listList = fileText(join(list.taskDir, 'creators.json'))
+  chmodSync(join(list.taskDir, 'creators.json'), 0o444)
+  let ls: ReturnType<typeof runBoth>
+  try { ls = runBoth('收尾写名单失败', entry('collect', list), list.cwd, { status: 6, soft: [0, 1, 2, 3, 4, 5, 7] }, observed(list)) }
+  finally { chmodSync(join(list.taskDir, 'creators.json'), 0o644) }
+  named('collect 收尾写名单失败以退出码 6 结束（不是其余错误的 1），stdout 不出汇总',
+    ls!.ok && ls!.status === 6 && noSummary(ls!) && ls!.stderr.includes('creators.json') && positive,
+    `退出=${ls!.status}，stdout=${ls!.stdout.slice(0, 200)}`)
+  named('收尾写名单失败的夹具确实走到写名单：收尾那次正本已存下新人，名单原样',
+    ls!.ok && fileText(join(list.taskDir, agentName)) !== listAgent &&
+    fileText(join(list.taskDir, agentName)).includes('tiktok:wrapup_new') &&
+    fileText(join(list.taskDir, 'creators.json')) === listList, '失败不在写名单那一步')
 })
 
 group('review-cli-entry-render', [], () => {
@@ -8806,7 +10962,7 @@ named('CLI render 阳性合法关联字段按账号契约规范化', rr.ok && by
   named('CLI 实际XLSX仅三层表且与CSV原值一致', rr.ok && book?.length === 3 && book.every((s, i) => s.name.startsWith(`${'ABC'[i]}级`) &&
     isDeepStrictEqual(s.rows[0], headers) && isDeepStrictEqual(s.rows.slice(1), csv?.slice(1).filter(r => r[0] === 'ABC'[i]))) &&
     isDeepStrictEqual(csv?.[0], headers) && Array.isArray(csv) && csv.every(r => r.length === headers.length) &&
-    fileText(join(rendered.taskDir, 'kol.csv')).charCodeAt(0) === 0xfeff, '完整旧前缀、新21列、层内排序或独立读回内容不一致')
+    fileText(join(rendered.taskDir, 'kol.csv')).charCodeAt(0) === 0xfeff, '完整旧前缀、新22列（U9 的 21 列与主题列）、层内排序或独立读回内容不一致')
   const field = (kind: string, key: string, name: string) => scopes.find(s => s.kind === kind && s.key === key)?.fields[name]
   named('CLI 三格式主关联评审与空白unknown保持各自身份', rr.ok && csvBy.main?.review_status === '未评' &&
     csvBy.main?.work_evidence === '' && csvBy.main?.manual_eligible === '' && csvBy.main?.manual_reviewed === 'false' &&
@@ -8992,7 +11148,7 @@ group('render-raw-memory', [], () => {
   named('raw 关联仅本任务推荐可重导出且保留别产品阳性', identities(exported(resume.taskDir), ['tiktok:same_task', 'tiktok:other_product']), '仅同产品别任务推荐须排除，不能把推荐状态升级成已联系')
   const broken = '{"creators":', ignored = make('raw-memory-ignored', [person('tiktok', 'ignore_positive')], [person('tiktok', 'ignore_positive', { linked_handle: 'instagram:ignore_marker' }), person('instagram', 'ignore_marker')], broken)
   const before = readFileSync(join(ignored.taskDir, 'creators.json'), 'utf8')
-  runBoth('raw 坏记忆默认拒绝实际 render', [S('render.ts'), '--dir', ignored.taskDir], ignored.cwd, { status: 2 })
+  runBoth('raw 坏记忆默认拒绝实际 render', [S('render.ts'), '--dir', ignored.taskDir], ignored.cwd, { status: 7 })
   named('raw 当前记忆读不出默认不产出名单', readFileSync(join(ignored.taskDir, 'creators.json'), 'utf8') === before
     && ['kol.csv', 'kol.xlsx', 'meta.json', 'report.html'].every(n => !existsSync(join(ignored.taskDir, n))) && preserved(ignored), '坏记忆须拒绝且不覆盖原名单或输入正本')
   runBoth('raw 显式忽略坏记忆实际 render', [S('render.ts'), '--dir', ignored.taskDir, '--ignore-memory'], ignored.cwd)
@@ -9030,7 +11186,7 @@ group('feedback-template', [], () => {
   const fixture = (name: string, review: unknown = document) => {
     const dir = join(base, name); mkdirSync(join(dir, 'memory'), { recursive: true });
     json(dir, 'task.json', { tasks: [{ keyword: 'saved', dimension: 'category', platform: 'tiktok' }], cost_ledger: { version: 'unusable' }, budget_usd: 'unusable', requests: null });
-    json(dir, 'agent-review.json', review); json(dir, 'creators.json', [{ platform: 'tiktok', handle: 'outside', fit: '❌' }]);
+    json(dir, 'agent-review.json', review); json(dir, 'creators.json', [{ platform: 'tiktok', handle: 'outside', bio_links: [], fit: '❌' }]);
     for (const name of names.slice(4)) writeFileSync(join(dir, name), Buffer.from('untouched:' + name + '\n'));
     return realpathSync(dir);
   };
@@ -9112,7 +11268,7 @@ fs.writeFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json','controll
   const badTask = fixture('task'); json(badTask, 'task.json', { tasks: null, brand_calibration: { version: 'v1', target_creator_types: [], tone_aesthetic: [], natural_scenarios: [], negative_signals: [], sources: [{ source: 'source', kind: 'invented', detail: 'detail' }] } });
   const t = invoke('模板坏任务运行', badTask, ['--dir', badTask], 2); if (!t.ok) return;
   named('模板入口-任务品牌同时拒绝', inputError(t, badTask, 'task.json', ['tasks', 'brand_calibration']) && !existsSync(join(badTask, 'manual-feedback.csv')), 'D26.b: tasks和品牌问题同时报告'); criterion('D26.b');
-  const absent = fixture('absent'); unlinkSync(join(absent, 'agent-review.json')); json(absent, 'creators.json', [{ platform: 'tiktok', handle: 'legacy', fit: '✅', fit_reason: 'saved', outreach_draft: 'saved' }]);
+  const absent = fixture('absent'); unlinkSync(join(absent, 'agent-review.json')); json(absent, 'creators.json', [{ platform: 'tiktok', handle: 'legacy', bio_links: [], fit: '✅', fit_reason: 'saved', outreach_draft: 'saved' }]);
   const r0 = invoke('模板正本缺席运行', absent, ['--dir', absent], 2); if (!r0.ok) return;
   named('模板入口-正本缺席拒绝', inputError(r0, absent, 'agent-review.json') && /collect|render|生产|保存|轮次/.test(r0.stderr) && !existsSync(join(absent, 'agent-review.json')) && !existsSync(join(absent, 'manual-feedback.csv')), 'D26.c: 不迁移legacy、不冻结、不创建正本');
   const corrupt = fixture('corrupt', {}), r1 = invoke('模板坏正本运行', corrupt, ['--dir', corrupt], 2); if (!r1.ok) return;
@@ -9140,16 +11296,16 @@ fs.writeFileSync(process.env.KOL_TEMPLATE_ROOT+'/memory/creators.json','controll
   named('模板入口-append先完整校验', inputError(v, invalid, 'manual-feedback.csv') && line(v.stderr, 2) && equal(read(join(invalid, 'manual-feedback.csv')), invalidCsv), 'D26.k: 全池覆盖也拒绝非法旧枚举，定位第2物理行'); criterion('D26.k');
   const paired = { version: 1, updated_at: 'saved', reviews: {}, rounds: [{ round_id: 'pair', created_at: 'saved', source: 'task.json', candidates: [{ account_key: 'tiktok:alpha', source_tasks: null }, { account_key: 'instagram:beta', source_tasks: null }] }] };
   const conflictCsv = Buffer.from(header + '\n' + 'pair,tiktok,alpha,yes,yes,,,,,\n' + 'pair,instagram,beta,yes,no,,,,,\n');
-  const rawPair = fixture('raw-pair', paired); json(rawPair, 'creators.json', []); json(rawPair, 'creators.raw.json', [{ platform: 'tiktok', handle: 'alpha', linked_handle: 'instagram:beta', fit: '❌', tier: 'C' }]); writeFileSync(join(rawPair, 'manual-feedback.csv'), conflictCsv);
+  const rawPair = fixture('raw-pair', paired); json(rawPair, 'creators.json', []); json(rawPair, 'creators.raw.json', [{ platform: 'tiktok', handle: 'alpha', bio_links: [], linked_handle: 'instagram:beta', fit: '❌', tier: 'C' }]); writeFileSync(join(rawPair, 'manual-feedback.csv'), conflictCsv);
   const j0 = invoke('模板完整raw关系运行', rawPair, ['--dir', rawPair, '--append'], 2); if (!j0.ok) return;
   named('模板入口-完整raw直接关系', inputError(j0, rawPair, 'manual-feedback.csv', ['tiktok:alpha', 'instagram:beta']) && line(j0.stderr, 2) && line(j0.stderr, 3) && equal(read(join(rawPair, 'manual-feedback.csv')), conflictCsv), 'D26.g/k: 仅raw单向关联也拒绝跨平台yes/no冲突');
-  const oldPair = fixture('old-pair', paired); json(oldPair, 'creators.json', [{ platform: 'tiktok', handle: 'alpha', linked_handle: 'instagram:beta' }]); writeFileSync(join(oldPair, 'manual-feedback.csv'), conflictCsv);
+  const oldPair = fixture('old-pair', paired); json(oldPair, 'creators.json', [{ platform: 'tiktok', handle: 'alpha', bio_links: [], linked_handle: 'instagram:beta' }]); writeFileSync(join(oldPair, 'manual-feedback.csv'), conflictCsv);
   const j1 = invoke('模板旧名单关系运行', oldPair, ['--dir', oldPair, '--append'], 2); if (!j1.ok) return;
   named('模板入口-raw真缺席关系回退', inputError(j1, oldPair, 'manual-feedback.csv', ['tiktok:alpha', 'instagram:beta']) && equal(read(join(oldPair, 'manual-feedback.csv')), conflictCsv), 'D26.f/g: 真缺席仍校验完整旧名单直接关系'); criterion('D26.g');
   json(oldPair, 'creators.raw.json', []); const j1present = invoke('模板现存raw联合旧名单运行', oldPair, ['--dir', oldPair, '--append'], 2); if (!j1present.ok) return;
   named('模板入口-完整旧名单与现存raw联合关系', inputError(j1present, oldPair, 'manual-feedback.csv', ['tiktok:alpha', 'instagram:beta']) && line(j1present.stderr, 2) && line(j1present.stderr, 3) && equal(read(join(oldPair, 'manual-feedback.csv')), conflictCsv), 'D26.g/k: raw已存在但为空也不能丢旧名单合法直接关系');
   const direct = fixture('direct-only', { version: 1, updated_at: 'saved', reviews: { 'tiktok:alpha': { account_keys: ['tiktok:alpha', 'tiktok:gamma'], fit: '✅' } }, rounds: [{ round_id: 'direct', created_at: 'saved', source: 'task.json', candidates: ['tiktok:alpha', 'instagram:alpha', 'instagram:beta', 'tiktok:gamma'].map(account_key => ({ account_key, source_tasks: null })) }] });
-  json(direct, 'creators.raw.json', [{ platform: 'tiktok', handle: 'alpha', linked_handle: 'instagram:beta' }, { platform: 'instagram', handle: 'beta', linked_handle: 'tiktok:gamma' }]);
+  json(direct, 'creators.raw.json', [{ platform: 'tiktok', handle: 'alpha', bio_links: [], linked_handle: 'instagram:beta' }, { platform: 'instagram', handle: 'beta', bio_links: [], linked_handle: 'tiktok:gamma' }]);
   const directCsv = Buffer.from(header + '\n' + 'direct,tiktok,alpha,yes,yes,,,,,\n' + 'direct,instagram,alpha,yes,no,,,,,\n' + 'direct,instagram,beta,yes,unknown,,,,,\n' + 'direct,tiktok,gamma,yes,no,,,,,\n'); writeFileSync(join(direct, 'manual-feedback.csv'), directCsv);
   const j2 = invoke('模板不补造关系运行', direct, ['--dir', direct, '--append']); if (!j2.ok) return;
   named('模板入口-不补造关联', !!protocol(j2, direct, 'unchanged', 0) && equal(read(join(direct, 'manual-feedback.csv')), directCsv), 'D26.g: 同名异平台/Agent别名/传递链均不制造人工采用冲突');
@@ -9297,7 +11453,6 @@ group('brand-content-version-entry', [], () => {
   const recomputed = versionOf(stale)
   const hex = good.version.slice('sha256:'.length)
   const tasks = [{ keyword: 'brand version fixture', dimension: 'category', platform: 'tiktok' }]
-  const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
   const budgetModule = pathToFileURL(resolve('scripts/lib/budget.ts')).href
   const preload = join(base, 'observe-reserve.mjs')
   writeFileSync(preload, [
@@ -9310,10 +11465,10 @@ group('brand-content-version-entry', [], () => {
     `};`,
     `appendFileSync(process.env.BRAND_VERSION_ARMED_LOG, 'armed\\n');`,
   ].join('\n'))
-  const observed = (f: { log: string; reserves: string; armed: string }) => costEnv(f.log, {
-    BRAND_VERSION_RESERVE_LOG: f.reserves, BRAND_VERSION_ARMED_LOG: f.armed,
-    NODE_OPTIONS: `--import ${JSON.stringify(tsx)} ${env.NODE_OPTIONS} --import ${JSON.stringify(pathToFileURL(preload).href)}`,
-  })
+  const observed = (f: { cwd: string; log: string; reserves: string; armed: string }, script: string) =>
+    brandObserverEnv(script, f.cwd, { ...env, ...costEnv(f.log, {
+      BRAND_VERSION_RESERVE_LOG: f.reserves, BRAND_VERSION_ARMED_LOG: f.armed,
+    }) }, preload)
   const logs = (cwd: string) => {
     const log = join(cwd, 'attempts.tsv'), reserves = join(cwd, 'reserves.txt'), armed = join(cwd, 'armed.txt')
     writeFileSync(reserves, '')
@@ -9360,19 +11515,19 @@ group('brand-content-version-entry', [], () => {
   // D20.h：版本与内容一致时照常运行。collect 新建同时是下面零预留、零请求断言的阳性对照
   const fresh = newInput('match-new', good)
   const freshRun = runBoth('内容哈希版本一致新建', [S('collect.ts'), '--config', fresh.file], fresh.cwd,
-    { status: 0, soft: [1, 2, 3] }, observed(fresh))
+    { status: 4, soft: [0, 1, 2, 3, 5, 6, 7] }, observed(fresh, S('collect.ts')))
   if (freshRun.ok && ready(fresh, freshRun.stderr)) {
     const dir = onlyDir(fresh.cwd, 'brandversion')
     const state = dir ? jsonFile(join(fresh.cwd, dir, 'task.json')) : undefined
     named('内容哈希版本一致：collect 新建确实预留和请求，task.json 原样保存校准',
-      freshRun.status === 0 && fetchAttempts(fresh.reserves).length > 0 && fetchAttempts(fresh.log).length > 0
+      freshRun.status === 4 && fetchAttempts(fresh.reserves).length > 0 && fetchAttempts(fresh.log).length > 0
         && isDeepStrictEqual(state?.brand_calibration, good),
       `退出=${freshRun.status}，目录=${dir}，${events(fresh)}，stderr=${stderrTail(freshRun.stderr)}`)
     passed++
   }
   const matchEnrich = taskInput('match-enrich', good, true)
   const matchEnrichRun = runBoth('内容哈希版本一致 enrich', [S('enrich.ts'), '--dir', matchEnrich.taskDir],
-    matchEnrich.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchEnrich))
+    matchEnrich.cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, observed(matchEnrich, S('enrich.ts')))
   if (matchEnrichRun.ok && ready(matchEnrich, matchEnrichRun.stderr)) {
     named('内容哈希版本一致：enrich 确实预留和请求，不因版本拒绝，不改写校准',
       matchEnrichRun.status === 0 && fetchAttempts(matchEnrich.reserves).length > 0
@@ -9386,7 +11541,7 @@ group('brand-content-version-entry', [], () => {
   const matchEnrichBudget = taskInput('match-enrich-budget', good, true)
   const matchEnrichBudgetRun = runBoth('内容哈希版本一致 enrich 改额',
     [S('enrich.ts'), '--dir', matchEnrichBudget.taskDir, '--budget', '2'],
-    matchEnrichBudget.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchEnrichBudget))
+    matchEnrichBudget.cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, observed(matchEnrichBudget, S('enrich.ts')))
   if (matchEnrichBudgetRun.ok && ready(matchEnrichBudget, matchEnrichBudgetRun.stderr)) {
     named('内容哈希版本一致：enrich 改额确实预留和请求，不因版本拒绝，不改写校准',
       matchEnrichBudgetRun.status === 0 && fetchAttempts(matchEnrichBudget.reserves).length > 0
@@ -9398,9 +11553,9 @@ group('brand-content-version-entry', [], () => {
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const f = taskInput(mode === '普通' ? 'match-resume' : 'match-resume-budget', good)
     const r = runBoth(`内容哈希版本一致${mode}续跑`, [S('collect.ts'), '--resume', f.taskDir, ...extra],
-      f.cwd, { status: 0, soft: [1, 2, 3] }, observed(f))
+      f.cwd, { status: 4, soft: [0, 1, 2, 3, 5, 6, 7] }, observed(f, S('collect.ts')))
     if (!r.ok || !ready(f, r.stderr)) continue
-    const ok = r.status === 0 && fetchAttempts(f.reserves).length > 0 && fetchAttempts(f.log).length > 0
+    const ok = r.status === 4 && fetchAttempts(f.reserves).length > 0 && fetchAttempts(f.log).length > 0
       && !namesVersion(r.stderr) && keptCalibration(f, good)
     const detail = `${mode}：退出=${r.status}，${events(f)}，stderr=${stderrTail(r.stderr)}`
     if (mode === '普通') named('内容哈希版本一致：collect 普通续跑确实预留和请求，不因版本拒绝，不改写校准', ok, detail)
@@ -9409,7 +11564,7 @@ group('brand-content-version-entry', [], () => {
   }
   const matchRender = taskInput('match-render', good, true)
   const matchRenderRun = runBoth('内容哈希版本一致 render', [S('render.ts'), '--dir', matchRender.taskDir],
-    matchRender.cwd, { status: 0, soft: [1, 2, 3] }, observed(matchRender))
+    matchRender.cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, observed(matchRender, S('render.ts')))
   if (matchRenderRun.ok && ready(matchRender, matchRenderRun.stderr)) {
     named('内容哈希版本一致：render 照常交付名单并写记忆，不改写校准',
       matchRenderRun.status === 0 && delivered(matchRender) && keptCalibration(matchRender, good)
@@ -9422,7 +11577,7 @@ group('brand-content-version-entry', [], () => {
   // D20.g：版本与内容不一致时，三个入口在预留、请求和写入前以 2 拒绝
   const staleNew = newInput('stale-new', stale)
   const staleNewRun = runBoth('内容哈希版本不一致新建', [S('collect.ts'), '--config', staleNew.file], staleNew.cwd,
-    { status: 2, soft: [0, 1, 3] }, observed(staleNew))
+    { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(staleNew, S('collect.ts')))
   if (staleNewRun.ok && ready(staleNew, staleNewRun.stderr)) {
     // 照常运行的新建会在 output/ 下建 brandversion-* 任务目录；拒绝时一个都不能有
     const output = join(staleNew.cwd, 'output')
@@ -9440,7 +11595,7 @@ group('brand-content-version-entry', [], () => {
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const f = taskInput(mode === '普通' ? 'stale-resume' : 'stale-resume-budget', stale), before = original(f)
     const r = runBoth(`内容哈希版本不一致${mode}续跑`, [S('collect.ts'), '--resume', f.taskDir, ...extra],
-      f.cwd, { status: 2, soft: [0, 1, 3] }, observed(f))
+      f.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(f, S('collect.ts')))
     if (!r.ok || !ready(f, r.stderr)) continue
     const stopped = r.status === 2 && noReserveOrFetch(f) && unchanged(f, before)
     const detail = `${mode}：退出=${r.status}，${events(f)}，三文件原字节=${unchanged(f, before)}`
@@ -9458,7 +11613,7 @@ group('brand-content-version-entry', [], () => {
   for (const [mode, extra] of [['普通', []], ['改额', ['--budget', '2']]] as const) {
     const f = taskInput(mode === '普通' ? 'stale-enrich' : 'stale-enrich-budget', stale, true), before = original(f)
     const r = runBoth(`内容哈希版本不一致 enrich ${mode}`, [S('enrich.ts'), '--dir', f.taskDir, ...extra],
-      f.cwd, { status: 2, soft: [0, 1, 3] }, observed(f))
+      f.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(f, S('enrich.ts')))
     if (!r.ok || !ready(f, r.stderr)) continue
     const stopped = r.status === 2 && noReserveOrFetch(f) && unchanged(f, before)
       && deliveries(f).every(path => !existsSync(path))
@@ -9476,7 +11631,7 @@ group('brand-content-version-entry', [], () => {
   }
   const staleRender = taskInput('stale-render', stale, true), staleRenderBefore = original(staleRender)
   const staleRenderRun = runBoth('内容哈希版本不一致 render', [S('render.ts'), '--dir', staleRender.taskDir],
-    staleRender.cwd, { status: 2, soft: [0, 1, 3] }, observed(staleRender))
+    staleRender.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(staleRender, S('render.ts')))
   if (staleRenderRun.ok && ready(staleRender, staleRenderRun.stderr)) {
     named('内容哈希版本不一致：render 在预留、请求和交付写入前退出2，不写记忆',
       staleRenderRun.status === 2 && noReserveOrFetch(staleRender) && unchanged(staleRender, staleRenderBefore)
@@ -9509,7 +11664,7 @@ group('brand-content-version-entry', [], () => {
   }
   const dual = dualInput('stale-render-dual'), dualBefore = original(dual)
   const dualRun = runBoth('内容哈希版本不一致且任务列表非法 render', [S('render.ts'), '--dir', dual.taskDir],
-    dual.cwd, { status: 2, soft: [0, 1, 3] }, observed(dual))
+    dual.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(dual, S('render.ts')))
   if (dualRun.ok && ready(dual, dualRun.stderr)) {
     const taskProblems = taskProblemsReported(dualRun.stderr)
     named('内容哈希版本不一致且任务列表也坏：render 两类问题都报且给出复算值，零预留零请求，文件原字节不变',
@@ -9522,7 +11677,7 @@ group('brand-content-version-entry', [], () => {
   }
   const dualEnrich = dualInput('stale-enrich-dual'), dualEnrichBefore = original(dualEnrich)
   const dualEnrichRun = runBoth('内容哈希版本不一致且任务列表非法 enrich', [S('enrich.ts'), '--dir', dualEnrich.taskDir],
-    dualEnrich.cwd, { status: 2, soft: [0, 1, 3] }, observed(dualEnrich))
+    dualEnrich.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(dualEnrich, S('enrich.ts')))
   if (dualEnrichRun.ok && ready(dualEnrich, dualEnrichRun.stderr)) {
     const taskProblems = taskProblemsReported(dualEnrichRun.stderr)
     named('内容哈希版本不一致且任务列表也坏：enrich 两类问题都报且给出复算值，零预留零请求，文件原字节不变',
@@ -9540,7 +11695,7 @@ group('brand-content-version-entry', [], () => {
   const brokenRecomputed = versionOf(broken)
   const structureFirst = taskInput('stale-render-structure', broken, true), structureBefore = original(structureFirst)
   const structureRun = runBoth('内容哈希版本不一致且结构非法 render', [S('render.ts'), '--dir', structureFirst.taskDir],
-    structureFirst.cwd, { status: 2, soft: [0, 1, 3] }, observed(structureFirst))
+    structureFirst.cwd, { status: 2, soft: [0, 1, 3, 4, 5, 6, 7] }, observed(structureFirst, S('render.ts')))
   if (structureRun.ok && ready(structureFirst, structureRun.stderr)) {
     named('内容哈希版本不一致而结构不合 D20.a：render 只报结构问题，不另算哈希，零预留零请求',
       structureRun.status === 2
@@ -9567,13 +11722,13 @@ group('brand-content-version-entry', [], () => {
     const id = loose.findIndex(([k]) => k === kind)
     const resume = taskInput(`loose-${id}-resume`, value)
     const resumeRun = runBoth(`非哈希版本${kind}续跑`, [S('collect.ts'), '--resume', resume.taskDir], resume.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(resume.log))
+      { status: 4, soft: [0, 1, 2, 3, 5, 6, 7] }, costEnv(resume.log))
     if (!resumeRun.ok) continue
     const render = taskInput(`loose-${id}-render`, value, true)
     const renderRun = runBoth(`非哈希版本${kind} render`, [S('render.ts'), '--dir', render.taskDir], render.cwd,
-      { status: 0, soft: [1, 2, 3] }, costEnv(render.log))
+      { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(render.log))
     if (!renderRun.ok) continue
-    const ok = resumeRun.status === 0 && keptCalibration(resume, value)
+    const ok = resumeRun.status === 4 && keptCalibration(resume, value)
       && renderRun.status === 0 && delivered(render) && keptCalibration(render, value)
     const detail = `${version}：续跑退出=${resumeRun.status}，render 退出=${renderRun.status}，`
       + `续跑 stderr=${stderrTail(resumeRun.stderr)}，render stderr=${stderrTail(renderRun.stderr)}`
@@ -9587,7 +11742,7 @@ group('brand-content-version-entry', [], () => {
   const looseEnrichValue = { ...stale, version: `sha256:${hex.toUpperCase()}` }
   const looseEnrich = taskInput('loose-enrich', looseEnrichValue, true)
   const looseEnrichRun = runBoth('非哈希版本大写十六进制 enrich', [S('enrich.ts'), '--dir', looseEnrich.taskDir],
-    looseEnrich.cwd, { status: 0, soft: [1, 2, 3] }, costEnv(looseEnrich.log))
+    looseEnrich.cwd, { status: 0, soft: [1, 2, 3, 4, 5, 6, 7] }, costEnv(looseEnrich.log))
   if (looseEnrichRun.ok) {
     named('大写十六进制的 sha256 版本内容改了：enrich 照常运行，版本不被改写',
       looseEnrichRun.status === 0 && !namesVersion(looseEnrichRun.stderr) && keptCalibration(looseEnrich, looseEnrichValue),
@@ -9866,6 +12021,191 @@ group('calibration-version-entry', [], () => {
       `写入=${others(w) === wOthers}，unchanged=${others(u) === uOthers}，absent=${others(absent) === absentOthers}`)
   }
   criterion('D20.u')
+})
+
+// D30.h：`sender` 的真入口契约（参数、stdout、保存失败）。期望只出自 D30.h 原文与本组手写的夹具；D30.g 的写进与拒绝由 scripts/test.ts 的 d30-set 组判。
+group('sender-entry', [], () => {
+  const entry = S('sender.ts')
+  // 前缀与夹具名里不含「用法」、sender_name、replaced：下面按这些词认输出，路径不能替它们作证
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'kol-sndr-')))
+  process.on('exit', () => rmSync(base, { recursive: true, force: true }))
+  const TEXT = '{"product":"sndr","market":"US","budget_usd":2.50,"done":[0],"sender_name":5,"updated_at":"2026-01-01T00:00:00Z"}\n'
+  let n = 0
+  const fixture = (text: string | undefined) => {
+    const dir = join(base, `t${n++}`), file = join(dir, 'task.json')
+    mkdirSync(dir)
+    if (text !== undefined) writeFileSync(file, text)
+    return { dir, file }
+  }
+  const bytes = (file: string) => existsSync(file) ? readFileSync(file, 'utf8') : undefined
+  // 用法错误：每种各起一个带 task.json 的目录；越过参数判定的变异会把姓名写进去，原字节就不在了
+  const USAGE: [string, (d: string) => string[]][] = [
+    ['一个参数都没有', () => []], ['缺 --name', d => ['--dir', d]], ['缺 --dir', () => ['--name', 'Eric']],
+    ['--dir 写了两次', d => ['--dir', d, '--dir', d, '--name', 'Eric']], ['--name 写了两次', d => ['--dir', d, '--name', 'Eric', '--name', 'Eve']],
+    ['未知参数', d => ['--dir', d, '--name', 'Eric', '--force']], ['多余的位置参数', d => ['--dir', d, '--name', 'Eric', 'extra']],
+    ['--name=值 的写法', d => ['--dir', d, '--name=Eric']], ['--name 的值以 -- 开头', d => ['--dir', d, '--name', '--Eric']],
+    ['--dir 的值只有空白', () => ['--dir', ' ', '--name', 'Eric']], ['--name 缺值', d => ['--dir', d, '--name']]]
+  const usage = USAGE.map(([what, argv]) => {
+    const f = fixture(TEXT)
+    const r = runBoth(`sender 用法错误：${what}`, [entry, ...argv(f.dir)], base, { status: 2, soft: [0, 1] })
+    return { what, ok: r.ok, pass: r.status === 2 && r.stdout === '' && r.stderr.includes('用法') && bytes(f.file) === TEXT }
+  })
+  // 用法错误时目录里本没有 task.json 的，跑完仍没有
+  const empty = fixture(undefined)
+  const emptyRun = runBoth('sender 用法错误：缺 --name，目录里没有 task.json', [entry, '--dir', empty.dir], base, { status: 2, soft: [0, 1] })
+  if (usage.every(u => u.ok) && emptyRun.ok) {
+    named('sender 缺参、重复、未知或多余参数、值缺失或以 -- 开头、--dir 只有空白时以 2 拒绝并给出用法，stdout 为空，task.json 原字节、没有的不创建',
+      usage.every(u => u.pass) && emptyRun.status === 2 && emptyRun.stderr.includes('用法') && !existsSync(empty.file),
+      `不合的：${usage.filter(u => !u.pass).map(u => u.what).join('、') || '无'}；空目录 退出=${emptyRun.status}，task.json ${existsSync(empty.file) ? '被创建' : '没有'}`)
+  }
+  // 写进：旧值是 5 时 replaced 照印 5；没有旧值时不带 replaced
+  const had = fixture(TEXT), none = fixture(TEXT.replace(',"sender_name":5', ''))
+  const hadRun = runBoth('sender 写进：已有旧值', [entry, '--dir', had.dir, '--name', 'Eric'], base, { status: 0, soft: [1, 2] })
+  const noneRun = runBoth('sender 写进：没有旧值', [entry, '--dir', none.dir, '--name', 'Eve'], base, { status: 0, soft: [1, 2] })
+  const line = (s: string): unknown => { const ls = s.split('\n').filter(Boolean); try { return ls.length === 1 ? JSON.parse(ls[0]) : undefined } catch { return undefined } }
+  if (hadRun.ok && noneRun.ok) {
+    named('sender 写进时 stdout 是一行 JSON：task 为 task.json 路径、sender_name 为写进的值，已有旧值时另带 replaced 为旧值',
+      hadRun.status === 0 && noneRun.status === 0
+        && isDeepStrictEqual(line(hadRun.stdout), { task: had.file, sender_name: 'Eric', replaced: 5 })
+        && isDeepStrictEqual(line(noneRun.stdout), { task: none.file, sender_name: 'Eve' }),
+      `已有=${JSON.stringify(hadRun.stdout)}，没有=${JSON.stringify(noneRun.stdout)}`)
+  }
+  // 以 2 拒绝（姓名只有空白）时 stdout 为空
+  const blank = fixture(TEXT)
+  const blankRun = runBoth('sender 姓名只有空白', [entry, '--dir', blank.dir, '--name', '  '], base, { status: 2, soft: [0, 1] })
+  if (blankRun.ok) named('sender 以 2 拒绝姓名时 stdout 为空', blankRun.status === 2 && blankRun.stdout === '' && bytes(blank.file) === TEXT,
+    `退出=${blankRun.status}，stdout=${JSON.stringify(blankRun.stdout)}`)
+  // 保存失败：task.json 只读（root 跑也拒，见 lib/atomic.ts 的权限位那一问）
+  const ro = fixture(TEXT)
+  chmodSync(ro.file, 0o444)
+  const roRun = runBoth('sender 保存失败：task.json 只读', [entry, '--dir', ro.dir, '--name', 'Eric'], base, { status: 1, soft: [0, 2] })
+  if (roRun.ok) named('sender task.json 存在但保存失败时以 1 结束，task.json 原字节，stderr 写出 task.json 路径',
+    roRun.status === 1 && bytes(ro.file) === TEXT && roRun.stderr.includes(ro.file), `退出=${roRun.status}，stderr=${stderrTail(roRun.stderr)}`)
+  criterion('D30.h')
+})
+
+// ---- 零请求观察器的认证入口（KOL-21，ADR-70 末尾「KOL-21 零请求观察器与外层断网」一节）----
+// 在临时目录里真起一遍认证入口，验的是接线：跑得完，汇总与退出码对得上，列出的证据都在、SHA256 对得上。这一跑**不是认证**。
+// 断网起不起得来随机器：另起一个最小的 bwrap 断网问一句，起得来就要认证成立、逐项成立；起不来就要认证不成立、
+// 一个入口也不起、以 1 退出 —— 两种都判，不跳过。期望的项数照认证入口的设计手数：断网 1、四个入口各两条、设施故障 10
+// （ADR-70 末尾「修复轮 1」从 6 加到 10：入口起线程、绕过 Worker 那一道起线程、起子进程、直连并吞掉失败）
+group('observer-cert-entry', [], () => {
+  const out = join(tmp, 'observer-cert')
+  const r = runToolBoth('observer-cert 在临时目录里跑一遍（接线，不是认证）', 'observer-cert', ['--out', out], process.cwd(), { status: 0, soft: [1] })
+  if (!r.ok) return
+  const summary = jsonFile(join(out, 'summary.json'))
+  if (summary?.schema !== 'kol21-observer-cert/v1' || !Array.isArray(summary.items) || !Array.isArray(summary.evidence)) {
+    failed++; console.error(`  ✗ observer-cert 汇总${SELFCHECK_FIXTURE_MARK}：summary.json 读不出或形状不对；${stderrTail(r.stderr)}`); return
+  }
+  const netns = spawnSync('bwrap', ['--unshare-net', '--ro-bind', '/', '/', 'true'], { stdio: 'ignore', env: { PATH: '/usr/bin:/bin:/usr/local/bin' } }).status === 0
+  const items: { id: string; ok: boolean }[] = summary.items
+  const ran = readdirSync(out).filter(n => /-(positive|zero)$|^fault-/.test(n))
+  console.log(`  · 本机${netns ? '起得来' : '起不来'} bwrap 断网；认证入口这一跑在临时目录里，不是认证`)
+  named('观察器认证入口：断网认证的结论与本机起不起得来 bwrap 断网一致，成立时四个入口的阳性、零记录与十条设施故障对照逐项成立，不成立时一个入口也不起',
+    netns ? summary.isolation?.certified === true && items.length === 19 && items.every(i => i.ok) && ran.length === 18
+      : summary.isolation?.certified === false && items.length === 1 && ran.length === 0 && r.status === 1,
+    `bwrap 断网${netns ? '起得来' : '起不来'}，认证=${summary.isolation?.certified}，不成立的项：${items.filter(i => !i.ok).map(i => i.id).join('；') || '无'}，起过的对照目录 ${ran.length} 个`)
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' })
+  // 按字节算（证据里有 xlsx 这样的二进制文件）；不动本文件的 import 那几行
+  const bytes = createRequire(import.meta.url)('node:crypto') as typeof import('node:crypto')
+  const digest = (f: string) => bytes.createHash('sha256').update(readFileSync(f)).digest('hex')
+  named('观察器认证入口：退出码与汇总的结论一致，汇总记着被测提交，列出的每份证据都在、SHA256 对得上',
+    (summary.result === 'certified') === (r.status === 0) && summary.exit === r.status
+      && summary.provenance?.head === (head.status === 0 ? head.stdout.trim() : '') && summary.evidence.length > 0
+      && summary.evidence.every((e: { path: string; sha256: string }) => existsSync(join(out, e.path)) && digest(join(out, e.path)) === e.sha256),
+    `result=${summary.result}，退出码 ${r.status}，汇总里的提交 ${summary.provenance?.head}，证据 ${summary.evidence.length} 份`)
+})
+
+// ---- 独立黑盒测试包（ADR-183 第 95 行 T 那一片）：冻结的用例经接线跑真实入口与观察器 ----
+// 用例在 `scripts/independent-blackbox-tests/`：独立上下文只照冻结规格单写成、不 import 任何实现，整合方嵌回原字节。接线在
+// `scripts/independent-blackbox-tests-wiring.ts`（当被测对象起，不进工具表，理由在它的文件头）。这一组起它一次、读回冻结套件自己写的
+// 报告，**不重判任何一条**，每例照报告里的结论分开报：
+//   pass → ✓；red → 不带记号的 ✗（断言红了）；fixture、facility → 带夹具记号的 ✗（这一例什么也没测到，与本文件别处
+//   「阳性对照没成立是夹具失格」同一种处理，见了整次判跑不起来）；review-pending、not-judged、not-covered → 一行「·」写明是哪一种，
+//   不算过、也不计失败（`process/4-VERIFY.md`「推论」：没测量与测量结果是零是两个值）。哪一例整例未判红、里面却有断言不成立
+//   （资格待定或 GAP-25 待定时冻结套件把红压成待定），那一行另说出有几项，不藏。
+// 整套是一组：冻结套件的依赖跨它自己的分组连成一片（G2-00、G1-02、G3-02 当基线，三个阳性每跑都起），拆开的话每组都得重跑这几跑。
+// 本文件直接起的只有接线那一个进程（ADR-145 的计数单位只数这一层），接线在沙箱里起的八十几跑入口不进那个数 —— 一条指着这里的
+// 变异实际要花整套一跑的时间，照实写在这里。
+// 具名断言只给交给本片认领的判据，每条一句（D6.aa 接替 D6.y：ADR-183 第 95、196 行、ADR-193；D13.v、D13.u：ADR-184 第 193、272 行），各断言
+// 「所涉各例没有一例判红、设施故障或夹具失格」；所涉各例按冻结用例（连同它调到的公共判据）在依据里引了哪条判据来列，冻结单的
+// 认领对照没有交到本片手上。认领另要那几例全部 pass、而且没有一项不判 —— 附条件子断言、复核没做、GAP 或 E 前提没补齐的，
+// 一条都认不下来。交点 U9×P1 不在这里认领（由需求测试 `u9-p1-independent-claim` 起接线认领，接线模块头写着），自检的入口认领记录本来也不收交点。
+// D4.s 也不在这里认领：需求测试 `d4s-independent-claim` 起接线只点 G3-15，读回退出码与字节比那两项认领（ADR-185 末尾）。
+// D4.t 同样不在这里：需求测试 `d4t-independent-claim` 起接线只点 G3-19、G3-19N，各读回退出码、MEM-READ 与字节比三项认领（ADR-185 末尾）。
+// 唯一的例外是 G3-14c（ADR-186 末尾「第二片」，需求所有者选的处置）：接上 E-2 之后，GAP-24b 登为保存失败后不读记忆，冻结套件照冻结单
+// 判它夹具失格。只有「G3-14c 前提」那一项失格、「E-2 命中」那一项判过、别的项没有红与设施故障时，读作预期结果：一行「·」写明，
+// 不计失败，D6.aa 那条具名断言也不因它不成立；它不是 pass，照旧认领不下。别的样子的失格照常算失败。
+group('independent-blackbox-tests', [], () => {
+  const root = join(tmp, 'independent-blackbox-tests'), work = join(root, 'work'), report = join(root, 'report.json')
+  mkdirSync(work, { recursive: true })
+  const r = runBoth('独立黑盒测试包经接线跑真实入口与观察器', [S('independent-blackbox-tests-wiring.ts'), '--work', work, '--report', report], root, { status: 0 })
+  if (!r.ok) return
+  // 接线读到不合契约的测试观察记录时，冻结套件那几例只报得出「命中记录 []」「就绪标记缺席」；不合在哪只写在接线 stdout 的汇总里，照抄出来。
+  // 只是让人看得见原因：那几例的夹具失格照常算失败
+  let wired: { records?: unknown } | undefined
+  try { wired = JSON.parse(r.stdout.trim().split('\n').at(-1) ?? '') } catch { wired = undefined }
+  for (const p of Array.isArray(wired?.records) ? wired.records as { evidenceDir?: unknown; problems?: unknown }[] : [])
+    console.log(`  · 接线读到不合契约的测试观察记录（${String(p?.evidenceDir)}）：${Array.isArray(p?.problems) ? p.problems.join('；') : String(p?.problems)}`)
+  type PackItem = { label: string; status: string; detail?: string }
+  type PackCase = { id: string; verdict: string; items: PackItem[]; notes: string[] }
+  const rep = jsonFile(report)
+  const cases: PackCase[] = Array.isArray(rep?.cases) ? rep.cases : []
+  const byId = new Map(cases.map(c => [c?.id, c]))
+  const expectedFixture = (c: PackCase | undefined) => c?.id === 'G3-14c' && c.verdict === 'fixture'
+    && c.items.filter(i => i.status === 'fixture').map(i => i.label).join('、') === 'G3-14c 前提'
+    && c.items.some(i => i.label === 'E-2 命中' && i.status === 'pass') && !c.items.some(i => i.status === 'red' || i.status === 'facility')
+  // 冻结单的用例数照各组文件头：G1 35、G2 30、G3 29、G4 8、G5 3、G6 3
+  if (cases.length !== 108 || byId.size !== 108
+    || cases.some(c => typeof c?.id !== 'string' || typeof c.verdict !== 'string' || !Array.isArray(c.items) || !Array.isArray(c.notes))) {
+    failed++
+    console.error(`  ✗ 独立黑盒测试包的报告${SELFCHECK_FIXTURE_MARK}：${report} 读不出、形状不对或不是冻结单的 108 例（读到 ${cases.length} 例）；${stderrTail(r.stderr)}`)
+    return
+  }
+  const tally = new Map<string, number>()
+  for (const c of cases) {
+    tally.set(c.verdict, (tally.get(c.verdict) ?? 0) + 1)
+    const own = c.items.filter(i => i.status === c.verdict).slice(0, 3).map(i => `${i.label}：${i.detail ?? ''}`).join('；') || c.notes.join('；')
+    if (c.verdict === 'pass') console.log(`  ✓ 独立用例 ${c.id}`)
+    else if (c.verdict === 'red') { failed++; console.error(`  ✗ 独立用例 ${c.id}（判红）：${own}`) }
+    else if (expectedFixture(c)) console.log(`  · 独立用例 ${c.id} 夹具失格是预期结果（ADR-186 末尾「第二片」），不算过也不算红：${own}`)
+    else if (c.verdict === 'fixture' || c.verdict === 'facility') {
+      failed++
+      console.error(`  ✗ 独立用例 ${c.id}${SELFCHECK_FIXTURE_MARK}：${c.verdict === 'fixture' ? '夹具失格' : '设施故障'}，这一例什么也没测到 —— ${own}`)
+    } else if (c.verdict === 'review-pending' || c.verdict === 'not-judged' || c.verdict === 'not-covered') {
+      const count = (s: string) => c.items.filter(i => i.status === s).length
+      const kinds: [string, number][] = [['复核或资格待定', count('review-pending')], ['不判', count('not-judged')], ['断言不成立、整例红暂不定', count('red')]]
+      const parts = kinds.filter(([, n]) => n > 0).map(([what, n]) => `${what} ${n} 项`)
+      console.log(`  · 独立用例 ${c.id} 未决（${c.verdict}），不算过也不算红：${parts.length ? parts.join('、') : c.notes.join('；').slice(0, 160)}`)
+    } else { failed++; console.error(`  ✗ 独立用例 ${c.id}${SELFCHECK_FIXTURE_MARK}：报告里的结论 ${JSON.stringify(c.verdict)} 认不得`) }
+  }
+  console.log(`  · 独立测试包 ${cases.length} 例：${['pass', 'red', 'fixture', 'facility', 'review-pending', 'not-judged', 'not-covered']
+    .map(v => `${v} ${tally.get(v) ?? 0}`).join(' · ')}（未决三种不算过；冻结单状态对账在报告的 frozen 里）`)
+  for (const q of Array.isArray(rep.questions) ? rep.questions : []) console.log(`  · 冻结套件报给需求方的疑问：${q}`)
+
+  // 各判据所涉的用例：冻结用例在依据里引了这条判据的那几例（D13.u 只有 G1-02U）
+  const D6Y = ['G1-02', 'G1-02B', 'G1-02C', 'G1-02P', 'G1-02U', 'G1-02W', 'G1-02X', 'G1-03C', 'G1-04', 'G1-06', 'G1-08', 'G1-10', 'G1-12',
+    'G1-14', 'G1-16', 'G1-18', 'G1-20', 'G1-21', 'G1-22', 'G1-23', 'G2-00', 'G2-01', 'G2-13', 'G2-13Z', 'G2-14', 'G2-15', 'G2-15C', 'G2-16',
+    'G2-16P', 'G2-23a', 'G2-23b', 'G3-01', 'G3-02', 'G3-03', 'G3-04', 'G3-04R', 'G3-05', 'G3-06', 'G3-07', 'G3-07T', 'G3-08', 'G3-09',
+    'G3-10', 'G3-11', 'G3-11B', 'G3-11N', 'G3-13', 'G3-14a', 'G3-14b', 'G3-14c', 'G3-14d', 'G3-14e', 'G3-14f', 'G3-15']
+  const D13V = ['G1-02', 'G1-02A', 'G1-02B', 'G1-02C', 'G1-02P', 'G2-13Z', 'G2-24', 'G3-11', 'G3-11B', 'G3-11N', 'G3-13']
+  const D13U = ['G1-02U']
+  // 报告里找不到的用例号读作 undefined：不算干净、也认领不下，不让这里抛
+  const clean = (ids: readonly string[]) => ids.every(id => ['pass', 'review-pending', 'not-judged'].includes(byId.get(id)?.verdict ?? '缺') || expectedFixture(byId.get(id)))
+  const dirty = (ids: readonly string[]) => ids.filter(id => !clean([id])).map(id => `${id}=${byId.get(id)?.verdict ?? '缺'}`).join(' ')
+  const settled = (ids: readonly string[]) => ids.every(id => byId.get(id)?.verdict === 'pass' && byId.get(id)!.items.every(i => i.status === 'pass'))
+  named('独立黑盒测试包 D6.aa：collect 各种收尾的标签与退出码所涉各例，没有一例判红、设施故障或夹具失格',
+    clean(D6Y), `不成立的：${dirty(D6Y)}`)
+  named('独立黑盒测试包 D13.v：新建缺预算按 $2 落盘、不合规预算与其余前置检查拒绝、续跑不借默认、不回写配置所涉各例，没有一例判红、设施故障或夹具失格',
+    clean(D13V), `不成立的：${dirty(D13V)}`)
+  named('独立黑盒测试包 D13.u：新建给了合规 --budget 时根 budget_usd 与费用账上限都取该金额（G1-02U），不判红、不是设施故障或夹具失格',
+    clean(D13U), `不成立的：${dirty(D13U)}`)
+  if (settled(D6Y)) criterion('D6.aa')
+  if (settled(D13V)) criterion('D13.v')
+  if (settled(D13U)) criterion('D13.u')
+  const unsettled = ([['D6.aa', D6Y], ['D13.v', D13V], ['D13.u', D13U]] as const).filter(([, ids]) => !settled(ids))
+    .map(([id, ids]) => `${id}（${ids.filter(c => !settled([c])).length}/${ids.length} 例没有全数判过）`)
+  if (unsettled.length) console.log(`  · 这一跑认领不下：${unsettled.join('、')} —— 没认领的照旧是缺口，不在这里补`)
 })
 
 // 拆不拆、拆几个是判定（`shardJobs`）：只有完整、非变异的整跑才拆；`SELFCHECK_JOBS=1` 照旧单进程。

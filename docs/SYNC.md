@@ -27,7 +27,7 @@
 | **新增红线** | 需求登记表 · **测试** · **变异集** · `docs/CONVENTIONS.md` | 🔒 `audit` 强制红线有测试+变异 |
 | **改评分/分层规则** | `scripts/lib/score.ts` · `scripts/lib/pipeline.ts` · `skill/references/semantic-fit.md` · 测试 | 部分 |
 | **改管线步骤或其顺序** | `scripts/lib/pipeline.ts` · 测试 · **变异集**（顺序有语义，必须有变异守着）· `docs/ARCHITECTURE.md` 顺序契约表 | 🔒 `mutate`（顺序契约表点名的变异在不在、`file` 在不在那一行的位置栏里由它开跑前核，守不守靠人核；ADR-148） |
-| **新增/改名/删除顶层目录或 `docs/` 下的子目录，或者换了运行产物的落点** | `docs/ARCHITECTURE.md`「新东西落在哪个目录」那张表 · `.gitignore`（不进仓库的） · `scripts/check/jobs-rule.ts` 的 `SKIP`（`.gitignore` 的手抄本） · `AGENTS.md`（影响路由时） | ✗ 靠执行（ADR-114） |
+| **新增/改名/删除顶层目录或 `docs/` 下的子目录，或者换了运行产物的落点** | `docs/ARCHITECTURE.md`「新东西落在哪个目录」那张表 · `.gitignore`（不进仓库的；变异 worker 的副本清单问 git，跟着它走，ADR-72 第 303 行） · `AGENTS.md`（影响路由时） | ✗ 靠执行（ADR-114） |
 | **新增/删除 `scripts/` 下的模块** | `docs/ARCHITECTURE.md` 锚点表 · `scripts/check/selfcheck.ts`（可执行文件） | 🔒 `audit`（锚点表靠人核，ADR-78） |
 | **改模块之间的依赖方向** | `docs/ARCHITECTURE.md`（含「一件新工作放哪边」那节，如果判据变了） | ✗ 靠执行（ADR-78） |
 | **改入口参数/退出码/产出文件/字段所有权** | `docs/ARCHITECTURE.md` 缝隙契约 · `skill/SKILL.md` · `README.md` 快速开始 | 部分 |
@@ -69,6 +69,7 @@
 | `docs/business-requirements.md` | 背景、痛点排序、成功指标、论证过程 | 编号定义（那在 json） |
 | `docs/data-source-strategy.md` | 各家 API 调研与选型结论 | 需求 |
 | `docs/adr/` | ADR，一条一个文件，追加不删改；欠条与就地更正以 `⚠️` 块追加 | 计划、待办（带重启条件的欠条不算：它写的是缺什么、什么条件下重启） |
+| `docs/REGRESSION.md` | 改了 `skill/` 的判断类文字以后，在几个冻结的真实任务上比新旧两版、看产出有没有变差的手工流程（ADR-159） | 每次跑的结果（在那条改 `skill/` 的 PR 正文里）；真实任务数据 |
 | `docs/REVISIT.md` | 回访例程照做的全部规则（例程往 ADR-152 追加台账；「候选句」两道门都过了、起草了的，另开一条候选句记录） | 例程以外的规则；每周的结果（在 ADR-152 与例程开的候选句记录里） |
 | `DECISIONS.md` | **只做转发**，指向 `docs/adr/` | 任何记录本身 |
 | `README.md` | 给新接手者看的下游概览 | 只在 README 出现、无法追溯到正本的需求或事实 |

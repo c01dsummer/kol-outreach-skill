@@ -65,19 +65,31 @@ export const fingerprint = (files: readonly (readonly [string, string])[]): stri
 }
 
 /**
- * 指纹的范围:`scripts/` 下所有 `.ts`,不只是 `test.ts` 自己。
+ * 指纹的范围:`scripts/` 下所有 `.ts`,以及项目存在的精确 `check.yml` 程序输入。
+ * 自定义目录仍只遍历其 TS；没有工作流的玩具项目保持可用。工作流的增加、删除或正文
+ * 变化都改变共同清单；存在但不可读时直接报错，不把坏输入当空正文。
  *
  * 只钉 `test.ts` 有个洞:静态 import 先于模块体求值,被 import 的实现改出语法错误时,
  * 测试在「开跑前清掉记录」那一行之前就崩了 —— `test.ts` 一个字没动,指纹照样对得上,
  * 上一次的记录成了这一次的证据。范围放到整棵树,改坏实现就等于改了指纹,
  * 那份记录当场判过期（M-H14-b 守范围,M-H14-h 守子目录）。
  */
-export const sourceFiles = (dir: string = SOURCE_DIR): [string, string][] =>
-  readdirSync(dir, { withFileTypes: true }).flatMap(e => {
+const CHECK_WORKFLOW = join('.github', 'workflows', 'check.yml')
+const workflowSources = (): [string, string][] => {
+  try { return [[CHECK_WORKFLOW, readFileSync(CHECK_WORKFLOW, 'utf8')] as [string, string]] }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
+}
+export const sourceFiles = (dir: string = SOURCE_DIR): [string, string][] => [
+  ...readdirSync(dir, { withFileTypes: true }).flatMap(e => {
     const p = join(dir, e.name)
     if (e.isDirectory()) return sourceFiles(p)
     return p.endsWith('.ts') ? [[p, readFileSync(p, 'utf8')] as [string, string]] : []
-  })
+  }),
+  ...(dir === SOURCE_DIR ? workflowSources() : []),
+]
 
 /**
  * 记录里那几个字符串数组字段。列成一张名单,是因为验的不是「某一个字段」,

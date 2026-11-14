@@ -6,6 +6,11 @@
  * 算分、分层、写评审 CSV/XLSX/HTML + meta.json，并写回跨任务记忆。
  *
  * 用法: tsx scripts/render.ts --dir output/anker-powerbank-202608251430
+ *
+ * 退出码（ADR-193，与 collect、enrich、probe 共用一套数）：
+ *   0  成功；2  输入问题；7  跨任务记忆读不出来（没加 --ignore-memory）
+ *   6  名单、交付物或评审正本保存失败（不得声称已交付）；1  其余意外异常
+ * 记忆写回失败不中断交付：照常退 0，meta 的 memory_written／memory_write_error 写明（ADR-15、ADR-20）。
  */
 import { writeFileAtomic } from './lib/atomic.js'
 import { join } from 'node:path'
@@ -21,6 +26,7 @@ import { writeCsv } from './lib/csv.js'
 import { REVIEW_HEADERS, toReviewRow, sortForReviewOutput, buildSheets } from './lib/rows.js'
 import { writeXlsx, type Sheet } from './lib/xlsx.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
+import { verifiedFacts } from './lib/draft-claims.js'
 import { accountKey, attachAssessments, currentEnrichmentView } from './lib/assessment.js'
 import { costView } from './lib/budget.js'
 import { sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
@@ -28,6 +34,10 @@ import { duplicateKeyProblems } from './lib/duplicate-keys.js'
 import { resumeProgressProblems } from './lib/resume-progress.js'
 import { asMemoryStatus } from './lib/types.js'
 import type { Creator, Measurement, TaskState } from './lib/types.js'
+import { EXIT } from './lib/exit-codes.js'
+
+/** 名单与交付物写不进去：原样打出错误，以保存失败（6）退出，不往下写别的（ADR-193） */
+const saveFailed = (e: unknown): never => { console.error(e); process.exit(EXIT.save) }
 
 const i = process.argv.indexOf('--dir')
 const dir = i >= 0 ? process.argv[i + 1] : undefined
@@ -79,15 +89,17 @@ try {
 // The last delivery may predate a manual contacted/blocked edit. Recheck both
 // account identities before changing any task output or recommendation memory.
 let memoryStatus
+let firstUnreadable: string | undefined
 try {
   const current = filterByMemory(creators, state.product, taskId(dir),
     { ignoreUnreadable: ignoreMemory, knownRelations: relations })
   creators = current.kept
   memoryStatus = current.memory_status
+  firstUnreadable = current.unreadable_detail
 } catch (e) {
   if (e instanceof MemoryUnreadable) {
     console.error(`${e.message}\n修复记忆后重跑；只有明确接受不去重风险时才加 --ignore-memory。`)
-    process.exit(2)
+    process.exit(EXIT.memory)
   }
   throw e
 }
@@ -116,19 +128,25 @@ attachAssessments(creators, enrichment)
 creators = rankCreators(creators, state.market)
 creators = sortForReviewOutput(creators)
 try { reviews.save(new Date().toISOString()) }
-catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1) }
+catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(EXIT.save) }
+try {
 persistListAndStatus(dir, state, creators, memoryStatus)
+} catch (e) { saveFailed(e) }
 const accountKeys = accountKeysFor(creators)
 
 // ---------- CSV（单表，供脚本与其他工具消费）----------
 const csvPath = join(dir, 'kol.csv')
+try {
 writeCsv(csvPath, [...REVIEW_HEADERS], creators.map(toReviewRow))
+} catch (e) { saveFailed(e) }
 
 // ---------- XLSX（分 sheet，供人快速切换）----------
 // CSV 规范里没有「工作表」这个概念，多 sheet 只能走 xlsx。两个文件各司其职：
-// CSV 给机器读，xlsx 给人看。
+// CSV 给机器读，xlsx 给人看。CSV 里可能被当成公式的文字格多一个 '（D5.c），要逐字原值的读 xlsx。
 const xlsxPath = join(dir, 'kol.xlsx')
+try {
 writeXlsx(xlsxPath, buildSheets(creators, { mode: 'review' }) as Sheet[])
+} catch (e) { saveFailed(e) }
 
 // ---------- HTML + meta ----------
 const countMeasurements = <T>(total: number, values: Array<Measurement<T> | undefined>) => ({
@@ -150,7 +168,10 @@ const audienceGeo = creators.filter(c => c.audience_geo !== undefined).length
 // 记忆读不出来时不写回（绝不拿一份「谁都没联系过」去盖掉它，ADR-15），
 // 损失的是下一轮的「已推荐过」去重，属于覆盖；写回则会毁掉 contacted 与
 // blocked，属于可信。覆盖能补，可信补不回来。
-const writeBack = recordRecommendations(creators, state.product, taskId(dir))
+// 读不读得出以上面那一次为准：这里只把它原样交下去，写不写由 recordRecommendations 判（D4.t）。
+// 首次读得出时不带第四参 —— 第四参只有「带着首次那一句」一种形状。
+const options = firstUnreadable === undefined ? undefined : { prior_unreadable: firstUnreadable }
+const writeBack = recordRecommendations(creators, state.product, taskId(dir), options)
 if (!writeBack.written) {
   // 原因有两类：读不出来（去修 JSON）和写不进去（去看权限/磁盘）。
   // **不要替用户断定是哪一类** —— 让他拿着真实原因去修对的地方（ADR-20）。
@@ -218,9 +239,13 @@ const meta = {
       accountKeys.size, assessedAccounts.map(a => a?.collaboration_quote)),
   },
 }
+// P2.c：草稿里的数字与承诺词拿任务里已证实的产品事实对，对不上的在报告里标出，不拦（ADR-199）
+const facts = verifiedFacts(state.brand_calibration)
 // 交付物也走整体替换：render 被打断时，上一份完整的 meta.json / report.html 还在（D4）
+try {
 writeFileAtomic(join(dir, 'meta.json'), stringifyCostJson(meta, cost))
-writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review', filters: 'dual' }))
+writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review', filters: 'dual', facts }))
+} catch (e) { saveFailed(e) }
 
 console.log(stringifyCostJson({
   csv: csvPath,

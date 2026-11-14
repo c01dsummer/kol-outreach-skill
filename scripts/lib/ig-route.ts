@@ -1,3 +1,4 @@
+import { taskOrdinal } from './task-label.js'
 import type { SearchTask } from './types.js'
 
 /**
@@ -31,6 +32,29 @@ export function igRouteProblems(tasks: unknown): string[] {
       }
     }
   })
+  return out
+}
+
+/**
+ * 任务配置里的 `as_hashtag` 哪里不合规（D15.n，ADR-115 第十三节）。**合规时交回空数组。**
+ *
+ * 它只能缺席或是布尔：出现了却不是布尔（`null`、字符串 `"true"`、数字、数组、对象）时，这个任务一句话，
+ * 写明是第几个任务（从 1 数，同任务标签）、点名 `as_hashtag`，并按 JSON 写法写出读到的值。不改写成布尔 ——
+ * 改写就是替配置拿主意（D16 同一条口径）。任务列表不是数组、某一项不是对象，同 `igRouteProblems` 不在这里判。
+ *
+ * 调用方与 `igRouteProblems` 是同一批（collect 的新建与续跑、probe），同一道退出码 2，在建目录、预留与请求之前。
+ */
+export function asHashtagProblems(tasks: unknown): string[] {
+  if (!Array.isArray(tasks)) return []
+  const out: string[] = []
+  // 按下标走，不用 forEach：稀疏数组的空位也占一个序号（同 taskListProblems）
+  for (let i = 0; i < tasks.length; i++) {
+    const t: unknown = tasks[i]
+    if (t === null || typeof t !== 'object') continue
+    const flag = (t as Record<string, unknown>).as_hashtag
+    if (flag === undefined || typeof flag === 'boolean') continue
+    out.push(`任务 ${taskOrdinal(i)} 的 as_hashtag 只能是 true、false 或不写，这里是 ${JSON.stringify(flag)}`)
+  }
   return out
 }
 
