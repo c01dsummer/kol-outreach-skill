@@ -190,6 +190,7 @@ const GROUPS: readonly Group[] = [
   { id: 'p1-profile-state', needs: [] },
   { id: 'p1-plays', needs: [] },
   { id: 'p2-placeholders', needs: [] },
+  { id: 'p2-draft-claims', needs: [] },
   { id: 'd6-pipeline', needs: [] },
   { id: 'd4-memory', needs: [] },
   { id: 'd4t-ignore-memory', needs: [] },
@@ -747,6 +748,77 @@ suite('P2', '开发信占位符必须原样保留到产出物')
   criterion('P2.b')
 }
 
+})
+await group('p2-draft-claims', () => {
+suite('P2', '开发信草稿里对不上出处的数字与承诺词在评审 HTML 里标出，不拦')
+{
+  // P2.c（ADR-199）：期望只取自判据原文与下面写进夹具的字面值。对照是已证实的产品事实，加上这位博主自己作品的文字。
+  // 阳性对照：出处里有的说法（换了写法也算：400 mL ↔ 400ml、10 seconds ↔ ten seconds、29.99 USD ↔ $29.99）不报；
+  // 第一句引用博主作品里的数字（3-ingredient）不报；{…} 占位符里的字不算说法。负片：编出来的 2-year、warranty、IPX7、30% 要报。
+  const FACTS = ['400 mL capacity portable blender', 'Rinses clean in 10 seconds', 'BPA-free Tritan jar', 'Price: 29.99 USD']
+  const DRAFT = 'Subject: Your 3-ingredient smoothie series\n\nHi Mei,\n\nYour 3-ingredient smoothie series is great.\n\n' +
+    "I'm {name} from Brightly. We make a 400ml blender that rinses in about ten seconds, BPA-free, only $29.99, " +
+    'with a 2-year warranty, IPX7 rated, now 30% off.\n\nHappy to send one over. One post is plenty. {12 month warranty}\n\nBest,\n{name}'
+  const POSTS = [{ desc: '3 ingredient smoothie, no cleanup drama', plays: 1 }] as unknown as Creator['recent_posts']
+  const meta = { product: 'p', market: 'US', platforms: ['tiktok'], keywords: [], total: 4,
+    tiers: { A: 4, B: 0, C: 0 }, email_count: 0, cross_platform_count: 0, ...testCostMeta(1, 2000000), enriched: false }
+  const people = [
+    mk('tiktok', 'claims', { tier: 'A', score: 4, outreach_draft: DRAFT, recent_posts: POSTS, profile_url: 'https://example.com/claims' }),
+    mk('tiktok', 'clean', { tier: 'A', score: 3, outreach_draft: 'Subject: Hi\n\nWe make a 400 ml blender, BPA-free.\n\nBest,\n{name}', profile_url: 'https://example.com/clean' }),
+    mk('tiktok', 'blank', { tier: 'A', score: 2, outreach_draft: ' \n ', profile_url: 'https://example.com/blank' }),
+    mk('tiktok', 'none', { tier: 'A', score: 1, profile_url: 'https://example.com/none' }),
+  ]
+  const before = structuredClone(people)
+  const lineOf = (page: string, handle: string): string | undefined => {
+    const card = page.split('<div class="card ').find(chunk => chunk.includes(`href="https://example.com/${handle}"`))
+    const m = card === undefined ? null : /<div class="bio" data-draft-claims="unsourced">([^<]*)<\/div>/.exec(card)
+    return m === null ? undefined : m[1]
+  }
+  const SUFFIX = '（只查数字和承诺词，其余说法仍要自己看）'
+  const review = renderHtml(people, meta, { mode: 'review', filters: 'dual', facts: FACTS } as Parameters<typeof renderHtml>[2])
+  eq('P2.c 出处对得上的（换写法也算）、博主作品里的数字、占位符里的字都不报；编出来的参数、保修、型号、折扣按出现先后列出',
+    lineOf(review, 'claims'), `出处对不上：2-year；warranty；IPX7；30%${SUFFIX}`)
+  eq('P2.c 有草稿、扫完没有对不上的写「无」，没草稿或草稿全是空白的卡片不出这一行',
+    ['clean', 'blank', 'none'].map(h => lineOf(review, h)), [`出处对不上：无${SUFFIX}`, undefined, undefined])
+  ok('P2.c 只标不改：草稿原文逐字在 HTML 里，占位符一个不少，输入名单不变',
+    review.includes(DRAFT.replace(/&/g, '&amp;').replace(/'/g, '&#39;')) && isDeepStrictEqual(people, before))
+  const noFacts = renderHtml(people, meta, { mode: 'review', filters: 'dual' } as Parameters<typeof renderHtml>[2])
+  eq('P2.c 任务里没有已证实的产品事实时，草稿里的说法全列出来，前面写明没有可对的',
+    lineOf(noFacts, 'claims'), `出处对不上：任务里没有已证实的产品事实可对：400ml；ten seconds；BPA-free；$29.99；2-year；warranty；IPX7；30%${SUFFIX}`)
+  const legacy = renderHtml(people, meta)
+  ok('P2.c 默认模式 HTML 不出这一行（U9.a）', !legacy.includes('data-draft-claims'))
+  criterion('P2.c'); tension('U9', 'P2')
+}
+{
+  // 真起 render：task.json 的 brand_calibration 里两条已证实的产品事实、一条品牌偏好（偏好不算出处），名单里一条草稿；
+  // render 以 0 结束（不拦），report.html 里那一行只列编出来的，kol.csv 里草稿原样。
+  const root = mkdtempSync(join(tmpdir(), 'kol-p2-claims-'))
+  try {
+    const dir = join(root, 'task'), cwd = join(root, 'cwd'), now = '2026-10-01T00:00:00Z'
+    mkdirSync(dir); mkdirSync(join(cwd, 'memory'), { recursive: true })
+    const DRAFT = 'Subject: Quick one\n\nHi Ana,\n\nWe make a 400ml blender with a 5-year warranty, waterproof.\n\nBest,\n{name}'
+    const creator = { platform: 'tiktok', handle: 'p2_claims', nickname: 'p2_claims', followers: 80000, bio: 'Creator profile', bio_links: [], verified: false,
+      profile_url: 'https://www.tiktok.com/@p2_claims', source_keyword: 'portable', source_dimension: 'category', source_tasks: [0],
+      fit: '✅', fit_reason: '夹具里的内容判断', outreach_draft: DRAFT, email: 'p2@example.test' }
+    const calibration = { version: 'brand-v1', target_creator_types: [], tone_aesthetic: [], natural_scenarios: [], negative_signals: [], sources: [
+      { source: 'product page', kind: 'verified_product_fact', detail: 'Capacity 400 mL' },
+      { source: 'product page', kind: 'verified_product_fact', detail: 'Waterproof base' },
+      { source: 'brand call', kind: 'brand_preference', detail: 'we would like to offer a 5-year warranty' },
+    ] }
+    writeFileSync(join(dir, 'task.json'), JSON.stringify({ product: 'p2claims', market: 'US', target_count: 1, brand_calibration: calibration,
+      tasks: [{ keyword: 'portable', dimension: 'category', platform: 'tiktok' }], done: [0], created_at: now, updated_at: now }))
+    for (const name of ['creators.json', 'creators.raw.json']) writeFileSync(join(dir, name), JSON.stringify([creator]))
+    writeFileSync(join(cwd, 'memory', 'creators.json'), JSON.stringify({ version: 1, updated_at: now, creators: {} }))
+    const [exe, args] = prebuiltCommand([fileURLToPath(new URL('./render.ts', import.meta.url)), '--dir', dir])
+    const r = spawnSync(exe, args, { cwd, encoding: 'utf8', timeout: 30000 })
+    const read = (name: string) => existsSync(join(dir, name)) ? rf(join(dir, name), 'utf8') : ''
+    const line = /<div class="bio" data-draft-claims="unsourced">([^<]*)<\/div>/.exec(read('report.html'))?.[1]
+    eq('P2.c 真起 render：以 0 结束不拦，报告里只列已证实产品事实对不上的（品牌偏好不算出处），kol.csv 里草稿原样',
+      [r.status, line, read('kol.csv').includes(DRAFT.replace(/"/g, '""'))],
+      [0, '出处对不上：5-year；warranty（只查数字和承诺词，其余说法仍要自己看）', true])
+    if (r.status !== 0) console.log(`     render exit=${r.status} stderr=${(r.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' | ')}`)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}
 })
 if (fullRun) {
 suite('P1', '响应结构探测不得被空数组满足')

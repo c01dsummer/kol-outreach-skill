@@ -26,6 +26,7 @@ import { writeCsv } from './lib/csv.js'
 import { REVIEW_HEADERS, toReviewRow, sortForReviewOutput, buildSheets } from './lib/rows.js'
 import { writeXlsx, type Sheet } from './lib/xlsx.js'
 import { enrichedFlag, renderHtml } from './lib/report.js'
+import { verifiedFacts } from './lib/draft-claims.js'
 import { accountKey, attachAssessments, currentEnrichmentView } from './lib/assessment.js'
 import { costView } from './lib/budget.js'
 import { sourceDuplicateKeys, sourceDuplicates, sourceNumberToken, stringifyCostJson } from './lib/cost-json.js'
@@ -238,10 +239,12 @@ const meta = {
       accountKeys.size, assessedAccounts.map(a => a?.collaboration_quote)),
   },
 }
+// P2.c：草稿里的数字与承诺词拿任务里已证实的产品事实对，对不上的在报告里标出，不拦（ADR-199）
+const facts = verifiedFacts(state.brand_calibration)
 // 交付物也走整体替换：render 被打断时，上一份完整的 meta.json / report.html 还在（D4）
 try {
 writeFileAtomic(join(dir, 'meta.json'), stringifyCostJson(meta, cost))
-writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review', filters: 'dual' }))
+writeFileAtomic(join(dir, 'report.html'), renderHtml(creators, meta, { mode: 'review', filters: 'dual', facts }))
 } catch (e) { saveFailed(e) }
 
 console.log(stringifyCostJson({
