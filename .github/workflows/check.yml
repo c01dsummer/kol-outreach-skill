@@ -26,8 +26,14 @@ permissions:
   contents: read
   actions: read
 
+# 一条检查链拆在三种 job 上跑（ADR-197）：`npm run check` 那一串里最贵的是变异一步，它在 CI 上按
+# `MUTATE_SHARD=k/n` 分到 n 台 runner 上各跑一份；其余各步在 chain 那个 job 里照原顺序跑；
+# 最后一步启动数闸门要变异一步与自检各写的那份计数，放在 check 那个 job 里，等前两种都绿了才跑。
+# 合起来跑的步骤、判红的条件与本地 `npm run check` 一样：哪一份红、哪一步红，这一跑就红。
+# 分份只在这里写：本地不写 MUTATE_SHARD，就是整份。
 jobs:
-  check:
+  chain:
+    name: 检查链（变异以外各步）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,8 +73,100 @@ jobs:
       # 同样命中缓存。--prefer-offline 有缓存就不回源问元数据,--no-audit 去掉装完
       # 之后那次审计请求
       - run: npm ci --prefer-offline --no-audit
-      # 与本地 `npm run check` 是同一条链 —— 谁跑都一样红
-      - run: npm run check
+      # 与本地 `npm run check` 同一串，只少了变异与启动数两步（各在下面的 job 里）
+      - run: npm run anchors && npm run size && npm run spec && npm run skill && npm run adr && npm run typecheck && npm run compile && npm test && npm run selfcheck && npm run audit
+      # 自检按族写的启动计数：check 那个 job 里的启动数闸门要读它
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selfcheck-launches
+          path: output/selfcheck-launches/families.json
+          if-no-files-found: error
+          retention-days: 3
+      # 只报数：这台 runner 的 CPU 型号与核数（同 check 那个 job 末尾那一步的理由）
+      - run: lscpu
+        if: always()
+        continue-on-error: true
+
+  mutate:
+    name: 变异（第 ${{ matrix.shard }}/3 份）
+    runs-on: ubuntu-latest
+    strategy:
+      # 一份红了别的照跑完：一次推送看得到全部存活的变异，不用一份一份地修
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      # 同 chain 那个 job：变异的验证者里有起入口、要断网的自检组
+      - name: 装 bubblewrap（外层断网要它）
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bubblewrap
+          command -v bwrap
+          bwrap --version
+      - name: 关掉用户命名空间限制（bwrap 断网要它）
+        run: |
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+      - run: npm ci --prefer-offline --no-audit
+      # 预编 JS：验证者跑预编的那份，缺了就照旧 tsx（ADR-158），只是慢
+      - run: npm run compile
+      - run: npm run mutate
+        env:
+          MUTATE_SHARD: ${{ matrix.shard }}/3
+      # 每一份都按整份清单跑基线、数启动数，写下的启动数文件一样（ADR-197）；交第 1 份那个给最后一步
+      - uses: actions/upload-artifact@v4
+        if: matrix.shard == 1
+        with:
+          name: mutation-launches
+          path: output/mutation-launches/launches.json
+          if-no-files-found: error
+          retention-days: 3
+      # 只报数：这台 runner 的 CPU 型号与核数（同 check 那个 job 末尾那一步的理由）
+      - run: lscpu
+        if: always()
+        continue-on-error: true
+
+  check:
+    needs: [chain, mutate]
+    # 前两种 job 红了也要起来、自己红：needs 没过时整个 job 会被跳过，而被跳过的必需检查在分支保护里算过
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 变异以外各步与三份变异都绿了才往下
+        env:
+          CHAIN: ${{ needs.chain.result }}
+          MUTATE: ${{ needs.mutate.result }}
+        run: |
+          echo "chain：$CHAIN · mutate：$MUTATE"
+          [ "$CHAIN" = success ] && [ "$MUTATE" = success ]
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --prefer-offline --no-audit
+      - uses: actions/download-artifact@v4
+        with:
+          name: mutation-launches
+          path: output/mutation-launches
+      - uses: actions/download-artifact@v4
+        with:
+          name: selfcheck-launches
+          path: output/selfcheck-launches
+      # 检查链的最后一步，同本地 `npm run check` 的最后一步
+      - run: npm run launches
+      # 下面墙钟对比那一步（ADR-197 起）：「本跑」是整个 run 的墙钟，含并行的几个 job；型号是这个 job 那台 runner 的，
+      # 干活的那几台各在自己 job 末尾的 lscpu 里。拆 job 之前的主干跑与之后的放在一个窗口里比，倍数会偏低，读的时候知道这一层
       # 只报数：本跑墙钟与主干上 check 前 5 次 push 成功跑的中位比一比，打一行到 notice 与 step summary
       # （ADR-151 P1）。不判快慢，「是劣化还是 runner 噪声、是哪条改动」由评审与合并者读
       # （`process/6-INTEGRATE.md`「改验证成本时」）。
@@ -82,7 +180,7 @@ jobs:
       # 截到 80 字：进 `::notice` 的除了数字与固定文案只有它。正文里的 :: 本就起不了新命令（runner 只认行首那组），
       # %0A 一类会被换回换行；过滤是保险，也让正文整洁。tr 那个字符集里 - 必须在最后，往后再加字符就成了区间。
       # 型号之后再带工作量：「变异 N 条（±d） · 摊到每条 X 秒」。N = 本提交 scripts/check/mutations.json 里 mutations 的条数
-      # （变异一步打的「N 个变异全部被抓到」就是它）；±d 比的是对照提交：PR 上是 checkout 出来的合并提交的第一个父提交，
+      # （本地整份跑时变异一步打的「N 个变异全部被抓到」就是它；CI 上分份后打的是「第 k/3 份 M 个…（整份 N 个…）」里的 N）；±d 比的是对照提交：PR 上是 checkout 出来的合并提交的第一个父提交，
       # 就是这次合并用的主干头；推 main 时是这次推送之前主干的头（github.event.before）。
       # X = 「本跑」秒数 ÷ N，两位小数 —— 整跑（含变异以外各步）摊到每条变异上，不是一条变异实际花的秒数。
       # 倍数偏了时三样一起读：型号换没换、N 涨没涨、X 涨没涨（X 也随机器快慢与变异以外各步变），只报，不判是哪一样。
