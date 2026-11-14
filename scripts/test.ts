@@ -8663,6 +8663,76 @@ ok('维护-GROUPS与调用顺序不一致不得放行', maintenanceThrows(() => 
   }
 }
 
+{
+  // KOL-32 / ADR-120 第 74 行：维护报告按新增、删除、改配置分组，摘要在前、完整清单在后。
+  // 对照夹具含三类变化各至少一条、外加一条完全没变的；另一份是全无变化。期望全部手写，不调报告去算期望。
+  type ReportRoute = { id: string; by: string; only?: readonly string[]; executes: readonly string[] };
+  type ReportSnapshot = { mutations: readonly { id: string; req: string; file: string; find: string; replace: string; by?: string; kills?: readonly string[]; full_run?: unknown }[]; routes: readonly ReportRoute[]; layouts: Readonly<Record<string, readonly { id: string; needs: readonly string[] }[]>> };
+  type ReportDelta = { changes: readonly { id: string; kind: 'added-full' | 'back-to-full' | 'changed-full' | 'configuration' }[]; faults: readonly string[]; layoutChanges: readonly string[] };
+  const { routeDelta: reportDelta, routeReport, groupRouteChanges } = await import('./check/mutate-rule.js') as unknown as {
+    routeDelta: (base: ReportSnapshot, head: ReportSnapshot) => ReportDelta;
+    routeReport: (base: ReportSnapshot, head: ReportSnapshot, delta: ReportDelta, explain: (id: string) => { reason?: unknown; recheck_when?: unknown } | undefined) => string[];
+    groupRouteChanges: (base: ReportSnapshot, head: ReportSnapshot, changes: ReportDelta['changes']) => Record<'added' | 'removed' | 'changed', ReportDelta['changes']>;
+  };
+  ok('维护报告-公开API存在', typeof routeReport === 'function' && typeof groupRouteChanges === 'function');
+  if (typeof routeReport === 'function' && typeof groupRouteChanges === 'function') {
+    const why = { reason: 'Report fixture needs every group.', recheck_when: 'When the fixture gains a selectable group.' };
+    const mut = (id: string, extra: object = {}) => ({ id, req: 'H-mutate', file: 'scripts/lib/fixture.ts', find: `safe-${id}`, replace: 'unsafe', by: 'test', kills: [`${id}-assertion`], ...extra });
+    const layouts = { test: [{ id: 'g-first', needs: [] }, { id: 'g-second', needs: [] }] };
+    const picked = (id: string, group: string): ReportRoute => ({ id, by: 'test', only: [group], executes: [group] });
+    const whole = (id: string): ReportRoute => ({ id, by: 'test', executes: ['g-first', 'g-second'] });
+    const base: ReportSnapshot = {
+      mutations: [mut('M-keep'), mut('M-gone'), mut('M-move'), mut('M-back')],
+      routes: [picked('M-keep', 'g-first'), picked('M-gone', 'g-first'), picked('M-move', 'g-first'), picked('M-back', 'g-first')],
+      layouts,
+    };
+    const head: ReportSnapshot = {
+      mutations: [mut('M-keep'), mut('M-move'), mut('M-back', { full_run: why }), mut('M-new', { full_run: why }), mut('M-new-picked')],
+      routes: [picked('M-keep', 'g-first'), picked('M-move', 'g-second'), whole('M-back'), whole('M-new'), picked('M-new-picked', 'g-second')],
+      layouts,
+    };
+    const delta = reportDelta(base, head);
+    // 原有语义：kind 与先后照旧（新增但选跑的那条照旧记作执行配置，删除的照旧记作执行配置并排在最后）。
+    eq('维护报告-原有路由判定不变', JSON.stringify(delta.changes), JSON.stringify([
+      { id: 'M-move', kind: 'configuration' }, { id: 'M-back', kind: 'back-to-full' },
+      { id: 'M-new', kind: 'added-full' }, { id: 'M-new-picked', kind: 'configuration' }, { id: 'M-gone', kind: 'configuration' },
+    ]));
+    eq('维护报告-原有解释判定不变', delta.faults.length, 0);
+    const groups = groupRouteChanges(base, head, delta.changes);
+    const ids = (list: ReportDelta['changes']) => list.map(change => change.id).join(',');
+    eq('维护报告-按基线与现状有无分三类且类内照原序', JSON.stringify([ids(groups.added), ids(groups.removed), ids(groups.changed)]),
+      JSON.stringify(['M-new,M-new-picked', 'M-gone', 'M-move,M-back']));
+    const regrouped = [...groups.added, ...groups.removed, ...groups.changed];
+    ok('维护报告-三类合起来正好是原清单不多不少', regrouped.length === delta.changes.length
+      && delta.changes.every(change => regrouped.filter(item => item === change).length === 1));
+    const explained = new Map([['M-back', why], ['M-new', why]]);
+    const lines = routeReport(base, head, delta, id => explained.get(id));
+    eq('维护报告-摘要在最前且三类计数与种类计数手算一致', lines[0],
+      '  新增 2 条，删除 1 条，改配置 2 条；其中新增全跑 1，选跑退回全跑 1，旧全跑正文改变 0；验证者布局 0 份');
+    const heading = (title: string) => lines.findIndex(line => line.startsWith(`  ${title}（完整清单，`));
+    const [addedAt, removedAt, changedAt] = [heading('新增'), heading('删除'), heading('改配置')];
+    ok('维护报告-清单段落在摘要之后且按新增删除改配置排列', addedAt > 0 && addedAt < removedAt && removedAt < changedAt);
+    eq('维护报告-各段标题写明条数', JSON.stringify([lines[addedAt], lines[removedAt], lines[changedAt]]),
+      JSON.stringify(['  新增（完整清单，2 条）：', '  删除（完整清单，1 条）：', '  改配置（完整清单，2 条）：']));
+    const items = (from: number, to: number) => lines.slice(from + 1, to).filter(line => /^ {4}M-/.test(line)).map(line => line.trim().split(' ')[0]);
+    eq('维护报告-每段完整列出本类每一条且照原序', JSON.stringify([items(addedAt, removedAt), items(removedAt, changedAt), items(changedAt, lines.length)]),
+      JSON.stringify([['M-new', 'M-new-picked'], ['M-gone'], ['M-move', 'M-back']]));
+    ok('维护报告-没变的那条不出现在报告里', !lines.some(line => line.includes('M-keep')));
+    eq('维护报告-逐条仍带原种类名与前后路由', JSON.stringify(lines.filter(line => /^ {4}M-(gone|new-picked) /.test(line))), JSON.stringify([
+      '    M-new-picked 执行配置改变：不存在 → test 选组 g-second（执行 g-second）',
+      '    M-gone 执行配置改变：test 选组 g-first（执行 g-first） → 不存在',
+    ]));
+    const backAt = lines.findIndex(line => line.startsWith('    M-back '));
+    eq('维护报告-全跑原因紧跟在那一条下面', lines[backAt + 1], `      全跑原因：${why.reason}；重评条件：${why.recheck_when}`);
+    const quiet = reportDelta(base, base);
+    eq('维护报告-无变化对照的判定为空', quiet.changes.length + quiet.layoutChanges.length, 0);
+    eq('维护报告-无变化对照三段都写无', JSON.stringify(routeReport(base, base, quiet, () => undefined)), JSON.stringify([
+      '  新增 0 条，删除 0 条，改配置 0 条；其中新增全跑 0，选跑退回全跑 0，旧全跑正文改变 0；验证者布局 0 份',
+      '  新增（完整清单，0 条）：', '    无', '  删除（完整清单，0 条）：', '    无', '  改配置（完整清单，0 条）：', '    无',
+    ]));
+  }
+}
+
 })
 
 await group('h-mutation-cost', () => {
