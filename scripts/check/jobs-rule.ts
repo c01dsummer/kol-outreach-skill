@@ -221,6 +221,33 @@ export function jobsWanted(
 }
 
 /**
+ * 这一跑只跑变异清单的第几份（ADR-197）。`MUTATE_SHARD=k/n`：清单按出现顺序轮流分成 n 份，这一跑跑第 k 份；
+ * 没写（或写空）就是整份，也就是 1/1。**说不清是哪一份就交回 undefined**，由入口当场拒绝 ——
+ * 写错的分法悄悄按整份跑，CI 上几台 runner 会各跑一遍全量，人以为分了、其实没分；
+ * 悄悄按 1/1 以外的哪一份跑更坏：有几份谁也没跑，却没有一处会红。
+ *
+ * 只在 CI 上用（`.github/workflows/check.yml` 的变异那几个 job）：本地 `npm run check` 不写它，照旧整份。
+ */
+export function shardWanted(env: string | undefined): { index: number; count: number } | undefined {
+  if (env === undefined || env.trim() === '') return { index: 1, count: 1 }
+  const m = /^(\d+)\/(\d+)$/.exec(env.trim())
+  if (m === null) return undefined
+  const index = Number(m[1]), count = Number(m[2])
+  if (!Number.isSafeInteger(index) || !Number.isSafeInteger(count)) return undefined
+  if (index < 1 || index > count) return undefined
+  return { index, count }
+}
+
+/**
+ * 第 index 份（从 1 数）是哪几条：按清单顺序轮流发，第 i 条（从 0 数）归第 `i % count + 1` 份。
+ * 每一条恰好落在一份里，几份合起来就是整份清单、顺序不变。轮流发而不是切成连续几段：
+ * 贵的变异在清单里一段一段挨着（同一个验证者配置的写在一起），切成连续几段会让某一份全是贵的。
+ */
+export function shardOf<T>(items: readonly T[], index: number, count: number): T[] {
+  return items.filter((_unused, i) => i % count === index - 1)
+}
+
+/**
  * 派出去了、却没有结论回来的那些编号。**顺序按派出去的顺序**，报告里才指得回表里那一行。
  *
  * 不做「多回来的」那一半：一个编号被答错成另一个，缺的那头照样在这里露出来，

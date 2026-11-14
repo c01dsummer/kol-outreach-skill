@@ -63,7 +63,7 @@ import {
 } from './check/mutate-restore.js'
 import {
   type BillRow, type Outcome, type Ran, BEACON_FLAG, beaconFrom, beaconGone, beaconNote, beaconPathOf, jobsRunDir, staleRunDirs, workerCopyList,
-  billLines, groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts,
+  billLines, groupShot, hardStopPlan, jobsWanted, looksLikeReport, missingVerdicts, shardOf, shardWanted,
   neverStarted, noStdio, ownGroup, parseReport, processEnded, reportLine, signalTargets, verifierBill,
 } from './check/jobs-rule.js'
 import {
@@ -10878,6 +10878,29 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   eq('零个不成立', jobsWanted([], '0', 8, 100), undefined)
   eq('负数不成立', jobsWanted([], '-1', 8, 100), undefined)
   eq('小数不成立', jobsWanted(['--jobs=2.5'], undefined, 8, 100), undefined)
+
+  // 分份（ADR-197）：CI 上几台 runner 各跑清单的一份。没写就是整份；写了读不出来要说读不出来 ——
+  // 悄悄按整份跑是每台各跑一遍全量，悄悄跑错一份是有几条谁也没跑
+  eq('分份没写：整份', shardWanted(undefined), { index: 1, count: 1 })
+  eq('分份写空：整份', shardWanted(''), { index: 1, count: 1 })
+  eq('分份照写的读：第 2 份、共 3 份', shardWanted('2/3'), { index: 2, count: 3 })
+  eq('分份读不出来：不是 k/n', shardWanted('2'), undefined)
+  eq('分份读不出来：两个数之间不是斜杠', shardWanted('1-2'), undefined)
+  eq('分份读不出来：第 0 份', shardWanted('0/2'), undefined)
+  eq('分份读不出来：比份数还大', shardWanted('3/2'), undefined)
+  eq('分份读不出来：共 0 份', shardWanted('1/0'), undefined)
+  eq('分份读不出来：小数', shardWanted('1.5/2'), undefined)
+  eq('分份：最后一份照收', shardWanted('3/3'), { index: 3, count: 3 })
+  eq('分份读不出来：负数', shardWanted('-1/2'), undefined)
+  eq('分份读不出来：后面多一截', shardWanted('1/2/3'), undefined)
+  eq('分份：两头的空白不算', shardWanted(' 2/3 '), { index: 2, count: 3 })
+  eq('分份读不出来：大到失了精度（两个数转成同一个数）', shardWanted('9007199254740993/9007199254740992'), undefined)
+  // 轮流发：每一条恰好落在一份里，几份合起来是整份、顺序不变；连续一段贵的也被拆开
+  const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+  eq('分份：第 1 份按轮流发', shardOf(ids, 1, 3), ['a', 'd', 'g'])
+  eq('分份：第 3 份按轮流发', shardOf(ids, 3, 3), ['c', 'f'])
+  eq('分份：几份合起来恰好是整份', [1, 2, 3].flatMap(k => shardOf(ids, k, 3)).sort(), ids)
+  eq('分份：整份就是原清单', shardOf(ids, 1, 1), ids)
 
   // 汇报行：写下去再读回来，五种结论一个不丢。两边各写一份格式的话，
   // 改一边不改另一边的症状是「每一条都没回话」，而人会去翻变异集，不会去翻这个格式
