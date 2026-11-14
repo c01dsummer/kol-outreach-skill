@@ -52,8 +52,13 @@ const PROMISE_WORDS: ReadonlyArray<readonly [RegExp, RegExp]> = ([
   ['guarantee[ds]?', 'guarantee'],
   ['refund(?:s|ed|able)?', 'refund'],
   ['money[- ]back', 'money[- ]?back'],
-  ['free (?:shipping|delivery|returns?|trial)', 'free (?:shipping|delivery|returns?|trial)'],
-  ['returns? (?:policy|window)', 'returns? (?:policy|window)'],
+  // 多字承诺词逐项各对各的词干：出处里的 free trial 不是信里 free shipping 的出处。
+  ['free shipping', 'free shipping'],
+  ['free delivery', 'free delivery'],
+  ['free returns?', 'free returns?'],
+  ['free trial', 'free trial'],
+  ['returns? policy', 'returns? policy'],
+  ['returns? window', 'returns? window'],
   ['lifetime', 'lifetime'],
   ['certif(?:ied|ication|icate)s?', 'certif'],
   ['patent(?:s|ed)?', 'patent'],
@@ -82,8 +87,12 @@ const numberWordPattern = Object.keys(NUMBER_WORDS).sort((a, b) => b.length - a.
 const DIGITS = '(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+)'
 /** 价格：币符在前。币种不比，只比数（ADR-199）。 */
 const PRICE = new RegExp(`[$€£¥]\\s?${DIGITS}`, 'g')
-/** 数字后可跟单位；连字符、空格都可以隔开（「10-second」「400 ml」「30%」）。 */
-const NUMBER = new RegExp(`(?<![\\w.])(${DIGITS})(?:\\s?-?\\s?(%|(?:${unitPattern})\\b))?`, 'gi')
+/**
+ * 数字后可跟单位；连字符、空格都可以隔开（「10-second」「400 ml」「30%」）。
+ * 负号只在前面不是字母、数字、点时才算数的一部分：「-20」是负数，「3-5 years」「COVID-19」里的不是。
+ * 数（或数加单位）后面不能紧跟字母数字：「1080p」「2nd」整串留给型号串那一步，不拆出一个 1080。
+ */
+const NUMBER = new RegExp(`(?<![\\w.])(-?${DIGITS})(?:\\s?-?\\s?(%|(?:${unitPattern})\\b))?(?!\\w|\\.\\d)`, 'gi')
 const WORD_NUMBER = new RegExp(`\\b(${numberWordPattern})(?:\\s|-)(${unitPattern})\\b`, 'gi')
 /** 字母数字串（IPX7、Qi2、H13）：拆掉价格与数字之后剩下的、又含数字又含字母的词。 */
 const ALNUM = /\b(?=[a-z0-9]*\d)(?=[a-z0-9]*[a-z])[a-z0-9]+\b/gi

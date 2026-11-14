@@ -805,10 +805,14 @@ suite('P2', '开发信草稿里对不上出处的数字与承诺词在评审 HTM
     ['连写的拼写数字按整数比，不拆成个位', 'Brews in twenty-five minutes.', ['Brews in 5 minutes'], 'twenty-five minutes'],
     ['型号串整串对，不按子串', 'An H1 chip and IPX7 rating.', ['H13 HEPA filter', 'IPX7'], 'H1'],
     ['多字承诺词出处里逐字有就对得上', 'A 30-day return policy, and our returns window is generous.', ['30-day return policy', 'Returns window: 30 days'], '无'],
+    ['数字开头的型号串整串对：1080p 不拆出 1080', 'Shoots 1080p, has a 2nd lens.', ['1080 lumens', '2 lenses'], '1080p；2nd'],
+    ['数字开头的型号串出处里整串有就对得上', 'Shoots 1080p video.', ['Records 1080p'], '无'],
+    ['负数带负号比；区间与连字符词里的不算负号', 'Works to -20 degrees, lasts 3-5 years, COVID-19 safe.', ['Rated to 20 degrees', '3 to 5 years', 'COVID-19'], '-20'],
+    ['多字承诺词各对各的：出处里的 free trial 不是 free shipping 的出处', 'Free shipping and a free trial.', ['30-day free trial'], 'Free shipping'],
     ['同一写法只列一次（不分大小写）', 'A 400ml jar. Yes, 400ml. 400ML!', ['x'], '400ml'],
     ['任务里没有已证实的产品事实、又没扫到说法时也写明没有可对的', 'Hi Ana, love your videos.', [], '任务里没有已证实的产品事实可对：无'],
   ]
-  eq('P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、多字承诺词、去重、空事实',
+  eq('P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、负数、多字承诺词、去重、空事实',
     rules.map(([name, draft, facts]) => [name, unsourcedLine(draft, facts, [])]), rules.map(([name, , , want]) => [name, want]))
   criterion('P2.c'); tension('U9', 'P2')
 }
