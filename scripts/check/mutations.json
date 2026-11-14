@@ -6371,13 +6371,13 @@
     {
       "id": "M-H197-f",
       "req": "harness",
-      "why": "分份读法认不带斜杠、只写一个数的写法 —— 「2」被收下、份数读成不是数，写错的分法不再被拒",
+      "why": "分份读法不再要求两个数之间是斜杠 —— 「1-2」也被读成第 1 份、共 2 份，写错的分法不再被拒",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  const m = /^(\\d+)\\/(\\d+)$/.exec(env.trim())",
-      "replace": "  const m = /^(\\d+)(?:\\/(\\d+))?$/.exec(env.trim())",
+      "replace": "  const m = /^(\\d+)\\D(\\d+)$/.exec(env.trim())",
       "by": "test",
       "kills": [
-        "分份读不出来：不是 k/n"
+        "分份读不出来：两个数之间不是斜杠"
       ]
     },
     {

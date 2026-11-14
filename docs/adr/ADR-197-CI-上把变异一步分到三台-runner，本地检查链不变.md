@@ -5,7 +5,7 @@
 - 触发它的事实：KOL-1 关单标准第 3 条（需求所有者丸子 2026-11-14 12:02 CST 定）要 Linux CI 完整检查连跑 5 次的中位数不超过 18 分钟。同一天在 #470 第一个提交上实测现状：主干 `5f68c8b` 在 5 台 runner 上各跑一遍，job 耗时 19:35、24:35、28:24、29:04、29:09，中位 28:24（CI run 43555465585）
 - 决定人与时间：做法由 KOL-1 线程提出；多花 runner 分钟数这一取舍，需求所有者丸子 2026-11-14 05:25Z 在 KOL-1 线程的决策卡上选「分到 3 台并行（推荐）」（卡上问「CI 提速是否接受多花 runner 分钟数，把变异分到 3 台机器并行？」；另两个选项是分到 2 台、不加机器只改代码）
 - 结论：采纳。人批痕迹：需求所有者合入本条那条 PR
-- 连带改动：`scripts/check/jobs-rule.ts`（新增 `shardWanted`、`shardOf`）· `scripts/check/mutate.ts`（认 `MUTATE_SHARD`）· `.github/workflows/check.yml`（拆成三种 job）· `scripts/test.ts` 组 `h-jobs` 加 17 条断言 · `scripts/check/selfcheck.ts` 新组 `mutate-shard`（入口接线）· `scripts/check/mutations.json` 加 `M-H197-a`～`k` · `README.md`、`docs/ARCHITECTURE.md` 各一句 · `scripts/check/launches.json` 回写
+- 连带改动：`scripts/check/jobs-rule.ts`（新增 `shardWanted`、`shardOf`）· `scripts/check/mutate.ts`（认 `MUTATE_SHARD`）· `.github/workflows/check.yml`（拆成三种 job）· `scripts/test.ts` 组 `h-jobs` 加 18 条断言 · `scripts/check/selfcheck.ts` 新组 `mutate-shard`（入口接线）· `scripts/check/mutations.json` 加 `M-H197-a`～`k` · `README.md`、`docs/ARCHITECTURE.md` 各一句 · `scripts/check/launches.json` 回写
 
 ## 一、时间花在哪
 
@@ -83,7 +83,7 @@ CI 那边只有墙钟：GitHub 的 job 记录不给 CPU 时间。KOL-1 关单标
 - 入口里的接线（只派这一份、读不出来就退、验证者里摘掉变量）原来没有东西守：`mutate.ts` 在自检的基础设施闭包里，`by: selfcheck` 的变异会被「自己验自己」拦下，所以加自检组 `mutate-shard`，在玩具树上真起 `mutate` 跑 1/2、2/2、3/2 三次；手工把这五处接线逐一弄坏，这一组都红。
 - `README.md` 一句与事实不符、`docs/ARCHITECTURE.md` 缺 `MUTATE_SHARD` 的约定、`M-H197-a` 的 `why` 措辞：改了。
 
-**CodeRabbit 第一轮**（`df0586d`）四条都改了：`shardWanted` 不拒大到失了精度的数（补 `Number.isSafeInteger`、一条断言与 `M-H197-k`）；README 那句「同一串步骤」改成写明并行；台账条数没钉树，删掉只留命令；本地计时补上每步的 CPU 时间、写明各只跑一遍，CI 只有墙钟写明缘由。
+**CodeRabbit 第一轮**（`df0586d`）四条都改了：`shardWanted` 不拒大到失了精度的数（补 `Number.isSafeInteger`、一条断言与 `M-H197-k`；这一道把「只写一个数」也拦了，原来守斜杠的 `M-H197-f` 因此抓不到，改成把斜杠换成任意非数字、补一条「1-2」的断言）；README 那句「同一串步骤」改成写明并行；台账条数没钉树，删掉只留命令；本地计时补上每步的 CPU 时间、写明各只跑一遍，CI 只有墙钟写明缘由。
 
 **欠条清点**：三个互不知情的上下文按 ADR-01–70、71–140、141–196 分段读了台账（`npm run -s adr-ledger`），对着本条的 diff 判：
 

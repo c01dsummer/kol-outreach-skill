@@ -10875,6 +10875,7 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   eq('分份写空：整份', shardWanted(''), { index: 1, count: 1 })
   eq('分份照写的读：第 2 份、共 3 份', shardWanted('2/3'), { index: 2, count: 3 })
   eq('分份读不出来：不是 k/n', shardWanted('2'), undefined)
+  eq('分份读不出来：两个数之间不是斜杠', shardWanted('1-2'), undefined)
   eq('分份读不出来：第 0 份', shardWanted('0/2'), undefined)
   eq('分份读不出来：比份数还大', shardWanted('3/2'), undefined)
   eq('分份读不出来：共 0 份', shardWanted('1/0'), undefined)
