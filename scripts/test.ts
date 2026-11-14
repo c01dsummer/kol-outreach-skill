@@ -10883,6 +10883,7 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   eq('分份读不出来：负数', shardWanted('-1/2'), undefined)
   eq('分份读不出来：后面多一截', shardWanted('1/2/3'), undefined)
   eq('分份：两头的空白不算', shardWanted(' 2/3 '), { index: 2, count: 3 })
+  eq('分份读不出来：大到失了精度（两个数转成同一个数）', shardWanted('9007199254740993/9007199254740992'), undefined)
   // 轮流发：每一条恰好落在一份里，几份合起来是整份、顺序不变；连续一段贵的也被拆开
   const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
   eq('分份：第 1 份按轮流发', shardOf(ids, 1, 3), ['a', 'd', 'g'])

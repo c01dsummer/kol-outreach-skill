@@ -6429,6 +6429,18 @@
       ]
     },
     {
+      "id": "M-H197-k",
+      "req": "harness",
+      "why": "分份不再拒大到失了精度的数 —— 9007199254740993/9007199254740992 两个数转成同一个数、过了范围比较，这一份一条变异也不跑却报全绿",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (!Number.isSafeInteger(index) || !Number.isSafeInteger(count)) return undefined\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "分份读不出来：大到失了精度（两个数转成同一个数）"
+      ]
+    },
+    {
       "id": "M-H36-a",
       "req": "harness",
       "why": "派工时给了零或者负数当并行度，不再说「说不清要派几个」，而是悄悄收口成 1 跑起来 —— 一个写错的配置被当成没写过，人以为自己在串行跑，实际不是",
