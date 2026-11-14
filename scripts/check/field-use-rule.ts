@@ -77,18 +77,13 @@ function nameOf(ts: typeof Ts, n: Ts.Node): string | undefined {
   const name = (n as { name?: Ts.Node }).name
   if (name === undefined) return undefined
   if (ts.isPrivateIdentifier(name)) return name.text
-  const lit = literalName(ts, name)
-  if (lit !== undefined) return lit
-  return ts.isComputedPropertyName(name) ? `[${name.expression.getText()}]` : undefined
+  return literalName(ts, name) ?? (ts.isComputedPropertyName(name) ? `[${name.expression.getText()}]` : undefined)
 }
 
 /** 键里的一段：名字里带 `.`、`#`、`{`、`}`、`=`、`[`、`]`、`"` 的写成 JSON 字符串，免得和别的路径撞成同一个键 */
 const segment = (name: string): string => /[.#{}=[\]"]/.test(name) ? JSON.stringify(name) : name
 
-/**
- * 只写不读：`=` 的左边（套着括号、`!`、`as`／`<T>` 断言、在解构赋值的数组或对象字面量里也算）、`for (… of/in …)` 的循环变量、`delete` 的操作数。
- * `+=`、`++` 这类先读旧值再写的不算只写。
- */
+/** 只写不读：`=` 的左边（套着括号、`!`、`as`／`<T>` 断言、在解构赋值的数组或对象字面量里也算）、`for (… of/in …)` 的循环变量、`delete` 的操作数；`+=`、`++` 先读旧值，不算 */
 function writeOnly(ts: typeof Ts, e: Ts.Expression): boolean {
   let n: Ts.Node = e
   for (;;) {
@@ -267,12 +262,16 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
         mark(p); whole(tc.getTypeOfSymbol(p), seen, entries)
       }
     }
+    // 下标读的键按类型认：字面量（常量、联合字面量）与 unique symbol 都换成属性的转义名，再到被索引对象的类型上找
+    const keysOf = (t: Ts.Type): Ts.__String[] => t.isUnion() ? t.types.flatMap(keysOf) : t.isStringLiteral() || t.isNumberLiteral() ? [ts.escapeLeadingUnderscores(String(t.value))]
+      : t.flags & ts.TypeFlags.UniqueESSymbol ? [(t as Ts.UniqueESSymbolType).escapedName] : []
     const visit = (n: Ts.Node): void => {
       if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) imported(n.moduleSpecifier.text)
       else if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword
         && n.arguments.length > 0 && ts.isStringLiteralLike(n.arguments[0])) imported(n.arguments[0].text)
       if (ts.isPropertyAccessExpression(n)) { if (!writeOnly(ts, n)) mark(tc.getSymbolAtLocation(n.name)) }
-      else if (ts.isElementAccessExpression(n)) { if (!writeOnly(ts, n)) mark(tc.getSymbolAtLocation(n.argumentExpression)) }
+      else if (ts.isElementAccessExpression(n)) { if (!writeOnly(ts, n)) for (const k of keysOf(tc.getTypeAtLocation(n.argumentExpression)))
+        mark(tc.getTypeAtLocation(n.expression).getProperties().find(p => p.escapedName === k)) }
       else if (ts.isBindingElement(n) && ts.isObjectBindingPattern(n.parent)) {
         const name = literalName(ts, n.propertyName ?? n.name)
         if (name !== undefined) mark(tc.getTypeAtLocation(n.parent).getProperty(name))

@@ -23920,7 +23920,7 @@
       "req": "harness",
       "why": "按下标读不算：r['x'] 这种读法算没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      else if (ts.isElementAccessExpression(n)) { if (!writeOnly(ts, n)) mark(tc.getSymbolAtLocation(n.argumentExpression)) }\n",
+      "find": "      else if (ts.isElementAccessExpression(n)) { if (!writeOnly(ts, n)) for (const k of keysOf(tc.getTypeAtLocation(n.argumentExpression)))\n        mark(tc.getTypeAtLocation(n.expression).getProperties().find(p => p.escapedName === k)) }\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -24136,8 +24136,8 @@
       "req": "harness",
       "why": "只被下标赋值的属性也算读到：测试只往字段里写、从不读它也放行",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "if (!writeOnly(ts, n)) mark(tc.getSymbolAtLocation(n.argumentExpression))",
-      "replace": "mark(tc.getSymbolAtLocation(n.argumentExpression))",
+      "find": "if (!writeOnly(ts, n)) for (const k of keysOf",
+      "replace": "for (const k of keysOf",
       "by": "test",
       "kills": [
         "字段：只被 = 赋值的不算读到（点号与下标都一样）；+= 先读旧值，算"
@@ -24490,6 +24490,54 @@
       "by": "test",
       "kills": [
         "字段：交叉类型上的 toJSON 也只认它的返回值；deepStrictEqual 照比原来的属性"
+      ]
+    },
+    {
+      "id": "M-H198-bx",
+      "req": "harness",
+      "why": "下标的键是几个字面量的联合时不逐个认：按联合常量读到的字段算没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "t.isUnion() ? t.types.flatMap(keysOf) :",
+      "replace": "false ? t.types.flatMap(keysOf) :",
+      "by": "test",
+      "kills": [
+        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键都算用到，没读的不算"
+      ]
+    },
+    {
+      "id": "M-H198-by",
+      "req": "harness",
+      "why": "数字常量作下标不认：按数字键读到的字段算没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "t.isStringLiteral() || t.isNumberLiteral()",
+      "replace": "t.isStringLiteral()",
+      "by": "test",
+      "kills": [
+        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键都算用到，没读的不算"
+      ]
+    },
+    {
+      "id": "M-H198-bz",
+      "req": "harness",
+      "why": "符号常量作下标不认：按 unique symbol 键读到的字段算没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "t.flags & ts.TypeFlags.UniqueESSymbol ?",
+      "replace": "false ?",
+      "by": "test",
+      "kills": [
+        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键都算用到，没读的不算"
+      ]
+    },
+    {
+      "id": "M-H198-ca",
+      "req": "harness",
+      "why": "下标只认下标表达式自己的符号：拿常量变量作键读到的字段算没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "mark(tc.getTypeAtLocation(n.expression).getProperties().find(p => p.escapedName === k))",
+      "replace": "mark(tc.getSymbolAtLocation(n.argumentExpression))",
+      "by": "test",
+      "kills": [
+        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键都算用到，没读的不算"
       ]
     }
   ],
