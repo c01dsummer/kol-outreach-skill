@@ -134,6 +134,8 @@
     {"config":"[\"test\",[\"h-group-share\"]]","launches":0,"maxPaid":null,"running":33,"stopping":0},
     {"config":"[\"test\",[\"h-group-share-real\"]]","launches":0,"maxPaid":null,"running":4,"stopping":0},
     {"config":"[\"test\",[\"h-infra-rules\"]]","launches":0,"maxPaid":null,"running":29,"stopping":0},
+    {"config":"[\"test\",[\"h-iou-file-reminder\"]]","launches":0,"maxPaid":null,"running":17,"stopping":0},
+    {"config":"[\"test\",[\"h-iou-file-reminder-entry\"]]","launches":6,"maxPaid":null,"running":4,"stopping":0},
     {"config":"[\"test\",[\"h-jobs\"]]","launches":0,"maxPaid":null,"running":67,"stopping":0},
     {"config":"[\"test\",[\"h-launch-preload\"]]","launches":3,"maxPaid":null,"running":20,"stopping":0},
     {"config":"[\"test\",[\"h-launch-preload-edge\"]]","launches":1,"maxPaid":null,"running":6,"stopping":0},
