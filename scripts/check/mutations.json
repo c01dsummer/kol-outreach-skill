@@ -764,7 +764,7 @@
     },
     {
       "id": "M-D6-h",
-      "req": "D6",
+      "req": "D6.q",
       "why": "算「续跑还剩什么活」时把「还有多少人没补简介」当成 0 —— 关键词全跑完就告诉用户续跑不产生新的请求，而续跑第一件事正是去补那些人的简介，那是要付费的端点，账单在他不知情时又长一截",
       "file": "scripts/lib/pipeline.ts",
       "find": "  const profilesLeft = creators.filter(needsProfile).length",
@@ -788,7 +788,7 @@
     },
     {
       "id": "M-D6-g",
-      "req": "D6",
+      "req": "D6.q",
       "why": "算「续跑还剩什么活」时把没补简介的那批人漏掉 —— 关键词全跑完了就说续跑不产生新的请求，而续跑第一件事正是去补那些人的简介，那是要付费的端点",
       "file": "scripts/lib/pipeline.ts",
       "find": "    profilesLeft ? `${profilesLeft} 个人的 profile` : '',",
@@ -800,7 +800,7 @@
     },
     {
       "id": "M-D6-b",
-      "req": "D6",
+      "req": "D6.b",
       "why": "记忆过滤不再区分「本任务」与「别的任务」—— render 之后每次 --resume 都产出一份空名单，已付费采集的人被判成「已推荐过」",
       "file": "scripts/lib/memory.ts",
       "find": "    const others = entries.flatMap(e => e.recommendations.filter(r => !(task && r.task === task)))",
@@ -824,7 +824,7 @@
     },
     {
       "id": "M-D6-c",
-      "req": "D6",
+      "req": "D6.b",
       "why": "收尾管线就地修改累加器 —— 「累加器只增不减」退回成依赖调用方记得先落盘，正是 ADR-08 那个 bug 的形状",
       "file": "scripts/lib/pipeline.ts",
       "find": "  const all = structuredClone(raw)",
@@ -836,7 +836,7 @@
     },
     {
       "id": "M-D6-d",
-      "req": "D6",
+      "req": "D6.p",
       "why": "「还要不要补 profile」只看 bio 有没有查过，不看外链取到没有 —— 续跑会对这批人再发一次付费请求，而中止时那句「续跑不产生新的请求」还照说不误",
       "file": "scripts/lib/pipeline.ts",
       "find": "  return c.bio === undefined || !c.bio_links?.length",
