@@ -23940,7 +23940,7 @@
       "req": "harness",
       "why": "按下标读不算：r['x'] 这种读法算没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      else if (ts.isElementAccessExpression(n)) { if (!writeOnly(ts, n)) for (const k of keysOf(tc.getTypeAtLocation(n.argumentExpression)))\n        mark(tc.getTypeAtLocation(n.expression).getProperties().find(p => p.escapedName === k)) }\n",
+      "find": "      else if (ts.isElementAccessExpression(n)) { if (!writeOnly(ts, n)) for (const k of keysOf(tc.getTypeAtLocation(n.argumentExpression)))\n        mark(tc.getNonNullableType(tc.getTypeAtLocation(n.expression)).getProperties().find(p => p.escapedName === k)) }\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -24521,7 +24521,7 @@
       "replace": "false ? t.types.flatMap(keysOf) :",
       "by": "test",
       "kills": [
-        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键都算用到，没读的不算"
+        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键、可选链下标都算用到，没读的不算"
       ]
     },
     {
@@ -24533,7 +24533,7 @@
       "replace": "t.isStringLiteral()",
       "by": "test",
       "kills": [
-        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键都算用到，没读的不算"
+        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键、可选链下标都算用到，没读的不算"
       ]
     },
     {
@@ -24545,7 +24545,7 @@
       "replace": "false ?",
       "by": "test",
       "kills": [
-        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键都算用到，没读的不算"
+        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键、可选链下标都算用到，没读的不算"
       ]
     },
     {
@@ -24553,11 +24553,23 @@
       "req": "harness",
       "why": "下标只认下标表达式自己的符号：拿常量变量作键读到的字段算没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "mark(tc.getTypeAtLocation(n.expression).getProperties().find(p => p.escapedName === k))",
+      "find": "mark(tc.getNonNullableType(tc.getTypeAtLocation(n.expression)).getProperties().find(p => p.escapedName === k))",
       "replace": "mark(tc.getSymbolAtLocation(n.argumentExpression))",
       "by": "test",
       "kills": [
-        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键都算用到，没读的不算"
+        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键、可选链下标都算用到，没读的不算"
+      ]
+    },
+    {
+      "id": "M-H198-cb",
+      "req": "harness",
+      "why": "可选链下标不先去掉 undefined：被索引的值可能缺席时，按下标读到的字段算没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "tc.getNonNullableType(tc.getTypeAtLocation(n.expression))",
+      "replace": "tc.getTypeAtLocation(n.expression)",
+      "by": "test",
+      "kills": [
+        "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键、可选链下标都算用到，没读的不算"
       ]
     }
   ],

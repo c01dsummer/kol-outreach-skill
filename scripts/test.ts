@@ -14230,6 +14230,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export function crossed(): { hidden2: number } & { toJSON(): {} } { return { hidden2: 1, toJSON: () => ({}) } }',
       'export function crossedDeep(): { deep2: number } & { toJSON(): {} } { return { deep2: 1, toJSON: () => ({}) } }',
       "export const symKey: unique symbol = Symbol('k')",
+      'export function maybe(): { viaOpt: number; viaOpt2: number } | undefined { return { viaOpt: 1, viaOpt2: 2 } }',
       'export function keyed(): { viaConst: number; viaU1: number; viaU2: number; [symKey]: number; 7: number; viaNot: number } { return { viaConst: 1, viaU1: 2, viaU2: 3, [symKey]: 4, 7: 5, viaNot: 6 } }',
       "export function oddInferred(n: number) { return n > 0 ? { kind: 'a' as const, z: { kind: 'b' as const, y: 1 } } : { kind: 'a}.z.{kind=b' as const, y: 2 } }",
     ].join('\n'),
@@ -14253,7 +14254,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       "const js = [JSON.stringify(mm.withToJSON()), JSON.stringify(mm.withSym()), JSON.stringify(mm.filtered(), ['kept']), JSON.stringify(mm.nulled(), null, 2), JSON.stringify(mm.undef(), undefined, 2)]",
       'const crossedJs = JSON.stringify(mm.crossed()); deepStrictEqual(mm.crossedDeep(), {})',
       "const kc = 'viaConst' as const; const ku = (kc.length > 3 ? 'viaU1' : 'viaU2') as 'viaU1' | 'viaU2'; const kn = 7 as const; const kd = mm.keyed()",
-      'const keyedV = [kd[kc], kd[ku], kd[mm.symKey], kd[kn]]',
+      "const keyedV = [kd[kc], kd[ku], kd[mm.symKey], kd[kn], mm.maybe()?.['viaOpt'], mm.maybe()?.[kc.length > 0 ? 'viaOpt2' : 'viaOpt2']]",
       'const { renamedR: other } = f.ro()',
       "const wantCu: import('./f.js').CU = { kind: 'b', cb: 1 }",
       "const m = await import('./f.js') as unknown as { copied: () => { cp: number } }",
@@ -14311,8 +14312,9 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
     [false, true, true, false, false, true, true])
   eq('字段：交叉类型上的 toJSON 也只认它的返回值；deepStrictEqual 照比原来的属性',
     ['crossed.hidden2', 'crossedDeep.deep2'].map(k => moreOf(`m.ts#${k}`)?.used), [false, true])
-  eq('字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键都算用到，没读的不算',
-    ['viaConst', 'viaU1', 'viaU2', '[symKey]', '7', 'viaNot'].map(k => moreOf(`m.ts#keyed.${k}`)?.used), [true, true, true, true, true, false])
+  eq('字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键、可选链下标都算用到，没读的不算',
+    ['keyed.viaConst', 'keyed.viaU1', 'keyed.viaU2', 'keyed.[symKey]', 'keyed.7', 'keyed.viaNot', 'maybe.viaOpt', 'maybe.viaOpt2'].map(k => moreOf(`m.ts#${k}`)?.used),
+    [true, true, true, true, true, false, true, true])
   eq('字段：按名字兜底认不带扩展名的 import（照程序自己的解析）', moreOf('n.ts#nOnly.extless')?.used, true)
   eq('字段：按上下文类型写的期望值与解构，数字名、字面量计算属性名也算用到',
     ['0', '1', 'lit', 'dlit'].map(k => moreOf(`m.ts#numeric.${k}`)?.used), [true, true, true, true])

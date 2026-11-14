@@ -271,7 +271,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
         && n.arguments.length > 0 && ts.isStringLiteralLike(n.arguments[0])) imported(n.arguments[0].text)
       if (ts.isPropertyAccessExpression(n)) { if (!writeOnly(ts, n)) mark(tc.getSymbolAtLocation(n.name)) }
       else if (ts.isElementAccessExpression(n)) { if (!writeOnly(ts, n)) for (const k of keysOf(tc.getTypeAtLocation(n.argumentExpression)))
-        mark(tc.getTypeAtLocation(n.expression).getProperties().find(p => p.escapedName === k)) }
+        mark(tc.getNonNullableType(tc.getTypeAtLocation(n.expression)).getProperties().find(p => p.escapedName === k)) }
       else if (ts.isBindingElement(n) && ts.isObjectBindingPattern(n.parent)) {
         const name = literalName(ts, n.propertyName ?? n.name)
         if (name !== undefined) mark(tc.getTypeAtLocation(n.parent).getProperty(name))
