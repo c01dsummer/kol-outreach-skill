@@ -11118,10 +11118,14 @@ harness('变异跑的派工：派几个、结论怎么带回来、派出去没�
   }
   eq('队列本来就空：头一次就关输入', handNext([]), { end: true })
   // 交回的一行怎么接：读得出是结论（记账、再派），没有记号的是验证者的闲话（跳过），
-  // 带着记号却读不出来要让它收摊 —— 它正等着下一个编号，不收摊就永远等下去，整跑挂住
-  eq('worker 交回的结论行：读出结论', workerLine(wire(good)), { report: good })
-  eq('worker 漏出来的闲话：跳过，不收摊', workerLine('  ✓ 某条断言'), { skip: true })
-  eq('带着记号却读不出来：让这个 worker 收摊', workerLine('⟦结论⟧ caught M-X-a'), { end: true })
+  // 带着记号却读不出来要让它收摊 —— 它正等着下一个编号，不收摊就永远等下去，整跑挂住。
+  // 与上面的 `read` 同理走一层接住：解析那一步抛出去的话，这一跑算崩，不算这条断言红（M-H36-ao）
+  const take = (line: string) => {
+    try { return workerLine(line) } catch (e) { return `抛了：${String(e)}` }
+  }
+  eq('worker 交回的结论行：读出结论', take(wire(good)), { report: good })
+  eq('worker 漏出来的闲话：跳过，不收摊', take('  ✓ 某条断言'), { skip: true })
+  eq('带着记号却读不出来：让这个 worker 收摊', take('⟦结论⟧ caught M-X-a'), { end: true })
 
   // ── 计时那一栏（Ran.ms）。契约：「ms 须是有限、非负的数，否则认不出」；它和别的字段一样
   // 要穿过 worker 的进程边界，所以写下去读回来必须还是原值 —— 读回一个 0 的话，账单上那个
