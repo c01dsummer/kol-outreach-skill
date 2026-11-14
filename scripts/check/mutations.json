@@ -18113,6 +18113,36 @@
       "kills": ["准入读物：豁免的范围夹带代码运算符也交出来，编号写成 ⊘ [req]（范围），排在同一条豁免的 why 之前"]
     },
     {
+      "id": "M-H202-bf",
+      "req": "harness",
+      "why": "对象与数组写成的初始值也算字面量 —— 一张写死在签名里的常量表、权重表原样进了包",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "ts.SyntaxKind.BigIntLiteral, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword,",
+      "replace": "ts.SyntaxKind.BigIntLiteral, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.ObjectLiteralExpression, ts.SyntaxKind.ArrayLiteralExpression,",
+      "by": "test",
+      "kills": ["准入读物：对象字面量不在字面量名单上", "准入读物：数组字面量不在字面量名单上"]
+    },
+    {
+      "id": "M-H202-bg",
+      "req": "harness",
+      "why": "数字前面带任何一元运算都算字面量，不只负号 —— 按位取反、取非这类算出来的值也放进包",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.MinusToken",
+      "replace": "ts.isPrefixUnaryExpression(e)",
+      "by": "test",
+      "kills": ["准入读物：负号以外的一元运算（按位取反、取非）加数字不在字面量名单上"]
+    },
+    {
+      "id": "M-H202-bh",
+      "req": "harness",
+      "why": "空语句与裸块也算声明 —— 签名文件里夹着一段块语句也照样出包",
+      "file": "scripts/check/admission-rule.ts",
+      "find": "ts.SyntaxKind.VariableStatement, ts.SyntaxKind.EnumDeclaration, ts.SyntaxKind.ModuleDeclaration,",
+      "replace": "ts.SyntaxKind.VariableStatement, ts.SyntaxKind.EnumDeclaration, ts.SyntaxKind.ModuleDeclaration, ts.SyntaxKind.EmptyStatement, ts.SyntaxKind.Block,",
+      "by": "test",
+      "kills": ["准入读物：文件顶层的空语句与裸块也报不是声明的语句"]
+    },
+    {
       "id": "M-D20-a",
       "req": "D20.a",
       "why": "未知的来源性质被当作已区分的品牌偏好或产品事实接受",

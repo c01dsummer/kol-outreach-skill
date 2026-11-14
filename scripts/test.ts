@@ -12980,6 +12980,11 @@ eq('准入读物：文件顶层的表达式语句与 if 语句报不是声明的
 setup()
 if (a) { }
 `), ['第 2 行：不是声明的语句', '第 3 行：不是声明的语句'])
+// 第一行自己带分号收尾，第二行那个分号才是一条单独的空语句
+eq('准入读物：文件顶层的空语句与裸块也报不是声明的语句', scan(`export declare const a: number;
+;
+{ }
+`), ['第 2 行：不是声明的语句', '第 3 行：不是声明的语句'])
 eq('准入读物：declare namespace 块里的表达式语句报不是声明的语句', scan(`export declare namespace N {
   const k: number
   k++
@@ -13004,6 +13009,10 @@ eq('准入读物：null 不在字面量名单上', scan('export declare const b 
 eq('准入读物：带插值的模板串不在字面量名单上', scan('export declare const c = `x${a}y`\n'), ['第 1 行：初始值不是字面量'])
 eq('准入读物：正号加数字不在字面量名单上', scan('export declare const d = +1\n'), ['第 1 行：初始值不是字面量'])
 eq('准入读物：负号后面不是数字不在字面量名单上', scan('export declare const e = -x\n'), ['第 1 行：初始值不是字面量'])
+eq('准入读物：对象字面量不在字面量名单上', scan('export declare const o = { x: 1 }\n'), ['第 1 行：初始值不是字面量'])
+eq('准入读物：数组字面量不在字面量名单上', scan('export declare const l = [1, 2]\n'), ['第 1 行：初始值不是字面量'])
+eq('准入读物：负号以外的一元运算（按位取反、取非）加数字不在字面量名单上',
+  [scan('export declare const n = ~1\n'), scan('export declare const t = !0\n')], [['第 1 行：初始值不是字面量'], ['第 1 行：初始值不是字面量']])
 eq('准入读物：正则不在字面量名单上', scan('export declare const r = /re/\n'), ['第 1 行：初始值不是字面量'])
 eq('准入读物：类属性的初始值不是字面量也报', scan(`export declare class C {
   x = bar
