@@ -23930,7 +23930,7 @@
       "req": "harness",
       "why": "整体比对不穿库里的泛型：装在 Map 里交给逐项比对的字段算没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      if (fromLibrary(t) && entries && !/^Weak/.test(t.symbol.name)) for (const a of argumentsOf(t)) whole(a, seen, entries)\n",
+      "find": "      if (fromLibrary(t) && entries && !/^(Weak|Promise$)/.test(t.symbol.name)) for (const a of argumentsOf(t)) whole(a, seen, entries)\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -24651,7 +24651,7 @@
       "req": "harness",
       "why": "弱引用容器也当成深比较进得去：它的条目根本不比，里面的字段也算碰到",
       "file": "scripts/check/field-use-rule.ts",
-      "find": " && !/^Weak/.test(t.symbol.name)",
+      "find": " && !/^(Weak|Promise$)/.test(t.symbol.name)",
       "replace": "",
       "by": "test",
       "kills": [
@@ -24680,6 +24680,18 @@
       "by": "test",
       "kills": [
         "字段：同一位置只换一次 toJSON —— 换来的值自己的 toJSON 不再调用，照原样序列化"
+      ]
+    },
+    {
+      "id": "M-H198-cg",
+      "req": "harness",
+      "why": "深比较也当成会等 Promise 兑现再比：兑现值里的字段根本没比，也算碰到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "/^(Weak|Promise$)/",
+      "replace": "/^Weak/",
+      "by": "test",
+      "kills": [
+        "字段：深比较不进 WeakMap 这类弱引用容器，也不等 Promise 兑现"
       ]
     },
     {
