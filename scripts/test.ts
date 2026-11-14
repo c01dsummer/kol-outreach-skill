@@ -20523,13 +20523,17 @@ await group('h-iou-file-reminder', () => {
   eq('受控文件取 ls-files，按 NUL 切', gitCalls[1], ['ls-files', '-z'])
   eq('NUL 切开的路径原样交回，带空格与中文的不拆、末尾空段不算', scanned, [['a b.ts', 'docs/中文.md'], ['a b.ts', 'docs/中文.md']])
 
-  // 真仓库：不钉某一张（哪张会被补上状态行说不准），只要求列得出、列出的每一条正文里都真写着它
+  // 真仓库：不钉某一张（哪张会被补上状态行说不准）。开着的欠条里还有正文写着 selfcheck.ts 的，就要列得出；
+  // 全还清了就一条不列 —— 还清不该让测试红。列出的每一条正文里都要真写着它
   const realDocs = adrDocs()
   const tracked = cxSpawnSync('git', ['-c', 'core.quotePath=false', 'ls-files', '-z'], { encoding: 'utf8' }).stdout.split('\0').filter(Boolean)
   const real = touchReport(realDocs, tracked, ['scripts/check/selfcheck.ts'])
   const realText = new Map(entryTexts(realDocs).map(t => [`${t.entry.file}:${t.entry.line}`, t.text]))
+  const namesSelfcheck = /(^|[^\w./-])(scripts\/)?(check\/)?selfcheck\.ts/
+  const realClosed = closedKeys(realDocs)
+  const stillOpen = entryTexts(realDocs).some(t => !realClosed.has(entryKey(t.entry) ?? '') && namesSelfcheck.test(t.text))
   ok('真仓库：改 selfcheck.ts 时列得出，列出的每一条正文里都写着 selfcheck.ts',
-    real.hits.length > 0 && real.hits.every(h => /(^|[^\w./-])(scripts\/)?(check\/)?selfcheck\.ts/.test(realText.get(`${h.entry.file}:${h.entry.line}`) ?? '')))
+    (real.hits.length > 0) === stillOpen && real.hits.every(h => namesSelfcheck.test(realText.get(`${h.entry.file}:${h.entry.line}`) ?? '')))
 
 })
 
