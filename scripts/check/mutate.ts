@@ -1055,14 +1055,17 @@ try {
 }
 // 在首次正常基线和施变之前冻结 live 源码、目录与锁的原字节身份；读取失败保留未知。
 const combinations = new Map<string, CostCombination>()
+// 分份时（ADR-197）组合仍按整份建 —— 子集基线按整份跑，组合少了，那几种基线就成了「组合不在配置中」；
+// 组合里只记这一份的变异，别的份的变异不算「配置了却没观测到」
 const mineIds = new Set(mine.map(m => m.id))
-for (const route of currentSnapshot().routes.filter(r => mineIds.has(r.id))) {
+for (const route of currentSnapshot().routes) {
   const key = configurationKey(route)
+  const ids = mineIds.has(route.id) ? [route.id] : []
   const previous = combinations.get(key)
   if (previous === undefined) combinations.set(key, { key,
     route: { by: route.by, ...(route.only === undefined ? {} : { only: [...route.only].sort() }), executes: [...route.executes] },
-    mutationIds: [route.id] })
-  else combinations.set(key, { ...previous, mutationIds: [...previous.mutationIds, route.id] })
+    mutationIds: ids })
+  else combinations.set(key, { ...previous, mutationIds: [...previous.mutationIds, ...ids] })
 }
 const identity: CostIdentity = {
   headSha: comparison.head, comparisonBaseSha: comparison.base,

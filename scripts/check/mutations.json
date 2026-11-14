@@ -6310,7 +6310,7 @@
     {
       "id": "M-H188-a",
       "req": "harness",
-      "why": "分份没写时不再按整份跑，而是读不出来就拒绝 —— 本地每一次 npm run check 都会因为没写分份而起不来",
+      "why": "分份写成空串时不再当成没写、按整份跑，而是读不出来就拒绝 —— 环境里留着一个空的分份变量，变异一步就起不来",
       "file": "scripts/check/jobs-rule.ts",
       "find": "  if (env === undefined || env.trim() === '') return { index: 1, count: 1 }",
       "replace": "  if (env === undefined) return { index: 1, count: 1 }",
@@ -6336,8 +6336,8 @@
       "req": "harness",
       "why": "第几份超过份数也收下 —— 写错成「3/2」时这一跑一条变异也不跑，却照样报全部被抓到",
       "file": "scripts/check/jobs-rule.ts",
-      "find": "  if (count < 1 || index < 1 || index > count) return undefined",
-      "replace": "  if (count < 1 || index < 1) return undefined",
+      "find": "  if (index < 1 || index > count) return undefined",
+      "replace": "  if (index < 1) return undefined",
       "by": "test",
       "kills": [
         "分份读不出来：比份数还大"
@@ -6348,8 +6348,8 @@
       "req": "harness",
       "why": "第 0 份也收下 —— 写错成「0/2」时这一跑一条变异也不跑，却照样报全部被抓到",
       "file": "scripts/check/jobs-rule.ts",
-      "find": "  if (count < 1 || index < 1 || index > count) return undefined",
-      "replace": "  if (count < 1 || index > count) return undefined",
+      "find": "  if (index < 1 || index > count) return undefined",
+      "replace": "  if (index > count) return undefined",
       "by": "test",
       "kills": [
         "分份读不出来：第 0 份"
@@ -6378,6 +6378,54 @@
       "by": "test",
       "kills": [
         "分份读不出来：不是 k/n"
+      ]
+    },
+    {
+      "id": "M-H188-g",
+      "req": "harness",
+      "why": "最后一份被当成越界拒掉 —— CI 上第 3/3 份那台起不来，那三分之一的变异没人跑",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  if (index < 1 || index > count) return undefined",
+      "replace": "  if (index < 1 || index >= count) return undefined",
+      "by": "test",
+      "kills": [
+        "分份：最后一份照收"
+      ]
+    },
+    {
+      "id": "M-H188-h",
+      "req": "harness",
+      "why": "分份读法不再要求从头读起 —— 带负号、前面多一截的写法被读成别的份，写错的分法不再被拒",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  const m = /^(\\d+)\\/(\\d+)$/.exec(env.trim())",
+      "replace": "  const m = /(\\d+)\\/(\\d+)$/.exec(env.trim())",
+      "by": "test",
+      "kills": [
+        "分份读不出来：负数"
+      ]
+    },
+    {
+      "id": "M-H188-i",
+      "req": "harness",
+      "why": "分份读法不再要求读到尾 —— 后面多一截的写法被读成前面那两个数，写错的分法不再被拒",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  const m = /^(\\d+)\\/(\\d+)$/.exec(env.trim())",
+      "replace": "  const m = /^(\\d+)\\/(\\d+)/.exec(env.trim())",
+      "by": "test",
+      "kills": [
+        "分份读不出来：后面多一截"
+      ]
+    },
+    {
+      "id": "M-H188-j",
+      "req": "harness",
+      "why": "分份读之前不再去掉两头的空白 —— 环境变量里多敲一个空格，这一跑就起不来",
+      "file": "scripts/check/jobs-rule.ts",
+      "find": "  const m = /^(\\d+)\\/(\\d+)$/.exec(env.trim())",
+      "replace": "  const m = /^(\\d+)\\/(\\d+)$/.exec(env)",
+      "by": "test",
+      "kills": [
+        "分份：两头的空白不算"
       ]
     },
     {

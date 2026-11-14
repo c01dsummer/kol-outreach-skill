@@ -136,8 +136,17 @@ jobs:
 
   check:
     needs: [chain, mutate]
+    # 前两种 job 红了也要起来、自己红：needs 没过时整个 job 会被跳过，而被跳过的必需检查在分支保护里算过
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
+      - name: 变异以外各步与三份变异都绿了才往下
+        env:
+          CHAIN: ${{ needs.chain.result }}
+          MUTATE: ${{ needs.mutate.result }}
+        run: |
+          echo "chain：$CHAIN · mutate：$MUTATE"
+          [ "$CHAIN" = success ] && [ "$MUTATE" = success ]
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -156,6 +165,8 @@ jobs:
           path: output/selfcheck-launches
       # 检查链的最后一步，同本地 `npm run check` 的最后一步
       - run: npm run launches
+      # 下面墙钟对比那一步（ADR-197 起）：「本跑」是整个 run 的墙钟，含并行的几个 job；型号是这个 job 那台 runner 的，
+      # 干活的那几台各在自己 job 末尾的 lscpu 里。拆 job 之前的主干跑与之后的放在一个窗口里比，倍数会偏低，读的时候知道这一层
       # 只报数：本跑墙钟与主干上 check 前 5 次 push 成功跑的中位比一比，打一行到 notice 与 step summary
       # （ADR-151 P1）。不判快慢，「是劣化还是 runner 噪声、是哪条改动」由评审与合并者读
       # （`process/6-INTEGRATE.md`「改验证成本时」）。
@@ -169,7 +180,7 @@ jobs:
       # 截到 80 字：进 `::notice` 的除了数字与固定文案只有它。正文里的 :: 本就起不了新命令（runner 只认行首那组），
       # %0A 一类会被换回换行；过滤是保险，也让正文整洁。tr 那个字符集里 - 必须在最后，往后再加字符就成了区间。
       # 型号之后再带工作量：「变异 N 条（±d） · 摊到每条 X 秒」。N = 本提交 scripts/check/mutations.json 里 mutations 的条数
-      # （变异一步打的「N 个变异全部被抓到」就是它）；±d 比的是对照提交：PR 上是 checkout 出来的合并提交的第一个父提交，
+      # （本地整份跑时变异一步打的「N 个变异全部被抓到」就是它；CI 上分份后打的是「第 k/3 份 M 个…（整份 N 个…）」里的 N）；±d 比的是对照提交：PR 上是 checkout 出来的合并提交的第一个父提交，
       # 就是这次合并用的主干头；推 main 时是这次推送之前主干的头（github.event.before）。
       # X = 「本跑」秒数 ÷ N，两位小数 —— 整跑（含变异以外各步）摊到每条变异上，不是一条变异实际花的秒数。
       # 倍数偏了时三样一起读：型号换没换、N 涨没涨、X 涨没涨（X 也随机器快慢与变异以外各步变），只报，不判是哪一样。

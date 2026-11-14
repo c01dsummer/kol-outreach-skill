@@ -233,7 +233,7 @@ export function shardWanted(env: string | undefined): { index: number; count: nu
   const m = /^(\d+)\/(\d+)$/.exec(env.trim())
   if (m === null) return undefined
   const index = Number(m[1]), count = Number(m[2])
-  if (count < 1 || index < 1 || index > count) return undefined
+  if (index < 1 || index > count) return undefined
   return { index, count }
 }
 
