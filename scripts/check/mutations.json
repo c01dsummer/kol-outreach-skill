@@ -12269,6 +12269,136 @@
       "kills": ["维护事件-未知缺失与错字段不得退回本地"]
     },
     {
+      "id": "M-H188-a",
+      "req": "harness",
+      "why": "新增一类按变化种类而不是按基线有没有这条来分，新增却选跑的那条被列进改配置",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    if (!before.has(change.id)) groups.added.push(change)",
+      "replace": "    if (change.kind === 'added-full') groups.added.push(change)",
+      "by": "test",
+      "kills": ["维护报告-按有无分三类且类内路由正文变化在前"]
+    },
+    {
+      "id": "M-H188-b",
+      "req": "harness",
+      "why": "删除不再单列，被删的变异照旧混在改配置里",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    else if (!after.has(change.id)) groups.removed.push(change)",
+      "replace": "    else if (false) groups.removed.push(change)",
+      "by": "test",
+      "kills": ["维护报告-按有无分三类且类内路由正文变化在前"]
+    },
+    {
+      "id": "M-H188-c",
+      "req": "harness",
+      "why": "新增一类里后来的排到前面，类内不再照原清单先后",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "groups.added.push(change)",
+      "replace": "groups.added.unshift(change)",
+      "by": "test",
+      "kills": ["维护报告-按有无分三类且类内路由正文变化在前"]
+    },
+    {
+      "id": "M-H188-d",
+      "req": "harness",
+      "why": "分组时漏掉一条，三类合起来比原清单少",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    else groups.changed.push(change)",
+      "replace": "    else if (groups.changed.length === 0) groups.changed.push(change)",
+      "by": "test",
+      "kills": ["维护报告-三类合起来正好是原清单不多不少"]
+    },
+    {
+      "id": "M-H188-e",
+      "req": "harness",
+      "why": "摘要被挪到报告末尾，评审先看到的是清单",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "JSON.stringify(head.layouts[by])}`)\n  }\n  return lines\n",
+      "replace": "JSON.stringify(head.layouts[by])}`)\n  }\n  return [...lines.slice(1), lines[0]]\n",
+      "by": "test",
+      "kills": ["维护报告-摘要在最前且三类与各种类计数手算一致"]
+    },
+    {
+      "id": "M-H188-f",
+      "req": "harness",
+      "why": "删除与改配置两段对调，段落不再按新增、删除、改配置排列",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  section('删除', groups.removed)\n  section('改配置', groups.changed)",
+      "replace": "  section('改配置', groups.changed)\n  section('删除', groups.removed)",
+      "by": "test",
+      "kills": ["维护报告-清单段落在摘要之后且按新增删除改配置排列"]
+    },
+    {
+      "id": "M-H188-g",
+      "req": "harness",
+      "why": "每段只列第一条，清单被截断",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    for (const change of list) {",
+      "replace": "    for (const change of list.slice(0, 1)) {",
+      "by": "test",
+      "kills": ["维护报告-每段完整列出本类每一条"]
+    },
+    {
+      "id": "M-H188-h",
+      "req": "harness",
+      "why": "空的一段什么都不写，看不出是没有变化还是漏印",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "    if (!list.length) lines.push('    无')\n",
+      "replace": "",
+      "by": "test",
+      "kills": ["维护报告-无变化对照三段都写无"]
+    },
+    {
+      "id": "M-H188-i",
+      "req": "harness",
+      "why": "全跑原因不再跟在那一条下面",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "      if (explanation !== undefined) lines.push(",
+      "replace": "      if (false) lines.push(",
+      "by": "test",
+      "kills": ["维护报告-全跑原因紧跟在那一条下面"]
+    },
+    {
+      "id": "M-H188-j",
+      "req": "harness",
+      "why": "每类里不再把路由与全跑正文变化排在执行配置变化前面，要解释的那几条埋进配置变化里",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  return { added: routeFirst(groups.added), removed: routeFirst(groups.removed), changed: routeFirst(groups.changed) }",
+      "replace": "  return groups",
+      "by": "test",
+      "kills": ["维护报告-按有无分三类且类内路由正文变化在前"]
+    },
+    {
+      "id": "M-H188-k",
+      "req": "harness",
+      "why": "验证者布局变化不再列出，拆组或改依赖时评审看不到",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "  for (const by of delta.layoutChanges) {\n    lines.push(",
+      "replace": "  for (const by of [] as string[]) {\n    lines.push(",
+      "by": "test",
+      "kills": ["维护报告-验证者布局变化殿后"]
+    },
+    {
+      "id": "M-H188-l",
+      "req": "harness",
+      "why": "摘要里新增全跑一栏数的是选跑退回全跑的条数，两个计数接反",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "新增全跑 ${count('added-full')}，",
+      "replace": "新增全跑 ${count('back-to-full')}，",
+      "by": "test",
+      "kills": ["维护报告-摘要在最前且三类与各种类计数手算一致"]
+    },
+    {
+      "id": "M-H188-m",
+      "req": "harness",
+      "why": "报告里新增全跑与选跑退回全跑两个种类名对调，逐条看到的种类与实际相反",
+      "file": "scripts/check/mutate-rule.ts",
+      "find": "{ 'added-full': '新增全跑', 'back-to-full': '选跑退回全跑',",
+      "replace": "{ 'added-full': '选跑退回全跑', 'back-to-full': '新增全跑',",
+      "by": "test",
+      "kills": ["维护报告-完整报告逐行与手写期望相同"]
+    },
+    {
       "id": "M-H48-a",
       "req": "harness",
       "why": "成本身份不再按选择组排序，等价配置无法沿既有身份复用",
@@ -22635,6 +22765,44 @@
       "by": "selfcheck",
       "kills": [
         "collect 在 profile 补全先遇 404、再遇 TikHub 402：stderr 照打「1 人补全失败」那一行，与汇总的 profile_failed 对得上"
+      ]
+    },
+    {
+      "id": "M-D6-bt",
+      "req": "D6.aa",
+      "why": "KOL-108 第 2 条退回去：收尾那次保存评审正本失败时不算保存失败，按其余运行错误退 1，调用方读不出「没存上」",
+      "file": "scripts/collect.ts",
+      "find": "  saving(() => reviews.save(new Date().toISOString()))\n  saving(() => persistListAndStatus(",
+      "replace": "  reviews.save(new Date().toISOString())\n  saving(() => persistListAndStatus(",
+      "by": "selfcheck",
+      "kills": [
+        "collect 收尾保存评审正本失败以退出码 6 结束（不是其余错误的 1），stdout 不出汇总"
+      ]
+    },
+    {
+      "id": "M-D6-bu",
+      "req": "D6.aa",
+      "why": "KOL-108 第 2 条退回去：收尾写名单失败时不算保存失败，按其余运行错误退 1，调用方读不出名单没写上",
+      "file": "scripts/collect.ts",
+      "find": "  saving(() => persistListAndStatus(dir, state, fin.kept, fin.memory_status))\n",
+      "replace": "  persistListAndStatus(dir, state, fin.kept, fin.memory_status)\n",
+      "by": "selfcheck",
+      "kills": [
+        "collect 收尾写名单失败以退出码 6 结束（不是其余错误的 1），stdout 不出汇总"
+      ]
+    },
+    {
+      "id": "M-D6-bv",
+      "req": "D6.aa",
+      "why": "收尾那一路还没走完就先在 stdout 打出汇总：之后冻结候选、投影或保存失败时，调用方已经拿到一份像是成功的汇总",
+      "file": "scripts/collect.ts",
+      "find": "  reviews.freezeCandidates(fin.kept, new Date().toISOString())\n",
+      "replace": "  console.log(JSON.stringify({ dir, stopped }))\n  reviews.freezeCandidates(fin.kept, new Date().toISOString())\n",
+      "by": "selfcheck",
+      "kills": [
+        "collect 收尾保存评审正本失败以退出码 6 结束（不是其余错误的 1），stdout 不出汇总",
+        "collect 收尾写名单失败以退出码 6 结束（不是其余错误的 1），stdout 不出汇总",
+        "collect 收尾投影发现评审输入冲突以退出码 2 结束，stdout 不出汇总"
       ]
     },
     {
