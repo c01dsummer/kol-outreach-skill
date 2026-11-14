@@ -9,11 +9,12 @@
  *    展开到的、**声明在这些文件里**的每一个属性。函数类型的属性本身算一个字段，它的返回值不展开（那是回调，不是数据）。
  *    一个字段的名字（`key`）从它的声明位置算，不从「走到它的路」算：文件 ＋ 往上每一层有名字的
  *    声明（接口、类型别名、函数、属性、变量），类型字面量若带一个取字符串字面量的属性（判别联合的 `kind`），
- *    记成 `{kind=…}`。所以新加一个函数、走到旧字段的路变了，旧字段的名字不变。
+ *    记成 `{kind=…}`；推断出来的对象字面量同理，看那个属性推出来的类型是不是字符串字面量（`'a' as const`）。所以新加一个函数、走到旧字段的路变了，旧字段的名字不变。
  * 2. **哪些算「用到」**（也在 `fieldsOf` 里）：验证者文件（`isVerifierFile` 认的那几种）里任一处
  *    —— 读属性（`.x`、`['x']`）、解构、按上下文类型对得上的对象字面量键（期望值写成那个类型），
  *    解析到这个声明上；或把**整个值**交给整体比对：`eq`、`assert`、`deepStrictEqual`、`JSON.stringify`，
- *    以及返回 `unknown`/`any` 的调用（`canon` 这类先规整再比的）的实参，它类型里的属性逐层都算碰到 ——
+ *    以及返回 `unknown`/`any` 的调用（`canon` 这类先规整再比的）的实参，它类型里的属性逐层都算碰到
+ *    （`Map`/`Set` 这类库泛型里面只有 `deepStrictEqual` 进得去，别的走 JSON，那里面成了 `{}`）——
  *    加了字段、期望值没跟着改，整体比对自己就会失败。
  *    另有一条按名字的兜底：验证者自己重抄了一份类型（`await import(…) as unknown as { … }` 的黑盒写法），
  *    读到的声明落在那份重抄的类型里；这时只要这个验证者 import 了字段所在的那个文件、读的名字相同，也算。
@@ -65,9 +66,17 @@ const relOf = (root: string, fileName: string): string =>
   fileName.startsWith(root + '/') ? fileName.slice(root.length + 1) : fileName
 
 /** 声明往上每一层有名字的东西，接成字段的稳定名字 */
-function keyOf(ts: typeof Ts, root: string, decl: Ts.Declaration): string {
+function keyOf(ts: typeof Ts, tc: Ts.TypeChecker, root: string, decl: Ts.Declaration): string {
   const parts: string[] = []
   for (let n: Ts.Node | undefined = decl; n !== undefined && !ts.isSourceFile(n); n = n.parent) {
+    if (ts.isObjectLiteralExpression(n)) {
+      for (const m of n.properties) {
+        if (m === decl || !ts.isPropertyAssignment(m) || !(ts.isIdentifier(m.name) || ts.isStringLiteral(m.name))) continue
+        const t = tc.getTypeAtLocation(m.name)
+        if (t.isStringLiteral()) { parts.push(`{${m.name.text}=${t.value}}`); break }
+      }
+      continue
+    }
     if (ts.isTypeLiteralNode(n)) {
       for (const m of n.members) {
         if (m === decl || !ts.isPropertySignature(m) || m.type === undefined) continue
@@ -202,15 +211,17 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
         if (copied.has(d)) names.add(s!.name)
       }
     }
-    const whole = (t: Ts.Type, seen: Set<Ts.Type>): void => {
+    // entries：比对时会不会进到 Map/Set/Promise 这类库泛型里面。只有 deepStrictEqual 会；
+    // eq、assert、stringify 与规整函数走 JSON 那一路，Map/Set 成了 {}，里面的字段没被比
+    const whole = (t: Ts.Type, seen: Set<Ts.Type>, entries: boolean): void => {
       if (seen.has(t)) return
       seen.add(t)
-      if (t.isUnion() || t.isIntersection()) { for (const u of t.types) whole(u, seen); return }
-      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen); return }
+      if (t.isUnion() || t.isIntersection()) { for (const u of t.types) whole(u, seen, entries); return }
+      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, entries); return }
       if (!(t.flags & ts.TypeFlags.Object)) return
-      if (fromLibrary(t)) for (const a of argumentsOf(t)) whole(a, seen)
-      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen)
-      for (const p of t.getProperties()) { mark(p); whole(tc.getTypeOfSymbol(p), seen) }
+      if (fromLibrary(t) && entries) for (const a of argumentsOf(t)) whole(a, seen, entries)
+      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, entries)
+      for (const p of t.getProperties()) { mark(p); whole(tc.getTypeOfSymbol(p), seen, entries) }
     }
     const visit = (n: Ts.Node): void => {
       if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) imported(n.moduleSpecifier.text)
@@ -230,7 +241,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
         const callee = ts.isPropertyAccessExpression(n.expression) ? n.expression.name.text
           : ts.isIdentifier(n.expression) ? n.expression.text : ''
         const opaque = (tc.getTypeAtLocation(n).flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any)) !== 0
-        if (WHOLE_COMPARE.has(callee) || opaque) for (const a of n.arguments) whole(tc.getTypeAtLocation(a), new Set())
+        if (WHOLE_COMPARE.has(callee) || opaque) for (const a of n.arguments) whole(tc.getTypeAtLocation(a), new Set(), callee === 'deepStrictEqual')
       }
       ts.forEachChild(n, visit)
     }
@@ -246,7 +257,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
     const text = name !== undefined && (ts.isIdentifier(name) || ts.isStringLiteral(name)) ? name.text : ''
     const waiver = waiverOf(ts, decl)
     return {
-      key: keyOf(ts, root, decl), file, via,
+      key: keyOf(ts, tc, root, decl), file, via,
       line: sf.getLineAndCharacterOfPosition(decl.getStart()).line + 1,
       used: used.has(decl) || byName(file, text),
       ...(waiver === undefined ? {} : { waiver }),
@@ -272,7 +283,7 @@ export interface FieldVerdict {
 /**
  * 新增 = `now` 里有、`base` 里没有这个 `key` 的字段。新增里没用到的：有成立的豁免进 `waived`，否则进 `unused`。
  * 不成立的豁免（标记后面空着）只看新增的 —— 旧字段上的不归这道闸门管。`unused` 或 `unjustified` 非空就红。
- * 同一个 `key` 出现多次（判别联合的不同成员里同名同判别值，少见）按一个算：任一处用到就算用到。
+ * 同一个 `key` 出现多次（判别联合的不同成员里同名同判别值，少见）按一个算：任一处用到就算用到；任一处写了空理由的豁免就算不成立。
  */
 export function fieldVerdict(now: readonly Field[], base: readonly string[]): FieldVerdict {
   const before = new Set(base)
@@ -280,7 +291,8 @@ export function fieldVerdict(now: readonly Field[], base: readonly string[]): Fi
   for (const f of now) {
     const had = merged.get(f.key)
     if (had === undefined) { merged.set(f.key, f); continue }
-    const waiver = had.waiver ?? f.waiver
+    // 两处里有一处写了空理由，合起来就是空理由（不成立的豁免不让另一处的理由盖掉，先后无关）
+    const waiver = had.waiver === '' || f.waiver === '' ? '' : had.waiver ?? f.waiver
     merged.set(f.key, { ...had, used: had.used || f.used, ...(waiver === undefined ? {} : { waiver }) })
   }
   const fresh = [...merged.values()].filter(f => !before.has(f.key)).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))

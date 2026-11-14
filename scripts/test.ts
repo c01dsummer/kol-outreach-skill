@@ -13905,6 +13905,9 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段闸门：同名的两处有一处用到就算用到', fieldVerdict([dup(false), dup(true)], []).unused.length, 0)
   eq('字段闸门：同名的两处只一处写了豁免，照样算豁免', fieldVerdict([dup(false), { ...dup(false), waiver: '子进程' }], []).waived.length, 1)
   eq('字段闸门：用到了的新字段写了空理由的豁免，也算不成立', fieldVerdict([{ ...dup(true), waiver: '' }], []).unjustified.length, 1)
+  eq('字段闸门：同名的两处一处有理由一处空理由，不论先后都算不成立、都红',
+    [[{ ...dup(true), waiver: '子进程' }, { ...dup(true), waiver: '' }], [{ ...dup(true), waiver: '' }, { ...dup(true), waiver: '子进程' }]]
+      .map(two => { const v = fieldVerdict(two, []); return [v.unjustified.length, v.waived.length, v.red] }), [[1, 0, true], [1, 0, true]])
   eq('字段：交回的每一项带着它所在的文件', toy.find(f => f.key === 'scripts/check/c.ts#lonely.bb')?.file, 'scripts/check/c.ts')
 
   // 第二个玩具：映射与索引签名、别的整体比对名字、只经动态或只经静态 import 的兜底、注释里的豁免
@@ -13930,7 +13933,9 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       "export function waivers(): W { return { block: 1, spaced: 2, marked: '// 字段不入断言：字符串里的不算', plain: 3 } }",
       'export function copied(): { cp: number } { return { cp: 1 } }',
       'export function mapped(): Map<string, { inMap: number }> { return new Map() }',
+      'export function jsonMap(): Map<string, { viaJson: number }> { return new Map() }',
     ].join('\n'),
+    'scripts/check/u.ts': "export function choose(n: number) { return n > 0 ? { kind: 'a' as const, value: 1 } : { kind: 'b' as const } }",
     'scripts/check/g.ts': 'export function gOnly(): { gg: number } { return { gg: 1 } }',
     'scripts/check/h.ts': 'export function hz(): { other: number } { return { other: 1 } }',
     'scripts/check/k.ts': 'export function kOnly(): { kk: number } { return { kk: 1 } }',
@@ -13943,10 +13948,11 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'assert(f.indexed(), 1)',
       "const r = f.ro(); const k = r['kept']",
       'const s = JSON.stringify(f.both())',
+      'const j = JSON.stringify(f.jsonMap())',
       'const { renamedR: other } = f.ro()',
       "const wantCu: import('./f.js').CU = { kind: 'b', cb: 1 }",
       "const m = await import('./f.js') as unknown as { copied: () => { cp: number } }",
-      'export const v = [k, s, other, wantCu, m.copied().cp]',
+      'export const v = [k, s, j, other, wantCu, m.copied().cp]',
     ].join('\n'),
     'scripts/pid-boundary-contract-test.ts': [
       "import { gOnly } from './check/g.js'",
@@ -13967,13 +13973,19 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段：按字符串下标读、解构改名、按联合类型写成的期望值，都算用到；没读的那个不算',
     ['f.ts#Base.kept', 'f.ts#Base.renamedR', 'f.ts#CU.{kind=b}.cb', 'f.ts#CU.{kind=a}.ca', 'f.ts#Base.hiddenR'].map(k => moreOf(k)?.used), [true, true, true, false, false])
   eq('字段：按名字兜底 —— 只经动态 import、只经静态 import、经 ../ 的 import 都认', ['f.ts#copied.cp', 'g.ts#gOnly.gg', 'k.ts#kOnly.kk'].map(k => moreOf(k)?.used), [true, true, true])
-  eq('字段：整体比对穿过 Map 取里面的字段', moreOf('f.ts#mapped.inMap')?.used, true)
+  eq('字段：整体比对穿过 Map 取里面的字段只认 deepStrictEqual；JSON 那一路把 Map 写成 {}，里面的不算', [moreOf('f.ts#mapped.inMap')?.used, moreOf('f.ts#jsonMap.viaJson')?.used], [true, false])
   eq('字段：按名字兜底只认重抄的那份类型，本文件别的同名属性不算', moreOf('h.ts#hz.other')?.used, false)
   eq('字段：块注释里的豁免认；理由只有空白算空串；字符串里的标记不算，也不漏到下一个字段',
     ['f.ts#W.block', 'f.ts#W.spaced', 'f.ts#W.marked', 'f.ts#W.plain'].map(k => moreOf(k)?.waiver), ['块注释里的理由', '', undefined, undefined])
 
-  const moved = fieldToy(files => { files['scripts/check/a.ts'] = `export function first(): Row[] { return [] }\n${files['scripts/check/a.ts']}` })
+  const moved = fieldToy(files => {
+    files['scripts/check/a.ts'] = `export function first(): Row[] { return [] }\n${files['scripts/check/a.ts']}`
+    files['scripts/check/u.ts'] = "export function choose(n: number) { return n > 0 ? { kind: 'a' as const, value: 1 } : { kind: 'b' as const, value: 2 } }"
+  })
   ok('字段：多一个函数走到旧字段，旧字段的名字不变', toy.every(f => moved.some(g => g.key === f.key)))
+  eq('字段闸门：推断出来的判别联合，给另一个成员也加上同名字段，按新增报',
+    fieldVerdict(moved.filter(f => f.file === 'scripts/check/u.ts'), more.filter(f => f.file === 'scripts/check/u.ts').map(f => f.key)).fresh.map(f => f.key),
+    ['scripts/check/u.ts#choose.{kind=b}.value'])
   eq('验证者文件：需求测试、自检、契约测试、独立黑盒；别的不是', ['scripts/test.ts', 'scripts/check/selfcheck.ts', 'scripts/pid-boundary-contract-test.ts',
     'scripts/independent-blackbox-tests/suite.ts', 'scripts/check/launch-rule.ts', 'scripts/lib/test.ts'].map(isVerifierFile), [true, true, true, true, false, false])
   eq('判定文件：scripts/check 直属、不是验证者', ['scripts/check/a.ts', 'scripts/check/selfcheck.ts', 'scripts/check/x/y.ts', 'scripts/lib/a.ts'].map(isJudgedFile),

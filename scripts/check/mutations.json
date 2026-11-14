@@ -23063,7 +23063,7 @@
       "req": "harness",
       "why": "整体比对只算最外一层：嵌在数组、对象里的字段被报成没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "for (const p of t.getProperties()) { mark(p); whole(tc.getTypeOfSymbol(p), seen) }",
+      "find": "for (const p of t.getProperties()) { mark(p); whole(tc.getTypeOfSymbol(p), seen, entries) }",
       "replace": "for (const p of t.getProperties()) mark(p)",
       "by": "test",
       "kills": [
@@ -23195,7 +23195,7 @@
       "req": "harness",
       "why": "整体比对不穿索引签名：Record 里的字段交给比对函数也算没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen)\n",
+      "find": "      for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, entries)\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -23205,13 +23205,13 @@
     {
       "id": "M-H198-v",
       "req": "harness",
-      "why": "整体比对不穿库里的泛型：装在 Map 里交给比对函数的字段算没人碰，误红",
+      "why": "整体比对不穿库里的泛型：装在 Map 里交给逐项比对的字段算没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      if (fromLibrary(t)) for (const a of argumentsOf(t)) whole(a, seen)\n",
+      "find": "      if (fromLibrary(t) && entries) for (const a of argumentsOf(t)) whole(a, seen, entries)\n",
       "replace": "",
       "by": "test",
       "kills": [
-        "字段：整体比对穿过 Map 取里面的字段"
+        "字段：整体比对穿过 Map 取里面的字段只认 deepStrictEqual；JSON 那一路把 Map 写成 {}，里面的不算"
       ]
     },
     {
@@ -23327,8 +23327,8 @@
       "req": "harness",
       "why": "同名的几处只看第一处的豁免：第二处写了豁免也照样红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "const waiver = had.waiver ?? f.waiver",
-      "replace": "const waiver = had.waiver",
+      "find": "'' : had.waiver ?? f.waiver",
+      "replace": "'' : had.waiver",
       "by": "test",
       "kills": [
         "字段闸门：同名的两处只一处写了豁免，照样算豁免"
@@ -23392,6 +23392,42 @@
       "by": "test",
       "kills": [
         "字段：块注释里的豁免认；理由只有空白算空串；字符串里的标记不算，也不漏到下一个字段"
+      ]
+    },
+    {
+      "id": "M-H198-al",
+      "req": "harness",
+      "why": "整体比对不分比法都进到 Map/Set 里面：JSON 那一路比成 {} 的字段被当成碰过",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "new Set(), callee === 'deepStrictEqual')",
+      "replace": "new Set(), true)",
+      "by": "test",
+      "kills": [
+        "字段：整体比对穿过 Map 取里面的字段只认 deepStrictEqual；JSON 那一路把 Map 写成 {}，里面的不算"
+      ]
+    },
+    {
+      "id": "M-H198-am",
+      "req": "harness",
+      "why": "推断出来的对象字面量不记判别值：判别联合另一个成员加了同名字段，名字撞上旧的，不报新增",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (t.isStringLiteral()) { parts.push(",
+      "replace": "if (false && t.isStringLiteral()) { parts.push(",
+      "by": "test",
+      "kills": [
+        "字段闸门：推断出来的判别联合，给另一个成员也加上同名字段，按新增报"
+      ]
+    },
+    {
+      "id": "M-H198-an",
+      "req": "harness",
+      "why": "同名两处合并时有理由的豁免盖掉空理由的：不成立的豁免看先后，可能放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "had.waiver === '' || f.waiver === '' ? '' : had.waiver ?? f.waiver",
+      "replace": "had.waiver ?? f.waiver",
+      "by": "test",
+      "kills": [
+        "字段闸门：同名的两处一处有理由一处空理由，不论先后都算不成立、都红"
       ]
     }
   ],
