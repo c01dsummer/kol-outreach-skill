@@ -23351,7 +23351,7 @@
       "req": "harness",
       "why": "按下标读不算：r['x'] 这种读法算没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      else if (ts.isElementAccessExpression(n)) mark(tc.getSymbolAtLocation(n.argumentExpression))\n",
+      "find": "      else if (ts.isElementAccessExpression(n)) { if (!written(n)) mark(tc.getSymbolAtLocation(n.argumentExpression)) }\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -23500,6 +23500,90 @@
       "by": "test",
       "kills": [
         "字段闸门：同名的两处一处有理由一处空理由，不论先后都算不成立、都红"
+      ]
+    },
+    {
+      "id": "M-H198-ao",
+      "req": "harness",
+      "why": "数字名的属性没有名字：同一层几个数字名字段撞成上一层的名字，新增的不报",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "|| ts.isPrivateIdentifier(name) || ts.isNumericLiteral(name)) return name.text",
+      "replace": "|| ts.isPrivateIdentifier(name)) return name.text",
+      "by": "test",
+      "kills": [
+        "字段：数字名、字面量计算属性名各有自己的名字，别的计算属性名记成 [表达式]"
+      ]
+    },
+    {
+      "id": "M-H198-ap",
+      "req": "harness",
+      "why": "字面量计算属性名不取字面量本身：同一个字段写成 ['x'] 与 x 名字不同",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "ts.isStringLiteralLike(name.expression) || ts.isNumericLiteral(name.expression) ? name.expression.text : ",
+      "replace": "false ? '' : ",
+      "by": "test",
+      "kills": [
+        "字段：数字名、字面量计算属性名各有自己的名字，别的计算属性名记成 [表达式]"
+      ]
+    },
+    {
+      "id": "M-H198-aq",
+      "req": "harness",
+      "why": "别的计算属性名没有名字：几个这样的字段撞成上一层的名字",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "`[${name.expression.getText()}]`",
+      "replace": "undefined",
+      "by": "test",
+      "kills": [
+        "字段：数字名、字面量计算属性名各有自己的名字，别的计算属性名记成 [表达式]"
+      ]
+    },
+    {
+      "id": "M-H198-ar",
+      "req": "harness",
+      "why": "黑盒重抄的类型不穿索引签名：Record 里的字段读了也算没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "      for (const info of tc.getIndexInfosOfType(t)) copy(info.type, seen)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：按名字兜底时重抄的类型也穿过索引签名（Record 里的字段）"
+      ]
+    },
+    {
+      "id": "M-H198-as",
+      "req": "harness",
+      "why": "只被赋值的属性也算读到：测试只往字段里写、从不读它也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (!written(n)) mark(tc.getSymbolAtLocation(n.name))",
+      "replace": "mark(tc.getSymbolAtLocation(n.name))",
+      "by": "test",
+      "kills": [
+        "字段：只被 = 赋值的不算读到（点号与下标都一样）；+= 先读旧值，算"
+      ]
+    },
+    {
+      "id": "M-H198-at",
+      "req": "harness",
+      "why": "只被下标赋值的属性也算读到：测试只往字段里写、从不读它也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (!written(n)) mark(tc.getSymbolAtLocation(n.argumentExpression))",
+      "replace": "mark(tc.getSymbolAtLocation(n.argumentExpression))",
+      "by": "test",
+      "kills": [
+        "字段：只被 = 赋值的不算读到（点号与下标都一样）；+= 先读旧值，算"
+      ]
+    },
+    {
+      "id": "M-H198-au",
+      "req": "harness",
+      "why": "复合赋值也当成只写：先读旧值再写回的字段被报成没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "e.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken",
+      "replace": "true",
+      "by": "test",
+      "kills": [
+        "字段：只被 = 赋值的不算读到（点号与下标都一样）；+= 先读旧值，算"
       ]
     }
   ],

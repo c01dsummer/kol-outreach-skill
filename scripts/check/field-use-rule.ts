@@ -8,10 +8,10 @@
  *    逐层展开 —— 数组、元组、联合、交叉、索引签名（`Record`）、`Readonly`／`Partial` 这类映射；`Promise`、`Map`/`Set` 这类库里的泛型取类型参数 ——
  *    展开到的、**声明在这些文件里**的每一个属性。函数类型的属性本身算一个字段，它的返回值不展开（那是回调，不是数据）。
  *    一个字段的名字（`key`）从它的声明位置算，不从「走到它的路」算：文件 ＋ 往上每一层有名字的
- *    声明（接口、类型别名、函数、属性、变量），类型字面量若带一个取字符串字面量的属性（判别联合的 `kind`），
+ *    声明（接口、类型别名、函数、属性、变量；数字名与计算属性名也算名字），类型字面量若带一个取字符串字面量的属性（判别联合的 `kind`），
  *    记成 `{kind=…}`；推断出来的对象字面量同理，看那个属性推出来的类型是不是字符串字面量（`'a' as const`）。所以新加一个函数、走到旧字段的路变了，旧字段的名字不变。
  * 2. **哪些算「用到」**（也在 `fieldsOf` 里）：验证者文件（`isVerifierFile` 认的那几种）里任一处
- *    —— 读属性（`.x`、`['x']`）、解构、按上下文类型对得上的对象字面量键（期望值写成那个类型），
+ *    —— 读属性（`.x`、`['x']`；只被 `=` 赋值的不算读）、解构、按上下文类型对得上的对象字面量键（期望值写成那个类型），
  *    解析到这个声明上；或把**整个值**交给整体比对：`eq`、`assert`、`deepStrictEqual`、`JSON.stringify`，
  *    以及返回 `unknown`/`any` 的调用（`canon` 这类先规整再比的）的实参，它类型里的属性逐层都算碰到
  *    （`Map`/`Set` 这类库泛型里面只有 `deepStrictEqual` 进得去，别的走 JSON，那里面成了 `{}`）——
@@ -65,6 +65,16 @@ export interface Field {
 const relOf = (root: string, fileName: string): string =>
   fileName.startsWith(root + '/') ? fileName.slice(root.length + 1) : fileName
 
+/** 一个声明自己的名字：标识符、字符串、数字、私有名；计算属性名取字面量本身，别的写成 `[表达式]` */
+function nameOf(ts: typeof Ts, n: Ts.Node): string | undefined {
+  const name = (n as { name?: Ts.Node }).name
+  if (name === undefined) return undefined
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isPrivateIdentifier(name) || ts.isNumericLiteral(name)) return name.text
+  if (ts.isComputedPropertyName(name))
+    return ts.isStringLiteralLike(name.expression) || ts.isNumericLiteral(name.expression) ? name.expression.text : `[${name.expression.getText()}]`
+  return undefined
+}
+
 /** 声明往上每一层有名字的东西，接成字段的稳定名字 */
 function keyOf(ts: typeof Ts, tc: Ts.TypeChecker, root: string, decl: Ts.Declaration): string {
   const parts: string[] = []
@@ -86,9 +96,8 @@ function keyOf(ts: typeof Ts, tc: Ts.TypeChecker, root: string, decl: Ts.Declara
       }
       continue
     }
-    const name = (n as { name?: Ts.Node }).name
-    if (name !== undefined && (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isPrivateIdentifier(name)))
-      parts.push(name.text)
+    const name = nameOf(ts, n)
+    if (name !== undefined) parts.push(name)
   }
   return `${relOf(root, decl.getSourceFile().fileName)}#${parts.reverse().join('.')}`
 }
@@ -180,7 +189,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
     }
     /**
      * 重抄的类型：断言的值剥掉括号、`await` 与里层的 `as` 以后是一个 `import(…)` 调用。
-     * 从那份类型逐层走（属性、数组、联合、函数的返回值），走到的、声明在本文件里的属性都算重抄的 ——
+     * 从那份类型逐层走（属性、索引签名、数组、联合、函数的返回值），走到的、声明在本文件里的属性都算重抄的 ——
      * 重抄常把形状另起成本文件里的类型别名再引用。
      */
     const copied = new Set<Ts.Declaration>()
@@ -189,6 +198,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
       seen.add(t)
       if (t.isUnion() || t.isIntersection()) { for (const u of t.types) copy(u, seen); return }
       for (const a of argumentsOf(t)) copy(a, seen)
+      for (const info of tc.getIndexInfosOfType(t)) copy(info.type, seen)
       if (fromLibrary(t)) return
       for (const sig of t.getCallSignatures()) copy(tc.getReturnTypeOfSignature(sig), seen)
       for (const p of t.getProperties()) {
@@ -227,8 +237,11 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
       if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) imported(n.moduleSpecifier.text)
       else if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword
         && n.arguments.length > 0 && ts.isStringLiteralLike(n.arguments[0])) imported(n.arguments[0].text)
-      if (ts.isPropertyAccessExpression(n)) mark(tc.getSymbolAtLocation(n.name))
-      else if (ts.isElementAccessExpression(n)) mark(tc.getSymbolAtLocation(n.argumentExpression))
+      // 只被赋值（`r.x = 1`）不算读到；`+=` 这类复合赋值先读旧值，照算
+      const written = (e: Ts.Expression) =>
+        ts.isBinaryExpression(e.parent) && e.parent.left === e && e.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      if (ts.isPropertyAccessExpression(n)) { if (!written(n)) mark(tc.getSymbolAtLocation(n.name)) }
+      else if (ts.isElementAccessExpression(n)) { if (!written(n)) mark(tc.getSymbolAtLocation(n.argumentExpression)) }
       else if (ts.isBindingElement(n) && ts.isObjectBindingPattern(n.parent)) {
         const name = n.propertyName ?? n.name
         if (ts.isIdentifier(name) || ts.isStringLiteral(name)) mark(tc.getTypeAtLocation(n.parent).getProperty(name.text))
@@ -253,8 +266,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
   return [...found].map(([decl, via]) => {
     const sf = decl.getSourceFile()
     const file = rel(sf)
-    const name = (decl as { name?: Ts.Node }).name
-    const text = name !== undefined && (ts.isIdentifier(name) || ts.isStringLiteral(name)) ? name.text : ''
+    const text = nameOf(ts, decl) ?? ''
     const waiver = waiverOf(ts, decl)
     return {
       key: keyOf(ts, tc, root, decl), file, via,

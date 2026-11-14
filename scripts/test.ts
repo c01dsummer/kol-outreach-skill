@@ -13963,11 +13963,13 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export function copied(): { cp: number } { return { cp: 1 } }',
       'export function mapped(): Map<string, { inMap: number }> { return new Map() }',
       'export function jsonMap(): Map<string, { viaJson: number }> { return new Map() }',
+      "export function named(): { 0: number; ['comp']: number; [Symbol.iterator]: number } { return { 0: 1, comp: 2, [Symbol.iterator]: 3 } }",
+      'export function written(): { onlySet: number; onlyIdx: number; bumped: number } { return { onlySet: 1, onlyIdx: 2, bumped: 3 } }',
     ].join('\n'),
     'scripts/check/u.ts': "export function choose(n: number) { return n > 0 ? { kind: 'a' as const, value: 1 } : { kind: 'b' as const } }",
     'scripts/check/g.ts': 'export function gOnly(): { gg: number } { return { gg: 1 } }',
     'scripts/check/h.ts': 'export function hz(): { other: number } { return { other: 1 } }',
-    'scripts/check/k.ts': 'export function kOnly(): { kk: number } { return { kk: 1 } }',
+    'scripts/check/k.ts': 'export function kOnly(): { kk: number } { return { kk: 1 } }\nexport function table(): Record<string, { tcp: number }> { return {} }',
     'scripts/check/selfcheck.ts': [
       'declare function assert(c: unknown, w: unknown): void',
       'declare function deepStrictEqual(a: unknown, b: unknown): void',
@@ -13978,6 +13980,7 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       "const r = f.ro(); const k = r['kept']",
       'const s = JSON.stringify(f.both())',
       'const j = JSON.stringify(f.jsonMap())',
+      "const w = f.written(); w.onlySet = 1; w['onlyIdx'] = 2; w.bumped += 1",
       'const { renamedR: other } = f.ro()',
       "const wantCu: import('./f.js').CU = { kind: 'b', cb: 1 }",
       "const m = await import('./f.js') as unknown as { copied: () => { cp: number } }",
@@ -13990,8 +13993,8 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
       'export const v = [gOnly, m.hz().gg, local.other]',
     ].join('\n'),
     'scripts/independent-blackbox-tests/suite.ts': [
-      "const m = await import('../check/k.js') as unknown as { kOnly: () => { kk: number } }",
-      'export const v = m.kOnly().kk',
+      "const m = await import('../check/k.js') as unknown as { kOnly: () => { kk: number }; table: () => Record<string, { tcp: number }> }",
+      "export const v = [m.kOnly().kk, m.table()['one'].tcp]",
     ].join('\n'),
   }))
   const moreOf = (k: string) => more.find(f => f.key === `scripts/check/${k}`)
@@ -14004,6 +14007,12 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段：按名字兜底 —— 只经动态 import、只经静态 import、经 ../ 的 import 都认', ['f.ts#copied.cp', 'g.ts#gOnly.gg', 'k.ts#kOnly.kk'].map(k => moreOf(k)?.used), [true, true, true])
   eq('字段：整体比对穿过 Map 取里面的字段只认 deepStrictEqual；JSON 那一路把 Map 写成 {}，里面的不算', [moreOf('f.ts#mapped.inMap')?.used, moreOf('f.ts#jsonMap.viaJson')?.used], [true, false])
   eq('字段：按名字兜底只认重抄的那份类型，本文件别的同名属性不算', moreOf('h.ts#hz.other')?.used, false)
+  eq('字段：按名字兜底时重抄的类型也穿过索引签名（Record 里的字段）', moreOf('k.ts#table.tcp')?.used, true)
+  eq('字段：数字名、字面量计算属性名各有自己的名字，别的计算属性名记成 [表达式]',
+    more.filter(f => f.file === 'scripts/check/f.ts' && f.key.startsWith('scripts/check/f.ts#named.')).map(f => f.key).sort(),
+    ['scripts/check/f.ts#named.0', 'scripts/check/f.ts#named.[Symbol.iterator]', 'scripts/check/f.ts#named.comp'])
+  eq('字段：只被 = 赋值的不算读到（点号与下标都一样）；+= 先读旧值，算',
+    ['f.ts#written.onlySet', 'f.ts#written.onlyIdx', 'f.ts#written.bumped'].map(k => moreOf(k)?.used), [false, false, true])
   eq('字段：块注释里的豁免认；理由只有空白算空串；字符串里的标记不算，也不漏到下一个字段',
     ['f.ts#W.block', 'f.ts#W.spaced', 'f.ts#W.marked', 'f.ts#W.plain'].map(k => moreOf(k)?.waiver), ['块注释里的理由', '', undefined, undefined])
 
