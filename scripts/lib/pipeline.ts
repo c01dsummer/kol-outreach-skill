@@ -350,8 +350,8 @@ export function pendingKeywords(state: TaskState): string[] {
  *
  * **两条都不在 `mutations.json` 的 `exemptions` 里** —— D6.f 原先登记过，落地 4 撤了；
  * `P3.b` 从头到尾没登记过。D6.e 也不必：它说的是「那句话说什么」，在 `scripts/test.ts`
- * 里有认领。#155 把它重编成 D6.q（D6.f 同时重编成 D6.r）；`M-D6-f`／`M-D6-g`／`M-D6-h`
- * 的 `req` 今天都写 `D6.q`，按「编号逐字相同」守的就是这条判据（ADR-25 末尾）。
+ * 里有认领。#155 把它重编成 D6.q（D6.f 同时重编成 D6.r）。`M-D6-f`／`M-D6-g`／`M-D6-h`
+ * 守的是哪条判据，以 `mutations.json` 里各条的 `req` 为准，这里不抄（迁移经过见 ADR-25 末尾）。
  */
 export function resumeCostLine(
   dir: string, state: TaskState, qualified: number, creators: Creator[],
