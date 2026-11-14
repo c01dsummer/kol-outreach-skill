@@ -35,6 +35,11 @@ jobs:
   chain:
     name: 检查链（变异以外各步）
     runs-on: ubuntu-latest
+    # 临时（KOL-1 实测用，转 Ready 前撤掉）：整条拆开的检查在 5 组 runner 上各跑一遍
+    strategy:
+      fail-fast: false
+      matrix:
+        rep: [1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,7 +83,7 @@ jobs:
       # 自检按族写的启动计数：check 那个 job 里的启动数闸门要读它
       - uses: actions/upload-artifact@v4
         with:
-          name: selfcheck-launches
+          name: selfcheck-launches-${{ matrix.rep }}
           path: output/selfcheck-launches/families.json
           if-no-files-found: error
           retention-days: 3
@@ -95,6 +100,8 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
+        # 临时（KOL-1 实测用，转 Ready 前撤掉）：整条拆开的检查在 5 组 runner 上各跑一遍
+        rep: [1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -125,7 +132,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: matrix.shard == 1
         with:
-          name: mutation-launches
+          name: mutation-launches-${{ matrix.rep }}
           path: output/mutation-launches/launches.json
           if-no-files-found: error
           retention-days: 3
@@ -137,6 +144,11 @@ jobs:
   check:
     needs: [chain, mutate]
     runs-on: ubuntu-latest
+    # 临时（KOL-1 实测用，转 Ready 前撤掉）：整条拆开的检查在 5 组 runner 上各跑一遍
+    strategy:
+      fail-fast: false
+      matrix:
+        rep: [1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -148,11 +160,11 @@ jobs:
       - run: npm ci --prefer-offline --no-audit
       - uses: actions/download-artifact@v4
         with:
-          name: mutation-launches
+          name: mutation-launches-${{ matrix.rep }}
           path: output/mutation-launches
       - uses: actions/download-artifact@v4
         with:
-          name: selfcheck-launches
+          name: selfcheck-launches-${{ matrix.rep }}
           path: output/selfcheck-launches
       # 检查链的最后一步，同本地 `npm run check` 的最后一步
       - run: npm run launches
