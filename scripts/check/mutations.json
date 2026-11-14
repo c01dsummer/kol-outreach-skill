@@ -6747,7 +6747,7 @@
       "req": "harness",
       "why": "不等本次起的进程组停下就删临时根 —— 组里还活着的进程随手又把目录建回来，临时快照照样留在机器上",
       "file": "scripts/worker-output-contract-test.ts",
-      "find": "    if (live.length === 0) break\n",
+      "find": "    if (live !== null && live.length === 0 && holders !== null && holders.length === 0) break\n",
       "replace": "    break\n",
       "by": "test",
       "kills": [
@@ -6759,8 +6759,8 @@
       "req": "harness",
       "why": "到了时限进程组还在跑也照删 —— 删完它又写回来，而且本该判失格的一次被当成干净收尾",
       "file": "scripts/worker-output-contract-test.ts",
-      "find": "    if (Date.now() >= until) return `kept ${roots.join(', ')}: process groups ${live.join(', ')} still running after ${deadlineMs} ms`\n",
-      "replace": "    if (Date.now() >= until) break\n",
+      "find": "    if (Date.now() >= until) {\n",
+      "replace": "    if (Date.now() >= until) break\n    if (Date.now() < until - deadlineMs - 1) {\n",
       "by": "test",
       "kills": [
         "worker夹具回收：到时限组还没停，不删、说明留下了哪个目录"
@@ -6812,6 +6812,18 @@
       "by": "test",
       "kills": [
         "worker夹具回收：组列不出来时不删，说明原因"
+      ]
+    },
+    {
+      "id": "M-H201-g",
+      "req": "harness",
+      "why": "只看记了账的进程组，不看还在临时根里干活的进程 —— 被测代码自己另起一组的验证者照样在跑，删完它又写回来",
+      "file": "scripts/worker-output-contract-test.ts",
+      "find": "    const holders = live !== null && live.length === 0 ? cwdHolders(roots) : []\n",
+      "replace": "    const holders: number[] = []\n",
+      "by": "test",
+      "kills": [
+        "worker夹具回收：账本上没有、但当前目录在临时根里的进程还在写时，也等它退了再删，删后没有被建回来"
       ]
     },
     {
@@ -21553,7 +21565,7 @@
       "by": "test",
       "kills": [
         "owned snapshot removed after failed baseline",
-        "回执前打断控制器：驱动的临时根删了，组里还在写的进程也没把它建回来"
+        "回执前打断控制器：驱动的临时根删了，半秒后也没被写回来"
       ]
     },
     {
