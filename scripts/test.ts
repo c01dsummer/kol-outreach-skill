@@ -20635,7 +20635,7 @@ await group('h-iou-file-reminder', () => {
   const tracked = cxSpawnSync('git', ['-c', 'core.quotePath=false', 'ls-files', '-z'], { encoding: 'utf8' }).stdout.split('\0').filter(Boolean)
   const real = touchReport(realDocs, tracked, ['scripts/check/selfcheck.ts'])
   const realText = new Map(entryTexts(realDocs).map(t => [`${t.entry.file}:${t.entry.line}`, t.text]))
-  const namesSelfcheck = /(^|[^\w./-])(scripts\/)?(check\/)?selfcheck\.ts/
+  const namesSelfcheck = /(^|[^\w./-])(scripts\/)?(check\/)?selfcheck\.ts(?=$|[^\w./-]|\.(?!\w))/
   const realClosed = closedKeys(realDocs)
   const stillOpen = entryTexts(realDocs).some(t => !realClosed.has(entryKey(t.entry) ?? '') && namesSelfcheck.test(t.text))
   ok('真仓库：改 selfcheck.ts 时列得出，列出的每一条正文里都写着 selfcheck.ts',
