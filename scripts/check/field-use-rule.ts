@@ -250,12 +250,12 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
       if (t.isUnion()) { for (const u of t.types) whole(u, seen, entries); return }
       // JSON 那一路：有可调用的 toJSON 时序列化的是它的返回值，原来的属性一个也没被读；交叉类型先整体看再拆
       const toJSON = entries || !(t.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection)) ? undefined : t.getProperty('toJSON')
-      const replaced = toJSON === undefined ? [] : tc.getTypeOfSymbol(toJSON).getCallSignatures()
+      const replaced = toJSON === undefined ? [] : tc.getTypeOfSymbol(toJSON).getCallSignatures().filter(sig => tc.getReturnTypeOfSignature(sig) !== t) // 返回自己的照原样序列化
       if (replaced.length > 0) { for (const sig of replaced) whole(tc.getReturnTypeOfSignature(sig), seen, entries); return }
       if (t.isIntersection()) { for (const u of t.types) whole(u, seen, entries); return }
       if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, entries); return }
       if (!(t.flags & ts.TypeFlags.Object)) return
-      if (fromLibrary(t) && entries) for (const a of argumentsOf(t)) whole(a, seen, entries)
+      if (fromLibrary(t) && entries && !/^Weak/.test(t.symbol.name)) for (const a of argumentsOf(t)) whole(a, seen, entries)
       for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, entries)
       for (const p of t.getProperties()) {
         if (!entries && String(p.escapedName).startsWith('__@')) continue // 符号键的属性不进 JSON；deepStrictEqual 会比
@@ -276,7 +276,7 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
         const name = literalName(ts, n.propertyName ?? n.name)
         if (name !== undefined) mark(tc.getTypeAtLocation(n.parent).getProperty(name))
       } else if ((ts.isPropertyAssignment(n) || ts.isShorthandPropertyAssignment(n)) && ts.isObjectLiteralExpression(n.parent)) {
-        const contextual = tc.getContextualType(n.parent)
+        const contextual = ts.isBinaryExpression(n.parent.parent) && n.parent.parent.left === n.parent ? tc.getTypeAtLocation(n.parent.parent.right) : tc.getContextualType(n.parent) // 解构赋值：键读的是右边
         const name = literalName(ts, n.name)
         if (contextual !== undefined && name !== undefined)
           for (const t of contextual.isUnion() ? contextual.types : [contextual]) mark(t.getProperty(name))

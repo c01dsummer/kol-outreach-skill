@@ -23868,7 +23868,7 @@
       "req": "harness",
       "why": "整体比对不穿库里的泛型：装在 Map 里交给逐项比对的字段算没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "      if (fromLibrary(t) && entries) for (const a of argumentsOf(t)) whole(a, seen, entries)\n",
+      "find": "      if (fromLibrary(t) && entries && !/^Weak/.test(t.symbol.name)) for (const a of argumentsOf(t)) whole(a, seen, entries)\n",
       "replace": "",
       "by": "test",
       "kills": [
@@ -24570,6 +24570,42 @@
       "by": "test",
       "kills": [
         "字段：下标读按被索引对象的类型找 —— 常量键、联合字面量键、unique symbol 键、数字常量键、可选链下标都算用到，没读的不算"
+      ]
+    },
+    {
+      "id": "M-H198-cc",
+      "req": "harness",
+      "why": "toJSON 返回值就是自己时也当成替换：序列化时照原样写出的字段算没人碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": ".filter(sig => tc.getReturnTypeOfSignature(sig) !== t)",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：toJSON 返回自己的照常序列化；WeakMap 这类弱引用容器深比较也进不去；解构赋值的键读的是右边的字段（含改名），没解构的不算"
+      ]
+    },
+    {
+      "id": "M-H198-cd",
+      "req": "harness",
+      "why": "弱引用容器也当成深比较进得去：它的条目根本不比，里面的字段也算碰到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": " && !/^Weak/.test(t.symbol.name)",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：toJSON 返回自己的照常序列化；WeakMap 这类弱引用容器深比较也进不去；解构赋值的键读的是右边的字段（含改名），没解构的不算"
+      ]
+    },
+    {
+      "id": "M-H198-ce",
+      "req": "harness",
+      "why": "解构赋值的键也按左边的上下文类型找：右边那个值的字段被读了却算没碰，误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "ts.isBinaryExpression(n.parent.parent) && n.parent.parent.left === n.parent ?",
+      "replace": "false ?",
+      "by": "test",
+      "kills": [
+        "字段：toJSON 返回自己的照常序列化；WeakMap 这类弱引用容器深比较也进不去；解构赋值的键读的是右边的字段（含改名），没解构的不算"
       ]
     },
     {
