@@ -244,7 +244,7 @@ export function shardWanted(env: string | undefined): { index: number; count: nu
  * 摞按条数从多到少排（一样多的按在清单里第一次出现的先后），逐摞发给眼下条数最少的那一份（一样少的给编号小的）。
  * 交回的照清单原顺序。每一条恰好落在一份里，几份合起来就是整份清单；每一份各自算，算出来的分法一样。
  *
- * 按条数而不按秒数配：主干 1914cad 上 198 种配置照条数这样分，三份按实测秒数相差不到 3%（ADR-200 第二节）。
+ * 按条数而不按秒数配：拿一跑的实测秒数回放过，照条数分的几份秒数差得不多（数在 ADR-200 第二节）。
  * 不再轮流发：轮流发时每一份都碰到约八成的配置，每种配置的基线三份各跑一遍（ADR-197 第五节那张欠条）。
  */
 export function shardOf<T>(items: readonly T[], keyOf: (item: T) => string | undefined, index: number, count: number): T[] {
