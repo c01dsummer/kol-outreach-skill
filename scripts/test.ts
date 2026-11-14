@@ -11362,7 +11362,7 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 抽边仍不认的两种写法（双引号的静态引用、动态 import()）在真闭包里今天一处都没有。哪天有了，这条红：
   // 那时抽边要么再认一种形状，要么改写那一句 —— 漏收正是这道闸门最不该错的那一头（ADR-70 末尾 2026-11-14 那块）
   eq('真闭包里没有抽边认不得的引用写法',
-    real.filter(f => existsSync(f) && /\b(?:from|import)\s*"\.|\bimport\s*\(\s*['"`]\./.test(rf(f, 'utf8'))), [])
+    real.filter(f => existsSync(f) && statSync(f).isFile() && /\b(?:from|import)\s*"\.|\bimport\s*\(\s*['"`]\./.test(rf(f, 'utf8'))), [])
 
   // ---- 谁受这条判据管 ----
   const infra = ['scripts/check/mutate-rule.ts']
@@ -19424,11 +19424,9 @@ const d28Kit = (root: string) => {
     if (at === '') return false
     const line = message.split('\n').find(l => l.includes(first))
     if (line === undefined) return false
-    const stop = line.indexOf(first)
-    for (let i = line.indexOf(at); i >= 0 && i + at.length <= stop; i = line.indexOf(at, i + 1)) {
-      if (/^(|[\s：；])$/u.test(line[i - 1] ?? '') && /^[\s：，]$/u.test(line[i + at.length] ?? '')) return true
-    }
-    return false
+    // 只判离原文最近的那一处：probe 把几处问题拼在一行里，前面别的问题里的同名位置不能替它作证
+    const i = line.lastIndexOf(at, line.indexOf(first) - at.length)
+    return i >= 0 && /^(|[\s：；])$/u.test(line[i - 1] ?? '') && /^[\s：，]$/u.test(line[i + at.length] ?? '')
   }
   const listed = (g: Got) => g.status === 2 && g.pathSaid && atSaid(g.message, g.at!, g.tokens![0]) && inOrder(g.message, g.tokens!)
     && (g.times === undefined || (g.times === 2 ? /[2两二]/ : /[3三]/).test(g.message.split('\n').find(line => line.includes(g.tokens![0])) ?? ''))
@@ -20336,7 +20334,7 @@ await group('d19-config-known-gap', () => {
 // 用 harness 不用 suite：它钉的是 D19 不要求的行为（一个接受了的缺口），不该把 D19 记成被这一组覆盖
 harness('已知缺口：collect --config 新建任务时，未列出键上读不出精确值的数字照今天写成 null、0')
 {
-  // ADR-138 第 76 行：需求所有者 2026-10-11 定为不修，接受为已知缺口 —— collect --config 新建任务时重建了根，只与配置共用
+  // ADR-190 末尾那张（原 ADR-138 第 76 行）：需求所有者 2026-10-11 定为不修，接受为已知缺口 —— collect --config 新建任务时重建了根，只与配置共用
   // tasks 与 brand_calibration 两个 holder，那里未列出键上读不出精确值的数字（1e400、1e-400）写成 null、0，写出时不报错也不提示。
   // 这两条断言**正面钉住**这个缺口，期望照那张欠条的原文写，不照运行结果抄，也不认领任何判据。
   // 哪天它们红了，就是新建任务怎么拼根变了：回去读那张欠条，定这个缺口是不是已经还了，不要把期望改回去了事
