@@ -799,6 +799,7 @@ suite('P2', '开发信草稿里对不上出处的数字与承诺词在评审 HTM
     ['数后面跟的逗号不吃进说法', 'Holds 500, weighs 500 g.', ['x'], '500；500 g'],
     ['不写单位的数对得上出处里同数的价格', 'Only 29 dollars.', ['$29'], '无'],
     ['k 跟在数后面整串算一条', 'Reached 120k views.', ['x'], '120k'],
+    ['k 算单位：120k 与 120 K 对得上', 'Reached 120k views.', ['120 K views'], '无'],
     ['「.5」这样的小数也扫', 'Weighs just .5 kg.', ['Weighs 1 kg'], '.5 kg'],
     ['价格对价格或不带单位的同数，不对带单位的同数', 'Only $29, $35 and $40.', ['Price 29', '$35', '40 g'], '$40'],
     ['拼写的数字：十三到十九、七十、八十、连写的二十五、thousand', 'Runs seventy hours, eighty percent quieter, sixteen ounces, twenty-five minutes, a thousand-hour motor.', ['x'], 'seventy hours；eighty percent；sixteen ounces；twenty-five minutes；thousand-hour'],
