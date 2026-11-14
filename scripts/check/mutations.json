@@ -23501,8 +23501,8 @@
       "req": "harness",
       "why": "整体比对只算最外一层：嵌在数组、对象里的字段被报成没人碰，误红",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "for (const p of t.getProperties()) { mark(p); whole(tc.getTypeOfSymbol(p), seen, entries) }",
-      "replace": "for (const p of t.getProperties()) mark(p)",
+      "find": "        mark(p); whole(tc.getTypeOfSymbol(p), seen, entries)\n",
+      "replace": "        mark(p)\n",
       "by": "test",
       "kills": [
         "字段：整个值交给 eq，逐层都算用到"
@@ -24178,6 +24178,78 @@
       "by": "test",
       "kills": [
         "字段：推断出来的判别值带分隔符时同样写成带引号的一段"
+      ]
+    },
+    {
+      "id": "M-H198-bo",
+      "req": "harness",
+      "why": "整体比对走 JSON 时不看 toJSON：序列化时被 toJSON 换掉、根本没被读的字段也算碰到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const toJSON = entries ? undefined : t.getProperty('toJSON')",
+      "replace": "const toJSON = entries || true ? undefined : t.getProperty('toJSON')",
+      "by": "test",
+      "kills": [
+        "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算"
+      ]
+    },
+    {
+      "id": "M-H198-bp",
+      "req": "harness",
+      "why": "有 toJSON 时连它的返回值也不比：toJSON 交出去、真被序列化比对了的字段误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "{ for (const sig of replaced) whole(tc.getReturnTypeOfSignature(sig), seen, entries); return }",
+      "replace": "return",
+      "by": "test",
+      "kills": [
+        "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算"
+      ]
+    },
+    {
+      "id": "M-H198-bq",
+      "req": "harness",
+      "why": "整体比对走 JSON 时符号键的属性也算碰到：JSON 根本不序列化它，没人碰也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "        if (!entries && String(p.escapedName).startsWith('__@')) continue // 符号键的属性不进 JSON；deepStrictEqual 会比\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算"
+      ]
+    },
+    {
+      "id": "M-H198-br",
+      "req": "harness",
+      "why": "带 replacer 的 JSON.stringify 也当整体比对：被 replacer 滤掉的字段没人碰也放行",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const filtered = callee === 'stringify'",
+      "replace": "const filtered = false && callee === 'stringify'",
+      "by": "test",
+      "kills": [
+        "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算"
+      ]
+    },
+    {
+      "id": "M-H198-bs",
+      "req": "harness",
+      "why": "replacer 写成 null 也当成滤过：照常整体序列化比对了的字段误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "second.kind !== ts.SyntaxKind.NullKeyword && ",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算"
+      ]
+    },
+    {
+      "id": "M-H198-bt",
+      "req": "harness",
+      "why": "replacer 写成 undefined 也当成滤过：照常整体序列化比对了的字段误红",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": " && !(ts.isIdentifier(second) && second.text === 'undefined')",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算"
       ]
     }
   ],

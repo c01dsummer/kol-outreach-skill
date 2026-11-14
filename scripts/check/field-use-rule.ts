@@ -256,9 +256,16 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
       if (t.isUnion() || t.isIntersection()) { for (const u of t.types) whole(u, seen, entries); return }
       if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, entries); return }
       if (!(t.flags & ts.TypeFlags.Object)) return
+      // JSON 那一路：有可调用的 toJSON 时序列化的是它的返回值，原来的属性一个也没被读
+      const toJSON = entries ? undefined : t.getProperty('toJSON')
+      const replaced = toJSON === undefined ? [] : tc.getTypeOfSymbol(toJSON).getCallSignatures()
+      if (replaced.length > 0) { for (const sig of replaced) whole(tc.getReturnTypeOfSignature(sig), seen, entries); return }
       if (fromLibrary(t) && entries) for (const a of argumentsOf(t)) whole(a, seen, entries)
       for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, entries)
-      for (const p of t.getProperties()) { mark(p); whole(tc.getTypeOfSymbol(p), seen, entries) }
+      for (const p of t.getProperties()) {
+        if (!entries && String(p.escapedName).startsWith('__@')) continue // 符号键的属性不进 JSON；deepStrictEqual 会比
+        mark(p); whole(tc.getTypeOfSymbol(p), seen, entries)
+      }
     }
     const visit = (n: Ts.Node): void => {
       if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) imported(n.moduleSpecifier.text)
@@ -278,7 +285,10 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
         const callee = ts.isPropertyAccessExpression(n.expression) ? n.expression.name.text
           : ts.isIdentifier(n.expression) ? n.expression.text : ''
         const opaque = (tc.getTypeAtLocation(n).flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any)) !== 0
-        if (WHOLE_COMPARE.has(callee) || opaque) for (const a of n.arguments) whole(tc.getTypeAtLocation(a), new Set(), callee === 'deepStrictEqual')
+        // JSON.stringify 带了 replacer：留下哪些字段由它定，不算整体比对
+        const second = n.arguments[1]
+        const filtered = callee === 'stringify' && second !== undefined && second.kind !== ts.SyntaxKind.NullKeyword && !(ts.isIdentifier(second) && second.text === 'undefined')
+        if ((WHOLE_COMPARE.has(callee) && !filtered) || opaque) for (const a of n.arguments) whole(tc.getTypeAtLocation(a), new Set(), callee === 'deepStrictEqual')
       }
       ts.forEachChild(n, visit)
     }
