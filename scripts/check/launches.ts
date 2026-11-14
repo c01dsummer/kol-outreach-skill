@@ -58,6 +58,7 @@ const routes = (): Parameters<typeof idleGroupsLine>[2] => {
 const inTree = (): string | undefined => { try { return readFileSync(LAUNCH_SUMMARY_FILE, 'utf8') } catch { return undefined } }
 // 写不进去时括号里是那个错误的 code，没有就是「未知」
 const code = (e: unknown): string => { const c = (e as { code?: unknown } | null)?.code; return typeof c === 'string' ? c : '未知' }
+if (read.fault !== undefined) console.log(`✗ 分份的启动数文件：${read.fault}`)
 if (process.argv.slice(2).includes('--write')) {
   if ('fault' in summary) { console.log(`✗ 启动数摘要没写：${summary.fault}`); process.exitCode = 1 }
   else {
@@ -67,7 +68,6 @@ if (process.argv.slice(2).includes('--write')) {
     } catch (e) { console.log(`✗ 启动数摘要没写：写不进 ${LAUNCH_SUMMARY_FILE}（${code(e)}）`); process.exitCode = 1 }
   }
 } else {
-  if (read.fault !== undefined) console.log(`✗ 分份的启动数文件：${read.fault}`)
   console.log(idleGroupsLine(json(SELFCHECK_LAUNCHES_FILE), tree, routes()))
   const sum = summaryLine(inTree(), summary, trunk)
   console.log(sum.line)

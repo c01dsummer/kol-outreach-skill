@@ -9959,7 +9959,7 @@ const preloadRun = (dir: string, toy: string, options: string | undefined, log?:
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', parsed: parseLaunchLog(text), rows, L: rows.filter(x => x.t === 'L'),
     seen: (() => { try { return JSON.parse(said!.slice(3)) } catch { return undefined } })() }
 }
-// 分份跑写的几份启动数文件拼回整份（ADR-200）。期望从 ADR-200 第三节手推：配置互不相交，直接拼；
+// 分份跑写的几份启动数文件拼回整份（ADR-200）。期望从 ADR-200 第二节手推：配置互不相交，直接拼；
 // findings 照整份跑的顺序（全跑的按 id 在前，其余按配置键，同一配置里照原顺序），tally 按配置键；拼好的不带「第几份」
 await group('h-launch-parts', () => {
   const part = (index: number, count: number, over: Record<string, unknown> = {}) => ({

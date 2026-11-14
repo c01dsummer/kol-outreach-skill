@@ -318,7 +318,7 @@ export const LAUNCH_PART_NAME = /^launches-(\d+)-of-(\d+)\.json$/
 /**
  * 把分份跑写的几份启动数文件拼成整份跑会写的那一份（ADR-200）。几份按配置成摞分（`shardOf`），配置互不相交，
  * 所以 tally、findings、baselines、again 直接拼起来；再照 `launchFindings` 与 `launchTally` 的顺序排一遍
- * （findings：全跑的按 id 在前，其余按配置键、同一配置里照原顺序；tally 按配置键），拼出来的与整份跑的一个字不差。
+ * （findings：全跑的按 id 在前，其余按配置键、同一配置里照原顺序；tally 按配置键），拼出来的 tally 与 findings 与整份跑的一样（baselines、again 的键序不同，没有人按顺序读它们）。
  * 拼不起来交回原因：少一份、多一份、同一份两次、份数说法不一、不是同一个提交或同一棵树写的、各段不是该有的形状。
  * 每一份自己的内容不在这里核 —— 拼好的照旧交给 `launchGate` 与 `launchSummary`。
  */

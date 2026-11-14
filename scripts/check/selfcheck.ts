@@ -8875,7 +8875,7 @@ group('mutate-copy-list', [], () => {
   named('副本清单：换成命名管道的没带，建副本也没挂住', seen.length === 2 && seen.every(r => r.piped === false), shown)
 })
 
-// ---- 分份（ADR-197）：CI 上几台 runner 各跑清单的一份，几份合起来是整份；写坏了一条也不施 ----
+// ---- 分份（ADR-197、ADR-200）：CI 上几台 runner 各跑清单的一份，几份合起来是整份；写坏了一条也不施；启动数写这一份自己的文件 ----
 group('mutate-shard', [], () => {
   // 判定那一半（`shardWanted`、`shardOf`）有单测和负片；**这里守的是入口接线那一半**：派工与串行两条路
   // 都只发这一份、收尾那一句按这一份说、验证者的环境里不带 MUTATE_SHARD、写坏了在施变之前就退出。
