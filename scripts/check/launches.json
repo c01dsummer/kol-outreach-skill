@@ -136,7 +136,7 @@
     {"config":"[\"test\",[\"h-group-share\"]]","launches":0,"maxPaid":null,"running":33,"stopping":0},
     {"config":"[\"test\",[\"h-group-share-real\"]]","launches":0,"maxPaid":null,"running":4,"stopping":0},
     {"config":"[\"test\",[\"h-infra-rules\"]]","launches":0,"maxPaid":null,"running":29,"stopping":0},
-    {"config":"[\"test\",[\"h-jobs\"]]","launches":0,"maxPaid":null,"running":73,"stopping":0},
+    {"config":"[\"test\",[\"h-jobs\"]]","launches":0,"maxPaid":null,"running":77,"stopping":0},
     {"config":"[\"test\",[\"h-launch-preload\"]]","launches":3,"maxPaid":null,"running":20,"stopping":0},
     {"config":"[\"test\",[\"h-launch-preload-edge\"]]","launches":1,"maxPaid":null,"running":6,"stopping":0},
     {"config":"[\"test\",[\"h-launch-rule\"]]","launches":0,"maxPaid":null,"running":191,"stopping":0},
