@@ -10276,7 +10276,7 @@
       "replace": "const id = queue[0]",
       "by": "test",
       "kills": [
-        "三条配两个 worker：先空出来的接下一条，队列空了才关输入，每条恰好派一次",
+        "三条配两个 worker：按来要的先后各取走一条，队列空了才关输入，每条恰好派一次",
         "派完之后共用的队列空了"
       ]
     },
@@ -10284,12 +10284,12 @@
       "id": "M-H36-ab",
       "req": "harness",
       "file": "scripts/check/jobs-rule.ts",
-      "why": "队列空了不关 worker 的输入，而是把一个空编号写过去 —— worker 收完手上那条还在等下一个编号，进程不退，整跑挂住",
+      "why": "队列空了不关 worker 的输入，而是把一个空编号写过去 —— 入口写出去的是字面的 undefined，worker 认不出这个编号就提前收工，派工那一侧的判定说的「关输入」与实际写出去的东西对不上",
       "find": "return id === undefined ? { end: true } : { send: id }",
       "replace": "return { send: id as string }",
       "by": "test",
       "kills": [
-        "三条配两个 worker：先空出来的接下一条，队列空了才关输入，每条恰好派一次",
+        "三条配两个 worker：按来要的先后各取走一条，队列空了才关输入，每条恰好派一次",
         "队列本来就空：头一次就关输入"
       ]
     },

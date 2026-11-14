@@ -8684,7 +8684,7 @@ group('mutate-parallel-workers', [], () => {
   // **三条配两个 worker**（ADR-72 第 211 行）：两条配两个的话每人领一条就到头了，「收到结论之后
   // 再派下一条」那一支一次都走不到。三条里总有一个 worker 交回第一条结论后再领第三条
   seedJobs(jobsTmp, [jobMut('M-J-a', 'keep', 'gone'), jobMut('M-J-b', 'hold', 'lost'),
-    jobMut('M-J-e', "v = 'keep'", "v = 'kept'")], jobsMark)
+    jobMut('M-J-i', "v = 'keep'", "v = 'kept'")], jobsMark)
   rmSync(jobsMark, { force: true })
   const jobs = runToolBoth('mutate 派工：三条变异配两个 worker，各在自己的隔离目录里跑', 'mutate',
     ['--jobs=2'], jobsTmp)
