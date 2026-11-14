@@ -11440,11 +11440,13 @@ harness('验证基础设施闭包：一条变异改的是不是验证者自己�
   // 名单从 package.json 里产品命令（带 --env-file-if-exists 起的那几条）读，不从闭包那边取，也不手抄
   const productCommands = Object.values(JSON.parse(rf('package.json', 'utf8')).scripts as Record<string, string>)
     .filter(cmd => cmd.includes('--env-file-if-exists'))
-  const productEntries = productCommands.flatMap(cmd => [...cmd.matchAll(/\b(scripts\/[\w./-]+\.ts)\b/g)].map(m => m[1]))
+  // 按命令分组留着：只比总数时，一条命令抽空、另一条抽出两份也会相抵
+  const entriesByCommand = productCommands.map(cmd => [...cmd.matchAll(/\b(scripts\/[\w./-]+\.ts)\b/g)].map(m => m[1]))
+  const productEntries = entriesByCommand.flat()
   // 名单不能悄悄少一份：每条产品命令恰好抽出一份入口、文件都在盘上，collect 在里面
   eq('产品入口名单读得出来：每条产品命令恰好一份入口、都在盘上',
-    [productEntries.length === productCommands.length, productEntries.length > 0, productEntries.every(f => existsSync(f)), productEntries.includes('scripts/collect.ts')],
-    [true, true, true, true])
+    [entriesByCommand.length > 0, entriesByCommand.every(g => g.length === 1 && existsSync(g[0])), productEntries.includes('scripts/collect.ts')],
+    [true, true, true])
   eq('被测入口一个都不在真闭包里', real.filter(f => productEntries.includes(f)), [])
   // 抽边仍不认的两种写法（双引号的静态引用、动态 import()）在真闭包里今天一处都没有。哪天有了，这条红：
   // 那时抽边要么再认一种形状，要么改写那一句 —— 漏收正是这道闸门最不该错的那一头（ADR-70 末尾 2026-11-14 那块）
@@ -20448,11 +20450,15 @@ harness('已知缺口：collect --config 新建任务时，未列出键上读不
     // 目标 1 人、假供应商一页就够，所以照常以「达标」那个退出码 4 收尾（ADR-193）—— 写出时不报错、不拒绝
     eq('已知缺口：collect --config 带着未列出键上的 1e400、1e-400 照常以达标（4）结束、建了一个任务目录，stderr 不提这两个键',
       [r.status, made.length, /zq_huge|zq_tiny/.test(r.stderr ?? '')], [4, 1, false])
-    // 按盘上原文数，不按解析后的值比：1e-400 解析出来本来就是 0，键整个丢掉时解析后的 undefined 又会被序列化成 null，两样都会让按值比的断言白绿。
-    // 两个 holder 各一处，所以各是 2；原文一处都不剩
-    const count = (re: RegExp) => (text.match(re) ?? []).length
+    // 两个 holder 各自解析出来逐个比（键整个丢掉时是 undefined，严格比 null 会红）；
+    // 再按盘上原文数：1e-400 原样留着时解析出来也是 0，只有看原文才分得出
+    let saved: { tasks?: Record<string, unknown>[], brand_calibration?: Record<string, unknown> } = {}
+    try { saved = JSON.parse(text) } catch { /* 读不出来就让下面那条红 */ }
+    const holders = [saved.tasks?.[0], saved.brand_calibration]
     eq('已知缺口：新建的 task.json 里，任务条目与 brand_calibration 未列出键上的 1e400 写成 null、1e-400 写成 0，原文不在',
-      [count(/"zq_huge": *null(?![\w.])/g), count(/"zq_tiny": *0(?![\w.])/g), count(/1e-?400/g)], [2, 2, 0])
+      [holders.map(h => [h !== undefined && Object.hasOwn(h, 'zq_huge') ? h.zq_huge : 'missing', h !== undefined && Object.hasOwn(h, 'zq_tiny') ? h.zq_tiny : 'missing']),
+        (text.match(/1e-?400/g) ?? []).length],
+      [[[null, 0], [null, 0]], 0])
   } finally { rmSync(root, { recursive: true, force: true }) }
 }
 })
