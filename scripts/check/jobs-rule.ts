@@ -209,7 +209,7 @@ export function billLines(rows: readonly BillRow[]): string[] {
  * 命令行压环境变量：临时改一次不该要求先改环境。都没写就按机器核数。
  * 再按要跑的条数收口 —— 派出去的 worker 比变异还多，多出来那几个只是白起一遍进程。
  *
- * **旗标本身写坏了当场抛**，与 `group-rule.ts` 的 `parseOnlyStrict` 同一套读法（ADR-99 第 335 行）：
+ * **旗标本身写坏了当场抛**：这两种写错与 `group-rule.ts` 的 `parseOnlyStrict` 同等待遇（ADR-99 第 335 行；它还拒不认识的参数，这里不管）：
  * 写了两次只认头一个、空格写法 `--jobs 3` 当成没写，都是把写的人以为自己给的那个数换成了另一个，
  * 不是「说不清要几个」那一种。
  */
