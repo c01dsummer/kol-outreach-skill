@@ -6743,6 +6743,78 @@
       ]
     },
     {
+      "id": "M-H201-a",
+      "req": "harness",
+      "why": "不等本次起的进程组停下就删临时根 —— 组里还活着的进程随手又把目录建回来，临时快照照样留在机器上",
+      "file": "scripts/worker-output-contract-test.ts",
+      "find": "    if (live.length === 0) break\n",
+      "replace": "    break\n",
+      "by": "test",
+      "kills": [
+        "worker夹具回收：组里的进程还在往临时根里写时，等它停了再删，删后没有被建回来；别的目录不动"
+      ]
+    },
+    {
+      "id": "M-H201-b",
+      "req": "harness",
+      "why": "到了时限进程组还在跑也照删 —— 删完它又写回来，而且本该判失格的一次被当成干净收尾",
+      "file": "scripts/worker-output-contract-test.ts",
+      "find": "    if (Date.now() >= until) return `kept ${roots.join(', ')}: process groups ${live.join(', ')} still running after ${deadlineMs} ms`\n",
+      "replace": "    if (Date.now() >= until) break\n",
+      "by": "test",
+      "kills": [
+        "worker夹具回收：到时限组还没停，不删、说明留下了哪个目录"
+      ]
+    },
+    {
+      "id": "M-H201-c",
+      "req": "harness",
+      "why": "进程组账本最后一行没写完也照读 —— 被打断时正在记的那一组漏掉，不等它就删",
+      "file": "scripts/worker-output-contract-test.ts",
+      "find": "  if (text !== '' && !text.endsWith('\\n')) return null\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "worker夹具回收：账本最后一行没写完、不是 JSON、组号缺了或不像组号，都当确认不了"
+      ]
+    },
+    {
+      "id": "M-H201-d",
+      "req": "harness",
+      "why": "只等外层自己起的那一组，驱动与包装器各自那组不等 —— 打断时它们晚半拍才死，正好赶上把删掉的目录写回来",
+      "file": "scripts/worker-output-contract-test.ts",
+      "find": "    groups.push(entry.pgid)\n",
+      "replace": "    void entry.pgid\n",
+      "by": "test",
+      "kills": [
+        "worker夹具回收：账本上的组连同外层自己那组都要等；没有账本只等外层那组；控制器那一行不算组"
+      ]
+    },
+    {
+      "id": "M-H201-e",
+      "req": "harness",
+      "why": "已经退出、只剩僵尸的进程也算组里还活着 —— 没人收尸的机器上永远等不到，每次都判失格、临时根也留着",
+      "file": "scripts/worker-output-contract-test.ts",
+      "find": "    if (pgids.includes(pgid) && !match[3]!.includes('Z')) live.add(pgid)\n",
+      "replace": "    if (pgids.includes(pgid)) live.add(pgid)\n",
+      "by": "test",
+      "kills": [
+        "worker夹具回收：组里的进程还在往临时根里写时，等它停了再删，删后没有被建回来；别的目录不动"
+      ]
+    },
+    {
+      "id": "M-H201-f",
+      "req": "harness",
+      "why": "进程组列不出来时当没有组照删 —— 确认不了进程停没停，正是不该冒险删的时候",
+      "file": "scripts/worker-output-contract-test.ts",
+      "find": "  if (groups === null) return `kept ${roots.join(', ')}: the started process groups cannot be listed`\n",
+      "replace": "  if (groups === null) groups = []\n",
+      "by": "test",
+      "kills": [
+        "worker夹具回收：组列不出来时不删，说明原因"
+      ]
+    },
+    {
       "id": "M-H36-a",
       "req": "harness",
       "why": "派工时给了零或者负数当并行度，不再说「说不清要派几个」，而是悄悄收口成 1 跑起来 —— 一个写错的配置被当成没写过，人以为自己在串行跑，实际不是",
@@ -21474,13 +21546,14 @@
     {
       "id": "M-H68-b",
       "req": "harness",
-      "why": "已完成但基线失格的测试留下本次临时快照，没有完成清理",
+      "why": "驱动的临时快照不在外层收尾时删 —— 不论驱动完没完成、有没有写出回执，本次建的快照都留在机器上",
       "file": "scripts/worker-output-contract-test.ts",
-      "find": "ownedCompletedDriverTemp = completedTemp;\\n  if (!['green','red'].includes(result.outcome) || result.baselineQualified !== true || result.positive?.passed !== true || result.adverse?.fixtureQualified !== true) invalid('original driver fixture did not qualify');\\n  if (raw.status !== (result.outcome === 'green' ? 0 : 1)) invalid('original driver exit and outcome differ');\\n  const expectedDriverOut = JSON.stringify({ outcome: result.outcome, positive: true, adverseQualified: true,\\n    adverseAssertions: result.adverse.assertion, tempRoot: result.identity.tempRoot }) + '\\\\n';\\n  if (raw.stdout !== expectedDriverOut || raw.stderr !== '') invalid('raw controller-to-driver result differs');\\n  // The bound pause held only if nothing was read before the release, in both cases.\\n  for (const mode of ['normal', 'backpressure']) {\\n    const ev = events(mode), stopped = ev.filter(e => e.event === 'consumer-read-stopped'), restarted = ev.filter(e => e.event === 'consumer-read-restarted');\\n    if (stopped.length !== 1 || stopped[0].code !== 0 || restarted.length !== 1 || restarted[0].code !== 0 || restarted[0].pausedReadBytes !== 0) invalid(mode + ' consumer did not stop reading its stdout pipe until the release');\\n  }\\n  const baseline = json('baseline.result.json');\\n  const normalOut = read('normal.dut-stdout.bin'), adverseOut = read('backpressure.dut-stdout.bin');\\n  report.publicRaw = { baseline,\\n    baselineCompleteSummary: read('baseline.stdout.bin').toString().split('\\\\n').filter(line => /全部通过（执行|已完成子集/.test(line)),\\n    normal: { events: events('normal'), stdout: normalOut.toString(), stdoutBytes: normalOut.length, stdoutBase64: normalOut.toString('base64'), stdoutSha256: sha(normalOut), stderr: read('normal.stderr.bin').toString(), result: json('normal.result.json') },\\n    backpressure: { events: events('backpressure'), stdout: adverseOut.toString(), stdoutBytes: adverseOut.length, stdoutBase64: adverseOut.toString('base64'), stdoutSha256: sha(adverseOut), stderr: read('backpressure.stderr.bin').toString(), result: json('backpressure.result.json'),\\n      padding: { bytes: result.adverse.prefixBytes, recoveredIntact: result.adverse.prefixValid, fullStreamSha256: result.adverse.stdoutSha256 } } };\\n  report.outcome = result.outcome;\\n  // This authorizes only this actually completed runtime/dependency execution.\\n  // It grants no profile from the earlier Darwin evidence or platform name.\\n  report.runtimeProfile = { identity: report.runtime, dependenciesManifestSha256: context.dependenciesManifestSha256,\\n    actualExecutionCompleted: true, fixtureQualified: true, behaviorPassed: result.outcome === 'green' };\\n  process.exitCode = result.outcome === 'green' ? 0 : 1;\\n} catch (e) {\\n  report.fixtureErrors.push(e instanceof Error ? e.message : String(e));\\n  report.outcome = 'fixture-unqualified';\\n  process.exitCode = 2;\\n} finally {\\n  if (ownedCompletedDriverTemp) {\\n    try { fs.rmSync(ownedCompletedDriverTemp, { recursive: true, force: true }); report.completedDriverTempRemoved = true; }\\n    catch (e) { report.fixtureErrors.push('completed private driver temporary cleanup failed: ' + e.message); report.outcome = 'fixture-unqualified'; process.exitCode = 2; }\\n  }\\n  fs.writeFileSync(path.join(home, 'controller-result.json'), JSON.stringify(report, null, 2) + '\\\\n');\\n  process.stdout.write(mark + JSON.stringify(report) + '\\\\n');\\n}\\n\"\nconst CONTROLLER_SHA256 = \"8e9dba278281a40eab060cc120c0fb01741071e44b9e6c4c7683006dfcceede8",
-      "replace": "/* temporary cleanup deliberately omitted */\\n  if (!['green','red'].includes(result.outcome) || result.baselineQualified !== true || result.positive?.passed !== true || result.adverse?.fixtureQualified !== true) invalid('original driver fixture did not qualify');\\n  if (raw.status !== (result.outcome === 'green' ? 0 : 1)) invalid('original driver exit and outcome differ');\\n  const expectedDriverOut = JSON.stringify({ outcome: result.outcome, positive: true, adverseQualified: true,\\n    adverseAssertions: result.adverse.assertion, tempRoot: result.identity.tempRoot }) + '\\\\n';\\n  if (raw.stdout !== expectedDriverOut || raw.stderr !== '') invalid('raw controller-to-driver result differs');\\n  // The bound pause held only if nothing was read before the release, in both cases.\\n  for (const mode of ['normal', 'backpressure']) {\\n    const ev = events(mode), stopped = ev.filter(e => e.event === 'consumer-read-stopped'), restarted = ev.filter(e => e.event === 'consumer-read-restarted');\\n    if (stopped.length !== 1 || stopped[0].code !== 0 || restarted.length !== 1 || restarted[0].code !== 0 || restarted[0].pausedReadBytes !== 0) invalid(mode + ' consumer did not stop reading its stdout pipe until the release');\\n  }\\n  const baseline = json('baseline.result.json');\\n  const normalOut = read('normal.dut-stdout.bin'), adverseOut = read('backpressure.dut-stdout.bin');\\n  report.publicRaw = { baseline,\\n    baselineCompleteSummary: read('baseline.stdout.bin').toString().split('\\\\n').filter(line => /全部通过（执行|已完成子集/.test(line)),\\n    normal: { events: events('normal'), stdout: normalOut.toString(), stdoutBytes: normalOut.length, stdoutBase64: normalOut.toString('base64'), stdoutSha256: sha(normalOut), stderr: read('normal.stderr.bin').toString(), result: json('normal.result.json') },\\n    backpressure: { events: events('backpressure'), stdout: adverseOut.toString(), stdoutBytes: adverseOut.length, stdoutBase64: adverseOut.toString('base64'), stdoutSha256: sha(adverseOut), stderr: read('backpressure.stderr.bin').toString(), result: json('backpressure.result.json'),\\n      padding: { bytes: result.adverse.prefixBytes, recoveredIntact: result.adverse.prefixValid, fullStreamSha256: result.adverse.stdoutSha256 } } };\\n  report.outcome = result.outcome;\\n  // This authorizes only this actually completed runtime/dependency execution.\\n  // It grants no profile from the earlier Darwin evidence or platform name.\\n  report.runtimeProfile = { identity: report.runtime, dependenciesManifestSha256: context.dependenciesManifestSha256,\\n    actualExecutionCompleted: true, fixtureQualified: true, behaviorPassed: result.outcome === 'green' };\\n  process.exitCode = result.outcome === 'green' ? 0 : 1;\\n} catch (e) {\\n  report.fixtureErrors.push(e instanceof Error ? e.message : String(e));\\n  report.outcome = 'fixture-unqualified';\\n  process.exitCode = 2;\\n} finally {\\n  if (ownedCompletedDriverTemp) {\\n    try { fs.rmSync(ownedCompletedDriverTemp, { recursive: true, force: true }); report.completedDriverTempRemoved = true; }\\n    catch (e) { report.fixtureErrors.push('completed private driver temporary cleanup failed: ' + e.message); report.outcome = 'fixture-unqualified'; process.exitCode = 2; }\\n  }\\n  fs.writeFileSync(path.join(home, 'controller-result.json'), JSON.stringify(report, null, 2) + '\\\\n');\\n  process.stdout.write(mark + JSON.stringify(report) + '\\\\n');\\n}\\n\"\nconst CONTROLLER_SHA256 = \"9fa67421ab533e3cd2abfcfa9fc51886ec7d876c7f5b06668c74a368af0107d4",
+      "find": "    const kept = reclaimOwned(driverRoot === undefined ? [home] : [driverRoot, home], ",
+      "replace": "    const kept = reclaimOwned([home], ",
       "by": "test",
       "kills": [
-        "owned snapshot removed after failed baseline"
+        "owned snapshot removed after failed baseline",
+        "回执前打断控制器：驱动的临时根删了，组里还在写的进程也没把它建回来"
       ]
     },
     {

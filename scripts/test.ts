@@ -311,6 +311,8 @@ const GROUPS: readonly Group[] = [
   { id: 'h-worker-output-contract', needs: [] },
   { id: 'h-worker-output-guardian', needs: [] },
   { id: 'h-worker-output-cleanup', needs: [] },
+  { id: 'h-worker-output-interrupt', needs: [] },
+  { id: 'h-worker-output-reclaim', needs: [] },
   { id: 'h-observer-rule', needs: [] },
   { id: 'h-observer-preload', needs: [] },
   { id: 'h-observer-run', needs: [] },
@@ -20288,6 +20290,64 @@ await group('h-worker-output-cleanup', async () => {
   eq('outer runner reports fixture invalid', result.checks.fixtureInvalid, true)
   eq('owned snapshot removed after failed baseline', result.checks.snapshotRemoved, true)
   eq('foreign directory preserved', result.checks.foreignPreserved, true)
+})
+
+await group('h-worker-output-interrupt', async () => {
+  harness('worker夹具在回执之前被打断：失格，等本次起的进程组停了再删自己的临时根，别人的目录不动')
+  const { runInterruptedCleanupRegression } = await import('./worker-output-cleanup-test.js')
+  const result = await runInterruptedCleanupRegression()
+  if (!('checks' in result) || !result.checks) throw new Error(`${SELFCHECK_FIXTURE_MARK} worker interrupt regression: ${result.reason}`)
+  eq('回执前打断控制器：外层报夹具失格', result.checks.interruptedInvalid, true)
+  eq('回执前打断控制器：驱动的临时根删了，组里还在写的进程也没把它建回来', result.checks.driverRootGone, true)
+  eq('回执前打断控制器：外层自己的临时目录也删了', result.checks.carrierHomeGone, true)
+  eq('回执前打断控制器：同一临时目录下别人的目录（含同名前缀的）原样还在', result.checks.foreignPreserved, true)
+})
+
+await group('h-worker-output-reclaim', async () => {
+  harness('worker夹具只在本次起的进程组都停了之后才删自己的临时根；确认不了就不删')
+  const { reclaimOwned, recordedGroups, liveGroups } = await import('./worker-output-contract-test.js')
+  const { spawn: spawnChild } = await import('node:child_process')
+  const fsx = await import('node:fs'), osx = await import('node:os'), px = await import('node:path')
+  const base = fsx.mkdtempSync(px.join(osx.tmpdir(), 'wrc-'))
+  const started: number[] = []
+  const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+  // 一个自成一组、不理 SIGTERM 的进程：每 10 毫秒把 dir 建回来再写一个文件，活 lifeMs 毫秒
+  const writer = async (dir: string, lifeMs: number): Promise<number> => {
+    const child = spawnChild(process.execPath, ['-e', `process.on('SIGTERM', () => {}); const fs = require('node:fs');
+      setInterval(() => { try { fs.mkdirSync(${JSON.stringify(dir)}, { recursive: true }); fs.writeFileSync(${JSON.stringify(px.join(dir, 'beat'))}, 'x') } catch {} }, 10);
+      setTimeout(() => process.exit(0), ${lifeMs})`], { detached: true, stdio: 'ignore' })
+    started.push(child.pid!)
+    for (const until = Date.now() + 10000; !fsx.existsSync(px.join(dir, 'beat')); await wait(10)) if (Date.now() > until) throw new Error(`${SELFCHECK_FIXTURE_MARK} reclaim writer did not start`)
+    return child.pid!
+  }
+  try {
+    const live = px.join(base, 'live'), foreign = px.join(base, 'foreign')
+    fsx.mkdirSync(foreign); fsx.writeFileSync(px.join(foreign, 'keep'), 'k')
+    const g1 = await writer(px.join(live, 'w'), 400)
+    const first = reclaimOwned([live], [g1], 5000)
+    await wait(150)
+    eq('worker夹具回收：组里的进程还在往临时根里写时，等它停了再删，删后没有被建回来；别的目录不动',
+      [first, fsx.existsSync(live), fsx.readFileSync(px.join(foreign, 'keep'), 'utf8')], [undefined, false, 'k'])
+    const stuck = px.join(base, 'stuck')
+    const g2 = await writer(px.join(stuck, 'w'), 20000)
+    const second = reclaimOwned([stuck], [g2], 300)
+    eq('worker夹具回收：到时限组还没停，不删、说明留下了哪个目录', [typeof second === 'string' && second.startsWith(`kept ${stuck}:`) && second.includes('still running'), fsx.existsSync(stuck)], [true, true])
+    process.kill(-g2, 'SIGKILL')
+    const ledger = px.join(base, 'groups.ndjson')
+    const groupsOf = (text: string | undefined) => { if (text === undefined) fsx.rmSync(ledger, { force: true }); else fsx.writeFileSync(ledger, text); return recordedGroups(ledger, 7) }
+    eq('worker夹具回收：账本上的组连同外层自己那组都要等；没有账本只等外层那组；控制器那一行不算组',
+      [groupsOf('{"role":"controller","pid":3}\n{"role":"driver-guardian","pgid":11}\n{"role":"wrapper-guardian","pgid":12}\n'), groupsOf(undefined), groupsOf('')], [[7, 11, 12], [7], [7]])
+    eq('worker夹具回收：账本最后一行没写完、不是 JSON、组号缺了或不像组号，都当确认不了',
+      ['{"role":"driver-guardian","pgid":11}', '{"role":"driver-guardian","pgid":11}\nnot json\n', '{"role":"wrapper-guardian","pgid":null}\n', '{"role":"wrapper-guardian","pgid":1}\n'].map(groupsOf),
+      [null, null, null, null])
+    const unknown = px.join(base, 'unknown'); fsx.mkdirSync(unknown)
+    const third = reclaimOwned([unknown], null)
+    eq('worker夹具回收：组列不出来时不删，说明原因', [typeof third === 'string' && third.includes('cannot be listed'), fsx.existsSync(unknown)], [true, true])
+    eq('worker夹具回收：看组用的 ps 能读出本进程自己那组', Array.isArray(liveGroups([Number(fsx.readFileSync('/proc/self/stat', 'utf8').split(' ')[4])])) || process.platform !== 'linux', true)
+  } finally {
+    for (const pid of started) { try { process.kill(-pid, 'SIGKILL') } catch { /* already gone */ } }
+    fsx.rmSync(base, { recursive: true, force: true })
+  }
 })
 
 // ---- 零请求观察器（KOL-21，ADR-70 末尾「KOL-21 零请求观察器与外层断网」一节）：判定、预加载、运行器各一组 ----
