@@ -40,7 +40,7 @@ import { LAUNCH_APIS, LAUNCH_COUNT_ENV, countingEnv, launchDrift, parseLaunchLog
 import { extractEmail, PR_SIGNALS } from './lib/email.js'
 import { type CiteRow, citeReport, citeSummary, citeTable, refs } from './check/cite-rule.js'
 import { adrDocs, entries, ledgerReport, ledgerSummary, orphanIous } from './check/debt-rule.js'
-import { closedKeys, entryKey, namedFiles, pathNames, touchLines, touchReport } from './check/debt-touch-rule.js'
+import { TEXT_LIMIT, closedKeys, entryKey, entryTexts, namedFiles, pathNames, touchLines, touchReport } from './check/debt-touch-rule.js'
 import { briefLeaks, implementationLeak } from './check/why-rule.js'
 import { writeAllSync } from './check/sync-write.js'
 import {
@@ -20306,8 +20306,11 @@ await group('h-iou-file-reminder', () => {
     [false, 'docs/x.md', 'README.md', 'docs/README.md'])
   eq('不带扩展名的尾段不认，完整路径照认', [names.has('Dockerfile'), names.get('tools/Dockerfile'), names.get('Makefile')], [false, 'tools/Dockerfile', 'Makefile'])
   // 两头不能还连着路径字符：同名前缀、多一个扩展名、前面还有一截别的目录，都不是这个文件
-  eq('名字两头连着路径字符的不算', ['改 xmutate.ts 时', '改 mutate.tsx 时', '改 other/mutate.ts 时', '改 mutate.ts.bak 时']
-    .map(t => namedFiles(t, names)), [[], [], [], []])
+  eq('名字两头连着路径字符的不算', ['改 xmutate.ts 时', '改 x-mutate.ts 时', '改 x_mutate.ts 时', '改 2mutate.ts 时', '改 mutate.tsx 时',
+    '改 mutate.ts-old 时', '改 other/mutate.ts 时', '改 mutate.ts.bak 时', '改 mutate.ts.1 时']
+    .map(t => namedFiles(t, names)), Array(9).fill([]))
+  // 头一处连着路径字符、后一处才是真点名：要接着往后找，不能只看第一次出现
+  eq('同一个名字头一处不算、后一处算：照样认出', namedFiles('xmutate.ts 不是它，mutate.ts 才是', names), ['scripts/check/mutate.ts'])
   eq('后面接行号、标点、反引号、句号都算', ['`mutate.ts`', 'mutate.ts:12', '碰 mutate.ts。', '（check/mutate.ts）', 'mutate.ts.']
     .map(t => namedFiles(t, names)), Array(5).fill(['scripts/check/mutate.ts']))
 
@@ -20321,6 +20324,9 @@ await group('h-iou-file-reminder', () => {
   // 块头写缺什么、条件那一行写什么时候回来 —— 文件只点在块头那一行时照样算
   eq('文件点在块头、条件行没点：照样列出', touchReport(adr('> ⚠️ 欠条：`scripts/a.ts` 少一道核\n> 重启条件：下一条碰它的 PR'), files, ['scripts/a.ts'])
     .hits.map(h => h.entry.line), [4])
+  // 不在欠条块里的条目（重开讨论一节的条目、块外的重启条件行）拿它那一行找
+  eq('块外的条目拿它那一行找文件名', touchReport(adr('## 什么条件下重开这个讨论\n\n- **改 `scripts/a.ts` 时**：重看'), files, ['scripts/a.ts'])
+    .hits.map(h => [h.entry.notation, h.entry.line]), [['重开讨论', 5]])
   eq('围栏示例里写的路径不算点名', touchReport(adr('> ⚠️ 欠条：少一道核\n> ```\n> scripts/a.ts\n> ```\n> 重启条件：下一条碰它的 PR'), files, ['scripts/a.ts']).hits, [])
   // 这次删掉的文件不在受控文件里了，但它是改到的文件
   eq('删掉的文件也认', touchReport(adr('> ⚠️ 欠条：`scripts/gone.ts` · 重启条件：x'), files, ['scripts/gone.ts']).hits.length, 1)
@@ -20338,6 +20344,14 @@ await group('h-iou-file-reminder', () => {
   eq('已标已还的不列，只计数', [closedR.hits, closedR.closed], [[], 1])
   eq('状态行指的是别的行：照旧算开着', touchReport(new Map([...open, ['docs/adr/ADR-2-y.md', '> ⚠️ 已还：ADR-1 第 9 行']]), files, ['scripts/a.ts']).hits.length, 1)
 
+  // 正文太长时截短，末尾接「…」；有命中又有已关的，汇总两样都说
+  const long = touchReport(adr('> ⚠️ 欠条：`scripts/a.ts` ' + '长'.repeat(300) + ' · 重启条件：x'), files, ['scripts/a.ts'])
+  const longText = touchLines(long)[0].split('  —— ')[1]
+  eq('正文超长时截到上限、末尾接省略号', [[...longText].length, longText.endsWith('…')], [TEXT_LIMIT + 1, true])
+  ok('有命中又有已关的：汇总说几条点了名，也说另有几条已关不列', touchLines(touchReport(
+    new Map([...open, ['docs/adr/ADR-2-y.md', '# ADR-2 y\n\n> ⚠️ 欠条：`scripts/a.ts` 另一张 · 重启条件：y\n\n> ⚠️ 已还：ADR-2 第 3 行 · 还在 #2\n']]),
+    files, ['scripts/a.ts'])).some(l => l.includes('被 1 条开着的欠条点了名（另有 1 条点到了、已标已还／已重挂／收尾，不列）')))
+
   // 报告的样子：一条一行、空一行、汇总、漏网情形每次都说
   eq('全文：条目一行、空一行、汇总、漏网情形', touchLines(hitA), [
     'docs/adr/ADR-1-x.md:3  [重启条件]  点名：scripts/a.ts  —— ⚠️ 欠条：`scripts/a.ts` 里少一道核 · 重启条件：下一条碰它的 PR',
@@ -20346,33 +20360,54 @@ await group('h-iou-file-reminder', () => {
     '  只认欠条正文里逐字写着的文件路径；只写了模块名、代码标识符、需求编号或「某类改动」的欠条这里提醒不到，仍要读台账（npm run adr-ledger）判',
   ])
   eq('没命中时只有汇总与漏网情形，已关的另报数', touchLines(closedR), [
-    '  欠条点名提醒：改到的 1 个文件没有被开着的欠条点名（另有 1 条点到了、已标已还／已重挂／收尾，不列）',
+    '  欠条点名提醒：改到的 1 个文件没有被开着的欠条点名（另有 1 条点到了、已标已还／已重挂／收尾，不列） —— 只认逐字写着的文件路径，没写路径的欠条仍要读台账判',
     '  只认欠条正文里逐字写着的文件路径；只写了模块名、代码标识符、需求编号或「某类改动」的欠条这里提醒不到，仍要读台账（npm run adr-ledger）判',
   ])
 
-  // 真仓库：ADR-70 那张「下一条碰 `selfcheck.ts` 的 `run` / `runBoth` 的 PR」只写了文件名，改 selfcheck.ts 时要列出它
+  // 真仓库：不钉某一张（哪张会被补上状态行说不准），只要求列得出、列出的每一条正文里都真写着它
   const realDocs = adrDocs()
   const tracked = cxSpawnSync('git', ['-c', 'core.quotePath=false', 'ls-files', '-z'], { encoding: 'utf8' }).stdout.split('\0').filter(Boolean)
   const real = touchReport(realDocs, tracked, ['scripts/check/selfcheck.ts'])
-  ok('真仓库：改 selfcheck.ts 时列出只写了 `selfcheck.ts` 的那张欠条',
-    real.hits.some(h => h.entry.file.startsWith('docs/adr/ADR-70-') && h.entry.text.includes('下一条碰 `selfcheck.ts` 的 `run`')))
+  const realText = new Map(entryTexts(realDocs).map(t => [`${t.entry.file}:${t.entry.line}`, t.text]))
+  ok('真仓库：改 selfcheck.ts 时列得出，列出的每一条正文里都写着 selfcheck.ts',
+    real.hits.length > 0 && real.hits.every(h => /(^|[^\w./-])(scripts\/)?(check\/)?selfcheck\.ts/.test(realText.get(`${h.entry.file}:${h.entry.line}`) ?? '')))
 
   // 入口：在玩具仓库里真起一次 —— 改被点名的文件列出那条、改别的不列，两次都以 0 退出；不是仓库时说无从比较，也以 0 退出
   const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-iou-reminder-'))
   try {
     const entry = cxJoin(process.cwd(), 'scripts/check/debt-touch.ts')
-    const run = (cwd: string) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: { ...process.env, GITHUB_ACTIONS: '' } })
-    const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8' })
+    // 玩具仓库与入口都不许被外面的 git 环境带走：GIT_DIR 一类一律删掉，全局与系统配置换成空的
+    const gitEnv: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GITHUB_ACTIONS: '' }
+    for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete gitEnv[k]
+    const run = (cwd: string, extra: NodeJS.ProcessEnv = {}) => cxSpawnSync(...tsxCommand([entry]), { cwd, encoding: 'utf8', timeout: 60_000, env: { ...gitEnv, ...extra } })
+    const g = (...args: string[]) => cxSpawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8', env: gitEnv })
     cxMkdirSync(cxJoin(root, 'docs/adr'), { recursive: true }); cxMkdirSync(cxJoin(root, 'scripts'))
     cxWriteFileSync(cxJoin(root, 'docs/adr/ADR-1-x.md'), '# ADR-1 x\n\n> ⚠️ 欠条：`scripts/a.ts` 里少一道核 · 重启条件：下一条碰它的 PR\n')
-    cxWriteFileSync(cxJoin(root, 'scripts/a.ts'), 'a\n'); cxWriteFileSync(cxJoin(root, 'scripts/b.ts'), 'b\n')
-    g('init', '-q', '-b', 'main'); g('add', '.'); g('commit', '-q', '-m', 'base'); g('checkout', '-q', '-b', 'work')
+    const aBody = Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n') + '\n'
+    cxWriteFileSync(cxJoin(root, 'scripts/a.ts'), aBody); cxWriteFileSync(cxJoin(root, 'scripts/b.ts'), 'b\n')
+    g('init', '-q', '-b', 'main'); g('add', '.'); g('commit', '-q', '-m', 'base')
+    // 主干上只有一个提交、HEAD 就在主干上：没有上一版可比
+    const lone = run(root)
+    eq('入口：主干上只有根提交时说无从比较，仍以 0 退出', [lone.status, lone.stdout.startsWith('欠条点名提醒：无从比较（HEAD 就是 main 且没有父提交')], [0, true])
+    g('checkout', '-q', '-b', 'work')
     cxWriteFileSync(cxJoin(root, 'scripts/b.ts'), 'b2\n'); g('commit', '-qam', 'b')
     const onB = run(root)
-    cxWriteFileSync(cxJoin(root, 'scripts/a.ts'), 'a2\n')
+    cxWriteFileSync(cxJoin(root, 'scripts/a.ts'), aBody + 'a2\n')
     const onA = run(root)
     eq('入口：改没被点名的文件不列，改被点名的文件列出那条，两次都以 0 退出', [onB.status, onB.stdout.includes('ADR-1-x.md:3'), onA.status, onA.stdout.includes('docs/adr/ADR-1-x.md:3  [重启条件]  点名：scripts/a.ts')],
       [0, false, 0, true])
+    // CI 里：汇总一句进 notice，全文进 Summary 文件
+    const summary = cxJoin(root, 'summary.md')
+    const inCi = run(root, { GITHUB_ACTIONS: 'true', GITHUB_STEP_SUMMARY: summary })
+    const summaryText = (() => { try { return rf(summary, 'utf8') } catch { return '' } })()
+    eq('入口：在 CI 里汇总一句打成 notice，全文（含那条欠条）写进 Summary，仍以 0 退出', [inCi.status,
+      inCi.stdout.includes('::notice title=欠条点名::欠条点名提醒：改到的 2 个文件被 1 条开着的欠条点了名'),
+      summaryText.startsWith('### 欠条点名提醒\n'), summaryText.includes('docs/adr/ADR-1-x.md:3  [重启条件]  点名：scripts/a.ts')], [0, true, true, true])
+    cxRmSync(summary, { force: true })
+    // 改名：欠条写的是旧路径，改名之后旧路径那一侧也算改到（内容大半没变，git 认得出这是改名）
+    g('add', '.'); g('commit', '-qm', 'a'); g('mv', 'scripts/a.ts', 'scripts/c.ts'); g('commit', '-qm', 'mv')
+    const moved = run(root)
+    ok('入口：被点名的文件改了名，照样列出点了旧路径的那条', moved.stdout.includes('docs/adr/ADR-1-x.md:3  [重启条件]  点名：scripts/a.ts'))
     cxRmSync(cxJoin(root, '.git'), { recursive: true, force: true })
     const bare = run(root)
     eq('入口：不是 git 仓库时说无从比较，仍以 0 退出', [bare.status, bare.stdout.startsWith('欠条点名提醒：无从比较（')], [0, true])

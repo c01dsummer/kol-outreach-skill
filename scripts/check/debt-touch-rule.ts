@@ -11,8 +11,8 @@
  * 「某模块」「某类改动」这种写法一律认不出，那部分仍靠人读台账。
  *
  * 条目来自 `debt-rule.ts` 的 `entries`，块的定界来自它的 `iouBlocks` —— 不另抽一份，
- * 免得两边对「哪些是欠条」说两样。已还／已重挂／收尾那几种状态行（写法见 ADR-167 第五节）
- * 台账今天还不读（ADR-167 第六片），这里先按同一写法读，只用来不列已关的那些。
+ * 免得两边对「哪些是欠条」说两样。已还／已重挂／收尾那几种状态行（写法见 ADR-167 第四节第 1 小节）
+ * 台账今天还不读（ADR-167 第 107 行那一片），这里先按同一写法读，只用来不列已关的那些。
  */
 import { entries, iouBlocks, type Entry } from './debt-rule.js'
 import { quotedMask } from './quoted.js'
@@ -67,7 +67,7 @@ export function namedFiles(text: string, names: Map<string, string>): string[] {
 
 /**
  * 已关上的那几张：`⚠️ 已还／已重挂／收尾：ADR-N 第 M 行` 指到的「记录 + 行号」，键写成 `ADR-N:M`。
- * 围栏与 HTML 注释里的不算 —— ADR-167 第五节自己就在围栏里演示了这几种写法。
+ * 围栏与 HTML 注释里的不算 —— ADR-167 第四节第 1 小节自己就在围栏里演示了这几种写法。
  */
 export const CLOSING = /⚠️\s*\*{0,2}(已还|已重挂|收尾)\*{0,2}\s*[：:]\s*ADR-(\d+)\s*第\s*(\d+)\s*行/g
 export function closedKeys(docs: Map<string, string>): Set<string> {
@@ -156,7 +156,7 @@ export function touchSummary(r: TouchReport): string {
   const tail = r.closed ? `（另有 ${r.closed} 条点到了、已标已还／已重挂／收尾，不列）` : ''
   return r.hits.length
     ? `欠条点名提醒：改到的 ${r.changed} 个文件被 ${r.hits.length} 条开着的欠条点了名${tail} —— 只提醒，不拦合入；响没响逐条读条件判`
-    : `欠条点名提醒：改到的 ${r.changed} 个文件没有被开着的欠条点名${tail}`
+    : `欠条点名提醒：改到的 ${r.changed} 个文件没有被开着的欠条点名${tail} —— 只认逐字写着的文件路径，没写路径的欠条仍要读台账判`
 }
 
 /** 全文：每条一行（位置、写法、点到的文件、截短的正文），空一行，汇总，漏网情形。 */

@@ -22864,6 +22864,7 @@
       "by": "test",
       "kills": [
         "已标已还的不列，只计数",
+        "有命中又有已关的：汇总说几条点了名，也说另有几条已关不列",
         "没命中时只有汇总与漏网情形，已关的另报数"
       ]
     },
@@ -22901,7 +22902,8 @@
       "by": "test",
       "kills": [
         "改到没被点名的文件：一条不列",
-        "入口：改没被点名的文件不列，改被点名的文件列出那条，两次都以 0 退出"
+        "入口：改没被点名的文件不列，改被点名的文件列出那条，两次都以 0 退出",
+        "真仓库：改 selfcheck.ts 时列得出，列出的每一条正文里都写着 selfcheck.ts"
       ]
     },
     {
@@ -22938,7 +22940,105 @@
       "replace": "git('diff', '--name-only', '--no-renames', '-z', baseline.base, baseline.head)",
       "by": "test",
       "kills": [
-        "入口：改没被点名的文件不列，改被点名的文件列出那条，两次都以 0 退出"
+        "入口：改没被点名的文件不列，改被点名的文件列出那条，两次都以 0 退出",
+        "入口：在 CI 里汇总一句打成 notice，全文（含那条欠条）写进 Summary，仍以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H196-n",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "不在欠条块里的条目（重开讨论一节的条目、块外的重启条件行）一个字也不拿来找文件名 —— 这一类欠条点了名的文件被改时一条也不提醒",
+      "find": "        : lines[i] })",
+      "replace": "        : '' })",
+      "by": "test",
+      "kills": [
+        "块外的条目拿它那一行找文件名"
+      ]
+    },
+    {
+      "id": "M-H196-o",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "名字前后连着连字符也算点名 —— 欠条写的是 x-mutate.ts 或 mutate.ts-old，改 mutate.ts 时照样列出它",
+      "find": "const PATH_CHAR = /[A-Za-z0-9_\\-/.]/",
+      "replace": "const PATH_CHAR = /[A-Za-z0-9_/.]/",
+      "by": "test",
+      "kills": [
+        "名字两头连着路径字符的不算"
+      ]
+    },
+    {
+      "id": "M-H196-p",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "同一个名字只看正文里第一次出现的地方 —— 头一处恰好连着别的字、后一处才是真点名时，这张欠条就漏了",
+      "find": "for (let at = text.indexOf(name); at !== -1; at = text.indexOf(name, at + 1))",
+      "replace": "for (let at = text.indexOf(name); at !== -1; at = -1)",
+      "by": "test",
+      "kills": [
+        "同一个名字头一处不算、后一处算：照样认出"
+      ]
+    },
+    {
+      "id": "M-H196-q",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "这次删掉的文件不再认得 —— 欠条点了名的文件被删了，提醒里一条也不出现，而删文件正是最该回头看那几张欠条的时候",
+      "find": "  const names = pathNames([...files, ...changed])",
+      "replace": "  const names = pathNames(files)",
+      "by": "test",
+      "kills": [
+        "删掉的文件也认",
+        "入口：被点名的文件改了名，照样列出点了旧路径的那条"
+      ]
+    },
+    {
+      "id": "M-H196-r",
+      "req": "harness",
+      "file": "scripts/check/debt-touch-rule.ts",
+      "why": "正文再长也整段照印 —— 报告与 Summary 被几百字一行的欠条撑开，读的人一屏看不完一条",
+      "find": "[...s].length > TEXT_LIMIT ?",
+      "replace": "false ?",
+      "by": "test",
+      "kills": [
+        "正文超长时截到上限、末尾接省略号"
+      ]
+    },
+    {
+      "id": "M-H196-s",
+      "req": "harness",
+      "file": "scripts/check/debt-touch.ts",
+      "why": "在 CI 里不打那一条通知 —— 汇总只在日志里，PR 的检查页上看不到这次碰了几张欠条",
+      "find": "  console.log(`::notice title=欠条点名::${summary}`)\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "入口：在 CI 里汇总一句打成 notice，全文（含那条欠条）写进 Summary，仍以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H196-t",
+      "req": "harness",
+      "file": "scripts/check/debt-touch.ts",
+      "why": "在 CI 里不往 Summary 写全文 —— 通知只说有几条，是哪几条、在哪一行要翻日志才找得到",
+      "find": "    appendFileSync(file, ['### 欠条点名提醒', '', '```text', ...lines, '```', ''].join('\\n'))",
+      "replace": "    void lines",
+      "by": "test",
+      "kills": [
+        "入口：在 CI 里汇总一句打成 notice，全文（含那条欠条）写进 Summary，仍以 0 退出"
+      ]
+    },
+    {
+      "id": "M-H196-u",
+      "req": "harness",
+      "file": "scripts/check/debt-touch.ts",
+      "why": "改名只记新路径 —— 欠条点的是改名之前的路径，被点名的文件一改名，那张欠条就从提醒里消失",
+      "find": "'--name-only', '--no-renames', '-z'",
+      "replace": "'--name-only', '-z'",
+      "by": "test",
+      "kills": [
+        "入口：被点名的文件改了名，照样列出点了旧路径的那条"
       ]
     }
   ],
