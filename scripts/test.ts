@@ -316,6 +316,7 @@ const GROUPS: readonly Group[] = [
   { id: 'h-observer-records', needs: [] },
   { id: 'h-blackbox-many-task-files', needs: [] },
   { id: 'h-iou-file-reminder', needs: [] },
+  { id: 'h-iou-file-reminder-entry', needs: [] },
 ]
 const testArgs = process.argv.slice(2)
 const onlyIds = parseOnlyStrict(testArgs, ['--json'])
@@ -20372,6 +20373,11 @@ await group('h-iou-file-reminder', () => {
   ok('真仓库：改 selfcheck.ts 时列得出，列出的每一条正文里都写着 selfcheck.ts',
     real.hits.length > 0 && real.hits.every(h => /(^|[^\w./-])(scripts\/)?(check\/)?selfcheck\.ts/.test(realText.get(`${h.entry.file}:${h.entry.line}`) ?? '')))
 
+})
+
+// 入口单列一组：它每跑起 6 次入口，和上面那组纯判定的变异放在一起，启动乘条数就过了上限（ADR-145）
+await group('h-iou-file-reminder-entry', () => {
+  harness('欠条点名提醒的入口：在玩具仓库里真起，改名、CI 输出、无从比较各情形都以 0 退出')
   // 入口：在玩具仓库里真起一次 —— 改被点名的文件列出那条、改别的不列，两次都以 0 退出；不是仓库时说无从比较，也以 0 退出
   const root = cxMkdtempSync(cxJoin(cxTmpdir(), 'kol-iou-reminder-'))
   try {
