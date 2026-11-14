@@ -24388,11 +24388,12 @@
       "req": "harness",
       "why": "整体比对走 JSON 时不看 toJSON：序列化时被 toJSON 换掉、根本没被读的字段也算碰到",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "const toJSON = entries ? undefined : t.getProperty('toJSON')",
-      "replace": "const toJSON = entries || true ? undefined : t.getProperty('toJSON')",
+      "find": "const toJSON = entries ||",
+      "replace": "const toJSON = true ||",
       "by": "test",
       "kills": [
-        "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算"
+        "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算",
+        "字段：交叉类型上的 toJSON 也只认它的返回值；deepStrictEqual 照比原来的属性"
       ]
     },
     {
@@ -24453,6 +24454,42 @@
       "by": "test",
       "kills": [
         "字段：JSON 那一路 —— 有 toJSON 的只认它的返回值，符号键的不算，带 replacer 的 stringify 不算整体比对；replacer 是 null 或 undefined 的照算"
+      ]
+    },
+    {
+      "id": "M-H198-bu",
+      "req": "harness",
+      "why": "交叉类型不先整体找 toJSON：交叉的一侧给了 toJSON 时，另一侧没被序列化的字段也算碰到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "(ts.TypeFlags.Object | ts.TypeFlags.Intersection)",
+      "replace": "ts.TypeFlags.Object",
+      "by": "test",
+      "kills": [
+        "字段：交叉类型上的 toJSON 也只认它的返回值；deepStrictEqual 照比原来的属性"
+      ]
+    },
+    {
+      "id": "M-H198-bv",
+      "req": "harness",
+      "why": "交叉类型在看 toJSON 之前就拆开：每一侧单独看不到 toJSON，被换掉的字段也算碰到",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "if (t.isUnion()) {",
+      "replace": "if (t.isUnion() || t.isIntersection()) {",
+      "by": "test",
+      "kills": [
+        "字段：交叉类型上的 toJSON 也只认它的返回值；deepStrictEqual 照比原来的属性"
+      ]
+    },
+    {
+      "id": "M-H198-bw",
+      "req": "harness",
+      "why": "逐层深比较的那一路也认 toJSON：它并不调用 toJSON，原来的属性其实被比到了，却算没碰",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "const toJSON = entries ||",
+      "replace": "const toJSON = false ||",
+      "by": "test",
+      "kills": [
+        "字段：交叉类型上的 toJSON 也只认它的返回值；deepStrictEqual 照比原来的属性"
       ]
     }
   ],

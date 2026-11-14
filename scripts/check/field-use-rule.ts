@@ -251,15 +251,15 @@ export function fieldsOf(program: Ts.Program, root: string): Field[] {
     // entries：比对时会不会进到 Map/Set/Promise 这类库泛型里面。只有 deepStrictEqual 会；
     // eq、assert、stringify 与规整函数走 JSON 那一路，Map/Set 成了 {}，里面的字段没被比
     const whole = (t: Ts.Type, seen: Set<Ts.Type>, entries: boolean): void => {
-      if (seen.has(t)) return
-      seen.add(t)
-      if (t.isUnion() || t.isIntersection()) { for (const u of t.types) whole(u, seen, entries); return }
-      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, entries); return }
-      if (!(t.flags & ts.TypeFlags.Object)) return
-      // JSON 那一路：有可调用的 toJSON 时序列化的是它的返回值，原来的属性一个也没被读
-      const toJSON = entries ? undefined : t.getProperty('toJSON')
+      if (seen.has(t)) return; seen.add(t)
+      if (t.isUnion()) { for (const u of t.types) whole(u, seen, entries); return }
+      // JSON 那一路：有可调用的 toJSON 时序列化的是它的返回值，原来的属性一个也没被读；交叉类型先整体看再拆
+      const toJSON = entries || !(t.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection)) ? undefined : t.getProperty('toJSON')
       const replaced = toJSON === undefined ? [] : tc.getTypeOfSymbol(toJSON).getCallSignatures()
       if (replaced.length > 0) { for (const sig of replaced) whole(tc.getReturnTypeOfSignature(sig), seen, entries); return }
+      if (t.isIntersection()) { for (const u of t.types) whole(u, seen, entries); return }
+      if (tc.isArrayType(t) || tc.isTupleType(t)) { for (const a of tc.getTypeArguments(t as Ts.TypeReference)) whole(a, seen, entries); return }
+      if (!(t.flags & ts.TypeFlags.Object)) return
       if (fromLibrary(t) && entries) for (const a of argumentsOf(t)) whole(a, seen, entries)
       for (const info of tc.getIndexInfosOfType(t)) whole(info.type, seen, entries)
       for (const p of t.getProperties()) {
