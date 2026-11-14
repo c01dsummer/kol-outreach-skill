@@ -795,6 +795,8 @@ CI 固定 Node `22.23.2`、Ubuntu `24.04` 镜像 `20260920.314.1`、4 个 worker
 
 **抛出来之后入口什么样。** `jobsWanted` 唯一读命令行的调用方是 `mutate.ts` 顶层（第 974 行），新抛法在那里没被接住，带堆栈以退出码 1 结束，第一行就是那句报错；与 `parseOnlyStrict` 在 `selfcheck.ts`、`scripts/test.ts` 两个入口的处境相同。实跑过（本条的头上，`npx tsx scripts/check/mutate.ts --jobs 3` 与 `--jobs=2 --jobs=1`）：两次都在派任何 worker 之前退出码 1，报错原文出现在输出里。另一调用方 `group-rule.ts` 的 `shardJobs` 传空的命令行，碰不到这两道。入口这一侧没有夹具守着：哪天有人在 `mutate.ts` 外面包一层 `try` 把它咽下，没有哪一条会红。
 
+**完整检查与启动数。** 头 `da21236` 在 nobody 用户下跑完 `npm run check`（含 `npm run mutate`），只有启动数摘要那一步红（现算与树内不同，预期），随后在同一棵树上 `npm run launches -- --write` 写回：`[test,[h-jobs]]` 多了本条两条变异，其余配置没变。写回时核 ADR-129 第 149 行、ADR-145 第 120 行与第 1239 行：启动数闸门报「202 种配置有计数，都在线内」，没有越线、没有「启动数不确定」；那一跑里也没出现 ADR-70 第 3771、4279 行说的那两种偶发（prebuilt 组变异跑不起来、preload 的 R 失格）。之后的提交只改文档与 `jobs-rule.ts` 一处注释。
+
 **本条上响了的欠条。**
 - ADR-75 第 143 行（编译缓存那两处 env 没有检查守着；条件「下一条碰 `jobsWanted`、`dispatch` 或那两处 env」）：按字面响 —— 本条改了 `jobsWanted`。本条只在它开头加两道参数检查，没碰编译缓存、`dispatch` 与 env，那张说的洞原样还在。重挂、重新起算，见本块末尾。
 - ADR-197 第 105 行（派工那条路的提速没有检查守着；条件「下一条碰 `jobsWanted`、`dispatch` 或 `verifierEnv`，或 ADR-72 第 581 行那张被还上时」）：两个条件都响了。后一个在 #477（`cd3fd4c`）还 ADR-72 第 581 行时就响了；那条 PR 合入前并过主干、也补过一次复核（只谈了变异条数），仍漏了这张。它说的三样里，两样其实有检查守着：`jobsWanted` 的并行由 `h-jobs` 守（ADR-75 末尾 2026-11-14 那块在 `d86fe97` 上把它改成恒返回 1，九条红）；`dispatch` 真照这个数并行由自检组 `mutate-parallel-workers`（`selfcheck.ts` 第 8667 行起）守，它用 `--jobs=2` 断言两个验证者各在自己的隔离目录里跑 —— 本条的独立复核在副本上把派工改成只派一个、或恒走串行，这一组都红；它只有夹具、没有变异。真没人守的只剩 `NODE_COMPILE_CACHE` 两处 env，与 ADR-75 第 143 行是同一个洞，并进那张的重挂，不另挂。
@@ -806,8 +808,8 @@ CI 固定 Node `22.23.2`、Ubuntu `24.04` 镜像 `20260920.314.1`、4 个 worker
 >
 > `--only=` 那一半早已由 `parseOnlyStrict` 收严，`--jobs=` 这一半在本块。
 
-> ⚠️ 已重挂：ADR-75 第 143 行 · 本块所在 PR 改了 `jobsWanted`（只加两道参数检查）；现行的是ADR-99 第 813 行
+> ⚠️ 已重挂：ADR-75 第 143 行 · 本块所在 PR 改了 `jobsWanted`（只加两道参数检查）；现行的是ADR-99 第 815 行
 
-> ⚠️ 已重挂：ADR-197 第 105 行 · 两个条件都响了；`jobsWanted` 与 `dispatch` 那两样已有检查守着，只剩编译缓存 env，并入 ADR-75 第 143 行那张的重挂；现行的是ADR-99 第 813 行
+> ⚠️ 已重挂：ADR-197 第 105 行 · 两个条件都响了；`jobsWanted` 与 `dispatch` 那两样已有检查守着，只剩编译缓存 env，并入 ADR-75 第 143 行那张的重挂；现行的是ADR-99 第 815 行
 
 > ⚠️ 欠条（重挂 ADR-75 第 143 行、ADR-197 第 105 行 · 档：登记）：变异一步起验证者与起 worker 那两处 env 里的编译缓存仍没有任何检查守着，退化的后果只是慢 · 重启条件：下一条碰 `jobsWanted`、`dispatch` 或那两处 env（今天在 `mutate.ts` 的 `verifierEnv` 与派工起 worker 那处）的改动（重新起算）
