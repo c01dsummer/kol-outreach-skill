@@ -707,6 +707,8 @@
     {"id": "M-P2-c16", "req": "P2.c", "why": "没有已证实的产品事实、草稿也没扫到说法时写成「无」—— 读起来像比对过、全对得上", "file": "scripts/lib/draft-claims.ts", "find": "  return facts?.length ? list : `${NO_FACTS}：${list}`", "replace": "  return facts?.length || claims.length === 0 ? list : `${NO_FACTS}：${list}`", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、多字承诺词、去重、空事实"]},
     {"id": "M-P2-c17", "req": "P2.c", "why": "默认模式 HTML 也出这一行 —— 旧调用方的报告字节变了（U9.a）", "file": "scripts/lib/report.ts", "find": "    const claims = options.mode === 'review'\n", "replace": "    const claims = options.mode !== undefined || true\n", "by": "test", "kills": ["P2.c 默认模式 HTML 不出这一行（U9.a）"]},
     {"id": "M-P2-c18", "req": "P2.c", "why": "型号串按子串对 —— 出处里的 H13 被当成信里 H1 的出处", "file": "scripts/lib/draft-claims.ts", "find": "  if (source.keys.has(claim.key)) return true", "replace": "  if (source.keys.has(claim.key) || source.text.toLowerCase().includes(claim.text.toLowerCase())) return true", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、多字承诺词、去重、空事实"]},
+    {"id": "M-P2-c19", "req": "P2.c", "why": "「120k」只认出 120 —— 粉丝数、播放量这类数被截成另一个数列出来，运营对不上原文", "file": "scripts/lib/draft-claims.ts", "find": "  x: 'x', times: 'x', k: 'k',", "replace": "  x: 'x', times: 'x',", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、多字承诺词、去重、空事实"]},
+    {"id": "M-P2-c20", "req": "P2.c", "why": "出处里的价格不登记成数 —— 信里不写币符的同一个价也被标成对不上", "file": "scripts/lib/draft-claims.ts", "find": "    if (kind !== 'num' && kind !== 'price') continue", "replace": "    if (kind !== 'num') continue", "by": "test", "kills": ["P2.c 比对口径：单位冲突、别名、单边单位、千分位、小数、价格、拼写数字、型号串、多字承诺词、去重、空事实"]},
     {
       "id": "M-U1-a",
       "req": "U9.a",
