@@ -110,7 +110,7 @@ function keyOf(ts: typeof Ts, tc: Ts.TypeChecker, root: string, decl: Ts.Declara
       for (const m of n.properties) {
         if (m === decl || !ts.isPropertyAssignment(m) || !(ts.isIdentifier(m.name) || ts.isStringLiteral(m.name))) continue
         const t = tc.getTypeAtLocation(m.name)
-        if (t.isStringLiteral()) { parts.push(`{${m.name.text}=${t.value}}`); break }
+        if (t.isStringLiteral()) { parts.push(`{${segment(m.name.text)}=${segment(t.value)}}`); break }
       }
       continue
     }
@@ -118,7 +118,7 @@ function keyOf(ts: typeof Ts, tc: Ts.TypeChecker, root: string, decl: Ts.Declara
       for (const m of n.members) {
         if (m === decl || !ts.isPropertySignature(m) || m.type === undefined) continue
         if (ts.isLiteralTypeNode(m.type) && ts.isStringLiteral(m.type.literal)) {
-          parts.push(`{${m.name.getText()}=${m.type.literal.text}}`); break
+          parts.push(`{${segment(nameOf(ts, m) ?? m.name.getText())}=${segment(m.type.literal.text)}}`); break
         }
       }
       continue

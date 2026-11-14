@@ -14096,6 +14096,9 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
     'scripts/check/m.ts': [
       "export function dotted(): { a: { b: number }; 'a.b': number } { return { a: { b: 1 }, 'a.b': 2 } }",
       "export function numeric(): { 0: number; 1: number; ['lit']: number; ['dlit']: number } { return { 0: 1, 1: 2, lit: 3, dlit: 4 } }",
+      "export type Odd = { kind: 'a'; z: { kind: 'b'; x: number } } | { kind: 'a}.z.{kind=b'; x: number }",
+      "export function odd(): Odd { return { kind: 'a', z: { kind: 'b', x: 1 } } }",
+      "export function oddInferred(n: number) { return n > 0 ? { kind: 'a' as const, z: { kind: 'b' as const, y: 1 } } : { kind: 'a}.z.{kind=b' as const, y: 2 } }",
     ].join('\n'),
     'scripts/check/n.ts': 'export function nOnly(): { extless: number } { return { extless: 1 } }',
     'scripts/check/selfcheck.ts': [
@@ -14159,6 +14162,13 @@ harness('字段断言闸门：检查链判定新增的返回字段，没有测�
   eq('字段：名字里带点的字段写成带引号的一段，不和嵌套路径撞成同一个键',
     [dottedKeys, fieldVerdict(more.filter(f => f.file === 'scripts/check/m.ts' && f.key.includes('#dotted.')), ['scripts/check/m.ts#dotted.a', 'scripts/check/m.ts#dotted.a.b']).fresh.map(f => f.key)],
     [['scripts/check/m.ts#dotted."a.b"', 'scripts/check/m.ts#dotted.a', 'scripts/check/m.ts#dotted.a.b'], ['scripts/check/m.ts#dotted."a.b"']])
+  const oddX = more.filter(f => f.file === 'scripts/check/m.ts' && f.key.includes('#Odd.') && f.key.endsWith('.x'))
+  eq('字段：判别值里带分隔符时也写成带引号的一段，两个成员下的同名字段不撞键',
+    [oddX.map(f => f.key).sort(), fieldVerdict(oddX, ['scripts/check/m.ts#Odd.{kind=a}.z.{kind=b}.x']).fresh.map(f => f.key)],
+    [['scripts/check/m.ts#Odd.{kind="a}.z.{kind=b"}.x', 'scripts/check/m.ts#Odd.{kind=a}.z.{kind=b}.x'], ['scripts/check/m.ts#Odd.{kind="a}.z.{kind=b"}.x']])
+  eq('字段：推断出来的判别值带分隔符时同样写成带引号的一段',
+    more.filter(f => f.file === 'scripts/check/m.ts' && f.key.includes('#oddInferred.') && f.key.endsWith('.y')).map(f => f.key).sort(),
+    ['scripts/check/m.ts#oddInferred.{kind="a}.z.{kind=b"}.y', 'scripts/check/m.ts#oddInferred.{kind=a}.z.{kind=b}.y'])
   eq('字段：按名字兜底认不带扩展名的 import（照程序自己的解析）', moreOf('n.ts#nOnly.extless')?.used, true)
   eq('字段：按上下文类型写的期望值与解构，数字名、字面量计算属性名也算用到',
     ['0', '1', 'lit', 'dlit'].map(k => moreOf(`m.ts#numeric.${k}`)?.used), [true, true, true, true])

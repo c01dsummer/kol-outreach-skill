@@ -23207,7 +23207,7 @@
       "req": "harness",
       "why": "判别联合不记判别值：两个成员里的同名字段合成一个名字，新成员加的字段被当成早就有",
       "file": "scripts/check/field-use-rule.ts",
-      "find": "parts.push(`{${m.name.getText()}=${m.type.literal.text}}`); break",
+      "find": "parts.push(`{${segment(nameOf(ts, m) ?? m.name.getText())}=${segment(m.type.literal.text)}}`); break",
       "replace": "break",
       "by": "test",
       "kills": [
@@ -23944,6 +23944,30 @@
       "by": "test",
       "kills": [
         "字段：按上下文类型写的期望值与解构，数字名、字面量计算属性名也算用到"
+      ]
+    },
+    {
+      "id": "M-H198-bm",
+      "req": "harness",
+      "why": "类型里写的判别值不转义：值里带分隔符时，两个成员下的同名字段撞成同一个键，新增的那个被当成基线上已有的",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "=${segment(m.type.literal.text)}}`",
+      "replace": "=${m.type.literal.text}}`",
+      "by": "test",
+      "kills": [
+        "字段：判别值里带分隔符时也写成带引号的一段，两个成员下的同名字段不撞键"
+      ]
+    },
+    {
+      "id": "M-H198-bn",
+      "req": "harness",
+      "why": "推断出来的判别值不转义：值里带分隔符时，两个分支下的同名字段撞成同一个键，新增的那个被当成基线上已有的",
+      "file": "scripts/check/field-use-rule.ts",
+      "find": "=${segment(t.value)}}`",
+      "replace": "=${t.value}}`",
+      "by": "test",
+      "kills": [
+        "字段：推断出来的判别值带分隔符时同样写成带引号的一段"
       ]
     }
   ],
