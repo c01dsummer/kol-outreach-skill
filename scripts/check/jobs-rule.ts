@@ -142,6 +142,36 @@ export function parseReport(line: string): ({ id: string } & Ran) | undefined {
     ...(hasStarted ? { started: started as boolean } : {}) }
 }
 
+/** 派给一个 worker 的下一步：一个编号，或者关掉它的输入 —— 它收完手上那条就退出 */
+export type Hand = { send: string } | { end: true }
+
+/**
+ * 「一条一派」的那一步（ADR-72 第 211 行那张欠条）：worker 起来时调一次，每交回一条结论再调一次。
+ * **从共用的队列里取走**那一条 —— 只看不取的话，下一个来要的领到同一条，同一条跑两遍、
+ * 末尾那条没人跑。队列空了交回关输入：不关的话 worker 一直等下一个编号，`close` 永远不来。
+ *
+ * 这是判定不是 I/O（`docs/CONVENTIONS.md` 第 10 条）：顺序错了会漏跑或者挂住。入口只留
+ * 起进程、写管道、关输入。
+ */
+export function handNext(queue: string[]): Hand {
+  const id = queue.shift()
+  return id === undefined ? { end: true } : { send: id }
+}
+
+/** worker 交回的一行，派工那一侧怎么接 */
+export type WorkerLine = { report: { id: string } & Ran } | { skip: true } | { end: true }
+
+/**
+ * 读得出是结论：交回结论，入口记账、再派下一条。没有记号的是验证者漏出来的闲话：跳过。
+ * **带着记号却读不出来**：让这个 worker 收摊 —— 理由见 `looksLikeReport`，剩下的编号由别的
+ * worker 领，没领到的由核账报出来。
+ */
+export function workerLine(line: string): WorkerLine {
+  const r = parseReport(line)
+  if (r !== undefined) return { report: r }
+  return looksLikeReport(line) ? { end: true } : { skip: true }
+}
+
 /** 一个验证者在这一跑里的账：用了几条、实测花了多久 */
 export interface BillRow {
   /** 验证者的名字（`VERIFIERS` 的键，缺省那个是 `test`） */

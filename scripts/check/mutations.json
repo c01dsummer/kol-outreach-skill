@@ -10471,6 +10471,68 @@
       "kills": ["没有编号：认不出"]
     },
     {
+      "id": "M-H36-aa",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "派活时只看队首、不从共用的队列里取走 —— 下一个来要的 worker 领到同一条，同一条跑了又跑，后面那几条永远没人跑，队列也永远不空、输入永远不关",
+      "find": "const id = queue.shift()",
+      "replace": "const id = queue[0]",
+      "by": "test",
+      "kills": [
+        "三条配两个 worker：按来要的先后各取走一条，队列空了才关输入，每条恰好派一次",
+        "派完之后共用的队列空了"
+      ]
+    },
+    {
+      "id": "M-H36-ab",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "队列空了不关 worker 的输入，而是把一个空编号写过去 —— 入口写出去的是字面的 undefined，worker 认不出这个编号就提前收工，派工那一侧的判定说的「关输入」与实际写出去的东西对不上",
+      "find": "return id === undefined ? { end: true } : { send: id }",
+      "replace": "return { send: id as string }",
+      "by": "test",
+      "kills": [
+        "三条配两个 worker：按来要的先后各取走一条，队列空了才关输入，每条恰好派一次",
+        "队列本来就空：头一次就关输入"
+      ]
+    },
+    {
+      "id": "M-H36-ac",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "带着结论记号却读不出来的那一行被当成闲话跳过 —— 那个 worker 正等着下一个编号，没人关它的输入，进程不退，整条检查挂住而不是硬失败",
+      "find": "  return looksLikeReport(line) ? { end: true } : { skip: true }",
+      "replace": "  return { skip: true }",
+      "by": "test",
+      "kills": [
+        "带着记号却读不出来：让这个 worker 收摊"
+      ]
+    },
+    {
+      "id": "M-H36-ad",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "验证者漏出来一句不带记号的闲话，就让那个 worker 收摊 —— 它手上剩下的编号没人领，一句无害的输出变成一串「没有结论」",
+      "find": "  return looksLikeReport(line) ? { end: true } : { skip: true }",
+      "replace": "  return { end: true }",
+      "by": "test",
+      "kills": [
+        "worker 漏出来的闲话：跳过，不收摊"
+      ]
+    },
+    {
+      "id": "M-H36-ae",
+      "req": "harness",
+      "file": "scripts/check/jobs-rule.ts",
+      "why": "读得出来的结论行不交回结论 —— worker 交回的每一条都不进账，派工也不再往下派，整跑报成一串「没有结论」",
+      "find": "  if (r !== undefined) return { report: r }\n",
+      "replace": "",
+      "by": "test",
+      "kills": [
+        "worker 交回的结论行：读出结论"
+      ]
+    },
+    {
       "id": "M-H46-g",
       "req": "harness",
       "file": "scripts/check/jobs-rule.ts",
